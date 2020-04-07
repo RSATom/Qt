@@ -4,8 +4,10 @@
 
 #include "chrome/browser/extensions/api/music_manager_private/music_manager_private_api.h"
 
-#include "base/memory/ptr_util.h"
+#include <memory>
+
 #include "chrome/browser/extensions/api/music_manager_private/device_id.h"
+#include "content/public/browser/browser_thread.h"
 
 using content::BrowserThread;
 
@@ -27,29 +29,26 @@ MusicManagerPrivateGetDeviceIdFunction::
     ~MusicManagerPrivateGetDeviceIdFunction() {
 }
 
-bool MusicManagerPrivateGetDeviceIdFunction::RunAsync() {
+ExtensionFunction::ResponseAction
+MusicManagerPrivateGetDeviceIdFunction::Run() {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DeviceId::GetDeviceId(
       this->extension_id(),
       base::Bind(
           &MusicManagerPrivateGetDeviceIdFunction::DeviceIdCallback,
           this));
-  return true;  // Still processing!
+  // GetDeviceId will respond asynchronously.
+  return RespondLater();
 }
 
 void MusicManagerPrivateGetDeviceIdFunction::DeviceIdCallback(
     const std::string& device_id) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  bool response;
   if (device_id.empty()) {
-    SetError(kDeviceIdNotSupported);
-    response = false;
+    Respond(Error(kDeviceIdNotSupported));
   } else {
-    SetResult(base::MakeUnique<base::Value>(device_id));
-    response = true;
+    Respond(OneArgument(std::make_unique<base::Value>(device_id)));
   }
-
-  SendResponse(response);
 }
 
 } // namespace api

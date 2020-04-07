@@ -151,7 +151,15 @@ TEST(cpdf_syntax_parser, GetInvalidReference) {
   // Data with a reference with number CPDF_Object::kInvalidObjNum
   uint8_t data[] = "4294967295 0 R";
   parser.InitParser(pdfium::MakeRetain<CFX_MemoryStream>(data, 14, false), 0);
-  std::unique_ptr<CPDF_Object> ref =
-      parser.GetObject(nullptr, CPDF_Object::kInvalidObjNum, 0, false);
+  std::unique_ptr<CPDF_Object> ref = parser.GetObjectBody(nullptr);
   EXPECT_FALSE(ref);
+}
+
+TEST(cpdf_syntax_parser, PeekNextWord) {
+  CPDF_SyntaxParser parser;
+  uint8_t data[] = "    WORD ";
+  parser.InitParser(
+      pdfium::MakeRetain<CFX_MemoryStream>(data, sizeof(data), false), 0);
+  EXPECT_EQ("WORD", parser.PeekNextWord(nullptr));
+  EXPECT_EQ("WORD", parser.GetNextWord(nullptr));
 }

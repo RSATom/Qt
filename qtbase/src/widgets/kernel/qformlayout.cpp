@@ -224,7 +224,7 @@ public:
 
     int hSpacing;
     int vSpacing;
-    QLayoutItem* replaceAt(int index, QLayoutItem*) Q_DECL_OVERRIDE;
+    QLayoutItem* replaceAt(int index, QLayoutItem*) override;
 };
 
 QFormLayoutPrivate::QFormLayoutPrivate()
@@ -1435,13 +1435,7 @@ static void clearAndDestroyQLayoutItem(QLayoutItem *item)
     up one row and the freed vertical space is redistributed amongst the remaining rows.
 
     You can use this function to undo a previous addRow() or insertRow():
-    \code
-    QFormLayout *flay = ...;
-    QPointer<QLineEdit> le = new QLineEdit;
-    flay->insertRow(2, "User:", le);
-    // later:
-    flay->removeRow(2); // le == nullptr at this point
-    \endcode
+    \snippet code/src_gui_kernel_qformlayout.cpp 3
 
     If you want to remove the row from the layout without deleting the widgets, use takeRow() instead.
 
@@ -1467,13 +1461,7 @@ void QFormLayout::removeRow(int row)
     up one row and the freed vertical space is redistributed amongst the remaining rows.
 
     You can use this function to undo a previous addRow() or insertRow():
-    \code
-    QFormLayout *flay = ...;
-    QPointer<QLineEdit> le = new QLineEdit;
-    flay->insertRow(2, "User:", le);
-    // later:
-    flay->removeRow(le); // le == nullptr at this point
-    \endcode
+    \snippet code/src_gui_kernel_qformlayout.cpp 4
 
     If you want to remove the row from the layout without deleting the widgets, use takeRow() instead.
 
@@ -1499,13 +1487,7 @@ void QFormLayout::removeRow(QWidget *widget)
     up one row and the freed vertical space is redistributed amongst the remaining rows.
 
     You can use this function to undo a previous addRow() or insertRow():
-    \code
-    QFormLayout *flay = ...;
-    QPointer<QVBoxLayout> vbl = new QVBoxLayout;
-    flay->insertRow(2, "User:", vbl);
-    // later:
-    flay->removeRow(layout); // vbl == nullptr at this point
-    \endcode
+    \snippet code/src_gui_kernel_qformlayout.cpp 5
 
     If you want to remove the row from the form layout without deleting the inserted layout,
     use takeRow() instead.
@@ -1532,13 +1514,7 @@ void QFormLayout::removeRow(QLayout *layout)
     up one row and the freed vertical space is redistributed amongst the remaining rows.
 
     You can use this function to undo a previous addRow() or insertRow():
-    \code
-    QFormLayout *flay = ...;
-    QPointer<QLineEdit> le = new QLineEdit;
-    flay->insertRow(2, "User:", le);
-    // later:
-    QFormLayout::TakeRowResult result = flay->takeRow(2);
-    \endcode
+    \snippet code/src_gui_kernel_qformlayout.cpp 6
 
     If you want to remove the row from the layout and delete the widgets, use removeRow() instead.
 
@@ -1558,8 +1534,6 @@ QFormLayout::TakeRowResult QFormLayout::takeRow(int row)
 
     QFormLayoutItem *label = d->m_matrix(row, 0);
     QFormLayoutItem *field = d->m_matrix(row, 1);
-
-    Q_ASSERT(field);
 
     d->m_things.removeOne(label);
     d->m_things.removeOne(field);
@@ -1585,13 +1559,7 @@ QFormLayout::TakeRowResult QFormLayout::takeRow(int row)
     After this call, rowCount() is decremented by one. All following rows are shifted
     up one row and the freed vertical space is redistributed amongst the remaining rows.
 
-    \code
-    QFormLayout *flay = ...;
-    QPointer<QLineEdit> le = new QLineEdit;
-    flay->insertRow(2, "User:", le);
-    // later:
-    QFormLayout::TakeRowResult result = flay->takeRow(widget);
-    \endcode
+    \snippet code/src_gui_kernel_qformlayout.cpp 7
 
     If you want to remove the row from the layout and delete the widgets, use removeRow() instead.
 
@@ -1630,13 +1598,7 @@ QFormLayout::TakeRowResult QFormLayout::takeRow(QWidget *widget)
     After this call, rowCount() is decremented by one. All following rows are shifted
     up one row and the freed vertical space is redistributed amongst the remaining rows.
 
-    \code
-    QFormLayout *flay = ...;
-    QPointer<QVBoxLayout> vbl = new QVBoxLayout;
-    flay->insertRow(2, "User:", vbl);
-    // later:
-    QFormLayout::TakeRowResult result = flay->takeRow(widget);
-    \endcode
+    \snippet code/src_gui_kernel_qformlayout.cpp 8
 
     If you want to remove the row from the form layout and delete the inserted layout,
     use removeRow() instead.
@@ -1863,7 +1825,7 @@ int QFormLayout::rowCount() const
 
 /*!
     Returns the layout item in the given \a row with the specified \a
-    role (column). Returns 0 if there is no such item.
+    role (column). Returns \nullptr if there is no such item.
 
     \sa QLayout::itemAt(), setItem()
 */

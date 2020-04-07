@@ -71,8 +71,10 @@ BookmarkSuggestionsProvider::BookmarkSuggestionsProvider(
           Category::FromKnownCategory(KnownCategories::BOOKMARKS)),
       bookmark_model_(bookmark_model),
       fetch_requested_(false),
+      fetch_in_progress_(false),
       end_of_list_last_visit_date_(GetThresholdTime()),
-      consider_bookmark_visits_from_desktop_(AreDesktopVisitsConsidered()) {
+      consider_bookmark_visits_from_desktop_(AreDesktopVisitsConsidered()),
+      weak_ptr_factory_(this) {
   observer->OnCategoryStatusChanged(this, provided_category_, category_status_);
   bookmark_model_->AddObserver(this);
   FetchBookmarks();
@@ -109,23 +111,30 @@ void BookmarkSuggestionsProvider::DismissSuggestion(
 
 void BookmarkSuggestionsProvider::FetchSuggestionImage(
     const ContentSuggestion::ID& suggestion_id,
-    const ImageFetchedCallback& callback) {
+    ImageFetchedCallback callback) {
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::Bind(callback, gfx::Image()));
+      FROM_HERE, base::BindOnce(std::move(callback), gfx::Image()));
+}
+
+void BookmarkSuggestionsProvider::FetchSuggestionImageData(
+    const ContentSuggestion::ID& suggestion_id,
+    ImageDataFetchedCallback callback) {
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE, base::BindOnce(std::move(callback), std::string()));
 }
 
 void BookmarkSuggestionsProvider::Fetch(
     const Category& category,
     const std::set<std::string>& known_suggestion_ids,
-    const FetchDoneCallback& callback) {
+    FetchDoneCallback callback) {
   LOG(DFATAL) << "BookmarkSuggestionsProvider has no |Fetch| functionality!";
   base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE,
-      base::Bind(
-          callback,
+      base::BindOnce(
+          std::move(callback),
           Status(StatusCode::PERMANENT_ERROR,
                  "BookmarkSuggestionsProvider has no |Fetch| functionality!"),
-          base::Passed(std::vector<ContentSuggestion>())));
+          std::vector<ContentSuggestion>()));
 }
 
 void BookmarkSuggestionsProvider::ClearHistory(
@@ -143,14 +152,13 @@ void BookmarkSuggestionsProvider::ClearHistory(
   FetchBookmarks();
 }
 
-void BookmarkSuggestionsProvider::ClearCachedSuggestions(Category category) {
-  DCHECK_EQ(category, provided_category_);
+void BookmarkSuggestionsProvider::ClearCachedSuggestions() {
   // Ignored.
 }
 
 void BookmarkSuggestionsProvider::GetDismissedSuggestionsForDebugging(
     Category category,
-    const DismissedSuggestionsCallback& callback) {
+    DismissedSuggestionsCallback callback) {
   DCHECK_EQ(category, provided_category_);
   std::vector<const BookmarkNode*> bookmarks =
       GetDismissedBookmarksForDebugging(bookmark_model_);
@@ -159,7 +167,7 @@ void BookmarkSuggestionsProvider::GetDismissedSuggestionsForDebugging(
   for (const BookmarkNode* bookmark : bookmarks) {
     ConvertBookmark(*bookmark, &suggestions);
   }
-  callback.Run(std::move(suggestions));
+  std::move(callback).Run(std::move(suggestions));
 }
 
 void BookmarkSuggestionsProvider::ClearDismissedSuggestionsForDebugging(
@@ -177,7 +185,7 @@ void BookmarkSuggestionsProvider::BookmarkModelLoaded(
   DCHECK_EQ(bookmark_model_, model);
   if (fetch_requested_) {
     fetch_requested_ = false;
-    FetchBookmarksInternal();
+    FetchBookmarks();
   }
 }
 
@@ -290,14 +298,28 @@ void BookmarkSuggestionsProvider::FetchBookmarksInternal() {
   }
   observer()->OnNewSuggestions(this, provided_category_,
                                std::move(suggestions));
+  fetch_in_progress_ = false;
 }
 
 void BookmarkSuggestionsProvider::FetchBookmarks() {
-  if (bookmark_model_->loaded()) {
-    FetchBookmarksInternal();
-  } else {
+  if (!bookmark_model_->loaded()) {
     fetch_requested_ = true;
+    return;
   }
+  if (fetch_in_progress_) {
+    return;
+  }
+
+  // Post an async task (and block further calls before it gets executed) so
+  // that the bookmarks are fetched only once per a sequence of updates to the
+  // model. In particular, if the user has plenty of bookmarks for one given
+  // URL, bookmark_last_visit_updater updates each such bookmark separately.
+  // Using the async task here, we avoid fetching once per each such bookmark.
+  fetch_in_progress_ = true;
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE,
+      base::BindOnce(&BookmarkSuggestionsProvider::FetchBookmarksInternal,
+                     weak_ptr_factory_.GetWeakPtr()));
 }
 
 void BookmarkSuggestionsProvider::NotifyStatusChanged(

@@ -61,6 +61,7 @@ class QAction;
 class QGraphicsView;
 class QGraphicsScene;
 class QGraphicsRectItem;
+class QLabel;
 QT_END_NAMESPACE
 
 class MainWindow : public QMainWindow
@@ -77,6 +78,9 @@ public slots:
     void exportImage();
     void setRenderer(int renderMode);
 
+private slots:
+    void updateZoomLabel();
+
 private:
     QAction *m_nativeAction;
     QAction *m_glAction;
@@ -86,6 +90,7 @@ private:
     QAction *m_outlineAction;
 
     SvgView *m_view;
+    QLabel *m_zoomLabel;
 
     QString m_currentPath;
 };

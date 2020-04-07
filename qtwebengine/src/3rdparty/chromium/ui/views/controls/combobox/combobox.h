@@ -11,6 +11,7 @@
 #include "base/time/time.h"
 #include "ui/base/models/combobox_model.h"
 #include "ui/views/controls/button/button.h"
+#include "ui/views/controls/focus_ring.h"
 #include "ui/views/controls/prefix_delegate.h"
 
 namespace gfx {
@@ -27,7 +28,7 @@ class ComboboxTestApi;
 }
 
 class ComboboxListener;
-class CustomButton;
+class Button;
 class MenuRunner;
 class Painter;
 class PrefixSelector;
@@ -81,6 +82,9 @@ class VIEWS_EXPORT Combobox : public View,
 
   ui::ComboboxModel* model() const { return model_; }
 
+  // Set the tooltip text, and the accessible name if it is currently empty.
+  void SetTooltipText(const base::string16& tooltip_text);
+
   // Set the accessible name of the combobox.
   void SetAccessibleName(const base::string16& name);
 
@@ -110,7 +114,7 @@ class VIEWS_EXPORT Combobox : public View,
   void SetSelectedRow(int row) override;
   base::string16 GetTextForRow(int row) override;
 
-  // Overriden from ButtonListener:
+  // Overridden from ButtonListener:
   void ButtonPressed(Button* sender, const ui::Event& event) override;
 
  protected:
@@ -161,6 +165,9 @@ class VIEWS_EXPORT Combobox : public View,
 
   // Returns the width of the combobox's arrow container.
   int GetArrowContainerWidth() const;
+
+  // Returns the color to use for the combobox's focus ring.
+  SkColor GetFocusRingColor() const;
 
   // Optionally used to tie the lifetime of the model to this combobox. See
   // constructor.
@@ -214,8 +221,8 @@ class VIEWS_EXPORT Combobox : public View,
   // STYLE_NOTIFY_ON_CLICK, a Combobox renders the button images according to
   // these button states.
   // The base View takes the ownerships of these as child views.
-  CustomButton* text_button_;
-  CustomButton* arrow_button_;
+  Button* text_button_;
+  Button* arrow_button_;
 
   // Set while the dropdown is showing. Ensures the menu is closed if |this| is
   // destroyed.
@@ -228,6 +235,9 @@ class VIEWS_EXPORT Combobox : public View,
   // Otherwise, it's defined by the widest label in the menu. If this is set to
   // true, the parent view must relayout in ChildPreferredSizeChanged().
   bool size_to_largest_label_;
+
+  // The focus ring for this Combobox.
+  std::unique_ptr<FocusRing> focus_ring_;
 
   // Used for making calbacks.
   base::WeakPtrFactory<Combobox> weak_ptr_factory_;

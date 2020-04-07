@@ -24,7 +24,7 @@ class RenderTarget11 : public RenderTargetD3D
 {
   public:
     RenderTarget11(const d3d11::Format &formatSet);
-    virtual ~RenderTarget11();
+    ~RenderTarget11() override;
 
     virtual const TextureHelper11 &getTexture() const                  = 0;
     virtual const d3d11::RenderTargetView &getRenderTargetView() const = 0;
@@ -34,13 +34,9 @@ class RenderTarget11 : public RenderTargetD3D
 
     virtual unsigned int getSubresourceIndex() const = 0;
 
-    void signalDirty() override;
-    OnRenderTargetDirtyChannel *getBroadcastChannel() { return &mBroadcastChannel; }
-
     const d3d11::Format &getFormatSet() const { return mFormatSet; }
 
   protected:
-    OnRenderTargetDirtyChannel mBroadcastChannel;
     const d3d11::Format &mFormatSet;
 };
 
@@ -67,7 +63,7 @@ class TextureRenderTarget11 : public RenderTarget11
                           GLsizei height,
                           GLsizei depth,
                           GLsizei samples);
-    virtual ~TextureRenderTarget11();
+    ~TextureRenderTarget11() override;
 
     GLsizei getWidth() const override;
     GLsizei getHeight() const override;
@@ -105,7 +101,7 @@ class SurfaceRenderTarget11 : public RenderTarget11
 {
   public:
     SurfaceRenderTarget11(SwapChain11 *swapChain, Renderer11 *renderer, bool depth);
-    virtual ~SurfaceRenderTarget11();
+    ~SurfaceRenderTarget11() override;
 
     GLsizei getWidth() const override;
     GLsizei getHeight() const override;

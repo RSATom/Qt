@@ -17,6 +17,7 @@ Commands:
 
 import argparse
 import cgi
+import json
 import os
 import shutil
 import re
@@ -24,7 +25,7 @@ import subprocess
 import sys
 import tempfile
 
-_REPOSITORY_ROOT = os.path.dirname(os.path.dirname(__file__))
+_REPOSITORY_ROOT = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
 
 # Paths from the root of the tree to directories to skip.
 PRUNE_PATHS = set([
@@ -87,6 +88,9 @@ PRUNE_PATHS = set([
     # For testing only, presents on some bots.
     os.path.join('isolate_deps_dir'),
 
+    # Mock test data.
+    os.path.join('tools', 'binary_size', 'libsupersize', 'testdata'),
+
     # Overrides some WebRTC files, same license. Skip this one.
     os.path.join('third_party', 'webrtc_overrides'),
 ])
@@ -97,15 +101,19 @@ PRUNE_DIRS = (VCS_METADATA_DIRS +
               ('out', 'Debug', 'Release',  # build files
                'layout_tests'))            # lots of subdirs
 
+# A third_party directory can define this file, containing a list of
+# subdirectories to process instead of itself. Intended for directories that
+# contain multiple others as transitive dependencies.
+ADDITIONAL_PATHS_FILENAME = 'additional_readme_paths.json'
+
 ADDITIONAL_PATHS = (
-    os.path.join('breakpad'),
     os.path.join('chrome', 'common', 'extensions', 'docs', 'examples'),
     os.path.join('chrome', 'test', 'chromeos', 'autotest'),
     os.path.join('chrome', 'test', 'data'),
     os.path.join('native_client'),
-    os.path.join('sdch', 'open-vcdiff'),
     os.path.join('testing', 'gmock'),
     os.path.join('testing', 'gtest'),
+    os.path.join('third_party', 'boringssl', 'src', 'third_party', 'fiat'),
     os.path.join('tools', 'gyp'),
     os.path.join('tools', 'page_cycler', 'acid3'),
     os.path.join('url', 'third_party', 'mozilla'),
@@ -124,12 +132,6 @@ SPECIAL_CASES = {
         "Name": "native client",
         "URL": "http://code.google.com/p/nativeclient",
         "License": "BSD",
-    },
-    os.path.join('sdch', 'open-vcdiff'): {
-        "Name": "open-vcdiff",
-        "URL": "https://github.com/google/open-vcdiff",
-        "License": "Apache 2.0, MIT, GPL v2 and custom licenses",
-        "License Android Compatible": "yes",
     },
     os.path.join('testing', 'gmock'): {
         "Name": "gmock",
@@ -273,6 +275,7 @@ KNOWN_NON_IOS_LIBRARIES = set([
     os.path.join('third_party', 'apple_apsl'),
     os.path.join('third_party', 'apple_sample_code'),
     os.path.join('third_party', 'ashmem'),
+    os.path.join('third_party', 'blink'),
     os.path.join('third_party', 'bspatch'),
     os.path.join('third_party', 'cacheinvalidation'),
     os.path.join('third_party', 'cld'),
@@ -286,8 +289,8 @@ KNOWN_NON_IOS_LIBRARIES = set([
     os.path.join('third_party', 'libXNVCtrl'),
     os.path.join('third_party', 'libevent'),
     os.path.join('third_party', 'libjpeg'),
+    os.path.join('third_party', 'libovr'),
     os.path.join('third_party', 'libusb'),
-    os.path.join('third_party', 'libva'),
     os.path.join('third_party', 'libxslt'),
     os.path.join('third_party', 'lss'),
     os.path.join('third_party', 'lzma_sdk'),
@@ -358,7 +361,7 @@ def ParseDir(path, root, require_license_file=True, optional_keys=None):
         readme_path = os.path.join(root, path, 'README.chromium')
         if not os.path.exists(readme_path):
             raise LicenseError("missing README.chromium or licenses.py "
-                               "SPECIAL_CASES entry in %s" % path)
+                               "SPECIAL_CASES entry in %s\n" % path)
 
         for line in open(readme_path):
             line = line.strip()
@@ -395,7 +398,7 @@ def ParseDir(path, root, require_license_file=True, optional_keys=None):
         metadata["License File"] = license_path
 
     if errors:
-        raise LicenseError(";\n".join(errors))
+        raise LicenseError("Errors in %s:\n %s\n" % (path, ";\n ".join(errors)))
     return metadata
 
 
@@ -438,7 +441,14 @@ def FindThirdPartyDirs(prune_paths, root):
             # Add all subdirectories that are not marked for skipping.
             for dir in dirs:
                 dirpath = os.path.join(path, dir)
-                if dirpath not in prune_paths:
+                additional_paths_file = os.path.join(
+                        dirpath, ADDITIONAL_PATHS_FILENAME)
+                if os.path.exists(additional_paths_file):
+                    with open(additional_paths_file) as paths_file:
+                        extra_paths = json.load(paths_file)
+                        third_party_dirs.update([
+                                os.path.join(dirpath, p) for p in extra_paths])
+                elif dirpath not in prune_paths:
                     third_party_dirs.add(dirpath)
 
             # Don't recurse into any subdirs from here.
@@ -484,12 +494,17 @@ def GetThirdPartyDepsFromGNDepsOutput(gn_deps):
     Note that it always returns the direct sub-directory of third_party
     where README.chromium and LICENSE files are, so that it can be passed to
     ParseDir(). e.g.:
-        .../third_party/cld_3/src/src/BUILD.gn -> .../third_party/cld_3
+        third_party/cld_3/src/src/BUILD.gn -> third_party/cld_3
+
+    It returns relative paths from _REPOSITORY_ROOT, not absolute paths.
     """
     third_party_deps = set()
-    for build_dep in gn_deps.split():
-        m = re.search(r'^(.+/third_party/[^/]+)/(.+/)?BUILD\.gn$', build_dep)
-        if m and not os.path.join('build', 'secondary') in build_dep:
+    for absolute_build_dep in gn_deps.split():
+        relative_build_dep = os.path.relpath(
+            absolute_build_dep, _REPOSITORY_ROOT)
+        m = re.search(
+            r'^((.+/)?third_party/[^/]+)/(.+/)?BUILD\.gn$', relative_build_dep)
+        if m and not os.path.join('build', 'secondary') in relative_build_dep:
             third_party_deps.add(m.group(1))
     return third_party_deps
 
@@ -558,8 +573,8 @@ def GenerateCredits(
             'name-sanitized': metadata['Name'].replace(' ', '-'),
             'url': metadata['URL'],
             'license': open(metadata['License File'], 'rb').read(),
-            'license-type': metadata['License'],
-        }
+            'license-type': metadata['License']
+       }
         return {
             'name': metadata['Name'],
             'content': EvaluateTemplate(entry_template, env),
@@ -614,7 +629,7 @@ def GenerateCredits(
                 continue
         entries.append(MetadataToTemplateEntry(metadata, entry_template))
 
-    entries.sort(key=lambda entry: (entry['name'], entry['content']))
+    entries.sort(key=lambda entry: (entry['name'].lower(), entry['content']))
     for entry_id, entry in enumerate(entries):
         entry['content'] = entry['content'].replace('{{id}}', str(entry_id))
 

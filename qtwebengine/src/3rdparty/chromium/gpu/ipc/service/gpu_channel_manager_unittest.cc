@@ -5,7 +5,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "gpu/command_buffer/service/gl_utils.h"
 #include "gpu/ipc/common/gpu_messages.h"
 #include "gpu/ipc/service/gpu_channel.h"
 #include "gpu/ipc/service/gpu_channel_manager.h"
@@ -16,12 +15,13 @@ namespace gpu {
 class GpuChannelManagerTest : public GpuChannelTestCommon {
  public:
   GpuChannelManagerTest() : GpuChannelTestCommon() {}
-  ~GpuChannelManagerTest() override {}
+  ~GpuChannelManagerTest() override = default;
 
 #if defined(OS_ANDROID)
-  void TestOnApplicationStateChange(gles2::ContextType type,
-                                    bool should_clear_stub) {
+  void TestApplicationBackgrounded(ContextType type,
+                                   bool should_destroy_channel) {
     ASSERT_TRUE(channel_manager());
+
     int32_t kClientId = 1;
     GpuChannel* channel = CreateChannel(kClientId, true);
     EXPECT_TRUE(channel);
@@ -34,27 +34,36 @@ class GpuChannelManagerTest : public GpuChannelTestCommon {
     init_params.share_group_id = MSG_ROUTING_NONE;
     init_params.stream_id = 0;
     init_params.stream_priority = SchedulingPriority::kNormal;
-    init_params.attribs = gles2::ContextCreationAttribHelper();
+    init_params.attribs = ContextCreationAttribs();
     init_params.attribs.context_type = type;
     init_params.active_url = GURL();
-    bool result = false;
+    gpu::ContextResult result = gpu::ContextResult::kFatalFailure;
     gpu::Capabilities capabilities;
     HandleMessage(channel, new GpuChannelMsg_CreateCommandBuffer(
-                               init_params, kRouteId, GetSharedHandle(),
+                               init_params, kRouteId, GetSharedMemoryRegion(),
                                &result, &capabilities));
-    EXPECT_TRUE(result);
+    EXPECT_EQ(result, gpu::ContextResult::kSuccess);
 
-    GpuCommandBufferStub* stub = channel->LookupCommandBuffer(kRouteId);
+    auto raster_decoder_state =
+        channel_manager()->GetRasterDecoderContextState(&result);
+    EXPECT_EQ(result, ContextResult::kSuccess);
+    ASSERT_TRUE(raster_decoder_state);
+
+    CommandBufferStub* stub = channel->LookupCommandBuffer(kRouteId);
     EXPECT_TRUE(stub);
 
-    channel_manager()->is_backgrounded_for_testing_ = true;
-    channel_manager()->OnApplicationBackgrounded();
-    stub = channel->LookupCommandBuffer(kRouteId);
-    if (should_clear_stub) {
-      EXPECT_FALSE(stub);
+    channel_manager()->OnBackgroundCleanup();
+
+    channel = channel_manager()->LookupChannel(kClientId);
+    if (should_destroy_channel) {
+      EXPECT_FALSE(channel);
     } else {
-      EXPECT_TRUE(stub);
+      EXPECT_TRUE(channel);
     }
+
+    // We should always clear the shared raster state on background cleanup.
+    ASSERT_NE(channel_manager()->GetRasterDecoderContextState(&result).get(),
+              raster_decoder_state.get());
   }
 #endif
 };
@@ -71,20 +80,14 @@ TEST_F(GpuChannelManagerTest, EstablishChannel) {
 }
 
 #if defined(OS_ANDROID)
-TEST_F(GpuChannelManagerTest, OnLowEndBackgroundedWithoutWebGL) {
-  channel_manager()->set_low_end_mode_for_testing(true);
-  TestOnApplicationStateChange(gles2::CONTEXT_TYPE_OPENGLES2, true);
+TEST_F(GpuChannelManagerTest, OnBackgroundedWithoutWebGL) {
+  TestApplicationBackgrounded(CONTEXT_TYPE_OPENGLES2, true);
 }
 
-TEST_F(GpuChannelManagerTest, OnLowEndBackgroundedWithWebGL) {
-  channel_manager()->set_low_end_mode_for_testing(true);
-  TestOnApplicationStateChange(gles2::CONTEXT_TYPE_WEBGL2, false);
+TEST_F(GpuChannelManagerTest, OnBackgroundedWithWebGL) {
+  TestApplicationBackgrounded(CONTEXT_TYPE_WEBGL2, false);
 }
 
-TEST_F(GpuChannelManagerTest, OnHighEndBackgrounded) {
-  channel_manager()->set_low_end_mode_for_testing(false);
-  TestOnApplicationStateChange(gles2::CONTEXT_TYPE_OPENGLES2, false);
-}
 #endif
 
 }  // namespace gpu

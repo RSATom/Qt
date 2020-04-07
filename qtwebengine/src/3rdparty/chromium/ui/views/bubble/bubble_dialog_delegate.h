@@ -9,10 +9,16 @@
 
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
+#include "build/build_config.h"
+#include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/views/bubble/bubble_border.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_observer.h"
 #include "ui/views/window/dialog_delegate.h"
+
+#if defined(OS_MACOSX)
+#include "ui/base/cocoa/bubble_closer.h"
+#endif
 
 namespace gfx {
 class Rect;
@@ -41,14 +47,14 @@ class VIEWS_EXPORT BubbleDialogDelegateView : public DialogDelegateView,
   // Create and initialize the bubble Widget(s) with proper bounds.
   static Widget* CreateBubble(BubbleDialogDelegateView* bubble_delegate);
 
-  // WidgetDelegateView overrides:
+  // DialogDelegateView:
   BubbleDialogDelegateView* AsBubbleDialogDelegate() override;
   bool ShouldShowCloseButton() const override;
   ClientView* CreateClientView(Widget* widget) override;
   NonClientFrameView* CreateNonClientFrameView(Widget* widget) override;
   const char* GetClassName() const override;
 
-  // WidgetObserver overrides:
+  // WidgetObserver:
   void OnWidgetDestroying(Widget* widget) override;
   void OnWidgetVisibilityChanging(Widget* widget, bool visible) override;
   void OnWidgetVisibilityChanged(Widget* widget, bool visible) override;
@@ -79,8 +85,6 @@ class VIEWS_EXPORT BubbleDialogDelegateView : public DialogDelegateView,
     color_explicitly_set_ = true;
   }
 
-  const gfx::Insets& margins() const { return margins_; }
-  void set_margins(const gfx::Insets& margins) { margins_ = margins; }
   void set_title_margins(const gfx::Insets& title_margins) {
     title_margins_ = title_margins;
   }
@@ -104,7 +108,7 @@ class VIEWS_EXPORT BubbleDialogDelegateView : public DialogDelegateView,
   virtual void OnBeforeBubbleWidgetInit(Widget::InitParams* params,
                                         Widget* widget) const;
 
-  // Sets |margins_| to a default picked for smaller bubbles.
+  // Sets the content margins to a default picked for smaller bubbles.
   void UseCompactMargins();
 
   // Sets the bubble alignment relative to the anchor. This may only be called
@@ -122,14 +126,34 @@ class VIEWS_EXPORT BubbleDialogDelegateView : public DialogDelegateView,
   // bounds change as a result of the widget's bounds changing.
   void OnAnchorBoundsChanged();
 
+  // If this is called, enables focus to traverse from the anchor view
+  // to inside this dialog and back out. This may become the default in
+  // the future.
+  void EnableFocusTraversalFromAnchorView();
+
  protected:
   BubbleDialogDelegateView();
-  BubbleDialogDelegateView(View* anchor_view, BubbleBorder::Arrow arrow);
+  // |shadow| usually doesn't need to be explicitly set, just uses the default
+  // argument. Unless on Mac when the bubble needs to use Views base shadow,
+  // override it with suitable bubble border type.
+  BubbleDialogDelegateView(
+      View* anchor_view,
+      BubbleBorder::Arrow arrow,
+      BubbleBorder::Shadow shadow = BubbleBorder::DIALOG_SHADOW);
 
   // Get bubble bounds from the anchor rect and client view's preferred size.
   virtual gfx::Rect GetBubbleBounds();
 
-  // View overrides:
+  // DialogDelegateView:
+  ax::mojom::Role GetAccessibleWindowRole() const override;
+
+  // Disallow overrides of GetMinimumSize and GetMaximumSize(). These would only
+  // be called by the FrameView, but the BubbleFrameView ignores these. Bubbles
+  // are not user-sizable and always size to their preferred size (plus any
+  // border / frame).
+  gfx::Size GetMinimumSize() const final;
+  gfx::Size GetMaximumSize() const final;
+
   void OnNativeThemeChanged(const ui::NativeTheme* theme) override;
 
   // Perform view initialization on the contents for bubble sizing.
@@ -160,6 +184,12 @@ class VIEWS_EXPORT BubbleDialogDelegateView : public DialogDelegateView,
   // Handles widget visibility changes.
   void HandleVisibilityChanged(Widget* widget, bool visible);
 
+  // Called when a deactivation is detected.
+  void OnDeactivate();
+
+  // When a bubble is visible, the anchor widget should always render as active.
+  void UpdateAnchorWidgetRenderState(bool visible);
+
   // A flag controlling bubble closure on deactivation.
   bool close_on_deactivate_;
 
@@ -185,9 +215,6 @@ class VIEWS_EXPORT BubbleDialogDelegateView : public DialogDelegateView,
   SkColor color_;
   bool color_explicitly_set_;
 
-  // The margins between the content and the inside of the border.
-  gfx::Insets margins_;
-
   // The margins around the title.
   // TODO(tapted): Investigate deleting this when MD is default.
   gfx::Insets title_margins_;
@@ -204,6 +231,13 @@ class VIEWS_EXPORT BubbleDialogDelegateView : public DialogDelegateView,
 
   // Parent native window of the bubble.
   gfx::NativeView parent_window_;
+
+#if defined(OS_MACOSX)
+  // Special handler for close_on_deactivate() on Mac. Window (de)activation is
+  // suppressed by the WindowServer when clicking rapidly, so the bubble must
+  // monitor clicks as well for the desired behavior.
+  std::unique_ptr<ui::BubbleCloser> mac_bubble_closer_;
+#endif
 
   DISALLOW_COPY_AND_ASSIGN(BubbleDialogDelegateView);
 };

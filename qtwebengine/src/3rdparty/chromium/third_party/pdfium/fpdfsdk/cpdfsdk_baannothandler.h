@@ -7,7 +7,6 @@
 #ifndef FPDFSDK_CPDFSDK_BAANNOTHANDLER_H_
 #define FPDFSDK_CPDFSDK_BAANNOTHANDLER_H_
 
-#include "core/fxcrt/fx_basic.h"
 #include "core/fxcrt/fx_coordinates.h"
 #include "fpdfsdk/ipdfsdk_annothandler.h"
 
@@ -37,7 +36,13 @@ class CPDFSDK_BAAnnotHandler : public IPDFSDK_AnnotHandler {
   void ReleaseAnnot(CPDFSDK_Annot* pAnnot) override;
   CFX_FloatRect GetViewBBox(CPDFSDK_PageView* pPageView,
                             CPDFSDK_Annot* pAnnot) override;
-  CFX_WideString GetSelectedText(CPDFSDK_Annot* pAnnot) override;
+  WideString GetText(CPDFSDK_Annot* pAnnot) override;
+  WideString GetSelectedText(CPDFSDK_Annot* pAnnot) override;
+  void ReplaceSelection(CPDFSDK_Annot* pAnnot, const WideString& text) override;
+  bool CanUndo(CPDFSDK_Annot* pAnnot) override;
+  bool CanRedo(CPDFSDK_Annot* pAnnot) override;
+  bool Undo(CPDFSDK_Annot* pAnnot) override;
+  bool Redo(CPDFSDK_Annot* pAnnot) override;
   bool HitTest(CPDFSDK_PageView* pPageView,
                CPDFSDK_Annot* pAnnot,
                const CFX_PointF& point) override;

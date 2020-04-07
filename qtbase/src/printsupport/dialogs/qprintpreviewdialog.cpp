@@ -79,7 +79,7 @@ class QPrintPreviewMainWindow : public QMainWindow
 {
 public:
     QPrintPreviewMainWindow(QWidget *parent) : QMainWindow(parent) {}
-    QMenu *createPopupMenu() Q_DECL_OVERRIDE { return nullptr; }
+    QMenu *createPopupMenu() override { return nullptr; }
 };
 
 class ZoomFactorValidator : public QDoubleValidator
@@ -90,7 +90,7 @@ public:
     ZoomFactorValidator(qreal bottom, qreal top, int decimals, QObject *parent)
         : QDoubleValidator(bottom, top, decimals, parent) {}
 
-    State validate(QString &input, int &pos) const Q_DECL_OVERRIDE
+    State validate(QString &input, int &pos) const override
     {
         bool replacePercent = false;
         if (input.endsWith(QLatin1Char('%'))) {
@@ -123,13 +123,13 @@ public:
     }
 
 protected:
-    void focusInEvent(QFocusEvent *e) Q_DECL_OVERRIDE
+    void focusInEvent(QFocusEvent *e) override
     {
         origText = text();
         QLineEdit::focusInEvent(e);
     }
 
-    void focusOutEvent(QFocusEvent *e) Q_DECL_OVERRIDE
+    void focusOutEvent(QFocusEvent *e) override
     {
         if (isModified() && !hasAcceptableInput())
             setText(origText);
@@ -484,7 +484,7 @@ void QPrintPreviewDialogPrivate::updatePageNumLabel()
     int numPages = preview->pageCount();
     int maxChars = QString::number(numPages).length();
     pageNumLabel->setText(QString::fromLatin1("/ %1").arg(numPages));
-    int cyphersWidth = q->fontMetrics().width(QString().fill(QLatin1Char('8'), maxChars));
+    int cyphersWidth = q->fontMetrics().horizontalAdvance(QString().fill(QLatin1Char('8'), maxChars));
     int maxWidth = pageNumEdit->minimumSizeHint().width() + cyphersWidth;
     pageNumEdit->setMinimumWidth(maxWidth);
     pageNumEdit->setMaximumWidth(maxWidth);
@@ -573,8 +573,11 @@ void QPrintPreviewDialogPrivate::_q_print()
     if (printer->outputFormat() != QPrinter::NativeFormat) {
         QString title = QCoreApplication::translate("QPrintPreviewDialog", "Export to PDF");
         QString suffix = QLatin1String(".pdf");
-        QString fileName = QFileDialog::getSaveFileName(q, title, printer->outputFileName(),
+        QString fileName;
+#if QT_CONFIG(filedialog)
+        fileName = QFileDialog::getSaveFileName(q, title, printer->outputFileName(),
                                                         QLatin1Char('*') + suffix);
+#endif
         if (!fileName.isEmpty()) {
             if (QFileInfo(fileName).suffix().isEmpty())
                 fileName.append(suffix);

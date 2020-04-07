@@ -12,7 +12,7 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/compiler_specific.h"
-#include "base/memory/ptr_util.h"
+#include "base/containers/circular_deque.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/time/time.h"
 #include "base/values.h"
@@ -71,21 +71,21 @@ PowerMessageHandler::~PowerMessageHandler() {
 void PowerMessageHandler::RegisterMessages() {
   web_ui()->RegisterMessageCallback(
       kRequestBatteryChargeDataCallback,
-      base::Bind(&PowerMessageHandler::OnGetBatteryChargeData,
-                 base::Unretained(this)));
+      base::BindRepeating(&PowerMessageHandler::OnGetBatteryChargeData,
+                          base::Unretained(this)));
   web_ui()->RegisterMessageCallback(
       kRequestCpuIdleDataCallback,
-      base::Bind(&PowerMessageHandler::OnGetCpuIdleData,
-                 base::Unretained(this)));
+      base::BindRepeating(&PowerMessageHandler::OnGetCpuIdleData,
+                          base::Unretained(this)));
   web_ui()->RegisterMessageCallback(
       kRequestCpuFreqDataCallback,
-      base::Bind(&PowerMessageHandler::OnGetCpuFreqData,
-                 base::Unretained(this)));
+      base::BindRepeating(&PowerMessageHandler::OnGetCpuFreqData,
+                          base::Unretained(this)));
 }
 
 void PowerMessageHandler::OnGetBatteryChargeData(const base::ListValue* value) {
-  const std::deque<PowerDataCollector::PowerSupplySample>& power_supply =
-      PowerDataCollector::Get()->power_supply_data();
+  const base::circular_deque<PowerDataCollector::PowerSupplySample>&
+      power_supply = PowerDataCollector::Get()->power_supply_data();
   base::ListValue js_power_supply_data;
   for (size_t i = 0; i < power_supply.size(); ++i) {
     const PowerDataCollector::PowerSupplySample& sample = power_supply[i];
@@ -145,8 +145,8 @@ void PowerMessageHandler::OnGetCpuFreqData(const base::ListValue* value) {
 void PowerMessageHandler::GetJsSystemResumedData(base::ListValue *data) {
   DCHECK(data);
 
-  const std::deque<PowerDataCollector::SystemResumedSample>& system_resumed =
-      PowerDataCollector::Get()->system_resumed_data();
+  const base::circular_deque<PowerDataCollector::SystemResumedSample>&
+      system_resumed = PowerDataCollector::Get()->system_resumed_data();
   for (size_t i = 0; i < system_resumed.size(); ++i) {
     const PowerDataCollector::SystemResumedSample& sample = system_resumed[i];
     std::unique_ptr<base::DictionaryValue> element(new base::DictionaryValue);
@@ -189,7 +189,7 @@ void PowerMessageHandler::GetJsStateOccupancyData(
 }  // namespace
 
 PowerUI::PowerUI(content::WebUI* web_ui) : content::WebUIController(web_ui) {
-  web_ui->AddMessageHandler(base::MakeUnique<PowerMessageHandler>());
+  web_ui->AddMessageHandler(std::make_unique<PowerMessageHandler>());
 
   content::WebUIDataSource* html =
       content::WebUIDataSource::Create(chrome::kChromeUIPowerHost);

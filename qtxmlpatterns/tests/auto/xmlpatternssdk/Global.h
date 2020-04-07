@@ -34,7 +34,7 @@
 #include <private/qitem_p.h>
 #include <private/qnamepool_p.h>
 
-#if defined(Q_OS_WIN)
+#if defined(Q_OS_WIN) && !defined(QT_STATIC)
 #   ifdef Q_PATTERNISTSDK_BUILDING
         #define Q_PATTERNISTSDK_EXPORT __declspec(dllexport)
     #else

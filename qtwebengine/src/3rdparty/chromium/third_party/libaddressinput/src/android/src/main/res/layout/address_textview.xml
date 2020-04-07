@@ -20,7 +20,7 @@
     android:id="@+id/address_text_view"
     android:layout_width="fill_parent"
     android:layout_height="wrap_content"
-    android:layout_marginTop="4dip"
-    android:layout_marginLeft="3dip"
+    android:layout_marginTop="@dimen/address_textview_margin_top"
+    android:layout_marginLeft="@dimen/address_textview_margin_left"
     android:textColor="?android:attr/textColorPrimary"
     android:focusableInTouchMode="true" />

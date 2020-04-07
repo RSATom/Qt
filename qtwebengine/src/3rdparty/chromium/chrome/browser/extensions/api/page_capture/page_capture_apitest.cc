@@ -9,6 +9,7 @@
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "chrome/common/chrome_switches.h"
 #include "chromeos/login/scoped_test_public_session_login_state.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/test/test_utils.h"
 #include "extensions/browser/extension_dialog_auto_confirm.h"
@@ -21,14 +22,14 @@
 using extensions::PageCaptureSaveAsMHTMLFunction;
 using extensions::ScopedTestDialogAutoConfirm;
 
-class ExtensionPageCaptureApiTest : public ExtensionApiTest {
+class ExtensionPageCaptureApiTest : public extensions::ExtensionApiTest {
  public:
   void SetUpCommandLine(base::CommandLine* command_line) override {
-    ExtensionApiTest::SetUpCommandLine(command_line);
+    extensions::ExtensionApiTest::SetUpCommandLine(command_line);
     command_line->AppendSwitchASCII(switches::kJavaScriptFlags, "--expose-gc");
   }
   void SetUpOnMainThread() override {
-    ExtensionApiTest::SetUpOnMainThread();
+    extensions::ExtensionApiTest::SetUpOnMainThread();
     host_resolver()->AddRule("*", "127.0.0.1");
   }
 };
@@ -58,11 +59,11 @@ IN_PROC_BROWSER_TEST_F(ExtensionPageCaptureApiTest, SaveAsMHTML) {
   // Make sure the MHTML data gets written to the temporary file.
   ASSERT_FALSE(delegate.temp_file_.empty());
   // Flush the message loops to make sure the delete happens.
-  content::RunAllPendingInMessageLoop(content::BrowserThread::FILE);
+  content::RunAllTasksUntilIdle();
   content::RunAllPendingInMessageLoop(content::BrowserThread::IO);
   // Make sure the temporary file is destroyed once the javascript side reads
   // the contents.
-  base::ThreadRestrictions::ScopedAllowIO allow_io;
+  base::ScopedAllowBlockingForTesting allow_blocking;
   ASSERT_FALSE(base::PathExists(delegate.temp_file_));
 }
 
@@ -76,9 +77,9 @@ IN_PROC_BROWSER_TEST_F(ExtensionPageCaptureApiTest,
   ScopedTestDialogAutoConfirm auto_confirm(ScopedTestDialogAutoConfirm::ACCEPT);
   ASSERT_TRUE(RunExtensionTest("page_capture")) << message_;
   ASSERT_FALSE(delegate.temp_file_.empty());
-  content::RunAllPendingInMessageLoop(content::BrowserThread::FILE);
+  content::RunAllTasksUntilIdle();
   content::RunAllPendingInMessageLoop(content::BrowserThread::IO);
-  base::ThreadRestrictions::ScopedAllowIO allow_io;
+  base::ScopedAllowBlockingForTesting allow_blocking;
   ASSERT_FALSE(base::PathExists(delegate.temp_file_));
 }
 

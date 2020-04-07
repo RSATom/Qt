@@ -12,7 +12,6 @@
 #include "base/containers/hash_tables.h"
 #include "base/logging.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/stl_util.h"
 #include "ipc/ipc_message.h"
 
@@ -139,7 +138,7 @@ FrameSwapMessageSubQueue* FrameSwapMessageQueue::GetSubQueue(
       break;
   }
   NOTREACHED();
-  return NULL;
+  return nullptr;
 }
 
 void FrameSwapMessageQueue::QueueMessageForFrame(
@@ -195,7 +194,7 @@ void FrameSwapMessageQueue::DrainMessages(
 
 std::unique_ptr<FrameSwapMessageQueue::SendMessageScope>
 FrameSwapMessageQueue::AcquireSendMessageScope() {
-  return base::MakeUnique<SendMessageScopeImpl>(&lock_);
+  return std::make_unique<SendMessageScopeImpl>(&lock_);
 }
 
 // static
@@ -206,10 +205,6 @@ void FrameSwapMessageQueue::TransferMessages(
     dest->push_back(*msg.get());
   }
   source->clear();
-}
-
-uint32_t FrameSwapMessageQueue::AllocateFrameToken() {
-  return ++last_used_frame_token_;
 }
 
 void FrameSwapMessageQueue::NotifyFramesAreDiscarded(

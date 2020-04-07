@@ -11,10 +11,11 @@ Also install Python, Subversion, and Git and make sure they're in your path.
 
 ### Windows development
 
-PDFium uses a similar Windows toolchain as Chromium:
+PDFium uses the same build tool as Chromium:
 
 #### Open source contributors
-Visual Studio 2015 Update 2 or later is highly recommended.
+Please refer to [Chromium's Visual Studio set up](https://chromium.googlesource.com/chromium/src/+/master/docs/windows_build_instructions.md#visual-studio)
+for requirements and instructions on build environment configuration.
 
 Run `set DEPOT_TOOLS_WIN_TOOLCHAIN=0`, or set that variable in your global
 environment.
@@ -28,6 +29,9 @@ The default architecture for Windows, Linux, and Mac is "`x64`". On Windows,
 override the default value. If you specify Android build, the default CPU
 architecture will be "`arm`".
 
+It is expected that there are still some places lurking in the code which will
+not function properly on big-endian architectures. Bugs and/or patches are
+welcome, however providing this support is **not** a priority at this time.
 
 #### Google employees
 
@@ -137,6 +141,13 @@ checkout to see if the same failures appear.
 Code coverage reports for PDFium can be generated in Linux development
 environments. Details can be found [here](/docs/code-coverage.md).
 
+## Profiling
+
+Valgrind and other profiling tools do not work correctly with the standard build
+setup that PDFium uses. You will need to add
+`ro_segment_workaround_for_valgrind=true` to `args.gn` to get symbols to
+correctly appear.
+
 ## Waterfall
 
 The current health of the source tree can be found at
@@ -169,5 +180,5 @@ as much as possible. The main exceptions are:
 1. Code has to conform to the existing style and not Chromium/Google style.
 2. PDFium uses a different tool for code reviews, and credentials for
 the tool need to be generated before uploading a CL.
-
-
+3. PDFium is currently holding at C++11 compatibility, rejecting features that
+are only present in C++14 (onto which Chromium is now slowly moving).

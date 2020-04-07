@@ -16,8 +16,7 @@ class {{export_attribute}} {{struct.name}} {
   template <typename... Args>
   static {{struct.name}}Ptr New(Args&&... args) {
     return {{struct.name}}Ptr(
-        base::in_place,
-        std::forward<Args>(args)...);
+        base::in_place, std::forward<Args>(args)...);
   }
 
   template <typename U>
@@ -33,7 +32,7 @@ class {{export_attribute}} {{struct.name}} {
 {% for constructor in struct|struct_constructors %}
   {% if constructor.params|length == 1 %}explicit {% endif %}{{struct.name}}(
 {%-   for field in constructor.params %}
-{%-     set type = field.kind|cpp_wrapper_param_type %}
+{%-     set type = field.kind|cpp_wrapper_param_type_new %}
 {%-     set name = field.name %}
       {{type}} {{name}}
 {%-     if not loop.last -%},{%- endif %}
@@ -64,16 +63,56 @@ class {{export_attribute}} {{struct.name}} {
 
   template <typename UserType>
   static {{serialization_result_type}} Serialize(UserType* input) {
-    return mojo::internal::StructSerializeImpl<
+    return mojo::internal::SerializeImpl<
         {{struct.name}}::DataView, {{serialization_result_type}}>(input);
+  }
+
+  template <typename UserType>
+  static mojo::Message SerializeAsMessage(UserType* input) {
+    return mojo::internal::SerializeAsMessageImpl<
+        {{struct.name}}::DataView>(input);
+  }
+
+  // The returned Message is serialized only if the message is moved
+  // cross-process or cross-language. Otherwise if the message is Deserialized
+  // as the same UserType |input| will just be moved to |output| in
+  // DeserializeFromMessage.
+  template <typename UserType>
+  static mojo::Message WrapAsMessage(UserType input) {
+    return mojo::Message(std::make_unique<
+        internal::{{struct.name}}_UnserializedMessageContext<
+            UserType, {{struct.name}}::DataView>>(0, 0, std::move(input)));
+  }
+
+  template <typename UserType>
+  static bool Deserialize(const void* data,
+                          size_t data_num_bytes,
+                          UserType* output) {
+    return mojo::internal::DeserializeImpl<{{struct.name}}::DataView>(
+        data, data_num_bytes, std::vector<mojo::ScopedHandle>(), output, Validate);
   }
 
   template <typename UserType>
   static bool Deserialize(const {{serialization_result_type}}& input,
                           UserType* output) {
-    return mojo::internal::StructDeserializeImpl<
-        {{struct.name}}::DataView, {{serialization_result_type}}>(
-            input, output, Validate);
+    return {{struct.name}}::Deserialize(
+        input.size() == 0 ? nullptr : &input.front(), input.size(), output);
+  }
+
+  template <typename UserType>
+  static bool DeserializeFromMessage(mojo::Message input,
+                                     UserType* output) {
+    auto context = input.TakeUnserializedContext<
+        internal::{{struct.name}}_UnserializedMessageContext<
+            UserType, {{struct.name}}::DataView>>();
+    if (context) {
+      *output = std::move(context->TakeData());
+      return true;
+    }
+    input.SerializeIfNecessary();
+    return mojo::internal::DeserializeImpl<{{struct.name}}::DataView>(
+        input.payload(), input.payload_num_bytes(),
+        std::move(*input.mutable_handles()), output, Validate);
   }
 
 {#--- Struct members #}
@@ -91,4 +130,3 @@ class {{export_attribute}} {{struct.name}} {
   DISALLOW_COPY_AND_ASSIGN({{struct.name}});
 {%- endif %}
 };
-

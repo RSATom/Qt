@@ -11,6 +11,7 @@
 #include "SkImage.h"
 #include "SkPaint.h"
 #include "SkShaderBase.h"
+#include "SkUtils.h"
 #include "SkXfermodePriv.h"
 
 static bool changes_alpha(const SkPaint& paint) {
@@ -62,11 +63,15 @@ void SkPaintPriv::ScaleFontMetrics(SkPaint::FontMetrics* metrics, SkScalar scale
     metrics->fBottom *= scale;
     metrics->fLeading *= scale;
     metrics->fAvgCharWidth *= scale;
+    metrics->fMaxCharWidth *= scale;
     metrics->fXMin *= scale;
     metrics->fXMax *= scale;
     metrics->fXHeight *= scale;
+    metrics->fCapHeight *= scale;
     metrics->fUnderlineThickness *= scale;
     metrics->fUnderlinePosition *= scale;
+    metrics->fStrikeoutThickness *= scale;
+    metrics->fStrikeoutPosition *= scale;
 }
 
 bool SkPaintPriv::ShouldDither(const SkPaint& p, SkColorType dstCT) {
@@ -84,3 +89,18 @@ bool SkPaintPriv::ShouldDither(const SkPaint& p, SkColorType dstCT) {
     return p.getImageFilter() || p.getMaskFilter()
         || !p.getShader() || !as_SB(p.getShader())->isConstant();
 }
+
+int SkPaintPriv::ValidCountText(const void* text, size_t length, SkPaint::TextEncoding encoding) {
+    switch (encoding) {
+        case SkPaint::kUTF8_TextEncoding: return SkUTF8_CountUnichars(text, length);
+        case SkPaint::kUTF16_TextEncoding: return SkUTF16_CountUnichars(text, length);
+        case SkPaint::kUTF32_TextEncoding: return SkUTF32_CountUnichars(text, length);
+        case SkPaint::kGlyphID_TextEncoding:
+            if (!SkIsAlign2(intptr_t(text)) || !SkIsAlign2(length)) {
+                return -1;
+            }
+            return length >> 1;
+    }
+    return -1;
+}
+

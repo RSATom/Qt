@@ -19,12 +19,12 @@
  *   children: (!Array<string>|undefined),
  * }}
  */
-var BookmarkNode;
+let BookmarkNode;
 
 /**
  * @typedef {!Object<string, BookmarkNode>}
  */
-var NodeMap;
+let NodeMap;
 
 /**
  * @typedef {{
@@ -34,7 +34,7 @@ var NodeMap;
  *
  * |items| is used as a set and all values in the map are true.
  */
-var SelectionState;
+let SelectionState;
 
 /**
  * Note:
@@ -53,10 +53,10 @@ var SelectionState;
  *   results: ?Array<string>,
  * }}
  */
-var SearchState;
+let SearchState;
 
-/** @typedef {!Set<string>} */
-var ClosedFolderState;
+/** @typedef {!Map<string, boolean>} */
+let FolderOpenState;
 
 /**
  * @typedef {{
@@ -64,28 +64,28 @@ var ClosedFolderState;
  *   incognitoAvailability: IncognitoAvailability,
  * }}
  */
-var PreferencesState;
+let PreferencesState;
 
 /**
  * @typedef {{
  *   nodes: NodeMap,
  *   selectedFolder: string,
- *   closedFolders: ClosedFolderState,
+ *   folderOpenState: FolderOpenState,
  *   prefs: PreferencesState,
  *   search: SearchState,
  *   selection: SelectionState,
  * }}
  */
-var BookmarksPageState;
+let BookmarksPageState;
 
 /** @typedef {{name: string}} */
-var Action;
+let Action;
 
 /** @typedef {function(function(?Action))} */
-var DeferredAction;
+let DeferredAction;
 
 /** @typedef {{element: BookmarkElement, position: DropPosition}} */
-var DropDestination;
+let DropDestination;
 
 /**
  * @record

@@ -103,6 +103,11 @@ QWebGLIntegration *QWebGLIntegration::instance()
 void QWebGLIntegration::initialize()
 {
     Q_D(QWebGLIntegration);
+
+#if defined(QT_QUICK_LIB)
+    qputenv("QSG_RENDER_LOOP", "threaded"); // Force threaded QSG_RENDER_LOOP
+#endif
+
     d->inputContext = QPlatformInputContextFactory::create();
     d->screen = new QWebGLScreen;
     screenAdded(d->screen, true);
@@ -110,8 +115,10 @@ void QWebGLIntegration::initialize()
     d->webSocketServer = new QWebGLWebSocketServer;
     d->httpServer = new QWebGLHttpServer(d->webSocketServer, this);
     bool ok = d->httpServer->listen(QHostAddress::Any, d->httpPort);
-    if (!ok)
-        qFatal("QWebGLIntegration::initialize: Failed to initialize");
+    if (!ok) {
+        qFatal("QWebGLIntegration::initialize: Failed to initialize: %s",
+               qPrintable(d->httpServer->errorString()));
+    }
     d->webSocketServerThread = new QThread(this);
     d->webSocketServerThread->setObjectName("WebSocketServer");
     d->webSocketServer->moveToThread(d->webSocketServerThread);
@@ -206,7 +213,7 @@ QPlatformWindow *QWebGLIntegration::createPlatformWindow(QWindow *window) const
 
     QWebGLWindow *platformWindow = nullptr;
     QWebSocket *socket = nullptr;
-    WId winId = -1;
+    auto winId = WId(-1);
     {
         QMutexLocker locker(&d->clients.mutex);
 
@@ -486,6 +493,8 @@ void QWebGLIntegrationPrivate::handleMouse(const ClientData &clientData, const Q
                                              localPos,
                                              globalPos,
                                              Qt::MouseButtons(buttons),
+                                             Qt::NoButton,
+                                             QEvent::None,
                                              Qt::NoModifier,
                                              Qt::MouseEventNotSynthesized);
 }
@@ -503,12 +512,15 @@ void QWebGLIntegrationPrivate::handleWheel(const ClientData &clientData, const Q
     const int deltaX = -object.value("deltaX").toInt(0);
     const int deltaY = -object.value("deltaY").toInt(0);
     auto orientation = deltaY != 0 ? Qt::Vertical : Qt::Horizontal;
+
+    QPoint point = (orientation == Qt::Vertical) ? QPoint(0, deltaY) : QPoint(deltaX, 0);
     QWindowSystemInterface::handleWheelEvent(platformWindow->window(),
                                              time,
                                              localPos,
                                              globalPos,
-                                             orientation == Qt::Vertical ? deltaY : deltaX,
-                                             orientation);
+                                             QPoint(),
+                                             point,
+                                             Qt::NoModifier);
 }
 
 void QWebGLIntegrationPrivate::handleTouch(const ClientData &clientData, const QJsonObject &object)
@@ -529,16 +541,16 @@ void QWebGLIntegrationPrivate::handleTouch(const ClientData &clientData, const Q
             QWindowSystemInterface::TouchPoint point; // support more than one
             const auto pageX = touch.toObject().value("pageX").toDouble();
             const auto pageY = touch.toObject().value("pageY").toDouble();
-            const auto radiousX = touch.toObject().value("radiousX").toDouble();
-            const auto radiousY = touch.toObject().value("radiousY").toDouble();
+            const auto radiusX = touch.toObject().value("radiusX").toDouble();
+            const auto radiusY = touch.toObject().value("radiusY").toDouble();
             const auto clientX = touch.toObject().value("clientX").toDouble();
             const auto clientY = touch.toObject().value("clientY").toDouble();
             point.id = touch.toObject().value("identifier").toInt(0);
             point.pressure = touch.toObject().value("force").toDouble(1.);
-            point.area.setX(pageX - radiousX);
-            point.area.setY(pageY - radiousY);
-            point.area.setWidth(radiousX * 2);
-            point.area.setHeight(radiousY * 2);
+            point.area.setX(pageX - radiusX);
+            point.area.setY(pageY - radiusY);
+            point.area.setWidth(radiusX * 2);
+            point.area.setHeight(radiusY * 2);
             point.normalPosition.setX(touch.toObject().value("normalPositionX").toDouble());
             point.normalPosition.setY(touch.toObject().value("normalPositionY").toDouble());
             point.rawPositions = {{ clientX, clientY }};

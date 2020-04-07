@@ -95,9 +95,7 @@ void vp8_sixtap_predict4x4_mmx(unsigned char *src_ptr, int src_pixels_per_line,
 void vp8_sixtap_predict16x16_sse2(unsigned char *src_ptr,
                                   int src_pixels_per_line, int xoffset,
                                   int yoffset, unsigned char *dst_ptr,
-                                  int dst_pitch
-
-                                  ) {
+                                  int dst_pitch) {
   DECLARE_ALIGNED(16, unsigned short,
                   FData2[24 * 24]); /* Temp data bufffer used in filtering */
 
@@ -236,9 +234,7 @@ extern void vp8_filter_block1d4_v6_ssse3(unsigned char *src_ptr,
 void vp8_sixtap_predict16x16_ssse3(unsigned char *src_ptr,
                                    int src_pixels_per_line, int xoffset,
                                    int yoffset, unsigned char *dst_ptr,
-                                   int dst_pitch
-
-                                   ) {
+                                   int dst_pitch) {
   DECLARE_ALIGNED(16, unsigned char, FData2[24 * 24]);
 
   if (xoffset) {
@@ -351,8 +347,8 @@ void vp8_sixtap_predict4x4_ssse3(unsigned char *src_ptr,
                                    yoffset);
     } else {
       /* ssse3 second-pass only function couldn't handle (xoffset==0 &&
-        * yoffset==0) case correctly. Add copy function here to guarantee
-        * six-tap function handles all possible offsets. */
+       * yoffset==0) case correctly. Add copy function here to guarantee
+       * six-tap function handles all possible offsets. */
       int r;
 
       for (r = 0; r < 4; ++r) {

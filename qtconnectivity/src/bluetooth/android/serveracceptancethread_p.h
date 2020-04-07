@@ -62,7 +62,7 @@ class ServerAcceptanceThread : public QObject
 {
     Q_OBJECT
 public:
-    explicit ServerAcceptanceThread(QObject *parent = 0);
+    explicit ServerAcceptanceThread(QObject *parent = nullptr);
     ~ServerAcceptanceThread();
     void setServiceDetails(const QBluetoothUuid &uuid, const QString &serviceName,
                            QBluetooth::SecurityFlags securityFlags);

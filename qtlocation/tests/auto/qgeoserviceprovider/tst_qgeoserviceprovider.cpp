@@ -104,9 +104,14 @@ void tst_QGeoServiceProvider::tst_features_data()
 
     QTest::newRow("mapbox") << QString("mapbox")
                             << QGeoServiceProvider::MappingFeatures(QGeoServiceProvider::OnlineMappingFeature)
-                            << QGeoServiceProvider::GeocodingFeatures(QGeoServiceProvider::NoGeocodingFeatures)
+                            << QGeoServiceProvider::GeocodingFeatures(QGeoServiceProvider::OnlineGeocodingFeature
+                                                                      | QGeoServiceProvider::ReverseGeocodingFeature
+                                                                      | QGeoServiceProvider::LocalizedGeocodingFeature)
                             << QGeoServiceProvider::RoutingFeatures(QGeoServiceProvider::OnlineRoutingFeature)
-                            << QGeoServiceProvider::PlacesFeatures(QGeoServiceProvider::NoPlacesFeatures);
+                            << QGeoServiceProvider::PlacesFeatures(QGeoServiceProvider::OnlinePlacesFeature
+                                                                   | QGeoServiceProvider::PlaceRecommendationsFeature
+                                                                   | QGeoServiceProvider::SearchSuggestionsFeature
+                                                                   | QGeoServiceProvider::LocalizedPlacesFeature);
 
     QTest::newRow("here")   << QString("here")
                             << QGeoServiceProvider::MappingFeatures(QGeoServiceProvider::OnlineMappingFeature)
@@ -133,7 +138,7 @@ void tst_QGeoServiceProvider::tst_features_data()
                             << QGeoServiceProvider::GeocodingFeatures(QGeoServiceProvider::OnlineGeocodingFeature
                                                                       | QGeoServiceProvider::ReverseGeocodingFeature)
                             << QGeoServiceProvider::RoutingFeatures(QGeoServiceProvider::OnlineRoutingFeature)
-                            << QGeoServiceProvider::PlacesFeatures(QGeoServiceProvider::NoPlacesFeatures);
+                            << QGeoServiceProvider::PlacesFeatures(QGeoServiceProvider::OnlinePlacesFeature);
 }
 
 void tst_QGeoServiceProvider::tst_features()
@@ -151,38 +156,38 @@ void tst_QGeoServiceProvider::tst_features()
     QCOMPARE(provider.placesFeatures(), placeFeatures);
 
     if (provider.mappingFeatures() == QGeoServiceProvider::NoMappingFeatures) {
-        QVERIFY(provider.mappingManager() == Q_NULLPTR);
+        QVERIFY(provider.mappingManager() == nullptr);
     } else {
         // some plugins require token/access parameter
         // they return 0 but set QGeoServiceProvider::MissingRequiredParameterError
-        if (provider.mappingManager() != Q_NULLPTR)
+        if (provider.mappingManager() != nullptr)
             QCOMPARE(provider.error(), QGeoServiceProvider::NoError);
         else
             QCOMPARE(provider.error(), QGeoServiceProvider::MissingRequiredParameterError);
     }
 
     if (provider.geocodingFeatures() == QGeoServiceProvider::NoGeocodingFeatures) {
-        QVERIFY(provider.geocodingManager() == Q_NULLPTR);
+        QVERIFY(provider.geocodingManager() == nullptr);
     } else {
-        if (provider.geocodingManager() != Q_NULLPTR)
-            QVERIFY(provider.geocodingManager() != Q_NULLPTR); //pointless but we want a VERIFY here
+        if (provider.geocodingManager() != nullptr)
+            QVERIFY(provider.geocodingManager() != nullptr); //pointless but we want a VERIFY here
         else
             QCOMPARE(provider.error(), QGeoServiceProvider::MissingRequiredParameterError);
     }
 
     if (provider.routingFeatures() == QGeoServiceProvider::NoRoutingFeatures) {
-        QVERIFY(provider.routingManager() == Q_NULLPTR);
+        QVERIFY(provider.routingManager() == nullptr);
     } else {
-        if (provider.routingManager() != Q_NULLPTR)
+        if (provider.routingManager() != nullptr)
             QCOMPARE(provider.error(), QGeoServiceProvider::NoError);
         else
             QCOMPARE(provider.error(), QGeoServiceProvider::MissingRequiredParameterError);
     }
 
     if (provider.placesFeatures() == QGeoServiceProvider::NoPlacesFeatures) {
-        QVERIFY(provider.placeManager() == Q_NULLPTR);
+        QVERIFY(provider.placeManager() == nullptr);
     } else {
-        if (provider.placeManager() != Q_NULLPTR)
+        if (provider.placeManager() != nullptr)
             QCOMPARE(provider.error(), QGeoServiceProvider::NoError);
         else
             QCOMPARE(provider.error(), QGeoServiceProvider::MissingRequiredParameterError);

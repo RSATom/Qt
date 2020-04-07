@@ -101,7 +101,7 @@ CircularGaugeStyle {
         ctx.stroke();
 
         ctx.beginPath();
-        var gradient = ctx.createRadialGradient(xCenter, yCenter, outerRadius * 0.8, xCenter, yCenter, outerRadius);
+        var gradient = ctx.createRadialGradient(xCenter, yCenter, 0, xCenter, yCenter, outerRadius * 1.5);
         gradient.addColorStop(0, Qt.rgba(1, 1, 1, 0));
         gradient.addColorStop(0.7, Qt.rgba(1, 1, 1, 0.13));
         gradient.addColorStop(1, Qt.rgba(1, 1, 1, 1));

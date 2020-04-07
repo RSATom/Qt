@@ -9,32 +9,14 @@
 #include "gm.h"
 #include "sk_tool_utils.h"
 #include "SkAutoPixmapStorage.h"
+#include "SkColorPriv.h"
 #include "SkData.h"
 #include "SkCanvas.h"
 #include "SkRandom.h"
 #include "SkStream.h"
 #include "SkSurface.h"
 
-#if SK_SUPPORT_GPU
 #include "GrContext.h"
-#endif
-
-static void drawJpeg(SkCanvas* canvas, const SkISize& size) {
-    // TODO: Make this draw a file that is checked in, so it can
-    // be exercised on machines other than mike's. Will require a
-    // rebaseline.
-    sk_sp<SkData> data(SkData::MakeFromFileName("/Users/mike/Downloads/skia.google.jpeg"));
-    if (nullptr == data) {
-        return;
-    }
-    sk_sp<SkImage> image = SkImage::MakeFromEncoded(std::move(data));
-    if (image) {
-        SkAutoCanvasRestore acr(canvas, true);
-        canvas->scale(size.width() * 1.0f / image->width(),
-                      size.height() * 1.0f / image->height());
-        canvas->drawImage(image, 0, 0, nullptr);
-    }
-}
 
 static void drawContents(SkSurface* surface, SkColor fillC) {
     SkSize size = SkSize::Make(SkIntToScalar(surface->width()),
@@ -129,8 +111,6 @@ protected:
     }
 
     void onDraw(SkCanvas* canvas) override {
-        drawJpeg(canvas, this->getISize());
-
         canvas->scale(2, 2);
 
         const char* kLabel1 = "Original Img";
@@ -170,11 +150,8 @@ protected:
         SkImageInfo info = SkImageInfo::MakeN32Premul(W, H);
         sk_sp<SkSurface> surf0(SkSurface::MakeRasterDirect(info, fBuffer, RB));
         sk_sp<SkSurface> surf1(SkSurface::MakeRaster(info));
-        sk_sp<SkSurface> surf2;  // gpu
-
-#if SK_SUPPORT_GPU
-        surf2 = SkSurface::MakeRenderTarget(canvas->getGrContext(), SkBudgeted::kNo, info);
-#endif
+        sk_sp<SkSurface> surf2(SkSurface::MakeRenderTarget(canvas->getGrContext(),
+                                                           SkBudgeted::kNo, info));
 
         test_surface(canvas, surf0.get(), true);
         canvas->translate(80, 0);
@@ -380,4 +357,79 @@ DEF_SIMPLE_GM(new_texture_image, canvas, 280, 60) {
         }
         canvas->translate(kSize + kPad, 0);
     }
+}
+
+static void draw_pixmap(SkCanvas* canvas, const SkPixmap& pm, SkScalar x, SkScalar y) {
+    canvas->drawImage(SkImage::MakeRasterCopy(pm), x, y, nullptr);
+}
+
+static void slam_ff(const SkPixmap& pm) {
+    for (int y = 0; y < pm.height(); ++y) {
+        for (int x = 0; x < pm.width(); ++x) {
+            *pm.writable_addr32(x, y) = *pm.addr32(x, y) | SkPackARGB32(0xFF, 0, 0, 0);
+        }
+    }
+}
+
+DEF_SIMPLE_GM(scalepixels_unpremul, canvas, 1080, 280) {
+    SkImageInfo info = SkImageInfo::MakeN32(16, 16, kUnpremul_SkAlphaType);
+    SkAutoPixmapStorage pm;
+    pm.alloc(info);
+    for (int y = 0; y < 16; ++y) {
+        for (int x = 0; x < 16; ++x) {
+            *pm.writable_addr32(x, y) = SkPackARGB32NoCheck(0, (y << 4) | y, (x << 4) | x, 0xFF);
+        }
+    }
+    SkAutoPixmapStorage pm2;
+    pm2.alloc(SkImageInfo::MakeN32(256, 256, kUnpremul_SkAlphaType));
+
+    const SkFilterQuality qualities[] = {
+        kNone_SkFilterQuality, kLow_SkFilterQuality, kMedium_SkFilterQuality, kHigh_SkFilterQuality
+    };
+
+    for (auto fq : qualities) {
+        pm.scalePixels(pm2, fq);
+        slam_ff(pm2);
+        draw_pixmap(canvas, pm2, 10, 10);
+        canvas->translate(pm2.width() + 10.0f, 0);
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+static sk_sp<SkImage> make_lazy_image(SkSurface* surf) {
+    surf->getCanvas()->drawCircle(100, 100, 100, SkPaint());
+    sk_sp<SkData> data = surf->makeImageSnapshot()->encodeToData();
+    if (!data) {
+        return nullptr;
+    }
+    return SkImage::MakeFromEncoded(std::move(data));
+}
+
+#include "SkWriteBuffer.h"
+#include "SkReadBuffer.h"
+static sk_sp<SkImage> serial_deserial(SkImage* img) {
+    SkBinaryWriteBuffer writer;
+    writer.writeImage(img);
+    size_t length = writer.bytesWritten();
+    auto data = SkData::MakeUninitialized(length);
+    writer.writeToMemory(data->writable_data());
+
+    SkReadBuffer reader(data->data(), length);
+    return reader.readImage();
+}
+
+DEF_SIMPLE_GM(image_subset, canvas, 440, 220) {
+    SkImageInfo info = SkImageInfo::MakeN32Premul(200, 200, nullptr);
+    auto surf = sk_tool_utils::makeSurface(canvas, info, nullptr);
+    auto img = make_lazy_image(surf.get());
+    if (!img) {
+        return;
+    }
+
+    canvas->drawImage(img, 10, 10, nullptr);
+    auto sub = img->makeSubset({100, 100, 200, 200});
+    canvas->drawImage(sub, 220, 10);
+    sub = serial_deserial(sub.get());
+    canvas->drawImage(sub, 220+110, 10);
 }

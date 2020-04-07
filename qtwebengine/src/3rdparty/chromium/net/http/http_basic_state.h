@@ -13,9 +13,9 @@
 
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "net/base/completion_callback.h"
 #include "net/base/net_export.h"
 #include "net/base/request_priority.h"
+#include "net/traffic_annotation/network_traffic_annotation.h"
 #include "url/gurl.h"
 
 namespace net {
@@ -34,15 +34,16 @@ class NET_EXPORT_PRIVATE HttpBasicState {
   ~HttpBasicState();
 
   // Initialize() must be called before using any of the other methods.
-  int Initialize(const HttpRequestInfo* request_info,
-                 RequestPriority priority,
-                 const NetLogWithSource& net_log,
-                 const CompletionCallback& callback);
+  void Initialize(const HttpRequestInfo* request_info,
+                  bool can_send_early,
+                  RequestPriority priority,
+                  const NetLogWithSource& net_log);
 
   HttpStreamParser* parser() const { return parser_.get(); }
 
   bool using_proxy() const { return using_proxy_; }
 
+  bool can_send_early() const { return can_send_early_; }
   bool http_09_on_non_default_ports_enabled() const {
     return http_09_on_non_default_ports_enabled_;
   }
@@ -60,6 +61,10 @@ class NET_EXPORT_PRIVATE HttpBasicState {
   // values of request_info_ and using_proxy_.
   std::string GenerateRequestLine() const;
 
+  MutableNetworkTrafficAnnotationTag traffic_annotation() {
+    return traffic_annotation_;
+  }
+
  private:
   scoped_refptr<GrowableIOBuffer> read_buf_;
 
@@ -69,10 +74,14 @@ class NET_EXPORT_PRIVATE HttpBasicState {
 
   const bool using_proxy_;
 
+  bool can_send_early_;
+
   const bool http_09_on_non_default_ports_enabled_;
 
   GURL url_;
   std::string request_method_;
+
+  MutableNetworkTrafficAnnotationTag traffic_annotation_;
 
   DISALLOW_COPY_AND_ASSIGN(HttpBasicState);
 };

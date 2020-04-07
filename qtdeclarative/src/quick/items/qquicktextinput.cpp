@@ -75,7 +75,7 @@ DEFINE_BOOL_CONFIG_OPTION(qmlDisableDistanceField, QML_DISABLE_DISTANCEFIELD)
     \ingroup qtquick-visual
     \ingroup qtquick-input
     \inherits Item
-    \brief Displays an editable line of text
+    \brief Displays an editable line of text.
 
     The TextInput type displays a single line of editable plain text.
 
@@ -384,9 +384,9 @@ QString QQuickTextInputPrivate::realText() const
     \qmlproperty bool QtQuick::TextInput::font.kerning
     \since 5.10
 
-    Enables or disables the kerning OpenType feature when shaping the text. This may improve performance
-    when creating or changing the text, at the expense of some cosmetic features. The default value
-    is true.
+    Enables or disables the kerning OpenType feature when shaping the text. Disabling this may
+    improve performance when creating or changing the text, at the expense of some cosmetic
+    features. The default value is true.
 
     \qml
     TextInput { text: "OATS FLAVOUR WAY"; font.kerning: false }
@@ -1242,6 +1242,12 @@ void QQuickTextInput::setEchoMode(QQuickTextInput::EchoMode echo)
     d->updateDisplayText();
     updateCursorRectangle();
 
+    // If this control is used for password input, we want to minimize
+    // the possibility of string reallocation not to leak (parts of)
+    // the password.
+    if (d->m_echoMode != QQuickTextInput::Normal)
+        d->m_text.reserve(30);
+
     emit echoModeChanged(echoMode());
 }
 
@@ -1863,7 +1869,7 @@ void QQuickTextInput::invalidateFontCaches()
 {
     Q_D(QQuickTextInput);
 
-    if (d->m_textLayout.engine() != 0)
+    if (d->m_textLayout.engine() != nullptr)
         d->m_textLayout.engine()->resetFontEngineCache();
 }
 
@@ -1886,7 +1892,7 @@ QSGNode *QQuickTextInput::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData 
     Q_UNUSED(data);
     Q_D(QQuickTextInput);
 
-    if (d->updateType != QQuickTextInputPrivate::UpdatePaintNode && oldNode != 0) {
+    if (d->updateType != QQuickTextInputPrivate::UpdatePaintNode && oldNode != nullptr) {
         // Update done in preprocess() in the nodes
         d->updateType = QQuickTextInputPrivate::UpdateNone;
         return oldNode;
@@ -1895,13 +1901,13 @@ QSGNode *QQuickTextInput::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData 
     d->updateType = QQuickTextInputPrivate::UpdateNone;
 
     QQuickTextNode *node = static_cast<QQuickTextNode *>(oldNode);
-    if (node == 0)
+    if (node == nullptr)
         node = new QQuickTextNode(this);
     d->textNode = node;
 
-    const bool showCursor = !isReadOnly() && d->cursorItem == 0 && d->cursorVisible && d->m_blinkStatus;
+    const bool showCursor = !isReadOnly() && d->cursorItem == nullptr && d->cursorVisible && d->m_blinkStatus;
 
-    if (!d->textLayoutDirty && oldNode != 0) {
+    if (!d->textLayoutDirty && oldNode != nullptr) {
         if (showCursor)
             node->setCursor(cursorRectangle(), d->color);
         else
@@ -3828,7 +3834,7 @@ void QQuickTextInputPrivate::parseInputMask(const QString &maskFields)
     if (maskFields.isEmpty() || delimiter == 0) {
         if (m_maskData) {
             delete [] m_maskData;
-            m_maskData = 0;
+            m_maskData = nullptr;
             m_maxLength = 32767;
             internalSetText(QString());
         }

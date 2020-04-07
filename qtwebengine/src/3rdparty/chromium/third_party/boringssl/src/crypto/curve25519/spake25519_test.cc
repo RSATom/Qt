@@ -23,10 +23,10 @@
 #include <gtest/gtest.h>
 
 #include "../internal.h"
-#include "internal.h"
+#include "../../third_party/fiat/internal.h"
 
 
-/* TODO(agl): add tests with fixed vectors once SPAKE2 is nailed down. */
+// TODO(agl): add tests with fixed vectors once SPAKE2 is nailed down.
 
 struct SPAKE2Run {
   bool Run() {

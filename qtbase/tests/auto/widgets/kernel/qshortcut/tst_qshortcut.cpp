@@ -604,7 +604,7 @@ void tst_QShortcut::disabledItems()
 {
     clearAllShortcuts();
     mainW->activateWindow();
-    QTest::qWait(100);
+    QVERIFY(QTest::qWaitForWindowActive(mainW));
 
     /* Testing Disabled Shortcuts
        Qt::Key_M          on slot1
@@ -1105,7 +1105,7 @@ public:
 
     int overrideCount;
 
-    bool event(QEvent *e) Q_DECL_OVERRIDE
+    bool event(QEvent *e) override
     {
         if (e->type() == QEvent::ShortcutOverride)
             overrideCount++;

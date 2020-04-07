@@ -56,6 +56,11 @@ using namespace ABI::Windows::Foundation;
 
 QT_BEGIN_NAMESPACE
 
+static inline bool qIsPointInRect(const Point &p, const Rect &r)
+{
+    return (p.X >= r.X && p.Y >= r.Y && p.X < r.X + r.Width && p.Y < r.Y + r.Height);
+}
+
 class QWinRTCursorPrivate
 {
 public:
@@ -73,10 +78,6 @@ QWinRTCursor::QWinRTCursor()
     Q_ASSERT_SUCCEEDED(hr);
 }
 
-QWinRTCursor::~QWinRTCursor()
-{
-}
-
 #ifndef QT_NO_CURSOR
 void QWinRTCursor::changeCursor(QCursor *windowCursor, QWindow *window)
 {
@@ -89,7 +90,7 @@ void QWinRTCursor::changeCursor(QCursor *windowCursor, QWindow *window)
     switch (windowCursor ? windowCursor->shape() : Qt::ArrowCursor) {
     case Qt::BlankCursor:
         hr = QEventDispatcherWinRT::runOnXamlThread([coreWindow]() {
-            coreWindow->put_PointerCursor(Q_NULLPTR);
+            coreWindow->put_PointerCursor(nullptr);
             return S_OK;
         });
         RETURN_VOID_IF_FAILED("Failed to set blank native cursor");
@@ -169,14 +170,60 @@ QPoint QWinRTCursor::pos() const
     ICoreWindow *coreWindow = screen->coreWindow();
     Q_ASSERT(coreWindow);
     Point point;
-    HRESULT hr = QEventDispatcherWinRT::runOnXamlThread([coreWindow, &point]() {
-        return coreWindow->get_PointerPosition(&point);
+    Rect bounds;
+    HRESULT hr = QEventDispatcherWinRT::runOnXamlThread([coreWindow, &point, &bounds]() {
+        HRESULT hr = coreWindow->get_PointerPosition(&point);
+        RETURN_HR_IF_FAILED("Failed to obtain pointer position.");
+        hr = coreWindow->get_Bounds(&bounds);
+        RETURN_HR_IF_FAILED("Failed to obtain window bounds.");
+        return hr;
     });
     Q_ASSERT_SUCCEEDED(hr);
-    const QPoint position = QPoint(point.X, point.Y) * screen->scaleFactor();
+    QPointF position(qreal(point.X), qreal(point.Y));
     // If no cursor get_PointerPosition returns SHRT_MIN for x and y
-    return position.x() == SHRT_MIN && position.y() == SHRT_MIN || FAILED(hr) ? QPointF(Q_INFINITY, Q_INFINITY).toPoint()
-                                                                              : position;
+    if ((int(position.x()) == SHRT_MIN && int(position.y()) == SHRT_MIN)
+            || FAILED(hr))
+        return QPointF(Q_INFINITY, Q_INFINITY).toPoint();
+    position.rx() -= qreal(bounds.X);
+    position.ry() -= qreal(bounds.Y);
+    position *= screen->scaleFactor();
+    return position.toPoint();
+}
+
+void QWinRTCursor::setPos(const QPoint &pos)
+{
+    QWinRTScreen *screen = static_cast<QWinRTScreen *>(QGuiApplication::primaryScreen()->handle());
+    Q_ASSERT(screen);
+    ComPtr<ICoreWindow> coreWindow = screen->coreWindow();
+    Q_ASSERT(coreWindow);
+    const QPointF scaledPos = QPointF(pos) / screen->scaleFactor();
+    QWinRTScreen::MousePositionTransition t;
+    HRESULT hr = QEventDispatcherWinRT::runOnXamlThread([coreWindow, scaledPos, &t]() {
+        ComPtr<ICoreWindow2> coreWindow2;
+        HRESULT hr = coreWindow.As(&coreWindow2);
+        RETURN_HR_IF_FAILED("Failed to cast core window.");
+        Rect bounds;
+        hr = coreWindow->get_Bounds(&bounds);
+        RETURN_HR_IF_FAILED("Failed to obtain window bounds.");
+        Point mousePos;
+        hr = coreWindow->get_PointerPosition(&mousePos);
+        RETURN_HR_IF_FAILED("Failed to obtain mouse position.");
+        const Point p = { FLOAT(scaledPos.x()) + bounds.X,
+                          FLOAT(scaledPos.y()) + bounds.Y };
+        const bool wasInWindow = qIsPointInRect(mousePos, bounds);
+        const bool willBeInWindow = qIsPointInRect(p, bounds);
+        if (wasInWindow && willBeInWindow)
+            t = QWinRTScreen::MousePositionTransition::StayedIn;
+        else if (wasInWindow && !willBeInWindow)
+            t = QWinRTScreen::MousePositionTransition::MovedOut;
+        else if (!wasInWindow && willBeInWindow)
+            t = QWinRTScreen::MousePositionTransition::MovedIn;
+        else
+            t = QWinRTScreen::MousePositionTransition::StayedOut;
+        return coreWindow2->put_PointerPosition(p);
+    });
+    RETURN_VOID_IF_FAILED("Failed to set cursor position");
+    screen->emulateMouseMove(scaledPos, t);
 }
 
 QT_END_NAMESPACE

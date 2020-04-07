@@ -62,11 +62,11 @@ int main(int argc, char *argv[])
     QGuiApplication app(argc, argv);
 
     Device d;
-    QQuickView *view = new QQuickView;
+    auto view = new QQuickView;
     view->rootContext()->setContextProperty("device", &d);
 
     view->setSource(QUrl("qrc:/assets/main.qml"));
     view->setResizeMode(QQuickView::SizeRootObjectToView);
     view->show();
-    return app.exec();
+    return QGuiApplication::exec();
 }

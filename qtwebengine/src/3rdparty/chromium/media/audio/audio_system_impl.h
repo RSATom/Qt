@@ -5,36 +5,39 @@
 #ifndef MEDIA_AUDIO_AUDIO_SYSTEM_IMPL_H_
 #define MEDIA_AUDIO_AUDIO_SYSTEM_IMPL_H_
 
-#include "media/audio/audio_system.h"
+#include <memory>
+#include <string>
 
-namespace base {
-class SingleThreadTaskRunner;
-}
+#include "base/callback.h"
+#include "base/threading/thread_checker.h"
+#include "media/audio/audio_system.h"
+#include "media/audio/audio_system_helper.h"
 
 namespace media {
 class AudioManager;
 
 class MEDIA_EXPORT AudioSystemImpl : public AudioSystem {
  public:
-  static std::unique_ptr<AudioSystem> Create(AudioManager* audio_manager);
+  // Creates AudioSystem using the global AudioManager instance, which must be
+  // created prior to that.
+  static std::unique_ptr<AudioSystem> CreateInstance();
 
-  ~AudioSystemImpl() override;
+  explicit AudioSystemImpl(AudioManager* audio_manager);
 
   // AudioSystem implementation.
-  void GetInputStreamParameters(
-      const std::string& device_id,
-      OnAudioParamsCallback on_params_cb) const override;
+  void GetInputStreamParameters(const std::string& device_id,
+                                OnAudioParamsCallback on_params_cb) override;
 
-  void GetOutputStreamParameters(
-      const std::string& device_id,
-      OnAudioParamsCallback on_params_cb) const override;
+  void GetOutputStreamParameters(const std::string& device_id,
+                                 OnAudioParamsCallback on_params_cb) override;
 
-  void HasInputDevices(OnBoolCallback on_has_devices_cb) const override;
+  void HasInputDevices(OnBoolCallback on_has_devices_cb) override;
 
-  void HasOutputDevices(OnBoolCallback on_has_devices_cb) const override;
+  void HasOutputDevices(OnBoolCallback on_has_devices_cb) override;
 
-  void GetDeviceDescriptions(OnDeviceDescriptionsCallback on_descriptions_cp,
-                             bool for_input) override;
+  void GetDeviceDescriptions(
+      bool for_input,
+      OnDeviceDescriptionsCallback on_descriptions_cp) override;
 
   void GetAssociatedOutputDeviceID(const std::string& input_device_id,
                                    OnDeviceIdCallback on_device_id_cb) override;
@@ -43,30 +46,15 @@ class MEDIA_EXPORT AudioSystemImpl : public AudioSystem {
       const std::string& input_device_id,
       OnInputDeviceInfoCallback on_input_device_info_cb) override;
 
-  base::SingleThreadTaskRunner* GetTaskRunner() const override;
-
- protected:
-  AudioSystemImpl(AudioManager* audio_manager);
-
  private:
+  // No-op if called on helper_.GetTaskRunner() thread, otherwise binds
+  // |callback| to the current loop.
+  template <typename... Args>
+  base::OnceCallback<void(Args...)> MaybeBindToCurrentLoop(
+      base::OnceCallback<void(Args...)> callback);
+
+  THREAD_CHECKER(thread_checker_);
   AudioManager* const audio_manager_;
-
-  static AudioParameters GetInputParametersOnDeviceThread(
-      AudioManager* audio_manager,
-      const std::string& device_id);
-
-  static AudioParameters GetOutputParametersOnDeviceThread(
-      AudioManager* audio_manager,
-      const std::string& device_id);
-
-  static AudioDeviceDescriptions GetDeviceDescriptionsOnDeviceThread(
-      AudioManager* audio_manager,
-      bool for_input);
-
-  static void GetInputDeviceInfoOnDeviceThread(
-      AudioManager* audio_manager,
-      const std::string& input_device_id,
-      AudioSystem::OnInputDeviceInfoCallback on_input_device_info_cb);
 
   DISALLOW_COPY_AND_ASSIGN(AudioSystemImpl);
 };

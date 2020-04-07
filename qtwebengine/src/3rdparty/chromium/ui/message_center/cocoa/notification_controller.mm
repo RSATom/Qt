@@ -22,7 +22,8 @@
 #include "ui/gfx/text_utils.h"
 #include "ui/message_center/message_center.h"
 #include "ui/message_center/message_center_style.h"
-#include "ui/message_center/notification.h"
+#include "ui/message_center/public/cpp/message_center_constants.h"
+#include "ui/message_center/public/cpp/notification.h"
 #include "ui/resources/grit/ui_resources.h"
 #include "ui/strings/grit/ui_strings.h"
 #include "url/gurl.h"
@@ -339,8 +340,7 @@
   [rootView addSubview:[self createSmallImageInFrame:rootFrame]];
 
   // Create the settings button.
-  if (notification_->delegate() &&
-      notification_->delegate()->ShouldDisplaySettingsButton()) {
+  if (notification_->should_show_settings_button()) {
     [self configureSettingsButtonInFrame:rootFrame];
     [rootView addSubview:settingsButton_];
   }
@@ -454,9 +454,9 @@
   base::string16 message;
   if (notification->UseOriginAsContextMessage()) {
     gfx::FontList font_list((gfx::Font([message_ font])));
-    message =
-        url_formatter::ElideHost(notification->origin_url(), font_list,
-                                 message_center::kContextMessageViewWidth);
+    message = url_formatter::ElideHost(notification->origin_url(), font_list,
+                                       message_center::kContextMessageViewWidth,
+                                       gfx::Typesetter::NATIVE);
   } else {
     message = notification->context_message();
   }
@@ -957,8 +957,8 @@
   int height = (lines + 1) * font_list.GetHeight();
 
   std::vector<base::string16> wrapped;
-  gfx::ElideRectangleText(text, font_list, width, height,
-                          gfx::WRAP_LONG_WORDS, &wrapped);
+  gfx::ElideRectangleTextForNativeUi(text, font_list, width, height,
+                                     gfx::WRAP_LONG_WORDS, &wrapped);
 
   // This could be possible when the input text contains only spaces.
   if (wrapped.empty())
@@ -969,8 +969,10 @@
     // too wide, that line will be further elided by the gfx::ElideText below.
     base::string16 last =
         wrapped[lines - 1] + base::UTF8ToUTF16(gfx::kEllipsis);
-    if (gfx::GetStringWidth(last, font_list) > width)
-      last = gfx::ElideText(last, font_list, width, gfx::ELIDE_TAIL);
+    if (gfx::GetStringWidth(last, font_list, gfx::Typesetter::NATIVE) > width) {
+      last = gfx::ElideText(last, font_list, width, gfx::ELIDE_TAIL,
+                            gfx::Typesetter::NATIVE);
+    }
     wrapped.resize(lines - 1);
     wrapped.push_back(last);
   }

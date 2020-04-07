@@ -100,7 +100,8 @@ void DisableSetUnhandledExceptionFilter() {
   if (g_set_unhandled_exception_filter->Hook(
           ::GetModuleHandle(nullptr), "kernel32.dll",
           "SetUnhandledExceptionFilter",
-          SetUnhandledExceptionFilterPatch) != NO_ERROR) {
+          reinterpret_cast<void*>(SetUnhandledExceptionFilterPatch)) !=
+      NO_ERROR) {
 #ifdef _DEBUG
     assert(false);
 #endif  // _DEBUG
@@ -118,36 +119,11 @@ void DumpWithoutCrashing() {
   crash_reporter::DumpWithoutCrashing();
 }
 
-}  // namespace elf_crash
-
-//------------------------------------------------------------------------------
-// Exported crash APIs for the rest of the process.
-//------------------------------------------------------------------------------
-
-// This helper is invoked by code in chrome.dll to retrieve the crash reports.
-// See CrashUploadListCrashpad. Note that we do not pass a std::vector here,
-// because we do not want to allocate/free in different modules. The returned
-// pointer is read-only.
-//
-// NOTE: Since the returned pointer references read-only memory that will be
-// cleaned up when this DLL unloads, be careful not to reference the memory
-// beyond that point (e.g. during tests).
-extern "C" __declspec(dllexport) void GetCrashReportsImpl(
-    const crash_reporter::Report** reports,
-    size_t* report_count) {
-  if (!g_crash_helper_enabled)
-    return;
-  crash_reporter::GetReports(g_crash_reports);
-  *reports = g_crash_reports->data();
-  *report_count = g_crash_reports->size();
-}
-
-// This helper is invoked by debugging code in chrome to register the client
-// id.
-extern "C" __declspec(dllexport) void SetMetricsClientId(
-    const char* client_id) {
+void SetMetricsClientIdImpl(const char* client_id) {
   if (!g_crash_helper_enabled)
     return;
   if (client_id)
     crash_keys::SetMetricsClientIdFromGUID(client_id);
 }
+
+}  // namespace elf_crash

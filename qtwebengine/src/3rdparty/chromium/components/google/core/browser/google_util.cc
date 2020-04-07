@@ -142,11 +142,9 @@ bool IsGoogleSearchSubdomainUrl(const GURL& url) {
 bool HasGoogleSearchQueryParam(base::StringPiece str) {
   url::Component query(0, static_cast<int>(str.length())), key, value;
   while (url::ExtractQueryKeyValue(str.data(), &query, &key, &value)) {
-    if (value.is_nonempty()) {
-      base::StringPiece key_str = str.substr(key.begin, key.len);
-      if (key_str == "q" || key_str == "as_q")
-        return true;
-    }
+    base::StringPiece key_str = str.substr(key.begin, key.len);
+    if (key_str == "q" || key_str == "as_q")
+      return true;
   }
   return false;
 }
@@ -177,7 +175,8 @@ std::string GetGoogleCountryCode(const GURL& google_homepage_url) {
   // TODO(igorcov): This needs a fix for case when the host has a trailing dot,
   // like "google.com./". https://crbug.com/720295.
   const size_t last_dot = google_hostname.find_last_of('.');
-  DCHECK_NE(std::string::npos, last_dot);
+  if (last_dot == std::string::npos)
+    return std::string();
   base::StringPiece country_code = google_hostname.substr(last_dot + 1);
   // Assume the com TLD implies the US.
   if (country_code == "com")

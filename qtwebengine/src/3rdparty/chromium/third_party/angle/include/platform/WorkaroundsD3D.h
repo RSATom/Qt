@@ -97,16 +97,37 @@ struct WorkaroundsD3D
     // This driver bug is fixed in 21.20.16.4542.
     bool emulateIsnanFloat = false;
 
-    // On some Intel drivers, using clear() may not take effect. One of such situation is to clear
-    // a target with width or height < 16. To work around this bug, we call clear() twice on these
-    // platforms. Tracking bug: https://crbug.com/655534
-    bool callClearTwiceOnSmallTarget = false;
+    // On some Intel drivers, using clear() may not take effect. To work around this bug, we call
+    // clear() twice on these platforms.
+    // Tracking bug: https://crbug.com/655534
+    bool callClearTwice = false;
 
     // On some Intel drivers, copying from staging storage to constant buffer storage does not
     // seem to work. Work around this by keeping system memory storage as a canonical reference
     // for buffer data.
     // D3D11-only workaround. See http://crbug.com/593024.
     bool useSystemMemoryForConstantBuffers = false;
+
+    // This workaround is for the ANGLE_multiview extension. If enabled the viewport or render
+    // target slice will be selected in the geometry shader stage. The workaround flag is added to
+    // make it possible to select the code path in end2end and performance tests.
+    bool selectViewInGeometryShader = false;
+
+    // When rendering with no render target on D3D, two bugs lead to incorrect behavior on Intel
+    // drivers < 4815. The rendering samples always pass neglecting discard statements in pixel
+    // shader.
+    // 1. If rendertarget is not set, the pixel shader will be recompiled to drop 'SV_TARGET'.
+    // When using a pixel shader with no 'SV_TARGET' in a draw, the pixels are always generated even
+    // if they should be discard by 'discard' statements.
+    // 2. If ID3D11BlendState.RenderTarget[].RenderTargetWriteMask is 0 and rendertarget is not set,
+    // then rendering samples also pass neglecting discard statements in pixel shader.
+    // So we add a dummy texture as render target in such case. See http://anglebug.com/2152
+    bool addDummyTextureNoRenderTarget = false;
+
+    // Don't use D3D constant register zero when allocating space for uniforms in the vertex shader.
+    // This is targeted to work around a bug in NVIDIA D3D driver version 388.59 where in very
+    // specific cases the driver would not handle constant register zero correctly.
+    bool skipVSConstantRegisterZero = false;
 };
 
 }  // namespace angle

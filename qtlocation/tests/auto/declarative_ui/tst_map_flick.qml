@@ -348,5 +348,17 @@ Item {
             map.disableOnPanStartedWithNoGesture = true
             disable_onPanStarted()
         }
+
+        /*
+            Regression test for QTBUG-67580 where touching the map
+            (as opposing to clicking it with a mouse) would cause a crash.
+            So this test is merely about surviving a tap.
+         */
+        function test_touch()
+        {
+            touchEvent(map).press(0).commit();
+            wait(25);
+            touchEvent(map).release(0).commit();
+        }
     }
 }

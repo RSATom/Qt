@@ -38,7 +38,7 @@ class MESSAGE_CENTER_EXPORT BoundedLabel : public views::View {
   BoundedLabel(const base::string16& text);
   ~BoundedLabel() override;
 
-  void SetColors(SkColor textColor, SkColor backgroundColor);
+  void SetColor(SkColor text_color);
   void SetLineHeight(int height);  // Pass in 0 for default height.
   void SetLineLimit(int lines);  // Pass in -1 for no limit.
   void SetText(const base::string16& text);  // Additionally clears caches.
@@ -58,6 +58,9 @@ class MESSAGE_CENTER_EXPORT BoundedLabel : public views::View {
   void OnPaint(gfx::Canvas* canvas) override;
   bool CanProcessEventsWithinSubtree() const override;
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
+  views::View* GetTooltipHandlerForPoint(const gfx::Point& point) override;
+  bool GetTooltipText(const gfx::Point& p,
+                      base::string16* tooltip) const override;
 
  protected:
   // Overridden from views::View.

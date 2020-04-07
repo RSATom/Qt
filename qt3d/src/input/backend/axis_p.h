@@ -68,10 +68,10 @@ public:
     inline QVector<Qt3DCore::QNodeId> inputs() const { return m_inputs; }
     inline float axisValue() const { return m_axisValue; }
     void setAxisValue(float axisValue);
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) Q_DECL_OVERRIDE;
+    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) override;
 
 private:
-    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) Q_DECL_FINAL;
+    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) final;
 
     QVector<Qt3DCore::QNodeId> m_inputs;
     float m_axisValue;

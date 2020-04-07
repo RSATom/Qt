@@ -61,8 +61,8 @@ public:
     };
     Q_ENUM(HistoryType)
 
-    QHistoryState(QState *parent = Q_NULLPTR);
-    QHistoryState(HistoryType type, QState *parent = Q_NULLPTR);
+    QHistoryState(QState *parent = nullptr);
+    QHistoryState(HistoryType type, QState *parent = nullptr);
     ~QHistoryState();
 
     QAbstractTransition *defaultTransition() const;
@@ -80,10 +80,10 @@ Q_SIGNALS:
     void historyTypeChanged(QPrivateSignal);
 
 protected:
-    void onEntry(QEvent *event) Q_DECL_OVERRIDE;
-    void onExit(QEvent *event) Q_DECL_OVERRIDE;
+    void onEntry(QEvent *event) override;
+    void onExit(QEvent *event) override;
 
-    bool event(QEvent *e) Q_DECL_OVERRIDE;
+    bool event(QEvent *e) override;
 
 private:
     Q_DISABLE_COPY(QHistoryState)

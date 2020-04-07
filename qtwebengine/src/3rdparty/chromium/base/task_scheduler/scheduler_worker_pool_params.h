@@ -12,23 +12,14 @@ namespace base {
 
 class BASE_EXPORT SchedulerWorkerPoolParams final {
  public:
-  enum class StandbyThreadPolicy {
-    // Create threads as needed on demand, reclaimed as necessary.
-    LAZY,
-    // When possible, keep one idle thread alive on standby, reclaimed as
-    // necessary.
-    ONE,
-  };
-
-  // Constructs a set of params used to initialize a pool. The pool will contain
-  // up to |max_threads|. |standby_thread_policy| indicates whether an idle
-  // thread should be kept alive on standby. |suggested_reclaim_time| sets a
-  // suggestion on when to reclaim idle threads. The pool is free to ignore this
-  // value for performance or correctness reasons. |backward_compatibility|
-  // indicates whether backward compatibility is enabled.
+  // Constructs a set of params used to initialize a pool. The pool will run
+  // concurrently at most |max_tasks| that aren't blocked (ScopedBlockingCall).
+  // |suggested_reclaim_time| sets a suggestion on when to reclaim idle threads.
+  // The pool is free to ignore this value for performance or correctness
+  // reasons. |backward_compatibility| indicates whether backward compatibility
+  // is enabled.
   SchedulerWorkerPoolParams(
-      StandbyThreadPolicy standby_thread_policy,
-      int max_threads,
+      int max_tasks,
       TimeDelta suggested_reclaim_time,
       SchedulerBackwardCompatibility backward_compatibility =
           SchedulerBackwardCompatibility::DISABLED);
@@ -36,18 +27,14 @@ class BASE_EXPORT SchedulerWorkerPoolParams final {
   SchedulerWorkerPoolParams(const SchedulerWorkerPoolParams& other);
   SchedulerWorkerPoolParams& operator=(const SchedulerWorkerPoolParams& other);
 
-  StandbyThreadPolicy standby_thread_policy() const {
-    return standby_thread_policy_;
-  }
-  int max_threads() const { return max_threads_; }
+  int max_tasks() const { return max_tasks_; }
   TimeDelta suggested_reclaim_time() const { return suggested_reclaim_time_; }
   SchedulerBackwardCompatibility backward_compatibility() const {
     return backward_compatibility_;
   }
 
  private:
-  StandbyThreadPolicy standby_thread_policy_;
-  int max_threads_;
+  int max_tasks_;
   TimeDelta suggested_reclaim_time_;
   SchedulerBackwardCompatibility backward_compatibility_;
 };

@@ -12,7 +12,6 @@
 #include "base/command_line.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
 #include "components/google/core/browser/google_switches.h"
@@ -123,8 +122,8 @@ TEST_F(TemplateURLPrepopulateDataTest, UniqueIDs) {
 // override the built-in ones.
 TEST_F(TemplateURLPrepopulateDataTest, ProvidersFromPrefs) {
   prefs_.SetUserPref(prefs::kSearchProviderOverridesVersion,
-                     base::MakeUnique<base::Value>(1));
-  auto overrides = base::MakeUnique<base::ListValue>();
+                     std::make_unique<base::Value>(1));
+  auto overrides = std::make_unique<base::ListValue>();
   std::unique_ptr<base::DictionaryValue> entry(new base::DictionaryValue);
   // Set only the minimal required settings for a search provider configuration.
   entry->SetString("name", "foo");
@@ -152,21 +151,17 @@ TEST_F(TemplateURLPrepopulateDataTest, ProvidersFromPrefs) {
   EXPECT_EQ(1u, t_urls[0]->input_encodings.size());
   EXPECT_EQ(1001, t_urls[0]->prepopulate_id);
   EXPECT_TRUE(t_urls[0]->suggestions_url.empty());
-  EXPECT_TRUE(t_urls[0]->instant_url.empty());
   EXPECT_EQ(0u, t_urls[0]->alternate_urls.size());
-  EXPECT_TRUE(t_urls[0]->search_terms_replacement_key.empty());
   EXPECT_TRUE(t_urls[0]->safe_for_autoreplace);
   EXPECT_TRUE(t_urls[0]->date_created.is_null());
   EXPECT_TRUE(t_urls[0]->last_modified.is_null());
 
   // Test the optional settings too.
   entry->SetString("suggest_url", "http://foo.com/suggest?q={searchTerms}");
-  entry->SetString("instant_url", "http://foo.com/instant?q={searchTerms}");
-  auto alternate_urls = base::MakeUnique<base::ListValue>();
+  auto alternate_urls = std::make_unique<base::ListValue>();
   alternate_urls->AppendString("http://foo.com/alternate?q={searchTerms}");
   entry->Set("alternate_urls", std::move(alternate_urls));
-  entry->SetString("search_terms_replacement_key", "espv");
-  overrides = base::MakeUnique<base::ListValue>();
+  overrides = std::make_unique<base::ListValue>();
   overrides->Append(entry->CreateDeepCopy());
   prefs_.SetUserPref(prefs::kSearchProviderOverrides, std::move(overrides));
 
@@ -181,16 +176,13 @@ TEST_F(TemplateURLPrepopulateDataTest, ProvidersFromPrefs) {
   EXPECT_EQ(1001, t_urls[0]->prepopulate_id);
   EXPECT_EQ("http://foo.com/suggest?q={searchTerms}",
             t_urls[0]->suggestions_url);
-  EXPECT_EQ("http://foo.com/instant?q={searchTerms}",
-            t_urls[0]->instant_url);
   ASSERT_EQ(1u, t_urls[0]->alternate_urls.size());
   EXPECT_EQ("http://foo.com/alternate?q={searchTerms}",
             t_urls[0]->alternate_urls[0]);
-  EXPECT_EQ("espv", t_urls[0]->search_terms_replacement_key);
 
   // Test that subsequent providers are loaded even if an intermediate
   // provider has an incomplete configuration.
-  overrides = base::MakeUnique<base::ListValue>();
+  overrides = std::make_unique<base::ListValue>();
   overrides->Append(entry->CreateDeepCopy());
   entry->SetInteger("id", 1002);
   entry->SetString("name", "bar");
@@ -212,8 +204,8 @@ TEST_F(TemplateURLPrepopulateDataTest, ProvidersFromPrefs) {
 
 TEST_F(TemplateURLPrepopulateDataTest, ClearProvidersFromPrefs) {
   prefs_.SetUserPref(prefs::kSearchProviderOverridesVersion,
-                     base::MakeUnique<base::Value>(1));
-  auto overrides = base::MakeUnique<base::ListValue>();
+                     std::make_unique<base::Value>(1));
+  auto overrides = std::make_unique<base::ListValue>();
   std::unique_ptr<base::DictionaryValue> entry(new base::DictionaryValue);
   // Set only the minimal required settings for a search provider configuration.
   entry->SetString("name", "foo");
@@ -249,7 +241,6 @@ TEST_F(TemplateURLPrepopulateDataTest, ClearProvidersFromPrefs) {
   // Ensures the default URL is Google and has the optional fields filled.
   EXPECT_EQ(ASCIIToUTF16("Google"), t_urls[default_index]->short_name());
   EXPECT_FALSE(t_urls[default_index]->suggestions_url.empty());
-  EXPECT_FALSE(t_urls[default_index]->instant_url.empty());
   EXPECT_FALSE(t_urls[default_index]->image_url.empty());
   EXPECT_FALSE(t_urls[default_index]->new_tab_url.empty());
   EXPECT_FALSE(t_urls[default_index]->contextual_search_url.empty());
@@ -285,7 +276,6 @@ TEST_F(TemplateURLPrepopulateDataTest, ProvidersFromPrepopulated) {
   // Ensures the default URL is Google and has the optional fields filled.
   EXPECT_EQ(ASCIIToUTF16("Google"), t_urls[default_index]->short_name());
   EXPECT_FALSE(t_urls[default_index]->suggestions_url.empty());
-  EXPECT_FALSE(t_urls[default_index]->instant_url.empty());
   EXPECT_FALSE(t_urls[default_index]->image_url.empty());
   EXPECT_FALSE(t_urls[default_index]->new_tab_url.empty());
   EXPECT_FALSE(t_urls[default_index]->contextual_search_url.empty());
@@ -298,7 +288,6 @@ TEST_F(TemplateURLPrepopulateDataTest, ProvidersFromPrepopulated) {
   EXPECT_EQ(SEARCH_ENGINE_GOOGLE,
             TemplateURL(*t_urls[default_index]).GetEngineType(
                 SearchTermsData()));
-  EXPECT_FALSE(t_urls[default_index]->search_terms_replacement_key.empty());
 }
 
 TEST_F(TemplateURLPrepopulateDataTest, GetEngineTypeBasic) {
@@ -371,6 +360,23 @@ TEST_F(TemplateURLPrepopulateDataTest, GetEngineTypeForAllPrepopulatedEngines) {
   }
 }
 
+TEST_F(TemplateURLPrepopulateDataTest, CheckSearchURLDetection) {
+  using PrepopulatedEngine = TemplateURLPrepopulateData::PrepopulatedEngine;
+  const std::vector<const PrepopulatedEngine*> all_engines =
+      TemplateURLPrepopulateData::GetAllPrepopulatedEngines();
+  for (const PrepopulatedEngine* engine : all_engines) {
+    std::unique_ptr<TemplateURLData> data =
+        TemplateURLDataFromPrepopulatedEngine(*engine);
+    TemplateURL t_url(*data);
+    SearchTermsData search_data;
+    // Test that search term is successfully extracted from generated search
+    // url.
+    GURL search_url = t_url.GenerateSearchURL(search_data);
+    EXPECT_TRUE(t_url.IsSearchURL(search_url, search_data))
+        << "Search url is incorrectly detected for " << search_url;
+  }
+}
+
 namespace {
 
 void CheckTemplateUrlRefIsCryptographic(const TemplateURLRef& url_ref) {
@@ -408,6 +414,12 @@ TEST_F(TemplateURLPrepopulateDataTest, HttpsUrls) {
     GURL logo_url = data->logo_url;
     EXPECT_TRUE(logo_url.is_empty() || logo_url.SchemeIsCryptographic())
         << logo_url;
+    GURL doodle_url = data->doodle_url;
+    EXPECT_TRUE(doodle_url.is_empty() || doodle_url.SchemeIsCryptographic())
+        << doodle_url;
+    EXPECT_TRUE(logo_url.is_empty() || doodle_url.is_empty())
+        << "Only one of logo_url or doodle_url should be set.";
+
     GURL favicon_url = data->favicon_url;
     EXPECT_TRUE(favicon_url.is_empty() || favicon_url.SchemeIsCryptographic())
         << favicon_url;
@@ -418,7 +430,6 @@ TEST_F(TemplateURLPrepopulateDataTest, HttpsUrls) {
     // for matching.
     CheckTemplateUrlRefIsCryptographic(template_url.url_ref());
     CheckTemplateUrlRefIsCryptographic(template_url.suggestions_url_ref());
-    CheckTemplateUrlRefIsCryptographic(template_url.instant_url_ref());
     CheckTemplateUrlRefIsCryptographic(template_url.image_url_ref());
     CheckTemplateUrlRefIsCryptographic(template_url.new_tab_url_ref());
     CheckTemplateUrlRefIsCryptographic(

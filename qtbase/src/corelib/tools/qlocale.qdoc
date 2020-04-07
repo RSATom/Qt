@@ -92,7 +92,7 @@
     \note For the current keyboard input locale take a look at
     QInputMethod::locale().
 
-    QLocale's data is based on Common Locale Data Repository v31.0.1.
+    QLocale's data is based on Common Locale Data Repository v34.
 
     \sa QString::arg(), QString::toInt(), QString::toDouble(),
     QInputMethod::locale()
@@ -568,6 +568,7 @@
     \value Estonia
     \value Ethiopia
     \value EuropeanUnion Since Qt 5.7
+    \value Europe Since Qt 5.12
     \value FalklandIslands
     \value FaroeIslands
     \value Fiji
@@ -619,6 +620,8 @@
     \value Kuwait
     \value Kyrgyzstan
     \value Laos
+    \value LatinAmerica
+    \value LatinAmericaAndTheCaribbean Obsolete, please use LatinAmerica
     \value Latvia
     \value Lebanon
     \value Lesotho
@@ -742,6 +745,7 @@
     \value UnitedStatesVirginIslands
     \value WallisAndFutunaIslands
     \value WesternSahara
+    \value World Since Qt 5.12
     \value Yemen
     \value Zambia
     \value Zimbabwe
@@ -749,7 +753,6 @@
     \value Serbia
     \value SaintBarthelemy
     \value SaintMartin
-    \value LatinAmericaAndTheCaribbean
     \value AscensionIsland
     \value AlandIslands
     \value DiegoGarcia
@@ -939,6 +942,8 @@
     locale doesn't support narrow names, so you should avoid using it
     for date formatting. Also, for the system locale this format is
     the same as ShortFormat.
+
+    \sa QDateTime::toString(), QDate::toString(), QTime::toString()
 */
 
 /*!
@@ -1103,6 +1108,8 @@
   \value ListToSeparatedString a string that represents a join of a given QStringList with a locale-defined separator.
   \value NativeLanguageName a string that represents the name of the native language.
   \value NativeCountryName a string that represents the name of the native country.
+
+  \sa FormatType
 */
 
 /*!

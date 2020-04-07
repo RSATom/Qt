@@ -93,6 +93,7 @@ public:
     inline int maximumZoomLevel() const;
     inline const QDateTime &timestamp() const;
     inline bool isHighDpi() const;
+    inline bool isHTTPS() const;
     QUrl tileAddress(int x, int y, int z) const;
 
     // Optional properties, not needed to construct a provider

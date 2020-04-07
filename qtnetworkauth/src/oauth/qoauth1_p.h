@@ -93,6 +93,7 @@ public:
     QUrl tokenCredentialsUrl;
     QOAuth1::SignatureMethod signatureMethod = QOAuth1::SignatureMethod::Hmac_Sha1;
     const QString oauthVersion = QStringLiteral("1.0");
+    bool tokenRequested = false;
 
     struct OAuth1KeyString
     {

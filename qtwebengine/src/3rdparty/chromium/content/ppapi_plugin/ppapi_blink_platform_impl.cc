@@ -13,18 +13,17 @@
 #include "base/threading/platform_thread.h"
 #include "build/build_config.h"
 #include "content/child/child_thread_impl.h"
-#include "content/common/child_process_messages.h"
 #include "ppapi/proxy/plugin_globals.h"
 #include "ppapi/shared_impl/proxy_lock.h"
-#include "third_party/WebKit/public/platform/WebStorageNamespace.h"
-#include "third_party/WebKit/public/platform/WebString.h"
+#include "third_party/blink/public/platform/web_storage_namespace.h"
+#include "third_party/blink/public/platform/web_string.h"
 
 #if defined(OS_MACOSX)
-#include "third_party/WebKit/public/platform/mac/WebSandboxSupport.h"
+#include "third_party/blink/public/platform/mac/web_sandbox_support.h"
 #elif defined(OS_POSIX) && !defined(OS_ANDROID)
 #include "content/child/child_process_sandbox_support_impl_linux.h"
-#include "third_party/WebKit/public/platform/linux/WebFallbackFont.h"
-#include "third_party/WebKit/public/platform/linux/WebSandboxSupport.h"
+#include "third_party/blink/public/platform/linux/web_fallback_font.h"
+#include "third_party/blink/public/platform/linux/web_sandbox_support.h"
 #include "third_party/icu/source/common/unicode/utf16.h"
 #endif
 
@@ -41,18 +40,25 @@ namespace content {
 
 class PpapiBlinkPlatformImpl::SandboxSupport : public WebSandboxSupport {
  public:
-  virtual ~SandboxSupport() {}
+#if defined(OS_LINUX)
+  explicit SandboxSupport(sk_sp<font_service::FontLoader> font_loader)
+      : font_loader_(std::move(font_loader)) {}
+#endif
+  ~SandboxSupport() override {}
 
 #if defined(OS_MACOSX)
-  bool LoadFont(NSFont* srcFont, CGFontRef* out, uint32_t* fontID) override;
-#elif defined(OS_POSIX)
+  bool LoadFont(CTFontRef srcFont, CGFontRef* out, uint32_t* fontID) override;
+#elif defined(OS_LINUX)
   SandboxSupport();
   void GetFallbackFontForCharacter(
       WebUChar32 character,
       const char* preferred_locale,
       blink::WebFallbackFont* fallbackFont) override;
   void GetWebFontRenderStyleForStrike(const char* family,
-                                      int sizeAndStyle,
+                                      int size,
+                                      bool is_bold,
+                                      bool is_italic,
+                                      float device_scale_factor,
                                       blink::WebFontRenderStyle* out) override;
 
  private:
@@ -60,14 +66,15 @@ class PpapiBlinkPlatformImpl::SandboxSupport : public WebSandboxSupport {
   // unicode code points. It needs this information frequently so we cache it
   // here.
   std::map<int32_t, blink::WebFallbackFont> unicode_font_families_;
-  // For debugging crbug.com/312965
-  base::PlatformThreadId creation_thread_;
+  sk_sp<font_service::FontLoader> font_loader_;
+  // For debugging https://crbug.com/312965
+  base::SequenceCheckerImpl creation_thread_sequence_checker_;
 #endif
 };
 
 #if defined(OS_MACOSX)
 
-bool PpapiBlinkPlatformImpl::SandboxSupport::LoadFont(NSFont* src_font,
+bool PpapiBlinkPlatformImpl::SandboxSupport::LoadFont(CTFontRef src_font,
                                                       CGFontRef* out,
                                                       uint32_t* font_id) {
   // TODO(brettw) this should do the something similar to what
@@ -79,9 +86,7 @@ bool PpapiBlinkPlatformImpl::SandboxSupport::LoadFont(NSFont* src_font,
 
 #elif defined(OS_POSIX)
 
-PpapiBlinkPlatformImpl::SandboxSupport::SandboxSupport()
-    : creation_thread_(base::PlatformThread::CurrentId()) {
-}
+PpapiBlinkPlatformImpl::SandboxSupport::SandboxSupport() {}
 
 void PpapiBlinkPlatformImpl::SandboxSupport::GetFallbackFontForCharacter(
     WebUChar32 character,
@@ -89,7 +94,7 @@ void PpapiBlinkPlatformImpl::SandboxSupport::GetFallbackFontForCharacter(
     blink::WebFallbackFont* fallbackFont) {
   ppapi::ProxyLock::AssertAcquired();
   // For debugging crbug.com/312965
-  CHECK_EQ(creation_thread_, base::PlatformThread::CurrentId());
+  CHECK(creation_thread_sequence_checker_.CalledOnValidSequence());
   const std::map<int32_t, blink::WebFallbackFont>::const_iterator iter =
       unicode_font_families_.find(character);
   if (iter != unicode_font_families_.end()) {
@@ -103,16 +108,20 @@ void PpapiBlinkPlatformImpl::SandboxSupport::GetFallbackFontForCharacter(
     return;
   }
 
-  content::GetFallbackFontForCharacter(character, preferred_locale,
-                                       fallbackFont);
+  content::GetFallbackFontForCharacter(font_loader_, character,
+                                       preferred_locale, fallbackFont);
   unicode_font_families_.insert(std::make_pair(character, *fallbackFont));
 }
 
 void PpapiBlinkPlatformImpl::SandboxSupport::GetWebFontRenderStyleForStrike(
     const char* family,
-    int sizeAndStyle,
+    int size,
+    bool is_bold,
+    bool is_italic,
+    float device_scale_factor,
     blink::WebFontRenderStyle* out) {
-  GetRenderStyleForStrike(family, sizeAndStyle, out);
+  GetRenderStyleForStrike(font_loader_, family, size, is_bold, is_italic,
+                          device_scale_factor, out);
 }
 
 #endif
@@ -120,8 +129,14 @@ void PpapiBlinkPlatformImpl::SandboxSupport::GetWebFontRenderStyleForStrike(
 #endif  // !defined(OS_ANDROID) && !defined(OS_WIN)
 
 PpapiBlinkPlatformImpl::PpapiBlinkPlatformImpl() {
-#if !defined(OS_ANDROID) && !defined(OS_WIN)
-  sandbox_support_.reset(new PpapiBlinkPlatformImpl::SandboxSupport);
+#if defined(OS_LINUX)
+  font_loader_ =
+      sk_make_sp<font_service::FontLoader>(ChildThread::Get()->GetConnector());
+  SkFontConfigInterface::SetGlobal(font_loader_);
+  sandbox_support_.reset(
+      new PpapiBlinkPlatformImpl::SandboxSupport(font_loader_));
+#elif defined(OS_MACOSX)
+  sandbox_support_.reset(new PpapiBlinkPlatformImpl::SandboxSupport());
 #endif
 }
 
@@ -130,25 +145,16 @@ PpapiBlinkPlatformImpl::~PpapiBlinkPlatformImpl() {
 
 void PpapiBlinkPlatformImpl::Shutdown() {
 #if !defined(OS_ANDROID) && !defined(OS_WIN)
-  // SandboxSupport contains a map of WebFontFamily objects, which hold
-  // WebCStrings, which become invalidated when blink is shut down. Hence, we
-  // need to clear that map now, just before blink::shutdown() is called.
+  // SandboxSupport contains a map of WebFallbackFont objects, which hold
+  // WebStrings and WebVectors, which become invalidated when blink is shut
+  // down. Hence, we need to clear that map now, just before blink::shutdown()
+  // is called.
   sandbox_support_.reset();
 #endif
 }
 
 blink::WebThread* PpapiBlinkPlatformImpl::CurrentThread() {
   return BlinkPlatformImpl::CurrentThread();
-}
-
-blink::WebClipboard* PpapiBlinkPlatformImpl::Clipboard() {
-  NOTREACHED();
-  return NULL;
-}
-
-blink::WebFileUtilities* PpapiBlinkPlatformImpl::GetFileUtilities() {
-  NOTREACHED();
-  return NULL;
 }
 
 blink::WebSandboxSupport* PpapiBlinkPlatformImpl::GetSandboxSupport() {
@@ -175,24 +181,15 @@ bool PpapiBlinkPlatformImpl::IsLinkVisited(unsigned long long link_hash) {
   return false;
 }
 
-void PpapiBlinkPlatformImpl::CreateMessageChannel(
-    std::unique_ptr<blink::WebMessagePortChannel>* channel1,
-    std::unique_ptr<blink::WebMessagePortChannel>* channel2) {
-  NOTREACHED();
-  *channel1 = nullptr;
-  *channel2 = nullptr;
-}
-
-void PpapiBlinkPlatformImpl::setCookies(
-    const blink::WebURL& url,
-    const blink::WebURL& first_party_for_cookies,
-    const blink::WebString& value) {
+void PpapiBlinkPlatformImpl::setCookies(const blink::WebURL& url,
+                                        const blink::WebURL& site_for_cookies,
+                                        const blink::WebString& value) {
   NOTREACHED();
 }
 
 blink::WebString PpapiBlinkPlatformImpl::cookies(
     const blink::WebURL& url,
-    const blink::WebURL& first_party_for_cookies) {
+    const blink::WebURL& site_for_cookies) {
   NOTREACHED();
   return blink::WebString();
 }
@@ -203,21 +200,7 @@ blink::WebString PpapiBlinkPlatformImpl::DefaultLocale() {
 
 blink::WebThemeEngine* PpapiBlinkPlatformImpl::ThemeEngine() {
   NOTREACHED();
-  return NULL;
-}
-
-std::unique_ptr<blink::WebURLLoader> PpapiBlinkPlatformImpl::CreateURLLoader(
-    const blink::WebURLRequest& request,
-    base::SingleThreadTaskRunner* task_runner) {
-  NOTREACHED();
-  return NULL;
-}
-
-void PpapiBlinkPlatformImpl::GetPluginList(
-    bool refresh,
-    const blink::WebSecurityOrigin& mainFrameOrigin,
-    blink::WebPluginListBuilder* builder) {
-  NOTREACHED();
+  return nullptr;
 }
 
 blink::WebData PpapiBlinkPlatformImpl::GetDataResource(const char* name) {

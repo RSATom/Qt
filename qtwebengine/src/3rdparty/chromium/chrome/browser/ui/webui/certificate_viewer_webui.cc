@@ -12,7 +12,6 @@
 #include "base/i18n/time_formatting.h"
 #include "base/json/json_writer.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/utf_string_conversions.h"
@@ -23,10 +22,12 @@
 #include "chrome/browser/ui/certificate_dialogs.h"
 #include "chrome/browser/ui/webui/certificate_viewer_ui.h"
 #include "chrome/browser/ui/webui/constrained_web_dialog_ui.h"
-#include "chrome/common/net/x509_certificate_model.h"
+#include "chrome/common/net/x509_certificate_model_nss.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/generated_resources.h"
+#include "content/public/browser/host_zoom_map.h"
 #include "content/public/browser/web_contents.h"
+#include "net/cert/x509_util_nss.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/gfx/geometry/size.h"
 
@@ -103,10 +104,10 @@ CertNodeBuilder& CertNodeBuilder::ChildIfNotNull(
 std::unique_ptr<base::DictionaryValue> CertNodeBuilder::Build() {
   DCHECK(!built_);
   if (!children_.empty()) {
-    node_.Set("children", base::MakeUnique<base::Value>(std::move(children_)));
+    node_.SetKey("children", std::move(children_));
   }
   built_ = true;
-  return base::MakeUnique<base::DictionaryValue>(std::move(node_));
+  return std::make_unique<base::DictionaryValue>(std::move(node_));
 }
 
 }  // namespace
@@ -115,7 +116,12 @@ std::unique_ptr<base::DictionaryValue> CertNodeBuilder::Build() {
 void ShowCertificateViewer(WebContents* web_contents,
                            gfx::NativeWindow parent,
                            net::X509Certificate* cert) {
-  CertificateViewerDialog* dialog = new CertificateViewerDialog(cert);
+  net::ScopedCERTCertificateList nss_certs =
+      net::x509_util::CreateCERTCertificateListFromX509Certificate(cert);
+  if (nss_certs.empty())
+    return;
+  CertificateViewerDialog* dialog =
+      new CertificateViewerDialog(std::move(nss_certs));
   dialog->Show(web_contents, parent);
 }
 
@@ -123,13 +129,13 @@ void ShowCertificateViewer(WebContents* web_contents,
 // CertificateViewerDialog
 
 CertificateViewerModalDialog::CertificateViewerModalDialog(
-    net::X509Certificate* cert)
-    : cert_(cert), webui_(NULL), window_(NULL) {
+    net::ScopedCERTCertificateList certs)
+    : nss_certs_(std::move(certs)), webui_(NULL), window_(NULL) {
   // Construct the dialog title from the certificate.
   title_ = l10n_util::GetStringFUTF16(
       IDS_CERT_INFO_DIALOG_TITLE,
       base::UTF8ToUTF16(
-          x509_certificate_model::GetTitle(cert_->os_cert_handle())));
+          x509_certificate_model::GetTitle(nss_certs_.front().get())));
 }
 
 CertificateViewerModalDialog::~CertificateViewerModalDialog() {
@@ -167,7 +173,8 @@ GURL CertificateViewerModalDialog::GetDialogContentURL() const {
 void CertificateViewerModalDialog::GetWebUIMessageHandlers(
     std::vector<WebUIMessageHandler*>* handlers) const {
   handlers->push_back(new CertificateViewerDialogHandler(
-      const_cast<CertificateViewerModalDialog*>(this), cert_.get()));
+      const_cast<CertificateViewerModalDialog*>(this),
+      net::x509_util::DupCERTCertificateList(nss_certs_)));
 }
 
 void CertificateViewerModalDialog::GetDialogSize(gfx::Size* size) const {
@@ -182,14 +189,7 @@ std::string CertificateViewerModalDialog::GetDialogArgs() const {
   // Certificate information. The keys in this dictionary's general key
   // correspond to the IDs in the Html page.
   base::DictionaryValue cert_info;
-  net::X509Certificate::OSCertHandle cert_hnd = cert_->os_cert_handle();
-
-  // Get the certificate chain.
-  net::X509Certificate::OSCertHandles cert_chain;
-  cert_chain.push_back(cert_->os_cert_handle());
-  const net::X509Certificate::OSCertHandles& certs =
-      cert_->GetIntermediateCertificates();
-  cert_chain.insert(cert_chain.end(), certs.begin(), certs.end());
+  CERTCertificate* cert_hnd = nss_certs_.front().get();
 
   // Certificate usage.
   std::vector<std::string> usages;
@@ -207,10 +207,11 @@ std::string CertificateViewerModalDialog::GetDialogArgs() const {
   // Standard certificate details.
   const std::string alternative_text =
       l10n_util::GetStringUTF8(IDS_CERT_INFO_FIELD_NOT_PRESENT);
-  cert_info.SetString("general.title", l10n_util::GetStringFUTF8(
-      IDS_CERT_INFO_DIALOG_TITLE,
-      base::UTF8ToUTF16(x509_certificate_model::GetTitle(
-          cert_chain.front()))));
+  cert_info.SetString(
+      "general.title",
+      l10n_util::GetStringFUTF8(
+          IDS_CERT_INFO_DIALOG_TITLE,
+          base::UTF8ToUTF16(x509_certificate_model::GetTitle(cert_hnd))));
 
   // Issued to information.
   cert_info.SetString("general.issued-cn",
@@ -252,19 +253,20 @@ std::string CertificateViewerModalDialog::GetDialogArgs() const {
   // Certificate hierarchy is constructed from bottom up.
   std::unique_ptr<base::ListValue> children;
   int index = 0;
-  for (net::X509Certificate::OSCertHandles::const_iterator i =
-      cert_chain.begin(); i != cert_chain.end(); ++i, ++index) {
+  for (net::ScopedCERTCertificateList::const_iterator i = nss_certs_.begin();
+       i != nss_certs_.end(); ++i, ++index) {
     std::unique_ptr<base::DictionaryValue> cert_node(
         new base::DictionaryValue());
     base::ListValue cert_details;
-    cert_node->SetString("label", x509_certificate_model::GetTitle(*i).c_str());
+    cert_node->SetString("label",
+                         x509_certificate_model::GetTitle(i->get()).c_str());
     cert_node->SetDouble("payload.index", index);
     // Add the child from the previous iteration.
     if (children)
       cert_node->Set("children", std::move(children));
 
     // Add this node to the children list for the next iteration.
-    children = base::MakeUnique<base::ListValue>();
+    children = std::make_unique<base::ListValue>();
     children->Append(std::move(cert_node));
   }
   // Set the last node as the top of the certificate hierarchy.
@@ -297,10 +299,9 @@ bool CertificateViewerModalDialog::ShouldShowDialogTitle() const {
 ////////////////////////////////////////////////////////////////////////////////
 // CertificateViewerDialog
 
-CertificateViewerDialog::CertificateViewerDialog(net::X509Certificate* cert)
-    : CertificateViewerModalDialog(cert),
-      dialog_(NULL) {
-}
+CertificateViewerDialog::CertificateViewerDialog(
+    net::ScopedCERTCertificateList certs)
+    : CertificateViewerModalDialog(std::move(certs)), dialog_(NULL) {}
 
 CertificateViewerDialog::~CertificateViewerDialog() {
 }
@@ -311,6 +312,13 @@ void CertificateViewerDialog::Show(WebContents* web_contents,
   // on the title for Aura ConstrainedWebDialogUI.
   dialog_ = ShowConstrainedWebDialog(web_contents->GetBrowserContext(), this,
                                      web_contents);
+
+  // Clear the zoom level for the dialog so that it is not affected by the page
+  // zoom setting.
+  content::WebContents* dialog_web_contents = dialog_->GetWebContents();
+  const GURL dialog_url = GetDialogContentURL();
+  content::HostZoomMap::Get(dialog_web_contents->GetSiteInstance())
+      ->SetZoomLevelForHostAndScheme(dialog_url.scheme(), dialog_url.host(), 0);
 }
 
 gfx::NativeWindow CertificateViewerDialog::GetNativeWebContentsModalDialog() {
@@ -330,24 +338,22 @@ ui::ModalType CertificateViewerDialog::GetDialogModalType() const {
 
 CertificateViewerDialogHandler::CertificateViewerDialogHandler(
     CertificateViewerModalDialog* dialog,
-    net::X509Certificate* cert)
-    : cert_(cert), dialog_(dialog) {
-  cert_chain_.push_back(cert_->os_cert_handle());
-  const net::X509Certificate::OSCertHandles& certs =
-      cert_->GetIntermediateCertificates();
-  cert_chain_.insert(cert_chain_.end(), certs.begin(), certs.end());
-}
+    net::ScopedCERTCertificateList cert_chain)
+    : dialog_(dialog), cert_chain_(std::move(cert_chain)) {}
 
 CertificateViewerDialogHandler::~CertificateViewerDialogHandler() {
 }
 
 void CertificateViewerDialogHandler::RegisterMessages() {
-  web_ui()->RegisterMessageCallback("exportCertificate",
-      base::Bind(&CertificateViewerDialogHandler::ExportCertificate,
-                 base::Unretained(this)));
-  web_ui()->RegisterMessageCallback("requestCertificateFields",
-      base::Bind(&CertificateViewerDialogHandler::RequestCertificateFields,
-                 base::Unretained(this)));
+  web_ui()->RegisterMessageCallback(
+      "exportCertificate",
+      base::BindRepeating(&CertificateViewerDialogHandler::ExportCertificate,
+                          base::Unretained(this)));
+  web_ui()->RegisterMessageCallback(
+      "requestCertificateFields",
+      base::BindRepeating(
+          &CertificateViewerDialogHandler::RequestCertificateFields,
+          base::Unretained(this)));
 }
 
 void CertificateViewerDialogHandler::ExportCertificate(
@@ -370,7 +376,7 @@ void CertificateViewerDialogHandler::RequestCertificateFields(
   if (cert_index < 0)
     return;
 
-  net::X509Certificate::OSCertHandle cert = cert_chain_[cert_index];
+  CERTCertificate* cert = cert_chain_[cert_index].get();
 
   CertNodeBuilder version_node(IDS_CERT_DETAILS_VERSION);
   std::string version = x509_certificate_model::GetVersion(cert);

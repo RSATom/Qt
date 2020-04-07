@@ -12,11 +12,9 @@
 
 #include "base/bind.h"
 #include "base/callback.h"
-#include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_base.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/metrics/sparse_histogram.h"
-#include "base/profiler/scoped_tracker.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/values.h"
 #include "net/base/ip_address.h"
@@ -25,12 +23,12 @@
 #include "net/log/net_log_capture_mode.h"
 #include "net/log/net_log_event_type.h"
 #include "net/quic/chromium/quic_address_mismatch.h"
-#include "net/quic/core/crypto/crypto_handshake_message.h"
-#include "net/quic/core/crypto/crypto_protocol.h"
-#include "net/quic/core/quic_packets.h"
-#include "net/quic/core/quic_socket_address_coder.h"
-#include "net/quic/core/quic_time.h"
-#include "net/quic/platform/api/quic_string_piece.h"
+#include "net/third_party/quic/core/crypto/crypto_handshake_message.h"
+#include "net/third_party/quic/core/crypto/crypto_protocol.h"
+#include "net/third_party/quic/core/quic_packets.h"
+#include "net/third_party/quic/core/quic_socket_address_coder.h"
+#include "net/third_party/quic/core/quic_time.h"
+#include "net/third_party/quic/platform/api/quic_string_piece.h"
 
 using std::string;
 
@@ -51,14 +49,14 @@ std::unique_ptr<base::Value> NetLogQuicPacketCallback(
 }
 
 std::unique_ptr<base::Value> NetLogQuicPacketSentCallback(
-    const SerializedPacket& serialized_packet,
-    TransmissionType transmission_type,
-    QuicTime sent_time,
+    const quic::SerializedPacket& serialized_packet,
+    quic::TransmissionType transmission_type,
+    quic::QuicTime sent_time,
     NetLogCaptureMode /* capture_mode */) {
   std::unique_ptr<base::DictionaryValue> dict(new base::DictionaryValue());
   dict->SetInteger("transmission_type", transmission_type);
   dict->SetString("packet_number",
-                  base::Uint64ToString(serialized_packet.packet_number));
+                  base::NumberToString(serialized_packet.packet_number));
   dict->SetInteger("size", serialized_packet.encrypted_length);
   dict->SetString("sent_time_us",
                   base::Int64ToString(sent_time.ToDebuggingValue()));
@@ -66,73 +64,73 @@ std::unique_ptr<base::Value> NetLogQuicPacketSentCallback(
 }
 
 std::unique_ptr<base::Value> NetLogQuicPacketRetransmittedCallback(
-    QuicPacketNumber old_packet_number,
-    QuicPacketNumber new_packet_number,
+    quic::QuicPacketNumber old_packet_number,
+    quic::QuicPacketNumber new_packet_number,
     NetLogCaptureMode /* capture_mode */) {
   std::unique_ptr<base::DictionaryValue> dict(new base::DictionaryValue());
-  dict->SetString("old_packet_number", base::Uint64ToString(old_packet_number));
-  dict->SetString("new_packet_number", base::Uint64ToString(new_packet_number));
+  dict->SetString("old_packet_number", base::NumberToString(old_packet_number));
+  dict->SetString("new_packet_number", base::NumberToString(new_packet_number));
   return std::move(dict);
 }
 
 std::unique_ptr<base::Value> NetLogQuicDuplicatePacketCallback(
-    QuicPacketNumber packet_number,
+    quic::QuicPacketNumber packet_number,
     NetLogCaptureMode /* capture_mode */) {
   std::unique_ptr<base::DictionaryValue> dict(new base::DictionaryValue());
-  dict->SetString("packet_number", base::Uint64ToString(packet_number));
+  dict->SetString("packet_number", base::NumberToString(packet_number));
   return std::move(dict);
 }
 
 std::unique_ptr<base::Value> NetLogQuicPacketHeaderCallback(
-    const QuicPacketHeader* header,
+    const quic::QuicPacketHeader* header,
     NetLogCaptureMode /* capture_mode */) {
   std::unique_ptr<base::DictionaryValue> dict(new base::DictionaryValue());
   dict->SetString("connection_id",
-                  base::Uint64ToString(header->public_header.connection_id));
-  dict->SetInteger("reset_flag", header->public_header.reset_flag);
-  dict->SetInteger("version_flag", header->public_header.version_flag);
-  dict->SetString("packet_number", base::Uint64ToString(header->packet_number));
+                  base::NumberToString(header->destination_connection_id));
+  dict->SetInteger("reset_flag", header->reset_flag);
+  dict->SetInteger("version_flag", header->version_flag);
+  dict->SetString("packet_number", base::NumberToString(header->packet_number));
   return std::move(dict);
 }
 
 std::unique_ptr<base::Value> NetLogQuicStreamFrameCallback(
-    const QuicStreamFrame* frame,
+    const quic::QuicStreamFrame* frame,
     NetLogCaptureMode /* capture_mode */) {
   std::unique_ptr<base::DictionaryValue> dict(new base::DictionaryValue());
   dict->SetInteger("stream_id", frame->stream_id);
   dict->SetBoolean("fin", frame->fin);
-  dict->SetString("offset", base::Uint64ToString(frame->offset));
+  dict->SetString("offset", base::NumberToString(frame->offset));
   dict->SetInteger("length", frame->data_length);
   return std::move(dict);
 }
 
 std::unique_ptr<base::Value> NetLogQuicAckFrameCallback(
-    const QuicAckFrame* frame,
+    const quic::QuicAckFrame* frame,
     NetLogCaptureMode /* capture_mode */) {
-  auto dict = base::MakeUnique<base::DictionaryValue>();
+  auto dict = std::make_unique<base::DictionaryValue>();
   dict->SetString("largest_observed",
-                  base::Uint64ToString(frame->largest_observed));
+                  base::NumberToString(frame->largest_acked));
   dict->SetString("delta_time_largest_observed_us",
                   base::Int64ToString(frame->ack_delay_time.ToMicroseconds()));
 
-  auto missing = base::MakeUnique<base::ListValue>();
+  auto missing = std::make_unique<base::ListValue>();
   if (!frame->packets.Empty()) {
     // V34 and above express acked packets, but only print
     // missing packets, because it's typically a shorter list.
-    for (QuicPacketNumber packet = frame->packets.Min();
-         packet < frame->largest_observed; ++packet) {
+    for (quic::QuicPacketNumber packet = frame->packets.Min();
+         packet < frame->largest_acked; ++packet) {
       if (!frame->packets.Contains(packet)) {
-        missing->AppendString(base::Uint64ToString(packet));
+        missing->AppendString(base::NumberToString(packet));
       }
     }
   }
   dict->Set("missing_packets", std::move(missing));
 
-  auto received = base::MakeUnique<base::ListValue>();
-  const PacketTimeVector& received_times = frame->received_packet_times;
-  for (PacketTimeVector::const_iterator it = received_times.begin();
+  auto received = std::make_unique<base::ListValue>();
+  const quic::PacketTimeVector& received_times = frame->received_packet_times;
+  for (quic::PacketTimeVector::const_iterator it = received_times.begin();
        it != received_times.end(); ++it) {
-    auto info = base::MakeUnique<base::DictionaryValue>();
+    auto info = std::make_unique<base::DictionaryValue>();
     info->SetInteger("packet_number", static_cast<int>(it->first));
     info->SetString("received",
                     base::Int64ToString(it->second.ToDebuggingValue()));
@@ -144,7 +142,7 @@ std::unique_ptr<base::Value> NetLogQuicAckFrameCallback(
 }
 
 std::unique_ptr<base::Value> NetLogQuicRstStreamFrameCallback(
-    const QuicRstStreamFrame* frame,
+    const quic::QuicRstStreamFrame* frame,
     NetLogCaptureMode /* capture_mode */) {
   std::unique_ptr<base::DictionaryValue> dict(new base::DictionaryValue());
   dict->SetInteger("stream_id", frame->stream_id);
@@ -153,7 +151,7 @@ std::unique_ptr<base::Value> NetLogQuicRstStreamFrameCallback(
 }
 
 std::unique_ptr<base::Value> NetLogQuicConnectionCloseFrameCallback(
-    const QuicConnectionCloseFrame* frame,
+    const quic::QuicConnectionCloseFrame* frame,
     NetLogCaptureMode /* capture_mode */) {
   std::unique_ptr<base::DictionaryValue> dict(new base::DictionaryValue());
   dict->SetInteger("quic_error", frame->error_code);
@@ -162,16 +160,16 @@ std::unique_ptr<base::Value> NetLogQuicConnectionCloseFrameCallback(
 }
 
 std::unique_ptr<base::Value> NetLogQuicWindowUpdateFrameCallback(
-    const QuicWindowUpdateFrame* frame,
+    const quic::QuicWindowUpdateFrame* frame,
     NetLogCaptureMode /* capture_mode */) {
   std::unique_ptr<base::DictionaryValue> dict(new base::DictionaryValue());
   dict->SetInteger("stream_id", frame->stream_id);
-  dict->SetString("byte_offset", base::Uint64ToString(frame->byte_offset));
+  dict->SetString("byte_offset", base::NumberToString(frame->byte_offset));
   return std::move(dict);
 }
 
 std::unique_ptr<base::Value> NetLogQuicBlockedFrameCallback(
-    const QuicBlockedFrame* frame,
+    const quic::QuicBlockedFrame* frame,
     NetLogCaptureMode /* capture_mode */) {
   std::unique_ptr<base::DictionaryValue> dict(new base::DictionaryValue());
   dict->SetInteger("stream_id", frame->stream_id);
@@ -179,7 +177,7 @@ std::unique_ptr<base::Value> NetLogQuicBlockedFrameCallback(
 }
 
 std::unique_ptr<base::Value> NetLogQuicGoAwayFrameCallback(
-    const QuicGoAwayFrame* frame,
+    const quic::QuicGoAwayFrame* frame,
     NetLogCaptureMode /* capture_mode */) {
   std::unique_ptr<base::DictionaryValue> dict(new base::DictionaryValue());
   dict->SetInteger("quic_error", frame->error_code);
@@ -189,24 +187,25 @@ std::unique_ptr<base::Value> NetLogQuicGoAwayFrameCallback(
 }
 
 std::unique_ptr<base::Value> NetLogQuicStopWaitingFrameCallback(
-    const QuicStopWaitingFrame* frame,
+    const quic::QuicStopWaitingFrame* frame,
     NetLogCaptureMode /* capture_mode */) {
-  auto dict = base::MakeUnique<base::DictionaryValue>();
-  auto sent_info = base::MakeUnique<base::DictionaryValue>();
+  auto dict = std::make_unique<base::DictionaryValue>();
+  auto sent_info = std::make_unique<base::DictionaryValue>();
   sent_info->SetString("least_unacked",
-                       base::Uint64ToString(frame->least_unacked));
+                       base::NumberToString(frame->least_unacked));
   dict->Set("sent_info", std::move(sent_info));
   return std::move(dict);
 }
 
 std::unique_ptr<base::Value> NetLogQuicVersionNegotiationPacketCallback(
-    const QuicVersionNegotiationPacket* packet,
+    const quic::QuicVersionNegotiationPacket* packet,
     NetLogCaptureMode /* capture_mode */) {
-  auto dict = base::MakeUnique<base::DictionaryValue>();
-  auto versions = base::MakeUnique<base::ListValue>();
-  for (QuicVersionVector::const_iterator it = packet->versions.begin();
+  auto dict = std::make_unique<base::DictionaryValue>();
+  auto versions = std::make_unique<base::ListValue>();
+  for (quic::ParsedQuicVersionVector::const_iterator it =
+           packet->versions.begin();
        it != packet->versions.end(); ++it) {
-    versions->AppendString(QuicVersionToString(*it));
+    versions->AppendString(ParsedQuicVersionToString(*it));
   }
   dict->Set("versions", std::move(versions));
   return std::move(dict);
@@ -223,22 +222,23 @@ std::unique_ptr<base::Value> NetLogQuicPublicResetPacketCallback(
 }
 
 std::unique_ptr<base::Value> NetLogQuicCryptoHandshakeMessageCallback(
-    const CryptoHandshakeMessage* message,
+    const quic::CryptoHandshakeMessage* message,
     NetLogCaptureMode /* capture_mode */) {
   std::unique_ptr<base::DictionaryValue> dict(new base::DictionaryValue());
   dict->SetString("quic_crypto_handshake_message",
-                  message->DebugString(Perspective::IS_CLIENT));
+                  message->DebugString(quic::Perspective::IS_CLIENT));
   return std::move(dict);
 }
 
 std::unique_ptr<base::Value> NetLogQuicOnConnectionClosedCallback(
-    QuicErrorCode error,
-    ConnectionCloseSource source,
+    quic::QuicErrorCode error,
+    quic::ConnectionCloseSource source,
     NetLogCaptureMode /* capture_mode */) {
   std::unique_ptr<base::DictionaryValue> dict(new base::DictionaryValue());
   dict->SetInteger("quic_error", error);
-  dict->SetBoolean("from_peer",
-                   source == ConnectionCloseSource::FROM_PEER ? true : false);
+  dict->SetBoolean("from_peer", source == quic::ConnectionCloseSource::FROM_PEER
+                                    ? true
+                                    : false);
   return std::move(dict);
 }
 
@@ -248,9 +248,9 @@ std::unique_ptr<base::Value> NetLogQuicCertificateVerifiedCallback(
   // Only the subjects are logged so that we can investigate connection pooling.
   // More fields could be logged in the future.
   std::vector<std::string> dns_names;
-  cert->GetDNSNames(&dns_names);
-  auto dict = base::MakeUnique<base::DictionaryValue>();
-  auto subjects = base::MakeUnique<base::ListValue>();
+  cert->GetSubjectAltName(&dns_names, nullptr);
+  auto dict = std::make_unique<base::DictionaryValue>();
+  auto subjects = std::make_unique<base::ListValue>();
   for (auto& dns_name : dns_names) {
     subjects->GetList().emplace_back(std::move(dns_name));
   }
@@ -268,7 +268,8 @@ void UpdatePublicResetAddressMismatchHistogram(
     return;
   }
   UMA_HISTOGRAM_ENUMERATION("Net.QuicSession.PublicResetAddressMismatch2",
-                            sample, QUIC_ADDRESS_MISMATCH_MAX);
+                            static_cast<QuicAddressMismatch>(sample),
+                            QUIC_ADDRESS_MISMATCH_MAX);
 }
 
 // If |address| is an IPv4-mapped IPv6 address, returns ADDRESS_FAMILY_IPV4
@@ -281,7 +282,7 @@ AddressFamily GetRealAddressFamily(const IPAddress& address) {
 }  // namespace
 
 QuicConnectionLogger::QuicConnectionLogger(
-    QuicSpdySession* session,
+    quic::QuicSpdySession* session,
     const char* const connection_description,
     std::unique_ptr<SocketPerformanceWatcher> socket_performance_watcher,
     const NetLogWithSource& net_log)
@@ -303,7 +304,11 @@ QuicConnectionLogger::QuicConnectionLogger(
       num_blocked_frames_received_(0),
       num_blocked_frames_sent_(0),
       connection_description_(connection_description),
-      socket_performance_watcher_(std::move(socket_performance_watcher)) {}
+      socket_performance_watcher_(std::move(socket_performance_watcher)),
+      net_log_is_capturing_(net_log_.IsCapturing()) {
+  timer_.Start(FROM_HERE, base::TimeDelta::FromSeconds(1), this,
+               &QuicConnectionLogger::UpdateIsCapturing);
+}
 
 QuicConnectionLogger::~QuicConnectionLogger() {
   UMA_HISTOGRAM_COUNTS_1M("Net.QuicSession.OutOfOrderPacketsReceived",
@@ -321,7 +326,7 @@ QuicConnectionLogger::~QuicConnectionLogger() {
   UMA_HISTOGRAM_COUNTS_1M("Net.QuicSession.BlockedFrames.Sent",
                           num_blocked_frames_sent_);
 
-  const QuicConnectionStats& stats = session_->connection()->GetStats();
+  const quic::QuicConnectionStats& stats = session_->connection()->GetStats();
   UMA_HISTOGRAM_TIMES("Net.QuicSession.MinRTT",
                       base::TimeDelta::FromMicroseconds(stats.min_rtt_us));
   UMA_HISTOGRAM_TIMES("Net.QuicSession.SmoothedRTT",
@@ -344,56 +349,91 @@ QuicConnectionLogger::~QuicConnectionLogger() {
   RecordAggregatePacketLossRate();
 }
 
-void QuicConnectionLogger::OnFrameAddedToPacket(const QuicFrame& frame) {
+void QuicConnectionLogger::OnFrameAddedToPacket(const quic::QuicFrame& frame) {
   switch (frame.type) {
-    case PADDING_FRAME:
+    case quic::PADDING_FRAME:
       break;
-    case STREAM_FRAME:
+    case quic::STREAM_FRAME:
+      break;
+    case quic::ACK_FRAME: {
+      break;
+    }
+    case quic::RST_STREAM_FRAME:
+      base::UmaHistogramSparse("Net.QuicSession.RstStreamErrorCodeClient",
+                               frame.rst_stream_frame->error_code);
+      break;
+    case quic::CONNECTION_CLOSE_FRAME:
+      break;
+    case quic::GOAWAY_FRAME:
+      break;
+    case quic::WINDOW_UPDATE_FRAME:
+      break;
+    case quic::BLOCKED_FRAME:
+      ++num_blocked_frames_sent_;
+      break;
+    case quic::STOP_WAITING_FRAME:
+      break;
+    case quic::PING_FRAME:
+      UMA_HISTOGRAM_BOOLEAN("Net.QuicSession.ConnectionFlowControlBlocked",
+                            session_->IsConnectionFlowControlBlocked());
+      UMA_HISTOGRAM_BOOLEAN("Net.QuicSession.StreamFlowControlBlocked",
+                            session_->IsStreamFlowControlBlocked());
+      break;
+    case quic::MTU_DISCOVERY_FRAME:
+      break;
+    default:
+      DCHECK(false) << "Illegal frame type: " << frame.type;
+  }
+  if (!net_log_is_capturing_)
+    return;
+  switch (frame.type) {
+    case quic::PADDING_FRAME:
+      break;
+    case quic::STREAM_FRAME:
       net_log_.AddEvent(
           NetLogEventType::QUIC_SESSION_STREAM_FRAME_SENT,
           base::Bind(&NetLogQuicStreamFrameCallback, frame.stream_frame));
       break;
-    case ACK_FRAME: {
+    case quic::ACK_FRAME: {
       net_log_.AddEvent(
           NetLogEventType::QUIC_SESSION_ACK_FRAME_SENT,
           base::Bind(&NetLogQuicAckFrameCallback, frame.ack_frame));
       break;
     }
-    case RST_STREAM_FRAME:
-      UMA_HISTOGRAM_SPARSE_SLOWLY("Net.QuicSession.RstStreamErrorCodeClient",
-                                  frame.rst_stream_frame->error_code);
+    case quic::RST_STREAM_FRAME:
+      base::UmaHistogramSparse("Net.QuicSession.RstStreamErrorCodeClient",
+                               frame.rst_stream_frame->error_code);
       net_log_.AddEvent(NetLogEventType::QUIC_SESSION_RST_STREAM_FRAME_SENT,
                         base::Bind(&NetLogQuicRstStreamFrameCallback,
                                    frame.rst_stream_frame));
       break;
-    case CONNECTION_CLOSE_FRAME:
+    case quic::CONNECTION_CLOSE_FRAME:
       net_log_.AddEvent(
           NetLogEventType::QUIC_SESSION_CONNECTION_CLOSE_FRAME_SENT,
           base::Bind(&NetLogQuicConnectionCloseFrameCallback,
                      frame.connection_close_frame));
       break;
-    case GOAWAY_FRAME:
+    case quic::GOAWAY_FRAME:
       net_log_.AddEvent(
           NetLogEventType::QUIC_SESSION_GOAWAY_FRAME_SENT,
           base::Bind(&NetLogQuicGoAwayFrameCallback, frame.goaway_frame));
       break;
-    case WINDOW_UPDATE_FRAME:
+    case quic::WINDOW_UPDATE_FRAME:
       net_log_.AddEvent(NetLogEventType::QUIC_SESSION_WINDOW_UPDATE_FRAME_SENT,
                         base::Bind(&NetLogQuicWindowUpdateFrameCallback,
                                    frame.window_update_frame));
       break;
-    case BLOCKED_FRAME:
-      ++num_blocked_frames_sent_;
+    case quic::BLOCKED_FRAME:
       net_log_.AddEvent(
           NetLogEventType::QUIC_SESSION_BLOCKED_FRAME_SENT,
           base::Bind(&NetLogQuicBlockedFrameCallback, frame.blocked_frame));
       break;
-    case STOP_WAITING_FRAME:
+    case quic::STOP_WAITING_FRAME:
       net_log_.AddEvent(NetLogEventType::QUIC_SESSION_STOP_WAITING_FRAME_SENT,
                         base::Bind(&NetLogQuicStopWaitingFrameCallback,
                                    frame.stop_waiting_frame));
       break;
-    case PING_FRAME:
+    case quic::PING_FRAME:
       UMA_HISTOGRAM_BOOLEAN("Net.QuicSession.ConnectionFlowControlBlocked",
                             session_->IsConnectionFlowControlBlocked());
       UMA_HISTOGRAM_BOOLEAN("Net.QuicSession.StreamFlowControlBlocked",
@@ -401,7 +441,7 @@ void QuicConnectionLogger::OnFrameAddedToPacket(const QuicFrame& frame) {
       // PingFrame has no contents to log, so just record that it was sent.
       net_log_.AddEvent(NetLogEventType::QUIC_SESSION_PING_FRAME_SENT);
       break;
-    case MTU_DISCOVERY_FRAME:
+    case quic::MTU_DISCOVERY_FRAME:
       // MtuDiscoveryFrame is PingFrame on wire, it does not have any payload.
       net_log_.AddEvent(NetLogEventType::QUIC_SESSION_MTU_DISCOVERY_FRAME_SENT);
       break;
@@ -411,10 +451,12 @@ void QuicConnectionLogger::OnFrameAddedToPacket(const QuicFrame& frame) {
 }
 
 void QuicConnectionLogger::OnPacketSent(
-    const SerializedPacket& serialized_packet,
-    QuicPacketNumber original_packet_number,
-    TransmissionType transmission_type,
-    QuicTime sent_time) {
+    const quic::SerializedPacket& serialized_packet,
+    quic::QuicPacketNumber original_packet_number,
+    quic::TransmissionType transmission_type,
+    quic::QuicTime sent_time) {
+  if (!net_log_is_capturing_)
+    return;
   if (original_packet_number == 0) {
     net_log_.AddEvent(
         NetLogEventType::QUIC_SESSION_PACKET_SENT,
@@ -433,9 +475,9 @@ void QuicConnectionLogger::OnPingSent() {
 }
 
 void QuicConnectionLogger::OnPacketReceived(
-    const QuicSocketAddress& self_address,
-    const QuicSocketAddress& peer_address,
-    const QuicEncryptedPacket& packet) {
+    const quic::QuicSocketAddress& self_address,
+    const quic::QuicSocketAddress& peer_address,
+    const quic::QuicEncryptedPacket& packet) {
   if (local_address_from_self_.GetFamily() == ADDRESS_FAMILY_UNSPECIFIED) {
     local_address_from_self_ = self_address.impl().socket_address();
     UMA_HISTOGRAM_ENUMERATION(
@@ -446,6 +488,8 @@ void QuicConnectionLogger::OnPacketReceived(
 
   previous_received_packet_size_ = last_received_packet_size_;
   last_received_packet_size_ = packet.length();
+  if (!net_log_is_capturing_)
+    return;
   net_log_.AddEvent(
       NetLogEventType::QUIC_SESSION_PACKET_RECEIVED,
       base::Bind(&NetLogQuicPacketCallback,
@@ -454,14 +498,16 @@ void QuicConnectionLogger::OnPacketReceived(
 }
 
 void QuicConnectionLogger::OnUnauthenticatedHeader(
-    const QuicPacketHeader& header) {
+    const quic::QuicPacketHeader& header) {
+  if (!net_log_is_capturing_)
+    return;
   net_log_.AddEvent(
       NetLogEventType::QUIC_SESSION_UNAUTHENTICATED_PACKET_HEADER_RECEIVED,
       base::Bind(&NetLogQuicPacketHeaderCallback, &header));
 }
 
 void QuicConnectionLogger::OnIncorrectConnectionId(
-    QuicConnectionId connection_id) {
+    quic::QuicConnectionId connection_id) {
   ++num_incorrect_connection_ids_;
 }
 
@@ -469,23 +515,26 @@ void QuicConnectionLogger::OnUndecryptablePacket() {
   ++num_undecryptable_packets_;
 }
 
-void QuicConnectionLogger::OnDuplicatePacket(QuicPacketNumber packet_number) {
+void QuicConnectionLogger::OnDuplicatePacket(
+    quic::QuicPacketNumber packet_number) {
+  ++num_duplicate_packets_;
+  if (!net_log_is_capturing_)
+    return;
   net_log_.AddEvent(
       NetLogEventType::QUIC_SESSION_DUPLICATE_PACKET_RECEIVED,
       base::Bind(&NetLogQuicDuplicatePacketCallback, packet_number));
-  ++num_duplicate_packets_;
 }
 
 void QuicConnectionLogger::OnProtocolVersionMismatch(
-    QuicVersion received_version) {
+    quic::ParsedQuicVersion received_version) {
   // TODO(rtenneti): Add logging.
 }
 
-void QuicConnectionLogger::OnPacketHeader(const QuicPacketHeader& header) {
-  net_log_.AddEvent(NetLogEventType::QUIC_SESSION_PACKET_AUTHENTICATED);
+void QuicConnectionLogger::OnPacketHeader(
+    const quic::QuicPacketHeader& header) {
   ++num_packets_received_;
   if (largest_received_packet_number_ < header.packet_number) {
-    QuicPacketNumber delta =
+    quic::QuicPacketNumber delta =
         header.packet_number - largest_received_packet_number_;
     if (delta > 1) {
       // There is a gap between the largest packet previously received and
@@ -516,101 +565,121 @@ void QuicConnectionLogger::OnPacketHeader(const QuicPacketHeader& header) {
     no_packet_received_after_ping_ = false;
   }
   last_received_packet_number_ = header.packet_number;
+  if (!net_log_is_capturing_)
+    return;
+  net_log_.AddEvent(NetLogEventType::QUIC_SESSION_PACKET_AUTHENTICATED);
 }
 
-void QuicConnectionLogger::OnStreamFrame(const QuicStreamFrame& frame) {
+void QuicConnectionLogger::OnStreamFrame(const quic::QuicStreamFrame& frame) {
+  if (!net_log_is_capturing_)
+    return;
   net_log_.AddEvent(NetLogEventType::QUIC_SESSION_STREAM_FRAME_RECEIVED,
                     base::Bind(&NetLogQuicStreamFrameCallback, &frame));
 }
 
-void QuicConnectionLogger::OnAckFrame(const QuicAckFrame& frame) {
-  net_log_.AddEvent(NetLogEventType::QUIC_SESSION_ACK_FRAME_RECEIVED,
-                    base::Bind(&NetLogQuicAckFrameCallback, &frame));
-
+void QuicConnectionLogger::OnAckFrame(const quic::QuicAckFrame& frame) {
   const size_t kApproximateLargestSoloAckBytes = 100;
   if (last_received_packet_number_ < received_acks_.size() &&
       last_received_packet_size_ < kApproximateLargestSoloAckBytes) {
     received_acks_[static_cast<size_t>(last_received_packet_number_)] = true;
   }
 
-  if (frame.packets.Empty())
+  if (!net_log_is_capturing_)
     return;
+  net_log_.AddEvent(NetLogEventType::QUIC_SESSION_ACK_FRAME_RECEIVED,
+                    base::Bind(&NetLogQuicAckFrameCallback, &frame));
 
   // TODO(rch, rtenneti) sort out histograms for QUIC_VERSION_34 and above.
 }
 
 void QuicConnectionLogger::OnStopWaitingFrame(
-    const QuicStopWaitingFrame& frame) {
+    const quic::QuicStopWaitingFrame& frame) {
+  if (!net_log_is_capturing_)
+    return;
   net_log_.AddEvent(NetLogEventType::QUIC_SESSION_STOP_WAITING_FRAME_RECEIVED,
                     base::Bind(&NetLogQuicStopWaitingFrameCallback, &frame));
 }
 
-void QuicConnectionLogger::OnRstStreamFrame(const QuicRstStreamFrame& frame) {
-  UMA_HISTOGRAM_SPARSE_SLOWLY("Net.QuicSession.RstStreamErrorCodeServer",
-                              frame.error_code);
+void QuicConnectionLogger::OnRstStreamFrame(
+    const quic::QuicRstStreamFrame& frame) {
+  base::UmaHistogramSparse("Net.QuicSession.RstStreamErrorCodeServer",
+                           frame.error_code);
+  if (!net_log_is_capturing_)
+    return;
   net_log_.AddEvent(NetLogEventType::QUIC_SESSION_RST_STREAM_FRAME_RECEIVED,
                     base::Bind(&NetLogQuicRstStreamFrameCallback, &frame));
 }
 
 void QuicConnectionLogger::OnConnectionCloseFrame(
-    const QuicConnectionCloseFrame& frame) {
+    const quic::QuicConnectionCloseFrame& frame) {
+  if (!net_log_is_capturing_)
+    return;
   net_log_.AddEvent(
       NetLogEventType::QUIC_SESSION_CONNECTION_CLOSE_FRAME_RECEIVED,
       base::Bind(&NetLogQuicConnectionCloseFrameCallback, &frame));
 }
 
 void QuicConnectionLogger::OnWindowUpdateFrame(
-    const QuicWindowUpdateFrame& frame) {
+    const quic::QuicWindowUpdateFrame& frame,
+    const quic::QuicTime& receive_time) {
+  if (!net_log_is_capturing_)
+    return;
   net_log_.AddEvent(NetLogEventType::QUIC_SESSION_WINDOW_UPDATE_FRAME_RECEIVED,
                     base::Bind(&NetLogQuicWindowUpdateFrameCallback, &frame));
 }
 
-void QuicConnectionLogger::OnBlockedFrame(const QuicBlockedFrame& frame) {
+void QuicConnectionLogger::OnBlockedFrame(const quic::QuicBlockedFrame& frame) {
   ++num_blocked_frames_received_;
+  if (!net_log_is_capturing_)
+    return;
   net_log_.AddEvent(NetLogEventType::QUIC_SESSION_BLOCKED_FRAME_RECEIVED,
                     base::Bind(&NetLogQuicBlockedFrameCallback, &frame));
 }
 
-void QuicConnectionLogger::OnGoAwayFrame(const QuicGoAwayFrame& frame) {
+void QuicConnectionLogger::OnGoAwayFrame(const quic::QuicGoAwayFrame& frame) {
   UMA_HISTOGRAM_BOOLEAN("Net.QuicSession.GoAwayReceivedForConnectionMigration",
-                        frame.error_code == QUIC_ERROR_MIGRATING_PORT);
+                        frame.error_code == quic::QUIC_ERROR_MIGRATING_PORT);
 
+  if (!net_log_is_capturing_)
+    return;
   net_log_.AddEvent(NetLogEventType::QUIC_SESSION_GOAWAY_FRAME_RECEIVED,
                     base::Bind(&NetLogQuicGoAwayFrameCallback, &frame));
 }
 
-void QuicConnectionLogger::OnPingFrame(const QuicPingFrame& frame) {
+void QuicConnectionLogger::OnPingFrame(const quic::QuicPingFrame& frame) {
   // PingFrame has no contents to log, so just record that it was received.
+  if (!net_log_is_capturing_)
+    return;
   net_log_.AddEvent(NetLogEventType::QUIC_SESSION_PING_FRAME_RECEIVED);
 }
 
 void QuicConnectionLogger::OnPublicResetPacket(
-    const QuicPublicResetPacket& packet) {
+    const quic::QuicPublicResetPacket& packet) {
+  UpdatePublicResetAddressMismatchHistogram(
+      local_address_from_shlo_, packet.client_address.impl().socket_address());
+  if (!net_log_is_capturing_)
+    return;
   net_log_.AddEvent(NetLogEventType::QUIC_SESSION_PUBLIC_RESET_PACKET_RECEIVED,
                     base::Bind(&NetLogQuicPublicResetPacketCallback,
                                &local_address_from_shlo_,
                                &packet.client_address.impl().socket_address()));
-  UpdatePublicResetAddressMismatchHistogram(
-      local_address_from_shlo_, packet.client_address.impl().socket_address());
 }
 
 void QuicConnectionLogger::OnVersionNegotiationPacket(
-    const QuicVersionNegotiationPacket& packet) {
+    const quic::QuicVersionNegotiationPacket& packet) {
+  if (!net_log_is_capturing_)
+    return;
   net_log_.AddEvent(
       NetLogEventType::QUIC_SESSION_VERSION_NEGOTIATION_PACKET_RECEIVED,
       base::Bind(&NetLogQuicVersionNegotiationPacketCallback, &packet));
 }
 
 void QuicConnectionLogger::OnCryptoHandshakeMessageReceived(
-    const CryptoHandshakeMessage& message) {
-  net_log_.AddEvent(
-      NetLogEventType::QUIC_SESSION_CRYPTO_HANDSHAKE_MESSAGE_RECEIVED,
-      base::Bind(&NetLogQuicCryptoHandshakeMessageCallback, &message));
-
-  if (message.tag() == kSHLO) {
-    QuicStringPiece address;
-    QuicSocketAddressCoder decoder;
-    if (message.GetStringPiece(kCADR, &address) &&
+    const quic::CryptoHandshakeMessage& message) {
+  if (message.tag() == quic::kSHLO) {
+    quic::QuicStringPiece address;
+    quic::QuicSocketAddressCoder decoder;
+    if (message.GetStringPiece(quic::kCADR, &address) &&
         decoder.Decode(address.data(), address.size())) {
       local_address_from_shlo_ =
           IPEndPoint(decoder.ip().impl().ip_address(), decoder.port());
@@ -620,35 +689,47 @@ void QuicConnectionLogger::OnCryptoHandshakeMessageReceived(
           ADDRESS_FAMILY_LAST);
     }
   }
+  if (!net_log_is_capturing_)
+    return;
+  net_log_.AddEvent(
+      NetLogEventType::QUIC_SESSION_CRYPTO_HANDSHAKE_MESSAGE_RECEIVED,
+      base::Bind(&NetLogQuicCryptoHandshakeMessageCallback, &message));
 }
 
 void QuicConnectionLogger::OnCryptoHandshakeMessageSent(
-    const CryptoHandshakeMessage& message) {
+    const quic::CryptoHandshakeMessage& message) {
+  if (!net_log_is_capturing_)
+    return;
   net_log_.AddEvent(
       NetLogEventType::QUIC_SESSION_CRYPTO_HANDSHAKE_MESSAGE_SENT,
       base::Bind(&NetLogQuicCryptoHandshakeMessageCallback, &message));
 }
 
-void QuicConnectionLogger::OnConnectionClosed(QuicErrorCode error,
-                                              const string& error_details,
-                                              ConnectionCloseSource source) {
+void QuicConnectionLogger::OnConnectionClosed(
+    quic::QuicErrorCode error,
+    const string& error_details,
+    quic::ConnectionCloseSource source) {
+  if (!net_log_is_capturing_)
+    return;
   net_log_.AddEvent(
       NetLogEventType::QUIC_SESSION_CLOSED,
       base::Bind(&NetLogQuicOnConnectionClosedCallback, error, source));
 }
 
 void QuicConnectionLogger::OnSuccessfulVersionNegotiation(
-    const QuicVersion& version) {
-  string quic_version = QuicVersionToString(version);
+    const quic::ParsedQuicVersion& version) {
+  if (!net_log_is_capturing_)
+    return;
+  string quic_version = QuicVersionToString(version.transport_version);
   net_log_.AddEvent(NetLogEventType::QUIC_SESSION_VERSION_NEGOTIATED,
                     NetLog::StringCallback("version", &quic_version));
 }
 
 void QuicConnectionLogger::UpdateReceivedFrameCounts(
-    QuicStreamId stream_id,
+    quic::QuicStreamId stream_id,
     int num_frames_received,
     int num_duplicate_frames_received) {
-  if (stream_id != kCryptoStreamId) {
+  if (stream_id != quic::kCryptoStreamId) {
     num_frames_received_ += num_frames_received;
     num_duplicate_frames_received_ += num_duplicate_frames_received;
   }
@@ -656,6 +737,8 @@ void QuicConnectionLogger::UpdateReceivedFrameCounts(
 
 void QuicConnectionLogger::OnCertificateVerified(
     const CertVerifyResult& result) {
+  if (!net_log_is_capturing_)
+    return;
   if (result.cert_status == CERT_STATUS_INVALID) {
     net_log_.AddEvent(NetLogEventType::QUIC_SESSION_CERTIFICATE_VERIFY_FAILED);
     return;
@@ -682,7 +765,7 @@ float QuicConnectionLogger::ReceivedPacketLossRate() const {
   return num_received / largest_received_packet_number_;
 }
 
-void QuicConnectionLogger::OnRttChanged(QuicTime::Delta rtt) const {
+void QuicConnectionLogger::OnRttChanged(quic::QuicTime::Delta rtt) const {
   // Notify socket performance watcher of the updated RTT value.
   if (!socket_performance_watcher_)
     return;
@@ -711,6 +794,10 @@ void QuicConnectionLogger::RecordAggregatePacketLossRate() const {
       base::HistogramBase::kUmaTargetedHistogramFlag);
   histogram->Add(static_cast<base::HistogramBase::Sample>(
       ReceivedPacketLossRate() * 1000));
+}
+
+void QuicConnectionLogger::UpdateIsCapturing() {
+  net_log_is_capturing_ = net_log_.IsCapturing();
 }
 
 }  // namespace net

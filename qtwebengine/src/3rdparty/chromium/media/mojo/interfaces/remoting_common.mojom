@@ -12,6 +12,7 @@ enum RemotingStopReason {
   DATA_SEND_FAILED,  // Failed to consume from a data pipe or send to the sink.
   UNEXPECTED_FAILURE,  // Unexpected failure or inconsistent state encountered.
   SERVICE_GONE,  // Mirror service disconnected.
+  USER_DISABLED,  // Media Remoting was disabled by user.
 };
 
 enum RemotingStartFailReason {
@@ -20,18 +21,18 @@ enum RemotingStartFailReason {
   SERVICE_NOT_CONNECTED,  // Mirror service was not connected.
 };
 
-enum RemotingSinkFeatures {
+enum RemotingSinkFeature {
   RENDERING,
   CONTENT_DECRYPTION,
 };
 
-enum RemotingSinkAudioCapabilities {
+enum RemotingSinkAudioCapability {
   CODEC_BASELINE_SET,
   CODEC_AAC,
   CODEC_OPUS,
 };
 
-enum RemotingSinkVideoCapabilities {
+enum RemotingSinkVideoCapability {
   SUPPORT_4K,
   CODEC_BASELINE_SET,
   CODEC_H264,
@@ -40,8 +41,9 @@ enum RemotingSinkVideoCapabilities {
   CODEC_HEVC,
 };
 
-struct SinkCapabilities {
-  array<RemotingSinkFeatures>  features;
-  array<RemotingSinkAudioCapabilities> audio;
-  array<RemotingSinkVideoCapabilities> video;
+struct RemotingSinkMetadata {
+  array<RemotingSinkFeature> features;
+  array<RemotingSinkAudioCapability> audio_capabilities;
+  array<RemotingSinkVideoCapability> video_capabilities;
+  string friendly_name;
 };

@@ -17,8 +17,8 @@ SkBitmapRegionCodec::SkBitmapRegionCodec(SkAndroidCodec* codec)
 {}
 
 bool SkBitmapRegionCodec::decodeRegion(SkBitmap* bitmap, SkBRDAllocator* allocator,
-        const SkIRect& desiredSubset, int sampleSize, SkColorType prefColorType,
-        bool requireUnpremul, sk_sp<SkColorSpace> prefColorSpace) {
+        const SkIRect& desiredSubset, int sampleSize, SkColorType dstColorType,
+        bool requireUnpremul, sk_sp<SkColorSpace> dstColorSpace) {
 
     // Fix the input sampleSize if necessary.
     if (sampleSize < 1) {
@@ -50,10 +50,7 @@ bool SkBitmapRegionCodec::decodeRegion(SkBitmap* bitmap, SkBRDAllocator* allocat
     SkISize scaledSize = fCodec->getSampledSubsetDimensions(sampleSize, subset);
 
     // Create the image info for the decode
-    SkColorType dstColorType = fCodec->computeOutputColorType(prefColorType);
     SkAlphaType dstAlphaType = fCodec->computeOutputAlphaType(requireUnpremul);
-    sk_sp<SkColorSpace> dstColorSpace = fCodec->computeOutputColorSpace(dstColorType,
-                                                                        prefColorSpace);
     SkImageInfo decodeInfo = SkImageInfo::Make(scaledSize.width(), scaledSize.height(),
                                                dstColorType, dstAlphaType, dstColorSpace);
 
@@ -96,7 +93,7 @@ bool SkBitmapRegionCodec::decodeRegion(SkBitmap* bitmap, SkBRDAllocator* allocat
     if (SubsetType::kPartiallyInside_SubsetType == type &&
             SkCodec::kNo_ZeroInitialized == zeroInit) {
         void* pixels = bitmap->getPixels();
-        size_t bytes = outInfo.getSafeSize(bitmap->rowBytes());
+        size_t bytes = outInfo.computeByteSize(bitmap->rowBytes());
         memset(pixels, 0, bytes);
     }
 
@@ -115,9 +112,4 @@ bool SkBitmapRegionCodec::decodeRegion(SkBitmap* bitmap, SkBRDAllocator* allocat
     }
 
     return true;
-}
-
-bool SkBitmapRegionCodec::conversionSupported(SkColorType colorType) {
-    SkImageInfo dstInfo = fCodec->getInfo().makeColorType(colorType);
-    return conversion_possible(dstInfo, fCodec->getInfo());
 }

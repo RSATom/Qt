@@ -1,4 +1,7 @@
 TEMPLATE = subdirs
-SUBDIRS += \
-    twittertimeline \
-    redditclient
+
+qtHaveModule(widgets) {
+    SUBDIRS += \
+        twittertimeline \
+        redditclient
+}

@@ -60,6 +60,8 @@ extern LCID qt_inIsoNametoLCID(const char *name);
 void QCollatorPrivate::init()
 {
     collator = 0;
+    if (isC())
+        return;
 
 #ifndef USE_COMPARESTRINGEX
     localeID = qt_inIsoNametoLCID(QLocalePrivate::get(locale)->bcp47Name().constData());
@@ -70,12 +72,10 @@ void QCollatorPrivate::init()
     if (caseSensitivity == Qt::CaseInsensitive)
         collator |= NORM_IGNORECASE;
 
-    if (numericMode) {
-        if (QSysInfo::windowsVersion() >= QSysInfo::WV_WINDOWS7)
-            collator |= SORT_DIGITSASNUMBERS;
-        else
-            qWarning("Numeric sorting unsupported on Windows versions older than Windows 7.");
-    }
+    // WINE does not support SORT_DIGITSASNUMBERS :-(
+    // (and its std::sort() crashes on bad comparisons, QTBUG-74209)
+    if (numericMode)
+        collator |= SORT_DIGITSASNUMBERS;
 
     if (ignorePunctuation)
         collator |= NORM_IGNORESYMBOLS;
@@ -90,6 +90,9 @@ void QCollatorPrivate::cleanup()
 
 int QCollator::compare(const QChar *s1, int len1, const QChar *s2, int len2) const
 {
+    if (d->isC())
+        return QString::compare_helper(s1, len1, s2, len2, d->caseSensitivity);
+
     if (d->dirty)
         d->init();
 
@@ -97,16 +100,36 @@ int QCollator::compare(const QChar *s1, int len1, const QChar *s2, int len2) con
     // Returns one of the following values if successful. To maintain the C runtime convention of
     // comparing strings, the value 2 can be subtracted from a nonzero return value. Then, the
     // meaning of <0, ==0, and >0 is consistent with the C runtime.
+    // [...] The function returns 0 if it does not succeed.
+    // https://docs.microsoft.com/en-us/windows/desktop/api/stringapiset/nf-stringapiset-comparestringex#return-value
 
 #ifndef USE_COMPARESTRINGEX
-    return CompareString(d->localeID, d->collator,
-                         reinterpret_cast<const wchar_t*>(s1), len1,
-                         reinterpret_cast<const wchar_t*>(s2), len2) - 2;
+    const int ret = CompareString(d->localeID, d->collator,
+                                  reinterpret_cast<const wchar_t*>(s1), len1,
+                                  reinterpret_cast<const wchar_t*>(s2), len2);
 #else
-    return CompareStringEx(LPCWSTR(d->localeName.utf16()), d->collator,
-                           reinterpret_cast<LPCWSTR>(s1), len1,
-                           reinterpret_cast<LPCWSTR>(s2), len2, NULL, NULL, 0) - 2;
+    const int ret = CompareStringEx(LPCWSTR(d->localeName.utf16()), d->collator,
+                                    reinterpret_cast<LPCWSTR>(s1), len1,
+                                    reinterpret_cast<LPCWSTR>(s2), len2,
+                                    nullptr, nullptr, 0);
 #endif
+    if (Q_LIKELY(ret))
+        return ret - 2;
+
+    switch (DWORD error = GetLastError()) {
+    case ERROR_INVALID_FLAGS:
+        qWarning("Unsupported flags (%d) used in QCollator", int(d->collator));
+        break;
+    case ERROR_INVALID_PARAMETER:
+        qWarning("Invalid parameter for QCollator::compare()");
+        break;
+    default:
+        qWarning("Failed (%ld) comparison in QCollator::compare()", long(error));
+        break;
+    }
+    // We have no idea what to return, so pretend we think they're equal.
+    // At least that way we'll be consistent if we get the same values swapped ...
+    return 0;
 }
 
 int QCollator::compare(const QString &str1, const QString &str2) const
@@ -123,6 +146,8 @@ QCollatorSortKey QCollator::sortKey(const QString &string) const
 {
     if (d->dirty)
         d->init();
+    if (d->isC())
+        return QCollatorSortKey(new QCollatorSortKeyPrivate(string));
 
 #ifndef USE_COMPARESTRINGEX
     int size = LCMapStringW(d->localeID, LCMAP_SORTKEY | d->collator,

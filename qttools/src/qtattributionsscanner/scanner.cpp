@@ -83,6 +83,8 @@ static Package readPackage(const QJsonObject &object, const QString &filePath, L
             p.licenseFile = QDir(directory).absoluteFilePath(value);
         } else if (key == QLatin1String("Copyright")) {
             p.copyright = value;
+        } else if (key == QLatin1String("PackageComment")) {
+            p.packageComment = value;
         } else if (key == QLatin1String("QDocModule")) {
             p.qdocModule = value;
         } else if (key == QLatin1String("Description")) {
@@ -112,14 +114,8 @@ static Package readPackage(const QJsonObject &object, const QString &filePath, L
             missingPropertyWarning(filePath, QStringLiteral("Name"));
         if (p.id.isEmpty())
             missingPropertyWarning(filePath, QStringLiteral("Id"));
-        if (p.qdocModule.isEmpty())
-            missingPropertyWarning(filePath, QStringLiteral("QDocModule"));
-        if (p.qtUsage.isEmpty())
-            missingPropertyWarning(filePath, QStringLiteral("QtUsage"));
         if (p.license.isEmpty())
             missingPropertyWarning(filePath, QStringLiteral("License"));
-        if (p.copyright.isEmpty())
-            missingPropertyWarning(filePath, QStringLiteral("Copyright"));
         if (p.qtParts.isEmpty())
             p.qtParts << QStringLiteral("libs");
 
@@ -195,7 +191,11 @@ QVector<Package> scanDirectory(const QString &directory, LogLevel logLevel)
     QDir dir(directory);
     QVector<Package> packages;
 
-    dir.setNameFilters(QStringList() << QStringLiteral("qt_attribution.json"));
+    QStringList nameFilters = QStringList()
+            << QStringLiteral("qt_attribution.json");
+    if (qEnvironmentVariableIsSet("QT_ATTRIBUTIONSSCANNER_TEST"))
+        nameFilters << QStringLiteral("qt_attribution_test.json");
+    dir.setNameFilters(nameFilters);
     dir.setFilter(QDir::AllDirs | QDir::NoDotAndDotDot | QDir::Files);
 
     const QFileInfoList entries = dir.entryInfoList();

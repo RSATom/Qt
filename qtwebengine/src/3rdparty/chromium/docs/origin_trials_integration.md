@@ -9,7 +9,7 @@ changes required.
 
 ### Runtime Enabled Features
 
-First, you’ll need to configure [RuntimeEnabledFeatures.json5]. This is
+First, you’ll need to configure [runtime\_enabled\_features.json5]. This is
 explained in the file, but you use `origin_trial_feature_name` to associate your
 runtime feature flag with a name for your origin trial.  The name can be the
 same as your runtime feature flag, or different.  Eventually, this configured
@@ -134,7 +134,7 @@ as tests for script-added tokens. For examples, refer to the existing tests in
 [chrome_origin_trial_policy.cc]: /chrome/common/origin_trials/chrome_origin_trial_policy.cc
 [generate_token.py]: /tools/origin_trials/generate_token.py
 [Developer Guide]: https://github.com/jpchase/OriginTrials/blob/gh-pages/developer-guide.md
-[OriginTrialEnabled]: /third_party/WebKit/Source/bindings/IDLExtendedAttributes.md#_OriginTrialEnabled_i_m_a_c_
+[OriginTrialEnabled]: /third_party/blink/renderer/bindings/IDLExtendedAttributes.md#_OriginTrialEnabled_i_m_a_c_
 [origin_trials/webexposed]: /third_party/WebKit/LayoutTests/http/tests/origin_trials/webexposed/
-[RuntimeEnabledFeatures.json5]: /third_party/WebKit/Source/platform/RuntimeEnabledFeatures.json5
-[trial_token_unittest.cc]: /content/common/origin_trials/trial_token_unittest.cc
+[runtime\_enabled\_features.json5]: /third_party/blink/renderer/platform/runtime_enabled_features.json5
+[trial_token_unittest.cc]: /third_party/blink/common/origin_trials/trial_token_unittest.cc

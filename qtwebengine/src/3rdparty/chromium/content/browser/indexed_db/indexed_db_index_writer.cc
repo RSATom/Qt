@@ -8,7 +8,6 @@
 #include <utility>
 
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "content/browser/indexed_db/indexed_db_backing_store.h"
 #include "content/browser/indexed_db/indexed_db_tracing.h"
@@ -137,7 +136,7 @@ bool MakeIndexWriters(IndexedDBTransaction* transaction,
       keys.second.push_back(primary_key);
 
     std::unique_ptr<IndexWriter> index_writer(
-        base::MakeUnique<IndexWriter>(index, keys));
+        std::make_unique<IndexWriter>(index, keys));
     bool can_add_keys = false;
     bool backing_store_success =
         index_writer->VerifyIndexKeys(backing_store,

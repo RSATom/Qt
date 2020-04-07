@@ -117,7 +117,7 @@ Expression::Ptr ExpressionSequence::compress(const StaticContext::Ptr &context)
         } else if (Id == IDLiteralSequence) {
             /* Rewrite "(1, (2, 3), 4)" into "(1, 2, 3, 4)" */
             // Note: LiteralSequence does not use the dynamic context, so we pass in a nullptr.
-            Item::Iterator::Ptr seqIt = (*it)->evaluateSequence(DynamicContext::Ptr(Q_NULLPTR));
+            Item::Iterator::Ptr seqIt = (*it)->evaluateSequence(DynamicContext::Ptr(nullptr));
 
             while (!seqIt->next().isNull())
                 result.append(Literal::Ptr(new Literal(seqIt->current())));

@@ -5,15 +5,21 @@
 #include "ui/views/controls/native/native_view_host_aura.h"
 
 #include "base/logging.h"
+#include "build/build_config.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/client/focus_client.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_delegate.h"
+#include "ui/aura/window_occlusion_tracker.h"
 #include "ui/base/cursor/cursor.h"
 #include "ui/base/hit_test.h"
+#include "ui/compositor/paint_recorder.h"
 #include "ui/views/controls/native/native_view_host.h"
+#include "ui/views/painter.h"
 #include "ui/views/view_constants_aura.h"
+#include "ui/views/view_properties.h"
 #include "ui/views/widget/widget.h"
+#include "ui/wm/core/window_util.h"
 
 namespace views {
 
@@ -51,7 +57,8 @@ class NativeViewHostAura::ClippingWindowDelegate : public aura::WindowDelegate {
   }
   void OnCaptureLost() override {}
   void OnPaint(const ui::PaintContext& context) override {}
-  void OnDeviceScaleFactorChanged(float device_scale_factor) override {}
+  void OnDeviceScaleFactorChanged(float old_device_scale_factor,
+                                  float new_device_scale_factor) override {}
   void OnWindowDestroying(aura::Window* window) override {}
   void OnWindowDestroyed(aura::Window* window) override {}
   void OnWindowTargetVisibilityChanged(bool visible) override {}
@@ -94,16 +101,26 @@ void NativeViewHostAura::AttachNativeView() {
   host_->native_view()->AddObserver(this);
   host_->native_view()->SetProperty(views::kHostViewKey,
       static_cast<View*>(host_));
+  original_transform_ = host_->native_view()->transform();
+  original_transform_changed_ = false;
   AddClippingWindow();
+  InstallMask();
 }
 
 void NativeViewHostAura::NativeViewDetaching(bool destroyed) {
+  // This method causes a succession of window tree changes.
+  // ScopedPauseOcclusionTracking ensures that occlusion is recomputed at the
+  // end of the method instead of after each change.
+  aura::WindowOcclusionTracker::ScopedPauseOcclusionTracking pause_occlusion;
+
   clipping_window_delegate_->set_native_view(NULL);
   RemoveClippingWindow();
   if (!destroyed) {
     host_->native_view()->RemoveObserver(this);
     host_->native_view()->ClearProperty(views::kHostViewKey);
     host_->native_view()->ClearProperty(aura::client::kHostWindowKey);
+    if (original_transform_changed_)
+      host_->native_view()->SetTransform(original_transform_);
     host_->native_view()->Hide();
     if (host_->native_view()->parent())
       Widget::ReparentNativeView(host_->native_view(), NULL);
@@ -132,6 +149,21 @@ void NativeViewHostAura::RemovedFromWidget() {
   }
 }
 
+bool NativeViewHostAura::SetCustomMask(std::unique_ptr<ui::LayerOwner> mask) {
+#if defined(OS_WIN)
+  // TODO(crbug/843250): On Aura, layer masks don't play with HiDPI. Fix this
+  // and enable this on Windows.
+  return false;
+#else
+  UninstallMask();
+  mask_ = std::move(mask);
+  if (mask_)
+    mask_->layer()->SetFillsBoundsOpaquely(false);
+  InstallMask();
+  return true;
+#endif
+}
+
 void NativeViewHostAura::InstallClip(int x, int y, int w, int h) {
   clip_rect_.reset(
       new gfx::Rect(host_->ConvertRectToWidget(gfx::Rect(x, y, w, h))));
@@ -145,22 +177,36 @@ void NativeViewHostAura::UninstallClip() {
   clip_rect_.reset();
 }
 
-void NativeViewHostAura::ShowWidget(int x, int y, int w, int h) {
-  int width = w;
-  int height = h;
+void NativeViewHostAura::ShowWidget(int x,
+                                    int y,
+                                    int w,
+                                    int h,
+                                    int native_w,
+                                    int native_h) {
   if (host_->fast_resize()) {
     gfx::Point origin(x, y);
     views::View::ConvertPointFromWidget(host_, &origin);
     InstallClip(origin.x(), origin.y(), w, h);
-    width = host_->native_view()->bounds().width();
-    height = host_->native_view()->bounds().height();
+    native_w = host_->native_view()->bounds().width();
+    native_h = host_->native_view()->bounds().height();
+  } else {
+    gfx::Transform transform = original_transform_;
+    if (w > 0 && h > 0 && native_w > 0 && native_h > 0) {
+      transform.Scale(static_cast<SkMScalar>(w) / native_w,
+                      static_cast<SkMScalar>(h) / native_h);
+    }
+    // Only set the transform when it is actually different.
+    if (transform != host_->native_view()->transform()) {
+      host_->native_view()->SetTransform(transform);
+      original_transform_changed_ = true;
+    }
   }
+
   clipping_window_.SetBounds(clip_rect_ ? *clip_rect_
                                         : gfx::Rect(x, y, w, h));
-
   gfx::Point clip_offset = clipping_window_.bounds().origin();
   host_->native_view()->SetBounds(
-      gfx::Rect(x - clip_offset.x(), y - clip_offset.y(), width, height));
+      gfx::Rect(x - clip_offset.x(), y - clip_offset.y(), native_w, native_h));
   host_->native_view()->Show();
   clipping_window_.Show();
 }
@@ -185,6 +231,22 @@ gfx::NativeCursor NativeViewHostAura::GetCursor(int x, int y) {
   if (host_->native_view())
     return host_->native_view()->GetCursor(gfx::Point(x, y));
   return gfx::kNullCursor;
+}
+
+void NativeViewHostAura::OnWindowBoundsChanged(
+    aura::Window* window,
+    const gfx::Rect& old_bounds,
+    const gfx::Rect& new_bounds,
+    ui::PropertyChangeReason reason) {
+  if (mask_) {
+    // Having a mask means this layer has a render surface of its own. This
+    // means we want this layer snapped as the render surface uses this layer
+    // (its primary layer) to snap to the physical pixel grid.
+    // See https://crbug.com/843250 for more details.
+    wm::SnapWindowToPixelBoundary(window);
+
+    mask_->layer()->SetBounds(gfx::Rect(host_->native_view()->bounds().size()));
+  }
 }
 
 void NativeViewHostAura::OnWindowDestroying(aura::Window* window) {
@@ -232,6 +294,30 @@ void NativeViewHostAura::RemoveClippingWindow() {
   }
   if (clipping_window_.parent())
     clipping_window_.parent()->RemoveChild(&clipping_window_);
+}
+
+void NativeViewHostAura::InstallMask() {
+  if (!mask_)
+    return;
+  if (host_->native_view()) {
+    // Setting a mask triggers this layer to have a render surface of its own.
+    // This means we cannot skip computing its subpixel offset positioning as
+    // the render surface uses this layer (its primary layer) to snap to the
+    // physical pixel grid.
+    // See https://crbug.com/843250 for more details.
+    wm::SnapWindowToPixelBoundary(host_->native_view());
+
+    mask_->layer()->SetBounds(gfx::Rect(host_->native_view()->bounds().size()));
+    host_->native_view()->layer()->SetMaskLayer(mask_->layer());
+  }
+}
+
+void NativeViewHostAura::UninstallMask() {
+  if (!host_->native_view() || !mask_)
+    return;
+
+  host_->native_view()->layer()->SetMaskLayer(nullptr);
+  mask_.reset();
 }
 
 }  // namespace views

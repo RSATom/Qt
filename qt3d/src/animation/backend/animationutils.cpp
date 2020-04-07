@@ -109,6 +109,9 @@ ClipEvaluationData evaluationDataForClip(AnimationClip *clip,
                                                 animatorData.loopCount, result.currentLoop);
     result.isFinalFrame = isFinalFrame(result.localTime, clip->duration(),
                                        result.currentLoop, animatorData.loopCount);
+    const bool hasNormalizedTime = isValidNormalizedTime(animatorData.normalizedLocalTime);
+    result.normalizedLocalTime = hasNormalizedTime ? animatorData.normalizedLocalTime
+                                                   : result.localTime / clip->duration();
     return result;
 }
 
@@ -256,8 +259,65 @@ ClipResults evaluateClipAtLocalTime(AnimationClip *clip, float localTime)
     const QVector<Channel> &channels = clip->channels();
     int i = 0;
     for (const Channel &channel : channels) {
-        for (const auto &channelComponent : qAsConst(channel.channelComponents))
-            channelResults[i++] = channelComponent.fcurve.evaluateAtTime(localTime);
+        if (channel.name.contains(QStringLiteral("Rotation")) &&
+                        channel.channelComponents.size() == 4) {
+
+            // Try to SLERP
+            const int nbKeyframes = channel.channelComponents[0].fcurve.keyframeCount();
+            const bool canSlerp = std::find_if(std::begin(channel.channelComponents)+1,
+                                               std::end(channel.channelComponents),
+                                               [nbKeyframes](const ChannelComponent &v) {
+                return v.fcurve.keyframeCount() != nbKeyframes;
+            }) == std::end(channel.channelComponents);
+
+            if (!canSlerp) {
+                // Interpolate per component
+                for (const auto &channelComponent : qAsConst(channel.channelComponents)) {
+                    const int lowerKeyframeBound = channelComponent.fcurve.lowerKeyframeBound(localTime);
+                    channelResults[i++] = channelComponent.fcurve.evaluateAtTime(localTime, lowerKeyframeBound);
+                }
+            } else {
+                // There's only one keyframe. We cant compute omega. Interpolate per component
+                const int lowerKeyframeBound = channel.channelComponents[0].fcurve.lowerKeyframeBound(localTime);
+                if (lowerKeyframeBound + 1 >= channel.channelComponents[0].fcurve.keyframeCount()) {
+                    for (const auto &channelComponent : qAsConst(channel.channelComponents))
+                        channelResults[i++] = channelComponent.fcurve.evaluateAtTime(localTime, lowerKeyframeBound);
+                } else {
+                    auto quaternionFromChannel = [channel](const int keyframe) {
+                        const float w = channel.channelComponents[0].fcurve.keyframe(keyframe).value;
+                        const float x = channel.channelComponents[1].fcurve.keyframe(keyframe).value;
+                        const float y = channel.channelComponents[2].fcurve.keyframe(keyframe).value;
+                        const float z = channel.channelComponents[3].fcurve.keyframe(keyframe).value;
+                        QQuaternion quat{w,x,y,z};
+                        quat.normalize();
+                        return quat;
+                    };
+
+                    const auto lowerQuat = quaternionFromChannel(lowerKeyframeBound);
+                    const auto higherQuat = quaternionFromChannel(lowerKeyframeBound + 1);
+                    const float omega = std::acos(qBound(-1.0f, QQuaternion::dotProduct(lowerQuat, higherQuat), 1.0f));
+
+                    if (qFuzzyIsNull(omega)) {
+                        // If the two keyframe quaternions are equal, just return the first one as the interpolated value.
+                        channelResults[0] = lowerQuat.scalar();
+                        channelResults[1] = lowerQuat.x();
+                        channelResults[2] = lowerQuat.y();
+                        channelResults[3] = lowerQuat.z();
+                    } else {
+                        for (const auto &channelComponent : qAsConst(channel.channelComponents))
+                            channelResults[i++] = channelComponent.fcurve.evaluateAtTimeAsSlerp(localTime, lowerKeyframeBound, omega);
+                    }
+                }
+            }
+        } else {
+            // If the channel is not a Rotation, apply linear interpolation per channel component
+            // TODO How do we handle other interpolations. For exammple, color interpolation
+            // in a linear perceptual way or other non linear spaces?
+            for (const auto &channelComponent : qAsConst(channel.channelComponents)) {
+                const int lowerKeyframeBound = channelComponent.fcurve.lowerKeyframeBound(localTime);
+                channelResults[i++] = channelComponent.fcurve.evaluateAtTime(localTime, lowerKeyframeBound);
+            }
+        }
     }
     return channelResults;
 }
@@ -333,7 +393,8 @@ QVariant buildPropertyValue(const MappingData &mappingData, const QVector<float>
 QVector<Qt3DCore::QSceneChangePtr> preparePropertyChanges(Qt3DCore::QNodeId animatorId,
                                                           const QVector<MappingData> &mappingDataVec,
                                                           const QVector<float> &channelResults,
-                                                          bool finalFrame)
+                                                          bool finalFrame,
+                                                          float normalizedLocalTime)
 {
     QVector<Qt3DCore::QSceneChangePtr> changes;
     QVarLengthArray<Skeleton *, 4> dirtySkeletons;
@@ -390,6 +451,15 @@ QVector<Qt3DCore::QSceneChangePtr> preparePropertyChanges(Qt3DCore::QNodeId anim
     for (const auto skeleton : dirtySkeletons)
         skeleton->sendLocalPoses();
 
+    if (isValidNormalizedTime(normalizedLocalTime)) {
+        auto e = Qt3DCore::QPropertyUpdatedChangePtr::create(animatorId);
+        e->setDeliveryFlags(Qt3DCore::QSceneChange::DeliverToAll);
+        e->setPropertyName("normalizedTime");
+        e->setValue(normalizedLocalTime);
+        Qt3DCore::QPropertyUpdatedChangeBasePrivate::get(e.data())->m_isIntermediate = !finalFrame;
+        changes.push_back(e);
+    }
+
     // If it's the final frame, notify the frontend that we've stopped
     if (finalFrame) {
         auto e = Qt3DCore::QPropertyUpdatedChangePtr::create(animatorId);
@@ -398,6 +468,7 @@ QVector<Qt3DCore::QSceneChangePtr> preparePropertyChanges(Qt3DCore::QNodeId anim
         e->setValue(false);
         changes.push_back(e);
     }
+
     return changes;
 }
 

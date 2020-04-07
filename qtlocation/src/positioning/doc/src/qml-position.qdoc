@@ -61,18 +61,18 @@ location data source within the API is that it provides a
 latitude-longitude coordinate with a date/time value, with the option of
 providing the other attributes listed above.
 
-\section2 Coordinate
+\section2 Coordinates
 
 The \l {coordinate} is a basic unit of geographical information. The
 \l {coordinate} type has attributes to hold the \c {latitude},
 \c longitude and \c altitude.
 
-\section2 Position
+\section2 Positions
 
 The three dimensional position of an object such as a mobile device can be specified by giving
 the latitude, longitude and altitude.  That is the values held in the
 l\ {coordinate} type.  Additionally for computation of future
-positions we would like to know if the object is moving, what \l {Position::speed}{speed} it is
+positions we would like to know if the object is moving, what \l [QML] {Position::}{speed} it is
 doing and what is the \l {Position::timestamp}{timestamp} of the last position data.  Position
 therefore includes values for the \l {Position::coordinate}{coordinate},
 \l {Position::speed}{speed} and a \l {Position::timestamp}{timestamp}.  \l Position also takes
@@ -83,7 +83,7 @@ the \l {Position::latitudeValid}{latitudeValid}, \l {Position::longitudeValid}{l
 \l {Position::verticalAccuracyValid}{verticalAccuracyValid} properties.
 
 
-\section2 PositionSource
+\section2 PositionSource Type
 
 We have a Position type, a \l {coordinate} type but where does the data come from?
 Also it is a good idea to be able to indicate alternative sources.
@@ -111,7 +111,7 @@ PositionSource {
 
 
 
-\section2 \b{GeoFlickr Example}
+\section2 GeoFlickr Example
 
 The \l{GeoFlickr (QML)}{GeoFlickr Example} uses the Location to download thumbnail
 images from Flickr relevant to the current location.

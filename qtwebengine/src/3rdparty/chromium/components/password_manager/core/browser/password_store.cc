@@ -5,25 +5,31 @@
 #include "components/password_manager/core/browser/password_store.h"
 
 #include <algorithm>
+#include <memory>
 #include <utility>
 
 #include "base/bind.h"
 #include "base/debug/dump_without_crashing.h"
 #include "base/location.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/stl_util.h"
+#include "base/task_scheduler/post_task.h"
 #include "base/threading/sequenced_task_runner_handle.h"
+#include "build/build_config.h"
+#include "components/autofill/core/common/form_data.h"
 #include "components/autofill/core/common/password_form.h"
 #include "components/password_manager/core/browser/android_affiliation/affiliated_match_helper.h"
+#include "components/password_manager/core/browser/password_manager_metrics_util.h"
 #include "components/password_manager/core/browser/password_manager_util.h"
+#include "components/password_manager/core/browser/password_reuse_defines.h"
 #include "components/password_manager/core/browser/password_store_consumer.h"
 #include "components/password_manager/core/browser/password_syncable_service.h"
 #include "components/password_manager/core/browser/statistics_table.h"
 
-#if !defined(OS_ANDROID) && !defined(OS_IOS) && !defined(OS_CHROMEOS)
+#if defined(SYNC_PASSWORD_REUSE_DETECTION_ENABLED)
 #include "components/password_manager/core/browser/password_store_signin_notifier.h"
+#include "components/safe_browsing/common/safe_browsing_prefs.h"
 #endif
 
 using autofill::PasswordForm;
@@ -49,19 +55,20 @@ void PasswordStore::GetLoginsRequest::NotifyConsumerWithResults(
   }
 
   origin_task_runner_->PostTask(
-      FROM_HERE, base::Bind(&PasswordStoreConsumer::OnGetPasswordStoreResults,
-                            consumer_weak_, base::Passed(&results)));
+      FROM_HERE,
+      base::BindOnce(&PasswordStoreConsumer::OnGetPasswordStoreResults,
+                     consumer_weak_, std::move(results)));
 }
 
 void PasswordStore::GetLoginsRequest::NotifyWithSiteStatistics(
     std::vector<InteractionsStats> stats) {
   origin_task_runner_->PostTask(
-      FROM_HERE, base::Bind(&PasswordStoreConsumer::OnGetSiteStatistics,
-                            consumer_weak_, base::Passed(&stats)));
+      FROM_HERE, base::BindOnce(&PasswordStoreConsumer::OnGetSiteStatistics,
+                                consumer_weak_, std::move(stats)));
 }
 
 // TODO(crbug.com/706392): Fix password reuse detection for Android.
-#if !defined(OS_ANDROID) && !defined(OS_IOS)
+#if defined(SYNC_PASSWORD_REUSE_DETECTION_ENABLED)
 PasswordStore::CheckReuseRequest::CheckReuseRequest(
     PasswordReuseDetectorConsumer* consumer)
     : origin_task_runner_(base::SequencedTaskRunnerHandle::Get()),
@@ -70,14 +77,15 @@ PasswordStore::CheckReuseRequest::CheckReuseRequest(
 PasswordStore::CheckReuseRequest::~CheckReuseRequest() {}
 
 void PasswordStore::CheckReuseRequest::OnReuseFound(
-    const base::string16& password,
-    const std::string& legitimate_domain,
-    int saved_passwords,
-    int number_matches) {
+    size_t password_length,
+    base::Optional<PasswordHashData> reused_protected_password_hash,
+    const std::vector<std::string>& matching_domains,
+    int saved_passwords) {
   origin_task_runner_->PostTask(
       FROM_HERE,
       base::Bind(&PasswordReuseDetectorConsumer::OnReuseFound, consumer_weak_,
-                 password, legitimate_domain, saved_passwords, number_matches));
+                 password_length, reused_protected_password_hash,
+                 matching_domains, saved_passwords));
 }
 #endif
 
@@ -89,6 +97,11 @@ PasswordStore::FormDigest::FormDigest(autofill::PasswordForm::Scheme new_scheme,
 PasswordStore::FormDigest::FormDigest(const PasswordForm& form)
     : scheme(form.scheme),
       signon_realm(form.signon_realm),
+      origin(form.origin) {}
+
+PasswordStore::FormDigest::FormDigest(const autofill::FormData& form)
+    : scheme(PasswordForm::SCHEME_HTML),
+      signon_realm(form.origin.GetOrigin().spec()),
       origin(form.origin) {}
 
 PasswordStore::FormDigest::FormDigest(const FormDigest& other) = default;
@@ -106,24 +119,23 @@ bool PasswordStore::FormDigest::operator==(const FormDigest& other) const {
          origin == other.origin;
 }
 
-PasswordStore::PasswordStore(
-    scoped_refptr<base::SequencedTaskRunner> main_thread_runner,
-    scoped_refptr<base::SequencedTaskRunner> db_thread_runner)
-    : main_thread_runner_(main_thread_runner),
-      db_thread_runner_(db_thread_runner),
-      observers_(new base::ObserverListThreadSafe<Observer>()),
+PasswordStore::PasswordStore()
+    : observers_(new base::ObserverListThreadSafe<Observer>()),
       is_propagating_password_changes_to_web_credentials_enabled_(false),
       shutdown_called_(false) {}
 
 bool PasswordStore::Init(const syncer::SyncableService::StartSyncFlare& flare,
                          PrefService* prefs) {
-  ScheduleTask(base::Bind(&PasswordStore::InitOnBackgroundThread, this, flare));
+  main_task_runner_ = base::SequencedTaskRunnerHandle::Get();
+  DCHECK(main_task_runner_);
+  background_task_runner_ = CreateBackgroundTaskRunner();
+  DCHECK(background_task_runner_);
 #if defined(SYNC_PASSWORD_REUSE_DETECTION_ENABLED)
+  prefs_ = prefs;
   hash_password_manager_.set_prefs(prefs);
-  ScheduleTask(
-      base::Bind(&PasswordStore::SaveSyncPasswordHashImpl, this,
-                 base::Passed(hash_password_manager_.RetrievePasswordHash())));
 #endif
+  ScheduleTask(base::BindRepeating(&PasswordStore::InitOnBackgroundSequence,
+                                   this, flare));
   return true;
 }
 
@@ -261,20 +273,25 @@ void PasswordStore::GetBlacklistLoginsWithAffiliationAndBrandingInformation(
 
 void PasswordStore::ReportMetrics(const std::string& sync_username,
                                   bool custom_passphrase_sync_enabled) {
-  scoped_refptr<base::SequencedTaskRunner> task_runner(
-      GetBackgroundTaskRunner());
-  if (task_runner) {
+  if (background_task_runner_) {
     base::Closure task =
         base::Bind(&PasswordStore::ReportMetricsImpl, this, sync_username,
                    custom_passphrase_sync_enabled);
-    task_runner->PostDelayedTask(FROM_HERE, task,
-                                 base::TimeDelta::FromSeconds(30));
+    background_task_runner_->PostDelayedTask(FROM_HERE, task,
+                                             base::TimeDelta::FromSeconds(30));
   }
 
-#if defined(OS_WIN) || (defined(OS_MACOSX) && !defined(OS_IOS)) || \
-    (defined(OS_LINUX) && !defined(OS_CHROMEOS))
-  if (!sync_username.empty())
-    hash_password_manager_.ReportIsSyncPasswordHashSavedMetric();
+#if defined(SYNC_PASSWORD_REUSE_DETECTION_ENABLED)
+  if (!sync_username.empty()) {
+    auto hash_password_state =
+        hash_password_manager_.HasPasswordHash()
+            ? metrics_util::IsSyncPasswordHashSaved::SAVED_VIA_STRING_PREF
+            : hash_password_manager_.HasPasswordHash(sync_username,
+                                                     /*is_gaia_password=*/true)
+                  ? metrics_util::IsSyncPasswordHashSaved::SAVED_VIA_LIST_PREF
+                  : metrics_util::IsSyncPasswordHashSaved::NOT_SAVED;
+    metrics_util::LogIsSyncPasswordHashSaved(hash_password_state);
+  }
 #endif
 }
 
@@ -309,16 +326,14 @@ void PasswordStore::RemoveObserver(Observer* observer) {
 }
 
 bool PasswordStore::ScheduleTask(const base::Closure& task) {
-  scoped_refptr<base::SequencedTaskRunner> task_runner(
-      GetBackgroundTaskRunner());
-  if (task_runner.get())
-    return task_runner->PostTask(FROM_HERE, task);
+  if (background_task_runner_)
+    return background_task_runner_->PostTask(FROM_HERE, task);
   return false;
 }
 
 void PasswordStore::ShutdownOnUIThread() {
-  ScheduleTask(base::Bind(&PasswordStore::DestroyOnBackgroundThread, this));
-  // The AffiliationService must be destroyed from the main thread.
+  ScheduleTask(base::Bind(&PasswordStore::DestroyOnBackgroundSequence, this));
+  // The AffiliationService must be destroyed from the main sequence.
   affiliated_match_helper_.reset();
   shutdown_called_ = true;
 #if defined(SYNC_PASSWORD_REUSE_DETECTION_ENABLED)
@@ -329,35 +344,80 @@ void PasswordStore::ShutdownOnUIThread() {
 
 base::WeakPtr<syncer::SyncableService>
 PasswordStore::GetPasswordSyncableService() {
-  DCHECK(GetBackgroundTaskRunner()->RunsTasksInCurrentSequence());
+  DCHECK(background_task_runner_->RunsTasksInCurrentSequence());
   DCHECK(syncable_service_);
   return syncable_service_->AsWeakPtr();
 }
 
 // TODO(crbug.com/706392): Fix password reuse detection for Android.
-#if !defined(OS_ANDROID) && !defined(OS_IOS)
+#if defined(SYNC_PASSWORD_REUSE_DETECTION_ENABLED)
 void PasswordStore::CheckReuse(const base::string16& input,
                                const std::string& domain,
                                PasswordReuseDetectorConsumer* consumer) {
-  auto check_reuse_request = base::MakeUnique<CheckReuseRequest>(consumer);
+  auto check_reuse_request = std::make_unique<CheckReuseRequest>(consumer);
   ScheduleTask(base::Bind(&PasswordStore::CheckReuseImpl, this,
                           base::Passed(&check_reuse_request), input, domain));
 }
 #endif
 
 #if defined(SYNC_PASSWORD_REUSE_DETECTION_ENABLED)
-void PasswordStore::SaveSyncPasswordHash(const base::string16& password) {
-  // TODO(crbug.com/657041): Log success of saving password hash to UMA.
-  hash_password_manager_.SavePasswordHash(password);
-  base::Optional<SyncPasswordData> sync_password_data =
-      hash_password_manager_.RetrievePasswordHash();
-  ScheduleTask(base::Bind(&PasswordStore::SaveSyncPasswordHashImpl, this,
-                          std::move(sync_password_data)));
+void PasswordStore::PreparePasswordHashData(const std::string& sync_username) {
+  // TODO(crbug.com/841438): Delete migration code when most users complete
+  // the migration.
+  if (!sync_username.empty())
+    hash_password_manager_.MaybeMigrateExistingSyncPasswordHash(sync_username);
+  SchedulePasswordHashUpdate(/*should_log_metrics=*/true);
+  ScheduleEnterprisePasswordURLUpdate();
 }
 
-void PasswordStore::ClearSyncPasswordHash() {
-  hash_password_manager_.ClearSavedPasswordHash();
-  ScheduleTask(base::Bind(&PasswordStore::ClearSyncPasswordHashImpl, this));
+void PasswordStore::SaveGaiaPasswordHash(
+    const std::string& username,
+    const base::string16& password,
+    metrics_util::SyncPasswordHashChange event) {
+  SaveProtectedPasswordHash(username, password, /*is_gaia_password=*/true,
+                            event);
+}
+
+void PasswordStore::SaveEnterprisePasswordHash(const std::string& username,
+                                               const base::string16& password) {
+  SaveProtectedPasswordHash(
+      username, password, /*is_gaia_password=*/false,
+      metrics_util::SyncPasswordHashChange::NOT_SYNC_PASSWORD_CHANGE);
+}
+
+void PasswordStore::SaveProtectedPasswordHash(
+    const std::string& username,
+    const base::string16& password,
+    bool is_gaia_password,
+    metrics_util::SyncPasswordHashChange event) {
+  if (hash_password_manager_.SavePasswordHash(username, password,
+                                              is_gaia_password)) {
+    if (is_gaia_password &&
+        event !=
+            metrics_util::SyncPasswordHashChange::NOT_SYNC_PASSWORD_CHANGE) {
+      metrics_util::LogSyncPasswordHashChange(event);
+    }
+    SchedulePasswordHashUpdate(/*should_log_metrics=*/false);
+  }
+}
+
+void PasswordStore::SaveSyncPasswordHash(
+    const PasswordHashData& sync_password_data,
+    metrics_util::SyncPasswordHashChange event) {
+  if (hash_password_manager_.SavePasswordHash(sync_password_data)) {
+    metrics_util::LogSyncPasswordHashChange(event);
+    SchedulePasswordHashUpdate(/*should_log_metrics=*/false);
+  }
+}
+
+void PasswordStore::ClearPasswordHash(const std::string& username) {
+  hash_password_manager_.ClearSavedPasswordHash(username,
+                                                /*is_gaia_password=*/true);
+  // TODO(crbug.com/844134): Find a way to clear corresponding Gaia password
+  // hash when user logs out individual Gaia account in content area.
+  hash_password_manager_.ClearAllPasswordHash(/*is_gaia_password=*/true);
+  ScheduleTask(base::BindRepeating(
+      &PasswordStore::ClearProtectedPasswordHashImpl, this));
 }
 
 void PasswordStore::SetPasswordStoreSigninNotifier(
@@ -367,6 +427,26 @@ void PasswordStore::SetPasswordStoreSigninNotifier(
   notifier_ = std::move(notifier);
   notifier_->SubscribeToSigninEvents(this);
 }
+
+void PasswordStore::SchedulePasswordHashUpdate(bool should_log_metrics) {
+  ScheduleTask(base::BindRepeating(
+      &PasswordStore::SaveProtectedPasswordHashImpl, this,
+      base::Passed(hash_password_manager_.RetrieveAllPasswordHashes()),
+      should_log_metrics));
+}
+
+void PasswordStore::ScheduleEnterprisePasswordURLUpdate() {
+  std::vector<GURL> enterprise_login_urls;
+  safe_browsing::GetPasswordProtectionLoginURLsPref(*prefs_,
+                                                    &enterprise_login_urls);
+  GURL enterprise_change_password_url =
+      safe_browsing::GetPasswordProtectionChangePasswordURLPref(*prefs_);
+
+  ScheduleTask(base::BindRepeating(&PasswordStore::SaveEnterprisePasswordURLs,
+                                   this, base::Passed(&enterprise_login_urls),
+                                   enterprise_change_password_url));
+}
+
 #endif
 
 PasswordStore::~PasswordStore() {
@@ -374,8 +454,23 @@ PasswordStore::~PasswordStore() {
 }
 
 scoped_refptr<base::SequencedTaskRunner>
-PasswordStore::GetBackgroundTaskRunner() {
-  return db_thread_runner_;
+PasswordStore::CreateBackgroundTaskRunner() const {
+  return base::CreateSequencedTaskRunnerWithTraits(
+      {base::MayBlock(), base::TaskPriority::USER_VISIBLE});
+}
+
+void PasswordStore::InitOnBackgroundSequence(
+    const syncer::SyncableService::StartSyncFlare& flare) {
+  DCHECK(background_task_runner_->RunsTasksInCurrentSequence());
+  DCHECK(!syncable_service_);
+  syncable_service_.reset(new PasswordSyncableService(this));
+  syncable_service_->InjectStartSyncFlare(flare);
+// TODO(crbug.com/706392): Fix password reuse detection for Android.
+#if defined(SYNC_PASSWORD_REUSE_DETECTION_ENABLED)
+  reuse_detector_ = new PasswordReuseDetector;
+  GetAutofillableLoginsImpl(
+      std::make_unique<GetLoginsRequest>(reuse_detector_));
+#endif
 }
 
 void PasswordStore::GetLoginsImpl(const FormDigest& form,
@@ -428,13 +523,13 @@ PasswordStoreChangeList PasswordStore::RemoveLoginSync(
 
 void PasswordStore::NotifyLoginsChanged(
     const PasswordStoreChangeList& changes) {
-  DCHECK(GetBackgroundTaskRunner()->RunsTasksInCurrentSequence());
+  DCHECK(background_task_runner_->RunsTasksInCurrentSequence());
   if (!changes.empty()) {
     observers_->Notify(FROM_HERE, &Observer::OnLoginsChanged, changes);
     if (syncable_service_)
       syncable_service_->ActOnPasswordStoreChanges(changes);
 // TODO(crbug.com/706392): Fix password reuse detection for Android.
-#if !defined(OS_ANDROID) && !defined(OS_IOS)
+#if defined(SYNC_PASSWORD_REUSE_DETECTION_ENABLED)
     if (reuse_detector_)
       reuse_detector_->OnLoginsChanged(changes);
 #endif
@@ -442,23 +537,53 @@ void PasswordStore::NotifyLoginsChanged(
 }
 
 // TODO(crbug.com/706392): Fix password reuse detection for Android.
-#if !defined(OS_ANDROID) && !defined(OS_IOS)
+#if defined(SYNC_PASSWORD_REUSE_DETECTION_ENABLED)
 void PasswordStore::CheckReuseImpl(std::unique_ptr<CheckReuseRequest> request,
                                    const base::string16& input,
                                    const std::string& domain) {
-  if (reuse_detector_)
+  if (reuse_detector_) {
     reuse_detector_->CheckReuse(input, domain, request.get());
+  }
 }
 
-void PasswordStore::SaveSyncPasswordHashImpl(
-    base::Optional<SyncPasswordData> sync_password_data) {
-  if (reuse_detector_)
-    reuse_detector_->UseSyncPasswordHash(std::move(sync_password_data));
+void PasswordStore::SaveProtectedPasswordHashImpl(
+    PasswordHashDataList protected_password_data_list,
+    bool should_log_metrics) {
+  if (!reuse_detector_ || !protected_password_data_list.has_value())
+    return;
+
+  std::vector<PasswordHashData> gaia_password_hash_list;
+  std::vector<PasswordHashData> enterprise_password_hash_list;
+  for (PasswordHashData& password_hash : *protected_password_data_list) {
+    if (password_hash.is_gaia_password)
+      gaia_password_hash_list.push_back(std::move(password_hash));
+    else
+      enterprise_password_hash_list.push_back(std::move(password_hash));
+  }
+
+  if (should_log_metrics) {
+    metrics_util::LogProtectedPasswordHashCounts(
+        gaia_password_hash_list.size(), enterprise_password_hash_list.size());
+  }
+  reuse_detector_->UseGaiaPasswordHash(std::move(gaia_password_hash_list));
+  reuse_detector_->UseNonGaiaEnterprisePasswordHash(
+      std::move(enterprise_password_hash_list));
 }
 
-void PasswordStore::ClearSyncPasswordHashImpl() {
+void PasswordStore::SaveEnterprisePasswordURLs(
+    const std::vector<GURL>& enterprise_login_urls,
+    const GURL& enterprise_change_password_url) {
+  if (!reuse_detector_)
+    return;
+  reuse_detector_->UseEnterprisePasswordURLs(std::move(enterprise_login_urls),
+                                             enterprise_change_password_url);
+}
+
+void PasswordStore::ClearProtectedPasswordHashImpl() {
+  // TODO(crbug.com/844134): Find a way to clear corresponding Gaia password
+  // hash when user logs out individual Gaia account in content area.
   if (reuse_detector_)
-    reuse_detector_->ClearSyncPasswordHash();
+    reuse_detector_->ClearAllGaiaPasswordHash();
 }
 #endif
 
@@ -467,8 +592,8 @@ void PasswordStore::Schedule(
     PasswordStoreConsumer* consumer) {
   std::unique_ptr<GetLoginsRequest> request(new GetLoginsRequest(consumer));
   consumer->cancelable_task_tracker()->PostTask(
-      GetBackgroundTaskRunner().get(), FROM_HERE,
-      base::Bind(func, this, base::Passed(&request)));
+      background_task_runner_.get(), FROM_HERE,
+      base::BindOnce(func, this, std::move(request)));
 }
 
 void PasswordStore::WrapModificationTask(ModificationTask task) {
@@ -509,7 +634,7 @@ void PasswordStore::RemoveLoginsByURLAndTimeInternal(
       RemoveLoginsByURLAndTimeImpl(url_filter, delete_begin, delete_end);
   NotifyLoginsChanged(changes);
   if (!completion.is_null())
-    main_thread_runner_->PostTask(FROM_HERE, completion);
+    main_task_runner_->PostTask(FROM_HERE, completion);
 }
 
 void PasswordStore::RemoveLoginsCreatedBetweenInternal(
@@ -520,7 +645,7 @@ void PasswordStore::RemoveLoginsCreatedBetweenInternal(
       RemoveLoginsCreatedBetweenImpl(delete_begin, delete_end);
   NotifyLoginsChanged(changes);
   if (!completion.is_null())
-    main_thread_runner_->PostTask(FROM_HERE, completion);
+    main_task_runner_->PostTask(FROM_HERE, completion);
 }
 
 void PasswordStore::RemoveLoginsSyncedBetweenInternal(base::Time delete_begin,
@@ -537,7 +662,7 @@ void PasswordStore::RemoveStatisticsByOriginAndTimeInternal(
     const base::Closure& completion) {
   RemoveStatisticsByOriginAndTimeImpl(origin_filter, delete_begin, delete_end);
   if (!completion.is_null())
-    main_thread_runner_->PostTask(FROM_HERE, completion);
+    main_task_runner_->PostTask(FROM_HERE, completion);
 }
 
 void PasswordStore::DisableAutoSignInForOriginsInternal(
@@ -545,7 +670,7 @@ void PasswordStore::DisableAutoSignInForOriginsInternal(
     const base::Closure& completion) {
   DisableAutoSignInForOriginsImpl(origin_filter);
   if (!completion.is_null())
-    main_thread_runner_->PostTask(FROM_HERE, completion);
+    main_task_runner_->PostTask(FROM_HERE, completion);
 }
 
 void PasswordStore::GetLoginsForSameOrganizationNameImpl(
@@ -571,10 +696,10 @@ void PasswordStore::
     obtained_forms.clear();
   // Since AffiliatedMatchHelper's requests should be sent from UI thread,
   // post a request to UI thread.
-  main_thread_runner_->PostTask(
+  main_task_runner_->PostTask(
       FROM_HERE,
-      base::Bind(&PasswordStore::InjectAffiliationAndBrandingInformation, this,
-                 base::Passed(&obtained_forms), base::Passed(&request)));
+      base::BindOnce(&PasswordStore::InjectAffiliationAndBrandingInformation,
+                     this, std::move(obtained_forms), std::move(request)));
 }
 
 void PasswordStore::GetBlacklistLoginsImpl(
@@ -592,10 +717,10 @@ void PasswordStore::GetBlacklistLoginsWithAffiliationAndBrandingInformationImpl(
     obtained_forms.clear();
   // Since AffiliatedMatchHelper's requests should be sent from UI thread,
   // post a request to UI thread.
-  main_thread_runner_->PostTask(
+  main_task_runner_->PostTask(
       FROM_HERE,
-      base::Bind(&PasswordStore::InjectAffiliationAndBrandingInformation, this,
-                 base::Passed(&obtained_forms), base::Passed(&request)));
+      base::BindOnce(&PasswordStore::InjectAffiliationAndBrandingInformation,
+                     this, std::move(obtained_forms), std::move(request)));
 }
 
 void PasswordStore::NotifyAllSiteStats(
@@ -612,7 +737,7 @@ void PasswordStore::GetLoginsWithAffiliationsImpl(
     const FormDigest& form,
     std::unique_ptr<GetLoginsRequest> request,
     const std::vector<std::string>& additional_android_realms) {
-  DCHECK(GetBackgroundTaskRunner()->RunsTasksInCurrentSequence());
+  DCHECK(background_task_runner_->RunsTasksInCurrentSequence());
   std::vector<std::unique_ptr<PasswordForm>> results(FillMatchingLogins(form));
   for (const std::string& realm : additional_android_realms) {
     std::vector<std::unique_ptr<PasswordForm>> more_results(
@@ -652,7 +777,7 @@ void PasswordStore::ScheduleGetLoginsWithAffiliations(
 
 std::unique_ptr<PasswordForm> PasswordStore::GetLoginImpl(
     const PasswordForm& primary_key) {
-  DCHECK(GetBackgroundTaskRunner()->RunsTasksInCurrentSequence());
+  DCHECK(background_task_runner_->RunsTasksInCurrentSequence());
   std::vector<std::unique_ptr<PasswordForm>> candidates(
       FillMatchingLogins(FormDigest(primary_key)));
   for (auto& candidate : candidates) {
@@ -661,7 +786,7 @@ std::unique_ptr<PasswordForm> PasswordStore::GetLoginImpl(
       return std::move(candidate);
     }
   }
-  return base::WrapUnique<PasswordForm>(nullptr);
+  return nullptr;
 }
 
 void PasswordStore::FindAndUpdateAffiliatedWebLogins(
@@ -678,7 +803,7 @@ void PasswordStore::FindAndUpdateAffiliatedWebLogins(
 
 void PasswordStore::ScheduleFindAndUpdateAffiliatedWebLogins(
     const PasswordForm& added_or_updated_android_form) {
-  main_thread_runner_->PostTask(
+  main_task_runner_->PostTask(
       FROM_HERE, base::Bind(&PasswordStore::FindAndUpdateAffiliatedWebLogins,
                             this, added_or_updated_android_form));
 }
@@ -686,7 +811,7 @@ void PasswordStore::ScheduleFindAndUpdateAffiliatedWebLogins(
 void PasswordStore::UpdateAffiliatedWebLoginsImpl(
     const PasswordForm& updated_android_form,
     const std::vector<std::string>& affiliated_web_realms) {
-  DCHECK(GetBackgroundTaskRunner()->RunsTasksInCurrentSequence());
+  DCHECK(background_task_runner_->RunsTasksInCurrentSequence());
   PasswordStoreChangeList all_changes;
   for (const std::string& affiliated_web_realm : affiliated_web_realms) {
     std::vector<std::unique_ptr<PasswordForm>> web_logins(FillMatchingLogins(
@@ -770,26 +895,13 @@ void PasswordStore::ScheduleUpdateAffiliatedWebLoginsImpl(
                           updated_android_form, affiliated_web_realms));
 }
 
-void PasswordStore::InitOnBackgroundThread(
-    const syncer::SyncableService::StartSyncFlare& flare) {
-  DCHECK(GetBackgroundTaskRunner()->RunsTasksInCurrentSequence());
-  DCHECK(!syncable_service_);
-  syncable_service_.reset(new PasswordSyncableService(this));
-  syncable_service_->InjectStartSyncFlare(flare);
-// TODO(crbug.com/706392): Fix password reuse detection for Android.
-#if !defined(OS_ANDROID) && !defined(OS_IOS)
-  reuse_detector_ = base::MakeUnique<PasswordReuseDetector>();
-  GetAutofillableLoginsImpl(
-      base::MakeUnique<GetLoginsRequest>(reuse_detector_.get()));
-#endif
-}
-
-void PasswordStore::DestroyOnBackgroundThread() {
-  DCHECK(GetBackgroundTaskRunner()->RunsTasksInCurrentSequence());
+void PasswordStore::DestroyOnBackgroundSequence() {
+  DCHECK(background_task_runner_->RunsTasksInCurrentSequence());
   syncable_service_.reset();
 // TODO(crbug.com/706392): Fix password reuse detection for Android.
-#if !defined(OS_ANDROID) && !defined(OS_IOS)
-  reuse_detector_.reset();
+#if defined(SYNC_PASSWORD_REUSE_DETECTION_ENABLED)
+  delete reuse_detector_;
+  reuse_detector_ = nullptr;
 #endif
 }
 

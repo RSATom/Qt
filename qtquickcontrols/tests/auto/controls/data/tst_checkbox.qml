@@ -239,7 +239,7 @@ Item {
             signalSpy.signalName = "clicked";
             compare(signalSpy.count, 0);
 
-            mouseClick(root.checkBox2, root.checkBox2.x, root.checkBox2.y, Qt.LeftButton);
+            mouseClick(root.checkBox2);
             compare(signalSpy.count, 1);
             compare(root.checkBox1.checked, false);
             compare(root.checkBox2.checked, true);
@@ -249,7 +249,7 @@ Item {
             signalSpy.signalName = "clicked";
             compare(signalSpy.count, 0);
 
-            mouseClick(root.checkBox1, root.checkBox1.x, root.checkBox1.y, Qt.LeftButton);
+            mouseClick(root.checkBox1);
             compare(signalSpy.count, 1);
             compare(root.checkBox1.checked, true);
             compare(root.checkBox2.checked, false);

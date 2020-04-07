@@ -54,9 +54,9 @@
 
 #include <QtCore/private/qglobal_p.h>
 #include <QtCore/qhash.h>
-#include <QtCore/QWaitCondition>
+#include <QtCore/qwaitcondition.h>
 
-#ifndef QT_NO_THREAD
+QT_REQUIRE_CONFIG(thread);
 
 QT_BEGIN_NAMESPACE
 
@@ -98,7 +98,5 @@ public:
 };
 
 QT_END_NAMESPACE
-
-#endif // QT_NO_THREAD
 
 #endif // QREADWRITELOCK_P_H

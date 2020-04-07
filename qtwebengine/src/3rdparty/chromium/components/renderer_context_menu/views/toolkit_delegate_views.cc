@@ -10,7 +10,7 @@
 #include "ui/views/controls/menu/menu_model_adapter.h"
 #include "ui/views/controls/menu/menu_runner.h"
 
-ToolkitDelegateViews::ToolkitDelegateViews() : menu_view_(NULL) {}
+ToolkitDelegateViews::ToolkitDelegateViews() : menu_view_(nullptr) {}
 
 ToolkitDelegateViews::~ToolkitDelegateViews() {}
 
@@ -22,7 +22,7 @@ void ToolkitDelegateViews::RunMenuAt(views::Widget* parent,
        type == ui::MENU_SOURCE_TOUCH_EDIT_MENU)
       ? views::MENU_ANCHOR_BOTTOMCENTER
       : views::MENU_ANCHOR_TOPLEFT;
-  menu_runner_->RunMenuAt(parent, NULL, gfx::Rect(point, gfx::Size()),
+  menu_runner_->RunMenuAt(parent, nullptr, gfx::Rect(point, gfx::Size()),
                           anchor_position, type);
 }
 
@@ -35,7 +35,7 @@ void ToolkitDelegateViews::Init(ui::SimpleMenuModel* menu_model) {
 }
 
 void ToolkitDelegateViews::Cancel() {
-  DCHECK(menu_runner_.get());
+  DCHECK(menu_runner_);
   menu_runner_->Cancel();
 }
 
@@ -72,5 +72,10 @@ void ToolkitDelegateViews::UpdateMenuIcon(int command_id,
     return;
 
   parent->ChildrenChanged();
+}
+
+void ToolkitDelegateViews::AddSeparatorAt(int index) {
+  menu_view_->AddSeparatorAt(index);
+  menu_view_->ChildrenChanged();
 }
 #endif

@@ -8,16 +8,17 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_RTC_BASE_COPYONWRITEBUFFER_H_
-#define WEBRTC_RTC_BASE_COPYONWRITEBUFFER_H_
+#ifndef RTC_BASE_COPYONWRITEBUFFER_H_
+#define RTC_BASE_COPYONWRITEBUFFER_H_
 
 #include <algorithm>
 #include <utility>
 
-#include "webrtc/rtc_base/buffer.h"
-#include "webrtc/rtc_base/checks.h"
-#include "webrtc/rtc_base/refcount.h"
-#include "webrtc/rtc_base/scoped_ref_ptr.h"
+#include "rtc_base/buffer.h"
+#include "rtc_base/checks.h"
+#include "rtc_base/refcount.h"
+#include "rtc_base/refcountedobject.h"
+#include "rtc_base/scoped_ref_ptr.h"
 
 namespace rtc {
 
@@ -184,8 +185,8 @@ class CopyOnWriteBuffer {
       return;
     }
 
-    CloneDataIfReferenced(std::max(buffer_->capacity(),
-        buffer_->size() + size));
+    CloneDataIfReferenced(
+        std::max(buffer_->capacity(), buffer_->size() + size));
     buffer_->AppendData(data, size);
     RTC_DCHECK(IsConsistent());
   }
@@ -228,9 +229,7 @@ class CopyOnWriteBuffer {
   void CloneDataIfReferenced(size_t new_capacity);
 
   // Pre- and postcondition of all methods.
-  bool IsConsistent() const {
-    return (!buffer_ || buffer_->capacity() > 0);
-  }
+  bool IsConsistent() const { return (!buffer_ || buffer_->capacity() > 0); }
 
   // buffer_ is either null, or points to an rtc::Buffer with capacity > 0.
   scoped_refptr<RefCountedObject<Buffer>> buffer_;
@@ -238,4 +237,4 @@ class CopyOnWriteBuffer {
 
 }  // namespace rtc
 
-#endif  // WEBRTC_RTC_BASE_COPYONWRITEBUFFER_H_
+#endif  // RTC_BASE_COPYONWRITEBUFFER_H_

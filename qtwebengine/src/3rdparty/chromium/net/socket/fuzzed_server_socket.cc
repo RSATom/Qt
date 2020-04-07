@@ -6,7 +6,6 @@
 
 #include "base/bind.h"
 #include "base/location.h"
-#include "base/memory/ptr_util.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "net/socket/fuzzed_socket.h"
 
@@ -20,7 +19,7 @@ FuzzedServerSocket::FuzzedServerSocket(base::FuzzedDataProvider* data_provider,
       listen_called_(false),
       weak_factory_(this) {}
 
-FuzzedServerSocket::~FuzzedServerSocket() {}
+FuzzedServerSocket::~FuzzedServerSocket() = default;
 
 int FuzzedServerSocket::Listen(const IPEndPoint& address, int backlog) {
   DCHECK(!listen_called_);
@@ -49,7 +48,7 @@ int FuzzedServerSocket::Accept(std::unique_ptr<StreamSocket>* socket,
 void FuzzedServerSocket::DispatchAccept(std::unique_ptr<StreamSocket>* socket,
                                         const CompletionCallback& callback) {
   std::unique_ptr<FuzzedSocket> connected_socket(
-      base::MakeUnique<FuzzedSocket>(data_provider_, net_log_));
+      std::make_unique<FuzzedSocket>(data_provider_, net_log_));
   // The Connect call should always succeed synchronously, without using the
   // callback, since connected_socket->set_fuzz_connect_result(true) has not
   // been called.

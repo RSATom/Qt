@@ -13,13 +13,13 @@
 
 namespace storage {
 
-const base::FilePath::CharType*
-SandboxPrioritizedOriginDatabase::kPrimaryDirectory =
-    FILE_PATH_LITERAL("primary");
+const base::FilePath::CharType* const
+    SandboxPrioritizedOriginDatabase::kPrimaryDirectory =
+        FILE_PATH_LITERAL("primary");
 
-const base::FilePath::CharType*
-SandboxPrioritizedOriginDatabase::kPrimaryOriginFile =
-    FILE_PATH_LITERAL("primary.origin");
+const base::FilePath::CharType* const
+    SandboxPrioritizedOriginDatabase::kPrimaryOriginFile =
+        FILE_PATH_LITERAL("primary.origin");
 
 namespace {
 
@@ -58,8 +58,7 @@ SandboxPrioritizedOriginDatabase::SandboxPrioritizedOriginDatabase(
           file_system_directory_.Append(kPrimaryOriginFile)) {
 }
 
-SandboxPrioritizedOriginDatabase::~SandboxPrioritizedOriginDatabase() {
-}
+SandboxPrioritizedOriginDatabase::~SandboxPrioritizedOriginDatabase() = default;
 
 bool SandboxPrioritizedOriginDatabase::InitializePrimaryOrigin(
     const std::string& origin) {

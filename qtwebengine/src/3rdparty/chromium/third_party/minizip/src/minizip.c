@@ -1,14 +1,16 @@
 /* minizip.c
-   Version 1.1, February 14h, 2010
+   Version 1.2.0, September 16th, 2017
    sample part of the MiniZip project
 
+   Copyright (C) 2012-2017 Nathan Moinvaziri
+     https://github.com/nmoinvaz/minizip
+   Copyright (C) 2009-2010 Mathias Svensson
+     Modifications for Zip64 support
+     http://result42.com
+   Copyright (C) 2007-2008 Even Rouault
+     Modifications of Unzip for Zip64
    Copyright (C) 1998-2010 Gilles Vollant
      http://www.winimage.com/zLibDll/minizip.html
-   Modifications of Unzip for Zip64
-     Copyright (C) 2007-2008 Even Rouault
-   Modifications for Zip64 support
-     Copyright (C) 2009-2010 Mathias Svensson
-     http://result42.com
 
    This program is distributed under the terms of the same license as zlib.
    See the accompanying LICENSE file for the full text of the license.
@@ -42,8 +44,8 @@
 
 void minizip_banner()
 {
-    printf("MiniZip 1.1, demo of zLib + MiniZip64 package, written by Gilles Vollant\n");
-    printf("more info on MiniZip at http://www.winimage.com/zLibDll/minizip.html\n\n");
+    printf("MiniZip 1.2.0, demo of zLib + MiniZip64 package\n");
+    printf("more info on MiniZip at https://github.com/nmoinvaz/minizip\n\n");
 }
 
 void minizip_help()
@@ -61,7 +63,6 @@ int minizip_addfile(zipFile zf, const char *path, const char *filenameinzip, int
 {
     zip_fileinfo zi = { 0 };
     FILE *fin = NULL;
-    uint32_t crc_for_crypting = 0;
     int size_read = 0;
     int zip64 = 0;
     int err = ZIP_OK;
@@ -71,9 +72,6 @@ int minizip_addfile(zipFile zf, const char *path, const char *filenameinzip, int
     /* Get information about the file on disk so we can store it in zip */
     get_file_date(path, &zi.dos_date);
 
-    if ((password != NULL) && (err == ZIP_OK))
-        err = get_file_crc(path, buf, sizeof(buf), &crc_for_crypting);
-
     zip64 = is_large_file(path);
 
     /* Add to zip file */
@@ -81,7 +79,7 @@ int minizip_addfile(zipFile zf, const char *path, const char *filenameinzip, int
         NULL, 0, NULL, 0, NULL /* comment*/,
         (level != 0) ? Z_DEFLATED : 0, level, 0,
         -MAX_WBITS, DEF_MEM_LEVEL, Z_DEFAULT_STRATEGY,
-        password, crc_for_crypting, zip64);
+        password, 0, zip64);
 
     if (err != ZIP_OK)
     {

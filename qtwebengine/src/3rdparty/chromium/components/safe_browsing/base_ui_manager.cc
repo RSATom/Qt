@@ -8,7 +8,6 @@
 #include "base/callback.h"
 #include "base/i18n/rtl.h"
 #include "base/memory/ptr_util.h"
-#include "base/metrics/histogram_macros.h"
 #include "base/supports_user_data.h"
 #include "components/safe_browsing/base_blocking_page.h"
 #include "content/public/browser/browser_thread.h"
@@ -42,30 +41,46 @@ class WhitelistUrlSet : public base::SupportsUserData::Data {
       *threat_type = found->second;
     return true;
   }
-  void RemovePending(const GURL& url) { pending_.erase(url); }
+  void RemovePending(const GURL& url) {
+    DCHECK(pending_.end() != pending_.find(url));
+    if (--pending_[url].second < 1)
+      pending_.erase(url);
+  }
+  void Remove(const GURL& url) { map_.erase(url); }
   void Insert(const GURL url, SBThreatType threat_type) {
     if (Contains(url, nullptr))
       return;
     map_[url] = threat_type;
-    RemovePending(url);
+    RemoveAllPending(url);
   }
   bool ContainsPending(const GURL& url, SBThreatType* threat_type) {
     auto found = pending_.find(url);
     if (found == pending_.end())
       return false;
     if (threat_type)
-      *threat_type = found->second;
+      *threat_type = found->second.first;
     return true;
   }
   void InsertPending(const GURL url, SBThreatType threat_type) {
-    if (ContainsPending(url, nullptr))
+    if (pending_.find(url) != pending_.end()) {
+      pending_[url].first = threat_type;
+      pending_[url].second++;
       return;
-    pending_[url] = threat_type;
+    }
+    pending_[url] = {threat_type, 1};
   }
+
+ protected:
+  // Method to remove all the instances of a website in the pending list
+  // disregarding the count. Used when adding a site to the permanent list.
+  void RemoveAllPending(const GURL& url) { pending_.erase(url); }
 
  private:
   std::map<GURL, SBThreatType> map_;
-  std::map<GURL, SBThreatType> pending_;
+  // Keep a count of how many times a site has been added to the pending list
+  // in order to solve a problem where upon reloading an interstitial, a site
+  // would be re-added to and removed from the whitelist in the wrong order.
+  std::map<GURL, std::pair<SBThreatType, int>> pending_;
   DISALLOW_COPY_AND_ASSIGN(WhitelistUrlSet);
 };
 
@@ -97,11 +112,6 @@ WhitelistUrlSet* GetOrCreateWhitelist(WebContents* web_contents) {
 namespace safe_browsing {
 
 BaseUIManager::BaseUIManager() {}
-
-void BaseUIManager::StopOnIOThread(bool shutdown) {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  return;
-}
 
 BaseUIManager::~BaseUIManager() {}
 
@@ -166,7 +176,8 @@ void BaseUIManager::OnBlockingPageDone(
                            resource.threat_type);
     } else if (web_contents) {
       // |web_contents| doesn't exist if the tab has been closed.
-      RemoveFromPendingWhitelistUrlSet(whitelist_url, web_contents);
+      RemoveWhitelistUrlSet(whitelist_url, web_contents,
+                            true /* from_pending_only */);
     }
   }
 }
@@ -232,11 +243,6 @@ void BaseUIManager::EnsureWhitelistCreated(
   GetOrCreateWhitelist(web_contents);
 }
 
-void BaseUIManager::LogPauseDelay(base::TimeDelta time) {
-  UMA_HISTOGRAM_LONG_TIMES("SB2.Delay", time);
-  return;
-}
-
 void BaseUIManager::CreateAndSendHitReport(const UnsafeResource& resource) {}
 
 void BaseUIManager::ShowBlockingPageForResource(
@@ -254,17 +260,11 @@ void BaseUIManager::MaybeReportSafeBrowsingHit(
   return;
 }
 
-void BaseUIManager::ReportSafeBrowsingHitOnIOThread(
-    const HitReport& hit_report) {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  return;
-}
-
 // If the user had opted-in to send ThreatDetails, this gets called
 // when the report is ready.
 void BaseUIManager::SendSerializedThreatDetails(
     const std::string& serialized) {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   return;
 }
 
@@ -310,9 +310,9 @@ const GURL BaseUIManager::default_safe_page() const {
   return GURL(url::kAboutBlankURL);
 }
 
-void BaseUIManager::RemoveFromPendingWhitelistUrlSet(
-    const GURL& whitelist_url,
-    WebContents* web_contents) {
+void BaseUIManager::RemoveWhitelistUrlSet(const GURL& whitelist_url,
+                                          WebContents* web_contents,
+                                          bool from_pending_only) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   // A WebContents might not exist if the tab has been closed.
@@ -342,6 +342,11 @@ void BaseUIManager::RemoveFromPendingWhitelistUrlSet(
   // blocking pages are dismissed.
   if (site_list && site_list->ContainsPending(whitelist_url, nullptr))
     site_list->RemovePending(whitelist_url);
+
+  if (!from_pending_only && site_list &&
+      site_list->Contains(whitelist_url, nullptr)) {
+    site_list->Remove(whitelist_url);
+  }
 
   // Notify security UI that security state has changed.
   web_contents->DidChangeVisibleSecurityState();

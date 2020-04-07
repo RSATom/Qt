@@ -9,11 +9,10 @@
 
 #include "chrome/browser/extensions/chrome_extension_function.h"
 #include "chrome/common/extensions/api/webrtc_logging_private.h"
-#include "media/media_features.h"
+#include "media/media_buildflags.h"
 
 #if BUILDFLAG(ENABLE_WEBRTC)
-#include "chrome/browser/media/audio_debug_recordings_handler.h"
-#include "chrome/browser/media/webrtc/webrtc_event_log_handler.h"
+#include "chrome/browser/media/webrtc/audio_debug_recordings_handler.h"
 #include "chrome/browser/media/webrtc/webrtc_logging_handler_host.h"
 #endif
 
@@ -257,32 +256,46 @@ class WebrtcLoggingPrivateStopAudioDebugRecordingsFunction
   bool RunAsync() override;
 };
 
-class WebrtcLoggingPrivateStartWebRtcEventLoggingFunction
-    : public WebrtcLoggingPrivateFunctionWithRecordingDoneCallback {
+class WebrtcLoggingPrivateStartEventLoggingFunction
+    : public WebrtcLoggingPrivateFunctionWithGenericCallback {
  public:
-  DECLARE_EXTENSION_FUNCTION("webrtcLoggingPrivate.startWebRtcEventLogging",
-                             WEBRTCLOGGINGPRIVATE_STARTRTCEVENTLOGGING)
-  WebrtcLoggingPrivateStartWebRtcEventLoggingFunction() {}
+  DECLARE_EXTENSION_FUNCTION("webrtcLoggingPrivate.startEventLogging",
+                             WEBRTCLOGGINGPRIVATE_STARTEVENTLOGGING)
+  WebrtcLoggingPrivateStartEventLoggingFunction() {}
 
  private:
-  ~WebrtcLoggingPrivateStartWebRtcEventLoggingFunction() override {}
+  ~WebrtcLoggingPrivateStartEventLoggingFunction() override {}
 
   // ExtensionFunction overrides.
   bool RunAsync() override;
+
+  // If |success|, |log_id| must hold the ID. Otherwise, |error_message| must
+  // hold a non-empty error message.
+  // The function must be called on the UI thread.
+  void FireCallback(bool success,
+                    const std::string& log_id,
+                    const std::string& error_message);
 };
 
-class WebrtcLoggingPrivateStopWebRtcEventLoggingFunction
-    : public WebrtcLoggingPrivateFunctionWithRecordingDoneCallback {
+class WebrtcLoggingPrivateGetLogsDirectoryFunction
+    : public WebrtcLoggingPrivateFunction {
  public:
-  DECLARE_EXTENSION_FUNCTION("webrtcLoggingPrivate.stopWebRtcEventLogging",
-                             WEBRTCLOGGINGPRIVATE_STOPRTCEVENTLOGGING)
-  WebrtcLoggingPrivateStopWebRtcEventLoggingFunction() {}
+  DECLARE_EXTENSION_FUNCTION("webrtcLoggingPrivate.getLogsDirectory",
+                             WEBRTCLOGGINGPRIVATE_GETLOGSDIRECTORY)
+  WebrtcLoggingPrivateGetLogsDirectoryFunction() {}
 
  private:
-  ~WebrtcLoggingPrivateStopWebRtcEventLoggingFunction() override {}
+  ~WebrtcLoggingPrivateGetLogsDirectoryFunction() override {}
 
   // ExtensionFunction overrides.
   bool RunAsync() override;
+
+#if BUILDFLAG(ENABLE_WEBRTC)
+  // Must be called on UI thread.
+  void FireErrorCallback(const std::string& error_message);
+  void FireCallback(const std::string& filesystem_id,
+                    const std::string& base_name);
+#endif
 };
 
 }  // namespace extensions

@@ -15,10 +15,8 @@
         <translation>Achtung</translation>
     </message>
     <message>
-        <source>Unable to launch external application.
-</source>
-        <translation>Fehler beim Starten der externen Anwendung.
-</translation>
+        <source>Unable to launch external application.</source>
+        <translation>Fehler beim Starten der externen Anwendung.</translation>
     </message>
     <message>
         <source>OK</source>
@@ -553,8 +551,8 @@ Grund:
         <translation>Fehler 404...</translation>
     </message>
     <message>
-        <source>The page could not be found!</source>
-        <translation>Die Seite konnte nicht gefunden werden!</translation>
+        <source>The page could not be found</source>
+        <translation>Die Seite konnte nicht gefunden werden</translation>
     </message>
     <message>
         <source>Please make sure that you have all documentation sets installed.</source>

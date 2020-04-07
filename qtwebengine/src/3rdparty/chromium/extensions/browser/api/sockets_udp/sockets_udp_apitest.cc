@@ -4,12 +4,13 @@
 
 #include "base/memory/ref_counted.h"
 #include "base/strings/stringprintf.h"
+#include "build/build_config.h"
 #include "extensions/browser/api/dns/host_resolver_wrapper.h"
 #include "extensions/browser/api/dns/mock_host_resolver_creator.h"
 #include "extensions/browser/api/sockets_udp/sockets_udp_api.h"
 #include "extensions/browser/api_test_utils.h"
 #include "extensions/common/extension.h"
-#include "extensions/common/test_util.h"
+#include "extensions/common/extension_builder.h"
 #include "extensions/shell/test/shell_apitest.h"
 #include "extensions/shell/test/shell_test.h"
 #include "extensions/test/extension_test_message_listener.h"
@@ -55,7 +56,7 @@ class SocketsUdpApiTest : public ShellApiTest {
 IN_PROC_BROWSER_TEST_F(SocketsUdpApiTest, SocketsUdpCreateGood) {
   scoped_refptr<api::SocketsUdpCreateFunction> socket_create_function(
       new api::SocketsUdpCreateFunction());
-  scoped_refptr<Extension> empty_extension = test_util::CreateEmptyExtension();
+  scoped_refptr<Extension> empty_extension = ExtensionBuilder("Test").Build();
 
   socket_create_function->set_extension(empty_extension.get());
   socket_create_function->set_has_callback(true);
@@ -71,11 +72,18 @@ IN_PROC_BROWSER_TEST_F(SocketsUdpApiTest, SocketsUdpCreateGood) {
   ASSERT_TRUE(socketId > 0);
 }
 
-IN_PROC_BROWSER_TEST_F(SocketsUdpApiTest, SocketsUdpExtension) {
+// Disable SocketsUdpExtension on Mac due to time out.
+// See https://crbug.com/844402
+#if defined(OS_MACOSX)
+#define MAYBE_SocketsUdpExtension DISABLED_SocketsUdpExtension
+#else
+#define MAYBE_SocketsUdpExtension SocketsUdpExtension
+#endif
+
+IN_PROC_BROWSER_TEST_F(SocketsUdpApiTest, MAYBE_SocketsUdpExtension) {
   std::unique_ptr<net::SpawnedTestServer> test_server(
       new net::SpawnedTestServer(
           net::SpawnedTestServer::TYPE_UDP_ECHO,
-          net::SpawnedTestServer::kLocalhost,
           base::FilePath(FILE_PATH_LITERAL("net/data"))));
   EXPECT_TRUE(test_server->Start());
 

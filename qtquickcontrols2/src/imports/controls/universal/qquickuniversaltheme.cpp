@@ -36,14 +36,17 @@
 
 #include "qquickuniversaltheme_p.h"
 
-#include <QtGui/qfont.h>
 #include <QtGui/qfontinfo.h>
+#include <QtQuickTemplates2/private/qquicktheme_p.h>
 
 QT_BEGIN_NAMESPACE
 
-QQuickUniversalTheme::QQuickUniversalTheme()
-    : QQuickTheme(QStringLiteral("Universal"))
+void QQuickUniversalTheme::initialize(QQuickTheme *theme)
 {
+    QFont systemFont;
+    QFont groupBoxTitleFont;
+    QFont tabButtonFont;
+
     const QFont font(QLatin1String("Segoe UI"));
     if (QFontInfo(font).family() == QLatin1String("Segoe UI")) {
         const QString family = font.family();
@@ -53,27 +56,15 @@ QQuickUniversalTheme::QQuickUniversalTheme()
     }
 
     systemFont.setPixelSize(15);
-    systemFont = resolveFont(systemFont);
+    theme->setFont(QQuickTheme::System, systemFont);
 
     groupBoxTitleFont.setPixelSize(15);
     groupBoxTitleFont.setWeight(QFont::DemiBold);
-    groupBoxTitleFont = resolveFont(groupBoxTitleFont);
+    theme->setFont(QQuickTheme::GroupBox, groupBoxTitleFont);
 
     tabButtonFont.setPixelSize(24);
     tabButtonFont.setWeight(QFont::Light);
-    tabButtonFont = resolveFont(tabButtonFont);
-}
-
-const QFont *QQuickUniversalTheme::font(QPlatformTheme::Font type) const
-{
-    switch (type) {
-    case QPlatformTheme::GroupBoxTitleFont:
-        return &groupBoxTitleFont;
-    case QPlatformTheme::TabButtonFont:
-        return &tabButtonFont;
-    default:
-        return &systemFont;
-    }
+    theme->setFont(QQuickTheme::TabBar, tabButtonFont);
 }
 
 QT_END_NAMESPACE

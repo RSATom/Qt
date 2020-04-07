@@ -87,7 +87,7 @@ PepperTCPServerSocketMessageFilter::OverrideTaskRunnerForMessage(
     case PpapiHostMsg_TCPServerSocket_StopListening::ID:
       return BrowserThread::GetTaskRunnerForThread(BrowserThread::IO);
   }
-  return NULL;
+  return nullptr;
 }
 
 int32_t PepperTCPServerSocketMessageFilter::OnResourceMessageReceived(
@@ -123,13 +123,9 @@ int32_t PepperTCPServerSocketMessageFilter::OnMsgListen(
   }
 
   BrowserThread::PostTask(
-      BrowserThread::IO,
-      FROM_HERE,
-      base::Bind(&PepperTCPServerSocketMessageFilter::DoListen,
-                 this,
-                 context->MakeReplyMessageContext(),
-                 addr,
-                 backlog));
+      BrowserThread::IO, FROM_HERE,
+      base::BindOnce(&PepperTCPServerSocketMessageFilter::DoListen, this,
+                     context->MakeReplyMessageContext(), addr, backlog));
   return PP_OK_COMPLETIONPENDING;
 }
 
@@ -185,7 +181,7 @@ void PepperTCPServerSocketMessageFilter::DoListen(
 
   state_ = STATE_LISTEN_IN_PROGRESS;
 
-  socket_.reset(new net::TCPSocket(NULL, NULL, net::NetLogSource()));
+  socket_.reset(new net::TCPSocket(nullptr, nullptr, net::NetLogSource()));
   int net_result = net::OK;
   do {
     net::IPEndPoint ip_end_point(net::IPAddress(address), port);

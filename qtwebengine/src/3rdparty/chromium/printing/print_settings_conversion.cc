@@ -12,11 +12,11 @@
 #include <string>
 #include <utility>
 
-#include "base/memory/ptr_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "printing/page_size_margins.h"
 #include "printing/print_job_constants.h"
 #include "printing/print_settings.h"
@@ -45,7 +45,7 @@ void GetCustomMarginsFromJobSettings(const base::DictionaryValue& settings,
 void SetMarginsToJobSettings(const std::string& json_path,
                              const PageMargins& margins,
                              base::DictionaryValue* job_settings) {
-  auto dict = base::MakeUnique<base::DictionaryValue>();
+  auto dict = std::make_unique<base::DictionaryValue>();
   dict->SetInteger(kSettingMarginTop, margins.top);
   dict->SetInteger(kSettingMarginBottom, margins.bottom);
   dict->SetInteger(kSettingMarginLeft, margins.left);
@@ -56,7 +56,7 @@ void SetMarginsToJobSettings(const std::string& json_path,
 void SetSizeToJobSettings(const std::string& json_path,
                           const gfx::Size& size,
                           base::DictionaryValue* job_settings) {
-  auto dict = base::MakeUnique<base::DictionaryValue>();
+  auto dict = std::make_unique<base::DictionaryValue>();
   dict->SetInteger("width", size.width());
   dict->SetInteger("height", size.height());
   job_settings->Set(json_path, std::move(dict));
@@ -65,7 +65,7 @@ void SetSizeToJobSettings(const std::string& json_path,
 void SetRectToJobSettings(const std::string& json_path,
                           const gfx::Rect& rect,
                           base::DictionaryValue* job_settings) {
-  auto dict = base::MakeUnique<base::DictionaryValue>();
+  auto dict = std::make_unique<base::DictionaryValue>();
   dict->SetInteger("x", rect.x());
   dict->SetInteger("y", rect.y());
   dict->SetInteger("width", rect.width());
@@ -179,6 +179,7 @@ bool PrintSettingsFromJobSettings(const base::DictionaryValue& job_settings,
   int copies = 1;
   int scale_factor = 100;
   bool rasterize_pdf = false;
+  int pages_per_sheet = 1;
 
   if (!job_settings.GetBoolean(kSettingCollate, &collate) ||
       !job_settings.GetInteger(kSettingCopies, &copies) ||
@@ -197,6 +198,7 @@ bool PrintSettingsFromJobSettings(const base::DictionaryValue& job_settings,
       !job_settings.GetInteger(kSettingDpiVertical, &dpi_vertical)) {
     return false;
   }
+  settings->set_dpi_xy(dpi_horizontal, dpi_vertical);
 #endif
 
   settings->set_collate(collate);
@@ -207,13 +209,17 @@ bool PrintSettingsFromJobSettings(const base::DictionaryValue& job_settings,
   settings->set_color(static_cast<ColorModel>(color));
   settings->set_scale_factor(static_cast<double>(scale_factor) / 100.0);
   settings->set_rasterize_pdf(rasterize_pdf);
+  bool is_modifiable = false;
+  if (job_settings.GetBoolean(kSettingPreviewModifiable, &is_modifiable)) {
+    settings->set_is_modifiable(is_modifiable);
 #if defined(OS_WIN)
-  // Modifiable implies HTML and not other formats like PDF.
-  bool can_modify = false;
-  if (job_settings.GetBoolean(kSettingPreviewModifiable, &can_modify))
-    settings->set_print_text_with_gdi(can_modify);
-  settings->set_dpi_xy(dpi_horizontal, dpi_vertical);
+    settings->set_print_text_with_gdi(is_modifiable);
 #endif
+  }
+
+  // TODO(crbug.com/842000): |kSettingPagesPerSheet| should be required.
+  job_settings.GetInteger(kSettingPagesPerSheet, &pages_per_sheet);
+  settings->set_pages_per_sheet(pages_per_sheet);
 
   return true;
 }
@@ -230,9 +236,9 @@ void PrintSettingsToJobSettingsDebug(const PrintSettings& settings,
                            settings.selection_only());
   job_settings->SetInteger(kSettingMarginsType, settings.margin_type());
   if (!settings.ranges().empty()) {
-    auto page_range_array = base::MakeUnique<base::ListValue>();
+    auto page_range_array = std::make_unique<base::ListValue>();
     for (size_t i = 0; i < settings.ranges().size(); ++i) {
-      auto dict = base::MakeUnique<base::DictionaryValue>();
+      auto dict = std::make_unique<base::DictionaryValue>();
       dict->SetInteger(kSettingPageRangeFrom, settings.ranges()[i].from + 1);
       dict->SetInteger(kSettingPageRangeTo, settings.ranges()[i].to + 1);
       page_range_array->Append(std::move(dict));
@@ -246,10 +252,11 @@ void PrintSettingsToJobSettingsDebug(const PrintSettings& settings,
   job_settings->SetInteger(kSettingDuplexMode, settings.duplex_mode());
   job_settings->SetBoolean(kSettingLandscape, settings.landscape());
   job_settings->SetString(kSettingDeviceName, settings.device_name());
+  job_settings->SetInteger(kSettingPagesPerSheet, settings.pages_per_sheet());
 
   // Following values are not read form JSON by InitSettings, so do not have
   // common public constants. So just serialize in "debug" section.
-  auto debug = base::MakeUnique<base::DictionaryValue>();
+  auto debug = std::make_unique<base::DictionaryValue>();
   debug->SetInteger("dpi", settings.dpi());
   debug->SetInteger("deviceUnitsPerInch", settings.device_units_per_inch());
   debug->SetBoolean("support_alpha_blend", settings.should_print_backgrounds());

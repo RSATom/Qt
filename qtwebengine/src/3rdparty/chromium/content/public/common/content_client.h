@@ -15,10 +15,15 @@
 #include "content/common/content_export.h"
 #include "ui/base/layout.h"
 #include "url/gurl.h"
+#include "url/origin.h"
 #include "url/url_util.h"
 
 namespace base {
 class RefCountedMemory;
+}
+
+namespace blink {
+class OriginTrialPolicy;
 }
 
 namespace IPC {
@@ -34,6 +39,7 @@ struct GPUInfo;
 }
 
 namespace media {
+struct CdmHostFilePath;
 class MediaDrmBridgeClient;
 }
 
@@ -44,8 +50,7 @@ class ContentClient;
 class ContentGpuClient;
 class ContentRendererClient;
 class ContentUtilityClient;
-class OriginTrialPolicy;
-struct CdmHostFilePath;
+class ServiceManagerConnection;
 struct CdmInfo;
 struct PepperPluginInfo;
 
@@ -78,8 +83,14 @@ class CONTENT_EXPORT ContentClient {
   ContentRendererClient* renderer() { return renderer_; }
   ContentUtilityClient* utility() { return utility_; }
 
-  // Sets the currently active URL.  Use GURL() to clear the URL.
-  virtual void SetActiveURL(const GURL& url) {}
+  // Sets the active URL (the URL of a frame that is navigating or processing an
+  // IPC message), and the origin of the main frame (for diagnosing crashes).
+  // Use GURL() or std::string() to clear the URL/origin.
+  //
+  // A string is used for the origin because the source of that value may be a
+  // WebSecurityOrigin or a full URL (if called from the browser process) and a
+  // string is the lowest-common-denominator.
+  virtual void SetActiveURL(const GURL& url, std::string top_origin) {}
 
   // Sets the data on the current gpu.
   virtual void SetGpuInfo(const gpu::GPUInfo& gpu_info) {}
@@ -94,7 +105,7 @@ class CONTENT_EXPORT ContentClient {
   // is not needed.
   virtual void AddContentDecryptionModules(
       std::vector<content::CdmInfo>* cdms,
-      std::vector<content::CdmHostFilePath>* cdm_host_file_paths) {}
+      std::vector<media::CdmHostFilePath>* cdm_host_file_paths) {}
 
   // Gives the embedder a chance to register its own schemes early in the
   // startup sequence.
@@ -121,7 +132,9 @@ class CONTENT_EXPORT ContentClient {
     std::vector<std::string> csp_bypassing_schemes;
     // See https://www.w3.org/TR/powerful-features/#is-origin-trustworthy.
     std::vector<std::string> secure_schemes;
-    std::vector<GURL> secure_origins;
+    // Registers a serialized origin or a hostname pattern that should be
+    // considered trustworthy.
+    std::vector<std::string> secure_origins;
     // Registers a URL scheme as strictly empty documents, allowing them to
     // commit synchronously.
     std::vector<std::string> empty_document_schemes;
@@ -138,6 +151,7 @@ class CONTENT_EXPORT ContentClient {
   virtual std::string GetProduct() const;
 
   // Returns the user agent.  Content may cache this value.
+  // TODO(yhirano): Move this to ContentBrowserClient.
   virtual std::string GetUserAgent() const;
 
   // Returns a string resource given its id.
@@ -159,33 +173,13 @@ class CONTENT_EXPORT ContentClient {
   // doesn't know about because they're from the embedder.
   virtual std::string GetProcessTypeNameInEnglish(int type);
 
-#if defined(OS_MACOSX)
-  // Allows the embedder to define a new |sandbox_type| by mapping it to the
-  // resource ID corresponding to the sandbox profile to use. The legal values
-  // for |sandbox_type| are defined by the embedder and should start with
-  // SandboxType::SANDBOX_TYPE_AFTER_LAST_TYPE. Returns false if no sandbox
-  // profile for the given |sandbox_type| exists. Otherwise,
-  // |sandbox_profile_resource_id| is set to the resource ID corresponding to
-  // the sandbox profile to use and true is returned.
-  virtual bool GetSandboxProfileForSandboxType(
-      int sandbox_type,
-      int* sandbox_profile_resource_id) const;
-#endif
-
   // Returns whether or not V8 script extensions should be allowed for a
   // service worker.
   virtual bool AllowScriptExtensionForServiceWorker(const GURL& script_url);
 
-  // Returns true if the embedder wishes to supplement the site isolation policy
-  // used by the content layer. Returning true enables the infrastructure for
-  // out-of-process iframes, and causes the content layer to consult
-  // ContentBrowserClient::DoesSiteRequireDedicatedProcess() when making process
-  // model decisions.
-  virtual bool IsSupplementarySiteIsolationModeEnabled();
-
   // Returns the origin trial policy, or nullptr if origin trials are not
   // supported by the embedder.
-  virtual OriginTrialPolicy* GetOriginTrialPolicy();
+  virtual blink::OriginTrialPolicy* GetOriginTrialPolicy();
 
 #if defined(OS_ANDROID)
   // Returns true for clients like Android WebView that uses synchronous
@@ -196,6 +190,8 @@ class CONTENT_EXPORT ContentClient {
   // Returns the MediaDrmBridgeClient to be used by media code on Android.
   virtual media::MediaDrmBridgeClient* GetMediaDrmBridgeClient();
 #endif  // OS_ANDROID
+
+  virtual void OnServiceManagerConnected(ServiceManagerConnection* connection);
 
  private:
   friend class ContentClientInitializer;  // To set these pointers.

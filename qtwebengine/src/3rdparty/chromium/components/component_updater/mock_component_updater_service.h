@@ -11,7 +11,9 @@
 #ifndef COMPONENTS_COMPONENT_UPDATER_MOCK_COMPONENT_UPDATER_SERVICE_H_
 #define COMPONENTS_COMPONENT_UPDATER_MOCK_COMPONENT_UPDATER_SERVICE_H_
 
+#include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "base/callback.h"
@@ -26,6 +28,11 @@ class MockComponentUpdateService : public ComponentUpdateService {
   MockComponentUpdateService();
   ~MockComponentUpdateService() override;
 
+  void MaybeThrottle(const std::string& id,
+                     base::OnceClosure callback) override {
+    DoMaybeThrottle(id, std::move(callback));
+  }
+
   MOCK_METHOD1(AddObserver,
       void(Observer* observer));
   MOCK_METHOD1(RemoveObserver,
@@ -39,10 +46,11 @@ class MockComponentUpdateService : public ComponentUpdateService {
   MOCK_CONST_METHOD1(
       GetComponentForMimeType,
       std::unique_ptr<ComponentInfo>(const std::string& mime_type));
+  MOCK_CONST_METHOD0(GetComponents, std::vector<ComponentInfo>());
   MOCK_METHOD0(GetOnDemandUpdater,
       OnDemandUpdater&());
-  MOCK_METHOD2(MaybeThrottle,
-      void(const std::string& id, const base::Closure& callback));
+  MOCK_METHOD2(DoMaybeThrottle,
+               void(const std::string& id, const base::OnceClosure& callback));
   MOCK_METHOD0(GetSequencedTaskRunner,
       scoped_refptr<base::SequencedTaskRunner>());
   MOCK_CONST_METHOD2(GetComponentDetails,

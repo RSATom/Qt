@@ -8,9 +8,11 @@
 #include <netinet/tcp.h>
 #include <sys/socket.h>
 
+#include "base/atomicops.h"
 #include "base/bind.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
+#include "base/lazy_instance.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/posix/eintr_wrapper.h"
@@ -18,6 +20,7 @@
 #include "base/strings/string_piece.h"
 #include "base/task_scheduler/post_task.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 #include "net/base/address_list.h"
 #include "net/base/io_buffer.h"
 #include "net/base/ip_endpoint.h"
@@ -33,21 +36,25 @@
 #include "net/socket/socket_net_log_params.h"
 #include "net/socket/socket_options.h"
 #include "net/socket/socket_posix.h"
+#include "net/socket/socket_tag.h"
+#include "net/traffic_annotation/network_traffic_annotation.h"
 
 // If we don't have a definition for TCPI_OPT_SYN_DATA, create one.
-#ifndef TCPI_OPT_SYN_DATA
+#if !defined(TCPI_OPT_SYN_DATA)
 #define TCPI_OPT_SYN_DATA 32
+#endif
+
+// Fuchsia defines TCP_INFO, but it's not implemented.
+// TODO(crbug.com/758294): Enable TCP_INFO on Fuchsia once it's implemented
+// there (see NET-160).
+#if defined(TCP_INFO) && !defined(OS_FUCHSIA)
+#define HAVE_TCP_INFO
 #endif
 
 namespace net {
 
 namespace {
 
-// True if OS supports TCP FastOpen.
-bool g_tcp_fastopen_supported = false;
-// True if TCP FastOpen is user-enabled for all connections.
-// TODO(jri): Change global variable to param in HttpNetworkSession::Params.
-bool g_tcp_fastopen_user_enabled = false;
 // True if TCP FastOpen connect-with-write has failed at least once.
 bool g_tcp_fastopen_has_failed = false;
 
@@ -87,39 +94,113 @@ bool SetTCPKeepAlive(int fd, bool enable, int delay) {
 }
 
 #if defined(OS_LINUX) || defined(OS_ANDROID)
-// Checks if the kernel supports TCP FastOpen.
-bool SystemSupportsTCPFastOpen() {
-  const base::FilePath::CharType kTCPFastOpenProcFilePath[] =
-      "/proc/sys/net/ipv4/tcp_fastopen";
-  std::string system_supports_tcp_fastopen;
-  if (!base::ReadFileToString(base::FilePath(kTCPFastOpenProcFilePath),
-                              &system_supports_tcp_fastopen)) {
+// Probes if TCP FastOpen is supported, on another thread.
+class FastOpenProbe {
+ public:
+  // Returns true if TCP FastOpen suport was detected. Returns false if it was
+  // not detected, or the probe has not yet completed.
+  bool IsTCPFastOpenSupported() const {
+    return base::subtle::NoBarrier_Load(&tcp_fastopen_supported_) != 0;
+  }
+
+ private:
+  friend struct base::LazyInstanceTraitsBase<FastOpenProbe>;
+
+  FastOpenProbe() {
+    base::PostTaskWithTraits(
+        FROM_HERE,
+        {base::MayBlock(), base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN},
+        base::Bind(&FastOpenProbe::DetectTCPFastOpenSupport,
+                   base::Unretained(this)));
+  }
+
+  ~FastOpenProbe() = default;
+
+  // Checks if the kernel supports TCP FastOpen. Called only once, on startup.
+  void DetectTCPFastOpenSupport() {
+    // Since this method should only be called once, and is the only thing that
+    // modifies |tcp_fastopen_supported_|, no need for this read to be atomic.
+    DCHECK_EQ(tcp_fastopen_supported_, 0);
+
+    const base::FilePath::CharType kTCPFastOpenProcFilePath[] =
+        "/proc/sys/net/ipv4/tcp_fastopen";
+    std::string system_supports_tcp_fastopen;
+    if (!base::ReadFileToString(base::FilePath(kTCPFastOpenProcFilePath),
+                                &system_supports_tcp_fastopen)) {
+      return;
+    }
+    // The read value from /proc will be set in its least significant bit if
+    // TCP FastOpen is enabled.
+    int read_int = 0;
+    base::StringToInt(
+        HttpUtil::TrimLWS(base::StringPiece(system_supports_tcp_fastopen)),
+        &read_int);
+    if ((read_int & 0x1) != 1)
+      return;
+    base::subtle::NoBarrier_Store(&tcp_fastopen_supported_, 1);
+  }
+
+  base::subtle::Atomic32 tcp_fastopen_supported_ = 0;
+
+  DISALLOW_COPY_AND_ASSIGN(FastOpenProbe);
+};
+
+base::LazyInstance<FastOpenProbe>::Leaky g_fast_open_probe =
+    LAZY_INSTANCE_INITIALIZER;
+#endif  // defined(OS_LINUX) || defined(OS_ANDROID)
+
+#if defined(HAVE_TCP_INFO)
+// Returns a zero value if the transport RTT is unavailable.
+base::TimeDelta GetTransportRtt(SocketDescriptor fd) {
+  tcp_info info;
+  // Reset |tcpi_rtt| to verify if getsockopt() actually updates |tcpi_rtt|.
+  info.tcpi_rtt = 0;
+
+  socklen_t info_len = sizeof(tcp_info);
+  if (getsockopt(fd, IPPROTO_TCP, TCP_INFO, &info, &info_len) != 0)
+    return base::TimeDelta();
+
+  // Verify that |tcpi_rtt| in tcp_info struct was updated. Note that it's
+  // possible that |info_len| is shorter than |sizeof(tcp_info)| which implies
+  // that only a subset of values in |info| may have been updated by
+  // getsockopt().
+  if (info_len < static_cast<socklen_t>(offsetof(tcp_info, tcpi_rtt) +
+                                        sizeof(info.tcpi_rtt))) {
+    return base::TimeDelta();
+  }
+
+  return base::TimeDelta::FromMicroseconds(info.tcpi_rtt);
+}
+
+// Returns true if getsockopt() call was successful. Sets
+// |server_acked_syn_data| to true if SYN-ACK acked data in SYN sent or
+// received.
+bool GetServerAckedDataInSyn(SocketDescriptor fd, bool* server_acked_syn_data) {
+  tcp_info info;
+  // Reset |tcpi_options| to verify if getsockopt() actually updates
+  // |tcpi_options|.
+  info.tcpi_options = 0;
+
+  socklen_t info_len = sizeof(tcp_info);
+  if (getsockopt(fd, IPPROTO_TCP, TCP_INFO, &info, &info_len) != 0) {
+    *server_acked_syn_data = false;
     return false;
   }
-  // The read value from /proc will be set in its least significant bit if
-  // TCP FastOpen is enabled.
-  int read_int = 0;
-  base::StringToInt(
-      HttpUtil::TrimLWS(base::StringPiece(system_supports_tcp_fastopen)),
-      &read_int);
-  if ((read_int & 0x1) == 1)
-    return true;
-  return false;
+
+  // Verify that |tcpi_options| in tcp_info struct was updated. Note that it's
+  // possible that |info_len| is shorter than |sizeof(tcp_info)| which implies
+  // that only a subset of values in |info| may have been updated by
+  // getsockopt().
+  if (info_len < static_cast<socklen_t>(offsetof(tcp_info, tcpi_options) +
+                                        sizeof(info.tcpi_options))) {
+    *server_acked_syn_data = false;
+    return false;
+  }
+
+  *server_acked_syn_data = (info.tcpi_options & TCPI_OPT_SYN_DATA);
+  return true;
 }
 
-void RegisterTCPFastOpenIntentAndSupport(bool user_enabled,
-                                         bool system_supported) {
-  g_tcp_fastopen_supported = system_supported;
-  g_tcp_fastopen_user_enabled = user_enabled;
-}
-#endif
-
-#if defined(TCP_INFO)
-bool GetTcpInfo(SocketDescriptor fd, tcp_info* info) {
-  socklen_t info_len = sizeof(tcp_info);
-  return getsockopt(fd, IPPROTO_TCP, TCP_INFO, info, &info_len) == 0 &&
-         info_len == sizeof(tcp_info);
-}
 #endif  // defined(TCP_INFO)
 
 }  // namespace
@@ -127,22 +208,10 @@ bool GetTcpInfo(SocketDescriptor fd, tcp_info* info) {
 //-----------------------------------------------------------------------------
 
 bool IsTCPFastOpenSupported() {
-  return g_tcp_fastopen_supported;
-}
-
-bool IsTCPFastOpenUserEnabled() {
-  return g_tcp_fastopen_user_enabled;
-}
-
-// This is asynchronous because it needs to do file IO, and it isn't allowed to
-// do that on the IO thread.
-void CheckSupportAndMaybeEnableTCPFastOpen(bool user_enabled) {
 #if defined(OS_LINUX) || defined(OS_ANDROID)
-  base::PostTaskWithTraitsAndReplyWithResult(
-      FROM_HERE,
-      {base::MayBlock(), base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN},
-      base::Bind(SystemSupportsTCPFastOpen),
-      base::Bind(RegisterTCPFastOpenIntentAndSupport, user_enabled));
+  return g_fast_open_probe.Get().IsTCPFastOpenSupported();
+#else
+  return false;
 #endif
 }
 
@@ -172,6 +241,8 @@ int TCPSocketPosix::Open(AddressFamily family) {
   int rv = socket_->Open(ConvertAddressFamily(family));
   if (rv != OK)
     socket_.reset();
+  if (rv == OK && tag_ != SocketTag())
+    tag_.Apply(socket_->socket_fd());
   return rv;
 }
 
@@ -190,6 +261,8 @@ int TCPSocketPosix::AdoptConnectedSocket(SocketDescriptor socket,
   int rv = socket_->AdoptConnectedSocket(socket, storage);
   if (rv != OK)
     socket_.reset();
+  if (rv == OK && tag_ != SocketTag())
+    tag_.Apply(socket_->socket_fd());
   return rv;
 }
 
@@ -200,6 +273,8 @@ int TCPSocketPosix::AdoptUnconnectedSocket(SocketDescriptor socket) {
   int rv = socket_->AdoptUnconnectedSocket(socket);
   if (rv != OK)
     socket_.reset();
+  if (rv == OK && tag_ != SocketTag())
+    tag_.Apply(socket_->socket_fd());
   return rv;
 }
 
@@ -220,7 +295,7 @@ int TCPSocketPosix::Listen(int backlog) {
 
 int TCPSocketPosix::Accept(std::unique_ptr<TCPSocketPosix>* tcp_socket,
                            IPEndPoint* address,
-                           const CompletionCallback& callback) {
+                           CompletionOnceCallback callback) {
   DCHECK(tcp_socket);
   DCHECK(!callback.is_null());
   DCHECK(socket_);
@@ -230,15 +305,15 @@ int TCPSocketPosix::Accept(std::unique_ptr<TCPSocketPosix>* tcp_socket,
 
   int rv = socket_->Accept(
       &accept_socket_,
-      base::Bind(&TCPSocketPosix::AcceptCompleted, base::Unretained(this),
-                 tcp_socket, address, callback));
+      base::BindOnce(&TCPSocketPosix::AcceptCompleted, base::Unretained(this),
+                     tcp_socket, address, std::move(callback)));
   if (rv != ERR_IO_PENDING)
     rv = HandleAcceptCompleted(tcp_socket, address, rv);
   return rv;
 }
 
 int TCPSocketPosix::Connect(const IPEndPoint& address,
-                            const CompletionCallback& callback) {
+                            CompletionOnceCallback callback) {
   DCHECK(socket_);
 
   if (!logging_multiple_connect_attempts_)
@@ -258,9 +333,9 @@ int TCPSocketPosix::Connect(const IPEndPoint& address,
     return OK;
   }
 
-  int rv =
-      socket_->Connect(storage, base::Bind(&TCPSocketPosix::ConnectCompleted,
-                                           base::Unretained(this), callback));
+  int rv = socket_->Connect(
+      storage, base::BindOnce(&TCPSocketPosix::ConnectCompleted,
+                              base::Unretained(this), std::move(callback)));
   if (rv != ERR_IO_PENDING)
     rv = HandleConnectCompleted(rv);
   return rv;
@@ -288,17 +363,19 @@ bool TCPSocketPosix::IsConnectedAndIdle() const {
 
 int TCPSocketPosix::Read(IOBuffer* buf,
                          int buf_len,
-                         const CompletionCallback& callback) {
+                         CompletionOnceCallback callback) {
   DCHECK(socket_);
   DCHECK(!callback.is_null());
 
   int rv = socket_->Read(
       buf, buf_len,
-      base::Bind(&TCPSocketPosix::ReadCompleted,
-                 // Grab a reference to |buf| so that ReadCompleted() can still
-                 // use it when Read() completes, as otherwise, this transfers
-                 // ownership of buf to socket.
-                 base::Unretained(this), make_scoped_refptr(buf), callback));
+      base::BindOnce(
+          &TCPSocketPosix::ReadCompleted,
+          // Grab a reference to |buf| so that ReadCompleted() can still
+          // use it when Read() completes, as otherwise, this transfers
+          // ownership of buf to socket.
+          base::Unretained(this), base::WrapRefCounted(buf),
+          std::move(callback)));
   if (rv != ERR_IO_PENDING)
     rv = HandleReadCompleted(buf, rv);
   return rv;
@@ -306,37 +383,46 @@ int TCPSocketPosix::Read(IOBuffer* buf,
 
 int TCPSocketPosix::ReadIfReady(IOBuffer* buf,
                                 int buf_len,
-                                const CompletionCallback& callback) {
+                                CompletionOnceCallback callback) {
   DCHECK(socket_);
   DCHECK(!callback.is_null());
 
-  int rv =
-      socket_->ReadIfReady(buf, buf_len,
-                           base::Bind(&TCPSocketPosix::ReadIfReadyCompleted,
-                                      base::Unretained(this), callback));
+  int rv = socket_->ReadIfReady(
+      buf, buf_len,
+      base::BindOnce(&TCPSocketPosix::ReadIfReadyCompleted,
+                     base::Unretained(this), std::move(callback)));
   if (rv != ERR_IO_PENDING)
     rv = HandleReadCompleted(buf, rv);
   return rv;
 }
 
-int TCPSocketPosix::Write(IOBuffer* buf,
-                          int buf_len,
-                          const CompletionCallback& callback) {
+int TCPSocketPosix::CancelReadIfReady() {
+  DCHECK(socket_);
+
+  return socket_->CancelReadIfReady();
+}
+
+int TCPSocketPosix::Write(
+    IOBuffer* buf,
+    int buf_len,
+    CompletionOnceCallback callback,
+    const NetworkTrafficAnnotationTag& traffic_annotation) {
   DCHECK(socket_);
   DCHECK(!callback.is_null());
 
-  CompletionCallback write_callback =
-      base::Bind(&TCPSocketPosix::WriteCompleted,
-                 // Grab a reference to |buf| so that WriteCompleted() can still
-                 // use it when Write() completes, as otherwise, this transfers
-                 // ownership of buf to socket.
-                 base::Unretained(this), make_scoped_refptr(buf), callback);
+  CompletionOnceCallback write_callback = base::BindOnce(
+      &TCPSocketPosix::WriteCompleted,
+      // Grab a reference to |buf| so that WriteCompleted() can still
+      // use it when Write() completes, as otherwise, this transfers
+      // ownership of buf to socket.
+      base::Unretained(this), base::WrapRefCounted(buf), std::move(callback));
   int rv;
 
   if (use_tcp_fastopen_ && !tcp_fastopen_write_attempted_) {
-    rv = TcpFastOpenWrite(buf, buf_len, write_callback);
+    rv = TcpFastOpenWrite(buf, buf_len, std::move(write_callback));
   } else {
-    rv = socket_->Write(buf, buf_len, write_callback);
+    rv = socket_->Write(buf, buf_len, std::move(write_callback),
+                        traffic_annotation);
   }
 
   if (rv != ERR_IO_PENDING)
@@ -391,8 +477,12 @@ void TCPSocketPosix::SetDefaultOptionsForClient() {
   // If SetTCPNoDelay fails, we don't care.
   SetTCPNoDelay(socket_->socket_fd(), true);
 
-  // TCP keep alive wakes up the radio, which is expensive on mobile. Do not
-  // enable it there. It's useful to prevent TCP middleboxes from timing out
+#if !defined(OS_ANDROID) && !defined(OS_IOS) && !defined(OS_FUCHSIA)
+  // TCP keep alive wakes up the radio, which is expensive on mobile.
+  // It's also not implemented on Fuchsia. Do not enable it there.
+  // TODO(crbug.com/758706): Consider enabling keep-alive on Fuchsia.
+  //
+  // It's useful to prevent TCP middleboxes from timing out
   // connection mappings. Packets for timed out connection mappings at
   // middleboxes will either lead to:
   // a) Middleboxes sending TCP RSTs. It's up to higher layers to check for this
@@ -402,7 +492,6 @@ void TCPSocketPosix::SetDefaultOptionsForClient() {
   // are very high (on the order of seconds). Given the number of
   // retransmissions required before killing the connection, this can lead to
   // tens of seconds or even minutes of delay, depending on OS.
-#if !defined(OS_ANDROID) && !defined(OS_IOS)
   const int kTCPKeepAliveSeconds = 45;
 
   SetTCPKeepAlive(socket_->socket_fd(), true, kTCPKeepAliveSeconds);
@@ -452,6 +541,7 @@ void TCPSocketPosix::Close() {
   tcp_fastopen_connected_ = false;
   tcp_fastopen_write_attempted_ = false;
   tcp_fastopen_status_ = TCP_FASTOPEN_STATUS_UNKNOWN;
+  tag_ = SocketTag();
 }
 
 void TCPSocketPosix::EnableTCPFastOpenIfSupported() {
@@ -501,13 +591,20 @@ SocketDescriptor TCPSocketPosix::ReleaseSocketDescriptorForTesting() {
   return socket_descriptor;
 }
 
+void TCPSocketPosix::ApplySocketTag(const SocketTag& tag) {
+  if (IsValid() && tag != tag_) {
+    tag.Apply(socket_->socket_fd());
+  }
+  tag_ = tag;
+}
+
 void TCPSocketPosix::AcceptCompleted(
     std::unique_ptr<TCPSocketPosix>* tcp_socket,
     IPEndPoint* address,
-    const CompletionCallback& callback,
+    CompletionOnceCallback callback,
     int rv) {
   DCHECK_NE(ERR_IO_PENDING, rv);
-  callback.Run(HandleAcceptCompleted(tcp_socket, address, rv));
+  std::move(callback).Run(HandleAcceptCompleted(tcp_socket, address, rv));
 }
 
 int TCPSocketPosix::HandleAcceptCompleted(
@@ -545,10 +642,9 @@ int TCPSocketPosix::BuildTcpSocketPosix(
   return OK;
 }
 
-void TCPSocketPosix::ConnectCompleted(const CompletionCallback& callback,
-                                      int rv) {
+void TCPSocketPosix::ConnectCompleted(CompletionOnceCallback callback, int rv) {
   DCHECK_NE(ERR_IO_PENDING, rv);
-  callback.Run(HandleConnectCompleted(rv));
+  std::move(callback).Run(HandleConnectCompleted(rv));
 }
 
 int TCPSocketPosix::HandleConnectCompleted(int rv) {
@@ -556,6 +652,7 @@ int TCPSocketPosix::HandleConnectCompleted(int rv) {
   if (rv != OK) {
     net_log_.EndEvent(NetLogEventType::TCP_CONNECT_ATTEMPT,
                       NetLog::IntCallback("os_error", errno));
+    tag_ = SocketTag();
   } else {
     net_log_.EndEvent(NetLogEventType::TCP_CONNECT_ATTEMPT);
     NotifySocketPerformanceWatcher();
@@ -597,20 +694,20 @@ void TCPSocketPosix::LogConnectEnd(int net_error) const {
 }
 
 void TCPSocketPosix::ReadCompleted(const scoped_refptr<IOBuffer>& buf,
-                                   const CompletionCallback& callback,
+                                   CompletionOnceCallback callback,
                                    int rv) {
   DCHECK_NE(ERR_IO_PENDING, rv);
 
-  callback.Run(HandleReadCompleted(buf.get(), rv));
+  std::move(callback).Run(HandleReadCompleted(buf.get(), rv));
 }
 
-void TCPSocketPosix::ReadIfReadyCompleted(const CompletionCallback& callback,
+void TCPSocketPosix::ReadIfReadyCompleted(CompletionOnceCallback callback,
                                           int rv) {
   DCHECK_NE(ERR_IO_PENDING, rv);
   DCHECK_GE(OK, rv);
 
   HandleReadCompletedHelper(rv);
-  callback.Run(rv);
+  std::move(callback).Run(rv);
 }
 
 int TCPSocketPosix::HandleReadCompleted(IOBuffer* buf, int rv) {
@@ -655,10 +752,10 @@ void TCPSocketPosix::HandleReadCompletedHelper(int rv) {
 }
 
 void TCPSocketPosix::WriteCompleted(const scoped_refptr<IOBuffer>& buf,
-                                    const CompletionCallback& callback,
+                                    CompletionOnceCallback callback,
                                     int rv) {
   DCHECK_NE(ERR_IO_PENDING, rv);
-  callback.Run(HandleWriteCompleted(buf.get(), rv));
+  std::move(callback).Run(HandleWriteCompleted(buf.get(), rv));
 }
 
 int TCPSocketPosix::HandleWriteCompleted(IOBuffer* buf, int rv) {
@@ -691,7 +788,7 @@ int TCPSocketPosix::HandleWriteCompleted(IOBuffer* buf, int rv) {
 
 int TCPSocketPosix::TcpFastOpenWrite(IOBuffer* buf,
                                      int buf_len,
-                                     const CompletionCallback& callback) {
+                                     CompletionOnceCallback callback) {
   SockaddrStorage storage;
   int rv = socket_->GetPeerAddress(&storage);
   if (rv != OK)
@@ -747,11 +844,11 @@ int TCPSocketPosix::TcpFastOpenWrite(IOBuffer* buf,
   }
 
   tcp_fastopen_status_ = TCP_FASTOPEN_SLOW_CONNECT_RETURN;
-  return socket_->WaitForWrite(buf, buf_len, callback);
+  return socket_->WaitForWrite(buf, buf_len, std::move(callback));
 }
 
 void TCPSocketPosix::NotifySocketPerformanceWatcher() {
-#if defined(TCP_INFO)
+#if defined(HAVE_TCP_INFO)
   // Check if |socket_performance_watcher_| is interested in receiving a RTT
   // update notification.
   if (!socket_performance_watcher_ ||
@@ -759,20 +856,11 @@ void TCPSocketPosix::NotifySocketPerformanceWatcher() {
     return;
   }
 
-  tcp_info info;
-  if (!GetTcpInfo(socket_->socket_fd(), &info))
+  base::TimeDelta rtt = GetTransportRtt(socket_->socket_fd());
+  if (rtt.is_zero())
     return;
 
-  // Only notify the |socket_performance_watcher_| if the RTT in |tcp_info|
-  // struct was populated. A value of 0 may be valid in certain cases
-  // (on very fast networks), but it is discarded. This means that
-  // some of the RTT values may be missed, but the values that are kept are
-  // guaranteed to be correct.
-  if (info.tcpi_rtt == 0 && info.tcpi_rttvar == 0)
-    return;
-
-  socket_performance_watcher_->OnUpdatedRTTAvailable(
-      base::TimeDelta::FromMicroseconds(info.tcpi_rtt));
+  socket_performance_watcher_->OnUpdatedRTTAvailable(rtt);
 #endif  // defined(TCP_INFO)
 }
 
@@ -790,24 +878,22 @@ void TCPSocketPosix::UpdateTCPFastOpenStatusAfterRead() {
   }
 
   bool getsockopt_success = false;
-  bool server_acked_data = false;
-#if defined(TCP_INFO)
+  bool server_acked_syn_data = false;
+#if defined(HAVE_TCP_INFO)
   // Probe to see the if the socket used TCP FastOpen.
-  tcp_info info;
-  getsockopt_success = GetTcpInfo(socket_->socket_fd(), &info);
-  server_acked_data =
-      getsockopt_success && (info.tcpi_options & TCPI_OPT_SYN_DATA);
+  getsockopt_success =
+      GetServerAckedDataInSyn(socket_->socket_fd(), &server_acked_syn_data);
 #endif  // defined(TCP_INFO)
 
   if (getsockopt_success) {
     if (tcp_fastopen_status_ == TCP_FASTOPEN_FAST_CONNECT_RETURN) {
-      tcp_fastopen_status_ = (server_acked_data ?
-                              TCP_FASTOPEN_SYN_DATA_ACK :
-                              TCP_FASTOPEN_SYN_DATA_NACK);
+      tcp_fastopen_status_ =
+          (server_acked_syn_data ? TCP_FASTOPEN_SYN_DATA_ACK
+                                 : TCP_FASTOPEN_SYN_DATA_NACK);
     } else {
-      tcp_fastopen_status_ = (server_acked_data ?
-                              TCP_FASTOPEN_NO_SYN_DATA_ACK :
-                              TCP_FASTOPEN_NO_SYN_DATA_NACK);
+      tcp_fastopen_status_ =
+          (server_acked_syn_data ? TCP_FASTOPEN_NO_SYN_DATA_ACK
+                                 : TCP_FASTOPEN_NO_SYN_DATA_NACK);
     }
   } else {
     tcp_fastopen_status_ =
@@ -822,16 +908,12 @@ bool TCPSocketPosix::GetEstimatedRoundTripTime(base::TimeDelta* out_rtt) const {
   if (!socket_)
     return false;
 
-#if defined(TCP_INFO)
-  tcp_info info;
-  if (GetTcpInfo(socket_->socket_fd(), &info)) {
-    // tcpi_rtt is zero when the kernel doesn't have an RTT estimate,
-    // and possibly in other cases such as connections to localhost.
-    if (info.tcpi_rtt > 0) {
-      *out_rtt = base::TimeDelta::FromMicroseconds(info.tcpi_rtt);
-      return true;
-    }
-  }
+#if defined(HAVE_TCP_INFO)
+  base::TimeDelta rtt = GetTransportRtt(socket_->socket_fd());
+  if (rtt.is_zero())
+    return false;
+  *out_rtt = rtt;
+  return true;
 #endif  // defined(TCP_INFO)
   return false;
 }

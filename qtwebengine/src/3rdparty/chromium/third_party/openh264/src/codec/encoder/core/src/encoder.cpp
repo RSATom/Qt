@@ -142,10 +142,10 @@ int32_t InitPic (const void* kpSrc, const int32_t kiColorspace, const int32_t ki
 void WelsInitBGDFunc (SWelsFuncPtrList* pFuncList, const bool kbEnableBackgroundDetection) {
   if (kbEnableBackgroundDetection) {
     pFuncList->pfInterMdBackgroundDecision = WelsMdInterJudgeBGDPskip;
-    pFuncList->pfInterMdBackgroundInfoUpdate = WelsMdInterUpdateBGDInfo;
+    pFuncList->pfMdBackgroundInfoUpdate = WelsMdUpdateBGDInfo;
   } else {
     pFuncList->pfInterMdBackgroundDecision = WelsMdInterJudgeBGDPskipFalse;
-    pFuncList->pfInterMdBackgroundInfoUpdate = WelsMdInterUpdateBGDInfoNULL;
+    pFuncList->pfMdBackgroundInfoUpdate = WelsMdUpdateBGDInfoNULL;
   }
 }
 
@@ -344,7 +344,7 @@ EVideoFrameType DecideFrameType (sWelsEncCtx* pEncCtx, const int8_t kiSpatialNum
       bSceneChangeFlag = pEncCtx->pVaa->bSceneChangeFlag;
     }
     if (pEncCtx->pVaa->bIdrPeriodFlag || pParamInternal->bEncCurFrmAsIdrFlag || (!pSvcParam->bEnableLongTermReference
-        && bSceneChangeFlag)) {
+        && bSceneChangeFlag && !bSkipFrameFlag)) {
       iFrameType = videoFrameTypeIDR;
     } else if (pSvcParam->bEnableLongTermReference && (bSceneChangeFlag
                || pEncCtx->pVaa->eSceneChangeIdc == LARGE_CHANGED_SCENE)) {
@@ -387,6 +387,13 @@ EVideoFrameType DecideFrameType (sWelsEncCtx* pEncCtx, const int8_t kiSpatialNum
     //pEncCtx->bEncCurFrmAsIdrFlag: 1. first frame should be IDR; 2. idr pause; 3. idr request
     iFrameType = (pEncCtx->pVaa->bIdrPeriodFlag || bSceneChangeFlag
                   || pParamInternal->bEncCurFrmAsIdrFlag) ? videoFrameTypeIDR : videoFrameTypeP;
+    if ( videoFrameTypeIDR == iFrameType ) {
+      WelsLog (& (pEncCtx->sLogCtx), WELS_LOG_DEBUG,
+               "encoding videoFrameTypeIDR due to ( bIdrPeriodFlag %d, bSceneChangeFlag %d, bEncCurFrmAsIdrFlag %d )",
+               pEncCtx->pVaa->bIdrPeriodFlag,
+               bSceneChangeFlag,
+               pParamInternal->bEncCurFrmAsIdrFlag);
+    }
 
     if (videoFrameTypeP == iFrameType && bSkipFrameFlag) {  // for frame skip, 1/5/2010
       iFrameType = videoFrameTypeSkip;

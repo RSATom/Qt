@@ -39,7 +39,7 @@ public:
     Win32MakefileGenerator();
     ~Win32MakefileGenerator();
 protected:
-    virtual QString defaultInstall(const QString &);
+    QString defaultInstall(const QString &) override;
     virtual void writeCleanParts(QTextStream &t);
     virtual void writeStandardParts(QTextStream &t);
     virtual void writeIncPart(QTextStream &t);
@@ -47,15 +47,19 @@ protected:
     virtual void writeObjectsPart(QTextStream &t);
     virtual void writeImplicitRulesPart(QTextStream &t);
     virtual void writeBuildRulesPart(QTextStream &);
-    virtual QString escapeFilePath(const QString &path) const;
-    ProString escapeFilePath(const ProString &path) const { return MakefileGenerator::escapeFilePath(path); }
+    using MakefileGenerator::escapeFilePath;
+    QString escapeFilePath(const QString &path) const override;
+    using MakefileGenerator::escapeDependencyPath;
+    QString escapeDependencyPath(const QString &path) const override;
 
     virtual void writeRcFilePart(QTextStream &t);
 
-    virtual bool findLibraries(bool linkPrl, bool mergeLflags);
+    bool findLibraries(bool linkPrl, bool mergeLflags) override;
 
-    virtual LibFlagType parseLibFlag(const ProString &flag, ProString *arg);
-    virtual ProString fixLibFlag(const ProString &lib);
+    LibFlagType parseLibFlag(const ProString &flag, ProString *arg) override;
+    ProString fixLibFlag(const ProString &lib) override;
+    bool processPrlFileBase(QString &origFile, const QStringRef &origName,
+                            const QStringRef &fixedBase, int slashOff) override;
 
     void processVars();
     void fixTargetExt();

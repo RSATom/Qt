@@ -197,8 +197,7 @@ void tst_QProgressDialog::task198202()
     dlg.setLabel(0);
     QTest::ignoreMessage(QtWarningMsg, "QProgressDialog::setBar: Cannot set a null progress bar");
     dlg.setBar(0);
-    QTest::qWait(20);
-    QCOMPARE(dlg.sizeHint().height(), futureHeight);
+    QTRY_COMPARE(dlg.sizeHint().height(), futureHeight);
 }
 
 void tst_QProgressDialog::QTBUG_31046()
@@ -255,10 +254,10 @@ class QTestTranslator : public QTranslator
 public:
     explicit QTestTranslator(QString str) : m_str(qMove(str)) {}
 
-    QString translate(const char *, const char *sourceText, const char *, int) const Q_DECL_OVERRIDE
+    QString translate(const char *, const char *sourceText, const char *, int) const override
     { return m_str + sourceText + m_str; }
 
-    bool isEmpty() const Q_DECL_OVERRIDE { return false; }
+    bool isEmpty() const override { return false; }
 };
 
 template <typename Translator>

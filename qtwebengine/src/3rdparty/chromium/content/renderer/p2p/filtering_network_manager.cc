@@ -98,19 +98,21 @@ void FilteringNetworkManager::CheckPermission() {
   started_permission_check_ = true;
   pending_permission_checks_ = 2;
 
+  VLOG(1) << "FilteringNetworkManager checking permission status.";
   // Request for media permission asynchronously.
   media_permission_->HasPermission(
-      media::MediaPermission::AUDIO_CAPTURE, requesting_origin_,
+      media::MediaPermission::AUDIO_CAPTURE,
       base::Bind(&FilteringNetworkManager::OnPermissionStatus, GetWeakPtr()));
   media_permission_->HasPermission(
-      media::MediaPermission::VIDEO_CAPTURE, requesting_origin_,
+      media::MediaPermission::VIDEO_CAPTURE,
       base::Bind(&FilteringNetworkManager::OnPermissionStatus, GetWeakPtr()));
 }
 
 void FilteringNetworkManager::OnPermissionStatus(bool granted) {
   DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK_GT(pending_permission_checks_, 0);
-  VLOG(3) << "OnPermissionStatus: " << granted;
+  VLOG(1) << "FilteringNetworkManager received permission status: "
+          << (granted ? "granted" : "denied");
   IPPermissionStatus old_status = GetIPPermissionStatus();
 
   --pending_permission_checks_;
@@ -166,8 +168,9 @@ void FilteringNetworkManager::FireEventIfStarted() {
 
   // Post a task to avoid reentrancy.
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::Bind(&FilteringNetworkManager::SendNetworksChangedSignal,
-                            GetWeakPtr()));
+      FROM_HERE,
+      base::BindOnce(&FilteringNetworkManager::SendNetworksChangedSignal,
+                     GetWeakPtr()));
 
   sent_first_update_ = true;
 }

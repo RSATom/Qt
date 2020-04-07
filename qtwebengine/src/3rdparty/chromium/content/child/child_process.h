@@ -58,6 +58,7 @@ class CONTENT_EXPORT ChildProcess {
   base::SingleThreadTaskRunner* io_task_runner() {
     return io_thread_.task_runner().get();
   }
+  base::PlatformThreadId io_thread_id() { return io_thread_.GetThreadId(); }
 
   // A global event object that is signalled when the main thread's message
   // loop exits.  This gives background threads a way to observe the main
@@ -79,15 +80,9 @@ class CONTENT_EXPORT ChildProcess {
   void AddRefProcess();
   void ReleaseProcess();
 
-#if defined(OS_LINUX)
-  void SetIOThreadPriority(base::ThreadPriority io_thread_priority);
-#endif
-
   // Getter for the one ChildProcess object for this process. Can only be called
   // on the main thread.
   static ChildProcess* current();
-
-  static void WaitForDebugger(const std::string& label);
 
  private:
   int ref_count_;

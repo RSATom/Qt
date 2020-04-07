@@ -7,8 +7,6 @@
 #include <algorithm>
 
 #include "base/lazy_instance.h"
-#include "base/memory/ptr_util.h"
-#include "base/message_loop/message_loop.h"
 #include "base/threading/thread_local.h"
 #include "ui/events/platform/platform_event_dispatcher.h"
 #include "ui/events/platform/platform_event_observer.h"
@@ -60,7 +58,7 @@ std::unique_ptr<ScopedEventDispatcher> PlatformEventSource::OverrideDispatcher(
     PlatformEventDispatcher* dispatcher) {
   CHECK(dispatcher);
   overridden_dispatcher_restored_ = false;
-  return base::MakeUnique<ScopedEventDispatcher>(&overridden_dispatcher_,
+  return std::make_unique<ScopedEventDispatcher>(&overridden_dispatcher_,
                                                  dispatcher);
 }
 

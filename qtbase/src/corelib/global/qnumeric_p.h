@@ -1,7 +1,7 @@
 /****************************************************************************
 **
 ** Copyright (C) 2016 The Qt Company Ltd.
-** Copyright (C) 2016 Intel Corporation.
+** Copyright (C) 2018 Intel Corporation.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtCore module of the Qt Toolkit.
@@ -58,12 +58,21 @@
 
 #if defined(Q_CC_MSVC)
 #  include <intrin.h>
-#elif defined(Q_CC_INTEL)
-#  include <immintrin.h>    // for _addcarry_u<nn>
+#  include <float.h>
+#  if defined(Q_PROCESSOR_X86_64) || defined(Q_PROCESSOR_ARM_64)
+#    define Q_INTRINSIC_MUL_OVERFLOW64
+#    define Q_UMULH(v1, v2) __umulh(v1, v2);
+#    define Q_SMULH(v1, v2) __mulh(v1, v2);
+#    pragma intrinsic(__umulh)
+#    pragma intrinsic(__mulh)
+#  endif
 #endif
 
-#if defined(Q_CC_MSVC)
-#include <float.h>
+# if defined(Q_OS_INTEGRITY) && defined(Q_PROCESSOR_ARM_64)
+#include <arm64_ghs.h>
+#  define Q_INTRINSIC_MUL_OVERFLOW64
+#  define Q_UMULH(v1, v2) __MULUH64(v1, v2);
+#  define Q_SMULH(v1, v2) __MULSH64(v1, v2);
 #endif
 
 #if !defined(Q_CC_MSVC) && (defined(Q_OS_QNX) || defined(Q_CC_INTEL))
@@ -163,10 +172,86 @@ Q_DECL_CONST_FUNCTION static inline bool qt_is_finite(float f)
     return qnumeric_std_wrapper::isfinite(f);
 }
 
-//
-// Unsigned overflow math
-//
+#ifndef Q_CLANG_QDOC
 namespace {
+/*!
+    Returns true if the double \a v can be converted to type \c T, false if
+    it's out of range. If the conversion is successful, the converted value is
+    stored in \a value; if it was not successful, \a value will contain the
+    minimum or maximum of T, depending on the sign of \a d. If \c T is
+    unsigned, then \a value contains the absolute value of \a v.
+
+    This function works for v containing infinities, but not NaN. It's the
+    caller's responsibility to exclude that possibility before calling it.
+*/
+template <typename T> static inline bool convertDoubleTo(double v, T *value)
+{
+    Q_STATIC_ASSERT(std::numeric_limits<T>::is_integer);
+
+    // The [conv.fpint] (7.10 Floating-integral conversions) section of the C++
+    // standard says only exact conversions are guaranteed. Converting
+    // integrals to floating-point with loss of precision has implementation-
+    // defined behavior whether the next higher or next lower is returned;
+    // converting FP to integral is UB if it can't be represented.
+    //
+    // That means we can't write UINT64_MAX+1. Writing ldexp(1, 64) would be
+    // correct, but Clang, ICC and MSVC don't realize that it's a constant and
+    // the math call stays in the compiled code.
+
+    double supremum;
+    if (std::numeric_limits<T>::is_signed) {
+        supremum = -1.0 * std::numeric_limits<T>::min();    // -1 * (-2^63) = 2^63, exact (for T = qint64)
+        *value = std::numeric_limits<T>::min();
+        if (v < std::numeric_limits<T>::min())
+            return false;
+    } else {
+        using ST = typename std::make_signed<T>::type;
+        supremum = -2.0 * std::numeric_limits<ST>::min();   // -2 * (-2^63) = 2^64, exact (for T = quint64)
+        v = fabs(v);
+    }
+
+    *value = std::numeric_limits<T>::max();
+    if (v >= supremum)
+        return false;
+
+    // Now we can convert, these two conversions cannot be UB
+    *value = T(v);
+
+QT_WARNING_PUSH
+QT_WARNING_DISABLE_GCC("-Wfloat-equal")
+QT_WARNING_DISABLE_CLANG("-Wfloat-equal")
+
+    return *value == v;
+
+QT_WARNING_POP
+}
+
+// Overflow math.
+// This provides efficient implementations for int, unsigned, qsizetype and
+// size_t. Implementations for 8- and 16-bit types will work but may not be as
+// efficient. Implementations for 64-bit may be missing on 32-bit platforms.
+
+#if (defined(Q_CC_GNU) && (Q_CC_GNU >= 500) || (defined(Q_CC_INTEL) && !defined(Q_OS_WIN))) || QT_HAS_BUILTIN(__builtin_add_overflow)
+// GCC 5, ICC 18, and Clang 3.8 have builtins to detect overflows
+
+template <typename T> inline
+typename std::enable_if<std::is_unsigned<T>::value || std::is_signed<T>::value, bool>::type
+add_overflow(T v1, T v2, T *r)
+{ return __builtin_add_overflow(v1, v2, r); }
+
+template <typename T> inline
+typename std::enable_if<std::is_unsigned<T>::value || std::is_signed<T>::value, bool>::type
+sub_overflow(T v1, T v2, T *r)
+{ return __builtin_sub_overflow(v1, v2, r); }
+
+template <typename T> inline
+typename std::enable_if<std::is_unsigned<T>::value || std::is_signed<T>::value, bool>::type
+mul_overflow(T v1, T v2, T *r)
+{ return __builtin_mul_overflow(v1, v2, r); }
+
+#else
+// Generic implementations
+
 template <typename T> inline typename std::enable_if<std::is_unsigned<T>::value, bool>::type
 add_overflow(T v1, T v2, T *r)
 {
@@ -175,188 +260,135 @@ add_overflow(T v1, T v2, T *r)
     return v1 > T(v1 + v2);
 }
 
+template <typename T> inline typename std::enable_if<std::is_signed<T>::value, bool>::type
+add_overflow(T v1, T v2, T *r)
+{
+    // Here's how we calculate the overflow:
+    // 1) unsigned addition is well-defined, so we can always execute it
+    // 2) conversion from unsigned back to signed is implementation-
+    //    defined and in the implementations we use, it's a no-op.
+    // 3) signed integer overflow happens if the sign of the two input operands
+    //    is the same but the sign of the result is different. In other words,
+    //    the sign of the result must be the same as the sign of either
+    //    operand.
+
+    using U = typename std::make_unsigned<T>::type;
+    *r = T(U(v1) + U(v2));
+
+    // If int is two's complement, assume all integer types are too.
+    if (std::is_same<int32_t, int>::value) {
+        // Two's complement equivalent (generates slightly shorter code):
+        //  x ^ y             is negative if x and y have different signs
+        //  x & y             is negative if x and y are negative
+        // (x ^ z) & (y ^ z)  is negative if x and z have different signs
+        //                    AND y and z have different signs
+        return ((v1 ^ *r) & (v2 ^ *r)) < 0;
+    }
+
+    bool s1 = (v1 < 0);
+    bool s2 = (v2 < 0);
+    bool sr = (*r < 0);
+    return s1 != sr && s2 != sr;
+    // also: return s1 == s2 && s1 != sr;
+}
+
 template <typename T> inline typename std::enable_if<std::is_unsigned<T>::value, bool>::type
+sub_overflow(T v1, T v2, T *r)
+{
+    // unsigned subtractions are well-defined
+    *r = v1 - v2;
+    return v1 < v2;
+}
+
+template <typename T> inline typename std::enable_if<std::is_signed<T>::value, bool>::type
+sub_overflow(T v1, T v2, T *r)
+{
+    // See above for explanation. This is the same with some signs reversed.
+    // We can't use add_overflow(v1, -v2, r) because it would be UB if
+    // v2 == std::numeric_limits<T>::min().
+
+    using U = typename std::make_unsigned<T>::type;
+    *r = T(U(v1) - U(v2));
+
+    if (std::is_same<int32_t, int>::value)
+        return ((v1 ^ *r) & (~v2 ^ *r)) < 0;
+
+    bool s1 = (v1 < 0);
+    bool s2 = !(v2 < 0);
+    bool sr = (*r < 0);
+    return s1 != sr && s2 != sr;
+    // also: return s1 == s2 && s1 != sr;
+}
+
+template <typename T> inline
+typename std::enable_if<std::is_unsigned<T>::value || std::is_signed<T>::value, bool>::type
 mul_overflow(T v1, T v2, T *r)
 {
     // use the next biggest type
     // Note: for 64-bit systems where __int128 isn't supported, this will cause an error.
-    // A fallback is present below.
-    typedef typename QIntegerForSize<sizeof(T) * 2>::Unsigned Larger;
+    using LargerInt = QIntegerForSize<sizeof(T) * 2>;
+    using Larger = typename std::conditional<std::is_signed<T>::value,
+            typename LargerInt::Signed, typename LargerInt::Unsigned>::type;
     Larger lr = Larger(v1) * Larger(v2);
     *r = T(lr);
-    return lr > std::numeric_limits<T>::max();
+    return lr > std::numeric_limits<T>::max() || lr < std::numeric_limits<T>::min();
 }
 
-#if defined(__SIZEOF_INT128__)
-#  define HAVE_MUL64_OVERFLOW
-#endif
+# if defined(Q_INTRINSIC_MUL_OVERFLOW64)
+template <> inline bool mul_overflow(quint64 v1, quint64 v2, quint64 *r)
+{
+    *r = v1 * v2;
+    return Q_UMULH(v1, v2);
+}
+template <> inline bool mul_overflow(qint64 v1, qint64 v2, qint64 *r)
+{
+    // This is slightly more complex than the unsigned case above: the sign bit
+    // of 'low' must be replicated as the entire 'high', so the only valid
+    // values for 'high' are 0 and -1. Use unsigned multiply since it's the same
+    // as signed for the low bits and use a signed right shift to verify that
+    // 'high' is nothing but sign bits that match the sign of 'low'.
 
-// GCC 5 and Clang have builtins to detect overflows
-#if (defined(Q_CC_GNU) && !defined(Q_CC_INTEL) && Q_CC_GNU >= 500) || QT_HAS_BUILTIN(__builtin_uadd_overflow)
-template <> inline bool add_overflow(unsigned v1, unsigned v2, unsigned *r)
-{ return __builtin_uadd_overflow(v1, v2, r); }
-#endif
-#if (defined(Q_CC_GNU) && !defined(Q_CC_INTEL) && Q_CC_GNU >= 500) || QT_HAS_BUILTIN(__builtin_uaddl_overflow)
-template <> inline bool add_overflow(unsigned long v1, unsigned long v2, unsigned long *r)
-{ return __builtin_uaddl_overflow(v1, v2, r); }
-#endif
-#if (defined(Q_CC_GNU) && !defined(Q_CC_INTEL) && Q_CC_GNU >= 500) || QT_HAS_BUILTIN(__builtin_uaddll_overflow)
-template <> inline bool add_overflow(unsigned long long v1, unsigned long long v2, unsigned long long *r)
-{ return __builtin_uaddll_overflow(v1, v2, r); }
-#endif
+    qint64 high = Q_SMULH(v1, v2);
+    *r = qint64(quint64(v1) * quint64(v2));
+    return (*r >> 63) != high;
+}
 
-#if (defined(Q_CC_GNU) && !defined(Q_CC_INTEL) && Q_CC_GNU >= 500) || QT_HAS_BUILTIN(__builtin_umul_overflow)
-template <> inline bool mul_overflow(unsigned v1, unsigned v2, unsigned *r)
-{ return __builtin_umul_overflow(v1, v2, r); }
-#endif
-#if (defined(Q_CC_GNU) && !defined(Q_CC_INTEL) && Q_CC_GNU >= 500) || QT_HAS_BUILTIN(__builtin_umull_overflow)
-template <> inline bool mul_overflow(unsigned long v1, unsigned long v2, unsigned long *r)
-{ return __builtin_umull_overflow(v1, v2, r); }
-#endif
-#if (defined(Q_CC_GNU) && !defined(Q_CC_INTEL) && Q_CC_GNU >= 500) || QT_HAS_BUILTIN(__builtin_umulll_overflow)
-template <> inline bool mul_overflow(unsigned long long v1, unsigned long long v2, unsigned long long *r)
-{ return __builtin_umulll_overflow(v1, v2, r); }
-#  define HAVE_MUL64_OVERFLOW
-#endif
+#   if defined(Q_OS_INTEGRITY) && defined(Q_PROCESSOR_ARM_64)
+template <> inline bool mul_overflow(uint64_t v1, uint64_t v2, uint64_t *r)
+{
+    return mul_overflow<quint64>(v1,v2,reinterpret_cast<quint64*>(r));
+}
 
-#if ((defined(Q_CC_MSVC) && _MSC_VER >= 1800) || defined(Q_CC_INTEL)) && defined(Q_PROCESSOR_X86) && !QT_HAS_BUILTIN(__builtin_uadd_overflow)
+template <> inline bool mul_overflow(int64_t v1, int64_t v2, int64_t *r)
+{
+    return mul_overflow<qint64>(v1,v2,reinterpret_cast<qint64*>(r));
+}
+#    endif // OS_INTEGRITY ARM64
+#  endif // Q_INTRINSIC_MUL_OVERFLOW64
+
+#  if defined(Q_CC_MSVC) && defined(Q_PROCESSOR_X86)
+// We can use intrinsics for the unsigned operations with MSVC
 template <> inline bool add_overflow(unsigned v1, unsigned v2, unsigned *r)
 { return _addcarry_u32(0, v1, v2, r); }
-#  ifdef Q_CC_MSVC      // longs are 32-bit
-template <> inline bool add_overflow(unsigned long v1, unsigned long v2, unsigned long *r)
-{ return _addcarry_u32(0, v1, v2, reinterpret_cast<unsigned *>(r)); }
-#  endif
-#endif
-#if ((defined(Q_CC_MSVC) && _MSC_VER >= 1800) || defined(Q_CC_INTEL)) && defined(Q_PROCESSOR_X86_64) && !QT_HAS_BUILTIN(__builtin_uadd_overflow)
+
+// 32-bit mul_overflow is fine with the generic code above
+
 template <> inline bool add_overflow(quint64 v1, quint64 v2, quint64 *r)
-{ return _addcarry_u64(0, v1, v2, reinterpret_cast<unsigned __int64 *>(r)); }
-#  ifndef Q_CC_MSVC      // longs are 64-bit
-template <> inline bool add_overflow(unsigned long v1, unsigned long v2, unsigned long *r)
-{ return _addcarry_u64(0, v1, v2, reinterpret_cast<unsigned __int64 *>(r)); }
-#  endif
-#endif
-
-#if defined(Q_CC_MSVC) && (defined(Q_PROCESSOR_X86_64) || defined(Q_PROCESSOR_IA64)) && !QT_HAS_BUILTIN(__builtin_uadd_overflow)
-#pragma intrinsic(_umul128)
-template <> inline bool mul_overflow(quint64 v1, quint64 v2, quint64 *r)
 {
-    // use 128-bit multiplication with the _umul128 intrinsic
-    // https://msdn.microsoft.com/en-us/library/3dayytw9.aspx
-    quint64 high;
-    *r = _umul128(v1, v2, &high);
-    return high;
+#    if defined(Q_PROCESSOR_X86_64)
+    return _addcarry_u64(0, v1, v2, reinterpret_cast<unsigned __int64 *>(r));
+#    else
+    uint low, high;
+    uchar carry = _addcarry_u32(0, unsigned(v1), unsigned(v2), &low);
+    carry = _addcarry_u32(carry, v1 >> 32, v2 >> 32, &high);
+    *r = (quint64(high) << 32) | low;
+    return carry;
+#    endif // !x86-64
 }
-#  define HAVE_MUL64_OVERFLOW
-#endif
-
-#if !defined(HAVE_MUL64_OVERFLOW) && defined(__LP64__)
-// no 128-bit multiplication, we need to figure out with a slow division
-template <> inline bool mul_overflow(quint64 v1, quint64 v2, quint64 *r)
-{
-    if (v2 && v1 > std::numeric_limits<quint64>::max() / v2)
-        return true;
-    *r = v1 * v2;
-    return false;
+#  endif // MSVC X86
+#endif // !GCC
 }
-template <> inline bool mul_overflow(unsigned long v1, unsigned long v2, unsigned long *r)
-{
-    return mul_overflow<quint64>(v1, v2, reinterpret_cast<quint64 *>(r));
-}
-#else
-#  undef HAVE_MUL64_OVERFLOW
-#endif
-
-//
-// Signed overflow math
-//
-// In C++, signed overflow math is Undefined Behavior. However, many CPUs do implement some way to
-// check for overflow. Some compilers expose intrinsics to use this functionality. If the no
-// intrinsic is exposed, overflow checking can be done by widening the result type and "manually"
-// checking for overflow. Or, alternatively, by using inline assembly to use the CPU features.
-//
-// Only int overflow checking is implemented, because it's the only one used.
-#if (defined(Q_CC_GNU) && !defined(Q_CC_INTEL) && Q_CC_GNU >= 500) || QT_HAS_BUILTIN(__builtin_sadd_overflow)
-inline bool add_overflow(int v1, int v2, int *r)
-{ return __builtin_sadd_overflow(v1, v2, r); }
-#elif defined(Q_CC_GNU) && defined(Q_PROCESSOR_X86)
-inline bool add_overflow(int v1, int v2, int *r)
-{
-    quint8 overflow = 0;
-    int res = v1;
-
-    asm ("addl %2, %1\n"
-         "seto %0"
-         : "=q" (overflow), "=r" (res)
-         : "r" (v2), "1" (res)
-         : "cc"
-    );
-    *r = res;
-    return overflow;
-}
-#else
-inline bool add_overflow(int v1, int v2, int *r)
-{
-    qint64 t = qint64(v1) + v2;
-    *r = static_cast<int>(t);
-    return t > std::numeric_limits<int>::max() || t < std::numeric_limits<int>::min();
-}
-#endif
-
-#if (defined(Q_CC_GNU) && !defined(Q_CC_INTEL) && Q_CC_GNU >= 500) || QT_HAS_BUILTIN(__builtin_ssub_overflow)
-inline bool sub_overflow(int v1, int v2, int *r)
-{ return __builtin_ssub_overflow(v1, v2, r); }
-#elif defined(Q_CC_GNU) && defined(Q_PROCESSOR_X86)
-inline bool sub_overflow(int v1, int v2, int *r)
-{
-    quint8 overflow = 0;
-    int res = v1;
-
-    asm ("subl %2, %1\n"
-         "seto %0"
-         : "=q" (overflow), "=r" (res)
-         : "r" (v2), "1" (res)
-         : "cc"
-    );
-    *r = res;
-    return overflow;
-}
-#else
-inline bool sub_overflow(int v1, int v2, int *r)
-{
-    qint64 t = qint64(v1) - v2;
-    *r = static_cast<int>(t);
-    return t > std::numeric_limits<int>::max() || t < std::numeric_limits<int>::min();
-}
-#endif
-
-#if (defined(Q_CC_GNU) && !defined(Q_CC_INTEL) && Q_CC_GNU >= 500) || QT_HAS_BUILTIN(__builtin_smul_overflow)
-inline bool mul_overflow(int v1, int v2, int *r)
-{ return __builtin_smul_overflow(v1, v2, r); }
-#elif defined(Q_CC_GNU) && defined(Q_PROCESSOR_X86)
-inline bool mul_overflow(int v1, int v2, int *r)
-{
-    quint8 overflow = 0;
-    int res = v1;
-
-    asm ("imul %2, %1\n"
-         "seto %0"
-         : "=q" (overflow), "=r" (res)
-         : "r" (v2), "1" (res)
-         : "cc"
-    );
-    *r = res;
-    return overflow;
-}
-#else
-inline bool mul_overflow(int v1, int v2, int *r)
-{
-    qint64 t = qint64(v1) * v2;
-    *r = static_cast<int>(t);
-    return t > std::numeric_limits<int>::max() || t < std::numeric_limits<int>::min();
-}
-#endif
-
-}
+#endif // Q_CLANG_QDOC
 
 QT_END_NAMESPACE
 

@@ -7,45 +7,34 @@
 #include <inttypes.h>
 #include <stddef.h>
 
-#include "base/memory/ptr_util.h"
 #include "base/strings/stringprintf.h"
-#include "services/ui/common/transient_window_utils.h"
+#include "components/viz/host/host_frame_sink_manager.h"
+#include "components/viz/host/renderer_settings_creation.h"
 #include "services/ui/public/interfaces/window_manager.mojom.h"
-#include "services/ui/ws/server_window_compositor_frame_sink_manager.h"
 #include "services/ui/ws/server_window_delegate.h"
 #include "services/ui/ws/server_window_observer.h"
+#include "services/ui/ws/server_window_tracker.h"
 #include "ui/base/cursor/cursor.h"
 
 namespace ui {
 namespace ws {
 
-ServerWindow::ServerWindow(ServerWindowDelegate* delegate, const WindowId& id)
-    : ServerWindow(delegate, id, Properties()) {}
-
 ServerWindow::ServerWindow(ServerWindowDelegate* delegate,
-                           const WindowId& id,
+                           const viz::FrameSinkId& frame_sink_id,
                            const Properties& properties)
     : delegate_(delegate),
-      id_(id),
-      frame_sink_id_(WindowIdToTransportId(id), 0),
-      parent_(nullptr),
-      stacking_target_(nullptr),
-      transient_parent_(nullptr),
-      modal_type_(MODAL_TYPE_NONE),
-      visible_(false),
+      owning_tree_id_(frame_sink_id.client_id()),
       // Default to kPointer as kNull doesn't change the cursor, it leaves
       // the last non-null cursor.
       cursor_(ui::CursorType::kPointer),
       non_client_cursor_(ui::CursorType::kPointer),
-      opacity_(1),
-      can_focus_(true),
       properties_(properties),
       // Don't notify newly added observers during notification. This causes
       // problems for code that adds an observer as part of an observer
       // notification (such as ServerWindowDrawTracker).
-      observers_(
-          base::ObserverList<ServerWindowObserver>::NOTIFY_EXISTING_ONLY) {
+      observers_(base::ObserverListPolicy::EXISTING_ONLY) {
   DCHECK(delegate);  // Must provide a delegate.
+  UpdateFrameSinkId(frame_sink_id);
 }
 
 ServerWindow::~ServerWindow() {
@@ -71,6 +60,10 @@ ServerWindow::~ServerWindow() {
 
   for (auto& observer : observers_)
     observer.OnWindowDestroyed(this);
+
+  auto* host_frame_sink_manager = delegate_->GetVizHostProxy();
+  if (host_frame_sink_manager)
+    host_frame_sink_manager->InvalidateFrameSinkId(frame_sink_id_);
 }
 
 void ServerWindow::AddObserver(ServerWindowObserver* observer) {
@@ -88,19 +81,52 @@ bool ServerWindow::HasObserver(ServerWindowObserver* observer) {
 
 void ServerWindow::CreateRootCompositorFrameSink(
     gfx::AcceleratedWidget widget,
-    cc::mojom::CompositorFrameSinkAssociatedRequest sink_request,
-    cc::mojom::CompositorFrameSinkClientPtr client,
-    cc::mojom::DisplayPrivateAssociatedRequest display_request) {
-  GetOrCreateCompositorFrameSinkManager()->CreateRootCompositorFrameSink(
-      widget, std::move(sink_request), std::move(client),
-      std::move(display_request));
+    viz::mojom::CompositorFrameSinkAssociatedRequest sink_request,
+    viz::mojom::CompositorFrameSinkClientPtr client,
+    viz::mojom::DisplayPrivateAssociatedRequest display_request,
+    viz::mojom::DisplayClientPtr display_client) {
+  has_created_compositor_frame_sink_ = true;
+  // TODO(fsamuel): AcceleratedWidget cannot be transported over IPC for Mac
+  // or Android. We should instead use GpuSurfaceTracker here on those
+  // platforms.
+
+  auto params = viz::mojom::RootCompositorFrameSinkParams::New();
+  params->frame_sink_id = frame_sink_id_;
+  params->widget = widget;
+  params->renderer_settings = viz::CreateRendererSettings();
+  params->compositor_frame_sink = std::move(sink_request);
+  params->compositor_frame_sink_client = client.PassInterface();
+  params->display_private = std::move(display_request);
+  params->display_client = display_client.PassInterface();
+
+  delegate_->GetVizHostProxy()->CreateRootCompositorFrameSink(
+      std::move(params));
 }
 
 void ServerWindow::CreateCompositorFrameSink(
-    cc::mojom::CompositorFrameSinkRequest request,
-    cc::mojom::CompositorFrameSinkClientPtr client) {
-  GetOrCreateCompositorFrameSinkManager()->CreateCompositorFrameSink(
-      std::move(request), std::move(client));
+    viz::mojom::CompositorFrameSinkRequest request,
+    viz::mojom::CompositorFrameSinkClientPtr client) {
+  has_created_compositor_frame_sink_ = true;
+  delegate_->GetVizHostProxy()->CreateCompositorFrameSink(
+      frame_sink_id_, std::move(request), std::move(client));
+}
+
+void ServerWindow::UpdateFrameSinkId(const viz::FrameSinkId& frame_sink_id) {
+  DCHECK(frame_sink_id.is_valid());
+  auto* host_frame_sink_manager = delegate_->GetVizHostProxy();
+  DCHECK(host_frame_sink_manager);
+  host_frame_sink_manager->RegisterFrameSinkId(frame_sink_id, this);
+  host_frame_sink_manager->SetFrameSinkDebugLabel(frame_sink_id, GetName());
+  if (frame_sink_id_.is_valid()) {
+    if (parent()) {
+      host_frame_sink_manager->UnregisterFrameSinkHierarchy(
+          parent()->frame_sink_id(), frame_sink_id_);
+      host_frame_sink_manager->RegisterFrameSinkHierarchy(
+          parent()->frame_sink_id(), frame_sink_id);
+    }
+    host_frame_sink_manager->InvalidateFrameSinkId(frame_sink_id_);
+  }
+  frame_sink_id_ = frame_sink_id;
 }
 
 void ServerWindow::Add(ServerWindow* child) {
@@ -125,11 +151,6 @@ void ServerWindow::Add(ServerWindow* child) {
   child->parent_ = this;
   children_.push_back(child);
 
-  // Stack the child properly if it is a transient child of a sibling.
-  if (child->transient_parent_ && child->transient_parent_->parent() == this)
-    RestackTransientDescendants(child->transient_parent_, &GetStackingTarget,
-                                &ReorderImpl);
-
   for (auto& observer : child->observers_)
     observer.OnWindowHierarchyChanged(child, this, old_parent);
 }
@@ -145,18 +166,31 @@ void ServerWindow::Remove(ServerWindow* child) {
 
   RemoveImpl(child);
 
-  // Stack the child properly if it is a transient child of a sibling.
-  if (child->transient_parent_ && child->transient_parent_->parent() == this)
-    RestackTransientDescendants(child->transient_parent_, &GetStackingTarget,
-                                &ReorderImpl);
-
   for (auto& observer : child->observers_)
     observer.OnWindowHierarchyChanged(child, nullptr, this);
 }
 
+void ServerWindow::RemoveAllChildren() {
+  while (!children_.empty())
+    Remove(children_[0]);
+}
+
 void ServerWindow::Reorder(ServerWindow* relative,
                            mojom::OrderDirection direction) {
-  ReorderImpl(this, relative, direction);
+  parent_->children_.erase(
+      std::find(parent_->children_.begin(), parent_->children_.end(), this));
+  Windows::iterator i =
+      std::find(parent_->children_.begin(), parent_->children_.end(), relative);
+  if (direction == mojom::OrderDirection::ABOVE) {
+    DCHECK(i != parent_->children_.end());
+    parent_->children_.insert(++i, this);
+  } else if (direction == mojom::OrderDirection::BELOW) {
+    DCHECK(i != parent_->children_.end());
+    parent_->children_.insert(i, this);
+  }
+  for (auto& observer : observers_)
+    observer.OnWindowReordered(this, relative, direction);
+  OnStackingChanged();
 }
 
 void ServerWindow::StackChildAtBottom(ServerWindow* child) {
@@ -203,7 +237,7 @@ void ServerWindow::SetClientArea(
 }
 
 void ServerWindow::SetHitTestMask(const gfx::Rect& mask) {
-  hit_test_mask_ = base::MakeUnique<gfx::Rect>(mask);
+  hit_test_mask_ = std::make_unique<gfx::Rect>(mask);
 }
 
 void ServerWindow::ClearHitTestMask() {
@@ -214,21 +248,8 @@ void ServerWindow::SetCanAcceptDrops(bool accepts_drops) {
   accepts_drops_ = accepts_drops;
 }
 
-const ServerWindow* ServerWindow::GetRoot() const {
-  return delegate_->GetRootWindow(this);
-}
-
-ServerWindow* ServerWindow::GetChildWindow(const WindowId& window_id) {
-  if (id_ == window_id)
-    return this;
-
-  for (ServerWindow* child : children_) {
-    ServerWindow* window = child->GetChildWindow(window_id);
-    if (window)
-      return window;
-  }
-
-  return nullptr;
+const ServerWindow* ServerWindow::GetRootForDrawn() const {
+  return delegate_->GetRootWindowForDrawn(this);
 }
 
 bool ServerWindow::AddTransientWindow(ServerWindow* child) {
@@ -239,11 +260,6 @@ bool ServerWindow::AddTransientWindow(ServerWindow* child) {
                    child) == transient_children_.end());
   transient_children_.push_back(child);
   child->transient_parent_ = this;
-
-  // Restack |child| properly above its transient parent, if they share the same
-  // parent.
-  if (child->parent() == parent())
-    RestackTransientDescendants(this, &GetStackingTarget, &ReorderImpl);
 
   for (auto& observer : observers_)
     observer.OnTransientWindowAdded(this, child);
@@ -258,18 +274,41 @@ void ServerWindow::RemoveTransientWindow(ServerWindow* child) {
   DCHECK_EQ(this, child->transient_parent());
   child->transient_parent_ = nullptr;
 
-  // If |child| and its former transient parent share the same parent, |child|
-  // should be restacked properly so it is not among transient children of its
-  // former parent, anymore.
-  if (parent() == child->parent())
-    RestackTransientDescendants(this, &GetStackingTarget, &ReorderImpl);
-
   for (auto& observer : observers_)
     observer.OnTransientWindowRemoved(this, child);
 }
 
+bool ServerWindow::HasTransientAncestor(const ServerWindow* window) const {
+  const ServerWindow* transient_ancestor = this;
+  while (transient_ancestor && transient_ancestor != window)
+    transient_ancestor = transient_ancestor->transient_parent_;
+  return transient_ancestor == window;
+}
+
 void ServerWindow::SetModalType(ModalType modal_type) {
+  if (modal_type_ == modal_type)
+    return;
+
+  const ModalType old_modal_type = modal_type_;
   modal_type_ = modal_type;
+  for (auto& observer : observers_)
+    observer.OnWindowModalTypeChanged(this, old_modal_type);
+}
+
+void ServerWindow::SetChildModalParent(ServerWindow* modal_parent) {
+  if (modal_parent) {
+    child_modal_parent_tracker_ = std::make_unique<ServerWindowTracker>();
+    child_modal_parent_tracker_->Add(modal_parent);
+  } else {
+    child_modal_parent_tracker_.reset();
+  }
+}
+
+const ServerWindow* ServerWindow::GetChildModalParent() const {
+  return child_modal_parent_tracker_ &&
+                 !child_modal_parent_tracker_->windows().empty()
+             ? *child_modal_parent_tracker_->windows().begin()
+             : nullptr;
 }
 
 bool ServerWindow::Contains(const ServerWindow* window) const {
@@ -344,6 +383,9 @@ void ServerWindow::SetProperty(const std::string& name,
   } else if (it != properties_.end()) {
     properties_.erase(it);
   }
+  auto* host_frame_sink_manager = delegate_->GetVizHostProxy();
+  if (host_frame_sink_manager && name == mojom::WindowManager::kName_Property)
+    host_frame_sink_manager->SetFrameSinkDebugLabel(frame_sink_id_, GetName());
 
   for (auto& observer : observers_)
     observer.OnWindowSharedPropertyChanged(this, name, value);
@@ -368,7 +410,7 @@ void ServerWindow::SetTextInputState(const ui::TextInputState& state) {
 }
 
 bool ServerWindow::IsDrawn() const {
-  const ServerWindow* root = delegate_->GetRootWindow(this);
+  const ServerWindow* root = delegate_->GetRootWindowForDrawn(this);
   if (!root || !root->visible())
     return false;
   const ServerWindow* window = this;
@@ -383,14 +425,6 @@ mojom::ShowState ServerWindow::GetShowState() const {
     return mojom::ShowState::DEFAULT;
 
   return static_cast<mojom::ShowState>(iter->second[0]);
-}
-
-ServerWindowCompositorFrameSinkManager*
-ServerWindow::GetOrCreateCompositorFrameSinkManager() {
-  if (!compositor_frame_sink_manager_.get())
-    compositor_frame_sink_manager_ =
-        base::MakeUnique<ServerWindowCompositorFrameSinkManager>(this);
-  return compositor_frame_sink_manager_.get();
 }
 
 void ServerWindow::SetUnderlayOffset(const gfx::Vector2d& offset) {
@@ -418,13 +452,12 @@ std::string ServerWindow::GetDebugWindowInfo() const {
     name = "(no name)";
 
   std::string frame_sink;
-  if (compositor_frame_sink_manager_)
+  if (has_created_compositor_frame_sink_)
     frame_sink = " [" + frame_sink_id_.ToString() + "]";
 
-  return base::StringPrintf("id=%s visible=%s bounds=%s name=%s%s",
-                            id_.ToString().c_str(), visible_ ? "true" : "false",
-                            bounds_.ToString().c_str(), name.c_str(),
-                            frame_sink.c_str());
+  return base::StringPrintf(
+      "visible=%s bounds=%s name=%s%s", visible_ ? "true" : "false",
+      bounds_.ToString().c_str(), name.c_str(), frame_sink.c_str());
 }
 
 void ServerWindow::BuildDebugInfo(const std::string& depth,
@@ -435,6 +468,16 @@ void ServerWindow::BuildDebugInfo(const std::string& depth,
     child->BuildDebugInfo(depth + "  ", result);
 }
 #endif  // DCHECK_IS_ON()
+
+void ServerWindow::OnFirstSurfaceActivation(
+    const viz::SurfaceInfo& surface_info) {
+  delegate_->OnFirstSurfaceActivation(surface_info, this);
+}
+
+void ServerWindow::OnFrameTokenChanged(uint32_t frame_token) {
+  // TODO(yiyix, fsamuel): Implement frame token propagation for Mus. See
+  // crbug.com/771331
+}
 
 void ServerWindow::RemoveImpl(ServerWindow* window) {
   window->parent_ = nullptr;
@@ -451,41 +494,6 @@ void ServerWindow::OnStackingChanged() {
       return;
     }
   }
-  RestackTransientDescendants(this, &GetStackingTarget, &ReorderImpl);
-}
-
-// static
-void ServerWindow::ReorderImpl(ServerWindow* window,
-                               ServerWindow* relative,
-                               mojom::OrderDirection direction) {
-  DCHECK(relative);
-  DCHECK_NE(window, relative);
-  DCHECK_EQ(window->parent(), relative->parent());
-
-  if (!AdjustStackingForTransientWindows(&window, &relative, &direction,
-                                         window->stacking_target_))
-    return;
-
-  window->parent_->children_.erase(std::find(window->parent_->children_.begin(),
-                                             window->parent_->children_.end(),
-                                             window));
-  Windows::iterator i = std::find(window->parent_->children_.begin(),
-                                  window->parent_->children_.end(), relative);
-  if (direction == mojom::OrderDirection::ABOVE) {
-    DCHECK(i != window->parent_->children_.end());
-    window->parent_->children_.insert(++i, window);
-  } else if (direction == mojom::OrderDirection::BELOW) {
-    DCHECK(i != window->parent_->children_.end());
-    window->parent_->children_.insert(i, window);
-  }
-  for (auto& observer : window->observers_)
-    observer.OnWindowReordered(window, relative, direction);
-  window->OnStackingChanged();
-}
-
-// static
-ServerWindow** ServerWindow::GetStackingTarget(ServerWindow* window) {
-  return &window->stacking_target_;
 }
 
 }  // namespace ws

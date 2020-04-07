@@ -71,6 +71,7 @@ Q_GLOBAL_STATIC_WITH_ARGS(QFactoryLoader, geometryLoader, (QGeometryLoaderFactor
 
 QMeshPrivate::QMeshPrivate()
     : QGeometryRendererPrivate()
+    , m_status(QMesh::None)
 {
 }
 
@@ -89,6 +90,17 @@ void QMeshPrivate::updateFunctor()
 {
     Q_Q(QMesh);
     q->setGeometryFactory(QGeometryFactoryPtr(new MeshLoaderFunctor(q)));
+}
+
+void QMeshPrivate::setStatus(QMesh::Status status)
+{
+    if (m_status != status) {
+        Q_Q(QMesh);
+        m_status = status;
+        const bool wasBlocked = q->blockNotifications(true);
+        emit q->statusChanged(status);
+        q->blockNotifications(wasBlocked);
+    }
 }
 
 /*!
@@ -133,6 +145,25 @@ void QMeshPrivate::updateFunctor()
  * \note Only Wavefront OBJ files support sub-meshes.
  *
  * \sa QRegularExpression
+ */
+
+/*!
+    \enum QMesh::Status
+
+    This enum identifies the status of shader used.
+
+    \value None              A source mesh hasn't been assigned a source yet
+    \value Loading           The mesh geometry is loading
+    \value Ready             The mesh geometry was successfully loaded
+    \value Error             An error occurred while loading the mesh
+*/
+
+/*!
+    \qmlproperty enumeration Mesh::status
+
+    Holds the status of the mesh loading.
+    \sa Qt3DRender::QMesh::Status
+    \readonly
  */
 
 /*!
@@ -184,6 +215,18 @@ QMesh::QMesh(QMeshPrivate &dd, QNode *parent)
 {
 }
 
+/*! \internal */
+void QMesh::sceneChangeEvent(const Qt3DCore::QSceneChangePtr &change)
+{
+    Q_D(QMesh);
+    if (change->type() == Qt3DCore::PropertyUpdated) {
+        const Qt3DCore::QPropertyUpdatedChangePtr e = qSharedPointerCast<Qt3DCore::QPropertyUpdatedChange>(change);
+        if (e->propertyName() == QByteArrayLiteral("status"))
+            d->setStatus(e->value().value<QMesh::Status>());
+    }
+    Qt3DRender::QGeometryRenderer::sceneChangeEvent(change);
+}
+
 void QMesh::setSource(const QUrl& source)
 {
     Q_D(QMesh);
@@ -231,6 +274,18 @@ QString QMesh::meshName() const
 }
 
 /*!
+    \property QMesh::status
+
+    Holds the status of the mesh loading.
+    \sa Qt3DRender::QMesh::Status
+ */
+QMesh::Status QMesh::status() const
+{
+    Q_D(const QMesh);
+    return d->m_status;
+}
+
+/*!
  * \internal
  */
 MeshLoaderFunctor::MeshLoaderFunctor(QMesh *mesh, const QByteArray &sourceData)
@@ -241,6 +296,7 @@ MeshLoaderFunctor::MeshLoaderFunctor(QMesh *mesh, const QByteArray &sourceData)
     , m_sourceData(sourceData)
     , m_nodeManagers(nullptr)
     , m_downloaderService(nullptr)
+    , m_status(QMesh::None)
 {
 }
 
@@ -249,8 +305,11 @@ MeshLoaderFunctor::MeshLoaderFunctor(QMesh *mesh, const QByteArray &sourceData)
  */
 QGeometry *MeshLoaderFunctor::operator()()
 {
+    m_status = QMesh::Loading;
+
     if (m_sourcePath.isEmpty()) {
         qCWarning(Render::Jobs) << Q_FUNC_INFO << "Mesh is empty, nothing to load";
+        m_status = QMesh::Error;
         return nullptr;
     }
 
@@ -262,6 +321,7 @@ QGeometry *MeshLoaderFunctor::operator()()
                 // in the frontend
                 if (m_nodeManagers == nullptr || m_downloaderService == nullptr) {
                     qWarning() << "Mesh source points to a remote URL. Remotes meshes can only be loaded if the geometry is processed by the Qt3DRender backend";
+                    m_status = QMesh::Error;
                     return nullptr;
                 }
                 Qt3DCore::QDownloadRequestPtr request(new MeshDownloadRequest(m_mesh, m_sourcePath, m_nodeManagers));
@@ -297,6 +357,7 @@ QGeometry *MeshLoaderFunctor::operator()()
     }
     if (!loader) {
         qCWarning(Render::Jobs, "unsupported format encountered (%s)", qPrintable(ext.join(QLatin1String(", "))));
+        m_status = QMesh::Error;
         return nullptr;
     }
 
@@ -305,20 +366,28 @@ QGeometry *MeshLoaderFunctor::operator()()
         QFile file(filePath);
         if (!file.open(QIODevice::ReadOnly)) {
             qCDebug(Render::Jobs) << "Could not open file" << filePath << "for reading";
+            m_status = QMesh::Error;
             return nullptr;
         }
 
-        if (loader->load(&file, m_meshName))
-            return loader->geometry();
+        if (loader->load(&file, m_meshName)) {
+            Qt3DRender::QGeometry *geometry = loader->geometry();
+            m_status = geometry != nullptr ? QMesh::Ready : QMesh::Error;
+            return geometry;
+        }
         qCWarning(Render::Jobs) << Q_FUNC_INFO << "Mesh loading failure for:" << filePath;
     } else {
         QT_PREPEND_NAMESPACE(QBuffer) buffer(&m_sourceData);
         if (!buffer.open(QIODevice::ReadOnly)) {
+            m_status = QMesh::Error;
             return nullptr;
         }
 
-        if (loader->load(&buffer, m_meshName))
-            return loader->geometry();
+        if (loader->load(&buffer, m_meshName)) {
+            Qt3DRender::QGeometry *geometry = loader->geometry();
+            m_status = geometry != nullptr ? QMesh::Ready : QMesh::Error;
+            return geometry;
+        }
 
         qCWarning(Render::Jobs) << Q_FUNC_INFO << "Mesh loading failure for:" << m_sourcePath;
     }

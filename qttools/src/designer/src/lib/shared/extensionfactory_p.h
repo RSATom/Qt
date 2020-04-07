@@ -41,7 +41,7 @@
 #define SHARED_EXTENSIONFACTORY_H
 
 #include <QtDesigner/default_extensionfactory.h>
-#include <QtDesigner/QExtensionManager>
+#include <QtDesigner/qextensionmanager.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -58,7 +58,7 @@ public:
     static void registerExtension(QExtensionManager *mgr, const QString &iid);
 
 protected:
-    QObject *createExtension(QObject *qObject, const QString &iid, QObject *parent) const Q_DECL_OVERRIDE;
+    QObject *createExtension(QObject *qObject, const QString &iid, QObject *parent) const override;
 
 private:
     // Can be overwritten to perform checks on the object.

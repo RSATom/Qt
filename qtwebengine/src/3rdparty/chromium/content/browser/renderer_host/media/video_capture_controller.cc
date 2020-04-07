@@ -12,17 +12,16 @@
 
 #include "base/bind.h"
 #include "base/command_line.h"
-#include "base/memory/ptr_util.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/metrics/sparse_histogram.h"
 #include "build/build_config.h"
 #include "components/viz/common/gl_helper.h"
 #include "content/browser/renderer_host/media/media_stream_manager.h"
 #include "content/browser/renderer_host/media/video_capture_manager.h"
-#include "content/common/video_capture.mojom.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/common/content_switches.h"
 #include "media/base/video_frame.h"
+#include "media/capture/mojom/video_capture_types.mojom.h"
 #include "media/capture/video/video_capture_buffer_pool.h"
 #include "media/capture/video/video_capture_buffer_tracker_factory_impl.h"
 #include "media/capture/video/video_capture_device_client.h"
@@ -46,7 +45,7 @@ static int g_device_start_id = 0;
 static const int kInfiniteRatio = 99999;
 
 #define UMA_HISTOGRAM_ASPECT_RATIO(name, width, height) \
-  UMA_HISTOGRAM_SPARSE_SLOWLY(                          \
+  base::UmaHistogramSparse(                             \
       name, (height) ? ((width)*100) / (height) : kInfiniteRatio);
 
 void CallOnError(VideoCaptureControllerEventHandler* client,
@@ -112,13 +111,13 @@ VideoCaptureController::BufferContext::BufferContext(
     int buffer_context_id,
     int buffer_id,
     media::VideoFrameConsumerFeedbackObserver* consumer_feedback_observer,
-    mojo::ScopedSharedBufferHandle handle)
+    media::mojom::VideoBufferHandlePtr buffer_handle)
     : buffer_context_id_(buffer_context_id),
       buffer_id_(buffer_id),
       is_retired_(false),
       frame_feedback_id_(0),
       consumer_feedback_observer_(consumer_feedback_observer),
-      buffer_handle_(std::move(handle)),
+      buffer_handle_(std::move(buffer_handle)),
       max_consumer_utilization_(
           media::VideoFrameConsumerFeedbackObserver::kNoUtilizationRecorded),
       consumer_hold_count_(0) {}
@@ -158,21 +157,43 @@ void VideoCaptureController::BufferContext::DecreaseConsumerCount() {
   }
 }
 
-mojo::ScopedSharedBufferHandle
-VideoCaptureController::BufferContext::CloneHandle() {
-  return buffer_handle_->Clone();
+media::mojom::VideoBufferHandlePtr
+VideoCaptureController::BufferContext::CloneBufferHandle() {
+  // Unable to use buffer_handle_->Clone(), because shared_buffer does not
+  // support the copy constructor.
+  media::mojom::VideoBufferHandlePtr result =
+      media::mojom::VideoBufferHandle::New();
+  if (buffer_handle_->is_shared_buffer_handle()) {
+    // Special behavior here: If the handle was already read-only, the Clone()
+    // call here will maintain that read-only permission. If it was read-write,
+    // the cloned handle will have read-write permission.
+    //
+    // TODO(crbug.com/797470): We should be able to demote read-write to
+    // read-only permissions when Clone()'ing handles. Currently, this causes a
+    // crash.
+    result->set_shared_buffer_handle(
+        buffer_handle_->get_shared_buffer_handle()->Clone(
+            mojo::SharedBufferHandle::AccessMode::READ_WRITE));
+  } else if (buffer_handle_->is_mailbox_handles()) {
+    result->set_mailbox_handles(buffer_handle_->get_mailbox_handles()->Clone());
+  } else {
+    NOTREACHED() << "Unexpected video buffer handle type";
+  }
+  return result;
 }
 
 VideoCaptureController::VideoCaptureController(
     const std::string& device_id,
     MediaStreamType stream_type,
     const media::VideoCaptureParams& params,
-    std::unique_ptr<VideoCaptureDeviceLauncher> device_launcher)
+    std::unique_ptr<VideoCaptureDeviceLauncher> device_launcher,
+    base::RepeatingCallback<void(const std::string&)> emit_log_message_cb)
     : serial_id_(g_device_start_id++),
       device_id_(device_id),
       stream_type_(stream_type),
       parameters_(params),
       device_launcher_(std::move(device_launcher)),
+      emit_log_message_cb_(std::move(emit_log_message_cb)),
       device_launch_observer_(nullptr),
       state_(VIDEO_CAPTURE_STATE_STARTING),
       has_received_frames_(false),
@@ -193,16 +214,19 @@ void VideoCaptureController::AddClient(
     media::VideoCaptureSessionId session_id,
     const media::VideoCaptureParams& params) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  DVLOG(1) << "VideoCaptureController::AddClient() -- id=" << id
-           << ", session_id=" << session_id << ", params.requested_format="
-           << media::VideoCaptureFormat::ToString(params.requested_format);
+  std::ostringstream string_stream;
+  string_stream << "VideoCaptureController::AddClient(): id = " << id
+                << ", session_id = " << session_id
+                << ", params.requested_format = "
+                << media::VideoCaptureFormat::ToString(params.requested_format);
+  EmitLogMessage(string_stream.str(), 1);
 
   // Check that requested VideoCaptureParams are valid and supported.  If not,
   // report an error immediately and punt.
   if (!params.IsValid() ||
       !(params.requested_format.pixel_format == media::PIXEL_FORMAT_I420 ||
-        params.requested_format.pixel_format == media::PIXEL_FORMAT_Y16) ||
-      params.requested_format.pixel_storage != media::PIXEL_STORAGE_CPU) {
+        params.requested_format.pixel_format == media::PIXEL_FORMAT_Y16 ||
+        params.requested_format.pixel_format == media::PIXEL_FORMAT_ARGB)) {
     // Crash in debug builds since the renderer should not have asked for
     // invalid or unsupported parameters.
     LOG(DFATAL) << "Invalid or unsupported video capture parameters requested: "
@@ -230,7 +254,7 @@ void VideoCaptureController::AddClient(
     event_handler->OnStarted(id);
 
   std::unique_ptr<ControllerClient> client =
-      base::MakeUnique<ControllerClient>(id, event_handler, session_id, params);
+      std::make_unique<ControllerClient>(id, event_handler, session_id, params);
   // If we already have gotten frame_info from the device, repeat it to the new
   // client.
   if (state_ != VIDEO_CAPTURE_STATE_ERROR) {
@@ -242,7 +266,9 @@ int VideoCaptureController::RemoveClient(
     VideoCaptureControllerID id,
     VideoCaptureControllerEventHandler* event_handler) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  DVLOG(1) << "VideoCaptureController::RemoveClient, id " << id;
+  std::ostringstream string_stream;
+  string_stream << "VideoCaptureController::RemoveClient: id = " << id;
+  EmitLogMessage(string_stream.str(), 1);
 
   ControllerClient* client = FindClient(id, event_handler, controller_clients_);
   if (!client)
@@ -268,7 +294,7 @@ void VideoCaptureController::PauseClient(
     VideoCaptureControllerID id,
     VideoCaptureControllerEventHandler* event_handler) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  DVLOG(1) << "VideoCaptureController::PauseClient, id " << id;
+  DVLOG(1) << "VideoCaptureController::PauseClient: id = " << id;
 
   ControllerClient* client = FindClient(id, event_handler, controller_clients_);
   if (!client)
@@ -283,7 +309,7 @@ bool VideoCaptureController::ResumeClient(
     VideoCaptureControllerID id,
     VideoCaptureControllerEventHandler* event_handler) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  DVLOG(1) << "VideoCaptureController::ResumeClient, id " << id;
+  DVLOG(1) << "VideoCaptureController::ResumeClient: id = " << id;
 
   ControllerClient* client = FindClient(id, event_handler, controller_clients_);
   if (!client)
@@ -323,7 +349,10 @@ bool VideoCaptureController::HasPausedClient() const {
 
 void VideoCaptureController::StopSession(int session_id) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  DVLOG(1) << "VideoCaptureController::StopSession, id " << session_id;
+  std::ostringstream string_stream;
+  string_stream << "VideoCaptureController::StopSession: session_id = "
+                << session_id;
+  EmitLogMessage(string_stream.str(), 1);
 
   ControllerClient* client = FindClient(session_id, controller_clients_);
 
@@ -367,16 +396,15 @@ VideoCaptureController::GetVideoCaptureFormat() const {
   return video_capture_format_;
 }
 
-void VideoCaptureController::OnNewBufferHandle(
-    int buffer_id,
-    std::unique_ptr<media::VideoCaptureDevice::Client::Buffer::HandleProvider>
-        handle_provider) {
+void VideoCaptureController::OnNewBuffer(
+    int32_t buffer_id,
+    media::mojom::VideoBufferHandlePtr buffer_handle) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   DCHECK(FindUnretiredBufferContextFromBufferId(buffer_id) ==
          buffer_contexts_.end());
-  buffer_contexts_.emplace_back(
-      next_buffer_context_id_++, buffer_id, launched_device_.get(),
-      handle_provider->GetHandleForInterProcessTransit());
+  buffer_contexts_.emplace_back(next_buffer_context_id_++, buffer_id,
+                                launched_device_.get(),
+                                std::move(buffer_handle));
 }
 
 void VideoCaptureController::OnFrameReadyInBuffer(
@@ -407,11 +435,10 @@ void VideoCaptureController::OnFrameReadyInBuffer(
         client->known_buffer_context_ids.push_back(buffer_context_id);
         const size_t mapped_size =
             media::VideoCaptureFormat(frame_info->coded_size, 0.0f,
-                                      frame_info->pixel_format,
-                                      frame_info->storage_type)
+                                      frame_info->pixel_format)
                 .ImageAllocationSize();
-        client->event_handler->OnBufferCreated(
-            client->controller_id, buffer_context_iter->CloneHandle(),
+        client->event_handler->OnNewBuffer(
+            client->controller_id, buffer_context_iter->CloneBufferHandle(),
             mapped_size, buffer_context_id);
       }
 
@@ -441,7 +468,7 @@ void VideoCaptureController::OnFrameReadyInBuffer(
     double frame_rate = 0.0f;
     if (video_capture_format_) {
       media::VideoFrameMetadata metadata;
-      metadata.MergeInternalValuesFrom(*frame_info->metadata);
+      metadata.MergeInternalValuesFrom(frame_info->metadata);
       if (!metadata.GetDouble(VideoFrameMetadata::FRAME_RATE, &frame_rate)) {
         frame_rate = video_capture_format_->frame_rate;
       }
@@ -477,7 +504,7 @@ void VideoCaptureController::OnError() {
 
 void VideoCaptureController::OnLog(const std::string& message) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  MediaStreamManager::SendMessageToNativeLog("Video capture: " + message);
+  EmitLogMessage(message, 3);
 }
 
 void VideoCaptureController::OnStarted() {
@@ -532,17 +559,26 @@ void VideoCaptureController::CreateAndStartDeviceAsync(
     VideoCaptureDeviceLaunchObserver* observer,
     base::OnceClosure done_cb) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  std::ostringstream string_stream;
+  string_stream
+      << "VideoCaptureController::CreateAndStartDeviceAsync: serial_id = "
+      << serial_id() << ", device_id = " << device_id();
+  EmitLogMessage(string_stream.str(), 1);
   time_of_start_request_ = base::TimeTicks::Now();
   device_launch_observer_ = observer;
   device_launcher_->LaunchDeviceAsync(
       device_id_, stream_type_, params, GetWeakPtrForIOThread(),
-      base::Bind(&VideoCaptureController::OnDeviceConnectionLost,
-                 GetWeakPtrForIOThread()),
+      base::BindOnce(&VideoCaptureController::OnDeviceConnectionLost,
+                     GetWeakPtrForIOThread()),
       this, std::move(done_cb));
 }
 
 void VideoCaptureController::ReleaseDeviceAsync(base::OnceClosure done_cb) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  std::ostringstream string_stream;
+  string_stream << "VideoCaptureController::ReleaseDeviceAsync: serial_id = "
+                << serial_id() << ", device_id = " << device_id();
+  EmitLogMessage(string_stream.str(), 1);
   if (!launched_device_) {
     device_launcher_->AbortLaunch();
     return;
@@ -684,6 +720,12 @@ void VideoCaptureController::PerformForClientsWithOpenSession(
       continue;
     action.Run(client->event_handler, client->controller_id);
   }
+}
+
+void VideoCaptureController::EmitLogMessage(const std::string& message,
+                                            int verbose_log_level) {
+  DVLOG(verbose_log_level) << message;
+  emit_log_message_cb_.Run(message);
 }
 
 }  // namespace content

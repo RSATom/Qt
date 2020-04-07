@@ -46,6 +46,12 @@ bool WindowManagerAccessPolicy::CanSetModal(
   return true;
 }
 
+bool WindowManagerAccessPolicy::CanSetChildModalParent(
+    const ServerWindow* window,
+    const ServerWindow* modal_parent) const {
+  return true;
+}
+
 bool WindowManagerAccessPolicy::CanReorderWindow(
     const ServerWindow* window,
     const ServerWindow* relative_window,
@@ -77,7 +83,7 @@ bool WindowManagerAccessPolicy::CanChangeWindowVisibility(
   if (WasCreatedByThisClient(window))
     return true;
   // The WindowManager can change the visibility of the WindowManager root.
-  const ServerWindow* root = window->GetRoot();
+  const ServerWindow* root = window->GetRootForDrawn();
   return root && window->parent() == root;
 }
 
@@ -164,6 +170,13 @@ bool WindowManagerAccessPolicy::CanStackAtTop(
   return false;
 }
 
+bool WindowManagerAccessPolicy::CanPerformWmAction(
+    const ServerWindow* window) const {
+  // This API is for clients. Window managers don't need to tell themselves to
+  // do things.
+  return false;
+}
+
 bool WindowManagerAccessPolicy::CanSetCursorProperties(
     const ServerWindow* window) const {
   return WasCreatedByThisClient(window) ||
@@ -213,12 +226,12 @@ bool WindowManagerAccessPolicy::IsValidIdForNewWindow(
   // use the client id when creating windows the WM could end up with two
   // windows with the same id. Because of this the wm must use the same
   // client id for all windows it creates.
-  return WindowIdFromTransportId(id.id).client_id == client_id_;
+  return base::checked_cast<ClientSpecificId>(id.client_id()) == client_id_;
 }
 
 bool WindowManagerAccessPolicy::WasCreatedByThisClient(
     const ServerWindow* window) const {
-  return window->id().client_id == client_id_;
+  return window->owning_tree_id() == client_id_;
 }
 
 }  // namespace ws

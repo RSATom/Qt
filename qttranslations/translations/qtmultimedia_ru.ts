@@ -58,12 +58,52 @@
 <context>
     <name>DSCameraSession</name>
     <message>
+        <source>Failed to configure preview format</source>
+        <translation>Не удалось настроить формат предпросмотра</translation>
+    </message>
+    <message>
+        <source>Failed to connect graph</source>
+        <translation>Не удалось соединить граф</translation>
+    </message>
+    <message>
+        <source>Failed to get stream control</source>
+        <translation>Не удалось получить управление потоком</translation>
+    </message>
+    <message>
+        <source>Failed to start</source>
+        <translation>Не удалось запустить</translation>
+    </message>
+    <message>
+        <source>Failed to stop</source>
+        <translation>Не удалось остановить</translation>
+    </message>
+    <message>
         <source>Camera not ready for capture</source>
         <translation>Камера не готова к захвату</translation>
     </message>
     <message>
         <source>Could not save image to file.</source>
         <translation>Не удалось сохранить изображение в файл.</translation>
+    </message>
+    <message>
+        <source>Failed to create filter graph</source>
+        <translation>Не удалось создать граф фильтров</translation>
+    </message>
+    <message>
+        <source>Failed to create graph builder</source>
+        <translation>Не удалось создать сборщих графов</translation>
+    </message>
+    <message>
+        <source>Failed to connect capture graph and filter graph</source>
+        <translation>Не удалось соединить графы захвата и фильтрации</translation>
+    </message>
+    <message>
+        <source>No capture device found</source>
+        <translation>Устройство захвата не обнаружено</translation>
+    </message>
+    <message>
+        <source>Failed to create null renderer</source>
+        <translation>Не удалось создать пустой отрисовщик</translation>
     </message>
 </context>
 <context>

@@ -4,7 +4,6 @@
 
 #include "extensions/renderer/user_script_set_manager.h"
 
-#include "base/memory/ptr_util.h"
 #include "components/crx_file/id_util.h"
 #include "content/public/renderer/render_thread.h"
 #include "extensions/common/extension_messages.h"
@@ -118,7 +117,7 @@ void UserScriptSetManager::OnUpdateUserScripts(
     if (programmatic_scripts_.find(host_id) == programmatic_scripts_.end()) {
       scripts = programmatic_scripts_
                     .insert(std::make_pair(host_id,
-                                           base::MakeUnique<UserScriptSet>()))
+                                           std::make_unique<UserScriptSet>()))
                     .first->second.get();
     } else {
       scripts = programmatic_scripts_[host_id].get();

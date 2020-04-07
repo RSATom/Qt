@@ -5,27 +5,13 @@ for debugging. Here's some tips.
 
 [TOC]
 
-## Setting up command line flags
-
-Various commands below requires setting up command line flags.
-
-```shell
-# Content shell
-build/android/adb_content_shell_command_line --flags --to-pass
-# Chromium test shell
-build/android/adb_chrome_shell_command_line --flags --to-pass
-```
-
 ## Launching the app
 
-You can launch the app by using one of the wrappers. You can pass URLs directly
-too.
+You can launch the app by using one of the wrappers.
 
 ```shell
-# Content shell
-build/android/adb_run_content_shell 'data:text/html;utf-8,<html>Hello World!</html>'
-# Chromium test shell
-build/android/adb_run_chrome_shell 'data:text/html;utf-8,<html>Hello World!</html>'
+out/Default/bin/content_shell_apk launch [--args='--foo --bar'] 'data:text/html;utf-8,<html>Hello World!</html>'
+out/Default/bin/chrome_public_apk launch [--args='--foo --bar'] 'data:text/html;utf-8,<html>Hello World!</html>'
 ```
 
 ## Log output
@@ -37,6 +23,8 @@ with:
 
 ```shell
 adb logcat chromium:V cr.SomeComponent:V *:W
+# or:
+out/Default/bin/chrome_public_apk logcat
 ```
 
 ### Warnings for Blink developers
@@ -92,6 +80,32 @@ private int mSuperNiftyDrawingProperty;
 
 ## Debugging Java
 
+For both apk and test targets, pass `--wait-for-java-debugger` to the wrapper
+scripts.
+
+Examples:
+
+```shell
+# Install, launch, and wait:
+out/Default/bin/chrome_public_apk run --wait-for-java-debugger
+
+# Launch, and have GPU process wait rather than Browser process:
+out/Default/bin/chrome_public_apk launch --wait-for-java-debugger --debug-process-name privileged_process0
+
+# Have Renderers wait:
+out/Default/bin/chrome_public_apk launch --args="--renderer-wait-for-java-debugger"
+
+# Have tests wait:
+out/Default/bin/run_chrome_public_test_apk --wait-for-java-debugger
+out/Default/bin/run_chrome_junit_tests --wait-for-java-debugger  # Specify custom port via --debug-socket=9999
+```
+
+### Android Studio
+*   Open Android Studio ([instructions](android_studio.md))
+*   Click "Run"->"Attach debugger to Android process" (see
+[here](https://developer.android.com/studio/debug/index.html) for more).
+    Click "Run"->"Attach to Local Process..." for Robolectric junit tests.
+
 ### Eclipse
 *   In Eclipse, make a debug configuration of type "Remote Java Application".
     Choose a "Name" and set "Port" to `8700`.
@@ -110,40 +124,27 @@ private int mSuperNiftyDrawingProperty;
 
 *   Run your debug configuration, and switch to the Debug perspective.
 
-### Android Studio
-*   Build and install the desired target
-
-*   Click the "Attach debugger to Android process" (see
-[here](https://developer.android.com/studio/debug/index.html) for more)
-
-## Waiting for Java Debugger on Early Startup
-
-*   To debug early startup, pass `--wait-for-java-debugger` as a command line
-    flag.
-
 ## Debugging C/C++
 
-Under `build/android`, there are a few scripts:
+Use the wrapper script `gdb` command to enter into a gdb shell.
 
 ```shell
-# Convenient wrappers
-build/android/adb_gdb_content_shell
-build/android/adb_gdb_chrome_shell
+# Attaches to browser process.
+out/Default/bin/content_shell_apk gdb
+out/Default/bin/chrome_public_apk gdb
 
-# Underlying script, try --help for comprehensive list of options
-build/android/adb_gdb
+# Attaches to gpu process.
+out/Default/bin/chrome_public_apk gdb --debug-process-name privileged_process0
+
+# Attach to other processes ("chrome_public_apk ps" to show pids).
+out/Default/bin/chrome_public_apk gdb --pid $PID
 ```
 
-By default, these wrappers will attach to the browser process.
-
-You can also attach to the renderer process by using `--sandboxed`. (You might
-need to be root on the phone for that. Run `adb root` if needed)
-
-## Waiting for Debugger on Early Startup
+### Waiting for Debugger on Early Startup
 
 Set the target command line flag with `--wait-for-debugger`.
 
-Launch the debugger using one of the `adb_gdb` scripts from above.
+Launch the debugger using one of the scripts from above.
 
 Type `info threads` and look for a line like:
 

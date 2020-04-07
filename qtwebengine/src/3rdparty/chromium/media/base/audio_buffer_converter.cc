@@ -36,7 +36,7 @@ AudioBufferConverter::AudioBufferConverter(const AudioParameters& output_params)
       is_flushing_(false),
       pool_(new AudioBufferMemoryPool()) {}
 
-AudioBufferConverter::~AudioBufferConverter() {}
+AudioBufferConverter::~AudioBufferConverter() = default;
 
 void AudioBufferConverter::AddInput(const scoped_refptr<AudioBuffer>& buffer) {
   // On EOS flush any remaining buffered data.
@@ -143,7 +143,6 @@ void AudioBufferConverter::ResetConverter(
       input_params_.format(),
       buffer->channel_layout(),
       buffer->sample_rate(),
-      input_params_.bits_per_sample(),
       // If resampling is needed and the FIFO disabled, the AudioConverter will
       // always request SincResampler::kDefaultRequestSize frames.  Otherwise it
       // will use the output frame size.

@@ -5,14 +5,14 @@
 #ifndef EXTENSIONS_BROWSER_API_WEBCAM_PRIVATE_VISCA_WEBCAM_H_
 #define EXTENSIONS_BROWSER_API_WEBCAM_PRIVATE_VISCA_WEBCAM_H_
 
-#include <deque>
-
 #include "base/callback.h"
+#include "base/containers/circular_deque.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "extensions/browser/api/serial/serial_connection.h"
 #include "extensions/browser/api/webcam_private/webcam.h"
 #include "extensions/common/api/serial.h"
+#include "services/device/public/mojom/serial.mojom.h"
 
 namespace extensions {
 
@@ -47,6 +47,7 @@ class ViscaWebcam : public Webcam {
 
   void OpenOnIOThread(const std::string& path,
                       const std::string& extension_id,
+                      device::mojom::SerialIoHandlerPtrInfo io_handler_info,
                       const OpenCompleteCallback& open_callback);
 
   // Callback function that will be called after the serial connection has been
@@ -71,11 +72,11 @@ class ViscaWebcam : public Webcam {
   void SendOnIOThread(const std::vector<char>& data,
                       const CommandCompleteCallback& callback);
   void OnSendCompleted(const CommandCompleteCallback& callback,
-                       int bytes_sent,
+                       uint32_t bytes_sent,
                        api::serial::SendError error);
   void ReceiveLoop(const CommandCompleteCallback& callback);
   void OnReceiveCompleted(const CommandCompleteCallback& callback,
-                          const std::vector<char>& data,
+                          std::vector<char> data,
                           api::serial::ReceiveError error);
 
   // Callback function that will be called after the send and reply of a command
@@ -128,7 +129,8 @@ class ViscaWebcam : public Webcam {
   std::vector<char> data_buffer_;
 
   // Queues commands till the current command completes.
-  std::deque<std::pair<std::vector<char>, CommandCompleteCallback>> commands_;
+  base::circular_deque<std::pair<std::vector<char>, CommandCompleteCallback>>
+      commands_;
 
   // Visca webcam always get/set pan-tilt together. |pan| and |tilt| are used to
   // store the current value of pan and tilt positions.

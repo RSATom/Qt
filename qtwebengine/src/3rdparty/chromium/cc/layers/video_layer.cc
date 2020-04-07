@@ -11,7 +11,7 @@ namespace cc {
 scoped_refptr<VideoLayer> VideoLayer::Create(
     VideoFrameProvider* provider,
     media::VideoRotation video_rotation) {
-  return make_scoped_refptr(new VideoLayer(provider, video_rotation));
+  return base::WrapRefCounted(new VideoLayer(provider, video_rotation));
 }
 
 VideoLayer::VideoLayer(VideoFrameProvider* provider,
@@ -21,7 +21,7 @@ VideoLayer::VideoLayer(VideoFrameProvider* provider,
   DCHECK(provider_);
 }
 
-VideoLayer::~VideoLayer() {}
+VideoLayer::~VideoLayer() = default;
 
 std::unique_ptr<LayerImpl> VideoLayer::CreateLayerImpl(
     LayerTreeImpl* tree_impl) {

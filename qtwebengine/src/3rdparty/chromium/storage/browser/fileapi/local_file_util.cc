@@ -10,7 +10,6 @@
 
 #include "base/files/file_enumerator.h"
 #include "base/files/file_util.h"
-#include "base/files/file_util_proxy.h"
 #include "base/memory/ptr_util.h"
 #include "storage/browser/fileapi/async_file_util_adapter.h"
 #include "storage/browser/fileapi/file_system_context.h"
@@ -37,7 +36,7 @@ class LocalFileEnumerator : public FileSystemFileUtil::AbstractFileEnumerator {
         virtual_root_path_(virtual_root_path) {
   }
 
-  ~LocalFileEnumerator() override {}
+  ~LocalFileEnumerator() override = default;
 
   base::FilePath Next() override;
   int64_t Size() override;
@@ -77,9 +76,9 @@ bool LocalFileEnumerator::IsDirectory() {
   return file_util_info_.IsDirectory();
 }
 
-LocalFileUtil::LocalFileUtil() {}
+LocalFileUtil::LocalFileUtil() = default;
 
-LocalFileUtil::~LocalFileUtil() {}
+LocalFileUtil::~LocalFileUtil() = default;
 
 base::File LocalFileUtil::CreateOrOpen(
     FileSystemOperationContext* context,
@@ -145,7 +144,7 @@ LocalFileUtil::CreateFileEnumerator(FileSystemOperationContext* context,
       base::File::FILE_OK) {
     return base::WrapUnique(new EmptyFileEnumerator);
   }
-  return base::MakeUnique<LocalFileEnumerator>(
+  return std::make_unique<LocalFileEnumerator>(
       file_path, root_url.path(),
       base::FileEnumerator::FILES | base::FileEnumerator::DIRECTORIES);
 }

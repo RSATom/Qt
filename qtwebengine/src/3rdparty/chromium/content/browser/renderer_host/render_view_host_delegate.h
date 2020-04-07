@@ -16,7 +16,7 @@
 #include "content/common/content_export.h"
 #include "content/common/render_message_filter.mojom.h"
 #include "net/base/load_states.h"
-#include "third_party/WebKit/public/web/WebPopupType.h"
+#include "third_party/blink/public/web/web_popup_type.h"
 
 class GURL;
 
@@ -33,6 +33,7 @@ namespace content {
 
 class BrowserContext;
 class FrameTree;
+class RenderFrameHost;
 class RenderViewHost;
 class RenderViewHostImpl;
 class RenderViewHostDelegateView;
@@ -93,10 +94,7 @@ class CONTENT_EXPORT RenderViewHostDelegate {
   virtual void Close(RenderViewHost* render_view_host) {}
 
   // The page is trying to move the RenderView's representation in the client.
-  virtual void RequestMove(const gfx::Rect& new_bounds) {}
-
-  // The pending page load was canceled.
-  virtual void DidCancelLoading() {}
+  virtual void RequestSetBounds(const gfx::Rect& new_bounds) {}
 
   // The RenderView's main frame document element is ready. This happens when
   // the document has finished parsing.
@@ -157,11 +155,6 @@ class CONTENT_EXPORT RenderViewHostDelegate {
   // to this view.
   virtual SessionStorageNamespaceMap GetSessionStorageNamespaceMap();
 
-  // Returns the zoom level for the pending navigation for the page. If there
-  // is no pending navigation, this returns the zoom level for the current
-  // page.
-  virtual double GetPendingPageZoomLevel();
-
   // Returns true if the RenderViewHost will never be visible.
   virtual bool IsNeverVisible();
 
@@ -171,13 +164,6 @@ class CONTENT_EXPORT RenderViewHostDelegate {
   // TODO(ajwong): Remove once the main frame RenderFrameHost is no longer
   // created by the RenderViewHost.
   virtual FrameTree* GetFrameTree();
-
-  // Optional state storage for if the Virtual Keyboard has been requested by
-  // this page or not. If it has, this can be used to suppress things like the
-  // link disambiguation dialog, which doesn't interact well with the virtual
-  // keyboard.
-  virtual void SetIsVirtualKeyboardRequested(bool requested) {}
-  virtual bool IsVirtualKeyboardRequested();
 
   // Whether the user agent is overridden using the Chrome for Android "Request
   // Desktop Site" feature.
@@ -194,6 +180,10 @@ class CONTENT_EXPORT RenderViewHostDelegate {
 
   // Whether the WebContents as a persistent video.
   virtual bool HasPersistentVideo() const;
+
+  // Returns the RenderFrameHost for a pending or speculative main frame
+  // navigation for the page.  Returns nullptr if there is no such navigation.
+  virtual RenderFrameHost* GetPendingMainFrame();
 
  protected:
   virtual ~RenderViewHostDelegate() {}

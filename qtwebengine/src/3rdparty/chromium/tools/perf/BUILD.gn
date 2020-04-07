@@ -2,8 +2,6 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import("//build/config/features.gni")
-
 group("perf") {
   testonly = true
   deps = [
@@ -22,7 +20,7 @@ group("perf") {
     "//tools/json_to_struct/",
 
     # For blink_perf benchmarks.
-    "//third_party/WebKit/PerformanceTests/",
+    "//third_party/blink/perf_tests/",
 
     # For smoothness.tough_canvas_cases
     "//chrome/test/data/perf/",
@@ -30,12 +28,17 @@ group("perf") {
     # For image_decoding.measurement
     "//chrome/test/data/image_decoding/",
 
-    # For indexeddb_perf
-    "//chrome/test/data/indexeddb/",
+    # For ad tagging ruleset
+    "$root_gen_dir/components/subresource_filter/tools/",
+
+    # For Pylib used by VR tests
+    "//build/android/pylib/",
   ]
-  if (use_qt) {
-    deps -= [
-      "//tools/perf/chrome_telemetry_build:telemetry_chrome_test",
+
+  # Runs a script which generates the ad tagging ruleset.
+  if (!is_ios) {
+    data_deps = [
+      "//components/subresource_filter/tools:index_ruleset",
     ]
   }
 }
@@ -46,5 +49,47 @@ if (is_android) {
   wrapper_script("run_benchmark_wrapper") {
     target = "run_benchmark"
     flag_name = "--chromium-output-directory"
+  }
+}
+
+# Group for running benchmarks without building Chrome
+group("perf_without_chrome") {
+  testonly = true
+  deps = [
+    "//tools/perf/chrome_telemetry_build:telemetry_chrome_test_without_chrome",
+  ]
+
+  data = [
+    "//tools/perf/",
+
+    # Field trial config
+    "//tools/variations/",
+    "//testing/variations/",
+
+    # Field trial dependencies
+    "//tools/json_comment_eater/",
+    "//tools/json_to_struct/",
+
+    # For blink_perf benchmarks.
+    "//third_party/blink/perf_tests/",
+
+    # For smoothness.tough_canvas_cases
+    "//chrome/test/data/perf/",
+
+    # For image_decoding.measurement
+    "//chrome/test/data/image_decoding/",
+
+    # For ad tagging ruleset
+    "$root_gen_dir/components/subresource_filter/tools/",
+
+    # For Pylib used by VR tests
+    "//build/android/pylib/",
+  ]
+
+  # Runs a script which generates the ad tagging ruleset.
+  if (!is_ios) {
+    data_deps = [
+      "//components/subresource_filter/tools:index_ruleset",
+    ]
   }
 }

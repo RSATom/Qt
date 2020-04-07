@@ -549,7 +549,7 @@ TEST_P(GLES2DecoderManualInitTest, GetShaderPrecisionFormatSucceeds) {
   // Force ES underlying implementation to ensure we check the shader precision
   // format.
   InitState init;
-  init.gl_version = "opengl es 2.0";
+  init.gl_version = "OpenGL ES 2.0";
   init.bind_generates_resource = true;
   InitDecoder(init);
 
@@ -2070,15 +2070,13 @@ TEST_P(GLES2DecoderWithShaderTest, BindUniformLocationCHROMIUMBucket) {
 }
 
 TEST_P(GLES2DecoderManualInitTest, ClearUniformsBeforeFirstProgramUse) {
-  base::CommandLine command_line(0, NULL);
-  command_line.AppendSwitchASCII(
-      switches::kGpuDriverBugWorkarounds,
-      base::IntToString(gpu::CLEAR_UNIFORMS_BEFORE_FIRST_PROGRAM_USE));
+  gpu::GpuDriverBugWorkarounds workarounds;
+  workarounds.clear_uniforms_before_first_program_use = true;
   InitState init;
   init.has_alpha = true;
   init.request_alpha = true;
   init.bind_generates_resource = true;
-  InitDecoderWithCommandLine(init, &command_line);
+  InitDecoderWithWorkarounds(init, workarounds);
   {
     static AttribInfo attribs[] = {
         {

@@ -32,7 +32,7 @@
     \since 5.5
     \ingroup viewsstyling
     \ingroup controlsstyling
-    \brief Provides custom styling for TreeView
+    \brief Provides custom styling for TreeView.
 */
 
 /*!

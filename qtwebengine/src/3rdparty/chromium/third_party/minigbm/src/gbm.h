@@ -236,13 +236,39 @@ enum gbm_bo_flags {
     * Buffer is guaranteed to be laid out linearly in memory. That is, the
     * buffer is laid out as an array with 'height' blocks, each block with
     * length 'stride'. Each stride is in the same order as the rows of the
-    * buffer.
+    * buffer. This is intended to be used with buffers that will be accessed
+    * via dma-buf mmap().
     */
    GBM_BO_USE_LINEAR    = (1 << 4),
    /**
     * The buffer will be used as a texture that will be sampled from.
     */
    GBM_BO_USE_TEXTURING    = (1 << 5),
+   /**
+    * The buffer will be written to by a camera subsystem.
+    */
+   GBM_BO_USE_CAMERA_WRITE = (1 << 6),
+   /**
+    * The buffer will be read from by a camera subsystem.
+    */
+   GBM_BO_USE_CAMERA_READ = (1 << 7),
+   /**
+    * Buffer inaccessible to unprivileged users.
+    */
+   GBM_BO_USE_PROTECTED = (1 << 8),
+   /**
+    * These flags specify the frequency of software access. These flags do not
+    * guarantee the buffer is linear, but do guarantee gbm_bo_map(..) will
+    * present a linear view.
+    */
+   GBM_BO_USE_SW_READ_OFTEN = (1 << 9),
+   GBM_BO_USE_SW_READ_RARELY = (1 << 10),
+   GBM_BO_USE_SW_WRITE_OFTEN = (1 << 11),
+   GBM_BO_USE_SW_WRITE_RARELY = (1 << 12),
+   /**
+    * The buffer will be written by a video decode accelerator.
+    */
+   GBM_BO_USE_HW_VIDEO_DECODER = (1 << 13),
 };
 
 int

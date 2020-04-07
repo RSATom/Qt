@@ -44,7 +44,7 @@ QT_BEGIN_NAMESPACE
     \inqmlmodule QtLocation
     \ingroup qml-QtLocation5-places
     \ingroup qml-QtLocation5-places-data
-    \since Qt Location 5.5
+    \since QtLocation 5.5
 
     \brief The Ratings type holds place rating information.
 

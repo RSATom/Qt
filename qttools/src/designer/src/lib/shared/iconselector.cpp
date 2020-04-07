@@ -34,28 +34,27 @@
 #include "formwindowbase_p.h"
 
 #include <abstractdialoggui_p.h>
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerResourceBrowserInterface>
-#include <QtDesigner/QDesignerLanguageExtension>
-#include <QtDesigner/QDesignerIntegrationInterface>
-#include <QtDesigner/QExtensionManager>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/abstractresourcebrowser.h>
+#include <QtDesigner/abstractlanguage.h>
+#include <QtDesigner/abstractintegration.h>
+#include <QtDesigner/qextensionmanager.h>
 
-#include <QtWidgets/QToolButton>
-#include <QtWidgets/QComboBox>
-#include <QtWidgets/QAction>
-#include <QtWidgets/QDialogButtonBox>
-#include <QtWidgets/QPushButton>
-#include <QtWidgets/QDialog>
-#include <QtWidgets/QMenu>
-#include <QtWidgets/QApplication>
-#include <QtWidgets/QVBoxLayout>
-#include <QtGui/QImageReader>
-#include <QtWidgets/QDialogButtonBox>
-#include <QtWidgets/QVBoxLayout>
-#include <QtWidgets/QLineEdit>
-#include <QtWidgets/QLabel>
-#include <QtGui/QValidator>
-#include <QtCore/QDebug>
+#include <QtWidgets/qtoolbutton.h>
+#include <QtWidgets/qcombobox.h>
+#include <QtWidgets/qaction.h>
+#include <QtWidgets/qdialogbuttonbox.h>
+#include <QtWidgets/qpushbutton.h>
+#include <QtWidgets/qdialog.h>
+#include <QtWidgets/qmenu.h>
+#include <QtWidgets/qapplication.h>
+#include <QtWidgets/qboxlayout.h>
+#include <QtGui/qimagereader.h>
+#include <QtWidgets/qdialogbuttonbox.h>
+#include <QtWidgets/qlineedit.h>
+#include <QtWidgets/qlabel.h>
+#include <QtGui/qvalidator.h>
+#include <QtCore/qdebug.h>
 
 
 QT_BEGIN_NAMESPACE
@@ -144,9 +143,7 @@ LanguageResourceDialog::LanguageResourceDialog(QDesignerResourceBrowserInterface
     d_ptr->init( this);
 }
 
-LanguageResourceDialog::~LanguageResourceDialog()
-{
-}
+LanguageResourceDialog::~LanguageResourceDialog() = default;
 
 void LanguageResourceDialog::setCurrentPath(const QString &filePath)
 {
@@ -324,7 +321,8 @@ bool IconSelector::checkPixmap(const QString &fileName, CheckMode cm, QString *e
     QImageReader reader(fileName);
     if (!reader.canRead()) {
         if (errorMessage)
-            *errorMessage = tr("The file '%1' does not appear to be a valid pixmap file: %2").arg(fileName).arg(reader.errorString());
+            *errorMessage = tr("The file '%1' does not appear to be a valid pixmap file: %2")
+                              .arg(fileName, reader.errorString());
         return false;
     }
     if (cm == CheckFast)
@@ -333,7 +331,8 @@ bool IconSelector::checkPixmap(const QString &fileName, CheckMode cm, QString *e
     const QImage image = reader.read();
     if (image.isNull()) {
         if (errorMessage)
-            *errorMessage = tr("The file '%1' could not be read: %2").arg(fileName).arg(reader.errorString());
+            *errorMessage = tr("The file '%1' could not be read: %2")
+                               .arg(fileName, reader.errorString());
         return false;
     }
     return true;
@@ -483,9 +482,7 @@ IconSelector::IconSelector(QWidget *parent) :
     d_ptr->slotUpdate();
 }
 
-IconSelector::~IconSelector()
-{
-}
+IconSelector::~IconSelector() = default;
 
 void IconSelector::setIcon(const PropertySheetIconValue &icon)
 {
@@ -529,7 +526,8 @@ class BlankSuppressingValidator : public QValidator {
 public:
     explicit BlankSuppressingValidator(QObject * parent = 0) : QValidator(parent) {}
 
-    virtual State validate(QString &input, int &pos) const {
+    State validate(QString &input, int &pos) const override
+    {
         const int blankPos = input.indexOf(QLatin1Char(' '));
         if (blankPos != -1) {
             pos = blankPos;
@@ -588,9 +586,7 @@ IconThemeEditor::IconThemeEditor(QWidget *parent, bool wantResetButton) :
     setFocusProxy(d->m_themeLineEdit);
 }
 
-IconThemeEditor::~IconThemeEditor()
-{
-}
+IconThemeEditor::~IconThemeEditor() = default;
 
 void IconThemeEditor::reset()
 {

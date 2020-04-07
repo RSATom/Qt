@@ -3,33 +3,38 @@
 # found in the LICENSE file.
 
 component("embedder") {
-  sources = [
-    "embedded_service_info.cc",
+  public = [
     "embedded_service_info.h",
-    "embedded_service_runner.cc",
     "embedded_service_runner.h",
-    "manifest_utils.cc",
     "manifest_utils.h",
+  ]
+
+  sources = [
+    "embedded_instance_manager.cc",
+    "embedded_instance_manager.h",
+    "embedded_service_info.cc",
+    "embedded_service_runner.cc",
+    "manifest_utils.cc",
+    "service_manager_embedder_export.h",
   ]
 
   # iOS embeds the Service Manager but does not use service_manager::Main() (and
   # cannot use or even build it as-is).
   if (!is_ios) {
-    sources += [
-      "main.cc",
+    public += [
       "main.h",
-      "main_delegate.cc",
       "main_delegate.h",
       "process_type.h",
-      "service_manager_embedder_export.h",
-      "set_process_title.cc",
       "set_process_title.h",
-      "set_process_title_linux.cc",
       "set_process_title_linux.h",
-      "shared_file_util.cc",
       "shared_file_util.h",
-      "switches.cc",
-      "switches.h",
+    ]
+    sources += [
+      "main.cc",
+      "main_delegate.cc",
+      "set_process_title.cc",
+      "set_process_title_linux.cc",
+      "shared_file_util.cc",
     ]
   }
 
@@ -44,9 +49,11 @@ component("embedder") {
 
   deps = [
     "//base:base_static",
+    "//base:i18n",
   ]
 
   public_deps = [
+    ":embedder_result_codes",
     "//base",
     "//services/service_manager/public/cpp",
   ]
@@ -54,13 +61,19 @@ component("embedder") {
   if (!is_ios) {
     # deps of ServiceManager::Main and related functionality.
     deps += [
-      "//base/allocator:features",
+      "//base/allocator:buildflags",
       "//components/tracing:startup_tracing",
-      "//ui/base",
     ]
 
+    if (!is_nacl) {
+      # NaCl stuff should not depend on skia as it would require platform and
+      # cpu properties set.
+      deps += [ "//ui/base" ]
+    }
+
     public_deps += [
-      "//mojo/edk/system",
+      ":embedder_switches",
+      "//mojo/core/embedder",
       "//services/service_manager/background:lib",
       "//services/service_manager/public/cpp/standalone_service",
       "//services/service_manager/runner:init",
@@ -71,16 +84,41 @@ component("embedder") {
   defines = [ "SERVICE_MANAGER_EMBEDDER_IMPL" ]
 }
 
+component("embedder_switches") {
+  sources = [
+    "service_manager_embedder_switches_export.h",
+    "switches.cc",
+    "switches.h",
+  ]
+  defines = [ "SERVICE_MANAGER_EMBEDDER_SWITCHES_IMPL" ]
+}
+
+source_set("embedder_result_codes") {
+  sources = [
+    "result_codes.h",
+  ]
+}
+
 source_set("unittests") {
   testonly = true
 
   sources = [
+    "embedded_instance_manager_unittest.cc",
     "manifest_utils_unittest.cc",
+  ]
+
+  # These headers are duplicated here so that they can remain private in the
+  # "embedder" target. See http://crbug.com/732993 for a way to make it
+  # unnecessary to do this.
+  sources += [
+    "embedded_instance_manager.h",
+    "service_manager_embedder_export.h",
   ]
 
   deps = [
     ":embedder",
     "//base",
+    "//base/test:test_support",
     "//testing/gtest",
   ]
 }

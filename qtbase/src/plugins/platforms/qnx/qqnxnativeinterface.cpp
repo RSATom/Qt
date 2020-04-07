@@ -91,6 +91,9 @@ void *QQnxNativeInterface::nativeResourceForScreen(const QByteArray &resource, Q
 
 void *QQnxNativeInterface::nativeResourceForIntegration(const QByteArray &resource)
 {
+    if (resource == "screenContext")
+        return m_integration->screenContext();
+
     return 0;
 }
 
@@ -98,7 +101,7 @@ void *QQnxNativeInterface::nativeResourceForIntegration(const QByteArray &resour
 void *QQnxNativeInterface::nativeResourceForContext(const QByteArray &resource, QOpenGLContext *context)
 {
     if (resource == "eglcontext" && context)
-        return static_cast<QQnxGLContext*>(context->handle())->getEglContext();
+        return static_cast<QQnxGLContext*>(context->handle())->eglContext();
 
     return 0;
 }

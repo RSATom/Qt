@@ -48,28 +48,23 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.7
-import QtQuick.Controls 2.0 as QQC2
-import Qt.labs.settings 1.0
+import QtQuick 2.12
+import QtQuick.Controls 2.3 as QQC2
+import ".."
 import "../Style"
 
 Item {
-
-    Settings {
-        id: settings
-        property alias wireless: wirelessSwitch.checked
-        property alias bluetooth: bluetoothSwitch.checked
-        property alias contrast: contrastSlider.value
-        property alias brightness: brightnessSlider.value
-    }
 
     QQC2.SwipeView {
         id: svSettingsContainer
 
         anchors.fill: parent
 
-        Item {
+        SwipeViewPage {
             id: settingsPage1
+
+            property alias bluetoothSwitch: bluetoothSwitch
+            property alias wirelessSwitch: wirelessSwitch
 
             Column {
                 anchors.centerIn: parent
@@ -79,31 +74,36 @@ Item {
                     spacing: 50
                     Image {
                         anchors.verticalCenter: parent.verticalCenter
-                        source: "images/bluetooth.png"
+                        source: UIStyle.themeImagePath("images/bluetooth")
                     }
                     QQC2.Switch {
                         id: bluetoothSwitch
                         anchors.verticalCenter: parent.verticalCenter
                         checked: settings.bluetooth
+                        onToggled: settings.bluetooth = checked
                     }
                 }
                 Row {
                     spacing: 50
                     Image {
                         anchors.verticalCenter: parent.verticalCenter
-                        source: "images/wifi.png"
+                        source: UIStyle.themeImagePath("images/wifi")
                     }
                     QQC2.Switch {
                         id: wirelessSwitch
                         anchors.verticalCenter: parent.verticalCenter
                         checked: settings.wireless
+                        onToggled: settings.wireless = checked
                     }
                 }
             }
         }
 
-        Item {
+        SwipeViewPage {
             id: settingsPage2
+
+            property alias brightnessSlider: brightnessSlider
+            property alias darkThemeSwitch: darkThemeSwitch
 
             Column {
                 anchors.centerIn: parent
@@ -112,7 +112,7 @@ Item {
                 Column {
                     Image {
                         anchors.horizontalCenter: parent.horizontalCenter
-                        source: "images/brightness.png"
+                        source: UIStyle.themeImagePath("images/brightness")
                     }
                     QQC2.Slider {
                         id: brightnessSlider
@@ -121,21 +121,45 @@ Item {
                         to: 5
                         stepSize: 1
                         value: settings.brightness
+                        onMoved: settings.brightness = value
                     }
                 }
                 Column {
-                    spacing: 2
+                    anchors.horizontalCenter: parent.horizontalCenter
+
                     Image {
                         anchors.horizontalCenter: parent.horizontalCenter
-                        source: "images/contrast.png"
+                        source: UIStyle.themeImagePath("images/theme")
                     }
-                    QQC2.Slider {
-                        id: contrastSlider
+                    QQC2.Switch {
+                        id: darkThemeSwitch
                         anchors.horizontalCenter: parent.horizontalCenter
-                        from: 0
-                        to: 10
-                        stepSize: 1
-                        value: settings.contrast
+                        checked: settings.darkTheme
+                        onToggled: settings.darkTheme = checked
+                    }
+                }
+            }
+        }
+
+        SwipeViewPage {
+            id: settingsPage3
+
+            Column {
+                anchors.centerIn: parent
+
+                Column {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    spacing: 6
+
+                    Image {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        source: UIStyle.themeImagePath("images/demo-mode")
+                    }
+                    QQC2.Switch {
+                        id: demoModeSwitch
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        checked: settings.demoMode
+                        onToggled: settings.demoMode = checked
                     }
                 }
             }

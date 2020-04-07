@@ -11,8 +11,9 @@
 #include "components/prefs/testing_pref_service.h"
 #include "components/signin/core/browser/account_tracker_service.h"
 #include "components/signin/core/browser/profile_oauth2_token_service.h"
+#include "components/signin/core/browser/signin_error_controller.h"
+#include "components/signin/core/browser/signin_pref_names.h"
 #include "components/signin/core/browser/test_signin_client.h"
-#include "components/signin/core/common/signin_pref_names.h"
 #include "components/signin/ios/browser/fake_profile_oauth2_token_service_ios_provider.h"
 #include "google_apis/gaia/gaia_urls.h"
 #include "google_apis/gaia/oauth2_access_token_consumer.h"
@@ -35,11 +36,15 @@ class ProfileOAuth2TokenServiceIOSDelegateTest
   ProfileOAuth2TokenServiceIOSDelegateTest()
       : factory_(NULL),
         client_(&prefs_),
+        signin_error_controller_(
+            SigninErrorController::AccountMode::ANY_ACCOUNT),
         token_available_count_(0),
         token_revoked_count_(0),
         tokens_loaded_count_(0),
         access_token_success_(0),
         access_token_failure_(0),
+        error_changed_count_(0),
+        auth_error_changed_count_(0),
         last_access_token_error_(GoogleServiceAuthError::NONE) {}
 
   void SetUp() override {
@@ -90,7 +95,12 @@ class ProfileOAuth2TokenServiceIOSDelegateTest
     ++token_revoked_count_;
   }
   void OnRefreshTokensLoaded() override { ++tokens_loaded_count_; }
+  void OnAuthErrorChanged(const std::string& account_id,
+                          const GoogleServiceAuthError& error) override {
+    ++auth_error_changed_count_;
+  }
 
+  // SigninErrorController::Observer implementation.
   void OnErrorChanged() override { ++error_changed_count_; }
 
   void ResetObserverCounts() {
@@ -100,6 +110,7 @@ class ProfileOAuth2TokenServiceIOSDelegateTest
     token_available_count_ = 0;
     access_token_failure_ = 0;
     error_changed_count_ = 0;
+    auth_error_changed_count_ = 0;
   }
 
   std::string GetAccountId(const ProviderAccount& provider_account) {
@@ -123,6 +134,7 @@ class ProfileOAuth2TokenServiceIOSDelegateTest
   int access_token_success_;
   int access_token_failure_;
   int error_changed_count_;
+  int auth_error_changed_count_;
   GoogleServiceAuthError last_access_token_error_;
 };
 
@@ -249,7 +261,8 @@ TEST_F(ProfileOAuth2TokenServiceIOSDelegateTest, StartRequestSuccess) {
   scopes.push_back("scope");
   std::unique_ptr<OAuth2AccessTokenFetcher> fetcher1(
       oauth2_delegate_->CreateAccessTokenFetcher(
-          GetAccountId(account1), oauth2_delegate_->GetRequestContext(), this));
+          GetAccountId(account1), oauth2_delegate_->GetURLLoaderFactory(),
+          this));
   fetcher1->Start("foo", "bar", scopes);
   EXPECT_EQ(0, access_token_success_);
   EXPECT_EQ(0, access_token_failure_);
@@ -272,7 +285,8 @@ TEST_F(ProfileOAuth2TokenServiceIOSDelegateTest, StartRequestFailure) {
   scopes.push_back("scope");
   std::unique_ptr<OAuth2AccessTokenFetcher> fetcher1(
       oauth2_delegate_->CreateAccessTokenFetcher(
-          GetAccountId(account1), oauth2_delegate_->GetRequestContext(), this));
+          GetAccountId(account1), oauth2_delegate_->GetURLLoaderFactory(),
+          this));
   fetcher1->Start("foo", "bar", scopes);
   EXPECT_EQ(0, access_token_success_);
   EXPECT_EQ(0, access_token_failure_);
@@ -295,10 +309,32 @@ TEST_F(ProfileOAuth2TokenServiceIOSDelegateTest,
   ResetObserverCounts();
   GoogleServiceAuthError error(GoogleServiceAuthError::SERVICE_ERROR);
   oauth2_delegate_->UpdateAuthError(GetAccountId(account1), error);
+  EXPECT_EQ(error, oauth2_delegate_->GetAuthError("gaia_1"));
+  EXPECT_EQ(1, auth_error_changed_count_);
   EXPECT_EQ(1, error_changed_count_);
 
   oauth2_delegate_->RevokeAllCredentials();
   ResetObserverCounts();
   oauth2_delegate_->UpdateAuthError(GetAccountId(account1), error);
+  EXPECT_EQ(0, auth_error_changed_count_);
   EXPECT_EQ(0, error_changed_count_);
+}
+
+TEST_F(ProfileOAuth2TokenServiceIOSDelegateTest, GetAuthError) {
+  // Accounts have no error by default.
+  ProviderAccount account1 = fake_provider_->AddAccount("gaia_1", "email_1@x");
+  oauth2_delegate_->ReloadCredentials(GetAccountId(account1));
+  base::RunLoop().RunUntilIdle();
+  EXPECT_EQ(GoogleServiceAuthError::AuthErrorNone(),
+            oauth2_delegate_->GetAuthError("gaia_1"));
+  // Update the error.
+  GoogleServiceAuthError error =
+      GoogleServiceAuthError::FromInvalidGaiaCredentialsReason(
+          GoogleServiceAuthError::InvalidGaiaCredentialsReason::
+              CREDENTIALS_REJECTED_BY_SERVER);
+  oauth2_delegate_->UpdateAuthError("gaia_1", error);
+  EXPECT_EQ(error, oauth2_delegate_->GetAuthError("gaia_1"));
+  // Unknown account has no error.
+  EXPECT_EQ(GoogleServiceAuthError::AuthErrorNone(),
+            oauth2_delegate_->GetAuthError("gaia_2"));
 }

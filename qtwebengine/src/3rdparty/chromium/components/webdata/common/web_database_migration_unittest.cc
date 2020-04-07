@@ -8,7 +8,6 @@
 #include "base/files/scoped_temp_dir.h"
 #include "base/guid.h"
 #include "base/macros.h"
-#include "base/message_loop/message_loop.h"
 #include "base/path_service.h"
 #include "base/stl_util.h"
 #include "base/strings/string16.h"
@@ -96,7 +95,7 @@ class WebDatabaseMigrationTest : public testing::Test {
   // Returns true if the file exists and is read successfully, false otherwise.
   bool GetWebDatabaseData(const base::FilePath& file, std::string* contents) {
     base::FilePath source_path;
-    PathService::Get(base::DIR_SOURCE_ROOT, &source_path);
+    base::PathService::Get(base::DIR_SOURCE_ROOT, &source_path);
     source_path = source_path.AppendASCII("components");
     source_path = source_path.AppendASCII("test");
     source_path = source_path.AppendASCII("data");
@@ -130,7 +129,7 @@ class WebDatabaseMigrationTest : public testing::Test {
   DISALLOW_COPY_AND_ASSIGN(WebDatabaseMigrationTest);
 };
 
-const int WebDatabaseMigrationTest::kCurrentTestedVersionNumber = 74;
+const int WebDatabaseMigrationTest::kCurrentTestedVersionNumber = 78;
 
 void WebDatabaseMigrationTest::LoadDatabase(
     const base::FilePath::StringType& file) {
@@ -225,8 +224,6 @@ TEST_F(WebDatabaseMigrationTest, RazeDeprecatedVersionAndReinit) {
     ASSERT_FALSE(
         connection.DoesColumnExist("keywords", "suggest_url_post_params"));
     ASSERT_FALSE(
-        connection.DoesColumnExist("keywords", "instant_url_post_params"));
-    ASSERT_FALSE(
         connection.DoesColumnExist("keywords", "image_url_post_params"));
   }
 
@@ -248,8 +245,6 @@ TEST_F(WebDatabaseMigrationTest, RazeDeprecatedVersionAndReinit) {
         connection.DoesColumnExist("keywords", "search_url_post_params"));
     EXPECT_TRUE(
         connection.DoesColumnExist("keywords", "suggest_url_post_params"));
-    EXPECT_TRUE(
-        connection.DoesColumnExist("keywords", "instant_url_post_params"));
     EXPECT_TRUE(
         connection.DoesColumnExist("keywords", "image_url_post_params"));
   }
@@ -1406,5 +1401,214 @@ TEST_F(WebDatabaseMigrationTest, MigrateVersion73WithTypeColumnToCurrent) {
         connection.GetUniqueStatement("SELECT type FROM masked_credit_cards"));
     ASSERT_TRUE(s_masked_cards.Step());
     EXPECT_EQ(2, s_masked_cards.ColumnInt(0));
+  }
+}
+
+// Tests adding "validity_bitfield" column for the "autofill_profiles" table.
+TEST_F(WebDatabaseMigrationTest, MigrateVersion74ToCurrent) {
+  ASSERT_NO_FATAL_FAILURE(LoadDatabase(FILE_PATH_LITERAL("version_74.sql")));
+
+  // Verify pre-conditions.
+  {
+    sql::Connection connection;
+    ASSERT_TRUE(connection.Open(GetDatabasePath()));
+    ASSERT_TRUE(sql::MetaTable::DoesTableExist(&connection));
+
+    sql::MetaTable meta_table;
+    ASSERT_TRUE(meta_table.Init(&connection, 74, 74));
+
+    EXPECT_FALSE(
+        connection.DoesColumnExist("autofill_profiles", "validity_bitfield"));
+  }
+
+  DoMigration();
+
+  // Verify post-conditions.
+  {
+    sql::Connection connection;
+    ASSERT_TRUE(connection.Open(GetDatabasePath()));
+    ASSERT_TRUE(sql::MetaTable::DoesTableExist(&connection));
+
+    // Check version.
+    EXPECT_EQ(kCurrentTestedVersionNumber, VersionFromConnection(&connection));
+
+    EXPECT_TRUE(
+        connection.DoesColumnExist("autofill_profiles", "validity_bitfield"));
+
+    // Data should have been preserved. Validity bitfield should have been set
+    // to 0.
+    sql::Statement s_profiles(connection.GetUniqueStatement(
+        "SELECT guid, company_name, street_address, dependent_locality,"
+        " city, state, zipcode, sorting_code, country_code, date_modified,"
+        " origin, language_code, validity_bitfield "
+        "FROM autofill_profiles"));
+
+    ASSERT_TRUE(s_profiles.Step());
+    EXPECT_EQ("00000000-0000-0000-0000-000000000001",
+              s_profiles.ColumnString(0));
+    EXPECT_EQ(ASCIIToUTF16("Google Inc"), s_profiles.ColumnString16(1));
+    EXPECT_EQ(ASCIIToUTF16("340 Main St"), s_profiles.ColumnString16(2));
+    EXPECT_EQ(base::string16(), s_profiles.ColumnString16(3));
+    EXPECT_EQ(ASCIIToUTF16("Los Angeles"), s_profiles.ColumnString16(4));
+    EXPECT_EQ(ASCIIToUTF16("CA"), s_profiles.ColumnString16(5));
+    EXPECT_EQ(ASCIIToUTF16("90291"), s_profiles.ColumnString16(6));
+    EXPECT_EQ(base::string16(), s_profiles.ColumnString16(7));
+    EXPECT_EQ(ASCIIToUTF16("US"), s_profiles.ColumnString16(8));
+    EXPECT_EQ(1395948829, s_profiles.ColumnInt(9));
+    EXPECT_EQ(ASCIIToUTF16(autofill::kSettingsOrigin),
+              s_profiles.ColumnString16(10));
+    EXPECT_EQ("en", s_profiles.ColumnString(11));
+    // The new validity bitfield should have the default value of 0.
+    EXPECT_EQ(0, s_profiles.ColumnInt(12));
+
+    // No more entries expected.
+    ASSERT_FALSE(s_profiles.Step());
+  }
+}
+
+// Tests deletion of Instant-related columns in keywords table.
+TEST_F(WebDatabaseMigrationTest, MigrateVersion75ToCurrent) {
+  ASSERT_NO_FATAL_FAILURE(LoadDatabase(FILE_PATH_LITERAL("version_75.sql")));
+
+  // Verify pre-conditions.
+  {
+    sql::Connection connection;
+    ASSERT_TRUE(connection.Open(GetDatabasePath()));
+    ASSERT_TRUE(sql::MetaTable::DoesTableExist(&connection));
+
+    sql::MetaTable meta_table;
+    ASSERT_TRUE(meta_table.Init(&connection, 75, 75));
+
+    EXPECT_TRUE(connection.DoesColumnExist("keywords", "instant_url"));
+    EXPECT_TRUE(
+        connection.DoesColumnExist("keywords", "instant_url_post_params"));
+    EXPECT_TRUE(
+        connection.DoesColumnExist("keywords", "search_terms_replacement_key"));
+  }
+
+  DoMigration();
+
+  // Verify post-conditions.
+  {
+    sql::Connection connection;
+    ASSERT_TRUE(connection.Open(GetDatabasePath()));
+    ASSERT_TRUE(sql::MetaTable::DoesTableExist(&connection));
+
+    // Check version.
+    EXPECT_EQ(kCurrentTestedVersionNumber, VersionFromConnection(&connection));
+
+    EXPECT_FALSE(connection.DoesColumnExist("keywords", "instant_url"));
+    EXPECT_FALSE(
+        connection.DoesColumnExist("keywords", "instant_url_post_params"));
+    EXPECT_FALSE(
+        connection.DoesColumnExist("keywords", "search_terms_replacement_key"));
+  }
+}
+
+// Tests changing format of three timestamp columns inside keywords.
+TEST_F(WebDatabaseMigrationTest, MigrateVersion76ToCurrent) {
+  ASSERT_NO_FATAL_FAILURE(LoadDatabase(FILE_PATH_LITERAL("version_76.sql")));
+
+  // Verify pre-conditions.
+  {
+    sql::Connection connection;
+    ASSERT_TRUE(connection.Open(GetDatabasePath()));
+    ASSERT_TRUE(sql::MetaTable::DoesTableExist(&connection));
+
+    sql::MetaTable meta_table;
+    ASSERT_TRUE(meta_table.Init(&connection, 76, 76));
+
+    sql::Statement s(connection.GetUniqueStatement(
+        "SELECT id, date_created, last_modified, last_visited FROM keywords"));
+    ASSERT_TRUE(s.Step());
+    EXPECT_EQ(2, s.ColumnInt64(0));
+    EXPECT_EQ(123, s.ColumnInt64(1));
+    EXPECT_EQ(456, s.ColumnInt64(2));
+    EXPECT_EQ(789, s.ColumnInt64(3));
+  }
+
+  DoMigration();
+
+  // Verify post-conditions.
+  {
+    sql::Connection connection;
+    ASSERT_TRUE(connection.Open(GetDatabasePath()));
+    ASSERT_TRUE(sql::MetaTable::DoesTableExist(&connection));
+
+    // Check version.
+    EXPECT_EQ(kCurrentTestedVersionNumber, VersionFromConnection(&connection));
+
+    sql::Statement s(connection.GetUniqueStatement(
+        "SELECT id, date_created, last_modified, last_visited FROM keywords"));
+    ASSERT_TRUE(s.Step());
+    EXPECT_EQ(2, s.ColumnInt64(0));
+    EXPECT_EQ(11644473723000000, s.ColumnInt64(1));
+    EXPECT_EQ(11644474056000000, s.ColumnInt64(2));
+    EXPECT_EQ(11644474389000000, s.ColumnInt64(3));
+  }
+}
+
+// Tests adding model_type columns into autofill_sync_metadata and
+// autofill_model_type_state.
+TEST_F(WebDatabaseMigrationTest, MigrateVersion77ToCurrent) {
+  ASSERT_NO_FATAL_FAILURE(LoadDatabase(FILE_PATH_LITERAL("version_77.sql")));
+
+  // Verify pre-conditions.
+  {
+    sql::Connection connection;
+    ASSERT_TRUE(connection.Open(GetDatabasePath()));
+    ASSERT_TRUE(sql::MetaTable::DoesTableExist(&connection));
+
+    sql::MetaTable meta_table;
+    ASSERT_TRUE(meta_table.Init(&connection, 77, 77));
+
+    sql::Statement s1(connection.GetUniqueStatement(
+        "SELECT storage_key, value FROM autofill_sync_metadata"));
+    ASSERT_TRUE(s1.Step());
+    EXPECT_EQ("storage_key1", s1.ColumnString(0));
+    EXPECT_EQ("blob1", s1.ColumnString(1));
+    ASSERT_TRUE(s1.Step());
+    EXPECT_EQ("storage_key2", s1.ColumnString(0));
+    EXPECT_EQ("blob2", s1.ColumnString(1));
+
+    sql::Statement s2(connection.GetUniqueStatement(
+        "SELECT id, value FROM autofill_model_type_state"));
+    ASSERT_TRUE(s2.Step());
+    EXPECT_EQ(1, s2.ColumnInt(0));
+    EXPECT_EQ("state", s2.ColumnString(1));
+  }
+
+  DoMigration();
+
+  // Verify post-conditions.
+  {
+    sql::Connection connection;
+    ASSERT_TRUE(connection.Open(GetDatabasePath()));
+    ASSERT_TRUE(sql::MetaTable::DoesTableExist(&connection));
+
+    // Check version.
+    EXPECT_EQ(kCurrentTestedVersionNumber, VersionFromConnection(&connection));
+
+    // Check that the AUTOFILL metadata is still there.
+    sql::Statement s1(connection.GetUniqueStatement(
+        "SELECT model_type, storage_key, value FROM autofill_sync_metadata"));
+    ASSERT_TRUE(s1.Step());
+    EXPECT_EQ(syncer::ModelTypeToHistogramInt(syncer::AUTOFILL),
+              s1.ColumnInt(0));
+    EXPECT_EQ("storage_key1", s1.ColumnString(1));
+    EXPECT_EQ("blob1", s1.ColumnString(2));
+    ASSERT_TRUE(s1.Step());
+    EXPECT_EQ(syncer::ModelTypeToHistogramInt(syncer::AUTOFILL),
+              s1.ColumnInt(0));
+    EXPECT_EQ("storage_key2", s1.ColumnString(1));
+    EXPECT_EQ("blob2", s1.ColumnString(2));
+
+    // Check that the AUTOFILL model_type_state is still there.
+    sql::Statement s2(connection.GetUniqueStatement(
+        "SELECT model_type, value FROM autofill_model_type_state"));
+    ASSERT_TRUE(s2.Step());
+    EXPECT_EQ(syncer::ModelTypeToHistogramInt(syncer::AUTOFILL),
+              s2.ColumnInt(0));
+    EXPECT_EQ("state", s2.ColumnString(1));
   }
 }

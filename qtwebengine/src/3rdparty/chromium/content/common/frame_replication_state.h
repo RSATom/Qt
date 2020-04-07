@@ -10,8 +10,9 @@
 
 #include "content/common/content_export.h"
 #include "content/common/content_security_policy_header.h"
-#include "content/common/feature_policy/feature_policy.h"
-#include "third_party/WebKit/public/platform/WebInsecureRequestPolicy.h"
+#include "third_party/blink/public/common/feature_policy/feature_policy.h"
+#include "third_party/blink/public/common/frame/frame_policy.h"
+#include "third_party/blink/public/platform/web_insecure_request_policy.h"
 #include "url/origin.h"
 
 namespace blink {
@@ -28,10 +29,11 @@ struct CONTENT_EXPORT FrameReplicationState {
   FrameReplicationState(blink::WebTreeScopeType scope,
                         const std::string& name,
                         const std::string& unique_name,
-                        blink::WebSandboxFlags sandbox_flags,
                         blink::WebInsecureRequestPolicy insecure_request_policy,
+                        const std::vector<uint32_t>& insecure_navigations_set,
                         bool has_potentially_trustworthy_unique_origin,
-                        bool has_received_user_gesture);
+                        bool has_received_user_gesture,
+                        bool has_received_user_gesture_before_nav);
   FrameReplicationState(const FrameReplicationState& other);
   ~FrameReplicationState();
 
@@ -46,20 +48,6 @@ struct CONTENT_EXPORT FrameReplicationState {
   // (if ever). This would reduce leaking a user's browsing history into a
   // compromized renderer.
   url::Origin origin;
-
-  // Sandbox flags currently in effect for the frame.  |sandbox_flags| are
-  // initialized for new child frames using the value of the <iframe> element's
-  // "sandbox" attribute, combined with any sandbox flags in effect for the
-  // parent frame.
-  //
-  // When a parent frame updates an <iframe>'s sandbox attribute via
-  // JavaScript, |sandbox_flags| are updated only after the child frame commits
-  // a navigation that makes the updated flags take effect.  This is also the
-  // point at which updates are sent to proxies (see
-  // CommitPendingSandboxFlags()). The proxies need updated flags so that they
-  // can be inherited properly if a proxy ever becomes a parent of a local
-  // frame.
-  blink::WebSandboxFlags sandbox_flags;
 
   // The assigned name of the frame (see WebFrame::assignedName()).
   //
@@ -88,10 +76,29 @@ struct CONTENT_EXPORT FrameReplicationState {
 
   // Parsed feature policy header. May be empty if no header was sent with the
   // document.
-  ParsedFeaturePolicyHeader feature_policy_header;
+  blink::ParsedFeaturePolicy feature_policy_header;
 
-  // Container Policy. May be empty if this is the top-level frame.
-  ParsedFeaturePolicyHeader container_policy;
+  // Contains the currently active sandbox flags for this frame, including flags
+  // inherited from parent frames, the currently active flags from the <iframe>
+  // element hosting this frame, as well as any flags set from a
+  // Content-Security-Policy HTTP header.
+  blink::WebSandboxFlags active_sandbox_flags;
+
+  // Iframe sandbox flags and container policy currently in effect for the
+  // frame. Container policy may be empty if this is the top-level frame.
+  // |sandbox_flags| are initialized for new child frames using the value of the
+  // <iframe> element's "sandbox" attribute, combined with any sandbox flags in
+  // effect for the parent frame. This does *not* include any flags set by a
+  // Content-Security-Policy header delivered with the framed document.
+  //
+  // When a parent frame updates an <iframe>'s sandbox attribute via
+  // JavaScript, |sandbox_flags| are updated only after the child frame commits
+  // a navigation that makes the updated flags take effect.  This is also the
+  // point at which updates are sent to proxies (see
+  // CommitPendingFramePolicy()). The proxies need updated flags so that they
+  // can be inherited properly if a proxy ever becomes a parent of a local
+  // frame.
+  blink::FramePolicy frame_policy;
 
   // Accumulated CSP headers - gathered from http headers, <meta> elements,
   // parent frames (in case of about:blank frames).
@@ -110,12 +117,25 @@ struct CONTENT_EXPORT FrameReplicationState {
   // different processes.
   blink::WebInsecureRequestPolicy insecure_request_policy;
 
+  // The upgrade insecure navigations set that a frame's current document is
+  // enforcing. Updates are immediately sent to all frame proxies when frames
+  // live in different processes. Elements in the set are hashes of hosts to be
+  // upgraded.
+  std::vector<uint32_t> insecure_navigations_set;
+
   // True if a frame's origin is unique and should be considered potentially
   // trustworthy.
   bool has_potentially_trustworthy_unique_origin;
 
   // Whether the frame has ever received a user gesture anywhere.
   bool has_received_user_gesture;
+
+  // Whether the frame has received a user gesture in a previous navigation so
+  // long as a the frame has staying on the same eTLD+1.
+  bool has_received_user_gesture_before_nav;
+
+  // IMPORTANT NOTE: When adding a new member to this struct, don't forget to
+  // also add a corresponding entry to the struct traits in frame_messages.h!
 };
 
 }  // namespace content

@@ -7,7 +7,6 @@
 #include <utility>
 
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
@@ -41,12 +40,12 @@ const char HttpRequestHeaders::kProxyAuthorization[] = "Proxy-Authorization";
 const char HttpRequestHeaders::kProxyConnection[] = "Proxy-Connection";
 const char HttpRequestHeaders::kRange[] = "Range";
 const char HttpRequestHeaders::kReferer[] = "Referer";
+const char HttpRequestHeaders::kSecOriginPolicy[] = "Sec-Origin-Policy";
 const char HttpRequestHeaders::kTransferEncoding[] = "Transfer-Encoding";
 const char HttpRequestHeaders::kTokenBinding[] = "Sec-Token-Binding";
 const char HttpRequestHeaders::kUserAgent[] = "User-Agent";
 
-HttpRequestHeaders::HeaderKeyValuePair::HeaderKeyValuePair() {
-}
+HttpRequestHeaders::HeaderKeyValuePair::HeaderKeyValuePair() = default;
 
 HttpRequestHeaders::HeaderKeyValuePair::HeaderKeyValuePair(
     const base::StringPiece& key, const base::StringPiece& value)
@@ -59,7 +58,7 @@ HttpRequestHeaders::Iterator::Iterator(const HttpRequestHeaders& headers)
       curr_(headers.headers_.begin()),
       end_(headers.headers_.end()) {}
 
-HttpRequestHeaders::Iterator::~Iterator() {}
+HttpRequestHeaders::Iterator::~Iterator() = default;
 
 bool HttpRequestHeaders::Iterator::GetNext() {
   if (!started_) {
@@ -74,10 +73,16 @@ bool HttpRequestHeaders::Iterator::GetNext() {
   return curr_ != end_;
 }
 
-HttpRequestHeaders::HttpRequestHeaders() {}
+HttpRequestHeaders::HttpRequestHeaders() = default;
 HttpRequestHeaders::HttpRequestHeaders(const HttpRequestHeaders& other) =
     default;
-HttpRequestHeaders::~HttpRequestHeaders() {}
+HttpRequestHeaders::HttpRequestHeaders(HttpRequestHeaders&& other) = default;
+HttpRequestHeaders::~HttpRequestHeaders() = default;
+
+HttpRequestHeaders& HttpRequestHeaders::operator=(
+    const HttpRequestHeaders& other) = default;
+HttpRequestHeaders& HttpRequestHeaders::operator=(HttpRequestHeaders&& other) =
+    default;
 
 bool HttpRequestHeaders::GetHeader(const base::StringPiece& key,
                                    std::string* out) const {
@@ -94,13 +99,9 @@ void HttpRequestHeaders::Clear() {
 
 void HttpRequestHeaders::SetHeader(const base::StringPiece& key,
                                    const base::StringPiece& value) {
-  DCHECK(HttpUtil::IsValidHeaderName(key));
-  DCHECK(HttpUtil::IsValidHeaderValue(value));
-  HeaderVector::iterator it = FindHeader(key);
-  if (it != headers_.end())
-    it->value.assign(value.data(), value.size());
-  else
-    headers_.push_back(HeaderKeyValuePair(key, value));
+  DCHECK(HttpUtil::IsValidHeaderName(key)) << key;
+  DCHECK(HttpUtil::IsValidHeaderValue(value)) << key << ":" << value;
+  SetHeaderInternal(key, value);
 }
 
 void HttpRequestHeaders::SetHeaderIfMissing(const base::StringPiece& key,
@@ -191,9 +192,9 @@ std::string HttpRequestHeaders::ToString() const {
 std::unique_ptr<base::Value> HttpRequestHeaders::NetLogCallback(
     const std::string* request_line,
     NetLogCaptureMode capture_mode) const {
-  auto dict = base::MakeUnique<base::DictionaryValue>();
+  auto dict = std::make_unique<base::DictionaryValue>();
   dict->SetString("line", EscapeNonASCII(*request_line));
-  auto headers = base::MakeUnique<base::ListValue>();
+  auto headers = std::make_unique<base::ListValue>();
   for (HeaderVector::const_iterator it = headers_.begin(); it != headers_.end();
        ++it) {
     std::string log_value =
@@ -205,37 +206,6 @@ std::unique_ptr<base::Value> HttpRequestHeaders::NetLogCallback(
   }
   dict->Set("headers", std::move(headers));
   return std::move(dict);
-}
-
-// static
-bool HttpRequestHeaders::FromNetLogParam(const base::Value* event_param,
-                                         HttpRequestHeaders* headers,
-                                         std::string* request_line) {
-  headers->Clear();
-  *request_line = "";
-
-  const base::DictionaryValue* dict = NULL;
-  const base::ListValue* header_list = NULL;
-
-  if (!event_param ||
-      !event_param->GetAsDictionary(&dict) ||
-      !dict->GetList("headers", &header_list) ||
-      !dict->GetString("line", request_line)) {
-    return false;
-  }
-
-  for (base::ListValue::const_iterator it = header_list->begin();
-       it != header_list->end();
-       ++it) {
-    std::string header_line;
-    if (!it->GetAsString(&header_line)) {
-      headers->Clear();
-      *request_line = "";
-      return false;
-    }
-    headers->AddHeaderFromString(header_line);
-  }
-  return true;
 }
 
 HttpRequestHeaders::HeaderVector::iterator
@@ -258,6 +228,15 @@ HttpRequestHeaders::FindHeader(const base::StringPiece& key) const {
   }
 
   return headers_.end();
+}
+
+void HttpRequestHeaders::SetHeaderInternal(const base::StringPiece& key,
+                                           const base::StringPiece& value) {
+  HeaderVector::iterator it = FindHeader(key);
+  if (it != headers_.end())
+    it->value.assign(value.data(), value.size());
+  else
+    headers_.push_back(HeaderKeyValuePair(key, value));
 }
 
 }  // namespace net

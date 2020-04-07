@@ -46,6 +46,7 @@
 #include <QtLocation/QPlaceIcon>
 #include <QtLocation/QPlaceResult>
 #include <QtLocation/QPlaceProposedSearchResult>
+#include <QtLocation/private/qplacesearchrequest_p.h>
 
 #include <QtCore/QDebug>
 
@@ -113,15 +114,24 @@ void QPlaceSearchReplyHere::replyFinished()
             results.append(parseSearchResult(item));
     }
 
+    QPlaceSearchRequest r_orig = request();
+    QPlaceSearchRequestPrivate *rpimpl_orig = QPlaceSearchRequestPrivate::get(r_orig);
+
     if (resultsObject.contains(QStringLiteral("next"))) {
         QPlaceSearchRequest request;
         request.setSearchContext(QUrl(resultsObject.value(QStringLiteral("next")).toString()));
+        QPlaceSearchRequestPrivate *rpimpl = QPlaceSearchRequestPrivate::get(request);
+        rpimpl->related = true;
+        rpimpl->page = rpimpl_orig->page + 1;
         setNextPageRequest(request);
     }
 
     if (resultsObject.contains(QStringLiteral("previous"))) {
         QPlaceSearchRequest request;
         request.setSearchContext(QUrl(resultsObject.value(QStringLiteral("previous")).toString()));
+        QPlaceSearchRequestPrivate *rpimpl = QPlaceSearchRequestPrivate::get(request);
+        rpimpl->related = true;
+        rpimpl->page = rpimpl_orig->page - 1;
         setPreviousPageRequest(request);
     }
 

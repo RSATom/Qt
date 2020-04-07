@@ -60,12 +60,12 @@ class QMakeProject;
 
 class EvalHandler : public QMakeHandler {
 public:
-    void message(int type, const QString &msg, const QString &fileName, int lineNo);
+    void message(int type, const QString &msg, const QString &fileName, int lineNo) override;
 
-    void fileMessage(int type, const QString &msg);
+    void fileMessage(int type, const QString &msg) override;
 
-    void aboutToEval(ProFile *, ProFile *, EvalFileType);
-    void doneWithEval(ProFile *);
+    void aboutToEval(ProFile *, ProFile *, EvalFileType) override;
+    void doneWithEval(ProFile *) override;
 };
 
 struct Option
@@ -108,7 +108,7 @@ struct Option
     };
 
     //both of these must be called..
-    static int init(int argc=0, char **argv=0); //parse cmdline
+    static int init(int argc = 0, char **argv = nullptr); //parse cmdline
     static void prepareProject(const QString &pfile);
     static bool postProcessProject(QMakeProject *);
 

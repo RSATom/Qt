@@ -7,7 +7,6 @@
 #include <map>
 
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "ui/aura/client/aura_constants.h"
 #include "ui/aura/client/default_capture_client.h"
 #include "ui/aura/client/focus_change_observer.h"
@@ -147,6 +146,39 @@ class RecordingActivationAndFocusChangeObserver
   bool was_notified_with_deleted_window_;
 
   DISALLOW_COPY_AND_ASSIGN(RecordingActivationAndFocusChangeObserver);
+};
+
+// Hides a window when activation changes.
+class HideOnLoseActivationChangeObserver : public ActivationChangeObserver {
+ public:
+  explicit HideOnLoseActivationChangeObserver(aura::Window* window_to_hide)
+      : root_(window_to_hide->GetRootWindow()),
+        window_to_hide_(window_to_hide) {
+    GetActivationClient(root_)->AddObserver(this);
+  }
+
+  ~HideOnLoseActivationChangeObserver() override {
+    GetActivationClient(root_)->RemoveObserver(this);
+  }
+
+  aura::Window* window_to_hide() { return window_to_hide_; }
+
+ private:
+  // Overridden from ActivationChangeObserver:
+  void OnWindowActivated(ActivationReason reason,
+                         aura::Window* gained_active,
+                         aura::Window* lost_active) override {
+    if (window_to_hide_) {
+      aura::Window* window_to_hide = window_to_hide_;
+      window_to_hide_ = nullptr;
+      window_to_hide->Hide();
+    }
+  }
+
+  aura::Window* root_;
+  aura::Window* window_to_hide_;
+
+  DISALLOW_COPY_AND_ASSIGN(HideOnLoseActivationChangeObserver);
 };
 
 // ActivationChangeObserver that deletes the window losing activation.
@@ -465,6 +497,7 @@ class FocusControllerTestBase : public aura::test::AuraTestBase {
   virtual void ChangeFocusWhenNothingFocusedAndCaptured() {}
   virtual void DontPassDeletedWindow() {}
   virtual void StackWindowAtTopOnActivation() {}
+  virtual void HideFocusedWindowDuringActivationLoss() {}
 
  private:
   std::unique_ptr<FocusController> focus_controller_;
@@ -838,7 +871,7 @@ class FocusControllerDirectTestBase : public FocusControllerTestBase {
   void StackWindowAtTopOnActivation() override {
     // Create a window, show it and then activate it.
     std::unique_ptr<aura::Window> window1 =
-        base::MakeUnique<aura::Window>(nullptr);
+        std::make_unique<aura::Window>(nullptr);
     window1->SetType(aura::client::WINDOW_TYPE_NORMAL);
     window1->Init(ui::LAYER_TEXTURED);
     root_window()->AddChild(window1.get());
@@ -850,7 +883,7 @@ class FocusControllerDirectTestBase : public FocusControllerTestBase {
     // Create another window, show it but don't activate it. The window is not
     // the active window but is placed on top of window stack.
     std::unique_ptr<aura::Window> window2 =
-        base::MakeUnique<aura::Window>(nullptr);
+        std::make_unique<aura::Window>(nullptr);
     window2->SetType(aura::client::WINDOW_TYPE_NORMAL);
     window2->Init(ui::LAYER_TEXTURED);
     root_window()->AddChild(window2.get());
@@ -863,6 +896,22 @@ class FocusControllerDirectTestBase : public FocusControllerTestBase {
     ActivateWindow(window1.get());
     EXPECT_EQ(window1.get(), root_window()->children().back());
     EXPECT_EQ(window1.get(), GetActiveWindow());
+  }
+
+  // Verifies focus isn't left when during notification of an activation change
+  // the focused window is hidden.
+  void HideFocusedWindowDuringActivationLoss() override {
+    aura::Window* w11 = root_window()->GetChildById(11);
+    FocusWindow(w11);
+    EXPECT_EQ(11, GetFocusedWindowId());
+    EXPECT_EQ(1, GetActiveWindowId());
+    {
+      HideOnLoseActivationChangeObserver observer(w11);
+      ActivateWindowById(2);
+      EXPECT_EQ(nullptr, observer.window_to_hide());
+      EXPECT_EQ(2, GetActiveWindowId());
+      EXPECT_EQ(2, GetFocusedWindowId());
+    }
   }
 
  private:
@@ -904,7 +953,8 @@ class FocusControllerMouseEventTest : public FocusControllerDirectTestBase {
     EXPECT_EQ(NULL, GetActiveWindow());
     aura::Window* w1 = root_window()->GetChildById(1);
     SimpleEventHandler handler;
-    root_window()->PrependPreTargetHandler(&handler);
+    root_window()->AddPreTargetHandler(&handler,
+                                       ui::EventTarget::Priority::kSystem);
     ui::test::EventGenerator generator(root_window(), w1);
     generator.ClickLeftButton();
     EXPECT_EQ(NULL, GetActiveWindow());
@@ -1310,6 +1360,9 @@ FOCUS_CONTROLLER_TEST(FocusControllerApiTest,
 FOCUS_CONTROLLER_TEST(FocusControllerApiTest, DontPassDeletedWindow);
 
 FOCUS_CONTROLLER_TEST(FocusControllerApiTest, StackWindowAtTopOnActivation);
+
+FOCUS_CONTROLLER_TEST(FocusControllerApiTest,
+                      HideFocusedWindowDuringActivationLoss);
 
 // See description above TransientChildWindowActivationTest() for details.
 FOCUS_CONTROLLER_TEST(FocusControllerParentHideTest,

@@ -192,20 +192,14 @@ static QQuickItem *effectiveContentItem(QQuickItem *item)
     return item;
 }
 
-QQuickContainerPrivate::QQuickContainerPrivate()
-    : contentModel(nullptr),
-      currentIndex(-1),
-      updatingCurrent(false),
-      changeTypes(Destroyed | Parent | SiblingOrder)
-{
-}
-
 void QQuickContainerPrivate::init()
 {
     Q_Q(QQuickContainer);
     contentModel = new QQmlObjectModel(q);
     QObject::connect(contentModel, &QQmlObjectModel::countChanged, q, &QQuickContainer::countChanged);
     QObject::connect(contentModel, &QQmlObjectModel::childrenChanged, q, &QQuickContainer::contentChildrenChanged);
+    connect(q, &QQuickControl::implicitContentWidthChanged, this, &QQuickContainerPrivate::updateContentWidth);
+    connect(q, &QQuickControl::implicitContentHeightChanged, this, &QQuickContainerPrivate::updateContentHeight);
 }
 
 void QQuickContainerPrivate::cleanup()
@@ -247,7 +241,7 @@ void QQuickContainerPrivate::insertItem(int index, QQuickItem *item)
 
     updatingCurrent = true;
 
-    item->setParentItem(effectiveContentItem(contentItem));
+    item->setParentItem(effectiveContentItem(getContentItem()));
     QQuickItemPrivate::get(item)->addItemChangeListener(this, changeTypes);
     contentModel->insert(index, item);
 
@@ -377,6 +371,8 @@ void QQuickContainerPrivate::itemDestroyed(QQuickItem *item)
     int index = contentModel->indexOf(item, nullptr);
     if (index != -1)
         removeItem(index, item);
+    else
+        QQuickControlPrivate::itemDestroyed(item);
 }
 
 void QQuickContainerPrivate::contentData_append(QQmlListProperty<QObject> *prop, QObject *obj)
@@ -434,6 +430,26 @@ void QQuickContainerPrivate::contentChildren_clear(QQmlListProperty<QQuickItem> 
 {
     QQuickContainer *q = static_cast<QQuickContainer *>(prop->object);
     return QQuickContainerPrivate::get(q)->contentModel->clear();
+}
+
+void QQuickContainerPrivate::updateContentWidth()
+{
+    Q_Q(QQuickContainer);
+    if (hasContentWidth || qFuzzyCompare(contentWidth, implicitContentWidth))
+        return;
+
+    contentWidth = implicitContentWidth;
+    emit q->contentWidthChanged();
+}
+
+void QQuickContainerPrivate::updateContentHeight()
+{
+    Q_Q(QQuickContainer);
+    if (hasContentHeight || qFuzzyCompare(contentHeight, implicitContentHeight))
+        return;
+
+    contentHeight = implicitContentHeight;
+    emit q->contentHeightChanged();
 }
 
 QQuickContainer::QQuickContainer(QQuickItem *parent)
@@ -751,6 +767,86 @@ QQuickItem *QQuickContainer::currentItem() const
     return itemAt(d->currentIndex);
 }
 
+/*!
+    \since QtQuick.Controls 2.5 (Qt 5.12)
+    \qmlproperty real QtQuick.Controls::Container::contentWidth
+
+    This property holds the content width. It is used for calculating the total
+    implicit width of the container.
+
+    Unless explicitly overridden, the content width is automatically calculated
+    based on the implicit width of the items in the container.
+
+    \sa contentHeight
+*/
+qreal QQuickContainer::contentWidth() const
+{
+    Q_D(const QQuickContainer);
+    return d->contentWidth;
+}
+
+void QQuickContainer::setContentWidth(qreal width)
+{
+    Q_D(QQuickContainer);
+    d->hasContentWidth = true;
+    if (qFuzzyCompare(d->contentWidth, width))
+        return;
+
+    d->contentWidth = width;
+    d->resizeContent();
+    emit contentWidthChanged();
+}
+
+void QQuickContainer::resetContentWidth()
+{
+    Q_D(QQuickContainer);
+    if (!d->hasContentWidth)
+        return;
+
+    d->hasContentWidth = false;
+    d->updateContentWidth();
+}
+
+/*!
+    \since QtQuick.Controls 2.5 (Qt 5.12)
+    \qmlproperty real QtQuick.Controls::Container::contentHeight
+
+    This property holds the content height. It is used for calculating the total
+    implicit height of the container.
+
+    Unless explicitly overridden, the content height is automatically calculated
+    based on the implicit height of the items in the container.
+
+    \sa contentWidth
+*/
+qreal QQuickContainer::contentHeight() const
+{
+    Q_D(const QQuickContainer);
+    return d->contentHeight;
+}
+
+void QQuickContainer::setContentHeight(qreal height)
+{
+    Q_D(QQuickContainer);
+    d->hasContentHeight = true;
+    if (qFuzzyCompare(d->contentHeight, height))
+        return;
+
+    d->contentHeight = height;
+    d->resizeContent();
+    emit contentHeightChanged();
+}
+
+void QQuickContainer::resetContentHeight()
+{
+    Q_D(QQuickContainer);
+    if (!d->hasContentHeight)
+        return;
+
+    d->hasContentHeight = false;
+    d->updateContentHeight();
+}
+
 void QQuickContainer::componentComplete()
 {
     Q_D(QQuickContainer);
@@ -776,7 +872,7 @@ void QQuickContainer::contentItemChange(QQuickItem *newItem, QQuickItem *oldItem
     static const int slotIndex = metaObject()->indexOfSlot("_q_currentIndexChanged()");
 
     if (oldItem) {
-        QQuickItemPrivate::get(oldItem)->removeItemChangeListener(d, QQuickItemPrivate::Children);
+        QQuickItemPrivate::get(oldItem)->removeItemChangeListener(d, QQuickItemPrivate::Children | QQuickItemPrivate::ImplicitWidth | QQuickItemPrivate::ImplicitHeight);
         QQuickItem *oldContentItem = effectiveContentItem(oldItem);
         if (oldContentItem != oldItem)
             QQuickItemPrivate::get(oldContentItem)->removeItemChangeListener(d, QQuickItemPrivate::Children);
@@ -787,7 +883,7 @@ void QQuickContainer::contentItemChange(QQuickItem *newItem, QQuickItem *oldItem
     }
 
     if (newItem) {
-        QQuickItemPrivate::get(newItem)->addItemChangeListener(d, QQuickItemPrivate::Children);
+        QQuickItemPrivate::get(newItem)->addItemChangeListener(d, QQuickItemPrivate::Children | QQuickItemPrivate::ImplicitWidth | QQuickItemPrivate::ImplicitHeight);
         QQuickItem *newContentItem = effectiveContentItem(newItem);
         if (newContentItem != newItem)
             QQuickItemPrivate::get(newContentItem)->addItemChangeListener(d, QQuickItemPrivate::Children);

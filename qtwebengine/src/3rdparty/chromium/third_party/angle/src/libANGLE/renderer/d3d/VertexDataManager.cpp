@@ -11,11 +11,12 @@
 
 #include "common/bitset_utils.h"
 #include "libANGLE/Buffer.h"
-#include "libANGLE/formatutils.h"
+#include "libANGLE/Context.h"
 #include "libANGLE/Program.h"
 #include "libANGLE/State.h"
-#include "libANGLE/VertexAttribute.h"
 #include "libANGLE/VertexArray.h"
+#include "libANGLE/VertexAttribute.h"
+#include "libANGLE/formatutils.h"
 #include "libANGLE/renderer/d3d/BufferD3D.h"
 #include "libANGLE/renderer/d3d/RendererD3D.h"
 #include "libANGLE/renderer/d3d/VertexBuffer.h"
@@ -113,6 +114,7 @@ bool DirectStoragePossible(const gl::VertexAttribute &attrib, const gl::VertexBi
 TranslatedAttribute::TranslatedAttribute()
     : active(false),
       attribute(nullptr),
+      binding(nullptr),
       currentValueType(GL_NONE),
       baseOffset(0),
       usesFirstVertexOffset(false),
@@ -124,6 +126,8 @@ TranslatedAttribute::TranslatedAttribute()
 {
 }
 
+TranslatedAttribute::TranslatedAttribute(const TranslatedAttribute &other) = default;
+
 gl::ErrorOrResult<unsigned int> TranslatedAttribute::computeOffset(GLint startVertex) const
 {
     if (!usesFirstVertexOffset)
@@ -134,7 +138,7 @@ gl::ErrorOrResult<unsigned int> TranslatedAttribute::computeOffset(GLint startVe
     CheckedNumeric<unsigned int> offset;
 
     offset = baseOffset + stride * static_cast<unsigned int>(startVertex);
-    ANGLE_TRY_CHECKED_MATH(offset);
+    ANGLE_TRY_CHECKED_MATH(offset.IsValid());
     return offset.ValueOrDie();
 }
 
@@ -149,7 +153,7 @@ VertexStorageType ClassifyAttributeStorage(const gl::VertexAttribute &attrib,
     }
 
     // If specified with immediate data, we must use dynamic storage.
-    auto *buffer = binding.getBuffer().get();
+    gl::Buffer *buffer = binding.getBuffer().get();
     if (!buffer)
     {
         return VertexStorageType::DYNAMIC;
@@ -176,9 +180,7 @@ VertexStorageType ClassifyAttributeStorage(const gl::VertexAttribute &attrib,
     }
 }
 
-VertexDataManager::CurrentValueState::CurrentValueState()
-    : buffer(nullptr),
-      offset(0)
+VertexDataManager::CurrentValueState::CurrentValueState() : buffer(), offset(0)
 {
     data.FloatValues[0] = std::numeric_limits<float>::quiet_NaN();
     data.FloatValues[1] = std::numeric_limits<float>::quiet_NaN();
@@ -189,29 +191,32 @@ VertexDataManager::CurrentValueState::CurrentValueState()
 
 VertexDataManager::CurrentValueState::~CurrentValueState()
 {
-    SafeDelete(buffer);
 }
 
 VertexDataManager::VertexDataManager(BufferFactoryD3D *factory)
-    : mFactory(factory),
-      mStreamingBuffer(nullptr),
-      // TODO(jmadill): use context caps
-      mCurrentValueCache(gl::MAX_VERTEX_ATTRIBS)
+    : mFactory(factory), mStreamingBuffer(), mCurrentValueCache(gl::MAX_VERTEX_ATTRIBS)
 {
-    mStreamingBuffer = new StreamingVertexBufferInterface(factory, INITIAL_STREAM_BUFFER_SIZE);
-
-    if (!mStreamingBuffer)
-    {
-        ERR() << "Failed to allocate the streaming vertex buffer.";
-    }
 }
 
 VertexDataManager::~VertexDataManager()
 {
-    SafeDelete(mStreamingBuffer);
 }
 
-gl::Error VertexDataManager::prepareVertexData(const gl::State &state,
+gl::Error VertexDataManager::initialize()
+{
+    mStreamingBuffer.reset(
+        new StreamingVertexBufferInterface(mFactory, INITIAL_STREAM_BUFFER_SIZE));
+    ANGLE_TRY_ALLOCATION(mStreamingBuffer);
+    return gl::NoError();
+}
+
+void VertexDataManager::deinitialize()
+{
+    mStreamingBuffer.reset();
+    mCurrentValueCache.clear();
+}
+
+gl::Error VertexDataManager::prepareVertexData(const gl::Context *context,
                                                GLint start,
                                                GLsizei count,
                                                std::vector<TranslatedAttribute> *translatedAttribs,
@@ -219,6 +224,7 @@ gl::Error VertexDataManager::prepareVertexData(const gl::State &state,
 {
     ASSERT(mStreamingBuffer);
 
+    const gl::State &state             = context->getGLState();
     const gl::VertexArray *vertexArray = state.getVertexArray();
     const auto &vertexAttributes       = vertexArray->getVertexAttributes();
     const auto &vertexBindings         = vertexArray->getVertexBindings();
@@ -255,7 +261,7 @@ gl::Error VertexDataManager::prepareVertexData(const gl::State &state,
             case VertexStorageType::STATIC:
             {
                 // Store static attribute.
-                ANGLE_TRY(StoreStaticAttrib(translated));
+                ANGLE_TRY(StoreStaticAttrib(context, translated));
                 break;
             }
             case VertexStorageType::DYNAMIC:
@@ -282,10 +288,10 @@ gl::Error VertexDataManager::prepareVertexData(const gl::State &state,
         return gl::NoError();
     }
 
-    ANGLE_TRY(
-        storeDynamicAttribs(translatedAttribs, mDynamicAttribsMaskCache, start, count, instances));
+    ANGLE_TRY(storeDynamicAttribs(context, translatedAttribs, mDynamicAttribsMaskCache, start,
+                                  count, instances));
 
-    PromoteDynamicAttribs(*translatedAttribs, mDynamicAttribsMaskCache, count);
+    PromoteDynamicAttribs(context, *translatedAttribs, mDynamicAttribsMaskCache, count);
 
     return gl::NoError();
 }
@@ -298,7 +304,8 @@ void VertexDataManager::StoreDirectAttrib(TranslatedAttribute *directAttrib)
     const auto &binding = *directAttrib->binding;
 
     gl::Buffer *buffer   = binding.getBuffer().get();
-    BufferD3D *bufferD3D = buffer ? GetImplAs<BufferD3D>(buffer) : nullptr;
+    ASSERT(buffer);
+    BufferD3D *bufferD3D = GetImplAs<BufferD3D>(buffer);
 
     ASSERT(DirectStoragePossible(attrib, binding));
     directAttrib->vertexBuffer.set(nullptr);
@@ -313,7 +320,8 @@ void VertexDataManager::StoreDirectAttrib(TranslatedAttribute *directAttrib)
 }
 
 // static
-gl::Error VertexDataManager::StoreStaticAttrib(TranslatedAttribute *translated)
+gl::Error VertexDataManager::StoreStaticAttrib(const gl::Context *context,
+                                               TranslatedAttribute *translated)
 {
     ASSERT(translated->attribute && translated->binding);
     const auto &attrib  = *translated->attribute;
@@ -327,7 +335,7 @@ gl::Error VertexDataManager::StoreStaticAttrib(TranslatedAttribute *translated)
     const uint8_t *sourceData = nullptr;
     const int offset          = static_cast<int>(ComputeVertexAttributeOffset(attrib, binding));
 
-    ANGLE_TRY(bufferD3D->getData(&sourceData));
+    ANGLE_TRY(bufferD3D->getData(context, &sourceData));
     sourceData += offset;
 
     unsigned int streamOffset = 0;
@@ -376,10 +384,11 @@ gl::Error VertexDataManager::StoreStaticAttrib(TranslatedAttribute *translated)
 }
 
 gl::Error VertexDataManager::storeDynamicAttribs(
+    const gl::Context *context,
     std::vector<TranslatedAttribute> *translatedAttribs,
     const gl::AttributesMask &dynamicAttribsMask,
     GLint start,
-    GLsizei count,
+    size_t count,
     GLsizei instances)
 {
     // Instantiating this class will ensure the streaming buffer is never left mapped.
@@ -398,29 +407,30 @@ gl::Error VertexDataManager::storeDynamicAttribs(
     };
 
     // Will trigger unmapping on return.
-    StreamingBufferUnmapper localUnmapper(mStreamingBuffer);
+    StreamingBufferUnmapper localUnmapper(mStreamingBuffer.get());
 
     // Reserve the required space for the dynamic buffers.
     for (auto attribIndex : dynamicAttribsMask)
     {
         const auto &dynamicAttrib = (*translatedAttribs)[attribIndex];
-        ANGLE_TRY(reserveSpaceForAttrib(dynamicAttrib, count, instances));
+        ANGLE_TRY(reserveSpaceForAttrib(dynamicAttrib, start, count, instances));
     }
 
     // Store dynamic attributes
     for (auto attribIndex : dynamicAttribsMask)
     {
         auto *dynamicAttrib = &(*translatedAttribs)[attribIndex];
-        ANGLE_TRY(storeDynamicAttrib(dynamicAttrib, start, count, instances));
+        ANGLE_TRY(storeDynamicAttrib(context, dynamicAttrib, start, count, instances));
     }
 
     return gl::NoError();
 }
 
 void VertexDataManager::PromoteDynamicAttribs(
+    const gl::Context *context,
     const std::vector<TranslatedAttribute> &translatedAttribs,
     const gl::AttributesMask &dynamicAttribsMask,
-    GLsizei count)
+    size_t count)
 {
     for (auto attribIndex : dynamicAttribsMask)
     {
@@ -431,15 +441,17 @@ void VertexDataManager::PromoteDynamicAttribs(
         gl::Buffer *buffer = binding.getBuffer().get();
         if (buffer)
         {
+            // Note: this multiplication can overflow. It should not be a security problem.
             BufferD3D *bufferD3D = GetImplAs<BufferD3D>(buffer);
             size_t typeSize      = ComputeVertexAttributeTypeSize(*dynamicAttrib.attribute);
-            bufferD3D->promoteStaticUsage(count * static_cast<int>(typeSize));
+            bufferD3D->promoteStaticUsage(context, count * typeSize);
         }
     }
 }
 
 gl::Error VertexDataManager::reserveSpaceForAttrib(const TranslatedAttribute &translatedAttrib,
-                                                   GLsizei count,
+                                                   GLint start,
+                                                   size_t count,
                                                    GLsizei instances) const
 {
     ASSERT(translatedAttrib.attribute && translatedAttrib.binding);
@@ -452,19 +464,33 @@ gl::Error VertexDataManager::reserveSpaceForAttrib(const TranslatedAttribute &tr
     BufferD3D *bufferD3D = buffer ? GetImplAs<BufferD3D>(buffer) : nullptr;
     ASSERT(!bufferD3D || bufferD3D->getStaticVertexBuffer(attrib, binding) == nullptr);
 
-    size_t totalCount = ComputeVertexBindingElementCount(binding, count, instances);
-    ASSERT(!bufferD3D ||
-           ElementsInBuffer(attrib, binding, static_cast<unsigned int>(bufferD3D->getSize())) >=
-               static_cast<int>(totalCount));
+    size_t totalCount = gl::ComputeVertexBindingElementCount(binding.getDivisor(), count,
+                                                             static_cast<size_t>(instances));
+    // TODO(jiajia.qin@intel.com): force the index buffer to clamp any out of range indices instead
+    // of invalid operation here.
+    if (bufferD3D)
+    {
+        // Vertices do not apply the 'start' offset when the divisor is non-zero even when doing
+        // a non-instanced draw call
+        GLint firstVertexIndex = binding.getDivisor() > 0 ? 0 : start;
+        int64_t maxVertexCount =
+            static_cast<int64_t>(firstVertexIndex) + static_cast<int64_t>(totalCount);
+        int elementsInBuffer =
+            ElementsInBuffer(attrib, binding, static_cast<unsigned int>(bufferD3D->getSize()));
 
-    return mStreamingBuffer->reserveVertexSpace(attrib, binding, static_cast<GLsizei>(totalCount),
-                                                instances);
+        if (maxVertexCount > elementsInBuffer)
+        {
+            return gl::InvalidOperation() << "Vertex buffer is not big enough for the draw call.";
+        }
+    }
+    return mStreamingBuffer->reserveVertexSpace(attrib, binding, totalCount, instances);
 }
 
-gl::Error VertexDataManager::storeDynamicAttrib(TranslatedAttribute *translated,
+gl::Error VertexDataManager::storeDynamicAttrib(const gl::Context *context,
+                                                TranslatedAttribute *translated,
                                                 GLint start,
-                                                GLsizei count,
-                                                GLsizei instances)
+                                                size_t count,
+                                                GLsizei instances) const
 {
     ASSERT(translated->attribute && translated->binding);
     const auto &attrib  = *translated->attribute;
@@ -484,7 +510,7 @@ gl::Error VertexDataManager::storeDynamicAttrib(TranslatedAttribute *translated,
 
     if (buffer)
     {
-        ANGLE_TRY(storage->getData(&sourceData));
+        ANGLE_TRY(storage->getData(context, &sourceData));
         sourceData += static_cast<int>(ComputeVertexAttributeOffset(attrib, binding));
     }
     else
@@ -499,7 +525,8 @@ gl::Error VertexDataManager::storeDynamicAttrib(TranslatedAttribute *translated,
     translated->storage = nullptr;
     ANGLE_TRY_RESULT(mFactory->getVertexSpaceRequired(attrib, binding, 1, 0), translated->stride);
 
-    size_t totalCount = ComputeVertexBindingElementCount(binding, count, instances);
+    size_t totalCount = gl::ComputeVertexBindingElementCount(binding.getDivisor(), count,
+                                                             static_cast<size_t>(instances));
 
     ANGLE_TRY(mStreamingBuffer->storeDynamicAttribute(
         attrib, binding, translated->currentValueType, firstVertexIndex,
@@ -520,11 +547,11 @@ gl::Error VertexDataManager::storeCurrentValue(const gl::VertexAttribCurrentValu
                                                size_t attribIndex)
 {
     CurrentValueState *cachedState = &mCurrentValueCache[attribIndex];
-    auto *&buffer                  = cachedState->buffer;
+    auto &buffer                   = cachedState->buffer;
 
     if (!buffer)
     {
-        buffer = new StreamingVertexBufferInterface(mFactory, CONSTANT_VERTEX_BUFFER_SIZE);
+        buffer.reset(new StreamingVertexBufferInterface(mFactory, CONSTANT_VERTEX_BUFFER_SIZE));
     }
 
     if (cachedState->data != currentValue)

@@ -54,7 +54,7 @@ class tst_QMutex;
 QT_BEGIN_NAMESPACE
 
 
-#if !defined(QT_NO_THREAD) || defined(Q_CLANG_QDOC)
+#if QT_CONFIG(thread) || defined(Q_CLANG_QDOC)
 
 #ifdef Q_OS_LINUX
 # define QT_MUTEX_LOCK_NOEXCEPT Q_DECL_NOTHROW
@@ -98,16 +98,16 @@ public:
 
 private:
     inline bool fastTryLock() Q_DECL_NOTHROW {
-        return d_ptr.testAndSetAcquire(Q_NULLPTR, dummyLocked());
+        return d_ptr.testAndSetAcquire(nullptr, dummyLocked());
     }
     inline bool fastTryUnlock() Q_DECL_NOTHROW {
-        return d_ptr.testAndSetRelease(dummyLocked(), Q_NULLPTR);
+        return d_ptr.testAndSetRelease(dummyLocked(), nullptr);
     }
     inline bool fastTryLock(QMutexData *&current) Q_DECL_NOTHROW {
-        return d_ptr.testAndSetAcquire(Q_NULLPTR, dummyLocked(), current);
+        return d_ptr.testAndSetAcquire(nullptr, dummyLocked(), current);
     }
     inline bool fastTryUnlock(QMutexData *&current) Q_DECL_NOTHROW {
-        return d_ptr.testAndSetRelease(dummyLocked(), Q_NULLPTR, current);
+        return d_ptr.testAndSetRelease(dummyLocked(), nullptr, current);
     }
 
     void lockInternal() QT_MUTEX_LOCK_NOEXCEPT;
@@ -139,7 +139,7 @@ public:
     // Lockable concept
     bool try_lock() QT_MUTEX_LOCK_NOEXCEPT { return tryLock(); }
 
-#if QT_HAS_INCLUDE(<chrono>)
+#if QT_HAS_INCLUDE(<chrono>) || defined(Q_CLANG_QDOC)
     // TimedLockable concept
     template <class Rep, class Period>
     bool try_lock_for(std::chrono::duration<Rep, Period> duration)
@@ -250,7 +250,7 @@ private:
     quintptr val;
 };
 
-#else // QT_NO_THREAD && !Q_CLANG_QDOC
+#else // !QT_CONFIG(thread) && !Q_CLANG_QDOC
 
 class Q_CORE_EXPORT QMutex
 {
@@ -293,7 +293,7 @@ public:
 
     inline void unlock() Q_DECL_NOTHROW {}
     void relock() Q_DECL_NOTHROW {}
-    inline QMutex *mutex() const Q_DECL_NOTHROW { return Q_NULLPTR; }
+    inline QMutex *mutex() const Q_DECL_NOTHROW { return nullptr; }
 
 private:
     Q_DISABLE_COPY(QMutexLocker)
@@ -301,7 +301,7 @@ private:
 
 typedef QMutex QBasicMutex;
 
-#endif // QT_NO_THREAD && !Q_CLANG_QDOC
+#endif // !QT_CONFIG(thread) && !Q_CLANG_QDOC
 
 QT_END_NAMESPACE
 

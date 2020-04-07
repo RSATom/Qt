@@ -29,7 +29,7 @@
 #include <utility>
 
 #if PLATFORM(QT)
-#include <QDataStream>
+#include <QtCore/qdatastream.h>
 #endif
 
 namespace WTF {

@@ -314,8 +314,6 @@ if platform.is_msvc():
               '/wd4355',
               # Disable warnings about ignored typedef in DbgHelp.h
               '/wd4091',
-              # Disable warnings about 'noexcept' used with no exception handling mode specified
-              '/wd4577',
               '/GR-',  # Disable RTTI.
               # Disable size_t -> int truncation warning.
               # We never have strings or arrays larger than 2**31.

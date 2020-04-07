@@ -8,6 +8,7 @@
 #include "SkSLString.h"
 
 #include "SkSLUtil.h"
+#include <algorithm>
 #include <errno.h>
 #include <limits.h>
 #include <locale>
@@ -24,7 +25,7 @@ String String::printf(const char* fmt, ...) {
     return result;
 }
 
-#ifdef SKSL_STANDALONE
+#ifdef SKSL_USE_STD_STRING
 void String::appendf(const char* fmt, ...) {
     va_list args;
     va_start(args, fmt);
@@ -77,6 +78,32 @@ String String::operator+(const String& s) const {
     return result;
 }
 
+String String::operator+(StringFragment s) const {
+    String result(*this);
+    result.append(s.fChars, s.fLength);
+    return result;
+}
+
+String& String::operator+=(char c) {
+    INHERITED::operator+=(c);
+    return *this;
+}
+
+String& String::operator+=(const char* s) {
+    INHERITED::operator+=(s);
+    return *this;
+}
+
+String& String::operator+=(const String& s) {
+    INHERITED::operator+=(s);
+    return *this;
+}
+
+String& String::operator+=(StringFragment s) {
+    this->append(s.fChars, s.fLength);
+    return *this;
+}
+
 bool String::operator==(const String& s) const {
     return this->size() == s.size() && !memcmp(c_str(), s.c_str(), this->size());
 }
@@ -104,6 +131,54 @@ bool operator==(const char* s1, const String& s2) {
 }
 
 bool operator!=(const char* s1, const String& s2) {
+    return s2 != s1;
+}
+
+bool StringFragment::operator==(StringFragment s) const {
+    if (fLength != s.fLength) {
+        return false;
+    }
+    return !memcmp(fChars, s.fChars, fLength);
+}
+
+bool StringFragment::operator!=(StringFragment s) const {
+    if (fLength != s.fLength) {
+        return true;
+    }
+    return memcmp(fChars, s.fChars, fLength);
+}
+
+bool StringFragment::operator==(const char* s) const {
+    for (size_t i = 0; i < fLength; ++i) {
+        if (fChars[i] != s[i]) {
+            return false;
+        }
+    }
+    return 0 == s[fLength];
+}
+
+bool StringFragment::operator!=(const char* s) const {
+    for (size_t i = 0; i < fLength; ++i) {
+        if (fChars[i] != s[i]) {
+            return true;
+        }
+    }
+    return 0 != s[fLength];
+}
+
+bool StringFragment::operator<(StringFragment other) const {
+    int comparison = strncmp(fChars, other.fChars, std::min(fLength, other.fLength));
+    if (comparison) {
+        return comparison < 0;
+    }
+    return fLength < other.fLength;
+}
+
+bool operator==(const char* s1, StringFragment s2) {
+    return s2 == s1;
+}
+
+bool operator!=(const char* s1, StringFragment s2) {
     return s2 != s1;
 }
 
@@ -135,8 +210,8 @@ String to_string(double value) {
 #endif
 #define MAX_DOUBLE_CHARS 25
     char buffer[MAX_DOUBLE_CHARS];
-    SKSL_DEBUGCODE(int len = )SNPRINTF(buffer, sizeof(buffer), "%.17g", value);
-    ASSERT(len < MAX_DOUBLE_CHARS);
+    SkDEBUGCODE(int len = )SNPRINTF(buffer, sizeof(buffer), "%.17g", value);
+    SkASSERT(len < MAX_DOUBLE_CHARS);
     String result(buffer);
     if (!strchr(buffer, '.') && !strchr(buffer, 'e')) {
         result += ".0";
@@ -146,31 +221,31 @@ String to_string(double value) {
 #undef MAX_DOUBLE_CHARS
 }
 
-int stoi(String s) {
+int stoi(const String& s) {
     char* p;
-    SKSL_DEBUGCODE(errno = 0;)
+    SkDEBUGCODE(errno = 0;)
     long result = strtoul(s.c_str(), &p, 0);
-    ASSERT(*p == 0);
-    ASSERT(!errno);
+    SkASSERT(*p == 0);
+    SkASSERT(!errno);
     return (int) result;
 }
 
-double stod(String s) {
+double stod(const String& s) {
     double result;
     std::string str(s.c_str(), s.size());
     std::stringstream buffer(str);
     buffer.imbue(std::locale::classic());
     buffer >> result;
-    ASSERT(!buffer.fail());
+    SkASSERT(!buffer.fail());
     return result;
 }
 
-long stol(String s) {
+long stol(const String& s) {
     char* p;
-    SKSL_DEBUGCODE(errno = 0;)
+    SkDEBUGCODE(errno = 0;)
     long result = strtoul(s.c_str(), &p, 0);
-    ASSERT(*p == 0);
-    ASSERT(!errno);
+    SkASSERT(*p == 0);
+    SkASSERT(!errno);
     return result;
 }
 

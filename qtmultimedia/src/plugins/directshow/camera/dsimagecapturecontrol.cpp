@@ -57,11 +57,11 @@ DSImageCaptureControl::DSImageCaptureControl(DSCameraSession *session)
             this, SIGNAL(readyForCaptureChanged(bool)));
     connect(m_session, SIGNAL(captureError(int,int,QString)),
             this, SIGNAL(error(int,int,QString)));
+    connect(m_session, &DSCameraSession::imageAvailable,
+            this, &DSImageCaptureControl::imageAvailable);
 }
 
-DSImageCaptureControl::~DSImageCaptureControl()
-{
-}
+DSImageCaptureControl::~DSImageCaptureControl() = default;
 
 bool DSImageCaptureControl::isReadyForCapture() const
 {

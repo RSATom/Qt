@@ -2,6 +2,7 @@
 
 #include <mbgl/storage/resource.hpp>
 #include <mbgl/storage/offline.hpp>
+#include <mbgl/util/exception.hpp>
 #include <mbgl/util/noncopyable.hpp>
 #include <mbgl/util/optional.hpp>
 #include <mbgl/util/constants.hpp>
@@ -10,11 +11,13 @@
 #include <unordered_map>
 #include <memory>
 #include <string>
+#include <list>
 
 namespace mapbox {
 namespace sqlite {
 class Database;
 class Statement;
+class Query;
 } // namespace sqlite
 } // namespace mapbox
 
@@ -22,6 +25,10 @@ namespace mbgl {
 
 class Response;
 class TileID;
+
+struct MapboxTileLimitExceededException :  util::Exception {
+    MapboxTileLimitExceededException() : util::Exception("Mapbox tile limit exceeded") {}
+};
 
 class OfflineDatabase : private util::noncopyable {
 public:
@@ -48,6 +55,7 @@ public:
     optional<std::pair<Response, uint64_t>> getRegionResource(int64_t regionID, const Resource&);
     optional<int64_t> hasRegionResource(int64_t regionID, const Resource&);
     uint64_t putRegionResource(int64_t regionID, const Resource&, const Response&);
+    void putRegionResources(int64_t regionID, const std::list<std::tuple<Resource, Response>>&, OfflineRegionStatus&);
 
     OfflineRegionDefinition getRegionDefinition(int64_t regionID);
     OfflineRegionStatus getRegionCompletedStatus(int64_t regionID);
@@ -56,30 +64,18 @@ public:
     uint64_t getOfflineMapboxTileCountLimit();
     bool offlineMapboxTileCountLimitExceeded();
     uint64_t getOfflineMapboxTileCount();
+    bool exceedsOfflineMapboxTileCountLimit(const Resource&);
 
 private:
-    void connect(int flags);
     int userVersion();
     void ensureSchema();
     void removeExisting();
+    void removeOldCacheTable();
     void migrateToVersion3();
     void migrateToVersion5();
     void migrateToVersion6();
 
-    class Statement {
-    public:
-        explicit Statement(mapbox::sqlite::Statement& stmt_) : stmt(stmt_) {}
-        Statement(Statement&&) = default;
-        Statement(const Statement&) = delete;
-        ~Statement();
-
-        mapbox::sqlite::Statement* operator->() { return &stmt; };
-
-    private:
-        mapbox::sqlite::Statement& stmt;
-    };
-
-    Statement getStatement(const char *);
+    mapbox::sqlite::Statement& getStatement(const char *);
 
     optional<std::pair<Response, uint64_t>> getTile(const Resource::TileData&);
     optional<int64_t> hasTile(const Resource::TileData&);
@@ -90,6 +86,8 @@ private:
     optional<int64_t> hasResource(const Resource&);
     bool putResource(const Resource&, const Response&,
                      const std::string&, bool compressed);
+
+    uint64_t putRegionResourceInternal(int64_t regionID, const Resource&, const Response&);
 
     optional<std::pair<Response, uint64_t>> getInternal(const Resource&);
     optional<int64_t> hasInternal(const Resource&);
@@ -102,8 +100,8 @@ private:
     std::pair<int64_t, int64_t> getCompletedTileCountAndSize(int64_t regionID);
 
     const std::string path;
-    std::unique_ptr<::mapbox::sqlite::Database> db;
-    std::unordered_map<const char *, std::unique_ptr<::mapbox::sqlite::Statement>> statements;
+    std::unique_ptr<mapbox::sqlite::Database> db;
+    std::unordered_map<const char *, const std::unique_ptr<mapbox::sqlite::Statement>> statements;
 
     template <class T>
     T getPragma(const char *);

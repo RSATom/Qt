@@ -7,8 +7,10 @@
 #ifndef CORE_FPDFAPI_PARSER_FPDF_PARSER_UTILITY_H_
 #define CORE_FPDFAPI_PARSER_FPDF_PARSER_UTILITY_H_
 
-#include "core/fxcrt/cfx_retain_ptr.h"
-#include "core/fxcrt/fx_basic.h"
+#include <ostream>
+
+#include "core/fxcrt/fx_string.h"
+#include "core/fxcrt/retain_ptr.h"
 
 class IFX_SeekableReadStream;
 class CPDF_Dictionary;
@@ -34,9 +36,18 @@ inline bool PDFCharIsLineEnding(uint8_t c) {
   return c == '\r' || c == '\n';
 }
 
-int32_t GetHeaderOffset(const CFX_RetainPtr<IFX_SeekableReadStream>& pFile);
-int32_t GetDirectInteger(CPDF_Dictionary* pDict, const CFX_ByteString& key);
+constexpr int32_t kInvalidHeaderOffset = -1;
 
-CFX_ByteTextBuf& operator<<(CFX_ByteTextBuf& buf, const CPDF_Object* pObj);
+// On success, return a positive offset value to the PDF header.. If the header
+// cannot be found, or if there is an error reading from |pFile|, then return
+// |kInvalidHeaderOffset|.
+int32_t GetHeaderOffset(const RetainPtr<IFX_SeekableReadStream>& pFile);
+
+int32_t GetDirectInteger(const CPDF_Dictionary* pDict, const ByteString& key);
+
+ByteString PDF_NameDecode(const ByteStringView& orig);
+ByteString PDF_NameEncode(const ByteString& orig);
+
+std::ostream& operator<<(std::ostream& buf, const CPDF_Object* pObj);
 
 #endif  // CORE_FPDFAPI_PARSER_FPDF_PARSER_UTILITY_H_

@@ -6,7 +6,6 @@
 
 #include "ash/public/cpp/shell_window_ids.h"
 #include "ash/shell.h"
-#include "ash/shell_port.h"
 #include "ash/wm/window_positioner.h"
 #include "ash/wm/window_positioning_utils.h"
 #include "components/exo/buffer.h"
@@ -230,7 +229,7 @@ TEST_F(TouchTest, IgnoreTouchEventDuringModal) {
   // Make the window modal.
   modal.shell_surface()->SetSystemModal(true);
 
-  EXPECT_TRUE(ash::ShellPort::Get()->IsSystemModalWindowOpen());
+  EXPECT_TRUE(ash::Shell::IsSystemModalWindowOpen());
   EXPECT_CALL(delegate, OnTouchShape(testing::_, testing::_, testing::_))
       .Times(testing::AnyNumber());
   EXPECT_CALL(delegate, CanAcceptTouchEventsForSurface(window.surface()))
@@ -270,7 +269,7 @@ TEST_F(TouchTest, IgnoreTouchEventDuringModal) {
 
   // Make the window non-modal.
   modal.shell_surface()->SetSystemModal(false);
-  EXPECT_FALSE(ash::ShellPort::Get()->IsSystemModalWindowOpen());
+  EXPECT_FALSE(ash::Shell::IsSystemModalWindowOpen());
 
   // Check if touch events on non-modal window are registered.
   {
@@ -393,31 +392,6 @@ TEST_F(TouchTest, OnTouchTilt) {
   generator.SetTouchTilt(1.0, 2.0);
   generator.PressTouch();
   generator.ReleaseTouch();
-
-  EXPECT_CALL(delegate, OnTouchDestroying(touch.get()));
-  touch.reset();
-}
-
-TEST_F(TouchTest, OnTouchInStylusOnlyWindow) {
-  auto window = exo_test_helper()->CreateWindow(10, 10, true);
-  window.surface()->SetStylusOnly();
-
-  MockTouchDelegate delegate;
-  std::unique_ptr<Touch> touch(new Touch(&delegate));
-  ui::test::EventGenerator generator(ash::Shell::GetPrimaryRootWindow());
-
-  EXPECT_CALL(delegate, CanAcceptTouchEventsForSurface(window.surface()))
-      .WillRepeatedly(testing::Return(true));
-
-  EXPECT_CALL(delegate,
-              OnTouchDown(window.surface(), testing::_, testing::_, testing::_))
-      .Times(0);
-  EXPECT_CALL(delegate, OnTouchMotion(testing::_, testing::_, testing::_))
-      .Times(0);
-  EXPECT_CALL(delegate, OnTouchUp(testing::_, testing::_)).Times(0);
-  EXPECT_CALL(delegate, OnTouchFrame()).Times(0);
-  generator.set_current_location(window.origin());
-  generator.PressMoveAndReleaseTouchBy(5, 5);
 
   EXPECT_CALL(delegate, OnTouchDestroying(touch.get()));
   touch.reset();

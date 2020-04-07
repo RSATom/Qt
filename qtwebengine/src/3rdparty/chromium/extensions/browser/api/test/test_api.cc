@@ -7,7 +7,6 @@
 #include <string>
 
 #include "base/command_line.h"
-#include "base/memory/ptr_util.h"
 #include "base/memory/singleton.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/common/content_switches.h"
@@ -97,7 +96,7 @@ ExtensionFunction::ResponseAction TestSendMessageFunction::Run() {
   // finish the function.
   if (!listener_will_respond || response_.get()) {
     if (!response_) {
-      response_ = OneArgument(base::MakeUnique<base::Value>(std::string()));
+      response_ = OneArgument(std::make_unique<base::Value>(std::string()));
     }
     return RespondNow(std::move(response_));
   }
@@ -110,7 +109,7 @@ TestSendMessageFunction::~TestSendMessageFunction() {}
 
 void TestSendMessageFunction::Reply(const std::string& message) {
   DCHECK(!response_);
-  response_ = OneArgument(base::MakeUnique<base::Value>(message));
+  response_ = OneArgument(std::make_unique<base::Value>(message));
   if (waiting_)
     Respond(std::move(response_));
 }
@@ -154,7 +153,7 @@ ExtensionFunction::ResponseAction TestWaitForRoundTripFunction::Run() {
   std::unique_ptr<WaitForRoundTrip::Params> params(
       WaitForRoundTrip::Params::Create(*args_));
   return RespondNow(
-      OneArgument(base::MakeUnique<base::Value>(params->message)));
+      OneArgument(std::make_unique<base::Value>(params->message)));
 }
 
 }  // namespace extensions

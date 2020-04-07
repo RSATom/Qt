@@ -10,6 +10,7 @@
 
 #include "base/bind.h"
 #include "base/stl_util.h"
+#include "content/public/browser/browser_thread.h"
 #include "extensions/browser/api/declarative_webrequest/webrequest_condition.h"
 #include "extensions/browser/api/declarative_webrequest/webrequest_constants.h"
 #include "extensions/browser/api/web_request/web_request_api_helpers.h"
@@ -55,10 +56,10 @@ std::set<const WebRequestRule*> WebRequestRulesRegistry::GetMatches(
   RuleSet result;
 
   WebRequestDataWithMatchIds request_data(&request_data_without_ids);
-  request_data.url_match_ids = url_matcher_.MatchURL(
-      request_data.data->request->url());
-  request_data.first_party_url_match_ids = url_matcher_.MatchURL(
-      request_data.data->request->first_party_for_cookies());
+  request_data.url_match_ids =
+      url_matcher_.MatchURL(request_data.data->request->url);
+  request_data.first_party_url_match_ids =
+      url_matcher_.MatchURL(request_data.data->request->site_for_cookies);
 
   // 1st phase -- add all rules with some conditions without UrlFilter
   // attributes.

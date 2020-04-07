@@ -79,6 +79,7 @@ public Q_SLOTS:
     void processSinglePositionUpdate(const QGeoPositionInfo& pInfo);
 
     void locationProviderDisabled();
+    void locationProvidersChanged();
 private Q_SLOTS:
     void requestTimeout();
 

@@ -4,11 +4,11 @@
 
 #include "chrome/browser/extensions/api/tab_capture/tab_capture_registry.h"
 
+#include <memory>
 #include <utility>
 
 #include "base/lazy_instance.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/values.h"
 #include "chrome/browser/sessions/session_tab_helper.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
@@ -192,7 +192,7 @@ class TabCaptureRegistry::LiveRequest : public content::WebContentsObserver {
   }
 
   void GetCaptureInfo(tab_capture::CaptureInfo* info) const {
-    info->tab_id = SessionTabHelper::IdForTab(web_contents());
+    info->tab_id = SessionTabHelper::IdForTab(web_contents()).id();
     info->status = capture_state_;
     info->fullscreen = is_fullscreened_;
   }
@@ -258,12 +258,12 @@ TabCaptureRegistry* TabCaptureRegistry::Get(content::BrowserContext* context) {
 }
 
 static base::LazyInstance<BrowserContextKeyedAPIFactory<TabCaptureRegistry>>::
-    DestructorAtExit g_factory = LAZY_INSTANCE_INITIALIZER;
+    DestructorAtExit g_tab_capture_registry_factory = LAZY_INSTANCE_INITIALIZER;
 
 // static
 BrowserContextKeyedAPIFactory<TabCaptureRegistry>*
 TabCaptureRegistry::GetFactoryInstance() {
-  return g_factory.Pointer();
+  return g_tab_capture_registry_factory.Pointer();
 }
 
 void TabCaptureRegistry::GetCapturedTabs(
@@ -314,7 +314,7 @@ bool TabCaptureRegistry::AddRequest(content::WebContents* target_contents,
     }
   }
 
-  requests_.push_back(base::MakeUnique<LiveRequest>(
+  requests_.push_back(std::make_unique<LiveRequest>(
       target_contents, extension_id, is_anonymous, this));
   return true;
 }
@@ -427,7 +427,7 @@ void TabCaptureRegistry::DispatchStatusChangeEvent(
   tab_capture::CaptureInfo info;
   request->GetCaptureInfo(&info);
   args->Append(info.ToValue());
-  auto event = base::MakeUnique<Event>(events::TAB_CAPTURE_ON_STATUS_CHANGED,
+  auto event = std::make_unique<Event>(events::TAB_CAPTURE_ON_STATUS_CHANGED,
                                        tab_capture::OnStatusChanged::kEventName,
                                        std::move(args), browser_context_);
 

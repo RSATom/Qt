@@ -45,16 +45,17 @@ Polymer({
     'click': 'onClick_',
     'dblclick': 'onDblClick_',
     'contextmenu': 'onContextMenu_',
+    'keydown': 'onKeydown_',
+    'auxclick': 'onMiddleClick_',
+    'mousedown': 'cancelMiddleMouseBehavior_',
+    'mouseup': 'cancelMiddleMouseBehavior_',
   },
 
   /** @override */
   attached: function() {
-    this.watch('item_', function(store) {
-      return store.nodes[this.itemId];
-    }.bind(this));
-    this.watch('isSelectedItem_', function(store) {
-      return !!store.selection.items.has(this.itemId);
-    }.bind(this));
+    this.watch('item_', (store) => store.nodes[this.itemId]);
+    this.watch(
+        'isSelectedItem_', (store) => !!store.selection.items.has(this.itemId));
 
     this.updateFromStore();
   },
@@ -70,14 +71,15 @@ Polymer({
    */
   onContextMenu_: function(e) {
     e.preventDefault();
+    e.stopPropagation();
     this.focus();
     if (!this.isSelectedItem_)
       this.selectThisItem_();
 
-    this.fire('open-item-menu', {
+    this.fire('open-command-menu', {
       x: e.clientX,
       y: e.clientY,
-      source: MenuSource.LIST,
+      source: MenuSource.ITEM,
     });
   },
 
@@ -89,9 +91,9 @@ Polymer({
     e.stopPropagation();
     e.preventDefault();
     this.selectThisItem_();
-    this.fire('open-item-menu', {
+    this.fire('open-command-menu', {
       targetElement: e.target,
-      source: MenuSource.LIST,
+      source: MenuSource.ITEM,
     });
   },
 
@@ -123,7 +125,10 @@ Polymer({
   /** @private */
   onItemChanged_: function() {
     this.isFolder_ = !this.item_.url;
-    this.setAttribute('aria-label', this.item_.title);
+    this.setAttribute(
+        'aria-label',
+        this.item_.title || this.item_.url ||
+            loadTimeData.getString('folderLabel'));
   },
 
   /**
@@ -134,7 +139,7 @@ Polymer({
     // Ignore double clicks so that Ctrl double-clicking an item won't deselect
     // the item before opening.
     if (e.detail != 2) {
-      var addKey = cr.isMac ? e.metaKey : e.ctrlKey;
+      const addKey = cr.isMac ? e.metaKey : e.ctrlKey;
       this.dispatch(bookmarks.actions.selectItem(this.itemId, this.getState(), {
         clear: !addKey,
         range: e.shiftKey,
@@ -146,6 +151,17 @@ Polymer({
   },
 
   /**
+   * @private
+   * @param {KeyboardEvent} e
+   */
+  onKeydown_: function(e) {
+    if (e.key == 'ArrowLeft')
+      this.focus();
+    else if (e.key == 'ArrowRight')
+      this.$.menuButton.focus();
+  },
+
+  /**
    * @param {MouseEvent} e
    * @private
    */
@@ -153,10 +169,40 @@ Polymer({
     if (!this.isSelectedItem_)
       this.selectThisItem_();
 
-    var commandManager = bookmarks.CommandManager.getInstance();
-    var itemSet = this.getState().selection.items;
+    const commandManager = bookmarks.CommandManager.getInstance();
+    const itemSet = this.getState().selection.items;
     if (commandManager.canExecute(Command.OPEN, itemSet))
       commandManager.handle(Command.OPEN, itemSet);
+  },
+
+  /**
+   * @param {MouseEvent} e
+   * @private
+   */
+  onMiddleClick_: function(e) {
+    if (e.button != 1)
+      return;
+
+    this.selectThisItem_();
+    if (this.isFolder_)
+      return;
+
+    const commandManager = bookmarks.CommandManager.getInstance();
+    const itemSet = this.getState().selection.items;
+    const command = e.shiftKey ? Command.OPEN : Command.OPEN_NEW_TAB;
+    if (commandManager.canExecute(command, itemSet))
+      commandManager.handle(command, itemSet);
+  },
+
+  /**
+   * Prevent default middle-mouse behavior. On Windows, this prevents autoscroll
+   * (during mousedown), and on Linux this prevents paste (during mouseup).
+   * @param {MouseEvent} e
+   * @private
+   */
+  cancelMiddleMouseBehavior_: function(e) {
+    if (e.button == 1)
+      e.preventDefault();
   },
 
   /**
@@ -167,4 +213,10 @@ Polymer({
     this.$.icon.className = url ? 'website-icon' : 'folder-icon';
     this.$.icon.style.backgroundImage = url ? cr.icon.getFavicon(url) : null;
   },
+
+  /** @private */
+  getButtonAriaLabel_: function() {
+    return loadTimeData.getStringF(
+        'moreActionsButtonAxLabel', this.item_.title);
+  }
 });

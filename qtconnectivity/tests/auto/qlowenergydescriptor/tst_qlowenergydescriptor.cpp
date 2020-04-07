@@ -105,8 +105,8 @@ void tst_QLowEnergyDescriptor::initTestCase()
 
     // find first service with descriptor
     QLowEnergyController *controller = 0;
-    foreach (const QBluetoothDeviceInfo& remoteDeviceInfo, remoteLeDeviceInfos) {
-        controller = new QLowEnergyController(remoteDeviceInfo, this);
+    for (const QBluetoothDeviceInfo& remoteDeviceInfo : qAsConst(remoteLeDeviceInfos)) {
+        controller = QLowEnergyController::createCentral(remoteDeviceInfo, this);
         qDebug() << "Connecting to" << remoteDeviceInfo.address();
         controller->connectToDevice();
         QTRY_IMPL(controller->state() != QLowEnergyController::ConnectingState,
@@ -128,7 +128,8 @@ void tst_QLowEnergyDescriptor::initTestCase()
         QCOMPARE(stateSpy.at(1).at(0).value<QLowEnergyController::ControllerState>(),
                  QLowEnergyController::DiscoveredState);
 
-        foreach (const QBluetoothUuid &leServiceUuid, controller->services()) {
+        const QList<QBluetoothUuid> leServiceUuids = controller->services();
+        for (const QBluetoothUuid &leServiceUuid : leServiceUuids) {
             QLowEnergyService *leService = controller->createServiceObject(leServiceUuid, this);
             if (!leService)
                 continue;
@@ -137,8 +138,8 @@ void tst_QLowEnergyDescriptor::initTestCase()
             QTRY_VERIFY_WITH_TIMEOUT(
                         leService->state() == QLowEnergyService::ServiceDiscovered, 10000);
 
-            QList<QLowEnergyCharacteristic> chars = leService->characteristics();
-            foreach (const QLowEnergyCharacteristic &ch, chars) {
+            const QList<QLowEnergyCharacteristic> chars = leService->characteristics();
+            for (const QLowEnergyCharacteristic &ch : chars) {
                 if (!ch.descriptors().isEmpty()) {
                     globalService = leService;
                     globalControl = controller;
@@ -239,7 +240,7 @@ void tst_QLowEnergyDescriptor::tst_assignCompare()
 
     QList<QLowEnergyDescriptor> targets;
     const QList<QLowEnergyCharacteristic> chars = globalService->characteristics();
-    foreach (const QLowEnergyCharacteristic &ch, chars) {
+    for (const QLowEnergyCharacteristic &ch : chars) {
         if (!ch.descriptors().isEmpty()) {
            targets = ch.descriptors();
            break;

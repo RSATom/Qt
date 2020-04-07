@@ -24,7 +24,6 @@
 #include "base/strings/string_util.h"
 #include "base/task_runner_util.h"
 #include "base/threading/sequenced_task_runner_handle.h"
-#include "base/threading/sequenced_worker_pool.h"
 #include "base/time/default_clock.h"
 #include "base/values.h"
 #include "components/prefs/pref_filter.h"
@@ -90,7 +89,7 @@ PersistentPrefStore::PrefReadError HandleReadErrors(
                            : PersistentPrefStore::PREF_READ_ERROR_JSON_PARSE;
     }
   }
-  if (!value->IsType(base::Value::Type::DICTIONARY))
+  if (!value->is_dict())
     return PersistentPrefStore::PREF_READ_ERROR_JSON_TYPE;
   return PersistentPrefStore::PREF_READ_ERROR_NONE;
 }
@@ -130,17 +129,6 @@ std::unique_ptr<JsonPrefStore::ReadResult> ReadPrefsFromDisk(
 }
 
 }  // namespace
-
-// static
-scoped_refptr<base::SequencedTaskRunner> JsonPrefStore::GetTaskRunnerForFile(
-    const base::FilePath& filename,
-    base::SequencedWorkerPool* worker_pool) {
-  std::string token("json_pref_store-");
-  token.append(filename.AsUTF8Unsafe());
-  return worker_pool->GetSequencedTaskRunnerWithShutdownBehavior(
-      worker_pool->GetNamedSequenceToken(token),
-      base::SequencedWorkerPool::BLOCK_SHUTDOWN);
-}
 
 JsonPrefStore::JsonPrefStore(
     const base::FilePath& pref_filename,
@@ -299,8 +287,8 @@ void JsonPrefStore::CommitPendingWrite(base::OnceClosure done_callback) {
     // posted to |file_task_runner_| will run after currently pending disk
     // operations. Also, by definition of PostTaskAndReply(), the reply will run
     // on the current sequence.
-    file_task_runner_->PostTaskAndReply(
-        FROM_HERE, base::BindOnce(&base::DoNothing), std::move(done_callback));
+    file_task_runner_->PostTaskAndReply(FROM_HERE, base::DoNothing(),
+                                        std::move(done_callback));
   }
 }
 
@@ -393,6 +381,11 @@ void JsonPrefStore::ClearMutableValues() {
   NOTIMPLEMENTED();
 }
 
+void JsonPrefStore::OnStoreDeletionFromDisk() {
+  if (pref_filter_)
+    pref_filter_->OnStoreDeletionFromDisk();
+}
+
 void JsonPrefStore::OnFileRead(std::unique_ptr<ReadResult> read_result) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
@@ -415,7 +408,7 @@ void JsonPrefStore::OnFileRead(std::unique_ptr<ReadResult> read_result) {
         read_only_ = true;
         break;
       case PREF_READ_ERROR_NONE:
-        DCHECK(read_result->value.get());
+        DCHECK(read_result->value);
         unfiltered_prefs.reset(
             static_cast<base::DictionaryValue*>(read_result->value.release()));
         break;

@@ -15,11 +15,11 @@
 #if defined(_WIN32)
 #   if !defined(LIBANGLE_IMPLEMENTATION)
 #       define ANGLE_PLATFORM_EXPORT __declspec(dllimport)
+#   else
+#       define ANGLE_PLATFORM_EXPORT __declspec(dllexport)
 #   endif
-#elif defined(__GNUC__)
-#   if defined(LIBANGLE_IMPLEMENTATION)
-#       define ANGLE_PLATFORM_EXPORT __attribute__((visibility ("default")))
-#   endif
+#elif defined(__GNUC__) || defined(__clang__)
+#   define ANGLE_PLATFORM_EXPORT __attribute__((visibility ("default")))
 #endif
 #if !defined(ANGLE_PLATFORM_EXPORT)
 #   define ANGLE_PLATFORM_EXPORT
@@ -264,12 +264,16 @@ inline void DefaultCacheProgram(PlatformMethods *platform,
 
 #define ANGLE_PLATFORM_METHOD_DEF(Name, CapsName) CapsName##Func Name = Default##CapsName;
 
-struct PlatformMethods
+struct ANGLE_PLATFORM_EXPORT PlatformMethods
 {
-    ANGLE_PLATFORM_OP(ANGLE_PLATFORM_METHOD_DEF);
+    PlatformMethods() {}
 
-    // User data pointer for any implementation specific members.
+    // User data pointer for any implementation specific members. Put it at the start of the
+    // platform structure so it doesn't become overwritten if one version of the platform
+    // adds or removes new members.
     void *context = 0;
+
+    ANGLE_PLATFORM_OP(ANGLE_PLATFORM_METHOD_DEF);
 };
 
 #undef ANGLE_PLATFORM_METHOD_DEF

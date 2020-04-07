@@ -6,6 +6,7 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
+#include "base/callback_helpers.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -388,6 +389,10 @@ bool HttpAuthController::HaveAuth() const {
   return handler_.get() && !identity_.invalid;
 }
 
+bool HttpAuthController::NeedsHTTP11() const {
+  return handler_ && handler_->is_connection_based();
+}
+
 void HttpAuthController::InvalidateCurrentHandler(
     InvalidateHandlerAction action) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
@@ -469,7 +474,7 @@ void HttpAuthController::PopulateAuthChallenge() {
 
   auth_info_ = new AuthChallengeInfo;
   auth_info_->is_proxy = (target_ == HttpAuth::AUTH_PROXY);
-  auth_info_->challenger = url::Origin(auth_origin_);
+  auth_info_->challenger = url::Origin::Create(auth_origin_);
   auth_info_->scheme = HttpAuth::SchemeToString(handler_->auth_scheme());
   auth_info_->realm = handler_->realm();
 }
@@ -527,9 +532,7 @@ void HttpAuthController::OnGenerateAuthTokenDone(int result) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   result = HandleGenerateTokenResult(result);
   if (!callback_.is_null()) {
-    CompletionCallback c = callback_;
-    callback_.Reset();
-    c.Run(result);
+    base::ResetAndReturn(&callback_).Run(result);
   }
 }
 

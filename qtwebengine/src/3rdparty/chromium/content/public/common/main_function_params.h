@@ -25,42 +25,42 @@ class ScopedNSAutoreleasePool;
 }
 #endif
 
-#if defined(USE_AURA)
-#include "ui/aura/env.h"
-#endif
-
 namespace content {
 
+class BrowserMainParts;
+struct StartupData;
+
+using CreatedMainPartsClosure = base::Callback<void(BrowserMainParts*)>;
+
 struct MainFunctionParams {
-  explicit MainFunctionParams(const base::CommandLine& cl)
-      : command_line(cl),
-#if defined(OS_WIN)
-        sandbox_info(NULL),
-#elif defined(OS_MACOSX)
-        autorelease_pool(NULL),
-#elif defined(OS_POSIX) && !defined(OS_ANDROID)
-        zygote_child(false),
-#endif
-        ui_task(NULL) {
-  }
+  explicit MainFunctionParams(const base::CommandLine& cl) : command_line(cl) {}
 
   const base::CommandLine& command_line;
 
 #if defined(OS_WIN)
-  sandbox::SandboxInterfaceInfo* sandbox_info;
+  sandbox::SandboxInterfaceInfo* sandbox_info = nullptr;
 #elif defined(OS_MACOSX)
-  base::mac::ScopedNSAutoreleasePool* autorelease_pool;
+  base::mac::ScopedNSAutoreleasePool* autorelease_pool = nullptr;
 #elif defined(OS_POSIX) && !defined(OS_ANDROID)
-  bool zygote_child;
+  bool zygote_child = false;
 #endif
 
-#if defined(USE_AURA)
-  aura::Env::Mode env_mode = aura::Env::Mode::LOCAL;
-#endif
+  // TODO(sky): fix ownership of these tasks. MainFunctionParams should really
+  // be passed as an r-value, at which point these can be unique_ptrs. For the
+  // time ownership is passed with MainFunctionParams (meaning these are deleted
+  // in content or client code).
 
   // Used by InProcessBrowserTest. If non-null BrowserMain schedules this
   // task to run on the MessageLoop and BrowserInit is not invoked.
-  base::Closure* ui_task;
+  base::Closure* ui_task = nullptr;
+
+  // Used by InProcessBrowserTest. If non-null this is Run() after
+  // BrowserMainParts has been created and before PreEarlyInitialization().
+  CreatedMainPartsClosure* created_main_parts_closure = nullptr;
+
+  // Used by //content, when the embedder yields control back to it, to extract
+  // startup data passed from ContentMainRunner.
+  StartupData* startup_data = nullptr;
 };
 
 }  // namespace content

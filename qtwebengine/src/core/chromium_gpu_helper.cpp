@@ -48,7 +48,7 @@
 // GL typedefs cascading through content header includes.
 #include "gpu/command_buffer/service/sync_point_manager.h"
 #include "gpu/command_buffer/service/mailbox_manager.h"
-#include "gpu/command_buffer/service/texture_manager.h"
+#include "gpu/command_buffer/service/texture_base.h"
 
 #include "content/gpu/gpu_child_thread.h"
 #include "gpu/ipc/service/gpu_channel_manager.h"
@@ -57,10 +57,9 @@
 #include "content/common/gpu/stream_texture_qnx.h"
 #endif
 
-// FIXME: Try using content::GpuChildThread::current()
-base::MessageLoop *gpu_message_loop()
+scoped_refptr<base::SingleThreadTaskRunner> gpu_task_runner()
 {
-    return content::GpuChildThread::instance()->message_loop();
+    return content::GpuChildThread::instance()->main_thread_runner();
 }
 
 gpu::SyncPointManager *sync_point_manager()
@@ -69,25 +68,25 @@ gpu::SyncPointManager *sync_point_manager()
     return gpuChannelManager->sync_point_manager();
 }
 
-gpu::gles2::MailboxManager *mailbox_manager()
+gpu::MailboxManager *mailbox_manager()
 {
     gpu::GpuChannelManager *gpuChannelManager = content::GpuChildThread::instance()->gpu_channel_manager();
     return gpuChannelManager->mailbox_manager();
 }
 
-gpu::gles2::TextureBase* ConsumeTexture(gpu::gles2::MailboxManager *mailboxManager, unsigned target, const gpu::Mailbox& mailbox)
+gpu::TextureBase* ConsumeTexture(gpu::MailboxManager *mailboxManager, unsigned target, const gpu::Mailbox& mailbox)
 {
     Q_UNUSED(target);
     return mailboxManager->ConsumeTexture(mailbox);
 }
 
-unsigned int service_id(gpu::gles2::TextureBase *tex)
+unsigned int service_id(gpu::TextureBase *tex)
 {
     return tex->service_id();
 }
 
 #ifdef Q_OS_QNX
-EGLStreamData eglstream_connect_consumer(gpu::gles2::Texture *tex)
+EGLStreamData eglstream_connect_consumer(gpu::Texture *tex)
 {
     EGLStreamData egl_stream;
     content::StreamTexture* image = static_cast<content::StreamTexture *>(tex->GetLevelImage(GL_TEXTURE_EXTERNAL_OES, 0));

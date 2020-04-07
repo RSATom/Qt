@@ -4,9 +4,10 @@
 
 #include "components/browsing_data/core/counters/browsing_data_counter.h"
 
+#include <memory>
 #include <utility>
 
-#include "base/memory/ptr_util.h"
+#include "base/trace_event/trace_event.h"
 #include "components/browsing_data/core/browsing_data_utils.h"
 #include "components/browsing_data/core/pref_names.h"
 #include "components/prefs/pref_service.h"
@@ -58,8 +59,16 @@ base::Time BrowsingDataCounter::GetPeriodStart() {
   return CalculateBeginDeleteTime(static_cast<TimePeriod>(*period_));
 }
 
+base::Time BrowsingDataCounter::GetPeriodEnd() {
+  if (period_.GetPrefName().empty())
+    return base::Time::Max();
+  return CalculateEndDeleteTime(static_cast<TimePeriod>(*period_));
+}
+
 void BrowsingDataCounter::Restart() {
   DCHECK(initialized_);
+  TRACE_EVENT_ASYNC_BEGIN1("browsing_data", "BrowsingDataCounter::Restart",
+                           this, "data_type", GetPrefName());
   if (state_ == State::IDLE) {
     DCHECK(!timer_.IsRunning());
     DCHECK(!staged_result_);
@@ -79,17 +88,20 @@ void BrowsingDataCounter::Restart() {
   } else {
     state_ = State::READY_TO_REPORT_RESULT;
   }
+  TRACE_EVENT1("browsing_data", "BrowsingDataCounter::Count", "data_type",
+               GetPrefName());
   Count();
 }
 
 void BrowsingDataCounter::ReportResult(ResultInt value) {
-  ReportResult(base::MakeUnique<FinishedResult>(this, value));
+  ReportResult(std::make_unique<FinishedResult>(this, value));
 }
 
 void BrowsingDataCounter::ReportResult(std::unique_ptr<Result> result) {
   DCHECK(initialized_);
   DCHECK(result->Finished());
-
+  TRACE_EVENT_ASYNC_END1("browsing_data", "BrowsingDataCounter::Restart", this,
+                         "data_type", GetPrefName());
   switch (state_) {
     case State::RESTARTED:
     case State::READY_TO_REPORT_RESULT:
@@ -132,7 +144,7 @@ void BrowsingDataCounter::TransitionToShowCalculating() {
   state_ = State::SHOW_CALCULATING;
   state_transitions_.push_back(state_);
 
-  callback_.Run(base::MakeUnique<Result>(this));
+  callback_.Run(std::make_unique<Result>(this));
   timer_.Start(
       FROM_HERE,
       base::TimeDelta::FromMilliseconds(kDelayUntilReadyToShowResultMs),

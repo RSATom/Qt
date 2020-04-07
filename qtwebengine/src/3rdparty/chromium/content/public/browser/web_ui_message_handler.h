@@ -15,6 +15,7 @@
 #include "content/public/browser/web_ui.h"
 
 class WebUIBrowserTest;
+class MojoWebUIBrowserTest;
 
 namespace base {
 class ListValue;
@@ -47,8 +48,17 @@ class CONTENT_EXPORT WebUIMessageHandler {
   FRIEND_TEST_ALL_PREFIXES(WebUIMessageHandlerTest, ExtractDoubleValue);
   FRIEND_TEST_ALL_PREFIXES(WebUIMessageHandlerTest, ExtractStringValue);
 
-  // Subclasses must call this once the page is ready for JavaScript calls
-  // from this handler.
+  // This method must be called once the handler's corresponding JavaScript
+  // component is initialized. In practice, it should be called from a WebUI
+  // message handler similar to: 'initializeFooPage' or 'getInitialState'.
+  //
+  // There should be ideally one or two calls to this per handler, as JavaScript
+  // components should have a specific message that signals that it's initalized
+  // and ready to receive events from the C++ handler.
+  //
+  // This should never be called from a function that is not a message handler.
+  // This should never be called from a C++ callback used as a reply for a
+  // posted task or asynchronous operation.
   void AllowJavascript();
 
   // Helper methods:
@@ -128,6 +138,7 @@ class CONTENT_EXPORT WebUIMessageHandler {
   // RenderViewReused.
   friend class WebUIImpl;
   friend class ::WebUIBrowserTest;
+  friend class ::MojoWebUIBrowserTest;
 
   // TODO(dbeam): disallow JavaScript when a renderer process crashes.
   // http://crbug.com/610450

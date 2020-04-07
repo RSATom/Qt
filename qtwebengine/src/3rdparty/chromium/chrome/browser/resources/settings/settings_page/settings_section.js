@@ -16,7 +16,7 @@
  *    </settings-section>
  */
 
-var SettingsSectionElement = Polymer({
+let SettingsSectionElement = Polymer({
   is: 'settings-section',
 
   properties: {
@@ -27,8 +27,14 @@ var SettingsSectionElement = Polymer({
      */
     section: String,
 
-    /** Title for the section header. */
-    pageTitle: String,
+    /**
+     * Title for the section header. Initialize so we can use the
+     * getTitleHiddenStatus_ method for accessibility.
+     */
+    pageTitle: {
+      type: String,
+      value: '',
+    },
 
     /**
      * A CSS attribute used for temporarily hiding a SETTINGS-SECTION for the
@@ -57,15 +63,14 @@ var SettingsSectionElement = Polymer({
    * Freezes the section's height so its card can be removed from the flow
    * without affecting the layout of the surrounding sections.
    * @param {boolean} frozen True to freeze, false to unfreeze.
-   * @private
    */
   setFrozen: function(frozen) {
-    var card = this.$.card;
+    const card = this.$.card;
     if (frozen) {
       this.style.height = this.clientHeight + 'px';
 
-      var cardHeight = card.offsetHeight;
-      var cardWidth = card.offsetWidth;
+      const cardHeight = card.offsetHeight;
+      const cardWidth = card.offsetWidth;
       // If the section is not displayed yet (e.g., navigated directly to a
       // sub-page), cardHeight and cardWidth are 0, so do not set the height or
       // width explicitly.
@@ -91,6 +96,14 @@ var SettingsSectionElement = Polymer({
   },
 
   /**
+   * Calling this method fires the 'settings-section-expanded event'.
+   */
+  setExpanded_: function() {
+    this.classList.add('expanded');
+    this.fire('settings-section-expanded');
+  },
+
+  /**
    * @return {boolean} True if the section is currently rendered and not
    *     already expanded or transitioning.
    */
@@ -101,13 +114,13 @@ var SettingsSectionElement = Polymer({
 
   immediateExpand: function(container) {
     // Target position is the container's top edge in the viewport.
-    var containerTop = container.getBoundingClientRect().top;
+    const containerTop = container.getBoundingClientRect().top;
 
     this.$.card.position = 'fixed';
     this.$.card.top = containerTop + 'px';
     this.$.card.height = 'calc(100% - ' + containerTop + 'px)';
 
-    this.classList.add('expanded');
+    this.setExpanded_();
   },
 
   /**
@@ -128,29 +141,25 @@ var SettingsSectionElement = Polymer({
     this.classList.add('expanding');
 
     // Start the card in place, at its distance from the container's padding.
-    var startTop = this.$.card.getBoundingClientRect().top + 'px';
-    var startHeight = this.$.card.clientHeight + 'px';
+    const startTop = this.$.card.getBoundingClientRect().top + 'px';
+    const startHeight = this.$.card.clientHeight + 'px';
 
     // Target position is the container's top edge in the viewport.
-    var containerTop = container.getBoundingClientRect().top;
-    var endTop = containerTop + 'px';
+    const containerTop = container.getBoundingClientRect().top;
+    const endTop = containerTop + 'px';
     // The card should stretch from the bottom of the toolbar to the bottom of
     // the page. calc(100% - top) lets the card resize if the window resizes.
-    var endHeight = 'calc(100% - ' + containerTop + 'px)';
+    const endHeight = 'calc(100% - ' + containerTop + 'px)';
 
-    var animation =
+    const animation =
         this.animateCard_('fixed', startTop, endTop, startHeight, endHeight);
-    animation.finished
-        .then(
-            function() {
-              this.classList.add('expanded');
-            }.bind(this),
-            function() {})
-        .then(function() {
-          // Unset these changes whether the animation finished or canceled.
-          this.classList.remove('expanding');
-          this.style.height = '';
-        }.bind(this));
+    // The empty onRejected function prevents the promise from skipping forward
+    // to the next then() with a rejection callback.
+    animation.finished.then(this.setExpanded_.bind(this), () => {}).then(() => {
+      // Unset these changes whether the animation finished or canceled.
+      this.classList.remove('expanding');
+      this.style.height = '';
+    });
     return animation;
   },
 
@@ -192,30 +201,30 @@ var SettingsSectionElement = Polymer({
     // Make the card position: absolute, so scrolling is less of a crapshoot.
     // First find the current distance between this section and the card using
     // fixed coordinates; the absolute distance will be the same.
-    var fixedCardTop = this.$.card.getBoundingClientRect().top;
-    var fixedSectionTop = this.getBoundingClientRect().top;
-    var distance = fixedCardTop - fixedSectionTop;
+    const fixedCardTop = this.$.card.getBoundingClientRect().top;
+    const fixedSectionTop = this.getBoundingClientRect().top;
+    const distance = fixedCardTop - fixedSectionTop;
 
     // The target position is right below our header.
-    var headerStyle = getComputedStyle(this.$.header);
-    var cardTargetTop = this.$.header.offsetHeight +
+    const headerStyle = getComputedStyle(this.$.header);
+    const cardTargetTop = this.$.header.offsetHeight +
         parseFloat(headerStyle.marginBottom) +
         parseFloat(headerStyle.marginTop);
 
     // Start the card at its current height and distance from our top.
-    var startTop = distance + 'px';
-    var startHeight = this.$.card.style.height;
+    const startTop = distance + 'px';
+    const startHeight = this.$.card.style.height;
 
     // End at the bottom of our header.
-    var endTop = cardTargetTop + 'px';
-    var endHeight = (this.collapsedHeight_ - cardTargetTop) + 'px';
+    const endTop = cardTargetTop + 'px';
+    const endHeight = (this.collapsedHeight_ - cardTargetTop) + 'px';
 
     // The card no longer needs position: fixed.
     this.$.card.style.position = '';
 
     // Collapse this section, animate the card into place, and remove its
     // other properties.
-    var animation =
+    const animation =
         this.animateCard_('absolute', startTop, endTop, startHeight, endHeight);
     this.$.card.style.width = '';
     this.$.card.style.height = '';
@@ -223,15 +232,15 @@ var SettingsSectionElement = Polymer({
 
     animation.finished
         .then(
-            function() {
+            () => {
               this.classList.remove('expanded');
-            }.bind(this),
+            },
             function() {})
-        .then(function() {
+        .then(() => {
           // The card now determines the section's height automatically.
           this.style.height = '';
           this.classList.remove('collapsing');
-        }.bind(this));
+        });
     return animation;
   },
 
@@ -247,23 +256,23 @@ var SettingsSectionElement = Polymer({
    */
   animateCard_: function(position, startTop, endTop, startHeight, endHeight) {
     // Width does not change.
-    var width = this.$.card.clientWidth + 'px';
+    const width = this.$.card.clientWidth + 'px';
 
-    var startFrame = {
+    const startFrame = {
       position: position,
       width: width,
       top: startTop,
       height: startHeight,
     };
 
-    var endFrame = {
+    const endFrame = {
       position: position,
       width: width,
       top: endTop,
       height: endHeight,
     };
 
-    var options = /** @type {!KeyframeEffectOptions} */ ({
+    const options = /** @type {!KeyframeEffectOptions} */ ({
       duration: settings.animation.Timing.DURATION,
       easing: settings.animation.Timing.EASING,
     });
@@ -271,4 +280,16 @@ var SettingsSectionElement = Polymer({
     return new settings.animation.Animation(
         this.$.card, [startFrame, endFrame], options);
   },
+
+  /**
+   * Get the value to which to set the aria-hidden attribute of the section
+   * heading.
+   * @return {boolean|string} A return value of false will not add aria-hidden
+   *    while aria-hidden requires a string of 'true' to be hidden as per aria
+   *    specs. This function ensures we have the right return type.
+   * @private
+   */
+  getTitleHiddenStatus_: function() {
+    return this.pageTitle ? false : 'true';
+  }
 });

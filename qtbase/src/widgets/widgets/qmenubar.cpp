@@ -52,7 +52,9 @@
 #if QT_CONFIG(mainwindow)
 #include <qmainwindow.h>
 #endif
+#if QT_CONFIG(toolbar)
 #include <qtoolbar.h>
+#endif
 #if QT_CONFIG(toolbutton)
 #include <qtoolbutton.h>
 #endif
@@ -75,8 +77,8 @@ class QMenuBarExtension : public QToolButton
 public:
     explicit QMenuBarExtension(QWidget *parent);
 
-    QSize sizeHint() const Q_DECL_OVERRIDE;
-    void paintEvent(QPaintEvent *) Q_DECL_OVERRIDE;
+    QSize sizeHint() const override;
+    void paintEvent(QPaintEvent *) override;
 };
 
 QMenuBarExtension::QMenuBarExtension(QWidget *parent)
@@ -325,7 +327,7 @@ void QMenuBarPrivate::popupAction(QAction *action, bool activateFirst)
         QRect screenRect = QDesktopWidgetPrivate::screenGeometry(pos + QPoint(adjustedActionRect.width() / 2, 0));
         pos = QPoint(qMax(pos.x(), screenRect.x()), qMax(pos.y(), screenRect.y()));
 
-        const bool fitUp = (q->mapToGlobal(adjustedActionRect.topLeft()).y() >= popup_size.height());
+        const bool fitUp = (pos.y() - popup_size.height() >= screenRect.top());
         const bool fitDown = (pos.y() + popup_size.height() <= screenRect.bottom());
         const bool rtl = q->isRightToLeft();
         const int actionWidth = adjustedActionRect.width();
@@ -747,8 +749,6 @@ QMenuBar::~QMenuBar()
 }
 
 /*!
-    \overload
-
     This convenience function creates a new action with \a text.
     The function adds the newly created action to the menu's
     list of actions, and returns it.
@@ -779,6 +779,40 @@ QAction *QMenuBar::addAction(const QString &text, const QObject *receiver, const
     addAction(ret);
     return ret;
 }
+
+/*!
+    \fn template<typename Obj, typename PointerToMemberFunctionOrFunctor> QAction *QMenuBar::addAction(const QString &text, const Obj *receiver, PointerToMemberFunctionOrFunctor method)
+
+    \since 5.11
+
+    \overload
+
+    This convenience function creates a new action with the given \a
+    text. The action's triggered() signal is connected to the
+    \a method of the \a receiver. The function adds the newly created
+    action to the menu's list of actions and returns it.
+
+    QMenuBar takes ownership of the returned QAction.
+
+    \sa QWidget::addAction(), QWidget::actions()
+*/
+
+/*!
+    \fn template<typename Functor> QAction *QMenuBar::addAction(const QString &text, Functor functor)
+
+    \since 5.11
+
+    \overload
+
+    This convenience function creates a new action with the given \a
+    text. The action's triggered() signal is connected to the
+    \a functor. The function adds the newly created
+    action to the menu's list of actions and returns it.
+
+    QMenuBar takes ownership of the returned QAction.
+
+    \sa QWidget::addAction(), QWidget::actions()
+*/
 
 /*!
   Appends a new QMenu with \a title to the menu bar. The menu bar
@@ -1046,6 +1080,10 @@ void QMenuBar::mouseReleaseEvent(QMouseEvent *e)
 
     d->mouseDown = false;
     QAction *action = d->actionAt(e->pos());
+
+    // do noting if the action is hidden
+    if (!d->isVisible(action))
+        return;
     if((d->closePopupMode && action == d->currentAction) || !action || !action->menu()) {
         //we set the current action before activating
         //so that we let the leave event set the current back to 0
@@ -1169,8 +1207,15 @@ void QMenuBar::keyPressEvent(QKeyEvent *e)
 void QMenuBar::mouseMoveEvent(QMouseEvent *e)
 {
     Q_D(QMenuBar);
-    if (!(e->buttons() & Qt::LeftButton))
+    if (!(e->buttons() & Qt::LeftButton)) {
         d->mouseDown = false;
+        // We receive mouse move and mouse press on touch.
+        // Mouse move will open the menu and mouse press
+        // will close it, so ignore mouse move.
+        if (e->source() != Qt::MouseEventNotSynthesized)
+            return;
+    }
+
     bool popupState = d->popupState || d->mouseDown;
     QAction *action = d->actionAt(e->pos());
     if ((action && d->isVisible(action)) || !popupState)
@@ -1331,7 +1376,7 @@ void QMenuBarPrivate::handleReparent()
     //Note: if parent is reparented, then window may change even if parent doesn't.
     // We need to install an avent filter on each parent up to the parent that is
     // also a window (for shortcuts)
-    QWidget *newWindow = newParent ? newParent->window() : Q_NULLPTR;
+    QWidget *newWindow = newParent ? newParent->window() : nullptr;
 
     QVector<QPointer<QWidget> > newParents;
     // Remove event filters on ex-parents, keep them on still-parents
@@ -1506,7 +1551,7 @@ bool QMenuBar::eventFilter(QObject *object, QEvent *event)
                     d->setKeyboardMode(!d->keyboardState);
                 }
             }
-            // fall through
+            Q_FALLTHROUGH();
             case QEvent::MouseButtonPress:
             case QEvent::MouseButtonRelease:
             case QEvent::MouseMove:
@@ -1536,7 +1581,7 @@ bool QMenuBar::eventFilter(QObject *object, QEvent *event)
 }
 
 /*!
-  Returns the QAction at \a pt. Returns 0 if there is no action at \a pt or if
+  Returns the QAction at \a pt. Returns \nullptr if there is no action at \a pt or if
 the location has a separator.
 
     \sa addAction(), addSeparator()
@@ -1710,7 +1755,7 @@ void QMenuBarPrivate::_q_internalShortcutActivated(int id)
     QAction *act = actions.at(id);
     if (act && act->menu()) {
         if (QPlatformMenu *platformMenu = act->menu()->platformMenu()) {
-            platformMenu->showPopup(q->windowHandle(), actionRects.at(id), Q_NULLPTR);
+            platformMenu->showPopup(q->windowHandle(), actionRects.at(id), nullptr);
             return;
         }
     }

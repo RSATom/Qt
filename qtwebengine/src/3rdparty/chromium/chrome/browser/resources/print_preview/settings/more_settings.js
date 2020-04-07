@@ -9,7 +9,7 @@ cr.define('print_preview', function() {
    * Toggles visibility of the specified printing options sections.
    * @param {!print_preview.DestinationStore} destinationStore To listen for
    *     destination changes.
-   * @param {!Array<print_preview.SettingsSection>} settingsSections Sections
+   * @param {!Array<!print_preview.SettingsSection>} settingsSections Sections
    *     to toggle by this component.
    * @constructor
    * @extends {print_preview.Component}
@@ -20,7 +20,7 @@ cr.define('print_preview', function() {
     /** @private {!print_preview.DestinationStore} */
     this.destinationStore_ = destinationStore;
 
-    /** @private {!Array<print_preview.SettingsSection>} */
+    /** @private {!Array<!print_preview.SettingsSection>} */
     this.settingsSections_ = settingsSections;
 
     /** @private {boolean} */
@@ -61,12 +61,12 @@ cr.define('print_preview', function() {
           print_preview.DestinationStore.EventType
               .SELECTED_DESTINATION_CAPABILITIES_READY,
           this.onDestinationCapabilitiesReady_.bind(this));
-      this.settingsSections_.forEach(function(section) {
+      this.settingsSections_.forEach(section => {
         this.tracker.add(
             section,
             print_preview.SettingsSection.EventType.COLLAPSIBLE_CONTENT_CHANGED,
             this.updateState_.bind(this));
-      }.bind(this));
+      });
 
       this.updateState_(true);
     },
@@ -124,18 +124,18 @@ cr.define('print_preview', function() {
       this.getChildElement('.more-settings-label').textContent =
           loadTimeData.getString(
               this.isExpanded ? 'lessOptionsLabel' : 'moreOptionsLabel');
-      var iconEl = this.getChildElement('.more-settings-icon');
+      const iconEl = this.getChildElement('.more-settings-icon');
       iconEl.classList.toggle('more-settings-icon-plus', !this.isExpanded);
       iconEl.classList.toggle('more-settings-icon-minus', this.isExpanded);
 
-      var availableSections =
+      const availableSections =
           this.settingsSections_.reduce(function(count, section) {
             return count + (section.isAvailable() ? 1 : 0);
           }, 0);
 
       // Magic 6 is chosen as the number of sections when it still feels like
       // manageable and not too crowded.
-      var hasSectionsToToggle = availableSections > 6 &&
+      const hasSectionsToToggle = availableSections > 6 &&
           this.settingsSections_.some(function(section) {
             return section.hasCollapsibleContent();
           });
@@ -145,7 +145,7 @@ cr.define('print_preview', function() {
       else
         fadeOutElement(this.getElement());
 
-      var collapseContent = !this.isExpanded && hasSectionsToToggle;
+      const collapseContent = !this.isExpanded && hasSectionsToToggle;
       this.settingsSections_.forEach(function(section) {
         section.setCollapseContent(collapseContent, noAnimation);
       });

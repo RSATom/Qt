@@ -13,7 +13,7 @@ namespace browser_sync {
 PasswordModelWorker::PasswordModelWorker(
     const scoped_refptr<password_manager::PasswordStore>& password_store)
     : password_store_(password_store) {
-  DCHECK(password_store.get());
+  DCHECK(password_store);
 }
 
 syncer::ModelSafeGroup PasswordModelWorker::GetModelSafeGroup() {
@@ -42,7 +42,7 @@ void PasswordModelWorker::RequestStop() {
   ModelSafeWorker::RequestStop();
 
   base::AutoLock lock(password_store_lock_);
-  password_store_ = NULL;
+  password_store_ = nullptr;
 }
 
 }  // namespace browser_sync

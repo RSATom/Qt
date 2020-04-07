@@ -5,13 +5,13 @@
 #ifndef COMPONENTS_SIGNIN_CORE_BROWSER_GAIA_COOKIE_MANAGER_SERVICE_H_
 #define COMPONENTS_SIGNIN_CORE_BROWSER_GAIA_COOKIE_MANAGER_SERVICE_H_
 
-#include <deque>
 #include <map>
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "base/containers/circular_deque.h"
 #include "base/macros.h"
 #include "base/observer_list.h"
 #include "base/timer/timer.h"
@@ -20,15 +20,15 @@
 #include "google_apis/gaia/gaia_auth_util.h"
 #include "google_apis/gaia/ubertoken_fetcher.h"
 #include "net/base/backoff_entry.h"
-#include "net/url_request/url_fetcher_delegate.h"
 
 class GaiaAuthFetcher;
 class GaiaCookieRequest;
 class GoogleServiceAuthError;
 class OAuth2TokenService;
 
-namespace net {
-class URLFetcher;
+namespace network {
+class SharedURLLoaderFactory;
+class SimpleURLLoader;
 }
 
 // Merges a Google account known to Chrome into the cookie jar.  When merging
@@ -108,13 +108,11 @@ class GaiaCookieManagerService : public KeyedService,
 
   // Class to retrieve the external connection check results from gaia.
   // Declared publicly for unit tests.
-  class ExternalCcResultFetcher : public GaiaAuthConsumer,
-                                  public net::URLFetcherDelegate {
+  class ExternalCcResultFetcher : public GaiaAuthConsumer {
    public:
-    // Maps connection URLs, as returned by StartGetCheckConnectionInfo() to
-    // token and URLFetcher used to fetch the URL.
-    typedef std::map<GURL, std::pair<std::string, net::URLFetcher*>>
-        URLToTokenAndFetcher;
+    // Maps connection check SimpleURLLoader to corresponding token.
+    typedef std::map<const network::SimpleURLLoader*, std::string>
+        LoaderToToken;
 
     // Maps tokens to the fetched result for that token.
     typedef std::map<std::string, std::string> ResultMap;
@@ -132,8 +130,8 @@ class GaiaCookieManagerService : public KeyedService,
     // Are external URLs still being checked?
     bool IsRunning();
 
-    // Returns a copy of the internal token to fetcher map.
-    URLToTokenAndFetcher get_fetcher_map_for_testing() { return fetchers_; }
+    // Returns a copy of the internal loader to token map.
+    LoaderToToken get_loader_map_for_testing() { return loaders_; }
 
     // Simulate a timeout for tests.
     void TimeoutForTests();
@@ -144,11 +142,13 @@ class GaiaCookieManagerService : public KeyedService,
     void OnGetCheckConnectionInfoError(
         const GoogleServiceAuthError& error) override;
 
-    // Creates and initializes a URL fetcher for doing a connection check.
-    std::unique_ptr<net::URLFetcher> CreateFetcher(const GURL& url);
+    // Creates and initializes a loader for doing a connection check.
+    std::unique_ptr<network::SimpleURLLoader> CreateAndStartLoader(
+        const GURL& url);
 
-    // Overridden from URLFetcherDelgate.
-    void OnURLFetchComplete(const net::URLFetcher* source) override;
+    // Called back from SimpleURLLoader.
+    void OnURLLoadComplete(const network::SimpleURLLoader* source,
+                           std::unique_ptr<std::string> body);
 
     // Any fetches still ongoing after this call are considered timed out.
     void Timeout();
@@ -159,7 +159,7 @@ class GaiaCookieManagerService : public KeyedService,
 
     GaiaCookieManagerService* helper_;
     base::OneShotTimer timer_;
-    URLToTokenAndFetcher fetchers_;
+    LoaderToToken loaders_;
     ResultMap results_;
     base::Time m_external_cc_result_start_time_;
 
@@ -180,11 +180,11 @@ class GaiaCookieManagerService : public KeyedService,
                                    const std::string& access_token,
                                    const std::string& source);
 
-  // Returns if the listed accounts are up to date or not (ignore the out
-  // parameter if return is false). The parameter will be assigned the current
-  // cached accounts. If the accounts are not up to date, a ListAccounts fetch
-  // is sent GAIA and Observer::OnGaiaAccountsInCookieUpdated will be called.
-  // If either of |accounts| or |signed_out_accounts| is null, the corresponding
+  // Returns if the listed accounts are up to date or not. The out parameter
+  // will be assigned the current cached accounts (whether they are not up to
+  // date or not). If the accounts are not up to date, a ListAccounts fetch is
+  // sent GAIA and Observer::OnGaiaAccountsInCookieUpdated will be called.  If
+  // either of |accounts| or |signed_out_accounts| is null, the corresponding
   // accounts returned from /ListAccounts are ignored.
   bool ListAccounts(std::vector<gaia::ListedAccount>* accounts,
                     std::vector<gaia::ListedAccount>* signed_out_accounts,
@@ -194,10 +194,10 @@ class GaiaCookieManagerService : public KeyedService,
   // that a check which GAIA should be done can force it.
   void TriggerListAccounts(const std::string& source);
 
-  // Forces the processing of OnCookieChanged. This is public so that callers
+  // Forces the processing of OnCookieChange. This is public so that callers
   // that know the GAIA APISID cookie might have changed can inform the
   // service. Virtual for testing.
-  virtual void ForceOnCookieChangedProcessing();
+  virtual void ForceOnCookieChangeProcessing();
 
   // Add or remove observers of this helper.
   void AddObserver(Observer* observer);
@@ -232,6 +232,9 @@ class GaiaCookieManagerService : public KeyedService,
     return &fetcher_backoff_;
   }
 
+  // Can be overridden by tests.
+  virtual scoped_refptr<network::SharedURLLoaderFactory> GetURLLoaderFactory();
+
  private:
   net::URLRequestContextGetter* request_context() {
     return signin_client_->GetURLRequestContext();
@@ -248,8 +251,8 @@ class GaiaCookieManagerService : public KeyedService,
 
   // Called when a cookie changes. If the cookie relates to a GAIA APISID
   // cookie, then we call ListAccounts and fire OnGaiaAccountsInCookieUpdated.
-  void OnCookieChanged(const net::CanonicalCookie& cookie,
-                       net::CookieStore::ChangeCause cause);
+  void OnCookieChange(const net::CanonicalCookie& cookie,
+                      net::CookieChangeCause cause);
 
   // Overridden from UbertokenConsumer.
   void OnUbertokenSuccess(const std::string& token) override;
@@ -277,6 +280,10 @@ class GaiaCookieManagerService : public KeyedService,
   // Virtual for testing purposes.
   virtual void StartFetchingListAccounts();
 
+  // Prepare for logout and then starts fetching logout request.
+  void StartGaiaLogOut();
+
+  // Starts fetching log out.
   // Virtual for testing purpose.
   virtual void StartFetchingLogOut();
 
@@ -289,8 +296,8 @@ class GaiaCookieManagerService : public KeyedService,
   std::unique_ptr<UbertokenFetcher> uber_token_fetcher_;
   ExternalCcResultFetcher external_cc_result_fetcher_;
 
-  // If the GaiaAuthFetcher or URLFetcher fails, retry with exponential backoff
-  // and network delay.
+  // If the GaiaAuthFetcher or SimpleURLLoader fails, retry with exponential
+  // backoff and network delay.
   net::BackoffEntry fetcher_backoff_;
   base::OneShotTimer fetcher_timer_;
   int fetcher_retries_;
@@ -302,13 +309,13 @@ class GaiaCookieManagerService : public KeyedService,
   std::string access_token_;
 
   // Subscription to be called whenever the GAIA cookies change.
-  std::unique_ptr<SigninClient::CookieChangedSubscription>
-      cookie_changed_subscription_;
+  std::unique_ptr<SigninClient::CookieChangeSubscription>
+      cookie_change_subscription_;
 
   // A worklist for this class. Stores any pending requests that couldn't be
   // executed right away, since this class only permits one request to be
   // executed at a time.
-  std::deque<GaiaCookieRequest> requests_;
+  base::circular_deque<GaiaCookieRequest> requests_;
 
   // List of observers to notify when merge session completes.
   // Makes sure list is empty on destruction.

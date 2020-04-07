@@ -27,6 +27,7 @@
 ****************************************************************************/
 
 #include "mytestserver.h"
+#include "rep_PodInterface_source.h"
 
 #include <QCoreApplication>
 #include <QtTest/QtTest>
@@ -40,7 +41,18 @@ private Q_SLOTS:
     {
         QRemoteObjectHost srcNode(QUrl(QStringLiteral("tcp://127.0.0.1:65213")));
         MyTestServer myTestServer;
-        srcNode.enableRemoting(&myTestServer);
+        bool templated = qEnvironmentVariableIsSet("TEMPLATED_REMOTING");
+        if (templated)
+            srcNode.enableRemoting<MyInterfaceSourceAPI>(&myTestServer);
+        else
+            srcNode.enableRemoting(&myTestServer);
+
+        PodInterfaceSimpleSource myPodSource;
+        myPodSource.setMyPod(MyPOD(1, 5.0, "test"));
+        if (templated)
+            srcNode.enableRemoting<PodInterfaceSourceAPI>(&myPodSource);
+        else
+            srcNode.enableRemoting(&myPodSource);
 
         qDebug() << "Waiting for incoming connections";
 

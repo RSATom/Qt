@@ -33,20 +33,20 @@ namespace gl
 			return texture->getResource();
 		}
 
-		return 0;
+		return nullptr;
 	}
 
 	Image::Image(Texture *parentTexture, GLsizei width, GLsizei height, GLenum format, GLenum type)
-		: parentTexture(parentTexture), width(width), height(height), format(format), type(type)
+		: sw::Surface(getParentResource(parentTexture), width, height, 1, 0, 1, selectInternalFormat(format, type), true, true)
+		, parentTexture(parentTexture), width(width), height(height), format(format), type(type)
 		, internalFormat(selectInternalFormat(format, type)), multiSampleDepth(1)
-		, sw::Surface(getParentResource(parentTexture), width, height, 1, selectInternalFormat(format, type), true, true)
 	{
 		referenceCount = 1;
 	}
 
 	Image::Image(Texture *parentTexture, GLsizei width, GLsizei height, sw::Format internalFormat, int multiSampleDepth, bool lockable, bool renderTarget)
-		: parentTexture(parentTexture), width(width), height(height), internalFormat(internalFormat), format(0 /*GL_NONE*/), type(0 /*GL_NONE*/), multiSampleDepth(multiSampleDepth)
-		, sw::Surface(getParentResource(parentTexture), width, height, multiSampleDepth, internalFormat, lockable, renderTarget)
+		: sw::Surface(getParentResource(parentTexture), width, height, 1, 0, multiSampleDepth, internalFormat, lockable, renderTarget)
+		, parentTexture(parentTexture), width(width), height(height), format(0 /*GL_NONE*/), type(0 /*GL_NONE*/), internalFormat(internalFormat), multiSampleDepth(multiSampleDepth)
 	{
 		referenceCount = 1;
 	}
@@ -141,7 +141,7 @@ namespace gl
 
 	void Image::unbind()
 	{
-		parentTexture = 0;
+		parentTexture = nullptr;
 
 		release();
 	}
@@ -152,10 +152,8 @@ namespace gl
 		{
 			return sw::FORMAT_NULL;
 		}
-		else
-		#if S3TC_SUPPORT
-		if(format == GL_COMPRESSED_RGB_S3TC_DXT1_EXT ||
-		   format == GL_COMPRESSED_RGBA_S3TC_DXT1_EXT)
+		else if(format == GL_COMPRESSED_RGB_S3TC_DXT1_EXT ||
+		        format == GL_COMPRESSED_RGBA_S3TC_DXT1_EXT)
 		{
 			return sw::FORMAT_DXT1;
 		}
@@ -167,9 +165,7 @@ namespace gl
 		{
 			return sw::FORMAT_DXT5;
 		}
-		else
-		#endif
-		if(type == GL_FLOAT)
+		else if(type == GL_FLOAT)
 		{
 			return sw::FORMAT_A32B32G32R32F;
 		}

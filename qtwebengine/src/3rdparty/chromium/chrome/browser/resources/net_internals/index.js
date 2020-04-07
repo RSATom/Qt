@@ -10,7 +10,7 @@
 // <include src="import_view.js">
 // <include src="capture_view.js">
 // <include src="http_cache_view.js">
-// <include src="hsts_view.js">
+// <include src="domain_security_policy_view.js">
 // <include src="browser_bridge.js">
 // <include src="events_tracker.js">
 // <include src="source_tracker.js">
@@ -37,6 +37,7 @@
 // <include src="log_grouper.js">
 // <include src="proxy_view.js">
 // <include src="quic_view.js">
+// <include src="reporting_view.js">
 // <include src="socket_pool_wrapper.js">
 // <include src="sockets_view.js">
 // <include src="alt_svc_view.js">
@@ -45,7 +46,6 @@
 // <include src="prerender_view.js">
 // <include src="chromeos_view.js">
 // <include src="bandwidth_view.js">
-// <include src="sdch_view.js">
 
 document.addEventListener('DOMContentLoaded', function() {
   MainView.getInstance();  // from main.js

@@ -141,7 +141,7 @@ void GaiaOAuthClient::Core::GetTokensFromAuthCode(
           destination: GOOGLE_OWNED_SERVICE
         }
         policy {
-          cookies_allowed: false
+          cookies_allowed: NO
           setting:
             "This feature cannot be disabled in settings, but if the user "
             "signs out of Chrome, this request would not be made."
@@ -194,7 +194,7 @@ void GaiaOAuthClient::Core::RefreshToken(
           destination: GOOGLE_OWNED_SERVICE
         }
         policy {
-          cookies_allowed: false
+          cookies_allowed: NO
           setting:
             "This feature cannot be disabled in settings, but if the user "
             "signs out of Chrome, this request would not be made."
@@ -253,7 +253,7 @@ void GaiaOAuthClient::Core::GetUserInfoImpl(
           destination: GOOGLE_OWNED_SERVICE
         }
         policy {
-          cookies_allowed: false
+          cookies_allowed: NO
           setting:
             "This feature cannot be disabled in settings, but if the user "
             "signs out of Chrome, this request would not be made."
@@ -313,7 +313,7 @@ void GaiaOAuthClient::Core::GetTokenInfo(const std::string& qualifier,
           destination: GOOGLE_OWNED_SERVICE
         }
         policy {
-          cookies_allowed: false
+          cookies_allowed: NO
           setting:
             "This feature cannot be disabled in settings, but if the user "
             "signs out of Chrome, this request would not be made."
@@ -393,8 +393,7 @@ void GaiaOAuthClient::Core::HandleResponse(
     std::string data;
     source->GetResponseAsString(&data);
     std::unique_ptr<base::Value> message_value = base::JSONReader::Read(data);
-    if (message_value.get() &&
-        message_value->IsType(base::Value::Type::DICTIONARY)) {
+    if (message_value.get() && message_value->is_dict()) {
       response_dict.reset(
           static_cast<base::DictionaryValue*>(message_value.release()));
     }

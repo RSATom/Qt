@@ -30,6 +30,7 @@ import QtQuick 2.0
 import QtTest 1.0
 import QtWebEngine 1.3
 import QtWebEngine.testsupport 1.0
+import QtQuick.Window 2.0
 
 TestWebEngineView {
     id: webEngineView
@@ -179,9 +180,9 @@ TestWebEngineView {
 
             compare(iconChangedSpy.count, 0)
 
-            var url = Qt.resolvedUrl("invalid://url")
+            var url = Qt.resolvedUrl("http://url.invalid")
             webEngineView.url = url
-            verify(webEngineView.waitForLoadFailed())
+            verify(webEngineView.waitForLoadFailed(20000))
             verify(webEngineView.testSupport.waitForErrorPageLoadSucceeded())
 
             compare(iconChangedSpy.count, 0)
@@ -195,9 +196,9 @@ TestWebEngineView {
 
             compare(iconChangedSpy.count, 0)
 
-            var url = Qt.resolvedUrl("invalid://url")
+            var url = Qt.resolvedUrl("http://url.invalid")
             webEngineView.url = url
-            verify(webEngineView.waitForLoadFailed())
+            verify(webEngineView.waitForLoadFailed(20000))
 
             compare(iconChangedSpy.count, 0)
 
@@ -323,8 +324,8 @@ TestWebEngineView {
             iconChangedSpy.wait()
             compare(iconChangedSpy.count, 1)
 
-            faviconImage.width = row.size
-            faviconImage.height = row.size
+            faviconImage.width = row.size / Screen.devicePixelRatio
+            faviconImage.height = row.size  / Screen.devicePixelRatio
             faviconImage.source = webEngineView.icon
 
             var pixel = getFaviconPixel(faviconImage);
@@ -373,6 +374,39 @@ TestWebEngineView {
             }
 
             faviconImage.destroy()
+        }
+
+        function test_touchIconWithSameURL()
+        {
+            WebEngine.settings.touchIconsEnabled = false;
+
+            var icon = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+
+            webEngineView.loadHtml(
+                        "<html>" +
+                        "<link rel='icon' type='image/png' href='" + icon + "'/>" +
+                        "<link rel='apple-touch-icon' type='image/png' href='" + icon + "'/>" +
+                        "</html>"
+            );
+            verify(webEngineView.waitForLoadSucceeded());
+
+            // The default favicon has to be loaded even if its URL is also set as a touch icon while touch icons are disabled.
+            tryCompare(iconChangedSpy, "count", 1);
+            compare(webEngineView.icon.toString().replace(/^image:\/\/favicon\//, ''), icon);
+
+            iconChangedSpy.clear();
+
+            webEngineView.loadHtml(
+                        "<html>" +
+                        "<link rel='apple-touch-icon' type='image/png' href='" + icon + "'/>" +
+                        "</html>"
+            );
+            verify(webEngineView.waitForLoadSucceeded());
+
+            // This page only has a touch icon. With disabled touch icons we don't expect any icon to be shown even if the same icon
+            // was loaded previously.
+            tryCompare(iconChangedSpy, "count", 1);
+            verify(!webEngineView.icon.toString().replace(/^image:\/\/favicon\//, ''));
         }
     }
 }

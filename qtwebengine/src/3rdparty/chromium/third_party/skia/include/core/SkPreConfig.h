@@ -18,14 +18,14 @@
 
 //////////////////////////////////////////////////////////////////////
 
-#if !defined(SK_BUILD_FOR_ANDROID) && !defined(SK_BUILD_FOR_IOS) && !defined(SK_BUILD_FOR_WIN32) && !defined(SK_BUILD_FOR_UNIX) && !defined(SK_BUILD_FOR_MAC)
+#if !defined(SK_BUILD_FOR_ANDROID) && !defined(SK_BUILD_FOR_IOS) && !defined(SK_BUILD_FOR_WIN) && !defined(SK_BUILD_FOR_UNIX) && !defined(SK_BUILD_FOR_MAC)
 
     #ifdef __APPLE__
         #include "TargetConditionals.h"
     #endif
 
     #if defined(_WIN32) || defined(__SYMBIAN32__)
-        #define SK_BUILD_FOR_WIN32
+        #define SK_BUILD_FOR_WIN
     #elif defined(ANDROID) || defined(__ANDROID__)
         #define SK_BUILD_FOR_ANDROID
     #elif defined(linux) || defined(__linux) || defined(__FreeBSD__) || \
@@ -52,7 +52,7 @@
 
 //////////////////////////////////////////////////////////////////////
 
-#ifdef SK_BUILD_FOR_WIN32
+#ifdef SK_BUILD_FOR_WIN
     #if !defined(SK_RESTRICT)
         #define SK_RESTRICT __restrict
     #endif
@@ -223,50 +223,6 @@
     #else
         #define SK_API
     #endif
-#endif
-
-//////////////////////////////////////////////////////////////////////
-
-/**
- * Use SK_PURE_FUNC as an attribute to indicate that a function's
- * return value only depends on the value of its parameters. This
- * can help the compiler optimize out successive calls.
- *
- * Usage:
- *      void  function(int params)  SK_PURE_FUNC;
- */
-#if defined(__GNUC__)
-#  define  SK_PURE_FUNC  __attribute__((pure))
-#else
-#  define  SK_PURE_FUNC  /* nothing */
-#endif
-
-//////////////////////////////////////////////////////////////////////
-
-/**
- * SK_HAS_ATTRIBUTE(<name>) should return true iff the compiler
- * supports __attribute__((<name>)). Mostly important because
- * Clang doesn't support all of GCC attributes.
- */
-#if defined(__has_attribute)
-#   define SK_HAS_ATTRIBUTE(x) __has_attribute(x)
-#elif defined(__GNUC__)
-#   define SK_HAS_ATTRIBUTE(x) 1
-#else
-#   define SK_HAS_ATTRIBUTE(x) 0
-#endif
-
-/**
- * SK_ATTRIBUTE_OPTIMIZE_O1 can be used as a function attribute
- * to specify individual optimization level of -O1, if the compiler
- * supports it.
- *
- * NOTE: Clang/ARM (r161757) does not support the 'optimize' attribute.
- */
-#if SK_HAS_ATTRIBUTE(optimize)
-#   define SK_ATTRIBUTE_OPTIMIZE_O1 __attribute__((optimize("O1")))
-#else
-#   define SK_ATTRIBUTE_OPTIMIZE_O1 /* nothing */
 #endif
 
 #endif

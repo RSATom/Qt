@@ -264,9 +264,9 @@ public:
         { m_qtFunctionInvoked = 37; return BazPolicy; }
     Q_INVOKABLE MyQObject::Strategy myInvokableReturningQualifiedEnum()
         { m_qtFunctionInvoked = 38; return BazStrategy; }
-    Q_INVOKABLE QVector<int> myInvokableReturningVectorOfInt()
-        { m_qtFunctionInvoked = 11; return QVector<int>(); }
-    Q_INVOKABLE void myInvokableWithVectorOfIntArg(const QVector<int> &)
+    Q_INVOKABLE QVector<CustomType> myInvokableReturningVectorOfCustomType()
+        { m_qtFunctionInvoked = 11; return QVector<CustomType>(); }
+    Q_INVOKABLE void myInvokableWithVectorOfCustomTypeArg(const QVector<CustomType> &)
         { m_qtFunctionInvoked = 12; }
     Q_INVOKABLE QObject *myInvokableReturningQObjectStar()
         { m_qtFunctionInvoked = 13; return this; }
@@ -1354,16 +1354,17 @@ void tst_QScriptExtQObject::callQtInvokable2()
 
     // first time we expect failure because the metatype is not registered
     m_myObject->resetQtFunctionInvoked();
-    QCOMPARE(m_engine->evaluate("myObject.myInvokableReturningVectorOfInt()").isError(), true);
+    QCOMPARE(QMetaType::type("QVector<CustomType>"), QMetaType::UnknownType); // this type should not be registered yet
+    QCOMPARE(m_engine->evaluate("myObject.myInvokableReturningVectorOfCustomType()").isError(), true);
     QCOMPARE(m_myObject->qtFunctionInvoked(), -1);
 
-    QCOMPARE(m_engine->evaluate("myObject.myInvokableWithVectorOfIntArg(0)").isError(), true);
+    QCOMPARE(m_engine->evaluate("myObject.myInvokableWithVectorOfCustomTypeArg(CustomType())").isError(), true);
     QCOMPARE(m_myObject->qtFunctionInvoked(), -1);
 
     // now we register it, and it should work
-    qScriptRegisterSequenceMetaType<QVector<int> >(m_engine);
+    qScriptRegisterSequenceMetaType<QVector<CustomType> >(m_engine);
     {
-        QScriptValue ret = m_engine->evaluate("myObject.myInvokableReturningVectorOfInt()");
+        QScriptValue ret = m_engine->evaluate("myObject.myInvokableReturningVectorOfCustomType()");
         QCOMPARE(ret.isArray(), true);
         QCOMPARE(m_myObject->qtFunctionInvoked(), 11);
     }
@@ -1372,7 +1373,8 @@ void tst_QScriptExtQObject::callQtInvokable2()
 void tst_QScriptExtQObject::callQtInvokable3()
 {
     {
-        QScriptValue ret = m_engine->evaluate("myObject.myInvokableWithVectorOfIntArg(myObject.myInvokableReturningVectorOfInt())");
+        qScriptRegisterSequenceMetaType<QVector<CustomType> >(m_engine);
+        QScriptValue ret = m_engine->evaluate("myObject.myInvokableWithVectorOfCustomTypeArg(myObject.myInvokableReturningVectorOfCustomType())");
         QCOMPARE(ret.isUndefined(), true);
         QCOMPARE(m_myObject->qtFunctionInvoked(), 12);
     }

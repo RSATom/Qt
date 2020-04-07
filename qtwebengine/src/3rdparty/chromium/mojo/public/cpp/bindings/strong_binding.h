@@ -38,7 +38,7 @@ using StrongBindingPtr = base::WeakPtr<StrongBinding<Interface>>;
 // To use, call StrongBinding<T>::Create() (see below) or the helper
 // MakeStrongBinding function:
 //
-//   mojo::MakeStrongBinding(base::MakeUnique<FooImpl>(),
+//   mojo::MakeStrongBinding(std::make_unique<FooImpl>(),
 //                           std::move(foo_request));
 //
 template <typename Interface>
@@ -70,6 +70,21 @@ class StrongBinding {
     DCHECK(binding_.is_bound());
     connection_error_with_reason_handler_ = std::move(error_handler);
     connection_error_handler_.Reset();
+  }
+
+  // Stops processing incoming messages until
+  // ResumeIncomingMethodCallProcessing().
+  // Outgoing messages are still sent.
+  //
+  // No errors are detected on the message pipe while paused.
+  //
+  // This method may only be called if the object has been bound to a message
+  // pipe and there are no associated interfaces running.
+  void PauseIncomingMethodCallProcessing() {
+    binding_.PauseIncomingMethodCallProcessing();
+  }
+  void ResumeIncomingMethodCallProcessing() {
+    binding_.ResumeIncomingMethodCallProcessing();
   }
 
   // Forces the binding to close. This destroys the StrongBinding instance.

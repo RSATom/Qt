@@ -12,10 +12,10 @@
 #include <vector>
 
 #include "base/containers/flat_map.h"
-#include "cc/base/filter_operations.h"
 #include "cc/base/synced_property.h"
 #include "cc/cc_export.h"
 #include "cc/layers/layer_sticky_position_constraint.h"
+#include "cc/paint/filter_operations.h"
 #include "cc/trees/element_id.h"
 #include "cc/trees/mutator_host_client.h"
 #include "ui/gfx/geometry/rect_f.h"
@@ -28,9 +28,12 @@ class TracedValue;
 }
 }
 
+namespace viz {
+class CopyOutputRequest;
+}
+
 namespace cc {
 
-class CopyOutputRequest;
 class LayerTreeImpl;
 class MutatorHost;
 class RenderSurfaceImpl;
@@ -190,20 +193,12 @@ class CC_EXPORT TransformTree final : public PropertyTree<TransformNode> {
     return device_transform_scale_factor_;
   }
 
-  void UpdateInnerViewportContainerBoundsDelta();
-
   void UpdateOuterViewportContainerBoundsDelta();
 
-  void AddNodeAffectedByInnerViewportBoundsDelta(int node_id);
   void AddNodeAffectedByOuterViewportBoundsDelta(int node_id);
 
-  bool HasNodesAffectedByInnerViewportBoundsDelta() const;
   bool HasNodesAffectedByOuterViewportBoundsDelta() const;
 
-  const std::vector<int>& nodes_affected_by_inner_viewport_bounds_delta()
-      const {
-    return nodes_affected_by_inner_viewport_bounds_delta_;
-  }
   const std::vector<int>& nodes_affected_by_outer_viewport_bounds_delta()
       const {
     return nodes_affected_by_outer_viewport_bounds_delta_;
@@ -264,7 +259,6 @@ class CC_EXPORT TransformTree final : public PropertyTree<TransformNode> {
   float page_scale_factor_;
   float device_scale_factor_;
   float device_transform_scale_factor_;
-  std::vector<int> nodes_affected_by_inner_viewport_bounds_delta_;
   std::vector<int> nodes_affected_by_outer_viewport_bounds_delta_;
   std::vector<TransformCachedNodeData> cached_data_;
   std::vector<StickyPositionNodeData> sticky_position_data_;
@@ -330,11 +324,12 @@ class CC_EXPORT EffectTree final : public PropertyTree<EffectNode> {
 
   void UpdateEffectChanged(EffectNode* node, EffectNode* parent_node);
 
-  void AddCopyRequest(int node_id, std::unique_ptr<CopyOutputRequest> request);
+  void AddCopyRequest(int node_id,
+                      std::unique_ptr<viz::CopyOutputRequest> request);
   void PushCopyRequestsTo(EffectTree* other_tree);
   void TakeCopyRequestsAndTransformToSurface(
       int node_id,
-      std::vector<std::unique_ptr<CopyOutputRequest>>* requests);
+      std::vector<std::unique_ptr<viz::CopyOutputRequest>>* requests);
   bool HasCopyRequests() const;
   void ClearCopyRequests();
 
@@ -373,9 +368,10 @@ class CC_EXPORT EffectTree final : public PropertyTree<EffectNode> {
   void UpdateOpacities(EffectNode* node, EffectNode* parent_node);
   void UpdateIsDrawn(EffectNode* node, EffectNode* parent_node);
   void UpdateBackfaceVisibility(EffectNode* node, EffectNode* parent_node);
+  void UpdateHasMaskingChild(EffectNode* node, EffectNode* parent_node);
 
   // Stores copy requests, keyed by node id.
-  std::unordered_multimap<int, std::unique_ptr<CopyOutputRequest>>
+  std::unordered_multimap<int, std::unique_ptr<viz::CopyOutputRequest>>
       copy_requests_;
 
   // Unsorted list of all mask layer ids that effect nodes refer to.
@@ -409,6 +405,8 @@ class CC_EXPORT ScrollTree final : public PropertyTree<ScrollNode> {
   void set_currently_scrolling_node(int scroll_node_id);
   gfx::Transform ScreenSpaceTransform(int scroll_node_id) const;
 
+  gfx::Vector2dF ClampScrollToMaxScrollOffset(ScrollNode* node, LayerTreeImpl*);
+
   // Returns the current scroll offset. On the main thread this would return the
   // value for the LayerTree while on the impl thread this is the current value
   // on the active tree.
@@ -434,7 +432,7 @@ class CC_EXPORT ScrollTree final : public PropertyTree<ScrollNode> {
   void PushScrollUpdatesFromPendingTree(PropertyTrees* pending_property_trees,
                                         LayerTreeImpl* active_tree);
 
-  bool SetBaseScrollOffset(ElementId id,
+  void SetBaseScrollOffset(ElementId id,
                            const gfx::ScrollOffset& scroll_offset);
   bool SetScrollOffset(ElementId id, const gfx::ScrollOffset& scroll_offset);
   void SetScrollOffsetClobberActiveValue(ElementId id) {
@@ -452,8 +450,9 @@ class CC_EXPORT ScrollTree final : public PropertyTree<ScrollNode> {
   gfx::Vector2dF ScrollBy(ScrollNode* scroll_node,
                           const gfx::Vector2dF& scroll,
                           LayerTreeImpl* layer_tree_impl);
-  gfx::ScrollOffset ClampScrollOffsetToLimits(gfx::ScrollOffset offset,
-                                              ScrollNode* scroll_node) const;
+  gfx::ScrollOffset ClampScrollOffsetToLimits(
+      gfx::ScrollOffset offset,
+      const ScrollNode& scroll_node) const;
 
   const SyncedScrollOffset* GetSyncedScrollOffset(ElementId id) const;
 
@@ -461,7 +460,7 @@ class CC_EXPORT ScrollTree final : public PropertyTree<ScrollNode> {
   void CopyCompleteTreeState(const ScrollTree& other);
 #endif
 
-  ScrollNode* FindNodeFromElementId(ElementId id);
+  const ScrollNode* FindNodeFromElementId(ElementId id) const;
 
  private:
   using ScrollOffsetMap = base::flat_map<ElementId, gfx::ScrollOffset>;

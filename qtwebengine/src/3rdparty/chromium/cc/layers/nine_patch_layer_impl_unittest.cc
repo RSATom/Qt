@@ -6,7 +6,6 @@
 
 #include "cc/layers/append_quads_data.h"
 #include "cc/layers/nine_patch_layer_impl.h"
-#include "cc/quads/texture_draw_quad.h"
 #include "cc/resources/ui_resource_bitmap.h"
 #include "cc/resources/ui_resource_client.h"
 #include "cc/test/fake_impl_task_runner_provider.h"
@@ -15,6 +14,7 @@
 #include "cc/test/geometry_test_utils.h"
 #include "cc/test/layer_test_common.h"
 #include "cc/trees/single_thread_proxy.h"
+#include "components/viz/common/quads/texture_draw_quad.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/gfx/geometry/rect_conversions.h"
@@ -37,7 +37,7 @@ void NinePatchLayerLayoutTest(const gfx::Size& bitmap_size,
                               const gfx::Rect& border,
                               bool fill_center,
                               size_t expected_quad_size) {
-  std::unique_ptr<RenderPass> render_pass = RenderPass::Create();
+  std::unique_ptr<viz::RenderPass> render_pass = viz::RenderPass::Create();
   gfx::Rect visible_layer_rect(layer_size);
   gfx::Rect expected_remaining(border.x(), border.y(),
                                layer_size.width() - border.width(),
@@ -50,7 +50,7 @@ void NinePatchLayerLayoutTest(const gfx::Size& bitmap_size,
   FakeUIResourceLayerTreeHostImpl host_impl(&task_runner_provider,
                                             &task_graph_runner);
   host_impl.SetVisible(true);
-  host_impl.InitializeRenderer(layer_tree_frame_sink.get());
+  host_impl.InitializeFrameSink(layer_tree_frame_sink.get());
 
   std::unique_ptr<NinePatchLayerImpl> layer =
       NinePatchLayerImpl::Create(host_impl.active_tree(), 1);
@@ -74,7 +74,7 @@ void NinePatchLayerLayoutTest(const gfx::Size& bitmap_size,
       render_pass.get(), &data);
 
   // Verify quad rects
-  const QuadList& quads = render_pass->quad_list;
+  const auto& quads = render_pass->quad_list;
   EXPECT_EQ(expected_quad_size, quads.size());
 
   Region layer_remaining(visible_layer_rect);
@@ -83,6 +83,8 @@ void NinePatchLayerLayoutTest(const gfx::Size& bitmap_size,
 
     EXPECT_TRUE(visible_layer_rect.Contains(quad_rect)) << iter.index();
     EXPECT_TRUE(layer_remaining.Contains(quad_rect)) << iter.index();
+    EXPECT_EQ(iter->needs_blending,
+              !iter->shared_quad_state->are_contents_opaque);
     layer_remaining.Subtract(Region(quad_rect));
   }
 
@@ -98,7 +100,8 @@ void NinePatchLayerLayoutTest(const gfx::Size& bitmap_size,
   gfx::Rect bitmap_rect(bitmap_size);
   Region tex_remaining(bitmap_rect);
   for (auto* quad : quads) {
-    const TextureDrawQuad* tex_quad = TextureDrawQuad::MaterialCast(quad);
+    const viz::TextureDrawQuad* tex_quad =
+        viz::TextureDrawQuad::MaterialCast(quad);
     gfx::RectF tex_rect =
         gfx::BoundingRect(tex_quad->uv_top_left, tex_quad->uv_bottom_right);
     tex_rect.Scale(bitmap_size.width(), bitmap_size.height());
@@ -112,6 +115,8 @@ void NinePatchLayerLayoutTest(const gfx::Size& bitmap_size,
   } else {
     EXPECT_TRUE(layer_remaining.bounds().IsEmpty());
   }
+
+  host_impl.DeleteUIResource(uid);
 }
 
 void NinePatchLayerLayoutTestWithOcclusion(const gfx::Size& bitmap_size,
@@ -121,7 +126,7 @@ void NinePatchLayerLayoutTestWithOcclusion(const gfx::Size& bitmap_size,
                                            const gfx::Rect& occlusion,
                                            bool fill_center,
                                            size_t expected_quad_size) {
-  std::unique_ptr<RenderPass> render_pass = RenderPass::Create();
+  std::unique_ptr<viz::RenderPass> render_pass = viz::RenderPass::Create();
   gfx::Rect visible_layer_rect(layer_size);
   int border_left = std::min(border.x(), occlusion.x()),
       border_top = std::min(border.y(), occlusion.y()),
@@ -158,7 +163,7 @@ void NinePatchLayerLayoutTestWithOcclusion(const gfx::Size& bitmap_size,
   FakeUIResourceLayerTreeHostImpl host_impl(&task_runner_provider,
                                             &task_graph_runner);
   host_impl.SetVisible(true);
-  host_impl.InitializeRenderer(layer_tree_frame_sink.get());
+  host_impl.InitializeFrameSink(layer_tree_frame_sink.get());
 
   std::unique_ptr<NinePatchLayerImpl> layer =
       NinePatchLayerImpl::Create(host_impl.active_tree(), 1);
@@ -182,7 +187,7 @@ void NinePatchLayerLayoutTestWithOcclusion(const gfx::Size& bitmap_size,
       render_pass.get(), &data);
 
   // Verify quad rects
-  const QuadList& quads = render_pass->quad_list;
+  const auto& quads = render_pass->quad_list;
   EXPECT_EQ(expected_quad_size, quads.size());
 
   Region layer_remaining(visible_layer_rect);
@@ -191,6 +196,8 @@ void NinePatchLayerLayoutTestWithOcclusion(const gfx::Size& bitmap_size,
 
     EXPECT_TRUE(visible_layer_rect.Contains(quad_rect)) << iter.index();
     EXPECT_TRUE(layer_remaining.Contains(quad_rect)) << iter.index();
+    EXPECT_EQ(iter->needs_blending,
+              !iter->shared_quad_state->are_contents_opaque);
     layer_remaining.Subtract(Region(quad_rect));
   }
 
@@ -202,7 +209,8 @@ void NinePatchLayerLayoutTestWithOcclusion(const gfx::Size& bitmap_size,
   gfx::Rect bitmap_rect(bitmap_size);
   Region tex_remaining(bitmap_rect);
   for (auto* quad : quads) {
-    const TextureDrawQuad* tex_quad = TextureDrawQuad::MaterialCast(quad);
+    const viz::TextureDrawQuad* tex_quad =
+        viz::TextureDrawQuad::MaterialCast(quad);
     gfx::RectF tex_rect =
         gfx::BoundingRect(tex_quad->uv_top_left, tex_quad->uv_bottom_right);
     tex_rect.Scale(bitmap_size.width(), bitmap_size.height());
@@ -212,6 +220,8 @@ void NinePatchLayerLayoutTestWithOcclusion(const gfx::Size& bitmap_size,
   EXPECT_EQ(expected_tex_remaining, tex_remaining.bounds());
   Region aperture_region(expected_tex_remaining);
   EXPECT_EQ(aperture_region, tex_remaining);
+
+  host_impl.DeleteUIResource(uid);
 }
 
 TEST(NinePatchLayerImplTest, VerifyDrawQuads) {
@@ -441,8 +451,8 @@ TEST(NinePatchLayerImplTest, OpaqueRect) {
 
     impl.AppendQuadsWithOcclusion(nine_patch_layer_impl, gfx::Rect());
 
-    const QuadList &quad_list = impl.quad_list();
-    for (QuadList::ConstBackToFrontIterator it = quad_list.BackToFrontBegin();
+    const auto& quad_list = impl.quad_list();
+    for (auto it = quad_list.BackToFrontBegin();
          it != quad_list.BackToFrontEnd(); ++it)
       EXPECT_FALSE(it->ShouldDrawWithBlending());
   }
@@ -454,8 +464,8 @@ TEST(NinePatchLayerImplTest, OpaqueRect) {
 
     impl.AppendQuadsWithOcclusion(nine_patch_layer_impl, gfx::Rect());
 
-    const QuadList &quad_list = impl.quad_list();
-    for (QuadList::ConstBackToFrontIterator it = quad_list.BackToFrontBegin();
+    const auto& quad_list = impl.quad_list();
+    for (auto it = quad_list.BackToFrontBegin();
          it != quad_list.BackToFrontEnd(); ++it)
       EXPECT_TRUE(it->ShouldDrawWithBlending());
   }

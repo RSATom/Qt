@@ -7,14 +7,13 @@
 
 #include <stdint.h>
 
-#include <queue>
 #include <string>
 
+#include "base/containers/queue.h"
 #include "base/macros.h"
 #include "base/time/time.h"
 #include "extensions/browser/extension_throttle_entry_interface.h"
 #include "net/base/backoff_entry.h"
-#include "net/log/net_log_with_source.h"
 
 namespace extensions {
 
@@ -138,7 +137,7 @@ class ExtensionThrottleEntry : public ExtensionThrottleEntryInterface {
 
   // A list of the recent send events. We use them to decide whether there are
   // too many requests sent in sliding window.
-  std::queue<base::TimeTicks> send_log_;
+  base::queue<base::TimeTicks> send_log_;
 
   const base::TimeDelta sliding_window_period_;
   const int max_send_threshold_;
@@ -155,7 +154,6 @@ class ExtensionThrottleEntry : public ExtensionThrottleEntryInterface {
   // Canonicalized URL string that this entry is for; used for logging only.
   std::string url_id_;
 
-  net::NetLogWithSource net_log_;
   bool ignore_user_gesture_load_flag_for_tests_;
 
   DISALLOW_COPY_AND_ASSIGN(ExtensionThrottleEntry);

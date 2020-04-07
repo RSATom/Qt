@@ -51,7 +51,8 @@ class QDocDatabase;
 enum FindFlag {
     SearchBaseClasses = 0x1,
     SearchEnumValues = 0x2,
-    NonFunction = 0x4
+    TypesOnly = 0x4,
+    IgnoreModules = 0x8
 };
 
 class QDocForest
@@ -137,17 +138,19 @@ class QDocForest
     const Node* findFunctionNode(const QString& target,
                                  const Node* relative,
                                  Node::Genus genus);
-
+    const FunctionNode* findFunctionNode(const QString& target,
+                                         const QString& params,
+                                         const Node* relative,
+                                         Node::Genus genus);
     const Node* findNodeForTarget(QStringList& targetPath,
                                   const Node* relative,
                                   Node::Genus genus,
                                   QString& ref);
 
-    const Node* findTypeNode(const QStringList& path, const Node* relative)
+    const Node* findTypeNode(const QStringList& path, const Node* relative, Node::Genus genus)
     {
-        int flags = SearchBaseClasses | SearchEnumValues | NonFunction;
-        Node::Genus genus = Node::DontCare;
-        if (relative && relative->genus() != Node::DOC)
+        int flags = SearchBaseClasses | SearchEnumValues | TypesOnly;
+        if (relative && genus == Node::DontCare && relative->genus() != Node::DOC)
             genus = relative->genus();
         foreach (Tree* t, searchOrder()) {
             const Node* n = t->findNode(path, relative, flags, genus);
@@ -338,7 +341,13 @@ class QDocDatabase
     const Node* findFunctionNode(const QString& target, const Node* relative, Node::Genus genus) {
         return forest_.findFunctionNode(target, relative, genus);
     }
-    const Node* findTypeNode(const QString& type, const Node* relative);
+    const FunctionNode* findFunctionNode(const QString& target,
+                                         const QString& params,
+                                         const Node* relative,
+                                         Node::Genus genus) {
+        return forest_.findFunctionNode(target, params, relative, genus);
+    }
+    const Node* findTypeNode(const QString& type, const Node* relative, Node::Genus genus);
     const Node* findNodeForTarget(const QString& target, const Node* relative);
     const DocumentNode* findDocumentNodeByTitle(const QString& title) {
         return forest_.findDocumentNodeByTitle(title);
@@ -349,6 +358,8 @@ class QDocDatabase
     const CollectionNode* getCollectionNode(const QString& name, Node::Genus genus) {
         return forest_.getCollectionNode(name, genus);
     }
+    Node *findFunctionNodeForTag(QString tag) { return primaryTree()->findFunctionNodeForTag(tag); }
+    Node* findMacroNode(const QString &t) { return primaryTree()->findMacroNode(t); }
 
   private:
     const Node* findNodeForTarget(QStringList& targetPath,

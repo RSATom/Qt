@@ -34,8 +34,8 @@
 **
 ****************************************************************************/
 
-#ifndef QGAMEPADBACKENDPLUGIN_H
-#define QGAMEPADBACKENDPLUGIN_H
+#ifndef QGAMEPADBACKENDPLUGIN_P_H
+#define QGAMEPADBACKENDPLUGIN_P_H
 
 //
 //  W A R N I N G
@@ -75,4 +75,4 @@ public slots:
 
 QT_END_NAMESPACE
 
-#endif // QGAMEPADBACKENDPLUGIN_H
+#endif // QGAMEPADBACKENDPLUGIN_P_H

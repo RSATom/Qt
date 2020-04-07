@@ -41,7 +41,7 @@
 #define QDESIGNER_FORMWINDOMANAGER_H
 
 #include "shared_global_p.h"
-#include <QtDesigner/QDesignerFormWindowManagerInterface>
+#include <QtDesigner/abstractformwindowmanager.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -58,11 +58,11 @@ class QDESIGNER_SHARED_EXPORT QDesignerFormWindowManager
     Q_OBJECT
 public:
     explicit QDesignerFormWindowManager(QObject *parent = 0);
-    virtual ~QDesignerFormWindowManager();
+    ~QDesignerFormWindowManager() override;
 
     virtual PreviewManager *previewManager() const = 0;
 
-    virtual void showPluginDialog();
+    void showPluginDialog() override;
 
 private:
     void *m_unused;

@@ -68,8 +68,8 @@ class Q_WAYLAND_COMPOSITOR_EXPORT ClientBufferIntegrationPlugin : public QObject
 {
     Q_OBJECT
 public:
-    explicit ClientBufferIntegrationPlugin(QObject *parent = 0);
-    ~ClientBufferIntegrationPlugin();
+    explicit ClientBufferIntegrationPlugin(QObject *parent = nullptr);
+    ~ClientBufferIntegrationPlugin() override;
 
     virtual ClientBufferIntegration *create(const QString &key, const QStringList &paramList) = 0;
 };

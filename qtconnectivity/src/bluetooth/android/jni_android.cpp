@@ -193,6 +193,9 @@ static void QtBluetoothInputStreamThread_readyData(JNIEnv */*env*/, jobject /*ja
 void QtBluetoothLE_leScanResult(JNIEnv *env, jobject, jlong qtObject, jobject bluetoothDevice,
                                 jint rssi, jbyteArray scanRecord)
 {
+    if (Q_UNLIKELY(qtObject == 0))
+        return;
+
     reinterpret_cast<AndroidBroadcastReceiver*>(qtObject)->onReceiveLeScan(
                                                                 env, bluetoothDevice, rssi,
                                                                 scanRecord);

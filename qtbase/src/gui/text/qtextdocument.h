@@ -75,7 +75,7 @@ namespace Qt
     Q_GUI_EXPORT bool mightBeRichText(const QString&);
     Q_GUI_EXPORT QString convertFromPlainText(const QString &plain, WhiteSpaceMode mode = WhiteSpacePre);
 
-#ifndef QT_NO_TEXTCODEC
+#if QT_CONFIG(textcodec) || defined(Q_CLANG_QDOC)
     Q_GUI_EXPORT QTextCodec *codecForHtml(const QByteArray &ba);
 #endif
 }
@@ -116,11 +116,11 @@ class Q_GUI_EXPORT QTextDocument : public QObject
     Q_PROPERTY(QUrl baseUrl READ baseUrl WRITE setBaseUrl NOTIFY baseUrlChanged)
 
 public:
-    explicit QTextDocument(QObject *parent = Q_NULLPTR);
-    explicit QTextDocument(const QString &text, QObject *parent = Q_NULLPTR);
+    explicit QTextDocument(QObject *parent = nullptr);
+    explicit QTextDocument(const QString &text, QObject *parent = nullptr);
     ~QTextDocument();
 
-    QTextDocument *clone(QObject *parent = Q_NULLPTR) const;
+    QTextDocument *clone(QObject *parent = nullptr) const;
 
     bool isEmpty() const;
     virtual void clear();
@@ -173,7 +173,7 @@ public:
     QTextCursor find(const QRegExp &expr, const QTextCursor &cursor, FindFlags options = FindFlags()) const;
 #endif
 
-#ifndef QT_NO_REGULAREXPRESSION
+#if QT_CONFIG(regularexpression)
     QTextCursor find(const QRegularExpression &expr, int from = 0, FindFlags options = FindFlags()) const;
     QTextCursor find(const QRegularExpression &expr, const QTextCursor &cursor, FindFlags options = FindFlags()) const;
 #endif

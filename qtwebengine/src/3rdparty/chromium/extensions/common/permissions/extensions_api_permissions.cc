@@ -11,6 +11,7 @@
 
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
+#include "extensions/common/api/declarative_net_request/constants.h"
 #include "extensions/common/permissions/api_permission.h"
 #include "extensions/common/permissions/socket_permission.h"
 #include "extensions/common/permissions/usb_device_permission.h"
@@ -42,6 +43,8 @@ ExtensionsAPIPermissions::GetAllPermissions() const {
       {APIPermission::kAudioCapture, "audioCapture"},
       {APIPermission::kBluetoothPrivate, "bluetoothPrivate",
        APIPermissionInfo::kFlagCannotBeOptional},
+      {APIPermission::kCecPrivate, "cecPrivate",
+       APIPermissionInfo::kFlagCannotBeOptional},
       {APIPermission::kClipboard, "clipboard"},
       {APIPermission::kClipboardRead, "clipboardRead",
        APIPermissionInfo::kFlagSupportsContentCapabilities},
@@ -57,6 +60,8 @@ ExtensionsAPIPermissions::GetAllPermissions() const {
        APIPermissionInfo::kFlagCannotBeOptional},
       {APIPermission::kExternallyConnectableAllUrls,
        "externally_connectable.all_urls"},
+      {APIPermission::kFeedbackPrivate, "feedbackPrivate",
+       APIPermissionInfo::kFlagCannotBeOptional},
       {APIPermission::kFullscreen, "app.window.fullscreen"},
 
       // The permission string for "fileSystem" is only shown when
@@ -77,9 +82,12 @@ ExtensionsAPIPermissions::GetAllPermissions() const {
        "app.window.fullscreen.overrideEsc"},
       {APIPermission::kIdle, "idle"},
       {APIPermission::kLockScreen, "lockScreen"},
+      {APIPermission::kLockWindowFullscreenPrivate,
+       "lockWindowFullscreenPrivate", APIPermissionInfo::kFlagCannotBeOptional},
       {APIPermission::kMediaPerceptionPrivate, "mediaPerceptionPrivate"},
       {APIPermission::kMetricsPrivate, "metricsPrivate",
        APIPermissionInfo::kFlagCannotBeOptional},
+      {APIPermission::kNativeMessaging, "nativeMessaging"},
       {APIPermission::kNetworkingConfig, "networking.config"},
       {APIPermission::kNetworkingOnc, "networking.onc"},
       {APIPermission::kNetworkingPrivate, "networkingPrivate",
@@ -97,6 +105,7 @@ ExtensionsAPIPermissions::GetAllPermissions() const {
       {APIPermission::kSystemMemory, "system.memory"},
       {APIPermission::kSystemNetwork, "system.network"},
       {APIPermission::kSystemDisplay, "system.display"},
+      {APIPermission::kSystemPowerSource, "system.powerSource"},
       {APIPermission::kSystemStorage, "system.storage"},
       {APIPermission::kU2fDevices, "u2fDevices"},
       {APIPermission::kUnlimitedStorage, "unlimitedStorage",
@@ -117,9 +126,13 @@ ExtensionsAPIPermissions::GetAllPermissions() const {
            APIPermissionInfo::kFlagInternal},
       {APIPermission::kWebRequest, "webRequest"},
       {APIPermission::kWebRequestBlocking, "webRequestBlocking"},
+      {APIPermission::kDeclarativeNetRequest,
+       declarative_net_request::kAPIPermission},
       {APIPermission::kWebView, "webview",
        APIPermissionInfo::kFlagCannotBeOptional},
       {APIPermission::kWindowShape, "app.window.shape"},
+      {APIPermission::kFileSystemRequestDownloads,
+       "fileSystem.requestDownloads"},
   };
 
   std::vector<std::unique_ptr<APIPermissionInfo>> permissions;

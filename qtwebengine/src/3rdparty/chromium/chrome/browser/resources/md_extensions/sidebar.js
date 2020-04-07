@@ -1,60 +1,41 @@
 // Copyright 2015 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
-
-cr.exportPath('extensions');
-
-// Declare this here to make closure compiler happy, and us sad.
-/** @enum {number} */
-extensions.ShowingType = {
-  EXTENSIONS: 0,
-  APPS: 1,
-};
-
 cr.define('extensions', function() {
-  /** @interface */
-  var SidebarListDelegate = function() {};
-
-  SidebarListDelegate.prototype = {
-    /**
-     * Shows the given type of item.
-     * @param {extensions.ShowingType} type
-     */
-    showType: assertNotReached,
-
-    /** Shows the keyboard shortcuts page. */
-    showKeyboardShortcuts: assertNotReached,
-  };
-
-  var Sidebar = Polymer({
+  const Sidebar = Polymer({
     is: 'extensions-sidebar',
 
-    behaviors: [I18nBehavior],
+    properties: {
+      isSupervised: Boolean,
+    },
 
-    /** @param {extensions.SidebarListDelegate} listDelegate */
-    setListDelegate: function(listDelegate) {
-      /** @private {extensions.SidebarListDelegate} */
-      this.listDelegate_ = listDelegate;
+    hostAttributes: {
+      role: 'navigation',
+    },
+
+    /** @override */
+    attached: function() {
+      this.$.sectionMenu.select(
+          extensions.navigation.getCurrentPage().page == Page.SHORTCUTS ? 1 :
+                                                                          0);
+    },
+
+    /**
+     * @param {!Event} e
+     * @private
+     */
+    onLinkTap_: function(e) {
+      e.preventDefault();
+      extensions.navigation.navigateTo({page: e.target.dataset.path});
+      this.fire('close-drawer');
     },
 
     /** @private */
-    onExtensionsTap_: function() {
-      this.listDelegate_.showType(extensions.ShowingType.EXTENSIONS);
-    },
-
-    /** @private */
-    onAppsTap_: function() {
-      this.listDelegate_.showType(extensions.ShowingType.APPS);
-    },
-
-    /** @private */
-    onKeyboardShortcutsTap_: function() {
-      this.listDelegate_.showKeyboardShortcuts();
+    onMoreExtensionsTap_: function() {
+      assert(!this.isSupervised);
+      chrome.metricsPrivate.recordUserAction('Options_GetMoreExtensions');
     },
   });
 
-  return {
-    Sidebar: Sidebar,
-    SidebarListDelegate: SidebarListDelegate,
-  };
+  return {Sidebar: Sidebar};
 });

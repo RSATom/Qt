@@ -66,8 +66,8 @@ class Q_WIDGETS_EXPORT QSystemTrayIcon : public QObject
     Q_PROPERTY(bool visible READ isVisible WRITE setVisible DESIGNABLE false)
 
 public:
-    QSystemTrayIcon(QObject *parent = Q_NULLPTR);
-    QSystemTrayIcon(const QIcon &icon, QObject *parent = Q_NULLPTR);
+    QSystemTrayIcon(QObject *parent = nullptr);
+    QSystemTrayIcon(const QIcon &icon, QObject *parent = nullptr);
     ~QSystemTrayIcon();
 
     enum ActivationReason {
@@ -110,7 +110,7 @@ Q_SIGNALS:
     void messageClicked();
 
 protected:
-    bool event(QEvent *event) Q_DECL_OVERRIDE;
+    bool event(QEvent *event) override;
 
 private:
     Q_DISABLE_COPY(QSystemTrayIcon)

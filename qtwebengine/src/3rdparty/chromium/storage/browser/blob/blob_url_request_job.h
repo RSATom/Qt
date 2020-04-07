@@ -28,7 +28,6 @@ namespace storage {
 
 class BlobDataHandle;
 class FileStreamReader;
-class FileSystemContext;
 
 // A request job that handles reading blob URLs.
 class STORAGE_EXPORT BlobURLRequestJob
@@ -36,8 +35,7 @@ class STORAGE_EXPORT BlobURLRequestJob
  public:
   BlobURLRequestJob(net::URLRequest* request,
                     net::NetworkDelegate* network_delegate,
-                    BlobDataHandle* blob_handle,
-                    storage::FileSystemContext* file_system_context);
+                    BlobDataHandle* blob_handle);
 
   // net::URLRequestJob methods.
   void Start() override;
@@ -48,17 +46,14 @@ class STORAGE_EXPORT BlobURLRequestJob
   void SetExtraRequestHeaders(const net::HttpRequestHeaders& headers) override;
 
   // Helper method to create the HTTP headers for the response.
-  // |blob_handles|, |blob_reader|, |byte_range| and |content_size| are only
+  // |blob_handles|, |total_size|, |byte_range| and |content_size| are only
   // used if status_code isn't an error.
   static scoped_refptr<net::HttpResponseHeaders> GenerateHeaders(
       net::HttpStatusCode status_code,
       BlobDataHandle* blob_handle,
-      BlobReader* blob_reader,
       net::HttpByteRange* byte_range,
-      int64_t* content_size);
-
-  // Helper method to map from a net error to an http status code.
-  static net::HttpStatusCode NetErrorToHttpStatusCode(int error_code);
+      uint64_t total_size,
+      uint64_t content_size);
 
  protected:
   ~BlobURLRequestJob() override;

@@ -6,8 +6,8 @@
 #define COMPONENTS_PASSWORD_MANAGER_CORE_BROWSER_ANDROID_AFFILIATION_FAKE_AFFILIATION_FETCHER_H_
 
 #include <memory>
-#include <queue>
 
+#include "base/containers/queue.h"
 #include "base/macros.h"
 #include "components/password_manager/core/browser/android_affiliation/affiliation_fetcher.h"
 #include "components/password_manager/core/browser/android_affiliation/affiliation_fetcher_delegate.h"
@@ -19,10 +19,11 @@ namespace password_manager {
 // responses to users of AffiliationFetcher.
 class FakeAffiliationFetcher : public AffiliationFetcher {
  public:
-  FakeAffiliationFetcher(net::URLRequestContextGetter* request_context_getter,
-                         const std::vector<FacetURI>& facet_ids,
-                         AffiliationFetcherDelegate* delegate);
-  ~FakeAffiliationFetcher() override;
+  FakeAffiliationFetcher(
+      scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
+      const std::vector<FacetURI>& facet_ids,
+      AffiliationFetcherDelegate* delegate);
+  ~FakeAffiliationFetcher();
 
   // Simulates successful completion of the request with |fake_result|. Note
   // that the consumer may choose to destroy |this| from within this call.
@@ -34,8 +35,6 @@ class FakeAffiliationFetcher : public AffiliationFetcher {
   void SimulateFailure();
 
  private:
-  void StartRequest() override;
-
   DISALLOW_COPY_AND_ASSIGN(FakeAffiliationFetcher);
 };
 
@@ -66,14 +65,14 @@ class ScopedFakeAffiliationFetcherFactory
 
   // AffiliationFetcherFactory:
   AffiliationFetcher* CreateInstance(
-      net::URLRequestContextGetter* request_context_getter,
+      scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
       const std::vector<FacetURI>& facet_ids,
       AffiliationFetcherDelegate* delegate) override;
 
  private:
   // Fakes created by this factory. The elements are owned by the production
   // code that normally owns the result of AffiliationFetcher::Create().
-  std::queue<FakeAffiliationFetcher*> pending_fetchers_;
+  base::queue<FakeAffiliationFetcher*> pending_fetchers_;
 
   DISALLOW_COPY_AND_ASSIGN(ScopedFakeAffiliationFetcherFactory);
 };

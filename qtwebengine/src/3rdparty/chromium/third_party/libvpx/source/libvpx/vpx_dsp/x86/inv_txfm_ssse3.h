@@ -24,13 +24,13 @@ static INLINE void idct8x8_12_add_kernel_ssse3(__m128i *const io /* io[8] */) {
   const __m128i cp_8d_24d = dual_set_epi16(2 * cospi_8_64, 2 * cospi_24_64);
   const __m128i cp_16_16 = _mm_set1_epi16(cospi_16_64);
   const __m128i cp_16_n16 = pair_set_epi16(cospi_16_64, -cospi_16_64);
-  const __m128i cospi_16_64d = _mm_set1_epi16(2 * cospi_16_64);
-  const __m128i cospi_28_64d = _mm_set1_epi16(2 * cospi_28_64);
-  const __m128i cospi_4_64d = _mm_set1_epi16(2 * cospi_4_64);
-  const __m128i cospi_n20_64d = _mm_set1_epi16(-2 * cospi_20_64);
-  const __m128i cospi_12_64d = _mm_set1_epi16(2 * cospi_12_64);
-  const __m128i cospi_24_64d = _mm_set1_epi16(2 * cospi_24_64);
-  const __m128i cospi_8_64d = _mm_set1_epi16(2 * cospi_8_64);
+  const __m128i cospi_16_64d = _mm_set1_epi16((int16_t)(2 * cospi_16_64));
+  const __m128i cospi_28_64d = _mm_set1_epi16((int16_t)(2 * cospi_28_64));
+  const __m128i cospi_4_64d = _mm_set1_epi16((int16_t)(2 * cospi_4_64));
+  const __m128i cospi_n20_64d = _mm_set1_epi16((int16_t)(-2 * cospi_20_64));
+  const __m128i cospi_12_64d = _mm_set1_epi16((int16_t)(2 * cospi_12_64));
+  const __m128i cospi_24_64d = _mm_set1_epi16((int16_t)(2 * cospi_24_64));
+  const __m128i cospi_8_64d = _mm_set1_epi16((int16_t)(2 * cospi_8_64));
   __m128i step1[8], step2[8], tmp[4];
 
   // pass 1
@@ -92,8 +92,7 @@ static INLINE void idct8x8_12_add_kernel_ssse3(__m128i *const io /* io[8] */) {
   step1[1] = _mm_add_epi16(step2[0], step2[2]);
   step1[2] = _mm_sub_epi16(step2[0], step2[2]);
   step1[3] = _mm_sub_epi16(step2[0], step2[3]);
-  multiplication_and_add_2(&step2[6], &step2[5], &cp_16_n16, &cp_16_16,
-                           &step1[5], &step1[6]);
+  butterfly(step2[6], step2[5], cospi_16_64, cospi_16_64, &step1[5], &step1[6]);
 
   // stage 4
   io[0] = _mm_add_epi16(step1[0], step2[7]);
@@ -105,5 +104,7 @@ static INLINE void idct8x8_12_add_kernel_ssse3(__m128i *const io /* io[8] */) {
   io[6] = _mm_sub_epi16(step1[1], step1[6]);
   io[7] = _mm_sub_epi16(step1[0], step2[7]);
 }
+
+void idct32_135_8x32_ssse3(const __m128i *const in, __m128i *const out);
 
 #endif  // VPX_DSP_X86_INV_TXFM_SSSE3_H_

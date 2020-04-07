@@ -41,7 +41,7 @@
 #define QWINDOWSWINDOW_H
 
 #include <QtCore/qt_windows.h>
-#include <QtCore/QPointer>
+#include <QtCore/qpointer.h>
 #include "qwindowscursor.h"
 
 #include <qpa/qplatformwindow.h>
@@ -59,7 +59,7 @@ class QDebug;
 
 struct QWindowsGeometryHint
 {
-    QWindowsGeometryHint() {}
+    QWindowsGeometryHint() = default;
     explicit QWindowsGeometryHint(const QWindow *w, const QMargins &customMargins);
     static QMargins frame(DWORD style, DWORD exStyle);
     static bool handleCalculateSize(const QMargins &customMargins, const MSG &msg, LRESULT *result);
@@ -108,10 +108,11 @@ struct QWindowsWindowData
 {
     Qt::WindowFlags flags;
     QRect geometry;
-    QMargins frame; // Do not use directly for windows, see FrameDirty.
-    QMargins customMargins; // User-defined, additional frame for NCCALCSIZE
+    QMargins fullFrameMargins; // Do not use directly for windows, see FrameDirty.
+    QMargins customMargins;    // User-defined, additional frame for NCCALCSIZE
     HWND hwnd = 0;
     bool embedded = false;
+    bool hasFrame = false;
 
     static QWindowsWindowData create(const QWindow *w,
                                      const QWindowsWindowData &parameters,
@@ -120,14 +121,16 @@ struct QWindowsWindowData
 
 class QWindowsBaseWindow : public QPlatformWindow
 {
+    Q_DISABLE_COPY(QWindowsBaseWindow)
 public:
     explicit QWindowsBaseWindow(QWindow *window) : QPlatformWindow(window) {}
 
     WId winId() const override { return WId(handle()); }
     QRect geometry() const override { return geometry_sys(); }
-    QMargins frameMargins() const override { return frameMargins_sys(); }
+    QMargins frameMargins() const override { return fullFrameMargins(); }
     QPoint mapToGlobal(const QPoint &pos) const override;
     QPoint mapFromGlobal(const QPoint &pos) const override;
+    virtual QMargins fullFrameMargins() const { return frameMargins_sys(); }
 
     using QPlatformWindow::screenForGeometry;
 
@@ -214,16 +217,15 @@ public:
         WithinCreate = 0x20000,
         WithinMaximize = 0x40000,
         MaximizeToFullScreen = 0x80000,
-        InputMethodDisabled = 0x100000,
-        Compositing = 0x200000,
-        HasBorderInFullScreen = 0x400000,
-        WithinDpiChanged = 0x800000,
-        VulkanSurface = 0x1000000,
-        ResizeMoveActive = 0x2000000
+        Compositing = 0x100000,
+        HasBorderInFullScreen = 0x200000,
+        WithinDpiChanged = 0x400000,
+        VulkanSurface = 0x800000,
+        ResizeMoveActive = 0x1000000
     };
 
     QWindowsWindow(QWindow *window, const QWindowsWindowData &data);
-    ~QWindowsWindow();
+    ~QWindowsWindow() override;
 
     void initialize() override;
 
@@ -252,13 +254,14 @@ public:
     void raise() override { raise_sys(); }
     void lower() override { lower_sys(); }
 
-    void windowEvent(QEvent *event) override;
+    bool windowEvent(QEvent *event) override;
 
     void propagateSizeHints() override;
     static bool handleGeometryChangingMessage(MSG *message, const QWindow *qWindow, const QMargins &marginsDp);
     bool handleGeometryChanging(MSG *message) const;
     QMargins frameMargins() const override;
-    void setFrameMargins(const QMargins &newMargins);
+    QMargins fullFrameMargins() const override;
+    void setFullFrameMargins(const QMargins &newMargins);
 
     void setOpacity(qreal level) override;
     void setMask(const QRegion &region) override;
@@ -270,6 +273,7 @@ public:
     inline bool hasMouseCapture() const { return GetCapture() == m_data.hwnd; }
 
     bool startSystemResize(const QPoint &pos, Qt::Corner corner) override;
+    bool startSystemMove(const QPoint &pos) override;
 
     void setFrameStrutEventsEnabled(bool enabled) override;
     bool frameStrutEventsEnabled() const override { return testFlag(FrameStrutEventsEnabled); }
@@ -294,6 +298,9 @@ public:
     void handleHidden();
     void handleCompositionSettingsChanged();
 
+    static void displayChanged();
+    static void settingsChanged();
+    static QScreen *forcedScreenForGLWindow(const QWindow *w);
     static QWindowsWindow *windowsWindowOf(const QWindow *w);
     static QWindow *topLevelOf(QWindow *w);
     static inline void *userDataOf(HWND hwnd);
@@ -339,6 +346,7 @@ public:
     static QString formatWindowTitle(const QString &title);
 
     static const char *embeddedNativeParentHandleProperty;
+    static const char *hasBorderInFullScreenProperty;
 
 private:
     inline void show_sys() const;
@@ -372,6 +380,8 @@ private:
     HICON m_iconSmall = 0;
     HICON m_iconBig = 0;
     void *m_surface = nullptr;
+
+    static bool m_screenForGLInitialized;
 
 #if QT_CONFIG(vulkan)
     // note: intentionally not using void * in order to avoid breaking x86
@@ -427,7 +437,7 @@ inline QWindowsWindow *QWindowsWindow::windowsWindowOf(const QWindow *w)
 
 void *QWindowsWindow::userDataOf(HWND hwnd)
 {
-    return (void *)GetWindowLongPtr(hwnd, GWLP_USERDATA);
+    return reinterpret_cast<void *>(GetWindowLongPtr(hwnd, GWLP_USERDATA));
 }
 
 void QWindowsWindow::setUserDataOf(HWND hwnd, void *ud)

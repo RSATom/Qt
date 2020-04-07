@@ -4,34 +4,25 @@
 
 #include "media/audio/audio_debug_recording_manager.h"
 
+#include <memory>
 #include <vector>
 
 #include "base/bind.h"
-#include "base/files/file_path.h"
-#include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "base/single_thread_task_runner.h"
-#include "base/strings/string_number_conversions.h"
-#include "base/test/test_message_loop.h"
+#include "base/test/scoped_task_environment.h"
 #include "media/audio/audio_debug_recording_helper.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using testing::_;
 
-#if defined(OS_WIN)
-#define IntToStringType base::IntToString16
-#else
-#define IntToStringType base::IntToString
-#endif
-
 namespace media {
 
 namespace {
 
-// The filename extension expected to be added.
-const base::FilePath::CharType kFileNameExtension[] =
-    FILE_PATH_LITERAL("extension");
+// The stream type expected to be added to file name.
+const AudioDebugRecordingStreamType kStreamType(
+    AudioDebugRecordingStreamType::kOutput);
 
 // Used to be able to set call expectations in the MockAudioDebugRecordingHelper
 // ctor. See also comment on the test EnableRegisterDisable.
@@ -50,6 +41,12 @@ struct ScopedExpectEnableAfterCreateHelper {
   }
 };
 
+// Function bound and passed to AudioDebugRecordingManager::EnableDebugRecording
+// as AudioDebugRecordingManager::CreateWavFileCallback.
+void CreateWavFile(AudioDebugRecordingStreamType stream_type,
+                   uint32_t id,
+                   base::OnceCallback<void(base::File)>) {}
+
 }  // namespace
 
 // Mock class to verify enable and disable calls.
@@ -64,7 +61,7 @@ class MockAudioDebugRecordingHelper : public AudioDebugRecordingHelper {
                                   base::OnceClosure()),
         on_destruction_closure_in_mock_(std::move(on_destruction_closure)) {
     if (g_expect_enable_after_create_helper)
-      EXPECT_CALL(*this, EnableDebugRecording(_));
+      EXPECT_CALL(*this, DoEnableDebugRecording(_, _));
   }
 
   ~MockAudioDebugRecordingHelper() override {
@@ -72,7 +69,15 @@ class MockAudioDebugRecordingHelper : public AudioDebugRecordingHelper {
       std::move(on_destruction_closure_in_mock_).Run();
   }
 
-  MOCK_METHOD1(EnableDebugRecording, void(const base::FilePath&));
+  MOCK_METHOD2(DoEnableDebugRecording,
+               void(AudioDebugRecordingStreamType, uint32_t));
+  void EnableDebugRecording(AudioDebugRecordingStreamType stream_type,
+                            uint32_t id,
+                            AudioDebugRecordingHelper::CreateWavFileCallback
+                                create_file_callback) override {
+    DoEnableDebugRecording(stream_type, id);
+  }
+
   MOCK_METHOD0(DisableDebugRecording, void());
 
  private:
@@ -90,15 +95,16 @@ class AudioDebugRecordingManagerUnderTest : public AudioDebugRecordingManager {
   AudioDebugRecordingManagerUnderTest(
       scoped_refptr<base::SingleThreadTaskRunner> task_runner)
       : AudioDebugRecordingManager(std::move(task_runner)) {}
-  ~AudioDebugRecordingManagerUnderTest() override {}
+  ~AudioDebugRecordingManagerUnderTest() override = default;
 
  private:
   std::unique_ptr<AudioDebugRecordingHelper> CreateAudioDebugRecordingHelper(
       const AudioParameters& params,
       scoped_refptr<base::SingleThreadTaskRunner> task_runner,
       base::OnceClosure on_destruction_closure) override {
-    return base::MakeUnique<MockAudioDebugRecordingHelper>(
-        params, std::move(task_runner), std::move(on_destruction_closure));
+    return std::make_unique<MockAudioDebugRecordingHelper>(
+        params, std::move(task_runner),
+        std::move(on_destruction_closure));
   }
 
   DISALLOW_COPY_AND_ASSIGN(AudioDebugRecordingManagerUnderTest);
@@ -108,40 +114,38 @@ class AudioDebugRecordingManagerUnderTest : public AudioDebugRecordingManager {
 class AudioDebugRecordingManagerTest : public ::testing::Test {
  public:
   AudioDebugRecordingManagerTest()
-      : manager_(message_loop_.task_runner()),
-        base_file_path_(base::FilePath::FromUTF8Unsafe("base_path")) {}
+      : manager_(scoped_task_environment_.GetMainThreadTaskRunner()) {}
 
-  ~AudioDebugRecordingManagerTest() override {}
+  ~AudioDebugRecordingManagerTest() override = default;
 
   // Registers a source and increases counter for the expected next source id.
   std::unique_ptr<AudioDebugRecorder> RegisterDebugRecordingSource(
       const AudioParameters& params) {
     ++expected_next_source_id_;
-    return manager_.RegisterDebugRecordingSource(kFileNameExtension, params);
+    return manager_.RegisterDebugRecordingSource(kStreamType, params);
   }
 
- private:
-  // Must come before |manager_|, so that it's inialized before it.
-  base::TestMessageLoop message_loop_;
-
  protected:
+  // The test task environment.
+  base::test::ScopedTaskEnvironment scoped_task_environment_;
+
   AudioDebugRecordingManagerUnderTest manager_;
-  base::FilePath base_file_path_;
 
   // The expected next source id the manager will assign. It's static since the
   // manager uses a global running id, thus doesn't restart at each
   // instantiation.
-  static int expected_next_source_id_;
+  static uint32_t expected_next_source_id_;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(AudioDebugRecordingManagerTest);
 };
 
-int AudioDebugRecordingManagerTest::expected_next_source_id_ = 1;
+uint32_t AudioDebugRecordingManagerTest::expected_next_source_id_ = 1;
 
-// Shouldn't do anything but store the path, i.e. no calls to recorders.
+// Shouldn't do anything but store the CreateWavFileCallback, i.e. no calls to
+// recorders.
 TEST_F(AudioDebugRecordingManagerTest, EnableDisable) {
-  manager_.EnableDebugRecording(base_file_path_);
+  manager_.EnableDebugRecording(base::BindRepeating(&CreateWavFile));
   manager_.DisableDebugRecording();
 }
 
@@ -167,7 +171,7 @@ TEST_F(AudioDebugRecordingManagerTest, RegisterAutomaticUnregisterAtDelete) {
 TEST_F(AudioDebugRecordingManagerTest, RegisterEnableDisable) {
   // Store away the extected id for the next source to use after registering all
   // sources.
-  int expected_id = expected_next_source_id_;
+  uint32_t expected_id = expected_next_source_id_;
 
   const AudioParameters params;
   std::vector<std::unique_ptr<AudioDebugRecorder>> recorders;
@@ -180,15 +184,12 @@ TEST_F(AudioDebugRecordingManagerTest, RegisterEnableDisable) {
   for (const auto& recorder : recorders) {
     MockAudioDebugRecordingHelper* mock_recording_helper =
         static_cast<MockAudioDebugRecordingHelper*>(recorder.get());
-    base::FilePath expected_file_path =
-        base_file_path_.AddExtension(kFileNameExtension)
-            .AddExtension(IntToStringType(expected_id++));
     EXPECT_CALL(*mock_recording_helper,
-                EnableDebugRecording(expected_file_path));
+                DoEnableDebugRecording(kStreamType, expected_id++));
     EXPECT_CALL(*mock_recording_helper, DisableDebugRecording());
   }
 
-  manager_.EnableDebugRecording(base_file_path_);
+  manager_.EnableDebugRecording(base::BindRepeating(&CreateWavFile));
   manager_.DisableDebugRecording();
 }
 
@@ -201,7 +202,7 @@ TEST_F(AudioDebugRecordingManagerTest, RegisterEnableDisable) {
 TEST_F(AudioDebugRecordingManagerTest, EnableRegisterDisable) {
   ScopedExpectEnableAfterCreateHelper scoped_enable_after_create_helper;
 
-  manager_.EnableDebugRecording(base_file_path_);
+  manager_.EnableDebugRecording(base::BindRepeating(&CreateWavFile));
 
   const AudioParameters params;
   std::vector<std::unique_ptr<AudioDebugRecorder>> recorders;

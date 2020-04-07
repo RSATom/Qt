@@ -66,12 +66,16 @@ class SimpleWM : public service_manager::Service,
   void OnLostConnection(aura::WindowTreeClient* client) override;
   void OnEmbedRootDestroyed(aura::WindowTreeHostMus* window_tree_host) override;
   void OnPointerEventObserved(const ui::PointerEvent& event,
+                              int64_t display_id,
                               aura::Window* target) override;
   aura::PropertyConverter* GetPropertyConverter() override;
 
   // aura::WindowManagerDelegate:
   void SetWindowManagerClient(aura::WindowManagerClient* client) override;
   void OnWmConnected() override;
+  void OnWmAcceleratedWidgetAvailableForDisplay(
+      int64_t display_id,
+      gfx::AcceleratedWidget widget) override {}
   void OnWmSetBounds(aura::Window* window, const gfx::Rect& bounds) override;
   bool OnWmSetProperty(
       aura::Window* window,
@@ -85,7 +89,7 @@ class SimpleWM : public service_manager::Service,
   void OnWmClientJankinessChanged(const std::set<aura::Window*>& client_windows,
                                   bool janky) override;
   void OnWmBuildDragImage(const gfx::Point& screen_location,
-                          const SkBitmap& drag_image,
+                          const gfx::ImageSkia& drag_image,
                           const gfx::Vector2d& drag_image_offset,
                           ui::mojom::PointerKind source) override;
   void OnWmMoveDragImage(const gfx::Point& screen_location) override;
@@ -100,12 +104,15 @@ class SimpleWM : public service_manager::Service,
                            const gfx::Point& cursor_location,
                            const base::Callback<void(bool)>& on_done) override;
   void OnWmCancelMoveLoop(aura::Window* window) override;
+  void OnCursorTouchVisibleChanged(bool enabled) override;
   void OnWmSetClientArea(
       aura::Window* window,
       const gfx::Insets& insets,
       const std::vector<gfx::Rect>& additional_client_areas) override;
   bool IsWindowActive(aura::Window* window) override;
   void OnWmDeactivateWindow(aura::Window* window) override;
+  void OnWmPerformAction(aura::Window* window,
+                         const std::string& action) override;
 
   // wm::BaseFocusRules:
   bool SupportsChildActivation(aura::Window* window) const override;

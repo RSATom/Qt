@@ -20,6 +20,7 @@
 */
 
 #include "../util.h"
+#include <QtWebEngineCore/qtwebenginecore-config.h>
 #include <QByteArray>
 #include <QClipboard>
 #include <QDir>
@@ -39,7 +40,10 @@
 #include <QtGui/QClipboard>
 #include <QtTest/QtTest>
 #include <QTextCharFormat>
+#if QT_CONFIG(webengine_webchannel)
 #include <QWebChannel>
+#endif
+#include <httpserver.h>
 #include <qnetworkcookiejar.h>
 #include <qnetworkreply.h>
 #include <qnetworkrequest.h>
@@ -48,6 +52,8 @@
 #include <qwebenginehistory.h>
 #include <qwebenginepage.h>
 #include <qwebengineprofile.h>
+#include <qwebenginequotarequest.h>
+#include <qwebengineregisterprotocolhandlerrequest.h>
 #include <qwebenginescript.h>
 #include <qwebenginescriptcollection.h>
 #include <qwebenginesettings.h>
@@ -122,6 +128,8 @@ private Q_SLOTS:
     void getUserMediaRequest();
     void getUserMediaRequestDesktopAudio();
     void getUserMediaRequestSettingDisabled();
+    void getUserMediaRequestDesktopVideoManyPages();
+    void getUserMediaRequestDesktopVideoManyRequests();
     void savePage();
 
     void crashTests_LazyInitializationOfMainFrame();
@@ -156,7 +164,9 @@ private Q_SLOTS:
 #endif
 
     void runJavaScript();
+    void runJavaScriptDisabled();
     void fullScreenRequested();
+    void quotaRequested();
 
 
     // Tests from tst_QWebEngineFrame
@@ -195,19 +205,27 @@ private Q_SLOTS:
     void loadInSignalHandlers_data();
     void loadInSignalHandlers();
     void loadFromQrc();
-
+#if QT_CONFIG(webengine_webchannel)
     void restoreHistory();
+#endif
     void toPlainTextLoadFinishedRace_data();
     void toPlainTextLoadFinishedRace();
     void setZoomFactor();
     void mouseButtonTranslation();
     void mouseMovementProperties();
 
-    void printToPdf();
     void viewSource();
     void viewSourceURL_data();
     void viewSourceURL();
+    void viewSourceCredentials();
     void proxyConfigWithUnexpectedHostPortPair();
+    void registerProtocolHandler_data();
+    void registerProtocolHandler();
+    void dataURLFragment();
+    void devTools();
+    void openLinkInDifferentProfile();
+    void triggerActionWithoutMenu();
+    void dynamicFrame();
 
 private:
     static QPoint elementCenter(QWebEnginePage *page, const QString &id);
@@ -283,43 +301,41 @@ void tst_QWebEnginePage::cleanupTestCase()
 class NavigationRequestOverride : public QWebEnginePage
 {
 public:
-    NavigationRequestOverride(QWebEngineView* parent, bool initialValue) : QWebEnginePage(parent), m_acceptNavigationRequest(initialValue) {}
+    NavigationRequestOverride(QWebEngineProfile* profile, bool initialValue) : QWebEnginePage(profile, nullptr), m_acceptNavigationRequest(initialValue) {}
 
     bool m_acceptNavigationRequest;
 protected:
     virtual bool acceptNavigationRequest(const QUrl &url, NavigationType type, bool isMainFrame)
     {
         Q_UNUSED(url);
-        Q_UNUSED(type);
         Q_UNUSED(isMainFrame);
-
-        return m_acceptNavigationRequest;
+        if (type == QWebEnginePage::NavigationTypeFormSubmitted)
+            return m_acceptNavigationRequest;
+        return true;
     }
 };
 
 void tst_QWebEnginePage::acceptNavigationRequest()
 {
-    QWebEngineView view;
-    QSignalSpy loadSpy(&view, SIGNAL(loadFinished(bool)));
+    QWebEngineProfile profile;
+    NavigationRequestOverride page(&profile, false);
 
-    NavigationRequestOverride* newPage = new NavigationRequestOverride(&view, false);
-    view.setPage(newPage);
+    QSignalSpy loadSpy(&page, SIGNAL(loadFinished(bool)));
 
-    // acceptNavigationRequest and QWebEngineUrlRequestInterceptor::interceptRequest are not called
-    // for data: urls, which means the test is broken, aka setting
-    // newPage->m_acceptNavigationRequest to false does nothing to stop the page from loading.
-    // See QTBUG-50922 comments.
-    view.setHtml(QString("<html><body><form name='tstform' action='data:text/html,foo'method='get'>"
+    page.setHtml(QString("<html><body><form name='tstform' action='data:text/html,foo'method='get'>"
                             "<input type='text'><input type='submit'></form></body></html>"), QUrl());
     QTRY_COMPARE(loadSpy.count(), 1);
 
-    evaluateJavaScriptSync(view.page(), "tstform.submit();");
-
-    newPage->m_acceptNavigationRequest = true;
-    evaluateJavaScriptSync(view.page(), "tstform.submit();");
+    evaluateJavaScriptSync(&page, "tstform.submit();");
     QTRY_COMPARE(loadSpy.count(), 2);
 
-    QCOMPARE(toPlainTextSync(view.page()), QString("foo?"));
+    // Content hasn't changed so the form submit will still work
+    page.m_acceptNavigationRequest = true;
+    evaluateJavaScriptSync(&page, "tstform.submit();");
+    QTRY_COMPARE(loadSpy.count(), 3);
+
+    // Now the content has changed
+    QCOMPARE(toPlainTextSync(&page), QString("foo?"));
 }
 
 class JSTestPage : public QWebEnginePage
@@ -387,6 +403,11 @@ void tst_QWebEnginePage::geolocationRequestJS()
     QSignalSpy spyLoadFinished(newPage, SIGNAL(loadFinished(bool)));
     newPage->setHtml(QString("<html><body>test</body></html>"), QUrl("qrc://secure/origin"));
     QTRY_COMPARE(spyLoadFinished.count(), 1);
+
+    // Geolocation is only enabled for visible WebContents.
+    view.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&view));
+
     if (evaluateJavaScriptSync(newPage, QLatin1String("!navigator.geolocation")).toBool())
         W_QSKIP("Geolocation is not supported.", SkipSingle);
 
@@ -579,11 +600,17 @@ void tst_QWebEnginePage::acceptNavigationRequestNavigationType()
     QTRY_COMPARE(loadSpy.count(), 4);
     QTRY_COMPARE(page.navigations.count(), 4);
 
+    page.load(QUrl("qrc:///resources/reload.html"));
+    QTRY_COMPARE(loadSpy.count(), 6);
+    QTRY_COMPARE(page.navigations.count(), 6);
+
     QList<QWebEnginePage::NavigationType> expectedList;
     expectedList << QWebEnginePage::NavigationTypeTyped
         << QWebEnginePage::NavigationTypeTyped
         << QWebEnginePage::NavigationTypeBackForward
-        << QWebEnginePage::NavigationTypeReload;
+        << QWebEnginePage::NavigationTypeReload
+        << QWebEnginePage::NavigationTypeTyped
+        << QWebEnginePage::NavigationTypeOther;
     QVERIFY(expectedList.count() == page.navigations.count());
     for (int i = 0; i < expectedList.count(); ++i) {
         QCOMPARE(page.navigations[i].type, expectedList[i]);
@@ -762,7 +789,8 @@ void tst_QWebEnginePage::updatePositionDependentActionsCrash()
     QPoint pos(0, 0);
     view.page()->updatePositionDependentActions(pos);
     QMenu* contextMenu = 0;
-    foreach (QObject* child, view.children()) {
+    const QList<QObject *> children = view.children();
+    for (QObject *child : children) {
         contextMenu = qobject_cast<QMenu*>(child);
         if (contextMenu)
             break;
@@ -784,7 +812,8 @@ void tst_QWebEnginePage::contextMenuCrash()
     view.page()->swallowContextMenuEvent(&event);
     view.page()->updatePositionDependentActions(pos);
     QMenu* contextMenu = 0;
-    foreach (QObject* child, view.children()) {
+    const QList<QObject *> children = view.children();
+    for (QObject *child : children) {
         contextMenu = qobject_cast<QMenu*>(child);
         if (contextMenu)
             break;
@@ -1556,7 +1585,7 @@ void tst_QWebEnginePage::userAgentNewlineStripping()
     // The user agent will be updated after a page load.
     page.load(QUrl("about:blank"));
 
-    QCOMPARE(evaluateJavaScriptSync(&page, "navigator.userAgent").toString(), QStringLiteral("My User Agent X-New-Http-Header: Oh Noes!"));
+    QTRY_COMPARE(evaluateJavaScriptSync(&page, "navigator.userAgent").toString(), QStringLiteral("My User Agent X-New-Http-Header: Oh Noes!"));
 }
 
 void tst_QWebEnginePage::crashTests_LazyInitializationOfMainFrame()
@@ -1828,8 +1857,8 @@ void tst_QWebEnginePage::findTextResult()
 
     QCOMPARE(findTextSync(m_page, ""), false);
 
-    QStringList words = (QStringList() << "foo" << "bar");
-    foreach (QString subString, words) {
+    const QStringList words = { "foo", "bar" };
+    for (const QString &subString : words) {
         QCOMPARE(findTextSync(m_page, subString), true);
         QCOMPARE(findTextSync(m_page, ""), false);
     }
@@ -1889,7 +1918,8 @@ void tst_QWebEnginePage::supportedContentType()
 #endif
 
     // Add supported image types...
-    Q_FOREACH (const QByteArray& imageType, QImageWriter::supportedImageFormats()) {
+    const QList<QByteArray> supportedImageFormats = QImageWriter::supportedImageFormats();
+    for (const QByteArray &imageType : supportedImageFormats) {
         const QString mimeType = getMimeTypeForExtension(imageType);
         if (!mimeType.isEmpty())
             contentTypes << mimeType;
@@ -1898,10 +1928,10 @@ void tst_QWebEnginePage::supportedContentType()
     // Get the mime types supported by webengine...
     const QStringList supportedContentTypes = m_page->supportedContentTypes();
 
-    Q_FOREACH (const QString& mimeType, contentTypes)
+    for (const QString &mimeType : qAsConst(contentTypes))
         QVERIFY2(supportedContentTypes.contains(mimeType), QString("'%1' is not a supported content type!").arg(mimeType).toLatin1());
 
-    Q_FOREACH (const QString& mimeType, contentTypes)
+    for (const QString &mimeType : qAsConst(contentTypes))
         QVERIFY2(m_page->supportsContentType(mimeType), QString("Cannot handle content types '%1'!").arg(mimeType).toLatin1());
 #endif
 }
@@ -2192,11 +2222,13 @@ public:
         connect(page, SIGNAL(loadProgress(int)), SLOT(onLoadProgress(int)));
 
         QState* waitingForLoadStarted = new QState(this);
+        QState* waitingForFirstLoadProgress = new QState(this);
         QState* waitingForLastLoadProgress = new QState(this);
         QState* waitingForLoadFinished = new QState(this);
         QFinalState* final = new QFinalState(this);
 
-        waitingForLoadStarted->addTransition(page, SIGNAL(loadStarted()), waitingForLastLoadProgress);
+        waitingForLoadStarted->addTransition(page, SIGNAL(loadStarted()), waitingForFirstLoadProgress);
+        waitingForFirstLoadProgress->addTransition(this, SIGNAL(firstLoadProgress()), waitingForLastLoadProgress);
         waitingForLastLoadProgress->addTransition(this, SIGNAL(lastLoadProgress()), waitingForLoadFinished);
         waitingForLoadFinished->addTransition(page, SIGNAL(loadFinished(bool)), final);
 
@@ -2210,10 +2242,13 @@ public:
 public Q_SLOTS:
     void onLoadProgress(int progress)
     {
-        if (progress == 100)
+        if (progress == 0)
+            emit firstLoadProgress();
+        else if (progress == 100)
             emit lastLoadProgress();
     }
 Q_SIGNALS:
+    void firstLoadProgress();
     void lastLoadProgress();
 };
 
@@ -2272,7 +2307,8 @@ void tst_QWebEnginePage::renderWidgetHostViewNotShowTopLevel()
 
     // Make sure that RenderWidgetHostViewQtDelegateWidgets are not shown as top-level.
     // They should only be made visible when parented to a QWebEngineView.
-    foreach (QWidget *widget, QApplication::topLevelWidgets())
+    const QList<QWidget *> widgets = QApplication::topLevelWidgets();
+    for (QWidget *widget : widgets)
         QCOMPARE(widget->isVisible(), false);
 }
 
@@ -2381,6 +2417,15 @@ void tst_QWebEnginePage::getUserMediaRequest()
     QFETCH(QWebEnginePage::Feature, feature);
 
     GetUserMediaTestPage page;
+    if (feature == QWebEnginePage::DesktopVideoCapture || feature == QWebEnginePage::DesktopAudioVideoCapture) {
+        // Desktop capture needs to be on a desktop.
+        QWebEngineView view;
+        view.setPage(&page);
+        view.resize(640, 480);
+        view.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&view));
+    }
+
     QTRY_VERIFY_WITH_TIMEOUT(page.loadSucceeded(), 20000);
     page.settings()->setAttribute(QWebEngineSettings::ScreenCaptureEnabled, true);
 
@@ -2436,6 +2481,64 @@ void tst_QWebEnginePage::getUserMediaRequestSettingDisabled()
 
     page.jsGetUserMedia(QStringLiteral("{video: { mandatory: { chromeMediaSource: 'desktop' }}}"));
     QTRY_VERIFY(!page.jsPromiseFulfilled() && page.jsPromiseRejected());
+}
+
+// Try to trigger any possible race condition between the UI thread (permission
+// management) and the audio/device thread (desktop capture initialization).
+void tst_QWebEnginePage::getUserMediaRequestDesktopVideoManyPages()
+{
+    const QString constraints = QStringLiteral("{video: { mandatory: { chromeMediaSource: 'desktop' }}}");
+    const QWebEnginePage::Feature feature = QWebEnginePage::DesktopVideoCapture;
+    std::vector<GetUserMediaTestPage> pages(10);
+
+    // Desktop capture needs to be on a desktop
+    std::vector<QWebEngineView> views(10);
+    for (size_t i = 0; i < views.size(); ++i) {
+        QWebEngineView *view = &(views[i]);
+        GetUserMediaTestPage *page = &(pages[i]);
+        view->setPage(page);
+        view->resize(640, 480);
+        view->show();
+        QVERIFY(QTest::qWaitForWindowExposed(view));
+    }
+
+    for (GetUserMediaTestPage &page : pages)
+        QTRY_VERIFY_WITH_TIMEOUT(page.loadSucceeded(), 20000);
+    for (GetUserMediaTestPage &page : pages)
+        page.settings()->setAttribute(QWebEngineSettings::ScreenCaptureEnabled, true);
+    for (GetUserMediaTestPage &page : pages)
+        page.jsGetUserMedia(constraints);
+    for (GetUserMediaTestPage &page : pages)
+        QTRY_VERIFY(page.gotFeatureRequest(feature));
+    for (GetUserMediaTestPage &page : pages)
+        page.acceptPendingRequest();
+    for (GetUserMediaTestPage &page : pages)
+        QTRY_VERIFY(page.jsPromiseFulfilled() || page.jsPromiseRejected());
+}
+
+// Try to trigger any possible race condition between the UI or audio/device
+// threads and the desktop capture thread, where the capture actually happens.
+void tst_QWebEnginePage::getUserMediaRequestDesktopVideoManyRequests()
+{
+    const QString constraints = QStringLiteral("{video: { mandatory: { chromeMediaSource: 'desktop' }}}");
+    const QWebEnginePage::Feature feature = QWebEnginePage::DesktopVideoCapture;
+    GetUserMediaTestPage page;
+
+    // Desktop capture needs to be on a desktop
+    QWebEngineView view;
+    view.setPage(&page);
+    view.resize(640, 480);
+    view.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&view));
+
+    QTRY_VERIFY_WITH_TIMEOUT(page.loadSucceeded(), 20000);
+    page.settings()->setAttribute(QWebEngineSettings::ScreenCaptureEnabled, true);
+    for (int i = 0; i != 100; ++i) {
+        page.jsGetUserMedia(constraints);
+        QTRY_VERIFY(page.gotFeatureRequest(feature));
+        page.acceptPendingRequest();
+        QTRY_VERIFY(page.jsPromiseFulfilled() || page.jsPromiseRejected());
+    }
 }
 
 void tst_QWebEnginePage::savePage()
@@ -2706,6 +2809,21 @@ void tst_QWebEnginePage::runJavaScript()
     QVERIFY(watcher.wait());
 }
 
+void tst_QWebEnginePage::runJavaScriptDisabled()
+{
+    QWebEnginePage page;
+    QSignalSpy spy(&page, &QWebEnginePage::loadFinished);
+    page.settings()->setAttribute(QWebEngineSettings::JavascriptEnabled, false);
+    // Settings changes take effect asynchronously. The load and wait ensure
+    // that the settings are applied by the time we start to execute JavaScript.
+    page.load(QStringLiteral("about:blank"));
+    QTRY_COMPARE(spy.count(), 1);
+    QCOMPARE(evaluateJavaScriptSyncInWorld(&page, QStringLiteral("1+1"), QWebEngineScript::MainWorld),
+             QVariant());
+    QCOMPARE(evaluateJavaScriptSyncInWorld(&page, QStringLiteral("1+1"), QWebEngineScript::ApplicationWorld),
+             QVariant(2));
+}
+
 void tst_QWebEnginePage::fullScreenRequested()
 {
     JavaScriptCallbackWatcher watcher;
@@ -2742,6 +2860,46 @@ void tst_QWebEnginePage::fullScreenRequested()
     QVERIFY(watcher.wait());
     page->runJavaScript("document.webkitIsFullScreen", JavaScriptCallback(false));
     QVERIFY(watcher.wait());
+}
+
+void tst_QWebEnginePage::quotaRequested()
+{
+    ConsolePage page;
+    QWebEngineView view;
+    view.setPage(&page);
+    QSignalSpy loadFinishedSpy(&page, SIGNAL(loadFinished(bool)));
+    page.load(QUrl("qrc:///resources/content.html"));
+    QVERIFY(loadFinishedSpy.wait());
+
+    connect(&page, &QWebEnginePage::quotaRequested,
+            [] (QWebEngineQuotaRequest request)
+    {
+        if (request.requestedSize() <= 5000)
+            request.accept();
+        else
+            request.reject();
+    });
+
+    evaluateJavaScriptSync(&page,
+        "navigator.webkitPersistentStorage.requestQuota(1024, function(grantedSize) {" \
+            "console.log(grantedSize);" \
+        "});");
+    QTRY_COMPARE(page.messages.count(), 1);
+    QTRY_COMPARE(page.messages[0], QString("1024"));
+
+    evaluateJavaScriptSync(&page,
+        "navigator.webkitPersistentStorage.requestQuota(6000, function(grantedSize) {" \
+            "console.log(grantedSize);" \
+        "});");
+    QTRY_COMPARE(page.messages.count(), 2);
+    QTRY_COMPARE(page.messages[1], QString("1024"));
+
+    evaluateJavaScriptSync(&page,
+        "navigator.webkitPersistentStorage.queryUsageAndQuota(function(usedBytes, grantedBytes) {" \
+            "console.log(usedBytes + ', ' + grantedBytes);" \
+        "});");
+    QTRY_COMPARE(page.messages.count(), 3);
+    QTRY_COMPARE(page.messages[2], QString("0, 1024"));
 }
 
 void tst_QWebEnginePage::symmetricUrl()
@@ -2830,6 +2988,12 @@ void tst_QWebEnginePage::urlChange()
 
     QTRY_COMPARE(urlSpy.size(), 1);
     QCOMPARE(urlSpy.takeFirst().value(0).toUrl(), dataUrl2);
+
+    QUrl testUrl("http://test.qt.io/");
+    m_view->setHtml(QStringLiteral("<h1>Test</h1"), testUrl);
+
+    QTRY_COMPARE(urlSpy.size(), 1);
+    QCOMPARE(urlSpy.takeFirst().value(0).toUrl(), testUrl);
 }
 
 class FakeReply : public QNetworkReply {
@@ -2930,7 +3094,7 @@ void tst_QWebEnginePage::requestedUrlAfterSetAndLoadFailures()
 
     const QUrl first("http://abcdef.abcdef/");
     page.setUrl(first);
-    QTRY_COMPARE_WITH_TIMEOUT(spy.count(), 1, 12000);
+    QTRY_COMPARE_WITH_TIMEOUT(spy.count(), 1, 20000);
     QCOMPARE(page.url(), first);
     QCOMPARE(page.requestedUrl(), first);
     QVERIFY(!spy.at(0).first().toBool());
@@ -2939,7 +3103,7 @@ void tst_QWebEnginePage::requestedUrlAfterSetAndLoadFailures()
     QVERIFY(first != second);
 
     page.load(second);
-    QTRY_COMPARE_WITH_TIMEOUT(spy.count(), 2, 12000);
+    QTRY_COMPARE_WITH_TIMEOUT(spy.count(), 2, 20000);
     QCOMPARE(page.url(), second);
     QCOMPARE(page.requestedUrl(), second);
     QVERIFY(!spy.at(1).first().toBool());
@@ -2985,7 +3149,7 @@ void tst_QWebEnginePage::setHtmlWithImageResource()
 
     QSignalSpy spy(&page, SIGNAL(loadFinished(bool)));
     page.setHtml(html, QUrl("file:///path/to/file"));
-    QTRY_COMPARE(spy.count(), 1);
+    QTRY_COMPARE_WITH_TIMEOUT(spy.count(), 1, 12000);
 
     QCOMPARE(evaluateJavaScriptSync(&page, "document.images.length").toInt(), 1);
     QCOMPARE(evaluateJavaScriptSync(&page, "document.images[0].width").toInt(), 128);
@@ -3189,8 +3353,8 @@ void tst_QWebEnginePage::scrollPosition()
 
     // try to set the scroll offset programmatically
     view.page()->runJavaScript("window.scrollTo(23, 29);");
-    QTRY_COMPARE(view.page()->scrollPosition().x(), qreal(23));
-    QCOMPARE(view.page()->scrollPosition().y(), qreal(29));
+    QTRY_COMPARE(view.page()->scrollPosition().x(), 23 * view.windowHandle()->devicePixelRatio());
+    QCOMPARE(view.page()->scrollPosition().y(), 29 * view.windowHandle()->devicePixelRatio());
 
     int x = evaluateJavaScriptSync(view.page(), "window.scrollX").toInt();
     int y = evaluateJavaScriptSync(view.page(), "window.scrollY").toInt();
@@ -3259,6 +3423,7 @@ protected:
 void tst_QWebEnginePage::evaluateWillCauseRepaint()
 {
     WebView view;
+    view.resize(640, 480);
     view.show();
     QVERIFY(QTest::qWaitForWindowExposed(&view));
 
@@ -3472,7 +3637,7 @@ void tst_QWebEnginePage::setUrlToBadDomain()
     page.setUrl(url1);
 
     QTRY_COMPARE(urlSpy.count(), 1);
-    QTRY_COMPARE(titleSpy.count(), 1);
+    QTRY_COMPARE_WITH_TIMEOUT(titleSpy.count(), 1, 20000);
     QTRY_COMPARE(loadSpy.count(), 1);
 
     QCOMPARE(urlSpy.takeFirst().value(0).toUrl(), url1);
@@ -3485,7 +3650,7 @@ void tst_QWebEnginePage::setUrlToBadDomain()
     page.setUrl(url2);
 
     QTRY_COMPARE(urlSpy.count(), 1);
-    QTRY_COMPARE(titleSpy.count(), 1);
+    QTRY_COMPARE_WITH_TIMEOUT(titleSpy.count(), 1, 20000);
     QTRY_COMPARE(loadSpy.count(), 1);
 
     QCOMPARE(urlSpy.takeFirst().value(0).toUrl(), url2);
@@ -3540,7 +3705,8 @@ void tst_QWebEnginePage::setUrlToBadPort()
 static QStringList collectHistoryUrls(QWebEngineHistory *history)
 {
     QStringList urls;
-    foreach (const QWebEngineHistoryItem &i, history->items())
+    const QList<QWebEngineHistoryItem> items = history->items();
+    for (const QWebEngineHistoryItem &i : items)
         urls << i.url().toString();
     return urls;
 }
@@ -3621,7 +3787,6 @@ void tst_QWebEnginePage::setUrlHistory()
 
 void tst_QWebEnginePage::setUrlUsingStateObject()
 {
-    const QUrl aboutBlank("about:blank");
     QUrl url;
     QSignalSpy urlChangedSpy(m_page, SIGNAL(urlChanged(QUrl)));
     int expectedUrlChangeCount = 0;
@@ -3630,12 +3795,10 @@ void tst_QWebEnginePage::setUrlUsingStateObject()
 
     url = QUrl("qrc:/resources/test1.html");
     m_page->setUrl(url);
-    QSignalSpy spyFinished(m_page, &QWebEnginePage::loadFinished);
-    QVERIFY(spyFinished.wait());
     expectedUrlChangeCount++;
-    QCOMPARE(urlChangedSpy.count(), expectedUrlChangeCount);
+    QTRY_COMPARE(urlChangedSpy.count(), expectedUrlChangeCount);
     QCOMPARE(m_page->url(), url);
-    QCOMPARE(m_page->history()->count(), 1);
+    QTRY_COMPARE(m_page->history()->count(), 1);
 
     evaluateJavaScriptSync(m_page, "window.history.pushState(null, 'push', 'navigate/to/here')");
     expectedUrlChangeCount++;
@@ -3653,9 +3816,8 @@ void tst_QWebEnginePage::setUrlUsingStateObject()
     QVERIFY(m_page->history()->canGoBack());
 
     evaluateJavaScriptSync(m_page, "window.history.back()");
-    QTest::qWait(100);
     expectedUrlChangeCount++;
-    QCOMPARE(urlChangedSpy.count(), expectedUrlChangeCount);
+    QTRY_COMPARE(urlChangedSpy.count(), expectedUrlChangeCount);
     QCOMPARE(m_page->url(), QUrl("qrc:/resources/test1.html"));
     QVERIFY(m_page->history()->canGoForward());
     QVERIFY(!m_page->history()->canGoBack());
@@ -3732,11 +3894,11 @@ void tst_QWebEnginePage::loadFinishedAfterNotFoundError()
 
     page.settings()->setAttribute(QWebEngineSettings::ErrorPageEnabled, false);
     page.setUrl(QUrl("http://non.existent/url"));
-    QTRY_COMPARE_WITH_TIMEOUT(spy.count(), 1, 12000);
+    QTRY_COMPARE_WITH_TIMEOUT(spy.count(), 1, 20000);
 
     page.settings()->setAttribute(QWebEngineSettings::ErrorPageEnabled, true);
     page.setUrl(QUrl("http://another.non.existent/url"));
-    QTRY_COMPARE_WITH_TIMEOUT(spy.count(), 2, 12000);
+    QTRY_COMPARE_WITH_TIMEOUT(spy.count(), 2, 20000);
 }
 
 class URLSetter : public QObject {
@@ -3746,7 +3908,6 @@ public:
     enum Signal {
         LoadStarted,
         LoadFinished,
-        ProvisionalLoad
     };
 
     enum Type {
@@ -3778,25 +3939,21 @@ URLSetter::URLSetter(QWebEnginePage* page, Signal signal, URLSetter::Type type, 
         connect(m_page, SIGNAL(loadStarted()), SLOT(execute()));
     else if (signal == LoadFinished)
         connect(m_page, SIGNAL(loadFinished(bool)), SLOT(execute()));
-    else
-        connect(m_page, SIGNAL(provisionalLoad()), SLOT(execute()));
 }
 
 void URLSetter::execute()
 {
     // We track only the first emission.
     m_page->disconnect(this);
+    connect(m_page, SIGNAL(loadFinished(bool)), SIGNAL(finished()));
     if (m_type == URLSetter::UseLoad)
         m_page->load(m_url);
     else
         m_page->setUrl(m_url);
-    connect(m_page, SIGNAL(loadFinished(bool)), SIGNAL(finished()));
 }
 
 void tst_QWebEnginePage::loadInSignalHandlers_data()
 {
-    QSKIP("FIXME: This crashes in content::WebContentsImpl::NavigateToEntry because of reentrancy. Should we require QueuedConnections or do it ourselves to support this?");
-
     QTest::addColumn<URLSetter::Type>("type");
     QTest::addColumn<URLSetter::Signal>("signal");
     QTest::addColumn<QUrl>("url");
@@ -3808,15 +3965,11 @@ void tst_QWebEnginePage::loadInSignalHandlers_data()
     QTest::newRow("call load() in loadStarted() after invalid url") << URLSetter::UseLoad << URLSetter::LoadStarted << invalidUrl;
     QTest::newRow("call load() in loadFinished() after valid url") << URLSetter::UseLoad << URLSetter::LoadFinished << validUrl;
     QTest::newRow("call load() in loadFinished() after invalid url") << URLSetter::UseLoad << URLSetter::LoadFinished << invalidUrl;
-    QTest::newRow("call load() in provisionalLoad() after valid url") << URLSetter::UseLoad << URLSetter::ProvisionalLoad << validUrl;
-    QTest::newRow("call load() in provisionalLoad() after invalid url") << URLSetter::UseLoad << URLSetter::ProvisionalLoad << invalidUrl;
 
     QTest::newRow("call setUrl() in loadStarted() after valid url") << URLSetter::UseSetUrl << URLSetter::LoadStarted << validUrl;
     QTest::newRow("call setUrl() in loadStarted() after invalid url") << URLSetter::UseSetUrl << URLSetter::LoadStarted << invalidUrl;
     QTest::newRow("call setUrl() in loadFinished() after valid url") << URLSetter::UseSetUrl << URLSetter::LoadFinished << validUrl;
     QTest::newRow("call setUrl() in loadFinished() after invalid url") << URLSetter::UseSetUrl << URLSetter::LoadFinished << invalidUrl;
-    QTest::newRow("call setUrl() in provisionalLoad() after valid url") << URLSetter::UseSetUrl << URLSetter::ProvisionalLoad << validUrl;
-    QTest::newRow("call setUrl() in provisionalLoad() after invalid url") << URLSetter::UseSetUrl << URLSetter::ProvisionalLoad << invalidUrl;
 }
 
 void tst_QWebEnginePage::loadInSignalHandlers()
@@ -3827,10 +3980,13 @@ void tst_QWebEnginePage::loadInSignalHandlers()
 
     const QUrl urlForSetter("qrc:/resources/test1.html");
     URLSetter setter(m_page, signal, type, urlForSetter);
-
-    m_page->load(url);
     QSignalSpy spy(&setter, &URLSetter::finished);
-    QVERIFY(spy.wait());
+    m_page->load(url);
+    // every loadStarted() call should have also loadFinished()
+    if (signal == URLSetter::LoadStarted)
+        QTRY_COMPARE(spy.count(), 2);
+    else
+        QTRY_COMPARE(spy.count(), 1);
     QCOMPARE(m_page->url(), urlForSetter);
 }
 
@@ -3869,6 +4025,7 @@ void tst_QWebEnginePage::loadFromQrc()
     QCOMPARE(spy.takeFirst().value(0).toBool(), false);
 }
 
+#if QT_CONFIG(webengine_webchannel)
 void tst_QWebEnginePage::restoreHistory()
 {
     QWebChannel channel;
@@ -3896,6 +4053,7 @@ void tst_QWebEnginePage::restoreHistory()
     QCOMPARE(page.webChannel(), &channel);
     QVERIFY(page.scripts().contains(script));
 }
+#endif
 
 void tst_QWebEnginePage::toPlainTextLoadFinishedRace_data()
 {
@@ -3916,8 +4074,8 @@ void tst_QWebEnginePage::toPlainTextLoadFinishedRace()
     QTRY_VERIFY(spy.count() == 1);
     QCOMPARE(toPlainTextSync(page.data()), QString("foobarbaz"));
 
-    page->load(QUrl("fail:unknown/scheme"));
-    QTRY_VERIFY(spy.count() == 2);
+    page->load(QUrl("http://fail.invalid/"));
+    QTRY_COMPARE_WITH_TIMEOUT(spy.count(), 2, 20000);
     QString s = toPlainTextSync(page.data());
     QVERIFY(s.contains("foobarbaz") == !enableErrorPage);
 
@@ -3938,8 +4096,8 @@ void tst_QWebEnginePage::setZoomFactor()
 
     const QUrl urlToLoad("qrc:/resources/test1.html");
 
-    QSignalSpy finishedSpy(m_page, SIGNAL(loadFinished(bool)));
-    m_page->setUrl(urlToLoad);
+    QSignalSpy finishedSpy(&page, SIGNAL(loadFinished(bool)));
+    page.load(urlToLoad);
     QTRY_COMPARE(finishedSpy.count(), 1);
     QVERIFY(finishedSpy.at(0).first().toBool());
     QVERIFY(qFuzzyCompare(page.zoomFactor(), 2.5));
@@ -3949,50 +4107,6 @@ void tst_QWebEnginePage::setZoomFactor()
 
     page.setZoomFactor(0.1);
     QVERIFY(qFuzzyCompare(page.zoomFactor(), 2.5));
-}
-
-void tst_QWebEnginePage::printToPdf()
-{
-#if !defined(QWEBENGINEPAGE_PDFPRINTINGENABLED)
-    QSKIP("QWEBENGINEPAGE_PDFPRINTINGENABLED");
-#else
-    QTemporaryDir tempDir(QDir::tempPath() + "/tst_qwebengineview-XXXXXX");
-    QVERIFY(tempDir.isValid());
-    QWebEnginePage page;
-    QSignalSpy spy(&page, SIGNAL(loadFinished(bool)));
-    page.load(QUrl("qrc:///resources/basic_printing_page.html"));
-    QTRY_VERIFY(spy.count() == 1);
-
-    QSignalSpy savePdfSpy(&page, SIGNAL(pdfPrintingFinished(const QString&, bool)));
-    QPageLayout layout(QPageSize(QPageSize::A4), QPageLayout::Portrait, QMarginsF(0.0, 0.0, 0.0, 0.0));
-    QString path = tempDir.path() + "/print_1_success.pdf";
-    page.printToPdf(path, layout);
-    QTRY_VERIFY2(savePdfSpy.count() == 1, "Printing to PDF file failed without signal");
-
-    QList<QVariant> successArguments = savePdfSpy.takeFirst();
-    QVERIFY2(successArguments.at(0).toString() == path, "File path for first saved PDF does not match arguments");
-    QVERIFY2(successArguments.at(1).toBool() == true, "Printing to PDF file failed though it should succeed");
-
-#if !defined(Q_OS_WIN)
-    path = tempDir.path() + "/print_//2_failed.pdf";
-#else
-    path = tempDir.path() + "/print_|2_failed.pdf";
-#endif
-    page.printToPdf(path, QPageLayout());
-    QTRY_VERIFY2(savePdfSpy.count() == 1, "Printing to PDF file failed without signal");
-
-    QList<QVariant> failedArguments = savePdfSpy.takeFirst();
-    QVERIFY2(failedArguments.at(0).toString() == path, "File path for second saved PDF does not match arguments");
-    QVERIFY2(failedArguments.at(1).toBool() == false, "Printing to PDF file succeeded though it should fail");
-
-    CallbackSpy<QByteArray> successfulSpy;
-    page.printToPdf(successfulSpy.ref(), layout);
-    QVERIFY(successfulSpy.waitForResult().length() > 0);
-
-    CallbackSpy<QByteArray> failedInvalidLayoutSpy;
-    page.printToPdf(failedInvalidLayoutSpy.ref(), QPageLayout());
-    QCOMPARE(failedInvalidLayoutSpy.waitForResult().length(), 0);
-#endif
 }
 
 void tst_QWebEnginePage::mouseButtonTranslation()
@@ -4009,6 +4123,7 @@ void tst_QWebEnginePage::mouseButtonTranslation()
                       <div style=\"height:600px;\" onmousedown=\"saveLastEvent(event)\">\
                       </div>\
                       </body></html>"));
+    view.resize(640, 480);
     view.show();
     QVERIFY(QTest::qWaitForWindowExposed(&view));
     QTRY_VERIFY(spy.count() == 1);
@@ -4033,6 +4148,8 @@ void tst_QWebEnginePage::mouseMovementProperties()
     QWebEngineView view;
     ConsolePage page;
     view.setPage(&page);
+    view.resize(640, 480);
+    QTest::mouseMove(&view, QPoint(10, 10));
     view.show();
     QVERIFY(QTest::qWaitForWindowExposed(&view));
 
@@ -4149,6 +4266,39 @@ void tst_QWebEnginePage::viewSourceURL()
     QVERIFY(!page.action(QWebEnginePage::ViewSource)->isEnabled());
 }
 
+void tst_QWebEnginePage::viewSourceCredentials()
+{
+    TestPage page;
+    QSignalSpy loadFinishedSpy(&page, SIGNAL(loadFinished(bool)));
+    QSignalSpy windowCreatedSpy(&page, SIGNAL(windowCreated()));
+    QUrl url("http://user:passwd@httpbin.org/basic-auth/user/passwd");
+
+    // Test explicit view-source URL with credentials
+    page.load(QUrl(QString("view-source:" + url.toString())));
+    if (!loadFinishedSpy.wait(10000) || !loadFinishedSpy.at(0).at(0).toBool())
+        QSKIP("Couldn't load page from network, skipping test.");
+
+    QCOMPARE(page.url().toString(), QString("view-source:" + url.toDisplayString(QUrl::RemoveUserInfo)));
+    QCOMPARE(page.requestedUrl(), url);
+    QCOMPARE(page.title(), QString("view-source:" + url.toDisplayString(QUrl::RemoveScheme | QUrl::RemoveUserInfo).remove(0, 2)));
+    loadFinishedSpy.clear();
+    windowCreatedSpy.clear();
+
+    // Test ViewSource web action on URL with credentials
+    page.load(url);
+    if (!loadFinishedSpy.wait(10000) || !loadFinishedSpy.at(0).at(0).toBool())
+        QSKIP("Couldn't load page from network, skipping test.");
+    QVERIFY(page.action(QWebEnginePage::ViewSource)->isEnabled());
+
+    page.triggerAction(QWebEnginePage::ViewSource);
+    QTRY_COMPARE(windowCreatedSpy.count(), 1);
+    QCOMPARE(page.createdWindows.size(), 1);
+
+    QTRY_COMPARE(page.createdWindows[0]->url().toString(), QString("view-source:" + url.toDisplayString(QUrl::RemoveUserInfo)));
+    QTRY_COMPARE(page.createdWindows[0]->requestedUrl(), url);
+    QTRY_COMPARE(page.createdWindows[0]->title(), QString("view-source:" + url.toDisplayString(QUrl::RemoveScheme | QUrl::RemoveUserInfo).remove(0, 2)));
+}
+
 Q_DECLARE_METATYPE(QNetworkProxy::ProxyType);
 
 void tst_QWebEnginePage::proxyConfigWithUnexpectedHostPortPair()
@@ -4164,6 +4314,181 @@ void tst_QWebEnginePage::proxyConfigWithUnexpectedHostPortPair()
     QSignalSpy loadFinishedSpy(m_page, SIGNAL(loadFinished(bool)));
     m_page->load(QStringLiteral("http://127.0.0.1:245/"));
     QTRY_COMPARE(loadFinishedSpy.count(), 1);
+}
+
+void tst_QWebEnginePage::registerProtocolHandler_data()
+{
+    QTest::addColumn<bool>("permission");
+    QTest::newRow("accept") << true;
+    QTest::newRow("reject") << false;
+}
+
+void tst_QWebEnginePage::registerProtocolHandler()
+{
+    QFETCH(bool, permission);
+
+    HttpServer server;
+    int mailRequestCount = 0;
+    connect(&server, &HttpServer::newRequest, [&](HttpReqRep *rr) {
+        if (rr->requestMethod() == "GET" && rr->requestPath() == "/") {
+            rr->setResponseBody(QByteArrayLiteral("<html><body><a id=\"link\" href=\"mailto:foo@bar.com\">some text here</a></body></html>"));
+            rr->sendResponse();
+        } else if (rr->requestMethod() == "GET" && rr->requestPath() == "/mail?uri=mailto%3Afoo%40bar.com") {
+            mailRequestCount++;
+            rr->sendResponse();
+        } else {
+            rr->setResponseStatus(404);
+            rr->sendResponse();
+        }
+    });
+    QVERIFY(server.start());
+
+    QWebEnginePage page;
+    QSignalSpy loadSpy(&page, &QWebEnginePage::loadFinished);
+    QSignalSpy permissionSpy(&page, &QWebEnginePage::registerProtocolHandlerRequested);
+
+    page.setUrl(server.url("/"));
+    QTRY_COMPARE(loadSpy.count(), 1);
+    QCOMPARE(loadSpy.takeFirst().value(0).toBool(), true);
+
+    QString callFormat = QStringLiteral("window.navigator.registerProtocolHandler(\"%1\", \"%2\", \"%3\")");
+    QString scheme = QStringLiteral("mailto");
+    QString url = server.url("/mail").toString() + QStringLiteral("?uri=%s");
+    QString title;
+    QString call = callFormat.arg(scheme).arg(url).arg(title);
+    page.runJavaScript(call);
+
+    QTRY_COMPARE(permissionSpy.count(), 1);
+    auto request = permissionSpy.takeFirst().value(0).value<QWebEngineRegisterProtocolHandlerRequest>();
+    QCOMPARE(request.origin(), QUrl(url));
+    QCOMPARE(request.scheme(), scheme);
+    if (permission)
+        request.accept();
+    else
+        request.reject();
+
+    page.runJavaScript(QStringLiteral("document.getElementById(\"link\").click()"));
+
+    QTRY_COMPARE(loadSpy.count(), 1);
+    QCOMPARE(loadSpy.takeFirst().value(0).toBool(), permission);
+    QCOMPARE(mailRequestCount, permission ? 1 : 0);
+    QVERIFY(server.stop());
+}
+
+void tst_QWebEnginePage::dataURLFragment()
+{
+    m_view->resize(800, 600);
+    m_view->show();
+    QSignalSpy loadFinishedSpy(m_page, SIGNAL(loadFinished(bool)));
+
+    m_page->setHtml("<html><body>"
+                    "<a id='link' href='#anchor'>anchor</a>"
+                    "</body></html>");
+    QTRY_COMPARE(loadFinishedSpy.count(), 1);
+
+    QSignalSpy urlChangedSpy(m_page, SIGNAL(urlChanged(QUrl)));
+    QTest::mouseClick(m_view->focusProxy(), Qt::LeftButton, 0, elementCenter(m_page, "link"));
+    QVERIFY(urlChangedSpy.wait());
+    QCOMPARE(m_page->url().fragment(), QStringLiteral("anchor"));
+
+
+    m_page->setHtml("<html><body>"
+                    "<a id='link' href='#anchor'>anchor</a>"
+                    "</body></html>", QUrl("http://test.qt.io/mytest.html"));
+    QTRY_COMPARE(loadFinishedSpy.count(), 2);
+
+    QTest::mouseClick(m_view->focusProxy(), Qt::LeftButton, 0, elementCenter(m_page, "link"));
+    QVERIFY(urlChangedSpy.wait());
+    QCOMPARE(m_page->url(), QUrl("http://test.qt.io/mytest.html#anchor"));
+}
+
+void tst_QWebEnginePage::devTools()
+{
+    QWebEngineProfile profile;
+    QWebEnginePage inspectedPage1(&profile);
+    QWebEnginePage inspectedPage2(&profile);
+    QWebEnginePage devToolsPage(&profile);
+    QSignalSpy spy(&devToolsPage, &QWebEnginePage::loadFinished);
+
+    inspectedPage1.setDevToolsPage(&devToolsPage);
+
+    QCOMPARE(inspectedPage1.devToolsPage(), &devToolsPage);
+    QCOMPARE(inspectedPage1.inspectedPage(), nullptr);
+    QCOMPARE(inspectedPage2.devToolsPage(), nullptr);
+    QCOMPARE(inspectedPage2.inspectedPage(), nullptr);
+    QCOMPARE(devToolsPage.devToolsPage(), nullptr);
+    QCOMPARE(devToolsPage.inspectedPage(), &inspectedPage1);
+
+    QTRY_COMPARE(spy.count(), 1);
+    QVERIFY(spy.takeFirst().value(0).toBool());
+
+    devToolsPage.setInspectedPage(&inspectedPage2);
+
+    QCOMPARE(inspectedPage1.devToolsPage(), nullptr);
+    QCOMPARE(inspectedPage1.inspectedPage(), nullptr);
+    QCOMPARE(inspectedPage2.devToolsPage(), &devToolsPage);
+    QCOMPARE(inspectedPage2.inspectedPage(), nullptr);
+    QCOMPARE(devToolsPage.devToolsPage(), nullptr);
+    QCOMPARE(devToolsPage.inspectedPage(), &inspectedPage2);
+
+    QTRY_COMPARE(spy.count(), 1);
+    QVERIFY(spy.takeFirst().value(0).toBool());
+
+    devToolsPage.setInspectedPage(nullptr);
+
+    QCOMPARE(inspectedPage1.devToolsPage(), nullptr);
+    QCOMPARE(inspectedPage1.inspectedPage(), nullptr);
+    QCOMPARE(inspectedPage2.devToolsPage(), nullptr);
+    QCOMPARE(inspectedPage2.inspectedPage(), nullptr);
+    QCOMPARE(devToolsPage.devToolsPage(), nullptr);
+    QCOMPARE(devToolsPage.inspectedPage(), nullptr);
+}
+
+void tst_QWebEnginePage::openLinkInDifferentProfile()
+{
+    class Page : public QWebEnginePage {
+    public:
+        QWebEnginePage *targetPage = nullptr;
+        Page(QWebEngineProfile *profile) : QWebEnginePage(profile) {}
+    private:
+        QWebEnginePage *createWindow(WebWindowType) override { return targetPage; }
+    };
+    QWebEngineProfile profile1, profile2;
+    Page page1(&profile1), page2(&profile2);
+    QWebEngineView view;
+    view.resize(500, 500);
+    view.setPage(&page1);
+    view.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&view));
+    QSignalSpy spy1(&page1, &QWebEnginePage::loadFinished), spy2(&page2, &QWebEnginePage::loadFinished);
+    page1.setHtml("<html><body>"
+                  "<a id='link' href='data:,hello'>link</a>"
+                  "</body></html>");
+    QTRY_COMPARE(spy1.count(), 1);
+    QVERIFY(spy1.takeFirst().value(0).toBool());
+    page1.targetPage = &page2;
+    QTest::mouseClick(view.focusProxy(), Qt::MiddleButton, 0, elementCenter(&page1, "link"));
+    QTRY_COMPARE(spy2.count(), 1);
+    QVERIFY(spy2.takeFirst().value(0).toBool());
+}
+
+void tst_QWebEnginePage::triggerActionWithoutMenu()
+{
+    // Calling triggerAction should not crash even when for
+    // context-menu-specific actions without a context menu.
+    QWebEngineProfile profile;
+    QWebEnginePage page(&profile);
+    page.triggerAction(QWebEnginePage::DownloadLinkToDisk);
+}
+
+void tst_QWebEnginePage::dynamicFrame()
+{
+    QWebEnginePage page;
+    page.settings()->setAttribute(QWebEngineSettings::ErrorPageEnabled, false);
+    QSignalSpy spy(&page, &QWebEnginePage::loadFinished);
+    page.load(QStringLiteral("qrc:/resources/dynamicFrame.html"));
+    QTRY_COMPARE(spy.count(), 1);
+    QCOMPARE(toPlainTextSync(&page).trimmed(), QStringLiteral("foo"));
 }
 
 static QByteArrayList params = {QByteArrayLiteral("--use-fake-device-for-media-stream")};

@@ -21,7 +21,7 @@
 #include "device/bluetooth/bluetooth_remote_gatt_characteristic.h"
 #include "device/bluetooth/bluetooth_remote_gatt_service.h"
 #include "mojo/public/cpp/bindings/binding.h"
-#include "third_party/WebKit/public/platform/modules/bluetooth/web_bluetooth.mojom.h"
+#include "third_party/blink/public/platform/modules/bluetooth/web_bluetooth.mojom.h"
 
 namespace url {
 class Origin;
@@ -47,7 +47,7 @@ class RenderProcessHost;
 // RenderFrameHostImpl will create an instance of this class and keep
 // ownership of it.
 class CONTENT_EXPORT WebBluetoothServiceImpl
-    : public NON_EXPORTED_BASE(blink::mojom::WebBluetoothService),
+    : public blink::mojom::WebBluetoothService,
       public WebContentsObserver,
       public device::BluetoothAdapter::Observer {
  public:
@@ -60,7 +60,7 @@ class CONTENT_EXPORT WebBluetoothServiceImpl
   void CrashRendererAndClosePipe(bad_message::BadMessageReason reason);
 
   // Sets the connection error handler for WebBluetoothServiceImpl's Binding.
-  void SetClientConnectionErrorHandler(base::Closure closure);
+  void SetClientConnectionErrorHandler(base::OnceClosure closure);
 
   // Returns whether the device is paired with the |render_frame_host_|'s
   // GetLastCommittedOrigin().

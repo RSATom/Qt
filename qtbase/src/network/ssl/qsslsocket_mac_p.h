@@ -86,14 +86,14 @@ public:
     virtual ~QSslSocketBackendPrivate();
 
     // Final-overriders (QSslSocketPrivate):
-    void continueHandshake() Q_DECL_OVERRIDE;
-    void disconnected() Q_DECL_OVERRIDE;
-    void disconnectFromHost() Q_DECL_OVERRIDE;
-    QSslCipher sessionCipher() const Q_DECL_OVERRIDE;
-    QSsl::SslProtocol sessionProtocol() const Q_DECL_OVERRIDE;
-    void startClientEncryption() Q_DECL_OVERRIDE;
-    void startServerEncryption() Q_DECL_OVERRIDE;
-    void transmit() Q_DECL_OVERRIDE;
+    void continueHandshake() override;
+    void disconnected() override;
+    void disconnectFromHost() override;
+    QSslCipher sessionCipher() const override;
+    QSsl::SslProtocol sessionProtocol() const override;
+    void startClientEncryption() override;
+    void startServerEncryption() override;
+    void transmit() override;
 
     static QList<QSslError> verify(QList<QSslCertificate> certificateChain,
                                    const QString &hostName);
@@ -120,7 +120,14 @@ private:
     bool checkSslErrors();
     bool startHandshake();
 
+    bool isHandshakeComplete() const {return connectionEncrypted && !renegotiating;}
+
+    // IO callbacks:
+    static OSStatus ReadCallback(QSslSocketBackendPrivate *socket, char *data, size_t *dataLength);
+    static OSStatus WriteCallback(QSslSocketBackendPrivate *plainSocket, const char *data, size_t *dataLength);
+
     QSecureTransportContext context;
+    bool renegotiating = false;
 
     Q_DISABLE_COPY(QSslSocketBackendPrivate)
 };

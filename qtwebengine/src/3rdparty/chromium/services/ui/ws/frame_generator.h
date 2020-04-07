@@ -8,12 +8,13 @@
 #include <memory>
 
 #include "base/macros.h"
-#include "cc/ipc/compositor_frame_sink.mojom.h"
-#include "cc/scheduler/begin_frame_source.h"
-#include "components/viz/common/surfaces/local_surface_id_allocator.h"
+#include "components/viz/common/frame_sinks/begin_frame_source.h"
+#include "components/viz/common/hit_test/hit_test_region_list.h"
+#include "components/viz/common/surfaces/parent_local_surface_id_allocator.h"
 #include "components/viz/common/surfaces/surface_id.h"
 #include "components/viz/common/surfaces/surface_info.h"
 #include "services/ui/ws/compositor_frame_sink_client_binding.h"
+#include "services/viz/public/interfaces/compositing/compositor_frame_sink.mojom.h"
 #include "ui/gfx/geometry/rect.h"
 
 namespace cc {
@@ -25,7 +26,7 @@ namespace ws {
 
 // Responsible for redrawing the display in response to the redraw requests by
 // submitting CompositorFrames to the owned CompositorFrameSink.
-class FrameGenerator : public cc::mojom::CompositorFrameSinkClient {
+class FrameGenerator : public viz::mojom::CompositorFrameSinkClient {
  public:
   FrameGenerator();
   ~FrameGenerator() override;
@@ -34,7 +35,7 @@ class FrameGenerator : public cc::mojom::CompositorFrameSinkClient {
   void SetHighContrastMode(bool enabled);
 
   // Updates the WindowManager's SurfaceInfo.
-  void OnSurfaceCreated(const viz::SurfaceInfo& surface_info);
+  void SetEmbeddedSurface(const viz::SurfaceInfo& surface_info);
 
   // Swaps the |window_manager_surface_info_| with that of |other|.
   void SwapSurfaceWith(FrameGenerator* other);
@@ -42,45 +43,58 @@ class FrameGenerator : public cc::mojom::CompositorFrameSinkClient {
   void OnWindowDamaged();
   void OnWindowSizeChanged(const gfx::Size& pixel_size);
   void Bind(
-      std::unique_ptr<cc::mojom::CompositorFrameSink> compositor_frame_sink);
+      std::unique_ptr<viz::mojom::CompositorFrameSink> compositor_frame_sink,
+      viz::mojom::DisplayPrivateAssociatedPtr display_private);
+
+  const viz::SurfaceInfo& window_manager_surface_info() const {
+    return window_manager_surface_info_;
+  }
+
+  void set_scale_and_center(bool value) { scale_and_center_ = value; }
 
  private:
-  // cc::mojom::CompositorFrameSinkClient implementation:
+  // viz::mojom::CompositorFrameSinkClient implementation:
   void DidReceiveCompositorFrameAck(
-      const std::vector<cc::ReturnedResource>& resources) override;
-  void OnBeginFrame(const cc::BeginFrameArgs& args) override;
+      const std::vector<viz::ReturnedResource>& resources) override;
+  void DidPresentCompositorFrame(
+      uint32_t presentation_token,
+      const gfx::PresentationFeedback& feedback) override;
+  void OnBeginFrame(const viz::BeginFrameArgs& args) override;
   void OnBeginFramePausedChanged(bool paused) override {}
   void ReclaimResources(
-      const std::vector<cc::ReturnedResource>& resources) override;
+      const std::vector<viz::ReturnedResource>& resources) override;
 
-  // Generates the CompositorFrame.
-  cc::CompositorFrame GenerateCompositorFrame();
+  viz::CompositorFrame GenerateCompositorFrame();
+
+  viz::HitTestRegionList GenerateHitTestRegionList() const;
 
   // DrawWindow creates SurfaceDrawQuad for the window manager and appends it to
-  // the provided cc::RenderPass.
-  void DrawWindow(cc::RenderPass* pass);
+  // the provided viz::RenderPass.
+  void DrawWindow(viz::RenderPass* pass);
 
   void SetNeedsBeginFrame(bool needs_begin_frame);
 
   float device_scale_factor_ = 1.f;
   gfx::Size pixel_size_;
 
-  std::unique_ptr<cc::mojom::CompositorFrameSink> compositor_frame_sink_;
-  cc::BeginFrameArgs last_begin_frame_args_;
-  cc::BeginFrameAck current_begin_frame_ack_;
+  std::unique_ptr<viz::mojom::CompositorFrameSink> compositor_frame_sink_;
+  viz::mojom::DisplayPrivateAssociatedPtr display_private_;
+  viz::BeginFrameArgs last_begin_frame_args_;
+  viz::BeginFrameAck current_begin_frame_ack_;
   bool high_contrast_mode_enabled_ = false;
   gfx::Size last_submitted_frame_size_;
-  viz::LocalSurfaceId local_surface_id_;
-  viz::LocalSurfaceIdAllocator id_allocator_;
+  viz::ParentLocalSurfaceIdAllocator id_allocator_;
   float last_device_scale_factor_ = 0.0f;
 
   viz::SurfaceInfo window_manager_surface_info_;
+
+  // Whether the window manager surface should be scaled and centered.
+  bool scale_and_center_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(FrameGenerator);
 };
 
 }  // namespace ws
-
 }  // namespace ui
 
 #endif  // SERVICES_UI_WS_FRAME_GENERATOR_H_

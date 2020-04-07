@@ -6,12 +6,12 @@
 
 #include <stdint.h>
 
-#include "base/memory/ptr_util.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
-#include "content/public/common/associated_interface_provider.h"
-#include "content/public/common/manifest.h"
+#include "services/service_manager/public/cpp/interface_provider.h"
+#include "third_party/blink/public/common/associated_interfaces/associated_interface_provider.h"
+#include "third_party/blink/public/common/manifest/manifest.h"
 
 namespace content {
 
@@ -29,13 +29,18 @@ void ManifestManagerHost::RenderFrameDeleted(
     OnConnectionError();
 }
 
-void ManifestManagerHost::GetManifest(const GetManifestCallback& callback) {
+void ManifestManagerHost::GetManifest(GetManifestCallback callback) {
   auto& manifest_manager = GetManifestManager();
-  int request_id =
-      callbacks_.Add(base::MakeUnique<GetManifestCallback>(callback));
+  int request_id = callbacks_.Add(
+      std::make_unique<GetManifestCallback>(std::move(callback)));
   manifest_manager.RequestManifest(
-      base::Bind(&ManifestManagerHost::OnRequestManifestResponse,
-                 base::Unretained(this), request_id));
+      base::BindOnce(&ManifestManagerHost::OnRequestManifestResponse,
+                     base::Unretained(this), request_id));
+}
+
+void ManifestManagerHost::RequestManifestDebugInfo(
+    blink::mojom::ManifestManager::RequestManifestDebugInfoCallback callback) {
+  GetManifestManager().RequestManifestDebugInfo(std::move(callback));
 }
 
 blink::mojom::ManifestManager& ManifestManagerHost::GetManifestManager() {
@@ -44,9 +49,9 @@ blink::mojom::ManifestManager& ManifestManagerHost::GetManifestManager() {
 
   if (!manifest_manager_) {
     manifest_manager_frame_ = web_contents()->GetMainFrame();
-    manifest_manager_frame_->GetRemoteAssociatedInterfaces()->GetInterface(
+    manifest_manager_frame_->GetRemoteInterfaces()->GetInterface(
         &manifest_manager_);
-    manifest_manager_.set_connection_error_handler(base::Bind(
+    manifest_manager_.set_connection_error_handler(base::BindOnce(
         &ManifestManagerHost::OnConnectionError, base::Unretained(this)));
   }
   return *manifest_manager_;
@@ -61,16 +66,16 @@ void ManifestManagerHost::OnConnectionError() {
   }
   callbacks_.Clear();
   for (auto& callback : callbacks)
-    callback.Run(GURL(), Manifest());
+    std::move(callback).Run(GURL(), blink::Manifest());
 }
 
 void ManifestManagerHost::OnRequestManifestResponse(
     int request_id,
     const GURL& url,
-    const base::Optional<Manifest>& manifest) {
+    const blink::Manifest& manifest) {
   auto callback = std::move(*callbacks_.Lookup(request_id));
   callbacks_.Remove(request_id);
-  callback.Run(url, manifest.value_or(Manifest()));
+  std::move(callback).Run(url, manifest);
 }
 
 void ManifestManagerHost::ManifestUrlChanged(

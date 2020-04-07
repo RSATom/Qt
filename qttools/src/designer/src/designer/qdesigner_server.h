@@ -29,7 +29,7 @@
 #ifndef QDESIGNER_SERVER_H
 #define QDESIGNER_SERVER_H
 
-#include <QtCore/QObject>
+#include <QtCore/qobject.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -41,7 +41,7 @@ class QDesignerServer: public QObject
     Q_OBJECT
 public:
     explicit QDesignerServer(QObject *parent = 0);
-    virtual ~QDesignerServer();
+    ~QDesignerServer() override;
 
     quint16 serverPort() const;
 
@@ -62,7 +62,7 @@ class QDesignerClient: public QObject
     Q_OBJECT
 public:
     explicit QDesignerClient(quint16 port, QObject *parent = 0);
-    virtual ~QDesignerClient();
+    ~QDesignerClient() override;
 
 private slots:
     void readFromSocket();

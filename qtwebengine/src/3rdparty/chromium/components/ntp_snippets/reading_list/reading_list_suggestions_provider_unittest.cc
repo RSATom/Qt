@@ -4,7 +4,8 @@
 
 #include "components/ntp_snippets/reading_list/reading_list_suggestions_provider.h"
 
-#include "base/memory/ptr_util.h"
+#include <memory>
+
 #include "base/test/simple_test_clock.h"
 #include "components/ntp_snippets/mock_content_suggestions_provider_observer.h"
 #include "components/reading_list/core/reading_list_model_impl.h"
@@ -29,11 +30,8 @@ using ::testing::Property;
 class ReadingListSuggestionsProviderTest : public ::testing::Test {
  public:
   ReadingListSuggestionsProviderTest() {
-    std::unique_ptr<base::SimpleTestClock> clock =
-        base::MakeUnique<base::SimpleTestClock>();
-    clock_ = clock.get();
-    model_ = base::MakeUnique<ReadingListModelImpl>(
-        /*storage_layer=*/nullptr, /*pref_service=*/nullptr, std::move(clock));
+    model_ = std::make_unique<ReadingListModelImpl>(
+        /*storage_layer=*/nullptr, /*pref_service=*/nullptr, &clock_);
   }
 
   void CreateProvider() {
@@ -44,7 +42,7 @@ class ReadingListSuggestionsProviderTest : public ::testing::Test {
     EXPECT_CALL(observer_, OnCategoryStatusChanged(_, ReadingListCategory(),
                                                    CategoryStatus::AVAILABLE))
         .RetiresOnSaturation();
-    provider_ = base::MakeUnique<ReadingListSuggestionsProvider>(&observer_,
+    provider_ = std::make_unique<ReadingListSuggestionsProvider>(&observer_,
                                                                  model_.get());
   }
 
@@ -55,23 +53,23 @@ class ReadingListSuggestionsProviderTest : public ::testing::Test {
   void AddEntries() {
     model_->AddEntry(url_unread1_, kTitleUnread1,
                      reading_list::ADDED_VIA_CURRENT_APP);
-    clock_->Advance(base::TimeDelta::FromMilliseconds(10));
+    clock_.Advance(base::TimeDelta::FromMilliseconds(10));
     model_->AddEntry(url_unread2_, kTitleUnread2,
                      reading_list::ADDED_VIA_CURRENT_APP);
-    clock_->Advance(base::TimeDelta::FromMilliseconds(10));
+    clock_.Advance(base::TimeDelta::FromMilliseconds(10));
     model_->AddEntry(url_read1_, kTitleRead1,
                      reading_list::ADDED_VIA_CURRENT_APP);
     model_->SetReadStatus(url_read1_, true);
-    clock_->Advance(base::TimeDelta::FromMilliseconds(10));
+    clock_.Advance(base::TimeDelta::FromMilliseconds(10));
     model_->AddEntry(url_unread3_, kTitleUnread3,
                      reading_list::ADDED_VIA_CURRENT_APP);
-    clock_->Advance(base::TimeDelta::FromMilliseconds(10));
+    clock_.Advance(base::TimeDelta::FromMilliseconds(10));
     model_->AddEntry(url_unread4_, kTitleUnread4,
                      reading_list::ADDED_VIA_CURRENT_APP);
   }
 
  protected:
-  base::SimpleTestClock* clock_;
+  base::SimpleTestClock clock_;
   std::unique_ptr<ReadingListModelImpl> model_;
   testing::StrictMock<MockContentSuggestionsProviderObserver> observer_;
   std::unique_ptr<ReadingListSuggestionsProvider> provider_;
@@ -116,7 +114,7 @@ TEST_F(ReadingListSuggestionsProviderTest, ReturnsOnlyUnreadSuggestion) {
   std::string title_read1 = "title_read1";
   model_->AddEntry(url_unread1, title_unread1,
                    reading_list::ADDED_VIA_CURRENT_APP);
-  clock_->Advance(base::TimeDelta::FromMilliseconds(10));
+  clock_.Advance(base::TimeDelta::FromMilliseconds(10));
   model_->AddEntry(url_read1, title_read1, reading_list::ADDED_VIA_CURRENT_APP);
   model_->SetReadStatus(url_read1, true);
 

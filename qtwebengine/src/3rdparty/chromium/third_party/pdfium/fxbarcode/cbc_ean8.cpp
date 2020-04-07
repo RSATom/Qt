@@ -30,47 +30,44 @@ CBC_EAN8::CBC_EAN8() : CBC_OneCode(pdfium::MakeUnique<CBC_OnedEAN8Writer>()) {}
 
 CBC_EAN8::~CBC_EAN8() {}
 
-CFX_WideString CBC_EAN8::Preprocess(const CFX_WideStringC& contents) {
+WideString CBC_EAN8::Preprocess(const WideStringView& contents) {
   auto* pWriter = GetOnedEAN8Writer();
-  CFX_WideString encodeContents = pWriter->FilterContents(contents);
+  WideString encodeContents = pWriter->FilterContents(contents);
   int32_t length = encodeContents.GetLength();
   if (length <= 7) {
     for (int32_t i = 0; i < 7 - length; i++)
       encodeContents = wchar_t('0') + encodeContents;
 
-    CFX_ByteString byteString = encodeContents.UTF8Encode();
+    ByteString byteString = encodeContents.UTF8Encode();
     int32_t checksum = pWriter->CalcChecksum(byteString);
     encodeContents += wchar_t(checksum - 0 + '0');
   }
   if (length > 8)
-    encodeContents = encodeContents.Mid(0, 8);
+    encodeContents = encodeContents.Left(8);
 
   return encodeContents;
 }
 
-bool CBC_EAN8::Encode(const CFX_WideStringC& contents, bool isDevice) {
+bool CBC_EAN8::Encode(const WideStringView& contents) {
   if (contents.IsEmpty())
     return false;
 
   BCFORMAT format = BCFORMAT_EAN_8;
   int32_t outWidth = 0;
   int32_t outHeight = 0;
-  CFX_WideString encodeContents = Preprocess(contents);
-  CFX_ByteString byteString = encodeContents.UTF8Encode();
-  m_renderContents = encodeContents;
+  m_renderContents = Preprocess(contents);
+  ByteString byteString = m_renderContents.UTF8Encode();
   auto* pWriter = GetOnedEAN8Writer();
   std::unique_ptr<uint8_t, FxFreeDeleter> data(
       pWriter->Encode(byteString, format, outWidth, outHeight));
-  if (!data)
-    return false;
-  return pWriter->RenderResult(encodeContents.AsStringC(), data.get(), outWidth,
-                               isDevice);
+  return data && pWriter->RenderResult(m_renderContents.AsStringView(),
+                                       data.get(), outWidth);
 }
 
 bool CBC_EAN8::RenderDevice(CFX_RenderDevice* device,
                             const CFX_Matrix* matrix) {
-  return GetOnedEAN8Writer()->RenderDeviceResult(device, matrix,
-                                                 m_renderContents.AsStringC());
+  return GetOnedEAN8Writer()->RenderDeviceResult(
+      device, matrix, m_renderContents.AsStringView());
 }
 
 BC_TYPE CBC_EAN8::GetType() {

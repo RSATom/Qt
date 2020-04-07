@@ -28,8 +28,8 @@ class GpuControlListTest : public testing::Test {
  public:
   typedef GpuControlList::Entry Entry;
 
-  GpuControlListTest() {}
-  ~GpuControlListTest() override {}
+  GpuControlListTest() = default;
+  ~GpuControlListTest() override = default;
 
   const GPUInfo& gpu_info() const {
     return gpu_info_;
@@ -37,7 +37,7 @@ class GpuControlListTest : public testing::Test {
 
   std::unique_ptr<GpuControlList> Create(size_t entry_count,
                                          const Entry* entries) {
-    GpuControlListData data("0.1", entry_count, entries);
+    GpuControlListData data(entry_count, entries);
     std::unique_ptr<GpuControlList> rt(new GpuControlList(data));
     rt->AddSupportedFeature("test_feature_0", TEST_FEATURE_0);
     rt->AddSupportedFeature("test_feature_1", TEST_FEATURE_1);
@@ -49,9 +49,9 @@ class GpuControlListTest : public testing::Test {
   void SetUp() override {
     gpu_info_.gpu.vendor_id = kNvidiaVendorId;
     gpu_info_.gpu.device_id = 0x0640;
-    gpu_info_.driver_vendor = "NVIDIA";
-    gpu_info_.driver_version = "1.6.18";
-    gpu_info_.driver_date = "7-14-2009";
+    gpu_info_.gpu.driver_vendor = "NVIDIA";
+    gpu_info_.gpu.driver_version = "1.6.18";
+    gpu_info_.gpu.driver_date = "7-14-2009";
     gpu_info_.machine_model_name = "MacBookPro";
     gpu_info_.machine_model_version = "7.1";
     gpu_info_.gl_vendor = "NVIDIA Corporation";
@@ -76,17 +76,22 @@ TEST_F(GpuControlListTest, NeedsMoreInfo) {
       GpuControlList::kOsWin, kOsVersion, gpu_info);
   EXPECT_EMPTY_SET(features);
   EXPECT_TRUE(control_list->needs_more_info());
-  std::vector<uint32_t> decision_entries;
-  control_list->GetDecisionEntries(&decision_entries);
+  std::vector<uint32_t> decision_entries = control_list->GetActiveEntries();
   EXPECT_EQ(0u, decision_entries.size());
 
-  gpu_info.driver_version = "11";
+  gpu_info.gpu.driver_version = "11";
   features = control_list->MakeDecision(
       GpuControlList::kOsWin, kOsVersion, gpu_info);
   EXPECT_SINGLE_FEATURE(features, TEST_FEATURE_0);
   EXPECT_FALSE(control_list->needs_more_info());
-  control_list->GetDecisionEntries(&decision_entries);
+  decision_entries = control_list->GetActiveEntries();
   EXPECT_EQ(1u, decision_entries.size());
+  EXPECT_EQ(0u, decision_entries[0]);
+  std::vector<uint32_t> entry_ids =
+      control_list->GetEntryIDsFromIndices(decision_entries);
+  EXPECT_EQ(1u, entry_ids.size());
+  EXPECT_EQ(static_cast<uint32_t>(kGpuControlListTest_NeedsMoreInfo + 1),
+            entry_ids[0]);
 }
 
 TEST_F(GpuControlListTest, NeedsMoreInfoForExceptions) {
@@ -179,6 +184,35 @@ TEST_F(GpuControlListTest, LinuxKernelVersion) {
   features = control_list->MakeDecision(GpuControlList::kOsLinux,
                                         "3.19.2-1-generic", gpu_info);
   EXPECT_EMPTY_SET(features);
+}
+
+TEST_F(GpuControlListTest, TestGroup) {
+  const Entry kEntries[3] = {
+      kGpuControlListTestingEntries[kGpuControlListTest_LinuxKernelVersion],
+      kGpuControlListTestingEntries[kGpuControlListTest_TestGroup_0],
+      kGpuControlListTestingEntries[kGpuControlListTest_TestGroup_1]};
+  std::unique_ptr<GpuControlList> control_list = Create(3, kEntries);
+  GPUInfo gpu_info;
+
+  // Default test group.
+  std::set<int> features = control_list->MakeDecision(
+      GpuControlList::kOsLinux, "3.13.2-1-generic", gpu_info);
+  EXPECT_EMPTY_SET(features);
+
+  // Test group 0, the default test group
+  features = control_list->MakeDecision(GpuControlList::kOsLinux,
+                                        "3.13.2-1-generic", gpu_info, 0);
+  EXPECT_EMPTY_SET(features);
+
+  // Test group 1.
+  features = control_list->MakeDecision(GpuControlList::kOsLinux,
+                                        "3.13.2-1-generic", gpu_info, 1);
+  EXPECT_SINGLE_FEATURE(features, TEST_FEATURE_0);
+
+  // Test group 2.
+  features = control_list->MakeDecision(GpuControlList::kOsLinux,
+                                        "3.13.2-1-generic", gpu_info, 2);
+  EXPECT_SINGLE_FEATURE(features, TEST_FEATURE_1);
 }
 
 }  // namespace gpu

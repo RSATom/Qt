@@ -8,7 +8,6 @@
 #include <limits>
 #include <utility>
 
-#include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_number_conversions.h"
@@ -21,19 +20,20 @@
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_data.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_io_data.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_request_options.h"
+#include "components/data_reduction_proxy/core/browser/data_reduction_proxy_util.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_headers.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_params.h"
-#include "components/data_reduction_proxy/core/common/data_reduction_proxy_util.h"
 #include "components/data_reduction_proxy/core/common/lofi_decider.h"
 #include "net/base/load_flags.h"
 #include "net/base/mime_util.h"
+#include "net/base/network_change_notifier.h"
+#include "net/base/proxy_server.h"
 #include "net/http/http_request_headers.h"
 #include "net/http/http_response_headers.h"
 #include "net/nqe/effective_connection_type.h"
 #include "net/nqe/network_quality_estimator.h"
-#include "net/proxy/proxy_info.h"
-#include "net/proxy/proxy_server.h"
-#include "net/proxy/proxy_service.h"
+#include "net/proxy_resolution/proxy_info.h"
+#include "net/proxy_resolution/proxy_resolution_service.h"
 #include "net/url_request/url_request.h"
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_status.h"
@@ -56,6 +56,8 @@ enum AcceptTransformEvent {
   COMPRESSED_VIDEO_REQUESTED = 5,
   IDENTITY_TRANSFORM_REQUESTED = 6,
   IDENTITY_TRANSFORM_RECEIVED = 7,
+  COMPRESSED_VIDEO_RECEIVED = 8,
+  UNKNOWN_TRANSFORM_RECEIVED = 9,
   ACCEPT_TRANSFORM_EVENT_BOUNDARY
 };
 
@@ -110,44 +112,27 @@ void RecordNewContentLengthHistograms(
   }
 }
 
-// |lofi_low_header_added| is set to true iff Lo-Fi request header
-// can be added to the Chrome proxy header. |received_content_length| is
-// the number of prefilter bytes received. |original_content_length| is the
-// length of resource if accessed directly without data saver proxy.
-// |freshness_lifetime| specifies how long the resource will
-// be fresh for.
-void RecordContentLengthHistograms(bool lofi_low_header_added,
-                                   bool is_https,
+// |received_content_length| is the number of prefilter bytes received.
+// |original_content_length| is the length of resource if accessed directly
+// without data saver proxy. |freshness_lifetime| specifies how long the
+// resource will be fresh for.
+void RecordContentLengthHistograms(bool is_https,
                                    bool is_video,
                                    int64_t received_content_length,
                                    int64_t original_content_length,
                                    const base::TimeDelta& freshness_lifetime,
                                    DataReductionProxyRequestType request_type) {
-  // Add the current resource to these histograms only when a valid
-  // X-Original-Content-Length header is present.
+  // Add the current resource to these histograms only when the content length
+  // is valid.
   if (original_content_length >= 0) {
-    UMA_HISTOGRAM_COUNTS_1M("Net.HttpContentLengthWithValidOCL",
-                            received_content_length);
-    UMA_HISTOGRAM_COUNTS_1M("Net.HttpOriginalContentLengthWithValidOCL",
-                            original_content_length);
+    // This is only used locally in integration testing.
+    LOCAL_HISTOGRAM_COUNTS_1000000("Net.HttpOriginalContentLengthWithValidOCL",
+                                   original_content_length);
     UMA_HISTOGRAM_COUNTS_1M("Net.HttpContentLengthDifferenceWithValidOCL",
                             original_content_length - received_content_length);
-
-    // Populate Lo-Fi content length histograms.
-    if (lofi_low_header_added) {
-      UMA_HISTOGRAM_COUNTS_1M("Net.HttpContentLengthWithValidOCL.LoFiOn",
-                              received_content_length);
-      UMA_HISTOGRAM_COUNTS_1M(
-          "Net.HttpOriginalContentLengthWithValidOCL.LoFiOn",
-          original_content_length);
-      UMA_HISTOGRAM_COUNTS_1M(
-          "Net.HttpContentLengthDifferenceWithValidOCL.LoFiOn",
-          original_content_length - received_content_length);
-    }
-
   } else {
     // Presume the original content length is the same as the received content
-    // length if the X-Original-Content-Header is not present.
+    // length.
     original_content_length = received_content_length;
   }
   UMA_HISTOGRAM_COUNTS_1M("Net.HttpContentLength", received_content_length);
@@ -160,27 +145,10 @@ void RecordContentLengthHistograms(bool lofi_low_header_added,
                                    is_video, request_type,
                                    original_content_length);
 
-  UMA_HISTOGRAM_COUNTS_1M("Net.HttpOriginalContentLength",
-                          original_content_length);
-  UMA_HISTOGRAM_COUNTS_1M("Net.HttpContentLengthDifference",
-                          original_content_length - received_content_length);
   UMA_HISTOGRAM_CUSTOM_COUNTS("Net.HttpContentFreshnessLifetime",
                               freshness_lifetime.InSeconds(),
                               base::TimeDelta::FromHours(1).InSeconds(),
                               base::TimeDelta::FromDays(30).InSeconds(), 100);
-  if (freshness_lifetime.InSeconds() <= 0)
-    return;
-  UMA_HISTOGRAM_COUNTS_1M("Net.HttpContentLengthCacheable",
-                          received_content_length);
-  if (freshness_lifetime.InHours() < 4)
-    return;
-  UMA_HISTOGRAM_COUNTS_1M("Net.HttpContentLengthCacheable4Hours",
-                          received_content_length);
-
-  if (freshness_lifetime.InHours() < 24)
-    return;
-  UMA_HISTOGRAM_COUNTS_1M("Net.HttpContentLengthCacheable24Hours",
-                          received_content_length);
 }
 
 void RecordAcceptTransformEvent(AcceptTransformEvent event) {
@@ -206,6 +174,7 @@ void RecordAcceptTransformSentUMA(
     case TRANSFORM_NONE:
       break;
     case TRANSFORM_PAGE_POLICIES_EMPTY_IMAGE:
+    case TRANSFORM_UNKNOWN:
       NOTREACHED();
       break;
   }
@@ -218,6 +187,9 @@ void RecordAcceptTransformReceivedUMA(const net::URLRequest& request) {
   }
 
   switch (ParseResponseTransform(*response_headers)) {
+    case TRANSFORM_UNKNOWN:
+      RecordAcceptTransformEvent(UNKNOWN_TRANSFORM_RECEIVED);
+      break;
     case TRANSFORM_LITE_PAGE:
       RecordAcceptTransformEvent(LITE_PAGE_TRANSFORM_RECEIVED);
       break;
@@ -230,11 +202,10 @@ void RecordAcceptTransformReceivedUMA(const net::URLRequest& request) {
     case TRANSFORM_IDENTITY:
       RecordAcceptTransformEvent(IDENTITY_TRANSFORM_RECEIVED);
       break;
-    case TRANSFORM_NONE:
-      break;
     case TRANSFORM_COMPRESSED_VIDEO:
-      // Compressed video response would instead be a redirect to resource.
-      NOTREACHED();
+      RecordAcceptTransformEvent(COMPRESSED_VIDEO_RECEIVED);
+      break;
+    case TRANSFORM_NONE:
       break;
   }
 }
@@ -264,6 +235,17 @@ void VerifyHttpRequestHeaders(bool via_chrome_proxy,
     DCHECK(!headers.HasHeader(chrome_proxy_accept_transform_header()));
     DCHECK(!headers.HasHeader(chrome_proxy_ect_header()));
   }
+}
+
+// If the response is the entire resource, then the renderer won't show a
+// placeholder. This should match the behavior in blink::ImageResource.
+bool IsEntireResource(const net::HttpResponseHeaders* response_headers) {
+  if (!response_headers || response_headers->response_code() != 206)
+    return true;
+
+  int64_t first, last, length;
+  return response_headers->GetContentRangeFor206(&first, &last, &length) &&
+         first == 0 && last + 1 == length;
 }
 
 }  // namespace
@@ -296,22 +278,8 @@ void DataReductionProxyNetworkDelegate::InitIODataAndUMA(
   data_reduction_proxy_bypass_stats_ = bypass_stats;
 }
 
-void DataReductionProxyNetworkDelegate::OnBeforeURLRequestInternal(
-    net::URLRequest* request,
-    const net::CompletionCallback& callback,
-    GURL* new_url) {
-  DCHECK(thread_checker_.CalledOnValidThread());
-
-  // |data_reduction_proxy_io_data_| can be NULL for Webview.
-  if (data_reduction_proxy_io_data_ &&
-      (request->load_flags() & net::LOAD_MAIN_FRAME_DEPRECATED)) {
-    data_reduction_proxy_io_data_->SetLoFiModeActiveOnMainFrame(false);
-  }
-}
-
 void DataReductionProxyNetworkDelegate::OnBeforeStartTransactionInternal(
     net::URLRequest* request,
-    const net::CompletionCallback& callback,
     net::HttpRequestHeaders* headers) {
   DCHECK(thread_checker_.CalledOnValidThread());
 
@@ -335,11 +303,7 @@ void DataReductionProxyNetworkDelegate::OnBeforeStartTransactionInternal(
 
   if (data_reduction_proxy_io_data_->lofi_decider()) {
     data_reduction_proxy_io_data_->lofi_decider()
-        ->MaybeSetAcceptTransformHeader(
-            *request,
-            !params::IsBlackListEnabledForServerPreviews() &&
-                data_reduction_proxy_config_->lofi_off(),
-            headers);
+        ->MaybeSetAcceptTransformHeader(*request, headers);
   }
 
   MaybeAddChromeProxyECTHeader(headers, *request);
@@ -364,6 +328,12 @@ void DataReductionProxyNetworkDelegate::OnBeforeSendHeadersInternal(
                   data_reduction_proxy_request_options_->GetSecureSession()) {
     page_id = data->page_id();
   }
+  // Always persist data's |request_info| since it tracks connection pingback
+  // data for redirects on main frame requests. It should include re-issued
+  // requests and client redirects.
+  std::vector<DataReductionProxyData::RequestInfo> request_info;
+  if (data)
+    request_info = data->TakeRequestInfo();
 
   // Reset |request|'s DataReductionProxyData.
   DataReductionProxyData::ClearData(request);
@@ -376,8 +346,8 @@ void DataReductionProxyNetworkDelegate::OnBeforeSendHeadersInternal(
     using_data_reduction_proxy = false;
   } else if (proxy_info.proxy_server().host_port_pair().IsEmpty()) {
     using_data_reduction_proxy = false;
-  } else if (!data_reduction_proxy_config_->IsDataReductionProxy(
-                 proxy_info.proxy_server(), nullptr)) {
+  } else if (!data_reduction_proxy_config_->FindConfiguredDataReductionProxy(
+                 proxy_info.proxy_server())) {
     using_data_reduction_proxy = false;
   }
 
@@ -409,6 +379,8 @@ void DataReductionProxyNetworkDelegate::OnBeforeSendHeadersInternal(
                                                 ->network_quality_estimator()
                                                 ->GetEffectiveConnectionType());
       }
+      data->set_connection_type(
+          net::NetworkChangeNotifier::GetConnectionType());
       // Generate a page ID for main frame requests that don't already have one.
       // TODO(ryansturm): remove LOAD_MAIN_FRAME_DEPRECATED from d_r_p.
       // crbug.com/709621
@@ -416,6 +388,7 @@ void DataReductionProxyNetworkDelegate::OnBeforeSendHeadersInternal(
         page_id = data_reduction_proxy_request_options_->GeneratePageId();
       }
       data->set_page_id(page_id.value());
+      data->set_request_info(std::move(request_info));
     }
   }
 
@@ -436,13 +409,6 @@ void DataReductionProxyNetworkDelegate::OnBeforeSendHeadersInternal(
   }
 
   DCHECK(data);
-  if (data_reduction_proxy_io_data_ &&
-      (request->load_flags() & net::LOAD_MAIN_FRAME_DEPRECATED)) {
-    data_reduction_proxy_io_data_->SetLoFiModeActiveOnMainFrame(
-        lofi_decider ? lofi_decider->IsSlowPagePreviewRequested(*headers)
-                     : false);
-  }
-
   data->set_lofi_requested(
       lofi_decider ? lofi_decider->ShouldRecordLoFiUMA(*request) : false);
   MaybeAddBrotliToAcceptEncodingHeader(proxy_info, headers, *request);
@@ -468,6 +434,12 @@ void DataReductionProxyNetworkDelegate::OnBeforeRedirectInternal(
     page_id = data->page_id();
   }
 
+  // Persist data's |request_info| since it tracks connection pingback data for
+  // redirects on main frame requests.
+  std::vector<DataReductionProxyData::RequestInfo> request_info;
+  if (data)
+    request_info = data->TakeRequestInfo();
+
   DataReductionProxyData::ClearData(request);
 
   if (page_id) {
@@ -475,17 +447,16 @@ void DataReductionProxyNetworkDelegate::OnBeforeRedirectInternal(
     data->set_page_id(page_id.value());
     data->set_session_key(
         data_reduction_proxy_request_options_->GetSecureSession());
+    data->set_request_info(std::move(request_info));
   }
 }
 
 void DataReductionProxyNetworkDelegate::OnCompletedInternal(
     net::URLRequest* request,
-    bool started) {
+    bool started,
+    int net_error) {
   DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(request);
-  // TODO(maksims): remove this once OnCompletedInternal() has net_error in
-  // arguments.
-  int net_error = request->status().error();
   DCHECK_NE(net::ERR_IO_PENDING, net_error);
   if (data_reduction_proxy_bypass_stats_)
     data_reduction_proxy_bypass_stats_->OnUrlRequestCompleted(request, started,
@@ -494,12 +465,18 @@ void DataReductionProxyNetworkDelegate::OnCompletedInternal(
   net::HttpRequestHeaders request_headers;
   bool server_lofi = request->response_headers() &&
                      IsEmptyImagePreview(*(request->response_headers()));
-  bool client_lofi =
+  bool will_show_client_lofi_placeholder =
       data_reduction_proxy_io_data_ &&
       data_reduction_proxy_io_data_->lofi_decider() &&
       data_reduction_proxy_io_data_->lofi_decider()->IsClientLoFiImageRequest(
-          *request);
-  if ((server_lofi || client_lofi) && data_reduction_proxy_io_data_ &&
+          *request) &&
+      // If the response contains the entire resource, then the renderer won't
+      // show a placeholder for this image, so don't bother triggering an
+      // infobar.
+      !IsEntireResource(request->response_headers());
+
+  if ((server_lofi || will_show_client_lofi_placeholder) &&
+      data_reduction_proxy_io_data_ &&
       data_reduction_proxy_io_data_->lofi_ui_service()) {
     data_reduction_proxy_io_data_->lofi_ui_service()->OnLoFiReponseReceived(
         *request);
@@ -524,36 +501,39 @@ void DataReductionProxyNetworkDelegate::OnCompletedInternal(
   DataReductionProxyRequestType request_type = GetDataReductionProxyRequestType(
       *request, configurator_->GetProxyConfig(), *data_reduction_proxy_config_);
 
-  // Determine the original content length if present.
-  int64_t original_content_length =
-      request->response_headers()
-          ? request->response_headers()->GetInt64HeaderValue(
-                "x-original-content-length")
-          : -1;
-
   CalculateAndRecordDataUsage(*request, request_type);
-
-  RecordContentLength(*request, request_type, original_content_length);
+  RecordContentLength(*request, request_type,
+                      util::CalculateOCLFromOFCL(*request));
   RecordAcceptTransformReceivedUMA(*request);
 }
 
 void DataReductionProxyNetworkDelegate::OnHeadersReceivedInternal(
     net::URLRequest* request,
-    const net::CompletionCallback& callback,
     const net::HttpResponseHeaders* original_response_headers,
     scoped_refptr<net::HttpResponseHeaders>* override_response_headers,
     GURL* allowed_unsafe_redirect_url) {
   if (!original_response_headers ||
       original_response_headers->IsRedirect(nullptr))
     return;
-  if (IsEmptyImagePreview(*original_response_headers)) {
-    DataReductionProxyData* data =
-        DataReductionProxyData::GetDataAndCreateIfNecessary(request);
-    data->set_lofi_received(true);
-  } else if (IsLitePagePreview(*original_response_headers)) {
-    DataReductionProxyData* data =
-        DataReductionProxyData::GetDataAndCreateIfNecessary(request);
-    data->set_lite_page_received(true);
+
+  switch (ParseResponseTransform(*original_response_headers)) {
+    case TRANSFORM_LITE_PAGE:
+      DataReductionProxyData::GetDataAndCreateIfNecessary(request)
+          ->set_lite_page_received(true);
+      break;
+    case TRANSFORM_PAGE_POLICIES_EMPTY_IMAGE:
+      DataReductionProxyData::GetDataAndCreateIfNecessary(request)
+          ->set_lofi_policy_received(true);
+      break;
+    case TRANSFORM_EMPTY_IMAGE:
+      DataReductionProxyData::GetDataAndCreateIfNecessary(request)
+          ->set_lofi_received(true);
+      break;
+    case TRANSFORM_IDENTITY:
+    case TRANSFORM_COMPRESSED_VIDEO:
+    case TRANSFORM_NONE:
+    case TRANSFORM_UNKNOWN:
+      break;
   }
   if (data_reduction_proxy_io_data_ &&
       data_reduction_proxy_io_data_->lofi_decider() &&
@@ -574,30 +554,49 @@ void DataReductionProxyNetworkDelegate::CalculateAndRecordDataUsage(
   // Estimate how many bytes would have been used if the DataReductionProxy was
   // not used, and record the data usage.
   int64_t original_size = util::EstimateOriginalReceivedBytes(
-      request, request_type == VIA_DATA_REDUCTION_PROXY,
-      data_reduction_proxy_io_data_
-          ? data_reduction_proxy_io_data_->lofi_decider()
-          : nullptr);
+      request, data_reduction_proxy_io_data_
+                   ? data_reduction_proxy_io_data_->lofi_decider()
+                   : nullptr);
 
   std::string mime_type;
   if (request.response_headers())
     request.response_headers()->GetMimeType(&mime_type);
 
-  AccumulateDataUsage(data_used, original_size, request_type, mime_type);
+  AccumulateDataUsage(
+      data_used, original_size, request_type, mime_type,
+      data_use_measurement::DataUseMeasurement::IsUserRequest(request),
+      data_use_measurement::DataUseMeasurement::GetContentTypeForRequest(
+          request),
+      request.traffic_annotation().unique_id_hash_code);
+
+  if (params::IsDataSaverSiteBreakdownUsingPLMEnabled() &&
+      data_reduction_proxy_io_data_ &&
+      data_reduction_proxy_io_data_->resource_type_provider() &&
+      data_reduction_proxy_io_data_->resource_type_provider()
+          ->IsNonContentInitiatedRequest(request)) {
+    // Record non-content initiated traffic to the Other bucket for data saver
+    // site-breakdown.
+    data_reduction_proxy_io_data_->UpdateDataUseForHost(
+        data_used, original_size, util::GetSiteBreakdownOtherHostName());
+  }
 }
 
 void DataReductionProxyNetworkDelegate::AccumulateDataUsage(
     int64_t data_used,
     int64_t original_size,
     DataReductionProxyRequestType request_type,
-    const std::string& mime_type) {
+    const std::string& mime_type,
+    bool is_user_traffic,
+    data_use_measurement::DataUseUserData::DataUseContentType content_type,
+    int32_t service_hash_code) {
   DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK_GE(data_used, 0);
   DCHECK_GE(original_size, 0);
   if (data_reduction_proxy_io_data_) {
     data_reduction_proxy_io_data_->UpdateContentLengths(
         data_used, original_size, data_reduction_proxy_io_data_->IsEnabled(),
-        request_type, mime_type);
+        request_type, mime_type, is_user_traffic, content_type,
+        service_hash_code);
   }
 }
 
@@ -625,17 +624,12 @@ void DataReductionProxyNetworkDelegate::RecordContentLength(
   }
 
   RecordContentLengthHistograms(
-      // |data_reduction_proxy_io_data_| can be NULL for Webview.
-      data_reduction_proxy_io_data_ &&
-          data_reduction_proxy_io_data_->IsEnabled() &&
-          data_reduction_proxy_io_data_->lofi_decider() &&
-          data_reduction_proxy_io_data_->lofi_decider()->IsUsingLoFi(request),
       is_https, is_video, request.received_response_content_length(),
       original_content_length, freshness_lifetime, request_type);
 
   if (data_reduction_proxy_io_data_ && data_reduction_proxy_bypass_stats_) {
     // Record BypassedBytes histograms for the request.
-    data_reduction_proxy_bypass_stats_->RecordBytesHistograms(
+    data_reduction_proxy_bypass_stats_->RecordBypassedBytesHistograms(
         request, data_reduction_proxy_io_data_->IsEnabled(),
         configurator_->GetProxyConfig());
   }
@@ -654,8 +648,8 @@ bool DataReductionProxyNetworkDelegate::WasEligibleWithoutHoldback(
     const net::ProxyRetryInfoMap& proxy_retry_info) const {
   DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(proxy_info.is_empty() || proxy_info.is_direct() ||
-         !data_reduction_proxy_config_->IsDataReductionProxy(
-             proxy_info.proxy_server(), nullptr));
+         !data_reduction_proxy_config_->FindConfiguredDataReductionProxy(
+             proxy_info.proxy_server()));
   if (!util::EligibleForDataReductionProxy(proxy_info, request.url(),
                                            request.method())) {
     return false;
@@ -676,8 +670,8 @@ void DataReductionProxyNetworkDelegate::MaybeAddBrotliToAcceptEncodingHeader(
 
   // This method should be called only when the resolved proxy was a data
   // saver proxy.
-  DCHECK(data_reduction_proxy_config_->IsDataReductionProxy(
-      proxy_info.proxy_server(), nullptr));
+  DCHECK(data_reduction_proxy_config_->FindConfiguredDataReductionProxy(
+      proxy_info.proxy_server()));
   DCHECK(request.url().is_valid());
   DCHECK(!request.url().SchemeIsCryptographic());
   DCHECK(request.url().SchemeIsHTTPOrHTTPS());

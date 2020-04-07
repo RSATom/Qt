@@ -15,7 +15,7 @@
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/values.h"
-#include "components/proximity_auth/logging/logging.h"
+#include "chromeos/components/proximity_auth/logging/logging.h"
 
 // The wire messages have a simple format:
 // [ message version ] [ body length ] [ JSON body ]
@@ -97,7 +97,7 @@ std::unique_ptr<WireMessage> WireMessage::Deserialize(
 
   std::unique_ptr<base::Value> body_value =
       base::JSONReader::Read(serialized_message.substr(kHeaderLength));
-  if (!body_value || !body_value->IsType(base::Value::Type::DICTIONARY)) {
+  if (!body_value || !body_value->is_dict()) {
     PA_LOG(WARNING) << "Error: Unable to parse message as JSON.";
     return nullptr;
   }

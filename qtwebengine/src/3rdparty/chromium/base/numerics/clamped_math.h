@@ -57,40 +57,30 @@ class ClampedNumeric {
 
   // Prototypes for the supported arithmetic operator overloads.
   template <typename Src>
-  ClampedNumeric& operator+=(const Src rhs);
+  constexpr ClampedNumeric& operator+=(const Src rhs);
   template <typename Src>
-  ClampedNumeric& operator-=(const Src rhs);
+  constexpr ClampedNumeric& operator-=(const Src rhs);
   template <typename Src>
-  ClampedNumeric& operator*=(const Src rhs);
+  constexpr ClampedNumeric& operator*=(const Src rhs);
   template <typename Src>
-  ClampedNumeric& operator/=(const Src rhs);
+  constexpr ClampedNumeric& operator/=(const Src rhs);
   template <typename Src>
-  ClampedNumeric& operator%=(const Src rhs);
+  constexpr ClampedNumeric& operator%=(const Src rhs);
   template <typename Src>
-  ClampedNumeric& operator<<=(const Src rhs);
+  constexpr ClampedNumeric& operator<<=(const Src rhs);
   template <typename Src>
-  ClampedNumeric& operator>>=(const Src rhs);
+  constexpr ClampedNumeric& operator>>=(const Src rhs);
   template <typename Src>
-  ClampedNumeric& operator&=(const Src rhs);
+  constexpr ClampedNumeric& operator&=(const Src rhs);
   template <typename Src>
-  ClampedNumeric& operator|=(const Src rhs);
+  constexpr ClampedNumeric& operator|=(const Src rhs);
   template <typename Src>
-  ClampedNumeric& operator^=(const Src rhs);
+  constexpr ClampedNumeric& operator^=(const Src rhs);
 
   constexpr ClampedNumeric operator-() const {
-    return ClampedNumeric<T>(
-        // The negation of two's complement int min is int min, so we can
-        // check and just add one to prevent overflow in the constexpr case.
-        // We use an optimized code path for a known run-time variable.
-        std::is_signed<T>::value
-            ? (MustTreatAsConstexpr(value_)
-                   ? ((std::is_floating_point<T>::value ||
-                       NegateWrapper(value_) !=
-                           std::numeric_limits<T>::lowest())
-                          ? NegateWrapper(value_)
-                          : std::numeric_limits<T>::max())
-                   : ClampedSubOp<T, T>::template Do<T>(T(0), value_))
-            : T(0));  // Clamped unsigned negation is always zero.
+    // The negation of two's complement int min is int min, so that's the
+    // only overflow case where we will saturate.
+    return ClampedNumeric<T>(SaturatedNegWrapper(value_));
   }
 
   constexpr ClampedNumeric operator~() const {
@@ -128,23 +118,23 @@ class ClampedNumeric {
         SafeUnsignedAbs(value_));
   }
 
-  ClampedNumeric& operator++() {
+  constexpr ClampedNumeric& operator++() {
     *this += 1;
     return *this;
   }
 
-  ClampedNumeric operator++(int) {
+  constexpr ClampedNumeric operator++(int) {
     ClampedNumeric value = *this;
     *this += 1;
     return value;
   }
 
-  ClampedNumeric& operator--() {
+  constexpr ClampedNumeric& operator--() {
     *this -= 1;
     return *this;
   }
 
-  ClampedNumeric operator--(int) {
+  constexpr ClampedNumeric operator--(int) {
     ClampedNumeric value = *this;
     *this -= 1;
     return value;
@@ -155,7 +145,7 @@ class ClampedNumeric {
   template <template <typename, typename, typename> class M,
             typename L,
             typename R>
-  static ClampedNumeric MathOp(const L lhs, const R rhs) {
+  static constexpr ClampedNumeric MathOp(const L lhs, const R rhs) {
     using Math = typename MathWrapper<M, L, R>::math;
     return ClampedNumeric<T>(
         Math::template Do<T>(Wrapper<L>::value(lhs), Wrapper<R>::value(rhs)));
@@ -163,7 +153,7 @@ class ClampedNumeric {
 
   // Assignment arithmetic operations.
   template <template <typename, typename, typename> class M, typename R>
-  ClampedNumeric& MathOp(const R rhs) {
+  constexpr ClampedNumeric& MathOp(const R rhs) {
     using Math = typename MathWrapper<M, T, R>::math;
     *this =
         ClampedNumeric<T>(Math::template Do<T>(value_, Wrapper<R>::value(rhs)));
@@ -175,6 +165,11 @@ class ClampedNumeric {
     return saturated_cast<typename ArithmeticOrUnderlyingEnum<Dst>::type>(
         value_);
   }
+
+  // This method extracts the raw integer value without saturating it to the
+  // destination type as the conversion operator does. This is useful when
+  // e.g. assigning to an auto type or passing as a deduced template parameter.
+  constexpr T RawValue() const { return value_; }
 
  private:
   T value_;
@@ -208,8 +203,9 @@ std::ostream& operator<<(std::ostream& os, const ClampedNumeric<T>& value) {
 template <template <typename, typename, typename> class M,
           typename L,
           typename R>
-ClampedNumeric<typename MathWrapper<M, L, R>::type> ClampMathOp(const L lhs,
-                                                                const R rhs) {
+constexpr ClampedNumeric<typename MathWrapper<M, L, R>::type> ClampMathOp(
+    const L lhs,
+    const R rhs) {
   using Math = typename MathWrapper<M, L, R>::math;
   return ClampedNumeric<typename Math::result_type>::template MathOp<M>(lhs,
                                                                         rhs);
@@ -220,7 +216,7 @@ template <template <typename, typename, typename> class M,
           typename L,
           typename R,
           typename... Args>
-ClampedNumeric<typename ResultType<M, L, R, Args...>::type>
+constexpr ClampedNumeric<typename ResultType<M, L, R, Args...>::type>
 ClampMathOp(const L lhs, const R rhs, const Args... args) {
   return ClampMathOp<M>(ClampMathOp<M>(lhs, rhs), args...);
 }

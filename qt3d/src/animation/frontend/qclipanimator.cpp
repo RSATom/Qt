@@ -53,6 +53,15 @@ QClipAnimatorPrivate::QClipAnimatorPrivate()
 {
 }
 
+bool QClipAnimatorPrivate::canPlay() const
+{
+    if (m_clip && m_mapper)
+        return true;
+
+    qWarning("ClipAnimators need a clip and a mapper to be played");
+    return false;
+}
+
 /*!
     \qmltype ClipAnimator
     \instantiates Qt3DAnimation::QClipAnimator
@@ -163,6 +172,7 @@ Qt3DCore::QNodeCreatedChangeBasePtr QClipAnimator::createNodeCreationChange() co
     data.clockId = Qt3DCore::qIdForNode(d->m_clock);
     data.running = d->m_running;
     data.loops = d->m_loops;
+    data.normalizedTime = d->m_normalizedTime;
     return creationChange;
 }
 

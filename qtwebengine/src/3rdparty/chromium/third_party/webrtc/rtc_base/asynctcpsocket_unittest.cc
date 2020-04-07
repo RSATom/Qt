@@ -11,15 +11,13 @@
 #include <memory>
 #include <string>
 
-#include "webrtc/rtc_base/asynctcpsocket.h"
-#include "webrtc/rtc_base/gunit.h"
-#include "webrtc/rtc_base/virtualsocketserver.h"
+#include "rtc_base/asynctcpsocket.h"
+#include "rtc_base/gunit.h"
+#include "rtc_base/virtualsocketserver.h"
 
 namespace rtc {
 
-class AsyncTCPSocketTest
-    : public testing::Test,
-      public sigslot::has_slots<> {
+class AsyncTCPSocketTest : public testing::Test, public sigslot::has_slots<> {
  public:
   AsyncTCPSocketTest()
       : vss_(new rtc::VirtualSocketServer()),
@@ -30,9 +28,7 @@ class AsyncTCPSocketTest
                                            &AsyncTCPSocketTest::OnReadyToSend);
   }
 
-  void OnReadyToSend(rtc::AsyncPacketSocket* socket) {
-    ready_to_send_ = true;
-  }
+  void OnReadyToSend(rtc::AsyncPacketSocket* socket) { ready_to_send_ = true; }
 
  protected:
   std::unique_ptr<VirtualSocketServer> vss_;

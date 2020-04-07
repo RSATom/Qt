@@ -35,7 +35,7 @@ TEST(MessageTest, AppendAndPopByte) {
 
   uint8_t byte_value = 0;
   ASSERT_TRUE(reader.PopByte(&byte_value));
-  EXPECT_EQ(123, byte_value);  // Should match with the input.
+  EXPECT_EQ(123, byte_value);          // Should match with the input.
   ASSERT_FALSE(reader.HasMoreData());  // Should not have more data to read.
 
   // Try to get another byte. Should fail.
@@ -229,7 +229,7 @@ TEST(MessageTest, ArrayOfBytes) {
   writer.AppendArrayOfBytes(bytes.data(), bytes.size());
 
   MessageReader reader(message.get());
-  const uint8_t* output_bytes = NULL;
+  const uint8_t* output_bytes = nullptr;
   size_t length = 0;
   ASSERT_EQ("ay", reader.GetDataSignature());
   ASSERT_TRUE(reader.PopArrayOfBytes(&output_bytes, &length));
@@ -238,6 +238,48 @@ TEST(MessageTest, ArrayOfBytes) {
   EXPECT_EQ(1, output_bytes[0]);
   EXPECT_EQ(2, output_bytes[1]);
   EXPECT_EQ(3, output_bytes[2]);
+}
+
+TEST(MessageTest, ArrayOfInt32s) {
+  std::unique_ptr<Response> message(Response::CreateEmpty());
+  MessageWriter writer(message.get());
+  std::vector<int32_t> int32s;
+  int32s.push_back(1);
+  int32s.push_back(2);
+  int32s.push_back(3);
+  writer.AppendArrayOfInt32s(int32s.data(), int32s.size());
+
+  MessageReader reader(message.get());
+  const int32_t* output_int32s = nullptr;
+  size_t length = 0;
+  ASSERT_EQ("ai", reader.GetDataSignature());
+  ASSERT_TRUE(reader.PopArrayOfInt32s(&output_int32s, &length));
+  ASSERT_FALSE(reader.HasMoreData());
+  ASSERT_EQ(3U, length);
+  EXPECT_EQ(1, output_int32s[0]);
+  EXPECT_EQ(2, output_int32s[1]);
+  EXPECT_EQ(3, output_int32s[2]);
+}
+
+TEST(MessageTest, ArrayOfUint32s) {
+  std::unique_ptr<Response> message(Response::CreateEmpty());
+  MessageWriter writer(message.get());
+  std::vector<uint32_t> uint32s;
+  uint32s.push_back(1);
+  uint32s.push_back(2);
+  uint32s.push_back(3);
+  writer.AppendArrayOfUint32s(uint32s.data(), uint32s.size());
+
+  MessageReader reader(message.get());
+  const uint32_t* output_uint32s = nullptr;
+  size_t length = 0;
+  ASSERT_EQ("au", reader.GetDataSignature());
+  ASSERT_TRUE(reader.PopArrayOfUint32s(&output_uint32s, &length));
+  ASSERT_FALSE(reader.HasMoreData());
+  ASSERT_EQ(3U, length);
+  EXPECT_EQ(1U, output_uint32s[0]);
+  EXPECT_EQ(2U, output_uint32s[1]);
+  EXPECT_EQ(3U, output_uint32s[2]);
 }
 
 TEST(MessageTest, ArrayOfDoubles) {
@@ -250,7 +292,7 @@ TEST(MessageTest, ArrayOfDoubles) {
   writer.AppendArrayOfDoubles(doubles.data(), doubles.size());
 
   MessageReader reader(message.get());
-  const double* output_doubles = NULL;
+  const double* output_doubles = nullptr;
   size_t length = 0;
   ASSERT_EQ("ad", reader.GetDataSignature());
   ASSERT_TRUE(reader.PopArrayOfDoubles(&output_doubles, &length));
@@ -268,13 +310,13 @@ TEST(MessageTest, ArrayOfBytes_Empty) {
   writer.AppendArrayOfBytes(bytes.data(), bytes.size());
 
   MessageReader reader(message.get());
-  const uint8_t* output_bytes = NULL;
+  const uint8_t* output_bytes = nullptr;
   size_t length = 0;
   ASSERT_EQ("ay", reader.GetDataSignature());
   ASSERT_TRUE(reader.PopArrayOfBytes(&output_bytes, &length));
   ASSERT_FALSE(reader.HasMoreData());
   ASSERT_EQ(0U, length);
-  EXPECT_EQ(NULL, output_bytes);
+  EXPECT_EQ(nullptr, output_bytes);
 }
 
 TEST(MessageTest, ArrayOfStrings) {
@@ -335,14 +377,13 @@ TEST(MessageTest, ProtoBuf) {
   EXPECT_EQ(receive_message.number(), send_message.number());
 }
 
-
 // Test that an array can be properly written and read. We only have this
 // test for array, as repeating this for other container types is too
 // redundant.
 TEST(MessageTest, OpenArrayAndPopArray) {
   std::unique_ptr<Response> message(Response::CreateEmpty());
   MessageWriter writer(message.get());
-  MessageWriter array_writer(NULL);
+  MessageWriter array_writer(nullptr);
   writer.OpenArray("s", &array_writer);  // Open an array of strings.
   array_writer.AppendString("foo");
   array_writer.AppendString("bar");
@@ -352,7 +393,7 @@ TEST(MessageTest, OpenArrayAndPopArray) {
   MessageReader reader(message.get());
   ASSERT_EQ(Message::ARRAY, reader.GetDataType());
   ASSERT_EQ("as", reader.GetDataSignature());
-  MessageReader array_reader(NULL);
+  MessageReader array_reader(nullptr);
   ASSERT_TRUE(reader.PopArray(&array_reader));
   ASSERT_FALSE(reader.HasMoreData());  // Should not have more data to read.
 
@@ -373,13 +414,13 @@ TEST(MessageTest, CreateComplexMessageAndReadIt) {
   std::unique_ptr<Response> message(Response::CreateEmpty());
   MessageWriter writer(message.get());
   {
-    MessageWriter array_writer(NULL);
+    MessageWriter array_writer(nullptr);
     // Open an array of variants.
     writer.OpenArray("v", &array_writer);
     {
       // The first value in the array.
       {
-        MessageWriter variant_writer(NULL);
+        MessageWriter variant_writer(nullptr);
         // Open a variant of a boolean.
         array_writer.OpenVariant("b", &variant_writer);
         variant_writer.AppendBool(true);
@@ -388,11 +429,11 @@ TEST(MessageTest, CreateComplexMessageAndReadIt) {
 
       // The second value in the array.
       {
-        MessageWriter variant_writer(NULL);
+        MessageWriter variant_writer(nullptr);
         // Open a variant of a struct that contains a string and an int32_t.
         array_writer.OpenVariant("(si)", &variant_writer);
         {
-          MessageWriter struct_writer(NULL);
+          MessageWriter struct_writer(nullptr);
           variant_writer.OpenStruct(&struct_writer);
           struct_writer.AppendString("string");
           struct_writer.AppendInt32(123);
@@ -403,16 +444,16 @@ TEST(MessageTest, CreateComplexMessageAndReadIt) {
 
       // The third value in the array.
       {
-        MessageWriter variant_writer(NULL);
+        MessageWriter variant_writer(nullptr);
         // Open a variant of an array of string-to-int64_t dict entries.
         array_writer.OpenVariant("a{sx}", &variant_writer);
         {
           // Opens an array of string-to-int64_t dict entries.
-          MessageWriter dict_array_writer(NULL);
+          MessageWriter dict_array_writer(nullptr);
           variant_writer.OpenArray("{sx}", &dict_array_writer);
           {
             // Opens a string-to-int64_t dict entries.
-            MessageWriter dict_entry_writer(NULL);
+            MessageWriter dict_entry_writer(nullptr);
             dict_array_writer.OpenDictEntry(&dict_entry_writer);
             dict_entry_writer.AppendString("foo");
             dict_entry_writer.AppendInt64(INT64_C(1234567890123456789));
@@ -447,7 +488,7 @@ TEST(MessageTest, CreateComplexMessageAndReadIt) {
 
   MessageReader reader(message.get());
   ASSERT_EQ("av", reader.GetDataSignature());
-  MessageReader array_reader(NULL);
+  MessageReader array_reader(nullptr);
   ASSERT_TRUE(reader.PopArray(&array_reader));
 
   // The first value in the array.
@@ -458,10 +499,10 @@ TEST(MessageTest, CreateComplexMessageAndReadIt) {
 
   // The second value in the array.
   {
-    MessageReader variant_reader(NULL);
+    MessageReader variant_reader(nullptr);
     ASSERT_TRUE(array_reader.PopVariant(&variant_reader));
     {
-      MessageReader struct_reader(NULL);
+      MessageReader struct_reader(nullptr);
       ASSERT_EQ("(si)", variant_reader.GetDataSignature());
       ASSERT_TRUE(variant_reader.PopStruct(&struct_reader));
       std::string string_value;
@@ -477,14 +518,14 @@ TEST(MessageTest, CreateComplexMessageAndReadIt) {
 
   // The third value in the array.
   {
-    MessageReader variant_reader(NULL);
+    MessageReader variant_reader(nullptr);
     ASSERT_TRUE(array_reader.PopVariant(&variant_reader));
     {
-      MessageReader dict_array_reader(NULL);
+      MessageReader dict_array_reader(nullptr);
       ASSERT_EQ("a{sx}", variant_reader.GetDataSignature());
       ASSERT_TRUE(variant_reader.PopArray(&dict_array_reader));
       {
-        MessageReader dict_entry_reader(NULL);
+        MessageReader dict_entry_reader(nullptr);
         ASSERT_TRUE(dict_array_reader.PopDictEntry(&dict_entry_reader));
         std::string string_value;
         ASSERT_TRUE(dict_entry_reader.PopString(&string_value));
@@ -503,7 +544,7 @@ TEST(MessageTest, CreateComplexMessageAndReadIt) {
 
 TEST(MessageTest, MethodCall) {
   MethodCall method_call("com.example.Interface", "SomeMethod");
-  EXPECT_TRUE(method_call.raw_message() != NULL);
+  EXPECT_NE(nullptr, method_call.raw_message());
   EXPECT_EQ(Message::MESSAGE_METHOD_CALL, method_call.GetMessageType());
   EXPECT_EQ("MESSAGE_METHOD_CALL", method_call.GetMessageTypeAsString());
   method_call.SetDestination("com.example.Service");
@@ -512,15 +553,16 @@ TEST(MessageTest, MethodCall) {
   MessageWriter writer(&method_call);
   writer.AppendString("payload");
 
-  EXPECT_EQ("message_type: MESSAGE_METHOD_CALL\n"
-            "destination: com.example.Service\n"
-            "path: /com/example/Object\n"
-            "interface: com.example.Interface\n"
-            "member: SomeMethod\n"
-            "signature: s\n"
-            "\n"
-            "string \"payload\"\n",
-            method_call.ToString());
+  EXPECT_EQ(
+      "message_type: MESSAGE_METHOD_CALL\n"
+      "destination: com.example.Service\n"
+      "path: /com/example/Object\n"
+      "interface: com.example.Interface\n"
+      "member: SomeMethod\n"
+      "signature: s\n"
+      "\n"
+      "string \"payload\"\n",
+      method_call.ToString());
 }
 
 TEST(MessageTest, MethodCall_FromRawMessage) {
@@ -536,7 +578,7 @@ TEST(MessageTest, MethodCall_FromRawMessage) {
 
 TEST(MessageTest, Signal) {
   Signal signal("com.example.Interface", "SomeSignal");
-  EXPECT_TRUE(signal.raw_message() != NULL);
+  EXPECT_NE(nullptr, signal.raw_message());
   EXPECT_EQ(Message::MESSAGE_SIGNAL, signal.GetMessageType());
   EXPECT_EQ("MESSAGE_SIGNAL", signal.GetMessageTypeAsString());
   signal.SetPath(ObjectPath("/com/example/Object"));
@@ -544,14 +586,15 @@ TEST(MessageTest, Signal) {
   MessageWriter writer(&signal);
   writer.AppendString("payload");
 
-  EXPECT_EQ("message_type: MESSAGE_SIGNAL\n"
-            "path: /com/example/Object\n"
-            "interface: com.example.Interface\n"
-            "member: SomeSignal\n"
-            "signature: s\n"
-            "\n"
-            "string \"payload\"\n",
-            signal.ToString());
+  EXPECT_EQ(
+      "message_type: MESSAGE_SIGNAL\n"
+      "path: /com/example/Object\n"
+      "interface: com.example.Interface\n"
+      "member: SomeSignal\n"
+      "signature: s\n"
+      "\n"
+      "string \"payload\"\n",
+      signal.ToString());
 }
 
 TEST(MessageTest, Signal_FromRawMessage) {
@@ -585,7 +628,7 @@ TEST(MessageTest, Response_FromMethodCall) {
 
 TEST(MessageTest, ErrorResponse_FromMethodCall) {
   const uint32_t kSerial = 123;
-const char kErrorMessage[] = "error message";
+  const char kErrorMessage[] = "error message";
 
   MethodCall method_call("com.example.Interface", "SomeMethod");
   method_call.SetSerial(kSerial);
@@ -672,12 +715,13 @@ TEST(MessageTest, ToString_LongString) {
   MessageWriter writer(message.get());
   writer.AppendString(kLongString);
 
-  ASSERT_EQ("message_type: MESSAGE_METHOD_RETURN\n"
-            "signature: s\n\n"
-            "string \"oooooooooooooooooooooooooooooooooooooooooooooooo"
-            "oooooooooooooooooooooooooooooooooooooooooooooooooooo... "
-            "(1000 bytes in total)\"\n",
-            message->ToString());
+  ASSERT_EQ(
+      "message_type: MESSAGE_METHOD_RETURN\n"
+      "signature: s\n\n"
+      "string \"oooooooooooooooooooooooooooooooooooooooooooooooo"
+      "oooooooooooooooooooooooooooooooooooooooooooooooooooo... "
+      "(1000 bytes in total)\"\n",
+      message->ToString());
 }
 
 }  // namespace dbus

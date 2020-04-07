@@ -183,7 +183,7 @@ public:
     Q_DECL_CONSTEXPR QStringView(const Char *f, const Char *l)
         : QStringView(f, l - f) {}
 
-#ifdef Q_QDOC
+#ifdef Q_CLANG_QDOC
     template <typename Char, size_t N>
     Q_DECL_CONSTEXPR QStringView(const Char (&array)[N]) Q_DECL_NOTHROW;
 
@@ -199,7 +199,7 @@ public:
         : QStringView(str, str ? lengthHelperPointer(str) : 0) {}
 #endif
 
-#ifdef Q_QDOC
+#ifdef Q_CLANG_QDOC
     QStringView(const QString &str) Q_DECL_NOTHROW;
     QStringView(const QStringRef &str) Q_DECL_NOTHROW;
 #else
@@ -250,6 +250,9 @@ public:
 
     Q_REQUIRED_RESULT QStringView trimmed() const Q_DECL_NOTHROW { return QtPrivate::trimmed(*this); }
 
+    Q_REQUIRED_RESULT int compare(QStringView other, Qt::CaseSensitivity cs = Qt::CaseSensitive) const Q_DECL_NOTHROW
+    { return QtPrivate::compareStrings(*this, other, cs); }
+
     Q_REQUIRED_RESULT bool startsWith(QStringView s, Qt::CaseSensitivity cs = Qt::CaseSensitive) const Q_DECL_NOTHROW
     { return QtPrivate::startsWith(*this, s, cs); }
     Q_REQUIRED_RESULT inline bool startsWith(QLatin1String s, Qt::CaseSensitivity cs = Qt::CaseSensitive) const Q_DECL_NOTHROW;
@@ -265,6 +268,9 @@ public:
     { return !empty() && back() == c; }
     Q_REQUIRED_RESULT bool endsWith(QChar c, Qt::CaseSensitivity cs) const Q_DECL_NOTHROW
     { return QtPrivate::endsWith(*this, QStringView(&c, 1), cs); }
+
+    Q_REQUIRED_RESULT bool isRightToLeft() const Q_DECL_NOTHROW
+    { return QtPrivate::isRightToLeft(*this); }
 
     //
     // STL compatibility API:

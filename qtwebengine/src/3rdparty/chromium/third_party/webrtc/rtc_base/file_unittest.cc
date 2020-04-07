@@ -12,13 +12,13 @@
 #include <memory>
 #include <string>
 
-#include "webrtc/rtc_base/file.h"
-#include "webrtc/rtc_base/gunit.h"
-#include "webrtc/test/testsupport/fileutils.h"
+#include "rtc_base/file.h"
+#include "rtc_base/gunit.h"
+#include "test/testsupport/fileutils.h"
 
 #if defined(WEBRTC_WIN)
 
-#include "webrtc/rtc_base/win32.h"
+#include "rtc_base/win32.h"
 
 #else  // if defined(WEBRTC_WIN)
 
@@ -163,39 +163,13 @@ TEST_F(FileTest, RandomAccessReadWrite) {
   EXPECT_TRUE(VerifyBuffer(out, 2, 0));
 }
 
-TEST_F(FileTest, OpenFromPathname) {
-  {
-    File file = File::Open(Pathname(path_));
-    ASSERT_TRUE(file.IsOpen()) << "Error: " << LastError();
-  }
-
-  {
-    Pathname path(path_);
-    File file = File::Open(path);
-    ASSERT_TRUE(file.IsOpen()) << "Error: " << LastError();
-  }
-}
-
-TEST_F(FileTest, CreateFromPathname) {
-  {
-    File file = File::Create(Pathname(path_));
-    ASSERT_TRUE(file.IsOpen()) << "Error: " << LastError();
-  }
-
-  {
-    Pathname path(path_);
-    File file = File::Create(path);
-    ASSERT_TRUE(file.IsOpen()) << "Error: " << LastError();
-  }
-}
-
 TEST_F(FileTest, ShouldBeAbleToRemoveFile) {
   {
-    File file = File::Open(Pathname(path_));
+    File file = File::Open(path_);
     ASSERT_TRUE(file.IsOpen()) << "Error: " << LastError();
   }
 
-  ASSERT_TRUE(File::Remove(Pathname(path_))) << "Error: " << LastError();
+  ASSERT_TRUE(File::Remove(path_)) << "Error: " << LastError();
 }
 
 }  // namespace rtc

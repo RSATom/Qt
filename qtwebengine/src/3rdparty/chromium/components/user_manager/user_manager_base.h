@@ -16,7 +16,7 @@
 #include "base/observer_list.h"
 #include "base/synchronization/lock.h"
 #include "base/time/time.h"
-#include "components/signin/core/account_id/account_id.h"
+#include "components/account_id/account_id.h"
 #include "components/user_manager/user.h"
 #include "components/user_manager/user_manager.h"
 #include "components/user_manager/user_manager_export.h"
@@ -52,7 +52,8 @@ class USER_MANAGER_EXPORT UserManagerBase : public UserManager {
   const AccountId& GetOwnerAccountId() const override;
   void UserLoggedIn(const AccountId& account_id,
                     const std::string& user_id_hash,
-                    bool browser_restart) override;
+                    bool browser_restart,
+                    bool is_child) override;
   void SwitchActiveUser(const AccountId& account_id) override;
   void SwitchToLastActiveUser() override;
   void OnSessionStarted() override;
@@ -76,8 +77,7 @@ class USER_MANAGER_EXPORT UserManagerBase : public UserManager {
   void SaveUserDisplayEmail(const AccountId& account_id,
                             const std::string& display_email) override;
   std::string GetUserDisplayEmail(const AccountId& account_id) const override;
-  void SaveUserType(const AccountId& account_id,
-                    const UserType& user_type) override;
+  void SaveUserType(const User* user) override;
   void UpdateUserAccountData(const AccountId& account_id,
                              const UserAccountData& account_data) override;
   bool IsCurrentUserOwner() const override;
@@ -110,16 +110,13 @@ class USER_MANAGER_EXPORT UserManagerBase : public UserManager {
   void NotifyUserProfileImageUpdated(
       const User& user,
       const gfx::ImageSkia& profile_image) override;
-  void ChangeUserChildStatus(User* user, bool is_child) override;
+  void NotifyUsersSignInConstraintsChanged() override;
   void ResetProfileEverInitialized(const AccountId& account_id) override;
   void Initialize() override;
 
   // This method updates "User was added to the device in this session nad is
   // not full initialized yet" flag.
   virtual void SetIsCurrentUserNew(bool is_new);
-
-  // TODO(xiyuan): Figure out a better way to expose this info.
-  virtual bool HasPendingBootstrap(const AccountId& account_id) const;
 
   // Helper function that converts users from |users_list| to |users_vector| and
   // |users_set|. Duplicates and users already present in |existing_users| are
@@ -136,6 +133,9 @@ class USER_MANAGER_EXPORT UserManagerBase : public UserManager {
   void AddUserRecordForTesting(User* user) {
     return AddUserRecord(user);
   }
+
+  // Returns true if device is enterprise managed.
+  virtual bool IsEnterpriseManaged() const = 0;
 
  protected:
   // Adds |user| to users list, and adds it to front of LRU list. It is assumed
@@ -160,9 +160,6 @@ class USER_MANAGER_EXPORT UserManagerBase : public UserManager {
   virtual void HandleUserOAuthTokenStatusChange(
       const AccountId& account_id,
       User::OAuthTokenStatus status) const = 0;
-
-  // Returns true if device is enterprise managed.
-  virtual bool IsEnterpriseManaged() const = 0;
 
   // Loads device local accounts from the Local state and fills in
   // |device_local_accounts_set|.
@@ -198,7 +195,10 @@ class USER_MANAGER_EXPORT UserManagerBase : public UserManager {
   // Removes a regular or supervised user from the user list.
   // Returns the user if found or NULL otherwise.
   // Also removes the user from the persistent user list.
-  User* RemoveRegularOrSupervisedUserFromList(const AccountId& account_id);
+  // |notify| is true when OnUserRemoved() should be triggered,
+  // meaning that the user won't be added after the removal.
+  User* RemoveRegularOrSupervisedUserFromList(const AccountId& account_id,
+                                              bool notify);
 
   // Implementation for RemoveUser method. This is an asynchronous part of the
   // method, that verifies that owner will not get deleted, and calls
@@ -214,11 +214,6 @@ class USER_MANAGER_EXPORT UserManagerBase : public UserManager {
 
   // Returns true if |account_id| represents demo app.
   virtual bool IsDemoApp(const AccountId& account_id) const = 0;
-
-  // Returns true if |account_id| represents a device local account that has
-  // been marked for deletion.
-  virtual bool IsDeviceLocalAccountMarkedForRemoval(
-      const AccountId& account_id) const = 0;
 
   // These methods are called when corresponding user type has signed in.
 
@@ -238,10 +233,12 @@ class USER_MANAGER_EXPORT UserManagerBase : public UserManager {
   virtual void PublicAccountUserLoggedIn(User* user) = 0;
 
   // Indicates that a regular user just logged in.
-  virtual void RegularUserLoggedIn(const AccountId& account_id);
+  virtual void RegularUserLoggedIn(const AccountId& account_id,
+                                   const UserType user_type);
 
   // Indicates that a regular user just logged in as ephemeral.
-  virtual void RegularUserLoggedInAsEphemeral(const AccountId& account_id);
+  virtual void RegularUserLoggedInAsEphemeral(const AccountId& account_id,
+                                              const UserType user_type);
 
   // Indicates that a supervised user just logged in.
   virtual void SupervisedUserLoggedIn(const AccountId& account_id) = 0;

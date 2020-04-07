@@ -158,12 +158,12 @@ public:
 
     ~PlaneVertexBufferFunctor() {}
 
-    QByteArray operator()() Q_DECL_FINAL
+    QByteArray operator()() final
     {
         return createPlaneVertexData(m_width, m_height, m_resolution, m_mirrored);
     }
 
-    bool operator ==(const QBufferDataGenerator &other) const Q_DECL_FINAL
+    bool operator ==(const QBufferDataGenerator &other) const final
     {
         const PlaneVertexBufferFunctor *otherFunctor = functor_cast<PlaneVertexBufferFunctor>(&other);
         if (otherFunctor != nullptr)
@@ -192,12 +192,12 @@ public:
 
     ~PlaneIndexBufferFunctor() {}
 
-    QByteArray operator()() Q_DECL_FINAL
+    QByteArray operator()() final
     {
         return createPlaneIndexData(m_resolution);
     }
 
-    bool operator ==(const QBufferDataGenerator &other) const Q_DECL_FINAL
+    bool operator ==(const QBufferDataGenerator &other) const final
     {
         const PlaneIndexBufferFunctor *otherFunctor = functor_cast<PlaneIndexBufferFunctor>(&other);
         if (otherFunctor != nullptr)
@@ -284,13 +284,14 @@ public:
  * \brief The QPlaneGeometry class allows creation of a plane in 3D space.
  * \since 5.7
  * \ingroup geometries
- * \inherits Qt3DRender::QGeometry
  *
  * The QPlaneGeometry class is most commonly used internally by the QPlaneMesh
  * but can also be used in custom Qt3DRender::QGeometryRenderer subclasses.
  */
 
 /*!
+ * \fn Qt3DExtras::QPlaneGeometry::QPlaneGeometry(QNode *parent)
+ *
  * Constructs a new QPlaneGeometry with \a parent.
  */
 QPlaneGeometry::QPlaneGeometry(QPlaneGeometry::QNode *parent)

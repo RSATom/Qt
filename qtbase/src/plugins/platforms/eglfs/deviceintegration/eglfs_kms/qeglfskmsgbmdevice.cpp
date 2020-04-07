@@ -53,28 +53,17 @@ QT_BEGIN_NAMESPACE
 
 Q_DECLARE_LOGGING_CATEGORY(qLcEglfsKmsDebug)
 
-void QEglFSKmsGbmDevice::pageFlipHandler(int fd, unsigned int sequence, unsigned int tv_sec, unsigned int tv_usec, void *user_data)
-{
-    Q_UNUSED(fd);
-    Q_UNUSED(sequence);
-    Q_UNUSED(tv_sec);
-    Q_UNUSED(tv_usec);
-
-    QEglFSKmsScreen *screen = static_cast<QEglFSKmsScreen *>(user_data);
-    screen->flipFinished();
-}
-
 QEglFSKmsGbmDevice::QEglFSKmsGbmDevice(QKmsScreenConfig *screenConfig, const QString &path)
     : QEglFSKmsDevice(screenConfig, path)
-    , m_gbm_device(Q_NULLPTR)
-    , m_globalCursor(Q_NULLPTR)
+    , m_gbm_device(nullptr)
+    , m_globalCursor(nullptr)
 {
 }
 
 bool QEglFSKmsGbmDevice::open()
 {
     Q_ASSERT(fd() == -1);
-    Q_ASSERT(m_gbm_device == Q_NULLPTR);
+    Q_ASSERT(m_gbm_device == nullptr);
 
     int fd = qt_safe_open(devicePath().toLocal8Bit().constData(), O_RDWR | O_CLOEXEC);
     if (fd == -1) {
@@ -103,7 +92,7 @@ void QEglFSKmsGbmDevice::close()
 
     if (m_gbm_device) {
         gbm_device_destroy(m_gbm_device);
-        m_gbm_device = Q_NULLPTR;
+        m_gbm_device = nullptr;
     }
 
     if (fd() != -1) {
@@ -134,24 +123,13 @@ void QEglFSKmsGbmDevice::destroyGlobalCursor()
     if (m_globalCursor) {
         qCDebug(qLcEglfsKmsDebug, "Destroying global GBM mouse cursor");
         delete m_globalCursor;
-        m_globalCursor = Q_NULLPTR;
+        m_globalCursor = nullptr;
     }
-}
-
-void QEglFSKmsGbmDevice::handleDrmEvent()
-{
-    drmEventContext drmEvent;
-    memset(&drmEvent, 0, sizeof(drmEvent));
-    drmEvent.version = 2;
-    drmEvent.vblank_handler = nullptr;
-    drmEvent.page_flip_handler = pageFlipHandler;
-
-    drmHandleEvent(fd(), &drmEvent);
 }
 
 QPlatformScreen *QEglFSKmsGbmDevice::createScreen(const QKmsOutput &output)
 {
-    QEglFSKmsGbmScreen *screen = new QEglFSKmsGbmScreen(this, output);
+    QEglFSKmsGbmScreen *screen = new QEglFSKmsGbmScreen(this, output, false);
 
     if (!m_globalCursor && screenConfig()->hwCursor()) {
         qCDebug(qLcEglfsKmsDebug, "Creating new global GBM mouse cursor");
@@ -159,6 +137,22 @@ QPlatformScreen *QEglFSKmsGbmDevice::createScreen(const QKmsOutput &output)
     }
 
     return screen;
+}
+
+QPlatformScreen *QEglFSKmsGbmDevice::createHeadlessScreen()
+{
+    return new QEglFSKmsGbmScreen(this, QKmsOutput(), true);
+}
+
+void QEglFSKmsGbmDevice::registerScreenCloning(QPlatformScreen *screen,
+                                               QPlatformScreen *screenThisScreenClones,
+                                               const QVector<QPlatformScreen *> &screensCloningThisScreen)
+{
+    if (!screenThisScreenClones && screensCloningThisScreen.isEmpty())
+        return;
+
+    QEglFSKmsGbmScreen *gbmScreen = static_cast<QEglFSKmsGbmScreen *>(screen);
+    gbmScreen->initCloning(screenThisScreenClones, screensCloningThisScreen);
 }
 
 QT_END_NAMESPACE

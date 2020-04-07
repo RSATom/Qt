@@ -233,6 +233,7 @@ void parseCollection(QPlaceContent::Type type, const QJsonObject &object,
                 collection->insert(offset + i, parseEditorial(itemObject, engine));
                 break;
             case QPlaceContent::NoType:
+            default:
                 break;
             }
         }

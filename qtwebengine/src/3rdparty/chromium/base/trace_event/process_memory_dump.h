@@ -14,48 +14,45 @@
 #include "base/base_export.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "base/trace_event/heap_profiler_serialization_state.h"
+#include "base/trace_event/heap_profiler_allocation_context.h"
 #include "base/trace_event/memory_allocator_dump.h"
 #include "base/trace_event/memory_allocator_dump_guid.h"
 #include "base/trace_event/memory_dump_request_args.h"
-#include "base/trace_event/process_memory_maps.h"
-#include "base/trace_event/process_memory_totals.h"
 #include "build/build_config.h"
 
 // Define COUNT_RESIDENT_BYTES_SUPPORTED if platform supports counting of the
 // resident memory.
-#if (defined(OS_POSIX) && !defined(OS_NACL)) || defined(OS_WIN)
+#if !defined(OS_NACL)
 #define COUNT_RESIDENT_BYTES_SUPPORTED
 #endif
 
 namespace base {
 
+class SharedMemory;
 class UnguessableToken;
 
 namespace trace_event {
 
-class HeapProfilerSerializationState;
 class TracedValue;
 
 // ProcessMemoryDump is as a strongly typed container which holds the dumps
 // produced by the MemoryDumpProvider(s) for a specific process.
 class BASE_EXPORT ProcessMemoryDump {
  public:
-  struct MemoryAllocatorDumpEdge {
+  struct BASE_EXPORT MemoryAllocatorDumpEdge {
+    bool operator==(const MemoryAllocatorDumpEdge&) const;
+    bool operator!=(const MemoryAllocatorDumpEdge&) const;
+
     MemoryAllocatorDumpGuid source;
     MemoryAllocatorDumpGuid target;
-    int importance;
-    const char* type;
-    bool overridable;
+    int importance = 0;
+    bool overridable = false;
   };
 
   // Maps allocator dumps absolute names (allocator_name/heap/subheap) to
   // MemoryAllocatorDump instances.
   using AllocatorDumpsMap =
-      std::unordered_map<std::string, std::unique_ptr<MemoryAllocatorDump>>;
-
-  using HeapDumpsMap =
-      std::unordered_map<std::string, std::unique_ptr<TracedValue>>;
+      std::map<std::string, std::unique_ptr<MemoryAllocatorDump>>;
 
   // Stores allocator dump edges indexed by source allocator dump GUID.
   using AllocatorDumpEdgesMap =
@@ -73,12 +70,19 @@ class BASE_EXPORT ProcessMemoryDump {
   // value returned is valid only if the given range is currently mmapped by the
   // process. The |start_address| must be page-aligned.
   static size_t CountResidentBytes(void* start_address, size_t mapped_size);
+
+  // The same as above, but the given mapped range should belong to the
+  // shared_memory's mapped region.
+  static base::Optional<size_t> CountResidentBytesInSharedMemory(
+      void* start_address,
+      size_t mapped_size);
 #endif
 
-  ProcessMemoryDump(scoped_refptr<HeapProfilerSerializationState>
-                        heap_profiler_serialization_state,
-                    const MemoryDumpArgs& dump_args);
+  explicit ProcessMemoryDump(const MemoryDumpArgs& dump_args);
+  ProcessMemoryDump(ProcessMemoryDump&&);
   ~ProcessMemoryDump();
+
+  ProcessMemoryDump& operator=(ProcessMemoryDump&&);
 
   // Creates a new MemoryAllocatorDump with the given name and returns the
   // empty object back to the caller.
@@ -100,6 +104,13 @@ class BASE_EXPORT ProcessMemoryDump {
   // nullptr if not found.
   MemoryAllocatorDump* GetAllocatorDump(const std::string& absolute_name) const;
 
+  // Do NOT use this method. All dump providers should use
+  // CreateAllocatorDump(). Tries to create a new MemoryAllocatorDump only if it
+  // doesn't already exist. Creating multiple dumps with same name using
+  // GetOrCreateAllocatorDump() would override the existing scalars in MAD and
+  // cause misreporting. This method is used only in rare cases multiple
+  // components create allocator dumps with same name and only one of them adds
+  // size.
   MemoryAllocatorDump* GetOrCreateAllocatorDump(
       const std::string& absolute_name);
 
@@ -126,6 +137,18 @@ class BASE_EXPORT ProcessMemoryDump {
   // Returns the map of the MemoryAllocatorDumps added to this dump.
   const AllocatorDumpsMap& allocator_dumps() const { return allocator_dumps_; }
 
+  AllocatorDumpsMap* mutable_allocator_dumps_for_serialization() const {
+    // Mojo takes a const input argument even for move-only types that can be
+    // mutate while serializing (like this one). Hence the const_cast.
+    return const_cast<AllocatorDumpsMap*>(&allocator_dumps_);
+  }
+  void SetAllocatorDumpsForSerialization(
+      std::vector<std::unique_ptr<MemoryAllocatorDump>>);
+
+  // Only for mojo serialization.
+  std::vector<MemoryAllocatorDumpEdge> GetAllEdgesForSerialization() const;
+  void SetAllEdgesForSerialization(const std::vector<MemoryAllocatorDumpEdge>&);
+
   // Dumps heap usage with |allocator_name|.
   void DumpHeapUsage(
       const std::unordered_map<base::trace_event::AllocationContext,
@@ -139,6 +162,8 @@ class BASE_EXPORT ProcessMemoryDump {
   // the memory usage of |target| to |source|. |importance| is optional and
   // relevant only for the cases of co-ownership, where it acts as a z-index:
   // the owner with the highest importance will be attributed |target|'s memory.
+  // If an edge is present, its importance will not be updated unless
+  // |importance| is larger.
   void AddOwnershipEdge(const MemoryAllocatorDumpGuid& source,
                         const MemoryAllocatorDumpGuid& target,
                         int importance);
@@ -160,25 +185,20 @@ class BASE_EXPORT ProcessMemoryDump {
   // channel crbug.com/713763. The weak version creates a weak global dump.
   // |client_local_dump_guid| The guid of the local dump created by the client
   // of base::SharedMemory.
-  // |client_global_dump_guid| The global guid given by the clients to create
-  // ownership edges of their own. These global dumps will no longer be required
-  // after the transition.
   // |shared_memory_guid| The ID of the base::SharedMemory that is assigned
   // globally, used to create global dump edges in the new model.
   // |importance| Importance of the global dump edges to say if the current
   // process owns the memory segment.
   void CreateSharedMemoryOwnershipEdge(
       const MemoryAllocatorDumpGuid& client_local_dump_guid,
-      const MemoryAllocatorDumpGuid& client_global_dump_guid,
       const UnguessableToken& shared_memory_guid,
       int importance);
   void CreateWeakSharedMemoryOwnershipEdge(
       const MemoryAllocatorDumpGuid& client_local_dump_guid,
-      const MemoryAllocatorDumpGuid& client_global_dump_guid,
       const UnguessableToken& shared_memory_guid,
       int importance);
 
-  const AllocatorDumpEdgesMap& allocator_dumps_edges_for_testing() const {
+  const AllocatorDumpEdgesMap& allocator_dumps_edges() const {
     return allocator_dumps_edges_;
   }
 
@@ -189,11 +209,6 @@ class BASE_EXPORT ProcessMemoryDump {
   // account the memory of |source| in the target node.
   void AddSuballocation(const MemoryAllocatorDumpGuid& source,
                         const std::string& target_node_name);
-
-  const scoped_refptr<HeapProfilerSerializationState>&
-  heap_profiler_serialization_state() const {
-    return heap_profiler_serialization_state_;
-  }
 
   // Removes all the MemoryAllocatorDump(s) contained in this instance. This
   // ProcessMemoryDump can be safely reused as if it was new once this returns.
@@ -207,55 +222,49 @@ class BASE_EXPORT ProcessMemoryDump {
   // of the MemoryDumpProvider::OnMemoryDump(ProcessMemoryDump*) callback.
   void TakeAllDumpsFrom(ProcessMemoryDump* other);
 
-  // Called at trace generation time to populate the TracedValue.
-  void AsValueInto(TracedValue* value) const;
-
-  ProcessMemoryTotals* process_totals() { return &process_totals_; }
-  const ProcessMemoryTotals* process_totals() const { return &process_totals_; }
-  bool has_process_totals() const { return has_process_totals_; }
-  void set_has_process_totals() { has_process_totals_ = true; }
-
-  ProcessMemoryMaps* process_mmaps() { return &process_mmaps_; }
-  bool has_process_mmaps() const { return has_process_mmaps_; }
-  void set_has_process_mmaps() { has_process_mmaps_ = true; }
-
-  const HeapDumpsMap& heap_dumps() const { return heap_dumps_; }
+  // Populate the traced value with information about the memory allocator
+  // dumps.
+  void SerializeAllocatorDumpsInto(TracedValue* value) const;
 
   const MemoryDumpArgs& dump_args() const { return dump_args_; }
 
  private:
   FRIEND_TEST_ALL_PREFIXES(ProcessMemoryDumpTest, BackgroundModeTest);
+  FRIEND_TEST_ALL_PREFIXES(ProcessMemoryDumpTest, SharedMemoryOwnershipTest);
+  FRIEND_TEST_ALL_PREFIXES(ProcessMemoryDumpTest, GuidsTest);
 
   MemoryAllocatorDump* AddAllocatorDumpInternal(
       std::unique_ptr<MemoryAllocatorDump> mad);
 
+  // A per-process token, valid throughout all the lifetime of the current
+  // process, used to disambiguate dumps with the same name generated in
+  // different processes.
+  const UnguessableToken& process_token() const { return process_token_; }
+  void set_process_token_for_testing(UnguessableToken token) {
+    process_token_ = token;
+  };
+
+  // Returns the Guid of the dump for the given |absolute_name| for
+  // for the given process' token. |process_token| is used to disambiguate GUIDs
+  // derived from the same name under different processes.
+  MemoryAllocatorDumpGuid GetDumpId(const std::string& absolute_name);
+
   void CreateSharedMemoryOwnershipEdgeInternal(
       const MemoryAllocatorDumpGuid& client_local_dump_guid,
-      const MemoryAllocatorDumpGuid& client_global_dump_guid,
       const UnguessableToken& shared_memory_guid,
       int importance,
       bool is_weak);
 
   MemoryAllocatorDump* GetBlackHoleMad();
 
-  ProcessMemoryTotals process_totals_;
-  bool has_process_totals_;
-
-  ProcessMemoryMaps process_mmaps_;
-  bool has_process_mmaps_;
-
+  UnguessableToken process_token_;
   AllocatorDumpsMap allocator_dumps_;
-  HeapDumpsMap heap_dumps_;
-
-  // State shared among all PMDs instances created in a given trace session.
-  scoped_refptr<HeapProfilerSerializationState>
-      heap_profiler_serialization_state_;
 
   // Keeps track of relationships between MemoryAllocatorDump(s).
   AllocatorDumpEdgesMap allocator_dumps_edges_;
 
   // Level of detail of the current dump.
-  const MemoryDumpArgs dump_args_;
+  MemoryDumpArgs dump_args_;
 
   // This allocator dump is returned when an invalid dump is created in
   // background mode. The attributes of the dump are ignored and not added to

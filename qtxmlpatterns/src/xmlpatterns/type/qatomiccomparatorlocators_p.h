@@ -69,18 +69,18 @@ namespace QPatternist
     class DoubleComparatorLocator : public AtomicComparatorLocator
     {
         using AtomicComparatorLocator::visit;
-        virtual AtomicTypeVisitorResult::Ptr visit(const DoubleType *,
-                                                   const qint16 op,
-                                                   const SourceLocationReflection *const) const;
-        virtual AtomicTypeVisitorResult::Ptr visit(const FloatType *,
-                                                   const qint16 op,
-                                                   const SourceLocationReflection *const) const;
-        virtual AtomicTypeVisitorResult::Ptr visit(const DecimalType *,
-                                                   const qint16 op,
-                                                   const SourceLocationReflection *const) const;
-        virtual AtomicTypeVisitorResult::Ptr visit(const IntegerType *,
-                                                   const qint16 op,
-                                                   const SourceLocationReflection *const) const;
+        AtomicTypeVisitorResult::Ptr visit(const DoubleType *,
+                                           const qint16 op,
+                                           const SourceLocationReflection *const) const override;
+        AtomicTypeVisitorResult::Ptr visit(const FloatType *,
+                                           const qint16 op,
+                                           const SourceLocationReflection *const) const override;
+        AtomicTypeVisitorResult::Ptr visit(const DecimalType *,
+                                           const qint16 op,
+                                           const SourceLocationReflection *const) const override;
+        AtomicTypeVisitorResult::Ptr visit(const IntegerType *,
+                                           const qint16 op,
+                                           const SourceLocationReflection *const) const override;
     };
 
     /**
@@ -89,18 +89,18 @@ namespace QPatternist
     class FloatComparatorLocator : public AtomicComparatorLocator
     {
         using AtomicComparatorLocator::visit;
-        virtual AtomicTypeVisitorResult::Ptr visit(const DoubleType *,
-                                                   const qint16 op,
-                                                   const SourceLocationReflection *const) const;
-        virtual AtomicTypeVisitorResult::Ptr visit(const FloatType *,
-                                                   const qint16 op,
-                                                   const SourceLocationReflection *const) const;
-        virtual AtomicTypeVisitorResult::Ptr visit(const DecimalType *,
-                                                   const qint16 op,
-                                                   const SourceLocationReflection *const) const;
-        virtual AtomicTypeVisitorResult::Ptr visit(const IntegerType *,
-                                                   const qint16 op,
-                                                   const SourceLocationReflection *const) const;
+        AtomicTypeVisitorResult::Ptr visit(const DoubleType *,
+                                           const qint16 op,
+                                           const SourceLocationReflection *const) const override;
+        AtomicTypeVisitorResult::Ptr visit(const FloatType *,
+                                           const qint16 op,
+                                           const SourceLocationReflection *const) const override;
+        AtomicTypeVisitorResult::Ptr visit(const DecimalType *,
+                                           const qint16 op,
+                                           const SourceLocationReflection *const) const override;
+        AtomicTypeVisitorResult::Ptr visit(const IntegerType *,
+                                           const qint16 op,
+                                           const SourceLocationReflection *const) const override;
     };
 
     /**
@@ -109,18 +109,18 @@ namespace QPatternist
     class DecimalComparatorLocator : public AtomicComparatorLocator
     {
         using AtomicComparatorLocator::visit;
-        virtual AtomicTypeVisitorResult::Ptr visit(const DoubleType *,
-                                                   const qint16 op,
-                                                   const SourceLocationReflection *const) const;
-        virtual AtomicTypeVisitorResult::Ptr visit(const FloatType *,
-                                                   const qint16 op,
-                                                   const SourceLocationReflection *const) const;
-        virtual AtomicTypeVisitorResult::Ptr visit(const DecimalType *,
-                                                   const qint16 op,
-                                                   const SourceLocationReflection *const) const;
-        virtual AtomicTypeVisitorResult::Ptr visit(const IntegerType *,
-                                                   const qint16 op,
-                                                   const SourceLocationReflection *const) const;
+        AtomicTypeVisitorResult::Ptr visit(const DoubleType *,
+                                           const qint16 op,
+                                           const SourceLocationReflection *const) const override;
+        AtomicTypeVisitorResult::Ptr visit(const FloatType *,
+                                           const qint16 op,
+                                           const SourceLocationReflection *const) const override;
+        AtomicTypeVisitorResult::Ptr visit(const DecimalType *,
+                                           const qint16 op,
+                                           const SourceLocationReflection *const) const override;
+        AtomicTypeVisitorResult::Ptr visit(const IntegerType *,
+                                           const qint16 op,
+                                           const SourceLocationReflection *const) const override;
     };
 
     /**
@@ -129,18 +129,18 @@ namespace QPatternist
     class IntegerComparatorLocator : public AtomicComparatorLocator
     {
         using AtomicComparatorLocator::visit;
-        virtual AtomicTypeVisitorResult::Ptr visit(const DoubleType *,
-                                                   const qint16 op,
-                                                   const SourceLocationReflection *const) const;
-        virtual AtomicTypeVisitorResult::Ptr visit(const FloatType *,
-                                                   const qint16 op,
-                                                   const SourceLocationReflection *const) const;
-        virtual AtomicTypeVisitorResult::Ptr visit(const DecimalType *,
-                                                   const qint16 op,
-                                                   const SourceLocationReflection *const) const;
-        virtual AtomicTypeVisitorResult::Ptr visit(const IntegerType *,
-                                                   const qint16 op,
-                                                   const SourceLocationReflection *const) const;
+        AtomicTypeVisitorResult::Ptr visit(const DoubleType *,
+                                           const qint16 op,
+                                           const SourceLocationReflection *const) const override;
+        AtomicTypeVisitorResult::Ptr visit(const FloatType *,
+                                           const qint16 op,
+                                           const SourceLocationReflection *const) const override;
+        AtomicTypeVisitorResult::Ptr visit(const DecimalType *,
+                                           const qint16 op,
+                                           const SourceLocationReflection *const) const override;
+        AtomicTypeVisitorResult::Ptr visit(const IntegerType *,
+                                           const qint16 op,
+                                           const SourceLocationReflection *const) const override;
     };
 
     /**
@@ -149,9 +149,9 @@ namespace QPatternist
     class BooleanComparatorLocator : public AtomicComparatorLocator
     {
         using AtomicComparatorLocator::visit;
-        virtual AtomicTypeVisitorResult::Ptr visit(const BooleanType *,
-                                                   const qint16 op,
-                                                   const SourceLocationReflection *const) const;
+        AtomicTypeVisitorResult::Ptr visit(const BooleanType *,
+                                           const qint16 op,
+                                           const SourceLocationReflection *const) const override;
     };
 
     /**
@@ -160,9 +160,9 @@ namespace QPatternist
     class Base64BinaryComparatorLocator : public AtomicComparatorLocator
     {
         using AtomicComparatorLocator::visit;
-        virtual AtomicTypeVisitorResult::Ptr visit(const Base64BinaryType *,
-                                                   const qint16 op,
-                                                   const SourceLocationReflection *const) const;
+        AtomicTypeVisitorResult::Ptr visit(const Base64BinaryType *,
+                                           const qint16 op,
+                                           const SourceLocationReflection *const) const override;
     };
 
     /**
@@ -171,9 +171,9 @@ namespace QPatternist
     class HexBinaryComparatorLocator : public AtomicComparatorLocator
     {
         using AtomicComparatorLocator::visit;
-        virtual AtomicTypeVisitorResult::Ptr visit(const HexBinaryType *,
-                                                   const qint16 op,
-                                                   const SourceLocationReflection *const) const;
+        AtomicTypeVisitorResult::Ptr visit(const HexBinaryType *,
+                                           const qint16 op,
+                                           const SourceLocationReflection *const) const override;
     };
 
     /**
@@ -182,9 +182,9 @@ namespace QPatternist
     class QNameComparatorLocator : public AtomicComparatorLocator
     {
         using AtomicComparatorLocator::visit;
-        virtual AtomicTypeVisitorResult::Ptr visit(const QNameType *,
-                                                   const qint16 op,
-                                                   const SourceLocationReflection *const) const;
+        AtomicTypeVisitorResult::Ptr visit(const QNameType *,
+                                           const qint16 op,
+                                           const SourceLocationReflection *const) const override;
     };
 
     /**
@@ -193,15 +193,15 @@ namespace QPatternist
     class StringComparatorLocator : public AtomicComparatorLocator
     {
         using AtomicComparatorLocator::visit;
-        virtual AtomicTypeVisitorResult::Ptr visit(const StringType *,
-                                                   const qint16 op,
-                                                   const SourceLocationReflection *const) const;
-        virtual AtomicTypeVisitorResult::Ptr visit(const UntypedAtomicType *,
-                                                   const qint16 op,
-                                                   const SourceLocationReflection *const) const;
-        virtual AtomicTypeVisitorResult::Ptr visit(const AnyURIType *,
-                                                   const qint16 op,
-                                                   const SourceLocationReflection *const) const;
+        AtomicTypeVisitorResult::Ptr visit(const StringType *,
+                                           const qint16 op,
+                                           const SourceLocationReflection *const) const override;
+        AtomicTypeVisitorResult::Ptr visit(const UntypedAtomicType *,
+                                           const qint16 op,
+                                           const SourceLocationReflection *const) const override;
+        AtomicTypeVisitorResult::Ptr visit(const AnyURIType *,
+                                           const qint16 op,
+                                           const SourceLocationReflection *const) const override;
     };
 
 
@@ -211,9 +211,9 @@ namespace QPatternist
     class GYearComparatorLocator : public AtomicComparatorLocator
     {
         using AtomicComparatorLocator::visit;
-        virtual AtomicTypeVisitorResult::Ptr visit(const GYearType *,
-                                                   const qint16 op,
-                                                   const SourceLocationReflection *const) const;
+        AtomicTypeVisitorResult::Ptr visit(const GYearType *,
+                                           const qint16 op,
+                                           const SourceLocationReflection *const) const override;
     };
 
     /**
@@ -222,9 +222,9 @@ namespace QPatternist
     class GMonthComparatorLocator : public AtomicComparatorLocator
     {
         using AtomicComparatorLocator::visit;
-        virtual AtomicTypeVisitorResult::Ptr visit(const GMonthType *,
-                                                   const qint16 op,
-                                                   const SourceLocationReflection *const) const;
+        AtomicTypeVisitorResult::Ptr visit(const GMonthType *,
+                                           const qint16 op,
+                                           const SourceLocationReflection *const) const override;
     };
 
     /**
@@ -233,9 +233,9 @@ namespace QPatternist
     class GYearMonthComparatorLocator : public AtomicComparatorLocator
     {
         using AtomicComparatorLocator::visit;
-        virtual AtomicTypeVisitorResult::Ptr visit(const GYearMonthType *,
-                                                   const qint16 op,
-                                                   const SourceLocationReflection *const) const;
+        AtomicTypeVisitorResult::Ptr visit(const GYearMonthType *,
+                                           const qint16 op,
+                                           const SourceLocationReflection *const) const override;
     };
 
     /**
@@ -244,9 +244,9 @@ namespace QPatternist
     class GMonthDayComparatorLocator : public AtomicComparatorLocator
     {
         using AtomicComparatorLocator::visit;
-        virtual AtomicTypeVisitorResult::Ptr visit(const GMonthDayType *,
-                                                   const qint16 op,
-                                                   const SourceLocationReflection *const) const;
+        AtomicTypeVisitorResult::Ptr visit(const GMonthDayType *,
+                                           const qint16 op,
+                                           const SourceLocationReflection *const) const override;
     };
 
     /**
@@ -255,9 +255,9 @@ namespace QPatternist
     class GDayComparatorLocator : public AtomicComparatorLocator
     {
         using AtomicComparatorLocator::visit;
-        virtual AtomicTypeVisitorResult::Ptr visit(const GDayType *,
-                                                   const qint16 op,
-                                                   const SourceLocationReflection *const) const;
+        AtomicTypeVisitorResult::Ptr visit(const GDayType *,
+                                           const qint16 op,
+                                           const SourceLocationReflection *const) const override;
     };
 
     /**
@@ -266,9 +266,9 @@ namespace QPatternist
     class DateTimeComparatorLocator : public AtomicComparatorLocator
     {
         using AtomicComparatorLocator::visit;
-        virtual AtomicTypeVisitorResult::Ptr visit(const DateTimeType *,
-                                                   const qint16 op,
-                                                   const SourceLocationReflection *const) const;
+        AtomicTypeVisitorResult::Ptr visit(const DateTimeType *,
+                                           const qint16 op,
+                                           const SourceLocationReflection *const) const override;
     };
 
     /**
@@ -277,9 +277,9 @@ namespace QPatternist
     class SchemaTimeComparatorLocator : public AtomicComparatorLocator
     {
         using AtomicComparatorLocator::visit;
-        virtual AtomicTypeVisitorResult::Ptr visit(const SchemaTimeType *,
-                                                   const qint16 op,
-                                                   const SourceLocationReflection *const) const;
+        AtomicTypeVisitorResult::Ptr visit(const SchemaTimeType *,
+                                           const qint16 op,
+                                           const SourceLocationReflection *const) const override;
     };
 
     /**
@@ -288,9 +288,9 @@ namespace QPatternist
     class DateComparatorLocator : public AtomicComparatorLocator
     {
         using AtomicComparatorLocator::visit;
-        virtual AtomicTypeVisitorResult::Ptr visit(const DateType *,
-                                                   const qint16 op,
-                                                   const SourceLocationReflection *const) const;
+        AtomicTypeVisitorResult::Ptr visit(const DateType *,
+                                           const qint16 op,
+                                           const SourceLocationReflection *const) const override;
     };
 
     /**
@@ -299,15 +299,15 @@ namespace QPatternist
     class DurationComparatorLocator : public AtomicComparatorLocator
     {
         using AtomicComparatorLocator::visit;
-        virtual AtomicTypeVisitorResult::Ptr visit(const DayTimeDurationType *,
-                                                   const qint16 op,
-                                                   const SourceLocationReflection *const) const;
-        virtual AtomicTypeVisitorResult::Ptr visit(const DurationType *,
-                                                   const qint16 op,
-                                                   const SourceLocationReflection *const) const;
-        virtual AtomicTypeVisitorResult::Ptr visit(const YearMonthDurationType *,
-                                                   const qint16 op,
-                                                   const SourceLocationReflection *const) const;
+        AtomicTypeVisitorResult::Ptr visit(const DayTimeDurationType *,
+                                           const qint16 op,
+                                           const SourceLocationReflection *const) const override;
+        AtomicTypeVisitorResult::Ptr visit(const DurationType *,
+                                           const qint16 op,
+                                           const SourceLocationReflection *const) const override;
+        AtomicTypeVisitorResult::Ptr visit(const YearMonthDurationType *,
+                                           const qint16 op,
+                                           const SourceLocationReflection *const) const override;
     };
 
     /**
@@ -316,15 +316,15 @@ namespace QPatternist
     class DayTimeDurationComparatorLocator : public AtomicComparatorLocator
     {
         using AtomicComparatorLocator::visit;
-        virtual AtomicTypeVisitorResult::Ptr visit(const DayTimeDurationType *,
-                                                   const qint16 op,
-                                                   const SourceLocationReflection *const) const;
-        virtual AtomicTypeVisitorResult::Ptr visit(const DurationType *,
-                                                   const qint16 op,
-                                                   const SourceLocationReflection *const) const;
-        virtual AtomicTypeVisitorResult::Ptr visit(const YearMonthDurationType *,
-                                                   const qint16 op,
-                                                   const SourceLocationReflection *const) const;
+        AtomicTypeVisitorResult::Ptr visit(const DayTimeDurationType *,
+                                           const qint16 op,
+                                           const SourceLocationReflection *const) const override;
+        AtomicTypeVisitorResult::Ptr visit(const DurationType *,
+                                           const qint16 op,
+                                           const SourceLocationReflection *const) const override;
+        AtomicTypeVisitorResult::Ptr visit(const YearMonthDurationType *,
+                                           const qint16 op,
+                                           const SourceLocationReflection *const) const override;
     };
 
     /**
@@ -333,15 +333,15 @@ namespace QPatternist
     class YearMonthDurationComparatorLocator : public AtomicComparatorLocator
     {
         using AtomicComparatorLocator::visit;
-        virtual AtomicTypeVisitorResult::Ptr visit(const DayTimeDurationType *,
-                                                   const qint16 op,
-                                                   const SourceLocationReflection *const) const;
-        virtual AtomicTypeVisitorResult::Ptr visit(const DurationType *,
-                                                   const qint16 op,
-                                                   const SourceLocationReflection *const) const;
-        virtual AtomicTypeVisitorResult::Ptr visit(const YearMonthDurationType *,
-                                                   const qint16 op,
-                                                   const SourceLocationReflection *const) const;
+        AtomicTypeVisitorResult::Ptr visit(const DayTimeDurationType *,
+                                           const qint16 op,
+                                           const SourceLocationReflection *const) const override;
+        AtomicTypeVisitorResult::Ptr visit(const DurationType *,
+                                           const qint16 op,
+                                           const SourceLocationReflection *const) const override;
+        AtomicTypeVisitorResult::Ptr visit(const YearMonthDurationType *,
+                                           const qint16 op,
+                                           const SourceLocationReflection *const) const override;
     };
 }
 

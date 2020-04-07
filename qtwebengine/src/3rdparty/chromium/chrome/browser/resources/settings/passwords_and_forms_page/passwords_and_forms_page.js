@@ -20,13 +20,12 @@ Polymer({
     this.focusConfig_ = new Map();
     if (settings.routes.AUTOFILL) {
       this.focusConfig_.set(
-          settings.routes.AUTOFILL.path,
-          '#autofillManagerButton .subpage-arrow');
+          settings.routes.AUTOFILL.path, '#autofillManagerButton');
     }
     if (settings.routes.MANAGE_PASSWORDS) {
       this.focusConfig_.set(
           settings.routes.MANAGE_PASSWORDS.path,
-          '#passwordManagerButton .subpage-arrow');
+          '#passwordManagerButton .subpage-arrow button');
     }
   },
 

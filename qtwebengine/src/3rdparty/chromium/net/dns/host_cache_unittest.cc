@@ -54,7 +54,8 @@ TEST(HostCacheTest, Basic) {
 
   HostCache::Key key1 = Key("foobar.com");
   HostCache::Key key2 = Key("foobar2.com");
-  HostCache::Entry entry = HostCache::Entry(OK, AddressList());
+  HostCache::Entry entry =
+      HostCache::Entry(OK, AddressList(), HostCache::Entry::SOURCE_UNKNOWN);
 
   EXPECT_EQ(0U, cache.size());
 
@@ -118,7 +119,8 @@ TEST(HostCacheTest, NoCacheZeroTTL) {
 
   HostCache::Key key1 = Key("foobar.com");
   HostCache::Key key2 = Key("foobar2.com");
-  HostCache::Entry entry = HostCache::Entry(OK, AddressList());
+  HostCache::Entry entry =
+      HostCache::Entry(OK, AddressList(), HostCache::Entry::SOURCE_UNKNOWN);
 
   EXPECT_FALSE(cache.Lookup(key1, now));
   cache.Set(key1, entry, now, kFailureEntryTTL);
@@ -146,7 +148,8 @@ TEST(HostCacheTest, CacheNegativeEntry) {
 
   HostCache::Key key1 = Key("foobar.com");
   HostCache::Key key2 = Key("foobar2.com");
-  HostCache::Entry entry = HostCache::Entry(OK, AddressList());
+  HostCache::Entry entry =
+      HostCache::Entry(OK, AddressList(), HostCache::Entry::SOURCE_UNKNOWN);
 
   EXPECT_EQ(0U, cache.size());
 
@@ -207,7 +210,8 @@ TEST(HostCacheTest, AddressFamilyIsPartOfKey) {
 
   HostCache::Key key1("foobar.com", ADDRESS_FAMILY_UNSPECIFIED, 0);
   HostCache::Key key2("foobar.com", ADDRESS_FAMILY_IPV4, 0);
-  HostCache::Entry entry = HostCache::Entry(OK, AddressList());
+  HostCache::Entry entry =
+      HostCache::Entry(OK, AddressList(), HostCache::Entry::SOURCE_UNKNOWN);
 
   EXPECT_EQ(0U, cache.size());
 
@@ -243,7 +247,8 @@ TEST(HostCacheTest, HostResolverFlagsArePartOfKey) {
                       HOST_RESOLVER_CANONNAME);
   HostCache::Key key3("foobar.com", ADDRESS_FAMILY_IPV4,
                       HOST_RESOLVER_LOOPBACK_ONLY);
-  HostCache::Entry entry = HostCache::Entry(OK, AddressList());
+  HostCache::Entry entry =
+      HostCache::Entry(OK, AddressList(), HostCache::Entry::SOURCE_UNKNOWN);
 
   EXPECT_EQ(0U, cache.size());
 
@@ -282,7 +287,8 @@ TEST(HostCacheTest, NoCache) {
   // Set t=0.
   base::TimeTicks now;
 
-  HostCache::Entry entry = HostCache::Entry(OK, AddressList());
+  HostCache::Entry entry =
+      HostCache::Entry(OK, AddressList(), HostCache::Entry::SOURCE_UNKNOWN);
 
   // Lookup and Set should have no effect.
   EXPECT_FALSE(cache.Lookup(Key("foobar.com"), now));
@@ -300,7 +306,8 @@ TEST(HostCacheTest, Clear) {
   // Set t=0.
   base::TimeTicks now;
 
-  HostCache::Entry entry = HostCache::Entry(OK, AddressList());
+  HostCache::Entry entry =
+      HostCache::Entry(OK, AddressList(), HostCache::Entry::SOURCE_UNKNOWN);
 
   EXPECT_EQ(0u, cache.size());
 
@@ -324,7 +331,8 @@ TEST(HostCacheTest, ClearForHosts) {
   // Set t=0.
   base::TimeTicks now;
 
-  HostCache::Entry entry = HostCache::Entry(OK, AddressList());
+  HostCache::Entry entry =
+      HostCache::Entry(OK, AddressList(), HostCache::Entry::SOURCE_UNKNOWN);
 
   EXPECT_EQ(0u, cache.size());
 
@@ -360,7 +368,8 @@ TEST(HostCacheTest, Evict) {
   HostCache::Key key1 = Key("foobar.com");
   HostCache::Key key2 = Key("foobar2.com");
   HostCache::Key key3 = Key("foobar3.com");
-  HostCache::Entry entry = HostCache::Entry(OK, AddressList());
+  HostCache::Entry entry =
+      HostCache::Entry(OK, AddressList(), HostCache::Entry::SOURCE_UNKNOWN);
 
   EXPECT_EQ(0u, cache.size());
   EXPECT_FALSE(cache.Lookup(key1, now));
@@ -381,57 +390,6 @@ TEST(HostCacheTest, Evict) {
   EXPECT_TRUE(cache.Lookup(key1, now));
   EXPECT_FALSE(cache.Lookup(key2, now));
   EXPECT_TRUE(cache.Lookup(key3, now));
-}
-
-void TestEvictionCallback(int* evict_count,
-                          HostCache::Key* key_out,
-                          const HostCache::Key& key,
-                          const HostCache::Entry& entry) {
-  ++*evict_count;
-  *key_out = key;
-}
-
-// Try to add too many entries to cache; it should evict the one with the oldest
-// expiration time.
-TEST(HostCacheTest, EvictWithCallback) {
-  HostCache cache(2);
-
-  int evict_count = 0;
-  HostCache::Key evicted_key = Key("nothingevicted.com");
-  cache.set_eviction_callback(
-      base::Bind(&TestEvictionCallback, &evict_count, &evicted_key));
-
-  base::TimeTicks now;
-
-  HostCache::Key key1 = Key("foobar.com");
-  HostCache::Key key2 = Key("foobar2.com");
-  HostCache::Key key3 = Key("foobar3.com");
-  HostCache::Entry entry = HostCache::Entry(OK, AddressList());
-
-  EXPECT_EQ(0u, cache.size());
-  EXPECT_FALSE(cache.Lookup(key1, now));
-  EXPECT_FALSE(cache.Lookup(key2, now));
-  EXPECT_FALSE(cache.Lookup(key3, now));
-
-  // |key1| expires in 10 seconds, but |key2| in just 5.
-  cache.Set(key1, entry, now, base::TimeDelta::FromSeconds(10));
-  cache.Set(key2, entry, now, base::TimeDelta::FromSeconds(5));
-  EXPECT_EQ(2u, cache.size());
-  EXPECT_TRUE(cache.Lookup(key1, now));
-  EXPECT_TRUE(cache.Lookup(key2, now));
-  EXPECT_FALSE(cache.Lookup(key3, now));
-
-  EXPECT_EQ(0, evict_count);
-
-  // |key2| should be chosen for eviction, since it expires sooner.
-  cache.Set(key3, entry, now, base::TimeDelta::FromSeconds(10));
-  EXPECT_EQ(2u, cache.size());
-  EXPECT_TRUE(cache.Lookup(key1, now));
-  EXPECT_FALSE(cache.Lookup(key2, now));
-  EXPECT_TRUE(cache.Lookup(key3, now));
-
-  EXPECT_EQ(1, evict_count);
-  EXPECT_EQ(key2.hostname, evicted_key.hostname);
 }
 
 // Try to retrieve stale entries from the cache. They should be returned by
@@ -446,7 +404,8 @@ TEST(HostCacheTest, Stale) {
   HostCache::EntryStaleness stale;
 
   HostCache::Key key = Key("foobar.com");
-  HostCache::Entry entry = HostCache::Entry(OK, AddressList());
+  HostCache::Entry entry =
+      HostCache::Entry(OK, AddressList(), HostCache::Entry::SOURCE_UNKNOWN);
 
   EXPECT_EQ(0U, cache.size());
 
@@ -509,7 +468,8 @@ TEST(HostCacheTest, EvictStale) {
   HostCache::Key key1 = Key("foobar.com");
   HostCache::Key key2 = Key("foobar2.com");
   HostCache::Key key3 = Key("foobar3.com");
-  HostCache::Entry entry = HostCache::Entry(OK, AddressList());
+  HostCache::Entry entry =
+      HostCache::Entry(OK, AddressList(), HostCache::Entry::SOURCE_UNKNOWN);
 
   EXPECT_EQ(0u, cache.size());
   EXPECT_FALSE(cache.Lookup(key1, now));
@@ -670,12 +630,16 @@ TEST(HostCacheTest, SerializeAndDeserialize) {
   IPEndPoint endpoint_ipv4(address_ipv4, 0);
   IPEndPoint endpoint_ipv6(address_ipv6, 0);
 
-  HostCache::Entry entry1 = HostCache::Entry(OK, AddressList(endpoint_ipv4));
+  HostCache::Entry entry1 = HostCache::Entry(OK, AddressList(endpoint_ipv4),
+                                             HostCache::Entry::SOURCE_UNKNOWN);
   AddressList addresses2 = AddressList(endpoint_ipv6);
   addresses2.push_back(endpoint_ipv4);
-  HostCache::Entry entry2 = HostCache::Entry(OK, addresses2);
-  HostCache::Entry entry3 = HostCache::Entry(OK, AddressList(endpoint_ipv6));
-  HostCache::Entry entry4 = HostCache::Entry(OK, AddressList(endpoint_ipv4));
+  HostCache::Entry entry2 =
+      HostCache::Entry(OK, addresses2, HostCache::Entry::SOURCE_UNKNOWN);
+  HostCache::Entry entry3 = HostCache::Entry(OK, AddressList(endpoint_ipv6),
+                                             HostCache::Entry::SOURCE_UNKNOWN);
+  HostCache::Entry entry4 = HostCache::Entry(OK, AddressList(endpoint_ipv4),
+                                             HostCache::Entry::SOURCE_UNKNOWN);
 
   EXPECT_EQ(0u, cache.size());
 
@@ -701,6 +665,8 @@ TEST(HostCacheTest, SerializeAndDeserialize) {
   EXPECT_TRUE(cache.Lookup(key3, now));
   EXPECT_EQ(3u, cache.size());
 
+  EXPECT_EQ(0u, cache.last_restore_size());
+
   // Advance to t=12, ansd serialize the cache.
   now += base::TimeDelta::FromSeconds(7);
 
@@ -720,6 +686,8 @@ TEST(HostCacheTest, SerializeAndDeserialize) {
   EXPECT_TRUE(restored_cache.Lookup(key4, now));
   EXPECT_EQ(2u, restored_cache.size());
 
+  EXPECT_EQ(0u, restored_cache.last_restore_size());
+
   restored_cache.RestoreFromListValue(serialized_cache);
 
   HostCache::EntryStaleness stale;
@@ -735,7 +703,7 @@ TEST(HostCacheTest, SerializeAndDeserialize) {
   EXPECT_EQ(1, stale.network_changes);
   // Time to TimeTicks conversion is fuzzy, so just check that expected and
   // actual expiration times are close.
-  EXPECT_GT(base::TimeDelta::FromMilliseconds(1),
+  EXPECT_GT(base::TimeDelta::FromMilliseconds(100),
             (base::TimeDelta::FromSeconds(2) - stale.expired_by).magnitude());
 
   // The "foobar2.com" entry is stale only due to network changes.
@@ -747,7 +715,7 @@ TEST(HostCacheTest, SerializeAndDeserialize) {
   EXPECT_EQ(address_ipv6, result2->addresses().front().address());
   EXPECT_EQ(address_ipv4, result2->addresses().back().address());
   EXPECT_EQ(1, stale.network_changes);
-  EXPECT_GT(base::TimeDelta::FromMilliseconds(1),
+  EXPECT_GT(base::TimeDelta::FromMilliseconds(100),
             (base::TimeDelta::FromSeconds(-3) - stale.expired_by).magnitude());
 
   // The "foobar3.com" entry is the new one, not the restored one.
@@ -761,6 +729,8 @@ TEST(HostCacheTest, SerializeAndDeserialize) {
   EXPECT_TRUE(result4);
   EXPECT_EQ(1u, result4->addresses().size());
   EXPECT_EQ(address_ipv4, result4->addresses().front().address());
+
+  EXPECT_EQ(3u, restored_cache.last_restore_size());
 }
 
 TEST(HostCacheTest, PersistenceDelegate) {
@@ -777,13 +747,16 @@ TEST(HostCacheTest, PersistenceDelegate) {
   IPEndPoint endpoint_ipv4(address_ipv4, 0);
   IPEndPoint endpoint_ipv6(address_ipv6, 0);
 
-  HostCache::Entry entry1 = HostCache::Entry(OK, AddressList(endpoint_ipv4));
+  HostCache::Entry entry1 = HostCache::Entry(OK, AddressList(endpoint_ipv4),
+                                             HostCache::Entry::SOURCE_UNKNOWN);
   AddressList addresses2 = AddressList(endpoint_ipv6);
   addresses2.push_back(endpoint_ipv4);
-  HostCache::Entry entry2 = HostCache::Entry(OK, addresses2);
-  HostCache::Entry entry3 =
-      HostCache::Entry(ERR_NAME_NOT_RESOLVED, AddressList());
-  HostCache::Entry entry4 = HostCache::Entry(OK, AddressList());
+  HostCache::Entry entry2 =
+      HostCache::Entry(OK, addresses2, HostCache::Entry::SOURCE_UNKNOWN);
+  HostCache::Entry entry3 = HostCache::Entry(
+      ERR_NAME_NOT_RESOLVED, AddressList(), HostCache::Entry::SOURCE_UNKNOWN);
+  HostCache::Entry entry4 =
+      HostCache::Entry(OK, AddressList(), HostCache::Entry::SOURCE_UNKNOWN);
 
   // Start at t=0.
   base::TimeTicks now;

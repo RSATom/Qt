@@ -6,7 +6,10 @@
 
 #include "core/fpdfapi/page/cpdf_pathobject.h"
 
-CPDF_PathObject::CPDF_PathObject() {}
+CPDF_PathObject::CPDF_PathObject(int32_t content_stream)
+    : CPDF_PageObject(content_stream), m_FillType(0), m_bStroke(false) {}
+
+CPDF_PathObject::CPDF_PathObject() : CPDF_PathObject(kNoContentStream) {}
 
 CPDF_PathObject::~CPDF_PathObject() {}
 
@@ -42,7 +45,7 @@ void CPDF_PathObject::CalcBoundingBox() {
   } else {
     rect = m_Path.GetBoundingBox();
   }
-  m_Matrix.TransformRect(rect);
+  rect = m_Matrix.TransformRect(rect);
 
   if (width == 0 && m_bStroke) {
     rect.left += -0.5f;

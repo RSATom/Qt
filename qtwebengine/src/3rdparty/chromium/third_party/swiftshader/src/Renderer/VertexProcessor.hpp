@@ -50,10 +50,10 @@ namespace sw
 
 			uint64_t shaderID;
 
-			bool fixedFunction             : 1;
-			bool textureSampling           : 1;
-			unsigned int positionRegister  : BITS(MAX_VERTEX_OUTPUTS);
-			unsigned int pointSizeRegister : BITS(MAX_VERTEX_OUTPUTS);
+			bool fixedFunction             : 1;   // TODO: Eliminate by querying shader.
+			bool textureSampling           : 1;   // TODO: Eliminate by querying shader.
+			unsigned int positionRegister  : BITS(MAX_VERTEX_OUTPUTS);   // TODO: Eliminate by querying shader.
+			unsigned int pointSizeRegister : BITS(MAX_VERTEX_OUTPUTS);   // TODO: Eliminate by querying shader.
 
 			unsigned int vertexBlendMatrixCount               : 3;
 			bool indexedVertexBlendEnable                     : 1;
@@ -91,7 +91,7 @@ namespace sw
 
 			TextureState textureState[8];
 
-			Sampler::State samplerState[VERTEX_TEXTURE_IMAGE_UNITS];
+			Sampler::State sampler[VERTEX_TEXTURE_IMAGE_UNITS];
 
 			struct Input
 			{
@@ -263,10 +263,12 @@ namespace sw
 		void setSwizzleG(unsigned int sampler, SwizzleType swizzleG);
 		void setSwizzleB(unsigned int sampler, SwizzleType swizzleB);
 		void setSwizzleA(unsigned int sampler, SwizzleType swizzleA);
+		void setCompareFunc(unsigned int sampler, CompareFunc compare);
 		void setBaseLevel(unsigned int sampler, int baseLevel);
 		void setMaxLevel(unsigned int sampler, int maxLevel);
 		void setMinLod(unsigned int sampler, float minLod);
 		void setMaxLod(unsigned int sampler, float maxLod);
+		void setSyncRequired(unsigned int sampler, bool isSincRequired);
 
 		void setPointSize(float pointSize);
 		void setPointSizeMin(float pointSizeMin);

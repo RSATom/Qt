@@ -31,13 +31,13 @@ namespace dbus {
 // Property<>.
 class PropertyTest : public testing::Test {
  public:
-  PropertyTest() {}
+  PropertyTest() = default;
 
   struct Properties : public PropertySet {
     Property<std::string> name;
     Property<int16_t> version;
-    Property<std::vector<std::string> > methods;
-    Property<std::vector<ObjectPath> > objects;
+    Property<std::vector<std::string>> methods;
+    Property<std::vector<ObjectPath>> objects;
     Property<std::vector<uint8_t>> bytes;
 
     Properties(ObjectProxy* object_proxy,
@@ -331,9 +331,9 @@ TEST_F(PropertyTest, Invalidate) {
 TEST(PropertyTestStatic, ReadWriteStringMap) {
   std::unique_ptr<Response> message(Response::CreateEmpty());
   MessageWriter writer(message.get());
-  MessageWriter variant_writer(NULL);
-  MessageWriter variant_array_writer(NULL);
-  MessageWriter struct_entry_writer(NULL);
+  MessageWriter variant_writer(nullptr);
+  MessageWriter variant_array_writer(nullptr);
+  MessageWriter struct_entry_writer(nullptr);
 
   writer.OpenVariant("a{ss}", &variant_writer);
   variant_writer.OpenArray("{ss}", &variant_array_writer);
@@ -378,9 +378,9 @@ TEST(PropertyTestStatic, SerializeStringMap) {
 TEST(PropertyTestStatic, ReadWriteNetAddressArray) {
   std::unique_ptr<Response> message(Response::CreateEmpty());
   MessageWriter writer(message.get());
-  MessageWriter variant_writer(NULL);
-  MessageWriter variant_array_writer(NULL);
-  MessageWriter struct_entry_writer(NULL);
+  MessageWriter variant_writer(nullptr);
+  MessageWriter variant_array_writer(nullptr);
+  MessageWriter struct_entry_writer(nullptr);
 
   writer.OpenVariant("a(ayq)", &variant_writer);
   variant_writer.OpenArray("(ayq)", &variant_array_writer);
@@ -461,7 +461,7 @@ TEST(PropertyTestStatic, ReadWriteStringToByteVectorMap) {
   writer.CloseContainer(&variant_writer);
 
   MessageReader reader(message.get());
-  Property<std::unordered_map<std::string, std::vector<uint8_t>>> test_property;
+  Property<std::map<std::string, std::vector<uint8_t>>> test_property;
   EXPECT_TRUE(test_property.PopValueFromReader(&reader));
 
   ASSERT_EQ(arraysize(keys), test_property.value().size());
@@ -470,7 +470,7 @@ TEST(PropertyTestStatic, ReadWriteStringToByteVectorMap) {
 }
 
 TEST(PropertyTestStatic, SerializeStringToByteVectorMap) {
-  std::unordered_map<std::string, std::vector<uint8_t>> test_map;
+  std::map<std::string, std::vector<uint8_t>> test_map;
   test_map["Hi"] = {1, 2, 3};
   test_map["Map"] = {0xab, 0xcd};
   test_map["Random"] = {0x0};
@@ -478,7 +478,7 @@ TEST(PropertyTestStatic, SerializeStringToByteVectorMap) {
   std::unique_ptr<Response> message(Response::CreateEmpty());
   MessageWriter writer(message.get());
 
-  Property<std::unordered_map<std::string, std::vector<uint8_t>>> test_property;
+  Property<std::map<std::string, std::vector<uint8_t>>> test_property;
   test_property.ReplaceSetValueForTesting(test_map);
   test_property.AppendSetValueToWriter(&writer);
 
@@ -516,7 +516,7 @@ TEST(PropertyTestStatic, ReadWriteUInt16ToByteVectorMap) {
   writer.CloseContainer(&variant_writer);
 
   MessageReader reader(message.get());
-  Property<std::unordered_map<uint16_t, std::vector<uint8_t>>> test_property;
+  Property<std::map<uint16_t, std::vector<uint8_t>>> test_property;
   EXPECT_TRUE(test_property.PopValueFromReader(&reader));
 
   ASSERT_EQ(arraysize(keys), test_property.value().size());
@@ -525,7 +525,7 @@ TEST(PropertyTestStatic, ReadWriteUInt16ToByteVectorMap) {
 }
 
 TEST(PropertyTestStatic, SerializeUInt16ToByteVectorMap) {
-  std::unordered_map<uint16_t, std::vector<uint8_t>> test_map;
+  std::map<uint16_t, std::vector<uint8_t>> test_map;
   test_map[11] = {1, 2, 3};
   test_map[12] = {0xab, 0xcd};
   test_map[13] = {0x0};
@@ -533,7 +533,7 @@ TEST(PropertyTestStatic, SerializeUInt16ToByteVectorMap) {
   std::unique_ptr<Response> message(Response::CreateEmpty());
   MessageWriter writer(message.get());
 
-  Property<std::unordered_map<uint16_t, std::vector<uint8_t>>> test_property;
+  Property<std::map<uint16_t, std::vector<uint8_t>>> test_property;
   test_property.ReplaceSetValueForTesting(test_map);
   test_property.AppendSetValueToWriter(&writer);
 

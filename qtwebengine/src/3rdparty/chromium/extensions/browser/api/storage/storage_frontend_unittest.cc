@@ -12,7 +12,6 @@
 #include "base/strings/string_number_conversions.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/test/test_browser_context.h"
-#include "content/public/test/test_browser_thread_bundle.h"
 #include "content/public/test/test_utils.h"
 #include "extensions/browser/api/extensions_api_client.h"
 #include "extensions/browser/api/storage/settings_namespace.h"
@@ -39,9 +38,6 @@ const ValueStore::WriteOptions DEFAULTS = ValueStore::DEFAULTS;
 // history, the test names are unchanged.
 class ExtensionSettingsFrontendTest : public ExtensionsTest {
  public:
-  ExtensionSettingsFrontendTest()
-      : ExtensionsTest(base::MakeUnique<content::TestBrowserThreadBundle>()) {}
-
   void SetUp() override {
     ExtensionsTest::SetUp();
     ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
@@ -52,7 +48,7 @@ class ExtensionSettingsFrontendTest : public ExtensionsTest {
   void TearDown() override {
     frontend_.reset();
     // Execute any pending deletion tasks.
-    content::RunAllBlockingPoolTasksUntilIdle();
+    content::RunAllTasksUntilIdle();
     ExtensionsTest::TearDown();
   }
 
@@ -98,13 +94,13 @@ TEST_F(ExtensionSettingsFrontendTest, SettingsPreservedAcrossReconstruction) {
   {
     base::Value bar("bar");
     ValueStore::WriteResult result = storage->Set(DEFAULTS, "foo", bar);
-    ASSERT_TRUE(result->status().ok());
+    ASSERT_TRUE(result.status().ok());
   }
 
   {
     ValueStore::ReadResult result = storage->Get();
-    ASSERT_TRUE(result->status().ok());
-    EXPECT_FALSE(result->settings().empty());
+    ASSERT_TRUE(result.status().ok());
+    EXPECT_FALSE(result.settings().empty());
   }
 
   ResetFrontend();
@@ -112,8 +108,8 @@ TEST_F(ExtensionSettingsFrontendTest, SettingsPreservedAcrossReconstruction) {
 
   {
     ValueStore::ReadResult result = storage->Get();
-    ASSERT_TRUE(result->status().ok());
-    EXPECT_FALSE(result->settings().empty());
+    ASSERT_TRUE(result.status().ok());
+    EXPECT_FALSE(result.settings().empty());
   }
 }
 
@@ -128,19 +124,19 @@ TEST_F(ExtensionSettingsFrontendTest, SettingsClearedOnUninstall) {
   {
     base::Value bar("bar");
     ValueStore::WriteResult result = storage->Set(DEFAULTS, "foo", bar);
-    ASSERT_TRUE(result->status().ok());
+    ASSERT_TRUE(result.status().ok());
   }
 
   // This would be triggered by extension uninstall via a DataDeleter.
   frontend_->DeleteStorageSoon(id);
-  content::RunAllBlockingPoolTasksUntilIdle();
+  content::RunAllTasksUntilIdle();
 
   // The storage area may no longer be valid post-uninstall, so re-request.
   storage = util::GetStorage(extension, settings::LOCAL, frontend_.get());
   {
     ValueStore::ReadResult result = storage->Get();
-    ASSERT_TRUE(result->status().ok());
-    EXPECT_TRUE(result->settings().empty());
+    ASSERT_TRUE(result.status().ok());
+    EXPECT_TRUE(result.settings().empty());
   }
 }
 
@@ -155,7 +151,7 @@ TEST_F(ExtensionSettingsFrontendTest, LeveldbDatabaseDeletedFromDiskOnClear) {
   {
     base::Value bar("bar");
     ValueStore::WriteResult result = storage->Set(DEFAULTS, "foo", bar);
-    ASSERT_TRUE(result->status().ok());
+    ASSERT_TRUE(result.status().ok());
     EXPECT_TRUE(base::PathExists(temp_dir_.GetPath()));
   }
 
@@ -163,12 +159,12 @@ TEST_F(ExtensionSettingsFrontendTest, LeveldbDatabaseDeletedFromDiskOnClear) {
   // leveldb database to be deleted from disk.
   {
     ValueStore::WriteResult result = storage->Clear();
-    ASSERT_TRUE(result->status().ok());
+    ASSERT_TRUE(result.status().ok());
     EXPECT_TRUE(base::PathExists(temp_dir_.GetPath()));
   }
 
   frontend_.reset();
-  content::RunAllBlockingPoolTasksUntilIdle();
+  content::RunAllTasksUntilIdle();
   // TODO(kalman): Figure out why this fails, despite appearing to work.
   // Leaving this commented out rather than disabling the whole test so that the
   // deletion code paths are at least exercised.
@@ -194,7 +190,7 @@ TEST_F(ExtensionSettingsFrontendTest,
   }
 
   EXPECT_FALSE(
-      sync_storage->Set(DEFAULTS, "WillError", *kilobyte)->status().ok());
+      sync_storage->Set(DEFAULTS, "WillError", *kilobyte).status().ok());
 
   // Local storage shouldn't run out after ~100K.
   for (int i = 0; i < 100; ++i) {
@@ -202,7 +198,7 @@ TEST_F(ExtensionSettingsFrontendTest,
   }
 
   EXPECT_TRUE(
-      local_storage->Set(DEFAULTS, "WontError", *kilobyte)->status().ok());
+      local_storage->Set(DEFAULTS, "WontError", *kilobyte).status().ok());
 
   // Local storage should run out after ~5MB.
   std::unique_ptr<base::Value> megabyte = util::CreateMegabyte();
@@ -211,7 +207,7 @@ TEST_F(ExtensionSettingsFrontendTest,
   }
 
   EXPECT_FALSE(
-      local_storage->Set(DEFAULTS, "WillError", *megabyte)->status().ok());
+      local_storage->Set(DEFAULTS, "WillError", *megabyte).status().ok());
 }
 
 }  // namespace extensions

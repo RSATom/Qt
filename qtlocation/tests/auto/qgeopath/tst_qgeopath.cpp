@@ -70,6 +70,7 @@ void tst_QGeoPath::defaultConstructor()
     QGeoPath p;
     QVERIFY(!p.path().size());
     QCOMPARE(p.width(), qreal(0.0));
+    QCOMPARE(p.length(), double(0.0));
 }
 
 void tst_QGeoPath::listConstructor()
@@ -180,6 +181,10 @@ void tst_QGeoPath::path()
     for (const QGeoCoordinate &c : coords) {
         QCOMPARE(p.path().contains(c), true);
     }
+
+    p.clearPath();
+    QCOMPARE(p.path().size(), 0);
+    QVERIFY(p.boundingGeoRectangle().isEmpty());
 }
 
 void tst_QGeoPath::width()

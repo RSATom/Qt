@@ -43,21 +43,6 @@
 #define MSVC_DISABLE_OPTIMIZE() __pragma(optimize("", off))
 #define MSVC_ENABLE_OPTIMIZE() __pragma(optimize("", on))
 
-// Allows exporting a class that inherits from a non-exported base class.
-// This uses suppress instead of push/pop because the delimiter after the
-// declaration (either "," or "{") has to be placed before the pop macro.
-//
-// Example usage:
-// class EXPORT_API Foo : NON_EXPORTED_BASE(public Bar) {
-//
-// MSVC Compiler warning C4275:
-// non dll-interface class 'Bar' used as base for dll-interface class 'Foo'.
-// Note that this is intended to be used only when no access to the base class'
-// static data is done through derived classes or inline methods. For more info,
-// see http://msdn.microsoft.com/en-us/library/3tdb471s(VS.80).aspx
-#define NON_EXPORTED_BASE(code) MSVC_SUPPRESS_WARNING(4275) \
-                                code
-
 #else  // Not MSVC
 
 #define _Printf_format_string_
@@ -67,7 +52,6 @@
 #define MSVC_POP_WARNING()
 #define MSVC_DISABLE_OPTIMIZE()
 #define MSVC_ENABLE_OPTIMIZE()
-#define NON_EXPORTED_BASE(code) code
 
 #endif  // COMPILER_MSVC
 
@@ -150,7 +134,7 @@
 // |dots_param| is the one-based index of the "..." parameter.
 // For v*printf functions (which take a va_list), pass 0 for dots_param.
 // (This is undocumented but matches what the system C headers do.)
-#if defined(COMPILER_GCC)
+#if defined(COMPILER_GCC) || defined(__clang__)
 #define PRINTF_FORMAT(format_param, dots_param) \
     __attribute__((format(printf, format_param, dots_param)))
 #else
@@ -214,7 +198,7 @@
 
 // Macro for hinting that an expression is likely to be false.
 #if !defined(UNLIKELY)
-#if defined(COMPILER_GCC)
+#if defined(COMPILER_GCC) || defined(__clang__)
 #define UNLIKELY(x) __builtin_expect(!!(x), 0)
 #else
 #define UNLIKELY(x) (x)
@@ -222,7 +206,7 @@
 #endif  // !defined(UNLIKELY)
 
 #if !defined(LIKELY)
-#if defined(COMPILER_GCC)
+#if defined(COMPILER_GCC) || defined(__clang__)
 #define LIKELY(x) __builtin_expect(!!(x), 1)
 #else
 #define LIKELY(x) (x)
@@ -235,6 +219,13 @@
 #define HAS_FEATURE(FEATURE) __has_feature(FEATURE)
 #else
 #define HAS_FEATURE(FEATURE) 0
+#endif
+
+// Macro for telling -Wimplicit-fallthrough that a fallthrough is intentional.
+#if defined(__clang__)
+#define FALLTHROUGH [[clang::fallthrough]]
+#else
+#define FALLTHROUGH
 #endif
 
 #endif  // BASE_COMPILER_SPECIFIC_H_

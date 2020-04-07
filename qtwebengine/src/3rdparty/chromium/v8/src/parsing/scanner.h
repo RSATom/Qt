@@ -92,6 +92,9 @@ class Utf16CharacterStream {
     }
   }
 
+  // Returns true if the stream could access the V8 heap after construction.
+  virtual bool can_access_heap() = 0;
+
  protected:
   Utf16CharacterStream(const uint16_t* buffer_start,
                        const uint16_t* buffer_cursor,
@@ -257,6 +260,8 @@ class Scanner {
 
   double DoubleValue();
 
+  const char* CurrentLiteralAsCString(Zone* zone) const;
+
   inline bool CurrentMatches(Token::Value token) const {
     DCHECK(Token::IsKeyword(token));
     return current_.token == token;
@@ -353,6 +358,21 @@ class Scanner {
 
   bool FoundHtmlComment() const { return found_html_comment_; }
 
+  bool allow_harmony_bigint() const { return allow_harmony_bigint_; }
+  void set_allow_harmony_bigint(bool allow) { allow_harmony_bigint_ = allow; }
+  bool allow_harmony_private_fields() const {
+    return allow_harmony_private_fields_;
+  }
+  void set_allow_harmony_private_fields(bool allow) {
+    allow_harmony_private_fields_ = allow;
+  }
+  bool allow_harmony_numeric_separator() const {
+    return allow_harmony_numeric_separator_;
+  }
+  void set_allow_harmony_numeric_separator(bool allow) {
+    allow_harmony_numeric_separator_ = allow;
+  }
+
  private:
   // Scoped helper for saving & restoring scanner error state.
   // This is used for tagged template literals, in which normally forbidden
@@ -383,12 +403,12 @@ class Scanner {
 
     ~LiteralBuffer() { backing_store_.Dispose(); }
 
-    INLINE(void AddChar(char code_unit)) {
+    V8_INLINE void AddChar(char code_unit) {
       DCHECK(IsValidAscii(code_unit));
       AddOneByteChar(static_cast<byte>(code_unit));
     }
 
-    INLINE(void AddChar(uc32 code_unit)) {
+    V8_INLINE void AddChar(uc32 code_unit) {
       if (is_one_byte_ &&
           code_unit <= static_cast<uc32>(unibrow::Latin1::kMaxChar)) {
         AddOneByteChar(static_cast<byte>(code_unit));
@@ -406,7 +426,7 @@ class Scanner {
 
     Vector<const uint16_t> two_byte_literal() const {
       DCHECK(!is_one_byte_);
-      DCHECK((position_ & 0x1) == 0);
+      DCHECK_EQ(position_ & 0x1, 0);
       return Vector<const uint16_t>(
           reinterpret_cast<const uint16_t*>(backing_store_.start()),
           position_ >> 1);
@@ -433,8 +453,7 @@ class Scanner {
 
    private:
     static const int kInitialCapacity = 16;
-    static const int kGrowthFactory = 4;
-    static const int kMinConversionSlack = 256;
+    static const int kGrowthFactor = 4;
     static const int kMaxGrowth = 1 * MB;
 
     inline bool IsValidAscii(char code_unit) {
@@ -445,7 +464,7 @@ class Scanner {
       return iscntrl(code_unit) || isprint(code_unit);
     }
 
-    INLINE(void AddOneByteChar(byte one_byte_char)) {
+    V8_INLINE void AddOneByteChar(byte one_byte_char) {
       DCHECK(is_one_byte_);
       if (position_ >= backing_store_.length()) ExpandBuffer();
       backing_store_[position_] = one_byte_char;
@@ -476,12 +495,21 @@ class Scanner {
     Token::Value contextual_token;
   };
 
+  enum NumberKind {
+    BINARY,
+    OCTAL,
+    IMPLICIT_OCTAL,
+    HEX,
+    DECIMAL,
+    DECIMAL_WITH_LEADING_ZERO
+  };
+
   static const int kCharacterLookaheadBufferSize = 1;
   const int kMaxAscii = 127;
 
   // Scans octal escape sequence. Also accepts "\0" decimal escape sequence.
   template <bool capture_raw>
-  uc32 ScanOctalEscape(uc32 c, int length);
+  uc32 ScanOctalEscape(uc32 c, int length, bool in_template_literal);
 
   // Call this after setting source_ to the input.
   void Init() {
@@ -491,18 +519,18 @@ class Scanner {
     // Initialize current_ to not refer to a literal.
     current_.token = Token::UNINITIALIZED;
     current_.contextual_token = Token::UNINITIALIZED;
-    current_.literal_chars = NULL;
-    current_.raw_literal_chars = NULL;
+    current_.literal_chars = nullptr;
+    current_.raw_literal_chars = nullptr;
     current_.invalid_template_escape_message = MessageTemplate::kNone;
     next_.token = Token::UNINITIALIZED;
     next_.contextual_token = Token::UNINITIALIZED;
-    next_.literal_chars = NULL;
-    next_.raw_literal_chars = NULL;
+    next_.literal_chars = nullptr;
+    next_.raw_literal_chars = nullptr;
     next_.invalid_template_escape_message = MessageTemplate::kNone;
     next_next_.token = Token::UNINITIALIZED;
     next_next_.contextual_token = Token::UNINITIALIZED;
-    next_next_.literal_chars = NULL;
-    next_next_.raw_literal_chars = NULL;
+    next_next_.literal_chars = nullptr;
+    next_next_.raw_literal_chars = nullptr;
     next_next_.invalid_template_escape_message = MessageTemplate::kNone;
     found_html_comment_ = false;
     scanner_error_ = MessageTemplate::kNone;
@@ -546,22 +574,22 @@ class Scanner {
     next_.raw_literal_chars = free_buffer;
   }
 
-  INLINE(void AddLiteralChar(uc32 c)) {
+  V8_INLINE void AddLiteralChar(uc32 c) {
     DCHECK_NOT_NULL(next_.literal_chars);
     next_.literal_chars->AddChar(c);
   }
 
-  INLINE(void AddLiteralChar(char c)) {
+  V8_INLINE void AddLiteralChar(char c) {
     DCHECK_NOT_NULL(next_.literal_chars);
     next_.literal_chars->AddChar(c);
   }
 
-  INLINE(void AddRawLiteralChar(uc32 c)) {
+  V8_INLINE void AddRawLiteralChar(uc32 c) {
     DCHECK_NOT_NULL(next_.raw_literal_chars);
     next_.raw_literal_chars->AddChar(c);
   }
 
-  INLINE(void ReduceRawLiteralLength(int delta)) {
+  V8_INLINE void ReduceRawLiteralLength(int delta) {
     DCHECK_NOT_NULL(next_.raw_literal_chars);
     next_.raw_literal_chars->ReduceLength(delta);
   }
@@ -569,8 +597,8 @@ class Scanner {
   // Stops scanning of a literal and drop the collected characters,
   // e.g., due to an encountered error.
   inline void DropLiteral() {
-    next_.literal_chars = NULL;
-    next_.raw_literal_chars = NULL;
+    next_.literal_chars = nullptr;
+    next_.raw_literal_chars = nullptr;
   }
 
   inline void AddLiteralCharAdvance() {
@@ -579,24 +607,26 @@ class Scanner {
   }
 
   // Low-level scanning support.
-  template <bool capture_raw = false, bool check_surrogate = true>
+  template <bool capture_raw = false>
   void Advance() {
     if (capture_raw) {
       AddRawLiteralChar(c0_);
     }
     c0_ = source_->Advance();
-    if (check_surrogate) HandleLeadSurrogate();
   }
 
-  void HandleLeadSurrogate() {
+  bool CombineSurrogatePair() {
+    DCHECK(!unibrow::Utf16::IsLeadSurrogate(kEndOfInput));
     if (unibrow::Utf16::IsLeadSurrogate(c0_)) {
       uc32 c1 = source_->Advance();
-      if (!unibrow::Utf16::IsTrailSurrogate(c1)) {
-        source_->Back();
-      } else {
+      DCHECK(!unibrow::Utf16::IsTrailSurrogate(kEndOfInput));
+      if (unibrow::Utf16::IsTrailSurrogate(c1)) {
         c0_ = unibrow::Utf16::CombineSurrogatePair(c0_, c1);
+        return true;
       }
+      source_->Back();
     }
+    return false;
   }
 
   void PushBack(uc32 ch) {
@@ -659,10 +689,6 @@ class Scanner {
   bool is_literal_one_byte() const {
     return !current_.literal_chars || current_.literal_chars->is_one_byte();
   }
-  int literal_length() const {
-    if (current_.literal_chars) return current_.literal_chars->length();
-    return Token::StringLength(current_.token);
-  }
   // Returns the literal string for the next token (the token that
   // would be returned if Next() were called).
   Vector<const uint8_t> next_literal_one_byte_string() const {
@@ -710,12 +736,24 @@ class Scanner {
   // Scans a possible HTML comment -- begins with '<!'.
   Token::Value ScanHtmlComment();
 
-  void ScanDecimalDigits();
+  bool ScanDigitsWithNumericSeparators(bool (*predicate)(uc32 ch),
+                                       bool is_check_first_digit);
+  bool ScanDecimalDigits();
+  // Optimized function to scan decimal number as Smi.
+  bool ScanDecimalAsSmi(uint64_t* value);
+  bool ScanDecimalAsSmiWithNumericSeparators(uint64_t* value);
+  bool ScanHexDigits();
+  bool ScanBinaryDigits();
+  bool ScanSignedInteger();
+  bool ScanOctalDigits();
+  bool ScanImplicitOctalDigits(int start_pos, NumberKind* kind);
+
   Token::Value ScanNumber(bool seen_period);
   Token::Value ScanIdentifierOrKeyword();
-  Token::Value ScanIdentifierSuffix(LiteralScope* literal, bool escaped);
+  Token::Value ScanIdentifierOrKeywordInner(LiteralScope* literal);
 
   Token::Value ScanString();
+  Token::Value ScanPrivateName();
 
   // Scans an escape-sequence which is part of a string and adds the
   // decoded character to the current literal. Returns true if a pattern
@@ -795,6 +833,11 @@ class Scanner {
 
   // Whether this scanner encountered an HTML comment.
   bool found_html_comment_;
+
+  // Harmony flags to allow ESNext features.
+  bool allow_harmony_bigint_;
+  bool allow_harmony_private_fields_;
+  bool allow_harmony_numeric_separator_;
 
   MessageTemplate::Template scanner_error_;
   Location scanner_error_location_;

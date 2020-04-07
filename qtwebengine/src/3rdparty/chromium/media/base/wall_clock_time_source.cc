@@ -9,11 +9,11 @@
 namespace media {
 
 WallClockTimeSource::WallClockTimeSource()
-    : tick_clock_(&default_tick_clock_), ticking_(false), playback_rate_(1.0) {
-}
+    : tick_clock_(base::DefaultTickClock::GetInstance()),
+      ticking_(false),
+      playback_rate_(1.0) {}
 
-WallClockTimeSource::~WallClockTimeSource() {
-}
+WallClockTimeSource::~WallClockTimeSource() = default;
 
 void WallClockTimeSource::StartTicking() {
   DVLOG(1) << __func__;

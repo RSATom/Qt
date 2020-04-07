@@ -6,7 +6,6 @@
 
 #include <stdint.h>
 
-#include "base/files/file_util_proxy.h"
 #include "base/single_thread_task_runner.h"
 #include "net/base/file_stream.h"
 #include "net/base/io_buffer.h"
@@ -61,8 +60,7 @@ void Int64CallbackAdapter(const net::Int64CompletionCallback& callback,
 
 }  // namespace
 
-FileSystemFileStreamReader::~FileSystemFileStreamReader() {
-}
+FileSystemFileStreamReader::~FileSystemFileStreamReader() = default;
 
 int FileSystemFileStreamReader::Read(
     net::IOBuffer* buf, int buf_len,
@@ -115,7 +113,7 @@ void FileSystemFileStreamReader::DidCreateSnapshot(
     base::File::Error file_error,
     const base::File::Info& file_info,
     const base::FilePath& platform_path,
-    const scoped_refptr<storage::ShareableFileReference>& file_ref) {
+    scoped_refptr<storage::ShareableFileReference> file_ref) {
   DCHECK(has_pending_create_snapshot_);
   DCHECK(!local_file_reader_.get());
   has_pending_create_snapshot_ = false;
@@ -126,7 +124,7 @@ void FileSystemFileStreamReader::DidCreateSnapshot(
   }
 
   // Keep the reference (if it's non-null) so that the file won't go away.
-  snapshot_ref_ = file_ref;
+  snapshot_ref_ = std::move(file_ref);
 
   local_file_reader_.reset(
       FileStreamReader::CreateForLocalFile(

@@ -204,39 +204,36 @@ const char kHttpReceivedContentLength[] = "http_received_content_length";
 // received over the network.
 const char kHttpOriginalContentLength[] = "http_original_content_length";
 
-// An integer pref that contains the Lo-Fi epoch for the implicit opt-out rules.
-// Any time this value is incremented via Finch,
-// kLoFiConsecutiveSessionDisables is reset to zero.
-const char kLoFiImplicitOptOutEpoch[] =
-    "data_reduction_lo_fi.implicit_opt_out_epoch";
+// Pref to store the retrieval time of the last Data Reduction Proxy
+// configuration.
+const char kDataReductionProxyLastConfigRetrievalTime[] =
+    "data_reduction.last_config_retrieval_time";
 
-// An integer pref that contains the number of times that "Load original" Lo-Fi
-// UI has been shown for the current session. Note the naming of the pref is due
-// to the fact that this UI was originally a snackbar, and has since been
-// changed.
-const char kLoFiUIShownPerSession[] =
-    "data_reduction_lo_fi.load_images_snackbars_shown_per_session";
+// Pref to store the properties of the different networks. The pref stores the
+// map of network IDs and their respective network properties.
+const char kNetworkProperties[] = "data_reduction.network_properties";
 
-// An integer pref that contains the number of times that loading the images has
-// been requested from the Lo-Fi UI for the current session.
-const char kLoFiLoadImagesPerSession[] =
-    "data_reduction_lo_fi.load_images_requests_per_session";
+// An integer pref that stores the number of the week when the weekly data use
+// prefs were updated.
+const char kThisWeekNumber[] = "data_reduction.this_week_number";
 
-// An integer pref that contains the number of consecutive sessions that LoFi
-// has been disabled.
-const char kLoFiConsecutiveSessionDisables[] =
-    "data_reduction_lo_fi.consecutive_session_disables";
+// Dictionary pref that stores the data use of services. The key will be the
+// service hash code, and the value will be the KB that service used.
+const char kThisWeekServicesDownstreamBackgroundKB[] =
+    "data_reduction.this_week_services_downstream_background_kb";
+const char kThisWeekServicesDownstreamForegroundKB[] =
+    "data_reduction.this_week_services_downstream_foreground_kb";
+const char kLastWeekServicesDownstreamBackgroundKB[] =
+    "data_reduction.last_week_services_downstream_background_kb";
+const char kLastWeekServicesDownstreamForegroundKB[] =
+    "data_reduction.last_week_services_downstream_foreground_kb";
 
-// A boolean pref specifying whether Lo-Fi was used this session.
-const char kLoFiWasUsedThisSession[] =
-    "data_reduction_lo_fi.was_used_this_session";
-
-// Pref to store the retrieval time of the last simulated Data Reduction Proxy
-// configuration. This is part of an experiment to see how many bytes are lost
-// if the Data Reduction Proxy is not used due to configuration being expired
-// or not available.
-const char kSimulatedConfigRetrieveTime[] =
-    "data_reduction.simulated_config_retrieve_time";
+// Dictionary pref that stores the content-type of user-initiated traffic. The
+// key will be the content-type, and the value will be the data usage in KB.
+const char kThisWeekUserTrafficContentTypeDownstreamKB[] =
+    "data_reduction.this_week_user_traffic_contenttype_downstream_kb";
+const char kLastWeekUserTrafficContentTypeDownstreamKB[] =
+    "data_reduction.last_week_user_traffic_contenttype_downstream_kb";
 
 }  // namespace prefs
 }  // namespace data_reduction_proxy

@@ -10,7 +10,7 @@
 #include <memory>
 #include <utility>
 
-#include "base/memory/ptr_util.h"
+#include "base/guid.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/sequenced_task_runner.h"
 #include "base/strings/utf_string_conversions.h"
@@ -30,8 +30,10 @@
 #include "content/browser/indexed_db/indexed_db_value.h"
 #include "content/common/indexed_db/indexed_db_constants.h"
 #include "content/common/indexed_db/indexed_db_metadata.h"
-#include "content/public/browser/browser_thread.h"
+#include "content/public/common/content_features.h"
 #include "mojo/public/cpp/bindings/strong_associated_binding.h"
+#include "storage/browser/blob/blob_data_builder.h"
+#include "storage/browser/blob/blob_impl.h"
 #include "storage/browser/blob/blob_storage_context.h"
 #include "storage/browser/blob/shareable_file_reference.h"
 #include "storage/browser/quota/quota_manager.h"
@@ -46,42 +48,44 @@ namespace {
 
 // The following two objects protect the given objects from being destructed on
 // the IO thread if we have a shutdown or an error.
-struct SafeIOThreadConnectionWrapper {
+class SafeIOThreadConnectionWrapper {
+ public:
   SafeIOThreadConnectionWrapper(std::unique_ptr<IndexedDBConnection> connection)
-      : connection(std::move(connection)),
-        idb_runner(base::SequencedTaskRunnerHandle::Get()) {}
+      : connection_(std::move(connection)),
+        idb_runner_(base::SequencedTaskRunnerHandle::Get()) {}
   ~SafeIOThreadConnectionWrapper() {
-    if (connection) {
-      idb_runner->PostTask(
+    if (connection_) {
+      idb_runner_->PostTask(
           FROM_HERE, base::BindOnce(
                          [](std::unique_ptr<IndexedDBConnection> connection) {
                            connection->ForceClose();
                          },
-                         base::Passed(&connection)));
+                         std::move(connection_)));
     }
   }
   SafeIOThreadConnectionWrapper(SafeIOThreadConnectionWrapper&& other) =
       default;
 
-  std::unique_ptr<IndexedDBConnection> connection;
-  scoped_refptr<base::SequencedTaskRunner> idb_runner;
+  std::unique_ptr<IndexedDBConnection> connection_;
+  scoped_refptr<base::SequencedTaskRunner> idb_runner_;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(SafeIOThreadConnectionWrapper);
 };
 
-struct SafeIOThreadCursorWrapper {
+class SafeIOThreadCursorWrapper {
+ public:
   SafeIOThreadCursorWrapper(std::unique_ptr<IndexedDBCursor> cursor)
-      : cursor(std::move(cursor)),
-        idb_runner(base::SequencedTaskRunnerHandle::Get()) {}
+      : cursor_(std::move(cursor)),
+        idb_runner_(base::SequencedTaskRunnerHandle::Get()) {}
   ~SafeIOThreadCursorWrapper() {
-    if (cursor)
-      idb_runner->DeleteSoon(FROM_HERE, cursor.release());
+    if (cursor_)
+      idb_runner_->DeleteSoon(FROM_HERE, cursor_.release());
   }
   SafeIOThreadCursorWrapper(SafeIOThreadCursorWrapper&& other) = default;
 
-  std::unique_ptr<IndexedDBCursor> cursor;
-  scoped_refptr<base::SequencedTaskRunner> idb_runner;
+  std::unique_ptr<IndexedDBCursor> cursor_;
+  scoped_refptr<base::SequencedTaskRunner> idb_runner_;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(SafeIOThreadCursorWrapper);
@@ -168,7 +172,8 @@ class IndexedDBCallbacks::IOThreadHelper {
   void SendSuccessInteger(int64_t value);
   void SendSuccess();
 
-  std::string CreateBlobData(const IndexedDBBlobInfo& blob_info);
+  std::unique_ptr<storage::BlobDataHandle> CreateBlobData(
+      const IndexedDBBlobInfo& blob_info);
   bool CreateAllBlobs(
       const std::vector<IndexedDBBlobInfo>& blob_info,
       std::vector<::indexed_db::mojom::BlobInfoPtr>* blob_or_file_info);
@@ -282,7 +287,7 @@ void IndexedDBCallbacks::OnUpgradeNeeded(
   BrowserThread::PostTask(
       BrowserThread::IO, FROM_HERE,
       base::BindOnce(&IOThreadHelper::SendUpgradeNeeded,
-                     base::Unretained(io_helper_.get()), base::Passed(&wrapper),
+                     base::Unretained(io_helper_.get()), std::move(wrapper),
                      old_version, data_loss_info.status, data_loss_info.message,
                      metadata));
 
@@ -315,7 +320,7 @@ void IndexedDBCallbacks::OnSuccess(
   BrowserThread::PostTask(BrowserThread::IO, FROM_HERE,
                           base::BindOnce(&IOThreadHelper::SendSuccessDatabase,
                                          base::Unretained(io_helper_.get()),
-                                         base::Passed(&wrapper), metadata));
+                                         std::move(wrapper), metadata));
   complete_ = true;
 
   if (!connection_open_start_time_.is_null()) {
@@ -349,8 +354,8 @@ void IndexedDBCallbacks::OnSuccess(std::unique_ptr<IndexedDBCursor> cursor,
       BrowserThread::IO, FROM_HERE,
       base::BindOnce(&IOThreadHelper::SendSuccessCursor,
                      base::Unretained(io_helper_.get()),
-                     base::Passed(&cursor_wrapper), key, primary_key,
-                     base::Passed(&mojo_value), base::Passed(&blob_info)));
+                     std::move(cursor_wrapper), key, primary_key,
+                     std::move(mojo_value), std::move(blob_info)));
   complete_ = true;
 }
 
@@ -374,7 +379,7 @@ void IndexedDBCallbacks::OnSuccess(const IndexedDBKey& key,
       BrowserThread::IO, FROM_HERE,
       base::BindOnce(&IOThreadHelper::SendSuccessCursorContinue,
                      base::Unretained(io_helper_.get()), key, primary_key,
-                     base::Passed(&mojo_value), base::Passed(&blob_info)));
+                     std::move(mojo_value), std::move(blob_info)));
   complete_ = true;
 }
 
@@ -399,7 +404,7 @@ void IndexedDBCallbacks::OnSuccessWithPrefetch(
       BrowserThread::IO, FROM_HERE,
       base::BindOnce(&IOThreadHelper::SendSuccessCursorPrefetch,
                      base::Unretained(io_helper_.get()), keys, primary_keys,
-                     base::Passed(&mojo_values), *values));
+                     std::move(mojo_values), *values));
   complete_ = true;
 }
 
@@ -419,8 +424,8 @@ void IndexedDBCallbacks::OnSuccess(IndexedDBReturnValue* value) {
   BrowserThread::PostTask(
       BrowserThread::IO, FROM_HERE,
       base::BindOnce(&IOThreadHelper::SendSuccessValue,
-                     base::Unretained(io_helper_.get()),
-                     base::Passed(&mojo_value), base::Passed(&blob_info)));
+                     base::Unretained(io_helper_.get()), std::move(mojo_value),
+                     std::move(blob_info)));
   complete_ = true;
 }
 
@@ -440,7 +445,7 @@ void IndexedDBCallbacks::OnSuccessArray(
   BrowserThread::PostTask(BrowserThread::IO, FROM_HERE,
                           base::BindOnce(&IOThreadHelper::SendSuccessArray,
                                          base::Unretained(io_helper_.get()),
-                                         base::Passed(&mojo_values), *values));
+                                         std::move(mojo_values), *values));
   complete_ = true;
 }
 
@@ -555,9 +560,9 @@ void IndexedDBCallbacks::IOThreadHelper::SendUpgradeNeeded(
     return;
   }
 
-  auto database = base::MakeUnique<DatabaseImpl>(
-      std::move(connection_wrapper.connection), origin_, dispatcher_host_.get(),
-      idb_runner_);
+  auto database = std::make_unique<DatabaseImpl>(
+      std::move(connection_wrapper.connection_), origin_,
+      dispatcher_host_.get(), idb_runner_);
 
   ::indexed_db::mojom::DatabaseAssociatedPtrInfo ptr_info;
   auto request = mojo::MakeRequest(&ptr_info);
@@ -578,9 +583,9 @@ void IndexedDBCallbacks::IOThreadHelper::SendSuccessDatabase(
     return;
   }
   ::indexed_db::mojom::DatabaseAssociatedPtrInfo ptr_info;
-  if (connection_wrapper.connection) {
-    auto database = base::MakeUnique<DatabaseImpl>(
-        std::move(connection_wrapper.connection), origin_,
+  if (connection_wrapper.connection_) {
+    auto database = std::make_unique<DatabaseImpl>(
+        std::move(connection_wrapper.connection_), origin_,
         dispatcher_host_.get(), idb_runner_);
 
     auto request = mojo::MakeRequest(&ptr_info);
@@ -603,8 +608,8 @@ void IndexedDBCallbacks::IOThreadHelper::SendSuccessCursor(
     OnConnectionError();
     return;
   }
-  auto cursor_impl = base::MakeUnique<CursorImpl>(
-      std::move(cursor.cursor), origin_, dispatcher_host_.get(), idb_runner_);
+  auto cursor_impl = std::make_unique<CursorImpl>(
+      std::move(cursor.cursor_), origin_, dispatcher_host_.get(), idb_runner_);
 
   if (value && !CreateAllBlobs(blob_info, &value->blob_or_file_info))
     return;
@@ -729,12 +734,14 @@ void IndexedDBCallbacks::IOThreadHelper::SendSuccess() {
   callbacks_->Success();
 }
 
-std::string IndexedDBCallbacks::IOThreadHelper::CreateBlobData(
+std::unique_ptr<storage::BlobDataHandle>
+IndexedDBCallbacks::IOThreadHelper::CreateBlobData(
     const IndexedDBBlobInfo& blob_info) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   if (!blob_info.uuid().empty()) {
     // We're sending back a live blob, not a reference into our backing store.
-    return dispatcher_host_->HoldBlobData(blob_info);
+    return dispatcher_host_->blob_storage_context()->GetBlobDataFromUUID(
+        blob_info.uuid());
   }
   scoped_refptr<ShareableFileReference> shareable_file =
       ShareableFileReference::Get(blob_info.file_path());
@@ -746,7 +753,13 @@ std::string IndexedDBCallbacks::IOThreadHelper::CreateBlobData(
     if (!blob_info.release_callback().is_null())
       shareable_file->AddFinalReleaseCallback(blob_info.release_callback());
   }
-  return dispatcher_host_->HoldBlobData(blob_info);
+  std::string uuid = base::GenerateGUID();
+  auto blob_data_builder = std::make_unique<storage::BlobDataBuilder>(uuid);
+  blob_data_builder->set_content_type(base::UTF16ToUTF8(blob_info.type()));
+  blob_data_builder->AppendFile(blob_info.file_path(), 0, blob_info.size(),
+                                blob_info.last_modified());
+  return dispatcher_host_->blob_storage_context()->AddFinishedBlob(
+      std::move(blob_data_builder));
 }
 
 bool IndexedDBCallbacks::IOThreadHelper::CreateAllBlobs(
@@ -759,10 +772,19 @@ bool IndexedDBCallbacks::IOThreadHelper::CreateAllBlobs(
   }
   IDB_TRACE("IndexedDBCallbacks::CreateAllBlobs");
   DCHECK_EQ(blob_info.size(), blob_or_file_info->size());
-  if (!dispatcher_host_->blob_storage_context())
+  storage::BlobStorageContext* blob_context =
+      dispatcher_host_->blob_storage_context();
+  if (!blob_context)
     return false;
-  for (size_t i = 0; i < blob_info.size(); ++i)
-    (*blob_or_file_info)[i]->uuid = CreateBlobData(blob_info[i]);
+  for (size_t i = 0; i < blob_info.size(); ++i) {
+    std::unique_ptr<storage::BlobDataHandle> blob_data =
+        CreateBlobData(blob_info[i]);
+    (*blob_or_file_info)[i]->uuid = blob_data->uuid();
+    blink::mojom::BlobPtrInfo blob_ptr_info;
+    storage::BlobImpl::Create(std::move(blob_data),
+                              MakeRequest(&blob_ptr_info));
+    (*blob_or_file_info)[i]->blob = std::move(blob_ptr_info);
+  }
   return true;
 }
 

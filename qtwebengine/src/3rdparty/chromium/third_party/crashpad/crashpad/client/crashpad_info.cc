@@ -14,40 +14,30 @@
 
 #include "client/crashpad_info.h"
 
+#include <type_traits>
+
 #include "util/misc/address_sanitizer.h"
 #include "util/misc/from_pointer_cast.h"
-#include "util/stdlib/cxx.h"
 
 #if defined(OS_MACOSX)
 #include <mach-o/loader.h>
 #endif
 
-#if CXX_LIBRARY_VERSION >= 2011
-#include <type_traits>
-#endif
-
 namespace {
 
-static const uint32_t kCrashpadInfoVersion = 1;
+// Don’t change this when simply adding fields. Readers will size-check the
+// structure and ignore fields they’re aware of when not present, as well as
+// fields they’re not aware of. Only change this when introducing an
+// incompatible layout, with the understanding that existing readers will not
+// understand new versions.
+constexpr uint32_t kCrashpadInfoVersion = 1;
 
 }  // namespace
 
 namespace crashpad {
 
-#if CXX_LIBRARY_VERSION >= 2011 || DOXYGEN
-// In C++11, check that CrashpadInfo has standard layout, which is what is
-// actually important.
 static_assert(std::is_standard_layout<CrashpadInfo>::value,
               "CrashpadInfo must be standard layout");
-#else
-// In C++98 (ISO 14882), section 9.5.1 says that a union cannot have a member
-// with a non-trivial ctor, copy ctor, dtor, or assignment operator. Use this
-// property to ensure that CrashpadInfo remains POD. This doesn’t work for C++11
-// because the requirements for unions have been relaxed.
-union Compile_Assert {
-  CrashpadInfo Compile_Assert__CrashpadInfo_must_be_pod;
-};
-#endif
 
 // This structure needs to be stored somewhere that is easy to find without
 // external information.
@@ -61,18 +51,15 @@ union Compile_Assert {
 // This may result in a static module initializer in debug-mode builds, but
 // because it’s POD, no code should need to run to initialize this under
 // release-mode optimization.
+
 #if defined(OS_POSIX)
 __attribute__((
 
+#if defined(OS_MACOSX)
     // Put the structure in a well-known section name where it can be easily
     // found without having to consult the symbol table.
-#if defined(OS_MACOSX)
     section(SEG_DATA ",crashpad_info"),
-#elif defined(OS_LINUX) || defined(OS_ANDROID)
-    section("crashpad_info"),
-#else  // !defined(OS_MACOSX) && !defined(OS_LINUX) && !defined(OS_ANDROID)
-#error Port
-#endif  // !defined(OS_MACOSX) && !defined(OS_LINUX) && !defined(OS_ANDROID)
+#endif
 
 #if defined(ADDRESS_SANITIZER)
     // AddressSanitizer would add a trailing red zone of at least 32 bytes,
@@ -83,12 +70,12 @@ __attribute__((
     aligned(64),
 #endif  // defined(ADDRESS_SANITIZER)
 
-    // The “used” attribute prevents the structure from being dead-stripped.
-    used,
-
-    // There’s no need to expose this as a public symbol from the symbol table.
+    // There's no need to expose this as a public symbol from the symbol table.
     // All accesses from the outside can locate the well-known section name.
-    visibility("hidden")))
+    visibility("hidden"),
+
+    // The “used” attribute prevents the structure from being dead-stripped.
+    used))
 
 #elif defined(OS_WIN)
 
@@ -103,8 +90,19 @@ __declspec(allocate("CPADinfo"))
 
 CrashpadInfo g_crashpad_info;
 
+extern "C" int* CRASHPAD_NOTE_REFERENCE;
+
 // static
 CrashpadInfo* CrashpadInfo::GetCrashpadInfo() {
+#if defined(OS_LINUX) || defined(OS_ANDROID) || defined(OS_FUCHSIA)
+  // This otherwise-unused reference is used so that any module that
+  // references GetCrashpadInfo() will also include the note in the
+  // .note.crashpad.info section. That note in turn contains the address of
+  // g_crashpad_info. This allows the module reader to find the CrashpadInfo
+  // structure without requiring the use of the dynamic symbol table.
+  static volatile int* pointer_to_note_section = CRASHPAD_NOTE_REFERENCE;
+  (void)pointer_to_note_section;
+#endif
   return &g_crashpad_info;
 }
 
@@ -120,13 +118,8 @@ CrashpadInfo::CrashpadInfo()
       padding_1_(0),
       extra_memory_ranges_(nullptr),
       simple_annotations_(nullptr),
-      user_data_minidump_stream_head_(nullptr)
-#if !defined(NDEBUG) && defined(OS_WIN)
-      ,
-      invalid_read_detection_(0xbadc0de)
-#endif
-{
-}
+      user_data_minidump_stream_head_(nullptr),
+      annotations_list_(nullptr) {}
 
 void CrashpadInfo::AddUserDataMinidumpStream(uint32_t stream_type,
                                              const void* data,

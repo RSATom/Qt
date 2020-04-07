@@ -4,6 +4,8 @@
 
 #include "chrome/browser/extensions/api/identity/identity_launch_web_auth_flow_function.h"
 
+#include <memory>
+
 #include "chrome/browser/extensions/api/identity/identity_constants.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/extensions/api/identity.h"
@@ -16,8 +18,6 @@ static const char kChromiumDomainRedirectUrlPattern[] =
     "https://%s.chromiumapp.org/";
 
 }  // namespace
-
-namespace identity = api::identity;
 
 IdentityLaunchWebAuthFlowFunction::IdentityLaunchWebAuthFlowFunction() {}
 
@@ -32,8 +32,8 @@ bool IdentityLaunchWebAuthFlowFunction::RunAsync() {
     return false;
   }
 
-  std::unique_ptr<identity::LaunchWebAuthFlow::Params> params(
-      identity::LaunchWebAuthFlow::Params::Create(*args_));
+  std::unique_ptr<api::identity::LaunchWebAuthFlow::Params> params(
+      api::identity::LaunchWebAuthFlow::Params::Create(*args_));
   EXTENSION_FUNCTION_VALIDATE(params.get());
 
   GURL auth_url(params->details.url);
@@ -91,7 +91,7 @@ void IdentityLaunchWebAuthFlowFunction::OnAuthFlowFailure(
 void IdentityLaunchWebAuthFlowFunction::OnAuthFlowURLChange(
     const GURL& redirect_url) {
   if (redirect_url.GetWithEmptyPath() == final_url_prefix_) {
-    SetResult(base::MakeUnique<base::Value>(redirect_url.spec()));
+    SetResult(std::make_unique<base::Value>(redirect_url.spec()));
     SendResponse(true);
     if (auth_flow_)
       auth_flow_.release()->DetachDelegateAndDelete();

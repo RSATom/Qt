@@ -25,8 +25,9 @@ class V8_EXPORT_PRIVATE CommonOperatorReducer final
     : public NON_EXPORTED_BASE(AdvancedReducer) {
  public:
   CommonOperatorReducer(Editor* editor, Graph* graph,
+                        const JSHeapBroker* js_heap_broker,
                         CommonOperatorBuilder* common,
-                        MachineOperatorBuilder* machine);
+                        MachineOperatorBuilder* machine, Zone* temp_zone);
   ~CommonOperatorReducer() final {}
 
   const char* reducer_name() const override { return "CommonOperatorReducer"; }
@@ -41,19 +42,23 @@ class V8_EXPORT_PRIVATE CommonOperatorReducer final
   Reduction ReducePhi(Node* node);
   Reduction ReduceReturn(Node* node);
   Reduction ReduceSelect(Node* node);
+  Reduction ReduceSwitch(Node* node);
 
   Reduction Change(Node* node, Operator const* op, Node* a);
   Reduction Change(Node* node, Operator const* op, Node* a, Node* b);
 
   Graph* graph() const { return graph_; }
+  const JSHeapBroker* js_heap_broker() const { return js_heap_broker_; }
   CommonOperatorBuilder* common() const { return common_; }
   MachineOperatorBuilder* machine() const { return machine_; }
   Node* dead() const { return dead_; }
 
   Graph* const graph_;
+  const JSHeapBroker* const js_heap_broker_;
   CommonOperatorBuilder* const common_;
   MachineOperatorBuilder* const machine_;
   Node* const dead_;
+  Zone* zone_;
 };
 
 }  // namespace compiler

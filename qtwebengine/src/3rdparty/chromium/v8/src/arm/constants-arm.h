@@ -9,7 +9,9 @@
 
 #include "src/base/logging.h"
 #include "src/base/macros.h"
+#include "src/boxed-float.h"
 #include "src/globals.h"
+#include "src/utils.h"
 
 // ARM EABI is required.
 #if defined(__arm__) && !defined(__ARM_EABI__)
@@ -29,12 +31,9 @@ inline int EncodeConstantPoolLength(int length) {
   return ((length & 0xfff0) << 4) | (length & 0xf);
 }
 inline int DecodeConstantPoolLength(int instr) {
-  DCHECK((instr & kConstantPoolMarkerMask) == kConstantPoolMarker);
+  DCHECK_EQ(instr & kConstantPoolMarkerMask, kConstantPoolMarker);
   return ((instr >> 4) & 0xfff0) | (instr & 0xf);
 }
-
-// Used in code age prologue - ldr(pc, MemOperand(pc, -4))
-const int kCodeAgeJumpInstruction = 0xe51ff004;
 
 // Number of registers in normal ARM mode.
 const int kNumRegisters = 16;
@@ -52,6 +51,12 @@ const int kNoRegister = -1;
 // various load instructions (unsigned)
 const int kLdrMaxReachBits = 12;
 const int kVldrMaxReachBits = 10;
+
+// Actual value of root register is offset from the root array's start
+// to take advantage of negative displacement values. Loads allow a uint12
+// value with a separate sign bit (range [-4095, +4095]), so the first root
+// is still addressable with a single load instruction.
+constexpr int kRootRegisterBias = 4095;
 
 // -----------------------------------------------------------------------------
 // Conditions.
@@ -464,15 +469,19 @@ class Instruction {
     kPCReadOffset = 8
   };
 
-  // Helper macro to define static accessors.
-  // We use the cast to char* trick to bypass the strict anti-aliasing rules.
-  #define DECLARE_STATIC_TYPED_ACCESSOR(return_type, Name)                     \
-    static inline return_type Name(Instr instr) {                              \
-      char* temp = reinterpret_cast<char*>(&instr);                            \
-      return reinterpret_cast<Instruction*>(temp)->Name();                     \
-    }
+  // Difference between address of current opcode and value read from pc
+  // register.
+  static constexpr int kPcLoadDelta = 8;
 
-  #define DECLARE_STATIC_ACCESSOR(Name) DECLARE_STATIC_TYPED_ACCESSOR(int, Name)
+// Helper macro to define static accessors.
+// We use the cast to char* trick to bypass the strict anti-aliasing rules.
+#define DECLARE_STATIC_TYPED_ACCESSOR(return_type, Name) \
+  static inline return_type Name(Instr instr) {          \
+    char* temp = reinterpret_cast<char*>(&instr);        \
+    return reinterpret_cast<Instruction*>(temp)->Name(); \
+  }
+
+#define DECLARE_STATIC_ACCESSOR(Name) DECLARE_STATIC_TYPED_ACCESSOR(int, Name)
 
   // Get the raw instruction bits.
   inline Instr InstructionBits() const {
@@ -626,7 +635,25 @@ class Instruction {
 
   // Fields used in Branch instructions
   inline int LinkValue() const { return Bit(24); }
-  inline int SImmed24Value() const { return ((InstructionBits() << 8) >> 8); }
+  inline int SImmed24Value() const {
+    return signed_bitextract_32(23, 0, InstructionBits());
+  }
+
+  bool IsBranch() { return Bit(27) == 1 && Bit(25) == 1; }
+
+  int GetBranchOffset() {
+    DCHECK(IsBranch());
+    return SImmed24Value() * kInstrSize;
+  }
+
+  void SetBranchOffset(int32_t branch_offset) {
+    DCHECK(IsBranch());
+    DCHECK_EQ(branch_offset % kInstrSize, 0);
+    int32_t new_imm24 = branch_offset / kInstrSize;
+    CHECK(is_int24(new_imm24));
+    SetInstructionBits((InstructionBits() & ~(kImm24Mask)) |
+                       (new_imm24 & kImm24Mask));
+  }
 
   // Fields used in Software interrupt instructions
   inline SoftwareInterruptCodes SvcValue() const {
@@ -643,8 +670,8 @@ class Instruction {
                                            && (Bit(20) == 0)
                                            && ((Bit(7) == 0)); }
 
-  // Test for a nop instruction, which falls under type 1.
-  inline bool IsNopType1() const { return Bits(24, 0) == 0x0120F000; }
+  // Test for nop-like instructions which fall under type 1.
+  inline bool IsNopLikeType1() const { return Bits(24, 8) == 0x120F0; }
 
   // Test for a stop instruction.
   inline bool IsStop() const {
@@ -662,13 +689,13 @@ class Instruction {
   inline bool HasLink() const { return LinkValue() == 1; }
 
   // Decode the double immediate from a vmov instruction.
-  double DoubleImmedVmov() const;
+  Float64 DoubleImmedVmov() const;
 
   // Instructions are read of out a code stream. The only way to get a
   // reference to an instruction is to convert a pointer. There is no way
   // to allocate or create instances of class Instruction.
   // Use the At(pc) function to create references to Instruction.
-  static Instruction* At(byte* pc) {
+  static Instruction* At(Address pc) {
     return reinterpret_cast<Instruction*>(pc);
   }
 
@@ -731,6 +758,8 @@ class VFPRegisters {
   static const char* names_[kNumVFPRegisters];
 };
 
+// Relative jumps on ARM can address ±32 MB.
+constexpr size_t kMaxPCRelativeCodeRangeInMB = 32;
 
 }  // namespace internal
 }  // namespace v8

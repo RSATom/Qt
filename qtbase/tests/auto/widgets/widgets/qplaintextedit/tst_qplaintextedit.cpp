@@ -870,7 +870,7 @@ void tst_QPlainTextEdit::lineWrapModes()
     // QPlainTextEdit does lazy line layout on resize, only for the visible blocks.
     // We thus need to make it wide enough to show something visible.
     int minimumWidth = 2 * ed->document()->documentMargin();
-    minimumWidth += ed->fontMetrics().width(QLatin1Char('a'));
+    minimumWidth += ed->fontMetrics().horizontalAdvance(QLatin1Char('a'));
     minimumWidth += ed->frameWidth();
     ed->resize(minimumWidth, 1000);
     QCOMPARE(lineCount(), 26);
@@ -1352,6 +1352,9 @@ void tst_QPlainTextEdit::adjustScrollbars()
     QLatin1String txt("\nabc def ghi jkl mno pqr stu vwx");
     ed->setPlainText(txt + txt + txt + txt);
 
+#ifdef Q_OS_WINRT
+    QEXPECT_FAIL("", "WinRT does not support setMinimum/MaximumSize", Abort);
+#endif
     QVERIFY(ed->verticalScrollBar()->maximum() > 0);
 
     ed->moveCursor(QTextCursor::End);

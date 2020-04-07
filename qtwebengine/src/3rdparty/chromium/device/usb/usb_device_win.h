@@ -22,7 +22,7 @@ struct UsbDeviceDescriptor;
 class UsbDeviceWin : public UsbDevice {
  public:
   // UsbDevice implementation:
-  void Open(const OpenCallback& callback) override;
+  void Open(OpenCallback callback) override;
 
  protected:
   friend class UsbServiceWin;
@@ -43,17 +43,22 @@ class UsbDeviceWin : public UsbDevice {
 
   // Opens the device's parent hub in order to read the device, configuration
   // and string descriptors.
-  void ReadDescriptors(const base::Callback<void(bool)>& callback);
+  void ReadDescriptors(base::OnceCallback<void(bool)> callback);
 
  private:
-  void OpenOnBlockingThread(const OpenCallback& callback);
-  void OnReadDescriptors(const base::Callback<void(bool)>& callback,
+  void OnReadDescriptors(base::OnceCallback<void(bool)> callback,
                          scoped_refptr<UsbDeviceHandle> device_handle,
                          std::unique_ptr<UsbDeviceDescriptor> descriptor);
   void OnReadStringDescriptors(
-      const base::Callback<void(bool)>& callback,
+      base::OnceCallback<void(bool)> callback,
       scoped_refptr<UsbDeviceHandle> device_handle,
       std::unique_ptr<std::map<uint8_t, base::string16>> string_map);
+  void OnOpenedToReadWebUsbDescriptors(
+      base::OnceCallback<void(bool)> callback,
+      scoped_refptr<UsbDeviceHandle> device_handle);
+  void OnReadWebUsbDescriptors(base::OnceCallback<void(bool)> callback,
+                               scoped_refptr<UsbDeviceHandle> device_handle,
+                               const GURL& landing_page);
 
  private:
   base::ThreadChecker thread_checker_;

@@ -48,9 +48,10 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.2
+import QtQuick 2.12
 import QtTest 1.0
-import QtQuick.Controls 2.2
+import QtQuick.Controls 2.12
+import QtQuick.Layouts 1.12
 
 TestCase {
     id: testCase
@@ -82,34 +83,69 @@ TestCase {
 
     function test_implicitSize() {
         var control = createTemporaryObject(textField, testCase)
-        verify(control.implicitWidth > control.leftPadding + control.rightPadding)
+        verify(control)
 
         var implicitWidthSpy = signalSpy.createObject(control, { target: control, signalName: "implicitWidthChanged"} )
+        verify(implicitWidthSpy.valid)
+
         var implicitHeightSpy = signalSpy.createObject(control, { target: control, signalName: "implicitHeightChanged"} )
+        verify(implicitHeightSpy.valid)
+
+        var implicitBackgroundWidthSpy = createTemporaryObject(signalSpy, testCase, {target: control, signalName: "implicitBackgroundWidthChanged"})
+        verify(implicitBackgroundWidthSpy.valid)
+
+        var implicitBackgroundHeightSpy = createTemporaryObject(signalSpy, testCase, {target: control, signalName: "implicitBackgroundHeightChanged"})
+        verify(implicitBackgroundHeightSpy.valid)
+
+        var implicitWidthChanges = 0
+        var implicitHeightChanges = 0
+        var implicitBackgroundWidthChanges = 0
+        var implicitBackgroundHeightChanges = 0
+
+        verify(control.implicitWidth >= control.leftPadding + control.rightPadding)
+        verify(control.implicitHeight >= control.contentHeight + control.topPadding + control.bottomPadding)
+        compare(control.implicitBackgroundWidth, control.background.implicitWidth)
+        compare(control.implicitBackgroundHeight, control.background.implicitHeight)
 
         control.background = rectangle.createObject(control, {implicitWidth: 400, implicitHeight: 200})
         compare(control.implicitWidth, 400)
         compare(control.implicitHeight, 200)
-        compare(implicitWidthSpy.count, 1)
-        compare(implicitHeightSpy.count, 1)
+        compare(control.implicitBackgroundWidth, 400)
+        compare(control.implicitBackgroundHeight, 200)
+        compare(implicitWidthSpy.count, ++implicitWidthChanges)
+        compare(implicitHeightSpy.count, ++implicitHeightChanges)
+        compare(implicitBackgroundWidthSpy.count, ++implicitBackgroundWidthChanges)
+        compare(implicitBackgroundHeightSpy.count, ++implicitBackgroundHeightChanges)
 
         control.background = null
         compare(control.implicitWidth, control.leftPadding + control.rightPadding)
         compare(control.implicitHeight, control.contentHeight + control.topPadding + control.bottomPadding)
-        compare(implicitWidthSpy.count, 2)
-        compare(implicitHeightSpy.count, 2)
+        compare(control.implicitBackgroundWidth, 0)
+        compare(control.implicitBackgroundHeight, 0)
+        compare(implicitWidthSpy.count, ++implicitWidthChanges)
+        compare(implicitHeightSpy.count, ++implicitHeightChanges)
+        compare(implicitBackgroundWidthSpy.count, ++implicitBackgroundWidthChanges)
+        compare(implicitBackgroundHeightSpy.count, ++implicitBackgroundHeightChanges)
 
         control.text = "TextField"
         compare(control.implicitWidth, control.contentWidth + control.leftPadding + control.rightPadding)
         compare(control.implicitHeight, control.contentHeight + control.topPadding + control.bottomPadding)
-        compare(implicitWidthSpy.count, 3)
-        compare(implicitHeightSpy.count, 2)
+        compare(control.implicitBackgroundWidth, 0)
+        compare(control.implicitBackgroundHeight, 0)
+        compare(implicitWidthSpy.count, ++implicitWidthChanges)
+        compare(implicitHeightSpy.count, implicitHeightChanges)
+        compare(implicitBackgroundWidthSpy.count, implicitBackgroundWidthChanges)
+        compare(implicitBackgroundHeightSpy.count, implicitBackgroundHeightChanges)
 
         control.placeholderText = "..."
-        verify(control.implicitWidth < control.contentWidth + control.leftPadding + control.rightPadding)
+        compare(control.implicitWidth, control.contentWidth + control.leftPadding + control.rightPadding)
         compare(control.implicitHeight, control.contentHeight + control.topPadding + control.bottomPadding)
-        compare(implicitWidthSpy.count, 4)
-        compare(implicitHeightSpy.count, 2)
+        compare(control.implicitBackgroundWidth, 0)
+        compare(control.implicitBackgroundHeight, 0)
+        compare(implicitWidthSpy.count, implicitWidthChanges)
+        compare(implicitHeightSpy.count, implicitHeightChanges)
+        compare(implicitBackgroundWidthSpy.count, implicitBackgroundWidthChanges)
+        compare(implicitBackgroundHeightSpy.count, implicitBackgroundHeightChanges)
     }
 
     function test_alignment_data() {
@@ -434,5 +470,194 @@ TestCase {
 
         mouseClick(control, control.width / 2, control.height / 2, Qt.LeftButton | Qt.RightButton)
         compare(control.selectedText, "")
+    }
+
+    // QTBUG-66260
+    function test_placeholderTextColor() {
+        var control = createTemporaryObject(textField, testCase)
+        verify(control)
+
+        // usually default value should not be pure opacue black
+        verify(control.placeholderTextColor !== "#ff000000")
+        control.placeholderTextColor = "#12345678"
+        compare(control.placeholderTextColor, "#12345678")
+
+        for (var i = 0; i < control.children.length; ++i) {
+            if (control.children[i].hasOwnProperty("text"))
+                compare(control.children[i].color, control.placeholderTextColor) // placeholder.color
+        }
+    }
+
+    function test_inset() {
+        var control = createTemporaryObject(textField, testCase, {background: rectangle.createObject(control)})
+        verify(control)
+
+        var topInsetSpy = createTemporaryObject(signalSpy, testCase, {target: control, signalName: "topInsetChanged"})
+        verify(topInsetSpy.valid)
+
+        var leftInsetSpy = createTemporaryObject(signalSpy, testCase, {target: control, signalName: "leftInsetChanged"})
+        verify(leftInsetSpy.valid)
+
+        var rightInsetSpy = createTemporaryObject(signalSpy, testCase, {target: control, signalName: "rightInsetChanged"})
+        verify(rightInsetSpy.valid)
+
+        var bottomInsetSpy = createTemporaryObject(signalSpy, testCase, {target: control, signalName: "bottomInsetChanged"})
+        verify(bottomInsetSpy.valid)
+
+        var topInsetChanges = 0
+        var leftInsetChanges = 0
+        var rightInsetChanges = 0
+        var bottomInsetChanges = 0
+
+        compare(control.topInset, 0)
+        compare(control.leftInset, 0)
+        compare(control.rightInset, 0)
+        compare(control.bottomInset, 0)
+
+        control.width = 100
+        control.height = 100
+        compare(control.background.x, 0)
+        compare(control.background.y, 0)
+        compare(control.background.width, 100)
+        compare(control.background.height, 100)
+
+        control.topInset = 10
+        compare(control.topInset, 10)
+        compare(control.leftInset, 0)
+        compare(control.rightInset, 0)
+        compare(control.bottomInset, 0)
+        compare(topInsetSpy.count, ++topInsetChanges)
+        compare(leftInsetSpy.count, leftInsetChanges)
+        compare(rightInsetSpy.count, rightInsetChanges)
+        compare(bottomInsetSpy.count, bottomInsetChanges)
+        compare(control.background.x, 0)
+        compare(control.background.y, 10)
+        compare(control.background.width, 100)
+        compare(control.background.height, 90)
+
+        control.leftInset = 20
+        compare(control.topInset, 10)
+        compare(control.leftInset, 20)
+        compare(control.rightInset, 0)
+        compare(control.bottomInset, 0)
+        compare(topInsetSpy.count, topInsetChanges)
+        compare(leftInsetSpy.count, ++leftInsetChanges)
+        compare(rightInsetSpy.count, rightInsetChanges)
+        compare(bottomInsetSpy.count, bottomInsetChanges)
+        compare(control.background.x, 20)
+        compare(control.background.y, 10)
+        compare(control.background.width, 80)
+        compare(control.background.height, 90)
+
+        control.rightInset = 30
+        compare(control.topInset, 10)
+        compare(control.leftInset, 20)
+        compare(control.rightInset, 30)
+        compare(control.bottomInset, 0)
+        compare(topInsetSpy.count, topInsetChanges)
+        compare(leftInsetSpy.count, leftInsetChanges)
+        compare(rightInsetSpy.count, ++rightInsetChanges)
+        compare(bottomInsetSpy.count, bottomInsetChanges)
+        compare(control.background.x, 20)
+        compare(control.background.y, 10)
+        compare(control.background.width, 50)
+        compare(control.background.height, 90)
+
+        control.bottomInset = 40
+        compare(control.topInset, 10)
+        compare(control.leftInset, 20)
+        compare(control.rightInset, 30)
+        compare(control.bottomInset, 40)
+        compare(topInsetSpy.count, topInsetChanges)
+        compare(leftInsetSpy.count, leftInsetChanges)
+        compare(rightInsetSpy.count, rightInsetChanges)
+        compare(bottomInsetSpy.count, ++bottomInsetChanges)
+        compare(control.background.x, 20)
+        compare(control.background.y, 10)
+        compare(control.background.width, 50)
+        compare(control.background.height, 50)
+
+        control.topInset = undefined
+        compare(control.topInset, 0)
+        compare(control.leftInset, 20)
+        compare(control.rightInset, 30)
+        compare(control.bottomInset, 40)
+        compare(topInsetSpy.count, ++topInsetChanges)
+        compare(leftInsetSpy.count, leftInsetChanges)
+        compare(rightInsetSpy.count, rightInsetChanges)
+        compare(bottomInsetSpy.count, bottomInsetChanges)
+        compare(control.background.x, 20)
+        compare(control.background.y, 0)
+        compare(control.background.width, 50)
+        compare(control.background.height, 60)
+
+        control.leftInset = undefined
+        compare(control.topInset, 0)
+        compare(control.leftInset, 0)
+        compare(control.rightInset, 30)
+        compare(control.bottomInset, 40)
+        compare(topInsetSpy.count, topInsetChanges)
+        compare(leftInsetSpy.count, ++leftInsetChanges)
+        compare(rightInsetSpy.count, rightInsetChanges)
+        compare(bottomInsetSpy.count, bottomInsetChanges)
+        compare(control.background.x, 0)
+        compare(control.background.y, 0)
+        compare(control.background.width, 70)
+        compare(control.background.height, 60)
+
+        control.rightInset = undefined
+        compare(control.topInset, 0)
+        compare(control.leftInset, 0)
+        compare(control.rightInset, 0)
+        compare(control.bottomInset, 40)
+        compare(topInsetSpy.count, topInsetChanges)
+        compare(leftInsetSpy.count, leftInsetChanges)
+        compare(rightInsetSpy.count, ++rightInsetChanges)
+        compare(bottomInsetSpy.count, bottomInsetChanges)
+        compare(control.background.x, 0)
+        compare(control.background.y, 0)
+        compare(control.background.width, 100)
+        compare(control.background.height, 60)
+
+        control.bottomInset = undefined
+        compare(control.topInset, 0)
+        compare(control.leftInset, 0)
+        compare(control.rightInset, 0)
+        compare(control.bottomInset, 0)
+        compare(topInsetSpy.count, topInsetChanges)
+        compare(leftInsetSpy.count, leftInsetChanges)
+        compare(rightInsetSpy.count, rightInsetChanges)
+        compare(bottomInsetSpy.count, ++bottomInsetChanges)
+        compare(control.background.x, 0)
+        compare(control.background.y, 0)
+        compare(control.background.width, 100)
+        compare(control.background.height, 100)
+    }
+
+    Component {
+        id: layoutComponent
+
+        ColumnLayout {
+            anchors.fill: parent
+
+            property alias textField: textField
+
+            TextField {
+                id: textField
+                placeholderText: "Placeholder"
+                Layout.fillWidth: true
+            }
+        }
+    }
+
+    function test_inLayout() {
+        var layout = createTemporaryObject(layoutComponent, testCase)
+        verify(layout)
+
+        var control = layout.textField
+        verify(control)
+
+        compare(control.width, control.parent.width)
+        compare(control.background.width, control.width)
     }
 }

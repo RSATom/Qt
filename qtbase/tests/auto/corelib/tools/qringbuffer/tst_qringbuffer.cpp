@@ -48,6 +48,7 @@ private slots:
     void reserveAndReadInPacketMode();
     void reserveFrontAndRead();
     void chop();
+    void readPointerValidity();
     void ungetChar();
     void indexOf();
     void appendAndRead();
@@ -68,7 +69,7 @@ void tst_QRingBuffer::constructing()
     QCOMPARE(ringBuffer.size(), Q_INT64_C(0));
     QVERIFY(ringBuffer.isEmpty());
     QCOMPARE(ringBuffer.nextDataBlockSize(), Q_INT64_C(0));
-    QVERIFY(ringBuffer.readPointer() == Q_NULLPTR);
+    QVERIFY(ringBuffer.readPointer() == nullptr);
     QCOMPARE(ringBuffer.skip(5), Q_INT64_C(0));
     QCOMPARE(ringBuffer.read(), QByteArray());
     QCOMPARE(ringBuffer.getChar(), -1);
@@ -301,6 +302,21 @@ void tst_QRingBuffer::chop()
     ringBuffer.chop(2000);
     QCOMPARE(ringBuffer.size(), Q_INT64_C(4));
     QVERIFY(memcmp(ringBuffer.readPointer(), "0123", 4) == 0);
+}
+
+void tst_QRingBuffer::readPointerValidity()
+{
+    QRingBuffer ringBuffer(16);
+    QByteArray ba("Hello world!");
+
+    ringBuffer.append(ba);
+    const char *ptr = ringBuffer.readPointer();
+    ba.clear();
+    ringBuffer.reserve(32);
+    QVERIFY(ptr == ringBuffer.readPointer());
+    ringBuffer.reserveFront(32);
+    qint64 dummy;
+    QVERIFY(ptr == ringBuffer.readPointerAtPosition(32, dummy));
 }
 
 void tst_QRingBuffer::ungetChar()

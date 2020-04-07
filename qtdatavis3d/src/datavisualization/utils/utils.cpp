@@ -367,7 +367,7 @@ void Utils::resolveStatics()
     const GLubyte *openGLVersion = ctx->functions()->glGetString(GL_VERSION);
     versionStr = QString::fromLatin1(reinterpret_cast<const char *>(openGLVersion)).toLower();
 #endif
-    if (versionStr.contains(QStringLiteral("mesa"))
+    if (versionStr.contains(QStringLiteral("mesa"), Qt::CaseInsensitive)
             || QCoreApplication::testAttribute(Qt::AA_UseSoftwareOpenGL)) {
         qWarning("Only OpenGL ES2 emulation is available for software rendering.");
         isES = true;

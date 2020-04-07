@@ -8,12 +8,13 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_RTC_BASE_NETWORKMONITOR_H_
-#define WEBRTC_RTC_BASE_NETWORKMONITOR_H_
+#ifndef RTC_BASE_NETWORKMONITOR_H_
+#define RTC_BASE_NETWORKMONITOR_H_
 
-#include "webrtc/rtc_base/logging.h"
-#include "webrtc/rtc_base/sigslot.h"
-#include "webrtc/rtc_base/thread.h"
+#include "rtc_base/logging.h"
+#include "rtc_base/network_constants.h"
+#include "rtc_base/sigslot.h"
+#include "rtc_base/thread.h"
 
 namespace rtc {
 
@@ -25,16 +26,6 @@ enum class NetworkBindingResult {
   NOT_IMPLEMENTED = -2,
   ADDRESS_NOT_FOUND = -3,
   NETWORK_CHANGED = -4
-};
-
-enum AdapterType {
-  // This enum resembles the one in Chromium net::ConnectionType.
-  ADAPTER_TYPE_UNKNOWN = 0,
-  ADAPTER_TYPE_ETHERNET = 1 << 0,
-  ADAPTER_TYPE_WIFI = 1 << 1,
-  ADAPTER_TYPE_CELLULAR = 1 << 2,
-  ADAPTER_TYPE_VPN = 1 << 3,
-  ADAPTER_TYPE_LOOPBACK = 1 << 4
 };
 
 class NetworkBinderInterface {
@@ -83,6 +74,8 @@ class NetworkMonitorInterface {
   virtual void OnNetworksChanged() = 0;
 
   virtual AdapterType GetAdapterType(const std::string& interface_name) = 0;
+  virtual AdapterType GetVpnUnderlyingAdapterType(
+      const std::string& interface_name) = 0;
 };
 
 class NetworkMonitorBase : public NetworkMonitorInterface,
@@ -95,6 +88,9 @@ class NetworkMonitorBase : public NetworkMonitorInterface,
   void OnNetworksChanged() override;
 
   void OnMessage(Message* msg) override;
+
+  AdapterType GetVpnUnderlyingAdapterType(
+      const std::string& interface_name) override;
 
  protected:
   Thread* worker_thread() { return worker_thread_; }
@@ -125,4 +121,4 @@ class NetworkMonitorFactory {
 
 }  // namespace rtc
 
-#endif  // WEBRTC_RTC_BASE_NETWORKMONITOR_H_
+#endif  // RTC_BASE_NETWORKMONITOR_H_

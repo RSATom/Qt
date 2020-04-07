@@ -6,7 +6,7 @@
 #define UI_ACCESSIBILITY_PLATFORM_AX_PLATFORM_NODE_BASE_H_
 
 #include "base/macros.h"
-#include "ui/accessibility/ax_enums.h"
+#include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/accessibility/platform/ax_platform_node.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/native_widget_types.h"
@@ -18,11 +18,10 @@ class AXPlatformNodeDelegate;
 
 class AX_EXPORT AXPlatformNodeBase : public AXPlatformNode {
  public:
-   virtual void Init(AXPlatformNodeDelegate* delegate);
+  virtual void Init(AXPlatformNodeDelegate* delegate);
 
   // These are simple wrappers to our delegate.
   const AXNodeData& GetData() const;
-  gfx::Rect GetBoundsInScreen() const;
   gfx::NativeViewAccessible GetParent();
   int GetChildCount();
   gfx::NativeViewAccessible ChildAtIndex(int index);
@@ -40,34 +39,37 @@ class AX_EXPORT AXPlatformNodeBase : public AXPlatformNode {
   AXPlatformNodeBase* GetNextSibling();
   bool IsDescendant(AXPlatformNodeBase* descendant);
 
-  bool HasBoolAttribute(ui::AXBoolAttribute attr) const;
-  bool GetBoolAttribute(ui::AXBoolAttribute attr) const;
-  bool GetBoolAttribute(ui::AXBoolAttribute attr, bool* value) const;
+  bool HasBoolAttribute(ax::mojom::BoolAttribute attr) const;
+  bool GetBoolAttribute(ax::mojom::BoolAttribute attr) const;
+  bool GetBoolAttribute(ax::mojom::BoolAttribute attr, bool* value) const;
 
-  bool HasFloatAttribute(ui::AXFloatAttribute attr) const;
-  float GetFloatAttribute(ui::AXFloatAttribute attr) const;
-  bool GetFloatAttribute(ui::AXFloatAttribute attr, float* value) const;
+  bool HasFloatAttribute(ax::mojom::FloatAttribute attr) const;
+  float GetFloatAttribute(ax::mojom::FloatAttribute attr) const;
+  bool GetFloatAttribute(ax::mojom::FloatAttribute attr, float* value) const;
 
-  bool HasIntAttribute(ui::AXIntAttribute attribute) const;
-  int GetIntAttribute(ui::AXIntAttribute attribute) const;
-  bool GetIntAttribute(ui::AXIntAttribute attribute, int* value) const;
+  bool HasIntAttribute(ax::mojom::IntAttribute attribute) const;
+  int GetIntAttribute(ax::mojom::IntAttribute attribute) const;
+  bool GetIntAttribute(ax::mojom::IntAttribute attribute, int* value) const;
 
-  bool HasStringAttribute(
-      ui::AXStringAttribute attribute) const;
-  const std::string& GetStringAttribute(ui::AXStringAttribute attribute) const;
-  bool GetStringAttribute(ui::AXStringAttribute attribute,
+  bool HasStringAttribute(ax::mojom::StringAttribute attribute) const;
+  const std::string& GetStringAttribute(
+      ax::mojom::StringAttribute attribute) const;
+  bool GetStringAttribute(ax::mojom::StringAttribute attribute,
                           std::string* value) const;
-  bool GetString16Attribute(ui::AXStringAttribute attribute,
+  bool GetString16Attribute(ax::mojom::StringAttribute attribute,
                             base::string16* value) const;
   base::string16 GetString16Attribute(
-      ui::AXStringAttribute attribute) const;
+      ax::mojom::StringAttribute attribute) const;
 
-  bool HasIntListAttribute(ui::AXIntListAttribute attribute) const;
+  bool HasIntListAttribute(ax::mojom::IntListAttribute attribute) const;
   const std::vector<int32_t>& GetIntListAttribute(
-      ui::AXIntListAttribute attribute) const;
+      ax::mojom::IntListAttribute attribute) const;
 
-  bool GetIntListAttribute(ui::AXIntListAttribute attribute,
+  bool GetIntListAttribute(ax::mojom::IntListAttribute attribute,
                            std::vector<int32_t>* value) const;
+
+  // Returns the selection container if inside one.
+  AXPlatformNodeBase* GetSelectionContainer() const;
 
   // Returns the table or ARIA grid if inside one.
   AXPlatformNodeBase* GetTable() const;
@@ -115,6 +117,32 @@ class AX_EXPORT AXPlatformNodeBase : public AXPlatformNode {
   // this cell spans. If not a cell, returns 0.
   int GetTableRowSpan() const;
 
+  // Returns true if either a descendant has selection (sel_focus_object_id) or
+  // if this node is a simple text element and has text selection attributes.
+  bool HasCaret();
+
+  // Return true if this object is equal to or a descendant of |ancestor|.
+  bool IsDescendantOf(AXPlatformNodeBase* ancestor);
+
+  // Returns true if an ancestor of this node (not including itself) is a
+  // leaf node, meaning that this node is not actually exposed to the
+  // platform.
+  bool IsChildOfLeaf();
+
+  // Returns true if this is a leaf node on this platform, meaning any
+  // children should not be exposed to this platform's native accessibility
+  // layer. Each platform subclass should implement this itself.
+  // The definition of a leaf may vary depending on the platform,
+  // but a leaf node should never have children that are focusable or
+  // that might send notifications.
+  bool IsLeaf();
+
+  bool HasFocus();
+
+  virtual base::string16 GetText();
+
+  virtual base::string16 GetValue();
+
   //
   // Delegate.  This is a weak reference which owns |this|.
   //
@@ -125,9 +153,13 @@ class AX_EXPORT AXPlatformNodeBase : public AXPlatformNode {
   ~AXPlatformNodeBase() override;
 
   bool IsTextOnlyObject() const;
-  bool IsNativeTextControl() const;
-  bool IsSimpleTextControl() const;
-  bool IsRichTextControl();
+  bool IsPlainTextField() const;
+  // Is in a focused textfield with a related suggestion popup available,
+  // such as for the Autofill feature. The suggestion popup can be either hidden
+  // and available or already visible. This indicates next down arrow key will
+  // navigate within the suggestion popup.
+  bool IsFocusedInputWithSuggestions();
+  bool IsRichTextField() const;
   bool IsRangeValueSupported() const;
 
   // Get the range value text, which might come from aria-valuetext or

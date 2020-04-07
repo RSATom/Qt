@@ -13,8 +13,9 @@
 #include "gpu/command_buffer/service/feature_info.h"
 #include "gpu/command_buffer/service/gles2_cmd_decoder.h"
 #include "gpu/command_buffer/service/gles2_cmd_decoder_mock.h"
+#include "gpu/command_buffer/service/gles2_query_manager.h"
 #include "gpu/command_buffer/service/gpu_service_test.h"
-#include "gpu/command_buffer/service/query_manager.h"
+#include "gpu/command_buffer/service/gpu_tracer.h"
 #include "gpu/command_buffer/service/test_helper.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/gl/gl_context.h"
@@ -40,9 +41,8 @@ class QueryManagerTest : public GpuServiceTest {
   static const uint32_t kInitialResult = 0xBDBDBDBDu;
   static const uint8_t kInitialMemoryValue = 0xBDu;
 
-  QueryManagerTest() {
-  }
-  ~QueryManagerTest() override {}
+  QueryManagerTest() = default;
+  ~QueryManagerTest() override = default;
 
  protected:
   void SetUp() override {
@@ -69,14 +69,15 @@ class QueryManagerTest : public GpuServiceTest {
     buffer = command_buffer_service_->CreateTransferBufferHelper(
         kSharedBufferSize, &shared_memory2_id_);
     memset(buffer->memory(), kInitialMemoryValue, kSharedBufferSize);
-    decoder_.reset(new MockGLES2Decoder(command_buffer_service_.get()));
+    decoder_.reset(
+        new MockGLES2Decoder(command_buffer_service_.get(), &outputter_));
     TestHelper::SetupFeatureInfoInitExpectations(
         gl_.get(), extension_expectations);
     EXPECT_CALL(*decoder_.get(), GetGLContext())
       .WillRepeatedly(Return(GetGLContext()));
     scoped_refptr<FeatureInfo> feature_info(new FeatureInfo());
     feature_info->InitializeForTesting();
-    manager_.reset(new QueryManager(decoder_.get(), feature_info.get()));
+    manager_.reset(new GLES2QueryManager(decoder_.get(), feature_info.get()));
   }
 
   QueryManager::Query* CreateQuery(GLenum target,
@@ -122,9 +123,10 @@ class QueryManagerTest : public GpuServiceTest {
     manager_->EndQuery(query, submit_count);
   }
 
+  TraceOutputter outputter_;
   std::unique_ptr<FakeCommandBufferServiceBase> command_buffer_service_;
   std::unique_ptr<MockGLES2Decoder> decoder_;
-  std::unique_ptr<QueryManager> manager_;
+  std::unique_ptr<GLES2QueryManager> manager_;
 
   int32_t shared_memory_id_ = 0;
   int32_t shared_memory2_id_ = 0;
@@ -411,8 +413,8 @@ TEST_F(QueryManagerTest, ARBOcclusionQuery2) {
       "GL_ARB_occlusion_query2");
   scoped_refptr<FeatureInfo> feature_info(new FeatureInfo());
   feature_info->InitializeForTesting();
-  std::unique_ptr<QueryManager> manager(
-      new QueryManager(decoder_.get(), feature_info.get()));
+  std::unique_ptr<GLES2QueryManager> manager(
+      new GLES2QueryManager(decoder_.get(), feature_info.get()));
 
   QueryManager::Query* query =
       CreateQueryOnManager(manager.get(), kTarget, kClient1Id,
@@ -443,8 +445,8 @@ TEST_F(QueryManagerTest, ARBOcclusionQuery) {
       "GL_ARB_occlusion_query");
   scoped_refptr<FeatureInfo> feature_info(new FeatureInfo());
   feature_info->InitializeForTesting();
-  std::unique_ptr<QueryManager> manager(
-      new QueryManager(decoder_.get(), feature_info.get()));
+  std::unique_ptr<GLES2QueryManager> manager(
+      new GLES2QueryManager(decoder_.get(), feature_info.get()));
 
   QueryManager::Query* query =
       CreateQueryOnManager(manager.get(), kTarget, kClient1Id,
@@ -474,8 +476,8 @@ TEST_F(QueryManagerTest, ARBOcclusionPauseResume) {
       "GL_ARB_occlusion_query");
   scoped_refptr<FeatureInfo> feature_info(new FeatureInfo());
   feature_info->InitializeForTesting();
-  std::unique_ptr<QueryManager> manager(
-      new QueryManager(decoder_.get(), feature_info.get()));
+  std::unique_ptr<GLES2QueryManager> manager(
+      new GLES2QueryManager(decoder_.get(), feature_info.get()));
 
   QueryManager::Query* query =
       CreateQueryOnManager(manager.get(), kTarget, kClient1Id,
@@ -839,8 +841,8 @@ TEST_F(QueryManagerTest, GetErrorQuery) {
   TestHelper::SetupFeatureInfoInitExpectations(gl_.get(), "");
   scoped_refptr<FeatureInfo> feature_info(new FeatureInfo());
   feature_info->InitializeForTesting();
-  std::unique_ptr<QueryManager> manager(
-      new QueryManager(decoder_.get(), feature_info.get()));
+  std::unique_ptr<GLES2QueryManager> manager(
+      new GLES2QueryManager(decoder_.get(), feature_info.get()));
 
   QueryManager::Query* query =
       CreateQueryOnManager(manager.get(), kTarget, kClient1Id,
@@ -881,8 +883,8 @@ TEST_F(QueryManagerTest, OcclusionQuery) {
       "GL_ARB_occlusion_query");
   scoped_refptr<FeatureInfo> feature_info(new FeatureInfo());
   feature_info->InitializeForTesting();
-  std::unique_ptr<QueryManager> manager(
-      new QueryManager(decoder_.get(), feature_info.get()));
+  std::unique_ptr<GLES2QueryManager> manager(
+      new GLES2QueryManager(decoder_.get(), feature_info.get()));
 
   QueryManager::Query* query =
       CreateQueryOnManager(manager.get(), kTarget, kClient1Id,
@@ -902,5 +904,3 @@ TEST_F(QueryManagerTest, OcclusionQuery) {
 
 }  // namespace gles2
 }  // namespace gpu
-
-

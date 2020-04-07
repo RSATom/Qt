@@ -45,6 +45,7 @@
 #include <QtLocation/QPlaceSearchRequest>
 #include <QtLocation/QPlaceSearchReply>
 #include <QtPositioning/QGeoCircle>
+#include <QtPositioning/QGeoPolygon>
 
 QT_BEGIN_NAMESPACE
 
@@ -89,6 +90,8 @@ QVariant QDeclarativeSearchModelBase::searchArea() const
         return QVariant::fromValue(QGeoRectangle(s));
     else if (s.type() == QGeoShape::CircleType)
         return QVariant::fromValue(QGeoCircle(s));
+    else if (s.type() == QGeoShape::PolygonType)
+        return QVariant::fromValue(QGeoPolygon(s));
     else
         return QVariant::fromValue(s);
 }
@@ -213,6 +216,7 @@ void QDeclarativeSearchModelBase::update()
 
     m_reply->setParent(this);
     connect(m_reply, SIGNAL(finished()), this, SLOT(queryFinished()));
+    connect(m_reply, SIGNAL(contentUpdated()), this, SLOT(onContentUpdated()));
 }
 
 /*!
@@ -328,6 +332,11 @@ void QDeclarativeSearchModelBase::initializePlugin(QDeclarativeGeoServiceProvide
     }
 
     endResetModel();
+}
+
+void QDeclarativeSearchModelBase::onContentUpdated()
+{
+
 }
 
 /*!

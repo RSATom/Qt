@@ -63,10 +63,18 @@ class Q_QUICKTEMPLATES2_PRIVATE_EXPORT QQuickLabel : public QQuickText
     Q_PROPERTY(QQuickItem *background READ background WRITE setBackground NOTIFY backgroundChanged FINAL)
     // 2.3 (Qt 5.10)
     Q_PROPERTY(QPalette palette READ palette WRITE setPalette RESET resetPalette NOTIFY paletteChanged FINAL REVISION 3)
+    // 2.5 (Qt 5.12)
+    Q_PROPERTY(qreal implicitBackgroundWidth READ implicitBackgroundWidth NOTIFY implicitBackgroundWidthChanged FINAL REVISION 5)
+    Q_PROPERTY(qreal implicitBackgroundHeight READ implicitBackgroundHeight NOTIFY implicitBackgroundHeightChanged FINAL REVISION 5)
+    Q_PROPERTY(qreal topInset READ topInset WRITE setTopInset RESET resetTopInset NOTIFY topInsetChanged FINAL REVISION 5)
+    Q_PROPERTY(qreal leftInset READ leftInset WRITE setLeftInset RESET resetLeftInset NOTIFY leftInsetChanged FINAL REVISION 5)
+    Q_PROPERTY(qreal rightInset READ rightInset WRITE setRightInset RESET resetRightInset NOTIFY rightInsetChanged FINAL REVISION 5)
+    Q_PROPERTY(qreal bottomInset READ bottomInset WRITE setBottomInset RESET resetBottomInset NOTIFY bottomInsetChanged FINAL REVISION 5)
     Q_CLASSINFO("DeferredPropertyNames", "background")
 
 public:
     explicit QQuickLabel(QQuickItem *parent = nullptr);
+    ~QQuickLabel();
 
     QFont font() const;
     void setFont(const QFont &font);
@@ -79,11 +87,38 @@ public:
     void setPalette(const QPalette &palette);
     void resetPalette();
 
+    // 2.5 (Qt 5.12)
+    qreal implicitBackgroundWidth() const;
+    qreal implicitBackgroundHeight() const;
+
+    qreal topInset() const;
+    void setTopInset(qreal inset);
+    void resetTopInset();
+
+    qreal leftInset() const;
+    void setLeftInset(qreal inset);
+    void resetLeftInset();
+
+    qreal rightInset() const;
+    void setRightInset(qreal inset);
+    void resetRightInset();
+
+    qreal bottomInset() const;
+    void setBottomInset(qreal inset);
+    void resetBottomInset();
+
 Q_SIGNALS:
     void fontChanged();
     void backgroundChanged();
     // 2.3 (Qt 5.10)
     Q_REVISION(3) void paletteChanged();
+    // 2.5 (Qt 5.12)
+    Q_REVISION(5) void implicitBackgroundWidthChanged();
+    Q_REVISION(5) void implicitBackgroundHeightChanged();
+    Q_REVISION(5) void topInsetChanged();
+    Q_REVISION(5) void leftInsetChanged();
+    Q_REVISION(5) void rightInsetChanged();
+    Q_REVISION(5) void bottomInsetChanged();
 
 protected:
     void classBegin() override;
@@ -91,6 +126,7 @@ protected:
 
     void itemChange(ItemChange change, const ItemChangeData &value) override;
     void geometryChanged(const QRectF &newGeometry, const QRectF &oldGeometry) override;
+    virtual void insetChange(const QMarginsF &newInset, const QMarginsF &oldInset);
 
 private:
     Q_DISABLE_COPY(QQuickLabel)

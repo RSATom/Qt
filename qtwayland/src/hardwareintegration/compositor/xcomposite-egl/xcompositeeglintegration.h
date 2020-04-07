@@ -61,7 +61,7 @@ public:
     inline EGLDisplay eglDisplay() const { return mEglDisplay; }
 
 private:
-    Display *mDisplay;
+    Display *mDisplay = nullptr;
     EGLDisplay mEglDisplay;
 };
 
@@ -78,8 +78,8 @@ public:
     }
 
 private:
-    QOpenGLTexture *m_texture;
-    XCompositeEglClientBufferIntegration *m_integration;
+    QOpenGLTexture *m_texture = nullptr;
+    XCompositeEglClientBufferIntegration *m_integration = nullptr;
 };
 
 QT_END_NAMESPACE

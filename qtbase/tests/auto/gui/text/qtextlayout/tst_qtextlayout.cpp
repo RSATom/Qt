@@ -137,6 +137,7 @@ private slots:
     void nbspWithFormat();
     void noModificationOfInputString();
     void superscriptCrash_qtbug53911();
+    void showLineAndParagraphSeparatorsCrash();
 
 private:
     QFont testFont;
@@ -203,7 +204,7 @@ void tst_QTextLayout::init()
     testFont.setPixelSize(TESTFONT_SIZE);
     testFont.setWeight(QFont::Normal);
 #ifdef QT_BUILD_INTERNAL
-    QCOMPARE(QFontMetrics(testFont).width('a'), testFont.pixelSize());
+    QCOMPARE(QFontMetrics(testFont).horizontalAdvance('a'), testFont.pixelSize());
 #endif
 }
 
@@ -2196,6 +2197,23 @@ void tst_QTextLayout::noModificationOfInputString()
 
         QCOMPARE(s.size(), 1);
         QCOMPARE(s.at(0), QChar(QChar::LineSeparator));
+    }
+}
+
+void tst_QTextLayout::showLineAndParagraphSeparatorsCrash()
+{
+    QString s = QString(100000, QChar('a')) + QChar(QChar::LineSeparator);
+    {
+        QTextLayout layout;
+        layout.setText(s);
+
+        QTextOption option;
+        option.setFlags(QTextOption::ShowLineAndParagraphSeparators);
+        layout.setTextOption(option);
+
+        layout.beginLayout();
+        layout.createLine();
+        layout.endLayout();
     }
 }
 

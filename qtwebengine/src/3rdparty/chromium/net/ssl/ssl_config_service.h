@@ -19,8 +19,7 @@ namespace net {
 // does not cover setting the SSL configuration, as on some systems, the
 // SSLConfigService objects may not have direct access to the configuration, or
 // live longer than the configuration preferences.
-class NET_EXPORT SSLConfigService
-    : public base::RefCountedThreadSafe<SSLConfigService> {
+class NET_EXPORT SSLConfigService {
  public:
   // Observer is notified when SSL config settings have changed.
   class NET_EXPORT Observer {
@@ -42,12 +41,23 @@ class NET_EXPORT SSLConfigService
   };
 
   SSLConfigService();
+  virtual ~SSLConfigService();
 
   // May not be thread-safe, should only be called on the IO thread.
   virtual void GetSSLConfig(SSLConfig* config) = 0;
 
-  // Sets and gets the current, global CRL set.
-  static void SetCRLSet(scoped_refptr<CRLSet> crl_set);
+  // Sets the current global CRL set to |crl_set|, if and only if the passed CRL
+  // set has a higher sequence number (as reported by CRLSet::sequence()) than
+  // the current set (or there is no current set). Can be called concurrently
+  // with itself and with GetCRLSet.
+  static void SetCRLSetIfNewer(scoped_refptr<CRLSet> crl_set);
+
+  // Like SetCRLSetIfNewer() but assigns it unconditionally. Should only be used
+  // by test code.
+  static void SetCRLSetForTesting(scoped_refptr<CRLSet> crl_set);
+
+  // Gets the current global CRL set. In the case that none exists, returns
+  // nullptr.
   static scoped_refptr<CRLSet> GetCRLSet();
 
   // Add an observer of this service.
@@ -60,14 +70,16 @@ class NET_EXPORT SSLConfigService
   // called on the IO thread.
   void NotifySSLConfigChange();
 
+  // Checks if the config-service managed fields in two SSLConfigs are the same.
+  static bool SSLConfigsAreEqualForTesting(const net::SSLConfig& config1,
+                                           const net::SSLConfig& config2);
+
  protected:
-  friend class base::RefCountedThreadSafe<SSLConfigService>;
-
-  virtual ~SSLConfigService();
-
   // Process before/after config update.
   void ProcessConfigUpdate(const SSLConfig& orig_config,
                            const SSLConfig& new_config);
+
+  static void SetCRLSet(scoped_refptr<CRLSet> crl_set, bool if_newer);
 
  private:
   base::ObserverList<Observer> observer_list_;

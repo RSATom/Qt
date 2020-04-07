@@ -71,12 +71,12 @@ public:
 
     const QVariant &value() const { return m_value; }
     const QString &name() const { return m_name; }
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) Q_DECL_OVERRIDE;
+    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) override;
     bool operator ==(const FilterKey &other);
     bool operator !=(const FilterKey &other);
 
 private:
-    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) Q_DECL_FINAL;
+    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) final;
 
     QVariant m_value;
     QString m_name;

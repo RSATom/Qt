@@ -16,7 +16,6 @@
 
 #include <libaddressinput/address_data.h>
 #include <libaddressinput/address_field.h>
-#include <libaddressinput/util/basictypes.h>
 
 #include <algorithm>
 #include <cassert>
@@ -30,6 +29,7 @@
 #include "region_data_constants.h"
 #include "rule.h"
 #include "util/cctype_tolower_equal.h"
+#include "util/size.h"
 
 namespace i18n {
 namespace addressinput {
@@ -38,7 +38,7 @@ namespace {
 
 const char kCommaSeparator[] = ", ";
 const char kSpaceSeparator[] = " ";
-const char kArabicCommaSeparator[] = "\xD8\x8C" " ";  /* "، " */
+const char kArabicCommaSeparator[] = u8"، ";
 
 const char* kLanguagesThatUseSpace[] = {
   "th",
@@ -79,25 +79,25 @@ std::string GetLineSeparatorForLanguage(const std::string& language_tag) {
   // Now guess something appropriate based on the base language.
   const std::string& base_language = address_language.base;
   if (std::find_if(kLanguagesThatUseSpace,
-                   kLanguagesThatUseSpace + arraysize(kLanguagesThatUseSpace),
+                   kLanguagesThatUseSpace + size(kLanguagesThatUseSpace),
                    std::bind2nd(EqualToTolowerString(), base_language)) !=
-      kLanguagesThatUseSpace + arraysize(kLanguagesThatUseSpace)) {
+      kLanguagesThatUseSpace + size(kLanguagesThatUseSpace)) {
     return kSpaceSeparator;
   } else if (std::find_if(
                  kLanguagesThatHaveNoSeparator,
                  kLanguagesThatHaveNoSeparator +
-                     arraysize(kLanguagesThatHaveNoSeparator),
+                     size(kLanguagesThatHaveNoSeparator),
                  std::bind2nd(EqualToTolowerString(), base_language)) !=
              kLanguagesThatHaveNoSeparator +
-                 arraysize(kLanguagesThatHaveNoSeparator)) {
+                 size(kLanguagesThatHaveNoSeparator)) {
     return "";
   } else if (std::find_if(
                  kLanguagesThatUseAnArabicComma,
                  kLanguagesThatUseAnArabicComma +
-                     arraysize(kLanguagesThatUseAnArabicComma),
+                     size(kLanguagesThatUseAnArabicComma),
                  std::bind2nd(EqualToTolowerString(), base_language)) !=
              kLanguagesThatUseAnArabicComma +
-                 arraysize(kLanguagesThatUseAnArabicComma)) {
+                 size(kLanguagesThatUseAnArabicComma)) {
     return kArabicCommaSeparator;
   }
   // Either the language is a Latin-script language, or no language was
@@ -127,7 +127,7 @@ void CombineLinesForLanguage(const std::vector<std::string>& lines,
 
 void GetFormattedNationalAddress(
     const AddressData& address_data, std::vector<std::string>* lines) {
-  assert(lines != NULL);
+  assert(lines != nullptr);
   lines->clear();
 
   Rule rule;

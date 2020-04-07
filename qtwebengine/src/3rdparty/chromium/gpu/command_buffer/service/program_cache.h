@@ -12,6 +12,7 @@
 
 #include "base/containers/hash_tables.h"
 #include "base/macros.h"
+#include "base/memory/memory_pressure_listener.h"
 #include "base/sha1.h"
 #include "gpu/command_buffer/common/gles2_cmd_format.h"
 #include "gpu/command_buffer/service/program_manager.h"
@@ -23,7 +24,7 @@ namespace gles2 {
 class Shader;
 
 // Program cache base class for caching linked gpu programs
-class GPU_EXPORT ProgramCache {
+class GPU_GLES2_EXPORT ProgramCache {
  public:
   static const size_t kHashLength = base::kSHA1Length;
 
@@ -39,7 +40,7 @@ class GPU_EXPORT ProgramCache {
     PROGRAM_LOAD_SUCCESS
   };
 
-  ProgramCache();
+  explicit ProgramCache(size_t max_cache_size_bytes);
   virtual ~ProgramCache();
 
   LinkedProgramStatus GetLinkedProgramStatus(
@@ -58,7 +59,7 @@ class GPU_EXPORT ProgramCache {
       const LocationMap* bind_attrib_location_map,
       const std::vector<std::string>& transform_feedback_varyings,
       GLenum transform_feedback_buffer_mode,
-      GLES2DecoderClient* client) = 0;
+      DecoderClient* client) = 0;
 
   // Saves the program into the cache.  If successful, the implementation should
   // call LinkedProgramCacheSuccess.
@@ -69,7 +70,7 @@ class GPU_EXPORT ProgramCache {
       const LocationMap* bind_attrib_location_map,
       const std::vector<std::string>& transform_feedback_varyings,
       GLenum transform_feedback_buffer_mode,
-      GLES2DecoderClient* client) = 0;
+      DecoderClient* client) = 0;
 
   virtual void LoadProgram(const std::string& key,
                            const std::string& program) = 0;
@@ -88,7 +89,13 @@ class GPU_EXPORT ProgramCache {
   // Returns the number of bytes of memory freed.
   virtual size_t Trim(size_t limit) = 0;
 
+  // Reduces cache usage based on the given MemoryPressureLevel
+  void HandleMemoryPressure(
+      base::MemoryPressureListener::MemoryPressureLevel memory_pressure_level);
+
  protected:
+  size_t max_size_bytes() const { return max_size_bytes_; }
+
   // called by implementing class after a shader was successfully cached
   void LinkedProgramCacheSuccess(const std::string& program_hash);
 
@@ -115,6 +122,7 @@ class GPU_EXPORT ProgramCache {
   // called to clear the backend cache
   virtual void ClearBackend() = 0;
 
+  const size_t max_size_bytes_;
   LinkStatusMap link_status_;
 
   DISALLOW_COPY_AND_ASSIGN(ProgramCache);

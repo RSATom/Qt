@@ -82,10 +82,14 @@ public:
         other.waitForFinished();
         return *this = other.reply();
     }
+#if defined(Q_CLANG_QDOC)
+    inline QDBusReply(const QDBusPendingReply &reply) { }
+#else
     inline QDBusReply(const QDBusPendingReply<T> &reply)
     {
         *this = static_cast<QDBusPendingCall>(reply);
     }
+#endif
 
     inline QDBusReply(const QDBusError &dbusError = QDBusError())
         : m_error(dbusError), m_data(Type())
@@ -130,7 +134,7 @@ private:
 template<> inline QDBusReply<QVariant>&
 QDBusReply<QVariant>::operator=(const QDBusMessage &reply)
 {
-    void *null = Q_NULLPTR;
+    void *null = nullptr;
     QVariant data(qMetaTypeId<QDBusVariant>(), null);
     qDBusReplyFill(reply, m_error, data);
     m_data = qvariant_cast<QDBusVariant>(data).variant();

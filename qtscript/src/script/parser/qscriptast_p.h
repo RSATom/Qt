@@ -35,7 +35,7 @@
 // We mean it.
 //
 
-#include <QtCore/QString>
+#include <QtCore/qstring.h>
 
 #include "qscriptastvisitor_p.h"
 

@@ -19,7 +19,8 @@
 #include "components/autofill/content/renderer/renderer_save_password_progress_logger.h"
 #include "content/public/renderer/render_frame_observer.h"
 #include "mojo/public/cpp/bindings/binding.h"
-#include "third_party/WebKit/public/web/WebInputElement.h"
+#include "services/service_manager/public/cpp/binder_registry.h"
+#include "third_party/blink/public/web/web_input_element.h"
 #include "url/gurl.h"
 
 namespace autofill {
@@ -34,8 +35,18 @@ class PasswordAutofillAgent;
 class PasswordGenerationAgent : public content::RenderFrameObserver,
                                 public mojom::PasswordGenerationAgent {
  public:
+  // Maximum number of characters typed by user while the generation is still
+  // offered. When the (kMaximumCharsForGenerationOffer + 1)-th character is
+  // typed, the generation becomes unavailable.
+  static const size_t kMaximumCharsForGenerationOffer = 5;
+
+  // User can edit the generated password. If the length falls below this value,
+  // the password is no longer considered generated.
+  static const size_t kMinimumLengthForEditedPassword = 4;
+
   PasswordGenerationAgent(content::RenderFrame* render_frame,
-                          PasswordAutofillAgent* password_agent);
+                          PasswordAutofillAgent* password_agent,
+                          service_manager::BinderRegistry* registry);
   ~PasswordGenerationAgent() override;
 
   void BindRequest(mojom::PasswordGenerationAgentRequest request);
@@ -48,6 +59,7 @@ class PasswordGenerationAgent : public content::RenderFrameObserver,
   // Sets |generation_element_| to the focused password field and shows a
   // generation popup at this field.
   void UserTriggeredGeneratePassword() override;
+
   // Enables the form classifier.
   void AllowToRunFormClassifier() override;
 
@@ -61,8 +73,14 @@ class PasswordGenerationAgent : public content::RenderFrameObserver,
   // Called when new form controls are inserted.
   void OnDynamicFormsSeen();
 
-  // The length that a password can be before the UI is hidden.
-  static const size_t kMaximumOfferSize = 5;
+  // Called right before PasswordAutofillAgent filled |password_element|.
+  void OnFieldAutofilled(const blink::WebInputElement& password_element);
+
+#if defined(UNIT_TEST)
+  // This method requests the autofill::mojom::PasswordManagerClient which binds
+  // requests the binding if it wasn't bound yet.
+  void RequestPasswordManagerClientForTesting() { GetPasswordManagerClient(); }
+#endif
 
  protected:
   // Returns true if the document for |render_frame()| is one that we should
@@ -87,11 +105,13 @@ class PasswordGenerationAgent : public content::RenderFrameObserver,
   typedef std::vector<AccountCreationFormData> AccountCreationFormDataList;
 
   // RenderFrameObserver:
+  void DidCommitProvisionalLoad(bool is_new_navigation,
+                                bool is_same_document_navigation) override;
   void DidFinishDocumentLoad() override;
   void DidFinishLoad() override;
   void OnDestruct() override;
 
-  const mojom::PasswordManagerDriverPtr& GetPasswordManagerDriver();
+  const mojom::PasswordManagerDriverAssociatedPtr& GetPasswordManagerDriver();
 
   const mojom::PasswordManagerClientAssociatedPtr& GetPasswordManagerClient();
 
@@ -104,14 +124,29 @@ class PasswordGenerationAgent : public content::RenderFrameObserver,
   // we want to trigger the generation UI on.
   void DetermineGenerationElement();
 
-  // Show password generation UI anchored at |generation_element_|.
-  void ShowGenerationPopup();
+  // Helper function which takes care of the form processing and collecting the
+  // information which is required to show the generation popup. Returns true if
+  // all required information is collected.
+  bool SetUpUserTriggeredGeneration();
+
+  // This is called whenever automatic generation could be offered.
+  // If manual generation was already requested, automatic generation will
+  // not be offered.
+  void MaybeOfferAutomaticGeneration();
+
+  // Signals the browser that it should offer or rescind automatic password
+  // generation depending whether the user has just focused a form field
+  // suitable for generation or has changed focus from such a field.
+  void AutomaticGenerationStatusChanged(bool available);
 
   // Show UI for editing a generated password at |generation_element_|.
   void ShowEditingPopup();
 
-  // Hides a password generation popup if one exists.
-  void HidePopup();
+  // Signals the browser that generation was rejected. This happens when the
+  // user types more characters than the maximum offer size into the password
+  // field. Upon receiving this message, the browser can choose to hide the
+  // generation UI or not, depending on the platform.
+  void GenerationRejectedByTyping();
 
   // Stops treating a password as generated.
   void PasswordNoLongerGenerated();
@@ -162,7 +197,7 @@ class PasswordGenerationAgent : public content::RenderFrameObserver,
   // password.
   bool password_is_generated_;
 
-  // True if password generation was manually triggered.
+  // True if the last password generation was manually triggered.
   bool is_manually_triggered_;
 
   // True if a password was generated and the user edited it. Used for UMA
@@ -172,6 +207,10 @@ class PasswordGenerationAgent : public content::RenderFrameObserver,
   // True if the generation popup was shown during this navigation. Used to
   // track UMA stats per page visit rather than per display, since the former
   // is more interesting.
+  // TODO(crbug.com/845458): Remove this or change the description of the
+  // logged event as calling AutomaticgenerationStatusChanged will no longer
+  // imply that a popup is shown. This could instead be logged with the
+  // metrics collected on the browser process.
   bool generation_popup_shown_;
 
   // True if the editing popup was shown during this navigation. Used to track
@@ -184,6 +223,10 @@ class PasswordGenerationAgent : public content::RenderFrameObserver,
 
   // If the form classifier should run.
   bool form_classifier_enabled_;
+
+  // True iff the generation element should be marked with special HTML
+  // attribute (only for experimental purposes).
+  bool mark_generation_element_;
 
   // Unowned pointer. Used to notify PassowrdAutofillAgent when values
   // in password fields are updated.

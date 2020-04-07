@@ -56,6 +56,8 @@
 #include "QtSql/qsqlindex.h"
 #include "QtCore/qmap.h"
 
+QT_REQUIRE_CONFIG(sqlmodel);
+
 QT_BEGIN_NAMESPACE
 
 class Q_AUTOTEST_EXPORT QSqlTableModelPrivate: public QSqlQueryModelPrivate
@@ -91,7 +93,7 @@ public:
     QSqlTableModel::EditStrategy strategy;
     bool busyInsertingRows;
 
-    QSqlQuery editQuery;
+    QSqlQuery editQuery = { QSqlQuery(0) };
     QSqlIndex primaryIndex;
     QString tableName;
     QString filter;

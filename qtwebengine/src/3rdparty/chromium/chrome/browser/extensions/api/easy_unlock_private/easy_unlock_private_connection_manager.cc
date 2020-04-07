@@ -7,7 +7,6 @@
 #include <utility>
 
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "chrome/browser/extensions/api/easy_unlock_private/easy_unlock_private_connection.h"
 #include "chrome/common/extensions/api/easy_unlock_private.h"
 #include "components/cryptauth/connection.h"
@@ -25,11 +24,11 @@ const char kEasyUnlockFeatureName[] = "easy_unlock";
 api::easy_unlock_private::ConnectionStatus ToApiConnectionStatus(
     Connection::Status status) {
   switch (status) {
-    case Connection::DISCONNECTED:
+    case Connection::Status::DISCONNECTED:
       return api::easy_unlock_private::CONNECTION_STATUS_DISCONNECTED;
-    case Connection::IN_PROGRESS:
+    case Connection::Status::IN_PROGRESS:
       return api::easy_unlock_private::CONNECTION_STATUS_IN_PROGRESS;
-    case Connection::CONNECTED:
+    case Connection::Status::CONNECTED:
       return api::easy_unlock_private::CONNECTION_STATUS_CONNECTED;
   }
   return api::easy_unlock_private::CONNECTION_STATUS_NONE;
@@ -39,7 +38,9 @@ api::easy_unlock_private::ConnectionStatus ToApiConnectionStatus(
 
 EasyUnlockPrivateConnectionManager::EasyUnlockPrivateConnectionManager(
     content::BrowserContext* context)
-    : browser_context_(context) {}
+    : browser_context_(context) {
+  extensions::ExtensionRegistry::Get(browser_context_)->AddObserver(this);
+}
 
 EasyUnlockPrivateConnectionManager::~EasyUnlockPrivateConnectionManager() {
   // Remove |this| as an observer from all connections passed to
@@ -47,12 +48,17 @@ EasyUnlockPrivateConnectionManager::~EasyUnlockPrivateConnectionManager() {
   for (const auto& extension_id : extensions_) {
     base::hash_set<int>* connections =
         GetResourceManager()->GetResourceIds(extension_id);
+    if (!connections)
+      continue;
+
     for (int connection_id : *connections) {
       Connection* connection = GetConnection(extension_id, connection_id);
       if (connection)
         connection->RemoveObserver(this);
     }
   }
+
+  extensions::ExtensionRegistry::Get(browser_context_)->RemoveObserver(this);
 }
 
 int EasyUnlockPrivateConnectionManager::AddConnection(
@@ -102,7 +108,7 @@ bool EasyUnlockPrivateConnectionManager::SendMessage(
     const std::string& message_body) {
   Connection* connection = GetConnection(extension->id(), connection_id);
   if (connection && connection->IsConnected()) {
-    connection->SendMessage(base::MakeUnique<WireMessage>(message_body));
+    connection->SendMessage(std::make_unique<WireMessage>(message_body));
     return true;
   }
   return false;
@@ -157,6 +163,13 @@ void EasyUnlockPrivateConnectionManager::OnSendCompleted(
                           std::move(args));
 }
 
+void EasyUnlockPrivateConnectionManager::OnExtensionUnloaded(
+    content::BrowserContext* browser_context,
+    const Extension* extension,
+    UnloadedExtensionReason reason) {
+  extensions_.erase(extension->id());
+}
+
 void EasyUnlockPrivateConnectionManager::DispatchConnectionEvent(
     const std::string& event_name,
     events::HistogramValue histogram_value,
@@ -172,7 +185,7 @@ void EasyUnlockPrivateConnectionManager::DispatchConnectionEvent(
     std::unique_ptr<base::ListValue> args_copy(args->DeepCopy());
     int connection_index = 0;
     args_copy->Set(connection_index,
-                   base::MakeUnique<base::Value>(connection_id));
+                   std::make_unique<base::Value>(connection_id));
     std::unique_ptr<Event> event(
         new Event(histogram_value, event_name, std::move(args_copy)));
     EventRouter::Get(browser_context_)

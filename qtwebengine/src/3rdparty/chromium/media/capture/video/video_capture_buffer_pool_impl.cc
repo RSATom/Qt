@@ -11,6 +11,7 @@
 #include "build/build_config.h"
 #include "media/capture/video/video_capture_buffer_handle.h"
 #include "media/capture/video/video_capture_buffer_tracker.h"
+#include "mojo/public/cpp/system/platform_handle.h"
 #include "ui/gfx/buffer_format_util.h"
 
 namespace media {
@@ -25,10 +26,11 @@ VideoCaptureBufferPoolImpl::VideoCaptureBufferPoolImpl(
   DCHECK_GT(count, 0);
 }
 
-VideoCaptureBufferPoolImpl::~VideoCaptureBufferPoolImpl() {}
+VideoCaptureBufferPoolImpl::~VideoCaptureBufferPoolImpl() = default;
 
 mojo::ScopedSharedBufferHandle
-VideoCaptureBufferPoolImpl::GetHandleForInterProcessTransit(int buffer_id) {
+VideoCaptureBufferPoolImpl::GetHandleForInterProcessTransit(int buffer_id,
+                                                            bool read_only) {
   base::AutoLock lock(lock_);
 
   VideoCaptureBufferTracker* tracker = GetTracker(buffer_id);
@@ -36,7 +38,7 @@ VideoCaptureBufferPoolImpl::GetHandleForInterProcessTransit(int buffer_id) {
     NOTREACHED() << "Invalid buffer_id.";
     return mojo::ScopedSharedBufferHandle();
   }
-  return tracker->GetHandleForTransit();
+  return tracker->GetHandleForTransit(read_only);
 }
 
 base::SharedMemoryHandle
@@ -52,6 +54,33 @@ VideoCaptureBufferPoolImpl::GetNonOwnedSharedMemoryHandleForLegacyIPC(
   return tracker->GetNonOwnedSharedMemoryHandleForLegacyIPC();
 }
 
+mojom::SharedMemoryViaRawFileDescriptorPtr
+VideoCaptureBufferPoolImpl::CreateSharedMemoryViaRawFileDescriptorStruct(
+    int buffer_id) {
+// This requires platforms where base::SharedMemoryHandle is backed by a
+// file descriptor.
+#if defined(OS_LINUX)
+  base::AutoLock lock(lock_);
+
+  VideoCaptureBufferTracker* tracker = GetTracker(buffer_id);
+  if (!tracker) {
+    NOTREACHED() << "Invalid buffer_id.";
+    return 0u;
+  }
+
+  auto result = mojom::SharedMemoryViaRawFileDescriptor::New();
+  result->file_descriptor_handle = mojo::WrapPlatformFile(
+      base::SharedMemory::DuplicateHandle(
+          tracker->GetNonOwnedSharedMemoryHandleForLegacyIPC())
+          .GetHandle());
+  result->shared_memory_size_in_bytes = tracker->GetMemorySizeInBytes();
+  return result;
+#else
+  NOTREACHED();
+  return mojom::SharedMemoryViaRawFileDescriptorPtr();
+#endif
+}
+
 std::unique_ptr<VideoCaptureBufferHandle>
 VideoCaptureBufferPoolImpl::GetHandleForInProcessAccess(int buffer_id) {
   base::AutoLock lock(lock_);
@@ -65,15 +94,13 @@ VideoCaptureBufferPoolImpl::GetHandleForInProcessAccess(int buffer_id) {
   return tracker->GetMemoryMappedAccess();
 }
 
-int VideoCaptureBufferPoolImpl::ReserveForProducer(
-    const gfx::Size& dimensions,
-    media::VideoPixelFormat format,
-    media::VideoPixelStorage storage,
-    int frame_feedback_id,
-    int* buffer_id_to_drop) {
+int VideoCaptureBufferPoolImpl::ReserveForProducer(const gfx::Size& dimensions,
+                                                   VideoPixelFormat format,
+                                                   int frame_feedback_id,
+                                                   int* buffer_id_to_drop) {
   base::AutoLock lock(lock_);
-  return ReserveForProducerInternal(dimensions, format, storage,
-                                    frame_feedback_id, buffer_id_to_drop);
+  return ReserveForProducerInternal(dimensions, format, frame_feedback_id,
+                                    buffer_id_to_drop);
 }
 
 void VideoCaptureBufferPoolImpl::RelinquishProducerReservation(int buffer_id) {
@@ -102,7 +129,7 @@ void VideoCaptureBufferPoolImpl::HoldForConsumers(int buffer_id,
   tracker->set_consumer_hold_count(num_clients);
   // Note: |held_by_producer()| will stay true until
   // RelinquishProducerReservation() (usually called by destructor of the object
-  // wrapping this tracker, e.g. a media::VideoFrame).
+  // wrapping this tracker, e.g. a VideoFrame).
 }
 
 void VideoCaptureBufferPoolImpl::RelinquishConsumerHold(int buffer_id,
@@ -121,8 +148,7 @@ void VideoCaptureBufferPoolImpl::RelinquishConsumerHold(int buffer_id,
 
 int VideoCaptureBufferPoolImpl::ResurrectLastForProducer(
     const gfx::Size& dimensions,
-    media::VideoPixelFormat format,
-    media::VideoPixelStorage storage) {
+    VideoPixelFormat format) {
   base::AutoLock lock(lock_);
 
   // Return early if the last relinquished buffer has been re-used already.
@@ -132,14 +158,13 @@ int VideoCaptureBufferPoolImpl::ResurrectLastForProducer(
   // If there are no consumers reading from this buffer, then it's safe to
   // provide this buffer back to the producer (because the producer may
   // potentially modify the content). Check that the expected dimensions,
-  // format, and storage match.
+  // and format match.
   auto it = trackers_.find(last_relinquished_buffer_id_);
   DCHECK(it != trackers_.end());
   DCHECK(!it->second->held_by_producer());
   if (it->second->consumer_hold_count() == 0 &&
       it->second->dimensions() == dimensions &&
-      it->second->pixel_format() == format &&
-      it->second->storage_type() == storage) {
+      it->second->pixel_format() == format) {
     it->second->set_held_by_producer(true);
     const int resurrected_buffer_id = last_relinquished_buffer_id_;
     last_relinquished_buffer_id_ = kInvalidId;
@@ -162,8 +187,7 @@ double VideoCaptureBufferPoolImpl::GetBufferPoolUtilization() const {
 
 int VideoCaptureBufferPoolImpl::ReserveForProducerInternal(
     const gfx::Size& dimensions,
-    media::VideoPixelFormat pixel_format,
-    media::VideoPixelStorage storage_type,
+    VideoPixelFormat pixel_format,
     int frame_feedback_id,
     int* buffer_id_to_drop) {
   lock_.AssertAcquired();
@@ -179,8 +203,7 @@ int VideoCaptureBufferPoolImpl::ReserveForProducerInternal(
     VideoCaptureBufferTracker* const tracker = it->second.get();
     if (!tracker->consumer_hold_count() && !tracker->held_by_producer()) {
       if (tracker->max_pixel_count() >= size_in_pixels &&
-          (tracker->pixel_format() == pixel_format) &&
-          (tracker->storage_type() == storage_type)) {
+          (tracker->pixel_format() == pixel_format)) {
         if (it->first == last_relinquished_buffer_id_) {
           // This buffer would do just fine, but avoid returning it because the
           // client may want to resurrect it. It will be returned perforce if
@@ -226,10 +249,8 @@ int VideoCaptureBufferPoolImpl::ReserveForProducerInternal(
   const int buffer_id = next_buffer_id_++;
 
   std::unique_ptr<VideoCaptureBufferTracker> tracker =
-      buffer_tracker_factory_->CreateTracker(storage_type);
-  // TODO(emircan): We pass the lock here to solve GMB allocation issue, see
-  // crbug.com/545238.
-  if (!tracker->Init(dimensions, pixel_format, storage_type, &lock_)) {
+      buffer_tracker_factory_->CreateTracker();
+  if (!tracker->Init(dimensions, pixel_format)) {
     DLOG(ERROR) << "Error initializing VideoCaptureBufferTracker";
     return kInvalidId;
   }

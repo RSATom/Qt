@@ -25,8 +25,8 @@
 #include "ppapi/shared_impl/scoped_pp_var.h"
 #include "ppapi/shared_impl/var.h"
 #include "ppapi/shared_impl/var_tracker.h"
-#include "third_party/WebKit/public/web/WebDOMMessageEvent.h"
-#include "third_party/WebKit/public/web/WebPluginContainer.h"
+#include "third_party/blink/public/web/web_dom_message_event.h"
+#include "third_party/blink/public/web/web_plugin_container.h"
 #include "v8/include/v8.h"
 
 using ppapi::PpapiGlobals;
@@ -98,7 +98,7 @@ MessageChannel::~MessageChannel() {
 
 void MessageChannel::InstanceDeleted() {
   UnregisterSyncMessageStatusObserver();
-  instance_ = NULL;
+  instance_ = nullptr;
 }
 
 void MessageChannel::PostMessageToJavaScript(PP_Var message_data) {
@@ -447,8 +447,8 @@ void MessageChannel::DrainJSMessageQueueSoon() {
     return;
 
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::Bind(&MessageChannel::DrainJSMessageQueue,
-                            weak_ptr_factory_.GetWeakPtr()));
+      FROM_HERE, base::BindOnce(&MessageChannel::DrainJSMessageQueue,
+                                weak_ptr_factory_.GetWeakPtr()));
   drain_js_message_queue_scheduled_ = true;
 }
 

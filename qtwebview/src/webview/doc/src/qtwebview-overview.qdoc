@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2017 The Qt Company Ltd.
+** Copyright (C) 2019 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the documentation of the Qt Toolkit.
@@ -31,7 +31,7 @@
   \title Qt WebView
   \brief A light-weight web view.
 
-  Qt WebView provides a way to display web content in a QML application without
+  Qt \WebView provides a way to display web content in a QML application without
   necessarily including a full web browser stack by using native APIs where
   it makes sense.
 
@@ -40,9 +40,12 @@
   on iOS, where policy dictates that all web content is displayed using the
   operating system's web view.
 
+  On Windows, Linux, and \macos, Qt \WebView depends on the \l{Qt WebEngine}
+  module to render content.
+
   \section1 Prerequisites
 
-  To make the Qt WebView module function correctly across all platforms, it's necessary
+  To make the Qt \WebView module function correctly across all platforms, it's necessary
   to call \l {qtwebview-initialize}{QtWebView::initialize}() right after creating the
   QGuiApplication instance.
 
@@ -61,6 +64,14 @@
 
   Take a look at the \l{Qt WebView Examples} for a demonstration on
   how the APIs can be used in applications.
+
+  \section1 Licenses
+
+  Qt \WebView is available under commercial licenses from \l{The Qt Company}.
+  In addition, it is available under the
+  \l{GNU Lesser General Public License, version 3}, or
+  the \l{GNU General Public License, version 2}.
+  See \l{Qt Licensing} for further details.
 
   \section1 API Reference
 

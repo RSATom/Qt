@@ -34,9 +34,9 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.1
+import QtQuick 2.12
 import HelperWidgets 2.0
-import QtQuick.Layouts 1.1
+import QtQuick.Layouts 1.12
 
 Column {
     width: parent.width
@@ -127,6 +127,19 @@ Column {
                 CheckBox {
                     text: backendValues.live.valueToString
                     backendValue: backendValues.live
+                    Layout.fillWidth: true
+                }
+            }
+
+            Label {
+                text: qsTr("Input Mode")
+                tooltip: qsTr("How the dial tracks movement.")
+            }
+            SecondColumnLayout {
+                ComboBox {
+                    backendValue: backendValues.inputMode
+                    model: [ "Circular", "Horizontal", "Vertical" ]
+                    scope: "Dial"
                     Layout.fillWidth: true
                 }
             }

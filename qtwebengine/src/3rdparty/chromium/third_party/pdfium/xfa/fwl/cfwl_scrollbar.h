@@ -10,6 +10,7 @@
 #include <memory>
 
 #include "core/fxcrt/fx_system.h"
+#include "core/fxcrt/unowned_ptr.h"
 #include "xfa/fwl/cfwl_eventscroll.h"
 #include "xfa/fwl/cfwl_timer.h"
 #include "xfa/fwl/cfwl_widget.h"
@@ -30,10 +31,10 @@ class CFWL_ScrollBar : public CFWL_Widget {
   // CFWL_Widget
   FWL_Type GetClassID() const override;
   void Update() override;
-  void DrawWidget(CXFA_Graphics* pGraphics, const CFX_Matrix* pMatrix) override;
+  void DrawWidget(CXFA_Graphics* pGraphics, const CFX_Matrix& matrix) override;
   void OnProcessMessage(CFWL_Message* pMessage) override;
   void OnDrawWidget(CXFA_Graphics* pGraphics,
-                    const CFX_Matrix* pMatrix) override;
+                    const CFX_Matrix& matrix) override;
 
   void GetRange(float* fMin, float* fMax) const {
     ASSERT(fMin);
@@ -109,7 +110,7 @@ class CFWL_ScrollBar : public CFWL_Widget {
   void DoMouseLeave(int32_t iItem, const CFX_RectF& rtItem, int32_t& iState);
   void DoMouseHover(int32_t iItem, const CFX_RectF& rtItem, int32_t& iState);
 
-  CFWL_TimerInfo* m_pTimerInfo;
+  UnownedPtr<CFWL_TimerInfo> m_pTimerInfo;
   float m_fRangeMin;
   float m_fRangeMax;
   float m_fPageSize;

@@ -4,7 +4,6 @@
 
 #include "ui/base/ime/linux/fake_input_method_context_factory.h"
 
-#include "base/memory/ptr_util.h"
 #include "ui/base/ime/linux/fake_input_method_context.h"
 
 namespace ui {
@@ -15,7 +14,7 @@ std::unique_ptr<LinuxInputMethodContext>
 FakeInputMethodContextFactory::CreateInputMethodContext(
     LinuxInputMethodContextDelegate* /* delegate */,
     bool is_simple) const {
-  return base::MakeUnique<FakeInputMethodContext>();
+  return std::make_unique<FakeInputMethodContext>();
 }
 
 }  // namespace ui

@@ -54,7 +54,6 @@ public:
     explicit QtQuickExtrasPlugin(QObject *parent = 0);
 
     void registerTypes(const char *uri);
-    void initializeEngine(QQmlEngine *engine, const char *uri);
 };
 
 QT_END_NAMESPACE

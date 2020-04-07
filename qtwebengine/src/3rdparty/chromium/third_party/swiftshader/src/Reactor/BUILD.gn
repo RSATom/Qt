@@ -12,10 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import("../swiftshader.gni")
+
 declare_args() {
   # Currently, Subzero is not used by default
   # LLVM is still the default backend
-  use_swiftshader_with_subzero = is_win || is_linux
+  use_swiftshader_with_subzero = is_win || is_linux || is_mac || is_chromeos
 }
 
 # Need a separate config to ensure the warnings are added to the end.
@@ -73,6 +75,7 @@ config("swiftshader_subzero_private_config") {
       "/wd4146",
       "/wd4245",  # conversion from int to unsigned int (llvm)
       "/wd4267",
+      "/wd4291",
       "/wd4310",
       "/wd4334",
       "/wd4389",
@@ -110,6 +113,8 @@ config("swiftshader_reactor_with_subzero_private_config") {
       "/wd4146",
       "/wd4245",  # conversion from int to unsigned int (llvm)
       "/wd4267",
+      "/wd4291",
+      "/wd4309",
       "/wd4702",
       "/wd4800",
     ]
@@ -146,7 +151,6 @@ config("swiftshader_reactor_private_config") {
     ]
 
     defines = [
-      "LOG_TAG=\"swiftshader_reactor\"",
       "__STDC_CONSTANT_MACROS",
       "__STDC_LIMIT_MACROS",
     ]
@@ -154,7 +158,7 @@ config("swiftshader_reactor_private_config") {
 }
 
 if (use_swiftshader_with_subzero) {
-  source_set("swiftshader_subzero") {
+  swiftshader_source_set("swiftshader_subzero") {
     subzero_dir = "../../third_party/subzero"
     subzero_llvm_dir = "../../third_party/llvm-subzero"
 
@@ -241,17 +245,14 @@ if (use_swiftshader_with_subzero) {
       ]
     }
 
-    if (is_win) {
-      configs -= [ "//build/config/win:unicode" ]
-    }
-    configs += [
+    configs = [
       ":swiftshader_subzero_common_private_config",
       ":swiftshader_subzero_private_config",
     ]
   }
 }
 
-source_set("swiftshader_reactor") {
+swiftshader_source_set("swiftshader_reactor") {
   deps = [
     "../OpenGL/common:swiftshader_opengl_common",
   ]
@@ -268,7 +269,7 @@ source_set("swiftshader_reactor") {
       "SubzeroReactor.cpp",
     ]
 
-    configs += [
+    configs = [
       ":swiftshader_subzero_common_private_config",
       ":swiftshader_reactor_with_subzero_private_config",
     ]
@@ -281,16 +282,12 @@ source_set("swiftshader_reactor") {
       "LLVMRoutineManager.cpp",
     ]
 
-    configs += [ ":swiftshader_reactor_private_config" ]
+    configs = [ ":swiftshader_reactor_private_config" ]
 
     include_dirs = [
       "..",
       "../Common",
       "../../third_party/LLVM/include/",
     ]
-  }
-
-  if (is_win) {
-    configs -= [ "//build/config/win:unicode" ]
   }
 }

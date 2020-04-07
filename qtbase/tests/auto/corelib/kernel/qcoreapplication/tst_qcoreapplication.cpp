@@ -56,7 +56,7 @@ class ThreadedEventReceiver : public QObject
     Q_OBJECT
 public:
     QList<int> recordedEvents;
-    bool event(QEvent *event) Q_DECL_OVERRIDE
+    bool event(QEvent *event) override
     {
         if (event->type() != QEvent::Type(QEvent::User + 1))
             return QObject::event(event);
@@ -70,7 +70,7 @@ public:
 
 class Thread : public QDaemonThread
 {
-    void run() Q_DECL_OVERRIDE
+    void run() override
     {
         QThreadData *data = QThreadData::current();
         QVERIFY(!data->requiresCoreApplication);        // daemon thread
@@ -415,7 +415,7 @@ void tst_QCoreApplication::removePostedEvents()
     expected.clear();
 }
 
-#ifndef QT_NO_THREAD
+#if QT_CONFIG(thread)
 class DeliverInDefinedOrderThread : public QThread
 {
     Q_OBJECT
@@ -532,7 +532,7 @@ void tst_QCoreApplication::deliverInDefinedOrder()
     QObject::connect(&obj, SIGNAL(done()), &app, SLOT(quit()));
     app.exec();
 }
-#endif // QT_NO_QTHREAD
+#endif // QT_CONFIG(thread)
 
 void tst_QCoreApplication::applicationPid()
 {
@@ -928,6 +928,12 @@ void tst_QCoreApplication::threadedEventDelivery()
     thread.start();
     QVERIFY(thread.wait(1000));
     QCOMPARE(receiver.recordedEvents.contains(QEvent::User + 1), eventsReceived);
+
+}
+
+void tst_QCoreApplication::testTrWithPercantegeAtTheEnd()
+{
+    QCoreApplication::translate("testcontext", "this will crash%", "testdisamb", 3);
 }
 
 #if QT_CONFIG(library)

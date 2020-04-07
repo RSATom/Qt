@@ -75,7 +75,7 @@ public:
         ActivatedWindow = 0x05,
         WindowStateChanged = 0x06,
         Mouse = UserInputEvent | 0x07,
-        FrameStrutMouse = UserInputEvent | 0x08,
+        FrameStrutMouse = UserInputEvent | 0x08,  // ### Qt6 remove
         Wheel = UserInputEvent | 0x09,
         Key = UserInputEvent | 0x0a,
         Touch = UserInputEvent | 0x0b,
@@ -235,18 +235,27 @@ public:
 
     class MouseEvent : public InputEvent {
     public:
-        MouseEvent(QWindow * w, ulong time, const QPointF &local, const QPointF &global,
-                   Qt::MouseButtons b, Qt::KeyboardModifiers mods,
-                   Qt::MouseEventSource src = Qt::MouseEventNotSynthesized)
-            : InputEvent(w, time, Mouse, mods), localPos(local), globalPos(global), buttons(b), source(src) { }
-        MouseEvent(QWindow * w, ulong time, EventType t, const QPointF &local, const QPointF &global,
-                   Qt::MouseButtons b, Qt::KeyboardModifiers mods,
-                   Qt::MouseEventSource src = Qt::MouseEventNotSynthesized)
-            : InputEvent(w, time, t, mods), localPos(local), globalPos(global), buttons(b), source(src) { }
+        MouseEvent(QWindow *w, ulong time, const QPointF &local, const QPointF &global,
+                   Qt::MouseButtons state, Qt::KeyboardModifiers mods,
+                   Qt::MouseButton b, QEvent::Type type,
+                   Qt::MouseEventSource src = Qt::MouseEventNotSynthesized, bool frame = false)
+            : InputEvent(w, time, Mouse, mods), localPos(local), globalPos(global), buttons(state),
+              source(src), nonClientArea(frame), button(b), buttonType(type) { }
+
+        // ### In Qt6 this method can be removed as there won't be need for compatibility code path
+        bool enhancedMouseEvent() const
+        {
+            static const bool disableEnhanced = qEnvironmentVariableIsSet("QT_QPA_DISABLE_ENHANCED_MOUSE");
+            return !disableEnhanced && buttonType != QEvent::None;
+        }
+
         QPointF localPos;
         QPointF globalPos;
         Qt::MouseButtons buttons;
         Qt::MouseEventSource source;
+        bool nonClientArea;
+        Qt::MouseButton button;
+        QEvent::Type buttonType;
     };
 
     class WheelEvent : public InputEvent {
@@ -356,7 +365,7 @@ public:
         QUrl url;
     };
 
-    class TabletEvent : public InputEvent {
+    class Q_GUI_EXPORT TabletEvent : public InputEvent {
     public:
         static void handleTabletEvent(QWindow *w, const QPointF &local, const QPointF &global,
                                       int device, int pointerType, Qt::MouseButtons buttons, qreal pressure, int xTilt, int yTilt,
@@ -516,6 +525,7 @@ public:
 public:
     static QElapsedTimer eventTime;
     static bool synchronousWindowSystemEvents;
+    static bool platformFiltersEvents;
 
     static QWaitCondition eventsFlushed;
     static QMutex flushEventMutex;
@@ -523,10 +533,11 @@ public:
 
     static QList<QTouchEvent::TouchPoint>
         fromNativeTouchPoints(const QList<QWindowSystemInterface::TouchPoint> &points,
-                              const QWindow *window, quint8 deviceId, QEvent::Type *type = Q_NULLPTR);
+                              const QWindow *window, quint8 deviceId, QEvent::Type *type = nullptr);
     static QList<QWindowSystemInterface::TouchPoint>
         toNativeTouchPoints(const QList<QTouchEvent::TouchPoint>& pointList,
                             const QWindow *window);
+    static void clearPointIdMap();
 
     static void installWindowSystemEventHandler(QWindowSystemEventHandler *handler);
     static void removeWindowSystemEventhandler(QWindowSystemEventHandler *handler);

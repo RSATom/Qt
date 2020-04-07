@@ -90,11 +90,15 @@ protected:
 
     void write(const String& s);
 
+    void write(StringFragment s);
+
     void writeLine(const String& s);
 
     virtual void writeHeader();
 
-    virtual void writePrecisionModifier();
+    virtual bool usesPrecisionModifiers() const;
+
+    virtual String getTypeName(const Type& type);
 
     void writeType(const Type& type);
 
@@ -116,6 +120,10 @@ protected:
 
     virtual void writeVarInitializer(const Variable& var, const Expression& value);
 
+    const char* getTypePrecision(const Type& type);
+
+    void writeTypePrecision(const Type& type);
+
     void writeVarDeclarations(const VarDeclarations& decl, bool global);
 
     void writeFragCoord();
@@ -128,13 +136,21 @@ protected:
 
     void writeMinAbsHack(Expression& absExpr, Expression& otherExpr);
 
+    void writeDeterminantHack(const Expression& mat);
+
+    void writeInverseHack(const Expression& mat);
+
+    void writeTransposeHack(const Expression& mat);
+
+    void writeInverseSqrtHack(const Expression& x);
+
     virtual void writeFunctionCall(const FunctionCall& c);
 
-    void writeConstructor(const Constructor& c);
+    void writeConstructor(const Constructor& c, Precedence parentPrecedence);
 
     void writeFieldAccess(const FieldAccess& f);
 
-    void writeSwizzle(const Swizzle& swizzle);
+    virtual void writeSwizzle(const Swizzle& swizzle);
 
     static Precedence GetBinaryPrecedence(Token::Kind op);
 
@@ -150,7 +166,7 @@ protected:
 
     void writeBoolLiteral(const BoolLiteral& b);
 
-    void writeIntLiteral(const IntLiteral& i);
+    virtual void writeIntLiteral(const IntLiteral& i);
 
     void writeFloatLiteral(const FloatLiteral& f);
 
@@ -179,6 +195,7 @@ protected:
     const char* fLineEnding;
     const Context& fContext;
     StringStream fHeader;
+    StringStream fExtraFunctions;
     String fFunctionHeader;
     Program::Kind fProgramKind;
     int fVarCount = 0;
@@ -188,11 +205,15 @@ protected:
     // more than one or two structs per shader, a simple linear search will be faster than anything
     // fancier.
     std::vector<const Type*> fWrittenStructs;
+    std::set<String> fWrittenIntrinsics;
     // true if we have run into usages of dFdx / dFdy
     bool fFoundDerivatives = false;
     bool fFoundImageDecl = false;
+    bool fFoundExternalSamplerDecl = false;
+    bool fFoundGSInvocations = false;
     bool fSetupFragPositionGlobal = false;
     bool fSetupFragPositionLocal = false;
+    bool fSetupFragCoordWorkaround = false;
 
     typedef CodeGenerator INHERITED;
 };

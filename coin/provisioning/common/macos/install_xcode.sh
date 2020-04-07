@@ -44,48 +44,34 @@
 
 
 
-# shellcheck source=../common/unix/try_catch.sh
-source "${BASH_SOURCE%/*}/../unix/try_catch.sh"
-
-function InstallXCode()
-{
-    ExceptionCPIO=103
-    ExceptionAcceptLicense=105
-    ExceptionDeveloperMode=113
-
+function InstallXCode() {
     sourceFile=$1
     version=$2
 
-    try
-    (
-        echo "Uncompressing and installing '$sourceFile'"
-        xzcat < "$sourceFile" | (cd /Applications/ && sudo cpio -dmi) || throw $ExceptionCPIO
+    echo "Uncompressing and installing '$sourceFile'"
+    if [[ $sourceFile =~ tar ]]; then
+        cd /Applications/ && sudo tar -zxf "$sourceFile"
+    else
+        xzcat < "$sourceFile" | (cd /Applications/ && sudo cpio -dmi)
+    fi
 
-        echo "Accept license"
-        sudo xcodebuild -license accept || throw $ExceptionAcceptLicense
+    echo "Versioning application bundle"
+    majorVersion=$(echo $version | cut -d '.' -f 1)
+    versionedAppBundle="/Applications/Xcode${majorVersion}.app"
+    sudo mv /Applications/Xcode.app ${versionedAppBundle}
 
-        echo "Enabling developer mode, so that using lldb does not require interactive password entry"
-        sudo /usr/sbin/DevToolsSecurity -enable || throw $ExceptionDeveloperMode
+    echo "Selecting Xcode"
+    sudo xcode-select --switch ${versionedAppBundle}
 
-        echo "Xcode = $version" >> ~/versions.txt
-    )
-    catch || {
-        case $ex_code in
-            $ExceptionCPIO)
-                echo "Failed to unarchive .cpio."
-                exit 1;
-            ;;
-            $ExceptionDeveloperMode)
-                echo "Failed to enable developer mode."
-                exit 1;
-            ;;
-            $ExceptionAcceptLicense)
-                echo "Failed to accept license."
-                exit 1;
-            ;;
+    echo "Accept license"
+    sudo xcodebuild -license accept
 
-        esac
-    }
+    echo "Install packages"
+    # -runFirstLaunch is valid in 9.x
+    sudo xcodebuild -runFirstLaunch || true
 
+    echo "Enabling developer mode, so that using lldb does not require interactive password entry"
+    sudo /usr/sbin/DevToolsSecurity -enable
+
+    echo "Xcode = $version" >> ~/versions.txt
 }
-

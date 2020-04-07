@@ -11,17 +11,13 @@ using base::android::AttachCurrentThread;
 using base::android::JavaParamRef;
 
 // This macro provides the implementation for the observer notification methods.
-#define NOTIFY_OBSERVERS(method_decl, observer_call)           \
+#define NOTIFY_ANDROID_OBSERVERS(method_decl, observer_call)   \
   void InputDeviceObserverAndroid::method_decl {               \
     for (ui::InputDeviceEventObserver & observer : observers_) \
       observer.observer_call;                                  \
   }
 
 namespace ui {
-
-bool InputDeviceObserverAndroid::RegisterInputDeviceObserver(JNIEnv* env) {
-  return RegisterNativesImpl(env);
-}
 
 InputDeviceObserverAndroid::InputDeviceObserverAndroid() {}
 
@@ -47,8 +43,9 @@ void InputDeviceObserverAndroid::RemoveObserver(
   Java_InputDeviceObserver_removeObserver(env);
 }
 
-static void InputConfigurationChanged(JNIEnv* env,
-                                      const JavaParamRef<jobject>& obj) {
+static void JNI_InputDeviceObserver_InputConfigurationChanged(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj) {
   InputDeviceObserverAndroid::GetInstance()
       ->NotifyObserversTouchpadDeviceConfigurationChanged();
   InputDeviceObserverAndroid::GetInstance()
@@ -57,11 +54,11 @@ static void InputConfigurationChanged(JNIEnv* env,
       ->NotifyObserversMouseDeviceConfigurationChanged();
 }
 
-NOTIFY_OBSERVERS(NotifyObserversMouseDeviceConfigurationChanged(),
-                 OnMouseDeviceConfigurationChanged());
-NOTIFY_OBSERVERS(NotifyObserversTouchpadDeviceConfigurationChanged(),
-                 OnTouchpadDeviceConfigurationChanged());
-NOTIFY_OBSERVERS(NotifyObserversKeyboardDeviceConfigurationChanged(),
-                 OnKeyboardDeviceConfigurationChanged());
+NOTIFY_ANDROID_OBSERVERS(NotifyObserversMouseDeviceConfigurationChanged(),
+                         OnMouseDeviceConfigurationChanged());
+NOTIFY_ANDROID_OBSERVERS(NotifyObserversTouchpadDeviceConfigurationChanged(),
+                         OnTouchpadDeviceConfigurationChanged());
+NOTIFY_ANDROID_OBSERVERS(NotifyObserversKeyboardDeviceConfigurationChanged(),
+                         OnKeyboardDeviceConfigurationChanged());
 
 }  // namespace ui

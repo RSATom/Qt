@@ -2,9 +2,12 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/config/linux/gtk/gtk.gni")
 import("//build/config/linux/pkg_config.gni")
 import("//build/config/features.gni")
 import("//build/config/ui.gni")
+import("//mojo/public/tools/bindings/mojom.gni")
+import("//services/service_manager/public/service_manifest.gni")
 import("//testing/libfuzzer/fuzzer_test.gni")
 import("//testing/test.gni")
 import("//tools/json_schema_compiler/json_schema_api.gni")
@@ -14,10 +17,28 @@ if (is_android) {
   import("//build/config/android/rules.gni")
 }
 
+mojom("ax_enums_mojo") {
+  sources = [
+    "ax_enums.mojom",
+  ]
+
+  public_deps = [
+    "//mojo/public/mojom/base",
+    "//ui/gfx/geometry/mojo",
+    "//ui/gfx/mojo",
+  ]
+}
+
 component("accessibility") {
   sources = [
     "ax_action_data.cc",
     "ax_action_data.h",
+    "ax_enum_util.cc",
+    "ax_enum_util.h",
+    "ax_event.cc",
+    "ax_event.h",
+    "ax_event_generator.cc",
+    "ax_event_generator.h",
     "ax_export.h",
     "ax_host_delegate.cc",
     "ax_host_delegate.h",
@@ -35,6 +56,8 @@ component("accessibility") {
     "ax_role_properties.h",
     "ax_serializable_tree.cc",
     "ax_serializable_tree.h",
+    "ax_table_info.cc",
+    "ax_table_info.h",
     "ax_text_utils.cc",
     "ax_text_utils.h",
     "ax_tree.cc",
@@ -51,28 +74,34 @@ component("accessibility") {
     "ax_tree_update.h",
     "platform/ax_android_constants.cc",
     "platform/ax_android_constants.h",
-    "platform/ax_platform_unique_id.cc",
-    "platform/ax_platform_unique_id.h",
-    "platform/ax_snapshot_node_android_platform.cc",
-    "platform/ax_snapshot_node_android_platform.h",
+    "platform/ax_platform_node.cc",
+    "platform/ax_platform_node.h",
+    "platform/ax_unique_id.cc",
+    "platform/ax_unique_id.h",
   ]
 
   if (has_native_accessibility) {
     sources += [
-      "platform/ax_platform_node.cc",
-      "platform/ax_platform_node.h",
       "platform/ax_platform_node_base.cc",
       "platform/ax_platform_node_base.h",
       "platform/ax_platform_node_delegate.h",
+      "platform/ax_platform_node_delegate_base.cc",
+      "platform/ax_platform_node_delegate_base.h",
       "platform/ax_platform_node_mac.h",
       "platform/ax_platform_node_mac.mm",
+      "platform/ax_platform_node_win.cc",
+      "platform/ax_platform_node_win.h",
+      "platform/ax_platform_relation_win.cc",
+      "platform/ax_platform_relation_win.h",
+      "platform/ax_system_caret_win.cc",
+      "platform/ax_system_caret_win.h",
     ]
   }
 
   defines = [ "ACCESSIBILITY_IMPLEMENTATION" ]
 
   public_deps = [
-    ":ax_gen",
+    ":ax_enums_mojo",
     "//base",
     "//base:i18n",
     "//ui/base",
@@ -81,13 +110,9 @@ component("accessibility") {
     "//ui/strings",
   ]
 
-  if (is_win && !use_qt) {
+  if (is_win && has_native_accessibility) {
     public_deps += [ "//third_party/iaccessible2" ]
     libs = [ "oleacc.lib" ]
-    sources += [
-      "platform/ax_platform_node_win.cc",
-      "platform/ax_platform_node_win.h",
-    ]
   }
 
   if (is_mac) {
@@ -101,6 +126,8 @@ component("accessibility") {
     sources += [
       "platform/atk_util_auralinux.cc",
       "platform/atk_util_auralinux.h",
+      "platform/ax_platform_atk_hyperlink.cc",
+      "platform/ax_platform_atk_hyperlink.h",
       "platform/ax_platform_node_auralinux.cc",
       "platform/ax_platform_node_auralinux.h",
     ]
@@ -109,6 +136,11 @@ component("accessibility") {
 
     if (use_glib) {
       configs += [ "//build/config/linux:glib" ]
+    }
+    if (use_gtk3) {
+      sources += [ "platform/atk_util_auralinux_gtk3.cc" ]
+    } else {
+      sources += [ "platform/atk_util_auralinux_gtk2.cc" ]
     }
   }
 
@@ -122,19 +154,19 @@ component("accessibility") {
   }
 }
 
-if (is_android) {
-  android_library("ui_accessibility_java") {
-    deps = [
-      "//third_party/android_tools:android_support_annotations_java",
-    ]
-    srcjar_deps = [ ":ax_enumerations_srcjar" ]
-  }
+source_set("ax_assistant") {
+  sources = [
+    "ax_assistant_structure.cc",
+    "ax_assistant_structure.h",
+  ]
+  deps = [
+    ":accessibility",
+  ]
+}
 
-  java_cpp_enum("ax_enumerations_srcjar") {
-    sources = [
-      "ax_enums.idl",
-    ]
-  }
+service_manifest("manifest") {
+  name = "ax_host_service"
+  source = "ax_host_service_manifest.json"
 }
 
 static_library("test_support") {
@@ -144,7 +176,7 @@ static_library("test_support") {
     "tree_generator.h",
   ]
 
-  if (is_win) {
+  if (is_win || use_atk) {
     sources += [
       "platform/test_ax_node_wrapper.cc",
       "platform/test_ax_node_wrapper.h",
@@ -159,25 +191,41 @@ static_library("test_support") {
 test("accessibility_unittests") {
   testonly = true
   sources = [
+    "ax_event_generator_unittest.cc",
     "ax_generated_tree_unittest.cc",
     "ax_node_position_unittest.cc",
+    "ax_table_info_unittest.cc",
     "ax_text_utils_unittest.cc",
     "ax_tree_combiner_unittest.cc",
     "ax_tree_serializer_unittest.cc",
     "ax_tree_unittest.cc",
+    "mojom/ax_action_data_mojom_traits_unittest.cc",
+    "mojom/ax_event_mojom_traits_unittest.cc",
+    "mojom/ax_node_data_mojom_traits_unittest.cc",
+    "mojom/ax_tree_data_mojom_traits_unittest.cc",
+    "mojom/ax_tree_update_mojom_traits_unittest.cc",
+    "platform/ax_platform_node_unittest.cc",
+    "platform/ax_platform_node_unittest.h",
     "platform/ax_platform_node_win_unittest.cc",
+    "platform/ax_unique_id_unittest.cc",
+    "run_all_unittests.cc",
   ]
 
   deps = [
     ":accessibility",
-    ":ax_gen",
+    ":ax_enums_mojo",
     ":test_support",
     "//base",
-    "//base/test:run_all_unittests",
+    "//base/test:test_support",
+    "//mojo/core/embedder",
+    "//mojo/core/test:test_support",
+    "//mojo/public/cpp/test_support:test_utils",
     "//skia",
     "//testing/gtest",
+    "//ui/accessibility/mojom",
     "//ui/base",
     "//ui/gfx",
+    "//ui/gfx:test_support",
     "//ui/gfx/geometry",
   ]
 
@@ -185,17 +233,10 @@ test("accessibility_unittests") {
     deps += [ "//third_party/iaccessible2" ]
     libs = [ "oleacc.lib" ]
   }
-}
-
-json_schema_api("ax_gen") {
-  sources = [
-    "ax_enums.idl",
-  ]
-  deps = [
-    "//base/third_party/dynamic_annotations",
-  ]
-  root_namespace = "ui"
-  schemas = true
+  if (use_atk) {
+    sources += [ "platform/ax_platform_node_auralinux_unittest.cc" ]
+    configs += [ "//build/config/linux/atk" ]
+  }
 }
 
 fuzzer_test("ax_tree_fuzzer") {

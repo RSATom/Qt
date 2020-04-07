@@ -1,7 +1,7 @@
 Using Gerrit without git-cl
 ===========================
 
-setup
+Setup
 -----
 
 The following must be executed within the Skia source repository.
@@ -14,15 +14,22 @@ identify which review a change applies to.
       'https://gerrit-review.googlesource.com/tools/hooks/commit-msg'
     chmod +x "$(git rev-parse --git-dir)/hooks/commit-msg"
 
-If you aquired Skia from a mirror (such as github), you need to change the
-`origin` remote to point to point to googlesource.  Advanvced uses will note
+If you acquired Skia from a mirror (such as github), you need to change the
+`origin` remote to point to point to googlesource.  Advanced uses will note
 that there is nothing special about the string `origin` and that you could call
 this remote anything you want, as long as you use that name for `get push`.
 
     git remote set-url origin 'https://skia.googlesource.com/skia.git'
 
 
-creating a change
+Authentication
+--------------
+
+Go to [skia.googlesource.com/new-password](https://skia.googlesource.com/new-password)
+and follow the instructions.
+
+
+Creating a Change
 -----------------
 
 1.  Create a topic branch
@@ -61,7 +68,7 @@ creating a change
     [Gerrit Upload Documentation](https://gerrit-review.googlesource.com/Documentation/user-upload.html)
 
 
-updating a change
+Updating a Change
 -----------------
 
 
@@ -87,7 +94,17 @@ updating a change
     The title of this patch set will be "this is the patch set comment message".
 
 
-scripting
+Using `git cl try`
+------------------
+
+On your current branch, after uploading to gerrit:
+
+    git cl issue $(experimental/tools/gerrit-change-id-to-number @)
+
+Now `git cl try` and `bin/try` will work correctly.
+
+
+Scripting
 ---------
 
 You may want to make git aliases for common tasks:
@@ -97,6 +114,10 @@ You may want to make git aliases for common tasks:
 The following alias amends the head without editing the commit message:
 
     git config alias.amend-head 'commit --all --amend --reuse-message=@'
+
+Set the CL issue numnber:
+
+    git config alias.setcl '!git-cl issue $(experimental/tools/gerrit-change-id-to-number @)'
 
 The following shell script will squash all commits on the current branch,
 assuming that the branch has an upstream topic branch.

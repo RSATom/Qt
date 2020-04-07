@@ -12,7 +12,6 @@
 #include "core/fpdfapi/render/cpdf_imagecacheentry.h"
 #include "core/fpdfapi/render/cpdf_pagerendercache.h"
 #include "core/fpdfapi/render/cpdf_renderstatus.h"
-#include "core/fxcrt/fx_basic.h"
 
 CPDF_ImageLoader::CPDF_ImageLoader()
     : m_MatteColor(0),
@@ -36,15 +35,15 @@ bool CPDF_ImageLoader::Start(const CPDF_ImageObject* pImage,
                                        GroupFamily, bLoadMask, pRenderStatus);
   } else {
     ret = m_pImageObject->GetImage()->StartLoadDIBSource(
-        pRenderStatus->m_pFormResource.Get(),
-        pRenderStatus->m_pPageResource.Get(), bStdCS, GroupFamily, bLoadMask);
+        pRenderStatus->GetFormResource(), pRenderStatus->GetPageResource(),
+        bStdCS, GroupFamily, bLoadMask);
   }
   if (!ret)
     HandleFailure();
   return ret;
 }
 
-bool CPDF_ImageLoader::Continue(IFX_Pause* pPause,
+bool CPDF_ImageLoader::Continue(PauseIndicatorIface* pPause,
                                 CPDF_RenderStatus* pRenderStatus) {
   bool ret = m_pCache ? m_pCache->Continue(pPause, pRenderStatus)
                       : m_pImageObject->GetImage()->Continue(pPause);
@@ -62,7 +61,7 @@ void CPDF_ImageLoader::HandleFailure() {
     m_MatteColor = entry->m_MatteColor;
     return;
   }
-  CFX_RetainPtr<CPDF_Image> pImage = m_pImageObject->GetImage();
+  RetainPtr<CPDF_Image> pImage = m_pImageObject->GetImage();
   m_bCached = false;
   m_pBitmap = pImage->DetachBitmap();
   m_pMask = pImage->DetachMask();

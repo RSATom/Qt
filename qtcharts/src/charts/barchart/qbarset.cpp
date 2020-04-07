@@ -36,7 +36,7 @@ QT_CHARTS_BEGIN_NAMESPACE
 
 /*!
     \class QBarSet
-    \inmodule Qt Charts
+    \inmodule QtCharts
     \brief The QBarSet class represents one set of bars in a bar chart.
 
     A bar set contains one data value for each category. The first value of a set is assumed to
@@ -756,7 +756,7 @@ qreal QBarSetPrivate::value(const int index)
     return m_values.at(index).y();
 }
 
+QT_CHARTS_END_NAMESPACE
+
 #include "moc_qbarset.cpp"
 #include "moc_qbarset_p.cpp"
-
-QT_CHARTS_END_NAMESPACE

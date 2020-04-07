@@ -12,6 +12,10 @@ imagedirs += images
 exampledirs += \
               ../../examples/speech
 
+moduleheader = QtSpeechDoc
+
+includepaths = -I .
+
 examplesinstallpath = speech
 
 depends += qtcore qtdoc

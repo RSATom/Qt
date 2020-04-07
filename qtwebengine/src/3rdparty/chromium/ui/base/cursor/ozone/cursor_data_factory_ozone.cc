@@ -18,7 +18,7 @@ const uint32_t kBadCookie = 0xBADBADCC;
 CursorDataOzone* ToCursorDataOzone(PlatformCursor cursor) {
   CursorDataOzone* ozone = static_cast<CursorDataOzone*>(cursor);
 #if DCHECK_IS_ON()
-  ozone->AssertIsACusrorDataOzone();
+  ozone->AssertIsACursorDataOzone();
 #endif
   return ozone;
 }
@@ -32,7 +32,7 @@ PlatformCursor ToPlatformCursor(CursorDataOzone* cursor) {
 CursorDataOzone::CursorDataOzone(const ui::CursorData& data)
     : magic_cookie_(kCookie), data_(data) {}
 
-void CursorDataOzone::AssertIsACusrorDataOzone() {
+void CursorDataOzone::AssertIsACursorDataOzone() {
   CHECK_EQ(magic_cookie_, kCookie);
 }
 
@@ -97,7 +97,7 @@ scoped_refptr<CursorDataOzone> CursorDataFactoryOzone::GetDefaultCursorInternal(
     // We hold a ref forever because clients do not do refcounting for default
     // cursors.
     scoped_refptr<CursorDataOzone> cursor =
-        make_scoped_refptr(new CursorDataOzone(ui::CursorData(type)));
+        base::MakeRefCounted<CursorDataOzone>(ui::CursorData(type));
     default_cursors_[type] = std::move(cursor);
   }
 

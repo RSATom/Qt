@@ -66,7 +66,7 @@ class QScxmlEcmaScriptDataModelPrivate : public QScxmlDataModelPrivate
     Q_DECLARE_PUBLIC(QScxmlEcmaScriptDataModel)
 public:
     QScxmlEcmaScriptDataModelPrivate()
-        : jsEngine(Q_NULLPTR)
+        : jsEngine(nullptr)
     {}
 
     QString evalStr(const QString &expr, const QString &context, bool *ok)
@@ -144,7 +144,7 @@ public:
         dataModel.setProperty(QStringLiteral("_x"), platformVars->jsValue());
 
         dataModel.setProperty(QStringLiteral("In"), engine->evaluate(
-                                  QStringLiteral("function(id){return _x.inState(id);}")));
+                                  QStringLiteral("(function(id){return _x.inState(id);})")));
     }
 
     void assignEvent(const QScxmlEvent &event)
@@ -266,7 +266,7 @@ public:
     QStringList initialDataNames;
 
 private: // Uses private API
-    static void setReadonlyProperty(QJSValue *object, const QString& name, const QJSValue& value)
+    static void setReadonlyProperty(QJSValue *object, const QString &name, const QJSValue &value)
     {
         qCDebug(qscxmlLog) << "setting read-only property" << name;
         QV4::ExecutionEngine *engine = QJSValuePrivate::engine(object);
@@ -283,13 +283,12 @@ private: // Uses private API
         }
 
         QV4::ScopedString s(scope, engine->newString(name));
-        uint idx = s->asArrayIndex();
-        if (idx < UINT_MAX) {
+        QV4::ScopedPropertyKey key(scope, s->toPropertyKey());
+        if (key->isArrayIndex()) {
             Q_UNIMPLEMENTED();
             return;
         }
 
-        s->makeIdentifier();
         QV4::ScopedValue v(scope, QJSValuePrivate::convertedToValue(engine, value));
         o->defineReadonlyProperty(s, v);
         if (engine->hasException)
@@ -303,7 +302,7 @@ private: // Uses private API
         SetPropertyFailedForAnotherReason,
     };
 
-    static SetPropertyResult setProperty(QJSValue *object, const QString& name, const QJSValue& value)
+    static SetPropertyResult setProperty(QJSValue *object, const QString &name, const QJSValue &value)
     {
         QV4::ExecutionEngine *engine = QJSValuePrivate::engine(object);
         Q_ASSERT(engine);
@@ -312,18 +311,18 @@ private: // Uses private API
 
         QV4::Scope scope(engine);
         QV4::ScopedObject o(scope, QJSValuePrivate::getValue(object));
-        if (o == Q_NULLPTR) {
+        if (o == nullptr) {
             return SetPropertyFailedForAnotherReason;
         }
 
         QV4::ScopedString s(scope, engine->newString(name));
-        uint idx = s->asArrayIndex();
-        if (idx < UINT_MAX) {
+        QV4::ScopedPropertyKey key(scope, s->toPropertyKey());
+        if (key->isArrayIndex()) {
             Q_UNIMPLEMENTED();
             return SetPropertyFailedForAnotherReason;
         }
 
-        QV4::PropertyAttributes attrs = o->query(s);
+        QV4::PropertyAttributes attrs = o->getOwnProperty(s->toPropertyKey());
         if (attrs.isWritable() || attrs.isEmpty()) {
             QV4::ScopedValue v(scope, QJSValuePrivate::convertedToValue(engine, value));
             o->insertMember(s, v);

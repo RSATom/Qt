@@ -43,15 +43,15 @@
 
 #include "shared_global_p.h"
 
-#include <QtCore/QMultiMap>
-#include <QtCore/QList>
-#include <QtCore/QPointer>
+#include <QtCore/qhash.h>
+#include <QtCore/qlist.h>
+#include <QtCore/qpointer.h>
 
-#include <QtWidgets/QWidget>
-#include <QtGui/QPixmap>
-#include <QtGui/QPolygonF>
+#include <QtWidgets/qwidget.h>
+#include <QtGui/qpixmap.h>
+#include <QtGui/qpolygon.h>
 
-#include <QtWidgets/QUndoCommand>
+#include <QtWidgets/qundostack.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -68,8 +68,8 @@ class QDESIGNER_SHARED_EXPORT CETypes
 {
 public:
     typedef QList<Connection*> ConnectionList;
-    typedef QMap<Connection*, Connection*> ConnectionSet;
-    typedef QMap<QWidget*, QWidget*> WidgetSet;
+    typedef QHash<Connection*, Connection*> ConnectionSet;
+    typedef QHash<QWidget*, QWidget*> WidgetSet;
 
     class EndPoint {
     public:
@@ -89,7 +89,7 @@ class QDESIGNER_SHARED_EXPORT Connection : public CETypes
 public:
     explicit Connection(ConnectionEdit *edit);
     explicit Connection(ConnectionEdit *edit, QObject *source, QObject *target);
-    virtual ~Connection() {}
+    virtual ~Connection() = default;
 
     QObject *object(EndPoint::Type type) const
     {
@@ -155,7 +155,7 @@ class QDESIGNER_SHARED_EXPORT ConnectionEdit : public QWidget, public CETypes
     Q_OBJECT
 public:
     ConnectionEdit(QWidget *parent, QDesignerFormWindowInterface *form);
-    virtual ~ConnectionEdit();
+    ~ConnectionEdit() override;
 
     inline const QPointer<QWidget> &background() const { return m_bg_widget; }
 
@@ -173,7 +173,7 @@ public:
 
     void clear();
 
-    void showEvent(QShowEvent * /*e*/) Q_DECL_OVERRIDE
+    void showEvent(QShowEvent * /*e*/) override
     {
         updateBackground();
     }
@@ -200,14 +200,14 @@ public slots:
     void enableUpdateBackground(bool enable);
 
 protected:
-    void paintEvent(QPaintEvent *e) Q_DECL_OVERRIDE;
-    void mouseMoveEvent(QMouseEvent *e) Q_DECL_OVERRIDE;
-    void mousePressEvent(QMouseEvent *e) Q_DECL_OVERRIDE;
-    void mouseReleaseEvent(QMouseEvent *e) Q_DECL_OVERRIDE;
-    void keyPressEvent(QKeyEvent *e) Q_DECL_OVERRIDE;
-    void mouseDoubleClickEvent(QMouseEvent *e) Q_DECL_OVERRIDE;
-    void resizeEvent(QResizeEvent *e) Q_DECL_OVERRIDE;
-    void contextMenuEvent(QContextMenuEvent * event) Q_DECL_OVERRIDE;
+    void paintEvent(QPaintEvent *e) override;
+    void mouseMoveEvent(QMouseEvent *e) override;
+    void mousePressEvent(QMouseEvent *e) override;
+    void mouseReleaseEvent(QMouseEvent *e) override;
+    void keyPressEvent(QKeyEvent *e) override;
+    void mouseDoubleClickEvent(QMouseEvent *e) override;
+    void resizeEvent(QResizeEvent *e) override;
+    void contextMenuEvent(QContextMenuEvent * event) override;
 
     virtual Connection *createConnection(QWidget *source, QWidget *target);
     virtual void modifyConnection(Connection *con);
@@ -276,7 +276,7 @@ public:
    explicit  CECommand(ConnectionEdit *edit)
         : m_edit(edit) {}
 
-    virtual bool mergeWith(const QUndoCommand *) { return false; }
+    bool mergeWith(const QUndoCommand *) override { return false; }
 
     ConnectionEdit *edit() const { return m_edit; }
 
@@ -288,8 +288,8 @@ class QDESIGNER_SHARED_EXPORT AddConnectionCommand : public CECommand
 {
 public:
     AddConnectionCommand(ConnectionEdit *edit, Connection *con);
-    virtual void redo();
-    virtual void undo();
+    void redo() override;
+    void undo() override;
 private:
     Connection *m_con;
 };
@@ -298,8 +298,8 @@ class QDESIGNER_SHARED_EXPORT DeleteConnectionsCommand : public CECommand
 {
 public:
     DeleteConnectionsCommand(ConnectionEdit *edit, const ConnectionList &con_list);
-    virtual void redo();
-    virtual void undo();
+    void redo() override;
+    void undo() override;
 private:
     ConnectionList m_con_list;
 };

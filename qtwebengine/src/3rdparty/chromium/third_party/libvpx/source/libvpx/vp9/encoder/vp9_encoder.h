@@ -209,6 +209,7 @@ typedef struct VP9EncoderConfig {
   int two_pass_vbrbias;  // two pass datarate control tweaks
   int two_pass_vbrmin_section;
   int two_pass_vbrmax_section;
+  int vbr_corpus_complexity;  // 0 indicates corpus vbr disabled
   // END DATARATE CONTROL OPTIONS
   // ----------------------------------------------------------------
 
@@ -277,11 +278,38 @@ static INLINE int is_lossless_requested(const VP9EncoderConfig *cfg) {
   return cfg->best_allowed_q == 0 && cfg->worst_allowed_q == 0;
 }
 
+typedef struct TplDepStats {
+  int64_t intra_cost;
+  int64_t inter_cost;
+  int64_t mc_flow;
+  int64_t mc_dep_cost;
+  int64_t mc_ref_cost;
+
+  int ref_frame_index;
+  int_mv mv;
+} TplDepStats;
+
+typedef struct TplDepFrame {
+  uint8_t is_valid;
+  TplDepStats *tpl_stats_ptr;
+  int stride;
+  int width;
+  int height;
+  int mi_rows;
+  int mi_cols;
+  int base_qindex;
+} TplDepFrame;
+
+#define TPL_DEP_COST_SCALE_LOG2 4
+
 // TODO(jingning) All spatially adaptive variables should go to TileDataEnc.
 typedef struct TileDataEnc {
   TileInfo tile_info;
   int thresh_freq_fact[BLOCK_SIZES][MAX_MODES];
-  int mode_map[BLOCK_SIZES][MAX_MODES];
+#if CONFIG_CONSISTENT_RECODE
+  int thresh_freq_fact_prev[BLOCK_SIZES][MAX_MODES];
+#endif
+  int8_t mode_map[BLOCK_SIZES][MAX_MODES];
   FIRSTPASS_DATA fp_data;
   VP9RowMTSync row_mt_sync;
 
@@ -360,6 +388,7 @@ typedef struct IMAGE_STAT {
 
 typedef enum {
   LEVEL_UNKNOWN = 0,
+  LEVEL_AUTO = 1,
   LEVEL_1 = 10,
   LEVEL_1_1 = 11,
   LEVEL_2 = 20,
@@ -381,6 +410,7 @@ typedef struct {
   VP9_LEVEL level;
   uint64_t max_luma_sample_rate;
   uint32_t max_luma_picture_size;
+  uint32_t max_luma_picture_breadth;
   double average_bitrate;  // in kilobits per second
   double max_cpb_size;     // in kilobits
   double compression_ratio;
@@ -420,14 +450,15 @@ typedef struct {
 
 typedef enum {
   BITRATE_TOO_LARGE = 0,
-  LUMA_PIC_SIZE_TOO_LARGE = 1,
-  LUMA_SAMPLE_RATE_TOO_LARGE = 2,
-  CPB_TOO_LARGE = 3,
-  COMPRESSION_RATIO_TOO_SMALL = 4,
-  TOO_MANY_COLUMN_TILE = 5,
-  ALTREF_DIST_TOO_SMALL = 6,
-  TOO_MANY_REF_BUFFER = 7,
-  TARGET_LEVEL_FAIL_IDS = 8
+  LUMA_PIC_SIZE_TOO_LARGE,
+  LUMA_PIC_BREADTH_TOO_LARGE,
+  LUMA_SAMPLE_RATE_TOO_LARGE,
+  CPB_TOO_LARGE,
+  COMPRESSION_RATIO_TOO_SMALL,
+  TOO_MANY_COLUMN_TILE,
+  ALTREF_DIST_TOO_SMALL,
+  TOO_MANY_REF_BUFFER,
+  TARGET_LEVEL_FAIL_IDS
 } TARGET_LEVEL_FAIL_ID;
 
 typedef struct {
@@ -469,6 +500,8 @@ typedef struct VP9_COMP {
 #endif
   YV12_BUFFER_CONFIG *raw_source_frame;
 
+  TplDepFrame tpl_stats[MAX_LAG_BUFFERS];
+
   TileDataEnc *tile_data;
   int allocated_tiles;  // Keep track of memory allocated for tiles.
 
@@ -480,8 +513,13 @@ typedef struct VP9_COMP {
   int gld_fb_idx;
   int alt_fb_idx;
 
+  int ref_fb_idx[REF_FRAMES];
+  int last_show_frame_buf_idx;  // last show frame buffer index
+
   int refresh_last_frame;
   int refresh_golden_frame;
+  int refresh_bwd_ref_frame;
+  int refresh_alt2_ref_frame;
   int refresh_alt_ref_frame;
 
   int ext_refresh_frame_flags_pending;
@@ -517,7 +555,7 @@ typedef struct VP9_COMP {
   RATE_CONTROL rc;
   double framerate;
 
-  int interp_filter_selected[MAX_REF_FRAMES][SWITCHABLE];
+  int interp_filter_selected[REF_FRAMES][SWITCHABLE];
 
   struct vpx_codec_pkt_list *output_pkt_list;
 
@@ -641,6 +679,8 @@ typedef struct VP9_COMP {
   int y_mode_costs[INTRA_MODES][INTRA_MODES][INTRA_MODES];
   int switchable_interp_costs[SWITCHABLE_FILTER_CONTEXTS][SWITCHABLE_FILTERS];
   int partition_cost[PARTITION_CONTEXTS][PARTITION_TYPES];
+  // Indices are:  max_tx_size-1,  tx_size_ctx,    tx_size
+  int tx_size_cost[TX_SIZES - 1][TX_SIZE_CONTEXTS][TX_SIZES];
 
   int multi_arf_allowed;
   int multi_arf_enabled;
@@ -716,6 +756,18 @@ typedef struct VP9_COMP {
   int compute_source_sad_onepass;
 
   LevelConstraint level_constraint;
+
+  uint8_t *count_arf_frame_usage;
+  uint8_t *count_lastgolden_frame_usage;
+
+  // Parameters on multi-layer ALTREFs
+  int num_extra_arfs;
+  int arf_map[MAX_EXT_ARFS + 1];
+  int arf_pos_in_gf[MAX_EXT_ARFS + 1];
+  int arf_pos_for_ovrly[MAX_EXT_ARFS + 1];
+  int extra_arf_allowed;
+
+  vpx_roi_map_t roi;
 } VP9_COMP;
 
 void vp9_initialize_enc(void);
@@ -851,28 +903,22 @@ YV12_BUFFER_CONFIG *vp9_scale_if_required(
 
 void vp9_apply_encoding_flags(VP9_COMP *cpi, vpx_enc_frame_flags_t flags);
 
-static INLINE int is_two_pass_svc(const struct VP9_COMP *const cpi) {
-  return cpi->use_svc && cpi->oxcf.pass != 0;
-}
-
 static INLINE int is_one_pass_cbr_svc(const struct VP9_COMP *const cpi) {
   return (cpi->use_svc && cpi->oxcf.pass == 0);
 }
 
 #if CONFIG_VP9_TEMPORAL_DENOISING
 static INLINE int denoise_svc(const struct VP9_COMP *const cpi) {
-  return (!cpi->use_svc ||
-          (cpi->use_svc &&
-           cpi->svc.spatial_layer_id == cpi->svc.number_spatial_layers - 1));
+  return (!cpi->use_svc || (cpi->use_svc && cpi->svc.spatial_layer_id >=
+                                                cpi->svc.first_layer_denoise));
 }
 #endif
 
+#define MIN_LOOKAHEAD_FOR_ARFS 4
 static INLINE int is_altref_enabled(const VP9_COMP *const cpi) {
   return !(cpi->oxcf.mode == REALTIME && cpi->oxcf.rc_mode == VPX_CBR) &&
-         cpi->oxcf.lag_in_frames > 0 &&
-         (cpi->oxcf.enable_auto_arf &&
-          (!is_two_pass_svc(cpi) ||
-           cpi->oxcf.ss_enable_auto_arf[cpi->svc.spatial_layer_id]));
+         cpi->oxcf.lag_in_frames >= MIN_LOOKAHEAD_FOR_ARFS &&
+         cpi->oxcf.enable_auto_arf;
 }
 
 static INLINE void set_ref_ptrs(VP9_COMMON *cm, MACROBLOCKD *xd,
@@ -912,7 +958,27 @@ static INLINE int get_level_index(VP9_LEVEL level) {
   return -1;
 }
 
+// Return the log2 value of max column tiles corresponding to the level that
+// the picture size fits into.
+static INLINE int log_tile_cols_from_picsize_level(uint32_t width,
+                                                   uint32_t height) {
+  int i;
+  const uint32_t pic_size = width * height;
+  const uint32_t pic_breadth = VPXMAX(width, height);
+  for (i = LEVEL_1; i < LEVEL_MAX; ++i) {
+    if (vp9_level_defs[i].max_luma_picture_size >= pic_size &&
+        vp9_level_defs[i].max_luma_picture_breadth >= pic_breadth) {
+      return get_msb(vp9_level_defs[i].max_col_tiles);
+    }
+  }
+  return INT_MAX;
+}
+
 VP9_LEVEL vp9_get_level(const Vp9LevelSpec *const level_spec);
+
+int vp9_set_roi_map(VP9_COMP *cpi, unsigned char *map, unsigned int rows,
+                    unsigned int cols, int delta_q[8], int delta_lf[8],
+                    int skip[8], int ref_frame[8]);
 
 void vp9_new_framerate(VP9_COMP *cpi, double framerate);
 

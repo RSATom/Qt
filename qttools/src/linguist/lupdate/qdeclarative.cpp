@@ -90,10 +90,20 @@ protected:
 
     void endVisit(AST::CallExpression *node)
     {
-        if (AST::IdentifierExpression *idExpr = AST::cast<AST::IdentifierExpression *>(node->base)) {
+        QString name;
+        AST::ExpressionNode *base = node->base;
+
+        while (base && base->kind == AST::Node::Kind_FieldMemberExpression) {
+            auto memberExpr = static_cast<AST::FieldMemberExpression *>(base);
+            name.prepend(memberExpr->name);
+            name.prepend(QLatin1Char('.'));
+            base = memberExpr->base;
+        }
+
+        if (AST::IdentifierExpression *idExpr = AST::cast<AST::IdentifierExpression *>(base)) {
             processComments(idExpr->identifierToken.begin());
 
-            const QString name = idExpr->name.toString();
+            name = idExpr->name.toString() + name;
             const int identLineNo = idExpr->identifierToken.startLine;
             switch (trFunctionAliasManager.trFunctionByName(name)) {
             case TrFunctionAliasManager::Function_qsTr:
@@ -210,6 +220,13 @@ private:
     {
         return std::cerr << qPrintable(m_fileName) << ':' << line << ": ";
     }
+
+    void throwRecursionDepthError() final
+    {
+        std::cerr << qPrintable(m_fileName) << ": "
+                  << qPrintable(LU::tr("Maximum statement or expression depth exceeded"));
+    }
+
 
     void processComments(quint32 offset, bool flush = false);
     void processComment(const AST::SourceLocation &loc);
@@ -419,9 +436,9 @@ public:
     bool operator()() const { return directives != 0; }
     int end() const { return lastOffset; }
 
-    void pragmaLibrary() Q_DECL_OVERRIDE { consumeDirective(); }
-    void importFile(const QString &, const QString &, int, int) Q_DECL_OVERRIDE { consumeDirective(); }
-    void importModule(const QString &, const QString &, const QString &, int, int) Q_DECL_OVERRIDE { consumeDirective(); }
+    void pragmaLibrary() override { consumeDirective(); }
+    void importFile(const QString &, const QString &, int, int) override { consumeDirective(); }
+    void importModule(const QString &, const QString &, const QString &, int, int) override { consumeDirective(); }
 
 private:
     void consumeDirective()

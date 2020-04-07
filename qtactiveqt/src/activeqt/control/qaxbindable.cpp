@@ -102,9 +102,7 @@ QAxBindable::QAxBindable()
 /*!
     Destroys the QAxBindable object.
 */
-QAxBindable::~QAxBindable()
-{
-}
+QAxBindable::~QAxBindable() = default;
 
 /*!
     Call this function to request permission to change the property

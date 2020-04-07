@@ -64,7 +64,7 @@ class ServiceDiscoveryBroadcastReceiver : public AndroidBroadcastReceiver
 {
     Q_OBJECT
 public:
-    ServiceDiscoveryBroadcastReceiver(QObject* parent = 0);
+    ServiceDiscoveryBroadcastReceiver(QObject* parent = nullptr);
     virtual void onReceive(JNIEnv *env, jobject context, jobject intent);
     virtual void onReceiveLeScan(JNIEnv *, jobject, jint, jbyteArray) {}
 

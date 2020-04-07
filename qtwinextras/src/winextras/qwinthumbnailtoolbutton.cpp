@@ -80,9 +80,7 @@ QWinThumbnailToolButton::QWinThumbnailToolButton(QObject *parent) :
 /*!
     Destroys the QWinThumbnailToolButton.
  */
-QWinThumbnailToolButton::~QWinThumbnailToolButton()
-{
-}
+QWinThumbnailToolButton::~QWinThumbnailToolButton() = default;
 
 /*!
     \property QWinThumbnailToolButton::toolTip

@@ -13,6 +13,7 @@
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "content/public/browser/browser_message_filter.h"
+#include "content/public/browser/browser_thread.h"
 
 namespace base {
 class DictionaryValue;
@@ -44,6 +45,12 @@ class GuestViewMessageFilter : public content::BrowserMessageFilter {
   // Returns the GuestViewManager for |browser_context_| if one already exists,
   // or creates and returns one for |browser_context_| otherwise.
   virtual GuestViewManager* GetOrCreateGuestViewManager();
+
+  // Returns the GuestViewManager for |browser_context_| if it exists.
+  // Callers consider the renderer to be misbehaving if we don't have a
+  // GuestViewManager at this point, in which case we kill the renderer and
+  // return nullptr.
+  GuestViewManager* GetGuestViewManagerOrKill();
 
   // content::BrowserMessageFilter implementation.
   void OverrideThreadForMessage(const IPC::Message& message,

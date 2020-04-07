@@ -61,7 +61,7 @@ class AndroidSensorPlugin : public QObject, public QSensorPluginInterface, publi
     Q_PLUGIN_METADATA(IID "org.qt-project.Qt.QSensorPluginInterface/1.0" FILE "plugin.json")
     Q_INTERFACES(QSensorPluginInterface)
 public:
-    void registerSensors()
+    void registerSensors() override
     {
         bool accelerometer = false;
         bool magnetometer = false;
@@ -114,7 +114,7 @@ public:
             QSensorManager::registerBackend(QCompass::type, AndroidCompass::id, this);
     }
 
-    QSensorBackend *createBackend(QSensor *sensor)
+    QSensorBackend *createBackend(QSensor *sensor) override
     {
         if (sensor->identifier() == AndroidCompass::id)
             return new AndroidCompass(sensor);

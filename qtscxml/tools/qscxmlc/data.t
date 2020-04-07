@@ -8,38 +8,38 @@ struct ${classname}::Data: private QScxmlTableData {
         ${dataModelInitialization}
     }
 
-    QString name() const Q_DECL_OVERRIDE Q_DECL_FINAL
+    QString name() const override final
     { return ${name}; }
 
-    QScxmlExecutableContent::ContainerId initialSetup() const Q_DECL_OVERRIDE Q_DECL_FINAL
+    QScxmlExecutableContent::ContainerId initialSetup() const override final
     { return ${initialSetup}; }
 
-    QScxmlExecutableContent::InstructionId *instructions() const Q_DECL_OVERRIDE Q_DECL_FINAL
+    QScxmlExecutableContent::InstructionId *instructions() const override final
     { return theInstructions; }
 
-    QScxmlExecutableContent::StringId *dataNames(int *count) const Q_DECL_OVERRIDE Q_DECL_FINAL
+    QScxmlExecutableContent::StringId *dataNames(int *count) const override final
     { *count = ${dataNameCount}; return dataIds; }
 
-    QScxmlExecutableContent::EvaluatorInfo evaluatorInfo(QScxmlExecutableContent::EvaluatorId evaluatorId) const Q_DECL_OVERRIDE Q_DECL_FINAL
+    QScxmlExecutableContent::EvaluatorInfo evaluatorInfo(QScxmlExecutableContent::EvaluatorId evaluatorId) const override final
     { Q_ASSERT(evaluatorId >= 0); Q_ASSERT(evaluatorId < ${evaluatorCount}); return evaluators[evaluatorId]; }
 
-    QScxmlExecutableContent::AssignmentInfo assignmentInfo(QScxmlExecutableContent::EvaluatorId assignmentId) const Q_DECL_OVERRIDE Q_DECL_FINAL
+    QScxmlExecutableContent::AssignmentInfo assignmentInfo(QScxmlExecutableContent::EvaluatorId assignmentId) const override final
     { Q_ASSERT(assignmentId >= 0); Q_ASSERT(assignmentId < ${assignmentCount}); return assignments[assignmentId]; }
 
-    QScxmlExecutableContent::ForeachInfo foreachInfo(QScxmlExecutableContent::EvaluatorId foreachId) const Q_DECL_OVERRIDE Q_DECL_FINAL
+    QScxmlExecutableContent::ForeachInfo foreachInfo(QScxmlExecutableContent::EvaluatorId foreachId) const override final
     { Q_ASSERT(foreachId >= 0); Q_ASSERT(foreachId < ${foreachCount}); return foreaches[foreachId]; }
 
-    QString string(QScxmlExecutableContent::StringId id) const Q_DECL_OVERRIDE Q_DECL_FINAL
+    QString string(QScxmlExecutableContent::StringId id) const override final
     {
         Q_ASSERT(id >= QScxmlExecutableContent::NoString); Q_ASSERT(id < ${stringCount});
         if (id == QScxmlExecutableContent::NoString) return QString();
         return QString({static_cast<QStringData*>(strings.data + id)});
     }
 
-    const qint32 *stateMachineTable() const Q_DECL_OVERRIDE Q_DECL_FINAL
+    const qint32 *stateMachineTable() const override final
     { return theStateMachineTable; }
 
-    QScxmlInvokableServiceFactory *serviceFactory(int id) const Q_DECL_OVERRIDE Q_DECL_FINAL;
+    QScxmlInvokableServiceFactory *serviceFactory(int id) const override final;
 
     ${classname} &stateMachine;
     ${dataModelField}

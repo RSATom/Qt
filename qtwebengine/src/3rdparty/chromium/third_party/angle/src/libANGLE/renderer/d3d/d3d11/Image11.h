@@ -31,7 +31,7 @@ class Image11 : public ImageD3D
 {
   public:
     Image11(Renderer11 *renderer);
-    virtual ~Image11();
+    ~Image11() override;
 
     static gl::Error GenerateMipmap(const gl::Context *context,
                                     Image11 *dest,
@@ -47,14 +47,17 @@ class Image11 : public ImageD3D
                                bool unpackUnmultiplyAlpha,
                                const Renderer11DeviceCaps &rendererCaps);
 
-    virtual bool isDirty() const;
+    bool isDirty() const override;
 
     gl::Error copyToStorage(const gl::Context *context,
                             TextureStorage *storage,
                             const gl::ImageIndex &index,
                             const gl::Box &region) override;
 
-    bool redefine(GLenum target, GLenum internalformat, const gl::Extents &size, bool forceRelease) override;
+    bool redefine(gl::TextureType type,
+                  GLenum internalformat,
+                  const gl::Extents &size,
+                  bool forceRelease) override;
 
     DXGI_FORMAT getDXGIFormat() const;
 
@@ -85,14 +88,16 @@ class Image11 : public ImageD3D
     void unmap();
 
   private:
-    gl::Error copyWithoutConversion(const gl::Offset &destOffset,
+    gl::Error copyWithoutConversion(const gl::Context *context,
+                                    const gl::Offset &destOffset,
                                     const gl::Box &sourceArea,
                                     const TextureHelper11 &textureHelper,
                                     UINT sourceSubResource);
 
-    gl::Error getStagingTexture(const TextureHelper11 **outStagingTexture,
+    gl::Error getStagingTexture(const gl::Context *context,
+                                const TextureHelper11 **outStagingTexture,
                                 unsigned int *outSubresourceIndex);
-    gl::Error createStagingTexture();
+    gl::Error createStagingTexture(const gl::Context *context);
     void releaseStagingTexture();
 
     Renderer11 *mRenderer;

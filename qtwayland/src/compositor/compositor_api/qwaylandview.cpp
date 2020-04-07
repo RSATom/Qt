@@ -55,8 +55,11 @@ void QWaylandViewPrivate::markSurfaceAsDestroyed(QWaylandSurface *surface)
     Q_Q(QWaylandView);
     Q_ASSERT(surface == this->surface);
 
-    q->setSurface(Q_NULLPTR);
+    setSurface(nullptr);
+    QPointer<QWaylandView> deleteGuard(q);
     emit q->surfaceDestroyed();
+    if (!deleteGuard.isNull())
+        clearFrontBuffer();
 }
 
 /*!
@@ -132,38 +135,46 @@ QWaylandSurface *QWaylandView::surface() const
     return d->surface;
 }
 
+
+void QWaylandViewPrivate::setSurface(QWaylandSurface *newSurface)
+{
+    Q_Q(QWaylandView);
+    if (surface) {
+        QWaylandSurfacePrivate::get(surface)->derefView(q);
+        if (output)
+            QWaylandOutputPrivate::get(output)->removeView(q, surface);
+    }
+
+    surface = newSurface;
+
+    nextBuffer = QWaylandBufferRef();
+    nextBufferCommitted = false;
+    nextDamage = QRegion();
+
+    if (surface) {
+        QWaylandSurfacePrivate::get(surface)->refView(q);
+        if (output)
+            QWaylandOutputPrivate::get(output)->addView(q, surface);
+    }
+}
+
+void QWaylandViewPrivate::clearFrontBuffer()
+{
+    if (!bufferLocked) {
+        currentBuffer = QWaylandBufferRef();
+        currentDamage = QRegion();
+    }
+}
+
 void QWaylandView::setSurface(QWaylandSurface *newSurface)
 {
     Q_D(QWaylandView);
     if (d->surface == newSurface)
         return;
 
-
-    if (d->surface) {
-        QWaylandSurfacePrivate::get(d->surface)->derefView(this);
-        if (d->output)
-            QWaylandOutputPrivate::get(d->output)->removeView(this, d->surface);
-    }
-
-    d->surface = newSurface;
-
-    if (!d->bufferLocked) {
-        d->currentBuffer = QWaylandBufferRef();
-        d->currentDamage = QRegion();
-    }
-
-    d->nextBuffer = QWaylandBufferRef();
-    d->nextBufferCommitted = false;
-    d->nextDamage = QRegion();
-
-    if (d->surface) {
-        QWaylandSurfacePrivate::get(d->surface)->refView(this);
-        if (d->output)
-            QWaylandOutputPrivate::get(d->output)->addView(this, d->surface);
-    }
-
+    d->setSurface(newSurface);
+    d->clearFrontBuffer();
     emit surfaceChanged();
-
 }
 
 /*!
@@ -350,12 +361,17 @@ void QWaylandView::setAllowDiscardFrontBuffer(bool discard)
 /*!
  * Makes this QWaylandView the primary view for the surface.
  *
+ * It has no effect if this QWaylandView is not holding any QWaylandSurface
+ *
  * \sa QWaylandSurface::primaryView
  */
 void QWaylandView::setPrimary()
 {
     Q_D(QWaylandView);
-    d->surface->setPrimaryView(this);
+    if (d->surface)
+        d->surface->setPrimaryView(this);
+    else
+        qWarning("Calling setPrimary() on a QWaylandView without a surface has no effect.");
 }
 
 /*!
@@ -366,7 +382,7 @@ void QWaylandView::setPrimary()
 bool QWaylandView::isPrimary() const
 {
     Q_D(const QWaylandView);
-    return d->surface->primaryView() == this;
+    return d->surface && d->surface->primaryView() == this;
 }
 
 /*!
@@ -376,7 +392,7 @@ struct wl_resource *QWaylandView::surfaceResource() const
 {
     Q_D(const QWaylandView);
     if (!d->surface)
-        return Q_NULLPTR;
+        return nullptr;
     return d->surface->resource();
 }
 

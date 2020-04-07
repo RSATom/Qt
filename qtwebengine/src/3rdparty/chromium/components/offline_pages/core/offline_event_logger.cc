@@ -8,8 +8,6 @@
 
 namespace offline_pages {
 
-extern const size_t kMaxLogCount = 50;
-
 OfflineEventLogger::OfflineEventLogger()
     : activities_(0), is_logging_(false), client_(nullptr) {}
 
@@ -33,6 +31,7 @@ void OfflineEventLogger::GetLogs(std::vector<std::string>* records) {
 }
 
 void OfflineEventLogger::RecordActivity(const std::string& activity) {
+  DVLOG(1) << activity;
   if (!is_logging_ || activity.empty())
     return;
 

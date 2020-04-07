@@ -77,6 +77,11 @@ QSGSoftwareRenderableNode *QSGAbstractSoftwareRenderer::renderableNode(QSGNode *
     return m_nodes.value(node, nullptr);
 }
 
+const QLinkedList<QSGSoftwareRenderableNode*> &QSGAbstractSoftwareRenderer::renderableNodes() const
+{
+    return m_renderableNodes;
+}
+
 void QSGAbstractSoftwareRenderer::addNodeMapping(QSGNode *node, QSGSoftwareRenderableNode *renderableNode)
 {
     m_nodes.insert(node, renderableNode);
@@ -255,14 +260,14 @@ QRect QSGAbstractSoftwareRenderer::backgroundRect()
 
 void QSGAbstractSoftwareRenderer::nodeAdded(QSGNode *node)
 {
-    qCDebug(lc2DRender) << "nodeAdded" << (void*)node;
+    qCDebug(lc2DRender, "nodeAdded %p", (void*)node);
 
     m_nodeUpdater->updateNodes(node);
 }
 
 void QSGAbstractSoftwareRenderer::nodeRemoved(QSGNode *node)
 {
-    qCDebug(lc2DRender) << "nodeRemoved" << (void*)node;
+    qCDebug(lc2DRender, "nodeRemoved %p", (void*)node);
 
     auto renderable = renderableNode(node);
     // remove mapping
@@ -286,7 +291,7 @@ void QSGAbstractSoftwareRenderer::nodeRemoved(QSGNode *node)
 
 void QSGAbstractSoftwareRenderer::nodeGeometryUpdated(QSGNode *node)
 {
-    qCDebug(lc2DRender) << "nodeGeometryUpdated";
+    qCDebug(lc2DRender, "nodeGeometryUpdated");
 
     // Mark node as dirty
     auto renderable = renderableNode(node);
@@ -299,7 +304,7 @@ void QSGAbstractSoftwareRenderer::nodeGeometryUpdated(QSGNode *node)
 
 void QSGAbstractSoftwareRenderer::nodeMaterialUpdated(QSGNode *node)
 {
-    qCDebug(lc2DRender) << "nodeMaterialUpdated";
+    qCDebug(lc2DRender, "nodeMaterialUpdated");
 
     // Mark node as dirty
     auto renderable = renderableNode(node);
@@ -312,7 +317,7 @@ void QSGAbstractSoftwareRenderer::nodeMaterialUpdated(QSGNode *node)
 
 void QSGAbstractSoftwareRenderer::nodeMatrixUpdated(QSGNode *node)
 {
-    qCDebug(lc2DRender) << "nodeMaterialUpdated";
+    qCDebug(lc2DRender, "nodeMaterialUpdated");
 
     // Update children nodes
     m_nodeUpdater->updateNodes(node);
@@ -320,7 +325,7 @@ void QSGAbstractSoftwareRenderer::nodeMatrixUpdated(QSGNode *node)
 
 void QSGAbstractSoftwareRenderer::nodeOpacityUpdated(QSGNode *node)
 {
-    qCDebug(lc2DRender) << "nodeOpacityUpdated";
+    qCDebug(lc2DRender, "nodeOpacityUpdated");
 
     // Update children nodes
     m_nodeUpdater->updateNodes(node);

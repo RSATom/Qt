@@ -4,18 +4,16 @@
 
 #include "net/dns/host_resolver_impl.h"
 
-#include <memory>
 #include <string>
 #include <tuple>
 #include <vector>
 
+#include "base/auto_reset.h"
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/location.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
@@ -23,9 +21,12 @@
 #include "base/strings/stringprintf.h"
 #include "base/synchronization/condition_variable.h"
 #include "base/synchronization/lock.h"
+#include "base/test/test_mock_time_task_runner.h"
 #include "base/test/test_timeouts.h"
+#include "base/threading/thread_restrictions.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
+#include "base/values.h"
 #include "net/base/address_list.h"
 #include "net/base/ip_address.h"
 #include "net/base/mock_network_change_notifier.h"
@@ -38,11 +39,13 @@
 #include "net/log/net_log_with_source.h"
 #include "net/log/test_net_log.h"
 #include "net/test/gtest_util.h"
+#include "net/test/test_with_scoped_task_environment.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using net::test::IsError;
 using net::test::IsOk;
+using ::testing::NotNull;
 
 namespace net {
 
@@ -151,8 +154,12 @@ class MockHostResolverProc : public HostResolverProc {
     capture_list_.push_back(ResolveKey(hostname, address_family));
     ++num_requests_waiting_;
     requests_waiting_.Broadcast();
-    while (!num_slots_available_)
-      slots_available_.Wait();
+    {
+      base::ScopedAllowBaseSyncPrimitivesForTesting
+          scoped_allow_base_sync_primitives;
+      while (!num_slots_available_)
+        slots_available_.Wait();
+    }
     DCHECK_GT(num_requests_waiting_, 0u);
     --num_slots_available_;
     --num_requests_waiting_;
@@ -183,7 +190,7 @@ class MockHostResolverProc : public HostResolverProc {
   }
 
  protected:
-  ~MockHostResolverProc() override {}
+  ~MockHostResolverProc() override = default;
 
  private:
   mutable base::Lock lock_;
@@ -211,7 +218,7 @@ class Request {
  public:
   // Base class of handlers to be executed on completion of requests.
   struct Handler {
-    virtual ~Handler() {}
+    virtual ~Handler() = default;
     virtual void Handle(Request* request) = 0;
   };
 
@@ -225,7 +232,6 @@ class Request {
         index_(index),
         resolver_(resolver),
         handler_(handler),
-        quit_on_complete_(false),
         result_(ERR_UNEXPECTED) {}
 
   int Resolve() {
@@ -292,15 +298,13 @@ class Request {
   int WaitForResult() {
     if (completed())
       return result_;
-    base::CancelableClosure closure(base::MessageLoop::QuitWhenIdleClosure());
+    base::RunLoop run_loop;
     base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
-        FROM_HERE, closure.callback(), TestTimeouts::action_max_timeout());
-    quit_on_complete_ = true;
-    base::RunLoop().Run();
-    bool did_quit = !quit_on_complete_;
-    quit_on_complete_ = false;
-    closure.Cancel();
-    if (did_quit)
+        FROM_HERE, run_loop.QuitClosure(), TestTimeouts::action_max_timeout());
+    base::AutoReset<base::OnceClosure> reset(&quit_closure_,
+                                             run_loop.QuitClosure());
+    run_loop.Run();
+    if (!quit_closure_)
       return result_;
     else
       return ERR_UNEXPECTED;
@@ -319,10 +323,8 @@ class Request {
     }
     if (handler_)
       handler_->Handle(this);
-    if (quit_on_complete_) {
-      base::MessageLoop::current()->QuitWhenIdle();
-      quit_on_complete_ = false;
-    }
+    if (quit_closure_)
+      std::move(quit_closure_).Run();
   }
 
   HostResolver::RequestInfo info_;
@@ -330,7 +332,7 @@ class Request {
   size_t index_;
   HostResolverImpl* resolver_;
   Handler* handler_;
-  bool quit_on_complete_;
+  base::OnceClosure quit_closure_;
 
   AddressList list_;
   int result_;
@@ -353,30 +355,34 @@ class LookupAttemptHostResolverProc : public HostResolverProc {
         total_attempts_(total_attempts),
         total_attempts_resolved_(0),
         resolved_attempt_number_(0),
-        all_done_(&lock_) {
-  }
+        num_attempts_waiting_(0),
+        all_done_(&lock_),
+        blocked_attempt_signal_(&lock_) {}
 
   // Test harness will wait for all attempts to finish before checking the
   // results.
-  void WaitForAllAttemptsToFinish(const base::TimeDelta& wait_time) {
-    base::TimeTicks end_time = base::TimeTicks::Now() + wait_time;
-    {
-      base::AutoLock auto_lock(lock_);
-      while (total_attempts_resolved_ != total_attempts_ &&
-          base::TimeTicks::Now() < end_time) {
-        all_done_.TimedWait(end_time - base::TimeTicks::Now());
-      }
+  void WaitForAllAttemptsToFinish() {
+    base::AutoLock auto_lock(lock_);
+    while (total_attempts_resolved_ != total_attempts_) {
+      all_done_.Wait();
+    }
+  }
+
+  void WaitForNAttemptsToBeBlocked(int n) {
+    base::AutoLock auto_lock(lock_);
+    while (num_attempts_waiting_ < n) {
+      blocked_attempt_signal_.Wait();
     }
   }
 
   // All attempts will wait for an attempt to resolve the host.
   void WaitForAnAttemptToComplete() {
-    base::TimeDelta wait_time = base::TimeDelta::FromSeconds(60);
-    base::TimeTicks end_time = base::TimeTicks::Now() + wait_time;
     {
       base::AutoLock auto_lock(lock_);
-      while (resolved_attempt_number_ == 0 && base::TimeTicks::Now() < end_time)
-        all_done_.TimedWait(end_time - base::TimeTicks::Now());
+      base::ScopedAllowBaseSyncPrimitivesForTesting
+          scoped_allow_base_sync_primitives;
+      while (resolved_attempt_number_ == 0)
+        all_done_.Wait();
     }
     all_done_.Broadcast();  // Tell all waiting attempts to proceed.
   }
@@ -386,6 +392,9 @@ class LookupAttemptHostResolverProc : public HostResolverProc {
 
   // Returns the first attempt that that has resolved the host.
   int resolved_attempt_number() { return resolved_attempt_number_; }
+
+  // Returns the current number of blocked attempts.
+  int num_attempts_waiting() { return num_attempts_waiting_; }
 
   // HostResolverProc methods.
   int Resolve(const std::string& host,
@@ -397,11 +406,14 @@ class LookupAttemptHostResolverProc : public HostResolverProc {
     {
       base::AutoLock auto_lock(lock_);
       ++current_attempt_number_;
+      ++num_attempts_waiting_;
       if (current_attempt_number_ == attempt_number_to_resolve_) {
         resolved_attempt_number_ = current_attempt_number_;
         wait_for_right_attempt_to_complete = false;
       }
     }
+
+    blocked_attempt_signal_.Broadcast();
 
     if (wait_for_right_attempt_to_complete)
       // Wait for the attempt_number_to_resolve_ attempt to resolve.
@@ -413,6 +425,7 @@ class LookupAttemptHostResolverProc : public HostResolverProc {
     {
       base::AutoLock auto_lock(lock_);
       ++total_attempts_resolved_;
+      --num_attempts_waiting_;
     }
 
     all_done_.Broadcast();  // Tell all attempts to proceed.
@@ -428,7 +441,7 @@ class LookupAttemptHostResolverProc : public HostResolverProc {
   }
 
  protected:
-  ~LookupAttemptHostResolverProc() override {}
+  ~LookupAttemptHostResolverProc() override = default;
 
  private:
   int attempt_number_to_resolve_;
@@ -436,10 +449,12 @@ class LookupAttemptHostResolverProc : public HostResolverProc {
   int total_attempts_;
   int total_attempts_resolved_;
   int resolved_attempt_number_;
+  int num_attempts_waiting_;
 
   // All attempts wait for right attempt to be resolve.
   base::Lock lock_;
   base::ConditionVariable all_done_;
+  base::ConditionVariable blocked_attempt_signal_;
 };
 
 // TestHostResolverImpl's sole purpose is to mock the IPv6 reachability test.
@@ -456,7 +471,7 @@ class TestHostResolverImpl : public HostResolverImpl {
                        bool ipv6_reachable)
       : HostResolverImpl(options, net_log), ipv6_reachable_(ipv6_reachable) {}
 
-  ~TestHostResolverImpl() override {}
+  ~TestHostResolverImpl() override = default;
 
  private:
   const bool ipv6_reachable_;
@@ -499,7 +514,7 @@ void TestIPv6LoopbackOnly(const std::string& host) {
 
 }  // namespace
 
-class HostResolverImplTest : public testing::Test {
+class HostResolverImplTest : public TestWithScopedTaskEnvironment {
  public:
   static const int kDefaultPort = 80;
 
@@ -521,7 +536,7 @@ class HostResolverImplTest : public testing::Test {
  protected:
   // A Request::Handler which is a proxy to the HostResolverImplTest fixture.
   struct Handler : public Request::Handler {
-    ~Handler() override {}
+    ~Handler() override = default;
 
     // Proxy functions so that classes derived from Handler can access them.
     Request* CreateRequest(const HostResolver::RequestInfo& info,
@@ -565,7 +580,7 @@ class HostResolverImplTest : public testing::Test {
   // not start until released by |proc_->SignalXXX|.
   Request* CreateRequest(const HostResolver::RequestInfo& info,
                          RequestPriority priority) {
-    requests_.push_back(base::MakeUnique<Request>(
+    requests_.push_back(std::make_unique<Request>(
         info, priority, requests_.size(), resolver_.get(), handler_.get()));
     return requests_.back().get();
   }
@@ -617,6 +632,14 @@ class HostResolverImplTest : public testing::Test {
     return resolver_->IsIPv6Reachable(net_log);
   }
 
+  const HostCache::Entry* GetCacheEntry(const Request& req) {
+    DCHECK(resolver_.get() && resolver_->GetHostCache());
+    const HostCache::Key key(req.info().hostname(), req.info().address_family(),
+                             req.info().host_resolver_flags());
+    return resolver_->GetHostCache()->LookupStale(key, base::TimeTicks(),
+                                                  nullptr);
+  }
+
   void MakeCacheStale() {
     DCHECK(resolver_.get());
     resolver_->GetHostCache()->OnNetworkChange();
@@ -639,30 +662,6 @@ TEST_F(HostResolverImplTest, AsynchronousLookup) {
 
   EXPECT_TRUE(req->HasOneAddress("192.168.1.42", 80));
   EXPECT_EQ("just.testing", proc_->GetCaptureList()[0].hostname);
-}
-
-// RFC 6761 localhost names should always resolve to loopback.
-TEST_F(HostResolverImplTest, LocalhostLookup) {
-  // Add a rule resolving localhost names to a non-loopback IP and test
-  // that they still resolves to loopback.
-  proc_->AddRuleForAllFamilies("foo.localhost", "192.168.1.42");
-  proc_->AddRuleForAllFamilies("localhost", "192.168.1.42");
-  proc_->AddRuleForAllFamilies("localhost.", "192.168.1.42");
-
-  Request* req0 = CreateRequest("foo.localhost", 80);
-  EXPECT_THAT(req0->Resolve(), IsOk());
-  EXPECT_TRUE(req0->HasAddress("127.0.0.1", 80));
-  EXPECT_TRUE(req0->HasAddress("::1", 80));
-
-  Request* req1 = CreateRequest("localhost", 80);
-  EXPECT_THAT(req1->Resolve(), IsOk());
-  EXPECT_TRUE(req1->HasAddress("127.0.0.1", 80));
-  EXPECT_TRUE(req1->HasAddress("::1", 80));
-
-  Request* req2 = CreateRequest("localhost.", 80);
-  EXPECT_THAT(req2->Resolve(), IsOk());
-  EXPECT_TRUE(req2->HasAddress("127.0.0.1", 80));
-  EXPECT_TRUE(req2->HasAddress("::1", 80));
 }
 
 TEST_F(HostResolverImplTest, LocalhostIPV4IPV6Lookup) {
@@ -924,7 +923,7 @@ TEST_F(HostResolverImplTest, DeleteWithinCallback) {
       // Quit after returning from OnCompleted (to give it a chance at
       // incorrectly running the cancelled tasks).
       base::ThreadTaskRunnerHandle::Get()->PostTask(
-          FROM_HERE, base::MessageLoop::QuitWhenIdleClosure());
+          FROM_HERE, base::RunLoop::QuitCurrentWhenIdleClosureDeprecated());
     }
   };
   set_handler(new MyHandler());
@@ -950,7 +949,7 @@ TEST_F(HostResolverImplTest, DeleteWithinAbortedCallback) {
       // Quit after returning from OnCompleted (to give it a chance at
       // incorrectly running the cancelled tasks).
       base::ThreadTaskRunnerHandle::Get()->PostTask(
-          FROM_HERE, base::MessageLoop::QuitWhenIdleClosure());
+          FROM_HERE, base::RunLoop::QuitCurrentWhenIdleClosureDeprecated());
     }
   };
   set_handler(new MyHandler());
@@ -1028,7 +1027,7 @@ TEST_F(HostResolverImplTest, BypassCache) {
                   CreateRequest(info, DEFAULT_PRIORITY)->Resolve());
       } else if (71 == req->info().port()) {
         // Test is done.
-        base::MessageLoop::current()->QuitWhenIdle();
+        base::RunLoop::QuitCurrentWhenIdleDeprecated();
       } else {
         FAIL() << "Unexpected request";
       }
@@ -1473,40 +1472,109 @@ TEST_F(HostResolverImplTest, ResolveStaleFromCache) {
   EXPECT_TRUE(requests_[5]->staleness().is_stale());
 }
 
+TEST_F(HostResolverImplTest, ResolveStaleFromCacheError) {
+  proc_->AddRuleForAllFamilies("just.testing", "192.168.1.42");
+  proc_->SignalMultiple(1u);  // Need only one.
+
+  HostResolver::RequestInfo info(HostPortPair("just.testing", 80));
+
+  // First query will miss the cache.
+  EXPECT_EQ(ERR_DNS_CACHE_MISS,
+            CreateRequest(info, DEFAULT_PRIORITY)->ResolveFromCache());
+
+  // This time, we fetch normally.
+  EXPECT_THAT(CreateRequest(info, DEFAULT_PRIORITY)->Resolve(),
+              IsError(ERR_IO_PENDING));
+  EXPECT_THAT(requests_[1]->WaitForResult(), IsOk());
+
+  // Now we should be able to fetch from the cache.
+  EXPECT_THAT(CreateRequest(info, DEFAULT_PRIORITY)->ResolveFromCache(),
+              IsOk());
+  EXPECT_TRUE(requests_[2]->HasOneAddress("192.168.1.42", 80));
+  EXPECT_THAT(CreateRequest(info, DEFAULT_PRIORITY)->ResolveStaleFromCache(),
+              IsOk());
+  EXPECT_TRUE(requests_[3]->HasOneAddress("192.168.1.42", 80));
+  EXPECT_FALSE(requests_[3]->staleness().is_stale());
+
+  MakeCacheStale();
+
+  proc_->AddRuleForAllFamilies("just.testing", "");
+  proc_->SignalMultiple(1u);
+
+  // Now make another query, and return an error this time.
+  EXPECT_THAT(CreateRequest(info, DEFAULT_PRIORITY)->Resolve(),
+              IsError(ERR_IO_PENDING));
+  EXPECT_THAT(requests_[4]->WaitForResult(), IsError(ERR_NAME_NOT_RESOLVED));
+
+  // Now we should be able to fetch from the cache only if we use
+  // ResolveStaleFromCache, and the result should be the older good result, not
+  // the error.
+  EXPECT_EQ(ERR_DNS_CACHE_MISS,
+            CreateRequest(info, DEFAULT_PRIORITY)->ResolveFromCache());
+  EXPECT_THAT(CreateRequest(info, DEFAULT_PRIORITY)->ResolveStaleFromCache(),
+              IsOk());
+  EXPECT_TRUE(requests_[6]->HasOneAddress("192.168.1.42", 80));
+  EXPECT_TRUE(requests_[6]->staleness().is_stale());
+}
+
+// TODO(mgersh): add a test case for errors with positive TTL after
+// https://crbug.com/115051 is fixed.
+
 // Test the retry attempts simulating host resolver proc that takes too long.
 TEST_F(HostResolverImplTest, MultipleAttempts) {
   // Total number of attempts would be 3 and we want the 3rd attempt to resolve
-  // the host. First and second attempt will be forced to sleep until they get
+  // the host. First and second attempt will be forced to wait until they get
   // word that a resolution has completed. The 3rd resolution attempt will try
-  // to get done ASAP, and won't sleep..
+  // to get done ASAP, and won't wait.
   int kAttemptNumberToResolve = 3;
   int kTotalAttempts = 3;
+
+  // Add a little bit of extra fudge to the delay to allow reasonable
+  // flexibility for time > vs >= etc.  We don't need to fail the test if we
+  // retry at t=6001 instead of t=6000.
+  base::TimeDelta kSleepFudgeFactor = base::TimeDelta::FromMilliseconds(1);
 
   scoped_refptr<LookupAttemptHostResolverProc> resolver_proc(
       new LookupAttemptHostResolverProc(
           NULL, kAttemptNumberToResolve, kTotalAttempts));
 
   HostResolverImpl::ProcTaskParams params = DefaultParams(resolver_proc.get());
-
-  // Specify smaller interval for unresponsive_delay_ for HostResolverImpl so
-  // that unit test runs faster. For example, this test finishes in 1.5 secs
-  // (500ms * 3).
-  params.unresponsive_delay = base::TimeDelta::FromMilliseconds(500);
+  base::TimeDelta unresponsive_delay = params.unresponsive_delay;
+  int retry_factor = params.retry_factor;
 
   resolver_.reset(new TestHostResolverImpl(DefaultOptions(), NULL));
   resolver_->set_proc_params_for_test(params);
+
+  // Override the current thread task runner, so we can simulate the passage of
+  // time and avoid any actual sleeps.
+  auto test_task_runner = base::MakeRefCounted<base::TestMockTimeTaskRunner>();
+  base::ScopedClosureRunner task_runner_override_scoped_cleanup =
+      base::ThreadTaskRunnerHandle::OverrideForTesting(test_task_runner);
 
   // Resolve "host1".
   HostResolver::RequestInfo info(HostPortPair("host1", 70));
   Request* req = CreateRequest(info, DEFAULT_PRIORITY);
   EXPECT_THAT(req->Resolve(), IsError(ERR_IO_PENDING));
 
+  resolver_proc->WaitForNAttemptsToBeBlocked(1);
+
+  test_task_runner->FastForwardBy(unresponsive_delay + kSleepFudgeFactor);
+  resolver_proc->WaitForNAttemptsToBeBlocked(2);
+
+  test_task_runner->FastForwardBy(unresponsive_delay * retry_factor +
+                                  kSleepFudgeFactor);
+
+  resolver_proc->WaitForAllAttemptsToFinish();
+  test_task_runner->RunUntilIdle();
+
   // Resolve returns -4 to indicate that 3rd attempt has resolved the host.
+  // Since we're using a TestMockTimeTaskRunner, the RunLoop stuff in
+  // WaitForResult will fail if it actually has to wait, but unless there's an
+  // error, the result should be immediately ready by this point.
   EXPECT_EQ(-4, req->WaitForResult());
 
-  resolver_proc->WaitForAllAttemptsToFinish(
-      base::TimeDelta::FromMilliseconds(60000));
-  base::RunLoop().RunUntilIdle();
+  // We should be done with retries, but make sure none erroneously happen.
+  test_task_runner->FastForwardUntilNoTasksRemain();
 
   EXPECT_EQ(resolver_proc->total_attempts_resolved(), kTotalAttempts);
   EXPECT_EQ(resolver_proc->resolved_attempt_number(), kAttemptNumberToResolve);
@@ -1614,6 +1682,10 @@ class HostResolverImplDnsTest : public HostResolverImplTest {
  protected:
   // testing::Test implementation:
   void SetUp() override {
+    AddDnsRule("nodomain", dns_protocol::kTypeA, MockDnsClientRule::NODOMAIN,
+               false);
+    AddDnsRule("nodomain", dns_protocol::kTypeAAAA, MockDnsClientRule::NODOMAIN,
+               false);
     AddDnsRule("nx", dns_protocol::kTypeA, MockDnsClientRule::FAIL, false);
     AddDnsRule("nx", dns_protocol::kTypeAAAA, MockDnsClientRule::FAIL, false);
     AddDnsRule("ok", dns_protocol::kTypeA, MockDnsClientRule::OK, false);
@@ -1662,6 +1734,11 @@ class HostResolverImplDnsTest : public HostResolverImplTest {
     CreateResolver();
   }
 
+  void TearDown() override {
+    HostResolverImplTest::TearDown();
+    ChangeDnsConfig(DnsConfig());
+  }
+
   // HostResolverImplTest implementation:
   void CreateResolverWithLimitsAndParams(
       size_t max_concurrent_resolves,
@@ -1704,6 +1781,13 @@ class HostResolverImplDnsTest : public HostResolverImplTest {
     base::RunLoop().RunUntilIdle();
   }
 
+  void SetInitialDnsConfig(const DnsConfig& config) {
+    NetworkChangeNotifier::ClearDnsConfigForTesting();
+    NetworkChangeNotifier::SetDnsConfig(config);
+    // Notification is delivered asynchronously.
+    base::RunLoop().RunUntilIdle();
+  }
+
   MockDnsClientRuleList dns_rules_;
   // Owned by |resolver_|.
   MockDnsClient* dns_client_;
@@ -1712,6 +1796,56 @@ class HostResolverImplDnsTest : public HostResolverImplTest {
 // TODO(szym): Test AbortAllInProgressJobs due to DnsConfig change.
 
 // TODO(cbentzel): Test a mix of requests with different HostResolverFlags.
+
+// RFC 6761 localhost names should always resolve to loopback.
+TEST_F(HostResolverImplDnsTest, LocalhostLookup) {
+  // Add a rule resolving localhost names to a non-loopback IP and test
+  // that they still resolves to loopback.
+  proc_->AddRuleForAllFamilies("foo.localhost", "192.168.1.42");
+  proc_->AddRuleForAllFamilies("localhost", "192.168.1.42");
+  proc_->AddRuleForAllFamilies("localhost.", "192.168.1.42");
+
+  Request* req0 = CreateRequest("foo.localhost", 80);
+  EXPECT_THAT(req0->Resolve(), IsOk());
+  EXPECT_TRUE(req0->HasAddress("127.0.0.1", 80));
+  EXPECT_TRUE(req0->HasAddress("::1", 80));
+
+  Request* req1 = CreateRequest("localhost", 80);
+  EXPECT_THAT(req1->Resolve(), IsOk());
+  EXPECT_TRUE(req1->HasAddress("127.0.0.1", 80));
+  EXPECT_TRUE(req1->HasAddress("::1", 80));
+
+  Request* req2 = CreateRequest("localhost.", 80);
+  EXPECT_THAT(req2->Resolve(), IsOk());
+  EXPECT_TRUE(req2->HasAddress("127.0.0.1", 80));
+  EXPECT_TRUE(req2->HasAddress("::1", 80));
+}
+
+// RFC 6761 localhost names should always resolve to loopback, even if a HOSTS
+// file is active.
+TEST_F(HostResolverImplDnsTest, LocalhostLookupWithHosts) {
+  DnsHosts hosts;
+  hosts[DnsHostsKey("localhost", ADDRESS_FAMILY_IPV4)] =
+      IPAddress({192, 168, 1, 1});
+  hosts[DnsHostsKey("foo.localhost", ADDRESS_FAMILY_IPV4)] =
+      IPAddress({192, 168, 1, 2});
+
+  DnsConfig config = CreateValidDnsConfig();
+  config.hosts = hosts;
+  ChangeDnsConfig(config);
+
+  Request* req1 = CreateRequest("localhost", 80);
+  EXPECT_THAT(req1->Resolve(), IsOk());
+  EXPECT_TRUE(req1->HasAddress("127.0.0.1", 80));
+  EXPECT_TRUE(req1->HasAddress("::1", 80));
+  EXPECT_FALSE(req1->HasAddress("192.168.1.1", 80));
+
+  Request* req2 = CreateRequest("foo.localhost", 80);
+  EXPECT_THAT(req2->Resolve(), IsOk());
+  EXPECT_TRUE(req2->HasAddress("127.0.0.1", 80));
+  EXPECT_TRUE(req2->HasAddress("::1", 80));
+  EXPECT_FALSE(req2->HasAddress("192.168.1.2", 80));
+}
 
 // Test successful and fallback resolutions in HostResolverImpl::DnsTask.
 TEST_F(HostResolverImplDnsTest, DnsTask) {
@@ -1741,10 +1875,24 @@ TEST_F(HostResolverImplDnsTest, DnsTask) {
   EXPECT_THAT(requests_[1]->result(), IsOk());
   // Resolved by MockDnsClient.
   EXPECT_TRUE(requests_[1]->HasOneAddress("127.0.0.1", 80));
+
+  // Resolutions done by DnsClient are known to have performed a DNS lookup,
+  // so they should result in a cache entry with SOURCE_DNS.
+  const HostCache::Entry* cache_entry = GetCacheEntry(*requests_[1]);
+  ASSERT_NE(nullptr, cache_entry);
+  EXPECT_EQ(HostCache::Entry::SOURCE_DNS, cache_entry->source());
+
   // Fallback to ProcTask.
   EXPECT_THAT(requests_[2]->result(), IsError(ERR_NAME_NOT_RESOLVED));
   EXPECT_THAT(requests_[3]->result(), IsOk());
   EXPECT_TRUE(requests_[3]->HasOneAddress("192.168.1.102", 80));
+
+  // Resolutions done by ProcTask could have performed a DNS lookup, or
+  // consulted a HOSTS file, or anything else, so they should result in a cache
+  // entry with SOURCE_UNKNOWN.
+  cache_entry = GetCacheEntry(*requests_[3]);
+  ASSERT_NE(nullptr, cache_entry);
+  EXPECT_EQ(HostCache::Entry::SOURCE_UNKNOWN, cache_entry->source());
 }
 
 // Test successful and failing resolutions in HostResolverImpl::DnsTask when
@@ -1934,6 +2082,42 @@ TEST_F(HostResolverImplDnsTest, ServeFromHosts) {
   EXPECT_TRUE(req6->HasOneAddress("127.0.0.1", 80));
 }
 
+TEST_F(HostResolverImplDnsTest, CacheHostsLookupOnConfigChange) {
+  // Only allow 1 resolution at a time, so that the second lookup is queued and
+  // occurs when the DNS config changes.
+  CreateResolverWithLimitsAndParams(1u, DefaultParams(proc_.get()));
+  DnsConfig config = CreateValidDnsConfig();
+  ChangeDnsConfig(config);
+
+  proc_->AddRuleForAllFamilies(std::string(),
+                               std::string());  // Default to failures.
+  proc_->SignalMultiple(1u);  // For the first request which fails.
+
+  Request* req1 = CreateRequest("nx_ipv4", 80);
+  EXPECT_THAT(req1->Resolve(), IsError(ERR_IO_PENDING));
+  Request* req2 = CreateRequest("nx_ipv6", 80);
+  EXPECT_THAT(req2->Resolve(), IsError(ERR_IO_PENDING));
+
+  DnsHosts hosts;
+  hosts[DnsHostsKey("nx_ipv4", ADDRESS_FAMILY_IPV4)] =
+      IPAddress::IPv4Localhost();
+  hosts[DnsHostsKey("nx_ipv6", ADDRESS_FAMILY_IPV6)] =
+      IPAddress::IPv6Localhost();
+
+  config.hosts = hosts;
+  ChangeDnsConfig(config);
+
+  EXPECT_THAT(req1->WaitForResult(), IsError(ERR_NETWORK_CHANGED));
+  EXPECT_THAT(req2->WaitForResult(), IsOk());
+  EXPECT_TRUE(req2->HasOneAddress("::1", 80));
+
+  // Resolutions done by consulting the HOSTS file when the DNS config changes
+  // should result in a cache entry with SOURCE_HOSTS.
+  const HostCache::Entry* cache_entry = GetCacheEntry(*req2);
+  ASSERT_THAT(cache_entry, NotNull());
+  EXPECT_EQ(HostCache::Entry::SOURCE_HOSTS, cache_entry->source());
+}
+
 TEST_F(HostResolverImplDnsTest, BypassDnsTask) {
   ChangeDnsConfig(CreateValidDnsConfig());
 
@@ -2102,8 +2286,11 @@ TEST_F(HostResolverImplDnsTest, DualFamilyLocalhost) {
   // Expect synchronous resolution from DnsHosts.
   EXPECT_THAT(req->Resolve(), IsOk());
 
-  EXPECT_EQ(saw_ipv4, req->HasAddress("127.0.0.1", 80));
-  EXPECT_EQ(saw_ipv6, req->HasAddress("::1", 80));
+  // Localhost names always resolve to IPv4 and IPv6, regardless of the content
+  // written into the HOSTS file above based on the results of the
+  // SystemHostResolverCall at the top of this test.
+  EXPECT_TRUE(req->HasAddress("127.0.0.1", 80));
+  EXPECT_TRUE(req->HasAddress("::1", 80));
 }
 
 // Cancel a request with a single DNS transaction active.
@@ -2344,6 +2531,22 @@ TEST_F(HostResolverImplDnsTest, InvalidDnsConfigWithPendingRequests) {
   EXPECT_TRUE(requests_[2]->HasOneAddress("192.168.0.3", 80));
 }
 
+// Test that initial DNS config read signals do not abort pending requests when
+// using DnsClient.
+TEST_F(HostResolverImplDnsTest, DontAbortOnInitialDNSConfigRead) {
+  // DnsClient is enabled, but there's no DnsConfig, so the request should start
+  // using ProcTask.
+  Request* req = CreateRequest("host1", 70);
+  EXPECT_THAT(req->Resolve(), IsError(ERR_IO_PENDING));
+
+  EXPECT_TRUE(proc_->WaitFor(1u));
+  // Send the initial config read signal, with a valid config.
+  SetInitialDnsConfig(CreateValidDnsConfig());
+  proc_->SignalAll();
+
+  EXPECT_THAT(req->WaitForResult(), IsOk());
+}
+
 // Tests the case that DnsClient is automatically disabled due to failures
 // while there are active DnsTasks.
 TEST_F(HostResolverImplDnsTest,
@@ -2520,6 +2723,37 @@ TEST_F(HostResolverImplDnsTest, NoIPv6OnWifi) {
   EXPECT_TRUE(requests_[5]->HasOneAddress("::2", 80));
 }
 
+TEST_F(HostResolverImplDnsTest, NotFoundTTL) {
+  CreateResolver();
+  set_fallback_to_proctask(false);
+  ChangeDnsConfig(CreateValidDnsConfig());
+  // NODATA
+  Request* request = CreateRequest("empty");
+  EXPECT_THAT(request->Resolve(), IsError(ERR_IO_PENDING));
+  EXPECT_THAT(request->WaitForResult(), IsError(ERR_NAME_NOT_RESOLVED));
+  EXPECT_THAT(request->NumberOfAddresses(), 0);
+  HostCache::Key key(request->info().hostname(), ADDRESS_FAMILY_UNSPECIFIED, 0);
+  HostCache::EntryStaleness staleness;
+  const HostCache::Entry* cache_entry =
+      resolver_->GetHostCache()->Lookup(key, base::TimeTicks::Now());
+  EXPECT_TRUE(!!cache_entry);
+  EXPECT_TRUE(cache_entry->has_ttl());
+  EXPECT_THAT(cache_entry->ttl(), base::TimeDelta::FromSeconds(86400));
+
+  // NXDOMAIN
+  request = CreateRequest("nodomain");
+  EXPECT_THAT(request->Resolve(), IsError(ERR_IO_PENDING));
+  EXPECT_THAT(request->WaitForResult(), IsError(ERR_NAME_NOT_RESOLVED));
+  EXPECT_THAT(request->NumberOfAddresses(), 0);
+  HostCache::Key nxkey(request->info().hostname(), ADDRESS_FAMILY_UNSPECIFIED,
+                       0);
+  cache_entry =
+      resolver_->GetHostCache()->Lookup(nxkey, base::TimeTicks::Now());
+  EXPECT_TRUE(!!cache_entry);
+  EXPECT_TRUE(cache_entry->has_ttl());
+  EXPECT_THAT(cache_entry->ttl(), base::TimeDelta::FromSeconds(86400));
+}
+
 TEST_F(HostResolverImplTest, ResolveLocalHostname) {
   AddressList addresses;
 
@@ -2576,6 +2810,156 @@ TEST_F(HostResolverImplTest, ResolveLocalHostname) {
                                     &addresses));
   EXPECT_FALSE(
       ResolveLocalHostname("foo.localhoste", kLocalhostLookupPort, &addresses));
+}
+
+TEST_F(HostResolverImplDnsTest, AddDnsOverHttpsServerAfterConfig) {
+  resolver_ = nullptr;
+  test::ScopedMockNetworkChangeNotifier notifier;
+  CreateSerialResolver();  // To guarantee order of resolutions.
+  notifier.mock_network_change_notifier()->SetConnectionType(
+      NetworkChangeNotifier::CONNECTION_WIFI);
+  ChangeDnsConfig(CreateValidDnsConfig());
+
+  resolver_->SetDnsClientEnabled(true);
+  std::string spec("https://dns.example.com/");
+  resolver_->AddDnsOverHttpsServer(spec, true);
+  base::DictionaryValue* config;
+
+  auto value = resolver_->GetDnsConfigAsValue();
+  EXPECT_TRUE(value);
+  if (!value)
+    return;
+  value->GetAsDictionary(&config);
+  base::ListValue* doh_servers;
+  config->GetListWithoutPathExpansion("doh_servers", &doh_servers);
+  EXPECT_TRUE(doh_servers);
+  if (!doh_servers)
+    return;
+  EXPECT_EQ(doh_servers->GetSize(), 1u);
+  base::DictionaryValue* server_method;
+  EXPECT_TRUE(doh_servers->GetDictionary(0, &server_method));
+  bool use_post;
+  EXPECT_TRUE(server_method->GetBoolean("use_post", &use_post));
+  EXPECT_TRUE(use_post);
+  std::string server_spec;
+  EXPECT_TRUE(server_method->GetString("server", &server_spec));
+  EXPECT_EQ(server_spec, spec);
+}
+
+TEST_F(HostResolverImplDnsTest, AddDnsOverHttpsServerBeforeConfig) {
+  resolver_ = nullptr;
+  test::ScopedMockNetworkChangeNotifier notifier;
+  CreateSerialResolver();  // To guarantee order of resolutions.
+  resolver_->SetDnsClientEnabled(true);
+  std::string spec("https://dns.example.com/");
+  resolver_->AddDnsOverHttpsServer(spec, true);
+
+  notifier.mock_network_change_notifier()->SetConnectionType(
+      NetworkChangeNotifier::CONNECTION_WIFI);
+  ChangeDnsConfig(CreateValidDnsConfig());
+
+  base::DictionaryValue* config;
+  auto value = resolver_->GetDnsConfigAsValue();
+  EXPECT_TRUE(value);
+  if (!value)
+    return;
+  value->GetAsDictionary(&config);
+  base::ListValue* doh_servers;
+  config->GetListWithoutPathExpansion("doh_servers", &doh_servers);
+  EXPECT_TRUE(doh_servers);
+  if (!doh_servers)
+    return;
+  EXPECT_EQ(doh_servers->GetSize(), 1u);
+  base::DictionaryValue* server_method;
+  EXPECT_TRUE(doh_servers->GetDictionary(0, &server_method));
+  bool use_post;
+  EXPECT_TRUE(server_method->GetBoolean("use_post", &use_post));
+  EXPECT_TRUE(use_post);
+  std::string server_spec;
+  EXPECT_TRUE(server_method->GetString("server", &server_spec));
+  EXPECT_EQ(server_spec, spec);
+}
+
+TEST_F(HostResolverImplDnsTest, AddDnsOverHttpsServerBeforeClient) {
+  resolver_ = nullptr;
+  test::ScopedMockNetworkChangeNotifier notifier;
+  CreateSerialResolver();  // To guarantee order of resolutions.
+  std::string spec("https://dns.example.com/");
+  resolver_->AddDnsOverHttpsServer(spec, true);
+
+  notifier.mock_network_change_notifier()->SetConnectionType(
+      NetworkChangeNotifier::CONNECTION_WIFI);
+  ChangeDnsConfig(CreateValidDnsConfig());
+
+  resolver_->SetDnsClientEnabled(true);
+
+  base::DictionaryValue* config;
+  auto value = resolver_->GetDnsConfigAsValue();
+  EXPECT_TRUE(value);
+  if (!value)
+    return;
+  value->GetAsDictionary(&config);
+  base::ListValue* doh_servers;
+  config->GetListWithoutPathExpansion("doh_servers", &doh_servers);
+  EXPECT_TRUE(doh_servers);
+  if (!doh_servers)
+    return;
+  EXPECT_EQ(doh_servers->GetSize(), 1u);
+  base::DictionaryValue* server_method;
+  EXPECT_TRUE(doh_servers->GetDictionary(0, &server_method));
+  bool use_post;
+  EXPECT_TRUE(server_method->GetBoolean("use_post", &use_post));
+  EXPECT_TRUE(use_post);
+  std::string server_spec;
+  EXPECT_TRUE(server_method->GetString("server", &server_spec));
+  EXPECT_EQ(server_spec, spec);
+}
+
+TEST_F(HostResolverImplDnsTest, AddDnsOverHttpsServerAndThenRemove) {
+  resolver_ = nullptr;
+  test::ScopedMockNetworkChangeNotifier notifier;
+  CreateSerialResolver();  // To guarantee order of resolutions.
+  std::string spec("https://dns.example.com/");
+  resolver_->AddDnsOverHttpsServer(spec, true);
+
+  notifier.mock_network_change_notifier()->SetConnectionType(
+      NetworkChangeNotifier::CONNECTION_WIFI);
+  ChangeDnsConfig(CreateValidDnsConfig());
+
+  resolver_->SetDnsClientEnabled(true);
+
+  base::DictionaryValue* config;
+  auto value = resolver_->GetDnsConfigAsValue();
+  EXPECT_TRUE(value);
+  if (!value)
+    return;
+  value->GetAsDictionary(&config);
+  base::ListValue* doh_servers;
+  config->GetListWithoutPathExpansion("doh_servers", &doh_servers);
+  EXPECT_TRUE(doh_servers);
+  if (!doh_servers)
+    return;
+  EXPECT_EQ(doh_servers->GetSize(), 1u);
+  base::DictionaryValue* server_method;
+  EXPECT_TRUE(doh_servers->GetDictionary(0, &server_method));
+  bool use_post;
+  EXPECT_TRUE(server_method->GetBoolean("use_post", &use_post));
+  EXPECT_TRUE(use_post);
+  std::string server_spec;
+  EXPECT_TRUE(server_method->GetString("server", &server_spec));
+  EXPECT_EQ(server_spec, spec);
+
+  resolver_->ClearDnsOverHttpsServers();
+  value = resolver_->GetDnsConfigAsValue();
+  EXPECT_TRUE(value);
+  if (!value)
+    return;
+  value->GetAsDictionary(&config);
+  config->GetListWithoutPathExpansion("doh_servers", &doh_servers);
+  EXPECT_TRUE(doh_servers);
+  if (!doh_servers)
+    return;
+  EXPECT_EQ(doh_servers->GetSize(), 0u);
 }
 
 }  // namespace net

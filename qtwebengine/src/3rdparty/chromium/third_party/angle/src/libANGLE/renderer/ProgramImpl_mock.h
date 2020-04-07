@@ -12,6 +12,7 @@
 
 #include "gmock/gmock.h"
 
+#include "libANGLE/ProgramLinkedResources.h"
 #include "libANGLE/renderer/ProgramImpl.h"
 
 namespace rx
@@ -29,7 +30,9 @@ class MockProgramImpl : public rx::ProgramImpl
     MOCK_METHOD1(setSeparable, void(bool));
 
     MOCK_METHOD3(link,
-                 gl::LinkResult(const gl::Context *, const gl::VaryingPacking &, gl::InfoLog &));
+                 gl::LinkResult(const gl::Context *,
+                                const gl::ProgramLinkedResources &,
+                                gl::InfoLog &));
     MOCK_METHOD2(validate, GLboolean(const gl::Caps &, gl::InfoLog *));
 
     MOCK_METHOD3(setUniform1fv, void(GLint, GLsizei, const GLfloat *));
@@ -55,9 +58,11 @@ class MockProgramImpl : public rx::ProgramImpl
     MOCK_METHOD4(setUniformMatrix3x4fv, void(GLint, GLsizei, GLboolean, const GLfloat *));
     MOCK_METHOD4(setUniformMatrix4x3fv, void(GLint, GLsizei, GLboolean, const GLfloat *));
 
+    MOCK_CONST_METHOD3(getUniformfv, void(const gl::Context *, GLint, GLfloat *));
+    MOCK_CONST_METHOD3(getUniformiv, void(const gl::Context *, GLint, GLint *));
+    MOCK_CONST_METHOD3(getUniformuiv, void(const gl::Context *, GLint, GLuint *));
+
     MOCK_METHOD2(setUniformBlockBinding, void(GLuint, GLuint));
-    MOCK_CONST_METHOD2(getUniformBlockSize, bool(const std::string &, size_t *));
-    MOCK_CONST_METHOD2(getUniformBlockMemberInfo, bool(const std::string &, sh::BlockMemberInfo *));
     MOCK_METHOD4(setPathFragmentInputGen,
                  void(const std::string &, GLenum, GLint, const GLfloat *));
 

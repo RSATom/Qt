@@ -47,13 +47,6 @@
 
 QT_BEGIN_NAMESPACE
 
-QQuickStackViewPrivate::QQuickStackViewPrivate()
-    : busy(false),
-      currentItem(nullptr),
-      transitioner(nullptr)
-{
-}
-
 void QQuickStackViewPrivate::warn(const QString &error)
 {
     Q_Q(QQuickStackView);
@@ -73,6 +66,8 @@ void QQuickStackViewPrivate::setCurrentItem(QQuickStackElement *element)
     currentItem = item;
     if (element)
         element->setVisible(true);
+    if (item)
+        item->setFocus(true);
     emit q->currentItemChanged();
 }
 
@@ -102,14 +97,14 @@ QList<QQuickStackElement *> QQuickStackViewPrivate::parseElements(int from, QQml
     for (int i = from; i < argc; ++i) {
         QV4::ScopedValue arg(scope, (*args)[i]);
         if (QV4::ArrayObject *array = arg->as<QV4::ArrayObject>()) {
-            int len = array->getLength();
-            for (int j = 0; j < len; ++j) {
+            const uint len = uint(array->getLength());
+            for (uint j = 0; j < len; ++j) {
                 QString error;
-                QV4::ScopedValue value(scope, array->getIndexed(j));
+                QV4::ScopedValue value(scope, array->get(j));
                 QQuickStackElement *element = createElement(value, context, &error);
                 if (element) {
                     if (j < len - 1) {
-                        QV4::ScopedValue props(scope, array->getIndexed(j + 1));
+                        QV4::ScopedValue props(scope, array->get(j + 1));
                         if (initProperties(element, props, args))
                             ++j;
                     }
@@ -277,7 +272,7 @@ void QQuickStackViewPrivate::viewItemTransitionFinished(QQuickItemViewTransition
             removed += element;
     }
 
-    if (transitioner->runningJobs.isEmpty()) {
+    if (transitioner && transitioner->runningJobs.isEmpty()) {
         // ~QQuickStackElement() emits QQuickStackViewAttached::removed(), which may be used
         // to modify the stack. Set the status first and make a copy of the destroyable stack
         // elements to exclude any modifications that may happen during the loop. (QTBUG-62153)

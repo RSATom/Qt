@@ -91,11 +91,18 @@ TEST_F(FormSaverImplTest, PermanentlyBlacklist) {
 
   observed.blacklisted_by_user = false;
   observed.preferred = true;
+  observed.username_value = ASCIIToUTF16("user1");
+  observed.password_value = ASCIIToUTF16("12345");
+  observed.other_possible_usernames = {
+      {ASCIIToUTF16("user2"), ASCIIToUTF16("field")}};
 
   EXPECT_CALL(*mock_store_, AddLogin(_)).WillOnce(SaveArg<0>(&saved));
   form_saver_.PermanentlyBlacklist(&observed);
   EXPECT_TRUE(saved.blacklisted_by_user);
   EXPECT_FALSE(saved.preferred);
+  EXPECT_EQ(base::string16(), saved.username_value);
+  EXPECT_EQ(base::string16(), saved.password_value);
+  EXPECT_TRUE(saved.other_possible_usernames.empty());
 }
 
 // Check that saving the pending form as new adds the credential to the store
@@ -107,8 +114,7 @@ TEST_F(FormSaverImplTest, Save_AsNew) {
   EXPECT_CALL(*mock_store_, AddLogin(_)).WillOnce(SaveArg<0>(&saved));
   EXPECT_CALL(*mock_store_, UpdateLogin(_)).Times(0);
   EXPECT_CALL(*mock_store_, UpdateLoginWithPrimaryKey(_, _)).Times(0);
-  form_saver_.Save(pending, std::map<base::string16, const PasswordForm*>(),
-                   nullptr);
+  form_saver_.Save(pending, std::map<base::string16, const PasswordForm*>());
   EXPECT_EQ(ASCIIToUTF16("nameofuser"), saved.username_value);
   EXPECT_EQ(ASCIIToUTF16("wordToP4a55"), saved.password_value);
 }
@@ -206,7 +212,7 @@ TEST_F(FormSaverImplTest, Save_AndUpdatePreferredLoginState) {
   EXPECT_CALL(*mock_store_, AddLogin(_)).WillOnce(SaveArg<0>(&saved));
   EXPECT_CALL(*mock_store_, UpdateLogin(_)).WillOnce(SaveArg<0>(&updated));
   EXPECT_CALL(*mock_store_, UpdateLoginWithPrimaryKey(_, _)).Times(0);
-  form_saver_.Save(pending, best_matches, nullptr);
+  form_saver_.Save(pending, best_matches);
   EXPECT_EQ(ASCIIToUTF16("nameofuser"), saved.username_value);
   EXPECT_EQ(ASCIIToUTF16("wordToP4a55"), saved.password_value);
   EXPECT_TRUE(saved.preferred);
@@ -237,7 +243,7 @@ TEST_F(FormSaverImplTest, Save_AndDeleteEmptyUsernameCredentials) {
   EXPECT_CALL(*mock_store_, UpdateLogin(_)).Times(0);
   EXPECT_CALL(*mock_store_, UpdateLoginWithPrimaryKey(_, _)).Times(0);
   EXPECT_CALL(*mock_store_, RemoveLogin(_)).WillOnce(SaveArg<0>(&removed));
-  form_saver_.Save(pending, best_matches, nullptr);
+  form_saver_.Save(pending, best_matches);
   EXPECT_EQ(ASCIIToUTF16("nameofuser"), saved.username_value);
   EXPECT_EQ(ASCIIToUTF16("wordToP4a55"), saved.password_value);
   EXPECT_TRUE(removed.username_value.empty());
@@ -265,7 +271,7 @@ TEST_F(FormSaverImplTest,
   EXPECT_CALL(*mock_store_, UpdateLogin(_)).Times(0);
   EXPECT_CALL(*mock_store_, UpdateLoginWithPrimaryKey(_, _)).Times(0);
   EXPECT_CALL(*mock_store_, RemoveLogin(_)).Times(0);
-  form_saver_.Save(pending, best_matches, nullptr);
+  form_saver_.Save(pending, best_matches);
   EXPECT_EQ(ASCIIToUTF16("nameofuser"), saved.username_value);
   EXPECT_EQ(ASCIIToUTF16("wordToP4a55"), saved.password_value);
 }
@@ -291,7 +297,7 @@ TEST_F(FormSaverImplTest,
   EXPECT_CALL(*mock_store_, UpdateLogin(_)).Times(0);
   EXPECT_CALL(*mock_store_, UpdateLoginWithPrimaryKey(_, _)).Times(0);
   EXPECT_CALL(*mock_store_, RemoveLogin(_)).Times(0);
-  form_saver_.Save(pending, best_matches, nullptr);
+  form_saver_.Save(pending, best_matches);
   EXPECT_EQ(ASCIIToUTF16("abc"), saved.username_value);
   EXPECT_EQ(ASCIIToUTF16("def"), saved.password_value);
 }
@@ -314,7 +320,7 @@ TEST_F(FormSaverImplTest, Save_EmptyUsernameWillNotCauseDeletion) {
   EXPECT_CALL(*mock_store_, UpdateLogin(_)).Times(0);
   EXPECT_CALL(*mock_store_, UpdateLoginWithPrimaryKey(_, _)).Times(0);
   EXPECT_CALL(*mock_store_, RemoveLogin(_)).Times(0);
-  form_saver_.Save(pending, best_matches, nullptr);
+  form_saver_.Save(pending, best_matches);
   EXPECT_TRUE(saved.username_value.empty());
   EXPECT_EQ(ASCIIToUTF16("wordToP4a55"), saved.password_value);
 }
@@ -338,7 +344,7 @@ TEST_F(FormSaverImplTest, Save_AndDoNotDeleteEmptyUsernamePSLCredentials) {
   EXPECT_CALL(*mock_store_, UpdateLogin(_)).Times(0);
   EXPECT_CALL(*mock_store_, UpdateLoginWithPrimaryKey(_, _)).Times(0);
   EXPECT_CALL(*mock_store_, RemoveLogin(_)).Times(0);
-  form_saver_.Save(pending, best_matches, nullptr);
+  form_saver_.Save(pending, best_matches);
   EXPECT_EQ(ASCIIToUTF16("nameofuser"), saved.username_value);
   EXPECT_EQ(ASCIIToUTF16("wordToP4a55"), saved.password_value);
 }
@@ -361,7 +367,7 @@ TEST_F(FormSaverImplTest, Save_AndDoNotDeleteNonEmptyUsernameCredentials) {
   EXPECT_CALL(*mock_store_, UpdateLogin(_)).Times(0);
   EXPECT_CALL(*mock_store_, UpdateLoginWithPrimaryKey(_, _)).Times(0);
   EXPECT_CALL(*mock_store_, RemoveLogin(_)).Times(0);
-  form_saver_.Save(pending, best_matches, nullptr);
+  form_saver_.Save(pending, best_matches);
   EXPECT_EQ(ASCIIToUTF16("nameofuser"), saved.username_value);
   EXPECT_EQ(ASCIIToUTF16("wordToP4a55"), saved.password_value);
 }
@@ -416,8 +422,7 @@ TEST_F(FormSaverImplTest, PresaveGeneratedPassword_ThenSaveAsNew) {
   EXPECT_CALL(*mock_store_, UpdateLogin(_)).Times(0);
   EXPECT_CALL(*mock_store_, UpdateLoginWithPrimaryKey(_, _))
       .WillOnce(DoAll(SaveArg<0>(&saved_new), SaveArg<1>(&saved_old)));
-  form_saver_.Save(pending, std::map<base::string16, const PasswordForm*>(),
-                   nullptr);
+  form_saver_.Save(pending, std::map<base::string16, const PasswordForm*>());
   EXPECT_EQ(ASCIIToUTF16("generatedU"), saved_old.username_value);
   EXPECT_EQ(ASCIIToUTF16("generatedP"), saved_old.password_value);
   EXPECT_EQ(ASCIIToUTF16("nameofuser"), saved_new.username_value);
@@ -605,7 +610,7 @@ TEST_F(FormSaverImplTest, PresaveGeneratedPassword_CloneUpdates) {
 
 // Check that a clone can still work after the original is destroyed.
 TEST_F(FormSaverImplTest, PresaveGeneratedPassword_CloneSurvives) {
-  auto original = base::MakeUnique<FormSaverImpl>(mock_store_.get());
+  auto original = std::make_unique<FormSaverImpl>(mock_store_.get());
   PasswordForm generated = CreatePending("nameofuser", "wordToP4a55");
 
   EXPECT_CALL(*mock_store_, AddLogin(_));

@@ -70,9 +70,9 @@ class QColorProfile;
 class QPlatformIntegration;
 class QPlatformTheme;
 class QPlatformDragQtResponse;
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
 class QDrag;
-#endif // QT_NO_DRAGANDDROP
+#endif // QT_CONFIG(draganddrop)
 class QInputDeviceManager;
 
 class Q_GUI_EXPORT QGuiApplicationPrivate : public QCoreApplicationPrivate
@@ -85,13 +85,13 @@ public:
     void init();
 
     void createPlatformIntegration();
-    void createEventDispatcher() Q_DECL_OVERRIDE;
-    void eventDispatcherReady() Q_DECL_OVERRIDE;
+    void createEventDispatcher() override;
+    void eventDispatcherReady() override;
 
     virtual void notifyLayoutDirectionChange();
     virtual void notifyActiveWindowChange(QWindow *previous);
 
-    virtual bool shouldQuit() Q_DECL_OVERRIDE;
+    virtual bool shouldQuit() override;
 
     bool shouldQuitInternal(const QWindowList &processedWindows);
     virtual bool tryCloseAllWindows();
@@ -139,10 +139,10 @@ public:
 
     static void updateFilteredScreenOrientation(QScreen *screen);
     static void reportScreenOrientationChange(QScreen *screen);
-    static void reportScreenOrientationChange(QWindowSystemInterfacePrivate::ScreenOrientationEvent *e);
-    static void reportGeometryChange(QWindowSystemInterfacePrivate::ScreenGeometryEvent *e);
-    static void reportLogicalDotsPerInchChange(QWindowSystemInterfacePrivate::ScreenLogicalDotsPerInchEvent *e);
-    static void reportRefreshRateChange(QWindowSystemInterfacePrivate::ScreenRefreshRateEvent *e);
+    static void processScreenOrientationChange(QWindowSystemInterfacePrivate::ScreenOrientationEvent *e);
+    static void processScreenGeometryChange(QWindowSystemInterfacePrivate::ScreenGeometryEvent *e);
+    static void processScreenLogicalDotsPerInchChange(QWindowSystemInterfacePrivate::ScreenLogicalDotsPerInchEvent *e);
+    static void processScreenRefreshRateChange(QWindowSystemInterfacePrivate::ScreenRefreshRateEvent *e);
     static void processThemeChanged(QWindowSystemInterfacePrivate::ThemeChangeEvent *tce);
 
     static void processExposeEvent(QWindowSystemInterfacePrivate::ExposeEvent *e);
@@ -162,14 +162,18 @@ public:
     static void processContextMenuEvent(QWindowSystemInterfacePrivate::ContextMenuEvent *e);
 #endif
 
-#ifndef QT_NO_DRAGANDDROP
-    static QPlatformDragQtResponse processDrag(QWindow *w, const QMimeData *dropData, const QPoint &p, Qt::DropActions supportedActions);
-    static QPlatformDropQtResponse processDrop(QWindow *w, const QMimeData *dropData, const QPoint &p, Qt::DropActions supportedActions);
+#if QT_CONFIG(draganddrop)
+    static QPlatformDragQtResponse processDrag(QWindow *w, const QMimeData *dropData,
+                                               const QPoint &p, Qt::DropActions supportedActions,
+                                               Qt::MouseButtons buttons, Qt::KeyboardModifiers modifiers);
+    static QPlatformDropQtResponse processDrop(QWindow *w, const QMimeData *dropData,
+                                               const QPoint &p, Qt::DropActions supportedActions,
+                                               Qt::MouseButtons buttons, Qt::KeyboardModifiers modifiers);
 #endif
 
     static bool processNativeEvent(QWindow *window, const QByteArray &eventType, void *message, long *result);
 
-    static void sendQWindowEventToQPlatformWindow(QWindow *window, QEvent *event);
+    static bool sendQWindowEventToQPlatformWindow(QWindow *window, QEvent *event);
 
     static inline Qt::Alignment visualAlignment(Qt::LayoutDirection direction, Qt::Alignment alignment)
     {
@@ -213,9 +217,10 @@ public:
     static QWindow *currentMousePressWindow;
     static Qt::ApplicationState applicationState;
     static bool highDpiScalingUpdated;
+    static QPointer<QWindow> currentDragWindow;
 
     struct TabletPointData {
-        TabletPointData(qint64 devId = 0) : deviceId(devId), state(Qt::NoButton), target(Q_NULLPTR) {}
+        TabletPointData(qint64 devId = 0) : deviceId(devId), state(Qt::NoButton), target(nullptr) {}
         qint64 deviceId;
         Qt::MouseButtons state;
         QWindow *target;
@@ -308,10 +313,11 @@ public:
 
 protected:
     virtual void notifyThemeChanged();
+    virtual void sendApplicationPaletteChange(bool toAllWidgets = false, const char *className = nullptr);
     bool tryCloseRemainingWindows(QWindowList processedWindows);
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
     virtual void notifyDragStarted(const QDrag *);
-#endif // QT_NO_DRAGANDDROP
+#endif // QT_CONFIG(draganddrop)
 
 private:
     friend class QDragManager;

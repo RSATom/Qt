@@ -2,8 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/memory/ptr_util.h"
+#include <memory>
+
+#include "base/json/json_writer.h"
 #include "base/strings/stringprintf.h"
+#include "base/values.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/policy/affiliation_test_helper.h"
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
@@ -13,12 +16,15 @@
 #include "chrome/browser/net/url_request_mock_util.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "chromeos/dbus/fake_session_manager_client.h"
+#include "chromeos/system/fake_statistics_provider.h"
+#include "chromeos/system/statistics_provider.h"
+#include "components/account_id/account_id.h"
 #include "components/policy/core/common/cloud/device_management_service.h"
 #include "components/policy/core/common/mock_configuration_policy_provider.h"
 #include "components/policy/policy_constants.h"
 #include "components/prefs/pref_service.h"
-#include "components/signin/core/account_id/account_id.h"
 #include "components/user_manager/user_manager.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/test/test_utils.h"
 #include "extensions/browser/api_test_utils.h"
@@ -29,25 +35,44 @@
 
 namespace {
 
-const char kDeviceId[] = "device_id";
-const base::FilePath::CharType kTestExtensionDir[] =
+constexpr char kDeviceId[] = "device_id";
+constexpr char kSerialNumber[] = "serial_number";
+constexpr char kAssetId[] = "asset_id";
+constexpr char kAnnotatedLocation[] = "annotated_location";
+constexpr base::FilePath::CharType kTestExtensionDir[] =
     FILE_PATH_LITERAL("extensions/api_test/enterprise_device_attributes");
-const base::FilePath::CharType kUpdateManifestFileName[] =
+constexpr base::FilePath::CharType kUpdateManifestFileName[] =
     FILE_PATH_LITERAL("update_manifest.xml");
 
-const char kAffiliatedUserEmail[] = "user@example.com";
-const char kAffiliationID[] = "some-affiliation-id";
-const char kAnotherAffiliationID[] = "another-affiliation-id";
+constexpr char kAffiliatedUserEmail[] = "user@example.com";
+constexpr char kAffiliatedUserGaiaId[] = "1029384756";
+constexpr char kAffiliationID[] = "some-affiliation-id";
+constexpr char kAnotherAffiliationID[] = "another-affiliation-id";
 
 // The managed_storage extension has a key defined in its manifest, so that
 // its extension ID is well-known and the policy system can push policies for
 // the extension.
-const char kTestExtensionID[] = "nbiliclbejdndfpchgkbmfoppjplbdok";
+constexpr char kTestExtensionID[] = "nbiliclbejdndfpchgkbmfoppjplbdok";
 
 struct Params {
   explicit Params(bool affiliated) : affiliated_(affiliated) {}
   bool affiliated_;
 };
+
+base::Value BuildCustomArg(const std::string& expected_directory_device_id,
+                           const std::string& expected_serial_number,
+                           const std::string& expected_asset_id,
+                           const std::string& expected_annotated_location) {
+  base::Value custom_arg(base::Value::Type::DICTIONARY);
+  custom_arg.SetKey("expectedDirectoryDeviceId",
+                    base::Value(expected_directory_device_id));
+  custom_arg.SetKey("expectedSerialNumber",
+                    base::Value(expected_serial_number));
+  custom_arg.SetKey("expectedAssetId", base::Value(expected_asset_id));
+  custom_arg.SetKey("expectedAnnotatedLocation",
+                    base::Value(expected_annotated_location));
+  return custom_arg;
+}
 
 }  // namespace
 
@@ -58,6 +83,8 @@ class EnterpriseDeviceAttributesTest :
     public ::testing::WithParamInterface<Params> {
  public:
   EnterpriseDeviceAttributesTest() {
+    fake_statistics_provider_.SetMachineStatistic(
+        chromeos::system::kSerialNumberKeyForTest, kSerialNumber);
     set_exit_when_last_browser_closes(false);
     set_chromeos_user_ = false;
   }
@@ -92,12 +119,12 @@ class EnterpriseDeviceAttributesTest :
     }
     policy::UserPolicyBuilder user_policy;
     policy::affiliation_test_helper::SetUserAffiliationIDs(
-        &user_policy, fake_session_manager_client,
-        affiliated_account_id_.GetUserEmail(), user_affiliation_ids);
+        &user_policy, fake_session_manager_client, affiliated_account_id_,
+        user_affiliation_ids);
 
     // Set up fake install attributes.
     std::unique_ptr<chromeos::StubInstallAttributes> attributes =
-        base::MakeUnique<chromeos::StubInstallAttributes>();
+        std::make_unique<chromeos::StubInstallAttributes>();
 
     attributes->SetCloudManaged("fake-domain", "fake-id");
     policy::BrowserPolicyConnectorChromeOS::SetInstallAttributesForTesting(
@@ -108,6 +135,8 @@ class EnterpriseDeviceAttributesTest :
     policy::DevicePolicyBuilder* device_policy = test_helper_.device_policy();
     device_policy->SetDefaultSigningKey();
     device_policy->policy_data().set_directory_api_id(kDeviceId);
+    device_policy->policy_data().set_annotated_asset_id(kAssetId);
+    device_policy->policy_data().set_annotated_location(kAnnotatedLocation);
     device_policy->Build();
 
     fake_session_manager_client->set_device_policy(device_policy->GetBlob());
@@ -127,10 +156,8 @@ class EnterpriseDeviceAttributesTest :
   void SetUpOnMainThread() override {
     const base::ListValue* users =
         g_browser_process->local_state()->GetList("LoggedInUsers");
-    if (!users->empty()) {
-      policy::affiliation_test_helper::LoginUser(
-          affiliated_account_id_.GetUserEmail());
-    }
+    if (!users->empty())
+      policy::affiliation_test_helper::LoginUser(affiliated_account_id_);
 
     ExtensionApiTest::SetUpOnMainThread();
   }
@@ -170,8 +197,14 @@ class EnterpriseDeviceAttributesTest :
   // only very little functionality from RunExtensionSubtest(). Thus so that
   // don't make RunExtensionSubtest() to complex we just introduce a new
   // function.
-  bool TestExtension(Browser* browser, const std::string& page_url) {
+  bool TestExtension(Browser* browser,
+                     const std::string& page_url,
+                     const base::Value& custom_arg_value) {
     DCHECK(!page_url.empty()) << "page_url cannot be empty";
+
+    std::string custom_arg;
+    base::JSONWriter::Write(custom_arg_value, &custom_arg);
+    SetCustomArg(custom_arg);
 
     extensions::ResultCatcher catcher;
     ui_test_utils::NavigateToURL(browser, GURL(page_url));
@@ -184,16 +217,17 @@ class EnterpriseDeviceAttributesTest :
   }
 
   const AccountId affiliated_account_id_ =
-      AccountId::FromUserEmail(kAffiliatedUserEmail);
+      AccountId::FromUserEmailGaiaId(kAffiliatedUserEmail,
+                                     kAffiliatedUserGaiaId);
 
  private:
   policy::MockConfigurationPolicyProvider policy_provider_;
   policy::DevicePolicyCrosTestHelper test_helper_;
+  chromeos::system::ScopedFakeStatisticsProvider fake_statistics_provider_;
 };
 
 IN_PROC_BROWSER_TEST_P(EnterpriseDeviceAttributesTest, PRE_Success) {
-  policy::affiliation_test_helper::PreLoginUser(
-      affiliated_account_id_.GetUserEmail());
+  policy::affiliation_test_helper::PreLoginUser(affiliated_account_id_);
 }
 
 IN_PROC_BROWSER_TEST_P(EnterpriseDeviceAttributesTest, Success) {
@@ -206,13 +240,21 @@ IN_PROC_BROWSER_TEST_P(EnterpriseDeviceAttributesTest, Success) {
   EXPECT_EQ(GetParam().affiliated_, user_manager::UserManager::Get()->
       FindUser(affiliated_account_id_)->IsAffiliated());
 
-  // Device ID is available only for affiliated user.
-  std::string device_id = GetParam().affiliated_ ? kDeviceId : "";
+  // Device attributes are available only for affiliated user.
+  std::string expected_directory_device_id =
+      GetParam().affiliated_ ? kDeviceId : "";
+  std::string expected_serial_number =
+      GetParam().affiliated_ ? kSerialNumber : "";
+  std::string expected_asset_id = GetParam().affiliated_ ? kAssetId : "";
+  std::string expected_annotated_location =
+      GetParam().affiliated_ ? kAnnotatedLocation : "";
 
   // Pass the expected value (device_id) to test.
-  ASSERT_TRUE(TestExtension(CreateBrowser(profile()),
-      base::StringPrintf("chrome-extension://%s/basic.html?%s",
-                             kTestExtensionID, device_id.c_str())))
+  ASSERT_TRUE(TestExtension(
+      CreateBrowser(profile()),
+      base::StringPrintf("chrome-extension://%s/basic.html", kTestExtensionID),
+      BuildCustomArg(expected_directory_device_id, expected_serial_number,
+                     expected_asset_id, expected_annotated_location)))
       << message_;
 }
 

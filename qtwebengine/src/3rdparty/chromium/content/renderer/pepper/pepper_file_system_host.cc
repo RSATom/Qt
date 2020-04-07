@@ -6,12 +6,12 @@
 
 #include "base/bind.h"
 #include "base/callback.h"
-#include "content/child/child_thread_impl.h"
-#include "content/child/fileapi/file_system_dispatcher.h"
 #include "content/common/pepper_file_util.h"
 #include "content/public/renderer/render_view.h"
 #include "content/public/renderer/renderer_ppapi_host.h"
+#include "content/renderer/fileapi/file_system_dispatcher.h"
 #include "content/renderer/pepper/pepper_plugin_instance_impl.h"
+#include "content/renderer/render_thread_impl.h"
 #include "ppapi/c/pp_errors.h"
 #include "ppapi/host/dispatch_host_message.h"
 #include "ppapi/host/ppapi_host.h"
@@ -19,9 +19,9 @@
 #include "ppapi/shared_impl/file_system_util.h"
 #include "ppapi/shared_impl/file_type_conversion.h"
 #include "storage/common/fileapi/file_system_util.h"
-#include "third_party/WebKit/public/web/WebDocument.h"
-#include "third_party/WebKit/public/web/WebLocalFrame.h"
-#include "third_party/WebKit/public/web/WebView.h"
+#include "third_party/blink/public/web/web_document.h"
+#include "third_party/blink/public/web/web_local_frame.h"
+#include "third_party/blink/public/web/web_view.h"
 
 namespace content {
 
@@ -33,8 +33,7 @@ PepperFileSystemHost::PepperFileSystemHost(RendererPpapiHost* host,
       renderer_ppapi_host_(host),
       type_(type),
       opened_(false),
-      called_open_(false),
-      weak_factory_(this) {}
+      called_open_(false) {}
 
 PepperFileSystemHost::PepperFileSystemHost(RendererPpapiHost* host,
                                            PP_Instance instance,
@@ -46,8 +45,7 @@ PepperFileSystemHost::PepperFileSystemHost(RendererPpapiHost* host,
       type_(type),
       opened_(true),
       root_url_(root_url),
-      called_open_(true),
-      weak_factory_(this) {}
+      called_open_(true) {}
 
 PepperFileSystemHost::~PepperFileSystemHost() {}
 
@@ -102,15 +100,12 @@ int32_t PepperFileSystemHost::OnHostMsgOpen(
     return PP_ERROR_FAILED;
 
   FileSystemDispatcher* file_system_dispatcher =
-      ChildThreadImpl::current()->file_system_dispatcher();
+      RenderThreadImpl::current()->file_system_dispatcher();
   reply_context_ = context->MakeReplyMessageContext();
   file_system_dispatcher->OpenFileSystem(
-      document_url.GetOrigin(),
-      file_system_type,
-      base::Bind(&PepperFileSystemHost::DidOpenFileSystem,
-                 weak_factory_.GetWeakPtr()),
-      base::Bind(&PepperFileSystemHost::DidFailOpenFileSystem,
-                 weak_factory_.GetWeakPtr()));
+      document_url.GetOrigin(), file_system_type,
+      base::Bind(&PepperFileSystemHost::DidOpenFileSystem, AsWeakPtr()),
+      base::Bind(&PepperFileSystemHost::DidFailOpenFileSystem, AsWeakPtr()));
   return PP_OK_COMPLETIONPENDING;
 }
 

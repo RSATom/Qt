@@ -397,7 +397,7 @@ void QProgressDialog::setLabelText(const QString &text)
   Sets the cancel button to the push button, \a cancelButton. The
   progress dialog takes ownership of this button which will be deleted
   when necessary, so do not pass the address of an object that is on
-  the stack, i.e. use new() to create the button.  If 0 is passed then
+  the stack, i.e. use new() to create the button.  If \nullptr is passed,
   no cancel button will be shown.
 
   \sa setCancelButtonText()
@@ -865,7 +865,6 @@ void QProgressDialog::forceShow()
 
 /*!
     \since 4.5
-    \overload
 
     Opens the dialog and connects its canceled() signal to the slot specified
     by \a receiver and \a member.

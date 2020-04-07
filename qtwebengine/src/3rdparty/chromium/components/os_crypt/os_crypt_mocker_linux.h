@@ -17,20 +17,11 @@ class OSCryptMockerLinux : public KeyStorageLinux {
   OSCryptMockerLinux() = default;
   ~OSCryptMockerLinux() override = default;
 
-  // KeyStorageLinux
-  std::string GetKey() override;
-
-  // Set the password that OSCryptMockerLinux holds.
-  void ResetTo(base::StringPiece new_key);
-
   // Get a pointer to the stored password. OSCryptMockerLinux owns the pointer.
   std::string* GetKeyPtr();
 
-  // Getter for the singleton.
-  static OSCryptMockerLinux* GetInstance();
-
-  // Inject the singleton mock into OSCrypt.
-  static void SetUpWithSingleton();
+  // Inject the mocking scheme into OSCrypt.
+  static void SetUp();
 
   // Restore OSCrypt to its real behaviour.
   static void TearDown();
@@ -38,6 +29,7 @@ class OSCryptMockerLinux : public KeyStorageLinux {
  protected:
   // KeyStorageLinux
   bool Init() override;
+  std::string GetKeyImpl() override;
 
  private:
   std::string key_;

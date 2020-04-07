@@ -45,11 +45,12 @@ const char* const ExternalizeStringExtension::kSource =
 v8::Local<v8::FunctionTemplate>
 ExternalizeStringExtension::GetNativeFunctionTemplate(
     v8::Isolate* isolate, v8::Local<v8::String> str) {
-  if (strcmp(*v8::String::Utf8Value(str), "externalizeString") == 0) {
+  if (strcmp(*v8::String::Utf8Value(isolate, str), "externalizeString") == 0) {
     return v8::FunctionTemplate::New(isolate,
                                      ExternalizeStringExtension::Externalize);
   } else {
-    DCHECK(strcmp(*v8::String::Utf8Value(str), "isOneByteString") == 0);
+    DCHECK_EQ(strcmp(*v8::String::Utf8Value(isolate, str), "isOneByteString"),
+              0);
     return v8::FunctionTemplate::New(isolate,
                                      ExternalizeStringExtension::IsOneByte);
   }
@@ -97,10 +98,6 @@ void ExternalizeStringExtension::Externalize(
     SimpleOneByteStringResource* resource = new SimpleOneByteStringResource(
         reinterpret_cast<char*>(data), string->length());
     result = string->MakeExternal(resource);
-    if (result) {
-      i::Isolate* isolate = reinterpret_cast<i::Isolate*>(args.GetIsolate());
-      isolate->heap()->RegisterExternalString(*string);
-    }
     if (!result) delete resource;
   } else {
     uc16* data = new uc16[string->length()];
@@ -108,10 +105,6 @@ void ExternalizeStringExtension::Externalize(
     SimpleTwoByteStringResource* resource = new SimpleTwoByteStringResource(
         data, string->length());
     result = string->MakeExternal(resource);
-    if (result) {
-      i::Isolate* isolate = reinterpret_cast<i::Isolate*>(args.GetIsolate());
-      isolate->heap()->RegisterExternalString(*string);
-    }
     if (!result) delete resource;
   }
   if (!result) {

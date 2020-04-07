@@ -5,11 +5,12 @@
 #include "net/log/net_log.h"
 
 #include <algorithm>
+#include <memory>
 #include <utility>
 
 #include "base/bind.h"
+#include "base/callback.h"
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
@@ -108,8 +109,7 @@ void NetLog::ThreadSafeObserver::OnAddEntryData(
 NetLog::NetLog() : last_id_(0), is_capturing_(0) {
 }
 
-NetLog::~NetLog() {
-}
+NetLog::~NetLog() = default;
 
 void NetLog::AddGlobalEntry(NetLogEventType type) {
   AddEntry(type, NetLogSource(NetLogSourceType::NONE, NextID()),
@@ -201,7 +201,7 @@ const char* NetLog::EventTypeToString(NetLogEventType event) {
 
 // static
 std::unique_ptr<base::Value> NetLog::GetEventTypesAsValue() {
-  auto dict = base::MakeUnique<base::DictionaryValue>();
+  auto dict = std::make_unique<base::DictionaryValue>();
   for (int i = 0; i < static_cast<int>(NetLogEventType::COUNT); ++i) {
     dict->SetInteger(EventTypeToString(static_cast<NetLogEventType>(i)), i);
   }
@@ -224,7 +224,7 @@ const char* NetLog::SourceTypeToString(NetLogSourceType source) {
 
 // static
 std::unique_ptr<base::Value> NetLog::GetSourceTypesAsValue() {
-  auto dict = base::MakeUnique<base::DictionaryValue>();
+  auto dict = std::make_unique<base::DictionaryValue>();
   for (int i = 0; i < static_cast<int>(NetLogSourceType::COUNT); ++i) {
     dict->SetInteger(SourceTypeToString(static_cast<NetLogSourceType>(i)), i);
   }

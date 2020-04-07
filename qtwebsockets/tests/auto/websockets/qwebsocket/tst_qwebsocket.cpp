@@ -39,7 +39,7 @@ class EchoServer : public QObject
 {
     Q_OBJECT
 public:
-    explicit EchoServer(QObject *parent = Q_NULLPTR);
+    explicit EchoServer(QObject *parent = nullptr);
     ~EchoServer();
 
     QHostAddress hostAddress() const { return m_pWebSocketServer->serverAddress(); }
@@ -143,6 +143,7 @@ private Q_SLOTS:
 #ifndef QT_NO_NETWORKPROXY
     void tst_setProxy();
 #endif
+    void overlongCloseReason();
 };
 
 tst_QWebSocket::tst_QWebSocket()
@@ -434,9 +435,13 @@ void tst_QWebSocket::tst_sendTextMessage()
     QUrl urlConnected = arguments.at(0).toUrl();
     QCOMPARE(urlConnected, url);
 
+    QCOMPARE(socket.bytesToWrite(), 0);
     socket.sendTextMessage(QStringLiteral("Hello world!"));
+    QVERIFY(socket.bytesToWrite() > 12); // 12 + a few extra bytes for header
 
     QVERIFY(textMessageReceived.wait(500));
+    QCOMPARE(socket.bytesToWrite(), 0);
+
     QCOMPARE(textMessageReceived.count(), 1);
     QCOMPARE(binaryMessageReceived.count(), 0);
     QCOMPARE(binaryFrameReceived.count(), 0);
@@ -508,9 +513,13 @@ void tst_QWebSocket::tst_sendBinaryMessage()
     QTRY_COMPARE(socketConnectedSpy.count(), 1);
     QCOMPARE(socket.state(), QAbstractSocket::ConnectedState);
 
+    QCOMPARE(socket.bytesToWrite(), 0);
     socket.sendBinaryMessage(QByteArrayLiteral("Hello world!"));
+    QVERIFY(socket.bytesToWrite() > 12); // 12 + a few extra bytes for header
 
     QVERIFY(binaryMessageReceived.wait(500));
+    QCOMPARE(socket.bytesToWrite(), 0);
+
     QCOMPARE(textMessageReceived.count(), 0);
     QCOMPARE(textFrameReceived.count(), 0);
     QCOMPARE(binaryMessageReceived.count(), 1);
@@ -649,7 +658,7 @@ struct Warned
             origHandler(type, context, str);
     }
 };
-QtMessageHandler Warned::origHandler = 0;
+QtMessageHandler Warned::origHandler = nullptr;
 bool Warned::warned = false;
 
 
@@ -659,7 +668,7 @@ void tst_QWebSocket::tst_moveToThread()
 
     EchoServer echoServer;
 
-    QThread* thread = new QThread;
+    QThread* thread = new QThread(this);
     thread->start();
 
     WebSocket* socket = new WebSocket;
@@ -696,7 +705,7 @@ void tst_QWebSocket::tst_moveToThread()
 
     socket->deleteLater();
     thread->quit();
-    thread->deleteLater();
+    thread->wait();
 }
 
 void tst_QWebSocket::tst_moveToThreadNoWarning()
@@ -723,6 +732,34 @@ void tst_QWebSocket::tst_setProxy()
     QCOMPARE(socket.proxy().port(), quint16(123));
     socket.setProxy(proxy);
     QCOMPARE(socket.proxy(), proxy);
+}
+
+void tst_QWebSocket::overlongCloseReason()
+{
+    EchoServer echoServer;
+
+    QWebSocket socket;
+
+    //should return 0 because socket is not open yet
+    QCOMPARE(socket.sendTextMessage(QStringLiteral("1234")), 0);
+
+    QSignalSpy socketConnectedSpy(&socket, SIGNAL(connected()));
+    QSignalSpy socketDisconnectedSpy(&socket, SIGNAL(disconnected()));
+    QSignalSpy serverConnectedSpy(&echoServer, SIGNAL(newConnection(QUrl)));
+
+    QUrl url = QUrl(QStringLiteral("ws://") + echoServer.hostAddress().toString() +
+                    QStringLiteral(":") + QString::number(echoServer.port()));
+    socket.open(url);
+    QTRY_COMPARE(socketConnectedSpy.count(), 1);
+    QTRY_COMPARE(serverConnectedSpy.count(), 1);
+
+    const QString reason(200, QChar::fromLatin1('a'));
+    socket.close(QWebSocketProtocol::CloseCodeGoingAway, reason);
+    QCOMPARE(socket.closeCode(), QWebSocketProtocol::CloseCodeGoingAway);
+    // Max length of a control frame is 125, but 2 bytes are used for the close code:
+    QCOMPARE(socket.closeReason().length(), 123);
+    QCOMPARE(socket.closeReason(), reason.leftRef(123));
+    QTRY_COMPARE(socketDisconnectedSpy.count(), 1);
 }
 #endif // QT_NO_NETWORKPROXY
 

@@ -141,7 +141,7 @@ static QPixmap pixmapFromShellImageList(int iImageList, const SHFILEINFO &info)
     // For MinGW:
     static const IID iID_IImageList = {0x46eb5926, 0x582e, 0x4017, {0x9f, 0xdf, 0xe8, 0x99, 0x8d, 0xaa, 0x9, 0x50}};
 
-    IImageList *imageList = Q_NULLPTR;
+    IImageList *imageList = nullptr;
     if (FAILED(SHGetImageList(iImageList, iID_IImageList, reinterpret_cast<void **>(&imageList))))
         return result;
 
@@ -189,17 +189,15 @@ static PixmapEntryList extractShellIcons(const QString &sourceFile, bool addOver
     if (!QFileInfo(sourceFile).isDir())
         baseFlags |= SHGFI_USEFILEATTRIBUTES;
 
-    const size_t modeEntryCount = sizeof(modeEntries) / sizeof(modeEntries[0]);
-    const size_t standardSizeEntryCount = sizeof(standardSizeEntries) / sizeof(standardSizeEntries[0]);
     PixmapEntryList result;
-    for (size_t m = 0; m < modeEntryCount; ++m) {
-        const unsigned modeFlags = baseFlags | modeEntries[m].flags;
+    for (auto modeEntry : modeEntries) {
+        const unsigned modeFlags = baseFlags | modeEntry.flags;
         QString modePrefix = QLatin1String("_shell_");
-        if (modeEntries[m].name[0])
-            modePrefix += QLatin1String(modeEntries[m].name) + QLatin1Char('_');
-        for (size_t s = 0; s < standardSizeEntryCount; ++s) {
-            const unsigned flags = modeFlags | standardSizeEntries[s].flags;
-            const QString prefix = modePrefix + QLatin1String(standardSizeEntries[s].name)
+        if (modeEntry.name[0])
+            modePrefix += QLatin1String(modeEntry.name) + QLatin1Char('_');
+        for (auto standardSizeEntry : standardSizeEntries) {
+            const unsigned flags = modeFlags | standardSizeEntry.flags;
+            const QString prefix = modePrefix + QLatin1String(standardSizeEntry.name)
                 + QLatin1Char('_');
             ZeroMemory(&info, sizeof(SHFILEINFO));
             const HRESULT hr = SHGetFileInfo(sourceFileC, 0, &info, sizeof(SHFILEINFO), flags);
@@ -237,7 +235,7 @@ static PixmapEntryList extractShellIcons(const QString &sourceFile, bool addOver
             }
         } // for standardSizeEntryCount
         // Windows Vista onwards: extract large/jumbo icons
-        if (QSysInfo::windowsVersion() >= QSysInfo::WV_VISTA && info.hIcon) {
+        if (info.hIcon) {
             const QPixmap extraLarge = pixmapFromShellImageList(sHIL_EXTRALARGE, info);
             if (!extraLarge.isNull()) {
                 PixmapEntry entry;
@@ -265,22 +263,22 @@ static const char description[] =
 int main(int argc, char *argv[])
 {
     QGuiApplication app(argc, argv);
-    QCoreApplication::setApplicationName("Icon Extractor");
-    QCoreApplication::setOrganizationName("QtProject");
-    QCoreApplication::setApplicationVersion(QT_VERSION_STR);
+    QCoreApplication::setApplicationName(QStringLiteral("Icon Extractor"));
+    QCoreApplication::setOrganizationName(QStringLiteral("QtProject"));
+    QCoreApplication::setApplicationVersion(QLatin1String(QT_VERSION_STR));
     QCommandLineParser parser;
     parser.setSingleDashWordOptionMode(QCommandLineParser::ParseAsCompactedShortOptions);
     parser.setApplicationDescription(QLatin1String(description));
     parser.addHelpOption();
     parser.addVersionOption();
-    const QCommandLineOption largeIconOption("large", "Extract large icons");
+    const QCommandLineOption largeIconOption(QStringLiteral("large"), QStringLiteral("Extract large icons"));
     parser.addOption(largeIconOption);
-    const QCommandLineOption shellIconOption("shell", "Extract shell icons using SHGetFileInfo()");
+    const QCommandLineOption shellIconOption(QStringLiteral("shell"), QStringLiteral("Extract shell icons using SHGetFileInfo()"));
     parser.addOption(shellIconOption);
-    const QCommandLineOption shellOverlayOption("overlay", "Extract shell overlay icons");
+    const QCommandLineOption shellOverlayOption(QStringLiteral("overlay"), QStringLiteral("Extract shell overlay icons"));
     parser.addOption(shellOverlayOption);
-    parser.addPositionalArgument("file", "The file to open.");
-    parser.addPositionalArgument("image file folder", "The folder to store the images.");
+    parser.addPositionalArgument(QStringLiteral("file"), QStringLiteral("The file to open."));
+    parser.addPositionalArgument(QStringLiteral("image_file_folder"), QStringLiteral("The folder to store the images."));
     parser.process(app);
     const QStringList &positionalArguments = parser.positionalArguments();
     if (positionalArguments.isEmpty())
@@ -299,9 +297,9 @@ int main(int argc, char *argv[])
         ? extractShellIcons(sourceFile, parser.isSet(shellOverlayOption))
         : extractIcons(sourceFile, parser.isSet(largeIconOption));
 
-    for (int i = 0, count = pixmaps.size(); i < count; ++i) {
-        const QString fileName = imageFileRoot + pixmaps.at(i).name + QLatin1String(".png");
-        if (!pixmaps.at(i).pixmap.save(fileName)) {
+    for (const auto &entry : pixmaps) {
+        const QString fileName = imageFileRoot + entry.name + QLatin1String(".png");
+        if (!entry.pixmap.save(fileName)) {
             std::wcerr << "Error writing image file " << fileName << ".\n";
             return 1;
         }

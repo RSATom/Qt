@@ -7,6 +7,10 @@
 #include <stdint.h>
 
 #include "base/pickle.h"
+#include "third_party/skia/include/core/SkData.h"
+#include "third_party/skia/include/core/SkEncodedImageFormat.h"
+#include "third_party/skia/include/core/SkImage.h"
+#include "third_party/skia/include/core/SkSerialProcs.h"
 
 namespace skia {
 
@@ -60,21 +64,21 @@ bool ReadSkFontStyle(base::PickleIterator* iter, SkFontStyle* style) {
   return true;
 }
 
-bool WriteSkString(base::Pickle* pickle, const SkString& str) {
-  return pickle->WriteData(str.c_str(), str.size());
+void WriteSkString(base::Pickle* pickle, const SkString& str) {
+  pickle->WriteData(str.c_str(), str.size());
 }
 
-bool WriteSkFontIdentity(base::Pickle* pickle,
+void WriteSkFontIdentity(base::Pickle* pickle,
                          const SkFontConfigInterface::FontIdentity& identity) {
-  return pickle->WriteUInt32(identity.fID) &&
-         pickle->WriteUInt32(identity.fTTCIndex) &&
-         WriteSkString(pickle, identity.fString);
+  pickle->WriteUInt32(identity.fID);
+  pickle->WriteUInt32(identity.fTTCIndex);
+  WriteSkString(pickle, identity.fString);
 }
 
-bool WriteSkFontStyle(base::Pickle* pickle, SkFontStyle style) {
-  return pickle->WriteUInt16(style.weight()) &&
-         pickle->WriteUInt16(style.width()) &&
-         pickle->WriteUInt16(style.slant());
+void WriteSkFontStyle(base::Pickle* pickle, SkFontStyle style) {
+  pickle->WriteUInt16(style.weight());
+  pickle->WriteUInt16(style.width());
+  pickle->WriteUInt16(style.slant());
 }
 
 }  // namespace skia

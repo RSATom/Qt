@@ -4,6 +4,7 @@
 
 #include "gpu/command_buffer/service/gles2_cmd_copy_tex_image.h"
 
+#include "gpu/command_buffer/service/decoder_context.h"
 #include "gpu/command_buffer/service/texture_manager.h"
 #include "ui/gl/gl_version_info.h"
 
@@ -31,10 +32,9 @@ CopyTexImageResourceManager::CopyTexImageResourceManager(
   DCHECK(feature_info->gl_version_info().is_desktop_core_profile);
 }
 
-CopyTexImageResourceManager::~CopyTexImageResourceManager() {}
+CopyTexImageResourceManager::~CopyTexImageResourceManager() = default;
 
-void CopyTexImageResourceManager::Initialize(
-    const gles2::GLES2Decoder* decoder) {
+void CopyTexImageResourceManager::Initialize(const DecoderContext* decoder) {
   if (initialized_) {
     return;
   }
@@ -141,7 +141,7 @@ void CopyTexImageResourceManager::Destroy() {
 }
 
 void CopyTexImageResourceManager::DoCopyTexImage2DToLUMACompatibilityTexture(
-    const gles2::GLES2Decoder* decoder,
+    const DecoderContext* decoder,
     GLuint dest_texture,
     GLenum dest_texture_target,
     GLenum dest_target,
@@ -170,7 +170,7 @@ void CopyTexImageResourceManager::DoCopyTexImage2DToLUMACompatibilityTexture(
 }
 
 void CopyTexImageResourceManager::DoCopyTexSubImageToLUMACompatibilityTexture(
-    const gles2::GLES2Decoder* decoder,
+    const DecoderContext* decoder,
     GLuint dest_texture,
     GLenum dest_texture_target,
     GLenum dest_target,
@@ -235,6 +235,9 @@ void CopyTexImageResourceManager::DoCopyTexSubImageToLUMACompatibilityTexture(
   glDepthMask(GL_FALSE);
   glDisable(GL_BLEND);
   glDisable(GL_DITHER);
+  if (decoder->GetFeatureInfo()->feature_flags().ext_window_rectangles) {
+    glWindowRectanglesEXT(GL_EXCLUSIVE_EXT, 0, nullptr);
+  }
 
   glBindTexture(GL_TEXTURE_2D, scratch_textures_[0]);
   glBindVertexArrayOES(vao_);

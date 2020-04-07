@@ -54,11 +54,14 @@ QList<QDate> dateList;
 //! [0]
 
 
-//! [1]
-QList<QString> list;
-list << "one" << "two" << "three";
-// list: ["one", "two", "three"]
-//! [1]
+//! [1a]
+QList<QString> list = { "one", "two", "three" };
+//! [1a]
+
+
+//! [1b]
+list << "four" << "five";
+//! [1b]
 
 
 //! [2]
@@ -128,7 +131,7 @@ list.removeAll("sun");
 QList<QString> list;
 list << "sun" << "cloud" << "sun" << "rain";
 list.removeOne("sun");
-// list: ["cloud", ,"sun", "rain"]
+// list: ["cloud", "sun", "rain"]
 //! [10]
 
 

@@ -10,88 +10,99 @@
 #include "testing/test_support.h"
 #include "third_party/base/ptr_util.h"
 
+TEST(CXFA_FMLexerTest, NullString) {
+  WideStringView null_string;
+  CXFA_FMLexer lexer(null_string);
+  CXFA_FMToken token = lexer.NextToken();
+  EXPECT_EQ(TOKeof, token.m_type);
+  EXPECT_TRUE(lexer.IsComplete());
+}
+
 TEST(CXFA_FMLexerTest, EmptyString) {
   CXFA_FMLexer lexer(L"");
-  CXFA_FMToken* token = lexer.NextToken();
-  EXPECT_EQ(TOKeof, token->m_type);
+  CXFA_FMToken token = lexer.NextToken();
+  EXPECT_EQ(TOKeof, token.m_type);
+  EXPECT_TRUE(lexer.IsComplete());
 }
 
 TEST(CXFA_FMLexerTest, Numbers) {
   auto lexer = pdfium::MakeUnique<CXFA_FMLexer>(L"-12");
-  CXFA_FMToken* token = lexer->NextToken();
+  CXFA_FMToken token = lexer->NextToken();
   // TODO(dsinclair): Should this return -12 instead of two tokens?
-  EXPECT_EQ(TOKminus, token->m_type);
+  EXPECT_EQ(TOKminus, token.m_type);
   token = lexer->NextToken();
-  EXPECT_EQ(L"12", token->m_wstring);
+  EXPECT_EQ(L"12", token.m_string);
   token = lexer->NextToken();
-  EXPECT_EQ(TOKeof, token->m_type);
+  EXPECT_EQ(TOKeof, token.m_type);
 
   lexer = pdfium::MakeUnique<CXFA_FMLexer>(L"1.5362");
   token = lexer->NextToken();
-  EXPECT_EQ(TOKnumber, token->m_type);
-  EXPECT_EQ(L"1.5362", token->m_wstring);
+  EXPECT_EQ(TOKnumber, token.m_type);
+  EXPECT_EQ(L"1.5362", token.m_string);
 
   lexer = pdfium::MakeUnique<CXFA_FMLexer>(L"0.875");
   token = lexer->NextToken();
-  EXPECT_EQ(TOKnumber, token->m_type);
-  EXPECT_EQ(L"0.875", token->m_wstring);
+  EXPECT_EQ(TOKnumber, token.m_type);
+  EXPECT_EQ(L"0.875", token.m_string);
 
   lexer = pdfium::MakeUnique<CXFA_FMLexer>(L"5.56e-2");
   token = lexer->NextToken();
-  EXPECT_EQ(TOKnumber, token->m_type);
-  EXPECT_EQ(L"5.56e-2", token->m_wstring);
+  EXPECT_EQ(TOKnumber, token.m_type);
+  EXPECT_EQ(L"5.56e-2", token.m_string);
 
   lexer = pdfium::MakeUnique<CXFA_FMLexer>(L"1.234E10");
   token = lexer->NextToken();
-  EXPECT_EQ(TOKnumber, token->m_type);
-  EXPECT_EQ(L"1.234E10", token->m_wstring);
+  EXPECT_EQ(TOKnumber, token.m_type);
+  EXPECT_EQ(L"1.234E10", token.m_string);
 
   lexer = pdfium::MakeUnique<CXFA_FMLexer>(L"123456789.012345678");
   token = lexer->NextToken();
-  EXPECT_EQ(TOKnumber, token->m_type);
+  EXPECT_EQ(TOKnumber, token.m_type);
   // TODO(dsinclair): This should round as per IEEE 64-bit values.
-  // EXPECT_EQ(L"123456789.01234567", token->m_wstring);
-  EXPECT_EQ(L"123456789.012345678", token->m_wstring);
+  // EXPECT_EQ(L"123456789.01234567", token.m_string);
+  EXPECT_EQ(L"123456789.012345678", token.m_string);
 
   lexer = pdfium::MakeUnique<CXFA_FMLexer>(L"99999999999999999");
   token = lexer->NextToken();
-  EXPECT_EQ(TOKnumber, token->m_type);
+  EXPECT_EQ(TOKnumber, token.m_type);
   // TODO(dsinclair): This is spec'd as rounding when > 16 significant digits
   // prior to the exponent.
-  // EXPECT_EQ(L"100000000000000000", token->m_wstring);
-  EXPECT_EQ(L"99999999999999999", token->m_wstring);
+  // EXPECT_EQ(L"100000000000000000", token.m_string);
+  EXPECT_EQ(L"99999999999999999", token.m_string);
+  EXPECT_TRUE(lexer->IsComplete());
 }
 
 // The quotes are stripped in CXFA_FMStringExpression::ToJavaScript.
 TEST(CXFA_FMLexerTest, Strings) {
   auto lexer =
       pdfium::MakeUnique<CXFA_FMLexer>(L"\"The cat jumped over the fence.\"");
-  CXFA_FMToken* token = lexer->NextToken();
-  EXPECT_EQ(TOKstring, token->m_type);
-  EXPECT_EQ(L"\"The cat jumped over the fence.\"", token->m_wstring);
+  CXFA_FMToken token = lexer->NextToken();
+  EXPECT_EQ(TOKstring, token.m_type);
+  EXPECT_EQ(L"\"The cat jumped over the fence.\"", token.m_string);
 
   token = lexer->NextToken();
-  EXPECT_EQ(TOKeof, token->m_type);
+  EXPECT_EQ(TOKeof, token.m_type);
 
   lexer = pdfium::MakeUnique<CXFA_FMLexer>(L"\"\"");
   token = lexer->NextToken();
-  EXPECT_EQ(TOKstring, token->m_type);
-  EXPECT_EQ(L"\"\"", token->m_wstring);
+  EXPECT_EQ(TOKstring, token.m_type);
+  EXPECT_EQ(L"\"\"", token.m_string);
 
   lexer = pdfium::MakeUnique<CXFA_FMLexer>(
       L"\"The message reads: \"\"Warning: Insufficient Memory\"\"\"");
   token = lexer->NextToken();
-  EXPECT_EQ(TOKstring, token->m_type);
+  EXPECT_EQ(TOKstring, token.m_type);
   EXPECT_EQ(L"\"The message reads: \"\"Warning: Insufficient Memory\"\"\"",
-            token->m_wstring);
+            token.m_string);
 
   lexer = pdfium::MakeUnique<CXFA_FMLexer>(
       L"\"\\u0047\\u006f\\u0066\\u0069\\u0073\\u0068\\u0021\\u000d\\u000a\"");
   token = lexer->NextToken();
-  EXPECT_EQ(TOKstring, token->m_type);
+  EXPECT_EQ(TOKstring, token.m_type);
   EXPECT_EQ(
       L"\"\\u0047\\u006f\\u0066\\u0069\\u0073\\u0068\\u0021\\u000d\\u000a\"",
-      token->m_wstring);
+      token.m_string);
+  EXPECT_TRUE(lexer->IsComplete());
 }
 
 // Note, 'this' is a keyword but is not matched by the lexer.
@@ -161,51 +172,53 @@ TEST(CXFA_FMLexerTest, OperatorsAndKeywords) {
 
   for (size_t i = 0; i < FX_ArraySize(op); ++i) {
     auto lexer = pdfium::MakeUnique<CXFA_FMLexer>(op[i].op);
-    CXFA_FMToken* token = lexer->NextToken();
-    EXPECT_EQ(op[i].token, token->m_type);
+    CXFA_FMToken token = lexer->NextToken();
+    EXPECT_EQ(op[i].token, token.m_type);
+    EXPECT_TRUE(lexer->IsComplete());
   }
 }
 
 TEST(CXFA_FMLexerTest, Comments) {
   auto lexer = pdfium::MakeUnique<CXFA_FMLexer>(L"// Empty.");
-  CXFA_FMToken* token = lexer->NextToken();
-  EXPECT_EQ(TOKeof, token->m_type);
+  CXFA_FMToken token = lexer->NextToken();
+  EXPECT_EQ(TOKeof, token.m_type);
 
   lexer = pdfium::MakeUnique<CXFA_FMLexer>(L"//");
   token = lexer->NextToken();
-  EXPECT_EQ(TOKeof, token->m_type);
+  EXPECT_EQ(TOKeof, token.m_type);
 
   lexer = pdfium::MakeUnique<CXFA_FMLexer>(L"123 // Empty.\n\"str\"");
   token = lexer->NextToken();
-  EXPECT_EQ(TOKnumber, token->m_type);
-  EXPECT_EQ(L"123", token->m_wstring);
+  EXPECT_EQ(TOKnumber, token.m_type);
+  EXPECT_EQ(L"123", token.m_string);
 
   token = lexer->NextToken();
-  EXPECT_EQ(TOKstring, token->m_type);
-  EXPECT_EQ(L"\"str\"", token->m_wstring);
+  EXPECT_EQ(TOKstring, token.m_type);
+  EXPECT_EQ(L"\"str\"", token.m_string);
 
   token = lexer->NextToken();
-  EXPECT_EQ(TOKeof, token->m_type);
+  EXPECT_EQ(TOKeof, token.m_type);
 
   lexer = pdfium::MakeUnique<CXFA_FMLexer>(L";");
   token = lexer->NextToken();
-  EXPECT_EQ(TOKeof, token->m_type);
+  EXPECT_EQ(TOKeof, token.m_type);
 
   lexer = pdfium::MakeUnique<CXFA_FMLexer>(L"; Empty.");
   token = lexer->NextToken();
-  EXPECT_EQ(TOKeof, token->m_type);
+  EXPECT_EQ(TOKeof, token.m_type);
 
   lexer = pdfium::MakeUnique<CXFA_FMLexer>(L"123 ;Empty.\n\"str\"");
   token = lexer->NextToken();
-  EXPECT_EQ(TOKnumber, token->m_type);
-  EXPECT_EQ(L"123", token->m_wstring);
+  EXPECT_EQ(TOKnumber, token.m_type);
+  EXPECT_EQ(L"123", token.m_string);
 
   token = lexer->NextToken();
-  EXPECT_EQ(TOKstring, token->m_type);
-  EXPECT_EQ(L"\"str\"", token->m_wstring);
+  EXPECT_EQ(TOKstring, token.m_type);
+  EXPECT_EQ(L"\"str\"", token.m_string);
 
   token = lexer->NextToken();
-  EXPECT_EQ(TOKeof, token->m_type);
+  EXPECT_EQ(TOKeof, token.m_type);
+  EXPECT_TRUE(lexer->IsComplete());
 }
 
 TEST(CXFA_FMLexerTest, ValidIdentifiers) {
@@ -213,59 +226,68 @@ TEST(CXFA_FMLexerTest, ValidIdentifiers) {
       L"a", L"an_identifier", L"_ident", L"$ident", L"!ident", L"GetAddr"};
   for (const auto* ident : identifiers) {
     auto lexer = pdfium::MakeUnique<CXFA_FMLexer>(ident);
-    CXFA_FMToken* token = lexer->NextToken();
-    EXPECT_EQ(TOKidentifier, token->m_type);
-    EXPECT_EQ(ident, token->m_wstring);
+    CXFA_FMToken token = lexer->NextToken();
+    EXPECT_EQ(TOKidentifier, token.m_type);
+    EXPECT_EQ(ident, token.m_string);
+    EXPECT_TRUE(lexer->IsComplete());
   }
 }
 
 TEST(CXFA_FMLexerTest, InvalidIdentifiers) {
   auto lexer = pdfium::MakeUnique<CXFA_FMLexer>(L"#a");
-  lexer->NextToken();
-  // TODO(rharrison): Add an expects for the return being nullptr here.
-  // See https://crbug.com/pdfium/814
-  EXPECT_TRUE(lexer->HasError());
+  auto token = lexer->NextToken();
+  EXPECT_EQ(TOKreserver, token.m_type);
 
   lexer = pdfium::MakeUnique<CXFA_FMLexer>(L"1a");
-  lexer->NextToken();
-  // TODO(rharrison): Add an expects for the return being nullptr here.
-  // See https://crbug.com/pdfium/814
-  EXPECT_TRUE(lexer->HasError());
+  token = lexer->NextToken();
+  EXPECT_EQ(TOKreserver, token.m_type);
 
   lexer = pdfium::MakeUnique<CXFA_FMLexer>(L"an@identifier");
-  lexer->NextToken();
-  EXPECT_FALSE(lexer->HasError());
-  lexer->NextToken();
-  // TODO(rharrison): Add an expects for the return being nullptr here.
-  // See https://crbug.com/pdfium/814
-  EXPECT_TRUE(lexer->HasError());
-  // TODO(rharrison): Add a test for if an another call to NextToken occurs,
-  // the error state will be retained, instead of continuing the parse.
-  // See https://crbug.com/pdfium/814
+  token = lexer->NextToken();
+  EXPECT_NE(TOKreserver, token.m_type);
+  token = lexer->NextToken();
+  EXPECT_EQ(TOKreserver, token.m_type);
+  token = lexer->NextToken();
+  EXPECT_EQ(TOKreserver, token.m_type);
 
   lexer = pdfium::MakeUnique<CXFA_FMLexer>(L"_ident@");
-  lexer->NextToken();
-  EXPECT_FALSE(lexer->HasError());
-  lexer->NextToken();
-  // TODO(rharrison): Add an expects for the return being nullptr here.
-  // See https://crbug.com/pdfium/814
-  EXPECT_TRUE(lexer->HasError());
+  token = lexer->NextToken();
+  EXPECT_NE(TOKreserver, token.m_type);
+  token = lexer->NextToken();
+  EXPECT_EQ(TOKreserver, token.m_type);
+  EXPECT_FALSE(lexer->IsComplete());
 }
 
 TEST(CXFA_FMLexerTest, Whitespace) {
   auto lexer = pdfium::MakeUnique<CXFA_FMLexer>(L" \t\xc\x9\xb");
-  CXFA_FMToken* token = lexer->NextToken();
-  EXPECT_EQ(TOKeof, token->m_type);
+  CXFA_FMToken token = lexer->NextToken();
+  EXPECT_EQ(TOKeof, token.m_type);
 
   lexer = pdfium::MakeUnique<CXFA_FMLexer>(L"123 \t\xc\x9\xb 456");
   token = lexer->NextToken();
-  EXPECT_EQ(TOKnumber, token->m_type);
-  EXPECT_EQ(L"123", token->m_wstring);
+  EXPECT_EQ(TOKnumber, token.m_type);
+  EXPECT_EQ(L"123", token.m_string);
 
   token = lexer->NextToken();
-  EXPECT_EQ(TOKnumber, token->m_type);
-  EXPECT_EQ(L"456", token->m_wstring);
+  EXPECT_EQ(TOKnumber, token.m_type);
+  EXPECT_EQ(L"456", token.m_string);
 
   token = lexer->NextToken();
-  EXPECT_EQ(TOKeof, token->m_type);
+  EXPECT_EQ(TOKeof, token.m_type);
+  EXPECT_TRUE(lexer->IsComplete());
+}
+
+TEST(CXFA_FMLexerTest, NullData) {
+  auto lexer = pdfium::MakeUnique<CXFA_FMLexer>(
+      WideStringView(L"\x2d\x32\x00\x2d\x32", 5));
+  CXFA_FMToken token = lexer->NextToken();
+  EXPECT_EQ(TOKminus, token.m_type);
+
+  token = lexer->NextToken();
+  EXPECT_EQ(TOKnumber, token.m_type);
+  EXPECT_EQ(L"2", token.m_string);
+
+  token = lexer->NextToken();
+  EXPECT_EQ(TOKeof, token.m_type);
+  EXPECT_FALSE(lexer->IsComplete());
 }

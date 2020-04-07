@@ -13,7 +13,6 @@
 
 #include "base/logging.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -200,7 +199,7 @@ class TemplateURLParsingContext {
 
 // static
 TemplateURLParsingContext::ElementNameToElementTypeMap*
-    TemplateURLParsingContext::kElementNameToElementTypeMap = NULL;
+    TemplateURLParsingContext::kElementNameToElementTypeMap = nullptr;
 
 TemplateURLParsingContext::TemplateURLParsingContext(
     TemplateURLParser::ParameterFilter* parameter_filter)
@@ -211,7 +210,7 @@ TemplateURLParsingContext::TemplateURLParsingContext(
       is_suggest_url_(false),
       has_custom_keyword_(false),
       derive_image_from_url_(false) {
-  if (kElementNameToElementTypeMap == NULL)
+  if (kElementNameToElementTypeMap == nullptr)
     InitMapping();
 }
 
@@ -328,7 +327,7 @@ std::unique_ptr<TemplateURL> TemplateURLParsingContext::GetTemplateURL(
 
   // Bail if the search URL is empty or if either TemplateURLRef is invalid.
   std::unique_ptr<TemplateURL> template_url =
-      base::MakeUnique<TemplateURL>(data_);
+      std::make_unique<TemplateURL>(data_);
   if (template_url->url().empty() ||
       !template_url->url_ref().IsValid(search_terms_data) ||
       (!template_url->suggestions_url().empty() &&
@@ -438,7 +437,7 @@ void TemplateURLParsingContext::ProcessURLParams() {
     return;
 
   GURL url(is_suggest_url_ ? data_.suggestions_url : data_.url());
-  if (url.is_empty())
+  if (!url.is_valid())
     return;
 
   // If there is a parameter filter, parse the existing URL and remove any

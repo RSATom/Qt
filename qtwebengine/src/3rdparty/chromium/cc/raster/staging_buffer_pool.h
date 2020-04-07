@@ -7,34 +7,44 @@
 
 #include <stdint.h>
 
-#include <deque>
 #include <memory>
 #include <set>
 
+#include "base/containers/circular_deque.h"
 #include "base/macros.h"
 #include "base/memory/memory_coordinator_client.h"
+#include "base/memory/memory_pressure_listener.h"
 #include "base/memory/weak_ptr.h"
+#include "base/sequenced_task_runner.h"
 #include "base/synchronization/lock.h"
 #include "base/time/time.h"
 #include "base/trace_event/memory_dump_provider.h"
 #include "base/trace_event/trace_event.h"
-#include "cc/resources/resource_provider.h"
-#include "components/viz/common/gpu/context_provider.h"
+#include "cc/cc_export.h"
+#include "components/viz/common/resources/resource_format.h"
+#include "ui/gfx/geometry/size.h"
+#include "ui/gfx/gpu_memory_buffer.h"
 
+namespace gfx {
+class GpuMemoryBuffer;
+}
 namespace gpu {
-namespace gles2 {
-class GLES2Interface;
+namespace raster {
+class RasterInterface;
 }
-}
+}  // namespace gpu
+
+namespace viz {
+class RasterContextProvider;
+}  // namespace viz
 
 namespace cc {
-class Resource;
 
 struct StagingBuffer {
   StagingBuffer(const gfx::Size& size, viz::ResourceFormat format);
   ~StagingBuffer();
 
-  void DestroyGLResources(gpu::gles2::GLES2Interface* gl);
+  void DestroyGLResources(gpu::raster::RasterInterface* gl);
   void OnMemoryDump(base::trace_event::ProcessMemoryDump* pmd,
                     viz::ResourceFormat format,
                     bool is_free) const;
@@ -55,12 +65,10 @@ class CC_EXPORT StagingBufferPool
  public:
   ~StagingBufferPool() final;
 
-  StagingBufferPool(base::SequencedTaskRunner* task_runner,
-                    viz::ContextProvider* worker_context_provider,
-                    ResourceProvider* resource_provider,
+  StagingBufferPool(scoped_refptr<base::SequencedTaskRunner> task_runner,
+                    viz::RasterContextProvider* worker_context_provider,
                     bool use_partial_raster,
                     int max_staging_buffer_usage_in_bytes);
-  void RegisterMemoryCoordinatorClient();
   void Shutdown();
 
   // Overridden from base::trace_event::MemoryDumpProvider:
@@ -68,7 +76,8 @@ class CC_EXPORT StagingBufferPool
                     base::trace_event::ProcessMemoryDump* pmd) override;
 
   std::unique_ptr<StagingBuffer> AcquireStagingBuffer(
-      const Resource* resource,
+      const gfx::Size& size,
+      viz::ResourceFormat format,
       uint64_t previous_content_id);
   void ReleaseStagingBuffer(std::unique_ptr<StagingBuffer> staging_buffer);
 
@@ -92,16 +101,21 @@ class CC_EXPORT StagingBufferPool
   // Overriden from base::MemoryCoordinatorClient.
   void OnPurgeMemory() override;
 
+  // TODO(gyuyoung): OnMemoryPressure is deprecated. So this should be removed
+  // when the memory coordinator is enabled by default.
+  void OnMemoryPressure(
+      base::MemoryPressureListener::MemoryPressureLevel level);
+
   scoped_refptr<base::SequencedTaskRunner> task_runner_;
-  viz::ContextProvider* const worker_context_provider_;
-  ResourceProvider* const resource_provider_;
+  viz::RasterContextProvider* const worker_context_provider_;
   const bool use_partial_raster_;
 
   mutable base::Lock lock_;
   // |lock_| must be acquired when accessing the following members.
   using StagingBufferSet = std::set<const StagingBuffer*>;
   StagingBufferSet buffers_;
-  using StagingBufferDeque = std::deque<std::unique_ptr<StagingBuffer>>;
+  using StagingBufferDeque =
+      base::circular_deque<std::unique_ptr<StagingBuffer>>;
   StagingBufferDeque free_buffers_;
   StagingBufferDeque busy_buffers_;
   const int max_staging_buffer_usage_in_bytes_;
@@ -110,6 +124,8 @@ class CC_EXPORT StagingBufferPool
   const base::TimeDelta staging_buffer_expiration_delay_;
   bool reduce_memory_usage_pending_;
   base::Closure reduce_memory_usage_callback_;
+
+  std::unique_ptr<base::MemoryPressureListener> memory_pressure_listener_;
 
   base::WeakPtrFactory<StagingBufferPool> weak_ptr_factory_;
 

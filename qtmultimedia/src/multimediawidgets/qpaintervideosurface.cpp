@@ -143,6 +143,11 @@ QAbstractVideoSurface::Error QVideoSurfaceGenericPainter::start(const QVideoSurf
 {
     m_frame = QVideoFrame();
     m_imageFormat = QVideoFrame::imageFormatFromPixelFormat(format.pixelFormat());
+    // Do not render into ARGB32 images using QPainter.
+    // Using QImage::Format_ARGB32_Premultiplied is significantly faster.
+    if (m_imageFormat == QImage::Format_ARGB32)
+        m_imageFormat = QImage::Format_ARGB32_Premultiplied;
+
     m_imageSize = format.frameSize();
     m_scanLineDirection = format.scanLineDirection();
     m_mirrored = format.property("mirrored").toBool();
@@ -191,10 +196,6 @@ QAbstractVideoSurface::Error QVideoSurfaceGenericPainter::paint(
                 m_imageSize.height(),
                 m_frame.bytesPerLine(),
                 m_imageFormat);
-        // Do not render into ARGB32 images using QPainter.
-        // Using QImage::Format_ARGB32_Premultiplied is significantly faster.
-        if (m_imageFormat == QImage::Format_ARGB32)
-            image = image.convertToFormat(QImage::Format_ARGB32_Premultiplied);
 
         const QTransform oldTransform = painter->transform();
         QTransform transform = oldTransform;
@@ -202,12 +203,13 @@ QAbstractVideoSurface::Error QVideoSurfaceGenericPainter::paint(
         if (m_scanLineDirection == QVideoSurfaceFormat::BottomToTop) {
             transform.scale(1, -1);
             transform.translate(0, -target.bottom());
-            targetRect.setY(0);
+            targetRect = QRectF(target.x(), 0, target.width(), target.height());
         }
+
         if (m_mirrored) {
             transform.scale(-1, 1);
             transform.translate(-target.right(), 0);
-            targetRect.setX(0);
+            targetRect = QRectF(0, targetRect.y(), target.width(), target.height());
         }
         painter->setTransform(transform);
         painter->drawImage(targetRect, image, source);

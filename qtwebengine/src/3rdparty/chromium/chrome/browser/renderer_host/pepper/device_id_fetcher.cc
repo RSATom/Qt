@@ -21,7 +21,7 @@
 #include "crypto/random.h"
 #include "crypto/sha2.h"
 #include "ppapi/c/pp_errors.h"
-#include "rlz/features/features.h"
+#include "rlz/buildflags/buildflags.h"
 
 #if defined(OS_CHROMEOS)
 #include "chromeos/cryptohome/system_salt_getter.h"
@@ -34,8 +34,6 @@
 using content::BrowserPpapiHost;
 using content::BrowserThread;
 using content::RenderProcessHost;
-
-namespace chrome {
 
 namespace {
 
@@ -211,5 +209,3 @@ void DeviceIDFetcher::RunCallbackOnIOThread(const std::string& id,
   in_progress_ = false;
   callback_.Run(id, result);
 }
-
-}  // namespace chrome

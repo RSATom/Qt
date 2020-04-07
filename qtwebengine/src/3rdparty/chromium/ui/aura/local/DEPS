@@ -1,7 +1,7 @@
 include_rules = [
   "+cc/output",
   "+cc/scheduler",
-  "+cc/surfaces",
   "+components/viz/service/frame_sinks",
+  "+services/viz/public/interfaces",
 ]
 

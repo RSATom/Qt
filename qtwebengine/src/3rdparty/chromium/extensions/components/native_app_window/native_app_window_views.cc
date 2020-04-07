@@ -4,7 +4,6 @@
 
 #include "extensions/components/native_app_window/native_app_window_views.h"
 
-#include "base/threading/sequenced_worker_pool.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/render_widget_host.h"
 #include "content/public/browser/render_widget_host_view.h"
@@ -129,6 +128,10 @@ void NativeAppWindowViews::Hide() {
   widget_->Hide();
 }
 
+bool NativeAppWindowViews::IsVisible() const {
+  return widget_->IsVisible();
+}
+
 void NativeAppWindowViews::Close() {
   widget_->Close();
 }
@@ -215,7 +218,7 @@ bool NativeAppWindowViews::CanResize() const {
 
 bool NativeAppWindowViews::CanMaximize() const {
   return resizable_ && !size_constraints_.HasMaximumSize() &&
-         !app_window_->window_type_is_panel() && !WidgetHasHitTestMask();
+         !WidgetHasHitTestMask();
 }
 
 bool NativeAppWindowViews::CanMinimize() const {
@@ -372,7 +375,7 @@ SkRegion* NativeAppWindowViews::GetDraggableRegion() {
   return draggable_region_.get();
 }
 
-void NativeAppWindowViews::UpdateShape(std::unique_ptr<SkRegion> region) {
+void NativeAppWindowViews::UpdateShape(std::unique_ptr<ShapeRects> rects) {
   // Stub implementation. See also ChromeNativeAppWindowViews.
 }
 

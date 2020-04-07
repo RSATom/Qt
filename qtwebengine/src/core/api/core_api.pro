@@ -3,9 +3,8 @@ DESTDIR = $$OUT_PWD/$$getConfigDir()
 
 TEMPLATE = lib
 
-CONFIG += staticlib c++11
-QT += network core-private
-QT_PRIVATE += webenginecoreheaders-private
+CONFIG += staticlib
+QT += network core-private webenginecoreheaders-private
 
 # Don't create .prl file for this intermediate library because
 # their contents get used when linking against them, breaking
@@ -23,37 +22,46 @@ DEFINES += \
     NOMINMAX
 
 CHROMIUM_SRC_DIR = $$QTWEBENGINE_ROOT/$$getChromiumSrcDir()
+CHROMIUM_GEN_DIR = $$OUT_PWD/../$$getConfigDir()/gen
 INCLUDEPATH += $$QTWEBENGINE_ROOT/src/core \
+               $$CHROMIUM_GEN_DIR \
                $$CHROMIUM_SRC_DIR
 
-linux-g++*: QMAKE_CXXFLAGS += -Wno-unused-parameter
+gcc: QMAKE_CXXFLAGS_WARN_ON = -Wno-unused-parameter
 
 HEADERS = \
     qwebenginecallback.h \
     qwebenginecallback_p.h \
     qtwebenginecoreglobal.h \
     qtwebenginecoreglobal_p.h \
-    qwebenginebrowsercontext_p.h \
     qwebenginecookiestore.h \
     qwebenginecookiestore_p.h \
     qwebenginehttprequest.h \
+    qwebenginemessagepumpscheduler_p.h \
+    qwebenginequotarequest.h \
+    qwebengineregisterprotocolhandlerrequest.h \
     qwebengineurlrequestinterceptor.h \
     qwebengineurlrequestinfo.h \
     qwebengineurlrequestinfo_p.h \
     qwebengineurlrequestjob.h \
+    qwebengineurlscheme.h \
     qwebengineurlschemehandler.h
 
 SOURCES = \
     qtwebenginecoreglobal.cpp \
-    qwebenginebrowsercontext.cpp \
     qwebenginecookiestore.cpp \
     qwebenginehttprequest.cpp \
+    qwebenginemessagepumpscheduler.cpp \
+    qwebenginequotarequest.cpp \
+    qwebengineregisterprotocolhandlerrequest.cpp \
     qwebengineurlrequestinfo.cpp \
     qwebengineurlrequestjob.cpp \
+    qwebengineurlscheme.cpp \
     qwebengineurlschemehandler.cpp
 
 ### Qt6 Remove this workaround
 unix:!isEmpty(QMAKE_LFLAGS_VERSION_SCRIPT):!static {
+    CONFIG -= warning_clean
     SOURCES += qtbug-60565.cpp \
                qtbug-61521.cpp
 }
@@ -65,3 +73,5 @@ msvc {
         "if exist $(DESTDIR_TARGET).objects del $(DESTDIR_TARGET).objects$$escape_expand(\\n\\t)" \
         "for %%a in ($(OBJECTS)) do echo $$shell_quote($$shell_path($$OUT_PWD))\\%%a >> $(DESTDIR_TARGET).objects"
 }
+
+load(qt_common)

@@ -20,7 +20,7 @@ CPDF_IconFit::ScaleMethod CPDF_IconFit::GetScaleMethod() {
   if (!m_pDict)
     return Always;
 
-  CFX_ByteString csSW = m_pDict->GetStringFor("SW", "A");
+  ByteString csSW = m_pDict->GetStringFor("SW", "A");
   if (csSW == "B")
     return Bigger;
   if (csSW == "S")
@@ -39,7 +39,7 @@ void CPDF_IconFit::GetIconPosition(float& fLeft, float& fBottom) {
   if (!m_pDict)
     return;
 
-  CPDF_Array* pA = m_pDict->GetArrayFor("A");
+  const CPDF_Array* pA = m_pDict->GetArrayFor("A");
   if (pA) {
     uint32_t dwCount = pA->GetCount();
     if (dwCount > 0)

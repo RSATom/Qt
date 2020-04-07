@@ -65,24 +65,23 @@ static const ScriptLanguage scriptLanguages[] = {
     {"Python", ".py"}
 };
 
-MainWindow *MainWindow::m_instance = Q_NULLPTR;
+MainWindow *MainWindow::m_instance = nullptr;
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
-    , m_dlgInvoke(Q_NULLPTR)
-    , m_dlgProperties(Q_NULLPTR)
-    , m_dlgAmbient(Q_NULLPTR)
-    , m_scripts(Q_NULLPTR)
+    , m_dlgInvoke(nullptr)
+    , m_dlgProperties(nullptr)
+    , m_dlgAmbient(nullptr)
+    , m_scripts(nullptr)
 {
     setupUi(this);
     MainWindow::m_instance = this; // Logging handler needs the UI
 
     setObjectName(QLatin1String("MainWindow"));
 
-    const int scriptCount = int(sizeof(scriptLanguages) / sizeof(scriptLanguages[0]));
-    for (int s = 0; s < scriptCount; ++s) {
-        const QString name = QLatin1String(scriptLanguages[s].name);
-        const QString suffix = QLatin1String(scriptLanguages[s].suffix);
+    for (auto scriptLanguage : scriptLanguages) {
+        const QString name = QLatin1String(scriptLanguage.name);
+        const QString suffix = QLatin1String(scriptLanguage.suffix);
         if (!QAxScriptManager::registerEngine(name, suffix))
             qWarning().noquote().nospace() << "Failed to register \"" << name
                 << "\" (*" << suffix << ") with QAxScriptManager.";
@@ -99,7 +98,7 @@ MainWindow::MainWindow(QWidget *parent)
 
 MainWindow::~MainWindow()
 {
-    MainWindow::m_instance = Q_NULLPTR;
+    MainWindow::m_instance = nullptr;
 }
 
 QAxWidget *MainWindow::activeAxWidget() const

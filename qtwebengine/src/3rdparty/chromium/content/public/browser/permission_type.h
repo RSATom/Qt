@@ -14,7 +14,7 @@ namespace content {
 // immediately before PermissionType::NUM
 enum class PermissionType {
   MIDI_SYSEX = 1,
-  PUSH_MESSAGING = 2,
+  // PUSH_MESSAGING = 2,
   NOTIFICATIONS = 3,
   GEOLOCATION = 4,
   PROTECTED_MEDIA_IDENTIFIER = 5,
@@ -24,6 +24,11 @@ enum class PermissionType {
   VIDEO_CAPTURE = 9,
   BACKGROUND_SYNC = 10,
   FLASH = 11,
+  SENSORS = 12,
+  ACCESSIBILITY_EVENTS = 13,
+  CLIPBOARD_READ = 14,
+  CLIPBOARD_WRITE = 15,
+  PAYMENT_HANDLER = 16,
 
   // Always keep this at the end.
   NUM,

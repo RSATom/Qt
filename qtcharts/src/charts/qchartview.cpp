@@ -54,7 +54,7 @@
 
 /*!
     \class QChartView
-    \inmodule Qt Charts
+    \inmodule QtCharts
     \brief The QChartView is a standalone widget that can display charts.
 
     A chart view does not require a QGraphicsScene object to work. To display
@@ -130,7 +130,7 @@ void QChartView::setRubberBand(const RubberBands &rubberBand)
 
     if (!d_ptr->m_rubberBandFlags) {
         delete d_ptr->m_rubberBand;
-        d_ptr->m_rubberBand = 0;
+        d_ptr->m_rubberBand = nullptr;
         return;
     }
 
@@ -277,7 +277,7 @@ QChartViewPrivate::QChartViewPrivate(QChartView *q, QChart *chart)
       m_scene(new QGraphicsScene(q)),
       m_chart(chart),
 #ifndef QT_NO_RUBBERBAND
-      m_rubberBand(0),
+      m_rubberBand(nullptr),
 #endif
       m_rubberBandFlags(QChartView::NoRubberBand)
 {
@@ -331,10 +331,11 @@ void QChartViewPrivate::resize()
     }
 
     m_chart->resize(chartSize);
-    q_ptr->setMinimumSize(m_chart->minimumSize().toSize());
+    q_ptr->setMinimumSize(m_chart->minimumSize().toSize().expandedTo(q_ptr->minimumSize()));
+    q_ptr->setMaximumSize(q_ptr->maximumSize().boundedTo(m_chart->maximumSize().toSize()));
     q_ptr->setSceneRect(m_chart->geometry());
 }
 
-#include "moc_qchartview.cpp"
-
 QT_CHARTS_END_NAMESPACE
+
+#include "moc_qchartview.cpp"

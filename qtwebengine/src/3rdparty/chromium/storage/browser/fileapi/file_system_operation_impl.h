@@ -19,7 +19,7 @@
 #include "storage/browser/fileapi/file_system_url.h"
 #include "storage/browser/fileapi/file_writer_delegate.h"
 #include "storage/browser/storage_browser_export.h"
-#include "storage/common/quota/quota_types.h"
+#include "third_party/blink/public/mojom/quota/quota_types.mojom.h"
 
 namespace storage {
 
@@ -28,8 +28,7 @@ class FileSystemContext;
 class RecursiveOperationDelegate;
 
 // The default implementation of FileSystemOperation for file systems.
-class STORAGE_EXPORT FileSystemOperationImpl
-    : public NON_EXPORTED_BASE(FileSystemOperation) {
+class STORAGE_EXPORT FileSystemOperationImpl : public FileSystemOperation {
  public:
   ~FileSystemOperationImpl() override;
 
@@ -125,7 +124,7 @@ class STORAGE_EXPORT FileSystemOperationImpl
   // |error_callback|.
   void DidGetUsageAndQuotaAndRunTask(const base::Closure& task,
                                      const base::Closure& error_callback,
-                                     storage::QuotaStatusCode status,
+                                     blink::mojom::QuotaStatusCode status,
                                      int64_t usage,
                                      int64_t quota);
 

@@ -8,9 +8,9 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "pcm16b.h"
+#include "modules/audio_coding/codecs/pcm16b/pcm16b.h"
 
-#include "webrtc/typedefs.h"
+#include "typedefs.h"  // NOLINT(build/include)
 
 size_t WebRtcPcm16b_Encode(const int16_t* speech,
                            size_t len,

@@ -4,8 +4,6 @@
 
 static_library("child") {
   sources = [
-    "child_profiling.cc",
-    "child_profiling.h",
     "pdf_child_init.cc",
     "pdf_child_init.h",
     "v8_breakpad_support_win.cc",
@@ -16,8 +14,17 @@ static_library("child") {
 
   deps = [
     "//base",
+    "//chrome/common:buildflags",
     "//content/public/child",
     "//gin",
     "//v8",
   ]
+
+  data_deps = [
+    "//tools/v8_context_snapshot",
+  ]
+
+  if (is_win) {
+    deps += [ "//components/crash/content/app:crash_export_thunk_include" ]
+  }
 }

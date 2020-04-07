@@ -194,7 +194,11 @@ void tst_XmlPatterns::xquerySupport()
             QCOMPARE(QString(fixedStderr).remove(removeVersion) + QChar('|'), rawExpectedStdErr + QChar('|'));
         }
         else
+        {
+            /* Qemu outputs extra information to the stderr */
+            fixedStderr.remove("Unsupported ioctl: cmd=0x8b07\n");
             QCOMPARE(fixedStderr, filterStderr(rawExpectedStdErr));
+        }
     }
     else
     {

@@ -35,11 +35,16 @@
 ****************************************************************************/
 
 #include "locationvaluetypehelper_p.h"
+#include <QVariantMap>
+#include <QtQml/QQmlInfo>
+#include <private/qqmlengine_p.h>
 
 
 QGeoCoordinate parseCoordinate(const QJSValue &value, bool *ok)
 {
     QGeoCoordinate c;
+    if (ok)
+        *ok = false;
 
     if (value.isObject()) {
         if (value.hasProperty(QStringLiteral("latitude")))
@@ -51,6 +56,33 @@ QGeoCoordinate parseCoordinate(const QJSValue &value, bool *ok)
 
         if (ok)
             *ok = true;
+    }
+
+    return c;
+}
+
+QGeoCoordinate parseCoordinate(const QVariant &value, bool *ok)
+{
+    QGeoCoordinate c;
+    if (ok)
+        *ok = false;
+
+    if (value.canConvert<QGeoCoordinate>()) {
+        c = value.value<QGeoCoordinate>();
+        if (ok)
+            *ok = true;
+    } else if (value.type() == QVariant::Map) {
+        const QVariantMap &map = value.toMap();
+
+        if (map.contains(QStringLiteral("latitude")))
+            c.setLatitude(map.value(QStringLiteral("latitude")).toDouble());
+        if (map.contains(QStringLiteral("longitude")))
+            c.setLongitude(map.value(QStringLiteral("longitude")).toDouble());
+        if (map.contains(QStringLiteral("altitude")))
+            c.setAltitude(map.value(QStringLiteral("altitude")).toDouble());
+
+        if (ok)
+            *ok = c.isValid(); // Not considering the case where the map is valid but containing NaNs.
     }
 
     return c;
@@ -114,4 +146,43 @@ QGeoCircle parseCircle(const QJSValue &value, bool *ok)
     }
 
     return c;
+}
+
+QJSValue fromList(const QObject *object, const QList<QGeoCoordinate> &list)
+{
+    QQmlContext *context = QQmlEngine::contextForObject(object);
+    QQmlEngine *engine = context->engine();
+    QV4::ExecutionEngine *v4 = QQmlEnginePrivate::getV4Engine(engine);
+
+    QV4::Scope scope(v4);
+    QV4::Scoped<QV4::ArrayObject> pathArray(scope, v4->newArrayObject(list.length()));
+    int i = 0;
+    for (const auto &val : list) {
+        QV4::ScopedValue cv(scope, v4->fromVariant(QVariant::fromValue(val)));
+        pathArray->put(i++, cv);
+    }
+
+    return QJSValue(v4, pathArray.asReturnedValue());
+}
+
+QList<QGeoCoordinate> toList(const QObject *object, const QJSValue &value)
+{
+    if (!value.isArray())
+        return {};
+
+    QList<QGeoCoordinate> pathList;
+    quint32 length = value.property(QStringLiteral("length")).toUInt();
+    for (quint32 i = 0; i < length; ++i) {
+        bool ok;
+        QGeoCoordinate c = parseCoordinate(value.property(i), &ok);
+
+        if (!ok || !c.isValid()) {
+            qmlWarning(object) << "Unsupported path type";
+            return {};
+        }
+
+        pathList.append(c);
+    }
+
+    return pathList;
 }

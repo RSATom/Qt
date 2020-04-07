@@ -5,13 +5,17 @@
  * found in the LICENSE file.
  */
 
-
 #ifndef SkDescriptor_DEFINED
 #define SkDescriptor_DEFINED
 
+#include "SkMacros.h"
+#include "SkNoncopyable.h"
 #include "SkOpts.h"
+#include "SkTo.h"
 #include "SkTypes.h"
+
 #include <memory>
+#include <new>
 
 class SkDescriptor : SkNoncopyable {
 public:
@@ -162,8 +166,8 @@ private:
 
     enum {
         kStorageSize =  sizeof(SkDescriptor)
-                        + sizeof(SkDescriptor::Entry) + sizeof(SkScalerContext::Rec)    // for rec
-                        + sizeof(SkDescriptor::Entry) + sizeof(void*)                   // for typeface
+                        + sizeof(SkDescriptor::Entry) + sizeof(SkScalerContextRec) // for rec
+                        + sizeof(SkDescriptor::Entry) + sizeof(void*)              // for typeface
                         + 32   // slop for occational small extras
     };
     SkDescriptor*   fDesc;

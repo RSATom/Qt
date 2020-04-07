@@ -72,7 +72,7 @@ DIALOGS_QML_FILES += \
     images/window_border.png \
     $$WIDGET_DIALOGS_QML_FILES
 
-ios|android|blackberry|winrt {
+ios|android|blackberry {
     DIALOGS_QML_FILES -= $$WIDGET_DIALOGS_QML_FILES
 }
 

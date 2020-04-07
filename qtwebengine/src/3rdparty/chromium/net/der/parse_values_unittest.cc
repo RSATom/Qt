@@ -7,6 +7,7 @@
 #include <stdint.h>
 
 #include "base/macros.h"
+#include "base/stl_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace net {
@@ -182,6 +183,25 @@ TEST(ParseValuesTest, TimesCompare) {
   EXPECT_TRUE(time1 >= time1);
 }
 
+TEST(ParseValuesTest, UTCTimeRange) {
+  GeneralizedTime time;
+  ASSERT_TRUE(
+      ParseGeneralizedTime(FromStringLiteral("20140218161200Z"), &time));
+  EXPECT_TRUE(time.InUTCTimeRange());
+
+  time.year = 1950;
+  EXPECT_TRUE(time.InUTCTimeRange());
+
+  time.year = 1949;
+  EXPECT_FALSE(time.InUTCTimeRange());
+
+  time.year = 2049;
+  EXPECT_TRUE(time.InUTCTimeRange());
+
+  time.year = 2050;
+  EXPECT_FALSE(time.InUTCTimeRange());
+}
+
 struct Uint64TestData {
   bool should_pass;
   const uint8_t input[9];
@@ -209,7 +229,7 @@ const Uint64TestData kUint64TestData[] = {
 };
 
 TEST(ParseValuesTest, ParseUint64) {
-  for (size_t i = 0; i < arraysize(kUint64TestData); i++) {
+  for (size_t i = 0; i < base::size(kUint64TestData); i++) {
     const Uint64TestData& test_case = kUint64TestData[i];
     SCOPED_TRACE(i);
 
@@ -245,7 +265,7 @@ const Uint8TestData kUint8TestData[] = {
 };
 
 TEST(ParseValuesTest, ParseUint8) {
-  for (size_t i = 0; i < arraysize(kUint8TestData); i++) {
+  for (size_t i = 0; i < base::size(kUint8TestData); i++) {
     const Uint8TestData& test_case = kUint8TestData[i];
     SCOPED_TRACE(i);
 
@@ -290,7 +310,7 @@ const IsValidIntegerTestData kIsValidIntegerTestData[] = {
 };
 
 TEST(ParseValuesTest, IsValidInteger) {
-  for (size_t i = 0; i < arraysize(kIsValidIntegerTestData); i++) {
+  for (size_t i = 0; i < base::size(kIsValidIntegerTestData); i++) {
     const auto& test_case = kIsValidIntegerTestData[i];
     SCOPED_TRACE(i);
 

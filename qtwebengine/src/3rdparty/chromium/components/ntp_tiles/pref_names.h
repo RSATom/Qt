@@ -15,6 +15,14 @@ extern const char kPopularSitesOverrideDirectory[];
 extern const char kPopularSitesOverrideCountry[];
 extern const char kPopularSitesOverrideVersion[];
 
+extern const char kPopularSitesLastDownloadPref[];
+extern const char kPopularSitesURLPref[];
+extern const char kPopularSitesJsonPref[];
+extern const char kPopularSitesVersionPref[];
+
+extern const char kCustomLinksList[];
+extern const char kCustomLinksInitialized[];
+
 }  // namespace prefs
 }  // namespace ntp_tiles
 

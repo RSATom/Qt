@@ -14,7 +14,6 @@
 #include "base/scoped_observer.h"
 #include "base/sequence_checker.h"
 #include "base/sequenced_task_runner.h"
-#include "base/threading/sequenced_worker_pool.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "content/public/browser/browser_thread.h"
 #include "extensions/browser/browser_context_keyed_api_factory.h"
@@ -32,6 +31,7 @@ class CastChannelAsyncApiFunction;
 namespace api {
 class BluetoothSocketApiFunction;
 class BluetoothSocketEventDispatcher;
+class SerialConnectFunction;
 class SerialEventDispatcher;
 class TCPServerSocketEventDispatcher;
 class TCPSocketEventDispatcher;
@@ -40,8 +40,12 @@ class UDPSocketEventDispatcher;
 
 template <typename T>
 struct NamedThreadTraits {
-  static bool IsMessageLoopValid() {
-    return content::BrowserThread::IsMessageLoopValid(T::kThreadId);
+  static_assert(T::kThreadId == content::BrowserThread::IO ||
+                    T::kThreadId == content::BrowserThread::UI,
+                "ApiResources can only belong to the IO or UI thread.");
+
+  static bool IsThreadInitialized() {
+    return content::BrowserThread::IsThreadInitialized(T::kThreadId);
   }
 
   static scoped_refptr<base::SequencedTaskRunner> GetSequencedTaskRunner() {
@@ -51,7 +55,11 @@ struct NamedThreadTraits {
 
 // An ApiResourceManager manages the lifetime of a set of resources that
 // that live on named threads (i.e. BrowserThread::IO) which ApiFunctions use.
-// Examples of such resources are sockets or USB connections.
+// Examples of such resources are sockets or USB connections. Note: The only
+// named threads that are allowed are the IO and UI threads, since all others
+// are deprecated. If we ever need a resource on a different background thread,
+// we can modify NamedThreadTraits to be more generic and just return a task
+// runner.
 //
 // Users of this class should define kThreadId to be the thread that
 // ApiResourceManager to works on. The default is defined in ApiResource.
@@ -66,7 +74,7 @@ struct NamedThreadTraits {
 //
 // class Resource {
 //  public:
-//   static const BrowserThread::ID kThreadId = BrowserThread::FILE;
+//   static const BrowserThread::ID kThreadId = BrowserThread::IO;
 //  private:
 //   friend class ApiResourceManager<Resource>;
 //   static const char* service_name() {
@@ -101,7 +109,7 @@ class ApiResourceManager : public BrowserContextKeyedAPI,
 
   virtual ~ApiResourceManager() {
     DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-    DCHECK(ThreadingTraits::IsMessageLoopValid())
+    DCHECK(ThreadingTraits::IsThreadInitialized())
         << "A unit test is using an ApiResourceManager but didn't provide "
            "the thread message loop needed for that kind of resource. "
            "Please ensure that the appropriate message loop is operational.";
@@ -167,6 +175,7 @@ class ApiResourceManager : public BrowserContextKeyedAPI,
   friend class CastChannelAsyncApiFunction;
   friend class api::BluetoothSocketApiFunction;
   friend class api::BluetoothSocketEventDispatcher;
+  friend class api::SerialConnectFunction;
   friend class api::SerialEventDispatcher;
   friend class api::TCPServerSocketEventDispatcher;
   friend class api::TCPSocketEventDispatcher;

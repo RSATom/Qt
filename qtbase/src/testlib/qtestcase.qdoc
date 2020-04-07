@@ -103,7 +103,7 @@
    to catch an exception thrown from the \a expression. If the \a expression
    throws an exception and its type is the same as \a exceptiontype
    or \a exceptiontype is substitutable with the type of thrown exception
-   (i.e. usually the type of thrown exception is publically derived
+   (i.e. usually the type of thrown exception is publicly derived
    from \a exceptiontype) then execution will be continued. If not-substitutable
    type of exception is thrown or the \a expression doesn't throw an exception
    at all, then a failure will be recorded in the test log and
@@ -877,7 +877,42 @@
 */
 
 /*!
-    \fn char *QTest::toString(const T &value)
+    \fn template <typename T1, typename T2> char *QTest::toString(const QPair<T1, T2> &pair)
+    \overload
+    \since 5.11
+    Returns a textual representation of the \a pair.
+*/
+
+/*!
+    \fn template <typename T1, typename T2> char *QTest::toString(const std::pair<T1, T2> &pair)
+    \overload
+    \since 5.11
+    Returns a textual representation of the \a pair.
+*/
+
+/*!
+    \fn char *QTest::toString(const QVector2D &v)
+    \overload
+    \since 5.11
+    Returns a textual representation of the 2D vector \a v.
+*/
+
+/*!
+    \fn char *QTest::toString(const QVector3D &v)
+    \overload
+    \since 5.11
+    Returns a textual representation of the 3D vector \a v.
+*/
+
+/*!
+    \fn char *QTest::toString(const QVector4D &v)
+    \overload
+    \since 5.11
+    Returns a textual representation of the 4D vector \a v.
+*/
+
+/*!
+    \fn template<typename T> char *QTest::toString(const T &value)
 
     Returns a textual representation of \a value. This function is used by
     \l QCOMPARE() to output verbose information in case of a test failure.
@@ -924,7 +959,23 @@
     \overload
     \since 5.8
 
-    Returns a string containing \c{nullptr}.
+    Returns a string containing \nullptr.
+*/
+
+/*!
+    \fn char *QTest::toString(const QStringView &string)
+    \overload
+    \since 5.11
+
+    Returns a textual representation of the given \a string.
+*/
+
+/*!
+    \fn char *QTest::toString(const QUuid &uuid)
+    \overload
+    \since 5.11
+
+    Returns a textual representation of the given \a uuid.
 */
 
 /*!
@@ -941,6 +992,22 @@
     Returns a textual representation of the byte array \a ba.
 
     \sa QTest::toHexRepresentation()
+*/
+
+/*!
+    \fn char *QTest::toString(const QCborError &c)
+    \overload
+    \since 5.12
+
+    Returns a textual representation of the given CBOR error \a c.
+*/
+
+/*!
+    \fn template <class... Types> char *QTest::toString(const std::tuple<Types...> &tuple)
+    \overload
+    \since 5.12
+
+    Returns a textual representation of the given \a tuple.
 */
 
 /*!
@@ -1061,103 +1128,10 @@
     Returns a textual representation of size policy \a sp.
 */
 
-/*! \fn void QTest::qWait(int ms)
-
-    Waits for \a ms milliseconds. While waiting, events will be processed and
-    your test will stay responsive to user interface events or network communication.
-
-    Example:
-    \snippet code/src_qtestlib_qtestcase.cpp 17
-
-    The code above will wait until the network server is responding for a
-    maximum of about 12.5 seconds.
-
-    \sa QTest::qSleep(), QSignalSpy::wait()
-*/
-
-/*! \fn void QTest::qWaitFor(Functor predicate, int timeout)
-
-    Waits for \a timeout milliseconds or until the \a predicate returns true.
-
-    Returns \c true if the \a predicate returned true at any point, otherwise returns \c false.
-
-    Example:
-    \snippet code/src_qtestlib_qtestcase.cpp 30
-
-    The code above will wait for the object to become ready, for a
-    maximum of three seconds.
-
-    \since 5.10
-*/
-
-/*! \fn bool QTest::qWaitForWindowExposed(QWindow *window, int timeout)
-    \since 5.0
-
-    Waits for \a timeout milliseconds or until the \a window is exposed.
-    Returns \c true if \c window is exposed within \a timeout milliseconds, otherwise returns \c false.
-
-    This is mainly useful for asynchronous systems like X11, where a window will be mapped to screen some
-    time after being asked to show itself on the screen.
-
-    Note that a window that is mapped to screen may still not be considered exposed if the window client
-    area is completely covered by other windows, or if the window is otherwise not visible. This function
-    will then time out when waiting for such a window.
-
-    \sa QTest::qWaitForWindowActive(), QWindow::isExposed()
-*/
-
-/*! \fn bool QTest::qWaitForWindowActive(QWindow *window, int timeout)
-    \since 5.0
-
-    Waits for \a timeout milliseconds or until the \a window is active.
-
-    Returns \c true if \c window is active within \a timeout milliseconds, otherwise returns \c false.
-
-    \sa QTest::qWaitForWindowExposed(), QWindow::isActive()
-*/
-
-/*! \fn bool QTest::qWaitForWindowExposed(QWidget *widget, int timeout)
-    \since 5.0
-
-    Waits for \a timeout milliseconds or until the \a widget's window is exposed.
-    Returns \c true if \c widget's window is exposed within \a timeout milliseconds, otherwise returns \c false.
-
-    This is mainly useful for asynchronous systems like X11, where a window will be mapped to screen some
-    time after being asked to show itself on the screen.
-
-    Note that a window that is mapped to screen may still not be considered exposed if the window client
-    area is completely covered by other windows, or if the window is otherwise not visible. This function
-    will then time out when waiting for such a window.
-
-    A specific configuration where this happens is when using QGLWidget as a viewport widget on macOS:
-    The viewport widget gets the expose event, not the parent widget.
-
-    \sa QTest::qWaitForWindowActive()
-*/
-
-/*! \fn bool QTest::qWaitForWindowActive(QWidget *widget, int timeout)
-    \since 5.0
-
-    Waits for \a timeout milliseconds or until the \a widget's window is active.
-
-    Returns \c true if \c widget's window is active within \a timeout milliseconds, otherwise returns \c false.
-
-    \sa QTest::qWaitForWindowExposed(), QWidget::isActiveWindow()
-*/
-
-/*! \fn bool QTest::qWaitForWindowShown(QWidget *widget, int timeout)
-    \since 5.0
-    \deprecated
-
-    Waits for \a timeout milliseconds or until the \a widget's window is exposed.
-    Returns \c true if \c widget's window is exposed within \a timeout milliseconds, otherwise returns \c false.
-
-    This function does the same as qWaitForWindowExposed().
-
-    Example:
-    \snippet code/src_qtestlib_qtestcase.cpp 24
-
-    \sa QTest::qWaitForWindowActive(), QTest::qWaitForWindowExposed()
+/*!
+    \fn template <typename Tuple, int... I> char *QTest::toString(const Tuple &tuple, QtPrivate::IndexesList<I...> )
+    \internal
+    \since 5.12
 */
 
 /*!
@@ -1326,10 +1300,6 @@
 */
 
 // Internals of qtestmouse.h:
-
-/*! \fn void QTest::waitForEvents()
-    \internal
-*/
 
 /*! \fn void QTest::mouseEvent(MouseAction action, QWidget *widget, Qt::MouseButton button, Qt::KeyboardModifiers stateKey, QPoint pos, int delay=-1)
     \internal

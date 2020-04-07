@@ -176,7 +176,7 @@ public:
     \instantiates QQmlObjectModel
     \inqmlmodule QtQml.Models
     \ingroup qtquick-models
-    \brief Defines a set of items to be used as a model
+    \brief Defines a set of items to be used as a model.
 
     An ObjectModel contains the visual items to be used in a view.
     When an ObjectModel is used in a view, the view does not require
@@ -206,26 +206,9 @@ public:
     }
     \endcode
 
-    \image visualitemmodel.png
+    \image objectmodel.png
 
     \sa {Qt Quick Examples - Views}
-*/
-/*!
-    \qmltype VisualItemModel
-    \instantiates QQmlObjectModel
-    \inqmlmodule QtQuick
-    \brief Defines a set of objects to be used as a model
-
-    The VisualItemModel type contains the objects to be used
-    as a model.
-
-    This element is now primarily available as ObjectModel in the QtQml.Models module.
-    VisualItemModel continues to be provided, with the same implementation, in \c QtQuick for
-    compatibility reasons.
-
-    For full details about the type, see the \l ObjectModel documentation.
-
-    \sa {QtQml.Models::ObjectModel}
 */
 
 QQmlObjectModel::QQmlObjectModel(QObject *parent)
@@ -287,7 +270,7 @@ QQmlInstanceModel::ReleaseFlags QQmlObjectModel::release(QObject *item)
         if (!d->children[idx].deref())
             return QQmlInstanceModel::Referenced;
     }
-    return 0;
+    return nullptr;
 }
 
 QString QQmlObjectModel::stringValue(int index, const QString &name)
@@ -337,7 +320,7 @@ QObject *QQmlObjectModel::get(int index) const
 {
     Q_D(const QQmlObjectModel);
     if (index < 0 || index >= d->children.count())
-        return 0;
+        return nullptr;
     return d->children.at(index).item;
 }
 

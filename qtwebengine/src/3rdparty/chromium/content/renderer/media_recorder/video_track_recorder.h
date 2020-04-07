@@ -12,10 +12,10 @@
 #include "base/memory/weak_ptr.h"
 #include "base/single_thread_task_runner.h"
 #include "base/threading/thread_checker.h"
-#include "content/public/common/features.h"
+#include "content/public/common/buildflags.h"
 #include "content/public/renderer/media_stream_video_sink.h"
 #include "media/muxers/webm_muxer.h"
-#include "third_party/WebKit/public/platform/WebMediaStreamTrack.h"
+#include "third_party/blink/public/platform/web_media_stream_track.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 
 namespace base {
@@ -27,7 +27,7 @@ class PaintCanvas;
 }  // namespace cc
 
 namespace media {
-class SkCanvasVideoRenderer;
+class PaintCanvasVideoRenderer;
 class VideoFrame;
 }  // namespace media
 
@@ -49,8 +49,7 @@ namespace content {
 // MediaStreamVideo* classes that are constructed/configured on Main Render
 // thread but that pass frames on Render IO thread. It has an internal Encoder
 // with its own threading subtleties, see the implementation file.
-class CONTENT_EXPORT VideoTrackRecorder
-    : NON_EXPORTED_BASE(public MediaStreamVideoSink) {
+class CONTENT_EXPORT VideoTrackRecorder : public MediaStreamVideoSink {
  public:
   // Do not change the order of codecs; add new ones right before LAST.
   enum class CodecId {
@@ -88,6 +87,7 @@ class CONTENT_EXPORT VideoTrackRecorder
    public:
     Encoder(const OnEncodedVideoCB& on_encoded_video_callback,
             int32_t bits_per_second,
+            scoped_refptr<base::SingleThreadTaskRunner> main_task_runner,
             scoped_refptr<base::SingleThreadTaskRunner> encoding_task_runner =
                 nullptr);
 
@@ -154,7 +154,7 @@ class CONTENT_EXPORT VideoTrackRecorder
 
     // Used to retrieve incoming opaque VideoFrames (i.e. VideoFrames backed by
     // textures). Created on-demand on |main_task_runner_|.
-    std::unique_ptr<media::SkCanvasVideoRenderer> video_renderer_;
+    std::unique_ptr<media::PaintCanvasVideoRenderer> video_renderer_;
     SkBitmap bitmap_;
     std::unique_ptr<cc::PaintCanvas> canvas_;
 
@@ -166,10 +166,12 @@ class CONTENT_EXPORT VideoTrackRecorder
                                        size_t width,
                                        size_t height);
 
-  VideoTrackRecorder(CodecId codec,
-                     const blink::WebMediaStreamTrack& track,
-                     const OnEncodedVideoCB& on_encoded_video_cb,
-                     int32_t bits_per_second);
+  VideoTrackRecorder(
+      CodecId codec,
+      const blink::WebMediaStreamTrack& track,
+      const OnEncodedVideoCB& on_encoded_video_cb,
+      int32_t bits_per_second,
+      scoped_refptr<base::SingleThreadTaskRunner> main_task_runner);
   ~VideoTrackRecorder() override;
 
   void Pause();
@@ -179,7 +181,6 @@ class CONTENT_EXPORT VideoTrackRecorder
                               base::TimeTicks capture_time);
  private:
   friend class VideoTrackRecorderTest;
-
   void InitializeEncoder(CodecId codec,
                          const OnEncodedVideoCB& on_encoded_video_callback,
                          int32_t bits_per_second,
@@ -189,7 +190,7 @@ class CONTENT_EXPORT VideoTrackRecorder
   void OnError();
 
   // Used to check that we are destroyed on the same thread we were created.
-  base::ThreadChecker main_render_thread_checker_;
+  THREAD_CHECKER(main_thread_checker_);
 
   // We need to hold on to the Blink track to remove ourselves on dtor.
   blink::WebMediaStreamTrack track_;
@@ -204,6 +205,8 @@ class CONTENT_EXPORT VideoTrackRecorder
 
   // Used to track the paused state during the initialization process.
   bool paused_before_init_;
+
+  scoped_refptr<base::SingleThreadTaskRunner> main_task_runner_;
 
   base::WeakPtrFactory<VideoTrackRecorder> weak_ptr_factory_;
 

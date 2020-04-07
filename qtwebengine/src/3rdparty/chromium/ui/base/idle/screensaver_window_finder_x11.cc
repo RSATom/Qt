@@ -4,9 +4,8 @@
 
 #include "ui/base/idle/screensaver_window_finder_x11.h"
 
-#include <X11/extensions/scrnsaver.h>
-
 #include "ui/base/x/x11_util.h"
+#include "ui/gfx/x/x11.h"
 #include "ui/gfx/x/x11_atom_cache.h"
 #include "ui/gfx/x/x11_error_tracker.h"
 
@@ -19,6 +18,8 @@ ScreensaverWindowFinder::ScreensaverWindowFinder()
 bool ScreensaverWindowFinder::ScreensaverWindowExists() {
   XScreenSaverInfo info;
   XDisplay* display = gfx::GetXDisplay();
+  if (!display)
+    return false;
   XID root = DefaultRootWindow(display);
   static int xss_event_base;
   static int xss_error_base;

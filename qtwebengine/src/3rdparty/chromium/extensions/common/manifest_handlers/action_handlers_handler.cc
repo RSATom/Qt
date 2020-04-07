@@ -7,7 +7,6 @@
 #include <memory>
 #include <utility>
 
-#include "base/memory/ptr_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "extensions/common/error_utils.h"
 #include "extensions/common/manifest_constants.h"
@@ -50,7 +49,7 @@ bool ActionHandlersHandler::Parse(Extension* extension, base::string16* error) {
     return false;
   }
 
-  auto info = base::MakeUnique<ActionHandlersInfo>();
+  auto info = std::make_unique<ActionHandlersInfo>();
   for (const base::Value& wrapped_value : *entries) {
     std::string value;
     bool enabled_on_lock_screen = false;
@@ -88,8 +87,9 @@ bool ActionHandlersHandler::Parse(Extension* extension, base::string16* error) {
   return true;
 }
 
-const std::vector<std::string> ActionHandlersHandler::Keys() const {
-  return SingleKey(keys::kActionHandlers);
+base::span<const char* const> ActionHandlersHandler::Keys() const {
+  static constexpr const char* kKeys[] = {keys::kActionHandlers};
+  return kKeys;
 }
 
 }  // namespace extensions

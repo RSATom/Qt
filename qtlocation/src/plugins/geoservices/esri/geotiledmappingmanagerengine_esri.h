@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2013-2016 Esri <contracts@esri.com>
+** Copyright (C) 2013-2018 Esri <contracts@esri.com>
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtLocation module of the Qt Toolkit.
@@ -57,7 +57,7 @@ public:
                                      QGeoServiceProvider::Error *error, QString *errorString);
     virtual ~GeoTiledMappingManagerEngineEsri();
 
-    QGeoMap *createMap() Q_DECL_OVERRIDE;
+    QGeoMap *createMap() override;
 
     inline const QList<GeoMapSource *>& mapSources() const;
     GeoMapSource *mapSource(int mapId) const;

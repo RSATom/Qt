@@ -6,10 +6,9 @@
 
 #include <vector>
 
-#include "core/fxcrt/fx_basic.h"
 #include "fxbarcode/utils.h"
 
-bool BC_FX_ByteString_Replace(CFX_ByteString& dst,
+bool BC_FX_ByteString_Replace(ByteString& dst,
                               uint32_t first,
                               uint32_t last,
                               int32_t count,
@@ -19,17 +18,16 @@ bool BC_FX_ByteString_Replace(CFX_ByteString& dst,
   }
   dst.Delete(first, last - first);
   for (int32_t i = 0; i < count; i++) {
-    dst.Insert(0, c);
+    dst.InsertAtFront(c);
   }
   return true;
 }
 
-void BC_FX_ByteString_Append(CFX_ByteString& dst, int32_t count, char c) {
+void BC_FX_ByteString_Append(ByteString& dst, int32_t count, char c) {
   for (int32_t i = 0; i < count; i++)
     dst += c;
 }
-void BC_FX_ByteString_Append(CFX_ByteString& dst,
-                             const std::vector<uint8_t>& ba) {
+void BC_FX_ByteString_Append(ByteString& dst, const std::vector<uint8_t>& ba) {
   for (uint8_t value : ba)
     dst += value;
 }

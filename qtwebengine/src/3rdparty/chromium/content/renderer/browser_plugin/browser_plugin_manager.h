@@ -5,7 +5,7 @@
 #ifndef CONTENT_RENDERER_BROWSER_PLUGIN_BROWSER_PLUGIN_MANAGER_H_
 #define CONTENT_RENDERER_BROWSER_PLUGIN_BROWSER_PLUGIN_MANAGER_H_
 
-#include "base/id_map.h"
+#include "base/containers/id_map.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "content/public/renderer/render_thread_observer.h"
@@ -53,7 +53,6 @@ class CONTENT_EXPORT BrowserPluginManager : public RenderThreadObserver {
   // unique per process.
   int GetNextInstanceID();
 
-  void DidCommitCompositorFrame(int render_frame_routing_id);
   bool Send(IPC::Message* msg);
 
   // RenderThreadObserver override.
@@ -61,7 +60,7 @@ class CONTENT_EXPORT BrowserPluginManager : public RenderThreadObserver {
 
  private:
   // This map is keyed by guest instance IDs.
-  IDMap<BrowserPlugin*> instances_;
+  base::IDMap<BrowserPlugin*> instances_;
 
   DISALLOW_COPY_AND_ASSIGN(BrowserPluginManager);
 };

@@ -4,6 +4,8 @@
 
 #include "components/storage_monitor/storage_monitor.h"
 
+#include <utility>
+
 #include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/storage_monitor/removable_storage_observer.h"
@@ -13,7 +15,7 @@ namespace storage_monitor {
 
 namespace {
 
-StorageMonitor* g_storage_monitor = NULL;
+StorageMonitor* g_storage_monitor = nullptr;
 
 }  // namespace
 
@@ -50,15 +52,21 @@ void StorageMonitor::ReceiverImpl::MarkInitialized() {
 }
 
 // static
-void StorageMonitor::Create() {
+void StorageMonitor::Create(
+    std::unique_ptr<service_manager::Connector> connector) {
   delete g_storage_monitor;
   g_storage_monitor = CreateInternal();
+  g_storage_monitor->connector_ = std::move(connector);
+}
+
+service_manager::Connector* StorageMonitor::GetConnector() {
+  return connector_.get();
 }
 
 // static
 void StorageMonitor::Destroy() {
   delete g_storage_monitor;
-  g_storage_monitor = NULL;
+  g_storage_monitor = nullptr;
 }
 
 StorageMonitor* StorageMonitor::GetInstance() {

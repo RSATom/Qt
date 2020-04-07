@@ -89,7 +89,7 @@ public:
     QVector<QGlyphRun> m_currentGlyphRuns;
     QDistanceFieldGlyphCache *m_glyphCache;
 
-    void setScene(Qt3DCore::QScene *scene) Q_DECL_OVERRIDE;
+    void setScene(Qt3DCore::QScene *scene) override;
 
     QFont m_font;
     QFont m_scaledFont; // ignore point or pixel size, set to default value
@@ -104,6 +104,7 @@ public:
     float computeActualScale() const;
 
     void setCurrentGlyphRuns(const QVector<QGlyphRun> &runs);
+    void clearCurrentGlyphRuns();
     void update();
 
     struct CacheEntry

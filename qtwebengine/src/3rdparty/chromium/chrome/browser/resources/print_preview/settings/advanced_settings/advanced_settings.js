@@ -107,7 +107,7 @@ cr.define('print_preview', function() {
 
     /** @override */
     onEnterPressedInternal: function() {
-      var doneButton = this.getChildElement('.button-strip .done-button');
+      const doneButton = this.getChildElement('.button-strip .done-button');
       if (!doneButton.disabled)
         doneButton.click();
       return !doneButton.disabled;
@@ -118,7 +118,7 @@ cr.define('print_preview', function() {
      * @private
      */
     getAvailableContentHeight_: function() {
-      var elStyle = window.getComputedStyle(this.getElement());
+      const elStyle = window.getComputedStyle(this.getElement());
       return this.getElement().offsetHeight -
           parseInt(elStyle.getPropertyValue('padding-top'), 10) -
           parseInt(elStyle.getPropertyValue('padding-bottom'), 10) -
@@ -132,8 +132,8 @@ cr.define('print_preview', function() {
      * @private
      */
     filterLists_: function(query) {
-      var atLeastOneMatch = false;
-      var lastVisibleItemWithBubble = null;
+      let atLeastOneMatch = false;
+      let lastVisibleItemWithBubble = null;
       this.items_.forEach(function(item) {
         item.updateSearchQuery(query);
         if (getIsVisible(item.getElement()))
@@ -163,34 +163,34 @@ cr.define('print_preview', function() {
      */
     renderSettings_: function() {
       // Remove all children settings elements.
-      this.items_.forEach(function(item) {
+      this.items_.forEach(item => {
         this.removeChild(item);
-      }.bind(this));
+      });
       this.items_ = [];
 
-      var extraPadding = this.element_.querySelector(
+      let extraPadding = this.element_.querySelector(
           '.' + AdvancedSettings.Classes_.EXTRA_PADDING);
       if (extraPadding)
         extraPadding.parentNode.removeChild(extraPadding);
 
-      var vendorCapabilities = this.printTicketStore_.vendorItems.capability;
+      const vendorCapabilities = this.printTicketStore_.vendorItems.capability;
       if (!vendorCapabilities)
         return;
 
-      var availableHeight = this.getAvailableContentHeight_();
-      var containerEl = this.getChildElement('.settings-area');
+      const availableHeight = this.getAvailableContentHeight_();
+      const containerEl = this.getChildElement('.settings-area');
       containerEl.style.maxHeight = availableHeight + 'px';
-      var settingsEl = this.getChildElement('.settings');
+      const settingsEl = this.getChildElement('.settings');
 
-      vendorCapabilities.forEach(function(capability) {
-        var item = new print_preview.AdvancedSettingsItem(
+      vendorCapabilities.forEach(capability => {
+        const item = new print_preview.AdvancedSettingsItem(
             this.printTicketStore_, capability);
         this.addChild(item);
         item.render(settingsEl);
         this.items_.push(item);
-      }.bind(this));
+      });
 
-      var searchBoxArea = this.getChildElement('.search-box-area');
+      const searchBoxArea = this.getChildElement('.search-box-area');
       if (this.items_.length <= 1) {
         setIsVisible(searchBoxArea, false);
       } else {
@@ -221,11 +221,11 @@ cr.define('print_preview', function() {
     onApplySettings_: function(evt) {
       this.setIsVisible(false);
 
-      var values = {};
-      this.items_.forEach(function(item) {
+      const values = {};
+      this.items_.forEach(item => {
         if (item.isModified())
           values[item.id] = item.selectedValue;
-      }.bind(this));
+      });
 
       this.printTicketStore_.vendorItems.updateValue(values);
     }

@@ -380,7 +380,7 @@ the socket for reuse, just as in the cancellation case. If the redirect is
 followed, the URLRequest calls into the URLRequestJobFactory to create a new
 URLRequestJob, and then starts it.
 
-## Filters (gzip, SDCH, etc)
+## Filters (gzip, deflate, brotli, etc)
 
 When the URLRequestHttpJob receives headers, it sends a list of all
 Content-Encoding values to Filter::Factory, which creates a (possibly empty)
@@ -390,9 +390,7 @@ URLRequest::Delegate.
 
 Since this is done above the cache layer, the cache stores the responses prior
 to decompression. As a result, if files aren't compressed over the wire, they
-aren't compressed in the cache, either. This behavior can create problems when
-responses are SDCH compressed, as a dictionary and a cached file encoded using
-it may have different lifetimes.
+aren't compressed in the cache, either.
 
 ## Socket Pools
 
@@ -428,8 +426,8 @@ here.
 From the perspective of the lower layer pool, all of its sockets that a higher
 layer pools owns are actively in use, even when the higher layer pool considers
 them idle. As a result, when a lower layer pool is at its connection limit and
-needs to make a new connection, it will ask any higher layer pools pools to
-close an idle connection if they have one, so it can make a new connection.
+needs to make a new connection, it will ask any higher layer pools to close an
+idle connection if they have one, so it can make a new connection.
 
 Since sockets in the higher layer pool are also in a group in the lower layer
 pool, they must have their own distinct group name. This is needed so that, for

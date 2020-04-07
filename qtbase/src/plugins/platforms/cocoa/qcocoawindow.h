@@ -53,6 +53,10 @@
 #include "qnswindow.h"
 #include "qt_mac_p.h"
 
+#if QT_CONFIG(vulkan)
+#include <MoltenVK/mvk_vulkan.h>
+#endif
+
 QT_BEGIN_NAMESPACE
 
 #ifndef QT_NO_DEBUG_STREAM
@@ -97,42 +101,46 @@ public:
 
     void initialize() override;
 
-    void setGeometry(const QRect &rect) Q_DECL_OVERRIDE;
-    QRect geometry() const Q_DECL_OVERRIDE;
+    void setGeometry(const QRect &rect) override;
+    QRect geometry() const override;
     void setCocoaGeometry(const QRect &rect);
 
-    void setVisible(bool visible) Q_DECL_OVERRIDE;
-    void setWindowFlags(Qt::WindowFlags flags) Q_DECL_OVERRIDE;
-    void setWindowState(Qt::WindowStates state) Q_DECL_OVERRIDE;
-    void setWindowTitle(const QString &title) Q_DECL_OVERRIDE;
-    void setWindowFilePath(const QString &filePath) Q_DECL_OVERRIDE;
-    void setWindowIcon(const QIcon &icon) Q_DECL_OVERRIDE;
-    void setAlertState(bool enabled) Q_DECL_OVERRIDE;
-    bool isAlertState() const Q_DECL_OVERRIDE;
-    void raise() Q_DECL_OVERRIDE;
-    void lower() Q_DECL_OVERRIDE;
-    bool isExposed() const Q_DECL_OVERRIDE;
+    void setVisible(bool visible) override;
+    void setWindowFlags(Qt::WindowFlags flags) override;
+    void setWindowState(Qt::WindowStates state) override;
+    void setWindowTitle(const QString &title) override;
+    void setWindowFilePath(const QString &filePath) override;
+    void setWindowIcon(const QIcon &icon) override;
+    void setAlertState(bool enabled) override;
+    bool isAlertState() const override;
+    void raise() override;
+    void lower() override;
+    bool isExposed() const override;
+    bool isEmbedded() const override;
     bool isOpaque() const;
-    void propagateSizeHints() Q_DECL_OVERRIDE;
-    void setOpacity(qreal level) Q_DECL_OVERRIDE;
-    void setMask(const QRegion &region) Q_DECL_OVERRIDE;
-    bool setKeyboardGrabEnabled(bool grab) Q_DECL_OVERRIDE;
-    bool setMouseGrabEnabled(bool grab) Q_DECL_OVERRIDE;
-    QMargins frameMargins() const Q_DECL_OVERRIDE;
-    QSurfaceFormat format() const Q_DECL_OVERRIDE;
+    void propagateSizeHints() override;
+    void setOpacity(qreal level) override;
+    void setMask(const QRegion &region) override;
+    bool setKeyboardGrabEnabled(bool grab) override;
+    bool setMouseGrabEnabled(bool grab) override;
+    QMargins frameMargins() const override;
+    QSurfaceFormat format() const override;
 
-    bool isForeignWindow() const Q_DECL_OVERRIDE;
+    bool isForeignWindow() const override;
 
     void requestUpdate() override;
-    void requestActivateWindow() Q_DECL_OVERRIDE;
+    bool updatesWithDisplayLink() const;
+    void deliverUpdateRequest() override;
 
-    WId winId() const Q_DECL_OVERRIDE;
-    void setParent(const QPlatformWindow *window) Q_DECL_OVERRIDE;
+    void requestActivateWindow() override;
+
+    WId winId() const override;
+    void setParent(const QPlatformWindow *window) override;
 
     NSView *view() const;
     NSWindow *nativeWindow() const;
 
-    void setEmbeddedInForeignView(bool subwindow);
+    void setEmbeddedInForeignView();
 
     Q_NOTIFICATION_HANDLER(NSViewFrameDidChangeNotification) void viewDidChangeFrame();
     Q_NOTIFICATION_HANDLER(NSViewGlobalFrameDidChangeNotification) void viewDidChangeGlobalFrame();
@@ -162,15 +170,10 @@ public:
     NSUInteger windowStyleMask(Qt::WindowFlags flags);
     void setWindowZoomButton(Qt::WindowFlags flags);
 
-#ifndef QT_NO_OPENGL
-    void setCurrentContext(QCocoaGLContext *context);
-    QCocoaGLContext *currentContext() const;
-#endif
+    bool setWindowModified(bool modified) override;
 
-    bool setWindowModified(bool modified) Q_DECL_OVERRIDE;
-
-    void setFrameStrutEventsEnabled(bool enabled) Q_DECL_OVERRIDE;
-    bool frameStrutEventsEnabled() const Q_DECL_OVERRIDE
+    void setFrameStrutEventsEnabled(bool enabled) override;
+    bool frameStrutEventsEnabled() const override
         { return m_frameStrutEventsEnabled; }
 
     void setMenubar(QCocoaMenuBar *mb);
@@ -187,7 +190,7 @@ public:
     void applyContentBorderThickness(NSWindow *window = nullptr);
     void updateNSToolbar();
 
-    qreal devicePixelRatio() const Q_DECL_OVERRIDE;
+    qreal devicePixelRatio() const override;
     QWindow *childWindowAt(QPoint windowPoint);
     bool shouldRefuseKeyWindowAndFirstResponder();
 
@@ -208,8 +211,6 @@ public:
 protected:
     void recreateWindowIfNeeded();
     QCocoaNSWindow *createNSWindow(bool shouldBePanel);
-
-    QRect nativeWindowGeometry() const;
 
     Qt::WindowState windowState() const;
     void applyWindowState(Qt::WindowStates newState);
@@ -239,11 +240,6 @@ public: // for QNSView
     NSView *m_view;
     QCocoaNSWindow *m_nsWindow;
 
-    // TODO merge to one variable if possible
-    bool m_viewIsEmbedded; // true if the m_view is actually embedded in a "foreign" NSView hiearchy
-    bool m_viewIsToBeEmbedded; // true if the m_view is intended to be embedded in a "foreign" NSView hiearchy
-
-    Qt::WindowFlags m_windowFlags;
     Qt::WindowStates m_lastReportedWindowState;
     Qt::WindowModality m_windowModality;
     QPointer<QWindow> m_enterLeaveTargetWindow;
@@ -253,14 +249,10 @@ public: // for QNSView
     bool m_inSetVisible;
     bool m_inSetGeometry;
     bool m_inSetStyleMask;
-#ifndef QT_NO_OPENGL
-    QCocoaGLContext *m_glContext;
-#endif
     QCocoaMenuBar *m_menubar;
 
     bool m_needsInvalidateShadow;
 
-    bool m_hasModalSession;
     bool m_frameStrutEventsEnabled;
     QRect m_exposedRect;
     int m_registerTouchCount;
@@ -285,6 +277,10 @@ public: // for QNSView
     };
     QHash<quintptr, BorderRange> m_contentBorderAreas; // identifer -> uppper/lower
     QHash<quintptr, bool> m_enabledContentBorderAreas; // identifer -> enabled state (true/false)
+
+#if QT_CONFIG(vulkan)
+    VkSurfaceKHR m_vulkanSurface = nullptr;
+#endif
 };
 
 #ifndef QT_NO_DEBUG_STREAM

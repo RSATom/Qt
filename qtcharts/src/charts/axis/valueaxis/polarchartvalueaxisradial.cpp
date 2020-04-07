@@ -66,7 +66,9 @@ QVector<qreal> PolarChartValueAxisRadial::calculateLayout() const
 
 void PolarChartValueAxisRadial::createAxisLabels(const QVector<qreal> &layout)
 {
-    setLabels(createValueLabels(min(), max(), layout.size(), static_cast<QValueAxis *>(axis())->labelFormat()));
+    setLabels(createValueLabels(min(), max(), layout.size(), 0.0, 0.0,
+                                QValueAxis::TicksFixed,
+                                static_cast<QValueAxis *>(axis())->labelFormat()));
 }
 
 void PolarChartValueAxisRadial::handleTickCountChanged(int tick)
@@ -93,6 +95,6 @@ void PolarChartValueAxisRadial::handleLabelFormatChanged(const QString &format)
         presenter()->layout()->invalidate();
 }
 
-#include "moc_polarchartvalueaxisradial_p.cpp"
-
 QT_CHARTS_END_NAMESPACE
+
+#include "moc_polarchartvalueaxisradial_p.cpp"

@@ -51,14 +51,13 @@
 #include "remoteselector.h"
 #include "ui_remoteselector.h"
 
-#include <qbluetoothdeviceinfo.h>
-#include <qbluetoothaddress.h>
-#include <qbluetoothlocaldevice.h>
+#include <QtBluetooth/qbluetoothlocaldevice.h>
+#include <QtBluetooth/qbluetoothservicediscoveryagent.h>
 
 QT_USE_NAMESPACE
 
 RemoteSelector::RemoteSelector(const QBluetoothAddress &localAdapter, QWidget *parent)
-:   QDialog(parent), ui(new Ui::RemoteSelector)
+    :   QDialog(parent), ui(new Ui::RemoteSelector)
 {
     ui->setupUi(this);
 

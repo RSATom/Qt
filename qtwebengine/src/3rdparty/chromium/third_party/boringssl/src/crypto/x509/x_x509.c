@@ -313,7 +313,13 @@ int i2d_X509_AUX(X509 *a, unsigned char **pp)
     return length;
 }
 
-void X509_get0_signature(ASN1_BIT_STRING **psig, X509_ALGOR **palg,
+int i2d_re_X509_tbs(X509 *x, unsigned char **pp)
+{
+    x->cert_info->enc.modified = 1;
+    return i2d_X509_CINF(x->cert_info, pp);
+}
+
+void X509_get0_signature(const ASN1_BIT_STRING **psig, const X509_ALGOR **palg,
                          const X509 *x)
 {
     if (psig)

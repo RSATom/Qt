@@ -5,14 +5,14 @@
 #include "components/sync_bookmarks/bookmark_data_type_controller.h"
 
 #include <memory>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/callback.h"
-#include "base/memory/ptr_util.h"
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
-#include "base/threading/thread_task_runner_handle.h"
+#include "base/threading/sequenced_task_runner_handle.h"
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/bookmarks/test/bookmark_test_helpers.h"
 #include "components/bookmarks/test/test_bookmark_client.h"
@@ -38,6 +38,7 @@ using syncer::StartCallbackMock;
 using testing::_;
 using testing::DoAll;
 using testing::InvokeWithoutArgs;
+using testing::NiceMock;
 using testing::Return;
 using testing::SetArgPointee;
 
@@ -65,18 +66,27 @@ class SyncBookmarkDataTypeControllerTest : public testing::Test,
   }
   syncer::SyncService* GetSyncService() override { return &service_; }
   syncer::SyncApiComponentFactory* GetSyncApiComponentFactory() override {
-    return profile_sync_factory_.get();
+    return &components_factory_;
   }
 
   void SetUp() override {
-    model_associator_ = new ModelAssociatorMock();
-    change_processor_ = new ChangeProcessorMock();
-    history_service_ = base::MakeUnique<HistoryMock>();
-    profile_sync_factory_ =
-        base::MakeUnique<syncer::SyncApiComponentFactoryMock>(
-            model_associator_, change_processor_);
-    bookmark_dtc_ = base::MakeUnique<BookmarkDataTypeController>(
-        base::Bind(&base::DoNothing), this);
+    model_associator_deleter_ =
+        std::make_unique<NiceMock<ModelAssociatorMock>>();
+    change_processor_deleter_ =
+        std::make_unique<NiceMock<ChangeProcessorMock>>();
+    model_associator_ = model_associator_deleter_.get();
+    change_processor_ = change_processor_deleter_.get();
+    history_service_ = std::make_unique<HistoryMock>();
+    bookmark_dtc_ =
+        std::make_unique<BookmarkDataTypeController>(base::DoNothing(), this);
+
+    ON_CALL(components_factory_, CreateBookmarkSyncComponents(_))
+        .WillByDefault(testing::InvokeWithoutArgs([=]() {
+          syncer::SyncApiComponentFactory::SyncComponents components;
+          components.model_associator = std::move(model_associator_deleter_);
+          components.change_processor = std::move(change_processor_deleter_);
+          return components;
+        }));
   }
 
  protected:
@@ -86,13 +96,13 @@ class SyncBookmarkDataTypeControllerTest : public testing::Test,
   };
 
   void CreateBookmarkModel(BookmarkLoadPolicy bookmark_load_policy) {
-    bookmark_model_ = base::MakeUnique<BookmarkModel>(
-        base::MakeUnique<bookmarks::TestBookmarkClient>());
+    bookmark_model_ = std::make_unique<BookmarkModel>(
+        std::make_unique<bookmarks::TestBookmarkClient>());
     if (bookmark_load_policy == LOAD_MODEL) {
       TestingPrefServiceSimple prefs;
       bookmark_model_->Load(&prefs, base::FilePath(),
-                            base::ThreadTaskRunnerHandle::Get(),
-                            base::ThreadTaskRunnerHandle::Get());
+                            base::SequencedTaskRunnerHandle::Get(),
+                            base::SequencedTaskRunnerHandle::Get());
       bookmarks::test::WaitForBookmarkModelToLoad(bookmark_model_.get());
     }
   }
@@ -132,13 +142,15 @@ class SyncBookmarkDataTypeControllerTest : public testing::Test,
   }
 
   base::MessageLoop message_loop_;
-  std::unique_ptr<syncer::SyncApiComponentFactoryMock> profile_sync_factory_;
+  testing::NiceMock<syncer::SyncApiComponentFactoryMock> components_factory_;
   std::unique_ptr<BookmarkModel> bookmark_model_;
   std::unique_ptr<HistoryMock> history_service_;
   std::unique_ptr<BookmarkDataTypeController> bookmark_dtc_;
   syncer::FakeSyncService service_;
   ModelAssociatorMock* model_associator_;
   ChangeProcessorMock* change_processor_;
+  std::unique_ptr<ModelAssociatorMock> model_associator_deleter_;
+  std::unique_ptr<ChangeProcessorMock> change_processor_deleter_;
   StartCallbackMock start_callback_;
   ModelLoadCallbackMock model_load_callback_;
 };
@@ -168,8 +180,8 @@ TEST_F(SyncBookmarkDataTypeControllerTest, StartBookmarkModelNotReady) {
 
   TestingPrefServiceSimple prefs;
   bookmark_model_->Load(&prefs, base::FilePath(),
-                       base::ThreadTaskRunnerHandle::Get(),
-                       base::ThreadTaskRunnerHandle::Get());
+                        base::SequencedTaskRunnerHandle::Get(),
+                        base::SequencedTaskRunnerHandle::Get());
   bookmarks::test::WaitForBookmarkModelToLoad(bookmark_model_.get());
   EXPECT_EQ(DataTypeController::MODEL_LOADED, bookmark_dtc_->state());
 
@@ -253,7 +265,7 @@ TEST_F(SyncBookmarkDataTypeControllerTest, StartAssociationFailed) {
   EXPECT_CALL(start_callback_,
               Run(DataTypeController::ASSOCIATION_FAILED, _, _));
   Start();
-  EXPECT_EQ(DataTypeController::DISABLED, bookmark_dtc_->state());
+  EXPECT_EQ(DataTypeController::FAILED, bookmark_dtc_->state());
 }
 
 TEST_F(SyncBookmarkDataTypeControllerTest,
@@ -280,7 +292,7 @@ TEST_F(SyncBookmarkDataTypeControllerTest, StartAborted) {
       base::Bind(&ModelLoadCallbackMock::Run,
                  base::Unretained(&model_load_callback_)));
 
-  bookmark_dtc_->Stop();
+  bookmark_dtc_->Stop(syncer::KEEP_METADATA);
   EXPECT_EQ(DataTypeController::NOT_RUNNING, bookmark_dtc_->state());
 }
 
@@ -295,6 +307,6 @@ TEST_F(SyncBookmarkDataTypeControllerTest, Stop) {
   EXPECT_CALL(start_callback_, Run(DataTypeController::OK, _, _));
   Start();
   EXPECT_EQ(DataTypeController::RUNNING, bookmark_dtc_->state());
-  bookmark_dtc_->Stop();
+  bookmark_dtc_->Stop(syncer::KEEP_METADATA);
   EXPECT_EQ(DataTypeController::NOT_RUNNING, bookmark_dtc_->state());
 }

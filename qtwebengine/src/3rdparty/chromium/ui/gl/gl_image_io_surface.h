@@ -13,6 +13,7 @@
 #include "base/macros.h"
 #include "base/threading/thread_checker.h"
 #include "ui/gfx/buffer_types.h"
+#include "ui/gfx/color_space.h"
 #include "ui/gfx/generic_shared_memory_id.h"
 #include "ui/gl/gl_export.h"
 #include "ui/gl/gl_image.h"
@@ -27,7 +28,8 @@ namespace gl {
 
 class GL_EXPORT GLImageIOSurface : public GLImage {
  public:
-  GLImageIOSurface(const gfx::Size& size, unsigned internalformat);
+  static GLImageIOSurface* Create(const gfx::Size& size,
+                                  unsigned internalformat);
 
   bool Initialize(IOSurfaceRef io_surface,
                   gfx::GenericSharedMemoryId io_surface_id,
@@ -56,7 +58,10 @@ class GL_EXPORT GLImageIOSurface : public GLImage {
                             int z_order,
                             gfx::OverlayTransform transform,
                             const gfx::Rect& bounds_rect,
-                            const gfx::RectF& crop_rect) override;
+                            const gfx::RectF& crop_rect,
+                            bool enable_blend,
+                            std::unique_ptr<gfx::GpuFence> gpu_fence) override;
+  void SetColorSpace(const gfx::ColorSpace& color_space) override;
   void Flush() override {}
   void OnMemoryDump(base::trace_event::ProcessMemoryDump* pmd,
                     uint64_t process_tracing_id,
@@ -71,15 +76,22 @@ class GL_EXPORT GLImageIOSurface : public GLImage {
   // signal about whether the Window Server is still using the IOSurface.
   bool CanCheckIOSurfaceIsInUse() const;
 
+  // For IOSurfaces that need manual conversion to a GL texture before being
+  // sampled from, specify the color space in which to do the required YUV to
+  // RGB transformation.
+  void SetColorSpaceForYUVToRGBConversion(const gfx::ColorSpace& color_space);
+
   static unsigned GetInternalFormatForTesting(gfx::BufferFormat format);
 
   // Downcasts from |image|. Returns |nullptr| on failure.
   static GLImageIOSurface* FromGLImage(GLImage* image);
 
  protected:
+  GLImageIOSurface(const gfx::Size& size, unsigned internalformat);
   ~GLImageIOSurface() override;
+  virtual bool BindTexImageImpl(unsigned internalformat);
 
- private:
+  static bool ValidFormat(gfx::BufferFormat format);
   Type GetType() const override;
   class RGBConverter;
 
@@ -96,7 +108,14 @@ class GL_EXPORT GLImageIOSurface : public GLImage {
   base::ScopedCFTypeRef<IOSurfaceRef> io_surface_;
   base::ScopedCFTypeRef<CVPixelBufferRef> cv_pixel_buffer_;
   gfx::GenericSharedMemoryId io_surface_id_;
+
+  // Cache the color space, because re-assigning the same value can be
+  // expensive.
+  gfx::ColorSpace color_space_;
+
   base::ThreadChecker thread_checker_;
+  // The default value of Rec. 601 is based on historical shader code.
+  gfx::ColorSpace color_space_for_yuv_to_rgb_ = gfx::ColorSpace::CreateREC601();
 
   DISALLOW_COPY_AND_ASSIGN(GLImageIOSurface);
 };

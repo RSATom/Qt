@@ -14,9 +14,9 @@
 
 #include "FrameBuffer.hpp"
 
-#include "Timer.hpp"
 #include "Renderer/Surface.hpp"
 #include "Reactor/Reactor.hpp"
+#include "Common/Timer.hpp"
 #include "Common/Debug.hpp"
 
 #include <stdio.h>
@@ -27,7 +27,7 @@
 #include <cutils/properties.h>
 #endif
 
-#define ASYNCHRONOUS_BLIT 0   // FIXME: Currently leads to rare race conditions
+#define ASYNCHRONOUS_BLIT false   // FIXME: Currently leads to rare race conditions
 
 namespace sw
 {
@@ -40,30 +40,18 @@ namespace sw
 	{
 		this->topLeftOrigin = topLeftOrigin;
 
-		locked = nullptr;
+		framebuffer = nullptr;
 
 		this->width = width;
 		this->height = height;
-		destFormat = FORMAT_X8R8G8B8;
-		sourceFormat = FORMAT_X8R8G8B8;
+		format = FORMAT_X8R8G8B8;
 		stride = 0;
 
-		if(forceWindowed)
-		{
-			fullscreen = false;
-		}
-
-		windowed = !fullscreen;
+		windowed = !fullscreen || forceWindowed;
 
 		blitFunction = nullptr;
 		blitRoutine = nullptr;
-
-		blitState.width = 0;
-		blitState.height = 0;
-		blitState.destFormat = FORMAT_X8R8G8B8;
-		blitState.sourceFormat = FORMAT_X8R8G8B8;
-		blitState.cursorWidth = 0;
-		blitState.cursorHeight = 0;
+		blitState = {};
 
 		if(ASYNCHRONOUS_BLIT)
 		{
@@ -84,21 +72,6 @@ namespace sw
 		}
 
 		delete blitRoutine;
-	}
-
-	int FrameBuffer::getWidth() const
-	{
-		return width;
-	}
-
-	int FrameBuffer::getHeight() const
-	{
-		return height;
-	}
-
-	int FrameBuffer::getStride() const
-	{
-		return stride;
 	}
 
 	void FrameBuffer::setCursorImage(sw::Surface *cursorImage)
@@ -130,7 +103,7 @@ namespace sw
 		cursor.positionY = y;
 	}
 
-	void FrameBuffer::copy(void *source, Format format, size_t stride)
+	void FrameBuffer::copy(sw::Surface *source)
 	{
 		if(!source)
 		{
@@ -142,15 +115,23 @@ namespace sw
 			return;
 		}
 
-		sourceFormat = format;
+		int sourceStride = source->getInternalPitchB();
 
-		if(topLeftOrigin)
+		updateState = {};
+		updateState.width = width;
+		updateState.height = height;
+		updateState.destFormat = format;
+		updateState.destStride = stride;
+		updateState.sourceFormat = source->getInternalFormat();
+		updateState.sourceStride = topLeftOrigin ? sourceStride : -sourceStride;
+		updateState.cursorWidth = cursor.width;
+		updateState.cursorHeight = cursor.height;
+
+		renderbuffer = source->lockInternal(0, 0, 0, sw::LOCK_READONLY, sw::PUBLIC);
+
+		if(!topLeftOrigin)
 		{
-			target = source;
-		}
-		else
-		{
-			target = (byte*)source + (height - 1) * stride;
+			renderbuffer = (byte*)renderbuffer + (height - 1) * sourceStride;
 		}
 
 		cursor.x = cursor.positionX - cursor.hotspotX;
@@ -166,6 +147,7 @@ namespace sw
 			copyLocked();
 		}
 
+		source->unlockInternal();
 		unlock();
 
 		profiler.nextFrame();   // Assumes every copy() is a full frame
@@ -173,36 +155,26 @@ namespace sw
 
 	void FrameBuffer::copyLocked()
 	{
-		BlitState update = {};
-		update.width = width;
-		update.height = height;
-		update.destFormat = destFormat;
-		update.sourceFormat = sourceFormat;
-		update.stride = stride;
-		update.cursorWidth = cursor.width;
-		update.cursorHeight = cursor.height;
-
-		if(memcmp(&blitState, &update, sizeof(BlitState)) != 0)
+		if(memcmp(&blitState, &updateState, sizeof(BlitState)) != 0)
 		{
-			blitState = update;
+			blitState = updateState;
 			delete blitRoutine;
 
 			blitRoutine = copyRoutine(blitState);
 			blitFunction = (void(*)(void*, void*, Cursor*))blitRoutine->getEntry();
 		}
 
-		blitFunction(locked, target, &cursor);
+		blitFunction(framebuffer, renderbuffer, &cursor);
 	}
 
 	Routine *FrameBuffer::copyRoutine(const BlitState &state)
 	{
 		const int width = state.width;
 		const int height = state.height;
-		const int width2 = (state.width + 1) & ~1;
 		const int dBytes = Surface::bytes(state.destFormat);
-		const int dStride = state.stride;
+		const int dStride = state.destStride;
 		const int sBytes = Surface::bytes(state.sourceFormat);
-		const int sStride = topLeftOrigin ? (sBytes * width2) : -(sBytes * width2);
+		const int sStride = state.sourceStride;
 
 		Function<Void(Pointer<Byte>, Pointer<Byte>, Pointer<Byte>)> function;
 		{
@@ -253,10 +225,10 @@ namespace sw
 						case FORMAT_A16B16G16R16:
 							For(, x < width - 1, x += 2)
 							{
-								UShort4 c0 = As<UShort4>(Swizzle(*Pointer<Short4>(s + 0), 0xC6)) >> 8;
-								UShort4 c1 = As<UShort4>(Swizzle(*Pointer<Short4>(s + 8), 0xC6)) >> 8;
+								Short4 c0 = As<UShort4>(Swizzle(*Pointer<Short4>(s + 0), 0xC6)) >> 8;
+								Short4 c1 = As<UShort4>(Swizzle(*Pointer<Short4>(s + 8), 0xC6)) >> 8;
 
-								*Pointer<Int2>(d) = As<Int2>(Pack(c0, c1));
+								*Pointer<Int2>(d) = As<Int2>(PackUnsigned(c0, c1));
 
 								s += 2 * sBytes;
 								d += 2 * dBytes;
@@ -300,9 +272,9 @@ namespace sw
 								break;
 							case FORMAT_A16B16G16R16:
 								{
-									UShort4 c = As<UShort4>(Swizzle(*Pointer<Short4>(s), 0xC6)) >> 8;
+									Short4 c = As<UShort4>(Swizzle(*Pointer<Short4>(s), 0xC6)) >> 8;
 
-									*Pointer<Int>(d) = Int(As<Int2>(Pack(c, c)));
+									*Pointer<Int>(d) = Int(As<Int2>(PackUnsigned(c, c)));
 								}
 								break;
 							case FORMAT_R5G6B5:
@@ -361,10 +333,10 @@ namespace sw
 						case FORMAT_A16B16G16R16:
 							For(, x < width - 1, x += 2)
 							{
-								UShort4 c0 = *Pointer<UShort4>(s + 0) >> 8;
-								UShort4 c1 = *Pointer<UShort4>(s + 8) >> 8;
+								Short4 c0 = *Pointer<UShort4>(s + 0) >> 8;
+								Short4 c1 = *Pointer<UShort4>(s + 8) >> 8;
 
-								*Pointer<Int2>(d) = As<Int2>(Pack(c0, c1));
+								*Pointer<Int2>(d) = As<Int2>(PackUnsigned(c0, c1));
 
 								s += 2 * sBytes;
 								d += 2 * dBytes;
@@ -408,9 +380,9 @@ namespace sw
 								break;
 							case FORMAT_A16B16G16R16:
 								{
-									UShort4 c = *Pointer<UShort4>(s) >> 8;
+									Short4 c = *Pointer<UShort4>(s) >> 8;
 
-									*Pointer<Int>(d) = Int(As<Int2>(Pack(c, c)));
+									*Pointer<Int>(d) = Int(As<Int2>(PackUnsigned(c, c)));
 								}
 								break;
 							case FORMAT_R5G6B5:
@@ -503,8 +475,8 @@ namespace sw
 								break;
 							case FORMAT_A16B16G16R16:
 								{
-									UShort4 cc = *Pointer<UShort4>(s) >> 8;
-									Int c = Int(As<Int2>(Pack(cc, cc)));
+									Short4 cc = *Pointer<UShort4>(s) >> 8;
+									Int c = Int(As<Int2>(PackUnsigned(cc, cc)));
 
 									*Pointer<Short>(d) = Short((c & 0x00F80000) >> 19 |
 									                           (c & 0x0000FC00) >> 5 |
@@ -615,7 +587,7 @@ namespace sw
 		{
 		case FORMAT_X8R8G8B8:
 		case FORMAT_A8R8G8B8:
-			*Pointer<Byte4>(d) = Byte4(Pack(As<UShort4>(c1), As<UShort4>(c1)));
+			*Pointer<Byte4>(d) = Byte4(PackUnsigned(c1, c1));
 			break;
 		case FORMAT_X8B8G8R8:
 		case FORMAT_A8B8G8R8:
@@ -624,12 +596,12 @@ namespace sw
 			{
 				c1 = Swizzle(c1, 0xC6);
 
-				*Pointer<Byte4>(d) = Byte4(Pack(As<UShort4>(c1), As<UShort4>(c1)));
+				*Pointer<Byte4>(d) = Byte4(PackUnsigned(c1, c1));
 			}
 			break;
 		case FORMAT_R8G8B8:
 			{
-				Int c = Int(As<Int2>(Pack(As<UShort4>(c1), As<UShort4>(c1))));
+				Int c = Int(As<Int2>(PackUnsigned(c1, c1)));
 
 				*Pointer<Byte>(d + 0) = Byte(c >> 0);
 				*Pointer<Byte>(d + 1) = Byte(c >> 8);
@@ -638,7 +610,7 @@ namespace sw
 			break;
 		case FORMAT_R5G6B5:
 			{
-				Int c = Int(As<Int2>(Pack(As<UShort4>(c1), As<UShort4>(c1))));
+				Int c = Int(As<Int2>(PackUnsigned(c1, c1)));
 
 				*Pointer<Short>(d) = Short((c & 0x00F80000) >> 8 |
 				                           (c & 0x0000FC00) >> 5 |

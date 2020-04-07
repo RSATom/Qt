@@ -7,7 +7,7 @@
 #include "base/logging.h"
 #include "base/strings/stringprintf.h"
 #include "content/common/input/web_touch_event_traits.h"
-#include "third_party/WebKit/public/platform/WebTouchEvent.h"
+#include "third_party/blink/public/platform/web_touch_event.h"
 #include "ui/events/blink/web_input_event_traits.h"
 
 using base::StringPrintf;
@@ -23,7 +23,7 @@ const WebTouchPoint* FindTouchPoint(const WebTouchEvent& event, int id) {
     if (event.touches[i].id == id)
       return &event.touches[i];
   }
-  return NULL;
+  return nullptr;
 }
 
 std::string TouchPointIdsToString(const WebTouchEvent& event) {

@@ -45,32 +45,40 @@ QT_BEGIN_NAMESPACE
 
 /*!
     \qmltype MapParameter
-    \instantiates QDeclarativeGeoMapParameter
     \inqmlmodule QtLocation
     \ingroup qml-QtLocation5-maps
-    \since Qt Location 5.9
+    \since QtLocation 5.9
+    \deprecated
 
-    \brief The MapParameter type represents a parameter for a Map element.
-    This type provides a mean to specify plugin-dependent optional parameters
-    for a map.
-
-    MapParameters by default contain only the \l type property, and
-    are highly plugin-dependent.
-    For this reason, additional properties have to be defined inside a
-    MapParameter at declaration time, using the QML syntax "property var foo".
-
-    What properties have to be put inside a particular MapParameter type for
-    a particular plugin can be found in the documentation of the plugin.
-    Note that MapProperties are \b optional.
-    By not specifying any of them, the Map will have the default behavior.
-
-    The release of this API with Qt 5.9 is a Technology Preview.
+    Use \l DynamicParameter instead.
 */
 
 /*!
-    \qmlproperty string QtLocation::MapParameter::type
+    \qmltype DynamicParameter
+    \instantiates QDeclarativeGeoMapParameter
+    \inqmlmodule QtLocation
+    \ingroup qml-QtLocation5-maps
+    \since Qt Location 5.11
 
-    Set-once property which holds a string defining the type of the MapParameter
+    \brief The DynamicParameter type represents a parameter for a Map element.
+    This type provides a mean to specify plugin-dependent optional parameters
+    for a map.
+
+    DynamicParameters by default contain only the \l type property, and
+    are highly plugin-dependent.
+    For this reason, additional properties have to be defined inside a
+    DynamicParameter at declaration time, using the QML syntax "property var foo".
+
+    What properties have to be put inside a particular DynamicParameter type for
+    a particular plugin can be found in the documentation of the plugin.
+    Note that DynamicParameters are \b optional.
+    By not specifying any of them, the Map will have the default behavior.
+*/
+
+/*!
+    \qmlproperty string QtLocation::DynamicParameter::type
+
+    Set-once property which holds a string defining the type of the DynamicParameter
 */
 
 QDeclarativeGeoMapParameter::QDeclarativeGeoMapParameter(QObject *parent)

@@ -48,7 +48,7 @@ bool StringStream::Put(char c) {
       buffer_ = new_buffer;
     } else {
       // Reached the end of the available buffer.
-      DCHECK(capacity_ >= 5);
+      DCHECK_GE(capacity_, 5);
       length_ = capacity_ - 1;  // Indicate fullness of the stream.
       buffer_[length_ - 4] = '.';
       buffer_[length_ - 3] = '.';
@@ -129,7 +129,7 @@ void StringStream::Add(Vector<const char> format, Vector<FmtElm> elms) {
       int value = current.data_.u_int_;
       if (0x20 <= value && value <= 0x7F) {
         Put(value);
-      } else if (value <= 0xff) {
+      } else if (value <= 0xFF) {
         Add("\\x%02x", value);
       } else {
         Add("\\u%04x", value);
@@ -173,7 +173,7 @@ void StringStream::Add(Vector<const char> format, Vector<FmtElm> elms) {
   }
 
   // Verify that the buffer is 0-terminated
-  DCHECK(buffer_[length_] == '\0');
+  DCHECK_EQ(buffer_[length_], '\0');
 }
 
 
@@ -187,9 +187,10 @@ void StringStream::PrintObject(Object* o) {
     return;
   }
   if (o->IsHeapObject() && object_print_mode_ == kPrintObjectVerbose) {
-    HeapObject* ho = HeapObject::cast(o);
-    DebugObjectCache* debug_object_cache = ho->GetIsolate()->
-        string_stream_debug_object_cache();
+    // TODO(delphick): Consider whether we can get the isolate without using
+    // TLS.
+    DebugObjectCache* debug_object_cache =
+        Isolate::Current()->string_stream_debug_object_cache();
     for (size_t i = 0; i < debug_object_cache->size(); i++) {
       if ((*debug_object_cache)[i] == o) {
         Add("#%d#", static_cast<int>(i));
@@ -242,8 +243,8 @@ Handle<String> StringStream::ToString(Isolate* isolate) {
 
 
 void StringStream::ClearMentionedObjectCache(Isolate* isolate) {
-  isolate->set_string_stream_current_security_token(NULL);
-  if (isolate->string_stream_debug_object_cache() == NULL) {
+  isolate->set_string_stream_current_security_token(nullptr);
+  if (isolate->string_stream_debug_object_cache() == nullptr) {
     isolate->set_string_stream_debug_object_cache(new DebugObjectCache());
   }
   isolate->string_stream_debug_object_cache()->clear();
@@ -294,12 +295,6 @@ void StringStream::PrintName(Object* name) {
 
 void StringStream::PrintUsingMap(JSObject* js_object) {
   Map* map = js_object->map();
-  if (!js_object->GetHeap()->Contains(map) ||
-      !map->IsHeapObject() ||
-      !map->IsMap()) {
-    Add("<Invalid map>\n");
-    return;
-  }
   int real_size = map->NumberOfOwnDescriptors();
   DescriptorArray* descs = map->instance_descriptors();
   for (int i = 0; i < real_size; i++) {
@@ -335,10 +330,10 @@ void StringStream::PrintUsingMap(JSObject* js_object) {
 
 
 void StringStream::PrintFixedArray(FixedArray* array, unsigned int limit) {
-  Isolate* isolate = array->GetIsolate();
+  ReadOnlyRoots roots = array->GetReadOnlyRoots();
   for (unsigned int i = 0; i < 10 && i < limit; i++) {
     Object* element = array->get(i);
-    if (element->IsTheHole(isolate)) continue;
+    if (element->IsTheHole(roots)) continue;
     for (int len = 1; len < 18; len++) {
       Put(' ');
     }
@@ -406,82 +401,25 @@ void StringStream::PrintMentionedObjectCache(Isolate* isolate) {
   }
 }
 
-
-void StringStream::PrintSecurityTokenIfChanged(Object* f) {
-  if (!f->IsHeapObject()) return;
-  HeapObject* obj = HeapObject::cast(f);
-  Isolate* isolate = obj->GetIsolate();
-  Heap* heap = isolate->heap();
-  if (!heap->Contains(obj)) return;
-  Map* map = obj->map();
-  if (!map->IsHeapObject() ||
-      !heap->Contains(map) ||
-      !map->IsMap() ||
-      !f->IsJSFunction()) {
-    return;
-  }
-
-  JSFunction* fun = JSFunction::cast(f);
-  Object* perhaps_context = fun->context();
-  if (perhaps_context->IsHeapObject() &&
-      heap->Contains(HeapObject::cast(perhaps_context)) &&
-      perhaps_context->IsContext()) {
-    Context* context = fun->context();
-    if (!heap->Contains(context)) {
-      Add("(Function context is outside heap)\n");
-      return;
-    }
-    Object* token = context->native_context()->security_token();
-    if (token != isolate->string_stream_current_security_token()) {
-      Add("Security context: %o\n", token);
-      isolate->set_string_stream_current_security_token(token);
-    }
-  } else {
-    Add("(Function context is corrupt)\n");
+void StringStream::PrintSecurityTokenIfChanged(JSFunction* fun) {
+  Context* context = fun->context();
+  Object* token = context->native_context()->security_token();
+  Isolate* isolate = fun->GetIsolate();
+  if (token != isolate->string_stream_current_security_token()) {
+    Add("Security context: %o\n", token);
+    isolate->set_string_stream_current_security_token(token);
   }
 }
 
-
-void StringStream::PrintFunction(Object* f, Object* receiver, Code** code) {
-  if (!f->IsHeapObject()) {
-    Add("/* warning: 'function' was not a heap object */ ");
-    return;
-  }
-  Heap* heap = HeapObject::cast(f)->GetHeap();
-  if (!heap->Contains(HeapObject::cast(f))) {
-    Add("/* warning: 'function' was not on the heap */ ");
-    return;
-  }
-  if (!heap->Contains(HeapObject::cast(f)->map())) {
-    Add("/* warning: function's map was not on the heap */ ");
-    return;
-  }
-  if (!HeapObject::cast(f)->map()->IsMap()) {
-    Add("/* warning: function's map was not a valid map */ ");
-    return;
-  }
-  if (f->IsJSFunction()) {
-    JSFunction* fun = JSFunction::cast(f);
-    // Common case: on-stack function present and resolved.
-    PrintPrototype(fun, receiver);
-    *code = fun->code();
-  } else if (f->IsInternalizedString()) {
-    // Unresolved and megamorphic calls: Instead of the function
-    // we have the function name on the stack.
-    PrintName(f);
-    Add("/* unresolved */ ");
-  } else {
-    // Unless this is the frame of a built-in function, we should always have
-    // the callee function or name on the stack. If we don't, we have a
-    // problem or a change of the stack frame layout.
-    Add("%o", f);
-    Add("/* warning: no JSFunction object or function name found */ ");
-  }
+void StringStream::PrintFunction(JSFunction* fun, Object* receiver,
+                                 Code** code) {
+  PrintPrototype(fun, receiver);
+  *code = fun->code();
 }
 
 
 void StringStream::PrintPrototype(JSFunction* fun, Object* receiver) {
-  Object* name = fun->shared()->name();
+  Object* name = fun->shared()->Name();
   bool print_name = false;
   Isolate* isolate = fun->GetIsolate();
   if (receiver->IsNullOrUndefined(isolate) || receiver->IsTheHole(isolate) ||
@@ -516,7 +454,7 @@ void StringStream::PrintPrototype(JSFunction* fun, Object* receiver) {
   // which it was looked up.
   if (print_name) {
     Add("(aka ");
-    PrintName(fun->shared()->name());
+    PrintName(fun->shared()->Name());
     Put(')');
   }
 }
@@ -529,7 +467,7 @@ char* HeapStringAllocator::grow(unsigned* bytes) {
     return space_;
   }
   char* new_space = NewArray<char>(new_bytes);
-  if (new_space == NULL) {
+  if (new_space == nullptr) {
     return space_;
   }
   MemCopy(new_space, space_, *bytes);

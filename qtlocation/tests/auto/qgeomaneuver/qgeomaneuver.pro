@@ -8,4 +8,4 @@ HEADERS += ../utils/qlocationtestutils_p.h \
 SOURCES += tst_qgeomaneuver.cpp \
            ../utils/qlocationtestutils.cpp
 
-QT += location testlib
+QT += location-private testlib

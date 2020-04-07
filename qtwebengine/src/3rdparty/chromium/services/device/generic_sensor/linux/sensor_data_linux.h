@@ -5,12 +5,12 @@
 #ifndef SERVICES_DEVICE_GENERIC_SENSOR_LINUX_SENSOR_DATA_LINUX_H_
 #define SERVICES_DEVICE_GENERIC_SENSOR_LINUX_SENSOR_DATA_LINUX_H_
 
-#include "services/device/public/interfaces/sensor.mojom.h"
+#include "services/device/public/mojom/sensor.mojom.h"
 
 namespace device {
 
 class PlatformSensorConfiguration;
-struct SensorReading;
+union SensorReading;
 
 // This structure represents a context that is used to identify a udev device
 // and create a type specific SensorInfoLinux. For example, when a

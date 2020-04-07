@@ -62,24 +62,24 @@ void QSslKeyPrivate::clear(bool deep)
     if (algorithm == QSsl::Rsa && rsa) {
         if (deep)
             q_RSA_free(rsa);
-        rsa = 0;
+        rsa = nullptr;
     }
     if (algorithm == QSsl::Dsa && dsa) {
         if (deep)
             q_DSA_free(dsa);
-        dsa = 0;
+        dsa = nullptr;
     }
 #ifndef OPENSSL_NO_EC
     if (algorithm == QSsl::Ec && ec) {
        if (deep)
             q_EC_KEY_free(ec);
-       ec = 0;
+       ec = nullptr;
     }
 #endif
     if (algorithm == QSsl::Opaque && opaque) {
         if (deep)
             q_EVP_PKEY_free(opaque);
-        opaque = 0;
+        opaque = nullptr;
     }
 }
 
@@ -125,10 +125,10 @@ bool QSslKeyPrivate::fromEVP_PKEY(EVP_PKEY *pkey)
     return false;
 }
 
-void QSslKeyPrivate::decodeDer(const QByteArray &der, bool deepClear)
+void QSslKeyPrivate::decodeDer(const QByteArray &der, const QByteArray &passPhrase, bool deepClear)
 {
     QMap<QByteArray, QByteArray> headers;
-    decodePem(pemFromDer(der, headers), QByteArray(), deepClear);
+    decodePem(pemFromDer(der, headers), passPhrase, deepClear);
 }
 
 void QSslKeyPrivate::decodePem(const QByteArray &pem, const QByteArray &passPhrase,
@@ -150,21 +150,21 @@ void QSslKeyPrivate::decodePem(const QByteArray &pem, const QByteArray &passPhra
 
     if (algorithm == QSsl::Rsa) {
         RSA *result = (type == QSsl::PublicKey)
-            ? q_PEM_read_bio_RSA_PUBKEY(bio, &rsa, 0, phrase)
-            : q_PEM_read_bio_RSAPrivateKey(bio, &rsa, 0, phrase);
+            ? q_PEM_read_bio_RSA_PUBKEY(bio, &rsa, nullptr, phrase)
+            : q_PEM_read_bio_RSAPrivateKey(bio, &rsa, nullptr, phrase);
         if (rsa && rsa == result)
             isNull = false;
     } else if (algorithm == QSsl::Dsa) {
         DSA *result = (type == QSsl::PublicKey)
-            ? q_PEM_read_bio_DSA_PUBKEY(bio, &dsa, 0, phrase)
-            : q_PEM_read_bio_DSAPrivateKey(bio, &dsa, 0, phrase);
+            ? q_PEM_read_bio_DSA_PUBKEY(bio, &dsa, nullptr, phrase)
+            : q_PEM_read_bio_DSAPrivateKey(bio, &dsa, nullptr, phrase);
         if (dsa && dsa == result)
             isNull = false;
 #ifndef OPENSSL_NO_EC
     } else if (algorithm == QSsl::Ec) {
         EC_KEY *result = (type == QSsl::PublicKey)
-            ? q_PEM_read_bio_EC_PUBKEY(bio, &ec, 0, phrase)
-            : q_PEM_read_bio_ECPrivateKey(bio, &ec, 0, phrase);
+            ? q_PEM_read_bio_EC_PUBKEY(bio, &ec, nullptr, phrase)
+            : q_PEM_read_bio_ECPrivateKey(bio, &ec, nullptr, phrase);
         if (ec && ec == result)
             isNull = false;
 #endif
@@ -193,6 +193,16 @@ QByteArray QSslKeyPrivate::toPem(const QByteArray &passPhrase) const
     if (!QSslSocket::supportsSsl() || isNull || algorithm == QSsl::Opaque)
         return QByteArray();
 
+    // ### the cipher should be selectable in the API:
+    const EVP_CIPHER *cipher = nullptr;
+    if (type == QSsl::PrivateKey && !passPhrase.isEmpty()) {
+#ifndef OPENSSL_NO_DES
+        cipher = q_EVP_des_ede3_cbc();
+#else
+        return QByteArray();
+#endif
+    }
+
     BIO *bio = q_BIO_new(q_BIO_s_mem());
     if (!bio)
         return QByteArray();
@@ -205,10 +215,8 @@ QByteArray QSslKeyPrivate::toPem(const QByteArray &passPhrase) const
                 fail = true;
         } else {
             if (!q_PEM_write_bio_RSAPrivateKey(
-                    bio, rsa,
-                    // ### the cipher should be selectable in the API:
-                    passPhrase.isEmpty() ? (const EVP_CIPHER *)0 : q_EVP_des_ede3_cbc(),
-                    const_cast<uchar *>((const uchar *)passPhrase.data()), passPhrase.size(), 0, 0)) {
+                    bio, rsa, cipher, const_cast<uchar *>((const uchar *)passPhrase.data()),
+                    passPhrase.size(), nullptr, nullptr)) {
                 fail = true;
             }
         }
@@ -218,10 +226,8 @@ QByteArray QSslKeyPrivate::toPem(const QByteArray &passPhrase) const
                 fail = true;
         } else {
             if (!q_PEM_write_bio_DSAPrivateKey(
-                    bio, dsa,
-                    // ### the cipher should be selectable in the API:
-                    passPhrase.isEmpty() ? (const EVP_CIPHER *)0 : q_EVP_des_ede3_cbc(),
-                    const_cast<uchar *>((const uchar *)passPhrase.data()), passPhrase.size(), 0, 0)) {
+                    bio, dsa, cipher, const_cast<uchar *>((const uchar *)passPhrase.data()),
+                    passPhrase.size(), nullptr, nullptr)) {
                 fail = true;
             }
         }
@@ -231,11 +237,9 @@ QByteArray QSslKeyPrivate::toPem(const QByteArray &passPhrase) const
             if (!q_PEM_write_bio_EC_PUBKEY(bio, ec))
                 fail = true;
         } else {
-            if (!q_PEM_write_bio_ECPrivateKey(
-                    bio, ec,
-                    // ### the cipher should be selectable in the API:
-                    passPhrase.isEmpty() ? (const EVP_CIPHER *)0 : q_EVP_des_ede3_cbc(),
-                    const_cast<uchar *>((const uchar *)passPhrase.data()), passPhrase.size(), 0, 0)) {
+            if (!q_PEM_write_bio_ECPrivateKey(bio, ec, cipher,
+                                              const_cast<uchar *>((const uchar *)passPhrase.data()),
+                                              passPhrase.size(), nullptr, nullptr)) {
                 fail = true;
             }
         }
@@ -268,47 +272,52 @@ Qt::HANDLE QSslKeyPrivate::handle() const
         return Qt::HANDLE(ec);
 #endif
     default:
-        return Qt::HANDLE(NULL);
+        return Qt::HANDLE(nullptr);
     }
 }
 
 static QByteArray doCrypt(QSslKeyPrivate::Cipher cipher, const QByteArray &data, const QByteArray &key, const QByteArray &iv, int enc)
 {
-#if QT_CONFIG(opensslv11)
-    EVP_CIPHER_CTX *ctx = q_EVP_CIPHER_CTX_new();
-#else
-    EVP_CIPHER_CTX evpCipherContext;
-    EVP_CIPHER_CTX *ctx = &evpCipherContext;
-#endif
-
-    const EVP_CIPHER* type = 0;
+    const EVP_CIPHER* type = nullptr;
     int i = 0, len = 0;
 
     switch (cipher) {
     case QSslKeyPrivate::DesCbc:
+#ifndef OPENSSL_NO_DES
         type = q_EVP_des_cbc();
+#endif
         break;
     case QSslKeyPrivate::DesEde3Cbc:
+#ifndef OPENSSL_NO_DES
         type = q_EVP_des_ede3_cbc();
+#endif
         break;
     case QSslKeyPrivate::Rc2Cbc:
+#ifndef OPENSSL_NO_RC2
         type = q_EVP_rc2_cbc();
+#endif
         break;
     }
+
+    if (type == nullptr)
+        return QByteArray();
 
     QByteArray output;
     output.resize(data.size() + EVP_MAX_BLOCK_LENGTH);
 
 #if QT_CONFIG(opensslv11)
+    EVP_CIPHER_CTX *ctx = q_EVP_CIPHER_CTX_new();
     q_EVP_CIPHER_CTX_reset(ctx);
 #else
+    EVP_CIPHER_CTX evpCipherContext;
+    EVP_CIPHER_CTX *ctx = &evpCipherContext;
     q_EVP_CIPHER_CTX_init(ctx);
 #endif
 
-    q_EVP_CipherInit(ctx, type, NULL, NULL, enc);
+    q_EVP_CipherInit(ctx, type, nullptr, nullptr, enc);
     q_EVP_CIPHER_CTX_set_key_length(ctx, key.size());
     if (cipher == QSslKeyPrivate::Rc2Cbc)
-        q_EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_SET_RC2_KEY_BITS, 8 * key.size(), NULL);
+        q_EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_SET_RC2_KEY_BITS, 8 * key.size(), nullptr);
 
 #if QT_CONFIG(opensslv11)
     // EVP_CipherInit in 1.1 resets the context thus making the calls above useless.

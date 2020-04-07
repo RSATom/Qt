@@ -7,7 +7,6 @@
 #include <memory>
 
 #include "base/files/file_util.h"
-#include "base/memory/ptr_util.h"
 #include "base/pickle.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/scoped_task_environment.h"
@@ -53,7 +52,7 @@ class OSExchangeDataProviderMusTest
 
   // Overridden from ui::OSExchangeDataProviderFactory::Factory:
   std::unique_ptr<OSExchangeData::Provider> BuildProvider() override {
-    return base::MakeUnique<OSExchangeDataProviderMus>();
+    return std::make_unique<OSExchangeDataProviderMus>();
   }
 
  private:

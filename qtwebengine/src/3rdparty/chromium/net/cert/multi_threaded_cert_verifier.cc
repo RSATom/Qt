@@ -5,7 +5,6 @@
 #include "net/cert/multi_threaded_cert_verifier.h"
 
 #include <algorithm>
-#include <memory>
 #include <utility>
 
 #include "base/bind.h"
@@ -14,11 +13,10 @@
 #include "base/compiler_specific.h"
 #include "base/containers/linked_list.h"
 #include "base/memory/ptr_util.h"
-#include "base/message_loop/message_loop.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/profiler/scoped_tracker.h"
 #include "base/sha1.h"
-#include "base/threading/worker_pool.h"
+#include "base/task_scheduler/post_task.h"
+#include "base/threading/thread_restrictions.h"
 #include "base/time/time.h"
 #include "base/trace_event/trace_event.h"
 #include "base/values.h"
@@ -36,13 +34,17 @@
 #include "net/log/net_log_source_type.h"
 #include "net/log/net_log_with_source.h"
 
-#if defined(USE_NSS_CERTS)
-#include <private/pprthred.h>  // PR_DetachThread
-#endif
-
 namespace net {
 
 class NetLogCaptureMode;
+
+// Allows DoVerifyOnWorkerThread to wait on a base::WaitableEvent.
+// DoVerifyOnWorkerThread may wait on network operations done on a separate
+// sequence. For instance when using the NSS-based implementation of certificate
+// verification, the library requires a blocking callback for fetching OCSP and
+// AIA responses.
+class MultiThreadedCertVerifierScopedAllowBaseSyncPrimitives
+    : public base::ScopedAllowBaseSyncPrimitives {};
 
 ////////////////////////////////////////////////////////////////////////////
 //
@@ -58,7 +60,7 @@ class NetLogCaptureMode;
 // fundamentally doing the same verification. CertVerifierJob is similarly
 // thread-unsafe and lives on the origin thread.
 //
-// To do the actual work, CertVerifierJob posts a task to WorkerPool
+// To do the actual work, CertVerifierJob posts a task to TaskScheduler
 // (PostTaskAndReply), and on completion notifies all requests attached to it.
 //
 // Cancellation:
@@ -93,8 +95,6 @@ std::unique_ptr<base::Value> CertVerifyResultCallback(
                       verify_result.is_issued_by_known_root);
   results->SetBoolean("is_issued_by_additional_trust_anchor",
                       verify_result.is_issued_by_additional_trust_anchor);
-  results->SetBoolean("common_name_fallback_used",
-                      verify_result.common_name_fallback_used);
   results->SetInteger("cert_status", verify_result.cert_status);
   results->Set("verified_cert",
                NetLogX509CertificateCallback(verify_result.verified_cert.get(),
@@ -112,9 +112,8 @@ std::unique_ptr<base::Value> CertVerifyResultCallback(
   return std::move(results);
 }
 
-// Helper structure used to keep |verify_result| alive for the lifetime of
-// the verification on the worker thread, and to communicate it back to the
-// calling thread.
+// Used to pass the result of CertVerifierJob::DoVerifyOnWorkerThread() to
+// CertVerifierJob::OnJobCompleted().
 struct ResultHelper {
   int error;
   CertVerifyResult result;
@@ -129,11 +128,11 @@ class CertVerifierRequest : public base::LinkNode<CertVerifierRequest>,
                             public CertVerifier::Request {
  public:
   CertVerifierRequest(CertVerifierJob* job,
-                      const CompletionCallback& callback,
+                      CompletionOnceCallback callback,
                       CertVerifyResult* verify_result,
                       const NetLogWithSource& net_log)
       : job_(job),
-        callback_(callback),
+        callback_(std::move(callback)),
         verify_result_(verify_result),
         net_log_(net_log) {
     net_log_.BeginEvent(NetLogEventType::CERT_VERIFIER_REQUEST);
@@ -174,36 +173,29 @@ class CertVerifierRequest : public base::LinkNode<CertVerifierRequest>,
 
  private:
   CertVerifierJob* job_;  // Not owned.
-  CompletionCallback callback_;
+  CompletionOnceCallback callback_;
   CertVerifyResult* verify_result_;
   const NetLogWithSource net_log_;
 };
 
 // DoVerifyOnWorkerThread runs the verification synchronously on a worker
-// thread. The output parameters (error and result) must remain alive.
-void DoVerifyOnWorkerThread(const scoped_refptr<CertVerifyProc>& verify_proc,
-                            const scoped_refptr<X509Certificate>& cert,
-                            const std::string& hostname,
-                            const std::string& ocsp_response,
-                            int flags,
-                            const scoped_refptr<CRLSet>& crl_set,
-                            const CertificateList& additional_trust_anchors,
-                            int* error,
-                            CertVerifyResult* result) {
+// thread.
+std::unique_ptr<ResultHelper> DoVerifyOnWorkerThread(
+    const scoped_refptr<CertVerifyProc>& verify_proc,
+    const scoped_refptr<X509Certificate>& cert,
+    const std::string& hostname,
+    const std::string& ocsp_response,
+    int flags,
+    const scoped_refptr<CRLSet>& crl_set,
+    const CertificateList& additional_trust_anchors) {
   TRACE_EVENT0(kNetTracingCategory, "DoVerifyOnWorkerThread");
-  *error = verify_proc->Verify(cert.get(), hostname, ocsp_response, flags,
-                               crl_set.get(), additional_trust_anchors, result);
-
-#if defined(USE_NSS_CERTS)
-  // Detach the thread from NSPR.
-  // Calling NSS functions attaches the thread to NSPR, which stores
-  // the NSPR thread ID in thread-specific data.
-  // The threads in our thread pool terminate after we have called
-  // PR_Cleanup.  Unless we detach them from NSPR, net_unittests gets
-  // segfaults on shutdown when the threads' thread-specific data
-  // destructors run.
-  PR_DetachThread();
-#endif
+  auto verify_result = std::make_unique<ResultHelper>();
+  MultiThreadedCertVerifierScopedAllowBaseSyncPrimitives
+      allow_base_sync_primitives;
+  verify_result->error = verify_proc->Verify(
+      cert.get(), hostname, ocsp_response, flags, crl_set.get(),
+      additional_trust_anchors, &verify_result->result);
+  return verify_result;
 }
 
 // CertVerifierJob lives only on the verifier's origin message loop.
@@ -230,27 +222,18 @@ class CertVerifierJob {
 
   const CertVerifier::RequestParams& key() const { return key_; }
 
-  // Posts a task to the worker pool to do the verification. Once the
-  // verification has completed on the worker thread, it will call
-  // OnJobCompleted() on the origin thread.
-  bool Start(const scoped_refptr<CertVerifyProc>& verify_proc,
+  // Posts a task to TaskScheduler to do the verification. Once the verification
+  // has completed, it will call OnJobCompleted() on the origin thread.
+  void Start(const scoped_refptr<CertVerifyProc>& verify_proc,
              const scoped_refptr<CRLSet>& crl_set) {
-    // Owned by the bound reply callback.
-    std::unique_ptr<ResultHelper> owned_result(new ResultHelper());
-
-    // Parameter evaluation order is undefined in C++. Ensure the pointer value
-    // is gotten before calling base::Passed().
-    auto* result = owned_result.get();
-
-    return base::WorkerPool::PostTaskAndReply(
+    base::PostTaskWithTraitsAndReplyWithResult(
         FROM_HERE,
-        base::Bind(&DoVerifyOnWorkerThread, verify_proc, key_.certificate(),
-                   key_.hostname(), key_.ocsp_response(), key_.flags(), crl_set,
-                   key_.additional_trust_anchors(), &result->error,
-                   &result->result),
-        base::Bind(&CertVerifierJob::OnJobCompleted,
-                   weak_ptr_factory_.GetWeakPtr(), base::Passed(&owned_result)),
-        true /* task is slow */);
+        {base::MayBlock(), base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN},
+        base::BindOnce(&DoVerifyOnWorkerThread, verify_proc, key_.certificate(),
+                       key_.hostname(), key_.ocsp_response(), key_.flags(),
+                       crl_set, key_.additional_trust_anchors()),
+        base::BindOnce(&CertVerifierJob::OnJobCompleted,
+                       weak_ptr_factory_.GetWeakPtr(), crl_set));
   }
 
   ~CertVerifierJob() {
@@ -271,11 +254,11 @@ class CertVerifierJob {
 
   // Creates and attaches a request to the Job.
   std::unique_ptr<CertVerifierRequest> CreateRequest(
-      const CompletionCallback& callback,
+      CompletionOnceCallback callback,
       CertVerifyResult* verify_result,
       const NetLogWithSource& net_log) {
-    std::unique_ptr<CertVerifierRequest> request(
-        new CertVerifierRequest(this, callback, verify_result, net_log));
+    std::unique_ptr<CertVerifierRequest> request(new CertVerifierRequest(
+        this, std::move(callback), verify_result, net_log));
 
     request->net_log().AddEvent(
         NetLogEventType::CERT_VERIFIER_REQUEST_BOUND_TO_JOB,
@@ -294,26 +277,32 @@ class CertVerifierJob {
         NetLogEventType::CERT_VERIFIER_JOB,
         base::Bind(&CertVerifyResultCallback, verify_result.result));
     base::TimeDelta latency = base::TimeTicks::Now() - start_time_;
-    UMA_HISTOGRAM_CUSTOM_TIMES("Net.CertVerifier_Job_Latency",
-                               latency,
-                               base::TimeDelta::FromMilliseconds(1),
-                               base::TimeDelta::FromMinutes(10),
-                               100);
-    if (is_first_job_) {
-      UMA_HISTOGRAM_CUSTOM_TIMES("Net.CertVerifier_First_Job_Latency",
-                                 latency,
+    if (cert_verifier_->should_record_histograms_) {
+      UMA_HISTOGRAM_CUSTOM_TIMES("Net.CertVerifier_Job_Latency", latency,
                                  base::TimeDelta::FromMilliseconds(1),
-                                 base::TimeDelta::FromMinutes(10),
-                                 100);
+                                 base::TimeDelta::FromMinutes(10), 100);
+      if (is_first_job_) {
+        UMA_HISTOGRAM_CUSTOM_TIMES("Net.CertVerifier_First_Job_Latency",
+                                   latency,
+                                   base::TimeDelta::FromMilliseconds(1),
+                                   base::TimeDelta::FromMinutes(10), 100);
+      }
     }
   }
 
-  void OnJobCompleted(std::unique_ptr<ResultHelper> verify_result) {
+  void OnJobCompleted(scoped_refptr<CRLSet> crl_set,
+                      std::unique_ptr<ResultHelper> verify_result) {
     TRACE_EVENT0(kNetTracingCategory, "CertVerifierJob::OnJobCompleted");
     std::unique_ptr<CertVerifierJob> keep_alive =
         cert_verifier_->RemoveJob(this);
 
     LogMetrics(*verify_result);
+    if (cert_verifier_->verify_complete_callback_) {
+      cert_verifier_->verify_complete_callback_.Run(
+          key_, std::move(crl_set), net_log_, verify_result->error,
+          verify_result->result, base::TimeTicks::Now() - start_time_,
+          is_first_job_);
+    }
     cert_verifier_ = nullptr;
 
     // TODO(eroman): If the cert_verifier_ is deleted from within one of the
@@ -348,10 +337,21 @@ MultiThreadedCertVerifier::~MultiThreadedCertVerifier() {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
 }
 
+// static
+std::unique_ptr<MultiThreadedCertVerifier>
+MultiThreadedCertVerifier::CreateForDualVerificationTrial(
+    scoped_refptr<CertVerifyProc> verify_proc,
+    VerifyCompleteCallback verify_complete_callback,
+    bool should_record_histograms) {
+  return base::WrapUnique(new net::MultiThreadedCertVerifier(
+      std::move(verify_proc), std::move(verify_complete_callback),
+      should_record_histograms));
+}
+
 int MultiThreadedCertVerifier::Verify(const RequestParams& params,
                                       CRLSet* crl_set,
                                       CertVerifyResult* verify_result,
-                                      const CompletionCallback& callback,
+                                      CompletionOnceCallback callback,
                                       std::unique_ptr<Request>* out_req,
                                       const NetLogWithSource& net_log) {
   out_req->reset();
@@ -372,13 +372,9 @@ int MultiThreadedCertVerifier::Verify(const RequestParams& params,
   } else {
     // Need to make a new job.
     std::unique_ptr<CertVerifierJob> new_job =
-        base::MakeUnique<CertVerifierJob>(params, net_log.net_log(), this);
+        std::make_unique<CertVerifierJob>(params, net_log.net_log(), this);
 
-    if (!new_job->Start(verify_proc_, crl_set)) {
-      // TODO(wtc): log to the NetLog.
-      LOG(ERROR) << "CertVerifierJob couldn't be started.";
-      return ERR_INSUFFICIENT_RESOURCES;  // Just a guess.
-    }
+    new_job->Start(verify_proc_, crl_set);
 
     job = new_job.get();
     inflight_[job] = std::move(new_job);
@@ -388,13 +384,9 @@ int MultiThreadedCertVerifier::Verify(const RequestParams& params,
   }
 
   std::unique_ptr<CertVerifierRequest> request =
-      job->CreateRequest(callback, verify_result, net_log);
+      job->CreateRequest(std::move(callback), verify_result, net_log);
   *out_req = std::move(request);
   return ERR_IO_PENDING;
-}
-
-bool MultiThreadedCertVerifier::SupportsOCSPStapling() {
-  return verify_proc_->SupportsOCSPStapling();
 }
 
 bool MultiThreadedCertVerifier::JobComparator::operator()(
@@ -402,6 +394,16 @@ bool MultiThreadedCertVerifier::JobComparator::operator()(
     const CertVerifierJob* job2) const {
   return job1->key() < job2->key();
 }
+
+MultiThreadedCertVerifier::MultiThreadedCertVerifier(
+    scoped_refptr<CertVerifyProc> verify_proc,
+    VerifyCompleteCallback verify_complete_callback,
+    bool should_record_histograms)
+    : requests_(0),
+      inflight_joins_(0),
+      verify_proc_(verify_proc),
+      verify_complete_callback_(std::move(verify_complete_callback)),
+      should_record_histograms_(should_record_histograms) {}
 
 std::unique_ptr<CertVerifierJob> MultiThreadedCertVerifier::RemoveJob(
     CertVerifierJob* job) {

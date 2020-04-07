@@ -37,23 +37,23 @@
 #include <pluginmanager_p.h>
 
 // sdk
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerDnDItemInterface>
-#include <QtDesigner/QDesignerSettingsInterface>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/abstractdnditem.h>
+#include <QtDesigner/abstractsettings.h>
 
-#include <QtUiPlugin/QDesignerCustomWidgetInterface>
+#include <QtUiPlugin/customwidget.h>
 
-#include <QtWidgets/QHeaderView>
-#include <QtWidgets/QApplication>
-#include <QtWidgets/QTreeWidgetItem>
-#include <QtGui/QContextMenuEvent>
-#include <QtWidgets/QAction>
-#include <QtWidgets/QActionGroup>
-#include <QtWidgets/QMenu>
+#include <QtWidgets/qheaderview.h>
+#include <QtWidgets/qapplication.h>
+#include <QtWidgets/qtreewidget.h>
+#include <QtGui/qevent.h>
+#include <QtWidgets/qaction.h>
+#include <QtWidgets/qactiongroup.h>
+#include <QtWidgets/qmenu.h>
 
-#include <QtCore/QFile>
-#include <QtCore/QTimer>
-#include <QtCore/QDebug>
+#include <QtCore/qfile.h>
+#include <QtCore/qtimer.h>
+#include <QtCore/qdebug.h>
 
 static const char *widgetBoxRootElementC = "widgetbox";
 static const char *widgetElementC = "widget";
@@ -106,7 +106,7 @@ WidgetBoxTreeWidget::WidgetBoxTreeWidget(QDesignerFormEditorInterface *core, QWi
             this, &WidgetBoxTreeWidget::handleMousePress);
 }
 
-QIcon WidgetBoxTreeWidget::iconForWidget(QString iconName) const
+QIcon WidgetBoxTreeWidget::iconForWidget(const QString &iconName) const
 {
     if (iconName.isEmpty())
         return qdesigner_internal::qtLogoIcon();

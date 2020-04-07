@@ -8,7 +8,7 @@ DIST_SUBDIRS = include . doc example python xstc
 
 AM_CPPFLAGS = -I$(top_builddir)/include -I$(srcdir)/include
 
-AM_CFLAGS = $(THREAD_CFLAGS) $(Z_CFLAGS) $(LZMA_CFLAGS)
+AM_CFLAGS = $(EXTRA_CFLAGS) $(THREAD_CFLAGS) $(Z_CFLAGS) $(LZMA_CFLAGS)
 
 check_PROGRAMS=testSchemas testRelax testSAX testHTML testXPath testURI \
                testThreads testC14N testAutomata testRegexp \
@@ -1256,6 +1256,7 @@ EXTRA_DIST = xml2-config.in xml2Conf.sh.in libxml.spec.in libxml2.spec \
 	     enc.h save.h testThreadsWin32.c genUnicode.py TODO_SCHEMAS \
 	     dbgen.pl dbgenattr.pl regressions.py regressions.xml \
 	     README.tests Makefile.tests libxml2.syms timsort.h \
+	     README.zOS \
 	     $(CVS_EXTRA_DIST)
 
 

@@ -12,7 +12,12 @@ group("libjingle_xmpp") {
   ]
 }
 
+config("libjingle_xmpp_common_config") {
+  defines = [ "EXPAT_RELATIVE_PATH" ]
+}
+
 rtc_static_library("rtc_task_runner") {
+  visibility = [ "*" ]
   sources = [
     "task_runner/task.cc",
     "task_runner/task.h",
@@ -24,6 +29,7 @@ rtc_static_library("rtc_task_runner") {
 }
 
 rtc_static_library("rtc_xmllite") {
+  visibility = [ "*" ]
   sources = [
     "xmllite/qname.cc",
     "xmllite/qname.h",
@@ -43,9 +49,14 @@ rtc_static_library("rtc_xmllite") {
 
   deps = [
     "//third_party/webrtc/rtc_base:rtc_base",
+    "//third_party/webrtc_overrides:task_queue_impl",
   ]
   public_deps = [
     "//third_party/expat",
+  ]
+  all_dependent_configs = [
+    ":libjingle_xmpp_common_config",
+    "//third_party/webrtc_overrides:jingle_unexported_configs",
   ]
 }
 
@@ -59,6 +70,7 @@ config("rtc_xmpp_warnings_config") {
 }
 
 rtc_static_library("rtc_xmpp") {
+  visibility = [ "*" ]
   cflags = []
   sources = [
     "xmpp/asyncsocket.h",
@@ -93,22 +105,17 @@ rtc_static_library("rtc_xmpp") {
   deps = [
     ":rtc_xmllite",
     "//third_party/webrtc/rtc_base:rtc_base_approved",
+    "//third_party/webrtc_overrides:task_queue_impl",
   ]
   public_deps = [
     ":rtc_task_runner",
     "//third_party/expat",
   ]
   configs += [ ":rtc_xmpp_warnings_config" ]
+  all_dependent_configs = [ ":libjingle_xmpp_common_config" ]
 
   if (is_nacl) {
     deps += [ "//native_client_sdk/src/libraries/nacl_io" ]
-  }
-
-  if (is_posix && is_debug) {
-    # The Chromium configs defines this for all posix _except_ for ios & mac.
-    # We want it there as well, e.g. because ASSERT and friends trigger off of
-    # it.
-    defines += [ "_DEBUG" ]
   }
 }
 
@@ -131,11 +138,11 @@ rtc_test("libjingle_xmpp_unittests") {
   deps = [
     ":libjingle_xmpp",
     ":rtc_task_runner",
-
     "//base/test:run_all_unittests",
     "//base/test:test_support",
+
     # TODO(kjellander): Refactor/remove this dependency. It is needed by
-    # third_party/webrtc_overrides/webrtc/rtc_base/win32socketinit.cc.
+    # third_party/webrtc_overrides/rtc_base/win32socketinit.cc.
     "//net",
     "//testing/gtest",
   ]

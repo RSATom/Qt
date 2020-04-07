@@ -4,11 +4,11 @@
 
 #include "components/dom_distiller/core/dom_distiller_service.h"
 
+#include <memory>
 #include <utility>
 
 #include "base/guid.h"
 #include "base/location.h"
-#include "base/memory/ptr_util.h"
 #include "base/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "components/dom_distiller/core/distilled_content_store.h"
@@ -84,7 +84,7 @@ const std::string DomDistillerService::AddToList(
   TaskTracker* task_tracker = nullptr;
   if (is_already_added) {
     task_tracker = GetTaskTrackerForEntry(entry);
-    if (task_tracker == NULL) {
+    if (task_tracker == nullptr) {
       // Entry is in the store but there is no task tracker. This could
       // happen when distillation has already completed. For now just return
       // true.
@@ -116,7 +116,7 @@ const std::string DomDistillerService::AddToList(
 }
 
 bool DomDistillerService::HasEntry(const std::string& entry_id) {
-  return store_ && store_->GetEntryById(entry_id, NULL);
+  return store_ && store_->GetEntryById(entry_id, nullptr);
 }
 
 std::string DomDistillerService::GetUrlForEntry(const std::string& entry_id) {
@@ -139,7 +139,7 @@ std::unique_ptr<ArticleEntry> DomDistillerService::RemoveEntry(
   std::unique_ptr<ArticleEntry> entry(new ArticleEntry);
   entry->set_entry_id(entry_id);
   TaskTracker* task_tracker = GetTaskTrackerForEntry(*entry);
-  if (task_tracker != NULL) {
+  if (task_tracker != nullptr) {
     task_tracker->CancelSaveCallbacks();
   }
 
@@ -249,7 +249,7 @@ bool DomDistillerService::GetOrCreateTaskTrackerForEntry(
 TaskTracker* DomDistillerService::CreateTaskTracker(const ArticleEntry& entry) {
   TaskTracker::CancelCallback cancel_callback =
       base::Bind(&DomDistillerService::CancelTask, base::Unretained(this));
-  tasks_.push_back(base::MakeUnique<TaskTracker>(entry, cancel_callback,
+  tasks_.push_back(std::make_unique<TaskTracker>(entry, cancel_callback,
                                                  content_store_.get()));
   return tasks_.back().get();
 }

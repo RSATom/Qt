@@ -69,12 +69,12 @@ public:
     QVector<Qt3DCore::QNodeId> renderStates() const;
 
 protected:
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) Q_DECL_OVERRIDE;
+    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) override;
     void addRenderState(Qt3DCore::QNodeId renderStateId);
     void removeRenderState(Qt3DCore::QNodeId renderStateId);
 
 private:
-    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) Q_DECL_FINAL;
+    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) final;
     QVector<Qt3DCore::QNodeId> m_renderStates;
 };
 

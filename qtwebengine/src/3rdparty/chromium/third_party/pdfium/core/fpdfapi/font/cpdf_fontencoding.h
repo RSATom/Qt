@@ -9,9 +9,9 @@
 
 #include <memory>
 
-#include "core/fxcrt/cfx_string_pool_template.h"
-#include "core/fxcrt/cfx_weak_ptr.h"
 #include "core/fxcrt/fx_string.h"
+#include "core/fxcrt/string_pool_template.h"
+#include "core/fxcrt/weak_ptr.h"
 
 #define PDFFONT_ENCODING_BUILTIN 0
 #define PDFFONT_ENCODING_WINANSI 1
@@ -22,13 +22,12 @@
 #define PDFFONT_ENCODING_ZAPFDINGBATS 6
 #define PDFFONT_ENCODING_PDFDOC 7
 #define PDFFONT_ENCODING_MS_SYMBOL 8
-#define PDFFONT_ENCODING_UNICODE 9
 
 uint32_t FT_CharCodeFromUnicode(int encoding, wchar_t unicode);
 wchar_t FT_UnicodeFromCharCode(int encoding, uint32_t charcode);
 
 wchar_t PDF_UnicodeFromAdobeName(const char* name);
-CFX_ByteString PDF_AdobeNameFromUnicode(wchar_t unicode);
+ByteString PDF_AdobeNameFromUnicode(wchar_t unicode);
 
 const uint16_t* PDF_UnicodesForPredefinedCharSet(int encoding);
 const char* PDF_CharNameFromPredefinedCharSet(int encoding, uint8_t charcode);
@@ -53,7 +52,7 @@ class CPDF_FontEncoding {
     m_Unicodes[charcode] = unicode;
   }
 
-  std::unique_ptr<CPDF_Object> Realize(CFX_WeakPtr<CFX_ByteStringPool> pPool);
+  std::unique_ptr<CPDF_Object> Realize(WeakPtr<ByteStringPool> pPool);
 
  public:
   wchar_t m_Unicodes[256];

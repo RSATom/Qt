@@ -65,20 +65,32 @@ class QWindow;
 namespace QtMac
 {
 #if QT_DEPRECATED_SINCE(5,3)
-QT_DEPRECATED Q_MACEXTRAS_EXPORT NSData *toNSData(const QByteArray &data);
-QT_DEPRECATED Q_MACEXTRAS_EXPORT QByteArray fromNSData(const NSData *data);
+QT_DEPRECATED_X("Use QByteArray::toNSData") Q_MACEXTRAS_EXPORT NSData *toNSData(const QByteArray &data);
+QT_DEPRECATED_X("Use QByteArray::fromNSData") Q_MACEXTRAS_EXPORT QByteArray fromNSData(const NSData *data);
 #endif
 
-Q_MACEXTRAS_EXPORT CGImageRef toCGImageRef(const QPixmap &pixmap);
+#if QT_DEPRECATED_SINCE(5, 12)
+QT_DEPRECATED_X("Use QPixmap::toImage and QImage::toCGImage") Q_MACEXTRAS_EXPORT CGImageRef toCGImageRef(const QPixmap &pixmap);
+#endif
 Q_MACEXTRAS_EXPORT QPixmap fromCGImageRef(CGImageRef image);
 
+#if QT_DEPRECATED_SINCE(5, 12)
+# if defined(QT_PLATFORM_UIKIT)
+QT_DEPRECATED_X("Use UIGraphicsGetCurrentContext()")
+# else
+QT_DEPRECATED_X("Use NSGraphicsContext.currentContext.CGContext")
+# endif
 Q_MACEXTRAS_EXPORT CGContextRef currentCGContext();
+#endif
 
 #ifdef Q_OS_OSX
-Q_MACEXTRAS_EXPORT void setBadgeLabelText(const QString &text);
-Q_MACEXTRAS_EXPORT QString badgeLabelText();
+#if QT_DEPRECATED_SINCE(5, 12)
+QT_DEPRECATED_X("Use NSApp.dockTile.badgeLabel") Q_MACEXTRAS_EXPORT void setBadgeLabelText(const QString &text);
+QT_DEPRECATED_X("Use NSApp.dockTile.badgeLabel") Q_MACEXTRAS_EXPORT QString badgeLabelText();
 
+QT_DEPRECATED_X("Use QPixmap::toImage, QImage::toCGImage, and -[NSImage initWithCGImage:size:]")
 Q_MACEXTRAS_EXPORT NSImage *toNSImage(const QPixmap &pixmap);
+#endif
 
 #if QT_VERSION >= QT_VERSION_CHECK(5, 0, 0)
 Q_MACEXTRAS_EXPORT bool isMainWindow(QWindow *window);
@@ -86,8 +98,10 @@ Q_MACEXTRAS_EXPORT bool isMainWindow(QWindow *window);
 #endif // Q_OS_OSX
 
 #if defined(QT_PLATFORM_UIKIT) && !defined(Q_OS_WATCHOS)
-Q_MACEXTRAS_EXPORT void setApplicationIconBadgeNumber(int number) __attribute__((availability(ios_app_extension,unavailable)));
-Q_MACEXTRAS_EXPORT int applicationIconBadgeNumber() __attribute__((availability(ios_app_extension,unavailable)));
+#if QT_DEPRECATED_SINCE(5, 12)
+QT_DEPRECATED_X("Use UIApplication.sharedApplication.applicationIconBadgeNumber") Q_MACEXTRAS_EXPORT void setApplicationIconBadgeNumber(int number) __attribute__((availability(ios_app_extension,unavailable)));
+QT_DEPRECATED_X("Use UIApplication.sharedApplication.applicationIconBadgeNumber") Q_MACEXTRAS_EXPORT int applicationIconBadgeNumber() __attribute__((availability(ios_app_extension,unavailable)));
+#endif
 #endif // defined(QT_PLATFORM_UIKIT) && !defined(Q_OS_WATCHOS)
 }
 

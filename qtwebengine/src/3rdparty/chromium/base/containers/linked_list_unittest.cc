@@ -28,7 +28,19 @@ class MultipleInheritanceNodeBase {
 class MultipleInheritanceNode : public MultipleInheritanceNodeBase,
                                 public LinkNode<MultipleInheritanceNode> {
  public:
-  MultipleInheritanceNode() {}
+  MultipleInheritanceNode() = default;
+};
+
+class MovableNode : public LinkNode<MovableNode> {
+ public:
+  explicit MovableNode(int id) : id_(id) {}
+
+  MovableNode(MovableNode&&) = default;
+
+  int id() const { return id_; }
+
+ private:
+  int id_;
 };
 
 // Checks that when iterating |list| (either from head to tail, or from
@@ -65,12 +77,12 @@ TEST(LinkedList, Empty) {
   LinkedList<Node> list;
   EXPECT_EQ(list.end(), list.head());
   EXPECT_EQ(list.end(), list.tail());
-  ExpectListContents(list, 0, NULL);
+  ExpectListContents(list, 0, nullptr);
 }
 
 TEST(LinkedList, Append) {
   LinkedList<Node> list;
-  ExpectListContents(list, 0, NULL);
+  ExpectListContents(list, 0, nullptr);
 
   Node n1(1);
   list.Append(&n1);
@@ -159,7 +171,7 @@ TEST(LinkedList, RemoveFromList) {
   n2.RemoveFromList();
   n4.RemoveFromList();
 
-  ExpectListContents(list, 0, NULL);
+  ExpectListContents(list, 0, nullptr);
   EXPECT_EQ(list.end(), list.head());
   EXPECT_EQ(list.end(), list.tail());
 
@@ -300,8 +312,37 @@ TEST(LinkedList, RemovedNodeHasNullNextPrevious) {
   list.Append(&n);
   n.RemoveFromList();
 
-  EXPECT_EQ(NULL, n.next());
-  EXPECT_EQ(NULL, n.previous());
+  EXPECT_EQ(nullptr, n.next());
+  EXPECT_EQ(nullptr, n.previous());
+}
+
+TEST(LinkedList, NodeMoveConstructor) {
+  LinkedList<MovableNode> list;
+
+  MovableNode n1(1);
+  MovableNode n2(2);
+  MovableNode n3(3);
+
+  list.Append(&n1);
+  list.Append(&n2);
+  list.Append(&n3);
+
+  EXPECT_EQ(&n1, n2.previous());
+  EXPECT_EQ(&n2, n1.next());
+  EXPECT_EQ(&n3, n2.next());
+  EXPECT_EQ(&n2, n3.previous());
+  EXPECT_EQ(2, n2.id());
+
+  MovableNode n2_new(std::move(n2));
+
+  EXPECT_EQ(nullptr, n2.next());
+  EXPECT_EQ(nullptr, n2.previous());
+
+  EXPECT_EQ(&n1, n2_new.previous());
+  EXPECT_EQ(&n2_new, n1.next());
+  EXPECT_EQ(&n3, n2_new.next());
+  EXPECT_EQ(&n2_new, n3.previous());
+  EXPECT_EQ(2, n2_new.id());
 }
 
 }  // namespace

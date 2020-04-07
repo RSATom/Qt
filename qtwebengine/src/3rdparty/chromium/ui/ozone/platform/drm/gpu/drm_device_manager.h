@@ -9,13 +9,13 @@
 #include <memory>
 #include <vector>
 
+#include "base/files/file.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "ui/gfx/native_widget_types.h"
 
 namespace base {
 class FilePath;
-struct FileDescriptor;
 }
 
 namespace ui {
@@ -33,7 +33,7 @@ class DrmDeviceManager {
   ~DrmDeviceManager();
 
   // The first device registered is assumed to be the primary device.
-  bool AddDrmDevice(const base::FilePath& path, const base::FileDescriptor& fd);
+  bool AddDrmDevice(const base::FilePath& path, base::File file);
   void RemoveDrmDevice(const base::FilePath& path);
 
   // Updates the device associated with |widget|.
@@ -46,9 +46,6 @@ class DrmDeviceManager {
   // Returns the device associated with |widget|. If there is no association
   // returns |primary_device_|.
   scoped_refptr<DrmDevice> GetDrmDevice(gfx::AcceleratedWidget widget);
-
-  // Returns |primary_device_|.
-  scoped_refptr<DrmDevice> GetPrimaryDrmDevice();
 
   const DrmDeviceVector& GetDrmDevices() const;
 

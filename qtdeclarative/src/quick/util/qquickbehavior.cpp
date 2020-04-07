@@ -57,7 +57,7 @@ class QQuickBehaviorPrivate : public QObjectPrivate, public QAnimationJobChangeL
 {
     Q_DECLARE_PUBLIC(QQuickBehavior)
 public:
-    QQuickBehaviorPrivate() : animation(0), animationInstance(0), enabled(true), finalized(false)
+    QQuickBehaviorPrivate() : animation(nullptr), animationInstance(nullptr), enabled(true), finalized(false)
       , blockRunningChanged(false) {}
 
     void animationStateChanged(QAbstractAnimationJob *, QAbstractAnimationJob::State newState, QAbstractAnimationJob::State oldState) override;
@@ -77,7 +77,7 @@ public:
     \inqmlmodule QtQuick
     \ingroup qtquick-transitions-animations
     \ingroup qtquick-interceptors
-    \brief Defines a default animation for a property change
+    \brief Defines a default animation for a property change.
 
     A Behavior defines the default animation to be applied whenever a
     particular property value changes.

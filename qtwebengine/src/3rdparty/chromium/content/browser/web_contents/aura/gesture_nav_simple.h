@@ -9,6 +9,7 @@
 
 #include "base/macros.h"
 #include "content/browser/renderer_host/overscroll_controller_delegate.h"
+#include "content/common/content_export.h"
 
 namespace content {
 
@@ -17,7 +18,7 @@ class WebContentsImpl;
 
 // A simple delegate for the overscroll controller that paints an arrow on top
 // of the web-contents as a hint for pending navigations from overscroll.
-class GestureNavSimple : public OverscrollControllerDelegate {
+class CONTENT_EXPORT GestureNavSimple : public OverscrollControllerDelegate {
  public:
   explicit GestureNavSimple(WebContentsImpl* web_contents);
   ~GestureNavSimple() override;
@@ -27,22 +28,28 @@ class GestureNavSimple : public OverscrollControllerDelegate {
   void OnAffordanceAnimationEnded();
 
  private:
-  void AbortGestureAnimation();
-  void CompleteGestureAnimation();
+  friend class GestureNavSimpleTest;
 
   // OverscrollControllerDelegate:
-  gfx::Size GetVisibleSize() const override;
   gfx::Size GetDisplaySize() const override;
   bool OnOverscrollUpdate(float delta_x, float delta_y) override;
   void OnOverscrollComplete(OverscrollMode overscroll_mode) override;
   void OnOverscrollModeChange(OverscrollMode old_mode,
                               OverscrollMode new_mode,
-                              OverscrollSource source) override;
+                              OverscrollSource source,
+                              cc::OverscrollBehavior behavior) override;
   base::Optional<float> GetMaxOverscrollDelta() const override;
 
-  WebContentsImpl* web_contents_;
+  WebContentsImpl* web_contents_ = nullptr;
+
+  OverscrollMode mode_ = OVERSCROLL_NONE;
+  OverscrollSource source_ = OverscrollSource::NONE;
   std::unique_ptr<Affordance> affordance_;
-  float completion_threshold_;
+  float completion_threshold_ = 0.f;
+
+  // When an overscroll is active, represents the maximum overscroll delta we
+  // expect in OnOverscrollUpdate().
+  float max_delta_ = 0.f;
 
   DISALLOW_COPY_AND_ASSIGN(GestureNavSimple);
 };

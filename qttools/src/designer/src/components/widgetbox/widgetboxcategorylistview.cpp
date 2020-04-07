@@ -28,22 +28,22 @@
 
 #include "widgetboxcategorylistview.h"
 
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerWidgetDataBaseInterface>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/abstractwidgetdatabase.h>
 
-#include <QtXml/QDomDocument>
+#include <QtXml/qdom.h>
 
-#include <QtGui/QIcon>
-#include <QtGui/QRegularExpressionValidator>
-#include <QtWidgets/QListView>
-#include <QtWidgets/QLineEdit>
-#include <QtWidgets/QItemDelegate>
-#include <QtCore/QSortFilterProxyModel>
+#include <QtGui/qicon.h>
+#include <QtGui/qvalidator.h>
+#include <QtWidgets/qlistview.h>
+#include <QtWidgets/qlineedit.h>
+#include <QtWidgets/qitemdelegate.h>
+#include <QtCore/qsortfilterproxymodel.h>
 
-#include <QtCore/QAbstractListModel>
-#include <QtCore/QList>
-#include <QtCore/QTextStream>
-#include <QtCore/QRegularExpression>
+#include <QtCore/qabstractitemmodel.h>
+#include <QtCore/qlist.h>
+#include <QtCore/qtextstream.h>
+#include <QtCore/qregularexpression.h>
 
 static const char *widgetElementC = "widget";
 static const char *nameAttributeC = "name";
@@ -108,11 +108,11 @@ public:
     explicit WidgetBoxCategoryModel(QDesignerFormEditorInterface *core, QObject *parent = 0);
 
     // QAbstractListModel
-    QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const Q_DECL_OVERRIDE;
-    int rowCount(const QModelIndex &parent = QModelIndex()) const Q_DECL_OVERRIDE;
-    bool setData(const QModelIndex & index, const QVariant & value, int role = Qt::EditRole) Q_DECL_OVERRIDE;
-    Qt::ItemFlags flags (const QModelIndex & index ) const Q_DECL_OVERRIDE;
-    bool removeRows(int row, int count, const QModelIndex &parent = QModelIndex()) Q_DECL_OVERRIDE;
+    QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
+    int rowCount(const QModelIndex &parent = QModelIndex()) const override;
+    bool setData(const QModelIndex & index, const QVariant & value, int role = Qt::EditRole) override;
+    Qt::ItemFlags flags (const QModelIndex & index ) const override;
+    bool removeRows(int row, int count, const QModelIndex &parent = QModelIndex()) override;
 
     // The model returns no text in icon mode, so, it also needs to know it
     QListView::ViewMode viewMode() const;
@@ -339,7 +339,7 @@ public:
     explicit WidgetBoxCategoryEntryDelegate(QWidget *parent = 0) : QItemDelegate(parent) {}
     QWidget *createEditor(QWidget *parent,
                           const QStyleOptionViewItem &option,
-                          const QModelIndex &index) const;
+                          const QModelIndex &index) const override;
 };
 
 QWidget *WidgetBoxCategoryEntryDelegate::createEditor(QWidget *parent,

@@ -32,17 +32,12 @@ bool RequestPermissionTask(
 
 bool CheckSupportsRequestTask(
     const base::android::JavaRef<jobject>& java_provider) {
-  base::ThreadRestrictions::AssertIOAllowed();
+  base::AssertBlockingAllowed();
   JNIEnv* env = base::android::AttachCurrentThread();
   return Java_WebRestrictionsClient_supportsRequest(env, java_provider);
 }
 
 }  // namespace
-
-// static
-bool WebRestrictionsClient::Register(JNIEnv* env) {
-  return RegisterNativesImpl(env);
-}
 
 WebRestrictionsClient::WebRestrictionsClient()
     : initialized_(false), supports_request_(false) {

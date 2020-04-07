@@ -25,6 +25,7 @@
 
 namespace base {
 class ListValue;
+class TickClock;
 }
 
 namespace net {
@@ -75,13 +76,27 @@ class NET_EXPORT HostCache {
   // Stores the latest address list that was looked up for a hostname.
   class NET_EXPORT Entry {
    public:
-    Entry(int error, const AddressList& addresses, base::TimeDelta ttl);
+    enum Source : int {
+      // Address list was obtained from an unknown source.
+      SOURCE_UNKNOWN,
+      // Address list was obtained via a DNS lookup.
+      SOURCE_DNS,
+      // Address list was obtained by searching a HOSTS file.
+      SOURCE_HOSTS,
+    };
+
+    Entry(int error,
+          const AddressList& addresses,
+          Source source,
+          base::TimeDelta ttl);
     // Use when |ttl| is unknown.
-    Entry(int error, const AddressList& addresses);
+    Entry(int error, const AddressList& addresses, Source source);
+    Entry(Entry&& entry);
     ~Entry();
 
     int error() const { return error_; }
     const AddressList& addresses() const { return addresses_; }
+    Source source() const { return source_; }
     bool has_ttl() const { return ttl_ >= base::TimeDelta(); }
     base::TimeDelta ttl() const { return ttl_; }
 
@@ -100,6 +115,7 @@ class NET_EXPORT HostCache {
 
     Entry(int error,
           const AddressList& addresses,
+          Source source,
           base::TimeTicks expires,
           int network_changes);
 
@@ -115,11 +131,13 @@ class NET_EXPORT HostCache {
     // The resolve results for this entry.
     int error_;
     AddressList addresses_;
+    // Where addresses_ were obtained (e.g. DNS lookup, hosts file, etc).
+    Source source_;
     // TTL obtained from the nameserver. Negative if unknown.
     base::TimeDelta ttl_;
 
     base::TimeTicks expires_;
-    // Copied from the cache's network_changes_ when the entry is set; can0
+    // Copied from the cache's network_changes_ when the entry is set; can
     // later be compared to it to see if the entry was received on the current
     // network.
     int network_changes_;
@@ -137,7 +155,6 @@ class NET_EXPORT HostCache {
   };
 
   using EntryMap = std::map<Key, Entry>;
-  using EvictionCallback = base::Callback<void(const Key&, const Entry&)>;
 
   // Constructs a HostCache that stores up to |max_entries|.
   explicit HostCache(size_t max_entries);
@@ -163,14 +180,24 @@ class NET_EXPORT HostCache {
            base::TimeTicks now,
            base::TimeDelta ttl);
 
+  // Checks whether an entry exists for |hostname|.
+  // If so, returns true and writes the source (e.g. DNS, HOSTS file, etc.) to
+  // |source_out| and the staleness to |stale_out| (if they are not null).
+  // It tries using two common address_family and host_resolver_flag
+  // combinations when performing lookups in the cache; this means false
+  // negatives are possible, but unlikely.
+  bool HasEntry(base::StringPiece hostname,
+                HostCache::Entry::Source* source_out,
+                HostCache::EntryStaleness* stale_out);
+
   // Marks all entries as stale on account of a network change.
   void OnNetworkChange();
 
-  void set_eviction_callback(const EvictionCallback& callback) {
-    eviction_callback_ = callback;
-  }
-
   void set_persistence_delegate(PersistenceDelegate* delegate);
+
+  void set_tick_clock_for_testing(const base::TickClock* tick_clock) {
+    tick_clock_ = tick_clock;
+  }
 
   // Empties the cache.
   void clear();
@@ -188,6 +215,9 @@ class NET_EXPORT HostCache {
   // cache, skipping any that already have entries. Returns true on success,
   // false on failure.
   bool RestoreFromListValue(const base::ListValue& old_cache);
+  // Returns the number of entries that were restored in the last call to
+  // RestoreFromListValue().
+  size_t last_restore_size() const { return restore_size_; }
 
   // Returns the number of entries in the cache.
   size_t size() const;
@@ -227,16 +257,20 @@ class NET_EXPORT HostCache {
 
   void EvictOneEntry(base::TimeTicks now);
   // Helper to insert an Entry into the cache.
-  void AddEntry(const Key& key, const Entry& entry);
+  void AddEntry(const Key& key, Entry&& entry);
 
   // Map from hostname (presumably in lowercase canonicalized format) to
   // a resolved result entry.
   EntryMap entries_;
   size_t max_entries_;
   int network_changes_;
-  EvictionCallback eviction_callback_;
+  // Number of cache entries that were restored in the last call to
+  // RestoreFromListValue(). Used in histograms.
+  size_t restore_size_;
 
   PersistenceDelegate* delegate_;
+  // Shared tick clock, overridden for testing.
+  const base::TickClock* tick_clock_;
 
   THREAD_CHECKER(thread_checker_);
 

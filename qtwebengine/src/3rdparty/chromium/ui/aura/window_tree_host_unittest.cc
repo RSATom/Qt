@@ -4,10 +4,14 @@
 
 #include "ui/aura/test/aura_test_base.h"
 #include "ui/aura/test/test_screen.h"
+#include "ui/aura/test/window_event_dispatcher_test_api.h"
 #include "ui/aura/window.h"
+#include "ui/aura/window_tree_host_platform.h"
 #include "ui/base/ime/input_method.h"
 #include "ui/compositor/layer.h"
+#include "ui/compositor/test/draw_waiter_for_test.h"
 #include "ui/events/event_rewriter.h"
+#include "ui/platform_window/stub/stub_window.h"
 
 namespace {
 
@@ -61,17 +65,35 @@ TEST_F(WindowTreeHostTest, DPIWindowSize) {
   host()->SetRootTransform(transform);
   EXPECT_EQ(gfx::Rect(0, 1, 534, 401), root_window()->bounds());
 
-  gfx::Insets padding(1, 2, 3, 4);
-  // Padding is in physical pixels.
-  host()->SetOutputSurfacePaddingInPixels(padding);
-  gfx::Rect padded_rect = starting_bounds;
-  padded_rect.Inset(-padding);
-  EXPECT_EQ(padded_rect.size(), host()->compositor()->size());
   EXPECT_EQ(starting_bounds, host()->GetBoundsInPixels());
-  EXPECT_EQ(gfx::Rect(1, 1, 534, 401), root_window()->bounds());
+  EXPECT_EQ(gfx::Rect(0, 1, 534, 401), root_window()->bounds());
   EXPECT_EQ(gfx::Vector2dF(0, 0),
             host()->compositor()->root_layer()->subpixel_position_offset());
 }
+
+#if defined(OS_CHROMEOS)
+TEST_F(WindowTreeHostTest, HoldPointerMovesOnChildResizing) {
+  aura::WindowEventDispatcher* dispatcher = host()->dispatcher();
+
+  aura::test::WindowEventDispatcherTestApi dispatcher_api(dispatcher);
+
+  EXPECT_FALSE(dispatcher_api.HoldingPointerMoves());
+
+  // Signal to the ui::Compositor that a child is resizing. This will
+  // immediately trigger input throttling.
+  host()->compositor()->OnChildResizing();
+
+  // Pointer moves should be throttled until the next commit. This has the
+  // effect of prioritizing the resize event above other operations in aura.
+  EXPECT_TRUE(dispatcher_api.HoldingPointerMoves());
+
+  // Wait for a CompositorFrame to be submitted.
+  ui::DrawWaiterForTest::WaitForCompositingStarted(host()->compositor());
+
+  // Pointer moves should be routed normally after commit.
+  EXPECT_FALSE(dispatcher_api.HoldingPointerMoves());
+}
+#endif
 
 TEST_F(WindowTreeHostTest, NoRewritesPostIME) {
   CounterEventRewriter event_rewriter;
@@ -84,6 +106,46 @@ TEST_F(WindowTreeHostTest, NoRewritesPostIME) {
   EXPECT_EQ(0, event_rewriter.events_seen());
 
   host()->RemoveEventRewriter(&event_rewriter);
+}
+
+TEST_F(WindowTreeHostTest, ColorSpace) {
+  EXPECT_EQ(gfx::ColorSpace::CreateSRGB(),
+            host()->compositor()->output_color_space());
+  test_screen()->SetColorSpace(gfx::ColorSpace::CreateSCRGBLinear());
+  EXPECT_EQ(gfx::ColorSpace::CreateSCRGBLinear(),
+            host()->compositor()->output_color_space());
+}
+
+class TestWindow : public ui::StubWindow {
+ public:
+  explicit TestWindow(ui::PlatformWindowDelegate* delegate)
+      : StubWindow(delegate, false, gfx::Rect(400, 600)) {}
+  ~TestWindow() override {}
+
+ private:
+  // ui::StubWindow
+  void Close() override {
+    // It is possible for the window to receive capture-change messages during
+    // destruction, for example on Windows (see crbug.com/770670).
+    delegate()->OnLostCapture();
+  }
+
+  DISALLOW_COPY_AND_ASSIGN(TestWindow);
+};
+
+class TestWindowTreeHost : public WindowTreeHostPlatform {
+ public:
+  TestWindowTreeHost() {
+    SetPlatformWindow(std::make_unique<TestWindow>(this));
+    CreateCompositor();
+  }
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(TestWindowTreeHost);
+};
+
+TEST_F(WindowTreeHostTest, LostCaptureDuringTearDown) {
+  TestWindowTreeHost host;
 }
 
 }  // namespace aura

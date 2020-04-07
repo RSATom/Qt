@@ -67,6 +67,7 @@
 #include <QtQuick/private/qquickstate_p.h>
 #include <private/qquickitem_p.h>
 #include <QtQuick/private/qquickaccessibleattached_p.h>
+#include <QtQuick/private/qquickhoverhandler_p.h>
 #include <QtQuick/private/qquickpointerhandler_p.h>
 
 #include <private/qv4engine_p.h>
@@ -88,8 +89,9 @@ QT_BEGIN_NAMESPACE
 Q_DECLARE_LOGGING_CATEGORY(DBG_MOUSE_TARGET)
 Q_DECLARE_LOGGING_CATEGORY(DBG_HOVER_TRACE)
 Q_DECLARE_LOGGING_CATEGORY(lcTransient)
+Q_LOGGING_CATEGORY(lcHandlerParent, "qt.quick.handler.parent")
 
-void debugFocusTree(QQuickItem *item, QQuickItem *scope = 0, int depth = 1)
+void debugFocusTree(QQuickItem *item, QQuickItem *scope = nullptr, int depth = 1)
 {
     if (DBG_FOCUS().isEnabled(QtDebugMsg)) {
         qCDebug(DBG_FOCUS)
@@ -114,7 +116,7 @@ void debugFocusTree(QQuickItem *item, QQuickItem *scope = 0, int depth = 1)
     \instantiates QQuickTransform
     \inqmlmodule QtQuick
     \ingroup qtquick-visual-transforms
-    \brief For specifying advanced transformations on Items
+    \brief For specifying advanced transformations on Items.
 
     The Transform type is a base type which cannot be instantiated directly.
     The following concrete Transform types are available:
@@ -303,9 +305,9 @@ void QQuickContents::itemChildAdded(QQuickItem *, QQuickItem *item)
 }
 
 QQuickItemKeyFilter::QQuickItemKeyFilter(QQuickItem *item)
-: m_processPost(false), m_next(0)
+: m_processPost(false), m_next(nullptr)
 {
-    QQuickItemPrivate *p = item?QQuickItemPrivate::get(item):0;
+    QQuickItemPrivate *p = item?QQuickItemPrivate::get(item):nullptr;
     if (p) {
         m_next = p->extra.value().keyHandler;
         p->extra->keyHandler = this;
@@ -356,8 +358,8 @@ void QQuickItemKeyFilter::componentComplete()
     \qmltype KeyNavigation
     \instantiates QQuickKeyNavigationAttached
     \inqmlmodule QtQuick
-    \ingroup qtquick-input
-    \brief Supports key navigation by arrow keys
+    \ingroup qtquick-input-handlers
+    \brief Supports key navigation by arrow keys.
 
     Key-based user interfaces commonly allow the use of arrow keys to navigate between
     focusable items.  The KeyNavigation attached property enables this behavior by providing a
@@ -786,7 +788,7 @@ const SigMap sigMap[] = {
     { Qt::Key_Menu, "menuPressed" },
     { Qt::Key_VolumeUp, "volumeUpPressed" },
     { Qt::Key_VolumeDown, "volumeDownPressed" },
-    { 0, 0 }
+    { 0, nullptr }
 };
 
 QByteArray QQuickKeysAttached::keyToSignal(int key)
@@ -815,8 +817,8 @@ bool QQuickKeysAttached::isConnected(const char *signalName) const
     \qmltype Keys
     \instantiates QQuickKeysAttached
     \inqmlmodule QtQuick
-    \ingroup qtquick-input
-    \brief Provides key handling to Items
+    \ingroup qtquick-input-handlers
+    \brief Provides key handling to Items.
 
     All visual primitives support key handling via the Keys
     attached property.  Keys can be handled via the onPressed
@@ -1507,7 +1509,7 @@ QQuickKeysAttached *QQuickKeysAttached::qmlAttachedProperties(QObject *obj)
     \inqmlmodule QtQuick
     \ingroup qtquick-positioners
     \ingroup qml-utility-elements
-    \brief Property used to mirror layout behavior
+    \brief Property used to mirror layout behavior.
 
     The LayoutMirroring attached property is used to horizontally mirror \l {anchor-layout}{Item anchors},
     \l{Item Positioners}{positioner} types (such as \l Row and \l Grid)
@@ -1544,6 +1546,13 @@ QQuickKeysAttached *QQuickKeysAttached::qmlAttachedProperties(QObject *obj)
     mirroring is not the desired behavior, or if the child item already implements mirroring in
     some custom way.
 
+    To set the layout direction based on the \l {Default Layout Direction}{default layout direction}
+    of the application, use the following code:
+
+    \code
+    LayoutMirroring.enabled: Qt.application.layoutDirection === Qt.RightToLeft
+    \endcode
+
     See \l {Right-to-left User Interfaces} for further details on using \c LayoutMirroring and
     other related features to implement right-to-left support for an application.
 */
@@ -1570,7 +1579,7 @@ QQuickKeysAttached *QQuickKeysAttached::qmlAttachedProperties(QObject *obj)
 */
 
 
-QQuickLayoutMirroringAttached::QQuickLayoutMirroringAttached(QObject *parent) : QObject(parent), itemPrivate(0)
+QQuickLayoutMirroringAttached::QQuickLayoutMirroringAttached(QObject *parent) : QObject(parent), itemPrivate(nullptr)
 {
     if (QQuickItem *item = qobject_cast<QQuickItem *>(parent))
         itemPrivate = QQuickItemPrivate::get(item);
@@ -1724,7 +1733,7 @@ void QQuickItemPrivate::setLayoutMirror(bool mirror)
 */
 
 QQuickEnterKeyAttached::QQuickEnterKeyAttached(QObject *parent)
-    : QObject(parent), itemPrivate(0), keyType(Qt::EnterKeyDefault)
+    : QObject(parent), itemPrivate(nullptr), keyType(Qt::EnterKeyDefault)
 {
     if (QQuickItem *item = qobject_cast<QQuickItem*>(parent)) {
         itemPrivate = QQuickItemPrivate::get(item);
@@ -1777,7 +1786,7 @@ void QQuickItemPrivate::updateSubFocusItem(QQuickItem *scope, bool focus)
     if (oldSubFocusItem) {
         QQuickItem *sfi = scopePrivate->subFocusItem->parentItem();
         while (sfi && sfi != scope) {
-            QQuickItemPrivate::get(sfi)->subFocusItem = 0;
+            QQuickItemPrivate::get(sfi)->subFocusItem = nullptr;
             sfi = sfi->parentItem();
         }
     }
@@ -1790,7 +1799,7 @@ void QQuickItemPrivate::updateSubFocusItem(QQuickItem *scope, bool focus)
             sfi = sfi->parentItem();
         }
     } else {
-        scopePrivate->subFocusItem = 0;
+        scopePrivate->subFocusItem = nullptr;
     }
 }
 
@@ -1809,10 +1818,10 @@ void QQuickItemPrivate::updateSubFocusItem(QQuickItem *scope, bool focus)
 
     \section1 Custom Scene Graph Items
 
-    All visual QML items are rendered using the scene graph, a
-    low-level, high-performance rendering stack, closely tied to
-    OpenGL. It is possible for subclasses of QQuickItem to add their
-    own custom content into the scene graph by setting the
+    All visual QML items are rendered using the scene graph, the default
+    implementation of which is a low-level, high-performance rendering stack,
+    closely tied to OpenGL. It is possible for subclasses of QQuickItem to add
+    their own custom content into the scene graph by setting the
     QQuickItem::ItemHasContents flag and reimplementing the
     QQuickItem::updatePaintNode() function.
 
@@ -1917,7 +1926,7 @@ void QQuickItemPrivate::updateSubFocusItem(QQuickItem *scope, bool focus)
     \inherits QtObject
     \inqmlmodule QtQuick
     \ingroup qtquick-visual
-    \brief A basic visual QML type
+    \brief A basic visual QML type.
 
     The Item type is the base type for all visual items in Qt Quick.
 
@@ -2068,7 +2077,7 @@ void QQuickItemPrivate::updateSubFocusItem(QQuickItem *scope, bool focus)
     In the QPainter / QWidget world, it is some times favorable to
     cache complex content in a pixmap, image or texture. In Qt Quick,
     because of the techniques already applied by the \l {Qt Quick
-    Scene Graph Renderer} {scene graph renderer}, this will in most
+    Scene Graph OpenGL Renderer} {scene graph renderer}, this will in most
     cases not be the case. Excessive draw calls are already reduced
     because of batching and a cache will in most cases end up blending
     more pixels than the original content. The overhead of rendering
@@ -2348,6 +2357,9 @@ void QQuickItemPrivate::updateSubFocusItem(QQuickItem *scope, bool focus)
     \fn QQuickItem::QQuickItem(QQuickItem *parent)
 
     Constructs a QQuickItem with the given \a parent.
+
+    The \c parent will be used as both the \l {setParentItem()}{visual parent}
+    and the \l QObject parent.
 */
 QQuickItem::QQuickItem(QQuickItem* parent)
 : QObject(*(new QQuickItemPrivate), parent)
@@ -2375,13 +2387,13 @@ QQuickItem::~QQuickItem()
     if (d->windowRefCount > 1)
         d->windowRefCount = 1; // Make sure window is set to null in next call to derefWindow().
     if (d->parentItem)
-        setParentItem(0);
+        setParentItem(nullptr);
     else if (d->window)
         d->derefWindow();
 
     // XXX todo - optimize
     while (!d->childItems.isEmpty())
-        d->childItems.constFirst()->setParentItem(0);
+        d->childItems.constFirst()->setParentItem(nullptr);
 
     if (!d->changeListeners.isEmpty()) {
         const auto listeners = d->changeListeners; // NOTE: intentional copy (QTBUG-54732)
@@ -2421,14 +2433,14 @@ QQuickItem::~QQuickItem()
     }
 
     if (d->extra.isAllocated()) {
-        delete d->extra->contents; d->extra->contents = 0;
+        delete d->extra->contents; d->extra->contents = nullptr;
 #if QT_CONFIG(quick_shadereffect)
-        delete d->extra->layer; d->extra->layer = 0;
+        delete d->extra->layer; d->extra->layer = nullptr;
 #endif
     }
 
-    delete d->_anchors; d->_anchors = 0;
-    delete d->_stateGroup; d->_stateGroup = 0;
+    delete d->_anchors; d->_anchors = nullptr;
+    delete d->_stateGroup; d->_stateGroup = nullptr;
 }
 
 /*!
@@ -2443,19 +2455,18 @@ bool QQuickItemPrivate::canAcceptTabFocus(QQuickItem *item)
         return true;
 
 #if QT_CONFIG(accessibility)
-    if (QObject *acc = qmlAttachedPropertiesObject<QQuickAccessibleAttached>(item, false)) {
-        int role = acc->property("role").toInt();
-        if (role == QAccessible::EditableText
-                || role == QAccessible::Table
-                || role == QAccessible::List
-                || role == QAccessible::SpinBox) {
-            return true;
-        } else if (role == QAccessible::ComboBox) {
-            QAccessibleInterface *iface = QAccessible::queryAccessibleInterface(item);
+    QAccessible::Role role = QQuickItemPrivate::get(item)->accessibleRole();
+    if (role == QAccessible::EditableText || role == QAccessible::Table || role == QAccessible::List) {
+        return true;
+    } else if (role == QAccessible::ComboBox || role == QAccessible::SpinBox) {
+        if (QAccessibleInterface *iface = QAccessible::queryAccessibleInterface(item))
             return iface->state().editable;
-        }
     }
 #endif
+
+    QVariant editable = item->property("editable");
+    if (editable.isValid())
+        return editable.toBool();
 
     QVariant readonly = item->property("readOnly");
     if (readonly.isValid() && !readonly.toBool() && item->property("text").isValid())
@@ -2490,13 +2501,13 @@ QQuickItem *QQuickItemPrivate::nextTabChildItem(const QQuickItem *item, int star
 {
     if (!item) {
         qWarning() << "QQuickItemPrivate::nextTabChildItem called with null item.";
-        return Q_NULLPTR;
+        return nullptr;
     }
     const QList<QQuickItem *> &children = item->childItems();
     const int count = children.count();
     if (start < 0 || start >= count) {
         qWarning() << "QQuickItemPrivate::nextTabChildItem: Start index value out of range for item" << item;
-        return Q_NULLPTR;
+        return nullptr;
     }
     while (start < count) {
         QQuickItem *child = children.at(start);
@@ -2504,14 +2515,14 @@ QQuickItem *QQuickItemPrivate::nextTabChildItem(const QQuickItem *item, int star
             return child;
         ++start;
     }
-    return Q_NULLPTR;
+    return nullptr;
 }
 
 QQuickItem *QQuickItemPrivate::prevTabChildItem(const QQuickItem *item, int start)
 {
     if (!item) {
         qWarning() << "QQuickItemPrivate::prevTabChildItem called with null item.";
-        return Q_NULLPTR;
+        return nullptr;
     }
     const QList<QQuickItem *> &children = item->childItems();
     const int count = children.count();
@@ -2519,7 +2530,7 @@ QQuickItem *QQuickItemPrivate::prevTabChildItem(const QQuickItem *item, int star
         start = count - 1;
     if (start < 0 || start >= count) {
         qWarning() << "QQuickItemPrivate::prevTabChildItem: Start index value out of range for item" << item;
-        return Q_NULLPTR;
+        return nullptr;
     }
     while (start >= 0) {
         QQuickItem *child = children.at(start);
@@ -2527,7 +2538,7 @@ QQuickItem *QQuickItemPrivate::prevTabChildItem(const QQuickItem *item, int star
             return child;
         --start;
     }
-    return Q_NULLPTR;
+    return nullptr;
 }
 
 QQuickItem* QQuickItemPrivate::nextPrevItemInTabFocusChain(QQuickItem *item, bool forward)
@@ -2543,7 +2554,7 @@ QQuickItem* QQuickItemPrivate::nextPrevItemInTabFocusChain(QQuickItem *item, boo
 
     bool all = QGuiApplication::styleHints()->tabFocusBehavior() == Qt::TabFocusAllControls;
 
-    QQuickItem *from = 0;
+    QQuickItem *from = nullptr;
     bool isTabFence = item->d_func()->isTabFence;
     if (forward) {
         if (!isTabFence)
@@ -2555,8 +2566,19 @@ QQuickItem* QQuickItemPrivate::nextPrevItemInTabFocusChain(QQuickItem *item, boo
             from = item->parentItem();
     }
     bool skip = false;
-    QQuickItem * startItem = item;
-    QQuickItem * firstFromItem = from;
+
+    QQuickItem *startItem = item;
+    // Protect from endless loop:
+    // If we start on an invisible item we will not find it again.
+    // If there is no other item which can become the focus item, we have a forever loop,
+    // since the protection only works if we encounter the first item again.
+    while (startItem && !startItem->isVisible()) {
+        startItem = startItem->parentItem();
+    }
+    if (!startItem)
+        return item;
+
+    QQuickItem *firstFromItem = from;
     QQuickItem *current = item;
     qCDebug(DBG_FOCUS) << "QQuickItemPrivate::nextPrevItemInTabFocusChain: startItem:" << startItem;
     qCDebug(DBG_FOCUS) << "QQuickItemPrivate::nextPrevItemInTabFocusChain: firstFromItem:" << firstFromItem;
@@ -2567,8 +2589,8 @@ QQuickItem* QQuickItemPrivate::nextPrevItemInTabFocusChain(QQuickItem *item, boo
         QQuickItem *last = current;
 
         bool hasChildren = !current->childItems().isEmpty() && current->isEnabled() && current->isVisible();
-        QQuickItem *firstChild = Q_NULLPTR;
-        QQuickItem *lastChild = Q_NULLPTR;
+        QQuickItem *firstChild = nullptr;
+        QQuickItem *lastChild = nullptr;
         if (hasChildren) {
             firstChild = nextTabChildItem(current, 0);
             if (!firstChild)
@@ -2600,11 +2622,11 @@ QQuickItem* QQuickItemPrivate::nextPrevItemInTabFocusChain(QQuickItem *item, boo
             if (!current->childItems().isEmpty())
                 skip = true;
         // back to the parent
-        } else if (QQuickItem *parent = !isTabFence ? current->parentItem() : Q_NULLPTR) {
+        } else if (QQuickItem *parent = !isTabFence ? current->parentItem() : nullptr) {
             // we would evaluate the parent twice, thus we skip
             if (forward) {
                 skip = true;
-            } else if (QQuickItem *firstSibling = !forward ? nextTabChildItem(parent, 0) : Q_NULLPTR) {
+            } else if (QQuickItem *firstSibling = !forward ? nextTabChildItem(parent, 0) : nullptr) {
                 if (last != firstSibling
                     || (parent->isFocusScope() && parent->activeFocusOnTab() && parent->hasActiveFocus()))
                         skip = true;
@@ -2678,7 +2700,7 @@ void QQuickItem::setParentItem(QQuickItem *parentItem)
 
     if (parentItem) {
         QQuickItem *itemAncestor = parentItem;
-        while (itemAncestor != 0) {
+        while (itemAncestor != nullptr) {
             if (Q_UNLIKELY(itemAncestor == this)) {
                 qWarning() << "QQuickItem::setParentItem: Parent" << parentItem << "is already part of the subtree of" << this;
                 return;
@@ -2690,12 +2712,12 @@ void QQuickItem::setParentItem(QQuickItem *parentItem)
     d->removeFromDirtyList();
 
     QQuickItem *oldParentItem = d->parentItem;
-    QQuickItem *scopeFocusedItem = 0;
+    QQuickItem *scopeFocusedItem = nullptr;
 
     if (oldParentItem) {
         QQuickItemPrivate *op = QQuickItemPrivate::get(oldParentItem);
 
-        QQuickItem *scopeItem = 0;
+        QQuickItem *scopeItem = nullptr;
 
         if (hasFocus() || op->subFocusItem == this)
             scopeFocusedItem = this;
@@ -2725,7 +2747,7 @@ void QQuickItem::setParentItem(QQuickItem *parentItem)
         QQuickWindowPrivate::get(d->window)->parentlessItems.remove(this);
     }
 
-    QQuickWindow *parentWindow = parentItem ? QQuickItemPrivate::get(parentItem)->window : 0;
+    QQuickWindow *parentWindow = parentItem ? QQuickItemPrivate::get(parentItem)->window : nullptr;
     if (d->window == parentWindow) {
         // Avoid freeing and reallocating resources if the window stays the same.
         d->parentItem = parentItem;
@@ -2745,7 +2767,7 @@ void QQuickItem::setParentItem(QQuickItem *parentItem)
         QQuickWindowPrivate::get(d->window)->parentlessItems.insert(this);
 
     d->setEffectiveVisibleRecur(d->calcEffectiveVisible());
-    d->setEffectiveEnableRecur(0, d->calcEffectiveEnable());
+    d->setEffectiveEnableRecur(nullptr, d->calcEffectiveEnable());
 
     if (d->parentItem) {
         if (!scopeFocusedItem) {
@@ -2995,7 +3017,7 @@ void QQuickItemPrivate::refWindow(QQuickWindow *c)
     // derefWindow() decrements the reference count.
 
     Q_Q(QQuickItem);
-    Q_ASSERT((window != 0) == (windowRefCount > 0));
+    Q_ASSERT((window != nullptr) == (windowRefCount > 0));
     Q_ASSERT(c);
     if (++windowRefCount > 1) {
         if (c != window)
@@ -3003,7 +3025,7 @@ void QQuickItemPrivate::refWindow(QQuickWindow *c)
         return; // Window already set.
     }
 
-    Q_ASSERT(window == 0);
+    Q_ASSERT(window == nullptr);
     window = c;
 
     if (polishScheduled)
@@ -3027,7 +3049,7 @@ void QQuickItemPrivate::refWindow(QQuickWindow *c)
 void QQuickItemPrivate::derefWindow()
 {
     Q_Q(QQuickItem);
-    Q_ASSERT((window != 0) == (windowRefCount > 0));
+    Q_ASSERT((window != nullptr) == (windowRefCount > 0));
 
     if (!window)
         return; // This can happen when destroying recursive shader effect sources.
@@ -3043,7 +3065,7 @@ void QQuickItemPrivate::derefWindow()
     c->removeGrabber(q);
 #if QT_CONFIG(cursor)
     if (c->cursorItem == q) {
-        c->cursorItem = 0;
+        c->cursorItem = nullptr;
         window->unsetCursor();
     }
 #endif
@@ -3053,17 +3075,17 @@ void QQuickItemPrivate::derefWindow()
     if (!parentItem)
         c->parentlessItems.remove(q);
 
-    window = 0;
+    window = nullptr;
 
-    itemNodeInstance = 0;
+    itemNodeInstance = nullptr;
 
     if (extra.isAllocated()) {
-        extra->opacityNode = 0;
-        extra->clipNode = 0;
-        extra->rootNode = 0;
+        extra->opacityNode = nullptr;
+        extra->clipNode = nullptr;
+        extra->rootNode = nullptr;
     }
 
-    paintNode = 0;
+    paintNode = nullptr;
 
     for (int ii = 0; ii < childItems.count(); ++ii) {
         QQuickItem *child = childItems.at(ii);
@@ -3073,8 +3095,8 @@ void QQuickItemPrivate::derefWindow()
     dirty(Window);
 
     if (extra.isAllocated() && extra->screenAttached)
-        extra->screenAttached->windowChanged(0);
-    itemChange(QQuickItem::ItemSceneChange, (QQuickWindow *)0);
+        extra->screenAttached->windowChanged(nullptr);
+    itemChange(QQuickItem::ItemSceneChange, (QQuickWindow *)nullptr);
 }
 
 
@@ -3127,6 +3149,9 @@ void QQuickItemPrivate::itemToParentTransform(QTransform &t) const
 */
 QTransform QQuickItemPrivate::windowToGlobalTransform() const
 {
+    if (Q_UNLIKELY(window == nullptr))
+        return QTransform();
+
     QPoint quickWidgetOffset;
     QWindow *renderWindow = QQuickRenderControl::renderWindowFor(window, &quickWidgetOffset);
     QPointF pos = (renderWindow ? renderWindow : window)->mapToGlobal(quickWidgetOffset);
@@ -3138,6 +3163,9 @@ QTransform QQuickItemPrivate::windowToGlobalTransform() const
 */
 QTransform QQuickItemPrivate::globalToWindowTransform() const
 {
+    if (Q_UNLIKELY(window == nullptr))
+        return QTransform();
+
     QPoint quickWidgetOffset;
     QWindow *renderWindow = QQuickRenderControl::renderWindowFor(window, &quickWidgetOffset);
     QPointF pos = (renderWindow ? renderWindow : window)->mapToGlobal(quickWidgetOffset);
@@ -3160,8 +3188,8 @@ bool QQuickItem::isComponentComplete() const
 }
 
 QQuickItemPrivate::QQuickItemPrivate()
-    : _anchors(0)
-    , _stateGroup(0)
+    : _anchors(nullptr)
+    , _stateGroup(nullptr)
     , flags(0)
     , widthValid(false)
     , heightValid(false)
@@ -3202,13 +3230,13 @@ QQuickItemPrivate::QQuickItemPrivate()
     , touchEnabled(false)
 #endif
     , dirtyAttributes(0)
-    , nextDirtyItem(0)
-    , prevDirtyItem(0)
-    , window(0)
+    , nextDirtyItem(nullptr)
+    , prevDirtyItem(nullptr)
+    , window(nullptr)
     , windowRefCount(0)
-    , parentItem(0)
+    , parentItem(nullptr)
     , sortedChildItems(&childItems)
-    , subFocusItem(0)
+    , subFocusItem(nullptr)
     , x(0)
     , y(0)
     , width(0)
@@ -3216,8 +3244,8 @@ QQuickItemPrivate::QQuickItemPrivate()
     , implicitWidth(0)
     , implicitHeight(0)
     , baselineOffset(0)
-    , itemNodeInstance(0)
-    , paintNode(0)
+    , itemNodeInstance(nullptr)
+    , paintNode(nullptr)
 {
 }
 
@@ -3253,12 +3281,11 @@ void QQuickItemPrivate::data_append(QQmlListProperty<QObject> *prop, QObject *o)
         if (o->inherits("QGraphicsItem"))
             qWarning("Cannot add a QtQuick 1.0 item (%s) into a QtQuick 2.0 scene!", o->metaObject()->className());
         else if (QQuickPointerHandler *pointerHandler = qmlobject_cast<QQuickPointerHandler *>(o)) {
-            Q_ASSERT(pointerHandler->parentItem() == that);
-            // Accept all buttons, and leave filtering to pointerEvent() and/or user JS,
-            // because there can be multiple handlers...
-            that->setAcceptedMouseButtons(Qt::AllButtons);
-            QQuickItemPrivate *p = QQuickItemPrivate::get(that);
-            p->extra.value().pointerHandlers.prepend(pointerHandler);
+            if (pointerHandler->parent() != that) {
+                qCDebug(lcHandlerParent) << "reparenting handler" << pointerHandler << ":" << pointerHandler->parent() << "->" << that;
+                pointerHandler->setParent(that);
+            }
+            QQuickItemPrivate::get(that)->addPointerHandler(pointerHandler);
         } else {
             QQuickWindow *thisWindow = qmlobject_cast<QQuickWindow *>(o);
             QQuickItem *item = that;
@@ -3342,7 +3369,7 @@ QObject *QQuickItemPrivate::data_at(QQmlListProperty<QObject> *property, int i)
     const int j = i - resourcesCount;
     if (j < children_count(&childrenProperty))
         return children_at(&childrenProperty, j);
-    return 0;
+    return nullptr;
 }
 
 void QQuickItemPrivate::data_clear(QQmlListProperty<QObject> *property)
@@ -3396,7 +3423,7 @@ QQuickItem *QQuickItemPrivate::children_at(QQmlListProperty<QQuickItem> *prop, i
 {
     QQuickItemPrivate *p = QQuickItemPrivate::get(static_cast<QQuickItem *>(prop->object));
     if (index >= p->childItems.count() || index < 0)
-        return 0;
+        return nullptr;
     else
         return p->childItems.at(index);
 }
@@ -3408,7 +3435,7 @@ void QQuickItemPrivate::children_append(QQmlListProperty<QQuickItem> *prop, QQui
 
     QQuickItem *that = static_cast<QQuickItem *>(prop->object);
     if (o->parentItem() == that)
-        o->setParentItem(0);
+        o->setParentItem(nullptr);
 
     o->setParentItem(that);
 }
@@ -3424,7 +3451,7 @@ void QQuickItemPrivate::children_clear(QQmlListProperty<QQuickItem> *prop)
     QQuickItem *that = static_cast<QQuickItem *>(prop->object);
     QQuickItemPrivate *p = QQuickItemPrivate::get(that);
     while (!p->childItems.isEmpty())
-        p->childItems.at(0)->setParentItem(0);
+        p->childItems.at(0)->setParentItem(nullptr);
 }
 
 int QQuickItemPrivate::visibleChildren_count(QQmlListProperty<QQuickItem> *prop)
@@ -3444,14 +3471,14 @@ QQuickItem *QQuickItemPrivate::visibleChildren_at(QQmlListProperty<QQuickItem> *
     QQuickItemPrivate *p = QQuickItemPrivate::get(static_cast<QQuickItem *>(prop->object));
     const int childCount = p->childItems.count();
     if (index >= childCount || index < 0)
-        return 0;
+        return nullptr;
 
     int visibleCount = -1;
     for (int i = 0; i < childCount; i++) {
         if (p->childItems.at(i)->isVisible()) visibleCount++;
         if (visibleCount == index) return p->childItems.at(i);
     }
-    return 0;
+    return nullptr;
 }
 
 int QQuickItemPrivate::transform_count(QQmlListProperty<QQuickTransform> *prop)
@@ -3515,7 +3542,7 @@ QQuickTransform *QQuickItemPrivate::transform_at(QQmlListProperty<QQuickTransfor
     QQuickItemPrivate *p = QQuickItemPrivate::get(that);
 
     if (idx < 0 || idx >= p->transforms.count())
-        return 0;
+        return nullptr;
     else
         return p->transforms.at(idx);
 }
@@ -3662,7 +3689,7 @@ void QQuickItemPrivate::siblingOrderChanged()
 
 QQmlListProperty<QObject> QQuickItemPrivate::data()
 {
-    return QQmlListProperty<QObject>(q_func(), 0, QQuickItemPrivate::data_append,
+    return QQmlListProperty<QObject>(q_func(), nullptr, QQuickItemPrivate::data_append,
                                              QQuickItemPrivate::data_count,
                                              QQuickItemPrivate::data_at,
                                              QQuickItemPrivate::data_clear);
@@ -3841,11 +3868,11 @@ QSGNode *QQuickItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *upda
 {
     Q_UNUSED(updatePaintNodeData)
     delete oldNode;
-    return 0;
+    return nullptr;
 }
 
 QQuickItem::UpdatePaintNodeData::UpdatePaintNodeData()
-: transformNode(0)
+: transformNode(nullptr)
 {
 }
 
@@ -3892,6 +3919,16 @@ void QQuickItemPrivate::addItemChangeListener(QQuickItemChangeListener *listener
     changeListeners.append(ChangeListener(listener, types));
 }
 
+void QQuickItemPrivate::updateOrAddItemChangeListener(QQuickItemChangeListener *listener, ChangeTypes types)
+{
+    const ChangeListener changeListener(listener, types);
+    const int index = changeListeners.indexOf(changeListener);
+    if (index > -1)
+        changeListeners[index].types = changeListener.types;
+    else
+        changeListeners.append(changeListener);
+}
+
 void QQuickItemPrivate::removeItemChangeListener(QQuickItemChangeListener *listener, ChangeTypes types)
 {
     ChangeListener change(listener, types);
@@ -3926,6 +3963,8 @@ void QQuickItemPrivate::updateOrRemoveGeometryChangeListener(QQuickItemChangeLis
     This event handler can be reimplemented in a subclass to receive key
     press events for an item. The event information is provided by the
     \a event parameter.
+
+    \input item.qdocinc accepting-events
   */
 void QQuickItem::keyPressEvent(QKeyEvent *event)
 {
@@ -3936,6 +3975,8 @@ void QQuickItem::keyPressEvent(QKeyEvent *event)
     This event handler can be reimplemented in a subclass to receive key
     release events for an item. The event information is provided by the
     \a event parameter.
+
+    \input item.qdocinc accepting-events
   */
 void QQuickItem::keyReleaseEvent(QKeyEvent *event)
 {
@@ -3947,6 +3988,8 @@ void QQuickItem::keyReleaseEvent(QKeyEvent *event)
     This event handler can be reimplemented in a subclass to receive input
     method events for an item. The event information is provided by the
     \a event parameter.
+
+    \input item.qdocinc accepting-events
   */
 void QQuickItem::inputMethodEvent(QInputMethodEvent *event)
 {
@@ -3956,8 +3999,13 @@ void QQuickItem::inputMethodEvent(QInputMethodEvent *event)
 
 /*!
     This event handler can be reimplemented in a subclass to receive focus-in
-    events for an item. The event information is provided by the
-    \a event parameter.
+    events for an item. The event information is provided by the \c event
+    parameter.
+
+    \input item.qdocinc accepting-events
+
+    If you do reimplement this function, you should call the base class
+    implementation.
   */
 void QQuickItem::focusInEvent(QFocusEvent * /*event*/)
 {
@@ -3973,8 +4021,10 @@ void QQuickItem::focusInEvent(QFocusEvent * /*event*/)
 
 /*!
     This event handler can be reimplemented in a subclass to receive focus-out
-    events for an item. The event information is provided by the
-    \a event parameter.
+    events for an item. The event information is provided by the \c event
+    parameter.
+
+    \input item.qdocinc accepting-events
   */
 void QQuickItem::focusOutEvent(QFocusEvent * /*event*/)
 {
@@ -3984,6 +4034,8 @@ void QQuickItem::focusOutEvent(QFocusEvent * /*event*/)
     This event handler can be reimplemented in a subclass to receive mouse
     press events for an item. The event information is provided by the
     \a event parameter.
+
+    \input item.qdocinc accepting-events
   */
 void QQuickItem::mousePressEvent(QMouseEvent *event)
 {
@@ -3994,6 +4046,8 @@ void QQuickItem::mousePressEvent(QMouseEvent *event)
     This event handler can be reimplemented in a subclass to receive mouse
     move events for an item. The event information is provided by the
     \a event parameter.
+
+    \input item.qdocinc accepting-events
   */
 void QQuickItem::mouseMoveEvent(QMouseEvent *event)
 {
@@ -4004,6 +4058,8 @@ void QQuickItem::mouseMoveEvent(QMouseEvent *event)
     This event handler can be reimplemented in a subclass to receive mouse
     release events for an item. The event information is provided by the
     \a event parameter.
+
+    \input item.qdocinc accepting-events
   */
 void QQuickItem::mouseReleaseEvent(QMouseEvent *event)
 {
@@ -4014,6 +4070,8 @@ void QQuickItem::mouseReleaseEvent(QMouseEvent *event)
     This event handler can be reimplemented in a subclass to receive mouse
     double-click events for an item. The event information is provided by the
     \a event parameter.
+
+    \input item.qdocinc accepting-events
   */
 void QQuickItem::mouseDoubleClickEvent(QMouseEvent *)
 {
@@ -4022,8 +4080,6 @@ void QQuickItem::mouseDoubleClickEvent(QMouseEvent *)
 /*!
     This event handler can be reimplemented in a subclass to be notified
     when a mouse ungrab event has occurred on this item.
-
-    \sa ungrabMouse()
   */
 void QQuickItem::mouseUngrabEvent()
 {
@@ -4044,6 +4100,8 @@ void QQuickItem::touchUngrabEvent()
     This event handler can be reimplemented in a subclass to receive
     wheel events for an item. The event information is provided by the
     \a event parameter.
+
+    \input item.qdocinc accepting-events
   */
 void QQuickItem::wheelEvent(QWheelEvent *event)
 {
@@ -4055,6 +4113,8 @@ void QQuickItem::wheelEvent(QWheelEvent *event)
     This event handler can be reimplemented in a subclass to receive touch
     events for an item. The event information is provided by the
     \a event parameter.
+
+    \input item.qdocinc accepting-events
   */
 void QQuickItem::touchEvent(QTouchEvent *event)
 {
@@ -4067,6 +4127,8 @@ void QQuickItem::touchEvent(QTouchEvent *event)
     \a event parameter.
 
     Hover events are only provided if acceptHoverEvents() is true.
+
+    \input item.qdocinc accepting-events
   */
 void QQuickItem::hoverEnterEvent(QHoverEvent *event)
 {
@@ -4079,6 +4141,8 @@ void QQuickItem::hoverEnterEvent(QHoverEvent *event)
     \a event parameter.
 
     Hover events are only provided if acceptHoverEvents() is true.
+
+    \input item.qdocinc accepting-events
   */
 void QQuickItem::hoverMoveEvent(QHoverEvent *event)
 {
@@ -4091,6 +4155,8 @@ void QQuickItem::hoverMoveEvent(QHoverEvent *event)
     \a event parameter.
 
     Hover events are only provided if acceptHoverEvents() is true.
+
+    \input item.qdocinc accepting-events
   */
 void QQuickItem::hoverLeaveEvent(QHoverEvent *event)
 {
@@ -4105,6 +4171,8 @@ void QQuickItem::hoverLeaveEvent(QHoverEvent *event)
 
     Drag and drop events are only provided if the ItemAcceptsDrops flag
     has been set for this item.
+
+    \input item.qdocinc accepting-events
 
     \sa Drag, {Drag and Drop}
   */
@@ -4121,6 +4189,8 @@ void QQuickItem::dragEnterEvent(QDragEnterEvent *event)
     Drag and drop events are only provided if the ItemAcceptsDrops flag
     has been set for this item.
 
+    \input item.qdocinc accepting-events
+
     \sa Drag, {Drag and Drop}
   */
 void QQuickItem::dragMoveEvent(QDragMoveEvent *event)
@@ -4136,6 +4206,8 @@ void QQuickItem::dragMoveEvent(QDragMoveEvent *event)
     Drag and drop events are only provided if the ItemAcceptsDrops flag
     has been set for this item.
 
+    \input item.qdocinc accepting-events
+
     \sa Drag, {Drag and Drop}
   */
 void QQuickItem::dragLeaveEvent(QDragLeaveEvent *event)
@@ -4150,6 +4222,8 @@ void QQuickItem::dragLeaveEvent(QDragLeaveEvent *event)
 
     Drag and drop events are only provided if the ItemAcceptsDrops flag
     has been set for this item.
+
+    \input item.qdocinc accepting-events
 
     \sa Drag, {Drag and Drop}
   */
@@ -4393,6 +4467,8 @@ void QQuickItem::polish()
     item's coordinate system, to this item's coordinate system, and returns a \l point or \l rect
     matching the mapped coordinate.
 
+    \input item.qdocinc mapping
+
     If \a item is a \c null value, this maps the point or rect from the coordinate system of
     the root QML view.
 */
@@ -4410,7 +4486,7 @@ void QQuickItem::mapFromItem(QQmlV4Function *args) const
     QV4::Scope scope(v4);
     QV4::ScopedValue item(scope, (*args)[0]);
 
-    QQuickItem *itemObj = 0;
+    QQuickItem *itemObj = nullptr;
     if (!item->isNull()) {
         QV4::Scoped<QV4::QObjectWrapper> qobjectWrapper(scope, item->as<QV4::QObjectWrapper>());
         if (qobjectWrapper)
@@ -4481,6 +4557,8 @@ QTransform QQuickItem::itemTransform(QQuickItem *other, bool *ok) const
     item's coordinate system, to \a item's coordinate system, and returns a \l point or \l rect
     matching the mapped coordinate.
 
+    \input item.qdocinc mapping
+
     If \a item is a \c null value, this maps the point or rect to the coordinate system of the
     root QML view.
 */
@@ -4498,7 +4576,7 @@ void QQuickItem::mapToItem(QQmlV4Function *args) const
     QV4::Scope scope(v4);
     QV4::ScopedValue item(scope, (*args)[0]);
 
-    QQuickItem *itemObj = 0;
+    QQuickItem *itemObj = nullptr;
     if (!item->isNull()) {
         QV4::Scoped<QV4::QObjectWrapper> qobjectWrapper(scope, item->as<QV4::QObjectWrapper>());
         if (qobjectWrapper)
@@ -4550,6 +4628,8 @@ void QQuickItem::mapToItem(QQmlV4Function *args) const
 
     Maps the point (\a x, \a y), which is in the global coordinate system, to the
     item's coordinate system, and returns a \l point  matching the mapped coordinate.
+
+    \input item.qdocinc mapping
 */
 /*!
     \internal
@@ -4585,6 +4665,8 @@ void QQuickItem::mapFromGlobal(QQmlV4Function *args) const
 
     Maps the point (\a x, \a y), which is in this item's coordinate system, to the
     global coordinate system, and returns a \l point  matching the mapped coordinate.
+
+    \input item.qdocinc mapping
 */
 /*!
     \internal
@@ -4716,7 +4798,7 @@ QQuickItem *QQuickItem::nextItemInFocusChain(bool forward)
     Returns the first visible child item found at point (\a x, \a y) within
     the coordinate system of this item.
 
-    Returns 0 if there is no such item.
+    Returns \nullptr if there is no such item.
 */
 QQuickItem *QQuickItem::childAt(qreal x, qreal y) const
 {
@@ -4731,12 +4813,12 @@ QQuickItem *QQuickItem::childAt(qreal x, qreal y) const
                 && child->height() > point.y())
             return child;
     }
-    return 0;
+    return nullptr;
 }
 
 QQmlListProperty<QObject> QQuickItemPrivate::resources()
 {
-    return QQmlListProperty<QObject>(q_func(), 0, QQuickItemPrivate::resources_append,
+    return QQmlListProperty<QObject>(q_func(), nullptr, QQuickItemPrivate::resources_append,
                                              QQuickItemPrivate::resources_count,
                                              QQuickItemPrivate::resources_at,
                                              QQuickItemPrivate::resources_clear);
@@ -4761,7 +4843,7 @@ QQmlListProperty<QObject> QQuickItemPrivate::resources()
 */
 QQmlListProperty<QQuickItem> QQuickItemPrivate::children()
 {
-    return QQmlListProperty<QQuickItem>(q_func(), 0, QQuickItemPrivate::children_append,
+    return QQmlListProperty<QQuickItem>(q_func(), nullptr, QQuickItemPrivate::children_append,
                                              QQuickItemPrivate::children_count,
                                              QQuickItemPrivate::children_at,
                                              QQuickItemPrivate::children_clear);
@@ -4781,7 +4863,7 @@ QQmlListProperty<QQuickItem> QQuickItemPrivate::children()
 QQmlListProperty<QQuickItem> QQuickItemPrivate::visibleChildren()
 {
     return QQmlListProperty<QQuickItem>(q_func(),
-                                        0,
+                                        nullptr,
                                         QQuickItemPrivate::visibleChildren_count,
                                         QQuickItemPrivate::visibleChildren_at);
 
@@ -4931,7 +5013,7 @@ void QQuickItem::setState(const QString &state)
   */
 QQmlListProperty<QQuickTransform> QQuickItem::transform()
 {
-    return QQmlListProperty<QQuickTransform>(this, 0, QQuickItemPrivate::transform_append,
+    return QQmlListProperty<QQuickTransform>(this, nullptr, QQuickItemPrivate::transform_append,
                                                      QQuickItemPrivate::transform_count,
                                                      QQuickItemPrivate::transform_at,
                                                      QQuickItemPrivate::transform_clear);
@@ -5126,6 +5208,17 @@ void QQuickItemPrivate::deliverShortcutOverrideEvent(QKeyEvent *event)
     }
 }
 
+bool QQuickItemPrivate::anyPointerHandlerWants(QQuickEventPoint *point) const
+{
+    if (!hasPointerHandlers())
+        return false;
+    for (QQuickPointerHandler *handler : extra->pointerHandlers) {
+        if (handler->wantsEventPoint(point))
+            return true;
+    }
+    return false;
+}
+
 /*!
     \internal
     Deliver the \a event to all PointerHandlers which are in the pre-determined
@@ -5179,8 +5272,8 @@ void QQuickItem::updateInputMethod(Qt::InputMethodQueries queries)
 }
 #endif // im
 
-/*! \internal */
 // XXX todo - do we want/need this anymore?
+/*! \internal */
 QRectF QQuickItem::boundingRect() const
 {
     Q_D(const QQuickItem);
@@ -6065,8 +6158,8 @@ void QQuickItemPrivate::removeFromDirtyList()
     if (prevDirtyItem) {
         if (nextDirtyItem) QQuickItemPrivate::get(nextDirtyItem)->prevDirtyItem = prevDirtyItem;
         *prevDirtyItem = nextDirtyItem;
-        prevDirtyItem = 0;
-        nextDirtyItem = 0;
+        prevDirtyItem = nullptr;
+        nextDirtyItem = nullptr;
     }
     Q_ASSERT(!prevDirtyItem);
     Q_ASSERT(!nextDirtyItem);
@@ -7129,13 +7222,13 @@ bool QQuickItem::isFocusScope() const
     If this item is a focus scope, this returns the item in its focus chain
     that currently has focus.
 
-    Returns 0 if this item is not a focus scope.
+    Returns \nullptr if this item is not a focus scope.
   */
 QQuickItem *QQuickItem::scopedFocusItem() const
 {
     Q_D(const QQuickItem);
     if (!isFocusScope())
-        return 0;
+        return nullptr;
     else
         return d->subFocusItem;
 }
@@ -7329,6 +7422,8 @@ void QQuickItemPrivate::setHasHoverInChild(bool hasHover)
             QQuickItemPrivate *otherChildPrivate = QQuickItemPrivate::get(otherChild);
             if (otherChildPrivate->subtreeHoverEnabled || otherChildPrivate->hoverEnabled)
                 return; // nope! sorry, something else wants it kept on.
+            if (otherChildPrivate->hasHoverHandlers())
+                return; // nope! sorry, we have pointer handlers which are interested.
         }
     }
 
@@ -7449,11 +7544,8 @@ void QQuickItem::grabMouse()
     auto point = fromTouch ?
         windowPriv->pointerEventInstance(windowPriv->touchMouseDevice)->pointById(windowPriv->touchMouseId) :
         windowPriv->pointerEventInstance(QQuickPointerDevice::genericMouseDevice())->point(0);
-    if (point) {
-        QQuickItem *oldGrabber = point->grabberItem();
+    if (point)
         point->setGrabberItem(this);
-        windowPriv->sendUngrabEvent(oldGrabber, fromTouch);
-    }
 }
 
 /*!
@@ -7601,15 +7693,83 @@ void QQuickItem::setKeepTouchGrab(bool keep)
 bool QQuickItem::contains(const QPointF &point) const
 {
     Q_D(const QQuickItem);
-    qreal x = point.x();
-    qreal y = point.y();
-    return x >= 0 && y >= 0 && x <= d->width && y <= d->height;
+    if (d->mask) {
+        bool res = false;
+        d->extra->maskContains.invoke(d->mask,
+                      Qt::DirectConnection,
+                      Q_RETURN_ARG(bool, res),
+                      Q_ARG(QPointF, point));
+        return res;
+    } else {
+        qreal x = point.x();
+        qreal y = point.y();
+        return x >= 0 && y >= 0 && x <= d->width && y <= d->height;
+    }
+}
+
+/*!
+    \qmlproperty QObject* QtQuick::Item::containmentMask
+    \since 5.11
+    This property holds an optional mask for the Item to be used in the
+    QtQuick::Item::contains method.
+    QtQuick::Item::contains main use is currently to determine whether
+    an input event has landed into the item or not.
+
+    By default the \l contains method will return true for any point
+    within the Item's bounding box. \c containmentMask allows for a
+    more fine-grained control. For example, the developer could
+    define and use an AnotherItem element as containmentMask,
+    which has a specialized contains method, like:
+
+    \code
+    Item { id: item; containmentMask: AnotherItem { id: anotherItem } }
+    \endcode
+
+    \e{item}'s contains method would then return true only if
+    \e{anotherItem}'s contains implementation returns true.
+*/
+QObject *QQuickItem::containmentMask() const
+{
+    Q_D(const QQuickItem);
+    return d->mask.data();
+}
+
+void QQuickItem::setContainmentMask(QObject *mask)
+{
+    Q_D(QQuickItem);
+    // an Item can't mask itself (to prevent infinite loop in contains())
+    if (d->mask.data() == mask || mask == static_cast<QObject *>(this))
+        return;
+
+    QQuickItem *quickMask = qobject_cast<QQuickItem *>(d->mask);
+    if (quickMask) {
+        QQuickItemPrivate *maskPrivate = QQuickItemPrivate::get(quickMask);
+        maskPrivate->registerAsContainmentMask(this, false); // removed from use as my mask
+    }
+
+    if (mask) {
+        int methodIndex = mask->metaObject()->indexOfMethod(QByteArrayLiteral("contains(QPointF)"));
+        if (methodIndex < 0) {
+            qmlWarning(this) << QStringLiteral("QQuickItem: Object set as mask does not have an invokable contains method, ignoring it.");
+            return;
+        }
+        d->extra.value().maskContains = mask->metaObject()->method(methodIndex);
+    }
+    d->mask = mask;
+    quickMask = qobject_cast<QQuickItem *>(mask);
+    if (quickMask) {
+        QQuickItemPrivate *maskPrivate = QQuickItemPrivate::get(quickMask);
+        maskPrivate->registerAsContainmentMask(this, true); // telling maskPrivate that "this" is using it as mask
+    }
+    emit containmentMaskChanged();
 }
 
 /*!
     Maps the given \a point in this item's coordinate system to the equivalent
     point within \a item's coordinate system, and returns the mapped
     coordinate.
+
+    \input item.qdocinc mapping
 
     If \a item is 0, this maps \a point to the coordinate system of the
     scene.
@@ -7629,6 +7789,8 @@ QPointF QQuickItem::mapToItem(const QQuickItem *item, const QPointF &point) cons
     point within the scene's coordinate system, and returns the mapped
     coordinate.
 
+    \input item.qdocinc mapping
+
     \sa {Concepts - Visual Coordinates in Qt Quick}
 */
 QPointF QQuickItem::mapToScene(const QPointF &point) const
@@ -7641,6 +7803,8 @@ QPointF QQuickItem::mapToScene(const QPointF &point) const
     Maps the given \a point in this item's coordinate system to the equivalent
     point within global screen coordinate system, and returns the mapped
     coordinate.
+
+    \input item.qdocinc mapping
 
     For example, this may be helpful to add a popup to a Qt Quick component.
 
@@ -7663,6 +7827,8 @@ QPointF QQuickItem::mapToGlobal(const QPointF &point) const
     rectangular area within \a item's coordinate system, and returns the mapped
     rectangle value.
 
+    \input item.qdocinc mapping
+
     If \a item is 0, this maps \a rect to the coordinate system of the
     scene.
 
@@ -7682,6 +7848,8 @@ QRectF QQuickItem::mapRectToItem(const QQuickItem *item, const QRectF &rect) con
     rectangular area within the scene's coordinate system, and returns the mapped
     rectangle value.
 
+    \input item.qdocinc mapping
+
     \sa {Concepts - Visual Coordinates in Qt Quick}
 */
 QRectF QQuickItem::mapRectToScene(const QRectF &rect) const
@@ -7694,6 +7862,8 @@ QRectF QQuickItem::mapRectToScene(const QRectF &rect) const
     Maps the given \a point in \a item's coordinate system to the equivalent
     point within this item's coordinate system, and returns the mapped
     coordinate.
+
+    \input item.qdocinc mapping
 
     If \a item is 0, this maps \a point from the coordinate system of the
     scene.
@@ -7711,6 +7881,8 @@ QPointF QQuickItem::mapFromItem(const QQuickItem *item, const QPointF &point) co
     point within this item's coordinate system, and returns the mapped
     coordinate.
 
+    \input item.qdocinc mapping
+
     \sa {Concepts - Visual Coordinates in Qt Quick}
 */
 QPointF QQuickItem::mapFromScene(const QPointF &point) const
@@ -7723,6 +7895,8 @@ QPointF QQuickItem::mapFromScene(const QPointF &point) const
     Maps the given \a point in the global screen coordinate system to the
     equivalent point within this item's coordinate system, and returns the
     mapped coordinate.
+
+    \input item.qdocinc mapping
 
     For example, this may be helpful to add a popup to a Qt Quick component.
 
@@ -7745,6 +7919,8 @@ QPointF QQuickItem::mapFromGlobal(const QPointF &point) const
     rectangular area within this item's coordinate system, and returns the mapped
     rectangle value.
 
+    \input item.qdocinc mapping
+
     If \a item is 0, this maps \a rect from the coordinate system of the
     scene.
 
@@ -7762,6 +7938,8 @@ QRectF QQuickItem::mapRectFromItem(const QQuickItem *item, const QRectF &rect) c
     Maps the given \a rect in the scene's coordinate system to the equivalent
     rectangular area within this item's coordinate system, and returns the mapped
     rectangle value.
+
+    \input item.qdocinc mapping
 
     \sa {Concepts - Visual Coordinates in Qt Quick}
 */
@@ -7980,7 +8158,7 @@ bool QQuickItem::isTextureProvider() const
     \fn QSGTextureProvider *QQuickItem::textureProvider() const
 
     Returns the texture provider for an item. The default implementation
-    returns 0.
+    returns \nullptr.
 
     This function may only be called on the rendering thread.
  */
@@ -7990,7 +8168,7 @@ QSGTextureProvider *QQuickItem::textureProvider() const
 #if QT_CONFIG(quick_shadereffect)
     Q_D(const QQuickItem);
     return d->extra.isAllocated() && d->extra->layer && d->extra->layer->effectSource() ?
-           d->extra->layer->effectSource()->textureProvider() : 0;
+           d->extra->layer->effectSource()->textureProvider() : nullptr;
 #else
     return 0;
 #endif
@@ -8019,6 +8197,27 @@ bool QQuickItemPrivate::hasPointerHandlers() const
     return extra.isAllocated() && !extra->pointerHandlers.isEmpty();
 }
 
+bool QQuickItemPrivate::hasHoverHandlers() const
+{
+    if (!hasPointerHandlers())
+        return false;
+    for (QQuickPointerHandler *h : extra->pointerHandlers)
+        if (qmlobject_cast<QQuickHoverHandler *>(h))
+            return true;
+    return false;
+}
+
+void QQuickItemPrivate::addPointerHandler(QQuickPointerHandler *h)
+{
+    Q_Q(QQuickItem);
+    // Accept all buttons, and leave filtering to pointerEvent() and/or user JS,
+    // because there can be multiple handlers...
+    q->setAcceptedMouseButtons(Qt::AllButtons);
+    auto &handlers = extra.value().pointerHandlers;
+    if (!handlers.contains(h))
+        handlers.prepend(h);
+}
+
 #if QT_CONFIG(quick_shadereffect)
 QQuickItemLayer::QQuickItemLayer(QQuickItem *item)
     : m_item(item)
@@ -8029,9 +8228,9 @@ QQuickItemLayer::QQuickItemLayer(QQuickItem *item)
     , m_wrapMode(QQuickShaderEffectSource::ClampToEdge)
     , m_format(QQuickShaderEffectSource::RGBA)
     , m_name("source")
-    , m_effectComponent(0)
-    , m_effect(0)
-    , m_effectSource(0)
+    , m_effectComponent(nullptr)
+    , m_effect(nullptr)
+    , m_effectSource(nullptr)
     , m_textureMirroring(QQuickShaderEffectSource::MirrorVertically)
     , m_samples(0)
 {
@@ -8132,7 +8331,7 @@ void QQuickItemLayer::deactivate()
         deactivateEffect();
 
     delete m_effectSource;
-    m_effectSource = 0;
+    m_effectSource = nullptr;
 
     QQuickItemPrivate *id = QQuickItemPrivate::get(m_item);
     id->removeItemChangeListener(this,  QQuickItemPrivate::Geometry | QQuickItemPrivate::Opacity | QQuickItemPrivate::Parent | QQuickItemPrivate::Visibility | QQuickItemPrivate::SiblingOrder);
@@ -8169,7 +8368,7 @@ void QQuickItemLayer::deactivateEffect()
     Q_ASSERT(m_effectComponent);
 
     delete m_effect;
-    m_effect = 0;
+    m_effect = nullptr;
 }
 
 
@@ -8477,7 +8676,7 @@ void QQuickItemLayer::itemParentChanged(QQuickItem *item, QQuickItem *parent)
     Q_UNUSED(item)
     Q_ASSERT(item == m_item);
     Q_ASSERT(parent != m_effectSource);
-    Q_ASSERT(parent == 0 || parent != m_effect);
+    Q_ASSERT(parent == nullptr || parent != m_effect);
 
     m_effectSource->setParentItem(parent);
     if (parent)
@@ -8525,10 +8724,8 @@ void QQuickItemLayer::updateGeometry()
     QQuickItem *l = m_effect ? (QQuickItem *) m_effect : (QQuickItem *) m_effectSource;
     Q_ASSERT(l);
     QRectF bounds = m_item->clipRect();
-    l->setWidth(bounds.width());
-    l->setHeight(bounds.height());
-    l->setX(bounds.x() + m_item->x());
-    l->setY(bounds.y() + m_item->y());
+    l->setSize(bounds.size());
+    l->setPosition(bounds.topLeft() + m_item->position());
 }
 
 void QQuickItemLayer::updateMatrix()
@@ -8551,16 +8748,16 @@ void QQuickItemLayer::updateMatrix()
 
 QQuickItemPrivate::ExtraData::ExtraData()
 : z(0), scale(1), rotation(0), opacity(1),
-  contents(0), screenAttached(0), layoutDirectionAttached(0),
-  enterKeyAttached(0),
-  keyHandler(0),
+  contents(nullptr), screenAttached(nullptr), layoutDirectionAttached(nullptr),
+  enterKeyAttached(nullptr),
+  keyHandler(nullptr),
 #if QT_CONFIG(quick_shadereffect)
-  layer(0),
+  layer(nullptr),
 #endif
   effectRefCount(0), hideRefCount(0),
   recursiveEffectRefCount(0),
-  opacityNode(0), clipNode(0), rootNode(0),
-  acceptedMouseButtons(0), origin(QQuickItem::Center),
+  opacityNode(nullptr), clipNode(nullptr), rootNode(nullptr),
+  acceptedMouseButtons(nullptr), origin(QQuickItem::Center),
   transparentForPositioner(false)
 {
 }
@@ -8583,30 +8780,30 @@ QAccessible::Role QQuickItemPrivate::accessibleRole() const
 namespace QV4 {
 namespace Heap {
 struct QQuickItemWrapper : public QObjectWrapper {
+    static void markObjects(QV4::Heap::Base *that, QV4::MarkStack *markStack);
 };
 }
 }
 
 struct QQuickItemWrapper : public QV4::QObjectWrapper {
     V4_OBJECT2(QQuickItemWrapper, QV4::QObjectWrapper)
-    static void markObjects(QV4::Heap::Base *that, QV4::MarkStack *markStack);
 };
 
 DEFINE_OBJECT_VTABLE(QQuickItemWrapper);
 
-void QQuickItemWrapper::markObjects(QV4::Heap::Base *that, QV4::MarkStack *markStack)
+void QV4::Heap::QQuickItemWrapper::markObjects(QV4::Heap::Base *that, QV4::MarkStack *markStack)
 {
-    QObjectWrapper::Data *This = static_cast<QObjectWrapper::Data *>(that);
+    QObjectWrapper *This = static_cast<QObjectWrapper *>(that);
     if (QQuickItem *item = static_cast<QQuickItem*>(This->object())) {
         for (QQuickItem *child : qAsConst(QQuickItemPrivate::get(item)->childItems))
             QV4::QObjectWrapper::markWrapper(child, markStack);
     }
-    QV4::QObjectWrapper::markObjects(that, markStack);
+    QObjectWrapper::markObjects(that, markStack);
 }
 
 quint64 QQuickItemPrivate::_q_createJSWrapper(QV4::ExecutionEngine *engine)
 {
-    return (engine->memoryManager->allocObject<QQuickItemWrapper>(q_func()))->asReturnedValue();
+    return (engine->memoryManager->allocate<QQuickItemWrapper>(q_func()))->asReturnedValue();
 }
 
 QT_END_NAMESPACE

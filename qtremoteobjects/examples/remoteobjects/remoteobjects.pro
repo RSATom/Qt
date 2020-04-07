@@ -3,9 +3,15 @@ CONFIG += debug_and_release ordered
 SUBDIRS = \
     server \
     cppclient \
-    modelviewclient \
-    modelviewserver \
     simpleswitch
+
+qtHaveModule(widgets) {
+    SUBDIRS += \
+        modelviewclient \
+        modelviewserver
+}
+
+contains(QT_CONFIG, ssl): SUBDIRS += ssl
 
 qtHaveModule(quick) {
     SUBDIRS += \

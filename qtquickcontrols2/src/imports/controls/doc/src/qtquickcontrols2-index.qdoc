@@ -26,8 +26,9 @@
 ****************************************************************************/
 
 /*!
-    \page qtquickcontrols2-index.html
-    \title Qt Quick Controls 2
+    \page qtquickcontrols-index.html
+    \keyword Qt Quick Controls 2
+    \title Qt Quick Controls
 
     \brief Provides a set of UI controls for Qt Quick.
 
@@ -45,8 +46,8 @@
     The \l{Qt Quick Controls 2 QML Types}{QML types} can be imported into your
     application using the following import statement in your \c {.qml} file:
 
-    \code
-    import QtQuick.Controls 2.3
+    \code \QtMinorVersion
+    import QtQuick.Controls 2.\1
     \endcode
 
     The \l{Qt Quick Controls 2 C++ Classes}{C++ classes} can be included into
@@ -65,10 +66,20 @@
 
     For more details, see \l {Getting Started with Qt Quick Controls 2}.
 
+    \section2 Building From Source
+
+    When building from source, ensure that the \l {Qt Graphical Effects} module
+    is also built, as Qt Quick Controls 2 requires it.
+
+    The \l {Qt Image Formats} module is recommended, but not
+    required. It provides support for the \c {.webp} format used by the
+    \l {Animated Images}{Imagine style}.
+
     \section1 Versions
 
     Qt Quick Controls 2.0 was introduced in Qt 5.7. Subsequent minor Qt releases
-    increment the import version of the Qt Quick Controls 2 modules by one. The
+    increment the import version of the Qt Quick Controls 2 modules by one,
+    until Qt 5.12, where the import versions match Qt's minor version. The
     experimental Qt Labs modules use import version 1.0.
 
     \table
@@ -102,6 +113,16 @@
         \li 2.3
         \li 1.0
       \row
+        \li 5.11
+        \li 2.11
+        \li 2.4
+        \li 1.0
+      \row
+        \li 5.12
+        \li 2.12
+        \li 2.12
+        \li 1.0
+      \row
         \li ...
         \li ...
         \li ...
@@ -133,7 +154,7 @@
       \li \l{Deploying Qt Quick Controls 2 Applications}{Deployment}
       \li \l{Qt Quick Controls 2 Configuration File}{Configuration File}
       \li \l{Supported Environment Variables in Qt Quick Controls 2}{Environment Variables}
-      \li \l{Differences between Qt Quick Controls}
+      \li \l{Differences between Qt Quick Controls 1}
     \endlist
 
     \section1 Reference

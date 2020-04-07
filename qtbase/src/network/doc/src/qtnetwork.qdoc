@@ -40,10 +40,13 @@
     \code
     #include <QtNetwork>
     \endcode
+
+    \if !defined(qtforpython)
     To link against the Qt Network module, add this line to the project file:
     \code
     QT += network
     \endcode
+    \endif
 
     \section1 Articles and Guides
 
@@ -96,7 +99,7 @@
     \title Qt Network C++ Classes
     \ingroup modules
     \qtvariable network
-    \brief Provides classes to make network programming easier and portable
+    \brief Provides classes to make network programming easier and portable.
 
     To include the definitions of the module's classes, use the
     following directive:

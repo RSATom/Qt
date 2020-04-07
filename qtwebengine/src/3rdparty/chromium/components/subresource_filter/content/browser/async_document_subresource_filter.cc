@@ -13,6 +13,7 @@
 #include "base/task_runner_util.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "components/subresource_filter/core/common/memory_mapped_ruleset.h"
+#include "components/subresource_filter/core/common/scoped_timers.h"
 #include "components/subresource_filter/core/common/time_measurements.h"
 #include "components/url_pattern_index/proto/rules.pb.h"
 
@@ -24,16 +25,22 @@ ActivationState ComputeActivationState(
     const ActivationState& parent_activation_state,
     const MemoryMappedRuleset* ruleset) {
   DCHECK(ruleset);
+
   SCOPED_UMA_HISTOGRAM_MICRO_TIMER(
       "SubresourceFilter.DocumentLoad.Activation.WallDuration");
   SCOPED_UMA_HISTOGRAM_MICRO_THREAD_TIMER(
       "SubresourceFilter.DocumentLoad.Activation.CPUDuration");
-  if (parent_document_origin.unique()) {
-    SCOPED_UMA_HISTOGRAM_MICRO_TIMER(
-        "SubresourceFilter.PageLoad.Activation.WallDuration");
-    SCOPED_UMA_HISTOGRAM_MICRO_THREAD_TIMER(
-        "SubresourceFilter.PageLoad.Activation.CPUDuration");
-  }
+
+  auto page_wall_duration_timer = ScopedTimers::StartIf(
+      parent_document_origin.unique(), [](base::TimeDelta delta) {
+        UMA_HISTOGRAM_MICRO_TIMES(
+            "SubresourceFilter.PageLoad.Activation.WallDuration", delta);
+      });
+  auto page_cpu_duration_timer = ScopedThreadTimers::StartIf(
+      parent_document_origin.unique(), [](base::TimeDelta delta) {
+        UMA_HISTOGRAM_MICRO_TIMES(
+            "SubresourceFilter.PageLoad.Activation.CPUDuration", delta);
+      });
 
   IndexedRulesetMatcher matcher(ruleset->data(), ruleset->length());
   ActivationState activation_state = parent_activation_state;
@@ -51,6 +58,9 @@ ActivationState ComputeActivationState(
                  url_pattern_index::proto::ACTIVATION_TYPE_GENERICBLOCK)) {
     activation_state.generic_blocking_rules_disabled = true;
   }
+
+  // Careful note: any new state computed for ActivationState in this method
+  // must also update UpdateWithMoreAccurateState..
   return activation_state;
 }
 
@@ -104,11 +114,11 @@ AsyncDocumentSubresourceFilter::AsyncDocumentSubresourceFilter(
   // below task is posted.
   base::PostTaskAndReplyWithResult(
       task_runner_, FROM_HERE,
-      base::Bind(&Core::Initialize, base::Unretained(core_.get()),
-                 base::Passed(&params), ruleset_handle->ruleset_.get()),
-      base::Bind(&AsyncDocumentSubresourceFilter::OnActivateStateCalculated,
-                 weak_ptr_factory_.GetWeakPtr(),
-                 std::move(activation_state_callback)));
+      base::BindOnce(&Core::Initialize, base::Unretained(core_.get()),
+                     std::move(params), ruleset_handle->ruleset_.get()),
+      base::BindOnce(&AsyncDocumentSubresourceFilter::OnActivateStateCalculated,
+                     weak_ptr_factory_.GetWeakPtr(),
+                     std::move(activation_state_callback)));
 }
 
 AsyncDocumentSubresourceFilter::~AsyncDocumentSubresourceFilter() {
@@ -151,6 +161,29 @@ void AsyncDocumentSubresourceFilter::ReportDisallowedLoad() {
     std::move(first_disallowed_load_callback_).Run();
 }
 
+void AsyncDocumentSubresourceFilter::UpdateWithMoreAccurateState(
+    const ActivationState& updated_page_state) {
+  // DISABLED activation level implies that the ruleset is somehow invalid. Make
+  // sure that we don't update the state in that case.
+  DCHECK(has_activation_state());
+  if (activation_state_->activation_level == ActivationLevel::DISABLED)
+    return;
+
+  // TODO(csharrison): Split ActivationState into multiple structs, with one
+  // that includes members that are inherited from the parent without change,
+  // and one that includes members that need to be computed.
+  bool filtering_disabled = activation_state_->filtering_disabled_for_document;
+  bool generic_disabled = activation_state_->generic_blocking_rules_disabled;
+
+  activation_state_ = updated_page_state;
+  activation_state_->filtering_disabled_for_document = filtering_disabled;
+  activation_state_->generic_blocking_rules_disabled = generic_disabled;
+  task_runner_->PostTask(
+      FROM_HERE,
+      base::BindOnce(&AsyncDocumentSubresourceFilter::Core::SetActivationState,
+                     base::Unretained(core_.get()), *activation_state_));
+}
+
 const ActivationState& AsyncDocumentSubresourceFilter::activation_state()
     const {
   CHECK(activation_state_);
@@ -167,6 +200,12 @@ AsyncDocumentSubresourceFilter::Core::~Core() {
   DCHECK(sequence_checker_.CalledOnValidSequence());
 }
 
+void AsyncDocumentSubresourceFilter::Core::SetActivationState(
+    const ActivationState& state) {
+  DCHECK(filter_);
+  filter_->set_activation_state(state);
+}
+
 ActivationState AsyncDocumentSubresourceFilter::Core::Initialize(
     InitializationParams params,
     VerifiedRuleset* verified_ruleset) {
@@ -181,7 +220,7 @@ ActivationState AsyncDocumentSubresourceFilter::Core::Initialize(
       params.parent_activation_state, verified_ruleset->Get());
 
   DCHECK_NE(ActivationLevel::DISABLED, activation_state.activation_level);
-  filter_.emplace(url::Origin(params.document_url), activation_state,
+  filter_.emplace(url::Origin::Create(params.document_url), activation_state,
                   verified_ruleset->Get());
 
   return activation_state;

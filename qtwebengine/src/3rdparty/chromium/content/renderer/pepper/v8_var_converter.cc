@@ -9,11 +9,12 @@
 
 #include <map>
 #include <memory>
-#include <stack>
 #include <string>
 
 #include "base/bind.h"
+#include "base/containers/circular_deque.h"
 #include "base/containers/hash_tables.h"
+#include "base/containers/stack.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "content/public/renderer/renderer_ppapi_host.h"
@@ -25,8 +26,8 @@
 #include "ppapi/shared_impl/dictionary_var.h"
 #include "ppapi/shared_impl/var.h"
 #include "ppapi/shared_impl/var_tracker.h"
-#include "third_party/WebKit/public/web/WebArrayBuffer.h"
-#include "third_party/WebKit/public/web/WebArrayBufferConverter.h"
+#include "third_party/blink/public/web/web_array_buffer.h"
+#include "third_party/blink/public/web/web_array_buffer_converter.h"
 
 using ppapi::ArrayBufferVar;
 using ppapi::ArrayVar;
@@ -229,7 +230,7 @@ bool GetOrCreateVar(v8::Local<v8::Value> val,
   } else if (val->IsNumber() || val->IsNumberObject()) {
     *result = PP_MakeDouble(val->ToNumber(isolate)->Value());
   } else if (val->IsString() || val->IsStringObject()) {
-    v8::String::Utf8Value utf8(val->ToString(isolate));
+    v8::String::Utf8Value utf8(isolate, val->ToString(isolate));
     *result = StringVar::StringToPPVar(std::string(*utf8, utf8.length()));
   } else if (val->IsObject()) {
     // For any other v8 objects, the conversion happens as follows:
@@ -319,32 +320,32 @@ bool V8VarConverter::ToV8Value(const PP_Var& var,
   VarHandleMap visited_ids;
   ParentVarSet parent_ids;
 
-  std::stack<StackEntry<PP_Var> > stack;
-  stack.push(StackEntry<PP_Var>(var));
+  // The code below needs to reference stack nodes across updates. base::stack
+  // is not stable, so we use a circular_deque indexed by integer indices. The
+  // back of the deque is the top of the stack.
+  base::circular_deque<StackEntry<PP_Var>> stack;
+  stack.push_back(StackEntry<PP_Var>(var));
   v8::Local<v8::Value> root;
   bool is_root = true;
 
   while (!stack.empty()) {
-    const PP_Var& current_var = stack.top().val;
+    // This index is stable across updates at the back.
+    size_t current_var_index = stack.size() - 1;
     v8::Local<v8::Value> current_v8;
 
-    if (stack.top().sentinel) {
-      stack.pop();
-      if (CanHaveChildren(current_var))
-        parent_ids.erase(current_var.value.as_id);
+    if (stack.back().sentinel) {
+      if (CanHaveChildren(stack[current_var_index].val))
+        parent_ids.erase(stack[current_var_index].val.value.as_id);
+      stack.pop_back();
       continue;
     } else {
-      stack.top().sentinel = true;
+      stack.back().sentinel = true;
     }
 
     bool did_create = false;
-    if (!GetOrCreateV8Value(context,
-                            current_var,
-                            object_vars_allowed_,
-                            &current_v8,
-                            &did_create,
-                            &visited_ids,
-                            &parent_ids,
+    if (!GetOrCreateV8Value(context, stack[current_var_index].val,
+                            object_vars_allowed_, &current_v8, &did_create,
+                            &visited_ids, &parent_ids,
                             resource_converter_.get())) {
       return false;
     }
@@ -355,9 +356,9 @@ bool V8VarConverter::ToV8Value(const PP_Var& var,
     }
 
     // Add child nodes to the stack.
-    if (current_var.type == PP_VARTYPE_ARRAY) {
-      parent_ids.insert(current_var.value.as_id);
-      ArrayVar* array_var = ArrayVar::FromPPVar(current_var);
+    if (stack[current_var_index].val.type == PP_VARTYPE_ARRAY) {
+      parent_ids.insert(stack[current_var_index].val.value.as_id);
+      ArrayVar* array_var = ArrayVar::FromPPVar(stack[current_var_index].val);
       if (!array_var) {
         NOTREACHED();
         return false;
@@ -379,7 +380,7 @@ bool V8VarConverter::ToV8Value(const PP_Var& var,
           return false;
         }
         if (did_create && CanHaveChildren(child_var))
-          stack.push(child_var);
+          stack.push_back(child_var);
         v8::TryCatch try_catch(isolate);
         v8_array->Set(static_cast<uint32_t>(i), child_v8);
         if (try_catch.HasCaught()) {
@@ -387,9 +388,10 @@ bool V8VarConverter::ToV8Value(const PP_Var& var,
           return false;
         }
       }
-    } else if (current_var.type == PP_VARTYPE_DICTIONARY) {
-      parent_ids.insert(current_var.value.as_id);
-      DictionaryVar* dict_var = DictionaryVar::FromPPVar(current_var);
+    } else if (stack[current_var_index].val.type == PP_VARTYPE_DICTIONARY) {
+      parent_ids.insert(stack[current_var_index].val.value.as_id);
+      DictionaryVar* dict_var =
+          DictionaryVar::FromPPVar(stack[current_var_index].val);
       if (!dict_var) {
         NOTREACHED();
         return false;
@@ -415,7 +417,7 @@ bool V8VarConverter::ToV8Value(const PP_Var& var,
           return false;
         }
         if (did_create && CanHaveChildren(child_var))
-          stack.push(child_var);
+          stack.push_back(child_var);
         v8::TryCatch try_catch(isolate);
         v8_object->Set(
             v8::String::NewFromUtf8(
@@ -471,7 +473,7 @@ bool V8VarConverter::FromV8ValueInternal(
   HandleVarMap visited_handles;
   ParentHandleSet parent_handles;
 
-  std::stack<StackEntry<v8::Local<v8::Value> > > stack;
+  base::stack<StackEntry<v8::Local<v8::Value>>> stack;
   stack.push(StackEntry<v8::Local<v8::Value> >(val));
   ScopedPPVar root;
   *result_var = PP_MakeUndefined();
@@ -563,7 +565,8 @@ bool V8VarConverter::FromV8ValueInternal(
 
         // Extend this test to cover more types as necessary and if sensible.
         if (!key->IsString() && !key->IsNumber()) {
-          NOTREACHED() << "Key \"" << *v8::String::Utf8Value(key)
+          NOTREACHED() << "Key \""
+                       << *v8::String::Utf8Value(context->GetIsolate(), key)
                        << "\" "
                           "is neither a string nor a number";
           return false;
@@ -575,7 +578,7 @@ bool V8VarConverter::FromV8ValueInternal(
         if (v8_object->HasRealNamedCallbackProperty(key_string))
           continue;
 
-        v8::String::Utf8Value name_utf8(key_string);
+        v8::String::Utf8Value name_utf8(context->GetIsolate(), key_string);
 
         v8::TryCatch try_catch(context->GetIsolate());
         v8::Local<v8::Value> child_v8 = v8_object->Get(key);

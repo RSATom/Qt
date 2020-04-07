@@ -2695,9 +2695,9 @@ TEST_F(GLES2ImplementationTest, ResizeCHROMIUM) {
     cmds::ResizeCHROMIUM cmd;
   };
   Cmds expected;
-  expected.cmd.Init(1, 2, 3, true);
+  expected.cmd.Init(1, 2, 3, 4, true);
 
-  gl_->ResizeCHROMIUM(1, 2, 3, true);
+  gl_->ResizeCHROMIUM(1, 2, 3, 4, true);
   EXPECT_EQ(0, memcmp(&expected, commands_, sizeof(expected)));
 }
 
@@ -2717,11 +2717,11 @@ TEST_F(GLES2ImplementationTest, CopyTextureCHROMIUM) {
     cmds::CopyTextureCHROMIUM cmd;
   };
   Cmds expected;
-  expected.cmd.Init(1, 2, 3, 4, 5, GL_ALPHA, GL_UNSIGNED_BYTE, true, true,
-                    true);
+  expected.cmd.Init(1, 2, GL_TEXTURE_2D, 4, 5, GL_ALPHA, GL_UNSIGNED_BYTE, true,
+                    true, true);
 
-  gl_->CopyTextureCHROMIUM(1, 2, 3, 4, 5, GL_ALPHA, GL_UNSIGNED_BYTE, true,
-                           true, true);
+  gl_->CopyTextureCHROMIUM(1, 2, GL_TEXTURE_2D, 4, 5, GL_ALPHA,
+                           GL_UNSIGNED_BYTE, true, true, true);
   EXPECT_EQ(0, memcmp(&expected, commands_, sizeof(expected)));
 }
 
@@ -2730,10 +2730,11 @@ TEST_F(GLES2ImplementationTest, CopySubTextureCHROMIUM) {
     cmds::CopySubTextureCHROMIUM cmd;
   };
   Cmds expected;
-  expected.cmd.Init(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, true, true, true);
+  expected.cmd.Init(1, 2, GL_TEXTURE_2D, 4, 5, 6, 7, 8, 9, 10, 11, true, true,
+                    true);
 
-  gl_->CopySubTextureCHROMIUM(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, true, true,
-                              true);
+  gl_->CopySubTextureCHROMIUM(1, 2, GL_TEXTURE_2D, 4, 5, 6, 7, 8, 9, 10, 11,
+                              true, true, true);
   EXPECT_EQ(0, memcmp(&expected, commands_, sizeof(expected)));
 }
 
@@ -2786,9 +2787,9 @@ TEST_F(GLES2ImplementationTest, BindTexImage2DWithInternalformatCHROMIUM) {
     cmds::BindTexImage2DWithInternalformatCHROMIUM cmd;
   };
   Cmds expected;
-  expected.cmd.Init(GL_TEXTURE_2D, 2, 3);
+  expected.cmd.Init(GL_TEXTURE_2D, GL_ALPHA, 3);
 
-  gl_->BindTexImage2DWithInternalformatCHROMIUM(GL_TEXTURE_2D, 2, 3);
+  gl_->BindTexImage2DWithInternalformatCHROMIUM(GL_TEXTURE_2D, GL_ALPHA, 3);
   EXPECT_EQ(0, memcmp(&expected, commands_, sizeof(expected)));
 }
 
@@ -3078,6 +3079,64 @@ TEST_F(GLES2ImplementationTest, SetEnableDCLayersCHROMIUM) {
   expected.cmd.Init(true);
 
   gl_->SetEnableDCLayersCHROMIUM(true);
+  EXPECT_EQ(0, memcmp(&expected, commands_, sizeof(expected)));
+}
+
+TEST_F(GLES2ImplementationTest, TexStorage2DImageCHROMIUM) {
+  struct Cmds {
+    cmds::TexStorage2DImageCHROMIUM cmd;
+  };
+  Cmds expected;
+  expected.cmd.Init(GL_TEXTURE_2D, GL_RGB565, 4, 5);
+
+  gl_->TexStorage2DImageCHROMIUM(GL_TEXTURE_2D, GL_RGB565, GL_SCANOUT_CHROMIUM,
+                                 4, 5);
+  EXPECT_EQ(0, memcmp(&expected, commands_, sizeof(expected)));
+}
+
+TEST_F(GLES2ImplementationTest, TexStorage2DImageCHROMIUMInvalidConstantArg2) {
+  gl_->TexStorage2DImageCHROMIUM(GL_TEXTURE_2D, GL_RGB565, GL_NONE, 4, 5);
+  EXPECT_TRUE(NoCommandsWritten());
+  EXPECT_EQ(GL_INVALID_ENUM, CheckError());
+}
+
+TEST_F(GLES2ImplementationTest, WindowRectanglesEXT) {
+  GLint data[2][4] = {{0}};
+  struct Cmds {
+    cmds::WindowRectanglesEXTImmediate cmd;
+    GLint data[2][4];
+  };
+
+  Cmds expected;
+  for (int ii = 0; ii < 2; ++ii) {
+    for (int jj = 0; jj < 4; ++jj) {
+      data[ii][jj] = static_cast<GLint>(ii * 4 + jj);
+    }
+  }
+  expected.cmd.Init(GL_INCLUSIVE_EXT, 2, &data[0][0]);
+  gl_->WindowRectanglesEXT(GL_INCLUSIVE_EXT, 2, &data[0][0]);
+  EXPECT_EQ(0, memcmp(&expected, commands_, sizeof(expected)));
+}
+
+TEST_F(GLES2ImplementationTest, WaitGpuFenceCHROMIUM) {
+  struct Cmds {
+    cmds::WaitGpuFenceCHROMIUM cmd;
+  };
+  Cmds expected;
+  expected.cmd.Init(1);
+
+  gl_->WaitGpuFenceCHROMIUM(1);
+  EXPECT_EQ(0, memcmp(&expected, commands_, sizeof(expected)));
+}
+
+TEST_F(GLES2ImplementationTest, DestroyGpuFenceCHROMIUM) {
+  struct Cmds {
+    cmds::DestroyGpuFenceCHROMIUM cmd;
+  };
+  Cmds expected;
+  expected.cmd.Init(1);
+
+  gl_->DestroyGpuFenceCHROMIUM(1);
   EXPECT_EQ(0, memcmp(&expected, commands_, sizeof(expected)));
 }
 #endif  // GPU_COMMAND_BUFFER_CLIENT_GLES2_IMPLEMENTATION_UNITTEST_AUTOGEN_H_

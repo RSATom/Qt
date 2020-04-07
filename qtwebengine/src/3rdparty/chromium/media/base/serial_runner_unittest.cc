@@ -21,7 +21,7 @@ class SerialRunnerTest : public ::testing::Test {
  public:
   SerialRunnerTest()
       : inside_start_(false), done_called_(false), done_status_(PIPELINE_OK) {}
-  ~SerialRunnerTest() override {}
+  ~SerialRunnerTest() override = default;
 
   void RunSerialRunner() {
     message_loop_.task_runner()->PostTask(
@@ -115,7 +115,6 @@ class SerialRunnerTest : public ::testing::Test {
 
     done_called_ = true;
     done_status_ = status;
-    message_loop_.QuitWhenIdle();
   }
 
   void CancelSerialRunner(const PipelineStatusCB& status_cb) {

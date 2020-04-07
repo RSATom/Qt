@@ -20,6 +20,14 @@ bundle_data("resources_unit_tests") {
   ]
 }
 
+source_set("switches") {
+  configs += [ "//build/config/compiler:enable_arc" ]
+  sources = [
+    "switches.cc",
+    "switches.h",
+  ]
+}
+
 source_set("contextual_search") {
   configs += [ "//build/config/compiler:enable_arc" ]
   sources = [
@@ -29,29 +37,13 @@ source_set("contextual_search") {
     "contextual_search_controller.mm",
     "contextual_search_delegate.cc",
     "contextual_search_delegate.h",
-    "contextual_search_header_view.h",
-    "contextual_search_header_view.mm",
     "contextual_search_highlighter_view.h",
     "contextual_search_highlighter_view.mm",
-    "contextual_search_mask_view.h",
-    "contextual_search_mask_view.mm",
     "contextual_search_metrics.h",
     "contextual_search_metrics.mm",
-    "contextual_search_panel_protocols.h",
-    "contextual_search_panel_view.h",
-    "contextual_search_panel_view.mm",
-    "contextual_search_promo_view.h",
-    "contextual_search_promo_view.mm",
-    "contextual_search_results_view.h",
-    "contextual_search_results_view.mm",
-    "contextual_search_web_state_observer.h",
-    "contextual_search_web_state_observer.mm",
-    "contextual_search_wrangler.h",
-    "contextual_search_wrangler.mm",
+    "contextual_search_panel_state.h",
     "js_contextual_search_manager.h",
     "js_contextual_search_manager.mm",
-    "panel_configuration.h",
-    "panel_configuration.mm",
     "touch_to_search_permissions_mediator.h",
     "touch_to_search_permissions_mediator.mm",
     "window_gesture_observer.h",
@@ -59,10 +51,11 @@ source_set("contextual_search") {
   ]
   deps = [
     ":injected_js",
-    "resources:expand_less",
+    ":switches",
     "//base",
     "//components/google/core/browser",
     "//components/prefs",
+    "//components/prefs/ios",
     "//components/search_engines",
     "//components/variations",
     "//components/variations/net",
@@ -70,7 +63,6 @@ source_set("contextual_search") {
     "//ios/chrome/app/strings",
     "//ios/chrome/browser",
     "//ios/chrome/browser/browser_state",
-    "//ios/chrome/browser/prefs",
     "//ios/chrome/browser/search_engines",
     "//ios/chrome/browser/sync",
     "//ios/chrome/browser/tabs",
@@ -116,6 +108,7 @@ source_set("unit_tests") {
   deps = [
     ":contextual_search",
     ":resources_unit_tests",
+    ":switches",
     ":test_support",
     "//base",
     "//base/test:test_support",

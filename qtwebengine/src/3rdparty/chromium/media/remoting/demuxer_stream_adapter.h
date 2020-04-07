@@ -17,6 +17,7 @@
 #include "media/base/audio_decoder_config.h"
 #include "media/base/demuxer_stream.h"
 #include "media/base/video_decoder_config.h"
+#include "media/mojo/common/mojo_data_pipe_read_write.h"
 #include "media/mojo/interfaces/remoting.mojom.h"
 #include "media/remoting/rpc_broker.h"
 #include "media/remoting/triggers.h"
@@ -81,6 +82,18 @@ class DemuxerStreamAdapter {
   // or base::nullopt if the flushing state was unchanged.
   base::Optional<uint32_t> SignalFlush(bool flushing);
 
+  bool is_processing_read_request() const {
+    // |read_until_callback_handle_| is set when RPC_DS_READUNTIL message is
+    // received, and will be reset to invalid value after
+    // RPC_DS_READUNTIL_CALLBACK is sent back to receiver. Therefore it can be
+    // used to determine if the class is in the reading state or not.
+    return read_until_callback_handle_ != RpcBroker::kInvalidHandle;
+  }
+
+  // Indicates whether there is data waiting to be written to the mojo data
+  // pipe.
+  bool is_data_pending() const { return !pending_frame_.empty(); }
+
   // Creates a Mojo data pipe configured appropriately for use with a
   // DemuxerStreamAdapter.
   static mojo::DataPipe* CreateDataPipe();
@@ -100,16 +113,12 @@ class DemuxerStreamAdapter {
 
   // Callback function when retrieving data from demuxer.
   void OnNewBuffer(DemuxerStream::Status status,
-                   const scoped_refptr<DecoderBuffer>& input);
-  void TryWriteData(MojoResult result);
+                   scoped_refptr<DecoderBuffer> input);
+  // Write the current frame into the mojo data pipe. OnFrameWritten() will be
+  // called when the writing has finished.
+  void WriteFrame();
+  void OnFrameWritten(bool success);
   void ResetPendingFrame();
-  bool IsProcessingReadRequest() const {
-    // |read_until_callback_handle_| is set when RPC_DS_READUNTIL message is
-    // received, and will be reset to invalid value after
-    // RPC_DS_READUNTIL_CALLBACK is sent back to receiver. Therefore it can be
-    // used to determine if the class is in the reading state or not.
-    return read_until_callback_handle_ != RpcBroker::kInvalidHandle;
-  }
 
   // Callback function when a fatal runtime error occurs.
   void OnFatalError(StopTrigger stop_trigger);
@@ -164,11 +173,7 @@ class DemuxerStreamAdapter {
   // Frame buffer and its information that is currently in process of writing to
   // Mojo data pipe.
   std::vector<uint8_t> pending_frame_;
-  uint32_t current_pending_frame_offset_;
   bool pending_frame_is_eos_;
-
-  // Monitor if data pipe is available to write data.
-  mojo::SimpleWatcher write_watcher_;
 
   // Keeps latest demuxer stream status and audio/video decoder config.
   DemuxerStream::Status media_status_;
@@ -176,7 +181,7 @@ class DemuxerStreamAdapter {
   VideoDecoderConfig video_config_;
 
   mojom::RemotingDataStreamSenderPtr stream_sender_;
-  mojo::ScopedDataPipeProducerHandle producer_handle_;
+  MojoDataPipeWriter data_pipe_writer_;
 
   // Tracks the number of bytes written to the pipe.
   int64_t bytes_written_to_pipe_;

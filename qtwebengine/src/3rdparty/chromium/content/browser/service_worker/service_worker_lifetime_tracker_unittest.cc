@@ -4,7 +4,7 @@
 
 #include "content/browser/service_worker/service_worker_lifetime_tracker.h"
 
-#include "base/test/histogram_tester.h"
+#include "base/test/metrics/histogram_tester.h"
 #include "base/test/simple_test_tick_clock.h"
 #include "base/time/tick_clock.h"
 #include "content/public/test/test_utils.h"
@@ -14,16 +14,13 @@ namespace content {
 
 class ServiceWorkerLifetimeTrackerTest : public testing::Test {
  public:
-  ServiceWorkerLifetimeTrackerTest()
-      : tick_clock_(new base::SimpleTestTickClock()),
-        tracker_(base::WrapUnique(tick_clock_)) {}
+  ServiceWorkerLifetimeTrackerTest() : tracker_(&tick_clock_) {}
 
-  base::SimpleTestTickClock* tick_clock() { return tick_clock_; }
+  base::SimpleTestTickClock* tick_clock() { return &tick_clock_; }
   ServiceWorkerLifetimeTracker* tracker() { return &tracker_; }
 
  private:
-  // Not owned.
-  base::SimpleTestTickClock* tick_clock_;
+  base::SimpleTestTickClock tick_clock_;
 
   ServiceWorkerLifetimeTracker tracker_;
 };

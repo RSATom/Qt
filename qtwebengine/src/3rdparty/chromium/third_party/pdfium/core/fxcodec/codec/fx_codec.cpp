@@ -12,6 +12,14 @@
 #include <tuple>
 #include <utility>
 
+#include "core/fxcodec/codec/ccodec_basicmodule.h"
+#include "core/fxcodec/codec/ccodec_faxmodule.h"
+#include "core/fxcodec/codec/ccodec_flatemodule.h"
+#include "core/fxcodec/codec/ccodec_iccmodule.h"
+#include "core/fxcodec/codec/ccodec_jbig2module.h"
+#include "core/fxcodec/codec/ccodec_jpegmodule.h"
+#include "core/fxcodec/codec/ccodec_jpxmodule.h"
+#include "core/fxcodec/codec/ccodec_scanlinedecoder.h"
 #include "core/fxcodec/codec/codec_int.h"
 #include "core/fxcrt/fx_extension.h"
 #include "core/fxcrt/fx_safe_types.h"
@@ -1349,69 +1357,6 @@ CCodec_ModuleMgr::CCodec_ModuleMgr()
 
 CCodec_ModuleMgr::~CCodec_ModuleMgr() {}
 
-CCodec_ScanlineDecoder::CCodec_ScanlineDecoder()
-    : CCodec_ScanlineDecoder(0, 0, 0, 0, 0, 0, 0) {}
-
-CCodec_ScanlineDecoder::CCodec_ScanlineDecoder(int nOrigWidth,
-                                               int nOrigHeight,
-                                               int nOutputWidth,
-                                               int nOutputHeight,
-                                               int nComps,
-                                               int nBpc,
-                                               uint32_t nPitch)
-    : m_OrigWidth(nOrigWidth),
-      m_OrigHeight(nOrigHeight),
-      m_OutputWidth(nOutputWidth),
-      m_OutputHeight(nOutputHeight),
-      m_nComps(nComps),
-      m_bpc(nBpc),
-      m_Pitch(nPitch),
-      m_NextLine(-1),
-      m_pLastScanline(nullptr) {}
-
-CCodec_ScanlineDecoder::~CCodec_ScanlineDecoder() {}
-
-const uint8_t* CCodec_ScanlineDecoder::GetScanline(int line) {
-  if (m_NextLine == line + 1)
-    return m_pLastScanline;
-
-  if (m_NextLine < 0 || m_NextLine > line) {
-    if (!v_Rewind())
-      return nullptr;
-    m_NextLine = 0;
-  }
-  while (m_NextLine < line) {
-    ReadNextLine();
-    m_NextLine++;
-  }
-  m_pLastScanline = ReadNextLine();
-  m_NextLine++;
-  return m_pLastScanline;
-}
-
-bool CCodec_ScanlineDecoder::SkipToScanline(int line, IFX_Pause* pPause) {
-  if (m_NextLine == line || m_NextLine == line + 1)
-    return false;
-
-  if (m_NextLine < 0 || m_NextLine > line) {
-    v_Rewind();
-    m_NextLine = 0;
-  }
-  m_pLastScanline = nullptr;
-  while (m_NextLine < line) {
-    m_pLastScanline = ReadNextLine();
-    m_NextLine++;
-    if (pPause && pPause->NeedToPauseNow()) {
-      return true;
-    }
-  }
-  return false;
-}
-
-uint8_t* CCodec_ScanlineDecoder::ReadNextLine() {
-  return v_GetNextLine();
-}
-
 bool CCodec_BasicModule::RunLengthEncode(const uint8_t* src_buf,
                                          uint32_t src_size,
                                          uint8_t** dest_buf,
@@ -1564,16 +1509,7 @@ bool CCodec_BasicModule::A85Encode(const uint8_t* src_buf,
 }
 
 #ifdef PDF_ENABLE_XFA
-CFX_DIBAttribute::CFX_DIBAttribute()
-    : m_nXDPI(-1),
-      m_nYDPI(-1),
-      m_fAspectRatio(-1.0f),
-      m_wDPIUnit(0),
-      m_nGifLeft(0),
-      m_nGifTop(0),
-      m_pGifLocalPalette(nullptr),
-      m_nGifLocalPalNum(0),
-      m_nBmpCompressType(0) {}
+CFX_DIBAttribute::CFX_DIBAttribute() {}
 
 CFX_DIBAttribute::~CFX_DIBAttribute() {
   for (const auto& pair : m_Exif)
@@ -1867,4 +1803,22 @@ std::tuple<float, float, float> AdobeCMYK_to_sRGB(float c,
   // Multiply by a constant rather than dividing because division is much
   // more expensive.
   return std::make_tuple(r * (1.0f / 255), g * (1.0f / 255), b * (1.0f / 255));
+}
+
+FX_SAFE_UINT32 CalculatePitch8(uint32_t bpc, uint32_t components, int width) {
+  FX_SAFE_UINT32 pitch = bpc;
+  pitch *= components;
+  pitch *= width;
+  pitch += 7;
+  pitch /= 8;
+  return pitch;
+}
+
+FX_SAFE_UINT32 CalculatePitch32(int bpp, int width) {
+  FX_SAFE_UINT32 pitch = bpp;
+  pitch *= width;
+  pitch += 31;
+  pitch /= 32;  // quantized to number of 32-bit words.
+  pitch *= 4;   // and then back to bytes, (not just /8 in one step).
+  return pitch;
 }

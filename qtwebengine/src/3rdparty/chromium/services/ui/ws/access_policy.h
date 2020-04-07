@@ -7,8 +7,8 @@
 
 #include <stdint.h>
 
-#include "services/ui/public/interfaces/mus_constants.mojom.h"
 #include "services/ui/public/interfaces/window_tree.mojom.h"
+#include "services/ui/public/interfaces/window_tree_constants.mojom.h"
 #include "services/ui/ws/ids.h"
 
 namespace ui {
@@ -37,6 +37,9 @@ class AccessPolicy {
   virtual bool CanRemoveTransientWindowFromParent(
       const ServerWindow* window) const = 0;
   virtual bool CanSetModal(const ServerWindow* window) const = 0;
+  virtual bool CanSetChildModalParent(
+      const ServerWindow* window,
+      const ServerWindow* modal_parent) const = 0;
   virtual bool CanReorderWindow(const ServerWindow* window,
                                 const ServerWindow* relative_window,
                                 mojom::OrderDirection direction) const = 0;
@@ -64,6 +67,7 @@ class AccessPolicy {
   virtual bool CanStackAbove(const ServerWindow* above,
                              const ServerWindow* below) const = 0;
   virtual bool CanStackAtTop(const ServerWindow* window) const = 0;
+  virtual bool CanPerformWmAction(const ServerWindow* window) const = 0;
   // Used for all client controllable cursor properties; which cursor should be
   // displayed, visibility, locking, etc.
   virtual bool CanSetCursorProperties(const ServerWindow* window) const = 0;

@@ -5,7 +5,6 @@
 #include "content/renderer/media/android/stream_texture_factory.h"
 
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "gpu/command_buffer/client/gles2_interface.h"
 #include "gpu/ipc/client/command_buffer_proxy_impl.h"
 #include "gpu/ipc/client/gpu_channel_host.h"
@@ -95,19 +94,16 @@ StreamTextureFactory::StreamTextureFactory(
 StreamTextureFactory::~StreamTextureFactory() {}
 
 ScopedStreamTextureProxy StreamTextureFactory::CreateProxy(
-    unsigned texture_target,
     unsigned* texture_id,
     gpu::Mailbox* texture_mailbox) {
-  int32_t route_id =
-      CreateStreamTexture(texture_target, texture_id, texture_mailbox);
+  int32_t route_id = CreateStreamTexture(texture_id, texture_mailbox);
   if (!route_id)
     return ScopedStreamTextureProxy();
   return ScopedStreamTextureProxy(new StreamTextureProxy(
-      base::MakeUnique<StreamTextureHost>(channel_, route_id)));
+      std::make_unique<StreamTextureHost>(channel_, route_id)));
 }
 
 unsigned StreamTextureFactory::CreateStreamTexture(
-    unsigned texture_target,
     unsigned* texture_id,
     gpu::Mailbox* texture_mailbox) {
   GLuint route_id = 0;
@@ -123,9 +119,7 @@ unsigned StreamTextureFactory::CreateStreamTexture(
     *texture_id = 0;
     *texture_mailbox = gpu::Mailbox();
   } else {
-    gl->GenMailboxCHROMIUM(texture_mailbox->name);
-    gl->ProduceTextureDirectCHROMIUM(*texture_id, texture_target,
-                                     texture_mailbox->name);
+    gl->ProduceTextureDirectCHROMIUM(*texture_id, texture_mailbox->name);
   }
   return route_id;
 }

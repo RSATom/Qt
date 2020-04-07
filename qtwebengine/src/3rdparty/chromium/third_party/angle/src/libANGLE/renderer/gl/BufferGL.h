@@ -27,12 +27,12 @@ class BufferGL : public BufferImpl
     ~BufferGL() override;
 
     gl::Error setData(const gl::Context *context,
-                      GLenum target,
+                      gl::BufferBinding target,
                       const void *data,
                       size_t size,
-                      GLenum usage) override;
+                      gl::BufferUsage usage) override;
     gl::Error setSubData(const gl::Context *context,
-                         GLenum target,
+                         gl::BufferBinding target,
                          const void *data,
                          size_t size,
                          size_t offset) override;
@@ -49,7 +49,8 @@ class BufferGL : public BufferImpl
                        void **mapPtr) override;
     gl::Error unmap(const gl::Context *context, GLboolean *result) override;
 
-    gl::Error getIndexRange(GLenum type,
+    gl::Error getIndexRange(const gl::Context *context,
+                            GLenum type,
                             size_t offset,
                             size_t count,
                             bool primitiveRestartEnabled,

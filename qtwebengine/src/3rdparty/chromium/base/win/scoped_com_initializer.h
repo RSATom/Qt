@@ -7,9 +7,10 @@
 
 #include <objbase.h>
 
-#include "base/logging.h"
+#include "base/base_export.h"
 #include "base/macros.h"
-#include "build/build_config.h"
+#include "base/threading/thread_checker.h"
+#include "base/win/scoped_windows_thread_environment.h"
 
 namespace base {
 namespace win {
@@ -21,54 +22,27 @@ namespace win {
 // similar lifetime as the thread itself.  You should not be using this in
 // random utility functions that make COM calls -- instead ensure these
 // functions are running on a COM-supporting thread!
-class ScopedCOMInitializer {
+class BASE_EXPORT ScopedCOMInitializer : public ScopedWindowsThreadEnvironment {
  public:
   // Enum value provided to initialize the thread as an MTA instead of STA.
   enum SelectMTA { kMTA };
 
   // Constructor for STA initialization.
-  ScopedCOMInitializer() {
-    Initialize(COINIT_APARTMENTTHREADED);
-  }
+  ScopedCOMInitializer();
 
   // Constructor for MTA initialization.
-  explicit ScopedCOMInitializer(SelectMTA mta) {
-    Initialize(COINIT_MULTITHREADED);
-  }
+  explicit ScopedCOMInitializer(SelectMTA mta);
 
-  ~ScopedCOMInitializer() {
-#ifndef NDEBUG
-    // Using the windows API directly to avoid dependency on platform_thread.
-    DCHECK_EQ(GetCurrentThreadId(), thread_id_);
-#endif
-    if (succeeded())
-      CoUninitialize();
-  }
+  ~ScopedCOMInitializer() override;
 
-  bool succeeded() const { return SUCCEEDED(hr_); }
+  // ScopedWindowsThreadEnvironment:
+  bool Succeeded() const override;
 
  private:
-  void Initialize(COINIT init) {
-#ifndef NDEBUG
-    thread_id_ = GetCurrentThreadId();
-#endif
-    hr_ = CoInitializeEx(NULL, init);
-#ifndef NDEBUG
-    if (hr_ == S_FALSE)
-      LOG(ERROR) << "Multiple CoInitialize() calls for thread " << thread_id_;
-    else
-      DCHECK_NE(RPC_E_CHANGED_MODE, hr_) << "Invalid COM thread model change";
-#endif
-  }
+  void Initialize(COINIT init);
 
   HRESULT hr_;
-#ifndef NDEBUG
-  // In debug builds we use this variable to catch a potential bug where a
-  // ScopedCOMInitializer instance is deleted on a different thread than it
-  // was initially created on.  If that ever happens it can have bad
-  // consequences and the cause can be tricky to track down.
-  DWORD thread_id_;
-#endif
+  THREAD_CHECKER(thread_checker_);
 
   DISALLOW_COPY_AND_ASSIGN(ScopedCOMInitializer);
 };

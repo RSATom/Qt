@@ -20,10 +20,8 @@ def _CompileScripts(input_api, output_api):
     "js_protocol.json"
     "compile-scripts.js",
     "injected-script-source.js",
-    "debugger_script_externs.js",
     "injected_script_externs.js",
-    "check_injected_script_source.js",
-    "debugger-script.js"
+    "check_injected_script_source.js"
   ]
 
   for file in compilation_related_files:
@@ -63,6 +61,7 @@ def PostUploadHook(cl, change, output_api):
   return output_api.EnsureCQIncludeTrybotsAreAdded(
     cl,
     [
-      'master.tryserver.blink:linux_trusty_blink_rel'
+      'master.tryserver.blink:linux_trusty_blink_rel',
+      'luci.chromium.try:linux_chromium_headless_rel',
     ],
     'Automatically added layout test trybots to run tests on CQ.')

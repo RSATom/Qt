@@ -844,7 +844,7 @@ void Bars3DRenderer::drawSlicedScene()
                             viewMatrix, projectionMatrix, positionComp, totalSliceLabelRotation,
                             0, m_cachedSelectionMode, m_labelShader,
                             m_labelObj, activeCamera, false, false, Drawer::LabelMid,
-                            Qt::AlignmentFlag(Qt::AlignLeft | Qt::AlignTop), true);
+                            Qt::AlignLeft | Qt::AlignTop, true);
     }
 
     if (!sliceGridLabels) {

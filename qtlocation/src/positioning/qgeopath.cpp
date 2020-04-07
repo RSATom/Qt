@@ -38,6 +38,7 @@
 ****************************************************************************/
 
 #include "qgeopath.h"
+#include "qgeopolygon.h"
 #include "qgeopath_p.h"
 
 #include "qgeocoordinate.h"
@@ -73,15 +74,19 @@ QT_BEGIN_NAMESPACE
 
     This class is a \l Q_GADGET.
     It can be \l{Cpp_value_integration_positioning}{directly used from C++ and QML}.
+
+    A QGeoPath is both invalid and empty if it contains no coordinate.
+
+    \note A default constructed QGeoPath is both invalid and empty as it does not contain any coordinates.
 */
 
 /*!
     \property QGeoPath::path
     \brief This property holds the list of coordinates for the geo path.
 
-    The path is both invalid and empty if it contains no coordinate.
-
-    A default constructed QGeoPath is therefore invalid.
+    \note The coordinates cannot be processed in place. To change the value
+    of this property, retrieve the complete list of coordinates, process them,
+    and assign the new value to the property.
 */
 
 inline QGeoPathPrivate *QGeoPath::d_func()
@@ -176,6 +181,9 @@ bool QGeoPath::operator!=(const QGeoPath &other) const
     return !(*d == *other.d_func());
 }
 
+/*!
+    Sets all the elements of the \a path.
+*/
 void QGeoPath::setPath(const QList<QGeoCoordinate> &path)
 {
     Q_D(QGeoPath);
@@ -183,8 +191,7 @@ void QGeoPath::setPath(const QList<QGeoCoordinate> &path)
 }
 
 /*!
-    Returns all the elements. Equivalent to QGeoShape::center().
-    The center coordinate, in case of a QGeoPath, is the center of its bounding box.
+    Returns all the elements of the path.
 */
 const QList<QGeoCoordinate> &QGeoPath::path() const
 {
@@ -192,6 +199,52 @@ const QList<QGeoCoordinate> &QGeoPath::path() const
     return d->path();
 }
 
+/*!
+    Clears the path.
+
+    \since 5.12
+*/
+void QGeoPath::clearPath()
+{
+    Q_D(QGeoPath);
+    d->clearPath();
+}
+
+/*!
+    Sets all the elements of the path.
+
+    \internal
+*/
+void QGeoPath::setVariantPath(const QVariantList &path)
+{
+    Q_D(QGeoPath);
+    QList<QGeoCoordinate> p;
+    for (const auto &c: path) {
+        if (c.canConvert<QGeoCoordinate>())
+            p << c.value<QGeoCoordinate>();
+    }
+    d->setPath(p);
+}
+/*!
+    Returns all the elements of the path.
+
+    \internal
+*/
+QVariantList QGeoPath::variantPath() const
+{
+    Q_D(const QGeoPath);
+    QVariantList p;
+    for (const auto &c: d->path())
+        p << QVariant::fromValue(c);
+    return p;
+}
+
+
+/*!
+    \property QGeoPath::width
+
+    \brief the width of the path in meters.
+*/
 void QGeoPath::setWidth(const qreal &width)
 {
     Q_D(QGeoPath);
@@ -199,7 +252,7 @@ void QGeoPath::setWidth(const qreal &width)
 }
 
 /*!
-    Returns the width of the path, in meters. This information is used in the \l contains method
+    Returns the width of the path, in meters. This information is used in the \l contains method.
     The default value is 0.
 */
 qreal QGeoPath::width() const
@@ -239,6 +292,10 @@ QGeoPath QGeoPath::translated(double degreesLatitude, double degreesLongitude) c
 /*!
     Returns the length of the path, in meters, from the element \a indexFrom to the element \a indexTo.
     The length is intended to be the sum of the shortest distances for each pair of adjacent points.
+
+    If \a indexTo is -1 (the default value), the length will be including the distance between last coordinate
+    and the first (closed loop).
+    To retrieve the length for the path, use 0 for \a indexFrom and \l QGeoPath::size() - 1 for \a indexTo.
 */
 double QGeoPath::length(int indexFrom, int indexTo) const
 {
@@ -410,6 +467,12 @@ void QGeoPathPrivate::setPath(const QList<QGeoCoordinate> &path)
     computeBoundingBox();
 }
 
+void QGeoPathPrivate::clearPath()
+{
+    m_path.clear();
+    computeBoundingBox();
+}
+
 qreal QGeoPathPrivate::width() const
 {
     return m_width;
@@ -424,6 +487,9 @@ void QGeoPathPrivate::setWidth(const qreal &width)
 
 double QGeoPathPrivate::length(int indexFrom, int indexTo) const
 {
+    if (path().isEmpty())
+        return 0.0;
+
     bool wrap = indexTo == -1;
     if (indexTo < 0 || indexTo >= path().size())
         indexTo = path().size() - 1;
@@ -522,10 +588,25 @@ bool QGeoPathPrivate::lineContains(const QGeoCoordinate &coordinate) const
     return (m_path[0].distanceTo(coordinate) <= lineRadius);
 }
 
+/*!
+    modified version of polygonContains with holes support.
+*/
 bool QGeoPathPrivate::polygonContains(const QGeoCoordinate &coordinate) const
 {
     if (m_clipperDirty)
         const_cast<QGeoPathPrivate *>(this)->updateClipperPath();
+
+    // iterates the holes List checking whether the point is contained inside the holes
+    for (const QList<QGeoCoordinate> &holePath : qAsConst(m_holesList)) {
+
+        QGeoPolygon holePolygon;
+        holePolygon.setPath(holePath);
+        QGeoPath holeBoundary;
+        holeBoundary.setPath(holePath);
+
+        if (holePolygon.contains(coordinate) && !(holeBoundary.contains(coordinate)))
+            return false;
+    }
 
     QDoubleVector2D coord = QWebMercator::coordToMercator(coordinate);
     double tlx = QWebMercator::coordToMercator(m_bbox.topLeft()).x();
@@ -562,6 +643,14 @@ void QGeoPathPrivate::translate(double degreesLatitude, double degreesLongitude)
     for (QGeoCoordinate &p: m_path) {
         p.setLatitude(p.latitude() + degreesLatitude);
         p.setLongitude(QLocationUtils::wrapLong(p.longitude() + degreesLongitude));
+    }
+    if (!m_holesList.isEmpty()){
+        for (QList<QGeoCoordinate> &hole: m_holesList){
+            for (QGeoCoordinate &holeVertex: hole){
+                holeVertex.setLatitude(holeVertex.latitude() + degreesLatitude);
+                holeVertex.setLongitude(QLocationUtils::wrapLong(holeVertex.longitude() + degreesLongitude));
+            }
+        }
     }
     m_bbox.translate(degreesLatitude, degreesLongitude);
     m_minLati += degreesLatitude;
@@ -742,4 +831,46 @@ void QGeoPathPrivate::updateClipperPath()
     m_clipperPath = QClipperUtils::qListToPath(preservedPath);
 }
 
+
+/*!
+    Sets the \a path for an Hole inside the polygon.The hole has QList<QGeoCoordinate> type
+*/
+void QGeoPathPrivate::addHole(const QList<QGeoCoordinate> &holePath)
+{
+    for (const QGeoCoordinate &holeVertex: holePath)
+        if (!holeVertex.isValid())
+            return;
+
+    m_holesList << holePath;
+}
+
+/*!
+    Returns a QVariant containing a QList<QGeoCoordinate> representing the hole at index
+*/
+const QList<QGeoCoordinate> QGeoPathPrivate::holePath(int index) const
+{
+    return m_holesList.at(index);
+}
+
+
+/*!
+    Removes element at position \a index from the holes QList.
+*/
+void QGeoPathPrivate::removeHole(int index)
+{
+    if (index < 0 || index >= m_holesList.size())
+        return;
+
+    m_holesList.removeAt(index);
+}
+
+/*!
+    Returns the number of holes.
+*/
+int QGeoPathPrivate::holesCount() const
+{
+    return m_holesList.size();
+}
+
 QT_END_NAMESPACE
+

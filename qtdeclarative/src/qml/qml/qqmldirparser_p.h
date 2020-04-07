@@ -63,8 +63,6 @@ class QQmlError;
 class QQmlEngine;
 class Q_QML_PRIVATE_EXPORT QQmlDirParser
 {
-    Q_DISABLE_COPY(QQmlDirParser)
-
 public:
     QQmlDirParser();
     ~QQmlDirParser();
@@ -91,8 +89,7 @@ public:
 
     struct Component
     {
-        Component()
-            : majorVersion(0), minorVersion(0), internal(false), singleton(false) {}
+        Component() {}
 
         Component(const QString &typeName, const QString &fileName, int majorVersion, int minorVersion)
             : typeName(typeName), fileName(fileName), majorVersion(majorVersion), minorVersion(minorVersion),
@@ -100,24 +97,23 @@ public:
 
         QString typeName;
         QString fileName;
-        int majorVersion;
-        int minorVersion;
-        bool internal;
-        bool singleton;
+        int majorVersion = 0;
+        int minorVersion = 0;
+        bool internal = false;
+        bool singleton = false;
     };
 
     struct Script
     {
-        Script()
-            : majorVersion(0), minorVersion(0) {}
+        Script() {}
 
         Script(const QString &nameSpace, const QString &fileName, int majorVersion, int minorVersion)
             : nameSpace(nameSpace), fileName(fileName), majorVersion(majorVersion), minorVersion(minorVersion) {}
 
         QString nameSpace;
         QString fileName;
-        int majorVersion;
-        int minorVersion;
+        int majorVersion = 0;
+        int minorVersion = 0;
     };
 
     QHash<QString,Component> components() const;
@@ -139,6 +135,8 @@ public:
     QList<TypeInfo> typeInfos() const;
 #endif
 
+    QString className() const;
+
 private:
     bool maybeAddComponent(const QString &typeName, const QString &fileName, const QString &version, QHash<QString,Component> &hash, int lineNumber = -1, bool multi = true);
     void reportError(quint16 line, quint16 column, const QString &message);
@@ -154,6 +152,7 @@ private:
 #ifdef QT_CREATOR
     QList<TypeInfo> _typeInfos;
 #endif
+    QString _className;
 };
 
 typedef QHash<QString,QQmlDirParser::Component> QQmlDirComponents;

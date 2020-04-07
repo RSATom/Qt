@@ -17,14 +17,14 @@
 class GrContext;
 class GrContextThreadSafeProxy;
 class GrTextureProxy;
-class GrSamplerParams;
+class GrSamplerState;
 class SkBitmap;
 class SkData;
 class SkMatrix;
 class SkPaint;
 class SkPicture;
 
-class SK_API SkImageGenerator : public SkNoncopyable {
+class SK_API SkImageGenerator {
 public:
     /**
      *  The PixelRef which takes ownership of this SkImageGenerator
@@ -41,7 +41,7 @@ public:
      *  If non-NULL is returned, the caller is responsible for calling
      *  unref() on the data when it is finished.
      */
-    SkData* refEncodedData() {
+    sk_sp<SkData> refEncodedData() {
         return this->onRefEncodedData();
     }
 
@@ -82,13 +82,7 @@ public:
      *
      *  @return true on success.
      */
-    struct Options {
-        Options()
-            : fBehavior(SkTransferFunctionBehavior::kIgnore)
-        {}
-
-        SkTransferFunctionBehavior fBehavior;
-    };
+    struct Options {};
     bool getPixels(const SkImageInfo& info, void* pixels, size_t rowBytes, const Options* options);
 
     /**
@@ -140,10 +134,15 @@ public:
      *  It must be non-NULL. The generator should only succeed if:
      *  - its internal context is the same
      *  - it can somehow convert its texture into one that is valid for the provided context.
+     *
+     *  If the willNeedMipMaps flag is true, the generator should try to create a TextureProxy that
+     *  at least has the mip levels allocated and the base layer filled in. If this is not possible,
+     *  the generator is allowed to return a non mipped proxy, but this will have some additional
+     *  overhead in later allocating mips and copying of the base layer.
      */
     sk_sp<GrTextureProxy> generateTexture(GrContext*, const SkImageInfo& info,
                                           const SkIPoint& origin,
-                                          SkTransferFunctionBehavior behavior);
+                                          bool willNeedMipMaps);
 #endif
 
     /**
@@ -164,13 +163,11 @@ public:
                                                              sk_sp<SkColorSpace>);
 
 protected:
-    enum {
-        kNeedNewImageUniqueID = 0
-    };
+    static constexpr int kNeedNewImageUniqueID = 0;
 
     SkImageGenerator(const SkImageInfo& info, uint32_t uniqueId = kNeedNewImageUniqueID);
 
-    virtual SkData* onRefEncodedData() { return nullptr; }
+    virtual sk_sp<SkData> onRefEncodedData() { return nullptr; }
     virtual bool onGetPixels(const SkImageInfo&, void*, size_t, const Options&) { return false; }
     virtual bool onIsValid(GrContext*) const { return true; }
     virtual bool onQueryYUV8(SkYUVSizeInfo*, SkYUVColorSpace*) const { return false; }
@@ -185,7 +182,7 @@ protected:
 
     virtual TexGenType onCanGenerateTexture() const { return TexGenType::kNone; }
     virtual sk_sp<GrTextureProxy> onGenerateTexture(GrContext*, const SkImageInfo&, const SkIPoint&,
-                                                    SkTransferFunctionBehavior);  // returns nullptr
+                                                    bool willNeedMipMaps);  // returns nullptr
 #endif
 
 private:
@@ -198,6 +195,11 @@ private:
     // It is called from NewFromEncoded() after it has checked for any runtime factory.
     // The SkData will never be NULL, as that will have been checked by NewFromEncoded.
     static std::unique_ptr<SkImageGenerator> MakeFromEncodedImpl(sk_sp<SkData>);
+
+    SkImageGenerator(SkImageGenerator&&) = delete;
+    SkImageGenerator(const SkImageGenerator&) = delete;
+    SkImageGenerator& operator=(SkImageGenerator&&) = delete;
+    SkImageGenerator& operator=(const SkImageGenerator&) = delete;
 };
 
 #endif  // SkImageGenerator_DEFINED

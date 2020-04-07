@@ -21,8 +21,6 @@ class NavigationControllerImpl;
 // with its native counterpart.
 class CONTENT_EXPORT NavigationControllerAndroid {
  public:
-  static bool Register(JNIEnv* env);
-
   explicit NavigationControllerAndroid(
       NavigationControllerImpl* navigation_controller);
   ~NavigationControllerAndroid();
@@ -57,8 +55,10 @@ class CONTENT_EXPORT NavigationControllerAndroid {
   void ReloadBypassingCache(JNIEnv* env,
                             const base::android::JavaParamRef<jobject>& obj,
                             jboolean check_for_repost);
-  void RequestRestoreLoad(JNIEnv* env,
-                          const base::android::JavaParamRef<jobject>& obj);
+  jboolean NeedsReload(JNIEnv* env,
+                       const base::android::JavaParamRef<jobject>& obj);
+  void SetNeedsReload(JNIEnv* env,
+                      const base::android::JavaParamRef<jobject>& obj);
   void CancelPendingReload(JNIEnv* env,
                            const base::android::JavaParamRef<jobject>& obj);
   void GoToNavigationIndex(JNIEnv* env,

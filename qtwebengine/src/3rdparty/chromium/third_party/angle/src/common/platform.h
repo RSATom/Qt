@@ -58,13 +58,14 @@
 #       include <d3dcompiler.h>
 #   endif
 
-#   if defined(ANGLE_ENABLE_D3D11)
-#       include <d3d10_1.h>
-#       include <d3d11.h>
-#       include <d3d11_1.h>
-#       include <dxgi.h>
-#       include <dxgi1_2.h>
-#       include <d3dcompiler.h>
+// Include D3D11 headers when OpenGL is enabled on Windows for interop extensions.
+#if defined(ANGLE_ENABLE_D3D11) || defined(ANGLE_ENABLE_OPENGL)
+#include <d3d10_1.h>
+#include <d3d11.h>
+#include <d3d11_3.h>
+#include <d3dcompiler.h>
+#include <dxgi.h>
+#include <dxgi1_2.h>
 #   endif
 
 #if defined(ANGLE_ENABLE_D3D9) || defined(ANGLE_ENABLE_D3D11)
@@ -91,8 +92,24 @@
 #define ANGLE_USE_SSE
 #endif
 
+// Mips and arm devices need to include stddef for size_t.
+#if defined(__mips__) || defined(__arm__) || defined(__aarch64__)
+#include <stddef.h>
+#endif
+
 // The MemoryBarrier function name collides with a macro under Windows
 // We will undef the macro so that the function name does not get replaced
 #undef MemoryBarrier
+
+// Macro for hinting that an expression is likely to be true/false.
+#if !defined(ANGLE_LIKELY) || !defined(ANGLE_UNLIKELY)
+#if defined(__GNUC__) || defined(__clang__)
+#define ANGLE_LIKELY(x) __builtin_expect(!!(x), 1)
+#define ANGLE_UNLIKELY(x) __builtin_expect(!!(x), 0)
+#else
+#define ANGLE_LIKELY(x) (x)
+#define ANGLE_UNLIKELY(x) (x)
+#endif  // defined(__GNUC__) || defined(__clang__)
+#endif  // !defined(ANGLE_LIKELY) || !defined(ANGLE_UNLIKELY)
 
 #endif // COMMON_PLATFORM_H_

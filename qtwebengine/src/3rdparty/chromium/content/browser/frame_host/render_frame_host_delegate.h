@@ -12,15 +12,21 @@
 
 #include "base/i18n/rtl.h"
 #include "build/build_config.h"
+#include "components/viz/common/surfaces/surface_id.h"
 #include "content/browser/webui/web_ui_impl.h"
 #include "content/common/content_export.h"
 #include "content/common/frame_message_enums.h"
 #include "content/public/browser/site_instance.h"
+#include "content/public/browser/visibility.h"
 #include "content/public/common/javascript_dialog_type.h"
 #include "content/public/common/media_stream_request.h"
+#include "content/public/common/resource_load_info.mojom.h"
+#include "content/public/common/resource_type.h"
 #include "mojo/public/cpp/bindings/scoped_interface_endpoint_handle.h"
+#include "net/cert/cert_status_flags.h"
 #include "net/http/http_response_headers.h"
-#include "services/device/public/interfaces/wake_lock.mojom.h"
+#include "services/device/public/mojom/geolocation_context.mojom.h"
+#include "services/device/public/mojom/wake_lock.mojom.h"
 #include "ui/base/window_open_disposition.h"
 
 #if defined(OS_WIN)
@@ -29,7 +35,7 @@
 
 #if defined(OS_ANDROID)
 #include "base/android/scoped_java_ref.h"
-#include "services/device/public/interfaces/nfc.mojom.h"
+#include "services/device/public/mojom/nfc.mojom.h"
 #endif
 
 class GURL;
@@ -38,16 +44,17 @@ namespace IPC {
 class Message;
 }
 
-namespace device {
-class GeolocationContext;
-}
-
 namespace gfx {
 class Rect;
+class Size;
 }
 
 namespace url {
 class Origin;
+}
+
+namespace blink {
+struct WebFullscreenOptions;
 }
 
 namespace content {
@@ -81,6 +88,18 @@ class CONTENT_EXPORT RenderFrameHostDelegate {
       const std::string& interface_name,
       mojo::ScopedInterfaceEndpointHandle handle) {}
 
+  // Allows the delegate to filter incoming interface requests.
+  virtual void OnInterfaceRequest(
+      RenderFrameHost* render_frame_host,
+      const std::string& interface_name,
+      mojo::ScopedMessagePipeHandle* interface_pipe) {}
+
+  // Notification from the renderer host that a suspicious navigation of the
+  // main frame has been blocked. Allows the delegate to provide some UI to let
+  // the user know about the blocked navigation and give them the option to
+  // recover from it. The given URL is the blocked navigation target.
+  virtual void OnDidBlockFramebust(const GURL& url) {}
+
   // Gets the last committed URL. See WebContents::GetLastCommittedURL for a
   // description of the semantics.
   virtual const GURL& GetMainFrameLastCommittedURL() const;
@@ -106,7 +125,6 @@ class CONTENT_EXPORT RenderFrameHostDelegate {
   virtual void RunJavaScriptDialog(RenderFrameHost* render_frame_host,
                                    const base::string16& message,
                                    const base::string16& default_prompt,
-                                   const GURL& frame_url,
                                    JavaScriptDialogType type,
                                    IPC::Message* reply_msg) {}
 
@@ -117,6 +135,9 @@ class CONTENT_EXPORT RenderFrameHostDelegate {
   // Called when a file selection is to be done.
   virtual void RunFileChooser(RenderFrameHost* render_frame_host,
                               const FileChooserParams& params) {}
+
+  // The pending page load was canceled, so the address bar should be updated.
+  virtual void DidCancelLoading() {}
 
   // Another page accessed the top-level initial empty document, which means it
   // is no longer safe to display a pending URL without risking a URL spoof.
@@ -156,15 +177,14 @@ class CONTENT_EXPORT RenderFrameHostDelegate {
   // The render frame has requested access to media devices listed in
   // |request|, and the client should grant or deny that permission by
   // calling |callback|.
-  virtual void RequestMediaAccessPermission(
-      const MediaStreamRequest& request,
-      const MediaResponseCallback& callback);
+  virtual void RequestMediaAccessPermission(const MediaStreamRequest& request,
+                                            MediaResponseCallback callback);
 
   // Checks if we have permission to access the microphone or camera. Note that
   // this does not query the user. |type| must be MEDIA_DEVICE_AUDIO_CAPTURE
   // or MEDIA_DEVICE_VIDEO_CAPTURE.
-  // TODO(guidou): use url::Origin for |security_origin|. See crbug.com/683115.
-  virtual bool CheckMediaAccessPermission(const GURL& security_origin,
+  virtual bool CheckMediaAccessPermission(RenderFrameHost* render_frame_host,
+                                          const url::Origin& security_origin,
                                           MediaStreamType type);
 
   // Returns the ID of the default device for the given media device |type|.
@@ -173,13 +193,13 @@ class CONTENT_EXPORT RenderFrameHostDelegate {
   virtual std::string GetDefaultMediaDeviceID(MediaStreamType type);
 
   // Get the accessibility mode for the WebContents that owns this frame.
-  virtual AccessibilityMode GetAccessibilityMode() const;
+  virtual ui::AXMode GetAccessibilityMode() const;
 
   // Called when accessibility events or location changes are received
   // from a render frame, when the accessibility mode has the
-  // AccessibilityMode::kWebContents flag set.
+  // ui::AXMode::kWebContents flag set.
   virtual void AccessibilityEventReceived(
-      const std::vector<AXEventNotificationDetails>& details) {}
+      const AXEventNotificationDetails& details) {}
   virtual void AccessibilityLocationChangesReceived(
       const std::vector<AXLocationChangeNotificationDetails>& details) {}
 
@@ -190,7 +210,7 @@ class CONTENT_EXPORT RenderFrameHostDelegate {
       int browser_plugin_instance_id);
 
   // Gets the GeolocationContext associated with this delegate.
-  virtual device::GeolocationContext* GetGeolocationContext();
+  virtual device::mojom::GeolocationContext* GetGeolocationContext();
 
   // Gets the WakeLock that serves wake lock requests from the renderer.
   virtual device::mojom::WakeLock* GetRendererWakeLock();
@@ -202,13 +222,19 @@ class CONTENT_EXPORT RenderFrameHostDelegate {
 
   // Notification that the frame wants to go into fullscreen mode.
   // |origin| represents the origin of the frame that requests fullscreen.
-  virtual void EnterFullscreenMode(const GURL& origin) {}
+  virtual void EnterFullscreenMode(const GURL& origin,
+                                   const blink::WebFullscreenOptions& options) {
+  }
 
   // Notification that the frame wants to go out of fullscreen mode.
   // |will_cause_resize| indicates whether the fullscreen change causes a
   // view resize. e.g. This will be false when going from tab fullscreen to
   // browser fullscreen.
   virtual void ExitFullscreenMode(bool will_cause_resize) {}
+
+  // Notification that this frame has changed fullscreen state.
+  virtual void FullscreenStateChanged(RenderFrameHost* rfh,
+                                      bool is_fullscreen) {}
 
   // Let the delegate decide whether postMessage should be delivered to
   // |target_rfh| from a source frame in the given SiteInstance.  This defaults
@@ -233,6 +259,9 @@ class CONTENT_EXPORT RenderFrameHostDelegate {
   // Set the |node| frame as focused in the current FrameTree as well as
   // possibly changing focus in distinct but related inner/outer WebContents.
   virtual void SetFocusedFrame(FrameTreeNode* node, SiteInstance* source) {}
+
+  // The frame called |window.focus()|.
+  virtual void DidCallFocus() {}
 
   // Searches the WebContents for a focused frame, potentially in an inner
   // WebContents. If this WebContents has no focused frame, returns |nullptr|.
@@ -314,6 +343,9 @@ class CONTENT_EXPORT RenderFrameHostDelegate {
                                                  const url::Origin& origin,
                                                  const GURL& resource_url);
 
+  // Opens a new view-source tab for the last committed document in |frame|.
+  virtual void ViewSource(RenderFrameHostImpl* frame) {}
+
 #if defined(OS_ANDROID)
   virtual base::android::ScopedJavaLocalRef<jobject>
   GetJavaRenderFrameHostDelegate();
@@ -322,6 +354,29 @@ class CONTENT_EXPORT RenderFrameHostDelegate {
   // Whether the delegate is being destroyed, in which case the RenderFrameHost
   // should not be asked to create a RenderFrame.
   virtual bool IsBeingDestroyed() const;
+
+  // Notifies that the render frame started loading a subresource.
+  virtual void SubresourceResponseStarted(const GURL& url,
+                                          net::CertStatus cert_status) {}
+
+  // Notifies that the render finished loading a subresource for the frame
+  // associated with |render_frame_host|.
+  virtual void ResourceLoadComplete(
+      RenderFrameHost* render_frame_host,
+      mojom::ResourceLoadInfoPtr resource_load_info) {}
+
+  // Request to print a frame that is in a different process than its parent.
+  virtual void PrintCrossProcessSubframe(const gfx::Rect& rect,
+                                         int document_cookie,
+                                         RenderFrameHost* render_frame_host) {}
+
+  // Updates the Picture-in-Picture controller with the relevant viz::SurfaceId
+  // of the video to be in Picture-in-Picture mode.
+  virtual void UpdatePictureInPictureSurfaceId(const viz::SurfaceId& surface_id,
+                                               const gfx::Size& natural_size) {}
+
+  // Returns the visibility of the delegate.
+  virtual Visibility GetVisibility() const;
 
  protected:
   virtual ~RenderFrameHostDelegate() {}

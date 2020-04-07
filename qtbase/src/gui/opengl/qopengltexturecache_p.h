@@ -56,6 +56,7 @@
 #include <QObject>
 #include <QCache>
 #include <private/qopenglcontext_p.h>
+#include <private/qopengltextureuploader_p.h>
 #include <QtCore/qmutex.h>
 
 QT_BEGIN_NAMESPACE
@@ -70,42 +71,35 @@ public:
     QOpenGLTextureCache(QOpenGLContext *);
     ~QOpenGLTextureCache();
 
-    enum BindOption {
-        NoBindOption                            = 0x0000,
-        PremultipliedAlphaBindOption            = 0x0001,
-        UseRedFor8BitBindOption                 = 0x0002,
-    };
-    Q_DECLARE_FLAGS(BindOptions, BindOption)
-
-    GLuint bindTexture(QOpenGLContext *context, const QPixmap &pixmap, QOpenGLTextureCache::BindOptions options = PremultipliedAlphaBindOption);
-    GLuint bindTexture(QOpenGLContext *context, const QImage &image, QOpenGLTextureCache::BindOptions options = PremultipliedAlphaBindOption);
+    GLuint bindTexture(QOpenGLContext *context, const QPixmap &pixmap,
+                       QOpenGLTextureUploader::BindOptions options = QOpenGLTextureUploader::PremultipliedAlphaBindOption);
+    GLuint bindTexture(QOpenGLContext *context, const QImage &image,
+                       QOpenGLTextureUploader::BindOptions options = QOpenGLTextureUploader::PremultipliedAlphaBindOption);
 
     void invalidate(qint64 key);
 
-    void invalidateResource() Q_DECL_OVERRIDE;
-    void freeResource(QOpenGLContext *ctx) Q_DECL_OVERRIDE;
+    void invalidateResource() override;
+    void freeResource(QOpenGLContext *ctx) override;
 
 private:
-    GLuint bindTexture(QOpenGLContext *context, qint64 key, const QImage &image, QOpenGLTextureCache::BindOptions options);
+    GLuint bindTexture(QOpenGLContext *context, qint64 key, const QImage &image, QOpenGLTextureUploader::BindOptions options);
 
     QMutex m_mutex;
     QCache<quint64, QOpenGLCachedTexture> m_cache;
 };
 
-Q_DECLARE_OPERATORS_FOR_FLAGS(QOpenGLTextureCache::BindOptions)
-
 class QOpenGLCachedTexture
 {
 public:
-    QOpenGLCachedTexture(GLuint id, QOpenGLTextureCache::BindOptions options, QOpenGLContext *context);
+    QOpenGLCachedTexture(GLuint id, QOpenGLTextureUploader::BindOptions options, QOpenGLContext *context);
     ~QOpenGLCachedTexture() { m_resource->free(); }
 
     GLuint id() const { return m_resource->id(); }
-    QOpenGLTextureCache::BindOptions options() const { return m_options; }
+    QOpenGLTextureUploader::BindOptions options() const { return m_options; }
 
 private:
     QOpenGLSharedResourceGuard *m_resource;
-    QOpenGLTextureCache::BindOptions m_options;
+    QOpenGLTextureUploader::BindOptions m_options;
 };
 
 QT_END_NAMESPACE

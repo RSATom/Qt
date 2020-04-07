@@ -2,7 +2,10 @@ include_rules = [
   "+components/prefs",
   "+content/public/browser",
   "+media/cdm",
-  "+media/media_features.h",
+  "+media/media_buildflags.h",
   "+media/mojo",
   "+mojo/public/cpp/bindings",
+
+  # For testing
+  "+content/public/test",
 ]

@@ -37,6 +37,7 @@
 **
 ****************************************************************************/
 #include "mmrendereraudiorolecontrol.h"
+#include "mmrenderercustomaudiorolecontrol.h"
 #include "mmrenderermediaplayercontrol.h"
 #include "mmrenderermetadatareadercontrol.h"
 #include "mmrendererplayervideorenderercontrol.h"
@@ -120,6 +121,40 @@ void MmRendererMediaPlayerControl::handleMmStopped()
     }
 }
 
+void MmRendererMediaPlayerControl::handleMmSuspend(const QString &reason)
+{
+    if (m_state == QMediaPlayer::StoppedState)
+        return;
+
+    Q_UNUSED(reason);
+    setMediaStatus(QMediaPlayer::StalledMedia);
+}
+
+void MmRendererMediaPlayerControl::handleMmSuspendRemoval(const QString &bufferStatus)
+{
+    if (m_state == QMediaPlayer::StoppedState)
+        return;
+
+    if (bufferStatus == QLatin1String("buffering"))
+        setMediaStatus(QMediaPlayer::BufferingMedia);
+    else
+        setMediaStatus(QMediaPlayer::BufferedMedia);
+}
+
+void MmRendererMediaPlayerControl::handleMmPause()
+{
+    if (m_state == QMediaPlayer::PlayingState) {
+        setState(QMediaPlayer::PausedState);
+    }
+}
+
+void MmRendererMediaPlayerControl::handleMmPlay()
+{
+    if (m_state == QMediaPlayer::PausedState) {
+        setState(QMediaPlayer::PlayingState);
+    }
+}
+
 void MmRendererMediaPlayerControl::closeConnection()
 {
     stopMonitoring();
@@ -166,6 +201,8 @@ void MmRendererMediaPlayerControl::attach()
         return;
     }
 
+    resetMonitoring();
+
     if (m_videoRendererControl)
         m_videoRendererControl->attachDisplay(m_context);
 
@@ -180,7 +217,10 @@ void MmRendererMediaPlayerControl::attach()
     }
 
     if (m_audioId != -1 && m_audioRoleControl) {
-        QString audioType = qnxAudioType(m_audioRoleControl->audioRole());
+        QAudio::Role audioRole = m_audioRoleControl->audioRole();
+        QString audioType = (audioRole == QAudio::CustomRole && m_customAudioRoleControl)
+                          ? m_customAudioRoleControl->customAudioRole()
+                          : qnxAudioType(audioRole);
         QByteArray latin1AudioType = audioType.toLatin1();
         if (!audioType.isEmpty() && latin1AudioType == audioType) {
             strm_dict_t *dict = strm_dict_new();
@@ -334,6 +374,7 @@ void MmRendererMediaPlayerControl::setState(QMediaPlayer::State state)
 
 void MmRendererMediaPlayerControl::stopInternal(StopCommand stopCommand)
 {
+    resetMonitoring();
     setPosition(0);
 
     if (m_state != QMediaPlayer::StoppedState) {
@@ -496,6 +537,7 @@ void MmRendererMediaPlayerControl::play()
     if (m_mediaStatus == QMediaPlayer::EndOfMedia)
         m_position = 0;
 
+    resetMonitoring();
     setPositionInternal(m_position);
     setVolumeInternal(m_muted ? 0 : m_volume);
     setPlaybackRateInternal(m_rate);
@@ -547,6 +589,11 @@ void MmRendererMediaPlayerControl::setAudioRoleControl(MmRendererAudioRoleContro
     m_audioRoleControl = audioRoleControl;
 }
 
+void MmRendererMediaPlayerControl::setCustomAudioRoleControl(MmRendererCustomAudioRoleControl *customAudioRoleControl)
+{
+    m_customAudioRoleControl = customAudioRoleControl;
+}
+
 void MmRendererMediaPlayerControl::setMmPosition(qint64 newPosition)
 {
     if (newPosition != 0 && newPosition != m_position) {
@@ -564,18 +611,11 @@ void MmRendererMediaPlayerControl::setMmBufferStatus(const QString &bufferStatus
     // ignore "idle" buffer status
 }
 
-void MmRendererMediaPlayerControl::setMmBufferLevel(const QString &bufferLevel)
+void MmRendererMediaPlayerControl::setMmBufferLevel(int level, int capacity)
 {
-    // buffer level has format level/capacity, e.g. "91319/124402"
-    const int slashPos = bufferLevel.indexOf('/');
-    if (slashPos != -1) {
-        const int fill = bufferLevel.leftRef(slashPos).toInt();
-        const int capacity = bufferLevel.midRef(slashPos + 1).toInt();
-        if (capacity != 0) {
-            m_bufferLevel = fill / static_cast<float>(capacity) * 100.0f;
-            emit bufferStatusChanged(m_bufferLevel);
-        }
-    }
+    m_bufferLevel = capacity == 0 ? 0 : level / static_cast<float>(capacity) * 100.0f;
+    m_bufferLevel = qBound(0, m_bufferLevel, 100);
+    emit bufferStatusChanged(m_bufferLevel);
 }
 
 void MmRendererMediaPlayerControl::updateMetaData(const strm_dict *dict)

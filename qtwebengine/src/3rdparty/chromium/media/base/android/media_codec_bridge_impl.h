@@ -22,12 +22,8 @@
 
 namespace media {
 
-// GENERATED_JAVA_ENUM_PACKAGE: org.chromium.media
-enum class CodecType {
-  kAny,
-  kSecure,    // Note that all secure codecs are HW codecs.
-  kSoftware,  // In some cases hardware codecs could hang the GPU process.
-};
+class VideoColorSpace;
+struct HDRMetadata;
 
 // A bridge to a Java MediaCodec.
 class MEDIA_EXPORT MediaCodecBridgeImpl : public MediaCodecBridge {
@@ -38,11 +34,15 @@ class MEDIA_EXPORT MediaCodecBridgeImpl : public MediaCodecBridge {
       VideoCodec codec,
       CodecType codec_type,
       const gfx::Size& size,  // Output frame size.
-      jobject surface,        // Output surface, optional.
-      jobject media_crypto,   // MediaCrypto object, optional.
+      const base::android::JavaRef<jobject>&
+          surface,  // Output surface, optional.
+      const base::android::JavaRef<jobject>&
+          media_crypto,  // MediaCrypto object, optional.
       // Codec specific data. See MediaCodec docs.
       const std::vector<uint8_t>& csd0,
       const std::vector<uint8_t>& csd1,
+      const VideoColorSpace& color_space,
+      const base::Optional<HDRMetadata>& hdr_metadata,
       // Should adaptive playback be allowed if supported.
       bool allow_adaptive_playback = true);
 
@@ -60,7 +60,7 @@ class MEDIA_EXPORT MediaCodecBridgeImpl : public MediaCodecBridge {
   // nullptr on failure.
   static std::unique_ptr<MediaCodecBridge> CreateAudioDecoder(
       const AudioDecoderConfig& config,
-      jobject media_crypto);
+      const base::android::JavaRef<jobject>& media_crypto);
 
   ~MediaCodecBridgeImpl() override;
 
@@ -103,18 +103,12 @@ class MEDIA_EXPORT MediaCodecBridgeImpl : public MediaCodecBridge {
                                         void* dst,
                                         size_t num) override;
   std::string GetName() override;
-  bool SetSurface(jobject surface) override;
+  bool SetSurface(const base::android::JavaRef<jobject>& surface) override;
   void SetVideoBitrate(int bps, int frame_rate) override;
   void RequestKeyFrameSoon() override;
-  bool IsAdaptivePlaybackSupported() override;
 
  private:
-  MediaCodecBridgeImpl(const std::string& mime,
-                       CodecType codec_type,
-                       MediaCodecDirection direction);
-
-  // Calls MediaCodec#start(). Returns whether it was successful.
-  bool Start();
+  MediaCodecBridgeImpl(base::android::ScopedJavaGlobalRef<jobject> j_bridge);
 
   // Fills the given input buffer. Returns false if |data_size| exceeds the
   // input buffer's capacity (and doesn't touch the input buffer in that case).

@@ -35,6 +35,7 @@
 #include <qdebug.h>
 #include "generator.h"
 #include "tokenizer.h"
+#include "puredocparser.h"
 
 QT_BEGIN_NAMESPACE
 
@@ -69,24 +70,17 @@ void Node::initialize()
     goals_.insert("qmlmethod", Node::QmlMethod);
     goals_.insert("qmlbasictype", Node::QmlBasicType);
     goals_.insert("enum", Node::Enum);
+    goals_.insert("typealias", Node::Typedef);
     goals_.insert("typedef", Node::Typedef);
     goals_.insert("namespace", Node::Namespace);
 }
 
 bool Node::nodeNameLessThan(const Node *n1, const Node *n2)
 {
-    if (n1->isDocumentNode() && n2->isDocumentNode()) {
-        const DocumentNode* f1 = static_cast<const DocumentNode*>(n1);
-        const DocumentNode* f2 = static_cast<const DocumentNode*>(n2);
-        if (f1->fullTitle() < f2->fullTitle())
-            return true;
-        else if (f1->fullTitle() > f2->fullTitle())
-            return false;
-    }
+    if (n1->isAggregate() && n2->isAggregate()) {
+        const Aggregate* f1 = static_cast<const Aggregate*>(n1);
+        const Aggregate* f2 = static_cast<const Aggregate*>(n2);
 
-    if (n1->isCollectionNode() && n2->isCollectionNode()) {
-        const CollectionNode* f1 = static_cast<const CollectionNode*>(n1);
-        const CollectionNode* f2 = static_cast<const CollectionNode*>(n2);
         if (f1->fullTitle() < f2->fullTitle())
             return true;
         else if (f1->fullTitle() > f2->fullTitle())
@@ -184,11 +178,12 @@ void Node::removeRelates()
 
 /*!
   Returns this node's name member. Appends "()" to the returned
-  name, if this node is a function node.
+  name if this node is a function node, but not if it is a macro
+  because macro names normally appear without parentheses.
  */
 QString Node::plainName() const
 {
-    if (type() == Node::Function)
+    if (isFunction() && !isMacro())
         return name_ + QLatin1String("()");
     return name_;
 }
@@ -305,6 +300,7 @@ Node::Node(NodeType type, Aggregate *parent, const QString& name)
       indexNodeFlag_(false),
       parent_(parent),
       relatesTo_(0),
+      sharedCommentNode_(0),
       name_(name)
 {
     if (parent_)
@@ -455,6 +451,8 @@ QString Node::nodeTypeString(unsigned char t)
         return "QML signal handler";
     case QmlMethod:
         return "QML method";
+    case SharedComment:
+        return "shared comment";
     default:
         break;
     }
@@ -699,33 +697,6 @@ Node::ThreadSafeness Node::inheritedThreadSafeness() const
     return (ThreadSafeness) safeness_;
 }
 
-#if 0
-/*!
-  Returns the sanitized file name without the path.
-  If the file is an html file, the html suffix
-  is removed. Why?
- */
-QString Node::fileBase() const
-{
-    QString base = name();
-    if (base.endsWith(".html"))
-        base.chop(5);
-    base.replace(QRegExp("[^A-Za-z0-9]+"), " ");
-    base = base.trimmed();
-    base.replace(QLatin1Char(' '), QLatin1Char('-'));
-    return base.toLower();
-}
-/*!
-  Returns this node's Universally Unique IDentifier as a
-  QString. Creates the UUID first, if it has not been created.
- */
-QString Node::guid() const
-{
-    if (uuid_.isEmpty())
-        uuid_ = idForNode();
-    return uuid_;
-}
-#endif
 
 /*!
   If this node is a QML or JS type node, return a pointer to
@@ -776,19 +747,19 @@ bool Node::isInternal() const
 }
 
 /*!
-  Returns a pointer to the Tree this node is in.
- */
-Tree* Node::tree() const
-{
-    return (parent() ? parent()->tree() : 0);
-}
-
-/*!
   Returns a pointer to the root of the Tree this node is in.
  */
 const Node* Node::root() const
 {
     return (parent() ? parent()->root() : this);
+}
+
+/*!
+  Returns a pointer to the Tree this node is in.
+ */
+Tree* Node::tree() const
+{
+    return root()->tree();
 }
 
 /*!
@@ -807,6 +778,24 @@ void Node::setLocation(const Location& t)
         declLocation_ = t;
         defLocation_ = t;
     }
+}
+
+/*!
+  Adds this node to the shared comment node \a t.
+ */
+void Node::setSharedCommentNode(SharedCommentNode* t)
+{
+    sharedCommentNode_ = t;
+    t->append(this);
+}
+
+/*!
+  Returns true if this node is sharing a comment and the
+  shared comment is not empty.
+ */
+bool Node::hasSharedDoc() const
+{
+    return (sharedCommentNode_ && sharedCommentNode_->hasDoc());
 }
 
 /*!
@@ -833,7 +822,7 @@ Aggregate::~Aggregate()
   find all this node's children that have the given \a name,
   and return the one that satisfies the \a genus requirement.
  */
-Node *Aggregate::findChildNode(const QString& name, Node::Genus genus) const
+Node *Aggregate::findChildNode(const QString& name, Node::Genus genus, int findFlags) const
 {
     if (genus == Node::DontCare) {
         Node *node = childMap_.value(name);
@@ -849,17 +838,30 @@ Node *Aggregate::findChildNode(const QString& name, Node::Genus genus) const
                 }
             }
         }
-    }
-    else {
+    } else {
         NodeList nodes = childMap_.values(name);
         if (!nodes.isEmpty()) {
-            for (int i=0; i<nodes.size(); ++i) {
+            for (int i = 0; i < nodes.size(); ++i) {
                 Node* node = nodes.at(i);
-                if (genus == node->genus())
+                if (genus == node->genus()) {
+                    if (findFlags & TypesOnly) {
+                        if (!node->isTypedef()
+                                && !node->isClass()
+                                && !node->isQmlType()
+                                && !node->isQmlBasicType()
+                                && !node->isJsType()
+                                && !node->isJsBasicType()
+                                && !node->isEnumType())
+                            continue;
+                    } else if (findFlags & IgnoreModules && node->isModule())
+                        continue;
                     return node;
+                }
             }
         }
     }
+    if (genus != Node::DontCare && this->genus() != genus)
+        return nullptr;
     return primaryFunctionMap_.value(name);
 }
 
@@ -930,7 +932,7 @@ FunctionNode *Aggregate::findFunctionNode(const QString& name, const QString& pa
         bool isQPrivateSignal = false; // Not used in the search
         QVector<Parameter> testParams;
         if (!params.isEmpty()) {
-            CppCodeParser* cppParser = CppCodeParser::cppParser();
+            CppCodeParser* cppParser = PureDocParser::pureDocParser();
             cppParser->parseParameters(params, testParams, isQPrivateSignal);
         }
         NodeList funcs = secondaryFunctionMap_.value(name);
@@ -1038,14 +1040,12 @@ QStringList Aggregate::secondaryKeys()
 /*!
   Mark all child nodes that have no documentation as having
   private access and internal status. qdoc will then ignore
-  them for documentation purposes. Some nodes have an
-  Intermediate status, meaning that they should be ignored,
-  but not their children.
+  them for documentation purposes.
  */
 void Aggregate::makeUndocumentedChildrenInternal()
 {
     foreach (Node *child, childNodes()) {
-        if (child->doc().isEmpty() && child->status() != Node::Intermediate) {
+        if (!child->isSharingComment() && !child->hasDoc() && !child->docMustBeGenerated()) {
             child->setAccess(Node::Private);
             child->setStatus(Node::Internal);
         }
@@ -1251,14 +1251,15 @@ bool Aggregate::isSameSignature(const FunctionNode *f1, const FunctionNode *f2)
         return false;
     if (f1->isConst() != f2->isConst())
         return false;
+    if (f1->isRef() != f2->isRef())
+        return false;
+    if (f1->isRefRef() != f2->isRefRef())
+        return false;
 
     QVector<Parameter>::ConstIterator p1 = f1->parameters().constBegin();
     QVector<Parameter>::ConstIterator p2 = f2->parameters().constBegin();
     while (p2 != f2->parameters().constEnd()) {
         if ((*p1).hasType() && (*p2).hasType()) {
-            if ((*p1).rightType() != (*p2).rightType())
-                return false;
-
             QString t1 = p1->dataType();
             QString t2 = p2->dataType();
 
@@ -1557,6 +1558,7 @@ LeafNode::LeafNode(NodeType type, Aggregate *parent, const QString& name)
     case QmlSignalHandler:
     case QmlMethod:
     case QmlBasicType:
+    case SharedComment:
         setPageType(ApiPage);
         break;
     default:
@@ -1584,6 +1586,7 @@ LeafNode::LeafNode(Aggregate* parent, NodeType type, const QString& name)
     case QmlSignal:
     case QmlSignalHandler:
     case QmlMethod:
+    case SharedComment:
         setPageType(ApiPage);
         break;
     default:
@@ -1594,16 +1597,79 @@ LeafNode::LeafNode(Aggregate* parent, NodeType type, const QString& name)
 
 /*!
   \class NamespaceNode
+  \brief This class represents a C++ namespace.
+
+  A namespace can be used in multiple C++ modules, so there
+  can be a NamespaceNode for namespace Xxx in more than one
+  Node tree.
  */
 
 /*!
-  Constructs a namespace node.
+  Constructs a namespace node for a namespace named \a name.
+  The namespace node has the specified \a parent.
  */
 NamespaceNode::NamespaceNode(Aggregate *parent, const QString& name)
-    : Aggregate(Namespace, parent, name), seen_(false), tree_(0)
+    : Aggregate(Namespace, parent, name), seen_(false), documented_(false), tree_(0), docNode_(0)
 {
     setGenus(Node::CPP);
     setPageType(ApiPage);
+}
+
+/*!
+  Returns true if this namespace is to be documented in the
+  current module. There can be elements declared in this
+  namespace spread over multiple modules. Those elements are
+  documented in the modules where they are declared, but they
+  are linked to from the namespace page in the module where
+  the namespace itself is documented.
+ */
+bool NamespaceNode::isDocumentedHere() const
+{
+    return whereDocumented_ == tree()->camelCaseModuleName();
+}
+
+/*!
+  Returns true if this namespace node contains at least one
+  child that has documentation and is not private or internal.
+ */
+bool NamespaceNode::hasDocumentedChildren() const
+{
+    foreach (Node* n, childNodes()) {
+        if (n->hasDoc() && !n->isPrivate() && !n->isInternal())
+            return true;
+    }
+    return false;
+}
+
+/*!
+  Report qdoc warning for each documented child in a namespace
+  that is not documented. This function should only be called
+  when the namespace is not documented.
+ */
+void NamespaceNode::reportDocumentedChildrenInUndocumentedNamespace() const
+{
+    foreach (Node* n, childNodes()) {
+        if (n->hasDoc() && !n->isPrivate() && !n->isInternal()) {
+            QString msg1 = n->name();
+            if (n->isFunction())
+                msg1 += "()";
+            msg1 += tr(" is documented, but namespace %1 is not documented in any module.").arg(name());
+            QString msg2 = tr("Add /*! '\\%1 %2' ... */ or remove the qdoc comment marker (!) at that line number.").arg(COMMAND_NAMESPACE).arg(name());
+
+            n->doc().location().warning(msg1, msg2);
+        }
+    }
+}
+
+/*!
+  Returns true if this namespace node is not private and
+  contains at least one public child node with documentation.
+ */
+bool NamespaceNode::docMustBeGenerated() const
+{
+    if (hasDoc() && !isInternal() && !isPrivate())
+        return true;
+    return (hasDocumentedChildren() ? true : false);
 }
 
 /*!
@@ -1679,6 +1745,8 @@ void ClassNode::fixBaseClasses()
     // Remove private and duplicate base classes.
     while (i < bases_.size()) {
         ClassNode* bc = bases_.at(i).node_;
+        if (!bc)
+            bc = QDocDatabase::qdocDB()->findClassNode(bases_.at(i).path_);
         if (bc && (bc->access() == Node::Private || found.contains(bc))) {
             RelatedClass rc = bases_.at(i);
             bases_.removeAt(i);
@@ -1798,6 +1866,35 @@ QmlTypeNode* ClassNode::findQmlBaseNode()
         }
     }
     return result;
+}
+
+/*!
+  \a fn is an overriding function in this class or in a class
+  derived from this class. Find the node for the function that
+  \a fn overrides in this class's children or in one of this
+  class's base classes. Return a pointer to the overridden
+  function or return 0.
+ */
+FunctionNode* ClassNode::findOverriddenFunction(const FunctionNode* fn)
+{
+    QList<RelatedClass>::Iterator bc = bases_.begin();
+    while (bc != bases_.end()) {
+        ClassNode *cn = bc->node_;
+        if (!cn) {
+            cn = QDocDatabase::qdocDB()->findClassNode(bc->path_);
+            bc->node_ = cn;
+        }
+        if (cn) {
+            FunctionNode* result = cn->findFunctionNode(fn);
+            if (result && !result->isNonvirtual())
+                return result;
+            result = cn->findOverriddenFunction(fn);
+            if (result && !result->isNonvirtual())
+                return result;
+        }
+        ++bc;
+    }
+    return 0;
 }
 
 /*!
@@ -1953,6 +2050,20 @@ void TypedefNode::setAssociatedEnum(const EnumNode *enume)
 }
 
 /*!
+  \class TypeAliasNode
+ */
+
+/*!
+  Constructs a TypeAliasNode for the \a aliasedType with the
+  specified \a name and \a parent.
+ */
+TypeAliasNode::TypeAliasNode(Aggregate *parent, const QString& name, const QString& aliasedType)
+    : TypedefNode(parent, name), aliasedType_(aliasedType)
+{
+    // nothing.
+}
+
+/*!
   \class Parameter
   \brief The class Parameter contains one parameter.
 
@@ -1961,17 +2072,11 @@ void TypedefNode::setAssociatedEnum(const EnumNode *enume)
  */
 
 /*!
-  Constructs this parameter from the left and right types
-  \a dataType and rightType, the parameter \a name, and the
-  \a defaultValue. In practice, \a rightType is not used,
-  and I don't know what is was meant for.
+  Constructs this parameter from the \a dataType, the \a name,
+  and the \a defaultValue.
  */
-Parameter::Parameter(const QString& dataType,
-                     const QString& rightType,
-                     const QString& name,
-                     const QString& defaultValue)
+Parameter::Parameter(const QString& dataType, const QString& name, const QString& defaultValue)
     : dataType_(dataType),
-      rightType_(rightType),
       name_(name),
       defaultValue_(defaultValue)
 {
@@ -1983,7 +2088,6 @@ Parameter::Parameter(const QString& dataType,
  */
 Parameter::Parameter(const Parameter& p)
     : dataType_(p.dataType_),
-      rightType_(p.rightType_),
       name_(p.name_),
       defaultValue_(p.defaultValue_)
 {
@@ -1996,7 +2100,6 @@ Parameter::Parameter(const Parameter& p)
 Parameter& Parameter::operator=(const Parameter& p)
 {
     dataType_ = p.dataType_;
-    rightType_ = p.rightType_;
     name_ = p.name_;
     defaultValue_ = p.defaultValue_;
     return *this;
@@ -2009,7 +2112,7 @@ Parameter& Parameter::operator=(const Parameter& p)
  */
 QString Parameter::reconstruct(bool value) const
 {
-    QString p = dataType_ + rightType_;
+    QString p = dataType_;
     if (!p.endsWith(QChar('*')) && !p.endsWith(QChar('&')) && !p.endsWith(QChar(' ')))
         p += QLatin1Char(' ');
     p += name_;
@@ -2043,7 +2146,10 @@ FunctionNode::FunctionNode(Aggregate *parent, const QString& name)
       isDefaulted_(false),
       isFinal_(false),
       isOverride_(false),
-      reimplementedFrom_(0)
+      isImplicit_(false),
+      isRef_(false),
+      isRefRef_(false),
+      isInvokable_(false)
 {
     setGenus(Node::CPP);
 }
@@ -2070,7 +2176,10 @@ FunctionNode::FunctionNode(NodeType type, Aggregate *parent, const QString& name
       isDefaulted_(false),
       isFinal_(false),
       isOverride_(false),
-      reimplementedFrom_(0)
+      isImplicit_(false),
+      isRef_(false),
+      isRefRef_(false),
+      isInvokable_(false)
 {
     setGenus(Node::QML);
     if (type == QmlMethod || type == QmlSignal) {
@@ -2224,7 +2333,31 @@ void FunctionNode::addParameter(const Parameter& parameter)
 }
 
 /*!
+  Split the parameters \a t and store them in this function's
+  Parameter vector.
  */
+void FunctionNode::setParameters(const QString &t)
+{
+    clearParams();
+    if (!t.isEmpty()) {
+        QStringList commaSplit = t.split(',');
+        foreach (QString s, commaSplit) {
+            QStringList blankSplit = s.split(' ');
+            QString pName = blankSplit.last();
+            blankSplit.removeLast();
+            QString pType = blankSplit.join(' ');
+            int i = 0;
+            while (i < pName.length() && !pName.at(i).isLetter())
+                i++;
+            if (i > 0) {
+                pType += QChar(' ') + pName.left(i);
+                pName = pName.mid(i);
+            }
+            addParameter(Parameter(pType, pName));
+        }
+    }
+}
+
 void FunctionNode::borrowParameterNames(const FunctionNode *source)
 {
     QVector<Parameter>::Iterator t = parameters_.begin();
@@ -2235,16 +2368,6 @@ void FunctionNode::borrowParameterNames(const FunctionNode *source)
         ++s;
         ++t;
     }
-}
-
-/*!
-  If this function is a reimplementation, \a from points
-  to the FunctionNode of the function being reimplemented.
- */
-void FunctionNode::setReimplementedFrom(FunctionNode *f)
-{
-    reimplementedFrom_ = f;
-    f->reimplementedBy_.append(this);
 }
 
 /*!
@@ -2300,7 +2423,7 @@ QString FunctionNode::rawParameters(bool names, bool values) const
 {
     QString raw;
     foreach (const Parameter &parameter, parameters()) {
-        raw += parameter.dataType() + parameter.rightType();
+        raw += parameter.dataType();
         if (names)
             raw += parameter.name();
         if (values)
@@ -2334,17 +2457,30 @@ QString FunctionNode::signature(bool values, bool noReturnType) const
     QString s;
     if (!noReturnType && !returnType().isEmpty())
         s = returnType() + QLatin1Char(' ');
-    s += name() + QLatin1Char('(');
-    QStringList reconstructedParameters = reconstructParameters(values);
-    int p = reconstructedParameters.size();
-    if (p > 0) {
-        for (int i=0; i<p; i++) {
-            s += reconstructedParameters[i];
-            if (i < (p-1))
-                s += ", ";
+    s += name();
+    if (!isMacroWithoutParams()) {
+        s += QLatin1Char('(');
+        QStringList reconstructedParameters = reconstructParameters(values);
+        int p = reconstructedParameters.size();
+        if (p > 0) {
+            for (int i=0; i<p; i++) {
+                s += reconstructedParameters[i];
+                if (i < (p-1))
+                    s += ", ";
+            }
         }
+        s += QLatin1Char(')');
+        if (isMacro())
+            return s;
     }
-    s += QLatin1Char(')');
+    if (isConst())
+        s += " const";
+    if (isRef())
+        s += " &";
+    else if (isRefRef())
+        s += " &&";
+    if (isImplicit())
+        s += " = default";
     return s;
 }
 
@@ -2368,6 +2504,64 @@ void FunctionNode::debug() const
 {
     qDebug("QML METHOD %s returnType_ %s parentPath_ %s",
            qPrintable(name()), qPrintable(returnType_), qPrintable(parentPath_.join(' ')));
+}
+
+/*!
+  Compares this FunctionNode to the FunctionNode pointed to
+  by \a fn. Returns true if they describe the same function.
+ */
+bool FunctionNode::compare(const FunctionNode *fn) const
+{
+    if (!fn)
+        return false;
+    if (type() != fn->type())
+        return false;
+    if (parent() != fn->parent())
+        return false;
+    if (returnType_ != fn->returnType())
+        return false;
+    if (isConst() != fn->isConst())
+        return false;
+    if (isAttached() != fn->isAttached())
+        return false;
+    const QVector<Parameter>& p = fn->parameters();
+    if (parameters().size() != p.size())
+        return false;
+    if (!p.isEmpty()) {
+        for (int i = 0; i < p.size(); ++i) {
+            if (parameters()[i].dataType() != p[i].dataType())
+                return false;
+        }
+    }
+    return true;
+}
+
+/*!
+  In some cases, it is ok for a public function to be not documented.
+  For example, the macro Q_OBJECT adds several functions to the API of
+  a class, but these functions are normally not meant to be documented.
+  So if a function node doesn't have documentation, then if its name is
+  in the list of functions that it is ok not to document, this function
+  returns true. Otherwise, it returns false.
+
+  These are the member function names added by macros.  Usually they
+  are not documented, but they can be documented, so this test avoids
+  reporting an error if they are not documented.
+
+  But maybe we should generate a standard text for each of them?
+ */
+bool FunctionNode::isIgnored() const
+{
+    if (!hasDoc() && !hasSharedDoc()) {
+        if (name().startsWith(QLatin1String("qt_")) ||
+            name() == QLatin1String("metaObject") ||
+            name() == QLatin1String("tr") ||
+            name() == QLatin1String("trUtf8") ||
+            name() == QLatin1String("d_func")) {
+            return true;
+        }
+    }
+    return false;
 }
 
 /*!
@@ -2555,6 +2749,20 @@ QString QmlTypeNode::logicalModuleVersion() const
 QString QmlTypeNode::logicalModuleIdentifier() const
 {
     return (logicalModule_ ? logicalModule_->logicalModuleIdentifier() : QString());
+}
+
+/*!
+  Returns true if this QML type inherits \a type.
+ */
+bool QmlTypeNode::inherits(Aggregate* type)
+{
+    QmlTypeNode* qtn = qmlBaseNode();
+    while (qtn != 0) {
+        if (qtn == type)
+            return true;
+        qtn = qtn->qmlBaseNode();
+    }
+    return false;
 }
 
 /*!
@@ -2839,236 +3047,6 @@ QString Node::cleanId(const QString &str)
     return clean;
 }
 
-#if 0
-/*!
-  Creates a string that can be used as a UUID for the node,
-  depending on the type and subtype of the node. Uniquenss
-  is not guaranteed, but it is expected that strings created
-  here will be unique within an XML document. Hence, the
-  returned string can be used as the value of an \e id
-  attribute.
- */
-QString Node::idForNode() const
-{
-    const FunctionNode* func;
-    const TypedefNode* tdn;
-    QString str;
-
-    switch (type()) {
-    case Node::Namespace:
-        str = "namespace-" + fullDocumentName();
-        break;
-    case Node::Class:
-        str = "class-" + fullDocumentName();
-        break;
-    case Node::Enum:
-        str = "enum-" + name();
-        break;
-    case Node::Typedef:
-        tdn = static_cast<const TypedefNode*>(this);
-        if (tdn->associatedEnum()) {
-            return tdn->associatedEnum()->idForNode();
-        }
-        else {
-            str = "typedef-" + name();
-        }
-        break;
-    case Node::Function:
-        func = static_cast<const FunctionNode*>(this);
-        if (func->associatedProperty()) {
-            return func->associatedProperty()->idForNode();
-        }
-        else {
-            if (func->name().startsWith("operator")) {
-                str.clear();
-                /*
-                  The test below should probably apply to all
-                  functions, but for now, overloaded operators
-                  are the only ones that produce duplicate id
-                  attributes in the DITA XML files.
-                 */
-                if (relatesTo_)
-                    str = "nonmember-";
-                QString op = func->name().mid(8);
-                if (!op.isEmpty()) {
-                    int i = 0;
-                    while (i<op.size() && op.at(i) == ' ')
-                        ++i;
-                    if (i>0 && i<op.size()) {
-                        op = op.mid(i);
-                    }
-                    if (!op.isEmpty()) {
-                        i = 0;
-                        while (i < op.size()) {
-                            const QChar c = op.at(i);
-                            const uint u = c.unicode();
-                            if ((u >= 'a' && u <= 'z') ||
-                                    (u >= 'A' && u <= 'Z') ||
-                                    (u >= '0' && u <= '9'))
-                                break;
-                            ++i;
-                        }
-                        str += "operator-";
-                        if (i>0) {
-                            QString tail = op.mid(i);
-                            op = op.left(i);
-                            if (operators_.contains(op)) {
-                                str += operators_.value(op);
-                                if (!tail.isEmpty())
-                                    str += QLatin1Char('-') + tail;
-                            }
-                            else
-                                qDebug() << "qdoc internal error: Operator missing from operators_ map:" << op;
-                        }
-                        else {
-                            str += op;
-                        }
-                    }
-                }
-            }
-            else if (parent_) {
-                if (parent_->isClass())
-                    str = "class-member-" + func->name();
-                else if (parent_->isNamespace())
-                    str = "namespace-member-" + func->name();
-                else if (parent_->isQmlType())
-                    str = "qml-method-" + parent_->name().toLower() + "-" + func->name();
-                else if (parent_->isJsType())
-                    str = "js-method-" + parent_->name().toLower() + "-" + func->name();
-                else if (parent_->type() == Document) {
-                    qDebug() << "qdoc internal error: Node subtype not handled:"
-                             << parent_->docSubtype() << func->name();
-                }
-                else
-                    qDebug() << "qdoc internal error: Node type not handled:"
-                             << parent_->type() << func->name();
-
-            }
-            if (func->overloadNumber() != 0)
-                str += QLatin1Char('-') + QString::number(func->overloadNumber());
-        }
-        break;
-    case Node::QmlType:
-        if (genus() == QML)
-            str = "qml-class-" + name();
-        else
-            str = "js-type-" + name();
-        break;
-    case Node::QmlBasicType:
-        if (genus() == QML)
-            str = "qml-basic-type-" + name();
-        else
-            str = "js-basic-type-" + name();
-        break;
-    case Node::Document:
-        {
-            switch (docSubtype()) {
-            case Node::Page:
-            case Node::HeaderFile:
-                str = title();
-                if (str.isEmpty()) {
-                    str = name();
-                    if (str.endsWith(".html"))
-                        str.remove(str.size()-5,5);
-                }
-                str.replace(QLatin1Char('/'), QLatin1Char('-'));
-                break;
-            case Node::File:
-                str = name();
-                str.replace(QLatin1Char('/'), QLatin1Char('-'));
-                break;
-            case Node::Example:
-                str = name();
-                str.replace(QLatin1Char('/'), QLatin1Char('-'));
-                break;
-            default:
-                qDebug() << "ERROR: A case was not handled in Node::idForNode():"
-                         << "docSubtype():" << docSubtype() << "type():" << type();
-                break;
-            }
-        }
-        break;
-    case Node::Group:
-    case Node::Module:
-        str = title();
-        if (str.isEmpty()) {
-            str = name();
-            if (str.endsWith(".html"))
-                str.remove(str.size()-5,5);
-        }
-        str.replace(QLatin1Char('/'), QLatin1Char('-'));
-        break;
-    case Node::QmlModule:
-        if (genus() == QML)
-            str = "qml-module-" + name();
-        else
-            str = "js-module-" + name();
-        break;
-    case Node::QmlProperty:
-        if (genus() == QML)
-            str = "qml-";
-        else
-            str = "js-";
-        if (isAttached())
-            str += "attached-property-" + name();
-        else
-            str += "property-" + name();
-        break;
-    case Node::QmlPropertyGroup:
-        {
-            Node* n = const_cast<Node*>(this);
-            if (genus() == QML)
-                str = "qml-propertygroup-" + n->name();
-            else
-                str = "js-propertygroup-" + n->name();
-        }
-        break;
-    case Node::Property:
-        str = "property-" + name();
-        break;
-    case Node::QmlSignal:
-        if (genus() == QML)
-            str = "qml-signal-" + name();
-        else
-            str = "js-signal-" + name();
-        break;
-    case Node::QmlSignalHandler:
-        if (genus() == QML)
-            str = "qml-signal-handler-" + name();
-        else
-            str = "js-signal-handler-" + name();
-        break;
-    case Node::QmlMethod:
-        func = static_cast<const FunctionNode*>(this);
-        if (genus() == QML)
-            str = "qml-method-";
-        else
-            str = "js-method-";
-        str += parent_->name().toLower() + "-" + func->name();
-        if (func->overloadNumber() != 0)
-            str += QLatin1Char('-') + QString::number(func->overloadNumber());
-        break;
-    case Node::Variable:
-        str = "var-" + name();
-        break;
-    default:
-        qDebug() << "ERROR: A case was not handled in Node::idForNode():"
-                 << "type():" << type() << "docSubtype():" << docSubtype();
-        break;
-    }
-    if (str.isEmpty()) {
-        qDebug() << "ERROR: A link text was empty in Node::idForNode():"
-                 << "type():" << type() << "docSubtype():" << docSubtype()
-                 << "name():" << name()
-                 << "title():" << title();
-    }
-    else {
-        str = cleanId(str);
-    }
-    return str;
-}
-#endif
-
 /*!
   Prints the inner node's list of children.
   For debugging only.
@@ -3233,6 +3211,37 @@ void CollectionNode::setLogicalModuleInfo(const QStringList& info)
         else
             logicalModuleVersionMinor_ = "0";
     }
+}
+
+/*!
+  Sets the overload flag to \b in each node in the collection.
+ */
+void SharedCommentNode::setOverloadFlag(bool b)
+{
+    for (Node *n : collective_)
+        n->setOverloadFlag(b);
+}
+
+/*!
+  Sets the pointer to the node that this node relates to
+  in each of the nodes in this shared comment node's collective.
+ */
+void SharedCommentNode::setRelates(Aggregate *pseudoParent)
+{
+    Node::setRelates(pseudoParent);
+    for (Node *n : collective_)
+        n->setRelates(pseudoParent);
+}
+
+/*!
+  Sets the (unresolved) entity \a name that this node relates to
+  in each of the nodes in this shared comment node's collective.
+ */
+void SharedCommentNode::setRelates(const QString& name)
+{
+    Node::setRelates(name);
+    for (Node *n : collective_)
+        n->setRelates(name);
 }
 
 QT_END_NAMESPACE

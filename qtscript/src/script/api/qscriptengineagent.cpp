@@ -440,7 +440,7 @@ void QScriptEngineAgent::exceptionCatch(qint64 scriptId,
 }
 
 #if 0
-/*!
+/*
   This function is called when a property of the given \a object has
   been added, changed or removed.
 

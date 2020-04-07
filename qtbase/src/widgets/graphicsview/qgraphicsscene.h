@@ -106,6 +106,7 @@ class Q_WIDGETS_EXPORT QGraphicsScene : public QObject
     Q_PROPERTY(bool sortCacheEnabled READ isSortCacheEnabled WRITE setSortCacheEnabled)
     Q_PROPERTY(bool stickyFocus READ stickyFocus WRITE setStickyFocus)
     Q_PROPERTY(qreal minimumRenderSize READ minimumRenderSize WRITE setMinimumRenderSize)
+    Q_PROPERTY(bool focusOnTouch READ focusOnTouch WRITE setFocusOnTouch)
 
 public:
     enum ItemIndexMethod {
@@ -121,9 +122,9 @@ public:
     };
     Q_DECLARE_FLAGS(SceneLayers, SceneLayer)
 
-    QGraphicsScene(QObject *parent = Q_NULLPTR);
-    QGraphicsScene(const QRectF &sceneRect, QObject *parent = Q_NULLPTR);
-    QGraphicsScene(qreal x, qreal y, qreal width, qreal height, QObject *parent = Q_NULLPTR);
+    QGraphicsScene(QObject *parent = nullptr);
+    QGraphicsScene(const QRectF &sceneRect, QObject *parent = nullptr);
+    QGraphicsScene(qreal x, qreal y, qreal width, qreal height, QObject *parent = nullptr);
     virtual ~QGraphicsScene();
 
     QRectF sceneRect() const;
@@ -159,7 +160,7 @@ public:
 #if QT_DEPRECATED_SINCE(5, 0)
     QT_DEPRECATED inline QGraphicsItem *itemAt(const QPointF &position) const {
         QList<QGraphicsItem *> itemsAtPoint = items(position);
-        return itemsAtPoint.isEmpty() ? Q_NULLPTR : itemsAtPoint.first();
+        return itemsAtPoint.isEmpty() ? nullptr : itemsAtPoint.first();
     }
 #endif
     QGraphicsItem *itemAt(const QPointF &pos, const QTransform &deviceTransform) const;
@@ -173,7 +174,7 @@ public:
 #if QT_DEPRECATED_SINCE(5, 0)
     QT_DEPRECATED inline QGraphicsItem *itemAt(qreal x, qreal y) const {
         QList<QGraphicsItem *> itemsAtPoint = items(QPointF(x, y));
-        return itemsAtPoint.isEmpty() ? Q_NULLPTR : itemsAtPoint.first();
+        return itemsAtPoint.isEmpty() ? nullptr : itemsAtPoint.first();
     }
 #endif
     inline QGraphicsItem *itemAt(qreal x, qreal y, const QTransform &deviceTransform) const
@@ -253,6 +254,9 @@ public:
     qreal minimumRenderSize() const;
     void setMinimumRenderSize(qreal minSize);
 
+    bool focusOnTouch() const;
+    void setFocusOnTouch(bool enabled);
+
 public Q_SLOTS:
     void update(const QRectF &rect = QRectF());
     void invalidate(const QRectF &rect = QRectF(), SceneLayers layers = AllLayers);
@@ -261,8 +265,8 @@ public Q_SLOTS:
     void clear();
 
 protected:
-    bool event(QEvent *event) Q_DECL_OVERRIDE;
-    bool eventFilter(QObject *watched, QEvent *event) Q_DECL_OVERRIDE;
+    bool event(QEvent *event) override;
+    bool eventFilter(QObject *watched, QEvent *event) override;
     virtual void contextMenuEvent(QGraphicsSceneContextMenuEvent *event);
     virtual void dragEnterEvent(QGraphicsSceneDragDropEvent *event);
     virtual void dragMoveEvent(QGraphicsSceneDragDropEvent *event);
@@ -285,14 +289,10 @@ protected:
     virtual void drawItems(QPainter *painter, int numItems,
                            QGraphicsItem *items[],
                            const QStyleOptionGraphicsItem options[],
-                           QWidget *widget = Q_NULLPTR);
+                           QWidget *widget = nullptr);
 
 protected Q_SLOTS:
-    // ### Qt 6: make unconditional
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
-    virtual
-#endif
-    bool focusNextPrevChild(bool next);
+    QT6_VIRTUAL bool focusNextPrevChild(bool next);
 
 Q_SIGNALS:
     void changed(const QList<QRectF> &region);

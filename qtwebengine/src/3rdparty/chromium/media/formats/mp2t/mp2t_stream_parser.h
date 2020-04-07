@@ -16,11 +16,12 @@
 #include "media/base/audio_decoder_config.h"
 #include "media/base/byte_queue.h"
 #include "media/base/decrypt_config.h"
+#include "media/base/encryption_scheme.h"
 #include "media/base/media_export.h"
 #include "media/base/stream_parser.h"
 #include "media/base/video_decoder_config.h"
 #include "media/formats/mp2t/timestamp_unroller.h"
-#include "media/media_features.h"
+#include "media/media_buildflags.h"
 
 namespace media {
 
@@ -30,6 +31,7 @@ class StreamParserBuffer;
 namespace mp2t {
 
 class Descriptors;
+class EsParser;
 class PidState;
 
 class MEDIA_EXPORT Mp2tStreamParser : public StreamParser {
@@ -38,7 +40,7 @@ class MEDIA_EXPORT Mp2tStreamParser : public StreamParser {
   ~Mp2tStreamParser() override;
 
   // StreamParser implementation.
-  void Init(const InitCB& init_cb,
+  void Init(InitCB init_cb,
             const NewConfigCB& config_cb,
             const NewBuffersCB& new_buffers_cb,
             bool ignore_text_tracks,
@@ -47,6 +49,7 @@ class MEDIA_EXPORT Mp2tStreamParser : public StreamParser {
             const EndMediaSegmentCB& end_of_segment_cb,
             MediaLog* media_log) override;
   void Flush() override;
+  bool GetGenerateTimestampsFlag() const override;
   bool Parse(const uint8_t* buf, int size) override;
 
  private:
@@ -71,10 +74,9 @@ class MEDIA_EXPORT Mp2tStreamParser : public StreamParser {
   // Callback invoked to register a PES pid.
   // Possible values for |stream_type| are defined in:
   // ISO-13818.1 / ITU H.222 Table 2.34 "Stream type assignments".
-  // |pes_pid| is part of the Program Map Table refered by |pmt_pid|.
+  // |pes_pid| is part of the Program Map Table.
   // Some stream types are qualified by additional |descriptors|.
-  void RegisterPes(int pmt_pid,
-                   int pes_pid,
+  void RegisterPes(int pes_pid,
                    int stream_type,
                    const Descriptors& descriptors);
 
@@ -103,7 +105,15 @@ class MEDIA_EXPORT Mp2tStreamParser : public StreamParser {
       scoped_refptr<StreamParserBuffer> stream_parser_buffer);
   bool EmitRemainingBuffers();
 
+  std::unique_ptr<EsParser> CreateH264Parser(int pes_pid);
+  std::unique_ptr<EsParser> CreateAacParser(int pes_pid);
+  std::unique_ptr<EsParser> CreateMpeg1AudioParser(int pes_pid);
+
 #if BUILDFLAG(ENABLE_HLS_SAMPLE_AES)
+  bool ShouldForceEncryptedParser();
+  std::unique_ptr<EsParser> CreateEncryptedH264Parser(int pes_pid);
+  std::unique_ptr<EsParser> CreateEncryptedAacParser(int pes_pid);
+
   std::unique_ptr<PidState> MakeCatPidState();
   void UnregisterCat();
 
@@ -111,8 +121,13 @@ class MEDIA_EXPORT Mp2tStreamParser : public StreamParser {
   void RegisterCencPids(int ca_pid, int pssh_pid);
   void UnregisterCencPids();
 
-  // Register the DecryptConfig (parsed from CENC-ECM).
-  void RegisterDecryptConfig(const DecryptConfig& config);
+  // Register a default encryption scheme to be used for decoder configs. This
+  // value is only used in the absence of explicit encryption metadata, as might
+  // be the case during an unencrypted portion of a live stream.
+  void RegisterEncryptionScheme(const EncryptionScheme& scheme);
+
+  // Register the new KeyID and IV (parsed from CENC-ECM).
+  void RegisterNewKeyIdAndIv(const std::string& key_id, const std::string& iv);
 
   // Register the PSSH (parsed from CENC-PSSH).
   void RegisterPsshBoxes(const std::vector<uint8_t>& init_data);
@@ -158,6 +173,10 @@ class MEDIA_EXPORT Mp2tStreamParser : public StreamParser {
   TimestampUnroller timestamp_unroller_;
 
 #if BUILDFLAG(ENABLE_HLS_SAMPLE_AES)
+  EncryptionScheme initial_scheme_;
+
+  // TODO(jrummell): Rather than store the key_id and iv in a DecryptConfig,
+  // provide a better way to access the last values seen in a ECM packet.
   std::unique_ptr<DecryptConfig> decrypt_config_;
 #endif
 

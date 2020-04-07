@@ -120,7 +120,7 @@ public:
     Q_DECLARE_FLAGS(WizardOptions, WizardOption)
     Q_FLAG(WizardOptions)
 
-    explicit QWizard(QWidget *parent = Q_NULLPTR, Qt::WindowFlags flags = Qt::WindowFlags());
+    explicit QWizard(QWidget *parent = nullptr, Qt::WindowFlags flags = Qt::WindowFlags());
     ~QWizard();
 
     int addPage(QWizardPage *page);
@@ -168,8 +168,8 @@ public:
     void setDefaultProperty(const char *className, const char *property,
                             const char *changedSignal);
 
-    void setVisible(bool visible) Q_DECL_OVERRIDE;
-    QSize sizeHint() const Q_DECL_OVERRIDE;
+    void setVisible(bool visible) override;
+    QSize sizeHint() const override;
 
 Q_SIGNALS:
     void currentIdChanged(int id);
@@ -184,13 +184,13 @@ public Q_SLOTS:
     void restart();
 
 protected:
-    bool event(QEvent *event) Q_DECL_OVERRIDE;
-    void resizeEvent(QResizeEvent *event) Q_DECL_OVERRIDE;
-    void paintEvent(QPaintEvent *event) Q_DECL_OVERRIDE;
+    bool event(QEvent *event) override;
+    void resizeEvent(QResizeEvent *event) override;
+    void paintEvent(QPaintEvent *event) override;
 #if defined(Q_OS_WIN) || defined(Q_CLANG_QDOC)
-    bool nativeEvent(const QByteArray &eventType, void *message, long *result) Q_DECL_OVERRIDE;
+    bool nativeEvent(const QByteArray &eventType, void *message, long *result) override;
 #endif
-    void done(int result) Q_DECL_OVERRIDE;
+    void done(int result) override;
     virtual void initializePage(int id);
     virtual void cleanupPage(int id);
 
@@ -215,7 +215,7 @@ class Q_WIDGETS_EXPORT QWizardPage : public QWidget
     Q_PROPERTY(QString subTitle READ subTitle WRITE setSubTitle)
 
 public:
-    explicit QWizardPage(QWidget *parent = Q_NULLPTR);
+    explicit QWizardPage(QWidget *parent = nullptr);
     ~QWizardPage();
 
     void setTitle(const QString &title);
@@ -243,8 +243,8 @@ Q_SIGNALS:
 protected:
     void setField(const QString &name, const QVariant &value);
     QVariant field(const QString &name) const;
-    void registerField(const QString &name, QWidget *widget, const char *property = Q_NULLPTR,
-                       const char *changedSignal = Q_NULLPTR);
+    void registerField(const QString &name, QWidget *widget, const char *property = nullptr,
+                       const char *changedSignal = nullptr);
     QWizard *wizard() const;
 
 private:

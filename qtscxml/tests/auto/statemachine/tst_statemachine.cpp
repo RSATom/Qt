@@ -56,6 +56,7 @@ private Q_SLOTS:
     void invokeStateMachine();
 
     void multipleInvokableServices(); // QTBUG-61484
+    void logWithoutExpr();
 };
 
 void tst_StateMachine::stateNames_data()
@@ -441,6 +442,17 @@ void tst_StateMachine::multipleInvokableServices()
     QCOMPARE(finishedSpy.count(), 1);
     QCOMPARE(stateMachine->activeStateNames(true).size(), 1);
     QVERIFY(stateMachine->activeStateNames(true).contains(QLatin1String("success")));
+}
+
+void tst_StateMachine::logWithoutExpr()
+{
+    QScopedPointer<QScxmlStateMachine> stateMachine(
+                QScxmlStateMachine::fromFile(QString(":/tst_statemachine/emptylog.scxml")));
+    QVERIFY(!stateMachine.isNull());
+    QTest::ignoreMessage(QtDebugMsg, "\"Hi2\" : \"\"");
+    stateMachine->start();
+    QSignalSpy logSpy(stateMachine.data(), SIGNAL(log(QString,QString)));
+    QTRY_COMPARE(logSpy.count(), 1);
 }
 
 QTEST_MAIN(tst_StateMachine)

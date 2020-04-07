@@ -35,12 +35,12 @@
 #include <designerpropertymanager.h>
 #include <qttreepropertybrowser.h>
 
-#include <QtDesigner/QDesignerFormWindowInterface>
-#include <QtDesigner/QDesignerFormEditorInterface>
+#include <QtDesigner/abstractformwindow.h>
+#include <QtDesigner/abstractformeditor.h>
 
-#include <QtCore/QDir>
-#include <QtCore/QQueue>
-#include <QtCore/QTextStream>
+#include <QtCore/qdir.h>
+#include <QtCore/qqueue.h>
+#include <QtCore/qtextstream.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -182,6 +182,12 @@ QVariant TableWidgetEditor::getItemData(int role) const
     if (!item)
         return QVariant();
     return item->data(role);
+}
+
+int TableWidgetEditor::defaultItemFlags() const
+{
+    static const int flags = QTableWidgetItem().flags();
+    return flags;
 }
 
 void TableWidgetEditor::on_tableWidget_currentCellChanged(int currentRow, int currentCol, int, int /* XXX remove me */)

@@ -122,7 +122,7 @@ QVariant QQmlPropertyMapMetaObject::propertyWriteValue(int index, const QVariant
 
 void QQmlPropertyMapMetaObject::propertyWritten(int index)
 {
-    priv->emitChanged(priv->propertyName(index), operator[](index));
+    priv->emitChanged(priv->propertyName(index), value(index));
 }
 
 void QQmlPropertyMapMetaObject::propertyCreated(int, QMetaPropertyBuilder &b)
@@ -311,7 +311,7 @@ QVariant &QQmlPropertyMap::operator[](const QString &key)
     if (!d->keys.contains(key))
         insert(key, QVariant());//force creation -- needed below
 
-    return (*(d->mo))[utf8key];
+    return d->mo->valueRef(utf8key);
 }
 
 /*!
@@ -355,7 +355,7 @@ QQmlPropertyMap::QQmlPropertyMap(const QMetaObject *staticMetaObject, QObject *p
 */
 
 /*!
-    \fn QQmlPropertyMap::QQmlPropertyMap(DerivedType *derived, QObject *parent)
+    \fn template<class DerivedType> QQmlPropertyMap::QQmlPropertyMap(DerivedType *derived, QObject *parent)
 
     Constructs a bindable map with parent object \a parent.  Use this constructor
     in classes derived from QQmlPropertyMap.

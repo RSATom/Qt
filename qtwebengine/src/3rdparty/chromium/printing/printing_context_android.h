@@ -5,8 +5,6 @@
 #ifndef PRINTING_PRINTING_CONTEXT_ANDROID_H_
 #define PRINTING_PRINTING_CONTEXT_ANDROID_H_
 
-#include <jni.h>
-
 #include <string>
 
 #include "base/android/scoped_java_ref.h"
@@ -42,7 +40,7 @@ class PRINTING_EXPORT PrintingContextAndroid : public PrintingContext {
   void AskUserForSettings(int max_pages,
                           bool has_selection,
                           bool is_scripted,
-                          const PrintSettingsCallback& callback) override;
+                          PrintSettingsCallback callback) override;
   Result UseDefaultSettings() override;
   gfx::Size GetPdfPaperSizeDeviceUnits() override;
   Result UpdatePrinterSettings(bool external_preview,
@@ -54,10 +52,7 @@ class PRINTING_EXPORT PrintingContextAndroid : public PrintingContext {
   Result DocumentDone() override;
   void Cancel() override;
   void ReleaseContext() override;
-  skia::NativeDrawingContext context() const override;
-
-  // Registers JNI bindings for RegisterContext.
-  static bool RegisterPrintingContext(JNIEnv* env);
+  printing::NativeDrawingContext context() const override;
 
  private:
   base::android::ScopedJavaGlobalRef<jobject> j_printing_context_;

@@ -28,7 +28,7 @@
 
 #include "abstractformwindowmanager.h"
 
-#include <QtCore/QMap>
+#include <QtCore/qmap.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -431,6 +431,12 @@ QAction *QDesignerFormWindowManagerInterface::actionSimplifyLayout() const
    \a flags.
 
    \sa addFormWindow()
+*/
+
+/*!
+  \fn QPixmap QDesignerFormWindowManagerInterface::createPreviewPixmap() const
+
+  Creates a pixmap representing the preview of the currently active form.
 */
 
 /*!

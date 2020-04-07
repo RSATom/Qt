@@ -9,13 +9,16 @@
 #include <mntent.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <sys/stat.h>
+
 #include <limits>
 #include <list>
+#include <memory>
 #include <utility>
+#include <vector>
 
 #include "base/bind.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/process/kill.h"
 #include "base/process/launch.h"
@@ -32,12 +35,11 @@
 #include "components/storage_monitor/removable_device_constants.h"
 #include "components/storage_monitor/storage_info.h"
 #include "components/storage_monitor/udev_util_linux.h"
-#include "device/media_transfer_protocol/media_transfer_protocol_manager.h"
 #include "device/udev_linux/scoped_udev.h"
 
 namespace storage_monitor {
 
-typedef MtabWatcherLinux::MountPointDeviceMap MountPointDeviceMap;
+using MountPointDeviceMap = MtabWatcherLinux::MountPointDeviceMap;
 
 namespace {
 
@@ -113,7 +115,7 @@ uint64_t GetDeviceStorageSize(const base::FilePath& device_path,
 // Gets the device information using udev library.
 std::unique_ptr<StorageInfo> GetDeviceInfo(const base::FilePath& device_path,
                                            const base::FilePath& mount_point) {
-  base::ThreadRestrictions::AssertIOAllowed();
+  base::AssertBlockingAllowed();
   DCHECK(!device_path.empty());
 
   std::unique_ptr<StorageInfo> storage_info;
@@ -174,7 +176,7 @@ std::unique_ptr<StorageInfo> GetDeviceInfo(const base::FilePath& device_path,
 
   results_recorder.set_result(true);
 
-  storage_info = base::MakeUnique<StorageInfo>(
+  storage_info = std::make_unique<StorageInfo>(
       StorageInfo::MakeDeviceId(type, unique_id), mount_point.value(),
       volume_label, vendor_name, model_name,
       GetDeviceStorageSize(device_path, device.get()));
@@ -194,7 +196,7 @@ MtabWatcherLinux* CreateMtabWatcherLinuxOnMtabWatcherTaskRunner(
     const base::FilePath& mtab_path,
     scoped_refptr<base::SequencedTaskRunner> storage_monitor_task_runner,
     const MtabWatcherLinux::UpdateMtabCallback& callback) {
-  base::ThreadRestrictions::AssertIOAllowed();
+  base::AssertBlockingAllowed();
   // Owned by caller.
   return new MtabWatcherLinux(
       mtab_path, base::Bind(&BounceMtabUpdateToStorageMonitorTaskRunner,
@@ -204,7 +206,7 @@ MtabWatcherLinux* CreateMtabWatcherLinuxOnMtabWatcherTaskRunner(
 StorageMonitor::EjectStatus EjectPathOnBlockingTaskRunner(
     const base::FilePath& path,
     const base::FilePath& device) {
-  base::ThreadRestrictions::AssertIOAllowed();
+  base::AssertBlockingAllowed();
 
   // Note: Linux LSB says umount should exist in /bin.
   static const char kUmountBinary[] = "/bin/umount";
@@ -296,7 +298,7 @@ void StorageMonitorLinux::EjectDevice(
     base::Callback<void(EjectStatus)> callback) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   StorageInfo::Type type;
-  if (!StorageInfo::CrackDeviceId(device_id, &type, NULL)) {
+  if (!StorageInfo::CrackDeviceId(device_id, &type, nullptr)) {
     callback.Run(EJECT_FAILURE);
     return;
   }
@@ -428,7 +430,7 @@ void StorageMonitorLinux::UpdateMtab(const MountPointDeviceMap& new_mtab) {
   // AddNewMount calls.
   if (!IsInitialized()) {
     mounting_task_runner->PostTaskAndReply(
-        FROM_HERE, base::Bind(&base::DoNothing),
+        FROM_HERE, base::DoNothing(),
         base::Bind(&StorageMonitorLinux::MarkInitialized,
                    weak_ptr_factory_.GetWeakPtr()));
   }

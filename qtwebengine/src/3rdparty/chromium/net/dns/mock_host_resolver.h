@@ -16,6 +16,7 @@
 #include "base/synchronization/lock.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/threading/thread_checker.h"
+#include "net/base/completion_once_callback.h"
 #include "net/dns/host_resolver.h"
 #include "net/dns/host_resolver_proc.h"
 
@@ -85,13 +86,20 @@ class MockHostResolverBase
   int Resolve(const RequestInfo& info,
               RequestPriority priority,
               AddressList* addresses,
-              const CompletionCallback& callback,
+              CompletionOnceCallback callback,
               std::unique_ptr<Request>* request,
               const NetLogWithSource& net_log) override;
   int ResolveFromCache(const RequestInfo& info,
                        AddressList* addresses,
                        const NetLogWithSource& net_log) override;
+  int ResolveStaleFromCache(const RequestInfo& info,
+                            AddressList* addresses,
+                            HostCache::EntryStaleness* stale_info,
+                            const NetLogWithSource& source_net_log) override;
   HostCache* GetHostCache() override;
+  bool HasCached(base::StringPiece hostname,
+                 HostCache::Entry::Source* source_out,
+                 HostCache::EntryStaleness* stale_out) const override;
 
   // Detach cancelled request.
   void DetachRequest(size_t id);
@@ -129,8 +137,10 @@ class MockHostResolverBase
 
   // Resolve as IP or from |cache_| return cached error or
   // DNS_CACHE_MISS if failed.
-  int ResolveFromIPLiteralOrCache(const RequestInfo& info,
-                                  AddressList* addresses);
+  int ResolveFromIPLiteralOrCache(
+      const RequestInfo& info,
+      AddressList* addresses,
+      HostCache::EntryStaleness* stale_info = nullptr);
   // Resolve via |proc_|.
   int ResolveProc(const RequestInfo& info, AddressList* addresses);
   // Resolve request stored in |requests_|. Pass rv to callback.
@@ -181,14 +191,13 @@ class RuleBasedHostResolverProc : public HostResolverProc {
   explicit RuleBasedHostResolverProc(HostResolverProc* previous);
 
   // Any hostname matching the given pattern will be replaced with the given
-  // replacement value.  Usually, replacement should be an IP address literal.
-  void AddRule(const std::string& host_pattern,
-               const std::string& replacement);
+  // |ip_literal|.
+  void AddRule(const std::string& host_pattern, const std::string& ip_literal);
 
   // Same as AddRule(), but further restricts to |address_family|.
   void AddRuleForAddressFamily(const std::string& host_pattern,
                                AddressFamily address_family,
-                               const std::string& replacement);
+                               const std::string& ip_literal);
 
   // Same as AddRule(), but the replacement is expected to be an IPv4 or IPv6
   // literal. This can be used in place of AddRule() to bypass the system's
@@ -230,6 +239,8 @@ class RuleBasedHostResolverProc : public HostResolverProc {
   struct Rule {
     enum ResolverType {
       kResolverTypeFail,
+      // TODO(mmenke): Is it really reasonable for a "mock" host resolver to
+      // fall back to the system resolver?
       kResolverTypeSystem,
       kResolverTypeIPLiteral,
     };
@@ -279,12 +290,19 @@ class HangingHostResolver : public HostResolver {
   int Resolve(const RequestInfo& info,
               RequestPriority priority,
               AddressList* addresses,
-              const CompletionCallback& callback,
+              CompletionOnceCallback callback,
               std::unique_ptr<Request>* out_req,
               const NetLogWithSource& net_log) override;
   int ResolveFromCache(const RequestInfo& info,
                        AddressList* addresses,
                        const NetLogWithSource& net_log) override;
+  int ResolveStaleFromCache(const RequestInfo& info,
+                            AddressList* addresses,
+                            HostCache::EntryStaleness* stale_info,
+                            const NetLogWithSource& source_net_log) override;
+  bool HasCached(base::StringPiece hostname,
+                 HostCache::Entry::Source* source_out,
+                 HostCache::EntryStaleness* stale_out) const override;
 };
 
 // This class sets the default HostResolverProc for a particular scope.  The

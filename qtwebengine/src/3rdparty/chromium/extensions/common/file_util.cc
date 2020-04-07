@@ -260,7 +260,7 @@ std::unique_ptr<base::DictionaryValue> LoadManifest(
     return NULL;
   }
 
-  if (!root->IsType(base::Value::Type::DICTIONARY)) {
+  if (!root->is_dict()) {
     *error = l10n_util::GetStringUTF8(IDS_EXTENSION_MANIFEST_INVALID);
     return NULL;
   }
@@ -342,8 +342,9 @@ std::vector<base::FilePath> FindPrivateKeyFiles(
 bool CheckForIllegalFilenames(const base::FilePath& extension_path,
                               std::string* error) {
   // Reserved underscore names.
-  static const base::FilePath::CharType* reserved_names[] = {
-      kLocaleFolder, kPlatformSpecificFolder, FILE_PATH_LITERAL("__MACOSX"), };
+  static const base::FilePath::CharType* const reserved_names[] = {
+      kLocaleFolder, kPlatformSpecificFolder, FILE_PATH_LITERAL("__MACOSX"),
+  };
   CR_DEFINE_STATIC_LOCAL(
       std::set<base::FilePath::StringType>,
       reserved_underscore_names,
@@ -403,7 +404,7 @@ base::FilePath GetInstallTempDir(const base::FilePath& extensions_dir) {
   // Temp directory has never been used before, or in a rare error case.
   // Developers are not likely to see these situations often, so do an
   // explicit thread check.
-  base::ThreadRestrictions::AssertIOAllowed();
+  base::AssertBlockingAllowed();
 
   // Create the temp directory as a sub-directory of the Extensions directory.
   // This guarantees it is on the same file system as the extension's eventual
@@ -563,6 +564,18 @@ base::FilePath GetVerifiedContentsPath(const base::FilePath& extension_path) {
 }
 base::FilePath GetComputedHashesPath(const base::FilePath& extension_path) {
   return extension_path.Append(kMetadataFolder).Append(kComputedHashesFilename);
+}
+base::FilePath GetIndexedRulesetPath(const base::FilePath& extension_path) {
+  return extension_path.Append(kMetadataFolder).Append(kIndexedRulesetFilename);
+}
+
+std::vector<base::FilePath> GetReservedMetadataFilePaths(
+    const base::FilePath& extension_path) {
+  return {
+      GetVerifiedContentsPath(extension_path),
+      GetComputedHashesPath(extension_path),
+      GetIndexedRulesetPath(extension_path),
+  };
 }
 
 }  // namespace file_util

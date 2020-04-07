@@ -39,7 +39,7 @@
 
 #include "qremoteobjectabstractitemmodeladapter_p.h"
 
-#include <QItemSelectionModel>
+#include <QtCore/qitemselectionmodel.h>
 
 // consider evaluating performance difference with item data
 inline QVariantList collectData(const QModelIndex &index, const QAbstractItemModel *model, const QVector<int> &roles)
@@ -71,7 +71,7 @@ QAbstractItemModelSourceAdapter::QAbstractItemModelSourceAdapter(QAbstractItemMo
       m_model(obj),
       m_availableRoles(roles)
 {
-    registerTypes();
+    QAbstractItemModelSourceAdapter::registerTypes();
     m_selectionModel = sel;
     connect(m_model, SIGNAL(dataChanged(QModelIndex,QModelIndex,QVector<int>)), this, SLOT(sourceDataChanged(QModelIndex,QModelIndex,QVector<int>)));
     connect(m_model, SIGNAL(rowsInserted(QModelIndex,int,int)), this, SLOT(sourceRowsInserted(QModelIndex,int,int)));
@@ -85,21 +85,24 @@ QAbstractItemModelSourceAdapter::QAbstractItemModelSourceAdapter(QAbstractItemMo
 void QAbstractItemModelSourceAdapter::registerTypes()
 {
     static bool alreadyRegistered = false;
-    if (!alreadyRegistered) {
-        alreadyRegistered = true;
-        qRegisterMetaType<Qt::Orientation>();
-        qRegisterMetaType<QVector<Qt::Orientation> >();
-        qRegisterMetaTypeStreamOperators<ModelIndex>();
-        qRegisterMetaTypeStreamOperators<IndexList>();
-        qRegisterMetaTypeStreamOperators<DataEntries>();
-        qRegisterMetaTypeStreamOperators<Qt::Orientation>();
-        qRegisterMetaTypeStreamOperators<QVector<Qt::Orientation> >();
-        qRegisterMetaType<QItemSelectionModel::SelectionFlags>();
-        qRegisterMetaTypeStreamOperators<QItemSelectionModel::SelectionFlags>();
-        qRegisterMetaType<QSize>();
-        qRegisterMetaType<QIntHash>();
-        qRegisterMetaTypeStreamOperators<QIntHash>();
-    }
+    if (alreadyRegistered)
+        return;
+
+    alreadyRegistered = true;
+    qRegisterMetaType<QAbstractItemModel*>();
+    qRegisterMetaType<Qt::Orientation>();
+    qRegisterMetaType<QVector<Qt::Orientation> >();
+    qRegisterMetaTypeStreamOperators<ModelIndex>();
+    qRegisterMetaTypeStreamOperators<IndexList>();
+    qRegisterMetaTypeStreamOperators<DataEntries>();
+    qRegisterMetaTypeStreamOperators<MetaAndDataEntries>();
+    qRegisterMetaTypeStreamOperators<Qt::Orientation>();
+    qRegisterMetaTypeStreamOperators<QVector<Qt::Orientation> >();
+    qRegisterMetaType<QItemSelectionModel::SelectionFlags>();
+    qRegisterMetaTypeStreamOperators<QItemSelectionModel::SelectionFlags>();
+    qRegisterMetaType<QSize>();
+    qRegisterMetaType<QIntHash>();
+    qRegisterMetaTypeStreamOperators<QIntHash>();
 }
 
 QItemSelectionModel* QAbstractItemModelSourceAdapter::selectionModel() const
@@ -134,7 +137,7 @@ DataEntries QAbstractItemModelSourceAdapter::replicaRowRequest(IndexList start, 
     Q_ASSERT(!start.isEmpty());
 
     if (roles.isEmpty())
-        roles << Qt::DisplayRole << Qt::BackgroundRole; //FIX
+        roles << m_availableRoles;
 
     IndexList parentList = start;
     Q_ASSERT(!parentList.isEmpty());
@@ -167,6 +170,17 @@ DataEntries QAbstractItemModelSourceAdapter::replicaRowRequest(IndexList start, 
         }
     }
     return entries;
+}
+
+MetaAndDataEntries QAbstractItemModelSourceAdapter::replicaCacheRequest(size_t size, const QVector<int> &roles)
+{
+    MetaAndDataEntries res;
+    res.roles = roles.isEmpty() ? m_availableRoles : roles;
+    res.data = fetchTree(QModelIndex{}, size, roles);
+    const int rowCount = m_model->rowCount(QModelIndex{});
+    const int columnCount = m_model->columnCount(QModelIndex{});
+    res.size = QSize{columnCount, rowCount};
+    return res;
 }
 
 QVariantList QAbstractItemModelSourceAdapter::replicaHeaderRequest(QVector<Qt::Orientation> orientations, QVector<int> sections, QVector<int> roles)
@@ -231,4 +245,30 @@ void QAbstractItemModelSourceAdapter::sourceCurrentChanged(const QModelIndex & c
     IndexList previousIndex = toModelIndexList(previous, m_model);
     qCDebug(QT_REMOTEOBJECT_MODELS) << Q_FUNC_INFO << "current=" << currentIndex << "previous=" << previousIndex;
     emit currentChanged(currentIndex, previousIndex);
+}
+
+QVector<IndexValuePair> QAbstractItemModelSourceAdapter::fetchTree(const QModelIndex &parent, size_t &size, const QVector<int> &roles)
+{
+    QVector<IndexValuePair> entries;
+    const int rowCount = m_model->rowCount(parent);
+    const int columnCount = m_model->columnCount(parent);
+    if (!columnCount || !rowCount)
+        return entries;
+    entries.reserve(std::min(size_t(rowCount * columnCount), size));
+    for (int row = 0; row < rowCount && size > 0; ++row)
+        for (int column = 0; column < columnCount && size > 0; ++column) {
+            const auto index = m_model->index(row, column, parent);
+            const IndexList currentList = toModelIndexList(index, m_model);
+            const QVariantList data = collectData(index, m_model, roles);
+            const bool hasChildren = m_model->hasChildren(index);
+            const Qt::ItemFlags flags = m_model->flags(index);
+            int rc = m_model->rowCount(index);
+            int cc = m_model->columnCount(index);
+            IndexValuePair rowData(currentList, data, hasChildren, flags, QSize{cc, rc});
+            --size;
+            if (hasChildren)
+                rowData.children = fetchTree(index, size, roles);
+            entries.push_back(rowData);
+        }
+    return entries;
 }

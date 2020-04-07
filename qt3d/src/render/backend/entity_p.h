@@ -89,7 +89,7 @@ public:
 
     void setParentHandle(HEntity parentHandle);
     void setNodeManagers(NodeManagers *manager);
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) Q_DECL_OVERRIDE;
+    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) override;
 
     void dump() const;
 
@@ -104,8 +104,8 @@ public:
     QVector<Entity *> children() const;
     bool hasChildren() const { return !m_childrenHandles.empty(); }
 
-    QMatrix4x4 *worldTransform();
-    const QMatrix4x4 *worldTransform() const;
+    Matrix4x4 *worldTransform();
+    const Matrix4x4 *worldTransform() const;
     Sphere *localBoundingVolume() const { return m_localBoundingVolume.data(); }
     Sphere *worldBoundingVolume() const { return m_worldBoundingVolume.data(); }
     Sphere *worldBoundingVolumeWithChildren() const { return m_worldBoundingVolumeWithChildren.data(); }
@@ -174,7 +174,7 @@ public:
 
 
 private:
-    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) Q_DECL_FINAL;
+    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) final;
 
     NodeManagers *m_nodeManagers;
     HEntity m_handle;
@@ -192,6 +192,7 @@ private:
     Qt3DCore::QNodeId m_cameraComponent;
     QVector<Qt3DCore::QNodeId> m_layerComponents;
     QVector<Qt3DCore::QNodeId> m_levelOfDetailComponents;
+    QVector<Qt3DCore::QNodeId> m_rayCasterComponents;
     QVector<Qt3DCore::QNodeId> m_shaderDataComponents;
     QVector<Qt3DCore::QNodeId> m_lightComponents;
     QVector<Qt3DCore::QNodeId> m_environmentLightComponents;
@@ -292,6 +293,7 @@ ENTITY_COMPONENT_TEMPLATE_SPECIALIZATION(ComputeCommand, HComputeCommand)
 ENTITY_COMPONENT_TEMPLATE_SPECIALIZATION(Armature, HArmature)
 ENTITY_COMPONENT_LIST_TEMPLATE_SPECIALIZATION(Layer, HLayer)
 ENTITY_COMPONENT_LIST_TEMPLATE_SPECIALIZATION(LevelOfDetail, HLevelOfDetail)
+ENTITY_COMPONENT_LIST_TEMPLATE_SPECIALIZATION(RayCaster, HRayCaster)
 ENTITY_COMPONENT_LIST_TEMPLATE_SPECIALIZATION(ShaderData, HShaderData)
 ENTITY_COMPONENT_LIST_TEMPLATE_SPECIALIZATION(Light, HLight)
 ENTITY_COMPONENT_LIST_TEMPLATE_SPECIALIZATION(EnvironmentLight, HEnvironmentLight)
@@ -300,9 +302,9 @@ class RenderEntityFunctor : public Qt3DCore::QBackendNodeMapper
 {
 public:
     explicit RenderEntityFunctor(AbstractRenderer *renderer, NodeManagers *manager);
-    Qt3DCore::QBackendNode *create(const Qt3DCore::QNodeCreatedChangeBasePtr &change) const Q_DECL_OVERRIDE;
-    Qt3DCore::QBackendNode *get(Qt3DCore::QNodeId id) const Q_DECL_OVERRIDE;
-    void destroy(Qt3DCore::QNodeId id) const Q_DECL_OVERRIDE;
+    Qt3DCore::QBackendNode *create(const Qt3DCore::QNodeCreatedChangeBasePtr &change) const override;
+    Qt3DCore::QBackendNode *get(Qt3DCore::QNodeId id) const override;
+    void destroy(Qt3DCore::QNodeId id) const override;
 
 private:
     NodeManagers *m_nodeManagers;

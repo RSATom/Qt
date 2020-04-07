@@ -19,10 +19,7 @@ class Layer;
 }
 
 namespace gpu {
-namespace gles2 {
-struct ContextCreationAttribHelper;
-}  // namespace gles2
-
+struct ContextCreationAttribs;
 struct SharedMemoryLimits;
 }
 
@@ -53,7 +50,7 @@ class CONTENT_EXPORT Compositor {
       base::Callback<void(scoped_refptr<viz::ContextProvider>)>;
   static void CreateContextProvider(
       gpu::SurfaceHandle handle,
-      gpu::gles2::ContextCreationAttribHelper attributes,
+      gpu::ContextCreationAttribs attributes,
       gpu::SharedMemoryLimits shared_memory_limits,
       ContextProviderCallback callback);
 
@@ -61,6 +58,8 @@ class CONTENT_EXPORT Compositor {
   // the compositor as it manages callbacks on the compositor.
   static Compositor* Create(CompositorClient* client,
                             gfx::NativeWindow root_window);
+
+  virtual void SetRootWindow(gfx::NativeWindow root_window) = 0;
 
   // Attaches the layer tree.
   virtual void SetRootLayer(scoped_refptr<cc::Layer> root) = 0;
@@ -71,8 +70,8 @@ class CONTENT_EXPORT Compositor {
   // Set the output surface which the compositor renders into.
   virtual void SetSurface(jobject surface) = 0;
 
-  // Tells the view tree to assume a transparent background when rendering.
-  virtual void SetHasTransparentBackground(bool flag) = 0;
+  // Set the background color used by the layer tree host.
+  virtual void SetBackgroundColor(int color) = 0;
 
   // Tells the compositor to allocate an alpha channel.  This won't take effect
   // until the compositor selects a new egl config, usually when the underlying

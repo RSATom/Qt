@@ -4,9 +4,9 @@
 
 #include "components/contextual_search/browser/contextual_search_js_api_service_impl.h"
 
+#include <memory>
 #include <utility>
 
-#include "base/memory/ptr_util.h"
 #include "components/contextual_search/browser/contextual_search_js_api_handler.h"
 #include "mojo/public/cpp/bindings/strong_binding.h"
 
@@ -18,6 +18,14 @@ ContextualSearchJsApiServiceImpl::ContextualSearchJsApiServiceImpl(
 
 ContextualSearchJsApiServiceImpl::~ContextualSearchJsApiServiceImpl() {}
 
+void ContextualSearchJsApiServiceImpl::ShouldEnableJsApi(
+    const GURL& gurl,
+    contextual_search::mojom::ContextualSearchJsApiService::
+        ShouldEnableJsApiCallback callback) {
+  contextual_search_js_api_handler_->ShouldEnableJsApi(gurl,
+                                                       std::move(callback));
+}
+
 void ContextualSearchJsApiServiceImpl::HandleSetCaption(
     const std::string& caption,
     bool does_answer) {
@@ -28,7 +36,7 @@ void ContextualSearchJsApiServiceImpl::HandleSetCaption(
 void CreateContextualSearchJsApiService(
     ContextualSearchJsApiHandler* contextual_search_js_api_handler,
     mojom::ContextualSearchJsApiServiceRequest request) {
-  mojo::MakeStrongBinding(base::MakeUnique<ContextualSearchJsApiServiceImpl>(
+  mojo::MakeStrongBinding(std::make_unique<ContextualSearchJsApiServiceImpl>(
                               contextual_search_js_api_handler),
                           std::move(request));
 }

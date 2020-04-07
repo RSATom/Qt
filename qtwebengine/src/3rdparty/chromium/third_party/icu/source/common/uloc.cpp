@@ -98,6 +98,7 @@ locale_getKeywords(const char *localeID,
  */
 /* Generated using org.unicode.cldr.icu.GenerateISO639LanguageTables */
 /* ISO639 table version is 20150505 */
+/* Subsequent hand addition of selected languages */
 static const char * const LANGUAGES[] = {
     "aa",  "ab",  "ace", "ach", "ada", "ady", "ae",  "aeb",
     "af",  "afh", "agq", "ain", "ak",  "akk", "akz", "ale",
@@ -109,7 +110,7 @@ static const char * const LANGUAGES[] = {
     "bgn", "bho", "bi",  "bik", "bin", "bjn", "bkm", "bla",
     "bm",  "bn",  "bo",  "bpy", "bqi", "br",  "bra", "brh",
     "brx", "bs",  "bss", "bua", "bug", "bum", "byn", "byv",
-    "ca",  "cad", "car", "cay", "cch", "ce",  "ceb", "cgg",
+    "ca",  "cad", "car", "cay", "cch", "ccp", "ce",  "ceb", "cgg",
     "ch",  "chb", "chg", "chk", "chm", "chn", "cho", "chp",
     "chr", "chy", "ckb", "co",  "cop", "cps", "cr",  "crh",
     "cs",  "csb", "cu",  "cv",  "cy",
@@ -213,6 +214,7 @@ static const char* const REPLACEMENT_LANGUAGES[]={
  */
 /* Generated using org.unicode.cldr.icu.GenerateISO639LanguageTables */
 /* ISO639 table version is 20150505 */
+/* Subsequent hand addition of selected languages */
 static const char * const LANGUAGES_3[] = {
     "aar", "abk", "ace", "ach", "ada", "ady", "ave", "aeb",
     "afr", "afh", "agq", "ain", "aka", "akk", "akz", "ale",
@@ -224,7 +226,7 @@ static const char * const LANGUAGES_3[] = {
     "bgn", "bho", "bis", "bik", "bin", "bjn", "bkm", "bla",
     "bam", "ben", "bod", "bpy", "bqi", "bre", "bra", "brh",
     "brx", "bos", "bss", "bua", "bug", "bum", "byn", "byv",
-    "cat", "cad", "car", "cay", "cch", "che", "ceb", "cgg",
+    "cat", "cad", "car", "cay", "cch", "ccp", "che", "ceb", "cgg",
     "cha", "chb", "chg", "chk", "chm", "chn", "cho", "chp",
     "chr", "chy", "ckb", "cos", "cop", "cps", "cre", "crh",
     "ces", "csb", "chu", "chv", "cym",
@@ -494,6 +496,27 @@ static const CanonicalizationMap CANONICALIZE_MAP[] = {
     { "nl_BE_PREEURO",  "nl_BE", "currency", "BEF" },
     { "nl_NL_PREEURO",  "nl_NL", "currency", "NLG" },
     { "pt_PT_PREEURO",  "pt_PT", "currency", "PTE" },
+    // sgn entries are redundant tags with preferred values in
+    // https://www.iana.org/assignments/language-subtag-registry/language-subtag-registry .
+    { "sgn_BR",         "bzs",   NULL, NULL },
+    { "sgn_CO",         "csn",   NULL, NULL },
+    { "sgn_DE",         "gsg",   NULL, NULL },
+    { "sgn_DK",         "dsl",   NULL, NULL },
+    { "sgn_ES",         "ssp",   NULL, NULL },
+    { "sgn_FR",         "fsl",   NULL, NULL },
+    { "sgn_GB",         "bfi",   NULL, NULL },
+    { "sgn_GR",         "gss",   NULL, NULL },
+    { "sgn_IE",         "isg",   NULL, NULL },
+    { "sgn_IT",         "ise",   NULL, NULL },
+    { "sgn_JP",         "jsl",   NULL, NULL },
+    { "sgn_MX",         "mfs",   NULL, NULL },
+    { "sgn_NI",         "ncs",   NULL, NULL },
+    { "sgn_NL",         "dse",   NULL, NULL },
+    { "sgn_NO",         "nsl",   NULL, NULL },
+    { "sgn_PT",         "psr",   NULL, NULL },
+    { "sgn_SE",         "swl",   NULL, NULL },
+    { "sgn_US",         "ase",   NULL, NULL },
+    { "sgn_ZA",         "sfs",   NULL, NULL },
     { "sr_SP_CYRL",     "sr_Cyrl_RS", NULL, NULL }, /* .NET name */
     { "sr_SP_LATN",     "sr_Latn_RS", NULL, NULL }, /* .NET name */
     { "sr_YU_CYRILLIC", "sr_Cyrl_RS", NULL, NULL }, /* Linux name */
@@ -529,15 +552,16 @@ static const VariantMap VARIANT_MAP[] = {
 #define _hasBCP47Extension(id) (id && uprv_strstr(id, "@") == NULL && getShortestSubtagLength(localeID) == 1)
 /* Converts the BCP47 id to Unicode id. Does nothing to id if conversion fails */
 #define _ConvertBCP47(finalID, id, buffer, length,err) \
-        if (uloc_forLanguageTag(id, buffer, length, NULL, err) <= 0 || U_FAILURE(*err) || *err == U_STRING_NOT_TERMINATED_WARNING) { \
+        if (uloc_forLanguageTag(id, buffer, length, NULL, err) <= 0 ||  \
+                U_FAILURE(*err) || *err == U_STRING_NOT_TERMINATED_WARNING) { \
             finalID=id; \
-          if (*err == U_STRING_NOT_TERMINATED_WARNING) { *err = U_BUFFER_OVERFLOW_ERROR; } \
+            if (*err == U_STRING_NOT_TERMINATED_WARNING) { *err = U_BUFFER_OVERFLOW_ERROR; } \
         } else { \
             finalID=buffer; \
         }
 /* Gets the size of the shortest subtag in the given localeID. */
 static int32_t getShortestSubtagLength(const char *localeID) {
-    int32_t localeIDLength = uprv_strlen(localeID);
+    int32_t localeIDLength = static_cast<int32_t>(uprv_strlen(localeID));
     int32_t length = localeIDLength;
     int32_t tmpLength = 0;
     int32_t i;
@@ -2487,7 +2511,7 @@ uloc_acceptLanguage(char *result, int32_t resultAvailable,
 #if defined(ULOC_DEBUG)
         fprintf(stderr,"%02d: %s\n", i, acceptList[i]);
 #endif
-        while((l=uenum_next(availableLocales, NULL, status))) {
+        while((l=uenum_next(availableLocales, NULL, status)) != NULL) {
 #if defined(ULOC_DEBUG)
             fprintf(stderr,"  %s\n", l);
 #endif
@@ -2527,7 +2551,7 @@ uloc_acceptLanguage(char *result, int32_t resultAvailable,
 #if defined(ULOC_DEBUG)
                 fprintf(stderr,"Try: [%s]", fallbackList[i]);
 #endif
-                while((l=uenum_next(availableLocales, NULL, status))) {
+                while((l=uenum_next(availableLocales, NULL, status)) != NULL) {
 #if defined(ULOC_DEBUG)
                     fprintf(stderr,"  %s\n", l);
 #endif

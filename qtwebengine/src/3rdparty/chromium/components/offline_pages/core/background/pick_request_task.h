@@ -5,9 +5,9 @@
 #ifndef COMPONENTS_OFFLINE_PAGES_CORE_BACKGROUND_PICK_REQUEST_TASK_H_
 #define COMPONENTS_OFFLINE_PAGES_CORE_BACKGROUND_PICK_REQUEST_TASK_H_
 
-#include <deque>
 #include <set>
 
+#include "base/containers/circular_deque.h"
 #include "base/memory/weak_ptr.h"
 #include "components/offline_pages/core/background/request_queue_results.h"
 #include "components/offline_pages/core/background/save_page_request.h"
@@ -27,16 +27,18 @@ typedef bool (PickRequestTask::*RequestCompareFunction)(
 class PickRequestTask : public Task {
  public:
   // Callback to report when a request was available.
-  typedef base::Callback<void(const SavePageRequest& request,
-                              bool cleanup_needed)>
+  typedef base::OnceCallback<void(
+      const SavePageRequest& request,
+      std::unique_ptr<std::vector<SavePageRequest>> available_requests,
+      bool cleanup_needed)>
       RequestPickedCallback;
 
   // Callback to report when no request was available.
-  typedef base::Callback<void(bool non_user_requests, bool cleanup_needed)>
+  typedef base::OnceCallback<void(bool non_user_requests, bool cleanup_needed)>
       RequestNotPickedCallback;
 
   // Callback to report available total and available queued request counts.
-  typedef base::Callback<void(size_t, size_t)> RequestCountCallback;
+  typedef base::OnceCallback<void(size_t, size_t)> RequestCountCallback;
 
   PickRequestTask(RequestQueueStore* store,
                   OfflinerPolicy* policy,
@@ -45,7 +47,7 @@ class PickRequestTask : public Task {
                   RequestCountCallback request_count_callback,
                   DeviceConditions& device_conditions,
                   const std::set<int64_t>& disabled_requests,
-                  std::deque<int64_t>& prioritized_requests);
+                  base::circular_deque<int64_t>& prioritized_requests);
 
   ~PickRequestTask() override;
 
@@ -96,7 +98,7 @@ class PickRequestTask : public Task {
   RequestCountCallback request_count_callback_;
   std::unique_ptr<DeviceConditions> device_conditions_;
   const std::set<int64_t>& disabled_requests_;
-  std::deque<int64_t>& prioritized_requests_;
+  base::circular_deque<int64_t>& prioritized_requests_;
   // Allows us to pass a weak pointer to callbacks.
   base::WeakPtrFactory<PickRequestTask> weak_ptr_factory_;
 };

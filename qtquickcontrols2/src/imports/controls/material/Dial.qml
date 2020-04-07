@@ -34,18 +34,23 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.10
-import QtQuick.Templates 2.3 as T
-import QtQuick.Controls.Material 2.3
-import QtQuick.Controls.Material.impl 2.3
+import QtQuick 2.12
+import QtQuick.Templates 2.12 as T
+import QtQuick.Controls.Material 2.12
+import QtQuick.Controls.Material.impl 2.12
 
 T.Dial {
     id: control
 
-    implicitWidth: 100
-    implicitHeight: 100
+    implicitWidth: Math.max(implicitBackgroundWidth + leftInset + rightInset,
+                            implicitContentWidth + leftPadding + rightPadding) || 100 // ### remove 100 in Qt 6
+    implicitHeight: Math.max(implicitBackgroundHeight + topInset + bottomInset,
+                             implicitContentHeight + topPadding + bottomPadding) || 100 // ### remove 100 in Qt 6
 
     background: Rectangle {
+        implicitWidth: 100
+        implicitHeight: 100
+
         x: control.width / 2 - width / 2
         y: control.height / 2 - height / 2
         width: Math.max(64, Math.min(control.width, control.height))
@@ -69,8 +74,8 @@ T.Dial {
                 origin.y: handle.height / 2
             }
         ]
-        implicitWidth: 14
-        implicitHeight: 14
+        implicitWidth: 10
+        implicitHeight: 10
 
         value: control.value
         handleHasFocus: control.visualFocus

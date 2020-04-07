@@ -28,10 +28,6 @@
 #include "ui/gl/init/gl_factory.h"
 #include "ui/gl/scoped_make_current.h"
 
-#if defined(USE_OZONE)
-#include "base/message_loop/message_loop.h"
-#endif
-
 namespace gpu {
 namespace {
 
@@ -153,6 +149,7 @@ bool CompareBufferToRGBABuffer(GLenum format,
         case GL_LUMINANCE:  // (L_t, L_t, L_t, 1)
           expected[1] = pixels[pixels_index];
           expected[2] = pixels[pixels_index];
+          FALLTHROUGH;
         case GL_RED:  // (R_t, 0, 0, 1)
           expected[0] = pixels[pixels_index];
           expected[3] = 255;
@@ -179,13 +176,6 @@ class TextureUploadPerfTest : public testing::Test {
 
   // Overridden from testing::Test
   void SetUp() override {
-#if defined(USE_OZONE)
-    // On Ozone, the backend initializes the event system using a UI
-    // thread.
-    base::MessageLoopForUI main_loop;
-#endif
-    static bool gl_initialized = gl::init::InitializeGLOneOff();
-    DCHECK(gl_initialized);
     // Initialize an offscreen surface and a gl context.
     surface_ = gl::init::CreateOffscreenGLSurface(gfx::Size());
     gl_context_ =

@@ -8,33 +8,32 @@
 #define CORE_FXCODEC_JBIG2_JBIG2_SEGMENT_H_
 
 #include <memory>
+#include <vector>
 
 #include "core/fxcodec/jbig2/JBig2_Define.h"
 #include "core/fxcodec/jbig2/JBig2_HuffmanTable.h"
 #include "core/fxcodec/jbig2/JBig2_PatternDict.h"
 #include "core/fxcodec/jbig2/JBig2_SymbolDict.h"
 
-#define JBIG2_GET_INT32(buf) \
-  (((buf)[0] << 24) | ((buf)[1] << 16) | ((buf)[2] << 8) | (buf)[3])
-#define JBIG2_GET_INT16(buf) (((buf)[0] << 8) | (buf)[1])
-typedef enum {
+enum JBig2_SegmentState {
   JBIG2_SEGMENT_HEADER_UNPARSED,
   JBIG2_SEGMENT_DATA_UNPARSED,
   JBIG2_SEGMENT_PARSE_COMPLETE,
   JBIG2_SEGMENT_PAUSED,
   JBIG2_SEGMENT_ERROR
-} JBig2_SegmentState;
-typedef enum {
+};
+
+enum JBig2_ResultType {
   JBIG2_VOID_POINTER = 0,
   JBIG2_IMAGE_POINTER,
   JBIG2_SYMBOL_DICT_POINTER,
   JBIG2_PATTERN_DICT_POINTER,
   JBIG2_HUFFMAN_TABLE_POINTER
-} JBig2_ResultType;
+};
+
 class CJBig2_Segment {
  public:
   CJBig2_Segment();
-
   ~CJBig2_Segment();
 
   uint32_t m_dwNumber;
@@ -47,7 +46,7 @@ class CJBig2_Segment {
     uint8_t c;
   } m_cFlags;
   int32_t m_nReferred_to_segment_count;
-  uint32_t* m_pReferred_to_segment_numbers;
+  std::vector<uint32_t> m_Referred_to_segment_numbers;
   uint32_t m_dwPage_association;
   uint32_t m_dwData_length;
 

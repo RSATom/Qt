@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 Intel Corporation.
+** Copyright (C) 2017 Intel Corporation.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the test suite of the Qt Toolkit.
@@ -57,6 +57,11 @@ QByteArray windowsVersionToString(QSysInfo::WinVersion v)
     CASE_VERSION(WV_WINDOWS8_1);
     CASE_VERSION(WV_WINDOWS10);
     case QSysInfo::WV_NT_based: // shouldn't happen
+    case QSysInfo::WV_CE:
+    case QSysInfo::WV_CENET:
+    case QSysInfo::WV_CE_5:
+    case QSysInfo::WV_CE_6:
+    case QSysInfo::WV_CE_based:
         break;
     }
 
@@ -82,6 +87,7 @@ QByteArray macVersionToString(QSysInfo::MacVersion v)
     CASE_VERSION(MV_10_9);
     CASE_VERSION(MV_10_10);
     CASE_VERSION(MV_10_11);
+    CASE_VERSION(MV_10_12);
 
     CASE_VERSION(MV_IOS_4_3);
     CASE_VERSION(MV_IOS_5_0);
@@ -96,8 +102,24 @@ QByteArray macVersionToString(QSysInfo::MacVersion v)
     CASE_VERSION(MV_IOS_8_3);
     CASE_VERSION(MV_IOS_8_4);
     CASE_VERSION(MV_IOS_9_0);
+    CASE_VERSION(MV_IOS_9_1);
+    CASE_VERSION(MV_IOS_9_2);
+    CASE_VERSION(MV_IOS_9_3);
+    CASE_VERSION(MV_IOS_10_0);
     case QSysInfo::MV_IOS:      // shouldn't happen:
+    case QSysInfo::MV_TVOS:
+    case QSysInfo::MV_WATCHOS:
         break;
+
+    CASE_VERSION(MV_TVOS_9_0);
+    CASE_VERSION(MV_TVOS_9_1);
+    CASE_VERSION(MV_TVOS_9_2);
+    CASE_VERSION(MV_TVOS_10_0);
+
+    CASE_VERSION(MV_WATCHOS_2_0);
+    CASE_VERSION(MV_WATCHOS_2_1);
+    CASE_VERSION(MV_WATCHOS_2_2);
+    CASE_VERSION(MV_WATCHOS_3_0);
     }
 
     if (v & QSysInfo::MV_IOS) {
@@ -133,6 +155,8 @@ int main(int argc, char *argv[])
     printf("QSysInfo::productVersion() = %s\n", qPrintable(QSysInfo::productVersion()));
     printf("QSysInfo::prettyProductName() = %s\n", qPrintable(QSysInfo::prettyProductName()));
     printf("QSysInfo::machineHostName() = %s\n", qPrintable(QSysInfo::machineHostName()));
+    printf("QSysInfo::machineUniqueId() = %s\n", QSysInfo::machineUniqueId().constData());
+    printf("QSysInfo::bootUniqueId() = %s\n", qPrintable(QSysInfo::bootUniqueId()));
 
     const auto osv = QOperatingSystemVersion::current();
     printf("QOperatingSystemVersion::current() = %s %d.%d.%d\n",

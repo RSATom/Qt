@@ -25,9 +25,7 @@ public:
     void reset();
     bool empty() const { return fUsed == 0; }
 
-#ifdef SK_SUPPORT_LEGACY_DRAWFILTER
-    void setDrawFilter(SkDrawFilter*);
-#endif
+    void flush();
 
     void save();
     void saveLayer(const SkRect*, const SkPaint*, const SkImageFilter*, const SkImage*,
@@ -74,7 +72,8 @@ public:
     void drawPatch(const SkPoint[12], const SkColor[4], const SkPoint[4],
                    SkBlendMode, const SkPaint&);
     void drawPoints(SkCanvas::PointMode, size_t, const SkPoint[], const SkPaint&);
-    void drawVertices(const SkVertices*, SkBlendMode, const SkPaint&);
+    void drawVertices(const SkVertices*, const SkMatrix* bones, int boneCount, SkBlendMode,
+                      const SkPaint&);
     void drawAtlas(const SkImage*, const SkRSXform[], const SkRect[], const SkColor[], int,
                    SkBlendMode, const SkRect*, const SkPaint*);
     void drawShadowRec(const SkPath&, const SkDrawShadowRec&);

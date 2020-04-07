@@ -50,26 +50,20 @@ void MessagePipeReader::Close() {
 }
 
 bool MessagePipeReader::Send(std::unique_ptr<Message> message) {
+  CHECK(message->IsValid());
   TRACE_EVENT_WITH_FLOW0(TRACE_DISABLED_BY_DEFAULT("ipc.flow"),
-                         "MessagePipeReader::Send",
-                         message->flags(),
+                         "MessagePipeReader::Send", message->flags(),
                          TRACE_EVENT_FLAG_FLOW_OUT);
-  base::Optional<std::vector<mojom::SerializedHandlePtr>> handles;
+  base::Optional<std::vector<mojo::native::SerializedHandlePtr>> handles;
   MojoResult result = MOJO_RESULT_OK;
   result = ChannelMojo::ReadFromMessageAttachmentSet(message.get(), &handles);
   if (result != MOJO_RESULT_OK)
     return false;
 
-  std::vector<uint8_t> data(message->size());
-  std::copy(reinterpret_cast<const uint8_t*>(message->data()),
-            reinterpret_cast<const uint8_t*>(message->data()) + message->size(),
-            data.data());
-
   if (!sender_)
     return false;
 
-  sender_->Receive(data, std::move(handles));
-
+  sender_->Receive(MessageView(*message, std::move(handles)));
   DVLOG(4) << "Send " << message->type() << ": " << message->size();
   return true;
 }
@@ -87,16 +81,20 @@ void MessagePipeReader::SetPeerPid(int32_t peer_pid) {
   delegate_->OnPeerPidReceived(peer_pid);
 }
 
-void MessagePipeReader::Receive(
-    const std::vector<uint8_t>& data,
-    base::Optional<std::vector<mojom::SerializedHandlePtr>> handles) {
-  Message message(
-      data.empty() ? "" : reinterpret_cast<const char*>(data.data()),
-      static_cast<uint32_t>(data.size()));
+void MessagePipeReader::Receive(MessageView message_view) {
+  if (!message_view.size()) {
+    delegate_->OnBrokenDataReceived();
+    return;
+  }
+  Message message(message_view.data(), message_view.size());
+  if (!message.IsValid()) {
+    delegate_->OnBrokenDataReceived();
+    return;
+  }
 
   DVLOG(4) << "Receive " << message.type() << ": " << message.size();
-  MojoResult write_result =
-      ChannelMojo::WriteToMessageAttachmentSet(std::move(handles), &message);
+  MojoResult write_result = ChannelMojo::WriteToMessageAttachmentSet(
+      message_view.TakeHandles(), &message);
   if (write_result != MOJO_RESULT_OK) {
     OnPipeError(write_result);
     return;

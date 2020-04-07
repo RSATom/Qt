@@ -9,7 +9,7 @@
 
 #include "base/strings/string16.h"
 #include "content/common/content_export.h"
-#include "third_party/WebKit/public/web/WebMenuItemInfo.h"
+#include "third_party/blink/public/web/web_menu_item_info.h"
 
 namespace content {
 
@@ -21,7 +21,8 @@ struct CONTENT_EXPORT MenuItem {
     CHECKABLE_OPTION = blink::WebMenuItemInfo::kCheckableOption,
     GROUP = blink::WebMenuItemInfo::kGroup,
     SEPARATOR = blink::WebMenuItemInfo::kSeparator,
-    SUBMENU  // This is currently only used by Pepper, not by WebKit.
+    SUBMENU,  // This is currently only used by Pepper, not by WebKit.
+    TYPE_LAST = SUBMENU
   };
 
   MenuItem();

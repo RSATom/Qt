@@ -44,6 +44,7 @@
 #include <QtCore/qdir.h>
 #include <QtCore/qbytearray.h>
 #include <QtCore/qvariant.h>
+#include <QtCore/qregularexpression.h>
 #include <QtCore/qsize.h>
 #include <QtCore/qset.h>
 #include <QtCore/qstringlist.h>
@@ -175,6 +176,11 @@ static void addTagToMap(const GstTagList *list,
 }
 
 /*!
+    \class QGstUtils
+    \internal
+*/
+
+/*!
   Convert GstTagList structure to QMap<QByteArray, QVariant>.
 
   Mapping to int, bool, char, string, fractions and date are supported.
@@ -190,7 +196,7 @@ QMap<QByteArray, QVariant> QGstUtils::gstTagListToMap(const GstTagList *tags)
 
 /*!
   Returns resolution of \a caps.
-  If caps doesn't have a valid size, and ampty QSize is returned.
+  If caps doesn't have a valid size, an empty QSize is returned.
 */
 QSize QGstUtils::capsResolution(const GstCaps *caps)
 {
@@ -361,7 +367,7 @@ QAudioFormat QGstUtils::audioFormatForCaps(const GstCaps *caps)
 }
 
 #if GST_CHECK_VERSION(1,0,0)
-/*!
+/*
   Returns audio format for a sample.
   If the buffer doesn't have a valid audio format, an empty QAudioFormat is returned.
 */
@@ -799,7 +805,7 @@ QSet<QString> QGstUtils::supportedMimeTypes(bool (*isValidFactory)(GstElementFac
                             if (value) {
                                 gchar *str = gst_value_serialize(value);
                                 QString versions = QLatin1String(str);
-                                const QStringList elements = versions.split(QRegExp(QLatin1String("\\D+")), QString::SkipEmptyParts);
+                                const QStringList elements = versions.split(QRegularExpression(QLatin1String("\\D+")), QString::SkipEmptyParts);
                                 for (const QString &e : elements)
                                     supportedMimeTypes.insert(nameLowcase + e);
                                 g_free(str);
@@ -1303,7 +1309,7 @@ void QGstUtils::setMetaData(GstBin *bin, const QMap<QByteArray, QVariant> &data)
 
 GstCaps *QGstUtils::videoFilterCaps()
 {
-    static GstStaticCaps staticCaps = GST_STATIC_CAPS(
+    const char *caps =
 #if GST_CHECK_VERSION(1,2,0)
         "video/x-raw(ANY);"
 #elif GST_CHECK_VERSION(1,0,0)
@@ -1315,7 +1321,8 @@ GstCaps *QGstUtils::videoFilterCaps()
         "video/x-android-buffer;"
 #endif
         "image/jpeg;"
-        "video/x-h264");
+        "video/x-h264";
+    static GstStaticCaps staticCaps = GST_STATIC_CAPS(caps);
 
     return gst_caps_make_writable(gst_static_caps_get(&staticCaps));
 }
@@ -1458,10 +1465,11 @@ QString QGstUtils::fileExtensionForMimeType(const QString &mimeType)
     if (!extension.isEmpty() || format.isEmpty())
         return extension;
 
-    QRegExp rx(QStringLiteral("[-/]([\\w]+)$"));
+    QRegularExpression rx(QStringLiteral("[-/]([\\w]+)$"));
+    QRegularExpressionMatch match = rx.match(format);
 
-    if (rx.indexIn(format) != -1)
-        extension = rx.cap(1);
+    if (match.hasMatch())
+        extension = match.captured(1);
 
     return extension;
 }

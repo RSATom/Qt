@@ -69,6 +69,7 @@ typedef struct {
   MV_REF *mvs;
   int mi_rows;
   int mi_cols;
+  uint8_t released;
   vpx_codec_frame_buffer_t raw_frame_buffer;
   YV12_BUFFER_CONFIG buf;
 } RefCntBuffer;
@@ -309,7 +310,7 @@ static INLINE void set_partition_probs(const VP9_COMMON *const cm,
   xd->partition_probs =
       frame_is_intra_only(cm)
           ? &vp9_kf_partition_probs[0]
-          : (const vpx_prob(*)[PARTITION_TYPES - 1])cm->fc->partition_prob;
+          : (const vpx_prob(*)[PARTITION_TYPES - 1]) cm->fc->partition_prob;
 }
 
 static INLINE void vp9_init_macroblockd(VP9_COMMON *cm, MACROBLOCKD *xd,

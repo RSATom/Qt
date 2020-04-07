@@ -13,7 +13,6 @@
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/profiler/scoped_tracker.h"
 #include "base/sequenced_task_runner.h"
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
@@ -22,12 +21,12 @@
 #include "base/strings/string_util.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
-#include "base/tracked_objects.h"
 #include "google_apis/gcm/base/encryptor.h"
 #include "google_apis/gcm/base/mcs_message.h"
 #include "google_apis/gcm/base/mcs_util.h"
 #include "google_apis/gcm/protocol/mcs.pb.h"
 #include "third_party/leveldatabase/env_chromium.h"
+#include "third_party/leveldatabase/leveldb_chrome.h"
 #include "third_party/leveldatabase/src/include/leveldb/db.h"
 #include "third_party/leveldatabase/src/include/leveldb/write_batch.h"
 
@@ -178,13 +177,6 @@ leveldb::Slice MakeSlice(const base::StringPiece& s) {
   return leveldb::Slice(s.begin(), s.size());
 }
 
-bool DatabaseExists(const base::FilePath& path) {
-  // It's not enough to check that the directory exists, since DestroyDB
-  // sometimes leaves behind an empty directory
-  // (https://github.com/google/leveldb/issues/215).
-  return base::PathExists(path.Append(FILE_PATH_LITERAL("CURRENT")));
-}
-
 }  // namespace
 
 class GCMStoreImpl::Backend
@@ -294,14 +286,14 @@ LoadStatus GCMStoreImpl::Backend::OpenStoreAndLoadData(StoreOpenMode open_mode,
 
   // Checks if the store exists or not. Opening a db with create_if_missing
   // not set will still create a new directory if the store does not exist.
-  if (open_mode == DO_NOT_CREATE && !DatabaseExists(path_)) {
+  if (open_mode == DO_NOT_CREATE &&
+      !leveldb_chrome::PossiblyValidDB(path_, leveldb::Env::Default())) {
     DVLOG(2) << "Database " << path_.value() << " does not exist";
     return STORE_DOES_NOT_EXIST;
   }
 
-  leveldb::Options options;
+  leveldb_env::Options options;
   options.create_if_missing = open_mode == CREATE_IF_MISSING;
-  options.reuse_logs = leveldb_env::kDefaultLogReuseOptionValue;
   options.paranoid_checks = true;
   leveldb::Status status =
       leveldb_env::OpenDB(options, path_.AsUTF8Unsafe(), &db_);
@@ -414,7 +406,7 @@ void GCMStoreImpl::Backend::Destroy(const UpdateCallback& callback) {
   DVLOG(1) << "Destroying GCM store.";
   db_.reset();
   const leveldb::Status s =
-      leveldb::DestroyDB(path_.AsUTF8Unsafe(), leveldb::Options());
+      leveldb::DestroyDB(path_.AsUTF8Unsafe(), leveldb_env::Options());
   if (s.ok()) {
     foreground_task_runner_->PostTask(FROM_HERE, base::Bind(callback, true));
     return;
@@ -438,9 +430,9 @@ void GCMStoreImpl::Backend::SetDeviceCredentials(
   write_options.sync = true;
 
   std::string encrypted_token;
-  encryptor_->EncryptString(base::Uint64ToString(device_security_token),
+  encryptor_->EncryptString(base::NumberToString(device_security_token),
                             &encrypted_token);
-  std::string android_id_str = base::Uint64ToString(device_android_id);
+  std::string android_id_str = base::NumberToString(device_android_id);
   leveldb::Status s =
       db_->Put(write_options,
                MakeSlice(kDeviceAIDKey),
@@ -1430,10 +1422,6 @@ void GCMStoreImpl::SetValueForTesting(const std::string& key,
 
 void GCMStoreImpl::LoadContinuation(const LoadCallback& callback,
                                     std::unique_ptr<LoadResult> result) {
-  // TODO(pkasting): Remove ScopedTracker below once crbug.com/477117 is fixed.
-  tracked_objects::ScopedTracker tracking_profile(
-      FROM_HERE_WITH_EXPLICIT_FUNCTION(
-          "477117 GCMStoreImpl::LoadContinuation"));
   if (!result->success) {
     callback.Run(std::move(result));
     return;

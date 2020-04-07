@@ -858,7 +858,7 @@ void QDialogButtonBoxPrivate::_q_handleButtonClicked()
         if (!guard)
             return;
 
-        switch (buttonRole) {
+        switch (QPlatformDialogHelper::ButtonRole(buttonRole)) {
         case QPlatformDialogHelper::AcceptRole:
         case QPlatformDialogHelper::YesRole:
             emit q->accepted();
@@ -927,8 +927,8 @@ void QDialogButtonBox::changeEvent(QEvent *event)
             for (StandardButtonHash::iterator it = d->standardButtonHash.begin(); it != end; ++it)
                 it.key()->setStyle(newStyle);
         }
-        // fallthrough intended
 #ifdef Q_OS_MAC
+        Q_FALLTHROUGH();
     case QEvent::MacSizeChange:
 #endif
         d->resetLayout();

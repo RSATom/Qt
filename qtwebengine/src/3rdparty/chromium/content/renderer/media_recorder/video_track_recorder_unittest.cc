@@ -13,17 +13,19 @@
 #include "base/location.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/test/scoped_task_environment.h"
 #include "content/child/child_process.h"
-#include "content/renderer/media/media_stream_video_track.h"
-#include "content/renderer/media/mock_media_stream_video_source.h"
+#include "content/renderer/media/stream/media_stream_video_track.h"
+#include "content/renderer/media/stream/mock_media_stream_video_source.h"
 #include "media/base/video_frame.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/WebKit/public/platform/WebString.h"
-#include "third_party/WebKit/public/web/WebHeap.h"
+#include "third_party/blink/public/platform/scheduler/test/renderer_scheduler_test_support.h"
+#include "third_party/blink/public/platform/web_string.h"
+#include "third_party/blink/public/web/web_heap.h"
 
 using media::VideoFrame;
 using video_track_recorder::kVEAEncoderMinResolutionWidth;
@@ -61,7 +63,10 @@ class VideoTrackRecorderTest
     : public TestWithParam<
           testing::tuple<VideoTrackRecorder::CodecId, gfx::Size, bool>> {
  public:
-  VideoTrackRecorderTest() : mock_source_(new MockMediaStreamVideoSource()) {
+  VideoTrackRecorderTest()
+      : scoped_task_environment_(
+            base::test::ScopedTaskEnvironment::MainThreadType::UI),
+        mock_source_(new MockMediaStreamVideoSource()) {
     const blink::WebString webkit_track_id(
         blink::WebString::FromASCII("dummy"));
     blink_source_.Initialize(webkit_track_id,
@@ -78,7 +83,8 @@ class VideoTrackRecorderTest
     // Paranoia checks.
     EXPECT_EQ(blink_track_.Source().GetExtraData(),
               blink_source_.GetExtraData());
-    EXPECT_TRUE(message_loop_.IsCurrent());
+    EXPECT_TRUE(scoped_task_environment_.GetMainThreadTaskRunner()
+                    ->BelongsToCurrentThread());
   }
 
   ~VideoTrackRecorderTest() {
@@ -93,7 +99,8 @@ class VideoTrackRecorderTest
         codec, blink_track_,
         base::Bind(&VideoTrackRecorderTest::OnEncodedVideo,
                    base::Unretained(this)),
-        0 /* bits_per_second */));
+        0 /* bits_per_second */,
+        blink::scheduler::GetSingleThreadTaskRunnerForTesting()));
   }
 
   MOCK_METHOD5(DoOnEncodedVideo,
@@ -114,7 +121,8 @@ class VideoTrackRecorderTest
 
   void Encode(const scoped_refptr<VideoFrame>& frame,
               base::TimeTicks capture_time) {
-    EXPECT_TRUE(message_loop_.IsCurrent());
+    EXPECT_TRUE(scoped_task_environment_.GetMainThreadTaskRunner()
+                    ->BelongsToCurrentThread());
     video_track_recorder_->OnVideoFrameForTesting(frame, capture_time);
   }
 
@@ -132,9 +140,10 @@ class VideoTrackRecorderTest
     return video_track_recorder_->encoder_->num_frames_in_encode_;
   }
 
-  // A ChildProcess and a MessageLoopForUI are both needed to fool the Tracks
-  // and Sources below into believing they are on the right threads.
-  const base::MessageLoopForUI message_loop_;
+  // A ChildProcess is needed to fool the Tracks and Sources into believing they
+  // are on the right threads. A ScopedTaskEnvironment must be instantiated
+  // before ChildProcess to prevent it from leaking a TaskScheduler.
+  base::test::ScopedTaskEnvironment scoped_task_environment_;
   const ChildProcess child_process_;
 
   // All members are non-const due to the series of initialize() calls needed.
@@ -210,7 +219,7 @@ TEST_P(VideoTrackRecorderTest, VideoEncoding) {
       .Times(1)
       .WillOnce(DoAll(SaveArg<1>(&third_frame_encoded_data),
                       SaveArg<2>(&third_frame_encoded_alpha),
-                      RunClosure(quit_closure)));
+                      RunClosure(std::move(quit_closure))));
   Encode(video_frame2, base::TimeTicks::Now());
 
   run_loop.Run();
@@ -252,7 +261,7 @@ TEST_P(VideoTrackRecorderTest, EncodeFrameWithPaddedCodedSize) {
   base::Closure quit_closure = run_loop.QuitClosure();
   EXPECT_CALL(*this, DoOnEncodedVideo(_, _, _, _, true))
       .Times(1)
-      .WillOnce(RunClosure(quit_closure));
+      .WillOnce(RunClosure(std::move(quit_closure)));
   Encode(video_frame, base::TimeTicks::Now());
   run_loop.Run();
 
@@ -289,7 +298,7 @@ TEST_F(VideoTrackRecorderTest, ForceKeyframeOnAlphaSwitch) {
   EXPECT_CALL(*this, DoOnEncodedVideo(_, _, _, _, false))
       .Times(1)
       .WillOnce(DoAll(SaveArg<2>(&third_frame_encoded_alpha),
-                      RunClosure(quit_closure)));
+                      RunClosure(std::move(quit_closure))));
   Encode(alpha_frame, base::TimeTicks::Now());
   run_loop.Run();
 
@@ -321,7 +330,7 @@ TEST_F(VideoTrackRecorderTest, HandlesOnError) {
   base::Closure quit_closure = run_loop.QuitClosure();
   EXPECT_CALL(*this, DoOnEncodedVideo(_, _, _, _, true))
       .Times(1)
-      .WillOnce(RunClosure(quit_closure));
+      .WillOnce(RunClosure(std::move(quit_closure)));
   Encode(video_frame, base::TimeTicks::Now());
   run_loop.Run();
 
@@ -338,12 +347,19 @@ TEST_F(VideoTrackRecorderTest, ReleasesFrame) {
       VideoFrame::CreateBlackFrame(frame_size);
 
   base::RunLoop run_loop;
-  video_frame->AddDestructionObserver(run_loop.QuitClosure());
-  EXPECT_CALL(*this, DoOnEncodedVideo(_, _, _, _, true)).Times(1);
+  base::Closure quit_closure = run_loop.QuitWhenIdleClosure();
+  bool frame_is_destroyed = false;
+  auto set_to_true = [](bool* b) { *b = true; };
+  video_frame->AddDestructionObserver(
+      base::BindOnce(set_to_true, &frame_is_destroyed));
+  EXPECT_CALL(*this, DoOnEncodedVideo(_, _, _, _, true))
+      .Times(1)
+      .WillOnce(RunClosure(std::move(quit_closure)));
   Encode(video_frame, base::TimeTicks::Now());
   video_frame = nullptr;
   run_loop.Run();
   EXPECT_EQ(0u, NumFramesInEncode());
+  EXPECT_TRUE(frame_is_destroyed);
 
   Mock::VerifyAndClearExpectations(this);
 }

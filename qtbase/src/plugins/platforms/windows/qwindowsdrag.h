@@ -44,7 +44,8 @@
 #include "qwindowsinternalmimedata.h"
 
 #include <qpa/qplatformdrag.h>
-#include <QtGui/QPixmap>
+#include <QtGui/qpixmap.h>
+#include <QtGui/qdrag.h>
 
 struct IDropTargetHelper;
 
@@ -54,7 +55,7 @@ class QPlatformScreen;
 
 class QWindowsDropMimeData : public QWindowsInternalMimeData {
 public:
-    QWindowsDropMimeData() {}
+    QWindowsDropMimeData() = default;
     IDataObject *retrieveDataObject() const override;
 };
 
@@ -62,7 +63,7 @@ class QWindowsOleDropTarget : public QWindowsComBase<IDropTarget>
 {
 public:
     explicit QWindowsOleDropTarget(QWindow *w);
-    virtual ~QWindowsOleDropTarget();
+    ~QWindowsOleDropTarget() override;
 
     // IDropTarget methods
     STDMETHOD(DragEnter)(LPDATAOBJECT pDataObj, DWORD grfKeyState, POINTL pt, LPDWORD pdwEffect);
@@ -91,6 +92,7 @@ public:
     static QWindowsDrag *instance();
     void cancelDrag() override { QWindowsDrag::m_canceled = true; }
     static bool isCanceled() { return QWindowsDrag::m_canceled; }
+    static bool isDragging() { return QWindowsDrag::m_dragging; }
 
     IDataObject *dropDataObject() const             { return m_dropDataObject; }
     void setDropDataObject(IDataObject *dataObject) { m_dropDataObject = dataObject; }
@@ -101,6 +103,7 @@ public:
 
 private:
     static bool m_canceled;
+    static bool m_dragging;
 
     QWindowsDropMimeData m_dropData;
     IDataObject *m_dropDataObject = nullptr;

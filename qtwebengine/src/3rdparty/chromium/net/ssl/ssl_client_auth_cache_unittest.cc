@@ -4,6 +4,7 @@
 
 #include "net/ssl/ssl_client_auth_cache.h"
 
+#include "base/callback.h"
 #include "base/macros.h"
 #include "base/time/time.h"
 #include "net/cert/x509_certificate.h"
@@ -16,21 +17,21 @@ namespace net {
 
 class MockSSLPrivateKey : public SSLPrivateKey {
  public:
-  MockSSLPrivateKey() {}
+  MockSSLPrivateKey() = default;
 
-  std::vector<SSLPrivateKey::Hash> GetDigestPreferences() override {
+  std::vector<uint16_t> GetAlgorithmPreferences() override {
     NOTIMPLEMENTED();
-    return std::vector<SSLPrivateKey::Hash>();
+    return {};
   }
 
-  void SignDigest(Hash hash,
-                  const base::StringPiece& input,
-                  const SignCallback& callback) override {
+  void Sign(uint16_t algorithm,
+            base::span<const uint8_t> input,
+            SignCallback callback) override {
     NOTIMPLEMENTED();
   }
 
  private:
-  ~MockSSLPrivateKey() override {}
+  ~MockSSLPrivateKey() override = default;
 
   DISALLOW_COPY_AND_ASSIGN(MockSSLPrivateKey);
 };

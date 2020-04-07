@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "content/browser/accessibility/accessibility_tree_formatter.h"
+#include "content/browser/accessibility/accessibility_tree_formatter_browser.h"
 
 #import <Cocoa/Cocoa.h>
 
@@ -170,14 +170,24 @@ NSArray* BuildAllAttributesArray() {
       @"AXARIARowIndex",
       @"AXARIASetSize",
       @"AXARIAPosInSet",
+      @"AXAutocomplete",
+      @"AXAutocompleteValue",
+      NSAccessibilityColumnHeaderUIElementsAttribute,
       NSAccessibilityColumnIndexRangeAttribute,
       @"AXDOMIdentifier",
       @"AXDropEffects",
+      @"AXEditableAncestor",
       NSAccessibilityEnabledAttribute,
       NSAccessibilityExpandedAttribute,
+      @"AXFocusableAncestor",
       NSAccessibilityFocusedAttribute,
       @"AXGrabbed",
+      NSAccessibilityHeaderAttribute,
+      @"AXHasPopup",
+      @"AXHasPopupValue",
+      @"AXHighestEditableAncestor",
       NSAccessibilityIndexAttribute,
+      @"AXLanguage",
       @"AXLoaded",
       @"AXLoadingProcess",
       NSAccessibilityNumberOfCharactersAttribute,
@@ -185,7 +195,9 @@ NSArray* BuildAllAttributesArray() {
       NSAccessibilityOrientationAttribute,
       NSAccessibilityPlaceholderValueAttribute,
       @"AXRequired",
+      NSAccessibilityRowHeaderUIElementsAttribute,
       NSAccessibilityRowIndexRangeAttribute,
+      NSAccessibilitySelectedAttribute,
       NSAccessibilitySelectedChildrenAttribute,
       NSAccessibilityTitleUIElementAttribute,
       NSAccessibilityURLAttribute,
@@ -201,7 +213,7 @@ NSArray* BuildAllAttributesArray() {
 
 }  // namespace
 
-class AccessibilityTreeFormatterMac : public AccessibilityTreeFormatter {
+class AccessibilityTreeFormatterMac : public AccessibilityTreeFormatterBrowser {
  public:
   explicit AccessibilityTreeFormatterMac();
   ~AccessibilityTreeFormatterMac() override;
@@ -213,7 +225,8 @@ class AccessibilityTreeFormatterMac : public AccessibilityTreeFormatter {
   const std::string GetDenyString() override;
   void AddProperties(const BrowserAccessibility& node,
                      base::DictionaryValue* dict) override;
-  base::string16 ToString(const base::DictionaryValue& node) override;
+  base::string16 ProcessTreeForOutput(const base::DictionaryValue& node,
+        base::DictionaryValue* filtered_dict_result = nullptr) override;
 };
 
 // static
@@ -261,8 +274,13 @@ void AccessibilityTreeFormatterMac::AddProperties(
   dict->Set(kSizeDictAttr, PopulateSize(cocoa_node));
 }
 
-base::string16 AccessibilityTreeFormatterMac::ToString(
-    const base::DictionaryValue& dict) {
+base::string16 AccessibilityTreeFormatterMac::ProcessTreeForOutput(
+    const base::DictionaryValue& dict,
+    base::DictionaryValue* filtered_dict_result) {
+  base::string16 error_value;
+  if (dict.GetString("error", &error_value))
+    return error_value;
+
   base::string16 line;
   if (show_ids()) {
     int id_value;

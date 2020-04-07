@@ -17,10 +17,10 @@ Polymer({
       observer: 'searchTermChanged_',
     },
 
-    /** @type {ClosedFolderState} */
-    closedFoldersState_: {
+    /** @type {FolderOpenState} */
+    folderOpenState_: {
       type: Object,
-      observer: 'closedFoldersStateChanged_',
+      observer: 'folderOpenStateChanged_',
     },
 
     /** @private */
@@ -35,25 +35,26 @@ Polymer({
 
   /** @override */
   attached: function() {
-    this.watch('searchTerm_', function(store) {
-      return store.search.term;
+    this.watch('searchTerm_', function(state) {
+      return state.search.term;
     });
 
-    this.watch('closedFoldersState_', function(store) {
-      return store.closedFolders;
+    this.watch('folderOpenState_', function(state) {
+      return state.folderOpenState;
     });
 
-    chrome.bookmarks.getTree(function(results) {
-      var nodeMap = bookmarks.util.normalizeNodes(results[0]);
-      var initialState = bookmarks.util.createEmptyState();
+    chrome.bookmarks.getTree((results) => {
+      const nodeMap = bookmarks.util.normalizeNodes(results[0]);
+      const initialState = bookmarks.util.createEmptyState();
       initialState.nodes = nodeMap;
       initialState.selectedFolder = nodeMap[ROOT_NODE_ID].children[0];
-      var closedFoldersString =
-          window.localStorage[LOCAL_STORAGE_CLOSED_FOLDERS_KEY];
-      initialState.closedFolders = closedFoldersString ?
-          new Set(
-              /** @type Array<string> */ (JSON.parse(closedFoldersString))) :
-          new Set();
+      const folderStateString =
+          window.localStorage[LOCAL_STORAGE_FOLDER_STATE_KEY];
+      initialState.folderOpenState = folderStateString ?
+          new Map(
+              /** @type Array<Array<boolean|string>> */ (
+                  JSON.parse(folderStateString))) :
+          new Map();
 
       bookmarks.Store.getInstance().init(initialState);
       bookmarks.ApiListener.init();
@@ -64,7 +65,7 @@ Polymer({
             Math.floor(window.performance.now()));
       });
 
-    }.bind(this));
+    });
 
     this.boundUpdateSidebarWidth_ = this.updateSidebarWidth_.bind(this);
 
@@ -77,6 +78,7 @@ Polymer({
   detached: function() {
     window.removeEventListener('resize', this.boundUpdateSidebarWidth_);
     this.dndManager_.destroy();
+    bookmarks.ApiListener.destroy();
   },
 
   /**
@@ -84,9 +86,9 @@ Polymer({
    * @private
    */
   initializeSplitter_: function() {
-    var splitter = this.$.splitter;
+    const splitter = this.$.splitter;
     cr.ui.Splitter.decorate(splitter);
-    var splitterTarget = this.$.sidebar;
+    const splitterTarget = this.$.sidebar;
 
     // The splitter persists the size of the left component in the local store.
     if (LOCAL_STORAGE_TREE_WIDTH_KEY in window.localStorage) {
@@ -96,11 +98,11 @@ Polymer({
     this.sidebarWidth_ =
         /** @type {string} */ (getComputedStyle(splitterTarget).width);
 
-    splitter.addEventListener('resize', function(e) {
+    splitter.addEventListener('resize', (e) => {
       window.localStorage[LOCAL_STORAGE_TREE_WIDTH_KEY] =
           splitterTarget.style.width;
       this.updateSidebarWidth_();
-    }.bind(this));
+    });
 
     splitter.addEventListener('dragmove', this.boundUpdateSidebarWidth_);
     window.addEventListener('resize', this.boundUpdateSidebarWidth_);
@@ -117,8 +119,8 @@ Polymer({
     if (!this.searchTerm_)
       return;
 
-    chrome.bookmarks.search(this.searchTerm_, function(results) {
-      var ids = results.map(function(node) {
+    chrome.bookmarks.search(this.searchTerm_, (results) => {
+      const ids = results.map(function(node) {
         return node.id;
       });
       this.dispatch(bookmarks.actions.setSearchResults(ids));
@@ -127,12 +129,12 @@ Polymer({
             loadTimeData.getStringF('searchResults', this.searchTerm_) :
             loadTimeData.getString('noSearchResults')
       });
-    }.bind(this));
+    });
   },
 
   /** @private */
-  closedFoldersStateChanged_: function() {
-    window.localStorage[LOCAL_STORAGE_CLOSED_FOLDERS_KEY] =
-        JSON.stringify(Array.from(this.closedFoldersState_));
+  folderOpenStateChanged_: function() {
+    window.localStorage[LOCAL_STORAGE_FOLDER_STATE_KEY] =
+        JSON.stringify(Array.from(this.folderOpenState_));
   },
 });

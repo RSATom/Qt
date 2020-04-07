@@ -10,7 +10,6 @@
 
 #include "base/files/file_enumerator.h"
 #include "base/files/file_util.h"
-#include "base/memory/ptr_util.h"
 #include "storage/browser/fileapi/file_system_operation_context.h"
 #include "storage/browser/fileapi/file_system_url.h"
 #include "storage/common/fileapi/file_system_mount_option.h"
@@ -85,7 +84,7 @@ class NativeFileEnumerator : public FileSystemFileUtil::AbstractFileEnumerator {
     : file_enum_(root_path, recursive, file_type) {
   }
 
-  ~NativeFileEnumerator() override {}
+  ~NativeFileEnumerator() override = default;
 
   base::FilePath Next() override;
   int64_t Size() override;
@@ -211,7 +210,7 @@ base::File::Error NativeFileUtil::GetFileInfo(
 std::unique_ptr<FileSystemFileUtil::AbstractFileEnumerator>
 NativeFileUtil::CreateFileEnumerator(const base::FilePath& root_path,
                                      bool recursive) {
-  return base::MakeUnique<NativeFileEnumerator>(
+  return std::make_unique<NativeFileEnumerator>(
       root_path, recursive,
       base::FileEnumerator::FILES | base::FileEnumerator::DIRECTORIES);
 }

@@ -10,8 +10,10 @@
 #include "base/guid.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
+#include "components/offline_pages/core/client_policy_controller.h"
 
 using offline_pages::ClientId;
+using offline_pages::ClientPolicyController;
 using offline_pages::MultipleOfflinePageItemCallback;
 using offline_pages::OfflinePageItem;
 using offline_pages::StubOfflinePageModel;
@@ -19,28 +21,37 @@ using offline_pages::StubOfflinePageModel;
 namespace ntp_snippets {
 namespace test {
 
-FakeOfflinePageModel::FakeOfflinePageModel() {
-  // This is to match StubOfflinePageModel behavior.
-  is_loaded_ = true;
-}
+FakeOfflinePageModel::FakeOfflinePageModel() = default;
 
 FakeOfflinePageModel::~FakeOfflinePageModel() = default;
 
-void FakeOfflinePageModel::GetPagesMatchingQuery(
-    std::unique_ptr<offline_pages::OfflinePageModelQuery> query,
-    const MultipleOfflinePageItemCallback& callback) {
+void FakeOfflinePageModel::GetPagesByNamespace(
+    const std::string& name_space,
+    MultipleOfflinePageItemCallback callback) {
   MultipleOfflinePageItemResult filtered_result;
   for (auto& item : items_) {
-    if (query->Matches(item)) {
+    if (item.client_id.name_space == name_space) {
       filtered_result.emplace_back(item);
     }
   }
-  callback.Run(filtered_result);
+  std::move(callback).Run(filtered_result);
+}
+
+void FakeOfflinePageModel::GetPagesSupportedByDownloads(
+    MultipleOfflinePageItemCallback callback) {
+  ClientPolicyController controller;
+  MultipleOfflinePageItemResult filtered_result;
+  for (auto& item : items_) {
+    if (controller.IsSupportedByDownload(item.client_id.name_space)) {
+      filtered_result.emplace_back(item);
+    }
+  }
+  std::move(callback).Run(filtered_result);
 }
 
 void FakeOfflinePageModel::GetAllPages(
-    const MultipleOfflinePageItemCallback& callback) {
-  callback.Run(items_);
+    MultipleOfflinePageItemCallback callback) {
+  std::move(callback).Run(items_);
 }
 
 const std::vector<OfflinePageItem>& FakeOfflinePageModel::items() {
@@ -49,14 +60,6 @@ const std::vector<OfflinePageItem>& FakeOfflinePageModel::items() {
 
 std::vector<OfflinePageItem>* FakeOfflinePageModel::mutable_items() {
   return &items_;
-}
-
-bool FakeOfflinePageModel::is_loaded() const {
-  return is_loaded_;
-}
-
-void FakeOfflinePageModel::set_is_loaded(bool value) {
-  is_loaded_ = value;
 }
 
 OfflinePageItem CreateDummyOfflinePageItem(

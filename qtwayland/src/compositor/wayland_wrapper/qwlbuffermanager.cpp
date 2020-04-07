@@ -57,13 +57,12 @@ BufferManager::BufferManager(QWaylandCompositor *compositor)
 struct buffer_manager_destroy_listener : wl_listener
 {
     buffer_manager_destroy_listener()
-        : d(0)
     {
         notify = BufferManager::destroy_listener_callback;
         wl_list_init(&this->link);
     }
 
-    BufferManager *d;
+    BufferManager *d = nullptr;
 };
 
 ClientBuffer *BufferManager::getBuffer(wl_resource *buffer_resource)
@@ -85,7 +84,7 @@ ClientBuffer *BufferManager::getBuffer(wl_resource *buffer_resource)
 
     auto *destroy_listener = new buffer_manager_destroy_listener;
     destroy_listener->d = this;
-    wl_signal_add(&buffer_resource->destroy_signal, destroy_listener);
+    wl_resource_add_destroy_listener(buffer_resource, destroy_listener);
     return newBuffer;
 }
 

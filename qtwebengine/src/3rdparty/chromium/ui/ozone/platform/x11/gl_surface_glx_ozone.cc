@@ -4,7 +4,7 @@
 
 #include "ui/ozone/platform/x11/gl_surface_glx_ozone.h"
 
-#include <X11/Xlib.h>
+#include "ui/gfx/x/x11.h"
 
 namespace ui {
 
@@ -28,6 +28,14 @@ void GLSurfaceGLXOzone::UnregisterEvents() {
   auto* event_source = X11EventSourceLibevent::GetInstance();
   if (event_source)
     event_source->RemoveXEventDispatcher(this);
+}
+
+void GLSurfaceGLXOzone::CheckCanDispatchNextPlatformEvent(XEvent* xev) {}
+
+void GLSurfaceGLXOzone::PlatformEventDispatchFinished() {}
+
+PlatformEventDispatcher* GLSurfaceGLXOzone::GetPlatformEventDispatcher() {
+  return nullptr;
 }
 
 bool GLSurfaceGLXOzone::DispatchXEvent(XEvent* event) {

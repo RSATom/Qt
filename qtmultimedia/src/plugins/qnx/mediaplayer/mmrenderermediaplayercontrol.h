@@ -53,6 +53,7 @@ typedef struct strm_dict strm_dict_t;
 QT_BEGIN_NAMESPACE
 
 class MmRendererAudioRoleControl;
+class MmRendererCustomAudioRoleControl;
 class MmRendererMetaDataReaderControl;
 class MmRendererPlayerVideoRendererControl;
 class MmRendererVideoWindowControl;
@@ -63,40 +64,40 @@ class MmRendererMediaPlayerControl : public QMediaPlayerControl, public QAbstrac
 public:
     explicit MmRendererMediaPlayerControl(QObject *parent = 0);
 
-    QMediaPlayer::State state() const Q_DECL_OVERRIDE;
+    QMediaPlayer::State state() const override;
 
-    QMediaPlayer::MediaStatus mediaStatus() const Q_DECL_OVERRIDE;
+    QMediaPlayer::MediaStatus mediaStatus() const override;
 
-    qint64 duration() const Q_DECL_OVERRIDE;
+    qint64 duration() const override;
 
-    qint64 position() const Q_DECL_OVERRIDE;
-    void setPosition(qint64 position) Q_DECL_OVERRIDE;
+    qint64 position() const override;
+    void setPosition(qint64 position) override;
 
-    int volume() const Q_DECL_OVERRIDE;
-    void setVolume(int volume) Q_DECL_OVERRIDE;
+    int volume() const override;
+    void setVolume(int volume) override;
 
-    bool isMuted() const Q_DECL_OVERRIDE;
-    void setMuted(bool muted) Q_DECL_OVERRIDE;
+    bool isMuted() const override;
+    void setMuted(bool muted) override;
 
-    int bufferStatus() const Q_DECL_OVERRIDE;
+    int bufferStatus() const override;
 
-    bool isAudioAvailable() const Q_DECL_OVERRIDE;
-    bool isVideoAvailable() const Q_DECL_OVERRIDE;
+    bool isAudioAvailable() const override;
+    bool isVideoAvailable() const override;
 
-    bool isSeekable() const Q_DECL_OVERRIDE;
+    bool isSeekable() const override;
 
-    QMediaTimeRange availablePlaybackRanges() const Q_DECL_OVERRIDE;
+    QMediaTimeRange availablePlaybackRanges() const override;
 
-    qreal playbackRate() const Q_DECL_OVERRIDE;
-    void setPlaybackRate(qreal rate) Q_DECL_OVERRIDE;
+    qreal playbackRate() const override;
+    void setPlaybackRate(qreal rate) override;
 
-    QMediaContent media() const Q_DECL_OVERRIDE;
-    const QIODevice *mediaStream() const Q_DECL_OVERRIDE;
-    void setMedia(const QMediaContent &media, QIODevice *stream) Q_DECL_OVERRIDE;
+    QMediaContent media() const override;
+    const QIODevice *mediaStream() const override;
+    void setMedia(const QMediaContent &media, QIODevice *stream) override;
 
-    void play() Q_DECL_OVERRIDE;
-    void pause() Q_DECL_OVERRIDE;
-    void stop() Q_DECL_OVERRIDE;
+    void play() override;
+    void pause() override;
+    void stop() override;
 
     MmRendererPlayerVideoRendererControl *videoRendererControl() const;
     void setVideoRendererControl(MmRendererPlayerVideoRendererControl *videoControl);
@@ -105,18 +106,24 @@ public:
     void setVideoWindowControl(MmRendererVideoWindowControl *videoControl);
     void setMetaDataReaderControl(MmRendererMetaDataReaderControl *metaDataReaderControl);
     void setAudioRoleControl(MmRendererAudioRoleControl *audioRoleControl);
+    void setCustomAudioRoleControl(MmRendererCustomAudioRoleControl *customAudioRoleControl);
 
 protected:
     virtual void startMonitoring() = 0;
     virtual void stopMonitoring() = 0;
+    virtual void resetMonitoring() = 0;
 
     void openConnection();
     void emitMmError(const QString &msg);
     void emitPError(const QString &msg);
     void setMmPosition(qint64 newPosition);
     void setMmBufferStatus(const QString &bufferStatus);
-    void setMmBufferLevel(const QString &bufferLevel);
+    void setMmBufferLevel(int level, int capacity);
     void handleMmStopped();
+    void handleMmSuspend(const QString &reason);
+    void handleMmSuspendRemoval(const QString &bufferStatus);
+    void handleMmPause();
+    void handleMmPlay();
     void updateMetaData(const strm_dict_t *dict);
 
     // must be called from subclass dtors (calls virtual function stopMonitoring())
@@ -158,6 +165,7 @@ private:
     QPointer<MmRendererVideoWindowControl> m_videoWindowControl;
     QPointer<MmRendererMetaDataReaderControl> m_metaDataReaderControl;
     QPointer<MmRendererAudioRoleControl> m_audioRoleControl;
+    QPointer<MmRendererCustomAudioRoleControl> m_customAudioRoleControl;
     MmRendererMetaData m_metaData;
     qint64 m_position;
     QMediaPlayer::MediaStatus m_mediaStatus;

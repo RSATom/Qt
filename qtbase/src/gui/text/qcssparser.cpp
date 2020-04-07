@@ -345,13 +345,6 @@ static const QCssKnownValue styleFeatures[NumKnownStyleFeatures - 1] = {
     { "none", StyleFeature_None }
 };
 
-#if defined(Q_CC_MSVC) && _MSC_VER < 1600
-static bool operator<(const QCssKnownValue &prop1, const QCssKnownValue &prop2)
-{
-    return QString::compare(QString::fromLatin1(prop1.name), QLatin1String(prop2.name), Qt::CaseInsensitive) < 0;
-}
-#endif
-
 static bool operator<(const QString &name, const QCssKnownValue &prop)
 {
     return QString::compare(name, QLatin1String(prop.name), Qt::CaseInsensitive) < 0;
@@ -2714,8 +2707,10 @@ bool Parser::parseFunction(QString *name, QString *args)
 {
     *name = lexem();
     name->chop(1);
+    // until(RPAREN) needs FUNCTION token at index-1 to work properly
+    int start = index;
     skipSpace();
-    const int start = index;
+    std::swap(start, index);
     if (!until(RPAREN)) return false;
     for (int i = start; i < index - 1; ++i)
         args->append(symbols.at(i).lexem());

@@ -13,14 +13,12 @@
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/navigation_throttle.h"
 #include "content/public/common/request_context_type.h"
-#include "third_party/WebKit/public/platform/WebMixedContentContextType.h"
+#include "third_party/blink/public/platform/web_mixed_content_context_type.h"
 
 namespace content {
 
 class FrameTreeNode;
 struct WebPreferences;
-
-using ThrottleCheckResult = NavigationThrottle::ThrottleCheckResult;
 
 // Responsible for browser-process-side mixed content security checks. It is
 // only enabled if PlzNavigate is and checks only for frame-level resource loads

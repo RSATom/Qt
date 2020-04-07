@@ -12,9 +12,9 @@
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
-#include "base/test/histogram_tester.h"
+#include "base/test/metrics/histogram_tester.h"
+#include "base/test/scoped_task_environment.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_config_test_utils.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_configurator.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_io_data.h"
@@ -27,10 +27,10 @@
 #include "components/prefs/pref_service.h"
 #include "net/base/load_flags.h"
 #include "net/base/net_errors.h"
+#include "net/base/proxy_server.h"
 #include "net/base/request_priority.h"
 #include "net/http/http_response_headers.h"
 #include "net/log/test_net_log.h"
-#include "net/proxy/proxy_server.h"
 #include "net/socket/socket_test_util.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
@@ -103,8 +103,9 @@ class TestURLRequestContextWithDataReductionProxy
   TestURLRequestContextWithDataReductionProxy(const net::ProxyServer& origin,
                                               net::NetworkDelegate* delegate)
       : net::TestURLRequestContext(true) {
-    context_storage_.set_proxy_service(
-        net::ProxyService::CreateFixed(origin.ToURI()));
+    context_storage_.set_proxy_resolution_service(
+        net::ProxyResolutionService::CreateFixed(origin.ToURI(),
+                                                 TRAFFIC_ANNOTATION_FOR_TESTS));
     set_network_delegate(delegate);
   }
 
@@ -113,7 +114,9 @@ class TestURLRequestContextWithDataReductionProxy
 
 class DataReductionProxyInterceptorTest : public testing::Test {
  public:
-  DataReductionProxyInterceptorTest() {
+  DataReductionProxyInterceptorTest()
+      : scoped_task_environment_(
+            base::test::ScopedTaskEnvironment::MainThreadType::IO) {
     test_context_ =
         DataReductionProxyTestContext::Builder()
             .Build();
@@ -140,7 +143,9 @@ class DataReductionProxyInterceptorTest : public testing::Test {
     default_context_->Init();
   }
 
-  base::MessageLoopForIO message_loop_;
+ protected:
+  base::test::ScopedTaskEnvironment scoped_task_environment_;
+
   std::unique_ptr<DataReductionProxyTestContext> test_context_;
   net::TestNetworkDelegate default_network_delegate_;
   std::unique_ptr<net::URLRequestJobFactory> job_factory_;
@@ -173,9 +178,9 @@ TEST_F(DataReductionProxyInterceptorTest, MAYBE_TestJobFactoryChaining) {
   Init(std::move(factory1));
 
   net::TestDelegate d;
-  std::unique_ptr<net::URLRequest> req(
-      default_context_->CreateRequest(GURL("http://foo"), net::DEFAULT_PRIORITY,
-                                      &d, TRAFFIC_ANNOTATION_FOR_TESTS));
+  std::unique_ptr<net::URLRequest> req(default_context_->CreateRequest(
+      GURL("http://foo.test"), net::DEFAULT_PRIORITY, &d,
+      TRAFFIC_ANNOTATION_FOR_TESTS));
 
   req->Start();
   base::RunLoop().Run();
@@ -190,7 +195,9 @@ TEST_F(DataReductionProxyInterceptorTest, MAYBE_TestJobFactoryChaining) {
 class DataReductionProxyInterceptorWithServerTest : public testing::Test {
  public:
   DataReductionProxyInterceptorWithServerTest()
-      : context_(true) {
+      : scoped_task_environment_(
+            base::test::ScopedTaskEnvironment::MainThreadType::IO),
+        context_(true) {
     context_.set_network_delegate(&network_delegate_);
     context_.set_net_log(&net_log_);
   }
@@ -203,7 +210,7 @@ class DataReductionProxyInterceptorWithServerTest : public testing::Test {
 
   void SetUp() override {
     base::FilePath root_path, proxy_file_path, direct_file_path;
-    PathService::Get(base::DIR_SOURCE_ROOT, &root_path);
+    base::PathService::Get(base::DIR_SOURCE_ROOT, &root_path);
     proxy_file_path = root_path.AppendASCII(
         "components/test/data/data_reduction_proxy/proxy");
     direct_file_path = root_path.AppendASCII(
@@ -225,10 +232,13 @@ class DataReductionProxyInterceptorWithServerTest : public testing::Test {
         DataReductionProxyServer(origin, ProxyServer::UNSPECIFIED_TYPE));
     test_context_->config()->test_params()->SetProxiesForHttp(proxies_for_http);
     std::string proxy_name = origin.ToURI();
-    proxy_service_ = net::ProxyService::CreateFixedFromPacResult(
-        "PROXY " + proxy_name + "; DIRECT");
+    net::ProxyConfig proxy_config;
+    proxy_config.proxy_rules().ParseFromString(proxy_name + ", direct://");
+    proxy_resolution_service_ =
+        net::ProxyResolutionService::CreateFixed(net::ProxyConfigWithAnnotation(
+            proxy_config, TRAFFIC_ANNOTATION_FOR_TESTS));
 
-    context_.set_proxy_service(proxy_service_.get());
+    context_.set_proxy_resolution_service(proxy_resolution_service_.get());
 
     std::unique_ptr<net::URLRequestJobFactoryImpl> job_factory_impl(
         new net::URLRequestJobFactoryImpl());
@@ -245,14 +255,16 @@ class DataReductionProxyInterceptorWithServerTest : public testing::Test {
 
   const net::EmbeddedTestServer& direct() { return direct_; }
 
+ protected:
+  base::test::ScopedTaskEnvironment scoped_task_environment_;
+
  private:
-  base::MessageLoopForIO message_loop_;
   net::TestNetLog net_log_;
   net::TestNetworkDelegate network_delegate_;
   net::TestURLRequestContext context_;
   net::EmbeddedTestServer proxy_;
   net::EmbeddedTestServer direct_;
-  std::unique_ptr<net::ProxyService> proxy_service_;
+  std::unique_ptr<net::ProxyResolutionService> proxy_resolution_service_;
   std::unique_ptr<net::URLRequestJobFactory> job_factory_;
   std::unique_ptr<DataReductionProxyTestContext> test_context_;
 };
@@ -289,7 +301,10 @@ TEST_F(DataReductionProxyInterceptorWithServerTest, TestNoBypass) {
 class DataReductionProxyInterceptorEndToEndTest : public testing::Test {
  public:
   DataReductionProxyInterceptorEndToEndTest()
-      : context_(true), context_storage_(&context_) {}
+      : scoped_task_environment_(
+            base::test::ScopedTaskEnvironment::MainThreadType::IO),
+        context_(true),
+        context_storage_(&context_) {}
 
   ~DataReductionProxyInterceptorEndToEndTest() override {}
 
@@ -305,6 +320,7 @@ class DataReductionProxyInterceptorEndToEndTest : public testing::Test {
     proxy_delegate_ = drp_test_context_->io_data()->CreateProxyDelegate();
     context_.set_proxy_delegate(proxy_delegate_.get());
     context_.Init();
+    drp_test_context_->DisableWarmupURLFetch();
     drp_test_context_->EnableDataReductionProxyWithSecureProxyCheckSuccess();
 
     // Three proxies should be available for use: primary, fallback, and direct.
@@ -337,8 +353,10 @@ class DataReductionProxyInterceptorEndToEndTest : public testing::Test {
     return config()->test_params()->proxies_for_http().front().proxy_server();
   }
 
+ protected:
+  base::test::ScopedTaskEnvironment scoped_task_environment_;
+
  private:
-  base::MessageLoopForIO message_loop_;
   net::TestDelegate delegate_;
   net::MockClientSocketFactory mock_socket_factory_;
   net::TestURLRequestContext context_;
@@ -357,7 +375,7 @@ TEST_F(DataReductionProxyInterceptorEndToEndTest, ResponseWithoutRetry) {
       MockRead(net::SYNCHRONOUS, net::OK),
   };
   net::StaticSocketDataProvider socket_data_provider(
-      mock_reads, arraysize(mock_reads), nullptr, 0);
+      mock_reads, base::span<net::MockWrite>());
   mock_socket_factory()->AddSocketDataProvider(&socket_data_provider);
 
   std::unique_ptr<net::URLRequest> request =
@@ -379,7 +397,7 @@ TEST_F(DataReductionProxyInterceptorEndToEndTest, RedirectWithoutRetry) {
       MockRead(net::SYNCHRONOUS, net::OK),
   };
   net::StaticSocketDataProvider redirect_socket_data_provider(
-      redirect_mock_reads, arraysize(redirect_mock_reads), nullptr, 0);
+      redirect_mock_reads, base::span<net::MockWrite>());
   mock_socket_factory()->AddSocketDataProvider(&redirect_socket_data_provider);
 
   // The response after the redirect comes through proxy and should not be
@@ -390,7 +408,7 @@ TEST_F(DataReductionProxyInterceptorEndToEndTest, RedirectWithoutRetry) {
       MockRead(net::SYNCHRONOUS, net::OK),
   };
   net::StaticSocketDataProvider response_socket_data_provider(
-      response_mock_reads, arraysize(response_mock_reads), nullptr, 0);
+      response_mock_reads, base::span<net::MockWrite>());
   mock_socket_factory()->AddSocketDataProvider(&response_socket_data_provider);
 
   std::unique_ptr<net::URLRequest> request =
@@ -414,7 +432,7 @@ TEST_F(DataReductionProxyInterceptorEndToEndTest, URLRedirectCycle) {
       MockRead(""), MockRead(net::SYNCHRONOUS, net::OK),
   };
   net::StaticSocketDataProvider redirect_socket_data_provider_1(
-      redirect_mock_reads_1, arraysize(redirect_mock_reads_1), nullptr, 0);
+      redirect_mock_reads_1, base::span<net::MockWrite>());
   mock_socket_factory()->AddSocketDataProvider(
       &redirect_socket_data_provider_1);
 
@@ -425,7 +443,7 @@ TEST_F(DataReductionProxyInterceptorEndToEndTest, URLRedirectCycle) {
       MockRead(""), MockRead(net::SYNCHRONOUS, net::OK),
   };
   net::StaticSocketDataProvider redirect_socket_data_provider_2(
-      redirect_mock_reads_2, arraysize(redirect_mock_reads_2), nullptr, 0);
+      redirect_mock_reads_2, base::span<net::MockWrite>());
   mock_socket_factory()->AddSocketDataProvider(
       &redirect_socket_data_provider_2);
 
@@ -437,7 +455,7 @@ TEST_F(DataReductionProxyInterceptorEndToEndTest, URLRedirectCycle) {
       MockRead(""), MockRead(net::SYNCHRONOUS, net::OK),
   };
   net::StaticSocketDataProvider redirect_socket_data_provider_3(
-      redirect_mock_reads_3, arraysize(redirect_mock_reads_3), nullptr, 0);
+      redirect_mock_reads_3, base::span<net::MockWrite>());
   mock_socket_factory()->AddSocketDataProvider(
       &redirect_socket_data_provider_3);
 
@@ -447,7 +465,7 @@ TEST_F(DataReductionProxyInterceptorEndToEndTest, URLRedirectCycle) {
       MockRead(net::SYNCHRONOUS, net::OK),
   };
   net::StaticSocketDataProvider redirect_socket_data_provider_4(
-      redirect_mock_reads_4, arraysize(redirect_mock_reads_4), nullptr, 0);
+      redirect_mock_reads_4, base::span<net::MockWrite>());
   mock_socket_factory()->AddSocketDataProvider(
       &redirect_socket_data_provider_4);
 
@@ -457,7 +475,7 @@ TEST_F(DataReductionProxyInterceptorEndToEndTest, URLRedirectCycle) {
   EXPECT_EQ(net::OK, delegate().request_status());
   EXPECT_EQ(200, request->GetResponseCode());
   EXPECT_EQ(kBody, delegate().data_received());
-  EXPECT_FALSE(request->was_fetched_via_proxy());
+  EXPECT_TRUE(request->proxy_server().is_direct());
   histogram_tester.ExpectTotalCount(
       "DataReductionProxy.BypassedBytes.URLRedirectCycle", 1);
 }
@@ -472,7 +490,7 @@ TEST_F(DataReductionProxyInterceptorEndToEndTest, ResponseWithBypassAndRetry) {
       MockRead(net::SYNCHRONOUS, net::OK),
   };
   net::StaticSocketDataProvider initial_socket_data_provider(
-      initial_mock_reads, arraysize(initial_mock_reads), nullptr, 0);
+      initial_mock_reads, base::span<net::MockWrite>());
   mock_socket_factory()->AddSocketDataProvider(&initial_socket_data_provider);
 
   // The retry after the bypass is successful.
@@ -482,7 +500,7 @@ TEST_F(DataReductionProxyInterceptorEndToEndTest, ResponseWithBypassAndRetry) {
       MockRead(net::SYNCHRONOUS, net::OK),
   };
   net::StaticSocketDataProvider retry_socket_data_provider(
-      retry_mock_reads, arraysize(retry_mock_reads), nullptr, 0);
+      retry_mock_reads, base::span<net::MockWrite>());
   mock_socket_factory()->AddSocketDataProvider(&retry_socket_data_provider);
 
   std::unique_ptr<net::URLRequest> request =
@@ -491,7 +509,7 @@ TEST_F(DataReductionProxyInterceptorEndToEndTest, ResponseWithBypassAndRetry) {
   EXPECT_EQ(net::OK, delegate().request_status());
   EXPECT_EQ(200, request->GetResponseCode());
   EXPECT_EQ(kBody, delegate().data_received());
-  EXPECT_FALSE(request->was_fetched_via_proxy());
+  EXPECT_TRUE(request->proxy_server().is_direct());
   // The bypassed response should have been intercepted before the response was
   // processed, so only the final response after the retry should have been
   // processed.
@@ -526,8 +544,8 @@ TEST_F(DataReductionProxyInterceptorEndToEndTest, RedirectWithBypassAndRetry) {
   std::vector<std::unique_ptr<net::SocketDataProvider>> socket_data_providers;
   for (MockRead* mock_reads : mock_reads_array) {
     socket_data_providers.push_back(
-        base::MakeUnique<net::StaticSocketDataProvider>(mock_reads, 3, nullptr,
-                                                        0));
+        std::make_unique<net::StaticSocketDataProvider>(
+            base::make_span(mock_reads, 3), base::span<net::MockWrite>()));
     mock_socket_factory()->AddSocketDataProvider(
         socket_data_providers.back().get());
   }
@@ -538,7 +556,7 @@ TEST_F(DataReductionProxyInterceptorEndToEndTest, RedirectWithBypassAndRetry) {
   EXPECT_EQ(net::OK, delegate().request_status());
   EXPECT_EQ(200, request->GetResponseCode());
   EXPECT_EQ(kBody, delegate().data_received());
-  EXPECT_FALSE(request->was_fetched_via_proxy());
+  EXPECT_TRUE(request->proxy_server().is_direct());
 
   // Each of the redirects should have been intercepted before being followed.
   EXPECT_EQ(0, delegate().received_redirect_count());
@@ -559,7 +577,7 @@ TEST_F(DataReductionProxyInterceptorEndToEndTest, RedirectChainToHttps) {
       MockRead(net::SYNCHRONOUS, net::OK),
   };
   net::StaticSocketDataProvider first_redirect_socket(
-      first_redirect_reads, arraysize(first_redirect_reads), nullptr, 0);
+      first_redirect_reads, base::span<net::MockWrite>());
   mock_socket_factory()->AddSocketDataProvider(&first_redirect_socket);
 
   // Receive the response for https://play.google.com.
@@ -569,7 +587,7 @@ TEST_F(DataReductionProxyInterceptorEndToEndTest, RedirectChainToHttps) {
       MockRead(net::SYNCHRONOUS, net::OK),
   };
   net::StaticSocketDataProvider https_response_socket(
-      https_response_reads, arraysize(https_response_reads), nullptr, 0);
+      https_response_reads, base::span<net::MockWrite>());
   mock_socket_factory()->AddSocketDataProvider(&https_response_socket);
   net::SSLSocketDataProvider https_response_ssl_socket(net::SYNCHRONOUS,
                                                        net::OK);

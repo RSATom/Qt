@@ -40,13 +40,7 @@ class ThreadPerfTest : public testing::Test {
  public:
   ThreadPerfTest()
       : done_(WaitableEvent::ResetPolicy::AUTOMATIC,
-              WaitableEvent::InitialState::NOT_SIGNALED) {
-    // Disable the task profiler as it adds significant cost!
-    CommandLine::Init(0, NULL);
-    CommandLine::ForCurrentProcess()->AppendSwitchASCII(
-        switches::kProfilerTiming,
-        switches::kProfilerTimingDisabledValue);
-  }
+              WaitableEvent::InitialState::NOT_SIGNALED) {}
 
   // To be implemented by each test. Subclass must uses threads_ such that
   // their cpu-time can be measured. Test must return from PingPong() _and_
@@ -78,7 +72,7 @@ class ThreadPerfTest : public testing::Test {
     // Create threads and collect starting cpu-time for each thread.
     std::vector<base::ThreadTicks> thread_starts;
     while (threads_.size() < num_threads) {
-      threads_.push_back(MakeUnique<base::Thread>("PingPonger"));
+      threads_.push_back(std::make_unique<base::Thread>("PingPonger"));
       threads_.back()->Start();
       if (base::ThreadTicks::IsSupported())
         thread_starts.push_back(ThreadNow(*threads_.back()));
@@ -168,7 +162,10 @@ class TaskObserverPerfTest : public TaskPerfTest {
   void Init() override {
     TaskPerfTest::Init();
     for (size_t i = 0; i < threads_.size(); i++) {
-      threads_[i]->message_loop()->AddTaskObserver(&message_loop_observer);
+      threads_[i]->message_loop()->task_runner()->PostTask(
+          FROM_HERE, BindOnce(&MessageLoop::AddTaskObserver,
+                              Unretained(threads_[i]->message_loop()),
+                              Unretained(&message_loop_observer)));
     }
   }
 };
@@ -185,7 +182,7 @@ class EventPerfTest : public ThreadPerfTest {
  public:
   void Init() override {
     for (size_t i = 0; i < threads_.size(); i++) {
-      events_.push_back(MakeUnique<WaitableEventType>(
+      events_.push_back(std::make_unique<WaitableEventType>(
           WaitableEvent::ResetPolicy::AUTOMATIC,
           WaitableEvent::InitialState::NOT_SIGNALED));
     }
@@ -279,8 +276,8 @@ class PthreadEvent {
                WaitableEvent::InitialState initial_state) {
     DCHECK_EQ(WaitableEvent::ResetPolicy::AUTOMATIC, reset_policy);
     DCHECK_EQ(WaitableEvent::InitialState::NOT_SIGNALED, initial_state);
-    pthread_mutex_init(&mutex_, 0);
-    pthread_cond_init(&cond_, 0);
+    pthread_mutex_init(&mutex_, nullptr);
+    pthread_cond_init(&cond_, nullptr);
     signaled_ = false;
   }
 

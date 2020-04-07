@@ -28,19 +28,14 @@
 #include "ui/views/controls/table/table_header.h"
 #include "ui/views/controls/table/table_utils.h"
 #include "ui/views/controls/table/table_view_observer.h"
-
-// Padding around the text (on each side).
-static const int kTextVerticalPadding = 3;
-static const int kTextHorizontalPadding = 6;
-
-// Size of images.
-static const int kImageSize = 16;
-
-static const int kGroupingIndicatorSize = 6;
+#include "ui/views/layout/layout_provider.h"
+#include "ui/views/style/typography.h"
 
 namespace views {
 
 namespace {
+
+constexpr int kGroupingIndicatorSize = 6;
 
 // Returns result, unless ascending is false in which case -result is returned.
 int SwapCompareResult(int result, bool ascending) {
@@ -145,11 +140,16 @@ TableView::TableView(ui::TableModel* model,
       single_selection_(single_selection),
       select_on_remove_(true),
       observer_(NULL),
-      row_height_(font_list_.GetHeight() + kTextVerticalPadding * 2),
       last_parent_width_(0),
       layout_width_(0),
       grouper_(NULL),
       in_set_visible_column_width_(false) {
+  constexpr int kTextContext = style::CONTEXT_TABLE_ROW;
+  constexpr int kTextStyle = style::STYLE_PRIMARY;
+  font_list_ = style::GetFont(kTextContext, kTextStyle);
+  row_height_ = LayoutProvider::GetControlHeightForFont(kTextContext,
+                                                        kTextStyle, font_list_);
+
   for (size_t i = 0; i < columns.size(); ++i) {
     VisibleColumn visible_column;
     visible_column.column = columns[i];
@@ -284,6 +284,11 @@ bool TableView::HasColumn(int id) const {
   return false;
 }
 
+const TableView::VisibleColumn& TableView::GetVisibleColumn(int index) {
+  DCHECK(index >= 0 && index < static_cast<int>(visible_columns_.size()));
+  return visible_columns_[index];
+}
+
 void TableView::SetVisibleColumnWidth(int index, int width) {
   DCHECK(index >= 0 && index < static_cast<int>(visible_columns_.size()));
   if (visible_columns_[index].width == width)
@@ -364,7 +369,7 @@ bool TableView::OnKeyPressed(const ui::KeyEvent& event) {
         selection_model.SetSelectedIndex(selection_model_.active());
         for (int i = 0; i < RowCount(); ++i)
           selection_model.AddIndexToSelection(i);
-        SetSelectionModel(selection_model);
+        SetSelectionModel(std::move(selection_model));
         return true;
       }
       break;
@@ -411,7 +416,7 @@ bool TableView::OnMousePressed(const ui::MouseEvent& event) {
   } else if (event.GetClickCount() == 1) {
     ui::ListSelectionModel new_model;
     ConfigureSelectionModelForEvent(event, &new_model);
-    SetSelectionModel(new_model);
+    SetSelectionModel(std::move(new_model));
   }
 
   return true;
@@ -430,7 +435,7 @@ void TableView::OnGestureEvent(ui::GestureEvent* event) {
   event->StopPropagation();
   ui::ListSelectionModel new_model;
   ConfigureSelectionModelForEvent(*event, &new_model);
-  SetSelectionModel(new_model);
+  SetSelectionModel(std::move(new_model));
 }
 
 bool TableView::GetTooltipText(const gfx::Point& p,
@@ -444,21 +449,22 @@ bool TableView::GetTooltipTextOrigin(const gfx::Point& p,
 }
 
 void TableView::GetAccessibleNodeData(ui::AXNodeData* node_data) {
-  node_data->role = ui::AX_ROLE_TABLE;
-  node_data->AddIntAttribute(ui::AX_ATTR_RESTRICTION,
-                             ui::AX_RESTRICTION_READ_ONLY);
-  node_data->AddIntAttribute(ui::AX_ATTR_SET_SIZE, RowCount());
+  // TODO(aleventhal) Needs work, see https://crbug.com/811277.
+  node_data->role = ax::mojom::Role::kTable;
+  node_data->SetRestriction(ax::mojom::Restriction::kReadOnly);
+  node_data->AddIntAttribute(ax::mojom::IntAttribute::kSetSize, RowCount());
 
   if (selection_model_.active() != ui::ListSelectionModel::kUnselectedIndex) {
     // Get information about the active item, this is not the same as the set
     // of selected items (of which there could be more than one).
-    node_data->role = ui::AX_ROLE_ROW;
-    node_data->AddIntAttribute(ui::AX_ATTR_POS_IN_SET,
+    node_data->role = ax::mojom::Role::kRow;
+    node_data->AddIntAttribute(ax::mojom::IntAttribute::kPosInSet,
                                selection_model_.active());
-    if (selection_model_.IsSelected(selection_model_.active())) {
-      node_data->AddState(ui::AX_STATE_SELECTED);
-    }
+    node_data->AddBoolAttribute(
+        ax::mojom::BoolAttribute::kSelected,
+        selection_model_.IsSelected(selection_model_.active()));
 
+    // Generate accessible name from column headers and selected cell text.
     std::vector<base::string16> name_parts;
     for (const VisibleColumn& visible_column : visible_columns_) {
       base::string16 value = model_->GetText(
@@ -469,6 +475,9 @@ void TableView::GetAccessibleNodeData(ui::AXNodeData* node_data) {
       }
     }
     node_data->SetName(base::JoinString(name_parts, base::ASCIIToUTF16(", ")));
+  } else {
+    // Name requires a selection.
+    node_data->SetNameExplicitlyEmpty();
   }
 }
 
@@ -487,7 +496,13 @@ void TableView::OnItemsAdded(int start, int length) {
   NumRowsChanged();
 }
 
+void TableView::OnItemsMoved(int old_start, int length, int new_start) {
+  selection_model_.Move(old_start, new_start, length);
+  SortItemsAndUpdateMapping();
+}
+
 void TableView::OnItemsRemoved(int start, int length) {
+  DCHECK_GE(start, 0);
   // Determine the currently selected index in terms of the view. We inline the
   // implementation here since ViewToModel() has DCHECKs that fail since the
   // model has changed but |model_to_view_| has not been updated yet.
@@ -551,6 +566,8 @@ void TableView::OnPaint(gfx::Canvas* canvas) {
       ui::NativeTheme::kColorId_TableText);
   const SkColor selected_fg_color = GetNativeTheme()->GetSystemColor(
       selected_text_color_id(HasFocus()));
+  const int cell_margin = GetCellMargin();
+  const int cell_element_spacing = GetCellElementSpacing();
   for (int i = region.min_row; i < region.max_row; ++i) {
     const int model_index = ViewToModel(i);
     const bool is_selected = selection_model_.IsSelected(model_index);
@@ -558,34 +575,34 @@ void TableView::OnPaint(gfx::Canvas* canvas) {
       canvas->FillRect(GetRowBounds(i), selected_bg_color);
     for (int j = region.min_column; j < region.max_column; ++j) {
       const gfx::Rect cell_bounds(GetCellBounds(i, j));
-      int text_x = kTextHorizontalPadding + cell_bounds.x();
+      int text_x = cell_margin + cell_bounds.x();
 
       // Provide space for the grouping indicator, but draw it separately.
       if (j == 0 && grouper_)
-        text_x += kGroupingIndicatorSize + kTextHorizontalPadding;
+        text_x += kGroupingIndicatorSize + cell_element_spacing;
 
       // Always paint the icon in the first visible column.
       if (j == 0 && table_type_ == ICON_AND_TEXT) {
         gfx::ImageSkia image = model_->GetIcon(model_index);
         if (!image.isNull()) {
-          int image_x = GetMirroredXWithWidthInView(text_x, kImageSize);
+          int image_x =
+              GetMirroredXWithWidthInView(text_x, ui::TableModel::kIconSize);
           canvas->DrawImageInt(
-              image, 0, 0, image.width(), image.height(),
-              image_x,
-              cell_bounds.y() + (cell_bounds.height() - kImageSize) / 2,
-              kImageSize, kImageSize, true);
+              image, 0, 0, image.width(), image.height(), image_x,
+              cell_bounds.y() +
+                  (cell_bounds.height() - ui::TableModel::kIconSize) / 2,
+              ui::TableModel::kIconSize, ui::TableModel::kIconSize, true);
         }
-        text_x += kImageSize + kTextHorizontalPadding;
+        text_x += ui::TableModel::kIconSize + cell_element_spacing;
       }
-      if (text_x < cell_bounds.right() - kTextHorizontalPadding) {
+      if (text_x < cell_bounds.right() - cell_margin) {
         canvas->DrawStringRectWithFlags(
             model_->GetText(model_index, visible_columns_[j].column.id),
             font_list_, is_selected ? selected_fg_color : fg_color,
             gfx::Rect(GetMirroredXWithWidthInView(
-                text_x, cell_bounds.right() - text_x - kTextHorizontalPadding),
-                      cell_bounds.y() + kTextVerticalPadding,
-                      cell_bounds.right() - text_x,
-                      cell_bounds.height() - kTextVerticalPadding * 2),
+                          text_x, cell_bounds.right() - text_x - cell_margin),
+                      cell_bounds.y(), cell_bounds.right() - text_x,
+                      row_height_),
             TableColumnAlignmentToCanvasAlignment(
                 visible_columns_[j].column.alignment));
       }
@@ -601,8 +618,8 @@ void TableView::OnPaint(gfx::Canvas* canvas) {
   grouping_flags.setColor(grouping_color);
   grouping_flags.setStyle(cc::PaintFlags::kFill_Style);
   grouping_flags.setAntiAlias(true);
-  const int group_indicator_x = GetMirroredXInView(GetCellBounds(0, 0).x() +
-      kTextHorizontalPadding + kGroupingIndicatorSize / 2);
+  const int group_indicator_x = GetMirroredXInView(
+      GetCellBounds(0, 0).x() + cell_margin + kGroupingIndicatorSize / 2);
   for (int i = region.min_row; i < region.max_row; ) {
     const int model_index = ViewToModel(i);
     GroupRange range;
@@ -638,7 +655,7 @@ void TableView::OnFocus() {
     scroll_view->SetHasFocusIndicator(true);
 
   SchedulePaintForSelection();
-  NotifyAccessibilityEvent(ui::AX_EVENT_FOCUS, true);
+  NotifyAccessibilityEvent(ax::mojom::Event::kFocus, true);
 }
 
 void TableView::OnBlur() {
@@ -646,6 +663,16 @@ void TableView::OnBlur() {
   if (scroll_view)
     scroll_view->SetHasFocusIndicator(false);
   SchedulePaintForSelection();
+}
+
+int TableView::GetCellMargin() const {
+  return LayoutProvider::Get()->GetDistanceMetric(
+      DISTANCE_TABLE_CELL_HORIZONTAL_MARGIN);
+}
+
+int TableView::GetCellElementSpacing() const {
+  return LayoutProvider::Get()->GetDistanceMetric(
+      DISTANCE_RELATED_LABEL_HORIZONTAL);
 }
 
 void TableView::NumRowsChanged() {
@@ -707,16 +734,17 @@ gfx::Rect TableView::GetCellBounds(int row, int visible_column_index) const {
 
 void TableView::AdjustCellBoundsForText(int visible_column_index,
                                         gfx::Rect* bounds) const {
-  int text_x = kTextHorizontalPadding + bounds->x();
+  const int cell_margin = GetCellMargin();
+  const int cell_element_spacing = GetCellElementSpacing();
+  int text_x = cell_margin + bounds->x();
   if (visible_column_index == 0) {
     if (grouper_)
-      text_x += kGroupingIndicatorSize + kTextHorizontalPadding;
+      text_x += kGroupingIndicatorSize + cell_element_spacing;
     if (table_type_ == ICON_AND_TEXT)
-      text_x += kImageSize + kTextHorizontalPadding;
+      text_x += ui::TableModel::kIconSize + cell_element_spacing;
   }
   bounds->set_x(text_x);
-  bounds->set_width(
-      std::max(0, bounds->right() - kTextHorizontalPadding - text_x));
+  bounds->set_width(std::max(0, bounds->right() - cell_margin - text_x));
 }
 
 void TableView::CreateHeaderIfNecessary() {
@@ -736,15 +764,17 @@ void TableView::UpdateVisibleColumnSizes() {
   for (size_t i = 0; i < visible_columns_.size(); ++i)
     columns.push_back(visible_columns_[i].column);
 
+  const int cell_margin = GetCellMargin();
+  const int cell_element_spacing = GetCellElementSpacing();
   int first_column_padding = 0;
   if (table_type_ == ICON_AND_TEXT && header_)
-    first_column_padding += kImageSize + kTextHorizontalPadding;
+    first_column_padding += ui::TableModel::kIconSize + cell_element_spacing;
   if (grouper_)
-    first_column_padding += kGroupingIndicatorSize + kTextHorizontalPadding;
+    first_column_padding += kGroupingIndicatorSize + cell_element_spacing;
 
   std::vector<int> sizes = views::CalculateTableColumnSizes(
       layout_width_, first_column_padding, header_->font_list(), font_list_,
-      std::max(kTextHorizontalPadding, TableHeader::kHorizontalPadding) * 2,
+      std::max(cell_margin, TableHeader::kHorizontalPadding) * 2,
       TableHeader::kSortIndicatorWidth, columns, model_);
   DCHECK_EQ(visible_columns_.size(), sizes.size());
   int x = 0;
@@ -824,15 +854,15 @@ void TableView::SelectByViewIndex(int view_index) {
     new_selection.set_active(ViewToModel(view_index));
   }
 
-  SetSelectionModel(new_selection);
+  SetSelectionModel(std::move(new_selection));
 }
 
-void TableView::SetSelectionModel(const ui::ListSelectionModel& new_selection) {
-  if (new_selection.Equals(selection_model_))
+void TableView::SetSelectionModel(ui::ListSelectionModel new_selection) {
+  if (new_selection == selection_model_)
     return;
 
   SchedulePaintForSelection();
-  selection_model_.Copy(new_selection);
+  selection_model_ = std::move(new_selection);
   SchedulePaintForSelection();
 
   // Scroll the group for the active item to visible.
@@ -850,7 +880,7 @@ void TableView::SetSelectionModel(const ui::ListSelectionModel& new_selection) {
   if (observer_)
     observer_->OnSelectionChanged();
 
-  NotifyAccessibilityEvent(ui::AX_EVENT_FOCUS, true);
+  NotifyAccessibilityEvent(ax::mojom::Event::kFocus, true);
 }
 
 void TableView::AdvanceSelection(AdvanceDirection direction) {
@@ -885,7 +915,7 @@ void TableView::ConfigureSelectionModelForEvent(
     // shift: reset selection so that only rows between anchor and |view_index|
     // are selected.
     if (IsCmdOrCtrl(event) && event.IsShiftDown())
-      model->Copy(selection_model_);
+      *model = selection_model_;
     else
       model->set_anchor(selection_model_.anchor());
     for (int i = std::min(view_index, ModelToView(model->anchor())),
@@ -898,7 +928,7 @@ void TableView::ConfigureSelectionModelForEvent(
     DCHECK(IsCmdOrCtrl(event));
     // Toggle the selection state of |view_index| and set the anchor/active to
     // it and don't change the state of any other rows.
-    model->Copy(selection_model_);
+    *model = selection_model_;
     model->set_anchor(ViewToModel(view_index));
     model->set_active(ViewToModel(view_index));
     SelectRowsInRangeFrom(view_index,
@@ -958,8 +988,9 @@ bool TableView::GetTooltipImpl(const gfx::Point& location,
   if (tooltip)
     *tooltip = text;
   if (tooltip_origin) {
-    tooltip_origin->SetPoint(cell_bounds.x(),
-                             cell_bounds.y() + kTextVerticalPadding);
+    tooltip_origin->SetPoint(
+        cell_bounds.x(),
+        cell_bounds.y() + (row_height_ - font_list_.GetHeight()) / 2);
   }
   return true;
 }

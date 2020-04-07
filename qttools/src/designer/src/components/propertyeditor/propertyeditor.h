@@ -32,10 +32,10 @@
 #include "propertyeditor_global.h"
 #include <qdesigner_propertyeditor_p.h>
 
-#include <QtCore/QPointer>
-#include <QtCore/QMap>
-#include <QtCore/QVector>
-#include <QtCore/QSet>
+#include <QtCore/qpointer.h>
+#include <QtCore/qmap.h>
+#include <QtCore/qvector.h>
+#include <QtCore/qset.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -64,27 +64,27 @@ class QT_PROPERTYEDITOR_EXPORT PropertyEditor: public QDesignerPropertyEditor
     Q_OBJECT
 public:
     explicit PropertyEditor(QDesignerFormEditorInterface *core, QWidget *parent = 0, Qt::WindowFlags flags = 0);
-    virtual ~PropertyEditor();
+    ~PropertyEditor() override;
 
-    QDesignerFormEditorInterface *core() const Q_DECL_OVERRIDE;
+    QDesignerFormEditorInterface *core() const override;
 
-    bool isReadOnly() const Q_DECL_OVERRIDE;
-    void setReadOnly(bool readOnly) Q_DECL_OVERRIDE;
-    void setPropertyValue(const QString &name, const QVariant &value, bool changed = true) Q_DECL_OVERRIDE;
-    void updatePropertySheet() Q_DECL_OVERRIDE;
+    bool isReadOnly() const override;
+    void setReadOnly(bool readOnly) override;
+    void setPropertyValue(const QString &name, const QVariant &value, bool changed = true) override;
+    void updatePropertySheet() override;
 
-    void setObject(QObject *object) Q_DECL_OVERRIDE;
+    void setObject(QObject *object) override;
 
-    void reloadResourceProperties() Q_DECL_OVERRIDE;
+    void reloadResourceProperties() override;
 
-    QObject *object() const Q_DECL_OVERRIDE
+    QObject *object() const override
     { return m_object; }
 
-    QString currentPropertyName() const Q_DECL_OVERRIDE;
+    QString currentPropertyName() const override;
 
 protected:
 
-    bool event(QEvent *event) Q_DECL_OVERRIDE;
+    bool event(QEvent *event) override;
 
 private slots:
     void slotResetProperty(QtProperty *property);

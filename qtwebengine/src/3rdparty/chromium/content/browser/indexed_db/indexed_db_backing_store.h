@@ -27,6 +27,7 @@
 #include "content/browser/indexed_db/indexed_db_active_blob_registry.h"
 #include "content/browser/indexed_db/indexed_db_blob_info.h"
 #include "content/browser/indexed_db/indexed_db_leveldb_coding.h"
+#include "content/browser/indexed_db/indexed_db_pre_close_task_queue.h"
 #include "content/browser/indexed_db/leveldb/leveldb_iterator.h"
 #include "content/browser/indexed_db/leveldb/leveldb_transaction.h"
 #include "content/common/content_export.h"
@@ -59,6 +60,11 @@ class LevelDBDatabase;
 class LevelDBFactory;
 struct IndexedDBDataLossInfo;
 struct IndexedDBValue;
+
+namespace indexed_db_backing_store_unittest {
+class IndexedDBBackingStoreTest;
+FORWARD_DECLARE_TEST(IndexedDBBackingStoreTest, ReadCorruptionInfo);
+}  // namespace indexed_db_backing_store_unittest
 
 class CONTENT_EXPORT IndexedDBBackingStore
     : public base::RefCounted<IndexedDBBackingStore> {
@@ -375,6 +381,16 @@ class CONTENT_EXPORT IndexedDBBackingStore
 
     DISALLOW_COPY_AND_ASSIGN(Cursor);
   };
+  // Schedule an immediate blob journal cleanup if we reach this number of
+  // requests.
+  static constexpr const int kMaxJournalCleanRequests = 50;
+  // Wait for a maximum of 5 seconds from the first call to the timer since the
+  // last journal cleaning.
+  static constexpr const base::TimeDelta kMaxJournalCleaningWindowTime =
+      base::TimeDelta::FromSeconds(5);
+  // Default to a 2 second timer delay before we clean up blobs.
+  static constexpr const base::TimeDelta kInitialJournalCleaningWindowTime =
+      base::TimeDelta::FromSeconds(2);
 
   const url::Origin& origin() const { return origin_; }
   IndexedDBFactory* factory() const { return indexed_db_factory_; }
@@ -419,18 +435,6 @@ class CONTENT_EXPORT IndexedDBBackingStore
 
   // Compact is public for testing.
   virtual void Compact();
-  virtual std::vector<base::string16> GetDatabaseNames(leveldb::Status*);
-  virtual leveldb::Status GetIDBDatabaseMetaData(
-      const base::string16& name,
-      IndexedDBDatabaseMetadata* metadata,
-      bool* success) WARN_UNUSED_RESULT;
-  virtual leveldb::Status CreateIDBDatabaseMetaData(const base::string16& name,
-                                                    int64_t version,
-                                                    int64_t* row_id);
-  virtual void UpdateIDBDatabaseIntVersion(
-      IndexedDBBackingStore::Transaction* transaction,
-      int64_t row_id,
-      int64_t version);
   virtual leveldb::Status DeleteDatabase(const base::string16& name);
 
   // Assumes caller has already closed the backing store.
@@ -439,25 +443,6 @@ class CONTENT_EXPORT IndexedDBBackingStore
   static bool RecordCorruptionInfo(const base::FilePath& path_base,
                                    const url::Origin& origin,
                                    const std::string& message);
-  leveldb::Status GetObjectStores(
-      int64_t database_id,
-      std::map<int64_t, IndexedDBObjectStoreMetadata>* map) WARN_UNUSED_RESULT;
-  virtual leveldb::Status CreateObjectStore(
-      IndexedDBBackingStore::Transaction* transaction,
-      int64_t database_id,
-      int64_t object_store_id,
-      const base::string16& name,
-      const IndexedDBKeyPath& key_path,
-      bool auto_increment) WARN_UNUSED_RESULT;
-  virtual leveldb::Status DeleteObjectStore(
-      IndexedDBBackingStore::Transaction* transaction,
-      int64_t database_id,
-      int64_t object_store_id) WARN_UNUSED_RESULT;
-  virtual leveldb::Status RenameObjectStore(
-      IndexedDBBackingStore::Transaction* transaction,
-      int64_t database_id,
-      int64_t object_store_id,
-      const base::string16& name) WARN_UNUSED_RESULT;
 
   virtual leveldb::Status GetRecord(
       IndexedDBBackingStore::Transaction* transaction,
@@ -506,26 +491,11 @@ class CONTENT_EXPORT IndexedDBBackingStore
       RecordIdentifier* found_record_identifier,
       bool* found) WARN_UNUSED_RESULT;
 
-  virtual leveldb::Status CreateIndex(
-      IndexedDBBackingStore::Transaction* transaction,
-      int64_t database_id,
-      int64_t object_store_id,
-      int64_t index_id,
-      const base::string16& name,
-      const IndexedDBKeyPath& key_path,
-      bool is_unique,
-      bool is_multi_entry) WARN_UNUSED_RESULT;
-  virtual leveldb::Status DeleteIndex(
+  virtual leveldb::Status ClearIndex(
       IndexedDBBackingStore::Transaction* transaction,
       int64_t database_id,
       int64_t object_store_id,
       int64_t index_id) WARN_UNUSED_RESULT;
-  virtual leveldb::Status RenameIndex(
-      IndexedDBBackingStore::Transaction* transaction,
-      int64_t database_id,
-      int64_t object_store_id,
-      int64_t index_id,
-      const base::string16& new_name) WARN_UNUSED_RESULT;
   virtual leveldb::Status PutIndexDataForRecord(
       IndexedDBBackingStore::Transaction* transaction,
       int64_t database_id,
@@ -585,6 +555,36 @@ class CONTENT_EXPORT IndexedDBBackingStore
       blink::WebIDBCursorDirection,
       leveldb::Status*);
 
+  IndexedDBPreCloseTaskQueue* pre_close_task_queue() {
+    return pre_close_task_queue_.get();
+  }
+
+  void SetPreCloseTaskList(std::unique_ptr<IndexedDBPreCloseTaskQueue> list) {
+    pre_close_task_queue_ = std::move(list);
+  }
+
+  // |pre_close_task_queue()| must not be null.
+  void StartPreCloseTasks();
+
+  LevelDBDatabase* db() { return db_.get(); }
+
+  const std::string& origin_identifier() { return origin_identifier_; }
+
+  // Returns true if a blob cleanup job is pending on journal_cleaning_timer_.
+  bool IsBlobCleanupPending();
+
+  int64_t GetInMemoryBlobSize() const;
+
+#if DCHECK_IS_ON()
+  int NumBlobFilesDeletedForTesting() { return num_blob_files_deleted_; }
+  int NumAggregatedJournalCleaningRequestsForTesting() const {
+    return num_aggregated_journal_cleaning_requests_;
+  }
+#endif
+
+  // Stops the journal_cleaning_timer_ and runs its pending task.
+  void ForceRunBlobCleanup();
+
  protected:
   friend class base::RefCounted<IndexedDBBackingStore>;
 
@@ -600,7 +600,14 @@ class CONTENT_EXPORT IndexedDBBackingStore
 
   bool is_incognito() const { return !indexed_db_factory_; }
 
+  leveldb::Status AnyDatabaseContainsBlobs(LevelDBTransaction* transaction,
+                                           bool* blobs_exist);
+
   leveldb::Status SetUpMetadata();
+
+  // TODO(dmurph): Move this completely to IndexedDBMetadataFactory.
+  leveldb::Status GetCompleteMetadata(
+      std::vector<IndexedDBDatabaseMetadata>* output);
 
   virtual bool WriteBlobFile(
       int64_t database_id,
@@ -622,7 +629,9 @@ class CONTENT_EXPORT IndexedDBBackingStore
   void CleanPrimaryJournalIgnoreReturn();
 
  private:
-  FRIEND_TEST_ALL_PREFIXES(IndexedDBBackingStoreTest, ReadCorruptionInfo);
+  FRIEND_TEST_ALL_PREFIXES(
+      indexed_db_backing_store_unittest::IndexedDBBackingStoreTest,
+      ReadCorruptionInfo);
 
   static scoped_refptr<IndexedDBBackingStore> Create(
       IndexedDBFactory* indexed_db_factory,
@@ -646,10 +655,6 @@ class CONTENT_EXPORT IndexedDBBackingStore
       const IndexedDBKey& key,
       std::string* found_encoded_primary_key,
       bool* found);
-  leveldb::Status GetIndexes(int64_t database_id,
-                             int64_t object_store_id,
-                             std::map<int64_t, IndexedDBIndexMetadata>* map)
-      WARN_UNUSED_RESULT;
 
   // Remove the blob directory for the specified database and all contained
   // blob files.
@@ -665,6 +670,10 @@ class CONTENT_EXPORT IndexedDBBackingStore
   // the blob journal.
   leveldb::Status CleanUpBlobJournalEntries(
       const BlobJournalType& journal) const;
+
+  void WillCommitTransaction();
+  // Can run a journal cleaning job if one is pending.
+  void DidCommitTransaction();
 
   IndexedDBFactory* indexed_db_factory_;
   const url::Origin origin_;
@@ -682,7 +691,15 @@ class CONTENT_EXPORT IndexedDBBackingStore
   scoped_refptr<base::SequencedTaskRunner> task_runner_;
   std::set<int> child_process_ids_granted_;
   std::map<std::string, std::unique_ptr<BlobChangeRecord>> incognito_blob_map_;
+
+  bool execute_journal_cleaning_on_no_txns_ = false;
+  int num_aggregated_journal_cleaning_requests_ = 0;
   base::OneShotTimer journal_cleaning_timer_;
+  base::TimeTicks journal_cleaning_timer_window_start_;
+
+#if DCHECK_IS_ON()
+  mutable int num_blob_files_deleted_ = 0;
+#endif
 
   std::unique_ptr<LevelDBDatabase> db_;
   std::unique_ptr<LevelDBComparator> comparator_;
@@ -690,6 +707,7 @@ class CONTENT_EXPORT IndexedDBBackingStore
   // will hold a reference to this backing store.
   IndexedDBActiveBlobRegistry active_blob_registry_;
   base::OneShotTimer close_timer_;
+  std::unique_ptr<IndexedDBPreCloseTaskQueue> pre_close_task_queue_;
 
   // Incremented whenever a transaction starts committing, decremented when
   // complete. While > 0, temporary journal entries may exist so out-of-band

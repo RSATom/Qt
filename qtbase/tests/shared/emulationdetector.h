@@ -29,10 +29,14 @@
 #ifndef EMULATIONDETECTOR_H
 #define EMULATIONDETECTOR_H
 
+#include <QtCore/qglobal.h>
+
 #if defined(Q_OS_LINUX) && defined(Q_PROCESSOR_ARM)
 #define SHOULD_CHECK_ARM_ON_X86
 
-#if QT_CONFIG(process) && !defined(QT_NO_REGULAREXPRESSION)
+#include <QFileInfo>
+
+#if QT_CONFIG(process) && QT_CONFIG(regularexpression)
 #include <QProcess>
 #include <QRegularExpression>
 #endif
@@ -88,7 +92,7 @@ static bool isX86SpecificFileAvailable()
  */
 static bool isReportedArchitectureX86(void)
 {
-#if QT_CONFIG(process) && !defined(QT_NO_REGULAREXPRESSION)
+#if QT_CONFIG(process) && QT_CONFIG(regularexpression)
     QProcess unamer;
     QString machineString;
 

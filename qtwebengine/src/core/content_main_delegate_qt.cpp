@@ -53,6 +53,8 @@
 #include <ui/base/webui/jstemplate_builder.h>
 #include "net/grit/net_resources.h"
 #include "net/base/net_module.h"
+#include "services/service_manager/sandbox/switches.h"
+#include "url/url_util_qt.h"
 
 #include "content_client_qt.h"
 #include "renderer/content_renderer_client_qt.h"
@@ -170,7 +172,7 @@ content::ContentRendererClient *ContentMainDelegateQt::CreateContentRendererClie
 #if defined(OS_LINUX)
     base::CommandLine *parsedCommandLine = base::CommandLine::ForCurrentProcess();
     std::string process_type = parsedCommandLine->GetSwitchValueASCII(switches::kProcessType);
-    bool no_sandbox = parsedCommandLine->HasSwitch(switches::kNoSandbox);
+    bool no_sandbox = parsedCommandLine->HasSwitch(service_manager::switches::kNoSandbox);
 
     // Reload locale if the renderer process is sandboxed
     if (process_type == switches::kRendererProcess && !no_sandbox) {
@@ -184,6 +186,12 @@ content::ContentRendererClient *ContentMainDelegateQt::CreateContentRendererClie
     return new ContentRendererClientQt;
 }
 
+content::ContentUtilityClient *ContentMainDelegateQt::CreateContentUtilityClient()
+{
+    m_utilityClient.reset(new ContentUtilityClientQt);
+    return m_utilityClient.get();
+}
+
 // see icu_util.cc
 #define ICU_UTIL_DATA_FILE   0
 #define ICU_UTIL_DATA_SHARED 1
@@ -195,7 +203,7 @@ static void SafeOverridePathImpl(const char *keyName, int key, const base::FileP
         return;
 
     // Do not create directories for overridden paths.
-    if (PathService::OverrideAndCreateIfNeeded(key, path, false, false))
+    if (base::PathService::OverrideAndCreateIfNeeded(key, path, false, false))
         return;
 
     qWarning("Path override failed for key %s and path '%s'", keyName, path.value().c_str());
@@ -210,10 +218,13 @@ bool ContentMainDelegateQt::BasicStartupComplete(int *exit_code)
     SafeOverridePath(base::DIR_QT_LIBRARY_DATA, WebEngineLibraryInfo::getPath(base::DIR_QT_LIBRARY_DATA));
 #endif
     SafeOverridePath(ui::DIR_LOCALES, WebEngineLibraryInfo::getPath(ui::DIR_LOCALES));
-#if BUILDFLAG(ENABLE_SPELLCHECK)
+#if QT_CONFIG(webengine_spellchecker)
     SafeOverridePath(base::DIR_APP_DICTIONARIES, WebEngineLibraryInfo::getPath(base::DIR_APP_DICTIONARIES));
 #endif
     SetContentClient(new ContentClientQt);
+
+    url::CustomScheme::LoadSchemes(base::CommandLine::ForCurrentProcess());
+
     return false;
 }
 

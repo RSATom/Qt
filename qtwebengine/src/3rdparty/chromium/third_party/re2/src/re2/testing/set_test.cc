@@ -3,6 +3,7 @@
 // license that can be found in the LICENSE file.
 
 #include <stddef.h>
+#include <string>
 #include <vector>
 
 #include "util/test.h"
@@ -78,9 +79,36 @@ TEST(Set, UnanchoredDollar) {
   CHECK_EQ(s.Compile(), true);
 
   CHECK_EQ(s.Match("foo", NULL), true);
+  CHECK_EQ(s.Match("foobar", NULL), false);
 
   std::vector<int> v;
   CHECK_EQ(s.Match("foo", &v), true);
+  CHECK_EQ(v.size(), 1);
+  CHECK_EQ(v[0], 0);
+
+  CHECK_EQ(s.Match("foobar", &v), false);
+  CHECK_EQ(v.size(), 0);
+}
+
+TEST(Set, UnanchoredWordBoundary) {
+  RE2::Set s(RE2::DefaultOptions, RE2::UNANCHORED);
+
+  CHECK_EQ(s.Add("foo\\b", NULL), 0);
+  CHECK_EQ(s.Compile(), true);
+
+  CHECK_EQ(s.Match("foo", NULL), true);
+  CHECK_EQ(s.Match("foobar", NULL), false);
+  CHECK_EQ(s.Match("foo bar", NULL), true);
+
+  std::vector<int> v;
+  CHECK_EQ(s.Match("foo", &v), true);
+  CHECK_EQ(v.size(), 1);
+  CHECK_EQ(v[0], 0);
+
+  CHECK_EQ(s.Match("foobar", &v), false);
+  CHECK_EQ(v.size(), 0);
+
+  CHECK_EQ(s.Match("foo bar", &v), true);
   CHECK_EQ(v.size(), 1);
   CHECK_EQ(v[0], 0);
 }
@@ -171,6 +199,20 @@ TEST(Set, Prefix) {
   CHECK_EQ(s.Match("/prefix/42", &v), true);
   CHECK_EQ(v.size(), 1);
   CHECK_EQ(v[0], 0);
+}
+
+TEST(Set, OutOfMemory) {
+  RE2::Set s(RE2::DefaultOptions, RE2::UNANCHORED);
+
+  string a(10000, 'a');
+  CHECK_EQ(s.Add(a, NULL), 0);
+  CHECK_EQ(s.Compile(), true);
+
+  std::vector<int> v;
+  RE2::Set::ErrorInfo ei;
+  CHECK_EQ(s.Match(a, &v, &ei), false);
+  CHECK_EQ(v.size(), 0);
+  CHECK_EQ(ei.kind, RE2::Set::kOutOfMemory);
 }
 
 }  // namespace re2

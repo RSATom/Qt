@@ -7,9 +7,10 @@
 #ifndef XFA_FXFA_CXFA_EVENTPARAM_H_
 #define XFA_FXFA_CXFA_EVENTPARAM_H_
 
+#include "core/fxcrt/unowned_ptr.h"
 #include "xfa/fxfa/fxfa_basic.h"
 
-class CXFA_WidgetAcc;
+class CXFA_Node;
 
 enum XFA_EVENTTYPE {
   XFA_EVENT_Click,
@@ -52,10 +53,11 @@ class CXFA_EventParam {
   CXFA_EventParam(const CXFA_EventParam& other);
 
   void Reset();
+  WideString GetNewText() const;
 
-  CXFA_WidgetAcc* m_pTarget;
+  UnownedPtr<CXFA_Node> m_pTarget;
   XFA_EVENTTYPE m_eType;
-  CFX_WideString m_wsResult;
+  WideString m_wsResult;
   bool m_bCancelAction;
   int32_t m_iCommitKey;
   bool m_bKeyDown;
@@ -64,14 +66,13 @@ class CXFA_EventParam {
   int32_t m_iSelEnd;
   int32_t m_iSelStart;
   bool m_bShift;
-  CFX_WideString m_wsChange;
-  CFX_WideString m_wsFullText;
-  CFX_WideString m_wsNewContentType;
-  CFX_WideString m_wsNewText;
-  CFX_WideString m_wsPrevContentType;
-  CFX_WideString m_wsPrevText;
-  CFX_WideString m_wsSoapFaultCode;
-  CFX_WideString m_wsSoapFaultString;
+  WideString m_wsChange;
+  WideString m_wsFullText;
+  WideString m_wsNewContentType;
+  WideString m_wsPrevContentType;
+  WideString m_wsPrevText;
+  WideString m_wsSoapFaultCode;
+  WideString m_wsSoapFaultString;
   bool m_bIsFormReady;
 };
 

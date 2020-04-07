@@ -9,7 +9,6 @@
 #include <vector>
 
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
@@ -58,7 +57,7 @@ UsbDevicePermission::CheckParam::ForDeviceWithAnyInterfaceClass(
     uint16_t vendor_id,
     uint16_t product_id,
     int interface_id) {
-  return base::MakeUnique<CheckParam>(extension, vendor_id, product_id,
+  return std::make_unique<CheckParam>(extension, vendor_id, product_id,
                                       std::unique_ptr<std::set<int>>(),
                                       interface_id);
 }
@@ -81,7 +80,7 @@ UsbDevicePermission::CheckParam::ForUsbDeviceAndInterface(
       interface_classes->insert(interface.interface_class);
   }
 
-  return base::MakeUnique<CheckParam>(
+  return std::make_unique<CheckParam>(
       extension, device->vendor_id(), device->product_id(),
       std::move(interface_classes), interface_id);
 }
@@ -93,7 +92,7 @@ UsbDevicePermission::CheckParam::ForHidDevice(const Extension* extension,
                                               uint16_t product_id) {
   std::unique_ptr<std::set<int>> interface_classes(new std::set<int>());
   interface_classes->insert(kHidInterfaceClass);
-  return base::MakeUnique<UsbDevicePermission::CheckParam>(
+  return std::make_unique<UsbDevicePermission::CheckParam>(
       extension, vendor_id, product_id, std::move(interface_classes),
       UsbDevicePermissionData::SPECIAL_VALUE_UNSPECIFIED);
 }

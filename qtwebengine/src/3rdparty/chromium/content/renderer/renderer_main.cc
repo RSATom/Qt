@@ -12,39 +12,35 @@
 #include "base/i18n/rtl.h"
 #include "base/message_loop/message_loop.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/metrics/statistics_recorder.h"
 #include "base/pending_task.h"
 #include "base/run_loop.h"
+#include "base/sampling_heap_profiler/sampling_heap_profiler.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/sys_info.h"
 #include "base/threading/platform_thread.h"
 #include "base/timer/hi_res_timer_manager.h"
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
-#include "content/child/child_process.h"
 #include "content/common/content_constants_internal.h"
+#include "content/common/content_switches_internal.h"
 #include "content/common/service_manager/service_manager_connection_impl.h"
+#include "content/common/skia_utils.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/common/main_function_params.h"
 #include "content/public/renderer/content_renderer_client.h"
 #include "content/renderer/render_process_impl.h"
 #include "content/renderer/render_thread_impl.h"
 #include "content/renderer/renderer_main_platform_delegate.h"
-#include "media/media_features.h"
-#include "ppapi/features/features.h"
-#include "third_party/WebKit/public/platform/scheduler/renderer/renderer_scheduler.h"
-#include "third_party/skia/include/core/SkGraphics.h"
+#include "media/media_buildflags.h"
+#include "ppapi/buildflags/buildflags.h"
+#include "services/service_manager/sandbox/switches.h"
+#include "third_party/blink/public/platform/scheduler/web_thread_scheduler.h"
 #include "ui/base/ui_base_switches.h"
 
 #if defined(OS_ANDROID)
 #include "base/android/library_loader/library_loader_hooks.h"
 #endif  // OS_ANDROID
-
-#if defined(OS_POSIX) && !defined(OS_MACOSX) && !defined(OS_ANDROID)
-#include "content/common/font_config_ipc_linux.h"
-#include "content/common/sandbox_linux/sandbox_linux.h"
-#include "third_party/skia/include/ports/SkFontConfigInterface.h"
-#endif
 
 #if defined(OS_MACOSX)
 #include <Carbon/Carbon.h>
@@ -53,7 +49,7 @@
 
 #include "base/mac/scoped_nsautorelease_pool.h"
 #include "base/message_loop/message_pump_mac.h"
-#include "third_party/WebKit/public/web/WebView.h"
+#include "third_party/blink/public/web/web_view.h"
 #endif  // OS_MACOSX
 
 #if BUILDFLAG(ENABLE_PLUGINS)
@@ -62,10 +58,6 @@
 
 #if BUILDFLAG(ENABLE_WEBRTC)
 #include "third_party/webrtc_overrides/init_webrtc.h"  // nogncheck
-#endif
-
-#if defined(USE_OZONE)
-#include "ui/ozone/public/client_native_pixmap_factory_ozone.h"
 #endif
 
 namespace content {
@@ -78,13 +70,8 @@ static void HandleRendererErrorTestParameters(
     base::debug::WaitForDebugger(60, true);
 
   if (command_line.HasSwitch(switches::kRendererStartupDialog))
-    ChildProcess::WaitForDebugger("Renderer");
+    WaitForDebugger("Renderer");
 }
-
-#if defined(USE_OZONE)
-base::LazyInstance<std::unique_ptr<gfx::ClientNativePixmapFactory>>::
-    DestructorAtExit g_pixmap_factory = LAZY_INSTANCE_INITIALIZER;
-#endif
 
 }  // namespace
 
@@ -94,11 +81,24 @@ int RendererMain(const MainFunctionParams& parameters) {
   // expect synchronous events around the main loop of a thread.
   TRACE_EVENT_ASYNC_BEGIN0("startup", "RendererMain", 0);
 
-  base::trace_event::TraceLog::GetInstance()->SetProcessName("Renderer");
+  base::trace_event::TraceLog::GetInstance()->set_process_name("Renderer");
   base::trace_event::TraceLog::GetInstance()->SetProcessSortIndex(
       kTraceEventRendererProcessSortIndex);
 
-  const base::CommandLine& parsed_command_line = parameters.command_line;
+  const base::CommandLine& command_line = parameters.command_line;
+
+  base::SamplingHeapProfiler::InitTLSSlot();
+  if (command_line.HasSwitch(switches::kSamplingHeapProfiler)) {
+    base::SamplingHeapProfiler* profiler =
+        base::SamplingHeapProfiler::GetInstance();
+    unsigned sampling_interval = 0;
+    bool parsed = base::StringToUint(
+        command_line.GetSwitchValueASCII(switches::kSamplingHeapProfiler),
+        &sampling_interval);
+    if (parsed && sampling_interval > 0)
+      profiler->SetSamplingInterval(sampling_interval * 1024);
+    profiler->Start();
+  }
 
 #if defined(OS_MACOSX)
   base::mac::ScopedNSAutoreleasePool* pool = parameters.autorelease_pool;
@@ -109,44 +109,20 @@ int RendererMain(const MainFunctionParams& parameters) {
   // locale (at login time for Chrome OS), we have to set the ICU default
   // locale for renderer process here.
   // ICU locale will be used for fallback font selection etc.
-  if (parsed_command_line.HasSwitch(switches::kLang)) {
+  if (command_line.HasSwitch(switches::kLang)) {
     const std::string locale =
-        parsed_command_line.GetSwitchValueASCII(switches::kLang);
+        command_line.GetSwitchValueASCII(switches::kLang);
     base::i18n::SetICUDefaultLocale(locale);
   }
 #endif
 
-#if defined(OS_POSIX) && !defined(OS_MACOSX) && !defined(OS_ANDROID)
-  // This call could already have been made from zygote_main_linux.cc. However
-  // we need to do it here if Zygote is disabled.
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(switches::kNoZygote)) {
-    SkFontConfigInterface::SetGlobal(new FontConfigIPC(GetSandboxFD()))
-        ->unref();
-  }
-#endif
-
-  if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kDisableSkiaRuntimeOpts)) {
-    SkGraphics::Init();
-  }
-
-#if defined(OS_ANDROID)
-  const int kMB = 1024 * 1024;
-  size_t font_cache_limit =
-      base::SysInfo::IsLowEndDevice() ? kMB : 8 * kMB;
-  SkGraphics::SetFontCacheLimit(font_cache_limit);
-#endif
-
-#if defined(USE_OZONE)
-  g_pixmap_factory.Get() = ui::CreateClientNativePixmapFactoryOzone();
-  gfx::ClientNativePixmapFactory::SetInstance(g_pixmap_factory.Get().get());
-#endif
+  InitializeSkia();
 
   // This function allows pausing execution using the --renderer-startup-dialog
   // flag allowing us to attach a debugger.
   // Do not move this function down since that would mean we can't easily debug
   // whatever occurs before it.
-  HandleRendererErrorTestParameters(parsed_command_line);
+  HandleRendererErrorTestParameters(command_line);
 
   RendererMainPlatformDelegate platform(parameters);
 #if defined(OS_MACOSX)
@@ -163,18 +139,23 @@ int RendererMain(const MainFunctionParams& parameters) {
 
   base::PlatformThread::SetName("CrRendererMain");
 
-  bool no_sandbox = parsed_command_line.HasSwitch(switches::kNoSandbox);
-
-  // Initialize histogram statistics gathering system.
-  base::StatisticsRecorder::Initialize();
-
 #if defined(OS_ANDROID)
   // If we have any pending LibraryLoader histograms, record them.
   base::android::RecordLibraryLoaderRendererHistograms();
 #endif
 
-  std::unique_ptr<blink::scheduler::RendererScheduler> renderer_scheduler(
-      blink::scheduler::RendererScheduler::Create());
+  base::Optional<base::Time> initial_virtual_time;
+  if (command_line.HasSwitch(switches::kInitialVirtualTime)) {
+    double initial_time;
+    if (base::StringToDouble(
+            command_line.GetSwitchValueASCII(switches::kInitialVirtualTime),
+            &initial_time)) {
+      initial_virtual_time = base::Time::FromDoubleT(initial_time);
+    }
+  }
+  std::unique_ptr<blink::scheduler::WebThreadScheduler> main_thread_scheduler(
+      blink::scheduler::WebThreadScheduler::CreateMainThreadScheduler(
+          initial_virtual_time));
 
   // PlatformInitialize uses FieldTrials, so this must happen later.
   platform.PlatformInitialize();
@@ -192,21 +173,26 @@ int RendererMain(const MainFunctionParams& parameters) {
 #endif
 
   {
-#if defined(OS_WIN) || defined(OS_MACOSX)
-    // TODO(markus): Check if it is OK to unconditionally move this
-    // instruction down.
-    auto render_process = RenderProcessImpl::Create();
-    RenderThreadImpl::Create(std::move(main_message_loop),
-                             std::move(renderer_scheduler));
-#endif
     bool run_loop = true;
-    if (!no_sandbox)
+    bool need_sandbox =
+        !command_line.HasSwitch(service_manager::switches::kNoSandbox);
+
+#if !defined(OS_WIN) && !defined(OS_MACOSX)
+    // Sandbox is enabled before RenderProcess initialization on all platforms,
+    // except Windows and Mac.
+    // TODO(markus): Check if it is OK to remove ifdefs for Windows and Mac.
+    if (need_sandbox) {
       run_loop = platform.EnableSandbox();
-#if defined(OS_POSIX) && !defined(OS_MACOSX)
+      need_sandbox = false;
+    }
+#endif
+
     auto render_process = RenderProcessImpl::Create();
     RenderThreadImpl::Create(std::move(main_message_loop),
-                             std::move(renderer_scheduler));
-#endif
+                             std::move(main_thread_scheduler));
+
+    if (need_sandbox)
+      run_loop = platform.EnableSandbox();
 
     base::HighResolutionTimerManager hi_res_timer_manager;
 

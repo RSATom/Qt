@@ -250,7 +250,16 @@ bool QTextToSpeechEngineAndroid::setVolume(double volume)
 
 QVector<QLocale> QTextToSpeechEngineAndroid::availableLocales() const
 {
-    return QVector<QLocale>();
+    auto locales = m_speech.callObjectMethod("getAvailableLocales", "()Ljava/util/List;");
+    int count = locales.callMethod<jint>("size");
+    QVector<QLocale> result;
+    result.reserve(count);
+    for (int i = 0; i < count; ++i) {
+        auto locale = locales.callObjectMethod("get", "(I)Ljava/lang/Object;", i);
+        auto localeName = locale.callObjectMethod<jstring>("toString").toString();
+        result << QLocale(localeName);
+    }
+    return result;
 }
 
 bool QTextToSpeechEngineAndroid::setLocale(const QLocale &locale)
@@ -272,21 +281,53 @@ bool QTextToSpeechEngineAndroid::setLocale(const QLocale &locale)
 
 QLocale QTextToSpeechEngineAndroid::locale() const
 {
+    auto locale = m_speech.callObjectMethod("getLocale", "()Ljava/util/Locale;");
+    if (locale.isValid()) {
+        auto localeName = locale.callObjectMethod<jstring>("toString").toString();
+        return QLocale(localeName);
+    }
     return QLocale();
+}
+
+QVoice QTextToSpeechEngineAndroid::javaVoiceObjectToQVoice(QJNIObjectPrivate &obj) const
+{
+    auto voiceName = obj.callObjectMethod<jstring>("getName").toString();
+    QVoice::Gender gender;
+    if (voiceName.contains(QStringLiteral("#male"))) {
+        gender = QVoice::Male;
+    } else if (voiceName.contains(QStringLiteral("#female"))) {
+        gender = QVoice::Female;
+    } else {
+        gender = QVoice::Unknown;
+    }
+    return createVoice(voiceName, gender, QVoice::Other, voiceName);
 }
 
 QVector<QVoice> QTextToSpeechEngineAndroid::availableVoices() const
 {
-    return QVector<QVoice>();
+    auto voices = m_speech.callObjectMethod("getAvailableVoices", "()Ljava/util/List;");
+    int count = voices.callMethod<jint>("size");
+    QVector<QVoice> result;
+    result.reserve(count);
+    for (int i = 0; i < count; ++i) {
+        auto voice = voices.callObjectMethod("get", "(I)Ljava/lang/Object;", i);
+        result << javaVoiceObjectToQVoice(voice);
+    }
+    return result;
 }
 
-bool QTextToSpeechEngineAndroid::setVoice(const QVoice & /* voice */)
+bool QTextToSpeechEngineAndroid::setVoice(const QVoice &voice)
 {
-    return false;
+    return m_speech.callMethod<jboolean>("setVoice", "(Ljava/lang/String;)Z",
+                                         QJNIObjectPrivate::fromString(voiceData(voice).toString()).object());
 }
 
 QVoice QTextToSpeechEngineAndroid::voice() const
 {
+    auto voice = m_speech.callObjectMethod("getVoice", "()Ljava/lang/Object;");
+    if (voice.isValid()) {
+        return javaVoiceObjectToQVoice(voice);
+    }
     return QVoice();
 }
 

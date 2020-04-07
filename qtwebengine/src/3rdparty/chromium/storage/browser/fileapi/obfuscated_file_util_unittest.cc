@@ -18,10 +18,11 @@
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/macros.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
+#include "base/test/scoped_task_environment.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
+#include "components/services/filesystem/public/interfaces/types.mojom.h"
 #include "storage/browser/fileapi/external_mount_points.h"
 #include "storage/browser/fileapi/file_system_backend.h"
 #include "storage/browser/fileapi/file_system_context.h"
@@ -40,7 +41,6 @@
 #include "storage/browser/test/sandbox_file_system_test_helper.h"
 #include "storage/browser/test/test_file_system_context.h"
 #include "storage/common/database/database_identifier.h"
-#include "storage/common/quota/quota_types.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using content::AsyncFileTestHelper;
@@ -153,10 +153,12 @@ bool HasFileSystemType(ObfuscatedFileUtil::AbstractOriginEnumerator* enumerator,
 class ObfuscatedFileUtilTest : public testing::Test {
  public:
   ObfuscatedFileUtilTest()
-      : origin_(GURL("http://www.example.com")),
+      : scoped_task_environment_(
+            base::test::ScopedTaskEnvironment::MainThreadType::IO),
+        origin_(GURL("http://www.example.com")),
         type_(storage::kFileSystemTypeTemporary),
         sandbox_file_system_(origin_, type_),
-        quota_status_(storage::kQuotaStatusUnknown),
+        quota_status_(blink::mojom::QuotaStatusCode::kUnknown),
         usage_(-1),
         weak_factory_(this) {}
 
@@ -167,7 +169,6 @@ class ObfuscatedFileUtilTest : public testing::Test {
 
     quota_manager_ = new storage::QuotaManager(
         false /* is_incognito */, data_dir_.GetPath(),
-        base::ThreadTaskRunnerHandle::Get().get(),
         base::ThreadTaskRunnerHandle::Get().get(), storage_policy_.get(),
         storage::GetQuotaSettingsFunc());
     storage::QuotaSettings settings;
@@ -192,6 +193,7 @@ class ObfuscatedFileUtilTest : public testing::Test {
 
   void TearDown() override {
     quota_manager_ = NULL;
+    scoped_task_environment_.RunUntilIdle();
     sandbox_file_system_.TearDown();
   }
 
@@ -245,9 +247,8 @@ class ObfuscatedFileUtilTest : public testing::Test {
   std::unique_ptr<ObfuscatedFileUtil> CreateObfuscatedFileUtil(
       storage::SpecialStoragePolicy* storage_policy) {
     return std::unique_ptr<ObfuscatedFileUtil>(
-        ObfuscatedFileUtil::CreateForTesting(
-            storage_policy, data_dir_path(), NULL,
-            base::ThreadTaskRunnerHandle::Get().get()));
+        ObfuscatedFileUtil::CreateForTesting(storage_policy, data_dir_path(),
+                                             NULL));
   }
 
   ObfuscatedFileUtil* ofu() {
@@ -279,7 +280,7 @@ class ObfuscatedFileUtilTest : public testing::Test {
                                               sandbox_file_system_.type(),
                                               &usage_,
                                               &quota);
-    EXPECT_EQ(storage::kQuotaStatusOk, quota_status_);
+    EXPECT_EQ(blink::mojom::QuotaStatusCode::kOk, quota_status_);
   }
 
   void RevokeUsageCache() {
@@ -292,7 +293,7 @@ class ObfuscatedFileUtilTest : public testing::Test {
   }
 
   int64_t SizeInUsageFile() {
-    base::RunLoop().RunUntilIdle();
+    scoped_task_environment_.RunUntilIdle();
     int64_t usage = 0;
     return usage_cache()->GetUsage(
         sandbox_file_system_.GetUsageCachePath(), &usage) ? usage : -1;
@@ -406,13 +407,15 @@ class ObfuscatedFileUtilTest : public testing::Test {
    public:
     UsageVerifyHelper(std::unique_ptr<FileSystemOperationContext> context,
                       SandboxFileSystemTestHelper* file_system,
-                      int64_t expected_usage)
+                      int64_t expected_usage,
+                      ObfuscatedFileUtilTest* test)
         : context_(std::move(context)),
           sandbox_file_system_(file_system),
-          expected_usage_(expected_usage) {}
+          expected_usage_(expected_usage),
+          test_(test) {}
 
     ~UsageVerifyHelper() {
-      base::RunLoop().RunUntilIdle();
+      test_->scoped_task_environment_.RunUntilIdle();
       Check();
     }
 
@@ -429,21 +432,23 @@ class ObfuscatedFileUtilTest : public testing::Test {
     std::unique_ptr<FileSystemOperationContext> context_;
     SandboxFileSystemTestHelper* sandbox_file_system_;
     int64_t expected_usage_;
+    ObfuscatedFileUtilTest* const test_;
   };
 
   std::unique_ptr<UsageVerifyHelper> AllowUsageIncrease(
       int64_t requested_growth) {
     int64_t usage = sandbox_file_system_.GetCachedOriginUsage();
-    return std::unique_ptr<UsageVerifyHelper>(
-        new UsageVerifyHelper(LimitedContext(requested_growth),
-                              &sandbox_file_system_, usage + requested_growth));
+    return std::unique_ptr<UsageVerifyHelper>(new UsageVerifyHelper(
+        LimitedContext(requested_growth), &sandbox_file_system_,
+        usage + requested_growth, this));
   }
 
   std::unique_ptr<UsageVerifyHelper> DisallowUsageIncrease(
       int64_t requested_growth) {
     int64_t usage = sandbox_file_system_.GetCachedOriginUsage();
-    return std::unique_ptr<UsageVerifyHelper>(new UsageVerifyHelper(
-        LimitedContext(requested_growth - 1), &sandbox_file_system_, usage));
+    return std::unique_ptr<UsageVerifyHelper>(
+        new UsageVerifyHelper(LimitedContext(requested_growth - 1),
+                              &sandbox_file_system_, usage, this));
   }
 
   void FillTestDirectory(
@@ -451,7 +456,7 @@ class ObfuscatedFileUtilTest : public testing::Test {
       std::set<base::FilePath::StringType>* files,
       std::set<base::FilePath::StringType>* directories) {
     std::unique_ptr<FileSystemOperationContext> context;
-    std::vector<storage::DirectoryEntry> entries;
+    std::vector<filesystem::mojom::DirectoryEntry> entries;
     EXPECT_EQ(base::File::FILE_OK,
               AsyncFileTestHelper::ReadDirectory(file_system_context(),
                                                  root_url, &entries));
@@ -493,27 +498,23 @@ class ObfuscatedFileUtilTest : public testing::Test {
     FillTestDirectory(root_url, &files, &directories);
 
     std::unique_ptr<FileSystemOperationContext> context;
-    std::vector<storage::DirectoryEntry> entries;
+    std::vector<filesystem::mojom::DirectoryEntry> entries;
     context.reset(NewContext(NULL));
     EXPECT_EQ(base::File::FILE_OK,
               AsyncFileTestHelper::ReadDirectory(
                   file_system_context(), root_url, &entries));
-    std::vector<storage::DirectoryEntry>::iterator entry_iter;
     EXPECT_EQ(files.size() + directories.size(), entries.size());
     EXPECT_TRUE(change_observer()->HasNoChange());
-    for (entry_iter = entries.begin(); entry_iter != entries.end();
-        ++entry_iter) {
-      const storage::DirectoryEntry& entry = *entry_iter;
-      std::set<base::FilePath::StringType>::iterator iter =
-          files.find(entry.name);
+    for (const filesystem::mojom::DirectoryEntry& entry : entries) {
+      auto iter = files.find(entry.name.value());
       if (iter != files.end()) {
-        EXPECT_FALSE(entry.is_directory);
+        EXPECT_EQ(entry.type, filesystem::mojom::FsFileType::REGULAR_FILE);
         files.erase(iter);
         continue;
       }
-      iter = directories.find(entry.name);
+      iter = directories.find(entry.name.value());
       EXPECT_FALSE(directories.end() == iter);
-      EXPECT_TRUE(entry.is_directory);
+      EXPECT_EQ(entry.type, filesystem::mojom::FsFileType::DIRECTORY);
       directories.erase(iter);
     }
   }
@@ -691,7 +692,7 @@ class ObfuscatedFileUtilTest : public testing::Test {
     // still alive.
     file_util->db_flush_delay_seconds_ = 0;
     file_util->MarkUsed();
-    base::RunLoop().RunUntilIdle();
+    scoped_task_environment_.RunUntilIdle();
 
     ASSERT_TRUE(file_util->origin_database_ == NULL);
   }
@@ -708,7 +709,7 @@ class ObfuscatedFileUtilTest : public testing::Test {
     }
 
     // At this point the callback is still in the message queue but OFU is gone.
-    base::RunLoop().RunUntilIdle();
+    scoped_task_environment_.RunUntilIdle();
   }
 
   void DestroyDirectoryDatabase_IsolatedTestBody() {
@@ -808,15 +809,15 @@ class ObfuscatedFileUtilTest : public testing::Test {
   const base::FilePath& data_dir_path() const { return data_dir_.GetPath(); }
 
  protected:
+  base::test::ScopedTaskEnvironment scoped_task_environment_;
   base::ScopedTempDir data_dir_;
-  base::MessageLoopForIO message_loop_;
   scoped_refptr<MockSpecialStoragePolicy> storage_policy_;
   scoped_refptr<storage::QuotaManager> quota_manager_;
   scoped_refptr<FileSystemContext> file_system_context_;
   GURL origin_;
   storage::FileSystemType type_;
   SandboxFileSystemTestHelper sandbox_file_system_;
-  storage::QuotaStatusCode quota_status_;
+  blink::mojom::QuotaStatusCode quota_status_;
   int64_t usage_;
   storage::MockFileChangeObserver change_observer_;
   storage::ChangeObserverList change_observers_;
@@ -1227,7 +1228,7 @@ TEST_F(ObfuscatedFileUtilTest, TestReadDirectoryOnFile) {
             ofu()->EnsureFileExists(context.get(), url, &created));
   ASSERT_TRUE(created);
 
-  std::vector<storage::DirectoryEntry> entries;
+  std::vector<filesystem::mojom::DirectoryEntry> entries;
   EXPECT_EQ(base::File::FILE_ERROR_NOT_A_DIRECTORY,
             AsyncFileTestHelper::ReadDirectory(file_system_context(), url,
                                                &entries));
@@ -1805,7 +1806,7 @@ TEST_F(ObfuscatedFileUtilTest, TestIncompleteDirectoryReading) {
     EXPECT_TRUE(created);
   }
 
-  std::vector<storage::DirectoryEntry> entries;
+  std::vector<filesystem::mojom::DirectoryEntry> entries;
   EXPECT_EQ(base::File::FILE_OK,
             AsyncFileTestHelper::ReadDirectory(
                 file_system_context(), empty_path, &entries));
@@ -2465,6 +2466,7 @@ TEST_F(ObfuscatedFileUtilTest, CreateDirectory_NotADirectoryInRecursive) {
 TEST_F(ObfuscatedFileUtilTest, DeleteDirectoryForOriginAndType) {
   const GURL origin1("http://www.example.com:12");
   const GURL origin2("http://www.example.com:1234");
+  const GURL origin3("http://nope.example.com");
 
   // Create origin directories.
   std::unique_ptr<SandboxFileSystemTestHelper> fs1(
@@ -2497,8 +2499,8 @@ TEST_F(ObfuscatedFileUtilTest, DeleteDirectoryForOriginAndType) {
   ASSERT_EQ(base::File::FILE_OK, error);
 
   // Delete a directory for origin1's persistent filesystem.
-  ofu()->DeleteDirectoryForOriginAndType(
-      origin1, GetTypeString(kFileSystemTypePersistent));
+  ASSERT_TRUE(ofu()->DeleteDirectoryForOriginAndType(
+      origin1, GetTypeString(kFileSystemTypePersistent)));
 
   // The directory for origin1's temporary filesystem should not be removed.
   error = base::File::FILE_ERROR_FAILED;
@@ -2521,6 +2523,22 @@ TEST_F(ObfuscatedFileUtilTest, DeleteDirectoryForOriginAndType) {
   ofu()->GetDirectoryForOriginAndType(
       origin2, GetTypeString(kFileSystemTypePersistent), false, &error);
   ASSERT_EQ(base::File::FILE_OK, error);
+
+  // Make sure origin3's directories don't exist.
+  error = base::File::FILE_ERROR_FAILED;
+  ofu()->GetDirectoryForOriginAndType(
+      origin3, GetTypeString(kFileSystemTypeTemporary), false, &error);
+  ASSERT_EQ(base::File::FILE_ERROR_NOT_FOUND, error);
+  error = base::File::FILE_ERROR_FAILED;
+  ofu()->GetDirectoryForOriginAndType(
+      origin3, GetTypeString(kFileSystemTypePersistent), false, &error);
+  ASSERT_EQ(base::File::FILE_ERROR_NOT_FOUND, error);
+
+  // Deleting directories which don't exist is not an error.
+  ASSERT_TRUE(ofu()->DeleteDirectoryForOriginAndType(
+      origin3, GetTypeString(kFileSystemTypeTemporary)));
+  ASSERT_TRUE(ofu()->DeleteDirectoryForOriginAndType(
+      origin3, GetTypeString(kFileSystemTypePersistent)));
 }
 
 TEST_F(ObfuscatedFileUtilTest, DeleteDirectoryForOriginAndType_DeleteAll) {

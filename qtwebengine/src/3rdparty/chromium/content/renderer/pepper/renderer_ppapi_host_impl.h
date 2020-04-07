@@ -80,7 +80,6 @@ class RendererPpapiHostImpl : public RendererPpapiHost {
   RenderView* GetRenderViewForInstance(PP_Instance instance) const override;
   blink::WebPluginContainer* GetContainerForInstance(
       PP_Instance instance) const override;
-  base::ProcessId GetPluginPID() const override;
   bool HasUserGesture(PP_Instance instance) const override;
   int GetRoutingIDForWidget(PP_Instance instance) const override;
   gfx::Point PluginPointToRenderFrame(PP_Instance instance,
@@ -90,6 +89,10 @@ class RendererPpapiHostImpl : public RendererPpapiHost {
       bool should_close_source) override;
   base::SharedMemoryHandle ShareSharedMemoryHandleWithRemote(
       const base::SharedMemoryHandle& handle) override;
+  base::UnsafeSharedMemoryRegion ShareUnsafeSharedMemoryRegionWithRemote(
+      const base::UnsafeSharedMemoryRegion& region) override;
+  base::ReadOnlySharedMemoryRegion ShareReadOnlySharedMemoryRegionWithRemote(
+      const base::ReadOnlySharedMemoryRegion& region) override;
   bool IsRunningInProcess() const override;
   std::string GetPluginName() const override;
   void SetToExternalPluginHost() override;
@@ -102,6 +105,13 @@ class RendererPpapiHostImpl : public RendererPpapiHost {
 
   // Returns whether the plugin is running in a secure context.
   bool IsSecureContext(PP_Instance pp_instance) const;
+
+  // Returns the plugin child process ID if the plugin is running out of
+  // process. Returns -1 otherwise. This is the ID that the browser process uses
+  // to idetify the child process for the plugin. This isn't directly useful
+  // from our process (the renderer) except in messages to the browser to
+  // disambiguate plugins.
+  int GetPluginChildId() const;
 
   void set_viewport_to_dip_scale(float viewport_to_dip_scale) {
     DCHECK_LT(0, viewport_to_dip_scale_);

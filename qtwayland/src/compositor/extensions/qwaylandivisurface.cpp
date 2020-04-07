@@ -45,6 +45,7 @@
 #endif
 
 #include <QtWaylandCompositor/QWaylandResource>
+#include <QDebug>
 
 QT_BEGIN_NAMESPACE
 
@@ -198,6 +199,10 @@ QWaylandIviSurface *QWaylandIviSurface::fromResource(wl_resource *resource)
  */
 void QWaylandIviSurface::sendConfigure(const QSize &size)
 {
+    if (!size.isValid()) {
+        qWarning() << "Can't configure ivi_surface with an invalid size" << size;
+        return;
+    }
     Q_D(QWaylandIviSurface);
     d->send_configure(size.width(), size.height());
 }
@@ -218,11 +223,6 @@ void QWaylandIviSurface::initialize()
 }
 
 QWaylandIviSurfacePrivate::QWaylandIviSurfacePrivate()
-    : QWaylandCompositorExtensionPrivate()
-    , ivi_surface()
-    , m_iviApplication(nullptr)
-    , m_surface(nullptr)
-    , m_iviId(UINT_MAX)
 {
 }
 

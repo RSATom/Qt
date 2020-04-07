@@ -59,6 +59,11 @@ public:
     QString sourceFilePath;
     QString frameworkDestinationDirectory;
     QString binaryDestinationDirectory;
+
+    bool isDebugLibrary() const
+    {
+        return binaryName.contains(QLatin1String("_debug"));
+    }
 };
 
 class DylibInfo
@@ -99,6 +104,9 @@ public:
     QSet<QString> rpathsUsed;
     bool useLoaderPath;
     bool isFramework;
+    bool isDebug;
+
+    bool containsModule(const QString &module, const QString &libInFix) const;
 };
 
 inline QDebug operator<<(QDebug debug, const ApplicationBundleInfo &info);
@@ -129,7 +137,7 @@ QSet<QString> codesignBundle(const QString &identity,
                              const QString &appBundlePath,
                              QList<QString> additionalBinariesContainingRpaths);
 void codesign(const QString &identity, const QString &appBundlePath);
-void createDiskImage(const QString &appBundlePath);
+void createDiskImage(const QString &appBundlePath, const QString &filesystemType);
 void fixupFramework(const QString &appBundlePath);
 
 

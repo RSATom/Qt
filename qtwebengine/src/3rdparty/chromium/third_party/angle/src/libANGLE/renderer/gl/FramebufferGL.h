@@ -15,6 +15,7 @@ namespace rx
 {
 
 class BlitGL;
+class ClearMultiviewGL;
 class FunctionsGL;
 class StateManagerGL;
 struct WorkaroundsGL;
@@ -22,22 +23,10 @@ struct WorkaroundsGL;
 class FramebufferGL : public FramebufferImpl
 {
   public:
-    FramebufferGL(const gl::FramebufferState &data,
-                  const FunctionsGL *functions,
-                  StateManagerGL *stateManager,
-                  const WorkaroundsGL &workarounds,
-                  BlitGL *blitter,
-                  bool isDefault);
-    // Constructor called when we need to create a FramebufferGL from an
-    // existing framebuffer name, for example for the default framebuffer
-    // on the Mac EGL CGL backend.
-    FramebufferGL(GLuint id,
-                  const gl::FramebufferState &data,
-                  const FunctionsGL *functions,
-                  const WorkaroundsGL &workarounds,
-                  BlitGL *blitter,
-                  StateManagerGL *stateManager);
+    FramebufferGL(const gl::FramebufferState &data, GLuint id, bool isDefault);
     ~FramebufferGL() override;
+
+    void destroy(const gl::Context *context) override;
 
     gl::Error discard(const gl::Context *context, size_t count, const GLenum *attachments) override;
     gl::Error invalidate(const gl::Context *context,
@@ -74,7 +63,7 @@ class FramebufferGL : public FramebufferImpl
                          const gl::Rectangle &area,
                          GLenum format,
                          GLenum type,
-                         void *pixels) const override;
+                         void *pixels) override;
 
     gl::Error blit(const gl::Context *context,
                    const gl::Rectangle &sourceArea,
@@ -82,17 +71,21 @@ class FramebufferGL : public FramebufferImpl
                    GLbitfield mask,
                    GLenum filter) override;
 
-    gl::Error getSamplePosition(size_t index, GLfloat *xy) const override;
+    gl::Error getSamplePosition(const gl::Context *context,
+                                size_t index,
+                                GLfloat *xy) const override;
 
-    bool checkStatus() const override;
+    bool checkStatus(const gl::Context *context) const override;
 
-    void syncState(const gl::Context *context,
-                   const gl::Framebuffer::DirtyBits &dirtyBits) override;
+    gl::Error syncState(const gl::Context *context,
+                        const gl::Framebuffer::DirtyBits &dirtyBits) override;
 
     GLuint getFramebufferID() const;
     bool isDefault() const;
 
-    void maskOutInactiveOutputDrawBuffers(gl::DrawBufferMask maxSet);
+    void maskOutInactiveOutputDrawBuffers(const gl::Context *context,
+                                          GLenum binding,
+                                          gl::DrawBufferMask maxSet);
 
   private:
     void syncClearState(const gl::Context *context, GLbitfield mask);
@@ -117,11 +110,6 @@ class FramebufferGL : public FramebufferImpl
                                   const gl::PixelPackState &pack,
                                   GLubyte *pixels,
                                   bool readLastRowSeparately) const;
-
-    const FunctionsGL *mFunctions;
-    StateManagerGL *mStateManager;
-    const WorkaroundsGL &mWorkarounds;
-    BlitGL *mBlitter;
 
     GLuint mFramebufferID;
     bool mIsDefault;

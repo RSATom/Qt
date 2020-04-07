@@ -48,9 +48,9 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.6
-import QtQuick.Layouts 1.3
-import QtQuick.Controls 2.0
+import QtQuick 2.12
+import QtQuick.Layouts 1.12
+import QtQuick.Controls 2.12
 import Qt.labs.folderlistmodel 2.1
 
 ApplicationWindow {
@@ -58,7 +58,7 @@ ApplicationWindow {
     title: "Qt Quick Controls 2 - Screenshots"
     visible: true
     width: Math.max(600, loader.implicitWidth)
-    height: Math.max(600, loader.implicitHeight)
+    height: Math.max(600, loader.implicitHeight + header.implicitHeight + footer.implicitHeight)
 
     property string currentFilePath
     property url lastSaveUrl

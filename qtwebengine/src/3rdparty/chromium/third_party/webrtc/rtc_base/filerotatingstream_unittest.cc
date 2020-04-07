@@ -10,13 +10,13 @@
 
 #include <memory>
 
-#include "webrtc/rtc_base/arraysize.h"
-#include "webrtc/rtc_base/checks.h"
-#include "webrtc/rtc_base/filerotatingstream.h"
-#include "webrtc/rtc_base/fileutils.h"
-#include "webrtc/rtc_base/gunit.h"
-#include "webrtc/rtc_base/pathutils.h"
-#include "webrtc/test/testsupport/fileutils.h"
+#include "rtc_base/arraysize.h"
+#include "rtc_base/checks.h"
+#include "rtc_base/filerotatingstream.h"
+#include "rtc_base/fileutils.h"
+#include "rtc_base/gunit.h"
+#include "rtc_base/pathutils.h"
+#include "test/testsupport/fileutils.h"
 
 namespace rtc {
 
@@ -31,7 +31,7 @@ void CleanupLogDirectory(const FileRotatingStream& stream) {
 
 }  // namespace
 
-#if defined (WEBRTC_ANDROID)
+#if defined(WEBRTC_ANDROID)
 // Fails on Android: https://bugs.chromium.org/p/webrtc/issues/detail?id=4364.
 #define MAYBE_FileRotatingStreamTest DISABLED_FileRotatingStreamTest
 #else
@@ -195,20 +195,20 @@ TEST_F(MAYBE_FileRotatingStreamTest, WriteOverflowAndRead) {
 // Tests that the returned file paths have the right folder and prefix.
 TEST_F(MAYBE_FileRotatingStreamTest, GetFilePath) {
   Init("FileRotatingStreamTestGetFilePath", kFilePrefix, kMaxFileSize, 20);
+  // dir_path_ includes a trailing delimiter.
+  const std::string prefix = dir_path_ + kFilePrefix;
   for (auto i = 0; i < 20; ++i) {
-    Pathname path(stream_->GetFilePath(i));
-    EXPECT_EQ(0, path.folder().compare(dir_path_));
-    EXPECT_EQ(0, path.filename().compare(0, strlen(kFilePrefix), kFilePrefix));
+    EXPECT_EQ(0, stream_->GetFilePath(i).compare(0, prefix.size(), prefix));
   }
 }
 
-#if defined (WEBRTC_ANDROID)
+#if defined(WEBRTC_ANDROID)
 // Fails on Android: https://bugs.chromium.org/p/webrtc/issues/detail?id=4364.
 #define MAYBE_CallSessionFileRotatingStreamTest \
-    DISABLED_CallSessionFileRotatingStreamTest
+  DISABLED_CallSessionFileRotatingStreamTest
 #else
 #define MAYBE_CallSessionFileRotatingStreamTest \
-    CallSessionFileRotatingStreamTest
+  CallSessionFileRotatingStreamTest
 #endif
 
 class MAYBE_CallSessionFileRotatingStreamTest : public ::testing::Test {
@@ -224,7 +224,7 @@ class MAYBE_CallSessionFileRotatingStreamTest : public ::testing::Test {
         new CallSessionFileRotatingStream(dir_path_, max_total_log_size));
   }
 
-  virtual void TearDown() {
+  void TearDown() override {
     // On windows, open files can't be removed.
     stream_->Close();
     CleanupLogDirectory(*stream_);

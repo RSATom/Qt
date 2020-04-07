@@ -124,6 +124,11 @@ int X509_set_notBefore(X509 *x, const ASN1_TIME *tm)
     return (in != NULL);
 }
 
+const ASN1_TIME *X509_get0_notBefore(const X509 *x)
+{
+    return x->cert_info->validity->notBefore;
+}
+
 int X509_set_notAfter(X509 *x, const ASN1_TIME *tm)
 {
     ASN1_TIME *in;
@@ -141,6 +146,11 @@ int X509_set_notAfter(X509 *x, const ASN1_TIME *tm)
     return (in != NULL);
 }
 
+const ASN1_TIME *X509_get0_notAfter(const X509 *x)
+{
+    return x->cert_info->validity->notAfter;
+}
+
 int X509_set_pubkey(X509 *x, EVP_PKEY *pkey)
 {
     if ((x == NULL) || (x->cert_info == NULL))
@@ -151,4 +161,9 @@ int X509_set_pubkey(X509 *x, EVP_PKEY *pkey)
 STACK_OF(X509_EXTENSION) *X509_get0_extensions(const X509 *x)
 {
     return x->cert_info->extensions;
+}
+
+const X509_ALGOR *X509_get0_tbs_sigalg(const X509 *x)
+{
+    return x->cert_info->signature;
 }

@@ -53,4 +53,7 @@ xmlpatternsxqts.depends = xmlpatternssdk
            xmlpatternsxqts \
            xmlpatternsxslts \
 
+qtHaveModule(quick): SUBIDIRS += qquickxmllistmodel
+
 !cross_compile:                             SUBDIRS += host.pro
+

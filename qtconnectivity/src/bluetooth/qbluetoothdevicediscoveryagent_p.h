@@ -150,11 +150,11 @@ private:
     QBluetoothAddress m_adapterAddress;
     bool pendingCancel;
     bool pendingStart;
-    OrgBluezManagerInterface *manager;
-    OrgBluezAdapterInterface *adapter;
-    OrgFreedesktopDBusObjectManagerInterface *managerBluez5;
-    OrgBluezAdapter1Interface *adapterBluez5;
-    QTimer *discoveryTimer;
+    OrgBluezManagerInterface *manager = nullptr;
+    OrgBluezAdapterInterface *adapter = nullptr;
+    OrgFreedesktopDBusObjectManagerInterface *managerBluez5 = nullptr;
+    OrgBluezAdapter1Interface *adapterBluez5 = nullptr;
+    QTimer *discoveryTimer = nullptr;
     QList<OrgFreedesktopDBusPropertiesInterface *> propertyMonitors;
 
     void deviceFoundBluez5(const QString& devicePath);

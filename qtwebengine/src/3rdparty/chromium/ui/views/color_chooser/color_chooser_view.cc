@@ -364,12 +364,12 @@ ColorChooserView::ColorChooserView(ColorChooserListener* listener,
   DCHECK(listener_);
 
   SetBackground(CreateSolidBackground(SK_ColorLTGRAY));
-  SetLayoutManager(new BoxLayout(BoxLayout::kVertical,
-                                 gfx::Insets(kMarginWidth), kMarginWidth));
+  SetLayoutManager(std::make_unique<BoxLayout>(
+      BoxLayout::kVertical, gfx::Insets(kMarginWidth), kMarginWidth));
 
   View* container = new View();
-  container->SetLayoutManager(
-      new BoxLayout(BoxLayout::kHorizontal, gfx::Insets(), kMarginWidth));
+  container->SetLayoutManager(std::make_unique<BoxLayout>(
+      BoxLayout::kHorizontal, gfx::Insets(), kMarginWidth));
   saturation_value_ = new SaturationValueView(this);
   container->AddChildView(saturation_value_);
   hue_ = new HueView(this);
@@ -377,8 +377,8 @@ ColorChooserView::ColorChooserView(ColorChooserListener* listener,
   AddChildView(container);
 
   View* container2 = new View();
-  GridLayout* layout = new GridLayout(container2);
-  container2->SetLayoutManager(layout);
+  GridLayout* layout = container2->SetLayoutManager(
+      std::make_unique<views::GridLayout>(container2));
   ColumnSet* columns = layout->AddColumnSet(0);
   columns->AddColumn(
       GridLayout::LEADING, GridLayout::FILL, 0, GridLayout::USE_PREF, 0, 0);
@@ -388,7 +388,7 @@ ColorChooserView::ColorChooserView(ColorChooserListener* listener,
   layout->StartRow(0, 0);
   textfield_ = new Textfield();
   textfield_->set_controller(this);
-  textfield_->set_default_width_in_chars(kTextfieldLengthInChars);
+  textfield_->SetDefaultWidthInChars(kTextfieldLengthInChars);
   layout->AddView(textfield_);
   selected_color_patch_ = new SelectedColorPatchView();
   layout->AddView(selected_color_patch_);

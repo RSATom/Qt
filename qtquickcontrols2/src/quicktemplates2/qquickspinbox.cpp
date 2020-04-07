@@ -59,6 +59,7 @@ static const int AUTO_REPEAT_INTERVAL = 100;
     \inqmlmodule QtQuick.Controls
     \since 5.7
     \ingroup input
+    \ingroup qtquickcontrols2-focusscopes
     \brief Allows the user to select from a set of preset values.
 
     \image qtquickcontrols2-spinbox.png
@@ -91,7 +92,7 @@ static const int AUTO_REPEAT_INTERVAL = 100;
 
     \snippet qtquickcontrols2-spinbox-double.qml 1
 
-    \sa Tumbler, {Customizing SpinBox}
+    \sa Tumbler, {Customizing SpinBox}, {Focus Management in Qt Quick Controls 2}
 */
 
 /*!
@@ -107,22 +108,6 @@ class QQuickSpinBoxPrivate : public QQuickControlPrivate
     Q_DECLARE_PUBLIC(QQuickSpinBox)
 
 public:
-    QQuickSpinBoxPrivate()
-        : editable(false),
-          wrap(false),
-          from(0),
-          to(99),
-          value(0),
-          stepSize(1),
-          delayTimer(0),
-          repeatTimer(0),
-          up(nullptr),
-          down(nullptr),
-          validator(nullptr),
-          inputMethodHints(Qt::ImhDigitsOnly)
-    {
-    }
-
     int boundValue(int value, bool wrap) const;
     void updateValue();
     bool setValue(int value, bool wrap, bool modified);
@@ -131,6 +116,9 @@ public:
     void decrease(bool modified);
 
     int effectiveStepSize() const;
+
+    void updateDisplayText();
+    void setDisplayText(const QString &displayText);
 
     bool upEnabled() const;
     void updateUpEnabled();
@@ -147,20 +135,24 @@ public:
     void handleRelease(const QPointF &point) override;
     void handleUngrab() override;
 
-    bool editable;
-    bool wrap;
-    int from;
-    int to;
-    int value;
-    int stepSize;
-    int delayTimer;
-    int repeatTimer;
-    QQuickSpinButton *up;
-    QQuickSpinButton *down;
-    QValidator *validator;
+    void itemImplicitWidthChanged(QQuickItem *item) override;
+    void itemImplicitHeightChanged(QQuickItem *item) override;
+
+    bool editable = false;
+    bool wrap = false;
+    int from = 0;
+    int to = 99;
+    int value = 0;
+    int stepSize = 1;
+    int delayTimer = 0;
+    int repeatTimer = 0;
+    QString displayText;
+    QQuickSpinButton *up = nullptr;
+    QQuickSpinButton *down = nullptr;
+    QValidator *validator = nullptr;
     mutable QJSValue textFromValue;
     mutable QJSValue valueFromText;
-    Qt::InputMethodHints inputMethodHints;
+    Qt::InputMethodHints inputMethodHints = Qt::ImhDigitsOnly;
 };
 
 class QQuickSpinButtonPrivate : public QObjectPrivate
@@ -168,13 +160,6 @@ class QQuickSpinButtonPrivate : public QObjectPrivate
     Q_DECLARE_PUBLIC(QQuickSpinButton)
 
 public:
-    QQuickSpinButtonPrivate()
-        : pressed(false),
-          hovered(false),
-          indicator(nullptr)
-    {
-    }
-
     static QQuickSpinButtonPrivate *get(QQuickSpinButton *button)
     {
         return button->d_func();
@@ -183,8 +168,8 @@ public:
     void cancelIndicator();
     void executeIndicator(bool complete = false);
 
-    bool pressed;
-    bool hovered;
+    bool pressed = false;
+    bool hovered = false;
     QQuickDeferredPointer<QQuickItem> indicator;
 };
 
@@ -210,13 +195,16 @@ void QQuickSpinBoxPrivate::updateValue()
     if (contentItem) {
         QVariant text = contentItem->property("text");
         if (text.isValid()) {
+            int val = 0;
             QQmlEngine *engine = qmlEngine(q);
-            if (engine) {
+            if (engine && valueFromText.isCallable()) {
                 QV4::ExecutionEngine *v4 = QQmlEnginePrivate::getV4Engine(engine);
                 QJSValue loc(v4, QQmlLocale::wrap(v4, locale));
-                QJSValue val = q->valueFromText().call(QJSValueList() << text.toString() << loc);
-                setValue(val.toInt(), /* allowWrap = */ false, /* modified = */ true);
+                val = valueFromText.call(QJSValueList() << text.toString() << loc).toInt();
+            } else {
+                val = locale.toInt(text.toString());
             }
+            setValue(val, /* allowWrap = */ false, /* modified = */ true);
         }
     }
 }
@@ -232,6 +220,7 @@ bool QQuickSpinBoxPrivate::setValue(int newValue, bool allowWrap, bool modified)
 
     value = newValue;
 
+    updateDisplayText();
     updateUpEnabled();
     updateDownEnabled();
 
@@ -259,6 +248,31 @@ void QQuickSpinBoxPrivate::decrease(bool modified)
 int QQuickSpinBoxPrivate::effectiveStepSize() const
 {
     return from > to ? -1 * stepSize : stepSize;
+}
+
+void QQuickSpinBoxPrivate::updateDisplayText()
+{
+    Q_Q(QQuickSpinBox);
+    QString text;
+    QQmlEngine *engine = qmlEngine(q);
+    if (engine && textFromValue.isCallable()) {
+        QV4::ExecutionEngine *v4 = QQmlEnginePrivate::getV4Engine(engine);
+        QJSValue loc(v4, QQmlLocale::wrap(v4, locale));
+        text = textFromValue.call(QJSValueList() << value << loc).toString();
+    } else {
+        text = locale.toString(value);
+    }
+    setDisplayText(text);
+}
+
+void QQuickSpinBoxPrivate::setDisplayText(const QString &text)
+{
+    Q_Q(QQuickSpinBox);
+    if (displayText == text)
+        return;
+
+    displayText = text;
+    emit q->displayTextChanged();
 }
 
 bool QQuickSpinBoxPrivate::upEnabled() const
@@ -392,6 +406,24 @@ void QQuickSpinBoxPrivate::handleUngrab()
     stopPressRepeat();
 }
 
+void QQuickSpinBoxPrivate::itemImplicitWidthChanged(QQuickItem *item)
+{
+    QQuickControlPrivate::itemImplicitWidthChanged(item);
+    if (item == up->indicator())
+        emit up->implicitIndicatorWidthChanged();
+    else if (item == down->indicator())
+        emit down->implicitIndicatorWidthChanged();
+}
+
+void QQuickSpinBoxPrivate::itemImplicitHeightChanged(QQuickItem *item)
+{
+    QQuickControlPrivate::itemImplicitHeightChanged(item);
+    if (item == up->indicator())
+        emit up->implicitIndicatorHeightChanged();
+    else if (item == down->indicator())
+        emit down->implicitIndicatorHeightChanged();
+}
+
 QQuickSpinBox::QQuickSpinBox(QQuickItem *parent)
     : QQuickControl(*(new QQuickSpinBoxPrivate), parent)
 {
@@ -405,6 +437,13 @@ QQuickSpinBox::QQuickSpinBox(QQuickItem *parent)
 #if QT_CONFIG(cursor)
     setCursor(Qt::ArrowCursor);
 #endif
+}
+
+QQuickSpinBox::~QQuickSpinBox()
+{
+    Q_D(QQuickSpinBox);
+    d->removeImplicitSizeListener(d->up->indicator());
+    d->removeImplicitSizeListener(d->down->indicator());
 }
 
 /*!
@@ -590,7 +629,8 @@ void QQuickSpinBox::setValidator(QValidator *validator)
     is the value to be converted, and the optional second argument is the
     locale that should be used for the conversion, if applicable.
 
-    The default implementation does the conversion using \l {QtQml::Locale}{Number.toLocaleString()}:
+    The default implementation does the conversion using
+    \l {QtQml::Number::toLocaleString()}{Number.toLocaleString}():
 
     \code
     textFromValue: function(value, locale) { return Number(value).toLocaleString(locale, 'f', 0); }
@@ -608,7 +648,7 @@ QJSValue QQuickSpinBox::textFromValue() const
     if (!d->textFromValue.isCallable()) {
         QQmlEngine *engine = qmlEngine(this);
         if (engine)
-            d->textFromValue = engine->evaluate(QStringLiteral("function(value, locale) { return Number(value).toLocaleString(locale, 'f', 0); }"));
+            d->textFromValue = engine->evaluate(QStringLiteral("(function(value, locale) { return Number(value).toLocaleString(locale, 'f', 0); })"));
     }
     return d->textFromValue;
 }
@@ -677,9 +717,13 @@ void QQuickSpinBox::setValueFromText(const QJSValue &callback)
     \qmlproperty bool QtQuick.Controls::SpinBox::up.pressed
     \qmlproperty Item QtQuick.Controls::SpinBox::up.indicator
     \qmlproperty bool QtQuick.Controls::SpinBox::up.hovered
+    \qmlproperty real QtQuick.Controls::SpinBox::up.implicitIndicatorWidth
+    \qmlproperty real QtQuick.Controls::SpinBox::up.implicitIndicatorHeight
 
     These properties hold the up indicator item and whether it is pressed or
-    hovered. The \c up.hovered property was introduced in QtQuick.Controls 2.1.
+    hovered. The \c up.hovered property was introduced in QtQuick.Controls 2.1,
+    and the \c up.implicitIndicatorWidth and \c up.implicitIndicatorHeight
+    properties were introduced in QtQuick.Controls 2.5.
 
     \sa increase()
 */
@@ -694,9 +738,13 @@ QQuickSpinButton *QQuickSpinBox::up() const
     \qmlproperty bool QtQuick.Controls::SpinBox::down.pressed
     \qmlproperty Item QtQuick.Controls::SpinBox::down.indicator
     \qmlproperty bool QtQuick.Controls::SpinBox::down.hovered
+    \qmlproperty real QtQuick.Controls::SpinBox::down.implicitIndicatorWidth
+    \qmlproperty real QtQuick.Controls::SpinBox::down.implicitIndicatorHeight
 
     These properties hold the down indicator item and whether it is pressed or
-    hovered. The \c down.hovered property was introduced in QtQuick.Controls 2.1.
+    hovered. The \c down.hovered property was introduced in QtQuick.Controls 2.1,
+    and the \c down.implicitIndicatorWidth and \c down.implicitIndicatorHeight
+    properties were introduced in QtQuick.Controls 2.5.
 
     \sa decrease()
 */
@@ -776,6 +824,27 @@ void QQuickSpinBox::setWrap(bool wrap)
         d->updateDownEnabled();
     }
     emit wrapChanged();
+}
+
+/*!
+    \since QtQuick.Controls 2.4 (Qt 5.11)
+    \qmlproperty string QtQuick.Controls::SpinBox::displayText
+    \readonly
+
+    This property holds the textual value of the spinbox.
+
+    The value of the property is based on \l textFromValue and \l {Control::}
+    {locale}, and equal to:
+    \badcode
+    var text = spinBox.textFromValue(spinBox.value, spinBox.locale)
+    \endcode
+
+    \sa textFromValue
+*/
+QString QQuickSpinBox::displayText() const
+{
+    Q_D(const QQuickSpinBox);
+    return d->displayText;
 }
 
 /*!
@@ -900,8 +969,7 @@ void QQuickSpinBox::wheelEvent(QWheelEvent *event)
     if (d->wheelEnabled) {
         const QPointF angle = event->angleDelta();
         const qreal delta = (qFuzzyIsNull(angle.y()) ? angle.x() : angle.y()) / QWheelEvent::DefaultDeltasPerStep;
-        if (!d->stepBy(qRound(d->effectiveStepSize() * delta), true))
-            event->ignore();
+        d->stepBy(qRound(d->effectiveStepSize() * delta), true);
     }
 }
 #endif
@@ -926,6 +994,7 @@ void QQuickSpinBox::componentComplete()
 
     QQuickControl::componentComplete();
     if (!d->setValue(d->value, /* allowWrap = */ false, /* modified = */ false)) {
+        d->updateDisplayText();
         d->updateUpEnabled();
         d->updateDownEnabled();
     }
@@ -959,14 +1028,21 @@ void QQuickSpinBox::contentItemChange(QQuickItem *newItem, QQuickItem *oldItem)
     }
 }
 
+void QQuickSpinBox::localeChange(const QLocale &newLocale, const QLocale &oldLocale)
+{
+    Q_D(QQuickSpinBox);
+    QQuickControl::localeChange(newLocale, oldLocale);
+    d->updateDisplayText();
+}
+
 QFont QQuickSpinBox::defaultFont() const
 {
-    return QQuickControlPrivate::themeFont(QPlatformTheme::EditorFont);
+    return QQuickTheme::font(QQuickTheme::SpinBox);
 }
 
 QPalette QQuickSpinBox::defaultPalette() const
 {
-    return QQuickControlPrivate::themePalette(QPlatformTheme::TextLineEditPalette);
+    return QQuickTheme::palette(QQuickTheme::SpinBox);
 }
 
 #if QT_CONFIG(accessibility)
@@ -1043,13 +1119,24 @@ void QQuickSpinButton::setIndicator(QQuickItem *indicator)
     if (!d->indicator.isExecuting())
         d->cancelIndicator();
 
+    const qreal oldImplicitIndicatorWidth = implicitIndicatorWidth();
+    const qreal oldImplicitIndicatorHeight = implicitIndicatorHeight();
+
+    QQuickSpinBox *spinBox = static_cast<QQuickSpinBox *>(parent());
+    QQuickSpinBoxPrivate::get(spinBox)->removeImplicitSizeListener(d->indicator);
     delete d->indicator;
     d->indicator = indicator;
 
     if (indicator) {
         if (!indicator->parentItem())
-            indicator->setParentItem(static_cast<QQuickItem *>(parent()));
+            indicator->setParentItem(spinBox);
+        QQuickSpinBoxPrivate::get(spinBox)->addImplicitSizeListener(indicator);
     }
+
+    if (!qFuzzyCompare(oldImplicitIndicatorWidth, implicitIndicatorWidth()))
+        emit implicitIndicatorWidthChanged();
+    if (!qFuzzyCompare(oldImplicitIndicatorHeight, implicitIndicatorHeight()))
+        emit implicitIndicatorHeightChanged();
     if (!d->indicator.isExecuting())
         emit indicatorChanged();
 }
@@ -1068,6 +1155,22 @@ void QQuickSpinButton::setHovered(bool hovered)
 
     d->hovered = hovered;
     emit hoveredChanged();
+}
+
+qreal QQuickSpinButton::implicitIndicatorWidth() const
+{
+    Q_D(const QQuickSpinButton);
+    if (!d->indicator)
+        return 0;
+    return d->indicator->implicitWidth();
+}
+
+qreal QQuickSpinButton::implicitIndicatorHeight() const
+{
+    Q_D(const QQuickSpinButton);
+    if (!d->indicator)
+        return 0;
+    return d->indicator->implicitHeight();
 }
 
 QT_END_NAMESPACE

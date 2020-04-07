@@ -299,9 +299,6 @@ ImageSkia::ImageSkia(std::unique_ptr<ImageSkiaSource> source, float scale)
   DetachStorageFromSequence();
 }
 
-ImageSkia::ImageSkia(ImageSkiaSource* source, const gfx::Size& size)
-    : ImageSkia(base::WrapUnique(source), size) {}
-
 ImageSkia::ImageSkia(const ImageSkiaRep& image_rep) {
   Init(image_rep);
   // No other thread has reference to this, so it's safe to detach the sequence.
@@ -364,6 +361,10 @@ std::unique_ptr<ImageSkia> ImageSkia::DeepCopy() const {
 
 bool ImageSkia::BackedBySameObjectAs(const gfx::ImageSkia& other) const {
   return storage_.get() == other.storage_.get();
+}
+
+const void* ImageSkia::GetBackingObject() const {
+  return storage_.get();
 }
 
 void ImageSkia::AddRepresentation(const ImageSkiaRep& image_rep) {
@@ -498,8 +499,7 @@ void ImageSkia::RemoveUnsupportedRepresentationsForScale(float scale) {
 }
 
 void ImageSkia::Init(const ImageSkiaRep& image_rep) {
-  // TODO(pkotwicz): The image should be null whenever image rep is null.
-  if (image_rep.sk_bitmap().empty()) {
+  if (image_rep.sk_bitmap().drawsNothing()) {
     storage_ = NULL;
     return;
   }

@@ -15,7 +15,7 @@
 #include "base/memory/weak_ptr.h"
 #include "content/common/content_export.h"
 #include "media/base/media_permission.h"
-#include "third_party/WebKit/public/platform/modules/permissions/permission.mojom.h"
+#include "third_party/blink/public/platform/modules/permissions/permission.mojom.h"
 
 namespace base {
 class SingleThreadTaskRunner;
@@ -26,11 +26,13 @@ namespace content {
 // MediaPermission implementation using content PermissionService.
 class CONTENT_EXPORT MediaPermissionDispatcher : public media::MediaPermission {
  public:
-  using ConnectToServiceCB = base::Callback<void(
+  using ConnectToServiceCB = base::RepeatingCallback<void(
       mojo::InterfaceRequest<blink::mojom::PermissionService>)>;
+  using IsEncryptedMediaEnabledCB = base::RepeatingCallback<bool()>;
 
-  explicit MediaPermissionDispatcher(
-      const ConnectToServiceCB& connect_to_service_cb);
+  MediaPermissionDispatcher(
+      const ConnectToServiceCB& connect_to_service_cb,
+      const IsEncryptedMediaEnabledCB& is_encrypted_media_enabled_cb);
   ~MediaPermissionDispatcher() override;
 
   // Called when the frame owning this MediaPermissionDispatcher is navigated.
@@ -40,12 +42,11 @@ class CONTENT_EXPORT MediaPermissionDispatcher : public media::MediaPermission {
   // Note: Can be called on any thread. The |permission_status_cb| will always
   // be fired on the thread where these methods are called.
   void HasPermission(Type type,
-                     const GURL& security_origin,
                      const PermissionStatusCB& permission_status_cb) override;
   void RequestPermission(
       Type type,
-      const GURL& security_origin,
       const PermissionStatusCB& permission_status_cb) override;
+  bool IsEncryptedMediaEnabled() override;
 
  private:
   // Map of request IDs and pending PermissionStatusCBs.
@@ -66,6 +67,7 @@ class CONTENT_EXPORT MediaPermissionDispatcher : public media::MediaPermission {
   void OnConnectionError();
 
   ConnectToServiceCB connect_to_service_cb_;
+  IsEncryptedMediaEnabledCB is_encrypted_media_enabled_cb_;
   scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
   uint32_t next_request_id_;
   RequestMap requests_;

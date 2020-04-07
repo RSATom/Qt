@@ -55,7 +55,7 @@ bool DrmBuffer::Initialize(const SkImageInfo& info,
     return false;
   }
 
-  mmap_size_ = info.getSafeSize(stride_);
+  mmap_size_ = info.computeByteSize(stride_);
   if (!drm_->MapDumbBuffer(handle_, mmap_size_, &mmap_base_)) {
     PLOG(ERROR) << "DrmBuffer: MapDumbBuffer: handle " << handle_;
     return false;
@@ -117,8 +117,8 @@ gfx::Size DrmBuffer::GetSize() const {
   return gfx::Size(surface_->width(), surface_->height());
 }
 
-const DrmDevice* DrmBuffer::GetDrmDevice() const {
-  return drm_.get();
+const GbmDeviceLinux* DrmBuffer::GetGbmDeviceLinux() const {
+  return drm_->AsGbmDeviceLinux();
 }
 
 bool DrmBuffer::RequiresGlFinish() const {

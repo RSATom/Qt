@@ -42,11 +42,13 @@
 #include "qgeomappingmanager_p.h"
 #include "qgeoroutingmanager.h"
 #include "qplacemanager.h"
+#include "qnavigationmanager_p.h"
 #include "qgeocodingmanagerengine.h"
 #include "qgeomappingmanagerengine_p.h"
 #include "qgeoroutingmanagerengine.h"
 #include "qplacemanagerengine.h"
 #include "qplacemanagerengine_p.h"
+#include "qnavigationmanagerengine_p.h"
 
 #include <QList>
 #include <QString>
@@ -202,6 +204,18 @@ Q_GLOBAL_STATIC_WITH_ARGS(QFactoryLoader, loader,
 */
 
 /*!
+    \enum QGeoServiceProvider::NavigationFeature
+
+    Describes the navigation features supported by the geo service provider.
+
+    \value NoNavigationFeatures         No navigation features are supported.
+    \value OnlineNavigationFeature      Online navigation is supported.
+    \value OfflineNavigationFeature     Offline navigation is supported.
+    \value AnyNavigationFeatures        Matches a geo service provider that provides any navigation
+                                        features.
+*/
+
+/*!
     Returns a list of names of the available service providers, for use with
     the QGeoServiceProvider constructors.
 */
@@ -310,6 +324,16 @@ QGeoServiceProvider::PlacesFeatures QGeoServiceProvider::placesFeatures() const
     return d_ptr->features<PlacesFeatures>("PlacesFeatures");
 }
 
+/*!
+    Returns the navigation features supported by the geo service provider.
+
+    \since QtLocation 5.11
+*/
+QGeoServiceProvider::NavigationFeatures QGeoServiceProvider::navigationFeatures() const
+{
+    return d_ptr->features<NavigationFeatures>("NavigationFeatures");
+}
+
 /* Sadly, these are necessary to figure out which of the factory->createX
  * methods we need to call. Ideally it would be nice to find a way to embed
  * these into the manager() template. */
@@ -334,6 +358,12 @@ template <> QPlaceManagerEngine *createEngine<QPlaceManagerEngine>(QGeoServicePr
 {
     return d_ptr->factory->createPlaceManagerEngine(d_ptr->cleanedParameterMap, &(d_ptr->placeError), &(d_ptr->placeErrorString));
 }
+template <> QNavigationManagerEngine *createEngine<QNavigationManagerEngine>(QGeoServiceProviderPrivate *d_ptr)
+{
+    if (!d_ptr->factoryV2)
+        return nullptr;
+    return d_ptr->factoryV2->createNavigationManagerEngine(d_ptr->cleanedParameterMap, &(d_ptr->navigationError), &(d_ptr->navigationErrorString));
+}
 
 /* Template for generating the code for each of the geocodingManager(),
  * mappingManager() etc methods */
@@ -351,11 +381,15 @@ Manager *QGeoServiceProviderPrivate::manager(QGeoServiceProvider::Error *_error,
         this->loadPlugin(this->parameterMap);
     }
 
-    if (!this->factory || error != QGeoServiceProvider::NoError)
+    if (!this->factory) {
+        error = this->error;
+        errorString = this->errorString;
         return 0;
+    }
 
     if (!manager) {
-        Engine *engine = createEngine<Engine>(this);
+        Engine *engine = createEngine<Engine>(this); // this sets the specific error variables directly,
+                                                     // from now on the local error, errorString refs should be set.
 
         if (engine) {
             engine->setManagerName(
@@ -493,7 +527,24 @@ QPlaceManager *QGeoServiceProvider::placeManager() const
 {
     return d_ptr->manager<QPlaceManager, QPlaceManagerEngine>(
                &(d_ptr->placeError), &(d_ptr->placeErrorString),
-               &(d_ptr->placeManager));
+                &(d_ptr->placeManager));
+}
+
+/*!
+    Returns a new QNavigationManager made available by the service provider.
+
+    After this function has been called, error() and errorString() will
+    report any errors which occurred during the construction of the QNavigationManagerEngine.
+*/
+QNavigationManager *QGeoServiceProvider::navigationManager() const
+{
+    QNavigationManager * mgr = d_ptr->manager<QNavigationManager, QNavigationManagerEngine>(
+               &(d_ptr->navigationError), &(d_ptr->navigationErrorString),
+                &(d_ptr->navigationManager));
+    if (!mgr) {
+        qDebug() << d_ptr->navigationError << d_ptr->navigationErrorString;
+    }
+    return mgr;
 }
 
 /*!
@@ -527,6 +578,11 @@ void QGeoServiceProvider::setAllowExperimental(bool allow)
     d_ptr->experimental = allow;
     d_ptr->unload();
     d_ptr->loadMeta();
+}
+
+void QGeoServiceProvider::setQmlEngine(QQmlEngine *engine)
+{
+    d_ptr->qmlEngine = engine;
 }
 
 /*!
@@ -567,6 +623,8 @@ void QGeoServiceProvider::setLocale(const QLocale &locale)
         d_ptr->mappingManager->setLocale(locale);
     if (d_ptr->placeManager)
         d_ptr->placeManager->setLocale(locale);
+    if (d_ptr->navigationManager)
+        d_ptr->navigationManager->setLocale(locale);
 }
 
 /*******************************************************************************
@@ -595,6 +653,7 @@ QGeoServiceProviderPrivate::~QGeoServiceProviderPrivate()
     delete routingManager;
     delete mappingManager;
     delete placeManager;
+    delete navigationManager;
 }
 
 void QGeoServiceProviderPrivate::unload()
@@ -611,7 +670,10 @@ void QGeoServiceProviderPrivate::unload()
     delete placeManager;
     placeManager = 0;
 
-    factory = 0;
+    delete navigationManager;
+    navigationManager = nullptr;
+
+    factory = factoryV2 = factoryV3 = nullptr;
     error = QGeoServiceProvider::NoError;
     errorString = QLatin1String("");
     metaData = QJsonObject();
@@ -641,7 +703,7 @@ void QGeoServiceProviderPrivate::filterParameterMap()
 
 void QGeoServiceProviderPrivate::loadMeta()
 {
-    factory = 0;
+    factory = factoryV2 = factoryV3 = nullptr;
     metaData = QJsonObject();
     metaData.insert(QStringLiteral("index"), -1);
     error = QGeoServiceProvider::NotSupportedError;
@@ -682,7 +744,7 @@ void QGeoServiceProviderPrivate::loadPlugin(const QVariantMap &parameters)
     if (int(metaData.value(QStringLiteral("index")).toDouble()) < 0) {
         error = QGeoServiceProvider::NotSupportedError;
         errorString = QString(QLatin1String("The geoservices provider is not supported."));
-        factory = 0;
+        factory = factoryV2 = factoryV3 = nullptr;
         return;
     }
 
@@ -692,7 +754,23 @@ void QGeoServiceProviderPrivate::loadPlugin(const QVariantMap &parameters)
     int idx = int(metaData.value(QStringLiteral("index")).toDouble());
 
     // load the actual plugin
-    factory = qobject_cast<QGeoServiceProviderFactory *>(loader()->instance(idx));
+    QObject *instance = loader()->instance(idx);
+    if (!instance) {
+        error = QGeoServiceProvider::LoaderError;
+        errorString = QLatin1String("loader()->instance(idx) failed to return an instance. Set the environment variable QT_DEBUG_PLUGINS to see more details.");
+        return;
+    }
+    factoryV3 = qobject_cast<QGeoServiceProviderFactoryV3 *>(instance);
+    if (!factoryV3) {
+        factoryV2 = qobject_cast<QGeoServiceProviderFactoryV2 *>(instance);
+        if (!factoryV2)
+            factory = qobject_cast<QGeoServiceProviderFactory *>(instance);
+        else
+            factory = factoryV2;
+    } else {
+        factory = factoryV2 = factoryV3;
+        factoryV3->setQmlEngine(qmlEngine);
+    }
 }
 
 QHash<QString, QJsonObject> QGeoServiceProviderPrivate::plugins(bool reload)

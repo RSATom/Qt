@@ -30,9 +30,7 @@ class AppCacheDiskCache::CreateBackendCallbackShim
       : appcache_diskcache_(object) {
   }
 
-  void Cancel() {
-    appcache_diskcache_ = NULL;
-  }
+  void Cancel() { appcache_diskcache_ = nullptr; }
 
   void Callback(int rv) {
     if (appcache_diskcache_)
@@ -101,9 +99,9 @@ class AppCacheDiskCache::EntryImpl : public Entry {
   }
 
   void Abandon() {
-    owner_ = NULL;
+    owner_ = nullptr;
     disk_cache_entry_->Close();
-    disk_cache_entry_ = NULL;
+    disk_cache_entry_ = nullptr;
   }
 
  private:
@@ -128,7 +126,7 @@ class AppCacheDiskCache::ActiveCall
     scoped_refptr<ActiveCall> active_call(
         new ActiveCall(owner, entry, callback));
     int rv = owner->disk_cache()->CreateEntry(
-        base::Int64ToString(key), &active_call->entry_ptr_,
+        base::Int64ToString(key), net::HIGHEST, &active_call->entry_ptr_,
         base::Bind(&ActiveCall::OnAsyncCompletion, active_call));
     return active_call->HandleImmediateReturnValue(rv);
   }
@@ -140,7 +138,7 @@ class AppCacheDiskCache::ActiveCall
     scoped_refptr<ActiveCall> active_call(
         new ActiveCall(owner, entry, callback));
     int rv = owner->disk_cache()->OpenEntry(
-        base::Int64ToString(key), &active_call->entry_ptr_,
+        base::Int64ToString(key), net::HIGHEST, &active_call->entry_ptr_,
         base::Bind(&ActiveCall::OnAsyncCompletion, active_call));
     return active_call->HandleImmediateReturnValue(rv);
   }
@@ -151,7 +149,7 @@ class AppCacheDiskCache::ActiveCall
     scoped_refptr<ActiveCall> active_call(
         new ActiveCall(owner, nullptr, callback));
     int rv = owner->disk_cache()->DoomEntry(
-        base::Int64ToString(key),
+        base::Int64ToString(key), net::HIGHEST,
         base::Bind(&ActiveCall::OnAsyncCompletion, active_call));
     return active_call->HandleImmediateReturnValue(rv);
   }
@@ -220,20 +218,16 @@ int AppCacheDiskCache::InitWithDiskBackend(
     const base::FilePath& disk_cache_directory,
     int disk_cache_size,
     bool force,
-    const scoped_refptr<base::SingleThreadTaskRunner>& cache_thread,
+    base::OnceClosure post_cleanup_callback,
     const net::CompletionCallback& callback) {
-  return Init(net::APP_CACHE,
-              disk_cache_directory,
-              disk_cache_size,
-              force,
-              cache_thread,
-              callback);
+  return Init(net::APP_CACHE, disk_cache_directory, disk_cache_size, force,
+              std::move(post_cleanup_callback), callback);
 }
 
 int AppCacheDiskCache::InitWithMemBackend(
     int mem_cache_size, const net::CompletionCallback& callback) {
-  return Init(net::MEMORY_CACHE, base::FilePath(), mem_cache_size, false, NULL,
-              callback);
+  return Init(net::MEMORY_CACHE, base::FilePath(), mem_cache_size, false,
+              base::OnceClosure(), callback);
 }
 
 void AppCacheDiskCache::Disable() {
@@ -244,16 +238,15 @@ void AppCacheDiskCache::Disable() {
 
   if (create_backend_callback_.get()) {
     create_backend_callback_->Cancel();
-    create_backend_callback_ = NULL;
+    create_backend_callback_ = nullptr;
     OnCreateBackendComplete(net::ERR_ABORTED);
   }
 
   // We need to close open file handles in order to reinitalize the
   // appcache system on the fly. File handles held in both entries and in
   // the main disk_cache::Backend class need to be released.
-  for (OpenEntries::const_iterator iter = open_entries_.begin();
-       iter != open_entries_.end(); ++iter) {
-    (*iter)->Abandon();
+  for (EntryImpl* entry : open_entries_) {
+    entry->Abandon();
   }
   open_entries_.clear();
   disk_cache_.reset();
@@ -306,7 +299,7 @@ int AppCacheDiskCache::DoomEntry(int64_t key,
     return net::ERR_ABORTED;
 
   if (is_initializing_or_waiting_to_initialize()) {
-    pending_calls_.push_back(PendingCall(DOOM, key, NULL, callback));
+    pending_calls_.push_back(PendingCall(DOOM, key, nullptr, callback));
     return net::ERR_IO_PENDING;
   }
 
@@ -324,10 +317,7 @@ AppCacheDiskCache::AppCacheDiskCache(bool use_simple_cache)
       weak_factory_(this) {}
 
 AppCacheDiskCache::PendingCall::PendingCall()
-    : call_type(CREATE),
-      key(0),
-      entry(NULL) {
-}
+    : call_type(CREATE), key(0), entry(nullptr) {}
 
 AppCacheDiskCache::PendingCall::PendingCall(
     PendingCallType call_type,
@@ -340,13 +330,12 @@ AppCacheDiskCache::PendingCall::PendingCall(const PendingCall& other) = default;
 
 AppCacheDiskCache::PendingCall::~PendingCall() {}
 
-int AppCacheDiskCache::Init(
-    net::CacheType cache_type,
-    const base::FilePath& cache_directory,
-    int cache_size,
-    bool force,
-    const scoped_refptr<base::SingleThreadTaskRunner>& cache_thread,
-    const net::CompletionCallback& callback) {
+int AppCacheDiskCache::Init(net::CacheType cache_type,
+                            const base::FilePath& cache_directory,
+                            int cache_size,
+                            bool force,
+                            base::OnceClosure post_cleanup_callback,
+                            const net::CompletionCallback& callback) {
   DCHECK(!is_initializing_or_waiting_to_initialize() && !disk_cache_.get());
   is_disabled_ = false;
   create_backend_callback_ = new CreateBackendCallbackShim(this);
@@ -355,12 +344,9 @@ int AppCacheDiskCache::Init(
       cache_type,
       use_simple_cache_ ? net::CACHE_BACKEND_SIMPLE
                         : net::CACHE_BACKEND_DEFAULT,
-      cache_directory,
-      cache_size,
-      force,
-      cache_thread,
-      NULL,
+      cache_directory, cache_size, force, nullptr,
       &(create_backend_callback_->backend_ptr_),
+      std::move(post_cleanup_callback),
       base::Bind(&CreateBackendCallbackShim::Callback,
                  create_backend_callback_));
   if (rv == net::ERR_IO_PENDING)
@@ -374,7 +360,7 @@ void AppCacheDiskCache::OnCreateBackendComplete(int rv) {
   if (rv == net::OK) {
     disk_cache_ = std::move(create_backend_callback_->backend_ptr_);
   }
-  create_backend_callback_ = NULL;
+  create_backend_callback_ = nullptr;
 
   // Invoke our clients callback function.
   if (!init_callback_.is_null()) {
@@ -383,25 +369,24 @@ void AppCacheDiskCache::OnCreateBackendComplete(int rv) {
   }
 
   // Service pending calls that were queued up while we were initializing.
-  for (PendingCalls::const_iterator iter = pending_calls_.begin();
-       iter < pending_calls_.end(); ++iter) {
-    int rv = net::ERR_FAILED;
-    switch (iter->call_type) {
+  for (const auto& call : pending_calls_) {
+    rv = net::ERR_FAILED;
+    switch (call.call_type) {
       case CREATE:
-        rv = CreateEntry(iter->key, iter->entry, iter->callback);
+        rv = CreateEntry(call.key, call.entry, call.callback);
         break;
       case OPEN:
-        rv = OpenEntry(iter->key, iter->entry, iter->callback);
+        rv = OpenEntry(call.key, call.entry, call.callback);
         break;
       case DOOM:
-        rv = DoomEntry(iter->key, iter->callback);
+        rv = DoomEntry(call.key, call.callback);
         break;
       default:
         NOTREACHED();
         break;
     }
     if (rv != net::ERR_IO_PENDING)
-      iter->callback.Run(rv);
+      call.callback.Run(rv);
   }
   pending_calls_.clear();
 }

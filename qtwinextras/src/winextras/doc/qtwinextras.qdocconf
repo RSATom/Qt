@@ -9,6 +9,11 @@ exampledirs += ../../../examples/winextras \
 
 examplesinstallpath     = winextras
 
+moduleheader = QtWinExtrasDoc
+
+includepaths = -I . \
+               -I ..
+
 headerdirs = .. ../../imports/winextras
 sourcedirs = .. ../../imports/winextras
 imagedirs += images

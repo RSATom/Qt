@@ -16,8 +16,8 @@
 
 #include "Context.hpp"
 #include "Surface.hpp"
-#include "PixelRoutine.hpp"
-#include "Debug.hpp"
+#include "Shader/PixelRoutine.hpp"
+#include "Common/Debug.hpp"
 
 #include <memory.h>
 #include <string.h>
@@ -61,18 +61,21 @@ namespace sw
 		sRGB = false;
 		gather = false;
 		highPrecisionFiltering = false;
+		border = 0;
 
 		swizzleR = SWIZZLE_RED;
 		swizzleG = SWIZZLE_GREEN;
 		swizzleB = SWIZZLE_BLUE;
 		swizzleA = SWIZZLE_ALPHA;
 
+		compare = COMPARE_BYPASS;
+
 		texture.LOD = 0.0f;
 		exp2LOD = 1.0f;
 
 		texture.baseLevel = 0;
 		texture.maxLevel = 1000;
-		texture.maxLod = MIPMAP_LEVELS - 2;	// Trilinear accesses lod+1
+		texture.maxLod = MAX_TEXTURE_LOD;
 		texture.minLod = 0;
 	}
 
@@ -93,12 +96,13 @@ namespace sw
 			state.addressingModeV = getAddressingModeV();
 			state.addressingModeW = getAddressingModeW();
 			state.mipmapFilter = mipmapFilter();
-			state.sRGB = sRGB && Surface::isSRGBreadable(externalTextureFormat);
+			state.sRGB = (sRGB && Surface::isSRGBreadable(externalTextureFormat)) || Surface::isSRGBformat(internalTextureFormat);
 			state.swizzleR = swizzleR;
 			state.swizzleG = swizzleG;
 			state.swizzleB = swizzleB;
 			state.swizzleA = swizzleA;
 			state.highPrecisionFiltering = highPrecisionFiltering;
+			state.compare = getCompareFunc();
 
 			#if PERF_PROFILE
 				state.compressedFormat = Surface::isCompressed(externalTextureFormat);
@@ -114,7 +118,8 @@ namespace sw
 		{
 			Mipmap &mipmap = texture.mipmap[level];
 
-			mipmap.buffer[face] = surface->lockInternal(0, 0, 0, LOCK_UNLOCKED, PRIVATE);
+			border = surface->getBorder();
+			mipmap.buffer[face] = surface->lockInternal(-border, -border, 0, LOCK_UNLOCKED, PRIVATE);
 
 			if(face == 0)
 			{
@@ -207,8 +212,15 @@ namespace sw
 				mipmap.onePitchP[2] = 1;
 				mipmap.onePitchP[3] = pitchP;
 
+				mipmap.pitchP[0] = pitchP;
+				mipmap.pitchP[1] = pitchP;
+				mipmap.pitchP[2] = pitchP;
+				mipmap.pitchP[3] = pitchP;
+
 				mipmap.sliceP[0] = sliceP;
 				mipmap.sliceP[1] = sliceP;
+				mipmap.sliceP[2] = sliceP;
+				mipmap.sliceP[3] = sliceP;
 
 				if(internalTextureFormat == FORMAT_YV12_BT601 ||
 				   internalTextureFormat == FORMAT_YV12_BT709 ||
@@ -216,7 +228,7 @@ namespace sw
 				{
 					unsigned int YStride = pitchP;
 					unsigned int YSize = YStride * height;
-					unsigned int CStride = align(YStride / 2, 16);
+					unsigned int CStride = align<16>(YStride / 2);
 					unsigned int CSize = CStride * height / 2;
 
 					mipmap.buffer[1] = (byte*)mipmap.buffer[0] + YSize;
@@ -325,6 +337,11 @@ namespace sw
 		this->swizzleA = swizzleA;
 	}
 
+	void Sampler::setCompareFunc(CompareFunc compare)
+	{
+		this->compare = compare;
+	}
+
 	void Sampler::setBaseLevel(int baseLevel)
 	{
 		texture.baseLevel = baseLevel;
@@ -337,12 +354,12 @@ namespace sw
 
 	void Sampler::setMinLod(float minLod)
 	{
-		texture.minLod = clamp(minLod, 0.0f, (float)(MIPMAP_LEVELS - 2));
+		texture.minLod = clamp(minLod, 0.0f, (float)(MAX_TEXTURE_LOD));
 	}
 
 	void Sampler::setMaxLod(float maxLod)
 	{
-		texture.maxLod = clamp(maxLod, 0.0f, (float)(MIPMAP_LEVELS - 2));
+		texture.maxLod = clamp(maxLod, 0.0f, (float)(MAX_TEXTURE_LOD));
 	}
 
 	void Sampler::setFilterQuality(FilterType maximumFilterQuality)
@@ -382,6 +399,16 @@ namespace sw
 	bool Sampler::hasVolumeTexture() const
 	{
 		return textureType == TEXTURE_3D || textureType == TEXTURE_2D_ARRAY;
+	}
+
+	void Sampler::setSyncRequired(bool isSyncRequired)
+	{
+		syncRequired = isSyncRequired;
+	}
+
+	bool Sampler::requiresSync() const
+	{
+		return syncRequired;
 	}
 
 	const Texture &Sampler::getTextureData()
@@ -439,9 +466,9 @@ namespace sw
 
 	AddressingMode Sampler::getAddressingModeU() const
 	{
-		if(hasCubeTexture())
+		if(textureType == TEXTURE_CUBE)
 		{
-			return ADDRESSING_CLAMP;
+			return border ? ADDRESSING_SEAMLESS : ADDRESSING_CLAMP;
 		}
 
 		return addressingModeU;
@@ -449,9 +476,9 @@ namespace sw
 
 	AddressingMode Sampler::getAddressingModeV() const
 	{
-		if(hasCubeTexture())
+		if(textureType == TEXTURE_CUBE)
 		{
-			return ADDRESSING_CLAMP;
+			return border ? ADDRESSING_SEAMLESS : ADDRESSING_CLAMP;
 		}
 
 		return addressingModeV;
@@ -459,16 +486,29 @@ namespace sw
 
 	AddressingMode Sampler::getAddressingModeW() const
 	{
-		if(hasCubeTexture())
-		{
-			return ADDRESSING_CLAMP;
-		}
-
-		if(textureType == TEXTURE_2D_ARRAY || textureType == TEXTURE_2D)
+		if(textureType == TEXTURE_2D_ARRAY ||
+		   textureType == TEXTURE_2D ||
+		   textureType == TEXTURE_CUBE ||
+		   textureType == TEXTURE_RECTANGLE)
 		{
 			return ADDRESSING_LAYER;
 		}
 
 		return addressingModeW;
+	}
+
+	CompareFunc Sampler::getCompareFunc() const
+	{
+		if(getTextureFilter() == FILTER_GATHER)
+		{
+			return COMPARE_BYPASS;
+		}
+
+		if(internalTextureFormat == FORMAT_D32FS8_SHADOW)
+		{
+			return COMPARE_LESSEQUAL;
+		}
+
+		return compare;
 	}
 }

@@ -14,13 +14,8 @@
 namespace ui {
 namespace ws {
 namespace test {
-namespace {
 
-const UserId kTestId1 = "2";
-
-}  // namespace
-
-class CursorStateTest : public testing::Test {
+class CursorStateTest : public testing::Test, public CursorStateDelegate {
  public:
   CursorStateTest() {}
   ~CursorStateTest() override {}
@@ -30,6 +25,9 @@ class CursorStateTest : public testing::Test {
     return window_server()->display_manager();
   }
   TestScreenManager& screen_manager() { return screen_manager_; }
+  const base::Optional<bool>& last_mouse_events_enabled_send() {
+    return last_mouse_events_enabled_send_;
+  }
   CursorState* cursor_state() { return cursor_state_.get(); }
   const ui::CursorData& cursor() { return ws_test_helper_.cursor(); }
 
@@ -37,17 +35,23 @@ class CursorStateTest : public testing::Test {
   // testing::Test:
   void SetUp() override {
     screen_manager_.Init(window_server()->display_manager());
-    window_server()->user_id_tracker()->AddUserId(kTestId1);
-    cursor_state_ = base::MakeUnique<CursorState>(display_manager());
+    cursor_state_ = std::make_unique<CursorState>(display_manager(), this);
 
-    AddWindowManager(window_server(), kTestId1);
+    AddWindowManager(window_server());
     screen_manager().AddDisplay(MakeDisplay(0, 0, 1024, 768, 1.0f));
     ASSERT_EQ(1u, display_manager()->displays().size());
+  }
+
+  // CursorStateDelegate:
+  void OnCursorTouchVisibleChanged(bool enabled) override {
+    last_mouse_events_enabled_send_ = enabled;
   }
 
  private:
   WindowServerTestHelper ws_test_helper_;
   TestScreenManager screen_manager_;
+
+  base::Optional<bool> last_mouse_events_enabled_send_;
 
   std::unique_ptr<CursorState> cursor_state_;
 
@@ -64,6 +68,8 @@ TEST_F(CursorStateTest, CursorLockTest) {
 
   cursor_state()->UnlockCursor();
   EXPECT_TRUE(cursor().IsType(ui::CursorType::kCell));
+
+  EXPECT_FALSE(last_mouse_events_enabled_send().has_value());
 }
 
 TEST_F(CursorStateTest, CursorVisibilityTest) {
@@ -82,6 +88,8 @@ TEST_F(CursorStateTest, CursorVisibilityTest) {
 
   cursor_state()->SetCursorVisible(true);
   EXPECT_TRUE(cursor().IsType(ui::CursorType::kCell));
+
+  EXPECT_FALSE(last_mouse_events_enabled_send().has_value());
 }
 
 TEST_F(CursorStateTest, CursorOverrideTest) {
@@ -94,6 +102,8 @@ TEST_F(CursorStateTest, CursorOverrideTest) {
 
   cursor_state()->SetGlobalOverrideCursor(base::nullopt);
   EXPECT_TRUE(cursor().IsType(ui::CursorType::kWait));
+
+  EXPECT_FALSE(last_mouse_events_enabled_send().has_value());
 }
 
 TEST_F(CursorStateTest, CursorOverrideLockTest) {
@@ -110,6 +120,8 @@ TEST_F(CursorStateTest, CursorOverrideLockTest) {
 
   cursor_state()->UnlockCursor();
   EXPECT_TRUE(cursor().IsType(ui::CursorType::kWait));
+
+  EXPECT_FALSE(last_mouse_events_enabled_send().has_value());
 }
 
 TEST_F(CursorStateTest, CursorOverrideVisibilityTest) {
@@ -126,6 +138,34 @@ TEST_F(CursorStateTest, CursorOverrideVisibilityTest) {
 
   cursor_state()->UnlockCursor();
   EXPECT_TRUE(cursor().IsType(ui::CursorType::kWait));
+
+  EXPECT_FALSE(last_mouse_events_enabled_send().has_value());
+}
+
+TEST_F(CursorStateTest, SetCursorTouchVisibleWhileUnlock) {
+  cursor_state()->SetCurrentWindowCursor(ui::CursorData(ui::CursorType::kWait));
+  EXPECT_TRUE(cursor().IsType(ui::CursorType::kWait));
+
+  cursor_state()->SetCursorTouchVisible(false);
+  EXPECT_TRUE(cursor().IsType(ui::CursorType::kNone));
+  EXPECT_EQ(false, last_mouse_events_enabled_send());
+
+  cursor_state()->SetCursorTouchVisible(true);
+  EXPECT_EQ(true, last_mouse_events_enabled_send());
+}
+
+TEST_F(CursorStateTest, SetCursorTouchVisibleWhileLocked) {
+  cursor_state()->SetCurrentWindowCursor(ui::CursorData(ui::CursorType::kWait));
+  EXPECT_TRUE(cursor().IsType(ui::CursorType::kWait));
+
+  cursor_state()->LockCursor();
+  cursor_state()->SetCursorTouchVisible(false);
+  EXPECT_TRUE(cursor().IsType(ui::CursorType::kWait));
+  EXPECT_FALSE(last_mouse_events_enabled_send().has_value());
+
+  cursor_state()->UnlockCursor();
+  EXPECT_TRUE(cursor().IsType(ui::CursorType::kNone));
+  EXPECT_EQ(false, last_mouse_events_enabled_send());
 }
 
 }  // namespace test

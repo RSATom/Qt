@@ -9,30 +9,30 @@
  */
 #include <algorithm>
 
-#include "webrtc/rtc_base/atomicops.h"
-#include "webrtc/rtc_base/checks.h"
-#include "webrtc/rtc_base/logging.h"
-#include "webrtc/rtc_base/messagequeue.h"
-#include "webrtc/rtc_base/stringencode.h"
-#include "webrtc/rtc_base/thread.h"
-#include "webrtc/rtc_base/trace_event.h"
+#include "rtc_base/atomicops.h"
+#include "rtc_base/checks.h"
+#include "rtc_base/logging.h"
+#include "rtc_base/messagequeue.h"
+#include "rtc_base/stringencode.h"
+#include "rtc_base/thread.h"
+#include "rtc_base/trace_event.h"
 
 namespace rtc {
 namespace {
 
-const int kMaxMsgLatency = 150;  // 150 ms
+const int kMaxMsgLatency = 150;                // 150 ms
 const int kSlowDispatchLoggingThreshold = 50;  // 50 ms
 
-class SCOPED_LOCKABLE MarkProcessingCritScope {
+class RTC_SCOPED_LOCKABLE MarkProcessingCritScope {
  public:
   MarkProcessingCritScope(const CriticalSection* cs, size_t* processing)
-      EXCLUSIVE_LOCK_FUNCTION(cs)
+      RTC_EXCLUSIVE_LOCK_FUNCTION(cs)
       : cs_(cs), processing_(processing) {
     cs_->Enter();
     *processing_ += 1;
   }
 
-  ~MarkProcessingCritScope() UNLOCK_FUNCTION() {
+  ~MarkProcessingCritScope() RTC_UNLOCK_FUNCTION() {
     *processing_ -= 1;
     cs_->Leave();
   }
@@ -64,26 +64,26 @@ bool MessageQueueManager::IsInitialized() {
 
 MessageQueueManager::MessageQueueManager() : processing_(0) {}
 
-MessageQueueManager::~MessageQueueManager() {
-}
+MessageQueueManager::~MessageQueueManager() {}
 
-void MessageQueueManager::Add(MessageQueue *message_queue) {
+void MessageQueueManager::Add(MessageQueue* message_queue) {
   return Instance()->AddInternal(message_queue);
 }
-void MessageQueueManager::AddInternal(MessageQueue *message_queue) {
+void MessageQueueManager::AddInternal(MessageQueue* message_queue) {
   CritScope cs(&crit_);
   // Prevent changes while the list of message queues is processed.
   RTC_DCHECK_EQ(processing_, 0);
   message_queues_.push_back(message_queue);
 }
 
-void MessageQueueManager::Remove(MessageQueue *message_queue) {
+void MessageQueueManager::Remove(MessageQueue* message_queue) {
   // If there isn't a message queue manager instance, then there isn't a queue
   // to remove.
-  if (!instance_) return;
+  if (!instance_)
+    return;
   return Instance()->RemoveInternal(message_queue);
 }
-void MessageQueueManager::RemoveInternal(MessageQueue *message_queue) {
+void MessageQueueManager::RemoveInternal(MessageQueue* message_queue) {
   // If this is the last MessageQueue, destroy the manager as well so that
   // we don't leak this object at program shutdown. As mentioned above, this is
   // not thread-safe, but this should only happen at program termination (when
@@ -93,7 +93,7 @@ void MessageQueueManager::RemoveInternal(MessageQueue *message_queue) {
     CritScope cs(&crit_);
     // Prevent changes while the list of message queues is processed.
     RTC_DCHECK_EQ(processing_, 0);
-    std::vector<MessageQueue *>::iterator iter;
+    std::vector<MessageQueue*>::iterator iter;
     iter = std::find(message_queues_.begin(), message_queues_.end(),
                      message_queue);
     if (iter != message_queues_.end()) {
@@ -107,18 +107,18 @@ void MessageQueueManager::RemoveInternal(MessageQueue *message_queue) {
   }
 }
 
-void MessageQueueManager::Clear(MessageHandler *handler) {
+void MessageQueueManager::Clear(MessageHandler* handler) {
   // If there isn't a message queue manager instance, then there aren't any
   // queues to remove this handler from.
-  if (!instance_) return;
+  if (!instance_)
+    return;
   return Instance()->ClearInternal(handler);
 }
-void MessageQueueManager::ClearInternal(MessageHandler *handler) {
+void MessageQueueManager::ClearInternal(MessageHandler* handler) {
   // Deleted objects may cause re-entrant calls to ClearInternal. This is
   // allowed as the list of message queues does not change while queues are
   // cleared.
   MarkProcessingCritScope cs(&crit_, &processing_);
-  std::vector<MessageQueue *>::iterator iter;
   for (MessageQueue* queue : message_queues_) {
     queue->Clear(handler);
   }
@@ -253,7 +253,7 @@ void MessageQueue::Restart() {
   AtomicOps::ReleaseStore(&stop_, 0);
 }
 
-bool MessageQueue::Peek(Message *pmsg, int cmsWait) {
+bool MessageQueue::Peek(Message* pmsg, int cmsWait) {
   if (fPeekKeep_) {
     *pmsg = msgPeek_;
     return true;
@@ -265,7 +265,7 @@ bool MessageQueue::Peek(Message *pmsg, int cmsWait) {
   return true;
 }
 
-bool MessageQueue::Get(Message *pmsg, int cmsWait, bool process_io) {
+bool MessageQueue::Get(Message* pmsg, int cmsWait, bool process_io) {
   // Return and clear peek if present
   // Always return the peek if it exists so there is Peek/Get symmetry
 
@@ -320,8 +320,9 @@ bool MessageQueue::Get(Message *pmsg, int cmsWait, bool process_io) {
       if (pmsg->ts_sensitive) {
         int64_t delay = TimeDiff(msCurrent, pmsg->ts_sensitive);
         if (delay > 0) {
-          LOG_F(LS_WARNING) << "id: " << pmsg->message_id << "  delay: "
-                            << (delay + kMaxMsgLatency) << "ms";
+          RTC_LOG_F(LS_WARNING)
+              << "id: " << pmsg->message_id
+              << "  delay: " << (delay + kMaxMsgLatency) << "ms";
         }
       }
       // If this was a dispose message, delete it and skip it.
@@ -366,8 +367,7 @@ bool MessageQueue::Get(Message *pmsg, int cmsWait, bool process_io) {
   return false;
 }
 
-void MessageQueue::ReceiveSends() {
-}
+void MessageQueue::ReceiveSends() {}
 
 void MessageQueue::Post(const Location& posted_from,
                         MessageHandler* phandler,
@@ -522,7 +522,7 @@ void MessageQueue::Clear(MessageHandler* phandler,
   dmsgq_.reheap();
 }
 
-void MessageQueue::Dispatch(Message *pmsg) {
+void MessageQueue::Dispatch(Message* pmsg) {
   TRACE_EVENT2("webrtc", "MessageQueue::Dispatch", "src_file_and_line",
                pmsg->posted_from.file_and_line(), "src_func",
                pmsg->posted_from.function_name());
@@ -531,8 +531,9 @@ void MessageQueue::Dispatch(Message *pmsg) {
   int64_t end_time = TimeMillis();
   int64_t diff = TimeDiff(end_time, start_time);
   if (diff >= kSlowDispatchLoggingThreshold) {
-    LOG(LS_INFO) << "Message took " << diff << "ms to dispatch. Posted from: "
-                 << pmsg->posted_from.ToString();
+    RTC_LOG(LS_INFO) << "Message took " << diff
+                     << "ms to dispatch. Posted from: "
+                     << pmsg->posted_from.ToString();
   }
 }
 

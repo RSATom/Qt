@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/macros.h"
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
@@ -438,7 +439,7 @@ TEST_F(EndToEndAsyncTest, CancelPendingCalls) {
   // This results in cancelling the pending method call.
   bus_->RemoveObjectProxy(test_service_->service_name(),
                           ObjectPath("/org/chromium/TestObject"),
-                          base::Bind(&base::DoNothing));
+                          base::DoNothing());
 
   // We shouldn't receive any responses. Wait for a while just to make sure.
   run_loop_.reset(new base::RunLoop);
@@ -512,32 +513,13 @@ TEST_F(EndToEndAsyncTest, BrokenMethodWithErrorCallback) {
   ASSERT_EQ(DBUS_ERROR_FAILED, error_names_[0]);
 }
 
-TEST_F(EndToEndAsyncTest, InvalidObjectPath) {
-  // Trailing '/' is only allowed for the root path.
-  const ObjectPath invalid_object_path("/org/chromium/TestObject/");
-
-  // Replace object proxy with new one.
-  object_proxy_ = bus_->GetObjectProxy(test_service_->service_name(),
-                                       invalid_object_path);
-
-  MethodCall method_call("org.chromium.TestInterface", "Echo");
-
-  const int timeout_ms = ObjectProxy::TIMEOUT_USE_DEFAULT;
-  CallMethodWithErrorCallback(&method_call, timeout_ms);
-  WaitForErrors(1);
-
-  // Should fail because of the invalid path.
-  ASSERT_TRUE(response_strings_.empty());
-  ASSERT_EQ("", error_names_[0]);
-}
-
 TEST_F(EndToEndAsyncTest, InvalidServiceName) {
   // Bus name cannot contain '/'.
   const std::string invalid_service_name = ":1/2";
 
   // Replace object proxy with new one.
-  object_proxy_ = bus_->GetObjectProxy(
-      invalid_service_name, ObjectPath("org.chromium.TestObject"));
+  object_proxy_ = bus_->GetObjectProxy(invalid_service_name,
+                                       ObjectPath("/org/chromium/TestObject"));
 
   MethodCall method_call("org.chromium.TestInterface", "Echo");
 
@@ -560,9 +542,7 @@ TEST_F(EndToEndAsyncTest, EmptyResponseCallback) {
 
   // Call the method with an empty callback.
   const int timeout_ms = ObjectProxy::TIMEOUT_USE_DEFAULT;
-  object_proxy_->CallMethod(&method_call,
-                            timeout_ms,
-                            ObjectProxy::EmptyResponseCallback());
+  object_proxy_->CallMethod(&method_call, timeout_ms, base::DoNothing());
   // Post a delayed task to quit the message loop.
   run_loop_.reset(new base::RunLoop);
   message_loop_.task_runner()->PostDelayedTask(
@@ -608,8 +588,7 @@ TEST_F(EndToEndAsyncTest, TestHugeSignal) {
 
 class SignalMultipleHandlerTest : public EndToEndAsyncTest {
  public:
-  SignalMultipleHandlerTest() {
-  }
+  SignalMultipleHandlerTest() = default;
 
   void SetUp() override {
     // Set up base class.

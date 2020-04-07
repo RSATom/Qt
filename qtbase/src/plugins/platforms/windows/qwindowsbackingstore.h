@@ -43,7 +43,7 @@
 #include <QtCore/qt_windows.h>
 
 #include <qpa/qplatformbackingstore.h>
-#include <QtCore/QScopedPointer>
+#include <QtCore/qscopedpointer.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -55,7 +55,7 @@ class QWindowsBackingStore : public QPlatformBackingStore
     Q_DISABLE_COPY(QWindowsBackingStore)
 public:
     QWindowsBackingStore(QWindow *window);
-    ~QWindowsBackingStore();
+    ~QWindowsBackingStore() override;
 
     QPaintDevice *paintDevice() override;
     void flush(QWindow *window, const QRegion &region, const QPoint &offset) override;

@@ -8,12 +8,12 @@
 #include <stdint.h>
 
 #include <limits>
+#include <utility>
 
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/numerics/safe_conversions.h"
 #include "media/base/audio_parameters.h"
-#include "media/base/audio_sample_types.h"
 #include "media/base/limits.h"
 #include "media/base/vector_math.h"
 
@@ -109,7 +109,7 @@ AudioBus::AudioBus(int channels)
     channel_data_[i] = NULL;
 }
 
-AudioBus::~AudioBus() {}
+AudioBus::~AudioBus() = default;
 
 std::unique_ptr<AudioBus> AudioBus::Create(int channels, int frames) {
   return base::WrapUnique(new AudioBus(channels, frames));
@@ -148,6 +148,26 @@ std::unique_ptr<AudioBus> AudioBus::WrapMemory(const AudioParameters& params,
                                        static_cast<float*>(data)));
 }
 
+std::unique_ptr<const AudioBus> AudioBus::WrapReadOnlyMemory(int channels,
+                                                             int frames,
+                                                             const void* data) {
+  // Note: const_cast is generally dangerous but is used in this case since
+  // AudioBus accomodates both read-only and read/write use cases. A const
+  // AudioBus object is returned to ensure no one accidentally writes to the
+  // read-only data.
+  return WrapMemory(channels, frames, const_cast<void*>(data));
+}
+
+std::unique_ptr<const AudioBus> AudioBus::WrapReadOnlyMemory(
+    const AudioParameters& params,
+    const void* data) {
+  // Note: const_cast is generally dangerous but is used in this case since
+  // AudioBus accomodates both read-only and read/write use cases. A const
+  // AudioBus object is returned to ensure no one accidentally writes to the
+  // read-only data.
+  return WrapMemory(params, const_cast<void*>(data));
+}
+
 void AudioBus::SetChannelData(int channel, float* data) {
   CHECK(can_set_channel_data_);
   CHECK(data);
@@ -163,11 +183,49 @@ void AudioBus::set_frames(int frames) {
   frames_ = frames;
 }
 
+size_t AudioBus::GetBitstreamDataSize() const {
+  DCHECK(is_bitstream_format_);
+  return bitstream_data_size_;
+}
+
+void AudioBus::SetBitstreamDataSize(size_t data_size) {
+  DCHECK(is_bitstream_format_);
+  bitstream_data_size_ = data_size;
+}
+
+int AudioBus::GetBitstreamFrames() const {
+  DCHECK(is_bitstream_format_);
+  return bitstream_frames_;
+}
+
+void AudioBus::SetBitstreamFrames(int frames) {
+  DCHECK(is_bitstream_format_);
+  bitstream_frames_ = frames;
+}
+
 void AudioBus::ZeroFramesPartial(int start_frame, int frames) {
   CheckOverflow(start_frame, frames, frames_);
 
   if (frames <= 0)
     return;
+
+  if (is_bitstream_format_) {
+    // No need to clean unused region for bitstream formats.
+    if (start_frame >= bitstream_frames_)
+      return;
+
+    // Cannot clean partial frames.
+    DCHECK_EQ(start_frame, 0);
+    DCHECK(frames >= bitstream_frames_);
+
+    // For compressed bitstream, zeroed buffer is not valid and would be
+    // discarded immediately. It is faster and makes more sense to reset
+    // |bitstream_data_size_| and |is_bitstream_format_| so that the buffer
+    // contains no data instead of zeroed data.
+    SetBitstreamDataSize(0);
+    SetBitstreamFrames(0);
+    return;
+  }
 
   for (size_t i = 0; i < channel_data_.size(); ++i) {
     memset(channel_data_[i] + start_frame, 0,
@@ -184,6 +242,7 @@ void AudioBus::Zero() {
 }
 
 bool AudioBus::AreFramesZero() const {
+  DCHECK(!is_bitstream_format_);
   for (size_t i = 0; i < channel_data_.size(); ++i) {
     for (int j = 0; j < frames_; ++j) {
       if (channel_data_[i][j])
@@ -203,6 +262,7 @@ int AudioBus::CalculateMemorySize(int channels, int frames) {
 }
 
 void AudioBus::BuildChannelData(int channels, int aligned_frames, float* data) {
+  DCHECK(!is_bitstream_format_);
   DCHECK(IsAligned(data));
   DCHECK_EQ(channel_data_.size(), 0U);
   // Initialize |channel_data_| with pointers into |data|.
@@ -215,6 +275,7 @@ void AudioBus::BuildChannelData(int channels, int aligned_frames, float* data) {
 void AudioBus::FromInterleaved(const void* source,
                                int frames,
                                int bytes_per_sample) {
+  DCHECK(!is_bitstream_format_);
   switch (bytes_per_sample) {
     case 1:
       FromInterleaved<UnsignedInt8SampleTypeTraits>(
@@ -240,6 +301,7 @@ void AudioBus::FromInterleavedPartial(const void* source,
                                       int start_frame,
                                       int frames,
                                       int bytes_per_sample) {
+  DCHECK(!is_bitstream_format_);
   switch (bytes_per_sample) {
     case 1:
       FromInterleavedPartial<UnsignedInt8SampleTypeTraits>(
@@ -264,6 +326,7 @@ void AudioBus::FromInterleavedPartial(const void* source,
 void AudioBus::ToInterleaved(int frames,
                              int bytes_per_sample,
                              void* dest) const {
+  DCHECK(!is_bitstream_format_);
   switch (bytes_per_sample) {
     case 1:
       ToInterleaved<UnsignedInt8SampleTypeTraits>(
@@ -288,6 +351,7 @@ void AudioBus::ToInterleavedPartial(int start_frame,
                                     int frames,
                                     int bytes_per_sample,
                                     void* dest) const {
+  DCHECK(!is_bitstream_format_);
   switch (bytes_per_sample) {
     case 1:
       ToInterleavedPartial<UnsignedInt8SampleTypeTraits>(
@@ -308,6 +372,14 @@ void AudioBus::ToInterleavedPartial(int start_frame,
 }
 
 void AudioBus::CopyTo(AudioBus* dest) const {
+  dest->set_is_bitstream_format(is_bitstream_format());
+  if (is_bitstream_format()) {
+    dest->SetBitstreamDataSize(GetBitstreamDataSize());
+    dest->SetBitstreamFrames(GetBitstreamFrames());
+    memcpy(dest->channel(0), channel(0), GetBitstreamDataSize());
+    return;
+  }
+
   CopyPartialFramesTo(0, frames(), 0, dest);
 }
 
@@ -315,6 +387,7 @@ void AudioBus::CopyPartialFramesTo(int source_start_frame,
                                    int frame_count,
                                    int dest_start_frame,
                                    AudioBus* dest) const {
+  DCHECK(!is_bitstream_format_);
   CHECK_EQ(channels(), dest->channels());
   CHECK_LE(source_start_frame + frame_count, frames());
   CHECK_LE(dest_start_frame + frame_count, dest->frames());
@@ -329,6 +402,7 @@ void AudioBus::CopyPartialFramesTo(int source_start_frame,
 }
 
 void AudioBus::Scale(float volume) {
+  DCHECK(!is_bitstream_format_);
   if (volume > 0 && volume != 1) {
     for (int i = 0; i < channels(); ++i)
       vector_math::FMUL(channel(i), volume, frames(), channel(i));
@@ -338,6 +412,7 @@ void AudioBus::Scale(float volume) {
 }
 
 void AudioBus::SwapChannels(int a, int b) {
+  DCHECK(!is_bitstream_format_);
   DCHECK(a < channels() && a >= 0);
   DCHECK(b < channels() && b >= 0);
   DCHECK_NE(a, b);

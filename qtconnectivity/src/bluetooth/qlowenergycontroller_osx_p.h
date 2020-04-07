@@ -54,7 +54,7 @@
 #include "osx/osxbtperipheralmanager_p.h"
 #include "qlowenergyserviceprivate_p.h"
 #include "osx/osxbtcentralmanager_p.h"
-#include "qlowenergycontroller_p.h"
+#include "qlowenergycontrollerbase_p.h"
 #include "qlowenergycontroller.h"
 #include "osx/osxbtnotifier_p.h"
 #include "osx/osxbtutility_p.h"

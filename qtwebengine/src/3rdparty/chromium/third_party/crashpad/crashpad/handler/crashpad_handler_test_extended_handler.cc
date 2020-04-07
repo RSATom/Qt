@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <memory>
+
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "build/build_config.h"
 #include "handler/handler_main.h"
 #include "minidump/test/minidump_user_extension_stream_util.h"
@@ -39,23 +40,23 @@ class TestUserStreamDataSource : public crashpad::UserStreamDataSource {
 std::unique_ptr<crashpad::MinidumpUserExtensionStreamDataSource>
 TestUserStreamDataSource::ProduceStreamData(
     crashpad::ProcessSnapshot* process_snapshot) {
-  static const char kTestData[] = "Injected extension stream!";
+  static constexpr char kTestData[] = "Injected extension stream!";
 
-  return base::WrapUnique(new crashpad::test::BufferExtensionStreamDataSource(
-      0xCAFEBABE, kTestData, sizeof(kTestData)));
+  return std::make_unique<crashpad::test::BufferExtensionStreamDataSource>(
+      0xCAFEBABE, kTestData, sizeof(kTestData));
 }
 
 int ExtendedHandlerMain(int argc, char* argv[]) {
   crashpad::UserStreamDataSources user_stream_data_sources;
   user_stream_data_sources.push_back(
-      base::WrapUnique(new TestUserStreamDataSource()));
+      std::make_unique<TestUserStreamDataSource>());
 
   return crashpad::HandlerMain(argc, argv, &user_stream_data_sources);
 }
 
 }  // namespace
 
-#if defined(OS_MACOSX)
+#if defined(OS_POSIX)
 
 int main(int argc, char* argv[]) {
   return ExtendedHandlerMain(argc, argv);
@@ -67,4 +68,4 @@ int wmain(int argc, wchar_t* argv[]) {
   return crashpad::ToolSupport::Wmain(argc, argv, &ExtendedHandlerMain);
 }
 
-#endif  // OS_MACOSX
+#endif  // OS_POSIX

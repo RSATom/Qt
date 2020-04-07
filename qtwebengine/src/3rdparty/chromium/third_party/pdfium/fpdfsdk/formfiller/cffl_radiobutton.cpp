@@ -6,10 +6,12 @@
 
 #include "fpdfsdk/formfiller/cffl_radiobutton.h"
 
+#include <utility>
+
 #include "fpdfsdk/cpdfsdk_formfillenvironment.h"
 #include "fpdfsdk/cpdfsdk_widget.h"
 #include "fpdfsdk/formfiller/cffl_formfiller.h"
-#include "fpdfsdk/pdfwindow/cpwl_special_button.h"
+#include "fpdfsdk/pwl/cpwl_special_button.h"
 #include "public/fpdf_fwlevent.h"
 
 CFFL_RadioButton::CFFL_RadioButton(CPDFSDK_FormFillEnvironment* pApp,
@@ -18,13 +20,12 @@ CFFL_RadioButton::CFFL_RadioButton(CPDFSDK_FormFillEnvironment* pApp,
 
 CFFL_RadioButton::~CFFL_RadioButton() {}
 
-CPWL_Wnd* CFFL_RadioButton::NewPDFWindow(const PWL_CREATEPARAM& cp) {
-  CPWL_RadioButton* pWnd = new CPWL_RadioButton();
+std::unique_ptr<CPWL_Wnd> CFFL_RadioButton::NewPDFWindow(
+    const CPWL_Wnd::CreateParams& cp) {
+  auto pWnd = pdfium::MakeUnique<CPWL_RadioButton>();
   pWnd->Create(cp);
-
   pWnd->SetCheck(m_pWidget->IsChecked());
-
-  return pWnd;
+  return std::move(pWnd);
 }
 
 bool CFFL_RadioButton::OnKeyDown(CPDFSDK_Annot* pAnnot,
@@ -104,9 +105,15 @@ void CFFL_RadioButton::SaveData(CPDFSDK_PageView* pPageView) {
       }
     }
   }
+  CPDFSDK_Widget::ObservedPtr observed_widget(m_pWidget.Get());
+  CFFL_RadioButton::ObservedPtr observed_this(this);
 
   m_pWidget->SetCheck(bNewChecked, false);
+  if (!observed_widget)
+    return;
   m_pWidget->UpdateField();
+  if (!observed_widget || !observed_this)
+    return;
   SetChangeMark();
 }
 

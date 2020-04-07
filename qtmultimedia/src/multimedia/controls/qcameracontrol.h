@@ -80,10 +80,10 @@ Q_SIGNALS:
     void stateChanged(QCamera::State);
     void statusChanged(QCamera::Status);
     void error(int error, const QString &errorString);
-    void captureModeChanged(QCamera::CaptureModes);
+    void captureModeChanged(QCamera::CaptureModes mode);
 
 protected:
-    explicit QCameraControl(QObject *parent = Q_NULLPTR);
+    explicit QCameraControl(QObject *parent = nullptr);
 };
 
 #define QCameraControl_iid "org.qt-project.qt.cameracontrol/5.0"

@@ -43,7 +43,7 @@
 #include "shared_global_p.h"
 #include "qdesigner_propertysheet_p.h"
 #include "qdesigner_utils_p.h"
-#include <QtGui/QPalette>
+#include <QtGui/qpalette.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -96,10 +96,10 @@ class QDESIGNER_SHARED_EXPORT QToolBoxWidgetPropertySheet : public QDesignerProp
 public:
     explicit QToolBoxWidgetPropertySheet(QToolBox *object, QObject *parent = 0);
 
-    void setProperty(int index, const QVariant &value) Q_DECL_OVERRIDE;
-    QVariant property(int index) const Q_DECL_OVERRIDE;
-    bool reset(int index) Q_DECL_OVERRIDE;
-    bool isEnabled(int index) const Q_DECL_OVERRIDE;
+    void setProperty(int index, const QVariant &value) override;
+    QVariant property(int index) const override;
+    bool reset(int index) override;
+    bool isEnabled(int index) const override;
 
     // Check whether the property is to be saved. Returns false for the page
     // properties (as the property sheet has no concept of 'stored')

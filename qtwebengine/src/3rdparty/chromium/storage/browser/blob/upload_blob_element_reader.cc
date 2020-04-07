@@ -13,20 +13,18 @@
 #include "net/base/net_errors.h"
 #include "storage/browser/blob/blob_data_handle.h"
 #include "storage/browser/blob/blob_reader.h"
-#include "storage/browser/fileapi/file_system_context.h"
 
 namespace storage {
 
 UploadBlobElementReader::UploadBlobElementReader(
-    std::unique_ptr<BlobDataHandle> handle,
-    FileSystemContext* file_system_context)
-    : handle_(std::move(handle)), file_system_context_(file_system_context) {}
+    std::unique_ptr<BlobDataHandle> handle)
+    : handle_(std::move(handle)) {}
 
-UploadBlobElementReader::~UploadBlobElementReader() {}
+UploadBlobElementReader::~UploadBlobElementReader() = default;
 
-int UploadBlobElementReader::Init(const net::CompletionCallback& callback) {
-  reader_ = handle_->CreateReader(file_system_context_.get());
-  BlobReader::Status status = reader_->CalculateSize(callback);
+int UploadBlobElementReader::Init(net::CompletionOnceCallback callback) {
+  reader_ = handle_->CreateReader();
+  BlobReader::Status status = reader_->CalculateSize(std::move(callback));
   switch (status) {
     case BlobReader::Status::NET_ERROR:
       return reader_->net_error();
@@ -53,9 +51,10 @@ bool UploadBlobElementReader::IsInMemory() const {
 
 int UploadBlobElementReader::Read(net::IOBuffer* buf,
                                   int buf_length,
-                                  const net::CompletionCallback& callback) {
+                                  net::CompletionOnceCallback callback) {
   int length = 0;
-  BlobReader::Status status = reader_->Read(buf, buf_length, &length, callback);
+  BlobReader::Status status =
+      reader_->Read(buf, buf_length, &length, std::move(callback));
   switch (status) {
     case BlobReader::Status::NET_ERROR:
       return reader_->net_error();

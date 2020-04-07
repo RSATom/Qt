@@ -5,8 +5,8 @@
 # Individual libfuzzer tests that didn't find their home yet.
 
 import("//build/config/features.gni")
-import("//media/media_options.gni")
 import("//testing/libfuzzer/fuzzer_test.gni")
+import("//third_party/protobuf/proto_library.gni")
 
 # root BUILD depends on this target. Needed for package discovery
 group("fuzzers") {
@@ -40,76 +40,12 @@ fuzzer_test("language_detection_fuzzer") {
   ]
 }
 
-if (proprietary_codecs) {
-  fuzzer_test("mp4_box_reader_fuzzer") {
-    sources = [
-      "mp4_box_reader_fuzzer.cc",
-    ]
-    deps = [
-      "//base",
-      "//media",
-    ]
-    libfuzzer_options = [ "max_len=500" ]
-    dict = "dicts/mp4.dict"
-  }
-}
-
-if (enable_mse_mpeg2ts_stream_parser) {
-  fuzzer_test("es_parser_adts_fuzzer") {
-    sources = [
-      "es_parser_adts_fuzzer.cc",
-    ]
-    deps = [
-      "//base",
-      "//media",
-    ]
-  }
-
-  fuzzer_test("es_parser_h264_fuzzer") {
-    sources = [
-      "es_parser_h264_fuzzer.cc",
-    ]
-    deps = [
-      "//base",
-      "//media",
-    ]
-  }
-
-  fuzzer_test("es_parser_mpeg1audio_fuzzer") {
-    sources = [
-      "es_parser_mpeg1audio_fuzzer.cc",
-    ]
-    deps = [
-      "//base",
-      "//media",
-    ]
-  }
-}
-
 fuzzer_test("snappy_fuzzer") {
   sources = [
     "snappy_fuzzer.cc",
   ]
   deps = [
     "//third_party/snappy:snappy",
-  ]
-}
-
-fuzzer_test("string_tokenizer_fuzzer") {
-  sources = [
-    "string_tokenizer_fuzzer.cc",
-  ]
-  deps = [
-    "//base",
-  ]
-}
-
-fuzzer_test("string_to_int_fuzzer") {
-  sources = [
-    "string_to_int_fuzzer.cc",
-  ]
-  deps = [
-    "//base",
   ]
 }
 
@@ -126,16 +62,23 @@ fuzzer_test("template_url_parser_fuzzer") {
   libfuzzer_options = [ "max_len=4096" ]
 }
 
-fuzzer_test("url_parse_fuzzer") {
+fuzzer_test("url_parse_proto_fuzzer") {
   sources = [
-    "url_parse_fuzzer.cc",
+    "url_parse_proto_fuzzer.cc",
   ]
   deps = [
+    ":url_proto",
     "//base",
     "//base:i18n",
+    "//third_party/libprotobuf-mutator",
     "//url:url",
   ]
-  dict = "dicts/generated/url_parse_fuzzer.dict"
+}
+
+proto_library("url_proto") {
+  sources = [
+    "url.proto",
+  ]
 }
 
 fuzzer_test("usrsctp_fuzzer") {
@@ -154,20 +97,11 @@ fuzzer_test("libsrtp_fuzzer") {
   deps = [
     "//third_party/libsrtp",
   ]
-  libfuzzer_options = [ "max_len=1000" ]
-}
-
-fuzzer_test("base_json_reader_fuzzer") {
-  sources = [
-    "base_json_reader_fuzzer.cc",
-  ]
-  deps = [
-    "//base",
-  ]
+  libfuzzer_options = [ "max_len=1500" ]
 }
 
 libpng_seed_corpuses = [
-  "//cc/test/data",
+  "//components/viz/test/data",
   "//third_party/WebKit/LayoutTests/images/png-suite/samples",
   "//third_party/WebKit/LayoutTests/images/resources/pngfuzz",
 ]
@@ -182,15 +116,6 @@ fuzzer_test("gfx_png_image_fuzzer") {
   ]
   dict = "dicts/png.dict"
   seed_corpuses = libpng_seed_corpuses
-}
-
-fuzzer_test("zlib_uncompress_fuzzer") {
-  sources = [
-    "zlib_uncompress_fuzzer.cc",
-  ]
-  deps = [
-    "//third_party/zlib",
-  ]
 }
 
 fuzzer_test("libxml_xml_read_memory_fuzzer") {
@@ -233,7 +158,7 @@ fuzzer_test("v8_script_parser_fuzzer") {
   deps = [
     "//v8:parser_fuzzer",
   ]
-  dict = "dicts/generated/v8_script_parser_fuzzer.dict"
+  dict = "dicts/generated/javascript.dict"
   seed_corpus = "//v8/test/mjsunit/regress/"
   libfuzzer_options = [ "only_ascii=1" ]
 }
@@ -256,6 +181,20 @@ fuzzer_test("v8_regexp_parser_fuzzer") {
   libfuzzer_options = [ "max_len=64" ]
 }
 
+fuzzer_test("v8_regexp_builtins_fuzzer") {
+  sources = []
+  deps = [
+    "//v8:regexp_builtins_fuzzer",
+  ]
+}
+
+fuzzer_test("v8_multi_return_fuzzer") {
+  sources = []
+  deps = [
+    "//v8:multi_return_fuzzer",
+  ]
+}
+
 fuzzer_test("v8_wasm_code_fuzzer") {
   sources = []
   deps = [
@@ -268,14 +207,6 @@ fuzzer_test("v8_wasm_compile_fuzzer") {
   sources = []
   deps = [
     "//v8:wasm_compile_fuzzer",
-  ]
-  libfuzzer_options = [ "max_len=500" ]
-}
-
-fuzzer_test("v8_wasm_call_fuzzer") {
-  sources = []
-  deps = [
-    "//v8:wasm_call_fuzzer",
   ]
   libfuzzer_options = [ "max_len=500" ]
 }
@@ -442,6 +373,16 @@ fuzzer_test("angle_translator_fuzzer") {
     "//third_party/angle:translator_fuzzer",
   ]
   libfuzzer_options = [ "max_len=1000" ]
+  dict = "dicts/webgl-glsl.dict"
+}
+
+if (target_cpu == "x86" || target_cpu == "x64") {
+  fuzzer_test("swiftshader_vertex_routine_fuzzer") {
+    sources = []
+    deps = [
+      "//third_party/swiftshader:vertex_routine_fuzzer",
+    ]
+  }
 }
 
 fuzzer_test("sha1_fuzzer") {
@@ -464,13 +405,100 @@ fuzzer_test("hash_fuzzer") {
 
 # third_party/minizip/src is checked out only on unix platform by gclient.
 if (is_linux) {
-  # TODO(yawano): Add compress test case
   fuzzer_test("minizip_uncompress_fuzzer") {
     sources = [
       "minizip_uncompress_fuzzer.cc",
     ]
     deps = [
       "//third_party/minizip:minizip",
+    ]
+    seed_corpus = "//testing/libfuzzer/fuzzers/minizip_uncompress_corpus"
+  }
+
+  fuzzer_test("minizip_compress_fuzzer") {
+    sources = [
+      "minizip_compress_fuzzer.cc",
+    ]
+    deps = [
+      "//third_party/minizip:minizip",
+    ]
+  }
+}
+
+action("gen_javascript_parser_proto") {
+  # Only targets in this file and the top-level visibility target can
+  # depend on this.
+  visibility = [
+    ":*",
+    "//:gn_visibility",
+  ]
+
+  script = "generate_javascript_parser_proto.py"
+
+  sources = [
+    "dicts/javascript_parser_proto.dict",
+  ]
+
+  outputs = [
+    "$target_gen_dir/javascript_parser.proto",
+    "$target_gen_dir/javascript_parser_proto_to_string.cc",
+  ]
+
+  args = rebase_path(outputs, root_build_dir) +
+         rebase_path(sources, root_build_dir)
+}
+
+proto_library("javascript_parser_proto") {
+  sources = [
+    "$target_gen_dir/javascript_parser.proto",
+  ]
+  deps = [
+    ":gen_javascript_parser_proto",
+  ]
+  proto_out_dir = ""
+}
+
+fuzzer_test("javascript_parser_proto_fuzzer") {
+  sources = [
+    "$target_gen_dir/javascript_parser_proto_to_string.cc",
+    "javascript_parser_proto_fuzzer.cc",
+    "javascript_parser_proto_to_string.h",
+  ]
+  deps = [
+    ":gen_javascript_parser_proto",
+    ":javascript_parser_proto",
+    "//third_party/libprotobuf-mutator",
+    "//v8:v8",
+    "//v8:v8_libplatform",
+  ]
+}
+
+fuzzer_test("v8_fully_instrumented_fuzzer") {
+  sources = [
+    "v8_fuzzer.cc",
+  ]
+  deps = [
+    "//base",
+    "//v8:v8",
+    "//v8:v8_libplatform",
+  ]
+  dict = "dicts/generated/javascript.dict"
+  libfuzzer_options = [ "only_ascii=1" ]
+}
+
+if (!is_win) {
+  fuzzer_test("skia_image_filter_proto_fuzzer") {
+    sources = [
+      "skia_image_filter_proto_fuzzer.cc",
+    ]
+
+    deps = [
+      "//base",
+      "//base/test:test_support",
+      "//skia",
+      "//testing/libfuzzer/proto:skia_image_filter_converter",
+      "//testing/libfuzzer/proto:skia_image_filter_proto",
+      "//third_party/libprotobuf-mutator",
     ]
   }
 }

@@ -14,11 +14,9 @@ namespace gfx {
 class FontList;
 }
 
-namespace ui {
-class NativeTheme;
-}
-
 namespace views {
+
+class View;
 
 // Provides fonts to use in toolkit-views UI.
 class VIEWS_EXPORT TypographyProvider {
@@ -28,22 +26,21 @@ class VIEWS_EXPORT TypographyProvider {
   // Gets the FontList for the given |context| and |style|.
   virtual const gfx::FontList& GetFont(int context, int style) const = 0;
 
-  // Gets the color for the given |context| and |style|, optionally consulting
-  // |theme|.
-  virtual SkColor GetColor(int context,
-                           int style,
-                           const ui::NativeTheme& theme) const = 0;
+  // Gets the color for the given |context| and |style|. |view| is the View
+  // requesting the color.
+  virtual SkColor GetColor(const views::View& view,
+                           int context,
+                           int style) const = 0;
 
   // Gets the line spacing, or 0 if it should be provided by gfx::FontList.
   virtual int GetLineHeight(int context, int style) const = 0;
 
-  // The system may indicate a "bold" UI font is preferred (e.g. by selecting
-  // the "Bold" checkbox in Windows under "Change only the text size" in
-  // Control Panel). In this case, a user's gfx::Weight::NORMAL font will
-  // already be bold, and requesting a MEDIUM font will result in a font that is
-  // less bold. So this method returns NORMAL, if the NORMAL font is at least as
-  // bold as |weight|.
-  static gfx::Font::Weight WeightNotLighterThanNormal(gfx::Font::Weight weight);
+  // Returns the weight that will result in the ResourceBundle returning an
+  // appropriate "medium" weight for UI. This caters for systems that are known
+  // to be unable to provide a system font with weight other than NORMAL or BOLD
+  // and for user configurations where the NORMAL font is already BOLD. In both
+  // of these cases, NORMAL is returned instead.
+  static gfx::Font::Weight MediumWeightForUI();
 
  protected:
   TypographyProvider() = default;
@@ -60,9 +57,9 @@ class VIEWS_EXPORT DefaultTypographyProvider : public TypographyProvider {
 
   // TypographyProvider:
   const gfx::FontList& GetFont(int context, int style) const override;
-  SkColor GetColor(int context,
-                   int style,
-                   const ui::NativeTheme& theme) const override;
+  SkColor GetColor(const views::View& view,
+                   int context,
+                   int style) const override;
   int GetLineHeight(int context, int style) const override;
 
   // Sets the |size_delta| and |font_weight| that the the default GetFont()

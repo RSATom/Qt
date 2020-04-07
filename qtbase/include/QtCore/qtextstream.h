@@ -1,1 +1,1 @@
-#include "../../src/corelib/io/qtextstream.h"
+#include "../../src/corelib/serialization/qtextstream.h"

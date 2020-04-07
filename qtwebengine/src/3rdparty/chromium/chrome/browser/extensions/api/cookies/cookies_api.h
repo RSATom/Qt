@@ -22,11 +22,8 @@
 #include "extensions/browser/browser_context_keyed_api_factory.h"
 #include "extensions/browser/event_router.h"
 #include "net/cookies/canonical_cookie.h"
+#include "services/network/public/mojom/cookie_manager.mojom.h"
 #include "url/gurl.h"
-
-namespace net {
-class URLRequestContextGetter;
-}
 
 namespace extensions {
 
@@ -63,7 +60,7 @@ class CookiesEventRouter : public content::NotificationObserver {
 };
 
 // Implements the cookies.get() extension function.
-class CookiesGetFunction : public ChromeAsyncExtensionFunction {
+class CookiesGetFunction : public UIThreadExtensionFunction {
  public:
   DECLARE_EXTENSION_FUNCTION("cookies.get", COOKIES_GET)
 
@@ -73,20 +70,18 @@ class CookiesGetFunction : public ChromeAsyncExtensionFunction {
   ~CookiesGetFunction() override;
 
   // ExtensionFunction:
-  bool RunAsync() override;
+  ResponseAction Run() override;
 
  private:
-  void GetCookieOnIOThread();
-  void RespondOnUIThread();
   void GetCookieCallback(const net::CookieList& cookie_list);
 
   GURL url_;
-  scoped_refptr<net::URLRequestContextGetter> store_browser_context_;
+  network::mojom::CookieManagerPtr store_browser_cookie_manager_;
   std::unique_ptr<api::cookies::Get::Params> parsed_args_;
 };
 
 // Implements the cookies.getAll() extension function.
-class CookiesGetAllFunction : public ChromeAsyncExtensionFunction {
+class CookiesGetAllFunction : public UIThreadExtensionFunction {
  public:
   DECLARE_EXTENSION_FUNCTION("cookies.getAll", COOKIES_GETALL)
 
@@ -96,20 +91,18 @@ class CookiesGetAllFunction : public ChromeAsyncExtensionFunction {
   ~CookiesGetAllFunction() override;
 
   // ExtensionFunction:
-  bool RunAsync() override;
+  ResponseAction Run() override;
 
  private:
-  void GetAllCookiesOnIOThread();
-  void RespondOnUIThread();
   void GetAllCookiesCallback(const net::CookieList& cookie_list);
 
   GURL url_;
-  scoped_refptr<net::URLRequestContextGetter> store_browser_context_;
+  network::mojom::CookieManagerPtr store_browser_cookie_manager_;
   std::unique_ptr<api::cookies::GetAll::Params> parsed_args_;
 };
 
 // Implements the cookies.set() extension function.
-class CookiesSetFunction : public ChromeAsyncExtensionFunction {
+class CookiesSetFunction : public UIThreadExtensionFunction {
  public:
   DECLARE_EXTENSION_FUNCTION("cookies.set", COOKIES_SET)
 
@@ -117,22 +110,21 @@ class CookiesSetFunction : public ChromeAsyncExtensionFunction {
 
  protected:
   ~CookiesSetFunction() override;
-  bool RunAsync() override;
+  ResponseAction Run() override;
 
  private:
-  void SetCookieOnIOThread();
-  void RespondOnUIThread();
-  void PullCookie(bool set_cookie_);
-  void PullCookieCallback(const net::CookieList& cookie_list);
+  void SetCanonicalCookieCallback(bool set_cookie_);
+  void GetCookieListCallback(const net::CookieList& cookie_list);
 
+  enum { NO_RESPONSE, SET_COMPLETED, GET_COMPLETED } state_;
   GURL url_;
   bool success_;
-  scoped_refptr<net::URLRequestContextGetter> store_browser_context_;
+  network::mojom::CookieManagerPtr store_browser_cookie_manager_;
   std::unique_ptr<api::cookies::Set::Params> parsed_args_;
 };
 
 // Implements the cookies.remove() extension function.
-class CookiesRemoveFunction : public ChromeAsyncExtensionFunction {
+class CookiesRemoveFunction : public UIThreadExtensionFunction {
  public:
   DECLARE_EXTENSION_FUNCTION("cookies.remove", COOKIES_REMOVE)
 
@@ -142,15 +134,13 @@ class CookiesRemoveFunction : public ChromeAsyncExtensionFunction {
   ~CookiesRemoveFunction() override;
 
   // ExtensionFunction:
-  bool RunAsync() override;
+  ResponseAction Run() override;
 
  private:
-  void RemoveCookieOnIOThread();
-  void RespondOnUIThread();
-  void RemoveCookieCallback();
+  void RemoveCookieCallback(uint32_t /* num_deleted */);
 
   GURL url_;
-  scoped_refptr<net::URLRequestContextGetter> store_browser_context_;
+  network::mojom::CookieManagerPtr store_browser_cookie_manager_;
   std::unique_ptr<api::cookies::Remove::Params> parsed_args_;
 };
 

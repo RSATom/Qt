@@ -2,27 +2,31 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "extensions/renderer/bindings/api_binding.h"
+
 #include "base/bind.h"
-#include "base/memory/ptr_util.h"
+#include "base/bind_helpers.h"
 #include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/values.h"
-#include "extensions/renderer/bindings/api_binding.h"
 #include "extensions/renderer/bindings/api_binding_hooks.h"
 #include "extensions/renderer/bindings/api_binding_hooks_test_delegate.h"
 #include "extensions/renderer/bindings/api_binding_test.h"
 #include "extensions/renderer/bindings/api_binding_test_util.h"
+#include "extensions/renderer/bindings/api_binding_util.h"
 #include "extensions/renderer/bindings/api_event_handler.h"
 #include "extensions/renderer/bindings/api_invocation_errors.h"
 #include "extensions/renderer/bindings/api_request_handler.h"
+#include "extensions/renderer/bindings/api_signature.h"
 #include "extensions/renderer/bindings/api_type_reference_map.h"
 #include "extensions/renderer/bindings/binding_access_checker.h"
+#include "extensions/renderer/bindings/test_js_runner.h"
 #include "gin/arguments.h"
 #include "gin/converter.h"
 #include "gin/public/context_holder.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/WebKit/public/web/WebScopedUserGesture.h"
+#include "third_party/blink/public/web/web_scoped_user_gesture.h"
 #include "v8/include/v8.h"
 
 namespace extensions {
@@ -71,6 +75,32 @@ const char kFunctions[] =
     "  }]"
     "}]";
 
+constexpr char kFunctionsWithCallbackSignatures[] = R"(
+    [{
+       "name": "noCallback",
+       "parameters": [{
+         "name": "int",
+         "type": "integer"
+       }]
+     }, {
+       "name": "intCallback",
+       "parameters": [{
+         "name": "callback",
+         "type": "function",
+         "parameters": [{
+           "name": "int",
+           "type": "integer"
+         }]
+       }]
+     }, {
+       "name": "noParamCallback",
+       "parameters": [{
+         "name": "callback",
+         "type": "function",
+         "parameters": []
+       }]
+     }])";
+
 bool AllowAllFeatures(v8::Local<v8::Context> context, const std::string& name) {
   return true;
 }
@@ -80,11 +110,6 @@ void OnEventListenersChanged(const std::string& event_name,
                              const base::DictionaryValue* filter,
                              bool was_manual,
                              v8::Local<v8::Context> context) {}
-
-void DoNothingWithSilentRequest(
-    v8::Local<v8::Context> context,
-    const std::string& call_name,
-    const std::vector<v8::Local<v8::Value>>& arguments) {}
 
 }  // namespace
 
@@ -100,9 +125,8 @@ class APIBindingUnittest : public APIBindingTest {
       : type_refs_(APITypeReferenceMap::InitializeTypeCallback()) {}
   void SetUp() override {
     APIBindingTest::SetUp();
-    request_handler_ = base::MakeUnique<APIRequestHandler>(
+    request_handler_ = std::make_unique<APIRequestHandler>(
         base::Bind(&APIBindingUnittest::OnFunctionCall, base::Unretained(this)),
-        base::Bind(&RunFunctionOnGlobalAndIgnoreResult),
         APILastError(APILastError::GetParent(), binding::AddConsoleError()),
         nullptr);
   }
@@ -166,23 +190,23 @@ class APIBindingUnittest : public APIBindingTest {
   }
 
   void InitializeBinding() {
-    if (!binding_hooks_) {
-      binding_hooks_ = base::MakeUnique<APIBindingHooks>(
-          kBindingName, binding::RunJSFunctionSync());
-    }
+    if (!binding_hooks_)
+      binding_hooks_ = std::make_unique<APIBindingHooks>(kBindingName);
     if (binding_hooks_delegate_)
       binding_hooks_->SetDelegate(std::move(binding_hooks_delegate_));
     if (!on_silent_request_)
-      on_silent_request_ = base::Bind(&DoNothingWithSilentRequest);
+      on_silent_request_ = base::DoNothing();
     if (!availability_callback_)
       availability_callback_ = base::Bind(&AllowAllFeatures);
-    event_handler_ = base::MakeUnique<APIEventHandler>(
-        base::Bind(&RunFunctionOnGlobalAndIgnoreResult),
-        base::Bind(&RunFunctionOnGlobalAndReturnHandle),
-        base::Bind(&OnEventListenersChanged), nullptr);
+    auto get_context_owner = [](v8::Local<v8::Context>) {
+      return std::string();
+    };
+    event_handler_ = std::make_unique<APIEventHandler>(
+        base::Bind(&OnEventListenersChanged),
+        base::BindRepeating(get_context_owner), nullptr);
     access_checker_ =
-        base::MakeUnique<BindingAccessChecker>(availability_callback_);
-    binding_ = base::MakeUnique<APIBinding>(
+        std::make_unique<BindingAccessChecker>(availability_callback_);
+    binding_ = std::make_unique<APIBinding>(
         kBindingName, binding_functions_.get(), binding_types_.get(),
         binding_events_.get(), binding_properties_.get(), create_custom_type_,
         on_silent_request_, std::move(binding_hooks_), &type_refs_,
@@ -320,22 +344,17 @@ TEST_F(APIBindingUnittest, TestBasicAPICalls) {
   ExpectPass(binding_object, "obj.oneString('foo');", "['foo']", false);
   ExpectFailure(
       binding_object, "obj.oneString(1);",
-      InvocationError(
-          "test.oneString", "string str",
-          ArgumentError("str", InvalidType(kTypeString, kTypeInteger))));
+      InvocationError("test.oneString", "string str", NoMatchingSignature()));
   ExpectPass(binding_object, "obj.stringAndInt('foo', 1)", "['foo',1]", false);
-  ExpectFailure(
-      binding_object, "obj.stringAndInt(1)",
-      InvocationError(
-          "test.stringAndInt", "string str, integer int",
-          ArgumentError("str", InvalidType(kTypeString, kTypeInteger))));
+  ExpectFailure(binding_object, "obj.stringAndInt(1)",
+                InvocationError("test.stringAndInt", "string str, integer int",
+                                NoMatchingSignature()));
   ExpectPass(binding_object, "obj.intAndCallback(1, function() {})", "[1]",
              true);
   ExpectFailure(
       binding_object, "obj.intAndCallback(function() {})",
-      InvocationError(
-          "test.intAndCallback", "integer int, function callback",
-          ArgumentError("int", InvalidType(kTypeInteger, kTypeFunction))));
+      InvocationError("test.intAndCallback", "integer int, function callback",
+                      NoMatchingSignature()));
 
   // ...And an interesting case (throwing an error during parsing).
   ExpectThrow(binding_object,
@@ -719,7 +738,32 @@ TEST_F(APIBindingUnittest, TestDisposedContext) {
       FunctionFromString(context, "(function(obj) { obj.oneString('foo'); })");
   v8::Local<v8::Value> argv[] = {binding_object};
   DisposeContext(context);
-  RunFunction(func, context, arraysize(argv), argv);
+
+  RunFunctionAndExpectError(func, context, arraysize(argv), argv,
+                            "Uncaught Error: Extension context invalidated.");
+
+  EXPECT_FALSE(HandlerWasInvoked());
+  // This test passes if this does not crash, even under AddressSanitizer
+  // builds.
+}
+
+TEST_F(APIBindingUnittest, TestInvalidatedContext) {
+  SetFunctions(kFunctions);
+  InitializeBinding();
+
+  v8::HandleScope handle_scope(isolate());
+  v8::Local<v8::Context> context = MainContext();
+
+  v8::Local<v8::Object> binding_object = binding()->CreateInstance(context);
+
+  v8::Local<v8::Function> func =
+      FunctionFromString(context, "(function(obj) { obj.oneString('foo'); })");
+  v8::Local<v8::Value> argv[] = {binding_object};
+  binding::InvalidateContext(context);
+
+  RunFunctionAndExpectError(func, context, arraysize(argv), argv,
+                            "Uncaught Error: Extension context invalidated.");
+
   EXPECT_FALSE(HandlerWasInvoked());
   // This test passes if this does not crash, even under AddressSanitizer
   // builds.
@@ -740,8 +784,8 @@ TEST_F(APIBindingUnittest, MultipleContexts) {
              false);
   ExpectPass(context_b, binding_object_b, "obj.oneString('foo');", "['foo']",
              false);
-  DisposeContext(context_a);
-  ExpectPass(context_b, binding_object_b, "obj.oneString('foo');", "['foo']",
+  DisposeContext(context_b);
+  ExpectPass(context_a, binding_object_a, "obj.oneString('foo');", "['foo']",
              false);
 }
 
@@ -750,7 +794,7 @@ TEST_F(APIBindingUnittest, TestCustomHooks) {
   SetFunctions(kFunctions);
 
   // Register a hook for the test.oneString method.
-  auto hooks = base::MakeUnique<APIBindingHooksTestDelegate>();
+  auto hooks = std::make_unique<APIBindingHooksTestDelegate>();
   bool did_call = false;
   auto hook = [](bool* did_call, const APISignature* signature,
                  v8::Local<v8::Context> context,
@@ -791,8 +835,7 @@ TEST_F(APIBindingUnittest, TestCustomHooks) {
 
 TEST_F(APIBindingUnittest, TestJSCustomHook) {
   // Register a hook for the test.oneString method.
-  auto hooks = base::MakeUnique<APIBindingHooks>(
-      kBindingName, base::Bind(&RunFunctionOnGlobalAndReturnHandle));
+  auto hooks = std::make_unique<APIBindingHooks>(kBindingName);
 
   v8::HandleScope handle_scope(isolate());
   v8::Local<v8::Context> context = MainContext();
@@ -820,9 +863,7 @@ TEST_F(APIBindingUnittest, TestJSCustomHook) {
   // the hook should never have been called, since the arguments didn't match.
   ExpectFailure(
       binding_object, "obj.oneString(1);",
-      InvocationError(
-          "test.oneString", "string str",
-          ArgumentError("str", InvalidType(kTypeString, kTypeInteger))));
+      InvocationError("test.oneString", "string str", NoMatchingSignature()));
   v8::Local<v8::Value> property =
       GetPropertyFromObject(context->Global(), context, "requestArguments");
   ASSERT_FALSE(property.IsEmpty());
@@ -846,8 +887,7 @@ TEST_F(APIBindingUnittest, TestJSCustomHook) {
 // Tests the updateArgumentsPreValidate hook.
 TEST_F(APIBindingUnittest, TestUpdateArgumentsPreValidate) {
   // Register a hook for the test.oneString method.
-  auto hooks = base::MakeUnique<APIBindingHooks>(
-      kBindingName, base::Bind(&RunFunctionOnGlobalAndReturnHandle));
+  auto hooks = std::make_unique<APIBindingHooks>(kBindingName);
 
   v8::HandleScope handle_scope(isolate());
   v8::Local<v8::Context> context = MainContext();
@@ -876,9 +916,7 @@ TEST_F(APIBindingUnittest, TestUpdateArgumentsPreValidate) {
   // have the hook called.
   ExpectFailure(
       binding_object, "obj.oneString(false);",
-      InvocationError(
-          "test.oneString", "string str",
-          ArgumentError("str", InvalidType(kTypeString, kTypeBoolean))));
+      InvocationError("test.oneString", "string str", NoMatchingSignature()));
   EXPECT_EQ("[false]", GetStringPropertyFromObject(
                            context->Global(), context, "requestArguments"));
 
@@ -893,22 +931,8 @@ TEST_F(APIBindingUnittest, TestUpdateArgumentsPreValidate) {
 
 // Tests the updateArgumentsPreValidate hook.
 TEST_F(APIBindingUnittest, TestThrowInUpdateArgumentsPreValidate) {
-  auto run_js_and_allow_error = [](v8::Local<v8::Function> function,
-                                   v8::Local<v8::Context> context,
-                                   int argc,
-                                   v8::Local<v8::Value> argv[]) {
-    v8::MaybeLocal<v8::Value> maybe_result =
-        function->Call(context, context->Global(), argc, argv);
-    v8::Global<v8::Value> result;
-    v8::Local<v8::Value> local;
-    if (maybe_result.ToLocal(&local))
-      result.Reset(context->GetIsolate(), local);
-    return result;
-  };
-
   // Register a hook for the test.oneString method.
-  auto hooks = base::MakeUnique<APIBindingHooks>(
-      kBindingName, base::Bind(run_js_and_allow_error));
+  auto hooks = std::make_unique<APIBindingHooks>(kBindingName);
 
   v8::HandleScope handle_scope(isolate());
   v8::Local<v8::Context> context = MainContext();
@@ -936,9 +960,12 @@ TEST_F(APIBindingUnittest, TestThrowInUpdateArgumentsPreValidate) {
       FunctionFromString(context,
                          "(function(obj) { return obj.oneString('ping'); })");
   v8::Local<v8::Value> args[] = {binding_object};
-  RunFunctionAndExpectError(function, context, v8::Undefined(isolate()),
-                            arraysize(args), args,
-                            "Uncaught Error: Custom Hook Error");
+  {
+    TestJSRunner::AllowErrors allow_errors;
+    RunFunctionAndExpectError(function, context, v8::Undefined(isolate()),
+                              arraysize(args), args,
+                              "Uncaught Error: Custom Hook Error");
+  }
 
   // Other methods, like stringAndInt(), should behave normally.
   ExpectPass(binding_object, "obj.stringAndInt('foo', 42);", "['foo',42]",
@@ -948,8 +975,7 @@ TEST_F(APIBindingUnittest, TestThrowInUpdateArgumentsPreValidate) {
 // Tests that custom JS hooks can return results synchronously.
 TEST_F(APIBindingUnittest, TestReturningResultFromCustomJSHook) {
   // Register a hook for the test.oneString method.
-  auto hooks = base::MakeUnique<APIBindingHooks>(
-      kBindingName, base::Bind(&RunFunctionOnGlobalAndReturnHandle));
+  auto hooks = std::make_unique<APIBindingHooks>(kBindingName);
 
   v8::HandleScope handle_scope(isolate());
   v8::Local<v8::Context> context = MainContext();
@@ -987,29 +1013,8 @@ TEST_F(APIBindingUnittest, TestReturningResultFromCustomJSHook) {
 
 // Tests that JS custom hooks can throw exceptions for bad invocations.
 TEST_F(APIBindingUnittest, TestThrowingFromCustomJSHook) {
-  // Our testing handlers for running functions expect a pre-determined success
-  // or failure. Since we're testing throwing exceptions here, we need a way of
-  // running that allows exceptions to be thrown, but we still expect most JS
-  // calls to succeed.
-  // TODO(devlin): This is a bit clunky. If we need to do this enough, we could
-  // figure out a different solution, like having a stack object for allowing
-  // errors/exceptions. But given this is the only place we need it so far, this
-  // is sufficient.
-  auto run_js_and_expect_error = [](v8::Local<v8::Function> function,
-                                          v8::Local<v8::Context> context,
-                                          int argc,
-                                          v8::Local<v8::Value> argv[]) {
-    v8::MaybeLocal<v8::Value> maybe_result =
-        function->Call(context, context->Global(), argc, argv);
-    v8::Global<v8::Value> result;
-    v8::Local<v8::Value> local;
-    if (maybe_result.ToLocal(&local))
-      result.Reset(context->GetIsolate(), local);
-    return result;
-  };
   // Register a hook for the test.oneString method.
-  auto hooks = base::MakeUnique<APIBindingHooks>(
-      kBindingName, base::Bind(run_js_and_expect_error));
+  auto hooks = std::make_unique<APIBindingHooks>(kBindingName);
 
   v8::HandleScope handle_scope(isolate());
   v8::Local<v8::Context> context = MainContext();
@@ -1037,6 +1042,8 @@ TEST_F(APIBindingUnittest, TestThrowingFromCustomJSHook) {
       FunctionFromString(context,
                          "(function(obj) { return obj.oneString('ping'); })");
   v8::Local<v8::Value> args[] = {binding_object};
+
+  TestJSRunner::AllowErrors allow_errors;
   RunFunctionAndExpectError(function, context, v8::Undefined(isolate()),
                             arraysize(args), args,
                             "Uncaught Error: Custom Hook Error");
@@ -1050,7 +1057,7 @@ TEST_F(APIBindingUnittest,
   v8::Local<v8::Context> context = MainContext();
 
   // Register a hook for the test.oneString method.
-  auto hooks = base::MakeUnique<APIBindingHooksTestDelegate>();
+  auto hooks = std::make_unique<APIBindingHooksTestDelegate>();
   bool did_call = false;
   auto hook = [](bool* did_call, const APISignature* signature,
                  v8::Local<v8::Context> context,
@@ -1111,8 +1118,7 @@ TEST_F(APIBindingUnittest,
 // Tests the updateArgumentsPostValidate hook.
 TEST_F(APIBindingUnittest, TestUpdateArgumentsPostValidate) {
   // Register a hook for the test.oneString method.
-  auto hooks = base::MakeUnique<APIBindingHooks>(
-      kBindingName, base::Bind(&RunFunctionOnGlobalAndReturnHandle));
+  auto hooks = std::make_unique<APIBindingHooks>(kBindingName);
 
   v8::HandleScope handle_scope(isolate());
   v8::Local<v8::Context> context = MainContext();
@@ -1141,9 +1147,7 @@ TEST_F(APIBindingUnittest, TestUpdateArgumentsPostValidate) {
   // should never enter the hook.
   ExpectFailure(
       binding_object, "obj.oneString(false);",
-      InvocationError(
-          "test.oneString", "string str",
-          ArgumentError("str", InvalidType(kTypeString, kTypeBoolean))));
+      InvocationError("test.oneString", "string str", NoMatchingSignature()));
   EXPECT_EQ("undefined", GetStringPropertyFromObject(
                              context->Global(), context, "requestArguments"));
 
@@ -1163,8 +1167,7 @@ TEST_F(APIBindingUnittest, TestUpdateArgumentsPostValidate) {
 // See comment in api_binding.cc.
 TEST_F(APIBindingUnittest, TestUpdateArgumentsPostValidateViolatingSchema) {
   // Register a hook for the test.oneString method.
-  auto hooks = base::MakeUnique<APIBindingHooks>(
-      kBindingName, base::Bind(&RunFunctionOnGlobalAndReturnHandle));
+  auto hooks = std::make_unique<APIBindingHooks>(kBindingName);
 
   v8::HandleScope handle_scope(isolate());
   v8::Local<v8::Context> context = MainContext();
@@ -1289,7 +1292,7 @@ TEST_F(APIBindingUnittest, HooksTemplateInitializer) {
   SetFunctions(kFunctions);
 
   // Register a hook for the test.oneString method.
-  auto hooks = base::MakeUnique<APIBindingHooksTestDelegate>();
+  auto hooks = std::make_unique<APIBindingHooksTestDelegate>();
   auto hook = [](v8::Isolate* isolate,
                  v8::Local<v8::ObjectTemplate> object_template,
                  const APITypeReferenceMap& type_refs) {
@@ -1312,6 +1315,55 @@ TEST_F(APIBindingUnittest, HooksTemplateInitializer) {
   // Sanity check: other values should still be there.
   EXPECT_EQ("function",
             GetStringPropertyFromObject(binding_object, context, "oneString"));
+}
+
+TEST_F(APIBindingUnittest, HooksInstanceInitializer) {
+  SetFunctions(kFunctions);
+  static constexpr char kHookedProperty[] = "hookedProperty";
+
+  // Register a hook for the test.oneString method.
+  auto hooks = std::make_unique<APIBindingHooksTestDelegate>();
+  int count = 0;
+  auto hook = [](int* count, v8::Local<v8::Context> context,
+                 v8::Local<v8::Object> object) {
+    v8::Isolate* isolate = context->GetIsolate();
+    // Add a new property only for the first instance.
+    if ((*count)++ == 0) {
+      object
+          ->Set(context, gin::StringToSymbol(isolate, kHookedProperty),
+                gin::ConvertToV8(isolate, 42))
+          .ToChecked();
+    }
+  };
+
+  hooks->SetInstanceInitializer(base::Bind(hook, &count));
+  SetHooksDelegate(std::move(hooks));
+
+  InitializeBinding();
+
+  v8::HandleScope handle_scope(isolate());
+  // Create two instances.
+  v8::Local<v8::Context> context1 = MainContext();
+  v8::Local<v8::Object> binding_object1 = binding()->CreateInstance(context1);
+
+  v8::Local<v8::Context> context2 = AddContext();
+  v8::Local<v8::Object> binding_object2 = binding()->CreateInstance(context2);
+
+  // We should have run the hooks twice (once per instance).
+  EXPECT_EQ(2, count);
+
+  // The extra property should be present on the first binding object, but not
+  // the second.
+  EXPECT_EQ("42", GetStringPropertyFromObject(binding_object1, context1,
+                                              kHookedProperty));
+  EXPECT_EQ("undefined", GetStringPropertyFromObject(binding_object2, context2,
+                                                     kHookedProperty));
+
+  // Sanity check: other values should still be there.
+  EXPECT_EQ("function", GetStringPropertyFromObject(binding_object1, context1,
+                                                    "oneString"));
+  EXPECT_EQ("function", GetStringPropertyFromObject(binding_object2, context1,
+                                                    "oneString"));
 }
 
 // Test that running hooks returning different results correctly sends requests
@@ -1356,7 +1408,7 @@ TEST_F(APIBindingUnittest, TestSendingRequestsAndSilentRequestsWithHooks) {
     return RequestResult(code);
   };
 
-  auto hooks = base::MakeUnique<APIBindingHooksTestDelegate>();
+  auto hooks = std::make_unique<APIBindingHooksTestDelegate>();
   hooks->AddHandler(
       "test.modifyArgs",
       base::Bind(basic_handler, RequestResult::ARGUMENTS_UPDATED));
@@ -1392,7 +1444,7 @@ TEST_F(APIBindingUnittest, TestSendingRequestsAndSilentRequestsWithHooks) {
          const APITypeReferenceMap& map) {
         handler->StartRequest(
             context, "test.handleAndSendRequest",
-            base::MakeUnique<base::ListValue>(), v8::Local<v8::Function>(),
+            std::make_unique<base::ListValue>(), v8::Local<v8::Function>(),
             v8::Local<v8::Function>(), binding::RequestThread::UI);
         return RequestResult(RequestResult::HANDLED);
       };
@@ -1496,6 +1548,102 @@ TEST_F(APIBindingUnittest, TestSendingRequestsAndSilentRequestsWithHooks) {
   reset_last_request();
   silent_request.reset();
   request_arguments.reset();
+}
+
+// Test native hooks that don't handle the result, but set a custom callback
+// instead.
+TEST_F(APIBindingUnittest, TestHooksWithCustomCallback) {
+  SetFunctions(kFunctions);
+
+  // Register a hook for the test.oneString method.
+  auto hooks = std::make_unique<APIBindingHooksTestDelegate>();
+  auto hook_with_custom_callback =
+      [](const APISignature* signature, v8::Local<v8::Context> context,
+         std::vector<v8::Local<v8::Value>>* arguments,
+         const APITypeReferenceMap& ref_map) {
+        constexpr char kCustomCallback[] =
+            "(function() { this.calledCustomCallback = true; })";
+        v8::Local<v8::Function> custom_callback =
+            FunctionFromString(context, kCustomCallback);
+        APIBindingHooks::RequestResult result(
+            APIBindingHooks::RequestResult::NOT_HANDLED, custom_callback);
+        return result;
+      };
+  hooks->AddHandler("test.oneString", base::Bind(hook_with_custom_callback));
+  SetHooksDelegate(std::move(hooks));
+
+  InitializeBinding();
+
+  v8::HandleScope handle_scope(isolate());
+  v8::Local<v8::Context> context = MainContext();
+
+  v8::Local<v8::Object> binding_object = binding()->CreateInstance(context);
+
+  // First try calling the oneString() method, which has a custom hook
+  // installed.
+  v8::Local<v8::Function> func =
+      FunctionFromString(context, "(function(obj) { obj.oneString('foo'); })");
+  v8::Local<v8::Value> args[] = {binding_object};
+  RunFunction(func, context, 1, args);
+
+  ASSERT_TRUE(last_request());
+  EXPECT_TRUE(last_request()->has_callback);
+  request_handler()->CompleteRequest(last_request()->request_id,
+                                     base::ListValue(), std::string());
+
+  EXPECT_EQ("true", GetStringPropertyFromObject(context->Global(), context,
+                                                "calledCustomCallback"));
+}
+
+TEST_F(APIBindingUnittest, AccessAPIMethodsAndEventsAfterInvalidation) {
+  SetEvents(R"([{"name": "onFoo"}])");
+  InitializeBinding();
+
+  v8::HandleScope handle_scope(isolate());
+  v8::Local<v8::Context> context = MainContext();
+
+  v8::Local<v8::Object> binding_object = binding()->CreateInstance(context);
+
+  v8::Local<v8::Function> function = FunctionFromString(
+      context, "(function(obj) { obj.onFoo.addListener(function() {}); })");
+  binding::InvalidateContext(context);
+
+  v8::Local<v8::Value> argv[] = {binding_object};
+  RunFunctionAndExpectError(function, context, arraysize(argv), argv,
+                            "Uncaught Error: Extension context invalidated.");
+}
+
+TEST_F(APIBindingUnittest, CallbackSignaturesAreAdded) {
+  std::unique_ptr<base::AutoReset<bool>> response_validation_override =
+      binding::SetResponseValidationEnabledForTesting(true);
+
+  SetFunctions(kFunctionsWithCallbackSignatures);
+  InitializeBinding();
+
+  EXPECT_FALSE(type_refs().GetCallbackSignature("test.noCallback"));
+
+  const APISignature* int_signature =
+      type_refs().GetCallbackSignature("test.intCallback");
+  ASSERT_TRUE(int_signature);
+  EXPECT_EQ("integer int", int_signature->GetExpectedSignature());
+
+  const APISignature* no_param_signature =
+      type_refs().GetCallbackSignature("test.noParamCallback");
+  ASSERT_TRUE(no_param_signature);
+  EXPECT_EQ("", no_param_signature->GetExpectedSignature());
+}
+
+TEST_F(APIBindingUnittest,
+       CallbackSignaturesAreNotAddedWhenValidationDisabled) {
+  std::unique_ptr<base::AutoReset<bool>> response_validation_override =
+      binding::SetResponseValidationEnabledForTesting(false);
+
+  SetFunctions(kFunctionsWithCallbackSignatures);
+  InitializeBinding();
+
+  EXPECT_FALSE(type_refs().GetCallbackSignature("test.noCallback"));
+  EXPECT_FALSE(type_refs().GetCallbackSignature("test.intCallback"));
+  EXPECT_FALSE(type_refs().GetCallbackSignature("test.noParamCallback"));
 }
 
 }  // namespace extensions

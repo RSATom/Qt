@@ -6,10 +6,14 @@
  */
 
 #include "SkLineClipper.h"
+#include "SkTo.h"
+
+#include <utility>
 
 template <typename T> T pin_unsorted(T value, T limit0, T limit1) {
     if (limit1 < limit0) {
-        SkTSwap(limit0, limit1);
+        using std::swap;
+        swap(limit0, limit1);
     }
     // now the limits are sorted
     SkASSERT(limit0 <= limit1);
@@ -58,6 +62,15 @@ static SkScalar sect_with_vertical(const SkPoint src[2], SkScalar X) {
         double result = Y0 + ((double)X - X0) * (Y1 - Y0) / (X1 - X0);
         return (float)result;
     }
+}
+
+static SkScalar sect_clamp_with_vertical(const SkPoint src[2], SkScalar x) {
+    SkScalar y = sect_with_vertical(src, x);
+    // Our caller expects y to be between src[0].fY and src[1].fY (unsorted), but due to the
+    // numerics of floats/doubles, we might have computed a value slightly outside of that,
+    // so we have to manually clamp afterwards.
+    // See skbug.com/7491
+    return pin_unsorted(y, src[0].fY, src[1].fY);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -229,7 +242,7 @@ int SkLineClipper::ClipLine(const SkPoint pts[], const SkRect& clip, SkPoint lin
         if (tmp[index0].fX < clip.fLeft) {
             r->set(clip.fLeft, tmp[index0].fY);
             r += 1;
-            r->set(clip.fLeft, sect_with_vertical(tmp, clip.fLeft));
+            r->set(clip.fLeft, sect_clamp_with_vertical(tmp, clip.fLeft));
             SkASSERT(is_between_unsorted(r->fY, tmp[0].fY, tmp[1].fY));
         } else {
             *r = tmp[index0];
@@ -237,7 +250,7 @@ int SkLineClipper::ClipLine(const SkPoint pts[], const SkRect& clip, SkPoint lin
         r += 1;
 
         if (tmp[index1].fX > clip.fRight) {
-            r->set(clip.fRight, sect_with_vertical(tmp, clip.fRight));
+            r->set(clip.fRight, sect_clamp_with_vertical(tmp, clip.fRight));
             SkASSERT(is_between_unsorted(r->fY, tmp[0].fY, tmp[1].fY));
             r += 1;
             r->set(clip.fRight, tmp[index1].fY);

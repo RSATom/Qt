@@ -1,3 +1,3 @@
-requires(!winrt:!watchos:qtHaveModule(websockets):qtHaveModule(gui):qtConfig(opengl))
+requires(!winrt:!watchos:!android:qtHaveModule(websockets):qtHaveModule(gui):qtConfig(opengl))
 
 load(qt_parts)

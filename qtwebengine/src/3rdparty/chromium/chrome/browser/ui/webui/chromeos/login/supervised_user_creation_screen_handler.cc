@@ -4,9 +4,9 @@
 
 #include "chrome/browser/ui/webui/chromeos/login/supervised_user_creation_screen_handler.h"
 
+#include <memory>
 #include <utility>
 
-#include "base/memory/ptr_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/chromeos/accessibility/accessibility_manager.h"
@@ -15,14 +15,14 @@
 #include "chrome/browser/chromeos/login/supervised/supervised_user_creation_flow.h"
 #include "chrome/browser/chromeos/login/users/chrome_user_manager.h"
 #include "chrome/browser/chromeos/login/users/supervised_user_manager.h"
-#include "chrome/browser/chromeos/login/users/wallpaper/wallpaper_manager.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
+#include "chrome/browser/ui/ash/wallpaper_controller_client.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/browser_resources.h"
 #include "chrome/grit/generated_resources.h"
 #include "chromeos/audio/chromeos_sounds.h"
+#include "components/account_id/account_id.h"
 #include "components/login/localized_values_builder.h"
-#include "components/signin/core/account_id/account_id.h"
 #include "components/user_manager/user_manager.h"
 #include "components/user_manager/user_type.h"
 #include "google_apis/gaia/gaia_auth_util.h"
@@ -155,11 +155,6 @@ void SupervisedUserCreationScreenHandler::DeclareLocalizedValues(
   // It should be removed by issue 251179.
   builder->Add("takePhoto", IDS_OPTIONS_CHANGE_PICTURE_TAKE_PHOTO);
   builder->Add("discardPhoto", IDS_OPTIONS_CHANGE_PICTURE_DISCARD_PHOTO);
-  builder->Add("flipPhoto", IDS_OPTIONS_CHANGE_PICTURE_FLIP_PHOTO);
-  builder->Add("photoFlippedAccessibleText",
-               IDS_OPTIONS_PHOTO_FLIP_ACCESSIBLE_TEXT);
-  builder->Add("photoFlippedBackAccessibleText",
-               IDS_OPTIONS_PHOTO_FLIPBACK_ACCESSIBLE_TEXT);
   builder->Add("photoCaptureAccessibleText",
                IDS_OPTIONS_PHOTO_CAPTURE_ACCESSIBLE_TEXT);
   builder->Add("photoDiscardAccessibleText",
@@ -231,7 +226,7 @@ void SupervisedUserCreationScreenHandler::Show() {
        it != users.end();
        ++it) {
     bool is_owner = ((*it)->GetAccountId().GetUserEmail() == owner);
-    auto user_dict = base::MakeUnique<base::DictionaryValue>();
+    auto user_dict = std::make_unique<base::DictionaryValue>();
     UserSelectionScreen::FillUserDictionary(
         *it, is_owner, false, /* is_signin_to_add */
         proximity_auth::mojom::AuthType::OFFLINE_PASSWORD,
@@ -305,7 +300,7 @@ void SupervisedUserCreationScreenHandler::HandleManagerSelected(
     const AccountId& manager_id) {
   if (!delegate_)
     return;
-  WallpaperManager::Get()->SetUserWallpaperNow(manager_id);
+  WallpaperControllerClient::Get()->ShowUserWallpaper(manager_id);
 }
 
 void SupervisedUserCreationScreenHandler::HandleImportUserSelected(
@@ -428,12 +423,12 @@ void SupervisedUserCreationScreenHandler::HandlePhotoTaken
 
 void SupervisedUserCreationScreenHandler::HandleTakePhoto() {
   AccessibilityManager::Get()->PlayEarcon(
-      SOUND_CAMERA_SNAP, PlaySoundOption::SPOKEN_FEEDBACK_ENABLED);
+      SOUND_CAMERA_SNAP, PlaySoundOption::ONLY_IF_SPOKEN_FEEDBACK_ENABLED);
 }
 
 void SupervisedUserCreationScreenHandler::HandleDiscardPhoto() {
   AccessibilityManager::Get()->PlayEarcon(
-      SOUND_OBJECT_DELETE, PlaySoundOption::SPOKEN_FEEDBACK_ENABLED);
+      SOUND_OBJECT_DELETE, PlaySoundOption::ONLY_IF_SPOKEN_FEEDBACK_ENABLED);
 }
 
 void SupervisedUserCreationScreenHandler::HandleSelectImage(

@@ -5,10 +5,12 @@
 #ifndef CONTENT_PUBLIC_COMMON_SCREEN_INFO_H_
 #define CONTENT_PUBLIC_COMMON_SCREEN_INFO_H_
 
+#include "build/build_config.h"
 #include "content/common/content_export.h"
 #include "content/public/common/screen_orientation_values.h"
 #include "ui/gfx/color_space.h"
 #include "ui/gfx/geometry/rect.h"
+#include "ui/gfx/icc_profile.h"
 
 namespace content {
 

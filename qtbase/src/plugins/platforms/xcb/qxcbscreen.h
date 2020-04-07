@@ -74,11 +74,12 @@ public:
     int number() const { return m_number; }
     QSize size() const { return QSize(m_screen->width_in_pixels, m_screen->height_in_pixels); }
     QSize physicalSize() const { return QSize(m_screen->width_in_millimeters, m_screen->height_in_millimeters); }
+    QDpi dpi() const;
     xcb_window_t root() const { return m_screen->root; }
     QXcbScreen *screenAt(const QPoint &pos) const;
 
     QList<QPlatformScreen *> screens() const { return m_screens; }
-    void setScreens(QList<QPlatformScreen *> sl) { m_screens = sl; }
+    void setScreens(QList<QPlatformScreen *> &&sl) { m_screens = std::move(sl); }
     void removeScreen(QPlatformScreen *s) { m_screens.removeOne(s); }
     void addScreen(QPlatformScreen *s);
     void setPrimaryScreen(QPlatformScreen *s);
@@ -93,13 +94,14 @@ public:
     void handleXFixesSelectionNotify(xcb_xfixes_selection_notify_event_t *notify_event);
     void subscribeToXFixesSelectionNotify();
 
+    void handleScreenChange(xcb_randr_screen_change_notify_event_t *change_event);
+
     int forcedDpi() const { return m_forcedDpi; }
     QFontEngine::HintStyle hintStyle() const { return m_hintStyle; }
     QFontEngine::SubpixelAntialiasingType subpixelType() const { return m_subpixelType; }
     int antialiasingEnabled() const { return m_antialiasingEnabled; }
 
     QString windowManagerName() const { return m_windowManagerName; }
-    bool syncRequestSupported() const { return m_syncRequestSupported; }
 
     QSurfaceFormat surfaceFormatFor(const QSurfaceFormat &format) const;
 
@@ -130,9 +132,9 @@ private:
     QFontEngine::SubpixelAntialiasingType m_subpixelType = QFontEngine::SubpixelAntialiasingType(-1);
     int m_antialiasingEnabled = -1;
     QString m_windowManagerName;
-    bool m_syncRequestSupported = false;
     QMap<xcb_visualid_t, xcb_visualtype_t> m_visuals;
     QMap<xcb_visualid_t, quint8> m_visualDepths;
+    uint16_t m_rotation = 0;
 };
 
 class Q_XCB_EXPORT QXcbScreen : public QXcbObject, public QPlatformScreen
@@ -140,7 +142,7 @@ class Q_XCB_EXPORT QXcbScreen : public QXcbObject, public QPlatformScreen
 public:
     QXcbScreen(QXcbConnection *connection, QXcbVirtualDesktop *virtualDesktop,
                xcb_randr_output_t outputId, xcb_randr_get_output_info_reply_t *outputInfo,
-               const xcb_xinerama_screen_info_t *xineramaScreenInfo = Q_NULLPTR, int xineramaScreenIdx = -1);
+               const xcb_xinerama_screen_info_t *xineramaScreenInfo = nullptr, int xineramaScreenIdx = -1);
     ~QXcbScreen();
 
     QString getOutputName(xcb_randr_get_output_info_reply_t *outputInfo);
@@ -158,9 +160,6 @@ public:
     int depth() const override { return screen()->root_depth; }
     QImage::Format format() const override;
     QSizeF physicalSize() const override { return m_sizeMillimeters; }
-    QSize virtualSize() const { return m_virtualSize; }
-    QSizeF physicalVirtualSize() const { return m_virtualSizeMillimeters; }
-    QDpi virtualDpi() const;
     QDpi logicalDpi() const override;
     qreal pixelDensity() const override;
     QPlatformCursor *cursor() const override;
@@ -187,7 +186,6 @@ public:
 
     void windowShown(QXcbWindow *window);
     QString windowManagerName() const { return m_virtualDesktop->windowManagerName(); }
-    bool syncRequestSupported() const { return m_virtualDesktop->syncRequestSupported(); }
 
     QSurfaceFormat surfaceFormatFor(const QSurfaceFormat &format) const;
 
@@ -197,7 +195,6 @@ public:
 
     QString name() const override { return m_outputName; }
 
-    void handleScreenChange(xcb_randr_screen_change_notify_event_t *change_event);
     void updateGeometry(const QRect &geometry, uint8_t rotation);
     void updateGeometry(xcb_timestamp_t timestamp = XCB_TIME_CURRENT_TIME);
     void updateAvailableGeometry();
@@ -220,15 +217,12 @@ private:
     xcb_randr_crtc_t m_crtc;
     xcb_randr_mode_t m_mode = XCB_NONE;
     bool m_primary = false;
-    uint8_t m_rotation = XCB_RANDR_ROTATION_ROTATE_0;
 
     QString m_outputName;
     QSizeF m_outputSizeMillimeters;
     QSizeF m_sizeMillimeters;
     QRect m_geometry;
     QRect m_availableGeometry;
-    QSize m_virtualSize;
-    QSizeF m_virtualSizeMillimeters;
     Qt::ScreenOrientation m_orientation = Qt::PrimaryOrientation;
     QXcbCursor *m_cursor;
     int m_refreshRate = 60;

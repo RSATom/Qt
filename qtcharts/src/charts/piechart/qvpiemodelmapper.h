@@ -37,7 +37,7 @@ QT_CHARTS_BEGIN_NAMESPACE
 class QT_CHARTS_EXPORT QVPieModelMapper : public QPieModelMapper
 {
     Q_OBJECT
-    Q_PROPERTY(QPieSeries *series READ series WRITE setSeries NOTIFY seriesReplaced)
+    Q_PROPERTY(QtCharts::QPieSeries *series READ series WRITE setSeries NOTIFY seriesReplaced)
     Q_PROPERTY(QAbstractItemModel *model READ model WRITE setModel NOTIFY modelReplaced)
     Q_PROPERTY(int valuesColumn READ valuesColumn WRITE setValuesColumn NOTIFY valuesColumnChanged)
     Q_PROPERTY(int labelsColumn READ labelsColumn WRITE setLabelsColumn NOTIFY labelsColumnChanged)
@@ -45,7 +45,7 @@ class QT_CHARTS_EXPORT QVPieModelMapper : public QPieModelMapper
     Q_PROPERTY(int rowCount READ rowCount WRITE setRowCount NOTIFY rowCountChanged)
 
 public:
-    explicit QVPieModelMapper(QObject *parent = Q_NULLPTR);
+    explicit QVPieModelMapper(QObject *parent = nullptr);
 
     QAbstractItemModel *model() const;
     void setModel(QAbstractItemModel *model);

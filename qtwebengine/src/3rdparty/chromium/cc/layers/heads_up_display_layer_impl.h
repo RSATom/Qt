@@ -15,7 +15,7 @@
 #include "cc/cc_export.h"
 #include "cc/layers/layer_impl.h"
 #include "cc/resources/memory_history.h"
-#include "cc/resources/scoped_resource.h"
+#include "cc/resources/resource_pool.h"
 #include "cc/trees/debug_rect_history.h"
 #include "third_party/skia/include/core/SkRefCnt.h"
 
@@ -24,9 +24,13 @@ class SkPaint;
 class SkTypeface;
 struct SkRect;
 
-namespace cc {
+namespace viz {
+class ClientResourceProvider;
+}
 
+namespace cc {
 class FrameRateCounter;
+class LayerTreeFrameSink;
 
 class CC_EXPORT HeadsUpDisplayLayerImpl : public LayerImpl {
  public:
@@ -40,12 +44,14 @@ class CC_EXPORT HeadsUpDisplayLayerImpl : public LayerImpl {
   std::unique_ptr<LayerImpl> CreateLayerImpl(LayerTreeImpl* tree_impl) override;
 
   bool WillDraw(DrawMode draw_mode,
-                ResourceProvider* resource_provider) override;
-  void AppendQuads(RenderPass* render_pass,
+                viz::ClientResourceProvider* resource_provider) override;
+  void AppendQuads(viz::RenderPass* render_pass,
                    AppendQuadsData* append_quads_data) override;
   void UpdateHudTexture(DrawMode draw_mode,
-                        ResourceProvider* resource_provider,
-                        viz::ContextProvider* context_provider);
+                        LayerTreeFrameSink* frame_sink,
+                        viz::ClientResourceProvider* resource_provider,
+                        bool gpu_raster,
+                        const viz::RenderPassList& list);
 
   void ReleaseResources() override;
 
@@ -54,6 +60,9 @@ class CC_EXPORT HeadsUpDisplayLayerImpl : public LayerImpl {
   bool IsAnimatingHUDContents() const { return fade_step_ > 0; }
 
   void SetHUDTypeface(sk_sp<SkTypeface> typeface);
+
+  // This evicts hud quad appended during render pass preparation.
+  void EvictHudQuad(const viz::RenderPassList& list);
 
   // LayerImpl overrides.
   void PushPropertiesTo(LayerImpl* layer) override;
@@ -129,11 +138,11 @@ class CC_EXPORT HeadsUpDisplayLayerImpl : public LayerImpl {
                      const std::string& label_text) const;
   void DrawDebugRects(SkCanvas* canvas, DebugRectHistory* debug_rect_history);
 
-  void AcquireResource(ResourceProvider* resource_provider);
-  void ReleaseUnmatchedSizeResources(ResourceProvider* resource_provider);
-
-  std::vector<std::unique_ptr<ScopedResource>> resources_;
-  sk_sp<SkSurface> hud_surface_;
+  ResourcePool::InUsePoolResource in_flight_resource_;
+  std::unique_ptr<ResourcePool> pool_;
+  viz::DrawQuad* current_quad_ = nullptr;
+  // Used for software raster when it will be uploaded to a texture.
+  sk_sp<SkSurface> staging_surface_;
 
   sk_sp<SkTypeface> typeface_;
 

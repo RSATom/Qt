@@ -50,16 +50,95 @@
 #include "qremoteobjectsource_p.h"
 #include "qremoteobjectabstractitemmodelreplica_p.h"
 #include "qremoteobjectabstractitemmodeladapter_p.h"
-#include <QAbstractItemModel>
+#include <QtCore/qabstractitemmodel.h>
+#include <memory>
 
 QT_BEGIN_NAMESPACE
 
 using namespace QtRemoteObjects;
+using namespace QRemoteObjectStringLiterals;
+
+using GadgetType = QVector<QVariant>;
+using RegisteredType = QPair<GadgetType, std::shared_ptr<QMetaObject>>;
+static QMutex s_managedTypesMutex;
+static QHash<int, RegisteredType> s_managedTypes;
+static QHash<int, QSet<IoDeviceBase*>> s_trackedConnections;
+
+static void GadgetsStaticMetacallFunction(QObject *_o, QMetaObject::Call _c, int _id, void **_a)
+{
+    if (_c == QMetaObject::ReadProperty) {
+        GadgetType *_t = reinterpret_cast<GadgetType *>(_o);
+        if (_id < _t->size()) {
+            const auto &prop = _t->at(_id);
+            QMetaType::destruct(int(prop.userType()), _a[0]);
+            QMetaType::construct(int(prop.userType()), _a[0], prop.constData());
+        }
+    } else if (_c == QMetaObject::WriteProperty) {
+        GadgetType *_t = reinterpret_cast<GadgetType *>(_o);
+        if (_id < _t->size()) {
+            auto & prop = (*_t)[_id];
+            prop = QVariant(prop.userType(), _a[0]);
+        }
+    }
+}
+
+static void GadgetTypedDestructor(int, void *ptr)
+{
+    reinterpret_cast<GadgetType*>(ptr)->~GadgetType();
+}
+
+static void *GadgetTypedConstructor(int type, void *where, const void *copy)
+{
+    GadgetType *ret = where ? new(where) GadgetType : new GadgetType;
+    if (copy) {
+        *ret = *reinterpret_cast<const GadgetType*>(copy);
+    } else {
+        QMutexLocker lock(&s_managedTypesMutex);
+        auto it = s_managedTypes.find(type);
+        if (it == s_managedTypes.end()) {
+            delete ret;
+            return nullptr;
+        }
+        *ret = it->first;
+    }
+    return ret;
+}
+
+static void GadgetSaveOperator(QDataStream & out, const void *data)
+{
+    const GadgetType *gadgetProperties = reinterpret_cast<const GadgetType *>(data);
+    for (const auto &prop : *gadgetProperties)
+        out << prop;
+}
+
+static void GadgetLoadOperator(QDataStream &in, void *data)
+{
+    GadgetType *gadgetProperties = reinterpret_cast<GadgetType *>(data);
+    for (auto &prop : *gadgetProperties)
+        in >> prop;
+}
 
 static QString name(const QMetaObject * const mobj)
 {
     const int ind = mobj->indexOfClassInfo(QCLASSINFO_REMOTEOBJECT_TYPE);
     return ind >= 0 ? QString::fromLatin1(mobj->classInfo(ind).value()) : QString();
+}
+
+QString QtRemoteObjects::getTypeNameAndMetaobjectFromClassInfo(const QMetaObject *& meta) {
+    QString typeName;
+    const int ind = meta->indexOfClassInfo(QCLASSINFO_REMOTEOBJECT_TYPE);
+    if (ind != -1) { //We have an object created from repc or at least with QCLASSINFO defined
+        typeName = QString::fromLatin1(meta->classInfo(ind).value());
+        while (true) {
+            Q_ASSERT(meta->superClass());//This recurses to QObject, which doesn't have QCLASSINFO_REMOTEOBJECT_TYPE
+            //At the point superclass doesn't have the same QCLASSINFO_REMOTEOBJECT_TYPE,
+            //we have the metaobject we should work from
+            if (ind != meta->superClass()->indexOfClassInfo(QCLASSINFO_REMOTEOBJECT_TYPE))
+                break;
+            meta = meta->superClass();
+        }
+    }
+    return typeName;
 }
 
 template <typename K, typename V, typename Query>
@@ -72,19 +151,30 @@ bool map_contains(const QMap<K,V> &map, const Query &key, typename QMap<K,V>::co
     return true;
 }
 
+/*!
+    \qmltype Node
+    \instantiates QRemoteObjectNode
+    \inqmlmodule QtRemoteObjects
+    \brief A node on a Qt Remote Objects network.
+
+    The Node type provides an entry point to a Qt Remote Objects network. A network
+    can be as simple as two nodes, or an arbitrarily complex set of processes and devices.
+
+    A Node does not have a url that other nodes can connect to, and thus is able to acquire
+    replicas only. It is not able to share source objects.
+
+*/
+
 QRemoteObjectNodePrivate::QRemoteObjectNodePrivate()
     : QObjectPrivate()
     , registry(nullptr)
     , retryInterval(250)
     , lastError(QRemoteObjectNode::NoError)
     , persistedStore(nullptr)
-    , persistedStoreOwnership(QRemoteObjectNode::DoNotPassOwnership)
 { }
 
 QRemoteObjectNodePrivate::~QRemoteObjectNodePrivate()
 {
-    if (persistedStore && persistedStoreOwnership == QRemoteObjectNode::PassOwnershipToNode)
-        delete persistedStore;
 }
 
 QRemoteObjectSourceLocations QRemoteObjectNodePrivate::remoteObjectAddresses() const
@@ -121,6 +211,252 @@ void QRemoteObjectNode::timerEvent(QTimerEvent*)
 }
 
 /*!
+    \qmlproperty int Node::heartbeatInterval
+
+    Heartbeat interval in ms.
+
+    The heartbeat (only helpful for socket connections) will periodically send a
+    message to connected nodes to detect whether the connection was disrupted.
+    Qt Remote Objects will try to reconnect automatically if it detects a dropped
+    connection. This function can help with that detection since the client will
+    only detect that the server is unavailable when it tries to send data.
+
+    A value of \c 0 (the default) will disable the heartbeat.
+*/
+
+
+/*!
+    \property QRemoteObjectNode::heartbeatInterval
+    \brief Heartbeat interval in ms.
+
+    The heartbeat (only helpful for socket connections) will periodically send a
+    message to connected nodes to detect whether the connection was disrupted.
+    Qt Remote Objects will try to reconnect automatically if it detects a dropped
+    connection. This function can help with that detection since the client will
+    only detect that the server is unavailable when it tries to send data.
+
+    A value of \c 0 (the default) will disable the heartbeat.
+*/
+int QRemoteObjectNode::heartbeatInterval() const
+{
+    Q_D(const QRemoteObjectNode);
+    return d->m_heartbeatInterval;
+}
+
+void QRemoteObjectNode::setHeartbeatInterval(int interval)
+{
+    Q_D(QRemoteObjectNode);
+    if (d->m_heartbeatInterval == interval)
+        return;
+    d->m_heartbeatInterval = interval;
+    emit heartbeatIntervalChanged(interval);
+}
+
+/*!
+    \since 5.12
+    \typedef QRemoteObjectNode::RemoteObjectSchemaHandler
+
+    Typedef for a std::function method that can take a QUrl input and is
+    responsible for creating the communications channel between this node and
+    the node hosting the desired \l Source. As some types of QIODevices (e.g.,
+    QSslSocket) require additional steps before the device is ready for use,
+    the method is responsible for calling \l addClientSideConnection once the
+    connection is fully established.
+*/
+
+/*!
+    \since 5.12
+    \brief Provide a custom method to handle externally provided schemas
+
+    This method is tied to the \l Registry and \l {External Schemas}. By
+    registering a std::function handler for an external schema, the registered
+    method will be called when the registry is notified of a \l Source you've
+    acquired being available. Without this registration, QtRO would only be
+    able to handle the "built-in" schemas.
+
+    The provided method, \a handler, will be called when the registry sees a \l
+    Source object on a new (not yet connected) Node with a {QUrl::schema()} of
+    \a schema. The \a handler, of type \l
+    QRemoteObjectNode::RemoteObjectSchemaHandler will get the \l QUrl of the
+    Node providing the \l Source as an input parameter, and is responsible for
+    establishing the communications channel (a \l QIODevice of some sort) and
+    calling \l addClientSideConnection with it.
+
+    \sa RemoteObjectSchemaHandler
+*/
+void QRemoteObjectNode::registerExternalSchema(const QString &schema, QRemoteObjectNode::RemoteObjectSchemaHandler handler)
+{
+    Q_D(QRemoteObjectNode);
+    d->schemaHandlers.insert(schema, handler);
+}
+
+/*!
+    \since 5.11
+    \brief Forward Remote Objects from another network
+
+    The proxy functionality is useful when you want to share \l Source objects
+    over multiple networks. For instance, if you have an embedded target using
+    target-only connections (like local) and you want to make some of those
+    same objects available externally.
+
+    As a concrete example, say you have a set of processes talking to each
+    other on your target hardware using a registry, with the \l Registry at
+    "local:registry" and separate processes using a node at "local:MyHost" that
+    holds \l Source objects. If you wanted to access these objects, but over
+    tcp, you could create a new proxyNode like so:
+
+\code
+    // myInternalHost is a node only visible on the device...
+    QRemoteObjectHost myInternalHost("local:MyHost");
+    myInternalHost.enableRemoting<SomeObject>(&someObject);
+
+    // Regular host node, listening on port 12123, so visible to other
+    // devices
+    QRemoteObjectHost proxyNode("tcp://localhost:12123");
+
+    // Enable proxying objects from nodes on the local machine's internal
+    // QtRO bus
+    proxyNode.proxy("local:registry");
+\endcode
+
+    And from another device you create another node:
+
+\code
+    // NB: localhost resolves to a different ip address than proxyNode
+    QRemoteObjectHost nodeOnRemoteDevice("tcp://localhost:23234");
+
+    // Connect to the target's proxyNode directly, or use a tcp registry...
+    nodeOnRemoteDevice.connectToNode("tcp://<target device>:12123");
+
+    // Because of the proxy, we can get the object over tcp/ip port 12123,
+    // even though we can't connect directly to "local:MyHost"
+    SomeObject *so = nodeOnRemoteDevice.acquire<SomeObject>();
+\endcode
+
+    This would (internally) create a node in proxyNode, which (again
+    internally/automatically) connects to the provided registry (given by the
+    \a registryUrl parameter, "local:registry" in this example). Whenever
+    local:registry emits the \l remoteObjectAdded signal, the
+    \c QRemoteObjectSourceLocation is passed to the \a filter given to the proxy
+    call. If this method returns true (the default filter simply returns true
+    without any filtering), the object is acquired() from the internal node and
+    enableRemoting() (once the replica is initialized) is called on proxyNode.
+
+    If a \a hostUrl is provided (which is required to enable reverseProxy, but
+    not needed otherwise), the internal node will be a \l QRemoteObjectHost node
+    configured with the provided address. If no \a hostUrl is provided, the
+    internal node will be a QRemoteObjectNode (not HostNode).
+
+    \sa reverseProxy()
+*/
+bool QRemoteObjectHostBase::proxy(const QUrl &registryUrl, const QUrl &hostUrl, RemoteObjectNameFilter filter)
+{
+    Q_D(QRemoteObjectHostBase);
+    if (!registryUrl.isValid() || !QtROClientFactory::instance()->isValid(registryUrl)) {
+        qROWarning(this) << "Can't proxy to registryUrl (invalid url or schema)" << registryUrl;
+        return false;
+    }
+
+    if (!hostUrl.isEmpty() && !QtROClientFactory::instance()->isValid(hostUrl)) {
+        qROWarning(this) << "Can't proxy using hostUrl (invalid schema)" << hostUrl;
+        return false;
+    }
+
+    if (d->proxyInfo) {
+        qROWarning(this) << "Proxying from multiple objects is currently not supported.";
+        return false;
+    }
+
+    QRemoteObjectNode *node;
+    if (hostUrl.isEmpty()) {
+        node = new QRemoteObjectNode(registryUrl);
+    } else {
+        node = new QRemoteObjectHost(hostUrl, registryUrl);
+    }
+    d->proxyInfo = new ProxyInfo(node, this, filter);
+    return true;
+}
+
+/*!
+    \since 5.11
+    \brief Forward Remote Objects to another network
+
+    The reverseProxy() function allows the \l proxy() functionality to be
+    extended, in effect mirroring the proxy functionality in the "reverse"
+    direction. These are distinct, because node communication is not symmetric,
+    one side calls enableRemoting() with a \l Source object, the other side
+    calls acquire() to get a \l Replica. Using \l proxy() allows you to
+    "observe" objects on a target device remotely via acquire, but it does not
+    allow off-target \l Source objects to be acquired from the device's local:*
+    network. That is where \l reverseProxy() comes in. If a proxyNode is
+    created like so:
+
+\code
+    // myInternalHost is a node only visible on the device...
+    QRemoteObjectHost myInternalHost("local:MyHost");
+
+    // Regular host node, listening on port 12123, so visible to other
+    // devices
+    QRemoteObjectHost proxyNode("tcp://localhost:12123");
+
+    // Enable proxying objects from nodes on the local machine's internal
+    // QtRO bus.  Note the hostUrl parameter is now needed.
+    proxyNode.proxy("local:registry", "local:fromProxy");
+    proxyNode.reverseProxy();
+\endcode
+
+    And from another device you create another node:
+
+\code
+    // NB: localhost resolves to a different ip address than proxyNode
+    QRemoteObjectHost nodeOnRemoteDevice("tcp://localhost:23234");
+
+    // Connect to the target's proxyNode directly, or use a tcp registry...
+    nodeOnRemoteDevice.connectToNode("tcp://<target device>:12123");
+
+    // Because of the reverseProxy, we can expose objects on this device
+    // and they will make their way to proxyNode...
+    nodeOnRemoteDevice.enableRemoting<OtherObject>(&otherObject);
+\endcode
+
+\code
+    // Acquire() can now see the objects on other devices through proxyNode,
+    // due to the reverseProxy call.
+    OtherObject *oo = myInternalHost.acquire<OtherObject>();
+\endcode
+
+    While the \l proxy() functionality allows \l Source objects on another
+    network to be acquired(), reverseProxy() allows \l Source objects to be
+    "pushed" to an otherwise inaccessible network.
+
+    Note: \l proxy() needs to be called before \l reverseProxy(), and a
+    \a hostUrl needs to be provided to \l proxy for \l reverseProxy() to work. The
+    \l reverseProxy() method allows a separate \a filter to be applied. This
+    reverseProxy specific filter will receive notifications of new \l Source
+    objects on proxyNode and acquire them on the internal node if they pass the
+    reverseFilter.
+
+    \sa proxy()
+*/
+bool QRemoteObjectHostBase::reverseProxy(QRemoteObjectHostBase::RemoteObjectNameFilter filter)
+{
+    Q_D(QRemoteObjectHostBase);
+
+    if (!d->proxyInfo) {
+        qROWarning(this) << "proxy() needs to be called before setting up reverse proxy.";
+        return false;
+    }
+
+    QRemoteObjectHost *host = qobject_cast<QRemoteObjectHost *>(d->proxyInfo->proxyNode);
+    if (!host) {
+        qROWarning(this) << "proxy() needs called with host-url to enable reverse proxy.";
+        return false;
+    }
+
+    return d->proxyInfo->setReverseProxy(filter);
+}
+
+/*!
     \internal The replica needs to have a default constructor to be able
     to create a replica from QML.  In order for it to be properly
     constructed, there needs to be a way to associate the replica with a
@@ -131,10 +467,10 @@ void QRemoteObjectNode::initializeReplica(QRemoteObjectReplica *instance, const 
 {
     Q_D(QRemoteObjectNode);
     if (instance->inherits("QRemoteObjectDynamicReplica")) {
-        d->setReplicaPrivate(nullptr, instance, name);
+        d->setReplicaImplementation(nullptr, instance, name);
     } else {
         const QMetaObject *meta = instance->metaObject();
-        d->setReplicaPrivate(meta, instance, name.isEmpty() ? ::name(meta) : name);
+        d->setReplicaImplementation(meta, instance, name.isEmpty() ? ::name(meta) : name);
     }
 }
 
@@ -145,23 +481,22 @@ void QRemoteObjectNodePrivate::setLastError(QRemoteObjectNode::ErrorCode errorCo
     emit q->error(lastError);
 }
 
-void QRemoteObjectNodePrivate::setReplicaPrivate(const QMetaObject *meta, QRemoteObjectReplica *instance, const QString &name)
+void QRemoteObjectNodePrivate::setReplicaImplementation(const QMetaObject *meta, QRemoteObjectReplica *instance, const QString &name)
 {
-    qROPrivDebug() << "Starting setReplicaPrivate for" << name;
-    isInitialized.storeRelease(1);
+    qROPrivDebug() << "Starting setReplicaImplementation for" << name;
     openConnectionIfNeeded(name);
     QMutexLocker locker(&mutex);
     if (hasInstance(name)) {
-        qCDebug(QT_REMOTEOBJECT)<<"setReplicaPrivate - using existing instance";
-        QSharedPointer<QRemoteObjectReplicaPrivate> rep = qSharedPointerCast<QRemoteObjectReplicaPrivate>(replicas.value(name).toStrongRef());
+        qCDebug(QT_REMOTEOBJECT)<<"setReplicaImplementation - using existing instance";
+        QSharedPointer<QRemoteObjectReplicaImplementation> rep = qSharedPointerCast<QRemoteObjectReplicaImplementation>(replicas.value(name).toStrongRef());
         Q_ASSERT(rep);
-        instance->d_ptr = rep;
+        instance->d_impl = rep;
         rep->configurePrivate(instance);
     } else {
-        instance->d_ptr.reset(handleNewAcquire(meta, instance, name));
+        instance->d_impl.reset(handleNewAcquire(meta, instance, name));
         instance->initialize();
-        replicas.insert(name, instance->d_ptr.toWeakRef());
-        qROPrivDebug() << "setReplicaPrivate - Created new instance" << name<<remoteObjectAddresses();
+        replicas.insert(name, instance->d_impl.toWeakRef());
+        qROPrivDebug() << "setReplicaImplementation - Created new instance" << name<<remoteObjectAddresses();
     }
 }
 
@@ -176,18 +511,17 @@ const QRemoteObjectRegistry *QRemoteObjectNode::registry() const
 }
 
 /*!
-    \class QRemoteObjectPersistedStore
+    \class QRemoteObjectAbstractPersistedStore
     \inmodule QtRemoteObjects
-    \brief The QRemoteObjectPersistedStore virtual class provides the methods
-    for setting PROP values of a replica to value they had the last time the
-    replica was used.
+    \brief A class which provides the methods for setting PROP values of a
+    replica to value they had the last time the replica was used.
 
     This can be used to provide a "reasonable" value to be displayed until the
     connection to the source is established and current values are available.
 
     This class must be overridden to provide an implementation for saving (\l
-    QRemoteObjectPersistedStore::saveProperties) and restoring (\l
-    QRemoteObjectPersistedStore::restoreProperties) PROP values. The derived
+    QRemoteObjectAbstractPersistedStore::saveProperties) and restoring (\l
+    QRemoteObjectAbstractPersistedStore::restoreProperties) PROP values. The derived
     type can then be set for a node, and any replica acquired from that node
     will then automatically store PERSISTED properties when the replica
     destructor is called, and retrieve the values when the replica is
@@ -195,54 +529,288 @@ const QRemoteObjectRegistry *QRemoteObjectNode::registry() const
 */
 
 /*!
-    \fn virtual void QRemoteObjectPersistedStore::saveProperties(const QString &repName, const QByteArray &repSig, const QVariantList &values)
+    Constructs a QRemoteObjectAbstractPersistedStore with the given \a parent.
+    The default value of \a parent is \c nullptr.
+*/
+QRemoteObjectAbstractPersistedStore::QRemoteObjectAbstractPersistedStore(QObject *parent)
+    : QObject(parent)
+{
+}
+
+QRemoteObjectAbstractPersistedStore::~QRemoteObjectAbstractPersistedStore()
+{
+}
+
+/*!
+    \fn virtual void QRemoteObjectAbstractPersistedStore::saveProperties(const QString &repName, const QByteArray &repSig, const QVariantList &values)
 
     This method will be provided the replica class's \a repName, \a repSig and the list of
     \a values that PERSISTED properties have when the replica destructor was
     called. It is the responsibility of the inheriting class to store the
     information in a manner consistent for \l
-    QRemoteObjectPersistedStore::restoreProperties to retrieve.
+    QRemoteObjectAbstractPersistedStore::restoreProperties to retrieve.
 
-    \sa QRemoteObjectPersistedStore::restoreProperties
+    \sa QRemoteObjectAbstractPersistedStore::restoreProperties
 */
 
 /*!
-    \fn virtual QVariantList QRemoteObjectPersistedStore::restoreProperties(const QString &repName, const QByteArray &repSig)
+    \fn virtual QVariantList QRemoteObjectAbstractPersistedStore::restoreProperties(const QString &repName, const QByteArray &repSig)
 
     This method will be provided the replica class's \a repName and \a repSig when the
     replica is being initialized. It is the responsibility of the inheriting
     class to get the last values persisted by \l
-    QRemoteObjectPersistedStore::saveProperties and return them. An empty
+    QRemoteObjectAbstractPersistedStore::saveProperties and return them. An empty
     QVariantList should be returned if no values are available.
 
-    \sa QRemoteObjectPersistedStore::saveProperties
+    \sa QRemoteObjectAbstractPersistedStore::saveProperties
+*/
+
+
+QRemoteObjectAbstractPersistedStore *QRemoteObjectNode::persistedStore() const
+{
+    Q_D(const QRemoteObjectNode);
+    return d->persistedStore;
+}
+
+/*!
+    \qmlproperty QRemoteObjectAbstractPersistedStore Node::persistedStore
+
+    Allows setting a \l QRemoteObjectAbstractPersistedStore instance for the node.
+
+    Allows replica \l PROP members with the PERSISTED trait to save their current value when the
+    replica is deleted and restore a stored value the next time the replica is started.
+
+    Requires a \l QRemoteObjectAbstractPersistedStore class implementation to control where and how
+    persistence is handled. A default QSettings-based implementation is provided by SettingsStore.
 */
 
 /*!
-    \enum QRemoteObjectNode::StorageOwnership
+    \since 5.11
+    \property QRemoteObjectNode::persistedStore
+    \brief Allows setting a \l QRemoteObjectAbstractPersistedStore instance for the node.
 
-    Used to tell a node whether it should take ownership of a passed pointer or not:
+    Allows replica \l PROP members with the PERSISTED trait to save their current value when the
+    replica is deleted and restore a stored value the next time the replica is started.
 
-    \value DoNotPassOwnership The ownership of the object is not passed.
-    \value PassOwnershipToNode The ownership of the object is passed, and the node destructor will call delete.
+    Requires a \l QRemoteObjectAbstractPersistedStore class implementation to control where and how
+    persistence is handled.
 */
-
-/*!
-    Provides a \l QRemoteObjectPersistedStore \a store for the node, allowing
-    replica \l PROP members with the PERSISTED trait of \l PROP to save their
-    current value when the replica is deleted and restore a stored value the
-    next time the replica is started. Requires a \l QRemoteObjectPersistedStore
-    class implementation to control where and how persistence is handled. Use
-    the \l QRemoteObjectNode::StorageOwnership enum passed by \a ownership to
-    determine whether the Node will delete the provided pointer or not.
-
-    \sa QRemoteObjectPersistedStore, QRemoteObjectNode::StorageOwnership
-*/
-void QRemoteObjectNode::setPersistedStore(QRemoteObjectPersistedStore *store, StorageOwnership ownership)
+void QRemoteObjectNode::setPersistedStore(QRemoteObjectAbstractPersistedStore *persistedStore)
 {
     Q_D(QRemoteObjectNode);
-    d->persistedStore = store;
-    d->persistedStoreOwnership = ownership;
+    d->persistedStore = persistedStore;
+}
+
+QRemoteObjectAbstractPersistedStore::QRemoteObjectAbstractPersistedStore(QRemoteObjectAbstractPersistedStorePrivate &dptr, QObject *parent)
+    : QObject(dptr, parent)
+{
+}
+
+QRemoteObjectAbstractPersistedStorePrivate::QRemoteObjectAbstractPersistedStorePrivate()
+{
+}
+
+QRemoteObjectAbstractPersistedStorePrivate::~QRemoteObjectAbstractPersistedStorePrivate()
+{
+}
+
+QRemoteObjectMetaObjectManager::~QRemoteObjectMetaObjectManager()
+{
+    for (QMetaObject *mo : dynamicTypes)
+        free(mo); //QMetaObjectBuilder uses malloc, not new
+}
+
+const QMetaObject *QRemoteObjectMetaObjectManager::metaObjectForType(const QString &type)
+{
+    Q_ASSERT(staticTypes.contains(type) || dynamicTypes.contains(type));
+    auto it = staticTypes.constFind(type);
+    if (it != staticTypes.constEnd())
+        return it.value();
+    return dynamicTypes.value(type);
+}
+
+static void trackConnection(int typeId, IoDeviceBase *connection)
+{
+    QMutexLocker lock(&s_managedTypesMutex);
+    if (s_trackedConnections[typeId].contains(connection))
+        return;
+    s_trackedConnections[typeId].insert(connection);
+    auto unregisterIfNotUsed = [typeId, connection]{
+        QMutexLocker lock(&s_managedTypesMutex);
+        Q_ASSERT(s_trackedConnections.contains(typeId));
+        Q_ASSERT(s_trackedConnections[typeId].contains(connection));
+        s_trackedConnections[typeId].remove(connection);
+        if (s_trackedConnections[typeId].isEmpty()) {
+            s_trackedConnections.remove(typeId);
+            s_managedTypes.remove(typeId);
+            QMetaType::unregisterType(typeId);
+        }
+    };
+
+    // Unregister the type only when the connection is destroyed
+    // Do not unregister types when the connections is discconected, because
+    // if it gets reconnected it will not register the types again
+    QObject::connect(connection, &IoDeviceBase::destroyed, unregisterIfNotUsed);
+}
+
+static int registerGadget(IoDeviceBase *connection, QRemoteObjectPackets::GadgetsData &gadgets, QByteArray typeName)
+{
+   const auto &properties = gadgets.take(typeName);
+   int typeId = QMetaType::type(typeName);
+   if (typeId != QMetaType::UnknownType) {
+       trackConnection(typeId, connection);
+       return typeId;
+   }
+
+   QMetaObjectBuilder gadgetBuilder;
+   gadgetBuilder.setClassName(typeName);
+   gadgetBuilder.setFlags(QMetaObjectBuilder::DynamicMetaObject | QMetaObjectBuilder::PropertyAccessInStaticMetaCall);
+   GadgetType gadgetType;
+   for (const auto &prop : properties) {
+       int propertyType = QMetaType::type(prop.type);
+       if (!propertyType && gadgets.contains(prop.type))
+           propertyType = registerGadget(connection, gadgets, prop.type);
+       gadgetType.push_back(QVariant(QVariant::Type(propertyType)));
+       auto dynamicProperty = gadgetBuilder.addProperty(prop.name, prop.type);
+       dynamicProperty.setWritable(true);
+       dynamicProperty.setReadable(true);
+   }
+   auto meta = gadgetBuilder.toMetaObject();
+   meta->d.static_metacall = &GadgetsStaticMetacallFunction;
+   meta->d.superdata = nullptr;
+   const auto flags = QMetaType::IsGadget | QMetaType::NeedsConstruction | QMetaType::NeedsDestruction;
+   int gadgetTypeId = QMetaType::registerType(typeName.constData(),
+                                              &GadgetTypedDestructor,
+                                              &GadgetTypedConstructor,
+                                              sizeof(GadgetType),
+                                              flags, meta);
+   QMetaType::registerStreamOperators(gadgetTypeId, &GadgetSaveOperator, &GadgetLoadOperator);
+   trackConnection(gadgetTypeId, connection);
+   QMutexLocker lock(&s_managedTypesMutex);
+   s_managedTypes[gadgetTypeId] = qMakePair(gadgetType, std::shared_ptr<QMetaObject>{meta, [](QMetaObject *ptr){ ::free(ptr); }});
+   return gadgetTypeId;
+}
+
+static void registerAllGadgets(IoDeviceBase *connection, QRemoteObjectPackets::GadgetsData &gadgets)
+{
+    while (!gadgets.isEmpty())
+        registerGadget(connection, gadgets, gadgets.constBegin().key());
+}
+
+QMetaObject *QRemoteObjectMetaObjectManager::addDynamicType(IoDeviceBase *connection, QDataStream &in)
+{
+    QMetaObjectBuilder builder;
+    builder.setClassName("QRemoteObjectDynamicReplica");
+    builder.setSuperClass(&QRemoteObjectReplica::staticMetaObject);
+    builder.setFlags(QMetaObjectBuilder::DynamicMetaObject);
+
+    QString type;
+    quint32 numEnums = 0;
+    quint32 numGadgets = 0;
+    quint32 numSignals = 0;
+    quint32 numMethods = 0;
+    quint32 numProperties = 0;
+
+    in >> type;
+
+    in >> numEnums;
+    for (quint32 i = 0; i < numEnums; ++i) {
+        QByteArray name;
+        in >> name;
+        auto enumBuilder = builder.addEnumerator(name);
+        bool isFlag;
+        in >> isFlag;
+        enumBuilder.setIsFlag(isFlag);
+
+        QByteArray scopeName;
+        in >> scopeName; // scope
+        // TODO uncomment this line after https://bugreports.qt.io/browse/QTBUG-64081 is implemented
+        //enumBuilder.setScope(scopeName);
+
+        int keyCount;
+        in >> keyCount;
+        for (int k = 0; k < keyCount; ++k) {
+            QByteArray key;
+            int value;
+            in >> key;
+            in >> value;
+            enumBuilder.addKey(key, value);
+        }
+    }
+    in >> numGadgets;
+    QRemoteObjectPackets::GadgetsData gadgets;
+    for (quint32 i = 0; i < numGadgets; ++i) {
+        QByteArray type;
+        in >> type;
+        quint32 numProperties;
+        in >> numProperties;
+        auto &properties = gadgets[type];
+        for (quint32 p = 0; p < numProperties; ++p) {
+            QRemoteObjectPackets::GadgetProperty prop;
+            in >> prop.name;
+            in >> prop.type;
+            properties.push_back(prop);
+        }
+    }
+    registerAllGadgets(connection, gadgets);
+
+    int curIndex = 0;
+
+    in >> numSignals;
+    for (quint32 i = 0; i < numSignals; ++i) {
+        QByteArray signature;
+        QList<QByteArray> paramNames;
+        in >> signature;
+        in >> paramNames;
+        ++curIndex;
+        auto mmb = builder.addSignal(signature);
+        mmb.setParameterNames(paramNames);
+    }
+
+    in >> numMethods;
+    for (quint32 i = 0; i < numMethods; ++i) {
+        QByteArray signature, returnType;
+        QList<QByteArray> paramNames;
+        in >> signature;
+        in >> returnType;
+        in >> paramNames;
+        ++curIndex;
+        const bool isVoid = returnType.isEmpty() || returnType == QByteArrayLiteral("void");
+        QMetaMethodBuilder mmb;
+        if (isVoid)
+            mmb = builder.addMethod(signature);
+        else
+            mmb = builder.addMethod(signature, QByteArrayLiteral("QRemoteObjectPendingCall"));
+        mmb.setParameterNames(paramNames);
+    }
+
+    in >> numProperties;
+
+    for (quint32 i = 0; i < numProperties; ++i) {
+        QByteArray name;
+        QByteArray typeName;
+        QByteArray signalName;
+        in >> name;
+        in >> typeName;
+        in >> signalName;
+        if (signalName.isEmpty())
+            builder.addProperty(name, typeName);
+        else
+            builder.addProperty(name, typeName, builder.indexOfSignal(signalName));
+    }
+
+    auto meta = builder.toMetaObject();
+    dynamicTypes.insert(type, meta);
+    return meta;
+}
+
+void QRemoteObjectMetaObjectManager::addFromReplica(QConnectedReplicaImplementation *rep)
+{
+    QString className = QString::fromLatin1(rep->m_metaObject->className());
+    if (className == QStringLiteral("QRemoteObjectDynamicReplica") || staticTypes.contains(className))
+        return;
+    className.chop(7); //Remove 'Replica' from name
+    staticTypes.insert(className, rep->m_metaObject);
 }
 
 void QRemoteObjectNodePrivate::connectReplica(QObject *object, QRemoteObjectReplica *instance)
@@ -299,19 +867,26 @@ bool QRemoteObjectNodePrivate::initConnection(const QUrl &address)
 
     requestedUrls.insert(address);
 
+    if (schemaHandlers.contains(address.scheme())) {
+        schemaHandlers[address.scheme()](address);
+        return true;
+    }
+
     ClientIoDevice *connection = QtROClientFactory::instance()->create(address, q);
     if (!connection) {
         qROPrivWarning() << "Could not create ClientIoDevice for client. Invalid url/scheme provided?" << address;
         return false;
     }
-
     qROPrivDebug() << "Opening connection to" << address.toString();
     qROPrivDebug() << "Replica Connection isValid" << connection->isOpen();
-    QObject::connect(connection, SIGNAL(shouldReconnect(ClientIoDevice*)), q, SLOT(onShouldReconnect(ClientIoDevice*)));
-    connection->connectToServer();
-    QObject::connect(connection, &ClientIoDevice::readyRead, q, [this, connection]() {
+    QObject::connect(connection, &ClientIoDevice::shouldReconnect, q, [this, connection]() {
+        onShouldReconnect(connection);
+    });
+    QObject::connect(connection, &IoDeviceBase::readyRead, q, [this, connection]() {
         onClientRead(connection);
     });
+    connection->connectToServer();
+
     return true;
 }
 
@@ -320,7 +895,7 @@ bool QRemoteObjectNodePrivate::hasInstance(const QString &name)
     if (!replicas.contains(name))
         return false;
 
-    QSharedPointer<QReplicaPrivateInterface> rep = replicas.value(name).toStrongRef();
+    QSharedPointer<QReplicaImplementationInterface> rep = replicas.value(name).toStrongRef();
     if (!rep) { //already deleted
         replicas.remove(name);
         return false;
@@ -336,12 +911,12 @@ void QRemoteObjectNodePrivate::onRemoteObjectSourceAdded(const QRemoteObjectSour
         QRemoteObjectSourceLocations locs = registry->sourceLocations();
         locs[entry.first] = entry.second;
         //TODO Is there a way to extend QRemoteObjectSourceLocations in place?
-        registry->d_ptr->setProperty(0, QVariant::fromValue(locs));
+        registry->d_impl->setProperty(0, QVariant::fromValue(locs));
         qROPrivDebug() << "onRemoteObjectSourceAdded, now locations =" << locs;
     }
     if (replicas.contains(entry.first)) //We have a replica waiting on this remoteObject
     {
-        QSharedPointer<QReplicaPrivateInterface> rep = replicas.value(entry.first).toStrongRef();
+        QSharedPointer<QReplicaImplementationInterface> rep = replicas.value(entry.first).toStrongRef();
         if (!rep) { //replica has been deleted, remove from list
             replicas.remove(entry.first);
             return;
@@ -358,7 +933,7 @@ void QRemoteObjectNodePrivate::onRemoteObjectSourceRemoved(const QRemoteObjectSo
     if (!entry.first.isEmpty()) {
         QRemoteObjectSourceLocations locs = registry->sourceLocations();
         locs.remove(entry.first);
-        registry->d_ptr->setProperty(0, QVariant::fromValue(locs));
+        registry->d_impl->setProperty(0, QVariant::fromValue(locs));
     }
 }
 
@@ -371,7 +946,7 @@ void QRemoteObjectNodePrivate::onRegistryInitialized()
         i.next();
         if (replicas.contains(i.key())) //We have a replica waiting on this remoteObject
         {
-            QSharedPointer<QReplicaPrivateInterface> rep = replicas.value(i.key()).toStrongRef();
+            QSharedPointer<QReplicaImplementationInterface> rep = replicas.value(i.key()).toStrongRef();
             if (rep && !requestedUrls.contains(i.value().hostUrl))
                 initConnection(i.value().hostUrl);
             else if (!rep) //replica has been deleted, remove from list
@@ -390,7 +965,7 @@ void QRemoteObjectNodePrivate::onShouldReconnect(ClientIoDevice *ioDevice)
         connectedSources.remove(remoteObject);
         ioDevice->removeSource(remoteObject);
         if (replicas.contains(remoteObject)) { //We have a replica waiting on this remoteObject
-            QSharedPointer<QConnectedReplicaPrivate> rep = qSharedPointerCast<QConnectedReplicaPrivate>(replicas.value(remoteObject).toStrongRef());
+            QSharedPointer<QConnectedReplicaImplementation> rep = qSharedPointerCast<QConnectedReplicaImplementation>(replicas.value(remoteObject).toStrongRef());
             if (rep && !rep->connectionToSource.isNull()) {
                 rep->setDisconnected();
             } else if (!rep) {
@@ -414,16 +989,13 @@ void QRemoteObjectNodePrivate::onShouldReconnect(ClientIoDevice *ioDevice)
 
 //This version of handleNewAcquire creates a QConnectedReplica. If this is a
 //host node, the QRemoteObjectHostBasePrivate overload is called instead.
-QReplicaPrivateInterface *QRemoteObjectNodePrivate::handleNewAcquire(const QMetaObject *meta, QRemoteObjectReplica *instance, const QString &name)
+QReplicaImplementationInterface *QRemoteObjectNodePrivate::handleNewAcquire(const QMetaObject *meta, QRemoteObjectReplica *instance, const QString &name)
 {
     Q_Q(QRemoteObjectNode);
-    QConnectedReplicaPrivate *rp = new QConnectedReplicaPrivate(name, meta, q);
+    QConnectedReplicaImplementation *rp = new QConnectedReplicaImplementation(name, meta, q);
     rp->configurePrivate(instance);
     if (connectedSources.contains(name)) { //Either we have a peer connections, or existing connection via registry
-        if (checkSignatures(rp->m_objectSignature, connectedSources[name].objectSignature))
-            rp->setConnection(connectedSources[name].device);
-        else
-            rp->setState(QRemoteObjectReplica::SignatureMismatch);
+        handleReplicaConnection(connectedSources[name].objectSignature, rp, connectedSources[name].device);
     } else {
         //No existing connection, but we know we can connect via registry
         const auto &sourceLocations = remoteObjectAddresses();
@@ -436,14 +1008,42 @@ QReplicaPrivateInterface *QRemoteObjectNodePrivate::handleNewAcquire(const QMeta
     return rp;
 }
 
+void QRemoteObjectNodePrivate::handleReplicaConnection(const QString &name)
+{
+    QSharedPointer<QRemoteObjectReplicaImplementation> rep = qSharedPointerCast<QRemoteObjectReplicaImplementation>(replicas.value(name).toStrongRef());
+    if (!rep) { //replica has been deleted, remove from list
+        replicas.remove(name);
+        return;
+    }
+
+    if (rep->isShortCircuit())
+        return;
+
+    QConnectedReplicaImplementation *connectedRep = static_cast<QConnectedReplicaImplementation *>(rep.data());
+    if (connectedRep->connectionToSource.isNull()) {
+        const auto sourceInfo = connectedSources.value(name);
+        handleReplicaConnection(sourceInfo.objectSignature, connectedRep, sourceInfo.device);
+    }
+}
+
+void QRemoteObjectNodePrivate::handleReplicaConnection(const QByteArray &sourceSignature, QConnectedReplicaImplementation *rep, IoDeviceBase *connection)
+{
+    if (!checkSignatures(rep->m_objectSignature, sourceSignature)) {
+        qROPrivWarning() << "Signature mismatch for" << rep->m_metaObject->className() << (rep->m_objectName.isEmpty() ? QLatin1String("(unnamed)") : rep->m_objectName);
+        rep->setState(QRemoteObjectReplica::SignatureMismatch);
+        return;
+    }
+    rep->setConnection(connection);
+}
+
 //Host Nodes can use the more efficient InProcess Replica if we (this Node) hold the Source for the
 //requested Replica.  If not, fall back to the Connected Replica case.
-QReplicaPrivateInterface *QRemoteObjectHostBasePrivate::handleNewAcquire(const QMetaObject *meta, QRemoteObjectReplica *instance, const QString &name)
+QReplicaImplementationInterface *QRemoteObjectHostBasePrivate::handleNewAcquire(const QMetaObject *meta, QRemoteObjectReplica *instance, const QString &name)
 {
-    QMap<QString, QRemoteObjectSource*>::const_iterator mapIt;
-    if (remoteObjectIo && map_contains(remoteObjectIo->m_remoteObjects, name, mapIt)) {
+    QMap<QString, QRemoteObjectSourceBase*>::const_iterator mapIt;
+    if (remoteObjectIo && map_contains(remoteObjectIo->m_sourceObjects, name, mapIt)) {
         Q_Q(QRemoteObjectHostBase);
-        QInProcessReplicaPrivate *rp = new QInProcessReplicaPrivate(name, meta, q);
+        QInProcessReplicaImplementation *rp = new QInProcessReplicaImplementation(name, meta, q);
         rp->configurePrivate(instance);
         connectReplica(mapIt.value()->m_object, instance);
         rp->connectionToSource = mapIt.value();
@@ -455,7 +1055,7 @@ QReplicaPrivateInterface *QRemoteObjectHostBasePrivate::handleNewAcquire(const Q
 void QRemoteObjectNodePrivate::onClientRead(QObject *obj)
 {
     using namespace QRemoteObjectPackets;
-    ClientIoDevice *connection = qobject_cast<ClientIoDevice*>(obj);
+    IoDeviceBase *connection = qobject_cast<IoDeviceBase*>(obj);
     QRemoteObjectPacketTypeEnum packetType;
     Q_ASSERT(connection);
 
@@ -471,6 +1071,15 @@ void QRemoteObjectNodePrivate::onClientRead(QObject *obj)
         }
 
         switch (packetType) {
+        case Pong:
+        {
+            QSharedPointer<QRemoteObjectReplicaImplementation> rep = qSharedPointerCast<QRemoteObjectReplicaImplementation>(replicas.value(rxName).toStrongRef());
+            if (rep)
+                rep->notifyAboutReply(0, {});
+            else //replica has been deleted, remove from list
+                replicas.remove(rxName);
+            break;
+        }
         case Handshake:
             if (rxName != QtRemoteObjects::protocolVersion) {
                 qROPrivWarning() << "Protocol Mismatch, closing connection. Got" << rxObjects << "expected" << QtRemoteObjects::protocolVersion;
@@ -480,44 +1089,38 @@ void QRemoteObjectNodePrivate::onClientRead(QObject *obj)
                 m_handshakeReceived = true;
             }
             break;
-
         case ObjectList:
         {
             deserializeObjectListPacket(connection->stream(), rxObjects);
             qROPrivDebug() << "newObjects:" << rxObjects;
+            // We need to make sure all of the source objects are in connectedSources before we add connections,
+            // otherwise nested QObjects could fail (we want to acquire children before parents, and the object
+            // list is unordered)
             Q_FOREACH (const auto &remoteObject, rxObjects) {
                 qROPrivDebug() << "  connectedSources.contains(" << remoteObject << ")" << connectedSources.contains(remoteObject.name) << replicas.contains(remoteObject.name);
                 if (!connectedSources.contains(remoteObject.name)) {
                     connectedSources[remoteObject.name] = SourceInfo{connection, remoteObject.typeName, remoteObject.signature};
                     connection->addSource(remoteObject.name);
-                    if (replicas.contains(remoteObject.name)) { //We have a replica waiting on this remoteObject
-                        QSharedPointer<QConnectedReplicaPrivate> rep = qSharedPointerCast<QConnectedReplicaPrivate>(replicas.value(remoteObject.name).toStrongRef());
-                        if (!rep || checkSignatures(remoteObject.signature, rep->m_objectSignature)) {
-                            if (rep && rep->connectionToSource.isNull()) {
-                                qROPrivDebug() << "Test" << remoteObject<<replicas.keys();
-                                qROPrivDebug() << rep;
-                                rep->setConnection(connection);
-                            } else if (!rep) { //replica has been deleted, remove from list
-                                replicas.remove(remoteObject.name);
-                            }
-                        } else {
-                            if (rep)
-                                rep->setState(QRemoteObjectReplica::SignatureMismatch);
-                        }
-                        continue;
-                    }
+                    // Make sure we handle Registry first if it is available
+                    if (remoteObject.name == QStringLiteral("Registry") && replicas.contains(remoteObject.name))
+                        handleReplicaConnection(remoteObject.name);
                 }
+            }
+            Q_FOREACH (const auto &remoteObject, rxObjects) {
+                if (replicas.contains(remoteObject.name)) //We have a replica waiting on this remoteObject
+                    handleReplicaConnection(remoteObject.name);
             }
             break;
         }
         case InitPacket:
         {
-            qROPrivDebug() << "InitObject-->" << rxName << this;
-            QSharedPointer<QConnectedReplicaPrivate> rep = qSharedPointerCast<QConnectedReplicaPrivate>(replicas.value(rxName).toStrongRef());
+            qROPrivDebug() << "InitPacket-->" << rxName << this;
+            QSharedPointer<QConnectedReplicaImplementation> rep = qSharedPointerCast<QConnectedReplicaImplementation>(replicas.value(rxName).toStrongRef());
             //Use m_rxArgs (a QVariantList to hold the properties QVariantList)
             deserializeInitPacket(connection->stream(), rxArgs);
             if (rep)
             {
+                handlePointerToQObjectProperties(rep.data(), rxArgs);
                 rep->initialize(rxArgs);
             } else { //replica has been deleted, remove from list
                 replicas.remove(rxName);
@@ -526,16 +1129,15 @@ void QRemoteObjectNodePrivate::onClientRead(QObject *obj)
         }
         case InitDynamicPacket:
         {
-            qROPrivDebug() << "InitObject-->" << rxName << this;
-            QMetaObjectBuilder builder;
-            builder.setClassName("QRemoteObjectDynamicReplica");
-            builder.setSuperClass(&QRemoteObjectReplica::staticMetaObject);
-            builder.setFlags(QMetaObjectBuilder::DynamicMetaObject);
-            deserializeInitDynamicPacket(connection->stream(), builder, rxArgs);
-            QSharedPointer<QConnectedReplicaPrivate> rep = qSharedPointerCast<QConnectedReplicaPrivate>(replicas.value(rxName).toStrongRef());
+            qROPrivDebug() << "InitDynamicPacket-->" << rxName << this;
+            const QMetaObject *meta = dynamicTypeManager.addDynamicType(connection, connection->stream());
+            deserializeInitPacket(connection->stream(), rxArgs);
+            QSharedPointer<QConnectedReplicaImplementation> rep = qSharedPointerCast<QConnectedReplicaImplementation>(replicas.value(rxName).toStrongRef());
             if (rep)
             {
-                rep->initializeMetaObject(builder, rxArgs);
+                rep->setDynamicMetaObject(meta);
+                handlePointerToQObjectProperties(rep.data(), rxArgs);
+                rep->setDynamicProperties(rxArgs);
             } else { //replica has been deleted, remove from list
                 replicas.remove(rxName);
             }
@@ -546,8 +1148,8 @@ void QRemoteObjectNodePrivate::onClientRead(QObject *obj)
             qROPrivDebug() << "RemoveObject-->" << rxName << this;
             connectedSources.remove(rxName);
             connection->removeSource(rxName);
-            if (replicas.contains(rxName)) { //We have a replica waiting on this remoteObject
-                QSharedPointer<QConnectedReplicaPrivate> rep = qSharedPointerCast<QConnectedReplicaPrivate>(replicas.value(rxName).toStrongRef());
+            if (replicas.contains(rxName)) { //We have a replica using the removed source
+                QSharedPointer<QConnectedReplicaImplementation> rep = qSharedPointerCast<QConnectedReplicaImplementation>(replicas.value(rxName).toStrongRef());
                 if (rep && !rep->connectionToSource.isNull()) {
                     rep->connectionToSource.clear();
                     rep->setState(QRemoteObjectReplica::Suspect);
@@ -561,10 +1163,20 @@ void QRemoteObjectNodePrivate::onClientRead(QObject *obj)
         {
             int propertyIndex;
             deserializePropertyChangePacket(connection->stream(), propertyIndex, rxValue);
-            QSharedPointer<QRemoteObjectReplicaPrivate> rep = qSharedPointerCast<QRemoteObjectReplicaPrivate>(replicas.value(rxName).toStrongRef());
+            QSharedPointer<QRemoteObjectReplicaImplementation> rep = qSharedPointerCast<QRemoteObjectReplicaImplementation>(replicas.value(rxName).toStrongRef());
             if (rep) {
-                const QMetaProperty property = rep->m_metaObject->property(propertyIndex + rep->m_metaObject->propertyOffset());
-                rep->setProperty(propertyIndex, deserializedProperty(rxValue, property));
+                QConnectedReplicaImplementation *connectedRep = nullptr;
+                if (!rep->isShortCircuit()) {
+                    connectedRep = static_cast<QConnectedReplicaImplementation *>(rep.data());
+                    if (!connectedRep->childIndices().contains(propertyIndex))
+                        connectedRep = nullptr; //connectedRep will be a valid pointer only if propertyIndex is a child index
+                }
+                if (connectedRep)
+                    rep->setProperty(propertyIndex, handlePointerToQObjectProperty(connectedRep, propertyIndex, rxValue));
+                else {
+                    const QMetaProperty property = rep->m_metaObject->property(propertyIndex + rep->m_metaObject->propertyOffset());
+                    rep->setProperty(propertyIndex, deserializedProperty(rxValue, property));
+                }
             } else { //replica has been deleted, remove from list
                 replicas.remove(rxName);
             }
@@ -574,7 +1186,7 @@ void QRemoteObjectNodePrivate::onClientRead(QObject *obj)
         {
             int call, index, serialId, propertyIndex;
             deserializeInvokePacket(connection->stream(), call, index, rxArgs, serialId, propertyIndex);
-            QSharedPointer<QRemoteObjectReplicaPrivate> rep = qSharedPointerCast<QRemoteObjectReplicaPrivate>(replicas.value(rxName).toStrongRef());
+            QSharedPointer<QRemoteObjectReplicaImplementation> rep = qSharedPointerCast<QRemoteObjectReplicaImplementation>(replicas.value(rxName).toStrongRef());
             if (rep) {
                 static QVariant null(QMetaType::QObjectStar, (void*)0);
                 QVariant paramValue;
@@ -601,7 +1213,7 @@ void QRemoteObjectNodePrivate::onClientRead(QObject *obj)
         {
             int ackedSerialId;
             deserializeInvokeReplyPacket(connection->stream(), ackedSerialId, rxValue);
-            QSharedPointer<QRemoteObjectReplicaPrivate> rep = qSharedPointerCast<QRemoteObjectReplicaPrivate>(replicas.value(rxName).toStrongRef());
+            QSharedPointer<QRemoteObjectReplicaImplementation> rep = qSharedPointerCast<QRemoteObjectReplicaImplementation>(replicas.value(rxName).toStrongRef());
             if (rep) {
                 qROPrivDebug() << "Received InvokeReplyPacket ack'ing serial id:" << ackedSerialId;
                 rep->notifyAboutReply(ackedSerialId, rxValue);
@@ -612,6 +1224,7 @@ void QRemoteObjectNodePrivate::onClientRead(QObject *obj)
         }
         case AddObject:
         case Invalid:
+        case Ping:
             qROPrivWarning() << "Unexpected packet received";
         }
     } while (connection->bytesAvailable()); // have bytes left over, so do another iteration
@@ -724,6 +1337,24 @@ void QRemoteObjectNodePrivate::onClientRead(QObject *obj)
     \value MissingObjectName The given QObject does not have objectName() set.
     \value HostUrlInvalid The given url has an invalid or unrecognized scheme.
     \value ProtocolMismatch The client and the server have different protocol versions.
+    \value ListenFailed Can't listen on the specified host port.
+*/
+
+/*!
+    \enum QRemoteObjectHostBase::AllowedSchemas
+
+    This enum is used to specify whether a Node will accept a url with an
+    unrecognized schema for the hostUrl. By default only urls with known
+    schemas are accepted, but using \c AllowExternalRegistration will enable
+    the \l Registry to pass your external (to QtRO) url to client Nodes.
+
+    \value BuiltInSchemasOnly Only allow the hostUrl to be set to a QtRO
+    supported schema. This is the default value, and causes a Node error to be
+    set if an unrecognized schema is provided.
+    \value AllowExternalRegistration The provided schema is registered as an
+    \l {External Schemas}{External Schema}
+
+    \sa QRemoteObjectHost
 */
 
 /*!
@@ -742,6 +1373,9 @@ void QRemoteObjectNodePrivate::initialize()
     qRegisterMetaType<QRemoteObjectNode::ErrorCode>();
     qRegisterMetaType<QAbstractSocket::SocketError>(); //For queued qnx error()
     qRegisterMetaTypeStreamOperators<QVector<int> >();
+    qRegisterMetaTypeStreamOperators<QRemoteObjectPackets::QRO_>();
+    // To support dynamic MODELs, we need to make sure the types are registered
+    QAbstractItemModelSourceAdapter::registerTypes();
 }
 
 bool QRemoteObjectNodePrivate::checkSignatures(const QByteArray &a, const QByteArray &b)
@@ -826,9 +1460,9 @@ QRemoteObjectHostBase::QRemoteObjectHostBase(QRemoteObjectHostBasePrivate &d, QO
     Constructs a new QRemoteObjectHost Node (i.e., a Node that supports
     exposing \l Source objects on the QtRO network) with the given \a parent.
     This constructor is meant specific to support QML in the future as it will
-    not be available to connect to until \l setHostUrl() is called.
+    not be available to connect to until \l {QRemoteObjectHost::}{setHostUrl}() is called.
 
-    \sa setHostUrl(), setRegistryUrl()
+    \sa {QRemoteObjectHost::}{setHostUrl}(), setRegistryUrl()
 */
 QRemoteObjectHost::QRemoteObjectHost(QObject *parent)
     : QRemoteObjectHostBase(*new QRemoteObjectHostPrivate, parent)
@@ -838,15 +1472,20 @@ QRemoteObjectHost::QRemoteObjectHost(QObject *parent)
     Constructs a new QRemoteObjectHost Node (i.e., a Node that supports
     exposing \l Source objects on the QtRO network) with address \a address. If
     set, \a registryAddress will be used to connect to the \l
-    QRemoteObjectRegistry at the provided address.
+    QRemoteObjectRegistry at the provided address. The \a allowedSchemas
+    parameter is only needed (and should be set to \l
+    {QRemoteObjectHostBase::AllowExternalRegistration}
+    {AllowExternalRegistration}) if the schema of the url should be used as an
+    \l {External Schemas} {External Schema} by the registry.
 
-    \sa setHostUrl(), setRegistryUrl()
+    \sa {QRemoteObjectHost::}{setHostUrl}(), setRegistryUrl()
 */
-QRemoteObjectHost::QRemoteObjectHost(const QUrl &address, const QUrl &registryAddress, QObject *parent)
+QRemoteObjectHost::QRemoteObjectHost(const QUrl &address, const QUrl &registryAddress,
+                                     AllowedSchemas allowedSchemas, QObject *parent)
     : QRemoteObjectHostBase(*new QRemoteObjectHostPrivate, parent)
 {
     if (!address.isEmpty()) {
-        if (!setHostUrl(address))
+        if (!setHostUrl(address, allowedSchemas))
             return;
     }
 
@@ -906,6 +1545,9 @@ QRemoteObjectRegistryHost::~QRemoteObjectRegistryHost() {}
 QRemoteObjectNode::~QRemoteObjectNode()
 { }
 
+QRemoteObjectHostBase::~QRemoteObjectHostBase()
+{ }
+
 /*!
     Sets \a name as the internal name for this Node.  This
     is then output as part of the logging (if enabled).
@@ -943,23 +1585,30 @@ QUrl QRemoteObjectHostBase::hostUrl() const
     \internal The HostBase version of this method is protected so the method
     isn't exposed on RegistryHost nodes.
 */
-bool QRemoteObjectHostBase::setHostUrl(const QUrl &hostAddress)
+bool QRemoteObjectHostBase::setHostUrl(const QUrl &hostAddress, AllowedSchemas allowedSchemas)
 {
     Q_D(QRemoteObjectHostBase);
     if (d->remoteObjectIo) {
         d->setLastError(ServerAlreadyCreated);
         return false;
     }
-    else if (d->isInitialized.loadAcquire()) {
-        d->setLastError(RegistryAlreadyHosted);
+
+    if (allowedSchemas == AllowedSchemas::BuiltInSchemasOnly && !QtROServerFactory::instance()->isValid(hostAddress)) {
+        d->setLastError(HostUrlInvalid);
         return false;
     }
 
-    d->remoteObjectIo = new QRemoteObjectSourceIo(hostAddress, this);
-    if (d->remoteObjectIo->m_server.isNull()) { //Invalid url/scheme
+    if (allowedSchemas == AllowedSchemas::AllowExternalRegistration && QtROServerFactory::instance()->isValid(hostAddress)) {
+        qWarning() << qPrintable(objectName()) << "Overriding a valid QtRO url (" << hostAddress << ") with AllowExternalRegistration is not allowed.";
         d->setLastError(HostUrlInvalid);
+        return false;
+    }
+    d->remoteObjectIo = new QRemoteObjectSourceIo(hostAddress, this);
+
+    if (allowedSchemas == AllowedSchemas::BuiltInSchemasOnly && !d->remoteObjectIo->startListening()) {
+        d->setLastError(ListenFailed);
         delete d->remoteObjectIo;
-        d->remoteObjectIo = 0;
+        d->remoteObjectIo = nullptr;
         return false;
     }
 
@@ -969,8 +1618,8 @@ bool QRemoteObjectHostBase::setHostUrl(const QUrl &hostAddress)
     //Since we don't know whether setHostUrl or setRegistryUrl/setRegistryHost will be called first,
     //break it into two pieces.  setHostUrl connects the RemoteObjectSourceIo->[add/remove]RemoteObjectSource to QRemoteObjectReplicaNode->[add/remove]RemoteObjectSource
     //setRegistry* calls appropriately connect RemoteObjecSourcetIo->[add/remove]RemoteObjectSource to the registry when it is created
-    QObject::connect(d->remoteObjectIo, SIGNAL(remoteObjectAdded(QRemoteObjectSourceLocation)), this, SIGNAL(remoteObjectAdded(QRemoteObjectSourceLocation)));
-    QObject::connect(d->remoteObjectIo, SIGNAL(remoteObjectRemoved(QRemoteObjectSourceLocation)), this, SIGNAL(remoteObjectRemoved(QRemoteObjectSourceLocation)));
+    QObject::connect(d->remoteObjectIo, &QRemoteObjectSourceIo::remoteObjectAdded, this, &QRemoteObjectHostBase::remoteObjectAdded);
+    QObject::connect(d->remoteObjectIo, &QRemoteObjectSourceIo::remoteObjectRemoved, this, &QRemoteObjectHostBase::remoteObjectRemoved);
 
     return true;
 }
@@ -979,7 +1628,7 @@ bool QRemoteObjectHostBase::setHostUrl(const QUrl &hostAddress)
     Returns the host address for the QRemoteObjectNode as a QUrl. If the Node
     is not a Host node, it return an empty QUrl.
 
-    \sa setHostUrl()
+    \sa {QRemoteObjectHost}{setHostUrl}()
 */
 QUrl QRemoteObjectHost::hostUrl() const
 {
@@ -990,10 +1639,15 @@ QUrl QRemoteObjectHost::hostUrl() const
     Sets the \a hostAddress for a host QRemoteObjectNode.
 
     Returns \c true if the Host address is set, otherwise \c false.
+
+    The \a allowedSchemas parameter is only needed (and should be set to \l
+    {QRemoteObjectHostBase::AllowExternalRegistration}
+    {AllowExternalRegistration}) if the schema of the url should be used as an
+    \l {External Schemas} {External Schema} by the registry.
 */
-bool QRemoteObjectHost::setHostUrl(const QUrl &hostAddress)
+bool QRemoteObjectHost::setHostUrl(const QUrl &hostAddress, AllowedSchemas allowedSchemas)
 {
-    return QRemoteObjectHostBase::setHostUrl(hostAddress);
+    return QRemoteObjectHostBase::setHostUrl(hostAddress, allowedSchemas);
 }
 
 /*!
@@ -1013,7 +1667,7 @@ bool QRemoteObjectRegistryHost::setRegistryUrl(const QUrl &registryUrl)
         if (!d->remoteObjectIo) {
             d->setLastError(ServerAlreadyCreated);
             return false;
-        } else if (d->isInitialized.loadAcquire() || d->registry) {
+        } else if (d->registry) {
             d->setLastError(RegistryAlreadyHosted);
             return false;
         }
@@ -1023,9 +1677,9 @@ bool QRemoteObjectRegistryHost::setRegistryUrl(const QUrl &registryUrl)
         d->registryAddress = d->remoteObjectIo->serverAddress();
         d->registrySource = remoteObject;
         //Connect RemoteObjectSourceIo->remoteObject[Added/Removde] to the registry Slot
-        QObject::connect(this, SIGNAL(remoteObjectAdded(QRemoteObjectSourceLocation)), d->registrySource, SLOT(addSource(QRemoteObjectSourceLocation)));
-        QObject::connect(this, SIGNAL(remoteObjectRemoved(QRemoteObjectSourceLocation)), d->registrySource, SLOT(removeSource(QRemoteObjectSourceLocation)));
-        QObject::connect(d->remoteObjectIo, SIGNAL(serverRemoved(QUrl)),d->registrySource, SLOT(removeServer(QUrl)));
+        QObject::connect(this, &QRemoteObjectRegistryHost::remoteObjectAdded, d->registrySource, &QRegistrySource::addSource);
+        QObject::connect(this, &QRemoteObjectRegistryHost::remoteObjectRemoved, d->registrySource, &QRegistrySource::removeSource);
+        QObject::connect(d->remoteObjectIo, &QRemoteObjectSourceIo::serverRemoved,d->registrySource, &QRegistrySource::removeServer);
         //onAdd/Remove update the known remoteObjects list in the RegistrySource, so no need to connect to the RegistrySource remoteObjectAdded/Removed signals
         d->setRegistry(acquire<QRemoteObjectRegistry>());
         return true;
@@ -1043,10 +1697,18 @@ QRemoteObjectNode::ErrorCode QRemoteObjectNode::lastError() const
 }
 
 /*!
+    \qmlproperty url Node::registryUrl
+
+    The address of the \l {QRemoteObjectRegistry} {Registry} used by this node.
+
+    This is an empty QUrl if there is no registry in use.
+*/
+
+/*!
     \property QRemoteObjectNode::registryUrl
     \brief The address of the \l {QRemoteObjectRegistry} {Registry} used by this node.
 
-    This will be an empty QUrl if there is no registry in use.
+    This is an empty QUrl if there is no registry in use.
 */
 QUrl QRemoteObjectNode::registryUrl() const
 {
@@ -1057,21 +1719,17 @@ QUrl QRemoteObjectNode::registryUrl() const
 bool QRemoteObjectNode::setRegistryUrl(const QUrl &registryAddress)
 {
     Q_D(QRemoteObjectNode);
-    if (d->isInitialized.loadAcquire() || d->registry) {
+    if (d->registry) {
         d->setLastError(RegistryAlreadyHosted);
-        return false;
-    }
-
-    if (!connectToNode(registryAddress)) {
-        d->setLastError(RegistryNotAcquired);
         return false;
     }
 
     d->registryAddress = registryAddress;
     d->setRegistry(acquire<QRemoteObjectRegistry>());
     //Connect remoteObject[Added/Removed] to the registry Slot
-    QObject::connect(this, SIGNAL(remoteObjectAdded(QRemoteObjectSourceLocation)), d->registry, SLOT(addSource(QRemoteObjectSourceLocation)));
-    QObject::connect(this, SIGNAL(remoteObjectRemoved(QRemoteObjectSourceLocation)), d->registry, SLOT(removeSource(QRemoteObjectSourceLocation)));
+    QObject::connect(this, &QRemoteObjectNode::remoteObjectAdded, d->registry, &QRemoteObjectRegistry::addSource);
+    QObject::connect(this, &QRemoteObjectNode::remoteObjectRemoved, d->registry, &QRemoteObjectRegistry::removeSource);
+    connectToNode(registryAddress);
     return true;
 }
 
@@ -1081,10 +1739,79 @@ void QRemoteObjectNodePrivate::setRegistry(QRemoteObjectRegistry *reg)
     registry = reg;
     reg->setParent(q);
     //Make sure when we get the registry initialized, we update our replicas
-    QObject::connect(reg, SIGNAL(initialized()), q, SLOT(onRegistryInitialized()));
+    QObject::connect(reg, &QRemoteObjectRegistry::initialized, q, [this]() {
+        onRegistryInitialized();
+    });
     //Make sure we handle new RemoteObjectSources on Registry...
-    QObject::connect(reg, SIGNAL(remoteObjectAdded(QRemoteObjectSourceLocation)), q, SLOT(onRemoteObjectSourceAdded(QRemoteObjectSourceLocation)));
-    QObject::connect(reg, SIGNAL(remoteObjectRemoved(QRemoteObjectSourceLocation)), q, SLOT(onRemoteObjectSourceRemoved(QRemoteObjectSourceLocation)));
+    QObject::connect(reg, &QRemoteObjectRegistry::remoteObjectAdded,
+                     q, [this](const QRemoteObjectSourceLocation &location) {
+        onRemoteObjectSourceAdded(location);
+    });
+    QObject::connect(reg, &QRemoteObjectRegistry::remoteObjectRemoved,
+                     q, [this](const QRemoteObjectSourceLocation &location) {
+        onRemoteObjectSourceRemoved(location);
+    });
+}
+
+QVariant QRemoteObjectNodePrivate::handlePointerToQObjectProperty(QConnectedReplicaImplementation *rep, int index, const QVariant &property)
+{
+    Q_Q(QRemoteObjectNode);
+    using namespace QRemoteObjectPackets;
+
+    QVariant retval;
+
+    Q_ASSERT(property.canConvert<QRO_>());
+    QRO_ childInfo = property.value<QRO_>();
+    qROPrivDebug() << "QRO_:" << childInfo.name << replicas.contains(childInfo.name) << replicas.keys();
+    if (childInfo.isNull) {
+        // Either the source has changed the pointer and we need to update it, or the source pointer is a nullptr
+        if (replicas.contains(childInfo.name))
+            replicas.remove(childInfo.name);
+        if (childInfo.type == ObjectType::CLASS)
+            retval = QVariant::fromValue<QRemoteObjectDynamicReplica*>(nullptr);
+        else
+            retval = QVariant::fromValue<QAbstractItemModelReplica*>(nullptr);
+        return retval;
+    }
+
+    const bool newReplica = !replicas.contains(childInfo.name) || rep->isInitialized();
+    if (newReplica) {
+        if (rep->isInitialized()) {
+            auto childRep = qSharedPointerCast<QConnectedReplicaImplementation>(replicas.take(childInfo.name));
+            if (childRep && !childRep->isShortCircuit())
+                dynamicTypeManager.addFromReplica(static_cast<QConnectedReplicaImplementation *>(childRep.data()));
+        }
+        if (childInfo.type == ObjectType::CLASS)
+            retval = QVariant::fromValue(q->acquireDynamic(childInfo.name));
+        else
+            retval = QVariant::fromValue(q->acquireModel(childInfo.name));
+    } else //We are receiving the initial data for the QObject
+        retval = rep->getProperty(index); //Use existing value so changed signal isn't emitted
+
+    QSharedPointer<QConnectedReplicaImplementation> childRep = qSharedPointerCast<QConnectedReplicaImplementation>(replicas.value(childInfo.name).toStrongRef());
+    if (childRep->connectionToSource.isNull())
+        childRep->connectionToSource = rep->connectionToSource;
+    if (childRep->needsDynamicInitialization()) {
+        if (childInfo.classDefinition.isEmpty())
+            childRep->setDynamicMetaObject(dynamicTypeManager.metaObjectForType(childInfo.typeName));
+        else {
+            QDataStream in(childInfo.classDefinition);
+            childRep->setDynamicMetaObject(dynamicTypeManager.addDynamicType(rep->connectionToSource, in));
+        }
+        handlePointerToQObjectProperties(childRep.data(), childInfo.parameters);
+        childRep->setDynamicProperties(childInfo.parameters);
+    } else {
+        handlePointerToQObjectProperties(childRep.data(), childInfo.parameters);
+        childRep->initialize(childInfo.parameters);
+    }
+
+    return retval;
+}
+
+void QRemoteObjectNodePrivate::handlePointerToQObjectProperties(QConnectedReplicaImplementation *rep, QVariantList &properties)
+{
+    for (const int index : rep->childIndices())
+        properties[index] = handlePointerToQObjectProperty(rep, index, properties.at(index));
 }
 
 /*!
@@ -1123,6 +1850,30 @@ bool QRemoteObjectNode::connectToNode(const QUrl &address)
         return false;
     }
     return true;
+}
+
+/*!
+    \since 5.12
+
+    In order to \l QRemoteObjectNode::acquire() \l Replica objects over \l
+    {External QIODevices}, Qt Remote Objects needs access to the communications
+    channel (a \l QIODevice) between the respective nodes. It is the
+    addClientSideConnection() call that enables this, taking the \a ioDevice as
+    input. Any acquire() call made without calling addClientSideConnection will
+    still work, but the Node will not be able to initialize the \l Replica
+    without being provided the connection to the Host node.
+
+    \sa {QRemoteObjectHostBase::addHostSideConnection}
+*/
+void QRemoteObjectNode::addClientSideConnection(QIODevice *ioDevice)
+{
+    Q_D(QRemoteObjectNode);
+    ExternalIoDevice *device = new ExternalIoDevice(ioDevice, this);
+    connect(device, &IoDeviceBase::readyRead, this, [d, device]() {
+        d->onClientRead(device);
+    });
+    if (device->bytesAvailable())
+        d->onClientRead(device);
 }
 
 /*!
@@ -1227,20 +1978,8 @@ bool QRemoteObjectHostBase::enableRemoting(QObject *object, const QString &name)
 
     const QMetaObject *meta = object->metaObject();
     QString _name = name;
-    QString typeName;
-    const int ind = meta->indexOfClassInfo(QCLASSINFO_REMOTEOBJECT_TYPE);
-    if (ind != -1) { //We have an object created from repc or at least with QCLASSINFO defined
-        typeName = QString::fromLatin1(meta->classInfo(ind).value());
-        if (_name.isEmpty())
-            _name = typeName;
-        while (true) {
-            Q_ASSERT(meta->superClass()); //This recurses to QObject, which doesn't have QCLASSINFO_REMOTEOBJECT_TYPE
-            if (ind != meta->superClass()->indexOfClassInfo(QCLASSINFO_REMOTEOBJECT_TYPE)) //At the point we don't find the same QCLASSINFO_REMOTEOBJECT_TYPE,
-                            //we have the metaobject we should work from
-                break;
-            meta = meta->superClass();
-        }
-    } else { //This is a passed in QObject, use its API
+    QString typeName = getTypeNameAndMetaobjectFromClassInfo(meta);
+    if (typeName.isEmpty()) { //This is a passed in QObject, use its API
         if (_name.isEmpty()) {
             _name = object->objectName();
             if (_name.isEmpty()) {
@@ -1249,7 +1988,8 @@ bool QRemoteObjectHostBase::enableRemoting(QObject *object, const QString &name)
                 return false;
             }
         }
-    }
+    } else if (_name.isEmpty())
+        _name = typeName;
     return d->remoteObjectIo->enableRemoting(object, meta, _name, typeName);
 }
 
@@ -1282,11 +2022,13 @@ bool QRemoteObjectHostBase::enableRemoting(QAbstractItemModel *model, const QStr
                                                                                      Q_ARG(QVector<int>, roles));
     QAbstractItemAdapterSourceAPI<QAbstractItemModel, QAbstractItemModelSourceAdapter> *api =
         new QAbstractItemAdapterSourceAPI<QAbstractItemModel, QAbstractItemModelSourceAdapter>(name);
+    if (!this->objectName().isEmpty())
+        adapter->setObjectName(this->objectName().append(QStringLiteral("Adapter")));
     return enableRemoting(model, api, adapter);
 }
 
 /*!
-    \fn bool QRemoteObjectHostBase::enableRemoting(ObjectType *object)
+    \fn template <template <typename> class ApiDefinition, typename ObjectType> bool QRemoteObjectHostBase::enableRemoting(ObjectType *object)
 
     This templated function overload enables a host node to provide remote
     access to a QObject \a object with a specified (and compile-time checked)
@@ -1294,7 +2036,11 @@ bool QRemoteObjectHostBase::enableRemoting(QAbstractItemModel *model, const QStr
     obtain Replicas of this Source.
 
     This is best illustrated by example:
-    \snippet doc_src_remoteobjects.cpp api_source
+    \code
+        #include "rep_TimeModel_source.h"
+        MinuteTimer timer;
+        hostNode.enableRemoting<MinuteTimerSourceAPI>(&timer);
+    \endcode
 
     Here the MinuteTimerSourceAPI is the set of Signals/Slots/Properties
     defined by the TimeModel.rep file. Compile time checks are made to verify
@@ -1323,7 +2069,6 @@ bool QRemoteObjectHostBase::enableRemoting(QAbstractItemModel *model, const QStr
 bool QRemoteObjectHostBase::enableRemoting(QObject *object, const SourceApiMap *api, QObject *adapter)
 {
     Q_D(QRemoteObjectHostBase);
-    api->modelSetup(this);
     return d->remoteObjectIo->enableRemoting(object, api, adapter);
 }
 
@@ -1354,16 +2099,41 @@ bool QRemoteObjectHostBase::disableRemoting(QObject *remoteObject)
 }
 
 /*!
+    \since 5.12
+
+    In order to \l QRemoteObjectHost::enableRemoting() \l Source objects over
+    \l {External QIODevices}, Qt Remote Objects needs access to the
+    communications channel (a \l QIODevice) between the respective nodes. It is
+    the addHostSideConnection() call that enables this on the \l Source side,
+    taking the \a ioDevice as input. Any enableRemoting() call will still work
+    without calling addHostSideConnection, but the Node will not be able to
+    share the \l Source objects without being provided the connection to
+    the Replica node. Before calling this function you must call
+    \l {QRemoteObjectHost::}{setHostUrl}() with a unique URL and
+    \l {QRemoteObjectHost::}{AllowExternalRegistration}.
+
+    \sa addClientSideConnection
+*/
+void QRemoteObjectHostBase::addHostSideConnection(QIODevice *ioDevice)
+{
+    Q_D(QRemoteObjectHostBase);
+    if (!d->remoteObjectIo)
+        d->remoteObjectIo = new QRemoteObjectSourceIo(this);
+    ExternalIoDevice *device = new ExternalIoDevice(ioDevice, this);
+    return d->remoteObjectIo->newConnection(device);
+}
+
+/*!
  Returns a pointer to a Replica which is specifically derived from \l
  QAbstractItemModel. The \a name provided must match the name used with the
  matching \l {QRemoteObjectHostBase::enableRemoting} {enableRemoting} that put
  the Model on the network. The returned \c model will be empty until it is
  initialized with the \l Source.
  */
-QAbstractItemModelReplica *QRemoteObjectNode::acquireModel(const QString &name)
+QAbstractItemModelReplica *QRemoteObjectNode::acquireModel(const QString &name, QtRemoteObjects::InitialAction action, const QVector<int> &rolesHint)
 {
-    QAbstractItemModelReplicaPrivate *rep = acquire<QAbstractItemModelReplicaPrivate>(name);
-    return new QAbstractItemModelReplica(rep);
+    QAbstractItemModelReplicaImplementation *rep = acquire<QAbstractItemModelReplicaImplementation>(name);
+    return new QAbstractItemModelReplica(rep, action, rolesHint);
 }
 
 QRemoteObjectHostBasePrivate::QRemoteObjectHostBasePrivate()
@@ -1371,14 +2141,151 @@ QRemoteObjectHostBasePrivate::QRemoteObjectHostBasePrivate()
     , remoteObjectIo(nullptr)
 { }
 
+QRemoteObjectHostBasePrivate::~QRemoteObjectHostBasePrivate()
+{ }
+
 QRemoteObjectHostPrivate::QRemoteObjectHostPrivate()
     : QRemoteObjectHostBasePrivate()
+{ }
+
+QRemoteObjectHostPrivate::~QRemoteObjectHostPrivate()
 { }
 
 QRemoteObjectRegistryHostPrivate::QRemoteObjectRegistryHostPrivate()
     : QRemoteObjectHostBasePrivate()
     , registrySource(nullptr)
 { }
+
+QRemoteObjectRegistryHostPrivate::~QRemoteObjectRegistryHostPrivate()
+{ }
+
+ProxyInfo::ProxyInfo(QRemoteObjectNode *node, QRemoteObjectHostBase *parent,
+                     QRemoteObjectHostBase::RemoteObjectNameFilter filter)
+    : QObject(parent)
+    , proxyNode(node)
+    , parentNode(parent)
+    , proxyFilter(filter)
+{
+    const auto registry = node->registry();
+    proxyNode->setObjectName(QString::fromLatin1("_ProxyNode"));
+
+    connect(registry, &QRemoteObjectRegistry::remoteObjectAdded, this,
+            [this](const QRemoteObjectSourceLocation &entry)
+    {
+        this->proxyObject(entry, ProxyDirection::Forward);
+    });
+    connect(registry, &QRemoteObjectRegistry::remoteObjectRemoved, this,
+            &ProxyInfo::unproxyObject);
+    connect(registry, &QRemoteObjectRegistry::initialized, this, [registry, this]() {
+        QRemoteObjectSourceLocations locations = registry->sourceLocations();
+        QRemoteObjectSourceLocations::const_iterator i = locations.constBegin();
+        while (i != locations.constEnd()) {
+            proxyObject(QRemoteObjectSourceLocation(i.key(), i.value()));
+            ++i;
+        }
+    });
+}
+
+ProxyInfo::~ProxyInfo() {
+    for (ProxyReplicaInfo* info : proxiedReplicas)
+        delete info;
+}
+
+bool ProxyInfo::setReverseProxy(QRemoteObjectHostBase::RemoteObjectNameFilter filter)
+{
+    const auto registry = proxyNode->registry();
+    this->reverseFilter = filter;
+
+    connect(registry, &QRemoteObjectRegistry::remoteObjectAdded, this,
+            [this](const QRemoteObjectSourceLocation &entry)
+    {
+        this->proxyObject(entry, ProxyDirection::Reverse);
+    });
+    connect(registry, &QRemoteObjectRegistry::remoteObjectRemoved, this,
+            &ProxyInfo::unproxyObject);
+    connect(registry, &QRemoteObjectRegistry::initialized, this, [registry, this]() {
+        QRemoteObjectSourceLocations locations = registry->sourceLocations();
+        QRemoteObjectSourceLocations::const_iterator i = locations.constBegin();
+        while (i != locations.constEnd()) {
+            proxyObject(QRemoteObjectSourceLocation(i.key(), i.value()), ProxyDirection::Reverse);
+            ++i;
+        }
+    });
+
+    return true;
+}
+
+void ProxyInfo::proxyObject(const QRemoteObjectSourceLocation &entry, ProxyDirection direction)
+{
+    const QString name = entry.first;
+    Q_ASSERT(!proxiedReplicas.contains(name));
+    const QString typeName = entry.second.typeName;
+
+    if (direction == ProxyDirection::Forward) {
+        if (!proxyFilter(name, typeName))
+            return;
+
+        qCDebug(QT_REMOTEOBJECT) << "Starting proxy for" << name << "from" << entry.second.hostUrl;
+
+        if (entry.second.typeName == QAIMADAPTER()) {
+            QAbstractItemModelReplica *rep = proxyNode->acquireModel(name);
+            proxiedReplicas.insert(name, new ProxyReplicaInfo{rep, direction});
+            connect(rep, &QAbstractItemModelReplica::initialized, this,
+                    [rep, name, this]() { this->parentNode->enableRemoting(rep, name, QVector<int>()); });
+        } else {
+            QRemoteObjectDynamicReplica *rep = proxyNode->acquireDynamic(name);
+            proxiedReplicas.insert(name, new ProxyReplicaInfo{rep, direction});
+            connect(rep, &QRemoteObjectDynamicReplica::initialized, this,
+                    [rep, name, this]() { this->parentNode->enableRemoting(rep, name); });
+        }
+    } else {
+        if (!reverseFilter(name, typeName))
+            return;
+
+        qCDebug(QT_REMOTEOBJECT) << "Starting reverse proxy for" << name << "from" << entry.second.hostUrl;
+
+        if (entry.second.typeName == QAIMADAPTER()) {
+            QAbstractItemModelReplica *rep = this->parentNode->acquireModel(name);
+            proxiedReplicas.insert(name, new ProxyReplicaInfo{rep, direction});
+            connect(rep, &QAbstractItemModelReplica::initialized, this,
+                    [rep, name, this]()
+            {
+                QRemoteObjectHostBase *host = qobject_cast<QRemoteObjectHostBase *>(this->proxyNode);
+                Q_ASSERT(host);
+                host->enableRemoting(rep, name, QVector<int>());
+            });
+        } else {
+            QRemoteObjectDynamicReplica *rep = this->parentNode->acquireDynamic(name);
+            proxiedReplicas.insert(name, new ProxyReplicaInfo{rep, direction});
+            connect(rep, &QRemoteObjectDynamicReplica::initialized, this,
+                    [rep, name, this]()
+            {
+                QRemoteObjectHostBase *host = qobject_cast<QRemoteObjectHostBase *>(this->proxyNode);
+                Q_ASSERT(host);
+                host->enableRemoting(rep, name);
+            });
+        }
+    }
+
+}
+
+void ProxyInfo::unproxyObject(const QRemoteObjectSourceLocation &entry)
+{
+    const QString name = entry.first;
+
+    if (proxiedReplicas.contains(name)) {
+        qCDebug(QT_REMOTEOBJECT)  << "Stopping proxy for" << name;
+        auto const info = proxiedReplicas.take(name);
+        if (info->direction == ProxyDirection::Forward)
+            this->parentNode->disableRemoting(info->replica);
+        else {
+            QRemoteObjectHostBase *host = qobject_cast<QRemoteObjectHostBase *>(this->proxyNode);
+            Q_ASSERT(host);
+            host->disableRemoting(info->replica);
+        }
+        delete info;
+    }
+}
 
 QT_END_NAMESPACE
 

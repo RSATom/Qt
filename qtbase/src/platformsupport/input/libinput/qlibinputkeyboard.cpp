@@ -44,7 +44,7 @@
 #include <QtGui/private/qinputdevicemanager_p.h>
 #include <qpa/qwindowsysteminterface.h>
 #include <libinput.h>
-#ifndef QT_NO_XKBCOMMON_EVDEV
+#if QT_CONFIG(xkbcommon)
 #include <xkbcommon/xkbcommon-keysyms.h>
 #include <xkbcommon/xkbcommon-names.h>
 #endif
@@ -56,7 +56,7 @@ Q_DECLARE_LOGGING_CATEGORY(qLcLibInput)
 const int REPEAT_DELAY = 500;
 const int REPEAT_RATE = 100;
 
-#ifndef QT_NO_XKBCOMMON_EVDEV
+#if QT_CONFIG(xkbcommon)
 struct KeyTabEntry {
     int xkbkey;
     int qtkey;
@@ -132,20 +132,21 @@ static const KeyTabEntry keyTab[] = {
 #endif
 
 QLibInputKeyboard::QLibInputKeyboard()
-#ifndef QT_NO_XKBCOMMON_EVDEV
+#if QT_CONFIG(xkbcommon)
     : m_ctx(0),
       m_keymap(0),
-      m_state(0)
+      m_state(0),
+      m_mods(Qt::NoModifier)
 #endif
 {
-#ifndef QT_NO_XKBCOMMON_EVDEV
+#if QT_CONFIG(xkbcommon)
     qCDebug(qLcLibInput) << "Using xkbcommon for key mapping";
     m_ctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
     if (!m_ctx) {
         qWarning("Failed to create xkb context");
         return;
     }
-    m_keymap = xkb_keymap_new_from_names(m_ctx, Q_NULLPTR, XKB_KEYMAP_COMPILE_NO_FLAGS);
+    m_keymap = xkb_keymap_new_from_names(m_ctx, nullptr, XKB_KEYMAP_COMPILE_NO_FLAGS);
     if (!m_keymap) {
         qWarning("Failed to compile keymap");
         return;
@@ -163,13 +164,13 @@ QLibInputKeyboard::QLibInputKeyboard()
     m_repeatTimer.setSingleShot(true);
     connect(&m_repeatTimer, &QTimer::timeout, this, &QLibInputKeyboard::handleRepeat);
 #else
-    qCWarning(qLcLibInput) << "X-less xkbcommon not available, not performing key mapping";
+    qCWarning(qLcLibInput) << "xkbcommon not available, not performing key mapping";
 #endif
 }
 
 QLibInputKeyboard::~QLibInputKeyboard()
 {
-#ifndef QT_NO_XKBCOMMON_EVDEV
+#if QT_CONFIG(xkbcommon)
     if (m_state)
         xkb_state_unref(m_state);
     if (m_keymap)
@@ -181,7 +182,7 @@ QLibInputKeyboard::~QLibInputKeyboard()
 
 void QLibInputKeyboard::processKey(libinput_event_keyboard *e)
 {
-#ifndef QT_NO_XKBCOMMON_EVDEV
+#if QT_CONFIG(xkbcommon)
     if (!m_ctx || !m_keymap || !m_state)
         return;
 
@@ -203,23 +204,27 @@ void QLibInputKeyboard::processKey(libinput_event_keyboard *e)
     Qt::KeyboardModifiers mods = Qt::NoModifier;
     const int qtkey = keysymToQtKey(sym, &mods, text);
 
-    xkb_state_component modtype = xkb_state_component(XKB_STATE_MODS_DEPRESSED | XKB_STATE_MODS_LATCHED);
-    if (xkb_state_mod_index_is_active(m_state, m_modindex[0], modtype) && (qtkey != Qt::Key_Control || !pressed))
+    if (qtkey == Qt::Key_Control)
         mods |= Qt::ControlModifier;
-    if (xkb_state_mod_index_is_active(m_state, m_modindex[1], modtype) && (qtkey != Qt::Key_Alt || !pressed))
+    if (qtkey == Qt::Key_Alt)
         mods |= Qt::AltModifier;
-    if (xkb_state_mod_index_is_active(m_state, m_modindex[2], modtype) && (qtkey != Qt::Key_Shift || !pressed))
+    if (qtkey == Qt::Key_Shift)
         mods |= Qt::ShiftModifier;
-    if (xkb_state_mod_index_is_active(m_state, m_modindex[3], modtype) && (qtkey != Qt::Key_Meta || !pressed))
+    if (qtkey == Qt::Key_Meta)
         mods |= Qt::MetaModifier;
-
     xkb_state_update_key(m_state, k, pressed ? XKB_KEY_DOWN : XKB_KEY_UP);
 
-    QGuiApplicationPrivate::inputDeviceManager()->setKeyboardModifiers(mods, qtkey);
+    if (mods != Qt::NoModifier) {
+        if (pressed)
+            m_mods |= mods;
+        else
+            m_mods &= ~mods;
 
-    QWindowSystemInterface::handleExtendedKeyEvent(Q_NULLPTR,
+        QGuiApplicationPrivate::inputDeviceManager()->setKeyboardModifiers(m_mods);
+    }
+    QWindowSystemInterface::handleExtendedKeyEvent(nullptr,
                                                    pressed ? QEvent::KeyPress : QEvent::KeyRelease,
-                                                   qtkey, mods, k, sym, mods, text);
+                                                   qtkey, m_mods, k, sym, m_mods, text);
 
     if (pressed && xkb_keymap_key_repeats(m_keymap, k)) {
         m_repeatData.qtkey = qtkey;
@@ -240,10 +245,10 @@ void QLibInputKeyboard::processKey(libinput_event_keyboard *e)
 #endif
 }
 
-#ifndef QT_NO_XKBCOMMON_EVDEV
+#if QT_CONFIG(xkbcommon)
 void QLibInputKeyboard::handleRepeat()
 {
-    QWindowSystemInterface::handleExtendedKeyEvent(Q_NULLPTR, QEvent::KeyPress,
+    QWindowSystemInterface::handleExtendedKeyEvent(nullptr, QEvent::KeyPress,
                                                    m_repeatData.qtkey, m_repeatData.mods,
                                                    m_repeatData.nativeScanCode, m_repeatData.virtualKey, m_repeatData.nativeMods,
                                                    m_repeatData.unicodeText, true, m_repeatData.repeatCount);
@@ -264,11 +269,11 @@ int QLibInputKeyboard::keysymToQtKey(xkb_keysym_t key) const
 int QLibInputKeyboard::keysymToQtKey(xkb_keysym_t keysym, Qt::KeyboardModifiers *modifiers, const QString &text) const
 {
     int code = 0;
-#ifndef QT_NO_TEXTCODEC
+#if QT_CONFIG(textcodec)
     QTextCodec *systemCodec = QTextCodec::codecForLocale();
 #endif
     if (keysym < 128 || (keysym < 256
-#ifndef QT_NO_TEXTCODEC
+#if QT_CONFIG(textcodec)
                          && systemCodec->mibEnum() == 4
 #endif
                          )) {
@@ -287,7 +292,7 @@ int QLibInputKeyboard::keysymToQtKey(xkb_keysym_t keysym, Qt::KeyboardModifiers 
         *modifiers |= Qt::KeypadModifier;
     } else if (text.length() == 1 && text.unicode()->unicode() > 0x1f
                                   && text.unicode()->unicode() != 0x7f
-                                  && !(keysym >= XKB_KEY_dead_grave && keysym <= XKB_KEY_dead_currency)) {
+                                  && !(keysym >= XKB_KEY_dead_grave && keysym <= XKB_KEY_dead_longsolidusoverlay)) {
         code = text.unicode()->toUpper().unicode();
     } else {
         // any other keys

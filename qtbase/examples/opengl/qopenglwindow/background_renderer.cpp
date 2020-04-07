@@ -84,7 +84,7 @@ FragmentToy::FragmentToy(const QString &fragmentSource, QObject *parent)
         QFileInfo info(fragmentSource);
         m_fragment_file_last_modified = info.lastModified();
         m_fragment_file = fragmentSource;
-#ifndef QT_NO_FILESYSTEMWATCHER
+#if QT_CONFIG(filesystemwatcher)
         m_watcher.addPath(info.canonicalPath());
         QObject::connect(&m_watcher, &QFileSystemWatcher::directoryChanged, this, &FragmentToy::fileChanged);
 #endif
@@ -146,7 +146,7 @@ void FragmentToy::draw(const QSize &windowSize)
             m_fragment_shader.reset(new QOpenGLShader(QOpenGLShader::Fragment));
             if (!m_fragment_shader->compileSourceCode(data)) {
                 qWarning() << "Failed to compile fragment shader:" << m_fragment_shader->log();
-                m_fragment_shader.reset(Q_NULLPTR);
+                m_fragment_shader.reset(nullptr);
             }
         } else {
             qWarning() << "Unknown error, no fragment shader";
@@ -198,14 +198,14 @@ void FragmentToy::fileChanged(const QString &path)
             m_recompile_shaders = true;
             if (m_program) {
                 m_program->removeShader(m_fragment_shader.data());
-                m_fragment_shader.reset(Q_NULLPTR);
+                m_fragment_shader.reset(nullptr);
             }
         }
     } else {
         m_recompile_shaders = true;
         if (m_program) {
             m_program->removeShader(m_fragment_shader.data());
-            m_fragment_shader.reset(Q_NULLPTR);
+            m_fragment_shader.reset(nullptr);
         }
     }
 }

@@ -200,15 +200,6 @@ RenderTarget11::RenderTarget11(const d3d11::Format &formatSet) : mFormatSet(form
 
 RenderTarget11::~RenderTarget11()
 {
-    signalDirty();
-}
-
-void RenderTarget11::signalDirty()
-{
-    mBroadcastChannel.signal();
-
-    // Clear the list. We can't do this in the receiver because it would mutate during iteration.
-    mBroadcastChannel.reset();
 }
 
 TextureRenderTarget11::TextureRenderTarget11(d3d11::RenderTargetView &&rtv,

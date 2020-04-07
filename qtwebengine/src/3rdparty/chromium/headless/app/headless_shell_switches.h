@@ -10,28 +10,35 @@
 namespace headless {
 namespace switches {
 
-extern const char kDefaultBackgroundColor[];
-extern const char kEnableCrashReporter[];
 extern const char kCrashDumpsDir[];
-extern const char kDeterministicFetch[];
+extern const char kDefaultBackgroundColor[];
+extern const char kDeterministicMode[];
+extern const char kDisableCrashReporter[];
 extern const char kDumpDom[];
+extern const char kEnableBeginFrameControl[];
+extern const char kEnableCrashReporter[];
 extern const char kHideScrollbars[];
+extern const char kPasswordStore[];
 extern const char kPrintToPDF[];
+extern const char kProxyBypassList[];
 extern const char kProxyServer[];
 extern const char kRemoteDebuggingAddress[];
-extern const char kRemoteDebuggingSocketFd[];
 extern const char kRepl[];
 extern const char kScreenshot[];
+extern const char kSSLKeyLogFile[];
 extern const char kTimeout[];
 extern const char kUseGL[];
 extern const char kUserAgent[];
 extern const char kUserDataDir[];
 extern const char kVirtualTimeBudget[];
 extern const char kWindowSize[];
+extern const char kAuthServerWhitelist[];
+extern const char kFontRenderHinting[];
+extern const char kBlockNewWebContents[];
 
 // Switches which are replicated from content.
-using ::switches::kHostResolverRules;
 using ::switches::kRemoteDebuggingPort;
+using ::switches::kRemoteDebuggingPipe;
 
 }  // namespace switches
 }  // namespace headless

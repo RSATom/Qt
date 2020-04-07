@@ -14,7 +14,6 @@
 #include "base/memory/ptr_util.h"
 #include "base/memory/weak_ptr.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/profiler/scoped_tracker.h"
 #include "base/rand_util.h"
 #include "base/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -24,7 +23,7 @@
 #include "google_apis/gaia/google_service_auth_error.h"
 #include "google_apis/gaia/oauth2_access_token_fetcher_impl.h"
 #include "google_apis/gaia/oauth2_token_service_delegate.h"
-#include "net/url_request/url_request_context_getter.h"
+#include "services/network/public/cpp/shared_url_loader_factory.h"
 
 int OAuth2TokenService::max_fetch_retry_num_ = 5;
 
@@ -124,7 +123,7 @@ class OAuth2TokenService::Fetcher : public OAuth2AccessTokenConsumer {
   static std::unique_ptr<OAuth2TokenService::Fetcher> CreateAndStart(
       OAuth2TokenService* oauth2_token_service,
       const std::string& account_id,
-      net::URLRequestContextGetter* getter,
+      scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
       const std::string& client_id,
       const std::string& client_secret,
       const ScopeSet& scopes,
@@ -159,7 +158,7 @@ class OAuth2TokenService::Fetcher : public OAuth2AccessTokenConsumer {
  private:
   Fetcher(OAuth2TokenService* oauth2_token_service,
           const std::string& account_id,
-          net::URLRequestContextGetter* getter,
+          scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
           const std::string& client_id,
           const std::string& client_secret,
           const OAuth2TokenService::ScopeSet& scopes,
@@ -175,7 +174,7 @@ class OAuth2TokenService::Fetcher : public OAuth2AccessTokenConsumer {
   // scheduled for deletion at the end of OnGetTokenFailure/OnGetTokenSuccess
   // (whichever comes first).
   OAuth2TokenService* const oauth2_token_service_;
-  scoped_refptr<net::URLRequestContextGetter> getter_;
+  scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory_;
   const std::string account_id_;
   const ScopeSet scopes_;
   std::vector<base::WeakPtr<RequestImpl> > waiting_requests_;
@@ -203,20 +202,14 @@ std::unique_ptr<OAuth2TokenService::Fetcher>
 OAuth2TokenService::Fetcher::CreateAndStart(
     OAuth2TokenService* oauth2_token_service,
     const std::string& account_id,
-    net::URLRequestContextGetter* getter,
+    scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
     const std::string& client_id,
     const std::string& client_secret,
     const OAuth2TokenService::ScopeSet& scopes,
     base::WeakPtr<RequestImpl> waiting_request) {
   std::unique_ptr<OAuth2TokenService::Fetcher> fetcher = base::WrapUnique(
-      new Fetcher(oauth2_token_service, account_id, getter, client_id,
-                  client_secret, scopes, waiting_request));
-
-  // TODO(robliao): Remove ScopedTracker below once https://crbug.com/422460 is
-  // fixed.
-  tracked_objects::ScopedTracker tracking_profile(
-      FROM_HERE_WITH_EXPLICIT_FUNCTION(
-          "422460 OAuth2TokenService::Fetcher::CreateAndStart"));
+      new Fetcher(oauth2_token_service, account_id, url_loader_factory,
+                  client_id, client_secret, scopes, waiting_request));
 
   fetcher->Start();
   return fetcher;
@@ -225,13 +218,13 @@ OAuth2TokenService::Fetcher::CreateAndStart(
 OAuth2TokenService::Fetcher::Fetcher(
     OAuth2TokenService* oauth2_token_service,
     const std::string& account_id,
-    net::URLRequestContextGetter* getter,
+    scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
     const std::string& client_id,
     const std::string& client_secret,
     const OAuth2TokenService::ScopeSet& scopes,
     base::WeakPtr<RequestImpl> waiting_request)
     : oauth2_token_service_(oauth2_token_service),
-      getter_(getter),
+      url_loader_factory_(url_loader_factory),
       account_id_(account_id),
       scopes_(scopes),
       retry_number_(0),
@@ -250,7 +243,7 @@ OAuth2TokenService::Fetcher::~Fetcher() {
 
 void OAuth2TokenService::Fetcher::Start() {
   fetcher_.reset(oauth2_token_service_->CreateAccessTokenFetcher(
-      account_id_, getter_.get(), this));
+      account_id_, url_loader_factory_, this));
   DCHECK(fetcher_);
 
   // Stop the timer before starting the fetch, as defense in depth against the
@@ -327,12 +320,9 @@ bool OAuth2TokenService::Fetcher::ShouldRetry(
 }
 
 void OAuth2TokenService::Fetcher::InformWaitingRequests() {
-  std::vector<base::WeakPtr<RequestImpl> >::const_iterator iter =
-      waiting_requests_.begin();
-  for (; iter != waiting_requests_.end(); ++iter) {
-    base::WeakPtr<RequestImpl> waiting_request = *iter;
-    if (waiting_request.get())
-      waiting_request->InformConsumer(error_, access_token_, expiration_date_);
+  for (const base::WeakPtr<RequestImpl>& request : waiting_requests_) {
+    if (request)
+      request->InformConsumer(error_, access_token_, expiration_date_);
   }
   waiting_requests_.clear();
 }
@@ -430,12 +420,9 @@ std::unique_ptr<OAuth2TokenService::Request> OAuth2TokenService::StartRequest(
     const OAuth2TokenService::ScopeSet& scopes,
     OAuth2TokenService::Consumer* consumer) {
   return StartRequestForClientWithContext(
-      account_id,
-      GetRequestContext(),
+      account_id, delegate_->GetURLLoaderFactory(),
       GaiaUrls::GetInstance()->oauth2_chrome_client_id(),
-      GaiaUrls::GetInstance()->oauth2_chrome_client_secret(),
-      scopes,
-      consumer);
+      GaiaUrls::GetInstance()->oauth2_chrome_client_secret(), scopes, consumer);
 }
 
 std::unique_ptr<OAuth2TokenService::Request>
@@ -445,60 +432,43 @@ OAuth2TokenService::StartRequestForClient(
     const std::string& client_secret,
     const OAuth2TokenService::ScopeSet& scopes,
     OAuth2TokenService::Consumer* consumer) {
-  return StartRequestForClientWithContext(
-      account_id,
-      GetRequestContext(),
-      client_id,
-      client_secret,
-      scopes,
-      consumer);
+  return StartRequestForClientWithContext(account_id, GetURLLoaderFactory(),
+                                          client_id, client_secret, scopes,
+                                          consumer);
 }
 
-net::URLRequestContextGetter* OAuth2TokenService::GetRequestContext() const {
-  return delegate_->GetRequestContext();
+scoped_refptr<network::SharedURLLoaderFactory>
+OAuth2TokenService::GetURLLoaderFactory() const {
+  return delegate_->GetURLLoaderFactory();
 }
 
 std::unique_ptr<OAuth2TokenService::Request>
 OAuth2TokenService::StartRequestWithContext(
     const std::string& account_id,
-    net::URLRequestContextGetter* getter,
+    scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
     const ScopeSet& scopes,
     Consumer* consumer) {
   return StartRequestForClientWithContext(
-      account_id,
-      getter,
+      account_id, url_loader_factory,
       GaiaUrls::GetInstance()->oauth2_chrome_client_id(),
-      GaiaUrls::GetInstance()->oauth2_chrome_client_secret(),
-      scopes,
-      consumer);
+      GaiaUrls::GetInstance()->oauth2_chrome_client_secret(), scopes, consumer);
 }
 
 std::unique_ptr<OAuth2TokenService::Request>
 OAuth2TokenService::StartRequestForClientWithContext(
     const std::string& account_id,
-    net::URLRequestContextGetter* getter,
+    scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
     const std::string& client_id,
     const std::string& client_secret,
     const ScopeSet& scopes,
     Consumer* consumer) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
-  // TODO(robliao): Remove ScopedTracker below once https://crbug.com/422460 is
-  // fixed.
-  tracked_objects::ScopedTracker tracking_profile1(
-      FROM_HERE_WITH_EXPLICIT_FUNCTION(
-          "422460 OAuth2TokenService::StartRequestForClientWithContext 1"));
   std::unique_ptr<RequestImpl> request(new RequestImpl(account_id, consumer));
   for (auto& observer : diagnostics_observer_list_)
     observer.OnAccessTokenRequested(account_id, consumer->id(), scopes);
 
   if (!RefreshTokenIsAvailable(account_id)) {
-    // TODO(robliao): Remove ScopedTracker below once https://crbug.com/422460
-    // is fixed.
-    tracked_objects::ScopedTracker tracking_profile2(
-        FROM_HERE_WITH_EXPLICIT_FUNCTION(
-            "422460 OAuth2TokenService::StartRequestForClientWithContext 2"));
-
     GoogleServiceAuthError error(GoogleServiceAuthError::USER_NOT_SIGNED_UP);
 
     for (auto& observer : diagnostics_observer_list_) {
@@ -516,37 +486,24 @@ OAuth2TokenService::StartRequestForClientWithContext(
   RequestParameters request_parameters(client_id,
                                        account_id,
                                        scopes);
-  if (HasCacheEntry(request_parameters)) {
-    // TODO(robliao): Remove ScopedTracker below once https://crbug.com/422460
-    // is fixed.
-    tracked_objects::ScopedTracker tracking_profile3(
-        FROM_HERE_WITH_EXPLICIT_FUNCTION(
-            "422460 OAuth2TokenService::StartRequestForClientWithContext 3"));
-
-    StartCacheLookupRequest(request.get(), request_parameters, consumer);
+  const CacheEntry* cache_entry = GetCacheEntry(request_parameters);
+  if (cache_entry && cache_entry->access_token.length()) {
+    InformConsumerWithCacheEntry(cache_entry, request.get(),
+                                 request_parameters);
   } else {
-    FetchOAuth2Token(request.get(),
-                     account_id,
-                     getter,
-                     client_id,
-                     client_secret,
-                     scopes);
+    FetchOAuth2Token(request.get(), account_id, url_loader_factory, client_id,
+                     client_secret, scopes);
   }
   return std::move(request);
 }
 
-void OAuth2TokenService::FetchOAuth2Token(RequestImpl* request,
-                                          const std::string& account_id,
-                                          net::URLRequestContextGetter* getter,
-                                          const std::string& client_id,
-                                          const std::string& client_secret,
-                                          const ScopeSet& scopes) {
-  // TODO(robliao): Remove ScopedTracker below once https://crbug.com/422460 is
-  // fixed.
-  tracked_objects::ScopedTracker tracking_profile(
-      FROM_HERE_WITH_EXPLICIT_FUNCTION(
-          "422460 OAuth2TokenService::FetchOAuth2Token"));
-
+void OAuth2TokenService::FetchOAuth2Token(
+    RequestImpl* request,
+    const std::string& account_id,
+    scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
+    const std::string& client_id,
+    const std::string& client_secret,
+    const ScopeSet& scopes) {
   // If there is already a pending fetcher for |scopes| and |account_id|,
   // simply register this |request| for those results rather than starting
   // a new fetcher.
@@ -560,31 +517,26 @@ void OAuth2TokenService::FetchOAuth2Token(RequestImpl* request,
   }
 
   pending_fetchers_[request_parameters] =
-      Fetcher::CreateAndStart(this,
-                              account_id,
-                              getter,
-                              client_id,
-                              client_secret,
-                              scopes,
-                              request->AsWeakPtr());
+      Fetcher::CreateAndStart(this, account_id, url_loader_factory, client_id,
+                              client_secret, scopes, request->AsWeakPtr());
 }
 
 OAuth2AccessTokenFetcher* OAuth2TokenService::CreateAccessTokenFetcher(
     const std::string& account_id,
-    net::URLRequestContextGetter* getter,
+    scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
     OAuth2AccessTokenConsumer* consumer) {
-  return delegate_->CreateAccessTokenFetcher(account_id, getter, consumer);
+  return delegate_->CreateAccessTokenFetcher(account_id, url_loader_factory,
+                                             consumer);
 }
 
-void OAuth2TokenService::StartCacheLookupRequest(
+void OAuth2TokenService::InformConsumerWithCacheEntry(
+    const CacheEntry* cache_entry,
     RequestImpl* request,
-    const OAuth2TokenService::RequestParameters& request_parameters,
-    OAuth2TokenService::Consumer* consumer) {
-  CHECK(HasCacheEntry(request_parameters));
-  const CacheEntry* cache_entry = GetCacheEntry(request_parameters);
+    const RequestParameters& request_parameters) {
+  DCHECK(cache_entry && cache_entry->access_token.length());
   for (auto& observer : diagnostics_observer_list_) {
     observer.OnFetchAccessTokenComplete(
-        request_parameters.account_id, consumer->id(),
+        request_parameters.account_id, request->GetConsumerId(),
         request_parameters.scopes, GoogleServiceAuthError::AuthErrorNone(),
         cache_entry->expiration_date);
   }
@@ -602,6 +554,18 @@ std::vector<std::string> OAuth2TokenService::GetAccounts() const {
 bool OAuth2TokenService::RefreshTokenIsAvailable(
     const std::string& account_id) const {
   return delegate_->RefreshTokenIsAvailable(account_id);
+}
+
+bool OAuth2TokenService::RefreshTokenHasError(
+    const std::string& account_id) const {
+  return GetAuthError(account_id) != GoogleServiceAuthError::AuthErrorNone();
+}
+
+GoogleServiceAuthError OAuth2TokenService::GetAuthError(
+    const std::string& account_id) const {
+  GoogleServiceAuthError error = delegate_->GetAuthError(account_id);
+  DCHECK(!error.IsTransientError());
+  return error;
 }
 
 void OAuth2TokenService::RevokeAllCredentials() {
@@ -679,10 +643,7 @@ void OAuth2TokenService::OnFetchComplete(Fetcher* fetcher) {
                                   fetcher->GetScopeSet());
 
   const OAuth2TokenService::CacheEntry* entry = GetCacheEntry(request_param);
-  const std::vector<base::WeakPtr<RequestImpl> >& requests =
-      fetcher->waiting_requests();
-  for (size_t i = 0; i < requests.size(); ++i) {
-    const RequestImpl* req = requests[i].get();
+  for (const base::WeakPtr<RequestImpl>& req : fetcher->waiting_requests()) {
     if (req) {
       for (auto& observer : diagnostics_observer_list_) {
         observer.OnFetchAccessTokenComplete(
@@ -699,12 +660,6 @@ void OAuth2TokenService::OnFetchComplete(Fetcher* fetcher) {
   // The Fetcher deletes itself.
   iter->second.release();
   pending_fetchers_.erase(iter);
-}
-
-bool OAuth2TokenService::HasCacheEntry(
-    const RequestParameters& request_parameters) {
-  const CacheEntry* cache_entry = GetCacheEntry(request_parameters);
-  return cache_entry && cache_entry->access_token.length();
 }
 
 const OAuth2TokenService::CacheEntry* OAuth2TokenService::GetCacheEntry(
@@ -758,10 +713,9 @@ void OAuth2TokenService::RegisterCacheEntry(
 
 void OAuth2TokenService::ClearCache() {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  for (TokenCache::iterator iter = token_cache_.begin();
-       iter != token_cache_.end(); ++iter) {
+  for (const auto& entry : token_cache_) {
     for (auto& observer : diagnostics_observer_list_)
-      observer.OnTokenRemoved(iter->first.account_id, iter->first.scopes);
+      observer.OnTokenRemoved(entry.first.account_id, entry.first.scopes);
   }
 
   token_cache_.clear();
@@ -784,30 +738,25 @@ void OAuth2TokenService::ClearCacheForAccount(const std::string& account_id) {
 
 void OAuth2TokenService::CancelAllRequests() {
   std::vector<Fetcher*> fetchers_to_cancel;
-  for (auto iter = pending_fetchers_.begin(); iter != pending_fetchers_.end();
-       ++iter) {
-    fetchers_to_cancel.push_back(iter->second.get());
-  }
+  for (const auto& pending_fetcher : pending_fetchers_)
+    fetchers_to_cancel.push_back(pending_fetcher.second.get());
   CancelFetchers(fetchers_to_cancel);
 }
 
 void OAuth2TokenService::CancelRequestsForAccount(
     const std::string& account_id) {
   std::vector<Fetcher*> fetchers_to_cancel;
-  for (auto iter = pending_fetchers_.begin(); iter != pending_fetchers_.end();
-       ++iter) {
-    if (iter->first.account_id == account_id)
-      fetchers_to_cancel.push_back(iter->second.get());
+  for (const auto& pending_fetcher : pending_fetchers_) {
+    if (pending_fetcher.first.account_id == account_id)
+      fetchers_to_cancel.push_back(pending_fetcher.second.get());
   }
   CancelFetchers(fetchers_to_cancel);
 }
 
 void OAuth2TokenService::CancelFetchers(
     std::vector<Fetcher*> fetchers_to_cancel) {
-  for (auto iter = fetchers_to_cancel.begin(); iter != fetchers_to_cancel.end();
-       ++iter) {
-    (*iter)->Cancel();
-  }
+  for (Fetcher* pending_fetcher : fetchers_to_cancel)
+    pending_fetcher->Cancel();
 }
 
 void OAuth2TokenService::set_max_authorization_token_fetch_retries_for_testing(

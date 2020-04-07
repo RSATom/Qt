@@ -10,21 +10,25 @@
 #include <stdint.h>
 
 #include "base/bind.h"
+#include "base/callback.h"
 #include "base/command_line.h"
 #include "base/logging.h"
 #include "base/mac/mac_util.h"
 #include "base/mac/scoped_cftyperef.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/sys_string_conversions.h"
-#include "content/common/sandbox_init_mac.h"
-#include "content/common/sandbox_mac.h"
 #include "content/public/common/content_switches.h"
+#include "content/public/common/sandbox_init.h"
 #include "sandbox/mac/seatbelt.h"
+#include "services/service_manager/sandbox/mac/sandbox_mac.h"
 
 extern "C" {
 void CGSSetDenyWindowServerConnections(bool);
 void CGSShutdownServerConnections();
 OSStatus SetApplicationIsDaemon(Boolean isDaemon);
+void _LSSetApplicationLaunchServicesServerConnectionStatus(
+    uint64_t flags,
+    bool (^connection_allowed)(CFDictionaryRef));
 };
 
 namespace content {
@@ -45,6 +49,11 @@ void DisconnectWindowServer() {
   // launchservicesd to get an ASN. By setting this flag, HIServices skips
   // that.
   SetApplicationIsDaemon(true);
+  // Tell LaunchServices no connections are ever allowed.
+  _LSSetApplicationLaunchServicesServerConnectionStatus(
+      0, ^bool(CFDictionaryRef options) {
+        return false;
+      });
 }
 
 // You are about to read a pretty disgusting hack. In a static initializer,
@@ -95,15 +104,9 @@ void DisconnectCFNotificationCenter() {
     // Convert the string to an address.
     std::string port_address_std_string =
         base::SysCFStringRefToUTF8(port_address_string);
-#if __LP64__
     uint64_t port_address = 0;
     if (!base::HexStringToUInt64(port_address_std_string, &port_address))
       continue;
-#else
-    uint32_t port_address = 0;
-    if (!base::HexStringToUInt(port_address_std_string, &port_address))
-      continue;
-#endif
 
     // Cast the address to an object.
     CFMachPortRef mach_port = reinterpret_cast<CFMachPortRef>(port_address);
@@ -158,8 +161,8 @@ bool RendererMainPlatformDelegate::EnableSandbox() {
   if (sandbox_initialized) {
     DisconnectWindowServer();
   } else {
-    sandbox_initialized = InitializeSandboxWithPostWarmupHook(
-        base::BindOnce(&DisconnectWindowServer));
+    sandbox_initialized =
+        InitializeSandbox(base::BindOnce(&DisconnectWindowServer));
   }
 
   // The sandbox is now engaged. Make sure that the renderer has not connected

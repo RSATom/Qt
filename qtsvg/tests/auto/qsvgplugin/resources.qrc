@@ -1,5 +1,7 @@
 <!DOCTYPE RCC><RCC version="1.0">
 <qresource>
+   <file>imageInclude.svg</file>
+   <file>imageIncludeA.svg</file>
    <file>square.svg</file>
    <file>square_size.svg</file>
    <file>square_size_viewbox.svg</file>

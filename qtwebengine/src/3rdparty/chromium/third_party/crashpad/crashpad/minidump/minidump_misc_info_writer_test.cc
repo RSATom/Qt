@@ -16,14 +16,11 @@
 
 #include <string.h>
 
-#include <memory>
 #include <string>
 #include <utility>
 
 #include "base/compiler_specific.h"
 #include "base/format_macros.h"
-#include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/strings/string16.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
@@ -43,11 +40,11 @@ namespace {
 
 template <typename T>
 void GetMiscInfoStream(const std::string& file_contents, const T** misc_info) {
-  const size_t kDirectoryOffset = sizeof(MINIDUMP_HEADER);
-  const size_t kMiscInfoStreamOffset =
+  constexpr size_t kDirectoryOffset = sizeof(MINIDUMP_HEADER);
+  constexpr size_t kMiscInfoStreamOffset =
       kDirectoryOffset + sizeof(MINIDUMP_DIRECTORY);
-  const size_t kMiscInfoStreamSize = sizeof(T);
-  const size_t kFileSize = kMiscInfoStreamOffset + kMiscInfoStreamSize;
+  constexpr size_t kMiscInfoStreamSize = sizeof(T);
+  constexpr size_t kFileSize = kMiscInfoStreamOffset + kMiscInfoStreamSize;
 
   ASSERT_EQ(file_contents.size(), kFileSize);
 
@@ -192,7 +189,7 @@ void ExpectMiscInfoEqual<MINIDUMP_MISC_INFO_5>(
 
 TEST(MinidumpMiscInfoWriter, Empty) {
   MinidumpFileWriter minidump_file_writer;
-  auto misc_info_writer = base::WrapUnique(new MinidumpMiscInfoWriter());
+  auto misc_info_writer = std::make_unique<MinidumpMiscInfoWriter>();
 
   ASSERT_TRUE(minidump_file_writer.AddStream(std::move(misc_info_writer)));
 
@@ -209,9 +206,9 @@ TEST(MinidumpMiscInfoWriter, Empty) {
 
 TEST(MinidumpMiscInfoWriter, ProcessId) {
   MinidumpFileWriter minidump_file_writer;
-  auto misc_info_writer = base::WrapUnique(new MinidumpMiscInfoWriter());
+  auto misc_info_writer = std::make_unique<MinidumpMiscInfoWriter>();
 
-  const uint32_t kProcessId = 12345;
+  constexpr uint32_t kProcessId = 12345;
 
   misc_info_writer->SetProcessID(kProcessId);
 
@@ -232,11 +229,11 @@ TEST(MinidumpMiscInfoWriter, ProcessId) {
 
 TEST(MinidumpMiscInfoWriter, ProcessTimes) {
   MinidumpFileWriter minidump_file_writer;
-  auto misc_info_writer = base::WrapUnique(new MinidumpMiscInfoWriter());
+  auto misc_info_writer = std::make_unique<MinidumpMiscInfoWriter>();
 
-  const time_t kProcessCreateTime = 0x15252f00;
-  const uint32_t kProcessUserTime = 10;
-  const uint32_t kProcessKernelTime = 5;
+  constexpr time_t kProcessCreateTime = 0x15252f00;
+  constexpr uint32_t kProcessUserTime = 10;
+  constexpr uint32_t kProcessKernelTime = 5;
 
   misc_info_writer->SetProcessTimes(
       kProcessCreateTime, kProcessUserTime, kProcessKernelTime);
@@ -260,13 +257,13 @@ TEST(MinidumpMiscInfoWriter, ProcessTimes) {
 
 TEST(MinidumpMiscInfoWriter, ProcessorPowerInfo) {
   MinidumpFileWriter minidump_file_writer;
-  auto misc_info_writer = base::WrapUnique(new MinidumpMiscInfoWriter());
+  auto misc_info_writer = std::make_unique<MinidumpMiscInfoWriter>();
 
-  const uint32_t kProcessorMaxMhz = 2800;
-  const uint32_t kProcessorCurrentMhz = 2300;
-  const uint32_t kProcessorMhzLimit = 3300;
-  const uint32_t kProcessorMaxIdleState = 5;
-  const uint32_t kProcessorCurrentIdleState = 1;
+  constexpr uint32_t kProcessorMaxMhz = 2800;
+  constexpr uint32_t kProcessorCurrentMhz = 2300;
+  constexpr uint32_t kProcessorMhzLimit = 3300;
+  constexpr uint32_t kProcessorMaxIdleState = 5;
+  constexpr uint32_t kProcessorCurrentIdleState = 1;
 
   misc_info_writer->SetProcessorPowerInfo(kProcessorMaxMhz,
                                           kProcessorCurrentMhz,
@@ -295,9 +292,9 @@ TEST(MinidumpMiscInfoWriter, ProcessorPowerInfo) {
 
 TEST(MinidumpMiscInfoWriter, ProcessIntegrityLevel) {
   MinidumpFileWriter minidump_file_writer;
-  auto misc_info_writer = base::WrapUnique(new MinidumpMiscInfoWriter());
+  auto misc_info_writer = std::make_unique<MinidumpMiscInfoWriter>();
 
-  const uint32_t kProcessIntegrityLevel = 0x2000;
+  constexpr uint32_t kProcessIntegrityLevel = 0x2000;
 
   misc_info_writer->SetProcessIntegrityLevel(kProcessIntegrityLevel);
 
@@ -318,9 +315,9 @@ TEST(MinidumpMiscInfoWriter, ProcessIntegrityLevel) {
 
 TEST(MinidumpMiscInfoWriter, ProcessExecuteFlags) {
   MinidumpFileWriter minidump_file_writer;
-  auto misc_info_writer = base::WrapUnique(new MinidumpMiscInfoWriter());
+  auto misc_info_writer = std::make_unique<MinidumpMiscInfoWriter>();
 
-  const uint32_t kProcessExecuteFlags = 0x13579bdf;
+  constexpr uint32_t kProcessExecuteFlags = 0x13579bdf;
 
   misc_info_writer->SetProcessExecuteFlags(kProcessExecuteFlags);
 
@@ -341,9 +338,9 @@ TEST(MinidumpMiscInfoWriter, ProcessExecuteFlags) {
 
 TEST(MinidumpMiscInfoWriter, ProtectedProcess) {
   MinidumpFileWriter minidump_file_writer;
-  auto misc_info_writer = base::WrapUnique(new MinidumpMiscInfoWriter());
+  auto misc_info_writer = std::make_unique<MinidumpMiscInfoWriter>();
 
-  const uint32_t kProtectedProcess = 1;
+  constexpr uint32_t kProtectedProcess = 1;
 
   misc_info_writer->SetProtectedProcess(kProtectedProcess);
 
@@ -364,16 +361,16 @@ TEST(MinidumpMiscInfoWriter, ProtectedProcess) {
 
 TEST(MinidumpMiscInfoWriter, TimeZone) {
   MinidumpFileWriter minidump_file_writer;
-  auto misc_info_writer = base::WrapUnique(new MinidumpMiscInfoWriter());
+  auto misc_info_writer = std::make_unique<MinidumpMiscInfoWriter>();
 
-  const uint32_t kTimeZoneId = 2;
-  const int32_t kBias = 300;
-  const char kStandardName[] = "EST";
-  const SYSTEMTIME kStandardDate = {0, 11, 1, 0, 2, 0, 0, 0};
-  const int32_t kStandardBias = 0;
-  const char kDaylightName[] = "EDT";
-  const SYSTEMTIME kDaylightDate = {0, 3, 2, 0, 2, 0, 0, 0};
-  const int32_t kDaylightBias = -60;
+  constexpr uint32_t kTimeZoneId = 2;
+  constexpr int32_t kBias = 300;
+  static constexpr char kStandardName[] = "EST";
+  constexpr SYSTEMTIME kStandardDate = {0, 11, 1, 0, 2, 0, 0, 0};
+  constexpr int32_t kStandardBias = 0;
+  static constexpr char kDaylightName[] = "EDT";
+  constexpr SYSTEMTIME kDaylightDate = {0, 3, 2, 0, 2, 0, 0, 0};
+  constexpr int32_t kDaylightBias = -60;
 
   misc_info_writer->SetTimeZone(kTimeZoneId,
                                 kBias,
@@ -421,21 +418,21 @@ TEST(MinidumpMiscInfoWriter, TimeZoneStringsOverflow) {
   // to the widths of their fields.
 
   MinidumpFileWriter minidump_file_writer;
-  auto misc_info_writer = base::WrapUnique(new MinidumpMiscInfoWriter());
+  auto misc_info_writer = std::make_unique<MinidumpMiscInfoWriter>();
 
-  const uint32_t kTimeZoneId = 2;
-  const int32_t kBias = 300;
+  constexpr uint32_t kTimeZoneId = 2;
+  constexpr int32_t kBias = 300;
   MINIDUMP_MISC_INFO_N tmp;
   ALLOW_UNUSED_LOCAL(tmp);
   std::string standard_name(ARRAYSIZE_UNSAFE(tmp.TimeZone.StandardName) + 1,
                             's');
-  const int32_t kStandardBias = 0;
+  constexpr int32_t kStandardBias = 0;
   std::string daylight_name(ARRAYSIZE_UNSAFE(tmp.TimeZone.DaylightName), 'd');
-  const int32_t kDaylightBias = -60;
+  constexpr int32_t kDaylightBias = -60;
 
   // Test using kSystemTimeZero, because not all platforms will be able to
   // provide daylight saving time transition times.
-  const SYSTEMTIME kSystemTimeZero = {};
+  constexpr SYSTEMTIME kSystemTimeZero = {};
 
   misc_info_writer->SetTimeZone(kTimeZoneId,
                                 kBias,
@@ -480,10 +477,10 @@ TEST(MinidumpMiscInfoWriter, TimeZoneStringsOverflow) {
 
 TEST(MinidumpMiscInfoWriter, BuildStrings) {
   MinidumpFileWriter minidump_file_writer;
-  auto misc_info_writer = base::WrapUnique(new MinidumpMiscInfoWriter());
+  auto misc_info_writer = std::make_unique<MinidumpMiscInfoWriter>();
 
-  const char kBuildString[] = "build string";
-  const char kDebugBuildString[] = "debug build string";
+  static constexpr char kBuildString[] = "build string";
+  static constexpr char kDebugBuildString[] = "debug build string";
 
   misc_info_writer->SetBuildString(kBuildString, kDebugBuildString);
 
@@ -515,7 +512,7 @@ TEST(MinidumpMiscInfoWriter, BuildStringsOverflow) {
   // widths of their fields.
 
   MinidumpFileWriter minidump_file_writer;
-  auto misc_info_writer = base::WrapUnique(new MinidumpMiscInfoWriter());
+  auto misc_info_writer = std::make_unique<MinidumpMiscInfoWriter>();
 
   MINIDUMP_MISC_INFO_N tmp;
   ALLOW_UNUSED_LOCAL(tmp);
@@ -549,9 +546,9 @@ TEST(MinidumpMiscInfoWriter, BuildStringsOverflow) {
 
 TEST(MinidumpMiscInfoWriter, XStateData) {
   MinidumpFileWriter minidump_file_writer;
-  auto misc_info_writer = base::WrapUnique(new MinidumpMiscInfoWriter());
+  auto misc_info_writer = std::make_unique<MinidumpMiscInfoWriter>();
 
-  const XSTATE_CONFIG_FEATURE_MSC_INFO kXStateData = {
+  constexpr XSTATE_CONFIG_FEATURE_MSC_INFO kXStateData = {
       sizeof(XSTATE_CONFIG_FEATURE_MSC_INFO),
       1024,
       0x000000000000005f,
@@ -583,9 +580,9 @@ TEST(MinidumpMiscInfoWriter, XStateData) {
 
 TEST(MinidumpMiscInfoWriter, ProcessCookie) {
   MinidumpFileWriter minidump_file_writer;
-  auto misc_info_writer = base::WrapUnique(new MinidumpMiscInfoWriter());
+  auto misc_info_writer = std::make_unique<MinidumpMiscInfoWriter>();
 
-  const uint32_t kProcessCookie = 0x12345678;
+  constexpr uint32_t kProcessCookie = 0x12345678;
 
   misc_info_writer->SetProcessCookie(kProcessCookie);
 
@@ -606,29 +603,29 @@ TEST(MinidumpMiscInfoWriter, ProcessCookie) {
 
 TEST(MinidumpMiscInfoWriter, Everything) {
   MinidumpFileWriter minidump_file_writer;
-  auto misc_info_writer = base::WrapUnique(new MinidumpMiscInfoWriter());
+  auto misc_info_writer = std::make_unique<MinidumpMiscInfoWriter>();
 
-  const uint32_t kProcessId = 12345;
-  const time_t kProcessCreateTime = 0x15252f00;
-  const uint32_t kProcessUserTime = 10;
-  const uint32_t kProcessKernelTime = 5;
-  const uint32_t kProcessorMaxMhz = 2800;
-  const uint32_t kProcessorCurrentMhz = 2300;
-  const uint32_t kProcessorMhzLimit = 3300;
-  const uint32_t kProcessorMaxIdleState = 5;
-  const uint32_t kProcessorCurrentIdleState = 1;
-  const uint32_t kProcessIntegrityLevel = 0x2000;
-  const uint32_t kProcessExecuteFlags = 0x13579bdf;
-  const uint32_t kProtectedProcess = 1;
-  const uint32_t kTimeZoneId = 2;
-  const int32_t kBias = 300;
-  const char kStandardName[] = "EST";
-  const int32_t kStandardBias = 0;
-  const char kDaylightName[] = "EDT";
-  const int32_t kDaylightBias = -60;
-  const SYSTEMTIME kSystemTimeZero = {};
-  const char kBuildString[] = "build string";
-  const char kDebugBuildString[] = "debug build string";
+  constexpr uint32_t kProcessId = 12345;
+  constexpr time_t kProcessCreateTime = 0x15252f00;
+  constexpr uint32_t kProcessUserTime = 10;
+  constexpr uint32_t kProcessKernelTime = 5;
+  constexpr uint32_t kProcessorMaxMhz = 2800;
+  constexpr uint32_t kProcessorCurrentMhz = 2300;
+  constexpr uint32_t kProcessorMhzLimit = 3300;
+  constexpr uint32_t kProcessorMaxIdleState = 5;
+  constexpr uint32_t kProcessorCurrentIdleState = 1;
+  constexpr uint32_t kProcessIntegrityLevel = 0x2000;
+  constexpr uint32_t kProcessExecuteFlags = 0x13579bdf;
+  constexpr uint32_t kProtectedProcess = 1;
+  constexpr uint32_t kTimeZoneId = 2;
+  constexpr int32_t kBias = 300;
+  static constexpr char kStandardName[] = "EST";
+  constexpr int32_t kStandardBias = 0;
+  static constexpr char kDaylightName[] = "EDT";
+  constexpr int32_t kDaylightBias = -60;
+  constexpr SYSTEMTIME kSystemTimeZero = {};
+  static constexpr char kBuildString[] = "build string";
+  static constexpr char kDebugBuildString[] = "debug build string";
 
   misc_info_writer->SetProcessID(kProcessId);
   misc_info_writer->SetProcessTimes(
@@ -711,14 +708,15 @@ TEST(MinidumpMiscInfoWriter, Everything) {
 TEST(MinidumpMiscInfoWriter, InitializeFromSnapshot) {
   MINIDUMP_MISC_INFO_4 expect_misc_info = {};
 
-  const char kStandardTimeName[] = "EST";
-  const char kDaylightTimeName[] = "EDT";
-  const char kOSVersionFull[] =
+  static constexpr char kStandardTimeName[] = "EST";
+  static constexpr char kDaylightTimeName[] = "EDT";
+  static constexpr char kOSVersionFull[] =
       "Mac OS X 10.9.5 (13F34); "
       "Darwin 13.4.0 Darwin Kernel Version 13.4.0: "
       "Sun Aug 17 19:50:11 PDT 2014; "
       "root:xnu-2422.115.4~1/RELEASE_X86_64 x86_64";
-  const char kMachineDescription[] = "MacBookPro11,3 (Mac-2BD1B31983FE1663)";
+  static constexpr char kMachineDescription[] =
+      "MacBookPro11,3 (Mac-2BD1B31983FE1663)";
   base::string16 standard_time_name_utf16 =
       base::UTF8ToUTF16(kStandardTimeName);
   base::string16 daylight_time_name_utf16 =
@@ -771,8 +769,8 @@ TEST(MinidumpMiscInfoWriter, InitializeFromSnapshot) {
   process_snapshot.SetProcessStartTime(kStartTime);
   process_snapshot.SetProcessCPUTimes(kUserCPUTime, kSystemCPUTime);
 
-  auto system_snapshot = base::WrapUnique(new TestSystemSnapshot());
-  const uint64_t kHzPerMHz = static_cast<uint64_t>(1E6);
+  auto system_snapshot = std::make_unique<TestSystemSnapshot>();
+  constexpr uint64_t kHzPerMHz = static_cast<uint64_t>(1E6);
   system_snapshot->SetCPUFrequency(
       expect_misc_info.ProcessorCurrentMhz * kHzPerMHz,
       expect_misc_info.ProcessorMaxMhz * kHzPerMHz);
@@ -787,7 +785,7 @@ TEST(MinidumpMiscInfoWriter, InitializeFromSnapshot) {
 
   process_snapshot.SetSystem(std::move(system_snapshot));
 
-  auto misc_info_writer = base::WrapUnique(new MinidumpMiscInfoWriter());
+  auto misc_info_writer = std::make_unique<MinidumpMiscInfoWriter>();
   misc_info_writer->InitializeFromSnapshot(&process_snapshot);
 
   MinidumpFileWriter minidump_file_writer;

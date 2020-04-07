@@ -38,7 +38,6 @@ class CC_EXPORT ScrollStateData {
   bool is_in_inertial_phase;
   bool is_ending;
 
-  bool should_propagate;
   bool from_user_input;
 
   // Whether the scroll sequence has had any delta consumed, in the
@@ -58,6 +57,13 @@ class CC_EXPORT ScrollStateData {
   // of |caused_scroll_*_|. See crbug.com/510045 for details.
   bool caused_scroll_x;
   bool caused_scroll_y;
+
+  // Track if the scroll_chain has been cut by overscroll_behavior, in
+  // order to properly handle overscroll-effects.
+  // TODO(sunyunjia): overscroll should be handled at the top of scroll_chain,
+  // as implemented at blink side. This field should be removed after it's
+  // resolved. crbug.com/755164.
+  bool is_scroll_chain_cut;
 
   ScrollNode* current_native_scrolling_node() const;
   void set_current_native_scrolling_node(

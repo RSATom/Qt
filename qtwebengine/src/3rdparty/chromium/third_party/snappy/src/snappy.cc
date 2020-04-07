@@ -127,6 +127,11 @@ void UnalignedCopy128(const void* src, void* dst) {
 // Note that this does not match the semantics of either memcpy() or memmove().
 inline char* IncrementalCopySlow(const char* src, char* op,
                                  char* const op_limit) {
+  // TODO: Remove pragma when LLVM is aware this function is only called in
+  // cold regions and when cold regions don't get vectorized or unrolled.
+#ifdef __clang__
+#pragma clang loop unroll(disable)
+#endif
   while (op < op_limit) {
     *op++ = *src++;
   }
@@ -144,9 +149,10 @@ inline char* IncrementalCopy(const char* src, char* op, char* const op_limit,
   // pat  = op - src
   // len  = limit - op
   assert(src < op);
+  assert(op <= op_limit);
   assert(op_limit <= buf_limit);
   // NOTE: The compressor always emits 4 <= len <= 64. It is ok to assume that
-  // to optimize this function but we have to also handle these cases in case
+  // to optimize this function but we have to also handle other cases in case
   // the input does not satisfy these conditions.
 
   size_t pattern_size = op - src;
@@ -175,23 +181,20 @@ inline char* IncrementalCopy(const char* src, char* op, char* const op_limit,
   // copying 2x 8 bytes at a time.
 
   // Handle the uncommon case where pattern is less than 8 bytes.
-  if (PREDICT_FALSE(pattern_size < 8)) {
-    // Expand pattern to at least 8 bytes. The worse case scenario in terms of
-    // buffer usage is when the pattern is size 3. ^ is the original position
-    // of op. x are irrelevant bytes copied by the last UnalignedCopy64.
-    //
-    // abc
-    // abcabcxxxxx
-    // abcabcabcabcxxxxx
-    //    ^
-    // The last x is 14 bytes after ^.
-    if (PREDICT_TRUE(op <= buf_limit - 14)) {
+  if (SNAPPY_PREDICT_FALSE(pattern_size < 8)) {
+    // If plenty of buffer space remains, expand the pattern to at least 8
+    // bytes. The way the following loop is written, we need 8 bytes of buffer
+    // space if pattern_size >= 4, 11 bytes if pattern_size is 1 or 3, and 10
+    // bytes if pattern_size is 2.  Precisely encoding that is probably not
+    // worthwhile; instead, invoke the slow path if we cannot write 11 bytes
+    // (because 11 are required in the worst case).
+    if (SNAPPY_PREDICT_TRUE(op <= buf_limit - 11)) {
       while (pattern_size < 8) {
         UnalignedCopy64(src, op);
         op += pattern_size;
         pattern_size *= 2;
       }
-      if (PREDICT_TRUE(op >= op_limit)) return op_limit;
+      if (SNAPPY_PREDICT_TRUE(op >= op_limit)) return op_limit;
     } else {
       return IncrementalCopySlow(src, op, op_limit);
     }
@@ -202,16 +205,55 @@ inline char* IncrementalCopy(const char* src, char* op, char* const op_limit,
   // UnalignedCopy128 might overwrite data in op. UnalignedCopy64 is safe
   // because expanding the pattern to at least 8 bytes guarantees that
   // op - src >= 8.
-  while (op <= buf_limit - 16) {
+  //
+  // Typically, the op_limit is the gating factor so try to simplify the loop
+  // based on that.
+  if (SNAPPY_PREDICT_TRUE(op_limit <= buf_limit - 16)) {
+    // Factor the displacement from op to the source into a variable. This helps
+    // simplify the loop below by only varying the op pointer which we need to
+    // test for the end. Note that this was done after carefully examining the
+    // generated code to allow the addressing modes in the loop below to
+    // maximize micro-op fusion where possible on modern Intel processors. The
+    // generated code should be checked carefully for new processors or with
+    // major changes to the compiler.
+    // TODO: Simplify this code when the compiler reliably produces the correct
+    // x86 instruction sequence.
+    ptrdiff_t op_to_src = src - op;
+
+    // The trip count of this loop is not large and so unrolling will only hurt
+    // code size without helping performance.
+    //
+    // TODO: Replace with loop trip count hint.
+#ifdef __clang__
+#pragma clang loop unroll(disable)
+#endif
+    do {
+      UnalignedCopy64(op + op_to_src, op);
+      UnalignedCopy64(op + op_to_src + 8, op + 8);
+      op += 16;
+    } while (op < op_limit);
+    return op_limit;
+  }
+
+  // Fall back to doing as much as we can with the available slop in the
+  // buffer. This code path is relatively cold however so we save code size by
+  // avoiding unrolling and vectorizing.
+  //
+  // TODO: Remove pragma when when cold regions don't get vectorized or
+  // unrolled.
+#ifdef __clang__
+#pragma clang loop unroll(disable)
+#endif
+  for (char *op_end = buf_limit - 16; op < op_end; op += 16, src += 16) {
     UnalignedCopy64(src, op);
     UnalignedCopy64(src + 8, op + 8);
-    src += 16;
-    op += 16;
-    if (PREDICT_TRUE(op >= op_limit)) return op_limit;
   }
+  if (op >= op_limit)
+    return op_limit;
+
   // We only take this branch if we didn't have enough slop and we can do a
   // single 8 byte copy.
-  if (PREDICT_FALSE(op <= buf_limit - 8)) {
+  if (SNAPPY_PREDICT_FALSE(op <= buf_limit - 8)) {
     UnalignedCopy64(src, op);
     src += 8;
     op += 8;
@@ -273,7 +315,7 @@ static inline char* EmitCopyAtMost64(char* op, size_t offset, size_t len,
   assert(offset < 65536);
   assert(len_less_than_12 == (len < 12));
 
-  if (len_less_than_12 && PREDICT_TRUE(offset < 2048)) {
+  if (len_less_than_12 && SNAPPY_PREDICT_TRUE(offset < 2048)) {
     // offset fits in 11 bits.  The 3 highest go in the top of the first byte,
     // and the rest go in the second byte.
     *op++ = COPY_1_BYTE_OFFSET + ((len - 4) << 2) + ((offset >> 3) & 0xe0);
@@ -298,7 +340,7 @@ static inline char* EmitCopy(char* op, size_t offset, size_t len,
     // it's in the noise.
 
     // Emit 64 byte copies but make sure to keep at least four bytes reserved.
-    while (PREDICT_FALSE(len >= 68)) {
+    while (SNAPPY_PREDICT_FALSE(len >= 68)) {
       op = EmitCopyAtMost64(op, offset, 64, false);
       len -= 64;
     }
@@ -427,7 +469,7 @@ char* CompressFragment(const char* input,
   const char* next_emit = ip;
 
   const size_t kInputMarginBytes = 15;
-  if (PREDICT_TRUE(input_size >= kInputMarginBytes)) {
+  if (SNAPPY_PREDICT_TRUE(input_size >= kInputMarginBytes)) {
     const char* ip_limit = input + input_size - kInputMarginBytes;
 
     for (uint32 next_hash = Hash(++ip, shift); ; ) {
@@ -468,7 +510,7 @@ char* CompressFragment(const char* input,
         uint32 bytes_between_hash_lookups = skip >> 5;
         skip += bytes_between_hash_lookups;
         next_ip = ip + bytes_between_hash_lookups;
-        if (PREDICT_FALSE(next_ip > ip_limit)) {
+        if (SNAPPY_PREDICT_FALSE(next_ip > ip_limit)) {
           goto emit_remainder;
         }
         next_hash = Hash(next_ip, shift);
@@ -477,8 +519,8 @@ char* CompressFragment(const char* input,
         assert(candidate < ip);
 
         table[hash] = ip - base_ip;
-      } while (PREDICT_TRUE(UNALIGNED_LOAD32(ip) !=
-                            UNALIGNED_LOAD32(candidate)));
+      } while (SNAPPY_PREDICT_TRUE(UNALIGNED_LOAD32(ip) !=
+                                 UNALIGNED_LOAD32(candidate)));
 
       // Step 2: A 4-byte match has been found.  We'll later see if more
       // than 4 bytes match.  But, prior to the match, input
@@ -509,7 +551,7 @@ char* CompressFragment(const char* input,
         assert(0 == memcmp(base, candidate, matched));
         op = EmitCopy(op, offset, matched, p.second);
         next_emit = ip;
-        if (PREDICT_FALSE(ip >= ip_limit)) {
+        if (SNAPPY_PREDICT_FALSE(ip >= ip_limit)) {
           goto emit_remainder;
         }
         // We are now looking for a 4-byte match again.  We read
@@ -657,7 +699,26 @@ class SnappyDecompressor {
   // Process the next item found in the input.
   // Returns true if successful, false on error or end of input.
   template <class Writer>
+#if defined(__GNUC__) && defined(__x86_64__)
+  __attribute__((aligned(32)))
+#endif
   void DecompressAllTags(Writer* writer) {
+    // In x86, pad the function body to start 16 bytes later. This function has
+    // a couple of hotspots that are highly sensitive to alignment: we have
+    // observed regressions by more than 20% in some metrics just by moving the
+    // exact same code to a different position in the benchmark binary.
+    //
+    // Putting this code on a 32-byte-aligned boundary + 16 bytes makes us hit
+    // the "lucky" case consistently. Unfortunately, this is a very brittle
+    // workaround, and future differences in code generation may reintroduce
+    // this regression. If you experience a big, difficult to explain, benchmark
+    // performance regression here, first try removing this hack.
+#if defined(__GNUC__) && defined(__x86_64__)
+    // Two 8-byte "NOP DWORD ptr [EAX + EAX*1 + 00000000H]" instructions.
+    asm(".byte 0x0f, 0x1f, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00");
+    asm(".byte 0x0f, 0x1f, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00");
+#endif
+
     const char* ip = ip_;
     // For position-independent executables, accessing global arrays can be
     // slow.  Move wordmask array onto the stack to mitigate this.
@@ -700,7 +761,7 @@ class SnappyDecompressor {
       // txt[1-4]        25%        75%
       // pb              24%        76%
       // bin             24%        76%
-      if (PREDICT_FALSE((c & 0x3) == LITERAL)) {
+      if (SNAPPY_PREDICT_FALSE((c & 0x3) == LITERAL)) {
         size_t literal_length = (c >> 2) + 1u;
         if (writer->TryFastAppend(ip, ip_limit_ - ip, literal_length)) {
           assert(literal_length < 61);
@@ -710,7 +771,7 @@ class SnappyDecompressor {
           // bytes in addition to the literal.
           continue;
         }
-        if (PREDICT_FALSE(literal_length >= 61)) {
+        if (SNAPPY_PREDICT_FALSE(literal_length >= 61)) {
           // Long literal.
           const size_t literal_length_length = literal_length - 60;
           literal_length =
@@ -1354,7 +1415,8 @@ class SnappyScatteredWriter {
     char* const op_end = op_ptr_ + len;
     // See SnappyArrayWriter::AppendFromSelf for an explanation of
     // the "offset - 1u" trick.
-    if (PREDICT_TRUE(offset - 1u < op_ptr_ - op_base_ && op_end <= op_limit_)) {
+    if (SNAPPY_PREDICT_TRUE(offset - 1u < op_ptr_ - op_base_ &&
+                          op_end <= op_limit_)) {
       // Fast path: src and dst in current block.
       op_ptr_ = IncrementalCopy(op_ptr_ - offset, op_ptr_, op_end, op_limit_);
       return true;

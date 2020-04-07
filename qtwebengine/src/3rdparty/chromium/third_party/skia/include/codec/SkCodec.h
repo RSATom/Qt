@@ -8,13 +8,16 @@
 #ifndef SkCodec_DEFINED
 #define SkCodec_DEFINED
 
+#include "../private/SkNoncopyable.h"
 #include "../private/SkTemplates.h"
+#include "../private/SkEncodedInfo.h"
 #include "SkCodecAnimation.h"
 #include "SkColor.h"
 #include "SkColorSpaceXform.h"
 #include "SkEncodedImageFormat.h"
-#include "SkEncodedInfo.h"
+#include "SkEncodedOrigin.h"
 #include "SkImageInfo.h"
+#include "SkPixmap.h"
 #include "SkSize.h"
 #include "SkStream.h"
 #include "SkTypes.h"
@@ -32,7 +35,6 @@ namespace DM {
 class CodecSrc;
 class ColorCodecSrc;
 }
-class ColorCodecBench;
 
 /**
  *  Abstraction layer directly on top of an image codec.
@@ -50,7 +52,7 @@ public:
      *  this many bytes, or by implementing rewind() to be able to rewind()
      *  after reading this many bytes.
      */
-    static size_t MinBufferedBytesNeeded();
+    static constexpr size_t MinBufferedBytesNeeded() { return 32; }
 
     /**
      *  Error codes for various SkCodec methods.
@@ -106,6 +108,11 @@ public:
     };
 
     /**
+     *  Readable string representing the error code.
+     */
+    static const char* ResultToString(Result);
+
+    /**
      *  If this stream represents an encoded image that we know how to decode,
      *  return an SkCodec that can decode it. Otherwise return NULL.
      *
@@ -139,8 +146,8 @@ public:
      *  If NULL is returned, the stream is deleted immediately. Otherwise, the
      *  SkCodec takes ownership of it, and will delete it when done with it.
      */
-    static SkCodec* NewFromStream(SkStream*, Result* = nullptr,
-                                  SkPngChunkReader* = nullptr);
+    static std::unique_ptr<SkCodec> MakeFromStream(std::unique_ptr<SkStream>, Result* = nullptr,
+                                                   SkPngChunkReader* = nullptr);
 
     /**
      *  If this data represents an encoded image that we know how to decode,
@@ -158,10 +165,7 @@ public:
      *      If the PNG does not contain unknown chunks, the SkPngChunkReader
      *      will not be used or modified.
      */
-    static SkCodec* NewFromData(sk_sp<SkData>, SkPngChunkReader* = NULL);
-    static SkCodec* NewFromData(SkData* data, SkPngChunkReader* reader) {
-        return NewFromData(sk_ref_sp(data), reader);
-    }
+    static std::unique_ptr<SkCodec> MakeFromData(sk_sp<SkData>, SkPngChunkReader* = nullptr);
 
     virtual ~SkCodec();
 
@@ -170,26 +174,11 @@ public:
      */
     const SkImageInfo& getInfo() const { return fSrcInfo; }
 
-    const SkEncodedInfo& getEncodedInfo() const { return fEncodedInfo; }
-
-    enum Origin {
-        kTopLeft_Origin     = 1, // Default
-        kTopRight_Origin    = 2, // Reflected across y-axis
-        kBottomRight_Origin = 3, // Rotated 180
-        kBottomLeft_Origin  = 4, // Reflected across x-axis
-        kLeftTop_Origin     = 5, // Reflected across x-axis, Rotated 90 CCW
-        kRightTop_Origin    = 6, // Rotated 90 CW
-        kRightBottom_Origin = 7, // Reflected across x-axis, Rotated 90 CW
-        kLeftBottom_Origin  = 8, // Rotated 90 CCW
-        kDefault_Origin     = kTopLeft_Origin,
-        kLast_Origin        = kLeftBottom_Origin,
-    };
-
     /**
      *  Returns the image orientation stored in the EXIF data.
      *  If there is no EXIF data, or if we cannot read the EXIF data, returns kTopLeft.
      */
-    Origin getOrigin() const { return fOrigin; }
+    SkEncodedOrigin getOrigin() const { return fOrigin; }
 
     /**
      *  Return a size that approximately supports the desired scale factor.
@@ -264,7 +253,6 @@ public:
             , fSubset(nullptr)
             , fFrameIndex(0)
             , fPriorFrame(kNone)
-            , fPremulBehavior(SkTransferFunctionBehavior::kRespect)
         {}
 
         ZeroInitialized            fZeroInitialized;
@@ -308,14 +296,6 @@ public:
          *  If set to kNone, the codec will decode any necessary required frame(s) first.
          */
         int                        fPriorFrame;
-
-        /**
-         *  Indicates whether we should do a linear premultiply or a legacy premultiply.
-         *
-         *  In the case where the dst SkColorSpace is nullptr, this flag is ignored and
-         *  we will always do a legacy premultiply.
-         */
-        SkTransferFunctionBehavior fPremulBehavior;
     };
 
     /**
@@ -356,6 +336,10 @@ public:
      */
     Result getPixels(const SkImageInfo& info, void* pixels, size_t rowBytes) {
         return this->getPixels(info, pixels, rowBytes, nullptr);
+    }
+
+    Result getPixels(const SkPixmap& pm, const Options* opts = nullptr) {
+        return this->getPixels(pm.info(), pm.writable_addr(), pm.rowBytes(), opts);
     }
 
     /**
@@ -672,28 +656,26 @@ public:
     }
 
 protected:
+    const SkEncodedInfo& getEncodedInfo() const { return fEncodedInfo; }
+
     using XformFormat = SkColorSpaceXform::ColorFormat;
 
-    /**
-     *  Takes ownership of SkStream*
-     */
     SkCodec(int width,
             int height,
             const SkEncodedInfo&,
             XformFormat srcFormat,
-            SkStream*,
+            std::unique_ptr<SkStream>,
             sk_sp<SkColorSpace>,
-            Origin = kTopLeft_Origin);
+            SkEncodedOrigin = kTopLeft_SkEncodedOrigin);
 
     /**
-     *  Takes ownership of SkStream*
      *  Allows the subclass to set the recommended SkImageInfo
      */
     SkCodec(const SkEncodedInfo&,
             const SkImageInfo&,
             XformFormat srcFormat,
-            SkStream*,
-            Origin = kTopLeft_Origin);
+            std::unique_ptr<SkStream>,
+            SkEncodedOrigin = kTopLeft_SkEncodedOrigin);
 
     virtual SkISize onGetScaledDimensions(float /*desiredScale*/) const {
         // By default, scaling is not supported.
@@ -813,8 +795,11 @@ protected:
 
     virtual int onOutputScanline(int inputScanline) const;
 
-    bool initializeColorXform(const SkImageInfo& dstInfo,
-                              SkTransferFunctionBehavior premulBehavior);
+    bool initializeColorXform(const SkImageInfo& dstInfo, SkEncodedInfo::Alpha);
+    // Some classes never need a colorXform e.g.
+    // - ICO uses its embedded codec's colorXform
+    // - WBMP is just Black/White
+    virtual bool usesColorXform() const { return true; }
     void applyColorXform(void* dst, const void* src, int count, SkAlphaType) const;
     void applyColorXform(void* dst, const void* src, int count) const;
 
@@ -839,7 +824,7 @@ private:
     const XformFormat                  fSrcXformFormat;
     std::unique_ptr<SkStream>          fStream;
     bool                               fNeedsRewind;
-    const Origin                       fOrigin;
+    const SkEncodedOrigin              fOrigin;
 
     SkImageInfo                        fDstInfo;
     Options                            fOptions;
@@ -852,6 +837,13 @@ private:
 
     bool                               fStartedIncrementalDecode;
 
+    /**
+     *  Return whether {srcColor, srcIsOpaque, srcCS} can convert to dst.
+     *
+     *  Will be called for the appropriate frame, prior to initializing the colorXform.
+     */
+    virtual bool conversionSupported(const SkImageInfo& dst, SkColorType srcColor,
+                                     bool srcIsOpaque, const SkColorSpace* srcCS) const;
     /**
      *  Return whether these dimensions are supported as a scale.
      *
@@ -927,5 +919,6 @@ private:
     friend class DM::CodecSrc;  // for fillIncompleteImage
     friend class SkSampledCodec;
     friend class SkIcoCodec;
+    friend class SkAndroidCodec; // for fEncodedInfo
 };
 #endif // SkCodec_DEFINED

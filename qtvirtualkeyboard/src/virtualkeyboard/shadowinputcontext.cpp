@@ -27,9 +27,9 @@
 **
 ****************************************************************************/
 
-#include "shadowinputcontext.h"
-#include "inputcontext.h"
-#include "virtualkeyboarddebug.h"
+#include <QtVirtualKeyboard/private/shadowinputcontext_p.h>
+#include <QtVirtualKeyboard/qvirtualkeyboardinputcontext.h>
+#include <QtVirtualKeyboard/private/virtualkeyboarddebug_p.h>
 
 #include <QtCore/private/qobject_p.h>
 #include <QGuiApplication>
@@ -37,7 +37,6 @@
 
 QT_BEGIN_NAMESPACE
 bool operator==(const QInputMethodEvent::Attribute &attribute1, const QInputMethodEvent::Attribute &attribute2);
-QT_END_NAMESPACE
 
 namespace QtVirtualKeyboard {
 
@@ -46,14 +45,14 @@ class ShadowInputContextPrivate : public QObjectPrivate
 public:
     ShadowInputContextPrivate() :
         QObjectPrivate(),
-        inputContext(0),
+        inputContext(nullptr),
         anchorRectIntersectsClipRect(false),
         cursorRectIntersectsClipRect(false),
         selectionControlVisible(false)
     {
     }
 
-    InputContext *inputContext;
+    QVirtualKeyboardInputContext *inputContext;
     QPointer<QObject> inputItem;
     QString preeditText;
     QList<QInputMethodEvent::Attribute> preeditTextAttributes;
@@ -69,7 +68,7 @@ ShadowInputContext::ShadowInputContext(QObject *parent) :
 {
 }
 
-void ShadowInputContext::setInputContext(InputContext *inputContext)
+void ShadowInputContext::setInputContext(QVirtualKeyboardInputContext *inputContext)
 {
     Q_D(ShadowInputContext);
     d->inputContext = inputContext;
@@ -160,7 +159,7 @@ void ShadowInputContext::updateSelectionProperties()
     const QRectF inputItemClipRect = imQueryEvent.value(Qt::ImInputItemClipRectangle).toRectF();
     const bool anchorRectIntersectsClipRect = inputItemClipRect.intersects(anchorRect);
     const bool cursorRectIntersectsClipRect = inputItemClipRect.intersects(cursorRect);
-    const bool selectionControlVisible = d->inputContext->selectionControlVisible();
+    const bool selectionControlVisible = d->inputContext->isSelectionControlVisible();
 
     const bool newAnchorRectangle = anchorRectangle != d->anchorRectangle;
     const bool newCursorRectangle = cursorRectangle != d->cursorRectangle;
@@ -251,3 +250,4 @@ QVariant ShadowInputContext::queryFocusObject(Qt::InputMethodQuery query, QVaria
 }
 
 } // namespace QtVirtualKeyboard
+QT_END_NAMESPACE

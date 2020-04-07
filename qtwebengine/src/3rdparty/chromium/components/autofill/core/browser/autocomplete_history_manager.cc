@@ -6,7 +6,6 @@
 
 #include <vector>
 
-#include "base/profiler/scoped_tracker.h"
 #include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/autofill/core/browser/autofill_client.h"
@@ -44,7 +43,7 @@ AutocompleteHistoryManager::AutocompleteHistoryManager(
       database_(autofill_client->GetDatabase()),
       pending_query_handle_(0),
       query_id_(0),
-      external_delegate_(NULL),
+      external_delegate_(nullptr),
       autofill_client_(autofill_client) {
   DCHECK(autofill_client_);
 }
@@ -62,13 +61,14 @@ void AutocompleteHistoryManager::OnGetAutocompleteSuggestions(
 
   query_id_ = query_id;
   if (!autofill_client_->IsAutocompleteEnabled() ||
+      !autofill_client_->IsAutofillSupported() ||
       form_control_type == "textarea" ||
       IsInAutofillSuggestionsDisabledExperiment()) {
-    SendSuggestions(NULL);
+    SendSuggestions(nullptr);
     return;
   }
 
-  if (database_.get()) {
+  if (database_) {
     pending_query_handle_ = database_->GetFormValuesForElementName(
         name, prefix, kMaxAutocompleteMenuItems, this);
   }
@@ -90,14 +90,14 @@ void AutocompleteHistoryManager::OnWillSubmitForm(const FormData& form) {
   //  - value is not a SSN
   //  - field was not identified as a CVC field (this is handled in
   //    AutofillManager)
+  //  - field is focusable
+  //  - not a presentation field
   std::vector<FormFieldData> values;
   for (const FormFieldData& field : form.fields) {
-    if (!field.value.empty() &&
-        !field.name.empty() &&
-        IsTextField(field) &&
-        field.should_autocomplete &&
-        !IsValidCreditCardNumber(field.value) &&
-        !IsSSN(field.value)) {
+    if (!field.value.empty() && !field.name.empty() && IsTextField(field) &&
+        field.should_autocomplete && !IsValidCreditCardNumber(field.value) &&
+        !IsSSN(field.value) && field.is_focusable &&
+        field.role != FormFieldData::ROLE_ATTRIBUTE_PRESENTATION) {
       values.push_back(field);
     }
   }
@@ -108,7 +108,7 @@ void AutocompleteHistoryManager::OnWillSubmitForm(const FormData& form) {
 
 void AutocompleteHistoryManager::OnRemoveAutocompleteEntry(
     const base::string16& name, const base::string16& value) {
-  if (database_.get())
+  if (database_)
     database_->RemoveFormValueForElementName(name, value);
 }
 
@@ -119,7 +119,7 @@ void AutocompleteHistoryManager::SetExternalDelegate(
 
 void AutocompleteHistoryManager::CancelPendingQuery() {
   if (pending_query_handle_) {
-    if (database_.get())
+    if (database_)
       database_->CancelRequest(pending_query_handle_);
     pending_query_handle_ = 0;
   }
@@ -134,19 +134,13 @@ void AutocompleteHistoryManager::SendSuggestions(
     }
   }
 
-  external_delegate_->OnSuggestionsReturned(query_id_, suggestions);
+  external_delegate_->OnSuggestionsReturned(query_id_, suggestions, false);
   query_id_ = 0;
 }
 
 void AutocompleteHistoryManager::OnWebDataServiceRequestDone(
     WebDataServiceBase::Handle h,
     std::unique_ptr<WDTypedResult> result) {
-  // TODO(robliao): Remove ScopedTracker below once https://crbug.com/422460 is
-  // fixed.
-  tracked_objects::ScopedTracker tracking_profile(
-      FROM_HERE_WITH_EXPLICIT_FUNCTION(
-          "422460 AutocompleteHistoryManager::OnWebDataServiceRequestDone"));
-
   DCHECK(pending_query_handle_);
   pending_query_handle_ = 0;
 
@@ -155,7 +149,7 @@ void AutocompleteHistoryManager::OnWebDataServiceRequestDone(
   // Linux due to NFS dismounting and causing sql failures.
   // See http://crbug.com/68783.
   if (!result) {
-    SendSuggestions(NULL);
+    SendSuggestions(nullptr);
     return;
   }
 

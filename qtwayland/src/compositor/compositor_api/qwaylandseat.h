@@ -84,7 +84,7 @@ public:
     Q_ENUM(CapabilityFlags)
 
     QWaylandSeat(QWaylandCompositor *compositor, CapabilityFlags capabilityFlags = DefaultCapabilities);
-    virtual ~QWaylandSeat();
+    ~QWaylandSeat() override;
     virtual void initialize();
     bool isInitialized() const;
 
@@ -97,10 +97,14 @@ public:
     void sendKeyReleaseEvent(uint code);
 
     void sendFullKeyEvent(QKeyEvent *event);
+    Q_INVOKABLE void sendKeyEvent(int qtKey, bool pressed);
 
     uint sendTouchPointEvent(QWaylandSurface *surface, int id, const QPointF &point, Qt::TouchPointState state);
-    void sendTouchFrameEvent(QWaylandClient *client);
-    void sendTouchCancelEvent(QWaylandClient *client);
+    Q_INVOKABLE uint sendTouchPointPressed(QWaylandSurface *surface, int id, const QPointF &position);
+    Q_INVOKABLE uint sendTouchPointReleased(QWaylandSurface *surface, int id, const QPointF &position);
+    Q_INVOKABLE uint sendTouchPointMoved(QWaylandSurface *surface, int id, const QPointF &position);
+    Q_INVOKABLE void sendTouchFrameEvent(QWaylandClient *client);
+    Q_INVOKABLE void sendTouchCancelEvent(QWaylandClient *client);
 
     void sendFullTouchEvent(QWaylandSurface *surface, QTouchEvent *event);
 

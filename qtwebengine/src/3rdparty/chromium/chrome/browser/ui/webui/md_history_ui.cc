@@ -4,14 +4,18 @@
 
 #include "chrome/browser/ui/webui/md_history_ui.h"
 
+#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
+
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/command_line.h"
-#include "base/memory/ptr_util.h"
 #include "base/values.h"
 #include "build/build_config.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/signin/signin_manager_factory.h"
+#include "chrome/browser/signin/identity_manager_factory.h"
 #include "chrome/browser/ui/webui/browsing_history_handler.h"
 #include "chrome/browser/ui/webui/foreign_session_handler.h"
 #include "chrome/browser/ui/webui/history_login_handler.h"
@@ -23,11 +27,10 @@
 #include "chrome/grit/locale_settings.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/pref_service.h"
-#include "components/search/search.h"
-#include "components/signin/core/browser/signin_manager.h"
 #include "components/strings/grit/components_strings.h"
 #include "content/public/browser/web_ui.h"
 #include "content/public/browser/web_ui_data_source.h"
+#include "services/identity/public/cpp/identity_manager.h"
 #include "ui/base/l10n/l10n_util.h"
 
 namespace {
@@ -36,9 +39,9 @@ constexpr char kIsUserSignedInKey[] = "isUserSignedIn";
 constexpr char kShowMenuPromoKey[] = "showMenuPromo";
 
 bool IsUserSignedIn(Profile* profile) {
-  SigninManagerBase* signin_manager =
-      SigninManagerFactory::GetForProfile(profile);
-  return signin_manager && signin_manager->IsAuthenticated();
+  identity::IdentityManager* identity_manager =
+      IdentityManagerFactory::GetForProfile(profile);
+  return identity_manager && identity_manager->HasPrimaryAccount();
 }
 
 bool MenuPromoShown(Profile* profile) {
@@ -71,10 +74,6 @@ content::WebUIDataSource* CreateMdHistoryUIHTMLSource(Profile* profile,
                              IDS_HISTORY_OTHER_SESSIONS_EXPAND_SESSION);
   source->AddLocalizedString("foundSearchResults",
                              IDS_HISTORY_FOUND_SEARCH_RESULTS);
-  source->AddLocalizedString("hasSyncedResults",
-                             IDS_MD_HISTORY_HAS_SYNCED_RESULTS);
-  source->AddLocalizedString("hasSyncedResultsDescription",
-                             IDS_MD_HISTORY_HAS_SYNCED_RESULTS_DESCRIPTION);
   source->AddLocalizedString("historyMenuButton",
                              IDS_MD_HISTORY_HISTORY_MENU_DESCRIPTION);
   source->AddLocalizedString("historyMenuItem",
@@ -113,7 +112,7 @@ content::WebUIDataSource* CreateMdHistoryUIHTMLSource(Profile* profile,
       l10n_util::GetStringFUTF16(
           IDS_HISTORY_OTHER_FORMS_OF_HISTORY,
           l10n_util::GetStringUTF16(
-              IDS_SETTINGS_CLEAR_DATA_WEB_HISTORY_URL_IN_HISTORY)));
+              IDS_SETTINGS_CLEAR_DATA_MYACTIVITY_URL_IN_HISTORY)));
 
   PrefService* prefs = profile->GetPrefs();
   bool allow_deleting_history =
@@ -137,7 +136,7 @@ content::WebUIDataSource* CreateMdHistoryUIHTMLSource(Profile* profile,
      IDR_MD_HISTORY_IMAGES_100_SIGN_IN_PROMO_JPG},
     {"images/200/sign_in_promo.jpg",
      IDR_MD_HISTORY_IMAGES_200_SIGN_IN_PROMO_JPG},
-#if !BUILDFLAG(USE_VULCANIZE)
+#if !BUILDFLAG(OPTIMIZE_WEBUI)
     {"app.html", IDR_MD_HISTORY_APP_HTML},
     {"app.js", IDR_MD_HISTORY_APP_JS},
     {"browser_service.html", IDR_MD_HISTORY_BROWSER_SERVICE_HTML},
@@ -167,15 +166,14 @@ content::WebUIDataSource* CreateMdHistoryUIHTMLSource(Profile* profile,
 #endif
   };
 
-  std::unordered_set<std::string> exclude_from_gzip;
-  for (size_t i = 0; i < arraysize(uncompressed_resources); ++i) {
-    const UncompressedResource& resource = uncompressed_resources[i];
+  std::vector<std::string> exclude_from_gzip;
+  for (const auto& resource : uncompressed_resources) {
     source->AddResourcePath(resource.path, resource.idr);
-    exclude_from_gzip.insert(resource.path);
+    exclude_from_gzip.push_back(resource.path);
   }
   source->UseGzip(exclude_from_gzip);
 
-#if BUILDFLAG(USE_VULCANIZE)
+#if BUILDFLAG(OPTIMIZE_WEBUI)
   source->AddResourcePath("app.html",
                           IDR_MD_HISTORY_APP_VULCANIZED_HTML);
   source->AddResourcePath("app.crisper.js",
@@ -202,18 +200,17 @@ MdHistoryUI::MdHistoryUI(content::WebUI* web_ui) : WebUIController(web_ui) {
       CreateMdHistoryUIHTMLSource(profile, use_test_title_);
   content::WebUIDataSource::Add(profile, data_source);
 
-  web_ui->AddMessageHandler(base::MakeUnique<BrowsingHistoryHandler>());
-  web_ui->AddMessageHandler(base::MakeUnique<MetricsHandler>());
+  web_ui->AddMessageHandler(std::make_unique<BrowsingHistoryHandler>());
+  web_ui->AddMessageHandler(std::make_unique<MetricsHandler>());
 
-  if (search::IsInstantExtendedAPIEnabled()) {
-    web_ui->AddMessageHandler(
-        base::MakeUnique<browser_sync::ForeignSessionHandler>());
-    web_ui->AddMessageHandler(base::MakeUnique<HistoryLoginHandler>(
-        base::Bind(&MdHistoryUI::UpdateDataSource, base::Unretained(this))));
-  }
+  web_ui->AddMessageHandler(
+      std::make_unique<browser_sync::ForeignSessionHandler>());
+  web_ui->AddMessageHandler(std::make_unique<HistoryLoginHandler>(
+      base::Bind(&MdHistoryUI::UpdateDataSource, base::Unretained(this))));
 
-  web_ui->RegisterMessageCallback("menuPromoShown",
-      base::Bind(&MdHistoryUI::HandleMenuPromoShown, base::Unretained(this)));
+  web_ui->RegisterMessageCallback(
+      "menuPromoShown", base::BindRepeating(&MdHistoryUI::HandleMenuPromoShown,
+                                            base::Unretained(this)));
 }
 
 MdHistoryUI::~MdHistoryUI() {}

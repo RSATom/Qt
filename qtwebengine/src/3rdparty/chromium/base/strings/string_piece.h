@@ -29,6 +29,7 @@
 
 #include "base/base_export.h"
 #include "base/logging.h"
+#include "base/strings/char_traits.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_piece_forward.h"
 
@@ -175,13 +176,20 @@ template <typename STRING_TYPE> class BasicStringPiece {
   // We provide non-explicit singleton constructors so users can pass
   // in a "const char*" or a "string" wherever a "StringPiece" is
   // expected (likewise for char16, string16, StringPiece16).
-  BasicStringPiece() : ptr_(NULL), length_(0) {}
-  BasicStringPiece(const value_type* str)
-      : ptr_(str),
-        length_((str == NULL) ? 0 : STRING_TYPE::traits_type::length(str)) {}
+  constexpr BasicStringPiece() : ptr_(NULL), length_(0) {}
+  // TODO(dcheng): Construction from nullptr is not allowed for
+  // std::basic_string_view, so remove the special handling for it.
+  // Note: This doesn't just use STRING_TYPE::traits_type::length(), since that
+  // isn't constexpr until C++17.
+#if defined(COMPILER_GCC)
+  constexpr BasicStringPiece(const value_type* str) __attribute__((always_inline))
+#else
+  constexpr BasicStringPiece(const value_type* str)
+#endif
+      : ptr_(str), length_(!str ? 0 : CharTraits<value_type>::length(str)) {}
   BasicStringPiece(const STRING_TYPE& str)
       : ptr_(str.data()), length_(str.size()) {}
-  BasicStringPiece(const value_type* offset, size_type len)
+  constexpr BasicStringPiece(const value_type* offset, size_type len)
       : ptr_(offset), length_(len) {}
   BasicStringPiece(const typename STRING_TYPE::const_iterator& begin,
                    const typename STRING_TYPE::const_iterator& end) {
@@ -201,9 +209,9 @@ template <typename STRING_TYPE> class BasicStringPiece {
   // returned buffer may or may not be null terminated.  Therefore it is
   // typically a mistake to pass data() to a routine that expects a NUL
   // terminated string.
-  const value_type* data() const { return ptr_; }
-  size_type size() const { return length_; }
-  size_type length() const { return length_; }
+  constexpr const value_type* data() const { return ptr_; }
+  constexpr size_type size() const { return length_; }
+  constexpr size_type length() const { return length_; }
   bool empty() const { return length_ == 0; }
 
   void clear() {
@@ -219,21 +227,34 @@ template <typename STRING_TYPE> class BasicStringPiece {
     length_ = str ? STRING_TYPE::traits_type::length(str) : 0;
   }
 
-  value_type operator[](size_type i) const { return ptr_[i]; }
-  value_type front() const { return ptr_[0]; }
-  value_type back() const { return ptr_[length_ - 1]; }
+  constexpr value_type operator[](size_type i) const {
+    CHECK(i < length_);
+    return ptr_[i];
+  }
 
-  void remove_prefix(size_type n) {
+  value_type front() const {
+    CHECK_NE(0UL, length_);
+    return ptr_[0];
+  }
+
+  value_type back() const {
+    CHECK_NE(0UL, length_);
+    return ptr_[length_ - 1];
+  }
+
+  constexpr void remove_prefix(size_type n) {
+    CHECK(n <= length_);
     ptr_ += n;
     length_ -= n;
   }
 
-  void remove_suffix(size_type n) {
+  constexpr void remove_suffix(size_type n) {
+    CHECK(n <= length_);
     length_ -= n;
   }
 
-  int compare(const BasicStringPiece<STRING_TYPE>& x) const {
-    int r = wordmemcmp(
+  constexpr int compare(BasicStringPiece x) const noexcept {
+    int r = CharTraits<value_type>::compare(
         ptr_, x.ptr_, (length_ < x.length_ ? length_ : x.length_));
     if (r == 0) {
       if (length_ < x.length_) r = -1;
@@ -262,12 +283,6 @@ template <typename STRING_TYPE> class BasicStringPiece {
   size_type max_size() const { return length_; }
   size_type capacity() const { return length_; }
 
-  static int wordmemcmp(const value_type* p,
-                        const value_type* p2,
-                        size_type N) {
-    return STRING_TYPE::traits_type::compare(p, p2, N);
-  }
-
   // Sets the value of the given string target type to be the current string.
   // This saves a temporary over doing |a = b.as_string()|
   void CopyToString(STRING_TYPE* target) const {
@@ -283,16 +298,18 @@ template <typename STRING_TYPE> class BasicStringPiece {
   }
 
   // Does "this" start with "x"
-  bool starts_with(const BasicStringPiece& x) const {
-    return ((this->length_ >= x.length_) &&
-            (wordmemcmp(this->ptr_, x.ptr_, x.length_) == 0));
+  constexpr bool starts_with(BasicStringPiece x) const noexcept {
+    return (
+        (this->length_ >= x.length_) &&
+        (CharTraits<value_type>::compare(this->ptr_, x.ptr_, x.length_) == 0));
   }
 
   // Does "this" end with "x"
-  bool ends_with(const BasicStringPiece& x) const {
+  constexpr bool ends_with(BasicStringPiece x) const noexcept {
     return ((this->length_ >= x.length_) &&
-            (wordmemcmp(this->ptr_ + (this->length_-x.length_),
-                        x.ptr_, x.length_) == 0));
+            (CharTraits<value_type>::compare(
+                 this->ptr_ + (this->length_ - x.length_), x.ptr_, x.length_) ==
+             0));
   }
 
   // find: Search for a character or substring at a given offset.
@@ -359,7 +376,7 @@ template <typename STRING_TYPE> class BasicStringPiece {
 
  protected:
   const value_type* ptr_;
-  size_type     length_;
+  size_type length_;
 };
 
 template <typename STRING_TYPE>
@@ -382,7 +399,7 @@ inline bool operator!=(const StringPiece& x, const StringPiece& y) {
 }
 
 inline bool operator<(const StringPiece& x, const StringPiece& y) {
-  const int r = StringPiece::wordmemcmp(
+  const int r = CharTraits<StringPiece::value_type>::compare(
       x.data(), y.data(), (x.size() < y.size() ? x.size() : y.size()));
   return ((r < 0) || ((r == 0) && (x.size() < y.size())));
 }
@@ -405,7 +422,8 @@ inline bool operator==(const StringPiece16& x, const StringPiece16& y) {
   if (x.size() != y.size())
     return false;
 
-  return StringPiece16::wordmemcmp(x.data(), y.data(), x.size()) == 0;
+  return CharTraits<StringPiece16::value_type>::compare(x.data(), y.data(),
+                                                        x.size()) == 0;
 }
 
 inline bool operator!=(const StringPiece16& x, const StringPiece16& y) {
@@ -413,7 +431,7 @@ inline bool operator!=(const StringPiece16& x, const StringPiece16& y) {
 }
 
 inline bool operator<(const StringPiece16& x, const StringPiece16& y) {
-  const int r = StringPiece16::wordmemcmp(
+  const int r = CharTraits<StringPiece16::value_type>::compare(
       x.data(), y.data(), (x.size() < y.size() ? x.size() : y.size()));
   return ((r < 0) || ((r == 0) && (x.size() < y.size())));
 }
@@ -456,6 +474,11 @@ struct StringPieceHash {
 struct StringPiece16Hash {
   std::size_t operator()(const StringPiece16& sp16) const {
     HASH_STRING_PIECE(StringPiece16, sp16);
+  }
+};
+struct WStringPieceHash {
+  std::size_t operator()(const WStringPiece& wsp) const {
+    HASH_STRING_PIECE(WStringPiece, wsp);
   }
 };
 

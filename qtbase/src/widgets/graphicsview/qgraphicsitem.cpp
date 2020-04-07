@@ -268,27 +268,93 @@
 */
 
 /*!
-    \variable QGraphicsItem::Type
+  \enum QGraphicsItem::anonymous
 
-    The type value returned by the virtual type() function in standard
-    graphics item classes in Qt. All such standard graphics item
-    classes in Qt are associated with a unique value for Type,
-    e.g. the value returned by QGraphicsPathItem::type() is 2.
+  The value returned by the virtual type() function in standard
+  graphics item classes in Qt. All such standard graphics item classes
+  in Qt are associated with a unique value for Type, e.g. the value
+  returned by QGraphicsPathItem::type() is 2.
+
+  \value Type
 
     \snippet code/src_gui_graphicsview_qgraphicsitem.cpp 18
+
+  \value UserType The lowest value returned by the virtual type()
+  function for custom subclasses of QGraphicsItem.
+
+    \snippet code/src_gui_graphicsview_qgraphicsitem.cpp 1
 */
 
 /*!
-    \variable QGraphicsItem::UserType
+  \enum QGraphicsPathItem::anonymous
 
-    The lowest permitted type value for custom items (subclasses
-    of QGraphicsItem or any of the standard items). This value is
-    used in conjunction with a reimplementation of QGraphicsItem::type()
-    and declaring a Type enum value. Example:
+  The value returned by the virtual type() function.
 
-    \snippet code/src_gui_graphicsview_qgraphicsitem.cpp 1
+  \value Type A graphics path item
+*/
 
-    \note UserType = 65536
+/*!
+  \enum QGraphicsRectItem::anonymous
+
+  The value returned by the virtual type() function.
+
+  \value Type A graphics rect item
+*/
+
+/*!
+  \enum QGraphicsEllipseItem::anonymous
+
+  The value returned by the virtual type() function.
+
+  \value Type A graphics ellipse item
+*/
+
+/*!
+  \enum QGraphicsPolygonItem::anonymous
+
+  The value returned by the virtual type() function.
+
+  \value Type A graphics polygon item
+*/
+
+/*!
+  \enum QGraphicsPixmapItem::anonymous
+
+  The value returned by the virtual type() function.
+
+  \value Type A graphics pixmap item
+*/
+
+/*!
+  \enum QGraphicsTextItem::anonymous
+
+  The value returned by the virtual type() function.
+
+  \value Type A graphics text item
+*/
+
+/*!
+  \enum QGraphicsSimpleTextItem::anonymous
+
+  The value returned by the virtual type() function.
+
+  \value Type A graphics simple text item
+*/
+
+/*!
+  \enum QGraphicsItemGroup::anonymous
+
+  The value returned by the virtual type() function.
+
+  \value Type A graphics item group
+*/
+
+/*!
+  \enum QGraphicsLineItem::anonymous
+
+  The value returned by the virtual type() function.
+
+  \value Type A graphics line item
 */
 
 /*!
@@ -1068,19 +1134,26 @@ void QGraphicsItemPrivate::remapItemPos(QEvent *event, QGraphicsItem *item)
     is untransformable, this function will correctly map \a pos from the scene using the
     view's transformation.
 */
-QPointF QGraphicsItemPrivate::genericMapFromScene(const QPointF &pos,
-                                                  const QWidget *viewport) const
+
+QTransform QGraphicsItemPrivate::genericMapFromSceneTransform(const QWidget *viewport) const
 {
     Q_Q(const QGraphicsItem);
     if (!itemIsUntransformable())
-        return q->mapFromScene(pos);
-    QGraphicsView *view = 0;
-    if (viewport)
-        view = qobject_cast<QGraphicsView *>(viewport->parentWidget());
-    if (!view)
-        return q->mapFromScene(pos);
+       return sceneTransform.inverted();
+    const QGraphicsView *view = viewport
+        ? qobject_cast<QGraphicsView *>(viewport->parentWidget())
+        : nullptr;
+    if (view == nullptr)
+        return sceneTransform.inverted();
     // ### More ping pong than needed.
-    return q->deviceTransform(view->viewportTransform()).inverted().map(view->mapFromScene(pos));
+    const QTransform viewportTransform = view->viewportTransform();
+    return viewportTransform * q->deviceTransform(viewportTransform).inverted();
+}
+
+QPointF QGraphicsItemPrivate::genericMapFromScene(const QPointF &pos,
+                                                  const QWidget *viewport) const
+{
+    return genericMapFromSceneTransform(viewport).map(pos);
 }
 
 /*!
@@ -1506,6 +1579,7 @@ QGraphicsItem::~QGraphicsItem()
         QObjectPrivate *p = QObjectPrivate::get(o);
         p->wasDeleted = true;
         if (p->declarativeData) {
+            p->wasDeleted = true; // needed, so that destroying the declarative data does the right thing
             if (static_cast<QAbstractDeclarativeDataImpl*>(p->declarativeData)->ownedByQml1) {
                 if (QAbstractDeclarativeData::destroyed_qml1)
                     QAbstractDeclarativeData::destroyed_qml1(p->declarativeData, o);
@@ -1514,6 +1588,7 @@ QGraphicsItem::~QGraphicsItem()
                     QAbstractDeclarativeData::destroyed(p->declarativeData, o);
             }
             p->declarativeData = 0;
+            p->wasDeleted = false;
         }
     }
 
@@ -1523,7 +1598,7 @@ QGraphicsItem::~QGraphicsItem()
 #ifndef QT_NO_GESTURES
     if (d_ptr->isObject && !d_ptr->gestureContext.isEmpty()) {
         QGraphicsObject *o = static_cast<QGraphicsObject *>(this);
-        if (QGestureManager *manager = QGestureManager::instance()) {
+        if (QGestureManager *manager = QGestureManager::instance(QGestureManager::DontForceCreation)) {
             const auto types  = d_ptr->gestureContext.keys(); // FIXME: iterate over the map directly?
             for (Qt::GestureType type : types)
                 manager->cleanupCachedGestures(o, type);
@@ -1651,8 +1726,8 @@ QGraphicsItem *QGraphicsItem::topLevelItem() const
 /*!
     \since 4.6
 
-    Returns a pointer to the item's parent, cast to a QGraphicsObject. returns 0 if the parent item
-    is not a QGraphicsObject.
+    Returns a pointer to the item's parent, cast to a QGraphicsObject. Returns
+    \nullptr if the parent item is not a QGraphicsObject.
 
     \sa parentItem(), childItems()
 */
@@ -4591,9 +4666,7 @@ void QGraphicsItem::resetTransform()
 
     Use
 
-    \code
-    item->setTransform(QTransform().rotate(angle), true);
-    \endcode
+    \snippet code/src_gui_graphicsview_qgraphicsitem.cpp 20
 
     instead.
 
@@ -4614,9 +4687,7 @@ void QGraphicsItem::resetTransform()
 
     Use
 
-    \code
-    setTransform(QTransform::fromScale(sx, sy), true);
-    \endcode
+    \snippet code/src_gui_graphicsview_qgraphicsitem.cpp 21
 
     instead.
 
@@ -4637,9 +4708,7 @@ void QGraphicsItem::resetTransform()
 
     Use
 
-    \code
-    setTransform(QTransform().shear(sh, sv), true);
-    \endcode
+    \snippet code/src_gui_graphicsview_qgraphicsitem.cpp 22
 
     instead.
 
@@ -4655,9 +4724,7 @@ void QGraphicsItem::resetTransform()
     Use setPos() or setTransformOriginPoint() instead. For identical
     behavior, use
 
-    \code
-    setTransform(QTransform::fromTranslate(dx, dy), true);
-    \endcode
+    \snippet code/src_gui_graphicsview_qgraphicsitem.cpp 23
 
     Translates the current item transformation by (\a dx, \a dy).
 
@@ -7235,7 +7302,7 @@ void QGraphicsItem::mouseMoveEvent(QGraphicsSceneMouseEvent *event)
             selectedItems = d_ptr->scene->selectedItems();
             initialPositions = d_ptr->scene->d_func()->movingItemsInitialPositions;
             if (initialPositions.isEmpty()) {
-                foreach (QGraphicsItem *item, selectedItems)
+                for (QGraphicsItem *item : qAsConst(selectedItems))
                     initialPositions[item] = item->pos();
                 initialPositions[this] = pos();
             }
@@ -10502,14 +10569,11 @@ void QGraphicsTextItemPrivate::_q_update(QRectF rect)
 */
 void QGraphicsTextItemPrivate::_q_updateBoundingRect(const QSizeF &size)
 {
-    if (!control) return; // can't happen
-    const QSizeF pageSize = control->document()->pageSize();
-    // paged items have a constant (page) size
-    if (size == boundingRect.size() || pageSize.height() != -1)
-        return;
-    qq->prepareGeometryChange();
-    boundingRect.setSize(size);
-    qq->update();
+    if (size != boundingRect.size()) {
+        qq->prepareGeometryChange();
+        boundingRect.setSize(size);
+        qq->update();
+    }
 }
 
 /*!
@@ -10574,7 +10638,7 @@ bool QGraphicsTextItemPrivate::_q_mouseOnEdge(QGraphicsSceneMouseEvent *event)
 }
 
 /*!
-    \fn QGraphicsTextItem::linkActivated(const QString &link)
+    \fn void QGraphicsTextItem::linkActivated(const QString &link)
 
     This signal is emitted when the user clicks on a link on a text item
     that enables Qt::LinksAccessibleByMouse or Qt::LinksAccessibleByKeyboard.
@@ -10584,7 +10648,7 @@ bool QGraphicsTextItemPrivate::_q_mouseOnEdge(QGraphicsSceneMouseEvent *event)
 */
 
 /*!
-    \fn QGraphicsTextItem::linkHovered(const QString &link)
+    \fn void QGraphicsTextItem::linkHovered(const QString &link)
 
     This signal is emitted when the user hovers over a link on a text item
     that enables Qt::LinksAccessibleByMouse. \a link is

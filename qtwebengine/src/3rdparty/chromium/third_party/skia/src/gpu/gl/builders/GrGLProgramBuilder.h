@@ -9,6 +9,7 @@
 #define GrGLProgramBuilder_DEFINED
 
 #include "GrPipeline.h"
+#include "gl/GrGLProgram.h"
 #include "gl/GrGLProgramDataManager.h"
 #include "gl/GrGLUniformHandler.h"
 #include "gl/GrGLVaryingHandler.h"
@@ -34,8 +35,8 @@ public:
      * the surface origin.
      * @return true if generation was successful.
      */
-    static GrGLProgram* CreateProgram(const GrPipeline&,
-                                      const GrPrimitiveProcessor&,
+    static GrGLProgram* CreateProgram(const GrPrimitiveProcessor&,
+                                      const GrPipeline&,
                                       GrProgramDesc*,
                                       GrGLGpu*);
 
@@ -47,12 +48,22 @@ private:
     GrGLProgramBuilder(GrGLGpu*, const GrPipeline&, const GrPrimitiveProcessor&,
                        GrProgramDesc*);
 
+    bool compileAndAttachShaders(const char* glsl,
+                                 int length,
+                                 GrGLuint programId,
+                                 GrGLenum type,
+                                 SkTDArray<GrGLuint>* shaderIds,
+                                 const SkSL::Program::Settings& settings,
+                                 const SkSL::Program::Inputs& inputs);
+
     bool compileAndAttachShaders(GrGLSLShaderBuilder& shader,
                                  GrGLuint programId,
                                  GrGLenum type,
                                  SkTDArray<GrGLuint>* shaderIds,
                                  const SkSL::Program::Settings& settings,
                                  SkSL::Program::Inputs* outInputs);
+    void computeCountsAndStrides(GrGLuint programID, const GrPrimitiveProcessor& primProc,
+                                 bool bindAttribLocations);
     GrGLProgram* finalize();
     void bindProgramResourceLocations(GrGLuint programID);
     bool checkLinkStatus(GrGLuint programID);
@@ -67,10 +78,21 @@ private:
     const GrGLSLUniformHandler* uniformHandler() const override { return &fUniformHandler; }
     GrGLSLVaryingHandler* varyingHandler() override { return &fVaryingHandler; }
 
-
     GrGLGpu*              fGpu;
     GrGLVaryingHandler    fVaryingHandler;
     GrGLUniformHandler    fUniformHandler;
+
+    std::unique_ptr<GrGLProgram::Attribute[]> fAttributes;
+    int fVertexAttributeCnt;
+    int fInstanceAttributeCnt;
+    size_t fVertexStride;
+    size_t fInstanceStride;
+
+    // shader pulled from cache. Data is organized as:
+    // SkSL::Program::Inputs inputs
+    // int binaryFormat
+    // (all remaining bytes) char[] binary
+    sk_sp<SkData> fCached;
 
     typedef GrGLSLProgramBuilder INHERITED;
 };

@@ -96,7 +96,7 @@ QtObject {
         ctx.lineWidth = outerArcLineWidth;
         ctx.arc(xCenter, yCenter, outerArcRadius, 0, Math.PI * 2, false);
         var gradient = ctx.createRadialGradient(xCenter, yCenter - halfRadius,
-            halfRadius, xCenter, yCenter - halfRadius, radius);
+            0, xCenter, yCenter - halfRadius, radius * 1.5);
         gradient.addColorStop(0, outerArcColorTop);
         gradient.addColorStop(1, outerArcColorBottom);
         ctx.strokeStyle = gradient;
@@ -126,8 +126,8 @@ QtObject {
         /* Draw the button's body */
         ctx.beginPath();
         ctx.ellipse(xCenter - radius, yCenter - radius, radius * 2, radius * 2);
-        gradient = ctx.createRadialGradient(xCenter, yCenter + radius * 0.85, radius,
-            xCenter, yCenter + radius * 0.85, radius * 0.85);
+        gradient = ctx.createRadialGradient(xCenter, yCenter + radius * 0.85, 0,
+            xCenter, yCenter + radius * 0.85, radius * (0.85 * 2));
         gradient.addColorStop(1, buttonColorTop);
         gradient.addColorStop(0, buttonColorBottom);
         ctx.fillStyle = gradient;

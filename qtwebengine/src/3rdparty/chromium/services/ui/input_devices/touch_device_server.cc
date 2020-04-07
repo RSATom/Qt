@@ -7,7 +7,7 @@
 #include <utility>
 #include <vector>
 
-#include "ui/display/manager/chromeos/default_touch_transform_setter.h"
+#include "ui/display/manager/default_touch_transform_setter.h"
 #include "ui/events/devices/input_device.h"
 #include "ui/events/devices/touchscreen_device.h"
 
@@ -15,30 +15,17 @@ namespace ui {
 
 TouchDeviceServer::TouchDeviceServer()
     : touch_transform_setter_(
-          base::MakeUnique<display::DefaultTouchTransformSetter>()) {}
+          std::make_unique<display::DefaultTouchTransformSetter>()) {}
 
 TouchDeviceServer::~TouchDeviceServer() {}
 
-void TouchDeviceServer::AddInterface(
-    service_manager::BinderRegistryWithArgs<
-        const service_manager::BindSourceInfo&>* registry) {
-  registry->AddInterface<mojom::TouchDeviceServer>(
-      base::Bind(&TouchDeviceServer::BindTouchDeviceServerRequest,
-                 base::Unretained(this)));
+void TouchDeviceServer::AddBinding(mojom::TouchDeviceServerRequest request) {
+  bindings_.AddBinding(this, std::move(request));
 }
 
 void TouchDeviceServer::ConfigureTouchDevices(
-    const std::unordered_map<int32_t, double>& transport_scales,
-    const std::vector<display::TouchDeviceTransform>& transforms) {
-  std::map<int32_t, double> scales(transport_scales.begin(),
-                                   transport_scales.end());
-  touch_transform_setter_->ConfigureTouchDevices(scales, transforms);
-}
-
-void TouchDeviceServer::BindTouchDeviceServerRequest(
-    mojom::TouchDeviceServerRequest request,
-    const service_manager::BindSourceInfo& source_info) {
-  bindings_.AddBinding(this, std::move(request));
+    const std::vector<ui::TouchDeviceTransform>& transforms) {
+  touch_transform_setter_->ConfigureTouchDevices(transforms);
 }
 
 }  // namespace ui

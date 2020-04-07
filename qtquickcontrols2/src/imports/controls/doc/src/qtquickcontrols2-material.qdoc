@@ -32,7 +32,7 @@
     The Material Style is based on the Google Material Design Guidelines.
     \l{detailed-desc-material}{More...}
 
-    \styleimport {QtQuick.Controls.Material 2.3} {Qt 5.7}
+    \styleimport {QtQuick.Controls.Material 2.12} {Qt 5.7}
 
     \section1 Attached Properties
 
@@ -93,9 +93,9 @@
         \row
             \li
                 \qml
-                import QtQuick 2.0
-                import QtQuick.Controls 2.1
-                import QtQuick.Controls.Material 2.1
+                import QtQuick 2.12
+                import QtQuick.Controls 2.12
+                import QtQuick.Controls.Material 2.12
 
                 ApplicationWindow {
                     visible: true
@@ -221,6 +221,33 @@
     \value Material.ShadeA700
 
     \b {See also} \l {Default Style}, \l {Universal Style}
+
+    \section2 Variants
+
+    The Material style also supports a dense variant, where controls like
+    buttons and delegates are smaller in height and use smaller font sizes.
+    It is recommended to use the dense variant on desktop platforms, where
+    a mouse and keyboard allow more precise and flexible user interaction.
+
+    To use the dense variant, either set the
+    \c QT_QUICK_CONTROLS_MATERIAL_VARIANT environment variable to \c Dense,
+    or specify \c Variant=Dense in the
+    \l {Qt Quick Controls 2 Configuration File}{qtquickcontrols2.conf} file.
+    The default value in both cases is \c Normal.
+
+    The following images illustrate the differences between some of the
+    controls when using the normal and dense variants:
+
+    \table
+        \row
+            \li
+                \image qtquickcontrols2-material-variant-normal.png
+            \li
+                \image qtquickcontrols2-material-variant-dense.png
+    \endtable
+
+    Note that the heights shown above may vary based on differences in fonts
+    across platforms.
 
     \section1 Attached Property Documentation
 

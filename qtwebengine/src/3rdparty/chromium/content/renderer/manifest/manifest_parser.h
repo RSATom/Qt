@@ -14,8 +14,9 @@
 #include "base/strings/nullable_string16.h"
 #include "base/strings/string_piece.h"
 #include "content/common/content_export.h"
-#include "content/public/common/manifest.h"
-#include "content/renderer/manifest/manifest_debug_info.h"
+#include "third_party/blink/public/common/manifest/manifest.h"
+#include "third_party/blink/public/mojom/manifest/manifest.mojom.h"
+#include "third_party/skia/include/core/SkColor.h"
 
 class GURL;
 
@@ -39,16 +40,22 @@ class CONTENT_EXPORT ManifestParser {
   // http://w3c.github.io/manifest/#dfn-steps-for-processing-a-manifest
   void Parse();
 
-  const Manifest& manifest() const;
+  const blink::Manifest& manifest() const;
   bool failed() const;
 
-  void TakeErrors(std::vector<ManifestDebugInfo::Error>* errors);
+  void TakeErrors(std::vector<blink::mojom::ManifestErrorPtr>* errors);
 
  private:
   // Used to indicate whether to strip whitespace when parsing a string.
   enum TrimType {
     Trim,
     NoTrim
+  };
+
+  // Indicate whether a parsed URL should be restricted to document origin.
+  enum class ParseURLOriginRestrictions {
+    kNoRestrictions = 0,
+    kSameOriginOnly,
   };
 
   // Helper function to parse booleans present on a given |dictionary| in a
@@ -66,19 +73,21 @@ class CONTENT_EXPORT ManifestParser {
                                      TrimType trim);
 
   // Helper function to parse colors present on a given |dictionary| in a given
-  // field identified by its |key|.
-  // Returns the parsed color as an int64_t if any,
-  // Manifest::kInvalidOrMissingColor if the parsing failed.
-  int64_t ParseColor(const base::DictionaryValue& dictionary,
-                     const std::string& key);
+  // field identified by its |key|. Returns a null optional if the value is not
+  // present or is not a valid color.
+  base::Optional<SkColor> ParseColor(const base::DictionaryValue& dictionary,
+                                     const std::string& key);
 
   // Helper function to parse URLs present on a given |dictionary| in a given
   // field identified by its |key|. The URL is first parsed as a string then
-  // resolved using |base_url|.
-  // Returns a GURL. If the parsing failed, the GURL will not be valid.
+  // resolved using |base_url|. |enforce_document_origin| specified whether to
+  // enforce matching of the document's and parsed URL's origins.
+  // Returns a GURL. If the parsing failed or origin matching was enforced but
+  // not present, the returned GURL will be empty.
   GURL ParseURL(const base::DictionaryValue& dictionary,
                 const std::string& key,
-                const GURL& base_url);
+                const GURL& base_url,
+                ParseURLOriginRestrictions origin_restriction);
 
   // Parses the 'name' field of the manifest, as defined in:
   // https://w3c.github.io/manifest/#dfn-steps-for-processing-the-name-member
@@ -137,28 +146,26 @@ class CONTENT_EXPORT ManifestParser {
   // Returns a vector of Manifest::Icon::IconPurpose with the successfully
   // parsed icon purposes, and a vector with Manifest::Icon::IconPurpose::Any if
   // the parsing failed.
-  std::vector<Manifest::Icon::IconPurpose> ParseIconPurpose(
+  std::vector<blink::Manifest::ImageResource::Purpose> ParseIconPurpose(
       const base::DictionaryValue& icon);
 
   // Parses the 'icons' field of a Manifest, as defined in:
   // https://w3c.github.io/manifest/#dfn-steps-for-processing-an-array-of-images
   // Returns a vector of Manifest::Icon with the successfully parsed icons, if
   // any. An empty vector if the field was not present or empty.
-  std::vector<Manifest::Icon> ParseIcons(
+  std::vector<blink::Manifest::ImageResource> ParseIcons(
       const base::DictionaryValue& dictionary);
 
   // Parses the 'url_template' field of a Share Target, as defined in:
   // https://github.com/WICG/web-share-target/blob/master/docs/interface.md
-  // Returns the parsed string if any, or a null string if the field was not
-  // present, or didn't contain a string.
-  base::NullableString16 ParseShareTargetURLTemplate(
-      const base::DictionaryValue& share_target);
+  // Returns the parsed GURL if any, or an empty GURL if the parsing failed.
+  GURL ParseShareTargetURLTemplate(const base::DictionaryValue& share_target);
 
   // Parses the 'share_target' field of a Manifest, as defined in:
   // https://github.com/WICG/web-share-target/blob/master/docs/interface.md
   // Returns the parsed Web Share target. The returned Share Target is null if
   // the field didn't exist, parsing failed, or it was empty.
-  base::Optional<Manifest::ShareTarget> ParseShareTarget(
+  base::Optional<blink::Manifest::ShareTarget> ParseShareTarget(
       const base::DictionaryValue& dictionary);
 
   // Parses the 'platform' field of a related application, as defined in:
@@ -169,7 +176,7 @@ class CONTENT_EXPORT ManifestParser {
 
   // Parses the 'url' field of a related application, as defined in:
   // https://w3c.github.io/manifest/#dfn-steps-for-processing-the-url-member-of-an-application
-  // Returns the paresed GURL if any, an empty GURL if the parsing failed.
+  // Returns the parsed GURL if any, an empty GURL if the parsing failed.
   GURL ParseRelatedApplicationURL(const base::DictionaryValue& application);
 
   // Parses the 'id' field of a related application, as defined in:
@@ -183,7 +190,7 @@ class CONTENT_EXPORT ManifestParser {
   // Returns a vector of Manifest::RelatedApplication with the successfully
   // parsed applications, if any. An empty vector if the field was not present
   // or empty.
-  std::vector<Manifest::RelatedApplication> ParseRelatedApplications(
+  std::vector<blink::Manifest::RelatedApplication> ParseRelatedApplications(
       const base::DictionaryValue& dictionary);
 
   // Parses the 'prefer_related_applications' field on the manifest, as defined
@@ -194,15 +201,19 @@ class CONTENT_EXPORT ManifestParser {
 
   // Parses the 'theme_color' field of the manifest, as defined in:
   // https://w3c.github.io/manifest/#dfn-steps-for-processing-the-theme_color-member
-  // Returns the parsed theme color if any,
-  // Manifest::kInvalidOrMissingColor if the parsing failed.
-  int64_t ParseThemeColor(const base::DictionaryValue& dictionary);
+  // Returns the parsed theme color if any, or a null optional otherwise.
+  base::Optional<SkColor> ParseThemeColor(
+      const base::DictionaryValue& dictionary);
 
   // Parses the 'background_color' field of the manifest, as defined in:
   // https://w3c.github.io/manifest/#dfn-steps-for-processing-the-background_color-member
-  // Returns the parsed background color if any,
-  // Manifest::kInvalidOrMissingColor if the parsing failed.
-  int64_t ParseBackgroundColor(const base::DictionaryValue& dictionary);
+  // Returns the parsed background color if any, or a null optional otherwise.
+  base::Optional<SkColor> ParseBackgroundColor(
+      const base::DictionaryValue& dictionary);
+
+  // Parses the 'splash_screen_url' field of the manifest.
+  // Returns the parsed GURL if any, an empty GURL if the parsing failed.
+  GURL ParseSplashScreenURL(const base::DictionaryValue& dictionary);
 
   // Parses the 'gcm_sender_id' field of the manifest.
   // This is a proprietary extension of the Web Manifest specification.
@@ -220,8 +231,8 @@ class CONTENT_EXPORT ManifestParser {
   GURL document_url_;
 
   bool failed_;
-  Manifest manifest_;
-  std::vector<ManifestDebugInfo::Error> errors_;
+  blink::Manifest manifest_;
+  std::vector<blink::mojom::ManifestErrorPtr> errors_;
 
   DISALLOW_COPY_AND_ASSIGN(ManifestParser);
 };

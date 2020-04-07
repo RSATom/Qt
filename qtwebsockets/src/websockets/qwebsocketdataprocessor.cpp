@@ -83,7 +83,7 @@ QWebSocketDataProcessor::QWebSocketDataProcessor(QObject *parent) :
     m_binaryMessage(),
     m_textMessage(),
     m_payloadLength(0),
-    m_pConverterState(Q_NULLPTR),
+    m_pConverterState(nullptr),
     m_pTextCodec(QTextCodec::codecForName("UTF-8"))
 {
     clear();
@@ -97,7 +97,7 @@ QWebSocketDataProcessor::~QWebSocketDataProcessor()
     clear();
     if (m_pConverterState) {
         delete m_pConverterState;
-        m_pConverterState = Q_NULLPTR;
+        m_pConverterState = nullptr;
     }
 }
 
@@ -150,9 +150,9 @@ void QWebSocketDataProcessor::process(QIODevice *pIoDevice)
                     m_opCode = frame.opCode();
                     m_isFragmented = !frame.isFinalFrame();
                 }
-                quint64 messageLength = (quint64)(m_opCode == QWebSocketProtocol::OpCodeText)
-                        ? m_textMessage.length()
-                        : m_binaryMessage.length();
+                quint64 messageLength = m_opCode == QWebSocketProtocol::OpCodeText
+                        ? quint64(m_textMessage.length())
+                        : quint64(m_binaryMessage.length());
                 if (Q_UNLIKELY((messageLength + quint64(frame.payload().length())) >
                                MAX_MESSAGE_SIZE_IN_BYTES)) {
                     clear();
@@ -219,7 +219,7 @@ void QWebSocketDataProcessor::clear()
     if (m_pConverterState) {
         if ((m_pConverterState->remainingChars != 0) || (m_pConverterState->invalidChars != 0)) {
             delete m_pConverterState;
-            m_pConverterState = Q_NULLPTR;
+            m_pConverterState = nullptr;
         }
     }
     if (!m_pConverterState)

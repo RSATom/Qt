@@ -54,7 +54,7 @@ class RenderControl : public QQuickRenderControl
 {
 public:
     RenderControl(QWindow *w) : m_window(w) { }
-    QWindow *renderWindow(QPoint *offset) Q_DECL_OVERRIDE;
+    QWindow *renderWindow(QPoint *offset) override;
 
 private:
     QWindow *m_window;
@@ -92,7 +92,8 @@ Scene2DManager::Scene2DManager(QScene2DPrivate *priv)
 
     // Create window to render the QML with
     m_sharedObject->m_quickWindow = new QQuickWindow(m_sharedObject->m_renderControl);
-    m_sharedObject->m_quickWindow->setClearBeforeRendering(false);
+    m_sharedObject->m_quickWindow->setClearBeforeRendering(true);
+    m_sharedObject->m_quickWindow->setColor(Qt::transparent);
 
     connect(m_sharedObject->m_renderControl, &QQuickRenderControl::renderRequested,
             this, &Scene2DManager::requestRender);
@@ -142,6 +143,15 @@ void Scene2DManager::startIfInitialized()
 
         m_initialized = true;
         m_sharedObject->setInitialized();
+
+        // Request render if we have already been requested and preparation has already been done
+        if (m_sharedObject->isPrepared() && m_renderSyncRequested) {
+            if (!m_requested) {
+                m_requested = true;
+                QCoreApplication::postEvent(this, new Scene2DEvent(Scene2DEvent::RenderSync));
+            }
+            m_renderSyncRequested = false;
+        }
     }
 }
 

@@ -5,6 +5,7 @@
 import("//build/config/linux/pkg_config.gni")
 
 assert(is_linux, "This file should only be referenced on Linux")
+assert(use_gtk, "This file should only be referenced when using GTK")
 
 # Depend on //build/config/linux/gtk3 to use GTKv3. Depend on
 # //build/config/linux/gtk to get GTK 2 or 3 depending on the build flags.

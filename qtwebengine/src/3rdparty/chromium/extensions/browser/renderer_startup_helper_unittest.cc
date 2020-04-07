@@ -4,7 +4,6 @@
 
 #include "extensions/browser/renderer_startup_helper.h"
 
-#include "base/memory/ptr_util.h"
 #include "base/stl_util.h"
 #include "components/crx_file/id_util.h"
 #include "content/public/browser/notification_service.h"
@@ -28,13 +27,13 @@ class RendererStartupHelperTest : public ExtensionsTest {
 
   void SetUp() override {
     ExtensionsTest::SetUp();
-    helper_ = base::MakeUnique<RendererStartupHelper>(browser_context());
+    helper_ = std::make_unique<RendererStartupHelper>(browser_context());
     registry_ =
         ExtensionRegistryFactory::GetForBrowserContext(browser_context());
     render_process_host_ =
-        base::MakeUnique<content::MockRenderProcessHost>(browser_context());
+        std::make_unique<content::MockRenderProcessHost>(browser_context());
     incognito_render_process_host_ =
-        base::MakeUnique<content::MockRenderProcessHost>(incognito_context());
+        std::make_unique<content::MockRenderProcessHost>(incognito_context());
     extension_ = CreateExtension("ext_1");
   }
 
@@ -171,7 +170,8 @@ TEST_F(RendererStartupHelperTest, NormalExtensionLifecycle) {
   EXPECT_FALSE(IsExtensionPendingActivationInProcess(
       *extension_, render_process_host_.get()));
   ASSERT_EQ(1u, sink.message_count());
-  EXPECT_EQ(ExtensionMsg_Loaded::ID, sink.GetMessageAt(0)->type());
+  EXPECT_EQ(static_cast<uint32_t>(ExtensionMsg_Loaded::ID),
+            sink.GetMessageAt(0)->type());
 
   // Activate extension.
   sink.ClearMessages();
@@ -179,7 +179,8 @@ TEST_F(RendererStartupHelperTest, NormalExtensionLifecycle) {
   EXPECT_FALSE(IsExtensionPendingActivationInProcess(
       *extension_, render_process_host_.get()));
   ASSERT_EQ(1u, sink.message_count());
-  EXPECT_EQ(ExtensionMsg_ActivateExtension::ID, sink.GetMessageAt(0)->type());
+  EXPECT_EQ(static_cast<uint32_t>(ExtensionMsg_ActivateExtension::ID),
+            sink.GetMessageAt(0)->type());
 
   // Disable extension.
   sink.ClearMessages();
@@ -187,7 +188,8 @@ TEST_F(RendererStartupHelperTest, NormalExtensionLifecycle) {
   helper_->OnExtensionUnloaded(*extension_);
   EXPECT_FALSE(IsExtensionLoaded(*extension_));
   ASSERT_EQ(1u, sink.message_count());
-  EXPECT_EQ(ExtensionMsg_Unloaded::ID, sink.GetMessageAt(0)->type());
+  EXPECT_EQ(static_cast<uint32_t>(ExtensionMsg_Unloaded::ID),
+            sink.GetMessageAt(0)->type());
 
   // Extension enabled again.
   sink.ClearMessages();
@@ -198,7 +200,8 @@ TEST_F(RendererStartupHelperTest, NormalExtensionLifecycle) {
   EXPECT_FALSE(IsExtensionPendingActivationInProcess(
       *extension_, render_process_host_.get()));
   ASSERT_EQ(1u, sink.message_count());
-  EXPECT_EQ(ExtensionMsg_Loaded::ID, sink.GetMessageAt(0)->type());
+  EXPECT_EQ(static_cast<uint32_t>(ExtensionMsg_Loaded::ID),
+            sink.GetMessageAt(0)->type());
 
   // Render Process terminated.
   SimulateRenderProcessTerminated(render_process_host_.get());
@@ -329,12 +332,15 @@ TEST_F(RendererStartupHelperTest, ExtensionInIncognitoRenderer) {
   // The extension would not have been unloaded from the incognito renderer
   // since it wasn't loaded.
   ASSERT_EQ(1u, incognito_sink.message_count());
-  EXPECT_EQ(ExtensionMsg_Loaded::ID, incognito_sink.GetMessageAt(0)->type());
+  EXPECT_EQ(static_cast<uint32_t>(ExtensionMsg_Loaded::ID),
+            incognito_sink.GetMessageAt(0)->type());
   // The extension would be first unloaded and then loaded from the normal
   // renderer.
   ASSERT_EQ(2u, sink.message_count());
-  EXPECT_EQ(ExtensionMsg_Unloaded::ID, sink.GetMessageAt(0)->type());
-  EXPECT_EQ(ExtensionMsg_Loaded::ID, sink.GetMessageAt(1)->type());
+  EXPECT_EQ(static_cast<uint32_t>(ExtensionMsg_Unloaded::ID),
+            sink.GetMessageAt(0)->type());
+  EXPECT_EQ(static_cast<uint32_t>(ExtensionMsg_Loaded::ID),
+            sink.GetMessageAt(1)->type());
 }
 
 // Tests that platform apps are always loaded in an incognito renderer.
@@ -360,7 +366,8 @@ TEST_F(RendererStartupHelperTest, PlatformAppInIncognitoRenderer) {
   EXPECT_TRUE(IsExtensionLoadedInProcess(*platform_app,
                                          incognito_render_process_host_.get()));
   ASSERT_EQ(1u, incognito_sink.message_count());
-  EXPECT_EQ(ExtensionMsg_Loaded::ID, incognito_sink.GetMessageAt(0)->type());
+  EXPECT_EQ(static_cast<uint32_t>(ExtensionMsg_Loaded::ID),
+            incognito_sink.GetMessageAt(0)->type());
 }
 
 }  // namespace extensions

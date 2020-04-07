@@ -32,16 +32,15 @@
 #include "promotiontaskmenu_p.h"
 #include "formwindowbase_p.h"
 
-#include <QtDesigner/QDesignerFormWindowInterface>
+#include <QtDesigner/abstractformwindow.h>
 
-#include <QtCore/QEvent>
-#include <QtWidgets/QAction>
-#include <QtWidgets/QToolBox>
-#include <QtWidgets/QMenu>
-#include <QtWidgets/QLayout>
-#include <QtWidgets/QApplication>
-#include <QtGui/QContextMenuEvent>
-#include <QtCore/QHash>
+#include <QtWidgets/qaction.h>
+#include <QtWidgets/qtoolbox.h>
+#include <QtWidgets/qmenu.h>
+#include <QtWidgets/qlayout.h>
+#include <QtWidgets/qapplication.h>
+#include <QtGui/qevent.h>
+#include <QtCore/qhash.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -106,10 +105,7 @@ bool QToolBoxHelper::eventFilter(QObject *watched, QEvent *event)
 QToolBoxHelper *QToolBoxHelper::helperOf(const QToolBox *toolbox)
 {
     // Look for 1st order children only..otherwise, we might get filters of nested widgets
-    const QObjectList children = toolbox->children();
-    const QObjectList::const_iterator cend = children.constEnd();
-    for (QObjectList::const_iterator it = children.constBegin(); it != cend; ++it) {
-        QObject *o = *it;
+    for (QObject *o : toolbox->children()) {
         if (!o->isWidgetType())
             if (QToolBoxHelper *h = qobject_cast<QToolBoxHelper *>(o))
                 return h;

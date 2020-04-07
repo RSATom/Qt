@@ -12,7 +12,6 @@
 #include "base/json/json_file_value_serializer.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "base/message_loop/message_loop.h"
 #include "base/test/values_test_util.h"
 #include "base/time/time.h"
 #include "base/values.h"
@@ -24,6 +23,7 @@
 #include "extensions/browser/api/declarative_webrequest/webrequest_condition.h"
 #include "extensions/browser/api/declarative_webrequest/webrequest_constants.h"
 #include "extensions/browser/api/web_request/web_request_api_helpers.h"
+#include "extensions/browser/api/web_request/web_request_info.h"
 #include "extensions/browser/info_map.h"
 #include "extensions/common/extension.h"
 #include "net/base/request_priority.h"
@@ -152,8 +152,8 @@ bool WebRequestActionWithThreadsTest::ActionWorksOnRequest(
   std::list<LinkedPtrEventResponseDelta> deltas;
   scoped_refptr<net::HttpResponseHeaders> headers(
       new net::HttpResponseHeaders(""));
-  WebRequestData request_data(regular_request.get(), stage, nullptr,
-                              headers.get());
+  WebRequestInfo request_info(regular_request.get());
+  WebRequestData request_data(&request_info, stage, headers.get());
   std::set<std::string> ignored_tags;
   WebRequestAction::ApplyInfo apply_info = { extension_info_map_.get(),
                                              request_data,

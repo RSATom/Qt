@@ -11,8 +11,8 @@
 #include <utility>
 
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/values.h"
+#include "components/viz/common/surfaces/surface_info.h"
 #include "content/common/resource_messages.h"
 #include "content/public/common/content_constants.h"
 #include "ipc/ipc_message.h"
@@ -50,7 +50,7 @@ TEST(IPCMessageTest, Bitmap) {
   SkBitmap bitmap;
 
   bitmap.allocN32Pixels(10, 5);
-  memset(bitmap.getPixels(), 'A', bitmap.getSize());
+  memset(bitmap.getPixels(), 'A', bitmap.computeByteSize());
 
   IPC::Message msg(1, 2, IPC::Message::PRIORITY_NORMAL);
   IPC::ParamTraits<SkBitmap>::Write(&msg, bitmap);
@@ -63,9 +63,10 @@ TEST(IPCMessageTest, Bitmap) {
   EXPECT_EQ(bitmap.width(), output.width());
   EXPECT_EQ(bitmap.height(), output.height());
   EXPECT_EQ(bitmap.rowBytes(), output.rowBytes());
-  EXPECT_EQ(bitmap.getSize(), output.getSize());
-  EXPECT_EQ(memcmp(bitmap.getPixels(), output.getPixels(), bitmap.getSize()),
-            0);
+  EXPECT_EQ(bitmap.computeByteSize(), output.computeByteSize());
+  EXPECT_EQ(
+      memcmp(bitmap.getPixels(), output.getPixels(), bitmap.computeByteSize()),
+      0);
 
   // Also test the corrupt case.
   IPC::Message bad_msg(1, 2, IPC::Message::PRIORITY_NORMAL);
@@ -76,7 +77,7 @@ TEST(IPCMessageTest, Bitmap) {
   EXPECT_TRUE(iter.ReadData(&fixed_data, &fixed_data_size));
   bad_msg.WriteData(fixed_data, fixed_data_size);
   // Add some bogus pixel data.
-  const size_t bogus_pixels_size = bitmap.getSize() * 2;
+  const size_t bogus_pixels_size = bitmap.computeByteSize() * 2;
   std::unique_ptr<char[]> bogus_pixels(new char[bogus_pixels_size]);
   memset(bogus_pixels.get(), 'B', bogus_pixels_size);
   bad_msg.WriteData(bogus_pixels.get(), bogus_pixels_size);
@@ -90,7 +91,7 @@ TEST(IPCMessageTest, ListValue) {
   base::ListValue input;
   input.AppendDouble(42.42);
   input.AppendString("forty");
-  input.Append(base::MakeUnique<base::Value>());
+  input.Append(std::make_unique<base::Value>());
 
   IPC::Message msg(1, 2, IPC::Message::PRIORITY_NORMAL);
   IPC::WriteParam(&msg, input);
@@ -110,15 +111,15 @@ TEST(IPCMessageTest, ListValue) {
 
 TEST(IPCMessageTest, DictionaryValue) {
   base::DictionaryValue input;
-  input.Set("null", base::MakeUnique<base::Value>());
+  input.Set("null", std::make_unique<base::Value>());
   input.SetBoolean("bool", true);
   input.SetInteger("int", 42);
 
-  auto subdict = base::MakeUnique<base::DictionaryValue>();
+  auto subdict = std::make_unique<base::DictionaryValue>();
   subdict->SetString("str", "forty two");
   subdict->SetBoolean("bool", false);
 
-  auto sublist = base::MakeUnique<base::ListValue>();
+  auto sublist = std::make_unique<base::ListValue>();
   sublist->AppendDouble(42.42);
   sublist->AppendString("forty");
   sublist->AppendString("two");
@@ -193,9 +194,8 @@ TEST(IPCMessageTest, SSLInfo) {
       net::SignedCertificateTimestampAndStatus(
           sct, net::ct::SCT_STATUS_LOG_UNKNOWN));
 
-  in.ct_compliance_details_available = true;
-  in.ct_cert_policy_compliance =
-      net::ct::CertPolicyCompliance::CERT_POLICY_NOT_ENOUGH_SCTS;
+  in.ct_policy_compliance =
+      net::ct::CTPolicyCompliance::CT_POLICY_NOT_ENOUGH_SCTS;
   in.ocsp_result.response_status = net::OCSPVerifyResult::PROVIDED;
   in.ocsp_result.revocation_status = net::OCSPRevocationStatus::REVOKED;
 
@@ -208,8 +208,9 @@ TEST(IPCMessageTest, SSLInfo) {
   EXPECT_TRUE(IPC::ParamTraits<net::SSLInfo>::Read(&msg, &iter, &out));
 
   // Now verify they're equal.
-  ASSERT_TRUE(in.cert->Equals(out.cert.get()));
-  ASSERT_TRUE(in.unverified_cert->Equals(out.unverified_cert.get()));
+  ASSERT_TRUE(in.cert->EqualsIncludingChain(out.cert.get()));
+  ASSERT_TRUE(
+      in.unverified_cert->EqualsIncludingChain(out.unverified_cert.get()));
   ASSERT_EQ(in.security_bits, out.security_bits);
   ASSERT_EQ(in.key_exchange_group, out.key_exchange_group);
   ASSERT_EQ(in.connection_status, out.connection_status);
@@ -247,9 +248,7 @@ TEST(IPCMessageTest, SSLInfo) {
   ASSERT_EQ(in.signed_certificate_timestamps[0].sct->log_description,
             out.signed_certificate_timestamps[0].sct->log_description);
 
-  ASSERT_EQ(in.ct_compliance_details_available,
-            out.ct_compliance_details_available);
-  ASSERT_EQ(in.ct_cert_policy_compliance, out.ct_cert_policy_compliance);
+  ASSERT_EQ(in.ct_policy_compliance, out.ct_policy_compliance);
   ASSERT_EQ(in.ocsp_result, out.ocsp_result);
 }
 
@@ -286,4 +285,25 @@ TEST(IPCMessageTest, RenderWidgetSurfaceProperties) {
   EXPECT_EQ(input.has_transparent_background,
             output.has_transparent_background);
 #endif
+}
+
+static constexpr viz::FrameSinkId kArbitraryFrameSinkId(1, 1);
+
+TEST(IPCMessageTest, SurfaceInfo) {
+  IPC::Message msg(1, 2, IPC::Message::PRIORITY_NORMAL);
+  const viz::SurfaceId kArbitrarySurfaceId(
+      kArbitraryFrameSinkId,
+      viz::LocalSurfaceId(3, base::UnguessableToken::Create()));
+  constexpr float kArbitraryDeviceScaleFactor = 0.9f;
+  const gfx::Size kArbitrarySize(65, 321);
+  const viz::SurfaceInfo surface_info_in(
+      kArbitrarySurfaceId, kArbitraryDeviceScaleFactor, kArbitrarySize);
+  IPC::ParamTraits<viz::SurfaceInfo>::Write(&msg, surface_info_in);
+
+  viz::SurfaceInfo surface_info_out;
+  base::PickleIterator iter(msg);
+  EXPECT_TRUE(
+      IPC::ParamTraits<viz::SurfaceInfo>::Read(&msg, &iter, &surface_info_out));
+
+  ASSERT_EQ(surface_info_in, surface_info_out);
 }

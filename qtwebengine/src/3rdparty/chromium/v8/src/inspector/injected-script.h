@@ -28,10 +28,11 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef V8_INSPECTOR_INJECTEDSCRIPT_H_
-#define V8_INSPECTOR_INJECTEDSCRIPT_H_
+#ifndef V8_INSPECTOR_INJECTED_SCRIPT_H_
+#define V8_INSPECTOR_INJECTED_SCRIPT_H_
 
 #include <unordered_map>
+#include <unordered_set>
 
 #include "src/base/macros.h"
 #include "src/inspector/inspected-context.h"
@@ -51,6 +52,16 @@ class V8InspectorSessionImpl;
 
 using protocol::Maybe;
 using protocol::Response;
+
+class EvaluateCallback {
+ public:
+  virtual void sendSuccess(
+      std::unique_ptr<protocol::Runtime::RemoteObject> result,
+      protocol::Maybe<protocol::Runtime::ExceptionDetails>
+          exceptionDetails) = 0;
+  virtual void sendFailure(const protocol::DispatchResponse& response) = 0;
+  virtual ~EvaluateCallback() {}
+};
 
 class InjectedScript final {
  public:
@@ -74,17 +85,14 @@ class InjectedScript final {
       v8::Local<v8::Value>, const String16& groupName, bool forceValueType,
       bool generatePreview,
       std::unique_ptr<protocol::Runtime::RemoteObject>* result) const;
-  Response wrapObjectProperty(v8::Local<v8::Object>, v8::Local<v8::Name> key,
-                              const String16& groupName,
-                              bool forceValueType = false,
-                              bool generatePreview = false) const;
-  Response wrapPropertyInArray(v8::Local<v8::Array>,
-                               v8::Local<v8::String> property,
-                               const String16& groupName,
-                               bool forceValueType = false,
-                               bool generatePreview = false) const;
   std::unique_ptr<protocol::Runtime::RemoteObject> wrapTable(
       v8::Local<v8::Value> table, v8::Local<v8::Value> columns) const;
+
+  void addPromiseCallback(V8InspectorSessionImpl* session,
+                          v8::MaybeLocal<v8::Value> value,
+                          const String16& objectGroup, bool returnByValue,
+                          bool generatePreview,
+                          std::unique_ptr<EvaluateCallback> callback);
 
   Response findObject(const RemoteObjectId&, v8::Local<v8::Value>*) const;
   String16 objectGroupName(const RemoteObjectId&) const;
@@ -102,6 +110,7 @@ class InjectedScript final {
       std::unique_ptr<protocol::Runtime::RemoteObject>* result,
       Maybe<protocol::Runtime::ExceptionDetails>*);
   v8::Local<v8::Value> lastEvaluationResult() const;
+  void setLastEvaluationResult(v8::Local<v8::Value> result);
 
   int bindObject(v8::Local<v8::Value>, const String16& groupName);
 
@@ -111,6 +120,7 @@ class InjectedScript final {
     void installCommandLineAPI();
     void ignoreExceptionsAndMuteConsole();
     void pretendUserGesture();
+    void allowCodeGenerationFromStrings();
     v8::Local<v8::Context> context() const { return m_context; }
     InjectedScript* injectedScript() const { return m_injectedScript; }
     const v8::TryCatch& tryCatch() const { return m_tryCatch; }
@@ -135,6 +145,7 @@ class InjectedScript final {
     bool m_ignoreExceptionsAndMuteConsole;
     v8::debug::ExceptionBreakState m_previousPauseOnExceptionsState;
     bool m_userGesture;
+    bool m_allowEval;
     int m_contextGroupId;
     int m_sessionId;
   };
@@ -190,6 +201,11 @@ class InjectedScript final {
   v8::Local<v8::Object> commandLineAPI();
   void unbindObject(int id);
 
+  class ProtocolPromiseHandler;
+  void discardEvaluateCallbacks();
+  std::unique_ptr<EvaluateCallback> takeEvaluateCallback(
+      EvaluateCallback* callback);
+
   InspectedContext* m_context;
   v8::Global<v8::Value> m_value;
   int m_sessionId;
@@ -199,10 +215,11 @@ class InjectedScript final {
   std::unordered_map<int, v8::Global<v8::Value>> m_idToWrappedObject;
   std::unordered_map<int, String16> m_idToObjectGroupName;
   std::unordered_map<String16, std::vector<int>> m_nameToObjectGroup;
+  std::unordered_set<EvaluateCallback*> m_evaluateCallbacks;
 
   DISALLOW_COPY_AND_ASSIGN(InjectedScript);
 };
 
 }  // namespace v8_inspector
 
-#endif  // V8_INSPECTOR_INJECTEDSCRIPT_H_
+#endif  // V8_INSPECTOR_INJECTED_SCRIPT_H_

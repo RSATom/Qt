@@ -8,6 +8,7 @@
 
 #include "base/i18n/rtl.h"
 #include "base/logging.h"
+#include "base/numerics/ranges.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_split.h"
@@ -16,14 +17,11 @@
 #include "components/url_formatter/url_formatter.h"
 #include "net/base/escape.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
+#include "ui/gfx/text_elider.h"
+#include "ui/gfx/text_utils.h"
 #include "url/gurl.h"
 #include "url/origin.h"
 #include "url/url_constants.h"
-
-#if !defined(OS_ANDROID)
-#include "ui/gfx/text_elider.h"  // nogncheck
-#include "ui/gfx/text_utils.h"  // nogncheck
-#endif
 
 namespace {
 
@@ -37,6 +35,8 @@ base::string16 BuildPathFromComponents(
     const std::vector<base::string16>& path_elements,
     const base::string16& filename,
     size_t num_components) {
+  DCHECK_LE(num_components, path_elements.size());
+
   // Add the initial elements of the path.
   base::string16 path = path_prefix;
 
@@ -55,22 +55,26 @@ base::string16 BuildPathFromComponents(
 // Takes a prefix (Domain, or Domain+subdomain) and a collection of path
 // components and elides if possible. Returns a string containing the longest
 // possible elided path, or an empty string if elision is not possible.
+// Warning: This is O(url_path_elements.size() ^ 2), so it should not be called
+// on a very large path.
 base::string16 ElideComponentizedPath(
     const base::string16& url_path_prefix,
     const std::vector<base::string16>& url_path_elements,
     const base::string16& url_filename,
     const base::string16& url_query,
     const gfx::FontList& font_list,
-    float available_pixel_width) {
+    float available_pixel_width,
+    gfx::Typesetter typesetter) {
   const size_t url_path_number_of_elements = url_path_elements.size();
 
   CHECK(url_path_number_of_elements);
   for (size_t i = url_path_number_of_elements - 1; i > 0; --i) {
     base::string16 elided_path = BuildPathFromComponents(
         url_path_prefix, url_path_elements, url_filename, i);
-    if (available_pixel_width >= gfx::GetStringWidthF(elided_path, font_list))
+    if (available_pixel_width >=
+        gfx::GetStringWidthF(elided_path, font_list, typesetter))
       return gfx::ElideText(elided_path + url_query, font_list,
-                       available_pixel_width, gfx::ELIDE_TAIL);
+                            available_pixel_width, gfx::ELIDE_TAIL, typesetter);
   }
 
   return base::string16();
@@ -150,24 +154,25 @@ namespace url_formatter {
 // suspect it could be made simpler.
 base::string16 ElideUrl(const GURL& url,
                         const gfx::FontList& font_list,
-                        float available_pixel_width) {
+                        float available_pixel_width,
+                        gfx::Typesetter typesetter) {
   // Get a formatted string and corresponding parsing of the url.
   url::Parsed parsed;
   const base::string16 url_string = url_formatter::FormatUrl(
-      url, url_formatter::kFormatUrlOmitAll,
-      net::UnescapeRule::SPACES, &parsed, nullptr, nullptr);
+      url, url_formatter::kFormatUrlOmitDefaults, net::UnescapeRule::SPACES,
+      &parsed, nullptr, nullptr);
   if (available_pixel_width <= 0)
     return url_string;
 
-  // If non-standard, return plain eliding.
-  if (!url.IsStandard())
+  if (!url.IsStandard()) {
     return gfx::ElideText(url_string, font_list, available_pixel_width,
-                          gfx::ELIDE_TAIL);
+                          gfx::ELIDE_TAIL, typesetter);
+  }
 
   // Now start eliding url_string to fit within available pixel width.
   // Fist pass - check to see whether entire url_string fits.
   const float pixel_width_url_string =
-      gfx::GetStringWidthF(url_string, font_list);
+      gfx::GetStringWidthF(url_string, font_list, typesetter);
   if (available_pixel_width >= pixel_width_url_string)
     return url_string;
 
@@ -184,9 +189,11 @@ base::string16 ElideUrl(const GURL& url,
   // Return general elided text if url minus the query fits.
   const base::string16 url_minus_query =
       url_string.substr(0, path_start_index + path_len);
-  if (available_pixel_width >= gfx::GetStringWidthF(url_minus_query, font_list))
+  if (available_pixel_width >=
+      gfx::GetStringWidthF(url_minus_query, font_list, typesetter)) {
     return gfx::ElideText(url_string, font_list, available_pixel_width,
-                          gfx::ELIDE_TAIL);
+                          gfx::ELIDE_TAIL, typesetter);
+  }
 
   base::string16 url_host;
   base::string16 url_domain;
@@ -212,32 +219,35 @@ base::string16 ElideUrl(const GURL& url,
   }
 
   // Second Pass - remove scheme - the rest fits.
-  const float pixel_width_url_host = gfx::GetStringWidthF(url_host, font_list);
+  const float pixel_width_url_host =
+      gfx::GetStringWidthF(url_host, font_list, typesetter);
   const float pixel_width_url_path =
-      gfx::GetStringWidthF(url_path_query_etc, font_list);
+      gfx::GetStringWidthF(url_path_query_etc, font_list, typesetter);
   if (available_pixel_width >= pixel_width_url_host + pixel_width_url_path)
     return url_host + url_path_query_etc;
 
   // Third Pass: Subdomain, domain and entire path fits.
   const float pixel_width_url_domain =
-      gfx::GetStringWidthF(url_domain, font_list);
+      gfx::GetStringWidthF(url_domain, font_list, typesetter);
   const float pixel_width_url_subdomain =
-      gfx::GetStringWidthF(url_subdomain, font_list);
+      gfx::GetStringWidthF(url_subdomain, font_list, typesetter);
   if (available_pixel_width >=
       pixel_width_url_subdomain + pixel_width_url_domain + pixel_width_url_path)
     return url_subdomain + url_domain + url_path_query_etc;
 
   // Query element.
   base::string16 url_query;
-  const float kPixelWidthDotsTrailer =
-      gfx::GetStringWidthF(base::string16(gfx::kEllipsisUTF16), font_list);
+  const float kPixelWidthDotsTrailer = gfx::GetStringWidthF(
+      base::string16(gfx::kEllipsisUTF16), font_list, typesetter);
   if (parsed.query.is_nonempty()) {
     url_query = base::UTF8ToUTF16("?") + url_string.substr(parsed.query.begin);
     if (available_pixel_width >=
         (pixel_width_url_subdomain + pixel_width_url_domain +
-         pixel_width_url_path - gfx::GetStringWidthF(url_query, font_list))) {
+         pixel_width_url_path -
+         gfx::GetStringWidthF(url_query, font_list, typesetter))) {
       return gfx::ElideText(url_subdomain + url_domain + url_path_query_etc,
-                            font_list, available_pixel_width, gfx::ELIDE_TAIL);
+                            font_list, available_pixel_width, gfx::ELIDE_TAIL,
+                            typesetter);
     }
   }
 
@@ -259,28 +269,32 @@ base::string16 ElideUrl(const GURL& url,
   }
 
   const size_t kMaxNumberOfUrlPathElementsAllowed = 1024;
-  // TODO(mgiuca): If there is no path, this means the end of the domain gets
-  // elided, not the start (inconsistent). https://crbug.com/739636.
-  if (url_path_number_of_elements <= 1 ||
-      url_path_number_of_elements > kMaxNumberOfUrlPathElementsAllowed) {
-    // No path to elide, or too long of a path (could overflow in loop below)
-    // Just elide this as a text string.
+  if (url_path_number_of_elements > kMaxNumberOfUrlPathElementsAllowed) {
+    // Too long of a path (ElideComponentizedPath is O(N^2) so this would result
+    // in degenerate behaviour). Just elide this as a text string.
+    // TODO(mgiuca): Fix ElideComponentizedPath to deal with degenerate cases
+    // itself, so we don't need this special case. We should not fall back on
+    // ElideText if we don't know the entire domain will fit, or else we might
+    // chop off the TLD. https://crbug.com/739975.
     return gfx::ElideText(url_subdomain + url_domain + url_path_query_etc,
-                          font_list, available_pixel_width, gfx::ELIDE_TAIL);
+                          font_list, available_pixel_width, gfx::ELIDE_TAIL,
+                          typesetter);
   }
 
   // Start eliding the path and replacing elements by ".../".
   const base::string16 kEllipsisAndSlash =
       base::string16(gfx::kEllipsisUTF16) + gfx::kForwardSlash;
   const float pixel_width_ellipsis_slash =
-      gfx::GetStringWidthF(kEllipsisAndSlash, font_list);
+      gfx::GetStringWidthF(kEllipsisAndSlash, font_list, typesetter);
 
   // Check with both subdomain and domain.
-  base::string16 elided_path = ElideComponentizedPath(
-      url_subdomain + url_domain, url_path_elements, url_filename, url_query,
-      font_list, available_pixel_width);
-  if (!elided_path.empty())
-    return elided_path;
+  if (url_path_number_of_elements > 0) {
+    base::string16 elided_path = ElideComponentizedPath(
+        url_subdomain + url_domain, url_path_elements, url_filename, url_query,
+        font_list, available_pixel_width, typesetter);
+    if (!elided_path.empty())
+      return elided_path;
+  }
 
   // Check with only domain.
   // If a subdomain is present, add an ellipsis before domain.
@@ -294,23 +308,27 @@ base::string16 ElideUrl(const GURL& url,
     else
       url_elided_domain = url_domain;
 
-    elided_path = ElideComponentizedPath(url_elided_domain, url_path_elements,
-                                         url_filename, url_query, font_list,
-                                         available_pixel_width);
-
-    if (!elided_path.empty())
-      return elided_path;
+    if (url_path_number_of_elements > 0) {
+      base::string16 elided_path = ElideComponentizedPath(
+          url_elided_domain, url_path_elements, url_filename, url_query,
+          font_list, available_pixel_width, typesetter);
+      if (!elided_path.empty())
+        return elided_path;
+    }
   }
 
   // Return elided domain/.../filename anyway.
   base::string16 final_elided_url_string(url_elided_domain);
   const float url_elided_domain_width =
-      gfx::GetStringWidthF(url_elided_domain, font_list);
+      gfx::GetStringWidthF(url_elided_domain, font_list, typesetter);
 
   // A hack to prevent trailing ".../...".
-  if ((available_pixel_width - url_elided_domain_width) >
-      pixel_width_ellipsis_slash + kPixelWidthDotsTrailer +
-          gfx::GetStringWidthF(base::ASCIIToUTF16("UV"), font_list)) {
+  if (url_path_number_of_elements > 0 &&
+      url_elided_domain_width + pixel_width_ellipsis_slash +
+              kPixelWidthDotsTrailer +
+              gfx::GetStringWidthF(base::ASCIIToUTF16("UV"), font_list,
+                                   typesetter) <
+          available_pixel_width) {
     final_elided_url_string += BuildPathFromComponents(
         base::string16(), url_path_elements, url_filename, 1);
   } else {
@@ -318,18 +336,20 @@ base::string16 ElideUrl(const GURL& url,
   }
 
   return gfx::ElideText(final_elided_url_string, font_list,
-                        available_pixel_width, gfx::ELIDE_TAIL);
+                        available_pixel_width, gfx::ELIDE_TAIL, typesetter);
 }
 
 base::string16 ElideHost(const GURL& url,
                          const gfx::FontList& font_list,
-                         float available_pixel_width) {
+                         float available_pixel_width,
+                         gfx::Typesetter typesetter) {
   base::string16 url_host;
   base::string16 url_domain;
   base::string16 url_subdomain;
   SplitHost(url, &url_host, &url_domain, &url_subdomain);
 
-  const float pixel_width_url_host = gfx::GetStringWidthF(url_host, font_list);
+  const float pixel_width_url_host =
+      gfx::GetStringWidthF(url_host, font_list, typesetter);
   if (available_pixel_width >= pixel_width_url_host)
     return url_host;
 
@@ -337,13 +357,13 @@ base::string16 ElideHost(const GURL& url,
     return url_domain;
 
   const float pixel_width_url_domain =
-      gfx::GetStringWidthF(url_domain, font_list);
+      gfx::GetStringWidthF(url_domain, font_list, typesetter);
   float subdomain_width = available_pixel_width - pixel_width_url_domain;
   if (subdomain_width <= 0)
     return base::string16(gfx::kEllipsisUTF16) + kDot + url_domain;
 
   return gfx::ElideText(url_host, font_list, available_pixel_width,
-                        gfx::ELIDE_HEAD);
+                        gfx::ELIDE_HEAD, typesetter);
 }
 
 #endif  // !defined(OS_ANDROID)

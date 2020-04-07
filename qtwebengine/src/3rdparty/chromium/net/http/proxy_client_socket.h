@@ -9,6 +9,7 @@
 #include <string>
 
 #include "base/macros.h"
+#include "net/base/completion_once_callback.h"
 #include "net/base/net_export.h"
 #include "net/socket/ssl_client_socket.h"
 #include "net/socket/stream_socket.h"
@@ -41,12 +42,15 @@ class NET_EXPORT_PRIVATE ProxyClientSocket : public StreamSocket {
   virtual const scoped_refptr<HttpAuthController>& GetAuthController() const
       = 0;
 
-  // If Connect (or its callback) returns PROXY_AUTH_REQUESTED, then
-  // credentials should be added to the HttpAuthController before calling
-  // RestartWithAuth.  Not all ProxyClientSocket implementations will be
-  // restartable.  Such implementations should disconnect themselves and
-  // return OK.
-  virtual int RestartWithAuth(const CompletionCallback& callback) = 0;
+  // If Connect (or its callback) returns PROXY_AUTH_REQUESTED, then an
+  // auth challenge was received.  If the HttpAuthController's HaveAuth()
+  // method returns true, then the request just needs to be restarted with
+  // this method to try with those credentials, and new credentials cannot
+  // be provided.  Otherwise, credentials should be added to the
+  // HttpAuthController before calling RestartWithAuth.  Not all
+  // ProxyClientSocket implementations will be restartable.  Such
+  // implementations should disconnect themselves and return OK.
+  virtual int RestartWithAuth(CompletionOnceCallback callback) = 0;
 
   // Returns true of the connection to the proxy is using SPDY.
   virtual bool IsUsingSpdy() const = 0;
@@ -69,10 +73,6 @@ class NET_EXPORT_PRIVATE ProxyClientSocket : public StreamSocket {
   static int HandleProxyAuthChallenge(HttpAuthController* auth,
                                       HttpResponseInfo* response,
                                       const NetLogWithSource& net_log);
-
-  // Logs (to the log and in a histogram) a blocked CONNECT response.
-  static void LogBlockedTunnelResponse(int http_response_code,
-                                       bool is_https_proxy);
 
   // When a proxy authentication response is received during tunnel
   // construction, this method should be called to strip everything

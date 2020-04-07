@@ -31,13 +31,15 @@
 
 #include <QScopedPointer>
 #include <QtCore/qelapsedtimer.h>
+#include <QtGui/qclipboard.h>
+#include <QtGui/qguiapplication.h>
 #include <QtGui/qpa/qwindowsysteminterface.h>
 #include <QtQml/QQmlEngine>
 #include <QtTest/QtTest>
 #include <QtWebEngine/QQuickWebEngineProfile>
-#include <private/qinputmethod_p.h>
-#include <private/qquickwebengineview_p.h>
-#include <private/qquickwebenginesettings_p.h>
+#include <QtGui/private/qinputmethod_p.h>
+#include <QtWebEngine/private/qquickwebengineview_p.h>
+#include <QtWebEngine/private/qquickwebenginesettings_p.h>
 #include <qpa/qplatforminputcontext.h>
 
 #include <functional>
@@ -73,6 +75,7 @@ private Q_SLOTS:
 
     void inputMethod();
     void inputMethodHints();
+    void inputContextQueryInput();
     void interruptImeTextComposition_data();
     void interruptImeTextComposition();
     void basicRenderingSanity();
@@ -84,6 +87,8 @@ private Q_SLOTS:
 
     void changeLocale();
     void userScripts();
+    void javascriptClipboard_data();
+    void javascriptClipboard();
 
 private:
     inline QQuickWebEngineView *newWebEngineView();
@@ -360,7 +365,7 @@ void tst_QQuickWebEngineView::basicRenderingSanity()
 {
     showWebEngineView();
 
-    webEngineView()->setUrl(QUrl(QString::fromUtf8("data:text/html,<html><body bgcolor=\"#00ff00\"></body></html>")));
+    webEngineView()->setUrl(QUrl(QString::fromUtf8("data:text/html,<html><body bgcolor=\"%2300ff00\"></body></html>")));
     QVERIFY(waitForLoadSucceeded(webEngineView()));
 
     // This should not crash.
@@ -467,6 +472,24 @@ void tst_QQuickWebEngineView::inputMethod()
     QVERIFY(!view->flags().testFlag(QQuickItem::ItemAcceptsInputMethod));
 }
 
+struct InputMethodInfo
+{
+    InputMethodInfo(const int cursorPosition,
+                    const int anchorPosition,
+                    QString surroundingText,
+                    QString selectedText)
+        : cursorPosition(cursorPosition)
+        , anchorPosition(anchorPosition)
+        , surroundingText(surroundingText)
+        , selectedText(selectedText)
+    {}
+
+    int cursorPosition;
+    int anchorPosition;
+    QString surroundingText;
+    QString selectedText;
+};
+
 class TestInputContext : public QPlatformInputContext
 {
 public:
@@ -492,8 +515,28 @@ public:
         resetCallCount++;
     }
 
+    virtual void update(Qt::InputMethodQueries queries)
+    {
+        if (!qApp->focusObject())
+            return;
+
+        if (!(queries & Qt::ImQueryInput))
+            return;
+
+        QInputMethodQueryEvent imQueryEvent(Qt::ImQueryInput);
+        QGuiApplication::sendEvent(qApp->focusObject(), &imQueryEvent);
+
+        const int cursorPosition = imQueryEvent.value(Qt::ImCursorPosition).toInt();
+        const int anchorPosition = imQueryEvent.value(Qt::ImAnchorPosition).toInt();
+        QString surroundingText = imQueryEvent.value(Qt::ImSurroundingText).toString();
+        QString selectedText = imQueryEvent.value(Qt::ImCurrentSelection).toString();
+
+        infos.append(InputMethodInfo(cursorPosition, anchorPosition, surroundingText, selectedText));
+    }
+
     int commitCallCount;
     int resetCallCount;
+    QList<InputMethodInfo> infos;
 };
 
 void tst_QQuickWebEngineView::interruptImeTextComposition_data()
@@ -557,6 +600,151 @@ void tst_QQuickWebEngineView::interruptImeTextComposition()
     QTRY_COMPARE(input->inputMethodQuery(Qt::ImSurroundingText).toString(), QStringLiteral("x"));
 }
 
+void tst_QQuickWebEngineView::inputContextQueryInput()
+{
+    m_window->show();
+    QTRY_VERIFY(qApp->focusObject());
+    TestInputContext testContext;
+
+    QQuickWebEngineView *view = webEngineView();
+    view->settings()->setFocusOnNavigationEnabled(true);
+    view->loadHtml("<html><body>"
+                  "  <input type='text' id='input1' />"
+                  "</body></html>");
+    QVERIFY(waitForLoadSucceeded(view));
+    QCOMPARE(testContext.infos.count(), 0);
+
+    // Set focus on an input field.
+    QPoint textInputCenter = elementCenter(view, "input1");
+    QTest::mouseClick(view->window(), Qt::LeftButton, 0, textInputCenter);
+    QTRY_COMPARE(testContext.infos.count(), 2);
+    QCOMPARE(evaluateJavaScriptSync(view, "document.activeElement.id").toString(), QStringLiteral("input1"));
+    foreach (const InputMethodInfo &info, testContext.infos) {
+        QCOMPARE(info.cursorPosition, 0);
+        QCOMPARE(info.anchorPosition, 0);
+        QCOMPARE(info.surroundingText, QStringLiteral(""));
+        QCOMPARE(info.selectedText, QStringLiteral(""));
+    }
+    testContext.infos.clear();
+
+    // Change content of an input field from JavaScript.
+    evaluateJavaScriptSync(view, "document.getElementById('input1').value='QtWebEngine';");
+    QTRY_COMPARE(testContext.infos.count(), 1);
+    QCOMPARE(testContext.infos[0].cursorPosition, 11);
+    QCOMPARE(testContext.infos[0].anchorPosition, 11);
+    QCOMPARE(testContext.infos[0].surroundingText, QStringLiteral("QtWebEngine"));
+    QCOMPARE(testContext.infos[0].selectedText, QStringLiteral(""));
+    testContext.infos.clear();
+
+    // Change content of an input field by key press.
+    QTest::keyClick(view->window(), Qt::Key_Exclam);
+    QTRY_COMPARE(testContext.infos.count(), 1);
+    QCOMPARE(testContext.infos[0].cursorPosition, 12);
+    QCOMPARE(testContext.infos[0].anchorPosition, 12);
+    QCOMPARE(testContext.infos[0].surroundingText, QStringLiteral("QtWebEngine!"));
+    QCOMPARE(testContext.infos[0].selectedText, QStringLiteral(""));
+    testContext.infos.clear();
+
+    // Change cursor position.
+    QTest::keyClick(view->window(), Qt::Key_Left);
+    QTRY_COMPARE(testContext.infos.count(), 1);
+    QCOMPARE(testContext.infos[0].cursorPosition, 11);
+    QCOMPARE(testContext.infos[0].anchorPosition, 11);
+    QCOMPARE(testContext.infos[0].surroundingText, QStringLiteral("QtWebEngine!"));
+    QCOMPARE(testContext.infos[0].selectedText, QStringLiteral(""));
+    testContext.infos.clear();
+
+    // Selection by IME.
+    {
+        QList<QInputMethodEvent::Attribute> attributes;
+        QInputMethodEvent::Attribute newSelection(QInputMethodEvent::Selection, 2, 12, QVariant());
+        attributes.append(newSelection);
+        QInputMethodEvent event("", attributes);
+        QGuiApplication::sendEvent(qApp->focusObject(), &event);
+    }
+    QTRY_COMPARE(testContext.infos.count(), 2);
+
+    // As a first step, Chromium moves the cursor to the start of the selection.
+    // We don't filter this in QtWebEngine because we don't know yet if this is part of a selection.
+    QCOMPARE(testContext.infos[0].cursorPosition, 2);
+    QCOMPARE(testContext.infos[0].anchorPosition, 2);
+    QCOMPARE(testContext.infos[0].surroundingText, QStringLiteral("QtWebEngine!"));
+    QCOMPARE(testContext.infos[0].selectedText, QStringLiteral(""));
+
+    // The update of the selection.
+    QCOMPARE(testContext.infos[1].cursorPosition, 12);
+    QCOMPARE(testContext.infos[1].anchorPosition, 2);
+    QCOMPARE(testContext.infos[1].surroundingText, QStringLiteral("QtWebEngine!"));
+    QCOMPARE(testContext.infos[1].selectedText, QStringLiteral("WebEngine!"));
+    testContext.infos.clear();
+
+    // Clear selection by IME.
+    {
+        QList<QInputMethodEvent::Attribute> attributes;
+        QInputMethodEvent::Attribute newSelection(QInputMethodEvent::Selection, 0, 0, QVariant());
+        attributes.append(newSelection);
+        QInputMethodEvent event("", attributes);
+        QGuiApplication::sendEvent(qApp->focusObject(), &event);
+    }
+    QTRY_COMPARE(testContext.infos.count(), 1);
+    QCOMPARE(testContext.infos[0].cursorPosition, 0);
+    QCOMPARE(testContext.infos[0].anchorPosition, 0);
+    QCOMPARE(testContext.infos[0].surroundingText, QStringLiteral("QtWebEngine!"));
+    QCOMPARE(testContext.infos[0].selectedText, QStringLiteral(""));
+    testContext.infos.clear();
+
+    // Compose text.
+    {
+        QList<QInputMethodEvent::Attribute> attributes;
+        QInputMethodEvent event("123", attributes);
+        QGuiApplication::sendEvent(qApp->focusObject(), &event);
+    }
+    QTRY_COMPARE(testContext.infos.count(), 1);
+    QCOMPARE(testContext.infos[0].cursorPosition, 3);
+    QCOMPARE(testContext.infos[0].anchorPosition, 3);
+    QCOMPARE(testContext.infos[0].surroundingText, QStringLiteral("QtWebEngine!"));
+    QCOMPARE(testContext.infos[0].selectedText, QStringLiteral(""));
+    QCOMPARE(evaluateJavaScriptSync(view, "document.getElementById('input1').value").toString(), QStringLiteral("123QtWebEngine!"));
+    testContext.infos.clear();
+
+    // Cancel composition.
+    {
+        QList<QInputMethodEvent::Attribute> attributes;
+        QInputMethodEvent event("", attributes);
+        QGuiApplication::sendEvent(qApp->focusObject(), &event);
+    }
+    QTRY_COMPARE(testContext.infos.count(), 2);
+    foreach (const InputMethodInfo &info, testContext.infos) {
+        QCOMPARE(info.cursorPosition, 0);
+        QCOMPARE(info.anchorPosition, 0);
+        QCOMPARE(info.surroundingText, QStringLiteral("QtWebEngine!"));
+        QCOMPARE(info.selectedText, QStringLiteral(""));
+    }
+    QCOMPARE(evaluateJavaScriptSync(view, "document.getElementById('input1').value").toString(), QStringLiteral("QtWebEngine!"));
+    testContext.infos.clear();
+
+    // Commit text.
+    {
+        QList<QInputMethodEvent::Attribute> attributes;
+        QInputMethodEvent event("", attributes);
+        event.setCommitString(QStringLiteral("123"), 0, 0);
+        QGuiApplication::sendEvent(qApp->focusObject(), &event);
+    }
+    QTRY_COMPARE(testContext.infos.count(), 1);
+    QCOMPARE(testContext.infos[0].cursorPosition, 3);
+    QCOMPARE(testContext.infos[0].anchorPosition, 3);
+    QCOMPARE(testContext.infos[0].surroundingText, QStringLiteral("123QtWebEngine!"));
+    QCOMPARE(testContext.infos[0].selectedText, QStringLiteral(""));
+    QCOMPARE(evaluateJavaScriptSync(view, "document.getElementById('input1').value").toString(), QStringLiteral("123QtWebEngine!"));
+    testContext.infos.clear();
+
+    // Focus out.
+    QTest::keyPress(view->window(), Qt::Key_Tab);
+    QTRY_COMPARE(testContext.infos.count(), 1);
+    QTRY_COMPARE(evaluateJavaScriptSync(view, "document.activeElement.id").toString(), QStringLiteral(""));
+    testContext.infos.clear();
+}
+
 void tst_QQuickWebEngineView::inputMethodHints()
 {
     m_window->show();
@@ -595,7 +783,7 @@ void tst_QQuickWebEngineView::inputMethodHints()
     QVERIFY(view->flags().testFlag(QQuickItem::ItemAcceptsInputMethod));
     query = QInputMethodQueryEvent(Qt::ImHints);
     QGuiApplication::sendEvent(input, &query);
-    QTRY_COMPARE(Qt::InputMethodHints(query.value(Qt::ImHints).toUInt()), Qt::ImhPreferLowercase | Qt::ImhMultiLine);
+    QTRY_COMPARE(Qt::InputMethodHints(query.value(Qt::ImHints).toUInt()), Qt::ImhPreferLowercase | Qt::ImhNoPredictiveText | Qt::ImhMultiLine | Qt::ImhNoEditMenu | Qt::ImhNoTextHandles);
 }
 
 void tst_QQuickWebEngineView::setZoomFactor()
@@ -619,8 +807,8 @@ void tst_QQuickWebEngineView::setZoomFactor()
 
 void tst_QQuickWebEngineView::printToPdf()
 {
-#if !defined(ENABLE_PDF)
-    QSKIP("ENABLE_PDF");
+#if !QT_CONFIG(webengine_printing_and_pdf)
+    QSKIP("no webengine-printing-and-pdf");
 #else
     QTemporaryDir tempDir(QDir::tempPath() + "/tst_qwebengineview-XXXXXX");
     QVERIFY(tempDir.isValid());
@@ -646,7 +834,7 @@ void tst_QQuickWebEngineView::printToPdf()
     QList<QVariant> failedArguments = savePdfSpy.takeFirst();
     QVERIFY2(failedArguments.at(0).toString() == path, "File path for second saved PDF does not match arguments");
     QVERIFY2(failedArguments.at(1).toBool() == false, "Printing to PDF file succeeded though it should fail");
-#endif // !defined(ENABLE_PDF)
+#endif // !QT_CONFIG(webengine_printing_and_pdf)
 }
 
 void tst_QQuickWebEngineView::stopSettingFocusWhenDisabled()
@@ -813,7 +1001,7 @@ void tst_QQuickWebEngineView::changeLocale()
 
     QTRY_VERIFY(!evaluateJavaScriptSync(viewDE.data(), "document.body.innerText").isNull());
     errorLines = evaluateJavaScriptSync(viewDE.data(), "document.body.innerText").toString().split(QRegExp("[\r\n]"), QString::SkipEmptyParts);
-    QCOMPARE(errorLines.first().toUtf8(), QByteArrayLiteral("Diese Website ist nicht erreichbar"));
+    QCOMPARE(errorLines.first().toUtf8(), QByteArrayLiteral("Die Website ist nicht erreichbar"));
 
     QLocale::setDefault(QLocale("en"));
     QScopedPointer<QQuickWebEngineView> viewEN(newWebEngineView());
@@ -834,7 +1022,7 @@ void tst_QQuickWebEngineView::changeLocale()
 
     QTRY_VERIFY(!evaluateJavaScriptSync(viewDE.data(), "document.body.innerText").isNull());
     errorLines = evaluateJavaScriptSync(viewDE.data(), "document.body.innerText").toString().split(QRegExp("[\r\n]"), QString::SkipEmptyParts);
-    QCOMPARE(errorLines.first().toUtf8(), QByteArrayLiteral("Diese Website ist nicht erreichbar"));
+    QCOMPARE(errorLines.first().toUtf8(), QByteArrayLiteral("Die Website ist nicht erreichbar"));
 }
 
 void tst_QQuickWebEngineView::userScripts()
@@ -858,6 +1046,101 @@ void tst_QQuickWebEngineView::userScripts()
     QTRY_COMPARE(webEngineView2->title(), QStringLiteral("New title"));
 
     list.clear();
+}
+
+void tst_QQuickWebEngineView::javascriptClipboard_data()
+{
+    QTest::addColumn<bool>("javascriptCanAccessClipboard");
+    QTest::addColumn<bool>("javascriptCanPaste");
+    QTest::addColumn<bool>("copyResult");
+    QTest::addColumn<bool>("pasteResult");
+
+    QTest::newRow("default") << false << false << false << false;
+    QTest::newRow("canCopy") << true << false << true << false;
+    // paste command requires both permissions
+    QTest::newRow("canPaste") << false << true << false << false;
+    QTest::newRow("canCopyAndPaste") << true << true << true << true;
+}
+
+void tst_QQuickWebEngineView::javascriptClipboard()
+{
+    QFETCH(bool, javascriptCanAccessClipboard);
+    QFETCH(bool, javascriptCanPaste);
+    QFETCH(bool, copyResult);
+    QFETCH(bool, pasteResult);
+
+    // check defaults
+    QCOMPARE(webEngineView()->settings()->javascriptCanAccessClipboard(), false);
+    QCOMPARE(webEngineView()->settings()->javascriptCanPaste(), false);
+
+    // check accessors
+    webEngineView()->settings()->setJavascriptCanAccessClipboard(javascriptCanAccessClipboard);
+    webEngineView()->settings()->setJavascriptCanPaste(javascriptCanPaste);
+    QCOMPARE(webEngineView()->settings()->javascriptCanAccessClipboard(),
+             javascriptCanAccessClipboard);
+    QCOMPARE(webEngineView()->settings()->javascriptCanPaste(), javascriptCanPaste);
+
+    QQuickWebEngineView *view = webEngineView();
+    view->loadHtml("<html><body>"
+                   "<input type='text' value='OriginalText' id='myInput'/>"
+                   "</body></html>");
+    QVERIFY(waitForLoadSucceeded(view));
+
+    // make sure that 'OriginalText' is selected
+    evaluateJavaScriptSync(view, "document.getElementById('myInput').select()");
+    QCOMPARE(evaluateJavaScriptSync(view, "window.getSelection().toString()").toString(),
+             QStringLiteral("OriginalText"));
+
+    // Check that the actual settings work by the
+    // - return value of queryCommandEnabled and
+    // - return value of execCommand
+    // - comparing the clipboard / input field
+    QGuiApplication::clipboard()->clear();
+    QCOMPARE(evaluateJavaScriptSync(view, "document.queryCommandEnabled('copy')").toBool(),
+             copyResult);
+    QCOMPARE(evaluateJavaScriptSync(view, "document.execCommand('copy')").toBool(), copyResult);
+    QCOMPARE(QGuiApplication::clipboard()->text(),
+             (copyResult ? QString("OriginalText") : QString()));
+
+    QGuiApplication::clipboard()->setText("AnotherText");
+    QCOMPARE(evaluateJavaScriptSync(view, "document.queryCommandEnabled('paste')").toBool(),
+             pasteResult);
+    QCOMPARE(evaluateJavaScriptSync(view, "document.execCommand('paste')").toBool(), pasteResult);
+    QCOMPARE(evaluateJavaScriptSync(view, "document.getElementById('myInput').value").toString(),
+                (pasteResult ? QString("AnotherText") : QString("OriginalText")));
+
+    // Test settings on clipboard permissions
+    evaluateJavaScriptSync(view,
+        QStringLiteral(
+            "var accessGranted = false;"
+            "var accessDenied = false;"
+            "var accessPrompt = false;"
+            "navigator.permissions.query({name:'clipboard-write'})"
+            ".then(result => {"
+                "if (result.state == 'granted') accessGranted = true;"
+                "if (result.state == 'denied') accessDenied = true;"
+                "if (result.state == 'prompt') accessPrompt = true;"
+            "})"));
+
+    QTRY_COMPARE(evaluateJavaScriptSync(view, "accessGranted").toBool(), copyResult);
+    QTRY_COMPARE(evaluateJavaScriptSync(view, "accessDenied").toBool(), !javascriptCanAccessClipboard);
+    QTRY_COMPARE(evaluateJavaScriptSync(view, "accessPrompt").toBool(), false);
+
+    evaluateJavaScriptSync(view,
+        QStringLiteral(
+            "accessGranted = false;"
+            "accessDenied = false;"
+            "accessPrompt = false;"
+            "navigator.permissions.query({name:'clipboard-read'})"
+            ".then(result => {"
+                "if (result.state == 'granted') accessGranted = true;"
+                "if (result.state == 'denied') accessDenied = true;"
+                "if (result.state == 'prompt') accessPrompt = true;"
+            "})"));
+
+    QTRY_COMPARE(evaluateJavaScriptSync(view, "accessGranted").toBool(), pasteResult);
+    QTRY_COMPARE(evaluateJavaScriptSync(view, "accessDenied").toBool(), !javascriptCanAccessClipboard || !javascriptCanPaste);
+    QTRY_COMPARE(evaluateJavaScriptSync(view, "accessPrompt").toBool(), false);
 }
 
 QTEST_MAIN(tst_QQuickWebEngineView)

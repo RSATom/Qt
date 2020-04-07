@@ -40,19 +40,20 @@ if(NOT OPENSSL_NO_ASM)
     # CMake does not add -isysroot and -arch flags to assembly.
     if (APPLE)
       if (CMAKE_OSX_SYSROOT)
-        set(CMAKE_ASM_FLAGS "${CMAKE_ASM_FLAGS} -isysroot ${CMAKE_OSX_SYSROOT}")
+        set(CMAKE_ASM_FLAGS "${CMAKE_ASM_FLAGS} -isysroot \"${CMAKE_OSX_SYSROOT}\"")
       endif()
       foreach(arch ${CMAKE_OSX_ARCHITECTURES})
         set(CMAKE_ASM_FLAGS "${CMAKE_ASM_FLAGS} -arch ${arch}")
       endforeach()
     endif()
   else()
-    if (CMAKE_CL_64)
+    if (${ARCH} STREQUAL "x86_64")
       set(PERLASM_STYLE nasm)
     else()
       set(PERLASM_STYLE win32n)
       set(PERLASM_FLAGS "-DOPENSSL_IA32_SSE2")
     endif()
+    set(CMAKE_ASM_NASM_FLAGS "-gcv8")
 
     # On Windows, we use the NASM output, specifically built with Yasm.
     set(ASM_EXT asm)
@@ -133,6 +134,7 @@ add_library(
 
   OBJECT
 
+  cpu-aarch64-fuchsia.c
   cpu-aarch64-linux.c
   cpu-arm.c
   cpu-arm-linux.c
@@ -178,6 +180,7 @@ add_library(
   $<TARGET_OBJECTS:chacha>
   $<TARGET_OBJECTS:poly1305>
   $<TARGET_OBJECTS:curve25519>
+  $<TARGET_OBJECTS:fiat>
   $<TARGET_OBJECTS:buf>
   $<TARGET_OBJECTS:bn_extra>
   $<TARGET_OBJECTS:bio>
@@ -219,6 +222,7 @@ add_executable(
 
   asn1/asn1_test.cc
   base64/base64_test.cc
+  buf/buf_test.cc
   bio/bio_test.cc
   bytestring/bytestring_test.cc
   chacha/chacha_test.cc
@@ -257,18 +261,20 @@ add_executable(
   pool/pool_test.cc
   refcount_test.cc
   rsa_extra/rsa_test.cc
+  self_test.cc
   test/file_test_gtest.cc
   thread_test.cc
   x509/x509_test.cc
+  x509/x509_time_test.cc
   x509v3/tab_test.cc
   x509v3/v3name_test.cc
 
   $<TARGET_OBJECTS:crypto_test_data>
-  $<TARGET_OBJECTS:gtest_main>
+  $<TARGET_OBJECTS:boringssl_gtest_main>
   $<TARGET_OBJECTS:test_support>
 )
 
-target_link_libraries(crypto_test crypto gtest)
+target_link_libraries(crypto_test crypto boringssl_gtest)
 if (WIN32)
   target_link_libraries(crypto_test ws2_32)
 endif()

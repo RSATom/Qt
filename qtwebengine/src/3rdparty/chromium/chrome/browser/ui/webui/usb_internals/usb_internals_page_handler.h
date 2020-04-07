@@ -6,27 +6,23 @@
 #define CHROME_BROWSER_UI_WEBUI_USB_INTERNALS_USB_INTERNALS_PAGE_HANDLER_H_
 
 #include "base/macros.h"
-#include "chrome/browser/ui/webui/mojo_web_ui_handler.h"
 #include "chrome/browser/ui/webui/usb_internals/usb_internals.mojom.h"
 #include "mojo/public/cpp/bindings/binding.h"
 
-class UsbInternalsPageHandler : public mojom::UsbInternalsPageHandler,
-                                public MojoWebUIHandler {
+class UsbInternalsPageHandler : public mojom::UsbInternalsPageHandler {
  public:
   explicit UsbInternalsPageHandler(
       mojom::UsbInternalsPageHandlerRequest request);
   ~UsbInternalsPageHandler() override;
 
   // mojom::UsbInternalsPageHandler overrides:
-  void AddDeviceForTesting(
-      const std::string& name,
-      const std::string& serial_number,
-      const std::string& landing_page,
-      const AddDeviceForTestingCallback& callback) override;
-  void RemoveDeviceForTesting(
-      const std::string& guid,
-      const RemoveDeviceForTestingCallback& callback) override;
-  void GetTestDevices(const GetTestDevicesCallback& callback) override;
+  void AddDeviceForTesting(const std::string& name,
+                           const std::string& serial_number,
+                           const std::string& landing_page,
+                           AddDeviceForTestingCallback callback) override;
+  void RemoveDeviceForTesting(const std::string& guid,
+                              RemoveDeviceForTestingCallback callback) override;
+  void GetTestDevices(GetTestDevicesCallback callback) override;
 
  private:
   mojo::Binding<mojom::UsbInternalsPageHandler> binding_;

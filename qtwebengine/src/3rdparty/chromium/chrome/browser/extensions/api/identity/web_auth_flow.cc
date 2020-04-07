@@ -4,6 +4,7 @@
 
 #include "chrome/browser/extensions/api/identity/web_auth_flow.h"
 
+#include <memory>
 #include <utility>
 
 #include "base/base64.h"
@@ -28,7 +29,6 @@
 #include "content/public/browser/notification_source.h"
 #include "content/public/browser/notification_types.h"
 #include "content/public/browser/render_frame_host.h"
-#include "content/public/browser/resource_request_details.h"
 #include "content/public/browser/web_contents.h"
 #include "crypto/random.h"
 #include "extensions/browser/app_window/app_window.h"
@@ -39,7 +39,6 @@
 #include "url/url_constants.h"
 
 using content::RenderViewHost;
-using content::ResourceRedirectDetails;
 using content::WebContents;
 using content::WebContentsObserver;
 using guest_view::GuestViewBase;
@@ -97,7 +96,7 @@ void WebAuthFlow::Start() {
     args->AppendString("silent");
 
   auto event =
-      base::MakeUnique<Event>(events::IDENTITY_PRIVATE_ON_WEB_FLOW_REQUEST,
+      std::make_unique<Event>(events::IDENTITY_PRIVATE_ON_WEB_FLOW_REQUEST,
                               identity_private::OnWebFlowRequest::kEventName,
                               std::move(args), profile_);
   ExtensionSystem* system = ExtensionSystem::Get(profile_);
@@ -182,13 +181,7 @@ void WebAuthFlow::RenderProcessGone(base::TerminationStatus status) {
     delegate_->OnAuthFlowFailure(WebAuthFlow::WINDOW_CLOSED);
 }
 
-void WebAuthFlow::DidGetRedirectForResourceRequest(
-    const content::ResourceRedirectDetails& details) {
-  BeforeUrlLoaded(details.new_url);
-}
-
-void WebAuthFlow::TitleWasSet(content::NavigationEntry* entry,
-                              bool explicit_set) {
+void WebAuthFlow::TitleWasSet(content::NavigationEntry* entry) {
   if (delegate_)
     delegate_->OnAuthFlowTitleChange(base::UTF16ToUTF8(entry->GetTitle()));
 }
@@ -201,6 +194,11 @@ void WebAuthFlow::DidStartNavigation(
     content::NavigationHandle* navigation_handle) {
   if (navigation_handle->IsInMainFrame())
     BeforeUrlLoaded(navigation_handle->GetURL());
+}
+
+void WebAuthFlow::DidRedirectNavigation(
+    content::NavigationHandle* navigation_handle) {
+  BeforeUrlLoaded(navigation_handle->GetURL());
 }
 
 void WebAuthFlow::DidFinishNavigation(

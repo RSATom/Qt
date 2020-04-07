@@ -17,7 +17,7 @@ namespace {
 bool HandleTestFileRequestCallback(
     const std::string& path,
     const content::WebUIDataSource::GotDataCallback& callback) {
-  base::ThreadRestrictions::ScopedAllowIO allow_io;
+  base::ScopedAllowBlockingForTesting allow_blocking;
   std::vector<std::string> url_substr =
       base::SplitString(path, "/", base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
   if (url_substr.size() != 2 || url_substr[0] != "test")
@@ -25,7 +25,7 @@ bool HandleTestFileRequestCallback(
 
   std::string contents;
   base::FilePath test_data_dir;
-  PathService::Get(chrome::DIR_TEST_DATA, &test_data_dir);
+  base::PathService::Get(chrome::DIR_TEST_DATA, &test_data_dir);
   if (!base::ReadFileToString(
           test_data_dir.AppendASCII("webui").AppendASCII(url_substr[1]),
           &contents))

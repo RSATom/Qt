@@ -14,11 +14,6 @@
 #include "xfa/fwl/cfwl_widgetproperties.h"
 
 #define FWL_CLASS_Form L"FWL_FORM"
-#define FWL_CLASS_FormProxy L"FWL_FORMPROXY"
-
-#if (_FX_OS_ == _FX_MACOSX_)
-#define FWL_UseMacSystemBorder
-#endif
 
 class CFWL_MessageMouse;
 class CFWL_NoteLoop;
@@ -34,14 +29,14 @@ class CFWL_Form : public CFWL_Widget {
 
   // CFWL_Widget
   FWL_Type GetClassID() const override;
-  bool IsInstance(const CFX_WideStringC& wsClass) const override;
+  bool IsInstance(const WideStringView& wsClass) const override;
   CFX_RectF GetClientRect() override;
   void Update() override;
   FWL_WidgetHit HitTest(const CFX_PointF& point) override;
-  void DrawWidget(CXFA_Graphics* pGraphics, const CFX_Matrix* pMatrix) override;
+  void DrawWidget(CXFA_Graphics* pGraphics, const CFX_Matrix& matrix) override;
   void OnProcessMessage(CFWL_Message* pMessage) override;
   void OnDrawWidget(CXFA_Graphics* pGraphics,
-                    const CFX_Matrix* pMatrix) override;
+                    const CFX_Matrix& matrix) override;
 
   CFWL_Widget* DoModal();
   void EndDoModal();

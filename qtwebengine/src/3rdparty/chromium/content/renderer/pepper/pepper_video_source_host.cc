@@ -9,7 +9,7 @@
 #include "base/bind.h"
 #include "base/numerics/safe_conversions.h"
 #include "content/public/renderer/renderer_ppapi_host.h"
-#include "content/renderer/media/video_track_to_pepper_adapter.h"
+#include "content/renderer/media/pepper/video_track_to_pepper_adapter.h"
 #include "content/renderer/pepper/ppb_image_data_impl.h"
 #include "content/renderer/render_thread_impl.h"
 #include "media/base/video_util.h"
@@ -62,13 +62,13 @@ void PepperVideoSourceHost::FrameReceiver::GotFrame(
     return;
 
   if (!(video_frame->format() == media::PIXEL_FORMAT_I420 ||
-        video_frame->format() == media::PIXEL_FORMAT_YV12A)) {
+        video_frame->format() == media::PIXEL_FORMAT_I420A)) {
     NOTREACHED();
     return;
   }
   scoped_refptr<media::VideoFrame> frame = video_frame;
   // Drop alpha channel since we do not support it yet.
-  if (frame->format() == media::PIXEL_FORMAT_YV12A)
+  if (frame->format() == media::PIXEL_FORMAT_I420A)
     frame = media::WrapAsI420VideoFrame(video_frame);
 
   // Hold a reference to the new frame and release the previous.
@@ -176,7 +176,7 @@ void PepperVideoSourceHost::SendGetFrameReply() {
         dispatcher->ShareSharedMemoryHandleWithRemote(local_shm->handle());
   } else {
     // We need to allocate new shared memory.
-    shared_image_ = NULL;  // Release any previous image.
+    shared_image_ = nullptr;  // Release any previous image.
 
     ppapi::ScopedPPResource resource(
         ppapi::ScopedPPResource::PassRef(),
@@ -209,7 +209,7 @@ void PepperVideoSourceHost::SendGetFrameReply() {
 
     DCHECK(!shared_image_->IsMapped());  // New memory should not be mapped.
     if (!shared_image_->Map() || shared_image_->GetMappedBitmap().empty()) {
-      shared_image_ = NULL;
+      shared_image_ = nullptr;
       SendGetFrameErrorReply(PP_ERROR_FAILED);
       return;
     }
@@ -236,7 +236,7 @@ void PepperVideoSourceHost::SendGetFrameReply() {
     frame = last_frame_;
     // Frame resolution doesn't change frequently, so don't keep any unnecessary
     // buffers around.
-    scaled_frame_ = NULL;
+    scaled_frame_ = nullptr;
   } else {
     // We need to create an intermediate scaled frame. Make sure we have
     // allocated one of correct size.
@@ -270,7 +270,7 @@ void PepperVideoSourceHost::SendGetFrameReply() {
                       libyuv::kFilterBilinear);
     frame = scaled_frame_;
   }
-  last_frame_ = NULL;
+  last_frame_ = nullptr;
 
   libyuv::I420ToARGB(frame->visible_data(media::VideoFrame::kYPlane),
                      frame->stride(media::VideoFrame::kYPlane),
@@ -291,7 +291,7 @@ void PepperVideoSourceHost::SendGetFrameReply() {
 
   ppapi::proxy::SerializedHandle serialized_handle;
   serialized_handle.set_shmem(image_handle, byte_count);
-  reply_context_.params.AppendHandle(serialized_handle);
+  reply_context_.params.AppendHandle(std::move(serialized_handle));
 
   host()->SendReply(reply_context_,
                     PpapiPluginMsg_VideoSource_GetFrameReply(
@@ -313,10 +313,10 @@ void PepperVideoSourceHost::Close() {
   if (frame_source_.get() && !stream_url_.empty())
     frame_source_->Close(frame_receiver_.get());
 
-  frame_source_.reset(NULL);
+  frame_source_.reset(nullptr);
   stream_url_.clear();
 
-  shared_image_ = NULL;
+  shared_image_ = nullptr;
 }
 
 }  // namespace content

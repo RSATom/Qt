@@ -12,6 +12,7 @@
 #include <utility>
 #include <vector>
 
+#include "base/callback_helpers.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/message_loop/message_loop.h"
@@ -20,8 +21,10 @@
 #include "net/base/test_completion_callback.h"
 #include "net/log/net_log_source.h"
 #include "net/log/net_log_with_source.h"
+#include "net/socket/socket_tag.h"
 #include "net/socket/socket_test_util.h"
 #include "net/socket/stream_socket.h"
+#include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -50,12 +53,34 @@ enum {
 // Used by PassThroughMethods test.
 class MockClientSocket : public net::StreamSocket {
  public:
-  virtual ~MockClientSocket() {}
+  ~MockClientSocket() override {}
+
+  int Read(net::IOBuffer* buffer,
+           int bytes,
+           net::CompletionOnceCallback callback) override {
+    return Read(buffer, bytes,
+                base::AdaptCallbackForRepeating(std::move(callback)));
+  }
+
+  int Write(net::IOBuffer* buffer,
+            int bytes,
+            net::CompletionOnceCallback callback,
+            const net::NetworkTrafficAnnotationTag& tag) override {
+    return Write(buffer, bytes,
+                 base::AdaptCallbackForRepeating(std::move(callback)), tag);
+  }
+
+  int Connect(net::CompletionOnceCallback callback) override {
+    return Connect(base::AdaptCallbackForRepeating(std::move(callback)));
+  }
 
   MOCK_METHOD3(Read, int(net::IOBuffer*, int,
                          const net::CompletionCallback&));
-  MOCK_METHOD3(Write, int(net::IOBuffer*, int,
-                          const net::CompletionCallback&));
+  MOCK_METHOD4(Write,
+               int(net::IOBuffer*,
+                   int,
+                   const net::CompletionCallback&,
+                   const net::NetworkTrafficAnnotationTag&));
   MOCK_METHOD1(SetReceiveBufferSize, int(int32_t));
   MOCK_METHOD1(SetSendBufferSize, int(int32_t));
   MOCK_METHOD1(Connect, int(const net::CompletionCallback&));
@@ -65,8 +90,6 @@ class MockClientSocket : public net::StreamSocket {
   MOCK_CONST_METHOD1(GetPeerAddress, int(net::IPEndPoint*));
   MOCK_CONST_METHOD1(GetLocalAddress, int(net::IPEndPoint*));
   MOCK_CONST_METHOD0(NetLog, const net::NetLogWithSource&());
-  MOCK_METHOD0(SetSubresourceSpeculation, void());
-  MOCK_METHOD0(SetOmniboxSpeculation, void());
   MOCK_CONST_METHOD0(WasEverUsed, bool());
   MOCK_CONST_METHOD0(UsingTCPFastOpen, bool());
   MOCK_CONST_METHOD0(NumBytesRead, int64_t());
@@ -78,6 +101,7 @@ class MockClientSocket : public net::StreamSocket {
   MOCK_METHOD0(ClearConnectionAttempts, void());
   MOCK_METHOD1(AddConnectionAttempts, void(const net::ConnectionAttempts&));
   MOCK_CONST_METHOD0(GetTotalReceivedBytes, int64_t());
+  MOCK_METHOD1(ApplySocketTag, void(const net::SocketTag&));
 };
 
 // Break up |data| into a bunch of chunked MockReads/Writes and push
@@ -110,9 +134,7 @@ class FakeSSLClientSocketTest : public testing::Test {
                std::vector<net::MockRead>* reads,
                std::vector<net::MockWrite>* writes) {
     static_socket_data_provider_.reset(
-        new net::StaticSocketDataProvider(
-            reads->empty() ? NULL : &*reads->begin(), reads->size(),
-            writes->empty() ? NULL : &*writes->begin(), writes->size()));
+        new net::StaticSocketDataProvider(*reads, *writes));
     static_socket_data_provider_->set_connect_data(mock_connect);
     mock_client_socket_factory_.AddSocketDataProvider(
         static_socket_data_provider_.get());
@@ -179,10 +201,9 @@ class FakeSSLClientSocketTest : public testing::Test {
 
         scoped_refptr<net::IOBuffer> write_buf(
             new net::StringIOBuffer(kWriteTestData));
-        int write_status =
-            fake_ssl_client_socket.Write(write_buf.get(),
-                                         arraysize(kWriteTestData),
-                                         test_completion_callback.callback());
+        int write_status = fake_ssl_client_socket.Write(
+            write_buf.get(), arraysize(kWriteTestData),
+            test_completion_callback.callback(), TRAFFIC_ANNOTATION_FOR_TESTS);
         ExpectStatus(mode, arraysize(kWriteTestData), write_status,
                      &test_completion_callback);
       } else {
@@ -290,8 +311,6 @@ TEST_F(FakeSSLClientSocketTest, PassThroughMethods) {
   EXPECT_CALL(*mock_client_socket, GetPeerAddress(&ip_endpoint)).
       WillOnce(Return(kPeerAddress));
   EXPECT_CALL(*mock_client_socket, NetLog()).WillOnce(ReturnRef(net_log));
-  EXPECT_CALL(*mock_client_socket, SetSubresourceSpeculation());
-  EXPECT_CALL(*mock_client_socket, SetOmniboxSpeculation());
 
   // Takes ownership of |mock_client_socket|.
   FakeSSLClientSocket fake_ssl_client_socket(std::move(mock_client_socket));
@@ -300,8 +319,6 @@ TEST_F(FakeSSLClientSocketTest, PassThroughMethods) {
   EXPECT_EQ(kPeerAddress,
             fake_ssl_client_socket.GetPeerAddress(&ip_endpoint));
   EXPECT_EQ(&net_log, &fake_ssl_client_socket.NetLog());
-  fake_ssl_client_socket.SetSubresourceSpeculation();
-  fake_ssl_client_socket.SetOmniboxSpeculation();
 }
 
 TEST_F(FakeSSLClientSocketTest, SuccessfulHandshakeSync) {

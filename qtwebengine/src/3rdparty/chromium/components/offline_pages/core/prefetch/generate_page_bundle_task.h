@@ -5,45 +5,55 @@
 #ifndef COMPONENTS_OFFLINE_PAGES_CORE_PREFETCH_GENERATE_PAGE_BUNDLE_TASK_H_
 #define COMPONENTS_OFFLINE_PAGES_CORE_PREFETCH_GENERATE_PAGE_BUNDLE_TASK_H_
 
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "base/memory/weak_ptr.h"
+#include "base/time/clock.h"
 #include "components/gcm_driver/instance_id/instance_id.h"
+#include "components/offline_pages/core/prefetch/prefetch_dispatcher.h"
 #include "components/offline_pages/core/prefetch/prefetch_types.h"
 #include "components/offline_pages/core/task.h"
 
 namespace offline_pages {
 class PrefetchGCMHandler;
 class PrefetchNetworkRequestFactory;
+class PrefetchStore;
 
 // Task that attempts to start archiving the URLs the prefetch service has
 // determined are viable to prefetch.
 class GeneratePageBundleTask : public Task {
  public:
-  // TODO(dewittj): remove the list of prefetch URLs when the DB operation can
-  // supply the current set of URLs.
-  GeneratePageBundleTask(const std::vector<PrefetchURL>& prefetch_urls,
+  struct UrlAndIds;
+
+  GeneratePageBundleTask(PrefetchDispatcher* prefetch_dispatcher,
+                         PrefetchStore* prefetch_store,
                          PrefetchGCMHandler* gcm_handler,
                          PrefetchNetworkRequestFactory* request_factory,
-                         const PrefetchRequestFinishedCallback& callback);
+                         PrefetchRequestFinishedCallback callback);
   ~GeneratePageBundleTask() override;
 
   // Task implementation.
   void Run() override;
 
+  void SetClockForTesting(base::Clock* clock);
+
  private:
-  void StartGeneratePageBundle(int updated_entry_count);
-  void GotRegistrationId(const std::string& id,
+  void StartGeneratePageBundle(std::unique_ptr<UrlAndIds> url_and_ids);
+  void GotRegistrationId(std::unique_ptr<UrlAndIds> url_and_ids,
+                         const std::string& id,
                          instance_id::InstanceID::Result result);
 
-  std::vector<PrefetchURL> prefetch_urls_;
+  base::Clock* clock_;
+
+  PrefetchDispatcher* prefetch_dispatcher_;
+  PrefetchStore* prefetch_store_;
   PrefetchGCMHandler* gcm_handler_;
   PrefetchNetworkRequestFactory* request_factory_;
   PrefetchRequestFinishedCallback callback_;
 
   base::WeakPtrFactory<GeneratePageBundleTask> weak_factory_;
-
   DISALLOW_COPY_AND_ASSIGN(GeneratePageBundleTask);
 };
 

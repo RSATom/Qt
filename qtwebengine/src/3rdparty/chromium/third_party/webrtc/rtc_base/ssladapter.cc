@@ -8,27 +8,26 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/rtc_base/ssladapter.h"
+#include "rtc_base/ssladapter.h"
 
-#include "webrtc/rtc_base/openssladapter.h"
+#include "rtc_base/openssladapter.h"
 
 ///////////////////////////////////////////////////////////////////////////////
 
 namespace rtc {
 
-SSLAdapter*
-SSLAdapter::Create(AsyncSocket* socket) {
+SSLAdapterFactory* SSLAdapterFactory::Create() {
+  return new OpenSSLAdapterFactory();
+}
+
+SSLAdapter* SSLAdapter::Create(AsyncSocket* socket) {
   return new OpenSSLAdapter(socket);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 
-bool InitializeSSL(VerificationCallback callback) {
-  return OpenSSLAdapter::InitializeSSL(callback);
-}
-
-bool InitializeSSLThread() {
-  return OpenSSLAdapter::InitializeSSLThread();
+bool InitializeSSL() {
+  return OpenSSLAdapter::InitializeSSL();
 }
 
 bool CleanupSSL() {

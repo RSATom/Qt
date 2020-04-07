@@ -44,13 +44,6 @@
 #include "qquickandroidstyle_p.h"
 #include "qquickandroid9patch_p.h"
 
-static void initResources()
-{
-#ifdef QT_STATIC
-    Q_INIT_RESOURCE(qmake_QtQuick_Controls_Styles_Android);
-#endif
-}
-
 QT_BEGIN_NAMESPACE
 
 class QtQuickControls1AndroidStylePlugin: public QQmlExtensionPlugin
@@ -59,7 +52,7 @@ class QtQuickControls1AndroidStylePlugin: public QQmlExtensionPlugin
     Q_PLUGIN_METADATA(IID QQmlExtensionInterface_iid)
 
 public:
-    QtQuickControls1AndroidStylePlugin(QObject *parent = 0) : QQmlExtensionPlugin(parent) { initResources(); }
+    QtQuickControls1AndroidStylePlugin(QObject *parent = 0) : QQmlExtensionPlugin(parent) { }
     void registerTypes(const char *uri);
 };
 

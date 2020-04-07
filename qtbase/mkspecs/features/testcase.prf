@@ -9,11 +9,30 @@ testcase_exceptions: CONFIG += exceptions
 # Set in qt_build_config.prf
 testcase_no_bundle: CONFIG -= app_bundle
 
+# Allow testcases to mark themselves as not supporting high-DPI
+testcase_lowdpi {
+    macos {
+        !isEmpty(QMAKE_INFO_PLIST): \
+            error("QMAKE_INFO_PLIST already set, can't apply testcase_lowdpi")
+
+        QMAKE_INFO_PLIST = $$QMAKESPEC/Info.plist.disable_highdpi
+    } else {
+        # TODO: Add support for other platforms if possible
+    }
+}
+
 benchmark: type = benchmark
 else: type = check
 
 $${type}.files =
 $${type}.path = .
+
+# Make sure we explicitly load the debug version of the Qt libraries if needed
+macos {
+    dyld_image_suffix.name = DYLD_IMAGE_SUFFIX
+    dyld_image_suffix.value = $$qtPlatformTargetSuffix()
+    QT_TOOL_ENV += dyld_image_suffix
+}
 
 # Add environment for non-installed builds. Do this first, so the
 # 'make' variable expansions don't end up in a batch file/script.
@@ -77,12 +96,11 @@ isEmpty(BUILDS)|build_pass {
     # Install tests unless no_testcase_installs is set, or there is already
     # a `target' in INSTALLS.
     #
-    # Tests are installed under a directory named after the target so that each
-    # test has its own directory for testdata etc.
+    # Tests are installed under a directory named after their source folder
+    # so that each test has its own directory for testdata etc.
     #
-    load(resolve_target)
-    TARGET_BASENAME = $$basename(QMAKE_RESOLVED_TARGET)
-    target.path = $$[QT_INSTALL_TESTS]/$$TARGET_BASENAME
+    TEST_FOLDER = $$basename(_PRO_FILE_PWD_)
+    target.path = $$[QT_INSTALL_TESTS]/$$TEST_FOLDER
     INSTALLS += target
 }
 
@@ -183,18 +201,24 @@ isEmpty(BUILDS)|build_pass {
 }
 
 builtin_testdata {
-    ALL_TESTDATA = $$TESTDATA $$GENERATED_TESTDATA
-
+    # RESOURCES does not support wildcards (for good reasons)
+    for (td, TESTDATA): \
+        testdata.files += $$files($$absolute_path($$td, $$_PRO_FILE_PWD_))
     # BLACKLIST needs to be added to the testdata
     BLACKLISTPATH = $$_PRO_FILE_PWD_/BLACKLIST
-    exists($$BLACKLISTPATH): ALL_TESTDATA *= $$BLACKLISTPATH
-
-    # RESOURCES does not support wildcards (for good reasons)
-    for(td, ALL_TESTDATA): \
-        testdata.files += $$files($$absolute_path($$td, $$_PRO_FILE_PWD_))
+    exists($$BLACKLISTPATH): \
+        testdata.files *= $$BLACKLISTPATH
     !isEmpty(testdata.files) {
         testdata.base = $$_PRO_FILE_PWD_
         RESOURCES += testdata
+    }
+
+    # Extra compilers don't create wildcards to start with.
+    for (td, GENERATED_TESTDATA): \
+        gentestdata.files += $$absolute_path($$td, $$OUT_PWD)
+    !isEmpty(gentestdata.files) {
+        gentestdata.base = $$OUT_PWD
+        RESOURCES += gentestdata
     }
 
     !isEmpty(TEST_HELPER_INSTALLS): \

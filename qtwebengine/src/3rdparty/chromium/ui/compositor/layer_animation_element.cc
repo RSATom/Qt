@@ -8,9 +8,9 @@
 
 #include "base/compiler_specific.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
-#include "cc/animation/animation.h"
+#include "base/strings/stringprintf.h"
 #include "cc/animation/animation_id_provider.h"
+#include "cc/animation/keyframe_model.h"
 #include "ui/compositor/float_animation_curve_adapter.h"
 #include "ui/compositor/layer.h"
 #include "ui/compositor/layer_animation_delegate.h"
@@ -39,6 +39,7 @@ class Pause : public LayerAnimationElement {
   ~Pause() override {}
 
  private:
+  std::string DebugName() const override { return "Pause"; }
   void OnStart(LayerAnimationDelegate* delegate) override {}
   bool OnProgress(double t, LayerAnimationDelegate* delegate) override {
     return false;
@@ -61,11 +62,15 @@ class InterpolatedTransformTransition : public LayerAnimationElement {
   ~InterpolatedTransformTransition() override {}
 
  protected:
+  std::string DebugName() const override {
+    return "InterpolatedTransformTransition";
+  }
   void OnStart(LayerAnimationDelegate* delegate) override {}
 
   bool OnProgress(double t, LayerAnimationDelegate* delegate) override {
     delegate->SetTransformFromAnimation(
-        interpolated_transform_->Interpolate(static_cast<float>(t)));
+        interpolated_transform_->Interpolate(static_cast<float>(t)),
+        PropertyChangeReason::FROM_ANIMATION);
     return true;
   }
 
@@ -92,13 +97,15 @@ class BoundsTransition : public LayerAnimationElement {
   ~BoundsTransition() override {}
 
  protected:
+  std::string DebugName() const override { return "BoundsTransition"; }
   void OnStart(LayerAnimationDelegate* delegate) override {
     start_ = delegate->GetBoundsForAnimation();
   }
 
   bool OnProgress(double t, LayerAnimationDelegate* delegate) override {
     delegate->SetBoundsFromAnimation(
-        gfx::Tween::RectValueBetween(t, start_, target_));
+        gfx::Tween::RectValueBetween(t, start_, target_),
+        PropertyChangeReason::FROM_ANIMATION);
     return true;
   }
 
@@ -127,12 +134,14 @@ class VisibilityTransition : public LayerAnimationElement {
   ~VisibilityTransition() override {}
 
  protected:
+  std::string DebugName() const override { return "VisibilityTransition"; }
   void OnStart(LayerAnimationDelegate* delegate) override {
     start_ = delegate->GetVisibilityForAnimation();
   }
 
   bool OnProgress(double t, LayerAnimationDelegate* delegate) override {
-    delegate->SetVisibilityFromAnimation(t == 1.0 ? target_ : start_);
+    delegate->SetVisibilityFromAnimation(t == 1.0 ? target_ : start_,
+                                         PropertyChangeReason::FROM_ANIMATION);
     return t == 1.0;
   }
 
@@ -161,13 +170,15 @@ class BrightnessTransition : public LayerAnimationElement {
   ~BrightnessTransition() override {}
 
  protected:
+  std::string DebugName() const override { return "BrightnessTransition"; }
   void OnStart(LayerAnimationDelegate* delegate) override {
     start_ = delegate->GetBrightnessForAnimation();
   }
 
   bool OnProgress(double t, LayerAnimationDelegate* delegate) override {
     delegate->SetBrightnessFromAnimation(
-        gfx::Tween::FloatValueBetween(t, start_, target_));
+        gfx::Tween::FloatValueBetween(t, start_, target_),
+        PropertyChangeReason::FROM_ANIMATION);
     return true;
   }
 
@@ -196,13 +207,15 @@ class GrayscaleTransition : public LayerAnimationElement {
   ~GrayscaleTransition() override {}
 
  protected:
+  std::string DebugName() const override { return "GrayscaleTransition"; }
   void OnStart(LayerAnimationDelegate* delegate) override {
     start_ = delegate->GetGrayscaleForAnimation();
   }
 
   bool OnProgress(double t, LayerAnimationDelegate* delegate) override {
     delegate->SetGrayscaleFromAnimation(
-        gfx::Tween::FloatValueBetween(t, start_, target_));
+        gfx::Tween::FloatValueBetween(t, start_, target_),
+        PropertyChangeReason::FROM_ANIMATION);
     return true;
   }
 
@@ -231,13 +244,15 @@ class ColorTransition : public LayerAnimationElement {
   ~ColorTransition() override {}
 
  protected:
+  std::string DebugName() const override { return "ColorTransition"; }
   void OnStart(LayerAnimationDelegate* delegate) override {
     start_ = delegate->GetColorForAnimation();
   }
 
   bool OnProgress(double t, LayerAnimationDelegate* delegate) override {
     delegate->SetColorFromAnimation(
-        gfx::Tween::ColorValueBetween(t, start_, target_));
+        gfx::Tween::ColorValueBetween(t, start_, target_),
+        PropertyChangeReason::FROM_ANIMATION);
     return true;
   }
 
@@ -254,40 +269,6 @@ class ColorTransition : public LayerAnimationElement {
   DISALLOW_COPY_AND_ASSIGN(ColorTransition);
 };
 
-// TemperatureTransition -------------------------------------------------------
-
-class TemperatureTransition : public LayerAnimationElement {
- public:
-  TemperatureTransition(float target, base::TimeDelta duration)
-      : LayerAnimationElement(TEMPERATURE, duration),
-        start_(0.0f),
-        target_(target) {}
-  ~TemperatureTransition() override {}
-
- protected:
-  void OnStart(LayerAnimationDelegate* delegate) override {
-    start_ = delegate->GetTemperatureFromAnimation();
-  }
-
-  bool OnProgress(double t, LayerAnimationDelegate* delegate) override {
-    delegate->SetTemperatureFromAnimation(
-        gfx::Tween::FloatValueBetween(t, start_, target_));
-    return true;
-  }
-
-  void OnGetTarget(TargetValue* target) const override {
-    target->temperature = target_;
-  }
-
-  void OnAbort(LayerAnimationDelegate* delegate) override {}
-
- private:
-  float start_;
-  const float target_;
-
-  DISALLOW_COPY_AND_ASSIGN(TemperatureTransition);
-};
-
 // ThreadedLayerAnimationElement -----------------------------------------------
 
 class ThreadedLayerAnimationElement : public LayerAnimationElement {
@@ -298,22 +279,27 @@ class ThreadedLayerAnimationElement : public LayerAnimationElement {
   }
   ~ThreadedLayerAnimationElement() override {}
 
-  bool IsThreaded() const override { return !duration().is_zero(); }
+  bool IsThreaded(LayerAnimationDelegate* delegate) const override {
+    return !duration().is_zero();
+  }
 
  protected:
   explicit ThreadedLayerAnimationElement(const LayerAnimationElement& element)
     : LayerAnimationElement(element) {
+  }
+  std::string DebugName() const override {
+    return "ThreadedLayerAnimationElement";
   }
 
   bool OnProgress(double t, LayerAnimationDelegate* delegate) override {
     if (t < 1.0)
       return false;
 
-    if (Started() && IsThreaded()) {
+    if (Started() && IsThreaded(delegate)) {
       LayerThreadedAnimationDelegate* threaded =
           delegate->GetThreadedAnimationDelegate();
       DCHECK(threaded);
-      threaded->RemoveThreadedAnimation(animation_id());
+      threaded->RemoveThreadedAnimation(keyframe_model_id());
     }
 
     OnEnd(delegate);
@@ -321,33 +307,33 @@ class ThreadedLayerAnimationElement : public LayerAnimationElement {
   }
 
   void OnAbort(LayerAnimationDelegate* delegate) override {
-    if (delegate && Started() && IsThreaded()) {
+    if (delegate && Started() && IsThreaded(delegate)) {
       LayerThreadedAnimationDelegate* threaded =
           delegate->GetThreadedAnimationDelegate();
       DCHECK(threaded);
-      threaded->RemoveThreadedAnimation(animation_id());
+      threaded->RemoveThreadedAnimation(keyframe_model_id());
     }
   }
 
   void RequestEffectiveStart(LayerAnimationDelegate* delegate) override {
     DCHECK(animation_group_id());
-    if (!IsThreaded()) {
+    if (!IsThreaded(delegate)) {
       set_effective_start_time(requested_start_time());
       return;
     }
     set_effective_start_time(base::TimeTicks());
-    std::unique_ptr<cc::Animation> animation = CreateCCAnimation();
-    animation->set_needs_synchronized_start_time(true);
+    std::unique_ptr<cc::KeyframeModel> keyframe_model = CreateCCKeyframeModel();
+    keyframe_model->set_needs_synchronized_start_time(true);
 
     LayerThreadedAnimationDelegate* threaded =
         delegate->GetThreadedAnimationDelegate();
     DCHECK(threaded);
-    threaded->AddThreadedAnimation(std::move(animation));
+    threaded->AddThreadedAnimation(std::move(keyframe_model));
   }
 
   virtual void OnEnd(LayerAnimationDelegate* delegate) = 0;
 
-  virtual std::unique_ptr<cc::Animation> CreateCCAnimation() = 0;
+  virtual std::unique_ptr<cc::KeyframeModel> CreateCCKeyframeModel() = 0;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(ThreadedLayerAnimationElement);
@@ -365,36 +351,53 @@ class ThreadedOpacityTransition : public ThreadedLayerAnimationElement {
   ~ThreadedOpacityTransition() override {}
 
  protected:
+  std::string DebugName() const override { return "ThreadedOpacityTransition"; }
   void OnStart(LayerAnimationDelegate* delegate) override {
     start_ = delegate->GetOpacityForAnimation();
+    delegate->SetOpacityFromAnimation(delegate->GetOpacityForAnimation(),
+                                      PropertyChangeReason::FROM_ANIMATION);
   }
 
   void OnAbort(LayerAnimationDelegate* delegate) override {
     if (delegate && Started()) {
       ThreadedLayerAnimationElement::OnAbort(delegate);
-      delegate->SetOpacityFromAnimation(gfx::Tween::FloatValueBetween(
-          gfx::Tween::CalculateValue(tween_type(), last_progressed_fraction()),
-              start_,
-              target_));
+      delegate->SetOpacityFromAnimation(
+          gfx::Tween::FloatValueBetween(
+              gfx::Tween::CalculateValue(tween_type(),
+                                         last_progressed_fraction()),
+              start_, target_),
+          PropertyChangeReason::FROM_ANIMATION);
     }
   }
 
   void OnEnd(LayerAnimationDelegate* delegate) override {
-    delegate->SetOpacityFromAnimation(target_);
+    delegate->SetOpacityFromAnimation(target_,
+                                      PropertyChangeReason::FROM_ANIMATION);
   }
 
-  std::unique_ptr<cc::Animation> CreateCCAnimation() override {
+  std::unique_ptr<cc::KeyframeModel> CreateCCKeyframeModel() override {
     std::unique_ptr<cc::AnimationCurve> animation_curve(
         new FloatAnimationCurveAdapter(tween_type(), start_, target_,
                                        duration()));
-    std::unique_ptr<cc::Animation> animation(cc::Animation::Create(
-        std::move(animation_curve), animation_id(), animation_group_id(),
+    std::unique_ptr<cc::KeyframeModel> keyframe_model(cc::KeyframeModel::Create(
+        std::move(animation_curve), keyframe_model_id(), animation_group_id(),
         cc::TargetProperty::OPACITY));
-    return animation;
+    return keyframe_model;
   }
 
   void OnGetTarget(TargetValue* target) const override {
     target->opacity = target_;
+  }
+
+  bool IsThreaded(LayerAnimationDelegate* delegate) const override {
+    // If the start and target values are the same, we do not create cc
+    // animation so that we will not create render pass in this case.
+    // http://crbug.com/764575.
+    if (duration().is_zero())
+      return false;
+    if (Started())
+      return start_ != target_;
+    return delegate->GetOpacityForAnimation() != target_;
   }
 
  private:
@@ -416,32 +419,40 @@ class ThreadedTransformTransition : public ThreadedLayerAnimationElement {
   ~ThreadedTransformTransition() override {}
 
  protected:
+  std::string DebugName() const override {
+    return "ThreadedTransformTransition";
+  }
   void OnStart(LayerAnimationDelegate* delegate) override {
     start_ = delegate->GetTransformForAnimation();
+    delegate->SetTransformFromAnimation(delegate->GetTransformForAnimation(),
+                                        PropertyChangeReason::FROM_ANIMATION);
   }
 
   void OnAbort(LayerAnimationDelegate* delegate) override {
     if (delegate && Started()) {
       ThreadedLayerAnimationElement::OnAbort(delegate);
-      delegate->SetTransformFromAnimation(gfx::Tween::TransformValueBetween(
-          gfx::Tween::CalculateValue(tween_type(), last_progressed_fraction()),
-          start_,
-          target_));
+      delegate->SetTransformFromAnimation(
+          gfx::Tween::TransformValueBetween(
+              gfx::Tween::CalculateValue(tween_type(),
+                                         last_progressed_fraction()),
+              start_, target_),
+          PropertyChangeReason::FROM_ANIMATION);
     }
   }
 
   void OnEnd(LayerAnimationDelegate* delegate) override {
-    delegate->SetTransformFromAnimation(target_);
+    delegate->SetTransformFromAnimation(target_,
+                                        PropertyChangeReason::FROM_ANIMATION);
   }
 
-  std::unique_ptr<cc::Animation> CreateCCAnimation() override {
+  std::unique_ptr<cc::KeyframeModel> CreateCCKeyframeModel() override {
     std::unique_ptr<cc::AnimationCurve> animation_curve(
         new TransformAnimationCurveAdapter(tween_type(), start_, target_,
                                            duration()));
-    std::unique_ptr<cc::Animation> animation(cc::Animation::Create(
-        std::move(animation_curve), animation_id(), animation_group_id(),
+    std::unique_ptr<cc::KeyframeModel> keyframe_model(cc::KeyframeModel::Create(
+        std::move(animation_curve), keyframe_model_id(), animation_group_id(),
         cc::TargetProperty::TRANSFORM));
-    return animation;
+    return keyframe_model;
   }
 
   void OnGetTarget(TargetValue* target) const override {
@@ -476,8 +487,8 @@ LayerAnimationElement::TargetValue::TargetValue(
       visibility(delegate ? delegate->GetVisibilityForAnimation() : false),
       brightness(delegate ? delegate->GetBrightnessForAnimation() : 0.0f),
       grayscale(delegate ? delegate->GetGrayscaleForAnimation() : 0.0f),
-      color(delegate ? delegate->GetColorForAnimation() : SK_ColorTRANSPARENT),
-      temperature(delegate ? delegate->GetTemperatureFromAnimation() : 0.0f) {}
+      color(delegate ? delegate->GetColorForAnimation() : SK_ColorTRANSPARENT) {
+}
 
 // LayerAnimationElement -------------------------------------------------------
 
@@ -487,7 +498,7 @@ LayerAnimationElement::LayerAnimationElement(AnimatableProperties properties,
       properties_(properties),
       duration_(GetEffectiveDuration(duration)),
       tween_type_(gfx::Tween::LINEAR),
-      animation_id_(cc::AnimationIdProvider::NextAnimationId()),
+      keyframe_model_id_(cc::AnimationIdProvider::NextKeyframeModelId()),
       animation_group_id_(0),
       last_progressed_fraction_(0.0),
       animation_metrics_reporter_(nullptr),
@@ -500,7 +511,7 @@ LayerAnimationElement::LayerAnimationElement(
       properties_(element.properties_),
       duration_(element.duration_),
       tween_type_(element.tween_type_),
-      animation_id_(cc::AnimationIdProvider::NextAnimationId()),
+      keyframe_model_id_(cc::AnimationIdProvider::NextKeyframeModelId()),
       animation_group_id_(element.animation_group_id_),
       last_progressed_fraction_(element.last_progressed_fraction_),
       animation_metrics_reporter_(nullptr),
@@ -554,7 +565,7 @@ bool LayerAnimationElement::Progress(base::TimeTicks now,
 bool LayerAnimationElement::IsFinished(base::TimeTicks time,
                                        base::TimeDelta* total_duration) {
   // If an effective start has been requested but the effective start time
-  // hasn't yet been set, the animation is not finished, regardless of the
+  // hasn't yet been set, the keyframe_model is not finished, regardless of the
   // value of |time|.
   if (!first_frame_ && (effective_start_time_ == base::TimeTicks()))
     return false;
@@ -606,7 +617,7 @@ void LayerAnimationElement::GetTargetValue(TargetValue* target) const {
   OnGetTarget(target);
 }
 
-bool LayerAnimationElement::IsThreaded() const {
+bool LayerAnimationElement::IsThreaded(LayerAnimationDelegate* delegate) const {
   return false;
 }
 
@@ -621,6 +632,20 @@ void LayerAnimationElement::RequestEffectiveStart(
   effective_start_time_ = requested_start_time_;
 }
 
+std::string LayerAnimationElement::ToString() const {
+  // TODO(wkorman): Add support for subclasses to tack on more info
+  // beyond just their name.
+  return base::StringPrintf(
+      "LayerAnimationElement{name=%s, id=%d, group=%d, "
+      "last_progressed_fraction=%0.2f}",
+      DebugName().c_str(), keyframe_model_id_, animation_group_id_,
+      last_progressed_fraction_);
+}
+
+std::string LayerAnimationElement::DebugName() const {
+  return "Default";
+}
+
 // static
 LayerAnimationElement::AnimatableProperty
 LayerAnimationElement::ToAnimatableProperty(cc::TargetProperty::Type property) {
@@ -633,6 +658,54 @@ LayerAnimationElement::ToAnimatableProperty(cc::TargetProperty::Type property) {
       NOTREACHED();
       return AnimatableProperty();
   }
+}
+
+// static
+std::string LayerAnimationElement::AnimatablePropertiesToString(
+    AnimatableProperties properties) {
+  std::string str;
+  int property_count = 0;
+  for (unsigned i = FIRST_PROPERTY; i != SENTINEL; i = i << 1) {
+    if (i & properties) {
+      LayerAnimationElement::AnimatableProperty property =
+          static_cast<LayerAnimationElement::AnimatableProperty>(i);
+      if (property_count > 0)
+        str.append("|");
+      // TODO(wkorman): Consider reworking enum definition to follow
+      // #define pattern that includes easier string output.
+      switch (property) {
+        case UNKNOWN:
+          str.append("UNKNOWN");
+          break;
+        case TRANSFORM:
+          str.append("TRANSFORM");
+          break;
+        case BOUNDS:
+          str.append("BOUNDS");
+          break;
+        case OPACITY:
+          str.append("OPACITY");
+          break;
+        case VISIBILITY:
+          str.append("VISIBILITY");
+          break;
+        case BRIGHTNESS:
+          str.append("BRIGHTNESS");
+          break;
+        case GRAYSCALE:
+          str.append("GRAYSCALE");
+          break;
+        case COLOR:
+          str.append("COLOR");
+          break;
+        case SENTINEL:
+          NOTREACHED();
+          break;
+      }
+      property_count++;
+    }
+  }
+  return str;
 }
 
 // static
@@ -659,7 +732,7 @@ base::TimeDelta LayerAnimationElement::GetEffectiveDuration(
 std::unique_ptr<LayerAnimationElement>
 LayerAnimationElement::CreateTransformElement(const gfx::Transform& transform,
                                               base::TimeDelta duration) {
-  return base::MakeUnique<ThreadedTransformTransition>(transform, duration);
+  return std::make_unique<ThreadedTransformTransition>(transform, duration);
 }
 
 // static
@@ -667,7 +740,7 @@ std::unique_ptr<LayerAnimationElement>
 LayerAnimationElement::CreateInterpolatedTransformElement(
     std::unique_ptr<InterpolatedTransform> interpolated_transform,
     base::TimeDelta duration) {
-  return base::MakeUnique<InterpolatedTransformTransition>(
+  return std::make_unique<InterpolatedTransformTransition>(
       std::move(interpolated_transform), duration);
 }
 
@@ -675,56 +748,49 @@ LayerAnimationElement::CreateInterpolatedTransformElement(
 std::unique_ptr<LayerAnimationElement>
 LayerAnimationElement::CreateBoundsElement(const gfx::Rect& bounds,
                                            base::TimeDelta duration) {
-  return base::MakeUnique<BoundsTransition>(bounds, duration);
+  return std::make_unique<BoundsTransition>(bounds, duration);
 }
 
 // static
 std::unique_ptr<LayerAnimationElement>
 LayerAnimationElement::CreateOpacityElement(float opacity,
                                             base::TimeDelta duration) {
-  return base::MakeUnique<ThreadedOpacityTransition>(opacity, duration);
+  return std::make_unique<ThreadedOpacityTransition>(opacity, duration);
 }
 
 // static
 std::unique_ptr<LayerAnimationElement>
 LayerAnimationElement::CreateVisibilityElement(bool visibility,
                                                base::TimeDelta duration) {
-  return base::MakeUnique<VisibilityTransition>(visibility, duration);
+  return std::make_unique<VisibilityTransition>(visibility, duration);
 }
 
 // static
 std::unique_ptr<LayerAnimationElement>
 LayerAnimationElement::CreateBrightnessElement(float brightness,
                                                base::TimeDelta duration) {
-  return base::MakeUnique<BrightnessTransition>(brightness, duration);
+  return std::make_unique<BrightnessTransition>(brightness, duration);
 }
 
 // static
 std::unique_ptr<LayerAnimationElement>
 LayerAnimationElement::CreateGrayscaleElement(float grayscale,
                                               base::TimeDelta duration) {
-  return base::MakeUnique<GrayscaleTransition>(grayscale, duration);
+  return std::make_unique<GrayscaleTransition>(grayscale, duration);
 }
 
 // static
 std::unique_ptr<LayerAnimationElement>
 LayerAnimationElement::CreatePauseElement(AnimatableProperties properties,
                                           base::TimeDelta duration) {
-  return base::MakeUnique<Pause>(properties, duration);
+  return std::make_unique<Pause>(properties, duration);
 }
 
 // static
 std::unique_ptr<LayerAnimationElement>
 LayerAnimationElement::CreateColorElement(SkColor color,
                                           base::TimeDelta duration) {
-  return base::MakeUnique<ColorTransition>(color, duration);
-}
-
-// static
-std::unique_ptr<LayerAnimationElement>
-LayerAnimationElement::CreateTemperatureElement(float temperature,
-                                                base::TimeDelta duration) {
-  return base::MakeUnique<TemperatureTransition>(temperature, duration);
+  return std::make_unique<ColorTransition>(color, duration);
 }
 
 }  // namespace ui

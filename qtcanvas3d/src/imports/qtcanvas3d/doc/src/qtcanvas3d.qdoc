@@ -3,9 +3,9 @@
 ** Copyright (C) 2016 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
-** This file is part of the QtCanvas3D module of the Qt Toolkit.
+** This file is part of the documentation of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL$
+** $QT_BEGIN_LICENSE:FDL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
@@ -14,25 +14,13 @@
 ** and conditions see https://www.qt.io/terms-conditions. For further
 ** information use the contact form at https://www.qt.io/contact-us.
 **
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPL3 included in the
-** packaging of this file. Please review the following information to
-** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or (at your option) the GNU General
-** Public license version 3 or any later version approved by the KDE Free
-** Qt Foundation. The licenses are as published by the Free Software
-** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-2.0.html and
-** https://www.gnu.org/licenses/gpl-3.0.html.
-**
+** GNU Free Documentation License Usage
+** Alternatively, this file may be used under the terms of the GNU Free
+** Documentation License version 1.3 as published by the Free Software
+** Foundation and appearing in the file included in the packaging of
+** this file. Please review the following information to ensure
+** the GNU Free Documentation License version 1.3 requirements
+** will be met: https://www.gnu.org/licenses/fdl-1.3.html.
 ** $QT_END_LICENSE$
 **
 ****************************************************************************/
@@ -41,10 +29,14 @@
     \qmlmodule QtCanvas3D 1.1
     \title Qt Canvas 3D QML Types
     \ingroup qmlmodules
+    \deprecated
 
-    \brief QML types for the Qt Canvas 3D API.
+    \brief QML types for the Qt Canvas 3D API (deprecated).
 
-    The Qt Canvas 3D functionality can be accessed via these QML types.
+    \b{Canvas3D module was deprecated in Qt 5.12.} Depracated modules are no
+    longer maintained. They are provided to keep old source code working, but
+    they can be removed in a future release. We strongly advise against using
+    deprecated modules in new code or project.
 */
 
 /*!
@@ -60,6 +52,11 @@
     \title Qt Canvas 3D Getting Started
 
     \section1 Building Qt Canvas 3D
+
+    \b{Canvas3D module was deprecated in Qt 5.12.} Depracated modules are no
+    longer maintained. They are provided to keep old source code working, but
+    they can be removed in a future release. We strongly advise against using
+    deprecated modules in new code or project.
 
     To build the Qt Canvas 3D module from source code, set up a command prompt
     with an environment for building Qt applications, navigate to the
@@ -176,6 +173,11 @@
 
     \brief The logging features in Qt Canvas 3D.
 
+    \b{Canvas3D module was deprecated in Qt 5.12.} Depracated modules are no
+    longer maintained. They are provided to keep old source code working, but
+    they can be removed in a future release. We strongly advise against using
+    deprecated modules in new code or project.
+
     Qt Canvas 3D makes use of Qt's \l {QLoggingCategory}{categorized logging}.
     The following categories are supported:
 
@@ -208,6 +210,12 @@
  *
  * \brief Known WebGL conformance issues
  *
+ * \b{Canvas3D module was deprecated in Qt 5.12.} Depracated modules are no
+ * longer maintained. They are provided to keep old source code working, but
+ * they can be removed in a future release. We strongly advise against using
+ * deprecated modules in new code or project.
+ *
+ * Known WebGL conformance issues:
  * \list
  *      \li No emulation for vertex attrib 0 arrays. Always have vertex attrib 0 array enabled.
  *      In desktop OpenGL on some platforms (for example \macos), nothing gets drawn if vertex attrib

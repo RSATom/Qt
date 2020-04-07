@@ -10,6 +10,8 @@
 #include "ui/gl/gl_surface_egl.h"
 #include "ui/gl/gl_surface_stub.h"
 
+#include <android/native_window.h>
+
 namespace gpu {
 
 // static
@@ -37,8 +39,8 @@ scoped_refptr<gl::GLSurface> ImageTransportSurface::CreateNativeSurface(
   if (!initialize_success)
     return scoped_refptr<gl::GLSurface>();
 
-  return scoped_refptr<gl::GLSurface>(new PassThroughImageTransportSurface(
-      delegate, surface.get(), kMultiWindowSwapIntervalDefault));
+  return scoped_refptr<gl::GLSurface>(
+      new PassThroughImageTransportSurface(delegate, surface.get(), false));
 }
 
 }  // namespace gpu

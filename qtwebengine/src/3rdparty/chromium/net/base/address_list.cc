@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/callback.h"
 #include "base/logging.h"
 #include "base/values.h"
 #include "net/base/sys_addrinfo.h"
@@ -33,11 +34,11 @@ std::unique_ptr<base::Value> NetLogAddressListCallback(
 
 }  // namespace
 
-AddressList::AddressList() {}
+AddressList::AddressList() = default;
 
 AddressList::AddressList(const AddressList&) = default;
 
-AddressList::~AddressList() {}
+AddressList::~AddressList() = default;
 
 AddressList::AddressList(const IPEndPoint& endpoint) {
   push_back(endpoint);

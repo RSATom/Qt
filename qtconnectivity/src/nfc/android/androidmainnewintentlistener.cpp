@@ -61,7 +61,7 @@ MainNfcNewIntentListener::~MainNfcNewIntentListener()
 bool MainNfcNewIntentListener::handleNewIntent(JNIEnv */*env*/, jobject intent)
 {
     listenersLock.lockForRead();
-    foreach (AndroidNfc::AndroidNfcListenerInterface *listener, listeners) {
+    for (AndroidNfc::AndroidNfcListenerInterface *listener : qAsConst(listeners)) {
         listener->newIntent(QAndroidJniObject(intent));
     }
     listenersLock.unlock();

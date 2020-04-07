@@ -9,5 +9,5 @@ HEADERS += $$plugin.path/qgeoroutexmlparser.h
 INCLUDEPATH += $$plugin.path
 RESOURCES += fixtures.qrc
 
-QT += location testlib
+QT += location location-private testlib
 

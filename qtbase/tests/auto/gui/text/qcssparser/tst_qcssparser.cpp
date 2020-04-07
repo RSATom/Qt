@@ -87,10 +87,8 @@ void tst_QCssParser::scanner_data()
 
 #if defined(Q_OS_ANDROID) || defined(Q_OS_WINRT)
     QDir d(":/");
-#elif !defined(Q_OS_IRIX)
-    QDir d(SRCDIR);
 #else
-    QDir d(QDir::current());
+    QDir d(SRCDIR);
 #endif
     d.cd("testdata");
     d.cd("scanner");
@@ -1509,6 +1507,12 @@ void tst_QCssParser::gradient_data()
     QTest::newRow("conical gradient") <<
      "selection-background-color: qconicalgradient(cx: 4, cy : 2, angle: 23, "
          "spread: repeat, stop:0.2 rgb(1, 2, 3), stop:0.5 rgba(1, 2, 3, 4))" << "conical" << QPointF(4, 2) << QPointF()
+                             << 2 << qreal(0.2) << QColor(1, 2, 3) << qreal(0.5) << QColor(1, 2, 3, 4);
+
+    // spaces before first function parameter lead to parser errors
+    QTest::newRow("QTBUG-61795") <<
+     "selection-background-color: qconicalgradient( cx: 4, cy : 2, angle: 23, "
+         "spread: repeat, stop:0.2 rgb( 1, 2, 3), stop:0.5 rgba( 1, 2, 3, 4))" << "conical" << QPointF(4, 2) << QPointF()
                              << 2 << qreal(0.2) << QColor(1, 2, 3) << qreal(0.5) << QColor(1, 2, 3, 4);
 
     /* won't pass: stop values are expected to be sorted

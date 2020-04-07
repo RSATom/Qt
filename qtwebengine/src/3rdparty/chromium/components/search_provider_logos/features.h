@@ -10,7 +10,7 @@
 namespace search_provider_logos {
 namespace features {
 
-extern const base::Feature kUseDdljsonApi;
+extern const base::Feature kDoodleLogging;
 
 }  // namespace features
 }  // namespace search_provider_logos

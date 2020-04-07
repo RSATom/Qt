@@ -4,10 +4,10 @@
 
 #include "net/dns/host_resolver_mojo.h"
 
+#include <memory>
 #include <string>
 #include <utility>
 
-#include "base/memory/ptr_util.h"
 #include "mojo/public/cpp/bindings/binding.h"
 #include "net/base/address_list.h"
 #include "net/base/ip_address.h"
@@ -17,6 +17,7 @@
 #include "net/log/net_log_with_source.h"
 #include "net/test/event_waiter.h"
 #include "net/test/gtest_util.h"
+#include "net/test/test_with_scoped_task_environment.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -136,8 +137,8 @@ void MockMojoHostResolver::ResolveDns(
                            std::move(actions_[results_returned_].addresses));
       break;
     case HostResolverAction::RETAIN:
-      requests_.push_back(base::WrapUnique(new MockMojoHostResolverRequest(
-          std::move(client), request_connection_error_callback_)));
+      requests_.push_back(std::make_unique<MockMojoHostResolverRequest>(
+          std::move(client), request_connection_error_callback_));
       break;
     case HostResolverAction::DROP:
       client.reset();
@@ -148,7 +149,7 @@ void MockMojoHostResolver::ResolveDns(
 
 }  // namespace
 
-class HostResolverMojoTest : public testing::Test {
+class HostResolverMojoTest : public TestWithScopedTaskEnvironment {
  protected:
   enum class ConnectionErrorSource {
     REQUEST,

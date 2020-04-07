@@ -6,6 +6,7 @@
 
 #include <stddef.h>
 
+#include <memory>
 #include <utility>
 
 #include "base/files/file_util.h"
@@ -13,7 +14,6 @@
 #include "base/json/json_writer.h"
 #include "base/location.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/sequenced_task_runner.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
@@ -198,11 +198,10 @@ std::unique_ptr<base::Value> ParseJson(const std::string& json) {
       trimmed_json  = json;
     } else {
       // Take the first 50 and the last 10 bytes.
-      trimmed_json = base::StringPrintf(
-          "%s [%s bytes] %s",
-          json.substr(0, 50).c_str(),
-          base::Uint64ToString(json.size() - 60).c_str(),
-          json.substr(json.size() - 10).c_str());
+      trimmed_json =
+          base::StringPrintf("%s [%s bytes] %s", json.substr(0, 50).c_str(),
+                             base::NumberToString(json.size() - 60).c_str(),
+                             json.substr(json.size() - 10).c_str());
     }
     LOG(WARNING) << "Error while parsing entry response: " << error_message
                  << ", code: " << error_code << ", json:\n" << trimmed_json;
@@ -291,15 +290,14 @@ int ResponseWriter::Write(net::IOBuffer* buffer,
                           const net::CompletionCallback& callback) {
   if (!get_content_callback_.is_null()) {
     get_content_callback_.Run(
-        HTTP_SUCCESS, base::MakeUnique<std::string>(buffer->data(), num_bytes));
+        HTTP_SUCCESS, std::make_unique<std::string>(buffer->data(), num_bytes));
   }
 
   if (file_writer_) {
     const int result = file_writer_->Write(
         buffer, num_bytes,
-        base::Bind(&ResponseWriter::DidWrite,
-                   weak_ptr_factory_.GetWeakPtr(),
-                   make_scoped_refptr(buffer), callback));
+        base::Bind(&ResponseWriter::DidWrite, weak_ptr_factory_.GetWeakPtr(),
+                   base::WrapRefCounted(buffer), callback));
     if (result != net::ERR_IO_PENDING)
       DidWrite(buffer, net::CompletionCallback(), result);
     return result;

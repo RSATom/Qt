@@ -20,7 +20,6 @@
 #include "SkTypeface.h"
 
 #include "SkGradientShader.h"
-#include "SkLayerRasterizer.h"
 #include "SkBlurMaskFilter.h"
 
 #include "Sk2DPathEffect.h"
@@ -86,12 +85,6 @@ public:
         return true;
     }
 
-#ifndef SK_IGNORE_TO_STRING
-    void toString(SkString* str) const override {
-        str->appendf("InverseFillPE: ()");
-    }
-#endif
-
     SK_DECLARE_PUBLIC_FLATTENABLE_DESERIALIZATION_PROCS(InverseFillPE)
 
 private:
@@ -108,31 +101,6 @@ static sk_sp<SkPathEffect> makepe(float interp, SkTDArray<SkPoint>* pts) {
     lattice.setScale(rad*2, rad*2, 0, 0);
     lattice.postSkew(SK_Scalar1/3, 0, 0, 0);
     return sk_make_sp<Dot2DPathEffect>(rad, lattice, pts);
-}
-
-static void r7(SkLayerRasterizer::Builder* rastBuilder, SkPaint& p, SkScalar interp) {
-    p.setPathEffect(makepe(SkScalarToFloat(interp), nullptr));
-    rastBuilder->addLayer(p);
-#if 0
-    p.setPathEffect(new InverseFillPE())->unref();
-    p.setXfermodeMode(SkXfermode::kSrcIn_Mode);
-    p.setXfermodeMode(SkXfermode::kClear_Mode);
-    p.setAlpha((1 - interp) * 255);
-    rastBuilder->addLayer(p);
-#endif
-}
-
-typedef void (*raster_proc)(SkLayerRasterizer*, SkPaint&);
-
-static void apply_shader(SkPaint* paint, float scale) {
-    SkPaint p;
-    SkLayerRasterizer::Builder rastBuilder;
-
-    p.setAntiAlias(true);
-    r7(&rastBuilder, p, scale);
-    paint->setRasterizer(rastBuilder.detach());
-
-    paint->setColor(SK_ColorBLUE);
 }
 
 class ClockFaceView : public SkView {
@@ -187,14 +155,12 @@ protected:
 
         paint.setAntiAlias(true);
         paint.setTextSize(SkIntToScalar(240));
-        paint.setTypeface(SkTypeface::MakeFromName("sans-serif",
-                                                   SkFontStyle::FromOldStyle(SkTypeface::kBold)));
+        paint.setTypeface(SkTypeface::MakeFromName("sans-serif", SkFontStyle::Bold()));
 
         SkString str("9");
 
         paint.setTypeface(fFace);
 
-        apply_shader(&paint, SkScalarToFloat(fInterp));
         canvas->drawString(str, x, y, paint);
 
     //    drawdots(canvas, paint);
@@ -208,7 +174,6 @@ protected:
                 fInterp = 0;
                 fDx = -fDx;
             }
-            this->inval(nullptr);
         }
     }
 

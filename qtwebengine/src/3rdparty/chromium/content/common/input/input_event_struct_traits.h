@@ -25,52 +25,23 @@ struct StructTraits<content::mojom::EventDataView, InputEventUniquePtr> {
     return event->web_event->GetModifiers();
   }
 
-  static double timestamp_seconds(const InputEventUniquePtr& event) {
-    return event->web_event->TimeStampSeconds();
+  static base::TimeTicks timestamp(const InputEventUniquePtr& event) {
+    return event->web_event->TimeStamp();
   }
 
   static const ui::LatencyInfo& latency(const InputEventUniquePtr& event) {
     return event->latency_info;
   }
 
-  static const content::mojom::KeyDataPtr& key_data(
-      const InputEventUniquePtr& event,
-      void* context) {
-    return static_cast<InputEventSerializationContext*>(context)->key_data;
-  }
-
-  static const content::mojom::PointerDataPtr& pointer_data(
-      const InputEventUniquePtr& event,
-      void* context) {
-    return static_cast<InputEventSerializationContext*>(context)->pointer_data;
-  }
-
-  static const content::mojom::GestureDataPtr& gesture_data(
-      const InputEventUniquePtr& event,
-      void* context) {
-    return static_cast<InputEventSerializationContext*>(context)->gesture_data;
-  }
-
-  static const content::mojom::TouchDataPtr& touch_data(
-      const InputEventUniquePtr& event,
-      void* context) {
-    return static_cast<InputEventSerializationContext*>(context)->touch_data;
-  }
+  static content::mojom::KeyDataPtr key_data(const InputEventUniquePtr& event);
+  static content::mojom::PointerDataPtr pointer_data(
+      const InputEventUniquePtr& event);
+  static content::mojom::GestureDataPtr gesture_data(
+      const InputEventUniquePtr& event);
+  static content::mojom::TouchDataPtr touch_data(
+      const InputEventUniquePtr& event);
 
   static bool Read(content::mojom::EventDataView r, InputEventUniquePtr* out);
-  static void* SetUpContext(const InputEventUniquePtr& handle);
-  static void TearDownContext(const InputEventUniquePtr& handle, void* context);
-
- private:
-  struct InputEventSerializationContext {
-    content::mojom::KeyDataPtr key_data;
-    content::mojom::GestureDataPtr gesture_data;
-    content::mojom::PointerDataPtr pointer_data;
-    content::mojom::TouchDataPtr touch_data;
-
-    InputEventSerializationContext();
-    ~InputEventSerializationContext();
-  };
 };
 
 }  // namespace mojo

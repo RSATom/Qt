@@ -96,15 +96,29 @@ void QAbstractAspectPrivate::unregisterBackendType(const QMetaObject &mo)
  */
 
 /*!
- * \fn void QAbstractAspect::registerBackendType(const QBackendNodeMapperPtr &functor)
+ * \fn void Qt3DCore::QAbstractAspect::registerBackendType(const Qt3DCore::QBackendNodeMapperPtr &functor)
  * Registers backend with \a functor.
  */
 
 /*!
- * \internal
- * \fn void registerBackendType(const QBackendNodeMapperPtr &functor)
- * This is a workaround to fix an erroneous qdoc warning. KEEP IT INTERNAL
+ * \macro QT3D_REGISTER_ASPECT(name, AspectType)
+ * \relates Qt3DCore::QAbstractAspect
+ *
+ * Convenience macro for registering \a AspectType for instantiation by the
+ * currently set Qt3DCore::QAspectFactory. This makes it possible to create an
+ * instance of \a AspectType in the aspect thread by later passing \a name to
+ * Qt3DCore::QAspectEngine::registerAspect(const QString &name).
+ *
+ * \note It is also possible to register a new aspect without using this macro
+ * by instead using Qt3DCore::QAspectEngine::registerAspect(QAbstractAspect *aspect)
+ * which will handle moving a previously created aspect instance to the aspect
+ * thread context.
+ *
+ * KDAB has published a few articles about writing custom Qt3D aspects
+ * \l {https://www.kdab.com/writing-custom-qt-3d-aspect/}{on their blog}. These
+ * provide an excellent starting point if you wish to learn more about it.
  */
+
 
 /*!
  * Constructs a new QAbstractAspect with \a parent

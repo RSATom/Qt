@@ -78,7 +78,7 @@
 /*!
     \qmlproperty QQmlNdefRecord::TypeNameFormat NdefFilter::typeNameFormat
 
-    This property holds the NDEF record name format type \enum QQmlNdefRecord::TypeNameFormat.
+    This property holds the NDEF record name format type \l QQmlNdefRecord::TypeNameFormat.
 */
 
 /*!
@@ -104,7 +104,7 @@
 */
 
 QDeclarativeNdefFilter::QDeclarativeNdefFilter(QObject *parent)
-:   QObject(parent), m_minimum(1), m_maximum(UINT_MAX)
+:   QObject(parent), m_minimum(1), m_maximum(INT_MAX)
 {
 }
 

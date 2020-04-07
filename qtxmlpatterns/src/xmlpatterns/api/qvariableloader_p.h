@@ -74,13 +74,13 @@ namespace QPatternist
         {
         }
 
-        virtual QPatternist::SequenceType::Ptr announceExternalVariable(const QXmlName name,
-                                                                        const QPatternist::SequenceType::Ptr &declaredType);
-        virtual QPatternist::Item::Iterator::Ptr evaluateSequence(const QXmlName name,
-                                                                  const QPatternist::DynamicContext::Ptr &);
+        QPatternist::SequenceType::Ptr announceExternalVariable(const QXmlName name,
+                                                                const QPatternist::SequenceType::Ptr &declaredType) override;
+        QPatternist::Item::Iterator::Ptr evaluateSequence(const QXmlName name,
+                                                          const QPatternist::DynamicContext::Ptr &) override;
 
-        virtual QPatternist::Item evaluateSingleton(const QXmlName name,
-                                                    const QPatternist::DynamicContext::Ptr &);
+        QPatternist::Item evaluateSingleton(const QXmlName name,
+                                            const QPatternist::DynamicContext::Ptr &) override;
 
         void removeBinding(const QXmlName &name);
         bool hasBinding(const QXmlName &name) const;

@@ -33,19 +33,19 @@
 
 #include <abstractdialoggui_p.h>
 
-#include <QtDesigner/QDesignerSettingsInterface>
-#include <QtDesigner/QDesignerFormEditorInterface>
+#include <QtDesigner/abstractsettings.h>
+#include <QtDesigner/abstractformeditor.h>
 
-#include <QtCore/QFileInfo>
-#include <QtCore/QDir>
-#include <QtCore/QCoreApplication>
-#include <QtXml/QDomDocument>
-#include <QtWidgets/QMenu>
-#include <QtWidgets/QHeaderView>
-#include <QtWidgets/QInputDialog>
-#include <QtWidgets/QMessageBox>
-#include <QtWidgets/QPushButton>
-#include <QtGui/QStandardItemModel>
+#include <QtCore/qfileinfo.h>
+#include <QtCore/qdir.h>
+#include <QtCore/qcoreapplication.h>
+#include <QtXml/qdom.h>
+#include <QtWidgets/qmenu.h>
+#include <QtWidgets/qheaderview.h>
+#include <QtWidgets/qinputdialog.h>
+#include <QtWidgets/qmessagebox.h>
+#include <QtWidgets/qpushbutton.h>
+#include <QtGui/qstandarditemmodel.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -75,32 +75,26 @@ namespace {
 struct QtResourceFileData {
     QString path;
     QString alias;
-    bool operator==(const QtResourceFileData &other) const {
-        if (path == other.path && alias == other.alias)
-            return true;
-        return false;
-    }
+    bool operator==(const QtResourceFileData &other) const
+    { return path == other.path && alias == other.alias; }
 };
 
 struct QtResourcePrefixData {
     QString prefix;
     QString language;
     QList<QtResourceFileData> resourceFileList;
-    bool operator==(const QtResourcePrefixData &other) const {
-        if (prefix == other.prefix && language == other.language && resourceFileList == other.resourceFileList)
-            return true;
-        return false;
+    bool operator==(const QtResourcePrefixData &other) const
+    {
+        return prefix == other.prefix && language == other.language
+            && resourceFileList == other.resourceFileList;
     }
 };
 
 struct QtQrcFileData {
     QString qrcPath;
     QList<QtResourcePrefixData> resourceList;
-    bool operator==(const QtQrcFileData &other) const {
-        if (qrcPath == other.qrcPath && resourceList == other.resourceList)
-            return true;
-        return false;
-    }
+    bool operator==(const QtQrcFileData &other) const
+    { return qrcPath == other.qrcPath && resourceList == other.resourceList; }
 };
 
 bool loadResourceFileData(const QDomElement &fileElem, QtResourceFileData *fileData, QString *errorMessage)
@@ -223,7 +217,7 @@ public:
     QString alias() const { return m_alias; }
     QString fullPath() const { return m_fullPath; }
 private:
-    QtResourceFile() {}
+    QtResourceFile() = default;
 
     QString m_path;
     QString m_alias;
@@ -238,7 +232,7 @@ public:
     QString language() const { return m_language; }
     QList<QtResourceFile *> resourceFiles() const { return m_resourceFiles; }
 private:
-    QtResourcePrefix() {}
+    QtResourcePrefix() = default;
 
     QString m_prefix;
     QString m_language;
@@ -256,7 +250,7 @@ public:
     QtQrcFileData initialState() const { return m_initialState; }
 
 private:
-    QtQrcFile() { }
+    QtQrcFile() = default;
 
     void setPath(const QString &path) {
         m_path = path;
@@ -276,7 +270,7 @@ class QtQrcManager : public QObject
     Q_OBJECT
 public:
     QtQrcManager(QObject *parent = 0);
-    ~QtQrcManager();
+    ~QtQrcManager() override;
 
     QList<QtQrcFile *> qrcFiles() const;
 
@@ -1794,7 +1788,7 @@ QString QtResourceEditorDialogPrivate::browseForNewLocation(const QString &resou
 {
     QFileInfo fi(resourceFile);
     const QString initialPath = rootDir.absoluteFilePath(fi.fileName());
-    while (1) {
+    while (true) {
         QString newPath = m_dlgGui->getSaveFileName(q_ptr,
                     QCoreApplication::translate("QtResourceEditorDialog", "Copy As"),
                     initialPath);
@@ -1863,7 +1857,10 @@ bool QtResourceEditorDialogPrivate::loadQrcFile(const QString &path, QtQrcFileDa
     QDomDocument doc;
     int errLine, errCol;
     if (!doc.setContent(dataArray, errorMessage, &errLine, &errCol))  {
-        *errorMessage = QCoreApplication::translate("QtResourceEditorDialog", "A parse error occurred at line %1, column %2 of %3:\n%4").arg(errLine).arg(errCol).arg(path).arg(*errorMessage);
+        *errorMessage =
+            QCoreApplication::translate("QtResourceEditorDialog",
+                                        "A parse error occurred at line %1, column %2 of %3:\n%4")
+                                       .arg(errLine).arg(errCol).arg(path, *errorMessage);
         return false;
     }
 
@@ -1875,8 +1872,12 @@ bool QtResourceEditorDialogPrivate::saveQrcFile(const QtQrcFileData &qrcFileData
     QFile file(qrcFileData.qrcPath);
     while (!file.open(QIODevice::WriteOnly)) {
         QMessageBox msgBox(QMessageBox::Warning,
-                QCoreApplication::translate("QtResourceEditorDialog", "Save Resource File"),
-                QCoreApplication::translate("QtResourceEditorDialog", "Could not write %1: %2").arg(qrcFileData.qrcPath).arg(file.errorString()),
+                QCoreApplication::translate("QtResourceEditorDialog",
+                                            "Save Resource File"),
+                QCoreApplication::translate("QtResourceEditorDialog",
+                                            "Could not write %1: %2")
+                                           .arg(qrcFileData.qrcPath,
+                                                file.errorString()),
                 QMessageBox::Cancel|QMessageBox::Ignore|QMessageBox::Retry);
         msgBox.setEscapeButton(QMessageBox::Cancel);
         msgBox.setDefaultButton(QMessageBox::Ignore);
@@ -2095,7 +2096,7 @@ QString QtResourceEditorDialog::selectedResource() const
 
     const QString dotSlash(QStringLiteral("./"));
     const QString dotDotSlash(QStringLiteral("../"));
-    while (1) {
+    while (true) {
         if (resourceEnding.startsWith(slash))
             resourceEnding = resourceEnding.mid(1);
         else if (resourceEnding.startsWith(dotSlash))

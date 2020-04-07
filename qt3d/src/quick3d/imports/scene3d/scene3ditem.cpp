@@ -52,6 +52,10 @@
 #include <Qt3DLogic/qlogicaspect.h>
 #endif
 
+#if QT_CONFIG(qt3d_animation)
+#include <Qt3DAnimation/qanimationaspect.h>
+#endif
+
 #include <Qt3DRender/QRenderAspect>
 #include <Qt3DRender/qcamera.h>
 #include <Qt3DRender/qrendersurfaceselector.h>
@@ -72,16 +76,46 @@ QT_BEGIN_NAMESPACE
 namespace Qt3DRender {
 
 /*!
-    \class Qt3DCore::Scene3DItem
+    \class Qt3DRender::Scene3DItem
     \internal
 
-    \brief The Qt3DCore::Scene3DItem class is a QQuickItem subclass used to integrate
+    \brief The Scene3DItem class is a QQuickItem subclass used to integrate
     a Qt3D scene into a QtQuick 2 scene.
 
-    The Qt3DCore::Scene3DItem class renders a Qt3D scene, provided by a Qt3DCore::QEntity
-    into a multisampled Framebuffer object that is later blitted into a non
-    multisampled Framebuffer object to be then renderer through the use of a
+    The Scene3DItem class renders a Qt3D scene, provided by a Qt3DCore::QEntity
+    into a multisampled Framebuffer object that is later blitted into a
+    non-multisampled Framebuffer object to be then rendered through the use of a
     Qt3DCore::Scene3DSGNode with premultiplied alpha.
+ */
+
+/*!
+    \qmltype Scene3D
+    \inherits Item
+    \inqmlmodule QtQuick.Scene3D
+
+    \preliminary
+
+    \brief The Scene3D type is used to integrate a Qt3D scene into a QtQuick 2
+    scene.
+
+    The Scene3D type renders a Qt3D scene, provided by an \l Entity, into a
+    multisampled Framebuffer object. This object is later blitted into a
+    non-multisampled Framebuffer object, which is then rendered with
+    premultiplied alpha. If multisampling is not required, it can be avoided
+    by setting the \l multisample property to \c false. In this case
+    Scene3D will render directly into the non-multisampled Framebuffer object.
+
+    If the scene to be rendered includes non-opaque materials, you may need to
+    modify those materials with custom blend arguments in order for them to be
+    rendered correctly. For example, if working with a \l PhongAlphaMaterial and
+    a scene with an opaque clear color, you will likely want to add:
+
+    \qml
+    sourceAlphaArg: BlendEquationArguments.Zero
+    destinationAlphaArg: BlendEquationArguments.One
+    \qml
+
+    to that material.
  */
 Scene3DItem::Scene3DItem(QQuickItem *parent)
     : QQuickItem(parent)
@@ -105,11 +139,27 @@ Scene3DItem::~Scene3DItem()
     // Scene3DSGNode still exist and will perform their cleanup on their own.
 }
 
+/*!
+    \qmlproperty list<string> Scene3D::aspects
+
+    The list of aspects that should be registered for the 3D scene.
+
+    For example, if the scene makes use of FrameAction, the \c "logic" aspect should be included in the list.
+
+    The \c "render" aspect is hardwired and does not need to be explicitly listed.
+*/
 QStringList Scene3DItem::aspects() const
 {
     return m_aspects;
 }
 
+/*!
+    \qmlproperty Entity Scene3D::entity
+
+    \default
+
+    The root entity of the 3D scene to be displayed.
+ */
 Qt3DCore::QEntity *Scene3DItem::entity() const
 {
     return m_entity;
@@ -141,7 +191,15 @@ void Scene3DItem::setAspects(const QStringList &aspects)
             m_aspectEngine->registerAspect(new Qt3DLogic::QLogicAspect);
             continue;
 #else
-            qFatal("Scene3D requested the Qt 3D input aspect but Qt 3D wasn't configured to build the Qt 3D Input aspect");
+            qFatal("Scene3D requested the Qt 3D logic aspect but Qt 3D wasn't configured to build the Qt 3D Logic aspect");
+#endif
+        }
+        if (aspect == QLatin1String("animation"))  {
+#if QT_CONFIG(qt3d_animation)
+            m_aspectEngine->registerAspect(new Qt3DAnimation::QAnimationAspect);
+            continue;
+#else
+            qFatal("Scene3D requested the Qt 3D animation aspect but Qt 3D wasn't configured to build the Qt 3D Animation aspect");
 #endif
         }
         m_aspectEngine->registerAspect(aspect);
@@ -177,6 +235,16 @@ void Scene3DItem::setHoverEnabled(bool enabled)
     }
 }
 
+/*!
+    \qmlproperty enumeration Scene3D::cameraAspectRatioMode
+
+    \value Scene3D.AutomaticAspectRatio
+           Automatic aspect ratio.
+
+    \value Scene3D.UserAspectRatio
+           User defined aspect ratio.
+    \brief \TODO
+ */
 Scene3DItem::CameraAspectRatioMode Scene3DItem::cameraAspectRatioMode() const
 {
     return m_cameraAspectRatioMode;
@@ -240,7 +308,11 @@ void Scene3DItem::setWindowSurface(QObject *rootObject)
         }
     }
 }
+/*!
+    \qmlmethod void Scene3D::setItemAreaAndDevicePixelRatio(size area, real devicePixelRatio)
 
+    \brief \TODO
+ */
 void Scene3DItem::setItemAreaAndDevicePixelRatio(QSize area, qreal devicePixelRatio)
 {
     Qt3DRender::QRenderSurfaceSelector *surfaceSelector = Qt3DRender::QRenderSurfaceSelectorPrivate::find(m_entity);
@@ -250,6 +322,11 @@ void Scene3DItem::setItemAreaAndDevicePixelRatio(QSize area, qreal devicePixelRa
     }
 }
 
+/*!
+    \qmlproperty bool Scene3D::hoverEnabled
+
+    \c true if hover events are accepted.
+ */
 bool Scene3DItem::isHoverEnabled() const
 {
     return acceptHoverEvents();
@@ -280,15 +357,9 @@ void Scene3DItem::updateCameraAspectRatio()
 }
 
 /*!
-    \return \c true if a multisample renderbuffer is in use.
- */
-bool Scene3DItem::multisample() const
-{
-    return m_multisample;
-}
+    \qmlproperty bool Scene3D::multisample
 
-/*!
-    Enables or disables the usage of multisample renderbuffers based on \a enable.
+    \c true if a multisample render buffer is requested.
 
     By default multisampling is enabled. If the OpenGL implementation has no
     support for multisample renderbuffers or framebuffer blits, the request to
@@ -298,6 +369,11 @@ bool Scene3DItem::multisample() const
     and potentially slow initialization of framebuffers and other OpenGL
     resources.
  */
+bool Scene3DItem::multisample() const
+{
+    return m_multisample;
+}
+
 void Scene3DItem::setMultisample(bool enable)
 {
     if (m_multisample != enable) {
@@ -319,9 +395,6 @@ QSGNode *Scene3DItem::updatePaintNode(QSGNode *node, QQuickItem::UpdatePaintNode
         m_renderer = new Scene3DRenderer(this, m_aspectEngine, m_renderAspect);
         m_renderer->setCleanerHelper(m_rendererCleaner);
     }
-
-    // The main thread is blocked, it is now time to sync data between the renderer and the item.
-    m_renderer->synchronize();
 
     Scene3DSGNode *fboNode = static_cast<Scene3DSGNode *>(node);
     if (fboNode == nullptr) {

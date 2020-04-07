@@ -6,126 +6,44 @@ import("//build/config/android/rules.gni")
 import("manifest_processor.gni")
 import("shell_apk_version.gni")
 
-declare_args() {
-  # The browser that the WebAPK will be bound to.
-  webapk_runtime_host = "com.google.android.apps.chrome"
-
-  # The application name of the browser that the WebAPK will be bound to.
-  webapk_runtime_host_application_name = "Chromium"
-
-  # The Url of the Web Manifest file.
-  webapk_web_manifest_url = "https://pwa.rocks/pwa.webmanifest"
-
-  # Murmur2 hash of the homescreen icon. The hash should be of the icon as it is
-  # available from the web. The icon bytes should not be transformed (e.g.
-  # decoded / encoded) prior to taking the hash.
-  webapk_icon_murmur2_hash = "0"
-
-  # Attributes from Web Manifest.
-  webapk_start_url = "https://pwa.rocks/"
-  webapk_scope_url = "https://pwa.rocks/"
-  webapk_display_mode = "standalone"
-  webapk_orientation = "portrait"
-  webapk_theme_color = "2147483648L"  # HostBrowserLauncher#MANIFEST_COLOR_INVALID_OR_MISSING
-  webapk_background_color = "2147483648L"  #HostBrowserLauncher#MANIFEST_COLOR_INVALID_OR_MISSING
-  webapk_icon_urls_and_icon_murmur2_hashes = "http://www.pwa.rocks/icon1.png $webapk_icon_murmur2_hash http://www.pwa.rocks/icon2.png $webapk_icon_murmur2_hash"
-
-  # Scheme part of |webapk_scope_url|.
-  webapk_scope_url_scheme = "https"
-
-  # Host part of |webapk_scope_url|.
-  webapk_scope_url_host = "pwa.rocks"
-
-  # Path part of |webapk_scope_url|.
-  webapk_scope_url_path = "/"
-
-  # Android version code for the WebAPK.
-  webapk_version_code = "1"
-
-  # Android version name for the WebAPK.
-  webapk_version_name = "1.0"
-}
-
 shell_apk_manifest = "$target_gen_dir/shell_apk_manifest/AndroidManifest.xml"
 unbound_shell_apk_manifest =
     "$target_gen_dir/unbound_shell_apk_manifest/AndroidManifest.xml"
-shell_apk_manifest_javatests =
-    "$target_gen_dir/shell_apk_manifest_javatests/AndroidManifest.xml"
+maps_go_apk_manifest =
+    "$target_gen_dir/maps_go_apk_manifest/AndroidManifest.xml"
+shell_apk_http_manifest =
+    "$target_gen_dir/shell_apk_http_manifest/AndroidManifest.xml"
 
 manifest_processor_template("shell_apk_manifest") {
   input = "AndroidManifest.xml"
+  config_file = "bound_manifest_config.json"
   output = shell_apk_manifest
 
-  variables = [
-    "shell_apk_version=$template_shell_apk_version",
-    "manifest_package=org.chromium.webapk",
-    "runtime_host=$webapk_runtime_host",
-    "runtime_host_application_name=$webapk_runtime_host_application_name",
-    "start_url=$webapk_start_url",
-    "scope_url=$webapk_scope_url",
-    "display_mode=$webapk_display_mode",
-    "orientation=$webapk_orientation",
-    "theme_color=$webapk_theme_color",
-    "background_color=$webapk_background_color",
-    "icon_urls_and_icon_murmur2_hashes=$webapk_icon_urls_and_icon_murmur2_hashes",
-    "scope_url_scheme=$webapk_scope_url_scheme",
-    "scope_url_host=$webapk_scope_url_host",
-    "scope_url_path=$webapk_scope_url_path",
-    "web_manifest_url=$webapk_web_manifest_url",
-    "version_code=$webapk_version_code",
-    "version_name=$webapk_version_name",
-  ]
+  extra_variables = [ "shell_apk_version=$template_shell_apk_version" ]
 }
 
 manifest_processor_template("unbound_shell_apk_manifest") {
   input = "AndroidManifest.xml"
+  config_file = "unbound_manifest_config.json"
   output = unbound_shell_apk_manifest
 
-  variables = [
-    "shell_apk_version=$template_shell_apk_version",
-    "manifest_package=org.chromium.arbitrarypackage",
-
-    # Intentionally omitted: "runtime_host=org.chromium.chrome",
-    "include_label=true",
-    "start_url=$webapk_start_url",
-    "scope_url=$webapk_scope_url",
-    "display_mode=$webapk_display_mode",
-    "orientation=$webapk_orientation",
-    "theme_color=$webapk_theme_color",
-    "background_color=$webapk_background_color",
-    "icon_urls_and_icon_murmur2_hashes=$webapk_icon_urls_and_icon_murmur2_hashes",
-    "scope_url_scheme=$webapk_scope_url_scheme",
-    "scope_url_host=$webapk_scope_url_host",
-    "scope_url_path=$webapk_scope_url_path",
-    "web_manifest_url=$webapk_web_manifest_url",
-    "version_code=$webapk_version_code",
-    "version_name=$webapk_version_name",
-  ]
+  extra_variables = [ "shell_apk_version=$template_shell_apk_version" ]
 }
 
-# Manifest for instrumentation tests. Cannot be customized via GN args.
-manifest_processor_template("shell_apk_manifest_javatests") {
+manifest_processor_template("maps_go_apk_manifest") {
   input = "AndroidManifest.xml"
-  output = shell_apk_manifest_javatests
+  config_file = "maps_go_manifest_config.json"
+  output = maps_go_apk_manifest
 
-  variables = [
-    "shell_apk_version=$template_shell_apk_version",
-    "manifest_package=org.chromium.webapk.test",
-    "runtime_host=org.chromium.chrome",
-    "start_url=https://pwa.rocks",
-    "scope_url=https://pwa.rocks",
-    "display_mode=standalone",
-    "orientation=portrait",
-    "theme_color=2147483648L",  # HostBrowserLauncher#MANIFEST_COLOR_INVALID_OR_MISSING
-    "background_color=2147483648L",  # HostBrowserLauncher#MANIFEST_COLOR_INVALID_OR_MISSING
-    "icon_urls_and_icon_murmur2_hashes=",
-    "scope_url_scheme=https",
-    "scope_url_host=pwa.rocks",
-    "scope_url_path=/",
-    "web_manifest_url=https://pwa.rocks/pwa.webmanifest",
-    "version_code=1",
-    "version_name=1.0",
-  ]
+  extra_variables = [ "shell_apk_version=$template_shell_apk_version" ]
+}
+
+manifest_processor_template("shell_apk_http_manifest") {
+  input = "AndroidManifest.xml"
+  config_file = "http_manifest_config.json"
+  output = shell_apk_http_manifest
+
+  extra_variables = [ "shell_apk_version=$template_shell_apk_version" ]
 }
 
 android_resources("shell_apk_resources") {
@@ -136,24 +54,45 @@ android_resources("shell_apk_resources") {
   ]
 }
 
+# Stamped out copy of the runtime-library, used for fail-safe code in when using an
+# old copy of the runtime library.
+android_library("compiled_in_runtime_library_java") {
+  chromium_code = false
+  java_files = [ "src/org/chromium/webapk/lib/runtime_library/IWebApkApi.java" ]
+}
+
+# Split out as a separate target so that it can be tested from chrome_public_test_apk
+android_library("dex_loader_java") {
+  java_files = [ "src/org/chromium/webapk/shell_apk/DexLoader.java" ]
+}
+
 android_library("webapk_java") {
   java_files = [
-    "src/org/chromium/webapk/shell_apk/DexLoader.java",
     "src/org/chromium/webapk/shell_apk/HostBrowserClassLoader.java",
+    "src/org/chromium/webapk/shell_apk/HostBrowserLauncher.java",
     "src/org/chromium/webapk/shell_apk/ChooseHostBrowserDialog.java",
     "src/org/chromium/webapk/shell_apk/MainActivity.java",
+    "src/org/chromium/webapk/shell_apk/IdentityService.java",
     "src/org/chromium/webapk/shell_apk/InstallHostBrowserDialog.java",
-    "src/org/chromium/webapk/shell_apk/WebApkSandboxedProcessService.java",
-    "src/org/chromium/webapk/shell_apk/WebApkSandboxedProcessService0.java",
-    "src/org/chromium/webapk/shell_apk/WebApkSandboxedProcessService1.java",
-    "src/org/chromium/webapk/shell_apk/WebApkSandboxedProcessService2.java",
+    "src/org/chromium/webapk/shell_apk/ShareActivity.java",
+    "src/org/chromium/webapk/shell_apk/ShareActivity0.java",
+    "src/org/chromium/webapk/shell_apk/ShareActivity1.java",
+    "src/org/chromium/webapk/shell_apk/ShareActivity2.java",
+    "src/org/chromium/webapk/shell_apk/ShareActivity3.java",
+    "src/org/chromium/webapk/shell_apk/ShareActivity4.java",
     "src/org/chromium/webapk/shell_apk/WebApkServiceFactory.java",
+    "src/org/chromium/webapk/shell_apk/WebApkServiceImplWrapper.java",
     "src/org/chromium/webapk/shell_apk/WebApkUtils.java",
   ]
   deps = [
+    ":compiled_in_runtime_library_java",
+    ":dex_loader_java",
+    ":shell_apk_manifest",
     ":shell_apk_resources",
     "//chrome/android/webapk/libs/common:common_java",
   ]
+
+  android_manifest_for_lint = shell_apk_manifest
 }
 
 template("webapk_tmpl") {
@@ -175,6 +114,7 @@ template("webapk_tmpl") {
     if (!is_java_debug) {
       proguard_enabled = true
       proguard_configs = [
+        "//chrome/android/webapk/shell_apk/proguard.flags",
         "//chrome/android/java/proguard.flags",
         "//base/android/proguard/chromium_apk.flags",
         "//base/android/proguard/chromium_code.flags",
@@ -243,17 +183,22 @@ webapk_tmpl("webapk") {
   apk_name = "WebApk"
 }
 
+webapk_tmpl("maps_go_webapk") {
+  android_manifest = maps_go_apk_manifest
+  android_manifest_dep = ":maps_go_apk_manifest"
+  apk_name = "MapsWebApk"
+}
+
 webapk_tmpl("unbound_webapk") {
   android_manifest = unbound_shell_apk_manifest
   android_manifest_dep = ":unbound_shell_apk_manifest"
   apk_name = "UnboundWebApk"
 }
 
-# WebAPK for instrumentation tests.
-webapk_tmpl("webapk_javatests") {
-  android_manifest = shell_apk_manifest_javatests
-  android_manifest_dep = ":shell_apk_manifest_javatests"
-  apk_name = "webapk_javatests"
+webapk_tmpl("http_webapk") {
+  android_manifest = shell_apk_http_manifest
+  android_manifest_dep = ":shell_apk_http_manifest"
+  apk_name = "HttpWebApk"
 }
 
 android_library("shell_apk_javatests") {
@@ -261,12 +206,13 @@ android_library("shell_apk_javatests") {
   java_files =
       [ "javatests/src/org/chromium/webapk/shell_apk/DexLoaderTest.java" ]
   deps = [
-    ":webapk_java",
+    ":dex_loader_java",
     "//base:base_java",
     "//base:base_java_test_support",
     "//chrome/android/webapk/libs/common:common_java",
     "//content/public/test/android:content_java_test_support",
     "//third_party/android_support_test_runner:runner_java",
+    "//third_party/junit",
   ]
   srcjar_deps = [ "javatests/dex_optimizer:dex_optimizer_service_aidl" ]
 }
@@ -274,11 +220,16 @@ android_library("shell_apk_javatests") {
 junit_binary("webapk_shell_apk_junit_tests") {
   java_files = [
     "junit/src/org/chromium/webapk/shell_apk/HostBrowserClassLoaderTest.java",
+    "junit/src/org/chromium/webapk/shell_apk/MainActivityTest.java",
+    "junit/src/org/chromium/webapk/shell_apk/WebApkServiceImplWrapperTest.java",
     "junit/src/org/chromium/webapk/shell_apk/WebApkUtilsTest.java",
   ]
   deps = [
+    ":compiled_in_runtime_library_java",
+    ":dex_loader_java",
     ":webapk_java",
     "//chrome/android/webapk/libs/common:common_java",
+    "//chrome/android/webapk/libs/runtime_library:runtime_library_for_tests_java",
     "//chrome/android/webapk/test:junit_test_support",
   ]
 }

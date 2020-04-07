@@ -1,6 +1,5 @@
 <RCC>
     <qresource prefix="/">
-        <file>timer.qml</file>
         <file alias="main.qml">../../../examples/quickcontrols/controls/gallery/main.qml</file>
         <file alias="qml/ButtonPage.qml">../../../examples/quickcontrols/controls/gallery/qml/ButtonPage.qml</file>
         <file alias="qml/InputPage.qml">../../../examples/quickcontrols/controls/gallery/qml/InputPage.qml</file>

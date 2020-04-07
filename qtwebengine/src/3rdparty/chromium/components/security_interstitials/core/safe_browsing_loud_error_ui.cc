@@ -22,14 +22,8 @@ namespace {
 
 // For malware interstitial pages, we link the problematic URL to Google's
 // diagnostic page.
-#if defined(GOOGLE_CHROME_BUILD)
 const char kSbDiagnosticUrl[] =
-    "https://www.google.com/safebrowsing/"
-    "diagnostic?site=%s&client=googlechrome";
-#else
-const char kSbDiagnosticUrl[] =
-    "https://www.google.com/safebrowsing/diagnostic?site=%s&client=chromium";
-#endif
+    "https://transparencyreport.google.com/safe-browsing/search?url=%s";
 
 // Constants for the V4 phishing string upgrades.
 const char kReportPhishingErrorUrl[] =
@@ -94,7 +88,10 @@ void SafeBrowsingLoudErrorUI::PopulateStringsForHtml(
       "primaryButtonText",
       l10n_util::GetStringUTF16(IDS_SAFEBROWSING_OVERRIDABLE_SAFETY_BUTTON));
   load_time_data->SetBoolean("overridable", !is_proceed_anyway_disabled());
-  load_time_data->SetBoolean("hide_primary_button", !controller()->CanGoBack());
+
+  load_time_data->SetBoolean(
+      "hide_primary_button",
+      always_show_back_to_safety() ? false : !controller()->CanGoBack());
 
   switch (interstitial_reason()) {
     case BaseSafeBrowsingErrorUI::SB_REASON_MALWARE:
@@ -108,11 +105,15 @@ void SafeBrowsingLoudErrorUI::PopulateStringsForHtml(
       break;
   }
 
+  // Not used by this interstitial.
+  load_time_data->SetString("recurrentErrorParagraph", base::string16());
+  load_time_data->SetBoolean("show_recurrent_error_paragraph", false);
+
   PopulateExtendedReportingOption(load_time_data);
 }
 
 void SafeBrowsingLoudErrorUI::HandleCommand(
-    SecurityInterstitialCommands command) {
+    SecurityInterstitialCommand command) {
   switch (command) {
     case CMD_PROCEED: {
       // User pressed on the button to proceed.
@@ -122,8 +123,9 @@ void SafeBrowsingLoudErrorUI::HandleCommand(
         controller()->Proceed();
         break;
       }
+      // If the user can't proceed, fall through to CMD_DONT_PROCEED.
+      FALLTHROUGH;
     }
-    // If the user can't proceed, fall through to CMD_DONT_PROCEED.
     case CMD_DONT_PROCEED: {
       // User pressed on the button to return to safety.
       // Don't record the user action here because there are other ways of

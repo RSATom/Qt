@@ -85,7 +85,7 @@ public:
     const Location& lastLocation() const { return lastLocation_; }
     bool getBool(const QString& var) const;
     int getInt(const QString& var) const;
-    QString getOutputDir() const;
+    QString getOutputDir(const QString &format = QString("HTML")) const;
     QSet<QString> getOutputFormats() const;
     QString getString(const QString& var, const QString& defaultString = QString()) const;
     QSet<QString> getStringSet(const QString& var) const;
@@ -102,6 +102,7 @@ public:
     QString getIncludeFilePath(const QString& fileName) const;
     QStringList getExampleQdocFiles(const QSet<QString> &excludedDirs, const QSet<QString> &excludedFiles);
     QStringList getExampleImageFiles(const QSet<QString> &excludedDirs, const QSet<QString> &excludedFiles);
+    QByteArray getEnv(const char *varName);
 
     static QStringList loadMaster(const QString& fileName);
     static bool isFileExcluded(const QString &fileName, const QSet<QString> &excludedFiles);
@@ -114,13 +115,13 @@ public:
                             const QStringList &files,
                             const QStringList& dirs,
                             const QString& fileName,
-                            QString& userFriendlyFilePath);
+                            QString *userFriendlyFilePath = nullptr);
     static QString findFile(const Location &location,
                             const QStringList &files,
                             const QStringList &dirs,
                             const QString &fileBase,
                             const QStringList &fileExtensions,
-                            QString &userFriendlyFilePath);
+                            QString *userFriendlyFilePath = nullptr);
     static QString copyFile(const Location& location,
                             const QString& sourceFilePath,
                             const QString& userFriendlySourceFilePath,
@@ -160,6 +161,7 @@ struct ConfigStrings
     static QString BASE;
     static QString BASEDIR;
     static QString BUILDVERSION;
+    static QString CLANGDEFINES;
     static QString CODEINDENT;
     static QString CODEPREFIX;
     static QString CODESUFFIX;
@@ -189,12 +191,14 @@ struct ConfigStrings
     static QString IGNORETOKENS;
     static QString IMAGEDIRS;
     static QString IMAGES;
+    static QString INCLUDEPATHS;
     static QString INDEXES;
     static QString LANDINGPAGE;
     static QString LANDINGTITLE;
     static QString LANGUAGE;
     static QString MACRO;
     static QString MANIFESTMETA;
+    static QString MODULEHEADER;
     static QString NATURALLANGUAGE;
     static QString NAVIGATION;
     static QString NOLINKERRORS;
@@ -234,6 +238,7 @@ struct ConfigStrings
     static QString QMLONLY;
     static QString QMLTYPESPAGE;
     static QString QMLTYPESTITLE;
+    static QString WARNINGLIMIT;
     static QString WRITEQAPAGES;
 };
 
@@ -242,6 +247,7 @@ struct ConfigStrings
 #define CONFIG_BASE ConfigStrings::BASE
 #define CONFIG_BASEDIR ConfigStrings::BASEDIR
 #define CONFIG_BUILDVERSION ConfigStrings::BUILDVERSION
+#define CONFIG_CLANGDEFINES ConfigStrings::CLANGDEFINES
 #define CONFIG_CODEINDENT ConfigStrings::CODEINDENT
 #define CONFIG_CODEPREFIX ConfigStrings::CODEPREFIX
 #define CONFIG_CODESUFFIX ConfigStrings::CODESUFFIX
@@ -271,12 +277,14 @@ struct ConfigStrings
 #define CONFIG_IGNORETOKENS ConfigStrings::IGNORETOKENS
 #define CONFIG_IMAGEDIRS ConfigStrings::IMAGEDIRS
 #define CONFIG_IMAGES ConfigStrings::IMAGES
+#define CONFIG_INCLUDEPATHS ConfigStrings::INCLUDEPATHS
 #define CONFIG_INDEXES ConfigStrings::INDEXES
 #define CONFIG_LANDINGPAGE ConfigStrings::LANDINGPAGE
 #define CONFIG_LANDINGTITLE ConfigStrings::LANDINGTITLE
 #define CONFIG_LANGUAGE ConfigStrings::LANGUAGE
 #define CONFIG_MACRO ConfigStrings::MACRO
 #define CONFIG_MANIFESTMETA ConfigStrings::MANIFESTMETA
+#define CONFIG_MODULEHEADER ConfigStrings::MODULEHEADER
 #define CONFIG_NATURALLANGUAGE ConfigStrings::NATURALLANGUAGE
 #define CONFIG_NAVIGATION ConfigStrings::NAVIGATION
 #define CONFIG_NOLINKERRORS ConfigStrings::NOLINKERRORS
@@ -316,6 +324,7 @@ struct ConfigStrings
 #define CONFIG_QMLONLY ConfigStrings::QMLONLY
 #define CONFIG_QMLTYPESPAGE ConfigStrings::QMLTYPESPAGE
 #define CONFIG_QMLTYPESTITLE ConfigStrings::QMLTYPESTITLE
+#define CONFIG_WARNINGLIMIT ConfigStrings::WARNINGLIMIT
 #define CONFIG_WRITEQAPAGES ConfigStrings::WRITEQAPAGES
 
 QT_END_NAMESPACE

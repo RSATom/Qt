@@ -4,8 +4,9 @@
 
 #include "chrome/browser/ui/webui/chromeos/login/base_webui_handler.h"
 
+#include <memory>
+
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "base/values.h"
 #include "chrome/browser/chromeos/login/screens/base_screen.h"
 #include "chrome/browser/chromeos/login/ui/login_display_host.h"
@@ -43,7 +44,7 @@ void BaseWebUIHandler::InitializeBase() {
 }
 
 void BaseWebUIHandler::GetLocalizedStrings(base::DictionaryValue* dict) {
-  auto builder = base::MakeUnique<::login::LocalizedValuesBuilder>(dict);
+  auto builder = std::make_unique<::login::LocalizedValuesBuilder>(dict);
   DeclareLocalizedValues(builder.get());
   GetAdditionalParameters(dict);
 }
@@ -79,8 +80,7 @@ void BaseWebUIHandler::ShowScreenWithData(OobeScreen screen,
   base::DictionaryValue screen_params;
   screen_params.SetString("id", GetOobeScreenName(screen));
   if (data) {
-    screen_params.SetWithoutPathExpansion("data",
-                                          base::MakeUnique<base::Value>(*data));
+    screen_params.SetKey("data", data->Clone());
   }
   web_ui()->CallJavascriptFunctionUnsafe("cr.ui.Oobe.showScreen",
                                          screen_params);

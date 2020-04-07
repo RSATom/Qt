@@ -45,12 +45,16 @@
     Include the appropriate header in your C++ code. For example,
     applications using routes can include:
 
-    \code #include <QGeoRoute> \endcode
+    \code
+    #include <QGeoRoute>
+    \endcode
 
     Add the \e location keyword in the project file to link against the
     Qt Location library:
 
-    \code QT += location \endcode
+    \badcode
+    QT += location
+    \endcode
 
     See more in the \l{Qt Location}{Qt Location Overview}.
 
@@ -83,10 +87,10 @@ The Qt Location API enables you to:
 
 To load the Qt Location module, add the following statement to your .qml files
 
-\code
-    import QtPositioning 5.5
-    import QtLocation 5.6
-\endcode
+\qml \QtVer
+import QtPositioning \1
+import QtLocation \1
+\endqml
 
 The QtLocation QML module depends on the QtPositioning QML module.
 Therefore every QML application that imports the QtLocation QML module must always
@@ -95,11 +99,15 @@ import the QtPositioning module as well.
 For C++ projects include the header appropriate for the current use case,
 for example applications using routes may use
 
-\code #include <QGeoRoute> \endcode
+\code
+#include <QGeoRoute>
+\endcode
 
 The .pro file should have the \e location keyword added
 
-\code QT += location \endcode
+\code
+QT += location
+\endcode
 
 \section2 Submodules
 

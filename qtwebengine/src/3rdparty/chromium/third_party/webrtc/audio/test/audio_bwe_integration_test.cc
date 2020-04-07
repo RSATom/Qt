@@ -8,14 +8,14 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/audio/test/audio_bwe_integration_test.h"
+#include "audio/test/audio_bwe_integration_test.h"
 
-#include "webrtc/common_audio/wav_file.h"
-#include "webrtc/rtc_base/ptr_util.h"
-#include "webrtc/system_wrappers/include/sleep.h"
-#include "webrtc/test/field_trial.h"
-#include "webrtc/test/gtest.h"
-#include "webrtc/test/testsupport/fileutils.h"
+#include "absl/memory/memory.h"
+#include "common_audio/wav_file.h"
+#include "system_wrappers/include/sleep.h"
+#include "test/field_trial.h"
+#include "test/gtest.h"
+#include "test/testsupport/fileutils.h"
 
 namespace webrtc {
 namespace test {
@@ -37,26 +37,29 @@ size_t AudioBweTest::GetNumFlexfecStreams() const {
   return 0;
 }
 
-std::unique_ptr<test::FakeAudioDevice::Capturer>
+std::unique_ptr<TestAudioDeviceModule::Capturer>
 AudioBweTest::CreateCapturer() {
-  return test::FakeAudioDevice::CreateWavFileReader(AudioInputFile());
+  return TestAudioDeviceModule::CreateWavFileReader(AudioInputFile());
 }
 
 void AudioBweTest::OnFakeAudioDevicesCreated(
-    test::FakeAudioDevice* send_audio_device,
-    test::FakeAudioDevice* recv_audio_device) {
+    TestAudioDeviceModule* send_audio_device,
+    TestAudioDeviceModule* recv_audio_device) {
   send_audio_device_ = send_audio_device;
 }
 
-test::PacketTransport* AudioBweTest::CreateSendTransport(Call* sender_call) {
+test::PacketTransport* AudioBweTest::CreateSendTransport(
+    SingleThreadedTaskQueueForTesting* task_queue,
+    Call* sender_call) {
   return new test::PacketTransport(
-      sender_call, this, test::PacketTransport::kSender,
+      task_queue, sender_call, this, test::PacketTransport::kSender,
       test::CallTest::payload_type_map_, GetNetworkPipeConfig());
 }
 
-test::PacketTransport* AudioBweTest::CreateReceiveTransport() {
+test::PacketTransport* AudioBweTest::CreateReceiveTransport(
+    SingleThreadedTaskQueueForTesting* task_queue) {
   return new test::PacketTransport(
-      nullptr, this, test::PacketTransport::kReceiver,
+      task_queue, nullptr, this, test::PacketTransport::kReceiver,
       test::CallTest::payload_type_map_, GetNetworkPipeConfig());
 }
 
@@ -89,13 +92,12 @@ class NoBandwidthDropAfterDtx : public AudioBweTest {
   void ModifyAudioConfigs(
       AudioSendStream::Config* send_config,
       std::vector<AudioReceiveStream::Config>* receive_configs) override {
-    send_config->send_codec_spec =
-        rtc::Optional<AudioSendStream::Config::SendCodecSpec>(
-            {test::CallTest::kAudioSendPayloadType,
-             {"OPUS",
-              48000,
-              2,
-              {{"ptime", "60"}, {"usedtx", "1"}, {"stereo", "1"}}}});
+    send_config->send_codec_spec = AudioSendStream::Config::SendCodecSpec(
+        test::CallTest::kAudioSendPayloadType,
+        {"OPUS",
+         48000,
+         2,
+         {{"ptime", "60"}, {"usedtx", "1"}, {"stereo", "1"}}});
 
     send_config->min_bitrate_bps = 6000;
     send_config->max_bitrate_bps = 100000;
@@ -139,14 +141,9 @@ class NoBandwidthDropAfterDtx : public AudioBweTest {
 
 using AudioBweIntegrationTest = CallTest;
 
-// TODO(tschumim): This test is flaky when run on android. Re-enable the test
-// for android when the issue is fixed.
-#if defined(WEBRTC_ANDROID)
-#define MAYBE_NoBandwidthDropAfterDtx DISABLED_NoBandwidthDropAfterDtx
-#else
-#define MAYBE_NoBandwidthDropAfterDtx NoBandwidthDropAfterDtx
-#endif
-TEST_F(AudioBweIntegrationTest, MAYBE_NoBandwidthDropAfterDtx) {
+// TODO(tschumim): This test is flaky when run on android and mac. Re-enable the
+// test for when the issue is fixed.
+TEST_F(AudioBweIntegrationTest, DISABLED_NoBandwidthDropAfterDtx) {
   webrtc::test::ScopedFieldTrials override_field_trials(
       "WebRTC-Audio-SendSideBwe/Enabled/"
       "WebRTC-SendSideBwe-WithOverhead/Enabled/");

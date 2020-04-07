@@ -16,14 +16,14 @@ limitations under the License.
 #include "base.h"
 
 #include <string>
-#ifdef COMPILER_MSVC
+#if defined(COMPILER_MSVC) || defined(_WIN32)
 #include <sstream>
-#endif  // COMPILER_MSVC
+#endif  // defined(COMPILER_MSVC) || defined(_WIN32)
 
 namespace chrome_lang_id {
 
 // TODO(abakalov): Pick the most efficient approach.
-#ifdef COMPILER_MSVC
+#if defined(COMPILER_MSVC) || defined(_WIN32)
 std::string Int64ToString(int64 input) {
   std::stringstream stream;
   stream << input;
@@ -31,6 +31,6 @@ std::string Int64ToString(int64 input) {
 }
 #else
 std::string Int64ToString(int64 input) { return std::to_string(input); }
-#endif  // COMPILER_MSVC
+#endif  // defined(COMPILER_MSVC) || defined(_WIN32)
 
 }  // namespace chrome_lang_id

@@ -60,7 +60,7 @@ public:
         wl_client_get_credentials(client, &pid, &uid, &gid);
     }
 
-    ~QWaylandClientPrivate()
+    ~QWaylandClientPrivate() override
     {
     }
 
@@ -69,12 +69,12 @@ public:
         Q_UNUSED(data);
 
         QWaylandClient *client = reinterpret_cast<Listener *>(listener)->parent;
-        Q_ASSERT(client != 0);
+        Q_ASSERT(client != nullptr);
         delete client;
     }
 
-    QWaylandCompositor *compositor;
-    wl_client *client;
+    QWaylandCompositor *compositor = nullptr;
+    wl_client *client = nullptr;
 
     uid_t uid;
     gid_t gid;
@@ -82,7 +82,7 @@ public:
 
     struct Listener {
         wl_listener listener;
-        QWaylandClient *parent;
+        QWaylandClient *parent = nullptr;
     };
     Listener listener;
 };
@@ -144,15 +144,15 @@ QWaylandClient::~QWaylandClient()
 QWaylandClient *QWaylandClient::fromWlClient(QWaylandCompositor *compositor, wl_client *wlClient)
 {
     if (!wlClient)
-        return 0;
+        return nullptr;
 
-    QWaylandClient *client = Q_NULLPTR;
+    QWaylandClient *client = nullptr;
 
     wl_listener *l = wl_client_get_destroy_listener(wlClient,
         QWaylandClientPrivate::client_destroy_callback);
     if (l)
         client = reinterpret_cast<QWaylandClientPrivate::Listener *>(
-            wl_container_of(l, (QWaylandClientPrivate::Listener *)0, listener))->parent;
+            wl_container_of(l, (QWaylandClientPrivate::Listener *)nullptr, listener))->parent;
 
     if (!client) {
         // The original idea was to create QWaylandClient instances when

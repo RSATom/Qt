@@ -34,36 +34,34 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.10
-import QtQuick.Templates 2.3 as T
-import QtQuick.Controls.Imagine 2.3
-import QtQuick.Controls.Imagine.impl 2.3
+import QtQuick 2.12
+import QtQuick.Templates 2.12 as T
+import QtQuick.Controls.Imagine 2.12
+import QtQuick.Controls.Imagine.impl 2.12
 
 T.Page {
     id: control
 
-    implicitWidth: Math.max(background ? background.implicitWidth : 0,
-                            Math.max(contentWidth,
-                                     header && header.visible ? header.implicitWidth : 0,
-                                     footer && footer.visible ? footer.implicitWidth : 0) + leftPadding + rightPadding)
-    implicitHeight: Math.max(background ? background.implicitHeight : 0,
+    implicitWidth: Math.max(implicitBackgroundWidth + leftInset + rightInset,
+                            contentWidth + leftPadding + rightPadding,
+                            implicitHeaderWidth,
+                            implicitFooterWidth)
+    implicitHeight: Math.max(implicitBackgroundHeight + topInset + bottomInset,
                              contentHeight + topPadding + bottomPadding
-                             + (header && header.visible ? header.implicitHeight + spacing : 0)
-                             + (footer && footer.visible ? footer.implicitHeight + spacing : 0))
-
-    contentWidth: contentItem.implicitWidth || (contentChildren.length === 1 ? contentChildren[0].implicitWidth : 0)
-    contentHeight: contentItem.implicitHeight || (contentChildren.length === 1 ? contentChildren[0].implicitHeight : 0)
+                             + (implicitHeaderHeight > 0 ? implicitHeaderHeight + spacing : 0)
+                             + (implicitFooterHeight > 0 ? implicitFooterHeight + spacing : 0))
 
     topPadding: background ? background.topPadding : 0
     leftPadding: background ? background.leftPadding : 0
     rightPadding: background ? background.rightPadding : 0
     bottomPadding: background ? background.bottomPadding : 0
 
-    background: NinePatchImage {
-        x: -leftInset; y: -topInset
-        width: control.width + leftInset + rightInset
-        height: control.height + topInset + bottomInset
+    topInset: background ? -background.topInset || 0 : 0
+    leftInset: background ? -background.leftInset || 0 : 0
+    rightInset: background ? -background.rightInset || 0 : 0
+    bottomInset: background ? -background.bottomInset || 0 : 0
 
+    background: NinePatchImage {
         source: Imagine.url + "page-background"
         NinePatchImageSelector on source {
             states: [

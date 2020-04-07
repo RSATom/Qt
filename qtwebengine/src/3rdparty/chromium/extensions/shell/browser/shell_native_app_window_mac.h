@@ -45,9 +45,14 @@ class ShellNativeAppWindowMac : public ShellNativeAppWindow {
   gfx::Rect GetBounds() const override;
   void Show() override;
   void Hide() override;
+  bool IsVisible() const override;
   void Activate() override;
   void Deactivate() override;
   void SetBounds(const gfx::Rect& bounds) override;
+
+  // NativeAppWindow:
+  gfx::Size GetContentMinimumSize() const override;
+  gfx::Size GetContentMaximumSize() const override;
 
   // Called when the window is about to close.
   void WindowWillClose();

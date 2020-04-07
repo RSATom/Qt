@@ -8,6 +8,8 @@
 
 #include "mkvmuxer/mkvmuxer.h"
 
+#include <stdint.h>
+
 #include <cfloat>
 #include <climits>
 #include <cstdio>
@@ -67,7 +69,7 @@ bool StrCpy(const char* src, char** dst_ptr) {
   return true;
 }
 
-typedef std::auto_ptr<PrimaryChromaticity> PrimaryChromaticityPtr;
+typedef std::unique_ptr<PrimaryChromaticity> PrimaryChromaticityPtr;
 bool CopyChromaticity(const PrimaryChromaticity* src,
                       PrimaryChromaticityPtr* dst) {
   if (!dst)
@@ -1052,22 +1054,22 @@ bool MasteringMetadata::Write(IMkvWriter* writer) const {
 bool MasteringMetadata::SetChromaticity(
     const PrimaryChromaticity* r, const PrimaryChromaticity* g,
     const PrimaryChromaticity* b, const PrimaryChromaticity* white_point) {
-  PrimaryChromaticityPtr r_ptr(NULL);
+  PrimaryChromaticityPtr r_ptr(nullptr);
   if (r) {
     if (!CopyChromaticity(r, &r_ptr))
       return false;
   }
-  PrimaryChromaticityPtr g_ptr(NULL);
+  PrimaryChromaticityPtr g_ptr(nullptr);
   if (g) {
     if (!CopyChromaticity(g, &g_ptr))
       return false;
   }
-  PrimaryChromaticityPtr b_ptr(NULL);
+  PrimaryChromaticityPtr b_ptr(nullptr);
   if (b) {
     if (!CopyChromaticity(b, &b_ptr))
       return false;
   }
-  PrimaryChromaticityPtr wp_ptr(NULL);
+  PrimaryChromaticityPtr wp_ptr(nullptr);
   if (white_point) {
     if (!CopyChromaticity(white_point, &wp_ptr))
       return false;
@@ -1233,7 +1235,7 @@ bool Colour::Write(IMkvWriter* writer) const {
 }
 
 bool Colour::SetMasteringMetadata(const MasteringMetadata& mastering_metadata) {
-  std::auto_ptr<MasteringMetadata> mm_ptr(new MasteringMetadata());
+  std::unique_ptr<MasteringMetadata> mm_ptr(new MasteringMetadata());
   if (!mm_ptr.get())
     return false;
 
@@ -1541,7 +1543,7 @@ bool VideoTrack::Write(IMkvWriter* writer) const {
 }
 
 bool VideoTrack::SetColour(const Colour& colour) {
-  std::auto_ptr<Colour> colour_ptr(new Colour());
+  std::unique_ptr<Colour> colour_ptr(new Colour());
   if (!colour_ptr.get())
     return false;
 
@@ -1569,7 +1571,7 @@ bool VideoTrack::SetColour(const Colour& colour) {
 }
 
 bool VideoTrack::SetProjection(const Projection& projection) {
-  std::auto_ptr<Projection> projection_ptr(new Projection());
+  std::unique_ptr<Projection> projection_ptr(new Projection());
   if (!projection_ptr.get())
     return false;
 
@@ -1700,9 +1702,9 @@ bool AudioTrack::Write(IMkvWriter* writer) const {
 
 const char Tracks::kOpusCodecId[] = "A_OPUS";
 const char Tracks::kVorbisCodecId[] = "A_VORBIS";
+const char Tracks::kAv1CodecId[] = "V_AV1";
 const char Tracks::kVp8CodecId[] = "V_VP8";
 const char Tracks::kVp9CodecId[] = "V_VP9";
-const char Tracks::kVp10CodecId[] = "V_VP10";
 const char Tracks::kWebVttCaptionsId[] = "D_WEBVTT/CAPTIONS";
 const char Tracks::kWebVttDescriptionsId[] = "D_WEBVTT/DESCRIPTIONS";
 const char Tracks::kWebVttMetadataId[] = "D_WEBVTT/METADATA";
@@ -2661,7 +2663,7 @@ bool Cluster::QueueOrWriteFrame(const Frame* const frame) {
   // and write it if it is okay to do so (i.e.) no other track has an held back
   // frame with timestamp <= the timestamp of the frame in question.
   std::vector<std::list<Frame*>::iterator> frames_to_erase;
-  for (std::list<Frame *>::iterator
+  for (std::list<Frame*>::iterator
            current_track_iterator = stored_frames_[track_number].begin(),
            end = --stored_frames_[track_number].end();
        current_track_iterator != end; ++current_track_iterator) {
@@ -3053,7 +3055,7 @@ Segment::Segment()
       output_cues_(true),
       accurate_cluster_duration_(false),
       fixed_size_cluster_timecode_(false),
-      estimate_file_duration_(true),
+      estimate_file_duration_(false),
       payload_pos_(0),
       size_position_(0),
       doc_type_version_(kDefaultDocTypeVersion),
@@ -3361,7 +3363,10 @@ uint64_t Segment::AddVideoTrack(int32_t width, int32_t height, int32_t number) {
   track->set_width(width);
   track->set_height(height);
 
-  tracks_.AddTrack(track, number);
+  if (!tracks_.AddTrack(track, number)) {
+    delete track;
+    return 0;
+  }
   has_video_ = true;
 
   return track->number();
@@ -3383,8 +3388,10 @@ bool Segment::AddCuePoint(uint64_t timestamp, uint64_t track) {
   cue->set_block_number(cluster->blocks_added());
   cue->set_cluster_pos(cluster->position_for_cues());
   cue->set_track(track);
-  if (!cues_.AddCue(cue))
+  if (!cues_.AddCue(cue)) {
+    delete cue;
     return false;
+  }
 
   new_cuepoint_ = false;
   return true;
@@ -3401,7 +3408,10 @@ uint64_t Segment::AddAudioTrack(int32_t sample_rate, int32_t channels,
   track->set_sample_rate(sample_rate);
   track->set_channels(channels);
 
-  tracks_.AddTrack(track, number);
+  if (!tracks_.AddTrack(track, number)) {
+    delete track;
+    return 0;
+  }
 
   return track->number();
 }
@@ -3509,10 +3519,14 @@ bool Segment::AddGenericFrame(const Frame* frame) {
   if (has_video_ && tracks_.TrackIsAudio(frame->track_number()) &&
       !force_new_cluster_) {
     Frame* const new_frame = new (std::nothrow) Frame();
-    if (!new_frame || !new_frame->CopyFrom(*frame))
+    if (!new_frame || !new_frame->CopyFrom(*frame)) {
+      delete new_frame;
       return false;
-    if (!QueueFrame(new_frame))
+    }
+    if (!QueueFrame(new_frame)) {
+      delete new_frame;
       return false;
+    }
     track_frames_written_[frame->track_number() - 1]++;
     return true;
   }
@@ -3535,8 +3549,10 @@ bool Segment::AddGenericFrame(const Frame* frame) {
   if (!frame->CanBeSimpleBlock() && !frame->is_key() &&
       !frame->reference_block_timestamp_set()) {
     Frame* const new_frame = new (std::nothrow) Frame();
-    if (!new_frame->CopyFrom(*frame))
+    if (!new_frame || !new_frame->CopyFrom(*frame)) {
+      delete new_frame;
       return false;
+    }
     new_frame->set_reference_block_timestamp(
         last_track_timestamp_[frame->track_number() - 1]);
     frame = new_frame;
@@ -4149,8 +4165,8 @@ bool Segment::DocTypeIsWebm() const {
   // TODO(vigneshv): Tweak .clang-format.
   const char* kWebmCodecIds[kNumCodecIds] = {
       Tracks::kOpusCodecId,          Tracks::kVorbisCodecId,
-      Tracks::kVp8CodecId,           Tracks::kVp9CodecId,
-      Tracks::kVp10CodecId,          Tracks::kWebVttCaptionsId,
+      Tracks::kAv1CodecId,           Tracks::kVp8CodecId,
+      Tracks::kVp9CodecId,           Tracks::kWebVttCaptionsId,
       Tracks::kWebVttDescriptionsId, Tracks::kWebVttMetadataId,
       Tracks::kWebVttSubtitlesId};
 

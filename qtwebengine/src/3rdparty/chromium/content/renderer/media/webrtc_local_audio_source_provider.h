@@ -17,9 +17,9 @@
 #include "content/common/content_export.h"
 #include "content/public/renderer/media_stream_audio_sink.h"
 #include "media/base/audio_converter.h"
-#include "third_party/WebKit/public/platform/WebAudioSourceProvider.h"
-#include "third_party/WebKit/public/platform/WebMediaStreamTrack.h"
-#include "third_party/WebKit/public/platform/WebVector.h"
+#include "third_party/blink/public/platform/web_audio_source_provider.h"
+#include "third_party/blink/public/platform/web_media_stream_track.h"
+#include "third_party/blink/public/platform/web_vector.h"
 
 namespace media {
 class AudioBus;
@@ -49,9 +49,9 @@ namespace content {
 //
 // All calls are protected by a lock.
 class CONTENT_EXPORT WebRtcLocalAudioSourceProvider
-    :  NON_EXPORTED_BASE(public blink::WebAudioSourceProvider),
-       NON_EXPORTED_BASE(public media::AudioConverter::InputCallback),
-       NON_EXPORTED_BASE(public MediaStreamAudioSink) {
+    : public blink::WebAudioSourceProvider,
+      public media::AudioConverter::InputCallback,
+      public MediaStreamAudioSink {
  public:
   static const size_t kWebAudioRenderBufferSize;
 

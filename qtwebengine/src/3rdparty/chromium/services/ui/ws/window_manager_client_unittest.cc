@@ -8,17 +8,21 @@
 #include "base/bind.h"
 #include "base/logging.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
 #include "services/ui/common/util.h"
+#include "services/ui/ws/test_utils.h"
 #include "services/ui/ws/window_server_test_base.h"
 #include "ui/aura/client/transient_window_client.h"
 #include "ui/aura/env.h"
+#include "ui/aura/mus/embed_root.h"
+#include "ui/aura/mus/embed_root_delegate.h"
 #include "ui/aura/mus/window_port_mus.h"
 #include "ui/aura/mus/window_tree_client.h"
 #include "ui/aura/mus/window_tree_client_delegate.h"
 #include "ui/aura/mus/window_tree_host_mus.h"
 #include "ui/aura/mus/window_tree_host_mus_init_params.h"
+#include "ui/aura/test/mus/change_completion_waiter.h"
+#include "ui/aura/test/mus/test_window_manager_delegate.h"
 #include "ui/aura/test/mus/window_tree_client_private.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_observer.h"
@@ -34,69 +38,9 @@ Id server_id(aura::Window* window) {
   return aura::WindowMus::Get(window)->server_id();
 }
 
-aura::Window* GetChildWindowByServerId(aura::WindowTreeClient* client,
-                                       aura::Id id) {
+aura::Window* GetChildWindowByServerId(aura::WindowTreeClient* client, Id id) {
   return aura::WindowTreeClientPrivate(client).GetWindowByServerId(id);
 }
-
-class TestWindowManagerDelegate : public aura::WindowManagerDelegate {
- public:
-  TestWindowManagerDelegate() {}
-  ~TestWindowManagerDelegate() override {}
-
-  // WindowManagerDelegate:
-  void SetWindowManagerClient(aura::WindowManagerClient* client) override {}
-  void OnWmConnected() override {}
-  void OnWmSetBounds(aura::Window* window, const gfx::Rect& bounds) override {}
-  bool OnWmSetProperty(
-      aura::Window* window,
-      const std::string& name,
-      std::unique_ptr<std::vector<uint8_t>>* new_data) override {
-    return false;
-  }
-  void OnWmSetModalType(aura::Window* window, ui::ModalType type) override {}
-  void OnWmSetCanFocus(aura::Window* window, bool can_focus) override {}
-  aura::Window* OnWmCreateTopLevelWindow(
-      ui::mojom::WindowType window_type,
-      std::map<std::string, std::vector<uint8_t>>* properties) override {
-    return nullptr;
-  }
-  void OnWmClientJankinessChanged(const std::set<aura::Window*>& client_windows,
-                                  bool not_responding) override {}
-  void OnWmBuildDragImage(const gfx::Point& screen_location,
-                          const SkBitmap& drag_image,
-                          const gfx::Vector2d& drag_image_offset,
-                          ui::mojom::PointerKind source) override {}
-  void OnWmMoveDragImage(const gfx::Point& screen_location) override {}
-  void OnWmDestroyDragImage() override {}
-  void OnWmWillCreateDisplay(const display::Display& display) override {}
-  void OnWmNewDisplay(std::unique_ptr<aura::WindowTreeHostMus> window_tree_host,
-                      const display::Display& display) override {}
-  void OnWmDisplayRemoved(aura::WindowTreeHostMus* window_tree_host) override {}
-  void OnWmDisplayModified(const display::Display& display) override {}
-  mojom::EventResult OnAccelerator(
-      uint32_t accelerator_id,
-      const ui::Event& event,
-      std::unordered_map<std::string, std::vector<uint8_t>>* properties)
-      override {
-    return ui::mojom::EventResult::UNHANDLED;
-  }
-  void OnWmPerformMoveLoop(aura::Window* window,
-                           mojom::MoveLoopSource source,
-                           const gfx::Point& cursor_location,
-                           const base::Callback<void(bool)>& on_done) override {
-  }
-  void OnWmCancelMoveLoop(aura::Window* window) override {}
-  void OnWmSetClientArea(
-      aura::Window* window,
-      const gfx::Insets& insets,
-      const std::vector<gfx::Rect>& additional_client_areas) override {}
-  bool IsWindowActive(aura::Window* window) override { return true; }
-  void OnWmDeactivateWindow(aura::Window* window) override {}
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(TestWindowManagerDelegate);
-};
 
 class BoundsChangeObserver : public aura::WindowObserver {
  public:
@@ -109,7 +53,8 @@ class BoundsChangeObserver : public aura::WindowObserver {
   // Overridden from WindowObserver:
   void OnWindowBoundsChanged(aura::Window* window,
                              const gfx::Rect& old_bounds,
-                             const gfx::Rect& new_bounds) override {
+                             const gfx::Rect& new_bounds,
+                             ui::PropertyChangeReason reason) override {
     DCHECK_EQ(window, window_);
     EXPECT_TRUE(WindowServerTestBase::QuitRunLoop());
   }
@@ -225,7 +170,7 @@ aura::Window* NewVisibleWindow(
     aura::WindowTreeClient* client,
     aura::WindowMusType type = aura::WindowMusType::LOCAL) {
   std::unique_ptr<aura::WindowPortMus> window_port_mus =
-      base::MakeUnique<aura::WindowPortMus>(client, type);
+      std::make_unique<aura::WindowPortMus>(client, type);
   aura::Window* window = new aura::Window(nullptr, std::move(window_port_mus));
   window->Init(ui::LAYER_NOT_DRAWN);
   window->Show();
@@ -274,7 +219,7 @@ class WindowServerTest : public WindowServerTestBase {
   std::unique_ptr<EmbedResult> Embed(aura::WindowTreeClient* window_tree_client,
                                      aura::Window* window) {
     DCHECK(!embed_details_);
-    embed_details_ = base::MakeUnique<EmbedDetails>();
+    embed_details_ = std::make_unique<EmbedDetails>();
     window_tree_client->Embed(window, ConnectAndGetWindowServerClient(), 0,
                               base::Bind(&WindowServerTest::EmbedCallbackImpl,
                                          base::Unretained(this)));
@@ -283,13 +228,13 @@ class WindowServerTest : public WindowServerTestBase {
       // such as |window| has children.
       EXPECT_FALSE(embed_details_->embed_result);
       embed_details_.reset();
-      return base::MakeUnique<EmbedResult>();
+      return std::make_unique<EmbedResult>();
     }
     // Wait for EmbedCallbackImpl() to be called with the result.
     embed_details_->waiting = true;
     if (!WindowServerTestBase::DoRunLoopWithTimeout()) {
       embed_details_.reset();
-      return base::MakeUnique<EmbedResult>();
+      return std::make_unique<EmbedResult>();
     }
     std::unique_ptr<EmbedResult> result = std::move(embed_details_->result);
     embed_details_.reset();
@@ -305,7 +250,7 @@ class WindowServerTest : public WindowServerTestBase {
   }
 
   std::unique_ptr<ClientAreaChange> WaitForClientAreaToChange() {
-    client_area_change_ = base::MakeUnique<ClientAreaChange>();
+    client_area_change_ = std::make_unique<ClientAreaChange>();
     // The nested run loop is quit in OnWmSetClientArea(). Client area
     // changes don't route through the window, only the WindowManagerDelegate.
     if (!WindowServerTestBase::DoRunLoopWithTimeout()) {
@@ -343,7 +288,7 @@ class WindowServerTest : public WindowServerTestBase {
  private:
   // Used to track the state of a call to window->Embed().
   struct EmbedDetails {
-    EmbedDetails() : result(base::MakeUnique<EmbedResult>()) {}
+    EmbedDetails() : result(std::make_unique<EmbedResult>()) {}
 
     // The callback function supplied to Embed() was called.
     bool callback_run = false;
@@ -387,7 +332,9 @@ TEST_F(WindowServerTest, Embed) {
   // WindowTreeHost::window() is the single root of the embed.
   EXPECT_EQ(1u, embed_result->window_tree_client->GetRoots().size());
   EXPECT_EQ(embed_root, GetFirstRoot(embed_result->window_tree_client.get()));
-  EXPECT_EQ(server_id(window), server_id(embed_root));
+  EXPECT_EQ(ClientWindowIdFromTransportId(server_id(window)),
+            ClientWindowIdFromTransportId(server_id(embed_root)));
+  EXPECT_NE(0u, ClientIdFromTransportId(server_id(embed_root)));
   EXPECT_EQ(nullptr, embed_root->parent());
   EXPECT_TRUE(embed_root->children().empty());
 }
@@ -400,7 +347,9 @@ TEST_F(WindowServerTest, EmbeddedDoesntSeeChild) {
   std::unique_ptr<EmbedResult> embed_result = Embed(window_manager(), window);
   ASSERT_TRUE(embed_result->IsValid());
   aura::Window* embed_root = embed_result->window_tree_host->window();
-  EXPECT_EQ(server_id(window), server_id(embed_root));
+  EXPECT_EQ(ClientWindowIdFromTransportId(server_id(window)),
+            ClientWindowIdFromTransportId(server_id(embed_root)));
+  EXPECT_NE(0u, ClientIdFromTransportId(server_id(embed_root)));
   EXPECT_EQ(nullptr, embed_root->parent());
   EXPECT_TRUE(embed_root->children().empty());
 }
@@ -436,7 +385,7 @@ TEST_F(WindowServerTest, SetBounds) {
 // Verifies that bounds changes applied to a window owned by a different
 // client can be refused.
 TEST_F(WindowServerTest, SetBoundsSecurity) {
-  TestWindowManagerDelegate wm_delegate;
+  aura::TestWindowManagerDelegate wm_delegate;
   set_window_manager_delegate(&wm_delegate);
 
   aura::Window* window = NewVisibleWindow(GetFirstWMRoot(), window_manager(),
@@ -504,6 +453,14 @@ TEST_F(WindowServerTest, Reorder) {
   aura::Window* window12 = NewVisibleWindow(embed_root, embedded);
   ASSERT_TRUE(WaitForTreeSizeToMatch(window1, 3u));
 
+  // |embedded|'s WindowTree has an id_ of embedded_client_id, so window11's
+  // client_id part should be embedded_client_id in the WindowTree for
+  // window_manager(). Similar for window12.
+  Id embedded_client_id = test::kWindowManagerClientId + 1;
+  Id window11_in_wm = embedded_client_id << 32 |
+                      ClientWindowIdFromTransportId(server_id(window11));
+  Id window12_in_wm = embedded_client_id << 32 |
+                      ClientWindowIdFromTransportId(server_id(window12));
 
   {
     window11->parent()->StackChildAtTop(window11);
@@ -515,15 +472,15 @@ TEST_F(WindowServerTest, Reorder) {
 
     // The window_manager() tree is still not updated.
     EXPECT_EQ(window1->children().back(),
-              GetChildWindowByServerId(window_manager(), server_id(window12)));
+              GetChildWindowByServerId(window_manager(), window12_in_wm));
 
     // Wait until window_manager() tree is updated.
     ASSERT_TRUE(WaitForStackingOrderChange(
-        GetChildWindowByServerId(window_manager(), server_id(window11))));
+        GetChildWindowByServerId(window_manager(), window11_in_wm)));
     EXPECT_EQ(window1->children().front(),
-              GetChildWindowByServerId(window_manager(), server_id(window12)));
+              GetChildWindowByServerId(window_manager(), window12_in_wm));
     EXPECT_EQ(window1->children().back(),
-              GetChildWindowByServerId(window_manager(), server_id(window11)));
+              GetChildWindowByServerId(window_manager(), window11_in_wm));
   }
 
   {
@@ -536,13 +493,13 @@ TEST_F(WindowServerTest, Reorder) {
 
     // |window_manager()| is also eventually updated.
     EXPECT_EQ(window1->children().back(),
-              GetChildWindowByServerId(window_manager(), server_id(window11)));
+              GetChildWindowByServerId(window_manager(), window11_in_wm));
     ASSERT_TRUE(WaitForStackingOrderChange(
-        GetChildWindowByServerId(window_manager(), server_id(window11))));
+        GetChildWindowByServerId(window_manager(), window11_in_wm)));
     EXPECT_EQ(window1->children().front(),
-              GetChildWindowByServerId(window_manager(), server_id(window11)));
+              GetChildWindowByServerId(window_manager(), window11_in_wm));
     EXPECT_EQ(window1->children().back(),
-              GetChildWindowByServerId(window_manager(), server_id(window12)));
+              GetChildWindowByServerId(window_manager(), window12_in_wm));
   }
 }
 
@@ -689,7 +646,8 @@ TEST_F(WindowServerTest, ClientAreaChanged) {
   EXPECT_EQ(insets, client_area_change->insets);
 }
 
-class EstablishConnectionViaFactoryDelegate : public TestWindowManagerDelegate {
+class EstablishConnectionViaFactoryDelegate
+    : public aura::TestWindowManagerDelegate {
  public:
   explicit EstablishConnectionViaFactoryDelegate(aura::WindowTreeClient* client)
       : client_(client), run_loop_(nullptr), created_window_(nullptr) {}
@@ -700,7 +658,7 @@ class EstablishConnectionViaFactoryDelegate : public TestWindowManagerDelegate {
       return false;
 
     created_window_ = nullptr;
-    run_loop_ = base::MakeUnique<base::RunLoop>();
+    run_loop_ = std::make_unique<base::RunLoop>();
     run_loop_->Run();
     run_loop_.reset();
     return created_window_ != nullptr;
@@ -730,14 +688,14 @@ class EstablishConnectionViaFactoryDelegate : public TestWindowManagerDelegate {
 TEST_F(WindowServerTest, EstablishConnectionViaFactory) {
   EstablishConnectionViaFactoryDelegate delegate(window_manager());
   set_window_manager_delegate(&delegate);
-  aura::WindowTreeClient second_client(connector(), this, nullptr, nullptr,
-                                       nullptr, false);
-  second_client.ConnectViaWindowTreeFactory();
+  std::unique_ptr<aura::WindowTreeClient> second_client =
+      aura::WindowTreeClient::CreateForWindowTreeFactory(connector(), this,
+                                                         false);
   aura::WindowTreeHostMus window_tree_host_in_second_client(
-      aura::CreateInitParamsForTopLevel(&second_client));
+      aura::CreateInitParamsForTopLevel(second_client.get()));
   window_tree_host_in_second_client.InitHost();
   window_tree_host_in_second_client.window()->Show();
-  ASSERT_TRUE(second_client.GetRoots().count(
+  ASSERT_TRUE(second_client->GetRoots().count(
                   window_tree_host_in_second_client.window()) > 0);
   // Wait for the window to appear in the wm.
   ASSERT_TRUE(delegate.QuitOnCreate());
@@ -760,20 +718,17 @@ TEST_F(WindowServerTest, OnWindowHierarchyChangedIncludesTransientParent) {
   // of the first window and then add it.
   EstablishConnectionViaFactoryDelegate delegate(window_manager());
   set_window_manager_delegate(&delegate);
-  aura::WindowTreeClient second_client(connector(), this, nullptr, nullptr,
-                                       nullptr, false);
-  second_client.ConnectViaWindowTreeFactory();
+  std::unique_ptr<aura::WindowTreeClient> second_client =
+      aura::WindowTreeClient::CreateForWindowTreeFactory(connector(), this,
+                                                         false);
   aura::WindowTreeHostMus window_tree_host_in_second_client(
-      aura::CreateInitParamsForTopLevel(&second_client));
+      aura::CreateInitParamsForTopLevel(second_client.get()));
   window_tree_host_in_second_client.InitHost();
   window_tree_host_in_second_client.window()->Show();
   aura::Window* second_client_child = NewVisibleWindow(
-      window_tree_host_in_second_client.window(), &second_client);
-  std::unique_ptr<aura::WindowPortMus> window_port_mus =
-      base::MakeUnique<aura::WindowPortMus>(&second_client,
-                                            aura::WindowMusType::LOCAL);
+      window_tree_host_in_second_client.window(), second_client.get());
   // Create the transient without a parent, set transient parent, then add.
-  aura::Window* transient = NewVisibleWindow(nullptr, &second_client);
+  aura::Window* transient = NewVisibleWindow(nullptr, second_client.get());
   aura::client::TransientWindowClient* transient_window_client =
       aura::client::GetTransientWindowClient();
   transient_window_client->AddTransientChild(second_client_child, transient);
@@ -792,6 +747,127 @@ TEST_F(WindowServerTest, OnWindowHierarchyChangedIncludesTransientParent) {
   aura::Window* transient_in_wm = second_client_child_in_wm->children()[0];
   ASSERT_EQ(second_client_child_in_wm,
             transient_window_client->GetTransientParent(transient_in_wm));
+}
+
+class TestEmbedRootDelegate : public aura::EmbedRootDelegate {
+ public:
+  TestEmbedRootDelegate() {}
+
+  void SetQuitClosure(base::Closure closure) { quit_closure_ = closure; }
+
+  const base::UnguessableToken& token() const { return token_; }
+  aura::Window* embed_window() { return embed_window_; }
+  bool got_unembed() const { return got_unembed_; }
+
+  // EmbedRootDelegate:
+  void OnEmbedTokenAvailable(const base::UnguessableToken& token) override {
+    token_ = token;
+    quit_closure_.Run();
+  }
+  void OnEmbed(aura::Window* window) override {
+    embed_window_ = window;
+    quit_closure_.Run();
+  }
+  void OnUnembed() override {
+    got_unembed_ = true;
+    quit_closure_.Run();
+  }
+
+ private:
+  base::Closure quit_closure_;
+  aura::Window* embed_window_ = nullptr;
+  bool got_unembed_ = false;
+
+  base::UnguessableToken token_;
+
+  DISALLOW_COPY_AND_ASSIGN(TestEmbedRootDelegate);
+};
+
+// This test exercises multiple EmbedRoots for a single client.
+TEST_F(WindowServerTest, EmbedRoot) {
+  EstablishConnectionViaFactoryDelegate delegate(window_manager());
+  set_window_manager_delegate(&delegate);
+  std::unique_ptr<aura::WindowTreeClient> second_client =
+      aura::WindowTreeClient::CreateForWindowTreeFactory(connector(), this,
+                                                         false);
+
+  // Create a visible window so that the window-manager has a different number
+  // of initial windows than the client.
+  NewVisibleWindow(GetFirstWMRoot(), window_manager(),
+                   aura::WindowMusType::EMBED_IN_OWNER);
+  std::vector<std::unique_ptr<aura::EmbedRoot>> embed_roots;
+  for (int i = 0; i < 2; ++i) {
+    // Create a new EmbedRoot and wait for the token from the server.
+    TestEmbedRootDelegate test_embed_root_delegate;
+    std::unique_ptr<aura::EmbedRoot> embed_root =
+        second_client->CreateEmbedRoot(&test_embed_root_delegate);
+    base::RunLoop run_loop1;
+    test_embed_root_delegate.SetQuitClosure(run_loop1.QuitClosure());
+    run_loop1.Run();
+    ASSERT_TRUE(test_embed_root_delegate.token());
+
+    // Embed the token from the window manager's connection and wait for
+    // OnEmbed().
+    aura::Window* embed_window_in_wm =
+        NewVisibleWindow(GetFirstWMRoot(), window_manager(),
+                         aura::WindowMusType::EMBED_IN_OWNER);
+    window_manager()->EmbedUsingToken(embed_window_in_wm,
+                                      test_embed_root_delegate.token(), 0u,
+                                      base::DoNothing());
+
+    base::RunLoop run_loop2;
+    test_embed_root_delegate.SetQuitClosure(run_loop2.QuitClosure());
+    run_loop2.Run();
+    ASSERT_TRUE(test_embed_root_delegate.embed_window());
+    EXPECT_NE(test_embed_root_delegate.embed_window(), embed_window_in_wm);
+    // Create a child of the embed root's window in |second_client|. Then wait
+    // for completion to ensure all is well.
+    NewVisibleWindow(test_embed_root_delegate.embed_window(),
+                     second_client.get());
+    aura::test::WaitForAllChangesToComplete(second_client.get());
+    embed_roots.push_back(std::move(embed_root));
+  }
+}
+
+TEST_F(WindowServerTest, DeleteEmbedRoot) {
+  EstablishConnectionViaFactoryDelegate delegate(window_manager());
+  set_window_manager_delegate(&delegate);
+  std::unique_ptr<aura::WindowTreeClient> second_client =
+      aura::WindowTreeClient::CreateForWindowTreeFactory(connector(), this,
+                                                         false);
+
+  // Create a new EmbedRoot and wait for the token from the server.
+  TestEmbedRootDelegate test_embed_root_delegate;
+  std::unique_ptr<aura::EmbedRoot> embed_root =
+      second_client->CreateEmbedRoot(&test_embed_root_delegate);
+  base::RunLoop run_loop1;
+  test_embed_root_delegate.SetQuitClosure(run_loop1.QuitClosure());
+  run_loop1.Run();
+  ASSERT_TRUE(test_embed_root_delegate.token());
+
+  // Embed the token from the window manager's connection and wait for
+  // OnEmbed().
+  aura::Window* embed_window_in_wm = NewVisibleWindow(
+      GetFirstWMRoot(), window_manager(), aura::WindowMusType::EMBED_IN_OWNER);
+  window_manager()->EmbedUsingToken(embed_window_in_wm,
+                                    test_embed_root_delegate.token(), 0u,
+                                    base::DoNothing());
+
+  base::RunLoop run_loop2;
+  test_embed_root_delegate.SetQuitClosure(run_loop2.QuitClosure());
+  run_loop2.Run();
+  ASSERT_TRUE(test_embed_root_delegate.embed_window());
+  aura::WindowTracker embed_root_window_tracker;
+  embed_root_window_tracker.Add(test_embed_root_delegate.embed_window());
+
+  // Delete the embed root (from the window-manager).
+  delete embed_window_in_wm;
+  base::RunLoop run_loop3;
+  test_embed_root_delegate.SetQuitClosure(run_loop3.QuitClosure());
+  run_loop3.Run();
+  EXPECT_TRUE(test_embed_root_delegate.got_unembed());
+  // The EmbedRoot's window should still exist in the embedded client.
+  EXPECT_FALSE(embed_root_window_tracker.windows().empty());
 }
 
 }  // namespace ws

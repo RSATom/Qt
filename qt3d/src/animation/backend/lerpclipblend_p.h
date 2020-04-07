@@ -71,25 +71,25 @@ public:
     inline Qt3DCore::QNodeId endClipId() const { return m_endClipId; }
     void setEndClipId(Qt3DCore::QNodeId endClipId) { m_endClipId = endClipId; }  // For unit tests
 
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) Q_DECL_FINAL;
+    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) final;
 
-    inline QVector<Qt3DCore::QNodeId> allDependencyIds() const Q_DECL_OVERRIDE
+    inline QVector<Qt3DCore::QNodeId> allDependencyIds() const override
     {
         return currentDependencyIds();
     }
 
-    inline QVector<Qt3DCore::QNodeId> currentDependencyIds() const Q_DECL_OVERRIDE
+    inline QVector<Qt3DCore::QNodeId> currentDependencyIds() const override
     {
         return { m_startClipId, m_endClipId };
     }
 
-    double duration() const Q_DECL_OVERRIDE;
+    double duration() const override;
 
 protected:
-    ClipResults doBlend(const QVector<ClipResults> &blendData) const Q_DECL_FINAL;
+    ClipResults doBlend(const QVector<ClipResults> &blendData) const final;
 
 private:
-    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) Q_DECL_FINAL;
+    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) final;
 
     Qt3DCore::QNodeId m_startClipId;
     Qt3DCore::QNodeId m_endClipId;

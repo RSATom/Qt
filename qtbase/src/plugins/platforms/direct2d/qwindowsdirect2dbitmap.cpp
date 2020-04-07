@@ -42,8 +42,8 @@
 #include "qwindowsdirect2dhelpers.h"
 #include "qwindowsdirect2ddevicecontext.h"
 
-#include <QtGui/QImage>
-#include <QtGui/QColor>
+#include <QtGui/qimage.h>
+#include <QtGui/qcolor.h>
 
 #include <wrl.h>
 
@@ -54,7 +54,8 @@ QT_BEGIN_NAMESPACE
 class QWindowsDirect2DBitmapPrivate
 {
 public:
-    QWindowsDirect2DBitmapPrivate(ID2D1DeviceContext *dc = 0, ID2D1Bitmap1 *bm = 0)
+    QWindowsDirect2DBitmapPrivate(ID2D1DeviceContext *dc = nullptr,
+                                  ID2D1Bitmap1 *bm = nullptr)
         : deviceContext(new QWindowsDirect2DDeviceContext(dc))
         , bitmap(bm)
 
@@ -75,9 +76,9 @@ public:
 
     }
 
-    bool resize(int width, int height, const void *data = 0, int pitch = 0)
+    bool resize(int width, int height, const void *data = nullptr, int pitch = 0)
     {
-        deviceContext->get()->SetTarget(0);
+        deviceContext->get()->SetTarget(nullptr);
         bitmap.Reset();
 
         D2D1_SIZE_U size = {
@@ -108,14 +109,14 @@ public:
         D2D1_BITMAP_PROPERTIES1 properties = bitmapProperties();
         properties.bitmapOptions = D2D1_BITMAP_OPTIONS_CANNOT_DRAW | D2D1_BITMAP_OPTIONS_CPU_READ;
 
-        hr = deviceContext->get()->CreateBitmap(size, NULL, 0,
+        hr = deviceContext->get()->CreateBitmap(size, nullptr, 0,
                                                 properties, &mappingCopy);
         if (FAILED(hr)) {
             qWarning("%s: Could not create bitmap: %#lx", __FUNCTION__, hr);
             return QImage();
         }
 
-        hr = mappingCopy->CopyFromBitmap(NULL, bitmap.Get(), NULL);
+        hr = mappingCopy->CopyFromBitmap(nullptr, bitmap.Get(), nullptr);
         if (FAILED(hr)) {
             qWarning("%s: Could not copy from bitmap: %#lx", __FUNCTION__, hr);
             return QImage();

@@ -51,9 +51,12 @@ class VIEWS_EXPORT SubmenuView : public View,
   explicit SubmenuView(MenuItemView* parent);
   ~SubmenuView() override;
 
+  // Returns true if the submenu has at least one visible child item.
+  bool HasVisibleChildren();
+
   // Returns the number of child views that are MenuItemViews.
   // MenuItemViews are identified by ID.
-  int GetMenuItemCount();
+  int GetMenuItemCount() const;
 
   // Returns the MenuItemView at the specified index.
   MenuItemView* GetMenuItemAt(int index);
@@ -69,7 +72,7 @@ class VIEWS_EXPORT SubmenuView : public View,
   void GetAccessibleNodeData(ui::AXNodeData* node_data) override;
 
   // Painting.
-  void PaintChildren(const ui::PaintContext& context) override;
+  void PaintChildren(const PaintInfo& paint_info) override;
 
   // Drag and drop methods. These are forwarded to the MenuController.
   bool GetDropFormats(

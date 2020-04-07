@@ -30,10 +30,10 @@
 #define INPLACE_WIDGETHELPER_H
 
 
-#include <QtCore/QObject>
-#include <QtCore/QPoint>
-#include <QtCore/QSize>
-#include <QtCore/QPointer>
+#include <QtCore/qobject.h>
+#include <QtCore/qpoint.h>
+#include <QtCore/qsize.h>
+#include <QtCore/qpointer.h>
 #include <qglobal.h>
 
 QT_BEGIN_NAMESPACE
@@ -55,9 +55,9 @@ namespace qdesigner_internal {
         Q_OBJECT
     public:
         InPlaceWidgetHelper(QWidget *editorWidget, QWidget *parentWidget, QDesignerFormWindowInterface *fw);
-        virtual ~InPlaceWidgetHelper();
+        ~InPlaceWidgetHelper() override;
 
-        bool eventFilter(QObject *object, QEvent *event) Q_DECL_OVERRIDE;
+        bool eventFilter(QObject *object, QEvent *event) override;
 
         // returns a recommended alignment for the editor widget determined from the parent.
         Qt::Alignment alignment() const;

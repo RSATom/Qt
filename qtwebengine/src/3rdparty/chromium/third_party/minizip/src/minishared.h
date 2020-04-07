@@ -24,6 +24,9 @@ void change_file_date(const char *path, uint32_t dos_date);
 /* Convert dos date/time format to struct tm */
 int dosdate_to_tm(uint64_t dos_date, struct tm *ptm);
 
+/* Convert dos date/time format to time_t */
+time_t dosdate_to_time_t(uint64_t dos_date);
+
 /* Convert struct tm to dos date/time format */
 uint32_t tm_to_dosdate(const struct tm *ptm);
 
@@ -35,9 +38,6 @@ int check_file_exists(const char *path);
 
 /* Check to see if a file is over 4GB and needs ZIP64 extension */
 int is_large_file(const char *path);
-
-/* Calculate the CRC32 of a file, because to encrypt a file, we need known the CRC32 of the file before */
-int get_file_crc(const char *path, void *buf, uint32_t size_buf, uint32_t *result_crc);
 
 /* Print a 64-bit number for compatibility */
 void display_zpos64(uint64_t n, int size_char);

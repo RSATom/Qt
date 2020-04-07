@@ -16,10 +16,10 @@ winrt
 [clipTest]
 windows
 winrt
-opensuse-13.1
 [graphicsViewClipping]
 windows
 winrt
+linux ci
 [glFBOUseInGLWidget]
 windows
 winrt

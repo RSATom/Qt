@@ -9,16 +9,17 @@
 #include <algorithm>
 #include <memory>
 #include <utility>
-#include <vector>
 
 #include "core/fxcrt/fx_safe_types.h"
 #include "core/fxge/cfx_defaultrenderdevice.h"
 #include "core/fxge/cfx_facecache.h"
+#include "core/fxge/cfx_font.h"
+#include "core/fxge/cfx_fontmgr.h"
 #include "core/fxge/cfx_gemodule.h"
 #include "core/fxge/cfx_graphstatedata.h"
 #include "core/fxge/cfx_pathdata.h"
 #include "core/fxge/dib/cfx_imagerenderer.h"
-#include "core/fxge/ifx_renderdevicedriver.h"
+#include "core/fxge/renderdevicedriver_iface.h"
 
 #if defined _SKIA_SUPPORT_ || defined _SKIA_SUPPORT_PATHS_
 #include "third_party/skia/include/core/SkTypes.h"
@@ -34,7 +35,7 @@ void AdjustGlyphSpace(std::vector<FXTEXT_GLYPHPOS>* pGlyphAndPos) {
     return;
 
   for (size_t i = glyphs.size() - 1; i > 1; --i) {
-    FXTEXT_GLYPHPOS& next = glyphs[i];
+    const FXTEXT_GLYPHPOS& next = glyphs[i];
     int next_origin = bVertical ? next.m_Origin.y : next.m_Origin.x;
     float next_origin_f = bVertical ? next.m_fOrigin.y : next.m_fOrigin.x;
 
@@ -43,11 +44,23 @@ void AdjustGlyphSpace(std::vector<FXTEXT_GLYPHPOS>* pGlyphAndPos) {
     float current_origin_f =
         bVertical ? current.m_fOrigin.y : current.m_fOrigin.x;
 
-    int space = next_origin - current_origin;
+    FX_SAFE_INT32 safe_space = next_origin;
+    safe_space -= current_origin;
+    if (!safe_space.IsValid())
+      continue;
+
+    int space = safe_space.ValueOrDie();
     float space_f = next_origin_f - current_origin_f;
     float error = fabs(space_f) - fabs(static_cast<float>(space));
-    if (error > 0.5f)
-      current_origin += space > 0 ? -1 : 1;
+    if (error <= 0.5f)
+      continue;
+
+    FX_SAFE_INT32 safe_origin = current_origin;
+    safe_origin += space > 0 ? -1 : 1;
+    if (!safe_origin.IsValid())
+      continue;
+
+    current_origin = safe_origin.ValueOrDie();
   }
 }
 
@@ -147,7 +160,7 @@ void NormalizeArgb(int src_value,
                    int src_alpha) {
   uint8_t back_alpha = dest[3];
   if (back_alpha == 0)
-    FXARGB_SETDIB(dest, FXARGB_MAKE(src_alpha, r, g, b));
+    FXARGB_SETDIB(dest, ArgbEncode(src_alpha, r, g, b));
   else if (src_alpha != 0)
     ApplyDestAlpha(back_alpha, src_alpha, r, g, b, dest);
 }
@@ -197,8 +210,8 @@ void SetAlpha(bool has_alpha, uint8_t* alpha) {
     alpha[3] = 255;
 }
 
-void DrawNormalTextHelper(const CFX_RetainPtr<CFX_DIBitmap>& bitmap,
-                          const CFX_RetainPtr<CFX_DIBitmap>& pGlyph,
+void DrawNormalTextHelper(const RetainPtr<CFX_DIBitmap>& bitmap,
+                          const RetainPtr<CFX_DIBitmap>& pGlyph,
                           int nrows,
                           int left,
                           int top,
@@ -332,12 +345,12 @@ void DrawNormalTextHelper(const CFX_RetainPtr<CFX_DIBitmap>& bitmap,
 }
 
 bool ShouldDrawDeviceText(const CFX_Font* pFont, uint32_t text_flags) {
-#if _FXM_PLATFORM_ == _FXM_PLATFORM_APPLE_
+#if _FX_PLATFORM_ == _FX_PLATFORM_APPLE_
   if (text_flags & FXFONT_CIDFONT)
     return false;
 
-  const CFX_ByteString bsPsName = pFont->GetPsName();
-  if (bsPsName.Find("+ZJHL") != -1)
+  const ByteString bsPsName = pFont->GetPsName();
+  if (bsPsName.Contains("+ZJHL"))
     return false;
 
   if (bsPsName == "CNAAJI+cmex10")
@@ -352,7 +365,7 @@ FXTEXT_CHARPOS::FXTEXT_CHARPOS()
     : m_Unicode(0),
       m_GlyphIndex(0),
       m_FontCharWidth(0),
-#if _FXM_PLATFORM_ == _FXM_PLATFORM_APPLE_
+#if _FX_PLATFORM_ == _FX_PLATFORM_APPLE_
       m_ExtGID(0),
 #endif
       m_FallbackFontPosition(0),
@@ -375,18 +388,21 @@ CFX_RenderDevice::CFX_RenderDevice()
 CFX_RenderDevice::~CFX_RenderDevice() {
   RestoreState(false);
 #if defined _SKIA_SUPPORT_ || defined _SKIA_SUPPORT_PATHS_
-  Flush();
+  Flush(true);
 #endif
 }
 
 #if defined _SKIA_SUPPORT_ || defined _SKIA_SUPPORT_PATHS_
-void CFX_RenderDevice::Flush() {
-  m_pDeviceDriver.reset();
+void CFX_RenderDevice::Flush(bool release) {
+  if (release)
+    m_pDeviceDriver.reset();
+  else
+    m_pDeviceDriver->Flush();
 }
 #endif
 
 void CFX_RenderDevice::SetDeviceDriver(
-    std::unique_ptr<IFX_RenderDeviceDriver> pDriver) {
+    std::unique_ptr<RenderDeviceDriverIface> pDriver) {
   m_pDeviceDriver = std::move(pDriver);
   InitDeviceInfo();
 }
@@ -420,12 +436,16 @@ int CFX_RenderDevice::GetDeviceCaps(int caps_id) const {
   return m_pDeviceDriver->GetDeviceCaps(caps_id);
 }
 
-CFX_Matrix CFX_RenderDevice::GetCTM() const {
-  return m_pDeviceDriver->GetCTM();
+RetainPtr<CFX_DIBitmap> CFX_RenderDevice::GetBitmap() const {
+  return m_pBitmap;
+}
+
+void CFX_RenderDevice::SetBitmap(const RetainPtr<CFX_DIBitmap>& pBitmap) {
+  m_pBitmap = pBitmap;
 }
 
 bool CFX_RenderDevice::CreateCompatibleBitmap(
-    const CFX_RetainPtr<CFX_DIBitmap>& pDIB,
+    const RetainPtr<CFX_DIBitmap>& pDIB,
     int width,
     int height) const {
   if (m_RenderCaps & FXRC_CMYK_OUTPUT) {
@@ -435,7 +455,7 @@ bool CFX_RenderDevice::CreateCompatibleBitmap(
   }
   if (m_RenderCaps & FXRC_BYTEMASK_OUTPUT)
     return pDIB->Create(width, height, FXDIB_8bppMask);
-#if _FXM_PLATFORM_ == _FXM_PLATFORM_APPLE_ || defined _SKIA_SUPPORT_PATHS_
+#if _FX_PLATFORM_ == _FX_PLATFORM_APPLE_ || defined _SKIA_SUPPORT_PATHS_
   return pDIB->Create(
       width, height,
       m_RenderCaps & FXRC_ALPHA_OUTPUT ? FXDIB_Argb : FXDIB_Rgb32);
@@ -467,6 +487,15 @@ bool CFX_RenderDevice::SetClip_PathStroke(
   UpdateClipBox();
   return true;
 }
+
+#ifdef PDF_ENABLE_XFA
+bool CFX_RenderDevice::SetClip_Rect(const CFX_RectF& rtClip) {
+  return SetClip_Rect(FX_RECT(static_cast<int32_t>(floor(rtClip.left)),
+                              static_cast<int32_t>(floor(rtClip.top)),
+                              static_cast<int32_t>(ceil(rtClip.right())),
+                              static_cast<int32_t>(ceil(rtClip.bottom()))));
+}
+#endif
 
 bool CFX_RenderDevice::SetClip_Rect(const FX_RECT& rect) {
   CFX_PathData path;
@@ -504,8 +533,7 @@ bool CFX_RenderDevice::DrawPathWithBlend(const CFX_PathData* pPathData,
       pos1 = pObject2Device->Transform(pos1);
       pos2 = pObject2Device->Transform(pos2);
     }
-    DrawCosmeticLine(pos1.x, pos1.y, pos2.x, pos2.y, fill_color, fill_mode,
-                     blend_type);
+    DrawCosmeticLine(pos1, pos2, fill_color, fill_mode, blend_type);
     return true;
   }
 
@@ -549,7 +577,7 @@ bool CFX_RenderDevice::DrawPathWithBlend(const CFX_PathData* pPathData,
           --rect_i.bottom;
         }
       }
-      if (FillRectWithBlend(&rect_i, fill_color, blend_type))
+      if (FillRectWithBlend(rect_i, fill_color, blend_type))
         return true;
     }
   }
@@ -613,34 +641,32 @@ bool CFX_RenderDevice::DrawFillStrokePath(const CFX_PathData* pPathData,
     bbox = pPathData->GetBoundingBox();
   }
   if (pObject2Device)
-    pObject2Device->TransformRect(bbox);
+    bbox = pObject2Device->TransformRect(bbox);
 
-  CFX_Matrix ctm = GetCTM();
-  float fScaleX = fabs(ctm.a);
-  float fScaleY = fabs(ctm.d);
   FX_RECT rect = bbox.GetOuterRect();
-  auto bitmap = pdfium::MakeRetain<CFX_DIBitmap>();
-  auto Backdrop = pdfium::MakeRetain<CFX_DIBitmap>();
-  if (!CreateCompatibleBitmap(bitmap, FXSYS_round(rect.Width() * fScaleX),
-                              FXSYS_round(rect.Height() * fScaleY))) {
+  if (!rect.Valid())
     return false;
-  }
+
+  auto bitmap = pdfium::MakeRetain<CFX_DIBitmap>();
+  auto backdrop = pdfium::MakeRetain<CFX_DIBitmap>();
+  if (!CreateCompatibleBitmap(bitmap, rect.Width(), rect.Height()))
+    return false;
+
   if (bitmap->HasAlpha()) {
     bitmap->Clear(0);
-    Backdrop->Copy(bitmap);
+    backdrop->Copy(bitmap);
   } else {
     if (!m_pDeviceDriver->GetDIBits(bitmap, rect.left, rect.top))
       return false;
-    Backdrop->Copy(bitmap);
+    backdrop->Copy(bitmap);
   }
   CFX_DefaultRenderDevice bitmap_device;
-  bitmap_device.Attach(bitmap, false, Backdrop, true);
+  bitmap_device.Attach(bitmap, false, backdrop, true);
 
   CFX_Matrix matrix;
   if (pObject2Device)
     matrix = *pObject2Device;
   matrix.Translate(-rect.left, -rect.top);
-  matrix.Concat(CFX_Matrix(fScaleX, 0, 0, fScaleY, 0, 0));
   if (!bitmap_device.GetDeviceDriver()->DrawPath(
           pPathData, &matrix, pGraphState, fill_color, stroke_color, fill_mode,
           blend_type)) {
@@ -649,80 +675,73 @@ bool CFX_RenderDevice::DrawFillStrokePath(const CFX_PathData* pPathData,
 #if defined _SKIA_SUPPORT_ || defined _SKIA_SUPPORT_PATHS_
   bitmap_device.GetDeviceDriver()->Flush();
 #endif
-  FX_RECT src_rect(0, 0, FXSYS_round(rect.Width() * fScaleX),
-                   FXSYS_round(rect.Height() * fScaleY));
+  FX_RECT src_rect(0, 0, rect.Width(), rect.Height());
   return m_pDeviceDriver->SetDIBits(bitmap, 0, &src_rect, rect.left, rect.top,
                                     FXDIB_BLEND_NORMAL);
 }
 
-bool CFX_RenderDevice::FillRectWithBlend(const FX_RECT* pRect,
+bool CFX_RenderDevice::FillRectWithBlend(const FX_RECT& rect,
                                          uint32_t fill_color,
                                          int blend_type) {
-  if (m_pDeviceDriver->FillRectWithBlend(pRect, fill_color, blend_type))
+  if (m_pDeviceDriver->FillRectWithBlend(rect, fill_color, blend_type))
     return true;
 
   if (!(m_RenderCaps & FXRC_GET_BITS))
     return false;
 
   auto bitmap = pdfium::MakeRetain<CFX_DIBitmap>();
-  if (!CreateCompatibleBitmap(bitmap, pRect->Width(), pRect->Height()))
+  if (!CreateCompatibleBitmap(bitmap, rect.Width(), rect.Height()))
     return false;
 
-  if (!m_pDeviceDriver->GetDIBits(bitmap, pRect->left, pRect->top))
+  if (!m_pDeviceDriver->GetDIBits(bitmap, rect.left, rect.top))
     return false;
 
-  if (!bitmap->CompositeRect(0, 0, pRect->Width(), pRect->Height(), fill_color,
+  if (!bitmap->CompositeRect(0, 0, rect.Width(), rect.Height(), fill_color,
                              0)) {
     return false;
   }
-  FX_RECT src_rect(0, 0, pRect->Width(), pRect->Height());
-  m_pDeviceDriver->SetDIBits(bitmap, 0, &src_rect, pRect->left, pRect->top,
+  FX_RECT src_rect(0, 0, rect.Width(), rect.Height());
+  m_pDeviceDriver->SetDIBits(bitmap, 0, &src_rect, rect.left, rect.top,
                              FXDIB_BLEND_NORMAL);
   return true;
 }
 
-bool CFX_RenderDevice::DrawCosmeticLine(float x1,
-                                        float y1,
-                                        float x2,
-                                        float y2,
+bool CFX_RenderDevice::DrawCosmeticLine(const CFX_PointF& ptMoveTo,
+                                        const CFX_PointF& ptLineTo,
                                         uint32_t color,
                                         int fill_mode,
                                         int blend_type) {
-  if ((color >= 0xff000000) &&
-      m_pDeviceDriver->DrawCosmeticLine(x1, y1, x2, y2, color, blend_type)) {
+  if ((color >= 0xff000000) && m_pDeviceDriver->DrawCosmeticLine(
+                                   ptMoveTo, ptLineTo, color, blend_type)) {
     return true;
   }
   CFX_GraphStateData graph_state;
   CFX_PathData path;
-  path.AppendPoint(CFX_PointF(x1, y1), FXPT_TYPE::MoveTo, false);
-  path.AppendPoint(CFX_PointF(x2, y2), FXPT_TYPE::LineTo, false);
+  path.AppendPoint(ptMoveTo, FXPT_TYPE::MoveTo, false);
+  path.AppendPoint(ptLineTo, FXPT_TYPE::LineTo, false);
   return m_pDeviceDriver->DrawPath(&path, nullptr, &graph_state, 0, color,
                                    fill_mode, blend_type);
 }
 
-bool CFX_RenderDevice::GetDIBits(const CFX_RetainPtr<CFX_DIBitmap>& pBitmap,
+bool CFX_RenderDevice::GetDIBits(const RetainPtr<CFX_DIBitmap>& pBitmap,
                                  int left,
                                  int top) {
   return (m_RenderCaps & FXRC_GET_BITS) &&
          m_pDeviceDriver->GetDIBits(pBitmap, left, top);
 }
 
-CFX_RetainPtr<CFX_DIBitmap> CFX_RenderDevice::GetBackDrop() {
+RetainPtr<CFX_DIBitmap> CFX_RenderDevice::GetBackDrop() {
   return m_pDeviceDriver->GetBackDrop();
 }
 
 bool CFX_RenderDevice::SetDIBitsWithBlend(
-    const CFX_RetainPtr<CFX_DIBSource>& pBitmap,
+    const RetainPtr<CFX_DIBSource>& pBitmap,
     int left,
     int top,
     int blend_mode) {
   ASSERT(!pBitmap->IsAlphaMask());
-  CFX_Matrix ctm = GetCTM();
-  float fScaleX = fabs(ctm.a);
-  float fScaleY = fabs(ctm.d);
-  FX_RECT dest_rect(left, top,
-                    FXSYS_round(left + pBitmap->GetWidth() / fScaleX),
-                    FXSYS_round(top + pBitmap->GetHeight() / fScaleY));
+  FX_RECT dest_rect(left, top, left + pBitmap->GetWidth(),
+                    top + pBitmap->GetHeight());
   dest_rect.Intersect(m_ClipBox);
   if (dest_rect.IsEmpty())
     return true;
@@ -730,10 +749,6 @@ bool CFX_RenderDevice::SetDIBitsWithBlend(
   FX_RECT src_rect(dest_rect.left - left, dest_rect.top - top,
                    dest_rect.left - left + dest_rect.Width(),
                    dest_rect.top - top + dest_rect.Height());
-  src_rect.left = FXSYS_round(src_rect.left * fScaleX);
-  src_rect.top = FXSYS_round(src_rect.top * fScaleY);
-  src_rect.right = FXSYS_round(src_rect.right * fScaleX);
-  src_rect.bottom = FXSYS_round(src_rect.bottom * fScaleY);
   if ((blend_mode == FXDIB_BLEND_NORMAL || (m_RenderCaps & FXRC_BLEND_MODE)) &&
       (!pBitmap->HasAlpha() || (m_RenderCaps & FXRC_ALPHA_IMAGE))) {
     return m_pDeviceDriver->SetDIBits(pBitmap, 0, &src_rect, dest_rect.left,
@@ -742,8 +757,8 @@ bool CFX_RenderDevice::SetDIBitsWithBlend(
   if (!(m_RenderCaps & FXRC_GET_BITS))
     return false;
 
-  int bg_pixel_width = FXSYS_round(dest_rect.Width() * fScaleX);
-  int bg_pixel_height = FXSYS_round(dest_rect.Height() * fScaleY);
+  int bg_pixel_width = dest_rect.Width();
+  int bg_pixel_height = dest_rect.Height();
   auto background = pdfium::MakeRetain<CFX_DIBitmap>();
   if (!background->Create(
           bg_pixel_width, bg_pixel_height,
@@ -764,7 +779,7 @@ bool CFX_RenderDevice::SetDIBitsWithBlend(
 }
 
 bool CFX_RenderDevice::StretchDIBitsWithFlagsAndBlend(
-    const CFX_RetainPtr<CFX_DIBSource>& pBitmap,
+    const RetainPtr<CFX_DIBSource>& pBitmap,
     int left,
     int top,
     int dest_width,
@@ -779,7 +794,7 @@ bool CFX_RenderDevice::StretchDIBitsWithFlagsAndBlend(
                                    dest_height, &clip_box, flags, blend_mode);
 }
 
-bool CFX_RenderDevice::SetBitMask(const CFX_RetainPtr<CFX_DIBSource>& pBitmap,
+bool CFX_RenderDevice::SetBitMask(const RetainPtr<CFX_DIBSource>& pBitmap,
                                   int left,
                                   int top,
                                   uint32_t argb) {
@@ -788,19 +803,18 @@ bool CFX_RenderDevice::SetBitMask(const CFX_RetainPtr<CFX_DIBSource>& pBitmap,
                                     FXDIB_BLEND_NORMAL);
 }
 
-bool CFX_RenderDevice::StretchBitMask(
-    const CFX_RetainPtr<CFX_DIBSource>& pBitmap,
-    int left,
-    int top,
-    int dest_width,
-    int dest_height,
-    uint32_t color) {
+bool CFX_RenderDevice::StretchBitMask(const RetainPtr<CFX_DIBSource>& pBitmap,
+                                      int left,
+                                      int top,
+                                      int dest_width,
+                                      int dest_height,
+                                      uint32_t color) {
   return StretchBitMaskWithFlags(pBitmap, left, top, dest_width, dest_height,
                                  color, 0);
 }
 
 bool CFX_RenderDevice::StretchBitMaskWithFlags(
-    const CFX_RetainPtr<CFX_DIBSource>& pBitmap,
+    const RetainPtr<CFX_DIBSource>& pBitmap,
     int left,
     int top,
     int dest_width,
@@ -816,7 +830,7 @@ bool CFX_RenderDevice::StretchBitMaskWithFlags(
 }
 
 bool CFX_RenderDevice::StartDIBitsWithBlend(
-    const CFX_RetainPtr<CFX_DIBSource>& pBitmap,
+    const RetainPtr<CFX_DIBSource>& pBitmap,
     int bitmap_alpha,
     uint32_t argb,
     const CFX_Matrix* pMatrix,
@@ -828,7 +842,7 @@ bool CFX_RenderDevice::StartDIBitsWithBlend(
 }
 
 bool CFX_RenderDevice::ContinueDIBits(CFX_ImageRenderer* handle,
-                                      IFX_Pause* pPause) {
+                                      PauseIndicatorIface* pPause) {
   return m_pDeviceDriver->ContinueDIBits(handle, pPause);
 }
 
@@ -837,13 +851,12 @@ void CFX_RenderDevice::DebugVerifyBitmapIsPreMultiplied() const {
   SkASSERT(0);
 }
 
-bool CFX_RenderDevice::SetBitsWithMask(
-    const CFX_RetainPtr<CFX_DIBSource>& pBitmap,
-    const CFX_RetainPtr<CFX_DIBSource>& pMask,
-    int left,
-    int top,
-    int bitmap_alpha,
-    int blend_type) {
+bool CFX_RenderDevice::SetBitsWithMask(const RetainPtr<CFX_DIBSource>& pBitmap,
+                                       const RetainPtr<CFX_DIBSource>& pMask,
+                                       int left,
+                                       int top,
+                                       int bitmap_alpha,
+                                       int blend_type) {
   return m_pDeviceDriver->SetBitsWithMask(pBitmap, pMask, left, top,
                                           bitmap_alpha, blend_type);
 }
@@ -919,13 +932,7 @@ bool CFX_RenderDevice::DrawNormalText(int nChars,
     }
   }
   std::vector<FXTEXT_GLYPHPOS> glyphs(nChars);
-  CFX_Matrix matrixCTM = GetCTM();
-  float scale_x = fabs(matrixCTM.a);
-  float scale_y = fabs(matrixCTM.d);
   CFX_Matrix deviceCtm = char2device;
-  CFX_Matrix m(scale_x, 0, 0, scale_y, 0, 0);
-  deviceCtm.Concat(m);
-  text2Device.Concat(m);
 
   for (size_t i = 0; i < glyphs.size(); ++i) {
     FXTEXT_GLYPHPOS& glyph = glyphs[i];
@@ -944,36 +951,26 @@ bool CFX_RenderDevice::DrawNormalText(int nChars,
           charpos.m_AdjustMatrix[2], charpos.m_AdjustMatrix[3], 0, 0);
       new_matrix.Concat(deviceCtm);
       glyph.m_pGlyph = pFont->LoadGlyphBitmap(
-          charpos.m_GlyphIndex, charpos.m_bFontStyle, &new_matrix,
+          charpos.m_GlyphIndex, charpos.m_bFontStyle, new_matrix,
           charpos.m_FontCharWidth, anti_alias, nativetext_flags);
     } else {
       glyph.m_pGlyph = pFont->LoadGlyphBitmap(
-          charpos.m_GlyphIndex, charpos.m_bFontStyle, &deviceCtm,
+          charpos.m_GlyphIndex, charpos.m_bFontStyle, deviceCtm,
           charpos.m_FontCharWidth, anti_alias, nativetext_flags);
     }
   }
   if (anti_alias < FXFT_RENDER_MODE_LCD && glyphs.size() > 1)
     AdjustGlyphSpace(&glyphs);
 
-  FX_RECT bmp_rect1 = FXGE_GetGlyphsBBox(glyphs, anti_alias, 1.0f, 1.0f);
-  if (scale_x > 1 && scale_y > 1) {
-    --bmp_rect1.left;
-    --bmp_rect1.top;
-    ++bmp_rect1.right;
-    ++bmp_rect1.bottom;
-  }
-  FX_RECT bmp_rect(FXSYS_round((float)(bmp_rect1.left) / scale_x),
-                   FXSYS_round((float)(bmp_rect1.top) / scale_y),
-                   FXSYS_round((float)bmp_rect1.right / scale_x),
-                   FXSYS_round((float)bmp_rect1.bottom / scale_y));
+  FX_RECT bmp_rect = FXGE_GetGlyphsBBox(glyphs, anti_alias);
   bmp_rect.Intersect(m_ClipBox);
   if (bmp_rect.IsEmpty())
     return true;
 
-  int pixel_width = FXSYS_round(bmp_rect.Width() * scale_x);
-  int pixel_height = FXSYS_round(bmp_rect.Height() * scale_y);
-  int pixel_left = FXSYS_round(bmp_rect.left * scale_x);
-  int pixel_top = FXSYS_round(bmp_rect.top * scale_y);
+  int pixel_width = bmp_rect.Width();
+  int pixel_height = bmp_rect.Height();
+  int pixel_left = bmp_rect.left;
+  int pixel_top = bmp_rect.top;
   if (anti_alias == FXFT_RENDER_MODE_MONO) {
     auto bitmap = pdfium::MakeRetain<CFX_DIBitmap>();
     if (!bitmap->Create(pixel_width, pixel_height, FXDIB_1bppMask))
@@ -982,7 +979,7 @@ bool CFX_RenderDevice::DrawNormalText(int nChars,
     for (const FXTEXT_GLYPHPOS& glyph : glyphs) {
       if (!glyph.m_pGlyph)
         continue;
-      CFX_RetainPtr<CFX_DIBitmap> pGlyph = glyph.m_pGlyph->m_pBitmap;
+      RetainPtr<CFX_DIBitmap> pGlyph = glyph.m_pGlyph->m_pBitmap;
       bitmap->TransferBitmap(
           glyph.m_Origin.x + glyph.m_pGlyph->m_Left - pixel_left,
           glyph.m_Origin.y - glyph.m_pGlyph->m_Top - pixel_top,
@@ -1031,7 +1028,7 @@ bool CFX_RenderDevice::DrawNormalText(int nChars,
     if (!top.IsValid())
       return false;
 
-    CFX_RetainPtr<CFX_DIBitmap> pGlyph = glyph.m_pGlyph->m_pBitmap;
+    RetainPtr<CFX_DIBitmap> pGlyph = glyph.m_pGlyph->m_pBitmap;
     int ncols = pGlyph->GetWidth();
     int nrows = pGlyph->GetHeight();
     if (anti_alias == FXFT_RENDER_MODE_NORMAL) {
@@ -1115,42 +1112,39 @@ bool CFX_RenderDevice::DrawTextPath(int nChars,
   return true;
 }
 
-void CFX_RenderDevice::DrawFillRect(CFX_Matrix* pUser2Device,
+void CFX_RenderDevice::DrawFillRect(const CFX_Matrix* pUser2Device,
                                     const CFX_FloatRect& rect,
                                     const FX_COLORREF& color) {
   CFX_PathData path;
-  CFX_FloatRect rcTemp(rect);
-  path.AppendRect(rcTemp.left, rcTemp.bottom, rcTemp.right, rcTemp.top);
+  path.AppendRect(rect);
   DrawPath(&path, pUser2Device, nullptr, color, 0, FXFILL_WINDING);
 }
 
-void CFX_RenderDevice::DrawFillArea(CFX_Matrix* pUser2Device,
-                                    const CFX_PointF* pPts,
-                                    int32_t nCount,
+void CFX_RenderDevice::DrawFillArea(const CFX_Matrix& mtUser2Device,
+                                    const std::vector<CFX_PointF>& points,
                                     const FX_COLORREF& color) {
+  ASSERT(!points.empty());
   CFX_PathData path;
-  path.AppendPoint(pPts[0], FXPT_TYPE::MoveTo, false);
-  for (int32_t i = 1; i < nCount; i++)
-    path.AppendPoint(pPts[i], FXPT_TYPE::LineTo, false);
+  path.AppendPoint(points[0], FXPT_TYPE::MoveTo, false);
+  for (size_t i = 1; i < points.size(); ++i)
+    path.AppendPoint(points[i], FXPT_TYPE::LineTo, false);
 
-  DrawPath(&path, pUser2Device, nullptr, color, 0, FXFILL_ALTERNATE);
+  DrawPath(&path, &mtUser2Device, nullptr, color, 0, FXFILL_ALTERNATE);
 }
 
-void CFX_RenderDevice::DrawStrokeRect(CFX_Matrix* pUser2Device,
+void CFX_RenderDevice::DrawStrokeRect(const CFX_Matrix& mtUser2Device,
                                       const CFX_FloatRect& rect,
                                       const FX_COLORREF& color,
                                       float fWidth) {
-  CFX_PathData path;
-  CFX_FloatRect rcTemp(rect);
-  path.AppendRect(rcTemp.left, rcTemp.bottom, rcTemp.right, rcTemp.top);
-
   CFX_GraphStateData gsd;
   gsd.m_LineWidth = fWidth;
 
-  DrawPath(&path, pUser2Device, &gsd, 0, color, FXFILL_ALTERNATE);
+  CFX_PathData path;
+  path.AppendRect(rect);
+  DrawPath(&path, &mtUser2Device, &gsd, 0, color, FXFILL_ALTERNATE);
 }
 
-void CFX_RenderDevice::DrawStrokeLine(CFX_Matrix* pUser2Device,
+void CFX_RenderDevice::DrawStrokeLine(const CFX_Matrix* pUser2Device,
                                       const CFX_PointF& ptMoveTo,
                                       const CFX_PointF& ptLineTo,
                                       const FX_COLORREF& color,
@@ -1165,17 +1159,17 @@ void CFX_RenderDevice::DrawStrokeLine(CFX_Matrix* pUser2Device,
   DrawPath(&path, pUser2Device, &gsd, 0, color, FXFILL_ALTERNATE);
 }
 
-void CFX_RenderDevice::DrawFillRect(CFX_Matrix* pUser2Device,
+void CFX_RenderDevice::DrawFillRect(const CFX_Matrix* pUser2Device,
                                     const CFX_FloatRect& rect,
                                     const CFX_Color& color,
                                     int32_t nTransparency) {
   DrawFillRect(pUser2Device, rect, color.ToFXColor(nTransparency));
 }
 
-void CFX_RenderDevice::DrawShadow(CFX_Matrix* pUser2Device,
+void CFX_RenderDevice::DrawShadow(const CFX_Matrix& mtUser2Device,
                                   bool bVertical,
                                   bool bHorizontal,
-                                  CFX_FloatRect rect,
+                                  const CFX_FloatRect& rect,
                                   int32_t nTransparency,
                                   int32_t nStartGray,
                                   int32_t nEndGray) {
@@ -1186,7 +1180,7 @@ void CFX_RenderDevice::DrawShadow(CFX_Matrix* pUser2Device,
 
     for (float fy = rect.bottom + 0.5f; fy <= rect.top - 0.5f; fy += 1.0f) {
       int32_t nGray = nStartGray + (int32_t)(fStepGray * (fy - rect.bottom));
-      DrawStrokeLine(pUser2Device, CFX_PointF(rect.left, fy),
+      DrawStrokeLine(&mtUser2Device, CFX_PointF(rect.left, fy),
                      CFX_PointF(rect.right, fy),
                      ArgbEncode(nTransparency, nGray, nGray, nGray), 1.5f);
     }
@@ -1197,14 +1191,14 @@ void CFX_RenderDevice::DrawShadow(CFX_Matrix* pUser2Device,
 
     for (float fx = rect.left + 0.5f; fx <= rect.right - 0.5f; fx += 1.0f) {
       int32_t nGray = nStartGray + (int32_t)(fStepGray * (fx - rect.left));
-      DrawStrokeLine(pUser2Device, CFX_PointF(fx, rect.bottom),
+      DrawStrokeLine(&mtUser2Device, CFX_PointF(fx, rect.bottom),
                      CFX_PointF(fx, rect.top),
                      ArgbEncode(nTransparency, nGray, nGray, nGray), 1.5f);
     }
   }
 }
 
-void CFX_RenderDevice::DrawBorder(CFX_Matrix* pUser2Device,
+void CFX_RenderDevice::DrawBorder(const CFX_Matrix* pUser2Device,
                                   const CFX_FloatRect& rect,
                                   float fWidth,
                                   const CFX_Color& color,

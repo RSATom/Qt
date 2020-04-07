@@ -9,6 +9,7 @@
 #include "base/command_line.h"
 #include "base/logging.h"
 #include "base/macros.h"
+#include "base/threading/thread_task_runner_handle.h"
 #include "base/trace_event/trace_event.h"
 #include "base/win/windows_version.h"
 #include "ui/gl/gl_bindings.h"
@@ -61,21 +62,28 @@ bool GLSurfaceOSMesaWin::IsOffscreen() {
   return false;
 }
 
-gfx::SwapResult GLSurfaceOSMesaWin::SwapBuffers() {
+gfx::SwapResult GLSurfaceOSMesaWin::SwapBuffers(
+    const PresentationCallback& callback) {
   DCHECK(device_context_);
 
   gfx::Size size = GetSize();
-  return PostSubBuffer(0, 0, size.width(), size.height());
+  return PostSubBuffer(0, 0, size.width(), size.height(), callback);
+}
+
+bool GLSurfaceOSMesaWin::SupportsPresentationCallback() {
+  return true;
 }
 
 bool GLSurfaceOSMesaWin::SupportsPostSubBuffer() {
   return true;
 }
 
-gfx::SwapResult GLSurfaceOSMesaWin::PostSubBuffer(int x,
-                                                  int y,
-                                                  int width,
-                                                  int height) {
+gfx::SwapResult GLSurfaceOSMesaWin::PostSubBuffer(
+    int x,
+    int y,
+    int width,
+    int height,
+    const PresentationCallback& callback) {
   DCHECK(device_context_);
 
   gfx::Size size = GetSize();
@@ -104,6 +112,14 @@ gfx::SwapResult GLSurfaceOSMesaWin::PostSubBuffer(int x,
                 x, y, width, height, GetHandle(),
                 reinterpret_cast<BITMAPINFO*>(&info), DIB_RGB_COLORS, SRCCOPY);
 
+  constexpr int64_t kRefreshIntervalInMicroseconds =
+      base::Time::kMicrosecondsPerSecond / 60;
+  gfx::PresentationFeedback feedback(
+      base::TimeTicks::Now(),
+      base::TimeDelta::FromMicroseconds(kRefreshIntervalInMicroseconds),
+      0 /* flags */);
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE, base::BindOnce(callback, feedback));
   return gfx::SwapResult::SWAP_ACK;
 }
 

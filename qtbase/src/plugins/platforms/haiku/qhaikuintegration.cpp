@@ -49,6 +49,7 @@
 #include <QCoreApplication>
 #include <QFileInfo>
 #include <qpa/qplatformwindow.h>
+#include <qpa/qwindowsysteminterface.h>
 #include <QtEventDispatcherSupport/private/qgenericunixeventdispatcher_p.h>
 
 #include <Application.h>
@@ -81,19 +82,19 @@ QHaikuIntegration::QHaikuIntegration(const QStringList &parameters)
     m_services = new QHaikuServices;
 
     // notify system about available screen
-    screenAdded(m_screen);
+    QWindowSystemInterface::handleScreenAdded(m_screen);
 }
 
 QHaikuIntegration::~QHaikuIntegration()
 {
-    destroyScreen(m_screen);
-    m_screen = Q_NULLPTR;
+    QWindowSystemInterface::handleScreenRemoved(m_screen);
+    m_screen = nullptr;
 
     delete m_services;
-    m_services = Q_NULLPTR;
+    m_services = nullptr;
 
     delete m_clipboard;
-    m_clipboard = Q_NULLPTR;
+    m_clipboard = nullptr;
 
     be_app->LockLooper();
     be_app->Quit();

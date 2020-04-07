@@ -94,16 +94,27 @@
         <xsl:value-of select="$name"/>
         <xsl:text>::~</xsl:text>
         <xsl:value-of select="$name"/>
-        <xsl:text>()&endl;</xsl:text>
-        <xsl:text>{&endl;</xsl:text>
+        <xsl:text>()</xsl:text>
 
-        <xsl:for-each select="$node//xs:sequence | $node//xs:choice | $node//xs:all">
-            <xsl:call-template name="dtor-delete-members">
-                <xsl:with-param name="node" select="."/>
-            </xsl:call-template>
-        </xsl:for-each>
-
-        <xsl:text>}&endl;&endl;</xsl:text>
+        <!-- Collect the delete statements for the pointer members in a variable.
+             If there are any, write a destructor body, else use "= default;" -->
+        <xsl:variable name="dtor-body">
+            <xsl:for-each select="$node//xs:sequence | $node//xs:choice | $node//xs:all">
+                <xsl:call-template name="dtor-delete-members">
+                    <xsl:with-param name="node" select="."/>
+                </xsl:call-template>
+            </xsl:for-each>
+        </xsl:variable>
+        <xsl:choose>
+            <xsl:when test="$dtor-body != ''">
+                <xsl:text>&endl;{&endl;</xsl:text>
+                <xsl:value-of select="$dtor-body"/>
+                <xsl:text>}&endl;&endl;</xsl:text>
+            </xsl:when>
+            <xsl:otherwise>
+                <xsl:text> = default;&endl;&endl;</xsl:text>
+            </xsl:otherwise>
+        </xsl:choose>
     </xsl:template>
 
 <!-- Implementation: clear() -->
@@ -294,8 +305,7 @@
                     <xsl:text>);&endl;</xsl:text>
                 </xsl:when>
                 <xsl:when test="not(@maxOccurs='unbounded') and $xs-type-cat = 'pointer'">
-                    <xsl:text>                Dom</xsl:text>
-                    <xsl:value-of select="@type"/>
+                    <xsl:text>                auto</xsl:text>
                     <xsl:text> *v = new Dom</xsl:text>
                     <xsl:value-of select="@type"/>
                     <xsl:text>();&endl;</xsl:text>
@@ -305,8 +315,7 @@
                     <xsl:text>(v);&endl;</xsl:text>
                 </xsl:when>
                 <xsl:when test="@maxOccurs='unbounded' and $xs-type-cat = 'pointer'">
-                    <xsl:text>                Dom</xsl:text>
-                    <xsl:value-of select="@type"/>
+                    <xsl:text>                auto</xsl:text>
                     <xsl:text> *v = new Dom</xsl:text>
                     <xsl:value-of select="@type"/>
                     <xsl:text>();&endl;</xsl:text>
@@ -438,7 +447,7 @@
 
             <xsl:text>    case </xsl:text>
             <xsl:value-of select="$cap-name"/>
-            <xsl:text>: {&endl;</xsl:text>
+            <xsl:text>:&endl;</xsl:text>
                 <xsl:choose>
                     <xsl:when test="$xs-type-cat = 'value'">
                         <xsl:variable name="qstring-func">
@@ -463,13 +472,12 @@
                             </xsl:call-template>
                         </xsl:variable>
 
-                        <xsl:text>        </xsl:text>
-                        <xsl:value-of select="$cpp-return-type"/>
-                        <xsl:text>v = element</xsl:text>
-                        <xsl:value-of select="$cap-name"/>
-                        <xsl:text>();&endl;</xsl:text>
-                        <xsl:text>        if (v != 0)&endl;</xsl:text>
-                        <xsl:text>            v->write(writer, </xsl:text>
+                        <xsl:text>        if (m_</xsl:text>
+                        <xsl:value-of select="$camel-case-name"/>
+                        <xsl:text> != nullptr)&endl;</xsl:text>
+                        <xsl:text>            m_</xsl:text>
+                        <xsl:value-of select="$camel-case-name"/>
+                        <xsl:text>->write(writer, </xsl:text>
                         <xsl:call-template name="string-constant-for-storage">
                             <xsl:with-param name="literal" select="$lower-name"/>
                         </xsl:call-template>
@@ -477,7 +485,7 @@
                     </xsl:when>
                 </xsl:choose>
             <xsl:text>        break;&endl;</xsl:text>
-            <xsl:text>    }&endl;</xsl:text>
+            <xsl:text>&endl;</xsl:text>
         </xsl:for-each>
 
         <xsl:text>    default:&endl;</xsl:text>
@@ -680,7 +688,7 @@
                 <xsl:text>;&endl;</xsl:text>
                 <xsl:text>    m_</xsl:text>
                 <xsl:value-of select="$camel-case-name"/>
-                <xsl:text> = 0;&endl;</xsl:text>
+                <xsl:text> = nullptr;&endl;</xsl:text>
                 <xsl:if test="not($isChoice)">
                     <xsl:text>    m_children ^= </xsl:text>
                     <xsl:value-of select="$cap-name"/>
@@ -775,7 +783,7 @@
                         <xsl:text>;&endl;</xsl:text>
                         <xsl:text>    m_</xsl:text>
                         <xsl:value-of select="$camel-case-name"/>
-                        <xsl:text> = 0;&endl;</xsl:text>
+                        <xsl:text> = nullptr;&endl;</xsl:text>
                     </xsl:if>
                     <xsl:text>    m_children &amp;= ~</xsl:text>
                     <xsl:value-of select="$cap-name"/>
@@ -822,49 +830,11 @@
 
     <xsl:template match="xs:schema">
 
-<xsl:text>/****************************************************************************
-**
-** Copyright (C) 2016 The Qt Company Ltd.
-** Contact: https://www.qt.io/licensing/
-**
-** This file is part of the tools applications of the Qt Toolkit.
-**
-** $QT_BEGIN_LICENSE:LGPL$
-** Commercial License Usage
-** Licensees holding valid commercial Qt licenses may use this file in
-** accordance with the commercial license agreement provided with the
-** Software or, alternatively, in accordance with the terms contained in
-** a written agreement between you and The Qt Company. For licensing terms
-** and conditions see https://www.qt.io/terms-conditions. For further
-** information use the contact form at https://www.qt.io/contact-us.
-**
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPL3 included in the
-** packaging of this file. Please review the following information to
-** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or (at your option) the GNU General
-** Public license version 3 or any later version approved by the KDE Free
-** Qt Foundation. The licenses are as published by the Free Software
-** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-2.0.html and
-** https://www.gnu.org/licenses/gpl-3.0.html.
-**
-** $QT_END_LICENSE$
-**
-****************************************************************************/
-
+<xsl:text>@LICENSE@
 // THIS FILE IS AUTOMATICALLY GENERATED. DO NOT EDIT!
 
 </xsl:text>
-        <xsl:text>#include "ui4_p.h"&endl;</xsl:text>
+        <xsl:text>#include "@HEADER@"&endl;</xsl:text>
         <xsl:text>&endl;</xsl:text>
         <xsl:text>&endl;</xsl:text>
         <xsl:text>QT_BEGIN_NAMESPACE&endl;</xsl:text>

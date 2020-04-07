@@ -13,6 +13,7 @@
 #include "base/time/clock.h"
 #include "components/ntp_snippets/features.h"
 #include "components/ntp_snippets/pref_names.h"
+#include "components/ntp_snippets/time_serialization.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
 #include "components/variations/variations_associated_data.h"
@@ -45,9 +46,9 @@ const double kActiveConsumerClicksAtLeastOncePerHours = 96;
 const char kActiveConsumerClicksAtLeastOncePerHoursParam[] =
     "user_classifier_active_consumer_clicks_at_least_once_per_hours";
 
-// The previous value in production was 72, i.e. 3 days. The new value is a
-// cautios shift in the direction we want (having slightly more rare users).
-const double kRareUserOpensNTPAtMostOncePerHours = 66;
+// The previous value in production was 66, i.e. 2.75 days. The new value is a
+// shift in the direction we want (having more active users).
+const double kRareUserOpensNTPAtMostOncePerHours = 96;
 const char kRareUserOpensNTPAtMostOncePerHoursParam[] =
     "user_classifier_rare_user_opens_ntp_at_most_once_per_hours";
 
@@ -183,10 +184,9 @@ double GetMetricValueForEstimateHoursBetweenEvents(
 
 }  // namespace
 
-UserClassifier::UserClassifier(PrefService* pref_service,
-                               std::unique_ptr<base::Clock> clock)
+UserClassifier::UserClassifier(PrefService* pref_service, base::Clock* clock)
     : pref_service_(pref_service),
-      clock_(std::move(clock)),
+      clock_(clock),
       discount_rate_per_hour_(GetDiscountRatePerHour()),
       min_hours_(GetMinHours()),
       max_hours_(GetMaxHours()),
@@ -357,7 +357,7 @@ double UserClassifier::GetHoursSinceLastTime(Metric metric) const {
   }
 
   base::TimeDelta since_last_time =
-      clock_->Now() - base::Time::FromInternalValue(pref_service_->GetInt64(
+      clock_->Now() - DeserializeTime(pref_service_->GetInt64(
                           kLastTimeKeys[static_cast<int>(metric)]));
   return since_last_time.InSecondsF() / 3600;
 }
@@ -368,7 +368,7 @@ bool UserClassifier::HasLastTime(Metric metric) const {
 
 void UserClassifier::SetLastTimeToNow(Metric metric) {
   pref_service_->SetInt64(kLastTimeKeys[static_cast<int>(metric)],
-                          clock_->Now().ToInternalValue());
+                          SerializeTime(clock_->Now()));
 }
 
 double UserClassifier::GetMetricValue(Metric metric) const {

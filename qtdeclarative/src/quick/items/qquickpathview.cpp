@@ -66,7 +66,7 @@ const qreal MinimumFlickVelocity = 75.0;
 static QQmlOpenMetaObjectType *qPathViewAttachedType = nullptr;
 
 QQuickPathViewAttached::QQuickPathViewAttached(QObject *parent)
-: QObject(parent), m_percent(-1), m_view(0), m_onPath(false), m_isCurrent(false)
+: QObject(parent), m_percent(-1), m_view(nullptr), m_onPath(false), m_isCurrent(false)
 {
     if (qPathViewAttachedType) {
         m_metaobject = new QQmlOpenMetaObject(this, qPathViewAttachedType);
@@ -240,7 +240,11 @@ void QQuickPathViewPrivate::clear()
         releaseItem(currentItem);
         currentItem = nullptr;
     }
+
     for (QQuickItem *p : qAsConst(items))
+        releaseItem(p);
+
+    for (QQuickItem *p : qAsConst(itemCache))
         releaseItem(p);
 
     if (requestedIndex >= 0) {
@@ -250,6 +254,7 @@ void QQuickPathViewPrivate::clear()
     }
 
     items.clear();
+    itemCache.clear();
     tl.clear();
 }
 
@@ -475,7 +480,7 @@ void QQuickPathViewPrivate::setDragging(bool d)
     \ingroup qtquick-paths
     \ingroup qtquick-views
     \inherits Item
-    \brief Lays out model-provided items on a path
+    \brief Lays out model-provided items on a path.
 
     A PathView displays data from models created from built-in QML types like ListModel
     and XmlListModel, or custom model classes defined in C++ that inherit from
@@ -1627,6 +1632,7 @@ void QQuickPathView::mousePressEvent(QMouseEvent *event)
 
 void QQuickPathViewPrivate::handleMousePressEvent(QMouseEvent *event)
 {
+    Q_Q(QQuickPathView);
     if (!interactive || !items.count() || !model || !modelCount)
         return;
     velocityBuffer.clear();
@@ -1652,6 +1658,7 @@ void QQuickPathViewPrivate::handleMousePressEvent(QMouseEvent *event)
         stealMouse = true; // If we've been flicked then steal the click.
     else
         stealMouse = false;
+    q->setKeepMouseGrab(stealMouse);
 
     timer.start();
     lastPosTime = computeCurrentTime(event);
@@ -2385,10 +2392,6 @@ void QQuickPathViewPrivate::snapToIndex(int index, MovementReason reason)
         return;
 
     qreal targetOffset = std::fmod(qreal(modelCount - index), qreal(modelCount));
-
-    if (offset == targetOffset)
-        return;
-
     moveReason = reason;
     offsetAdj = 0.0;
     tl.reset(moveOffset);
@@ -2396,7 +2399,11 @@ void QQuickPathViewPrivate::snapToIndex(int index, MovementReason reason)
 
     const int duration = highlightMoveDuration;
 
-    if (!duration) {
+    const qreal count = pathItems == -1 ? modelCount : qMin(pathItems, modelCount);
+    const qreal averageItemLength = path->path().length() / count;
+    const qreal threshold = 0.5 / averageItemLength; // if we are within .5 px, we want to immediately assign rather than animate
+
+    if (!duration || qAbs(offset - targetOffset) < threshold || (qFuzzyIsNull(targetOffset) && qAbs(modelCount - offset) < threshold)) {
         tl.set(moveOffset, targetOffset);
     } else if (moveDirection == QQuickPathView::Positive || (moveDirection == QQuickPathView::Shortest && targetOffset - offset > modelCount/2.0)) {
         qreal distance = modelCount - targetOffset + offset;

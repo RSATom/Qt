@@ -38,18 +38,18 @@ struct MockCertVerifier::Rule {
 
 MockCertVerifier::MockCertVerifier() : default_result_(ERR_CERT_INVALID) {}
 
-MockCertVerifier::~MockCertVerifier() {}
+MockCertVerifier::~MockCertVerifier() = default;
 
 int MockCertVerifier::Verify(const RequestParams& params,
                              CRLSet* crl_set,
                              CertVerifyResult* verify_result,
-                             const CompletionCallback& callback,
+                             CompletionOnceCallback callback,
                              std::unique_ptr<Request>* out_req,
                              const NetLogWithSource& net_log) {
   RuleList::const_iterator it;
   for (it = rules_.begin(); it != rules_.end(); ++it) {
     // Check just the server cert. Intermediates will be ignored.
-    if (!it->cert->Equals(params.certificate().get()))
+    if (!it->cert->EqualsExcludingChain(params.certificate().get()))
       continue;
     if (!base::MatchPattern(params.hostname(), it->hostname))
       continue;

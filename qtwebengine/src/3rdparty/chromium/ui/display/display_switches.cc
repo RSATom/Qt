@@ -10,8 +10,17 @@ namespace switches {
 // TODO(rjkroege): Some of these have an "ash" prefix. When ChromeOS startup
 // scripts have been updated, the leading "ash" prefix should be removed.
 
+// Disables mirroring across multiple displays.
+const char kDisableMultiMirroring[] = "disable-multi-mirroring";
+
 // Enables software based mirroring.
 const char kEnableSoftwareMirroring[] = "ash-enable-software-mirroring";
+
+// Crash the browser at startup if the display's color profile does not match
+// the forced color profile. This is necessary on Mac because Chrome's pixel
+// output is always subject to the color conversion performed by the operating
+// system. On all other platforms, this is a no-op.
+const char kEnsureForcedColorProfile[] = "ensure-forced-color-profile";
 
 // Force all monitors to be treated as though they have the specified color
 // profile. Accepted values are "srgb" and "generic-rgb" (currently used by Mac
@@ -43,15 +52,40 @@ const char kScreenConfig[] = "screen-config";
 // This is for debugging on linux desktop.
 const char kUseFirstDisplayAsInternal[] = "use-first-display-as-internal";
 
-// Use an fp16 scRGB swap chain compatible with HDR output.
-const char kEnableHDR[] = "enable-hdr";
-
 #if defined(OS_CHROMEOS)
-const char kDisableDisplayColorCalibration[] =
-    "disable-display-color-calibration";
-
 // Enables unified desktop mode.
 const char kEnableUnifiedDesktop[] = "ash-enable-unified-desktop";
 #endif
 
 }  // namespace switches
+
+namespace features {
+
+const base::Feature kHighDynamicRange{"HighDynamicRange",
+                                      base::FEATURE_ENABLED_BY_DEFAULT};
+
+#if defined(OS_CHROMEOS)
+// Enables using the monitor's provided color space information when
+// rendering.
+// TODO(mcasas): remove this flag http://crbug.com/771345.
+const base::Feature kUseMonitorColorSpace{"UseMonitorColorSpace",
+                                          base::FEATURE_ENABLED_BY_DEFAULT};
+#endif  // OS_CHROMEOS
+
+// Enables the slider in display settings to modify the display zoom/size.
+// TODO(malaykeshav): Remove this in M68 when the feature has been in stable for
+// atleast one milestone.
+const base::Feature kEnableDisplayZoomSetting {
+  "EnableDisplayZoomSetting",
+#if defined(OS_CHROMEOS)
+      base::FEATURE_ENABLED_BY_DEFAULT
+#else
+      base::FEATURE_DISABLED_BY_DEFAULT
+#endif
+};
+
+bool IsDisplayZoomSettingEnabled() {
+  return base::FeatureList::IsEnabled(kEnableDisplayZoomSetting);
+}
+
+}  // namespace features

@@ -8,7 +8,6 @@
 
 #include "base/bind.h"
 #include "base/location.h"
-#include "base/memory/ptr_util.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "services/service_manager/public/cpp/binder_registry.h"
 #include "services/ui/display/viewport_metrics.h"
@@ -43,11 +42,11 @@ Display DefaultDisplay() {
 
 // static
 std::unique_ptr<ScreenManager> ScreenManager::Create() {
-  return base::MakeUnique<ScreenManagerStubInternal>();
+  return std::make_unique<ScreenManagerStubInternal>();
 }
 
 ScreenManagerStubInternal::ScreenManagerStubInternal()
-    : screen_(base::MakeUnique<display::ScreenBase>()),
+    : screen_(std::make_unique<display::ScreenBase>()),
       weak_ptr_factory_(this) {}
 
 ScreenManagerStubInternal::~ScreenManagerStubInternal() {}

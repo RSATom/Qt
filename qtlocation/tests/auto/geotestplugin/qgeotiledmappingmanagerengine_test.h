@@ -100,6 +100,10 @@ public:
             double maxZoomLevel = parameters.value(QStringLiteral("maxZoomLevel")).toDouble();
             capabilities.setMaximumZoomLevel(maxZoomLevel);
         }
+        if (parameters.contains(QStringLiteral("supportVisibleArea"))) {
+            bool supportVisibleArea = parameters.value(QStringLiteral("supportVisibleArea")).toBool();
+            m_supportVisibleArea = supportVisibleArea;
+        }
 
         setCameraCapabilities(capabilities);
         fetcher->setTileSize(tileSize());
@@ -108,8 +112,12 @@ public:
 
     QGeoMap *createMap() override
     {
-        return new QGeoTiledMapTest(this);
+        QGeoTiledMapTestOptions opts;
+        opts.supportVisibleArea = m_supportVisibleArea;
+        return new QGeoTiledMapTest(this, opts);
     }
+
+    bool m_supportVisibleArea = true;
 };
 
 #endif

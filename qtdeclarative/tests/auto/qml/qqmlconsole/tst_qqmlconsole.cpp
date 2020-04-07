@@ -29,6 +29,7 @@
 #include <QDebug>
 #include <QQmlEngine>
 #include <QQmlComponent>
+#include <QQmlContext>
 #include <QLoggingCategory>
 #include "../../shared/util.h"
 
@@ -74,18 +75,22 @@ void tst_qqmlconsole::logging()
     QTest::ignoreMessage(QtDebugMsg, "{\"a\":\"hello\",\"d\":1}");
     QTest::ignoreMessage(QtDebugMsg, "undefined");
     QTest::ignoreMessage(QtDebugMsg, "12");
-    QTest::ignoreMessage(QtDebugMsg, "function() { [code] }");
+    QTest::ignoreMessage(QtDebugMsg, "function e() { [native code] }");
     QTest::ignoreMessage(QtDebugMsg, "true");
     // Printing QML object prints out the class/type of QML object with the memory address
 //    QTest::ignoreMessage(QtDebugMsg, "QtObject_QML_0(0xABCD..)");
 //    QTest::ignoreMessage(QtDebugMsg, "[object Object]");
     QTest::ignoreMessage(QtDebugMsg, "1 pong! [object Object]");
     QTest::ignoreMessage(QtDebugMsg, "1 [ping,pong] [object Object] 2");
+    QTest::ignoreMessage(QtDebugMsg, "[Hello,World]");
+
+    QScopedPointer<QQmlContext> loggingContext(new QQmlContext(engine.rootContext()));
+    QStringList stringList; stringList << QStringLiteral("Hello") << QStringLiteral("World");
+    loggingContext->setContextProperty("contextStringListProperty", stringList);
 
     QQmlComponent component(&engine, testUrl);
-    QObject *object = component.create();
-    QVERIFY(object != 0);
-    delete object;
+    QScopedPointer<QObject> object(component.create(loggingContext.data()));
+    QVERIFY(object != nullptr);
 }
 
 void tst_qqmlconsole::categorized_logging()
@@ -102,13 +107,18 @@ void tst_qqmlconsole::categorized_logging()
 
     QQmlComponent component(&engine, testUrl);
     QObject *object = component.create();
-    QVERIFY2(object != 0, component.errorString().toUtf8());
+    QVERIFY2(object != nullptr, component.errorString().toUtf8());
 
     QVERIFY(messageHandler.messages().contains("qt.test: console.info"));
     QVERIFY(messageHandler.messages().contains("qt.test: console.warn"));
     QVERIFY(messageHandler.messages().contains("qt.test: console.error"));
+    QVERIFY(!messageHandler.messages().contains("qt.test.warning: console.debug"));
+    QVERIFY(!messageHandler.messages().contains("qt.test.warning: console.log"));
+    QVERIFY(!messageHandler.messages().contains("qt.test.warning: console.info"));
+    QVERIFY(messageHandler.messages().contains("qt.test.warning: console.warn"));
+    QVERIFY(messageHandler.messages().contains("qt.test.warning: console.error"));
 
-    QString emptyCategory = "default: " + QString::fromLatin1("%1:%2:%3: ").arg(testUrl.toString()).arg(50).arg(5) +
+    QString emptyCategory = "default: " + QString::fromLatin1("%1:%2:%3: ").arg(testUrl.toString()).arg(56).arg(5) +
                             "QML LoggingCategory: Declaring the name of the LoggingCategory is mandatory and cannot be changed later !";
     QVERIFY(messageHandler.messages().contains(emptyCategory));
 
@@ -116,7 +126,11 @@ void tst_qqmlconsole::categorized_logging()
                             "QML LoggingCategory: The name of a LoggingCategory cannot be changed after the Item is created";
     QVERIFY(messageHandler.messages().contains(changedCategory));
 
-    QString useEmptyCategory = "default: " + QString::fromLatin1("%1:%2: ").arg(testUrl.toString()).arg(63) +
+    QString changedDefaultLogLevel = "default: " + QString::fromLatin1("%1:%2:%3: ").arg(testUrl.toString()).arg(45).arg(5) +
+                            "QML LoggingCategory: The defaultLogLevel of a LoggingCategory cannot be changed after the Item is created";
+    QVERIFY(messageHandler.messages().contains(changedDefaultLogLevel));
+
+    QString useEmptyCategory = "default: " + QString::fromLatin1("%1:%2: ").arg(testUrl.toString()).arg(75) +
                             "Error: A QmlLoggingCatgory was provided without a valid name";
     QVERIFY(messageHandler.messages().contains(useEmptyCategory));
 
@@ -135,7 +149,7 @@ void tst_qqmlconsole::tracing()
 
     QQmlComponent component(&engine, testUrl);
     QObject *object = component.create();
-    QVERIFY(object != 0);
+    QVERIFY(object != nullptr);
     delete object;
 }
 
@@ -149,7 +163,7 @@ void tst_qqmlconsole::profiling()
 
     QQmlComponent component(&engine, testUrl);
     QObject *object = component.create();
-    QVERIFY(object != 0);
+    QVERIFY(object != nullptr);
     delete object;
 }
 
@@ -170,7 +184,7 @@ void tst_qqmlconsole::testAssert()
 
     QQmlComponent component(&engine, testUrl);
     QObject *object = component.create();
-    QVERIFY(object != 0);
+    QVERIFY(object != nullptr);
     delete object;
 }
 
@@ -191,7 +205,7 @@ void tst_qqmlconsole::exception()
 
     QQmlComponent component(&engine, testUrl);
     QObject *object = component.create();
-    QVERIFY(object != 0);
+    QVERIFY(object != nullptr);
     delete object;
 }
 

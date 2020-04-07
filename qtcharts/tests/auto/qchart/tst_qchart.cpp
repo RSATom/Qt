@@ -125,6 +125,7 @@ private slots:
     void backgroundRoundness();
     void zoomInAndOut_data();
     void zoomInAndOut();
+    void fixedPlotArea();
 private:
     void createTestData();
 
@@ -164,7 +165,7 @@ void tst_QChart::createTestData()
      *series0 << QPointF(0, 0) << QPointF(100, 100);
      m_chart->addSeries(series0);
      m_view->show();
-     QTest::qWaitForWindowShown(m_view);
+     QVERIFY(QTest::qWaitForWindowExposed(m_view));
 }
 
 void tst_QChart::qchart_data()
@@ -240,7 +241,7 @@ void tst_QChart::addSeries()
 {
     QFETCH(QAbstractSeries *, series);
     m_view->show();
-    QTest::qWaitForWindowShown(m_view);
+    QVERIFY(QTest::qWaitForWindowExposed(m_view));
     QVERIFY(!series->chart());
     QCOMPARE(m_chart->series().count(), 0);
     m_chart->addSeries(series);
@@ -337,7 +338,7 @@ void tst_QChart::axisX()
     QFETCH(QAbstractSeries*, series);
     QVERIFY(!m_chart->axisX());
     m_view->show();
-    QTest::qWaitForWindowShown(m_view);
+    QVERIFY(QTest::qWaitForWindowExposed(m_view));
     m_chart->addSeries(series);
     m_chart->setAxisX(axis,series);
     QVERIFY(m_chart->axisX(series)==axis);
@@ -355,7 +356,7 @@ void tst_QChart::axisY()
     QFETCH(QAbstractSeries*, series);
     QVERIFY(!m_chart->axisY());
     m_view->show();
-    QTest::qWaitForWindowShown(m_view);
+    QVERIFY(QTest::qWaitForWindowExposed(m_view));
     m_chart->addSeries(series);
     m_chart->setAxisY(axis,series);
     QVERIFY(m_chart->axisY(series)==axis);
@@ -541,7 +542,7 @@ void tst_QChart::removeAllSeries()
     m_chart->addSeries(series1);
     m_chart->addSeries(series2);
     m_view->show();
-    QTest::qWaitForWindowShown(m_view);
+    QVERIFY(QTest::qWaitForWindowExposed(m_view));
     m_chart->createDefaultAxes();
     QCOMPARE(m_chart->axes().count(), 2);
     QVERIFY(m_chart->axisY(series0)!=0);
@@ -568,7 +569,7 @@ void tst_QChart::removeSeries()
     QFETCH(QAbstractSeries *, series);
     QSignalSpy deleteSpy(series, SIGNAL(destroyed()));
     m_view->show();
-    QTest::qWaitForWindowShown(m_view);
+    QVERIFY(QTest::qWaitForWindowExposed(m_view));
     if(!axis) axis = m_chart->axisY();
     m_chart->addSeries(series);
     m_chart->setAxisY(axis,series);
@@ -599,7 +600,7 @@ void tst_QChart::scroll_right()
     m_chart->addSeries(series);
     m_chart->createDefaultAxes();
     m_view->show();
-    QTest::qWaitForWindowShown(m_view);
+    QVERIFY(QTest::qWaitForWindowExposed(m_view));
     QAbstractAxis * axis = m_chart->axisX();
     QVERIFY(axis!=0);
 
@@ -643,7 +644,7 @@ void tst_QChart::scroll_left()
      m_chart->addSeries(series);
      m_chart->createDefaultAxes();
      m_view->show();
-     QTest::qWaitForWindowShown(m_view);
+     QVERIFY(QTest::qWaitForWindowExposed(m_view));
      QAbstractAxis * axis = m_chart->axisX();
      QVERIFY(axis!=0);
 
@@ -686,7 +687,7 @@ void tst_QChart::scroll_up()
     m_chart->addSeries(series);
     m_chart->createDefaultAxes();
     m_view->show();
-    QTest::qWaitForWindowShown(m_view);
+    QVERIFY(QTest::qWaitForWindowExposed(m_view));
     QAbstractAxis * axis = m_chart->axisY();
     QVERIFY(axis!=0);
 
@@ -729,7 +730,7 @@ void tst_QChart::scroll_down()
      m_chart->addSeries(series);
      m_chart->createDefaultAxes();
      m_view->show();
-     QTest::qWaitForWindowShown(m_view);
+     QVERIFY(QTest::qWaitForWindowExposed(m_view));
      QAbstractAxis * axis = m_chart->axisY();
      QVERIFY(axis!=0);
 
@@ -1198,6 +1199,24 @@ void tst_QChart::zoomInAndOut()
     m_chart->zoomOut();
     m_chart->zoomReset();
     CHECK_AXIS_RANGES_MATCH
+}
+
+void tst_QChart::fixedPlotArea()
+{
+    createTestData();
+    const QRectF originalPlotArea = m_chart->plotArea();
+    m_chart->setPlotArea(originalPlotArea);
+    QCOMPARE(m_chart->plotArea(), originalPlotArea);
+    m_view->resize(400, 400);
+    // Should still be the same size
+    QCOMPARE(m_chart->plotArea(), originalPlotArea);
+    m_chart->setPlotArea(QRectF());
+    // Should still be the same size as we have not triggered an update
+    QCOMPARE(m_chart->plotArea(), originalPlotArea);
+    m_view->resize(401, 401);
+    QVERIFY(m_chart->plotArea() != originalPlotArea);
+    m_chart->setPlotArea(originalPlotArea);
+    QCOMPARE(m_chart->plotArea(), originalPlotArea);
 }
 
 QTEST_MAIN(tst_QChart)

@@ -9,17 +9,20 @@
 
 #include <memory>
 
-#include "core/fxcrt/cfx_retain_ptr.h"
 #include "core/fxcrt/fx_coordinates.h"
-#include "core/fxge/dib/ifx_scanlinecomposer.h"
+#include "core/fxcrt/fx_memory.h"
+#include "core/fxcrt/retain_ptr.h"
+#include "core/fxcrt/unowned_ptr.h"
+#include "core/fxge/dib/scanlinecomposer_iface.h"
 #include "core/fxge/fx_dib.h"
 
 class CFX_DIBSource;
+class PauseIndicatorIface;
 
 class CFX_ImageStretcher {
  public:
-  CFX_ImageStretcher(IFX_ScanlineComposer* pDest,
-                     const CFX_RetainPtr<CFX_DIBSource>& pSource,
+  CFX_ImageStretcher(ScanlineComposerIface* pDest,
+                     const RetainPtr<CFX_DIBSource>& pSource,
                      int dest_width,
                      int dest_height,
                      const FX_RECT& bitmap_rect,
@@ -27,18 +30,18 @@ class CFX_ImageStretcher {
   ~CFX_ImageStretcher();
 
   bool Start();
-  bool Continue(IFX_Pause* pPause);
+  bool Continue(PauseIndicatorIface* pPause);
 
-  CFX_RetainPtr<CFX_DIBSource> source() { return m_pSource; }
+  RetainPtr<CFX_DIBSource> source() { return m_pSource; }
 
  private:
   bool StartQuickStretch();
   bool StartStretch();
-  bool ContinueQuickStretch(IFX_Pause* pPause);
-  bool ContinueStretch(IFX_Pause* pPause);
+  bool ContinueQuickStretch(PauseIndicatorIface* pPause);
+  bool ContinueStretch(PauseIndicatorIface* pPause);
 
-  CFX_UnownedPtr<IFX_ScanlineComposer> const m_pDest;
-  CFX_RetainPtr<CFX_DIBSource> m_pSource;
+  UnownedPtr<ScanlineComposerIface> const m_pDest;
+  RetainPtr<CFX_DIBSource> m_pSource;
   std::unique_ptr<CStretchEngine> m_pStretchEngine;
   std::unique_ptr<uint8_t, FxFreeDeleter> m_pScanline;
   std::unique_ptr<uint8_t, FxFreeDeleter> m_pMaskScanline;

@@ -29,14 +29,11 @@ class RendererD3D;
 class RenderTargetD3D;
 class TextureStorage;
 
-template <typename T>
-using TexLevelsArray = std::array<T, gl::IMPLEMENTATION_MAX_TEXTURE_LEVELS>;
-
 class TextureD3D : public TextureImpl
 {
   public:
     TextureD3D(const gl::TextureState &data, RendererD3D *renderer);
-    virtual ~TextureD3D();
+    ~TextureD3D() override;
 
     gl::Error onDestroy(const gl::Context *context) override;
 
@@ -50,24 +47,24 @@ class TextureD3D : public TextureImpl
 
     gl::Error getImageAndSyncFromStorage(const gl::Context *context,
                                          const gl::ImageIndex &index,
-                                         ImageD3D **outImage) const;
+                                         ImageD3D **outImage);
 
     GLint getBaseLevelWidth() const;
     GLint getBaseLevelHeight() const;
     GLenum getBaseLevelInternalFormat() const;
 
     gl::Error setStorage(const gl::Context *context,
-                         GLenum target,
+                         gl::TextureType type,
                          size_t levels,
                          GLenum internalFormat,
-                         const gl::Extents &size);
+                         const gl::Extents &size) override;
 
     gl::Error setStorageMultisample(const gl::Context *context,
-                                    GLenum target,
+                                    gl::TextureType type,
                                     GLsizei samples,
                                     GLint internalFormat,
                                     const gl::Extents &size,
-                                    GLboolean fixedSampleLocations) override;
+                                    bool fixedSampleLocations) override;
 
     bool isImmutable() const { return mImmutable; }
 
@@ -84,7 +81,7 @@ class TextureD3D : public TextureImpl
     virtual bool isValidIndex(const gl::ImageIndex &index) const = 0;
 
     gl::Error setImageExternal(const gl::Context *context,
-                               GLenum target,
+                               gl::TextureType type,
                                egl::Stream *stream,
                                const egl::Stream::GLTextureDescription &desc) override;
     gl::Error generateMipmap(const gl::Context *context) override;
@@ -98,17 +95,18 @@ class TextureD3D : public TextureImpl
 
     gl::Error setBaseLevel(const gl::Context *context, GLuint baseLevel) override;
 
-    void syncState(const gl::Texture::DirtyBits &dirtyBits) override;
+    gl::Error syncState(const gl::Context *context,
+                        const gl::Texture::DirtyBits &dirtyBits) override;
 
-    gl::Error clearLevel(const gl::Context *context,
-                         const gl::ImageIndex &index,
-                         const gl::ColorF &clearValues);
+    gl::Error initializeContents(const gl::Context *context,
+                                 const gl::ImageIndex &imageIndex) override;
 
   protected:
     gl::Error setImageImpl(const gl::Context *context,
                            const gl::ImageIndex &index,
                            GLenum type,
                            const gl::PixelUnpackState &unpack,
+                           gl::Buffer *unpackBuffer,
                            const uint8_t *pixels,
                            ptrdiff_t layerOffset);
     gl::Error subImage(const gl::Context *context,
@@ -131,7 +129,7 @@ class TextureD3D : public TextureImpl
                                  const gl::PixelUnpackState &unpack,
                                  const uint8_t *pixels,
                                  ptrdiff_t layerOffset);
-    bool isFastUnpackable(const gl::PixelUnpackState &unpack, GLenum sizedInternalFormat);
+    bool isFastUnpackable(const gl::Buffer *unpackBuffer, GLenum sizedInternalFormat);
     gl::Error fastUnpackPixels(const gl::Context *context,
                                const gl::PixelUnpackState &unpack,
                                const uint8_t *pixels,
@@ -168,8 +166,6 @@ class TextureD3D : public TextureImpl
 
     GLint getBaseLevelDepth() const;
 
-    bool shouldForceReleaseImagesOnSetImage(const uint8_t *pixels) const;
-
     RendererD3D *mRenderer;
 
     bool mDirtyImages;
@@ -193,7 +189,7 @@ class TextureD3D_2D : public TextureD3D
 {
   public:
     TextureD3D_2D(const gl::TextureState &data, RendererD3D *renderer);
-    virtual ~TextureD3D_2D();
+    ~TextureD3D_2D() override;
 
     gl::Error onDestroy(const gl::Context *context) override;
 
@@ -208,8 +204,7 @@ class TextureD3D_2D : public TextureD3D
     bool isSRGB(GLint level) const;
 
     gl::Error setImage(const gl::Context *context,
-                       GLenum target,
-                       size_t level,
+                       const gl::ImageIndex &index,
                        GLenum internalFormat,
                        const gl::Extents &size,
                        GLenum format,
@@ -217,25 +212,23 @@ class TextureD3D_2D : public TextureD3D
                        const gl::PixelUnpackState &unpack,
                        const uint8_t *pixels) override;
     gl::Error setSubImage(const gl::Context *context,
-                          GLenum target,
-                          size_t level,
+                          const gl::ImageIndex &index,
                           const gl::Box &area,
                           GLenum format,
                           GLenum type,
                           const gl::PixelUnpackState &unpack,
+                          gl::Buffer *unpackBuffer,
                           const uint8_t *pixels) override;
 
     gl::Error setCompressedImage(const gl::Context *context,
-                                 GLenum target,
-                                 size_t level,
+                                 const gl::ImageIndex &index,
                                  GLenum internalFormat,
                                  const gl::Extents &size,
                                  const gl::PixelUnpackState &unpack,
                                  size_t imageSize,
                                  const uint8_t *pixels) override;
     gl::Error setCompressedSubImage(const gl::Context *context,
-                                    GLenum target,
-                                    size_t level,
+                                    const gl::ImageIndex &index,
                                     const gl::Box &area,
                                     GLenum format,
                                     const gl::PixelUnpackState &unpack,
@@ -243,21 +236,18 @@ class TextureD3D_2D : public TextureD3D
                                     const uint8_t *pixels) override;
 
     gl::Error copyImage(const gl::Context *context,
-                        GLenum target,
-                        size_t level,
+                        const gl::ImageIndex &index,
                         const gl::Rectangle &sourceArea,
                         GLenum internalFormat,
-                        const gl::Framebuffer *source) override;
+                        gl::Framebuffer *source) override;
     gl::Error copySubImage(const gl::Context *context,
-                           GLenum target,
-                           size_t level,
+                           const gl::ImageIndex &index,
                            const gl::Offset &destOffset,
                            const gl::Rectangle &sourceArea,
-                           const gl::Framebuffer *source) override;
+                           gl::Framebuffer *source) override;
 
     gl::Error copyTexture(const gl::Context *context,
-                          GLenum target,
-                          size_t level,
+                          const gl::ImageIndex &index,
                           GLenum internalFormat,
                           GLenum type,
                           size_t sourceLevel,
@@ -266,8 +256,7 @@ class TextureD3D_2D : public TextureD3D
                           bool unpackUnmultiplyAlpha,
                           const gl::Texture *source) override;
     gl::Error copySubTexture(const gl::Context *context,
-                             GLenum target,
-                             size_t level,
+                             const gl::ImageIndex &index,
                              const gl::Offset &destOffset,
                              size_t sourceLevel,
                              const gl::Rectangle &sourceArea,
@@ -278,7 +267,7 @@ class TextureD3D_2D : public TextureD3D
     gl::Error copyCompressedTexture(const gl::Context *context, const gl::Texture *source) override;
 
     gl::Error setStorage(const gl::Context *context,
-                         GLenum target,
+                         gl::TextureType type,
                          size_t levels,
                          GLenum internalFormat,
                          const gl::Extents &size) override;
@@ -287,7 +276,7 @@ class TextureD3D_2D : public TextureD3D
     gl::Error releaseTexImage(const gl::Context *context) override;
 
     gl::Error setEGLImageTarget(const gl::Context *context,
-                                GLenum target,
+                                gl::TextureType type,
                                 egl::Image *image) override;
 
     gl::Error getRenderTarget(const gl::Context *context,
@@ -313,7 +302,7 @@ class TextureD3D_2D : public TextureD3D
 
     bool isValidLevel(int level) const;
     bool isLevelComplete(int level) const;
-    virtual bool isImageComplete(const gl::ImageIndex &index) const;
+    bool isImageComplete(const gl::ImageIndex &index) const override;
 
     gl::Error updateStorageLevel(const gl::Context *context, int level);
 
@@ -324,14 +313,14 @@ class TextureD3D_2D : public TextureD3D
                             bool forceRelease);
 
     bool mEGLImageTarget;
-    TexLevelsArray<std::unique_ptr<ImageD3D>> mImageArray;
+    gl::TexLevelArray<std::unique_ptr<ImageD3D>> mImageArray;
 };
 
 class TextureD3D_Cube : public TextureD3D
 {
   public:
     TextureD3D_Cube(const gl::TextureState &data, RendererD3D *renderer);
-    virtual ~TextureD3D_Cube();
+    ~TextureD3D_Cube() override;
 
     gl::Error onDestroy(const gl::Context *context) override;
 
@@ -344,8 +333,7 @@ class TextureD3D_Cube : public TextureD3D
     bool isSRGB(GLint level, GLint layer) const;
 
     gl::Error setImage(const gl::Context *context,
-                       GLenum target,
-                       size_t level,
+                       const gl::ImageIndex &index,
                        GLenum internalFormat,
                        const gl::Extents &size,
                        GLenum format,
@@ -353,25 +341,23 @@ class TextureD3D_Cube : public TextureD3D
                        const gl::PixelUnpackState &unpack,
                        const uint8_t *pixels) override;
     gl::Error setSubImage(const gl::Context *context,
-                          GLenum target,
-                          size_t level,
+                          const gl::ImageIndex &index,
                           const gl::Box &area,
                           GLenum format,
                           GLenum type,
                           const gl::PixelUnpackState &unpack,
+                          gl::Buffer *unpackBuffer,
                           const uint8_t *pixels) override;
 
     gl::Error setCompressedImage(const gl::Context *context,
-                                 GLenum target,
-                                 size_t level,
+                                 const gl::ImageIndex &index,
                                  GLenum internalFormat,
                                  const gl::Extents &size,
                                  const gl::PixelUnpackState &unpack,
                                  size_t imageSize,
                                  const uint8_t *pixels) override;
     gl::Error setCompressedSubImage(const gl::Context *context,
-                                    GLenum target,
-                                    size_t level,
+                                    const gl::ImageIndex &index,
                                     const gl::Box &area,
                                     GLenum format,
                                     const gl::PixelUnpackState &unpack,
@@ -379,21 +365,18 @@ class TextureD3D_Cube : public TextureD3D
                                     const uint8_t *pixels) override;
 
     gl::Error copyImage(const gl::Context *context,
-                        GLenum target,
-                        size_t level,
+                        const gl::ImageIndex &index,
                         const gl::Rectangle &sourceArea,
                         GLenum internalFormat,
-                        const gl::Framebuffer *source) override;
+                        gl::Framebuffer *source) override;
     gl::Error copySubImage(const gl::Context *context,
-                           GLenum target,
-                           size_t level,
+                           const gl::ImageIndex &index,
                            const gl::Offset &destOffset,
                            const gl::Rectangle &sourceArea,
-                           const gl::Framebuffer *source) override;
+                           gl::Framebuffer *source) override;
 
     gl::Error copyTexture(const gl::Context *context,
-                          GLenum target,
-                          size_t level,
+                          const gl::ImageIndex &index,
                           GLenum internalFormat,
                           GLenum type,
                           size_t sourceLevel,
@@ -402,8 +385,7 @@ class TextureD3D_Cube : public TextureD3D
                           bool unpackUnmultiplyAlpha,
                           const gl::Texture *source) override;
     gl::Error copySubTexture(const gl::Context *context,
-                             GLenum target,
-                             size_t level,
+                             const gl::ImageIndex &index,
                              const gl::Offset &destOffset,
                              size_t sourceLevel,
                              const gl::Rectangle &sourceArea,
@@ -413,7 +395,7 @@ class TextureD3D_Cube : public TextureD3D
                              const gl::Texture *source) override;
 
     gl::Error setStorage(const gl::Context *context,
-                         GLenum target,
+                         gl::TextureType type,
                          size_t levels,
                          GLenum internalFormat,
                          const gl::Extents &size) override;
@@ -422,7 +404,7 @@ class TextureD3D_Cube : public TextureD3D
     gl::Error releaseTexImage(const gl::Context *context) override;
 
     gl::Error setEGLImageTarget(const gl::Context *context,
-                                GLenum target,
+                                gl::TextureType type,
                                 egl::Image *image) override;
 
     gl::Error getRenderTarget(const gl::Context *context,
@@ -449,7 +431,7 @@ class TextureD3D_Cube : public TextureD3D
     bool isValidFaceLevel(int faceIndex, int level) const;
     bool isFaceLevelComplete(int faceIndex, int level) const;
     bool isCubeComplete() const;
-    virtual bool isImageComplete(const gl::ImageIndex &index) const;
+    bool isImageComplete(const gl::ImageIndex &index) const override;
     gl::Error updateStorageFaceLevel(const gl::Context *context, int faceIndex, int level);
 
     gl::Error redefineImage(const gl::Context *context,
@@ -459,14 +441,14 @@ class TextureD3D_Cube : public TextureD3D
                             const gl::Extents &size,
                             bool forceRelease);
 
-    std::array<TexLevelsArray<std::unique_ptr<ImageD3D>>, 6> mImageArray;
+    std::array<gl::TexLevelArray<std::unique_ptr<ImageD3D>>, 6> mImageArray;
 };
 
 class TextureD3D_3D : public TextureD3D
 {
   public:
     TextureD3D_3D(const gl::TextureState &data, RendererD3D *renderer);
-    virtual ~TextureD3D_3D();
+    ~TextureD3D_3D() override;
 
     gl::Error onDestroy(const gl::Context *context) override;
 
@@ -481,8 +463,7 @@ class TextureD3D_3D : public TextureD3D
     bool isDepth(GLint level) const;
 
     gl::Error setImage(const gl::Context *context,
-                       GLenum target,
-                       size_t level,
+                       const gl::ImageIndex &index,
                        GLenum internalFormat,
                        const gl::Extents &size,
                        GLenum format,
@@ -490,25 +471,23 @@ class TextureD3D_3D : public TextureD3D
                        const gl::PixelUnpackState &unpack,
                        const uint8_t *pixels) override;
     gl::Error setSubImage(const gl::Context *context,
-                          GLenum target,
-                          size_t level,
+                          const gl::ImageIndex &index,
                           const gl::Box &area,
                           GLenum format,
                           GLenum type,
                           const gl::PixelUnpackState &unpack,
+                          gl::Buffer *unpackBuffer,
                           const uint8_t *pixels) override;
 
     gl::Error setCompressedImage(const gl::Context *context,
-                                 GLenum target,
-                                 size_t level,
+                                 const gl::ImageIndex &index,
                                  GLenum internalFormat,
                                  const gl::Extents &size,
                                  const gl::PixelUnpackState &unpack,
                                  size_t imageSize,
                                  const uint8_t *pixels) override;
     gl::Error setCompressedSubImage(const gl::Context *context,
-                                    GLenum target,
-                                    size_t level,
+                                    const gl::ImageIndex &index,
                                     const gl::Box &area,
                                     GLenum format,
                                     const gl::PixelUnpackState &unpack,
@@ -516,20 +495,18 @@ class TextureD3D_3D : public TextureD3D
                                     const uint8_t *pixels) override;
 
     gl::Error copyImage(const gl::Context *context,
-                        GLenum target,
-                        size_t level,
+                        const gl::ImageIndex &index,
                         const gl::Rectangle &sourceArea,
                         GLenum internalFormat,
-                        const gl::Framebuffer *source) override;
+                        gl::Framebuffer *source) override;
     gl::Error copySubImage(const gl::Context *context,
-                           GLenum target,
-                           size_t level,
+                           const gl::ImageIndex &index,
                            const gl::Offset &destOffset,
                            const gl::Rectangle &sourceArea,
-                           const gl::Framebuffer *source) override;
+                           gl::Framebuffer *source) override;
 
     gl::Error setStorage(const gl::Context *context,
-                         GLenum target,
+                         gl::TextureType type,
                          size_t levels,
                          GLenum internalFormat,
                          const gl::Extents &size) override;
@@ -538,7 +515,7 @@ class TextureD3D_3D : public TextureD3D
     gl::Error releaseTexImage(const gl::Context *context) override;
 
     gl::Error setEGLImageTarget(const gl::Context *context,
-                                GLenum target,
+                                gl::TextureType type,
                                 egl::Image *image) override;
 
     gl::Error getRenderTarget(const gl::Context *context,
@@ -565,7 +542,7 @@ class TextureD3D_3D : public TextureD3D
 
     bool isValidLevel(int level) const;
     bool isLevelComplete(int level) const;
-    virtual bool isImageComplete(const gl::ImageIndex &index) const;
+    bool isImageComplete(const gl::ImageIndex &index) const override;
     gl::Error updateStorageLevel(const gl::Context *context, int level);
 
     gl::Error redefineImage(const gl::Context *context,
@@ -574,20 +551,20 @@ class TextureD3D_3D : public TextureD3D
                             const gl::Extents &size,
                             bool forceRelease);
 
-    TexLevelsArray<std::unique_ptr<ImageD3D>> mImageArray;
+    gl::TexLevelArray<std::unique_ptr<ImageD3D>> mImageArray;
 };
 
 class TextureD3D_2DArray : public TextureD3D
 {
   public:
     TextureD3D_2DArray(const gl::TextureState &data, RendererD3D *renderer);
-    virtual ~TextureD3D_2DArray();
+    ~TextureD3D_2DArray() override;
 
     gl::Error onDestroy(const gl::Context *context) override;
 
     virtual ImageD3D *getImage(int level, int layer) const;
-    virtual ImageD3D *getImage(const gl::ImageIndex &index) const;
-    virtual GLsizei getLayerCount(int level) const;
+    ImageD3D *getImage(const gl::ImageIndex &index) const override;
+    GLsizei getLayerCount(int level) const override;
 
     GLsizei getWidth(GLint level) const;
     GLsizei getHeight(GLint level) const;
@@ -595,8 +572,7 @@ class TextureD3D_2DArray : public TextureD3D
     bool isDepth(GLint level) const;
 
     gl::Error setImage(const gl::Context *context,
-                       GLenum target,
-                       size_t level,
+                       const gl::ImageIndex &index,
                        GLenum internalFormat,
                        const gl::Extents &size,
                        GLenum format,
@@ -604,25 +580,23 @@ class TextureD3D_2DArray : public TextureD3D
                        const gl::PixelUnpackState &unpack,
                        const uint8_t *pixels) override;
     gl::Error setSubImage(const gl::Context *context,
-                          GLenum target,
-                          size_t level,
+                          const gl::ImageIndex &index,
                           const gl::Box &area,
                           GLenum format,
                           GLenum type,
                           const gl::PixelUnpackState &unpack,
+                          gl::Buffer *unpackBuffer,
                           const uint8_t *pixels) override;
 
     gl::Error setCompressedImage(const gl::Context *context,
-                                 GLenum target,
-                                 size_t level,
+                                 const gl::ImageIndex &index,
                                  GLenum internalFormat,
                                  const gl::Extents &size,
                                  const gl::PixelUnpackState &unpack,
                                  size_t imageSize,
                                  const uint8_t *pixels) override;
     gl::Error setCompressedSubImage(const gl::Context *context,
-                                    GLenum target,
-                                    size_t level,
+                                    const gl::ImageIndex &index,
                                     const gl::Box &area,
                                     GLenum format,
                                     const gl::PixelUnpackState &unpack,
@@ -630,20 +604,18 @@ class TextureD3D_2DArray : public TextureD3D
                                     const uint8_t *pixels) override;
 
     gl::Error copyImage(const gl::Context *context,
-                        GLenum target,
-                        size_t level,
+                        const gl::ImageIndex &index,
                         const gl::Rectangle &sourceArea,
                         GLenum internalFormat,
-                        const gl::Framebuffer *source) override;
+                        gl::Framebuffer *source) override;
     gl::Error copySubImage(const gl::Context *context,
-                           GLenum target,
-                           size_t level,
+                           const gl::ImageIndex &index,
                            const gl::Offset &destOffset,
                            const gl::Rectangle &sourceArea,
-                           const gl::Framebuffer *source) override;
+                           gl::Framebuffer *source) override;
 
     gl::Error setStorage(const gl::Context *context,
-                         GLenum target,
+                         gl::TextureType type,
                          size_t levels,
                          GLenum internalFormat,
                          const gl::Extents &size) override;
@@ -652,7 +624,7 @@ class TextureD3D_2DArray : public TextureD3D
     gl::Error releaseTexImage(const gl::Context *context) override;
 
     gl::Error setEGLImageTarget(const gl::Context *context,
-                                GLenum target,
+                                gl::TextureType type,
                                 egl::Image *image) override;
 
     gl::Error getRenderTarget(const gl::Context *context,
@@ -678,7 +650,7 @@ class TextureD3D_2DArray : public TextureD3D
 
     bool isValidLevel(int level) const;
     bool isLevelComplete(int level) const;
-    virtual bool isImageComplete(const gl::ImageIndex &index) const;
+    bool isImageComplete(const gl::ImageIndex &index) const override;
     gl::Error updateStorageLevel(const gl::Context *context, int level);
 
     void deleteImages();
@@ -706,8 +678,7 @@ class TextureD3D_External : public TextureD3D
     GLsizei getLayerCount(int level) const override;
 
     gl::Error setImage(const gl::Context *context,
-                       GLenum target,
-                       size_t level,
+                       const gl::ImageIndex &index,
                        GLenum internalFormat,
                        const gl::Extents &size,
                        GLenum format,
@@ -715,25 +686,23 @@ class TextureD3D_External : public TextureD3D
                        const gl::PixelUnpackState &unpack,
                        const uint8_t *pixels) override;
     gl::Error setSubImage(const gl::Context *context,
-                          GLenum target,
-                          size_t level,
+                          const gl::ImageIndex &index,
                           const gl::Box &area,
                           GLenum format,
                           GLenum type,
                           const gl::PixelUnpackState &unpack,
+                          gl::Buffer *unpackBuffer,
                           const uint8_t *pixels) override;
 
     gl::Error setCompressedImage(const gl::Context *context,
-                                 GLenum target,
-                                 size_t level,
+                                 const gl::ImageIndex &index,
                                  GLenum internalFormat,
                                  const gl::Extents &size,
                                  const gl::PixelUnpackState &unpack,
                                  size_t imageSize,
                                  const uint8_t *pixels) override;
     gl::Error setCompressedSubImage(const gl::Context *context,
-                                    GLenum target,
-                                    size_t level,
+                                    const gl::ImageIndex &index,
                                     const gl::Box &area,
                                     GLenum format,
                                     const gl::PixelUnpackState &unpack,
@@ -741,26 +710,24 @@ class TextureD3D_External : public TextureD3D
                                     const uint8_t *pixels) override;
 
     gl::Error copyImage(const gl::Context *context,
-                        GLenum target,
-                        size_t level,
+                        const gl::ImageIndex &index,
                         const gl::Rectangle &sourceArea,
                         GLenum internalFormat,
-                        const gl::Framebuffer *source) override;
+                        gl::Framebuffer *source) override;
     gl::Error copySubImage(const gl::Context *context,
-                           GLenum target,
-                           size_t level,
+                           const gl::ImageIndex &index,
                            const gl::Offset &destOffset,
                            const gl::Rectangle &sourceArea,
-                           const gl::Framebuffer *source) override;
+                           gl::Framebuffer *source) override;
 
     gl::Error setStorage(const gl::Context *context,
-                         GLenum target,
+                         gl::TextureType type,
                          size_t levels,
                          GLenum internalFormat,
                          const gl::Extents &size) override;
 
     gl::Error setImageExternal(const gl::Context *context,
-                               GLenum target,
+                               gl::TextureType type,
                                egl::Stream *stream,
                                const egl::Stream::GLTextureDescription &desc) override;
 
@@ -768,7 +735,7 @@ class TextureD3D_External : public TextureD3D
     gl::Error releaseTexImage(const gl::Context *context) override;
 
     gl::Error setEGLImageTarget(const gl::Context *context,
-                                GLenum target,
+                                gl::TextureType type,
                                 egl::Image *image) override;
 
     gl::Error getRenderTarget(const gl::Context *context,
@@ -803,8 +770,7 @@ class TextureD3D_2DMultisample : public TextureD3D
 
     ImageD3D *getImage(const gl::ImageIndex &index) const override;
     gl::Error setImage(const gl::Context *context,
-                       GLenum target,
-                       size_t level,
+                       const gl::ImageIndex &index,
                        GLenum internalFormat,
                        const gl::Extents &size,
                        GLenum format,
@@ -812,8 +778,7 @@ class TextureD3D_2DMultisample : public TextureD3D
                        const gl::PixelUnpackState &unpack,
                        const uint8_t *pixels) override;
     gl::Error setSubImage(const gl::Context *context,
-                          GLenum target,
-                          size_t level,
+                          const gl::ImageIndex &index,
                           const gl::Box &area,
                           GLenum format,
                           GLenum type,
@@ -821,16 +786,14 @@ class TextureD3D_2DMultisample : public TextureD3D
                           const uint8_t *pixels) override;
 
     gl::Error setCompressedImage(const gl::Context *context,
-                                 GLenum target,
-                                 size_t level,
+                                 const gl::ImageIndex &index,
                                  GLenum internalFormat,
                                  const gl::Extents &size,
                                  const gl::PixelUnpackState &unpack,
                                  size_t imageSize,
                                  const uint8_t *pixels) override;
     gl::Error setCompressedSubImage(const gl::Context *context,
-                                    GLenum target,
-                                    size_t level,
+                                    const gl::ImageIndex &index,
                                     const gl::Box &area,
                                     GLenum format,
                                     const gl::PixelUnpackState &unpack,
@@ -838,30 +801,28 @@ class TextureD3D_2DMultisample : public TextureD3D
                                     const uint8_t *pixels) override;
 
     gl::Error copyImage(const gl::Context *context,
-                        GLenum target,
-                        size_t level,
+                        const gl::ImageIndex &index,
                         const gl::Rectangle &sourceArea,
                         GLenum internalFormat,
-                        const gl::Framebuffer *source) override;
+                        gl::Framebuffer *source) override;
     gl::Error copySubImage(const gl::Context *context,
-                           GLenum target,
-                           size_t level,
+                           const gl::ImageIndex &index,
                            const gl::Offset &destOffset,
                            const gl::Rectangle &sourceArea,
-                           const gl::Framebuffer *source) override;
+                           gl::Framebuffer *source) override;
 
     gl::Error setStorageMultisample(const gl::Context *context,
-                                    GLenum target,
+                                    gl::TextureType type,
                                     GLsizei samples,
                                     GLint internalFormat,
                                     const gl::Extents &size,
-                                    GLboolean fixedSampleLocations) override;
+                                    bool fixedSampleLocations) override;
 
     gl::Error bindTexImage(const gl::Context *context, egl::Surface *surface) override;
     gl::Error releaseTexImage(const gl::Context *context) override;
 
     gl::Error setEGLImageTarget(const gl::Context *context,
-                                GLenum target,
+                                gl::TextureType type,
                                 egl::Image *image) override;
 
     gl::Error getRenderTarget(const gl::Context *context,
@@ -872,7 +833,7 @@ class TextureD3D_2DMultisample : public TextureD3D
     gl::ImageIndex getImageIndex(GLint mip, GLint layer) const override;
     bool isValidIndex(const gl::ImageIndex &index) const override;
 
-    virtual GLsizei getLayerCount(int level) const;
+    GLsizei getLayerCount(int level) const override;
 
   protected:
     void markAllImagesDirty() override;

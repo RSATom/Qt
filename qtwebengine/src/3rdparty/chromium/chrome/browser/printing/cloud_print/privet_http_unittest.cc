@@ -6,12 +6,11 @@
 
 #include <memory>
 #include <utility>
+#include <vector>
 
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
 #include "base/location.h"
-#include "base/memory/ptr_util.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/test/scoped_task_environment.h"
@@ -22,14 +21,14 @@
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "net/url_request/test_url_fetcher_factory.h"
 #include "net/url_request/url_request_test_util.h"
-#include "printing/features/features.h"
+#include "printing/buildflags/buildflags.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 #if BUILDFLAG(ENABLE_PRINT_PREVIEW)
 #include "chrome/browser/printing/pwg_raster_converter.h"
 #include "printing/pwg_raster_settings.h"
-#endif  // ENABLE_PRINT_PREVIEW
+#endif
 
 namespace cloud_print {
 
@@ -43,193 +42,215 @@ using testing::ValuesIn;
 using content::BrowserThread;
 using net::EmbeddedTestServer;
 
-const char kSampleInfoResponse[] = "{"
-    "       \"version\": \"1.0\","
-    "       \"name\": \"Common printer\","
-    "       \"description\": \"Printer connected through Chrome connector\","
-    "       \"url\": \"https://www.google.com/cloudprint\","
-    "       \"type\": ["
-    "               \"printer\""
-    "       ],"
-    "       \"id\": \"\","
-    "       \"device_state\": \"idle\","
-    "       \"connection_state\": \"online\","
-    "       \"manufacturer\": \"Google\","
-    "       \"model\": \"Google Chrome\","
-    "       \"serial_number\": \"1111-22222-33333-4444\","
-    "       \"firmware\": \"24.0.1312.52\","
-    "       \"uptime\": 600,"
-    "       \"setup_url\": \"http://support.google.com/\","
-    "       \"support_url\": \"http://support.google.com/cloudprint/?hl=en\","
-    "       \"update_url\": \"http://support.google.com/cloudprint/?hl=en\","
-    "       \"x-privet-token\": \"SampleTokenForTesting\","
-    "       \"api\": ["
-    "               \"/privet/accesstoken\","
-    "               \"/privet/capabilities\","
-    "               \"/privet/printer/submitdoc\","
-    "       ]"
-    "}";
+const char kSampleInfoResponse[] =
+    R"({
+         "version": "1.0",
+         "name": "Common printer",
+         "description": "Printer connected through Chrome connector",
+         "url": "https://www.google.com/cloudprint",
+         "type": [ "printer" ],
+         "id": "",
+         "device_state": "idle",
+         "connection_state": "online",
+         "manufacturer": "Google",
+         "model": "Google Chrome",
+         "serial_number": "1111-22222-33333-4444",
+         "firmware": "24.0.1312.52",
+         "uptime": 600,
+         "setup_url": "http://support.google.com/",
+         "support_url": "http://support.google.com/cloudprint/?hl=en",
+         "update_url": "http://support.google.com/cloudprint/?hl=en",
+         "x-privet-token": "SampleTokenForTesting",
+         "api": [
+           "/privet/accesstoken",
+           "/privet/capabilities",
+           "/privet/printer/submitdoc",
+         ]
+       })";
 
-const char kSampleInfoResponseRegistered[] = "{"
-    "       \"version\": \"1.0\","
-    "       \"name\": \"Common printer\","
-    "       \"description\": \"Printer connected through Chrome connector\","
-    "       \"url\": \"https://www.google.com/cloudprint\","
-    "       \"type\": ["
-    "               \"printer\""
-    "       ],"
-    "       \"id\": \"MyDeviceID\","
-    "       \"device_state\": \"idle\","
-    "       \"connection_state\": \"online\","
-    "       \"manufacturer\": \"Google\","
-    "       \"model\": \"Google Chrome\","
-    "       \"serial_number\": \"1111-22222-33333-4444\","
-    "       \"firmware\": \"24.0.1312.52\","
-    "       \"uptime\": 600,"
-    "       \"setup_url\": \"http://support.google.com/\","
-    "       \"support_url\": \"http://support.google.com/cloudprint/?hl=en\","
-    "       \"update_url\": \"http://support.google.com/cloudprint/?hl=en\","
-    "       \"x-privet-token\": \"SampleTokenForTesting\","
-    "       \"api\": ["
-    "               \"/privet/accesstoken\","
-    "               \"/privet/capabilities\","
-    "               \"/privet/printer/submitdoc\","
-    "       ]"
-    "}";
+const char kSampleInfoResponseRegistered[] =
+    R"({
+         "version": "1.0",
+         "name": "Common printer",
+         "description": "Printer connected through Chrome connector",
+         "url": "https://www.google.com/cloudprint",
+         "type": [ "printer" ],
+         "id": "MyDeviceID",
+         "device_state": "idle",
+         "connection_state": "online",
+         "manufacturer": "Google",
+         "model": "Google Chrome",
+         "serial_number": "1111-22222-33333-4444",
+         "firmware": "24.0.1312.52",
+         "uptime": 600,
+         "setup_url": "http://support.google.com/",
+         "support_url": "http://support.google.com/cloudprint/?hl=en",
+         "update_url": "http://support.google.com/cloudprint/?hl=en",
+         "x-privet-token": "SampleTokenForTesting",
+         "api": [
+           "/privet/accesstoken",
+           "/privet/capabilities",
+           "/privet/printer/submitdoc",
+         ]
+       })";
 
-const char kSampleRegisterStartResponse[] = "{"
-    "\"user\": \"example@google.com\","
-    "\"action\": \"start\""
-    "}";
+const char kSampleRegisterStartResponse[] =
+    R"({
+         "user": "example@google.com",
+         "action": "start"
+       })";
 
-const char kSampleRegisterGetClaimTokenResponse[] = "{"
-    "       \"action\": \"getClaimToken\","
-    "       \"user\": \"example@google.com\","
-    "       \"token\": \"MySampleToken\","
-    "       \"claim_url\": \"https://domain.com/SoMeUrL\""
-    "}";
+const char kSampleRegisterGetClaimTokenResponse[] =
+    R"({
+         "action": "getClaimToken",
+         "user": "example@google.com",
+         "token": "MySampleToken",
+         "claim_url": "https://domain.com/SoMeUrL"
+       })";
 
-const char kSampleRegisterCompleteResponse[] = "{"
-    "\"user\": \"example@google.com\","
-    "\"action\": \"complete\","
-    "\"device_id\": \"MyDeviceID\""
-    "}";
+const char kSampleRegisterCompleteResponse[] =
+    R"({
+         "user": "example@google.com",
+         "action": "complete",
+         "device_id": "MyDeviceID"
+       })";
 
 const char kSampleXPrivetErrorResponse[] =
-    "{ \"error\": \"invalid_x_privet_token\" }";
+    R"({ "error": "invalid_x_privet_token" })";
 
 const char kSampleRegisterErrorTransient[] =
-    "{ \"error\": \"device_busy\", \"timeout\": 1}";
+    R"({ "error": "device_busy", "timeout": 1})";
 
 const char kSampleRegisterErrorPermanent[] =
-    "{ \"error\": \"user_cancel\" }";
+    R"({ "error": "user_cancel" })";
 
 const char kSampleInfoResponseBadJson[] = "{";
 
-const char kSampleRegisterCancelResponse[] = "{"
-    "\"user\": \"example@google.com\","
-    "\"action\": \"cancel\""
-    "}";
+const char kSampleRegisterCancelResponse[] =
+    R"({
+         "user": "example@google.com",
+         "action": "cancel"
+       })";
 
-const char kSampleCapabilitiesResponse[] = "{"
-    "\"version\" : \"1.0\","
-    "\"printer\" : {"
-    "  \"supported_content_type\" : ["
-    "   { \"content_type\" : \"application/pdf\" },"
-    "   { \"content_type\" : \"image/pwg-raster\" }"
-    "  ]"
-    "}"
-    "}";
+const char kSampleCapabilitiesResponse[] =
+    R"({
+         "version" : "1.0",
+         "printer" : {
+           "supported_content_type" : [
+             { "content_type" : "application/pdf" },
+             { "content_type" : "image/pwg-raster" }
+           ]
+         }
+       })";
 
 #if BUILDFLAG(ENABLE_PRINT_PREVIEW)
-const char kSampleInfoResponseWithCreatejob[] = "{"
-    "       \"version\": \"1.0\","
-    "       \"name\": \"Common printer\","
-    "       \"description\": \"Printer connected through Chrome connector\","
-    "       \"url\": \"https://www.google.com/cloudprint\","
-    "       \"type\": ["
-    "               \"printer\""
-    "       ],"
-    "       \"id\": \"\","
-    "       \"device_state\": \"idle\","
-    "       \"connection_state\": \"online\","
-    "       \"manufacturer\": \"Google\","
-    "       \"model\": \"Google Chrome\","
-    "       \"serial_number\": \"1111-22222-33333-4444\","
-    "       \"firmware\": \"24.0.1312.52\","
-    "       \"uptime\": 600,"
-    "       \"setup_url\": \"http://support.google.com/\","
-    "       \"support_url\": \"http://support.google.com/cloudprint/?hl=en\","
-    "       \"update_url\": \"http://support.google.com/cloudprint/?hl=en\","
-    "       \"x-privet-token\": \"SampleTokenForTesting\","
-    "       \"api\": ["
-    "               \"/privet/accesstoken\","
-    "               \"/privet/capabilities\","
-    "               \"/privet/printer/createjob\","
-    "               \"/privet/printer/submitdoc\","
-    "       ]"
-    "}";
+const char kSampleInfoResponseWithCreatejob[] =
+    R"({
+         "version": "1.0",
+         "name": "Common printer",
+         "description": "Printer connected through Chrome connector",
+         "url": "https://www.google.com/cloudprint",
+         "type": [ "printer" ],
+         "id": "",
+         "device_state": "idle",
+         "connection_state": "online",
+         "manufacturer": "Google",
+         "model": "Google Chrome",
+         "serial_number": "1111-22222-33333-4444",
+         "firmware": "24.0.1312.52",
+         "uptime": 600,
+         "setup_url": "http://support.google.com/",
+         "support_url": "http://support.google.com/cloudprint/?hl=en",
+         "update_url": "http://support.google.com/cloudprint/?hl=en",
+         "x-privet-token": "SampleTokenForTesting",
+         "api": [
+           "/privet/accesstoken",
+           "/privet/capabilities",
+           "/privet/printer/createjob",
+           "/privet/printer/submitdoc",
+         ]
+       })";
 
-const char kSampleLocalPrintResponse[] = "{"
-    "\"job_id\": \"123\","
-    "\"expires_in\": 500,"
-    "\"job_type\": \"application/pdf\","
-    "\"job_size\": 16,"
-    "\"job_name\": \"Sample job name\","
-    "}";
+const char kSampleLocalPrintResponse[] =
+    R"({
+         "job_id": "123",
+         "expires_in": 500,
+         "job_type": "application/pdf",
+         "job_size": 16,
+         "job_name": "Sample job name",
+       })";
 
-const char kSampleCapabilitiesResponsePWGOnly[] = "{"
-    "\"version\" : \"1.0\","
-    "\"printer\" : {"
-    "  \"supported_content_type\" : ["
-    "   { \"content_type\" : \"image/pwg-raster\" }"
-    "  ]"
-    "}"
-    "}";
+const char kSampleCapabilitiesResponsePWGOnly[] =
+    R"({
+         "version" : "1.0",
+         "printer" : {
+           "supported_content_type" : [
+              { "content_type" : "image/pwg-raster" }
+           ]
+         }
+       })";
 
-const char kSampleErrorResponsePrinterBusy[] = "{"
-    "\"error\": \"invalid_print_job\","
-    "\"timeout\": 1 "
-    "}";
+const char kSampleErrorResponsePrinterBusy[] =
+    R"({
+         "error": "invalid_print_job",
+         "timeout": 1
+       })";
 
-const char kSampleInvalidDocumentTypeResponse[] = "{"
-    "\"error\" : \"invalid_document_type\""
-    "}";
+const char kSampleInvalidDocumentTypeResponse[] =
+    R"({ "error" : "invalid_document_type" })";
 
-const char kSampleCreatejobResponse[] = "{ \"job_id\": \"1234\" }";
+const char kSampleCreatejobResponse[] = R"({ "job_id": "1234" })";
 
-const char kSampleCapabilitiesResponseWithAnyMimetype[] = "{"
-    "\"version\" : \"1.0\","
-    "\"printer\" : {"
-    "  \"supported_content_type\" : ["
-    "   { \"content_type\" : \"*/*\" },"
-    "   { \"content_type\" : \"image/pwg-raster\" }"
-    "  ]"
-    "}"
-    "}";
+const char kSampleCapabilitiesResponseWithAnyMimetype[] =
+    R"({
+         "version" : "1.0",
+         "printer" : {
+           "supported_content_type" : [
+             { "content_type" : "*/*" },
+             { "content_type" : "image/pwg-raster" }
+           ]
+         }
+       })";
 
-const char kSampleCJT[] = "{ \"version\" : \"1.0\" }";
+const char kSampleCJT[] = R"({ "version" : "1.0" })";
 
 const char kSampleCapabilitiesResponsePWGSettings[] =
-    "{"
-    "\"version\" : \"1.0\","
-    "\"printer\" : {"
-    " \"pwg_raster_config\" : {"
-    "   \"document_sheet_back\" : \"MANUAL_TUMBLE\","
-    "   \"reverse_order_streaming\": true"
-    "  },"
-    "  \"supported_content_type\" : ["
-    "   { \"content_type\" : \"image/pwg-raster\" }"
-    "  ]"
-    "}"
-    "}";
+    R"({
+         "version" : "1.0",
+         "printer" : {
+           "pwg_raster_config" : {
+             "document_sheet_back" : "MANUAL_TUMBLE",
+             "reverse_order_streaming": true
+           },
+           "supported_content_type" : [
+             { "content_type" : "image/pwg-raster" }
+           ]
+         }
+       })";
+
+const char kSampleCapabilitiesResponsePWGSettingsMono[] =
+    R"({
+         "version": "1.0",
+         "printer": {
+           "pwg_raster_config": {
+             "document_type_supported": [ "SGRAY_8" ],
+             "document_sheet_back": "ROTATED"
+           }
+         }
+       })";
 
 const char kSampleCJTDuplex[] =
-    "{"
-    "\"version\" : \"1.0\","
-    "\"print\": { \"duplex\": {\"type\": \"SHORT_EDGE\"} }"
-    "}";
-#endif  // ENABLE_PRINT_PREVIEW
+    R"({
+         "version" : "1.0",
+         "print": { "duplex": {"type": "SHORT_EDGE"} }
+       })";
+
+const char kSampleCJTMono[] =
+    R"({
+         "version" : "1.0",
+         "print": { "color": {"type": "STANDARD_MONOCHROME"} }
+       })";
+#endif  // BUILDFLAG(ENABLE_PRINT_PREVIEW)
 
 const char* const kTestParams[] = {"8.8.4.4", "2001:4860:4860::8888"};
 
@@ -261,14 +282,14 @@ class MockTestURLFetcherFactoryDelegate
 class PrivetHTTPTest : public TestWithParam<const char*> {
  public:
   PrivetHTTPTest() {
-    PrivetURLFetcher::ResetTokenMapForTests();
+    PrivetURLFetcher::ResetTokenMapForTest();
 
-    request_context_ = new net::TestURLRequestContextGetter(
+    request_context_ = base::MakeRefCounted<net::TestURLRequestContextGetter>(
         base::ThreadTaskRunnerHandle::Get());
     privet_client_ = PrivetV1HTTPClient::CreateDefault(
-        base::WrapUnique<PrivetHTTPClient>(new PrivetHTTPClientImpl(
+        std::make_unique<PrivetHTTPClientImpl>(
             "sampleDevice._privet._tcp.local",
-            net::HostPortPair(GetParam(), 6006), request_context_.get())));
+            net::HostPortPair(GetParam(), 6006), request_context_.get()));
     fetcher_factory_.SetDelegateForTests(&fetcher_delegate_);
   }
 
@@ -282,10 +303,13 @@ class PrivetHTTPTest : public TestWithParam<const char*> {
   bool SuccessfulResponseToURL(const GURL& url,
                                const std::string& response) {
     net::TestURLFetcher* fetcher = fetcher_factory_.GetFetcherByID(0);
-    EXPECT_TRUE(fetcher);
-    EXPECT_EQ(url, fetcher->GetOriginalURL());
+    if (!fetcher) {
+      ADD_FAILURE();
+      return false;
+    }
 
-    if (!fetcher || url != fetcher->GetOriginalURL())
+    EXPECT_EQ(url, fetcher->GetOriginalURL());
+    if (url != fetcher->GetOriginalURL())
       return false;
 
     fetcher->SetResponseString(response);
@@ -300,13 +324,16 @@ class PrivetHTTPTest : public TestWithParam<const char*> {
                                       const std::string& data,
                                       const std::string& response) {
     net::TestURLFetcher* fetcher = fetcher_factory_.GetFetcherByID(0);
-    EXPECT_TRUE(fetcher);
+    if (!fetcher) {
+      ADD_FAILURE();
+      return false;
+    }
+
     EXPECT_EQ(url, fetcher->GetOriginalURL());
 
-    if (!fetcher) return false;
-
     EXPECT_EQ(data, fetcher->upload_data());
-    if (data != fetcher->upload_data()) return false;
+    if (data != fetcher->upload_data())
+      return false;
 
     return SuccessfulResponseToURL(url, response);
   }
@@ -315,11 +342,12 @@ class PrivetHTTPTest : public TestWithParam<const char*> {
                                           const std::string& data,
                                           const std::string& response) {
     net::TestURLFetcher* fetcher = fetcher_factory_.GetFetcherByID(0);
-    EXPECT_TRUE(fetcher);
-    EXPECT_EQ(url, fetcher->GetOriginalURL());
-
-    if (!fetcher)
+    if (!fetcher) {
+      ADD_FAILURE();
       return false;
+    }
+
+    EXPECT_EQ(url, fetcher->GetOriginalURL());
 
     std::string normalized_data = NormalizeJson(data);
     std::string normalized_upload_data = NormalizeJson(fetcher->upload_data());
@@ -330,17 +358,20 @@ class PrivetHTTPTest : public TestWithParam<const char*> {
     return SuccessfulResponseToURL(url, response);
   }
 
-  bool SuccessfulResponseToURLAndFilePath(const GURL& url,
-                                          const base::FilePath& file_path,
+  bool SuccessfulResponseToURLAndFileData(const GURL& url,
+                                          const std::string& file_data,
                                           const std::string& response) {
     net::TestURLFetcher* fetcher = fetcher_factory_.GetFetcherByID(0);
-    EXPECT_TRUE(fetcher);
+    if (!fetcher) {
+      ADD_FAILURE();
+      return false;
+    }
+
     EXPECT_EQ(url, fetcher->GetOriginalURL());
 
-    if (!fetcher) return false;
-
-    EXPECT_EQ(file_path, fetcher->upload_file_path());
-    if (file_path != fetcher->upload_file_path()) return false;
+    EXPECT_EQ(file_data, fetcher->upload_data());
+    if (file_data != fetcher->upload_data())
+      return false;
 
     return SuccessfulResponseToURL(url, response);
   }
@@ -356,7 +387,7 @@ class PrivetHTTPTest : public TestWithParam<const char*> {
     callback.Cancel();
   }
 
-  void Stop() { base::MessageLoop::current()->QuitWhenIdle(); }
+  void Stop() { base::RunLoop::QuitCurrentWhenIdleDeprecated(); }
 
  protected:
   base::test::ScopedTaskEnvironment scoped_task_environment_;
@@ -369,12 +400,7 @@ class PrivetHTTPTest : public TestWithParam<const char*> {
 class MockJSONCallback{
  public:
   void OnPrivetJSONDone(const base::DictionaryValue* value) {
-    if (!value) {
-      value_.reset();
-    } else {
-      value_.reset(value->DeepCopy());
-    }
-
+    value_.reset(value ? value->DeepCopy() : nullptr);
     OnPrivetJSONDoneInternal();
   }
 
@@ -429,15 +455,15 @@ class MockRegisterDelegate : public PrivetRegisterOperation::Delegate {
 
 class MockLocalPrintDelegate : public PrivetLocalPrintOperation::Delegate {
  public:
-  virtual void OnPrivetPrintingDone(
-      const PrivetLocalPrintOperation* print_operation) {
+  void OnPrivetPrintingDone(
+      const PrivetLocalPrintOperation* print_operation) override {
     OnPrivetPrintingDoneInternal();
   }
 
   MOCK_METHOD0(OnPrivetPrintingDoneInternal, void());
 
-  virtual void OnPrivetPrintingError(
-      const PrivetLocalPrintOperation* print_operation, int http_code) {
+  void OnPrivetPrintingError(const PrivetLocalPrintOperation* print_operation,
+                             int http_code) override {
     OnPrivetPrintingErrorInternal(http_code);
   }
 
@@ -462,7 +488,7 @@ TEST_P(PrivetInfoTest, SuccessfulInfo) {
   info_operation_->Start();
 
   net::TestURLFetcher* fetcher = fetcher_factory_.GetFetcherByID(0);
-  ASSERT_TRUE(fetcher != NULL);
+  ASSERT_TRUE(fetcher);
   EXPECT_EQ(GetUrl("/privet/info"), fetcher->GetOriginalURL());
 
   fetcher->SetResponseString(kSampleInfoResponse);
@@ -478,7 +504,7 @@ TEST_P(PrivetInfoTest, InfoFailureHTTP) {
   info_operation_->Start();
 
   net::TestURLFetcher* fetcher = fetcher_factory_.GetFetcherByID(0);
-  ASSERT_TRUE(fetcher != NULL);
+  ASSERT_TRUE(fetcher);
   fetcher->set_status(net::URLRequestStatus(net::URLRequestStatus::SUCCESS,
                                             net::OK));
   fetcher->set_response_code(404);
@@ -501,9 +527,13 @@ class PrivetRegisterTest : public PrivetHTTPTest {
   bool SuccessfulResponseToURL(const GURL& url,
                                const std::string& response) {
     net::TestURLFetcher* fetcher = fetcher_factory_.GetFetcherByID(0);
-    EXPECT_TRUE(fetcher);
+    if (!fetcher) {
+      ADD_FAILURE();
+      return false;
+    }
+
     EXPECT_EQ(url, fetcher->GetOriginalURL());
-    if (!fetcher || url != fetcher->GetOriginalURL())
+    if (url != fetcher->GetOriginalURL())
       return false;
 
     fetcher->SetResponseString(response);
@@ -519,6 +549,8 @@ class PrivetRegisterTest : public PrivetHTTPTest {
   std::unique_ptr<PrivetRegisterOperation> register_operation_;
   StrictMock<MockRegisterDelegate> register_delegate_;
 };
+
+INSTANTIATE_TEST_CASE_P(PrivetTests, PrivetRegisterTest, ValuesIn(kTestParams));
 
 TEST_P(PrivetRegisterTest, RegisterSuccessSimple) {
   register_operation_->Start();
@@ -737,19 +769,28 @@ TEST_P(PrivetCapabilitiesTest, BadToken) {
 }
 
 #if BUILDFLAG(ENABLE_PRINT_PREVIEW)
-// A note on PWG raster conversion: The PWG raster converter used simply
+// A note on PWG raster conversion: The fake PWG raster converter simply returns
+// the input as the converted data. The output isn't checked anyway.
 // converts strings to file paths based on them by appending "test.pdf", since
 // it's easier to test that way. Instead of using a mock, we simply check if the
 // request is uploading a file that is based on this pattern.
-class FakePWGRasterConverter : public printing::PWGRasterConverter {
+class FakePwgRasterConverter : public printing::PwgRasterConverter {
  public:
-  void Start(base::RefCountedMemory* data,
+  void Start(const base::RefCountedMemory* data,
              const printing::PdfRenderSettings& conversion_settings,
              const printing::PwgRasterSettings& bitmap_settings,
-             const ResultCallback& callback) override {
+             ResultCallback callback) override {
+    base::MappedReadOnlyRegion memory =
+        base::ReadOnlySharedMemoryRegion::Create(data->size());
+    if (!memory.IsValid()) {
+      ADD_FAILURE() << "Failed to create pwg raster shared memory.";
+      std::move(callback).Run(base::ReadOnlySharedMemoryRegion());
+      return;
+    }
+
+    memcpy(memory.mapping.memory(), data->front(), data->size());
     bitmap_settings_ = bitmap_settings;
-    std::string data_str(data->front_as<char>(), data->size());
-    callback.Run(true, base::FilePath().AppendASCII(data_str + "test.pdf"));
+    std::move(callback).Run(std::move(memory.region));
   }
 
   const printing::PwgRasterSettings& bitmap_settings() {
@@ -763,20 +804,19 @@ class FakePWGRasterConverter : public printing::PWGRasterConverter {
 class PrivetLocalPrintTest : public PrivetHTTPTest {
  public:
   void SetUp() override {
-    PrivetURLFetcher::ResetTokenMapForTests();
+    PrivetURLFetcher::ResetTokenMapForTest();
 
     local_print_operation_ = privet_client_->CreateLocalPrintOperation(
         &local_print_delegate_);
 
-    std::unique_ptr<FakePWGRasterConverter> pwg_converter(
-        new FakePWGRasterConverter);
+    auto pwg_converter = std::make_unique<FakePwgRasterConverter>();
     pwg_converter_ = pwg_converter.get();
-    local_print_operation_->SetPWGRasterConverterForTesting(
+    local_print_operation_->SetPwgRasterConverterForTesting(
         std::move(pwg_converter));
   }
 
   scoped_refptr<base::RefCountedBytes> RefCountedBytesFromString(
-      std::string str) {
+      base::StringPiece str) {
     std::vector<unsigned char> str_vec;
     str_vec.insert(str_vec.begin(), str.begin(), str.end());
     return base::RefCountedBytes::TakeVector(&str_vec);
@@ -785,7 +825,7 @@ class PrivetLocalPrintTest : public PrivetHTTPTest {
  protected:
   std::unique_ptr<PrivetLocalPrintOperation> local_print_operation_;
   StrictMock<MockLocalPrintDelegate> local_print_delegate_;
-  FakePWGRasterConverter* pwg_converter_;
+  FakePwgRasterConverter* pwg_converter_;
 };
 
 INSTANTIATE_TEST_CASE_P(PrivetTests,
@@ -808,7 +848,6 @@ TEST_P(PrivetLocalPrintTest, SuccessfulLocalPrint) {
 
   EXPECT_CALL(local_print_delegate_, OnPrivetPrintingDoneInternal());
 
-  // TODO(noamsml): Is encoding spaces as pluses standard?
   EXPECT_TRUE(SuccessfulResponseToURLAndData(
       GetUrl("/privet/printer/submitdoc?"
              "client_name=Chrome&user_name=sample%40gmail.com&"
@@ -833,7 +872,6 @@ TEST_P(PrivetLocalPrintTest, SuccessfulLocalPrintWithAnyMimetype) {
 
   EXPECT_CALL(local_print_delegate_, OnPrivetPrintingDoneInternal());
 
-  // TODO(noamsml): Is encoding spaces as pluses standard?
   EXPECT_TRUE(SuccessfulResponseToURLAndData(
       GetUrl("/privet/printer/submitdoc?"
              "client_name=Chrome&user_name=sample%40gmail.com&"
@@ -844,8 +882,7 @@ TEST_P(PrivetLocalPrintTest, SuccessfulLocalPrintWithAnyMimetype) {
 TEST_P(PrivetLocalPrintTest, SuccessfulPWGLocalPrint) {
   local_print_operation_->SetUsername("sample@gmail.com");
   local_print_operation_->SetJobname("Sample job name");
-  local_print_operation_->SetData(
-      RefCountedBytesFromString("path/to/"));
+  local_print_operation_->SetData(RefCountedBytesFromString("foobar"));
   local_print_operation_->SetCapabilities(kSampleCapabilitiesResponsePWGOnly);
   local_print_operation_->Start();
 
@@ -857,24 +894,25 @@ TEST_P(PrivetLocalPrintTest, SuccessfulPWGLocalPrint) {
 
   EXPECT_CALL(local_print_delegate_, OnPrivetPrintingDoneInternal());
 
-  // TODO(noamsml): Is encoding spaces as pluses standard?
-  EXPECT_TRUE(SuccessfulResponseToURLAndFilePath(
+  EXPECT_TRUE(SuccessfulResponseToURLAndFileData(
       GetUrl("/privet/printer/submitdoc?"
              "client_name=Chrome&user_name=sample%40gmail.com"
              "&job_name=Sample+job+name"),
-      base::FilePath(FILE_PATH_LITERAL("path/to/test.pdf")),
-      kSampleLocalPrintResponse));
+      "foobar", kSampleLocalPrintResponse));
 
   EXPECT_EQ(printing::TRANSFORM_NORMAL,
             pwg_converter_->bitmap_settings().odd_page_transform);
   EXPECT_FALSE(pwg_converter_->bitmap_settings().rotate_all_pages);
   EXPECT_FALSE(pwg_converter_->bitmap_settings().reverse_page_order);
+
+  // Defaults to true when the color is not specified.
+  EXPECT_TRUE(pwg_converter_->bitmap_settings().use_color);
 }
 
 TEST_P(PrivetLocalPrintTest, SuccessfulPWGLocalPrintDuplex) {
   local_print_operation_->SetUsername("sample@gmail.com");
   local_print_operation_->SetJobname("Sample job name");
-  local_print_operation_->SetData(RefCountedBytesFromString("path/to/"));
+  local_print_operation_->SetData(RefCountedBytesFromString("foobar"));
   local_print_operation_->SetTicket(kSampleCJTDuplex);
   local_print_operation_->SetCapabilities(
       kSampleCapabilitiesResponsePWGSettings);
@@ -892,18 +930,91 @@ TEST_P(PrivetLocalPrintTest, SuccessfulPWGLocalPrintDuplex) {
 
   EXPECT_CALL(local_print_delegate_, OnPrivetPrintingDoneInternal());
 
-  // TODO(noamsml): Is encoding spaces as pluses standard?
-  EXPECT_TRUE(SuccessfulResponseToURLAndFilePath(
+  EXPECT_TRUE(SuccessfulResponseToURLAndFileData(
       GetUrl("/privet/printer/submitdoc?"
              "client_name=Chrome&user_name=sample%40gmail.com"
              "&job_name=Sample+job+name&job_id=1234"),
-      base::FilePath(FILE_PATH_LITERAL("path/to/test.pdf")),
-      kSampleLocalPrintResponse));
+      "foobar", kSampleLocalPrintResponse));
 
   EXPECT_EQ(printing::TRANSFORM_ROTATE_180,
             pwg_converter_->bitmap_settings().odd_page_transform);
   EXPECT_FALSE(pwg_converter_->bitmap_settings().rotate_all_pages);
   EXPECT_TRUE(pwg_converter_->bitmap_settings().reverse_page_order);
+
+  // Defaults to true when the color is not specified.
+  EXPECT_TRUE(pwg_converter_->bitmap_settings().use_color);
+}
+
+TEST_P(PrivetLocalPrintTest, SuccessfulPWGLocalPrintMono) {
+  local_print_operation_->SetUsername("sample@gmail.com");
+  local_print_operation_->SetJobname("Sample job name");
+  local_print_operation_->SetData(RefCountedBytesFromString("foobar"));
+  local_print_operation_->SetTicket(kSampleCJTMono);
+  local_print_operation_->SetCapabilities(
+      kSampleCapabilitiesResponsePWGSettings);
+  local_print_operation_->Start();
+
+  EXPECT_TRUE(SuccessfulResponseToURL(GetUrl("/privet/info"),
+                                      kSampleInfoResponseWithCreatejob));
+
+  EXPECT_TRUE(
+      SuccessfulResponseToURL(GetUrl("/privet/info"), kSampleInfoResponse));
+
+  EXPECT_TRUE(SuccessfulResponseToURLAndJSONData(
+      GetUrl("/privet/printer/createjob"), kSampleCJTMono,
+      kSampleCreatejobResponse));
+
+  EXPECT_CALL(local_print_delegate_, OnPrivetPrintingDoneInternal());
+
+  EXPECT_TRUE(SuccessfulResponseToURLAndFileData(
+      GetUrl("/privet/printer/submitdoc?"
+             "client_name=Chrome&user_name=sample%40gmail.com"
+             "&job_name=Sample+job+name&job_id=1234"),
+      "foobar", kSampleLocalPrintResponse));
+
+  EXPECT_EQ(printing::TRANSFORM_NORMAL,
+            pwg_converter_->bitmap_settings().odd_page_transform);
+  EXPECT_FALSE(pwg_converter_->bitmap_settings().rotate_all_pages);
+  EXPECT_TRUE(pwg_converter_->bitmap_settings().reverse_page_order);
+
+  // Ticket specified mono, but no SGRAY_8 color capability.
+  EXPECT_TRUE(pwg_converter_->bitmap_settings().use_color);
+}
+
+TEST_P(PrivetLocalPrintTest, SuccessfulPWGLocalPrintMonoToGRAY8Printer) {
+  local_print_operation_->SetUsername("sample@gmail.com");
+  local_print_operation_->SetJobname("Sample job name");
+  local_print_operation_->SetData(RefCountedBytesFromString("foobar"));
+  local_print_operation_->SetTicket(kSampleCJTMono);
+  local_print_operation_->SetCapabilities(
+      kSampleCapabilitiesResponsePWGSettingsMono);
+  local_print_operation_->Start();
+
+  EXPECT_TRUE(SuccessfulResponseToURL(GetUrl("/privet/info"),
+                                      kSampleInfoResponseWithCreatejob));
+
+  EXPECT_TRUE(
+      SuccessfulResponseToURL(GetUrl("/privet/info"), kSampleInfoResponse));
+
+  EXPECT_TRUE(SuccessfulResponseToURLAndJSONData(
+      GetUrl("/privet/printer/createjob"), kSampleCJTMono,
+      kSampleCreatejobResponse));
+
+  EXPECT_CALL(local_print_delegate_, OnPrivetPrintingDoneInternal());
+
+  EXPECT_TRUE(SuccessfulResponseToURLAndFileData(
+      GetUrl("/privet/printer/submitdoc?"
+             "client_name=Chrome&user_name=sample%40gmail.com"
+             "&job_name=Sample+job+name&job_id=1234"),
+      "foobar", kSampleLocalPrintResponse));
+
+  EXPECT_EQ(printing::TRANSFORM_NORMAL,
+            pwg_converter_->bitmap_settings().odd_page_transform);
+  EXPECT_FALSE(pwg_converter_->bitmap_settings().rotate_all_pages);
+  EXPECT_FALSE(pwg_converter_->bitmap_settings().reverse_page_order);
+
+  // Ticket specified mono, and SGRAY_8 color capability exists.
+  EXPECT_FALSE(pwg_converter_->bitmap_settings().use_color);
 }
 
 TEST_P(PrivetLocalPrintTest, SuccessfulLocalPrintWithCreatejob) {
@@ -927,7 +1038,6 @@ TEST_P(PrivetLocalPrintTest, SuccessfulLocalPrintWithCreatejob) {
 
   EXPECT_CALL(local_print_delegate_, OnPrivetPrintingDoneInternal());
 
-  // TODO(noamsml): Is encoding spaces as pluses standard?
   EXPECT_TRUE(SuccessfulResponseToURLAndData(
       GetUrl("/privet/printer/submitdoc?"
              "client_name=Chrome&user_name=sample%40gmail.com&"
@@ -957,7 +1067,6 @@ TEST_P(PrivetLocalPrintTest, SuccessfulLocalPrintWithOverlongName) {
 
   EXPECT_CALL(local_print_delegate_, OnPrivetPrintingDoneInternal());
 
-  // TODO(noamsml): Is encoding spaces as pluses standard?
   EXPECT_TRUE(SuccessfulResponseToURLAndData(
       GetUrl("/privet/printer/submitdoc?"
              "client_name=Chrome&user_name=sample%40gmail.com&"
@@ -971,8 +1080,7 @@ TEST_P(PrivetLocalPrintTest, PDFPrintInvalidDocumentTypeRetry) {
   local_print_operation_->SetJobname("Sample job name");
   local_print_operation_->SetTicket(kSampleCJT);
   local_print_operation_->SetCapabilities(kSampleCapabilitiesResponse);
-  local_print_operation_->SetData(
-      RefCountedBytesFromString("sample/path/"));
+  local_print_operation_->SetData(RefCountedBytesFromString("sample_data"));
   local_print_operation_->Start();
 
   EXPECT_TRUE(SuccessfulResponseToURL(GetUrl("/privet/info"),
@@ -985,21 +1093,19 @@ TEST_P(PrivetLocalPrintTest, PDFPrintInvalidDocumentTypeRetry) {
       SuccessfulResponseToURLAndJSONData(GetUrl("/privet/printer/createjob"),
                                          kSampleCJT, kSampleCreatejobResponse));
 
-  // TODO(noamsml): Is encoding spaces as pluses standard?
   EXPECT_TRUE(SuccessfulResponseToURLAndData(
       GetUrl("/privet/printer/submitdoc?"
              "client_name=Chrome&user_name=sample%40gmail.com&"
              "job_name=Sample+job+name&job_id=1234"),
-      "sample/path/", kSampleInvalidDocumentTypeResponse));
+      "sample_data", kSampleInvalidDocumentTypeResponse));
 
   EXPECT_CALL(local_print_delegate_, OnPrivetPrintingDoneInternal());
 
-  EXPECT_TRUE(SuccessfulResponseToURLAndFilePath(
+  EXPECT_TRUE(SuccessfulResponseToURLAndFileData(
       GetUrl("/privet/printer/submitdoc?"
              "client_name=Chrome&user_name=sample%40gmail.com&"
              "job_name=Sample+job+name&job_id=1234"),
-      base::FilePath(FILE_PATH_LITERAL("sample/path/test.pdf")),
-      kSampleLocalPrintResponse));
+      "sample_data", kSampleLocalPrintResponse));
 }
 
 TEST_P(PrivetLocalPrintTest, LocalPrintRetryOnInvalidJobID) {
@@ -1032,7 +1138,7 @@ TEST_P(PrivetLocalPrintTest, LocalPrintRetryOnInvalidJobID) {
   EXPECT_TRUE(SuccessfulResponseToURL(GetUrl("/privet/printer/createjob"),
                                       kSampleCreatejobResponse));
 }
-#endif  // ENABLE_PRINT_PREVIEW
+#endif  // BUILDFLAG(ENABLE_PRINT_PREVIEW)
 
 class PrivetHttpWithServerTest : public ::testing::Test,
                                  public PrivetURLFetcher::Delegate {
@@ -1041,29 +1147,27 @@ class PrivetHttpWithServerTest : public ::testing::Test,
       : thread_bundle_(content::TestBrowserThreadBundle::REAL_IO_THREAD) {}
 
   void SetUp() override {
-    context_getter_ = new net::TestURLRequestContextGetter(
+    context_getter_ = base::MakeRefCounted<net::TestURLRequestContextGetter>(
         BrowserThread::GetTaskRunnerForThread(BrowserThread::IO));
 
-    server_.reset(new EmbeddedTestServer(EmbeddedTestServer::TYPE_HTTP));
+    server_ =
+        std::make_unique<EmbeddedTestServer>(EmbeddedTestServer::TYPE_HTTP);
 
     base::FilePath test_data_dir;
-    ASSERT_TRUE(PathService::Get(base::DIR_SOURCE_ROOT, &test_data_dir));
+    ASSERT_TRUE(base::PathService::Get(base::DIR_SOURCE_ROOT, &test_data_dir));
     server_->ServeFilesFromDirectory(
         test_data_dir.Append(FILE_PATH_LITERAL("chrome/test/data")));
     ASSERT_TRUE(server_->Start());
 
-    client_.reset(new PrivetHTTPClientImpl("test", server_->host_port_pair(),
-                                           context_getter_));
+    client_ = std::make_unique<PrivetHTTPClientImpl>(
+        "test", server_->host_port_pair(), context_getter_);
   }
 
-  void OnNeedPrivetToken(
-      PrivetURLFetcher* fetcher,
-      const PrivetURLFetcher::TokenCallback& callback) override {
-    callback.Run("abc");
+  void OnNeedPrivetToken(PrivetURLFetcher::TokenCallback callback) override {
+    std::move(callback).Run("abc");
   }
 
-  void OnError(PrivetURLFetcher* fetcher,
-               PrivetURLFetcher::ErrorType error) override {
+  void OnError(int response_code, PrivetURLFetcher::ErrorType error) override {
     done_ = true;
     success_ = false;
     error_ = error;
@@ -1071,15 +1175,13 @@ class PrivetHttpWithServerTest : public ::testing::Test,
     base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE, quit_);
   }
 
-  void OnParsedJson(PrivetURLFetcher* fetcher,
+  void OnParsedJson(int response_code,
                     const base::DictionaryValue& value,
                     bool has_error) override {
     NOTREACHED();
-    base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE, quit_);
   }
 
-  bool OnRawData(PrivetURLFetcher* fetcher,
-                 bool response_is_file,
+  bool OnRawData(bool response_is_file,
                  const std::string& data_string,
                  const base::FilePath& data_file) override {
     done_ = true;
@@ -1099,7 +1201,7 @@ class PrivetHttpWithServerTest : public ::testing::Test,
     std::unique_ptr<PrivetURLFetcher> fetcher = client_->CreateURLFetcher(
         server_->GetURL("/simple.html"), net::URLFetcher::GET, this);
 
-    fetcher->SetMaxRetries(1);
+    fetcher->SetMaxRetriesForTest(1);
     fetcher->Start();
 
     run_loop.Run();

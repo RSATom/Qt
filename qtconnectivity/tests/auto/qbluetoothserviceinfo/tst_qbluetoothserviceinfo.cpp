@@ -61,6 +61,8 @@ private slots:
     void tst_assignment();
 
     void tst_serviceClassUuids();
+
+    void tst_writeByteArray();
 };
 
 tst_QBluetoothServiceInfo::tst_QBluetoothServiceInfo()
@@ -132,7 +134,7 @@ void tst_QBluetoothServiceInfo::tst_construction()
         QCOMPARE(serviceInfo.serverChannel(), -1);
         QCOMPARE(serviceInfo.protocolServiceMultiplexer(), -1);
 
-        foreach (QBluetoothUuid::ProtocolUuid u, protUuids)
+        for (QBluetoothUuid::ProtocolUuid u : qAsConst(protUuids))
             QCOMPARE(serviceInfo.protocolDescriptor(u).count(), 0);
     }
 
@@ -166,9 +168,9 @@ void tst_QBluetoothServiceInfo::tst_construction()
         QCOMPARE(copyInfo.device().address(), alternatedeviceInfo.address());
         QCOMPARE(serviceInfo.device().address(), alternatedeviceInfo.address());
 
-        foreach (QBluetoothUuid::ProtocolUuid u, protUuids)
+        for (QBluetoothUuid::ProtocolUuid u : qAsConst(protUuids))
             QCOMPARE(serviceInfo.protocolDescriptor(u).count(), 0);
-        foreach (QBluetoothUuid::ProtocolUuid u, protUuids)
+        for (QBluetoothUuid::ProtocolUuid u : qAsConst(protUuids))
             QCOMPARE(copyInfo.protocolDescriptor(u).count(), 0);
     }
 }
@@ -383,6 +385,49 @@ void tst_QBluetoothServiceInfo::tst_serviceClassUuids()
     QCOMPARE(svclids.count(), 2);
     QCOMPARE(svclids.at(0), uuid);
     QCOMPARE(svclids.at(1), QBluetoothUuid(QBluetoothUuid::SerialPort));
+}
+
+static QByteArray debugOutput;
+
+void debugHandler(QtMsgType type, const QMessageLogContext &, const QString &msg)
+{
+    switch (type) {
+        case QtDebugMsg :
+            debugOutput = msg.toLocal8Bit();
+            break;
+        default:
+            break;
+    }
+}
+
+void tst_QBluetoothServiceInfo::tst_writeByteArray()
+{
+    // We cannot directly test the produced XML output for Bluez
+    // as there no public API to retrieve it and it would be Bluez specific.
+    // However we can check the debug output.
+    // It should contain a qbyteArray rather than a string. In the XML the QByteArray
+    // is converted to a text tag with hex encoding.
+
+    const QByteArray expected("\n (518)\tSequence\n (518)\t\tSequence\n (518)\t\t\tuchar 34\n (518)\t\t\tbytearray 05010906a101850105079508750119e029e7150025018102950175088103050795067508150026ff00190029ff8100050895057501190129059102950175039103c005010902a10185020901a1000509190129031500250175019503810275059501810105010930093109381581257f750895038106c0c0\n");
+
+    const QByteArray hidDescriptor =
+            QByteArray::fromHex("05010906a101850105079508750119e029e7150025018102950175088103050795067508150026FF00190029FF8100050895057501190129059102950175039103c005010902a10185020901a1000509190129031500250175019503810275059501810105010930093109381581257f750895038106c0c0");
+    const QBluetoothServiceInfo::Sequence hidDescriptorList({
+        QVariant::fromValue(quint8(0x22)),  // Report type
+        QByteArray(hidDescriptor)           // Descriptor array
+    });
+    const QBluetoothServiceInfo::Sequence hidDescriptorListSeq({
+        QVariant::fromValue(hidDescriptorList)
+    });
+    QBluetoothServiceInfo srvInfo;
+    srvInfo.setAttribute(0x0206, QVariant::fromValue(hidDescriptorListSeq));
+
+    const QVariant attribute = srvInfo.attribute(0x0206);
+    debugOutput.clear();
+    qInstallMessageHandler(debugHandler);
+    qDebug() << srvInfo;
+    qInstallMessageHandler(nullptr);
+    QCOMPARE(debugOutput, expected);
 }
 
 QTEST_MAIN(tst_QBluetoothServiceInfo)

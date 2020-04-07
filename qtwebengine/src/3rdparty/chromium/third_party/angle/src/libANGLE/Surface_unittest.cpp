@@ -25,18 +25,19 @@ namespace
 class MockSurfaceImpl : public rx::SurfaceImpl
 {
   public:
-    MockSurfaceImpl() : SurfaceImpl(mockState), mockState(nullptr) {}
+    MockSurfaceImpl() : SurfaceImpl(mockState), mockState(nullptr, egl::AttributeMap()) {}
     virtual ~MockSurfaceImpl() { destructor(); }
 
     MOCK_METHOD1(destroy, void(const egl::Display *));
     MOCK_METHOD1(initialize, egl::Error(const egl::Display *));
-    MOCK_METHOD1(createDefaultFramebuffer, rx::FramebufferImpl *(const gl::FramebufferState &data));
+    MOCK_METHOD2(createDefaultFramebuffer,
+                 rx::FramebufferImpl *(const gl::Context *, const gl::FramebufferState &data));
     MOCK_METHOD1(swap, egl::Error(const gl::Context *));
     MOCK_METHOD3(swapWithDamage, egl::Error(const gl::Context *, EGLint *, EGLint));
     MOCK_METHOD5(postSubBuffer, egl::Error(const gl::Context *, EGLint, EGLint, EGLint, EGLint));
     MOCK_METHOD2(querySurfacePointerANGLE, egl::Error(EGLint, void**));
-    MOCK_METHOD2(bindTexImage, egl::Error(gl::Texture*, EGLint));
-    MOCK_METHOD1(releaseTexImage, egl::Error(EGLint));
+    MOCK_METHOD3(bindTexImage, egl::Error(const gl::Context *context, gl::Texture *, EGLint));
+    MOCK_METHOD2(releaseTexImage, egl::Error(const gl::Context *context, EGLint));
     MOCK_METHOD3(getSyncValues, egl::Error(EGLuint64KHR *, EGLuint64KHR *, EGLuint64KHR *));
     MOCK_METHOD1(setSwapInterval, void(EGLint));
     MOCK_CONST_METHOD0(getWidth, EGLint());
@@ -68,7 +69,7 @@ TEST(SurfaceTest, DestructionDeletesImpl)
     EXPECT_CALL(*impl, destroy(_)).Times(1).RetiresOnSaturation();
     EXPECT_CALL(*impl, destructor()).Times(1).RetiresOnSaturation();
 
-    surface->onDestroy(nullptr);
+    EXPECT_FALSE(surface->onDestroy(nullptr).isError());
 
     // Only needed because the mock is leaked if bugs are present,
     // which logs an error, but does not cause the test to fail.

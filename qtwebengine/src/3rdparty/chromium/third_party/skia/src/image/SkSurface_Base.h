@@ -19,13 +19,8 @@ public:
     SkSurface_Base(const SkImageInfo&, const SkSurfaceProps*);
     virtual ~SkSurface_Base();
 
-    virtual GrBackendObject onGetTextureHandle(BackendHandleAccess) {
-        return 0;
-    }
-
-    virtual bool onGetRenderTargetHandle(GrBackendObject*, BackendHandleAccess) {
-        return false;
-    }
+    virtual GrBackendTexture onGetBackendTexture(BackendHandleAccess);
+    virtual GrBackendRenderTarget onGetBackendRenderTarget(BackendHandleAccess);
 
     /**
      *  Allocate a canvas that will draw into this surface. We will cache this
@@ -44,6 +39,8 @@ public:
      *  is changed after this called (e.g. it is drawn to via its canvas).
      */
     virtual sk_sp<SkImage> onNewImageSnapshot() = 0;
+
+    virtual void onWritePixels(const SkPixmap&, int x, int y) = 0;
 
     /**
      *  Default implementation:
@@ -80,8 +77,9 @@ public:
      * Inserts the requested number of semaphores for the gpu to signal when work is complete on the
      * gpu and inits the array of GrBackendSemaphores with the signaled semaphores.
      */
-    virtual bool onFlush(int numSemaphores, GrBackendSemaphore* signalSemaphores) {
-        return false;
+    virtual GrSemaphoresSubmitted onFlush(int numSemaphores,
+                                          GrBackendSemaphore signalSemaphores[]) {
+        return GrSemaphoresSubmitted::kNo;
     }
 
     /**
@@ -92,6 +90,9 @@ public:
     virtual bool onWait(int numSemaphores, const GrBackendSemaphore* waitSemaphores) {
         return false;
     }
+
+    virtual bool onCharacterize(SkSurfaceCharacterization*) const { return false; }
+    virtual bool onDraw(const SkDeferredDisplayList*) { return false; }
 
     inline SkCanvas* getCachedCanvas();
     inline sk_sp<SkImage> refCachedImage();

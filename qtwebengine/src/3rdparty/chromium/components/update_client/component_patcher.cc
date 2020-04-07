@@ -5,19 +5,21 @@
 #include "components/update_client/component_patcher.h"
 
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/json/json_file_value_serializer.h"
 #include "base/location.h"
 #include "base/memory/weak_ptr.h"
+#include "base/threading/sequenced_task_runner_handle.h"
 #include "base/values.h"
 #include "components/update_client/component_patcher_operation.h"
 #include "components/update_client/update_client.h"
 #include "components/update_client/update_client_errors.h"
+#include "services/service_manager/public/cpp/connector.h"
 
 namespace update_client {
 
@@ -29,14 +31,15 @@ base::ListValue* ReadCommands(const base::FilePath& unpack_path) {
   const base::FilePath commands =
       unpack_path.Append(FILE_PATH_LITERAL("commands.json"));
   if (!base::PathExists(commands))
-    return NULL;
+    return nullptr;
 
   JSONFileValueDeserializer deserializer(commands);
-  std::unique_ptr<base::Value> root = deserializer.Deserialize(NULL, NULL);
+  std::unique_ptr<base::Value> root =
+      deserializer.Deserialize(nullptr, nullptr);
 
-  return (root.get() && root->IsType(base::Value::Type::LIST))
+  return (root.get() && root->is_list())
              ? static_cast<base::ListValue*>(root.release())
-             : NULL;
+             : nullptr;
 }
 
 }  // namespace
@@ -45,28 +48,25 @@ ComponentPatcher::ComponentPatcher(
     const base::FilePath& input_dir,
     const base::FilePath& unpack_dir,
     scoped_refptr<CrxInstaller> installer,
-    scoped_refptr<OutOfProcessPatcher> out_of_process_patcher,
-    scoped_refptr<base::SequencedTaskRunner> task_runner)
+    std::unique_ptr<service_manager::Connector> connector)
     : input_dir_(input_dir),
       unpack_dir_(unpack_dir),
       installer_(installer),
-      out_of_process_patcher_(out_of_process_patcher),
-      task_runner_(task_runner) {
-}
+      connector_(std::move(connector)) {}
 
 ComponentPatcher::~ComponentPatcher() {
 }
 
-void ComponentPatcher::Start(const Callback& callback) {
-  callback_ = callback;
-  task_runner_->PostTask(FROM_HERE,
-                         base::Bind(&ComponentPatcher::StartPatching,
-                                    scoped_refptr<ComponentPatcher>(this)));
+void ComponentPatcher::Start(Callback callback) {
+  callback_ = std::move(callback);
+  base::SequencedTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE, base::BindOnce(&ComponentPatcher::StartPatching,
+                                scoped_refptr<ComponentPatcher>(this)));
 }
 
 void ComponentPatcher::StartPatching() {
   commands_.reset(ReadCommands(input_dir_));
-  if (!commands_.get()) {
+  if (!commands_) {
     DonePatching(UnpackerError::kDeltaBadCommands, 0);
   } else {
     next_command_ = commands_->begin();
@@ -87,18 +87,17 @@ void ComponentPatcher::PatchNextFile() {
 
   std::string operation;
   if (command_args->GetString(kOp, &operation)) {
-    current_operation_ =
-        CreateDeltaUpdateOp(operation, out_of_process_patcher_);
+    current_operation_ = CreateDeltaUpdateOp(operation, connector_.get());
   }
 
-  if (!current_operation_.get()) {
+  if (!current_operation_) {
     DonePatching(UnpackerError::kDeltaUnsupportedCommand, 0);
     return;
   }
-  current_operation_->Run(command_args, input_dir_, unpack_dir_, installer_,
-                          base::Bind(&ComponentPatcher::DonePatchingFile,
-                                     scoped_refptr<ComponentPatcher>(this)),
-                          task_runner_);
+  current_operation_->Run(
+      command_args, input_dir_, unpack_dir_, installer_,
+      base::BindOnce(&ComponentPatcher::DonePatchingFile,
+                     scoped_refptr<ComponentPatcher>(this)));
 }
 
 void ComponentPatcher::DonePatchingFile(UnpackerError error,
@@ -112,10 +111,9 @@ void ComponentPatcher::DonePatchingFile(UnpackerError error,
 }
 
 void ComponentPatcher::DonePatching(UnpackerError error, int extended_error) {
-  current_operation_ = NULL;
-  task_runner_->PostTask(FROM_HERE,
-                         base::Bind(callback_, error, extended_error));
-  callback_.Reset();
+  current_operation_ = nullptr;
+  base::SequencedTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE, base::BindOnce(std::move(callback_), error, extended_error));
 }
 
 }  // namespace update_client

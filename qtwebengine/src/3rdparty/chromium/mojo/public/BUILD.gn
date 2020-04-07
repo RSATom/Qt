@@ -23,6 +23,11 @@ group("sdk") {
   deps = [
     "c/system",
     "cpp/bindings",
-    "js",
+  ]
+}
+
+group("fuzzers") {
+  deps = [
+    "tools/fuzzers",
   ]
 }

@@ -127,7 +127,7 @@ QBluetoothDeviceDiscoveryAgentPrivate::QBluetoothDeviceDiscoveryAgentPrivate(con
     Q_UNUSED(adapter);
 
     registerQDeviceDiscoveryMetaType();
-    Q_ASSERT_X(q != Q_NULLPTR, Q_FUNC_INFO, "invalid q_ptr (null)");
+    Q_ASSERT_X(q != nullptr, Q_FUNC_INFO, "invalid q_ptr (null)");
 }
 
 QBluetoothDeviceDiscoveryAgentPrivate::~QBluetoothDeviceDiscoveryAgentPrivate()

@@ -52,6 +52,8 @@
 #include <Qt3DCore/private/qcomponent_p.h>
 #include <Qt3DCore/private/qscene_p.h>
 
+#include <QQueue>
+
 QT_BEGIN_NAMESPACE
 
 namespace Qt3DCore {
@@ -150,6 +152,8 @@ void QEntity::addComponent(QComponent *comp)
     if (!comp->parent())
         comp->setParent(this);
 
+    QNodePrivate::get(comp)->_q_ensureBackendNodeCreated();
+
     d->m_components.append(comp);
 
     // Ensures proper bookkeeping
@@ -210,7 +214,9 @@ QEntity *QEntity::parentEntity() const
     return parentEntity;
 }
 
-/*!
+/*
+    \internal
+
     Returns the Qt3DCore::QNodeId id of the parent Qt3DCore::QEntity instance of the
     current Qt3DCore::QEntity object. The QNodeId isNull method will return true if
     there is no Qt3DCore::QEntity parent of the current Qt3DCore::QEntity in the scene
@@ -231,6 +237,20 @@ QNodeCreatedChangeBasePtr QEntity::createNodeCreationChange() const
 
     Q_D(const QEntity);
     data.parentEntityId = parentEntity() ? parentEntity()->id() : Qt3DCore::QNodeId();
+
+    // Find all child entities
+    QQueue<QNode *> queue;
+    queue.append(childNodes().toList());
+    data.childEntityIds.reserve(queue.size());
+    while (!queue.isEmpty()) {
+        auto *child = queue.dequeue();
+        auto *childEntity = qobject_cast<QEntity *>(child);
+        if (childEntity != nullptr)
+            data.childEntityIds.push_back(childEntity->id());
+        else
+            queue.append(child->childNodes().toList());
+    }
+
     data.componentIdsAndTypes.reserve(d->m_components.size());
     const QComponentVector &components = d->m_components;
     for (QComponent *c : components) {

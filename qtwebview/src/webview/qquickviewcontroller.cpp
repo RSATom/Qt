@@ -243,6 +243,7 @@ void QQuickViewController::onWindowChanged(QQuickWindow* window)
         connect(window, &QQuickWindow::yChanged, this, &QQuickViewController::scheduleUpdatePolish);
         connect(window, &QQuickWindow::sceneGraphInitialized, this, &QQuickViewController::scheduleUpdatePolish);
         connect(window, &QQuickWindow::sceneGraphInvalidated, this, &QQuickViewController::onSceneGraphInvalidated);
+        connect(window, &QQuickWindow::visibleChanged, this, [this](bool visible) { m_view->setVisible(visible); });
     }
 
     // Check if there's an actual window available.

@@ -15,18 +15,17 @@
 #include "base/files/file_path.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/observer_list.h"
+#include "base/optional.h"
 #include "base/sequenced_task_runner.h"
 #include "base/time/clock.h"
 #include "base/time/time.h"
 #include "components/search_provider_logos/logo_cache.h"
 #include "components/search_provider_logos/logo_common.h"
-#include "net/url_request/url_fetcher_delegate.h"
 #include "url/gurl.h"
 
-namespace net {
-class URLFetcher;
-class URLRequestContextGetter;
+namespace network {
+class SimpleURLLoader;
+class SharedURLLoaderFactory;
 }
 
 namespace search_provider_logos {
@@ -73,7 +72,7 @@ class LogoDelegate {
 // Call SetServerAPI() at least once to specify how to get the logo from the
 // server. Then call GetLogo() to trigger retrieval of the logo and receive
 // updates once the cached and/or fresh logos are available.
-class LogoTracker : public net::URLFetcherDelegate {
+class LogoTracker {
  public:
   // Constructs a LogoTracker with the given LogoDelegate. Takes ownership of
   // |delegate|, which will be deleted at the same time as the LogoTracker.
@@ -84,21 +83,22 @@ class LogoTracker : public net::URLFetcherDelegate {
   // |background_task_runner| is the TaskRunner that should be used to for
   // CPU-intensive background operations.
   //
-  // |request_context_getter| is the URLRequestContextGetter used to download
+  // |url_loader_factory| is the SharedURLLoaderFactory used to download
   // the logo.
   explicit LogoTracker(
-      base::FilePath cached_logo_directory,
-      scoped_refptr<net::URLRequestContextGetter> request_context_getter,
-      std::unique_ptr<LogoDelegate> delegate);
+      scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
+      std::unique_ptr<LogoDelegate> delegate,
+      std::unique_ptr<LogoCache> logo_cache,
+      base::Clock* clock);
 
-  ~LogoTracker() override;
+  ~LogoTracker();
 
   // Defines the server API for downloading and parsing the logo. This must be
   // called at least once before calling GetLogo().
   //
   // |logo_url| is the URL from which the logo will be downloaded. If |logo_url|
-  // is different than the current logo URL, any pending LogoObservers will be
-  // canceled.
+  // is different than the current logo URL, any pending callbacks will be run
+  // with LogoCallbackReason::CANCELED.
   //
   // |parse_logo_response_func| is a callback that will be used to parse the
   // server's response into a EncodedLogo object. |append_queryparams_func| is a
@@ -108,22 +108,18 @@ class LogoTracker : public net::URLFetcherDelegate {
                     const AppendQueryparamsToLogoURL& append_queryparams_func);
 
   // Retrieves the current search provider's logo from the local cache and/or
-  // over the network, and registers |observer| to be called when the cached
+  // over the network, and registers the callbacks to be called when the cached
   // and/or fresh logos are available.
-  void GetLogo(LogoObserver* observer);
+  //
+  // At least one callback must be non-null. All non-null callbacks will be
+  // invoked exactly once.
+  void GetLogo(LogoCallbacks callbacks);
 
-  // Prevents |observer| from receiving future updates. This is safe to call
-  // even when the observer is being notified of an update.
-  void RemoveObserver(LogoObserver* observer);
-
-  // Overrides the cache used to store logos.
-  void SetLogoCacheForTests(std::unique_ptr<LogoCache> cache);
-
-  // Overrides the clock used to check the time.
-  void SetClockForTests(std::unique_ptr<base::Clock> clock);
+  // Clear any cached logo we might have. Useful on sign-out to get rid of
+  // (potentially) personalized data.
+  void ClearCachedLogo();
 
  private:
-
   // These values must stay in sync with the NewTabPageLogoDownloadOutcome enum
   // in histograms.xml. And any addtion should be treated as append-only!
   // Animated doodle is not covered by this enum.
@@ -150,7 +146,7 @@ class LogoTracker : public net::URLFetcherDelegate {
 
   // Called when the cached logo has been decoded into an SkBitmap. |image| will
   // be NULL if decoding failed.
-  void OnCachedLogoAvailable(const LogoMetadata& metadata,
+  void OnCachedLogoAvailable(std::unique_ptr<EncodedLogo> encoded_logo,
                              const SkBitmap& image);
 
   // Stores |logo| in the cache.
@@ -171,16 +167,14 @@ class LogoTracker : public net::URLFetcherDelegate {
   // Called when the fresh logo has been decoded into an SkBitmap. |image| will
   // be NULL if decoding failed.
   void OnFreshLogoAvailable(std::unique_ptr<EncodedLogo> logo,
+                            bool download_failed,
                             bool parsing_failed,
                             bool from_http_cache,
                             const SkBitmap& image);
 
-  // net::URLFetcherDelegate:
-  void OnURLFetchComplete(const net::URLFetcher* source) override;
-  void OnURLFetchDownloadProgress(const net::URLFetcher* source,
-                                  int64_t current,
-                                  int64_t total,
-                                  int64_t current_network_bytes) override;
+  // Invoked by |loader|.
+  void OnURLLoadComplete(const network::SimpleURLLoader* source,
+                         std::unique_ptr<std::string> body);
 
   // The URL from which the logo is fetched.
   GURL logo_url_;
@@ -198,6 +192,7 @@ class LogoTracker : public net::URLFetcherDelegate {
   // The logo that's been read from the cache, or NULL if the cache is empty.
   // Meaningful only if is_cached_logo_valid_ is true; NULL otherwise.
   std::unique_ptr<Logo> cached_logo_;
+  std::unique_ptr<EncodedLogo> cached_encoded_logo_;
 
   // Whether the value of |cached_logo_| reflects the actual cached logo.
   // This will be false if the logo hasn't been read from the cache yet.
@@ -208,12 +203,15 @@ class LogoTracker : public net::URLFetcherDelegate {
   // The timestamp for the last time a logo is stated to be downloaded.
   base::TimeTicks logo_download_start_time_;
 
-  // The URLFetcher currently fetching the logo. NULL when not fetching.
-  std::unique_ptr<net::URLFetcher> fetcher_;
+  // The SimpleURLLoader currently fetching the logo. NULL when not loading.
+  std::unique_ptr<network::SimpleURLLoader> loader_;
 
-  // The list of observers to be notified when the logo is available. This
-  // should be empty when the state is IDLE.
-  base::ObserverList<LogoObserver> logo_observers_;
+  // Lists of callbacks to be invoked when logos are available. All should be
+  // empty when the state is IDLE.
+  std::vector<LogoCallback> on_cached_decoded_logo_;
+  std::vector<EncodedLogoCallback> on_cached_encoded_logo_;
+  std::vector<LogoCallback> on_fresh_decoded_logo_;
+  std::vector<EncodedLogoCallback> on_fresh_encoded_logo_;
 
   std::unique_ptr<LogoDelegate> logo_delegate_;
 
@@ -225,10 +223,10 @@ class LogoTracker : public net::URLFetcherDelegate {
   std::unique_ptr<LogoCache, base::OnTaskRunnerDeleter> logo_cache_;
 
   // Clock used to determine current time. Can be overridden in tests.
-  std::unique_ptr<base::Clock> clock_;
+  base::Clock* clock_;
 
-  // The URLRequestContextGetter used for network requests.
-  scoped_refptr<net::URLRequestContextGetter> request_context_getter_;
+  // Used for network requests.
+  scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory_;
 
   base::WeakPtrFactory<LogoTracker> weak_ptr_factory_;
 

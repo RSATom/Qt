@@ -58,12 +58,52 @@
 <context>
     <name>DSCameraSession</name>
     <message>
+        <source>Failed to configure preview format</source>
+        <translation>Esikatselun kuvamuodon asettaminen epäonnistui</translation>
+    </message>
+    <message>
+        <source>Failed to connect graph</source>
+        <translation>Graafin yhdistäminen epäonnistui</translation>
+    </message>
+    <message>
+        <source>Failed to get stream control</source>
+        <translation>Virran hallinnan saanti epäonnistui</translation>
+    </message>
+    <message>
+        <source>Failed to start</source>
+        <translation>Käynnistäminen epäonnistui</translation>
+    </message>
+    <message>
+        <source>Failed to stop</source>
+        <translation>Pysäyttäminen epäonnistui</translation>
+    </message>
+    <message>
         <source>Camera not ready for capture</source>
         <translation>Kamera ei ole valmiina kaappaamaan</translation>
     </message>
     <message>
         <source>Could not save image to file.</source>
         <translation>Kuvan tallentaminen tiedostoon epäonnistui.</translation>
+    </message>
+    <message>
+        <source>Failed to create filter graph</source>
+        <translation>Suodatingraafin luonti epäonnistui</translation>
+    </message>
+    <message>
+        <source>Failed to create graph builder</source>
+        <translation>Graafin rakentajan luonti epäonnistui</translation>
+    </message>
+    <message>
+        <source>Failed to connect capture graph and filter graph</source>
+        <translation>Kaappaus- ja suodatingraafien yhdistäminen epäonnistui</translation>
+    </message>
+    <message>
+        <source>No capture device found</source>
+        <translation>Kaappauslaitetta ei löydy</translation>
+    </message>
+    <message>
+        <source>Failed to create null renderer</source>
+        <translation>Tyhjän piirtäjän luonti epäonnistui</translation>
     </message>
 </context>
 <context>

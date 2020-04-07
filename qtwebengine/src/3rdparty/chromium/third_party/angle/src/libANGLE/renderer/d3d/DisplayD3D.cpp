@@ -195,23 +195,26 @@ ImageImpl *DisplayD3D::createImage(const egl::ImageState &state,
     return new EGLImageD3D(state, target, attribs, mRenderer);
 }
 
-egl::Error DisplayD3D::getDevice(DeviceImpl **device)
+DeviceImpl *DisplayD3D::createDevice()
 {
-    return mRenderer->getEGLDevice(device);
+    return mRenderer->createEGLDevice();
 }
 
-ContextImpl *DisplayD3D::createContext(const gl::ContextState &state)
+ContextImpl *DisplayD3D::createContext(const gl::ContextState &state,
+                                       const egl::Config *configuration,
+                                       const gl::Context *shareContext,
+                                       const egl::AttributeMap &attribs)
 {
     ASSERT(mRenderer != nullptr);
     return mRenderer->createContext(state);
 }
 
-StreamProducerImpl *DisplayD3D::createStreamProducerD3DTextureNV12(
+StreamProducerImpl *DisplayD3D::createStreamProducerD3DTexture(
     egl::Stream::ConsumerType consumerType,
     const egl::AttributeMap &attribs)
 {
     ASSERT(mRenderer != nullptr);
-    return mRenderer->createStreamProducerD3DTextureNV12(consumerType, attribs);
+    return mRenderer->createStreamProducerD3DTexture(consumerType, attribs);
 }
 
 egl::Error DisplayD3D::makeCurrent(egl::Surface *drawSurface, egl::Surface *readSurface, gl::Context *context)
@@ -247,12 +250,9 @@ bool DisplayD3D::testDeviceLost()
 egl::Error DisplayD3D::restoreLostDevice(const egl::Display *display)
 {
     // Release surface resources to make the Reset() succeed
-    for (auto &surface : mState.surfaceSet)
+    for (egl::Surface *surface : mState.surfaceSet)
     {
-        if (surface->getBoundTexture())
-        {
-            ANGLE_TRY(surface->releaseTexImage(display->getProxyContext(), EGL_BACK_BUFFER));
-        }
+        ASSERT(!surface->getBoundTexture());
         SurfaceD3D *surfaceD3D = GetImplAs<SurfaceD3D>(surface);
         surfaceD3D->releaseSwapChain();
     }
@@ -263,7 +263,7 @@ egl::Error DisplayD3D::restoreLostDevice(const egl::Display *display)
     }
 
     // Restore any surfaces that may have been lost
-    for (const auto &surface : mState.surfaceSet)
+    for (const egl::Surface *surface : mState.surfaceSet)
     {
         SurfaceD3D *surfaceD3D = GetImplAs<SurfaceD3D>(surface);
 
@@ -322,18 +322,18 @@ void DisplayD3D::generateCaps(egl::Caps *outCaps) const
     outCaps->textureNPOT = mRenderer->getNativeExtensions().textureNPOT;
 }
 
-egl::Error DisplayD3D::waitClient(const gl::Context *context) const
+egl::Error DisplayD3D::waitClient(const gl::Context *context)
 {
-    for (auto &surface : mState.surfaceSet)
+    for (egl::Surface *surface : mState.surfaceSet)
     {
         SurfaceD3D *surfaceD3D = GetImplAs<SurfaceD3D>(surface);
-        surfaceD3D->checkForOutOfDateSwapChain(context);
+        ANGLE_TRY(surfaceD3D->checkForOutOfDateSwapChain(this));
     }
 
     return egl::NoError();
 }
 
-egl::Error DisplayD3D::waitNative(const gl::Context *context, EGLint engine) const
+egl::Error DisplayD3D::waitNative(const gl::Context *context, EGLint engine)
 {
     egl::Surface *drawSurface = context->getCurrentDrawSurface();
     egl::Surface *readSurface = context->getCurrentReadSurface();
@@ -341,13 +341,13 @@ egl::Error DisplayD3D::waitNative(const gl::Context *context, EGLint engine) con
     if (drawSurface != nullptr)
     {
         SurfaceD3D *drawSurfaceD3D = GetImplAs<SurfaceD3D>(drawSurface);
-        drawSurfaceD3D->checkForOutOfDateSwapChain(context);
+        ANGLE_TRY(drawSurfaceD3D->checkForOutOfDateSwapChain(this));
     }
 
     if (readSurface != nullptr)
     {
-        SurfaceD3D *readurfaceD3D = GetImplAs<SurfaceD3D>(readSurface);
-        readurfaceD3D->checkForOutOfDateSwapChain(context);
+        SurfaceD3D *readSurfaceD3D = GetImplAs<SurfaceD3D>(readSurface);
+        ANGLE_TRY(readSurfaceD3D->checkForOutOfDateSwapChain(this));
     }
 
     return egl::NoError();

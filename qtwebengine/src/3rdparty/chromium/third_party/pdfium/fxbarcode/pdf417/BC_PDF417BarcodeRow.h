@@ -7,9 +7,9 @@
 #ifndef FXBARCODE_PDF417_BC_PDF417BARCODEROW_H_
 #define FXBARCODE_PDF417_BC_PDF417BARCODEROW_H_
 
-#include <vector>
+#include <stdint.h>
 
-#include "core/fxcrt/fx_basic.h"
+#include <vector>
 
 class CBC_BarcodeRow {
  public:

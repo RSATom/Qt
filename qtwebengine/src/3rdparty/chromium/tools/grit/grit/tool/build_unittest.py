@@ -21,6 +21,15 @@ from grit.tool import build
 
 class BuildUnittest(unittest.TestCase):
 
+  # IDs should not change based on whitelisting.
+  # Android WebView currently relies on this.
+  EXPECTED_ID_MAP = {
+      'IDS_MESSAGE_WHITELISTED': 6889,
+      'IDR_STRUCTURE_WHITELISTED': 11546,
+      'IDR_STRUCTURE_IN_TRUE_IF_WHITELISTED': 11548,
+      'IDR_INCLUDE_WHITELISTED': 15601,
+  }
+
   def testFindTranslationsWithSubstitutions(self):
     # This is a regression test; we had a bug where GRIT would fail to find
     # messages with substitutions e.g. "Hello [IDS_USER]" where IDS_USER is
@@ -39,7 +48,7 @@ class BuildUnittest(unittest.TestCase):
     builder = build.RcBuilder()
     class DummyOpts(object):
       def __init__(self):
-        self.input = util.PathFromRoot('grit/testdata/substitute.grd')
+        self.input = util.PathFromRoot('grit/testdata/depfile.grd')
         self.verbose = False
         self.extra_verbose = False
     expected_dep_file = os.path.join(output_dir, 'substitute.grd.d')
@@ -53,10 +62,12 @@ class BuildUnittest(unittest.TestCase):
       (dep_output_file, deps_string) = line.split(': ')
       deps = deps_string.split(' ')
 
-      self.failUnlessEqual("resource.h", dep_output_file)
-      self.failUnlessEqual(1, len(deps))
-      self.failUnlessEqual(deps[0],
-          util.PathFromRoot('grit/testdata/substitute.xmb'))
+      self.failUnlessEqual("default_100_percent.pak", dep_output_file)
+      self.failUnlessEqual(deps, [
+          util.PathFromRoot('grit/testdata/default_100_percent/a.png'),
+          util.PathFromRoot('grit/testdata/grit_part.grdp'),
+          util.PathFromRoot('grit/testdata/special_100_percent/a.png'),
+      ])
 
   def testGenerateDepFileWithResourceIds(self):
     output_dir = tempfile.mkdtemp()
@@ -157,6 +168,13 @@ class BuildUnittest(unittest.TestCase):
         for whitelisted_id in whitelisted_ids:
           if whitelisted_id in line:
             whitelisted_ids_found.append(whitelisted_id)
+            if filename.endswith('.h'):
+              numeric_id = int(line.split()[2])
+              expected_numeric_id = self.EXPECTED_ID_MAP.get(whitelisted_id)
+              self.assertEqual(
+                  expected_numeric_id, numeric_id,
+                  'Numeric ID for {} was {} should be {}'.format(
+                      whitelisted_id, numeric_id, expected_numeric_id))
         for non_whitelisted_id in non_whitelisted_ids:
           if non_whitelisted_id in line:
             non_whitelisted_ids_found.append(non_whitelisted_id)
@@ -216,73 +234,6 @@ class BuildUnittest(unittest.TestCase):
     # their content.
     self.failUnless(os.path.exists(map_h))
     self.failUnless(os.path.exists(pak))
-
-    whitelisted_ids = [
-        'IDR_STRUCTURE_WHITELISTED',
-        'IDR_STRUCTURE_IN_TRUE_IF_WHITELISTED',
-        'IDR_INCLUDE_WHITELISTED',
-    ]
-    non_whitelisted_ids = [
-        'IDR_STRUCTURE_NOT_WHITELISTED',
-        'IDR_STRUCTURE_IN_TRUE_IF_NOT_WHITELISTED',
-        'IDR_STRUCTURE_IN_FALSE_IF_WHITELISTED',
-        'IDR_STRUCTURE_IN_FALSE_IF_NOT_WHITELISTED',
-        'IDR_INCLUDE_NOT_WHITELISTED',
-    ]
-    for output_file in (header, map_cc):
-      self._verifyWhitelistedOutput(
-        output_file,
-        whitelisted_ids,
-        non_whitelisted_ids,
-      )
-
-  def testOutputAllResourceDefinesTrue(self):
-    output_dir = tempfile.mkdtemp()
-    builder = build.RcBuilder()
-    class DummyOpts(object):
-      def __init__(self):
-        self.input = util.PathFromRoot('grit/testdata/whitelist_resources.grd')
-        self.verbose = False
-        self.extra_verbose = False
-    whitelist_file = util.PathFromRoot('grit/testdata/whitelist.txt')
-    builder.Run(DummyOpts(), ['-o', output_dir,
-                              '-w', whitelist_file,
-                              '--output-all-resource-defines',])
-    header = os.path.join(output_dir, 'whitelist_test_resources.h')
-    map_cc = os.path.join(output_dir, 'whitelist_test_resources_map.cc')
-
-    whitelisted_ids = [
-        'IDR_STRUCTURE_WHITELISTED',
-        'IDR_STRUCTURE_NOT_WHITELISTED',
-        'IDR_STRUCTURE_IN_TRUE_IF_WHITELISTED',
-        'IDR_STRUCTURE_IN_TRUE_IF_NOT_WHITELISTED',
-        'IDR_STRUCTURE_IN_FALSE_IF_WHITELISTED',
-        'IDR_STRUCTURE_IN_FALSE_IF_NOT_WHITELISTED',
-        'IDR_INCLUDE_WHITELISTED',
-        'IDR_INCLUDE_NOT_WHITELISTED',
-    ]
-    non_whitelisted_ids = []
-    for output_file in (header, map_cc):
-      self._verifyWhitelistedOutput(
-        output_file,
-        whitelisted_ids,
-        non_whitelisted_ids,
-      )
-
-  def testOutputAllResourceDefinesFalse(self):
-    output_dir = tempfile.mkdtemp()
-    builder = build.RcBuilder()
-    class DummyOpts(object):
-      def __init__(self):
-        self.input = util.PathFromRoot('grit/testdata/whitelist_resources.grd')
-        self.verbose = False
-        self.extra_verbose = False
-    whitelist_file = util.PathFromRoot('grit/testdata/whitelist.txt')
-    builder.Run(DummyOpts(), ['-o', output_dir,
-                              '-w', whitelist_file,
-                              '--no-output-all-resource-defines',])
-    header = os.path.join(output_dir, 'whitelist_test_resources.h')
-    map_cc = os.path.join(output_dir, 'whitelist_test_resources_map.cc')
 
     whitelisted_ids = [
         'IDR_STRUCTURE_WHITELISTED',
@@ -374,9 +325,9 @@ class BuildUnittest(unittest.TestCase):
       deps = deps_string.split(' ')
 
       self.failUnlessEqual(expected_stamp_file_name, dep_output_file)
-      self.failUnlessEqual(1, len(deps))
-      self.failUnlessEqual(deps[0],
-          util.PathFromRoot('grit/testdata/substitute.xmb'))
+      self.failUnlessEqual(deps, [
+          util.PathFromRoot('grit/testdata/substitute.xmb'),
+      ])
 
 
 if __name__ == '__main__':

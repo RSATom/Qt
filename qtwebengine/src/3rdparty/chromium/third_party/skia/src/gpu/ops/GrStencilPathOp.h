@@ -13,24 +13,20 @@
 #include "GrPathRendering.h"
 #include "GrStencilSettings.h"
 
+class GrContext;
 class GrOpFlushState;
 
 class GrStencilPathOp final : public GrOp {
 public:
     DEFINE_OP_CLASS_ID
 
-    static std::unique_ptr<GrOp> Make(const SkMatrix& viewMatrix,
+    static std::unique_ptr<GrOp> Make(GrContext* context,
+                                      const SkMatrix& viewMatrix,
                                       bool useHWAA,
                                       GrPathRendering::FillType fillType,
                                       bool hasStencilClip,
-                                      int numStencilBits,
                                       const GrScissorState& scissor,
-                                      const GrPath* path) {
-
-        return std::unique_ptr<GrOp>(new GrStencilPathOp(viewMatrix, useHWAA, fillType,
-                                                         hasStencilClip, numStencilBits, scissor,
-                                                         path));
-    }
+                                      const GrPath* path);
 
     const char* name() const override { return "StencilPathOp"; }
 
@@ -42,18 +38,19 @@ public:
     }
 
 private:
+    friend class GrOpMemoryPool; // for ctor
+
     GrStencilPathOp(const SkMatrix& viewMatrix,
                     bool useHWAA,
                     GrPathRendering::FillType fillType,
                     bool hasStencilClip,
-                    int numStencilBits,
                     const GrScissorState& scissor,
                     const GrPath* path)
             : INHERITED(ClassID())
             , fViewMatrix(viewMatrix)
             , fUseHWAA(useHWAA)
-            , fStencil(GrPathRendering::GetStencilPassSettings(fillType), hasStencilClip,
-                       numStencilBits)
+            , fFillType(fillType)
+            , fHasStencilClip(hasStencilClip)
             , fScissor(scissor)
             , fPath(path) {
         this->setBounds(path->getBounds(), HasAABloat::kNo, IsZeroArea::kNo);
@@ -67,7 +64,8 @@ private:
 
     SkMatrix                                          fViewMatrix;
     bool                                              fUseHWAA;
-    GrStencilSettings                                 fStencil;
+    GrPathRendering::FillType                         fFillType;
+    bool                                              fHasStencilClip;
     GrScissorState                                    fScissor;
     GrPendingIOResource<const GrPath, kRead_GrIOType> fPath;
 

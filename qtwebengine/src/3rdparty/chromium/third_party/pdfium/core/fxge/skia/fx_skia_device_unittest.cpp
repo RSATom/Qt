@@ -4,10 +4,11 @@
 
 #include "core/fxge/skia/fx_skia_device.h"
 #include "core/fxge/cfx_defaultrenderdevice.h"
+#include "core/fxge/cfx_font.h"
 #include "core/fxge/cfx_graphstatedata.h"
 #include "core/fxge/cfx_pathdata.h"
 #include "core/fxge/cfx_renderdevice.h"
-#include "fpdfsdk/fsdk_define.h"
+#include "fpdfsdk/cpdfsdk_helpers.h"
 #include "public/fpdfview.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/skia/include/core/SkPictureRecorder.h"
@@ -37,7 +38,7 @@ void CommonTest(CFX_SkiaDeviceDriver* driver, const State& state) {
   FXTEXT_CHARPOS charPos[1];
   charPos[0].m_Origin = CFX_PointF(0, 1);
   charPos[0].m_GlyphIndex = 1;
-  charPos[0].m_FontCharWidth = 4;
+  charPos[0].m_FontCharWidth = 4u;
 
   CFX_Font font;
   float fontSize = 1;
@@ -124,7 +125,7 @@ void Harness(void (*Test)(CFX_SkiaDeviceDriver*, const State&),
     return;
   FPDFBitmap_FillRect(bitmap, 0, 0, w, h, 0x00000000);
   CFX_DefaultRenderDevice geDevice;
-  CFX_RetainPtr<CFX_DIBitmap> pBitmap(CFXBitmapFromFPDFBitmap(bitmap));
+  RetainPtr<CFX_DIBitmap> pBitmap(CFXDIBitmapFromFPDFBitmap(bitmap));
   geDevice.Attach(pBitmap, false, nullptr, false);
   CFX_SkiaDeviceDriver* driver =
       static_cast<CFX_SkiaDeviceDriver*>(geDevice.GetDeviceDriver());

@@ -5,10 +5,13 @@
 cr.define('extensions', function() {
   'use strict';
 
-  var DetailView = Polymer({
+  const DetailView = Polymer({
     is: 'extensions-detail-view',
 
-    behaviors: [I18nBehavior, Polymer.NeonAnimatableBehavior],
+    behaviors: [
+      CrContainerShadowBehavior,
+      extensions.ItemBehavior,
+    ],
 
     properties: {
       /**
@@ -17,22 +20,92 @@ cr.define('extensions', function() {
        */
       data: Object,
 
+      /** @private */
+      size_: String,
+
       /** @type {!extensions.ItemDelegate} */
       delegate: Object,
 
       /** Whether the user has enabled the UI's developer mode. */
       inDevMode: Boolean,
+
+      /** Whether "allow in incognito" option should be shown. */
+      incognitoAvailable: Boolean,
+
+      /**
+       * Proxying the enum to be used easily by the html template.
+       * @private
+       */
+      HostAccess_: {
+        type: Object,
+        value: chrome.developerPrivate.HostAccess,
+      },
     },
 
-    ready: function() {
-      this.sharedElements = {hero: this.$.main};
-      /** @type {!extensions.AnimationHelper} */
-      this.animationHelper = new extensions.AnimationHelper(this, this.$.main);
+    observers: [
+      'onItemIdChanged_(data.id, delegate)',
+    ],
+
+    listeners: {
+      'view-enter-start': 'onViewEnterStart_',
+    },
+
+    /**
+     * Focuses the back button when page is loaded.
+     * @private
+     */
+    onViewEnterStart_: function() {
+      Polymer.RenderStatus.afterNextRender(
+          this, () => cr.ui.focusWithoutInk(this.$.closeButton));
+    },
+
+    /** @private */
+    onItemIdChanged_: function() {
+      // Clear the size, since this view is reused, such that no obsolete size
+      // is displayed.:
+      this.size_ = '';
+      this.delegate.getExtensionSize(this.data.id).then(size => {
+        this.size_ = size;
+      });
+    },
+
+    /**
+     * @param {string} description
+     * @param {string} fallback
+     * @return {string}
+     * @private
+     */
+    getDescription_: function(description, fallback) {
+      return description || fallback;
     },
 
     /** @private */
     onCloseButtonTap_: function() {
-      this.fire('close');
+      extensions.navigation.navigateTo({page: Page.LIST});
+    },
+
+    /**
+     * @param {!Event} event
+     * @private
+     */
+    onHostAccessChanged_: function(event) {
+      const select = /** @type {!HTMLSelectElement} */ (event.target);
+      const access =
+          /** @type {chrome.developerPrivate.HostAccess} */ (select.value);
+      this.delegate.setItemHostAccess(this.data.id, access);
+      // Force the UI to update (in order to potentially hide or show the
+      // specific runtime hosts).
+      // TODO(devlin): Perhaps this should be handled by the backend updating
+      // and sending an onItemStateChanged event?
+      this.set('data.permissions.hostAccess', access);
+    },
+
+    /**
+     * @return {boolean}
+     * @private
+     */
+    isControlled_: function() {
+      return extensions.isControlled(this.data);
     },
 
     /**
@@ -63,17 +136,31 @@ cr.define('extensions', function() {
      * @return {boolean}
      * @private
      */
-    hasPermissions_: function() {
-      return this.data.permissions.length > 0;
+    hasWarnings_: function() {
+      return this.data.disableReasons.corruptInstall ||
+          this.data.disableReasons.suspiciousInstall ||
+          this.data.disableReasons.updateRequired ||
+          !!this.data.blacklistText || this.data.runtimeWarnings.length > 0;
     },
 
     /**
      * @return {string}
      * @private
      */
-    computeEnabledText_: function() {
+    computeEnabledStyle_: function() {
+      return this.isEnabled_() ? 'enabled-text' : '';
+    },
+
+    /**
+     * @param {!chrome.developerPrivate.ExtensionState} state
+     * @param {string} onText
+     * @param {string} offText
+     * @return {string}
+     * @private
+     */
+    computeEnabledText_: function(state, onText, offText) {
       // TODO(devlin): Get the full spectrum of these strings from bettes.
-      return this.isEnabled_() ? this.i18n('itemOn') : this.i18n('itemOff');
+      return extensions.isEnabled(state) ? onText : offText;
     },
 
     /**
@@ -83,18 +170,6 @@ cr.define('extensions', function() {
      */
     computeInspectLabel_: function(view) {
       return extensions.computeInspectableViewLabel(view);
-    },
-
-    /**
-     * @return {boolean}
-     * @private
-     */
-    shouldShowHomepageButton_: function() {
-      // Note: we ignore |data.homePage.specified| - we use an extension's
-      // webstore entry as a homepage if the extension didn't explicitly specify
-      // a homepage. (|url| can still be unset in the case of unpacked
-      // extensions.)
-      return this.data.homePage.url.length > 0;
     },
 
     /**
@@ -111,8 +186,15 @@ cr.define('extensions', function() {
      */
     shouldShowOptionsSection_: function() {
       return this.data.incognitoAccess.isEnabled ||
-          this.data.fileAccess.isEnabled || this.data.runOnAllUrls.isEnabled ||
-          this.data.errorCollection.isEnabled;
+          this.data.fileAccess.isEnabled || this.data.errorCollection.isEnabled;
+    },
+
+    /**
+     * @return {boolean}
+     * @private
+     */
+    shouldShowIncognitoOption_: function() {
+      return this.data.incognitoAccess.isEnabled && this.incognitoAvailable;
     },
 
     /** @private */
@@ -130,13 +212,30 @@ cr.define('extensions', function() {
     },
 
     /** @private */
-    onOptionsTap_: function() {
-      this.delegate.showItemOptionsPage(this.data.id);
+    onExtensionOptionsTap_: function() {
+      this.delegate.showItemOptionsPage(this.data);
+    },
+
+    /** @private */
+    onReloadTap_: function() {
+      this.delegate.reloadItem(this.data.id).catch(loadError => {
+        this.fire('load-error', loadError);
+      });
     },
 
     /** @private */
     onRemoveTap_: function() {
       this.delegate.deleteItem(this.data.id);
+    },
+
+    /** @private */
+    onRepairTap_: function() {
+      this.delegate.repairItem(this.data.id);
+    },
+
+    /** @private */
+    onLoadPathTap_: function() {
+      this.delegate.showInFolder(this.data.id);
     },
 
     /** @private */
@@ -152,30 +251,83 @@ cr.define('extensions', function() {
     },
 
     /** @private */
-    onAllowOnAllSitesChange_: function() {
-      this.delegate.setItemAllowedOnAllSites(
-          this.data.id, this.$$('#allow-on-all-sites').checked);
-    },
-
-    /** @private */
     onCollectErrorsChange_: function() {
       this.delegate.setItemCollectsErrors(
           this.data.id, this.$$('#collect-errors').checked);
     },
 
+    /** @private */
+    onExtensionWebSiteTap_: function() {
+      this.delegate.openUrl(this.data.manifestHomePageUrl);
+    },
+
+    /** @private */
+    onViewInStoreTap_: function() {
+      this.delegate.openUrl(this.data.webStoreUrl);
+    },
+
     /**
      * @param {!chrome.developerPrivate.DependentExtension} item
+     * @return {string}
      * @private
      */
     computeDependentEntry_: function(item) {
       return loadTimeData.getStringF('itemDependentEntry', item.name, item.id);
     },
 
-    /** @private */
+    /**
+     * @return {string}
+     * @private
+     */
     computeSourceString_: function() {
-      return extensions.getItemSourceString(
-          extensions.getItemSource(this.data));
-    }
+      return this.data.locationText ||
+          extensions.getItemSourceString(extensions.getItemSource(this.data));
+    },
+
+    /**
+     * @param {chrome.developerPrivate.ControllerType} type
+     * @return {string}
+     * @private
+     */
+    getIndicatorIcon_: function(type) {
+      switch (type) {
+        case 'POLICY':
+          return 'cr20:domain';
+        case 'CHILD_CUSTODIAN':
+          return 'cr:account-child-invert';
+        case 'SUPERVISED_USER_CUSTODIAN':
+          return 'cr:supervisor-account';
+        default:
+          return '';
+      }
+    },
+
+    /**
+     * @return {boolean}
+     * @private
+     */
+    hasPermissions_: function() {
+      return this.data.permissions.simplePermissions.length > 0 ||
+          !!this.data.permissions.hostAccess;
+    },
+
+    /**
+     * @return {boolean}
+     * @private
+     */
+    showRuntimeHostPermissions_: function() {
+      return !!this.data.permissions.hostAccess;
+    },
+
+    /**
+     * @return {boolean}
+     * @private
+     */
+    showSpecificSites_: function() {
+      return this.data.permissions &&
+          this.data.permissions.hostAccess ==
+          chrome.developerPrivate.HostAccess.ON_SPECIFIC_SITES;
+    },
   });
 
   return {DetailView: DetailView};

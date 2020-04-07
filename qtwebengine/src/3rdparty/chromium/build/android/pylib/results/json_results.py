@@ -5,10 +5,11 @@
 import collections
 import itertools
 import json
+import logging
 
 from pylib.base import base_test_result
 
-def GenerateResultsDict(test_run_results):
+def GenerateResultsDict(test_run_results, global_tags=None):
   """Create a results dict from |test_run_results| suitable for writing to JSON.
   Args:
     test_run_results: a list of base_test_result.TestRunResults objects.
@@ -104,7 +105,7 @@ def GenerateResultsDict(test_run_results):
       result_dict = {
           'status': status_as_string(r.GetType()),
           'elapsed_time_ms': r.GetDuration(),
-          'output_snippet': r.GetLog(),
+          'output_snippet': unicode(r.GetLog(), errors='replace'),
           'losless_snippet': '',
           'output_snippet_base64': '',
           'links': r.GetLinks(),
@@ -115,7 +116,7 @@ def GenerateResultsDict(test_run_results):
     per_iteration_data.append(iteration_data)
 
   return {
-    'global_tags': [],
+    'global_tags': global_tags or [],
     'all_tests': sorted(list(all_tests)),
     # TODO(jbudorick): Add support for disabled tests within base_test_result.
     'disabled_tests': [],
@@ -124,7 +125,8 @@ def GenerateResultsDict(test_run_results):
   }
 
 
-def GenerateJsonResultsFile(test_run_result, file_path):
+def GenerateJsonResultsFile(test_run_result, file_path, global_tags=None,
+                            **kwargs):
   """Write |test_run_result| to JSON.
 
   This emulates the format of the JSON emitted by
@@ -135,7 +137,10 @@ def GenerateJsonResultsFile(test_run_result, file_path):
     file_path: The path to the JSON file to write.
   """
   with open(file_path, 'w') as json_result_file:
-    json_result_file.write(json.dumps(GenerateResultsDict(test_run_result)))
+    json_result_file.write(json.dumps(
+        GenerateResultsDict(test_run_result, global_tags=global_tags),
+        **kwargs))
+    logging.info('Generated json results file at %s', file_path)
 
 
 def ParseResultsFromJson(json_results):

@@ -6,11 +6,8 @@
 
 #if defined(OS_WIN)
 #include <Winsock2.h>
-#elif defined(OS_POSIX)
+#elif defined(OS_POSIX) || defined(OS_FUCHSIA)
 #include <netdb.h>
-#endif
-
-#if defined(OS_POSIX)
 #include <netinet/in.h>
 #if !defined(OS_NACL)
 #include <net/if.h>
@@ -18,7 +15,7 @@
 #include <ifaddrs.h>
 #endif  // !defined(OS_ANDROID)
 #endif  // !defined(OS_NACL)
-#endif  // defined(OS_POSIX)
+#endif  // defined(OS_WIN)
 
 #include <cmath>
 #include <memory>
@@ -30,23 +27,26 @@
 #include "base/callback.h"
 #include "base/callback_helpers.h"
 #include "base/compiler_specific.h"
+#include "base/containers/linked_list.h"
 #include "base/debug/debugger.h"
-#include "base/debug/leak_annotations.h"
 #include "base/debug/stack_trace.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/metrics/field_trial.h"
+#include "base/metrics/field_trial_params.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/metrics/sparse_histogram.h"
-#include "base/profiler/scoped_tracker.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/task_scheduler/post_task.h"
+#include "base/threading/scoped_blocking_call.h"
 #include "base/threading/thread_task_runner_handle.h"
-#include "base/threading/worker_pool.h"
+#include "base/time/default_tick_clock.h"
 #include "base/time/time.h"
 #include "base/trace_event/trace_event.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "net/base/address_family.h"
 #include "net/base/address_list.h"
 #include "net/base/host_port_pair.h"
@@ -123,7 +123,7 @@ const char kOSErrorsForGetAddrinfoHistogramName[] =
     "Net.OSErrorsForGetAddrinfo_Mac";
 #elif defined(OS_LINUX)
     "Net.OSErrorsForGetAddrinfo_Linux";
-#else
+#elif defined(OS_POSIX) || defined(OS_FUCHSIA)
     "Net.OSErrorsForGetAddrinfo";
 #endif
 
@@ -132,7 +132,21 @@ const char kOSErrorsForGetAddrinfoHistogramName[] =
 // a histogram.
 std::vector<int> GetAllGetAddrinfoOSErrors() {
   int os_errors[] = {
-#if defined(OS_POSIX)
+#if defined(OS_WIN)
+    // See: http://msdn.microsoft.com/en-us/library/ms738520(VS.85).aspx
+    WSA_NOT_ENOUGH_MEMORY,
+    WSAEAFNOSUPPORT,
+    WSAEINVAL,
+    WSAESOCKTNOSUPPORT,
+    WSAHOST_NOT_FOUND,
+    WSANO_DATA,
+    WSANO_RECOVERY,
+    WSANOTINITIALISED,
+    WSATRY_AGAIN,
+    WSATYPE_NOT_FOUND,
+    // The following are not in doc, but might be to appearing in results :-(.
+    WSA_INVALID_HANDLE,
+#elif defined(OS_POSIX) || defined(OS_FUCHSIA)
 #if !defined(OS_FREEBSD)
 #if !defined(OS_ANDROID)
     // EAI_ADDRFAMILY has been declared obsolete in Android's and
@@ -151,20 +165,6 @@ std::vector<int> GetAllGetAddrinfoOSErrors() {
     EAI_SERVICE,
     EAI_SOCKTYPE,
     EAI_SYSTEM,
-#elif defined(OS_WIN)
-    // See: http://msdn.microsoft.com/en-us/library/ms738520(VS.85).aspx
-    WSA_NOT_ENOUGH_MEMORY,
-    WSAEAFNOSUPPORT,
-    WSAEINVAL,
-    WSAESOCKTNOSUPPORT,
-    WSAHOST_NOT_FOUND,
-    WSANO_DATA,
-    WSANO_RECOVERY,
-    WSANOTINITIALISED,
-    WSATRY_AGAIN,
-    WSATYPE_NOT_FOUND,
-    // The following are not in doc, but might be to appearing in results :-(.
-    WSA_INVALID_HANDLE,
 #endif
   };
 
@@ -173,8 +173,7 @@ std::vector<int> GetAllGetAddrinfoOSErrors() {
     os_errors[i] = std::abs(os_errors[i]);
   }
 
-  return base::CustomHistogram::ArrayToCustomRanges(os_errors,
-                                                    arraysize(os_errors));
+  return base::CustomHistogram::ArrayToCustomEnumRanges(os_errors);
 }
 
 enum DnsResolveStatus {
@@ -231,41 +230,41 @@ bool ResemblesMulticastDNSName(const std::string& hostname) {
                         kSuffix, kSuffixLenTrimmed);
 }
 
-// Provide a common macro to simplify code and readability. We must use a
-// macro as the underlying HISTOGRAM macro creates static variables.
-#define DNS_HISTOGRAM(name, time) UMA_HISTOGRAM_CUSTOM_TIMES(name, time, \
-    base::TimeDelta::FromMilliseconds(1), base::TimeDelta::FromHours(1), 100)
-
 // A macro to simplify code and readability.
-#define DNS_HISTOGRAM_BY_PRIORITY(basename, priority, time) \
-  do { \
-    switch (priority) { \
-      case HIGHEST: DNS_HISTOGRAM(basename "_HIGHEST", time); break; \
-      case MEDIUM: DNS_HISTOGRAM(basename "_MEDIUM", time); break; \
-      case LOW: DNS_HISTOGRAM(basename "_LOW", time); break; \
-      case LOWEST: DNS_HISTOGRAM(basename "_LOWEST", time); break; \
-      case IDLE: DNS_HISTOGRAM(basename "_IDLE", time); break; \
-      case THROTTLED: DNS_HISTOGRAM(basename "_THROTTLED", time); break; \
-    } \
-    DNS_HISTOGRAM(basename, time); \
+#define DNS_HISTOGRAM_BY_PRIORITY(basename, priority, time)        \
+  do {                                                             \
+    switch (priority) {                                            \
+      case HIGHEST:                                                \
+        UMA_HISTOGRAM_LONG_TIMES_100(basename ".HIGHEST", time);   \
+        break;                                                     \
+      case MEDIUM:                                                 \
+        UMA_HISTOGRAM_LONG_TIMES_100(basename ".MEDIUM", time);    \
+        break;                                                     \
+      case LOW:                                                    \
+        UMA_HISTOGRAM_LONG_TIMES_100(basename ".LOW", time);       \
+        break;                                                     \
+      case LOWEST:                                                 \
+        UMA_HISTOGRAM_LONG_TIMES_100(basename ".LOWEST", time);    \
+        break;                                                     \
+      case IDLE:                                                   \
+        UMA_HISTOGRAM_LONG_TIMES_100(basename ".IDLE", time);      \
+        break;                                                     \
+      case THROTTLED:                                              \
+        UMA_HISTOGRAM_LONG_TIMES_100(basename ".THROTTLED", time); \
+        break;                                                     \
+    }                                                              \
+    UMA_HISTOGRAM_LONG_TIMES_100(basename, time);                  \
   } while (0)
 
 // Record time from Request creation until a valid DNS response.
-void RecordTotalTime(bool had_dns_config,
-                     bool speculative,
+void RecordTotalTime(bool speculative,
+                     bool from_cache,
                      base::TimeDelta duration) {
-  if (had_dns_config) {
-    if (speculative) {
-      DNS_HISTOGRAM("AsyncDNS.TotalTime_speculative", duration);
-    } else {
-      DNS_HISTOGRAM("AsyncDNS.TotalTime", duration);
-    }
-  } else {
-    if (speculative) {
-      DNS_HISTOGRAM("DNS.TotalTime_speculative", duration);
-    } else {
-      DNS_HISTOGRAM("DNS.TotalTime", duration);
-    }
+  if (!speculative) {
+    UMA_HISTOGRAM_LONG_TIMES_100("Net.DNS.TotalTime", duration);
+
+    if (!from_cache)
+      UMA_HISTOGRAM_LONG_TIMES_100("Net.DNS.TotalTimeNotCached", duration);
   }
 }
 
@@ -290,6 +289,15 @@ bool ConfigureAsyncDnsNoFallbackFieldTrial() {
   }
   return kDefault;
 }
+
+const base::FeatureParam<base::TaskPriority>::Option prio_modes[] = {
+    {base::TaskPriority::USER_VISIBLE, "default"},
+    {base::TaskPriority::USER_BLOCKING, "user_blocking"}};
+const base::Feature kSystemResolverPriorityExperiment = {
+    "SystemResolverPriorityExperiment", base::FEATURE_DISABLED_BY_DEFAULT};
+const base::FeatureParam<base::TaskPriority> priority_mode{
+    &kSystemResolverPriorityExperiment, "mode",
+    base::TaskPriority::USER_VISIBLE, &prio_modes};
 
 //-----------------------------------------------------------------------------
 
@@ -322,12 +330,17 @@ bool IsAllIPv4Loopback(const AddressList& addresses) {
 // i.e. if only 127.0.0.1 and ::1 are routable.
 // Also returns false if it cannot determine this.
 bool HaveOnlyLoopbackAddresses() {
-#if defined(OS_ANDROID)
+  base::ScopedBlockingCall scoped_blocking_call(base::BlockingType::WILL_BLOCK);
+#if defined(OS_WIN)
+  // TODO(wtc): implement with the GetAdaptersAddresses function.
+  NOTIMPLEMENTED();
+  return false;
+#elif defined(OS_ANDROID)
   return android::HaveOnlyLoopbackAddresses();
 #elif defined(OS_NACL)
   NOTIMPLEMENTED();
   return false;
-#elif defined(OS_POSIX)
+#elif defined(OS_POSIX) || defined(OS_FUCHSIA)
   struct ifaddrs* interface_addr = NULL;
   int rv = getifaddrs(&interface_addr);
   if (rv != 0) {
@@ -362,13 +375,6 @@ bool HaveOnlyLoopbackAddresses() {
   }
   freeifaddrs(interface_addr);
   return result;
-#elif defined(OS_WIN)
-  // TODO(wtc): implement with the GetAdaptersAddresses function.
-  NOTIMPLEMENTED();
-  return false;
-#else
-  NOTIMPLEMENTED();
-  return false;
 #endif  // defined(various platforms)
 }
 
@@ -386,9 +392,7 @@ std::unique_ptr<base::Value> NetLogProcTaskFailedCallback(
 
   if (os_error) {
     dict->SetInteger("os_error", os_error);
-#if defined(OS_POSIX)
-    dict->SetString("os_error_string", gai_strerror(os_error));
-#elif defined(OS_WIN)
+#if defined(OS_WIN)
     // Map the error code to a human-readable string.
     LPWSTR error_string = nullptr;
     FormatMessage(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM,
@@ -400,6 +404,8 @@ std::unique_ptr<base::Value> NetLogProcTaskFailedCallback(
                   0);  // Arguments (unused).
     dict->SetString("os_error_string", base::WideToUTF8(error_string));
     LocalFree(error_string);
+#elif defined(OS_POSIX) || defined(OS_FUCHSIA)
+    dict->SetString("os_error_string", gai_strerror(os_error));
 #endif
   }
 
@@ -551,9 +557,6 @@ void MakeNotStale(HostCache::EntryStaleness* stale_info) {
   stale_info->stale_hits = 0;
 }
 
-// Persist data every five minutes (potentially, cache and learned RTT).
-const int64_t kPersistDelaySec = 300;
-
 }  // namespace
 
 //-----------------------------------------------------------------------------
@@ -577,24 +580,34 @@ bool ResolveLocalHostname(base::StringPiece host,
 
 const unsigned HostResolverImpl::kMaximumDnsFailures = 16;
 
-// Holds the data for a request that could not be completed synchronously.
-// It is owned by a Job. Canceled Requests are only marked as canceled rather
-// than removed from the Job's |requests_| list.
-class HostResolverImpl::RequestImpl : public HostResolver::Request {
+// Holds the callback and request parameters for an outstanding request.
+//
+// The RequestImpl is owned by the end user of host resolution. Deletion prior
+// to the request having completed means the request was cancelled by the
+// caller.
+//
+// Both the RequestImpl and its associated Job hold non-owning pointers to each
+// other. Care must be taken to clear the corresponding pointer when
+// cancellation is initiated by the Job (OnJobCancelled) vs by the end user
+// (~RequestImpl).
+class HostResolverImpl::RequestImpl
+    : public HostResolver::Request,
+      public base::LinkNode<HostResolverImpl::RequestImpl> {
  public:
   RequestImpl(const NetLogWithSource& source_net_log,
               const RequestInfo& info,
               RequestPriority priority,
-              const CompletionCallback& callback,
+              CompletionOnceCallback callback,
               AddressList* addresses,
-              Job* job)
+              Job* job,
+              base::TimeTicks request_time)
       : source_net_log_(source_net_log),
         info_(info),
         priority_(priority),
         job_(job),
-        callback_(callback),
+        callback_(std::move(callback)),
         addresses_(addresses),
-        request_time_(base::TimeTicks::Now()) {}
+        request_time_(request_time) {}
 
   ~RequestImpl() override;
 
@@ -614,7 +627,7 @@ class HostResolverImpl::RequestImpl : public HostResolver::Request {
       *addresses_ = EnsurePortOnAddressList(addr_list, info_.port());
     job_ = nullptr;
     addresses_ = nullptr;
-    base::ResetAndReturn(&callback_).Run(error);
+    std::move(callback_).Run(error);
   }
 
   Job* job() const {
@@ -645,7 +658,7 @@ class HostResolverImpl::RequestImpl : public HostResolver::Request {
   Job* job_;
 
   // The user's callback to invoke when the request completes.
-  CompletionCallback callback_;
+  CompletionOnceCallback callback_;
 
   // The address list to save result into.
   AddressList* addresses_;
@@ -657,8 +670,10 @@ class HostResolverImpl::RequestImpl : public HostResolver::Request {
 
 //------------------------------------------------------------------------------
 
-// Calls HostResolverProc using a worker task runner. Performs retries if
-// necessary.
+// Calls HostResolverProc in TaskScheduler. Performs retries if necessary.
+//
+// In non-test code, the HostResolverProc is always SystemHostResolverProc,
+// which calls a platform API that implements host resolution.
 //
 // Whenever we try to resolve the host, we post a delayed task to check if host
 // resolution (OnLookupComplete) is completed or not. If the original attempt
@@ -668,27 +683,27 @@ class HostResolverImpl::RequestImpl : public HostResolver::Request {
 //
 // TODO(szym): Move to separate source file for testing and mocking.
 //
-class HostResolverImpl::ProcTask
-    : public base::RefCountedThreadSafe<HostResolverImpl::ProcTask> {
+class HostResolverImpl::ProcTask {
  public:
-  typedef base::Callback<void(int net_error,
-                              const AddressList& addr_list)> Callback;
+  typedef base::OnceCallback<void(int net_error, const AddressList& addr_list)>
+      Callback;
 
   ProcTask(const Key& key,
            const ProcTaskParams& params,
-           const Callback& callback,
-           scoped_refptr<base::TaskRunner> worker_task_runner,
-           const NetLogWithSource& job_net_log)
+           Callback callback,
+           scoped_refptr<base::TaskRunner> proc_task_runner,
+           const NetLogWithSource& job_net_log,
+           const base::TickClock* tick_clock)
       : key_(key),
         params_(params),
-        callback_(callback),
-        worker_task_runner_(std::move(worker_task_runner)),
+        callback_(std::move(callback)),
         network_task_runner_(base::ThreadTaskRunnerHandle::Get()),
+        proc_task_runner_(std::move(proc_task_runner)),
         attempt_number_(0),
-        completed_attempt_number_(0),
-        completed_attempt_error_(ERR_UNEXPECTED),
-        had_non_speculative_request_(false),
-        net_log_(job_net_log) {
+        net_log_(job_net_log),
+        tick_clock_(tick_clock),
+        weak_ptr_factory_(this) {
+    DCHECK(callback_);
     if (!params_.resolver_proc.get())
       params_.resolver_proc = HostResolverProc::GetDefault();
     // If default is unset, use the system proc.
@@ -696,63 +711,47 @@ class HostResolverImpl::ProcTask
       params_.resolver_proc = new SystemHostResolverProc();
   }
 
+  // Cancels this ProcTask. Any outstanding resolve attempts running on worker
+  // thread will continue running, but they will post back to the network thread
+  // before checking their WeakPtrs to find that this task is cancelled.
+  ~ProcTask() {
+    DCHECK(network_task_runner_->BelongsToCurrentThread());
+
+    // If this is cancellation, log the EndEvent (otherwise this was logged in
+    // OnLookupComplete()).
+    if (!was_completed())
+      net_log_.EndEvent(NetLogEventType::HOST_RESOLVER_IMPL_PROC_TASK);
+  }
+
   void Start() {
     DCHECK(network_task_runner_->BelongsToCurrentThread());
+    DCHECK(!was_completed());
     net_log_.BeginEvent(NetLogEventType::HOST_RESOLVER_IMPL_PROC_TASK);
     StartLookupAttempt();
   }
 
-  // Cancels this ProcTask. It will be orphaned. Any outstanding resolve
-  // attempts running on worker thread will continue running. Only once all the
-  // attempts complete will the final reference to this ProcTask be released.
-  void Cancel() {
-    DCHECK(network_task_runner_->BelongsToCurrentThread());
-
-    if (was_canceled() || was_completed())
-      return;
-
-    callback_.Reset();
-    net_log_.EndEvent(NetLogEventType::HOST_RESOLVER_IMPL_PROC_TASK);
-  }
-
-  void set_had_non_speculative_request() {
-    DCHECK(network_task_runner_->BelongsToCurrentThread());
-    had_non_speculative_request_ = true;
-  }
-
-  bool was_canceled() const {
+  bool was_completed() const {
     DCHECK(network_task_runner_->BelongsToCurrentThread());
     return callback_.is_null();
   }
 
-  bool was_completed() const {
-    DCHECK(network_task_runner_->BelongsToCurrentThread());
-    return completed_attempt_number_ > 0;
-  }
-
  private:
-  friend class base::RefCountedThreadSafe<ProcTask>;
-  ~ProcTask() {}
+  using AttemptCompletionCallback = base::OnceCallback<
+      void(const AddressList& results, int error, const int os_error)>;
 
   void StartLookupAttempt() {
     DCHECK(network_task_runner_->BelongsToCurrentThread());
-    base::TimeTicks start_time = base::TimeTicks::Now();
+    DCHECK(!was_completed());
+    base::TimeTicks start_time = tick_clock_->NowTicks();
     ++attempt_number_;
     // Dispatch the lookup attempt to a worker thread.
-    if (!worker_task_runner_->PostTask(
-            FROM_HERE, base::Bind(&ProcTask::DoLookup, this, start_time,
-                                  attempt_number_))) {
-      NOTREACHED();
-
-      // Since this method may have been called from Resolve(), can't just call
-      // OnLookupComplete().  Instead, must wait until Resolve() has returned
-      // (IO_PENDING).
-      network_task_runner_->PostTask(
-          FROM_HERE,
-          base::Bind(&ProcTask::OnLookupComplete, this, AddressList(),
-                     start_time, attempt_number_, ERR_UNEXPECTED, 0));
-      return;
-    }
+    AttemptCompletionCallback completion_callback = base::BindOnce(
+        &ProcTask::OnLookupAttemptComplete, weak_ptr_factory_.GetWeakPtr(),
+        start_time, attempt_number_, tick_clock_);
+    proc_task_runner_->PostTask(
+        FROM_HERE,
+        base::BindOnce(&ProcTask::DoLookup, key_, params_.resolver_proc,
+                       network_task_runner_, std::move(completion_callback)));
 
     net_log_.AddEvent(NetLogEventType::HOST_RESOLVER_IMPL_ATTEMPT_STARTED,
                       NetLog::IntCallback("attempt_number", attempt_number_));
@@ -760,60 +759,54 @@ class HostResolverImpl::ProcTask
     // If the results aren't received within a given time, RetryIfNotComplete
     // will start a new attempt if none of the outstanding attempts have
     // completed yet.
+    // Use a WeakPtr to avoid keeping the ProcTask alive after completion or
+    // cancellation.
     if (attempt_number_ <= params_.max_retry_attempts) {
       network_task_runner_->PostDelayedTask(
-          FROM_HERE, base::Bind(&ProcTask::RetryIfNotComplete, this),
-          params_.unresponsive_delay);
+          FROM_HERE,
+          base::BindOnce(&ProcTask::StartLookupAttempt,
+                         weak_ptr_factory_.GetWeakPtr()),
+          params_.unresponsive_delay *
+              std::pow(params_.retry_factor, attempt_number_ - 1));
     }
   }
 
-  // WARNING: In production, this code runs on a worker pool. The shutdown code
-  // cannot wait for it to finish, so this code must be very careful about using
-  // other objects (like MessageLoops, Singletons, etc). During shutdown these
-  // objects may no longer exist. Multiple DoLookups() could be running in
-  // parallel, so any state inside of |this| must not mutate .
-  void DoLookup(const base::TimeTicks& start_time,
-                const uint32_t attempt_number) {
+  // WARNING: This code runs in TaskScheduler with CONTINUE_ON_SHUTDOWN. The
+  // shutdown code cannot wait for it to finish, so this code must be very
+  // careful about using other objects (like MessageLoops, Singletons, etc).
+  // During shutdown these objects may no longer exist.
+  static void DoLookup(
+      Key key,
+      scoped_refptr<HostResolverProc> resolver_proc,
+      scoped_refptr<base::SingleThreadTaskRunner> network_task_runner,
+      AttemptCompletionCallback completion_callback) {
     AddressList results;
     int os_error = 0;
-    // Running on a worker task runner.
-    int error = params_.resolver_proc->Resolve(key_.hostname,
-                                               key_.address_family,
-                                               key_.host_resolver_flags,
-                                               &results,
-                                               &os_error);
+    int error =
+        resolver_proc->Resolve(key.hostname, key.address_family,
+                               key.host_resolver_flags, &results, &os_error);
 
-    network_task_runner_->PostTask(
-        FROM_HERE, base::Bind(&ProcTask::OnLookupComplete, this, results,
-                              start_time, attempt_number, error, os_error));
+    network_task_runner->PostTask(
+        FROM_HERE, base::BindOnce(std::move(completion_callback), results,
+                                  error, os_error));
   }
 
-  // Makes next attempt if DoLookup() has not finished.
-  void RetryIfNotComplete() {
-    DCHECK(network_task_runner_->BelongsToCurrentThread());
-
-    if (was_completed() || was_canceled())
-      return;
-
-    params_.unresponsive_delay *= params_.retry_factor;
-    StartLookupAttempt();
-  }
-
-  // Callback for when DoLookup() completes (runs on task runner thread).
-  void OnLookupComplete(const AddressList& results,
-                        const base::TimeTicks& start_time,
-                        const uint32_t attempt_number,
-                        int error,
-                        const int os_error) {
+  // Callback for when DoLookup() completes (runs on task runner thread). Now
+  // that we're back in the network thread, checks that |proc_task| is still
+  // valid, and if so, passes back to the object.
+  static void OnLookupAttemptComplete(base::WeakPtr<ProcTask> proc_task,
+                                      const base::TimeTicks& start_time,
+                                      const uint32_t attempt_number,
+                                      const base::TickClock* tick_clock,
+                                      const AddressList& results,
+                                      int error,
+                                      const int os_error) {
     TRACE_EVENT0(kNetTracingCategory, "ProcTask::OnLookupComplete");
-    DCHECK(network_task_runner_->BelongsToCurrentThread());
+
     // If results are empty, we should return an error.
     bool empty_list_on_ok = (error == OK && results.empty());
-    UMA_HISTOGRAM_BOOLEAN("DNS.EmptyAddressListAndNoError", empty_list_on_ok);
     if (empty_list_on_ok)
       error = ERR_NAME_NOT_RESOLVED;
-
-    bool was_retry_attempt = attempt_number > 1;
 
     // Ideally the following code would be part of host_resolver_proc.cc,
     // however it isn't safe to call NetworkChangeNotifier from worker threads.
@@ -821,172 +814,93 @@ class HostResolverImpl::ProcTask
     if (error != OK && NetworkChangeNotifier::IsOffline())
       error = ERR_INTERNET_DISCONNECTED;
 
-    // If this is the first attempt that is finishing later, then record data
-    // for the first attempt. Won't contaminate with retry attempt's data.
-    if (!was_retry_attempt)
-      RecordPerformanceHistograms(start_time, error, os_error);
+    RecordAttemptHistograms(start_time, attempt_number, error, os_error,
+                            tick_clock);
 
-    RecordAttemptHistograms(start_time, attempt_number, error, os_error);
-
-    if (was_canceled())
+    if (!proc_task) {
+      RecordDiscardedAttemptHistograms(attempt_number);
       return;
+    }
+
+    proc_task->OnLookupComplete(results, start_time, attempt_number, error,
+                                os_error);
+  }
+
+  void OnLookupComplete(const AddressList& results,
+                        const base::TimeTicks& start_time,
+                        const uint32_t attempt_number,
+                        int error,
+                        const int os_error) {
+    DCHECK(network_task_runner_->BelongsToCurrentThread());
+    DCHECK(!was_completed());
+
+    // Invalidate WeakPtrs to cancel handling of all outstanding lookup attempts
+    // and retries.
+    weak_ptr_factory_.InvalidateWeakPtrs();
+
+    RecordTaskHistograms(start_time, error, os_error, attempt_number);
 
     NetLogParametersCallback net_log_callback;
-    if (error != OK) {
-      net_log_callback = base::Bind(&NetLogProcTaskFailedCallback,
-                                    attempt_number,
-                                    error,
-                                    os_error);
-    } else {
-      net_log_callback = NetLog::IntCallback("attempt_number", attempt_number);
-    }
-    net_log_.AddEvent(NetLogEventType::HOST_RESOLVER_IMPL_ATTEMPT_FINISHED,
-                      net_log_callback);
-
-    if (was_completed())
-      return;
-
-    // Copy the results from the first worker thread that resolves the host.
-    results_ = results;
-    completed_attempt_number_ = attempt_number;
-    completed_attempt_error_ = error;
-
-    if (was_retry_attempt) {
-      // If retry attempt finishes before 1st attempt, then get stats on how
-      // much time is saved by having spawned an extra attempt.
-      retry_attempt_finished_time_ = base::TimeTicks::Now();
-    }
-
+    NetLogParametersCallback attempt_net_log_callback;
     if (error != OK) {
       net_log_callback = base::Bind(&NetLogProcTaskFailedCallback,
                                     0, error, os_error);
+      attempt_net_log_callback = base::Bind(&NetLogProcTaskFailedCallback,
+                                            attempt_number, error, os_error);
     } else {
-      net_log_callback = results_.CreateNetLogCallback();
+      net_log_callback = results.CreateNetLogCallback();
+      attempt_net_log_callback =
+          NetLog::IntCallback("attempt_number", attempt_number);
     }
     net_log_.EndEvent(NetLogEventType::HOST_RESOLVER_IMPL_PROC_TASK,
                       net_log_callback);
+    net_log_.AddEvent(NetLogEventType::HOST_RESOLVER_IMPL_ATTEMPT_FINISHED,
+                      attempt_net_log_callback);
 
-    callback_.Run(error, results_);
+    std::move(callback_).Run(error, results);
   }
 
-  void RecordPerformanceHistograms(const base::TimeTicks& start_time,
-                                   const int error,
-                                   const int os_error) const {
+  void RecordTaskHistograms(const base::TimeTicks& start_time,
+                            const int error,
+                            const int os_error,
+                            const uint32_t attempt_number) const {
     DCHECK(network_task_runner_->BelongsToCurrentThread());
-    enum Category {  // Used in UMA_HISTOGRAM_ENUMERATION.
-      RESOLVE_SUCCESS,
-      RESOLVE_FAIL,
-      RESOLVE_SPECULATIVE_SUCCESS,
-      RESOLVE_SPECULATIVE_FAIL,
-      RESOLVE_MAX,  // Bounding value.
-    };
-    int category = RESOLVE_MAX;  // Illegal value for later DCHECK only.
-
-    base::TimeDelta duration = base::TimeTicks::Now() - start_time;
+    base::TimeDelta duration = tick_clock_->NowTicks() - start_time;
     if (error == OK) {
-      if (had_non_speculative_request_) {
-        category = RESOLVE_SUCCESS;
-        DNS_HISTOGRAM("DNS.ResolveSuccess", duration);
-      } else {
-        category = RESOLVE_SPECULATIVE_SUCCESS;
-        DNS_HISTOGRAM("DNS.ResolveSpeculativeSuccess", duration);
-      }
-
-      // Log DNS lookups based on |address_family|. This will help us determine
-      // if IPv4 or IPv4/6 lookups are faster or slower.
-      switch (key_.address_family) {
-        case ADDRESS_FAMILY_IPV4:
-          DNS_HISTOGRAM("DNS.ResolveSuccess_FAMILY_IPV4", duration);
-          break;
-        case ADDRESS_FAMILY_IPV6:
-          DNS_HISTOGRAM("DNS.ResolveSuccess_FAMILY_IPV6", duration);
-          break;
-        case ADDRESS_FAMILY_UNSPECIFIED:
-          DNS_HISTOGRAM("DNS.ResolveSuccess_FAMILY_UNSPEC", duration);
-          break;
-      }
+      UMA_HISTOGRAM_LONG_TIMES_100("Net.DNS.ProcTask.SuccessTime", duration);
+      UMA_HISTOGRAM_ENUMERATION("DNS.AttemptFirstSuccess", attempt_number, 100);
     } else {
-      if (had_non_speculative_request_) {
-        category = RESOLVE_FAIL;
-        DNS_HISTOGRAM("DNS.ResolveFail", duration);
-      } else {
-        category = RESOLVE_SPECULATIVE_FAIL;
-        DNS_HISTOGRAM("DNS.ResolveSpeculativeFail", duration);
-      }
-      // Log DNS lookups based on |address_family|. This will help us determine
-      // if IPv4 or IPv4/6 lookups are faster or slower.
-      switch (key_.address_family) {
-        case ADDRESS_FAMILY_IPV4:
-          DNS_HISTOGRAM("DNS.ResolveFail_FAMILY_IPV4", duration);
-          break;
-        case ADDRESS_FAMILY_IPV6:
-          DNS_HISTOGRAM("DNS.ResolveFail_FAMILY_IPV6", duration);
-          break;
-        case ADDRESS_FAMILY_UNSPECIFIED:
-          DNS_HISTOGRAM("DNS.ResolveFail_FAMILY_UNSPEC", duration);
-          break;
-      }
-      UMA_HISTOGRAM_CUSTOM_ENUMERATION(kOSErrorsForGetAddrinfoHistogramName,
-                                       std::abs(os_error),
-                                       GetAllGetAddrinfoOSErrors());
+      UMA_HISTOGRAM_LONG_TIMES_100("Net.DNS.ProcTask.FailureTime", duration);
+      UMA_HISTOGRAM_ENUMERATION("DNS.AttemptFirstFailure", attempt_number, 100);
     }
-    DCHECK_LT(category, static_cast<int>(RESOLVE_MAX));  // Be sure it was set.
 
-    UMA_HISTOGRAM_ENUMERATION("DNS.ResolveCategory", category, RESOLVE_MAX);
+    UMA_HISTOGRAM_CUSTOM_ENUMERATION(kOSErrorsForGetAddrinfoHistogramName,
+                                     std::abs(os_error),
+                                     GetAllGetAddrinfoOSErrors());
   }
 
-  void RecordAttemptHistograms(const base::TimeTicks& start_time,
-                               const uint32_t attempt_number,
-                               const int error,
-                               const int os_error) const {
-    DCHECK(network_task_runner_->BelongsToCurrentThread());
-    bool first_attempt_to_complete =
-        completed_attempt_number_ == attempt_number;
-    bool is_first_attempt = (attempt_number == 1);
-
-    if (first_attempt_to_complete) {
-      // If this was first attempt to complete, then record the resolution
-      // status of the attempt.
-      if (completed_attempt_error_ == OK) {
-        UMA_HISTOGRAM_ENUMERATION(
-            "DNS.AttemptFirstSuccess", attempt_number, 100);
-      } else {
-        UMA_HISTOGRAM_ENUMERATION(
-            "DNS.AttemptFirstFailure", attempt_number, 100);
-      }
-    }
-
-    if (error == OK)
+  static void RecordAttemptHistograms(const base::TimeTicks& start_time,
+                                      const uint32_t attempt_number,
+                                      const int error,
+                                      const int os_error,
+                                      const base::TickClock* tick_clock) {
+    base::TimeDelta duration = tick_clock->NowTicks() - start_time;
+    if (error == OK) {
       UMA_HISTOGRAM_ENUMERATION("DNS.AttemptSuccess", attempt_number, 100);
-    else
+      UMA_HISTOGRAM_LONG_TIMES_100("DNS.AttemptSuccessDuration", duration);
+    } else {
       UMA_HISTOGRAM_ENUMERATION("DNS.AttemptFailure", attempt_number, 100);
-
-    // If first attempt didn't finish before retry attempt, then calculate stats
-    // on how much time is saved by having spawned an extra attempt.
-    if (!first_attempt_to_complete && is_first_attempt && !was_canceled()) {
-      DNS_HISTOGRAM("DNS.AttemptTimeSavedByRetry",
-                    base::TimeTicks::Now() - retry_attempt_finished_time_);
+      UMA_HISTOGRAM_LONG_TIMES_100("DNS.AttemptFailDuration", duration);
     }
-
-    if (was_canceled() || !first_attempt_to_complete) {
-      // Count those attempts which completed after the job was already canceled
-      // OR after the job was already completed by an earlier attempt (so in
-      // effect).
-      UMA_HISTOGRAM_ENUMERATION("DNS.AttemptDiscarded", attempt_number, 100);
-
-      // Record if job is canceled.
-      if (was_canceled())
-        UMA_HISTOGRAM_ENUMERATION("DNS.AttemptCancelled", attempt_number, 100);
-    }
-
-    base::TimeDelta duration = base::TimeTicks::Now() - start_time;
-    if (error == OK)
-      DNS_HISTOGRAM("DNS.AttemptSuccessDuration", duration);
-    else
-      DNS_HISTOGRAM("DNS.AttemptFailDuration", duration);
   }
 
-  // Set on the task runner thread, read on the worker thread.
+  static void RecordDiscardedAttemptHistograms(const uint32_t attempt_number) {
+    // Count those attempts which completed after the job was already canceled
+    // OR after the job was already completed by an earlier attempt (so
+    // cancelled in effect).
+    UMA_HISTOGRAM_ENUMERATION("DNS.AttemptDiscarded", attempt_number, 100);
+  }
+
   Key key_;
 
   // Holds an owning reference to the HostResolverProc that we are going to use.
@@ -998,90 +912,35 @@ class HostResolverImpl::ProcTask
   // The listener to the results of this ProcTask.
   Callback callback_;
 
-  // Task runner for the call to the HostResolverProc.
-  scoped_refptr<base::TaskRunner> worker_task_runner_;
-
   // Used to post events onto the network thread.
   scoped_refptr<base::SingleThreadTaskRunner> network_task_runner_;
+  // Used to post blocking HostResolverProc tasks.
+  scoped_refptr<base::TaskRunner> proc_task_runner_;
 
   // Keeps track of the number of attempts we have made so far to resolve the
   // host. Whenever we start an attempt to resolve the host, we increase this
   // number.
   uint32_t attempt_number_;
 
-  // The index of the attempt which finished first (or 0 if the job is still in
-  // progress).
-  uint32_t completed_attempt_number_;
-
-  // The result (a net error code) from the first attempt to complete.
-  int completed_attempt_error_;
-
-  // The time when retry attempt was finished.
-  base::TimeTicks retry_attempt_finished_time_;
-
-  // True if a non-speculative request was ever attached to this job
-  // (regardless of whether or not it was later canceled.
-  // This boolean is used for histogramming the duration of jobs used to
-  // service non-speculative requests.
-  bool had_non_speculative_request_;
-
-  AddressList results_;
-
   NetLogWithSource net_log_;
+
+  const base::TickClock* tick_clock_;
+
+  // Used to loop back from the blocking lookup attempt tasks as well as from
+  // delayed retry tasks. Invalidate WeakPtrs on completion and cancellation to
+  // cancel handling of such posted tasks.
+  base::WeakPtrFactory<ProcTask> weak_ptr_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(ProcTask);
 };
 
 //-----------------------------------------------------------------------------
 
-// Wraps a call to HaveOnlyLoopbackAddresses to be executed on a
-// |worker_task_runner|, as it takes 40-100ms and should not block
-// initialization.
-class HostResolverImpl::LoopbackProbeJob {
- public:
-  LoopbackProbeJob(const base::WeakPtr<HostResolverImpl>& resolver,
-                   base::TaskRunner* worker_task_runner)
-      : resolver_(resolver), result_(false) {
-    DCHECK(resolver.get());
-
-    // |worker_task_runner| may posts tasks to the WorkerPool, so need this to
-    // avoid reporting worker pool leaks in tests. The WorkerPool doesn't have a
-    // flushing API, so can't do anything about them, other than using another
-    // task runner.
-    // http://crbug.com/248513
-    ANNOTATE_SCOPED_MEMORY_LEAK;
-
-    worker_task_runner->PostTaskAndReply(
-        FROM_HERE,
-        base::Bind(&LoopbackProbeJob::DoProbe, base::Unretained(this)),
-        base::Bind(&LoopbackProbeJob::OnProbeComplete, base::Owned(this)));
-  }
-
-  virtual ~LoopbackProbeJob() {}
-
- private:
-  // Runs on worker thread.
-  void DoProbe() {
-    result_ = HaveOnlyLoopbackAddresses();
-  }
-
-  void OnProbeComplete() {
-    if (!resolver_.get())
-      return;
-    resolver_->SetHaveOnlyLoopbackAddresses(result_);
-  }
-
-  // Used/set only on task runner thread.
-  base::WeakPtr<HostResolverImpl> resolver_;
-
-  bool result_;
-
-  DISALLOW_COPY_AND_ASSIGN(LoopbackProbeJob);
-};
-
-//-----------------------------------------------------------------------------
-
-// Resolves the hostname using DnsTransaction.
+// Resolves the hostname using DnsTransaction, which is a full implementation of
+// a DNS stub resolver. One DnsTransaction is created for each resolution
+// needed, which for AF_UNSPEC resolutions includes both A and AAAA. The
+// transactions are scheduled separately and started separately.
+//
 // TODO(szym): This could be moved to separate source file as well.
 class HostResolverImpl::DnsTask : public base::SupportsWeakPtr<DnsTask> {
  public:
@@ -1097,21 +956,26 @@ class HostResolverImpl::DnsTask : public base::SupportsWeakPtr<DnsTask> {
     // only needs to run one transaction.
     virtual void OnFirstDnsTransactionComplete() = 0;
 
+    virtual URLRequestContext* url_request_context() = 0;
+    virtual RequestPriority priority() const = 0;
+
    protected:
-    Delegate() {}
-    virtual ~Delegate() {}
+    Delegate() = default;
+    virtual ~Delegate() = default;
   };
 
   DnsTask(DnsClient* client,
           const Key& key,
           Delegate* delegate,
-          const NetLogWithSource& job_net_log)
+          const NetLogWithSource& job_net_log,
+          const base::TickClock* tick_clock)
       : client_(client),
         key_(key),
         delegate_(delegate),
         net_log_(job_net_log),
         num_completed_transactions_(0),
-        task_start_time_(base::TimeTicks::Now()) {
+        tick_clock_(tick_clock),
+        task_start_time_(tick_clock_->NowTicks()) {
     DCHECK(client);
     DCHECK(delegate_);
   }
@@ -1139,6 +1003,8 @@ class HostResolverImpl::DnsTask : public base::SupportsWeakPtr<DnsTask> {
     StartAAAA();
   }
 
+  base::TimeDelta ttl() { return ttl_; }
+
  private:
   void StartA() {
     DCHECK(!transaction_a_);
@@ -1156,13 +1022,17 @@ class HostResolverImpl::DnsTask : public base::SupportsWeakPtr<DnsTask> {
 
   std::unique_ptr<DnsTransaction> CreateTransaction(AddressFamily family) {
     DCHECK_NE(ADDRESS_FAMILY_UNSPECIFIED, family);
-    return client_->GetTransactionFactory()->CreateTransaction(
-        key_.hostname,
-        family == ADDRESS_FAMILY_IPV6 ? dns_protocol::kTypeAAAA :
-                                        dns_protocol::kTypeA,
-        base::Bind(&DnsTask::OnTransactionComplete, base::Unretained(this),
-                   base::TimeTicks::Now()),
-        net_log_);
+    std::unique_ptr<DnsTransaction> trans =
+        client_->GetTransactionFactory()->CreateTransaction(
+            key_.hostname,
+            family == ADDRESS_FAMILY_IPV6 ? dns_protocol::kTypeAAAA
+                                          : dns_protocol::kTypeA,
+            base::BindOnce(&DnsTask::OnTransactionComplete,
+                           base::Unretained(this), tick_clock_->NowTicks()),
+            net_log_);
+    trans->SetRequestContext(delegate_->url_request_context());
+    trans->SetRequestPriority(delegate_->priority());
+    return trans;
   }
 
   void OnTransactionComplete(const base::TimeTicks& start_time,
@@ -1170,20 +1040,22 @@ class HostResolverImpl::DnsTask : public base::SupportsWeakPtr<DnsTask> {
                              int net_error,
                              const DnsResponse* response) {
     DCHECK(transaction);
-    base::TimeDelta duration = base::TimeTicks::Now() - start_time;
-    if (net_error != OK) {
-      DNS_HISTOGRAM("AsyncDNS.TransactionFailure", duration);
+    base::TimeDelta duration = tick_clock_->NowTicks() - start_time;
+    if (net_error != OK && !(net_error == ERR_NAME_NOT_RESOLVED && response &&
+                             response->IsValid())) {
+      UMA_HISTOGRAM_LONG_TIMES_100("AsyncDNS.TransactionFailure", duration);
       OnFailure(net_error, DnsResponse::DNS_PARSE_OK);
       return;
     }
 
-    DNS_HISTOGRAM("AsyncDNS.TransactionSuccess", duration);
+    UMA_HISTOGRAM_LONG_TIMES_100("AsyncDNS.TransactionSuccess", duration);
     switch (transaction->GetType()) {
       case dns_protocol::kTypeA:
-        DNS_HISTOGRAM("AsyncDNS.TransactionSuccess_A", duration);
+        UMA_HISTOGRAM_LONG_TIMES_100("AsyncDNS.TransactionSuccess_A", duration);
         break;
       case dns_protocol::kTypeAAAA:
-        DNS_HISTOGRAM("AsyncDNS.TransactionSuccess_AAAA", duration);
+        UMA_HISTOGRAM_LONG_TIMES_100("AsyncDNS.TransactionSuccess_AAAA",
+                                     duration);
         break;
     }
 
@@ -1236,10 +1108,8 @@ class HostResolverImpl::DnsTask : public base::SupportsWeakPtr<DnsTask> {
         addr_list_[0].GetFamily() == ADDRESS_FAMILY_IPV6) {
       // Sort addresses if needed.  Sort could complete synchronously.
       client_->GetAddressSorter()->Sort(
-          addr_list_,
-          base::Bind(&DnsTask::OnSortComplete,
-                     AsWeakPtr(),
-                     base::TimeTicks::Now()));
+          addr_list_, base::Bind(&DnsTask::OnSortComplete, AsWeakPtr(),
+                                 tick_clock_->NowTicks()));
     } else {
       OnSuccess(addr_list_);
     }
@@ -1249,14 +1119,14 @@ class HostResolverImpl::DnsTask : public base::SupportsWeakPtr<DnsTask> {
                       bool success,
                       const AddressList& addr_list) {
     if (!success) {
-      DNS_HISTOGRAM("AsyncDNS.SortFailure",
-                    base::TimeTicks::Now() - start_time);
+      UMA_HISTOGRAM_LONG_TIMES_100("AsyncDNS.SortFailure",
+                                   tick_clock_->NowTicks() - start_time);
       OnFailure(ERR_DNS_SORT_ERROR, DnsResponse::DNS_PARSE_OK);
       return;
     }
 
-    DNS_HISTOGRAM("AsyncDNS.SortSuccess",
-                  base::TimeTicks::Now() - start_time);
+    UMA_HISTOGRAM_LONG_TIMES_100("AsyncDNS.SortSuccess",
+                                 tick_clock_->NowTicks() - start_time);
 
     // AddressSorter prunes unusable destinations.
     if (addr_list.empty()) {
@@ -1273,8 +1143,13 @@ class HostResolverImpl::DnsTask : public base::SupportsWeakPtr<DnsTask> {
     net_log_.EndEvent(
         NetLogEventType::HOST_RESOLVER_IMPL_DNS_TASK,
         base::Bind(&NetLogDnsTaskFailedCallback, net_error, result));
+    base::TimeDelta ttl = ttl_ < base::TimeDelta::FromSeconds(
+                                     std::numeric_limits<uint32_t>::max()) &&
+                                  num_completed_transactions_ > 0
+                              ? ttl_
+                              : base::TimeDelta::FromSeconds(0);
     delegate_->OnDnsTaskComplete(task_start_time_, net_error, AddressList(),
-                                 base::TimeDelta());
+                                 ttl);
   }
 
   void OnSuccess(const AddressList& addr_list) {
@@ -1300,6 +1175,7 @@ class HostResolverImpl::DnsTask : public base::SupportsWeakPtr<DnsTask> {
   // IPv6 addresses must appear first in the list.
   AddressList addr_list_;
 
+  const base::TickClock* tick_clock_;
   base::TimeTicks task_start_time_;
 
   DISALLOW_COPY_AND_ASSIGN(DnsTask);
@@ -1316,17 +1192,19 @@ class HostResolverImpl::Job : public PrioritizedDispatcher::Job,
   Job(const base::WeakPtr<HostResolverImpl>& resolver,
       const Key& key,
       RequestPriority priority,
-      scoped_refptr<base::TaskRunner> worker_task_runner,
-      const NetLogWithSource& source_net_log)
+      scoped_refptr<base::TaskRunner> proc_task_runner,
+      const NetLogWithSource& source_net_log,
+      const base::TickClock* tick_clock)
       : resolver_(resolver),
         key_(key),
         priority_tracker_(priority),
-        worker_task_runner_(std::move(worker_task_runner)),
+        proc_task_runner_(std::move(proc_task_runner)),
         had_non_speculative_request_(false),
         had_dns_config_(false),
         num_occupied_job_slots_(0),
         dns_task_error_(OK),
-        creation_time_(base::TimeTicks::Now()),
+        tick_clock_(tick_clock),
+        creation_time_(tick_clock_->NowTicks()),
         priority_change_time_(creation_time_),
         net_log_(
             NetLogWithSource::Make(source_net_log.net_log(),
@@ -1342,10 +1220,7 @@ class HostResolverImpl::Job : public PrioritizedDispatcher::Job,
     if (is_running()) {
       // |resolver_| was destroyed with this Job still in flight.
       // Clean-up, record in the log, but don't run any callbacks.
-      if (is_proc_running()) {
-        proc_task_->Cancel();
-        proc_task_ = nullptr;
-      }
+      proc_task_ = nullptr;
       // Clean up now for nice NetLog.
       KillDnsTask();
       net_log_.EndEventWithNetErrorCode(NetLogEventType::HOST_RESOLVER_IMPL_JOB,
@@ -1357,14 +1232,13 @@ class HostResolverImpl::Job : public PrioritizedDispatcher::Job,
       net_log_.EndEvent(NetLogEventType::HOST_RESOLVER_IMPL_JOB);
     }
     // else CompleteRequests logged EndEvent.
-    if (!requests_.empty()) {
+    while (!requests_.empty()) {
       // Log any remaining Requests as cancelled.
-      for (RequestImpl* req : requests_) {
-        DCHECK_EQ(this, req->job());
-        LogCancelRequest(req->source_net_log(), req->info());
-        req->OnJobCancelled(this);
-      }
-      requests_.clear();
+      RequestImpl* req = requests_.head()->value();
+      req->RemoveFromList();
+      DCHECK_EQ(this, req->job());
+      LogCancelRequest(req->source_net_log(), req->info());
+      req->OnJobCancelled(this);
     }
   }
 
@@ -1401,14 +1275,10 @@ class HostResolverImpl::Job : public PrioritizedDispatcher::Job,
         base::Bind(&NetLogJobAttachCallback, request->source_net_log().source(),
                    priority()));
 
-    // TODO(szym): Check if this is still needed.
-    if (!request->info().is_speculative()) {
+    if (!request->info().is_speculative())
       had_non_speculative_request_ = true;
-      if (proc_task_.get())
-        proc_task_->set_had_non_speculative_request();
-    }
 
-    requests_.push_back(request);
+    requests_.Append(request);
 
     UpdatePriority();
   }
@@ -1438,19 +1308,13 @@ class HostResolverImpl::Job : public PrioritizedDispatcher::Job,
 
     if (num_active_requests() > 0) {
       UpdatePriority();
-      RemoveRequest(request);
+      request->RemoveFromList();
     } else {
       // If we were called from a Request's callback within CompleteRequests,
       // that Request could not have been cancelled, so num_active_requests()
       // could not be 0. Therefore, we are not in CompleteRequests().
       CompleteRequestsWithError(OK /* cancelled */);
     }
-  }
-
-  void RemoveRequest(RequestImpl* request) {
-    auto it = std::find(requests_.begin(), requests_.end(), request);
-    DCHECK(it != requests_.end());
-    requests_.erase(it);
   }
 
   // Called from AbortAllInProgressJobs. Completes all requests and destroys
@@ -1488,11 +1352,12 @@ class HostResolverImpl::Job : public PrioritizedDispatcher::Job,
   bool ServeFromHosts() {
     DCHECK_GT(num_active_requests(), 0u);
     AddressList addr_list;
-    if (resolver_->ServeFromHosts(key(),
-                                  requests_.front()->info(),
+    if (resolver_->ServeFromHosts(key(), requests_.head()->value()->info(),
                                   &addr_list)) {
       // This will destroy the Job.
-      CompleteRequests(MakeCacheEntry(OK, addr_list), base::TimeDelta());
+      CompleteRequests(
+          MakeCacheEntry(OK, addr_list, HostCache::Entry::SOURCE_HOSTS),
+          base::TimeDelta());
       return true;
     }
     return false;
@@ -1536,31 +1401,35 @@ class HostResolverImpl::Job : public PrioritizedDispatcher::Job,
   // HostCache::Entry(). The address list is omited from the cache entry
   // for errors.
   HostCache::Entry MakeCacheEntry(int net_error,
-                                  const AddressList& addr_list) const {
+                                  const AddressList& addr_list,
+                                  HostCache::Entry::Source source) const {
     return HostCache::Entry(
         net_error,
-        net_error == OK ? MakeAddressListForRequest(addr_list) : AddressList());
+        net_error == OK ? MakeAddressListForRequest(addr_list) : AddressList(),
+        source);
   }
 
   HostCache::Entry MakeCacheEntryWithTTL(int net_error,
                                          const AddressList& addr_list,
+                                         HostCache::Entry::Source source,
                                          base::TimeDelta ttl) const {
     return HostCache::Entry(
         net_error,
         net_error == OK ? MakeAddressListForRequest(addr_list) : AddressList(),
-        ttl);
+        source, ttl);
   }
 
   AddressList MakeAddressListForRequest(const AddressList& list) const {
     if (requests_.empty())
       return list;
-    return AddressList::CopyWithPort(list, requests_.front()->info().port());
+    return AddressList::CopyWithPort(list,
+                                     requests_.head()->value()->info().port());
   }
 
   void UpdatePriority() {
     if (is_queued()) {
       if (priority() != static_cast<RequestPriority>(handle_.priority()))
-        priority_change_time_ = base::TimeTicks::Now();
+        priority_change_time_ = tick_clock_->NowTicks();
       handle_ = resolver_->dispatcher_->ChangePriority(handle_, priority());
     }
   }
@@ -1583,23 +1452,18 @@ class HostResolverImpl::Job : public PrioritizedDispatcher::Job,
 
     had_dns_config_ = resolver_->HaveDnsConfig();
 
-    base::TimeTicks now = base::TimeTicks::Now();
-    base::TimeDelta queue_time = now - creation_time_;
-    base::TimeDelta queue_time_after_change = now - priority_change_time_;
+    start_time_ = tick_clock_->NowTicks();
+    base::TimeDelta queue_time = start_time_ - creation_time_;
+    base::TimeDelta queue_time_after_change =
+        start_time_ - priority_change_time_;
 
-    if (had_dns_config_) {
-      DNS_HISTOGRAM_BY_PRIORITY("AsyncDNS.JobQueueTime", priority(),
-                                queue_time);
-      DNS_HISTOGRAM_BY_PRIORITY("AsyncDNS.JobQueueTimeAfterChange", priority(),
-                                queue_time_after_change);
-    } else {
-      DNS_HISTOGRAM_BY_PRIORITY("DNS.JobQueueTime", priority(), queue_time);
-      DNS_HISTOGRAM_BY_PRIORITY("DNS.JobQueueTimeAfterChange", priority(),
-                                queue_time_after_change);
-    }
+    DNS_HISTOGRAM_BY_PRIORITY("Net.DNS.JobQueueTime", priority(), queue_time);
+    DNS_HISTOGRAM_BY_PRIORITY("Net.DNS.JobQueueTimeAfterChange", priority(),
+                              queue_time_after_change);
 
-    bool system_only =
-        (key_.host_resolver_flags & HOST_RESOLVER_SYSTEM_ONLY) != 0;
+    bool system_only = (key_.host_resolver_flags &
+                        (HOST_RESOLVER_CANONNAME |
+                         HOST_RESOLVER_SYSTEM_ONLY)) != 0;
 
     // Caution: Job::Start must not complete synchronously.
     if (!system_only && had_dns_config_ &&
@@ -1611,19 +1475,17 @@ class HostResolverImpl::Job : public PrioritizedDispatcher::Job,
   }
 
   // TODO(szym): Since DnsTransaction does not consume threads, we can increase
-  // the limits on |dispatcher_|. But in order to keep the number of WorkerPool
-  // threads low, we will need to use an "inner" PrioritizedDispatcher with
-  // tighter limits.
+  // the limits on |dispatcher_|. But in order to keep the number of
+  // TaskScheduler threads low, we will need to use an "inner"
+  // PrioritizedDispatcher with tighter limits.
   void StartProcTask() {
     DCHECK(!is_dns_running());
-    proc_task_ =
-        new ProcTask(key_, resolver_->proc_params_,
-                     base::Bind(&Job::OnProcTaskComplete,
-                                base::Unretained(this), base::TimeTicks::Now()),
-                     worker_task_runner_, net_log_);
+    proc_task_ = std::make_unique<ProcTask>(
+        key_, resolver_->proc_params_,
+        base::Bind(&Job::OnProcTaskComplete, base::Unretained(this),
+                   tick_clock_->NowTicks()),
+        proc_task_runner_, net_log_, tick_clock_);
 
-    if (had_non_speculative_request_)
-      proc_task_->set_had_non_speculative_request();
     // Start() could be called from within Resolve(), hence it must NOT directly
     // call OnProcTaskComplete, for example, on synchronous failure.
     proc_task_->Start();
@@ -1636,20 +1498,20 @@ class HostResolverImpl::Job : public PrioritizedDispatcher::Job,
     DCHECK(is_proc_running());
 
     if (dns_task_error_ != OK) {
-      base::TimeDelta duration = base::TimeTicks::Now() - start_time;
+      base::TimeDelta duration = tick_clock_->NowTicks() - start_time;
       if (net_error == OK) {
-        DNS_HISTOGRAM("AsyncDNS.FallbackSuccess", duration);
+        UMA_HISTOGRAM_LONG_TIMES_100("AsyncDNS.FallbackSuccess", duration);
         if ((dns_task_error_ == ERR_NAME_NOT_RESOLVED) &&
             ResemblesNetBIOSName(key_.hostname)) {
           UmaAsyncDnsResolveStatus(RESOLVE_STATUS_SUSPECT_NETBIOS);
         } else {
           UmaAsyncDnsResolveStatus(RESOLVE_STATUS_PROC_SUCCESS);
         }
-        UMA_HISTOGRAM_SPARSE_SLOWLY("AsyncDNS.ResolveError",
-                                    std::abs(dns_task_error_));
+        base::UmaHistogramSparse("Net.DNS.DnsTask.Errors",
+                                 std::abs(dns_task_error_));
         resolver_->OnDnsTaskResolve(dns_task_error_);
       } else {
-        DNS_HISTOGRAM("AsyncDNS.FallbackFail", duration);
+        UMA_HISTOGRAM_LONG_TIMES_100("AsyncDNS.FallbackFail", duration);
         UmaAsyncDnsResolveStatus(RESOLVE_STATUS_FAIL);
       }
     }
@@ -1662,14 +1524,18 @@ class HostResolverImpl::Job : public PrioritizedDispatcher::Job,
     if (net_error == OK)
       ttl = base::TimeDelta::FromSeconds(kCacheEntryTTLSeconds);
 
+    // Source unknown because the system resolver could have gotten it from a
+    // hosts file, its own cache, a DNS lookup or somewhere else.
     // Don't store the |ttl| in cache since it's not obtained from the server.
-    CompleteRequests(MakeCacheEntry(net_error, addr_list), ttl);
+    CompleteRequests(
+        MakeCacheEntry(net_error, addr_list, HostCache::Entry::SOURCE_UNKNOWN),
+        ttl);
   }
 
   void StartDnsTask() {
     DCHECK(resolver_->HaveDnsConfig());
     dns_task_.reset(new DnsTask(resolver_->dns_client_.get(), key_, this,
-                                net_log_));
+                                net_log_, tick_clock_));
 
     dns_task_->StartFirstTransaction();
     // Schedule a second transaction, if needed.
@@ -1688,11 +1554,18 @@ class HostResolverImpl::Job : public PrioritizedDispatcher::Job,
   void OnDnsTaskFailure(const base::WeakPtr<DnsTask>& dns_task,
                         base::TimeDelta duration,
                         int net_error) {
-    DNS_HISTOGRAM("AsyncDNS.ResolveFail", duration);
+    UMA_HISTOGRAM_LONG_TIMES_100("Net.DNS.DnsTask.FailureTime", duration);
 
     if (!dns_task)
       return;
 
+    if (duration < base::TimeDelta::FromMilliseconds(10)) {
+      base::UmaHistogramSparse("Net.DNS.DnsTask.ErrorBeforeFallback.Fast",
+                               std::abs(net_error));
+    } else {
+      base::UmaHistogramSparse("Net.DNS.DnsTask.ErrorBeforeFallback.Slow",
+                               std::abs(net_error));
+    }
     dns_task_error_ = net_error;
 
     // TODO(szym): Run ServeFromHosts now if nsswitch.conf says so.
@@ -1705,7 +1578,16 @@ class HostResolverImpl::Job : public PrioritizedDispatcher::Job,
       StartProcTask();
     } else {
       UmaAsyncDnsResolveStatus(RESOLVE_STATUS_FAIL);
-      CompleteRequestsWithError(net_error);
+      // If the ttl is max, we didn't get one from the record, so set it to 0
+      base::TimeDelta ttl =
+          dns_task->ttl() < base::TimeDelta::FromSeconds(
+                                std::numeric_limits<uint32_t>::max())
+              ? dns_task->ttl()
+              : base::TimeDelta::FromSeconds(0);
+      CompleteRequests(
+          HostCache::Entry(net_error, AddressList(),
+                           HostCache::Entry::Source::SOURCE_UNKNOWN, ttl),
+          ttl);
     }
   }
 
@@ -1718,24 +1600,13 @@ class HostResolverImpl::Job : public PrioritizedDispatcher::Job,
                          base::TimeDelta ttl) override {
     DCHECK(is_dns_running());
 
-    base::TimeDelta duration = base::TimeTicks::Now() - start_time;
+    base::TimeDelta duration = tick_clock_->NowTicks() - start_time;
     if (net_error != OK) {
       OnDnsTaskFailure(dns_task_->AsWeakPtr(), duration, net_error);
       return;
     }
-    DNS_HISTOGRAM("AsyncDNS.ResolveSuccess", duration);
-    // Log DNS lookups based on |address_family|.
-    switch (key_.address_family) {
-      case ADDRESS_FAMILY_IPV4:
-        DNS_HISTOGRAM("AsyncDNS.ResolveSuccess_FAMILY_IPV4", duration);
-        break;
-      case ADDRESS_FAMILY_IPV6:
-        DNS_HISTOGRAM("AsyncDNS.ResolveSuccess_FAMILY_IPV6", duration);
-        break;
-      case ADDRESS_FAMILY_UNSPECIFIED:
-        DNS_HISTOGRAM("AsyncDNS.ResolveSuccess_FAMILY_UNSPEC", duration);
-        break;
-    }
+
+    UMA_HISTOGRAM_LONG_TIMES_100("Net.DNS.DnsTask.SuccessTime", duration);
 
     UmaAsyncDnsResolveStatus(RESOLVE_STATUS_DNS_SUCCESS);
     RecordTTL(ttl);
@@ -1748,7 +1619,8 @@ class HostResolverImpl::Job : public PrioritizedDispatcher::Job,
     if (ContainsIcannNameCollisionIp(addr_list)) {
       CompleteRequestsWithError(ERR_ICANN_NAME_COLLISION);
     } else {
-      CompleteRequests(MakeCacheEntryWithTTL(net_error, addr_list, ttl),
+      CompleteRequests(MakeCacheEntryWithTTL(net_error, addr_list,
+                                             HostCache::Entry::SOURCE_DNS, ttl),
                        bounded_ttl);
     }
   }
@@ -1766,6 +1638,84 @@ class HostResolverImpl::Job : public PrioritizedDispatcher::Job,
       dns_task_->StartSecondTransaction();
   }
 
+  URLRequestContext* url_request_context() override {
+    return resolver_->url_request_context_;
+  }
+
+  void RecordJobHistograms(int error) {
+    // Used in UMA_HISTOGRAM_ENUMERATION. Do not renumber entries or reuse
+    // deprecated values.
+    enum Category {
+      RESOLVE_SUCCESS = 0,
+      RESOLVE_FAIL = 1,
+      RESOLVE_SPECULATIVE_SUCCESS = 2,
+      RESOLVE_SPECULATIVE_FAIL = 3,
+      RESOLVE_ABORT = 4,
+      RESOLVE_SPECULATIVE_ABORT = 5,
+      RESOLVE_MAX,  // Bounding value.
+    };
+    Category category = RESOLVE_MAX;  // Illegal value for later DCHECK only.
+
+    base::TimeDelta duration = tick_clock_->NowTicks() - start_time_;
+    if (error == OK) {
+      if (had_non_speculative_request_) {
+        category = RESOLVE_SUCCESS;
+        UMA_HISTOGRAM_LONG_TIMES_100("Net.DNS.ResolveSuccessTime", duration);
+        switch (key_.address_family) {
+          case ADDRESS_FAMILY_IPV4:
+            UMA_HISTOGRAM_LONG_TIMES_100("Net.DNS.ResolveSuccessTime.IPV4",
+                                         duration);
+            break;
+          case ADDRESS_FAMILY_IPV6:
+            UMA_HISTOGRAM_LONG_TIMES_100("Net.DNS.ResolveSuccessTime.IPV6",
+                                         duration);
+            break;
+          case ADDRESS_FAMILY_UNSPECIFIED:
+            UMA_HISTOGRAM_LONG_TIMES_100("Net.DNS.ResolveSuccessTime.UNSPEC",
+                                         duration);
+            break;
+        }
+      } else {
+        category = RESOLVE_SPECULATIVE_SUCCESS;
+      }
+    } else if (error == ERR_NETWORK_CHANGED ||
+               error == ERR_HOST_RESOLVER_QUEUE_TOO_LARGE) {
+      category = had_non_speculative_request_ ? RESOLVE_ABORT
+                                              : RESOLVE_SPECULATIVE_ABORT;
+    } else {
+      if (had_non_speculative_request_) {
+        category = RESOLVE_FAIL;
+        UMA_HISTOGRAM_LONG_TIMES_100("Net.DNS.ResolveFailureTime", duration);
+        switch (key_.address_family) {
+          case ADDRESS_FAMILY_IPV4:
+            UMA_HISTOGRAM_LONG_TIMES_100("Net.DNS.ResolveFailureTime.IPV4",
+                                         duration);
+            break;
+          case ADDRESS_FAMILY_IPV6:
+            UMA_HISTOGRAM_LONG_TIMES_100("Net.DNS.ResolveFailureTime.IPV6",
+                                         duration);
+            break;
+          case ADDRESS_FAMILY_UNSPECIFIED:
+            UMA_HISTOGRAM_LONG_TIMES_100("Net.DNS.ResolveFailureTime.UNSPEC",
+                                         duration);
+            break;
+        }
+      } else {
+        category = RESOLVE_SPECULATIVE_FAIL;
+      }
+    }
+    DCHECK_LT(static_cast<int>(category),
+              static_cast<int>(RESOLVE_MAX));  // Be sure it was set.
+    UMA_HISTOGRAM_ENUMERATION("Net.DNS.ResolveCategory", category, RESOLVE_MAX);
+
+    if (category == RESOLVE_FAIL || category == RESOLVE_ABORT) {
+      if (duration < base::TimeDelta::FromMilliseconds(10))
+        base::UmaHistogramSparse("Net.DNS.ResolveError.Fast", std::abs(error));
+      else
+        base::UmaHistogramSparse("Net.DNS.ResolveError.Slow", std::abs(error));
+    }
+  }
+
   // Performs Job's last rites. Completes all Requests. Deletes this.
   void CompleteRequests(const HostCache::Entry& entry,
                         base::TimeDelta ttl) {
@@ -1773,18 +1723,12 @@ class HostResolverImpl::Job : public PrioritizedDispatcher::Job,
 
     // This job must be removed from resolver's |jobs_| now to make room for a
     // new job with the same key in case one of the OnComplete callbacks decides
-    // to spawn one. Consequently, the job deletes itself when CompleteRequests
-    // is done.
-    std::unique_ptr<Job> self_deleter(this);
-
-    resolver_->RemoveJob(this);
+    // to spawn one. Consequently, if the job was owned by |jobs_|, the job
+    // deletes itself when CompleteRequests is done.
+    std::unique_ptr<Job> self_deleter = resolver_->RemoveJob(this);
 
     if (is_running()) {
-      if (is_proc_running()) {
-        DCHECK(!is_queued());
-        proc_task_->Cancel();
-        proc_task_ = nullptr;
-      }
+      proc_task_ = nullptr;
       KillDnsTask();
 
       // Signal dispatcher that a slot has opened.
@@ -1804,8 +1748,6 @@ class HostResolverImpl::Job : public PrioritizedDispatcher::Job,
     net_log_.EndEventWithNetErrorCode(NetLogEventType::HOST_RESOLVER_IMPL_JOB,
                                       entry.error());
 
-    resolver_->SchedulePersist();
-
     DCHECK(!requests_.empty());
 
     if (entry.error() == OK || entry.error() == ERR_ICANN_NAME_COLLISION) {
@@ -1820,18 +1762,20 @@ class HostResolverImpl::Job : public PrioritizedDispatcher::Job,
     if (did_complete)
       resolver_->CacheResult(key_, entry, ttl);
 
+    RecordJobHistograms(entry.error());
+
     // Complete all of the requests that were attached to the job and
     // detach them.
     while (!requests_.empty()) {
-      RequestImpl* req = requests_.front();
-      requests_.pop_front();
+      RequestImpl* req = requests_.head()->value();
+      req->RemoveFromList();
       DCHECK_EQ(this, req->job());
       // Update the net log and notify registered observers.
       LogFinishRequest(req->source_net_log(), req->info(), entry.error());
       if (did_complete) {
         // Record effective total time from creation to completion.
-        RecordTotalTime(had_dns_config_, req->info().is_speculative(),
-                        base::TimeTicks::Now() - req->request_time());
+        RecordTotalTime(req->info().is_speculative(), false,
+                        tick_clock_->NowTicks() - req->request_time());
       }
       req->OnJobCompleted(this, entry.error(), entry.addresses());
 
@@ -1844,11 +1788,12 @@ class HostResolverImpl::Job : public PrioritizedDispatcher::Job,
 
   // Convenience wrapper for CompleteRequests in case of failure.
   void CompleteRequestsWithError(int net_error) {
-    CompleteRequests(HostCache::Entry(net_error, AddressList()),
+    CompleteRequests(HostCache::Entry(net_error, AddressList(),
+                                      HostCache::Entry::SOURCE_UNKNOWN),
                      base::TimeDelta());
   }
 
-  RequestPriority priority() const {
+  RequestPriority priority() const override {
     return priority_tracker_.highest_priority();
   }
 
@@ -1868,8 +1813,8 @@ class HostResolverImpl::Job : public PrioritizedDispatcher::Job,
   // Tracks the highest priority across |requests_|.
   PriorityTracker priority_tracker_;
 
-  // Task runner where the HostResolverProc is invoked.
-  scoped_refptr<base::TaskRunner> worker_task_runner_;
+  // Task runner used for HostResolverProc.
+  scoped_refptr<base::TaskRunner> proc_task_runner_;
 
   bool had_non_speculative_request_;
 
@@ -1882,19 +1827,21 @@ class HostResolverImpl::Job : public PrioritizedDispatcher::Job,
   // Result of DnsTask.
   int dns_task_error_;
 
+  const base::TickClock* tick_clock_;
   const base::TimeTicks creation_time_;
   base::TimeTicks priority_change_time_;
+  base::TimeTicks start_time_;
 
   NetLogWithSource net_log_;
 
   // Resolves the host using a HostResolverProc.
-  scoped_refptr<ProcTask> proc_task_;
+  std::unique_ptr<ProcTask> proc_task_;
 
   // Resolves the host using a DnsTransaction.
   std::unique_ptr<DnsTask> dns_task_;
 
   // All Requests waiting for the result of this Job. Some can be canceled.
-  std::deque<RequestImpl*> requests_;
+  base::LinkedList<RequestImpl> requests_;
 
   // A handle used in |HostResolverImpl::dispatcher_|.
   PrioritizedDispatcher::Handle handle_;
@@ -1919,13 +1866,7 @@ HostResolverImpl::ProcTaskParams::ProcTaskParams(
 HostResolverImpl::ProcTaskParams::ProcTaskParams(const ProcTaskParams& other) =
     default;
 
-HostResolverImpl::ProcTaskParams::~ProcTaskParams() {}
-
-HostResolverImpl::HostResolverImpl(const Options& options, NetLog* net_log)
-    : HostResolverImpl(
-          options,
-          net_log,
-          base::WorkerPool::GetTaskRunner(true /* task_is_slow */)) {}
+HostResolverImpl::ProcTaskParams::~ProcTaskParams() = default;
 
 HostResolverImpl::~HostResolverImpl() {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
@@ -1949,7 +1890,7 @@ void HostResolverImpl::SetMaxQueuedJobs(size_t value) {
 int HostResolverImpl::Resolve(const RequestInfo& info,
                               RequestPriority priority,
                               AddressList* addresses,
-                              const CompletionCallback& callback,
+                              CompletionOnceCallback callback,
                               std::unique_ptr<Request>* out_req,
                               const NetLogWithSource& source_net_log) {
   DCHECK(addresses);
@@ -1963,7 +1904,7 @@ int HostResolverImpl::Resolve(const RequestInfo& info,
   int rv = ResolveHelper(info, false, nullptr, source_net_log, addresses, &key);
   if (rv != ERR_DNS_CACHE_MISS) {
     LogFinishRequest(source_net_log, info, rv);
-    RecordTotalTime(HaveDnsConfig(), info.is_speculative(), base::TimeDelta());
+    RecordTotalTime(info.is_speculative(), true, base::TimeDelta());
     return rv;
   }
 
@@ -1973,29 +1914,32 @@ int HostResolverImpl::Resolve(const RequestInfo& info,
   auto jobit = jobs_.find(key);
   Job* job;
   if (jobit == jobs_.end()) {
-    job = new Job(weak_ptr_factory_.GetWeakPtr(), key, priority,
-                  worker_task_runner_, source_net_log);
-    job->Schedule(false);
+    auto new_job =
+        std::make_unique<Job>(weak_ptr_factory_.GetWeakPtr(), key, priority,
+                              proc_task_runner_, source_net_log, tick_clock_);
+    job = new_job.get();
+    new_job->Schedule(false);
 
     // Check for queue overflow.
     if (dispatcher_->num_queued_jobs() > max_queued_jobs_) {
       Job* evicted = static_cast<Job*>(dispatcher_->EvictOldestLowest());
       DCHECK(evicted);
-      evicted->OnEvicted();  // Deletes |evicted|.
-      if (evicted == job) {
+      evicted->OnEvicted();
+      if (evicted == new_job.get()) {
         rv = ERR_HOST_RESOLVER_QUEUE_TOO_LARGE;
         LogFinishRequest(source_net_log, info, rv);
         return rv;
       }
     }
-    jobs_[key] = base::WrapUnique(job);
+    jobs_[key] = std::move(new_job);
   } else {
     job = jobit->second.get();
   }
 
   // Can't complete synchronously. Create and attach request.
-  auto req = base::MakeUnique<RequestImpl>(source_net_log, info, priority,
-                                           callback, addresses, job);
+  auto req = std::make_unique<RequestImpl>(source_net_log, info, priority,
+                                           std::move(callback), addresses, job,
+                                           tick_clock_->NowTicks());
   job->AddRequest(req.get());
   *out_req = std::move(req);
 
@@ -2003,10 +1947,7 @@ int HostResolverImpl::Resolve(const RequestInfo& info,
   return ERR_IO_PENDING;
 }
 
-HostResolverImpl::HostResolverImpl(
-    const Options& options,
-    NetLog* net_log,
-    scoped_refptr<base::TaskRunner> worker_task_runner)
+HostResolverImpl::HostResolverImpl(const Options& options, NetLog* net_log)
     : max_queued_jobs_(0),
       proc_params_(NULL, options.max_retry_attempts),
       net_log_(net_log),
@@ -2017,8 +1958,8 @@ HostResolverImpl::HostResolverImpl(
       last_ipv6_probe_result_(true),
       additional_resolver_flags_(0),
       fallback_to_proctask_(true),
-      worker_task_runner_(std::move(worker_task_runner)),
-      persist_initialized_(false),
+      url_request_context_(nullptr),
+      tick_clock_(base::DefaultTickClock::GetInstance()),
       weak_ptr_factory_(this),
       probe_weak_ptr_factory_(this) {
   if (options.enable_caching)
@@ -2030,17 +1971,22 @@ HostResolverImpl::HostResolverImpl(
 
   DCHECK_GE(dispatcher_->num_priorities(), static_cast<size_t>(NUM_PRIORITIES));
 
+  proc_task_runner_ = base::CreateTaskRunnerWithTraits(
+      {base::MayBlock(), priority_mode.Get(),
+       base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN});
+
 #if defined(OS_WIN)
   EnsureWinsockInit();
 #endif
-#if defined(OS_POSIX) && !defined(OS_MACOSX) && !defined(OS_ANDROID)
+#if (defined(OS_POSIX) && !defined(OS_MACOSX) && !defined(OS_ANDROID)) || \
+    defined(OS_FUCHSIA)
   RunLoopbackProbeJob();
 #endif
   NetworkChangeNotifier::AddIPAddressObserver(this);
   NetworkChangeNotifier::AddConnectionTypeObserver(this);
   NetworkChangeNotifier::AddDNSObserver(this);
 #if defined(OS_POSIX) && !defined(OS_MACOSX) && !defined(OS_OPENBSD) && \
-    !defined(OS_ANDROID) && !defined(OS_FUCHSIA)
+    !defined(OS_ANDROID)
   EnsureDnsReloaderInit();
 #endif
 
@@ -2063,6 +2009,11 @@ void HostResolverImpl::SetHaveOnlyLoopbackAddresses(bool result) {
   } else {
     additional_resolver_flags_ &= ~HOST_RESOLVER_LOOPBACK_ONLY;
   }
+}
+
+void HostResolverImpl::SetTaskRunnerForTesting(
+    scoped_refptr<base::TaskRunner> task_runner) {
+  proc_task_runner_ = std::move(task_runner);
 }
 
 int HostResolverImpl::ResolveHelper(const RequestInfo& info,
@@ -2099,6 +2050,14 @@ int HostResolverImpl::ResolveHelper(const RequestInfo& info,
     MakeNotStale(stale_info);
     return net_error;
   }
+
+  // Special-case localhost names, as per the recommendations in
+  // https://tools.ietf.org/html/draft-west-let-localhost-be-localhost.
+  if (ServeLocalhost(*key, info, addresses)) {
+    MakeNotStale(stale_info);
+    return OK;
+  }
+
   if (ServeFromCache(*key, info, &net_error, addresses, allow_stale,
                      stale_info)) {
     source_net_log.AddEvent(NetLogEventType::HOST_RESOLVER_IMPL_CACHE_HIT,
@@ -2106,16 +2065,12 @@ int HostResolverImpl::ResolveHelper(const RequestInfo& info,
     // |ServeFromCache()| will set |*stale_info| as needed.
     return net_error;
   }
+
   // TODO(szym): Do not do this if nsswitch.conf instructs not to.
   // http://crbug.com/117655
   if (ServeFromHosts(*key, info, addresses)) {
     source_net_log.AddEvent(NetLogEventType::HOST_RESOLVER_IMPL_HOSTS_HIT,
                             addresses->CreateNetLogCallback());
-    MakeNotStale(stale_info);
-    return OK;
-  }
-
-  if (ServeLocalhost(*key, info, addresses)) {
     MakeNotStale(stale_info);
     return OK;
   }
@@ -2154,6 +2109,15 @@ HostCache* HostResolverImpl::GetHostCache() {
   return cache_.get();
 }
 
+bool HostResolverImpl::HasCached(base::StringPiece hostname,
+                                 HostCache::Entry::Source* source_out,
+                                 HostCache::EntryStaleness* stale_out) const {
+  if (!cache_)
+    return false;
+
+  return cache_->HasEntry(hostname, source_out, stale_out);
+}
+
 std::unique_ptr<base::Value> HostResolverImpl::GetDnsConfigAsValue() const {
   // Check if async DNS is disabled.
   if (!dns_client_.get())
@@ -2163,7 +2127,7 @@ std::unique_ptr<base::Value> HostResolverImpl::GetDnsConfigAsValue() const {
   // for it.
   const DnsConfig* dns_config = dns_client_->GetConfig();
   if (!dns_config)
-    return base::MakeUnique<base::DictionaryValue>();
+    return std::make_unique<base::DictionaryValue>();
 
   return dns_config->ToValue();
 }
@@ -2187,6 +2151,18 @@ int HostResolverImpl::ResolveStaleFromCache(
   return rv;
 }
 
+size_t HostResolverImpl::LastRestoredCacheSize() const {
+  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
+
+  return cache_ ? cache_->last_restore_size() : 0;
+}
+
+size_t HostResolverImpl::CacheSize() const {
+  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
+
+  return cache_ ? cache_->size() : 0;
+}
+
 void HostResolverImpl::SetNoIPv6OnWifi(bool no_ipv6_on_wifi) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   assume_ipv6_failure_on_wifi_ = no_ipv6_on_wifi;
@@ -2194,6 +2170,46 @@ void HostResolverImpl::SetNoIPv6OnWifi(bool no_ipv6_on_wifi) {
 
 bool HostResolverImpl::GetNoIPv6OnWifi() {
   return assume_ipv6_failure_on_wifi_;
+}
+
+void HostResolverImpl::SetRequestContext(URLRequestContext* context) {
+  if (context != url_request_context_) {
+    url_request_context_ = context;
+  }
+}
+
+void HostResolverImpl::SetTickClockForTesting(
+    const base::TickClock* tick_clock) {
+  tick_clock_ = tick_clock;
+  cache_->set_tick_clock_for_testing(tick_clock);
+}
+
+void HostResolverImpl::ClearDnsOverHttpsServers() {
+  if (dns_over_https_servers_.size() == 0)
+    return;
+
+  dns_over_https_servers_.clear();
+
+  if (dns_client_.get() && dns_client_->GetConfig())
+    UpdateDNSConfig(true);
+}
+
+void HostResolverImpl::AddDnsOverHttpsServer(std::string spec, bool use_post) {
+  GURL url(spec);
+  if (!url.SchemeIs("https"))
+    return;
+
+  dns_over_https_servers_.emplace_back(url, use_post);
+
+  if (dns_client_.get() && dns_client_->GetConfig())
+    UpdateDNSConfig(true);
+}
+
+const std::vector<DnsConfig::DnsOverHttpsServerConfig>*
+HostResolverImpl::GetDnsOverHttpsServersForTesting() const {
+  if (dns_over_https_servers_.empty())
+    return nullptr;
+  return &dns_over_https_servers_;
 }
 
 bool HostResolverImpl::ResolveAsIP(const Key& key,
@@ -2234,9 +2250,9 @@ bool HostResolverImpl::ServeFromCache(const Key& key,
 
   const HostCache::Entry* cache_entry;
   if (allow_stale)
-    cache_entry = cache_->LookupStale(key, base::TimeTicks::Now(), stale_info);
+    cache_entry = cache_->LookupStale(key, tick_clock_->NowTicks(), stale_info);
   else
-    cache_entry = cache_->Lookup(key, base::TimeTicks::Now());
+    cache_entry = cache_->Lookup(key, tick_clock_->NowTicks());
   if (!cache_entry)
     return false;
 
@@ -2329,17 +2345,20 @@ bool HostResolverImpl::ServeLocalhost(const Key& key,
 void HostResolverImpl::CacheResult(const Key& key,
                                    const HostCache::Entry& entry,
                                    base::TimeDelta ttl) {
-  if (cache_.get())
-    cache_->Set(key, entry, base::TimeTicks::Now(), ttl);
+  // Don't cache an error unless it has a positive TTL.
+  if (cache_.get() && (entry.error() == OK || ttl > base::TimeDelta()))
+    cache_->Set(key, entry, tick_clock_->NowTicks(), ttl);
 }
 
-void HostResolverImpl::RemoveJob(Job* job) {
+std::unique_ptr<HostResolverImpl::Job> HostResolverImpl::RemoveJob(Job* job) {
   DCHECK(job);
+  std::unique_ptr<Job> retval;
   auto it = jobs_.find(job->key());
   if (it != jobs_.end() && it->second.get() == job) {
-    it->second.release();
+    it->second.swap(retval);
     jobs_.erase(it);
   }
+  return retval;
 }
 
 HostResolverImpl::Key HostResolverImpl::GetEffectiveKeyForRequest(
@@ -2377,11 +2396,11 @@ bool HostResolverImpl::IsIPv6Reachable(const NetLogWithSource& net_log) {
   // Cache the result for kIPv6ProbePeriodMs (measured from after
   // IsGloballyReachable() completes).
   bool cached = true;
-  if ((base::TimeTicks::Now() - last_ipv6_probe_time_).InMilliseconds() >
+  if ((tick_clock_->NowTicks() - last_ipv6_probe_time_).InMilliseconds() >
       kIPv6ProbePeriodMs) {
     last_ipv6_probe_result_ =
         IsGloballyReachable(IPAddress(kIPv6ProbeAddress), net_log);
-    last_ipv6_probe_time_ = base::TimeTicks::Now();
+    last_ipv6_probe_time_ = tick_clock_->NowTicks();
     cached = false;
   }
   net_log.AddEvent(NetLogEventType::HOST_RESOLVER_IMPL_IPV6_REACHABILITY_CHECK,
@@ -2392,14 +2411,9 @@ bool HostResolverImpl::IsIPv6Reachable(const NetLogWithSource& net_log) {
 
 bool HostResolverImpl::IsGloballyReachable(const IPAddress& dest,
                                            const NetLogWithSource& net_log) {
-  // TODO(eroman): Remove ScopedTracker below once crbug.com/455942 is fixed.
-  tracked_objects::ScopedTracker tracking_profile_1(
-      FROM_HERE_WITH_EXPLICIT_FUNCTION("455942 IsGloballyReachable"));
-
   std::unique_ptr<DatagramClientSocket> socket(
       ClientSocketFactory::GetDefaultFactory()->CreateDatagramClientSocket(
-          DatagramSocket::DEFAULT_BIND, RandIntCallback(), net_log.net_log(),
-          net_log.source()));
+          DatagramSocket::DEFAULT_BIND, net_log.net_log(), net_log.source()));
   int rv = socket->Connect(IPEndPoint(dest, 53));
   if (rv != OK)
     return false;
@@ -2423,8 +2437,14 @@ bool HostResolverImpl::IsGloballyReachable(const IPAddress& dest,
 }
 
 void HostResolverImpl::RunLoopbackProbeJob() {
-  new LoopbackProbeJob(weak_ptr_factory_.GetWeakPtr(),
-                       worker_task_runner_.get());
+  // Run this asynchronously as it can take 40-100ms and should not block
+  // initialization.
+  base::PostTaskWithTraitsAndReplyWithResult(
+      FROM_HERE,
+      {base::MayBlock(), base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN},
+      base::BindOnce(&HaveOnlyLoopbackAddresses),
+      base::BindOnce(&HostResolverImpl::SetHaveOnlyLoopbackAddresses,
+                     weak_ptr_factory_.GetWeakPtr()));
 }
 
 void HostResolverImpl::AbortAllInProgressJobs() {
@@ -2456,7 +2476,6 @@ void HostResolverImpl::AbortAllInProgressJobs() {
   // Then Abort them.
   for (size_t i = 0; self.get() && i < jobs_to_abort.size(); ++i) {
     jobs_to_abort[i]->Abort();
-    ignore_result(jobs_to_abort[i].release());
   }
 
   if (self)
@@ -2500,7 +2519,8 @@ void HostResolverImpl::OnIPAddressChanged() {
   probe_weak_ptr_factory_.InvalidateWeakPtrs();
   if (cache_.get())
     cache_->OnNetworkChange();
-#if defined(OS_POSIX) && !defined(OS_MACOSX) && !defined(OS_ANDROID)
+#if (defined(OS_POSIX) && !defined(OS_MACOSX) && !defined(OS_ANDROID)) || \
+    defined(OS_FUCHSIA)
   RunLoopbackProbeJob();
 #endif
   AbortAllInProgressJobs();
@@ -2543,13 +2563,14 @@ void HostResolverImpl::UpdateDNSConfig(bool config_changed) {
   // We want a new DnsSession in place, before we Abort running Jobs, so that
   // the newly started jobs use the new config.
   if (dns_client_.get()) {
+    // Make sure that if the update is an initial read, not a change, there
+    // wasn't already a DnsConfig or it's the same one.
+    DCHECK(config_changed || !dns_client_->GetConfig() ||
+           dns_client_->GetConfig()->Equals(dns_config));
+    dns_config.dns_over_https_servers = dns_over_https_servers_;
     dns_client_->SetConfig(dns_config);
-    if (dns_client_->GetConfig()) {
+    if (dns_client_->GetConfig())
       UMA_HISTOGRAM_BOOLEAN("AsyncDNS.DnsClientEnabled", true);
-      // If we just switched DnsClients, restart jobs using new resolver.
-      // TODO(pauljensen): Is this necessary?
-      config_changed = true;
-    }
   }
 
   if (config_changed) {
@@ -2600,8 +2621,8 @@ void HostResolverImpl::OnDnsTaskResolve(int net_error) {
   AbortDnsTasks();
 
   UMA_HISTOGRAM_BOOLEAN("AsyncDNS.DnsClientEnabled", false);
-  UMA_HISTOGRAM_SPARSE_SLOWLY("AsyncDNS.DnsClientDisabledReason",
-                              std::abs(net_error));
+  base::UmaHistogramSparse("AsyncDNS.DnsClientDisabledReason",
+                           std::abs(net_error));
 }
 
 void HostResolverImpl::SetDnsClient(std::unique_ptr<DnsClient> dns_client) {
@@ -2612,6 +2633,7 @@ void HostResolverImpl::SetDnsClient(std::unique_ptr<DnsClient> dns_client) {
       num_dns_failures_ < kMaximumDnsFailures) {
     DnsConfig dns_config;
     NetworkChangeNotifier::GetDnsConfig(&dns_config);
+    dns_config.dns_over_https_servers = dns_over_https_servers_;
     dns_client_->SetConfig(dns_config);
     num_dns_failures_ = 0;
     if (dns_client_->GetConfig())
@@ -2619,36 +2641,6 @@ void HostResolverImpl::SetDnsClient(std::unique_ptr<DnsClient> dns_client) {
   }
 
   AbortDnsTasks();
-}
-
-void HostResolverImpl::InitializePersistence(
-    const PersistCallback& persist_callback,
-    std::unique_ptr<const base::Value> old_data) {
-  DCHECK(!persist_initialized_);
-  persist_callback_ = persist_callback;
-  persist_initialized_ = true;
-  if (old_data)
-    ApplyPersistentData(std::move(old_data));
-}
-
-void HostResolverImpl::ApplyPersistentData(
-    std::unique_ptr<const base::Value> data) {}
-
-std::unique_ptr<const base::Value> HostResolverImpl::GetPersistentData() {
-  return std::unique_ptr<const base::Value>();
-}
-
-void HostResolverImpl::SchedulePersist() {
-  if (!persist_initialized_ || persist_timer_.IsRunning())
-    return;
-  persist_timer_.Start(
-      FROM_HERE, base::TimeDelta::FromSeconds(kPersistDelaySec),
-      base::Bind(&HostResolverImpl::DoPersist, weak_ptr_factory_.GetWeakPtr()));
-}
-
-void HostResolverImpl::DoPersist() {
-  DCHECK(persist_initialized_);
-  persist_callback_.Run(GetPersistentData());
 }
 
 HostResolverImpl::RequestImpl::~RequestImpl() {

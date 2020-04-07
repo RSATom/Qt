@@ -31,7 +31,7 @@ Individual services are structured like so:
 //services/foo/                   <-- Implementation code, may have subdirs.
               /public/
                      /cpp/        <-- C++ client libraries (optional)
-                     /interfaces/ <-- Mojom interfaces
+                     /mojom/      <-- Mojom interfaces
 ```
 
 ## Dependencies
@@ -55,7 +55,7 @@ differently, e.g. by combining them into a single package.
 
 [Servicification Homepage](https://sites.google.com/a/chromium.org/dev/servicification)
 
-[Servicification Strategies](docs/servicification.md)
+[Servicification Strategies](/docs/servicification.md)
 
 ## Relationship To Other Top-Level Directories
 
@@ -80,5 +80,5 @@ Please start a thread on [services-dev@chromium.org](https://groups.google.com/a
 if you want to introduce a new service.
 
 If you are servicifying existing Chromium code: Please first read the
-[servicification strategies documentation](docs/servicification.md), which
+[servicification strategies documentation](/docs/servicification.md), which
 contains information that will hopefully make your task easier.

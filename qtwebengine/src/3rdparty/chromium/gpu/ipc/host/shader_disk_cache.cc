@@ -4,11 +4,15 @@
 
 #include "gpu/ipc/host/shader_disk_cache.h"
 
+#include "base/command_line.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
-#include "base/single_thread_task_runner.h"
+#include "base/strings/string_number_conversions.h"
+#include "base/sys_info.h"
 #include "base/threading/thread_checker.h"
+#include "build/build_config.h"
 #include "gpu/command_buffer/common/constants.h"
+#include "gpu/config/gpu_preferences.h"
+#include "gpu/config/gpu_switches.h"
 #include "net/base/cache_type.h"
 #include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
@@ -19,6 +23,22 @@ namespace {
 
 static const base::FilePath::CharType kGpuCachePath[] =
     FILE_PATH_LITERAL("GPUCache");
+
+#if !defined(OS_ANDROID)
+size_t GetCustomCacheSizeBytesIfExists(base::StringPiece switch_string) {
+  const base::CommandLine& process_command_line =
+      *base::CommandLine::ForCurrentProcess();
+  size_t cache_size;
+  if (process_command_line.HasSwitch(switch_string)) {
+    if (base::StringToSizeT(
+            process_command_line.GetSwitchValueASCII(switch_string),
+            &cache_size)) {
+      return cache_size * 1024;  // Bytes
+    }
+  }
+  return 0;
+}
+#endif
 
 }  // namespace
 
@@ -167,14 +187,14 @@ void ShaderDiskCacheEntry::Cache() {
 
   // The Entry* passed to the cache must stay alive even if this class is
   // deleted, so store it in the callback.
-  auto entry = base::MakeUnique<disk_cache::Entry*>(nullptr);
+  auto entry = std::make_unique<disk_cache::Entry*>(nullptr);
   disk_cache::Entry** closure_owned_entry_ptr = entry.get();
   auto callback = base::Bind(&OnEntryOpenComplete<ShaderDiskCacheEntry>,
                              weak_ptr_factory_.GetWeakPtr(),
                              base::Passed(std::move(entry)));
 
-  int rv =
-      cache_->backend()->OpenEntry(key_, closure_owned_entry_ptr, callback);
+  int rv = cache_->backend()->OpenEntry(key_, net::HIGHEST,
+                                        closure_owned_entry_ptr, callback);
 
   if (rv != net::ERR_IO_PENDING) {
     entry_ = *closure_owned_entry_ptr;
@@ -217,14 +237,14 @@ int ShaderDiskCacheEntry::OpenCallback(int rv) {
 
   // The Entry* passed to the cache must stay alive even if this class is
   // deleted, so store it in the callback.
-  auto entry = base::MakeUnique<disk_cache::Entry*>(nullptr);
+  auto entry = std::make_unique<disk_cache::Entry*>(nullptr);
   disk_cache::Entry** closure_owned_entry_ptr = entry.get();
   auto callback = base::Bind(&OnEntryOpenComplete<ShaderDiskCacheEntry>,
                              weak_ptr_factory_.GetWeakPtr(),
                              base::Passed(std::move(entry)));
 
-  int create_rv =
-      cache_->backend()->CreateEntry(key_, closure_owned_entry_ptr, callback);
+  int create_rv = cache_->backend()->CreateEntry(
+      key_, net::HIGHEST, closure_owned_entry_ptr, callback);
 
   if (create_rv != net::ERR_IO_PENDING)
     entry_ = *closure_owned_entry_ptr;
@@ -309,7 +329,7 @@ int ShaderDiskReadHelper::OpenNextEntry() {
 
   // The Entry* passed to the cache must stay alive even if this class is
   // deleted, so store it in the callback.
-  auto entry = base::MakeUnique<disk_cache::Entry*>(nullptr);
+  auto entry = std::make_unique<disk_cache::Entry*>(nullptr);
   disk_cache::Entry** closure_owned_entry_ptr = entry.get();
   auto callback = base::Bind(&OnEntryOpenComplete<ShaderDiskReadHelper>,
                              weak_ptr_factory_.GetWeakPtr(),
@@ -418,11 +438,9 @@ void ShaderClearHelper::DoClearShaderCache(int rv) {
 ////////////////////////////////////////////////////////////////////////////////
 // ShaderCacheFactory
 
-ShaderCacheFactory::ShaderCacheFactory(
-    scoped_refptr<base::SingleThreadTaskRunner> cache_task_runner)
-    : cache_task_runner_(std::move(cache_task_runner)) {}
+ShaderCacheFactory::ShaderCacheFactory() = default;
 
-ShaderCacheFactory::~ShaderCacheFactory() {}
+ShaderCacheFactory::~ShaderCacheFactory() = default;
 
 void ShaderCacheFactory::SetCacheInfo(int32_t client_id,
                                       const base::FilePath& path) {
@@ -451,7 +469,7 @@ scoped_refptr<ShaderDiskCache> ShaderCacheFactory::GetByPath(
     return iter->second;
 
   ShaderDiskCache* cache = new ShaderDiskCache(this, path);
-  cache->Init(cache_task_runner_);
+  cache->Init();
   return cache;
 }
 
@@ -473,7 +491,7 @@ void ShaderCacheFactory::ClearByPath(const base::FilePath& path,
   DCHECK(CalledOnValidThread());
   DCHECK(!callback.is_null());
 
-  auto helper = base::MakeUnique<ShaderClearHelper>(
+  auto helper = std::make_unique<ShaderClearHelper>(
       this, GetByPath(path), path, delete_begin, delete_end, callback);
 
   // We could receive requests to clear the same path with different
@@ -544,8 +562,7 @@ ShaderDiskCache::~ShaderDiskCache() {
   factory_->RemoveFromCache(cache_path_);
 }
 
-void ShaderDiskCache::Init(
-    scoped_refptr<base::SingleThreadTaskRunner> cache_task_runner) {
+void ShaderDiskCache::Init() {
   if (is_initialized_) {
     NOTREACHED();  // can't initialize disk cache twice.
     return;
@@ -554,8 +571,7 @@ void ShaderDiskCache::Init(
 
   int rv = disk_cache::CreateCacheBackend(
       net::SHADER_CACHE, net::CACHE_BACKEND_DEFAULT,
-      cache_path_.Append(kGpuCachePath),
-      gpu::kDefaultMaxProgramCacheMemoryBytes, true, cache_task_runner, NULL,
+      cache_path_.Append(kGpuCachePath), CacheSizeBytes(), true, nullptr,
       &backend_, base::Bind(&ShaderDiskCache::CacheCreatedCallback, this));
 
   if (rv == net::OK)
@@ -566,7 +582,7 @@ void ShaderDiskCache::Cache(const std::string& key, const std::string& shader) {
   if (!cache_available_)
     return;
 
-  auto shim = base::MakeUnique<ShaderDiskCacheEntry>(this, key, shader);
+  auto shim = std::make_unique<ShaderDiskCacheEntry>(this, key, shader);
   shim->Cache();
   auto* raw_ptr = shim.get();
   entries_.insert(std::make_pair(raw_ptr, std::move(shim)));
@@ -605,7 +621,7 @@ void ShaderDiskCache::CacheCreatedCallback(int rv) {
     return;
   }
   helper_ =
-      base::MakeUnique<ShaderDiskReadHelper>(this, shader_loaded_callback_);
+      std::make_unique<ShaderDiskReadHelper>(this, shader_loaded_callback_);
   helper_->LoadCache();
 }
 
@@ -635,6 +651,22 @@ int ShaderDiskCache::SetCacheCompleteCallback(
   }
   cache_complete_callback_ = callback;
   return net::ERR_IO_PENDING;
+}
+
+// static
+size_t ShaderDiskCache::CacheSizeBytes() {
+#if !defined(OS_ANDROID)
+  size_t custom_cache_size =
+      GetCustomCacheSizeBytesIfExists(switches::kShaderDiskCacheSizeKB);
+  if (custom_cache_size)
+    return custom_cache_size;
+  return kDefaultMaxProgramCacheMemoryBytes;
+#else   // !defined(OS_ANDROID)
+  if (!base::SysInfo::IsLowEndDevice())
+    return kDefaultMaxProgramCacheMemoryBytes;
+  else
+    return kLowEndMaxProgramCacheMemoryBytes;
+#endif  // !defined(OS_ANDROID)
 }
 
 }  // namespace gpu

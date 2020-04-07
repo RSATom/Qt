@@ -2,7 +2,9 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-component("color") {
+import("//build/config/jumbo.gni")
+
+jumbo_component("color") {
   output_name = "gfx_ipc_color"
 
   sources = [
@@ -17,6 +19,6 @@ component("color") {
   public_deps = [
     "//base",
     "//ipc",
-    "//ui/gfx:gfx",
+    "//ui/gfx:color_space",
   ]
 }

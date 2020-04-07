@@ -16,9 +16,11 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/memory_mapped_file.h"
+#include "base/json/json_file_value_serializer.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
 #include "base/strings/string_util.h"
+#include "base/values.h"
 #include "components/crx_file/id_util.h"
 #include "components/data_use_measurement/core/data_use_user_data.h"
 #include "components/update_client/component.h"
@@ -30,41 +32,19 @@
 #include "net/base/load_flags.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
 #include "net/url_request/url_fetcher.h"
-#include "net/url_request/url_request_context_getter.h"
 #include "net/url_request/url_request_status.h"
+#include "services/network/public/cpp/resource_request.h"
+#include "services/network/public/cpp/simple_url_loader.h"
 #include "url/gurl.h"
 
 namespace update_client {
 
-namespace {
-
-// Produces an extension-like friendly id.
-std::string HexStringToID(const std::string& hexstr) {
-  std::string id;
-  for (size_t i = 0; i < hexstr.size(); ++i) {
-    int val = 0;
-    if (base::HexStringToInt(
-            base::StringPiece(hexstr.begin() + i, hexstr.begin() + i + 1),
-            &val)) {
-      id.append(1, val + 'a');
-    } else {
-      id.append(1, 'a');
-    }
-  }
-
-  DCHECK(crx_file::id_util::IdIsValid(id));
-
-  return id;
-}
-
-}  // namespace
-
-
-std::unique_ptr<net::URLFetcher> SendProtocolRequest(
+std::unique_ptr<network::SimpleURLLoader> SendProtocolRequest(
     const GURL& url,
+    const std::map<std::string, std::string>& protocol_request_extra_headers,
     const std::string& protocol_request,
-    net::URLFetcherDelegate* url_fetcher_delegate,
-    net::URLRequestContextGetter* url_request_context_getter) {
+    network::SimpleURLLoader::BodyAsStringCallback callback,
+    scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory) {
   net::NetworkTrafficAnnotationTag traffic_annotation =
       net::DefineNetworkTrafficAnnotation("component_updater_utils", R"(
         semantics {
@@ -84,7 +64,7 @@ std::unique_ptr<net::URLFetcher> SendProtocolRequest(
           destination: GOOGLE_OWNED_SERVICE
         }
         policy {
-          cookies_allowed: false
+          cookies_allowed: NO
           setting: "This feature cannot be disabled."
           chrome_policy {
             ComponentUpdatesEnabled {
@@ -93,22 +73,26 @@ std::unique_ptr<net::URLFetcher> SendProtocolRequest(
             }
           }
         })");
-  std::unique_ptr<net::URLFetcher> url_fetcher = net::URLFetcher::Create(
-      0, url, net::URLFetcher::POST, url_fetcher_delegate, traffic_annotation);
-  if (!url_fetcher.get())
-    return url_fetcher;
+  // Create and initialize URL loader.
+  auto resource_request = std::make_unique<network::ResourceRequest>();
+  resource_request->url = url;
+  resource_request->method = "POST";
+  resource_request->load_flags = net::LOAD_DO_NOT_SEND_COOKIES |
+                                 net::LOAD_DO_NOT_SAVE_COOKIES |
+                                 net::LOAD_DISABLE_CACHE;
+  for (const auto& header : protocol_request_extra_headers)
+    resource_request->headers.SetHeader(header.first, header.second);
 
-  data_use_measurement::DataUseUserData::AttachToFetcher(
-      url_fetcher.get(), data_use_measurement::DataUseUserData::UPDATE_CLIENT);
-  url_fetcher->SetUploadData("application/xml", protocol_request);
-  url_fetcher->SetRequestContext(url_request_context_getter);
-  url_fetcher->SetLoadFlags(net::LOAD_DO_NOT_SEND_COOKIES |
-                            net::LOAD_DO_NOT_SAVE_COOKIES |
-                            net::LOAD_DISABLE_CACHE);
-  url_fetcher->SetAutomaticallyRetryOn5xx(false);
-  url_fetcher->Start();
-
-  return url_fetcher;
+  auto simple_loader = network::SimpleURLLoader::Create(
+      std::move(resource_request), traffic_annotation);
+  const int max_retry_on_network_change = 3;
+  simple_loader->SetRetryOptions(
+      max_retry_on_network_change,
+      network::SimpleURLLoader::RETRY_ON_NETWORK_CHANGE);
+  simple_loader->AttachStringForUpload(protocol_request, "application/xml");
+  simple_loader->DownloadToStringOfUnboundedSizeUntilCrashAndDie(
+      url_loader_factory.get(), std::move(callback));
+  return simple_loader;
 }
 
 bool FetchSuccess(const net::URLFetcher& fetcher) {
@@ -163,10 +147,10 @@ bool DeleteFileAndEmptyParentDirectory(const base::FilePath& filepath) {
 }
 
 std::string GetCrxComponentID(const CrxComponent& component) {
-  const size_t kCrxIdSize = 16;
-  CHECK_GE(component.pk_hash.size(), kCrxIdSize);
-  return HexStringToID(base::ToLowerASCII(
-      base::HexEncode(&component.pk_hash[0], kCrxIdSize)));
+  const std::string result = crx_file::id_util::GenerateIdFromHash(
+      &component.pk_hash[0], component.pk_hash.size());
+  DCHECK(crx_file::id_util::IdIsValid(result));
+  return result;
 }
 
 bool VerifyFileHash256(const base::FilePath& filepath,
@@ -246,9 +230,31 @@ void RemoveUnsecureUrls(std::vector<GURL>* urls) {
               urls->end());
 }
 
-CrxInstaller::Result InstallFunctionWrapper(base::Callback<bool()> callback) {
-  return CrxInstaller::Result(callback.Run() ? InstallError::NONE
-                                             : InstallError::GENERIC_ERROR);
+CrxInstaller::Result InstallFunctionWrapper(
+    base::OnceCallback<bool()> callback) {
+  return CrxInstaller::Result(std::move(callback).Run()
+                                  ? InstallError::NONE
+                                  : InstallError::GENERIC_ERROR);
+}
+
+// TODO(cpu): add a specific attribute check to a component json that the
+// extension unpacker will reject, so that a component cannot be installed
+// as an extension.
+std::unique_ptr<base::DictionaryValue> ReadManifest(
+    const base::FilePath& unpack_path) {
+  base::FilePath manifest =
+      unpack_path.Append(FILE_PATH_LITERAL("manifest.json"));
+  if (!base::PathExists(manifest))
+    return std::unique_ptr<base::DictionaryValue>();
+  JSONFileValueDeserializer deserializer(manifest);
+  std::string error;
+  std::unique_ptr<base::Value> root = deserializer.Deserialize(nullptr, &error);
+  if (!root)
+    return std::unique_ptr<base::DictionaryValue>();
+  if (!root->is_dict())
+    return std::unique_ptr<base::DictionaryValue>();
+  return std::unique_ptr<base::DictionaryValue>(
+      static_cast<base::DictionaryValue*>(root.release()));
 }
 
 }  // namespace update_client

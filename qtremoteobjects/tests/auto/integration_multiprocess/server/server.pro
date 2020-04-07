@@ -7,7 +7,8 @@ DESTDIR = ./
 CONFIG   += c++11
 CONFIG   -= app_bundle
 
-REPC_SOURCE = $$PWD/../MyInterface.rep
+REPC_SOURCE = $$PWD/../MyInterface.rep \
+              $$PWD/../PodInterface.rep
 
 SOURCES += main.cpp \
     mytestserver.cpp

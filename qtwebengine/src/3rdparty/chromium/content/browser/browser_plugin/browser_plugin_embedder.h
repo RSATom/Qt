@@ -18,7 +18,7 @@
 #include "base/memory/weak_ptr.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_observer.h"
-#include "third_party/WebKit/public/platform/WebDragOperation.h"
+#include "third_party/blink/public/platform/web_drag_operation.h"
 
 struct BrowserPluginHostMsg_Attach_Params;
 
@@ -42,8 +42,11 @@ class CONTENT_EXPORT BrowserPluginEmbedder : public WebContentsObserver {
                          RenderFrameHost* render_frame_host) override;
 
   // Sends a 'dragend' message to the guest that started the drag.
-  void DragSourceEndedAt(int client_x, int client_y, int screen_x,
-      int screen_y, blink::WebDragOperation operation);
+  void DragSourceEndedAt(float client_x,
+                         float client_y,
+                         float screen_x,
+                         float screen_y,
+                         blink::WebDragOperation operation);
 
   // Indicates that a drag operation has entered into the bounds of a given
   // |guest|. Returns whether the |guest| also started the operation.
@@ -51,9 +54,6 @@ class CONTENT_EXPORT BrowserPluginEmbedder : public WebContentsObserver {
 
   // Indicates that a drag operation has left the bounds of a given |guest|.
   void DragLeftGuest(BrowserPluginGuest* guest);
-
-  // Called when the screen info has changed.
-  void ScreenInfoChanged();
 
   // Closes modal dialogs in all of the guests.
   void CancelGuestDialogs();
@@ -80,8 +80,8 @@ class CONTENT_EXPORT BrowserPluginEmbedder : public WebContentsObserver {
   BrowserPluginGuest* GetFullPageGuest();
 
   // Polls all guests for this web contents and returns true if any of them
-  // were audible recently.
-  bool WereAnyGuestsRecentlyAudible();
+  // are currently audible.
+  bool AreAnyGuestsCurrentlyAudible();
 
  private:
   explicit BrowserPluginEmbedder(WebContentsImpl* web_contents);
@@ -92,16 +92,13 @@ class CONTENT_EXPORT BrowserPluginEmbedder : public WebContentsObserver {
 
   static bool DidSendScreenRectsCallback(WebContents* guest_web_contents);
 
-  // Notifies a guest that the embedder's screen info has changed.
-  static bool NotifyScreenInfoChanged(WebContents* guest_web_contents);
-
   // Closes modal dialogs in |guest_web_contents|.
   static bool CancelDialogs(WebContents* guest_web_contents);
 
   static bool UnlockMouseIfNecessaryCallback(bool* mouse_unlocked,
                                              WebContents* guest);
 
-  static bool GuestRecentlyAudibleCallback(WebContents* guest);
+  static bool GuestCurrentlyAudibleCallback(WebContents* guest);
 
   // Message handlers.
 

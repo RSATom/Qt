@@ -5,7 +5,7 @@
 ## Copyright (C) 2016 The Qt Company Ltd.
 ## Contact: http://www.qt.io/licensing/
 ##
-## This file is part of the test suite of the Qt Toolkit.
+## This file is part of the provisioning scripts of the Qt Toolkit.
 ##
 ## $QT_BEGIN_LICENSE:LGPL21$
 ## Commercial License Usage
@@ -37,8 +37,9 @@
 
 # CMake is needed for autotests that verify that Qt can be built with CMake
 
-# shellcheck source=InstallFromCompressedFileFromURL.sh
+# shellcheck source=../unix/InstallFromCompressedFileFromURL.sh
 source "${BASH_SOURCE%/*}/../unix/InstallFromCompressedFileFromURL.sh"
+# shellcheck source=../unix/SetEnvVar.sh
 source "${BASH_SOURCE%/*}/../unix/SetEnvVar.sh"
 
 version="3.6.2"
@@ -51,3 +52,6 @@ appPrefix="cmake-$version-Linux-x86_64"
 InstallFromCompressedFileFromURL "$PrimaryUrl" "$AltUrl" "$SHA1" "$targetFolder" "$appPrefix"
 
 SetEnvVar "PATH" "$targetFolder/bin:\$PATH"
+
+echo "CMake = $version" >> ~/versions.txt
+

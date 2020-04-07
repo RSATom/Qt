@@ -49,7 +49,7 @@ void tst_QAxScript::scriptReturnValue()
     QAxScript *script = scriptManager.load(QLatin1String(scriptCode),
                                            QStringLiteral("Test"),
                                            QStringLiteral("JScript"));
-    QVERIFY2(script, "Unable to load script (CoInitialize() called?)");
+    QVERIFY2(script, "Unable to load script (CoInitializeEx() called?)");
     const QVariant result = script->call("foo()");
     QCOMPARE(result, QVariant(QStringLiteral("test")));
 }

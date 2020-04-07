@@ -14,27 +14,43 @@
 
 namespace gpu {
 
-base::SharedMemoryHandle BufferBacking::shared_memory_handle() const {
-  return base::SharedMemoryHandle();
+const base::UnsafeSharedMemoryRegion& BufferBacking::shared_memory_region()
+    const {
+  static const base::UnsafeSharedMemoryRegion kInvalidRegion;
+  return kInvalidRegion;
+}
+
+base::UnguessableToken BufferBacking::GetGUID() const {
+  return base::UnguessableToken();
 }
 
 SharedMemoryBufferBacking::SharedMemoryBufferBacking(
-    std::unique_ptr<base::SharedMemory> shared_memory,
-    size_t size)
-    : shared_memory_(std::move(shared_memory)), size_(size) {}
+    base::UnsafeSharedMemoryRegion shared_memory_region,
+    base::WritableSharedMemoryMapping shared_memory_mapping)
+    : shared_memory_region_(std::move(shared_memory_region)),
+      shared_memory_mapping_(std::move(shared_memory_mapping)) {
+  DCHECK_EQ(shared_memory_region_.GetGUID(), shared_memory_mapping_.guid());
+  DCHECK_LE(shared_memory_mapping_.size(), static_cast<size_t>(UINT32_MAX));
+}
 
-SharedMemoryBufferBacking::~SharedMemoryBufferBacking() {}
+SharedMemoryBufferBacking::~SharedMemoryBufferBacking() = default;
 
-base::SharedMemoryHandle SharedMemoryBufferBacking::shared_memory_handle()
-    const {
-  return shared_memory_->handle();
+const base::UnsafeSharedMemoryRegion&
+SharedMemoryBufferBacking::shared_memory_region() const {
+  return shared_memory_region_;
+}
+
+base::UnguessableToken SharedMemoryBufferBacking::GetGUID() const {
+  return shared_memory_region_.GetGUID();
 }
 
 void* SharedMemoryBufferBacking::GetMemory() const {
-  return shared_memory_->memory();
+  return shared_memory_mapping_.memory();
 }
 
-size_t SharedMemoryBufferBacking::GetSize() const { return size_; }
+uint32_t SharedMemoryBufferBacking::GetSize() const {
+  return static_cast<uint32_t>(shared_memory_mapping_.size());
+}
 
 Buffer::Buffer(std::unique_ptr<BufferBacking> backing)
     : backing_(std::move(backing)),
@@ -43,7 +59,7 @@ Buffer::Buffer(std::unique_ptr<BufferBacking> backing)
   DCHECK(memory_) << "The memory must be mapped to create a Buffer";
 }
 
-Buffer::~Buffer() {}
+Buffer::~Buffer() = default;
 
 void* Buffer::GetDataAddress(uint32_t data_offset, uint32_t data_size) const {
   base::CheckedNumeric<uint32_t> end = data_offset;

@@ -17,36 +17,36 @@
 #include "third_party/libjingle_xmpp/xmpp/xmppclient.h"
 #include "third_party/libjingle_xmpp/xmpp/xmppclientsettings.h"
 #include "third_party/libjingle_xmpp/xmpp/xmppengine.h"
-#include "webrtc/rtc_base/firewallsocketserver.h"
-#include "webrtc/rtc_base/logging.h"
-#include "webrtc/rtc_base/physicalsocketserver.h"
+#include "third_party/webrtc/rtc_base/firewallsocketserver.h"
+#include "third_party/webrtc/rtc_base/physicalsocketserver.h"
+#include "third_party/webrtc_overrides/rtc_base/logging.h"
 
 namespace notifier {
 
 Login::Delegate::~Delegate() {}
 
-Login::Login(Delegate* delegate,
-             const buzz::XmppClientSettings& user_settings,
-             const scoped_refptr<net::URLRequestContextGetter>&
-                request_context_getter,
-             const ServerList& servers,
-             bool try_ssltcp_first,
-             const std::string& auth_mechanism)
+Login::Login(
+    Delegate* delegate,
+    const buzz::XmppClientSettings& user_settings,
+    const scoped_refptr<net::URLRequestContextGetter>& request_context_getter,
+    const ServerList& servers,
+    bool try_ssltcp_first,
+    const std::string& auth_mechanism,
+    const net::NetworkTrafficAnnotationTag& traffic_annotation)
     : delegate_(delegate),
       login_settings_(user_settings,
                       request_context_getter,
                       servers,
                       try_ssltcp_first,
-                      auth_mechanism) {
-  net::NetworkChangeNotifier::AddIPAddressObserver(this);
-  net::NetworkChangeNotifier::AddConnectionTypeObserver(this);
+                      auth_mechanism,
+                      traffic_annotation) {
+  net::NetworkChangeNotifier::AddNetworkChangeObserver(this);
   // TODO(akalin): Add as DNSObserver once bug 130610 is fixed.
   ResetReconnectState();
 }
 
 Login::~Login() {
-  net::NetworkChangeNotifier::RemoveConnectionTypeObserver(this);
-  net::NetworkChangeNotifier::RemoveIPAddressObserver(this);
+  net::NetworkChangeNotifier::RemoveNetworkChangeObserver(this);
 }
 
 void Login::StartConnection() {
@@ -90,14 +90,11 @@ void Login::OnSettingsExhausted() {
   delegate_->OnTransientDisconnection();
 }
 
-void Login::OnIPAddressChanged() {
-  DVLOG(1) << "IP address changed";
-  OnNetworkEvent();
-}
+void Login::OnNetworkChanged(net::NetworkChangeNotifier::ConnectionType type) {
+  if (type == net::NetworkChangeNotifier::CONNECTION_NONE)
+    return;
 
-void Login::OnConnectionTypeChanged(
-    net::NetworkChangeNotifier::ConnectionType type) {
-  DVLOG(1) << "Connection type changed";
+  DVLOG(1) << "Network changed";
   OnNetworkEvent();
 }
 

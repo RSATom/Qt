@@ -58,6 +58,7 @@ const int kRestrictedPorts[] = {
     143,     // imap2
     179,     // BGP
     389,     // ldap
+    427,     // SLP (Also used by Apple Filing Protocol)
     465,     // smtp+ssl
     512,     // print / exec
     513,     // login
@@ -68,6 +69,7 @@ const int kRestrictedPorts[] = {
     531,     // chat
     532,     // netnews
     540,     // uucp
+    548,     // AFP (Apple Filing Protocol)
     556,     // remotefs
     563,     // nntp+ssl
     587,     // stmp?
@@ -90,10 +92,9 @@ const int kRestrictedPorts[] = {
              // KURL::port())
 };
 
-// FTP overrides the following restricted ports.
+// FTP overrides the following restricted port.
 const int kAllowedFtpPorts[] = {
     21,  // ftp data
-    22,  // ssh
 };
 
 base::LazyInstance<std::multiset<int>>::Leaky g_explicitly_allowed_ports =

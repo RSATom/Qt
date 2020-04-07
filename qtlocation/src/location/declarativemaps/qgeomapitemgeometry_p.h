@@ -63,7 +63,7 @@ QT_BEGIN_NAMESPACE
 class QSGGeometry;
 class QGeoMap;
 
-class QGeoMapItemGeometry
+class Q_LOCATION_PRIVATE_EXPORT QGeoMapItemGeometry
 {
 public:
     QGeoMapItemGeometry();
@@ -91,7 +91,11 @@ public:
 
     inline const QGeoCoordinate &origin() const { return srcOrigin_; }
 
-    inline bool contains(const QPointF &screenPoint) const {
+    QPainterPath screenOutline() const {
+        return screenOutline_;
+    }
+
+    virtual bool contains(const QPointF &screenPoint) const {
         return screenOutline_.contains(screenPoint);
     }
 
@@ -124,6 +128,9 @@ public:
 
     static QRectF translateToCommonOrigin(const QList<QGeoMapItemGeometry *> &geoms);
 
+private:
+    QGeoMapItemGeometry(const QGeoMapItemGeometry &other); // Or else it may crash on copy
+    QGeoMapItemGeometry &operator= (const QGeoMapItemGeometry & other); // Or else it may crash on copy
 
 protected:
     bool sourceDirty_;

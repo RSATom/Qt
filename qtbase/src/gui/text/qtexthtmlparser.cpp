@@ -40,7 +40,6 @@
 #include "qtexthtmlparser_p.h"
 
 #include <qbytearray.h>
-#include <qtextcodec.h>
 #include <qstack.h>
 #include <qdebug.h>
 #include <qthread.h>
@@ -447,13 +446,6 @@ static const QTextHtmlElement elements[Html_NumElements]= {
     { "ul",         Html_ul,         QTextHtmlElement::DisplayBlock },
     { "var",        Html_var,        QTextHtmlElement::DisplayInline },
 };
-
-#if defined(Q_CC_MSVC) && _MSC_VER < 1600
-static bool operator<(const QTextHtmlElement &e1, const QTextHtmlElement &e2)
-{
-    return QLatin1String(e1.name) < QLatin1String(e2.name);
-}
-#endif
 
 static bool operator<(const QString &str, const QTextHtmlElement &e)
 {
@@ -1708,14 +1700,14 @@ public:
     inline QTextHtmlStyleSelector(const QTextHtmlParser *parser)
         : parser(parser) { nameCaseSensitivity = Qt::CaseInsensitive; }
 
-    virtual QStringList nodeNames(NodePtr node) const Q_DECL_OVERRIDE;
-    virtual QString attribute(NodePtr node, const QString &name) const Q_DECL_OVERRIDE;
-    virtual bool hasAttributes(NodePtr node) const Q_DECL_OVERRIDE;
-    virtual bool isNullNode(NodePtr node) const Q_DECL_OVERRIDE;
-    virtual NodePtr parentNode(NodePtr node) const Q_DECL_OVERRIDE;
-    virtual NodePtr previousSiblingNode(NodePtr node) const Q_DECL_OVERRIDE;
-    virtual NodePtr duplicateNode(NodePtr node) const Q_DECL_OVERRIDE;
-    virtual void freeNode(NodePtr node) const Q_DECL_OVERRIDE;
+    virtual QStringList nodeNames(NodePtr node) const override;
+    virtual QString attribute(NodePtr node, const QString &name) const override;
+    virtual bool hasAttributes(NodePtr node) const override;
+    virtual bool isNullNode(NodePtr node) const override;
+    virtual NodePtr parentNode(NodePtr node) const override;
+    virtual NodePtr previousSiblingNode(NodePtr node) const override;
+    virtual NodePtr duplicateNode(NodePtr node) const override;
+    virtual void freeNode(NodePtr node) const override;
 
 private:
     const QTextHtmlParser *parser;

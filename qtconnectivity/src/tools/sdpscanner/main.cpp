@@ -365,21 +365,21 @@ int main(int argc, char **argv)
 
     uint32_t attributeRange = 0x0000ffff; //all attributes
     sdp_list_t *attributes;
-    attributes = sdp_list_append(0, &attributeRange);
+    attributes = sdp_list_append(nullptr, &attributeRange);
 
     sdp_list_t *sdpResults, *sdpIter;
-    sdp_list_t *totalResults = NULL;
+    sdp_list_t *totalResults = nullptr;
     sdp_list_t* serviceFilter;
 
     for (uint i = 0; i < uuids.size(); ++i) {
-        serviceFilter = sdp_list_append(0, &uuids[i]);
+        serviceFilter = sdp_list_append(nullptr, &uuids[i]);
         result = sdp_service_search_attr_req(session, serviceFilter,
                                          SDP_ATTR_REQ_RANGE,
                                          attributes, &sdpResults);
-        sdp_list_free(serviceFilter, 0);
+        sdp_list_free(serviceFilter, nullptr);
         if (result != 0) {
             fprintf(stderr, "sdp_service_search_attr_req failed\n");
-            sdp_list_free(attributes, 0);
+            sdp_list_free(attributes, nullptr);
             sdp_close(session);
             return RETURN_SDP_ERROR;
         }
@@ -398,7 +398,7 @@ int main(int argc, char **argv)
         while (sdpIter->next) // skip to end of list
             sdpIter = sdpIter->next;
     }
-    sdp_list_free(attributes, 0);
+    sdp_list_free(attributes, nullptr);
 
     // start XML generation from the front
     sdpResults = totalResults;

@@ -301,11 +301,8 @@
 #define glDrawArraysInstancedANGLE GLES2_GET_FUN(DrawArraysInstancedANGLE)
 #define glDrawElementsInstancedANGLE GLES2_GET_FUN(DrawElementsInstancedANGLE)
 #define glVertexAttribDivisorANGLE GLES2_GET_FUN(VertexAttribDivisorANGLE)
-#define glGenMailboxCHROMIUM GLES2_GET_FUN(GenMailboxCHROMIUM)
-#define glProduceTextureCHROMIUM GLES2_GET_FUN(ProduceTextureCHROMIUM)
 #define glProduceTextureDirectCHROMIUM \
   GLES2_GET_FUN(ProduceTextureDirectCHROMIUM)
-#define glConsumeTextureCHROMIUM GLES2_GET_FUN(ConsumeTextureCHROMIUM)
 #define glCreateAndConsumeTextureCHROMIUM \
   GLES2_GET_FUN(CreateAndConsumeTextureCHROMIUM)
 #define glBindUniformLocationCHROMIUM GLES2_GET_FUN(BindUniformLocationCHROMIUM)
@@ -317,12 +314,13 @@
 #define glTraceEndCHROMIUM GLES2_GET_FUN(TraceEndCHROMIUM)
 #define glDiscardFramebufferEXT GLES2_GET_FUN(DiscardFramebufferEXT)
 #define glLoseContextCHROMIUM GLES2_GET_FUN(LoseContextCHROMIUM)
-#define glInsertFenceSyncCHROMIUM GLES2_GET_FUN(InsertFenceSyncCHROMIUM)
 #define glGenSyncTokenCHROMIUM GLES2_GET_FUN(GenSyncTokenCHROMIUM)
 #define glGenUnverifiedSyncTokenCHROMIUM \
   GLES2_GET_FUN(GenUnverifiedSyncTokenCHROMIUM)
 #define glVerifySyncTokensCHROMIUM GLES2_GET_FUN(VerifySyncTokensCHROMIUM)
 #define glWaitSyncTokenCHROMIUM GLES2_GET_FUN(WaitSyncTokenCHROMIUM)
+#define glUnpremultiplyAndDitherCopyCHROMIUM \
+  GLES2_GET_FUN(UnpremultiplyAndDitherCopyCHROMIUM)
 #define glDrawBuffersEXT GLES2_GET_FUN(DrawBuffersEXT)
 #define glDiscardBackbufferCHROMIUM GLES2_GET_FUN(DiscardBackbufferCHROMIUM)
 #define glScheduleOverlayPlaneCHROMIUM \
@@ -333,7 +331,6 @@
 #define glScheduleCALayerInUseQueryCHROMIUM \
   GLES2_GET_FUN(ScheduleCALayerInUseQueryCHROMIUM)
 #define glCommitOverlayPlanesCHROMIUM GLES2_GET_FUN(CommitOverlayPlanesCHROMIUM)
-#define glSwapInterval GLES2_GET_FUN(SwapInterval)
 #define glFlushDriverCachesCHROMIUM GLES2_GET_FUN(FlushDriverCachesCHROMIUM)
 #define glGetLastFlushIdCHROMIUM GLES2_GET_FUN(GetLastFlushIdCHROMIUM)
 #define glScheduleDCLayerSharedStateCHROMIUM \
@@ -372,8 +369,6 @@
   GLES2_GET_FUN(BindFragmentInputLocationCHROMIUM)
 #define glProgramPathFragmentInputGenCHROMIUM \
   GLES2_GET_FUN(ProgramPathFragmentInputGenCHROMIUM)
-#define glGetBufferSubDataAsyncCHROMIUM \
-  GLES2_GET_FUN(GetBufferSubDataAsyncCHROMIUM)
 #define glCoverageModulationCHROMIUM GLES2_GET_FUN(CoverageModulationCHROMIUM)
 #define glGetGraphicsResetStatusKHR GLES2_GET_FUN(GetGraphicsResetStatusKHR)
 #define glBlendBarrierKHR GLES2_GET_FUN(BlendBarrierKHR)
@@ -397,5 +392,16 @@
   GLES2_GET_FUN(UnlockDiscardableTextureCHROMIUM)
 #define glLockDiscardableTextureCHROMIUM \
   GLES2_GET_FUN(LockDiscardableTextureCHROMIUM)
+#define glTexStorage2DImageCHROMIUM GLES2_GET_FUN(TexStorage2DImageCHROMIUM)
+#define glSetColorSpaceMetadataCHROMIUM \
+  GLES2_GET_FUN(SetColorSpaceMetadataCHROMIUM)
+#define glWindowRectanglesEXT GLES2_GET_FUN(WindowRectanglesEXT)
+#define glCreateGpuFenceCHROMIUM GLES2_GET_FUN(CreateGpuFenceCHROMIUM)
+#define glCreateClientGpuFenceCHROMIUM \
+  GLES2_GET_FUN(CreateClientGpuFenceCHROMIUM)
+#define glWaitGpuFenceCHROMIUM GLES2_GET_FUN(WaitGpuFenceCHROMIUM)
+#define glDestroyGpuFenceCHROMIUM GLES2_GET_FUN(DestroyGpuFenceCHROMIUM)
+#define glInvalidateReadbackBufferShadowDataCHROMIUM \
+  GLES2_GET_FUN(InvalidateReadbackBufferShadowDataCHROMIUM)
 
 #endif  // GPU_GLES2_GL2CHROMIUM_AUTOGEN_H_

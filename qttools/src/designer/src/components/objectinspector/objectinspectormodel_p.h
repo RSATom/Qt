@@ -42,13 +42,12 @@
 
 #include <layoutinfo_p.h>
 
-#include <QtGui/QStandardItemModel>
-#include <QtGui/QIcon>
-#include <QtCore/QModelIndex>
-#include <QtCore/QString>
-#include <QtCore/QList>
-#include <QtCore/QMultiMap>
-#include <QtCore/QPointer>
+#include <QtGui/qstandarditemmodel.h>
+#include <QtGui/qicon.h>
+#include <QtCore/qstring.h>
+#include <QtCore/qlist.h>
+#include <QtCore/qmap.h>
+#include <QtCore/qpointer.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -132,8 +131,8 @@ namespace qdesigner_internal {
         const QModelIndexList indexesOf(QObject *o) const { return m_objectIndexMultiMap.values(o); }
         QObject *objectAt(const QModelIndex &index) const;
 
-        QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const Q_DECL_OVERRIDE;
-        bool setData(const QModelIndex &index, const QVariant &value, int role = Qt::EditRole) Q_DECL_OVERRIDE;
+        QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
+        bool setData(const QModelIndex &index, const QVariant &value, int role = Qt::EditRole) override;
 
     private:
         typedef QMultiMap<QObject *,QModelIndex> ObjectIndexMultiMap;

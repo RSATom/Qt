@@ -47,9 +47,11 @@ QT_CANVAS3D_BEGIN_NAMESPACE
  * \since QtCanvas3D 1.0
  * \inqmlmodule QtCanvas3D
  * \brief Active attribute or uniform information.
+ * \deprecated
  *
- * An uncreatable QML type that contains the information returned from the
- * Context3D::getActiveAttrib() and Context3D::getActiveUniform() calls.
+ * \b{Deprecated in Qt 5.12.} An uncreatable QML type that contains the
+ * information returned from the Context3D::getActiveAttrib() and
+ * Context3D::getActiveUniform() calls.
  *
  * \sa Context3D, Canvas3D
  */
@@ -65,7 +67,7 @@ CanvasActiveInfo::CanvasActiveInfo(int size, CanvasContext::glEnums type,
 
 /*!
  * \qmlproperty string Canvas3DActiveInfo::name
- * Name of the attribute or the uniform.
+ * \b{Deprecated in Qt 5.12.} Name of the attribute or the uniform.
  */
 const QString CanvasActiveInfo::name() const
 {
@@ -74,7 +76,8 @@ const QString CanvasActiveInfo::name() const
 
 /*!
  * \qmlproperty string Canvas3DActiveInfo::size
- * Size of the attribute or the uniform, in units of its type.
+ * \b{Deprecated in Qt 5.12.} Size of the attribute or the uniform, in units of
+ * its type.
  *
  * \sa type
  */
@@ -85,7 +88,7 @@ int CanvasActiveInfo::size() const
 
 /*!
  * \qmlproperty string Canvas3DActiveInfo::type
- * Type of the attribute or the uniform.
+ * \b{Deprecated in Qt 5.12.} Type of the attribute or the uniform.
  */
 CanvasContext::glEnums CanvasActiveInfo::type() const
 {

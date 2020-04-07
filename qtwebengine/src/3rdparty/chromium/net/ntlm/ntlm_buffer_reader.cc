@@ -11,16 +11,12 @@
 namespace net {
 namespace ntlm {
 
-NtlmBufferReader::NtlmBufferReader(base::StringPiece buffer)
-    : buffer_(buffer), cursor_(0) {
-  DCHECK(buffer.data());
-}
+NtlmBufferReader::NtlmBufferReader() {}
 
-NtlmBufferReader::NtlmBufferReader(const uint8_t* ptr, size_t len)
-    : NtlmBufferReader(
-          base::StringPiece(reinterpret_cast<const char*>(ptr), len)) {}
+NtlmBufferReader::NtlmBufferReader(base::span<const uint8_t> buffer)
+    : buffer_(buffer) {}
 
-NtlmBufferReader::~NtlmBufferReader() {}
+NtlmBufferReader::~NtlmBufferReader() = default;
 
 bool NtlmBufferReader::CanRead(size_t len) const {
   return CanReadFrom(GetCursor(), len);
@@ -54,32 +50,159 @@ bool NtlmBufferReader::ReadFlags(NegotiateFlags* flags) {
   return true;
 }
 
-bool NtlmBufferReader::ReadBytes(uint8_t* buffer, size_t len) {
-  if (!CanRead(len))
+bool NtlmBufferReader::ReadBytes(base::span<uint8_t> buffer) {
+  if (!CanRead(buffer.size()))
     return false;
 
-  memcpy(reinterpret_cast<void*>(buffer),
-         reinterpret_cast<const void*>(GetBufferAtCursor()), len);
+  if (buffer.empty())
+    return true;
 
-  AdvanceCursor(len);
+  memcpy(buffer.data(), GetBufferAtCursor(), buffer.size());
+
+  AdvanceCursor(buffer.size());
   return true;
 }
 
 bool NtlmBufferReader::ReadBytesFrom(const SecurityBuffer& sec_buf,
-                                     uint8_t* buffer) {
+                                     base::span<uint8_t> buffer) {
+  if (!CanReadFrom(sec_buf) || buffer.size() < sec_buf.length)
+    return false;
+
+  if (buffer.empty())
+    return true;
+
+  memcpy(buffer.data(), GetBufferPtr() + sec_buf.offset, sec_buf.length);
+
+  return true;
+}
+
+bool NtlmBufferReader::ReadPayloadAsBufferReader(const SecurityBuffer& sec_buf,
+                                                 NtlmBufferReader* reader) {
   if (!CanReadFrom(sec_buf))
     return false;
 
-  memcpy(reinterpret_cast<void*>(buffer),
-         reinterpret_cast<const void*>(GetBufferPtr() + sec_buf.offset),
-         sec_buf.length);
-
+  *reader = NtlmBufferReader(
+      base::make_span(GetBufferPtr() + sec_buf.offset, sec_buf.length));
   return true;
 }
 
 bool NtlmBufferReader::ReadSecurityBuffer(SecurityBuffer* sec_buf) {
   return ReadUInt16(&sec_buf->length) && SkipBytes(sizeof(uint16_t)) &&
          ReadUInt32(&sec_buf->offset);
+}
+
+bool NtlmBufferReader::ReadAvPairHeader(TargetInfoAvId* avid, uint16_t* avlen) {
+  if (!CanRead(kAvPairHeaderLen))
+    return false;
+
+  uint16_t raw_avid;
+  bool result = ReadUInt16(&raw_avid) && ReadUInt16(avlen);
+  DCHECK(result);
+
+  // Don't try and validate the avid because the code only cares about a few
+  // specific ones and it is likely a future version might extend this field.
+  // The implementation can ignore and skip over AV Pairs it doesn't
+  // understand.
+  *avid = static_cast<TargetInfoAvId>(raw_avid);
+
+  return true;
+}
+
+bool NtlmBufferReader::ReadTargetInfo(size_t target_info_len,
+                                      std::vector<AvPair>* av_pairs) {
+  DCHECK(av_pairs->empty());
+
+  // A completely empty target info is allowed.
+  if (target_info_len == 0)
+    return true;
+
+  // If there is any content there has to be at least one terminating header.
+  if (!CanRead(target_info_len) || target_info_len < kAvPairHeaderLen) {
+    return false;
+  }
+
+  size_t target_info_end = GetCursor() + target_info_len;
+  bool saw_eol = false;
+
+  while ((GetCursor() < target_info_end)) {
+    AvPair pair;
+    if (!ReadAvPairHeader(&pair.avid, &pair.avlen))
+      break;
+
+    // Make sure the length wouldn't read outside the buffer.
+    if (!CanRead(pair.avlen))
+      return false;
+
+    // Take a copy of the payload in the AVPair.
+    pair.buffer.assign(GetBufferAtCursor(), GetBufferAtCursor() + pair.avlen);
+    if (pair.avid == TargetInfoAvId::kEol) {
+      // Terminator must have zero length.
+      if (pair.avlen != 0)
+        return false;
+
+      // Break out of the loop once a valid terminator is found. After the
+      // loop it will be validated that the whole target info was consumed.
+      saw_eol = true;
+      break;
+    }
+
+    switch (pair.avid) {
+      case TargetInfoAvId::kFlags:
+        // For flags also populate the flags field so it doesn't
+        // have to be modified through the raw buffer later.
+        if (pair.avlen != sizeof(uint32_t) ||
+            !ReadUInt32(reinterpret_cast<uint32_t*>(&pair.flags)))
+          return false;
+        break;
+      case TargetInfoAvId::kTimestamp:
+        // Populate timestamp so it doesn't need to be read through the
+        // raw buffer later.
+        if (pair.avlen != sizeof(uint64_t) || !ReadUInt64(&pair.timestamp))
+          return false;
+        break;
+      case TargetInfoAvId::kChannelBindings:
+      case TargetInfoAvId::kTargetName:
+        // The server should never send these, and with EPA enabled the client
+        // will add these to the authenticate message. To avoid issues with
+        // duplicates or only one being read, just don't allow them.
+        return false;
+      default:
+        // For all other types, just jump over the payload to the next pair.
+        // If there aren't enough bytes left, then fail.
+        if (!SkipBytes(pair.avlen))
+          return false;
+        break;
+    }
+
+    av_pairs->push_back(std::move(pair));
+  }
+
+  // Fail if the buffer wasn't properly formed. The entire payload should have
+  // been consumed and a terminator found.
+  if ((GetCursor() != target_info_end) || !saw_eol)
+    return false;
+
+  return true;
+}
+
+bool NtlmBufferReader::ReadTargetInfoPayload(std::vector<AvPair>* av_pairs) {
+  DCHECK(av_pairs->empty());
+
+  SecurityBuffer sec_buf;
+
+  // First read the security buffer.
+  if (!ReadSecurityBuffer(&sec_buf))
+    return false;
+
+  NtlmBufferReader payload_reader;
+  if (!ReadPayloadAsBufferReader(sec_buf, &payload_reader))
+    return false;
+
+  if (!payload_reader.ReadTargetInfo(sec_buf.length, av_pairs))
+    return false;
+
+  // |ReadTargetInfo| should have consumed the entire contents.
+  return payload_reader.IsEndOfBuffer();
 }
 
 bool NtlmBufferReader::ReadMessageType(MessageType* message_type) {

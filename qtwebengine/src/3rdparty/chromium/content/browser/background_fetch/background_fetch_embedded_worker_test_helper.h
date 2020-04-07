@@ -50,7 +50,12 @@ class BackgroundFetchEmbeddedWorkerTestHelper
     fetched_event_closure_ = closure;
   }
 
-  const base::Optional<std::string>& last_tag() const { return last_tag_; }
+  const base::Optional<std::string>& last_developer_id() const {
+    return last_developer_id_;
+  }
+  const base::Optional<std::string>& last_unique_id() const {
+    return last_unique_id_;
+  }
   const base::Optional<mojom::BackgroundFetchState>& last_state() const {
     return last_state_;
   }
@@ -62,24 +67,28 @@ class BackgroundFetchEmbeddedWorkerTestHelper
  protected:
   // EmbeddedWorkerTestHelper overrides:
   void OnBackgroundFetchAbortEvent(
-      const std::string& tag,
-      mojom::ServiceWorkerEventDispatcher::
-          DispatchBackgroundFetchAbortEventCallback callback) override;
+      const std::string& developer_id,
+      const std::string& unique_id,
+      const std::vector<BackgroundFetchSettledFetch>& fetches,
+      mojom::ServiceWorker::DispatchBackgroundFetchAbortEventCallback callback)
+      override;
   void OnBackgroundFetchClickEvent(
-      const std::string& tag,
+      const std::string& developer_id,
       mojom::BackgroundFetchState state,
-      mojom::ServiceWorkerEventDispatcher::
-          DispatchBackgroundFetchClickEventCallback callback) override;
+      mojom::ServiceWorker::DispatchBackgroundFetchClickEventCallback callback)
+      override;
   void OnBackgroundFetchFailEvent(
-      const std::string& tag,
+      const std::string& developer_id,
+      const std::string& unique_id,
       const std::vector<BackgroundFetchSettledFetch>& fetches,
-      mojom::ServiceWorkerEventDispatcher::
-          DispatchBackgroundFetchFailEventCallback callback) override;
+      mojom::ServiceWorker::DispatchBackgroundFetchFailEventCallback callback)
+      override;
   void OnBackgroundFetchedEvent(
-      const std::string& tag,
+      const std::string& developer_id,
+      const std::string& unique_id,
       const std::vector<BackgroundFetchSettledFetch>& fetches,
-      mojom::ServiceWorkerEventDispatcher::
-          DispatchBackgroundFetchedEventCallback callback) override;
+      mojom::ServiceWorker::DispatchBackgroundFetchedEventCallback callback)
+      override;
 
  private:
   bool fail_abort_event_ = false;
@@ -92,7 +101,8 @@ class BackgroundFetchEmbeddedWorkerTestHelper
   base::Closure fetch_fail_event_closure_;
   base::Closure fetched_event_closure_;
 
-  base::Optional<std::string> last_tag_;
+  base::Optional<std::string> last_developer_id_;
+  base::Optional<std::string> last_unique_id_;
   base::Optional<mojom::BackgroundFetchState> last_state_;
   base::Optional<std::vector<BackgroundFetchSettledFetch>> last_fetches_;
 

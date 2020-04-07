@@ -20,6 +20,8 @@
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_metrics.h"
 #include "components/data_reduction_proxy/core/browser/db_data_owner.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_event_storage_delegate.h"
+#include "components/data_use_measurement/core/data_use_user_data.h"
+#include "net/http/http_request_headers.h"
 
 class PrefService;
 
@@ -59,6 +61,7 @@ class DataReductionProxyService
       PrefService* prefs,
       net::URLRequestContextGetter* request_context_getter,
       std::unique_ptr<DataStore> store,
+      std::unique_ptr<DataReductionProxyPingbackClient> pingback_client,
       const scoped_refptr<base::SequencedTaskRunner>& ui_task_runner,
       const scoped_refptr<base::SingleThreadTaskRunner>& io_task_runner,
       const scoped_refptr<base::SequencedTaskRunner>& db_task_runner,
@@ -76,16 +79,22 @@ class DataReductionProxyService
   bool Initialized() const;
 
   // Records data usage per host.
-  void UpdateDataUseForHost(int64_t network_bytes,
-                            int64_t original_bytes,
-                            const std::string& host);
+  // Virtual for testing.
+  virtual void UpdateDataUseForHost(int64_t network_bytes,
+                                    int64_t original_bytes,
+                                    const std::string& host);
 
   // Records daily data savings statistics in |compression_stats_|.
-  void UpdateContentLengths(int64_t data_used,
-                            int64_t original_size,
-                            bool data_reduction_proxy_enabled,
-                            DataReductionProxyRequestType request_type,
-                            const std::string& mime_type);
+  // Virtual for testing.
+  virtual void UpdateContentLengths(
+      int64_t data_used,
+      int64_t original_size,
+      bool data_reduction_proxy_enabled,
+      DataReductionProxyRequestType request_type,
+      const std::string& mime_type,
+      bool is_user_traffic,
+      data_use_measurement::DataUseUserData::DataUseContentType content_type,
+      int32_t service_hash_code);
 
   // Overrides of DataReductionProxyEventStorageDelegate.
   void AddEvent(std::unique_ptr<base::Value> event) override;
@@ -98,16 +107,6 @@ class DataReductionProxyService
 
   // Records whether the Data Reduction Proxy is unreachable or not.
   void SetUnreachable(bool unreachable);
-
-  // Sets if Lo-Fi was active on the last main frame load in
-  // DataReductionProxySettings.
-  void SetLoFiModeActiveOnMainFrame(bool lo_fi_mode_active);
-
-  // Sets Lo-Fi mode off on the IO thread.
-  void SetLoFiModeOff();
-
-  // Initializes the Lo-Fi implicit opt out prefs.
-  void InitializeLoFiPrefs();
 
   // Stores an int64_t value in |prefs_|.
   void SetInt64Pref(const std::string& pref_path, int64_t value);
@@ -134,6 +133,22 @@ class DataReductionProxyService
   // Sets the reporting fraction in the pingback client.
   void SetPingbackReportingFraction(float pingback_reporting_fraction);
 
+  // Notifies |this| that the user has requested to clear the browser
+  // cache. This method is not called if only a subset of site entries are
+  // cleared.
+  void OnCacheCleared(const base::Time start, const base::Time end);
+
+  // Sets |proxy_request_headers_| with a forwarded value from the IO thread.
+  void SetProxyRequestHeaders(net::HttpRequestHeaders headers) {
+    proxy_request_headers_ = headers;
+  }
+
+  // Returns |proxy_request_headers_|. Note: The chrome-proxy header does not
+  // include the page id.
+  const net::HttpRequestHeaders GetProxyRequestHeaders() const {
+    return proxy_request_headers_;
+  }
+
   // Accessor methods.
   DataReductionProxyCompressionStats* compression_stats() const {
     return compression_stats_.get();
@@ -157,19 +172,8 @@ class DataReductionProxyService
   FRIEND_TEST_ALL_PREFIXES(DataReductionProxySettingsTest,
                            TestLoFiSessionStateHistograms);
 
-  // Values of the UMA DataReductionProxy.LoFi.SessionState histogram.
-  // This enum must remain synchronized with DataReductionProxyLoFiSessionState
-  // in metrics/histograms/histograms.xml.
-  enum LoFiSessionState {
-    LO_FI_SESSION_STATE_USED = 0,
-    LO_FI_SESSION_STATE_NOT_USED,
-    LO_FI_SESSION_STATE_OPTED_OUT,  // Permanent opt out
-    LO_FI_SESSION_STATE_TEMPORARILY_OPTED_OUT,
-    LO_FI_SESSION_STATE_INDEX_BOUNDARY,
-  };
-
-  // Records UMA for Lo-Fi session state.
-  void RecordLoFiSessionState(LoFiSessionState state);
+  // Loads the Data Reduction Proxy configuration from |prefs_| and applies it.
+  void ReadPersistedClientConfig();
 
   net::URLRequestContextGetter* url_request_context_getter_;
 
@@ -198,6 +202,10 @@ class DataReductionProxyService
   base::WeakPtr<DataReductionProxyIOData> io_data_;
 
   base::ObserverList<DataReductionProxyServiceObserver> observer_list_;
+
+  // Authentication headers for the Data Reduction Proxy, if any. This is
+  // forwarded from the IO thread in PostTask.
+  net::HttpRequestHeaders proxy_request_headers_;
 
   bool initialized_;
 

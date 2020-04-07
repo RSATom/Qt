@@ -16,6 +16,7 @@
 #include "chrome/common/extensions/api/enterprise_platform_keys_internal.h"
 #include "content/public/browser/browser_thread.h"
 #include "net/cert/x509_certificate.h"
+#include "net/cert/x509_util.h"
 
 namespace extensions {
 
@@ -26,9 +27,9 @@ namespace api_epki = api::enterprise_platform_keys_internal;
 
 // This error will occur if a token is removed and will be exposed to the
 // extension. Keep this in sync with the custom binding in Javascript.
-const char kErrorInternal[] = "Internal Error.";
+const char kEnterprisePlatformErrorInternal[] = "Internal Error.";
 
-const char kErrorInvalidX509Cert[] =
+const char kEnterprisePlatformErrorInvalidX509Cert[] =
     "Certificate is not a valid X.509 certificate.";
 
 std::vector<char> VectorFromString(const std::string& s) {
@@ -117,10 +118,10 @@ void EnterprisePlatformKeysGetCertificatesFunction::OnGotCertificates(
   for (net::CertificateList::const_iterator it = certs->begin();
        it != certs->end();
        ++it) {
-    std::string der_encoding;
-    net::X509Certificate::GetDEREncoded((*it)->os_cert_handle(), &der_encoding);
-    client_certs->Append(base::Value::CreateWithCopiedBuffer(
-        der_encoding.data(), der_encoding.size()));
+    base::StringPiece cert_der =
+        net::x509_util::CryptoBufferAsStringPiece((*it)->cert_buffer());
+    client_certs->Append(std::make_unique<base::Value>(
+        base::Value::BlobStorage(cert_der.begin(), cert_der.end())));
   }
 
   std::unique_ptr<base::ListValue> results(new base::ListValue());
@@ -142,10 +143,15 @@ EnterprisePlatformKeysImportCertificateFunction::Run() {
     return RespondNow(Error(platform_keys::kErrorInvalidToken));
 
   const std::vector<char>& cert_der = params->certificate;
+  // Allow UTF-8 inside PrintableStrings in client certificates. See
+  // crbug.com/770323 and crbug.com/788655.
+  net::X509Certificate::UnsafeCreateOptions options;
+  options.printable_string_is_utf8 = true;
   scoped_refptr<net::X509Certificate> cert_x509 =
-      net::X509Certificate::CreateFromBytes(cert_der.data(), cert_der.size());
+      net::X509Certificate::CreateFromBytesUnsafeOptions(
+          cert_der.data(), cert_der.size(), options);
   if (!cert_x509.get())
-    return RespondNow(Error(kErrorInvalidX509Cert));
+    return RespondNow(Error(kEnterprisePlatformErrorInvalidX509Cert));
 
   chromeos::platform_keys::ImportCertificate(
       platform_keys_token_id,
@@ -180,10 +186,15 @@ EnterprisePlatformKeysRemoveCertificateFunction::Run() {
     return RespondNow(Error(platform_keys::kErrorInvalidToken));
 
   const std::vector<char>& cert_der = params->certificate;
+  // Allow UTF-8 inside PrintableStrings in client certificates. See
+  // crbug.com/770323 and crbug.com/788655.
+  net::X509Certificate::UnsafeCreateOptions options;
+  options.printable_string_is_utf8 = true;
   scoped_refptr<net::X509Certificate> cert_x509 =
-      net::X509Certificate::CreateFromBytes(cert_der.data(), cert_der.size());
+      net::X509Certificate::CreateFromBytesUnsafeOptions(
+          cert_der.data(), cert_der.size(), options);
   if (!cert_x509.get())
-    return RespondNow(Error(kErrorInvalidX509Cert));
+    return RespondNow(Error(kEnterprisePlatformErrorInvalidX509Cert));
 
   chromeos::platform_keys::RemoveCertificate(
       platform_keys_token_id,
@@ -235,7 +246,7 @@ void EnterprisePlatformKeysInternalGetTokensFunction::OnGotTokens(
        ++it) {
     std::string token_id = platform_keys::PlatformKeysTokenIdToApiId(*it);
     if (token_id.empty()) {
-      Respond(Error(kErrorInternal));
+      Respond(Error(kEnterprisePlatformErrorInternal));
       return;
     }
     token_ids.push_back(token_id);

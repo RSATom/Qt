@@ -88,7 +88,7 @@ void DisplayLayoutStore::RegisterLayoutForDisplayIdList(
 
 const DisplayLayout& DisplayLayoutStore::GetRegisteredDisplayLayout(
     const DisplayIdList& list) {
-  DCHECK_NE(1u, list.size());
+  DCHECK_GT(list.size(), 1u);
   const auto iter = layouts_.find(list);
   const DisplayLayout* layout = iter != layouts_.end()
                                     ? iter->second.get()
@@ -98,14 +98,12 @@ const DisplayLayout& DisplayLayoutStore::GetRegisteredDisplayLayout(
   return *layout;
 }
 
-void DisplayLayoutStore::UpdateMultiDisplayState(const DisplayIdList& list,
-                                                 bool mirrored,
-                                                 bool default_unified) {
+void DisplayLayoutStore::UpdateDefaultUnified(const DisplayIdList& list,
+                                              bool default_unified) {
   DCHECK(layouts_.find(list) != layouts_.end());
   if (layouts_.find(list) == layouts_.end())
     CreateDefaultDisplayLayout(list);
 
-  layouts_[list]->mirrored = mirrored;
   layouts_[list]->default_unified = default_unified;
 }
 

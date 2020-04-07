@@ -20,9 +20,6 @@ danakj@chromium.org
 # mac-specific
 ccameron@chromium.org
 
-# input, gestures, scrolling
-aelias@chromium.org
-
 # scheduling / begin frames
 brianderson@chromium.org
 skyostil@chromium.org
@@ -38,22 +35,32 @@ reveman@chromium.org
 vmpstr@chromium.org
 ericrk@chromium.org
 
-# math / geometry / layer_tree_host_common
-enne@chromium.org
+# math / geometry
+flackr@chromium.org
 vollick@chromium.org
 
 # property trees
 ajuma@chromium.org
-enne@chromium.org
+chrishtr@chromium.org
 vollick@chromium.org
 weiliangc@chromium.org
 
 # animation
-vollick@chromium.org
 ajuma@chromium.org
+flackr@chromium.org
+smcgruer@chromium.org
 
-# property trees
-chrishtr@chromium.org
+# images
+ericrk@chromium.org
+khushalsagar@chromium.org
+vmpstr@chromium.org
+
+# surfaces
+fsamuel@chromium.org
+kylechar@chromium.org
+
+# input, scrolling
+bokan@chromium.org
 
 # we miss you
 # jamesr@chromium.org

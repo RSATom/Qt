@@ -63,9 +63,9 @@
 //
 
 #include <QtCore/qt_windows.h>
-#include <QtCore/QMetaType>
-#include <QtCore/QPair>
-#include <QtCore/QRect>
+#include <QtCore/qmetatype.h>
+#include <QtCore/qpair.h>
+#include <QtCore/qrect.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -76,7 +76,7 @@ class QRegion;
 class QWindow;
 
 HWND hwndForWidget(QWidget *widget);
-HRGN qaxHrgnFromQRegion(QRegion region, const QWindow *window);
+HRGN qaxHrgnFromQRegion(const QRegion &region, const QWindow *window);
 
 typedef QPair<qreal, qreal> QDpi;
 

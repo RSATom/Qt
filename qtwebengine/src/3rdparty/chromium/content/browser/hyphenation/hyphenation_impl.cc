@@ -10,7 +10,6 @@
 
 #include "base/files/file.h"
 #include "base/files/file_path.h"
-#include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
@@ -62,7 +61,7 @@ HyphenationImpl::~HyphenationImpl() {}
 
 // static
 void HyphenationImpl::Create(blink::mojom::HyphenationRequest request) {
-  mojo::MakeStrongBinding(base::MakeUnique<HyphenationImpl>(),
+  mojo::MakeStrongBinding(std::make_unique<HyphenationImpl>(),
                           std::move(request));
 }
 

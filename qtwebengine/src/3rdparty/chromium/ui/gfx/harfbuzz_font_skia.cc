@@ -13,9 +13,17 @@
 #include "base/lazy_instance.h"
 #include "base/logging.h"
 #include "base/macros.h"
+#include "build/build_config.h"
 #include "third_party/skia/include/core/SkTypeface.h"
 #include "ui/gfx/render_text.h"
 #include "ui/gfx/skia_util.h"
+
+#if defined(OS_MACOSX)
+#include <hb-coretext.h>
+
+#include "base/mac/scoped_cftyperef.h"
+#include "third_party/skia/include/ports/SkTypeface_mac.h"
+#endif
 
 namespace gfx {
 
@@ -245,6 +253,18 @@ class HarfBuzzFace {
   }
 
   void Init(SkTypeface* skia_face) {
+#if defined(OS_MACOSX)
+    // On Mac, hb_face_t needs to be instantiated using the CoreText constructor
+    // when there is an underlying CTFont. Otherwise the wrong shaping engine is
+    // chosen. See also HarfBuzzFace.cpp in Blink.
+    if (CTFontRef ct_font = SkTypeface_GetCTFontRef(skia_face)) {
+      base::ScopedCFTypeRef<CGFontRef> cg_font(
+          CTFontCopyGraphicsFont(ct_font, nullptr));
+      face_ = hb_coretext_face_create(cg_font);
+      DCHECK(face_);
+      return;
+    }
+#endif
     SkSafeRef(skia_face);
     face_ = hb_face_create_for_tables(GetFontTable, skia_face, UnrefSkTypeface);
     DCHECK(face_);
@@ -272,7 +292,17 @@ hb_font_t* CreateHarfBuzzFont(sk_sp<SkTypeface> skia_face,
   if (face_cache->first.get() == NULL)
     face_cache->first.Init(skia_face.get());
 
-  hb_font_t* harfbuzz_font = hb_font_create(face_cache->first.get());
+  hb_font_t* harfbuzz_font = nullptr;
+#if defined(OS_MACOSX)
+  // Since we have a CTFontRef available at the right size, associate it with
+  // the hb_font_t. This avoids Harfbuzz doing its own lookup by typeface name,
+  // which requires talking to the font server again.
+  if (CTFontRef ct_font = SkTypeface_GetCTFontRef(skia_face.get()))
+    harfbuzz_font = hb_coretext_font_create(ct_font);
+#endif
+  if (!harfbuzz_font)
+    harfbuzz_font = hb_font_create(face_cache->first.get());
+
   const int scale = SkiaScalarToHarfBuzzUnits(text_size);
   hb_font_set_scale(harfbuzz_font, scale, scale);
   FontData* hb_font_data = new FontData(&face_cache->second);

@@ -59,14 +59,14 @@ ui::TextInputType ConvertTextInputType(mojom::TextInputType ipc_type) {
 std::vector<mojom::CompositionSegmentPtr> ConvertSegments(
     const ui::CompositionText& composition) {
   std::vector<mojom::CompositionSegmentPtr> segments;
-  for (const ui::CompositionUnderline& underline : composition.underlines) {
+  for (const ui::ImeTextSpan& ime_text_span : composition.ime_text_spans) {
     mojom::CompositionSegmentPtr segment = mojom::CompositionSegment::New();
-    segment->start_offset = underline.start_offset;
-    segment->end_offset = underline.end_offset;
+    segment->start_offset = ime_text_span.start_offset;
+    segment->end_offset = ime_text_span.end_offset;
     segment->emphasized =
-        (underline.thick ||
-         (composition.selection.start() == underline.start_offset &&
-          composition.selection.end() == underline.end_offset));
+        (ime_text_span.thickness == ui::ImeTextSpan::Thickness::kThick ||
+         (composition.selection.start() == ime_text_span.start_offset &&
+          composition.selection.end() == ime_text_span.end_offset));
     segments.push_back(std::move(segment));
   }
   return segments;
@@ -76,25 +76,12 @@ std::vector<mojom::CompositionSegmentPtr> ConvertSegments(
 
 ArcImeBridgeImpl::ArcImeBridgeImpl(Delegate* delegate,
                                    ArcBridgeService* bridge_service)
-    : binding_(this), delegate_(delegate), bridge_service_(bridge_service) {
-  bridge_service_->ime()->AddObserver(this);
+    : delegate_(delegate), bridge_service_(bridge_service) {
+  bridge_service_->ime()->SetHost(this);
 }
 
 ArcImeBridgeImpl::~ArcImeBridgeImpl() {
-  // TODO(hidehiko): Currently, the lifetime of ArcBridgeService and
-  // BrowserContextKeyedService is not nested.
-  // If ArcServiceManager::Get() returns nullptr, it is already destructed,
-  // so do not touch it.
-  if (ArcServiceManager::Get())
-    bridge_service_->ime()->RemoveObserver(this);
-}
-
-void ArcImeBridgeImpl::OnInstanceReady() {
-  auto* instance = ARC_GET_INSTANCE_FOR_METHOD(bridge_service_->ime(), Init);
-  DCHECK(instance);
-  mojom::ImeHostPtr host_proxy;
-  binding_.Bind(mojo::MakeRequest(&host_proxy));
-  instance->Init(std::move(host_proxy));
+  bridge_service_->ime()->SetHost(nullptr);
 }
 
 void ArcImeBridgeImpl::SendSetCompositionText(
@@ -126,16 +113,6 @@ void ArcImeBridgeImpl::SendInsertText(const base::string16& text) {
   ime_instance->InsertText(base::UTF16ToUTF8(text));
 }
 
-void ArcImeBridgeImpl::SendOnKeyboardBoundsChanging(
-    const gfx::Rect& new_bounds) {
-  auto* ime_instance = ARC_GET_INSTANCE_FOR_METHOD(bridge_service_->ime(),
-                                                   OnKeyboardBoundsChanging);
-  if (!ime_instance)
-    return;
-
-  ime_instance->OnKeyboardBoundsChanging(new_bounds);
-}
-
 void ArcImeBridgeImpl::SendExtendSelectionAndDelete(
     size_t before, size_t after) {
   auto* ime_instance = ARC_GET_INSTANCE_FOR_METHOD(bridge_service_->ime(),
@@ -146,29 +123,50 @@ void ArcImeBridgeImpl::SendExtendSelectionAndDelete(
   ime_instance->ExtendSelectionAndDelete(before, after);
 }
 
-void ArcImeBridgeImpl::OnTextInputTypeChanged(mojom::TextInputType type) {
-  delegate_->OnTextInputTypeChanged(ConvertTextInputType(type));
+void ArcImeBridgeImpl::SendOnKeyboardAppearanceChanging(
+    const gfx::Rect& new_bounds,
+    bool is_available) {
+  auto* ime_instance = ARC_GET_INSTANCE_FOR_METHOD(
+      bridge_service_->ime(), OnKeyboardAppearanceChanging);
+  if (!ime_instance)
+    return;
+
+  ime_instance->OnKeyboardAppearanceChanging(new_bounds, is_available);
 }
 
-void ArcImeBridgeImpl::OnCursorRectChanged(gfx::Rect rect) {
-  delegate_->OnCursorRectChanged(rect);
+void ArcImeBridgeImpl::OnTextInputTypeChanged(
+    mojom::TextInputType type,
+    bool is_personalized_learning_allowed) {
+  delegate_->OnTextInputTypeChanged(ConvertTextInputType(type),
+                                    is_personalized_learning_allowed);
+}
+
+void ArcImeBridgeImpl::OnCursorRectChanged(const gfx::Rect& rect,
+                                           bool is_screen_coordinates) {
+  delegate_->OnCursorRectChanged(rect, is_screen_coordinates);
 }
 
 void ArcImeBridgeImpl::OnCancelComposition() {
   delegate_->OnCancelComposition();
 }
 
-void ArcImeBridgeImpl::ShowImeIfNeeded() {
-  delegate_->ShowImeIfNeeded();
+void ArcImeBridgeImpl::ShowVirtualKeyboardIfEnabled() {
+  delegate_->ShowVirtualKeyboardIfEnabled();
 }
 
 void ArcImeBridgeImpl::OnCursorRectChangedWithSurroundingText(
-    gfx::Rect rect,
-    gfx::Range text_range,
+    const gfx::Rect& rect,
+    const gfx::Range& text_range,
     const std::string& text_in_range,
-    gfx::Range selection_range) {
+    const gfx::Range& selection_range,
+    bool is_screen_coordinates) {
   delegate_->OnCursorRectChangedWithSurroundingText(
-      rect, text_range, base::UTF8ToUTF16(text_in_range), selection_range);
+      rect, text_range, base::UTF8ToUTF16(text_in_range), selection_range,
+      is_screen_coordinates);
+}
+
+void ArcImeBridgeImpl::RequestHideIme() {
+  delegate_->RequestHideIme();
 }
 
 }  // namespace arc

@@ -53,7 +53,7 @@ PictureBuffer::PictureBuffer(int32_t id,
 
 PictureBuffer::PictureBuffer(const PictureBuffer& other) = default;
 
-PictureBuffer::~PictureBuffer() {}
+PictureBuffer::~PictureBuffer() = default;
 
 gpu::Mailbox PictureBuffer::texture_mailbox(size_t plane) const {
   if (plane >= texture_mailboxes_.size()) {
@@ -75,7 +75,7 @@ Picture::Picture(int32_t picture_buffer_id,
       color_space_(color_space),
       allow_overlay_(allow_overlay),
       size_changed_(false),
-      surface_texture_(false),
+      texture_owner_(false),
       wants_promotion_hint_(false) {}
 
 Picture::Picture(const Picture& other) = default;

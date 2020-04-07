@@ -80,8 +80,8 @@ public:
     };
     Q_ENUM(DiscoveryMode)
 
-    explicit QBluetoothServiceDiscoveryAgent(QObject *parent = Q_NULLPTR);
-    explicit QBluetoothServiceDiscoveryAgent(const QBluetoothAddress &deviceAdapter, QObject *parent = Q_NULLPTR);
+    explicit QBluetoothServiceDiscoveryAgent(QObject *parent = nullptr);
+    explicit QBluetoothServiceDiscoveryAgent(const QBluetoothAddress &deviceAdapter, QObject *parent = nullptr);
     ~QBluetoothServiceDiscoveryAgent();
 
     bool isActive() const;
@@ -110,25 +110,6 @@ Q_SIGNALS:
 
 private:
     QBluetoothServiceDiscoveryAgentPrivate *d_ptr;
-
-
-    Q_PRIVATE_SLOT(d_func(), void _q_deviceDiscovered(const QBluetoothDeviceInfo &info))
-    Q_PRIVATE_SLOT(d_func(), void _q_deviceDiscoveryFinished())
-    Q_PRIVATE_SLOT(d_func(), void _q_deviceDiscoveryError(QBluetoothDeviceDiscoveryAgent::Error))
-    Q_PRIVATE_SLOT(d_func(), void _q_serviceDiscoveryFinished())
-
-#if QT_CONFIG(bluez)
-    Q_PRIVATE_SLOT(d_func(), void _q_discoveredServices(QDBusPendingCallWatcher*))
-    Q_PRIVATE_SLOT(d_func(), void _q_createdDevice(QDBusPendingCallWatcher*))
-    Q_PRIVATE_SLOT(d_func(), void _q_foundDevice(QDBusPendingCallWatcher*))
-    Q_PRIVATE_SLOT(d_func(), void _q_sdpScannerDone(int,QProcess::ExitStatus))
-#endif
-#ifdef QT_ANDROID_BLUETOOTH
-    Q_PRIVATE_SLOT(d_func(), void _q_processFetchedUuids(const QBluetoothAddress &address,
-                                                         const QList<QBluetoothUuid>&))
-    Q_PRIVATE_SLOT(d_func(), void _q_fetchUuidsTimeout())
-    Q_PRIVATE_SLOT(d_func(), void _q_hostModeStateChanged(QBluetoothLocalDevice::HostMode state))
-#endif
 };
 
 QT_END_NAMESPACE

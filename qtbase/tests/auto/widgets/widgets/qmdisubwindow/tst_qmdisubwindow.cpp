@@ -30,6 +30,7 @@
 #include <QtTest/QtTest>
 
 #include "qmdisubwindow.h"
+#include "private/qmdisubwindow_p.h"
 #include "qmdiarea.h"
 
 #include <QLayout>
@@ -517,6 +518,9 @@ void tst_QMdiSubWindow::emittingOfSignals()
             }
         }
     }
+#ifdef Q_OS_WINRT
+    QEXPECT_FAIL("windowMaximized", "Broken on WinRT - QTBUG-68297", Abort);
+#endif
     QCOMPARE(count, 1);
 
     window->setParent(0);
@@ -542,6 +546,9 @@ void tst_QMdiSubWindow::showShaded()
     QVERIFY(QTest::qWaitForWindowExposed(&workspace));
 
     QVERIFY(!window->isShaded());
+#ifdef Q_OS_WINRT
+    QEXPECT_FAIL("", "Windows are maximized per default on WinRt ", Abort);
+#endif
     QVERIFY(!window->isMaximized());
 
     QCOMPARE(window->size(), QSize(300, 300));
@@ -634,6 +641,10 @@ void tst_QMdiSubWindow::showNormal()
     qApp->processEvents();
     window->showNormal();
     qApp->processEvents();
+#ifdef Q_OS_WINRT
+    QEXPECT_FAIL("showMinimized", "Windows are maximized per default on WinRt ", Abort);
+    QEXPECT_FAIL("showMaximized", "Windows are maximized per default on WinRt ", Abort);
+#endif
     QCOMPARE(window->geometry(), originalGeometry);
 }
 
@@ -713,7 +724,9 @@ void tst_QMdiSubWindow::setOpaqueResizeAndMove()
     resizeSpy.clear();
     QCOMPARE(resizeSpy.count(), 0);
 
-    QTest::qWait(250); // delayed update of dirty regions
+    // we need to wait for the resizeTimer to make sure updateDirtyRegions is called
+    auto priv = static_cast<QMdiSubWindowPrivate*>(qt_widget_private(window));
+    QTRY_COMPARE(priv->resizeTimerId, -1);
 
     // Enter resize mode.
     int offset = window->style()->pixelMetric(QStyle::PM_MDIFrameWidth) / 2;
@@ -740,6 +753,9 @@ void tst_QMdiSubWindow::setOpaqueResizeAndMove()
 
     // Leave resize mode
     sendMouseRelease(mouseReceiver, mousePosition);
+#ifdef Q_OS_WINRT
+    QEXPECT_FAIL("", "Fails on WinRT - QTBUG-68297", Abort);
+#endif
     QCOMPARE(resizeSpy.count(), expectedGeometryCount);
     QCOMPARE(window->size(), windowSize + QSize(geometryCount, geometryCount));
     }
@@ -903,6 +919,9 @@ void tst_QMdiSubWindow::mouseDoubleClick()
     workspace.show();
     window->show();
 
+#ifdef Q_OS_WINRT
+    QEXPECT_FAIL("", "Windows are maximized per default on WinRt ", Abort);
+#endif
     QVERIFY(!window->isMaximized());
     QVERIFY(!window->isShaded());
 
@@ -963,8 +982,6 @@ void tst_QMdiSubWindow::setSystemMenu()
     mainWindow.menuBar()->setNativeMenuBar(false);
     mainWindow.show();
     QVERIFY(QTest::qWaitForWindowExposed(&mainWindow));
-    QTest::qWait(60);
-
 
     QTRY_VERIFY(subWindow->isVisible());
     QPoint globalPopupPos;
@@ -972,8 +989,10 @@ void tst_QMdiSubWindow::setSystemMenu()
     // Show system menu
     QVERIFY(!qApp->activePopupWidget());
     subWindow->showSystemMenu();
-    QTest::qWait(25);
     QTRY_COMPARE(qApp->activePopupWidget(), qobject_cast<QWidget *>(systemMenu));
+#ifdef Q_OS_WINRT
+    QEXPECT_FAIL("", "Broken on WinRT - QTBUG-68297", Abort);
+#endif
     QTRY_COMPARE(systemMenu->mapToGlobal(QPoint(0, 0)),
                  (globalPopupPos = subWindow->mapToGlobal(subWindow->contentsRect().topLeft())) );
 
@@ -997,7 +1016,6 @@ void tst_QMdiSubWindow::setSystemMenu()
     // Show the new system menu
     QVERIFY(!qApp->activePopupWidget());
     subWindow->showSystemMenu();
-    QTest::qWait(25);
     QTRY_COMPARE(qApp->activePopupWidget(), qobject_cast<QWidget *>(systemMenu));
     QTRY_COMPARE(systemMenu->mapToGlobal(QPoint(0, 0)), globalPopupPos);
 
@@ -1011,7 +1029,6 @@ void tst_QMdiSubWindow::setSystemMenu()
     QWidget *menuLabel = subWindow->maximizedSystemMenuIconWidget();
     QVERIFY(menuLabel);
     subWindow->showSystemMenu();
-    QTest::qWait(25);
     QTRY_COMPARE(qApp->activePopupWidget(), qobject_cast<QWidget *>(systemMenu));
      QCOMPARE(systemMenu->mapToGlobal(QPoint(0, 0)),
               (globalPopupPos = menuLabel->mapToGlobal(QPoint(0, menuLabel->y() + menuLabel->height()))));
@@ -1027,7 +1044,6 @@ void tst_QMdiSubWindow::setSystemMenu()
     QTest::qWait(150);
 
     subWindow->showSystemMenu();
-    QTest::qWait(250);
     QTRY_COMPARE(qApp->activePopupWidget(), qobject_cast<QWidget *>(systemMenu));
     // + QPoint(1, 0) because topRight() == QPoint(left() + width() -1, top())
     globalPopupPos = subWindow->mapToGlobal(subWindow->contentsRect().topRight()) + QPoint(1, 0);
@@ -1044,7 +1060,6 @@ void tst_QMdiSubWindow::setSystemMenu()
     menuLabel = subWindow->maximizedSystemMenuIconWidget();
     QVERIFY(menuLabel);
     subWindow->showSystemMenu();
-    QTest::qWait(250);
     QTRY_COMPARE(qApp->activePopupWidget(), qobject_cast<QWidget *>(systemMenu));
     globalPopupPos = menuLabel->mapToGlobal(QPoint(menuLabel->width(), menuLabel->y() + menuLabel->height()));
     globalPopupPos -= QPoint(systemMenu->sizeHint().width(), 0);
@@ -1203,6 +1218,9 @@ void tst_QMdiSubWindow::restoreFocusOverCreation()
     QTRY_COMPARE(QApplication::focusWidget(), subWidget2->m_lineEdit1);
 
     mdiArea.setActiveSubWindow(subWindow1);
+#ifdef Q_OS_WINRT
+    QEXPECT_FAIL("", "Broken on WinRt - QTBUG-68297", Abort);
+#endif
     QTRY_COMPARE(QApplication::focusWidget(), subWidget1->m_lineEdit2);
 }
 
@@ -1411,6 +1429,9 @@ void tst_QMdiSubWindow::resizeEvents()
     QCOMPARE(window->widget()->windowState(), windowState);
 
     // Make sure we got as many resize events as expected.
+#ifdef Q_OS_WINRT
+    QEXPECT_FAIL("maximized", "Broken on WinRT - QTBUG-68297", Abort);
+#endif
     QCOMPARE(windowResizeEventSpy.count(), expectedWindowResizeEvents);
     QCOMPARE(widgetResizeEventSpy.count(), expectedWidgetResizeEvents);
     windowResizeEventSpy.clear();
@@ -1420,6 +1441,10 @@ void tst_QMdiSubWindow::resizeEvents()
     window->showNormal();
 
     // Check that the window state is correct.
+#ifdef Q_OS_WINRT
+    QEXPECT_FAIL("minimized", "Broken on WinRT - QTBUG-68297", Abort);
+    QEXPECT_FAIL("shaded", "Broken on WinRT - QTBUG-68297", Abort);
+#endif
     QCOMPARE(window->windowState(), Qt::WindowNoState | Qt::WindowActive);
     QCOMPARE(window->widget()->windowState(), Qt::WindowNoState);
 
@@ -1648,8 +1673,6 @@ void tst_QMdiSubWindow::resizeTimer()
     QMdiSubWindow *subWindow = mdiArea.addSubWindow(new QWidget);
     mdiArea.show();
     QVERIFY(QTest::qWaitForWindowExposed(&mdiArea));
-    QTest::qWait(300);
-
 
     EventSpy timerEventSpy(subWindow, QEvent::Timer);
     QCOMPARE(timerEventSpy.count(), 0);
@@ -1682,6 +1705,9 @@ void tst_QMdiSubWindow::fixedMinMaxSize()
     QCOMPARE(subWindow->maximumSize(), maximumSize);
     mdiArea.addSubWindow(subWindow);
     subWindow->show();
+#ifdef Q_OS_WINRT
+    QEXPECT_FAIL("", "Windows are maximized per default on WinRt ", Abort);
+#endif
     QCOMPARE(subWindow->size(), minimumSize);
 
     // Calculate the size of a minimized sub window.
@@ -1809,10 +1835,9 @@ void tst_QMdiSubWindow::closeOnDoubleClick()
     QVERIFY(QTest::qWaitForWindowExposed(&mdiArea));
 
     subWindow->showSystemMenu();
-    QTest::qWait(200);
 
-    QPointer<QMenu> systemMenu = subWindow->systemMenu();
-    QVERIFY(systemMenu);
+    QPointer<QMenu> systemMenu;
+    QTRY_VERIFY( (systemMenu = subWindow->systemMenu()) );
     QVERIFY(systemMenu->isVisible());
 
     const QRect actionGeometry = systemMenu->actionGeometry(systemMenu->actions().at(actionIndex));
@@ -2067,6 +2092,9 @@ void tst_QMdiSubWindow::testFullScreenState()
     subWindow->showFullScreen(); // QMdiSubWindow does not support the fullscreen state. This call
                                  // should be equivalent to setVisible(true) (and not showNormal())
     QVERIFY(QTest::qWaitForWindowExposed(&mdiArea));
+#ifdef Q_OS_WINRT
+    QEXPECT_FAIL("", "Windows are maximized per default on WinRt ", Abort);
+#endif
     QCOMPARE(subWindow->size(), QSize(300, 300));
 }
 

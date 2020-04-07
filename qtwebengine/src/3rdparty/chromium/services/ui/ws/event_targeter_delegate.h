@@ -7,8 +7,8 @@
 
 #include <stdint.h>
 
-namespace gfx {
-class Point;
+namespace viz {
+class HitTestQuery;
 }
 
 namespace ui {
@@ -18,14 +18,17 @@ class ServerWindow;
 // Used by EventTargeter to talk to WindowManagerState.
 class EventTargeterDelegate {
  public:
-  // Calls EventDispatcherDelegate::GetRootWindowContaining, see
+  // Calls EventDispatcherDelegate::GetRootWindowForDisplay(), see
   // event_dispatcher_delegate.h for details.
-  virtual ServerWindow* GetRootWindowContaining(gfx::Point* location_in_display,
-                                                int64_t* display_id) = 0;
+  virtual ServerWindow* GetRootWindowForDisplay(int64_t display_id) = 0;
 
-  // Calls EventDispatcherDelegate::ProcessNextAvailableEvent, see
-  // event_dispatcher_delegate.h for details.
-  virtual void ProcessNextAvailableEvent() = 0;
+  // Returns null if there's no display with |display_id|.
+  virtual viz::HitTestQuery* GetHitTestQueryForDisplay(int64_t display_id) = 0;
+
+  // |frame_sink_id| must be valid. Returns null if there's no window
+  // associated with |frame_sink_id|.
+  virtual ServerWindow* GetWindowFromFrameSinkId(
+      const viz::FrameSinkId& frame_sink_id) = 0;
 
  protected:
   virtual ~EventTargeterDelegate() {}

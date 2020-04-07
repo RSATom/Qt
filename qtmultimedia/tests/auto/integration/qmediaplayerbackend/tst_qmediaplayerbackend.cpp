@@ -308,13 +308,17 @@ void tst_QMediaPlayerBackend::unloadMedia()
 
 void tst_QMediaPlayerBackend::loadMediaInLoadingState()
 {
-    const QUrl url("http://unavailable.media/");
+    if (!isWavSupported())
+        QSKIP("Sound format is not supported");
+
     QMediaPlayer player;
-    player.setMedia(QMediaContent(url));
+    player.setMedia(localWavFile);
     player.play();
+    QCOMPARE(player.mediaStatus(), QMediaPlayer::LoadingMedia);
     // Sets new media while old has not been finished.
-    player.setMedia(QMediaContent(url));
-    QTRY_COMPARE(player.mediaStatus(), QMediaPlayer::InvalidMedia);
+    player.setMedia(localWavFile);
+    QCOMPARE(player.mediaStatus(), QMediaPlayer::LoadingMedia);
+    QTRY_COMPARE(player.mediaStatus(), QMediaPlayer::LoadedMedia);
 }
 
 void tst_QMediaPlayerBackend::playPauseStop()
@@ -391,8 +395,8 @@ void tst_QMediaPlayerBackend::playPauseStop()
 
     QTest::qWait(2000);
 
-    QVERIFY(qAbs(player.position() - positionBeforePause) < 100);
-    QCOMPARE(positionSpy.count(), 0);
+    QVERIFY(qAbs(player.position() - positionBeforePause) < 150);
+    QCOMPARE(positionSpy.count(), 1);
 
     stateSpy.clear();
     statusSpy.clear();
@@ -1258,7 +1262,7 @@ void tst_QMediaPlayerBackend::playlistObject()
     QCOMPARE(errorSpy.count(), 0);
     QCOMPARE(mediaStatusSpy.count(), 7); // 2 x (LoadingMedia -> BufferedMedia -> EndOfMedia) + NoMedia
 
-    player.setPlaylist(Q_NULLPTR);
+    player.setPlaylist(nullptr);
 
     mediaSpy.clear();
     currentMediaSpy.clear();
@@ -1283,7 +1287,7 @@ void tst_QMediaPlayerBackend::playlistObject()
     QCOMPARE(errorSpy.count(), 0);
     QCOMPARE(mediaStatusSpy.count(), 13); // 4 x (LoadingMedia -> BufferedMedia -> EndOfMedia) + NoMedia
 
-    player.setPlaylist(Q_NULLPTR);
+    player.setPlaylist(nullptr);
 
     mediaSpy.clear();
     currentMediaSpy.clear();
@@ -1307,7 +1311,7 @@ void tst_QMediaPlayerBackend::playlistObject()
     QCOMPARE(errorSpy.count(), 1);
     QCOMPARE(mediaStatusSpy.count(), 6); // Loading -> Invalid -> Loading -> Buffered -> EndOfMedia -> NoMedia
 
-    player.setPlaylist(Q_NULLPTR);
+    player.setPlaylist(nullptr);
 
     mediaSpy.clear();
     currentMediaSpy.clear();

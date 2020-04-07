@@ -4,7 +4,10 @@
 
 #include "ui/gfx/win/rendering_window_manager.h"
 
+#include "base/callback.h"
 #include "base/memory/singleton.h"
+#include "base/task_scheduler/post_task.h"
+#include "base/task_scheduler/task_traits.h"
 
 namespace gfx {
 
@@ -16,11 +19,17 @@ RenderingWindowManager* RenderingWindowManager::GetInstance() {
 void RenderingWindowManager::RegisterParent(HWND parent) {
   base::AutoLock lock(lock_);
 
-  info_[parent] = nullptr;
+  info_.emplace(parent, EmeddingInfo());
 }
 
-bool RenderingWindowManager::RegisterChild(HWND parent, HWND child_window) {
-  if (!child_window)
+void SetParentAndMoveToBottom(HWND child, HWND parent) {
+  ::SetParent(child, parent);
+  // Move D3D window behind Chrome's window to avoid losing some messages.
+  ::SetWindowPos(child, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+}
+
+bool RenderingWindowManager::RegisterChild(HWND parent, HWND child) {
+  if (!child)
     return false;
 
   base::AutoLock lock(lock_);
@@ -28,10 +37,22 @@ bool RenderingWindowManager::RegisterChild(HWND parent, HWND child_window) {
   auto it = info_.find(parent);
   if (it == info_.end())
     return false;
-  if (it->second)
+
+  EmeddingInfo& info = it->second;
+  if (info.child)
     return false;
 
-  info_[parent] = child_window;
+  info.child = child;
+
+  // DoSetParentOnChild() was already called for |parent|. Call ::SetParent()
+  // now but from a worker thread instead of the IO thread. The ::SetParent()
+  // call could block the IO thread waiting on the UI thread and deadlock.
+  if (info.call_set_parent) {
+    base::PostTaskWithTraits(
+        FROM_HERE, {base::TaskPriority::USER_BLOCKING},
+        base::BindOnce(&SetParentAndMoveToBottom, child, parent));
+  }
+
   return true;
 }
 
@@ -43,12 +64,20 @@ void RenderingWindowManager::DoSetParentOnChild(HWND parent) {
     auto it = info_.find(parent);
     if (it == info_.end())
       return;
-    if (!it->second)
+
+    EmeddingInfo& info = it->second;
+
+    DCHECK(!info.call_set_parent);
+    info.call_set_parent = true;
+
+    // Call SetParentAndMoveToBottom() once RegisterChild() is called.
+    if (!info.child)
       return;
-    child = it->second;
+
+    child = info.child;
   }
 
-  ::SetParent(child, parent);
+  SetParentAndMoveToBottom(child, parent);
 }
 
 void RenderingWindowManager::UnregisterParent(HWND parent) {
@@ -61,7 +90,7 @@ bool RenderingWindowManager::HasValidChildWindow(HWND parent) {
   auto it = info_.find(parent);
   if (it == info_.end())
     return false;
-  return !!it->second && ::IsWindow(it->second);
+  return !!it->second.child && ::IsWindow(it->second.child);
 }
 
 RenderingWindowManager::RenderingWindowManager() {}

@@ -28,7 +28,7 @@
 
 /*!
 
-\qmlmodule QtBluetooth 5.2
+\qmlmodule QtBluetooth \QtVer
 \title Qt Bluetooth QML Types
 \ingroup qmlmodules
 \brief Provides QML types for basic Bluetooth operations on devices.
@@ -41,7 +41,8 @@ plugins with the flexibility you need.
 To use the classes of the module in your application you need the following
 import statement in your \c .qml file:
 
-\snippet doc_src_qtbluetooth.qml import
-
+\qml \QtVer
+import QtBluetooth \1
+\endqml
 */
 

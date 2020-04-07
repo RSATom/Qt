@@ -7,6 +7,7 @@ Polymer({
 
   behaviors: [
     bookmarks.StoreClient,
+    ListPropertyUpdateBehavior,
   ],
 
   properties: {
@@ -20,7 +21,7 @@ Polymer({
       type: Array,
       value: function() {
         // Use an empty list during initialization so that the databinding to
-        // hide #bookmarksCard takes effect.
+        // hide #list takes effect.
         return [];
       },
     },
@@ -46,11 +47,12 @@ Polymer({
 
   listeners: {
     'click': 'deselectItems_',
-    'open-item-menu': 'onOpenItemMenu_',
+    'contextmenu': 'onContextMenu_',
+    'open-command-menu': 'onOpenCommandMenu_',
   },
 
   attached: function() {
-    var list = /** @type {IronListElement} */ (this.$.bookmarksCard);
+    const list = /** @type {IronListElement} */ (this.$.list);
     list.scrollTarget = this;
 
     this.watch('displayedIds_', function(state) {
@@ -64,8 +66,21 @@ Polymer({
     });
     this.updateFromStore();
 
-    this.$.bookmarksCard.addEventListener(
+    this.$.list.addEventListener(
         'keydown', this.onItemKeydown_.bind(this), true);
+
+    /** @private {function(!Event)} */
+    this.boundOnHighlightItems_ = this.onHighlightItems_.bind(this);
+    document.addEventListener('highlight-items', this.boundOnHighlightItems_);
+
+    Polymer.RenderStatus.afterNextRender(this, function() {
+      Polymer.IronA11yAnnouncer.requestAvailability();
+    });
+  },
+
+  detached: function() {
+    document.removeEventListener(
+        'highlight-items', this.boundOnHighlightItems_);
   },
 
   /** @return {HTMLElement} */
@@ -81,26 +96,14 @@ Polymer({
    * @param {Array<string>} oldValue
    */
   onDisplayedIdsChanged_: function(newValue, oldValue) {
-    if (!oldValue) {
-      this.displayedList_ = this.displayedIds_.map(function(id) {
-        return {id: id};
-      });
-    } else {
-      var splices = Polymer.ArraySplice.calculateSplices(
-          /** @type {!Array<string>} */ (newValue),
-          /** @type {!Array<string>} */ (oldValue));
-      splices.forEach(function(splice) {
-        // TODO(calamity): Could use notifySplices to improve performance here.
-        var additions =
-            newValue.slice(splice.index, splice.index + splice.addedCount)
-                .map(function(id) {
-                  return {id: id};
-                });
-        this.splice.apply(this, [
-          'displayedList_', splice.index, splice.removed.length
-        ].concat(additions));
-      }.bind(this));
-    }
+    const updatedList = newValue.map(id => ({id: id}));
+    this.updateList('displayedList_', item => item.id, updatedList);
+    // Trigger a layout of the iron list. Otherwise some elements may render
+    // as blank entries. See https://crbug.com/848683
+    this.$.list.fire('iron-resize');
+    cr.sendWithPromise(
+          'getPluralString', 'listChanged', this.displayedList_.length)
+        .then(label => this.fire('iron-announce', {text: label}));
   },
 
   /** @private */
@@ -108,9 +111,29 @@ Polymer({
     this.scrollTop = 0;
   },
 
+  /**
+   * Scroll the list so that |itemId| is visible, if it is not already.
+   * @param {string} itemId
+   * @private
+   */
+  scrollToId_: function(itemId) {
+    const index = this.displayedIds_.indexOf(itemId);
+    const list = this.$.list;
+    if (index >= 0 && index < list.firstVisibleIndex ||
+        index > list.lastVisibleIndex) {
+      list.scrollToIndex(index);
+    }
+  },
+
   /** @private */
   emptyListMessage_: function() {
-    var emptyListMessage = this.searchTerm_ ? 'noSearchResults' : 'emptyList';
+    let emptyListMessage = 'noSearchResults';
+    if (!this.searchTerm_) {
+      emptyListMessage = bookmarks.util.canReorderChildren(
+                             this.getState(), this.getState().selectedFolder) ?
+          'emptyList' :
+          'emptyUnmodifiableList';
+    }
     return loadTimeData.getString(emptyListMessage);
   },
 
@@ -129,20 +152,44 @@ Polymer({
    * @private
    */
   getIndexForItemElement_: function(el) {
-    return this.$.bookmarksCard.modelForElement(el).index;
+    return this.$.list.modelForElement(el).index;
   },
 
   /**
    * @param {Event} e
    * @private
    */
-  onOpenItemMenu_: function(e) {
-    var index = this.displayedIds_.indexOf(
-        /** @type {BookmarksItemElement} */ (e.path[0]).itemId);
-    var list = this.$.bookmarksCard;
+  onOpenCommandMenu_: function(e) {
     // If the item is not visible, scroll to it before rendering the menu.
-    if (index < list.firstVisibleIndex || index > list.lastVisibleIndex)
-      list.scrollToIndex(index);
+    if (e.source == MenuSource.ITEM)
+      this.scrollToId_(/** @type {BookmarksItemElement} */ (e.path[0]).itemId);
+  },
+
+  /**
+   * Highlight a list of items by selecting them, scrolling them into view and
+   * focusing the first item.
+   * @param {Event} e
+   * @private
+   */
+  onHighlightItems_: function(e) {
+    // Ensure that we only select items which are actually being displayed.
+    // This should only matter if an unrelated update to the bookmark model
+    // happens with the perfect timing to end up in a tracked batch update.
+    const toHighlight = /** @type {!Array<string>} */
+        (e.detail.filter((item) => this.displayedIds_.indexOf(item) != -1));
+
+    assert(toHighlight.length > 0);
+    const leadId = toHighlight[0];
+    this.dispatch(
+        bookmarks.actions.selectAll(toHighlight, this.getState(), leadId));
+
+    // Allow iron-list time to render additions to the list.
+    this.async(function() {
+      this.scrollToId_(leadId);
+      const leadIndex = this.displayedIds_.indexOf(leadId);
+      assert(leadIndex != -1);
+      this.$.list.focusItem(leadIndex);
+    });
   },
 
   /**
@@ -150,13 +197,13 @@ Polymer({
    * @private
    */
   onItemKeydown_: function(e) {
-    var handled = true;
-    var list = this.$.bookmarksCard;
-    var focusMoved = false;
-    var focusedIndex =
+    let handled = true;
+    const list = this.$.list;
+    let focusMoved = false;
+    let focusedIndex =
         this.getIndexForItemElement_(/** @type {HTMLElement} */ (e.target));
-    var oldFocusedIndex = focusedIndex;
-    var cursorModifier = cr.isMac ? e.metaKey : e.ctrlKey;
+    const oldFocusedIndex = focusedIndex;
+    const cursorModifier = cr.isMac ? e.metaKey : e.ctrlKey;
     if (e.key == 'ArrowUp') {
       focusedIndex--;
       focusMoved = true;
@@ -197,7 +244,7 @@ Polymer({
 
         // If the focus moved from something other than a Ctrl + move event,
         // update the selection.
-        var config = {
+        const config = {
           clear: !cursorModifier,
           range: e.shiftKey,
           toggle: false,
@@ -219,5 +266,20 @@ Polymer({
 
     if (handled)
       e.stopPropagation();
+  },
+
+  /**
+   * @param {Event} e
+   * @private
+   */
+  onContextMenu_: function(e) {
+    e.preventDefault();
+    this.deselectItems_();
+
+    this.fire('open-command-menu', {
+      x: e.clientX,
+      y: e.clientY,
+      source: MenuSource.LIST,
+    });
   },
 });

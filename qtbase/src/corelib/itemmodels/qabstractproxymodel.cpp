@@ -3,7 +3,7 @@
 ** Copyright (C) 2016 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
-** This file is part of the QtGui module of the Qt Toolkit.
+** This file is part of the QtCore module of the Qt Toolkit.
 **
 ** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
@@ -38,9 +38,6 @@
 ****************************************************************************/
 
 #include "qabstractproxymodel.h"
-
-#ifndef QT_NO_PROXYMODEL
-
 #include "qitemselectionmodel.h"
 #include <private/qabstractproxymodel_p.h>
 #include <QtCore/QSize>
@@ -471,5 +468,3 @@ Qt::DropActions QAbstractProxyModel::supportedDropActions() const
 QT_END_NAMESPACE
 
 #include "moc_qabstractproxymodel.cpp"
-
-#endif // QT_NO_PROXYMODEL

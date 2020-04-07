@@ -2,6 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifndef CONTENT_BROWSER_MEDIA_SESSION_MOCK_MEDIA_SESSION_OBSERVER_H_
+#define CONTENT_BROWSER_MEDIA_SESSION_MOCK_MEDIA_SESSION_OBSERVER_H_
+
 #include "content/public/browser/media_session_observer.h"
 #include "testing/gmock/include/gmock/gmock.h"
 
@@ -10,7 +13,7 @@ namespace content {
 class MockMediaSessionObserver : public MediaSessionObserver {
  public:
   MockMediaSessionObserver(MediaSession* media_session);
-  virtual ~MockMediaSessionObserver() override;
+  ~MockMediaSessionObserver() override;
 
   MOCK_METHOD0(MediaSessionDestroyed, void());
   MOCK_METHOD2(MediaSessionStateChanged,
@@ -21,3 +24,5 @@ class MockMediaSessionObserver : public MediaSessionObserver {
                void(const std::set<blink::mojom::MediaSessionAction>& action));
 };
 }
+
+#endif  // CONTENT_BROWSER_MEDIA_SESSION_MOCK_MEDIA_SESSION_OBSERVER_H_

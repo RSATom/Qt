@@ -6,6 +6,7 @@
 
 #include <utility>
 
+#include "base/guid.h"
 #include "base/memory/weak_ptr.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/autofill/core/browser/autofill_profile.h"
@@ -13,10 +14,11 @@
 #include "components/autofill/core/browser/credit_card.h"
 #include "components/autofill/core/browser/test_personal_data_manager.h"
 #include "components/payments/content/payment_request_spec.h"
+#include "components/payments/content/test_content_payment_request_delegate.h"
 #include "components/payments/core/journey_logger.h"
-#include "components/payments/core/test_payment_request_delegate.h"
+#include "services/metrics/public/cpp/ukm_recorder.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/WebKit/public/platform/modules/payments/payment_request.mojom.h"
+#include "third_party/blink/public/platform/modules/payments/payment_request.mojom.h"
 
 namespace payments {
 
@@ -26,20 +28,23 @@ class PaymentRequestStateTest : public testing::Test,
  protected:
   PaymentRequestStateTest()
       : num_on_selected_information_changed_called_(0),
-        test_payment_request_delegate_(/*personal_data_manager=*/nullptr),
+        test_payment_request_delegate_(&test_personal_data_manager_),
         journey_logger_(test_payment_request_delegate_.IsIncognito(),
-                        GURL("http://www.test.com"),
-                        test_payment_request_delegate_.GetUkmRecorder()),
+                        ukm::UkmRecorder::GetNewSourceID()),
         address_(autofill::test::GetFullProfile()),
         credit_card_visa_(autofill::test::GetCreditCard()) {
-    test_personal_data_manager_.AddTestingProfile(&address_);
+    test_personal_data_manager_.SetAutofillCreditCardEnabled(true);
+    test_personal_data_manager_.SetAutofillProfileEnabled(true);
+    test_personal_data_manager_.SetAutofillWalletImportEnabled(true);
+    test_personal_data_manager_.AddProfile(address_);
     credit_card_visa_.set_billing_address_id(address_.guid());
     credit_card_visa_.set_use_count(5u);
-    test_personal_data_manager_.AddTestingCreditCard(&credit_card_visa_);
+    test_personal_data_manager_.AddCreditCard(credit_card_visa_);
   }
   ~PaymentRequestStateTest() override {}
 
   // PaymentRequestState::Observer:
+  void OnGetAllPaymentInstrumentsFinished() override {}
   void OnSelectedInformationChanged() override {
     num_on_selected_information_changed_called_++;
   }
@@ -58,12 +63,14 @@ class PaymentRequestStateTest : public testing::Test,
       mojom::PaymentDetailsPtr details,
       std::vector<mojom::PaymentMethodDataPtr> method_data) {
     // The spec will be based on the |options| and |details| passed in.
-    spec_ = base::MakeUnique<PaymentRequestSpec>(
+    spec_ = std::make_unique<PaymentRequestSpec>(
         std::move(options), std::move(details), std::move(method_data),
         /*observer=*/nullptr, "en-US");
-    state_ = base::MakeUnique<PaymentRequestState>(
-        spec_.get(), this, "en-US", &test_personal_data_manager_,
-        &test_payment_request_delegate_, &journey_logger_);
+    state_ = std::make_unique<PaymentRequestState>(
+        nullptr /* context */, GURL("https://example.com"),
+        GURL("https://example.com/pay"), spec_.get(), this, "en-US",
+        &test_personal_data_manager_, &test_payment_request_delegate_,
+        &journey_logger_);
     state_->AddObserver(this);
   }
 
@@ -91,7 +98,7 @@ class PaymentRequestStateTest : public testing::Test,
   std::vector<mojom::PaymentMethodDataPtr> GetMethodDataForVisa() {
     std::vector<mojom::PaymentMethodDataPtr> method_data;
     mojom::PaymentMethodDataPtr entry = mojom::PaymentMethodData::New();
-    entry->supported_methods.push_back("visa");
+    entry->supported_method = "visa";
     method_data.push_back(std::move(entry));
     return method_data;
   }
@@ -107,7 +114,7 @@ class PaymentRequestStateTest : public testing::Test,
   }
 
   autofill::AutofillProfile* test_address() { return &address_; }
-  TestPaymentRequestDelegate* test_payment_request_delegate() {
+  TestContentPaymentRequestDelegate* test_payment_request_delegate() {
     return &test_payment_request_delegate_;
   }
 
@@ -118,7 +125,7 @@ class PaymentRequestStateTest : public testing::Test,
   mojom::PaymentResponsePtr payment_response_;
   mojom::PaymentAddressPtr selected_shipping_address_;
   autofill::TestPersonalDataManager test_personal_data_manager_;
-  TestPaymentRequestDelegate test_payment_request_delegate_;
+  TestContentPaymentRequestDelegate test_payment_request_delegate_;
   JourneyLogger journey_logger_;
 
   // Test data.
@@ -132,14 +139,15 @@ TEST_F(PaymentRequestStateTest, CanMakePayment) {
 
   // CanMakePayment returns true because the method data requires Visa, and the
   // user has a Visa card on file.
-  EXPECT_TRUE(state()->CanMakePayment());
+  state()->CanMakePayment(base::BindOnce(
+      [](bool can_make_payment) { EXPECT_TRUE(can_make_payment); }));
 }
 
 TEST_F(PaymentRequestStateTest, CanMakePayment_CannotMakePayment) {
   // The method data requires MasterCard.
   std::vector<mojom::PaymentMethodDataPtr> method_data;
   mojom::PaymentMethodDataPtr entry = mojom::PaymentMethodData::New();
-  entry->supported_methods.push_back("mastercard");
+  entry->supported_method = "mastercard";
   method_data.push_back(std::move(entry));
   RecreateStateWithOptionsAndDetails(mojom::PaymentOptions::New(),
                                      mojom::PaymentDetails::New(),
@@ -147,13 +155,14 @@ TEST_F(PaymentRequestStateTest, CanMakePayment_CannotMakePayment) {
 
   // CanMakePayment returns false because the method data requires MasterCard,
   // and the user doesn't have such an instrument.
-  EXPECT_FALSE(state()->CanMakePayment());
+  state()->CanMakePayment(base::BindOnce(
+      [](bool can_make_payment) { EXPECT_FALSE(can_make_payment); }));
 }
 
 TEST_F(PaymentRequestStateTest, CanMakePayment_OnlyBasicCard) {
   // The method data supports everything in basic-card.
   mojom::PaymentMethodDataPtr entry = mojom::PaymentMethodData::New();
-  entry->supported_methods.push_back("basic-card");
+  entry->supported_method = "basic-card";
   std::vector<mojom::PaymentMethodDataPtr> method_data;
   method_data.push_back(std::move(entry));
   RecreateStateWithOptionsAndDetails(mojom::PaymentOptions::New(),
@@ -162,13 +171,14 @@ TEST_F(PaymentRequestStateTest, CanMakePayment_OnlyBasicCard) {
 
   // CanMakePayment returns true because the method data supports everything,
   // and the user has at least one instrument.
-  EXPECT_TRUE(state()->CanMakePayment());
+  state()->CanMakePayment(base::BindOnce(
+      [](bool can_make_payment) { EXPECT_TRUE(can_make_payment); }));
 }
 
 TEST_F(PaymentRequestStateTest, CanMakePayment_BasicCard_SpecificAvailable) {
   // The method data supports visa through basic-card.
   mojom::PaymentMethodDataPtr entry = mojom::PaymentMethodData::New();
-  entry->supported_methods.push_back("basic-card");
+  entry->supported_method = "basic-card";
   entry->supported_networks.push_back(mojom::BasicCardNetwork::VISA);
   std::vector<mojom::PaymentMethodDataPtr> method_data;
   method_data.push_back(std::move(entry));
@@ -178,14 +188,15 @@ TEST_F(PaymentRequestStateTest, CanMakePayment_BasicCard_SpecificAvailable) {
 
   // CanMakePayment returns true because the method data supports visa, and the
   // user has a Visa instrument.
-  EXPECT_TRUE(state()->CanMakePayment());
+  state()->CanMakePayment(base::BindOnce(
+      [](bool can_make_payment) { EXPECT_TRUE(can_make_payment); }));
 }
 
 TEST_F(PaymentRequestStateTest,
        CanMakePayment_BasicCard_SpecificAvailableButInvalid) {
   // The method data supports jcb through basic-card.
   mojom::PaymentMethodDataPtr entry = mojom::PaymentMethodData::New();
-  entry->supported_methods.push_back("basic-card");
+  entry->supported_method = "basic-card";
   entry->supported_networks.push_back(mojom::BasicCardNetwork::JCB);
   std::vector<mojom::PaymentMethodDataPtr> method_data;
   method_data.push_back(std::move(entry));
@@ -195,13 +206,14 @@ TEST_F(PaymentRequestStateTest,
 
   // CanMakePayment returns false because the method data supports jcb, and the
   // user has a JCB instrument, but it's invalid.
-  EXPECT_FALSE(state()->CanMakePayment());
+  state()->CanMakePayment(base::BindOnce(
+      [](bool can_make_payment) { EXPECT_FALSE(can_make_payment); }));
 }
 
 TEST_F(PaymentRequestStateTest, CanMakePayment_BasicCard_SpecificUnavailable) {
   // The method data supports mastercard through basic-card.
   mojom::PaymentMethodDataPtr entry = mojom::PaymentMethodData::New();
-  entry->supported_methods.push_back("basic-card");
+  entry->supported_method = "basic-card";
   entry->supported_networks.push_back(mojom::BasicCardNetwork::MASTERCARD);
   std::vector<mojom::PaymentMethodDataPtr> method_data;
   method_data.push_back(std::move(entry));
@@ -211,7 +223,8 @@ TEST_F(PaymentRequestStateTest, CanMakePayment_BasicCard_SpecificUnavailable) {
 
   // CanMakePayment returns false because the method data supports mastercard,
   // and the user doesn't have such an instrument.
-  EXPECT_FALSE(state()->CanMakePayment());
+  state()->CanMakePayment(base::BindOnce(
+      [](bool can_make_payment) { EXPECT_FALSE(can_make_payment); }));
 }
 
 TEST_F(PaymentRequestStateTest, ReadyToPay_DefaultSelections) {
@@ -227,11 +240,11 @@ TEST_F(PaymentRequestStateTest, ReadyToPay_DefaultSelections) {
   EXPECT_FALSE(state()->is_ready_to_pay());
 
   state()->SetSelectedShippingProfile(test_address());
-  EXPECT_EQ(1, num_on_selected_information_changed_called());
+  EXPECT_EQ(0, num_on_selected_information_changed_called());
 
   // Simulate that the merchant has validated the shipping address change.
   spec()->UpdateWith(CreateDefaultDetails());
-  EXPECT_EQ(2, num_on_selected_information_changed_called());
+  EXPECT_EQ(1, num_on_selected_information_changed_called());
 
   // Not ready to pay since there's no selected shipping option.
   EXPECT_FALSE(state()->is_ready_to_pay());
@@ -241,7 +254,7 @@ TEST_F(PaymentRequestStateTest, ReadyToPay_DefaultSelections) {
   auto details = CreateDefaultDetails();
   details->shipping_options[0]->selected = true;
   spec()->UpdateWith(std::move(details));
-  EXPECT_EQ(3, num_on_selected_information_changed_called());
+  EXPECT_EQ(2, num_on_selected_information_changed_called());
   EXPECT_TRUE(state()->is_ready_to_pay());
 }
 
@@ -298,19 +311,19 @@ TEST_F(PaymentRequestStateTest, SelectedShippingAddressMessage_Normalized) {
   // Select an address, nothing should happen until the normalization is
   // completed and the merchant has validated the address.
   state()->SetSelectedShippingProfile(test_address());
-  EXPECT_EQ(1, num_on_selected_information_changed_called());
+  EXPECT_EQ(0, num_on_selected_information_changed_called());
   EXPECT_FALSE(state()->is_ready_to_pay());
 
   // Complete the normalization.
   test_payment_request_delegate()
       ->test_address_normalizer()
       ->CompleteAddressNormalization();
-  EXPECT_EQ(1, num_on_selected_information_changed_called());
+  EXPECT_EQ(0, num_on_selected_information_changed_called());
   EXPECT_FALSE(state()->is_ready_to_pay());
 
   // Simulate that the merchant has validated the shipping address change.
   spec()->UpdateWith(CreateDefaultDetails());
-  EXPECT_EQ(2, num_on_selected_information_changed_called());
+  EXPECT_EQ(1, num_on_selected_information_changed_called());
   // Not ready to pay because there's no selected shipping option.
   EXPECT_FALSE(state()->is_ready_to_pay());
 
@@ -327,6 +340,61 @@ TEST_F(PaymentRequestStateTest, SelectedShippingAddressMessage_Normalized) {
   EXPECT_EQ("Underworld", selected_shipping_address()->organization);
   EXPECT_EQ("John H. Doe", selected_shipping_address()->recipient);
   EXPECT_EQ("16502111111", selected_shipping_address()->phone);
+}
+
+TEST_F(PaymentRequestStateTest, JaLatnShippingAddress) {
+  mojom::PaymentOptionsPtr options = mojom::PaymentOptions::New();
+  options->request_shipping = true;
+  RecreateStateWithOptions(std::move(options));
+
+  // Make the normalization not be instantaneous.
+  test_payment_request_delegate()
+      ->test_address_normalizer()
+      ->DelayNormalization();
+
+  EXPECT_EQ(0, num_on_selected_information_changed_called());
+
+  // Select an address, nothing should happen until the normalization is
+  // completed and the merchant has validated the address.
+  autofill::AutofillProfile profile(base::GenerateGUID(),
+                                    "https://example.com");
+  autofill::test::SetProfileInfo(&profile, "Jon", "V.", "Doe",
+                                 "jon.doe@exampl.com", "Example Inc",
+                                 "Roppongi", "6 Chrome-10-1", "Tokyo", "",
+                                 "106-6126", "JP", "+81363849000");
+  profile.set_language_code("ja-Latn");
+
+  state()->SetSelectedShippingProfile(&profile);
+  EXPECT_EQ(0, num_on_selected_information_changed_called());
+  EXPECT_FALSE(state()->is_ready_to_pay());
+
+  // Complete the normalization.
+  test_payment_request_delegate()
+      ->test_address_normalizer()
+      ->CompleteAddressNormalization();
+  EXPECT_EQ(0, num_on_selected_information_changed_called());
+  EXPECT_FALSE(state()->is_ready_to_pay());
+
+  // Simulate that the merchant has validated the shipping address change.
+  spec()->UpdateWith(CreateDefaultDetails());
+  EXPECT_EQ(1, num_on_selected_information_changed_called());
+  // Not ready to pay because there's no selected shipping option.
+  EXPECT_FALSE(state()->is_ready_to_pay());
+
+  // Check that all the expected values were set for the shipping address.
+  EXPECT_EQ("JP", selected_shipping_address()->country);
+  EXPECT_EQ("Roppongi", selected_shipping_address()->address_line[0]);
+  EXPECT_EQ("6 Chrome-10-1", selected_shipping_address()->address_line[1]);
+  EXPECT_EQ("", selected_shipping_address()->region);
+  EXPECT_EQ("Tokyo", selected_shipping_address()->city);
+  EXPECT_EQ("", selected_shipping_address()->dependent_locality);
+  EXPECT_EQ("106-6126", selected_shipping_address()->postal_code);
+  EXPECT_EQ("", selected_shipping_address()->sorting_code);
+  EXPECT_EQ("ja", selected_shipping_address()->language_code);
+  EXPECT_EQ("Latn", selected_shipping_address()->script_code);
+  EXPECT_EQ("Example Inc", selected_shipping_address()->organization);
+  EXPECT_EQ("Jon V. Doe", selected_shipping_address()->recipient);
+  EXPECT_EQ("+81363849000", selected_shipping_address()->phone);
 }
 
 }  // namespace payments

@@ -57,8 +57,8 @@ public:
     };
     Q_DECLARE_FLAGS(DrawFlags, DrawFlag)
 
-    explicit QSurface3DSeries(QObject *parent = Q_NULLPTR);
-    explicit QSurface3DSeries(QSurfaceDataProxy *dataProxy, QObject *parent = Q_NULLPTR);
+    explicit QSurface3DSeries(QObject *parent = nullptr);
+    explicit QSurface3DSeries(QSurfaceDataProxy *dataProxy, QObject *parent = nullptr);
     virtual ~QSurface3DSeries();
 
     void setDataProxy(QSurfaceDataProxy *proxy);
@@ -91,7 +91,7 @@ Q_SIGNALS:
     void textureFileChanged(const QString &filename);
 
 protected:
-    explicit QSurface3DSeries(QSurface3DSeriesPrivate *d, QObject *parent = Q_NULLPTR);
+    explicit QSurface3DSeries(QSurface3DSeriesPrivate *d, QObject *parent = nullptr);
     QSurface3DSeriesPrivate *dptr();
     const QSurface3DSeriesPrivate *dptrc() const;
 

@@ -1,6 +1,10 @@
 #ifndef QT_QTTEST_MODULE_H
 #define QT_QTTEST_MODULE_H
 #include <QtTest/QtTestDepends>
+#include "qttestglobal.h"
+#if QT_CONFIG(itemmodeltester)
+#include "qabstractitemmodeltester.h"
+#endif
 #include "qbenchmark.h"
 #include "qbenchmarkmetric.h"
 #include "qsignalspy.h"

@@ -19,6 +19,7 @@
 typedef struct _drmModeModeInfo drmModeModeInfo;
 
 namespace display {
+class DisplaySnapshot;
 struct GammaRampRGBEntry;
 }
 
@@ -40,16 +41,17 @@ class DrmDisplay {
   uint32_t connector() const { return connector_; }
   const std::vector<drmModeModeInfo>& modes() const { return modes_; }
 
-  DisplaySnapshot_Params Update(HardwareDisplayControllerInfo* info,
-                                size_t device_index);
+  std::unique_ptr<display::DisplaySnapshot> Update(
+      HardwareDisplayControllerInfo* info,
+      size_t device_index);
 
   bool Configure(const drmModeModeInfo* mode, const gfx::Point& origin);
   bool GetHDCPState(display::HDCPState* state);
   bool SetHDCPState(display::HDCPState state);
-  void SetColorCorrection(
+  void SetColorMatrix(const std::vector<float>& color_matrix);
+  void SetGammaCorrection(
       const std::vector<display::GammaRampRGBEntry>& degamma_lut,
-      const std::vector<display::GammaRampRGBEntry>& gamma_lut,
-      const std::vector<float>& correction_matrix);
+      const std::vector<display::GammaRampRGBEntry>& gamma_lut);
 
  private:
   ScreenManager* screen_manager_;  // Not owned.

@@ -34,7 +34,6 @@ class CONTENT_EXPORT OwnedMailbox : public base::RefCounted<OwnedMailbox>,
     return mailbox_holder_.sync_token;
   }
   uint32_t texture_id() const { return texture_id_; }
-  uint32_t target() const { return mailbox_holder_.texture_target; }
   void UpdateSyncToken(const gpu::SyncToken& sync_token);
   void Destroy();
 
@@ -42,7 +41,8 @@ class CONTENT_EXPORT OwnedMailbox : public base::RefCounted<OwnedMailbox>,
   ~OwnedMailbox() override;
 
   // ImageTransportFactoryObserver implementation.
-  void OnLostResources() override;
+  void OnLostSharedContext() override;
+  void OnLostVizProcess() override;
 
  private:
   friend class base::RefCounted<OwnedMailbox>;

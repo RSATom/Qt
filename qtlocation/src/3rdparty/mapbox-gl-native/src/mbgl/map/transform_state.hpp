@@ -25,7 +25,7 @@ public:
 
     // Matrix
     void matrixFor(mat4&, const UnwrappedTileID&) const;
-    void getProjMatrix(mat4& matrix, uint16_t nearZ = 1) const;
+    void getProjMatrix(mat4& matrix, uint16_t nearZ = 1, bool aligned = false) const;
 
     // Dimensions
     Size getSize() const;
@@ -87,6 +87,7 @@ public:
     }
 
     float getCameraToTileDistance(const UnwrappedTileID&) const;
+    float maxPitchScaleFactor() const;
 
 private:
     bool rotatedNorth() const;

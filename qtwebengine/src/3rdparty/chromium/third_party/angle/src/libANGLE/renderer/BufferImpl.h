@@ -9,9 +9,11 @@
 #ifndef LIBANGLE_RENDERER_BUFFERIMPL_H_
 #define LIBANGLE_RENDERER_BUFFERIMPL_H_
 
+#include "common/PackedEnums.h"
 #include "common/angleutils.h"
 #include "common/mathutil.h"
 #include "libANGLE/Error.h"
+#include "libANGLE/Observer.h"
 
 #include <stdint.h>
 
@@ -23,7 +25,10 @@ class Context;
 
 namespace rx
 {
-class BufferImpl : angle::NonCopyable
+// We use two set of Subject messages. The CONTENTS_CHANGED message is signaled whenever data
+// changes, to trigger re-translation or other events. Some buffers only need to be updated when the
+// underlying driver object changes - this is notified via the STORAGE_CHANGED message.
+class BufferImpl : public angle::Subject
 {
   public:
     BufferImpl(const gl::BufferState &state) : mState(state) {}
@@ -31,29 +36,30 @@ class BufferImpl : angle::NonCopyable
     virtual void destroy(const gl::Context *context) {}
 
     virtual gl::Error setData(const gl::Context *context,
-                              GLenum target,
+                              gl::BufferBinding target,
                               const void *data,
                               size_t size,
-                              GLenum usage) = 0;
+                              gl::BufferUsage usage)                                = 0;
     virtual gl::Error setSubData(const gl::Context *context,
-                                 GLenum target,
+                                 gl::BufferBinding target,
                                  const void *data,
                                  size_t size,
-                                 size_t offset) = 0;
+                                 size_t offset)                                     = 0;
     virtual gl::Error copySubData(const gl::Context *context,
                                   BufferImpl *source,
                                   GLintptr sourceOffset,
                                   GLintptr destOffset,
-                                  GLsizeiptr size) = 0;
+                                  GLsizeiptr size)                                  = 0;
     virtual gl::Error map(const gl::Context *context, GLenum access, void **mapPtr) = 0;
     virtual gl::Error mapRange(const gl::Context *context,
                                size_t offset,
                                size_t length,
                                GLbitfield access,
-                               void **mapPtr) = 0;
-    virtual gl::Error unmap(const gl::Context *context, GLboolean *result) = 0;
+                               void **mapPtr)                                       = 0;
+    virtual gl::Error unmap(const gl::Context *context, GLboolean *result)          = 0;
 
-    virtual gl::Error getIndexRange(GLenum type,
+    virtual gl::Error getIndexRange(const gl::Context *context,
+                                    GLenum type,
                                     size_t offset,
                                     size_t count,
                                     bool primitiveRestartEnabled,

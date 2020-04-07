@@ -21,11 +21,16 @@ Aead::Aead(AeadAlgorithm algorithm) : key_(nullptr) {
     case AES_128_CTR_HMAC_SHA256:
       aead_ = EVP_aead_aes_128_ctr_hmac_sha256();
       break;
+    case AES_256_GCM:
+      aead_ = EVP_aead_aes_256_gcm();
+      break;
+    case AES_256_GCM_SIV:
+      aead_ = EVP_aead_aes_256_gcm_siv();
+      break;
   }
 }
 
-Aead::~Aead() {
-}
+Aead::~Aead() = default;
 
 void Aead::Init(const std::string* key) {
   DCHECK(!key_);
@@ -33,9 +38,9 @@ void Aead::Init(const std::string* key) {
   key_ = key;
 }
 
-bool Aead::Seal(const base::StringPiece& plaintext,
-                const base::StringPiece& nonce,
-                const base::StringPiece& additional_data,
+bool Aead::Seal(base::StringPiece plaintext,
+                base::StringPiece nonce,
+                base::StringPiece additional_data,
                 std::string* ciphertext) const {
   DCHECK(key_);
   DCHECK_EQ(NonceLength(), nonce.size());
@@ -73,9 +78,9 @@ bool Aead::Seal(const base::StringPiece& plaintext,
   return true;
 }
 
-bool Aead::Open(const base::StringPiece& ciphertext,
-                const base::StringPiece& nonce,
-                const base::StringPiece& additional_data,
+bool Aead::Open(base::StringPiece ciphertext,
+                base::StringPiece nonce,
+                base::StringPiece additional_data,
                 std::string* plaintext) const {
   DCHECK(key_);
   EVP_AEAD_CTX ctx;

@@ -288,6 +288,15 @@ int GLES2Util::GLGetNumValuesReturned(int id) const {
     case GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT:
       return 1;
 
+    // -- glGetBooleanv, glGetFloatv, glGetIntergerv with
+    //    GL_EXT_window_rectangles
+    case GL_WINDOW_RECTANGLE_MODE_EXT:
+      return 1;
+    case GL_MAX_WINDOW_RECTANGLES_EXT:
+      return 1;
+    case GL_NUM_WINDOW_RECTANGLES_EXT:
+      return 1;
+
     // -- glGetBufferParameteriv
     case GL_BUFFER_SIZE:
       return 1;
@@ -484,7 +493,7 @@ int GLES2Util::GLGetNumValuesReturned(int id) const {
 namespace {
 
 // Return the number of bytes per element, based on the element type.
-int BytesPerElement(int type) {
+uint32_t BytesPerElement(int type) {
   switch (type) {
     case GL_FLOAT_32_UNSIGNED_INT_24_8_REV:
       return 8;
@@ -515,7 +524,7 @@ int BytesPerElement(int type) {
 }  // anonymous namespace
 
 // Return the number of elements per group of a specified format.
-int GLES2Util::ElementsPerGroup(int format, int type) {
+uint32_t GLES2Util::ElementsPerGroup(int format, int type) {
   switch (type) {
     case GL_UNSIGNED_SHORT_5_6_5:
     case GL_UNSIGNED_SHORT_4_4_4_4:
@@ -525,25 +534,25 @@ int GLES2Util::ElementsPerGroup(int format, int type) {
     case GL_UNSIGNED_INT_10F_11F_11F_REV:
     case GL_UNSIGNED_INT_5_9_9_9_REV:
     case GL_FLOAT_32_UNSIGNED_INT_24_8_REV:
-       return 1;
+      return 1;
     default:
-       break;
-    }
+      break;
+  }
 
-    switch (format) {
+  switch (format) {
     case GL_RGB:
     case GL_RGB_INTEGER:
     case GL_SRGB_EXT:
-       return 3;
+      return 3;
     case GL_LUMINANCE_ALPHA:
     case GL_RG_EXT:
     case GL_RG_INTEGER:
-       return 2;
+      return 2;
     case GL_RGBA:
     case GL_RGBA_INTEGER:
     case GL_BGRA_EXT:
     case GL_SRGB_ALPHA_EXT:
-       return 4;
+      return 4;
     case GL_ALPHA:
     case GL_LUMINANCE:
     case GL_DEPTH_COMPONENT:
@@ -554,17 +563,17 @@ int GLES2Util::ElementsPerGroup(int format, int type) {
     case GL_DEPTH_STENCIL_OES:
     case GL_RED_EXT:
     case GL_RED_INTEGER:
-       return 1;
+      return 1;
     default:
-       return 0;
+      return 0;
   }
 }
 
 uint32_t GLES2Util::ComputeImageGroupSize(int format, int type) {
-  int bytes_per_element = BytesPerElement(type);
-  DCHECK_GE(8, bytes_per_element);
-  int elements_per_group = ElementsPerGroup(format, type);
-  DCHECK_GE(4, elements_per_group);
+  uint32_t bytes_per_element = BytesPerElement(type);
+  DCHECK_GE(8u, bytes_per_element);
+  uint32_t elements_per_group = ElementsPerGroup(format, type);
+  DCHECK_GE(4u, elements_per_group);
   return  bytes_per_element * elements_per_group;
 }
 
@@ -577,7 +586,8 @@ bool GLES2Util::ComputeImageRowSizeHelper(int width,
   DCHECK(alignment == 1 || alignment == 2 ||
          alignment == 4 || alignment == 8);
   uint32_t unpadded_row_size;
-  if (!SafeMultiplyUint32(width, bytes_per_group, &unpadded_row_size)) {
+  if (!base::CheckMul(width, bytes_per_group)
+           .AssignIfValid(&unpadded_row_size)) {
     return false;
   }
   uint32_t residual = unpadded_row_size % alignment;
@@ -585,7 +595,8 @@ bool GLES2Util::ComputeImageRowSizeHelper(int width,
   uint32_t padded_row_size = unpadded_row_size;
   if (residual > 0) {
     padding = alignment - residual;
-    if (!SafeAddUint32(unpadded_row_size, padding, &padded_row_size)) {
+    if (!base::CheckAdd(unpadded_row_size, padding)
+             .AssignIfValid(&padded_row_size)) {
       return false;
     }
   }
@@ -655,8 +666,8 @@ bool GLES2Util::ComputeImageDataSizesES3(
   int image_height = params.image_height > 0 ? params.image_height : height;
   uint32_t num_of_rows;
   if (depth > 0) {
-    if (!SafeMultiplyUint32(image_height, depth - 1, &num_of_rows) ||
-        !SafeAddUint32(num_of_rows, height, &num_of_rows)) {
+    if (!base::CheckAdd(base::CheckMul(image_height, depth - 1), height)
+             .AssignIfValid(&num_of_rows)) {
       return false;
     }
   } else {
@@ -664,42 +675,28 @@ bool GLES2Util::ComputeImageDataSizesES3(
   }
 
   if (num_of_rows > 0) {
-    uint32_t size_of_all_but_last_row;
-    if (!SafeMultiplyUint32((num_of_rows - 1), padded_row_size,
-                            &size_of_all_but_last_row)) {
-      return false;
-    }
-    if (!SafeAddUint32(size_of_all_but_last_row, unpadded_row_size, size)) {
+    if (!base::CheckAdd(base::CheckMul(num_of_rows - 1, padded_row_size),
+                        unpadded_row_size)
+             .AssignIfValid(size)) {
       return false;
     }
   } else {
     *size = 0;
   }
 
-  uint32_t skip_size = 0;
+  base::CheckedNumeric<uint32_t> skip_size = 0;
   if (params.skip_images > 0) {
-    uint32_t image_size;
-    if (!SafeMultiplyUint32(image_height, padded_row_size, &image_size))
-      return false;
-    if (!SafeMultiplyUint32(image_size, params.skip_images, &skip_size))
-      return false;
+    skip_size = image_height;
+    skip_size *= padded_row_size;
+    skip_size *= params.skip_images;
   }
   if (params.skip_rows > 0) {
-    uint32_t temp;
-    if (!SafeMultiplyUint32(padded_row_size, params.skip_rows, &temp))
-      return false;
-    if (!SafeAddUint32(skip_size, temp, &skip_size))
-      return false;
+    skip_size += base::CheckMul(padded_row_size, params.skip_rows);
   }
   if (params.skip_pixels > 0) {
-    uint32_t temp;
-    if (!SafeMultiplyUint32(bytes_per_group, params.skip_pixels, &temp))
-      return false;
-    if (!SafeAddUint32(skip_size, temp, &skip_size))
-      return false;
+    skip_size += base::CheckMul(bytes_per_group, params.skip_pixels);
   }
-  uint32_t total_size;
-  if (!SafeAddUint32(*size, skip_size, &total_size))
+  if (!base::CheckAdd(*size, skip_size).IsValid())
     return false;
 
   if (opt_padded_row_size) {
@@ -709,11 +706,11 @@ bool GLES2Util::ComputeImageDataSizesES3(
     *opt_unpadded_row_size = unpadded_row_size;
   }
   if (opt_skip_size)
-    *opt_skip_size = skip_size;
+    *opt_skip_size = skip_size.ValueOrDefault(0);
   return true;
 }
 
-size_t GLES2Util::RenderbufferBytesPerPixel(int format) {
+uint32_t GLES2Util::RenderbufferBytesPerPixel(int format) {
   switch (format) {
     case GL_STENCIL_INDEX8:
       return 1;
@@ -729,6 +726,16 @@ size_t GLES2Util::RenderbufferBytesPerPixel(int format) {
     case GL_RGBA8_OES:
     case GL_DEPTH_COMPONENT24_OES:
       return 4;
+    default:
+      return 0;
+  }
+}
+
+uint8_t GLES2Util::StencilBitsPerPixel(int format) {
+  switch (format) {
+    case GL_STENCIL_INDEX8:
+    case GL_DEPTH24_STENCIL8_OES:
+      return 8;
     default:
       return 0;
   }
@@ -856,11 +863,11 @@ uint32_t GLES2Util::GetElementCountForUniformType(int type) {
   }
 }
 
-size_t GLES2Util::GetGLTypeSizeForTextures(uint32_t type) {
-  return static_cast<size_t>(BytesPerElement(type));
+uint32_t GLES2Util::GetGLTypeSizeForTextures(uint32_t type) {
+  return BytesPerElement(type);
 }
 
-size_t GLES2Util::GetGLTypeSizeForBuffers(uint32_t type) {
+uint32_t GLES2Util::GetGLTypeSizeForBuffers(uint32_t type) {
   switch (type) {
     case GL_BYTE:
       return sizeof(GLbyte);  // NOLINT
@@ -889,8 +896,9 @@ size_t GLES2Util::GetGLTypeSizeForBuffers(uint32_t type) {
   }
 }
 
-size_t GLES2Util::GetGroupSizeForBufferType(uint32_t count, uint32_t type) {
-  size_t type_size = GetGLTypeSizeForBuffers(type);
+uint32_t GLES2Util::GetGroupSizeForBufferType(uint32_t count, uint32_t type) {
+  DCHECK_LE(count, 4u);
+  uint32_t type_size = GetGLTypeSizeForBuffers(type);
   // For packed types, group size equals to the type size.
   if (type == GL_INT_2_10_10_10_REV || type == GL_UNSIGNED_INT_2_10_10_10_REV) {
     DCHECK_EQ(4u, count);
@@ -898,7 +906,8 @@ size_t GLES2Util::GetGroupSizeForBufferType(uint32_t count, uint32_t type) {
   }
   return type_size * count;
 }
-size_t GLES2Util::GetComponentCountForGLTransformType(uint32_t type) {
+
+uint32_t GLES2Util::GetComponentCountForGLTransformType(uint32_t type) {
   switch (type) {
     case GL_TRANSLATE_X_CHROMIUM:
     case GL_TRANSLATE_Y_CHROMIUM:
@@ -917,7 +926,8 @@ size_t GLES2Util::GetComponentCountForGLTransformType(uint32_t type) {
       return 0;
   }
 }
-size_t GLES2Util::GetCoefficientCountForGLPathFragmentInputGenMode(
+
+uint32_t GLES2Util::GetCoefficientCountForGLPathFragmentInputGenMode(
     uint32_t gen_mode) {
   switch (gen_mode) {
     case GL_EYE_LINEAR_CHROMIUM:
@@ -932,7 +942,7 @@ size_t GLES2Util::GetCoefficientCountForGLPathFragmentInputGenMode(
   }
 }
 
-size_t GLES2Util::GetGLTypeSizeForPathCoordType(uint32_t type) {
+uint32_t GLES2Util::GetGLTypeSizeForPathCoordType(uint32_t type) {
   switch (type) {
     case GL_BYTE:
       return sizeof(GLbyte);  // NOLINT
@@ -949,7 +959,7 @@ size_t GLES2Util::GetGLTypeSizeForPathCoordType(uint32_t type) {
   }
 }
 
-size_t GLES2Util::GetGLTypeSizeForGLPathNameType(uint32_t type) {
+uint32_t GLES2Util::GetGLTypeSizeForGLPathNameType(uint32_t type) {
   switch (type) {
     case GL_BYTE:
       return sizeof(GLbyte);  // NOLINT
@@ -1374,10 +1384,13 @@ void GLES2Util::GetColorFormatComponentSizes(
   switch (internal_format) {
     case GL_ALPHA8_EXT:
       *a = 8;
+      break;
     case GL_ALPHA16F_EXT:
       *a = 16;
+      break;
     case GL_ALPHA32F_EXT:
       *a = 32;
+      break;
     case GL_RGB8_OES:
     case GL_SRGB8:
     case GL_RGB8_SNORM:
@@ -1583,7 +1596,7 @@ GLSLArrayName::GLSLArrayName(const std::string& name) : element_index_(-1) {
   base_name_ = name.substr(0, open_pos);
 }
 
-size_t GLES2Util::CalcClearBufferivDataCount(int buffer) {
+uint32_t GLES2Util::CalcClearBufferivDataCount(int buffer) {
   switch (buffer) {
     case GL_COLOR:
       return 4;
@@ -1594,12 +1607,21 @@ size_t GLES2Util::CalcClearBufferivDataCount(int buffer) {
   }
 }
 
-size_t GLES2Util::CalcClearBufferfvDataCount(int buffer) {
+uint32_t GLES2Util::CalcClearBufferfvDataCount(int buffer) {
   switch (buffer) {
     case GL_COLOR:
       return 4;
     case GL_DEPTH:
       return 1;
+    default:
+      return 0;
+  }
+}
+
+uint32_t GLES2Util::CalcClearBufferuivDataCount(int buffer) {
+  switch (buffer) {
+    case GL_COLOR:
+      return 4;
     default:
       return 0;
   }
@@ -1818,176 +1840,6 @@ uint32_t GLES2Util::ConvertToSizedFormat(uint32_t format, uint32_t type) {
   }
 
   return format;
-}
-
-namespace {
-
-// GL context configuration attributes. Those in the 16-bit range are the same
-// as used by EGL. Those outside the 16-bit range are unique to Chromium.
-// Attributes are matched using a closest fit algorithm.
-
-// From <EGL/egl.h>.
-#include <stddef.h>
-#include <stdint.h>
-const int32_t kAlphaSize = 0x3021;        // EGL_ALPHA_SIZE
-const int32_t kBlueSize = 0x3022;         // EGL_BLUE_SIZE
-const int32_t kGreenSize = 0x3023;        // EGL_GREEN_SIZE
-const int32_t kRedSize = 0x3024;          // EGL_RED_SIZE
-const int32_t kDepthSize = 0x3025;        // EGL_DEPTH_SIZE
-const int32_t kStencilSize = 0x3026;      // EGL_STENCIL_SIZE
-const int32_t kSamples = 0x3031;          // EGL_SAMPLES
-const int32_t kSampleBuffers = 0x3032;    // EGL_SAMPLE_BUFFERS
-const int32_t kNone = 0x3038;             // EGL_NONE
-const int32_t kSwapBehavior = 0x3093;     // EGL_SWAP_BEHAVIOR
-const int32_t kBufferPreserved = 0x3094;  // EGL_BUFFER_PRESERVED
-const int32_t kSingleBuffer = 0x3085;     // EGL_SINGLE_BUFFER
-
-// Chromium only.
-const int32_t kBindGeneratesResource = 0x10000;
-const int32_t kFailIfMajorPerfCaveat = 0x10001;
-const int32_t kLoseContextWhenOutOfMemory = 0x10002;
-const int32_t kShouldUseNativeGMBForBackbuffer = 0x10003;
-const int32_t kContextType = 0x10004;
-
-}  // namespace
-
-bool IsWebGLContextType(ContextType context_type) {
-  // Switch statement to cause a compile-time error if we miss a case.
-  switch (context_type) {
-    case CONTEXT_TYPE_WEBGL1:
-    case CONTEXT_TYPE_WEBGL2:
-      return true;
-    case CONTEXT_TYPE_OPENGLES2:
-    case CONTEXT_TYPE_OPENGLES3:
-      return false;
-  }
-
-  NOTREACHED();
-  return false;
-}
-
-bool IsWebGL1OrES2ContextType(ContextType context_type) {
-  // Switch statement to cause a compile-time error if we miss a case.
-  switch (context_type) {
-    case CONTEXT_TYPE_WEBGL1:
-    case CONTEXT_TYPE_OPENGLES2:
-      return true;
-    case CONTEXT_TYPE_WEBGL2:
-    case CONTEXT_TYPE_OPENGLES3:
-      return false;
-  }
-
-  NOTREACHED();
-  return false;
-}
-
-bool IsWebGL2OrES3ContextType(ContextType context_type) {
-  // Switch statement to cause a compile-time error if we miss a case.
-  switch (context_type) {
-    case CONTEXT_TYPE_OPENGLES3:
-    case CONTEXT_TYPE_WEBGL2:
-      return true;
-    case CONTEXT_TYPE_WEBGL1:
-    case CONTEXT_TYPE_OPENGLES2:
-      return false;
-  }
-
-  NOTREACHED();
-  return false;
-}
-
-ContextCreationAttribHelper::ContextCreationAttribHelper()
-    : gpu_preference(gl::PreferIntegratedGpu),
-      alpha_size(-1),
-      blue_size(-1),
-      green_size(-1),
-      red_size(-1),
-      depth_size(-1),
-      stencil_size(-1),
-      samples(-1),
-      sample_buffers(-1),
-      buffer_preserved(true),
-      bind_generates_resource(true),
-      fail_if_major_perf_caveat(false),
-      lose_context_when_out_of_memory(false),
-      should_use_native_gmb_for_backbuffer(false),
-      own_offscreen_surface(false),
-      single_buffer(false),
-      context_type(CONTEXT_TYPE_OPENGLES2) {}
-
-ContextCreationAttribHelper::ContextCreationAttribHelper(
-    const ContextCreationAttribHelper& other) = default;
-
-bool ContextCreationAttribHelper::Parse(const std::vector<int32_t>& attribs) {
-  for (size_t i = 0; i < attribs.size(); i += 2) {
-    const int32_t attrib = attribs[i];
-    if (i + 1 >= attribs.size()) {
-      if (attrib == kNone) {
-        return true;
-      }
-
-      DLOG(ERROR) << "Missing value after context creation attribute: "
-                  << attrib;
-      return false;
-    }
-
-    const int32_t value = attribs[i + 1];
-    switch (attrib) {
-      case kAlphaSize:
-        alpha_size = value;
-        break;
-      case kBlueSize:
-        blue_size = value;
-        break;
-      case kGreenSize:
-        green_size = value;
-        break;
-      case kRedSize:
-        red_size = value;
-        break;
-      case kDepthSize:
-        depth_size = value;
-        break;
-      case kStencilSize:
-        stencil_size = value;
-        break;
-      case kSamples:
-        samples = value;
-        break;
-      case kSampleBuffers:
-        sample_buffers = value;
-        break;
-      case kSwapBehavior:
-        buffer_preserved = value == kBufferPreserved;
-        break;
-      case kBindGeneratesResource:
-        bind_generates_resource = value != 0;
-        break;
-      case kFailIfMajorPerfCaveat:
-        fail_if_major_perf_caveat = value != 0;
-        break;
-      case kLoseContextWhenOutOfMemory:
-        lose_context_when_out_of_memory = value != 0;
-        break;
-      case kShouldUseNativeGMBForBackbuffer:
-        should_use_native_gmb_for_backbuffer = value != 0;
-        break;
-      case kSingleBuffer:
-        single_buffer = value != 0;
-        break;
-      case kContextType:
-        context_type = static_cast<ContextType>(value);
-        break;
-      case kNone:
-        // Terminate list, even if more attributes.
-        return true;
-      default:
-        DLOG(ERROR) << "Invalid context creation attribute: " << attrib;
-        return false;
-    }
-  }
-
-  return true;
 }
 
 #include "gpu/command_buffer/common/gles2_cmd_utils_implementation_autogen.h"

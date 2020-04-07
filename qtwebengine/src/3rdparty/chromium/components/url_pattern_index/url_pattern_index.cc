@@ -18,6 +18,7 @@
 #include "components/url_pattern_index/url_pattern.h"
 #include "url/gurl.h"
 #include "url/origin.h"
+#include "url/url_constants.h"
 
 namespace url_pattern_index {
 
@@ -26,6 +27,7 @@ namespace {
 using FlatStringOffset = flatbuffers::Offset<flatbuffers::String>;
 using FlatDomains = flatbuffers::Vector<FlatStringOffset>;
 using FlatDomainsOffset = flatbuffers::Offset<FlatDomains>;
+using FlatUrlRuleList = flatbuffers::Vector<flatbuffers::Offset<flat::UrlRule>>;
 
 using ActivationTypeMap =
     base::flat_map<proto::ActivationType, flat::ActivationType>;
@@ -95,17 +97,17 @@ base::StringPiece ToStringPiece(const flatbuffers::String* string) {
   return base::StringPiece(string->c_str(), string->size());
 }
 
-// Performs three-way comparison between two domains. In the total order defined
-// by this predicate, the lengths of domains will be monotonically decreasing.
-int CompareDomains(base::StringPiece lhs_domain, base::StringPiece rhs_domain) {
-  if (lhs_domain.size() != rhs_domain.size())
-    return lhs_domain.size() > rhs_domain.size() ? -1 : 1;
-  return lhs_domain.compare(rhs_domain);
-}
-
 bool HasNoUpperAscii(base::StringPiece string) {
   return std::none_of(string.begin(), string.end(),
                       [](char c) { return base::IsAsciiUpper(c); });
+}
+
+// Comparator to sort UrlRule. Sorts rules by descending order of rule priority.
+bool UrlRuleDescendingPriorityComparator(const flat::UrlRule* lhs,
+                                         const flat::UrlRule* rhs) {
+  DCHECK(lhs);
+  DCHECK(rhs);
+  return lhs->priority() > rhs->priority();
 }
 
 // Returns a bitmask of all the keys of the |map| passed.
@@ -228,7 +230,7 @@ class UrlRuleFlatBufferConverter {
     switch (rule_.source_type()) {
       case proto::SOURCE_TYPE_ANY:
         options_ |= flat::OptionFlag_APPLIES_TO_THIRD_PARTY;
-      // Note: fall through here intentionally.
+        FALLTHROUGH;
       case proto::SOURCE_TYPE_FIRST_PARTY:
         options_ |= flat::OptionFlag_APPLIES_TO_FIRST_PARTY;
         break;
@@ -249,6 +251,17 @@ class UrlRuleFlatBufferConverter {
   bool InitializeElementTypes() {
     static_assert(flat::ElementType_ANY <= std::numeric_limits<uint16_t>::max(),
                   "Element types can not be stored in uint16_t.");
+
+    // Handle the default case. Note this means we end up adding
+    // flat::ElementType_CSP_REPORT as an element type when there is no
+    // corresponding proto::ElementType for it. However this should not matter
+    // in practice since subresource_filter does not do matching on CSP reports
+    // currently. If subresource_filter started to do so, add support for CSP
+    // reports in proto::ElementType.
+    if (rule_.element_types() == kDefaultProtoElementTypesMask) {
+      element_types_ = kDefaultFlatElementTypesMask;
+      return true;
+    }
 
     const ElementTypeMap& element_type_map = GetElementTypeMap();
     // Ensure all proto::ElementType(s) are mapped in |element_type_map|.
@@ -342,6 +355,12 @@ UrlRuleOffset SerializeUrlRule(const proto::UrlRule& rule,
   return converter.SerializeConvertedRule(builder);
 }
 
+int CompareDomains(base::StringPiece lhs_domain, base::StringPiece rhs_domain) {
+  if (lhs_domain.size() != rhs_domain.size())
+    return lhs_domain.size() > rhs_domain.size() ? -1 : 1;
+  return lhs_domain.compare(rhs_domain);
+}
+
 // UrlPatternIndexBuilder ------------------------------------------------------
 
 UrlPatternIndexBuilder::UrlPatternIndexBuilder(
@@ -373,6 +392,13 @@ UrlPatternIndexOffset UrlPatternIndexBuilder::Finish() {
 
   flatbuffers::Offset<flat::NGramToRules> empty_slot_offset =
       flat::CreateNGramToRules(*flat_builder_);
+  auto rules_comparator = [this](const UrlRuleOffset& lhs,
+                                 const UrlRuleOffset& rhs) {
+    return UrlRuleDescendingPriorityComparator(
+        flatbuffers::GetTemporaryPointer(*flat_builder_, lhs),
+        flatbuffers::GetTemporaryPointer(*flat_builder_, rhs));
+  };
+
   for (size_t i = 0, size = ngram_index_.table_size(); i != size; ++i) {
     const uint32_t entry_index = ngram_index_.hash_table()[i];
     if (entry_index >= ngram_index_.size()) {
@@ -381,12 +407,19 @@ UrlPatternIndexOffset UrlPatternIndexBuilder::Finish() {
     }
     const MutableNGramIndex::EntryType& entry =
         ngram_index_.entries()[entry_index];
-    auto rules_offset = flat_builder_->CreateVector(entry.second);
+    // Retrieve a mutable reference to |entry.second| and sort it in descending
+    // order of priority.
+    MutableUrlRuleList& rule_list = ngram_index_[entry.first];
+    std::sort(rule_list.begin(), rule_list.end(), rules_comparator);
+
+    auto rules_offset = flat_builder_->CreateVector(rule_list);
     flat_hash_table[i] =
         flat::CreateNGramToRules(*flat_builder_, entry.first, rules_offset);
   }
   auto ngram_index_offset = flat_builder_->CreateVector(flat_hash_table);
 
+  // Sort |fallback_rules_| in descending order of priority.
+  std::sort(fallback_rules_.begin(), fallback_rules_.end(), rules_comparator);
   auto fallback_rules_offset = flat_builder_->CreateVector(fallback_rules_);
 
   return flat::CreateUrlPatternIndex(*flat_builder_, kNGramSize,
@@ -421,7 +454,6 @@ NGram UrlPatternIndexBuilder::GetMostDistinctiveNGram(
 
 namespace {
 
-using FlatUrlRuleList = flatbuffers::Vector<flatbuffers::Offset<flat::UrlRule>>;
 using FlatNGramIndex =
     flatbuffers::Vector<flatbuffers::Offset<flat::NGramToRules>>;
 
@@ -548,17 +580,24 @@ bool DoesRuleFlagsMatch(const flat::UrlRule& rule,
   return true;
 }
 
+// |sorted_candidates| is sorted in descending order by priority. This returns
+// the first matching rule i.e. the rule with the highest priority in
+// |sorted_candidates| or null if no rule matches.
 const flat::UrlRule* FindMatchAmongCandidates(
-    const FlatUrlRuleList* candidates,
+    const FlatUrlRuleList* sorted_candidates,
     const GURL& url,
     const url::Origin& document_origin,
     flat::ElementType element_type,
     flat::ActivationType activation_type,
     bool is_third_party,
     bool disable_generic_rules) {
-  if (!candidates)
+  if (!sorted_candidates)
     return nullptr;
-  for (const flat::UrlRule* rule : *candidates) {
+
+  DCHECK(std::is_sorted(sorted_candidates->begin(), sorted_candidates->end(),
+                        &UrlRuleDescendingPriorityComparator));
+
+  for (const flat::UrlRule* rule : *sorted_candidates) {
     DCHECK_NE(rule, nullptr);
     DCHECK_NE(rule->url_pattern_type(), flat::UrlPatternType_REGEXP);
     if (!DoesRuleFlagsMatch(*rule, element_type, activation_type,
@@ -587,7 +626,10 @@ const flat::UrlRule* FindMatchInFlatUrlPatternIndex(
     flat::ElementType element_type,
     flat::ActivationType activation_type,
     bool is_third_party,
-    bool disable_generic_rules) {
+    bool disable_generic_rules,
+    UrlPatternIndexMatcher::FindRuleStrategy strategy) {
+  using FindRuleStrategy = UrlPatternIndexMatcher::FindRuleStrategy;
+
   const FlatNGramIndex* hash_table = index.ngram_index();
   const flat::NGramToRules* empty_slot = index.ngram_index_empty_slot();
   DCHECK_NE(hash_table, nullptr);
@@ -596,6 +638,17 @@ const flat::UrlRule* FindMatchInFlatUrlPatternIndex(
 
   auto ngrams = CreateNGramExtractor<kNGramSize, uint64_t>(
       url.spec(), [](char) { return false; });
+
+  auto get_max_priority_rule = [](const flat::UrlRule* lhs,
+                                  const flat::UrlRule* rhs) {
+    if (!lhs)
+      return rhs;
+    if (!rhs)
+      return lhs;
+    return lhs->priority() > rhs->priority() ? lhs : rhs;
+  };
+  const flat::UrlRule* max_priority_rule = nullptr;
+
   for (uint64_t ngram : ngrams) {
     const size_t slot_index = prober.FindSlot(
         ngram, base::strict_cast<size_t>(hash_table->size()),
@@ -612,14 +665,33 @@ const flat::UrlRule* FindMatchInFlatUrlPatternIndex(
     const flat::UrlRule* rule = FindMatchAmongCandidates(
         entry->rule_list(), url, document_origin, element_type, activation_type,
         is_third_party, disable_generic_rules);
-    if (rule)
-      return rule;
+    if (!rule)
+      continue;
+
+    // |rule| is a matching rule with the highest priority amongst
+    // |entry->rule_list()|.
+    switch (strategy) {
+      case FindRuleStrategy::kAny:
+        return rule;
+      case FindRuleStrategy::kHighestPriority:
+        max_priority_rule = get_max_priority_rule(max_priority_rule, rule);
+        break;
+    }
   }
 
-  const FlatUrlRuleList* rules = index.fallback_rules();
-  return FindMatchAmongCandidates(rules, url, document_origin, element_type,
-                                  activation_type, is_third_party,
-                                  disable_generic_rules);
+  const flat::UrlRule* rule = FindMatchAmongCandidates(
+      index.fallback_rules(), url, document_origin, element_type,
+      activation_type, is_third_party, disable_generic_rules);
+
+  switch (strategy) {
+    case FindRuleStrategy::kAny:
+      return rule;
+    case FindRuleStrategy::kHighestPriority:
+      return get_max_priority_rule(max_priority_rule, rule);
+  }
+
+  NOTREACHED();
+  return nullptr;
 }
 
 }  // namespace
@@ -638,11 +710,12 @@ const flat::UrlRule* UrlPatternIndexMatcher::FindMatch(
     proto::ElementType element_type,
     proto::ActivationType activation_type,
     bool is_third_party,
-    bool disable_generic_rules) const {
+    bool disable_generic_rules,
+    FindRuleStrategy strategy) const {
   return FindMatch(url, first_party_origin,
                    ProtoToFlatElementType(element_type),
                    ProtoToFlatActivationType(activation_type), is_third_party,
-                   disable_generic_rules);
+                   disable_generic_rules, strategy);
 }
 
 const flat::UrlRule* UrlPatternIndexMatcher::FindMatch(
@@ -651,17 +724,23 @@ const flat::UrlRule* UrlPatternIndexMatcher::FindMatch(
     flat::ElementType element_type,
     flat::ActivationType activation_type,
     bool is_third_party,
-    bool disable_generic_rules) const {
-  if (!flat_index_ || !url.is_valid())
+    bool disable_generic_rules,
+    FindRuleStrategy strategy) const {
+  // Ignore URLs that are greater than the max URL length. Since those will be
+  // disallowed elsewhere in the loading stack, we can save compute time by
+  // avoiding matching here.
+  if (!flat_index_ || !url.is_valid() ||
+      url.spec().length() > url::kMaxURLChars) {
     return nullptr;
+  }
   if ((element_type == flat::ElementType_NONE) ==
       (activation_type == flat::ActivationType_NONE)) {
     return nullptr;
   }
 
-  return FindMatchInFlatUrlPatternIndex(*flat_index_, url, first_party_origin,
-                                        element_type, activation_type,
-                                        is_third_party, disable_generic_rules);
+  return FindMatchInFlatUrlPatternIndex(
+      *flat_index_, url, first_party_origin, element_type, activation_type,
+      is_third_party, disable_generic_rules, strategy);
 }
 
 }  // namespace url_pattern_index

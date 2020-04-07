@@ -30,21 +30,20 @@
 
 #include "ui_selectsignaldialog.h"
 
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerPromotionInterface>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/abstractpromotioninterface.h>
 
 #include "abstractintrospection_p.h"
 #include "metadatabase_p.h"
 #include "widgetdatabase_p.h"
 
-#include <QtWidgets/QApplication>
-#include <QtWidgets/QDesktopWidget>
-#include <QtWidgets/QPushButton>
-#include <QtGui/QStandardItem>
-#include <QtGui/QStandardItemModel>
-#include <QtCore/QItemSelectionModel>
-#include <QtCore/QVariant>
-#include <QtCore/QVector>
+#include <QtWidgets/qapplication.h>
+#include <QtWidgets/qdesktopwidget.h>
+#include <QtWidgets/qpushbutton.h>
+#include <QtGui/qstandarditemmodel.h>
+#include <QtCore/qitemselectionmodel.h>
+#include <QtCore/qvariant.h>
+#include <QtCore/qvector.h>
 
 #include <algorithm>
 
@@ -144,7 +143,8 @@ static inline QString msgNoSignals()
     return QCoreApplication::translate("QDesignerTaskMenu", "no signals available");
 }
 
-void SelectSignalDialog::populate(QDesignerFormEditorInterface *core, QObject *object, QString defaultSignal)
+void SelectSignalDialog::populate(QDesignerFormEditorInterface *core, QObject *object,
+                                  const QString &defaultSignal)
 {
     m_okButton->setEnabled(false);
 

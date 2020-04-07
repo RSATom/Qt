@@ -37,8 +37,8 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.8
-import QtGraphicalEffects.private 1.0
+import QtQuick 2.12
+import QtGraphicalEffects.private 1.12
 
 /*!
     \qmltype DirectionalBlur
@@ -85,7 +85,7 @@ Item {
     property variant source
 
     /*!
-        This property defines the percieved amount of movement for each pixel.
+        This property defines the perceived amount of movement for each pixel.
         The movement is divided evenly to both sides of each pixel.
 
         The quality of the blur depends on \l{DirectionalBlur::samples}{samples}

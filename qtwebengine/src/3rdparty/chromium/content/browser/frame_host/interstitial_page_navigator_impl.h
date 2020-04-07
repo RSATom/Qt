@@ -16,7 +16,7 @@ namespace content {
 class NavigationControllerImpl;
 class InterstitialPageImpl;
 
-// Navigator implementation specific to InterstialPageImpl. It allows only one
+// Navigator implementation specific to InterstitialPageImpl. It allows only one
 // navigation to commit, since interstitial pages are not allowed to navigate.
 class CONTENT_EXPORT InterstitialPageNavigatorImpl : public Navigator {
  public:
@@ -35,7 +35,8 @@ class CONTENT_EXPORT InterstitialPageNavigatorImpl : public Navigator {
   void DidNavigate(
       RenderFrameHostImpl* render_frame_host,
       const FrameHostMsg_DidCommitProvisionalLoad_Params& input_params,
-      std::unique_ptr<NavigationHandleImpl> navigation_handle) override;
+      std::unique_ptr<NavigationHandleImpl> navigation_handle,
+      bool was_within_same_document) override;
 
   // Disables any further action when the interstitial page is preparing to
   // delete itself.

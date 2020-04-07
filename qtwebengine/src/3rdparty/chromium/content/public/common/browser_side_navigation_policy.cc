@@ -7,14 +7,16 @@
 #include "base/command_line.h"
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
+#include "services/network/public/cpp/features.h"
 
 namespace content {
 
 bool IsBrowserSideNavigationEnabled() {
-  return base::CommandLine::ForCurrentProcess()->HasSwitch(
-             switches::kEnableBrowserSideNavigation) ||
-         base::FeatureList::IsEnabled(features::kBrowserSideNavigation) ||
-         base::FeatureList::IsEnabled(features::kNetworkService);
+  return true;
+}
+
+bool IsPerNavigationMojoInterfaceEnabled() {
+  return base::FeatureList::IsEnabled(features::kPerNavigationMojoInterface);
 }
 
 }  // namespace content

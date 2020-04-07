@@ -23,7 +23,7 @@ class BrokenAlternativeServicesTest
       : test_task_runner_(new base::TestMockTimeTaskRunner()),
         test_task_runner_context_(test_task_runner_),
         broken_services_clock_(test_task_runner_->GetMockTickClock()),
-        broken_services_(this, broken_services_clock_.get()) {}
+        broken_services_(this, broken_services_clock_) {}
 
   // BrokenAlternativeServices::Delegate implementation
   void OnExpireBrokenAlternativeService(
@@ -37,7 +37,7 @@ class BrokenAlternativeServicesTest
   scoped_refptr<base::TestMockTimeTaskRunner> test_task_runner_;
   base::TestMockTimeTaskRunner::ScopedContext test_task_runner_context_;
 
-  std::unique_ptr<base::TickClock> broken_services_clock_;
+  const base::TickClock* broken_services_clock_;
   BrokenAlternativeServices broken_services_;
 
   std::vector<AlternativeService> expired_alt_svcs_;
@@ -135,6 +135,46 @@ TEST_F(BrokenAlternativeServicesTest, ExpireBrokenAlternateProtocolMappings) {
   EXPECT_EQ(alternative_service, expired_alt_svcs_[0]);
   EXPECT_TRUE(broken_services_.WasAlternativeServiceRecentlyBroken(
       alternative_service));
+}
+
+TEST_F(BrokenAlternativeServicesTest, IsAlternativeServiceBroken) {
+  // Tests the IsAlternativeServiceBroken() methods.
+  AlternativeService alternative_service(kProtoQUIC, "foo", 443);
+  base::TimeTicks brokenness_expiration;
+
+  EXPECT_FALSE(
+      broken_services_.IsAlternativeServiceBroken(alternative_service));
+  EXPECT_FALSE(broken_services_.IsAlternativeServiceBroken(
+      alternative_service, &brokenness_expiration));
+
+  broken_services_.MarkAlternativeServiceBroken(alternative_service);
+  EXPECT_TRUE(broken_services_.IsAlternativeServiceBroken(alternative_service));
+  EXPECT_TRUE(broken_services_.IsAlternativeServiceBroken(
+      alternative_service, &brokenness_expiration));
+  EXPECT_EQ(
+      broken_services_clock_->NowTicks() + base::TimeDelta::FromMinutes(5),
+      brokenness_expiration);
+
+  // Fast forward time until |alternative_service|'s brokenness expires.
+  test_task_runner_->FastForwardBy(base::TimeDelta::FromMinutes(5));
+  EXPECT_FALSE(
+      broken_services_.IsAlternativeServiceBroken(alternative_service));
+  EXPECT_FALSE(broken_services_.IsAlternativeServiceBroken(
+      alternative_service, &brokenness_expiration));
+
+  broken_services_.MarkAlternativeServiceBroken(alternative_service);
+  EXPECT_TRUE(broken_services_.IsAlternativeServiceBroken(alternative_service));
+  EXPECT_TRUE(broken_services_.IsAlternativeServiceBroken(
+      alternative_service, &brokenness_expiration));
+  EXPECT_EQ(
+      broken_services_clock_->NowTicks() + base::TimeDelta::FromMinutes(10),
+      brokenness_expiration);
+
+  broken_services_.ConfirmAlternativeService(alternative_service);
+  EXPECT_FALSE(
+      broken_services_.IsAlternativeServiceBroken(alternative_service));
+  EXPECT_FALSE(broken_services_.IsAlternativeServiceBroken(
+      alternative_service, &brokenness_expiration));
 }
 
 TEST_F(BrokenAlternativeServicesTest, ExponentialBackoff) {
@@ -337,13 +377,12 @@ TEST_F(BrokenAlternativeServicesTest, SetBrokenAlternativeServices) {
   base::TimeDelta delay1 = base::TimeDelta::FromMinutes(1);
 
   std::unique_ptr<BrokenAlternativeServiceList> broken_list =
-      base::MakeUnique<BrokenAlternativeServiceList>();
+      std::make_unique<BrokenAlternativeServiceList>();
   broken_list->push_back(
       {alternative_service1, broken_services_clock_->NowTicks() + delay1});
 
   std::unique_ptr<RecentlyBrokenAlternativeServices> recently_broken_map =
-      base::MakeUnique<RecentlyBrokenAlternativeServices>(
-          RecentlyBrokenAlternativeServices::NO_AUTO_EVICT);
+      std::make_unique<RecentlyBrokenAlternativeServices>();
   recently_broken_map->Put(alternative_service1, 1);
   recently_broken_map->Put(alternative_service2, 2);
 
@@ -410,17 +449,16 @@ TEST_F(BrokenAlternativeServicesTest,
   AlternativeService alternative_service3(kProtoQUIC, "foo3", 443);
 
   std::unique_ptr<BrokenAlternativeServiceList> broken_list =
-      base::MakeUnique<BrokenAlternativeServiceList>();
-  broken_list->push_back(
-      {alternative_service3,
-       broken_services_clock_->NowTicks() + base::TimeDelta::FromMinutes(1)});
+      std::make_unique<BrokenAlternativeServiceList>();
   broken_list->push_back(
       {alternative_service1,
        broken_services_clock_->NowTicks() + base::TimeDelta::FromMinutes(3)});
+  broken_list->push_back(
+      {alternative_service3,
+       broken_services_clock_->NowTicks() + base::TimeDelta::FromMinutes(1)});
 
   std::unique_ptr<RecentlyBrokenAlternativeServices> recently_broken_map =
-      base::MakeUnique<RecentlyBrokenAlternativeServices>(
-          RecentlyBrokenAlternativeServices::NO_AUTO_EVICT);
+      std::make_unique<RecentlyBrokenAlternativeServices>();
   recently_broken_map->Put(alternative_service1, 1);
   recently_broken_map->Put(alternative_service3, 1);
 
@@ -539,6 +577,59 @@ TEST_F(BrokenAlternativeServicesTest, ScheduleExpireTaskAfterExpire) {
   // Make sure an expiration task has been scheduled for expiring the brokenness
   // of |alternative_service1|.
   EXPECT_TRUE(test_task_runner_->HasPendingTask());
+}
+
+TEST_F(BrokenAlternativeServicesTest, Clear) {
+  AlternativeService alternative_service1(kProtoQUIC, "foo", 443);
+  AlternativeService alternative_service2(kProtoQUIC, "bar", 443);
+
+  broken_services_.MarkAlternativeServiceBroken(alternative_service1);
+  broken_services_.MarkAlternativeServiceRecentlyBroken(alternative_service2);
+
+  EXPECT_TRUE(
+      broken_services_.IsAlternativeServiceBroken(alternative_service1));
+  EXPECT_TRUE(broken_services_.WasAlternativeServiceRecentlyBroken(
+      alternative_service1));
+  EXPECT_TRUE(broken_services_.WasAlternativeServiceRecentlyBroken(
+      alternative_service2));
+
+  broken_services_.Clear();
+
+  EXPECT_FALSE(
+      broken_services_.IsAlternativeServiceBroken(alternative_service1));
+  EXPECT_FALSE(broken_services_.WasAlternativeServiceRecentlyBroken(
+      alternative_service1));
+  EXPECT_FALSE(broken_services_.WasAlternativeServiceRecentlyBroken(
+      alternative_service2));
+
+  std::unique_ptr<BrokenAlternativeServiceList> broken_list =
+      std::make_unique<BrokenAlternativeServiceList>();
+  broken_list->push_back(
+      {alternative_service1,
+       broken_services_clock_->NowTicks() + base::TimeDelta::FromMinutes(1)});
+
+  std::unique_ptr<RecentlyBrokenAlternativeServices> recently_broken_map =
+      std::make_unique<RecentlyBrokenAlternativeServices>();
+  recently_broken_map->Put(alternative_service2, 2);
+
+  broken_services_.SetBrokenAndRecentlyBrokenAlternativeServices(
+      std::move(broken_list), std::move(recently_broken_map));
+
+  EXPECT_TRUE(
+      broken_services_.IsAlternativeServiceBroken(alternative_service1));
+  EXPECT_TRUE(broken_services_.WasAlternativeServiceRecentlyBroken(
+      alternative_service1));
+  EXPECT_TRUE(broken_services_.WasAlternativeServiceRecentlyBroken(
+      alternative_service2));
+
+  broken_services_.Clear();
+
+  EXPECT_FALSE(
+      broken_services_.IsAlternativeServiceBroken(alternative_service1));
+  EXPECT_FALSE(broken_services_.WasAlternativeServiceRecentlyBroken(
+      alternative_service1));
+  EXPECT_FALSE(broken_services_.WasAlternativeServiceRecentlyBroken(
+      alternative_service2));
 }
 
 }  // namespace

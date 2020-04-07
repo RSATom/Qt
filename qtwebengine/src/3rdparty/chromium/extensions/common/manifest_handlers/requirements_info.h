@@ -21,7 +21,6 @@ struct RequirementsInfo : public Extension::ManifestData {
   ~RequirementsInfo() override;
 
   bool webgl;
-  bool npapi;
   bool window_shape;
 
   static const RequirementsInfo& GetRequirements(const Extension* extension);
@@ -37,10 +36,8 @@ class RequirementsHandler : public ManifestHandler {
 
   bool AlwaysParseForType(Manifest::Type type) const override;
 
-  const std::vector<std::string> PrerequisiteKeys() const override;
-
  private:
-  const std::vector<std::string> Keys() const override;
+  base::span<const char* const> Keys() const override;
 
   DISALLOW_COPY_AND_ASSIGN(RequirementsHandler);
 };

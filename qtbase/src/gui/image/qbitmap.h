@@ -55,7 +55,7 @@ public:
     QBitmap(const QPixmap &);
     QBitmap(int w, int h);
     explicit QBitmap(const QSize &);
-    explicit QBitmap(const QString &fileName, const char *format = Q_NULLPTR);
+    explicit QBitmap(const QString &fileName, const char *format = nullptr);
     // ### Qt 6: don't inherit QPixmap
 #if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
     QBitmap(const QBitmap &other) : QPixmap(other) {}
@@ -72,6 +72,7 @@ public:
     inline void clear() { fill(Qt::color0); }
 
     static QBitmap fromImage(const QImage &image, Qt::ImageConversionFlags flags = Qt::AutoColor);
+    static QBitmap fromImage(QImage &&image, Qt::ImageConversionFlags flags = Qt::AutoColor);
     static QBitmap fromData(const QSize &size, const uchar *bits,
                             QImage::Format monoFormat = QImage::Format_MonoLSB);
 

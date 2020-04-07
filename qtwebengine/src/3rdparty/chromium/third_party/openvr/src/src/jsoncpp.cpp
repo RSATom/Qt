@@ -2607,11 +2607,11 @@ LogicError::LogicError(std::string const& msg)
 {}
 void throwRuntimeError(std::string const& msg)
 {
-  throw RuntimeError(msg);
+  JSON_FAIL_MESSAGE(msg);
 }
 void throwLogicError(std::string const& msg)
 {
-  throw LogicError(msg);
+  JSON_FAIL_MESSAGE(msg);
 }
 
 // //////////////////////////////////////////////////////////////////

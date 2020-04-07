@@ -64,7 +64,7 @@ class DeviceInfo: public QObject
     Q_PROPERTY(QString deviceName READ getName NOTIFY deviceChanged)
     Q_PROPERTY(QString deviceAddress READ getAddress NOTIFY deviceChanged)
 public:
-    DeviceInfo();
+    DeviceInfo() = default;
     DeviceInfo(const QBluetoothDeviceInfo &d);
     QString getAddress() const;
     QString getName() const;

@@ -28,6 +28,9 @@ class CPDF_PageObject : public CPDF_GraphicStates {
     FORM,
   };
 
+  static constexpr int32_t kNoContentStream = -1;
+
+  explicit CPDF_PageObject(int32_t content_stream);
   CPDF_PageObject();
   ~CPDF_PageObject() override;
 
@@ -59,6 +62,18 @@ class CPDF_PageObject : public CPDF_GraphicStates {
   }
   FX_RECT GetBBox(const CFX_Matrix* pMatrix) const;
 
+  // Get what content stream the object was parsed from in its page. This number
+  // is the index of the content stream in the "Contents" array, or 0 if there
+  // is a single content stream. If the object is newly created,
+  // |kNoContentStream| is returned.
+  //
+  // If the object is spread among more than one content stream, this is the
+  // index of the last stream.
+  int32_t GetContentStream() const { return m_ContentStream; }
+  void SetContentStream(int32_t new_content_stream) {
+    m_ContentStream = new_content_stream;
+  }
+
   float m_Left;
   float m_Right;
   float m_Top;
@@ -73,6 +88,7 @@ class CPDF_PageObject : public CPDF_GraphicStates {
   void operator=(const CPDF_PageObject& src) = delete;
 
   bool m_bDirty;
+  int32_t m_ContentStream;
 };
 
 #endif  // CORE_FPDFAPI_PAGE_CPDF_PAGEOBJECT_H_

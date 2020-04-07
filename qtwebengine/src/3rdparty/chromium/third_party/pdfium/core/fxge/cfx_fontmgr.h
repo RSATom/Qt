@@ -10,12 +10,13 @@
 #include <map>
 #include <memory>
 
+#include "core/fxcrt/fx_memory.h"
 #include "core/fxge/fx_font.h"
 
-class IFX_SystemFontInfo;
 class CFX_FontMapper;
 class CFX_SubstFont;
 class CTTFontDesc;
+class SystemFontInfoIface;
 
 class CFX_FontMgr {
  public:
@@ -24,30 +25,30 @@ class CFX_FontMgr {
 
   void InitFTLibrary();
 
-  FXFT_Face GetCachedFace(const CFX_ByteString& face_name,
+  FXFT_Face GetCachedFace(const ByteString& face_name,
                           int weight,
                           bool bItalic,
-                          uint8_t*& pFontData);
-  FXFT_Face AddCachedFace(const CFX_ByteString& face_name,
+                          uint8_t** pFontData);
+  FXFT_Face AddCachedFace(const ByteString& face_name,
                           int weight,
                           bool bItalic,
-                          uint8_t* pData,
+                          std::unique_ptr<uint8_t, FxFreeDeleter> pData,
                           uint32_t size,
                           int face_index);
   FXFT_Face GetCachedTTCFace(int ttc_size,
                              uint32_t checksum,
                              int font_offset,
-                             uint8_t*& pFontData);
+                             uint8_t** pFontData);
   FXFT_Face AddCachedTTCFace(int ttc_size,
                              uint32_t checksum,
-                             uint8_t* pData,
+                             std::unique_ptr<uint8_t, FxFreeDeleter> pData,
                              uint32_t size,
                              int font_offset);
   FXFT_Face GetFileFace(const char* filename, int face_index);
   FXFT_Face GetFixedFace(const uint8_t* pData, uint32_t size, int face_index);
   void ReleaseFace(FXFT_Face face);
-  void SetSystemFontInfo(std::unique_ptr<IFX_SystemFontInfo> pFontInfo);
-  FXFT_Face FindSubstFont(const CFX_ByteString& face_name,
+  void SetSystemFontInfo(std::unique_ptr<SystemFontInfoIface> pFontInfo);
+  FXFT_Face FindSubstFont(const ByteString& face_name,
                           bool bTrueType,
                           uint32_t flags,
                           int weight,
@@ -60,8 +61,11 @@ class CFX_FontMgr {
   bool FTLibrarySupportsHinting() const { return m_FTLibrarySupportsHinting; }
 
  private:
+  bool FreeTypeVersionSupportsHinting() const;
+  bool SetLcdFilterMode() const;
+
   std::unique_ptr<CFX_FontMapper> m_pBuiltinMapper;
-  std::map<CFX_ByteString, std::unique_ptr<CTTFontDesc>> m_FaceMap;
+  std::map<ByteString, std::unique_ptr<CTTFontDesc>> m_FaceMap;
   FXFT_Library m_FTLibrary;
   bool m_FTLibrarySupportsHinting;
 };

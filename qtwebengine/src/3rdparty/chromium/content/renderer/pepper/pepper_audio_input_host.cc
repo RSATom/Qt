@@ -21,20 +21,12 @@
 
 namespace content {
 
-namespace {
-
-base::PlatformFile ConvertSyncSocketHandle(const base::SyncSocket& socket) {
-  return socket.handle();
-}
-
-}  // namespace
-
 PepperAudioInputHost::PepperAudioInputHost(RendererPpapiHostImpl* host,
                                            PP_Instance instance,
                                            PP_Resource resource)
     : ResourceHost(host->GetPpapiHost(), instance, resource),
       renderer_ppapi_host_(host),
-      audio_input_(NULL),
+      audio_input_(nullptr),
       enumeration_helper_(this,
                           PepperMediaDeviceManager::GetForRenderFrame(
                               host->GetRenderFrameForInstance(pp_instance())),
@@ -60,14 +52,13 @@ int32_t PepperAudioInputHost::OnResourceMessageReceived(
 }
 
 void PepperAudioInputHost::StreamCreated(
-    base::SharedMemoryHandle shared_memory_handle,
-    size_t shared_memory_size,
+    base::ReadOnlySharedMemoryRegion shared_memory_region,
     base::SyncSocket::Handle socket) {
-  OnOpenComplete(PP_OK, shared_memory_handle, shared_memory_size, socket);
+  OnOpenComplete(PP_OK, std::move(shared_memory_region), socket);
 }
 
 void PepperAudioInputHost::StreamCreationFailed() {
-  OnOpenComplete(PP_ERROR_FAILED, base::SharedMemoryHandle(), 0,
+  OnOpenComplete(PP_ERROR_FAILED, base::ReadOnlySharedMemoryRegion(),
                  base::SyncSocket::kInvalidHandle);
 }
 
@@ -121,12 +112,10 @@ int32_t PepperAudioInputHost::OnClose(
 
 void PepperAudioInputHost::OnOpenComplete(
     int32_t result,
-    base::SharedMemoryHandle shared_memory_handle,
-    size_t shared_memory_size,
+    base::ReadOnlySharedMemoryRegion shared_memory_region,
     base::SyncSocket::Handle socket_handle) {
   // Make sure the handles are cleaned up.
   base::SyncSocket scoped_socket(socket_handle);
-  base::SharedMemory scoped_shared_memory(shared_memory_handle, false);
 
   if (!open_context_.is_valid()) {
     NOTREACHED();
@@ -136,17 +125,19 @@ void PepperAudioInputHost::OnOpenComplete(
   ppapi::proxy::SerializedHandle serialized_socket_handle(
       ppapi::proxy::SerializedHandle::SOCKET);
   ppapi::proxy::SerializedHandle serialized_shared_memory_handle(
-      ppapi::proxy::SerializedHandle::SHARED_MEMORY);
+      ppapi::proxy::SerializedHandle::SHARED_MEMORY_REGION);
 
   if (result == PP_OK) {
     IPC::PlatformFileForTransit temp_socket =
         IPC::InvalidPlatformFileForTransit();
-    base::SharedMemoryHandle temp_shmem;
-    result = GetRemoteHandles(
-        scoped_socket, scoped_shared_memory, &temp_socket, &temp_shmem);
+    base::ReadOnlySharedMemoryRegion temp_shmem;
+    result = GetRemoteHandles(scoped_socket, shared_memory_region, &temp_socket,
+                              &temp_shmem);
 
     serialized_socket_handle.set_socket(temp_socket);
-    serialized_shared_memory_handle.set_shmem(temp_shmem, shared_memory_size);
+    serialized_shared_memory_handle.set_shmem_region(
+        base::ReadOnlySharedMemoryRegion::TakeHandleForSerialization(
+            std::move(temp_shmem)));
   }
 
   // Send all the values, even on error. This simplifies some of our cleanup
@@ -154,25 +145,25 @@ void PepperAudioInputHost::OnOpenComplete(
   // inconvenient to clean up. Our IPC code will automatically handle this for
   // us, as long as the remote side always closes the handles it receives, even
   // in the failure case.
-  open_context_.params.AppendHandle(serialized_socket_handle);
-  open_context_.params.AppendHandle(serialized_shared_memory_handle);
+  open_context_.params.AppendHandle(std::move(serialized_socket_handle));
+  open_context_.params.AppendHandle(std::move(serialized_shared_memory_handle));
   SendOpenReply(result);
 }
 
 int32_t PepperAudioInputHost::GetRemoteHandles(
     const base::SyncSocket& socket,
-    const base::SharedMemory& shared_memory,
+    const base::ReadOnlySharedMemoryRegion& shared_memory_region,
     IPC::PlatformFileForTransit* remote_socket_handle,
-    base::SharedMemoryHandle* remote_shared_memory_handle) {
-  *remote_socket_handle = renderer_ppapi_host_->ShareHandleWithRemote(
-      ConvertSyncSocketHandle(socket), false);
+    base::ReadOnlySharedMemoryRegion* remote_shared_memory_region) {
+  *remote_socket_handle =
+      renderer_ppapi_host_->ShareHandleWithRemote(socket.handle(), false);
   if (*remote_socket_handle == IPC::InvalidPlatformFileForTransit())
     return PP_ERROR_FAILED;
 
-  *remote_shared_memory_handle =
-      renderer_ppapi_host_->ShareSharedMemoryHandleWithRemote(
-          shared_memory.handle());
-  if (!base::SharedMemory::IsHandleValid(*remote_shared_memory_handle))
+  *remote_shared_memory_region =
+      renderer_ppapi_host_->ShareReadOnlySharedMemoryRegionWithRemote(
+          shared_memory_region);
+  if (!remote_shared_memory_region->IsValid())
     return PP_ERROR_FAILED;
 
   return PP_OK;
@@ -183,7 +174,7 @@ void PepperAudioInputHost::Close() {
     return;
 
   audio_input_->ShutDown();
-  audio_input_ = NULL;
+  audio_input_ = nullptr;
 
   if (open_context_.is_valid())
     SendOpenReply(PP_ERROR_ABORTED);

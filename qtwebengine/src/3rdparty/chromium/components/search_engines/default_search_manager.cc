@@ -47,21 +47,19 @@ const char DefaultSearchManager::kSyncGUID[] = "synced_guid";
 
 const char DefaultSearchManager::kURL[] = "url";
 const char DefaultSearchManager::kSuggestionsURL[] = "suggestions_url";
-const char DefaultSearchManager::kInstantURL[] = "instant_url";
 const char DefaultSearchManager::kImageURL[] = "image_url";
 const char DefaultSearchManager::kNewTabURL[] = "new_tab_url";
 const char DefaultSearchManager::kContextualSearchURL[] =
     "contextual_search_url";
 const char DefaultSearchManager::kFaviconURL[] = "favicon_url";
 const char DefaultSearchManager::kLogoURL[] = "logo_url";
+const char DefaultSearchManager::kDoodleURL[] = "doodle_url";
 const char DefaultSearchManager::kOriginatingURL[] = "originating_url";
 
 const char DefaultSearchManager::kSearchURLPostParams[] =
     "search_url_post_params";
 const char DefaultSearchManager::kSuggestionsURLPostParams[] =
     "suggestions_url_post_params";
-const char DefaultSearchManager::kInstantURLPostParams[] =
-    "instant_url_post_params";
 const char DefaultSearchManager::kImageURLPostParams[] =
     "image_url_post_params";
 
@@ -74,8 +72,6 @@ const char DefaultSearchManager::kLastVisited[] = "last_visited";
 
 const char DefaultSearchManager::kUsageCount[] = "usage_count";
 const char DefaultSearchManager::kAlternateURLs[] = "alternate_urls";
-const char DefaultSearchManager::kSearchTermsReplacementKey[] =
-    "search_terms_replacement_key";
 const char DefaultSearchManager::kCreatedByPolicy[] = "created_by_policy";
 const char DefaultSearchManager::kDisabledByPolicy[] = "disabled_by_policy";
 
@@ -209,24 +205,31 @@ void DefaultSearchManager::MergePrefsDataWithPrepopulated() {
       TemplateURLPrepopulateData::GetPrepopulatedEngines(pref_service_,
                                                          nullptr);
 
-  for (auto& engine : prepopulated_urls) {
-    if (engine->prepopulate_id != prefs_default_search_->prepopulate_id)
-      continue;
+  auto default_engine = std::find_if(
+      prepopulated_urls.begin(), prepopulated_urls.end(),
+      [&](const std::unique_ptr<TemplateURLData>& url) {
+        return url->prepopulate_id == prefs_default_search_->prepopulate_id;
+      });
 
-    if (!prefs_default_search_->safe_for_autoreplace) {
-      engine->safe_for_autoreplace = false;
-      engine->SetKeyword(prefs_default_search_->keyword());
-      engine->SetShortName(prefs_default_search_->short_name());
-    }
-    engine->id = prefs_default_search_->id;
-    engine->sync_guid = prefs_default_search_->sync_guid;
-    engine->date_created = prefs_default_search_->date_created;
-    engine->last_modified = prefs_default_search_->last_modified;
-    engine->last_visited = prefs_default_search_->last_visited;
-
-    prefs_default_search_ = std::move(engine);
+  if (default_engine == prepopulated_urls.end())
     return;
+
+  auto& engine = *default_engine;
+
+  if (!prefs_default_search_->safe_for_autoreplace) {
+    engine->safe_for_autoreplace = false;
+    engine->SetKeyword(prefs_default_search_->keyword());
+    engine->SetShortName(prefs_default_search_->short_name());
   }
+
+  engine->id = prefs_default_search_->id;
+  engine->sync_guid = prefs_default_search_->sync_guid;
+  engine->date_created = prefs_default_search_->date_created;
+  engine->last_modified = prefs_default_search_->last_modified;
+  engine->last_visited = prefs_default_search_->last_visited;
+  engine->favicon_url = prefs_default_search_->favicon_url;
+
+  prefs_default_search_ = std::move(engine);
 }
 
 void DefaultSearchManager::LoadDefaultSearchEngineFromPrefs() {

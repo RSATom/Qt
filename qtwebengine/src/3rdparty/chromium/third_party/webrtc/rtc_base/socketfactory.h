@@ -8,31 +8,26 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_RTC_BASE_SOCKETFACTORY_H_
-#define WEBRTC_RTC_BASE_SOCKETFACTORY_H_
+#ifndef RTC_BASE_SOCKETFACTORY_H_
+#define RTC_BASE_SOCKETFACTORY_H_
 
-#include "webrtc/rtc_base/asyncsocket.h"
-#include "webrtc/rtc_base/socket.h"
+#include "rtc_base/asyncsocket.h"
+#include "rtc_base/socket.h"
 
 namespace rtc {
 
 class SocketFactory {
-public:
+ public:
   virtual ~SocketFactory() {}
 
   // Returns a new socket for blocking communication.  The type can be
   // SOCK_DGRAM and SOCK_STREAM.
-  // TODO: C++ inheritance rules mean that all users must have both
-  // CreateSocket(int) and CreateSocket(int,int). Will remove CreateSocket(int)
-  // (and CreateAsyncSocket(int) when all callers are changed.
-  virtual Socket* CreateSocket(int type) = 0;
   virtual Socket* CreateSocket(int family, int type) = 0;
   // Returns a new socket for nonblocking communication.  The type can be
   // SOCK_DGRAM and SOCK_STREAM.
-  virtual AsyncSocket* CreateAsyncSocket(int type) = 0;
   virtual AsyncSocket* CreateAsyncSocket(int family, int type) = 0;
 };
 
-} // namespace rtc
+}  // namespace rtc
 
-#endif // WEBRTC_RTC_BASE_SOCKETFACTORY_H_
+#endif  // RTC_BASE_SOCKETFACTORY_H_

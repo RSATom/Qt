@@ -89,13 +89,7 @@ enum { warnAboutMissingModules = 0 };
 
 MainWindow::MainWindow(CmdLineParser *cmdLine, QWidget *parent)
     : QMainWindow(parent)
-    , m_bookmarkWidget(0)
-    , m_filterCombo(0)
-    , m_toolBarMenu(0)
     , m_cmdLine(cmdLine)
-    , m_progressWidget(0)
-    , m_qtDocInstaller(0)
-    , m_connectedInitSignals(false)
 {
     TRACE_OBJ
 
@@ -163,7 +157,7 @@ MainWindow::MainWindow(CmdLineParser *cmdLine, QWidget *parent)
     connect(bookMarkManager, &BookmarkManager::setSource,
             m_centralWidget, &CentralWidget::setSource);
     connect(bookMarkManager, &BookmarkManager::setSourceInNewTab,
-            [openPagesManager](const QUrl &url){ openPagesManager->createPage(url); });
+            openPagesManager, [openPagesManager](const QUrl &url){ openPagesManager->createPage(url); });
 
     QHelpSearchEngine *searchEngine = helpEngineWrapper.searchEngine();
     connect(searchEngine, &QHelpSearchEngine::indexingStarted,
@@ -495,8 +489,8 @@ void MainWindow::checkInitState()
         }
     } else {
         if (m_connectedInitSignals) {
-            disconnect(helpEngine.contentModel(), 0, this, 0);
-            disconnect(helpEngine.indexModel(), 0, this, 0);
+            disconnect(helpEngine.contentModel(), nullptr, this, nullptr);
+            disconnect(helpEngine.indexModel(), nullptr, this, nullptr);
         }
         HelpEngineWrapper::instance().initialDocSetupDone();
         emit initDone();
@@ -681,7 +675,7 @@ void MainWindow::setupActions()
     connect(m_centralWidget, &CentralWidget::backwardAvailable,
             globalActions, &GlobalActions::updateActions);
     connect(m_centralWidget, &CentralWidget::highlighted,
-            [this](const QString &link) { statusBar()->showMessage(link);} );
+            this, [this](const QString &link) { statusBar()->showMessage(link);} );
 
     // index window
     connect(m_indexWindow, &IndexWindow::linkActivated,
@@ -911,7 +905,7 @@ void MainWindow::showAboutDialog()
             "<p>Version %2</p>"
             "<p>Browser: %3</p></center>"
             "<p>Copyright (C) %4 The Qt Company Ltd.</p>")
-            .arg(tr("Qt Assistant"), QLatin1String(QT_VERSION_STR), browser, QStringLiteral("2017")),
+            .arg(tr("Qt Assistant"), QLatin1String(QT_VERSION_STR), browser, QStringLiteral("2019")),
             resources);
         QLatin1String path(":/qt-project.org/assistant/images/assistant-128.png");
         aboutDia.setPixmap(QString(path));
@@ -1109,7 +1103,7 @@ void MainWindow::indexingFinished()
     TRACE_OBJ
     statusBar()->removeWidget(m_progressWidget);
     delete m_progressWidget;
-    m_progressWidget = 0;
+    m_progressWidget = nullptr;
 }
 
 QString MainWindow::collectionFileDirectory(bool createDir, const QString &cacheDir)

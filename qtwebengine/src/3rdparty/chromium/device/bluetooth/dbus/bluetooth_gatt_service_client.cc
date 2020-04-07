@@ -25,7 +25,7 @@ BluetoothGattServiceClient::Properties::Properties(
   RegisterProperty(bluetooth_gatt_service::kPrimaryProperty, &primary);
 }
 
-BluetoothGattServiceClient::Properties::~Properties() {}
+BluetoothGattServiceClient::Properties::~Properties() = default;
 
 // The BluetoothGattServiceClient implementation used in production.
 class BluetoothGattServiceClientImpl : public BluetoothGattServiceClient,
@@ -95,9 +95,10 @@ class BluetoothGattServiceClientImpl : public BluetoothGattServiceClient,
 
  protected:
   // bluez::DBusClient override.
-  void Init(dbus::Bus* bus) override {
+  void Init(dbus::Bus* bus,
+            const std::string& bluetooth_service_name) override {
     object_manager_ = bus->GetObjectManager(
-        bluetooth_object_manager::kBluetoothObjectManagerServiceName,
+        bluetooth_service_name,
         dbus::ObjectPath(
             bluetooth_object_manager::kBluetoothObjectManagerServicePath));
     object_manager_->RegisterInterface(
@@ -130,9 +131,9 @@ class BluetoothGattServiceClientImpl : public BluetoothGattServiceClient,
   DISALLOW_COPY_AND_ASSIGN(BluetoothGattServiceClientImpl);
 };
 
-BluetoothGattServiceClient::BluetoothGattServiceClient() {}
+BluetoothGattServiceClient::BluetoothGattServiceClient() = default;
 
-BluetoothGattServiceClient::~BluetoothGattServiceClient() {}
+BluetoothGattServiceClient::~BluetoothGattServiceClient() = default;
 
 // static
 BluetoothGattServiceClient* BluetoothGattServiceClient::Create() {

@@ -55,7 +55,8 @@ static DotNET vsVersionFromString(const char *versionString)
         { "11.0", NET2012 },
         { "12.0", NET2013 },
         { "14.0", NET2015 },
-        { "15.0", NET2017 }
+        { "15.0", NET2017 },
+        { "16.0", NET2019 }
     };
     DotNET result = NETUnknown;
     for (const auto entry : mapping) {
@@ -112,7 +113,6 @@ const char _Culture[]                           = "Culture";
 const char _DLLDataFileName[]                   = "DLLDataFileName";
 const char _DataExecutionPrevention[]           = "DataExecutionPrevention";
 const char _DebugInformationFormat[]            = "DebugInformationFormat";
-const char _DefaultCharIsUnsigned[]             = "DefaultCharIsUnsigned";
 const char _DefaultCharType[]                   = "DefaultCharType";
 const char _DelayLoadDLLs[]                     = "DelayLoadDLLs";
 const char _DeleteExtensionsOnClean[]           = "DeleteExtensionsOnClean";
@@ -358,7 +358,6 @@ VCCLCompilerTool::VCCLCompilerTool()
         CompileAsWinRT(unset),
         CompileOnly(unset),
         DebugInformationFormat(debugDisabled),
-        DefaultCharIsUnsigned(unset),
         Detect64BitPortabilityProblems(unset),
         DisableLanguageExtensions(unset),
         EnableEnhancedInstructionSet(archNotSet),
@@ -668,7 +667,7 @@ bool VCCLCompilerTool::parseOption(const char* option)
         AdditionalIncludeDirectories += option+2;
         break;
     case 'J':
-        DefaultCharIsUnsigned = _True;
+        AdditionalOptions += option;
         break;
     case 'L':
         if(second == 'D') {
@@ -2185,7 +2184,7 @@ VCConfiguration::VCConfiguration()
 // VCFilter ---------------------------------------------------------
 VCFilter::VCFilter()
     :   ParseFiles(unset),
-        Config(0)
+        Config(nullptr)
 {
     useCustomBuildTool = false;
     useCompilerTool = false;
@@ -2646,7 +2645,6 @@ void VCProjectWriter::write(XmlOutput &xml, const VCCLCompilerTool &tool)
         << attrE(_CompileAsManaged, tool.CompileAsManaged, /*ifNot*/ managedDefault)
         << attrT(_CompileOnly, tool.CompileOnly)
         << attrE(_DebugInformationFormat, tool.DebugInformationFormat, /*ifNot*/ debugUnknown)
-        << attrT(_DefaultCharIsUnsigned, tool.DefaultCharIsUnsigned)
         << attrT(_Detect64BitPortabilityProblems, tool.Detect64BitPortabilityProblems)
         << attrT(_DisableLanguageExtensions, tool.DisableLanguageExtensions)
         << attrX(_DisableSpecificWarnings, tool.DisableSpecificWarnings)

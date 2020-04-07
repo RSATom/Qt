@@ -28,10 +28,24 @@ void Case::eachChild(const std::function<void(const Expression&)>& visit) const 
 }
 
 bool Case::operator==(const Expression& e) const {
-    if (auto rhs = dynamic_cast<const Case*>(&e)) {
+    if (e.getKind() == Kind::Case) {
+        auto rhs = static_cast<const Case*>(&e);
         return *otherwise == *(rhs->otherwise) && Expression::childrenEqual(branches, rhs->branches);
     }
     return false;
+}
+
+std::vector<optional<Value>> Case::possibleOutputs() const {
+    std::vector<optional<Value>> result;
+    for (const auto& branch : branches) {
+        for (auto& output : branch.second->possibleOutputs()) {
+            result.push_back(std::move(output));
+        }
+    }
+    for (auto& output : otherwise->possibleOutputs()) {
+        result.push_back(std::move(output));
+    }
+    return result;
 }
 
 using namespace mbgl::style::conversion;

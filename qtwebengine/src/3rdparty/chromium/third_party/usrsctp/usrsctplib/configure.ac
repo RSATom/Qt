@@ -55,6 +55,7 @@ dragonfly*)
 freebsd*)
   CFLAGS="$CFLAGS -std=c99 -pthread"
   if $CC --version | grep -q clang; then
+    CFLAGS="$CFLAGS -Wno-unknown-warning-option"
     LDFLAGS="$LDFLAGS -Qunused-arguments"
   fi
   LIBCFLAGS="$LIBCFLAGS -U__FreeBSD__ -D__Userspace_os_FreeBSD"
@@ -131,6 +132,14 @@ if test x$enable_inet6 = xyes; then
         AC_DEFINE(INET6, 1, [Support IPv6])
 fi
 
+AC_ARG_ENABLE(programs,
+  AC_HELP_STRING( [--enable-programs],
+                  [build example programs @<:@default=yes@:>@]),
+    enable_programs=$enableval,enable_programs=yes)
+if test x$enable_programs = xyes; then
+        AC_CONFIG_FILES(programs/Makefile)
+fi
+
 AC_CHECK_TYPE(size_t)
 AC_CHECK_TYPE(ssize_t)
 
@@ -183,4 +192,4 @@ AC_C_BIGENDIAN
 AC_SUBST([LIBCFLAGS])
 AC_SUBST([APPCFLAGS])
 dnl AC_CONFIG_FILES([usrsctp.pc])
-AC_OUTPUT(Makefile usrsctplib/Makefile programs/Makefile)
+AC_OUTPUT(Makefile usrsctplib/Makefile)

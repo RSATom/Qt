@@ -66,7 +66,7 @@ class Q_SENSORS_EXPORT QHumidityFilter : public QSensorFilter
 public:
     virtual bool filter(QHumidityReading *reading) = 0;
 private:
-    bool filter(QSensorReading *reading) Q_DECL_OVERRIDE;
+    bool filter(QSensorReading *reading) override;
 };
 
 class QHumiditySensorPrivate;

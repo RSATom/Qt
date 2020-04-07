@@ -10,11 +10,8 @@
 #define MYDIALOG_H
 
 #include <QtCore/QVariant>
-#include <QtWidgets/QAction>
 #include <QtWidgets/QApplication>
-#include <QtWidgets/QButtonGroup>
 #include <QtWidgets/QDialog>
-#include <QtWidgets/QHeaderView>
 #include <QtWidgets/QLabel>
 #include <QtWidgets/QPushButton>
 #include <QtWidgets/QVBoxLayout>
@@ -31,7 +28,7 @@ public:
     void setupUi(QDialog *MyDialog)
     {
         if (MyDialog->objectName().isEmpty())
-            MyDialog->setObjectName(QStringLiteral("MyDialog"));
+            MyDialog->setObjectName(QString::fromUtf8("MyDialog"));
         MyDialog->resize(401, 70);
         vboxLayout = new QVBoxLayout(MyDialog);
 #ifndef Q_OS_MAC
@@ -40,14 +37,14 @@ public:
 #ifndef Q_OS_MAC
         vboxLayout->setContentsMargins(9, 9, 9, 9);
 #endif
-        vboxLayout->setObjectName(QStringLiteral("vboxLayout"));
+        vboxLayout->setObjectName(QString::fromUtf8("vboxLayout"));
         aLabel = new QLabel(MyDialog);
-        aLabel->setObjectName(QStringLiteral("aLabel"));
+        aLabel->setObjectName(QString::fromUtf8("aLabel"));
 
         vboxLayout->addWidget(aLabel);
 
         aButton = new QPushButton(MyDialog);
-        aButton->setObjectName(QStringLiteral("aButton"));
+        aButton->setObjectName(QString::fromUtf8("aButton"));
 
         vboxLayout->addWidget(aButton);
 

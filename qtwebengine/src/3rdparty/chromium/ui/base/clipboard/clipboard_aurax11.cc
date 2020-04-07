@@ -4,8 +4,6 @@
 
 #include "ui/base/clipboard/clipboard_aurax11.h"
 
-#include <X11/Xatom.h>
-#include <X11/extensions/Xfixes.h>
 #include <stdint.h>
 
 #include <limits>
@@ -34,6 +32,7 @@
 #include "ui/events/platform/platform_event_source.h"
 #include "ui/gfx/codec/png_codec.h"
 #include "ui/gfx/geometry/size.h"
+#include "ui/gfx/x/x11.h"
 #include "ui/gfx/x/x11_atom_cache.h"
 
 namespace ui {
@@ -43,13 +42,11 @@ namespace {
 const char kClipboard[] = "CLIPBOARD";
 const char kClipboardManager[] = "CLIPBOARD_MANAGER";
 const char kMimeTypeFilename[] = "chromium/filename";
-const char kSaveTargets[] = "SAVE_TARGETS";
-const char kTargets[] = "TARGETS";
 
 ///////////////////////////////////////////////////////////////////////////////
 
 // Uses the XFixes API to provide sequence numbers for GetSequenceNumber().
-class SelectionChangeObserver : public ui::PlatformEventObserver {
+class SelectionChangeObserver : public PlatformEventObserver {
  public:
   static SelectionChangeObserver* GetInstance();
 
@@ -64,9 +61,9 @@ class SelectionChangeObserver : public ui::PlatformEventObserver {
   SelectionChangeObserver();
   ~SelectionChangeObserver() override;
 
-  // ui::PlatformEventObserver:
-  void WillProcessEvent(const ui::PlatformEvent& event) override;
-  void DidProcessEvent(const ui::PlatformEvent& event) override {}
+  // PlatformEventObserver:
+  void WillProcessEvent(const PlatformEvent& event) override;
+  void DidProcessEvent(const PlatformEvent& event) override {}
 
   int event_base_;
   Atom clipboard_atom_;
@@ -78,7 +75,7 @@ class SelectionChangeObserver : public ui::PlatformEventObserver {
 
 SelectionChangeObserver::SelectionChangeObserver()
     : event_base_(-1),
-      clipboard_atom_(None),
+      clipboard_atom_(x11::None),
       clipboard_sequence_number_(0),
       primary_sequence_number_(0) {
   int ignored;
@@ -98,7 +95,7 @@ SelectionChangeObserver::SelectionChangeObserver()
                                XFixesSelectionWindowDestroyNotifyMask |
                                XFixesSelectionClientCloseNotifyMask);
 
-    ui::PlatformEventSource::GetInstance()->AddPlatformEventObserver(this);
+    PlatformEventSource::GetInstance()->AddPlatformEventObserver(this);
   }
 }
 
@@ -110,7 +107,7 @@ SelectionChangeObserver* SelectionChangeObserver::GetInstance() {
   return base::Singleton<SelectionChangeObserver>::get();
 }
 
-void SelectionChangeObserver::WillProcessEvent(const ui::PlatformEvent& event) {
+void SelectionChangeObserver::WillProcessEvent(const PlatformEvent& event) {
   if (event->type == event_base_ + XFixesSelectionNotify) {
     XFixesSelectionNotifyEvent* ev =
         reinterpret_cast<XFixesSelectionNotifyEvent*>(event);
@@ -415,7 +412,7 @@ TargetList ClipboardAuraX11::AuraX11Details::WaitAndGetTargetsList(
   } else {
     scoped_refptr<base::RefCountedMemory> data;
     size_t out_data_items = 0;
-    ::Atom out_type = None;
+    ::Atom out_type = x11::None;
 
     if (selection_requestor_.PerformBlockingConvertSelection(
             selection_name, gfx::GetAtom(kTargets), &data, &out_data_items,
@@ -437,7 +434,7 @@ TargetList ClipboardAuraX11::AuraX11Details::WaitAndGetTargetsList(
       std::vector< ::Atom> types = GetTextAtoms();
       for (std::vector< ::Atom>::const_iterator it = types.begin();
            it != types.end(); ++it) {
-        ::Atom type = None;
+        ::Atom type = x11::None;
         if (selection_requestor_.PerformBlockingConvertSelection(selection_name,
                                                                  *it,
                                                                  NULL,
@@ -477,7 +474,7 @@ void ClipboardAuraX11::AuraX11Details::StoreCopyPasteDataAndWait() {
     return;
 
   ::Atom clipboard_manager_atom = gfx::GetAtom(kClipboardManager);
-  if (XGetSelectionOwner(x_display_, clipboard_manager_atom) == None)
+  if (XGetSelectionOwner(x_display_, clipboard_manager_atom) == x11::None)
     return;
 
   const SelectionFormatMap& format_map = LookupStorageForAtom(selection);

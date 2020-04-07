@@ -45,9 +45,9 @@ enum MXFMetadataSetType {
     SubDescriptor,
     IndexTableSegment,
     EssenceContainerData,
-    TypeBottom,// add metadata type before this
     EssenceGroup,
     TaggedValue,
+    TapeDescriptor,
 };
 
 enum MXFFrameLayout {
@@ -68,6 +68,7 @@ typedef struct MXFCodecUL {
     UID uid;
     unsigned matching_len;
     int id;
+    const char *desc;
 } MXFCodecUL;
 
 typedef struct {

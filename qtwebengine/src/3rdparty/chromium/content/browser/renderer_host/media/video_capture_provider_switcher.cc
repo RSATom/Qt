@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "content/browser/renderer_host/media/video_capture_provider_switcher.h"
+#include "content/public/browser/video_capture_device_launcher.h"
 
 #include "base/callback_helpers.h"
 
@@ -77,7 +78,7 @@ void VideoCaptureProviderSwitcher::GetDeviceInfosAsync(
 
 std::unique_ptr<VideoCaptureDeviceLauncher>
 VideoCaptureProviderSwitcher::CreateDeviceLauncher() {
-  return base::MakeUnique<VideoCaptureDeviceLauncherSwitcher>(
+  return std::make_unique<VideoCaptureDeviceLauncherSwitcher>(
       media_device_capture_provider_->CreateDeviceLauncher(),
       other_types_capture_provider_->CreateDeviceLauncher());
 }

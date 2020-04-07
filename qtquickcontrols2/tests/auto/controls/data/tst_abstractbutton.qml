@@ -48,9 +48,9 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.2
+import QtQuick 2.12
 import QtTest 1.0
-import QtQuick.Controls 2.3
+import QtQuick.Controls 2.12
 
 TestCase {
     id: testCase
@@ -117,6 +117,113 @@ TestCase {
         control.padding = 100
         compare(control.implicitWidth, 210)
         compare(control.implicitHeight, 220)
+    }
+
+    function test_pressPoint_data() {
+        return [
+            { tag: "mouse", mouse: true },
+            { tag: "touch", touch: true }
+        ]
+    }
+
+    function test_pressPoint(data) {
+        var control = createTemporaryObject(button, testCase, {width: 100, height: 40})
+        verify(control)
+
+        var pressXChanges = 0
+        var pressYChanges = 0
+
+        var pressXSpy = signalSpy.createObject(control, {target: control, signalName: "pressXChanged"})
+        verify(pressXSpy.valid)
+
+        var pressYSpy = signalSpy.createObject(control, {target: control, signalName: "pressYChanged"})
+        verify(pressYSpy.valid)
+
+        compare(control.pressX, 0)
+        compare(control.pressY, 0)
+
+        var touch = data.touch ? touchEvent(control) : null
+
+        if (data.touch)
+            touch.press(0, control, control.width / 2, control.height / 2).commit()
+        else
+            mousePress(control, control.width / 2, control.height / 2)
+        compare(control.pressX, control.width / 2)
+        compare(control.pressY, control.height / 2)
+        compare(pressXSpy.count, ++pressXChanges)
+        compare(pressYSpy.count, ++pressYChanges)
+
+        if (data.touch)
+            touch.move(0, control, control.width / 2, control.height / 2).commit()
+        else
+            mouseMove(control, control.width / 2, control.height / 2)
+        compare(control.pressX, control.width / 2)
+        compare(control.pressY, control.height / 2)
+        compare(pressXSpy.count, pressXChanges)
+        compare(pressYSpy.count, pressYChanges)
+
+        if (data.touch)
+            touch.move(0, control, control.width / 4, control.height / 4).commit()
+        else
+            mouseMove(control, control.width / 4, control.height / 4)
+        compare(control.pressX, control.width / 4)
+        compare(control.pressY, control.height / 4)
+        compare(pressXSpy.count, ++pressXChanges)
+        compare(pressYSpy.count, ++pressYChanges)
+
+        if (data.touch)
+            touch.move(0, control, 0, 0).commit()
+        else
+            mouseMove(control, 0, 0)
+        compare(control.pressX, 0)
+        compare(control.pressY, 0)
+        compare(pressXSpy.count, ++pressXChanges)
+        compare(pressYSpy.count, ++pressYChanges)
+
+        if (data.touch)
+            touch.move(0, control, -control.width / 2, -control.height / 2).commit()
+        else
+            mouseMove(control, -control.width / 2, -control.height / 2)
+        compare(control.pressX, -control.width / 2)
+        compare(control.pressY, -control.height / 2)
+        compare(pressXSpy.count, ++pressXChanges)
+        compare(pressYSpy.count, ++pressYChanges)
+
+        if (data.touch)
+            touch.release(0, control, -control.width / 2, -control.height / 2).commit()
+        else
+            mouseRelease(control, -control.width / 2, -control.height / 2)
+        compare(control.pressX, -control.width / 2)
+        compare(control.pressY, -control.height / 2)
+        compare(pressXSpy.count, pressXChanges)
+        compare(pressYSpy.count, pressYChanges)
+
+        if (data.touch)
+            touch.press(0, control, control.width - 1, control.height - 1).commit()
+        else
+            mousePress(control, control.width - 1, control.height - 1)
+        compare(control.pressX, control.width - 1)
+        compare(control.pressY, control.height - 1)
+        compare(pressXSpy.count, ++pressXChanges)
+        compare(pressYSpy.count, ++pressYChanges)
+
+        if (data.touch)
+            touch.move(0, control, control.width + 1, control.height + 1).commit()
+        else
+            mousePress(control, control.width + 1, control.height + 1)
+        compare(control.pressX, control.width + 1)
+        compare(control.pressY, control.height + 1)
+        compare(pressXSpy.count, ++pressXChanges)
+        compare(pressYSpy.count, ++pressYChanges)
+
+        if (data.touch)
+            touch.release(0, control, control.width + 2, control.height + 2).commit()
+        else
+            mouseRelease(control, control.width + 2, control.height + 2)
+        compare(control.pressX, control.width + 2)
+        compare(control.pressY, control.height + 2)
+        compare(pressXSpy.count, ++pressXChanges)
+        compare(pressYSpy.count, ++pressYChanges)
     }
 
     function test_pressAndHold() {
@@ -285,6 +392,208 @@ TestCase {
         compare(spy.count, data.resetChanged ? 1 : 0)
     }
 
+    function test_actionIcon_data() {
+        var data = []
+
+        // Save duplicating the rows by reusing them with different properties of the same type.
+        // This means that the first loop will test icon.name and the second one will test icon.source.
+        var stringPropertyValueSuffixes = [
+            { propertyName: "name", valueSuffix: "IconName" },
+            { propertyName: "source", valueSuffix: "IconSource" }
+        ]
+
+        for (var i = 0; i < stringPropertyValueSuffixes.length; ++i) {
+            var propertyName = stringPropertyValueSuffixes[i].propertyName
+            var valueSuffix = stringPropertyValueSuffixes[i].valueSuffix
+
+            var buttonPropertyValue = "Button" + valueSuffix
+            var buttonPropertyValue2 = "Button" + valueSuffix + "2"
+            var actionPropertyValue = "Action" + valueSuffix
+            var actionPropertyValue2 = "Action" + valueSuffix + "2"
+
+            data.push({ tag: "implicit " + propertyName, property: propertyName,
+                initButton: undefined, initAction: actionPropertyValue,
+                assignExpected: actionPropertyValue, assignChanged: true,
+                resetExpected: "", resetChanged: true })
+            data.push({ tag: "explicit " + propertyName, property: propertyName,
+                initButton: buttonPropertyValue, initAction: actionPropertyValue,
+                assignExpected: buttonPropertyValue, assignChanged: false,
+                resetExpected: buttonPropertyValue, resetChanged: false })
+            data.push({ tag: "empty button " + propertyName, property: propertyName,
+                initButton: "", initAction: actionPropertyValue,
+                assignExpected: "", assignChanged: false,
+                resetExpected: "", resetChanged: false })
+            data.push({ tag: "empty action " + propertyName, property: propertyName,
+                initButton: buttonPropertyValue, initAction: "",
+                assignExpected: buttonPropertyValue, assignChanged: false,
+                resetExpected: buttonPropertyValue, resetChanged: false })
+            data.push({ tag: "empty both " + propertyName, property: propertyName,
+                initButton: undefined, initAction: "",
+                assignExpected: "", assignChanged: false,
+                resetExpected: "", resetChanged: false })
+            data.push({ tag: "modify button " + propertyName, property: propertyName,
+                initButton: undefined, initAction: actionPropertyValue,
+                assignExpected: actionPropertyValue, assignChanged: true,
+                modifyButton: buttonPropertyValue2,
+                modifyButtonExpected: buttonPropertyValue2, modifyButtonChanged: true,
+                resetExpected: buttonPropertyValue2, resetChanged: false })
+            data.push({ tag: "modify implicit action " + propertyName, property: propertyName,
+                initButton: undefined, initAction: actionPropertyValue,
+                assignExpected: actionPropertyValue, assignChanged: true,
+                modifyAction: actionPropertyValue2,
+                modifyActionExpected: actionPropertyValue2, modifyActionChanged: true,
+                resetExpected: "", resetChanged: true })
+            data.push({ tag: "modify explicit action " + propertyName, property: propertyName,
+                initButton: buttonPropertyValue, initAction: actionPropertyValue,
+                assignExpected: buttonPropertyValue, assignChanged: false,
+                modifyAction: actionPropertyValue2,
+                modifyActionExpected: buttonPropertyValue, modifyActionChanged: false,
+                resetExpected: buttonPropertyValue, resetChanged: false })
+        }
+
+        var intPropertyNames = [
+            "width",
+            "height",
+        ]
+
+        for (i = 0; i < intPropertyNames.length; ++i) {
+            propertyName = intPropertyNames[i]
+
+            buttonPropertyValue = 20
+            buttonPropertyValue2 = 21
+            actionPropertyValue = 40
+            actionPropertyValue2 = 41
+            var defaultValue = 0
+
+            data.push({ tag: "implicit " + propertyName, property: propertyName,
+                initButton: undefined, initAction: actionPropertyValue,
+                assignExpected: actionPropertyValue, assignChanged: true,
+                resetExpected: defaultValue, resetChanged: true })
+            data.push({ tag: "explicit " + propertyName, property: propertyName,
+                initButton: buttonPropertyValue, initAction: actionPropertyValue,
+                assignExpected: buttonPropertyValue, assignChanged: false,
+                resetExpected: buttonPropertyValue, resetChanged: false })
+            data.push({ tag: "default button " + propertyName, property: propertyName,
+                initButton: defaultValue, initAction: actionPropertyValue,
+                assignExpected: defaultValue, assignChanged: false,
+                resetExpected: defaultValue, resetChanged: false })
+            data.push({ tag: "default action " + propertyName, property: propertyName,
+                initButton: buttonPropertyValue, initAction: defaultValue,
+                assignExpected: buttonPropertyValue, assignChanged: false,
+                resetExpected: buttonPropertyValue, resetChanged: false })
+            data.push({ tag: "default both " + propertyName, property: propertyName,
+                initButton: undefined, initAction: defaultValue,
+                assignExpected: defaultValue, assignChanged: false,
+                resetExpected: defaultValue, resetChanged: false })
+            data.push({ tag: "modify button " + propertyName, property: propertyName,
+                initButton: undefined, initAction: actionPropertyValue,
+                assignExpected: actionPropertyValue, assignChanged: true,
+                modifyButton: buttonPropertyValue2,
+                modifyButtonExpected: buttonPropertyValue2, modifyButtonChanged: true,
+                resetExpected: buttonPropertyValue2, resetChanged: false })
+            data.push({ tag: "modify implicit action " + propertyName, property: propertyName,
+                initButton: undefined, initAction: actionPropertyValue,
+                assignExpected: actionPropertyValue, assignChanged: true,
+                modifyAction: actionPropertyValue2,
+                modifyActionExpected: actionPropertyValue2, modifyActionChanged: true,
+                resetExpected: defaultValue, resetChanged: true })
+            data.push({ tag: "modify explicit action " + propertyName, property: propertyName,
+                initButton: buttonPropertyValue, initAction: actionPropertyValue,
+                assignExpected: buttonPropertyValue, assignChanged: false,
+                modifyAction: actionPropertyValue2,
+                modifyActionExpected: buttonPropertyValue, modifyActionChanged: false,
+                resetExpected: buttonPropertyValue, resetChanged: false })
+        }
+
+        propertyName = "color"
+        buttonPropertyValue = "#aa0000"
+        buttonPropertyValue2 = "#ff0000"
+        actionPropertyValue = "#0000aa"
+        actionPropertyValue2 = "#0000ff"
+        defaultValue = "#00000000"
+
+        data.push({ tag: "implicit " + propertyName, property: propertyName,
+            initButton: undefined, initAction: actionPropertyValue,
+            assignExpected: actionPropertyValue, assignChanged: true,
+            resetExpected: defaultValue, resetChanged: true })
+        data.push({ tag: "explicit " + propertyName, property: propertyName,
+            initButton: buttonPropertyValue, initAction: actionPropertyValue,
+            assignExpected: buttonPropertyValue, assignChanged: false,
+            resetExpected: buttonPropertyValue, resetChanged: false })
+        data.push({ tag: "default button " + propertyName, property: propertyName,
+            initButton: defaultValue, initAction: actionPropertyValue,
+            assignExpected: defaultValue, assignChanged: false,
+            resetExpected: defaultValue, resetChanged: false })
+        data.push({ tag: "default action " + propertyName, property: propertyName,
+            initButton: buttonPropertyValue, initAction: defaultValue,
+            assignExpected: buttonPropertyValue, assignChanged: false,
+            resetExpected: buttonPropertyValue, resetChanged: false })
+        data.push({ tag: "default both " + propertyName, property: propertyName,
+            initButton: undefined, initAction: defaultValue,
+            assignExpected: defaultValue, assignChanged: false,
+            resetExpected: defaultValue, resetChanged: false })
+        data.push({ tag: "modify button " + propertyName, property: propertyName,
+            initButton: undefined, initAction: actionPropertyValue,
+            assignExpected: actionPropertyValue, assignChanged: true,
+            modifyButton: buttonPropertyValue2,
+            modifyButtonExpected: buttonPropertyValue2, modifyButtonChanged: true,
+            resetExpected: buttonPropertyValue2, resetChanged: false })
+        data.push({ tag: "modify implicit action " + propertyName, property: propertyName,
+            initButton: undefined, initAction: actionPropertyValue,
+            assignExpected: actionPropertyValue, assignChanged: true,
+            modifyAction: actionPropertyValue2,
+            modifyActionExpected: actionPropertyValue2, modifyActionChanged: true,
+            resetExpected: defaultValue, resetChanged: true })
+        data.push({ tag: "modify explicit action " + propertyName, property: propertyName,
+            initButton: buttonPropertyValue, initAction: actionPropertyValue,
+            assignExpected: buttonPropertyValue, assignChanged: false,
+            modifyAction: actionPropertyValue2,
+            modifyActionExpected: buttonPropertyValue, modifyActionChanged: false,
+            resetExpected: buttonPropertyValue, resetChanged: false })
+
+        return data;
+    }
+
+    function test_actionIcon(data) {
+        var control = createTemporaryObject(button, testCase)
+        verify(control)
+        control.icon[data.property] = data.initButton
+
+        var act = action.createObject(control)
+        act.icon[data.property] = data.initAction
+
+        var spy = signalSpy.createObject(control, {target: control, signalName: "iconChanged"})
+        verify(spy.valid)
+
+        // assign action
+        spy.clear()
+        control.action = act
+        compare(control.icon[data.property], data.assignExpected)
+        compare(spy.count, data.assignChanged ? 1 : 0)
+
+        // modify button
+        if (data.hasOwnProperty("modifyButton")) {
+            spy.clear()
+            control.icon[data.property] = data.modifyButton
+            compare(control.icon[data.property], data.modifyButtonExpected)
+            compare(spy.count, data.modifyButtonChanged ? 1 : 0)
+        }
+
+        // modify action
+        if (data.hasOwnProperty("modifyAction")) {
+            spy.clear()
+            act.icon[data.property] = data.modifyAction
+            compare(control.icon[data.property], data.modifyActionExpected)
+            compare(spy.count, data.modifyActionChanged ? 1 : 0)
+        }
+
+        // reset action
+        spy.clear()
+        control.action = null
+        compare(control.icon[data.property], data.resetExpected)
+        compare(spy.count, data.resetChanged ? 1 : 0)
+    }
+
     Component {
         id: actionButton
         AbstractButton {
@@ -305,8 +614,6 @@ TestCase {
 
         // initial values
         compare(control.text, "Default")
-        compare(control.icon.name, "default")
-        compare(control.icon.source, "qrc:/icons/default.png")
         compare(control.checkable, true)
         compare(control.checked, true)
         compare(control.enabled, false)
@@ -316,14 +623,10 @@ TestCase {
 
         // changes via action
         control.action.text = "Action"
-        control.action.icon.name = "action"
-        control.action.icon.source = "qrc:/icons/action.png"
         control.action.checkable = false
         control.action.checked = false
         control.action.enabled = true
         compare(control.text, "Action") // propagates
-        compare(control.icon.name, "action") // propagates
-        compare(control.icon.source, "qrc:/icons/action.png") // propagates
         compare(control.checkable, false) // propagates
         compare(control.checked, false) // propagates
         compare(control.enabled, true) // propagates
@@ -331,31 +634,26 @@ TestCase {
 
         // changes via button
         control.text = "Button"
-        control.icon.name = "button"
-        control.icon.source = "qrc:/icons/button.png"
         control.checkable = true
         control.checked = true
         control.enabled = false
         compare(control.text, "Button")
-        compare(control.icon.name, "button")
-        compare(control.icon.source, "qrc:/icons/button.png")
         compare(control.checkable, true)
         compare(control.checked, true)
         compare(control.enabled, false)
         compare(control.action.text, "Action") // does NOT propagate
-        compare(control.action.icon.name, "action") // does NOT propagate
-        compare(control.action.icon.source, "qrc:/icons/action.png") // does NOT propagate
         compare(control.action.checkable, true) // propagates
         compare(control.action.checked, true) // propagates
         compare(control.action.enabled, true) // does NOT propagate
         compare(textSpy.count, 2)
 
-        // remove the action so that only the button's text is left
+        // remove the action so that only the button's properties are left
         control.action = null
         compare(control.text, "Button")
         compare(textSpy.count, 2)
 
-        // setting an action while button has text shouldn't cause a change in the button's effective text
+        // setting an action while button has a particular property set
+        // shouldn't cause a change in the button's effective property value
         var secondAction = createTemporaryObject(action, testCase)
         verify(secondAction)
         secondAction.text = "SecondAction"
@@ -363,7 +661,7 @@ TestCase {
         compare(control.text, "Button")
         compare(textSpy.count, 2)
 
-        // test setting an action with empty text
+        // test setting an action whose properties aren't set
         var thirdAction = createTemporaryObject(action, testCase)
         verify(thirdAction)
         control.action = thirdAction
@@ -446,7 +744,7 @@ TestCase {
     }
 
     function test_trigger(data) {
-        var control = createTemporaryObject(actionButton, testCase, {"enabled": data.button, "action.enabled": data.action})
+        var control = createTemporaryObject(actionButton, testCase, {"action.enabled": data.action, "enabled": data.button})
         verify(control)
 
         compare(control.enabled, data.button)
@@ -566,5 +864,21 @@ TestCase {
 
         compare(button3.checked, false)
         compare(button3.action.checked, false)
+    }
+
+    function test_clickedAfterLongPress() {
+        var control = createTemporaryObject(button, testCase, { text: "Hello" })
+        verify(control)
+
+        var clickedSpy = signalSpy.createObject(control, { target: control, signalName: "clicked" })
+        verify(clickedSpy.valid)
+
+        mousePress(control)
+        // Ensure that clicked is emitted when no handler is defined for the pressAndHold() signal.
+        // Note that even though signal spies aren't considered in QObject::isSignalConnected(),
+        // we can't use one here to check for pressAndHold(), because otherwise clicked() won't be emitted.
+        wait(Qt.styleHints.mousePressAndHoldInterval + 100)
+        mouseRelease(control)
+        compare(clickedSpy.count, 1)
     }
 }

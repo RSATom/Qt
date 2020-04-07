@@ -5,43 +5,63 @@
 #ifndef DEVICE_VR_ANDROID_GVR_DEVICE_H
 #define DEVICE_VR_ANDROID_GVR_DEVICE_H
 
+#include <jni.h>
+
+#include <memory>
+
+#include "base/android/scoped_java_ref.h"
 #include "base/macros.h"
-#include "device/vr/vr_device.h"
+#include "device/vr/vr_device_base.h"
+#include "third_party/gvr-android-sdk/src/libraries/headers/vr/gvr/capi/include/gvr_types.h"
 
 namespace device {
 
-class GvrDeviceProvider;
-class GvrDelegate;
-class VRDisplayImpl;
+class GvrDelegateProvider;
 
-class DEVICE_VR_EXPORT GvrDevice : public VRDevice {
+class DEVICE_VR_EXPORT GvrDevice : public VRDeviceBase,
+                                   public mojom::XRSessionController {
  public:
-  GvrDevice(GvrDeviceProvider* provider);
+  static std::unique_ptr<GvrDevice> Create();
   ~GvrDevice() override;
 
-  // VRDevice
-  void CreateVRDisplayInfo(
-      const base::Callback<void(mojom::VRDisplayInfoPtr)>& on_created) override;
+  // VRDeviceBase
+  void RequestSession(
+      mojom::XRDeviceRuntimeSessionOptionsPtr options,
+      mojom::XRRuntime::RequestSessionCallback callback) override;
+  void PauseTracking() override;
+  void ResumeTracking() override;
 
-  void RequestPresent(mojom::VRSubmitFrameClientPtr submit_client,
-                      mojom::VRPresentationProviderRequest request,
-                      const base::Callback<void(bool)>& callback) override;
-  void SetSecureOrigin(bool secure_origin) override;
-  void ExitPresent() override;
-  void GetNextMagicWindowPose(
-      VRDisplayImpl* display,
-      mojom::VRDisplay::GetNextMagicWindowPoseCallback callback) override;
-  void OnDisplayAdded(VRDisplayImpl* display) override;
-  void OnDisplayRemoved(VRDisplayImpl* display) override;
-  void OnListeningForActivateChanged(VRDisplayImpl* display) override;
+  void OnDisplayConfigurationChanged(
+      JNIEnv* env,
+      const base::android::JavaRef<jobject>& obj);
 
-  void OnDelegateChanged();
+  void Activate(mojom::VRDisplayEventReason reason,
+                base::Callback<void(bool)> on_handled);
 
  private:
-  GvrDelegate* GetGvrDelegate();
+  // VRDeviceBase
+  void OnListeningForActivate(bool listening) override;
+  void OnMagicWindowFrameDataRequest(
+      mojom::VRMagicWindowProvider::GetFrameDataCallback callback) override;
 
-  GvrDeviceProvider* gvr_provider_;
-  bool secure_origin_ = false;
+  void OnStartPresentResult(mojom::XRRuntime::RequestSessionCallback callback,
+                            mojom::XRSessionPtr session);
+
+  // XRSessionController
+  void SetFrameDataRestricted(bool restricted) override;
+
+  void OnPresentingControllerMojoConnectionError();
+  void StopPresenting();
+
+  GvrDevice();
+  GvrDelegateProvider* GetGvrDelegateProvider();
+
+  base::android::ScopedJavaGlobalRef<jobject> non_presenting_context_;
+  std::unique_ptr<gvr::GvrApi> gvr_api_;
+
+  mojo::Binding<mojom::XRSessionController> exclusive_controller_binding_;
+
+  base::WeakPtrFactory<GvrDevice> weak_ptr_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(GvrDevice);
 };

@@ -142,7 +142,8 @@ void QOAuth2AuthorizationCodeFlowPrivate::_q_accessTokenRequestFinished(const QV
     int expiresIn = values.value(Key::expiresIn).toInt(&ok);
     if (!ok)
         expiresIn = -1;
-    refreshToken = values.value(Key::refreshToken).toString();
+    if (values.value(Key::refreshToken).isValid())
+        q->setRefreshToken(values.value(Key::refreshToken).toString());
     scope = values.value(Key::scope).toString();
     if (accessToken.isEmpty()) {
         qCWarning(loggingCategory, "Access token not received");
@@ -331,6 +332,9 @@ void QOAuth2AuthorizationCodeFlow::refreshAccessToken()
     connect(reply, &QNetworkReply::finished,
             [handler, reply]() { handler->networkReplyFinished(reply); });
     connect(reply, &QNetworkReply::finished, reply, &QNetworkReply::deleteLater);
+    QObjectPrivate::connect(d->replyHandler.data(), &QAbstractOAuthReplyHandler::tokensReceived, d,
+                            &QOAuth2AuthorizationCodeFlowPrivate::_q_accessTokenRequestFinished,
+                            Qt::UniqueConnection);
     QObjectPrivate::connect(d->networkAccessManager(),
                             &QNetworkAccessManager::authenticationRequired,
                             d, &QOAuth2AuthorizationCodeFlowPrivate::_q_authenticate,

@@ -8,5 +8,6 @@
         <file>invoke.scxml</file>
         <file>historystate.scxml</file>
         <file>multipleinvokableservices.scxml</file>
+        <file>emptylog.scxml</file>
     </qresource>
 </RCC>

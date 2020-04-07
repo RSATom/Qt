@@ -41,6 +41,8 @@ namespace gl
 	class Surface;
 	class Config;
 
+	void APIENTRY glVertexAttribArray(GLuint index, GLint size, GLenum type, GLboolean normalized, GLsizei stride, const GLvoid* ptr);
+
 	class Command
 	{
 	public:
@@ -328,12 +330,10 @@ enum
 
 const GLenum compressedTextureFormats[] =
 {
-#if (S3TC_SUPPORT)
 	GL_COMPRESSED_RGB_S3TC_DXT1_EXT,
 	GL_COMPRESSED_RGBA_S3TC_DXT1_EXT,
 	GL_COMPRESSED_RGBA_S3TC_DXT3_EXT,
 	GL_COMPRESSED_RGBA_S3TC_DXT5_EXT,
-#endif
 };
 
 const GLint NUM_COMPRESSED_TEXTURE_FORMATS = sizeof(compressedTextureFormats) / sizeof(compressedTextureFormats[0]);

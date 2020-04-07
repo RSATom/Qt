@@ -49,8 +49,10 @@ QT_CANVAS3D_BEGIN_NAMESPACE
  * \qmltype Canvas3DContextAttributes
  * \since QtCanvas3D 1.0
  * \inqmlmodule QtCanvas3D
- * \brief Attribute set for Context3D
+ * \brief Attribute set for Context3D.
+ * \deprecated
  *
+ * \b{Deprecated in Qt 5.12.}
  * Canvas3DContextAttributes is an attribute set that can be given as parameter on first call to
  * Canvas3D object's \l{Canvas3D::getContext}{getContext(string type, Canvas3DContextAttributes options)}
  * method call.
@@ -113,6 +115,7 @@ void CanvasContextAttributes::setFrom(const CanvasContextAttributes &source)
 
 /*!
  * \qmlproperty bool Canvas3DContextAttributes::alpha
+ * \b{Deprecated in Qt 5.12.}
  * Specifies whether the default render target of the Context3D has an alpha channel for the
  * purposes of blending its contents with overlapping Qt Quick items.
  * Defaults to \c{true}.
@@ -133,6 +136,7 @@ void CanvasContextAttributes::setAlpha(bool value)
 
 /*!
  * \qmlproperty bool Canvas3DContextAttributes::depth
+ * \b{Deprecated in Qt 5.12.}
  * Specifies whether a depth attachment is to be created and attached to the default render target
  * of the Context3D.
  * Defaults to \c{true}.
@@ -153,6 +157,7 @@ void CanvasContextAttributes::setDepth(bool value)
 
 /*!
  * \qmlproperty bool Canvas3DContextAttributes::stencil
+ * \b{Deprecated in Qt 5.12.}
  * Specifies whether a stencil attachment is to be created and attached to the default render
  * target of the Context3D.
  * Defaults to \c{false}.
@@ -173,6 +178,7 @@ void CanvasContextAttributes::setStencil(bool value)
 
 /*!
  * \qmlproperty bool Canvas3DContextAttributes::antialias
+ * \b{Deprecated in Qt 5.12.}
  * Specifies whether antialiasing buffer is created for the default render target of the Context3D.
  * Defaults to \c{true}.
  */
@@ -192,6 +198,7 @@ void CanvasContextAttributes::setAntialias(bool value)
 
 /*!
  * \qmlproperty bool Canvas3DContextAttributes::premultipliedAlpha
+ * \b{Deprecated in Qt 5.12.}
  * Qt Quick always expects premultiplied alpha values when blending Qt Quick items together,
  * so keeping this property \c{true} is recommended. Setting it to \c{false} can cause
  * a minor performance impact, as an additional render pass is needed.
@@ -213,6 +220,7 @@ void CanvasContextAttributes::setPremultipliedAlpha(bool value)
 
 /*!
  * \qmlproperty bool Canvas3DContextAttributes::preserveDrawingBuffer
+ * \b{Deprecated in Qt 5.12.}
  * Specifies whether or not the drawing buffer contents are preserved from frame to frame.
  * Ignored when drawing to the background or the foreground of the Qt Quick scene.
  * Defaults to \c{false}.
@@ -233,6 +241,7 @@ void CanvasContextAttributes::setPreserveDrawingBuffer(bool value)
 
 /*!
  * \qmlproperty bool Canvas3DContextAttributes::preferLowPowerToHighPerformance
+ * \b{Deprecated in Qt 5.12.}
  * Ignored. Defaults to \c{false}.
  */
 bool CanvasContextAttributes::preferLowPowerToHighPerformance() const
@@ -251,6 +260,7 @@ void CanvasContextAttributes::setPreferLowPowerToHighPerformance(bool value)
 
 /*!
  * \qmlproperty bool Canvas3DContextAttributes::failIfMajorPerformanceCaveat
+ * \b{Deprecated in Qt 5.12.}
  * Ignored. Defaults to \c{false}.
  */
 bool CanvasContextAttributes::failIfMajorPerformanceCaveat() const

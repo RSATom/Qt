@@ -67,8 +67,8 @@ class Q_WIDGETS_EXPORT QLabel : public QFrame
     Q_PROPERTY(QString selectedText READ selectedText)
 
 public:
-    explicit QLabel(QWidget *parent=Q_NULLPTR, Qt::WindowFlags f=Qt::WindowFlags());
-    explicit QLabel(const QString &text, QWidget *parent=Q_NULLPTR, Qt::WindowFlags f=Qt::WindowFlags());
+    explicit QLabel(QWidget *parent=nullptr, Qt::WindowFlags f=Qt::WindowFlags());
+    explicit QLabel(const QString &text, QWidget *parent=nullptr, Qt::WindowFlags f=Qt::WindowFlags());
     ~QLabel();
 
     QString text() const;
@@ -97,13 +97,13 @@ public:
 
     bool hasScaledContents() const;
     void setScaledContents(bool);
-    QSize sizeHint() const Q_DECL_OVERRIDE;
-    QSize minimumSizeHint() const Q_DECL_OVERRIDE;
+    QSize sizeHint() const override;
+    QSize minimumSizeHint() const override;
 #ifndef QT_NO_SHORTCUT
     void setBuddy(QWidget *);
     QWidget *buddy() const;
 #endif
-    int heightForWidth(int) const Q_DECL_OVERRIDE;
+    int heightForWidth(int) const override;
 
     bool openExternalLinks() const;
     void setOpenExternalLinks(bool open);
@@ -134,19 +134,19 @@ Q_SIGNALS:
     void linkHovered(const QString& link);
 
 protected:
-    bool event(QEvent *e) Q_DECL_OVERRIDE;
-    void keyPressEvent(QKeyEvent *ev) Q_DECL_OVERRIDE;
-    void paintEvent(QPaintEvent *) Q_DECL_OVERRIDE;
-    void changeEvent(QEvent *) Q_DECL_OVERRIDE;
-    void mousePressEvent(QMouseEvent *ev) Q_DECL_OVERRIDE;
-    void mouseMoveEvent(QMouseEvent *ev) Q_DECL_OVERRIDE;
-    void mouseReleaseEvent(QMouseEvent *ev) Q_DECL_OVERRIDE;
+    bool event(QEvent *e) override;
+    void keyPressEvent(QKeyEvent *ev) override;
+    void paintEvent(QPaintEvent *) override;
+    void changeEvent(QEvent *) override;
+    void mousePressEvent(QMouseEvent *ev) override;
+    void mouseMoveEvent(QMouseEvent *ev) override;
+    void mouseReleaseEvent(QMouseEvent *ev) override;
 #ifndef QT_NO_CONTEXTMENU
-    void contextMenuEvent(QContextMenuEvent *ev) Q_DECL_OVERRIDE;
+    void contextMenuEvent(QContextMenuEvent *ev) override;
 #endif // QT_NO_CONTEXTMENU
-    void focusInEvent(QFocusEvent *ev) Q_DECL_OVERRIDE;
-    void focusOutEvent(QFocusEvent *ev) Q_DECL_OVERRIDE;
-    bool focusNextPrevChild(bool next) Q_DECL_OVERRIDE;
+    void focusInEvent(QFocusEvent *ev) override;
+    void focusOutEvent(QFocusEvent *ev) override;
+    bool focusNextPrevChild(bool next) override;
 
 
 private:
@@ -158,6 +158,9 @@ private:
 #endif
     Q_PRIVATE_SLOT(d_func(), void _q_linkHovered(const QString &))
 
+#ifndef QT_NO_SHORTCUT
+    Q_PRIVATE_SLOT(d_func(), void _q_buddyDeleted())
+#endif
     friend class QTipLabel;
     friend class QMessageBoxPrivate;
     friend class QBalloonTip;

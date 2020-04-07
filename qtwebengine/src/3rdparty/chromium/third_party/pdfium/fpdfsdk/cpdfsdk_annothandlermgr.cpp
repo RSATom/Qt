@@ -9,8 +9,8 @@
 #include "core/fpdfapi/parser/cpdf_number.h"
 #include "core/fpdfapi/parser/cpdf_string.h"
 #include "core/fpdfdoc/cpdf_annot.h"
-#include "fpdfsdk/cba_annotiterator.h"
 #include "fpdfsdk/cpdfsdk_annot.h"
+#include "fpdfsdk/cpdfsdk_annotiterator.h"
 #include "fpdfsdk/cpdfsdk_baannot.h"
 #include "fpdfsdk/cpdfsdk_baannothandler.h"
 #include "fpdfsdk/cpdfsdk_datetime.h"
@@ -29,13 +29,13 @@
 CPDFSDK_AnnotHandlerMgr::CPDFSDK_AnnotHandlerMgr(
     CPDFSDK_FormFillEnvironment* pFormFillEnv)
     : m_pBAAnnotHandler(pdfium::MakeUnique<CPDFSDK_BAAnnotHandler>()),
-      m_pWidgetHandler(pdfium::MakeUnique<CPDFSDK_WidgetHandler>(pFormFillEnv)),
+      m_pWidgetHandler(pdfium::MakeUnique<CPDFSDK_WidgetHandler>(pFormFillEnv))
 #ifdef PDF_ENABLE_XFA
+      ,
       m_pXFAWidgetHandler(
-          pdfium::MakeUnique<CPDFSDK_XFAWidgetHandler>(pFormFillEnv)),
+          pdfium::MakeUnique<CPDFSDK_XFAWidgetHandler>(pFormFillEnv))
 #endif  // PDF_ENABLE_XFA
-      m_pFormFillEnv(pFormFillEnv) {
-  m_pWidgetHandler->SetFormFiller(m_pFormFillEnv->GetInteractiveFormFiller());
+{
 }
 
 CPDFSDK_AnnotHandlerMgr::~CPDFSDK_AnnotHandlerMgr() {}
@@ -76,9 +76,34 @@ void CPDFSDK_AnnotHandlerMgr::Annot_OnLoad(CPDFSDK_Annot* pAnnot) {
   GetAnnotHandler(pAnnot)->OnLoad(pAnnot);
 }
 
-CFX_WideString CPDFSDK_AnnotHandlerMgr::Annot_GetSelectedText(
+WideString CPDFSDK_AnnotHandlerMgr::Annot_GetText(CPDFSDK_Annot* pAnnot) {
+  return GetAnnotHandler(pAnnot)->GetText(pAnnot);
+}
+
+WideString CPDFSDK_AnnotHandlerMgr::Annot_GetSelectedText(
     CPDFSDK_Annot* pAnnot) {
   return GetAnnotHandler(pAnnot)->GetSelectedText(pAnnot);
+}
+
+void CPDFSDK_AnnotHandlerMgr::Annot_ReplaceSelection(CPDFSDK_Annot* pAnnot,
+                                                     const WideString& text) {
+  GetAnnotHandler(pAnnot)->ReplaceSelection(pAnnot, text);
+}
+
+bool CPDFSDK_AnnotHandlerMgr::Annot_CanUndo(CPDFSDK_Annot* pAnnot) {
+  return GetAnnotHandler(pAnnot)->CanUndo(pAnnot);
+}
+
+bool CPDFSDK_AnnotHandlerMgr::Annot_CanRedo(CPDFSDK_Annot* pAnnot) {
+  return GetAnnotHandler(pAnnot)->CanRedo(pAnnot);
+}
+
+bool CPDFSDK_AnnotHandlerMgr::Annot_Undo(CPDFSDK_Annot* pAnnot) {
+  return GetAnnotHandler(pAnnot)->Undo(pAnnot);
+}
+
+bool CPDFSDK_AnnotHandlerMgr::Annot_Redo(CPDFSDK_Annot* pAnnot) {
+  return GetAnnotHandler(pAnnot)->Redo(pAnnot);
 }
 
 IPDFSDK_AnnotHandler* CPDFSDK_AnnotHandlerMgr::GetAnnotHandler(
@@ -205,16 +230,16 @@ bool CPDFSDK_AnnotHandlerMgr::Annot_OnChar(CPDFSDK_Annot* pAnnot,
 bool CPDFSDK_AnnotHandlerMgr::Annot_OnKeyDown(CPDFSDK_Annot* pAnnot,
                                               int nKeyCode,
                                               int nFlag) {
-  if (m_pFormFillEnv->IsCTRLKeyDown(nFlag) ||
-      m_pFormFillEnv->IsALTKeyDown(nFlag)) {
+  if (CPDFSDK_FormFillEnvironment::IsCTRLKeyDown(nFlag) ||
+      CPDFSDK_FormFillEnvironment::IsALTKeyDown(nFlag)) {
     return GetAnnotHandler(pAnnot)->OnKeyDown(pAnnot, nKeyCode, nFlag);
   }
 
   CPDFSDK_PageView* pPage = pAnnot->GetPageView();
   CPDFSDK_Annot* pFocusAnnot = pPage->GetFocusAnnot();
   if (pFocusAnnot && (nKeyCode == FWL_VKEY_Tab)) {
-    CPDFSDK_Annot::ObservedPtr pNext(
-        GetNextAnnot(pFocusAnnot, !m_pFormFillEnv->IsSHIFTKeyDown(nFlag)));
+    CPDFSDK_Annot::ObservedPtr pNext(GetNextAnnot(
+        pFocusAnnot, !CPDFSDK_FormFillEnvironment::IsSHIFTKeyDown(nFlag)));
     if (pNext && pNext.Get() != pFocusAnnot) {
       pPage->GetFormFillEnv()->SetFocusAnnot(&pNext);
       return true;
@@ -284,33 +309,29 @@ CPDFSDK_Annot* CPDFSDK_AnnotHandlerMgr::GetNextAnnot(CPDFSDK_Annot* pSDKAnnot,
 #ifdef PDF_ENABLE_XFA
   CPDFSDK_PageView* pPageView = pSDKAnnot->GetPageView();
   CPDFXFA_Page* pPage = pPageView->GetPDFXFAPage();
-  if (!pPage)
-    return nullptr;
-  if (pPage->GetPDFPage()) {  // for pdf annots.
-    CBA_AnnotIterator ai(pSDKAnnot->GetPageView(),
-                         pSDKAnnot->GetAnnotSubtype());
-    CPDFSDK_Annot* pNext =
-        bNext ? ai.GetNextAnnot(pSDKAnnot) : ai.GetPrevAnnot(pSDKAnnot);
-    return pNext;
-  }
-  // for xfa annots
-  std::unique_ptr<IXFA_WidgetIterator> pWidgetIterator(
-      pPage->GetXFAPageView()->CreateWidgetIterator(
-          XFA_TRAVERSEWAY_Tranvalse, XFA_WidgetStatus_Visible |
-                                         XFA_WidgetStatus_Viewable |
-                                         XFA_WidgetStatus_Focused));
-  if (!pWidgetIterator)
-    return nullptr;
-  if (pWidgetIterator->GetCurrentWidget() != pSDKAnnot->GetXFAWidget())
-    pWidgetIterator->SetCurrentWidget(pSDKAnnot->GetXFAWidget());
-  CXFA_FFWidget* hNextFocus =
-      bNext ? pWidgetIterator->MoveToNext() : pWidgetIterator->MoveToPrevious();
-  if (!hNextFocus && pSDKAnnot)
-    hNextFocus = pWidgetIterator->MoveToFirst();
+  if (pPage && !pPage->AsPDFPage()) {
+    // For xfa annots in XFA pages not backed by PDF pages.
+    std::unique_ptr<IXFA_WidgetIterator> pWidgetIterator(
+        pPage->GetXFAPageView()->CreateWidgetIterator(
+            XFA_TRAVERSEWAY_Tranvalse, XFA_WidgetStatus_Visible |
+                                           XFA_WidgetStatus_Viewable |
+                                           XFA_WidgetStatus_Focused));
+    if (!pWidgetIterator)
+      return nullptr;
+    if (pWidgetIterator->GetCurrentWidget() != pSDKAnnot->GetXFAWidget())
+      pWidgetIterator->SetCurrentWidget(pSDKAnnot->GetXFAWidget());
+    CXFA_FFWidget* hNextFocus = bNext ? pWidgetIterator->MoveToNext()
+                                      : pWidgetIterator->MoveToPrevious();
+    if (!hNextFocus && pSDKAnnot)
+      hNextFocus = pWidgetIterator->MoveToFirst();
 
-  return pPageView->GetAnnotByXFAWidget(hNextFocus);
-#else   // PDF_ENABLE_XFA
-  CBA_AnnotIterator ai(pSDKAnnot->GetPageView(), CPDF_Annot::Subtype::WIDGET);
-  return bNext ? ai.GetNextAnnot(pSDKAnnot) : ai.GetPrevAnnot(pSDKAnnot);
+    return pPageView->GetAnnotByXFAWidget(hNextFocus);
+  }
 #endif  // PDF_ENABLE_XFA
+
+  // For PDF annots.
+  ASSERT(pSDKAnnot->GetAnnotSubtype() == CPDF_Annot::Subtype::WIDGET);
+  CPDFSDK_AnnotIterator ai(pSDKAnnot->GetPageView(),
+                           pSDKAnnot->GetAnnotSubtype());
+  return bNext ? ai.GetNextAnnot(pSDKAnnot) : ai.GetPrevAnnot(pSDKAnnot);
 }

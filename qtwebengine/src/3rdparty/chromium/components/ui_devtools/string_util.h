@@ -40,7 +40,7 @@ class StringUtil {
   }
   static String fromInteger(int number) { return base::IntToString(number); }
   static String fromDouble(double number) {
-    return base::DoubleToString(number);
+    return base::NumberToString(number);
   }
   static double toDouble(const char* s, size_t len, bool* ok) {
     double v = 0.0;
@@ -56,6 +56,8 @@ class StringUtil {
   static void builderAppend(StringBuilder& builder, const char* s, size_t len) {
     builder.append(s, len);
   }
+  static void builderAppendQuotedString(StringBuilder& builder,
+                                        const String& str);
   static void builderReserve(StringBuilder& builder, unsigned capacity) {
     builder.reserveCapacity(capacity);
   }

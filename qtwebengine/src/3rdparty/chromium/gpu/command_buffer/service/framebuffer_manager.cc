@@ -25,8 +25,7 @@ DecoderFramebufferState::DecoderFramebufferState()
       bound_draw_framebuffer(NULL) {
 }
 
-DecoderFramebufferState::~DecoderFramebufferState() {
-}
+DecoderFramebufferState::~DecoderFramebufferState() = default;
 
 class RenderbufferAttachment
     : public Framebuffer::Attachment {
@@ -52,6 +51,11 @@ class RenderbufferAttachment
   GLsizei samples() const override { return renderbuffer_->samples(); }
 
   GLuint object_name() const override { return renderbuffer_->client_id(); }
+
+  GLint level() const override {
+    NOTREACHED();
+    return -1;
+  }
 
   bool cleared() const override { return renderbuffer_->cleared(); }
 
@@ -125,7 +129,7 @@ class RenderbufferAttachment
   bool EmulatingRGB() const override { return false; }
 
  protected:
-  ~RenderbufferAttachment() override {}
+  ~RenderbufferAttachment() override = default;
 
  private:
   scoped_refptr<Renderbuffer> renderbuffer_;
@@ -184,7 +188,7 @@ class TextureAttachment
 
   GLenum target() const { return target_; }
 
-  GLint level() const { return level_; }
+  GLint level() const override { return level_; }
 
   GLuint object_name() const override { return texture_ref_->client_id(); }
 
@@ -303,7 +307,7 @@ class TextureAttachment
   }
 
  protected:
-  ~TextureAttachment() override {}
+  ~TextureAttachment() override = default;
 
  private:
   scoped_refptr<TextureRef> texture_ref_;
@@ -652,14 +656,8 @@ GLenum Framebuffer::GetReadBufferInternalFormat() const {
 }
 
 GLenum Framebuffer::GetReadBufferTextureType() const {
-  if (read_buffer_ == GL_NONE)
-    return 0;
-  AttachmentMap::const_iterator it = attachments_.find(read_buffer_);
-  if (it == attachments_.end()) {
-    return 0;
-  }
-  const Attachment* attachment = it->second.get();
-  return attachment->texture_type();
+  const Attachment* attachment = GetReadBufferAttachment();
+  return attachment ? attachment->texture_type() : 0;
 }
 
 GLsizei Framebuffer::GetSamples() const {
@@ -722,6 +720,7 @@ GLenum Framebuffer::IsPossiblyComplete(const FeatureInfo* feature_info) const {
       // Since DirectX doesn't allow attachments to be of different sizes,
       // even though ES3 allows it, it is still forbidden to ensure consistent
       // behaviors across platforms.
+      // Note: Framebuffer::GetFramebufferValidSize relies on this behavior.
       return GL_FRAMEBUFFER_INCOMPLETE_DIMENSIONS_EXT;
     }
 
@@ -873,8 +872,8 @@ bool Framebuffer::HasAlphaMRT() const {
       const Attachment* attachment = GetAttachment(draw_buffers_[i]);
       if (!attachment)
         continue;
-      if ((GLES2Util::GetChannelsForFormat(
-               attachment->internal_format()) & 0x0008) != 0)
+      if ((GLES2Util::GetChannelsForFormat(attachment->internal_format()) &
+           GLES2Util::kAlpha) != 0)
         return true;
     }
   }
@@ -986,7 +985,7 @@ void Framebuffer::DoUnbindGLAttachmentsForWorkaround(GLenum target) {
 
 void Framebuffer::AttachRenderbuffer(
     GLenum attachment, Renderbuffer* renderbuffer) {
-  DCHECK(attachment != GL_DEPTH_STENCIL_ATTACHMENT);
+  DCHECK_NE(static_cast<GLenum>(GL_DEPTH_STENCIL_ATTACHMENT), attachment);
   const Attachment* a = GetAttachment(attachment);
   if (a)
     a->DetachFromFramebuffer(this, attachment);
@@ -1003,7 +1002,7 @@ void Framebuffer::AttachRenderbuffer(
 void Framebuffer::AttachTexture(
     GLenum attachment, TextureRef* texture_ref, GLenum target,
     GLint level, GLsizei samples) {
-  DCHECK(attachment != GL_DEPTH_STENCIL_ATTACHMENT);
+  DCHECK_NE(static_cast<GLenum>(GL_DEPTH_STENCIL_ATTACHMENT), attachment);
   const Attachment* a = GetAttachment(attachment);
   if (a)
     a->DetachFromFramebuffer(this, attachment);
@@ -1020,7 +1019,7 @@ void Framebuffer::AttachTexture(
 void Framebuffer::AttachTextureLayer(
     GLenum attachment, TextureRef* texture_ref, GLenum target,
     GLint level, GLint layer) {
-  DCHECK(attachment != GL_DEPTH_STENCIL_ATTACHMENT);
+  DCHECK_NE(static_cast<GLenum>(GL_DEPTH_STENCIL_ATTACHMENT), attachment);
   const Attachment* a = GetAttachment(attachment);
   if (a)
     a->DetachFromFramebuffer(this, attachment);
@@ -1048,6 +1047,19 @@ const Framebuffer::Attachment* Framebuffer::GetReadBufferAttachment() const {
   if (read_buffer_ == GL_NONE)
     return nullptr;
   return GetAttachment(read_buffer_);
+}
+
+gfx::Size Framebuffer::GetFramebufferValidSize() const {
+  // This DCHECK ensures the framebuffer was already checked to be complete.
+  DCHECK(manager_->IsComplete(this));
+
+  // IsPossiblyComplete ensures that there is at least one attachment, and that
+  // all of the attachments have the same dimensions. So it's okay to just pick
+  // any arbitrary attachment and return it as the min size.
+  auto it = attachments_.begin();
+  DCHECK(it != attachments_.end());
+  const auto& attachment = it->second;
+  return gfx::Size(attachment->width(), attachment->height());
 }
 
 bool FramebufferManager::GetClientId(
@@ -1080,8 +1092,7 @@ void FramebufferManager::MarkAsComplete(
   framebuffer->MarkAsComplete(framebuffer_state_change_count_);
 }
 
-bool FramebufferManager::IsComplete(
-    Framebuffer* framebuffer) {
+bool FramebufferManager::IsComplete(const Framebuffer* framebuffer) {
   DCHECK(framebuffer);
   return framebuffer->framebuffer_complete_state_count_id() ==
       framebuffer_state_change_count_;

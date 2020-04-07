@@ -10,7 +10,7 @@
 #include <memory>
 
 #include "base/macros.h"
-#include "base/memory/shared_memory.h"
+#include "base/memory/unsafe_shared_memory_region.h"
 #include "base/memory/weak_ptr.h"
 #include "gpu/command_buffer/client/gpu_control_client.h"
 #include "gpu/command_buffer/common/command_buffer_id.h"
@@ -20,11 +20,9 @@
 #include "ppapi/shared_impl/resource.h"
 
 namespace gpu {
-namespace gles2 {
-struct ContextCreationAttribHelper;
-}
 struct Capabilities;
 class CommandBufferProxyImpl;
+struct ContextCreationAttribs;
 }
 
 namespace content {
@@ -35,9 +33,9 @@ class PPB_Graphics3D_Impl : public ppapi::PPB_Graphics3D_Shared,
   static PP_Resource CreateRaw(
       PP_Instance instance,
       PP_Resource share_context,
-      const gpu::gles2::ContextCreationAttribHelper& attrib_helper,
+      const gpu::ContextCreationAttribs& attrib_helper,
       gpu::Capabilities* capabilities,
-      base::SharedMemoryHandle* shared_state_handle,
+      const base::UnsafeSharedMemoryRegion** shared_state_region,
       gpu::CommandBufferId* command_buffer_id);
 
   // PPB_Graphics3D_API trusted implementation.
@@ -83,15 +81,19 @@ class PPB_Graphics3D_Impl : public ppapi::PPB_Graphics3D_Shared,
   explicit PPB_Graphics3D_Impl(PP_Instance instance);
 
   bool InitRaw(PPB_Graphics3D_API* share_context,
-               const gpu::gles2::ContextCreationAttribHelper& requested_attribs,
+               const gpu::ContextCreationAttribs& requested_attribs,
                gpu::Capabilities* capabilities,
-               base::SharedMemoryHandle* shared_state_handle,
+               const base::UnsafeSharedMemoryRegion** shared_state_region,
                gpu::CommandBufferId* command_buffer_id);
 
   // GpuControlClient implementation.
   void OnGpuControlLostContext() final;
   void OnGpuControlLostContextMaybeReentrant() final;
   void OnGpuControlErrorMessage(const char* msg, int id) final;
+  void OnGpuControlSwapBuffersCompleted(
+      const gpu::SwapBuffersCompleteParams& params) final;
+  void OnSwapBufferPresented(uint64_t swap_id,
+                             const gfx::PresentationFeedback& feedback) final {}
 
   // Other notifications from the GPU process.
   void OnSwapBuffers();

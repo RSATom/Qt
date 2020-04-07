@@ -50,7 +50,7 @@
 #include <QtConcurrent/QtConcurrentRun>
 
 #include <dxgi.h>
-#include <oleauto.h>
+#include <OleAuto.h>
 #include <mfapi.h>
 #include <mfmediaengine.h>
 
@@ -138,7 +138,7 @@ public:
                 hr = d->engine->GetNativeVideoSize(&width, &height);
                 if (FAILED(hr))
                     break;
-                d->videoRenderer->setSize(QSize(width, height));
+                d->videoRenderer->setSize(QSize(int(width), int(height)));
             }
 
             newStatus = QMediaPlayer::LoadedMedia;
@@ -177,7 +177,7 @@ public:
             // If the media is already loaded, the playing event may not occur after stop
             if (d->mediaStatus != QMediaPlayer::LoadedMedia)
                 break;
-            // fall through
+            Q_FALLTHROUGH();
         }
         case MF_MEDIA_ENGINE_EVENT_PLAYING: {
             newState = QMediaPlayer::PlayingState;
@@ -206,7 +206,7 @@ public:
         case MF_MEDIA_ENGINE_EVENT_DURATIONCHANGE: {
             double duration = d->engine->GetDuration() * 1000;
             if (!qFuzzyCompare(d->duration, duration)) {
-                d->duration = duration;
+                d->duration = qint64(duration);
                 emit q->durationChanged(d->duration);
             }
             break;
@@ -214,7 +214,7 @@ public:
         case MF_MEDIA_ENGINE_EVENT_TIMEUPDATE: {
             double position = d->engine->GetCurrentTime() * 1000;
             if (!qFuzzyCompare(d->position, position)) {
-                d->position = position;
+                d->position = qint64(position);
                 emit q->positionChanged(d->position);
             }
             // Stopped state: paused at beginning
@@ -238,7 +238,7 @@ public:
             default:
             case MF_MEDIA_ENGINE_ERR_NOERROR:
                 newStatus = QMediaPlayer::UnknownMediaStatus;
-                emit q->error(QMediaPlayer::ResourceError, qt_error_string(param2));
+                emit q->error(QMediaPlayer::ResourceError, qt_error_string(int(param2)));
                 break;
             case MF_MEDIA_ENGINE_ERR_ABORTED:
                 if (d->mediaStatus == QMediaPlayer::StalledMedia || d->mediaStatus == QMediaPlayer::BufferingMedia)
@@ -299,19 +299,19 @@ public:
 
     DWORD __stdcall GetLength()
     {
-        return d->media.resources().length();
+        return DWORD(d->media.resources().length());
     }
 
     HRESULT __stdcall GetURL(DWORD index, BSTR *url)
     {
-        const QString resourceUrl = d->media.resources().value(index).url().toString();
+        const QString resourceUrl = d->media.resources().value(int(index)).url().toString();
         *url = SysAllocString((const OLECHAR *)resourceUrl.utf16());
         return S_OK;
     }
 
     HRESULT __stdcall GetType(DWORD index, BSTR *type)
     {
-        const QString resourceType = d->media.resources().value(index).mimeType();
+        const QString resourceType = d->media.resources().value(int(index)).mimeType();
         *type = SysAllocString((const OLECHAR *)resourceType.utf16());
         return S_OK;
     }
@@ -319,7 +319,7 @@ public:
     HRESULT __stdcall GetMedia(DWORD index, BSTR *media)
     {
         Q_UNUSED(index);
-        *media = NULL;
+        *media = nullptr;
         return S_OK;
     }
 
@@ -348,7 +348,7 @@ public:
 
     void read(QIODevice *device)
     {
-        bytesRead = device->read(reinterpret_cast<char *>(bytes), maxLength);
+        bytesRead = ULONG(device->read(reinterpret_cast<char *>(bytes), maxLength));
     }
 
     BYTE *bytes;
@@ -359,8 +359,8 @@ public:
 class MediaEngineByteStream : public RuntimeClass<RuntimeClassFlags<ClassicCom>, IMFByteStream>
 {
 public:
-    MediaEngineByteStream(QWinRTMediaPlayerControl *q_ptr, QWinRTMediaPlayerControlPrivate *d_ptr)
-        : q(q_ptr), d(d_ptr)
+    MediaEngineByteStream(QWinRTMediaPlayerControlPrivate *d_ptr)
+        : d(d_ptr)
     {
     }
 
@@ -392,7 +392,7 @@ public:
 
     HRESULT __stdcall SetCurrentPosition(QWORD position)
     {
-        qint64 pos(position);
+        const qint64 pos = qint64(position);
         if (pos >= d->stream->size()) {
             // MSDN states we should return E_INVALIDARG, but that immediately
             // stops playback and does not play remaining buffers in the queue.
@@ -413,7 +413,7 @@ public:
 
     HRESULT __stdcall Read(BYTE *bytes, ULONG maxlen, ULONG *bytesRead)
     {
-        *bytesRead = d->stream->read(reinterpret_cast<char *>(bytes), maxlen);
+        *bytesRead = ULONG(d->stream->read(reinterpret_cast<char *>(bytes), maxlen));
         return S_OK;
     }
 
@@ -423,7 +423,7 @@ public:
         HRESULT hr;
         hr = MFCreateAsyncResult(readResult.Get(), callback, state, &asyncResult);
         RETURN_HR_IF_FAILED("Failed to create read callback result");
-        QMetaObject::invokeMethod(q, "finishRead", Qt::QueuedConnection);
+        finishRead();
         return S_OK;
     }
 
@@ -508,7 +508,6 @@ public:
     }
 
 private:
-    QWinRTMediaPlayerControl *q;
     QWinRTMediaPlayerControlPrivate *d;
 
     ComPtr<IMFAsyncResult> asyncResult;
@@ -541,7 +540,7 @@ QWinRTMediaPlayerControl::QWinRTMediaPlayerControl(IMFMediaEngineClassFactory *f
     d->seekable = false;
     d->hasAudio = false;
     d->hasVideo = false;
-    d->videoRenderer = Q_NULLPTR;
+    d->videoRenderer = nullptr;
     d->notifier = Make<MediaEngineNotify>(this, d);
 
     HRESULT hr;
@@ -570,11 +569,7 @@ QWinRTMediaPlayerControl::QWinRTMediaPlayerControl(IMFMediaEngineClassFactory *f
     hr = d->engine->SetSourceElements(d->sources.Get());
     Q_ASSERT_SUCCEEDED(hr);
 
-    d->streamProvider = Make<MediaEngineByteStream>(this, d);
-}
-
-QWinRTMediaPlayerControl::~QWinRTMediaPlayerControl()
-{
+    d->streamProvider = Make<MediaEngineByteStream>(d);
 }
 
 QMediaPlayer::State QWinRTMediaPlayerControl::state() const
@@ -796,7 +791,7 @@ void QWinRTMediaPlayerControl::setMedia(const QMediaContent &media, QIODevice *s
     }
 
     // Let Windows handle all other URLs
-    hr = d->engine->SetSource(Q_NULLPTR); // Resets the byte stream
+    hr = d->engine->SetSource(nullptr); // Resets the byte stream
     Q_ASSERT_SUCCEEDED(hr);
     hr = d->engine->Load();
     if (FAILED(hr))
@@ -904,12 +899,6 @@ QVideoRendererControl *QWinRTMediaPlayerControl::videoRendererControl()
     }
 
     return d->videoRenderer;
-}
-
-void QWinRTMediaPlayerControl::finishRead()
-{
-    Q_D(QWinRTMediaPlayerControl);
-    d->streamProvider->finishRead();
 }
 
 QT_END_NAMESPACE

@@ -8,31 +8,9 @@
 #include "base/mac/scoped_cftyperef.h"
 #include "base/mac/sdk_forward_declarations.h"
 #include "base/strings/sys_string_conversions.h"
-#include "media/capture/video/scoped_result_callback.h"
-#include "mojo/public/cpp/bindings/strong_binding.h"
-#include "services/shape_detection/barcode_detection_impl.h"
 #include "services/shape_detection/detection_utils_mac.h"
 
 namespace shape_detection {
-
-namespace {
-
-void RunCallbackWithNoBarcodes(
-    shape_detection::mojom::BarcodeDetection::DetectCallback callback) {
-  std::move(callback).Run({});
-}
-
-}  // anonymous namespace
-
-// static
-void BarcodeDetectionImpl::Create(
-    shape_detection::mojom::BarcodeDetectionRequest request) {
-  // Barcode detection needs at least MAC OS X 10.10.
-  if (base::mac::IsAtLeastOS10_10()) {
-    mojo::MakeStrongBinding(base::MakeUnique<BarcodeDetectionImplMac>(),
-                            std::move(request));
-  }
-}
 
 BarcodeDetectionImplMac::BarcodeDetectionImplMac() {
   NSDictionary* const options = @{CIDetectorAccuracy : CIDetectorAccuracyHigh};
@@ -45,12 +23,11 @@ BarcodeDetectionImplMac::~BarcodeDetectionImplMac() {}
 
 void BarcodeDetectionImplMac::Detect(const SkBitmap& bitmap,
                                      DetectCallback callback) {
-  media::ScopedResultCallback<DetectCallback> scoped_callback(
-      std::move(callback), base::Bind(&RunCallbackWithNoBarcodes));
-
   base::scoped_nsobject<CIImage> ci_image = CreateCIImageFromSkBitmap(bitmap);
-  if (!ci_image)
+  if (!ci_image) {
+    std::move(callback).Run({});
     return;
+  }
 
   NSArray* const features = [detector_ featuresInImage:ci_image];
 
@@ -59,13 +36,7 @@ void BarcodeDetectionImplMac::Detect(const SkBitmap& bitmap,
   for (CIQRCodeFeature* const f in features) {
     shape_detection::mojom::BarcodeDetectionResultPtr result =
         shape_detection::mojom::BarcodeDetectionResult::New();
-    // In the default Core Graphics coordinate space, the origin is located
-    // in the lower-left corner, and thus |ci_image| is flipped vertically.
-    // We need to adjust |y| coordinate of bounding box before sending it.
-    gfx::RectF boundingbox(f.bounds.origin.x,
-                           height - f.bounds.origin.y - f.bounds.size.height,
-                           f.bounds.size.width, f.bounds.size.height);
-    result->bounding_box = std::move(boundingbox);
+    result->bounding_box = ConvertCGToGfxCoordinates(f.bounds, height);
 
     // Enumerate corner points starting from top-left in clockwise fashion:
     // https://wicg.github.io/shape-detection-api/#dom-detectedbarcode-cornerpoints
@@ -78,7 +49,7 @@ void BarcodeDetectionImplMac::Detect(const SkBitmap& bitmap,
     result->raw_value = base::SysNSStringToUTF8(f.messageString);
     results.push_back(std::move(result));
   }
-  scoped_callback.Run(std::move(results));
+  std::move(callback).Run(std::move(results));
 }
 
 }  // namespace shape_detection

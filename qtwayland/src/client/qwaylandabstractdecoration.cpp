@@ -58,23 +58,19 @@ class QWaylandAbstractDecorationPrivate : public QObjectPrivate
 
 public:
     QWaylandAbstractDecorationPrivate();
-    ~QWaylandAbstractDecorationPrivate();
+    ~QWaylandAbstractDecorationPrivate() override;
 
-    QWindow *m_window;
-    QWaylandWindow *m_wayland_window;
+    QWindow *m_window = nullptr;
+    QWaylandWindow *m_wayland_window = nullptr;
 
-    bool m_isDirty;
+    bool m_isDirty = true;
     QImage m_decorationContentImage;
 
-    Qt::MouseButtons m_mouseButtons;
+    Qt::MouseButtons m_mouseButtons = Qt::NoButton;
 };
 
 QWaylandAbstractDecorationPrivate::QWaylandAbstractDecorationPrivate()
-    : m_window(0)
-    , m_wayland_window(0)
-    , m_isDirty(true)
-    , m_decorationContentImage(0)
-    , m_mouseButtons(Qt::NoButton)
+    : m_decorationContentImage(nullptr)
 {
 }
 
@@ -104,6 +100,22 @@ void QWaylandAbstractDecoration::setWaylandWindow(QWaylandWindow *window)
     d->m_wayland_window = window;
 }
 
+// Creates regions like this on the outside of a rectangle with inner size \a size
+// -----
+// |   |
+// -----
+// I.e. the top and bottom extends into the corners
+static QRegion marginsRegion(const QSize &size, const QMargins &margins)
+{
+    QRegion r;
+    const int widthWithMargins = margins.left() + size.width() + margins.right();
+    r += QRect(0, 0, widthWithMargins, margins.top()); // top
+    r += QRect(0, size.height()+margins.top(), widthWithMargins, margins.bottom()); //bottom
+    r += QRect(0, margins.top(), margins.left(), size.height()); //left
+    r += QRect(size.width()+margins.left(), margins.top(), margins.right(), size.height()); // right
+    return r;
+}
+
 const QImage &QWaylandAbstractDecoration::contentImage()
 {
     Q_D(QWaylandAbstractDecoration);
@@ -116,6 +128,10 @@ const QImage &QWaylandAbstractDecoration::contentImage()
         d->m_decorationContentImage.setDevicePixelRatio(scale);
         d->m_decorationContentImage.fill(Qt::transparent);
         this->paint(&d->m_decorationContentImage);
+
+        QRegion damage = marginsRegion(window()->geometry().size(), window()->frameMargins());
+        for (QRect r : damage)
+            waylandWindow()->damage(r);
 
         d->m_isDirty = false;
     }

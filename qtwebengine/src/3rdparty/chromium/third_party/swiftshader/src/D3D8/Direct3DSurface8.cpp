@@ -58,11 +58,12 @@ namespace D3D8
 		return 1;
 	}
 
-	Direct3DSurface8::Direct3DSurface8(Direct3DDevice8 *device, Unknown *container, int width, int height, D3DFORMAT format, D3DPOOL pool, D3DMULTISAMPLE_TYPE multiSample, bool lockable, unsigned long usage) : Surface(getParentResource(container), width, height, sampleCount(multiSample), translateFormat(format), lockable, (usage & D3DUSAGE_RENDERTARGET) == D3DUSAGE_RENDERTARGET || (usage & D3DUSAGE_DEPTHSTENCIL) == D3DUSAGE_DEPTHSTENCIL), device(device), container(container), width(width), height(height), format(format), pool(pool), multiSample(multiSample), lockable(lockable), usage(usage)
+	Direct3DSurface8::Direct3DSurface8(Direct3DDevice8 *device, Unknown *container, int width, int height, D3DFORMAT format, D3DPOOL pool, D3DMULTISAMPLE_TYPE multiSample, bool lockable, unsigned long usage)
+		: Surface(getParentResource(container), width, height, 1, 0, sampleCount(multiSample), translateFormat(format), lockable, (usage & D3DUSAGE_RENDERTARGET) == D3DUSAGE_RENDERTARGET || (usage & D3DUSAGE_DEPTHSTENCIL) == D3DUSAGE_DEPTHSTENCIL), device(device), container(container), width(width), height(height), format(format), pool(pool), multiSample(multiSample), lockable(lockable), usage(usage)
 	{
 		parentTexture = dynamic_cast<Direct3DBaseTexture8*>(container);
 
-		resource = new Direct3DResource8(device, D3DRTYPE_SURFACE, memoryUsage(width, height, format));
+		resource = new Direct3DResource8(device, D3DRTYPE_SURFACE, memoryUsage(width, height, multiSample, format));
 	}
 
 	Direct3DSurface8::~Direct3DSurface8()
@@ -227,7 +228,7 @@ namespace D3D8
 		desc->Type = D3DRTYPE_SURFACE;
 		desc->Height = height;
 		desc->Width = width;
-		desc->Size = size(getWidth(), getHeight(), getDepth(), getExternalFormat());
+		desc->Size = memoryUsage(width, height, multiSample, format);
 		desc->MultiSampleType = multiSample;
 		desc->Usage = usage;
 
@@ -283,8 +284,8 @@ namespace D3D8
 		return Surface::bytes(translateFormat(format));
 	}
 
-	unsigned int Direct3DSurface8::memoryUsage(int width, int height, D3DFORMAT format)
+	unsigned int Direct3DSurface8::memoryUsage(int width, int height, D3DMULTISAMPLE_TYPE multiSample, D3DFORMAT format)
 	{
-		return Surface::size(width, height, 1, translateFormat(format));
+		return Surface::size(width, height, 1, 0, sampleCount(multiSample), translateFormat(format));
 	}
 }

@@ -18,11 +18,10 @@
 #include "base/synchronization/lock.h"
 #include "media/base/cdm_context.h"
 #include "media/base/cdm_key_information.h"
+#include "media/base/cdm_promise.h"
 #include "media/base/content_decryption_module.h"
 #include "media/base/decryptor.h"
 #include "media/base/media_export.h"
-
-class GURL;
 
 namespace crypto {
 class SymmetricKey;
@@ -36,8 +35,7 @@ class MEDIA_EXPORT AesDecryptor : public ContentDecryptionModule,
                                   public CdmContext,
                                   public Decryptor {
  public:
-  AesDecryptor(const GURL& security_origin,
-               const SessionMessageCB& session_message_cb,
+  AesDecryptor(const SessionMessageCB& session_message_cb,
                const SessionClosedCB& session_closed_cb,
                const SessionKeysChangeCB& session_keys_change_cb,
                const SessionExpirationUpdateCB& session_expiration_update_cb);
@@ -63,6 +61,8 @@ class MEDIA_EXPORT AesDecryptor : public ContentDecryptionModule,
   CdmContext* GetCdmContext() override;
 
   // CdmContext implementation.
+  std::unique_ptr<CallbackRegistration> RegisterNewKeyCB(
+      base::RepeatingClosure new_key_cb) override;
   Decryptor* GetDecryptor() override;
   int GetCdmId() const override;
 
@@ -70,22 +70,24 @@ class MEDIA_EXPORT AesDecryptor : public ContentDecryptionModule,
   void RegisterNewKeyCB(StreamType stream_type,
                         const NewKeyCB& key_added_cb) override;
   void Decrypt(StreamType stream_type,
-               const scoped_refptr<DecoderBuffer>& encrypted,
+               scoped_refptr<DecoderBuffer> encrypted,
                const DecryptCB& decrypt_cb) override;
   void CancelDecrypt(StreamType stream_type) override;
   void InitializeAudioDecoder(const AudioDecoderConfig& config,
                               const DecoderInitCB& init_cb) override;
   void InitializeVideoDecoder(const VideoDecoderConfig& config,
                               const DecoderInitCB& init_cb) override;
-  void DecryptAndDecodeAudio(const scoped_refptr<DecoderBuffer>& encrypted,
+  void DecryptAndDecodeAudio(scoped_refptr<DecoderBuffer> encrypted,
                              const AudioDecodeCB& audio_decode_cb) override;
-  void DecryptAndDecodeVideo(const scoped_refptr<DecoderBuffer>& encrypted,
+  void DecryptAndDecodeVideo(scoped_refptr<DecoderBuffer> encrypted,
                              const VideoDecodeCB& video_decode_cb) override;
   void ResetDecoder(StreamType stream_type) override;
   void DeinitializeDecoder(StreamType stream_type) override;
 
  private:
+  // Testing classes that needs to manipulate internal states for testing.
   friend class ClearKeyPersistentSessionCdm;
+  friend class ClearKeyCdmProxy;
 
   // Internally this class supports persistent license type sessions so that
   // it can be used by ClearKeyPersistentSessionCdm. The following methods
@@ -108,6 +110,7 @@ class MEDIA_EXPORT AesDecryptor : public ContentDecryptionModule,
   bool UpdateSessionWithJWK(const std::string& session_id,
                             const std::string& json_web_key_set,
                             bool* key_added,
+                            CdmPromise::Exception* exception,
                             std::string* error_message);
 
   // Performs the final steps of UpdateSession (notify any listeners for keys
@@ -181,7 +184,7 @@ class MEDIA_EXPORT AesDecryptor : public ContentDecryptionModule,
   // Since only Decrypt() is called off the renderer thread, we only need to
   // protect |key_map_|, the only member variable that is shared between
   // Decrypt() and other methods.
-  KeyIdToSessionKeysMap key_map_;  // Protected by |key_map_lock_|.
+  KeyIdToSessionKeysMap key_map_;    // Protected by |key_map_lock_|.
   mutable base::Lock key_map_lock_;  // Protects the |key_map_|.
 
   // Keeps track of current open sessions and their type. Although publicly

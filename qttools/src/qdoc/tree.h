@@ -168,8 +168,6 @@ class Tree
                                          Node::Genus genus = Node::DontCare) const;
     const NamespaceNode *root() const { return &root_; }
 
-    FunctionNode *findVirtualFunctionInBaseClasses(ClassNode *classe,
-                                                   FunctionNode *clone);
     NodeList allBaseClasses(const ClassNode *classe) const;
     QString refForAtom(const Atom* atom);
 
@@ -216,6 +214,8 @@ class Tree
                              bool broken);
     TargetList* getTargetList(const QString& module);
     QStringList getTargetListKeys() { return targetListMap_->keys(); }
+    Node* findFunctionNodeForTag(const QString &tag, Aggregate* parent = 0);
+    Node *findMacroNode(const QString &t, const Aggregate *parent = 0);
 
  public:
     const QString& camelCaseModuleName() const { return camelCaseModuleName_; }

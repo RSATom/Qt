@@ -1,4 +1,5 @@
 <link rel="import" href="../settings_shared_css.html">
+<link rel="import" href="internet_page_browser_proxy.html">
 
 <!-- Common styles for Internet settings. -->
 <dom-module id="internet-shared">
@@ -12,21 +13,11 @@
         -webkit-margin-end: var(--cr-controlled-by-spacing);
       }
 
-      paper-input-container {
-        --paper-input-container-input: {
-          color: var(--paper-grey-600);
-          font-size: inherit;
-          font-weight: 400;
-        };
-        margin-bottom: 0;
-        margin-top: -9px;
-      }
-
-      .settings-box.indented {
+      .indented {
         -webkit-margin-start: var(--settings-box-row-padding);
       }
 
-      .settings-box.stretch {
+      .stretch {
         align-items: stretch;
       }
 

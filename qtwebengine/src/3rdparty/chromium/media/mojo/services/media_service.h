@@ -5,32 +5,26 @@
 #ifndef MEDIA_MOJO_SERVICES_MEDIA_SERVICE_H_
 #define MEDIA_MOJO_SERVICES_MEDIA_SERVICE_H_
 
-#include <stdint.h>
-
 #include <memory>
 
-#include "base/callback.h"
-#include "base/compiler_specific.h"
-#include "base/memory/ref_counted.h"
+#include "build/build_config.h"
 #include "media/base/media_log.h"
 #include "media/mojo/interfaces/interface_factory.mojom.h"
 #include "media/mojo/interfaces/media_service.mojom.h"
+#include "media/mojo/services/deferred_destroy_strong_binding_set.h"
 #include "media/mojo/services/media_mojo_export.h"
 #include "mojo/public/cpp/bindings/binding_set.h"
-#include "mojo/public/cpp/bindings/strong_binding_set.h"
 #include "services/service_manager/public/cpp/binder_registry.h"
 #include "services/service_manager/public/cpp/service.h"
 #include "services/service_manager/public/cpp/service_context.h"
 #include "services/service_manager/public/cpp/service_context_ref.h"
-#include "url/gurl.h"
 
 namespace media {
 
 class MojoMediaClient;
 
-class MEDIA_MOJO_EXPORT MediaService
-    : public NON_EXPORTED_BASE(service_manager::Service),
-      public NON_EXPORTED_BASE(mojom::MediaService) {
+class MEDIA_MOJO_EXPORT MediaService : public service_manager::Service,
+                                       public mojom::MediaService {
  public:
   explicit MediaService(std::unique_ptr<MojoMediaClient> mojo_media_client);
   ~MediaService() final;
@@ -45,20 +39,25 @@ class MEDIA_MOJO_EXPORT MediaService
 
   void Create(mojom::MediaServiceRequest request);
 
-  // mojom::MediaService implementation.
   void CreateInterfaceFactory(
       mojom::InterfaceFactoryRequest request,
       service_manager::mojom::InterfaceProviderPtr host_interfaces) final;
 
+  MediaLog media_log_;
+  std::unique_ptr<service_manager::ServiceContextRefFactory> ref_factory_;
+
   // Note: Since each instance runs on a different thread, do not share a common
   // MojoMediaClient with other instances to avoid threading issues. Hence using
   // a unique_ptr here.
+  //
+  // Note: Since |*ref_factory_| is passed to |mojo_media_client_|,
+  // |mojo_media_client_| must be destructed before |ref_factory_|.
   std::unique_ptr<MojoMediaClient> mojo_media_client_;
 
-  mojo::StrongBindingSet<mojom::InterfaceFactory> interface_factory_bindings_;
-
-  MediaLog media_log_;
-  std::unique_ptr<service_manager::ServiceContextRefFactory> ref_factory_;
+  // Note: Since |&media_log_| is passed to bindings, the bindings must be
+  // destructed first.
+  DeferredDestroyStrongBindingSet<mojom::InterfaceFactory>
+      interface_factory_bindings_;
 
   service_manager::BinderRegistry registry_;
   mojo::BindingSet<mojom::MediaService> bindings_;

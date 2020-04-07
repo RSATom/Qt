@@ -51,7 +51,9 @@
 
 #ifdef QT_WIDGETS_LIB
 #include <QtWidgets/QApplication>
+#if QT_CONFIG(filedialog)
 #include <QtWidgets/QFileDialog>
+#endif
 #endif
 
 #include <QtCore/QTranslator>
@@ -145,21 +147,7 @@ struct Options
     };
 
     Options()
-        : originalQml(false)
-        , originalQmlRaster(false)
-        , maximized(false)
-        , fullscreen(false)
-        , transparent(false)
-        , clip(false)
-        , versionDetection(true)
-        , slowAnimations(false)
-        , quitImmediately(false)
-        , resizeViewToRootItem(false)
-        , multisample(false)
-        , coreProfile(false)
-        , verbose(false)
-        , applicationType(DefaultQmlApplicationType)
-        , textRenderType(QQuickWindow::textRenderType())
+        : textRenderType(QQuickWindow::textRenderType())
     {
         // QtWebEngine needs a shared context in order for the GPU thread to
         // upload textures.
@@ -167,22 +155,22 @@ struct Options
     }
 
     QUrl url;
-    bool originalQml;
-    bool originalQmlRaster;
-    bool maximized;
-    bool fullscreen;
-    bool transparent;
-    bool clip;
-    bool versionDetection;
-    bool slowAnimations;
-    bool quitImmediately;
-    bool resizeViewToRootItem;
-    bool multisample;
-    bool coreProfile;
-    bool verbose;
+    bool originalQml = false;
+    bool originalQmlRaster = false;
+    bool maximized = false;
+    bool fullscreen = false;
+    bool transparent = false;
+    bool clip = false;
+    bool versionDetection = true;
+    bool slowAnimations = false;
+    bool quitImmediately = false;
+    bool resizeViewToRootItem = false;
+    bool multisample = false;
+    bool coreProfile = false;
+    bool verbose = false;
     QVector<Qt::ApplicationAttribute> applicationAttributes;
     QString translationFile;
-    QmlApplicationType applicationType;
+    QmlApplicationType applicationType = DefaultQmlApplicationType;
     QQuickWindow::TextRenderType textRenderType;
 };
 
@@ -310,7 +298,7 @@ static void displayFileDialog(Options *options)
 {
 #if defined(QT_WIDGETS_LIB) && QT_CONFIG(filedialog)
     if (options->applicationType == Options::QmlApplicationTypeWidget) {
-        QString fileName = QFileDialog::getOpenFileName(0, "Open QML file", QString(), "QML Files (*.qml)");
+        QString fileName = QFileDialog::getOpenFileName(nullptr, "Open QML file", QString(), "QML Files (*.qml)");
         if (!fileName.isEmpty()) {
             QFileInfo fi(fileName);
             options->url = QUrl::fromLocalFile(fi.canonicalFilePath());
@@ -321,14 +309,6 @@ static void displayFileDialog(Options *options)
     Q_UNUSED(options);
     puts("No filename specified...");
 }
-
-#if QT_CONFIG(translation)
-static void loadTranslationFile(QTranslator &translator, const QString& directory)
-{
-    translator.load(QLatin1String("qml_" )+QLocale::system().name(), directory + QLatin1String("/i18n"));
-    QCoreApplication::installTranslator(&translator);
-}
-#endif
 
 static void loadDummyDataFiles(QQmlEngine &engine, const QString& directory)
 {
@@ -516,6 +496,9 @@ int main(int argc, char ** argv)
     QCoreApplication::setOrganizationDomain(QStringLiteral("qt-project.org"));
     QCoreApplication::setApplicationVersion(QLatin1String(QT_VERSION_STR));
 
+    if (qEnvironmentVariableIsSet("QMLSCENE_CORE_PROFILE"))
+        options.coreProfile = true;
+
     const QStringList arguments = QCoreApplication::arguments();
     for (int i = 1, size = arguments.size(); i < size; ++i) {
         if (!arguments.at(i).startsWith(QLatin1Char('-'))) {
@@ -563,18 +546,18 @@ int main(int argc, char ** argv)
     }
 
 #if QT_CONFIG(translation)
-    QTranslator translator;
+    QLocale locale;
     QTranslator qtTranslator;
-    QString sysLocale = QLocale::system().name();
-    if (qtTranslator.load(QLatin1String("qt_") + sysLocale, QLibraryInfo::location(QLibraryInfo::TranslationsPath)))
-        app->installTranslator(&qtTranslator);
-    if (translator.load(QLatin1String("qmlscene_") + sysLocale, QLibraryInfo::location(QLibraryInfo::TranslationsPath)))
-        app->installTranslator(&translator);
+    if (qtTranslator.load(locale, QLatin1String("qt"), QLatin1String("_"), QLibraryInfo::location(QLibraryInfo::TranslationsPath)))
+        QCoreApplication::installTranslator(&qtTranslator);
+    QTranslator translator;
+    if (translator.load(locale, QLatin1String("qmlscene"), QLatin1String("_"), QLibraryInfo::location(QLibraryInfo::TranslationsPath)))
+        QCoreApplication::installTranslator(&translator);
 
     QTranslator qmlTranslator;
     if (!options.translationFile.isEmpty()) {
         if (qmlTranslator.load(options.translationFile)) {
-            app->installTranslator(&qmlTranslator);
+            QCoreApplication::installTranslator(&qmlTranslator);
         } else {
             fprintf(stderr, "Could not load the translation file \"%s\"\n",
                     qPrintable(options.translationFile));
@@ -600,10 +583,6 @@ int main(int argc, char ** argv)
 
     if (!options.url.isEmpty()) {
         if (!options.versionDetection || checkVersion(options.url)) {
-#if QT_CONFIG(translation)
-            QTranslator translator;
-#endif
-
             // TODO: as soon as the engine construction completes, the debug service is
             // listening for connections.  But actually we aren't ready to debug anything.
             QQmlEngine engine;
@@ -615,7 +594,9 @@ int main(int argc, char ** argv)
             if (options.url.isLocalFile()) {
                 QFileInfo fi(options.url.toLocalFile());
 #if QT_CONFIG(translation)
-                loadTranslationFile(translator, fi.path());
+                QTranslator *translator = new QTranslator(app.get());
+                if (translator->load(QLocale(), QLatin1String("qml"), QLatin1String("_"), fi.path() + QLatin1String("/i18n")))
+                    QCoreApplication::installTranslator(translator);
 #endif
                 loadDummyDataFiles(engine, fi.path());
             }
@@ -634,13 +615,26 @@ int main(int argc, char ** argv)
                 fprintf(stderr, "%s\n", qPrintable(component->errorString()));
                 return -1;
             }
+
+            // Set default surface format before creating the window
+            QSurfaceFormat surfaceFormat;
+            if (options.multisample)
+                surfaceFormat.setSamples(16);
+            if (options.transparent)
+                surfaceFormat.setAlphaBufferSize(8);
+            if (options.coreProfile) {
+                surfaceFormat.setVersion(4, 1);
+                surfaceFormat.setProfile(QSurfaceFormat::CoreProfile);
+            }
+            QSurfaceFormat::setDefaultFormat(surfaceFormat);
+
             QScopedPointer<QQuickWindow> window(qobject_cast<QQuickWindow *>(topLevel));
             if (window) {
                 engine.setIncubationController(window->incubationController());
             } else {
                 QQuickItem *contentItem = qobject_cast<QQuickItem *>(topLevel);
                 if (contentItem) {
-                    QQuickView* qxView = new QQuickView(&engine, NULL);
+                    QQuickView* qxView = new QQuickView(&engine, nullptr);
                     window.reset(qxView);
                     // Set window default properties; the qml can still override them
                     if (options.resizeViewToRootItem)
@@ -657,18 +651,10 @@ int main(int argc, char ** argv)
                 if (options.verbose)
                     new DiagnosticGlContextCreationListener(window.data());
 #endif
-                QSurfaceFormat surfaceFormat = window->requestedFormat();
-                if (options.multisample)
-                    surfaceFormat.setSamples(16);
                 if (options.transparent) {
-                    surfaceFormat.setAlphaBufferSize(8);
                     window->setClearBeforeRendering(true);
                     window->setColor(QColor(Qt::transparent));
                     window->setFlags(Qt::FramelessWindowHint);
-                }
-                if (options.coreProfile) {
-                    surfaceFormat.setVersion(4, 1);
-                    surfaceFormat.setProfile(QSurfaceFormat::CoreProfile);
                 }
                 window->setFormat(surfaceFormat);
 

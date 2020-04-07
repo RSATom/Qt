@@ -11,6 +11,7 @@
 
 #include "base/macros.h"
 #include "base/optional.h"
+#include "build/build_config.h"
 #include "ui/events/events_export.h"
 #include "ui/gfx/x/x11_types.h"
 
@@ -62,17 +63,6 @@ class EVENTS_EXPORT X11EventSource {
   // main X11 event loop.
   void DispatchXEventNow(XEvent* event);
 
-  // Blocks on the X11 event queue until we receive notification from the
-  // xserver that |w| has been mapped; StructureNotifyMask events on |w| are
-  // pulled out from the queue and dispatched out of order.
-  //
-  // For those that know X11, this is really a wrapper around XWindowEvent
-  // which still makes sure the preempted event is dispatched instead of
-  // dropped on the floor. This method exists because mapping a window is
-  // asynchronous (and we receive an XEvent when mapped), while there are also
-  // functions which require a mapped window.
-  void BlockUntilWindowMapped(XID window);
-
   XDisplay* display() { return display_; }
 
   // Returns the timestamp of the event currently being dispatched.  Falls back
@@ -80,9 +70,11 @@ class EVENTS_EXPORT X11EventSource {
   // current event does not have a timestamp.
   Time GetTimestamp();
 
+#if !defined(USE_OZONE)
   // Returns the root pointer location only if there is an event being
   // dispatched that contains that information.
   base::Optional<gfx::Point> GetRootCursorLocationFromCurrentEvent() const;
+#endif
 
   void StopCurrentEventStream();
   void OnDispatcherListChanged();
@@ -95,10 +87,6 @@ class EVENTS_EXPORT X11EventSource {
 
   // Handles updates after event has been dispatched.
   void PostDispatchEvent(XEvent* xevent);
-
-  // Block until receiving a structure notify event of |type| on |window|.
-  // Dispatch all encountered events prior to the one we're blocking on.
-  void BlockOnWindowStructureEvent(XID window, int type);
 
   // Explicitly asks the X11 server for the current timestamp, and updates
   // |last_seen_server_time_| with this value.

@@ -30,6 +30,15 @@ void VSyncProviderWin::InitializeOneOff() {
 }
 
 void VSyncProviderWin::GetVSyncParameters(const UpdateVSyncCallback& callback) {
+  base::TimeTicks timebase;
+  base::TimeDelta interval;
+  if (GetVSyncParametersIfAvailable(&timebase, &interval))
+    callback.Run(timebase, interval);
+}
+
+bool VSyncProviderWin::GetVSyncParametersIfAvailable(
+    base::TimeTicks* out_timebase,
+    base::TimeDelta* out_interval) {
   TRACE_EVENT0("gpu", "WinVSyncProvider::GetVSyncParameters");
 
   base::TimeTicks timebase;
@@ -105,9 +114,20 @@ void VSyncProviderWin::GetVSyncParameters(const UpdateVSyncCallback& callback) {
     }
   }
 
-  if (interval.ToInternalValue() != 0) {
-    callback.Run(timebase, interval);
-  }
+  if (interval.is_zero())
+    return false;
+
+  *out_timebase = timebase;
+  *out_interval = interval;
+  return true;
+}
+
+bool VSyncProviderWin::SupportGetVSyncParametersIfAvailable() const {
+  return true;
+}
+
+bool VSyncProviderWin::IsHWClock() const {
+  return true;
 }
 
 }  // namespace gl

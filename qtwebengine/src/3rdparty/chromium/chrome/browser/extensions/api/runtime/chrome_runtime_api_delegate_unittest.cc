@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include <deque>
 #include <memory>
 #include <set>
 #include <utility>
@@ -10,8 +9,8 @@
 #include "base/callback.h"
 #include "base/files/file_path.h"
 #include "base/location.h"
-#include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
+#include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
 #include "base/test/simple_test_tick_clock.h"
@@ -64,7 +63,7 @@ class TestEventRouter : public EventRouter {
 
 std::unique_ptr<KeyedService> TestEventRouterFactoryFunction(
     content::BrowserContext* context) {
-  return base::MakeUnique<TestEventRouter>(context);
+  return std::make_unique<TestEventRouter>(context);
 }
 
 // This class lets us intercept extension update checks and respond as if
@@ -160,7 +159,7 @@ class UpdateCheckResultCatcher {
 
   void OnResult(const RuntimeAPIDelegate::UpdateCheckResult& result) {
     EXPECT_EQ(nullptr, result_.get());
-    result_ = base::MakeUnique<RuntimeAPIDelegate::UpdateCheckResult>(
+    result_ = std::make_unique<RuntimeAPIDelegate::UpdateCheckResult>(
         result.success, result.response, result.version);
     if (run_loop_)
       run_loop_->Quit();
@@ -168,7 +167,7 @@ class UpdateCheckResultCatcher {
 
   std::unique_ptr<RuntimeAPIDelegate::UpdateCheckResult> WaitForResult() {
     if (!result_) {
-      run_loop_ = base::MakeUnique<base::RunLoop>();
+      run_loop_ = std::make_unique<base::RunLoop>();
       run_loop_->Run();
     }
     return std::move(result_);
@@ -192,14 +191,14 @@ class ChromeRuntimeAPIDelegateTest : public ExtensionServiceTestWithInstall {
 
     InitializeExtensionServiceWithUpdater();
     runtime_delegate_ =
-        base::MakeUnique<ChromeRuntimeAPIDelegate>(browser_context());
+        std::make_unique<ChromeRuntimeAPIDelegate>(browser_context());
     service()->updater()->SetExtensionCacheForTesting(nullptr);
     EventRouterFactory::GetInstance()->SetTestingFactory(
         browser_context(), &TestEventRouterFactoryFunction);
 
     // Setup the ExtensionService so that extension updates won't complete
     // installation until the extension is idle.
-    update_install_gate_ = base::MakeUnique<UpdateInstallGate>(service());
+    update_install_gate_ = std::make_unique<UpdateInstallGate>(service());
     service()->RegisterInstallGate(ExtensionPrefs::DELAY_REASON_WAIT_FOR_IDLE,
                                    update_install_gate_.get());
     static_cast<TestExtensionSystem*>(ExtensionSystem::Get(browser_context()))
@@ -251,8 +250,16 @@ class ChromeRuntimeAPIDelegateTest : public ExtensionServiceTestWithInstall {
 };
 
 TEST_F(ChromeRuntimeAPIDelegateTest, RequestUpdateCheck) {
-  base::FilePath v1_path = data_dir().AppendASCII("autoupdate/v1.crx");
-  base::FilePath v2_path = data_dir().AppendASCII("autoupdate/v2.crx");
+  base::ScopedAllowBlockingForTesting allow_blocking;
+  base::ScopedTempDir temp_dir;
+  ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
+
+  base::FilePath root_dir = data_dir().AppendASCII("autoupdate");
+  base::FilePath pem_path = root_dir.AppendASCII("key.pem");
+  base::FilePath v1_path = temp_dir.GetPath().AppendASCII("v1.crx");
+  base::FilePath v2_path = temp_dir.GetPath().AppendASCII("v2.crx");
+  PackCRX(root_dir.AppendASCII("v1"), pem_path, v1_path);
+  PackCRX(root_dir.AppendASCII("v2"), pem_path, v2_path);
 
   // Start by installing version 1.
   scoped_refptr<const Extension> v1(InstallCRX(v1_path, INSTALL_NEW));

@@ -7,15 +7,18 @@
 
 #include <stdint.h>
 #include <string>
+#include <vector>
 
 #include "base/compiler_specific.h"
+#include "base/numerics/checked_math.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "media/base/audio_bus.h"
 #include "media/base/audio_latency.h"
 #include "media/base/audio_point.h"
 #include "media/base/channel_layout.h"
-#include "media/base/media_export.h"
+#include "media/base/media_shmem_export.h"
+#include "media/base/sample_format.h"
 
 namespace media {
 
@@ -32,17 +35,24 @@ namespace media {
 #define PARAMETERS_ALIGNMENT 16
 static_assert(AudioBus::kChannelAlignment == PARAMETERS_ALIGNMENT,
               "Audio buffer parameters struct alignment not same as AudioBus");
-struct MEDIA_EXPORT ALIGNAS(PARAMETERS_ALIGNMENT) AudioInputBufferParameters {
+// ****WARNING****: Do not change the field types or ordering of these fields
+// without checking that alignment is correct. The structs may be concurrently
+// accessed by both 32bit and 64bit process in shmem. http://crbug.com/781095.
+struct MEDIA_SHMEM_EXPORT ALIGNAS(PARAMETERS_ALIGNMENT)
+    AudioInputBufferParameters {
   double volume;
+  int64_t capture_time_us;  // base::TimeTicks in microseconds.
   uint32_t size;
-  uint32_t hardware_delay_bytes;
   uint32_t id;
   bool key_pressed;
 };
-struct MEDIA_EXPORT ALIGNAS(PARAMETERS_ALIGNMENT) AudioOutputBufferParameters {
+struct MEDIA_SHMEM_EXPORT ALIGNAS(PARAMETERS_ALIGNMENT)
+    AudioOutputBufferParameters {
+  int64_t delay_us;            // base::TimeDelta in microseconds.
+  int64_t delay_timestamp_us;  // base::TimeTicks in microseconds.
   uint32_t frames_skipped;
-  int64_t delay;
-  int64_t delay_timestamp;
+  uint32_t bitstream_data_size;
+  uint32_t bitstream_frames;
 };
 #undef PARAMETERS_ALIGNMENT
 #if defined(OS_WIN)
@@ -58,16 +68,44 @@ static_assert(sizeof(AudioOutputBufferParameters) %
                   0,
               "AudioOutputBufferParameters not aligned");
 
-struct MEDIA_EXPORT AudioInputBuffer {
+struct MEDIA_SHMEM_EXPORT AudioInputBuffer {
   AudioInputBufferParameters params;
   int8_t audio[1];
 };
-struct MEDIA_EXPORT AudioOutputBuffer {
+struct MEDIA_SHMEM_EXPORT AudioOutputBuffer {
   AudioOutputBufferParameters params;
   int8_t audio[1];
 };
 
-class MEDIA_EXPORT AudioParameters {
+// These convenience function safely computes the size required for
+// |shared_memory_count| AudioInputBuffers, with enough memory for AudioBus
+// data, using |paremeters| (or alternatively |channels| and |frames|). The
+// functions not returning a CheckedNumeric will CHECK on overflow.
+MEDIA_SHMEM_EXPORT base::CheckedNumeric<uint32_t>
+ComputeAudioInputBufferSizeChecked(const AudioParameters& parameters,
+                                   uint32_t audio_bus_count);
+
+MEDIA_SHMEM_EXPORT uint32_t
+ComputeAudioInputBufferSize(const AudioParameters& parameters,
+                            uint32_t audio_bus_count);
+
+MEDIA_SHMEM_EXPORT uint32_t
+ComputeAudioInputBufferSize(int channels, int frames, uint32_t audio_bus_count);
+
+// These convenience functions safely computes the size required for an
+// AudioOutputBuffer with enough memory for AudioBus data using |parameters| (or
+// alternatively |channels| and |frames|). The functions not returning a
+// CheckedNumeric will CHECK on overflow.
+MEDIA_SHMEM_EXPORT base::CheckedNumeric<uint32_t>
+ComputeAudioOutputBufferSizeChecked(const AudioParameters& parameters);
+
+MEDIA_SHMEM_EXPORT uint32_t
+ComputeAudioOutputBufferSize(const AudioParameters& parameters);
+
+MEDIA_SHMEM_EXPORT uint32_t ComputeAudioOutputBufferSize(int channels,
+                                                         int frames);
+
+class MEDIA_SHMEM_EXPORT AudioParameters {
  public:
   // TODO(miu): Rename this enum to something that correctly reflects its
   // semantics, such as "TransportScheme."
@@ -87,6 +125,12 @@ class MEDIA_EXPORT AudioParameters {
     kAudioCDSampleRate = 44100,
   };
 
+  enum {
+    // The maxmium number of PCM frames can be decoded out of a compressed
+    // audio frame, e.g. MP3, AAC, AC-3.
+    kMaxFramesPerCompressedAudioBuffer = 4096,
+  };
+
   // Bitmasks to determine whether certain platform (typically hardware) audio
   // effects should be enabled.
   enum PlatformEffectsMask {
@@ -95,13 +139,18 @@ class MEDIA_EXPORT AudioParameters {
     DUCKING = 0x2,  // Enables ducking if the OS supports it.
     KEYBOARD_MIC = 0x4,
     HOTWORD = 0x8,
+    NOISE_SUPPRESSION = 0x10,
+    AUTOMATIC_GAIN_CONTROL = 0x20,
+    EXPERIMENTAL_ECHO_CANCELLER = 0x40,  // Indicates an echo canceller is
+                                         // available that should only
+                                         // experimentally be enabled.
+    MULTIZONE = 0x80,
   };
 
   AudioParameters();
   AudioParameters(Format format,
                   ChannelLayout channel_layout,
                   int sample_rate,
-                  int bits_per_sample,
                   int frames_per_buffer);
 
   ~AudioParameters();
@@ -110,7 +159,6 @@ class MEDIA_EXPORT AudioParameters {
   void Reset(Format format,
              ChannelLayout channel_layout,
              int sample_rate,
-             int bits_per_sample,
              int frames_per_buffer);
 
   // Checks that all values are in the expected range. All limits are specified
@@ -121,14 +169,12 @@ class MEDIA_EXPORT AudioParameters {
   // output only.
   std::string AsHumanReadableString() const;
 
-  // Returns size of audio buffer in bytes.
-  int GetBytesPerBuffer() const;
+  // Returns size of audio buffer in bytes when using |fmt| for samples.
+  int GetBytesPerBuffer(SampleFormat fmt) const;
 
-  // Returns the number of bytes representing one second of audio.
-  int GetBytesPerSecond() const;
-
-  // Returns the number of bytes representing a frame of audio.
-  int GetBytesPerFrame() const;
+  // Returns the number of bytes representing a frame of audio when using |fmt|
+  // for samples.
+  int GetBytesPerFrame(SampleFormat fmt) const;
 
   // Returns the number of microseconds per frame of audio. Intentionally
   // reported as a double to surface of partial microseconds per frame, which
@@ -164,11 +210,6 @@ class MEDIA_EXPORT AudioParameters {
   void set_sample_rate(int sample_rate) { sample_rate_ = sample_rate; }
   int sample_rate() const { return sample_rate_; }
 
-  void set_bits_per_sample(int bits_per_sample) {
-    bits_per_sample_ = bits_per_sample;
-  }
-  int bits_per_sample() const { return bits_per_sample_; }
-
   void set_frames_per_buffer(int frames_per_buffer) {
     frames_per_buffer_ = frames_per_buffer;
   }
@@ -199,7 +240,6 @@ class MEDIA_EXPORT AudioParameters {
   int channels_;                  // Number of channels. Value set based on
                                   // |channel_layout|.
   int sample_rate_;               // Sampling frequency/rate.
-  int bits_per_sample_;           // Number of bits per sample.
   int frames_per_buffer_;         // Number of frames in a buffer.
   int effects_;                   // Bitmask using PlatformEffectsMask.
 
@@ -229,8 +269,6 @@ inline bool operator<(const AudioParameters& a, const AudioParameters& b) {
     return a.channels() < b.channels();
   if (a.sample_rate() != b.sample_rate())
     return a.sample_rate() < b.sample_rate();
-  if (a.bits_per_sample() != b.bits_per_sample())
-    return a.bits_per_sample() < b.bits_per_sample();
   return a.frames_per_buffer() < b.frames_per_buffer();
 }
 

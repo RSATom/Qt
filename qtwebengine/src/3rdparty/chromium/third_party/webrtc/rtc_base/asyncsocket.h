@@ -8,11 +8,11 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_RTC_BASE_ASYNCSOCKET_H_
-#define WEBRTC_RTC_BASE_ASYNCSOCKET_H_
+#ifndef RTC_BASE_ASYNCSOCKET_H_
+#define RTC_BASE_ASYNCSOCKET_H_
 
-#include "webrtc/rtc_base/sigslot.h"
-#include "webrtc/rtc_base/socket.h"
+#include "rtc_base/sigslot.h"
+#include "rtc_base/socket.h"
 
 namespace rtc {
 
@@ -31,11 +31,10 @@ class AsyncSocket : public Socket {
   // For example SignalReadEvent::connect will be called in AsyncUDPSocket ctor
   // but at the same time the SocketDispatcher maybe signaling the read event.
   // ready to read
-  sigslot::signal1<AsyncSocket*,
-                   sigslot::multi_threaded_local> SignalReadEvent;
+  sigslot::signal1<AsyncSocket*, sigslot::multi_threaded_local> SignalReadEvent;
   // ready to write
-  sigslot::signal1<AsyncSocket*,
-                   sigslot::multi_threaded_local> SignalWriteEvent;
+  sigslot::signal1<AsyncSocket*, sigslot::multi_threaded_local>
+      SignalWriteEvent;
   sigslot::signal1<AsyncSocket*> SignalConnectEvent;     // connected
   sigslot::signal2<AsyncSocket*, int> SignalCloseEvent;  // closed
 };
@@ -80,4 +79,4 @@ class AsyncSocketAdapter : public AsyncSocket, public sigslot::has_slots<> {
 
 }  // namespace rtc
 
-#endif  // WEBRTC_RTC_BASE_ASYNCSOCKET_H_
+#endif  // RTC_BASE_ASYNCSOCKET_H_

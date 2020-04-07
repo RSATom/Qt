@@ -52,6 +52,7 @@ QImage toQImage(const SkBitmap &bitmap)
     switch (bitmap.colorType()) {
     case kUnknown_SkColorType:
     case kRGBA_F16_SkColorType:
+    case kRGBA_F32_SkColorType:
         qWarning("Unknown or unsupported skia image format");
         break;
     case kAlpha_8_SkColorType:
@@ -74,6 +75,7 @@ QImage toQImage(const SkBitmap &bitmap)
             break;
         }
         break;
+    case kRGB_888x_SkColorType:
     case kRGBA_8888_SkColorType:
         switch (bitmap.alphaType()) {
         case kUnknown_SkAlphaType:
@@ -105,6 +107,21 @@ QImage toQImage(const SkBitmap &bitmap)
             break;
         }
         break;
+    case kRGB_101010x_SkColorType:
+    case kRGBA_1010102_SkColorType:
+        switch (bitmap.alphaType()) {
+        case kUnknown_SkAlphaType:
+            break;
+        case kUnpremul_SkAlphaType:
+            // not supported - treat as opaque
+        case kOpaque_SkAlphaType:
+            image = toQImage(bitmap, QImage::Format_RGB30);
+            break;
+        case kPremul_SkAlphaType:
+            image = toQImage(bitmap, QImage::Format_A2RGB30_Premultiplied);
+            break;
+        }
+        break;
     case kGray_8_SkColorType:
         image = toQImage(bitmap, QImage::Format_Grayscale8);
         break;
@@ -118,6 +135,44 @@ QImage toQImage(const gfx::ImageSkiaRep &imageSkiaRep)
     if (!image.isNull() && imageSkiaRep.scale() != 1.0f)
         image.setDevicePixelRatio(imageSkiaRep.scale());
     return image;
+}
+
+SkBitmap toSkBitmap(const QImage &image)
+{
+    SkBitmap bitmap;
+    SkImageInfo imageInfo;
+
+    switch (image.format()) {
+    case QImage::Format_RGB32:
+        imageInfo = SkImageInfo::Make(image.width(), image.height(), kBGRA_8888_SkColorType, kOpaque_SkAlphaType);
+        break;
+    case QImage::Format_ARGB32:
+        imageInfo = SkImageInfo::Make(image.width(), image.height(), kBGRA_8888_SkColorType, kUnpremul_SkAlphaType);
+        break;
+    case QImage::Format_ARGB32_Premultiplied:
+        imageInfo = SkImageInfo::Make(image.width(), image.height(), kBGRA_8888_SkColorType, kPremul_SkAlphaType);
+        break;
+    case QImage::Format_RGBX8888:
+        imageInfo = SkImageInfo::Make(image.width(), image.height(), kRGBA_8888_SkColorType, kOpaque_SkAlphaType);
+        break;
+    case QImage::Format_RGBA8888:
+        imageInfo = SkImageInfo::Make(image.width(), image.height(), kRGBA_8888_SkColorType, kUnpremul_SkAlphaType);
+        break;
+    case QImage::Format_RGBA8888_Premultiplied:
+        imageInfo = SkImageInfo::Make(image.width(), image.height(), kRGBA_8888_SkColorType, kPremul_SkAlphaType);
+        break;
+    default:
+        return toSkBitmap(image.convertToFormat(QImage::Format_ARGB32_Premultiplied));
+    }
+
+    bitmap.installPixels(imageInfo, (void *)image.bits(), image.bytesPerLine());
+
+    // Ensure we copy the pixels
+    SkBitmap bitmapCopy;
+    bitmapCopy.allocPixels(imageInfo);
+    bitmapCopy.writePixels(bitmap.pixmap());
+
+    return bitmapCopy;
 }
 
 QIcon toQIcon(const std::vector<SkBitmap> &bitmaps)
@@ -161,7 +216,7 @@ int flagsFromModifiers(Qt::KeyboardModifiers modifiers)
     return modifierFlags;
 }
 
-FaviconInfo::FaviconType toQt(content::FaviconURL::IconType type)
+FaviconInfo::FaviconTypeFlags toQt(content::FaviconURL::IconType type)
 {
     switch (type) {
     case content::FaviconURL::IconType::kFavicon:

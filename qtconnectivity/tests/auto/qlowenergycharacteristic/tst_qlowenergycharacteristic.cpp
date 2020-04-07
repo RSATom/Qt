@@ -114,8 +114,8 @@ void tst_QLowEnergyCharacteristic::initTestCase()
 
     // find first service with descriptor
     QLowEnergyController *controller = 0;
-    foreach (const QBluetoothDeviceInfo &remoteDevice, remoteLeDevices) {
-        controller = new QLowEnergyController(remoteDevice, this);
+    for (const QBluetoothDeviceInfo &remoteDevice : qAsConst(remoteLeDevices)) {
+        controller = QLowEnergyController::createCentral(remoteDevice, this);
         qDebug() << "Connecting to" << remoteDevice.name()
                  << remoteDevice.address() << remoteDevice.deviceUuid();
         controller->connectToDevice();
@@ -138,7 +138,8 @@ void tst_QLowEnergyCharacteristic::initTestCase()
         QCOMPARE(stateSpy.at(1).at(0).value<QLowEnergyController::ControllerState>(),
                  QLowEnergyController::DiscoveredState);
 
-        foreach (const QBluetoothUuid &leServiceUuid, controller->services()) {
+        const QList<QBluetoothUuid> leServiceUuids = controller->services();
+        for (const QBluetoothUuid &leServiceUuid : leServiceUuids) {
             QLowEnergyService *leService = controller->createServiceObject(leServiceUuid, this);
             if (!leService)
                 continue;
@@ -147,8 +148,8 @@ void tst_QLowEnergyCharacteristic::initTestCase()
             QTRY_VERIFY_WITH_TIMEOUT(
                         leService->state() == QLowEnergyService::ServiceDiscovered, 10000);
 
-            QList<QLowEnergyCharacteristic> chars = leService->characteristics();
-            foreach (const QLowEnergyCharacteristic &ch, chars) {
+            const QList<QLowEnergyCharacteristic> chars = leService->characteristics();
+            for (const QLowEnergyCharacteristic &ch : chars) {
                 if (!ch.descriptors().isEmpty()) {
                     globalService = leService;
                     globalControl = controller;

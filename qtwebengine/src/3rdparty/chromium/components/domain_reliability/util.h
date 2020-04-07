@@ -14,11 +14,14 @@
 #include "base/time/clock.h"
 #include "base/time/tick_clock.h"
 #include "base/time/time.h"
-#include "base/tracked_objects.h"
 #include "components/domain_reliability/domain_reliability_export.h"
 #include "components/domain_reliability/uploader.h"
 #include "net/http/http_response_info.h"
 #include "net/url_request/url_request_status.h"
+
+namespace base {
+class Location;
+}
 
 namespace domain_reliability {
 
@@ -66,7 +69,7 @@ class DOMAIN_RELIABILITY_EXPORT MockableTime : public base::Clock,
    public:
     virtual ~Timer();
 
-    virtual void Start(const tracked_objects::Location& posted_from,
+    virtual void Start(const base::Location& posted_from,
                        base::TimeDelta delay,
                        const base::Closure& user_task) = 0;
     virtual void Stop() = 0;
@@ -79,9 +82,9 @@ class DOMAIN_RELIABILITY_EXPORT MockableTime : public base::Clock,
   ~MockableTime() override;
 
   // Clock impl; returns base::Time::Now() or a mocked version thereof.
-  base::Time Now() override = 0;
+  base::Time Now() const override = 0;
   // TickClock impl; returns base::TimeTicks::Now() or a mocked version thereof.
-  base::TimeTicks NowTicks() override = 0;
+  base::TimeTicks NowTicks() const override = 0;
 
   // Returns a new Timer, or a mocked version thereof.
   virtual std::unique_ptr<MockableTime::Timer> CreateTimer() = 0;
@@ -102,8 +105,8 @@ class DOMAIN_RELIABILITY_EXPORT ActualTime : public MockableTime {
   ~ActualTime() override;
 
   // MockableTime implementation:
-  base::Time Now() override;
-  base::TimeTicks NowTicks() override;
+  base::Time Now() const override;
+  base::TimeTicks NowTicks() const override;
   std::unique_ptr<MockableTime::Timer> CreateTimer() override;
 };
 

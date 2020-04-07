@@ -44,6 +44,8 @@
 
 #include <QtCore/qdebug.h>
 
+#include <algorithm>
+
 QT_BEGIN_NAMESPACE
 
 static QAudioFormat audioSettingsToAudioFormat(const QAudioEncoderSettings &settings)
@@ -52,13 +54,12 @@ static QAudioFormat audioSettingsToAudioFormat(const QAudioEncoderSettings &sett
     fmt.setCodec(settings.codec());
     fmt.setChannelCount(settings.channelCount());
     fmt.setSampleRate(settings.sampleRate());
-    if (settings.sampleRate() == 8000 && settings.bitRate() == 8000) {
-        fmt.setSampleType(QAudioFormat::UnSignedInt);
-        fmt.setSampleSize(8);
-    } else {
-        fmt.setSampleSize(16);
-        fmt.setSampleType(QAudioFormat::SignedInt);
-    }
+    int sampleSize = 16;
+    if (settings.bitRate() && settings.channelCount() && settings.sampleRate())
+        sampleSize = settings.bitRate() / settings.channelCount() / settings.sampleRate();
+    fmt.setSampleSize(sampleSize);
+    fmt.setSampleType(sampleSize == 8 ? QAudioFormat::UnSignedInt : QAudioFormat::SignedInt);
+
     fmt.setByteOrder(QAudioDeviceInfo::defaultInputDevice().preferredFormat().byteOrder());
     return fmt;
 }
@@ -167,7 +168,7 @@ void AudioEncoderControl::update()
                 m_sampleRates.append(rate);
         }
     }
-    qSort(m_sampleRates);
+    std::sort(m_sampleRates.begin(), m_sampleRates.end());
 }
 
 QT_END_NAMESPACE

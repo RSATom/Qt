@@ -51,11 +51,13 @@
 // We mean it.
 //
 
-#include "qconnection_qnx_server.h"
 #include "private/qobject_p.h"
+#include "qconnection_qnx_server.h"
+#include "qconnection_qnx_global_p.h"
 
-#include <QAtomicInt>
-#include <QMutex>
+#include <QtCore/qatomic.h>
+#include <QtCore/qmutex.h>
+#include <QtCore/qsharedpointer.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -64,18 +66,9 @@ class QQnxNativeServerPrivate : public QObjectPrivate
     Q_DECLARE_PUBLIC(QQnxNativeServer)
 
 public:
-    QQnxNativeServerPrivate()
-        :
-        error(QAbstractSocket::UnknownSocketError)
-        , thread(this, QStringLiteral("NativeServer"))
-    {
-    }
+    QQnxNativeServerPrivate();
 
-    ~QQnxNativeServerPrivate()
-    {
-        if (thread.isRunning())
-            teardownServer();
-    }
+    ~QQnxNativeServerPrivate();
 
     void thread_func();
 
@@ -94,8 +87,8 @@ public:
     QString serverName;
     name_attach_t *attachStruct;
     QHash<int, QSet<int> > connections;
-    QHash<uint64_t, QIOQnxSource *> sources;
-    QList<QIOQnxSource *> pending;
+    QHash<uint64_t, QSharedPointer<QIOQnxSource>> sources;
+    QList<QSharedPointer<QIOQnxSource>> pending;
     QAtomicInt running;
     Thread<QQnxNativeServerPrivate> thread;
     mutable QMutex mutex;
@@ -103,7 +96,8 @@ public:
     ham_entity_t *hamEntityHandle;
     ham_condition_t *hamConditionHandle;
     QHash<uint64_t, ham_action_t*> hamActions;
-    bool hamAvailable, hamInitialized;
+    bool hamAvailable = false;
+    bool hamInitialized = false;
 #endif
 };
 

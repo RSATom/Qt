@@ -37,19 +37,33 @@ class tst_QMetaEnum : public QObject
     Q_OBJECT
 public:
     enum SuperEnum { SuperValue1 = 1 , SuperValue2 = 2 };
+    enum Flag { Flag1 = 1 , Flag2 = 2 };
+    Q_DECLARE_FLAGS(Flags, Flag)
     Q_ENUM(SuperEnum)
+    Q_FLAG(Flags)
 
 private slots:
     void fromType();
     void valuesToKeys_data();
     void valuesToKeys();
+    void defaultConstructed();
 };
 
 void tst_QMetaEnum::fromType()
 {
     QMetaEnum meta = QMetaEnum::fromType<SuperEnum>();
     QVERIFY(meta.isValid());
+    QVERIFY(!meta.isFlag());
     QCOMPARE(meta.name(), "SuperEnum");
+    QCOMPARE(meta.enumName(), "SuperEnum");
+    QCOMPARE(meta.enclosingMetaObject(), &staticMetaObject);
+    QCOMPARE(meta.keyCount(), 2);
+
+    meta = QMetaEnum::fromType<Flags>();
+    QVERIFY(meta.isValid());
+    QVERIFY(meta.isFlag());
+    QCOMPARE(meta.name(), "Flags");
+    QCOMPARE(meta.enumName(), "Flag");
     QCOMPARE(meta.enclosingMetaObject(), &staticMetaObject);
     QCOMPARE(meta.keyCount(), 2);
 }
@@ -84,6 +98,15 @@ void tst_QMetaEnum::valuesToKeys()
 
     QMetaEnum me = QMetaEnum::fromType<Qt::WindowFlags>();
     QCOMPARE(me.valueToKeys(windowFlags), expected);
+}
+
+void tst_QMetaEnum::defaultConstructed()
+{
+    QMetaEnum e;
+    QVERIFY(!e.isValid());
+    QVERIFY(!e.isScoped());
+    QVERIFY(!e.isFlag());
+    QCOMPARE(e.name(), QByteArray());
 }
 
 Q_STATIC_ASSERT(QtPrivate::IsQEnumHelper<tst_QMetaEnum::SuperEnum>::Value);

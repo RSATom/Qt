@@ -29,8 +29,8 @@
 #ifndef COMBOBOX_TASKMENU_H
 #define COMBOBOX_TASKMENU_H
 
-#include <QtWidgets/QComboBox>
-#include <QtCore/QPointer>
+#include <QtWidgets/qcombobox.h>
+#include <QtCore/qpointer.h>
 
 #include <qdesigner_taskmenu_p.h>
 #include <extensionfactory_p.h>
@@ -48,10 +48,10 @@ class ComboBoxTaskMenu: public QDesignerTaskMenu
 public:
     explicit ComboBoxTaskMenu(QComboBox *button,
                               QObject *parent = 0);
-    virtual ~ComboBoxTaskMenu();
+    ~ComboBoxTaskMenu() override;
 
-    QAction *preferredEditAction() const Q_DECL_OVERRIDE;
-    QList<QAction*> taskActions() const Q_DECL_OVERRIDE;
+    QAction *preferredEditAction() const override;
+    QList<QAction*> taskActions() const override;
 
 private slots:
     void editItems();
@@ -71,7 +71,7 @@ public:
     explicit ComboBoxTaskMenuFactory(const QString &iid, QExtensionManager *extensionManager);
 
 private:
-    QComboBox *checkObject(QObject *qObject) const Q_DECL_OVERRIDE;
+    QComboBox *checkObject(QObject *qObject) const override;
 };
 
 }  // namespace qdesigner_internal

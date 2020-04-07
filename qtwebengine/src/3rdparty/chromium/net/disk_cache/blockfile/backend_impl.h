@@ -35,6 +35,7 @@ class NetLog;
 
 namespace disk_cache {
 
+class BackendCleanupTracker;
 struct Index;
 
 enum BackendFlags {
@@ -55,17 +56,20 @@ class NET_EXPORT_PRIVATE BackendImpl : public Backend {
   friend class Eviction;
  public:
   BackendImpl(const base::FilePath& path,
+              scoped_refptr<BackendCleanupTracker> cleanup_tracker,
               const scoped_refptr<base::SingleThreadTaskRunner>& cache_thread,
               net::NetLog* net_log);
+
   // mask can be used to limit the usable size of the hash table, for testing.
   BackendImpl(const base::FilePath& path,
               uint32_t mask,
               const scoped_refptr<base::SingleThreadTaskRunner>& cache_thread,
               net::NetLog* net_log);
+
   ~BackendImpl() override;
 
   // Performs general initialization for this current instance of the cache.
-  int Init(const CompletionCallback& callback);
+  int Init(CompletionOnceCallback callback);
 
   // Performs the actual initialization and final cleanup on destruction.
   int SyncInit();
@@ -84,6 +88,9 @@ class NET_EXPORT_PRIVATE BackendImpl : public Backend {
                         scoped_refptr<EntryImpl>* next_entry);
   void SyncEndEnumeration(std::unique_ptr<Rankings::Iterator> iterator);
   void SyncOnExternalCacheHit(const std::string& key);
+
+  // Called at end of any backend operation on the background thread.
+  void OnSyncBackendOpComplete();
 
   // Open or create an entry for the given |key| or |iter|.
   scoped_refptr<EntryImpl> OpenEntryImpl(const std::string& key);
@@ -240,12 +247,11 @@ class NET_EXPORT_PRIVATE BackendImpl : public Backend {
   void ClearRefCountForTest();
 
   // Sends a dummy operation through the operation queue, for unit tests.
-  int FlushQueueForTest(const CompletionCallback& callback);
+  int FlushQueueForTest(CompletionOnceCallback callback);
 
   // Runs the provided task on the cache thread. The task will be automatically
   // deleted after it runs.
-  int RunTaskForTest(const base::Closure& task,
-                     const CompletionCallback& callback);
+  int RunTaskForTest(base::OnceClosure task, CompletionOnceCallback callback);
 
   // Trims an entry (all if |empty| is true) from the list of deleted
   // entries. This method should be called directly on the cache thread.
@@ -265,24 +271,30 @@ class NET_EXPORT_PRIVATE BackendImpl : public Backend {
   // Ensures the index is flushed to disk (a no-op on platforms with mmap).
   void FlushIndex();
 
+  // Ensures that the private cache thread completes work.
+  static void FlushForTesting();
+
   // Backend implementation.
   net::CacheType GetCacheType() const override;
   int32_t GetEntryCount() const override;
   int OpenEntry(const std::string& key,
+                net::RequestPriority request_priority,
                 Entry** entry,
-                const CompletionCallback& callback) override;
+                CompletionOnceCallback callback) override;
   int CreateEntry(const std::string& key,
+                  net::RequestPriority request_priority,
                   Entry** entry,
-                  const CompletionCallback& callback) override;
+                  CompletionOnceCallback callback) override;
   int DoomEntry(const std::string& key,
-                const CompletionCallback& callback) override;
-  int DoomAllEntries(const CompletionCallback& callback) override;
+                net::RequestPriority priority,
+                CompletionOnceCallback callback) override;
+  int DoomAllEntries(CompletionOnceCallback callback) override;
   int DoomEntriesBetween(base::Time initial_time,
                          base::Time end_time,
-                         const CompletionCallback& callback) override;
+                         CompletionOnceCallback callback) override;
   int DoomEntriesSince(base::Time initial_time,
-                       const CompletionCallback& callback) override;
-  int CalculateSizeOfAllEntries(const CompletionCallback& callback) override;
+                       CompletionOnceCallback callback) override;
+  int CalculateSizeOfAllEntries(CompletionOnceCallback callback) override;
   // NOTE: The blockfile Backend::Iterator::OpenNextEntry method does not modify
   // the last_used field of the entry, and therefore it does not impact the
   // eviction ranking of the entry. However, an enumeration will go through all
@@ -379,6 +391,9 @@ class NET_EXPORT_PRIVATE BackendImpl : public Backend {
   // Returns the maximum total memory for the memory buffers.
   int MaxBuffersSize();
 
+  // We want this destroyed after every other field.
+  scoped_refptr<BackendCleanupTracker> cleanup_tracker_;
+
   InFlightBackendIO background_queue_;  // The controller of pending operations.
   scoped_refptr<MappedFile> index_;  // The main cache index.
   base::FilePath path_;  // Path to the folder used as backing storage.
@@ -407,6 +422,9 @@ class NET_EXPORT_PRIVATE BackendImpl : public Backend {
   bool new_eviction_;  // What eviction algorithm should be used.
   bool first_timer_;  // True if the timer has not been called.
   bool user_load_;  // True if we see a high load coming from the caller.
+
+  // True if we should consider doing eviction at end of current operation.
+  bool consider_evicting_at_op_end_;
 
   net::NetLog* net_log_;
 

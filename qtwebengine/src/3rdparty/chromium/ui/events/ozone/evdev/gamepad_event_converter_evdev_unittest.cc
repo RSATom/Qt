@@ -16,13 +16,14 @@
 
 #include "base/bind.h"
 #include "base/files/file_util.h"
+#include "base/files/scoped_file.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/posix/eintr_wrapper.h"
 #include "base/run_loop.h"
 #include "base/time/time.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "ui/events/base_event_utils.h"
 #include "ui/events/event.h"
 #include "ui/events/ozone/device/device_manager.h"
 #include "ui/events/ozone/evdev/event_converter_test_util.h"
@@ -35,6 +36,7 @@
 #include "ui/events/ozone/layout/keyboard_layout_engine_manager.h"
 #include "ui/events/platform/platform_event_dispatcher.h"
 #include "ui/events/platform/platform_event_source.h"
+#include "ui/events/test/scoped_event_test_tick_clock.h"
 
 namespace {
 
@@ -69,25 +71,26 @@ class GamepadEventConverterEvdevTest : public testing::Test {
     event_factory_ = ui::CreateEventFactoryEvdevForTest(
         nullptr, device_manager_.get(),
         ui::KeyboardLayoutEngineManager::GetKeyboardLayoutEngine(),
-        base::Bind(&GamepadEventConverterEvdevTest::DispatchEventForTest,
-                   base::Unretained(this)));
+        base::BindRepeating(
+            &GamepadEventConverterEvdevTest::DispatchEventForTest,
+            base::Unretained(this)));
     dispatcher_ =
         ui::CreateDeviceEventDispatcherEvdevForTest(event_factory_.get());
   }
 
-  ui::GamepadEventConverterEvdev* CreateDevice(
+  std::unique_ptr<ui::GamepadEventConverterEvdev> CreateDevice(
       const ui::DeviceCapabilities& caps) {
     int evdev_io[2];
     if (pipe(evdev_io))
       PLOG(FATAL) << "failed pipe";
-    ui::ScopedInputDevice events_in(evdev_io[0]);
-    ui::ScopedInputDevice events_out(evdev_io[1]);
+    base::ScopedFD events_in(evdev_io[0]);
+    base::ScopedFD events_out(evdev_io[1]);
 
     ui::EventDeviceInfo devinfo;
     CapabilitiesToDeviceInfo(caps, &devinfo);
-    return new ui::GamepadEventConverterEvdev(std::move(events_in),
-                                              base::FilePath(kTestDevicePath),
-                                              1, devinfo, dispatcher_.get());
+    return std::make_unique<ui::GamepadEventConverterEvdev>(
+        std::move(events_in), base::FilePath(kTestDevicePath), 1, devinfo,
+        dispatcher_.get());
   }
 
  private:
@@ -113,7 +116,7 @@ const double axis_delta = 0.00001;
 TEST_F(GamepadEventConverterEvdevTest, XboxGamepadEvents) {
   TestGamepadObserver observer;
   std::unique_ptr<ui::GamepadEventConverterEvdev> dev =
-      base::WrapUnique(CreateDevice(kXboxGamepad));
+      CreateDevice(kXboxGamepad);
 
   struct input_event mock_kernel_queue[] = {
       {{1493076826, 766851}, EV_ABS, 0, 19105},
@@ -150,6 +153,10 @@ TEST_F(GamepadEventConverterEvdevTest, XboxGamepadEvents) {
       {{1493076832, 750860}, EV_KEY, 307, 1},
       {{1493076832, 750860}, EV_SYN, SYN_REPORT}};
 
+  // Advance test tick clock so the above events are strictly in the past.
+  ui::test::ScopedEventTestTickClock clock;
+  clock.SetNowSeconds(1493076833);
+
   struct ExpectedEvent expected_events[] = {
       {GamepadEventType::AXIS, 0, 0.583062}, {GamepadEventType::FRAME, 0, 0},
       {GamepadEventType::AXIS, 0, 0.547234}, {GamepadEventType::FRAME, 0, 0},
@@ -178,7 +185,7 @@ TEST_F(GamepadEventConverterEvdevTest, XboxGamepadEvents) {
 TEST_F(GamepadEventConverterEvdevTest, iBuffaloGamepadEvents) {
   TestGamepadObserver observer;
   std::unique_ptr<ui::GamepadEventConverterEvdev> dev =
-      base::WrapUnique(CreateDevice(kiBuffaloGamepad));
+      CreateDevice(kiBuffaloGamepad);
 
   struct input_event mock_kernel_queue[] = {
       {{1493141044, 176725}, EV_MSC, 4, 90002},
@@ -225,6 +232,10 @@ TEST_F(GamepadEventConverterEvdevTest, iBuffaloGamepadEvents) {
       {{1493141047, 920727}, EV_KEY, 293, 1},
       {{1493141047, 920727}, EV_SYN, SYN_REPORT},
   };
+
+  // Advance test tick clock so the above events are strictly in the past.
+  ui::test::ScopedEventTestTickClock clock;
+  clock.SetNowSeconds(1493141048);
 
   struct ExpectedEvent expected_events[] = {
       {GamepadEventType::BUTTON, 1, 1},  {GamepadEventType::FRAME, 0, 0},

@@ -6,18 +6,23 @@
 
 #include "core/fxge/win32/cfx_psrenderer.h"
 
+#include <algorithm>
 #include <memory>
+#include <sstream>
 
 #include "core/fpdfapi/cpdf_modulemgr.h"
+#include "core/fxcodec/codec/ccodec_basicmodule.h"
+#include "core/fxcodec/codec/ccodec_faxmodule.h"
+#include "core/fxcodec/codec/ccodec_flatemodule.h"
+#include "core/fxcodec/codec/ccodec_jpegmodule.h"
 #include "core/fxcodec/fx_codec.h"
-#include "core/fxcrt/cfx_maybe_owned.h"
+#include "core/fxcrt/maybe_owned.h"
 #include "core/fxge/cfx_facecache.h"
 #include "core/fxge/cfx_fontcache.h"
 #include "core/fxge/cfx_gemodule.h"
 #include "core/fxge/cfx_pathdata.h"
 #include "core/fxge/cfx_renderdevice.h"
 #include "core/fxge/dib/cfx_dibextractor.h"
-#include "core/fxge/fx_text_int.h"
 #include "core/fxge/win32/cpsoutput.h"
 #include "third_party/base/ptr_util.h"
 
@@ -76,7 +81,7 @@ void PSCompressData(int PSLevel,
 }  // namespace
 
 struct PSGlyph {
-  CFX_UnownedPtr<CFX_Font> m_pFont;
+  UnownedPtr<CFX_Font> m_pFont;
   uint32_t m_GlyphIndex;
   bool m_bGlyphAdjust;
   float m_AdjustMatrix[4];
@@ -84,8 +89,8 @@ struct PSGlyph {
 
 class CPSFont {
  public:
-  PSGlyph m_Glyphs[256];
   int m_nGlyphs;
+  PSGlyph m_Glyphs[256];
 };
 
 CFX_PSRenderer::CFX_PSRenderer()
@@ -96,7 +101,7 @@ CFX_PSRenderer::CFX_PSRenderer()
 
 CFX_PSRenderer::~CFX_PSRenderer() {}
 
-void CFX_PSRenderer::Init(const CFX_RetainPtr<IFX_WriteStream>& pStream,
+void CFX_PSRenderer::Init(const RetainPtr<IFX_WriteStream>& pStream,
                           int pslevel,
                           int width,
                           int height,
@@ -165,9 +170,8 @@ void CFX_PSRenderer::RestoreState(bool bKeepSaved) {
 
 void CFX_PSRenderer::OutputPath(const CFX_PathData* pPathData,
                                 const CFX_Matrix* pObject2Device) {
-  CFX_ByteTextBuf buf;
+  std::ostringstream buf;
   size_t size = pPathData->GetPoints().size();
-  buf.EstimateSize(size * 10);
 
   for (size_t i = 0; i < size; i++) {
     FXPT_TYPE type = pPathData->GetType(i);
@@ -203,7 +207,7 @@ void CFX_PSRenderer::OutputPath(const CFX_PathData* pPathData,
       }
     }
   }
-  m_pStream->WriteBlock(buf.GetBuffer(), buf.GetSize());
+  WriteToStream(&buf);
 }
 
 void CFX_PSRenderer::SetClip_PathFill(const CFX_PathData* pPathData,
@@ -213,7 +217,7 @@ void CFX_PSRenderer::SetClip_PathFill(const CFX_PathData* pPathData,
   OutputPath(pPathData, pObject2Device);
   CFX_FloatRect rect = pPathData->GetBoundingBox();
   if (pObject2Device)
-    pObject2Device->TransformRect(rect);
+    rect = pObject2Device->TransformRect(rect);
 
   m_ClipBox.left = static_cast<int>(rect.left);
   m_ClipBox.right = static_cast<int>(rect.left + rect.right);
@@ -231,24 +235,19 @@ void CFX_PSRenderer::SetClip_PathStroke(const CFX_PathData* pPathData,
                                         const CFX_GraphStateData* pGraphState) {
   StartRendering();
   SetGraphState(pGraphState);
-  if (pObject2Device) {
-    CFX_ByteTextBuf buf;
-    buf << "mx Cm [" << pObject2Device->a << " " << pObject2Device->b << " "
-        << pObject2Device->c << " " << pObject2Device->d << " "
-        << pObject2Device->e << " " << pObject2Device->f << "]cm ";
-    m_pStream->WriteBlock(buf.GetBuffer(), buf.GetSize());
-  }
+
+  std::ostringstream buf;
+  buf << "mx Cm [" << pObject2Device->a << " " << pObject2Device->b << " "
+      << pObject2Device->c << " " << pObject2Device->d << " "
+      << pObject2Device->e << " " << pObject2Device->f << "]cm ";
+  WriteToStream(&buf);
 
   OutputPath(pPathData, nullptr);
   CFX_FloatRect rect = pPathData->GetBoundingBox(pGraphState->m_LineWidth,
                                                  pGraphState->m_MiterLimit);
-  pObject2Device->TransformRect(rect);
-  m_ClipBox.Intersect(rect.GetOuterRect());
+  m_ClipBox.Intersect(pObject2Device->TransformRect(rect).GetOuterRect());
 
-  m_pStream->WriteString("strokepath W n");
-  if (pObject2Device)
-    m_pStream->WriteString(" sm");
-  m_pStream->WriteString("\n");
+  m_pStream->WriteString("strokepath W n sm\n");
 }
 
 bool CFX_PSRenderer::DrawPath(const CFX_PathData* pPathData,
@@ -270,11 +269,11 @@ bool CFX_PSRenderer::DrawPath(const CFX_PathData* pPathData,
   if (stroke_alpha) {
     SetGraphState(pGraphState);
     if (pObject2Device) {
-      CFX_ByteTextBuf buf;
+      std::ostringstream buf;
       buf << "mx Cm [" << pObject2Device->a << " " << pObject2Device->b << " "
           << pObject2Device->c << " " << pObject2Device->d << " "
           << pObject2Device->e << " " << pObject2Device->f << "]cm ";
-      m_pStream->WriteBlock(buf.GetBuffer(), buf.GetSize());
+      WriteToStream(&buf);
     }
   }
 
@@ -306,7 +305,7 @@ bool CFX_PSRenderer::DrawPath(const CFX_PathData* pPathData,
 }
 
 void CFX_PSRenderer::SetGraphState(const CFX_GraphStateData* pGraphState) {
-  CFX_ByteTextBuf buf;
+  std::ostringstream buf;
   if (!m_bGraphStateSet ||
       m_CurGraphState.m_LineCap != pGraphState->m_LineCap) {
     buf << pGraphState->m_LineCap << " J\n";
@@ -335,11 +334,10 @@ void CFX_PSRenderer::SetGraphState(const CFX_GraphStateData* pGraphState) {
   }
   m_CurGraphState.Copy(*pGraphState);
   m_bGraphStateSet = true;
-  if (buf.GetSize())
-    m_pStream->WriteBlock(buf.GetBuffer(), buf.GetSize());
+  WriteToStream(&buf);
 }
 
-bool CFX_PSRenderer::SetDIBits(const CFX_RetainPtr<CFX_DIBSource>& pSource,
+bool CFX_PSRenderer::SetDIBits(const RetainPtr<CFX_DIBSource>& pSource,
                                uint32_t color,
                                int left,
                                int top) {
@@ -350,7 +348,7 @@ bool CFX_PSRenderer::SetDIBits(const CFX_RetainPtr<CFX_DIBSource>& pSource,
   return DrawDIBits(pSource, color, &matrix, 0);
 }
 
-bool CFX_PSRenderer::StretchDIBits(const CFX_RetainPtr<CFX_DIBSource>& pSource,
+bool CFX_PSRenderer::StretchDIBits(const RetainPtr<CFX_DIBSource>& pSource,
                                    uint32_t color,
                                    int dest_left,
                                    int dest_top,
@@ -363,7 +361,7 @@ bool CFX_PSRenderer::StretchDIBits(const CFX_RetainPtr<CFX_DIBSource>& pSource,
   return DrawDIBits(pSource, color, &matrix, flags);
 }
 
-bool CFX_PSRenderer::DrawDIBits(const CFX_RetainPtr<CFX_DIBSource>& pSource,
+bool CFX_PSRenderer::DrawDIBits(const RetainPtr<CFX_DIBSource>& pSource,
                                 uint32_t color,
                                 const CFX_Matrix* pMatrix,
                                 uint32_t flags) {
@@ -381,7 +379,7 @@ bool CFX_PSRenderer::DrawDIBits(const CFX_RetainPtr<CFX_DIBSource>& pSource,
 
   m_pStream->WriteString("q\n");
 
-  CFX_ByteTextBuf buf;
+  std::ostringstream buf;
   buf << "[" << pMatrix->a << " " << pMatrix->b << " " << pMatrix->c << " "
       << pMatrix->d << " " << pMatrix->e << " " << pMatrix->f << "]cm ";
 
@@ -420,12 +418,12 @@ bool CFX_PSRenderer::DrawDIBits(const CFX_RetainPtr<CFX_DIBSource>& pSource,
     else
       buf << "false 1 colorimage\n";
 
-    m_pStream->WriteBlock(buf.GetBuffer(), buf.GetSize());
+    WriteToStream(&buf);
     WritePSBinary(output_buf.get(), output_size);
     output_buf.release();
   } else {
     CFX_DIBExtractor source_extractor(pSource);
-    CFX_RetainPtr<CFX_DIBSource> pConverted = source_extractor.GetBitmap();
+    RetainPtr<CFX_DIBSource> pConverted = source_extractor.GetBitmap();
     if (!pConverted)
       return false;
     switch (pSource->GetFormat()) {
@@ -456,7 +454,7 @@ bool CFX_PSRenderer::DrawDIBits(const CFX_RetainPtr<CFX_DIBSource>& pSource,
 
     int bpp = pConverted->GetBPP() / 8;
     uint8_t* output_buf = nullptr;
-    FX_STRSIZE output_size = 0;
+    size_t output_size = 0;
     const char* filter = nullptr;
     if ((m_PSLevel == 2 || flags & FXRENDER_IMAGE_LOSSY) &&
         CCodec_JpegModule::JpegEncode(pConverted, &output_buf, &output_size)) {
@@ -498,7 +496,7 @@ bool CFX_PSRenderer::DrawDIBits(const CFX_RetainPtr<CFX_DIBSource>& pSource,
 
     buf << "false " << bpp;
     buf << " colorimage\n";
-    m_pStream->WriteBlock(buf.GetBuffer(), buf.GetSize());
+    WriteToStream(&buf);
 
     WritePSBinary(output_buf, output_size);
     FX_Free(output_buf);
@@ -510,7 +508,7 @@ bool CFX_PSRenderer::DrawDIBits(const CFX_RetainPtr<CFX_DIBSource>& pSource,
 void CFX_PSRenderer::SetColor(uint32_t color) {
   bool bCMYK = false;
   if (bCMYK != m_bCmykOutput || !m_bColorSet || m_LastColor != color) {
-    CFX_ByteTextBuf buf;
+    std::ostringstream buf;
     if (bCMYK) {
       buf << FXSYS_GetCValue(color) / 255.0 << " "
           << FXSYS_GetMValue(color) / 255.0 << " "
@@ -524,7 +522,7 @@ void CFX_PSRenderer::SetColor(uint32_t color) {
       m_bColorSet = true;
       m_LastColor = color;
     }
-    m_pStream->WriteBlock(buf.GetBuffer(), buf.GetSize());
+    WriteToStream(&buf);
   }
 }
 
@@ -559,7 +557,7 @@ void CFX_PSRenderer::FindPSFontGlyph(CFX_FaceCache* pFaceCache,
   if (m_PSFontList.empty() || m_PSFontList.back()->m_nGlyphs == 256) {
     m_PSFontList.push_back(pdfium::MakeUnique<CPSFont>());
     m_PSFontList.back()->m_nGlyphs = 0;
-    CFX_ByteTextBuf buf;
+    std::ostringstream buf;
     buf << "8 dict begin/FontType 3 def/FontMatrix[1 0 0 1 0 0]def\n"
            "/FontBBox[0 0 0 0]def/Encoding 256 array def 0 1 255{Encoding "
            "exch/.notdef put}for\n"
@@ -571,8 +569,8 @@ void CFX_PSRenderer::FindPSFontGlyph(CFX_FaceCache* pFaceCache,
            "currentdict end\n";
     buf << "/X" << static_cast<uint32_t>(m_PSFontList.size() - 1)
         << " exch definefont pop\n";
-    m_pStream->WriteBlock(buf.GetBuffer(), buf.GetSize());
-    buf.Clear();
+    WriteToStream(&buf);
+    buf.str("");
   }
 
   *ps_fontnum = m_PSFontList.size() - 1;
@@ -606,7 +604,7 @@ void CFX_PSRenderer::FindPSFontGlyph(CFX_FaceCache* pFaceCache,
   if (charpos.m_bGlyphAdjust)
     TransformedPath.Transform(&matrix);
 
-  CFX_ByteTextBuf buf;
+  std::ostringstream buf;
   buf << "/X" << *ps_fontnum << " Ff/CharProcs get begin/" << glyphindex
       << "{n ";
   for (size_t p = 0; p < TransformedPath.GetPoints().size(); p++) {
@@ -633,7 +631,7 @@ void CFX_PSRenderer::FindPSFontGlyph(CFX_FaceCache* pFaceCache,
   buf << "f}bind def end\n";
   buf << "/X" << *ps_fontnum << " Ff/Encoding get " << glyphindex << "/"
       << glyphindex << " put\n";
-  m_pStream->WriteBlock(buf.GetBuffer(), buf.GetSize());
+  WriteToStream(&buf);
 }
 
 bool CFX_PSRenderer::DrawText(int nChars,
@@ -642,18 +640,26 @@ bool CFX_PSRenderer::DrawText(int nChars,
                               const CFX_Matrix* pObject2Device,
                               float font_size,
                               uint32_t color) {
-  StartRendering();
-  int alpha = FXARGB_A(color);
-  if (alpha < 255)
-    return false;
-
+  // Check object to device matrix first, since it can scale the font size.
   if ((pObject2Device->a == 0 && pObject2Device->b == 0) ||
       (pObject2Device->c == 0 && pObject2Device->d == 0)) {
     return true;
   }
 
+  // Do not send near zero font sizes to printers. See crbug.com/767343.
+  float scale =
+      std::min(pObject2Device->GetXUnit(), pObject2Device->GetYUnit());
+  static constexpr float kEpsilon = 0.01f;
+  if (std::fabs(font_size * scale) < kEpsilon)
+    return true;
+
+  StartRendering();
+  int alpha = FXARGB_A(color);
+  if (alpha < 255)
+    return false;
+
   SetColor(color);
-  CFX_ByteTextBuf buf;
+  std::ostringstream buf;
   buf << "q[" << pObject2Device->a << " " << pObject2Device->b << " "
       << pObject2Device->c << " " << pObject2Device->d << " "
       << pObject2Device->e << " " << pObject2Device->f << "]cm\n";
@@ -670,12 +676,11 @@ bool CFX_PSRenderer::DrawText(int nChars,
       last_fontnum = ps_fontnum;
     }
     buf << pCharPos[i].m_Origin.x << " " << pCharPos[i].m_Origin.y << " m";
-    CFX_ByteString hex;
-    hex.Format("<%02X>", ps_glyphindex);
-    buf << hex.AsStringC() << "Tj\n";
+    ByteString hex = ByteString::Format("<%02X>", ps_glyphindex);
+    buf << hex.AsStringView() << "Tj\n";
   }
   buf << "Q\n";
-  m_pStream->WriteBlock(buf.GetBuffer(), buf.GetSize());
+  WriteToStream(&buf);
   pCache->ReleaseCachedFace(pFont);
   return true;
 }
@@ -691,4 +696,9 @@ void CFX_PSRenderer::WritePSBinary(const uint8_t* data, int len) {
   } else {
     m_pStream->WriteBlock(data, len);
   }
+}
+
+void CFX_PSRenderer::WriteToStream(std::ostringstream* stringStream) {
+  if (stringStream->tellp() > 0)
+    m_pStream->WriteBlock(stringStream->str().c_str(), stringStream->tellp());
 }

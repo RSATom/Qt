@@ -7,14 +7,12 @@
 
 #include "SkTypes.h"
 
-// This tests a Gr class
-#if SK_SUPPORT_GPU
-
 #include "Benchmark.h"
 #include "GrMemoryPool.h"
 #include "SkRandom.h"
 #include "SkTDArray.h"
 #include "SkTemplates.h"
+#include <new>
 
 // change this to 0 to compare GrMemoryPool to default new / delete
 #define OVERRIDE_NEW    1
@@ -176,5 +174,3 @@ private:
 DEF_BENCH( return new GrMemoryPoolBenchStack(); )
 DEF_BENCH( return new GrMemoryPoolBenchRandom(); )
 DEF_BENCH( return new GrMemoryPoolBenchQueue(); )
-
-#endif

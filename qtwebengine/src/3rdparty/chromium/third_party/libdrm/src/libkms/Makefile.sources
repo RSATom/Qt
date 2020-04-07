@@ -19,8 +19,5 @@ LIBKMS_RADEON_FILES := \
 LIBKMS_EXYNOS_FILES := \
 	exynos.c
 
-LIBKMS_MEDIATEK_FILES := \
-        mediatek.c
-
 LIBKMS_H_FILES := \
 	libkms.h

@@ -3,7 +3,7 @@
 ** Copyright (C) 2016 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
-** This file is part of the QtGui module of the Qt Toolkit.
+** This file is part of the QtCore module of the Qt Toolkit.
 **
 ** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
@@ -46,6 +46,8 @@
 #include <QtCore/qvector.h>
 #include <QtCore/qlist.h>
 #include <QtCore/qabstractitemmodel.h>
+
+QT_REQUIRE_CONFIG(itemmodel);
 
 QT_BEGIN_NAMESPACE
 
@@ -164,7 +166,7 @@ public:
     Q_DECLARE_FLAGS(SelectionFlags, SelectionFlag)
     Q_FLAG(SelectionFlags)
 
-    explicit QItemSelectionModel(QAbstractItemModel *model = Q_NULLPTR);
+    explicit QItemSelectionModel(QAbstractItemModel *model = nullptr);
     explicit QItemSelectionModel(QAbstractItemModel *model, QObject *parent);
     virtual ~QItemSelectionModel();
 

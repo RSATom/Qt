@@ -9,10 +9,10 @@
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/strings/stringprintf.h"
-#include "breakpad/src/client/windows/common/ipc_protocol.h"
 #include "components/crash/content/app/crash_reporter_client.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/breakpad/breakpad/src/client/windows/common/ipc_protocol.h"
 
 namespace breakpad {
 
@@ -45,7 +45,6 @@ class MockCrashReporterClient : public crash_reporter::CrashReporterClient {
                                                 std::string* version));
   MOCK_METHOD0(GetReporterLogFilename, base::FilePath());
   MOCK_METHOD1(GetCrashDumpLocation, bool(base::string16* crash_dir));
-  MOCK_METHOD0(RegisterCrashKeys, size_t());
   MOCK_METHOD0(IsRunningUnattended, bool());
   MOCK_METHOD0(GetCollectStatsConsent, bool());
   MOCK_METHOD1(ReportingIsEnforcedByPolicy, bool(bool* breakpad_enabled));
@@ -124,8 +123,8 @@ TEST_F(CrashKeysWinTest, OfficialLikeKeys) {
                                &cmd_line,
                                &crash_client_);
 
-  ASSERT_TRUE(info != NULL);
-  ASSERT_TRUE(info->entries != NULL);
+  ASSERT_TRUE(info != nullptr);
+  ASSERT_TRUE(info->entries != nullptr);
 
   // We expect 7 fixed keys and a "freeboard" of 256 keys for dynamic entries.
   EXPECT_EQ(256U + 7U, info->count);

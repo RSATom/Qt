@@ -6,7 +6,6 @@
 
 #include <stddef.h>
 
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "ppapi/c/private/ppb_testing_private.h"
 #include "ppapi/proxy/enter_proxy.h"
@@ -54,17 +53,15 @@ PP_Bool ReadImageData(PP_Resource graphics_2d,
 }
 
 void RunMessageLoop(PP_Instance instance) {
-  base::MessageLoop::ScopedNestableTaskAllower allow(
-      base::MessageLoop::current());
   CHECK(PpapiGlobals::Get()->GetMainThreadMessageLoop()->
       BelongsToCurrentThread());
-  base::RunLoop().Run();
+  base::RunLoop(base::RunLoop::Type::kNestableTasksAllowed).Run();
 }
 
 void QuitMessageLoop(PP_Instance instance) {
   CHECK(PpapiGlobals::Get()->GetMainThreadMessageLoop()->
             BelongsToCurrentThread());
-  base::MessageLoop::current()->QuitNow();
+  base::RunLoop::QuitCurrentDeprecated();
 }
 
 uint32_t GetLiveObjectsForInstance(PP_Instance instance_id) {

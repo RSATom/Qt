@@ -29,7 +29,6 @@
 #include "storage/browser/blob/blob_storage_context.h"
 #include "storage/browser/fileapi/file_system_context.h"
 #include "storage/browser/test/test_file_system_context.h"
-#include "storage/common/data_element.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace content {
@@ -43,15 +42,13 @@ class FileAPIMessageFilterTest : public testing::Test {
  protected:
   void SetUp() override {
     file_system_context_ =
-        CreateFileSystemContextForTesting(NULL, base::FilePath());
+        CreateFileSystemContextForTesting(nullptr, base::FilePath());
 
-    std::vector<storage::FileSystemType> types;
-    file_system_context_->GetFileSystemTypes(&types);
-    for (size_t i = 0; i < types.size(); ++i) {
+    for (const storage::FileSystemType& type :
+         file_system_context_->GetFileSystemTypes()) {
       ChildProcessSecurityPolicyImpl::GetInstance()
           ->RegisterFileSystemPermissionPolicy(
-              types[i],
-              storage::FileSystemContext::GetPermissionPolicy(types[i]));
+              type, storage::FileSystemContext::GetPermissionPolicy(type));
     }
 
     blob_storage_context_ = ChromeBlobStorageContext::GetFor(&browser_context_);

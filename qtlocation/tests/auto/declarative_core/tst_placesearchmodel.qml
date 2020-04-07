@@ -129,6 +129,16 @@ TestCase {
                 ]
             },
             {
+                tag: "searchTerm, multiple results",
+                property: "searchTerm",
+                value: "sea",
+                reset: "",
+                alternate: true,
+                places: [
+                    "8f72057a-54b2-4e95-a7bb-97b4d2b5721e"
+                ]
+            },
+            {
                 tag: "categories, single result",
                 property: "categories",
                 value: [ park ],
@@ -190,6 +200,14 @@ TestCase {
             var place = testModel.data(i, "place");
 
             verify(data.places.indexOf(place.placeId) >= 0);
+        }
+
+        // Test for alternate implementation
+        if (data.alternate !== undefined && data.alternate === true) {
+            for (var ii = 0; ii < testModel.count; ++ii) {
+                var p = testModel.data(ii, "place");
+                compare(p.extendedAttributes["x_provider"].text, "QPlacePrivateDefaultAlt")
+            }
         }
 
         testModel.reset();

@@ -5,17 +5,15 @@
 #include "net/cert/internal/verify_certificate_chain.h"
 
 #include <algorithm>
-#include <memory>
 
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "net/cert/internal/cert_error_params.h"
 #include "net/cert/internal/cert_errors.h"
+#include "net/cert/internal/common_cert_errors.h"
 #include "net/cert/internal/extended_key_usage.h"
 #include "net/cert/internal/name_constraints.h"
 #include "net/cert/internal/parse_certificate.h"
 #include "net/cert/internal/signature_algorithm.h"
-#include "net/cert/internal/signature_policy.h"
 #include "net/cert/internal/trust_store.h"
 #include "net/cert/internal/verify_signed_data.h"
 #include "net/der/input.h"
@@ -23,50 +21,7 @@
 
 namespace net {
 
-DEFINE_CERT_ERROR_ID(kValidityFailedNotAfter, "Time is after notAfter");
-DEFINE_CERT_ERROR_ID(kValidityFailedNotBefore, "Time is before notBefore");
-DEFINE_CERT_ERROR_ID(kCertIsDistrusted, "Certificate is distrusted");
-
 namespace {
-
-// -----------------------------------------------
-// Errors/Warnings set by VerifyCertificateChain
-// -----------------------------------------------
-
-DEFINE_CERT_ERROR_ID(
-    kSignatureAlgorithmMismatch,
-    "Certificate.signatureAlgorithm != TBSCertificate.signature");
-DEFINE_CERT_ERROR_ID(kChainIsEmpty, "Chain is empty");
-DEFINE_CERT_ERROR_ID(kChainIsLength1,
-                     "TODO: Cannot verify a chain of length 1");
-DEFINE_CERT_ERROR_ID(kUnconsumedCriticalExtension,
-                     "Unconsumed critical extension");
-DEFINE_CERT_ERROR_ID(
-    kTargetCertInconsistentCaBits,
-    "Target certificate looks like a CA but does not set all CA properties");
-DEFINE_CERT_ERROR_ID(kKeyCertSignBitNotSet, "keyCertSign bit is not set");
-DEFINE_CERT_ERROR_ID(kMaxPathLengthViolated, "max_path_length reached");
-DEFINE_CERT_ERROR_ID(kBasicConstraintsIndicatesNotCa,
-                     "Basic Constraints indicates not a CA");
-DEFINE_CERT_ERROR_ID(kMissingBasicConstraints,
-                     "Does not have Basic Constraints");
-DEFINE_CERT_ERROR_ID(kNotPermittedByNameConstraints,
-                     "Not permitted by name constraints");
-DEFINE_CERT_ERROR_ID(kSubjectDoesNotMatchIssuer,
-                     "subject does not match issuer");
-DEFINE_CERT_ERROR_ID(kVerifySignedDataFailed, "VerifySignedData failed");
-DEFINE_CERT_ERROR_ID(kSignatureAlgorithmsDifferentEncoding,
-                     "Certificate.signatureAlgorithm is encoded differently "
-                     "than TBSCertificate.signature");
-DEFINE_CERT_ERROR_ID(kEkuLacksServerAuth,
-                     "The extended key usage does not include server auth");
-DEFINE_CERT_ERROR_ID(kEkuLacksClientAuth,
-                     "The extended key usage does not include client auth");
-DEFINE_CERT_ERROR_ID(kCertIsNotTrustAnchor,
-                     "Certificate is not a trust anchor");
-DEFINE_CERT_ERROR_ID(kNoValidPolicy, "No valid policy");
-DEFINE_CERT_ERROR_ID(kPolicyMappingAnyPolicy,
-                     "PolicyMappings must not map anyPolicy");
 
 bool IsHandledCriticalExtension(const ParsedExtension& extension) {
   if (extension.oid == BasicConstraintsOid())
@@ -93,9 +48,10 @@ bool IsHandledCriticalExtension(const ParsedExtension& extension) {
     //   be able to interpret this extension (including the optional
     //   qualifier), or MUST reject the certificate.
     std::vector<der::Input> unused_policies;
+    CertErrors unused_errors;
     return ParseCertificatePoliciesExtension(
         extension.value, true /*fail_parsing_unknown_qualifier_oids*/,
-        &unused_policies);
+        &unused_policies, &unused_errors);
 
     // TODO(eroman): Give a better error message.
   }
@@ -116,7 +72,7 @@ void VerifyNoUnconsumedCriticalExtensions(const ParsedCertificate& cert,
   for (const auto& it : cert.extensions()) {
     const ParsedExtension& extension = it.second;
     if (extension.critical && !IsHandledCriticalExtension(extension)) {
-      errors->AddError(kUnconsumedCriticalExtension,
+      errors->AddError(cert_errors::kUnconsumedCriticalExtension,
                        CreateCertErrorParams2Der("oid", extension.oid, "value",
                                                  extension.value));
     }
@@ -149,10 +105,10 @@ void VerifyTimeValidity(const ParsedCertificate& cert,
                         const der::GeneralizedTime& time,
                         CertErrors* errors) {
   if (time < cert.tbs().validity_not_before)
-    errors->AddError(kValidityFailedNotBefore);
+    errors->AddError(cert_errors::kValidityFailedNotBefore);
 
   if (cert.tbs().validity_not_after < time)
-    errors->AddError(kValidityFailedNotAfter);
+    errors->AddError(cert_errors::kValidityFailedNotAfter);
 }
 
 // Adds errors to |errors| if |cert| has internally inconsistent signature
@@ -175,7 +131,7 @@ void VerifyTimeValidity(const ParsedCertificate& cert,
 // In practice however there are certificates which use different encodings for
 // specifying RSA with SHA1 (different OIDs). This is special-cased for
 // compatibility sake.
-void VerifySignatureAlgorithmsMatch(const ParsedCertificate& cert,
+bool VerifySignatureAlgorithmsMatch(const ParsedCertificate& cert,
                                     CertErrors* errors) {
   const der::Input& alg1_tlv = cert.signature_algorithm_tlv();
   const der::Input& alg2_tlv = cert.tbs().signature_algorithm_tlv;
@@ -183,23 +139,24 @@ void VerifySignatureAlgorithmsMatch(const ParsedCertificate& cert,
   // Ensure that the two DER-encoded signature algorithms are byte-for-byte
   // equal.
   if (alg1_tlv == alg2_tlv)
-    return;
+    return true;
 
   // But make a compatibility concession if alternate encodings are used
   // TODO(eroman): Turn this warning into an error.
   // TODO(eroman): Add a unit-test that exercises this case.
   if (SignatureAlgorithm::IsEquivalent(alg1_tlv, alg2_tlv)) {
     errors->AddWarning(
-        kSignatureAlgorithmsDifferentEncoding,
+        cert_errors::kSignatureAlgorithmsDifferentEncoding,
         CreateCertErrorParams2Der("Certificate.algorithm", alg1_tlv,
                                   "TBSCertificate.signature", alg2_tlv));
-    return;
+    return true;
   }
 
   errors->AddError(
-      kSignatureAlgorithmMismatch,
+      cert_errors::kSignatureAlgorithmMismatch,
       CreateCertErrorParams2Der("Certificate.algorithm", alg1_tlv,
                                 "TBSCertificate.signature", alg2_tlv));
+  return false;
 }
 
 // Verify that |cert| can be used for |required_key_purpose|.
@@ -221,7 +178,42 @@ void VerifyExtendedKeyUsage(const ParsedCertificate& cert,
           return;
       }
 
-      errors->AddError(kEkuLacksServerAuth);
+      // Check if the certificate contains Netscape Server Gated Crypto.
+      // nsSGC is a deprecated mechanism, and not part of RFC 5280's
+      // profile. Some unexpired certificate chains still rely on it though
+      // (there are intermediates valid until 2020 that use it).
+      bool has_nsgc = false;
+
+      for (const auto& key_purpose_oid : cert.extended_key_usage()) {
+        if (key_purpose_oid == NetscapeServerGatedCrypto()) {
+          has_nsgc = true;
+          break;
+        }
+      }
+
+      if (has_nsgc) {
+        errors->AddWarning(cert_errors::kEkuLacksServerAuthButHasGatedCrypto);
+
+        // Allow NSGC for legacy RSA SHA1 intermediates, for compatibility with
+        // platform verifiers.
+        //
+        // In practice the chain will be rejected with or without this
+        // compatibility hack. The difference is whether the final error will be
+        // ERR_CERT_WEAK_SIGNATURE_ALGORITHM  (with compatibility hack) vs
+        // ERR_CERT_INVALID (without hack).
+        //
+        // TODO(https://crbug.com/843735): Remove this once error-for-error
+        // equivalence between builtin verifier and platform verifier is less
+        // important.
+        if ((cert.has_basic_constraints() && cert.basic_constraints().is_ca) &&
+            (cert.signature_algorithm().algorithm() ==
+             SignatureAlgorithmId::RsaPkcs1) &&
+            (cert.signature_algorithm().digest() == DigestAlgorithm::Sha1)) {
+          return;
+        }
+      }
+
+      errors->AddError(cert_errors::kEkuLacksServerAuth);
       break;
     }
     case KeyPurpose::CLIENT_AUTH: {
@@ -236,7 +228,7 @@ void VerifyExtendedKeyUsage(const ParsedCertificate& cert,
           return;
       }
 
-      errors->AddError(kEkuLacksClientAuth);
+      errors->AddError(cert_errors::kEkuLacksClientAuth);
       break;
     }
   }
@@ -260,7 +252,7 @@ bool SetContains(const std::set<der::Input>& policies,
 //      the full tree of nodes.
 class ValidPolicyTree {
  public:
-  ValidPolicyTree() {}
+  ValidPolicyTree() = default;
 
   struct Node {
     // |root_policy| is equivalent to |valid_policy|, but in the domain of the
@@ -437,7 +429,7 @@ class PathVerifier {
   // Same parameters and meaning as VerifyCertificateChain().
   void Run(const ParsedCertificateList& certs,
            const CertificateTrust& last_cert_trust,
-           const SignaturePolicy* signature_policy,
+           VerifyCertificateChainDelegate* delegate,
            const der::GeneralizedTime& time,
            KeyPurpose required_key_purpose,
            InitialExplicitPolicy initial_explicit_policy,
@@ -462,10 +454,10 @@ class PathVerifier {
   // Processing" procedure.
   void BasicCertificateProcessing(const ParsedCertificate& cert,
                                   bool is_target_cert,
-                                  const SignaturePolicy* signature_policy,
                                   const der::GeneralizedTime& time,
                                   KeyPurpose required_key_purpose,
-                                  CertErrors* errors);
+                                  CertErrors* errors,
+                                  bool* shortcircuit_chain_validation);
 
   // This function corresponds to RFC 5280 section 6.1.4's "Preparation for
   // Certificate i+1" procedure. |cert| is expected to be an intermediate.
@@ -489,7 +481,14 @@ class PathVerifier {
   void ProcessRootCertificate(const ParsedCertificate& cert,
                               const CertificateTrust& trust,
                               KeyPurpose required_key_purpose,
-                              CertErrors* errors);
+                              CertErrors* errors,
+                              bool* shortcircuit_chain_validation);
+
+  // Parses |spki| to an EVP_PKEY and checks whether the public key is accepted
+  // by |delegate_|. On failure parsing returns nullptr. If either parsing the
+  // key or key policy failed, adds a high-severity error to |errors|.
+  bssl::UniquePtr<EVP_PKEY> ParseAndCheckPublicKey(const der::Input& spki,
+                                                   CertErrors* errors);
 
   ValidPolicyTree valid_policy_tree_;
 
@@ -541,21 +540,22 @@ class PathVerifier {
   //   otherwise the initial value is n+1.
   size_t policy_mapping_;
 
-  // |working_spki_| is an amalgamation of 3 separate variables from RFC 5280:
+  // |working_public_key_| is an amalgamation of 3 separate variables from RFC
+  // 5280:
   //    * working_public_key
   //    * working_public_key_algorithm
   //    * working_public_key_parameters
   //
   // They are combined for simplicity since the signature verification takes an
-  // SPKI, and the parameter inheritence is not applicable for the supported
-  // key types.
+  // EVP_PKEY, and the parameter inheritence is not applicable for the supported
+  // key types. |working_public_key_| may be null if parsing failed.
   //
-  // An approximate explanation of |working_spki| is this description from RFC
-  // 5280 section 6.1.2:
+  // An approximate explanation of |working_public_key_| is this description
+  // from RFC 5280 section 6.1.2:
   //
   //    working_public_key:  the public key used to verify the
   //    signature of a certificate.
-  der::Input working_spki_;
+  bssl::UniquePtr<EVP_PKEY> working_public_key_;
 
   // |working_normalized_issuer_name_| is the normalized value of the
   // working_issuer_name variable in RFC 5280 section 6.1.2:
@@ -573,6 +573,8 @@ class PathVerifier {
   //    field within the basic constraints extension of a CA
   //    certificate.
   size_t max_path_length_;
+
+  VerifyCertificateChainDelegate* delegate_;
 };
 
 void PathVerifier::VerifyPolicies(const ParsedCertificate& cert,
@@ -675,7 +677,7 @@ void PathVerifier::VerifyPolicies(const ParsedCertificate& cert,
   //  (f)  Verify that either explicit_policy is greater than 0 or the
   //       valid_policy_tree is not equal to NULL;
   if (!((explicit_policy_ > 0) || !valid_policy_tree_.IsNull()))
-    errors->AddError(kNoValidPolicy);
+    errors->AddError(cert_errors::kNoValidPolicy);
 }
 
 void PathVerifier::VerifyPolicyMappings(const ParsedCertificate& cert,
@@ -695,7 +697,7 @@ void PathVerifier::VerifyPolicyMappings(const ParsedCertificate& cert,
       // this error, clear the valid policy tree to ensure the
       // "user_constrained_policy_set" output upon failure is empty.
       valid_policy_tree_.SetNull();
-      errors->AddError(kPolicyMappingAnyPolicy);
+      errors->AddError(cert_errors::kPolicyMappingAnyPolicy);
     }
   }
 
@@ -779,22 +781,36 @@ void PathVerifier::VerifyPolicyMappings(const ParsedCertificate& cert,
 void PathVerifier::BasicCertificateProcessing(
     const ParsedCertificate& cert,
     bool is_target_cert,
-    const SignaturePolicy* signature_policy,
     const der::GeneralizedTime& time,
     KeyPurpose required_key_purpose,
-    CertErrors* errors) {
+    CertErrors* errors,
+    bool* shortcircuit_chain_validation) {
+  *shortcircuit_chain_validation = false;
   // Check that the signature algorithms in Certificate vs TBSCertificate
   // match. This isn't part of RFC 5280 section 6.1.3, but is mandated by
   // sections 4.1.1.2 and 4.1.2.3.
-  VerifySignatureAlgorithmsMatch(cert, errors);
+  if (!VerifySignatureAlgorithmsMatch(cert, errors))
+    *shortcircuit_chain_validation = true;
 
-  // Verify the digital signature using the previous certificate's key (RFC
-  // 5280 section 6.1.3 step a.1).
-  if (!VerifySignedData(cert.signature_algorithm(), cert.tbs_certificate_tlv(),
-                        cert.signature_value(), working_spki_, signature_policy,
-                        errors)) {
-    errors->AddError(kVerifySignedDataFailed);
+  // Check whether this signature algorithm is allowed.
+  if (!delegate_->IsSignatureAlgorithmAcceptable(cert.signature_algorithm(),
+                                                 errors)) {
+    *shortcircuit_chain_validation = true;
+    errors->AddError(cert_errors::kUnacceptableSignatureAlgorithm);
   }
+
+  if (working_public_key_) {
+    // Verify the digital signature using the previous certificate's key (RFC
+    // 5280 section 6.1.3 step a.1).
+    if (!VerifySignedData(cert.signature_algorithm(),
+                          cert.tbs_certificate_tlv(), cert.signature_value(),
+                          working_public_key_.get())) {
+      *shortcircuit_chain_validation = true;
+      errors->AddError(cert_errors::kVerifySignedDataFailed);
+    }
+  }
+  if (*shortcircuit_chain_validation)
+    return;
 
   // Check the time range for the certificate's validity, ensuring it is valid
   // at |time|.
@@ -806,7 +822,7 @@ void PathVerifier::BasicCertificateProcessing(
   // Verify the certificate's issuer name matches the issuing certificate's
   // subject name. (RFC 5280 section 6.1.3 step a.4)
   if (cert.normalized_issuer() != working_normalized_issuer_name_)
-    errors->AddError(kSubjectDoesNotMatchIssuer);
+    errors->AddError(cert_errors::kSubjectDoesNotMatchIssuer);
 
   // Name constraints (RFC 5280 section 6.1.3 step b & c)
   // If certificate i is self-issued and it is not the final certificate in the
@@ -814,10 +830,8 @@ void PathVerifier::BasicCertificateProcessing(
   if (!name_constraints_list_.empty() &&
       (!IsSelfIssued(cert) || is_target_cert)) {
     for (const NameConstraints* nc : name_constraints_list_) {
-      if (!nc->IsPermittedCert(cert.normalized_subject(),
-                               cert.subject_alt_names())) {
-        errors->AddError(kNotPermittedByNameConstraints);
-      }
+      nc->IsPermittedCert(cert.normalized_subject(), cert.subject_alt_names(),
+                          errors);
     }
   }
 
@@ -844,7 +858,7 @@ void PathVerifier::PrepareForNextCertificate(const ParsedCertificate& cert,
   // From RFC 5280 section 6.1.4 step d:
   //
   //    Assign the certificate subjectPublicKey to working_public_key.
-  working_spki_ = cert.tbs().spki_tlv;
+  working_public_key_ = ParseAndCheckPublicKey(cert.tbs().spki_tlv, errors);
 
   // Note that steps e and f are omitted as they are handled by
   // the assignment to |working_spki| above. See the definition
@@ -914,9 +928,9 @@ void PathVerifier::PrepareForNextCertificate(const ParsedCertificate& cert,
   // This code implicitly rejects non version 3 intermediates, since they
   // can't contain a BasicConstraints extension.
   if (!cert.has_basic_constraints()) {
-    errors->AddError(kMissingBasicConstraints);
+    errors->AddError(cert_errors::kMissingBasicConstraints);
   } else if (!cert.basic_constraints().is_ca) {
-    errors->AddError(kBasicConstraintsIndicatesNotCa);
+    errors->AddError(cert_errors::kBasicConstraintsIndicatesNotCa);
   }
 
   // From RFC 5280 section 6.1.4 step l:
@@ -926,7 +940,7 @@ void PathVerifier::PrepareForNextCertificate(const ParsedCertificate& cert,
   //    max_path_length by 1.
   if (!IsSelfIssued(cert)) {
     if (max_path_length_ == 0) {
-      errors->AddError(kMaxPathLengthViolated);
+      errors->AddError(cert_errors::kMaxPathLengthViolated);
     } else {
       --max_path_length_;
     }
@@ -948,7 +962,7 @@ void PathVerifier::PrepareForNextCertificate(const ParsedCertificate& cert,
   //    keyCertSign bit is set.
   if (cert.has_key_usage() &&
       !cert.key_usage().AssertsBit(KEY_USAGE_BIT_KEY_CERT_SIGN)) {
-    errors->AddError(kKeyCertSignBitNotSet);
+    errors->AddError(cert_errors::kKeyCertSignBitNotSet);
   }
 
   // From RFC 5280 section 6.1.4 step o:
@@ -1001,7 +1015,7 @@ void VerifyTargetCertHasConsistentCaBits(const ParsedCertificate& cert,
                     cert.key_usage().AssertsBit(KEY_USAGE_BIT_KEY_CERT_SIGN));
     if (!success) {
       // TODO(eroman): Add DER for basic constraints and key usage.
-      errors->AddError(kTargetCertInconsistentCaBits);
+      errors->AddError(cert_errors::kTargetCertInconsistentCaBits);
     }
   }
 }
@@ -1042,12 +1056,17 @@ void PathVerifier::WrapUp(const ParsedCertificate& cert, CertErrors* errors) {
   //    zero or (2) the valid_policy_tree is not NULL, then path processing
   //   has succeeded.
   if (!(explicit_policy_ > 0 || !valid_policy_tree_.IsNull())) {
-    errors->AddError(kNoValidPolicy);
+    errors->AddError(cert_errors::kNoValidPolicy);
   }
 
   // The following check is NOT part of RFC 5280 6.1.5's "Wrap-Up Procedure",
   // however is implied by RFC 5280 section 4.2.1.9.
   VerifyTargetCertHasConsistentCaBits(cert, errors);
+
+  // Check the public key for the target certificate. The public key for the
+  // other certificates is already checked by PrepareForNextCertificate().
+  // Note that this step is not part of RFC 5280 6.1.5.
+  ParseAndCheckPublicKey(cert.tbs().spki_tlv, errors);
 }
 
 void PathVerifier::ApplyTrustAnchorConstraints(const ParsedCertificate& cert,
@@ -1097,21 +1116,19 @@ void PathVerifier::ApplyTrustAnchorConstraints(const ParsedCertificate& cert,
 void PathVerifier::ProcessRootCertificate(const ParsedCertificate& cert,
                                           const CertificateTrust& trust,
                                           KeyPurpose required_key_purpose,
-                                          CertErrors* errors) {
-  // Use the certificate's SPKI and subject when verifying the next certificate.
-  // Note this is initialized even in the case of untrusted roots (they already
-  // emit an error for the distrust).
-  working_spki_ = cert.tbs().spki_tlv;
-  working_normalized_issuer_name_ = cert.normalized_subject();
-
+                                          CertErrors* errors,
+                                          bool* shortcircuit_chain_validation) {
+  *shortcircuit_chain_validation = false;
   switch (trust.type) {
     case CertificateTrustType::UNSPECIFIED:
       // Doesn't chain to a trust anchor - implicitly distrusted
-      errors->AddError(kCertIsNotTrustAnchor);
+      errors->AddError(cert_errors::kCertIsNotTrustAnchor);
+      *shortcircuit_chain_validation = true;
       break;
     case CertificateTrustType::DISTRUSTED:
       // Chains to an actively distrusted certificate.
-      errors->AddError(kCertIsDistrusted);
+      errors->AddError(cert_errors::kDistrustedByTrustStore);
+      *shortcircuit_chain_validation = true;
       break;
     case CertificateTrustType::TRUSTED_ANCHOR:
     case CertificateTrustType::TRUSTED_ANCHOR_WITH_CONSTRAINTS:
@@ -1121,12 +1138,35 @@ void PathVerifier::ProcessRootCertificate(const ParsedCertificate& cert,
       }
       break;
   }
+  if (*shortcircuit_chain_validation)
+    return;
+
+  // Use the certificate's SPKI and subject when verifying the next certificate.
+  working_public_key_ = ParseAndCheckPublicKey(cert.tbs().spki_tlv, errors);
+  working_normalized_issuer_name_ = cert.normalized_subject();
+}
+
+bssl::UniquePtr<EVP_PKEY> PathVerifier::ParseAndCheckPublicKey(
+    const der::Input& spki,
+    CertErrors* errors) {
+  // Parse the public key.
+  bssl::UniquePtr<EVP_PKEY> pkey;
+  if (!ParsePublicKey(spki, &pkey)) {
+    errors->AddError(cert_errors::kFailedParsingSpki);
+    return nullptr;
+  }
+
+  // Check if the key is acceptable by the delegate.
+  if (!delegate_->IsPublicKeyAcceptable(pkey.get(), errors))
+    errors->AddError(cert_errors::kUnacceptablePublicKey);
+
+  return pkey;
 }
 
 void PathVerifier::Run(
     const ParsedCertificateList& certs,
     const CertificateTrust& last_cert_trust,
-    const SignaturePolicy* signature_policy,
+    VerifyCertificateChainDelegate* delegate,
     const der::GeneralizedTime& time,
     KeyPurpose required_key_purpose,
     InitialExplicitPolicy initial_explicit_policy,
@@ -1137,19 +1177,21 @@ void PathVerifier::Run(
     CertPathErrors* errors) {
   // This implementation is structured to mimic the description of certificate
   // path verification given by RFC 5280 section 6.1.
-  DCHECK(signature_policy);
+  DCHECK(delegate);
   DCHECK(errors);
+
+  delegate_ = delegate;
 
   // An empty chain is necessarily invalid.
   if (certs.empty()) {
-    errors->GetOtherErrors()->AddError(kChainIsEmpty);
+    errors->GetOtherErrors()->AddError(cert_errors::kChainIsEmpty);
     return;
   }
 
-  // TODO(eroman): Verifying a trusted leaf certificate is not currently
-  // permitted.
+  // Verifying a trusted leaf certificate is not permitted. (It isn't a
+  // well-specified operation.) See https://crbug.com/814994.
   if (certs.size() == 1) {
-    errors->GetOtherErrors()->AddError(kChainIsLength1);
+    errors->GetOtherErrors()->AddError(cert_errors::kChainIsLength1);
     return;
   }
 
@@ -1211,20 +1253,38 @@ void PathVerifier::Run(
     CertErrors* cert_errors = errors->GetErrorsForCert(index_into_certs);
 
     if (is_root_cert) {
+      bool shortcircuit_chain_validation = false;
       ProcessRootCertificate(cert, last_cert_trust, required_key_purpose,
-                             cert_errors);
+                             cert_errors, &shortcircuit_chain_validation);
+      if (shortcircuit_chain_validation) {
+        // Chains that don't start from a trusted root should short-circuit the
+        // rest of the verification, as accumulating more errors from untrusted
+        // certificates would not be meaningful.
+        DCHECK(cert_errors->ContainsAnyErrorWithSeverity(
+            CertError::SEVERITY_HIGH));
+        return;
+      }
 
       // Don't do any other checks for root certificates.
       continue;
     }
 
+    bool shortcircuit_chain_validation = false;
     // Per RFC 5280 section 6.1:
     //  * Do basic processing for each certificate
     //  * If it is the last certificate in the path (target certificate)
     //     - Then run "Wrap up"
     //     - Otherwise run "Prepare for Next cert"
-    BasicCertificateProcessing(cert, is_target_cert, signature_policy, time,
-                               required_key_purpose, cert_errors);
+    BasicCertificateProcessing(cert, is_target_cert, time, required_key_purpose,
+                               cert_errors, &shortcircuit_chain_validation);
+    if (shortcircuit_chain_validation) {
+      // Signature errors should short-circuit the rest of the verification, as
+      // accumulating more errors from untrusted certificates would not be
+      // meaningful.
+      DCHECK(
+          cert_errors->ContainsAnyErrorWithSeverity(CertError::SEVERITY_HIGH));
+      return;
+    }
     if (!is_target_cert) {
       PrepareForNextCertificate(cert, cert_errors);
     } else {
@@ -1246,10 +1306,12 @@ void PathVerifier::Run(
 
 }  // namespace
 
+VerifyCertificateChainDelegate::~VerifyCertificateChainDelegate() = default;
+
 void VerifyCertificateChain(
     const ParsedCertificateList& certs,
     const CertificateTrust& last_cert_trust,
-    const SignaturePolicy* signature_policy,
+    VerifyCertificateChainDelegate* delegate,
     const der::GeneralizedTime& time,
     KeyPurpose required_key_purpose,
     InitialExplicitPolicy initial_explicit_policy,
@@ -1259,10 +1321,10 @@ void VerifyCertificateChain(
     std::set<der::Input>* user_constrained_policy_set,
     CertPathErrors* errors) {
   PathVerifier verifier;
-  verifier.Run(certs, last_cert_trust, signature_policy, time,
-               required_key_purpose, initial_explicit_policy,
-               user_initial_policy_set, initial_policy_mapping_inhibit,
-               initial_any_policy_inhibit, user_constrained_policy_set, errors);
+  verifier.Run(certs, last_cert_trust, delegate, time, required_key_purpose,
+               initial_explicit_policy, user_initial_policy_set,
+               initial_policy_mapping_inhibit, initial_any_policy_inhibit,
+               user_constrained_policy_set, errors);
 }
 
 }  // namespace net

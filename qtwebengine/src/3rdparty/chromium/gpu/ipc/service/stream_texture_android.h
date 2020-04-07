@@ -13,7 +13,7 @@
 #include "base/memory/weak_ptr.h"
 #include "base/unguessable_token.h"
 #include "gpu/command_buffer/service/gl_stream_texture_image.h"
-#include "gpu/ipc/service/gpu_command_buffer_stub.h"
+#include "gpu/ipc/service/command_buffer_stub.h"
 #include "ipc/ipc_listener.h"
 #include "ui/gl/android/surface_texture.h"
 #include "ui/gl/gl_image.h"
@@ -30,14 +30,14 @@ namespace gpu {
 
 class StreamTexture : public gpu::gles2::GLStreamTextureImage,
                       public IPC::Listener,
-                      public GpuCommandBufferStub::DestructionObserver {
+                      public CommandBufferStub::DestructionObserver {
  public:
-  static bool Create(GpuCommandBufferStub* owner_stub,
+  static bool Create(CommandBufferStub* owner_stub,
                      uint32_t client_texture_id,
                      int stream_id);
 
  private:
-  StreamTexture(GpuCommandBufferStub* owner_stub,
+  StreamTexture(CommandBufferStub* owner_stub,
                 int32_t route_id,
                 uint32_t texture_id);
   ~StreamTexture() override;
@@ -55,7 +55,10 @@ class StreamTexture : public gpu::gles2::GLStreamTextureImage,
                             int z_order,
                             gfx::OverlayTransform transform,
                             const gfx::Rect& bounds_rect,
-                            const gfx::RectF& crop_rect) override;
+                            const gfx::RectF& crop_rect,
+                            bool enable_blend,
+                            std::unique_ptr<gfx::GpuFence> gpu_fence) override;
+  void SetColorSpace(const gfx::ColorSpace& color_space) override {}
   void Flush() override {}
   void OnMemoryDump(base::trace_event::ProcessMemoryDump* pmd,
                     uint64_t process_tracing_id,
@@ -63,9 +66,14 @@ class StreamTexture : public gpu::gles2::GLStreamTextureImage,
 
   // gpu::gles2::GLStreamTextureMatrix implementation
   void GetTextureMatrix(float xform[16]) override;
+  void NotifyPromotionHint(bool promotion_hint,
+                           int display_x,
+                           int display_y,
+                           int display_width,
+                           int display_height) override {}
 
-  // GpuCommandBufferStub::DestructionObserver implementation.
-  void OnWillDestroyStub() override;
+  // CommandBufferStub::DestructionObserver implementation.
+  void OnWillDestroyStub(bool have_context) override;
 
   std::unique_ptr<ui::ScopedMakeCurrent> MakeStubCurrent();
 
@@ -93,7 +101,7 @@ class StreamTexture : public gpu::gles2::GLStreamTextureImage,
   // Whether a new frame is available that we should update to.
   bool has_pending_frame_;
 
-  GpuCommandBufferStub* owner_stub_;
+  CommandBufferStub* owner_stub_;
   int32_t route_id_;
   bool has_listener_;
   uint32_t texture_id_;

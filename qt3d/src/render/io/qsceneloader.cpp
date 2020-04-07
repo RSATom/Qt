@@ -65,7 +65,7 @@ namespace Qt3DRender {
     \since 5.7
     \ingroup io
 
-    \brief Provides the facility to load an existing Scene
+    \brief Provides the facility to load an existing Scene.
 
     Given a 3D source file, the Qt3DRender::QSceneLoader will try to parse it and
     build a tree of Qt3DCore::QEntity objects with proper Qt3DRender::QGeometryRenderer,
@@ -81,7 +81,7 @@ namespace Qt3DRender {
 
     Qt3DRender::QSceneLoader internally relies on the use of plugins to support a
     wide variety of 3D file formats. \l
-    {http://www.assimp.org/main_features_formats.html}{Here} is a list of formats
+    {http://assimp.sourceforge.net/main_features_formats.html}{Here} is a list of formats
     that are supported by Qt3D.
 
     \note this component shouldn't be shared among several Qt3DCore::QEntity instances.
@@ -97,7 +97,7 @@ namespace Qt3DRender {
     \instantiates Qt3DRender::QSceneLoader
     \inherits Component
     \since 5.7
-    \brief Provides the facility to load an existing Scene
+    \brief Provides the facility to load an existing Scene.
 
     Given a 3D source file, the SceneLoader will try to parse it and build a
     tree of Entity objects with proper GeometryRenderer, Transform and Material
@@ -114,7 +114,7 @@ namespace Qt3DRender {
 
     SceneLoader internally relies on the use of plugins to support a wide
     variety of 3D file formats. \l
-    {http://www.assimp.org/main_features_formats.html}{Here} is a list of
+    {http://assimp.sourceforge.net/main_features_formats.html}{Here} is a list of
     formats that are supported by Qt3D.
 
     \note this component shouldn't be shared among several Entity instances.

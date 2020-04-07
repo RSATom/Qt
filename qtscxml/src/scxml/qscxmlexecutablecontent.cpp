@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2018 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtScxml module of the Qt Toolkit.
@@ -81,6 +81,22 @@ using namespace QScxmlExecutableContent;
     \since 5.8
     \brief ID for a string contained in executable content.
  */
+
+/*!
+    \enum QScxmlExecutableContent::anonymous
+    \since 5.8
+
+    This enum type holds the invalid values for type definitions.
+
+    \value NoContainer
+           \l ContainerId is unknown.
+    \value NoEvaluator
+           \l EvaluatorId is unknown.
+    \value NoInstruction
+           \l InstructionId is unknown.
+    \value NoString
+           \l StringId is unknown.
+*/
 
 /*!
     \class QScxmlExecutableContent::EvaluatorInfo
@@ -218,7 +234,7 @@ using namespace QScxmlExecutableContent;
 
 
 #ifndef BUILD_QSCXMLC
-static int parseTime(const QString &t, bool *ok = 0)
+static int parseTime(const QString &t, bool *ok = nullptr)
 {
     if (t.isEmpty()) {
         if (ok)
@@ -387,7 +403,7 @@ const InstructionId *QScxmlExecutionEngine::step(const InstructionId *ip, bool *
                 , loopStart(loopStart)
             {}
 
-            void run(bool *ok) Q_DECL_OVERRIDE
+            void run(bool *ok) override
             {
                 engine->step(loopStart, ok);
             }
@@ -418,18 +434,20 @@ const InstructionId *QScxmlExecutionEngine::step(const InstructionId *ip, bool *
         qCDebug(qscxmlLog) << stateMachine << "Executing log step";
         const Log *log = reinterpret_cast<const Log *>(instr);
         ip += log->size();
+        QString str;
         if (log->expr != NoEvaluator) {
-            const QString str = dataModel->evaluateToString(log->expr, ok);
-            if (*ok) {
-                const QString label = tableData->string(log->label);
-                qCDebug(scxmlLog) << label << ":" << str;
-                QMetaObject::invokeMethod(stateMachine,
-                                          "log",
-                                          Qt::QueuedConnection,
-                                          Q_ARG(QString, label),
-                                          Q_ARG(QString, str));
-            }
+            str = dataModel->evaluateToString(log->expr, ok);
+            if (!*ok)
+                qCWarning(qscxmlLog) << stateMachine << "Could not evaluate <log> expr to string.";
         }
+
+        const QString label = tableData->string(log->label);
+        qCDebug(scxmlLog) << label << ":" << str;
+        QMetaObject::invokeMethod(stateMachine,
+                                  "log",
+                                  Qt::QueuedConnection,
+                                  Q_ARG(QString, label),
+                                  Q_ARG(QString, str));
         return ip;
     }
 

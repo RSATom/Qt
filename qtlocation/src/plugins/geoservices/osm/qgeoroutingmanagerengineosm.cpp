@@ -67,6 +67,13 @@ QGeoRoutingManagerEngineOsm::QGeoRoutingManagerEngineOsm(const QVariantMap &para
         m_routeParser = new QGeoRouteParserOsrmV4(this);
     else
         m_routeParser = new QGeoRouteParserOsrmV5(this);
+    if (parameters.contains(QStringLiteral("osm.routing.traffic_side"))) {
+        QString trafficSide = parameters.value(QStringLiteral("mapbox.routing.traffic_side")).toString();
+        if (trafficSide == QStringLiteral("right"))
+            m_routeParser->setTrafficSide(QGeoRouteParser::RightHandTraffic);
+        else if (trafficSide == QStringLiteral("left"))
+            m_routeParser->setTrafficSide(QGeoRouteParser::LeftHandTraffic);
+    }
 
     *error = QGeoServiceProvider::NoError;
     errorString->clear();

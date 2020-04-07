@@ -13,7 +13,7 @@
 #include "base/memory/ref_counted.h"
 #include "gpu/command_buffer/service/gl_utils.h"
 #include "gpu/command_buffer/service/shader_translator.h"
-#include "gpu/gpu_export.h"
+#include "gpu/gpu_gles2_export.h"
 
 namespace gpu {
 namespace gles2 {
@@ -31,7 +31,7 @@ enum ShaderVariableBaseType {
 // to emluate GLES2 the shaders will have to be re-written before passed to
 // the underlying OpenGL. But, when the user calls glGetShaderSource they
 // should get the source they passed in, not the re-written source.
-class GPU_EXPORT Shader : public base::RefCounted<Shader> {
+class GPU_GLES2_EXPORT Shader : public base::RefCounted<Shader> {
  public:
   enum TranslatedShaderSourceType {
     kANGLE,
@@ -85,9 +85,8 @@ class GPU_EXPORT Shader : public base::RefCounted<Shader> {
   }
 
   std::string last_compiled_signature() const {
-    if (translator_.get()) {
-      return last_compiled_source_ +
-             translator_->GetStringForOptionsThatWouldAffectCompilation();
+    if (options_affecting_compilation_) {
+      return last_compiled_source_ + options_affecting_compilation_->data;
     }
     return last_compiled_source_;
   }
@@ -207,8 +206,13 @@ class GPU_EXPORT Shader : public base::RefCounted<Shader> {
   // of the underlying shader service id.
   void Destroy();
 
-  void IncUseCount();
-  void DecUseCount();
+  void IncUseCount() { ++use_count_; }
+
+  void DecUseCount() {
+    --use_count_;
+    DCHECK_GE(use_count_, 0);
+  }
+
   void MarkForDeletion();
   void DeleteServiceID();
 
@@ -235,6 +239,8 @@ class GPU_EXPORT Shader : public base::RefCounted<Shader> {
 
   // Translator to use, set when shader was last requested to be compiled.
   scoped_refptr<ShaderTranslatorInterface> translator_;
+  scoped_refptr<OptionsAffectingCompilationString>
+      options_affecting_compilation_;
 
   // True if compilation succeeded.
   bool valid_;
@@ -264,7 +270,7 @@ class GPU_EXPORT Shader : public base::RefCounted<Shader> {
 //
 // NOTE: To support shared resources an instance of this class will
 // need to be shared by multiple GLES2Decoders.
-class GPU_EXPORT ShaderManager {
+class GPU_GLES2_EXPORT ShaderManager {
  public:
   ShaderManager(ProgressReporter* progress_reporter);
   ~ShaderManager();
@@ -304,7 +310,7 @@ class GPU_EXPORT ShaderManager {
   typedef base::hash_map<GLuint, scoped_refptr<Shader> > ShaderMap;
   ShaderMap shaders_;
 
-  void RemoveShader(Shader* shader);
+  void RemoveShaderIfUnused(Shader* shader);
 
   // Used to notify the watchdog thread of progress during destruction,
   // preventing time-outs when destruction takes a long time. May be null when

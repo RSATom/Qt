@@ -8,6 +8,9 @@
 #include "media/capture/video/video_capture_device.h"
 #include "testing/gmock/include/gmock/gmock.h"
 
+// TODO(crbug.com/838774):
+// Consolidate the MockVideoCaptureClient implementations
+
 namespace media {
 namespace unittest_internal {
 
@@ -18,7 +21,7 @@ class MockVideoCaptureClient : public VideoCaptureDevice::Client {
   MOCK_METHOD0(DoOnIncomingCapturedVideoFrame, void(void));
   MOCK_METHOD0(DoResurrectLastOutputBuffer, void(void));
   MOCK_METHOD2(OnError,
-               void(const tracked_objects::Location& from_here,
+               void(const base::Location& from_here,
                     const std::string& reason));
   MOCK_CONST_METHOD0(GetBufferPoolUtilization, double(void));
   MOCK_METHOD0(OnStarted, void(void));
@@ -31,8 +34,7 @@ class MockVideoCaptureClient : public VideoCaptureDevice::Client {
 
   void SetQuitCb(base::OnceClosure quit_cb);
 
-  void DumpError(const tracked_objects::Location& location,
-                 const std::string& message);
+  void DumpError(const base::Location& location, const std::string& message);
 
   void OnIncomingCapturedData(const uint8_t* data,
                               int length,
@@ -41,10 +43,15 @@ class MockVideoCaptureClient : public VideoCaptureDevice::Client {
                               base::TimeTicks reference_time,
                               base::TimeDelta timestamp,
                               int frame_feedback_id) override;
+  void OnIncomingCapturedGfxBuffer(gfx::GpuMemoryBuffer* buffer,
+                                   const VideoCaptureFormat& frame_format,
+                                   int clockwise_rotation,
+                                   base::TimeTicks reference_time,
+                                   base::TimeDelta timestamp,
+                                   int frame_feedback_id = 0) override;
   // Trampoline methods to workaround GMOCK problems with std::unique_ptr<>.
   Buffer ReserveOutputBuffer(const gfx::Size& dimensions,
-                             media::VideoPixelFormat format,
-                             media::VideoPixelStorage storage,
+                             VideoPixelFormat format,
                              int frame_feedback_id) override;
   void OnIncomingCapturedBuffer(Buffer buffer,
                                 const VideoCaptureFormat& format,
@@ -58,8 +65,7 @@ class MockVideoCaptureClient : public VideoCaptureDevice::Client {
       gfx::Rect visible_rect,
       const VideoFrameMetadata& additional_metadata) override;
   Buffer ResurrectLastOutputBuffer(const gfx::Size& dimensions,
-                                   media::VideoPixelFormat format,
-                                   media::VideoPixelStorage storage,
+                                   VideoPixelFormat format,
                                    int frame_feedback_id) override;
 
  private:

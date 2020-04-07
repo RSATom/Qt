@@ -11,7 +11,6 @@
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string16.h"
 #include "base/win/message_window.h"
-#include "base/win/windows_version.h"
 #include "services/device/battery/battery_status_manager.h"
 
 namespace device {
@@ -55,8 +54,8 @@ void UpdateNumberBatteriesHistogram() {
 class BatteryStatusObserver {
  public:
   explicit BatteryStatusObserver(const BatteryCallback& callback)
-      : power_handle_(NULL),
-        battery_change_handle_(NULL),
+      : power_handle_(nullptr),
+        battery_change_handle_(nullptr),
         callback_(callback) {}
 
   ~BatteryStatusObserver() { DCHECK(!window_); }
@@ -84,11 +83,11 @@ class BatteryStatusObserver {
   void Stop() {
     if (power_handle_) {
       UnregisterNotification(power_handle_);
-      power_handle_ = NULL;
+      power_handle_ = nullptr;
     }
     if (battery_change_handle_) {
       UnregisterNotification(battery_change_handle_);
-      battery_change_handle_ = NULL;
+      battery_change_handle_ = nullptr;
     }
     window_.reset();
   }
@@ -112,7 +111,7 @@ class BatteryStatusObserver {
             wparam == PBT_POWERSETTINGCHANGE) {
           BatteryChanged();
         }
-        *result = NULL;
+        *result = 0;
         return true;
       default:
         return false;
@@ -120,23 +119,17 @@ class BatteryStatusObserver {
   }
 
   HPOWERNOTIFY RegisterNotification(LPCGUID power_setting) {
-    if (base::win::GetVersion() < base::win::VERSION_VISTA)
-      return NULL;
-
     return RegisterPowerSettingNotification(window_->hwnd(), power_setting,
                                             DEVICE_NOTIFY_WINDOW_HANDLE);
   }
 
   BOOL UnregisterNotification(HPOWERNOTIFY handle) {
-    if (base::win::GetVersion() < base::win::VERSION_VISTA)
-      return FALSE;
-
     return UnregisterPowerSettingNotification(handle);
   }
 
   bool CreateMessageWindow() {
     // TODO(timvolodine): consider reusing the message window of PowerMonitor.
-    window_.reset(new base::win::MessageWindow());
+    window_ = std::make_unique<base::win::MessageWindow>();
     if (!window_->CreateNamed(base::Bind(&BatteryStatusObserver::HandleMessage,
                                          base::Unretained(this)),
                               base::string16(kWindowClassName))) {
@@ -158,7 +151,7 @@ class BatteryStatusObserver {
 class BatteryStatusManagerWin : public BatteryStatusManager {
  public:
   explicit BatteryStatusManagerWin(const BatteryCallback& callback)
-      : battery_observer_(new BatteryStatusObserver(callback)) {}
+      : battery_observer_(std::make_unique<BatteryStatusObserver>(callback)) {}
   ~BatteryStatusManagerWin() override { battery_observer_->Stop(); }
 
  public:
@@ -207,8 +200,7 @@ mojom::BatteryStatus ComputeWebBatteryStatus(
 // static
 std::unique_ptr<BatteryStatusManager> BatteryStatusManager::Create(
     const BatteryStatusService::BatteryUpdateCallback& callback) {
-  return std::unique_ptr<BatteryStatusManager>(
-      new BatteryStatusManagerWin(callback));
+  return std::make_unique<BatteryStatusManagerWin>(callback);
 }
 
 }  // namespace device

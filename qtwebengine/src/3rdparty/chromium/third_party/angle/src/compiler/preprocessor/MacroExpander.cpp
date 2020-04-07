@@ -12,6 +12,9 @@
 #include "compiler/preprocessor/DiagnosticsBase.h"
 #include "compiler/preprocessor/Token.h"
 
+namespace angle
+{
+
 namespace pp
 {
 
@@ -458,6 +461,10 @@ MacroExpander::MacroContext::MacroContext() : macro(0), index(0)
 {
 }
 
+MacroExpander::MacroContext::~MacroContext()
+{
+}
+
 bool MacroExpander::MacroContext::empty() const
 {
     return index == replacements.size();
@@ -475,3 +482,5 @@ void MacroExpander::MacroContext::unget()
 }
 
 }  // namespace pp
+
+}  // namespace angle

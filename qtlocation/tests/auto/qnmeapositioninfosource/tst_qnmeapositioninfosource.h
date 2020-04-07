@@ -45,7 +45,6 @@
 
 QT_USE_NAMESPACE
 Q_DECLARE_METATYPE(QNmeaPositionInfoSource::UpdateMode)
-Q_DECLARE_METATYPE(QGeoPositionInfo)
 Q_DECLARE_METATYPE(QList<QDateTime>)
 
 class tst_QNmeaPositionInfoSource : public QObject
@@ -62,16 +61,20 @@ public:
     tst_QNmeaPositionInfoSource(QNmeaPositionInfoSource::UpdateMode mode, QObject *parent = 0);
 
 private:
-    QList<QDateTime> createDateTimes(int count) const
+    QList<QDateTime> createDateTimes(const QDateTime &dt, int count) const
     {
         QList<QDateTime> dateTimes;
-        QDateTime dt = QDateTime::currentDateTime().toUTC();
         int interval = 100;
         for (int i=0; i<count; i++) {
             dateTimes << dt.addMSecs(interval);
             interval += 100;
         }
         return dateTimes;
+    }
+
+    QList<QDateTime> createDateTimes(int count) const
+    {
+        return createDateTimes(QDateTime::currentDateTime().toUTC(), count);
     }
 
 private slots:

@@ -57,7 +57,7 @@ class Q_WIDGETS_EXPORT QToolBox : public QFrame
     Q_PROPERTY(int count READ count)
 
 public:
-    explicit QToolBox(QWidget *parent = Q_NULLPTR, Qt::WindowFlags f = Qt::WindowFlags());
+    explicit QToolBox(QWidget *parent = nullptr, Qt::WindowFlags f = Qt::WindowFlags());
     ~QToolBox();
 
     int addItem(QWidget *widget, const QString &text);
@@ -95,11 +95,11 @@ Q_SIGNALS:
     void currentChanged(int index);
 
 protected:
-    bool event(QEvent *e) Q_DECL_OVERRIDE;
+    bool event(QEvent *e) override;
     virtual void itemInserted(int index);
     virtual void itemRemoved(int index);
-    void showEvent(QShowEvent *e) Q_DECL_OVERRIDE;
-    void changeEvent(QEvent *) Q_DECL_OVERRIDE;
+    void showEvent(QShowEvent *e) override;
+    void changeEvent(QEvent *) override;
 
 
 private:

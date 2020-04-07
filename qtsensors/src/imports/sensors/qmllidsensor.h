@@ -53,8 +53,8 @@ public:
     ~QmlLidSensor();
 
 private:
-    QSensor *sensor() const Q_DECL_OVERRIDE;
-    QmlSensorReading *createReading() const Q_DECL_OVERRIDE;
+    QSensor *sensor() const override;
+    QmlSensorReading *createReading() const override;
 
     QLidSensor *m_sensor;
 };
@@ -76,8 +76,8 @@ Q_SIGNALS:
     bool frontLidChanged(bool closed);
 
 private:
-    QSensorReading *reading() const Q_DECL_OVERRIDE;
-    void readingUpdate() Q_DECL_OVERRIDE;
+    QSensorReading *reading() const override;
+    void readingUpdate() override;
 
     QLidSensor *m_sensor;
     bool m_backClosed;

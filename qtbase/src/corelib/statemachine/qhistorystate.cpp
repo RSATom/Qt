@@ -126,6 +126,25 @@ QT_BEGIN_NAMESPACE
   descendant state the parent was in the last time it was exited.
 */
 
+namespace {
+class DefaultStateTransition: public QAbstractTransition
+{
+    Q_OBJECT
+
+public:
+    DefaultStateTransition(QHistoryState *source, QAbstractState *target);
+
+protected:
+    // It doesn't matter whether this transition matches any event or not. It is always associated
+    // with a QHistoryState, and as soon as the state-machine detects that it enters a history
+    // state, it will handle this transition as a special case. The history state itself is never
+    // entered either: either the stored configuration will be used, or the target(s) of this
+    // transition are used.
+    bool eventTest(QEvent *event)  override { Q_UNUSED(event); return false; }
+    void onTransition(QEvent *event) override { Q_UNUSED(event); }
+};
+}
+
 QHistoryStatePrivate::QHistoryStatePrivate()
     : QAbstractStatePrivate(HistoryState)
     , defaultTransition(0)
@@ -203,7 +222,7 @@ void QHistoryState::setDefaultTransition(QAbstractTransition *transition)
 QAbstractState *QHistoryState::defaultState() const
 {
     Q_D(const QHistoryState);
-    return d->defaultTransition ? d->defaultTransition->targetState() : Q_NULLPTR;
+    return d->defaultTransition ? d->defaultTransition->targetState() : nullptr;
 }
 
 static inline bool isSoleEntry(const QList<QAbstractState*> &states, const QAbstractState * state)
@@ -312,4 +331,4 @@ bool QHistoryState::event(QEvent *e)
 QT_END_NAMESPACE
 
 #include "moc_qhistorystate.cpp"
-#include "moc_qhistorystate_p.cpp"
+#include "qhistorystate.moc"

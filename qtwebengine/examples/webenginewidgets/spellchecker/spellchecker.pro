@@ -1,9 +1,13 @@
-QT_FOR_CONFIG += webengine
+include($$QTWEBENGINE_OUT_ROOT/src/core/qtwebenginecore-config.pri) # workaround for QTBUG-68093
+QT_FOR_CONFIG += webenginecore
 
 TEMPLATE = app
 TARGET = spellchecker
 QT += webenginewidgets
-CONFIG += c++11
+
+!qtConfig(webengine-spellchecker) {
+    error("Qt WebEngine compiled without spellchecker support, this example will not work.")
+}
 
 qtConfig(webengine-native-spellchecker) {
     error("Spellcheck example can not be built when using native OS dictionaries.")

@@ -30,7 +30,7 @@ MojoRenderer::MojoRenderer(
       video_renderer_sink_(video_renderer_sink),
       remote_renderer_info_(remote_renderer.PassInterface()),
       client_binding_(this),
-      media_time_interpolator_(&media_clock_) {
+      media_time_interpolator_(base::DefaultTickClock::GetInstance()) {
   DVLOG(1) << __func__;
 }
 
@@ -75,13 +75,12 @@ void MojoRenderer::InitializeRendererFromStreams(
   // Create mojom::DemuxerStream for each demuxer stream and bind its lifetime
   // to the pipe.
   std::vector<DemuxerStream*> streams = media_resource_->GetAllStreams();
-  std::vector<mojom::DemuxerStreamPtr> stream_proxies;
+  std::vector<mojom::DemuxerStreamPtrInfo> stream_proxies;
 
   for (auto* stream : streams) {
-    mojom::DemuxerStreamPtr stream_proxy;
-    std::unique_ptr<MojoDemuxerStreamImpl> mojo_stream =
-        base::MakeUnique<MojoDemuxerStreamImpl>(stream,
-                                                MakeRequest(&stream_proxy));
+    mojom::DemuxerStreamPtrInfo stream_proxy_info;
+    auto mojo_stream = std::make_unique<MojoDemuxerStreamImpl>(
+        stream, mojo::MakeRequest(&stream_proxy_info));
 
     // Using base::Unretained(this) is safe because |this| owns |mojo_stream|,
     // and the error handler can't be invoked once |mojo_stream| is destroyed.
@@ -90,7 +89,7 @@ void MojoRenderer::InitializeRendererFromStreams(
                    base::Unretained(this), mojo_stream.get()));
 
     streams_.push_back(std::move(mojo_stream));
-    stream_proxies.push_back(std::move(stream_proxy));
+    stream_proxies.push_back(std::move(stream_proxy_info));
   }
 
   BindRemoteRendererIfNeeded();
@@ -121,10 +120,10 @@ void MojoRenderer::InitializeRendererFromUrl(media::RendererClient* client) {
   // Using base::Unretained(this) is safe because |this| owns
   // |remote_renderer_|, and the callback won't be dispatched if
   // |remote_renderer_| is destroyed.
-  std::vector<mojom::DemuxerStreamPtr> streams;
+  std::vector<mojom::DemuxerStreamPtrInfo> streams;
   remote_renderer_->Initialize(
       std::move(client_ptr_info), std::move(streams), url_params.media_url,
-      url_params.first_party_for_cookies,
+      url_params.site_for_cookies,
       base::Bind(&MojoRenderer::OnInitialized, base::Unretained(this), client));
 }
 
@@ -186,7 +185,7 @@ void MojoRenderer::StartPlayingFrom(base::TimeDelta time) {
 
   {
     base::AutoLock auto_lock(lock_);
-    media_time_interpolator_.SetBounds(time, time, media_clock_.NowTicks());
+    media_time_interpolator_.SetBounds(time, time, base::TimeTicks::Now());
     media_time_interpolator_.StartInterpolating();
   }
 
@@ -298,6 +297,10 @@ void MojoRenderer::OnVideoConfigChange(const VideoDecoderConfig& config) {
 void MojoRenderer::OnStatisticsUpdate(const PipelineStatistics& stats) {
   DVLOG(3) << __func__;
   DCHECK(task_runner_->BelongsToCurrentThread());
+  if (!client_) {
+    pending_stats_ = stats;
+    return;
+  }
   client_->OnStatisticsUpdate(stats);
 }
 
@@ -365,6 +368,10 @@ void MojoRenderer::OnInitialized(media::RendererClient* client, bool success) {
 
   base::ResetAndReturn(&init_cb_).Run(
       success ? PIPELINE_OK : PIPELINE_ERROR_INITIALIZATION_FAILED);
+
+  if (client_ && pending_stats_.has_value())
+    client_->OnStatisticsUpdate(pending_stats_.value());
+  pending_stats_.reset();
 }
 
 void MojoRenderer::OnFlushed() {

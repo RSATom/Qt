@@ -39,8 +39,10 @@
 
 #include <QtTest/private/qabstracttestlogger_p.h>
 #include <QtTest/qtestassert.h>
+#include <qtestresult_p.h>
 
 #include <QtCore/qbytearray.h>
+#include <QtCore/qstring.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -121,6 +123,29 @@ void QAbstractTestLogger::stopLogging()
 {
 }
 
+void QAbstractTestLogger::addMessage(QtMsgType type, const QMessageLogContext &context,
+                                     const QString &message)
+{
+    QAbstractTestLogger::MessageTypes messageType = [=]() {
+        switch (type) {
+        case QtDebugMsg: return QAbstractTestLogger::QDebug;
+        case QtInfoMsg: return QAbstractTestLogger::QInfo;
+        case QtCriticalMsg: return QAbstractTestLogger::QSystem;
+        case QtWarningMsg: return QAbstractTestLogger::QWarning;
+        case QtFatalMsg: return QAbstractTestLogger::QFatal;
+        }
+        Q_UNREACHABLE();
+        return QAbstractTestLogger::QFatal;
+    }();
+
+    QString formattedMessage = qFormatLogMessage(type, context, message);
+
+    // Note that we explicitly ignore the file and line of the context here,
+    // as that's what QTest::messageHandler used to do when calling the same
+    // overload directly.
+    addMessage(messageType, formattedMessage);
+}
+
 namespace QTest
 {
 
@@ -161,6 +186,28 @@ int qt_asprintf(QTestCharBuffer *str, const char *format, ...)
     }
 
     return res;
+}
+
+}
+
+namespace QTestPrivate
+{
+
+void generateTestIdentifier(QTestCharBuffer *identifier, int parts)
+{
+    const char *testObject = parts & TestObject ? QTestResult::currentTestObjectName() : "";
+    const char *testFunction = parts & TestFunction ? (QTestResult::currentTestFunction() ? QTestResult::currentTestFunction() : "UnknownTestFunc") : "";
+    const char *objectFunctionFiller = parts & TestObject && parts & (TestFunction | TestDataTag) ? "::" : "";
+    const char *testFuctionStart = parts & TestFunction ? "(" : "";
+    const char *testFuctionEnd = parts & TestFunction ? ")" : "";
+
+    const char *dataTag = (parts & TestDataTag) && QTestResult::currentDataTag() ? QTestResult::currentDataTag() : "";
+    const char *globalDataTag = (parts & TestDataTag) && QTestResult::currentGlobalDataTag() ? QTestResult::currentGlobalDataTag() : "";
+    const char *tagFiller = (dataTag[0] && globalDataTag[0]) ? ":" : "";
+
+    QTest::qt_asprintf(identifier, "%s%s%s%s%s%s%s%s",
+        testObject, objectFunctionFiller, testFunction, testFuctionStart,
+        globalDataTag, tagFiller, dataTag, testFuctionEnd);
 }
 
 }

@@ -2048,11 +2048,7 @@ void tst_QTcpSocket::connectToLocalHostNoService()
     // port with no service listening.
     QTcpSocket *socket = newSocket();
     socket->connectToHost("localhost", 31415); // no service running here, one suspects
-
-    while(socket->state() == QTcpSocket::HostLookupState || socket->state() == QTcpSocket::ConnectingState) {
-        QTest::qWait(100);
-    }
-    QCOMPARE(socket->state(), QTcpSocket::UnconnectedState);
+    QTRY_COMPARE(socket->state(), QTcpSocket::UnconnectedState);
     delete socket;
 }
 #endif
@@ -2433,7 +2429,17 @@ void tst_QTcpSocket::suddenRemoteDisconnect()
         QString::fromLatin1("Could not start %1: %2").arg(processExe, serverProcess.errorString())));
     while (!serverProcess.canReadLine())
         QVERIFY(serverProcess.waitForReadyRead(10000));
-    QCOMPARE(serverProcess.readLine().data(), QByteArray(server.toLatin1() + "\n").data());
+
+    QByteArray line = serverProcess.readLine();
+
+    // Ignore following print, happens on Qemu:
+    if (line == "getsockopt level=41 optname=26 not yet supported\n") {
+        while (!serverProcess.canReadLine())
+            QVERIFY(serverProcess.waitForReadyRead(10000));
+        line = serverProcess.readLine();
+    }
+
+    QCOMPARE(line.data(), QByteArray(server.toLatin1() + "\n").data());
 
     // Start client
     QProcess clientProcess;
@@ -3131,7 +3137,7 @@ void tst_QTcpSocket::readNotificationsAfterBind()
     if (setProxy)
         return;
 
-    QAbstractSocket socket(QAbstractSocket::TcpSocket, Q_NULLPTR);
+    QAbstractSocket socket(QAbstractSocket::TcpSocket, nullptr);
     QVERIFY2(socket.bind(), "Bind error!");
 
     connect(&socket, SIGNAL(error(QAbstractSocket::SocketError)), &QTestEventLoop::instance(), SLOT(exitLoop()));

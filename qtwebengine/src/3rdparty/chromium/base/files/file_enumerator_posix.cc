@@ -92,11 +92,10 @@ FileEnumerator::FileEnumerator(const FilePath& root_path,
   pending_paths_.push(root_path);
 }
 
-FileEnumerator::~FileEnumerator() {
-}
+FileEnumerator::~FileEnumerator() = default;
 
 FilePath FileEnumerator::Next() {
-  base::ThreadRestrictions::AssertIOAllowed();
+  AssertBlockingAllowed();
 
   ++current_directory_entry_;
 
@@ -157,7 +156,7 @@ FilePath FileEnumerator::Next() {
       const FilePath full_path = root_path_.Append(info.filename_);
       GetStat(full_path, file_type_ & SHOW_SYM_LINKS, &info.stat_);
 
-      const bool is_dir = S_ISDIR(info.stat_.st_mode);
+      const bool is_dir = info.IsDirectory();
 
       if (recursive_ && is_dir)
         pending_paths_.push(full_path);

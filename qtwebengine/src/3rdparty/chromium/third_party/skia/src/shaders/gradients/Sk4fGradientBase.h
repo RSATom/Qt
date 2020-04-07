@@ -11,7 +11,7 @@
 #include "Sk4fGradientPriv.h"
 #include "SkColor.h"
 #include "SkGradientShaderPriv.h"
-#include "SkMatrix.h"
+#include "SkMatrixPriv.h"
 #include "SkNx.h"
 #include "SkPM4f.h"
 #include "SkShaderBase.h"
@@ -60,16 +60,15 @@ public:
 
     uint32_t getFlags() const override { return fFlags; }
 
-    void shadeSpan(int x, int y, SkPMColor dst[], int count) final;
-
     bool isValid() const;
 
 protected:
     Sk4fGradientIntervalBuffer fIntervals;
     SkMatrix                   fDstToPos;
-    SkMatrix::MapXYProc        fDstToPosProc;
+    SkMatrixPriv::MapXYProc    fDstToPosProc;
     uint8_t                    fFlags;
     bool                       fColorsArePremul;
+    bool                       fDither;
 
 private:
     using INHERITED = Context;

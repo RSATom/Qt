@@ -118,7 +118,11 @@ TEST_F(TopSitesDatabaseTest, Version3) {
   EXPECT_TRUE(!memcmp(thumbnails[urls[0].url].thumbnail->front(),
                       kGoogleThumbnail, sizeof(kGoogleThumbnail) - 1));
 
-  ASSERT_TRUE(db.RemoveURL(urls[1]));
+  sql::Transaction transaction(db.db_.get());
+  transaction.Begin();
+  ASSERT_TRUE(db.RemoveURLNoTransaction(urls[1]));
+  transaction.Commit();
+
   db.GetPageThumbnails(&urls, &thumbnails);
   ASSERT_EQ(2u, urls.size());
   ASSERT_EQ(2u, thumbnails.size());
@@ -127,10 +131,6 @@ TEST_F(TopSitesDatabaseTest, Version3) {
 // Version 1 is deprecated, the resulting schema should be current,
 // with no data.
 TEST_F(TopSitesDatabaseTest, Recovery1) {
-  // Recovery module only supports some platforms at this time.
-  if (!sql::Recovery::FullRecoverySupported())
-    return;
-
   // Create an example database.
   EXPECT_TRUE(CreateDatabaseFromSQL(file_name_, "TopSites.v1.sql"));
 
@@ -162,10 +162,6 @@ TEST_F(TopSitesDatabaseTest, Recovery1) {
 }
 
 TEST_F(TopSitesDatabaseTest, Recovery2) {
-  // Recovery module only supports some platforms at this time.
-  if (!sql::Recovery::FullRecoverySupported())
-    return;
-
   // Create an example database.
   EXPECT_TRUE(CreateDatabaseFromSQL(file_name_, "TopSites.v2.sql"));
 
@@ -197,10 +193,6 @@ TEST_F(TopSitesDatabaseTest, Recovery2) {
 }
 
 TEST_F(TopSitesDatabaseTest, Recovery3) {
-  // Recovery module only supports some platforms at this time.
-  if (!sql::Recovery::FullRecoverySupported())
-    return;
-
   // Create an example database.
   EXPECT_TRUE(CreateDatabaseFromSQL(file_name_, "TopSites.v3.sql"));
 
@@ -249,10 +241,10 @@ TEST_F(TopSitesDatabaseTest, Recovery3) {
 
   // Corrupt the thumnails.url auto-index by deleting an element from the table
   // but leaving it in the index.
-  const char kIndexName[] = "sqlite_autoindex_thumbnails_1";
+  static const char kIndexName[] = "sqlite_autoindex_thumbnails_1";
   // TODO(shess): Refactor CorruptTableOrIndex() to make parameterized
   // statements easy.
-  const char kDeleteSql[] =
+  static const char kDeleteSql[] =
       "DELETE FROM thumbnails WHERE url = "
       "'http://www.google.com/chrome/intl/en/welcome.html'";
   EXPECT_TRUE(
@@ -370,9 +362,13 @@ TEST_F(TopSitesDatabaseTest, AddRemoveEditThumbnails) {
   EXPECT_EQ(kUrl0, urls[2].url);
   EXPECT_EQ(mapsUrl, urls[3].url);
 
-  // Change a non-forced URL to forced using UpdatePageRank.
+  sql::Transaction transaction(db.db_.get());
+
+  // Change a non-forced URL to forced using UpdatePageRankNoTransaction.
   url1.last_forced_time = base::Time::FromJsTime(792219600000);  // 8/2/1995
-  db.UpdatePageRank(url1, TopSitesDatabase::kRankOfForcedURL);
+  transaction.Begin();
+  db.UpdatePageRankNoTransaction(url1, TopSitesDatabase::kRankOfForcedURL);
+  transaction.Commit();
 
   db.GetPageThumbnails(&urls, &thumbnails);
   ASSERT_EQ(6u, urls.size());
@@ -394,8 +390,11 @@ TEST_F(TopSitesDatabaseTest, AddRemoveEditThumbnails) {
   EXPECT_EQ(kUrl0, urls[2].url);
   EXPECT_EQ(plusUrl, urls[3].url);  // Plus moves to second non-forced URL.
 
-  // Change a non-forced URL to earlier non-forced using UpdatePageRank.
-  db.UpdatePageRank(url3, 0);
+  // Change a non-forced URL to earlier non-forced using
+  // UpdatePageRankNoTransaction.
+  transaction.Begin();
+  db.UpdatePageRankNoTransaction(url3, 0);
+  transaction.Commit();
 
   db.GetPageThumbnails(&urls, &thumbnails);
   ASSERT_EQ(6u, urls.size());
@@ -417,7 +416,9 @@ TEST_F(TopSitesDatabaseTest, AddRemoveEditThumbnails) {
   EXPECT_EQ(plusUrl, urls[4].url);  // Plus moves to third non-forced URL.
 
   // Remove a non-forced URL.
-  db.RemoveURL(url3);
+  transaction.Begin();
+  ASSERT_TRUE(db.RemoveURLNoTransaction(url3));
+  transaction.Commit();
 
   db.GetPageThumbnails(&urls, &thumbnails);
   ASSERT_EQ(5u, urls.size());
@@ -427,13 +428,54 @@ TEST_F(TopSitesDatabaseTest, AddRemoveEditThumbnails) {
   EXPECT_EQ(kUrl0, urls[2].url);
 
   // Remove a forced URL.
-  db.RemoveURL(url2);
+  transaction.Begin();
+  ASSERT_TRUE(db.RemoveURLNoTransaction(url2));
+  transaction.Commit();
 
   db.GetPageThumbnails(&urls, &thumbnails);
   ASSERT_EQ(4u, urls.size());
   ASSERT_EQ(4u, thumbnails.size());
   EXPECT_EQ(mapsUrl, urls[0].url);
   EXPECT_EQ(kUrl0, urls[1].url);
+}
+
+TEST_F(TopSitesDatabaseTest, ApplyDelta) {
+  ASSERT_TRUE(CreateDatabaseFromSQL(file_name_, "TopSites.v3.sql"));
+
+  TopSitesDatabase db;
+  ASSERT_TRUE(db.Init(file_name_));
+
+  GURL mapsUrl = GURL("http://maps.google.com/");
+
+  TopSitesDelta delta;
+  // Delete kUrl0. Now db has kUrl1 and kUrl2.
+  MostVisitedURL url_to_delete(kUrl0, base::ASCIIToUTF16("Google"));
+  delta.deleted.push_back(url_to_delete);
+
+  // Add a new URL, not forced, rank = 0. Now db has mapsUrl, kUrl1 and kUrl2.
+  MostVisitedURLWithRank url_to_add;
+  url_to_add.url = MostVisitedURL(mapsUrl, base::ASCIIToUTF16("Google Maps"));
+  url_to_add.rank = 0;
+  delta.added.push_back(url_to_add);
+
+  // Move kUrl1 by updating its rank to 2. Now db has mapsUrl, kUrl2 and kUrl1.
+  MostVisitedURLWithRank url_to_move;
+  url_to_move.url = MostVisitedURL(kUrl1, base::ASCIIToUTF16("Google Chrome"));
+  url_to_move.rank = 2;
+  delta.moved.push_back(url_to_move);
+
+  // Update db.
+  db.ApplyDelta(delta);
+
+  // Read db and verify.
+  MostVisitedURLList urls;
+  std::map<GURL, Images> thumbnails;
+  db.GetPageThumbnails(&urls, &thumbnails);
+  ASSERT_EQ(3u, urls.size());
+  ASSERT_EQ(3u, thumbnails.size());
+  EXPECT_EQ(mapsUrl, urls[0].url);
+  EXPECT_EQ(kUrl2, urls[1].url);
+  EXPECT_EQ(kUrl1, urls[2].url);
 }
 
 }  // namespace history

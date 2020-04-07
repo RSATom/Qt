@@ -54,21 +54,21 @@
 #include <QtCore/private/qglobal_p.h>
 #include "QtCore/qtextcodec.h"
 
-QT_BEGIN_NAMESPACE
+QT_REQUIRE_CONFIG(textcodec);
 
-#ifndef QT_NO_TEXTCODEC
+QT_BEGIN_NAMESPACE
 
 class QLatin1Codec : public QTextCodec
 {
 public:
     ~QLatin1Codec();
 
-    QString convertToUnicode(const char *, int, ConverterState *) const Q_DECL_OVERRIDE;
-    QByteArray convertFromUnicode(const QChar *, int, ConverterState *) const Q_DECL_OVERRIDE;
+    QString convertToUnicode(const char *, int, ConverterState *) const override;
+    QByteArray convertFromUnicode(const QChar *, int, ConverterState *) const override;
 
-    QByteArray name() const Q_DECL_OVERRIDE;
-    QList<QByteArray> aliases() const Q_DECL_OVERRIDE;
-    int mibEnum() const Q_DECL_OVERRIDE;
+    QByteArray name() const override;
+    QList<QByteArray> aliases() const override;
+    int mibEnum() const override;
 };
 
 
@@ -78,15 +78,13 @@ class QLatin15Codec: public QTextCodec
 public:
     ~QLatin15Codec();
 
-    QString convertToUnicode(const char *, int, ConverterState *) const Q_DECL_OVERRIDE;
-    QByteArray convertFromUnicode(const QChar *, int, ConverterState *) const Q_DECL_OVERRIDE;
+    QString convertToUnicode(const char *, int, ConverterState *) const override;
+    QByteArray convertFromUnicode(const QChar *, int, ConverterState *) const override;
 
-    QByteArray name() const Q_DECL_OVERRIDE;
-    QList<QByteArray> aliases() const Q_DECL_OVERRIDE;
-    int mibEnum() const Q_DECL_OVERRIDE;
+    QByteArray name() const override;
+    QList<QByteArray> aliases() const override;
+    int mibEnum() const override;
 };
-
-#endif // QT_NO_TEXTCODEC
 
 QT_END_NAMESPACE
 

@@ -11,6 +11,9 @@
 #include "compiler/preprocessor/Macro.h"
 #include "compiler/preprocessor/SourceLocation.h"
 
+namespace angle
+{
+
 namespace pp
 {
 
@@ -26,6 +29,7 @@ class DirectiveParser : public Lexer
                     Diagnostics *diagnostics,
                     DirectiveHandler *directiveHandler,
                     int maxMacroExpansionDepth);
+    ~DirectiveParser() override;
 
     void lex(Token *token) override;
 
@@ -78,5 +82,7 @@ class DirectiveParser : public Lexer
 };
 
 }  // namespace pp
+
+}  // namespace angle
 
 #endif  // COMPILER_PREPROCESSOR_DIRECTIVEPARSER_H_

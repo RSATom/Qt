@@ -1,0 +1,34 @@
+QCoreApplicationPrivate_init_entry()
+QCoreApplicationPrivate_init_exit()
+
+QFactoryLoader_update(const QString &fileName)
+
+QLibraryPrivate_load_entry(const QString &fileName)
+QLibraryPrivate_load_exit(bool success)
+
+QEvent_ctor(QEvent *event, int type)
+QEvent_dtor(QEvent *event, int type)
+
+QCoreApplication_postEvent_entry(QObject *receiver, QEvent *event, int type)
+QCoreApplication_postEvent_event_compressed(QObject *receiver, QEvent *event)
+QCoreApplication_postEvent_event_posted(QObject *receiver, QEvent *event, int type)
+
+QCoreApplication_sendEvent(QObject *receiver, QEvent *event, int type)
+QCoreApplication_sendSpontaneousEvent(QObject *receiver, QEvent *event, int type)
+
+QCoreApplication_notify_entry(QObject *receiver, QEvent *event, int type)
+QCoreApplication_notify_event_filtered(QObject *receiver, QEvent *event, int type)
+QCoreApplication_notify_before_delivery(QObject *receiver, QEvent *event, int type)
+QCoreApplication_notify_after_delivery(QObject *receiver, QEvent *event, int type, bool consumed)
+
+QObject_ctor(QObject *object)
+QObject_dtor(QObject *object)
+
+QMetaObject_activate_begin_signal(QObject *sender, int signalIndex)
+QMetaObject_activate_end_signal(QObject *sender, int signalIndex)
+QMetaObject_activate_begin_slot(QObject *receiver, int slotIndex)
+QMetaObject_activate_end_slot(QObject *receiver, int slotIndex)
+QMetaObject_activate_begin_slot_functor(void *slotObject)
+QMetaObject_activate_end_slot_functor(void *slotObject)
+QMetaObject_activate_begin_declarative_signal(QObject *sender, int signalIndex)
+QMetaObject_activate_end_declarative_signal(QObject *sender, int signalIndex)

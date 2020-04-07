@@ -61,14 +61,27 @@ class Q_LOCATION_PRIVATE_EXPORT QGeoRouteParser : public QObject
 {
     Q_OBJECT
     Q_DECLARE_PRIVATE(QGeoRouteParser)
-
+    Q_PROPERTY(TrafficSide trafficSide READ trafficSide WRITE setTrafficSide NOTIFY trafficSideChanged)
+    Q_ENUMS(TrafficSide)
 public:
+    enum TrafficSide {
+        RightHandTraffic,
+        LeftHandTraffic
+    };
     virtual ~QGeoRouteParser();
     QGeoRouteReply::Error parseReply(QList<QGeoRoute> &routes, QString &errorString, const QByteArray &reply) const;
     QUrl requestUrl(const QGeoRouteRequest &request, const QString &prefix) const;
 
+    TrafficSide trafficSide() const;
+
+public Q_SLOTS:
+    void setTrafficSide(TrafficSide trafficSide);
+
+Q_SIGNALS:
+    void trafficSideChanged(TrafficSide trafficSide);
+
 protected:
-    QGeoRouteParser(QGeoRouteParserPrivate &dd, QObject *parent = Q_NULLPTR);
+    QGeoRouteParser(QGeoRouteParserPrivate &dd, QObject *parent = nullptr);
 
 private:
     Q_DISABLE_COPY(QGeoRouteParser)

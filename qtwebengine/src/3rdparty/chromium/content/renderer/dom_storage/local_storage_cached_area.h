@@ -11,19 +11,28 @@
 #include "base/memory/ref_counted.h"
 #include "base/strings/nullable_string16.h"
 #include "content/common/content_export.h"
-#include "content/common/leveldb_wrapper.mojom.h"
+#include "content/common/dom_storage/dom_storage_map.h"
+#include "content/common/possibly_associated_interface_ptr.h"
 #include "mojo/public/cpp/bindings/associated_binding.h"
+#include "third_party/blink/public/mojom/dom_storage/storage_area.mojom.h"
+#include "third_party/blink/public/platform/web_scoped_virtual_time_pauser.h"
 #include "url/gurl.h"
 #include "url/origin.h"
 
+namespace blink {
+namespace mojom {
+class SessionStorageNamespace;
+class StoragePartitionService;
+}  // namespace mojom
+
+namespace scheduler {
+class WebThreadScheduler;
+}
+}  // namespace blink
+
 namespace content {
-class DOMStorageMap;
 class LocalStorageArea;
 class LocalStorageCachedAreas;
-
-namespace mojom {
-class StoragePartitionService;
-}
 
 // An in-process implementation of LocalStorage using a LevelDB Mojo service.
 // Maintains a complete cache of the origin's Map of key/value pairs for fast
@@ -33,18 +42,28 @@ class StoragePartitionService;
 // callbacks.
 // There is one LocalStorageCachedArea for potentially many LocalStorageArea
 // objects.
+// TODO(dmurph): Rename to remove LocalStorage.
 class CONTENT_EXPORT LocalStorageCachedArea
-    : public mojom::LevelDBObserver,
+    : public blink::mojom::StorageAreaObserver,
       public base::RefCounted<LocalStorageCachedArea> {
  public:
   LocalStorageCachedArea(
+      const std::string& namespace_id,
       const url::Origin& origin,
-      mojom::StoragePartitionService* storage_partition_service,
-      LocalStorageCachedAreas* cached_areas);
+      blink::mojom::SessionStorageNamespace* session_namespace,
+      LocalStorageCachedAreas* cached_areas,
+      blink::scheduler::WebThreadScheduler* main_thread_scheduler);
+  LocalStorageCachedArea(
+      const url::Origin& origin,
+      blink::mojom::StoragePartitionService* storage_partition_service,
+      LocalStorageCachedAreas* cached_areas,
+      blink::scheduler::WebThreadScheduler* main_thread_scheduler);
 
   // These correspond to blink::WebStorageArea.
   unsigned GetLength();
-  base::NullableString16 GetKey(unsigned index);
+  // See DOMStorageMap for the meaning of |did_decrease_iterator|.
+  base::NullableString16 GetKey(unsigned index,
+                                bool* did_decrease_iterator = nullptr);
   base::NullableString16 GetItem(const base::string16& key);
   bool SetItem(const base::string16& key,
                const base::string16& value,
@@ -60,7 +79,12 @@ class CONTENT_EXPORT LocalStorageCachedArea
   void AreaCreated(LocalStorageArea* area);
   void AreaDestroyed(LocalStorageArea* area);
 
+  const std::string& namespace_id() { return namespace_id_; }
   const url::Origin& origin() { return origin_; }
+
+  size_t memory_used() const { return map_ ? map_->memory_used() : 0; }
+
+  bool IsSessionStorage() const { return !namespace_id_.empty(); }
 
  private:
   friend class base::RefCounted<LocalStorageCachedArea>;
@@ -68,10 +92,16 @@ class CONTENT_EXPORT LocalStorageCachedArea
 
   friend class LocalStorageCachedAreaTest;
 
-  static base::string16 Uint8VectorToString16(
-      const std::vector<uint8_t>& input);
-  static std::vector<uint8_t> String16ToUint8Vector(
-      const base::string16& input);
+  enum class FormatOption {
+    kLocalStorageDetectFormat,
+    kSessionStorageForceUTF16,
+    kSessionStorageForceUTF8
+  };
+
+  static base::string16 Uint8VectorToString16(const std::vector<uint8_t>& input,
+                                              FormatOption format_option);
+  static std::vector<uint8_t> String16ToUint8Vector(const base::string16& input,
+                                                    FormatOption format_option);
 
   // LevelDBObserver:
   void KeyAdded(const std::vector<uint8_t>& key,
@@ -85,6 +115,7 @@ class CONTENT_EXPORT LocalStorageCachedArea
                   const std::vector<uint8_t>& old_value,
                   const std::string& source) override;
   void AllDeleted(const std::string& source) override;
+  void ShouldSendOldValueOnMutations(bool value) override;
 
   // Common helper for KeyAdded() and KeyChanged()
   void KeyAddedOrChanged(const std::vector<uint8_t>& key,
@@ -96,22 +127,35 @@ class CONTENT_EXPORT LocalStorageCachedArea
   // fetched already.
   void EnsureLoaded();
 
-  void OnSetItemComplete(const base::string16& key, bool success);
-  void OnRemoveItemComplete(const base::string16& key, bool success);
-  void OnClearComplete(bool success);
+  void OnSetItemComplete(const base::string16& key,
+                         blink::WebScopedVirtualTimePauser virtual_time_pauser,
+                         bool success);
+  void OnRemoveItemComplete(
+      const base::string16& key,
+      blink::WebScopedVirtualTimePauser virtual_time_pauser,
+      bool success);
+  void OnClearComplete(blink::WebScopedVirtualTimePauser virtual_time_pauser,
+                       bool success);
   void OnGetAllComplete(bool success);
 
   // Resets the object back to its newly constructed state.
   void Reset();
 
+  std::string namespace_id_;
   url::Origin origin_;
   scoped_refptr<DOMStorageMap> map_;
   std::map<base::string16, int> ignore_key_mutations_;
   bool ignore_all_mutations_ = false;
-  mojom::LevelDBWrapperPtr leveldb_;
-  mojo::AssociatedBinding<mojom::LevelDBObserver> binding_;
+  // See ShouldSendOldValueOnMutations().
+  bool should_send_old_value_on_mutations_ = true;
+  content::PossiblyAssociatedInterfacePtr<blink::mojom::StorageArea> leveldb_;
+  mojo::AssociatedBinding<blink::mojom::StorageAreaObserver> binding_;
   LocalStorageCachedAreas* cached_areas_;
   std::map<std::string, LocalStorageArea*> areas_;
+
+  // Not owned.
+  blink::scheduler::WebThreadScheduler* main_thread_scheduler_;
+
   base::WeakPtrFactory<LocalStorageCachedArea> weak_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(LocalStorageCachedArea);

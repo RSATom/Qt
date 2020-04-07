@@ -1,6 +1,6 @@
 # ![](https://github.com/googlei18n/libaddressinput/wiki/libaddressinput-icon-70x55.png) libaddressinput
 
-[![Build Status](https://drone.io/github.com/googlei18n/libaddressinput/status.png)](https://drone.io/github.com/googlei18n/libaddressinput/latest)
+[![Build Status](https://travis-ci.org/googlei18n/libaddressinput.svg?branch=master)](https://travis-ci.org/googlei18n/libaddressinput)
 
 The _libaddressinput_ project consists of two different libraries (one
 implemented in C++, one implemented in Java for Android) that use
@@ -18,16 +18,10 @@ values.
 
 ## C++
 
-The C++ library (in very portable C++03) of _libaddressinput_ is the backend for
-[requestAutocomplete()](http://www.html5rocks.com/en/tutorials/forms/requestautocomplete/)
-in [Chromium](http://www.chromium.org/Home). The source code for that is a good
-example of how to use this library to implement a complex feature in a real
-application:
+The C++ library (in very portable C++11) of _libaddressinput_ is used in address-related
+projects in [Chromium](http://www.chromium.org/Home).
 
-https://src.chromium.org/viewvc/chrome/trunk/src/third_party/libaddressinput/
 https://chromium.googlesource.com/chromium/src/+/master/third_party/libaddressinput/
-
-Video: [Easy International Checkout with Chrome](https://www.youtube.com/watch?v=ljYeHwGgzQk)
 
 ## Java
 

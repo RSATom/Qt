@@ -6,10 +6,18 @@
 #define COMPONENTS_CRASH_CONTENT_BROWSER_CRASH_DUMP_MANAGER_ANDROID_H_
 
 #include <map>
+#include <memory>
+#include <utility>
 
+#include "base/android/application_status_listener.h"
 #include "base/files/file_path.h"
+#include "base/files/platform_file.h"
+#include "base/lazy_instance.h"
+#include "base/memory/ref_counted.h"
 #include "base/synchronization/lock.h"
-#include "components/crash/content/browser/crash_dump_observer_android.h"
+#include "components/crash/content/browser/child_exit_observer_android.h"
+#include "content/public/common/child_process_host.h"
+#include "content/public/common/process_type.h"
 
 namespace breakpad {
 
@@ -23,53 +31,71 @@ namespace breakpad {
 // This class creates these file descriptors and associates them with render
 // processes and takes the appropriate action when the render process
 // terminates.
-class CrashDumpManager : public breakpad::CrashDumpObserver::Client {
+class CrashDumpManager {
  public:
-  CrashDumpManager(const base::FilePath& crash_dump_dir, int descriptor_id);
-  ~CrashDumpManager() override;
+  enum class CrashDumpStatus {
+    // The dump for this process did not have a path set. This can happen if the
+    // dump was already processed or if crash dump generation is not turned on.
+    kMissingDump,
 
-  // breakpad::CrashDumpObserver::Client implementation:
-  void OnChildStart(int child_process_id,
-                    content::FileDescriptorInfo* mappings) override;
-  void OnChildExit(int child_process_id,
-                   base::ProcessHandle pid,
-                   content::ProcessType process_type,
-                   base::TerminationStatus termination_status,
-                   base::android::ApplicationState app_state) override;
+    // The crash dump was empty.
+    kEmptyDump,
 
- private:
-  typedef std::map<int, base::FilePath> ChildProcessIDToMinidumpPath;
+    // Minidump file was found, but could not be copied to crash dir.
+    kDumpProcessingFailed,
 
-  // This enum is used to back a UMA histogram, and must be treated as
-  // append-only.
-  enum ExitStatus {
-    EMPTY_MINIDUMP_WHILE_RUNNING,
-    EMPTY_MINIDUMP_WHILE_PAUSED,
-    EMPTY_MINIDUMP_WHILE_BACKGROUND,
-    VALID_MINIDUMP_WHILE_RUNNING,
-    VALID_MINIDUMP_WHILE_PAUSED,
-    VALID_MINIDUMP_WHILE_BACKGROUND,
-    MINIDUMP_STATUS_COUNT
+    // The crash dump is valid.
+    kValidDump,
   };
 
-  static void ProcessMinidump(const base::FilePath& minidump_path,
-                              const base::FilePath& crash_dump_dir,
-                              base::ProcessHandle pid,
-                              content::ProcessType process_type,
-                              base::TerminationStatus termination_status,
-                              base::android::ApplicationState app_state);
+  // Class which aids in uploading a crash dump.
+  class Uploader {
+   public:
+    virtual ~Uploader() = default;
+
+    // Attempts to upload the specified child process minidump.
+    virtual void TryToUploadCrashDump(
+        const base::FilePath& crash_dump_path) = 0;
+  };
+
+  static CrashDumpManager* GetInstance();
+
+  void ProcessMinidumpFileFromChild(
+      base::FilePath crash_dump_dir,
+      const crash_reporter::ChildExitObserver::TerminationInfo& info);
+
+  base::ScopedFD CreateMinidumpFileForChild(int process_host_id);
+
+  // Careful, |uploader_| is accessed on one of the task scheduler threads.
+  // Tests should set this before any other threads are spawned.
+  void set_uploader_for_testing(std::unique_ptr<Uploader> uploader) {
+    DCHECK(uploader);
+    uploader_ = std::move(uploader);
+  }
+
+ private:
+  friend struct base::LazyInstanceTraitsBase<CrashDumpManager>;
+
+  CrashDumpManager();
+  ~CrashDumpManager();
+
+  CrashDumpStatus ProcessMinidumpFileFromChildInternal(
+      base::FilePath crash_dump_dir,
+      const crash_reporter::ChildExitObserver::TerminationInfo& info);
+
+  typedef std::map<int, base::FilePath> ChildProcessIDToMinidumpPath;
+
+  void SetMinidumpPath(int process_host_id,
+                       const base::FilePath& minidump_path);
+  bool GetMinidumpPath(int process_host_id, base::FilePath* minidump_path);
+
+  // Should never be nullptr.
+  std::unique_ptr<Uploader> uploader_;
 
   // This map should only be accessed with its lock aquired as it is accessed
   // from the PROCESS_LAUNCHER and UI threads.
-  base::Lock child_process_id_to_minidump_path_lock_;
-  ChildProcessIDToMinidumpPath child_process_id_to_minidump_path_;
-
-  // The directory in which temporary minidump files should be created.
-  base::FilePath crash_dump_dir_;
-
-  // The id used to identify the file descriptor in the set of file
-  // descriptor mappings passed to the child process.
-  int descriptor_id_;
+  base::Lock process_host_id_to_minidump_path_lock_;
+  ChildProcessIDToMinidumpPath process_host_id_to_minidump_path_;
 
   DISALLOW_COPY_AND_ASSIGN(CrashDumpManager);
 };

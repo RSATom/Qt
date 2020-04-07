@@ -32,11 +32,11 @@
 #include "designer_enums.h"
 #include "qdesigner_toolwindow.h"
 
-#include <QtDesigner/QDesignerOptionsPageInterface>
+#include <QtDesigner/abstractoptionspage.h>
 
-#include <QtCore/QObject>
-#include <QtCore/QPointer>
-#include <QtWidgets/QWidget>
+#include <QtCore/qobject.h>
+#include <QtCore/qpointer.h>
+#include <QtWidgets/qwidget.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -100,10 +100,10 @@ class QDesignerAppearanceOptionsPage : public QObject, public QDesignerOptionsPa
 public:
     QDesignerAppearanceOptionsPage(QDesignerFormEditorInterface *core);
 
-    QString name() const;
-    QWidget *createPage(QWidget *parent);
-    virtual void apply();
-    virtual void finish();
+    QString name() const override;
+    QWidget *createPage(QWidget *parent) override;
+    void apply() override;
+    void finish() override;
 
 signals:
     void settingsChanged();

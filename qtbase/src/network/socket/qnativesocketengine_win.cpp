@@ -209,7 +209,7 @@ static inline void qt_socket_getPortAndAddress(SOCKET socketDescriptor, const qt
 static void convertToLevelAndOption(QNativeSocketEngine::SocketOption opt,
                                     QAbstractSocket::NetworkLayerProtocol socketProtocol, int &level, int &n)
 {
-    n = 0;
+    n = -1;
     level = SOL_SOCKET; // default
 
     switch (opt) {
@@ -281,6 +281,9 @@ static void convertToLevelAndOption(QNativeSocketEngine::SocketOption opt,
             n = IP_HOPLIMIT;
         }
         break;
+
+    case QAbstractSocketEngine::PathMtuInformation:
+        break;          // not supported on Windows
     }
 }
 
@@ -291,7 +294,8 @@ static inline QAbstractSocket::SocketType qt_socket_getType(qintptr socketDescri
 {
     int value = 0;
     QT_SOCKLEN_T valueSize = sizeof(value);
-    if (::getsockopt(socketDescriptor, SOL_SOCKET, SO_TYPE, (char *) &value, &valueSize) != 0) {
+    if (::getsockopt(socketDescriptor, SOL_SOCKET, SO_TYPE,
+                     reinterpret_cast<char *>(&value), &valueSize) != 0) {
         WS_ERROR_DEBUG(WSAGetLastError());
     } else {
         if (value == SOCK_STREAM)
@@ -358,7 +362,7 @@ bool QNativeSocketEnginePrivate::createNewSocket(QAbstractSocket::SocketType soc
 #ifdef HANDLE_FLAG_INHERIT
         if (socket != INVALID_SOCKET) {
             // make non inheritable the old way
-            BOOL handleFlags = SetHandleInformation((HANDLE)socket, HANDLE_FLAG_INHERIT, 0);
+            BOOL handleFlags = SetHandleInformation(reinterpret_cast<HANDLE>(socket), HANDLE_FLAG_INHERIT, 0);
 #ifdef QNATIVESOCKETENGINE_DEBUG
             qDebug() << "QNativeSocketEnginePrivate::createNewSocket - set inheritable" << handleFlags;
 #else
@@ -471,9 +475,11 @@ int QNativeSocketEnginePrivate::option(QNativeSocketEngine::SocketOption opt) co
     QT_SOCKOPTLEN_T len = sizeof(v);
 
     convertToLevelAndOption(opt, socketProtocol, level, n);
-    if (getsockopt(socketDescriptor, level, n, (char *) &v, &len) == 0)
-        return v;
-    WS_ERROR_DEBUG(WSAGetLastError());
+    if (n != -1) {
+        if (getsockopt(socketDescriptor, level, n, (char *) &v, &len) == 0)
+            return v;
+        WS_ERROR_DEBUG(WSAGetLastError());
+    }
     return -1;
 }
 
@@ -491,9 +497,7 @@ bool QNativeSocketEnginePrivate::setOption(QNativeSocketEngine::SocketOption opt
     switch (opt) {
     case QNativeSocketEngine::SendBufferSocketOption:
         // see QTBUG-30478 SO_SNDBUF should not be used on Vista or later
-        if (QSysInfo::windowsVersion() >= QSysInfo::WV_VISTA)
-            return false;
-        break;
+        return false;
     case QNativeSocketEngine::NonBlockingSocketOption:
         {
         unsigned long buf = v;
@@ -516,6 +520,8 @@ bool QNativeSocketEnginePrivate::setOption(QNativeSocketEngine::SocketOption opt
 
     int n, level;
     convertToLevelAndOption(opt, socketProtocol, level, n);
+    if (n == -1)
+        return false;
     if (::setsockopt(socketDescriptor, level, n, (char*)&v, sizeof(v)) != 0) {
         WS_ERROR_DEBUG(WSAGetLastError());
         return false;
@@ -571,7 +577,6 @@ bool QNativeSocketEnginePrivate::fetchConnectionParameters()
     DWORD ipv6only = 0;
     QT_SOCKOPTLEN_T optlen = sizeof(ipv6only);
     if (localAddress == QHostAddress::AnyIPv6
-        && QSysInfo::windowsVersion() >= QSysInfo::WV_6_0
         && !getsockopt(socketDescriptor, IPPROTO_IPV6, IPV6_V6ONLY, (char*)&ipv6only, &optlen )) {
             if (!ipv6only) {
                 socketProtocol = QAbstractSocket::AnyIPProtocol;
@@ -632,10 +637,8 @@ bool QNativeSocketEnginePrivate::nativeConnect(const QHostAddress &address, quin
 
     if ((socketProtocol == QAbstractSocket::IPv6Protocol || socketProtocol == QAbstractSocket::AnyIPProtocol) && address.toIPv4Address()) {
         //IPV6_V6ONLY option must be cleared to connect to a V4 mapped address
-        if (QSysInfo::windowsVersion() >= QSysInfo::WV_6_0) {
-            DWORD ipv6only = 0;
-            ipv6only = ::setsockopt(socketDescriptor, IPPROTO_IPV6, IPV6_V6ONLY, (char*)&ipv6only, sizeof(ipv6only) );
-        }
+        DWORD ipv6only = 0;
+        ipv6only = ::setsockopt(socketDescriptor, IPPROTO_IPV6, IPV6_V6ONLY, (char*)&ipv6only, sizeof(ipv6only) );
     }
 
     forever {
@@ -1230,6 +1233,8 @@ qint64 QNativeSocketEnginePrivate::nativeReceiveDatagram(char *data, qint64 maxL
             // it is ok the buffer was to small if bytesRead is larger than
             // maxLength then assume bytes read is really maxLenth
             ret = qint64(bytesRead) > maxLength ? maxLength : qint64(bytesRead);
+            if (options & QNativeSocketEngine::WantDatagramSender)
+                qt_socket_getPortAndAddress(socketDescriptor, &aa, &header->senderPort, &header->senderAddress);
         } else {
             WS_ERROR_DEBUG(err);
             switch (err) {
@@ -1439,7 +1444,7 @@ qint64 QNativeSocketEnginePrivate::nativeWrite(const char *data, qint64 len)
 
     for (;;) {
         WSABUF buf;
-        buf.buf = (char*)data + ret;
+        buf.buf = const_cast<char*>(data) + ret;
         buf.len = bytesToSend;
         DWORD flags = 0;
         DWORD bytesWritten = 0;

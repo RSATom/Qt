@@ -21,13 +21,14 @@ InputDeviceController::InputDeviceController() = default;
 InputDeviceController::~InputDeviceController() = default;
 
 void InputDeviceController::AddInterface(
-    service_manager::BinderRegistryWithArgs<
-        const service_manager::BindSourceInfo&>* registry) {
+    service_manager::BinderRegistry* registry,
+    const scoped_refptr<base::SequencedTaskRunner>& task_runner) {
   // base::Unretained() is safe here as this class is tied to the life of
   // Service, so that no requests should come in after this class is deleted.
   registry->AddInterface<mojom::InputDeviceController>(
       base::Bind(&InputDeviceController::BindInputDeviceControllerRequest,
-                 base::Unretained(this)));
+                 base::Unretained(this)),
+      task_runner);
 }
 
 void InputDeviceController::AddKeyboardDeviceObserver(
@@ -97,6 +98,10 @@ void InputDeviceController::SetPrimaryButtonRight(bool right) {
   GetInputController()->SetPrimaryButtonRight(right);
 }
 
+void InputDeviceController::SetMouseReverseScroll(bool enabled) {
+  GetInputController()->SetMouseReverseScroll(enabled);
+}
+
 void InputDeviceController::GetTouchDeviceStatus(
     GetTouchDeviceStatusCallback callback) {
   GetInputController()->GetTouchDeviceStatus(std::move(callback));
@@ -162,8 +167,7 @@ void InputDeviceController::NotifyObserver(
 }
 
 void InputDeviceController::BindInputDeviceControllerRequest(
-    mojom::InputDeviceControllerRequest request,
-    const service_manager::BindSourceInfo& source_info) {
+    mojom::InputDeviceControllerRequest request) {
   bindings_.AddBinding(this, std::move(request));
 }
 

@@ -40,7 +40,7 @@
 QT_CHARTS_BEGIN_NAMESPACE
 /*!
     \class QCategoryAxis
-    \inmodule Qt Charts
+    \inmodule QtCharts
     \brief The QCategoryAxis class places named ranges on the axis.
 
     This class can be used to explain the underlying data by adding labeled categories.
@@ -381,7 +381,7 @@ void QCategoryAxisPrivate::initializeGraphics(QGraphicsItem *parent)
     QAbstractAxisPrivate::initializeGraphics(parent);
 }
 
+QT_CHARTS_END_NAMESPACE
+
 #include "moc_qcategoryaxis.cpp"
 #include "moc_qcategoryaxis_p.cpp"
-
-QT_CHARTS_END_NAMESPACE

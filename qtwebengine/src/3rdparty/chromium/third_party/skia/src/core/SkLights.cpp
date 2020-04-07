@@ -35,24 +35,13 @@ sk_sp<SkLights> SkLights::MakeFromBuffer(SkReadBuffer& buf) {
             return nullptr;
         }
 
-        sk_sp<SkImage> depthMap;
-        bool hasShadowMap = buf.readBool();
-        if (hasShadowMap) {
-            if (!(depthMap = buf.readImage())) {
-                return nullptr;
-            }
-        }
-
-        bool isRadial = buf.readBool();
         if (isPoint) {
             SkScalar intensity;
             intensity = buf.readScalar();
-            Light light = Light::MakePoint(color, dirOrPos, intensity, isRadial);
-            light.setShadowMap(depthMap);
+            Light light = Light::MakePoint(color, dirOrPos, intensity);
             builder.add(light);
         } else {
-            Light light = Light::MakeDirectional(color, dirOrPos, isRadial);
-            light.setShadowMap(depthMap);
+            Light light = Light::MakeDirectional(color, dirOrPos);
             builder.add(light);
         }
     }
@@ -61,10 +50,10 @@ sk_sp<SkLights> SkLights::MakeFromBuffer(SkReadBuffer& buf) {
 }
 
 static SkColor3f xform_color(const SkColor3f& color, SkColorSpaceXformer* xformer) {
-    SkColor origColor = SkColorSetARGBInline(0xFF,
-                                             SkScalarRoundToInt(color.fX),
-                                             SkScalarRoundToInt(color.fY),
-                                             SkScalarRoundToInt(color.fZ));
+    SkColor origColor = SkColorSetARGB(0xFF,
+                                       SkScalarRoundToInt(color.fX),
+                                       SkScalarRoundToInt(color.fY),
+                                       SkScalarRoundToInt(color.fZ));
     SkColor xformedColor = xformer->apply(origColor);
     return SkColor3f::Make(SkIntToScalar(SkGetPackedR32(xformedColor)),
                            SkIntToScalar(SkGetPackedG32(xformedColor)),
@@ -75,7 +64,7 @@ sk_sp<SkLights> SkLights::makeColorSpace(SkColorSpaceXformer* xformer) const {
     SkLights::Builder builder;
     for (int i = 0; i < this->numLights(); i++) {
         Light light(fLights[i].type(), xform_color(fLights[i].color(), xformer),
-                    fLights[i].fDirOrPos, fLights[i].fIntensity, fLights[i].isRadial());
+                    fLights[i].fDirOrPos, fLights[i].fIntensity);
         builder.add(light);
     }
     builder.setAmbientLightColor(xform_color(fAmbientLightColor, xformer));
@@ -95,15 +84,6 @@ void SkLights::flatten(SkWriteBuffer& buf) const {
         buf.writeScalarArray(&light.color().fX, 3);
         buf.writeScalarArray(&light.dir().fX, 3);
 
-        bool hasShadowMap = light.getShadowMap() != nullptr;
-        buf.writeBool(hasShadowMap);
-
-        bool isRadial = light.isRadial();
-        buf.writeBool(isRadial);
-
-        if (hasShadowMap) {
-            buf.writeImage(light.getShadowMap());
-        }
         if (isPoint) {
             buf.writeScalar(light.intensity());
         }

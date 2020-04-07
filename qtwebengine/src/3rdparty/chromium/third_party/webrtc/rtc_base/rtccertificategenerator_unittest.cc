@@ -8,15 +8,16 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/rtc_base/rtccertificategenerator.h"
+#include "rtc_base/rtccertificategenerator.h"
 
 #include <memory>
 
-#include "webrtc/rtc_base/checks.h"
-#include "webrtc/rtc_base/gunit.h"
-#include "webrtc/rtc_base/logging.h"
-#include "webrtc/rtc_base/optional.h"
-#include "webrtc/rtc_base/thread.h"
+#include "absl/types/optional.h"
+#include "rtc_base/checks.h"
+#include "rtc_base/gunit.h"
+#include "rtc_base/logging.h"
+#include "rtc_base/refcountedobject.h"
+#include "rtc_base/thread.h"
 
 namespace rtc {
 
@@ -29,7 +30,7 @@ class RTCCertificateGeneratorFixture : public RTCCertificateGeneratorCallback {
     RTC_CHECK(signaling_thread_);
     RTC_CHECK(worker_thread_->Start());
     generator_.reset(
-      new RTCCertificateGenerator(signaling_thread_, worker_thread_.get()));
+        new RTCCertificateGenerator(signaling_thread_, worker_thread_.get()));
   }
   ~RTCCertificateGeneratorFixture() override {}
 
@@ -66,12 +67,10 @@ class RTCCertificateGeneratorFixture : public RTCCertificateGeneratorCallback {
   bool generate_async_completed_;
 };
 
-class RTCCertificateGeneratorTest
-    : public testing::Test {
+class RTCCertificateGeneratorTest : public testing::Test {
  public:
   RTCCertificateGeneratorTest()
       : fixture_(new RefCountedObject<RTCCertificateGeneratorFixture>()) {}
-  ~RTCCertificateGeneratorTest() {}
 
  protected:
   static const int kGenerationTimeoutMs = 10000;
@@ -80,23 +79,19 @@ class RTCCertificateGeneratorTest
 };
 
 TEST_F(RTCCertificateGeneratorTest, GenerateECDSA) {
-  EXPECT_TRUE(RTCCertificateGenerator::GenerateCertificate(
-      KeyParams::ECDSA(),
-      Optional<uint64_t>()));
+  EXPECT_TRUE(RTCCertificateGenerator::GenerateCertificate(KeyParams::ECDSA(),
+                                                           absl::nullopt));
 }
 
 TEST_F(RTCCertificateGeneratorTest, GenerateRSA) {
-  EXPECT_TRUE(RTCCertificateGenerator::GenerateCertificate(
-      KeyParams::RSA(),
-      Optional<uint64_t>()));
+  EXPECT_TRUE(RTCCertificateGenerator::GenerateCertificate(KeyParams::RSA(),
+                                                           absl::nullopt));
 }
 
 TEST_F(RTCCertificateGeneratorTest, GenerateAsyncECDSA) {
   EXPECT_FALSE(fixture_->certificate());
-  fixture_->generator()->GenerateCertificateAsync(
-      KeyParams::ECDSA(),
-      Optional<uint64_t>(),
-      fixture_);
+  fixture_->generator()->GenerateCertificateAsync(KeyParams::ECDSA(),
+                                                  absl::nullopt, fixture_);
   // Until generation has completed, the certificate is null. Since this is an
   // async call, generation must not have completed until we process messages
   // posted to this thread (which is done by |EXPECT_TRUE_WAIT|).
@@ -115,15 +110,14 @@ TEST_F(RTCCertificateGeneratorTest, GenerateWithExpires) {
 
   // Generate a certificate that expires immediately.
   scoped_refptr<RTCCertificate> cert_a =
-      RTCCertificateGenerator::GenerateCertificate(
-          KeyParams::ECDSA(), Optional<uint64_t>(0));
+      RTCCertificateGenerator::GenerateCertificate(KeyParams::ECDSA(), 0);
   EXPECT_TRUE(cert_a);
 
   // Generate a certificate that expires in one minute.
   const uint64_t kExpiresMs = 60000;
   scoped_refptr<RTCCertificate> cert_b =
-      RTCCertificateGenerator::GenerateCertificate(
-          KeyParams::ECDSA(), Optional<uint64_t>(kExpiresMs));
+      RTCCertificateGenerator::GenerateCertificate(KeyParams::ECDSA(),
+                                                   kExpiresMs);
   EXPECT_TRUE(cert_b);
 
   // Verify that |cert_b| expires approximately |kExpiresMs| after |cert_a|
@@ -131,20 +125,18 @@ TEST_F(RTCCertificateGeneratorTest, GenerateWithExpires) {
   EXPECT_GT(cert_b->Expires(), cert_a->Expires());
   uint64_t expires_diff = cert_b->Expires() - cert_a->Expires();
   EXPECT_GE(expires_diff, kExpiresMs);
-  EXPECT_LE(expires_diff, kExpiresMs + 2*kGenerationTimeoutMs + 1000);
+  EXPECT_LE(expires_diff, kExpiresMs + 2 * kGenerationTimeoutMs + 1000);
 }
 
 TEST_F(RTCCertificateGeneratorTest, GenerateWithInvalidParamsShouldFail) {
   KeyParams invalid_params = KeyParams::RSA(0, 0);
   EXPECT_FALSE(invalid_params.IsValid());
 
-  EXPECT_FALSE(RTCCertificateGenerator::GenerateCertificate(
-      invalid_params, Optional<uint64_t>()));
+  EXPECT_FALSE(RTCCertificateGenerator::GenerateCertificate(invalid_params,
+                                                            absl::nullopt));
 
-  fixture_->generator()->GenerateCertificateAsync(
-      invalid_params,
-      Optional<uint64_t>(),
-      fixture_);
+  fixture_->generator()->GenerateCertificateAsync(invalid_params, absl::nullopt,
+                                                  fixture_);
   EXPECT_TRUE_WAIT(fixture_->GenerateAsyncCompleted(), kGenerationTimeoutMs);
   EXPECT_FALSE(fixture_->certificate());
 }

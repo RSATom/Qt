@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef V8_INSPECTOR_INSPECTEDCONTEXT_H_
-#define V8_INSPECTOR_INSPECTEDCONTEXT_H_
+#ifndef V8_INSPECTOR_INSPECTED_CONTEXT_H_
+#define V8_INSPECTOR_INSPECTED_CONTEXT_H_
 
 #include <unordered_map>
 #include <unordered_set>
@@ -47,6 +47,8 @@ class InspectedContext {
   friend class V8InspectorImpl;
   InspectedContext(V8InspectorImpl*, const V8ContextInfo&, int contextId);
 
+  class WeakCallbackData;
+
   V8InspectorImpl* m_inspector;
   v8::Global<v8::Context> m_context;
   int m_contextId;
@@ -56,10 +58,11 @@ class InspectedContext {
   const String16 m_auxData;
   std::unordered_set<int> m_reportedSessionIds;
   std::unordered_map<int, std::unique_ptr<InjectedScript>> m_injectedScripts;
+  WeakCallbackData* m_weakCallbackData;
 
   DISALLOW_COPY_AND_ASSIGN(InspectedContext);
 };
 
 }  // namespace v8_inspector
 
-#endif  // V8_INSPECTOR_INSPECTEDCONTEXT_H_
+#endif  // V8_INSPECTOR_INSPECTED_CONTEXT_H_

@@ -93,7 +93,7 @@ int main(int argc, char *argv[])
 
     //! [Start Advertising]
     const QScopedPointer<QLowEnergyController> leController(QLowEnergyController::createPeripheral());
-    const QScopedPointer<QLowEnergyService> service(leController->addService(serviceData));
+    QScopedPointer<QLowEnergyService> service(leController->addService(serviceData));
     leController->startAdvertising(QLowEnergyAdvertisingParameters(), advertisingData,
                                    advertisingData);
     //! [Start Advertising]
@@ -123,9 +123,12 @@ int main(int argc, char *argv[])
     heartbeatTimer.start(1000);
     //! [Provide Heartbeat]
 
-    auto reconnect = [&leController, advertisingData]() {
-        leController->startAdvertising(QLowEnergyAdvertisingParameters(), advertisingData,
-                                       advertisingData);
+    auto reconnect = [&leController, advertisingData, &service, serviceData]()
+    {
+        service.reset(leController->addService(serviceData));
+        if (!service.isNull())
+            leController->startAdvertising(QLowEnergyAdvertisingParameters(),
+                                           advertisingData, advertisingData);
     };
     QObject::connect(leController.data(), &QLowEnergyController::disconnected, reconnect);
 

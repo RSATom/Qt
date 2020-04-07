@@ -42,13 +42,13 @@
 #include <QtAndroidExtras/QAndroidJniEnvironment>
 
 #include "android/inputstreamthread_p.h"
-#include "qbluetoothsocket_p.h"
+#include "qbluetoothsocket_android_p.h"
 
 QT_BEGIN_NAMESPACE
 
 Q_DECLARE_LOGGING_CATEGORY(QT_BT_ANDROID)
 
-InputStreamThread::InputStreamThread(QBluetoothSocketPrivate *socket)
+InputStreamThread::InputStreamThread(QBluetoothSocketPrivateAndroid *socket)
     : QObject(), m_socket_p(socket), expectClosure(false)
 {
 }

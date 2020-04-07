@@ -45,6 +45,8 @@
 #include <QPainter>
 #include <QWindow>
 #include <QScreen>
+#include <QGraphicsView>
+#include <QGraphicsTextItem>
 #include <QFile>
 #include <QMouseEvent>
 #include <QTemporaryDir>
@@ -59,7 +61,7 @@
 class DemoContainerBase
 {
 public:
-    DemoContainerBase() : m_widget(0) {}
+    DemoContainerBase() : m_widget(nullptr) {}
     virtual ~DemoContainerBase() {}
     QString name() { return option().names().first(); }
     virtual QCommandLineOption &option() = 0;
@@ -155,7 +157,7 @@ static qreal getScreenFactorWithoutPixelDensity(const QScreen *screen)
 
 static inline qreal getGlobalScaleFactor()
 {
-    QScreen *noScreen = 0;
+    QScreen *noScreen = nullptr;
     return QHighDpiScaling::factor(noScreen);
 }
 
@@ -333,6 +335,60 @@ void PixmapPainter::paintEvent(QPaintEvent *)
     x+=dx * 2; p.drawImage(QRect(x, y, pixmapPointSize * 2, pixmapPointSize * 2), image2X);
     x+=dx * 2; p.drawImage(QRect(x, y, pixmapPointSize * 2, pixmapPointSize * 2), imageLarge);
  }
+
+class TiledPixmapPainter : public QWidget
+{
+public:
+    QPixmap pixmap1X;
+    QPixmap pixmap2X;
+    QPixmap pixmapLarge;
+
+    TiledPixmapPainter();
+    void paintEvent(QPaintEvent *event);
+};
+
+TiledPixmapPainter::TiledPixmapPainter()
+{
+    pixmap1X = QPixmap(":/qticon32.png");
+    pixmap2X = QPixmap(":/qticon32@2x.png");
+    pixmapLarge = QPixmap(":/qticon64.png");
+}
+
+void TiledPixmapPainter::paintEvent(QPaintEvent *event)
+{
+    Q_UNUSED(event);
+    QPainter p(this);
+
+    int xoff = 10;
+    int yoff = 10;
+    int tiles = 4;
+    int pixmapEdge = 32;
+    int tileAreaEdge = pixmapEdge * tiles;
+
+    // Expected behavior for both 1x and 2x dislays:
+    // 1x pixmap   : 4 x 4 tiles
+    // large pixmap: 2 x 2 tiles
+    // 2x pixmap   : 4 x 4 tiles
+    //
+    // On a 2x display the 2x pimxap tiles
+    // will be drawn in high resolution.
+    p.drawTiledPixmap(QRect(xoff, yoff, tileAreaEdge, tileAreaEdge), pixmap1X);
+    yoff += tiles * pixmapEdge + 10;
+    p.drawTiledPixmap(QRect(xoff, yoff, tileAreaEdge, tileAreaEdge), pixmapLarge);
+    yoff += tiles * pixmapEdge + 10;
+    p.drawTiledPixmap(QRect(xoff, yoff, tileAreaEdge, tileAreaEdge), pixmap2X);
+
+    // Again, with an offset. The offset is in
+    // device-independent pixels.
+    QPoint offset(40, 40); // larger than the pixmap edge size to exercise that code path
+    yoff = 10;
+    xoff = 20 + tiles * pixmapEdge ;
+    p.drawTiledPixmap(QRect(xoff, yoff, tileAreaEdge, tileAreaEdge), pixmap1X, offset);
+    yoff += tiles * pixmapEdge + 10;
+    p.drawTiledPixmap(QRect(xoff, yoff, tileAreaEdge, tileAreaEdge), pixmapLarge, offset);
+    yoff += tiles * pixmapEdge + 10;
+    p.drawTiledPixmap(QRect(xoff, yoff, tileAreaEdge, tileAreaEdge), pixmap2X, offset);
+}
 
 class Labels : public QWidget
 {
@@ -579,7 +635,7 @@ template <typename T>
 void apiTestdevicePixelRatioGetter()
 {
     if (0) {
-        T *t = 0;
+        T *t = nullptr;
         t->devicePixelRatio();
     }
 }
@@ -588,7 +644,7 @@ template <typename T>
 void apiTestdevicePixelRatioSetter()
 {
     if (0) {
-        T *t = 0;
+        T *t = nullptr;
         t->setDevicePixelRatio(2.0);
     }
 }
@@ -791,7 +847,7 @@ class CursorTester : public QWidget
 {
 public:
     CursorTester()
-        :moveLabel(0), moving(false)
+        :moveLabel(nullptr), moving(false)
     {
     }
 
@@ -889,7 +945,7 @@ class ScreenDisplayer : public QWidget
 {
 public:
     ScreenDisplayer()
-        : QWidget(), moveLabel(0), scaleFactor(1.0)
+        : QWidget(), moveLabel(nullptr), scaleFactor(1.0)
     {
     }
 
@@ -1098,6 +1154,28 @@ void PhysicalSizeTest::paintEvent(QPaintEvent *)
 
 }
 
+class GraphicsViewCaching : public QGraphicsView
+{
+public:
+    GraphicsViewCaching() {
+        QGraphicsScene *scene = new QGraphicsScene(0, 0, 400, 400);
+
+        QGraphicsTextItem *item = scene->addText("NoCache");
+        item->setCacheMode(QGraphicsItem::NoCache);
+        item->setPos(10, 10);
+
+        item = scene->addText("ItemCoordinateCache");
+        item->setCacheMode(QGraphicsItem::ItemCoordinateCache);
+        item->setPos(10, 30);
+
+        item = scene->addText("DeviceCoordinateCache");
+        item->setCacheMode(QGraphicsItem::DeviceCoordinateCache);
+        item->setPos(10, 50);
+
+        setScene(scene);
+    }
+};
+
 int main(int argc, char **argv)
 {
     QApplication app(argc, argv);
@@ -1119,6 +1197,7 @@ int main(int argc, char **argv)
 
     DemoContainerList demoList;
     demoList << new DemoContainer<PixmapPainter>("pixmap", "Test pixmap painter");
+    demoList << new DemoContainer<TiledPixmapPainter>("tiledpixmap", "Test tiled pixmap painter");
     demoList << new DemoContainer<Labels>("label", "Test Labels");
     demoList << new DemoContainer<MainWindow>("mainwindow", "Test QMainWindow");
     demoList << new DemoContainer<StandardIcons>("standard-icons", "Test standard icons");
@@ -1132,7 +1211,7 @@ int main(int argc, char **argv)
     demoList << new DemoContainer<CursorTester>("cursorpos", "Test cursor and window positioning");
     demoList << new DemoContainer<ScreenDisplayer>("screens", "Test screen and window positioning");
     demoList << new DemoContainer<PhysicalSizeTest>("physicalsize", "Test manual highdpi support using physicalDotsPerInch");
-
+    demoList << new DemoContainer<GraphicsViewCaching>("graphicsview", "Test QGraphicsView caching");
 
     foreach (DemoContainerBase *demo, demoList)
         parser.addOption(demo->option());

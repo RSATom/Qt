@@ -7,7 +7,7 @@
 
 #include "base/macros.h"
 #include "base/single_thread_task_runner.h"
-#include "services/device/public/interfaces/sensor_provider.mojom.h"
+#include "services/device/public/mojom/sensor_provider.mojom.h"
 
 namespace device {
 
@@ -30,13 +30,11 @@ class SensorProviderImpl final : public mojom::SensorProvider {
 
   // SensorProvider implementation.
   void GetSensor(mojom::SensorType type,
-                 mojom::SensorRequest sensor_request,
                  GetSensorCallback callback) override;
 
   // Helper callback method to return created sensors.
   void SensorCreated(mojom::SensorType type,
                      mojo::ScopedSharedBufferHandle cloned_handle,
-                     mojom::SensorRequest sensor_request,
                      GetSensorCallback callback,
                      scoped_refptr<PlatformSensor> sensor);
 

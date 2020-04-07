@@ -53,19 +53,15 @@
 #include "chatserver.h"
 #include "chatclient.h"
 
-#include <qbluetoothuuid.h>
-#include <qbluetoothserver.h>
-#include <qbluetoothservicediscoveryagent.h>
-#include <qbluetoothdeviceinfo.h>
-#include <qbluetoothlocaldevice.h>
+#include <QtCore/qdebug.h>
+
+#include <QtBluetooth/qbluetoothdeviceinfo.h>
+#include <QtBluetooth/qbluetoothlocaldevice.h>
+#include <QtBluetooth/qbluetoothuuid.h>
 
 #ifdef Q_OS_ANDROID
 #include <QtAndroidExtras/QtAndroid>
 #endif
-
-#include <QTimer>
-
-#include <QDebug>
 
 static const QLatin1String serviceUuid("e8e10f95-1a70-4b27-9ccf-02010264e9c8");
 #ifdef Q_OS_ANDROID
@@ -73,14 +69,14 @@ static const QLatin1String reverseUuid("c8e96402-0102-cf9c-274b-701a950fe1e8");
 #endif
 
 Chat::Chat(QWidget *parent)
-    : QDialog(parent),  currentAdapterIndex(0), ui(new Ui_Chat)
+    : QDialog(parent), ui(new Ui_Chat)
 {
     //! [Construct UI]
     ui->setupUi(this);
 
-    connect(ui->quitButton, SIGNAL(clicked()), this, SLOT(accept()));
-    connect(ui->connectButton, SIGNAL(clicked()), this, SLOT(connectClicked()));
-    connect(ui->sendButton, SIGNAL(clicked()), this, SLOT(sendClicked()));
+    connect(ui->quitButton, &QPushButton::clicked, this, &Chat::accept);
+    connect(ui->connectButton, &QPushButton::clicked, this, &Chat::connectClicked);
+    connect(ui->sendButton, &QPushButton::clicked, this, &Chat::sendClicked);
     //! [Construct UI]
 
     localAdapters = QBluetoothLocalDevice::allDevices();
@@ -93,19 +89,21 @@ Chat::Chat(QWidget *parent)
                                   arg(localAdapters.at(0).address().toString()));
         ui->secondAdapter->setText(localAdapters.at(1).address().toString());
         ui->firstAdapter->setChecked(true);
-        connect(ui->firstAdapter, SIGNAL(clicked()), this, SLOT(newAdapterSelected()));
-        connect(ui->secondAdapter, SIGNAL(clicked()), this, SLOT(newAdapterSelected()));
+        connect(ui->firstAdapter, &QRadioButton::clicked, this, &Chat::newAdapterSelected);
+        connect(ui->secondAdapter, &QRadioButton::clicked, this, &Chat::newAdapterSelected);
         QBluetoothLocalDevice adapter(localAdapters.at(0).address());
         adapter.setHostMode(QBluetoothLocalDevice::HostDiscoverable);
     }
 
     //! [Create Chat Server]
     server = new ChatServer(this);
-    connect(server, SIGNAL(clientConnected(QString)), this, SLOT(clientConnected(QString)));
-    connect(server, SIGNAL(clientDisconnected(QString)), this, SLOT(clientDisconnected(QString)));
-    connect(server, SIGNAL(messageReceived(QString,QString)),
-            this, SLOT(showMessage(QString,QString)));
-    connect(this, SIGNAL(sendMessage(QString)), server, SLOT(sendMessage(QString)));
+    connect(server, QOverload<const QString &>::of(&ChatServer::clientConnected),
+            this, &Chat::clientConnected);
+    connect(server, QOverload<const QString &>::of(&ChatServer::clientDisconnected),
+            this,  QOverload<const QString &>::of(&Chat::clientDisconnected));
+    connect(server, &ChatServer::messageReceived,
+            this,  &Chat::showMessage);
+    connect(this, &Chat::sendMessage, server, &ChatServer::sendMessage);
     server->startServer();
     //! [Create Chat Server]
 
@@ -137,6 +135,7 @@ void Chat::connected(const QString &name)
 {
     ui->chat->insertPlainText(QString::fromLatin1("Joined chat with %1.\n").arg(name));
 }
+//! [connected]
 
 void Chat::newAdapterSelected()
 {
@@ -163,7 +162,11 @@ int Chat::adapterFromUserSelection() const
     }
     return result;
 }
-//! [connected]
+
+void Chat::reactOnSocketError(const QString &error)
+{
+    ui->chat->insertPlainText(error);
+}
 
 //! [clientDisconnected]
 void Chat::clientDisconnected()
@@ -206,11 +209,15 @@ void Chat::connectClicked()
         ChatClient *client = new ChatClient(this);
 qDebug() << "Connecting...";
 
-        connect(client, SIGNAL(messageReceived(QString,QString)),
-                this, SLOT(showMessage(QString,QString)));
-        connect(client, SIGNAL(disconnected()), this, SLOT(clientDisconnected()));
-        connect(client, SIGNAL(connected(QString)), this, SLOT(connected(QString)));
-        connect(this, SIGNAL(sendMessage(QString)), client, SLOT(sendMessage(QString)));
+        connect(client, &ChatClient::messageReceived,
+                this, &Chat::showMessage);
+        connect(client, &ChatClient::disconnected,
+                this, QOverload<>::of(&Chat::clientDisconnected));
+        connect(client, QOverload<const QString &>::of(&ChatClient::connected),
+                this, &Chat::connected);
+        connect(client, &ChatClient::socketErrorOccurred,
+                this, &Chat::reactOnSocketError);
+        connect(this, &Chat::sendMessage, client, &ChatClient::sendMessage);
 qDebug() << "Start client";
         client->startClient(service);
 

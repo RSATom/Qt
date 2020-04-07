@@ -5,6 +5,7 @@
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
 #include <memory>
+#include <vector>
 
 #include "core/fxcrt/fx_system.h"
 
@@ -15,10 +16,10 @@
 #include "core/fxge/apple/apple_int.h"
 #include "core/fxge/cfx_cliprgn.h"
 #include "core/fxge/cfx_facecache.h"
+#include "core/fxge/cfx_font.h"
 #include "core/fxge/cfx_gemodule.h"
 #include "core/fxge/cfx_renderdevice.h"
 #include "core/fxge/fx_freetype.h"
-#include "core/fxge/fx_text_int.h"
 
 #ifndef _SKIA_SUPPORT_
 
@@ -56,8 +57,8 @@ bool CGDrawGlyphRun(CGContextRef pContext,
     if (!pFont->GetPlatformFont())
       return false;
   }
-  CFX_FixedBufGrow<uint16_t, 32> glyph_indices(nChars);
-  CFX_FixedBufGrow<CGPoint, 32> glyph_positions(nChars);
+  std::vector<uint16_t> glyph_indices(nChars);
+  std::vector<CGPoint> glyph_positions(nChars);
   for (int i = 0; i < nChars; i++) {
     glyph_indices[i] =
         pCharPos[i].m_ExtGID ? pCharPos[i].m_ExtGID : pCharPos[i].m_GlyphIndex;
@@ -75,9 +76,9 @@ bool CGDrawGlyphRun(CGContextRef pContext,
     new_matrix.d = -new_matrix.d;
   }
   quartz2d.setGraphicsTextMatrix(pContext, &new_matrix);
-  return quartz2d.drawGraphicsString(pContext, pFont->GetPlatformFont(),
-                                     font_size, glyph_indices, glyph_positions,
-                                     nChars, argb, nullptr);
+  return quartz2d.drawGraphicsString(
+      pContext, pFont->GetPlatformFont(), font_size, glyph_indices.data(),
+      glyph_positions.data(), nChars, argb, nullptr);
 }
 
 }  // namespace
@@ -130,7 +131,7 @@ bool CFX_AggDeviceDriver::DrawDeviceText(int nChars,
     rect_cg =
         CGRectMake(m_pClipRgn->GetBox().left, m_pClipRgn->GetBox().top,
                    m_pClipRgn->GetBox().Width(), m_pClipRgn->GetBox().Height());
-    CFX_RetainPtr<CFX_DIBitmap> pClipMask = m_pClipRgn->GetMask();
+    RetainPtr<CFX_DIBitmap> pClipMask = m_pClipRgn->GetMask();
     if (pClipMask) {
       CGDataProviderRef pClipMaskDataProvider = CGDataProviderCreateWithData(
           nullptr, pClipMask->GetBuffer(),
@@ -167,8 +168,8 @@ void CFX_FaceCache::DestroyPlatform() {}
 std::unique_ptr<CFX_GlyphBitmap> CFX_FaceCache::RenderGlyph_Nativetext(
     const CFX_Font* pFont,
     uint32_t glyph_index,
-    const CFX_Matrix* pMatrix,
-    int dest_width,
+    const CFX_Matrix& matrix,
+    uint32_t dest_width,
     int anti_alias) {
   return nullptr;
 }

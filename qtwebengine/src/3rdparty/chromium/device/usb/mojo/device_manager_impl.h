@@ -14,7 +14,7 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/scoped_observer.h"
-#include "device/usb/public/interfaces/device_manager.mojom.h"
+#include "device/usb/public/mojom/device_manager.mojom.h"
 #include "device/usb/usb_service.h"
 #include "mojo/public/cpp/bindings/strong_binding.h"
 
@@ -42,14 +42,14 @@ class DeviceManagerImpl : public mojom::UsbDeviceManager,
 
   // DeviceManager implementation:
   void GetDevices(mojom::UsbEnumerationOptionsPtr options,
-                  const GetDevicesCallback& callback) override;
+                  GetDevicesCallback callback) override;
   void GetDevice(const std::string& guid,
                  mojom::UsbDeviceRequest device_request) override;
   void SetClient(mojom::UsbDeviceManagerClientPtr client) override;
 
   // Callbacks to handle the async responses from the underlying UsbService.
   void OnGetDevices(mojom::UsbEnumerationOptionsPtr options,
-                    const GetDevicesCallback& callback,
+                    GetDevicesCallback callback,
                     const std::vector<scoped_refptr<UsbDevice>>& devices);
 
   // UsbService::Observer implementation:

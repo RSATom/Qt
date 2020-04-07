@@ -58,9 +58,9 @@
 
 QScxmlStateMachineLoader::QScxmlStateMachineLoader(QObject *parent)
     : QObject(parent)
-    , m_dataModel(Q_NULLPTR)
-    , m_implicitDataModel(Q_NULLPTR)
-    , m_stateMachine(Q_NULLPTR)
+    , m_dataModel(nullptr)
+    , m_implicitDataModel(nullptr)
+    , m_stateMachine(nullptr)
 {
 }
 
@@ -93,8 +93,8 @@ void QScxmlStateMachineLoader::setSource(const QUrl &source)
     QUrl oldSource = m_source;
     if (m_stateMachine) {
         delete m_stateMachine;
-        m_stateMachine = Q_NULLPTR;
-        m_implicitDataModel = Q_NULLPTR;
+        m_stateMachine = nullptr;
+        m_implicitDataModel = nullptr;
     }
 
     if (parse(source)) {

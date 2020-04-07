@@ -56,6 +56,7 @@
 #include "qbluetoothuuid.h"
 
 #include <QString>
+#include <QtCore/qhash.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -78,6 +79,7 @@ public:
 
     QBluetoothDeviceInfo::DataCompleteness serviceUuidsCompleteness;
     QList<QBluetoothUuid> serviceUuids;
+    QHash<quint16, QByteArray> manufacturerData;
     QBluetoothDeviceInfo::CoreConfigurations deviceCoreConfiguration;
 
     QBluetoothUuid deviceUuid;

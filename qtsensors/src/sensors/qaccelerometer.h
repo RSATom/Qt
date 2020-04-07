@@ -69,7 +69,7 @@ class Q_SENSORS_EXPORT QAccelerometerFilter : public QSensorFilter
 public:
     virtual bool filter(QAccelerometerReading *reading) = 0;
 private:
-    bool filter(QSensorReading *reading);
+    bool filter(QSensorReading *reading) override;
 };
 
 class QAccelerometerPrivate;

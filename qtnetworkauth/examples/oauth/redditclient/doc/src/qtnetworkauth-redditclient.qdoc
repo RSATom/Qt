@@ -39,6 +39,8 @@
 
     To use this example, a consumer key from Reddit is needed.
     To register the application visit https://www.reddit.com/prefs/apps/.
+    \note Choose \e {installed app} when creating the application.
+    \note Set the redirect URI to \e http://127.0.0.1:1337/ in Reddit settings.
 
     \include examples-run.qdocinc
 */

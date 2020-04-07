@@ -1,4 +1,5 @@
 requires(contains(QT_CONFIG, opengl))
+requires(qtHaveModule(network))
 
 load(qt_parts)
 

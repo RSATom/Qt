@@ -6,6 +6,8 @@
 
 #include <string.h>
 
+#include <limits>
+
 #include "base/logging.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
@@ -14,20 +16,18 @@ namespace net {
 namespace ntlm {
 
 NtlmBufferWriter::NtlmBufferWriter(size_t buffer_len)
-    : buffer_len_(buffer_len), cursor_(0) {
-  buffer_.reset(new uint8_t[buffer_len]());
-}
+    : buffer_(buffer_len, 0), cursor_(0) {}
 
-NtlmBufferWriter::~NtlmBufferWriter() {}
+NtlmBufferWriter::~NtlmBufferWriter() = default;
 
 bool NtlmBufferWriter::CanWrite(size_t len) const {
+  if (len == 0)
+    return true;
+
   if (!GetBufferPtr())
     return false;
 
   DCHECK_LE(GetCursor(), GetLength());
-
-  if (len == 0)
-    return true;
 
   return (len <= GetLength()) && (GetCursor() <= GetLength() - len);
 }
@@ -48,23 +48,22 @@ bool NtlmBufferWriter::WriteFlags(NegotiateFlags flags) {
   return WriteUInt32(static_cast<uint32_t>(flags));
 }
 
-bool NtlmBufferWriter::WriteBytes(const uint8_t* buffer, size_t len) {
-  if (!CanWrite(len))
+bool NtlmBufferWriter::WriteBytes(base::span<const uint8_t> bytes) {
+  if (bytes.size() == 0)
+    return true;
+
+  if (!CanWrite(bytes.size()))
     return false;
 
-  memcpy(reinterpret_cast<void*>(GetBufferPtrAtCursor()),
-         reinterpret_cast<const void*>(buffer), len);
-
-  AdvanceCursor(len);
+  memcpy(GetBufferPtrAtCursor(), bytes.data(), bytes.size());
+  AdvanceCursor(bytes.size());
   return true;
 }
 
-bool NtlmBufferWriter::WriteBytes(base::StringPiece bytes) {
-  return WriteBytes(reinterpret_cast<const uint8_t*>(bytes.data()),
-                    bytes.length());
-}
-
 bool NtlmBufferWriter::WriteZeros(size_t count) {
+  if (count == 0)
+    return true;
+
   if (!CanWrite(count))
     return false;
 
@@ -78,9 +77,35 @@ bool NtlmBufferWriter::WriteSecurityBuffer(SecurityBuffer sec_buf) {
          WriteUInt32(sec_buf.offset);
 }
 
+bool NtlmBufferWriter::WriteAvPairHeader(TargetInfoAvId avid, uint16_t avlen) {
+  if (!CanWrite(kAvPairHeaderLen))
+    return false;
+
+  bool result = WriteUInt16(static_cast<uint16_t>(avid)) && WriteUInt16(avlen);
+
+  DCHECK(result);
+  return result;
+}
+
+bool NtlmBufferWriter::WriteAvPairTerminator() {
+  return WriteAvPairHeader(TargetInfoAvId::kEol, 0);
+}
+
+bool NtlmBufferWriter::WriteAvPair(const AvPair& pair) {
+  if (!WriteAvPairHeader(pair))
+    return false;
+
+  if (pair.avid == TargetInfoAvId::kFlags) {
+    if (pair.avlen != sizeof(uint32_t))
+      return false;
+    return WriteUInt32(static_cast<uint32_t>(pair.flags));
+  } else {
+    return WriteBytes(pair.buffer);
+  }
+}
+
 bool NtlmBufferWriter::WriteUtf8String(const std::string& str) {
-  return WriteBytes(reinterpret_cast<const uint8_t*>(str.c_str()),
-                    str.length());
+  return WriteBytes(base::as_bytes(base::make_span(str)));
 }
 
 bool NtlmBufferWriter::WriteUtf16AsUtf8String(const base::string16& str) {
@@ -94,7 +119,13 @@ bool NtlmBufferWriter::WriteUtf8AsUtf16String(const std::string& str) {
 }
 
 bool NtlmBufferWriter::WriteUtf16String(const base::string16& str) {
-  size_t num_bytes = str.length() * 2;
+  if (str.size() > std::numeric_limits<size_t>::max() / 2)
+    return false;
+
+  size_t num_bytes = str.size() * 2;
+  if (num_bytes == 0)
+    return true;
+
   if (!CanWrite(num_bytes))
     return false;
 
@@ -116,7 +147,7 @@ bool NtlmBufferWriter::WriteUtf16String(const base::string16& str) {
 }
 
 bool NtlmBufferWriter::WriteSignature() {
-  return WriteBytes(kSignature, kSignatureLen);
+  return WriteBytes(kSignature);
 }
 
 bool NtlmBufferWriter::WriteMessageType(MessageType message_type) {

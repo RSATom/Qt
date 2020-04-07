@@ -20,11 +20,16 @@ Polymer({
       observer: 'depthChanged_',
     },
 
+    isOpen: {
+      type: Boolean,
+      computed: 'computeIsOpen_(openState_, depth)',
+    },
+
     /** @type {BookmarkNode} */
     item_: Object,
 
-    /** @private */
-    isClosed_: Boolean,
+    /** @private {?boolean} */
+    openState_: Boolean,
 
     /** @private */
     selectedFolder_: String,
@@ -52,17 +57,18 @@ Polymer({
   },
 
   observers: [
-    'updateAriaExpanded_(hasChildFolder_, isClosed_)',
+    'updateAriaExpanded_(hasChildFolder_, isOpen)',
+    'scrollIntoViewIfNeeded_(isSelectedFolder_)',
   ],
 
   /** @override */
   attached: function() {
-    this.watch('item_', function(state) {
-      return state.nodes[this.itemId];
-    }.bind(this));
-    this.watch('isClosed_', function(state) {
-      return state.closedFolders.has(this.itemId);
-    }.bind(this));
+    this.watch('item_', (state) => state.nodes[this.itemId]);
+    this.watch('openState_', (state) => {
+      return state.folderOpenState.has(this.itemId) ?
+          state.folderOpenState.get(this.itemId) :
+          null;
+    });
     this.watch('selectedFolder_', function(state) {
       return state.selectedFolder;
     });
@@ -71,12 +77,6 @@ Polymer({
     });
 
     this.updateFromStore();
-
-    if (this.isSelectedFolder_) {
-      this.async(function() {
-        this.scrollIntoViewIfNeeded();
-      });
-    }
   },
 
   /**
@@ -97,9 +97,9 @@ Polymer({
    * @param {!Event} e
    */
   onKeydown_: function(e) {
-    var yDirection = 0;
-    var xDirection = 0;
-    var handled = true;
+    let yDirection = 0;
+    let xDirection = 0;
+    let handled = true;
     if (e.key == 'ArrowUp') {
       yDirection = -1;
     } else if (e.key == 'ArrowDown') {
@@ -108,6 +108,8 @@ Polymer({
       xDirection = -1;
     } else if (e.key == 'ArrowRight') {
       xDirection = 1;
+    } else if (e.key == ' ') {
+      this.selectFolder_();
     } else {
       handled = false;
     }
@@ -137,15 +139,15 @@ Polymer({
    * @param {!HTMLElement} currentFocus
    */
   changeKeyboardSelection_: function(xDirection, yDirection, currentFocus) {
-    var newFocusFolderNode = null;
-    var isChildFolderNodeFocused =
-        currentFocus.tagName == 'BOOKMARKS-FOLDER-NODE';
+    let newFocusFolderNode = null;
+    const isChildFolderNodeFocused =
+        currentFocus && currentFocus.tagName == 'BOOKMARKS-FOLDER-NODE';
 
     if (xDirection == 1) {
       // The right arrow opens a folder if closed and goes to the first child
       // otherwise.
       if (this.hasChildFolder_) {
-        if (this.isClosed_) {
+        if (!this.isOpen) {
           this.dispatch(
               bookmarks.actions.changeFolderOpen(this.item_.id, true));
         } else {
@@ -155,10 +157,10 @@ Polymer({
     } else if (xDirection == -1) {
       // The left arrow closes a folder if open and goes to the parent
       // otherwise.
-      if (this.hasChildFolder_ && !this.isClosed_) {
+      if (this.hasChildFolder_ && this.isOpen) {
         this.dispatch(bookmarks.actions.changeFolderOpen(this.item_.id, false));
       } else {
-        var parentFolderNode = this.getParentFolderNode_();
+        const parentFolderNode = this.getParentFolderNode_();
         if (parentFolderNode.itemId != ROOT_NODE_ID) {
           parentFolderNode.selectFolder_();
           parentFolderNode.getFocusTarget().focus();
@@ -170,8 +172,8 @@ Polymer({
       return;
 
     // The current node's successor is its first child when open.
-    if (!isChildFolderNodeFocused && yDirection == 1 && !this.isClosed_) {
-      var children = this.getChildFolderNodes_();
+    if (!isChildFolderNodeFocused && yDirection == 1 && this.isOpen) {
+      const children = this.getChildFolderNodes_();
       if (children.length)
         newFocusFolderNode = children[0];
     }
@@ -214,10 +216,10 @@ Polymer({
    *     before/after |child|.
    */
   getNextChild_: function(reverse, child) {
-    var newFocus = null;
-    var children = this.getChildFolderNodes_();
+    let newFocus = null;
+    const children = this.getChildFolderNodes_();
 
-    var index = children.indexOf(child);
+    const index = children.indexOf(child);
     assert(index != -1);
     if (reverse) {
       // A child node's predecessor is either the previous child's last visible
@@ -238,7 +240,7 @@ Polymer({
    * @return {BookmarksFolderNodeElement|null}
    */
   getParentFolderNode_: function() {
-    var parentFolderNode = this.parentNode;
+    let parentFolderNode = this.parentNode;
     while (parentFolderNode &&
            parentFolderNode.tagName != 'BOOKMARKS-FOLDER-NODE') {
       parentFolderNode = parentFolderNode.parentNode || parentFolderNode.host;
@@ -251,8 +253,8 @@ Polymer({
    * @return {BookmarksFolderNodeElement}
    */
   getLastVisibleDescendant_: function() {
-    var children = this.getChildFolderNodes_();
-    if (this.isClosed_ || children.length == 0)
+    const children = this.getChildFolderNodes_();
+    if (!this.isOpen || children.length == 0)
       return this;
 
     return children.pop().getLastVisibleDescendant_();
@@ -286,13 +288,13 @@ Polymer({
   },
 
   /**
-   * Occurs when the drop down arrow is tapped.
+   * Toggles whether the folder is open.
    * @private
    * @param {!Event} e
    */
   toggleFolder_: function(e) {
     this.dispatch(
-        bookmarks.actions.changeFolderOpen(this.itemId, this.isClosed_));
+        bookmarks.actions.changeFolderOpen(this.itemId, !this.isOpen));
     e.stopPropagation();
   },
 
@@ -359,20 +361,54 @@ Polymer({
    * @return {string}
    */
   getTabIndex_: function() {
-    return this.isSelectedFolder_ ? '0' : '-1';
+    // This returns a tab index of 0 for the cached selected folder when the
+    // search is active, even though this node is not technically selected. This
+    // allows the sidebar to be focusable during a search.
+    return this.selectedFolder_ == this.itemId ? '0' : '-1';
   },
 
   /**
    * Sets the 'aria-expanded' accessibility on nodes which need it. Note that
    * aria-expanded="false" is different to having the attribute be undefined.
    * @param {boolean} hasChildFolder
-   * @param {boolean} isClosed
+   * @param {boolean} isOpen
    * @private
    */
-  updateAriaExpanded_: function(hasChildFolder, isClosed) {
+  updateAriaExpanded_: function(hasChildFolder, isOpen) {
     if (hasChildFolder)
-      this.getFocusTarget().setAttribute('aria-expanded', String(!isClosed));
+      this.getFocusTarget().setAttribute('aria-expanded', String(isOpen));
     else
       this.getFocusTarget().removeAttribute('aria-expanded');
+  },
+
+  /**
+   * Scrolls the folder node into view when the folder is selected.
+   * @private
+   */
+  scrollIntoViewIfNeeded_: function() {
+    if (!this.isSelectedFolder_)
+      return;
+
+    this.async(() => this.$.container.scrollIntoViewIfNeeded());
+  },
+
+  /**
+   * @param {?boolean} openState
+   * @param {number} depth
+   * @return {boolean}
+   */
+  computeIsOpen_: function(openState, depth) {
+    return openState != null ? openState :
+                               depth <= FOLDER_OPEN_BY_DEFAULT_DEPTH;
+  },
+
+  /**
+   * @private
+   * @return {string}
+   */
+  getButtonAriaLabel_: function() {
+    return loadTimeData.getStringF(
+        this.isOpen ? 'sidebarNodeCollapseAxLabel' : 'sidebarNodeExpandAxLabel',
+        this.item_.title);
   },
 });

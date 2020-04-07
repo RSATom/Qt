@@ -71,8 +71,8 @@ public:
     QMapboxGL* map() const;
 
     // QSGRenderNode
-    void render(const RenderState *state) Q_DECL_OVERRIDE;
-    StateFlags changedStates() const Q_DECL_OVERRIDE;
+    void render(const RenderState *state) override;
+    StateFlags changedStates() const override;
 
 private:
     QScopedPointer<QMapboxGL> m_map;

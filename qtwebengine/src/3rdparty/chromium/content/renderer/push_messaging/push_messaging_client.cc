@@ -8,24 +8,23 @@
 #include <utility>
 
 #include "base/bind_helpers.h"
-#include "base/memory/ptr_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "content/child/child_thread_impl.h"
-#include "content/child/push_messaging/push_provider.h"
-#include "content/child/service_worker/web_service_worker_registration_impl.h"
 #include "content/common/push_messaging.mojom.h"
 #include "content/public/common/push_messaging_status.mojom.h"
 #include "content/public/common/service_names.mojom.h"
-#include "content/renderer/manifest/manifest_manager.h"
+#include "content/renderer/push_messaging/push_provider.h"
 #include "content/renderer/render_frame_impl.h"
+#include "content/renderer/service_worker/web_service_worker_registration_impl.h"
 #include "services/service_manager/public/cpp/connector.h"
-#include "third_party/WebKit/public/platform/WebString.h"
-#include "third_party/WebKit/public/platform/modules/push_messaging/WebPushError.h"
-#include "third_party/WebKit/public/platform/modules/push_messaging/WebPushSubscription.h"
-#include "third_party/WebKit/public/platform/modules/push_messaging/WebPushSubscriptionOptions.h"
-#include "third_party/WebKit/public/platform/modules/serviceworker/WebServiceWorkerRegistration.h"
-#include "third_party/WebKit/public/web/WebConsoleMessage.h"
-#include "third_party/WebKit/public/web/WebLocalFrame.h"
+#include "third_party/blink/public/mojom/manifest/manifest_manager.mojom.h"
+#include "third_party/blink/public/platform/modules/push_messaging/web_push_error.h"
+#include "third_party/blink/public/platform/modules/push_messaging/web_push_subscription.h"
+#include "third_party/blink/public/platform/modules/push_messaging/web_push_subscription_options.h"
+#include "third_party/blink/public/platform/modules/service_worker/web_service_worker_registration.h"
+#include "third_party/blink/public/platform/web_string.h"
+#include "third_party/blink/public/web/web_console_message.h"
+#include "third_party/blink/public/web/web_local_frame.h"
 #include "url/gurl.h"
 
 namespace content {
@@ -57,11 +56,11 @@ void PushMessagingClient::Subscribe(
   // fetching the manifest.
   if (options.application_server_key.IsEmpty()) {
     RenderFrameImpl::FromRoutingID(routing_id())
-        ->manifest_manager()
-        ->GetManifest(base::Bind(&PushMessagingClient::DidGetManifest,
-                                 base::Unretained(this),
-                                 service_worker_registration, options,
-                                 user_gesture, base::Passed(&callbacks)));
+        ->GetManifestManager()
+        .RequestManifest(base::BindOnce(&PushMessagingClient::DidGetManifest,
+                                        base::Unretained(this),
+                                        service_worker_registration, options,
+                                        user_gesture, std::move(callbacks)));
   } else {
     PushSubscriptionOptions content_options;
     content_options.user_visible_only = options.user_visible_only;
@@ -79,8 +78,7 @@ void PushMessagingClient::DidGetManifest(
     bool user_gesture,
     std::unique_ptr<blink::WebPushSubscriptionCallbacks> callbacks,
     const GURL& manifest_url,
-    const Manifest& manifest,
-    const ManifestDebugInfo&) {
+    const blink::Manifest& manifest) {
   // Get the sender_info from the manifest since it wasn't provided by
   // the caller.
   if (manifest.IsEmpty()) {
@@ -123,8 +121,8 @@ void PushMessagingClient::DoSubscribe(
       routing_id(), service_worker_registration_id, options, user_gesture,
       // Safe to use base::Unretained because |push_messaging_manager_ |is
       // owned by |this|.
-      base::Bind(&PushMessagingClient::DidSubscribe, base::Unretained(this),
-                 base::Passed(&callbacks)));
+      base::BindOnce(&PushMessagingClient::DidSubscribe, base::Unretained(this),
+                     std::move(callbacks)));
 }
 
 void PushMessagingClient::DidSubscribe(
@@ -137,13 +135,15 @@ void PushMessagingClient::DidSubscribe(
   DCHECK(callbacks);
 
   if (status == mojom::PushRegistrationStatus::SUCCESS_FROM_PUSH_SERVICE ||
+      status == mojom::PushRegistrationStatus::
+                    SUCCESS_NEW_SUBSCRIPTION_FROM_PUSH_SERVICE ||
       status == mojom::PushRegistrationStatus::SUCCESS_FROM_CACHE) {
     DCHECK(endpoint);
     DCHECK(options);
     DCHECK(p256dh);
     DCHECK(auth);
 
-    callbacks->OnSuccess(base::MakeUnique<blink::WebPushSubscription>(
+    callbacks->OnSuccess(std::make_unique<blink::WebPushSubscription>(
         endpoint.value(), options.value().user_visible_only,
         blink::WebString::FromLatin1(options.value().sender_info),
         p256dh.value(), auth.value()));

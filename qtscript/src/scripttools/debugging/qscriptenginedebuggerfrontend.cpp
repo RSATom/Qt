@@ -162,7 +162,7 @@ QScriptEngineDebuggerBackendPrivate::~QScriptEngineDebuggerBackendPrivate()
     }
 }
 
-/*!
+/*
   \reimp
 */
 bool QScriptEngineDebuggerBackendPrivate::event(QEvent *e)
@@ -203,7 +203,7 @@ void QScriptEngineDebuggerBackend::processCommand(int id, const QScriptDebuggerC
         d->postEvent(new QScriptDebuggerCommandEvent(id, command));
 }
 
-/*!
+/*
   \reimp
 */
 void QScriptEngineDebuggerBackend::event(const QScriptDebuggerEvent &event)
@@ -230,7 +230,7 @@ void QScriptEngineDebuggerBackend::event(const QScriptDebuggerEvent &event)
     doPendingEvaluate(/*postEvent=*/false);
 }
 
-/*!
+/*
   \reimp
 */
 void QScriptEngineDebuggerBackend::resume()
@@ -260,7 +260,7 @@ void QScriptEngineDebuggerFrontendPrivate::postCommandFinished(
     postEvent(new QScriptDebuggerCommandFinishedEvent(id, response));
 }
 
-/*!
+/*
   \reimp
 */
 bool QScriptEngineDebuggerFrontendPrivate::event(QEvent *e)

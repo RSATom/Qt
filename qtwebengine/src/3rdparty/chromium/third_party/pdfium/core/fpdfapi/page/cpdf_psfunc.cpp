@@ -13,14 +13,14 @@ CPDF_PSFunc::CPDF_PSFunc() : CPDF_Function(Type::kType4PostScript) {}
 
 CPDF_PSFunc::~CPDF_PSFunc() {}
 
-bool CPDF_PSFunc::v_Init(CPDF_Object* pObj) {
+bool CPDF_PSFunc::v_Init(const CPDF_Object* pObj,
+                         std::set<const CPDF_Object*>* pVisited) {
   auto pAcc = pdfium::MakeRetain<CPDF_StreamAcc>(pObj->AsStream());
-  pAcc->LoadAllData(false);
-  return m_PS.Parse(reinterpret_cast<const char*>(pAcc->GetData()),
-                    pAcc->GetSize());
+  pAcc->LoadAllDataFiltered();
+  return m_PS.Parse(pAcc->GetSpan());
 }
 
-bool CPDF_PSFunc::v_Call(float* inputs, float* results) const {
+bool CPDF_PSFunc::v_Call(const float* inputs, float* results) const {
   CPDF_PSEngine& PS = const_cast<CPDF_PSEngine&>(m_PS);
   PS.Reset();
   for (uint32_t i = 0; i < m_nInputs; i++)

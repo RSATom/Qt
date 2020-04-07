@@ -6,13 +6,14 @@
 
 #include "base/metrics/histogram.h"
 #include "base/metrics/histogram_base.h"
+#include "base/metrics/sparse_histogram.h"
 #include "base/time/time.h"
 
 namespace base {
 
 void UmaHistogramBoolean(const std::string& name, bool sample) {
   HistogramBase* histogram = BooleanHistogram::FactoryGet(
-      name, base::HistogramBase::kUmaTargetedHistogramFlag);
+      name, HistogramBase::kUmaTargetedHistogramFlag);
   histogram->Add(sample);
 }
 
@@ -70,7 +71,7 @@ void UmaHistogramCustomTimes(const std::string& name,
                              int buckets) {
   HistogramBase* histogram = Histogram::FactoryTimeGet(
       name, min, max, buckets, HistogramBase::kUmaTargetedHistogramFlag);
-  histogram->AddTime(sample);
+  histogram->AddTimeMillisecondsGranularity(sample);
 }
 
 void UmaHistogramTimes(const std::string& name, TimeDelta sample) {
@@ -92,8 +93,18 @@ void UmaHistogramMemoryKB(const std::string& name, int sample) {
   UmaHistogramCustomCounts(name, sample, 1000, 500000, 50);
 }
 
+void UmaHistogramMemoryMB(const std::string& name, int sample) {
+  UmaHistogramCustomCounts(name, sample, 1, 1000, 50);
+}
+
 void UmaHistogramMemoryLargeMB(const std::string& name, int sample) {
   UmaHistogramCustomCounts(name, sample, 1, 64000, 100);
+}
+
+void UmaHistogramSparse(const std::string& name, int sample) {
+  HistogramBase* histogram = SparseHistogram::FactoryGet(
+      name, HistogramBase::kUmaTargetedHistogramFlag);
+  histogram->Add(sample);
 }
 
 }  // namespace base

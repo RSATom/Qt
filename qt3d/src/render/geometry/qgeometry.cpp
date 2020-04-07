@@ -72,7 +72,7 @@ QGeometryPrivate::~QGeometryPrivate()
     \inqmlmodule Qt3D.Render
     \inherits Node
     \since 5.7
-    \brief Encapsulates geometry
+    \brief Encapsulates geometry.
 
     A Geometry type is used to group a list of Attribute objects together
     to form a geometric shape Qt3D is able to render using GeometryRenderer.
@@ -83,7 +83,7 @@ QGeometryPrivate::~QGeometryPrivate()
     \class Qt3DRender::QGeometry
     \inmodule Qt3DRender
     \since 5.7
-    \brief Encapsulates geometry
+    \brief Encapsulates geometry.
 
     A Qt3DRender::QGeometry class is used to group a list of Qt3DRender::QAttribute
     objects together to form a geometric shape Qt3D is able to render using
@@ -128,12 +128,12 @@ QGeometry::QGeometry(QNode *parent)
     : QGeometry(*new QGeometryPrivate(), parent) {}
 
 /*!
-    \fn QGeometryFactory::operator()()
+    \fn Qt3DRender::QGeometryFactory::operator()()
 
      Returns the generated geometry.
 */
 /*!
-    \fn bool QGeometryFactory::operator==(const QGeometryFactory &other) const = 0
+    \fn bool Qt3DRender::QGeometryFactory::operator==(const QGeometryFactory &other) const = 0
 
     Compares the factory with the factory specified in \a other.
     Returns true if they are equal.
@@ -182,11 +182,6 @@ void QGeometry::addAttribute(QAttribute *attribute)
     }
 }
 
-/*!
-    \fn Qt3DRender::QGeometry(QGeometryPrivate &dd, Qt3DCore::QNode *parent)
-
-    \internal
-*/
 /*!
     \fn void Qt3DRender::QGeometry::removeAttribute(Qt3DRender::QAttribute *attribute)
     Removes the given \a attribute from this geometry.

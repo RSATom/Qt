@@ -18,7 +18,7 @@
 #if SK_SUPPORT_GPU
 #include "GrContext.h"
 #include "GrContextPriv.h"
-#include "GrResourceProvider.h"
+#include "GrProxyProvider.h"
 #include "GrSurfaceContext.h"
 #include "GrTextureProxy.h"
 #include "SkImage_Gpu.h"
@@ -87,6 +87,7 @@ sk_sp<SkSpecialImage> SkSpecialImage::makeTextureImage(GrContext* context) {
         return curContext == context ? sk_sp<SkSpecialImage>(SkRef(this)) : nullptr;
     }
 
+    auto proxyProvider = context->contextPriv().proxyProvider();
     SkBitmap bmp;
     // At this point, we are definitely not texture-backed, so we must be raster or generator
     // backed. If we remove the special-wrapping-an-image subclass, we may be able to assert that
@@ -102,7 +103,7 @@ sk_sp<SkSpecialImage> SkSpecialImage::makeTextureImage(GrContext* context) {
 
     // TODO: this is a tight copy of 'bmp' but it doesn't have to be (given SkSpecialImage's
     // semantics). Since this is cached though we would have to bake the fit into the cache key.
-    sk_sp<GrTextureProxy> proxy = GrMakeCachedBitmapProxy(context->resourceProvider(), bmp);
+    sk_sp<GrTextureProxy> proxy = GrMakeCachedBitmapProxy(proxyProvider, bmp);
     if (!proxy) {
         return nullptr;
     }
@@ -167,8 +168,7 @@ sk_sp<SkImage> SkSpecialImage::asImage(const SkIRect* subset) const {
     return as_SIB(this)->onAsImage(subset);
 }
 
-
-#ifdef SK_DEBUG
+#if defined(SK_DEBUG) || SK_SUPPORT_GPU
 static bool rect_fits(const SkIRect& rect, int width, int height) {
     if (0 == width && 0 == height) {
         SkASSERT(0 == rect.fLeft && 0 == rect.fRight && 0 == rect.fTop && 0 == rect.fBottom);
@@ -219,7 +219,7 @@ public:
 
     SkAlphaType alphaType() const override { return fBitmap.alphaType(); }
 
-    size_t getSize() const override { return fBitmap.getSize(); }
+    size_t getSize() const override { return fBitmap.computeByteSize(); }
 
     void onDraw(SkCanvas* canvas, SkScalar x, SkScalar y, const SkPaint* paint) const override {
         SkRect dst = SkRect::MakeXYWH(x, y,
@@ -241,7 +241,7 @@ public:
 #if SK_SUPPORT_GPU
     sk_sp<GrTextureProxy> onAsTextureProxyRef(GrContext* context) const override {
         if (context) {
-            return GrMakeCachedBitmapProxy(context->resourceProvider(), fBitmap);
+            return GrMakeCachedBitmapProxy(context->contextPriv().proxyProvider(), fBitmap);
         }
 
         return nullptr;
@@ -340,7 +340,7 @@ sk_sp<SkSpecialImage> SkSpecialImage::MakeFromRaster(const SkIRect& subset,
 ///////////////////////////////////////////////////////////////////////////////
 static sk_sp<SkImage> wrap_proxy_in_image(GrContext* context, sk_sp<GrTextureProxy> proxy,
                                           SkAlphaType alphaType, sk_sp<SkColorSpace> colorSpace) {
-    return sk_make_sp<SkImage_Gpu>(context, kNeedNewImageUniqueID, alphaType,
+    return sk_make_sp<SkImage_Gpu>(sk_ref_sp(context), kNeedNewImageUniqueID, alphaType,
                                    std::move(proxy), std::move(colorSpace), SkBudgeted::kYes);
 }
 
@@ -377,10 +377,9 @@ public:
         // instantiates itself it is going to have to either be okay with having a larger
         // than expected backing texture (unlikely) or the 'fit' of the SurfaceProxy needs
         // to be tightened (if it is deferred).
-        sk_sp<SkImage> img = sk_sp<SkImage>(new SkImage_Gpu(canvas->getGrContext(),
-                                                            this->uniqueID(), fAlphaType,
-                                                            fTextureProxy,
-                                                            fColorSpace, SkBudgeted::kNo));
+        sk_sp<SkImage> img = sk_sp<SkImage>(
+                new SkImage_Gpu(sk_ref_sp(canvas->getGrContext()), this->uniqueID(), fAlphaType,
+                                fTextureProxy, fColorSpace, SkBudgeted::kNo));
 
         canvas->drawImageRect(img, this->subset(),
                               dst, paint, SkCanvas::kStrict_SrcRectConstraint);
@@ -408,9 +407,8 @@ public:
         if (!rec) {
             return false;
         }
-
         sk_sp<GrSurfaceContext> sContext = fContext->contextPriv().makeWrappedSurfaceContext(
-                                                                          fTextureProxy, nullptr);
+                fTextureProxy, fColorSpace);
         if (!sContext) {
             return false;
         }
@@ -434,10 +432,9 @@ public:
             return nullptr;
         }
 
-        SkColorSpace* colorSpace = outProps.colorSpace();
         return SkSpecialSurface::MakeRenderTarget(
             fContext, size.width(), size.height(),
-            GrRenderableConfigForColorSpace(colorSpace), sk_ref_sp(colorSpace));
+            SkColorType2GrPixelConfig(outProps.colorType()), sk_ref_sp(outProps.colorSpace()));
     }
 
     sk_sp<SkSpecialImage> onMakeSubset(const SkIRect& subset) const override {
@@ -455,16 +452,18 @@ public:
         if (subset) {
             // TODO: if this becomes a bottle neck we could base this logic on what the size
             // will be when it is finally instantiated - but that is more fraught.
-            if (GrResourceProvider::IsFunctionallyExact(fTextureProxy.get()) &&
+            if (GrProxyProvider::IsFunctionallyExact(fTextureProxy.get()) &&
                 0 == subset->fLeft && 0 == subset->fTop &&
                 fTextureProxy->width() == subset->width() &&
                 fTextureProxy->height() == subset->height()) {
+                fTextureProxy->priv().exactify();
                 // The existing GrTexture is already tight so reuse it in the SkImage
                 return wrap_proxy_in_image(fContext, fTextureProxy, fAlphaType, fColorSpace);
             }
 
             sk_sp<GrTextureProxy> subsetProxy(GrSurfaceProxy::Copy(fContext, fTextureProxy.get(),
-                                                                   *subset, SkBudgeted::kYes));
+                                                                   GrMipMapped::kNo, *subset,
+                                                                   SkBudgeted::kYes));
             if (!subsetProxy) {
                 return nullptr;
             }
@@ -507,7 +506,10 @@ sk_sp<SkSpecialImage> SkSpecialImage::MakeDeferredFromGpu(GrContext* context,
                                                           sk_sp<SkColorSpace> colorSpace,
                                                           const SkSurfaceProps* props,
                                                           SkAlphaType at) {
-    SkASSERT(rect_fits(subset, proxy->width(), proxy->height()));
+    if (!context || context->abandoned() || !proxy) {
+        return nullptr;
+    }
+    SkASSERT_RELEASE(rect_fits(subset, proxy->width(), proxy->height()));
     return sk_make_sp<SkSpecialImage_Gpu>(context, subset, uniqueID, std::move(proxy), at,
                                           std::move(colorSpace), props);
 }

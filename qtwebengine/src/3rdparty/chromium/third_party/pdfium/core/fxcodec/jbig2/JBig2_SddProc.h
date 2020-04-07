@@ -20,12 +20,12 @@ class CJBig2_SymbolDict;
 
 class CJBig2_SDDProc {
  public:
-  std::unique_ptr<CJBig2_SymbolDict> decode_Arith(
+  std::unique_ptr<CJBig2_SymbolDict> DecodeArith(
       CJBig2_ArithDecoder* pArithDecoder,
       std::vector<JBig2ArithCtx>* gbContext,
       std::vector<JBig2ArithCtx>* grContext);
 
-  std::unique_ptr<CJBig2_SymbolDict> decode_Huffman(
+  std::unique_ptr<CJBig2_SymbolDict> DecodeHuffman(
       CJBig2_BitStream* pStream,
       std::vector<JBig2ArithCtx>* gbContext,
       std::vector<JBig2ArithCtx>* grContext);
@@ -36,10 +36,10 @@ class CJBig2_SDDProc {
   CJBig2_Image** SDINSYMS;
   uint32_t SDNUMNEWSYMS;
   uint32_t SDNUMEXSYMS;
-  CJBig2_HuffmanTable* SDHUFFDH;
-  CJBig2_HuffmanTable* SDHUFFDW;
-  CJBig2_HuffmanTable* SDHUFFBMSIZE;
-  CJBig2_HuffmanTable* SDHUFFAGGINST;
+  const CJBig2_HuffmanTable* SDHUFFDH;
+  const CJBig2_HuffmanTable* SDHUFFDW;
+  const CJBig2_HuffmanTable* SDHUFFBMSIZE;
+  const CJBig2_HuffmanTable* SDHUFFAGGINST;
   uint8_t SDTEMPLATE;
   int8_t SDAT[8];
   bool SDRTEMPLATE;

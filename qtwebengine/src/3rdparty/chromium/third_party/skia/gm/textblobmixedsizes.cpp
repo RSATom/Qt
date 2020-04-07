@@ -10,10 +10,10 @@
 
 #include "Resources.h"
 #include "SkBlurMask.h"
-#include "SkBlurMaskFilter.h"
 #include "SkCanvas.h"
 #include "SkGradientShader.h"
 #include "SkImage.h"
+#include "SkMaskFilter.h"
 #include "SkRandom.h"
 #include "SkStream.h"
 #include "SkSurface.h"
@@ -35,7 +35,7 @@ protected:
         paint.setAntiAlias(true);
         paint.setSubpixelText(true);
         paint.setLCDRenderText(true);
-        paint.setTypeface(MakeResourceAsTypeface("/fonts/HangingS.ttf"));
+        paint.setTypeface(MakeResourceAsTypeface("fonts/HangingS.ttf"));
 
         const char* text = "Skia";
 
@@ -85,11 +85,9 @@ protected:
     }
 
     SkString onShortName() override {
-        SkString name("textblobmixedsizes");
-        if (fUseDFT) {
-            name.appendf("_df");
-        }
-        return name;
+        return SkStringPrintf("textblobmixedsizes%s%s",
+                              sk_tool_utils::platform_font_manager(),
+                              fUseDFT ? "_df" : "");
     }
 
     SkISize onISize() override {
@@ -100,7 +98,6 @@ protected:
         SkCanvas* canvas = inputCanvas;
         sk_sp<SkSurface> surface;
         if (fUseDFT) {
-#if SK_SUPPORT_GPU
             // Create a new Canvas to enable DFT
             GrContext* ctx = inputCanvas->getGrContext();
             SkISize size = onISize();
@@ -113,7 +110,6 @@ protected:
             canvas = surface.get() ? surface->getCanvas() : inputCanvas;
             // init our new canvas with the old canvas's matrix
             canvas->setMatrix(inputCanvas->getTotalMatrix());
-#endif
         }
         canvas->drawColor(sk_tool_utils::color_to_565(SK_ColorWHITE));
 
@@ -138,7 +134,7 @@ protected:
         // setup blur paint
         SkPaint blurPaint(paint);
         blurPaint.setColor(sk_tool_utils::color_to_565(SK_ColorBLACK));
-        blurPaint.setMaskFilter(SkBlurMaskFilter::Make(kNormal_SkBlurStyle, kSigma));
+        blurPaint.setMaskFilter(SkMaskFilter::MakeBlur(kNormal_SkBlurStyle, kSigma));
 
         for (int i = 0; i < 4; i++) {
             canvas->save();
@@ -166,7 +162,6 @@ protected:
         }
         canvas->restore();
 
-#if SK_SUPPORT_GPU
         // render offscreen buffer
         if (surface) {
             SkAutoCanvasRestore acr(inputCanvas, true);
@@ -174,7 +169,6 @@ protected:
             inputCanvas->resetMatrix();
             inputCanvas->drawImage(surface->makeImageSnapshot().get(), 0, 0, nullptr);
         }
-#endif
     }
 
 private:
@@ -191,7 +185,5 @@ private:
 //////////////////////////////////////////////////////////////////////////////
 
 DEF_GM( return new TextBlobMixedSizes(false); )
-#if SK_SUPPORT_GPU
 DEF_GM( return new TextBlobMixedSizes(true); )
-#endif
 }

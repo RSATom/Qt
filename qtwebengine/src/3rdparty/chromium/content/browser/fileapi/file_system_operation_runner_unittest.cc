@@ -9,6 +9,7 @@
 #include "base/macros.h"
 #include "base/run_loop.h"
 #include "base/task_scheduler/post_task.h"
+#include "base/task_scheduler/task_scheduler.h"
 #include "base/task_scheduler/task_traits.h"
 #include "base/test/scoped_task_environment.h"
 #include "base/threading/thread_restrictions.h"
@@ -52,7 +53,7 @@ void GetCancelStatus(bool* operation_done,
   *status_out = status;
 }
 
-void DidOpenFile(base::File file, const base::Closure& on_close_callback) {}
+void DidOpenFile(base::File file, base::OnceClosure on_close_callback) {}
 
 }  // namespace
 
@@ -186,7 +187,6 @@ class MultiThreadFileSystemOperationRunnerTest : public testing::Test {
  public:
   MultiThreadFileSystemOperationRunnerTest()
       : thread_bundle_(
-            content::TestBrowserThreadBundle::REAL_FILE_THREAD |
             content::TestBrowserThreadBundle::IO_MAINLOOP) {}
 
   void SetUp() override {
@@ -197,7 +197,7 @@ class MultiThreadFileSystemOperationRunnerTest : public testing::Test {
         base::ThreadTaskRunnerHandle::Get().get(),
         base::CreateSequencedTaskRunnerWithTraits({base::MayBlock()}).get(),
         storage::ExternalMountPoints::CreateRefCounted().get(),
-        make_scoped_refptr(new MockSpecialStoragePolicy()).get(), nullptr,
+        base::MakeRefCounted<MockSpecialStoragePolicy>().get(), nullptr,
         std::vector<std::unique_ptr<storage::FileSystemBackend>>(),
         std::vector<storage::URLRequestAutoMountHandler>(), base_dir,
         CreateAllowFileAccessOptions());
@@ -238,13 +238,8 @@ TEST_F(MultiThreadFileSystemOperationRunnerTest, OpenAndShutdown) {
       base::Bind(&DidOpenFile));
   operation_runner()->Shutdown();
 
-  // Wait until the task posted on FILE thread is done.
-  base::RunLoop run_loop;
-  BrowserThread::PostTaskAndReply(
-      BrowserThread::FILE, FROM_HERE,
-      base::Bind(&base::DoNothing),
-      run_loop.QuitClosure());
-  run_loop.Run();
+  // Wait until the task posted on the blocking thread is done.
+  base::TaskScheduler::GetInstance()->FlushForTesting();
   // This should finish without thread assertion failure on debug build.
 }
 

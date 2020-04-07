@@ -61,8 +61,18 @@ void PrefNotifierImpl::RemovePrefObserver(const std::string& path,
   observer_list->RemoveObserver(obs);
 }
 
-void PrefNotifierImpl::AddInitObserver(base::Callback<void(bool)> obs) {
-  init_observers_.push_back(obs);
+void PrefNotifierImpl::AddPrefObserverAllPrefs(PrefObserver* observer) {
+  DCHECK(thread_checker_.CalledOnValidThread());
+  all_prefs_pref_observers_.AddObserver(observer);
+}
+
+void PrefNotifierImpl::RemovePrefObserverAllPrefs(PrefObserver* observer) {
+  DCHECK(thread_checker_.CalledOnValidThread());
+  all_prefs_pref_observers_.RemoveObserver(observer);
+}
+
+void PrefNotifierImpl::AddInitObserver(base::OnceCallback<void(bool)> obs) {
+  init_observers_.push_back(std::move(obs));
 }
 
 void PrefNotifierImpl::OnPreferenceChanged(const std::string& path) {
@@ -72,14 +82,14 @@ void PrefNotifierImpl::OnPreferenceChanged(const std::string& path) {
 void PrefNotifierImpl::OnInitializationCompleted(bool succeeded) {
   DCHECK(thread_checker_.CalledOnValidThread());
 
-  // We must make a copy of init_observers_ and clear it before we run
+  // We must move init_observers_ to a local variable before we run
   // observers, or we can end up in this method re-entrantly before
   // clearing the observers list.
-  PrefInitObserverList observers(init_observers_);
-  init_observers_.clear();
+  PrefInitObserverList observers;
+  std::swap(observers, init_observers_);
 
   for (auto& observer : observers)
-    observer.Run(succeeded);
+    std::move(observer).Run(succeeded);
 }
 
 void PrefNotifierImpl::FireObservers(const std::string& path) {
@@ -88,6 +98,10 @@ void PrefNotifierImpl::FireObservers(const std::string& path) {
   // Only send notifications for registered preferences.
   if (!pref_service_->FindPreference(path))
     return;
+
+  // Fire observers for any preference change.
+  for (auto& observer : all_prefs_pref_observers_)
+    observer.OnPreferenceChanged(pref_service_, path);
 
   auto observer_iterator = pref_observers_.find(path);
   if (observer_iterator == pref_observers_.end())

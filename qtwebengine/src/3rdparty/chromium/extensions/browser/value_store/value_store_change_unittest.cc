@@ -5,7 +5,6 @@
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "base/values.h"
 #include "extensions/browser/value_store/value_store_change.h"
 #include "extensions/common/value_builder.h"
@@ -20,7 +19,7 @@ namespace {
 
 TEST(ValueStoreChangeTest, NullOldValue) {
   ValueStoreChange change("key", nullptr,
-                          base::MakeUnique<base::Value>("value"));
+                          std::make_unique<base::Value>("value"));
 
   EXPECT_EQ("key", change.key());
   EXPECT_EQ(NULL, change.old_value());
@@ -31,7 +30,7 @@ TEST(ValueStoreChangeTest, NullOldValue) {
 }
 
 TEST(ValueStoreChangeTest, NullNewValue) {
-  ValueStoreChange change("key", base::MakeUnique<base::Value>("value"),
+  ValueStoreChange change("key", std::make_unique<base::Value>("value"),
                           nullptr);
 
   EXPECT_EQ("key", change.key());
@@ -43,8 +42,8 @@ TEST(ValueStoreChangeTest, NullNewValue) {
 }
 
 TEST(ValueStoreChangeTest, NonNullValues) {
-  ValueStoreChange change("key", base::MakeUnique<base::Value>("old_value"),
-                          base::MakeUnique<base::Value>("new_value"));
+  ValueStoreChange change("key", std::make_unique<base::Value>("old_value"),
+                          std::make_unique<base::Value>("new_value"));
 
   EXPECT_EQ("key", change.key());
   {

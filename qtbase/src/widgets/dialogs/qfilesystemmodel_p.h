@@ -294,12 +294,14 @@ public:
     void _q_fileSystemChanged(const QString &path, const QVector<QPair<QString, QFileInfo> > &);
     void _q_resolvedName(const QString &fileName, const QString &resolvedName);
 
-    static int naturalCompare(const QString &s1, const QString &s2, Qt::CaseSensitivity cs);
-
     QDir rootDir;
-#ifndef QT_NO_FILESYSTEMWATCHER
+#if QT_CONFIG(filesystemwatcher)
+#  ifdef Q_OS_WIN
+    QStringList unwatchPathsAt(const QModelIndex &);
+    void watchPaths(const QStringList &paths) { fileInfoGatherer.watchPaths(paths); }
+#  endif // Q_OS_WIN
     QFileInfoGatherer fileInfoGatherer;
-#endif
+#endif // filesystemwatcher
     QTimer delayedSortTimer;
     bool forceSort;
     int sortColumn;
@@ -313,8 +315,8 @@ public:
     //It enable a sort which is not recursive, it means
     //we sort only what we see.
     bool disableRecursiveSort;
-#ifndef QT_NO_REGEXP
-    QList<QRegExp> nameFilters;
+#if QT_CONFIG(regularexpression)
+    QStringList nameFilters;
 #endif
     QHash<QString, QString> resolvedSymLinks;
 

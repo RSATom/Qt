@@ -38,6 +38,7 @@
 ****************************************************************************/
 
 #include "qv4function_p.h"
+#include "qv4functionobject_p.h"
 #include "qv4managed_p.h"
 #include "qv4string_p.h"
 #include "qv4value_p.h"
@@ -45,76 +46,107 @@
 #include "qv4lookup_p.h"
 #include <private/qv4mm_p.h>
 #include <private/qv4identifiertable_p.h>
+#include <assembler/MacroAssemblerCodeRef.h>
+#include <private/qv4vme_moth_p.h>
+#include <private/qqmlglobal_p.h>
 
 QT_BEGIN_NAMESPACE
 
 using namespace QV4;
 
-Function::Function(ExecutionEngine *engine, CompiledData::CompilationUnit *unit, const CompiledData::Function *function,
-                   ReturnedValue (*codePtr)(ExecutionEngine *, const uchar *))
-        : compiledFunction(function)
-        , compilationUnit(unit)
-        , code(codePtr)
-        , codeData(0)
-        , hasQmlDependencies(function->hasQmlDependencies())
-{
-    internalClass = engine->internalClasses[EngineBase::Class_Empty];
-    const quint32_le *formalsIndices = compiledFunction->formalsTable();
-    // iterate backwards, so we get the right ordering for duplicate names
-    Scope scope(engine);
-    ScopedString arg(scope);
-    for (int i = static_cast<int>(compiledFunction->nFormals - 1); i >= 0; --i) {
-        arg = compilationUnit->runtimeStrings[formalsIndices[i]];
-        while (1) {
-            InternalClass *newClass = internalClass->addMember(arg, Attr_NotConfigurable);
-            if (newClass != internalClass) {
-                internalClass = newClass;
-                break;
-            }
-            // duplicate arguments, need some trick to store them
-            MemoryManager *mm = engine->memoryManager;
-            arg = mm->alloc<String>(arg->d(), engine->newString(QString(0xfffe)));
-        }
-    }
-    nFormals = compiledFunction->nFormals;
+ReturnedValue Function::call(const Value *thisObject, const Value *argv, int argc, const ExecutionContext *context) {
+    ExecutionEngine *engine = context->engine();
+    CppStackFrame frame;
+    frame.init(engine, this, argv, argc);
+    frame.setupJSFrame(engine->jsStackTop, Value::undefinedValue(), context->d(),
+                       thisObject ? *thisObject : Value::undefinedValue(),
+                       Value::undefinedValue());
 
+    frame.push();
+    engine->jsStackTop += frame.requiredJSStackFrameSize();
+
+    ReturnedValue result = Moth::VME::exec(&frame, engine);
+
+    frame.pop();
+
+    return result;
+}
+
+Function::Function(ExecutionEngine *engine, CompiledData::CompilationUnit *unit, const CompiledData::Function *function)
+    : compiledFunction(function)
+    , compilationUnit(unit)
+    , codeData(function->code())
+        , jittedCode(nullptr)
+        , codeRef(nullptr)
+{
+    Scope scope(engine);
+    Scoped<InternalClass> ic(scope, engine->internalClasses(EngineBase::Class_CallContext));
+
+    // first locals
     const quint32_le *localsIndices = compiledFunction->localsTable();
     for (quint32 i = 0; i < compiledFunction->nLocals; ++i)
-        internalClass = internalClass->addMember(engine->identifierTable->identifier(compilationUnit->runtimeStrings[localsIndices[i]]), Attr_NotConfigurable);
+        ic = ic->addMember(engine->identifierTable->asPropertyKey(compilationUnit->runtimeStrings[localsIndices[i]]), Attr_NotConfigurable);
 
-    canUseSimpleCall = compiledFunction->flags & CompiledData::Function::CanUseSimpleCall;
+    const quint32_le *formalsIndices = compiledFunction->formalsTable();
+    for (quint32 i = 0; i < compiledFunction->nFormals; ++i)
+        ic = ic->addMember(engine->identifierTable->asPropertyKey(compilationUnit->runtimeStrings[formalsIndices[i]]), Attr_NotConfigurable);
+    internalClass = ic->d();
+
+    nFormals = compiledFunction->nFormals;
 }
 
 Function::~Function()
 {
+    delete codeRef;
 }
 
 void Function::updateInternalClass(ExecutionEngine *engine, const QList<QByteArray> &parameters)
 {
-    internalClass = engine->internalClasses[EngineBase::Class_Empty];
+    QStringList parameterNames;
 
-    // iterate backwards, so we get the right ordering for duplicate names
-    Scope scope(engine);
-    ScopedString arg(scope);
-    for (int i = parameters.size() - 1; i >= 0; --i) {
-        arg = engine->newString(QString::fromUtf8(parameters.at(i)));
-        while (1) {
-            InternalClass *newClass = internalClass->addMember(arg, Attr_NotConfigurable);
-            if (newClass != internalClass) {
-                internalClass = newClass;
+    // Resolve duplicate parameter names:
+    for (int i = 0, ei = parameters.count(); i != ei; ++i) {
+        const QByteArray &param = parameters.at(i);
+        int duplicate = -1;
+
+        for (int j = i - 1; j >= 0; --j) {
+            const QByteArray &prevParam = parameters.at(j);
+            if (param == prevParam) {
+                duplicate = j;
                 break;
             }
-            // duplicate arguments, need some trick to store them
-            arg = engine->memoryManager->alloc<String>(arg->d(), engine->newString(QString(0xfffe)));
         }
-    }
-    nFormals = parameters.size();
 
+        if (duplicate == -1) {
+            parameterNames.append(QString::fromUtf8(param));
+        } else {
+            const QString &dup = parameterNames[duplicate];
+            parameterNames.append(dup);
+            parameterNames[duplicate] =
+                    QString(0xfffe) + QString::number(duplicate) + dup;
+        }
+
+    }
+
+    internalClass = engine->internalClasses(EngineBase::Class_CallContext);
+
+    // first locals
     const quint32_le *localsIndices = compiledFunction->localsTable();
     for (quint32 i = 0; i < compiledFunction->nLocals; ++i)
-        internalClass = internalClass->addMember(engine->identifierTable->identifier(compilationUnit->runtimeStrings[localsIndices[i]]), Attr_NotConfigurable);
+        internalClass = internalClass->addMember(engine->identifierTable->asPropertyKey(compilationUnit->runtimeStrings[localsIndices[i]]), Attr_NotConfigurable);
 
-    canUseSimpleCall = false;
+    Scope scope(engine);
+    ScopedString arg(scope);
+    for (const QString &parameterName : parameterNames) {
+        arg = engine->newIdentifier(parameterName);
+        internalClass = internalClass->addMember(arg->propertyKey(), Attr_NotConfigurable);
+    }
+    nFormals = parameters.size();
+}
+
+QQmlSourceLocation Function::sourceLocation() const
+{
+    return QQmlSourceLocation(sourceFile(), compiledFunction->location.line, compiledFunction->location.column);
 }
 
 QT_END_NAMESPACE

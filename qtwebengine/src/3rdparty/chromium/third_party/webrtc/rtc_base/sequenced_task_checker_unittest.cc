@@ -8,16 +8,35 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/rtc_base/sequenced_task_checker.h"
-#include "webrtc/rtc_base/checks.h"
-#include "webrtc/rtc_base/constructormagic.h"
-#include "webrtc/rtc_base/platform_thread.h"
-#include "webrtc/rtc_base/task_queue.h"
-#include "webrtc/test/gtest.h"
+#include "rtc_base/sequenced_task_checker.h"
+
+#include "rtc_base/checks.h"
+#include "rtc_base/constructormagic.h"
+#include "rtc_base/platform_thread.h"
+#include "rtc_base/task_queue.h"
+#include "rtc_base/thread_checker.h"
+#include "test/gtest.h"
 
 namespace rtc {
 
 namespace {
+
+// This class is dead code, but its purpose is to make sure that
+// SequencedTaskChecker is compatible with the RTC_GUARDED_BY and RTC_RUN_ON
+// attributes that are checked at compile-time.
+class CompileTimeTestForGuardedBy {
+ public:
+  int CalledOnSequence() RTC_RUN_ON(sequence_checker_) { return guarded_; }
+
+  void CallMeFromSequence() {
+    RTC_DCHECK_RUN_ON(&sequence_checker_) << "Should be called on sequence";
+  }
+
+ private:
+  int guarded_ RTC_GUARDED_BY(sequence_checker_);
+  rtc::SequencedTaskChecker sequence_checker_;
+};
+
 // Calls SequencedTaskChecker::CalledSequentially on another thread.
 class CallCalledSequentiallyOnThread {
  public:
@@ -237,7 +256,7 @@ class TestAnnotations {
   }
 
  private:
-  bool test_var_ GUARDED_BY(&checker_);
+  bool test_var_ RTC_GUARDED_BY(&checker_);
   SequencedTaskChecker checker_;
 };
 

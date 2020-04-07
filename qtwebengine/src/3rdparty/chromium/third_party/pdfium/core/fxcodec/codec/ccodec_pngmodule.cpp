@@ -10,14 +10,16 @@
 
 #include "core/fxcodec/codec/codec_int.h"
 #include "core/fxcodec/fx_codec.h"
-#include "core/fxcrt/cfx_unowned_ptr.h"
+#include "core/fxcrt/unowned_ptr.h"
 #include "core/fxge/fx_dib.h"
+#include "third_party/base/compiler_specific.h"
 #include "third_party/base/ptr_util.h"
 
-extern "C" {
-#undef FAR
+#ifdef USE_SYSTEM_LIBPNG
+#include <png.h>
+#else
 #include "third_party/libpng16/png.h"
-}  // extern "C"
+#endif
 
 #define PNG_ERROR_SIZE 256
 
@@ -28,8 +30,8 @@ class CPngContext : public CCodec_PngModule::Context {
 
   png_structp m_pPng;
   png_infop m_pInfo;
-  CFX_UnownedPtr<CCodec_PngModule> m_pModule;
-  CFX_UnownedPtr<CCodec_PngModule::Delegate> m_pDelegate;
+  UnownedPtr<CCodec_PngModule> m_pModule;
+  UnownedPtr<CCodec_PngModule::Delegate> m_pDelegate;
   void* (*m_AllocFunc)(unsigned int);
   void (*m_FreeFunc)(void*);
   char m_szLastError[PNG_ERROR_SIZE];
@@ -73,24 +75,9 @@ static void _png_load_bmp_attribute(png_structp png_ptr,
                  &icc_proflen);
 #endif
 #if defined(PNG_TEXT_SUPPORTED)
-    int i;
-    FX_STRSIZE len;
-    const char* buf;
     int num_text;
     png_textp text = nullptr;
     png_get_text(png_ptr, info_ptr, &text, &num_text);
-    for (i = 0; i < num_text; i++) {
-      len = FXSYS_strlen(text[i].key);
-      buf = "Time";
-      if (memcmp(buf, text[i].key, std::min(len, FXSYS_strlen(buf)))) {
-        buf = "Author";
-        if (!memcmp(buf, text[i].key, std::min(len, FXSYS_strlen(buf)))) {
-          pAttribute->m_strAuthor =
-              CFX_ByteString(reinterpret_cast<uint8_t*>(text[i].text),
-                             static_cast<FX_STRSIZE>(text[i].text_length));
-        }
-      }
-    }
 #endif
   }
 }
@@ -152,6 +139,7 @@ static void _png_get_header_func(png_structp png_ptr, png_infop info_ptr) {
       if (color_type1 != PNG_COLOR_TYPE_PALETTE) {
         png_error(pContext->m_pPng, "Not Support Output Palette Now");
       }
+      FALLTHROUGH;
     case PNG_COLOR_TYPE_RGB:
     case PNG_COLOR_TYPE_RGB_ALPHA:
       if (!(color_type1 & PNG_COLOR_MASK_COLOR)) {
@@ -181,8 +169,8 @@ static void _png_get_row_func(png_structp png_ptr,
   if (!pContext)
     return;
 
-  uint8_t* src_buf = nullptr;
-  if (!pContext->m_pDelegate->PngAskScanlineBuf(row_num, src_buf))
+  uint8_t* src_buf;
+  if (!pContext->m_pDelegate->PngAskScanlineBuf(row_num, &src_buf))
     png_error(png_ptr, "Ask Scanline buffer Callback Error");
 
   if (src_buf)

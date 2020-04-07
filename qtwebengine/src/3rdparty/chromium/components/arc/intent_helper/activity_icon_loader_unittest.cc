@@ -81,20 +81,24 @@ TEST(ActivityIconLoaderTest, TestGetActivityIcons) {
   activities.emplace_back("p0", "a0");
   activities.emplace_back("p1", "a1");
   activities.emplace_back("p1", "a0");
-  EXPECT_EQ(ActivityIconLoader::GetResult::SUCCEEDED_SYNC,
-            loader.GetActivityIcons(activities, base::Bind(&OnIconsReady0)));
+  EXPECT_EQ(
+      ActivityIconLoader::GetResult::SUCCEEDED_SYNC,
+      loader.GetActivityIcons(activities, base::BindOnce(&OnIconsReady0)));
 
   // Test with different |activities|.
   activities.clear();
   activities.emplace_back("p1", "a1");
-  EXPECT_EQ(ActivityIconLoader::GetResult::SUCCEEDED_SYNC,
-            loader.GetActivityIcons(activities, base::Bind(&OnIconsReady1)));
+  EXPECT_EQ(
+      ActivityIconLoader::GetResult::SUCCEEDED_SYNC,
+      loader.GetActivityIcons(activities, base::BindOnce(&OnIconsReady1)));
   activities.clear();
-  EXPECT_EQ(ActivityIconLoader::GetResult::SUCCEEDED_SYNC,
-            loader.GetActivityIcons(activities, base::Bind(&OnIconsReady2)));
+  EXPECT_EQ(
+      ActivityIconLoader::GetResult::SUCCEEDED_SYNC,
+      loader.GetActivityIcons(activities, base::BindOnce(&OnIconsReady2)));
   activities.emplace_back("p1", "a_unknown");
-  EXPECT_EQ(ActivityIconLoader::GetResult::FAILED_ARC_NOT_SUPPORTED,
-            loader.GetActivityIcons(activities, base::Bind(&OnIconsReady2)));
+  EXPECT_EQ(
+      ActivityIconLoader::GetResult::FAILED_ARC_NOT_SUPPORTED,
+      loader.GetActivityIcons(activities, base::BindOnce(&OnIconsReady2)));
 }
 
 // Tests if OnIconsResized updates the cache.
@@ -118,7 +122,7 @@ TEST(ActivityIconLoaderTest, TestOnIconsResized) {
   ActivityIconLoader loader;
 
   // Call OnIconsResized() and check that the cache is properly updated.
-  loader.OnIconsResizedForTesting(base::Bind(&OnIconsReady0),
+  loader.OnIconsResizedForTesting(base::BindOnce(&OnIconsReady0),
                                   std::move(activity_to_icons));
   EXPECT_EQ(3U, loader.cached_icons_for_testing().size());
   EXPECT_EQ(1U, loader.cached_icons_for_testing().count(
@@ -139,7 +143,7 @@ TEST(ActivityIconLoaderTest, TestOnIconsResized) {
   activity_to_icons->insert(std::make_pair(
       ActivityIconLoader::ActivityName("p2", "a2"),
       ActivityIconLoader::Icons(gfx::Image(), gfx::Image(), nullptr)));
-  loader.OnIconsResizedForTesting(base::Bind(&OnIconsReady3),
+  loader.OnIconsResizedForTesting(base::BindOnce(&OnIconsReady3),
                                   std::move(activity_to_icons));
   EXPECT_EQ(4U, loader.cached_icons_for_testing().size());
   EXPECT_EQ(1U, loader.cached_icons_for_testing().count(

@@ -80,7 +80,7 @@ void CPDF_PageRenderCache::ClearImageCacheEntry(CPDF_Stream* pStream) {
 }
 
 bool CPDF_PageRenderCache::StartGetCachedBitmap(
-    const CFX_RetainPtr<CPDF_Image>& pImage,
+    const RetainPtr<CPDF_Image>& pImage,
     bool bStdCS,
     uint32_t GroupFamily,
     bool bLoadMask,
@@ -92,28 +92,28 @@ bool CPDF_PageRenderCache::StartGetCachedBitmap(
     m_pCurImageCacheEntry = it->second;
   } else {
     m_pCurImageCacheEntry =
-        new CPDF_ImageCacheEntry(m_pPage->m_pDocument.Get(), pImage);
+        new CPDF_ImageCacheEntry(m_pPage->GetDocument(), pImage);
   }
-  int ret = m_pCurImageCacheEntry->StartGetCachedBitmap(
-      pRenderStatus->m_pFormResource.Get(), m_pPage->m_pPageResources.Get(),
-      bStdCS, GroupFamily, bLoadMask, pRenderStatus);
-  if (ret == 2)
+  CPDF_DIBSource::LoadState ret = m_pCurImageCacheEntry->StartGetCachedBitmap(
+      pRenderStatus->GetFormResource(), m_pPage->m_pPageResources.Get(), bStdCS,
+      GroupFamily, bLoadMask, pRenderStatus);
+  if (ret == CPDF_DIBSource::LoadState::kContinue)
     return true;
 
   m_nTimeCount++;
   if (!m_bCurFindCache)
     m_ImageCache[pStream] = m_pCurImageCacheEntry;
 
-  if (!ret)
+  if (ret == CPDF_DIBSource::LoadState::kFail)
     m_nCacheSize += m_pCurImageCacheEntry->EstimateSize();
 
   return false;
 }
 
-bool CPDF_PageRenderCache::Continue(IFX_Pause* pPause,
+bool CPDF_PageRenderCache::Continue(PauseIndicatorIface* pPause,
                                     CPDF_RenderStatus* pRenderStatus) {
-  int ret = m_pCurImageCacheEntry->Continue(pPause, pRenderStatus);
-  if (ret == 2)
+  bool ret = m_pCurImageCacheEntry->Continue(pPause, pRenderStatus);
+  if (ret)
     return true;
 
   m_nTimeCount++;
@@ -121,14 +121,12 @@ bool CPDF_PageRenderCache::Continue(IFX_Pause* pPause,
     m_ImageCache[m_pCurImageCacheEntry->GetImage()->GetStream()] =
         m_pCurImageCacheEntry;
   }
-  if (!ret)
-    m_nCacheSize += m_pCurImageCacheEntry->EstimateSize();
+  m_nCacheSize += m_pCurImageCacheEntry->EstimateSize();
   return false;
 }
 
-void CPDF_PageRenderCache::ResetBitmap(
-    const CFX_RetainPtr<CPDF_Image>& pImage,
-    const CFX_RetainPtr<CFX_DIBitmap>& pBitmap) {
+void CPDF_PageRenderCache::ResetBitmap(const RetainPtr<CPDF_Image>& pImage,
+                                       const RetainPtr<CFX_DIBitmap>& pBitmap) {
   CPDF_ImageCacheEntry* pEntry;
   CPDF_Stream* pStream = pImage->GetStream();
   const auto it = m_ImageCache.find(pStream);
@@ -136,7 +134,7 @@ void CPDF_PageRenderCache::ResetBitmap(
     if (!pBitmap)
       return;
 
-    pEntry = new CPDF_ImageCacheEntry(m_pPage->m_pDocument.Get(), pImage);
+    pEntry = new CPDF_ImageCacheEntry(m_pPage->GetDocument(), pImage);
     m_ImageCache[pStream] = pEntry;
   } else {
     pEntry = it->second;

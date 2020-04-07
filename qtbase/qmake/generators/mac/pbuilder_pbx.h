@@ -36,11 +36,11 @@ QT_BEGIN_NAMESPACE
 class ProjectBuilderMakefileGenerator : public UnixMakefileGenerator
 {
     bool writingUnixMakefileGenerator;
-    QString pbx_dir;
+    mutable QString pbx_dir;
     int pbuilderVersion() const;
     bool writeSubDirs(QTextStream &);
     bool writeMakeParts(QTextStream &);
-    bool writeMakefile(QTextStream &);
+    bool writeMakefile(QTextStream &) override;
 
     QString pbxbuild();
     QHash<QString, QString> keys;
@@ -64,11 +64,11 @@ public:
     ProjectBuilderMakefileGenerator();
     ~ProjectBuilderMakefileGenerator();
 
-    virtual bool supportsMetaBuild() { return false; }
-    virtual bool openOutput(QFile &, const QString &) const;
+    bool supportsMetaBuild() override { return false; }
+    bool openOutput(QFile &, const QString &) const override;
 protected:
-    bool doPrecompiledHeaders() const { return false; }
-    virtual bool doDepends() const { return writingUnixMakefileGenerator && UnixMakefileGenerator::doDepends(); }
+    bool doPrecompiledHeaders() const override { return false; }
+    bool doDepends() const override { return writingUnixMakefileGenerator && UnixMakefileGenerator::doDepends(); }
 };
 
 inline ProjectBuilderMakefileGenerator::~ProjectBuilderMakefileGenerator()

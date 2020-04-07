@@ -48,7 +48,7 @@ class TestSensorFilter : public QSensorFilter
 public:
     virtual bool filter(TestSensorReading *reading) = 0;
 private:
-    bool filter(QSensorReading *reading) { return filter(static_cast<TestSensorReading*>(reading)); }
+    bool filter(QSensorReading *reading) override { return filter(static_cast<TestSensorReading*>(reading)); }
 };
 
 class TestSensor : public QSensor

@@ -4,8 +4,7 @@
 
 #include "content/browser/renderer_host/pepper/browser_ppapi_host_impl.h"
 
-#include "base/memory/ptr_util.h"
-#include "base/metrics/histogram_macros.h"
+#include "base/metrics/histogram_functions.h"
 #include "content/browser/renderer_host/pepper/pepper_message_filter.h"
 #include "content/browser/tracing/trace_message_filter.h"
 #include "content/common/pepper_renderer_instance_data.h"
@@ -154,7 +153,7 @@ void BrowserPpapiHostImpl::AddInstance(
   // See http://crbug.com/733548.
   if (instance_map_.find(instance) == instance_map_.end()) {
     instance_map_[instance] =
-        base::MakeUnique<InstanceData>(renderer_instance_data);
+        std::make_unique<InstanceData>(renderer_instance_data);
   } else {
     NOTREACHED();
   }
@@ -235,15 +234,15 @@ bool BrowserPpapiHostImpl::HostMessageFilter::OnMessageReceived(
 
 void BrowserPpapiHostImpl::HostMessageFilter::OnHostDestroyed() {
   DCHECK(ppapi_host_);
-  ppapi_host_ = NULL;
-  browser_ppapi_host_impl_ = NULL;
+  ppapi_host_ = nullptr;
+  browser_ppapi_host_impl_ = nullptr;
 }
 
 BrowserPpapiHostImpl::HostMessageFilter::~HostMessageFilter() {}
 
 void BrowserPpapiHostImpl::HostMessageFilter::OnHostMsgLogInterfaceUsage(
     int hash) const {
-  UMA_HISTOGRAM_SPARSE_SLOWLY("Pepper.InterfaceUsed", hash);
+  base::UmaHistogramSparse("Pepper.InterfaceUsed", hash);
 }
 
 BrowserPpapiHostImpl::InstanceData::InstanceData(

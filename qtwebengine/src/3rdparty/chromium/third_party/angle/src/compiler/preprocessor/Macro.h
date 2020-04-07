@@ -12,6 +12,9 @@
 #include <string>
 #include <vector>
 
+namespace angle
+{
+
 namespace pp
 {
 
@@ -27,7 +30,8 @@ struct Macro
     typedef std::vector<std::string> Parameters;
     typedef std::vector<Token> Replacements;
 
-    Macro() : predefined(false), disabled(false), expansionCount(0), type(kTypeObj) {}
+    Macro();
+    ~Macro();
     bool equals(const Macro &other) const;
 
     bool predefined;
@@ -45,5 +49,7 @@ typedef std::map<std::string, std::shared_ptr<Macro>> MacroSet;
 void PredefineMacro(MacroSet *macroSet, const char *name, int value);
 
 }  // namespace pp
+
+}  // namespace angle
 
 #endif  // COMPILER_PREPROCESSOR_MACRO_H_

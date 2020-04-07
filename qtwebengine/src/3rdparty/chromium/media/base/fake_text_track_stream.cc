@@ -11,7 +11,7 @@
 #include "base/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "media/base/decoder_buffer.h"
-#include "media/filters/webvtt_util.h"
+#include "media/base/webvtt_util.h"
 
 namespace media {
 
@@ -41,10 +41,6 @@ DemuxerStream::Type FakeTextTrackStream::type() const {
 }
 
 bool FakeTextTrackStream::SupportsConfigChanges() { return false; }
-
-VideoRotation FakeTextTrackStream::video_rotation() {
-  return VIDEO_ROTATION_0;
-}
 
 void FakeTextTrackStream::SatisfyPendingRead(
     const base::TimeDelta& start,

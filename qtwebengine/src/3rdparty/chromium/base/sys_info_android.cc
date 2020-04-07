@@ -62,8 +62,8 @@ namespace {
 // cannot be acquired. Use the latest Android release with a higher bug fix
 // version to avoid unnecessarily comparison errors with the latest release.
 // This should be manually kept up to date on each Android release.
-const int kDefaultAndroidMajorVersion = 7;
-const int kDefaultAndroidMinorVersion = 0;
+const int kDefaultAndroidMajorVersion = 8;
+const int kDefaultAndroidMinorVersion = 1;
 const int kDefaultAndroidBugfixVersion = 99;
 
 // Get and parse out the OS version numbers from the system properties.
@@ -222,7 +222,7 @@ static base::LazyInstance<
         android::SysUtils::IsLowEndDeviceFromJni> >::Leaky
     g_lazy_low_end_device = LAZY_INSTANCE_INITIALIZER;
 
-bool SysInfo::IsLowEndDevice() {
+bool SysInfo::IsLowEndDeviceImpl() {
   // This code might be used in some environments
   // which might not have a Java environment.
   // Note that we need to call the Java version here.

@@ -9,6 +9,7 @@
 #include <algorithm>
 
 #include "core/fpdfdoc/cline.h"
+#include "core/fpdfdoc/cpdf_variabletext.h"
 #include "core/fpdfdoc/cpvt_wordinfo.h"
 #include "third_party/base/ptr_util.h"
 #include "third_party/base/stl_util.h"
@@ -45,7 +46,7 @@ CPVT_WordPlace CSection::AddLine(const CPVT_LineInfo& lineinfo) {
 }
 
 CPVT_FloatRect CSection::Rearrange() {
-  if (m_pVT->m_nCharArray > 0)
+  if (m_pVT->GetCharArray() > 0)
     return CTypeset(this).CharArray();
   return CTypeset(this).Typeset();
 }
@@ -133,7 +134,7 @@ CPVT_WordPlace CSection::SearchWordPlace(const CFX_PointF& point) const {
   while (nLeft <= nRight) {
     CLine* pLine = m_LineArray[nMid].get();
     float fTop = pLine->m_LineInfo.fLineY - pLine->m_LineInfo.fLineAscent -
-                 m_pVT->GetLineLeading(m_SecInfo);
+                 m_pVT->GetLineLeading();
     float fBottom = pLine->m_LineInfo.fLineY - pLine->m_LineInfo.fLineDescent;
     if (IsFloatBigger(point.y, fTop))
       bUp = false;
@@ -171,7 +172,7 @@ CPVT_WordPlace CSection::SearchWordPlace(
 
   CLine* pLine = m_LineArray[lineplace.nLineIndex].get();
   return SearchWordPlace(
-      fx - m_SecInfo.rcSection.left,
+      fx - m_Rect.left,
       CPVT_WordRange(pLine->GetNextWordPlace(pLine->GetBeginWordPlace()),
                      pLine->GetEndWordPlace()));
 }

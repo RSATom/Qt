@@ -14,19 +14,13 @@ namespace media {
 const char kClearKeyCdmLibraryName[] = "clearkeycdm";
 
 const char kClearKeyCdmBaseDirectory[] = "ClearKeyCdm";
-
-const char kClearKeyCdmAdapterFileName[] =
-#if defined(OS_MACOSX)
-    "clearkeycdmadapter.plugin";
-#elif defined(OS_WIN)
-    "clearkeycdmadapter.dll";
-#elif defined(OS_POSIX)
-    "libclearkeycdmadapter.so";
-#endif
-
 const char kClearKeyCdmDisplayName[] = "Clear Key CDM";
+const char kClearKeyCdmGuid[] = "C1A6B4E3-FE48-4D53-9F52-244AEEAD5335";
+const char kClearKeyCdmDifferentGuid[] = "747C565D-34EE-4B0D-AC1E-4F9FB17DDB40";
 
-const char kClearKeyCdmPepperMimeType[] = "application/x-ppapi-clearkey-cdm";
+// As the file system was initially used by the CDM running as a pepper plugin,
+// this ID is based on the pepper plugin MIME type.
+const char kClearKeyCdmFileSystemId[] = "application_x-ppapi-clearkey-cdm";
 
 // Note: This file must be in sync with cdm_paths.gni.
 // TODO(xhwang): Improve how we enable platform specific path. See

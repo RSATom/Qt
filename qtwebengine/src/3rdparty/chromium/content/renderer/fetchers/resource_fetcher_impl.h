@@ -9,17 +9,18 @@
 #include <string>
 
 #include "base/callback.h"
-#include "base/compiler_specific.h"
 #include "base/macros.h"
+#include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "content/public/renderer/resource_fetcher.h"
-#include "third_party/WebKit/public/platform/WebURLRequest.h"
+#include "net/http/http_request_headers.h"
+#include "services/network/public/cpp/resource_request.h"
+#include "third_party/blink/public/platform/web_url_request.h"
 
 class GURL;
 
 namespace blink {
 class WebLocalFrame;
-class WebURLLoader;
 }
 
 namespace content {
@@ -32,7 +33,10 @@ class ResourceFetcherImpl : public ResourceFetcher {
   void SetHeader(const std::string& header, const std::string& value) override;
   void Start(blink::WebLocalFrame* frame,
              blink::WebURLRequest::RequestContext request_context,
-             const Callback& callback) override;
+             scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
+             const net::NetworkTrafficAnnotationTag& annotation_tag,
+             Callback callback,
+             size_t maximum_download_size) override;
   void SetTimeout(const base::TimeDelta& timeout) override;
 
  private:
@@ -45,13 +49,12 @@ class ResourceFetcherImpl : public ResourceFetcher {
   ~ResourceFetcherImpl() override;
 
   void OnLoadComplete();
-  void Cancel() override;
+  void OnTimeout();
 
-  std::unique_ptr<blink::WebURLLoader> loader_;
   std::unique_ptr<ClientImpl> client_;
 
   // Request to send.
-  blink::WebURLRequest request_;
+  network::ResourceRequest request_;
 
   // Limit how long to wait for the server.
   base::OneShotTimer timeout_timer_;

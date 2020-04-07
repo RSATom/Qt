@@ -11,14 +11,12 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/values.h"
 #include "ui/display/display_layout.h"
-#include "ui/display/manager/display_pref_util.h"
 
 namespace display {
 
 namespace {
 
 // Persistent key names
-const char kMirroredKey[] = "mirrored";
 const char kDefaultUnifiedKey[] = "default_unified";
 const char kPrimaryIdKey[] = "primary-id";
 const char kDisplayPlacementKey[] = "display_placement";
@@ -151,8 +149,7 @@ bool JsonToDisplayLayout(const base::Value& value, DisplayLayout* layout) {
   if (!value.GetAsDictionary(&dict_value))
     return false;
 
-  if (!UpdateFromDict(dict_value, kMirroredKey, &layout->mirrored) ||
-      !UpdateFromDict(dict_value, kDefaultUnifiedKey,
+  if (!UpdateFromDict(dict_value, kDefaultUnifiedKey,
                       &layout->default_unified) ||
       !UpdateFromDict(dict_value, kPrimaryIdKey, &layout->primary_id)) {
     return false;
@@ -172,7 +169,6 @@ bool DisplayLayoutToJson(const DisplayLayout& layout, base::Value* value) {
   if (!value->GetAsDictionary(&dict_value))
     return false;
 
-  dict_value->SetBoolean(kMirroredKey, layout.mirrored);
   dict_value->SetBoolean(kDefaultUnifiedKey, layout.default_unified);
   dict_value->SetString(kPrimaryIdKey, base::Int64ToString(layout.primary_id));
 

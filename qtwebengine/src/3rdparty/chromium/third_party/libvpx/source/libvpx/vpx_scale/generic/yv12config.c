@@ -9,14 +9,15 @@
  */
 
 #include <assert.h>
+#include <limits.h>
 
 #include "vpx_scale/yv12config.h"
 #include "vpx_mem/vpx_mem.h"
 #include "vpx_ports/mem.h"
 
 /****************************************************************************
-*  Exports
-****************************************************************************/
+ *  Exports
+ ****************************************************************************/
 
 /****************************************************************************
  *
@@ -53,7 +54,7 @@ int vp8_yv12_realloc_frame_buffer(YV12_BUFFER_CONFIG *ybf, int width,
     int uv_width = aligned_width >> 1;
     int uv_height = aligned_height >> 1;
     /** There is currently a bunch of code which assumes
-      *  uv_stride == y_stride/2, so enforce this here. */
+     *  uv_stride == y_stride/2, so enforce this here. */
     int uv_stride = y_stride >> 1;
     int uvplane_size = (uv_height + border) * uv_stride;
     const int frame_size = yplane_size + 2 * uvplane_size;
@@ -165,6 +166,12 @@ int vpx_realloc_frame_buffer(YV12_BUFFER_CONFIG *ybf, int width, int height,
 
     uint8_t *buf = NULL;
 
+    // frame_size is stored in buffer_alloc_sz, which is an int. If it won't
+    // fit, fail early.
+    if (frame_size > INT_MAX) {
+      return -1;
+    }
+
     if (cb != NULL) {
       const int align_addr_extra_size = 31;
       const uint64_t external_frame_size = frame_size + align_addr_extra_size;
@@ -192,8 +199,6 @@ int vpx_realloc_frame_buffer(YV12_BUFFER_CONFIG *ybf, int width, int height,
       // Allocation to hold larger frame, or first allocation.
       vpx_free(ybf->buffer_alloc);
       ybf->buffer_alloc = NULL;
-
-      if (frame_size != (size_t)frame_size) return -1;
 
       ybf->buffer_alloc = (uint8_t *)vpx_memalign(32, (size_t)frame_size);
       if (!ybf->buffer_alloc) return -1;

@@ -5,20 +5,21 @@
 #include "content/browser/renderer_host/p2p/socket_host_udp.h"
 
 #include <stdint.h>
-#include <deque>
 #include <utility>
 #include <vector>
 
+#include "base/containers/circular_deque.h"
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "base/sys_byteorder.h"
 #include "content/browser/renderer_host/p2p/socket_host_test_utils.h"
 #include "content/browser/renderer_host/p2p/socket_host_throttler.h"
+#include "net/base/completion_once_callback.h"
 #include "net/base/io_buffer.h"
 #include "net/base/ip_endpoint.h"
 #include "net/base/net_errors.h"
 #include "net/log/net_log_with_source.h"
 #include "net/socket/datagram_server_socket.h"
+#include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -53,7 +54,7 @@ class FakeDatagramServerSocket : public net::DatagramServerSocket {
 
   // P2PSocketHostUdp destroys a socket on errors so sent packets
   // need to be stored outside of this object.
-  FakeDatagramServerSocket(std::deque<UDPPacket>* sent_packets,
+  FakeDatagramServerSocket(base::circular_deque<UDPPacket>* sent_packets,
                            std::vector<uint16_t>* used_ports)
       : sent_packets_(sent_packets),
         recv_address_(nullptr),
@@ -90,7 +91,7 @@ class FakeDatagramServerSocket : public net::DatagramServerSocket {
   int RecvFrom(net::IOBuffer* buf,
                int buf_len,
                net::IPEndPoint* address,
-               const net::CompletionCallback& callback) override {
+               net::CompletionOnceCallback callback) override {
     CHECK(recv_callback_.is_null());
     if (incoming_packets_.size() > 0) {
       scoped_refptr<net::IOBuffer> buffer(buf);
@@ -101,7 +102,7 @@ class FakeDatagramServerSocket : public net::DatagramServerSocket {
       incoming_packets_.pop_front();
       return size;
     } else {
-      recv_callback_ = callback;
+      recv_callback_ = std::move(callback);
       recv_buffer_ = buf;
       recv_size_ = buf_len;
       recv_address_ = address;
@@ -112,7 +113,7 @@ class FakeDatagramServerSocket : public net::DatagramServerSocket {
   int SendTo(net::IOBuffer* buf,
              int buf_len,
              const net::IPEndPoint& address,
-             const net::CompletionCallback& callback) override {
+             net::CompletionOnceCallback callback) override {
     scoped_refptr<net::IOBuffer> buffer(buf);
     std::vector<char> data_vector(buffer->data(), buffer->data() + buf_len);
     sent_packets_->push_back(UDPPacket(address, data_vector));
@@ -125,15 +126,15 @@ class FakeDatagramServerSocket : public net::DatagramServerSocket {
 
   int SetDoNotFragment() override { return net::OK; }
 
+  void SetMsgConfirm(bool confirm) override {}
+
   void ReceivePacket(const net::IPEndPoint& address, std::vector<char> data) {
     if (!recv_callback_.is_null()) {
       int size = std::min(recv_size_, static_cast<int>(data.size()));
       memcpy(recv_buffer_->data(), &*data.begin(), size);
       *recv_address_ = address;
-      net::CompletionCallback cb = recv_callback_;
-      recv_callback_.Reset();
       recv_buffer_ = nullptr;
-      cb.Run(size);
+      std::move(recv_callback_).Run(size);
     } else {
       incoming_packets_.push_back(UDPPacket(address, data));
     }
@@ -179,21 +180,22 @@ class FakeDatagramServerSocket : public net::DatagramServerSocket {
 
  private:
   net::IPEndPoint address_;
-  std::deque<UDPPacket>* sent_packets_;
-  std::deque<UDPPacket> incoming_packets_;
+  base::circular_deque<UDPPacket>* sent_packets_;
+  base::circular_deque<UDPPacket> incoming_packets_;
   net::NetLogWithSource net_log_;
 
   scoped_refptr<net::IOBuffer> recv_buffer_;
   net::IPEndPoint* recv_address_;
   int recv_size_;
-  net::CompletionCallback recv_callback_;
+  net::CompletionOnceCallback recv_callback_;
   std::vector<uint16_t>* used_ports_;
 };
 
 std::unique_ptr<net::DatagramServerSocket> CreateFakeDatagramServerSocket(
-    std::deque<FakeDatagramServerSocket::UDPPacket>* sent_packets,
-    std::vector<uint16_t>* used_ports) {
-  return base::MakeUnique<FakeDatagramServerSocket>(sent_packets, used_ports);
+    base::circular_deque<FakeDatagramServerSocket::UDPPacket>* sent_packets,
+    std::vector<uint16_t>* used_ports,
+    net::NetLog* net_log) {
+  return std::make_unique<FakeDatagramServerSocket>(sent_packets, used_ports);
 }
 
 }  // namespace
@@ -209,7 +211,7 @@ class P2PSocketHostUdpTest : public testing::Test {
         .WillOnce(DoAll(DeleteArg<0>(), Return(true)));
 
     socket_host_.reset(new P2PSocketHostUdp(
-        &sender_, 0, &throttler_,
+        &sender_, 0, &throttler_, /*net_log=*/nullptr,
         base::Bind(&CreateFakeDatagramServerSocket, &sent_packets_, nullptr)));
 
     local_address_ = ParseAddress(kTestLocalIpAddress, kTestPort1);
@@ -227,7 +229,7 @@ class P2PSocketHostUdpTest : public testing::Test {
 
   P2PMessageThrottler throttler_;
   ScopedFakeClock fake_clock_;
-  std::deque<FakeDatagramServerSocket::UDPPacket> sent_packets_;
+  base::circular_deque<FakeDatagramServerSocket::UDPPacket> sent_packets_;
   FakeDatagramServerSocket* socket_;  // Owned by |socket_host_|.
   std::unique_ptr<P2PSocketHostUdp> socket_host_;
   MockIPCSender sender_;
@@ -250,15 +252,15 @@ TEST_F(P2PSocketHostUdpTest, SendStunNoAuth) {
   rtc::PacketOptions options;
   std::vector<char> packet1;
   CreateStunRequest(&packet1);
-  socket_host_->Send(dest1_, packet1, options, 0);
+  socket_host_->Send(dest1_, packet1, options, 0, TRAFFIC_ANNOTATION_FOR_TESTS);
 
   std::vector<char> packet2;
   CreateStunResponse(&packet2);
-  socket_host_->Send(dest1_, packet2, options, 0);
+  socket_host_->Send(dest1_, packet2, options, 0, TRAFFIC_ANNOTATION_FOR_TESTS);
 
   std::vector<char> packet3;
   CreateStunError(&packet3);
-  socket_host_->Send(dest1_, packet3, options, 0);
+  socket_host_->Send(dest1_, packet3, options, 0, TRAFFIC_ANNOTATION_FOR_TESTS);
 
   ASSERT_EQ(sent_packets_.size(), 3U);
   ASSERT_EQ(sent_packets_[0].second, packet1);
@@ -276,7 +278,7 @@ TEST_F(P2PSocketHostUdpTest, SendDataNoAuth) {
   rtc::PacketOptions options;
   std::vector<char> packet;
   CreateRandomPacket(&packet);
-  socket_host_->Send(dest1_, packet, options, 0);
+  socket_host_->Send(dest1_, packet, options, 0, TRAFFIC_ANNOTATION_FOR_TESTS);
 
   ASSERT_EQ(sent_packets_.size(), 0U);
 }
@@ -287,7 +289,8 @@ TEST_F(P2PSocketHostUdpTest, SetOptionAfterError) {
   EXPECT_CALL(sender_,
               Send(MatchMessage(static_cast<uint32_t>(P2PMsg_OnError::ID))))
       .WillOnce(DoAll(DeleteArg<0>(), Return(true)));
-  socket_host_->Send(dest1_, {1, 2, 3, 4}, rtc::PacketOptions(), 0);
+  socket_host_->Send(dest1_, {1, 2, 3, 4}, rtc::PacketOptions(), 0,
+                     TRAFFIC_ANNOTATION_FOR_TESTS);
   testing::Mock::VerifyAndClearExpectations(&sender_);
 
   // Verify that SetOptions() fails, but doesn't crash.
@@ -314,7 +317,7 @@ TEST_F(P2PSocketHostUdpTest, SendAfterStunRequest) {
   rtc::PacketOptions options;
   std::vector<char> packet;
   CreateRandomPacket(&packet);
-  socket_host_->Send(dest1_, packet, options, 0);
+  socket_host_->Send(dest1_, packet, options, 0, TRAFFIC_ANNOTATION_FOR_TESTS);
 
   ASSERT_EQ(1U, sent_packets_.size());
   ASSERT_EQ(dest1_, sent_packets_[0].first);
@@ -340,7 +343,7 @@ TEST_F(P2PSocketHostUdpTest, SendAfterStunResponse) {
   rtc::PacketOptions options;
   std::vector<char> packet;
   CreateRandomPacket(&packet);
-  socket_host_->Send(dest1_, packet, options, 0);
+  socket_host_->Send(dest1_, packet, options, 0, TRAFFIC_ANNOTATION_FOR_TESTS);
 
   ASSERT_EQ(1U, sent_packets_.size());
   ASSERT_EQ(dest1_, sent_packets_[0].first);
@@ -364,7 +367,7 @@ TEST_F(P2PSocketHostUdpTest, SendAfterStunResponseDifferentHost) {
   EXPECT_CALL(sender_,
               Send(MatchMessage(static_cast<uint32_t>(P2PMsg_OnError::ID))))
       .WillOnce(DoAll(DeleteArg<0>(), Return(true)));
-  socket_host_->Send(dest2_, packet, options, 0);
+  socket_host_->Send(dest2_, packet, options, 0, TRAFFIC_ANNOTATION_FOR_TESTS);
 }
 
 // Verify throttler not allowing unlimited sending of ICE messages to
@@ -380,12 +383,12 @@ TEST_F(P2PSocketHostUdpTest, ThrottleAfterLimit) {
   std::vector<char> packet1;
   CreateStunRequest(&packet1);
   throttler_.SetSendIceBandwidth(packet1.size() * 2);
-  socket_host_->Send(dest1_, packet1, options, 0);
-  socket_host_->Send(dest2_, packet1, options, 0);
+  socket_host_->Send(dest1_, packet1, options, 0, TRAFFIC_ANNOTATION_FOR_TESTS);
+  socket_host_->Send(dest2_, packet1, options, 0, TRAFFIC_ANNOTATION_FOR_TESTS);
 
   net::IPEndPoint dest3 = ParseAddress(kTestIpAddress1, 2222);
   // This packet must be dropped by the throttler.
-  socket_host_->Send(dest3, packet1, options, 0);
+  socket_host_->Send(dest3, packet1, options, 0, TRAFFIC_ANNOTATION_FOR_TESTS);
   ASSERT_EQ(sent_packets_.size(), 2U);
 }
 
@@ -411,21 +414,21 @@ TEST_F(P2PSocketHostUdpTest, ThrottleAfterLimitAfterReceive) {
   CreateStunRequest(&packet1);
   throttler_.SetSendIceBandwidth(packet1.size());
   // |dest1_| is known address, throttling will not be applied.
-  socket_host_->Send(dest1_, packet1, options, 0);
+  socket_host_->Send(dest1_, packet1, options, 0, TRAFFIC_ANNOTATION_FOR_TESTS);
   // Trying to send the packet to dest1_ in the same window. It should go.
-  socket_host_->Send(dest1_, packet1, options, 0);
+  socket_host_->Send(dest1_, packet1, options, 0, TRAFFIC_ANNOTATION_FOR_TESTS);
 
   // Throttler should allow this packet to go through.
-  socket_host_->Send(dest2_, packet1, options, 0);
+  socket_host_->Send(dest2_, packet1, options, 0, TRAFFIC_ANNOTATION_FOR_TESTS);
 
   net::IPEndPoint dest3 = ParseAddress(kTestIpAddress1, 2223);
   // This packet will be dropped, as limit only for a single packet.
-  socket_host_->Send(dest3, packet1, options, 0);
+  socket_host_->Send(dest3, packet1, options, 0, TRAFFIC_ANNOTATION_FOR_TESTS);
   net::IPEndPoint dest4 = ParseAddress(kTestIpAddress1, 2224);
   // This packet should also be dropped.
-  socket_host_->Send(dest4, packet1, options, 0);
+  socket_host_->Send(dest4, packet1, options, 0, TRAFFIC_ANNOTATION_FOR_TESTS);
   // |dest1| is known, we can send as many packets to it.
-  socket_host_->Send(dest1_, packet1, options, 0);
+  socket_host_->Send(dest1_, packet1, options, 0, TRAFFIC_ANNOTATION_FOR_TESTS);
   ASSERT_EQ(sent_packets_.size(), 4U);
 }
 
@@ -450,42 +453,42 @@ TEST_F(P2PSocketHostUdpTest, MAYBE_ThrottlingStopsAtExpectedTimes) {
   CreateStunRequest(&packet);
   // Limit of 2 packets per second.
   throttler_.SetSendIceBandwidth(packet.size() * 2);
-  socket_host_->Send(dest1_, packet, options, 0);
-  socket_host_->Send(dest2_, packet, options, 0);
+  socket_host_->Send(dest1_, packet, options, 0, TRAFFIC_ANNOTATION_FOR_TESTS);
+  socket_host_->Send(dest2_, packet, options, 0, TRAFFIC_ANNOTATION_FOR_TESTS);
   EXPECT_EQ(2U, sent_packets_.size());
 
   // These packets must be dropped by the throttler since the limit was hit and
   // the time hasn't advanced.
-  socket_host_->Send(dest1_, packet, options, 0);
-  socket_host_->Send(dest2_, packet, options, 0);
+  socket_host_->Send(dest1_, packet, options, 0, TRAFFIC_ANNOTATION_FOR_TESTS);
+  socket_host_->Send(dest2_, packet, options, 0, TRAFFIC_ANNOTATION_FOR_TESTS);
   EXPECT_EQ(2U, sent_packets_.size());
 
   // Advance the time to 0.999 seconds; throttling should still just barely be
   // active.
   fake_clock_.SetTimeNanos(rtc::kNumNanosecsPerMillisec * 999);
-  socket_host_->Send(dest1_, packet, options, 0);
-  socket_host_->Send(dest2_, packet, options, 0);
+  socket_host_->Send(dest1_, packet, options, 0, TRAFFIC_ANNOTATION_FOR_TESTS);
+  socket_host_->Send(dest2_, packet, options, 0, TRAFFIC_ANNOTATION_FOR_TESTS);
   EXPECT_EQ(2U, sent_packets_.size());
 
   // After hitting the second mark, we should be able to send again.
   // Add an extra millisecond to account for rounding errors.
   fake_clock_.SetTimeNanos(rtc::kNumNanosecsPerMillisec * 1001);
-  socket_host_->Send(dest1_, packet, options, 0);
+  socket_host_->Send(dest1_, packet, options, 0, TRAFFIC_ANNOTATION_FOR_TESTS);
   EXPECT_EQ(3U, sent_packets_.size());
 
   // This time, hit the limit in the middle of the period.
   fake_clock_.SetTimeNanos(rtc::kNumNanosecsPerMillisec * 1500);
-  socket_host_->Send(dest2_, packet, options, 0);
+  socket_host_->Send(dest2_, packet, options, 0, TRAFFIC_ANNOTATION_FOR_TESTS);
   EXPECT_EQ(4U, sent_packets_.size());
 
   // Again, throttling should be active until the next second mark.
   fake_clock_.SetTimeNanos(rtc::kNumNanosecsPerMillisec * 1999);
-  socket_host_->Send(dest1_, packet, options, 0);
-  socket_host_->Send(dest2_, packet, options, 0);
+  socket_host_->Send(dest1_, packet, options, 0, TRAFFIC_ANNOTATION_FOR_TESTS);
+  socket_host_->Send(dest2_, packet, options, 0, TRAFFIC_ANNOTATION_FOR_TESTS);
   EXPECT_EQ(4U, sent_packets_.size());
   fake_clock_.SetTimeNanos(rtc::kNumNanosecsPerMillisec * 2002);
-  socket_host_->Send(dest1_, packet, options, 0);
-  socket_host_->Send(dest2_, packet, options, 0);
+  socket_host_->Send(dest1_, packet, options, 0, TRAFFIC_ANNOTATION_FOR_TESTS);
+  socket_host_->Send(dest2_, packet, options, 0, TRAFFIC_ANNOTATION_FOR_TESTS);
   EXPECT_EQ(6U, sent_packets_.size());
 }
 
@@ -494,7 +497,7 @@ TEST_F(P2PSocketHostUdpTest, MAYBE_ThrottlingStopsAtExpectedTimes) {
 TEST_F(P2PSocketHostUdpTest, PortRangeImplicitPort) {
   const uint16_t min_port = 10000;
   const uint16_t max_port = 10001;
-  std::deque<FakeDatagramServerSocket::UDPPacket> sent_packets;
+  base::circular_deque<FakeDatagramServerSocket::UDPPacket> sent_packets;
   std::vector<uint16_t> used_ports;
   P2PSocketHostUdp::DatagramServerSocketFactory fake_socket_factory =
       base::Bind(&CreateFakeDatagramServerSocket, &sent_packets, &used_ports);
@@ -507,8 +510,8 @@ TEST_F(P2PSocketHostUdpTest, PortRangeImplicitPort) {
       .WillRepeatedly(DoAll(DeleteArg<0>(), Return(true)));
 
   for (unsigned port = min_port; port <= max_port; ++port) {
-    std::unique_ptr<P2PSocketHostUdp> socket_host(
-        new P2PSocketHostUdp(&sender, 0, &throttler, fake_socket_factory));
+    std::unique_ptr<P2PSocketHostUdp> socket_host(new P2PSocketHostUdp(
+        &sender, 0, &throttler, /*net_log=*/nullptr, fake_socket_factory));
     net::IPEndPoint local_address = ParseAddress(kTestLocalIpAddress, 0);
     bool rv = socket_host->Init(local_address, min_port, max_port,
                                 P2PHostAndIPEndPoint());
@@ -524,7 +527,8 @@ TEST_F(P2PSocketHostUdpTest, PortRangeImplicitPort) {
               Send(MatchMessage(static_cast<uint32_t>(P2PMsg_OnError::ID))))
       .WillOnce(DoAll(DeleteArg<0>(), Return(true)));
   std::unique_ptr<P2PSocketHostUdp> socket_host(
-      new P2PSocketHostUdp(&sender, 0, &throttler, fake_socket_factory));
+      new P2PSocketHostUdp(&sender, 0, &throttler, /*net_log=*/nullptr,
+                           std::move(fake_socket_factory)));
   net::IPEndPoint local_address = ParseAddress(kTestLocalIpAddress, 0);
   bool rv = socket_host->Init(local_address, min_port, max_port,
                               P2PHostAndIPEndPoint());
@@ -537,7 +541,7 @@ TEST_F(P2PSocketHostUdpTest, PortRangeExplictValidPort) {
   const uint16_t min_port = 10000;
   const uint16_t max_port = 10001;
   const uint16_t valid_port = min_port;
-  std::deque<FakeDatagramServerSocket::UDPPacket> sent_packets;
+  base::circular_deque<FakeDatagramServerSocket::UDPPacket> sent_packets;
   std::vector<uint16_t> used_ports;
   P2PSocketHostUdp::DatagramServerSocketFactory fake_socket_factory =
       base::Bind(&CreateFakeDatagramServerSocket, &sent_packets, &used_ports);
@@ -549,7 +553,8 @@ TEST_F(P2PSocketHostUdpTest, PortRangeExplictValidPort) {
       .WillOnce(DoAll(DeleteArg<0>(), Return(true)));
 
   std::unique_ptr<P2PSocketHostUdp> socket_host(
-      new P2PSocketHostUdp(&sender, 0, &throttler, fake_socket_factory));
+      new P2PSocketHostUdp(&sender, 0, &throttler, /*net_log=*/nullptr,
+                           std::move(fake_socket_factory)));
   net::IPEndPoint local_address = ParseAddress(kTestLocalIpAddress, valid_port);
   bool rv = socket_host->Init(local_address, min_port, max_port,
                               P2PHostAndIPEndPoint());
@@ -567,7 +572,7 @@ TEST_F(P2PSocketHostUdpTest, PortRangeExplictInvalidPort) {
   const uint16_t min_port = 10000;
   const uint16_t max_port = 10001;
   const uint16_t invalid_port = max_port + 1;
-  std::deque<FakeDatagramServerSocket::UDPPacket> sent_packets;
+  base::circular_deque<FakeDatagramServerSocket::UDPPacket> sent_packets;
   std::vector<uint16_t> used_ports;
   P2PSocketHostUdp::DatagramServerSocketFactory fake_socket_factory =
       base::Bind(&CreateFakeDatagramServerSocket, &sent_packets, &used_ports);
@@ -578,7 +583,8 @@ TEST_F(P2PSocketHostUdpTest, PortRangeExplictInvalidPort) {
       .WillOnce(DoAll(DeleteArg<0>(), Return(true)));
 
   std::unique_ptr<P2PSocketHostUdp> socket_host(
-      new P2PSocketHostUdp(&sender, 0, &throttler, fake_socket_factory));
+      new P2PSocketHostUdp(&sender, 0, &throttler, /*net_log=*/nullptr,
+                           std::move(fake_socket_factory)));
   net::IPEndPoint local_address =
       ParseAddress(kTestLocalIpAddress, invalid_port);
   bool rv = socket_host->Init(local_address, min_port, max_port,

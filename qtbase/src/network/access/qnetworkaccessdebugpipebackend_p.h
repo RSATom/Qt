@@ -68,16 +68,15 @@ public:
     QNetworkAccessDebugPipeBackend();
     virtual ~QNetworkAccessDebugPipeBackend();
 
-    virtual void open() Q_DECL_OVERRIDE;
-    virtual void closeDownstreamChannel() Q_DECL_OVERRIDE;
+    virtual void open() override;
+    virtual void closeDownstreamChannel() override;
 
-    virtual void downstreamReadyWrite() Q_DECL_OVERRIDE;
+    virtual void downstreamReadyWrite() override;
 
 protected:
     void pushFromSocketToDownstream();
     void pushFromUpstreamToSocket();
     void possiblyFinish();
-    QNonContiguousByteDevice *uploadByteDevice;
 
 private slots:
     void uploadReadyReadSlot();
@@ -101,9 +100,9 @@ private:
 class QNetworkAccessDebugPipeBackendFactory: public QNetworkAccessBackendFactory
 {
 public:
-    virtual QStringList supportedSchemes() const Q_DECL_OVERRIDE;
+    virtual QStringList supportedSchemes() const override;
     virtual QNetworkAccessBackend *create(QNetworkAccessManager::Operation op,
-                                          const QNetworkRequest &request) const Q_DECL_OVERRIDE;
+                                          const QNetworkRequest &request) const override;
 };
 
 #endif  // QT_BUILD_INTERNAL

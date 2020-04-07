@@ -1040,7 +1040,7 @@ QStyleOptionButton::QStyleOptionButton(int version)
 */
 
 
-#ifndef QT_NO_TOOLBAR
+#if QT_CONFIG(toolbar)
 /*!
     \class QStyleOptionToolBar
     \brief The QStyleOptionToolBar class is used to describe the
@@ -1842,10 +1842,12 @@ QStyleOptionMenuItem::QStyleOptionMenuItem(int version)
 
 /*!
     \variable QStyleOptionMenuItem::tabWidth
-    \brief the tab width for the menu item
+    \brief the reserved width for the menu item's shortcut
 
-    The tab width is the distance between the text of the menu item
-    and the shortcut. The default value is 0.
+    QMenu sets it to the width occupied by the widest shortcut among
+    all visible items within the menu.
+
+    The default value is 0.
 */
 
 
@@ -3265,7 +3267,7 @@ QStyleOptionViewItem::QStyleOptionViewItem(int version)
 
 #endif // QT_CONFIG(itemviews)
 /*!
-    \fn T qstyleoption_cast<T>(const QStyleOption *option)
+    \fn template <typename T> T qstyleoption_cast<T>(const QStyleOption *option)
     \relates QStyleOption
 
     Returns a T or 0 depending on the \l{QStyleOption::type}{type} and
@@ -3279,7 +3281,7 @@ QStyleOptionViewItem::QStyleOptionViewItem(int version)
 */
 
 /*!
-    \fn T qstyleoption_cast<T>(QStyleOption *option)
+    \fn template <typename T> T qstyleoption_cast<T>(QStyleOption *option)
     \overload
     \relates QStyleOption
 
@@ -4001,7 +4003,7 @@ QStyleHintReturnVariant::~QStyleHintReturnVariant()
 */
 
 /*!
-    \fn T qstyleoption_cast<T>(const QStyleHintReturn *hint)
+    \fn template <typename T> T qstyleoption_cast<T>(const QStyleHintReturn *hint)
     \relates QStyleHintReturn
 
     Returns a T or 0 depending on the \l{QStyleHintReturn::type}{type}
@@ -4015,7 +4017,7 @@ QStyleHintReturnVariant::~QStyleHintReturnVariant()
 */
 
 /*!
-    \fn T qstyleoption_cast<T>(QStyleHintReturn *hint)
+    \fn template <typename T> T qstyleoption_cast<T>(QStyleHintReturn *hint)
     \overload
     \relates QStyleHintReturn
 

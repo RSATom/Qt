@@ -12,6 +12,7 @@
 #include "base/strings/string_tokenizer.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
+#include "build/build_config.h"
 #include "media/base/media_switches.h"
 
 namespace {
@@ -130,18 +131,18 @@ FakeVideoCaptureDeviceFactory::CreateDeviceWithSettings(
   }
 
   const VideoCaptureFormat& initial_format = settings.supported_formats.front();
-  auto device_state = base::MakeUnique<FakeDeviceState>(
+  auto device_state = std::make_unique<FakeDeviceState>(
       kInitialZoom, initial_format.frame_rate, initial_format.pixel_format);
 
-  auto photo_frame_painter = base::MakeUnique<PacmanFramePainter>(
+  auto photo_frame_painter = std::make_unique<PacmanFramePainter>(
       PacmanFramePainter::Format::SK_N32, device_state.get());
-  auto photo_device = base::MakeUnique<FakePhotoDevice>(
+  auto photo_device = std::make_unique<FakePhotoDevice>(
       std::move(photo_frame_painter), device_state.get(),
       settings.photo_device_config);
 
-  return base::MakeUnique<FakeVideoCaptureDevice>(
+  return std::make_unique<FakeVideoCaptureDevice>(
       settings.supported_formats,
-      base::MakeUnique<FrameDelivererFactory>(settings.delivery_mode,
+      std::make_unique<FrameDelivererFactory>(settings.delivery_mode,
                                               device_state.get()),
       std::move(photo_device), std::move(device_state));
 }
@@ -163,7 +164,7 @@ FakeVideoCaptureDeviceFactory::CreateDeviceWithDefaultResolutions(
 // static
 std::unique_ptr<VideoCaptureDevice>
 FakeVideoCaptureDeviceFactory::CreateErrorDevice() {
-  return base::MakeUnique<ErrorFakeDevice>();
+  return std::make_unique<ErrorFakeDevice>();
 }
 
 void FakeVideoCaptureDeviceFactory::SetToDefaultDevicesConfig(
@@ -207,6 +208,8 @@ void FakeVideoCaptureDeviceFactory::GetDeviceDescriptors(
         VideoCaptureApi::WIN_DIRECT_SHOW
 #elif defined(OS_ANDROID)
         VideoCaptureApi::ANDROID_API2_LEGACY
+#elif defined(OS_FUCHSIA)
+        VideoCaptureApi::UNKNOWN
 #endif
         );
     entry_index++;
@@ -237,6 +240,12 @@ void FakeVideoCaptureDeviceFactory::GetSupportedFormats(
                               entry.supported_formats.begin(),
                               entry.supported_formats.end());
   }
+}
+
+void FakeVideoCaptureDeviceFactory::GetCameraLocationsAsync(
+    std::unique_ptr<VideoCaptureDeviceDescriptors> device_descriptors,
+    DeviceDescriptorsCallback result_callback) {
+  base::ResetAndReturn(&result_callback).Run(std::move(device_descriptors));
 }
 
 // static

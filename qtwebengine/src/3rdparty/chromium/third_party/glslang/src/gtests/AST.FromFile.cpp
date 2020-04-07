@@ -44,7 +44,8 @@ using CompileToAstTest = GlslangTest<::testing::TestWithParam<std::string>>;
 TEST_P(CompileToAstTest, FromFile)
 {
     loadFileCompileAndCheck(GLSLANG_TEST_DIRECTORY, GetParam(),
-                            Semantics::OpenGL, Target::AST);
+                            Source::GLSL, Semantics::OpenGL,
+                            Target::AST);
 }
 
 // clang-format off
@@ -112,6 +113,9 @@ INSTANTIATE_TEST_CASE_P(
         "110scope.vert",
         "300scope.vert",
         "400.frag",
+        "400.vert",
+        "410.vert",
+        "420.comp",
         "420.frag",
         "420.vert",
         "420.geom",
@@ -183,7 +187,7 @@ INSTANTIATE_TEST_CASE_P(
         "nonVulkan.frag",
         "spv.atomic.comp",
     })),
-    FileNameAsCustomTestName
+    FileNameAsCustomTestSuffix
 );
 // clang-format on
 

@@ -26,6 +26,7 @@
 #include <string>
 #include <vector>
 #include <set>
+#include <map>
 
 namespace es2
 {
@@ -48,8 +49,7 @@ namespace es2
 			bool isRowMajorMatrix;
 		};
 
-		Uniform(GLenum type, GLenum precision, const std::string &name, unsigned int arraySize,
-		        const BlockInfo &blockInfo);
+		Uniform(const glsl::Uniform &uniform, const BlockInfo &blockInfo);
 
 		~Uniform();
 
@@ -62,6 +62,7 @@ namespace es2
 		const std::string name;
 		const unsigned int arraySize;
 		const BlockInfo blockInfo;
+		std::vector<glsl::ShaderVariable> fields;
 
 		unsigned char *data;
 		bool dirty;
@@ -144,6 +145,7 @@ namespace es2
 		GLuint getUniformBlockBinding(GLuint uniformBlockIndex) const;
 		void getActiveUniformBlockiv(GLuint uniformBlockIndex, GLenum pname, GLint *params) const;
 
+		bool isUniformDefined(const std::string &name) const;
 		GLint getUniformLocation(const std::string &name) const;
 		bool setUniform1fv(GLint location, GLsizei count, const GLfloat *v);
 		bool setUniform2fv(GLint location, GLsizei count, const GLfloat *v);
@@ -181,6 +183,8 @@ namespace es2
 		size_t getInfoLogLength() const;
 		void getInfoLog(GLsizei bufSize, GLsizei *length, char *infoLog);
 		void getAttachedShaders(GLsizei maxCount, GLsizei *count, GLuint *shaders);
+
+		GLint getFragDataLocation(const GLchar *name);
 
 		void getActiveAttribute(GLuint index, GLsizei bufsize, GLsizei *length, GLint *size, GLenum *type, GLchar *name) const;
 		size_t getActiveAttributeCount() const;
@@ -230,7 +234,9 @@ namespace es2
 		bool linkUniforms(const Shader *shader);
 		bool linkUniformBlocks(const Shader *vertexShader, const Shader *fragmentShader);
 		bool areMatchingUniformBlocks(const glsl::UniformBlock &block1, const glsl::UniformBlock &block2, const Shader *shader1, const Shader *shader2);
-		bool defineUniform(GLenum shader, GLenum type, GLenum precision, const std::string &_name, unsigned int arraySize, int registerIndex, const Uniform::BlockInfo& blockInfo);
+		bool areMatchingFields(const std::vector<glsl::ShaderVariable>& fields1, const std::vector<glsl::ShaderVariable>& fields2, const std::string& name);
+		bool validateUniformStruct(GLenum shader, const glsl::Uniform &newUniformStruct);
+		bool defineUniform(GLenum shader, const glsl::Uniform &uniform, const Uniform::BlockInfo& blockInfo);
 		bool defineUniformBlock(const Shader *shader, const glsl::UniformBlock &block);
 		bool applyUniform(Device *device, GLint location, float* data);
 		bool applyUniform1bv(Device *device, GLint location, GLsizei count, const GLboolean *v);
@@ -276,8 +282,9 @@ namespace es2
 		sw::PixelShader *pixelBinary;
 		sw::VertexShader *vertexBinary;
 
-		std::set<std::string> attributeBinding[MAX_VERTEX_ATTRIBS];
-		glsl::Attribute linkedAttribute[MAX_VERTEX_ATTRIBS];
+		std::map<std::string, GLuint> attributeBinding;
+		std::map<std::string, GLuint> linkedAttributeLocation;
+		std::vector<glsl::Attribute> linkedAttribute;
 		int attributeStream[MAX_VERTEX_ATTRIBS];
 
 		GLuint uniformBlockBindings[MAX_UNIFORM_BUFFER_BINDINGS];
@@ -298,6 +305,8 @@ namespace es2
 
 		typedef std::vector<Uniform*> UniformArray;
 		UniformArray uniforms;
+		typedef std::vector<Uniform> UniformStructArray;
+		UniformStructArray uniformStructs;
 		typedef std::vector<UniformLocation> UniformIndex;
 		UniformIndex uniformIndex;
 		typedef std::vector<UniformBlock*> UniformBlockArray;

@@ -8,8 +8,8 @@
 
 namespace media {
 
-CdmPromiseAdapter::CdmPromiseAdapter() : next_promise_id_(1) {
-}
+CdmPromiseAdapter::CdmPromiseAdapter()
+    : next_promise_id_(kInvalidPromiseId + 1) {}
 
 CdmPromiseAdapter::~CdmPromiseAdapter() {
   DCHECK(promises_.empty());
@@ -19,7 +19,12 @@ CdmPromiseAdapter::~CdmPromiseAdapter() {
 
 uint32_t CdmPromiseAdapter::SavePromise(std::unique_ptr<CdmPromise> promise) {
   DCHECK(thread_checker_.CalledOnValidThread());
+  DCHECK_NE(kInvalidPromiseId, next_promise_id_);
+
   uint32_t promise_id = next_promise_id_++;
+  if (next_promise_id_ == kInvalidPromiseId)
+    next_promise_id_++;
+
   promises_[promise_id] = std::move(promise);
   return promise_id;
 }
@@ -61,7 +66,8 @@ void CdmPromiseAdapter::Clear() {
   // Reject all outstanding promises.
   DCHECK(thread_checker_.CalledOnValidThread());
   for (auto& promise : promises_)
-    promise.second->reject(CdmPromise::UNKNOWN_ERROR, 0, "Operation aborted.");
+    promise.second->reject(CdmPromise::Exception::INVALID_STATE_ERROR, 0,
+                           "Operation aborted.");
   promises_.clear();
 }
 
@@ -78,6 +84,9 @@ std::unique_ptr<CdmPromise> CdmPromiseAdapter::TakePromise(
 
 // Explicit instantiation of function templates.
 template MEDIA_EXPORT void CdmPromiseAdapter::ResolvePromise(uint32_t);
+template MEDIA_EXPORT void CdmPromiseAdapter::ResolvePromise(
+    uint32_t,
+    const CdmKeyInformation::KeyStatus&);
 template MEDIA_EXPORT void CdmPromiseAdapter::ResolvePromise(
     uint32_t,
     const std::string&);

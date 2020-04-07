@@ -26,7 +26,7 @@ qhp.QtWidgets.subprojects.classes.sortPages = true
 
 tagfile                 = ../../../doc/qtwidgets/qtwidgets.tags
 
-depends                 += qtcore qtgui qtdoc qtsql qtdesigner qtquick qmake qtplatformheaders qtsvg
+depends                 += qtcore qtgui qtdoc qtsql qtdesigner qtquick qmake qtplatformheaders qtsvg qtlinguist
 
 headerdirs  += ..
 
@@ -39,6 +39,9 @@ exampledirs += ../../../examples/widgets \
                snippets
 
 excludedirs += snippets
+
+# Included in qttestlib.qdocconf instead
+excludefiles += ../kernel/qtestsupport_widgets.cpp
 
 imagedirs   += images \
                ../../../doc/src/images \

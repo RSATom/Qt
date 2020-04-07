@@ -35,22 +35,22 @@
 
 #include <QtDesigner/private/formbuilderextra_p.h>
 
-#include <QtDesigner/QDesignerFormWindowInterface>
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerWidgetDataBaseInterface>
+#include <QtDesigner/abstractformwindow.h>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/abstractwidgetdatabase.h>
 
-#include <QtCore/QDebug>
+#include <QtCore/qdebug.h>
 
-#include <QtWidgets/QLayout>
-#include <QtWidgets/QDockWidget>
-#include <QtWidgets/QDialog>
-#include <QtWidgets/QLabel>
-#include <QtWidgets/QGroupBox>
-#include <QtWidgets/QStyle>
-#include <QtWidgets/QApplication>
-#include <QtWidgets/QToolBar>
-#include <QtWidgets/QMainWindow>
-#include <QtWidgets/QMenuBar>
+#include <QtWidgets/qlayout.h>
+#include <QtWidgets/qdockwidget.h>
+#include <QtWidgets/qdialog.h>
+#include <QtWidgets/qlabel.h>
+#include <QtWidgets/qgroupbox.h>
+#include <QtWidgets/qstyle.h>
+#include <QtWidgets/qapplication.h>
+#include <QtWidgets/qtoolbar.h>
+#include <QtWidgets/qmainwindow.h>
+#include <QtWidgets/qmenubar.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -643,7 +643,8 @@ QDesignerPropertySheet::QDesignerPropertySheet(QObject *object, QObject *parent)
         } else {
             if (qobject_cast<const QMenuBar *>(d->m_object)) {
                 // Keep the menu bar editable in the form even if a native menu bar is used.
-                const bool nativeMenuBarDefault = !qApp->testAttribute(Qt::AA_DontUseNativeMenuBar);
+                const bool nativeMenuBarDefault =
+                    !QCoreApplication::testAttribute(Qt::AA_DontUseNativeMenuBar);
                 createFakeProperty(QStringLiteral("nativeMenuBar"), QVariant(nativeMenuBarDefault));
             }
         }
@@ -723,14 +724,10 @@ bool QDesignerPropertySheet::canAddDynamicProperty(const QString &propName) cons
         return false; // property already exists and is not a dynamic one
     if (d->m_addIndex.contains(propName)) {
         const int idx = d->m_addIndex.value(propName);
-        if (isVisible(idx))
-            return false; // dynamic property already exists
-        else
-            return true;
+        return !isVisible(idx); // dynamic property already exists
     }
-    if (!QDesignerPropertySheet::internalDynamicPropertiesEnabled() && propName.startsWith(QStringLiteral("_q_")))
-        return false;
-    return true;
+    return QDesignerPropertySheet::internalDynamicPropertiesEnabled()
+        || !propName.startsWith(QStringLiteral("_q_"));
 }
 
 int QDesignerPropertySheet::addDynamicProperty(const QString &propName, const QVariant &value)
@@ -1343,12 +1340,14 @@ bool QDesignerPropertySheet::reset(int index)
             return true;
         }
         return false;
-    } else if (isFakeProperty(index)) {
+    }
+    if (isFakeProperty(index)) {
         const QDesignerMetaPropertyInterface *p = d->m_meta->property(index);
         const bool result = p->reset(d->m_object);
         d->m_fakeProperties[index] = p->read(d->m_object);
         return result;
-    } else if (propertyType(index) == PropertyGeometry && d->m_object->isWidgetType()) {
+    }
+    if (propertyType(index) == PropertyGeometry && d->m_object->isWidgetType()) {
         if (QWidget *w = qobject_cast<QWidget*>(d->m_object)) {
             QWidget *widget = w;
             if (qdesigner_internal::Utils::isCentralWidget(d->m_fwb, widget) && d->m_fwb->parentWidget())
@@ -1570,7 +1569,7 @@ bool QDesignerPropertySheet::isEnabled(int index) const
         return !isManaged || lt == qdesigner_internal::LayoutInfo::NoLayout;
     }
 
-    if (d->m_info.value(index).visible == true) // Sun CC 5.5 oddity, wants true
+    if (d->m_info.value(index).visible)
         return true;
 
     // Enable setting of properties for statically non-designable properties

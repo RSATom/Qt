@@ -24,7 +24,7 @@ class DownloadNotificationTestBase;
 // is shown, closed, or clicked on.
 //
 // MessageCenter is agnostic of profiles; it uses the string returned by
-// message_center::Notification::id() to uniquely identify a notification. It is
+// Notification::id() to uniquely identify a notification. It is
 // the caller's responsibility to formulate the id so that 2 different
 // notification should have different ids. For example, if the caller supports
 // multiple profiles, then caller should encode both profile characteristics and
@@ -42,7 +42,6 @@ class MessagePopupCollectionTest;
 class MessageCenterObserver;
 class MessageCenterImplTest;
 class NotificationBlocker;
-class NotifierSettingsProvider;
 
 class MESSAGE_CENTER_EXPORT MessageCenter {
  public:
@@ -56,8 +55,8 @@ class MESSAGE_CENTER_EXPORT MessageCenter {
   // Creates the global message center object.
   static void Initialize();
 
-  // Returns the global message center object. Returns NULL if Initialize is not
-  // called.
+  // Returns the global message center object. Returns null if Initialize is
+  // not called.
   static MessageCenter* Get();
 
   // Destroys the global message_center object.
@@ -69,16 +68,17 @@ class MESSAGE_CENTER_EXPORT MessageCenter {
 
   // Queries of current notification list status.
   virtual size_t NotificationCount() const = 0;
-  virtual size_t UnreadNotificationCount() const = 0;
   virtual bool HasPopupNotifications() const = 0;
   virtual bool IsQuietMode() const = 0;
-  virtual bool IsLockedState() const = 0;
-  virtual bool HasClickedListener(const std::string& id) = 0;
 
-  // Find the notification with the corresponding id. Returns NULL if not found.
-  // The returned instance is owned by the message center.
-  virtual message_center::Notification* FindVisibleNotificationById(
-      const std::string& id) = 0;
+  // Find the notification with the corresponding id. Returns null if not
+  // found. The returned instance is owned by the message center.
+  virtual Notification* FindVisibleNotificationById(const std::string& id) = 0;
+
+  // Find all notifications with the corresponding |app_id|. Returns an
+  // empty set if none are found.
+  virtual NotificationList::Notifications FindNotificationsByAppId(
+      const std::string& app_id) = 0;
 
   // Gets all notifications to be shown to the user in the message center.  Note
   // that queued changes due to the message center being open are not reflected
@@ -106,6 +106,8 @@ class MESSAGE_CENTER_EXPORT MessageCenter {
 
   // Removes an existing notification.
   virtual void RemoveNotification(const std::string& id, bool by_user) = 0;
+  virtual void RemoveNotificationsForNotifierId(
+      const NotifierId& notifier_id) = 0;
   virtual void RemoveAllNotifications(bool by_user, RemoveType type) = 0;
 
   // Sets the icon image. Icon appears at the top-left of the notification.
@@ -122,12 +124,6 @@ class MESSAGE_CENTER_EXPORT MessageCenter {
                                          int button_index,
                                          const gfx::Image& image) = 0;
 
-  // Operations happening especially from GUIs: click, disable, and settings.
-  // Searches through the notifications and disables any that match the
-  // extension id given.
-  virtual void DisableNotificationsByNotifier(
-      const NotifierId& notifier_id) = 0;
-
   // This should be called by UI classes when a notification is clicked to
   // trigger the notification's delegate callback and also update the message
   // center observers.
@@ -139,10 +135,23 @@ class MESSAGE_CENTER_EXPORT MessageCenter {
   virtual void ClickOnNotificationButton(const std::string& id,
                                          int button_index) = 0;
 
+  // This should be called by UI classes when a notification button with an
+  // input is clicked to trigger the notification's delegate callback and also
+  // update the message center observers.
+  virtual void ClickOnNotificationButtonWithReply(
+      const std::string& id,
+      int button_index,
+      const base::string16& reply) = 0;
+
   // Called by the UI classes when the settings buttons is clicked
   // to trigger the notification's delegate and update the message
   // center observers.
   virtual void ClickOnSettingsButton(const std::string& id) = 0;
+
+  // This should be called by UI classes when a user select from notification
+  // inline settings to disable notifications from the same origin of the
+  // notification.
+  virtual void DisableNotification(const std::string& id) = 0;
 
   // This should be called by UI classes after a visible notification popup
   // closes, indicating that the notification has been shown to the user.
@@ -158,18 +167,8 @@ class MESSAGE_CENTER_EXPORT MessageCenter {
       const std::string& id,
       const DisplaySource source) = 0;
 
-  // Setter/getter of notifier settings provider. This will be a weak reference.
-  // This should be set at the initialization process. The getter may return
-  // NULL for tests.
-  virtual void SetNotifierSettingsProvider(
-      NotifierSettingsProvider* provider) = 0;
-  virtual NotifierSettingsProvider* GetNotifierSettingsProvider() = 0;
-
   // This can be called to change the quiet mode state (without a timeout).
   virtual void SetQuietMode(bool in_quiet_mode) = 0;
-
-  // This can be called to change the lock mode state.
-  virtual void SetLockedState(bool locked) = 0;
 
   // Temporarily enables quiet mode for |expires_in| time.
   virtual void EnterQuietModeWithExpire(const base::TimeDelta& expires_in) = 0;
@@ -181,6 +180,14 @@ class MESSAGE_CENTER_EXPORT MessageCenter {
   // Allows querying the visibility of the center.
   virtual bool IsMessageCenterVisible() const = 0;
 
+  // Informs the MessageCenter whether there's a bubble anchored to a system
+  // tray which holds notifications. If false, only toasts are shown (e.g. on
+  // desktop Linux and Windows). When there's no message center view, updated
+  // notifications will be re-appear as toasts even if they've already been
+  // shown.
+  virtual void SetHasMessageCenterView(bool has_message_center_view) = 0;
+  virtual bool HasMessageCenterView() const = 0;
+
   // UI classes should call this when there is cause to leave popups visible for
   // longer than the default (for example, when the mouse hovers over a popup).
   virtual void PausePopupTimers() = 0;
@@ -189,29 +196,28 @@ class MESSAGE_CENTER_EXPORT MessageCenter {
   // example, after the mouse leaves the popup.)
   virtual void RestartPopupTimers() = 0;
 
+  // The user-visible "app name" for system-generated notifications, which is
+  // used to identify the application that generated a notification. Only used
+  // for MD style notifications, which means that currently it's only set and
+  // used on Chrome OS. On Chrome OS, this is "Chrome OS".
+  virtual const base::string16& GetSystemNotificationAppName() const = 0;
+  virtual void SetSystemNotificationAppName(const base::string16& name) = 0;
+
  protected:
   friend class ::DownloadNotification;
   friend class ::DownloadNotificationTestBase;
   friend class MessageCenterImplTest;
   friend class MessageCenterImplTestWithChangeQueue;
   friend class MessageCenterImplTestWithoutChangeQueue;
-  friend class MessageCenterTrayTest;
+  friend class UiControllerTest;
   friend class TrayViewControllerTest;
   friend class test::MessagePopupCollectionTest;
   virtual void DisableTimersForTest() = 0;
-  virtual void EnableChangeQueueForTest(bool enabled) = 0;
 
   MessageCenter();
   virtual ~MessageCenter();
 
  private:
-  // Forces to flush the queued changes even when the message center opens. This
-  // method is a workaround of UpdateNotification not updating notifications
-  // while the message center.
-  // Note carefully: this may break the layout of message center. Shouldn't use
-  // this method if the update changes its notification size.
-  virtual void ForceNotificationFlush(const std::string& id) {}
-
   DISALLOW_COPY_AND_ASSIGN(MessageCenter);
 };
 

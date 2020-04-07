@@ -33,15 +33,6 @@ class JSChecker(object):
         '    // <if expr="chromeos">\n' +
         '    // </if>\n')
 
-  def ConstCheck(self, i, line):
-    """Check for use of the 'const' keyword."""
-    if self.input_api.re.search(r'\*\s+@const', line):
-      # Probably a JsDoc line
-      return ''
-
-    return self.RegexCheck(i, line, r'(?:^|\s|\()(const)\s',
-        'Use /** @const */ var varName; instead of const varName;')
-
   def EndJsDocCommentCheck(self, i, line):
     msg = 'End JSDoc comments with */ instead of **/'
     def _check(regex):
@@ -95,11 +86,11 @@ class JSChecker(object):
 
     return [self.output_api.PresubmitError(output)] if output else []
 
-  def VarNameCheck(self, i, line):
+  def VariableNameCheck(self, i, line):
     """See the style guide. http://goo.gl/eQiXVW"""
     return self.RegexCheck(i, line,
-        r"var (?!g_\w+)(_?[a-z][a-zA-Z]*[_$][\w_$]*)(?<! \$)",
-        "Please use var namesLikeThis <https://goo.gl/eQiXVW>")
+        r"(?:var|let|const) (?!g_\w+)(_?[a-z][a-zA-Z]*[_$][\w_$]*)(?<! \$)",
+        "Please use variable namesLikeThis <https://goo.gl/eQiXVW>")
 
   def _GetErrorHighlight(self, start, length):
     """Takes a start position and a length, and produces a row of '^'s to
@@ -128,12 +119,11 @@ class JSChecker(object):
         error_lines += filter(None, [
             self.ChromeSendCheck(i, line),
             self.CommentIfAndIncludeCheck(i, line),
-            self.ConstCheck(i, line),
             self.EndJsDocCommentCheck(i, line),
             self.ExtraDotInGenericCheck(i, line),
             self.InheritDocCheck(i, line),
             self.PolymerLocalIdCheck(i, line),
-            self.VarNameCheck(i, line),
+            self.VariableNameCheck(i, line),
         ])
 
       if error_lines:

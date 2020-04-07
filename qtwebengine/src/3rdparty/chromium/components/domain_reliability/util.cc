@@ -128,6 +128,11 @@ std::string GetDomainReliabilityProtocol(
     case net::HttpResponseInfo::CONNECTION_INFO_QUIC_38:
     case net::HttpResponseInfo::CONNECTION_INFO_QUIC_39:
     case net::HttpResponseInfo::CONNECTION_INFO_QUIC_40:
+    case net::HttpResponseInfo::CONNECTION_INFO_QUIC_41:
+    case net::HttpResponseInfo::CONNECTION_INFO_QUIC_42:
+    case net::HttpResponseInfo::CONNECTION_INFO_QUIC_43:
+    case net::HttpResponseInfo::CONNECTION_INFO_QUIC_44:
+    case net::HttpResponseInfo::CONNECTION_INFO_QUIC_99:
       return "QUIC";
     case net::HttpResponseInfo::NUM_OF_CONNECTION_INFOS:
       NOTREACHED();
@@ -206,13 +211,11 @@ namespace {
 
 class ActualTimer : public MockableTime::Timer {
  public:
-  // Initialize base timer with retain_user_info and is_repeating false.
-  ActualTimer() : base_timer_(false, false) {}
-
+  ActualTimer() {}
   ~ActualTimer() override {}
 
   // MockableTime::Timer implementation:
-  void Start(const tracked_objects::Location& posted_from,
+  void Start(const base::Location& posted_from,
              base::TimeDelta delay,
              const base::Closure& user_task) override {
     base_timer_.Start(posted_from, delay, user_task);
@@ -223,7 +226,7 @@ class ActualTimer : public MockableTime::Timer {
   bool IsRunning() override { return base_timer_.IsRunning(); }
 
  private:
-  base::Timer base_timer_;
+  base::OneShotTimer base_timer_;
 };
 
 }  // namespace
@@ -237,8 +240,12 @@ MockableTime::MockableTime() {}
 ActualTime::ActualTime() {}
 ActualTime::~ActualTime() {}
 
-base::Time ActualTime::Now() { return base::Time::Now(); }
-base::TimeTicks ActualTime::NowTicks() { return base::TimeTicks::Now(); }
+base::Time ActualTime::Now() const {
+  return base::Time::Now();
+}
+base::TimeTicks ActualTime::NowTicks() const {
+  return base::TimeTicks::Now();
+}
 
 std::unique_ptr<MockableTime::Timer> ActualTime::CreateTimer() {
   return std::unique_ptr<MockableTime::Timer>(new ActualTimer());

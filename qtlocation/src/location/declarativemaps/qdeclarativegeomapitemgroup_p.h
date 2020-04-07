@@ -49,6 +49,7 @@
 //
 
 #include <QtLocation/private/qlocationglobal_p.h>
+#include <QtLocation/private/qdeclarativegeomapitemtransitionmanager_p.h>
 #include <QtQuick/QQuickItem>
 
 QT_BEGIN_NAMESPACE
@@ -61,10 +62,32 @@ public:
     explicit QDeclarativeGeoMapItemGroup(QQuickItem *parent = 0);
     virtual ~QDeclarativeGeoMapItemGroup();
 
+    void setParentGroup(QDeclarativeGeoMapItemGroup &parentGroup);
     void setQuickMap(QDeclarativeGeoMap *quickMap);
     QDeclarativeGeoMap *quickMap() const;
+
+    qreal mapItemOpacity() const;
+
+Q_SIGNALS:
+    void mapItemOpacityChanged();
+    void addTransitionFinished();
+    void removeTransitionFinished();
+
+protected:
+    // QQmlParserStatus interface
+    void classBegin() override;
+    void componentComplete() override;
+
+protected slots:
+    void onMapSizeChanged();
+
 private:
     QDeclarativeGeoMap *m_quickMap;
+    QDeclarativeGeoMapItemGroup *m_parentGroup = nullptr;
+    QScopedPointer<QDeclarativeGeoMapItemTransitionManager> m_transitionManager;
+
+    friend class QDeclarativeGeoMapItemView;
+    friend class QDeclarativeGeoMapItemTransitionManager;
 };
 
 QT_END_NAMESPACE

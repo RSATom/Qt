@@ -12,7 +12,7 @@ cr.define('bookmarks', function() {
    * @polymerBehavior
    * @implements {StoreObserver}
    */
-  var StoreClient = {
+  const StoreClient = {
     created: function() {
       /**
        * @type {!Array<{
@@ -49,10 +49,6 @@ cr.define('bookmarks', function() {
      * @param {function(!BookmarksPageState)} valueGetter
      */
     watch: function(localProperty, valueGetter) {
-      if (!this.getPropertyInfo(localProperty).defined) {
-        console.error(
-            'No property ' + localProperty + ' defined on ' + this.is);
-      }
       this.watches_.push({
         localProperty: localProperty,
         valueGetter: valueGetter,
@@ -79,18 +75,18 @@ cr.define('bookmarks', function() {
 
     /** @param {string} newState */
     onStateChanged: function(newState) {
-      this.watches_.forEach(function(watch) {
-        var oldValue = this[watch.localProperty];
-        var newValue = watch.valueGetter(newState);
+      this.watches_.forEach((watch) => {
+        const oldValue = this[watch.localProperty];
+        const newValue = watch.valueGetter(newState);
 
         // Avoid poking Polymer unless something has actually changed. Reducers
         // must return new objects rather than mutating existing objects, so
         // any real changes will pass through correctly.
-        if (oldValue == newValue || newValue == undefined)
+        if (oldValue === newValue || newValue === undefined)
           return;
 
         this[watch.localProperty] = newValue;
-      }.bind(this));
+      });
     },
 
     updateFromStore: function() {

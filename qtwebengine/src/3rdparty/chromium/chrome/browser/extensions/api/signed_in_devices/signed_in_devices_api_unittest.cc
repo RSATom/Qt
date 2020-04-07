@@ -9,7 +9,6 @@
 #include <vector>
 
 #include "base/guid.h"
-#include "base/memory/ptr_util.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "chrome/browser/extensions/extension_api_unittest.h"
@@ -18,7 +17,6 @@
 #include "chrome/browser/sync/profile_sync_service_factory.h"
 #include "chrome/browser/sync/profile_sync_test_util.h"
 #include "components/browser_sync/profile_sync_service_mock.h"
-#include "components/prefs/pref_service.h"
 #include "components/sync/device_info/device_info.h"
 #include "components/sync/device_info/device_info_tracker.h"
 #include "content/public/test/test_browser_thread_bundle.h"
@@ -46,7 +44,7 @@ class MockDeviceInfoTracker : public DeviceInfoTracker {
 
   static std::unique_ptr<DeviceInfo> CloneDeviceInfo(
       const DeviceInfo& device_info) {
-    return base::MakeUnique<DeviceInfo>(
+    return std::make_unique<DeviceInfo>(
         device_info.guid(), device_info.client_name(),
         device_info.chrome_version(), device_info.sync_user_agent(),
         device_info.device_type(), device_info.signin_scoped_device_id());
@@ -143,7 +141,7 @@ class ProfileSyncServiceMockForExtensionTests
  public:
   explicit ProfileSyncServiceMockForExtensionTests(Profile* p)
       : ProfileSyncServiceMock(CreateProfileSyncServiceParamsForTest(p)) {}
-  ~ProfileSyncServiceMockForExtensionTests() {}
+  ~ProfileSyncServiceMockForExtensionTests() override {}
 
   MOCK_METHOD0(Shutdown, void());
   MOCK_CONST_METHOD0(GetDeviceInfoTracker, DeviceInfoTracker*());
@@ -151,17 +149,15 @@ class ProfileSyncServiceMockForExtensionTests
 
 std::unique_ptr<KeyedService> CreateProfileSyncServiceMock(
     content::BrowserContext* context) {
-  return base::MakeUnique<ProfileSyncServiceMockForExtensionTests>(
+  return std::make_unique<ProfileSyncServiceMockForExtensionTests>(
       Profile::FromBrowserContext(context));
 }
 
 class ExtensionSignedInDevicesTest : public ExtensionApiUnittest {
  private:
-  TestingProfile* CreateProfile() override {
-    TestingProfile::Builder builder;
-    builder.AddTestingFactory(ProfileSyncServiceFactory::GetInstance(),
-                              CreateProfileSyncServiceMock);
-    return builder.Build().release();
+  TestingProfile::TestingFactories GetTestingFactories() override {
+    return {{ProfileSyncServiceFactory::GetInstance(),
+             CreateProfileSyncServiceMock}};
   }
 };
 

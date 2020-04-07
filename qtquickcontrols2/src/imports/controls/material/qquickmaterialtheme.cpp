@@ -35,16 +35,25 @@
 ****************************************************************************/
 
 #include "qquickmaterialtheme_p.h"
+#include "qquickmaterialstyle_p.h"
 
 #include <QtGui/qpa/qplatformdialoghelper.h>
 #include <QtGui/qfont.h>
 #include <QtGui/qfontinfo.h>
+#include <QtQuickTemplates2/private/qquicktheme_p.h>
 
 QT_BEGIN_NAMESPACE
 
-QQuickMaterialTheme::QQuickMaterialTheme()
-    : QQuickTheme(QStringLiteral("Material"))
+void QQuickMaterialTheme::initialize(QQuickTheme *theme)
 {
+    QFont systemFont;
+    QFont buttonFont;
+    QFont toolTipFont;
+    QFont itemViewFont;
+    QFont listViewFont;
+    QFont menuItemFont;
+    QFont editorFont;
+
     QFont font;
     font.setFamily(QLatin1String("Roboto"));
     QString family = QFontInfo(font).family();
@@ -64,64 +73,40 @@ QQuickMaterialTheme::QQuickMaterialTheme()
         editorFont.setFamily(family);
     }
 
-    systemFont.setPixelSize(14);
-    systemFont = resolveFont(systemFont);
+    const bool dense = QQuickMaterialStyle::variant() == QQuickMaterialStyle::Dense;
+    systemFont.setPixelSize(dense ? 13 : 14);
+    theme->setFont(QQuickTheme::System, systemFont);
 
-    buttonFont.setPixelSize(14);
+    // https://material.io/guidelines/components/buttons.html#buttons-style
+    buttonFont.setPixelSize(dense ? 13 : 14);
     buttonFont.setCapitalization(QFont::AllUppercase);
     buttonFont.setWeight(QFont::Medium);
-    buttonFont = resolveFont(buttonFont);
+    theme->setFont(QQuickTheme::Button, buttonFont);
+    theme->setFont(QQuickTheme::TabBar, buttonFont);
+    theme->setFont(QQuickTheme::ToolBar, buttonFont);
 
-    toolTipFont.setPixelSize(14);
+    // https://material.io/guidelines/components/tooltips.html
+    toolTipFont.setPixelSize(dense ? 10 : 14);
     toolTipFont.setWeight(QFont::Medium);
-    toolTipFont = resolveFont(toolTipFont);
+    theme->setFont(QQuickTheme::ToolTip, toolTipFont);
 
-    itemViewFont.setPixelSize(14);
+    itemViewFont.setPixelSize(dense ? 13 : 14);
     itemViewFont.setWeight(QFont::Medium);
-    itemViewFont = resolveFont(itemViewFont);
+    theme->setFont(QQuickTheme::ItemView, itemViewFont);
 
-    listViewFont.setPixelSize(16);
-    listViewFont = resolveFont(listViewFont);
+    // https://material.io/guidelines/components/lists.html#lists-specs
+    listViewFont.setPixelSize(dense ? 13 : 16);
+    theme->setFont(QQuickTheme::ListView, listViewFont);
 
-    menuItemFont.setPixelSize(16);
-    menuItemFont = resolveFont(menuItemFont);
+    menuItemFont.setPixelSize(dense ? 13 : 16);
+    theme->setFont(QQuickTheme::Menu, menuItemFont);
+    theme->setFont(QQuickTheme::MenuBar, menuItemFont);
+    theme->setFont(QQuickTheme::ComboBox, menuItemFont);
 
-    editorFont.setPixelSize(16);
-    editorFont = resolveFont(editorFont);
-}
-
-const QFont *QQuickMaterialTheme::font(QPlatformTheme::Font type) const
-{
-    switch (type) {
-    case QPlatformTheme::TabButtonFont:
-    case QPlatformTheme::PushButtonFont:
-    case QPlatformTheme::ToolButtonFont:
-        return &buttonFont;
-    case QPlatformTheme::TipLabelFont:
-        return &toolTipFont;
-    case QPlatformTheme::ItemViewFont:
-        return &itemViewFont;
-    case QPlatformTheme::ListViewFont:
-        return &listViewFont;
-    case QPlatformTheme::MenuBarFont:
-    case QPlatformTheme::MenuItemFont:
-    case QPlatformTheme::ComboMenuItemFont:
-        return &menuItemFont;
-    case QPlatformTheme::EditorFont:
-        return &editorFont;
-    default:
-        return &systemFont;
-    }
-}
-
-QVariant QQuickMaterialTheme::themeHint(ThemeHint hint) const
-{
-    switch (hint) {
-    case QPlatformTheme::DialogButtonBoxLayout:
-        return QVariant(QPlatformDialogHelper::AndroidLayout);
-    default:
-        return QQuickProxyTheme::themeHint(hint);
-    }
+    editorFont.setPixelSize(dense ? 13 : 16);
+    theme->setFont(QQuickTheme::TextArea, editorFont);
+    theme->setFont(QQuickTheme::TextField, editorFont);
+    theme->setFont(QQuickTheme::SpinBox, editorFont);
 }
 
 QT_END_NAMESPACE

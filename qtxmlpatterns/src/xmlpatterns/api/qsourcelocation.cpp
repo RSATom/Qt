@@ -94,7 +94,8 @@ QSourceLocation::~QSourceLocation()
 }
 
 /*!
-  Returns true if this QSourceLocation is identical to \a other.
+  Returns \c true if this QSourceLocation is equal to \a other; \c false
+  otherwise.
 
   Two QSourceLocation instances are equal if their uri(), line() and
   column() are equal.
@@ -110,12 +111,12 @@ bool QSourceLocation::operator==(const QSourceLocation &other) const
 }
 
 /*!
-  Returns the opposite of applying operator==() for this QXmlName
-  and \a other.
+  Returns \c true if this QSourceLocation is not equal to \a other; \c false
+  otherwise.
  */
 bool QSourceLocation::operator!=(const QSourceLocation &other) const
 {
-    return operator==(other);
+    return !operator==(other);
 }
 
 /*!

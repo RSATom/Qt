@@ -91,34 +91,30 @@ TEST(CSPSourceTest, AllowScheme) {
     EXPECT_FALSE(Allow(source, GURL("http://a.com"), &context));
 
     // Self's scheme is http.
-    context.SetSelf(url::Origin(GURL("http://a.com")));
+    context.SetSelf(url::Origin::Create(GURL("http://a.com")));
     EXPECT_TRUE(Allow(source, GURL("http://a.com"), &context));
     EXPECT_TRUE(Allow(source, GURL("https://a.com"), &context));
-    EXPECT_TRUE(Allow(source, GURL("http-so://a.com"), &context));
-    EXPECT_TRUE(Allow(source, GURL("https-so://a.com"), &context));
     EXPECT_FALSE(Allow(source, GURL("ftp://a.com"), &context));
 
     // Self's is https.
-    context.SetSelf(url::Origin(GURL("https://a.com")));
+    context.SetSelf(url::Origin::Create(GURL("https://a.com")));
     EXPECT_FALSE(Allow(source, GURL("http://a.com"), &context));
     EXPECT_TRUE(Allow(source, GURL("https://a.com"), &context));
-    EXPECT_FALSE(Allow(source, GURL("http-so://a.com"), &context));
-    // TODO(jochen): Maybe it should return false?
-    EXPECT_TRUE(Allow(source, GURL("https-so://a.com"), &context));
     EXPECT_FALSE(Allow(source, GURL("ftp://a.com"), &context));
 
     // Self's scheme is not in the http familly.
-    context.SetSelf(url::Origin(GURL("ftp://a.com/")));
+    context.SetSelf(url::Origin::Create(GURL("ftp://a.com/")));
     EXPECT_FALSE(Allow(source, GURL("http://a.com"), &context));
     EXPECT_TRUE(Allow(source, GURL("ftp://a.com"), &context));
 
     // Self's scheme is unique (non standard scheme).
-    context.SetSelf(url::Origin(GURL("non-standard-scheme://a.com")));
+    context.SetSelf(url::Origin::Create(GURL("non-standard-scheme://a.com")));
     EXPECT_FALSE(Allow(source, GURL("http://a.com"), &context));
     EXPECT_FALSE(Allow(source, GURL("non-standard-scheme://a.com"), &context));
 
     // Self's scheme is unique (data-url).
-    context.SetSelf(url::Origin(GURL("data:text/html,<iframe src=[...]>")));
+    context.SetSelf(
+        url::Origin::Create(GURL("data:text/html,<iframe src=[...]>")));
     EXPECT_FALSE(Allow(source, GURL("http://a.com"), &context));
     EXPECT_FALSE(Allow(source, GURL("data:text/html,hello"), &context));
   }
@@ -126,7 +122,7 @@ TEST(CSPSourceTest, AllowScheme) {
 
 TEST(CSPSourceTest, AllowHost) {
   CSPContext context;
-  context.SetSelf(url::Origin(GURL("http://example.com")));
+  context.SetSelf(url::Origin::Create(GURL("http://example.com")));
 
   // Host is * (source-expression = "http://*")
   {
@@ -162,7 +158,7 @@ TEST(CSPSourceTest, AllowHost) {
 
 TEST(CSPSourceTest, AllowPort) {
   CSPContext context;
-  context.SetSelf(url::Origin(GURL("http://example.com")));
+  context.SetSelf(url::Origin::Create(GURL("http://example.com")));
 
   // Source's port unspecified.
   {
@@ -218,7 +214,7 @@ TEST(CSPSourceTest, AllowPort) {
 
 TEST(CSPSourceTest, AllowPath) {
   CSPContext context;
-  context.SetSelf(url::Origin(GURL("http://example.com")));
+  context.SetSelf(url::Origin::Create(GURL("http://example.com")));
 
   // Path to a file
   {

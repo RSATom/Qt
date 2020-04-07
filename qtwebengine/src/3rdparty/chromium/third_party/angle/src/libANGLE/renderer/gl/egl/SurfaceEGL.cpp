@@ -13,18 +13,12 @@
 namespace rx
 {
 
-SurfaceEGL::SurfaceEGL(const egl::SurfaceState &state,
-                       const FunctionsEGL *egl,
-                       EGLConfig config,
-                       const std::vector<EGLint> &attribList,
-                       EGLContext context,
-                       RendererGL *renderer)
-    : SurfaceGL(state, renderer),
+SurfaceEGL::SurfaceEGL(const egl::SurfaceState &state, const FunctionsEGL *egl, EGLConfig config)
+    : SurfaceGL(state),
       mEGL(egl),
       mConfig(config),
-      mAttribList(attribList),
       mSurface(EGL_NO_SURFACE),
-      mContext(context)
+      mHasSwapBuffersWithDamage(mEGL->hasExtension("EGL_KHR_swap_buffers_with_damage"))
 {
 }
 
@@ -39,11 +33,7 @@ SurfaceEGL::~SurfaceEGL()
 
 egl::Error SurfaceEGL::makeCurrent()
 {
-    EGLBoolean success = mEGL->makeCurrent(mSurface, mContext);
-    if (success == EGL_FALSE)
-    {
-        return egl::Error(mEGL->getError(), "eglMakeCurrent failed");
-    }
+    // Handling of makeCurrent is done in DisplayEGL
     return egl::NoError();
 }
 
@@ -53,6 +43,24 @@ egl::Error SurfaceEGL::swap(const gl::Context *context)
     if (success == EGL_FALSE)
     {
         return egl::Error(mEGL->getError(), "eglSwapBuffers failed");
+    }
+    return egl::NoError();
+}
+
+egl::Error SurfaceEGL::swapWithDamage(const gl::Context *context, EGLint *rects, EGLint n_rects)
+{
+    EGLBoolean success;
+    if (mHasSwapBuffersWithDamage)
+    {
+        success = mEGL->swapBuffersWithDamageKHR(mSurface, rects, n_rects);
+    }
+    else
+    {
+        success = mEGL->swapBuffers(mSurface);
+    }
+    if (success == EGL_FALSE)
+    {
+        return egl::Error(mEGL->getError(), "eglSwapBuffersWithDamageKHR failed");
     }
     return egl::NoError();
 }
@@ -67,13 +75,23 @@ egl::Error SurfaceEGL::postSubBuffer(const gl::Context *context,
     return egl::EglBadSurface();
 }
 
+egl::Error SurfaceEGL::setPresentationTime(EGLnsecsANDROID time)
+{
+    EGLBoolean success = mEGL->presentationTimeANDROID(mSurface, time);
+    if (success == EGL_FALSE)
+    {
+        return egl::Error(mEGL->getError(), "eglPresentationTimeANDROID failed");
+    }
+    return egl::NoError();
+}
+
 egl::Error SurfaceEGL::querySurfacePointerANGLE(EGLint attribute, void **value)
 {
     UNIMPLEMENTED();
     return egl::EglBadSurface();
 }
 
-egl::Error SurfaceEGL::bindTexImage(gl::Texture *texture, EGLint buffer)
+egl::Error SurfaceEGL::bindTexImage(const gl::Context *context, gl::Texture *texture, EGLint buffer)
 {
     EGLBoolean success = mEGL->bindTexImage(mSurface, buffer);
     if (success == EGL_FALSE)
@@ -83,7 +101,7 @@ egl::Error SurfaceEGL::bindTexImage(gl::Texture *texture, EGLint buffer)
     return egl::NoError();
 }
 
-egl::Error SurfaceEGL::releaseTexImage(EGLint buffer)
+egl::Error SurfaceEGL::releaseTexImage(const gl::Context *context, EGLint buffer)
 {
     EGLBoolean success = mEGL->releaseTexImage(mSurface, buffer);
     if (success == EGL_FALSE)
@@ -131,6 +149,11 @@ EGLint SurfaceEGL::getSwapBehavior() const
     EGLBoolean success = mEGL->querySurface(mSurface, EGL_SWAP_BEHAVIOR, &value);
     ASSERT(success == EGL_TRUE);
     return value;
+}
+
+EGLSurface SurfaceEGL::getSurface() const
+{
+    return mSurface;
 }
 
 }  // namespace rx

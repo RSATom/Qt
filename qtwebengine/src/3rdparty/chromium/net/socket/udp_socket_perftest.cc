@@ -16,7 +16,7 @@
 #include "net/socket/udp_server_socket.h"
 #include "net/socket/udp_socket.h"
 #include "net/test/gtest_util.h"
-#include "net/test/net_test_suite.h"
+#include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/platform_test.h"
@@ -75,7 +75,8 @@ void UDPSocketPerfTest::WritePacketsToSocket(UDPClientSocket* socket,
         socket->Write(io_buffer.get(), io_buffer->size(),
                       base::Bind(&UDPSocketPerfTest::DoneWritePacketsToSocket,
                                  weak_factory_.GetWeakPtr(), socket,
-                                 num_of_packets - 1, done_callback));
+                                 num_of_packets - 1, done_callback),
+                      TRAFFIC_ANNOTATION_FOR_TESTS);
     if (rv == ERR_IO_PENDING)
       break;
     --num_of_packets;
@@ -103,9 +104,8 @@ void UDPSocketPerfTest::WriteBenchmark(bool use_nonblocking_io) {
   // Setup the client.
   IPEndPoint server_address;
   CreateUDPAddress("127.0.0.1", kPort, &server_address);
-  std::unique_ptr<UDPClientSocket> client(
-      new UDPClientSocket(DatagramSocket::DEFAULT_BIND, RandIntCallback(),
-                          nullptr, NetLogSource()));
+  std::unique_ptr<UDPClientSocket> client(new UDPClientSocket(
+      DatagramSocket::DEFAULT_BIND, nullptr, NetLogSource()));
   if (use_nonblocking_io)
     client->UseNonBlockingIO();
   rv = client->Connect(server_address);

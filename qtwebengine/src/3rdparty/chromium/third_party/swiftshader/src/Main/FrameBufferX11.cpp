@@ -15,11 +15,13 @@
 #include "FrameBufferX11.hpp"
 
 #include "libX11.hpp"
+#include "Common/Timer.hpp"
 
 #include <sys/ipc.h>
 #include <sys/shm.h>
 #include <string.h>
 #include <assert.h>
+#include <stdlib.h>
 
 namespace sw
 {
@@ -45,12 +47,14 @@ namespace sw
 		if(!x_display)
 		{
 			x_display = libX11->XOpenDisplay(0);
+			assert(x_display);
 		}
 
 		int screen = DefaultScreen(x_display);
 		x_gc = libX11->XDefaultGC(x_display, screen);
 		int depth = libX11->XDefaultDepth(x_display, screen);
 
+		XVisualInfo x_visual;
 		Status status = libX11->XMatchVisualInfo(x_display, screen, 32, TrueColor, &x_visual);
 		bool match = (status != 0 && x_visual.blue_mask == 0xFF);   // Prefer X8R8G8B8
 		Visual *visual = match ? x_visual.visual : libX11->XDefaultVisual(x_display, screen);
@@ -62,7 +66,7 @@ namespace sw
 			x_image = libX11->XShmCreateImage(x_display, visual, depth, ZPixmap, 0, &shminfo, width, height);
 
 			shminfo.shmid = shmget(IPC_PRIVATE, x_image->bytes_per_line * x_image->height, IPC_CREAT | SHM_R | SHM_W);
-			shminfo.shmaddr = x_image->data = buffer = (char*)shmat(shminfo.shmid, 0, 0);
+			shminfo.shmaddr = x_image->data = (char*)shmat(shminfo.shmid, 0, 0);
 			shminfo.readOnly = False;
 
 			PreviousXErrorHandler = libX11->XSetErrorHandler(XShmErrorHandler);
@@ -84,8 +88,18 @@ namespace sw
 
 		if(!mit_shm)
 		{
-			buffer = new char[width * height * 4];
-			x_image = libX11->XCreateImage(x_display, visual, depth, ZPixmap, 0, buffer, width, height, 32, width * 4);
+			int bytes_per_line = width * 4;
+			int bytes_per_image = height * bytes_per_line;
+			char *buffer = (char*)malloc(bytes_per_image);
+			memset(buffer, 0, bytes_per_image);
+
+			x_image = libX11->XCreateImage(x_display, visual, depth, ZPixmap, 0, buffer, width, height, 32, bytes_per_line);
+			assert(x_image);
+
+			if(!x_image)
+			{
+				free(buffer);
+			}
 		}
 	}
 
@@ -93,11 +107,7 @@ namespace sw
 	{
 		if(!mit_shm)
 		{
-			x_image->data = 0;
 			XDestroyImage(x_image);
-
-			delete[] buffer;
-			buffer = 0;
 		}
 		else
 		{
@@ -115,20 +125,23 @@ namespace sw
 
 	void *FrameBufferX11::lock()
 	{
-		stride = x_image->bytes_per_line;
-		locked = buffer;
+		if(x_image)
+		{
+			stride = x_image->bytes_per_line;
+			framebuffer = x_image->data;
+		}
 
-		return locked;
+		return framebuffer;
 	}
 
 	void FrameBufferX11::unlock()
 	{
-		locked = 0;
+		framebuffer = nullptr;
 	}
 
-	void FrameBufferX11::blit(void *source, const Rect *sourceRect, const Rect *destRect, Format sourceFormat, size_t sourceStride)
+	void FrameBufferX11::blit(sw::Surface *source, const Rect *sourceRect, const Rect *destRect)
 	{
-		copy(source, sourceFormat, sourceStride);
+		copy(source);
 
 		if(!mit_shm)
 		{
@@ -140,10 +153,40 @@ namespace sw
 		}
 
 		libX11->XSync(x_display, False);
+
+		if(false)   // Draw the framerate on screen
+		{
+			static double fpsTime = sw::Timer::seconds();
+			static int frames = -1;
+
+			double time = sw::Timer::seconds();
+			double delta = time - fpsTime;
+			frames++;
+
+			static double FPS = 0.0;
+			static double maxFPS = 0.0;
+
+			if(delta > 1.0)
+			{
+				FPS = frames / delta;
+
+				fpsTime = time;
+				frames = 0;
+
+				if(FPS > maxFPS)
+				{
+					maxFPS = FPS;
+				}
+			}
+
+			char string[256];
+			sprintf(string, "FPS: %.2f (max: %.2f)", FPS, maxFPS);
+			libX11->XDrawString(x_display, x_window, x_gc, 50, 50, string, strlen(string));
+		}
 	}
 }
 
-sw::FrameBuffer *createFrameBuffer(void *display, Window window, int width, int height)
+NO_SANITIZE_FUNCTION sw::FrameBuffer *createFrameBuffer(void *display, Window window, int width, int height)
 {
 	return new sw::FrameBufferX11((::Display*)display, window, width, height);
 }

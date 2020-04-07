@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python2
 #
 # Copyright 2016 The ANGLE Project Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
@@ -17,6 +17,10 @@ if len(sys.argv) != 3:
 source_dir = sys.argv[1]
 target_dir = sys.argv[2]
 
+data_key = 'layer'
+if 'icd' in source_dir:
+    data_key = 'ICD'
+
 if not os.path.isdir(source_dir):
     print(source_dir + " is not a directory.")
     sys.exit(1)
@@ -29,8 +33,13 @@ for json_fname in glob.glob(os.path.join(source_dir, "*.json")):
         data = json.load(infile)
 
         # update the path
-        prev_name = os.path.basename(data['layer']['library_path'])
-        data['layer']['library_path'] = prev_name
+        if not data_key in data:
+            raise Exception("Could not find '" + data_key + "' key in " + json_fname)
+
+        # The standard validation layer has no library path.
+        if 'library_path' in data[data_key]:
+            prev_name = os.path.basename(data[data_key]['library_path'])
+            data[data_key]['library_path'] = prev_name
 
         target_fname = os.path.join(target_dir, os.path.basename(json_fname))
         with open(target_fname, "w") as outfile:

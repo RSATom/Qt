@@ -16,6 +16,7 @@ namespace gles2 {
 
 class NoBackendProgramCache : public ProgramCache {
  public:
+  NoBackendProgramCache() : ProgramCache(0) {}
   ProgramLoadResult LoadLinkedProgram(
       GLuint /* program */,
       Shader* /* shader_a */,
@@ -23,7 +24,7 @@ class NoBackendProgramCache : public ProgramCache {
       const LocationMap* /* bind_attrib_location_map */,
       const std::vector<std::string>& /* transform_feedback_varyings */,
       GLenum /* transform_feedback_buffer_mode */,
-      GLES2DecoderClient* /* client */) override {
+      DecoderClient* /* client */) override {
     return PROGRAM_LOAD_SUCCESS;
   }
   void SaveLinkedProgram(
@@ -33,7 +34,7 @@ class NoBackendProgramCache : public ProgramCache {
       const LocationMap* /* bind_attrib_location_map */,
       const std::vector<std::string>& /* transform_feedback_varyings */,
       GLenum /* transform_feedback_buffer_mode */,
-      GLES2DecoderClient* /* client */) override {}
+      DecoderClient* /* client */) override {}
 
   void LoadProgram(const std::string& /*key*/,
                    const std::string& /* program */) override {}

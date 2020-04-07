@@ -6,7 +6,7 @@
 
 #include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
-#include "media/audio/sample_rates.h"
+#include "media/base/sample_rates.h"
 
 namespace media {
 namespace remoting {
@@ -81,6 +81,40 @@ void SessionMetricsRecorder::WillStopSession(StopTrigger trigger) {
                              base::TimeDelta::FromSeconds(15),
                              base::TimeDelta::FromHours(12), 50);
 
+  if (session_duration <= base::TimeDelta::FromSeconds(15)) {
+    // Record the session duration in finer scale for short sessions
+    UMA_HISTOGRAM_CUSTOM_TIMES("Media.Remoting.ShortSessionDuration",
+                               session_duration,
+                               base::TimeDelta::FromSecondsD(0.1),
+                               base::TimeDelta::FromSeconds(15), 60);
+
+    if (session_duration <= base::TimeDelta::FromSecondsD(0.1)) {
+      UMA_HISTOGRAM_ENUMERATION(
+          "Media.Remoting.SessionStopTrigger.Duration0To100MilliSec", trigger,
+          STOP_TRIGGER_MAX + 1);
+    } else if (session_duration <= base::TimeDelta::FromSeconds(1)) {
+      UMA_HISTOGRAM_ENUMERATION(
+          "Media.Remoting.SessionStopTrigger.Duration100MilliSecTo1Sec",
+          trigger, STOP_TRIGGER_MAX + 1);
+    } else if (session_duration <= base::TimeDelta::FromSeconds(3)) {
+      UMA_HISTOGRAM_ENUMERATION(
+          "Media.Remoting.SessionStopTrigger.Duration1To3Sec", trigger,
+          STOP_TRIGGER_MAX + 1);
+    } else if (session_duration <= base::TimeDelta::FromSeconds(5)) {
+      UMA_HISTOGRAM_ENUMERATION(
+          "Media.Remoting.SessionStopTrigger.Duration3To5Sec", trigger,
+          STOP_TRIGGER_MAX + 1);
+    } else if (session_duration <= base::TimeDelta::FromSeconds(10)) {
+      UMA_HISTOGRAM_ENUMERATION(
+          "Media.Remoting.SessionStopTrigger.Duration5To10Sec", trigger,
+          STOP_TRIGGER_MAX + 1);
+    } else {
+      UMA_HISTOGRAM_ENUMERATION(
+          "Media.Remoting.SessionStopTrigger.Duration10To15Sec", trigger,
+          STOP_TRIGGER_MAX + 1);
+    }
+  }
+
   // Reset |start_trigger_| since metrics recording of the current remoting
   // session has now completed.
   start_trigger_ = base::nullopt;
@@ -137,20 +171,6 @@ void SessionMetricsRecorder::OnRemotePlaybackDisabled(bool disabled) {
   remote_playback_is_disabled_ = disabled;
 }
 
-void SessionMetricsRecorder::OnPosterImageDownloaded(
-    base::TimeDelta download_duration,
-    bool success) {
-  const std::string name = success
-                               ? "Media.Remoting.PosterDownloadDuration.Success"
-                               : "Media.Remoting.PosterDownloadDuration.Fail";
-  // Note: Not using UMA_HISTOGRAM_CUSTOM_TIMES because |name| is a variable in
-  // in this instance; and so the "one histogram" static local should not be
-  // created.
-  base::UmaHistogramCustomTimes(name, download_duration,
-                                base::TimeDelta::FromMilliseconds(10),
-                                base::TimeDelta::FromSeconds(30), 50);
-}
-
 void SessionMetricsRecorder::RecordAudioConfiguration() {
   UMA_HISTOGRAM_ENUMERATION("Media.Remoting.AudioCodec", last_audio_codec_,
                             kAudioCodecMax + 1);
@@ -173,8 +193,7 @@ void SessionMetricsRecorder::RecordVideoConfiguration() {
                             last_video_profile_, VIDEO_CODEC_PROFILE_MAX + 1);
   UMA_HISTOGRAM_CUSTOM_ENUMERATION(
       "Media.Remoting.VideoNaturalWidth", last_natural_size_.width(),
-      base::CustomHistogram::ArrayToCustomRanges(
-          kVideoWidthBuckets, arraysize(kVideoWidthBuckets)));
+      base::CustomHistogram::ArrayToCustomEnumRanges(kVideoWidthBuckets));
   // Intentionally use integer division to truncate the result.
   const int aspect_ratio_100 =
       last_natural_size_.height()
@@ -182,8 +201,7 @@ void SessionMetricsRecorder::RecordVideoConfiguration() {
           : kInfiniteRatio;
   UMA_HISTOGRAM_CUSTOM_ENUMERATION(
       "Media.Remoting.VideoAspectRatio", aspect_ratio_100,
-      base::CustomHistogram::ArrayToCustomRanges(
-          kCommonAspectRatios100, arraysize(kCommonAspectRatios100)));
+      base::CustomHistogram::ArrayToCustomEnumRanges(kCommonAspectRatios100));
 }
 
 void SessionMetricsRecorder::RecordTrackConfiguration() {

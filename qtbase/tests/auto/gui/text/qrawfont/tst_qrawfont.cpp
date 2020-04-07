@@ -93,6 +93,9 @@ private slots:
 
     void fallbackFontsOrder();
 
+    void qtbug65923_partal_clone_data();
+    void qtbug65923_partal_clone();
+
 private:
     QString testFont;
     QString testFontBoldItalic;
@@ -1036,12 +1039,51 @@ void tst_QRawFont::fallbackFontsOrder()
 
     QList<QGlyphRun> glyphRuns = layout.glyphRuns();
 
+#ifdef Q_OS_ANDROID
+    QEXPECT_FAIL("", "QTBUG-69217", Continue);
+#endif
     // Since QtBidiTestFont does not support Arabic nor the space, both should map to
     // the same font. If this fails, it is an indication that the list of fallbacks fonts
     // is not sorted by writing system support.
     QCOMPARE(glyphRuns.size(), 1);
 
     fontDatabase.removeApplicationFont(id);
+}
+
+void tst_QRawFont::qtbug65923_partal_clone_data()
+{
+    QTest::addColumn<bool>("shouldClone");
+
+    QTest::newRow("Without cloning font engine") << false;
+    QTest::newRow("Cloning font engine") << true;
+}
+
+void tst_QRawFont::qtbug65923_partal_clone()
+{
+    QFile file(testFont);
+    file.open(QIODevice::ReadOnly);
+    QByteArray fontData = file.readAll();
+
+    QRawFont outerFont;
+
+    {
+        QRawFont innerFont(fontData, 16, QFont::PreferDefaultHinting);
+
+        QFETCH(bool, shouldClone);
+        if (shouldClone) {
+            // This will trigger QFontEngine::cloneWithSize
+            innerFont.setPixelSize(innerFont.pixelSize() + 1);
+        }
+
+        outerFont = innerFont;
+    }
+
+    // This will detach if data is shared with the raw font. If the raw font has
+    // a naked reference to the data, without informing Qt of it via the ref count
+    // of the byte array, this will result in clearing 'live' data.
+    fontData.fill('\0');
+
+    QVERIFY(!outerFont.boundingRect(42).isEmpty());
 }
 
 #endif // QT_NO_RAWFONT

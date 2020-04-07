@@ -61,12 +61,13 @@ class Q_QUICKTEMPLATES2_PRIVATE_EXPORT QQuickMenuBarPrivate : public QQuickConta
     Q_DECLARE_PUBLIC(QQuickMenuBar)
 
 public:
-    QQuickMenuBarPrivate();
-
     static QQuickMenuBarPrivate *get(QQuickMenuBar *menuBar)
     {
         return menuBar->d_func();
     }
+
+    QQmlListProperty<QQuickMenu> menus();
+    QQmlListProperty<QObject> contentData();
 
     QQuickItem *beginCreateItem();
     void completeCreateItem();
@@ -82,8 +83,11 @@ public:
     void onItemTriggered();
     void onMenuAboutToHide();
 
-    void updateContentSize();
-    void itemGeometryChanged(QQuickItem *item, QQuickGeometryChange change, const QRectF &diff) override;
+    qreal getContentWidth() const override;
+    qreal getContentHeight() const override;
+
+    void itemImplicitWidthChanged(QQuickItem *item) override;
+    void itemImplicitHeightChanged(QQuickItem *item) override;
 
     static void contentData_append(QQmlListProperty<QObject> *prop, QObject *obj);
 
@@ -92,13 +96,9 @@ public:
     static QQuickMenu *menus_at(QQmlListProperty<QQuickMenu> *prop, int index);
     static void menus_clear(QQmlListProperty<QQuickMenu> *prop);
 
-    bool popupMode;
-    bool triggering;
-    bool hasContentWidth;
-    bool hasContentHeight;
-    qreal contentWidth;
-    qreal contentHeight;
-    QQmlComponent *delegate;
+    bool popupMode = false;
+    bool triggering = false;
+    QQmlComponent *delegate = nullptr;
     QPointer<QQuickMenuBarItem> currentItem;
 };
 

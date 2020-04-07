@@ -16,7 +16,7 @@
 #include "mojo/public/c/system/types.h"
 #include "mojo/public/cpp/system/handle_signals_state.h"
 #include "mojo/public/cpp/system/system_export.h"
-#include "mojo/public/cpp/system/watcher.h"
+#include "mojo/public/cpp/system/trap.h"
 
 namespace base {
 class SequencedTaskRunner;
@@ -50,12 +50,13 @@ class MOJO_CPP_SYSTEM_EXPORT SimpleWatcher {
   //
   // Note that unlike the first two conditions, this callback may be invoked
   // with |MOJO_RESULT_CANCELLED| even while the SimpleWatcher is disarmed.
-  using ReadyCallback = base::Callback<void(MojoResult result)>;
+  using ReadyCallback = base::RepeatingCallback<void(MojoResult result)>;
 
   // Like above but also receives the last known handle signal state at the time
   // of the notification.
   using ReadyCallbackWithState =
-      base::Callback<void(MojoResult result, const HandleSignalsState& state)>;
+      base::RepeatingCallback<void(MojoResult result,
+                                   const HandleSignalsState& state)>;
 
   // Selects how this SimpleWatcher is to be armed.
   enum class ArmingPolicy {
@@ -85,7 +86,7 @@ class MOJO_CPP_SYSTEM_EXPORT SimpleWatcher {
     MANUAL,
   };
 
-  SimpleWatcher(const tracked_objects::Location& from_here,
+  SimpleWatcher(const base::Location& from_here,
                 ArmingPolicy arming_policy,
                 scoped_refptr<base::SequencedTaskRunner> runner =
                     base::SequencedTaskRunnerHandle::Get());
@@ -118,7 +119,7 @@ class MOJO_CPP_SYSTEM_EXPORT SimpleWatcher {
   // Destroying the SimpleWatcher implicitly calls |Cancel()|.
   MojoResult Watch(Handle handle,
                    MojoHandleSignals signals,
-                   MojoWatchCondition condition,
+                   MojoTriggerCondition condition,
                    const ReadyCallbackWithState& callback);
 
   // DEPRECATED: Please use the above signature instead.
@@ -159,8 +160,8 @@ class MOJO_CPP_SYSTEM_EXPORT SimpleWatcher {
   // state of the handle is placed in |*ready_state| if |ready_state| is
   // non-null.
   //
-  // If the watcher is successfully armed, this returns |MOJO_RESULT_OK| and
-  // |ready_result| and |ready_state| are ignored.
+  // If the watcher is successfully armed (or was already armed), this returns
+  // |MOJO_RESULT_OK| and |ready_result| and |ready_state| are ignored.
   MojoResult Arm(MojoResult* ready_result = nullptr,
                  HandleSignalsState* ready_state = nullptr);
 
@@ -210,7 +211,7 @@ class MOJO_CPP_SYSTEM_EXPORT SimpleWatcher {
   // base::SequencedTaskRunnerHandle::Get() for the thread.
   const bool is_default_task_runner_;
 
-  ScopedWatcherHandle watcher_handle_;
+  ScopedTrapHandle trap_handle_;
 
   // A thread-safe context object corresponding to the currently active watch,
   // if any.
@@ -227,10 +228,6 @@ class MOJO_CPP_SYSTEM_EXPORT SimpleWatcher {
 
   // The callback to call when the handle is signaled.
   ReadyCallbackWithState callback_;
-
-  // Tracks if the SimpleWatcher has already notified of unsatisfiability. This
-  // is used to prevent redundant notifications in AUTOMATIC mode.
-  bool unsatisfiable_ = false;
 
   // Tag used to ID memory allocations that originated from notifications in
   // this watcher.

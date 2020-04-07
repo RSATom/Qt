@@ -6,7 +6,6 @@
 
 #include <utility>
 
-#include "base/memory/ptr_util.h"
 #include "content/public/browser/resource_request_info.h"
 #include "extensions/browser/info_map.h"
 #include "extensions/shell/browser/shell_network_delegate.h"
@@ -23,6 +22,7 @@ ShellURLRequestContextGetter::ShellURLRequestContextGetter(
     net::NetLog* net_log,
     InfoMap* extension_info_map)
     : content::ShellURLRequestContextGetter(ignore_certificate_errors,
+                                            false /* not incognito */,
                                             base_path,
                                             std::move(io_task_runner),
                                             protocol_handlers,
@@ -36,7 +36,7 @@ ShellURLRequestContextGetter::~ShellURLRequestContextGetter() {
 
 std::unique_ptr<net::NetworkDelegate>
 ShellURLRequestContextGetter::CreateNetworkDelegate() {
-  return base::MakeUnique<ShellNetworkDelegate>(browser_context_,
+  return std::make_unique<ShellNetworkDelegate>(browser_context_,
                                                 extension_info_map_);
 }
 

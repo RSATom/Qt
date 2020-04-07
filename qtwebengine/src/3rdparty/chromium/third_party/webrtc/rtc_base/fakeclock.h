@@ -8,12 +8,12 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_RTC_BASE_FAKECLOCK_H_
-#define WEBRTC_RTC_BASE_FAKECLOCK_H_
+#ifndef RTC_BASE_FAKECLOCK_H_
+#define RTC_BASE_FAKECLOCK_H_
 
-#include "webrtc/rtc_base/criticalsection.h"
-#include "webrtc/rtc_base/timedelta.h"
-#include "webrtc/rtc_base/timeutils.h"
+#include "api/units/time_delta.h"
+#include "rtc_base/criticalsection.h"
+#include "rtc_base/timeutils.h"
 
 namespace rtc {
 
@@ -36,13 +36,14 @@ class FakeClock : public ClockInterface {
     SetTimeNanos(kNumNanosecsPerMicrosec * micros);
   }
 
-  void AdvanceTime(TimeDelta delta);
+  void AdvanceTime(webrtc::TimeDelta delta);
   void AdvanceTimeMicros(int64_t micros) {
-    AdvanceTime(rtc::TimeDelta::FromMicroseconds(micros));
+    AdvanceTime(webrtc::TimeDelta::us(micros));
   }
+
  private:
   CriticalSection lock_;
-  int64_t time_ GUARDED_BY(lock_) = 0;
+  int64_t time_ RTC_GUARDED_BY(lock_) = 0;
 };
 
 // Helper class that sets itself as the global clock in its constructor and
@@ -68,4 +69,4 @@ class ScopedRealClock {
 
 }  // namespace rtc
 
-#endif  // WEBRTC_RTC_BASE_FAKECLOCK_H_
+#endif  // RTC_BASE_FAKECLOCK_H_

@@ -8,15 +8,15 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_RTC_BASE_ASYNCTCPSOCKET_H_
-#define WEBRTC_RTC_BASE_ASYNCTCPSOCKET_H_
+#ifndef RTC_BASE_ASYNCTCPSOCKET_H_
+#define RTC_BASE_ASYNCTCPSOCKET_H_
 
 #include <memory>
 
-#include "webrtc/rtc_base/asyncpacketsocket.h"
-#include "webrtc/rtc_base/buffer.h"
-#include "webrtc/rtc_base/constructormagic.h"
-#include "webrtc/rtc_base/socketfactory.h"
+#include "rtc_base/asyncpacketsocket.h"
+#include "rtc_base/buffer.h"
+#include "rtc_base/constructormagic.h"
+#include "rtc_base/socketfactory.h"
 
 namespace rtc {
 
@@ -29,8 +29,9 @@ class AsyncTCPSocketBase : public AsyncPacketSocket {
   ~AsyncTCPSocketBase() override;
 
   // Pure virtual methods to send and recv data.
-  int Send(const void *pv, size_t cb,
-                   const rtc::PacketOptions& options) override = 0;
+  int Send(const void* pv,
+           size_t cb,
+           const rtc::PacketOptions& options) override = 0;
   virtual void ProcessInput(char* data, size_t* len) = 0;
   // Signals incoming connection.
   virtual void HandleIncomingConnection(AsyncSocket* socket) = 0;
@@ -105,4 +106,4 @@ class AsyncTCPSocket : public AsyncTCPSocketBase {
 
 }  // namespace rtc
 
-#endif  // WEBRTC_RTC_BASE_ASYNCTCPSOCKET_H_
+#endif  // RTC_BASE_ASYNCTCPSOCKET_H_

@@ -10,7 +10,6 @@
 #include "base/bind_helpers.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "device/bluetooth/bluetooth_adapter_factory.h"
 #include "device/bluetooth/bluez/bluetooth_adapter_bluez.h"
@@ -130,7 +129,7 @@ class BluetoothServiceRecordBlueZTest : public device::BluetoothTestBlueZ {
     record.AddRecordEntry(kServiceUuidAttributeId,
                           BluetoothServiceAttributeValueBlueZ(
                               BluetoothServiceAttributeValueBlueZ::UUID, 16,
-                              base::MakeUnique<base::Value>(uuid)));
+                              std::make_unique<base::Value>(uuid)));
     return record;
   }
 

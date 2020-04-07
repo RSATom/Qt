@@ -73,6 +73,8 @@
 #include <Qt3DRender/qgeometry.h>
 #include <Qt3DRender/qgeometryrenderer.h>
 #include <Qt3DRender/qobjectpicker.h>
+#include <Qt3DRender/qraycaster.h>
+#include <Qt3DRender/qscreenraycaster.h>
 #include <Qt3DRender/qfrustumculling.h>
 #include <Qt3DRender/qabstractlight.h>
 #include <Qt3DRender/qenvironmentlight.h>
@@ -118,6 +120,7 @@
 #include <Qt3DRender/private/geometry_p.h>
 #include <Qt3DRender/private/geometryrenderer_p.h>
 #include <Qt3DRender/private/objectpicker_p.h>
+#include <Qt3DRender/private/raycaster_p.h>
 #include <Qt3DRender/private/boundingvolumedebug_p.h>
 #include <Qt3DRender/private/nodemanagers_p.h>
 #include <Qt3DRender/private/calcgeometrytrianglevolumes_p.h>
@@ -172,11 +175,18 @@ namespace Qt3DRender {
 /*!
  * \class Qt3DRender::QRenderAspect
  * \inheaderfile Qt3DRender/QRenderAspect
- * \brief The QRenderAspect class
+ * \brief The QRenderAspect class.
  * \since 5.7
  * \inmodule Qt3DRender
  */
 
+/*!
+    \namespace Qt3DRender::Render
+    \inmodule Qt3DRender
+
+    \brief Namespace used for accessing the classes
+    Renderer and QRenderPlugin.
+*/
 /*! \internal */
 QRenderAspectPrivate::QRenderAspectPrivate(QRenderAspect::RenderType type)
     : QAbstractAspectPrivate()
@@ -246,12 +256,14 @@ void QRenderAspectPrivate::registerBackendTypes()
     q->registerBackendType<QGeometry>(QSharedPointer<Render::NodeFunctor<Render::Geometry, Render::GeometryManager> >::create(m_renderer));
     q->registerBackendType<QGeometryRenderer>(QSharedPointer<Render::GeometryRendererFunctor>::create(m_renderer, m_nodeManagers->geometryRendererManager()));
     q->registerBackendType<Qt3DCore::QArmature>(QSharedPointer<Render::NodeFunctor<Render::Armature, Render::ArmatureManager>>::create(m_renderer));
-    q->registerBackendType<Qt3DCore::QSkeletonLoader>(QSharedPointer<Render::SkeletonFunctor>::create(m_renderer, m_nodeManagers->skeletonManager(), m_nodeManagers->jointManager()));
+    q->registerBackendType<Qt3DCore::QAbstractSkeleton>(QSharedPointer<Render::SkeletonFunctor>::create(m_renderer, m_nodeManagers->skeletonManager(), m_nodeManagers->jointManager()));
     q->registerBackendType<Qt3DCore::QJoint>(QSharedPointer<Render::JointFunctor>::create(m_renderer, m_nodeManagers->jointManager(), m_nodeManagers->skeletonManager()));
 
     // Textures
-    q->registerBackendType<QAbstractTexture>(QSharedPointer<Render::TextureFunctor>::create(m_renderer, m_nodeManagers->textureManager(), m_nodeManagers->textureImageManager()));
-    q->registerBackendType<QAbstractTextureImage>(QSharedPointer<Render::TextureImageFunctor>::create(m_renderer, m_nodeManagers->textureManager(), m_nodeManagers->textureImageManager()));
+    q->registerBackendType<QAbstractTexture>(QSharedPointer<Render::TextureFunctor>::create(m_renderer, m_nodeManagers->textureManager()));
+    q->registerBackendType<QAbstractTextureImage>(QSharedPointer<Render::TextureImageFunctor>::create(m_renderer,
+                                                                                                      m_nodeManagers->textureImageManager(),
+                                                                                                      m_nodeManagers->textureImageDataManager()));
 
     // Material system
     q->registerBackendType<QEffect>(QSharedPointer<Render::NodeFunctor<Render::Effect, Render::EffectManager> >::create(m_renderer));
@@ -289,6 +301,8 @@ void QRenderAspectPrivate::registerBackendTypes()
 
     // Picking
     q->registerBackendType<QObjectPicker>(QSharedPointer<Render::NodeFunctor<Render::ObjectPicker, Render::ObjectPickerManager> >::create(m_renderer));
+    q->registerBackendType<QRayCaster>(QSharedPointer<Render::NodeFunctor<Render::RayCaster, Render::RayCasterManager> >::create(m_renderer));
+    q->registerBackendType<QScreenRayCaster>(QSharedPointer<Render::NodeFunctor<Render::RayCaster, Render::RayCasterManager> >::create(m_renderer));
 
     // Plugins
     for (const QString &plugin : qAsConst(m_pluginConfig))
@@ -316,6 +330,9 @@ void QRenderAspectPrivate::unregisterBackendTypes()
     unregisterBackendType<QComputeCommand>();
     unregisterBackendType<QGeometry>();
     unregisterBackendType<QGeometryRenderer>();
+    unregisterBackendType<Qt3DCore::QArmature>();
+    unregisterBackendType<Qt3DCore::QAbstractSkeleton>();
+    unregisterBackendType<Qt3DCore::QJoint>();
 
     // Textures
     unregisterBackendType<QAbstractTexture>();
@@ -354,6 +371,8 @@ void QRenderAspectPrivate::unregisterBackendTypes()
 
     // Picking
     unregisterBackendType<QObjectPicker>();
+    unregisterBackendType<QRayCaster>();
+    unregisterBackendType<QScreenRayCaster>();
 
     // Plugins
     for (Render::QRenderPlugin *plugin : qAsConst(m_renderPlugins))
@@ -400,7 +419,7 @@ QRenderAspect::~QRenderAspect()
 void QRenderAspectPrivate::renderInitialize(QOpenGLContext *context)
 {
     if (m_renderer->api() == Render::AbstractRenderer::OpenGL)
-        static_cast<Render::Renderer *>(m_renderer)->setOpenGLContext(context);
+        m_renderer->setOpenGLContext(context);
     m_renderer->initialize();
 }
 
@@ -410,7 +429,8 @@ void QRenderAspectPrivate::renderSynchronous(bool blocking)
     m_renderer->doRender(blocking);
 }
 
-/*!
+/*
+ * \internal
  * Only called when rendering with QtQuick 2 and a Scene3D item
  */
 void QRenderAspectPrivate::renderShutdown()
@@ -468,7 +488,7 @@ QVector<Qt3DCore::QAspectJobPtr> QRenderAspect::jobsToExecute(qint64 time)
         // which should likely be renamed to something more generic or we introduce
         // another synchronizing job for skeleton loading
         const QVector<Render::HSkeleton> skeletonsToLoad =
-                manager->skeletonManager()->dirtySkeletons(Render::SkeletonManager::SkeletonDataDirty);
+                manager->skeletonManager()->takeDirtySkeletons(Render::SkeletonManager::SkeletonDataDirty);
         for (const auto &skeletonHandle : skeletonsToLoad) {
             auto loadSkeletonJob = Render::LoadSkeletonJobPtr::create(skeletonHandle);
             loadSkeletonJob->setNodeManagers(manager);
@@ -491,10 +511,9 @@ QVector<Qt3DCore::QAspectJobPtr> QRenderAspect::jobsToExecute(qint64 time)
 
 
         // Add all jobs to queue
-        const Qt3DCore::QAspectJobPtr pickBoundingVolumeJob = d->m_renderer->pickBoundingVolumeJob();
         // Note: the getter is also responsible for returning a job ready to run
-        jobs.append(pickBoundingVolumeJob);
-
+        jobs.append(d->m_renderer->pickBoundingVolumeJob());
+        jobs.append(d->m_renderer->rayCastingJob());
 
         // Don't spawn any rendering jobs, if the renderer decides to skip this frame
         // Note: this only affects rendering jobs (jobs that load buffers,
@@ -537,6 +556,8 @@ void QRenderAspect::onRegistered()
     // and started.
     Q_D(QRenderAspect);
     d->m_nodeManagers = new Render::NodeManagers();
+
+    // TO DO: Load proper Renderer class based on Qt configuration preferences
     d->m_renderer = new Render::Renderer(d->m_renderType);
     d->m_renderer->setNodeManagers(d->m_nodeManagers);
 

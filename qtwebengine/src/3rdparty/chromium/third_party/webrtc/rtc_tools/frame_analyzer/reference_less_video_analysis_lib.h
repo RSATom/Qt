@@ -8,21 +8,24 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_RTC_TOOLS_FRAME_ANALYZER_REFERENCE_LESS_VIDEO_ANALYSIS_LIB_H_
-#define WEBRTC_RTC_TOOLS_FRAME_ANALYZER_REFERENCE_LESS_VIDEO_ANALYSIS_LIB_H_
+#ifndef RTC_TOOLS_FRAME_ANALYZER_REFERENCE_LESS_VIDEO_ANALYSIS_LIB_H_
+#define RTC_TOOLS_FRAME_ANALYZER_REFERENCE_LESS_VIDEO_ANALYSIS_LIB_H_
 
 #include <string>
 #include <vector>
 
 // Parse the file header to extract height, width and fps
 // for a given video file.
-void get_height_width_fps(int *height, int *width, int *fps,
+void get_height_width_fps(int* height,
+                          int* width,
+                          int* fps,
                           const std::string& video_file);
 
 // Returns true if the frame is frozen based on psnr and ssim freezing
 // threshold values.
 bool frozen_frame(std::vector<double> psnr_per_frame,
-                     std::vector<double> ssim_per_frame, size_t frame);
+                  std::vector<double> ssim_per_frame,
+                  size_t frame);
 
 // Returns the vector of identical cluster of frames that are frozen
 // and appears continuously.
@@ -47,4 +50,4 @@ bool check_file_extension(const std::string& video_file_name);
 // for a list of video files.
 int run_analysis(const std::string& video_file);
 
-#endif  // WEBRTC_RTC_TOOLS_FRAME_ANALYZER_REFERENCE_LESS_VIDEO_ANALYSIS_LIB_H_
+#endif  // RTC_TOOLS_FRAME_ANALYZER_REFERENCE_LESS_VIDEO_ANALYSIS_LIB_H_

@@ -104,6 +104,9 @@ void tst_QWindowContainer::testShow()
 
     root.show();
 
+#ifdef Q_OS_WINRT
+    QEXPECT_FAIL("", "Fails on WinRT - QTBUG-68297", Abort);
+#endif
     QVERIFY(QTest::qWaitForWindowExposed(window));
 }
 
@@ -140,19 +143,16 @@ void tst_QWindowContainer::testExposeObscure()
 
     container->show();
     QVERIFY(QTest::qWaitForWindowExposed(container.data()));
+#ifdef Q_OS_WINRT
+    QEXPECT_FAIL("", "Fails on WinRT - QTBUG-68297", Abort);
+#endif
     QVERIFY(QTest::qWaitForWindowExposed(window));
 
     QVERIFY(window->numberOfExposes > 0);
 
     container->hide();
 
-    QElapsedTimer timer;
-    timer.start();
-    while (window->numberOfObscures == 0 && timer.elapsed() < 5000) {
-        QTest::qWait(10);
-    }
-
-    QVERIFY(window->numberOfObscures > 0);
+    QTRY_VERIFY(window->numberOfObscures > 0);
 }
 
 
@@ -261,6 +261,9 @@ void tst_QWindowContainer::testUnparentReparent()
     QTRY_VERIFY(!window->isVisible());
 
     container->show();
+#ifdef Q_OS_WINRT
+    QEXPECT_FAIL("", "Fails on WinRT - QTBUG-68297", Abort);
+#endif
     QVERIFY(QTest::qWaitForWindowExposed(window));
     QTRY_VERIFY(window->isVisible());
 
@@ -345,11 +348,9 @@ void tst_QWindowContainer::testDockWidget()
     QVERIFY(QTest::qWaitForWindowExposed(&mainWindow));
     QCOMPARE(window->parent(), mainWindow.window()->windowHandle());
 
-    QTest::qWait(1000);
     dock->setFloating(true);
     QTRY_VERIFY(window->parent() != mainWindow.window()->windowHandle());
 
-    QTest::qWait(1000);
     dock->setFloating(false);
     QTRY_COMPARE(window->parent(), mainWindow.window()->windowHandle());
 }
@@ -367,6 +368,9 @@ void tst_QWindowContainer::testNativeContainerParent()
 
     root.show();
 
+#ifdef Q_OS_WINRT
+    QEXPECT_FAIL("", "Fails on WinRT - QTBUG-68297", Abort);
+#endif
     QVERIFY(QTest::qWaitForWindowExposed(window));
     QTRY_COMPARE(window->parent(), container->windowHandle());
 }

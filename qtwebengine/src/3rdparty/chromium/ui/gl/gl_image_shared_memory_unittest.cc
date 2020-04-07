@@ -7,6 +7,7 @@
 
 #include "base/memory/shared_memory.h"
 #include "base/sys_info.h"
+#include "build/build_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/gl/gl_image_shared_memory.h"
 #include "ui/gl/test/gl_image_test_template.h"
@@ -17,7 +18,7 @@ namespace {
 const uint8_t kGreen[] = {0x0, 0x20, 0x0, 0xFF};
 
 template <gfx::BufferFormat format>
-class GLImageSharedMemoryTestDelegate {
+class GLImageSharedMemoryTestDelegate : public GLImageTestDelegateBase {
  public:
   scoped_refptr<GLImage> CreateSolidColorImage(const gfx::Size& size,
                                                const uint8_t color[4]) const {
@@ -42,6 +43,7 @@ class GLImageSharedMemoryTestDelegate {
 
   unsigned GetTextureTarget() const { return GL_TEXTURE_2D; }
   const uint8_t* GetImageColor() { return kGreen; }
+  int GetAdmissibleError() const { return 0; }
 };
 
 using GLImageTestTypes = testing::Types<
@@ -49,6 +51,13 @@ using GLImageTestTypes = testing::Types<
     GLImageSharedMemoryTestDelegate<gfx::BufferFormat::RGBX_8888>,
     GLImageSharedMemoryTestDelegate<gfx::BufferFormat::RGBA_8888>,
     GLImageSharedMemoryTestDelegate<gfx::BufferFormat::BGRX_8888>,
+#if defined(OS_LINUX)
+    // Fails on Win nVidia and linux android: the test writes nothing (we read
+    // back the color used to clear the buffer).
+    // TODO(mcasas): enable those paltforms https://crbug.com/803451.
+    GLImageSharedMemoryTestDelegate<gfx::BufferFormat::BGRX_1010102>,
+    GLImageSharedMemoryTestDelegate<gfx::BufferFormat::RGBX_1010102>,
+#endif
     GLImageSharedMemoryTestDelegate<gfx::BufferFormat::BGRA_8888>>;
 
 INSTANTIATE_TYPED_TEST_CASE_P(GLImageSharedMemory,
@@ -59,11 +68,15 @@ INSTANTIATE_TYPED_TEST_CASE_P(GLImageSharedMemory,
                               GLImageOddSizeTest,
                               GLImageTestTypes);
 
+// https://crbug.com/830653
+#if !defined(ADDRESS_SANITIZER) && !defined(MEMORY_SANITIZER) && \
+    !defined(THREAD_SANITIZER)
 INSTANTIATE_TYPED_TEST_CASE_P(GLImageSharedMemory,
                               GLImageCopyTest,
                               GLImageTestTypes);
+#endif
 
-class GLImageSharedMemoryPoolTestDelegate {
+class GLImageSharedMemoryPoolTestDelegate : public GLImageTestDelegateBase {
  public:
   scoped_refptr<GLImage> CreateSolidColorImage(const gfx::Size& size,
                                                const uint8_t color[4]) const {
@@ -97,11 +110,16 @@ class GLImageSharedMemoryPoolTestDelegate {
 
   unsigned GetTextureTarget() const { return GL_TEXTURE_2D; }
   const uint8_t* GetImageColor() { return kGreen; }
+  int GetAdmissibleError() const { return 0; }
 };
 
+// https://crbug.com/830653
+#if !defined(ADDRESS_SANITIZER) && !defined(MEMORY_SANITIZER) && \
+    !defined(THREAD_SANITIZER)
 INSTANTIATE_TYPED_TEST_CASE_P(GLImageSharedMemoryPool,
                               GLImageCopyTest,
                               GLImageSharedMemoryPoolTestDelegate);
+#endif
 
 }  // namespace
 }  // namespace gl

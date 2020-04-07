@@ -46,12 +46,11 @@
 QT_BEGIN_NAMESPACE
 
 
-class QAbstractMessageHandlerPrivate;
 class Q_XMLPATTERNS_EXPORT QAbstractMessageHandler : public QObject
 {
     Q_OBJECT
 public:
-    QAbstractMessageHandler(QObject *parent = Q_NULLPTR);
+    QAbstractMessageHandler(QObject *parent = nullptr);
     virtual ~QAbstractMessageHandler();
 
     void message(QtMsgType type,
@@ -65,7 +64,6 @@ protected:
                                const QUrl &identifier,
                                const QSourceLocation &sourceLocation) = 0;
 private:
-    Q_DECLARE_PRIVATE(QAbstractMessageHandler)
     Q_DISABLE_COPY(QAbstractMessageHandler)
 };
 

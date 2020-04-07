@@ -3,7 +3,7 @@
 ## Google Style Guide
 
 We generally use the [Google C++ Style Guide]
-(http://google-styleguide.googlecode.com/svn/trunk/cppguide.xml) as a basis for
+(https://google.github.io/styleguide/cppguide.html) as a basis for
 our Coding Standard, however we will deviate from it in a few areas, as noted
 below.
 
@@ -13,23 +13,23 @@ Items marked {DEV} indicate a deviation from the Google guidelines. Items marked
 Before you upload code to Gerrit, use `git cl format` to auto-format your code.
 This will catch most of the trivial formatting errors and save you time.
 
-### [Header Files](http://google-styleguide.googlecode.com/svn/trunk/cppguide.xml#Header_Files)
+### [Header Files](https://google.github.io/styleguide/cppguide.html#Header_Files)
 
-*   We will use **`.h`** for C++ headers.
+*   We use **`.h`** for C++ headers.
 *   {DEV} #define guards should be of the form: `<PATH>_<FILE>_H_`. (Compiler
     codebase is varied, including `<PROJECT>_` makes the names excessively
     long).
 
-### [Scoping](http://google-styleguide.googlecode.com/svn/trunk/cppguide.xml#Scoping)
+### [Scoping](https://google.github.io/styleguide/cppguide.html#Scoping)
 
 *   {DO} avoid globally scoped variables, unless absolutely necessary.
 
-### [Classes](http://google-styleguide.googlecode.com/svn/trunk/cppguide.xml#Classes)
+### [Classes](https://google.github.io/styleguide/cppguide.html#Classes)
 
 *   {DEV} Inherit (privately) from angle::NonCopyable helper class (defined in
     common/angleutils.h) to disable default copy and assignment operators.
 
-### [Other C++ Features](http://google-styleguide.googlecode.com/svn/trunk/cppguide.xml#Other_C++_Features)
+### [Other C++ Features](https://google.github.io/styleguide/cppguide.html#Other_C++_Features)
 
 *   {DEV} all parameters passed by reference, except for STL containers (e.g.
     std::vector, std::list), must be labeled `const`. For return parameters
@@ -39,10 +39,10 @@ This will catch most of the trivial formatting errors and save you time.
 *   {DO} use nullptr (instead of 0 or NULL) for pointers.
 *   {DO} use size\_t for loop iterators and size values.
 *   {DO} use uint8\_t pointers instead of void pointers to denote binary data.
-*   {DO} use C++11 according to the [Chromium guide on C++11]
+*   {DO} use C++11/14 according to the [Chromium c++ 11/14 guide]
     (http://chromium-cpp.appspot.com/).
 
-### [Naming ](http://google-styleguide.googlecode.com/svn/trunk/cppguide.xml#Naming)
+### [Naming](https://google.github.io/styleguide/cppguide.html#Naming)
 
 #### File Names
 
@@ -64,7 +64,7 @@ guidelines.
 * class and type names: start with capital letter and use CamelCase.
 * {DEV} class member variables: use an **`m`** prefix instead of trailing
 underscore and use CamelCase.
-* global variables (if they must be used): use a **`g_`** prefix.
+* global variables (if they must be used): use a **`g`** prefix.
 * {DEV} variable names: start with lower case and use CamelCase (chosen for consistency)
 * {DEV} function names: Member functions start with lower case and use CamelCase. Non-member functions start with capital letter and
 use CamelCase (chosen for consistency)
@@ -74,20 +74,22 @@ use CamelCase (chosen for consistency)
 * macros: all uppercase with underscores
 * exceptions to naming: use common sense!
 
-### [Comments](http://google-styleguide.googlecode.com/svn/trunk/cppguide.xml#Comments)
+### [Comments](https://google.github.io/styleguide/cppguide.html#Comments)
 
 *   {DO} read and follow Google's recommendations.
 *   Each file **must** start with the following boilerplate notice:
 
 ```
 //
-//  Copyright (c) 2016 The ANGLE Project Authors. All rights reserved.
+//  Copyright $YEAR The ANGLE Project Authors. All rights reserved.
 //  Use of this source code is governed by a BSD-style license that can be
 //  found in the LICENSE file.
 //
 ```
 
-### [Formatting](http://google-styleguide.googlecode.com/svn/trunk/cppguide.xml#Formatting)
+* $YEAR should be set to the current year at the time a file is created, and not changed thereafter.
+
+### [Formatting](https://google.github.io/styleguide/cppguide.html#Formatting)
 
 *   {DEV} Avoid excessively long lines. Please keep lines under 100 columns
     long.
@@ -149,7 +151,7 @@ char *c;
 const string &str;
 ```
 
-### [Exceptions to the Rules](http://google-styleguide.googlecode.com/svn/trunk/cppguide.xml#Exceptions_to_the_Rules)
+### [Exceptions to the Rules](https://google.github.io/styleguide/cppguide.html#Exceptions_to_the_Rules)
 
 *   If modifying pre-existing code that does not match the standard, the altered
     portions of the code should be changed to match the standard.

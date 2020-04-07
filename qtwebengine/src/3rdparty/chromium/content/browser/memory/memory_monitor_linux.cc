@@ -4,7 +4,6 @@
 
 #include "content/browser/memory/memory_monitor_linux.h"
 
-#include "base/memory/ptr_util.h"
 #include "base/process/process_metrics.h"
 
 namespace content {
@@ -43,7 +42,7 @@ int MemoryMonitorLinux::GetFreeMemoryUntilCriticalMB() {
 // static
 std::unique_ptr<MemoryMonitorLinux> MemoryMonitorLinux::Create(
     MemoryMonitorDelegate* delegate) {
-  return base::MakeUnique<MemoryMonitorLinux>(delegate);
+  return std::make_unique<MemoryMonitorLinux>(delegate);
 }
 
 // Implementation of factory function defined in memory_monitor.h.

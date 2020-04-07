@@ -70,6 +70,19 @@ public :
 
     QNodeId parentEntityId() const;
 
+    template<class T>
+    QVector<T*> componentsOfType() const
+    {
+        QVector<T*> typedComponents;
+        for (QComponent *comp : m_components) {
+            T *typedComponent = qobject_cast<T*>(comp);
+            if (typedComponent != nullptr)
+                typedComponents.append(typedComponent);
+        }
+        return typedComponents;
+    }
+
+
     QComponentVector m_components;
     mutable QNodeId m_parentEntityId;
 };
@@ -78,6 +91,7 @@ struct QEntityData
 {
     Qt3DCore::QNodeId parentEntityId;
     QVector<QNodeIdTypePair> componentIdsAndTypes;
+    Qt3DCore::QNodeIdVector childEntityIds;
 };
 
 }

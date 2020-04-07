@@ -53,29 +53,6 @@ static void amdgpu_close_kms_handle(amdgpu_device_handle dev,
 	drmIoctl(dev->fd, DRM_IOCTL_GEM_CLOSE, &args);
 }
 
-drm_private void amdgpu_bo_free_internal(amdgpu_bo_handle bo)
-{
-	/* Remove the buffer from the hash tables. */
-	pthread_mutex_lock(&bo->dev->bo_table_mutex);
-	util_hash_table_remove(bo->dev->bo_handles,
-			       (void*)(uintptr_t)bo->handle);
-	if (bo->flink_name) {
-		util_hash_table_remove(bo->dev->bo_flink_names,
-				       (void*)(uintptr_t)bo->flink_name);
-	}
-	pthread_mutex_unlock(&bo->dev->bo_table_mutex);
-
-	/* Release CPU access. */
-	if (bo->cpu_map_count > 0) {
-		bo->cpu_map_count = 1;
-		amdgpu_bo_cpu_unmap(bo);
-	}
-
-	amdgpu_close_kms_handle(bo->dev, bo->handle);
-	pthread_mutex_destroy(&bo->cpu_access_mutex);
-	free(bo);
-}
-
 int amdgpu_bo_alloc(amdgpu_device_handle dev,
 		    struct amdgpu_bo_alloc_request *alloc_buffer,
 		    amdgpu_bo_handle *buf_handle)
@@ -273,8 +250,8 @@ int amdgpu_bo_export(amdgpu_bo_handle bo,
 
 	case amdgpu_bo_handle_type_dma_buf_fd:
 		amdgpu_add_handle_to_table(bo);
-		return drmPrimeHandleToFD(bo->dev->fd, bo->handle, DRM_CLOEXEC,
-				       (int*)shared_handle);
+		return drmPrimeHandleToFD(bo->dev->fd, bo->handle,
+			DRM_CLOEXEC | DRM_RDWR, (int*)shared_handle);
 	}
 	return -EINVAL;
 }
@@ -302,6 +279,7 @@ int amdgpu_bo_import(amdgpu_device_handle dev,
 		/* Get a KMS handle. */
 		r = drmPrimeFDToHandle(dev->fd, shared_handle, &handle);
 		if (r) {
+			pthread_mutex_unlock(&dev->bo_table_mutex);
 			return r;
 		}
 
@@ -341,10 +319,9 @@ int amdgpu_bo_import(amdgpu_device_handle dev,
 	}
 
 	if (bo) {
-		pthread_mutex_unlock(&dev->bo_table_mutex);
-
 		/* The buffer already exists, just bump the refcount. */
 		atomic_inc(&bo->refcount);
+		pthread_mutex_unlock(&dev->bo_table_mutex);
 
 		output->buf_handle = bo;
 		output->alloc_size = bo->alloc_size;
@@ -419,8 +396,35 @@ int amdgpu_bo_import(amdgpu_device_handle dev,
 
 int amdgpu_bo_free(amdgpu_bo_handle buf_handle)
 {
-	/* Just drop the reference. */
-	amdgpu_bo_reference(&buf_handle, NULL);
+	struct amdgpu_device *dev;
+	struct amdgpu_bo *bo = buf_handle;
+
+	assert(bo != NULL);
+	dev = bo->dev;
+	pthread_mutex_lock(&dev->bo_table_mutex);
+
+	if (update_references(&bo->refcount, NULL)) {
+		/* Remove the buffer from the hash tables. */
+		util_hash_table_remove(dev->bo_handles,
+					(void*)(uintptr_t)bo->handle);
+
+		if (bo->flink_name) {
+			util_hash_table_remove(dev->bo_flink_names,
+						(void*)(uintptr_t)bo->flink_name);
+		}
+
+		/* Release CPU access. */
+		if (bo->cpu_map_count > 0) {
+			bo->cpu_map_count = 1;
+			amdgpu_bo_cpu_unmap(bo);
+		}
+
+		amdgpu_close_kms_handle(dev, bo->handle);
+		pthread_mutex_destroy(&bo->cpu_access_mutex);
+		free(bo);
+	}
+
+	pthread_mutex_unlock(&dev->bo_table_mutex);
 	return 0;
 }
 
@@ -652,7 +656,7 @@ int amdgpu_bo_list_update(amdgpu_bo_list_handle handle,
 		return -EINVAL;
 
 	list = malloc(number_of_resources * sizeof(struct drm_amdgpu_bo_list_entry));
-	if (list == NULL)
+	if (!list)
 		return -ENOMEM;
 
 	args.in.operation = AMDGPU_BO_LIST_OP_UPDATE;
@@ -683,21 +687,37 @@ int amdgpu_bo_va_op(amdgpu_bo_handle bo,
 		     uint32_t ops)
 {
 	amdgpu_device_handle dev = bo->dev;
+
+	size = ALIGN(size, getpagesize());
+
+	return amdgpu_bo_va_op_raw(dev, bo, offset, size, addr,
+				   AMDGPU_VM_PAGE_READABLE |
+				   AMDGPU_VM_PAGE_WRITEABLE |
+				   AMDGPU_VM_PAGE_EXECUTABLE, ops);
+}
+
+int amdgpu_bo_va_op_raw(amdgpu_device_handle dev,
+			amdgpu_bo_handle bo,
+			uint64_t offset,
+			uint64_t size,
+			uint64_t addr,
+			uint64_t flags,
+			uint32_t ops)
+{
 	struct drm_amdgpu_gem_va va;
 	int r;
 
-	if (ops != AMDGPU_VA_OP_MAP && ops != AMDGPU_VA_OP_UNMAP)
+	if (ops != AMDGPU_VA_OP_MAP && ops != AMDGPU_VA_OP_UNMAP &&
+	    ops != AMDGPU_VA_OP_REPLACE && ops != AMDGPU_VA_OP_CLEAR)
 		return -EINVAL;
 
 	memset(&va, 0, sizeof(va));
-	va.handle = bo->handle;
+	va.handle = bo ? bo->handle : 0;
 	va.operation = ops;
-	va.flags = AMDGPU_VM_PAGE_READABLE |
-		   AMDGPU_VM_PAGE_WRITEABLE |
-		   AMDGPU_VM_PAGE_EXECUTABLE;
+	va.flags = flags;
 	va.va_address = addr;
 	va.offset_in_bo = offset;
-	va.map_size = ALIGN(size, getpagesize());
+	va.map_size = size;
 
 	r = drmCommandWriteRead(dev->fd, DRM_AMDGPU_GEM_VA, &va, sizeof(va));
 

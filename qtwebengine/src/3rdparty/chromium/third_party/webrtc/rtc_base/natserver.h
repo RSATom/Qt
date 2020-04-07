@@ -8,19 +8,19 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_RTC_BASE_NATSERVER_H_
-#define WEBRTC_RTC_BASE_NATSERVER_H_
+#ifndef RTC_BASE_NATSERVER_H_
+#define RTC_BASE_NATSERVER_H_
 
 #include <map>
 #include <set>
 
-#include "webrtc/rtc_base/asyncudpsocket.h"
-#include "webrtc/rtc_base/constructormagic.h"
-#include "webrtc/rtc_base/nattypes.h"
-#include "webrtc/rtc_base/proxyserver.h"
-#include "webrtc/rtc_base/socketaddresspair.h"
-#include "webrtc/rtc_base/socketfactory.h"
-#include "webrtc/rtc_base/thread.h"
+#include "rtc_base/asyncudpsocket.h"
+#include "rtc_base/constructormagic.h"
+#include "rtc_base/nattypes.h"
+#include "rtc_base/proxyserver.h"
+#include "rtc_base/socketaddresspair.h"
+#include "rtc_base/socketfactory.h"
+#include "rtc_base/thread.h"
 
 namespace rtc {
 
@@ -30,8 +30,8 @@ namespace rtc {
 struct RouteCmp {
   explicit RouteCmp(NAT* nat);
   size_t operator()(const SocketAddressPair& r) const;
-  bool operator()(
-      const SocketAddressPair& r1, const SocketAddressPair& r2) const;
+  bool operator()(const SocketAddressPair& r1,
+                  const SocketAddressPair& r2) const;
 
   bool symmetric;
 };
@@ -60,11 +60,12 @@ const int NAT_SERVER_TCP_PORT = 4238;
 
 class NATServer : public sigslot::has_slots<> {
  public:
-  NATServer(
-      NATType type, SocketFactory* internal,
-      const SocketAddress& internal_udp_addr,
-      const SocketAddress& internal_tcp_addr,
-      SocketFactory* external, const SocketAddress& external_ip);
+  NATServer(NATType type,
+            SocketFactory* internal,
+            const SocketAddress& internal_udp_addr,
+            const SocketAddress& internal_tcp_addr,
+            SocketFactory* external,
+            const SocketAddress& external_ip);
   ~NATServer() override;
 
   SocketAddress internal_udp_address() const {
@@ -76,11 +77,15 @@ class NATServer : public sigslot::has_slots<> {
   }
 
   // Packets received on one of the networks.
-  void OnInternalUDPPacket(AsyncPacketSocket* socket, const char* buf,
-                           size_t size, const SocketAddress& addr,
+  void OnInternalUDPPacket(AsyncPacketSocket* socket,
+                           const char* buf,
+                           size_t size,
+                           const SocketAddress& addr,
                            const PacketTime& packet_time);
-  void OnExternalUDPPacket(AsyncPacketSocket* socket, const char* buf,
-                           size_t size, const SocketAddress& remote_addr,
+  void OnExternalUDPPacket(AsyncPacketSocket* socket,
+                           const char* buf,
+                           size_t size,
+                           const SocketAddress& remote_addr,
                            const PacketTime& packet_time);
 
  private:
@@ -121,4 +126,4 @@ class NATServer : public sigslot::has_slots<> {
 
 }  // namespace rtc
 
-#endif  // WEBRTC_RTC_BASE_NATSERVER_H_
+#endif  // RTC_BASE_NATSERVER_H_

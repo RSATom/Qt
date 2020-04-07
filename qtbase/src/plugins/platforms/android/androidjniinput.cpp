@@ -58,7 +58,6 @@ using namespace QtAndroid;
 
 namespace QtAndroidInput
 {
-
     static bool m_ignoreMouseEvents = false;
     static bool m_softwareKeyboardVisible = false;
     static QRect m_softwareKeyboardRect;
@@ -124,11 +123,12 @@ namespace QtAndroidInput
         return m_softwareKeyboardRect;
     }
 
-    void updateHandles(int mode, QPoint cursor, QPoint anchor, bool rtl)
+    void updateHandles(int mode, QPoint editMenuPos, uint32_t editButtons, QPoint cursor, QPoint anchor, bool rtl)
     {
-        QJNIObjectPrivate::callStaticMethod<void>(applicationClass(), "updateHandles", "(IIIIIZ)V",
-                                                  mode, cursor.x(), cursor.y(), anchor.x(),
-                                                  anchor.y(), rtl);
+        QJNIObjectPrivate::callStaticMethod<void>(applicationClass(), "updateHandles", "(IIIIIIIIZ)V",
+                                                  mode, editMenuPos.x(), editMenuPos.y(), editButtons,
+                                                  cursor.x(), cursor.y(),
+                                                  anchor.x(), anchor.y(), rtl);
     }
 
     static void mouseDown(JNIEnv */*env*/, jobject /*thiz*/, jint /*winId*/, jint x, jint y)
@@ -173,7 +173,7 @@ namespace QtAndroidInput
         QWindowSystemInterface::handleMouseEvent(tlw,
                                                  localPos,
                                                  globalPos,
-                                                 Qt::MouseButtons(Qt::LeftButton));
+                                                 Qt::MouseButtons(m_mouseGrabber ? Qt::LeftButton : Qt::NoButton));
     }
 
     static void mouseWheel(JNIEnv */*env*/, jobject /*thiz*/, jint /*winId*/, jint x, jint y, jfloat hdelta, jfloat vdelta)
@@ -193,6 +193,20 @@ namespace QtAndroidInput
                                                  globalPos,
                                                  QPoint(),
                                                  angleDelta);
+    }
+
+    void releaseMouse(int x, int y)
+    {
+        m_ignoreMouseEvents = true;
+        QPoint globalPos(x,y);
+        QWindow *tlw = topLevelWindowAt(globalPos);
+        QPoint localPos = tlw ? (globalPos-tlw->position()) : globalPos;
+
+        // Release left button
+        QWindowSystemInterface::handleMouseEvent(tlw,
+                                                 localPos,
+                                                 globalPos,
+                                                 Qt::MouseButtons(Qt::NoButton));
     }
 
     static void longPress(JNIEnv */*env*/, jobject /*thiz*/, jint /*winId*/, jint x, jint y)
@@ -805,8 +819,10 @@ namespace QtAndroidInput
         QAndroidInputContext *inputContext = QAndroidInputContext::androidInputContext();
         if (inputContext && qGuiApp) {
             inputContext->emitInputPanelVisibleChanged();
-            if (!visibility)
+            if (!visibility) {
                 inputContext->emitKeyboardRectChanged();
+                QMetaObject::invokeMethod(inputContext, "hideSelectionHandles", Qt::QueuedConnection);
+            }
         }
 #ifdef QT_DEBUG_ANDROID_IM_PROTOCOL
         qDebug() << "@@@ KEYBOARDVISIBILITYCHANGED" << inputContext;

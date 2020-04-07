@@ -43,11 +43,11 @@ public:
     ~QTestSensorGestureDupPlugin();
 
 
-    QList <QSensorGestureRecognizer *> createRecognizers();
+    QList<QSensorGestureRecognizer *> createRecognizers() override;
 
     QStringList gestureSignals() const;
-    QStringList supportedIds() const;
-    QString name() const;
+    QStringList supportedIds() const override;
+    QString name() const override;
 
     QList<QSensorGestureRecognizer*> recognizers() const;
 

@@ -37,12 +37,18 @@ QT_USE_NAMESPACE
 class QGeoTiledMappingManagerEngineTest;
 class QGeoTiledMapTestPrivate;
 
+struct QGeoTiledMapTestOptions {
+    bool supportVisibleArea = true;
+};
+
 class QGeoTiledMapTest: public QGeoTiledMap
 {
     Q_OBJECT
     Q_DECLARE_PRIVATE(QGeoTiledMapTest)
 public:
-    QGeoTiledMapTest(QGeoTiledMappingManagerEngine *engine, QObject *parent = 0);
+    QGeoTiledMapTest(QGeoTiledMappingManagerEngine *engine,
+                     const QGeoTiledMapTestOptions &options,
+                     QObject *parent = 0);
 
 protected slots:
     void onCameraCenter_testChanged(QGeoMapParameter *param, const char *propertyName);

@@ -44,6 +44,7 @@
 
 #include <QtWaylandCompositor/QWaylandQuickCompositor>
 #include <QtWaylandCompositor/QWaylandQuickItem>
+#include <QtWaylandCompositor/private/qwaylandquickhardwarelayer_p.h>
 #include <QtWaylandCompositor/QWaylandQuickSurface>
 #include <QtWaylandCompositor/QWaylandClient>
 #include <QtWaylandCompositor/QWaylandQuickOutput>
@@ -62,6 +63,8 @@
 #include <QtWaylandCompositor/QWaylandTextInputManager>
 #include <QtWaylandCompositor/QWaylandXdgShellV5>
 #include <QtWaylandCompositor/QWaylandXdgShellV6>
+#include <QtWaylandCompositor/QWaylandXdgShell>
+#include <QtWaylandCompositor/QWaylandXdgDecorationManagerV1>
 #include <QtWaylandCompositor/QWaylandIviApplication>
 #include <QtWaylandCompositor/QWaylandIviSurface>
 
@@ -76,6 +79,8 @@ Q_COMPOSITOR_DECLARE_QUICK_EXTENSION_CLASS(QWaylandIviApplication)
 Q_COMPOSITOR_DECLARE_QUICK_EXTENSION_CLASS(QWaylandWlShell)
 Q_COMPOSITOR_DECLARE_QUICK_EXTENSION_CLASS(QWaylandXdgShellV5)
 Q_COMPOSITOR_DECLARE_QUICK_EXTENSION_CLASS(QWaylandXdgShellV6)
+Q_COMPOSITOR_DECLARE_QUICK_EXTENSION_CLASS(QWaylandXdgShell)
+Q_COMPOSITOR_DECLARE_QUICK_EXTENSION_CLASS(QWaylandXdgDecorationManagerV1)
 Q_COMPOSITOR_DECLARE_QUICK_EXTENSION_CLASS(QWaylandTextInputManager)
 
 class QmlUrlResolver
@@ -105,7 +110,7 @@ class QWaylandCompositorPlugin : public QQmlExtensionPlugin
     Q_OBJECT
     Q_PLUGIN_METADATA(IID QQmlExtensionInterface_iid)
 public:
-    virtual void registerTypes(const char *uri)
+    void registerTypes(const char *uri) override
     {
         Q_ASSERT(QLatin1String(uri) == QLatin1String("QtWayland.Compositor"));
         defineModule(uri);
@@ -125,6 +130,7 @@ public:
     {
         qmlRegisterType<QWaylandQuickCompositorQuickExtensionContainer>(uri, 1, 0, "WaylandCompositor");
         qmlRegisterType<QWaylandQuickItem>(uri, 1, 0, "WaylandQuickItem");
+        qmlRegisterType<QWaylandQuickHardwareLayer>(uri, 1, 2, "WaylandHardwareLayer");
         qmlRegisterType<QWaylandMouseTracker>(uri, 1, 0, "WaylandMouseTracker");
         qmlRegisterType<QWaylandQuickOutput>(uri, 1, 0, "WaylandOutput");
         qmlRegisterType<QWaylandQuickSurface>(uri, 1, 0, "WaylandSurface");
@@ -160,6 +166,13 @@ public:
         qmlRegisterType<QWaylandXdgSurfaceV6>(uri, 1, 1, "XdgSurfaceV6");
         qmlRegisterUncreatableType<QWaylandXdgToplevelV6>(uri, 1, 1, "XdgToplevelV6", QObject::tr("Cannot create instance of XdgShellToplevelV6"));
         qmlRegisterUncreatableType<QWaylandXdgPopupV6>(uri, 1, 1, "XdgPopupV6", QObject::tr("Cannot create instance of XdgShellPopupV6"));
+
+        qmlRegisterType<QWaylandXdgShellQuickExtension>(uri, 1, 3, "XdgShell");
+        qmlRegisterType<QWaylandXdgSurface>(uri, 1, 3, "XdgSurface");
+        qmlRegisterUncreatableType<QWaylandXdgToplevel>(uri, 1, 3, "XdgToplevel", QObject::tr("Cannot create instance of XdgShellToplevel"));
+        qmlRegisterUncreatableType<QWaylandXdgPopup>(uri, 1, 3, "XdgPopup", QObject::tr("Cannot create instance of XdgShellPopup"));
+
+        qmlRegisterType<QWaylandXdgDecorationManagerV1QuickExtension>(uri, 1, 3, "XdgDecorationManagerV1");
     }
 };
 //![class decl]

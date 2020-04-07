@@ -51,7 +51,7 @@
 // We mean it.
 //
 
-#include "browser_context_adapter_client.h"
+#include "profile_adapter_client.h"
 #include "qwebengineprofile.h"
 #include "qwebenginescriptcollection.h"
 
@@ -61,7 +61,7 @@
 #include <QSharedPointer>
 
 namespace QtWebEngineCore {
-class BrowserContextAdapter;
+class ProfileAdapter;
 }
 
 QT_BEGIN_NAMESPACE
@@ -70,25 +70,30 @@ class QWebEngineBrowserContext;
 class QWebEngineProfilePrivate;
 class QWebEngineSettings;
 
-class QWebEngineProfilePrivate : public QtWebEngineCore::BrowserContextAdapterClient {
+class QWebEngineProfilePrivate : public QtWebEngineCore::ProfileAdapterClient {
 public:
     Q_DECLARE_PUBLIC(QWebEngineProfile)
-    QWebEngineProfilePrivate(QSharedPointer<QtWebEngineCore::BrowserContextAdapter> browserContext);
+    QWebEngineProfilePrivate(QtWebEngineCore::ProfileAdapter *profileAdapter);
     ~QWebEngineProfilePrivate();
 
-    QSharedPointer<QtWebEngineCore::BrowserContextAdapter> browserContext() const;
+    QtWebEngineCore::ProfileAdapter* profileAdapter() const;
     QWebEngineSettings *settings() const { return m_settings; }
 
     void downloadDestroyed(quint32 downloadId);
 
-    void downloadRequested(DownloadItemInfo &info) Q_DECL_OVERRIDE;
-    void downloadUpdated(const DownloadItemInfo &info) Q_DECL_OVERRIDE;
+    void cleanDownloads();
+
+    void downloadRequested(DownloadItemInfo &info) override;
+    void downloadUpdated(const DownloadItemInfo &info) override;
+
+    void addWebContentsAdapterClient(QtWebEngineCore::WebContentsAdapterClient *adapter) override;
+    void removeWebContentsAdapterClient(QtWebEngineCore::WebContentsAdapterClient *adapter) override;
 
 private:
     QWebEngineProfile *q_ptr;
     QWebEngineSettings *m_settings;
+    QPointer<QtWebEngineCore::ProfileAdapter> m_profileAdapter;
     QScopedPointer<QWebEngineScriptCollection> m_scriptCollection;
-    QPointer<QWebEngineBrowserContext> m_browserContext;
     QMap<quint32, QPointer<QWebEngineDownloadItem> > m_ongoingDownloads;
 };
 

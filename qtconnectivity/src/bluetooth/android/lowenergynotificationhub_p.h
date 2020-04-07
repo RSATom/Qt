@@ -56,10 +56,11 @@
 #include <QtCore/private/qjnihelpers_p.h>
 #include <QtAndroidExtras/QAndroidJniObject>
 #include <QtBluetooth/QBluetoothAddress>
+#include <QtBluetooth/QLowEnergyController>
+#include <QtBluetooth/QLowEnergyService>
 #include <jni.h>
 
 #include <QtBluetooth/QLowEnergyCharacteristic>
-#include "qlowenergycontroller_p.h"
 
 QT_BEGIN_NAMESPACE
 
@@ -68,7 +69,7 @@ class LowEnergyNotificationHub : public QObject
     Q_OBJECT
 public:
     explicit LowEnergyNotificationHub(const QBluetoothAddress &remote, bool isPeripheral,
-                                      QObject *parent = 0);
+                                      QObject *parent = nullptr);
     ~LowEnergyNotificationHub();
 
     static void lowEnergy_connectionChange(JNIEnv*, jobject, jlong qtObject,

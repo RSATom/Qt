@@ -6,7 +6,12 @@
 
 #include "core/fpdfapi/page/cpdf_pageobject.h"
 
-CPDF_PageObject::CPDF_PageObject() : m_bDirty(false) {}
+constexpr int32_t CPDF_PageObject::kNoContentStream;
+
+CPDF_PageObject::CPDF_PageObject(int32_t content_stream)
+    : m_bDirty(false), m_ContentStream(content_stream) {}
+
+CPDF_PageObject::CPDF_PageObject() : CPDF_PageObject(kNoContentStream) {}
 
 CPDF_PageObject::~CPDF_PageObject() {}
 
@@ -95,8 +100,8 @@ void CPDF_PageObject::TransformGeneralState(CFX_Matrix& matrix) {
 
 FX_RECT CPDF_PageObject::GetBBox(const CFX_Matrix* pMatrix) const {
   CFX_FloatRect rect(m_Left, m_Bottom, m_Right, m_Top);
-  if (pMatrix) {
-    pMatrix->TransformRect(rect);
-  }
+  if (pMatrix)
+    rect = pMatrix->TransformRect(rect);
+
   return rect.GetOuterRect();
 }

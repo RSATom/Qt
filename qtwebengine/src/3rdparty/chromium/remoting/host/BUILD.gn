@@ -135,6 +135,15 @@ static_library("host") {
     "disconnect_window_win.cc",
     "dns_blackhole_checker.cc",
     "dns_blackhole_checker.h",
+    "evaluate_capability.cc",
+    "evaluate_capability.h",
+    "file_proxy_wrapper.cc",
+    "file_proxy_wrapper.h",
+    "file_proxy_wrapper_linux.cc",
+    "file_proxy_wrapper_mac.cc",
+    "file_proxy_wrapper_win.cc",
+    "file_transfer_message_handler.cc",
+    "file_transfer_message_handler.h",
     "forward_process_stats_agent.cc",
     "forward_process_stats_agent.h",
     "gcd_rest_client.cc",
@@ -149,11 +158,9 @@ static_library("host") {
     "host_change_notification_listener.h",
     "host_config.cc",
     "host_config.h",
-    "host_config_constants.cc",
     "host_details.cc",
     "host_details.h",
     "host_event_logger.h",
-    "host_event_logger_posix.cc",
     "host_event_logger_win.cc",
     "host_exit_codes.cc",
     "host_exit_codes.h",
@@ -168,8 +175,6 @@ static_library("host") {
     "host_power_save_blocker.h",
     "host_secret.cc",
     "host_secret.h",
-    "host_session_options.cc",
-    "host_session_options.h",
     "host_status_logger.cc",
     "host_status_logger.h",
     "host_status_monitor.cc",
@@ -229,8 +234,6 @@ static_library("host") {
     "pin_hash.h",
     "policy_watcher.cc",
     "policy_watcher.h",
-    "posix/signal_handler.cc",
-    "posix/signal_handler.h",
     "process_stats_agent.h",
     "process_stats_sender.cc",
     "process_stats_sender.h",
@@ -314,6 +317,14 @@ static_library("host") {
     "//ipc",
   ]
 
+  if (is_posix) {
+    sources += [
+      "host_event_logger_posix.cc",
+      "posix/signal_handler.cc",
+      "posix/signal_handler.h",
+    ]
+  }
+
   if (!is_ios) {
     deps += [ "//components/policy:generated" ]
   }
@@ -329,7 +340,7 @@ static_library("host") {
       "//build/config/linux:xrandr",
     ]
     deps += [ "//remoting/host/linux:x11" ]
-    if (is_desktop_linux) {
+    if (use_gtk) {
       deps += [ "//build/config/linux/gtk" ]
     }
   } else {
@@ -357,11 +368,10 @@ static_library("host") {
       "me2me_desktop_environment.cc",
       "me2me_desktop_environment.h",
     ]
-    deps += [ "//remoting/host/chromeos" ]
-
-    if (use_ash) {
-      deps += [ "//ash" ]
-    }
+    deps += [
+      "//ash",
+      "//remoting/host/chromeos",
+    ]
 
     if (use_ozone) {
       deps += [ "//ui/ozone" ]
@@ -391,6 +401,9 @@ static_library("host") {
 
   if (is_win) {
     deps += [
+      # On Windows, we use //media/gpu/MediaFoundationVideoEncodeAcceleratorWin
+      # to detect whether HW encoder is supported by the system.
+      "//media",
       "//remoting/host/win",
       "//remoting/host/win:messages",
       "//remoting/host/win:remoting_lib_idl",
@@ -455,6 +468,8 @@ source_set("unit_tests") {
     "daemon_process_unittest.cc",
     "desktop_process_unittest.cc",
     "desktop_session_agent_unittest.cc",
+    "file_proxy_wrapper_linux_unittest.cc",
+    "file_transfer_message_handler_unittest.cc",
     "gcd_rest_client_unittest.cc",
     "gcd_state_updater_unittest.cc",
     "heartbeat_sender_unittest.cc",
@@ -464,7 +479,6 @@ source_set("unit_tests") {
     "host_experiment_session_plugin_unittest.cc",
     "host_extension_session_manager_unittest.cc",
     "host_power_save_blocker_unittest.cc",
-    "host_session_options_unittest.cc",
     "host_status_logger_unittest.cc",
     "ipc_desktop_environment_unittest.cc",
     "it2me/it2me_confirmation_dialog_proxy_unittest.cc",
@@ -532,6 +546,13 @@ source_set("unit_tests") {
   if (!is_ios) {
     deps += [ "//components/policy/core/browser:test_support" ]
   }
+
+  if (enable_me2me_host) {
+    sources += [ "evaluate_capability_unittest.cc" ]
+    data_deps = [
+      "//remoting/test:capability_test_stub",
+    ]
+  }
 }
 
 group("remoting_host_branded") {
@@ -560,9 +581,7 @@ if (enable_remoting_host) {
       "setup/start_host_entry_point.cc",
     ]
 
-    deps = [
-      "//build/config:exe_and_shlib_deps",
-    ]
+    deps = []
 
     configs += [ "//build/config/compiler:wexit_time_destructors" ]
 
@@ -646,7 +665,6 @@ if (enable_remoting_host) {
     sources = [
       "installer/mac/uninstaller/remoting_uninstaller-InfoPlist.strings.jinja2",
       "it2me/remote_assistance_host-InfoPlist.strings.jinja2",
-      "mac/me2me_preference_pane-InfoPlist.strings.jinja2",
       "remoting_me2me_host-InfoPlist.strings.jinja2",
       "setup/native_messaging_host-InfoPlist.strings.jinja2",
     ]
@@ -680,8 +698,6 @@ if (enable_remoting_host) {
 if (enable_me2me_host) {
   static_library("remoting_me2me_host_static") {
     sources = [
-      "pam_authorization_factory_posix.cc",
-      "pam_authorization_factory_posix.h",
       "remoting_me2me_host.cc",
     ]
     defines = []
@@ -703,6 +719,13 @@ if (enable_me2me_host) {
       "//third_party/webrtc/modules/desktop_capture",
     ]
 
+    if (is_posix) {
+      sources += [
+        "pam_authorization_factory_posix.cc",
+        "pam_authorization_factory_posix.h",
+      ]
+    }
+
     if (!is_ios) {
       deps += [ "//components/policy:generated" ]
     }
@@ -714,7 +737,7 @@ if (enable_me2me_host) {
       ]
     }
 
-    if (is_desktop_linux) {
+    if (use_gtk) {
       deps += [ "//build/config/linux/gtk" ]
     }
     if ((is_linux && !is_chromeos) || is_mac) {
@@ -726,7 +749,7 @@ if (enable_me2me_host) {
     }
 
     if (remoting_multi_process != 0) {
-      deps += [ "//mojo/edk/system" ]
+      deps += [ "//mojo/core/embedder" ]
     }
   }
 
@@ -747,6 +770,9 @@ if (enable_me2me_host) {
         "host_main.cc",
         "host_main.h",
       ]
+      deps = [
+        "//base:debugging_buildflags",
+      ]
     }
     if (is_mac) {
       group("remoting_me2me_host") {
@@ -765,7 +791,6 @@ if (enable_me2me_host) {
 
         deps = [
           ":remoting_me2me_host_static",
-          "//build/config:exe_and_shlib_deps",
           "//remoting/base:breakpad",
           "//remoting/host/installer:credits",
           "//remoting/resources",

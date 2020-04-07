@@ -31,7 +31,7 @@ public:
      * Assumes IsJpeg was called and returned true
      * Takes ownership of the stream
      */
-    static SkCodec* NewFromStream(SkStream*, Result*);
+    static std::unique_ptr<SkCodec> MakeFromStream(std::unique_ptr<SkStream>, Result*);
 
 protected:
 
@@ -58,12 +58,19 @@ protected:
 
     bool onDimensionsSupported(const SkISize&) override;
 
+    bool conversionSupported(const SkImageInfo&, SkColorType, bool,
+                             const SkColorSpace*) const override {
+        // This class checks for conversion after creating colorXform.
+        return true;
+    }
+
 private:
 
     /*
      * Allows SkRawCodec to communicate the color space from the exif data.
      */
-    static SkCodec* NewFromStream(SkStream*, Result*, sk_sp<SkColorSpace> defaultColorSpace);
+    static std::unique_ptr<SkCodec> MakeFromStream(std::unique_ptr<SkStream>, Result*,
+                                                   sk_sp<SkColorSpace> defaultColorSpace);
 
     /*
      * Read enough of the stream to initialize the SkJpegCodec.
@@ -99,8 +106,8 @@ private:
      * @param decoderMgr holds decompress struct, src manager, and error manager
      *                   takes ownership
      */
-    SkJpegCodec(int width, int height, const SkEncodedInfo& info, SkStream* stream,
-            JpegDecoderMgr* decoderMgr, sk_sp<SkColorSpace> colorSpace, Origin origin);
+    SkJpegCodec(int width, int height, const SkEncodedInfo& info, std::unique_ptr<SkStream> stream,
+            JpegDecoderMgr* decoderMgr, sk_sp<SkColorSpace> colorSpace, SkEncodedOrigin origin);
 
     /*
      * Checks if the conversion between the input image and the requested output

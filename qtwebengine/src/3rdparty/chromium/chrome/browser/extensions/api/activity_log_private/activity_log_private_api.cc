@@ -23,6 +23,7 @@
 #include "extensions/browser/extensions_browser_client.h"
 #include "extensions/common/features/feature.h"
 #include "extensions/common/features/feature_provider.h"
+#include "extensions/common/hashed_extension_id.h"
 
 namespace extensions {
 
@@ -32,14 +33,14 @@ using activity_log_private::ActivityResultSet;
 using activity_log_private::ExtensionActivity;
 using activity_log_private::Filter;
 
-static base::LazyInstance<
-    BrowserContextKeyedAPIFactory<ActivityLogAPI>>::DestructorAtExit g_factory =
-    LAZY_INSTANCE_INITIALIZER;
+static base::LazyInstance<BrowserContextKeyedAPIFactory<ActivityLogAPI>>::
+    DestructorAtExit g_activity_log_private_api_factory =
+        LAZY_INSTANCE_INITIALIZER;
 
 // static
 BrowserContextKeyedAPIFactory<ActivityLogAPI>*
 ActivityLogAPI::GetFactoryInstance() {
-  return g_factory.Pointer();
+  return g_activity_log_private_api_factory.Pointer();
 }
 
 template <>
@@ -77,8 +78,10 @@ void ActivityLogAPI::Shutdown() {
 
 // static
 bool ActivityLogAPI::IsExtensionWhitelisted(const std::string& extension_id) {
-  return FeatureProvider::GetPermissionFeatures()->
-      GetFeature("activityLogPrivate")->IsIdInWhitelist(extension_id);
+  // TODO(devlin): Pass in a HashedExtensionId to avoid this conversion.
+  return FeatureProvider::GetPermissionFeatures()
+      ->GetFeature("activityLogPrivate")
+      ->IsIdInAllowlist(HashedExtensionId(extension_id));
 }
 
 void ActivityLogAPI::OnListenerAdded(const EventListenerInfo& details) {
@@ -93,7 +96,7 @@ void ActivityLogAPI::OnExtensionActivity(scoped_refptr<Action> activity) {
   std::unique_ptr<base::ListValue> value(new base::ListValue());
   ExtensionActivity activity_arg = activity->ConvertToExtensionActivity();
   value->Append(activity_arg.ToValue());
-  auto event = base::MakeUnique<Event>(
+  auto event = std::make_unique<Event>(
       events::ACTIVITY_LOG_PRIVATE_ON_EXTENSION_ACTIVITY,
       activity_log_private::OnExtensionActivity::kEventName, std::move(value),
       browser_context_);

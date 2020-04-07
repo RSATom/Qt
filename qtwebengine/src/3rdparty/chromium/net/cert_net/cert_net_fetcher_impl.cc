@@ -474,7 +474,7 @@ void Job::StartURLRequest(URLRequestContext* context) {
           destination: OTHER
         }
         policy {
-          cookies_allowed: false
+          cookies_allowed: NO
           setting: "This feature cannot be disabled by settings."
           policy_exception_justification: "Not implemented."
         })");
@@ -803,7 +803,7 @@ class CertNetFetcherImpl : public CertNetFetcher {
       request_core->SignalImmediateError();
     }
 
-    return base::MakeUnique<CertNetFetcherRequestImpl>(std::move(request_core));
+    return std::make_unique<CertNetFetcherRequestImpl>(std::move(request_core));
   }
 
  private:
@@ -816,7 +816,7 @@ class CertNetFetcherImpl : public CertNetFetcher {
 }  // namespace
 
 scoped_refptr<CertNetFetcher> CreateCertNetFetcher(URLRequestContext* context) {
-  return make_scoped_refptr(new CertNetFetcherImpl(context));
+  return base::MakeRefCounted<CertNetFetcherImpl>(context);
 }
 
 }  // namespace net

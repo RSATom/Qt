@@ -21,13 +21,13 @@
 #include "components/sync/model/syncable_service.h"
 #include "components/sync/protocol/autofill_specifics.pb.h"
 
+namespace base {
+class Location;
+}
+
 namespace syncer {
 class SyncChangeProcessor;
 class SyncErrorFactory;
-}
-
-namespace tracked_objects {
-class Location;
 }
 
 namespace autofill {
@@ -47,7 +47,7 @@ class CreditCard;
 class AutofillWalletMetadataSyncableService
     : public base::SupportsUserData::Data,
       public syncer::SyncableService,
-      public AutofillWebDataServiceObserverOnDBThread {
+      public AutofillWebDataServiceObserverOnDBSequence {
  public:
   ~AutofillWalletMetadataSyncableService() override;
 
@@ -60,18 +60,18 @@ class AutofillWalletMetadataSyncableService
   void StopSyncing(syncer::ModelType type) override;
   syncer::SyncDataList GetAllSyncData(syncer::ModelType type) const override;
   syncer::SyncError ProcessSyncChanges(
-      const tracked_objects::Location& from_here,
+      const base::Location& from_here,
       const syncer::SyncChangeList& changes_from_sync) override;
 
-  // AutofillWebDataServiceObserverOnDBThread implementation.
+  // AutofillWebDataServiceObserverOnDBSequence implementation.
   void AutofillProfileChanged(const AutofillProfileChange& change) override;
   void CreditCardChanged(const CreditCardChange& change) override;
   void AutofillMultipleChanged() override;
 
   // Creates a new AutofillWalletMetadataSyncableService and hangs it off of
   // |web_data_service|, which takes ownership. This method should only be
-  // called on |web_data_service|'s DB thread. |web_data_backend| is expected to
-  // outlive this object.
+  // called on |web_data_service|'s DB sequence. |web_data_backend| is expected
+  // to outlive this object.
   static void CreateForWebDataServiceAndBackend(
       AutofillWebDataService* web_data_service,
       AutofillWebDataBackend* web_data_backend,

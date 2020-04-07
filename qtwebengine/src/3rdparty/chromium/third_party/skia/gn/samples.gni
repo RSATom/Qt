@@ -8,8 +8,6 @@ _samplecode = get_path_info("../samplecode", "abspath")
 
 samples_sources = [
   "$_samplecode/ClockFaceView.cpp",
-  "$_samplecode/GMSampleView.cpp",
-  "$_samplecode/OverView.cpp",
   "$_samplecode/PerlinPatch.cpp",
   "$_samplecode/Sample2PtRadial.cpp",
   "$_samplecode/SampleAAClip.cpp",
@@ -18,6 +16,7 @@ samples_sources = [
   "$_samplecode/SampleAARects.cpp",
   "$_samplecode/SampleAll.cpp",
   "$_samplecode/SampleAndroidShadows.cpp",
+  "$_samplecode/SampleAnimatedImage.cpp",
   "$_samplecode/SampleAnimatedText.cpp",
   "$_samplecode/SampleAnimBlur.cpp",
   "$_samplecode/SampleArc.cpp",
@@ -29,6 +28,7 @@ samples_sources = [
   "$_samplecode/SampleCCPRGeometry.cpp",
   "$_samplecode/SampleCamera.cpp",
   "$_samplecode/SampleChart.cpp",
+  "$_samplecode/SampleChineseFling.cpp",
   "$_samplecode/SampleCircle.cpp",
   "$_samplecode/SampleClip.cpp",
   "$_samplecode/SampleClipDrawMatch.cpp",
@@ -37,6 +37,7 @@ samples_sources = [
   "$_samplecode/SampleColorFilter.cpp",
   "$_samplecode/SampleComplexClip.cpp",
   "$_samplecode/SampleConcavePaths.cpp",
+  "$_samplecode/SampleCowboy.cpp",
   "$_samplecode/SampleDegenerateTwoPtRadials.cpp",
   "$_samplecode/SampleDither.cpp",
   "$_samplecode/SampleEffects.cpp",
@@ -46,8 +47,10 @@ samples_sources = [
   "$_samplecode/SampleFilter2.cpp",
   "$_samplecode/SampleFilterFuzz.cpp",
   "$_samplecode/SampleFilterQuality.cpp",
+  "$_samplecode/SampleFlutterAnimate.cpp",
   "$_samplecode/SampleFontScalerTest.cpp",
   "$_samplecode/SampleFuzz.cpp",
+  "$_samplecode/SampleGlyphTransform.cpp",
   "$_samplecode/SampleGradients.cpp",
   "$_samplecode/SampleHairCurves.cpp",
   "$_samplecode/SampleHairline.cpp",
@@ -63,12 +66,14 @@ samples_sources = [
   "$_samplecode/SampleManyRects.cpp",
   "$_samplecode/SampleMeasure.cpp",
   "$_samplecode/SampleMegaStroke.cpp",
+  "$_samplecode/SampleNima.cpp",
+  "$_samplecode/SampleNimaActor.cpp",
+  "$_samplecode/SampleNimaActor.h",
   "$_samplecode/SamplePatch.cpp",
   "$_samplecode/SamplePath.cpp",
   "$_samplecode/SamplePathText.cpp",
   "$_samplecode/SamplePathClip.cpp",
   "$_samplecode/SamplePathEffects.cpp",
-  "$_samplecode/SamplePathFinder.cpp",
   "$_samplecode/SamplePathFuzz.cpp",
   "$_samplecode/SamplePathOverstroke.cpp",
   "$_samplecode/SamplePdfFileViewer.cpp",
@@ -90,7 +95,6 @@ samples_sources = [
   "$_samplecode/SampleStrokeRect.cpp",
   "$_samplecode/SampleSubpixelTranslate.cpp",
   "$_samplecode/SampleSVGFile.cpp",
-  "$_samplecode/SampleSVGPong.cpp",
   "$_samplecode/SampleText.cpp",
   "$_samplecode/SampleTextAlpha.cpp",
   "$_samplecode/SampleTextBox.cpp",
@@ -104,3 +108,11 @@ samples_sources = [
   "$_samplecode/SampleXfermodesBlur.cpp",
   "$_samplecode/vertexdump.cpp",
 ]
+
+if (is_win && is_clang) {
+  samples_sources -= [
+    "$_samplecode/SampleNimaActor.cpp",
+    "$_samplecode/SampleNimaActor.h",
+    "$_samplecode/SampleNima.cpp",
+  ]
+}

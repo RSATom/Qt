@@ -53,7 +53,13 @@ QAbstractClipAnimatorPrivate::QAbstractClipAnimatorPrivate()
     , m_clock(nullptr)
     , m_running(false)
     , m_loops(1)
+    , m_normalizedTime(0.0f)
 {
+}
+
+bool QAbstractClipAnimatorPrivate::canPlay() const
+{
+    return true;
 }
 
 /*!
@@ -216,10 +222,24 @@ QClock *QAbstractClipAnimator::clock() const
     return d->m_clock;
 }
 
+/*!
+    \property Qt3DAnimation::QAbstractClipAnimator::normalizedTime
+
+    This property holds the clips normalized time.
+*/
+float QAbstractClipAnimator::normalizedTime() const
+{
+    Q_D(const QAbstractClipAnimator);
+    return d->m_normalizedTime;
+}
+
 void QAbstractClipAnimator::setRunning(bool running)
 {
     Q_D(QAbstractClipAnimator);
     if (d->m_running == running)
+        return;
+
+    if (running && !d->canPlay())
         return;
 
     d->m_running = running;
@@ -271,6 +291,22 @@ void QAbstractClipAnimator::setClock(QClock *clock)
     if (d->m_clock)
         d->registerDestructionHelper(d->m_clock, &QAbstractClipAnimator::setClock, d->m_clock);
     emit clockChanged(clock);
+}
+
+void QAbstractClipAnimator::setNormalizedTime(float timeFraction)
+{
+    Q_D(QAbstractClipAnimator);
+    const bool validTime = !(timeFraction < 0.0f) && !(timeFraction > 1.0f);
+    if (!validTime) {
+        qWarning("Time value %f is not valid, needs to be in the range 0.0 to 1.0", timeFraction);
+        return;
+    }
+
+    if (qFuzzyCompare(d->m_normalizedTime, timeFraction))
+        return;
+
+    d->m_normalizedTime = timeFraction;
+    emit normalizedTimeChanged(timeFraction);
 }
 
 /*!

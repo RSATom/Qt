@@ -10,12 +10,11 @@
 #include <utility>
 #include <vector>
 
-#include "base/memory/ptr_util.h"
 #include "base/values.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_service_test_base.h"
 #include "chrome/browser/extensions/test_extension_system.h"
-#include "chrome/browser/media/router/discovery/mdns/mock_dns_sd_registry.h"
+#include "chrome/browser/media/router/test/mock_dns_sd_registry.h"
 #include "chrome/common/extensions/api/mdns.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/test/mock_render_process_host.h"
@@ -23,6 +22,7 @@
 #include "extensions/browser/event_router_factory.h"
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/browser/extension_registry.h"
+#include "extensions/common/extension_messages.h"
 #include "extensions/common/manifest_constants.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -73,17 +73,17 @@ class MockedMDnsAPI : public MDnsAPI {
 
 std::unique_ptr<KeyedService> MockedMDnsAPITestingFactoryFunction(
     content::BrowserContext* context) {
-  return base::MakeUnique<MockedMDnsAPI>(context);
+  return std::make_unique<MockedMDnsAPI>(context);
 }
 
 std::unique_ptr<KeyedService> MDnsAPITestingFactoryFunction(
     content::BrowserContext* context) {
-  return base::MakeUnique<MDnsAPI>(context);
+  return std::make_unique<MDnsAPI>(context);
 }
 
 std::unique_ptr<KeyedService> BuildEventRouter(
     content::BrowserContext* context) {
-  return base::MakeUnique<extensions::EventRouter>(
+  return std::make_unique<extensions::EventRouter>(
       context, ExtensionPrefs::Get(context));
 }
 
@@ -98,9 +98,9 @@ class MockEventRouter : public EventRouter {
   explicit MockEventRouter(content::BrowserContext* browser_context,
                            ExtensionPrefs* extension_prefs)
       : EventRouter(browser_context, extension_prefs) {}
-  virtual ~MockEventRouter() {}
+  ~MockEventRouter() override {}
 
-  virtual void BroadcastEvent(std::unique_ptr<Event> event) {
+  void BroadcastEvent(std::unique_ptr<Event> event) override {
     BroadcastEventPtr(event.get());
   }
   MOCK_METHOD1(BroadcastEventPtr, void(Event* event));
@@ -108,7 +108,7 @@ class MockEventRouter : public EventRouter {
 
 std::unique_ptr<KeyedService> MockEventRouterFactoryFunction(
     content::BrowserContext* context) {
-  return base::MakeUnique<MockEventRouter>(context,
+  return std::make_unique<MockEventRouter>(context,
                                            ExtensionPrefs::Get(context));
 }
 
@@ -186,7 +186,7 @@ class MDnsAPITest : public extensions::ExtensionServiceTestBase {
     ASSERT_TRUE(EventRouter::Get(browser_context()));  // constructs EventRouter
 
     registry_ =
-        base::MakeUnique<MockDnsSdRegistry>(MDnsAPI::Get(browser_context()));
+        std::make_unique<MockDnsSdRegistry>(MDnsAPI::Get(browser_context()));
     EXPECT_CALL(*dns_sd_registry(),
                 AddObserver(MDnsAPI::Get(browser_context())))
         .Times(1);
@@ -220,11 +220,12 @@ class MDnsAPITest : public extensions::ExtensionServiceTestBase {
     base::DictionaryValue manifest;
     manifest.SetString(extensions::manifest_keys::kVersion, "1.0.0.0");
     manifest.SetString(extensions::manifest_keys::kName, name);
+    manifest.SetInteger(extensions::manifest_keys::kManifestVersion, 2);
     if (is_platform_app) {
       // Setting app.background.page = "background.html" is sufficient to make
       // the extension type TYPE_PLATFORM_APP.
       manifest.Set(extensions::manifest_keys::kPlatformAppBackgroundPage,
-                   base::MakeUnique<base::Value>("background.html"));
+                   std::make_unique<base::Value>("background.html"));
     }
 
     std::string error;
@@ -364,15 +365,15 @@ TEST_F(MDnsAPITest, ExtensionRespectsWhitelist) {
         .Times(0);
     EventRouter::Get(browser_context())
         ->AddFilteredEventListener(api::mdns::OnServiceList::kEventName,
-                                   render_process_host(), kExtId, filter,
-                                   false);
+                                   render_process_host(), kExtId, base::nullopt,
+                                   filter, false);
 
     EXPECT_CALL(*dns_sd_registry(), UnregisterDnsSdListener("_trex._tcp.local"))
         .Times(0);
     EventRouter::Get(browser_context())
         ->RemoveFilteredEventListener(api::mdns::OnServiceList::kEventName,
-                                      render_process_host(), kExtId, filter,
-                                      false);
+                                      render_process_host(), kExtId,
+                                      base::nullopt, filter, false);
   }
   {
     base::DictionaryValue filter;
@@ -384,15 +385,15 @@ TEST_F(MDnsAPITest, ExtensionRespectsWhitelist) {
                 RegisterDnsSdListener("_testing._tcp.local"));
     EventRouter::Get(browser_context())
         ->AddFilteredEventListener(api::mdns::OnServiceList::kEventName,
-                                   render_process_host(), kExtId, filter,
-                                   false);
+                                   render_process_host(), kExtId, base::nullopt,
+                                   filter, false);
 
     EXPECT_CALL(*dns_sd_registry(),
                 UnregisterDnsSdListener("_testing._tcp.local"));
     EventRouter::Get(browser_context())
         ->RemoveFilteredEventListener(api::mdns::OnServiceList::kEventName,
-                                      render_process_host(), kExtId, filter,
-                                      false);
+                                      render_process_host(), kExtId,
+                                      base::nullopt, filter, false);
   }
 }
 
@@ -408,15 +409,17 @@ TEST_F(MDnsAPITest, PlatformAppsNotSubjectToWhitelist) {
   ASSERT_TRUE(dns_sd_registry());
   // Test that the extension is able to listen to a non-whitelisted service
   EXPECT_CALL(*dns_sd_registry(), RegisterDnsSdListener("_trex._tcp.local"));
+
   EventRouter::Get(browser_context())
       ->AddFilteredEventListener(api::mdns::OnServiceList::kEventName,
-                                 render_process_host(), kExtId, filter, false);
+                                 render_process_host(), kExtId, base::nullopt,
+                                 filter, false);
 
   EXPECT_CALL(*dns_sd_registry(), UnregisterDnsSdListener("_trex._tcp.local"));
   EventRouter::Get(browser_context())
       ->RemoveFilteredEventListener(api::mdns::OnServiceList::kEventName,
-                                    render_process_host(), kExtId, filter,
-                                    false);
+                                    render_process_host(), kExtId,
+                                    base::nullopt, filter, false);
 }
 
 }  // namespace extensions

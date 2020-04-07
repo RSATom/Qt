@@ -75,11 +75,11 @@ namespace QTest {
 }
 
 
-class MyFilter : public TestSensorFilter { bool filter(TestSensorReading *) { return false; } };
+class MyFilter : public TestSensorFilter { bool filter(TestSensorReading *) override { return false; } };
 
 class ModFilter : public TestSensorFilter
 {
-    bool filter(TestSensorReading *reading)
+    bool filter(TestSensorReading *reading) override
     {
         reading->setTest(3);
         return true;
@@ -88,7 +88,7 @@ class ModFilter : public TestSensorFilter
 
 class MyFactory : public QSensorBackendFactory
 {
-    QSensorBackend *createBackend(QSensor * /*sensor*/)
+    QSensorBackend *createBackend(QSensor * /*sensor*/) override
     {
         return 0;
     }

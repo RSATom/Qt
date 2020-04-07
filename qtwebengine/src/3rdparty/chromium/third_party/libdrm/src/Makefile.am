@@ -22,6 +22,7 @@ include Makefile.sources
 
 ACLOCAL_AMFLAGS = -I m4 ${ACLOCAL_FLAGS}
 
+AM_MAKEFLAGS = -s
 AM_DISTCHECK_CONFIGURE_FLAGS = \
 	--enable-udev \
 	--enable-libkms \
@@ -36,6 +37,7 @@ AM_DISTCHECK_CONFIGURE_FLAGS = \
 	--enable-freedreno \
 	--enable-freedreno-kgsl\
 	--enable-tegra-experimental-api \
+	--enable-etnaviv-experimental-api \
 	--enable-install-test-programs \
 	--enable-cairo-tests \
 	--enable-manpages \
@@ -84,12 +86,8 @@ if HAVE_VC4
 VC4_SUBDIR = vc4
 endif
 
-if HAVE_ROCKCHIP
-ROCKCHIP_SUBDIR = rockchip
-endif
-
-if HAVE_MEDIATEK
-MEDIATEK_SUBDIR = mediatek
+if HAVE_ETNAVIV
+ETNAVIV_SUBDIR = etnaviv
 endif
 
 if BUILD_MANPAGES
@@ -110,8 +108,8 @@ SUBDIRS = \
 	$(FREEDRENO_SUBDIR) \
 	$(TEGRA_SUBDIR) \
 	$(VC4_SUBDIR) \
-	$(ROCKCHIP_SUBDIR) \
-	$(MEDIATEK_SUBDIR) \
+	$(ETNAVIV_SUBDIR) \
+	data \
 	tests \
 	$(MAN_SUBDIR)
 
@@ -137,6 +135,7 @@ if HAVE_VMWGFX
 klibdrminclude_HEADERS += $(LIBDRM_INCLUDE_VMWGFX_H_FILES)
 endif
 
+EXTRA_DIST = include/drm/README
 
 copy-headers :
 	cp -r $(kernel_source)/include/uapi/drm/*.h $(top_srcdir)/include/drm/

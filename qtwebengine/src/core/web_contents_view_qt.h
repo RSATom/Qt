@@ -41,18 +41,16 @@
 #define WEB_CONTENTS_VIEW_QT_H
 
 #include "content/browser/renderer_host/render_view_host_delegate_view.h"
-#include "content/browser/web_contents/web_contents_impl.h"
 #include "content/browser/web_contents/web_contents_view.h"
-#include "content/public/browser/render_view_host.h"
-#include "content/public/browser/render_widget_host.h"
 
-#include "qtwebenginecoreglobal_p.h"
-#include "render_widget_host_view_qt.h"
-#include "web_contents_adapter_client.h"
-#include "web_contents_delegate_qt.h"
-#include "web_engine_context.h"
+#include "api/qtwebenginecoreglobal_p.h"
+
+namespace content {
+class WebContents;
+}
 
 namespace QtWebEngineCore {
+class WebContentsAdapterClient;
 
 class WebContentsViewQt
     : public content::WebContentsView
@@ -63,14 +61,15 @@ public:
 
     WebContentsViewQt(content::WebContents* webContents)
         : m_webContents(webContents)
-        , m_client(0)
-        , m_factoryClient(0)
+        , m_client(nullptr)
+        , m_factoryClient(nullptr)
         , m_allowOtherViews(false)
     { }
 
     void initialize(WebContentsAdapterClient* client);
     WebContentsAdapterClient *client() { return m_client; }
 
+    // content::WebContentsView overrides:
     content::RenderWidgetHostViewBase *CreateViewForWidget(content::RenderWidgetHost* render_widget_host, bool is_guest_view_hack) override;
 
     void CreateView(const gfx::Size& initial_size, gfx::NativeView context) override;
@@ -79,9 +78,11 @@ public:
 
     void SetPageTitle(const base::string16& title) override { }
 
-    void RenderViewCreated(content::RenderViewHost* host) override;
+    void RenderViewCreated(content::RenderViewHost* host) override { }
 
-    void RenderViewSwappedIn(content::RenderViewHost* host) override { QT_NOT_YET_IMPLEMENTED }
+    void RenderViewReady() override { }
+
+    void RenderViewHostChanged(content::RenderViewHost*, content::RenderViewHost*) override { }
 
     void SetOverscrollControllerEnabled(bool enabled) override { QT_NOT_YET_IMPLEMENTED }
 
@@ -103,10 +104,20 @@ public:
 
     void RestoreFocus() override { QT_NOT_USED }
 
-    content::DropData* GetDropData() const override { QT_NOT_YET_IMPLEMENTED return 0; }
+    content::DropData* GetDropData() const override { QT_NOT_YET_IMPLEMENTED return nullptr; }
 
     gfx::Rect GetViewBounds() const override { QT_NOT_YET_IMPLEMENTED return gfx::Rect(); }
 
+    void FocusThroughTabTraversal(bool reverse) override;
+
+#if defined(OS_MACOSX)
+    void SetAllowOtherViews(bool allow) override { m_allowOtherViews = allow; }
+    bool GetAllowOtherViews() const override { return m_allowOtherViews; }
+    void CloseTabAfterEventTracking() override { QT_NOT_YET_IMPLEMENTED }
+    bool IsEventTracking() const override { QT_NOT_YET_IMPLEMENTED; return false; }
+#endif // defined(OS_MACOSX)
+
+    // content::RenderViewHostDelegateView overrides:
     void StartDragging(const content::DropData& drop_data, blink::WebDragOperationsMask allowed_ops,
                        const gfx::ImageSkia& image, const gfx::Vector2d& image_offset,
                        const content::DragEventSourceInfo& event_info,
@@ -116,16 +127,9 @@ public:
 
     void ShowContextMenu(content::RenderFrameHost *, const content::ContextMenuParams &params) override;
 
+    void GotFocus(content::RenderWidgetHostImpl *render_widget_host) override;
+    void LostFocus(content::RenderWidgetHostImpl *render_widget_host) override;
     void TakeFocus(bool reverse) override;
-
-    void GetScreenInfo(content::ScreenInfo* results) const override;
-
-#if defined(OS_MACOSX)
-    void SetAllowOtherViews(bool allow) override { m_allowOtherViews = allow; }
-    bool GetAllowOtherViews() const override { return m_allowOtherViews; }
-    void CloseTabAfterEventTracking() override { QT_NOT_YET_IMPLEMENTED }
-    bool IsEventTracking() const override { QT_NOT_YET_IMPLEMENTED; return false; }
-#endif // defined(OS_MACOSX)
 
 private:
     content::WebContents *m_webContents;

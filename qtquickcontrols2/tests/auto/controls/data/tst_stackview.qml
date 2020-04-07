@@ -48,9 +48,9 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.2
+import QtQuick 2.12
 import QtTest 1.0
-import QtQuick.Controls 2.2
+import QtQuick.Controls 2.12
 
 TestCase {
     id: testCase
@@ -61,7 +61,7 @@ TestCase {
     name: "StackView"
 
     Item { id: item }
-    TextField { id: textField }
+    Component { id: textField; TextField { } }
     Component { id: component; Item { } }
 
     Component {
@@ -323,22 +323,33 @@ TestCase {
         compare(item.height, control.height)
     }
 
-    function test_focus() {
+    function test_focus_data() {
+        return [
+            { tag: "true", focus: true, forceActiveFocus: false },
+            { tag: "false", focus: false, forceActiveFocus: false },
+            { tag: "forceActiveFocus()", focus: false, forceActiveFocus: true },
+        ]
+    }
+
+    function test_focus(data) {
         var control = createTemporaryObject(stackView, testCase, {initialItem: item, width: 200, height: 200})
         verify(control)
 
-        control.forceActiveFocus()
-        verify(control.activeFocus)
+        if (data.focus)
+            control.focus = true
+        if (data.forceActiveFocus)
+            control.forceActiveFocus()
+        compare(control.activeFocus, data.focus || data.forceActiveFocus)
 
-        control.push(textField, StackView.Immediate)
-        compare(control.currentItem, textField)
-        textField.forceActiveFocus()
-        verify(textField.activeFocus)
+        var page = control.push(textField, StackView.Immediate)
+        verify(page)
+        compare(control.currentItem, page)
+        compare(page.activeFocus, control.activeFocus)
 
         control.pop(StackView.Immediate)
         compare(control.currentItem, item)
-        verify(control.activeFocus)
-        verify(!textField.activeFocus)
+        compare(item.activeFocus, data.focus || data.forceActiveFocus)
+        verify(!page.activeFocus)
     }
 
     function test_find() {
@@ -1218,5 +1229,20 @@ TestCase {
 
         touch.release(0, control).commit()
         verify(!ma.pressed)
+    }
+
+    // Separate function to ensure that the temporary value created to hold the return value of the Qt.createComponent()
+    // call is out of scope when the caller calls gc().
+    function stackViewFactory()
+    {
+        return createTemporaryObject(stackView, testCase, {initialItem: Qt.createComponent("TestItem.qml")})
+    }
+
+    function test_initalItemOwnership()
+    {
+        var control = stackViewFactory()
+        verify(control)
+        gc()
+        verify(control.initialItem)
     }
 }

@@ -66,7 +66,7 @@ private:
     QString generateMetaTypeRegistrationForEnums(const QVector<QString> &enums);
     void generateStreamOperatorsForEnums(QTextStream &out, const QVector<QString> &enums);
 
-    void generateSimpleSetter(QTextStream &out, const ASTProperty &property);
+    void generateSimpleSetter(QTextStream &out, const ASTProperty &property, bool generateOverride = true);
     void generatePOD(QTextStream &out, const POD &pod);
     void generateENUMs(QTextStream &out, const QVector<ASTEnum> &enums, const QString &className);
     void generateDeclarationsForEnums(QTextStream &out, const QVector<ASTEnum> &enums, bool generateQENUM=true);
@@ -79,6 +79,7 @@ private:
     QString formatSignals(const POD &pod);
     QString formatDataMembers(const POD &pod);
     QString formatMarshallingOperators(const POD &pod);
+    QString typeForMode(const ASTProperty &property, Mode mode);
 
     void generateClass(Mode mode, QTextStream &out, const ASTClass &astClasses, const QString &metaTypeRegistrationCode);
     void generateSourceAPI(QTextStream &out, const ASTClass &astClass);

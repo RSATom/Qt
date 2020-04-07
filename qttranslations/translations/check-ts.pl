@@ -31,11 +31,11 @@
 use strict;
 
 my @groups = (
-    "qtbase", "qtdeclarative", "qtxmlpatterns", "qtmultimedia", "qtscript", "qtquick1",
+    "qtbase", "qtdeclarative", "qtxmlpatterns", "qtmultimedia", "qtscript",
     "qtquickcontrols", "qtquickcontrols2",
     "qtlocation", "qtconnectivity", "qtwebsockets", "qtserialport", "qtwebengine",
 #    "qtdocgallery", "qtpim", "qtsystems",
-    "assistant", "designer", "linguist", "qt_help", "qtconfig", "qmlviewer"
+    "assistant", "designer", "linguist", "qt_help"
 );
 
 my %scores = ();

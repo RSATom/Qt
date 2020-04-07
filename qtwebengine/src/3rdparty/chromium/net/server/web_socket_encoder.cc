@@ -19,7 +19,7 @@
 namespace net {
 
 const char WebSocketEncoder::kClientExtensions[] =
-    "Sec-WebSocket-Extensions: permessage-deflate; client_max_window_bits";
+    "permessage-deflate; client_max_window_bits";
 
 namespace {
 
@@ -218,9 +218,9 @@ std::unique_ptr<WebSocketEncoder> WebSocketEncoder::CreateServer(
     }
     DCHECK(response.IsValidAsResponse());
     DCHECK(offer.IsCompatibleWith(response));
-    auto deflater = base::MakeUnique<WebSocketDeflater>(
+    auto deflater = std::make_unique<WebSocketDeflater>(
         response.server_context_take_over_mode());
-    auto inflater = base::MakeUnique<WebSocketInflater>(kInflaterChunkSize,
+    auto inflater = std::make_unique<WebSocketInflater>(kInflaterChunkSize,
                                                         kInflaterChunkSize);
     if (!deflater->Initialize(response.PermissiveServerMaxWindowBits()) ||
         !inflater->Initialize(response.PermissiveClientMaxWindowBits())) {
@@ -264,9 +264,9 @@ std::unique_ptr<WebSocketEncoder> WebSocketEncoder::CreateClient(
     return base::WrapUnique(new WebSocketEncoder(FOR_CLIENT, nullptr, nullptr));
   }
 
-  auto deflater = base::MakeUnique<WebSocketDeflater>(
+  auto deflater = std::make_unique<WebSocketDeflater>(
       params.client_context_take_over_mode());
-  auto inflater = base::MakeUnique<WebSocketInflater>(kInflaterChunkSize,
+  auto inflater = std::make_unique<WebSocketInflater>(kInflaterChunkSize,
                                                       kInflaterChunkSize);
   if (!deflater->Initialize(params.PermissiveClientMaxWindowBits()) ||
       !inflater->Initialize(params.PermissiveServerMaxWindowBits())) {
@@ -285,7 +285,7 @@ WebSocketEncoder::WebSocketEncoder(Type type,
       deflater_(std::move(deflater)),
       inflater_(std::move(inflater)) {}
 
-WebSocketEncoder::~WebSocketEncoder() {}
+WebSocketEncoder::~WebSocketEncoder() = default;
 
 WebSocket::ParseResult WebSocketEncoder::DecodeFrame(
     const base::StringPiece& frame,

@@ -38,7 +38,7 @@ NativeWebContentsModalDialogManagerViews::
         SingleWebContentsDialogManagerDelegate* native_delegate)
     : native_delegate_(native_delegate),
       dialog_(dialog),
-      host_(NULL),
+      host_(nullptr),
       host_destroying_(false) {
   ManageDialog();
 }
@@ -48,10 +48,8 @@ NativeWebContentsModalDialogManagerViews::
   if (host_)
     host_->RemoveObserver(this);
 
-  for (std::set<views::Widget*>::iterator it = observed_widgets_.begin();
-       it != observed_widgets_.end(); ++it) {
-    (*it)->RemoveObserver(this);
-  }
+  for (auto* widget : observed_widgets_)
+    widget->RemoveObserver(this);
 }
 
 void NativeWebContentsModalDialogManagerViews::ManageDialog() {
@@ -99,13 +97,21 @@ void NativeWebContentsModalDialogManagerViews::Show() {
   }
 #endif
   ShowWidget(widget);
-  Focus();
+  if (host_->ShouldActivateDialog())
+    Focus();
 
 #if defined(USE_AURA)
   // TODO(pkotwicz): Control the z-order of the constrained dialog via
   // views::kHostViewKey. We will need to ensure that the parent window's
   // shadows are below the constrained dialog in z-order when we do this.
   shown_widgets_.insert(widget);
+#endif
+
+#if !defined(USE_AURA)
+  // Don't re-animate when switching tabs. Note this is done on Mac only after
+  // the initial ShowWidget() call above, and then "sticks" for later calls.
+  // TODO(tapted): Consolidate this codepath with Aura.
+  widget->SetVisibilityAnimationTransition(views::Widget::ANIMATE_HIDE);
 #endif
 }
 
@@ -142,15 +148,13 @@ void NativeWebContentsModalDialogManagerViews::Pulse() {}
 void NativeWebContentsModalDialogManagerViews::OnPositionRequiresUpdate() {
   DCHECK(host_);
 
-  for (std::set<views::Widget*>::iterator it = observed_widgets_.begin();
-       it != observed_widgets_.end(); ++it) {
-    constrained_window::UpdateWebContentsModalDialogPosition(*it, host_);
-  }
+  for (auto* widget : observed_widgets_)
+    constrained_window::UpdateWebContentsModalDialogPosition(widget, host_);
 }
 
 void NativeWebContentsModalDialogManagerViews::OnHostDestroying() {
   host_->RemoveObserver(this);
-  host_ = NULL;
+  host_ = nullptr;
   host_destroying_ = true;
 }
 
@@ -177,9 +181,8 @@ void NativeWebContentsModalDialogManagerViews::HostChanged(
   if (host_) {
     host_->AddObserver(this);
 
-    for (std::set<views::Widget*>::iterator it = observed_widgets_.begin();
-         it != observed_widgets_.end(); ++it) {
-      views::Widget::ReparentNativeView((*it)->GetNativeView(),
+    for (auto* widget : observed_widgets_) {
+      views::Widget::ReparentNativeView(widget->GetNativeView(),
                                         host_->GetHostView());
     }
 

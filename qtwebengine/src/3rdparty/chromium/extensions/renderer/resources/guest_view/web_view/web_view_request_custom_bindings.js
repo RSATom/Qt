@@ -4,23 +4,25 @@
 
 // Custom binding for the webViewRequest API.
 
-var binding = require('binding').Binding.create('webViewRequest');
+var binding = apiBridge || require('binding').Binding.create('webViewRequest');
 
 var declarativeWebRequestSchema =
     requireNative('schema_registry').GetSchema('declarativeWebRequest');
-var utils = require('utils');
-var validate = require('schemaUtils').validate;
+
+var utils = bindingUtil ? undefined : require('utils');
+var validate = bindingUtil ? undefined : require('schemaUtils').validate;
+
+function validateType(schemaTypes, typeName, value) {
+  if (bindingUtil) {
+    bindingUtil.validateType(typeName, value);
+  } else {
+    var schema = utils.lookup(schemaTypes, 'id', typeName);
+    validate([value], [schema]);
+  }
+}
 
 binding.registerCustomHook(function(api) {
   var webViewRequest = api.compiledApi;
-
-  // Returns the schema definition of type |typeId| defined in
-  // |declarativeWebRequestScheme.types|.
-  function getSchema(typeId) {
-    return utils.lookup(declarativeWebRequestSchema.types,
-                        'id',
-                        'declarativeWebRequest.' + typeId);
-  }
 
   // Helper function for the constructor of concrete datatypes of the
   // declarative webRequest API.
@@ -34,15 +36,16 @@ binding.registerCustomHook(function(api) {
       }
     }
 
-    instance.instanceType = 'declarativeWebRequest.' + typeId;
-    var schema = getSchema(typeId);
-    validate([instance], [schema]);
+    var qualifiedType = 'declarativeWebRequest.' + typeId;
+    instance.instanceType = qualifiedType;
+    validateType(bindingUtil ? undefined : declarativeWebRequestSchema.types,
+                 qualifiedType, instance);
   }
 
   // Setup all data types for the declarative webRequest API from the schema.
   for (var i = 0; i < declarativeWebRequestSchema.types.length; ++i) {
     var typeSchema = declarativeWebRequestSchema.types[i];
-    var typeId = typeSchema.id.replace('declarativeWebRequest.', '');
+    var typeId = $String.replace(typeSchema.id, 'declarativeWebRequest.', '');
     var action = function(typeId) {
       return function(parameters) {
         setupInstance(this, parameters, typeId);
@@ -52,4 +55,5 @@ binding.registerCustomHook(function(api) {
   }
 });
 
-exports.$set('binding', binding.generate());
+if (!apiBridge)
+  exports.$set('binding', binding.generate());

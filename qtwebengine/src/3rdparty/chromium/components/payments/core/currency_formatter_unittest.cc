@@ -9,20 +9,19 @@
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace payments {
+namespace {
 
 struct TestCase {
   TestCase(const char* amount,
            const char* currency_code,
            const char* locale_name,
            const std::string& expected_amount,
-           const char* expected_currency_code,
-           const char* currency_system = kIso4217CurrencySystem)
+           const char* expected_currency_code)
       : amount(amount),
         currency_code(currency_code),
         locale_name(locale_name),
         expected_amount(expected_amount),
-        expected_currency_code(expected_currency_code),
-        currency_system(currency_system) {}
+        expected_currency_code(expected_currency_code) {}
   ~TestCase() {}
 
   const char* const amount;
@@ -30,7 +29,6 @@ struct TestCase {
   const char* const locale_name;
   const std::string expected_amount;
   const char* const expected_currency_code;
-  const char* const currency_system;
 };
 
 class PaymentsCurrencyFormatterTest : public testing::TestWithParam<TestCase> {
@@ -38,13 +36,12 @@ class PaymentsCurrencyFormatterTest : public testing::TestWithParam<TestCase> {
 
 TEST_P(PaymentsCurrencyFormatterTest, IsValidCurrencyFormat) {
   CurrencyFormatter formatter(GetParam().currency_code,
-                              GetParam().currency_system,
                               GetParam().locale_name);
   base::string16 output_amount = formatter.Format(GetParam().amount);
 
   // Convenience so the test cases can use regular spaces.
   const base::string16 kSpace(base::ASCIIToUTF16(" "));
-  const base::string16 kNonBreakingSpace(base::UTF8ToUTF16("\xC2\xA0"));
+  const base::string16 kNonBreakingSpace(base::UTF8ToUTF16(u8"\u00a0"));
   base::string16 converted;
   base::ReplaceChars(base::UTF8ToUTF16(GetParam().expected_amount), kSpace,
                      kNonBreakingSpace, &converted);
@@ -65,6 +62,14 @@ INSTANTIATE_TEST_CASE_P(
         TestCase("55.00", "USD", "fr_CA", "55,00 $", "USD"),
         TestCase("55.00", "USD", "fr_FR", "55,00 $", "USD"),
         TestCase("1234", "USD", "fr_FR", "1 234,00 $", "USD"),
+        // Known oddity about the en_AU formatting in ICU. It will strip the
+        // currency symbol in non-AUD currencies. Useful to document in tests.
+        // See crbug.com/739812.
+        TestCase("55.00", "AUD", "en_AU", "$55.00", "AUD"),
+        TestCase("55.00", "USD", "en_AU", "55.00", "USD"),
+        TestCase("55.00", "CAD", "en_AU", "55.00", "CAD"),
+        TestCase("55.00", "JPY", "en_AU", "55", "JPY"),
+        TestCase("-55.00", "USD", "en_AU", "-55.00", "USD"),
 
         TestCase("55.5", "USD", "en_US", "$55.50", "USD"),
         TestCase("55", "USD", "en_US", "$55.00", "USD"),
@@ -88,7 +93,7 @@ INSTANTIATE_TEST_CASE_P(
 
         TestCase("55.00", "BRL", "en_US", "R$55.00", "BRL"),
         TestCase("55.00", "BRL", "fr_CA", "55,00 R$", "BRL"),
-        TestCase("55.00", "BRL", "pt_BR", "R$55,00", "BRL"),
+        TestCase("55.00", "BRL", "pt_BR", "R$ 55,00", "BRL"),
 
         TestCase("55.00", "RUB", "en_US", "55.00", "RUB"),
         TestCase("55.00", "RUB", "fr_CA", "55,00", "RUB"),
@@ -115,8 +120,8 @@ INSTANTIATE_TEST_CASE_P(
 
         // Edge cases.
         TestCase("", "", "", "", ""),
-        TestCase("-1", "", "", "- 1.00", ""),
-        TestCase("-1.1255", "", "", "- 1.1255", ""),
+        TestCase("-1", "", "", "-1.00", ""),
+        TestCase("-1.1255", "", "", "-1.1255", ""),
 
         // Handles big numbers.
         TestCase(
@@ -126,60 +131,5 @@ INSTANTIATE_TEST_CASE_P(
             "123 456 789 012 345 678 901 234 567 890,123456789 $",
             "USD")));
 
-INSTANTIATE_TEST_CASE_P(
-    CurrencySystems,
-    PaymentsCurrencyFormatterTest,
-    testing::Values(
-        // When the currency system is not ISO4217, only the amount is formatted
-        // using the locale (there is no other indication of currency).
-        TestCase("55.00",
-                 "USD",
-                 "en_CA",
-                 "55.00",
-                 "USD",
-                 "http://currsystem.com"),
-        TestCase("55.00",
-                 "USD",
-                 "fr_CA",
-                 "55,00",
-                 "USD",
-                 "http://currsystem.com"),
-        TestCase("55.00",
-                 "USD",
-                 "fr_FR",
-                 "55,00",
-                 "USD",
-                 "http://currsystem.com"),
-        TestCase("1234",
-                 "USD",
-                 "fr_FR",
-                 "1 234,00",
-                 "USD",
-                 "http://currsystem.com"),
-        TestCase("55.5",
-                 "USD",
-                 "en_US",
-                 "55.50",
-                 "USD",
-                 "http://currsystem.com"),
-        TestCase("55", "CAD", "en_US", "55.00", "CAD", "http://currsystem.com"),
-        TestCase("123",
-                 "BTC",
-                 "en_US",
-                 "123.00",
-                 "BTC",
-                 "http://currsystem.com"),
-        TestCase("1234",
-                 "JPY",
-                 "en_US",
-                 "1,234.00",
-                 "JPY",
-                 "http://currsystem.com"),
-        TestCase("0.1234",
-                 "USD",
-                 "en_US",
-                 "0.1234",
-                 "USD",
-                 "http://currsystem.com")));
-
+}  // namespace
 }  // namespace payments

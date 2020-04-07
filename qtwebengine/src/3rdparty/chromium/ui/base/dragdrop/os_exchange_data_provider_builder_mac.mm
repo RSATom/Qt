@@ -4,13 +4,12 @@
 
 #include "ui/base/dragdrop/os_exchange_data_provider_builder_mac.h"
 
-#include "base/memory/ptr_util.h"
 #include "ui/base/dragdrop/os_exchange_data_provider_mac.h"
 
 namespace ui {
 
 std::unique_ptr<OSExchangeData::Provider> BuildOSExchangeDataProviderMac() {
-  return base::MakeUnique<OSExchangeDataProviderMac>();
+  return std::make_unique<OSExchangeDataProviderMac>();
 }
 
 }  // namespace ui

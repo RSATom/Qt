@@ -4,7 +4,6 @@
 
 #include "cc/tiles/raster_tile_priority_queue_all.h"
 
-#include "base/memory/ptr_util.h"
 #include "cc/tiles/tiling_set_raster_queue_all.h"
 
 namespace cc {
@@ -70,7 +69,7 @@ void CreateTilingSetRasterQueues(
     PictureLayerTilingSet* tiling_set = layer->picture_layer_tiling_set();
     bool prioritize_low_res = tree_priority == SMOOTHNESS_TAKES_PRIORITY;
     std::unique_ptr<TilingSetRasterQueueAll> tiling_set_queue =
-        base::MakeUnique<TilingSetRasterQueueAll>(
+        std::make_unique<TilingSetRasterQueueAll>(
             tiling_set, prioritize_low_res,
             layer->contributes_to_drawn_render_surface());
     // Queues will only contain non empty tiling sets.
@@ -83,11 +82,9 @@ void CreateTilingSetRasterQueues(
 
 }  // namespace
 
-RasterTilePriorityQueueAll::RasterTilePriorityQueueAll() {
-}
+RasterTilePriorityQueueAll::RasterTilePriorityQueueAll() = default;
 
-RasterTilePriorityQueueAll::~RasterTilePriorityQueueAll() {
-}
+RasterTilePriorityQueueAll::~RasterTilePriorityQueueAll() = default;
 
 void RasterTilePriorityQueueAll::Build(
     const std::vector<PictureLayerImpl*>& active_layers,

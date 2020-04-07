@@ -19,7 +19,7 @@
 namespace rx
 {
 
-DisplayNULL::DisplayNULL(const egl::DisplayState &state) : DisplayImpl(state), mDevice(nullptr)
+DisplayNULL::DisplayNULL(const egl::DisplayState &state) : DisplayImpl(state)
 {
 }
 
@@ -29,8 +29,6 @@ DisplayNULL::~DisplayNULL()
 
 egl::Error DisplayNULL::initialize(egl::Display *display)
 {
-    mDevice = new DeviceNULL();
-
     constexpr size_t kMaxTotalAllocationSize = 1 << 28;  // 256MB
     mAllocationTracker.reset(new AllocationTrackerNULL(kMaxTotalAllocationSize));
 
@@ -40,7 +38,6 @@ egl::Error DisplayNULL::initialize(egl::Display *display)
 void DisplayNULL::terminate()
 {
     mAllocationTracker.reset();
-    SafeDelete(mDevice);
 }
 
 egl::Error DisplayNULL::makeCurrent(egl::Surface *drawSurface,
@@ -113,18 +110,17 @@ std::string DisplayNULL::getVendorString() const
     return "NULL";
 }
 
-egl::Error DisplayNULL::getDevice(DeviceImpl **device)
+DeviceImpl *DisplayNULL::createDevice()
 {
-    *device = mDevice;
+    return new DeviceNULL();
+}
+
+egl::Error DisplayNULL::waitClient(const gl::Context *context)
+{
     return egl::NoError();
 }
 
-egl::Error DisplayNULL::waitClient(const gl::Context *context) const
-{
-    return egl::NoError();
-}
-
-egl::Error DisplayNULL::waitNative(const gl::Context *context, EGLint engine) const
+egl::Error DisplayNULL::waitNative(const gl::Context *context, EGLint engine)
 {
     return egl::NoError();
 }
@@ -169,12 +165,15 @@ ImageImpl *DisplayNULL::createImage(const egl::ImageState &state,
     return new ImageNULL(state);
 }
 
-ContextImpl *DisplayNULL::createContext(const gl::ContextState &state)
+ContextImpl *DisplayNULL::createContext(const gl::ContextState &state,
+                                        const egl::Config *configuration,
+                                        const gl::Context *shareContext,
+                                        const egl::AttributeMap &attribs)
 {
     return new ContextNULL(state, mAllocationTracker.get());
 }
 
-StreamProducerImpl *DisplayNULL::createStreamProducerD3DTextureNV12(
+StreamProducerImpl *DisplayNULL::createStreamProducerD3DTexture(
     egl::Stream::ConsumerType consumerType,
     const egl::AttributeMap &attribs)
 {
@@ -201,7 +200,12 @@ void DisplayNULL::generateExtensions(egl::DisplayExtensions *outExtensions) cons
     outExtensions->createContextWebGLCompatibility    = true;
     outExtensions->createContextBindGeneratesResource = true;
     outExtensions->swapBuffersWithDamage              = true;
+    outExtensions->pixelFormatFloat                   = true;
     outExtensions->surfacelessContext                 = true;
+    outExtensions->displayTextureShareGroup           = true;
+    outExtensions->createContextClientArrays          = true;
+    outExtensions->programCacheControl                = true;
+    outExtensions->robustResourceInitialization       = true;
 }
 
 void DisplayNULL::generateCaps(egl::Caps *outCaps) const

@@ -30,9 +30,9 @@
 #include "signalsloteditor.h"
 
 #include <QtDesigner/private/ui4_p.h>
-#include <QtDesigner/QDesignerFormWindowInterface>
+#include <QtDesigner/abstractformwindow.h>
 
-#include <QtWidgets/QAction>
+#include <QtWidgets/qaction.h>
 #include <QtCore/qdebug.h>
 
 QT_BEGIN_NAMESPACE
@@ -46,9 +46,7 @@ SignalSlotEditorTool::SignalSlotEditorTool(QDesignerFormWindowInterface *formWin
 {
 }
 
-SignalSlotEditorTool::~SignalSlotEditorTool()
-{
-}
+SignalSlotEditorTool::~SignalSlotEditorTool() = default;
 
 QDesignerFormEditorInterface *SignalSlotEditorTool::core() const
 {

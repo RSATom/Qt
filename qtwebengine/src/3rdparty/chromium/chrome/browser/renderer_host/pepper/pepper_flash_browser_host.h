@@ -13,7 +13,7 @@
 #include "base/timer/timer.h"
 #include "ppapi/host/host_message_context.h"
 #include "ppapi/host/resource_host.h"
-#include "services/device/public/interfaces/wake_lock.mojom.h"
+#include "services/device/public/mojom/wake_lock.mojom.h"
 
 namespace base {
 class Time;
@@ -28,8 +28,6 @@ class CookieSettings;
 }
 
 class GURL;
-
-namespace chrome {
 
 class PepperFlashBrowserHost : public ppapi::host::ResourceHost {
  public:
@@ -73,7 +71,5 @@ class PepperFlashBrowserHost : public ppapi::host::ResourceHost {
 
   DISALLOW_COPY_AND_ASSIGN(PepperFlashBrowserHost);
 };
-
-}  // namespace chrome
 
 #endif  // CHROME_BROWSER_RENDERER_HOST_PEPPER_PEPPER_FLASH_BROWSER_HOST_H_

@@ -6,8 +6,14 @@
  */
 
 #include "SkStrokerPriv.h"
+
 #include "SkGeometry.h"
+#include "SkMacros.h"
 #include "SkPathPriv.h"
+#include "SkPointPriv.h"
+#include "SkTo.h"
+
+#include <utility>
 
 enum {
     kTangent_RecursiveLimit,
@@ -26,7 +32,7 @@ static_assert(1 == kCubic_RecursiveLimit, "cubic_stroke_relies_on_cubic_equallin
 static_assert(SK_ARRAY_COUNT(kRecursiveLimits) == kQuad_RecursiveLimit + 1,
               "recursive_limits_mismatch");
 
-#ifdef SK_DEBUG
+#if defined SK_DEBUG && QUAD_STROKE_APPROX_EXTENDED_DEBUGGING
     int gMaxRecursion[SK_ARRAY_COUNT(kRecursiveLimits)] = { 0 };
 #endif
 #ifndef DEBUG_QUAD_STROKER
@@ -48,7 +54,7 @@ static_assert(SK_ARRAY_COUNT(kRecursiveLimits) == kQuad_RecursiveLimit + 1,
 #endif
 
 static inline bool degenerate_vector(const SkVector& v) {
-    return !SkPoint::CanNormalize(v.fX, v.fY);
+    return !SkPointPriv::CanNormalize(v.fX, v.fY);
 }
 
 static bool set_normal_unitnormal(const SkPoint& before, const SkPoint& after, SkScalar scale,
@@ -58,7 +64,7 @@ static bool set_normal_unitnormal(const SkPoint& before, const SkPoint& after, S
                                   (after.fY - before.fY) * scale)) {
         return false;
     }
-    unitNormal->rotateCCW();
+    SkPointPriv::RotateCCW(unitNormal);
     unitNormal->scale(radius, normal);
     return true;
 }
@@ -69,7 +75,7 @@ static bool set_normal_unitnormal(const SkVector& vec,
     if (!unitNormal->setNormalize(vec.fX, vec.fY)) {
         return false;
     }
-    unitNormal->rotateCCW();
+    SkPointPriv::RotateCCW(unitNormal);
     unitNormal->scale(radius, normal);
     return true;
 }
@@ -298,8 +304,9 @@ void SkPathStroker::finishContour(bool close, bool currIsLine) {
             fOuter.close();
 
             if (fCanIgnoreCenter) {
-                if (!fOuter.getBounds().contains(fInner.getBounds())) {
-                    SkASSERT(fInner.getBounds().contains(fOuter.getBounds()));
+                // If we can ignore the center just make sure the larger of the two paths
+                // is preserved and don't add the smaller one.
+                if (fInner.getBounds().contains(fOuter.getBounds())) {
                     fInner.swap(fOuter);
                 }
             } else {
@@ -420,7 +427,7 @@ static bool has_valid_tangent(const SkPath::Iter* iter) {
 }
 
 void SkPathStroker::lineTo(const SkPoint& currPt, const SkPath::Iter* iter) {
-    bool teenyLine = fPrevPt.equalsWithinTolerance(currPt, SK_ScalarNearlyZero * fInvResScale);
+    bool teenyLine = SkPointPriv::EqualsWithinTolerance(fPrevPt, currPt, SK_ScalarNearlyZero * fInvResScale);
     if (SkStrokerPriv::CapFactory(SkPaint::kButt_Cap) == fCapper && teenyLine) {
         return;
     }
@@ -489,7 +496,7 @@ void SkPathStroker::init(StrokeType strokeType, SkQuadConstruct* quadPts, SkScal
 static SkScalar pt_to_line(const SkPoint& pt, const SkPoint& lineStart, const SkPoint& lineEnd) {
     SkVector dxy = lineEnd - lineStart;
     if (degenerate_vector(dxy)) {
-        return pt.distanceToSqd(lineStart);
+        return SkPointPriv::DistanceToSqd(pt, lineStart);
     }
     SkVector ab0 = pt - lineStart;
     SkScalar numer = dxy.dot(ab0);
@@ -498,7 +505,7 @@ static SkScalar pt_to_line(const SkPoint& pt, const SkPoint& lineStart, const Sk
     SkPoint hit;
     hit.fX = lineStart.fX * (1 - t) + lineEnd.fX * t;
     hit.fY = lineStart.fY * (1 - t) + lineEnd.fY * t;
-    return hit.distanceToSqd(pt);
+    return SkPointPriv::DistanceToSqd(hit, pt);
 }
 
 /*  Given a cubic, determine if all four points are in a line.
@@ -969,16 +976,17 @@ bool SkPathStroker::ptInQuadBounds(const SkPoint quad[3], const SkPoint& pt) con
 }
 
 static bool points_within_dist(const SkPoint& nearPt, const SkPoint& farPt, SkScalar limit) {
-    return nearPt.distanceToSqd(farPt) <= limit * limit;
+    return SkPointPriv::DistanceToSqd(nearPt, farPt) <= limit * limit;
 }
 
 static bool sharp_angle(const SkPoint quad[3]) {
     SkVector smaller = quad[1] - quad[0];
     SkVector larger = quad[1] - quad[2];
-    SkScalar smallerLen = smaller.lengthSqd();
-    SkScalar largerLen = larger.lengthSqd();
+    SkScalar smallerLen = SkPointPriv::LengthSqd(smaller);
+    SkScalar largerLen = SkPointPriv::LengthSqd(larger);
     if (smallerLen > largerLen) {
-        SkTSwap(smaller, larger);
+        using std::swap;
+        swap(smaller, larger);
         largerLen = smallerLen;
     }
     if (!smaller.setLength(largerLen)) {
@@ -1141,8 +1149,10 @@ bool SkPathStroker::cubicStroke(const SkPoint cubic[4], SkQuadConstruct* quadPts
     if (!SkScalarIsFinite(quadPts->fQuad[2].fX) || !SkScalarIsFinite(quadPts->fQuad[2].fY)) {
         return false;  // just abort if projected quad isn't representable
     }
+#if QUAD_STROKE_APPROX_EXTENDED_DEBUGGING
     SkDEBUGCODE(gMaxRecursion[fFoundTangents] = SkTMax(gMaxRecursion[fFoundTangents],
             fRecursionDepth + 1));
+#endif
     if (++fRecursionDepth > kRecursiveLimits[fFoundTangents]) {
         return false;  // just abort if projected quad isn't representable
     }
@@ -1177,8 +1187,10 @@ bool SkPathStroker::conicStroke(const SkConic& conic, SkQuadConstruct* quadPts) 
         addDegenerateLine(quadPts);
         return true;
     }
+#if QUAD_STROKE_APPROX_EXTENDED_DEBUGGING
     SkDEBUGCODE(gMaxRecursion[kConic_RecursiveLimit] = SkTMax(gMaxRecursion[kConic_RecursiveLimit],
             fRecursionDepth + 1));
+#endif
     if (++fRecursionDepth > kRecursiveLimits[kConic_RecursiveLimit]) {
         return false;  // just abort if projected quad isn't representable
     }
@@ -1207,8 +1219,10 @@ bool SkPathStroker::quadStroke(const SkPoint quad[3], SkQuadConstruct* quadPts) 
         addDegenerateLine(quadPts);
         return true;
     }
+#if QUAD_STROKE_APPROX_EXTENDED_DEBUGGING
     SkDEBUGCODE(gMaxRecursion[kQuad_RecursiveLimit] = SkTMax(gMaxRecursion[kQuad_RecursiveLimit],
             fRecursionDepth + 1));
+#endif
     if (++fRecursionDepth > kRecursiveLimits[kQuad_RecursiveLimit]) {
         return false;  // just abort if projected quad isn't representable
     }
@@ -1390,7 +1404,7 @@ void SkStroke::strokePath(const SkPath& src, SkPath* dst) const {
 
     // We can always ignore centers for stroke and fill convex line-only paths
     // TODO: remove the line-only restriction
-    bool ignoreCenter = fDoFill && (src.getSegmentMasks() == SkPath::kLine_SegmentMask) && 
+    bool ignoreCenter = fDoFill && (src.getSegmentMasks() == SkPath::kLine_SegmentMask) &&
                         src.isLastContourClosed() && src.isConvex();
 
     SkPathStroker   stroker(src, radius, fMiterLimit, this->getCap(), this->getJoin(),

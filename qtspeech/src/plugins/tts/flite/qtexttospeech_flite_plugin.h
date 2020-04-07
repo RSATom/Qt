@@ -58,7 +58,7 @@ public:
     QTextToSpeechEngine *createTextToSpeechEngine(
                                 const QVariantMap &parameters,
                                 QObject *parent,
-                                QString *errorString) const;
+                                QString *errorString) const override;
 };
 
 QT_END_NAMESPACE

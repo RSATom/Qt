@@ -139,6 +139,15 @@ bool Signals::InstallHandler(int sig,
 }
 
 // static
+bool Signals::InstallDefaultHandler(int sig) {
+  struct sigaction action;
+  sigemptyset(&action.sa_mask);
+  action.sa_flags = 0;
+  action.sa_handler = SIG_DFL;
+  return sigaction(sig, &action, nullptr) == 0;
+}
+
+// static
 bool Signals::InstallCrashHandlers(Handler handler,
                                    int flags,
                                    OldActions* old_actions) {
@@ -238,7 +247,7 @@ void Signals::RestoreHandlerAndReraiseSignalOnReturn(
   // Failures in this function should _exit(kFailureExitCode). This is a quick
   // and quiet failure. This function runs in signal handler context, and it’s
   // difficult to safely be loud from a signal handler.
-  const int kFailureExitCode = 191;
+  constexpr int kFailureExitCode = 191;
 
   struct sigaction default_action;
   sigemptyset(&default_action.sa_mask);

@@ -76,7 +76,7 @@
     To build the static libraries, change into the \c activeqt directory
     (usually \c QTDIR/src/activeqt), and run \c qmake and your make
     tool in both the \c container and the \c control subdirectory.
-    The libraries \c qaxcontainer.lib and \c qaxserver.lib will be linked
+    The \c qaxcontainer and \c qaxserver libraries will be linked
     into \c QTDIR/lib.
 
     If you are using a shared configuration of Qt enter the \c plugin
@@ -90,6 +90,43 @@
     \li \l{Using ActiveX controls and COM in Qt}
     \li \l{Building ActiveX servers in Qt}
     \endlist
+
+    \section1 Licenses and Attributions
+
+    The QAxContainer and QAxServer modules are available under
+    commercial licenses from \l{The Qt Company}. In addition, they
+    are available under the \l{BSD 3-clause "New" or "Revised" License}:
+
+    \badcode
+    Copyright (C) 2017 The Qt Company Ltd.
+
+    Redistribution and use in source and binary forms, with or without
+    modification, are permitted provided that the following conditions are
+    met:
+      * Redistributions of source code must retain the above copyright
+        notice, this list of conditions and the following disclaimer.
+      * Redistributions in binary form must reproduce the above copyright
+        notice, this list of conditions and the following disclaimer in
+        the documentation and/or other materials provided with the
+        distribution.
+      * Neither the name of The Qt Company Ltd nor the names of its
+        contributors may be used to endorse or promote products derived
+        from this software without specific prior written permission.
+
+    THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+    "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+    LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+    A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+    OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+    SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+    LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+    DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+    THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+    (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+    OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+    \endcode
+
+    See \l{Qt Licensing} for further details.
 
     \section1 Reference
 
@@ -106,9 +143,9 @@
     \li \l{Dot Net Example (ActiveQt)}
     \li \l{OpenGL Example (ActiveQt)}
     \li \l{Hierarchy Example (ActiveQt)}
+    \li \l{Media Player Example (ActiveQt)}
     \li \l{Menus Example (ActiveQt)}
     \li \l{Wrapper Example (ActiveQt)}
     \li \l{Simple Example (ActiveQt)}
-    \li \l{Web Browser Example (ActiveQt)}
     \endlist
 */

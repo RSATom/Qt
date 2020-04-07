@@ -45,7 +45,7 @@
 #pragma qt_no_master_include
 #endif
 
-#include <QtTest/qtest_global.h>
+#include <QtTest/qttestglobal.h>
 #include <QtTest/qtestassert.h>
 #include <QtTest/qtestsystem.h>
 #include <QtTest/qtestspontaneevent.h>
@@ -75,21 +75,21 @@ namespace QTest
             if (commitWhenDestroyed)
                 commit();
         }
-        QTouchEventSequence& press(int touchId, const QPoint &pt, QWindow *window = Q_NULLPTR)
+        QTouchEventSequence& press(int touchId, const QPoint &pt, QWindow *window = nullptr)
         {
             QTouchEvent::TouchPoint &p = point(touchId);
             p.setScreenPos(mapToScreen(window, pt));
             p.setState(Qt::TouchPointPressed);
             return *this;
         }
-        QTouchEventSequence& move(int touchId, const QPoint &pt, QWindow *window = Q_NULLPTR)
+        QTouchEventSequence& move(int touchId, const QPoint &pt, QWindow *window = nullptr)
         {
             QTouchEvent::TouchPoint &p = point(touchId);
             p.setScreenPos(mapToScreen(window, pt));
             p.setState(Qt::TouchPointMoved);
             return *this;
         }
-        QTouchEventSequence& release(int touchId, const QPoint &pt, QWindow *window = Q_NULLPTR)
+        QTouchEventSequence& release(int touchId, const QPoint &pt, QWindow *window = nullptr)
         {
             QTouchEvent::TouchPoint &p = point(touchId);
             p.setScreenPos(mapToScreen(window, pt));
@@ -104,21 +104,21 @@ namespace QTest
         }
 
 #ifdef QT_WIDGETS_LIB
-        QTouchEventSequence& press(int touchId, const QPoint &pt, QWidget *widget = Q_NULLPTR)
+        QTouchEventSequence& press(int touchId, const QPoint &pt, QWidget *widget = nullptr)
         {
             QTouchEvent::TouchPoint &p = point(touchId);
             p.setScreenPos(mapToScreen(widget, pt));
             p.setState(Qt::TouchPointPressed);
             return *this;
         }
-        QTouchEventSequence& move(int touchId, const QPoint &pt, QWidget *widget = Q_NULLPTR)
+        QTouchEventSequence& move(int touchId, const QPoint &pt, QWidget *widget = nullptr)
         {
             QTouchEvent::TouchPoint &p = point(touchId);
             p.setScreenPos(mapToScreen(widget, pt));
             p.setState(Qt::TouchPointMoved);
             return *this;
         }
-        QTouchEventSequence& release(int touchId, const QPoint &pt, QWidget *widget = Q_NULLPTR)
+        QTouchEventSequence& release(int touchId, const QPoint &pt, QWidget *widget = nullptr)
         {
             QTouchEvent::TouchPoint &p = point(touchId);
             p.setScreenPos(mapToScreen(widget, pt));
@@ -151,14 +151,14 @@ namespace QTest
 private:
 #ifdef QT_WIDGETS_LIB
         QTouchEventSequence(QWidget *widget, QTouchDevice *aDevice, bool autoCommit)
-            : targetWidget(widget), targetWindow(Q_NULLPTR), device(aDevice), commitWhenDestroyed(autoCommit)
+            : targetWidget(widget), targetWindow(nullptr), device(aDevice), commitWhenDestroyed(autoCommit)
         {
         }
 #endif
         QTouchEventSequence(QWindow *window, QTouchDevice *aDevice, bool autoCommit)
             :
 #ifdef QT_WIDGETS_LIB
-              targetWidget(Q_NULLPTR),
+              targetWidget(nullptr),
 #endif
               targetWindow(window), device(aDevice), commitWhenDestroyed(autoCommit)
         {
@@ -205,13 +205,13 @@ private:
         QWindow *targetWindow;
         QTouchDevice *device;
         bool commitWhenDestroyed;
-#ifdef QT_WIDGETS_LIB
-        friend QTouchEventSequence touchEvent(QWidget *, QTouchDevice*, bool);
+#if defined(QT_WIDGETS_LIB) || defined(Q_CLANG_QDOC)
+        friend QTouchEventSequence touchEvent(QWidget *widget, QTouchDevice *device, bool autoCommit);
 #endif
-        friend QTouchEventSequence touchEvent(QWindow *, QTouchDevice*, bool);
+        friend QTouchEventSequence touchEvent(QWindow *window, QTouchDevice *device, bool autoCommit);
     };
 
-#ifdef QT_WIDGETS_LIB
+#if defined(QT_WIDGETS_LIB) || defined(Q_CLANG_QDOC)
     inline
     QTouchEventSequence touchEvent(QWidget *widget,
                                    QTouchDevice *device,

@@ -6,6 +6,7 @@
 
 #include <stddef.h>
 #include <algorithm>
+#include <memory>
 #include <utility>
 
 #include "base/android/build_info.h"
@@ -18,7 +19,7 @@
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
@@ -48,6 +49,9 @@ using base::android::ScopedJavaLocalRef;
 namespace media {
 
 namespace {
+
+using CreateMediaDrmBridgeCB = base::OnceCallback<scoped_refptr<MediaDrmBridge>(
+    const std::string& /* origin_id */)>;
 
 // These must be in sync with Android MediaDrm REQUEST_TYPE_XXX constants!
 // https://developer.android.com/reference/android/media/MediaDrm.KeyRequest.html
@@ -101,9 +105,9 @@ std::string ConvertInitDataType(media::EmeInitDataType init_data_type) {
 // Convert CdmSessionType to KeyType supported by MediaDrm.
 KeyType ConvertCdmSessionType(CdmSessionType session_type) {
   switch (session_type) {
-    case CdmSessionType::TEMPORARY_SESSION:
+    case CdmSessionType::kTemporary:
       return KeyType::KEY_TYPE_STREAMING;
-    case CdmSessionType::PERSISTENT_LICENSE_SESSION:
+    case CdmSessionType::kPersistentLicense:
       return KeyType::KEY_TYPE_OFFLINE;
 
     default:
@@ -209,16 +213,21 @@ bool IsKeySystemSupportedWithTypeImpl(const std::string& key_system,
   }
 
   UUID scheme_uuid = GetKeySystemManager()->GetUUID(key_system);
-  if (scheme_uuid.empty())
+  if (scheme_uuid.empty()) {
+    DVLOG(1) << "Cannot get UUID for key system " << key_system;
     return false;
+  }
 
   JNIEnv* env = AttachCurrentThread();
   ScopedJavaLocalRef<jbyteArray> j_scheme_uuid =
       base::android::ToJavaByteArray(env, &scheme_uuid[0], scheme_uuid.size());
   ScopedJavaLocalRef<jstring> j_container_mime_type =
       ConvertUTF8ToJavaString(env, container_mime_type);
-  return Java_MediaDrmBridge_isCryptoSchemeSupported(env, j_scheme_uuid,
-                                                     j_container_mime_type);
+  bool supported = Java_MediaDrmBridge_isCryptoSchemeSupported(
+      env, j_scheme_uuid, j_container_mime_type);
+  DVLOG_IF(1, !supported) << "Crypto scheme not supported for " << key_system
+                          << " with " << container_mime_type;
+  return supported;
 }
 
 MediaDrmBridge::SecurityLevel GetSecurityLevelFromString(
@@ -247,7 +256,8 @@ std::string GetSecurityLevelString(
 }
 
 bool AreMediaDrmApisAvailable() {
-  if (base::android::BuildInfo::GetInstance()->sdk_int() < 19)
+  if (base::android::BuildInfo::GetInstance()->sdk_int() <
+      base::android::SDK_VERSION_KITKAT)
     return false;
 
   int32_t os_major_version = 0;
@@ -265,7 +275,8 @@ bool IsPersistentLicenseTypeSupportedByMediaDrm() {
   return MediaDrmBridge::IsAvailable() &&
          // In development. See http://crbug.com/493521
          base::FeatureList::IsEnabled(kMediaDrmPersistentLicense) &&
-         base::android::BuildInfo::GetInstance()->sdk_int() >= 23;
+         base::android::BuildInfo::GetInstance()->sdk_int() >=
+             base::android::SDK_VERSION_MARSHMALLOW;
 }
 
 }  // namespace
@@ -275,11 +286,6 @@ bool IsPersistentLicenseTypeSupportedByMediaDrm() {
 // static
 bool MediaDrmBridge::IsAvailable() {
   return AreMediaDrmApisAvailable() && MediaCodecUtil::IsMediaCodecAvailable();
-}
-
-// static
-bool MediaDrmBridge::RegisterMediaDrmBridge(JNIEnv* env) {
-  return RegisterNativesImpl(env);
 }
 
 // static
@@ -319,59 +325,41 @@ std::vector<std::string> MediaDrmBridge::GetPlatformKeySystemNames() {
 }
 
 // static
+std::vector<uint8_t> MediaDrmBridge::GetUUID(const std::string& key_system) {
+  return GetKeySystemManager()->GetUUID(key_system);
+}
+
+// static
 scoped_refptr<MediaDrmBridge> MediaDrmBridge::CreateInternal(
-    const std::string& key_system,
-    const GURL& security_origin,
+    const std::vector<uint8_t>& scheme_uuid,
+    const std::string& origin_id,
     SecurityLevel security_level,
+    bool requires_media_crypto,
+    std::unique_ptr<MediaDrmStorageBridge> storage,
     const CreateFetcherCB& create_fetcher_cb,
-    const CreateStorageCB& create_storage_cb,
     const SessionMessageCB& session_message_cb,
     const SessionClosedCB& session_closed_cb,
     const SessionKeysChangeCB& session_keys_change_cb,
     const SessionExpirationUpdateCB& session_expiration_update_cb) {
   // All paths requires the MediaDrmApis.
   DCHECK(AreMediaDrmApisAvailable());
-
-  UUID scheme_uuid = GetKeySystemManager()->GetUUID(key_system);
-  if (scheme_uuid.empty())
-    return nullptr;
+  DCHECK(!scheme_uuid.empty());
 
   scoped_refptr<MediaDrmBridge> media_drm_bridge(new MediaDrmBridge(
-      scheme_uuid, security_origin, security_level, create_fetcher_cb,
-      create_storage_cb, session_message_cb, session_closed_cb,
-      session_keys_change_cb, session_expiration_update_cb));
+      scheme_uuid, origin_id, security_level, requires_media_crypto,
+      std::move(storage), create_fetcher_cb, session_message_cb,
+      session_closed_cb, session_keys_change_cb, session_expiration_update_cb));
 
   if (media_drm_bridge->j_media_drm_.is_null())
-    media_drm_bridge = nullptr;
+    return nullptr;
 
   return media_drm_bridge;
 }
 
 // static
-scoped_refptr<MediaDrmBridge> MediaDrmBridge::Create(
-    const std::string& key_system,
-    const GURL& security_origin,
-    SecurityLevel security_level,
-    const CreateFetcherCB& create_fetcher_cb,
-    const CreateStorageCB& create_storage_cb,
-    const SessionMessageCB& session_message_cb,
-    const SessionClosedCB& session_closed_cb,
-    const SessionKeysChangeCB& session_keys_change_cb,
-    const SessionExpirationUpdateCB& session_expiration_update_cb) {
-  DVLOG(1) << __func__;
-
-  if (!IsAvailable())
-    return nullptr;
-
-  return CreateInternal(key_system, security_origin, security_level,
-                        create_fetcher_cb, create_storage_cb,
-                        session_message_cb, session_closed_cb,
-                        session_keys_change_cb, session_expiration_update_cb);
-}
-
-// static
 scoped_refptr<MediaDrmBridge> MediaDrmBridge::CreateWithoutSessionSupport(
     const std::string& key_system,
+    const std::string& origin_id,
     SecurityLevel security_level,
     const CreateFetcherCB& create_fetcher_cb) {
   DVLOG(1) << __func__;
@@ -380,10 +368,18 @@ scoped_refptr<MediaDrmBridge> MediaDrmBridge::CreateWithoutSessionSupport(
   if (!AreMediaDrmApisAvailable())
     return nullptr;
 
-  return MediaDrmBridge::Create(
-      key_system, GURL::EmptyGURL(), security_level, create_fetcher_cb,
-      CreateStorageCB(), SessionMessageCB(), SessionClosedCB(),
-      SessionKeysChangeCB(), SessionExpirationUpdateCB());
+  UUID scheme_uuid = GetKeySystemManager()->GetUUID(key_system);
+  if (scheme_uuid.empty())
+    return nullptr;
+
+  // When created without session support, MediaCrypto is not needed.
+  const bool requires_media_crypto = false;
+
+  return CreateInternal(
+      scheme_uuid, origin_id, security_level, requires_media_crypto,
+      std::make_unique<MediaDrmStorageBridge>(), create_fetcher_cb,
+      SessionMessageCB(), SessionClosedCB(), SessionKeysChangeCB(),
+      SessionExpirationUpdateCB());
 }
 
 void MediaDrmBridge::SetServerCertificate(
@@ -401,7 +397,7 @@ void MediaDrmBridge::SetServerCertificate(
                                                j_certificate)) {
     promise->resolve();
   } else {
-    promise->reject(CdmPromise::INVALID_ACCESS_ERROR, 0,
+    promise->reject(CdmPromise::Exception::TYPE_ERROR, 0,
                     "Set server certificate failed.");
   }
 }
@@ -428,7 +424,7 @@ void MediaDrmBridge::CreateSessionAndGenerateRequest(
       if (!delegate->OnCreateSession(init_data_type, init_data,
                                      &init_data_from_delegate,
                                      &optional_parameters_from_delegate)) {
-        promise->reject(CdmPromise::INVALID_ACCESS_ERROR, 0,
+        promise->reject(CdmPromise::Exception::TYPE_ERROR, 0,
                         "Invalid init data.");
         return;
       }
@@ -468,9 +464,9 @@ void MediaDrmBridge::LoadSession(
 
   DCHECK(IsPersistentLicenseTypeSupportedByMediaDrm());
 
-  if (session_type != CdmSessionType::PERSISTENT_LICENSE_SESSION) {
+  if (session_type != CdmSessionType::kPersistentLicense) {
     promise->reject(
-        CdmPromise::NOT_SUPPORTED_ERROR, 0,
+        CdmPromise::Exception::NOT_SUPPORTED_ERROR, 0,
         "LoadSession() is only supported for 'persistent-license'.");
     return;
   }
@@ -528,8 +524,7 @@ void MediaDrmBridge::RemoveSession(
 
 CdmContext* MediaDrmBridge::GetCdmContext() {
   DVLOG(2) << __func__;
-
-  return &media_drm_bridge_cdm_context_;
+  return this;
 }
 
 void MediaDrmBridge::DeleteOnCorrectThread() const {
@@ -541,6 +536,11 @@ void MediaDrmBridge::DeleteOnCorrectThread() const {
   } else {
     delete this;
   }
+}
+
+MediaCryptoContext* MediaDrmBridge::GetMediaCryptoContext() {
+  DVLOG(2) << __func__;
+  return &media_crypto_context_;
 }
 
 int MediaDrmBridge::RegisterPlayer(const base::Closure& new_key_cb,
@@ -578,6 +578,13 @@ void MediaDrmBridge::ResetDeviceCredentials(
   Java_MediaDrmBridge_resetDeviceCredentials(env, j_media_drm_);
 }
 
+void MediaDrmBridge::Unprovision() {
+  DVLOG(1) << __func__;
+
+  JNIEnv* env = AttachCurrentThread();
+  Java_MediaDrmBridge_unprovision(env, j_media_drm_);
+}
+
 void MediaDrmBridge::ResolvePromise(uint32_t promise_id) {
   DVLOG(2) << __func__;
   cdm_promise_adapter_.ResolvePromise(promise_id);
@@ -592,8 +599,8 @@ void MediaDrmBridge::ResolvePromiseWithSession(uint32_t promise_id,
 void MediaDrmBridge::RejectPromise(uint32_t promise_id,
                                    const std::string& error_message) {
   DVLOG(2) << __func__;
-  cdm_promise_adapter_.RejectPromise(promise_id, CdmPromise::UNKNOWN_ERROR, 0,
-                                     error_message);
+  cdm_promise_adapter_.RejectPromise(
+      promise_id, CdmPromise::Exception::NOT_SUPPORTED_ERROR, 0, error_message);
 }
 
 void MediaDrmBridge::SetMediaCryptoReadyCB(
@@ -747,7 +754,7 @@ void MediaDrmBridge::OnSessionKeysChange(
              << key_status;
 
     cdm_keys_info.push_back(
-        base::MakeUnique<CdmKeyInformation>(key_id, key_status, 0));
+        std::make_unique<CdmKeyInformation>(key_id, key_status, 0));
   }
 
   task_runner_->PostTask(
@@ -801,27 +808,28 @@ void MediaDrmBridge::OnResetDeviceCredentialsCompleted(
 
 MediaDrmBridge::MediaDrmBridge(
     const std::vector<uint8_t>& scheme_uuid,
-    const GURL& security_origin,
+    const std::string& origin_id,
     SecurityLevel security_level,
+    bool requires_media_crypto,
+    std::unique_ptr<MediaDrmStorageBridge> storage,
     const CreateFetcherCB& create_fetcher_cb,
-    const CreateStorageCB& create_storage_cb,
     const SessionMessageCB& session_message_cb,
     const SessionClosedCB& session_closed_cb,
     const SessionKeysChangeCB& session_keys_change_cb,
     const SessionExpirationUpdateCB& session_expiration_update_cb)
     : scheme_uuid_(scheme_uuid),
-      storage_(url::Origin(security_origin), create_storage_cb),
+      storage_(std::move(storage)),
       create_fetcher_cb_(create_fetcher_cb),
       session_message_cb_(session_message_cb),
       session_closed_cb_(session_closed_cb),
       session_keys_change_cb_(session_keys_change_cb),
       session_expiration_update_cb_(session_expiration_update_cb),
       task_runner_(base::ThreadTaskRunnerHandle::Get()),
-      media_drm_bridge_cdm_context_(this),
+      media_crypto_context_(this),
       weak_factory_(this) {
   DVLOG(1) << __func__;
 
-  DCHECK(!create_fetcher_cb_.is_null());
+  DCHECK(storage_);
 
   JNIEnv* env = AttachCurrentThread();
   CHECK(env);
@@ -837,23 +845,21 @@ MediaDrmBridge::MediaDrmBridge(
       // TODO(yucliu): Remove the check once persistent storage is fully
       // supported and check if origin is valid.
       base::FeatureList::IsEnabled(kMediaDrmPersistentLicense) &&
-      // MediaDrm implements origin isolated storage on M.
-      base::android::BuildInfo::GetInstance()->sdk_int() >= 23;
+      // MediaDrm implements origin isolated storage on Marshmallow.
+      base::android::BuildInfo::GetInstance()->sdk_int() >=
+          base::android::SDK_VERSION_MARSHMALLOW &&
+      // origin id can be empty when MediaDrmBridge is created by
+      // CreateWithoutSessionSupport, which is used to reset credentials.
+      !origin_id.empty();
 
-  // TODO(yucliu): Per EME spec on individualization, implementation should not
-  // expose application-specific information. Considering encode origin before
-  // passing to MediaDrm.
   ScopedJavaLocalRef<jstring> j_security_origin = ConvertUTF8ToJavaString(
-      env, use_origin_isolated_storage ? security_origin.spec() : "");
-
-  // TODO(yucliu): Use |create_storage_cb_| to create MediaDrmStorage which can
-  // be used by Java side to store/retrieve persistent data. This should only
-  // be used when |use_origin_isolated_storage| is true.
+      env, use_origin_isolated_storage ? origin_id : "");
 
   // Note: OnMediaCryptoReady() could be called in this call.
   j_media_drm_.Reset(Java_MediaDrmBridge_create(
       env, j_scheme_uuid, j_security_origin, j_security_level,
-      reinterpret_cast<intptr_t>(this), reinterpret_cast<intptr_t>(&storage_)));
+      requires_media_crypto, reinterpret_cast<intptr_t>(this),
+      reinterpret_cast<intptr_t>(storage_.get())));
 }
 
 MediaDrmBridge::~MediaDrmBridge() {
@@ -871,7 +877,7 @@ MediaDrmBridge::~MediaDrmBridge() {
 
   if (!media_crypto_ready_cb_.is_null()) {
     base::ResetAndReturn(&media_crypto_ready_cb_)
-        .Run(CreateJavaObjectPtr(nullptr), IsSecureCodecRequired());
+        .Run(CreateJavaObjectPtr(nullptr), false);
   }
 
   // Rejects all pending promises.
@@ -894,12 +900,13 @@ void MediaDrmBridge::NotifyMediaCryptoReady(JavaObjectPtr j_media_crypto) {
 
   j_media_crypto_ = std::move(j_media_crypto);
 
+  UMA_HISTOGRAM_BOOLEAN("Media.EME.MediaCryptoAvailable",
+                        !j_media_crypto_->is_null());
+
   if (media_crypto_ready_cb_.is_null())
     return;
 
   // We have to use scoped_ptr to pass ScopedJavaGlobalRef with a callback.
-  // TODO(yucliu): Check whether we can simply pass j_media_crypto_->obj() in
-  // the callback.
   base::ResetAndReturn(&media_crypto_ready_cb_)
       .Run(CreateJavaObjectPtr(j_media_crypto_->obj()),
            IsSecureCodecRequired());
@@ -911,6 +918,7 @@ void MediaDrmBridge::SendProvisioningRequest(const std::string& default_url,
   DVLOG(1) << __func__;
 
   DCHECK(!provision_fetcher_) << "At most one provision request at any time.";
+  DCHECK(create_fetcher_cb_);
   provision_fetcher_ = create_fetcher_cb_.Run();
 
   provision_fetcher_->Retrieve(

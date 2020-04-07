@@ -17,6 +17,7 @@
 #include "GrBackendSurface.h"
 #include "GrContext.h"
 #include "GrContextPriv.h"
+#include "GrProxyProvider.h"
 #include "GrResourceCache.h"
 #include "GrResourceProvider.h"
 #include "GrTexture.h"
@@ -94,39 +95,65 @@ void GrAHardwareBufferImageGenerator::deleteImageTexture(void* context) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-#if SK_SUPPORT_GPU
-
 sk_sp<GrTextureProxy> GrAHardwareBufferImageGenerator::onGenerateTexture(
-        GrContext* context, const SkImageInfo& info, const SkIPoint& origin,
-        SkTransferFunctionBehavior) {
+        GrContext* context, const SkImageInfo& info, const SkIPoint& origin, bool willNeedMipMaps) {
     auto proxy = this->makeProxy(context);
     if (!proxy) {
         return nullptr;
     }
 
+    bool makingASubset = true;
     if (0 == origin.fX && 0 == origin.fY &&
             info.width() == getInfo().width() && info.height() == getInfo().height()) {
-        // If the caller wants the entire texture, we're done
-        return proxy;
-    } else {
-        // Otherwise, make a copy of the requested subset.
-        return GrSurfaceProxy::Copy(context, proxy.get(),
-                                    SkIRect::MakeXYWH(origin.fX, origin.fY, info.width(),
-                                                      info.height()),
-                                    SkBudgeted::kYes);
+        makingASubset = false;
+        if (!willNeedMipMaps || GrMipMapped::kYes == proxy->mipMapped()) {
+            // If the caller wants the full texture and we have the correct mip support, we're done
+            return proxy;
+        }
     }
+    // Otherwise, make a copy for the requested subset or for mip maps.
+    SkIRect subset = SkIRect::MakeXYWH(origin.fX, origin.fY, info.width(), info.height());
+
+    GrMipMapped mipMapped = willNeedMipMaps ? GrMipMapped::kYes : GrMipMapped::kNo;
+
+    sk_sp<GrTextureProxy> texProxy = GrSurfaceProxy::Copy(context, proxy.get(), mipMapped,
+                                                          subset, SkBudgeted::kYes);
+    if (!makingASubset && texProxy) {
+        // We are in this case if we wanted the full texture, but we will be mip mapping the
+        // texture. Therefore we want to update the cached texture so that we point to the
+        // mipped version instead of the old one.
+        SkASSERT(willNeedMipMaps);
+        SkASSERT(GrMipMapped::kYes == texProxy->mipMapped());
+
+        // The only way we should get into here is if we just made a new texture in makeProxy or
+        // we found a cached texture in the same context. Thus the current and cached contexts
+        // should match.
+        SkASSERT(context->uniqueID() == fOwningContextID);
+
+        // Clear out the old cached texture.
+        this->clear();
+
+        // We need to get the actual GrTexture so force instantiation of the GrTextureProxy
+        texProxy->instantiate(context->contextPriv().resourceProvider());
+        GrTexture* texture = texProxy->priv().peekTexture();
+        SkASSERT(texture);
+        fOriginalTexture = texture;
+    }
+    return texProxy;
 }
-#endif
 
 sk_sp<GrTextureProxy> GrAHardwareBufferImageGenerator::makeProxy(GrContext* context) {
-    if (!context->getGpu() || kOpenGL_GrBackend != context->contextPriv().getBackend()) {
+    if (context->abandoned() || kOpenGL_GrBackend != context->contextPriv().getBackend()) {
         // Check if GrContext is not abandoned and the backend is GL.
         return nullptr;
     }
 
+    auto proxyProvider = context->contextPriv().proxyProvider();
+
     // return a cached GrTexture if invoked with the same context
     if (fOriginalTexture && fOwningContextID == context->uniqueID()) {
-        return GrSurfaceProxy::MakeWrapped(sk_ref_sp(fOriginalTexture));
+        return proxyProvider->createWrapped(sk_ref_sp(fOriginalTexture),
+                                            kTopLeft_GrSurfaceOrigin);
     }
 
     while (GL_NO_ERROR != glGetError()) {} //clear GL errors
@@ -185,21 +212,25 @@ sk_sp<GrTextureProxy> GrAHardwareBufferImageGenerator::makeProxy(GrContext* cont
         return nullptr;
     }
 
-    GrBackendTexture backendTex(getInfo().width(), getInfo().height(), pixelConfig, textureInfo);
+    GrBackendTexture backendTex(getInfo().width(), getInfo().height(), GrMipMapped::kNo,
+                                textureInfo);
     if (backendTex.width() <= 0 || backendTex.height() <= 0) {
         glDeleteTextures(1, &texID);
         eglDestroyImageKHR(display, image);
         return nullptr;
     }
-    sk_sp<GrTexture> tex = context->resourceProvider()->wrapBackendTexture(backendTex,
-                                                                       kTopLeft_GrSurfaceOrigin,
-                                                                       kAdopt_GrWrapOwnership);
+    backendTex.fConfig = pixelConfig;
+    sk_sp<GrTexture> tex = context->contextPriv().resourceProvider()->wrapBackendTexture(
+                                                        backendTex, kAdopt_GrWrapOwnership);
     if (!tex) {
         glDeleteTextures(1, &texID);
         eglDestroyImageKHR(display, image);
         return nullptr;
     }
-    tex->setRelease(deleteImageTexture, new BufferCleanupHelper(image, display));
+    sk_sp<GrReleaseProcHelper> releaseHelper(
+            new GrReleaseProcHelper(deleteImageTexture, new BufferCleanupHelper(image, display)));
+
+    tex->setRelease(std::move(releaseHelper));
 
     // We fail this assert, if the context has changed. This will be fully handled after
     // skbug.com/6812 is ready.
@@ -214,8 +245,8 @@ sk_sp<GrTextureProxy> GrAHardwareBufferImageGenerator::makeProxy(GrContext* cont
     // makeProxy when it is invoked with a different context.
     //TODO: GrResourceCache should delete GrTexture, when GrContext is deleted. Currently
     //TODO: SkMessageBus ignores messages for deleted contexts and GrTexture will leak.
-    context->getResourceCache()->insertCrossContextGpuResource(fOriginalTexture);
-    return GrSurfaceProxy::MakeWrapped(std::move(tex));
+    context->contextPriv().getResourceCache()->insertCrossContextGpuResource(fOriginalTexture);
+    return proxyProvider->createWrapped(std::move(tex), kTopLeft_GrSurfaceOrigin);
 }
 
 bool GrAHardwareBufferImageGenerator::onIsValid(GrContext* context) const {

@@ -89,7 +89,6 @@ protected:
                     break;
             }
             if (handled) {
-                this->inval(nullptr);
                 return true;
             }
         }
@@ -112,9 +111,10 @@ protected:
         }
 
         if (fTwoPassColor) {
+            SkColor ambientColor = SkColorSetARGB(ambientAlpha*255, 0, 0, 0);
             SkShadowUtils::DrawShadow(canvas, path, zPlaneParams,
                                       lightPos, lightWidth,
-                                      ambientAlpha, 0, SK_ColorBLACK, flags);
+                                      ambientColor, SK_ColorTRANSPARENT, flags);
 
             if (paint.getColor() != SK_ColorBLACK) {
                 SkColor color = paint.getColor();
@@ -126,20 +126,31 @@ protected:
                 SkScalar luminance = 0.5f*(max + min) / 255.f;
                 SkScalar alpha = (.6 - .4*luminance)*luminance*luminance + 0.3f;
                 spotAlpha -= (alpha - 0.3f)*.5f;
+                SkColor spotColor = SkColorSetARGB(alpha*SkColorGetA(color), SkColorGetR(color),
+                                                   SkColorGetG(color), SkColorGetB(color));
 
                 SkShadowUtils::DrawShadow(canvas, path, zPlaneParams,
                                           lightPos, lightWidth,
-                                          0, alpha, paint.getColor(), flags);
+                                          SK_ColorTRANSPARENT, spotColor, flags);
             }
 
+            SkColor spotGreyscale = SkColorSetARGB(spotAlpha * 255, 0, 0, 0);
             SkShadowUtils::DrawShadow(canvas, path, zPlaneParams,
                                       lightPos, lightWidth,
-                                      0, spotAlpha, SK_ColorBLACK, flags);
+                                      SK_ColorTRANSPARENT, spotGreyscale, flags);
         } else {
-            flags |= SkShadowFlags::kTonalColor_ShadowFlag;
+            SkColor color = paint.getColor();
+            SkColor baseAmbient = SkColorSetARGB(ambientAlpha*SkColorGetA(color),
+                                                 SkColorGetR(color), SkColorGetG(color),
+                                                 SkColorGetB(color));
+            SkColor baseSpot = SkColorSetARGB(spotAlpha*SkColorGetA(color),
+                                              SkColorGetR(color), SkColorGetG(color),
+                                              SkColorGetB(color));
+            SkColor tonalAmbient, tonalSpot;
+            SkShadowUtils::ComputeTonalColors(baseAmbient, baseSpot, &tonalAmbient, &tonalSpot);
             SkShadowUtils::DrawShadow(canvas, path, zPlaneParams,
                                       lightPos, lightWidth,
-                                      ambientAlpha, spotAlpha, paint.getColor(), flags);
+                                      tonalAmbient, tonalSpot, flags);
         }
         if (fShowObject) {
             canvas->drawPath(path, paint);

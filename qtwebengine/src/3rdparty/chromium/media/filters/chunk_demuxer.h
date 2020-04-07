@@ -8,13 +8,13 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <deque>
 #include <map>
 #include <set>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "base/containers/circular_deque.h"
 #include "base/macros.h"
 #include "base/memory/memory_pressure_listener.h"
 #include "base/synchronization/lock.h"
@@ -25,6 +25,8 @@
 #include "media/base/ranges.h"
 #include "media/base/stream_parser.h"
 #include "media/filters/source_buffer_parse_warnings.h"
+#include "media/filters/source_buffer_range_by_dts.h"
+#include "media/filters/source_buffer_range_by_pts.h"
 #include "media/filters/source_buffer_state.h"
 #include "media/filters/source_buffer_stream.h"
 
@@ -32,9 +34,13 @@ namespace media {
 
 class MEDIA_EXPORT ChunkDemuxerStream : public DemuxerStream {
  public:
-  typedef std::deque<scoped_refptr<StreamParserBuffer> > BufferQueue;
+  using BufferQueue = base::circular_deque<scoped_refptr<StreamParserBuffer>>;
 
-  ChunkDemuxerStream(Type type, MediaTrack::Id media_track_id);
+  enum class RangeApi { kLegacyByDts, kNewByPts };
+
+  ChunkDemuxerStream(Type type,
+                     MediaTrack::Id media_track_id,
+                     RangeApi range_api);
   ~ChunkDemuxerStream() override;
 
   // ChunkDemuxerStream control methods.
@@ -91,14 +97,22 @@ class MEDIA_EXPORT ChunkDemuxerStream : public DemuxerStream {
   size_t GetBufferedSize() const;
 
   // Signal to the stream that buffers handed in through subsequent calls to
-  // Append() belong to a coded frame group that starts at |start_timestamp|.
-  void OnStartOfCodedFrameGroup(DecodeTimestamp start_timestamp);
+  // Append() belong to a coded frame group that starts at |start_dts| and
+  // |start_pts|.
+  void OnStartOfCodedFrameGroup(DecodeTimestamp start_dts,
+                                base::TimeDelta start_pts);
 
   // Called when midstream config updates occur.
+  // For audio and video, if the codec is allowed to change, the caller should
+  // set |allow_codec_change| to true.
   // Returns true if the new config is accepted.
   // Returns false if the new config should trigger an error.
-  bool UpdateAudioConfig(const AudioDecoderConfig& config, MediaLog* media_log);
-  bool UpdateVideoConfig(const VideoDecoderConfig& config, MediaLog* media_log);
+  bool UpdateAudioConfig(const AudioDecoderConfig& config,
+                         bool allow_codec_change,
+                         MediaLog* media_log);
+  bool UpdateVideoConfig(const VideoDecoderConfig& config,
+                         bool allow_codec_change,
+                         MediaLog* media_log);
   void UpdateTextConfig(const TextTrackConfig& config, MediaLog* media_log);
 
   void MarkEndOfStream();
@@ -111,12 +125,9 @@ class MEDIA_EXPORT ChunkDemuxerStream : public DemuxerStream {
   AudioDecoderConfig audio_decoder_config() override;
   VideoDecoderConfig video_decoder_config() override;
   bool SupportsConfigChanges() override;
-  VideoRotation video_rotation() override;
 
   bool IsEnabled() const;
   void SetEnabled(bool enabled, base::TimeDelta timestamp);
-
-  void SetStreamStatusChangeCB(const StreamStatusChangeCB& cb);
 
   // Returns the text track configuration.  It is an error to call this method
   // if type() != TEXT.
@@ -148,10 +159,14 @@ class MEDIA_EXPORT ChunkDemuxerStream : public DemuxerStream {
 
   // Specifies the type of the stream.
   Type type_;
+  const RangeApi range_api_;
 
   Liveness liveness_;
 
-  std::unique_ptr<SourceBufferStream> stream_;
+  // Precisely one of these will be used by an instance, determined by
+  // |range_api_| set in ctor. See https://crbug.com/718641.
+  std::unique_ptr<SourceBufferStream<SourceBufferRangeByDts>> stream_dts_;
+  std::unique_ptr<SourceBufferStream<SourceBufferRangeByPts>> stream_pts_;
 
   const MediaTrack::Id media_track_id_;
 
@@ -160,7 +175,6 @@ class MEDIA_EXPORT ChunkDemuxerStream : public DemuxerStream {
   ReadCB read_cb_;
   bool partial_append_window_trimming_enabled_;
   bool is_enabled_;
-  StreamStatusChangeCB stream_status_change_cb_;
 
   DISALLOW_IMPLICIT_CONSTRUCTORS(ChunkDemuxerStream);
 };
@@ -192,14 +206,11 @@ class MEDIA_EXPORT ChunkDemuxer : public Demuxer {
 
   // |enable_text| Process inband text tracks in the normal way when true,
   //   otherwise ignore them.
-  void Initialize(DemuxerHost* host,
-                  const PipelineStatusCB& init_cb,
-                  bool enable_text_tracks) override;
+  void Initialize(DemuxerHost* host, const PipelineStatusCB& init_cb) override;
   void Stop() override;
   void Seek(base::TimeDelta time, const PipelineStatusCB& cb) override;
   base::Time GetTimelineOffset() const override;
   std::vector<DemuxerStream*> GetAllStreams() override;
-  void SetStreamStatusChangeCB(const StreamStatusChangeCB& cb) override;
   base::TimeDelta GetStartTime() const override;
   int64_t GetMemoryUsage() const override;
   void AbortPendingReads() override;
@@ -211,15 +222,16 @@ class MEDIA_EXPORT ChunkDemuxer : public Demuxer {
   void StartWaitingForSeek(base::TimeDelta seek_time) override;
   void CancelPendingSeek(base::TimeDelta seek_time) override;
 
-  // Registers a new |id| to use for AppendData() calls. |type| indicates
-  // the MIME type for the data that we intend to append for this ID.
-  // kOk is returned if the demuxer has enough resources to support another ID
-  //    and supports the format indicated by |type|.
-  // kNotSupported is returned if |type| is not a supported format.
-  // kReachedIdLimit is returned if the demuxer cannot handle another ID right
-  //    now.
+  // Registers a new |id| to use for AppendData() calls. |content_type|
+  // indicates the MIME type's ContentType and |codecs| indicates the MIME
+  // type's "codecs" parameter string (if any) for the data that we intend to
+  // append for this ID.  kOk is returned if the demuxer has enough resources to
+  // support another ID and supports the format indicated by |content_type| and
+  // |codecs|.  kReachedIdLimit is returned if the demuxer cannot handle another
+  // ID right now.  kNotSupported is returned if |content_type| and |codecs| is
+  // not a supported format.
   Status AddId(const std::string& id,
-               const std::string& type,
+               const std::string& content_type,
                const std::string& codecs);
 
   // Notifies a caller via |tracks_updated_cb| that the set of media tracks
@@ -244,11 +256,12 @@ class MEDIA_EXPORT ChunkDemuxer : public Demuxer {
   base::TimeDelta GetHighestPresentationTimestamp(const std::string& id) const;
 
   void OnEnabledAudioTracksChanged(const std::vector<MediaTrack::Id>& track_ids,
-                                   base::TimeDelta curr_time) override;
-  // |track_id| either contains the selected video track id or is null,
-  // indicating that all video tracks are deselected/disabled.
-  void OnSelectedVideoTrackChanged(base::Optional<MediaTrack::Id> track_id,
-                                   base::TimeDelta curr_time) override;
+                                   base::TimeDelta curr_time,
+                                   TrackChangeCB change_completed_cb) override;
+
+  void OnSelectedVideoTrackChanged(const std::vector<MediaTrack::Id>& track_ids,
+                                   base::TimeDelta curr_time,
+                                   TrackChangeCB change_completed_cb) override;
 
   // Appends media data to the source buffer associated with |id|, applying
   // and possibly updating |*timestamp_offset| during coded frame processing.
@@ -277,6 +290,26 @@ class MEDIA_EXPORT ChunkDemuxer : public Demuxer {
   void Remove(const std::string& id, base::TimeDelta start,
               base::TimeDelta end);
 
+  // Returns whether or not the source buffer associated with |id| can change
+  // its parser type to one which parses |content_type| and |codecs|.
+  // |content_type| indicates the ContentType of the MIME type for the data that
+  // we intend to append for this |id|; |codecs| similarly indicates the MIME
+  // type's "codecs" parameter, if any.
+  bool CanChangeType(const std::string& id,
+                     const std::string& content_type,
+                     const std::string& codecs);
+
+  // For the source buffer associated with |id|, changes its parser type to one
+  // which parses |content_type| and |codecs|.  |content_type| indicates the
+  // ContentType of the MIME type for the data that we intend to append for this
+  // |id|; |codecs| similarly indicates the MIME type's "codecs" parameter, if
+  // any.  Caller must first ensure CanChangeType() returns true for the same
+  // parameters.  Caller must also ensure that ResetParserState() is done before
+  // calling this, to flush any pending frames.
+  void ChangeType(const std::string& id,
+                  const std::string& content_type,
+                  const std::string& codecs);
+
   // If the buffer is full, attempts to try to free up space, as specified in
   // the "Coded Frame Eviction Algorithm" in the Media Source Extensions Spec.
   // Returns false iff buffer is still full after running eviction.
@@ -301,6 +334,10 @@ class MEDIA_EXPORT ChunkDemuxer : public Demuxer {
   // Returns true if the source buffer associated with |id| is currently parsing
   // a media segment, or false otherwise.
   bool IsParsingMediaSegment(const std::string& id);
+
+  // Returns the 'Generate Timestamps Flag', as described in the MSE Byte Stream
+  // Format Registry, for the source buffer associated with |id|.
+  bool GetGenerateTimestampsFlag(const std::string& id);
 
   // Set the append mode to be applied to subsequent buffers appended to the
   // source buffer associated with |id|. If |sequence_mode| is true, caller
@@ -335,13 +372,22 @@ class MEDIA_EXPORT ChunkDemuxer : public Demuxer {
 
  private:
   enum State {
-    WAITING_FOR_INIT,
+    WAITING_FOR_INIT = 0,
     INITIALIZING,
     INITIALIZED,
     ENDED,
+
+    // Any State at or beyond PARSE_ERROR cannot be changed to a state before
+    // this. See ChangeState_Locked.
     PARSE_ERROR,
     SHUTDOWN,
   };
+
+  // Helper for vide and audio track changing.
+  void FindAndEnableProperTracks(const std::vector<MediaTrack::Id>& track_ids,
+                                 base::TimeDelta curr_time,
+                                 DemuxerStream::Type track_type,
+                                 TrackChangeCB change_completed_cb);
 
   void ChangeState_Locked(State new_state);
 
@@ -413,7 +459,6 @@ class MEDIA_EXPORT ChunkDemuxer : public Demuxer {
   base::Closure open_cb_;
   base::Closure progress_cb_;
   EncryptedMediaInitDataCB encrypted_media_init_data_cb_;
-  bool enable_text_;
 
   // MediaLog for reporting messages and properties to debug content and engine.
   MediaLog* media_log_;
@@ -460,6 +505,11 @@ class MEDIA_EXPORT ChunkDemuxer : public Demuxer {
   int detected_audio_track_count_;
   int detected_video_track_count_;
   int detected_text_track_count_;
+
+  // Caches whether |media::kMseBufferByPts| feature was enabled at ChunkDemuxer
+  // construction time. This makes sure that all buffering for this ChunkDemuxer
+  // uses the same behavior. See https://crbug.com/718641.
+  const bool buffering_by_pts_;
 
   std::map<MediaTrack::Id, ChunkDemuxerStream*> track_id_to_demux_stream_map_;
 

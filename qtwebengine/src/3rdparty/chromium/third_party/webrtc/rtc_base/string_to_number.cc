@@ -8,28 +8,30 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
+#include "rtc_base/string_to_number.h"
+
 #include <cerrno>
 #include <cstdlib>
 
-#include "webrtc/rtc_base/string_to_number.h"
+#include "rtc_base/checks.h"
 
 namespace rtc {
 namespace string_to_number_internal {
 
-rtc::Optional<signed_type> ParseSigned(const char* str, int base) {
+absl::optional<signed_type> ParseSigned(const char* str, int base) {
   RTC_DCHECK(str);
   if (isdigit(str[0]) || str[0] == '-') {
     char* end = nullptr;
     errno = 0;
     const signed_type value = std::strtoll(str, &end, base);
     if (end && *end == '\0' && errno == 0) {
-      return rtc::Optional<signed_type>(value);
+      return value;
     }
   }
-  return rtc::Optional<signed_type>();
+  return absl::nullopt;
 }
 
-rtc::Optional<unsigned_type> ParseUnsigned(const char* str, int base) {
+absl::optional<unsigned_type> ParseUnsigned(const char* str, int base) {
   RTC_DCHECK(str);
   if (isdigit(str[0]) || str[0] == '-') {
     // Explicitly discard negative values. std::strtoull parsing causes unsigned
@@ -40,10 +42,10 @@ rtc::Optional<unsigned_type> ParseUnsigned(const char* str, int base) {
     errno = 0;
     const unsigned_type value = std::strtoull(str, &end, base);
     if (end && *end == '\0' && errno == 0 && (value == 0 || !is_negative)) {
-      return rtc::Optional<unsigned_type>(value);
+      return value;
     }
   }
-  return rtc::Optional<unsigned_type>();
+  return absl::nullopt;
 }
 
 }  // namespace string_to_number_internal

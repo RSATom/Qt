@@ -161,7 +161,7 @@ QQmlComponent *QQuickControlSettings1::styleComponent(const QUrl &styleDirUrl, c
         styleFileUrl = makeStyleComponentUrl(controlStyleName, m_styleMap.value(QStringLiteral("Base")).m_styleDirPath);
     }
 
-    return new QQmlComponent(qmlEngine(control), styleFileUrl);
+    return new QQmlComponent(qmlEngine(control), styleFileUrl, this);
 }
 
 static QString relativeStyleImportPath(QQmlEngine *engine, const QString &styleName)

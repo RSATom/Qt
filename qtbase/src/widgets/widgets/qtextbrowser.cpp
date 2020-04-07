@@ -47,7 +47,9 @@
 #include <qdebug.h>
 #include <qabstracttextdocumentlayout.h>
 #include "private/qtextdocumentlayout_p.h"
+#if QT_CONFIG(textcodec)
 #include <qtextcodec.h>
+#endif
 #include <qpainter.h>
 #include <qdir.h>
 #if QT_CONFIG(whatsthis)
@@ -135,7 +137,7 @@ public:
     void setSource(const QUrl &url);
 
     // re-imlemented from QTextEditPrivate
-    virtual QUrl resolveUrl(const QUrl &url) const Q_DECL_OVERRIDE;
+    virtual QUrl resolveUrl(const QUrl &url) const override;
     inline QUrl resolveUrl(const QString &url) const
     { return resolveUrl(QUrl(url)); }
 
@@ -163,10 +165,13 @@ QString QTextBrowserPrivate::findFile(const QUrl &name) const
             fileName = name.toLocalFile();
     }
 
+    if (fileName.isEmpty())
+        return fileName;
+
     if (QFileInfo(fileName).isAbsolute())
         return fileName;
 
-    foreach (QString path, searchPaths) {
+    for (QString path : qAsConst(searchPaths)) {
         if (!path.endsWith(QLatin1Char('/')))
             path.append(QLatin1Char('/'));
         path.append(fileName);
@@ -290,7 +295,7 @@ void QTextBrowserPrivate::setSource(const QUrl &url)
         if (data.type() == QVariant::String) {
             txt = data.toString();
         } else if (data.type() == QVariant::ByteArray) {
-#ifndef QT_NO_TEXTCODEC
+#if QT_CONFIG(textcodec)
             QByteArray ba = data.toByteArray();
             QTextCodec *codec = Qt::codecForHtml(ba);
             txt = codec->toUnicode(ba);
@@ -1089,6 +1094,8 @@ QVariant QTextBrowser::loadResource(int /*type*/, const QUrl &name)
 
     QByteArray data;
     QString fileName = d->findFile(d->resolveUrl(name));
+    if (fileName.isEmpty())
+        return QVariant();
     QFile f(fileName);
     if (f.open(QFile::ReadOnly)) {
         data = f.readAll();

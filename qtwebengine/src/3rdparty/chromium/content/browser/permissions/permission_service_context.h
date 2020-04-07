@@ -10,7 +10,7 @@
 #include "content/public/browser/permission_type.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "mojo/public/cpp/bindings/strong_binding_set.h"
-#include "third_party/WebKit/public/platform/modules/permissions/permission.mojom.h"
+#include "third_party/blink/public/platform/modules/permissions/permission.mojom.h"
 
 namespace url {
 class Origin;
@@ -33,6 +33,8 @@ class CONTENT_EXPORT PermissionServiceContext : public WebContentsObserver {
   ~PermissionServiceContext() override;
 
   void CreateService(blink::mojom::PermissionServiceRequest request);
+  void CreateServiceForWorker(blink::mojom::PermissionServiceRequest request,
+                              const url::Origin& origin);
 
   void CreateSubscription(PermissionType permission_type,
                           const url::Origin& origin,
@@ -41,13 +43,22 @@ class CONTENT_EXPORT PermissionServiceContext : public WebContentsObserver {
   // Called when the connection to a PermissionObserver has an error.
   void ObserverHadConnectionError(int subscription_id);
 
+  // May return nullptr during teardown, or when showing an interstitial.
   BrowserContext* GetBrowserContext() const;
+
   GURL GetEmbeddingOrigin() const;
 
   RenderFrameHost* render_frame_host() const;
+  RenderProcessHost* render_process_host() const {
+    return render_process_host_;
+  }
 
  private:
   class PermissionSubscription;
+
+  void CreateServiceForWorkerImpl(
+      blink::mojom::PermissionServiceRequest request,
+      const url::Origin& origin);
 
   // WebContentsObserver
   void RenderFrameHostChanged(RenderFrameHost* old_host,

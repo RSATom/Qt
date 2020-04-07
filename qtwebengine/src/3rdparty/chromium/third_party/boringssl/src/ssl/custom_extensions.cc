@@ -25,6 +25,8 @@
 #include "internal.h"
 
 
+namespace bssl {
+
 void SSL_CUSTOM_EXTENSION_free(SSL_CUSTOM_EXTENSION *custom_extension) {
   OPENSSL_free(custom_extension);
 }
@@ -45,9 +47,9 @@ static const SSL_CUSTOM_EXTENSION *custom_ext_find(
   return NULL;
 }
 
-/* default_add_callback is used as the |add_callback| when the user doesn't
- * provide one. For servers, it does nothing while, for clients, it causes an
- * empty extension to be included. */
+// default_add_callback is used as the |add_callback| when the user doesn't
+// provide one. For servers, it does nothing while, for clients, it causes an
+// empty extension to be included.
 static int default_add_callback(SSL *ssl, unsigned extension_value,
                                 const uint8_t **out, size_t *out_len,
                                 int *out_alert_value, void *add_arg) {
@@ -69,20 +71,12 @@ static int custom_ext_add_hello(SSL_HANDSHAKE *hs, CBB *extensions) {
     return 1;
   }
 
-  if (ssl->cert->enable_early_data) {
-    /* TODO(svaldez): Support Custom Extensions with 0-RTT. For now the caller
-     * is expected not to configure both together.
-     * https://crbug.com/boringssl/173. */
-    OPENSSL_PUT_ERROR(SSL, SSL_R_CUSTOM_EXTENSION_ERROR);
-    return 0;
-  }
-
   for (size_t i = 0; i < sk_SSL_CUSTOM_EXTENSION_num(stack); i++) {
     const SSL_CUSTOM_EXTENSION *ext = sk_SSL_CUSTOM_EXTENSION_value(stack, i);
 
     if (ssl->server &&
         !(hs->custom_extensions.received & (1u << i))) {
-      /* Servers cannot echo extensions that the client didn't send. */
+      // Servers cannot echo extensions that the client didn't send.
       continue;
     }
 
@@ -120,7 +114,7 @@ static int custom_ext_add_hello(SSL_HANDSHAKE *hs, CBB *extensions) {
         break;
 
       default:
-        ssl3_send_alert(ssl, SSL3_AL_FATAL, alert);
+        ssl_send_alert(ssl, SSL3_AL_FATAL, alert);
         OPENSSL_PUT_ERROR(SSL, SSL_R_CUSTOM_EXTENSION_ERROR);
         ERR_add_error_dataf("extension %u", (unsigned) ext->value);
         return 0;
@@ -141,9 +135,9 @@ int custom_ext_parse_serverhello(SSL_HANDSHAKE *hs, int *out_alert,
   const SSL_CUSTOM_EXTENSION *ext =
       custom_ext_find(ssl->ctx->client_custom_extensions, &index, value);
 
-  if (/* Unknown extensions are not allowed in a ServerHello. */
+  if (// Unknown extensions are not allowed in a ServerHello.
       ext == NULL ||
-      /* Also, if we didn't send the extension, that's also unacceptable. */
+      // Also, if we didn't send the extension, that's also unacceptable.
       !(hs->custom_extensions.sent & (1u << index))) {
     OPENSSL_PUT_ERROR(SSL, SSL_R_UNEXPECTED_EXTENSION);
     ERR_add_error_dataf("extension %u", (unsigned)value);
@@ -191,9 +185,9 @@ int custom_ext_add_serverhello(SSL_HANDSHAKE *hs, CBB *extensions) {
   return custom_ext_add_hello(hs, extensions);
 }
 
-/* MAX_NUM_CUSTOM_EXTENSIONS is the maximum number of custom extensions that
- * can be set on an |SSL_CTX|. It's determined by the size of the bitset used
- * to track when an extension has been sent. */
+// MAX_NUM_CUSTOM_EXTENSIONS is the maximum number of custom extensions that
+// can be set on an |SSL_CTX|. It's determined by the size of the bitset used
+// to track when an extension has been sent.
 #define MAX_NUM_CUSTOM_EXTENSIONS \
   (sizeof(((SSL_HANDSHAKE *)NULL)->custom_extensions.sent) * 8)
 
@@ -206,8 +200,8 @@ static int custom_ext_append(STACK_OF(SSL_CUSTOM_EXTENSION) **stack,
   if (add_cb == NULL ||
       0xffff < extension_value ||
       SSL_extension_supported(extension_value) ||
-      /* Specifying a free callback without an add callback is nonsensical
-       * and an error. */
+      // Specifying a free callback without an add callback is nonsensical
+      // and an error.
       (*stack != NULL &&
        (MAX_NUM_CUSTOM_EXTENSIONS <= sk_SSL_CUSTOM_EXTENSION_num(*stack) ||
         custom_ext_find(*stack, NULL, extension_value) != NULL))) {
@@ -245,6 +239,10 @@ static int custom_ext_append(STACK_OF(SSL_CUSTOM_EXTENSION) **stack,
 
   return 1;
 }
+
+}  // namespace bssl
+
+using namespace bssl;
 
 int SSL_CTX_add_client_custom_ext(SSL_CTX *ctx, unsigned extension_value,
                                   SSL_custom_ext_add_cb add_cb,

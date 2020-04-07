@@ -59,7 +59,6 @@ std::unique_ptr<CBC_CommonByteMatrix> encodeLowLevel(
   ASSERT(height);
 
   auto matrix = pdfium::MakeUnique<CBC_CommonByteMatrix>(width, height);
-  matrix->Init();
   int32_t matrixY = 0;
   for (int32_t y = 0; y < symbolHeight; y++) {
     int32_t matrixX;
@@ -108,15 +107,15 @@ bool CBC_DataMatrixWriter::SetErrorCorrectionLevel(int32_t level) {
   return true;
 }
 
-uint8_t* CBC_DataMatrixWriter::Encode(const CFX_WideString& contents,
+uint8_t* CBC_DataMatrixWriter::Encode(const WideString& contents,
                                       int32_t& outWidth,
                                       int32_t& outHeight) {
   if (outWidth < 0 || outHeight < 0)
     return nullptr;
 
-  CFX_WideString ecLevel;
+  WideString ecLevel;
   int32_t e = BCExceptionNO;
-  CFX_WideString encoded =
+  WideString encoded =
       CBC_HighLevelEncoder::encodeHighLevel(contents, ecLevel, false, e);
   if (e != BCExceptionNO)
     return nullptr;
@@ -124,7 +123,7 @@ uint8_t* CBC_DataMatrixWriter::Encode(const CFX_WideString& contents,
       CBC_SymbolInfo::lookup(encoded.GetLength(), false, e);
   if (e != BCExceptionNO)
     return nullptr;
-  CFX_WideString codewords =
+  WideString codewords =
       CBC_ErrorCorrection::encodeECC200(encoded, symbolInfo, e);
   if (e != BCExceptionNO)
     return nullptr;
@@ -144,6 +143,6 @@ uint8_t* CBC_DataMatrixWriter::Encode(const CFX_WideString& contents,
   outWidth = bytematrix->GetWidth();
   outHeight = bytematrix->GetHeight();
   uint8_t* result = FX_Alloc2D(uint8_t, outWidth, outHeight);
-  memcpy(result, bytematrix->GetArray(), outWidth * outHeight);
+  memcpy(result, bytematrix->GetArray().data(), outWidth * outHeight);
   return result;
 }

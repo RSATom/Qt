@@ -2683,7 +2683,7 @@ Do you want to delete it anyway?</source>
         <location line="+31"/>
         <location filename="../src/corelib/plugin/qlibrary_win.cpp" line="+15"/>
         <source>Cannot resolve symbol &quot;%1&quot; in %2: %3</source>
-        <translation>无法解析%2中的符号“%2”：%3</translation>
+        <translation>无法解析%2中的符号“%1”：%3</translation>
     </message>
 </context>
 <context>

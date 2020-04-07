@@ -12,8 +12,8 @@
 Usage:
 ################################################################################
 cat << EOF > test_fuzzer.cc
-#include <stdint.h>
 #include <stddef.h>
+#include <stdint.h>
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
   if (size > 0 && data[0] == 'H')
     if (size > 1 && data[1] == 'I')
@@ -22,8 +22,8 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
   return 0;
 }
 EOF
-# Build your target with -fsanitize-coverage=trace-pc using fresh clang.
-clang -g -fsanitize-coverage=trace-pc test_fuzzer.cc -c
+# Build your target with -fsanitize-coverage=trace-pc-guard using fresh clang.
+clang -g -fsanitize-coverage=trace-pc-guard test_fuzzer.cc -c
 # Build afl-llvm-rt.o.c from the AFL distribution.
 clang -c -w $AFL_HOME/llvm_mode/afl-llvm-rt.o.c
 # Build this file, link it with afl-llvm-rt.o.o and the target code.
@@ -50,34 +50,63 @@ statistics from the file. If that fails then the process will quit.
 
 */
 #include <assert.h>
-#include <stdio.h>
-#include <stdint.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
 #include <errno.h>
 #include <signal.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <sys/resource.h>
 #include <sys/time.h>
+#include <unistd.h>
+
+#include <fstream>
+#include <iostream>
+#include <vector>
+
 // Platform detection. Copied from FuzzerInternal.h
 #ifdef __linux__
 #define LIBFUZZER_LINUX 1
 #define LIBFUZZER_APPLE 0
+#define LIBFUZZER_NETBSD 0
+#define LIBFUZZER_FREEBSD 0
+#define LIBFUZZER_OPENBSD 0
 #elif __APPLE__
 #define LIBFUZZER_LINUX 0
 #define LIBFUZZER_APPLE 1
+#define LIBFUZZER_NETBSD 0
+#define LIBFUZZER_FREEBSD 0
+#define LIBFUZZER_OPENBSD 0
+#elif __NetBSD__
+#define LIBFUZZER_LINUX 0
+#define LIBFUZZER_APPLE 0
+#define LIBFUZZER_NETBSD 1
+#define LIBFUZZER_FREEBSD 0
+#define LIBFUZZER_OPENBSD 0
+#elif __FreeBSD__
+#define LIBFUZZER_LINUX 0
+#define LIBFUZZER_APPLE 0
+#define LIBFUZZER_NETBSD 0
+#define LIBFUZZER_FREEBSD 1
+#define LIBFUZZER_OPENBSD 0
+#elif __OpenBSD__
+#define LIBFUZZER_LINUX 0
+#define LIBFUZZER_APPLE 0
+#define LIBFUZZER_NETBSD 0
+#define LIBFUZZER_FREEBSD 0
+#define LIBFUZZER_OPENBSD 1
 #else
 #error "Support for your platform has not been implemented"
 #endif
 
 // Used to avoid repeating error checking boilerplate. If cond is false, a
-// fatal error has occured in the program. In this event print error_message
+// fatal error has occurred in the program. In this event print error_message
 // to stderr and abort(). Otherwise do nothing. Note that setting
 // AFL_DRIVER_STDERR_DUPLICATE_FILENAME may cause error_message to be appended
 // to the file as well, if the error occurs after the duplication is performed.
 #define CHECK_ERROR(cond, error_message)                                       \
   if (!(cond)) {                                                               \
-    fprintf(stderr, (error_message));                                          \
+    fprintf(stderr, "%s\n", (error_message));                                  \
     abort();                                                                   \
   }
 
@@ -109,12 +138,24 @@ static const int kNumExtraStats = 2;
 static const char *kExtraStatsFormatString = "peak_rss_mb            : %u\n"
                                              "slowest_unit_time_sec  : %u\n";
 
+// Experimental feature to use afl_driver without AFL's deferred mode.
+// Needs to run before __afl_auto_init.
+__attribute__((constructor(0))) void __decide_deferred_forkserver(void) {
+  if (getenv("AFL_DRIVER_DONT_DEFER")) {
+    if (unsetenv("__AFL_DEFER_FORKSRV")) {
+      perror("Failed to unset __AFL_DEFER_FORKSRV");
+      abort();
+    }
+  }
+}
+
 // Copied from FuzzerUtil.cpp.
 size_t GetPeakRSSMb() {
   struct rusage usage;
   if (getrusage(RUSAGE_SELF, &usage))
     return 0;
-  if (LIBFUZZER_LINUX) {
+  if (LIBFUZZER_LINUX || LIBFUZZER_NETBSD || LIBFUZZER_FREEBSD ||
+      LIBFUZZER_OPENBSD) {
     // ru_maxrss is in KiB
     return usage.ru_maxrss >> 10;
   } else if (LIBFUZZER_APPLE) {
@@ -245,17 +286,39 @@ extern "C" size_t LLVMFuzzerMutate(uint8_t *Data, size_t Size, size_t MaxSize) {
   return 0;
 }
 
+// Execute any files provided as parameters.
+int ExecuteFilesOnyByOne(int argc, char **argv) {
+  for (int i = 1; i < argc; i++) {
+    std::ifstream in(argv[i]);
+    in.seekg(0, in.end);
+    size_t length = in.tellg();
+    in.seekg (0, in.beg);
+    std::cout << "Reading " << length << " bytes from " << argv[i] << std::endl;
+    // Allocate exactly length bytes so that we reliably catch buffer overflows.
+    std::vector<char> bytes(length);
+    in.read(bytes.data(), bytes.size());
+    assert(in);
+    LLVMFuzzerTestOneInput(reinterpret_cast<const uint8_t *>(bytes.data()),
+                           bytes.size());
+    std::cout << "Execution successful" << std::endl;
+  }
+  return 0;
+}
+
 int main(int argc, char **argv) {
-  fprintf(stderr, "======================= INFO =========================\n"
-                  "This binary is built for AFL-fuzz.\n"
-                  "To run the target function on a single input execute this:\n"
-                  "  %s < INPUT_FILE\n"
-                  "To run the fuzzing execute this:\n"
-                  "  afl-fuzz [afl-flags] %s [N] "
-                  "-- run N fuzzing iterations before "
-                  "re-spawning the process (default: 1000)\n"
-                  "======================================================\n",
-          argv[0], argv[0]);
+  fprintf(stderr,
+      "======================= INFO =========================\n"
+      "This binary is built for AFL-fuzz.\n"
+      "To run the target function on individual input(s) execute this:\n"
+      "  %s < INPUT_FILE\n"
+      "or\n"
+      "  %s INPUT_FILE1 [INPUT_FILE2 ... ]\n"
+      "To fuzz with afl-fuzz execute this:\n"
+      "  afl-fuzz [afl-flags] %s [-N]\n"
+      "afl-fuzz will run N iterations before "
+      "re-spawning the process (default: 1000)\n"
+      "======================================================\n",
+          argv[0], argv[0], argv[0]);
   if (LLVMFuzzerInitialize)
     LLVMFuzzerInitialize(&argc, &argv);
   // Do any other expensive one-time initialization here.
@@ -263,12 +326,25 @@ int main(int argc, char **argv) {
   maybe_duplicate_stderr();
   maybe_initialize_extra_stats();
 
-  __afl_manual_init();
+  if (!getenv("AFL_DRIVER_DONT_DEFER"))
+    __afl_manual_init();
 
   int N = 1000;
-  if (argc >= 2)
-    N = atoi(argv[1]);
+  if (argc == 2 && argv[1][0] == '-')
+      N = atoi(argv[1] + 1);
+  else if(argc == 2 && (N = atoi(argv[1])) > 0)
+      fprintf(stderr, "WARNING: using the deprecated call style `%s %d`\n",
+              argv[0], N);
+  else if (argc > 1)
+    return ExecuteFilesOnyByOne(argc, argv);
+
   assert(N > 0);
+
+  // Call LLVMFuzzerTestOneInput here so that coverage caused by initialization
+  // on the first execution of LLVMFuzzerTestOneInput is ignored.
+  uint8_t dummy_input[1] = {0};
+  LLVMFuzzerTestOneInput(dummy_input, 1);
+
   time_t unit_time_secs;
   int num_runs = 0;
   while (__afl_persistent_loop(N)) {

@@ -9,6 +9,7 @@
 import json
 import optparse
 import os.path
+import re
 import subprocess
 import sys
 
@@ -119,11 +120,6 @@ PATH_SPECIFIC_WHITELISTED_LICENSES = {
         'UNKNOWN',
     ],
 
-    # http://code.google.com/p/google-breakpad/issues/detail?id=450
-    'breakpad/src': [
-        'UNKNOWN',
-    ],
-
     'buildtools/third_party/libc++/trunk/test': [
         # http://llvm.org/bugs/show_bug.cgi?id=25980
         'UNKNOWN',
@@ -172,6 +168,8 @@ PATH_SPECIFIC_WHITELISTED_LICENSES = {
         'UNKNOWN',
     ],
 
+    # TODO(tkent): Remove this entry after the move is completed.
+    # crbug.com/622551
     'third_party/WebKit': [
         'UNKNOWN',
     ],
@@ -183,6 +181,15 @@ PATH_SPECIFIC_WHITELISTED_LICENSES = {
 
     # http://code.google.com/p/angleproject/issues/detail?id=217
     'third_party/angle': [
+        'UNKNOWN',
+    ],
+
+    'third_party/blink': [
+        'UNKNOWN',
+    ],
+
+    # https://crbug.com/google-breakpad/450
+    'third_party/breakpad/breakpad': [
         'UNKNOWN',
     ],
 
@@ -426,14 +433,16 @@ PATH_SPECIFIC_WHITELISTED_LICENSES = {
         'UNKNOWN',
     ],
 
+    # The following files have a special license.
+    'third_party/libovr/src': [
+        'UNKNOWN',
+    ],
+
     # The following files lack license headers, but are trivial.
     'third_party/libusb/src/libusb/os/poll_posix.h': [
         'UNKNOWN',
     ],
 
-    'third_party/libvpx/source': [  # http://crbug.com/98319
-        'UNKNOWN',
-    ],
     'third_party/libxml': [
         'UNKNOWN',
     ],
@@ -458,9 +467,6 @@ PATH_SPECIFIC_WHITELISTED_LICENSES = {
     ],
     'third_party/openmax_dl/dl' : [
         'Khronos Group',
-    ],
-    'third_party/opus/src/autogen.sh' : [  # https://trac.xiph.org/ticket/2253#ticket
-        'UNKNOWN',
     ],
     'third_party/boringssl': [
         # There are some files in BoringSSL which came from OpenSSL and have no
@@ -602,6 +608,10 @@ PATH_SPECIFIC_WHITELISTED_LICENSES = {
     'tools/gyp/test': [
         'UNKNOWN',
     ],
+    # Perf test data from Google Maps team. Not shipped.
+    'tools/perf/page_sets/maps_perf_test': [
+        'UNKNOWN',
+    ],
     'tools/python/google/__init__.py': [
         'UNKNOWN',
     ],
@@ -646,17 +656,13 @@ PATH_SPECIFIC_WHITELISTED_LICENSES = {
 
 EXCLUDED_PATHS = [
     # Don't check generated files
-    'out/',
+    re.compile('^out/'),
 
     # Don't check downloaded goma client binaries
-    'build/goma/client/',
+    re.compile('^build/goma/client/'),
 
     # Don't check sysroot directories
-    'build/linux/debian_jessie_arm64-sysroot/',
-    'build/linux/debian_jessie_amd64-sysroot/',
-    'build/linux/debian_jessie_arm-sysroot/',
-    'build/linux/debian_jessie_i386-sysroot/',
-    'build/linux/debian_jessie_mips-sysroot/',
+    re.compile('^build/linux/.+-sysroot/'),
 ]
 
 
@@ -708,7 +714,7 @@ def check_licenses(options, args):
     filename = os.path.relpath(filename.strip(), options.base_directory)
 
     # Check if the file belongs to one of the excluded paths.
-    if any((filename.startswith(path) for path in EXCLUDED_PATHS)):
+    if any((pattern.match(filename) for pattern in EXCLUDED_PATHS)):
       continue
 
     # For now we're just interested in the license.

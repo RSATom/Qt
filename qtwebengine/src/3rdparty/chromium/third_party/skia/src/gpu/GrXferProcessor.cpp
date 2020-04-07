@@ -6,17 +6,20 @@
  */
 
 #include "GrXferProcessor.h"
-#include "GrPipeline.h"
-#include "gl/GrGLCaps.h"
 
-GrXferProcessor::GrXferProcessor()
-        : fWillReadDstColor(false)
+#include "GrCaps.h"
+#include "GrPipeline.h"
+
+GrXferProcessor::GrXferProcessor(ClassID classID)
+        : INHERITED(classID)
+        , fWillReadDstColor(false)
         , fDstReadUsesMixedSamples(false)
         , fIsLCD(false) {}
 
-GrXferProcessor::GrXferProcessor(bool willReadDstColor, bool hasMixedSamples,
+GrXferProcessor::GrXferProcessor(ClassID classID, bool willReadDstColor, bool hasMixedSamples,
                                  GrProcessorAnalysisCoverage coverage)
-        : fWillReadDstColor(willReadDstColor)
+        : INHERITED(classID)
+        , fWillReadDstColor(willReadDstColor)
         , fDstReadUsesMixedSamples(willReadDstColor && hasMixedSamples)
         , fIsLCD(GrProcessorAnalysisCoverage::kLCD == coverage) {}
 

@@ -29,10 +29,10 @@
 #include "signalsloteditor_plugin.h"
 #include "signalsloteditor_tool.h"
 
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerFormWindowManagerInterface>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/abstractformwindowmanager.h>
 
-#include <QtWidgets/QAction>
+#include <QtWidgets/qaction.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -43,9 +43,7 @@ SignalSlotEditorPlugin::SignalSlotEditorPlugin()
 {
 }
 
-SignalSlotEditorPlugin::~SignalSlotEditorPlugin()
-{
-}
+SignalSlotEditorPlugin::~SignalSlotEditorPlugin() = default;
 
 bool SignalSlotEditorPlugin::isInitialized() const
 {

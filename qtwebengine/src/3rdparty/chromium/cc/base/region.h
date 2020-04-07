@@ -13,11 +13,17 @@
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/skia_util.h"
 
+class SkPath;
+
 namespace base {
 class Value;
 namespace trace_event {
 class TracedValue;
 }
+}
+
+namespace gfx {
+class Vector2d;
 }
 
 namespace cc {
@@ -26,17 +32,20 @@ class SimpleEnclosedRegion;
 class CC_BASE_EXPORT Region {
  public:
   Region();
+  explicit Region(const SkRegion& region);
   Region(const Region& region);
   Region(const gfx::Rect& rect);  // NOLINT(runtime/explicit)
   ~Region();
 
   const Region& operator=(const gfx::Rect& rect);
   const Region& operator=(const Region& region);
+  const Region& operator+=(const gfx::Vector2d& offset);
 
   void Swap(Region* region);
   void Clear();
   bool IsEmpty() const;
   int GetRegionComplexity() const;
+  void GetBoundaryPath(SkPath* path) const;
 
   bool Contains(const gfx::Point& point) const;
   bool Contains(const gfx::Rect& rect) const;
@@ -65,27 +74,38 @@ class CC_BASE_EXPORT Region {
   std::unique_ptr<base::Value> AsValue() const;
   void AsValueInto(base::trace_event::TracedValue* array) const;
 
+  // Iterator for iterating through the gfx::Rects contained in this Region.
+  // We only support forward iteration as the underlying SkRegion::Iterator
+  // only supports forward iteration.
   class CC_BASE_EXPORT Iterator {
    public:
-    Iterator();
-    explicit Iterator(const Region& region);
-    ~Iterator();
+    Iterator() = default;
+    ~Iterator() = default;
 
-    gfx::Rect rect() const {
-      return gfx::SkIRectToRect(it_.rect());
-    }
+    gfx::Rect operator*() const { return gfx::SkIRectToRect(it_.rect()); }
 
-    void next() {
+    Iterator& operator++() {
       it_.next();
+      return *this;
     }
 
-    bool has_rect() const {
-      return !it_.done();
+    bool operator==(const Iterator& b) const {
+      // This should only be used to compare to end().
+      DCHECK(b.it_.done());
+      return it_.done();
     }
+
+    bool operator!=(const Iterator& b) const { return !(*this == b); }
 
    private:
+    explicit Iterator(const Region& region);
+    friend class Region;
+
     SkRegion::Iterator it_;
   };
+
+  Iterator begin() const;
+  Iterator end() const { return Iterator(); }
 
  private:
   SkRegion skregion_;
@@ -97,6 +117,12 @@ inline bool operator==(const Region& a, const Region& b) {
 
 inline bool operator!=(const Region& a, const Region& b) {
   return !(a == b);
+}
+
+inline Region operator+(const Region& a, const gfx::Vector2d& b) {
+  Region result = a;
+  result += b;
+  return result;
 }
 
 inline Region SubtractRegions(const Region& a, const Region& b) {

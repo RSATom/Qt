@@ -8,8 +8,8 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/rtc_base/nullsocketserver.h"
-#include "webrtc/rtc_base/checks.h"
+#include "rtc_base/nullsocketserver.h"
+#include "rtc_base/checks.h"
 
 namespace rtc {
 
@@ -25,17 +25,7 @@ void NullSocketServer::WakeUp() {
   event_.Set();
 }
 
-rtc::Socket* NullSocketServer::CreateSocket(int /* type */) {
-  RTC_NOTREACHED();
-  return nullptr;
-}
-
 rtc::Socket* NullSocketServer::CreateSocket(int /* family */, int /* type */) {
-  RTC_NOTREACHED();
-  return nullptr;
-}
-
-rtc::AsyncSocket* NullSocketServer::CreateAsyncSocket(int /* type */) {
   RTC_NOTREACHED();
   return nullptr;
 }

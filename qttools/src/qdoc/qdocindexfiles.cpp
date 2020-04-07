@@ -189,12 +189,16 @@ void QDocIndexFiles::readIndexSection(QXmlStreamReader& reader,
         lineNo = attributes.value("lineno").toInt();
     }
     if (elementName == QLatin1String("namespace")) {
-        node = new NamespaceNode(parent, name);
-
+        NamespaceNode* ns = new NamespaceNode(parent, name);
+        node = ns;
         if (!indexUrl.isEmpty())
             location = Location(indexUrl + QLatin1Char('/') + name.toLower() + ".html");
         else if (!indexUrl.isNull())
             location = Location(name.toLower() + ".html");
+        if (attributes.hasAttribute(QLatin1String("documented"))) {
+            if (attributes.value(QLatin1String("documented")) == QLatin1String("true"))
+                ns->setDocumented();
+        }
 
     }
     else if (elementName == QLatin1String("class")) {
@@ -494,6 +498,11 @@ void QDocIndexFiles::readIndexSection(QXmlStreamReader& reader,
         functionNode->setIsDefaulted(attributes.value(QLatin1String("default")) == QLatin1String("true"));
         functionNode->setFinal(attributes.value(QLatin1String("final")) == QLatin1String("true"));
         functionNode->setOverride(attributes.value(QLatin1String("override")) == QLatin1String("true"));
+        int refness = attributes.value(QLatin1String("refness")).toUInt();
+        if (refness == 1)
+            functionNode->setRef(true);
+        else if (refness == 2)
+            functionNode->setRefRef(true);
         if (attributes.value(QLatin1String("overload")) == QLatin1String("true")) {
             functionNode->setOverloadFlag(true);
             functionNode->setOverloadNumber(attributes.value(QLatin1String("overload-number")).toUInt());
@@ -518,8 +527,7 @@ void QDocIndexFiles::readIndexSection(QXmlStreamReader& reader,
             if (reader.name() == QLatin1String("parameter")) {
                 // Do not use the default value for the parameter; it is not
                 // required, and has been known to cause problems.
-                Parameter parameter(childAttributes.value(QLatin1String("left")).toString(),
-                                    childAttributes.value(QLatin1String("right")).toString(),
+                Parameter parameter(childAttributes.value(QLatin1String("type")).toString(),
                                     childAttributes.value(QLatin1String("name")).toString(),
                                     QString()); // childAttributes.value(QLatin1String("default"))
                 functionNode->addParameter(parameter);
@@ -591,9 +599,7 @@ void QDocIndexFiles::readIndexSection(QXmlStreamReader& reader,
             node->setThreadSafeness(Node::UnspecifiedSafeness);
 
         QString status = attributes.value(QLatin1String("status")).toString();
-        if (status == QLatin1String("compat"))
-            node->setStatus(Node::Compat);
-        else if (status == QLatin1String("obsolete"))
+        if (status == QLatin1String("obsolete"))
             node->setStatus(Node::Obsolete);
         else if (status == QLatin1String("deprecated"))
             node->setStatus(Node::Obsolete);
@@ -637,7 +643,7 @@ void QDocIndexFiles::readIndexSection(QXmlStreamReader& reader,
             node->setLocation(t);
             location = t;
         }
-        Doc doc(location, location, " ", emptySet, emptySet); // placeholder
+        Doc doc(location, location, QString(), emptySet, emptySet); // placeholder
         node->setDoc(doc);
         node->setIndexNodeFlag();
         node->setOutputSubdirectory(project_.toLower());
@@ -759,6 +765,10 @@ bool QDocIndexFiles::generateIndexSection(QXmlStreamWriter& writer,
                                           Node* node,
                                           bool generateInternalNodes)
 {
+    if (!gen_)
+        gen_ = Generator::currentGenerator();
+
+    Q_ASSERT(gen_);
     /*
       Don't include index nodes in a new index file. Or DITA map nodes.
      */
@@ -909,9 +919,6 @@ bool QDocIndexFiles::generateIndexSection(QXmlStreamWriter& writer,
 
     QString status;
     switch (node->status()) {
-    case Node::Compat:
-        status = "compat";
-        break;
     case Node::Obsolete:
         status = "obsolete";
         break;
@@ -1016,6 +1023,8 @@ bool QDocIndexFiles::generateIndexSection(QXmlStreamWriter& writer,
                 ClassNode* n = related.node_;
                 if (n)
                     baseStrings.insert(n->fullName());
+                else if (!related.path_.isEmpty())
+                    baseStrings.insert(related.path_.join(QLatin1String("::")));
             }
             if (!baseStrings.isEmpty())
             {
@@ -1033,11 +1042,12 @@ bool QDocIndexFiles::generateIndexSection(QXmlStreamWriter& writer,
         break;
     case Node::Namespace:
         {
-            const NamespaceNode* namespaceNode = static_cast<const NamespaceNode*>(node);
-            if (!namespaceNode->physicalModuleName().isEmpty())
-                writer.writeAttribute("module", namespaceNode->physicalModuleName());
-            if (!namespaceNode->groupNames().isEmpty())
-                writer.writeAttribute("groups", namespaceNode->groupNames().join(QLatin1Char(',')));
+            const NamespaceNode* ns = static_cast<const NamespaceNode*>(node);
+            writer.writeAttribute("documented", ns->hasDoc() ? "true" : "false");
+            if (!ns->physicalModuleName().isEmpty())
+                writer.writeAttribute("module", ns->physicalModuleName());
+            if (!ns->groupNames().isEmpty())
+                writer.writeAttribute("groups", ns->groupNames().join(QLatin1Char(',')));
             if (!brief.isEmpty())
                 writer.writeAttribute("brief", brief);
         }
@@ -1191,6 +1201,10 @@ bool QDocIndexFiles::generateIndexSection(QXmlStreamWriter& writer,
             writer.writeAttribute("default", functionNode->isDefaulted() ? "true" : "false");
             writer.writeAttribute("final", functionNode->isFinal() ? "true" : "false");
             writer.writeAttribute("override", functionNode->isOverride() ? "true" : "false");
+            if (functionNode->isRef())
+                writer.writeAttribute("refness", QString::number(1));
+            else if (functionNode->isRefRef())
+                writer.writeAttribute("refness", QString::number(2));
             if (functionNode->isOverload())
                 writer.writeAttribute("overload-number", QString::number(functionNode->overloadNumber()));
             if (functionNode->relates()) {
@@ -1210,11 +1224,11 @@ bool QDocIndexFiles::generateIndexSection(QXmlStreamWriter& writer,
 
             /*
               Note: The "signature" attribute is written to the
-              index file, but it is not read back in. Is that ok?
+              index file, but it is not read back in by qdoc. However,
+              we need it for the webxml generator.
             */
             QString signature = functionNode->signature(false);
-            if (functionNode->isConst())
-                signature += " const";
+            // 'const' is already part of FunctionNode::signature()
             if (functionNode->isFinal())
                 signature += " final";
             if (functionNode->isOverride())
@@ -1230,8 +1244,7 @@ bool QDocIndexFiles::generateIndexSection(QXmlStreamWriter& writer,
             for (int i = 0; i < functionNode->parameters().size(); ++i) {
                 Parameter parameter = functionNode->parameters()[i];
                 writer.writeStartElement("parameter");
-                writer.writeAttribute("left", parameter.dataType());
-                writer.writeAttribute("right", parameter.rightType());
+                writer.writeAttribute("type", parameter.dataType());
                 writer.writeAttribute("name", parameter.name());
                 writer.writeAttribute("default", parameter.defaultValue());
                 writer.writeEndElement(); // parameter
@@ -1373,18 +1386,18 @@ bool QDocIndexFiles::generateIndexSection(QXmlStreamWriter& writer,
         }
     }
 
-    // Inner nodes and function nodes contain child nodes of some sort, either
-    // actual child nodes or function parameters. For these, we close the
-    // opening tag, create child elements, then add a closing tag for the
-    // element. Elements for all other nodes are closed in the opening tag.
-
-    if (node->isAggregate()) {
-        const Aggregate* inner = static_cast<const Aggregate*>(node);
-
-        if (inner->doc().hasTableOfContents()) {
-            for (int i = 0; i < inner->doc().tableOfContents().size(); ++i) {
-                Atom* item = inner->doc().tableOfContents()[i];
-                int level = inner->doc().tableOfContentsLevels()[i];
+    /*
+      Some nodes have a table of contents. For these, we close
+      the opening tag, create sub-elements for the items in the
+      table of contents, and then add a closing tag for the
+      element. Elements for all other nodes are closed in the
+      opening tag.
+    */
+    if (node->isAggregate() || node->isCollectionNode()) {
+        if (node->doc().hasTableOfContents()) {
+            for (int i = 0; i < node->doc().tableOfContents().size(); ++i) {
+                Atom* item = node->doc().tableOfContents()[i];
+                int level = node->doc().tableOfContentsLevels()[i];
                 QString title = Text::sectionHeading(item).toString();
                 writer.writeStartElement("contents");
                 writer.writeAttribute("name", Doc::canonicalTitle(title));

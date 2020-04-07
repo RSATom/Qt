@@ -48,7 +48,7 @@ EGLSurface eglCreatePixmapSurfaceFn(EGLDisplay dpy,
                                     const EGLint* attrib_list) override;
 EGLStreamKHR eglCreateStreamKHRFn(EGLDisplay dpy,
                                   const EGLint* attrib_list) override;
-EGLBoolean eglCreateStreamProducerD3DTextureNV12ANGLEFn(
+EGLBoolean eglCreateStreamProducerD3DTextureANGLEFn(
     EGLDisplay dpy,
     EGLStreamKHR stream,
     EGLAttrib* attrib_list) override;
@@ -59,11 +59,32 @@ EGLSurface eglCreateWindowSurfaceFn(EGLDisplay dpy,
                                     EGLConfig config,
                                     EGLNativeWindowType win,
                                     const EGLint* attrib_list) override;
+EGLint eglDebugMessageControlKHRFn(EGLDEBUGPROCKHR callback,
+                                   const EGLAttrib* attrib_list) override;
 EGLBoolean eglDestroyContextFn(EGLDisplay dpy, EGLContext ctx) override;
 EGLBoolean eglDestroyImageKHRFn(EGLDisplay dpy, EGLImageKHR image) override;
 EGLBoolean eglDestroyStreamKHRFn(EGLDisplay dpy, EGLStreamKHR stream) override;
 EGLBoolean eglDestroySurfaceFn(EGLDisplay dpy, EGLSurface surface) override;
 EGLBoolean eglDestroySyncKHRFn(EGLDisplay dpy, EGLSyncKHR sync) override;
+EGLint eglDupNativeFenceFDANDROIDFn(EGLDisplay dpy, EGLSyncKHR sync) override;
+EGLBoolean eglExportDMABUFImageMESAFn(EGLDisplay dpy,
+                                      EGLImageKHR image,
+                                      int* fds,
+                                      EGLint* strides,
+                                      EGLint* offsets) override;
+EGLBoolean eglExportDMABUFImageQueryMESAFn(EGLDisplay dpy,
+                                           EGLImageKHR image,
+                                           int* fourcc,
+                                           int* num_planes,
+                                           EGLuint64KHR* modifiers) override;
+EGLBoolean eglGetCompositorTimingANDROIDFn(EGLDisplay dpy,
+                                           EGLSurface surface,
+                                           EGLint numTimestamps,
+                                           EGLint* names,
+                                           EGLnsecsANDROID* values) override;
+EGLBoolean eglGetCompositorTimingSupportedANDROIDFn(EGLDisplay dpy,
+                                                    EGLSurface surface,
+                                                    EGLint timestamp) override;
 EGLBoolean eglGetConfigAttribFn(EGLDisplay dpy,
                                 EGLConfig config,
                                 EGLint attribute,
@@ -77,6 +98,20 @@ EGLDisplay eglGetCurrentDisplayFn(void) override;
 EGLSurface eglGetCurrentSurfaceFn(EGLint readdraw) override;
 EGLDisplay eglGetDisplayFn(EGLNativeDisplayType display_id) override;
 EGLint eglGetErrorFn(void) override;
+EGLBoolean eglGetFrameTimestampsANDROIDFn(EGLDisplay dpy,
+                                          EGLSurface surface,
+                                          EGLuint64KHR frameId,
+                                          EGLint numTimestamps,
+                                          EGLint* timestamps,
+                                          EGLnsecsANDROID* values) override;
+EGLBoolean eglGetFrameTimestampSupportedANDROIDFn(EGLDisplay dpy,
+                                                  EGLSurface surface,
+                                                  EGLint timestamp) override;
+EGLClientBuffer eglGetNativeClientBufferANDROIDFn(
+    const struct AHardwareBuffer* ahardwarebuffer) override;
+EGLBoolean eglGetNextFrameIdANDROIDFn(EGLDisplay dpy,
+                                      EGLSurface surface,
+                                      EGLuint64KHR* frameId) override;
 EGLDisplay eglGetPlatformDisplayEXTFn(EGLenum platform,
                                       void* native_display,
                                       const EGLint* attrib_list) override;
@@ -97,6 +132,10 @@ EGLBoolean eglImageFlushExternalEXTFn(EGLDisplay dpy,
 EGLBoolean eglInitializeFn(EGLDisplay dpy,
                            EGLint* major,
                            EGLint* minor) override;
+EGLint eglLabelObjectKHRFn(EGLDisplay display,
+                           EGLenum objectType,
+                           EGLObjectKHR object,
+                           EGLLabelKHR label) override;
 EGLBoolean eglMakeCurrentFn(EGLDisplay dpy,
                             EGLSurface draw,
                             EGLSurface read,
@@ -127,6 +166,7 @@ EGLBoolean eglQueryContextFn(EGLDisplay dpy,
                              EGLContext ctx,
                              EGLint attribute,
                              EGLint* value) override;
+EGLBoolean eglQueryDebugKHRFn(EGLint attribute, EGLAttrib* value) override;
 EGLBoolean eglQueryStreamKHRFn(EGLDisplay dpy,
                                EGLStreamKHR stream,
                                EGLenum attribute,
@@ -163,7 +203,7 @@ EGLBoolean eglStreamConsumerGLTextureExternalKHRFn(
     EGLStreamKHR stream) override;
 EGLBoolean eglStreamConsumerReleaseKHRFn(EGLDisplay dpy,
                                          EGLStreamKHR stream) override;
-EGLBoolean eglStreamPostD3DTextureNV12ANGLEFn(
+EGLBoolean eglStreamPostD3DTextureANGLEFn(
     EGLDisplay dpy,
     EGLStreamKHR stream,
     void* texture,

@@ -35,6 +35,8 @@
 ****************************************************************************/
 
 #include "qdeclarativegeomapitemgroup_p.h"
+#include "qdeclarativegeomapitembase_p.h"
+#include "qdeclarativegeomap_p.h"
 
 QT_BEGIN_NAMESPACE
 
@@ -43,7 +45,7 @@ QT_BEGIN_NAMESPACE
     \instantiates QDeclarativeGeoMapItemGroup
     \inqmlmodule QtLocation
     \ingroup qml-QtLocation5-maps
-    \since Qt Location 5.9
+    \since QtLocation 5.9
 
     \brief The MapItemGroup type is a container for map items.
 
@@ -135,9 +137,11 @@ QT_BEGIN_NAMESPACE
     \image api-mapitemgroup.png
 */
 
-QDeclarativeGeoMapItemGroup::QDeclarativeGeoMapItemGroup(QQuickItem *parent): QQuickItem(parent), m_quickMap(nullptr)
+QDeclarativeGeoMapItemGroup::QDeclarativeGeoMapItemGroup(QQuickItem *parent)
+:   QQuickItem(parent), m_quickMap(nullptr)
 {
-
+    connect(this, &QQuickItem::opacityChanged,
+            this, &QDeclarativeGeoMapItemGroup::mapItemOpacityChanged);
 }
 
 QDeclarativeGeoMapItemGroup::~QDeclarativeGeoMapItemGroup()
@@ -145,14 +149,69 @@ QDeclarativeGeoMapItemGroup::~QDeclarativeGeoMapItemGroup()
 
 }
 
+void QDeclarativeGeoMapItemGroup::setParentGroup(QDeclarativeGeoMapItemGroup &parentGroup)
+{
+    m_parentGroup = &parentGroup;
+    connect(m_parentGroup, &QDeclarativeGeoMapItemGroup::mapItemOpacityChanged,
+            this, &QDeclarativeGeoMapItemGroup::mapItemOpacityChanged);
+}
+
 void QDeclarativeGeoMapItemGroup::setQuickMap(QDeclarativeGeoMap *quickMap)
 {
+    if (!quickMap && m_quickMap)
+        m_quickMap->disconnect(this);
     m_quickMap = quickMap;
+    if (m_quickMap) {
+        onMapSizeChanged();
+        connect(m_quickMap, &QQuickItem::widthChanged, this, &QDeclarativeGeoMapItemGroup::onMapSizeChanged);
+        connect(m_quickMap, &QQuickItem::heightChanged, this, &QDeclarativeGeoMapItemGroup::onMapSizeChanged);
+    }
 }
 
 QDeclarativeGeoMap *QDeclarativeGeoMapItemGroup::quickMap() const
 {
     return m_quickMap;
+}
+
+qreal QDeclarativeGeoMapItemGroup::mapItemOpacity() const
+{
+    return ((m_parentGroup) ? m_parentGroup->mapItemOpacity() : 1.0) * opacity();
+}
+
+void QDeclarativeGeoMapItemGroup::classBegin()
+{
+    QQuickItem::classBegin();
+}
+
+void QDeclarativeGeoMapItemGroup::componentComplete()
+{
+    QQuickItem::componentComplete();
+
+    // In certain cases the parent won't be set via the constructor, but rather later on
+    // during the instantiation/incubation process.
+    // Therefore calling setParentGroup here, when the parent is known.
+    // The childrenChanged use case to handle dynamically-added items is currently unsupported.
+    const QList<QQuickItem *> &quickKids = childItems();
+    for (QQuickItem *k : quickKids) {
+        QDeclarativeGeoMapItemGroup *childGroup
+                = qobject_cast<QDeclarativeGeoMapItemGroup *>(k);
+        if (childGroup) {
+            childGroup->setParentGroup(*this);
+            continue;
+        }
+        QDeclarativeGeoMapItemBase *childItem
+                = qobject_cast<QDeclarativeGeoMapItemBase *>(k);
+        if (childItem) {
+            childItem->setParentGroup(*this);
+            continue;
+        }
+    }
+}
+
+void QDeclarativeGeoMapItemGroup::onMapSizeChanged()
+{
+    setWidth(m_quickMap->width());
+    setHeight(m_quickMap->height());
 }
 
 QT_END_NAMESPACE

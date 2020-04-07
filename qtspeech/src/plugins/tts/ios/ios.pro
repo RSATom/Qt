@@ -9,7 +9,6 @@ LIBS += -framework Foundation -framework AVFoundation
 
 HEADERS += \
     qtexttospeech_ios_plugin.h \
-    qtexttospeech_ios.h \
 
 OBJECTIVE_HEADERS += \
     qtexttospeech_ios.h \

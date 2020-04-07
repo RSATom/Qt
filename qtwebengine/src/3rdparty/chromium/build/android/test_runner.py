@@ -15,6 +15,7 @@ import os
 import shutil
 import signal
 import sys
+import tempfile
 import threading
 import traceback
 import unittest
@@ -36,10 +37,13 @@ from devil.utils import run_tests_helper
 from pylib import constants
 from pylib.base import base_test_result
 from pylib.base import environment_factory
+from pylib.base import output_manager
+from pylib.base import output_manager_factory
 from pylib.base import test_instance_factory
 from pylib.base import test_run_factory
 from pylib.results import json_results
 from pylib.results import report_results
+from pylib.results.presentation import test_results_presentation
 from pylib.utils import logdog_helper
 from pylib.utils import logging_utils
 
@@ -48,6 +52,13 @@ from py_utils import contextlib_ext
 
 _DEVIL_STATIC_CONFIG_FILE = os.path.abspath(os.path.join(
     host_paths.DIR_SOURCE_ROOT, 'build', 'android', 'devil_config.json'))
+
+
+def _RealPath(arg):
+  if arg.startswith('//'):
+    arg = os.path.abspath(os.path.join(host_paths.DIR_SOURCE_ROOT,
+                                       arg[2:].replace('/', os.sep)))
+  return os.path.realpath(arg)
 
 
 def AddTestLauncherOptions(parser):
@@ -69,8 +80,9 @@ def AddTestLauncherOptions(parser):
       '--test-launcher-summary-output',
       '--json-results-file',
       dest='json_results_file', type=os.path.realpath,
-      help='If set, will dump results in JSON form '
-           'to specified file.')
+      help='If set, will dump results in JSON form to the specified file. '
+           'Note that this will also trigger saving per-test logcats to '
+           'logdog.')
   parser.add_argument(
       '--test-launcher-shard-index',
       type=int, default=os.environ.get('GTEST_SHARD_INDEX', 0),
@@ -145,6 +157,12 @@ def AddCommonOptions(parser):
       '-e', '--environment',
       default='local', choices=constants.VALID_ENVIRONMENTS,
       help='Test environment to run in (default: %(default)s).')
+
+  parser.add_argument(
+      '--local-output',
+      action='store_true',
+      help='Whether to archive test output locally and generate '
+           'a local results detail page.')
 
   class FastLocalDevAction(argparse.Action):
     def __call__(self, parser, namespace, values, option_string=None):
@@ -240,11 +258,10 @@ def AddDeviceOptions(parser):
            'speed up local development and never on bots '
                      '(increases flakiness)')
   parser.add_argument(
-      '--target-devices-file',
-      type=os.path.realpath,
-      help='Path to file with json list of device serials to '
-           'run tests on. When not specified, all available '
-           'devices are used.')
+      '--recover-devices',
+      action='store_true',
+      help='Attempt to recover devices prior to the final retry. Warning: '
+           'this will cause all devices to reboot.')
   parser.add_argument(
       '--tool',
       dest='tool',
@@ -283,6 +300,9 @@ def AddGTestOptions(parser):
       help='Host directory to which app data files will be'
            ' saved. Used with --app-data-file.')
   parser.add_argument(
+      '--isolated-script-test-perf-output',
+      help='If present, store chartjson results on this path.')
+  parser.add_argument(
       '--delete-stale-data',
       dest='delete_stale_data', action='store_true',
       help='Delete stale test data on the device.')
@@ -302,6 +322,10 @@ def AddGTestOptions(parser):
            'device for the list of all tests. Speeds up local '
            'development, but is not safe to use on bots ('
            'http://crbug.com/549214')
+  parser.add_argument(
+      '--gs-test-artifacts-bucket',
+      help=('If present, test artifacts will be uploaded to this Google '
+            'Storage bucket.'))
   parser.add_argument(
       '--gtest_also_run_disabled_tests', '--gtest-also-run-disabled-tests',
       dest='run_disabled', action='store_true',
@@ -323,17 +347,25 @@ def AddGTestOptions(parser):
       dest='suite_name', nargs='+', metavar='SUITE_NAME', required=True,
       help='Executable name of the test suite to run.')
   parser.add_argument(
-      '--test-apk-incremental-install-script',
+      '--test-apk-incremental-install-json',
       type=os.path.realpath,
-      help='Path to install script for the test apk.')
+      help='Path to install json for the test apk.')
+  parser.add_argument(
+      '-w', '--wait-for-java-debugger', action='store_true',
+      help='Wait for java debugger to attach before running any application '
+           'code. Also disables test timeouts and sets retries=0.')
 
   filter_group = parser.add_mutually_exclusive_group()
   filter_group.add_argument(
       '-f', '--gtest_filter', '--gtest-filter',
       dest='test_filter',
-      help='googletest-style filter string.')
+      help='googletest-style filter string.',
+      default=os.environ.get('GTEST_FILTER'))
   filter_group.add_argument(
+      # Deprecated argument.
       '--gtest-filter-file',
+      # New argument.
+      '--test-launcher-filter-file',
       dest='test_filter_file', type=os.path.realpath,
       help='Path to file that contains googletest-style filter strings. '
            'See also //testing/buildbot/filters/README.md.')
@@ -347,7 +379,7 @@ def AddInstrumentationTestOptions(parser):
   parser.add_argument(
       '--additional-apk',
       action='append', dest='additional_apks', default=[],
-      type=os.path.realpath,
+      type=_RealPath,
       help='Additional apk that must be installed on '
            'the device when the tests are run')
   parser.add_argument(
@@ -376,6 +408,10 @@ def AddInstrumentationTestOptions(parser):
       dest='set_asserts', action='store_false', default=True,
       help='Removes the dalvik.vm.enableassertions property')
   parser.add_argument(
+      '--enable-java-deobfuscation',
+      action='store_true',
+      help='Deobfuscate java stack traces in test output and logcat.')
+  parser.add_argument(
       '-E', '--exclude-annotation',
       dest='exclude_annotation_str',
       help='Comma-separated list of annotations. Exclude tests with these '
@@ -383,15 +419,12 @@ def AddInstrumentationTestOptions(parser):
   parser.add_argument(
       '-f', '--test-filter', '--gtest_filter', '--gtest-filter',
       dest='test_filter',
-      help='Test filter (if not fully qualified, will run all matches).')
+      help='Test filter (if not fully qualified, will run all matches).',
+      default=os.environ.get('GTEST_FILTER'))
   parser.add_argument(
       '--gtest_also_run_disabled_tests', '--gtest-also-run-disabled-tests',
       dest='run_disabled', action='store_true',
       help='Also run disabled tests if applicable.')
-  parser.add_argument(
-      '--render-results-directory',
-      dest='render_results_dir',
-      help='Directory to pull render test result images off of the device to.')
   def package_replacement(arg):
     split_arg = arg.split(',')
     if len(split_arg) != 2:
@@ -401,7 +434,7 @@ def AddInstrumentationTestOptions(parser):
     PackageReplacement = collections.namedtuple('PackageReplacement',
                                                 ['package', 'replacement_apk'])
     return PackageReplacement(package=split_arg[0],
-                              replacement_apk=os.path.realpath(split_arg[1]))
+                              replacement_apk=_RealPath(split_arg[1]))
   parser.add_argument(
       '--replace-system-package',
       type=package_replacement, default=None,
@@ -420,7 +453,7 @@ def AddInstrumentationTestOptions(parser):
       help='Capture screenshots of test failures')
   parser.add_argument(
       '--shared-prefs-file',
-      dest='shared_prefs_file', type=os.path.realpath,
+      dest='shared_prefs_file', type=_RealPath,
       help='The relative path to a file containing JSON list of shared '
            'preference files to edit and how to do so. Example list: '
            '[{'
@@ -456,17 +489,17 @@ def AddInstrumentationTestOptions(parser):
       type=float,
       help='Factor by which timeouts should be scaled.')
   parser.add_argument(
-      '--ui-screenshot-directory',
-      dest='ui_screenshot_dir', type=os.path.realpath,
-      help='Destination for screenshots captured by the tests')
+      '-w', '--wait-for-java-debugger', action='store_true',
+      help='Wait for java debugger to attach before running any application '
+           'code. Also disables test timeouts and sets retries=0.')
 
   # These arguments are suppressed from the help text because they should
   # only ever be specified by an intermediate script.
   parser.add_argument(
-      '--apk-under-test-incremental-install-script',
+      '--apk-under-test-incremental-install-json',
       help=argparse.SUPPRESS)
   parser.add_argument(
-      '--test-apk-incremental-install-script',
+      '--test-apk-incremental-install-json',
       type=os.path.realpath,
       help=argparse.SUPPRESS)
 
@@ -477,25 +510,29 @@ def AddJUnitTestOptions(parser):
   parser = parser.add_argument_group('junit arguments')
 
   parser.add_argument(
-      '--coverage-dir',
-      dest='coverage_dir', type=os.path.realpath,
+      '--coverage-dir', type=os.path.realpath,
       help='Directory to store coverage info.')
   parser.add_argument(
       '--package-filter',
-      dest='package_filter',
       help='Filters tests by package.')
   parser.add_argument(
       '--runner-filter',
-      dest='runner_filter',
       help='Filters tests by runner class. Must be fully qualified.')
   parser.add_argument(
       '-f', '--test-filter',
-      dest='test_filter',
       help='Filters tests googletest-style.')
   parser.add_argument(
-      '-s', '--test-suite',
-      dest='test_suite', required=True,
+      '-s', '--test-suite', required=True,
       help='JUnit test suite to run.')
+  debug_group = parser.add_mutually_exclusive_group()
+  debug_group.add_argument(
+      '-w', '--wait-for-java-debugger', action='store_const', const='8701',
+      dest='debug_socket', help='Alias for --debug-socket=8701')
+  debug_group.add_argument(
+      '--debug-socket',
+      help='Wait for java debugger to attach at specified socket address '
+           'before running any application code. Also disables test timeouts '
+           'and sets retries=0.')
 
   # These arguments are for Android Robolectric tests.
   parser.add_argument(
@@ -520,7 +557,8 @@ def AddLinkerTestOptions(parser):
   parser.add_argument(
       '-f', '--gtest-filter',
       dest='test_filter',
-      help='googletest-style filter string.')
+      help='googletest-style filter string.',
+      default=os.environ.get('GTEST_FILTER'))
   parser.add_argument(
       '--test-apk',
       type=os.path.realpath,
@@ -591,18 +629,9 @@ def AddPerfTestOptions(parser):
       action='store_true',
       help='Cache the telemetry chartjson output from each step for later use.')
   parser.add_argument(
-      '--collect-json-data',
-      action='store_true',
-      help='Cache the telemetry JSON output from each step for later use.')
-  parser.add_argument(
       '--dry-run',
       action='store_true',
       help='Just print the steps without executing.')
-  parser.add_argument(
-      '--flaky-steps',
-      type=os.path.realpath,
-      help='A JSON file containing steps that are flaky '
-           'and will have its exit code ignored.')
   # TODO(rnephew): Remove this when everything moves to new option in platform
   # mode.
   parser.add_argument(
@@ -638,10 +667,6 @@ def AddPerfTestOptions(parser):
       metavar='FILENAME', type=os.path.realpath,
       help='Write the cached output directory archived by a step into the'
       ' given ZIP file.')
-  parser.add_argument(
-      '--output-json-data',
-      type=os.path.realpath,
-      help='Writes telemetry JSON formatted output into the given file.')
   parser.add_argument(
       '--output-json-list',
       type=os.path.realpath,
@@ -774,17 +799,33 @@ def RunTestsInPlatformMode(args):
   # result for each test run in that iteration.
   all_iteration_results = []
 
+  global_results_tags = set()
+
+  json_file = tempfile.NamedTemporaryFile(delete=False)
+  json_file.close()
+
   @contextlib.contextmanager
-  def write_json_file():
+  def json_finalizer():
     try:
       yield
     finally:
-      json_results.GenerateJsonResultsFile(
-          all_raw_results, args.json_results_file)
+      if args.json_results_file and os.path.exists(json_file.name):
+        shutil.move(json_file.name, args.json_results_file)
+      else:
+        os.remove(json_file.name)
 
-  json_writer = contextlib_ext.Optional(
-      write_json_file(),
-      args.json_results_file)
+  @contextlib.contextmanager
+  def json_writer():
+    try:
+      yield
+    except Exception:
+      global_results_tags.add('UNRELIABLE_RESULTS')
+      raise
+    finally:
+      json_results.GenerateJsonResultsFile(
+          all_raw_results, json_file.name,
+          global_tags=list(global_results_tags),
+          indent=2)
 
   @contextlib.contextmanager
   def upload_logcats_file():
@@ -811,69 +852,95 @@ def RunTestsInPlatformMode(args):
 
   ### Set up test objects.
 
-  env = environment_factory.CreateEnvironment(args, infra_error)
+  out_manager = output_manager_factory.CreateOutputManager(args)
+  env = environment_factory.CreateEnvironment(
+      args, out_manager, infra_error)
   test_instance = test_instance_factory.CreateTestInstance(args, infra_error)
   test_run = test_run_factory.CreateTestRun(
       args, env, test_instance, infra_error)
 
   ### Run.
+  with out_manager, json_finalizer():
+    with json_writer(), logcats_uploader, env, test_instance, test_run:
 
-  with json_writer, logcats_uploader, env, test_instance, test_run:
+      repetitions = (xrange(args.repeat + 1) if args.repeat >= 0
+                     else itertools.count())
+      result_counts = collections.defaultdict(
+          lambda: collections.defaultdict(int))
+      iteration_count = 0
+      for _ in repetitions:
+        raw_results = test_run.RunTests()
+        if not raw_results:
+          continue
 
-    repetitions = (xrange(args.repeat + 1) if args.repeat >= 0
-                   else itertools.count())
-    result_counts = collections.defaultdict(
-        lambda: collections.defaultdict(int))
-    iteration_count = 0
-    for _ in repetitions:
-      raw_results = test_run.RunTests()
-      if not raw_results:
-        continue
+        all_raw_results.append(raw_results)
 
-      all_raw_results.append(raw_results)
+        iteration_results = base_test_result.TestRunResults()
+        for r in reversed(raw_results):
+          iteration_results.AddTestRunResults(r)
+        all_iteration_results.append(iteration_results)
 
-      iteration_results = base_test_result.TestRunResults()
-      for r in reversed(raw_results):
-        iteration_results.AddTestRunResults(r)
-      all_iteration_results.append(iteration_results)
+        iteration_count += 1
+        for r in iteration_results.GetAll():
+          result_counts[r.GetName()][r.GetType()] += 1
+        report_results.LogFull(
+            results=iteration_results,
+            test_type=test_instance.TestType(),
+            test_package=test_run.TestPackage(),
+            annotation=getattr(args, 'annotations', None),
+            flakiness_server=getattr(args, 'flakiness_dashboard_server',
+                                     None))
+        if args.break_on_failure and not iteration_results.DidRunPass():
+          break
 
-      iteration_count += 1
-      for r in iteration_results.GetAll():
-        result_counts[r.GetName()][r.GetType()] += 1
-      report_results.LogFull(
-          results=iteration_results,
-          test_type=test_instance.TestType(),
-          test_package=test_run.TestPackage(),
-          annotation=getattr(args, 'annotations', None),
-          flakiness_server=getattr(args, 'flakiness_dashboard_server',
-                                   None))
-      if args.break_on_failure and not iteration_results.DidRunPass():
-        break
+      if iteration_count > 1:
+        # display summary results
+        # only display results for a test if at least one test did not pass
+        all_pass = 0
+        tot_tests = 0
+        for test_name in result_counts:
+          tot_tests += 1
+          if any(result_counts[test_name][x] for x in (
+              base_test_result.ResultType.FAIL,
+              base_test_result.ResultType.CRASH,
+              base_test_result.ResultType.TIMEOUT,
+              base_test_result.ResultType.UNKNOWN)):
+            logging.critical(
+                '%s: %s',
+                test_name,
+                ', '.join('%s %s' % (str(result_counts[test_name][i]), i)
+                          for i in base_test_result.ResultType.GetTypes()))
+          else:
+            all_pass += 1
 
-    if iteration_count > 1:
-      # display summary results
-      # only display results for a test if at least one test did not pass
-      all_pass = 0
-      tot_tests = 0
-      for test_name in result_counts:
-        tot_tests += 1
-        if any(result_counts[test_name][x] for x in (
-            base_test_result.ResultType.FAIL,
-            base_test_result.ResultType.CRASH,
-            base_test_result.ResultType.TIMEOUT,
-            base_test_result.ResultType.UNKNOWN)):
-          logging.critical(
-              '%s: %s',
-              test_name,
-              ', '.join('%s %s' % (str(result_counts[test_name][i]), i)
-                        for i in base_test_result.ResultType.GetTypes()))
-        else:
-          all_pass += 1
+        logging.critical('%s of %s tests passed in all %s runs',
+                         str(all_pass),
+                         str(tot_tests),
+                         str(iteration_count))
 
-      logging.critical('%s of %s tests passed in all %s runs',
-                       str(all_pass),
-                       str(tot_tests),
-                       str(iteration_count))
+    if args.local_output:
+      with out_manager.ArchivedTempfile(
+          'test_results_presentation.html',
+          'test_results_presentation',
+          output_manager.Datatype.HTML) as results_detail_file:
+        result_html_string, _, _ = test_results_presentation.result_details(
+            json_path=json_file.name,
+            test_name=args.command,
+            cs_base_url='http://cs.chromium.org',
+            local_output=True)
+        results_detail_file.write(result_html_string)
+        results_detail_file.flush()
+      logging.critical('TEST RESULTS: %s', results_detail_file.Link())
+
+      ui_screenshots = test_results_presentation.ui_screenshot_set(
+          json_file.name)
+      if ui_screenshots:
+        with out_manager.ArchivedTempfile(
+            'ui_screenshots.json',
+            'ui_capture',
+            output_manager.Datatype.JSON) as ui_screenshot_file:
+          ui_screenshot_file.write(ui_screenshots)
+        logging.critical('UI Screenshots: %s', ui_screenshot_file.Link())
 
   if args.command == 'perf' and (args.steps or args.single_step):
     return 0
@@ -960,6 +1027,11 @@ def main():
       args.enable_concurrent_adb):
     parser.error('--replace-system-package and --enable-concurrent-adb cannot '
                  'be used together')
+
+  if (hasattr(args, 'debug_socket') or
+      (hasattr(args, 'wait_for_java_debugger') and
+      args.wait_for_java_debugger)):
+    args.num_retries = 0
 
   try:
     return RunTestsCommand(args)

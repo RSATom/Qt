@@ -365,7 +365,7 @@
     \since QtWebEngine 1.3
 
     JavaScript world that the web channel instance used by this view is
-    installed in.
+    installed in. The world must be a number between \c 0 and \c 256.
 */
 
 /*!
@@ -754,9 +754,11 @@
     \value  WebEngineView.OpenLinkInThisWindow
             Open the current link in the current window. (Added in Qt 5.6)
     \value  WebEngineView.OpenLinkInNewWindow
-            Open the current link in a new window. (Added in Qt 5.6)
+            Open the current link in a new window. Requires a handler for the
+            \l newViewRequested() signal. (Added in Qt 5.6)
     \value  WebEngineView.OpenLinkInNewTab
-            Open the current link in a new tab. (Added in Qt 5.6)
+            Open the current link in a new tab. Requires a handler for the
+            \l newViewRequested() signal. (Added in Qt 5.6)
     \value  WebEngineView.CopyLinkToClipboard
             Copy the current link to the clipboard. (Added in Qt 5.6)
     \value  WebEngineView.CopyImageToClipboard
@@ -777,8 +779,8 @@
             Mute or unmute the hovered audio or video element. (Added in Qt 5.6)
     \value  WebEngineView.DownloadLinkToDisk
             Download the current link to the disk. To implement download
-            actions, connect to the QWebEngineProfile::downloadRequested signal.
-            (Added in Qt 5.6)
+            actions, connect to the \l {QQuickWebEngineProfile::downloadRequested}
+            {WebEngineProfile.downloadRequested} signal. (Added in Qt 5.6)
     \value  WebEngineView.DownloadImageToDisk
             Download the highlighted image to the disk. (Added in Qt 5.6)
     \value  WebEngineView.DownloadMediaToDisk
@@ -791,7 +793,8 @@
     \value  WebEngineView.SavePage
             Save the current web page to disk. (Added in Qt 5.7)
     \value  WebEngineView.ViewSource
-            Show the source of the current page in a new tab. (Added in Qt 5.8)
+            Show the source of the current page in a new tab. Requires a handler for the
+            \l newViewRequested() signal. (Added in Qt 5.8)
 
     \value  WebEngineView.ToggleBold
             Toggles boldness for the selection or at the cursor position.
@@ -1271,14 +1274,9 @@
 /*!
     \qmlsignal WebEngineView::formValidationMessageRequested(FormValidationMessageRequest request)
     \since QtWebEngine 1.4
+    \obsolete
 
-    This signal is emitted when a validation message is requested.
-
-    The request can be handled by using the methods of the FormValidationMessageRequest
-    type.
-
-    \note Signal handlers need to call \c{request.accepted = true} to prevent a
-    default dialog from showing up.
+    No longer used since 5.11, as Blink now renders Validation messages internally.
 */
 
 /*!
@@ -1296,4 +1294,184 @@
 
 /*! \qmlsignal WebEngineView::navigationRequested(WebEngineNavigationRequest request)
     This signal is emitted when the navigation request \a request is issued.
+*/
+
+/*!
+    \qmlsignal WebEngineView::quotaRequested(QuotaRequest request)
+    \since QtWebEngine 1.7
+
+    This signal is emitted when the web page requests larger persistent storage
+    than the application's current allocation in File System API. The default quota
+    is 0 bytes.
+
+    \sa QuotaRequest
+*/
+
+/*!
+    \qmltype QuotaRequest
+    \instantiates QWebEngineQuotaRequest
+    \inqmlmodule QtWebEngine
+    \since QtWebEngine 1.7
+
+    \brief A utility type for the WebEngineView::quotaRequested() signal.
+
+    \sa WebEngineView::quotaRequested()
+*/
+
+/*!
+    \qmlproperty url QuotaRequest::origin
+    \readonly
+
+    The URL of the web page that issued the quota request.
+*/
+
+/*!
+    \qmlproperty qint64 QuotaRequest::requestedSize
+    \readonly
+
+    Contains the size of the requested disk space in bytes.
+*/
+
+/*!
+    \qmlmethod void QuotaRequest::accept()
+
+    Accepts the quota request.
+
+    \qml
+    WebEngineView {
+        onQuotaRequested: function(request) {
+            if (request.requestedSize <= 5 * 1024 * 1024)
+                request.accept();
+            else
+                request.reject();
+        }
+    }
+    \endqml
+*/
+
+/*!
+    \qmlmethod void QuotaRequest::reject()
+    Rejects the quota request.
+*/
+
+/*!
+    \qmlsignal WebEngineView::registerProtocolHandlerRequested(RegisterProtocolHandlerRequest request)
+    \since QtWebEngine 1.7
+
+    This signal is emitted when the web page tries to register a custom protocol
+    using the \l registerProtocolHandler API.
+
+    \sa RegisterProtocolHandlerRequest
+*/
+
+/*!
+    \qmltype RegisterProtocolHandlerRequest
+    \instantiates QWebEngineRegisterProtocolHandlerRequest
+    \inqmlmodule QtWebEngine
+    \since QtWebEngine 1.7
+    \brief The RegisterProtocolHandlerRequest type enables accepting
+    or rejecting requests from the \l registerProtocolHandler API.
+
+    \sa WebEngineView::registerProtocolHandlerRequested()
+*/
+
+/*!
+    \qmlproperty url RegisterProtocolHandlerRequest::origin
+    \brief The URL template for the protocol handler.
+
+    This is the second parameter from the \l registerProtocolHandler call.
+*/
+
+/*!
+    \qmlproperty string RegisterProtocolHandlerRequest::scheme
+    \brief The URL scheme for the protocol handler.
+
+    This is the first parameter from the \l registerProtocolHandler call.
+*/
+
+/*!
+    \qmlmethod void RegisterProtocolHandlerRequest::accept()
+    \brief Accepts the request.
+
+    Subsequent calls to accept() and reject() are ignored.
+*/
+
+/*!
+    \qmlmethod void RegisterProtocolHandlerRequest::reject()
+    \brief Accepts the request.
+
+    Subsequent calls to accept() and reject() are ignored.
+*/
+
+/*!
+    \qmlsignal WebEngineView::geometryChangeRequested(rect geometry, rect frameGeometry)
+    \since QtWebEngine 1.7
+
+    This signal is emitted whenever the document wants to change the position and size of the
+    page to \a frameGeometry. This can happen for example through JavaScript.
+
+    While \a frameGeometry includes, \a geometry excludes the size of frame margins.
+
+    \note Geometry related properties of QML Window expect a size excluding the window
+    decoration. You have to use \a geometry to handle this signal correctly.
+
+    \qml
+    onGeometryChangeRequested: {
+        window.x = geometry.x
+        window.y = geometry.y
+        window.width = geometry.width
+        window.height = geometry.height
+    }
+    \endqml
+*/
+
+/*!
+    \qmlproperty WebEngineView WebEngineView::inspectedView
+    \since QtWebEngine 1.7
+
+    The view this view is currently inspecting, if any. Setting it
+    will navigate to an internal URL with the developer tools of
+    the view set.
+
+    It is recommended to unset this property when developer tools
+    are not visible; otherwise some debug information may appear
+    in the inspected WebEngineView.
+
+    \sa devToolsView
+*/
+
+/*!
+    \qmlproperty WebEngineView WebEngineView::devToolsView
+    \since QtWebEngine 1.7
+
+    The view currently hosting the developer tools for this view.
+    Setting it to a new view will navigate that view to an internal
+    URL with the developer tools, and bind it to this view.
+
+    \sa inspectedView
+*/
+
+/*!
+    \qmlmethod WebEngineAction WebEngineView::action(WebAction action)
+    \since 5.12
+
+    Returns a \l WebEngineAction for the specified \l WebAction action.
+    WebEngineView also takes care of implementing the action,
+    so that upon triggering the corresponding action is performed on the view.
+
+    \code
+    var copyAction = webEngineView.action(WebEngineView.Copy);
+    \endcode
+
+    \sa WebEngineAction
+*/
+
+/*!
+    \qmlsignal WebEngineView::printRequest
+    \since QtWebEngine 1.8
+
+    This signal is emitted when the JavaScript \c{window.print()} method is called.
+    Typically, the signal handler can simply call printToPdf().
+
+    \sa printToPdf
 */

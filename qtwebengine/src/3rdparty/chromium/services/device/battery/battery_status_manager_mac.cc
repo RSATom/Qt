@@ -159,7 +159,7 @@ void OnBatteryStatusChanged(const BatteryCallback& callback) {
   // TODO(timvolodine): implement the case when there are multiple internal
   // sources, e.g. when multiple batteries are present. Currently this will
   // fail a DCHECK.
-  DCHECK(batteries.size() == 1);
+  DCHECK_EQ(1U, batteries.size());
   callback.Run(batteries.front());
 }
 
@@ -212,7 +212,7 @@ class BatteryStatusObserver {
 class BatteryStatusManagerMac : public BatteryStatusManager {
  public:
   explicit BatteryStatusManagerMac(const BatteryCallback& callback)
-      : notifier_(new BatteryStatusObserver(callback)) {}
+      : notifier_(std::make_unique<BatteryStatusObserver>(callback)) {}
 
   ~BatteryStatusManagerMac() override { notifier_->Stop(); }
 
@@ -230,13 +230,12 @@ class BatteryStatusManagerMac : public BatteryStatusManager {
   DISALLOW_COPY_AND_ASSIGN(BatteryStatusManagerMac);
 };
 
-}  // end namespace
+}  // namespace
 
 // static
 std::unique_ptr<BatteryStatusManager> BatteryStatusManager::Create(
     const BatteryStatusService::BatteryUpdateCallback& callback) {
-  return std::unique_ptr<BatteryStatusManager>(
-      new BatteryStatusManagerMac(callback));
+  return std::make_unique<BatteryStatusManagerMac>(callback);
 }
 
 }  // namespace device

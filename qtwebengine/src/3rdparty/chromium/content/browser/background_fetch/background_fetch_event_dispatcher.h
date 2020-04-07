@@ -13,7 +13,7 @@
 #include "base/memory/ref_counted.h"
 #include "content/browser/service_worker/service_worker_metrics.h"
 #include "content/common/content_export.h"
-#include "content/common/service_worker/service_worker_event_dispatcher.mojom.h"
+#include "content/common/service_worker/service_worker.mojom.h"
 
 namespace content {
 
@@ -38,21 +38,22 @@ class CONTENT_EXPORT BackgroundFetchEventDispatcher {
   };
 
   explicit BackgroundFetchEventDispatcher(
-      const scoped_refptr<ServiceWorkerContextWrapper>& service_worker_context);
+      scoped_refptr<ServiceWorkerContextWrapper> service_worker_context);
   ~BackgroundFetchEventDispatcher();
 
   // Dispatches the `backgroundfetchabort` event, which indicates that an active
   // background fetch was aborted by the user or another external event.
   void DispatchBackgroundFetchAbortEvent(
       const BackgroundFetchRegistrationId& registration_id,
-      base::Closure finished_closure);
+      const std::vector<BackgroundFetchSettledFetch>& fetches,
+      base::OnceClosure finished_closure);
 
   // Dispatches the `backgroundfetchclick` event, which indicates that the user
   // interface displayed for an active background fetch was activated.
   void DispatchBackgroundFetchClickEvent(
       const BackgroundFetchRegistrationId& registration_id,
       mojom::BackgroundFetchState state,
-      base::Closure finished_closure);
+      base::OnceClosure finished_closure);
 
   // Dispatches the `backgroundfetchfail` event, which indicates that a
   // background fetch has finished with one or more failed fetches. The request-
@@ -60,14 +61,14 @@ class CONTENT_EXPORT BackgroundFetchEventDispatcher {
   void DispatchBackgroundFetchFailEvent(
       const BackgroundFetchRegistrationId& registration_id,
       const std::vector<BackgroundFetchSettledFetch>& fetches,
-      base::Closure finished_closure);
+      base::OnceClosure finished_closure);
 
   // Dispatches the `backgroundfetched` event, which indicates that a background
   // fetch has successfully completed. The request-response pairs are included.
   void DispatchBackgroundFetchedEvent(
       const BackgroundFetchRegistrationId& registration_id,
       const std::vector<BackgroundFetchSettledFetch>& fetches,
-      base::Closure finished_closure);
+      base::OnceClosure finished_closure);
 
  private:
   using ServiceWorkerLoadedCallback =
@@ -82,7 +83,7 @@ class CONTENT_EXPORT BackgroundFetchEventDispatcher {
   void LoadServiceWorkerRegistrationForDispatch(
       const BackgroundFetchRegistrationId& registration_id,
       ServiceWorkerMetrics::EventType event,
-      base::Closure finished_closure,
+      base::OnceClosure finished_closure,
       ServiceWorkerLoadedCallback loaded_callback);
 
   // Verifies that the |registration| has successfully been loaded, then starts
@@ -91,41 +92,47 @@ class CONTENT_EXPORT BackgroundFetchEventDispatcher {
   // |loaded_callback| on success.
   static void StartActiveWorkerForDispatch(
       ServiceWorkerMetrics::EventType event,
-      base::Closure finished_closure,
+      base::OnceClosure finished_closure,
       ServiceWorkerLoadedCallback loaded_callback,
-      ServiceWorkerStatusCode service_worker_status,
+      blink::ServiceWorkerStatusCode service_worker_status,
       scoped_refptr<ServiceWorkerRegistration> registration);
 
   // Dispatches the actual event after the Service Worker has been started.
   static void DispatchEvent(
       ServiceWorkerMetrics::EventType event,
-      base::Closure finished_closure,
+      base::OnceClosure finished_closure,
       ServiceWorkerLoadedCallback loaded_callback,
-      scoped_refptr<ServiceWorkerVersion> service_worker_version);
+      scoped_refptr<ServiceWorkerVersion> service_worker_version,
+      blink::ServiceWorkerStatusCode start_worker_status);
 
   // Called when an event of type |event| has finished dispatching.
-  static void DidDispatchEvent(ServiceWorkerMetrics::EventType event,
-                               base::Closure finished_closure,
-                               DispatchPhase dispatch_phase,
-                               ServiceWorkerStatusCode service_worker_status);
+  static void DidDispatchEvent(
+      ServiceWorkerMetrics::EventType event,
+      base::OnceClosure finished_closure,
+      DispatchPhase dispatch_phase,
+      blink::ServiceWorkerStatusCode service_worker_status);
 
   // Methods that actually invoke the event on an activated Service Worker.
   static void DoDispatchBackgroundFetchAbortEvent(
-      const std::string& tag,
+      const std::string& developer_id,
+      const std::string& unique_id,
+      const std::vector<BackgroundFetchSettledFetch>& fetches,
       scoped_refptr<ServiceWorkerVersion> service_worker_version,
       int request_id);
   static void DoDispatchBackgroundFetchClickEvent(
-      const std::string& tag,
+      const std::string& developer_id,
       mojom::BackgroundFetchState state,
       scoped_refptr<ServiceWorkerVersion> service_worker_version,
       int request_id);
   static void DoDispatchBackgroundFetchFailEvent(
-      const std::string& tag,
+      const std::string& developer_id,
+      const std::string& unique_id,
       const std::vector<BackgroundFetchSettledFetch>& fetches,
       scoped_refptr<ServiceWorkerVersion> service_worker_version,
       int request_id);
   static void DoDispatchBackgroundFetchedEvent(
-      const std::string& tag,
+      const std::string& developer_id,
+      const std::string& unique_id,
       const std::vector<BackgroundFetchSettledFetch>& fetches,
       scoped_refptr<ServiceWorkerVersion> service_worker_version,
       int request_id);

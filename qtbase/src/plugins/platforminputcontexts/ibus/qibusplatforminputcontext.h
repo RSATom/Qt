@@ -44,7 +44,9 @@
 #include <QtCore/qpointer.h>
 #include <QtCore/QLocale>
 #include <QtDBus/qdbuspendingreply.h>
+#if QT_CONFIG(filesystemwatcher)
 #include <QFileSystemWatcher>
+#endif
 #include <QTimer>
 #include <QWindow>
 
@@ -86,32 +88,37 @@ public:
     QIBusPlatformInputContext();
     ~QIBusPlatformInputContext();
 
-    bool isValid() const Q_DECL_OVERRIDE;
-    void setFocusObject(QObject *object) Q_DECL_OVERRIDE;
+    bool isValid() const override;
+    void setFocusObject(QObject *object) override;
 
-    void invokeAction(QInputMethod::Action a, int x) Q_DECL_OVERRIDE;
-    void reset() Q_DECL_OVERRIDE;
-    void commit() Q_DECL_OVERRIDE;
-    void update(Qt::InputMethodQueries) Q_DECL_OVERRIDE;
-    bool filterEvent(const QEvent *event) Q_DECL_OVERRIDE;
-    QLocale locale() const Q_DECL_OVERRIDE;
-    bool hasCapability(Capability capability) const Q_DECL_OVERRIDE;
+    void invokeAction(QInputMethod::Action a, int x) override;
+    void reset() override;
+    void commit() override;
+    void update(Qt::InputMethodQueries) override;
+    bool filterEvent(const QEvent *event) override;
+    QLocale locale() const override;
+    bool hasCapability(Capability capability) const override;
 
 public Q_SLOTS:
     void commitText(const QDBusVariant &text);
     void updatePreeditText(const QDBusVariant &text, uint cursor_pos, bool visible);
+    void forwardKeyEvent(uint keyval, uint keycode, uint state);
     void cursorRectChanged();
     void deleteSurroundingText(int offset, uint n_chars);
     void surroundingTextRequired();
+    void hidePreeditText();
+    void showPreeditText();
     void filterEventFinished(QDBusPendingCallWatcher *call);
     void socketChanged(const QString &str);
+    void busRegistered(const QString &str);
+    void busUnregistered(const QString &str);
     void connectToBus();
     void globalEngineChanged(const QString &engine_name);
 
 private:
     QIBusPlatformInputContextPrivate *d;
     bool m_eventFilterUseSynchronousMode;
-#ifndef QT_NO_FILESYSTEMWATCHER
+#if QT_CONFIG(filesystemwatcher)
     QFileSystemWatcher m_socketWatcher;
 #endif
     QTimer m_timer;

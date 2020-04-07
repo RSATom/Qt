@@ -63,7 +63,7 @@ class DeviceDiscoveryBroadcastReceiver : public AndroidBroadcastReceiver
 {
     Q_OBJECT
 public:
-    DeviceDiscoveryBroadcastReceiver(QObject* parent = 0);
+    DeviceDiscoveryBroadcastReceiver(QObject* parent = nullptr);
     virtual void onReceive(JNIEnv *env, jobject context, jobject intent);
     virtual void onReceiveLeScan(JNIEnv *env, jobject jBluetoothDevice, jint rssi,
                                  jbyteArray scanRecord);

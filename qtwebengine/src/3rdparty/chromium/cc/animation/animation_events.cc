@@ -9,7 +9,7 @@ namespace cc {
 AnimationEvent::AnimationEvent(AnimationEvent::Type type,
                                ElementId element_id,
                                int group_id,
-                               TargetProperty::Type target_property,
+                               int target_property,
                                base::TimeTicks monotonic_time)
     : type(type),
       element_id(element_id),
@@ -50,11 +50,11 @@ AnimationEvent& AnimationEvent::operator=(const AnimationEvent& other) {
   return *this;
 }
 
-AnimationEvent::~AnimationEvent() {}
+AnimationEvent::~AnimationEvent() = default;
 
-AnimationEvents::AnimationEvents() {}
+AnimationEvents::AnimationEvents() = default;
 
-AnimationEvents::~AnimationEvents() {}
+AnimationEvents::~AnimationEvents() = default;
 
 bool AnimationEvents::IsEmpty() const {
   return events_.empty();

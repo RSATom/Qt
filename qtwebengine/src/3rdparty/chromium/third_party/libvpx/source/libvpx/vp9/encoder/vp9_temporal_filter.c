@@ -350,6 +350,27 @@ void vp9_temporal_filter_iterate_row_c(VP9_COMP *cpi, ThreadData *td,
     td->mb.mv_limits.col_max =
         ((mb_cols - 1 - mb_col) * 16) + (17 - 2 * VP9_INTERP_EXTEND);
 
+    if (cpi->oxcf.content == VP9E_CONTENT_FILM) {
+      unsigned int src_variance;
+      struct buf_2d src;
+
+      src.buf = f->y_buffer + mb_y_offset;
+      src.stride = f->y_stride;
+
+#if CONFIG_VP9_HIGHBITDEPTH
+      if (mbd->cur_buf->flags & YV12_FLAG_HIGHBITDEPTH) {
+        src_variance =
+            vp9_high_get_sby_perpixel_variance(cpi, &src, BLOCK_16X16, mbd->bd);
+      } else {
+        src_variance = vp9_get_sby_perpixel_variance(cpi, &src, BLOCK_16X16);
+      }
+#else
+      src_variance = vp9_get_sby_perpixel_variance(cpi, &src, BLOCK_16X16);
+#endif  // CONFIG_VP9_HIGHBITDEPTH
+
+      if (src_variance <= 2) strength = VPXMAX(0, (int)strength - 2);
+    }
+
     for (frame = 0; frame < frame_count; frame++) {
       const uint32_t thresh_low = 10000;
       const uint32_t thresh_high = 20000;
@@ -599,13 +620,6 @@ static void temporal_filter_iterate_c(VP9_COMP *cpi) {
   const int tile_cols = 1 << cm->log2_tile_cols;
   const int tile_rows = 1 << cm->log2_tile_rows;
   int tile_row, tile_col;
-  MACROBLOCKD *mbd = &cpi->td.mb.e_mbd;
-  // Save input state
-  uint8_t *input_buffer[MAX_MB_PLANE];
-  int i;
-
-  for (i = 0; i < MAX_MB_PLANE; i++) input_buffer[i] = mbd->plane[i].pre[0].buf;
-
   vp9_init_tile_data(cpi);
 
   for (tile_row = 0; tile_row < tile_rows; ++tile_row) {
@@ -613,9 +627,6 @@ static void temporal_filter_iterate_c(VP9_COMP *cpi) {
       temporal_filter_iterate_tile_c(cpi, tile_row, tile_col);
     }
   }
-
-  // Restore input state
-  for (i = 0; i < MAX_MB_PLANE; i++) mbd->plane[i].pre[0].buf = input_buffer[i];
 }
 
 // Apply buffer limits and context specific adjustments to arnr filter.

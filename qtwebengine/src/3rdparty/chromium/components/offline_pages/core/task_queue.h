@@ -6,9 +6,9 @@
 #define COMPONENTS_OFFLINE_PAGES_CORE_TASK_QUEUE_H_
 
 #include <memory>
-#include <queue>
 
 #include "base/callback.h"
+#include "base/containers/queue.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
@@ -29,7 +29,15 @@ namespace offline_pages {
 // the previous one calls |Task::TaskComplete|.
 class TaskQueue {
  public:
-  TaskQueue();
+  class Delegate {
+   public:
+    virtual ~Delegate() {};
+
+    // Invoked once when TaskQueue reached 0 tasks.
+    virtual void OnTaskQueueIsIdle() = 0;
+  };
+
+  explicit TaskQueue(Delegate* delegate);
   ~TaskQueue();
 
   // Adds a task to the queue. Queue takes ownership of the task.
@@ -48,11 +56,16 @@ class TaskQueue {
   // Callback for informing the queue that a task was completed.
   void TaskCompleted(Task* task);
 
+  void InformTaskQueueIsIdle();
+
+  // Owns and outlives this TaskQueue.
+  Delegate* delegate_;
+
   // Currently running tasks.
   std::unique_ptr<Task> current_task_;
 
   // A FIFO queue of tasks that will be run using this task queue.
-  std::queue<std::unique_ptr<Task>> tasks_;
+  base::queue<std::unique_ptr<Task>> tasks_;
 
   base::WeakPtrFactory<TaskQueue> weak_ptr_factory_;
 

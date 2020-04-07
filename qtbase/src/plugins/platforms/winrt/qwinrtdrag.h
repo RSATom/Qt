@@ -41,7 +41,8 @@
 
 #include <QtCore/QLoggingCategory>
 #include <QtCore/QMimeData>
-#include <QtGui/private/qdnd_p.h> // QInternalMime
+#include <QtGui/private/qdnd_p.h>
+#include <QtGui/private/qinternalmimedata_p.h>
 
 #include <wrl.h>
 
@@ -76,7 +77,7 @@ class QWinRTInternalMimeData;
 class QWinRTInternalMimeData : public QInternalMimeData {
 public:
     QWinRTInternalMimeData();
-    virtual ~QWinRTInternalMimeData();
+    ~QWinRTInternalMimeData() override = default;
 
     bool hasFormat_sys(const QString &mimetype) const override;
     QStringList formats_sys() const override;
@@ -91,7 +92,7 @@ private:
 class QWinRTDrag : public QPlatformDrag {
 public:
     QWinRTDrag();
-    virtual ~QWinRTDrag();
+    ~QWinRTDrag() override;
     static QWinRTDrag *instance();
 
     Qt::DropAction drag(QDrag *) override;

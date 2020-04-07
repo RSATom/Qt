@@ -6,6 +6,7 @@
 #define CONTENT_PUBLIC_BROWSER_RENDER_FRAME_HOST_H_
 
 #include <string>
+#include <vector>
 
 #include "base/callback_forward.h"
 #include "build/build_config.h"
@@ -14,24 +15,30 @@
 #include "content/public/common/file_chooser_params.h"
 #include "ipc/ipc_listener.h"
 #include "ipc/ipc_sender.h"
-#include "services/service_manager/public/cpp/binder_registry.h"
-#include "third_party/WebKit/public/platform/WebPageVisibilityState.h"
-#include "third_party/WebKit/public/platform/WebSuddenTerminationDisablerType.h"
+#include "services/network/public/mojom/url_loader_factory.mojom.h"
+#include "third_party/blink/public/mojom/loader/pause_subresource_loading_handle.mojom.h"
+#include "third_party/blink/public/mojom/page/page_visibility_state.mojom.h"
+#include "third_party/blink/public/platform/web_sudden_termination_disabler_type.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/native_widget_types.h"
 #include "url/gurl.h"
 #include "url/origin.h"
 
 namespace blink {
-enum class WebFeaturePolicyFeature;
-}
+class AssociatedInterfaceProvider;
+struct WebMediaPlayerAction;
+namespace mojom {
+enum class FeaturePolicyFeature;
+}  // namespace mojom
+}  // namespace blink
 
 namespace base {
+class UnguessableToken;
 class Value;
 }
 
 namespace resource_coordinator {
-class ResourceCoordinatorInterface;
+class FrameResourceCoordinator;
 }
 
 namespace service_manager {
@@ -44,7 +51,6 @@ struct AXActionData;
 
 namespace content {
 
-class AssociatedInterfaceProvider;
 class RenderProcessHost;
 class RenderViewHost;
 class RenderWidgetHostView;
@@ -68,11 +74,6 @@ class CONTENT_EXPORT RenderFrameHost : public IPC::Listener,
   // is present only to support Android WebView and must not be used in other
   // configurations.
   static void AllowInjectingJavaScriptForAndroidWebView();
-
-  // Temporary hack to enable data URLs on Android Webview until PlzNavigate
-  // ships.
-  static void AllowDataUrlNavigationForAndroidWebView();
-  static bool IsDataUrlNavigationAllowedForAndroidWebView();
 #endif
 
   // Returns a RenderFrameHost given its accessibility tree ID.
@@ -82,6 +83,14 @@ class CONTENT_EXPORT RenderFrameHost : public IPC::Listener,
   // and |routing_id|. This routing ID pair may represent a placeholder for
   // frame that is currently rendered in a different process than |process_id|.
   static int GetFrameTreeNodeIdForRoutingId(int process_id, int routing_id);
+
+  // Returns the RenderFrameHost corresponding to the |placeholder_routing_id|
+  // in the given |render_process_id|. The returned RenderFrameHost will always
+  // be in a different process.  It may be null if the placeholder is not found
+  // in the given process, which may happen if the frame was recently deleted
+  // or swapped to |render_process_id| itself.
+  static RenderFrameHost* FromPlaceholderId(int render_process_id,
+                                            int placeholder_routing_id);
 
   ~RenderFrameHost() override {}
 
@@ -98,7 +107,7 @@ class CONTENT_EXPORT RenderFrameHost : public IPC::Listener,
 
   // Returns the interface for the Global Resource Coordinator
   // for this frame.
-  virtual resource_coordinator::ResourceCoordinatorInterface*
+  virtual resource_coordinator::FrameResourceCoordinator*
   GetFrameResourceCoordinator() = 0;
 
   // Returns the process for this frame.
@@ -123,6 +132,14 @@ class CONTENT_EXPORT RenderFrameHost : public IPC::Listener,
   // the same FrameTreeNode ID may refer to a different RenderFrameHost after a
   // navigation.
   virtual int GetFrameTreeNodeId() = 0;
+
+  // Used for devtools instrumentation and trace-ability. The token is
+  // propagated to Blink's LocalFrame and both Blink and content/
+  // can tag calls and requests with this token in order to attribute them
+  // to the context frame. The token is only defined by the browser process and
+  // is never sent back from the renderer in the control calls. It should be
+  // never used to look up the FrameTreeNode instance.
+  virtual base::UnguessableToken GetDevToolsFrameToken() = 0;
 
   // Returns the assigned name of the frame, the name of the iframe tag
   // declaring it. For example, <iframe name="framename">[...]</iframe>. It is
@@ -185,9 +202,8 @@ class CONTENT_EXPORT RenderFrameHost : public IPC::Listener,
   // call are visible on screen. The call completes asynchronously by running
   // the supplied |callback| with a value of true upon successful completion and
   // false otherwise (when the frame is destroyed, detached, etc..).
-  typedef base::Callback<void(bool)> VisualStateCallback;
-  virtual void InsertVisualStateCallback(
-      const VisualStateCallback& callback) = 0;
+  using VisualStateCallback = base::OnceCallback<void(bool)>;
+  virtual void InsertVisualStateCallback(VisualStateCallback callback) = 0;
 
   // Copies the image at the location in viewport coordinates (not frame
   // coordinates) to the clipboard. If there is no image at that location, does
@@ -203,21 +219,18 @@ class CONTENT_EXPORT RenderFrameHost : public IPC::Listener,
   // RenderViewHost for this frame.
   virtual RenderViewHost* GetRenderViewHost() = 0;
 
-  // Returns the BinderRegistry that this process uses to expose interfaces
-  // to the application running in this frame.
-  virtual service_manager::BinderRegistry* GetInterfaceRegistry() = 0;
-
   // Returns the InterfaceProvider that this process can use to bind
   // interfaces exposed to it by the application running in this frame.
   virtual service_manager::InterfaceProvider* GetRemoteInterfaces() = 0;
 
   // Returns the AssociatedInterfaceProvider that this process can use to access
   // remote frame-specific Channel-associated interfaces for this frame.
-  virtual AssociatedInterfaceProvider* GetRemoteAssociatedInterfaces() = 0;
+  virtual blink::AssociatedInterfaceProvider*
+  GetRemoteAssociatedInterfaces() = 0;
 
   // Returns the visibility state of the frame. The different visibility states
   // of a frame are defined in Blink.
-  virtual blink::WebPageVisibilityState GetVisibilityState() = 0;
+  virtual blink::mojom::PageVisibilityState GetVisibilityState() = 0;
 
   // Returns whether the RenderFrame in the renderer process has been created
   // and still has a connection.  This is valid for all frames.
@@ -263,15 +276,6 @@ class CONTENT_EXPORT RenderFrameHost : public IPC::Listener,
   // RenderFrame. See BindingsPolicy for details.
   virtual int GetEnabledBindings() const = 0;
 
-  // Causes all new requests for the root RenderFrameHost and its children to
-  // be blocked (not being started) until ResumeBlockedRequestsForFrame is
-  // called.
-  virtual void BlockRequestsForFrame() = 0;
-
-  // Resumes any blocked request for the specified root RenderFrameHost and
-  // child frame hosts.
-  virtual void ResumeBlockedRequestsForFrame() = 0;
-
 #if defined(OS_ANDROID)
   // Returns an InterfaceProvider for Java-implemented interfaces that are
   // scoped to this RenderFrameHost. This provides access to interfaces
@@ -294,7 +298,27 @@ class CONTENT_EXPORT RenderFrameHost : public IPC::Listener,
   // Returns true if the given Feature Policy |feature| is enabled for this
   // RenderFrameHost and is allowed to be used by it. Use this in the browser
   // process to determine whether access to a feature is allowed.
-  virtual bool IsFeatureEnabled(blink::WebFeaturePolicyFeature feature) = 0;
+  virtual bool IsFeatureEnabled(blink::mojom::FeaturePolicyFeature feature) = 0;
+
+  // Opens view-source tab for the document last committed in this
+  // RenderFrameHost.
+  virtual void ViewSource() = 0;
+
+  // Starts pausing subresource loading on this frame and returns
+  // PauseSubresourceLoadingHandle that controls the pausing behavior.  As long
+  // as this handle is live, pausing will continue until an internal
+  // navigation happens in the frame.
+  virtual blink::mojom::PauseSubresourceLoadingHandlePtr
+  PauseSubresourceLoading() = 0;
+
+  // Run the given action on the media player location at the given point.
+  virtual void ExecuteMediaPlayerActionAtLocation(
+      const gfx::Point& location,
+      const blink::WebMediaPlayerAction& action) = 0;
+
+  // Creates a Network Service-backed factory from appropriate |NetworkContext|.
+  virtual void CreateNetworkServiceDefaultFactory(
+      network::mojom::URLLoaderFactoryRequest default_factory_request) = 0;
 
  private:
   // This interface should only be implemented inside content.

@@ -43,11 +43,11 @@ public:
     explicit QTemplateGesturePlugin();
     ~QTemplateGesturePlugin();
 
-    QList <QSensorGestureRecognizer *> createRecognizers();
+    QList<QSensorGestureRecognizer *> createRecognizers() override;
 
     QStringList gestureSignals() const;
-    QStringList supportedIds() const;
-    QString name() const { return "TemplateGestures"; }
+    QStringList supportedIds() const override;
+    QString name() const override { return "TemplateGestures"; }
 };
 
 #endif // QTEMPLATEGESTUREPLUGIN_H

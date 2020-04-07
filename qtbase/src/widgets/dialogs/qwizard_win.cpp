@@ -79,7 +79,9 @@ QVistaBackButton::QVistaBackButton(QWidget *widget)
 {
     setFocusPolicy(Qt::NoFocus);
     // Native dialogs use ALT-Left even in RTL mode, so do the same, even if it might be counter-intuitive.
+#if QT_CONFIG(shortcut)
     setShortcut(QKeySequence(Qt::ALT | Qt::Key_Left));
+#endif
 }
 
 QSize QVistaBackButton::sizeHint() const
@@ -154,10 +156,7 @@ QVistaHelper::QVistaHelper(QWizard *wizard)
     backButton_ = new QVistaBackButton(wizard);
     backButton_->hide();
 
-    // Handle diff between Windows 7 and Vista
     iconSpacing = QStyleHelper::dpiScaled(7);
-    textSpacing = QSysInfo::WindowsVersion >= QSysInfo::WV_WINDOWS7 ?
-                  iconSpacing : QStyleHelper::dpiScaled(20);
 }
 
 QVistaHelper::~QVistaHelper()
@@ -607,8 +606,8 @@ bool QVistaHelper::drawTitleText(QPainter *painter, const QString &text, const Q
         // Set up the DC
         const LOGFONT captionLogFont = getCaptionLogFont(hTheme);
         const HFONT hCaptionFont = CreateFontIndirect(&captionLogFont);
-        HBITMAP hOldBmp = (HBITMAP)SelectObject(dcMem, (HGDIOBJ) bmp);
-        HFONT hOldFont = (HFONT)SelectObject(dcMem, (HGDIOBJ) hCaptionFont);
+        auto hOldBmp = reinterpret_cast<HBITMAP>(SelectObject(dcMem, (HGDIOBJ) bmp));
+        auto hOldFont = reinterpret_cast<HFONT>(SelectObject(dcMem, (HGDIOBJ) hCaptionFont));
 
         // Draw the text!
         DTTOPTS dto;
@@ -655,7 +654,7 @@ bool QVistaHelper::drawBlackRect(const QRect &rect, HDC hdc)
         dib.bmiHeader.biCompression = BI_RGB;
 
         bmp = CreateDIBSection(hdc, &dib, DIB_RGB_COLORS, NULL, NULL, 0);
-        HBITMAP hOldBmp = (HBITMAP)SelectObject(dcMem, (HGDIOBJ) bmp);
+        auto hOldBmp = reinterpret_cast<HBITMAP>(SelectObject(dcMem, (HGDIOBJ) bmp));
 
         BitBlt(hdc, rectDp.left(), rectDp.top(), rectDp.width(), rectDp.height(), dcMem, 0, 0, SRCCOPY);
         SelectObject(dcMem, (HGDIOBJ) hOldBmp);
@@ -666,12 +665,12 @@ bool QVistaHelper::drawBlackRect(const QRect &rect, HDC hdc)
     return value;
 }
 
-#if !defined(_MSC_VER) || _MSC_VER < 1700
+#ifndef Q_CC_MSVC
 static inline int getWindowBottomMargin()
 {
     return GetSystemMetrics(SM_CYSIZEFRAME);
 }
-#else // !_MSC_VER || _MSC_VER < 1700
+#else
 // QTBUG-36192, GetSystemMetrics(SM_CYSIZEFRAME) returns bogus values
 // for MSVC2012 which leads to the custom margin having no effect since
 // that only works when removing the entire margin.
@@ -681,7 +680,7 @@ static inline int getWindowBottomMargin()
     AdjustWindowRectEx(&rect, WS_POPUP | WS_CLIPSIBLINGS | WS_CLIPCHILDREN | WS_THICKFRAME | WS_DLGFRAME, FALSE, 0);
     return qAbs(rect.bottom);
 }
-#endif // _MSC_VER >= 1700
+#endif // Q_CC_MSVC
 
 int QVistaHelper::frameSizeDp()
 {
@@ -695,7 +694,7 @@ int QVistaHelper::captionSizeDp()
 
 int QVistaHelper::titleOffset()
 {
-    int iconOffset = wizard ->windowIcon().isNull() ? 0 : iconSize() + textSpacing;
+    int iconOffset = wizard ->windowIcon().isNull() ? 0 : iconSize() + iconSpacing;
     return leftMargin() + iconOffset;
 }
 

@@ -13,6 +13,7 @@
   <link rel="stylesheet" href="../../../../ui/login/bubble.css">
   <link rel="stylesheet" href="../../../../ui/login/oobe.css">
   <link rel="stylesheet" href="../../../../ui/login/screen_container.css">
+  <link rel="stylesheet" href="chrome://resources/css/md_colors.css">
   <link rel="stylesheet" href="chrome://resources/css/text_defaults_md.css">
 
   <link rel="import" href="chrome://resources/html/polymer.html">
@@ -32,10 +33,6 @@
   <!-- Make sure paper-button is imported to use in user_pod_template.html -->
   <link rel="import" href="chrome://resources/polymer/v1_0/paper-button/paper-button.html">
   <style is="custom-style" include="shared-styles">
-    body {
-      background-color: var(--paper-grey-100);
-    }
-
     user-manager-pages,
     #login-header-bar {
       bottom: 0;
@@ -56,6 +53,7 @@
      * manager. */
 
     #outer-container {
+      -webkit-box-orient: vertical;
       min-height: 0;
       overflow-x: hidden;
       overflow-y: auto;
@@ -71,10 +69,21 @@
       opacity: 0;
     }
 
+    /* The name-container font-sizes is to counteract the countainer's
+     * scale(0.8), so that the text still stays legible. */
+    podrow[ncolumns='6'] .pod .name-container {
+      font-size: 1.25em;
+      transition: font-size 180ms;
+    }
+
+    podrow[ncolumns='6'] .pod.focused .name-container {
+      font-size: 1em;
+    }
+
     .pod {
-      box-shadow: 0 2px 2px 0 rgba(0, 0, 0, .24),
-                  0 0 2px 0 rgba(0, 0, 0, .12);
-      color: var(--primary-text-color);
+      @apply --cr-card-elevation;
+      border-radius: var(--cr-card-border-radius);
+      color: var(--cr-primary-text-color);
       cursor: default;
       height: auto;
       transform: none;
@@ -120,7 +129,6 @@
 
     .pod .main-pane .name-container .name,
     .reauth-hint-container .reauth-name-hint {
-      color: inherit;
       font-size: inherit;
       margin: 0;
       padding: 0;
@@ -248,6 +256,7 @@
 
     .action-box-area.active ~ .action-box-menu {
       border: none;
+      border-radius: var(--cr-card-border-radius);
       box-shadow: 0 10px 20px 0 rgba(0, 0, 0, .19);
       right: 8px;
       width: 224px;
@@ -268,11 +277,16 @@
       height: auto;
     }
 
+    .action-box-menu-title-name {
+      color: var(--cr-primary-text-color);
+    }
+
     .action-box-menu-title-email {
-      color: var(--paper-grey-600);
+      color: var(--cr-secondary-text-color);
     }
 
     .action-box-menu-remove {
+      border-radius: var(--cr-card-border-radius);
       border-top: var(--user-manager-separator-line);
       line-height: 32px;
       padding: 8px 12px;
@@ -288,6 +302,10 @@
       padding: 12px;
     }
 
+    .action-box-remove-user-warning-text {
+      max-width: 100%;
+    }
+
     .action-box-remove-user-warning > * {
       word-wrap: break-word;
     }
@@ -297,22 +315,33 @@
       font-weight: 500;
     }
 
-    .action-box-remove-user-warning .remove-warning-button {
-      --paper-button: {
-        background: var(--google-red-700);
-        color: white;
-        font-weight: 500;
-      };
-      --paper-button-flat-keyboard-focus: {
-        background: rgb(173, 50, 36);
-      };
-      @apply(--action-button);
+    #user-manager-prompt-message {
+      background-image: url(../../../../ui/webui/resources/images/business.svg);
+      background-position: 0 center;
+      background-repeat: no-repeat;
+      background-size: 19px;
+      font-size: 19px;
+      margin-bottom: 45px;
+      padding-left: 30px;
+      text-align: center;
     }
+
+    html[dir=rtl] #user-manager-prompt-message {
+      background-position: right center;
+      padding-left: 0;
+      padding-right: 30px;
+    }
+
+    #user-manager-prompt-message:empty {
+      display: none;
+    }
+
   </style>
 </head>
 <body>
   <user-manager-pages>
     <div id="outer-container">
+      <div id="user-manager-prompt-message">$i18n{userManagerPromptMessage}</div>
       <user-manager-tutorial></user-manager-tutorial>
       <div id="oobe" class="faded">
         <div id="inner-container">

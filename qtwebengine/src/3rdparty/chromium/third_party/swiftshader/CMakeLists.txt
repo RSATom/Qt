@@ -2,41 +2,6 @@ cmake_minimum_required(VERSION 2.8)
 
 project(SwiftShader C CXX)
 
-if(NOT CMAKE_BUILD_TYPE)
-    set(CMAKE_BUILD_TYPE "Release" CACHE STRING "The type of build: Debug Release MinSizeRel RelWithDebInfo." FORCE)
-endif()
-set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS Debug Release MinSizeRel RelWithDebInfo)
-
-option(BUILD_EGL "Build the EGL library" 1)
-if(WIN32)
-    option(BUILD_GL32 "Build the OpenGL32 library" 1)
-endif()
-option(BUILD_GLESv2 "Build the OpenGL ES 2 library" 1)
-option(BUILD_GLES_CM "Build the OpenGL ES 1.1 library" 1)
-
-option(USE_GROUP_SOURCES "Group the source files in a folder tree for Visual Studio" 1)
-
-option(BUILD_SAMPLES "Build sample programs" 1)
-option(BUILD_TESTS "Build test programs" 1)
-
-set(REACTOR_BACKEND "LLVM" CACHE STRING "JIT compiler back-end used by Reactor")
-set_property(CACHE REACTOR_BACKEND PROPERTY STRINGS LLVM Subzero)
-
-# LLVM disallows calling cmake . from the main LLVM dir, the reason is that
-# it builds header files that could overwrite the orignal ones. Here we
-# want to include LLVM as a subdirectory and even though it wouldn't cause
-# the problem, if cmake . is called from the main dir, the condition that
-# LLVM checkes, "CMAKE_SOURCE_DIR == CMAKE_BINARY_DIR" will be true. So we
-# disallow it ourselves too to. In addition if there are remining CMakeFiles
-# and CMakeCache in the directory, cmake .. from a subdirectory will still
-# try to build from the main directory so we instruct users to delete these
-# files when they get the error.
-if(CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
-    message(FATAL_ERROR "In source builds are not allowed by LLVM, please create a build/ directory and build from there. You may have to delete the CMakeCache.txt file and CMakeFiles directory that are next to the CMakeLists.txt.")
-endif()
-
-set_property(GLOBAL PROPERTY USE_FOLDERS ON)
-
 ###########################################################
 # Detect system
 ###########################################################
@@ -66,6 +31,56 @@ endif()
 set(CMAKE_MACOSX_RPATH ON)
 
 ###########################################################
+# Options
+###########################################################
+
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE "Release" CACHE STRING "The type of build: Debug Release MinSizeRel RelWithDebInfo." FORCE)
+endif()
+set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS Debug Release MinSizeRel RelWithDebInfo)
+
+option(BUILD_EGL "Build the EGL library" 1)
+if(WIN32)
+    option(BUILD_GL32 "Build the OpenGL32 library" 1)
+endif()
+option(BUILD_GLESv2 "Build the OpenGL ES 2 library" 1)
+option(BUILD_GLES_CM "Build the OpenGL ES 1.1 library" 1)
+
+option(USE_GROUP_SOURCES "Group the source files in a folder tree for Visual Studio" 1)
+
+option(BUILD_SAMPLES "Build sample programs" 1)
+option(BUILD_TESTS "Build test programs" 1)
+
+option (MSAN "Build with memory sanitizer" 0)
+option (ASAN "Build with address sanitizer" 0)
+option (TSAN "Build with thread sanitizer" 0)
+option (UBSAN "Build with undefined behavior sanitizer" 0)
+
+if(ARCH STREQUAL "arm")
+    set(DEFAULT_REACTOR_BACKEND "Subzero")
+else()
+    set(DEFAULT_REACTOR_BACKEND "LLVM")
+endif()
+
+set(REACTOR_BACKEND DEFAULT_REACTOR_BACKEND CACHE STRING "JIT compiler back-end used by Reactor")
+set_property(CACHE REACTOR_BACKEND PROPERTY STRINGS LLVM Subzero)
+
+# LLVM disallows calling cmake . from the main LLVM dir, the reason is that
+# it builds header files that could overwrite the orignal ones. Here we
+# want to include LLVM as a subdirectory and even though it wouldn't cause
+# the problem, if cmake . is called from the main dir, the condition that
+# LLVM checkes, "CMAKE_SOURCE_DIR == CMAKE_BINARY_DIR" will be true. So we
+# disallow it ourselves too to. In addition if there are remining CMakeFiles
+# and CMakeCache in the directory, cmake .. from a subdirectory will still
+# try to build from the main directory so we instruct users to delete these
+# files when they get the error.
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
+    message(FATAL_ERROR "In source builds are not allowed by LLVM, please create a build/ directory and build from there. You may have to delete the CMakeCache.txt file and CMakeFiles directory that are next to the CMakeLists.txt.")
+endif()
+
+set_property(GLOBAL PROPERTY USE_FOLDERS ON)
+
+###########################################################
 # Convenience macros
 ###########################################################
 
@@ -86,21 +101,30 @@ endmacro()
 # Takes target library and a directory where the export map is
 # and add the linker options so that only the API symbols are
 # exported.
-macro(set_target_export_map TARGET DIR)
-    get_target_property(LINKFLAGS ${TARGET} LINK_FLAGS)
-    if(LINKFLAGS MATCHES "NOTFOUND")
-        set(LINKFLAGS "")
-    endif()
+macro(set_shared_library_export_map TARGET DIR)
     if(MSVC)
-        set_target_properties(${TARGET} PROPERTIES LINK_FLAGS "/DEF:\"${DIR}/${TARGET}.def\"")
+        set_property(TARGET ${TARGET} APPEND_STRING PROPERTY LINK_FLAGS " /DEF:\"${DIR}/${TARGET}.def\"")
     elseif(LINUX)
-        # Both hash-style are needed, because we want both gold and
-        # GNU ld to be able to read our libraries (maybe?).
         # The version script only exports the API functions and
-        # hides all the others. Gc sections is used in combination
-        # with each functions being in its section, to reduce the
-        # binary size.
-        set_target_properties(${TARGET} PROPERTIES LINK_FLAGS "${LINKFLAGS} -Wl,--hash-style=both,--version-script=${DIR}/exports.map,--gc-sections,--no-undefined")
+        # hides all the others.
+        set_property(TARGET ${TARGET} APPEND_STRING PROPERTY LINK_FLAGS " -Wl,--version-script=${DIR}/${TARGET}.lds")
+        set_property(TARGET ${TARGET} APPEND_STRING PROPERTY LINK_DEPENDS "${DIR}/${TARGET}.lds;")
+
+        # Don't allow symbols to be overridden by another module.
+        set_property(TARGET ${TARGET} APPEND_STRING PROPERTY COMPILE_FLAGS " -fvisibility=protected")
+
+        # Both hash-style are needed, because we want both gold and
+        # GNU ld to be able to read our libraries.
+        set_property(TARGET ${TARGET} APPEND_STRING PROPERTY LINK_FLAGS " -Wl,--hash-style=both")
+
+        # Gc sections is used in combination with each functions being
+        # in its own section, to reduce the binary size.
+        set_property(TARGET ${TARGET} APPEND_STRING PROPERTY LINK_FLAGS " -Wl,--gc-sections")
+
+        # Don't allow undefined symbols, unless it's a Sanitizer build.
+        if(NOT MSAN AND NOT ASAN AND NOT TSAN AND NOT UBSAN)
+            set_property(TARGET ${TARGET} APPEND_STRING PROPERTY LINK_FLAGS " -Wl,--no-undefined")
+        endif()
     endif()
 endmacro()
 
@@ -139,11 +163,9 @@ if(MSVC)
 else()
     set_cpp_flag("--std=c++11")
     set_cpp_flag("-Wall")
+    set_cpp_flag("-Werror=reorder")
+    set_cpp_flag("-Werror=sign-compare")
     set_cpp_flag("-fno-exceptions")
-
-    # Don't allow symbols to be overridden by another module.
-    # This enables libGLES_CM and libGLESv2 to statically link LLVM.
-    set_cpp_flag("-fvisibility=protected")
 
     # Remove xor, and, or and friends from the list of keywords, they are used
     # by Reactor
@@ -152,15 +174,22 @@ else()
     # LLVM headers requires these flags to be set
     set_cpp_flag("-D__STDC_CONSTANT_MACROS -D__STDC_LIMIT_MACROS")
 
-    if(ARCH EQUAL "x86")
+    if(ARCH STREQUAL "x86")
         set_cpp_flag("-m32")
         set_cpp_flag("-msse2")
-        set_cpp_flag("-march=i686")
+        set_cpp_flag("-mfpmath=sse")
+        set_cpp_flag("-march=pentium4")
+        set_cpp_flag("-mtune=generic")
     endif()
-    if(ARCH EQUAL "x86_64")
+    if(ARCH STREQUAL "x86_64")
         set_cpp_flag("-m64")
         set_cpp_flag("-fPIC")
-        set_cpp_flag("-march=core2")
+        set_cpp_flag("-march=x86-64")
+        set_cpp_flag("-mtune=generic")
+    endif()
+
+    if(LINUX)
+        set_cpp_flag("-DUSE_X11=1")
     endif()
 
     # Use -g3 to have even more debug info
@@ -182,9 +211,21 @@ else()
     set_cpp_flag("-ffunction-sections" RELEASE)
     set_cpp_flag("-fdata-sections" RELEASE)
     set_cpp_flag("-fomit-frame-pointer" RELEASE)
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        if(MSAN)
+            set_cpp_flag("-fsanitize=memory")
+        elseif(ASAN)
+            set_cpp_flag("-fsanitize=address")
+        elseif(TSAN)
+            set_cpp_flag("-fsanitize=thread")
+        elseif(UBSAN)
+            set_cpp_flag("-fsanitize=undefined -fsanitize-blacklist=${CMAKE_SOURCE_DIR}/third_party/LLVM/ubsan_blacklist.txt")
+        endif()
+    endif()
 endif()
 
-if( WIN32 )
+if(WIN32)
     add_definitions(-DWINVER=0x501 -DNOMINMAX -DSTRICT)
     set(CMAKE_FIND_LIBRARY_PREFIXES ${CMAKE_FIND_LIBRARY_PREFIXES} "" "lib")
 endif()
@@ -677,11 +718,6 @@ endif()
 
 set(COMMON_INCLUDE_DIR
     ${SOURCE_DIR}
-    ${SOURCE_DIR}/Common
-    ${SOURCE_DIR}/Main
-    ${SOURCE_DIR}/Reactor
-    ${SOURCE_DIR}/Renderer
-    ${SOURCE_DIR}/Shader
     ${CMAKE_SOURCE_DIR}/include
     ${LLVM_INCLUDE_DIR}
 )
@@ -842,7 +878,9 @@ elseif(LINUX)
 elseif(APPLE)
     find_library(COCOA_FRAMEWORK Cocoa)
     find_library(QUARTZ_FRAMEWORK Quartz)
-    set(OS_LIBS "${COCOA_FRAMEWORK}" "${QUARTZ_FRAMEWORK}")
+    find_library(CORE_FOUNDATION_FRAMEWORK CoreFoundation)
+    find_library(IOSURFACE_FRAMEWORK IOSurface)
+    set(OS_LIBS "${COCOA_FRAMEWORK}" "${QUARTZ_FRAMEWORK}" "${CORE_FOUNDATION_FRAMEWORK}" "${IOSURFACE_FRAMEWORK}")
 endif()
 
 ###########################################################
@@ -854,6 +892,7 @@ set_target_properties(SwiftShader PROPERTIES
     INCLUDE_DIRECTORIES "${COMMON_INCLUDE_DIR}"
     POSITION_INDEPENDENT_CODE 1
     FOLDER "Core"
+    COMPILE_DEFINITIONS "NO_SANITIZE_FUNCTION=;"
 )
 target_link_libraries(SwiftShader ${OS_LIBS})
 
@@ -892,16 +931,18 @@ if(BUILD_EGL)
     set_target_properties(libEGL PROPERTIES
         INCLUDE_DIRECTORIES "${OPENGL_INCLUDE_DIR}"
         FOLDER "OpenGL"
-        COMPILE_DEFINITIONS "EGL_EGLEXT_PROTOTYPES; EGLAPI=;"
+        COMPILE_DEFINITIONS "EGL_EGLEXT_PROTOTYPES; EGLAPI=; NO_SANITIZE_FUNCTION=;"
         PREFIX ""
     )
-    set_target_export_map(libEGL ${SOURCE_DIR}/OpenGL/libEGL)
+    set_shared_library_export_map(libEGL ${SOURCE_DIR}/OpenGL/libEGL)
     target_link_libraries(libEGL ${OS_LIBS})
     add_custom_command(
         TARGET libEGL
         POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:libEGL>/translator
         COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:libEGL> $<TARGET_FILE_DIR:libEGL>/translator/${LIB_PREFIX}EGL_translator${CMAKE_SHARED_LIBRARY_SUFFIX}
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_SOURCE_DIR}/out/${CMAKE_SYSTEM_NAME}/
+        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:libEGL> ${CMAKE_SOURCE_DIR}/out/${CMAKE_SYSTEM_NAME}/
     )
 endif()
 
@@ -913,7 +954,7 @@ if(BUILD_GL32)
         COMPILE_DEFINITIONS "GL_GLEXT_PROTOTYPES"
         PREFIX ""
     )
-    set_target_export_map(libGL ${SOURCE_DIR}/OpenGL/libGL)
+    set_shared_library_export_map(libGL ${SOURCE_DIR}/OpenGL/libGL)
     target_link_libraries(libGL SwiftShader ${Reactor} GLCompiler ${OS_LIBS})
 endif()
 
@@ -922,16 +963,18 @@ if(BUILD_GLESv2)
     set_target_properties(libGLESv2 PROPERTIES
         INCLUDE_DIRECTORIES "${OPENGL_INCLUDE_DIR}"
         FOLDER "OpenGL"
-        COMPILE_DEFINITIONS "GL_GLEXT_PROTOTYPES; GL_API=; GL_APICALL=;"
+        COMPILE_DEFINITIONS "GL_GLEXT_PROTOTYPES; GL_API=; GL_APICALL=; GLAPI=; NO_SANITIZE_FUNCTION=;"
         PREFIX ""
     )
-    set_target_export_map(libGLESv2 ${SOURCE_DIR}/OpenGL/libGLESv2)
+    set_shared_library_export_map(libGLESv2 ${SOURCE_DIR}/OpenGL/libGLESv2)
     target_link_libraries(libGLESv2 SwiftShader ${Reactor} GLCompiler ${OS_LIBS})
     add_custom_command(
         TARGET libGLESv2
         POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:libGLESv2>/translator
         COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:libGLESv2> $<TARGET_FILE_DIR:libGLESv2>/translator/${LIB_PREFIX}GLES_V2_translator${CMAKE_SHARED_LIBRARY_SUFFIX}
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_SOURCE_DIR}/out/${CMAKE_SYSTEM_NAME}/
+        COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:libGLESv2> ${CMAKE_SOURCE_DIR}/out/${CMAKE_SYSTEM_NAME}/
     )
 endif()
 
@@ -940,10 +983,10 @@ if(BUILD_GLES_CM)
     set_target_properties(libGLES_CM PROPERTIES
         INCLUDE_DIRECTORIES "${OPENGL_INCLUDE_DIR}"
         FOLDER "OpenGL"
-        COMPILE_DEFINITIONS "GL_GLEXT_PROTOTYPES; EGLAPI=; GL_API=; GL_APICALL=;"
+        COMPILE_DEFINITIONS "GL_GLEXT_PROTOTYPES; EGLAPI=; GL_API=; GL_APICALL=; GLAPI=;"
         PREFIX ""
     )
-    set_target_export_map(libGLES_CM ${SOURCE_DIR}/OpenGL/libGLES_CM)
+    set_shared_library_export_map(libGLES_CM ${SOURCE_DIR}/OpenGL/libGLES_CM)
     target_link_libraries(libGLES_CM SwiftShader ${Reactor} GLCompiler ${OS_LIBS})
     add_custom_command(
         TARGET libGLES_CM
@@ -1013,4 +1056,28 @@ if(BUILD_TESTS AND ${REACTOR_BACKEND} STREQUAL "Subzero")
     else()
         target_link_libraries(SubzeroTest ReactorSubzero pthread dl)
     endif()
+endif()
+
+if(BUILD_TESTS)
+    set(UNITTESTS_LIST
+        ${CMAKE_SOURCE_DIR}/tests/unittests/main.cpp
+        ${CMAKE_SOURCE_DIR}/tests/unittests/unittests.cpp
+        ${CMAKE_SOURCE_DIR}/third_party/googletest/googletest/src/gtest-all.cc
+    )
+
+    set(UNITTESTS_INCLUDE_DIR
+        ${CMAKE_SOURCE_DIR}/third_party/googletest/googletest/include/
+        ${CMAKE_SOURCE_DIR}/third_party/googletest/googlemock/include/
+        ${CMAKE_SOURCE_DIR}/third_party/googletest/googletest/
+        ${CMAKE_SOURCE_DIR}/include/
+    )
+
+    add_executable(unittests ${UNITTESTS_LIST})
+    set_target_properties(unittests PROPERTIES
+        INCLUDE_DIRECTORIES "${UNITTESTS_INCLUDE_DIR}"
+        FOLDER "Tests"
+        COMPILE_DEFINITIONS "STANDALONE"
+    )
+
+    target_link_libraries(unittests libEGL libGLESv2 ${OS_LIBS})
 endif()

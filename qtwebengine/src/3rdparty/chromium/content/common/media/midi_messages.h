@@ -2,8 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifndef CONTENT_COMMON_MEDIA_MIDI_MESSAGES_H_
+#define CONTENT_COMMON_MEDIA_MIDI_MESSAGES_H_
+
 // IPC messages for access to MIDI hardware.
-// Multiply-included message file, hence no include guard.
 
 // TODO(toyoshim): Mojofication is working in progress. Until the work is
 // finished, this file temporarily depends on midi_service.mojom.h.
@@ -43,7 +45,7 @@ IPC_MESSAGE_CONTROL0(MidiHostMsg_StartSession)
 IPC_MESSAGE_CONTROL3(MidiHostMsg_SendData,
                      uint32_t /* port */,
                      std::vector<uint8_t> /* data */,
-                     double /* timestamp */)
+                     base::TimeTicks /* timestamp */)
 
 IPC_MESSAGE_CONTROL0(MidiHostMsg_EndSession)
 
@@ -68,6 +70,8 @@ IPC_MESSAGE_CONTROL1(MidiMsg_SessionStarted, midi::mojom::Result /* result */)
 IPC_MESSAGE_CONTROL3(MidiMsg_DataReceived,
                      uint32_t /* port */,
                      std::vector<uint8_t> /* data */,
-                     double /* timestamp */)
+                     base::TimeTicks /* timestamp */)
 
 IPC_MESSAGE_CONTROL1(MidiMsg_AcknowledgeSentData, uint32_t /* bytes sent */)
+
+#endif  // CONTENT_COMMON_MEDIA_MIDI_MESSAGES_H_

@@ -73,12 +73,13 @@ CFX_FloatRect CPDFSDK_Annot::GetRect() const {
   return CFX_FloatRect();
 }
 
-UnderlyingPageType* CPDFSDK_Annot::GetUnderlyingPage() {
+IPDF_Page* CPDFSDK_Annot::GetPage() {
 #ifdef PDF_ENABLE_XFA
-  return GetPDFXFAPage();
-#else   // PDF_ENABLE_XFA
-  return GetPDFPage();
+  CPDFXFA_Page* pXFAPage = GetPDFXFAPage();
+  if (pXFAPage)
+    return pXFAPage;
 #endif  // PDF_ENABLE_XFA
+  return GetPDFPage();
 }
 
 CPDF_Page* CPDFSDK_Annot::GetPDFPage() {

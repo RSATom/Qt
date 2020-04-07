@@ -3,9 +3,9 @@
 ** Copyright (C) 2017 Ford Motor Company
 ** Contact: https://www.qt.io/licensing/
 **
-** This file is part of the QtRemoteObjects module of the Qt Toolkit.
+** This file is part of the documentation of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL$
+** $QT_BEGIN_LICENSE:FDL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
@@ -14,25 +14,13 @@
 ** and conditions see https://www.qt.io/terms-conditions. For further
 ** information use the contact form at https://www.qt.io/contact-us.
 **
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPL3 included in the
-** packaging of this file. Please review the following information to
-** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or (at your option) the GNU General
-** Public license version 3 or any later version approved by the KDE Free
-** Qt Foundation. The licenses are as published by the Free Software
-** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-2.0.html and
-** https://www.gnu.org/licenses/gpl-3.0.html.
-**
+** GNU Free Documentation License Usage
+** Alternatively, this file may be used under the terms of the GNU Free
+** Documentation License version 1.3 as published by the Free Software
+** Foundation and appearing in the file included in the packaging of
+** this file. Please review the following information to ensure
+** the GNU Free Documentation License version 1.3 requirements
+** will be met: https://www.gnu.org/licenses/fdl-1.3.html.
 ** $QT_END_LICENSE$
 **
 ****************************************************************************/
@@ -83,8 +71,8 @@ signal to alert you if the connection is lost.
 Objects shared over QtRO use the links (conduits) between nodes for all
 communication. If you intend to share a QObject, you must create a \e {host
 node} with a URL other nodes can connect to. You can also use the QtRO \l
-{Registry} to facilitate connections, but your node’s sharing \l {Source}
-{sources} still need to be a Host Node. Each shared object is given a name
+{Registry} to facilitate connections, but your nodes sharing \l {Source}
+{sources} still need to be Host nodes. Each shared object is given a name
 (a QString), used for identifying it on the QtRO network.
 
 See the \l {Qt Remote Objects} {Overview} for a more detailed description, or
@@ -178,10 +166,10 @@ Above,
         our SimpleSwitch,
     \li \c timeout_slot() is connected to the timeout() signal of
         \c stateChangeTimer,
-    \li \c server_slot(), which is called on the source (automatically
-        via QtRO) whenever any replica calls their version of the slot,
+    \li \c server_slot() -- which is called on the source (automatically
+        via QtRO) whenever any replica calls their version of the slot --
         outputs the received value, and
-    \li \c currStateChanged(bool) signal, defined in \l {repc}-generated
+    \li \c currStateChanged(bool), defined in \l {repc}-generated
         \c rep_SimpleSwitch_source.h, is emitted whenever currState
         toggles. In this example, we ignore the signal on the source side,
         and handle it later on the replica side.
@@ -288,10 +276,9 @@ generates the following output:
 A dynamic replica is initially created as a "bare" QObject - that is, it has
 no properties, signals or slots. QtRO returns the API for the object during
 initialization (after the connection to the source is made), thus the API is
-added to the object at runtime. Dynamic replicas are good when a replica is
-intended to be used in QML.
+added to the object at runtime.
 
-There are no changes to source side as a dynamic \l Replica only impacts
+There are no changes to the source side as a dynamic \l Replica only impacts
 how the requestor node acquires the replica. The source-side code shown
 in \l {qtro-example1}{Example 1} will be used.
 
@@ -329,8 +316,8 @@ to \l {qtro-example1}{Example 1}.
 \target qtro-example3
 \section1 Example 3: Remote Nodes using a Registry
 
-This example will illustrate the use of \l {Registry} for building the node
-topology. For only two nodes, the benefits of using the Registry are minimal.
+This example will illustrate the use of a \l {Registry} for building the node
+topology. For only two nodes, the benefits of using a registry are minimal.
 With a registry, instead of using a QUrl to create a direct connection between
 two nodes, you use a different QUrl to point both the host and replica nodes to
 the registry. As the network grows, using a registry means that all nodes only
@@ -348,7 +335,7 @@ node is created and connected to the \l {Registry}:
 
 \section2 Replica Code
 
-Requestor object used for this example is the dynamic replica client
+The requestor object used for this example is the dynamic replica client
 discussed in \l {qtro-example2}{Example 2}.
 
 The only modification is in \c main.cpp: a \l {Registry} node is created

@@ -37,8 +37,8 @@ class LayerTreeHostProxyTest : public LayerTreeTest {
 
 class LayerTreeHostProxyTestSetNeedsCommit : public LayerTreeHostProxyTest {
  protected:
-  LayerTreeHostProxyTestSetNeedsCommit() {}
-  ~LayerTreeHostProxyTestSetNeedsCommit() override {}
+  LayerTreeHostProxyTestSetNeedsCommit() = default;
+  ~LayerTreeHostProxyTestSetNeedsCommit() override = default;
 
   void BeginTest() override {
     EXPECT_EQ(ProxyMain::NO_PIPELINE_STAGE,
@@ -74,8 +74,8 @@ MULTI_THREAD_TEST_F(LayerTreeHostProxyTestSetNeedsCommit);
 
 class LayerTreeHostProxyTestSetNeedsAnimate : public LayerTreeHostProxyTest {
  protected:
-  LayerTreeHostProxyTestSetNeedsAnimate() {}
-  ~LayerTreeHostProxyTestSetNeedsAnimate() override {}
+  LayerTreeHostProxyTestSetNeedsAnimate() = default;
+  ~LayerTreeHostProxyTestSetNeedsAnimate() override = default;
 
   void BeginTest() override {
     EXPECT_EQ(ProxyMain::NO_PIPELINE_STAGE,
@@ -110,8 +110,8 @@ MULTI_THREAD_TEST_F(LayerTreeHostProxyTestSetNeedsAnimate);
 class LayerTreeHostProxyTestSetNeedsUpdateLayers
     : public LayerTreeHostProxyTest {
  protected:
-  LayerTreeHostProxyTestSetNeedsUpdateLayers() {}
-  ~LayerTreeHostProxyTestSetNeedsUpdateLayers() override {}
+  LayerTreeHostProxyTestSetNeedsUpdateLayers() = default;
+  ~LayerTreeHostProxyTestSetNeedsUpdateLayers() override = default;
 
   void BeginTest() override {
     EXPECT_EQ(ProxyMain::NO_PIPELINE_STAGE,
@@ -146,8 +146,9 @@ MULTI_THREAD_TEST_F(LayerTreeHostProxyTestSetNeedsUpdateLayers);
 class LayerTreeHostProxyTestSetNeedsUpdateLayersWhileAnimating
     : public LayerTreeHostProxyTest {
  protected:
-  LayerTreeHostProxyTestSetNeedsUpdateLayersWhileAnimating() {}
-  ~LayerTreeHostProxyTestSetNeedsUpdateLayersWhileAnimating() override {}
+  LayerTreeHostProxyTestSetNeedsUpdateLayersWhileAnimating() = default;
+  ~LayerTreeHostProxyTestSetNeedsUpdateLayersWhileAnimating() override =
+      default;
 
   void BeginTest() override { proxy()->SetNeedsAnimate(); }
 
@@ -191,8 +192,8 @@ MULTI_THREAD_TEST_F(LayerTreeHostProxyTestSetNeedsUpdateLayersWhileAnimating);
 class LayerTreeHostProxyTestSetNeedsCommitWhileAnimating
     : public LayerTreeHostProxyTest {
  protected:
-  LayerTreeHostProxyTestSetNeedsCommitWhileAnimating() {}
-  ~LayerTreeHostProxyTestSetNeedsCommitWhileAnimating() override {}
+  LayerTreeHostProxyTestSetNeedsCommitWhileAnimating() = default;
+  ~LayerTreeHostProxyTestSetNeedsCommitWhileAnimating() override = default;
 
   void BeginTest() override { proxy()->SetNeedsAnimate(); }
 
@@ -335,7 +336,9 @@ class LayerTreeHostProxyTestCommitWaitsForActivationMFBA
   void BeginTest() override { PostSetNeedsCommitToMainThread(); }
 
   void ReadyToCommitOnThread(LayerTreeHostImpl* impl) override {
-    switch (impl->sync_tree()->source_frame_number()) {
+    LayerTreeImpl* sync_tree =
+        impl->pending_tree() ? impl->pending_tree() : impl->active_tree();
+    switch (sync_tree->source_frame_number()) {
       case -1:
         // Block the activation of the initial commit until the second main
         // frame is ready.

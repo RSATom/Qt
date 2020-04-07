@@ -29,13 +29,12 @@
 #ifndef QWIZARD_CONTAINER_H
 #define QWIZARD_CONTAINER_H
 
-#include <QtDesigner/QDesignerContainerExtension>
+#include <QtDesigner/container.h>
 
 #include <qdesigner_propertysheet_p.h>
 #include <extensionfactory_p.h>
 
-#include <QtWidgets/QWizard>
-#include <QtWidgets/QWizardPage>
+#include <QtWidgets/qwizard.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -53,13 +52,13 @@ class QWizardContainer: public QObject, public QDesignerContainerExtension
 public:
     explicit QWizardContainer(QWizard *widget, QObject *parent = 0);
 
-    int count() const Q_DECL_OVERRIDE;
-    QWidget *widget(int index) const Q_DECL_OVERRIDE;
-    int currentIndex() const Q_DECL_OVERRIDE;
-    void setCurrentIndex(int index) Q_DECL_OVERRIDE;
-    void addWidget(QWidget *widget) Q_DECL_OVERRIDE;
-    void insertWidget(int index, QWidget *widget) Q_DECL_OVERRIDE;
-    void remove(int index) Q_DECL_OVERRIDE;
+    int count() const override;
+    QWidget *widget(int index) const override;
+    int currentIndex() const override;
+    void setCurrentIndex(int index) override;
+    void addWidget(QWidget *widget) override;
+    void insertWidget(int index, QWidget *widget) override;
+    void remove(int index) override;
 
 private:
     QWizard *m_wizard;
@@ -76,7 +75,7 @@ class QWizardPagePropertySheet: public QDesignerPropertySheet
 public:
     explicit QWizardPagePropertySheet(QWizardPage *object, QObject *parent = 0);
 
-    bool reset(int index) Q_DECL_OVERRIDE;
+    bool reset(int index) override;
 
     static const char *pageIdProperty;
 
@@ -93,7 +92,7 @@ class QWizardPropertySheet: public QDesignerPropertySheet
     Q_OBJECT
 public:
     explicit QWizardPropertySheet(QWizard *object, QObject *parent = 0);
-    bool isVisible(int index) const Q_DECL_OVERRIDE;
+    bool isVisible(int index) const override;
 
 private:
     const QString m_startId;

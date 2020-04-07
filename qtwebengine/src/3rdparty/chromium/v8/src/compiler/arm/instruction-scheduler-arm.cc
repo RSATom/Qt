@@ -212,6 +212,7 @@ int InstructionScheduler::GetTargetInstructionFlags(
     case kArmI8x16GtU:
     case kArmI8x16GeU:
     case kArmS128Zero:
+    case kArmS128Dup:
     case kArmS128And:
     case kArmS128Or:
     case kArmS128Xor:
@@ -261,6 +262,7 @@ int InstructionScheduler::GetTargetInstructionFlags(
     case kArmLdrh:
     case kArmLdrsh:
     case kArmLdr:
+    case kArmPeek:
       return kIsLoadOperation;
 
     case kArmVstrF32:
@@ -272,6 +274,7 @@ int InstructionScheduler::GetTargetInstructionFlags(
     case kArmStr:
     case kArmPush:
     case kArmPoke:
+    case kArmDsbIsb:
       return kHasSideEffect;
 
 #define CASE(Name) case k##Name:

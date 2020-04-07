@@ -47,7 +47,7 @@ QT_BEGIN_NAMESPACE
     \inherits QObject
     \inqmlmodule QtLocation
     \ingroup qml-QtLocation5-maps
-    \since Qt Location 5.5
+    \since QtLocation 5.5
 
     \brief The MapType type holds information about a map type.
 
@@ -121,7 +121,7 @@ bool QDeclarativeGeoMapType::mobile() const
 
 /*!
     \qmlproperty bool MapType::night
-    \since Qt Location 5.4
+    \since QtLocation 5.4
 
     \brief Whether the map type is optimized for use at night.
 
@@ -134,7 +134,7 @@ bool QDeclarativeGeoMapType::night() const
 
 /*!
     \qmlproperty CameraCapabilities MapType::cameraCapabilities
-    \since Qt Location 5.10
+    \since QtLocation 5.10
 
     This property holds the camera capabilities for this map type.
 */
@@ -145,7 +145,7 @@ QDeclarativeGeoCameraCapabilities *QDeclarativeGeoMapType::cameraCapabilities() 
 
 /*!
     \qmlproperty VariantMap MapType::metadata
-    \since Qt Location 5.10
+    \since QtLocation 5.10
 
     This property holds optional, extra metadata related to a specific map type.
     The content of this property is entirely plugin-specific.
@@ -165,7 +165,7 @@ QVariantMap QDeclarativeGeoMapType::metadata() const
     \inherits QObject
     \inqmlmodule QtLocation
     \ingroup qml-QtLocation5-maps
-    \since Qt Location 5.10
+    \since QtLocation 5.10
 
     \brief The CameraCapabilities type holds information about the camera capabilities for a specific map type.
 

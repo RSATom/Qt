@@ -37,7 +37,6 @@ enum ActivationType : ubyte (bit_flags) {
 }
 
 // The types of subresource requests that a URL rule should be applied to.
-// Corresponds to url_pattern_index::proto::ElementType.
 enum ElementType : ushort (bit_flags) {
   OTHER,
   SCRIPT,
@@ -53,6 +52,8 @@ enum ElementType : ushort (bit_flags) {
   MEDIA,
   FONT,
   WEBSOCKET,
+  CSP_REPORT,
+  MAIN_FRAME,
   // Note: Update the default value for |element_types| field in UrlRule, on
   // adding/removing values from this enum.
 }
@@ -63,9 +64,11 @@ table UrlRule {
   // Rule matching options, a bitmask consisting of OptionFlags.
   options : ubyte;
 
-  // A bitmask of ElementType. Equals ElementType_ANY by default for
-  // compactness.
-  element_types : ushort = 4095;
+  // A bitmask of ElementType. Equals ElementType_ANY & ~ElementType_MAIN_FRAME
+  // by default for compactness. We expect most rules to not use
+  // ElementType_MAIN_FRAME. Keep this in sync with
+  // url_pattern_index::kDefaultFlatElementTypesMask.
+  element_types : ushort = 8191;
 
   // A bitmask of ActivationType. Disables all activation types by default.
   activation_types : ubyte = 0;
@@ -79,13 +82,21 @@ table UrlRule {
   anchor_right : AnchorType = NONE;
 
   // The list of domains to be included/excluded from the filter's affected set.
-  // Kept sorted for fast matching. Should either be null or have at least a
-  // single element.
+  // Should either be null or have at least a single element. The domains
+  // should be in lower-case and kept sorted as defined by
+  // url_pattern_index::CompareDomains.
   domains_included : [string];
   domains_excluded : [string];
 
   // A URL pattern in the format defined by |url_pattern_type|.
   url_pattern : string;
+
+  // An id which uniquely identifies the rule. Clients must ensure uniqueness if
+  // they use this field.
+  id : uint;
+
+  // Priority of the rule. Larger the value, greater the priority.
+  priority : uint;
 }
 
 // Contains an N-gram (acting as a key in a hash table) and a list of URL rules
@@ -96,6 +107,7 @@ table NGramToRules {
   ngram : ulong;
 
   // The list of rules containing |ngram| as a substring of their URL pattern.
+  // Sorted in descending order of rule priority.
   rule_list : [UrlRule];
 }
 
@@ -114,7 +126,8 @@ table UrlPatternIndex {
   ngram_index_empty_slot : NGramToRules;
 
   // A list storing the rules that doesn't contain any valid N-grams in their
-  // URL patterns. Contains all the REGEXP rules as well.
+  // URL patterns. Contains all the REGEXP rules as well. Sorted in descending
+  // order of rule priority.
   // TODO(pkalinnikov): Think about better implementation for the fallback
   // index. Possibly make it a hash map and maybe merge it with the N-gram
   // index, since we can treat any sequence of characters shorter than N as an

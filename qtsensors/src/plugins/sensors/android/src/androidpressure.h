@@ -49,8 +49,8 @@ class AndroidPressure : public AndroidCommonSensor<QPressureReading>
 public:
     AndroidPressure(AndroidSensors::AndroidSensorType type, QSensor *sensor);
 private:
-    virtual void onAccuracyChanged(jint accuracy);
-    virtual void onSensorChanged(jlong timestamp, const jfloat *values, uint size);
+    void onAccuracyChanged(jint accuracy) override;
+    void onSensorChanged(jlong timestamp, const jfloat *values, uint size) override;
 };
 
 #endif // ANDROIDPRESSURE_H

@@ -122,7 +122,7 @@ class Q_QML_PRIVATE_EXPORT QQmlEnginePrivate : public QJSEnginePrivate
     Q_DECLARE_PUBLIC(QQmlEngine)
 public:
     QQmlEnginePrivate(QQmlEngine *);
-    ~QQmlEnginePrivate();
+    ~QQmlEnginePrivate() override;
 
     void init();
     // No mutex protecting baseModulesUninitialized, because use outside QQmlEngine
@@ -135,7 +135,7 @@ public:
 
     QQmlContext *rootContext;
 
-#ifdef QT_NO_QML_DEBUGGER
+#if !QT_CONFIG(qml_debug)
     static const quintptr profiler = 0;
 #else
     QQmlProfiler *profiler;
@@ -150,11 +150,13 @@ public:
     QQmlDelayedError *erroredBindings;
     int inProgressCreations;
 
-    QV8Engine *v8engine() const { return q_func()->handle(); }
-    QV4::ExecutionEngine *v4engine() const { return QV8Engine::getV4(q_func()->handle()); }
+    QV8Engine *v8engine() const { return q_func()->handle()->v8Engine; }
+    QV4::ExecutionEngine *v4engine() const { return q_func()->handle(); }
 
+#if QT_CONFIG(qml_worker_script)
     QQuickWorkerScriptEngine *getWorkerScriptEngine();
     QQuickWorkerScriptEngine *workerScriptEngine;
+#endif
 
     QUrl baseUrl;
 
@@ -213,14 +215,14 @@ public:
 
     // These methods may be called from the loader thread
     bool isQObject(int);
-    QObject *toQObject(const QVariant &, bool *ok = 0) const;
+    QObject *toQObject(const QVariant &, bool *ok = nullptr) const;
     QQmlMetaType::TypeCategory typeCategory(int) const;
     bool isList(int) const;
     int listType(int) const;
     QQmlMetaObject rawMetaObjectForType(int) const;
     QQmlMetaObject metaObjectForType(int) const;
     QQmlPropertyCache *propertyCacheForType(int);
-    QQmlPropertyCache *rawPropertyCacheForType(int);
+    QQmlPropertyCache *rawPropertyCacheForType(int, int minorVersion = -1);
     void registerInternalCompositeType(QV4::CompiledData::CompilationUnit *compilationUnit);
     void unregisterInternalCompositeType(QV4::CompiledData::CompilationUnit *compilationUnit);
 
@@ -231,10 +233,8 @@ public:
     void sendExit(int retCode = 0);
     void warning(const QQmlError &);
     void warning(const QList<QQmlError> &);
-    void warning(QQmlDelayedError *);
     static void warning(QQmlEngine *, const QQmlError &);
     static void warning(QQmlEngine *, const QList<QQmlError> &);
-    static void warning(QQmlEngine *, QQmlDelayedError *);
     static void warning(QQmlEnginePrivate *, const QQmlError &);
     static void warning(QQmlEnginePrivate *, const QList<QQmlError> &);
 
@@ -246,6 +246,8 @@ public:
     inline static QQmlEnginePrivate *get(QQmlContextData *c);
     inline static QQmlEngine *get(QQmlEnginePrivate *p);
     inline static QQmlEnginePrivate *get(QV4::ExecutionEngine *e);
+
+    static QList<QQmlError> qmlErrorFromDiagnostics(const QString &fileName, const QList<QQmlJS::DiagnosticMessage> &diagnosticMessages);
 
     static void registerBaseTypes(const char *uri, int versionMajor, int versionMinor);
     static void registerQtQuick2Types(const char *uri, int versionMajor, int versionMinor);
@@ -265,7 +267,7 @@ private:
     static bool s_designerMode;
 
     // These members is protected by the full QQmlEnginePrivate::mutex mutex
-    struct Deletable { Deletable():next(0) {} virtual ~Deletable() {} Deletable *next; };
+    struct Deletable { Deletable():next(nullptr) {} virtual ~Deletable() {} Deletable *next; };
     QFieldList<Deletable, &Deletable::next> toDeleteInEngineThread;
     void doDeleteInEngineThread();
 
@@ -295,7 +297,7 @@ inline void QQmlEnginePrivate::dereferenceScarceResources()
     // expression must have completed.  We can safely release the
     // scarce resources.
     if (Q_LIKELY(scarceResourcesRefCount == 0)) {
-        QV4::ExecutionEngine *engine = QV8Engine::getV4(v8engine());
+        QV4::ExecutionEngine *engine = v4engine();
         if (Q_UNLIKELY(!engine->scarceResources.isEmpty())) {
             cleanupScarceResources();
         }
@@ -341,7 +343,7 @@ void QQmlEnginePrivate::deleteInEngineThread(T *value)
     } else {
         struct I : public Deletable {
             I(T *value) : value(value) {}
-            ~I() { delete value; }
+            ~I() override { delete value; }
             T *value;
         };
         I *i = new I(value);
@@ -375,7 +377,7 @@ QQmlPropertyCache *QQmlEnginePrivate::cache(const QQmlType &type, int minorVersi
     Q_ASSERT(type.isValid());
 
     if (minorVersion == -1 || !type.containsRevisionedAttributes())
-        return cache(type.metaObject());
+        return cache(type.metaObject(), minorVersion);
 
     Locker locker(this);
     return QQmlMetaType::propertyCache(type, minorVersion);
@@ -385,14 +387,14 @@ QV8Engine *QQmlEnginePrivate::getV8Engine(QQmlEngine *e)
 {
     Q_ASSERT(e);
 
-    return e->d_func()->v8engine();
+    return e->handle()->v8Engine;
 }
 
 QV4::ExecutionEngine *QQmlEnginePrivate::getV4Engine(QQmlEngine *e)
 {
     Q_ASSERT(e);
 
-    return e->d_func()->v4engine();
+    return e->handle();
 }
 
 QQmlEnginePrivate *QQmlEnginePrivate::get(QQmlEngine *e)
@@ -411,12 +413,12 @@ const QQmlEnginePrivate *QQmlEnginePrivate::get(const QQmlEngine *e)
 
 QQmlEnginePrivate *QQmlEnginePrivate::get(QQmlContext *c)
 {
-    return (c && c->engine()) ? QQmlEnginePrivate::get(c->engine()) : 0;
+    return (c && c->engine()) ? QQmlEnginePrivate::get(c->engine()) : nullptr;
 }
 
 QQmlEnginePrivate *QQmlEnginePrivate::get(QQmlContextData *c)
 {
-    return (c && c->engine) ? QQmlEnginePrivate::get(c->engine) : 0;
+    return (c && c->engine) ? QQmlEnginePrivate::get(c->engine) : nullptr;
 }
 
 QQmlEngine *QQmlEnginePrivate::get(QQmlEnginePrivate *p)
@@ -428,11 +430,9 @@ QQmlEngine *QQmlEnginePrivate::get(QQmlEnginePrivate *p)
 
 QQmlEnginePrivate *QQmlEnginePrivate::get(QV4::ExecutionEngine *e)
 {
-    if (!e->v8Engine)
-        return 0;
-    QQmlEngine *qmlEngine = e->v8Engine->engine();
+    QQmlEngine *qmlEngine = e->qmlEngine();
     if (!qmlEngine)
-        return 0;
+        return nullptr;
     return get(qmlEngine);
 }
 

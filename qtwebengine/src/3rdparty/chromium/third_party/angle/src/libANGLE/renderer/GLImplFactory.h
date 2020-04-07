@@ -15,6 +15,7 @@
 #include "angle_gl.h"
 #include "libANGLE/Framebuffer.h"
 #include "libANGLE/Program.h"
+#include "libANGLE/ProgramPipeline.h"
 #include "libANGLE/Shader.h"
 #include "libANGLE/TransformFeedback.h"
 #include "libANGLE/VertexArray.h"
@@ -30,10 +31,11 @@ class BufferImpl;
 class CompilerImpl;
 class ContextImpl;
 class FenceNVImpl;
-class FenceSyncImpl;
+class SyncImpl;
 class FramebufferImpl;
 class PathImpl;
 class ProgramImpl;
+class ProgramPipelineImpl;
 class QueryImpl;
 class RenderbufferImpl;
 class SamplerImpl;
@@ -60,7 +62,7 @@ class GLImplFactory : angle::NonCopyable
     virtual TextureImpl *createTexture(const gl::TextureState &state) = 0;
 
     // Renderbuffer creation
-    virtual RenderbufferImpl *createRenderbuffer() = 0;
+    virtual RenderbufferImpl *createRenderbuffer(const gl::RenderbufferState &state) = 0;
 
     // Buffer creation
     virtual BufferImpl *createBuffer(const gl::BufferState &state) = 0;
@@ -69,16 +71,19 @@ class GLImplFactory : angle::NonCopyable
     virtual VertexArrayImpl *createVertexArray(const gl::VertexArrayState &data) = 0;
 
     // Query and Fence creation
-    virtual QueryImpl *createQuery(GLenum type) = 0;
+    virtual QueryImpl *createQuery(gl::QueryType type) = 0;
     virtual FenceNVImpl *createFenceNV() = 0;
-    virtual FenceSyncImpl *createFenceSync() = 0;
+    virtual SyncImpl *createSync()              = 0;
 
     // Transform Feedback creation
     virtual TransformFeedbackImpl *createTransformFeedback(
         const gl::TransformFeedbackState &state) = 0;
 
     // Sampler object creation
-    virtual SamplerImpl *createSampler() = 0;
+    virtual SamplerImpl *createSampler(const gl::SamplerState &state) = 0;
+
+    // Program Pipeline object creation
+    virtual ProgramPipelineImpl *createProgramPipeline(const gl::ProgramPipelineState &data) = 0;
 
     virtual std::vector<PathImpl *> createPaths(GLsizei range) = 0;
 };

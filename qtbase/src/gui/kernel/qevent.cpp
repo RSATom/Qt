@@ -42,15 +42,18 @@
 #include "private/qguiapplication_p.h"
 #include "private/qtouchdevice_p.h"
 #include "qpa/qplatformintegration.h"
-#include "qpa/qplatformdrag.h"
 #include "private/qevent_p.h"
 #include "qfile.h"
 #include "qhashfunctions.h"
 #include "qmetaobject.h"
 #include "qmimedata.h"
-#include "private/qdnd_p.h"
 #include "qevent_p.h"
 #include "qmath.h"
+
+#if QT_CONFIG(draganddrop)
+#include <qpa/qplatformdrag.h>
+#include <private/qdnd_p.h>
+#endif
 
 #include <private/qdebug_p.h>
 
@@ -694,6 +697,13 @@ QHoverEvent::~QHoverEvent()
 */
 
 /*!
+  \enum QWheelEvent::anonymous
+  \internal
+
+  \value DefaultDeltasPerStep Defaqult deltas per step
+*/
+
+/*!
     \fn Qt::MouseButtons QWheelEvent::buttons() const
 
     Returns the mouse state when the event occurred.
@@ -773,7 +783,7 @@ QWheelEvent::QWheelEvent(const QPointF &pos, int delta,
                          Qt::MouseButtons buttons, Qt::KeyboardModifiers modifiers,
                          Qt::Orientation orient)
     : QInputEvent(Wheel, modifiers), p(pos), qt4D(delta), qt4O(orient), mouseState(buttons),
-      ph(Qt::NoScrollPhase), src(Qt::MouseEventNotSynthesized), invertedScrolling(false)
+      src(Qt::MouseEventNotSynthesized), invertedScrolling(false), ph(Qt::NoScrollPhase)
 {
     g = QCursor::pos();
     if (orient == Qt::Vertical)
@@ -808,7 +818,7 @@ QWheelEvent::QWheelEvent(const QPointF &pos, const QPointF& globalPos, int delta
                          Qt::MouseButtons buttons, Qt::KeyboardModifiers modifiers,
                          Qt::Orientation orient)
     : QInputEvent(Wheel, modifiers), p(pos), g(globalPos), qt4D(delta), qt4O(orient), mouseState(buttons),
-      ph(Qt::NoScrollPhase), src(Qt::MouseEventNotSynthesized), invertedScrolling(false)
+      src(Qt::MouseEventNotSynthesized), invertedScrolling(false), ph(Qt::NoScrollPhase)
 {
     if (orient == Qt::Vertical)
         angleD = QPoint(0, delta);
@@ -949,9 +959,48 @@ QWheelEvent::QWheelEvent(const QPointF &pos, const QPointF& globalPos,
             QPoint pixelDelta, QPoint angleDelta, int qt4Delta, Qt::Orientation qt4Orientation,
             Qt::MouseButtons buttons, Qt::KeyboardModifiers modifiers, Qt::ScrollPhase phase, Qt::MouseEventSource source, bool inverted)
     : QInputEvent(Wheel, modifiers), p(pos), g(globalPos), pixelD(pixelDelta),
-      angleD(angleDelta), qt4D(qt4Delta), qt4O(qt4Orientation), mouseState(buttons), ph(phase), src(source),
-      invertedScrolling(inverted)
+      angleD(angleDelta), qt4D(qt4Delta), qt4O(qt4Orientation), mouseState(buttons), src(source),
+      invertedScrolling(inverted), ph(phase)
 {}
+
+/*!
+    Constructs a wheel event object.
+
+    The \a pos provides the location of the mouse cursor
+    within the window. The position in global coordinates is specified
+    by \a globalPos.
+
+    \a pixelDelta contains the scrolling distance in pixels on screen, while
+    \a angleDelta contains the wheel rotation distance. \a pixelDelta is
+    optional and can be null.
+
+    The mouse and keyboard states at the time of the event are specified by
+    \a buttons and \a modifiers.
+
+    The scrolling phase of the event is specified by \a phase.
+
+    If the wheel event comes from a physical mouse wheel, \a source is set to
+    Qt::MouseEventNotSynthesized. If it comes from a gesture detected by the
+    operating system, or from a non-mouse hardware device, such that \a
+    pixelDelta is directly related to finger movement, \a source is set to
+    Qt::MouseEventSynthesizedBySystem. If it comes from Qt, source would be set
+    to Qt::MouseEventSynthesizedByQt.
+
+    If the system is configured to invert the delta values delivered with the
+    event (such as natural scrolling of the touchpad on macOS), \a inverted
+    should be \c true. Otherwise, \a inverted is \c false
+
+    \sa posF(), globalPosF(), angleDelta(), pixelDelta(), phase()
+*/
+QWheelEvent::QWheelEvent(QPointF pos, QPointF globalPos, QPoint pixelDelta, QPoint angleDelta,
+            Qt::MouseButtons buttons, Qt::KeyboardModifiers modifiers, Qt::ScrollPhase phase,
+            bool inverted, Qt::MouseEventSource source)
+    : QInputEvent(Wheel, modifiers), p(pos), g(globalPos), pixelD(pixelDelta), angleD(angleDelta),
+      qt4O(qAbs(angleDelta.x()) > qAbs(angleDelta.y()) ? Qt::Horizontal : Qt::Vertical),
+      mouseState(buttons), src(source), invertedScrolling(inverted), ph(phase)
+{
+    qt4D = (qt4O == Qt::Horizontal ? angleDelta.x() : angleDelta.y());
+}
 
 #endif // QT_CONFIG(wheelevent)
 
@@ -1526,8 +1575,8 @@ QMoveEvent::~QMoveEvent()
 
     \ingroup events
 
-    Expose events are sent to windows when an area of the window is invalidated
-    or window exposure in the windowing system changes.
+    Expose events are sent to windows when an area of the window is invalidated,
+    for example when window exposure in the windowing system changes.
 
     A Window with a client area that is completely covered by another window, or
     is otherwise not visible may be considered obscured by Qt and may in such
@@ -2400,8 +2449,9 @@ QVariant QInputMethodQueryEvent::value(Qt::InputMethodQuery query) const
   The \a tangentialPressure parameter contins the tangential pressure of an air
   brush. If the device does not support tangential pressure, pass 0 here.
 
-  \a rotation contains the device's rotation in degrees. 4D mice and the Wacom
-  Art Pen support rotation. If the device does not support rotation, pass 0 here.
+  \a rotation contains the device's rotation in degrees.
+  4D mice, the Wacom Art Pen, and the Apple Pencil support rotation.
+  If the device does not support rotation, pass 0 here.
 
   The \a button that caused the event is given as a value from the
   \l Qt::MouseButton enum. If the event \a type is not \l TabletPress or
@@ -2483,6 +2533,7 @@ QTabletEvent::QTabletEvent(Type type, const QPointF &pos, const QPointF &globalP
 */
 QTabletEvent::~QTabletEvent()
 {
+    delete static_cast<QTabletEventPrivate *>(mExtra);
 }
 
 /*!
@@ -2542,10 +2593,12 @@ Qt::MouseButtons QTabletEvent::buttons() const
 /*!
     \fn qreal QTabletEvent::rotation() const
 
-    Returns the rotation of the current device in degress. This is usually
-    given by a 4D Mouse. If the device does not support rotation this value is
-    always 0.0.
-
+    Returns the rotation of the current tool in degrees, where zero means the
+    tip of the stylus is pointing towards the top of the tablet, a positive
+    value means it's turned to the right, and a negative value means it's
+    turned to the left. This can be given by a 4D Mouse or a rotation-capable
+    stylus (such as the Wacom Art Pen or the Apple Pencil). If the device does
+    not support rotation, this value is always 0.0.
 */
 
 /*!
@@ -2737,7 +2790,7 @@ Qt::MouseButtons QTabletEvent::buttons() const
     \header
         \li Event Type
         \li Description
-        \li Touch equence
+        \li Touch sequence
     \row
         \li Qt::ZoomNativeGesture
         \li Magnification delta in percent.
@@ -2873,7 +2926,7 @@ const QTouchDevice *QNativeGestureEvent::device() const
 */
 #endif // QT_NO_GESTURES
 
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
 /*!
     Creates a QDragMoveEvent of the required \a type indicating
     that the mouse is at position \a pos given within a widget.
@@ -3019,7 +3072,7 @@ QDropEvent::~QDropEvent()
 /*!
     If the source of the drag operation is a widget in this
     application, this function returns that source; otherwise it
-    returns 0. The source of the operation is the first parameter to
+    returns \nullptr. The source of the operation is the first parameter to
     the QDrag object used instantiate the drag.
 
     This is useful if your widget needs special behavior when dragging
@@ -3217,7 +3270,7 @@ QDragLeaveEvent::QDragLeaveEvent()
 QDragLeaveEvent::~QDragLeaveEvent()
 {
 }
-#endif // QT_NO_DRAGANDDROP
+#endif // QT_CONFIG(draganddrop)
 
 /*!
     \class QHelpEvent
@@ -3461,7 +3514,7 @@ QActionEvent::~QActionEvent()
     \fn QAction *QActionEvent::before() const
 
     If type() is \l ActionAdded, returns the action that should
-    appear before action(). If this function returns 0, the action
+    appear before action(). If this function returns \nullptr, the action
     should be appended to already existing actions on the same
     widget.
 
@@ -3751,14 +3804,25 @@ static inline void formatInputMethodEvent(QDebug d, const QInputMethodEvent *e)
 
 static inline void formatInputMethodQueryEvent(QDebug d, const QInputMethodQueryEvent *e)
 {
+    QDebugStateSaver saver(d);
+    d.noquote();
     const Qt::InputMethodQueries queries = e->queries();
     d << "QInputMethodQueryEvent(queries=" << showbase << hex << int(queries)
       << noshowbase << dec << ", {";
-    for (unsigned mask = 1; mask <= Qt::ImTextAfterCursor; mask<<=1) {
+    for (unsigned mask = 1; mask <= Qt::ImInputItemClipRectangle; mask<<=1) {
         if (queries & mask) {
-            const QVariant value = e->value(static_cast<Qt::InputMethodQuery>(mask));
-            if (value.isValid())
-                d << '[' << showbase << hex << mask <<  noshowbase << dec << '=' << value << "],";
+            const Qt::InputMethodQuery query = static_cast<Qt::InputMethodQuery>(mask);
+            const QVariant value = e->value(query);
+            if (value.isValid()) {
+                d << '[';
+                QtDebugUtils::formatQEnum(d, query);
+                d << '=';
+                if (query == Qt::ImHints)
+                    QtDebugUtils::formatQFlags(d, Qt::InputMethodHints(value.toInt()));
+                else
+                    d << value.toString();
+                d << "],";
+            }
         }
     }
     d << "})";
@@ -3881,7 +3945,7 @@ static const char *eventClassName(QEvent::Type t)
     return "QEvent";
 }
 
-#  ifndef QT_NO_DRAGANDDROP
+#  if QT_CONFIG(draganddrop)
 
 static void formatDropEvent(QDebug d, const QDropEvent *e)
 {
@@ -3902,7 +3966,7 @@ static void formatDropEvent(QDebug d, const QDropEvent *e)
     QtDebugUtils::formatQFlags(d, e->mouseButtons());
 }
 
-#  endif // !QT_NO_DRAGANDDROP
+#  endif // QT_CONFIG(draganddrop)
 
 #  if QT_CONFIG(tabletevent)
 
@@ -4007,7 +4071,12 @@ QDebug operator<<(QDebug dbg, const QEvent *e)
 #  if QT_CONFIG(wheelevent)
     case QEvent::Wheel: {
         const QWheelEvent *we = static_cast<const QWheelEvent *>(e);
-        dbg << "QWheelEvent(" << "pixelDelta=" << we->pixelDelta() << ", angleDelta=" << we->angleDelta() << ')';
+        dbg << "QWheelEvent(" << we->phase();
+        if (!we->pixelDelta().isNull() || !we->angleDelta().isNull())
+            dbg << ", pixelDelta=" << we->pixelDelta() << ", angleDelta=" << we->angleDelta();
+        else if (int qt4Delta = we->delta())
+            dbg << ", delta=" << qt4Delta << ", orientation=" << we->orientation();
+        dbg << ')';
     }
         break;
 #  endif // QT_CONFIG(wheelevent)
@@ -4065,13 +4134,13 @@ QDebug operator<<(QDebug dbg, const QEvent *e)
         dbg << ')';
     }
         break;
-#  ifndef QT_NO_DRAGANDDROP
+#  if QT_CONFIG(draganddrop)
     case QEvent::DragEnter:
     case QEvent::DragMove:
     case QEvent::Drop:
         formatDropEvent(dbg, static_cast<const QDropEvent *>(e));
         break;
-#  endif // !QT_NO_DRAGANDDROP
+#  endif // QT_CONFIG(draganddrop)
     case QEvent::InputMethod:
         formatInputMethodEvent(dbg, static_cast<const QInputMethodEvent *>(e));
         break;
@@ -4095,7 +4164,7 @@ QDebug operator<<(QDebug dbg, const QEvent *e)
         const QNativeGestureEvent *ne = static_cast<const QNativeGestureEvent *>(e);
         dbg << "QNativeGestureEvent(";
         QtDebugUtils::formatQEnum(dbg, ne->gestureType());
-        dbg << "localPos=";
+        dbg << ", localPos=";
         QtDebugUtils::formatQPoint(dbg, ne->localPos());
         dbg << ", value=" << ne->value() << ')';
     }
@@ -4506,7 +4575,7 @@ QTouchEvent::TouchPoint::TouchPoint(int id)
 { }
 
 /*!
-    \fn TouchPoint::TouchPoint(const TouchPoint &other)
+    \fn QTouchEvent::TouchPoint::TouchPoint(const QTouchEvent::TouchPoint &other)
     \internal
 
     Constructs a copy of \a other.
@@ -4970,7 +5039,9 @@ void QTouchEvent::TouchPoint::setLastNormalizedPos(const QPointF &lastNormalized
 }
 
 // ### remove the following 3 setRect functions and their usages soon
-/*! \internal \obsolete */
+/*! \internal
+    \obsolete
+*/
 void QTouchEvent::TouchPoint::setRect(const QRectF &rect)
 {
     if (d->ref.load() != 1)
@@ -4979,7 +5050,9 @@ void QTouchEvent::TouchPoint::setRect(const QRectF &rect)
     d->ellipseDiameters = rect.size();
 }
 
-/*! \internal \obsolete */
+/*! \internal
+    \obsolete
+*/
 void QTouchEvent::TouchPoint::setSceneRect(const QRectF &sceneRect)
 {
     if (d->ref.load() != 1)
@@ -4988,7 +5061,9 @@ void QTouchEvent::TouchPoint::setSceneRect(const QRectF &sceneRect)
     d->ellipseDiameters = sceneRect.size();
 }
 
-/*! \internal \obsolete */
+/*! \internal
+    \obsolete
+*/
 void QTouchEvent::TouchPoint::setScreenRect(const QRectF &screenRect)
 {
     if (d->ref.load() != 1)
@@ -5048,12 +5123,12 @@ void QTouchEvent::TouchPoint::setFlags(InfoFlags flags)
 }
 
 /*!
-    \fn TouchPoint &TouchPoint::operator=(const TouchPoint &other)
+    \fn QTouchEvent::TouchPoint &QTouchEvent::TouchPoint::operator=(const QTouchEvent::TouchPoint &other)
     \internal
  */
 
 /*!
-    \fn TouchPoint &TouchPoint::operator=(TouchPoint &&other)
+    \fn QTouchEvent::TouchPoint &QTouchEvent::TouchPoint::operator=(QTouchEvent::TouchPoint &&other)
     \internal
  */
 /*!

@@ -157,19 +157,23 @@ TEST(URLCanonTest, UTF) {
     {"\xe4\xbd\xa0\xe5\xa5\xbd", L"\x4f60\x597d", true, "%E4%BD%A0%E5%A5%BD"},
       // Test a character that takes > 16 bits (U+10300 = old italic letter A)
     {"\xF0\x90\x8C\x80", L"\xd800\xdf00", true, "%F0%90%8C%80"},
-      // Non-shortest-form UTF-8 characters are invalid. The bad character
-      // should be replaced with the invalid character (EF BF DB in UTF-8).
-    {"\xf0\x84\xbd\xa0\xe5\xa5\xbd", NULL, false, "%EF%BF%BD%E5%A5%BD"},
+      // Non-shortest-form UTF-8 characters are invalid. The bad bytes should
+      // each be replaced with the invalid character (EF BF DB in UTF-8).
+    {"\xf0\x84\xbd\xa0\xe5\xa5\xbd", NULL, false,
+     "%EF%BF%BD%EF%BF%BD%EF%BF%BD%EF%BF%BD%E5%A5%BD"},
       // Invalid UTF-8 sequences should be marked as invalid (the first
       // sequence is truncated).
     {"\xe4\xa0\xe5\xa5\xbd", L"\xd800\x597d", false, "%EF%BF%BD%E5%A5%BD"},
       // Character going off the end.
     {"\xe4\xbd\xa0\xe5\xa5", L"\x4f60\xd800", false, "%E4%BD%A0%EF%BF%BD"},
       // ...same with low surrogates with no high surrogate.
-    {"\xed\xb0\x80", L"\xdc00", false, "%EF%BF%BD"},
+    {nullptr, L"\xdc00", false, "%EF%BF%BD"},
       // Test a UTF-8 encoded surrogate value is marked as invalid.
       // ED A0 80 = U+D800
-    {"\xed\xa0\x80", NULL, false, "%EF%BF%BD"},
+    {"\xed\xa0\x80", NULL, false, "%EF%BF%BD%EF%BF%BD%EF%BF%BD"},
+      // ...even when paired.
+    {"\xed\xa0\x80\xed\xb0\x80", nullptr, false,
+     "%EF%BF%BD%EF%BF%BD%EF%BF%BD%EF%BF%BD%EF%BF%BD%EF%BF%BD"},
   };
 
   std::string out_str;
@@ -377,6 +381,9 @@ TEST(URLCanonTest, Host) {
       // Maps uppercase letters to lower case letters. UTS 46 table 4 row (e)
     {"M\xc3\x9cNCHEN", L"M\xdcNCHEN", "xn--mnchen-3ya",
       Component(0, 14), CanonHostInfo::NEUTRAL, -1, ""},
+      // An already-IDNA host is not modified.
+    {"xn--mnchen-3ya", L"xn--mnchen-3ya", "xn--mnchen-3ya",
+      Component(0, 14), CanonHostInfo::NEUTRAL, -1, ""},
       // Symbol/punctuations are allowed in IDNA 2003/UTS46.
       // Not allowed in IDNA 2008. UTS 46 table 4 row (f).
     {"\xe2\x99\xa5ny.us", L"\x2665ny.us", "xn--ny-s0x.us",
@@ -499,6 +506,9 @@ TEST(URLCanonTest, Host) {
     {"12345678912345.12345678912345.de", L"12345678912345.12345678912345.de", "12345678912345.12345678912345.de", Component(0, 32), CanonHostInfo::NEUTRAL, -1, ""},
     {"1.2.0xB3A73CE5B59.de", L"1.2.0xB3A73CE5B59.de", "1.2.0xb3a73ce5b59.de", Component(0, 20), CanonHostInfo::NEUTRAL, -1, ""},
     {"12345678912345.0xde", L"12345678912345.0xde", "12345678912345.0xde", Component(0, 19), CanonHostInfo::BROKEN, -1, ""},
+    // A label that starts with "xn--" but contains non-ASCII characters should
+    // be an error. Escape the invalid characters.
+    {"xn--m\xc3\xbcnchen", L"xn--m\xfcnchen", "xn--m%C3%BCnchen", Component(0, 16), CanonHostInfo::BROKEN, -1, ""},
   };
 
   // CanonicalizeHost() non-verbose.
@@ -1273,22 +1283,33 @@ TEST(URLCanonTest, Query) {
 TEST(URLCanonTest, Ref) {
   // Refs are trivial, it just checks the encoding.
   DualComponentCase ref_cases[] = {
-      // Regular one, we shouldn't escape spaces, et al.
-    {"hello, world", L"hello, world", "#hello, world", Component(1, 12), true},
+      {"hello!", L"hello!", "#hello!", Component(1, 6), true},
+      // We should escape spaces, double-quotes, angled braces, and backtics.
+      {"hello, world", L"hello, world", "#hello,%20world", Component(1, 14),
+       true},
+      {"hello,\"world", L"hello,\"world", "#hello,%22world", Component(1, 14),
+       true},
+      {"hello,<world", L"hello,<world", "#hello,%3Cworld", Component(1, 14),
+       true},
+      {"hello,>world", L"hello,>world", "#hello,%3Eworld", Component(1, 14),
+       true},
+      {"hello,`world", L"hello,`world", "#hello,%60world", Component(1, 14),
+       true},
       // UTF-8/wide input should be preserved
-    {"\xc2\xa9", L"\xa9", "#\xc2\xa9", Component(1, 2), true},
+      {"\xc2\xa9", L"\xa9", "#%C2%A9", Component(1, 6), true},
       // Test a characer that takes > 16 bits (U+10300 = old italic letter A)
-    {"\xF0\x90\x8C\x80ss", L"\xd800\xdf00ss", "#\xF0\x90\x8C\x80ss", Component(1, 6), true},
+      {"\xF0\x90\x8C\x80ss", L"\xd800\xdf00ss", "#%F0%90%8C%80ss",
+       Component(1, 14), true},
       // Escaping should be preserved unchanged, even invalid ones
-    {"%41%a", L"%41%a", "#%41%a", Component(1, 5), true},
+      {"%41%a", L"%41%a", "#%41%a", Component(1, 5), true},
       // Invalid UTF-8/16 input should be flagged and the input made valid
-    {"\xc2", NULL, "#\xef\xbf\xbd", Component(1, 3), true},
-    {NULL, L"\xd800\x597d", "#\xef\xbf\xbd\xe5\xa5\xbd", Component(1, 6), true},
+      {"\xc2", NULL, "#%EF%BF%BD", Component(1, 9), true},
+      {NULL, L"\xd800\x597d", "#%EF%BF%BD%E5%A5%BD", Component(1, 18), true},
       // Test a Unicode invalid character.
-    {"a\xef\xb7\x90", L"a\xfdd0", "#a\xef\xbf\xbd", Component(1, 4), true},
+      {"a\xef\xb7\x90", L"a\xfdd0", "#a%EF%BF%BD", Component(1, 10), true},
       // Refs can have # signs and we should preserve them.
-    {"asdf#qwer", L"asdf#qwer", "#asdf#qwer", Component(1, 9), true},
-    {"#asdf", L"#asdf", "##asdf", Component(1, 5), true},
+      {"asdf#qwer", L"asdf#qwer", "#asdf#qwer", Component(1, 9), true},
+      {"#asdf", L"#asdf", "##asdf", Component(1, 5), true},
   };
 
   for (size_t i = 0; i < arraysize(ref_cases); i++) {
@@ -1351,49 +1372,56 @@ TEST(URLCanonTest, CanonicalizeStandardURL) {
     const char* expected;
     bool expected_success;
   } cases[] = {
-    {"http://www.google.com/foo?bar=baz#", "http://www.google.com/foo?bar=baz#", true},
-    {"http://[www.google.com]/", "http://[www.google.com]/", false},
-    {"ht\ttp:@www.google.com:80/;p?#", "ht%09tp://www.google.com:80/;p?#", false},
-    {"http:////////user:@google.com:99?foo", "http://user@google.com:99/?foo", true},
-    {"www.google.com", ":www.google.com/", false},
-    {"http://192.0x00A80001", "http://192.168.0.1/", true},
-    {"http://www/foo%2Ehtml", "http://www/foo.html", true},
-    {"http://user:pass@/", "http://user:pass@/", false},
-    {"http://%25DOMAIN:foobar@foodomain.com/", "http://%25DOMAIN:foobar@foodomain.com/", true},
+      {"http://www.google.com/foo?bar=baz#",
+       "http://www.google.com/foo?bar=baz#", true},
+      {"http://[www.google.com]/", "http://[www.google.com]/", false},
+      {"ht\ttp:@www.google.com:80/;p?#", "ht%09tp://www.google.com:80/;p?#",
+       false},
+      {"http:////////user:@google.com:99?foo", "http://user@google.com:99/?foo",
+       true},
+      {"www.google.com", ":www.google.com/", false},
+      {"http://192.0x00A80001", "http://192.168.0.1/", true},
+      {"http://www/foo%2Ehtml", "http://www/foo.html", true},
+      {"http://user:pass@/", "http://user:pass@/", false},
+      {"http://%25DOMAIN:foobar@foodomain.com/",
+       "http://%25DOMAIN:foobar@foodomain.com/", true},
 
       // Backslashes should get converted to forward slashes.
-    {"http:\\\\www.google.com\\foo", "http://www.google.com/foo", true},
+      {"http:\\\\www.google.com\\foo", "http://www.google.com/foo", true},
 
       // Busted refs shouldn't make the whole thing fail.
-    {"http://www.google.com/asdf#\xc2", "http://www.google.com/asdf#\xef\xbf\xbd", true},
+      {"http://www.google.com/asdf#\xc2",
+       "http://www.google.com/asdf#%EF%BF%BD", true},
 
       // Basic port tests.
-    {"http://foo:80/", "http://foo/", true},
-    {"http://foo:81/", "http://foo:81/", true},
-    {"httpa://foo:80/", "httpa://foo:80/", true},
-    {"http://foo:-80/", "http://foo:-80/", false},
+      {"http://foo:80/", "http://foo/", true},
+      {"http://foo:81/", "http://foo:81/", true},
+      {"httpa://foo:80/", "httpa://foo:80/", true},
+      {"http://foo:-80/", "http://foo:-80/", false},
 
-    {"https://foo:443/", "https://foo/", true},
-    {"https://foo:80/", "https://foo:80/", true},
-    {"ftp://foo:21/", "ftp://foo/", true},
-    {"ftp://foo:80/", "ftp://foo:80/", true},
-    {"gopher://foo:70/", "gopher://foo/", true},
-    {"gopher://foo:443/", "gopher://foo:443/", true},
-    {"ws://foo:80/", "ws://foo/", true},
-    {"ws://foo:81/", "ws://foo:81/", true},
-    {"ws://foo:443/", "ws://foo:443/", true},
-    {"ws://foo:815/", "ws://foo:815/", true},
-    {"wss://foo:80/", "wss://foo:80/", true},
-    {"wss://foo:81/", "wss://foo:81/", true},
-    {"wss://foo:443/", "wss://foo/", true},
-    {"wss://foo:815/", "wss://foo:815/", true},
+      {"https://foo:443/", "https://foo/", true},
+      {"https://foo:80/", "https://foo:80/", true},
+      {"ftp://foo:21/", "ftp://foo/", true},
+      {"ftp://foo:80/", "ftp://foo:80/", true},
+      {"gopher://foo:70/", "gopher://foo/", true},
+      {"gopher://foo:443/", "gopher://foo:443/", true},
+      {"ws://foo:80/", "ws://foo/", true},
+      {"ws://foo:81/", "ws://foo:81/", true},
+      {"ws://foo:443/", "ws://foo:443/", true},
+      {"ws://foo:815/", "ws://foo:815/", true},
+      {"wss://foo:80/", "wss://foo:80/", true},
+      {"wss://foo:81/", "wss://foo:81/", true},
+      {"wss://foo:443/", "wss://foo/", true},
+      {"wss://foo:815/", "wss://foo:815/", true},
 
       // This particular code path ends up "backing up" to replace an invalid
       // host ICU generated with an escaped version. Test that in the context
       // of a full URL to make sure the backing up doesn't mess up the non-host
       // parts of the URL. "EF B9 AA" is U+FE6A which is a type of percent that
       // ICU will convert to an ASCII one, generating "%81".
-    {"ws:)W\x1eW\xef\xb9\xaa""81:80/", "ws://%29w%1ew%81/", false},
+      {"ws:)W\x1eW\xef\xb9\xaa"
+       "81:80/",
+       "ws://%29w%1ew%81/", false},
   };
 
   for (size_t i = 0; i < arraysize(cases); i++) {
@@ -1405,7 +1433,8 @@ TEST(URLCanonTest, CanonicalizeStandardURL) {
     std::string out_str;
     StdStringCanonOutput output(&out_str);
     bool success = CanonicalizeStandardURL(
-        cases[i].input, url_len, parsed, NULL, &output, &out_parsed);
+        cases[i].input, url_len, parsed,
+        SCHEME_WITH_HOST_PORT_AND_USER_INFORMATION, NULL, &output, &out_parsed);
     output.Complete();
 
     EXPECT_EQ(cases[i].expected_success, success);
@@ -1451,8 +1480,9 @@ TEST(URLCanonTest, ReplaceStandardURL) {
     std::string out_str;
     StdStringCanonOutput output(&out_str);
     Parsed out_parsed;
-    ReplaceStandardURL(replace_cases[i].base, parsed, r, NULL, &output,
-                       &out_parsed);
+    ReplaceStandardURL(replace_cases[i].base, parsed, r,
+                       SCHEME_WITH_HOST_PORT_AND_USER_INFORMATION, NULL,
+                       &output, &out_parsed);
     output.Complete();
 
     EXPECT_EQ(replace_cases[i].expected, out_str);
@@ -1473,7 +1503,9 @@ TEST(URLCanonTest, ReplaceStandardURL) {
     std::string out_str1;
     StdStringCanonOutput output1(&out_str1);
     Parsed new_parsed;
-    ReplaceStandardURL(src, parsed, r, NULL, &output1, &new_parsed);
+    ReplaceStandardURL(src, parsed, r,
+                       SCHEME_WITH_HOST_PORT_AND_USER_INFORMATION, NULL,
+                       &output1, &new_parsed);
     output1.Complete();
     EXPECT_STREQ("http://www.google.com/", out_str1.c_str());
 
@@ -1481,7 +1513,9 @@ TEST(URLCanonTest, ReplaceStandardURL) {
     r.SetPath(reinterpret_cast<char*>(0x00000001), Component());
     std::string out_str2;
     StdStringCanonOutput output2(&out_str2);
-    ReplaceStandardURL(src, parsed, r, NULL, &output2, &new_parsed);
+    ReplaceStandardURL(src, parsed, r,
+                       SCHEME_WITH_HOST_PORT_AND_USER_INFORMATION, NULL,
+                       &output2, &new_parsed);
     output2.Complete();
     EXPECT_STREQ("http://www.google.com/", out_str2.c_str());
   }
@@ -1536,24 +1570,39 @@ TEST(URLCanonTest, ReplaceFileURL) {
 TEST(URLCanonTest, ReplaceFileSystemURL) {
   ReplaceCase replace_cases[] = {
       // Replace everything in the outer URL.
-    {"filesystem:file:///temporary/gaba?query#ref", NULL, NULL, NULL, NULL, NULL, "/foo", "b", "c", "filesystem:file:///temporary/foo?b#c"},
+      {"filesystem:file:///temporary/gaba?query#ref", NULL, NULL, NULL, NULL,
+       NULL, "/foo", "b", "c", "filesystem:file:///temporary/foo?b#c"},
       // Replace nothing
-    {"filesystem:file:///temporary/gaba?query#ref", NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, "filesystem:file:///temporary/gaba?query#ref"},
+      {"filesystem:file:///temporary/gaba?query#ref", NULL, NULL, NULL, NULL,
+       NULL, NULL, NULL, NULL, "filesystem:file:///temporary/gaba?query#ref"},
       // Clear non-path components (common)
-    {"filesystem:file:///temporary/gaba?query#ref", NULL, NULL, NULL, NULL, NULL, NULL, kDeleteComp, kDeleteComp, "filesystem:file:///temporary/gaba"},
+      {"filesystem:file:///temporary/gaba?query#ref", NULL, NULL, NULL, NULL,
+       NULL, NULL, kDeleteComp, kDeleteComp,
+       "filesystem:file:///temporary/gaba"},
       // Replace path with something that doesn't begin with a slash and make
       // sure it gets added properly.
-    {"filesystem:file:///temporary/gaba?query#ref", NULL, NULL, NULL, NULL, NULL, "interesting/", NULL, NULL, "filesystem:file:///temporary/interesting/?query#ref"},
-      // Replace scheme -- shouldn't do anything.
-    {"filesystem:http://u:p@bar.com/t/gaba?query#ref", "http", NULL, NULL, NULL, NULL, NULL, NULL, NULL, "filesystem:http://u:p@bar.com/t/gaba?query#ref"},
-      // Replace username -- shouldn't do anything.
-    {"filesystem:http://u:p@bar.com/t/gaba?query#ref", NULL, "u2", NULL, NULL, NULL, NULL, NULL, NULL, "filesystem:http://u:p@bar.com/t/gaba?query#ref"},
-      // Replace password -- shouldn't do anything.
-    {"filesystem:http://u:p@bar.com/t/gaba?query#ref", NULL, NULL, "pw2", NULL, NULL, NULL, NULL, NULL, "filesystem:http://u:p@bar.com/t/gaba?query#ref"},
-      // Replace host -- shouldn't do anything.
-    {"filesystem:http://u:p@bar.com/t/gaba?query#ref", NULL, NULL, NULL, "foo.com", NULL, NULL, NULL, NULL, "filesystem:http://u:p@bar.com/t/gaba?query#ref"},
-      // Replace port -- shouldn't do anything.
-    {"filesystem:http://u:p@bar.com:40/t/gaba?query#ref", NULL, NULL, NULL, NULL, "41", NULL, NULL, NULL, "filesystem:http://u:p@bar.com:40/t/gaba?query#ref"},
+      {"filesystem:file:///temporary/gaba?query#ref", NULL, NULL, NULL, NULL,
+       NULL, "interesting/", NULL, NULL,
+       "filesystem:file:///temporary/interesting/?query#ref"},
+      // Replace scheme -- shouldn't do anything except canonicalize.
+      {"filesystem:http://u:p@bar.com/t/gaba?query#ref", "http", NULL, NULL,
+       NULL, NULL, NULL, NULL, NULL,
+       "filesystem:http://bar.com/t/gaba?query#ref"},
+      // Replace username -- shouldn't do anything except canonicalize.
+      {"filesystem:http://u:p@bar.com/t/gaba?query#ref", NULL, "u2", NULL, NULL,
+       NULL, NULL, NULL, NULL, "filesystem:http://bar.com/t/gaba?query#ref"},
+      // Replace password -- shouldn't do anything except canonicalize.
+      {"filesystem:http://u:p@bar.com/t/gaba?query#ref", NULL, NULL, "pw2",
+       NULL, NULL, NULL, NULL, NULL,
+       "filesystem:http://bar.com/t/gaba?query#ref"},
+      // Replace host -- shouldn't do anything except canonicalize.
+      {"filesystem:http://u:p@bar.com:80/t/gaba?query#ref", NULL, NULL, NULL,
+       "foo.com", NULL, NULL, NULL, NULL,
+       "filesystem:http://bar.com/t/gaba?query#ref"},
+      // Replace port -- shouldn't do anything except canonicalize.
+      {"filesystem:http://u:p@bar.com:40/t/gaba?query#ref", NULL, NULL, NULL,
+       NULL, "41", NULL, NULL, NULL,
+       "filesystem:http://bar.com:40/t/gaba?query#ref"},
   };
 
   for (size_t i = 0; i < arraysize(replace_cases); i++) {
@@ -1683,41 +1732,57 @@ TEST(URLCanonTest, CanonicalizeFileURL) {
   } cases[] = {
 #ifdef _WIN32
       // Windows-style paths
-    {"file:c:\\foo\\bar.html", "file:///C:/foo/bar.html", true, Component(), Component(7, 16)},
-    {"  File:c|////foo\\bar.html", "file:///C:////foo/bar.html", true, Component(), Component(7, 19)},
-    {"file:", "file:///", true, Component(), Component(7, 1)},
-    {"file:UNChost/path", "file://unchost/path", true, Component(7, 7), Component(14, 5)},
+      {"file:c:\\foo\\bar.html", "file:///C:/foo/bar.html", true, Component(),
+       Component(7, 16)},
+      {"  File:c|////foo\\bar.html", "file:///C:////foo/bar.html", true,
+       Component(), Component(7, 19)},
+      {"file:", "file:///", true, Component(), Component(7, 1)},
+      {"file:UNChost/path", "file://unchost/path", true, Component(7, 7),
+       Component(14, 5)},
       // CanonicalizeFileURL supports absolute Windows style paths for IE
       // compatibility. Note that the caller must decide that this is a file
       // URL itself so it can call the file canonicalizer. This is usually
       // done automatically as part of relative URL resolving.
-    {"c:\\foo\\bar", "file:///C:/foo/bar", true, Component(), Component(7, 11)},
-    {"C|/foo/bar", "file:///C:/foo/bar", true, Component(), Component(7, 11)},
-    {"/C|\\foo\\bar", "file:///C:/foo/bar", true, Component(), Component(7, 11)},
-    {"//C|/foo/bar", "file:///C:/foo/bar", true, Component(), Component(7, 11)},
-    {"//server/file", "file://server/file", true, Component(7, 6), Component(13, 5)},
-    {"\\\\server\\file", "file://server/file", true, Component(7, 6), Component(13, 5)},
-    {"/\\server/file", "file://server/file", true, Component(7, 6), Component(13, 5)},
+      {"c:\\foo\\bar", "file:///C:/foo/bar", true, Component(),
+       Component(7, 11)},
+      {"C|/foo/bar", "file:///C:/foo/bar", true, Component(), Component(7, 11)},
+      {"/C|\\foo\\bar", "file:///C:/foo/bar", true, Component(),
+       Component(7, 11)},
+      {"//C|/foo/bar", "file:///C:/foo/bar", true, Component(),
+       Component(7, 11)},
+      {"//server/file", "file://server/file", true, Component(7, 6),
+       Component(13, 5)},
+      {"\\\\server\\file", "file://server/file", true, Component(7, 6),
+       Component(13, 5)},
+      {"/\\server/file", "file://server/file", true, Component(7, 6),
+       Component(13, 5)},
       // We should preserve the number of slashes after the colon for IE
       // compatibility, except when there is none, in which case we should
       // add one.
-    {"file:c:foo/bar.html", "file:///C:/foo/bar.html", true, Component(), Component(7, 16)},
-    {"file:/\\/\\C:\\\\//foo\\bar.html", "file:///C:////foo/bar.html", true, Component(), Component(7, 19)},
+      {"file:c:foo/bar.html", "file:///C:/foo/bar.html", true, Component(),
+       Component(7, 16)},
+      {"file:/\\/\\C:\\\\//foo\\bar.html", "file:///C:////foo/bar.html", true,
+       Component(), Component(7, 19)},
       // Three slashes should be non-UNC, even if there is no drive spec (IE
       // does this, which makes the resulting request invalid).
-    {"file:///foo/bar.txt", "file:///foo/bar.txt", true, Component(), Component(7, 12)},
+      {"file:///foo/bar.txt", "file:///foo/bar.txt", true, Component(),
+       Component(7, 12)},
       // TODO(brettw) we should probably fail for invalid host names, which
       // would change the expected result on this test. We also currently allow
       // colon even though it's probably invalid, because its currently the
       // "natural" result of the way the canonicalizer is written. There doesn't
       // seem to be a strong argument for why allowing it here would be bad, so
       // we just tolerate it and the load will fail later.
-    {"FILE:/\\/\\7:\\\\//foo\\bar.html", "file://7:////foo/bar.html", false, Component(7, 2), Component(9, 16)},
-    {"file:filer/home\\me", "file://filer/home/me", true, Component(7, 5), Component(12, 8)},
+      {"FILE:/\\/\\7:\\\\//foo\\bar.html", "file://7:////foo/bar.html", false,
+       Component(7, 2), Component(9, 16)},
+      {"file:filer/home\\me", "file://filer/home/me", true, Component(7, 5),
+       Component(12, 8)},
       // Make sure relative paths can't go above the "C:"
-    {"file:///C:/foo/../../../bar.html", "file:///C:/bar.html", true, Component(), Component(7, 12)},
+      {"file:///C:/foo/../../../bar.html", "file:///C:/bar.html", true,
+       Component(), Component(7, 12)},
       // Busted refs shouldn't make the whole thing fail.
-    {"file:///C:/asdf#\xc2", "file:///C:/asdf#\xef\xbf\xbd", true, Component(), Component(7, 8)},
+      {"file:///C:/asdf#\xc2", "file:///C:/asdf#%EF%BF%BD", true, Component(),
+       Component(7, 8)},
 #else
       // Unix-style paths
     {"file:///home/me", "file:///home/me", true, Component(), Component(7, 8)},
@@ -1883,8 +1948,8 @@ TEST(URLCanonTest, CanonicalizeMailtoURL) {
      true, Component(7, 12), Component()},
     // Invalid -- UTF-8 encoded surrogate value.
     {"mailto:\xed\xa0\x80",
-     "mailto:%EF%BF%BD",
-     false, Component(7, 9), Component()},
+     "mailto:%EF%BF%BD%EF%BF%BD%EF%BF%BD",
+     false, Component(7, 27), Component()},
     {"mailto:addr1?",
      "mailto:addr1?",
      true, Component(7, 5), Component(13, 0)},
@@ -2267,8 +2332,6 @@ TEST(URLCanonTest, DefaultPortForScheme) {
       {"ws", 80},
       {"wss", 443},
       {"gopher", 70},
-      {"http-so", 80},
-      {"https-so", 443},
       {"fake-scheme", PORT_UNSPECIFIED},
       {"HTTP", PORT_UNSPECIFIED},
       {"HTTPS", PORT_UNSPECIFIED},
@@ -2276,8 +2339,6 @@ TEST(URLCanonTest, DefaultPortForScheme) {
       {"WS", PORT_UNSPECIFIED},
       {"WSS", PORT_UNSPECIFIED},
       {"GOPHER", PORT_UNSPECIFIED},
-      {"HTTP-SO", PORT_UNSPECIFIED},
-      {"HTTPS-SO", PORT_UNSPECIFIED},
   };
 
   for (auto& test_case : cases) {
@@ -2285,6 +2346,57 @@ TEST(URLCanonTest, DefaultPortForScheme) {
     EXPECT_EQ(test_case.expected_port,
               DefaultPortForScheme(test_case.scheme, strlen(test_case.scheme)));
   }
+}
+
+TEST(URLCanonTest, IDNToASCII) {
+  RawCanonOutputW<1024> output;
+
+  // Basic ASCII test.
+  base::string16 str = base::UTF8ToUTF16("hello");
+  EXPECT_TRUE(IDNToASCII(str.data(), str.length(), &output));
+  EXPECT_EQ(base::UTF8ToUTF16("hello"), base::string16(output.data()));
+  output.set_length(0);
+
+  // Mixed ASCII/non-ASCII.
+  str = base::UTF8ToUTF16("hellö");
+  EXPECT_TRUE(IDNToASCII(str.data(), str.length(), &output));
+  EXPECT_EQ(base::UTF8ToUTF16("xn--hell-8qa"), base::string16(output.data()));
+  output.set_length(0);
+
+  // All non-ASCII.
+  str = base::UTF8ToUTF16("你好");
+  EXPECT_TRUE(IDNToASCII(str.data(), str.length(), &output));
+  EXPECT_EQ(base::UTF8ToUTF16("xn--6qq79v"), base::string16(output.data()));
+  output.set_length(0);
+
+  // Characters that need mapping (the resulting Punycode is the encoding for
+  // "1⁄4").
+  str = base::UTF8ToUTF16("¼");
+  EXPECT_TRUE(IDNToASCII(str.data(), str.length(), &output));
+  EXPECT_EQ(base::UTF8ToUTF16("xn--14-c6t"), base::string16(output.data()));
+  output.set_length(0);
+
+  // String to encode already starts with "xn--", and all ASCII. Should not
+  // modify the string.
+  str = base::UTF8ToUTF16("xn--hell-8qa");
+  EXPECT_TRUE(IDNToASCII(str.data(), str.length(), &output));
+  EXPECT_EQ(base::UTF8ToUTF16("xn--hell-8qa"), base::string16(output.data()));
+  output.set_length(0);
+
+  // String to encode already starts with "xn--", and mixed ASCII/non-ASCII.
+  // Should fail, due to a special case: if the label starts with "xn--", it
+  // should be parsed as Punycode, which must be all ASCII.
+  str = base::UTF8ToUTF16("xn--hellö");
+  EXPECT_FALSE(IDNToASCII(str.data(), str.length(), &output));
+  output.set_length(0);
+
+  // String to encode already starts with "xn--", and mixed ASCII/non-ASCII.
+  // This tests that there is still an error for the character '⁄' (U+2044),
+  // which would be a valid ASCII character, U+0044, if the high byte were
+  // ignored.
+  str = base::UTF8ToUTF16("xn--1⁄4");
+  EXPECT_FALSE(IDNToASCII(str.data(), str.length(), &output));
+  output.set_length(0);
 }
 
 }  // namespace url

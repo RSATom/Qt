@@ -29,9 +29,9 @@
 #include "buddyeditor_tool.h"
 #include "buddyeditor.h"
 
-#include <QtDesigner/QDesignerFormWindowInterface>
+#include <QtDesigner/abstractformwindow.h>
 
-#include <QtWidgets/QAction>
+#include <QtWidgets/qaction.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -44,9 +44,7 @@ BuddyEditorTool::BuddyEditorTool(QDesignerFormWindowInterface *formWindow, QObje
 {
 }
 
-BuddyEditorTool::~BuddyEditorTool()
-{
-}
+BuddyEditorTool::~BuddyEditorTool() = default;
 
 QDesignerFormEditorInterface *BuddyEditorTool::core() const
 {

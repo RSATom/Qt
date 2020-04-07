@@ -71,7 +71,7 @@ void LoadResourceOnUIThread(int resource_id, SkBitmap* bitmap) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   gfx::ImageSkia image(
-      *ResourceBundle::GetSharedInstance().GetImageSkiaNamed(resource_id));
+      *ui::ResourceBundle::GetSharedInstance().GetImageSkiaNamed(resource_id));
   image.MakeThreadSafe();
   *bitmap = *image.bitmap();
 }
@@ -338,7 +338,7 @@ void ImageLoader::ReplyBackWithImageFamily(
     image_family.Add(it->second);
   }
 
-  callback.Run(image_family);
+  callback.Run(std::move(image_family));
 }
 
 }  // namespace extensions

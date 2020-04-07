@@ -7,23 +7,23 @@ cr.define('accessibility', function() {
 
   // Note: keep these values in sync with the values in
   // content/common/accessibility_mode_enums.h
-  const AccessibilityMode = {
+  const AXMode = {
     kNativeAPIs: 1 << 0,
     kWebContents: 1 << 1,
     kInlineTextBoxes: 1 << 2,
     kScreenReader: 1 << 3,
     kHTML: 1 << 4,
 
-    get kAccessibilityModeWebContentsOnly() {
-      return AccessibilityMode.kWebContents |
-        AccessibilityMode.kInlineTextBoxes | AccessibilityMode.kScreenReader |
-        AccessibilityMode.kHTML;
+    get kAXModeWebContentsOnly() {
+      return AXMode.kWebContents |
+        AXMode.kInlineTextBoxes | AXMode.kScreenReader |
+        AXMode.kHTML;
     },
 
-    get kAccessibilityModeComplete() {
-      return AccessibilityMode.kNativeAPIs | AccessibilityMode.kWebContents |
-        AccessibilityMode.kInlineTextBoxes | AccessibilityMode.kScreenReader |
-        AccessibilityMode.kHTML;
+    get kAXModeComplete() {
+      return AXMode.kNativeAPIs | AXMode.kWebContents |
+        AXMode.kInlineTextBoxes | AXMode.kScreenReader |
+        AXMode.kHTML;
     }
   };
 
@@ -44,8 +44,8 @@ cr.define('accessibility', function() {
     document.location.reload();
   }
 
-  function requestAccessibilityTree(data, element) {
-    chrome.send('requestAccessibilityTree',
+  function requestWebContentsTree(data, element) {
+    chrome.send('requestWebContentsTree',
                 [String(data.processId), String(data.routeId)]);
   }
 
@@ -66,6 +66,11 @@ cr.define('accessibility', function() {
     for (var i = 0; i < list.length; i++) {
       addToPagesList(list[i]);
     }
+
+    var showNativeUI = $('showNativeUI');
+    showNativeUI.addEventListener('click', function() {
+      chrome.send('requestNativeUITree', []);
+    });
   }
 
   function bindCheckbox(name, value) {
@@ -110,12 +115,12 @@ cr.define('accessibility', function() {
       siteInfo.appendChild(formatValue(data, properties[j]));
     row.appendChild(siteInfo);
 
-    row.appendChild(createModeElement(AccessibilityMode.kNativeAPIs, data))
-    row.appendChild(createModeElement(AccessibilityMode.kWebContents, data))
-    row.appendChild(createModeElement(AccessibilityMode.kInlineTextBoxes,
+    row.appendChild(createModeElement(AXMode.kNativeAPIs, data))
+    row.appendChild(createModeElement(AXMode.kWebContents, data))
+    row.appendChild(createModeElement(AXMode.kInlineTextBoxes,
       data))
-    row.appendChild(createModeElement(AccessibilityMode.kScreenReader, data))
-    row.appendChild(createModeElement(AccessibilityMode.kHTML, data))
+    row.appendChild(createModeElement(AXMode.kScreenReader, data))
+    row.appendChild(createModeElement(AXMode.kHTML, data))
 
     row.appendChild(document.createTextNode(' | '));
 
@@ -154,15 +159,15 @@ cr.define('accessibility', function() {
 
   function getNameForAccessibilityMode(mode) {
     switch (mode) {
-      case AccessibilityMode.kNativeAPIs:
+      case AXMode.kNativeAPIs:
         return "native"
-      case AccessibilityMode.kWebContents:
+      case AXMode.kWebContents:
         return "web"
-      case AccessibilityMode.kInlineTextBoxes:
+      case AXMode.kInlineTextBoxes:
         return "inline text"
-      case AccessibilityMode.kScreenReader:
+      case AXMode.kScreenReader:
         return "screen reader"
-      case AccessibilityMode.kHTML:
+      case AXMode.kHTML:
         return "html"
     }
     return "unknown"
@@ -190,7 +195,7 @@ cr.define('accessibility', function() {
       link.textContent = 'show accessibility tree';
     link.id = row.id + ':showTree';
     link.addEventListener('click',
-                          requestAccessibilityTree.bind(this, data, link));
+                          requestWebContentsTree.bind(this, data, link));
     return link;
   }
 
@@ -228,6 +233,7 @@ cr.define('accessibility', function() {
     return errorMessageElement;
   }
 
+  // Called from C++
   function showTree(data) {
     var id = data.processId + '.' + data.routeId;
     var row = $(id);
@@ -238,6 +244,16 @@ cr.define('accessibility', function() {
     formatRow(row, data);
   }
 
+  // Called from C++
+  function showNativeUITree(data) {
+    var treeElement = document.querySelector('#native_ui pre');
+    if (!treeElement) {
+      var treeElement = document.createElement('pre');
+      $('native_ui').appendChild(treeElement);
+    }
+    treeElement.textContent = data.tree;
+  }
+
   function createAccessibilityTreeElement(data) {
     var treeElement = document.createElement('pre');
     var tree = data.tree;
@@ -245,9 +261,11 @@ cr.define('accessibility', function() {
     return treeElement;
   }
 
+  // These are the functions we export so they can be called from C++.
   return {
     initialize: initialize,
-    showTree: showTree
+    showTree: showTree,
+    showNativeUITree: showNativeUITree
   };
 });
 

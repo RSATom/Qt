@@ -203,11 +203,8 @@ config("stylus_protocol_config") {
 
 source_set("stylus_protocol") {
   sources = [
-    "include/protocol/stylus-unstable-v1-client-protocol.h",
-    "include/protocol/stylus-unstable-v1-server-protocol.h",
     "include/protocol/stylus-unstable-v2-client-protocol.h",
     "include/protocol/stylus-unstable-v2-server-protocol.h",
-    "protocol/stylus-protocol-v1.c",
     "protocol/stylus-protocol-v2.c",
   ]
 
@@ -219,6 +216,27 @@ source_set("stylus_protocol") {
   configs += [ "//build/config/compiler:no_chromium_code" ]
 
   public_configs = [ ":stylus_protocol_config" ]
+}
+
+config("pointer_gestures_protocol_config") {
+  include_dirs = [ "include/protocol" ]
+}
+
+source_set("pointer_gestures_protocol") {
+  sources = [
+    "include/protocol/pointer-gestures-unstable-v1-client-protocol.h",
+    "include/protocol/pointer-gestures-unstable-v1-server-protocol.h",
+    "protocol/pointer-gestures-v1-protocol.c",
+  ]
+
+  deps = [
+    "//third_party/wayland:wayland_util",
+  ]
+
+  configs -= [ "//build/config/compiler:chromium_code" ]
+  configs += [ "//build/config/compiler:no_chromium_code" ]
+
+  public_configs = [ ":pointer_gestures_protocol_config" ]
 }
 
 config("keyboard_configuration_protocol_config") {
@@ -282,4 +300,46 @@ source_set("keyboard_extension_protocol") {
   configs += [ "//build/config/compiler:no_chromium_code" ]
 
   public_configs = [ ":keyboard_extension_protocol_config" ]
+}
+
+config("input_timestamps_protocol_config") {
+  include_dirs = [ "include/protocol" ]
+}
+
+source_set("input_timestamps_protocol") {
+  sources = [
+    "include/protocol/input-timestamps-unstable-v1-client-protocol.h",
+    "include/protocol/input-timestamps-unstable-v1-server-protocol.h",
+    "protocol/input-timestamps-v1-protocol.c",
+  ]
+
+  deps = [
+    "//third_party/wayland:wayland_util",
+  ]
+
+  configs -= [ "//build/config/compiler:chromium_code" ]
+  configs += [ "//build/config/compiler:no_chromium_code" ]
+
+  public_configs = [ ":input_timestamps_protocol_config" ]
+}
+
+config("cursor_shapes_protocol_config") {
+  include_dirs = [ "include/protocol" ]
+}
+
+source_set("cursor_shapes_protocol") {
+  sources = [
+    "include/protocol/cursor-shapes-unstable-v1-client-protocol.h",
+    "include/protocol/cursor-shapes-unstable-v1-server-protocol.h",
+    "protocol/cursor-shapes-protocol.c",
+  ]
+
+  deps = [
+    "//third_party/wayland:wayland_util",
+  ]
+
+  configs -= [ "//build/config/compiler:chromium_code" ]
+  configs += [ "//build/config/compiler:no_chromium_code" ]
+
+  public_configs = [ ":cursor_shapes_protocol_config" ]
 }

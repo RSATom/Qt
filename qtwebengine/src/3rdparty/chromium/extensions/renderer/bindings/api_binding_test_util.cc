@@ -8,7 +8,7 @@
 #include "base/json/json_writer.h"
 #include "base/strings/string_util.h"
 #include "base/values.h"
-#include "content/public/child/v8_value_converter.h"
+#include "content/public/renderer/v8_value_converter.h"
 #include "gin/converter.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -97,7 +97,7 @@ v8::Local<v8::Value> V8ValueFromScriptSource(v8::Local<v8::Context> context,
   v8::Local<v8::Script> script;
   if (!maybe_script.ToLocal(&script))
     return v8::Local<v8::Value>();
-  return script->Run();
+  return script->Run(context).ToLocalChecked();
 }
 
 v8::Local<v8::Function> FunctionFromString(v8::Local<v8::Context> context,

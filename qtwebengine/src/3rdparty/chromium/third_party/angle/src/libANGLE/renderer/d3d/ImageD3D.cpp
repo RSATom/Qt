@@ -24,9 +24,39 @@ ImageD3D::ImageD3D()
       mDepth(0),
       mInternalFormat(GL_NONE),
       mRenderable(false),
-      mTarget(GL_NONE),
+      mType(gl::TextureType::InvalidEnum),
       mDirty(false)
 {
+}
+
+gl::Error ImageD3D::setManagedSurface2D(const gl::Context *context,
+                                        TextureStorage *storage,
+                                        int level)
+{
+    return gl::NoError();
+}
+
+gl::Error ImageD3D::setManagedSurfaceCube(const gl::Context *context,
+                                          TextureStorage *storage,
+                                          int face,
+                                          int level)
+{
+    return gl::NoError();
+}
+
+gl::Error ImageD3D::setManagedSurface3D(const gl::Context *context,
+                                        TextureStorage *storage,
+                                        int level)
+{
+    return gl::NoError();
+}
+
+gl::Error ImageD3D::setManagedSurface2DArray(const gl::Context *context,
+                                             TextureStorage *storage,
+                                             int layer,
+                                             int level)
+{
+    return gl::NoError();
 }
 
 }  // namespace rx

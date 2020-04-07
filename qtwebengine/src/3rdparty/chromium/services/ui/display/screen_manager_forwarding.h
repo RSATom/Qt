@@ -12,7 +12,7 @@
 #include "base/macros.h"
 #include "mojo/public/cpp/bindings/binding.h"
 #include "services/ui/display/screen_manager.h"
-#include "services/ui/public/interfaces/display/test_display_controller.mojom.h"
+#include "ui/display/mojo/dev_display_controller.mojom.h"
 #include "ui/display/mojo/native_display_delegate.mojom.h"
 #include "ui/display/types/native_display_observer.h"
 
@@ -25,7 +25,7 @@ class NativeDisplayDelegate;
 // This will own a real NativeDisplayDelegate and forwards calls to and
 // responses from it over Mojo.
 class ScreenManagerForwarding : public ScreenManager,
-                                public mojom::TestDisplayController,
+                                public mojom::DevDisplayController,
                                 public NativeDisplayObserver,
                                 public mojom::NativeDisplayDelegate {
  public:
@@ -53,39 +53,39 @@ class ScreenManagerForwarding : public ScreenManager,
 
   // mojom::NativeDisplayDelegate:
   void Initialize(mojom::NativeDisplayObserverPtr observer,
-                  const InitializeCallback& callback) override;
-  void TakeDisplayControl(const TakeDisplayControlCallback& callback) override;
+                  InitializeCallback callback) override;
+  void TakeDisplayControl(TakeDisplayControlCallback callback) override;
   void RelinquishDisplayControl(
-      const RelinquishDisplayControlCallback& callback) override;
-  void GetDisplays(const GetDisplaysCallback& callback) override;
+      RelinquishDisplayControlCallback callback) override;
+  void GetDisplays(GetDisplaysCallback callback) override;
   void Configure(int64_t display_id,
                  base::Optional<std::unique_ptr<display::DisplayMode>> mode,
                  const gfx::Point& origin,
-                 const ConfigureCallback& callback) override;
-  void GetHDCPState(int64_t display_id,
-                    const GetHDCPStateCallback& callback) override;
+                 ConfigureCallback callback) override;
+  void GetHDCPState(int64_t display_id, GetHDCPStateCallback callback) override;
   void SetHDCPState(int64_t display_id,
                     display::HDCPState state,
-                    const SetHDCPStateCallback& callback) override;
-  void SetColorCorrection(
+                    SetHDCPStateCallback callback) override;
+  void SetColorMatrix(int64_t display_id,
+                      const std::vector<float>& color_matrix) override;
+  void SetGammaCorrection(
       int64_t display_id,
       const std::vector<display::GammaRampRGBEntry>& degamma_lut,
-      const std::vector<display::GammaRampRGBEntry>& gamma_lut,
-      const std::vector<float>& correction_matrix) override;
+      const std::vector<display::GammaRampRGBEntry>& gamma_lut) override;
 
-  // mojom::TestDisplayController:
+  // mojom::DevDisplayController:
   void ToggleAddRemoveDisplay() override;
 
  private:
   void BindNativeDisplayDelegateRequest(
       mojom::NativeDisplayDelegateRequest request,
       const service_manager::BindSourceInfo& source_info);
-  void BindTestDisplayControllerRequest(
-      mojom::TestDisplayControllerRequest request,
+  void BindDevDisplayControllerRequest(
+      mojom::DevDisplayControllerRequest request,
       const service_manager::BindSourceInfo& source_info);
 
   // Forwards results from GetDisplays() back with |callback|.
-  void ForwardGetDisplays(const GetDisplaysCallback& callback,
+  void ForwardGetDisplays(GetDisplaysCallback callback,
                           const std::vector<DisplaySnapshot*>& displays);
 
   // Forwards results from call to Configure() back with |callback|.
@@ -93,7 +93,7 @@ class ScreenManagerForwarding : public ScreenManager,
       DisplaySnapshot* snapshot,
       const DisplayMode* mode,
       const gfx::Point& origin,
-      const mojom::NativeDisplayDelegate::ConfigureCallback& callback,
+      mojom::NativeDisplayDelegate::ConfigureCallback callback,
       bool status);
 
   // True if the UI Service runs inside WM's process, false if it runs inside
@@ -103,7 +103,7 @@ class ScreenManagerForwarding : public ScreenManager,
   mojo::Binding<mojom::NativeDisplayDelegate> binding_;
   mojom::NativeDisplayObserverPtr observer_;
 
-  mojo::Binding<mojom::TestDisplayController> test_controller_binding_;
+  mojo::Binding<mojom::DevDisplayController> dev_controller_binding_;
 
   std::unique_ptr<display::NativeDisplayDelegate> native_display_delegate_;
 

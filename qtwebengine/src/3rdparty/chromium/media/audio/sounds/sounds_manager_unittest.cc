@@ -23,12 +23,12 @@ namespace media {
 
 class SoundsManagerTest : public testing::Test {
  public:
-  SoundsManagerTest() {}
-  ~SoundsManagerTest() override {}
+  SoundsManagerTest() = default;
+  ~SoundsManagerTest() override = default;
 
   void SetUp() override {
     audio_manager_ =
-        AudioManager::CreateForTesting(base::MakeUnique<TestAudioThread>());
+        AudioManager::CreateForTesting(std::make_unique<TestAudioThread>());
     SoundsManager::Create();
     base::RunLoop().RunUntilIdle();
   }

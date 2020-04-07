@@ -23,12 +23,12 @@ uikit: SUBDIRS  = corelib gui
 
 cross_compile:                              SUBDIRS -= tools cmake installed_cmake
 else:!qtConfig(process):                    SUBDIRS -= tools
-!qtHaveModule(opengl):                      SUBDIRS -= opengl
+winrt|!qtHaveModule(opengl):                SUBDIRS -= opengl
 !qtHaveModule(gui):                         SUBDIRS -= gui
 !qtHaveModule(widgets):                     SUBDIRS -= widgets
 !qtHaveModule(printsupport):                SUBDIRS -= printsupport
 !qtHaveModule(concurrent):                  SUBDIRS -= concurrent
-!qtHaveModule(network):                     SUBDIRS -= network
+winrt|!qtHaveModule(network):               SUBDIRS -= network
 !qtHaveModule(dbus):                        SUBDIRS -= dbus
 !qtHaveModule(xml):                         SUBDIRS -= xml
 !qtHaveModule(sql):                         SUBDIRS -= sql

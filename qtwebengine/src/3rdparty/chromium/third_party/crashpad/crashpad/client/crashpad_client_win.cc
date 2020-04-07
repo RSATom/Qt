@@ -30,10 +30,10 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/synchronization/lock.h"
 #include "util/file/file_io.h"
+#include "util/misc/capture_context.h"
 #include "util/misc/from_pointer_cast.h"
 #include "util/misc/random_string.h"
 #include "util/win/address_types.h"
-#include "util/win/capture_context.h"
 #include "util/win/command_line.h"
 #include "util/win/critical_section_with_debug_info.h"
 #include "util/win/get_function.h"
@@ -164,7 +164,7 @@ LONG WINAPI UnhandledExceptionHandler(EXCEPTION_POINTERS* exception_pointers) {
   SetEvent(g_signal_exception);
 
   // Time to wait for the handler to create a dump.
-  const DWORD kMillisecondsUntilTerminate = 60 * 1000;
+  constexpr DWORD kMillisecondsUntilTerminate = 60 * 1000;
 
   // Sleep for a while to allow it to process us. Eventually, we terminate
   // ourselves in case the crash server is gone, so that we don't leave zombies
@@ -277,7 +277,7 @@ void AddUint64(std::vector<unsigned char>* data_vector, uint64_t data) {
 void CreatePipe(std::wstring* pipe_name, ScopedFileHANDLE* pipe_instance) {
   int tries = 5;
   std::string pipe_name_base =
-      base::StringPrintf("\\\\.\\pipe\\crashpad_%d_", GetCurrentProcessId());
+      base::StringPrintf("\\\\.\\pipe\\crashpad_%lu_", GetCurrentProcessId());
   do {
     *pipe_name = base::UTF8ToUTF16(pipe_name_base + RandomString());
 
@@ -750,10 +750,10 @@ void CrashpadClient::DumpWithoutCrash(const CONTEXT& context) {
   // We include a fake exception and use a code of '0x517a7ed' (something like
   // "simulated") so that it's relatively obvious in windbg that it's not
   // actually an exception. Most values in
-  // https://msdn.microsoft.com/en-us/library/windows/desktop/aa363082.aspx have
-  // some of the top nibble set, so we make sure to pick a value that doesn't,
-  // so as to be unlikely to conflict.
-  const uint32_t kSimulatedExceptionCode = 0x517a7ed;
+  // https://msdn.microsoft.com/library/aa363082.aspx have some of the top
+  // nibble set, so we make sure to pick a value that doesn't, so as to be
+  // unlikely to conflict.
+  constexpr uint32_t kSimulatedExceptionCode = 0x517a7ed;
   EXCEPTION_RECORD record = {};
   record.ExceptionCode = kSimulatedExceptionCode;
 #if defined(ARCH_CPU_64_BITS)
@@ -790,9 +790,10 @@ void CrashpadClient::DumpAndCrash(EXCEPTION_POINTERS* exception_pointers) {
   UnhandledExceptionHandler(exception_pointers);
 }
 
+// static
 bool CrashpadClient::DumpAndCrashTargetProcess(HANDLE process,
                                                HANDLE blame_thread,
-                                               DWORD exception_code) const {
+                                               DWORD exception_code) {
   // Confirm we're on Vista or later.
   const DWORD version = GetVersion();
   const DWORD major_version = LOBYTE(LOWORD(version));
@@ -829,7 +830,7 @@ bool CrashpadClient::DumpAndCrashTargetProcess(HANDLE process,
     }
   }
 
-  const size_t kInjectBufferSize = 4 * 1024;
+  constexpr size_t kInjectBufferSize = 4 * 1024;
   WinVMAddress inject_memory =
       FromPointerCast<WinVMAddress>(VirtualAllocEx(process,
                                                    nullptr,
@@ -1001,7 +1002,10 @@ bool CrashpadClient::DumpAndCrashTargetProcess(HANDLE process,
   // letting this cause an exception, even when the target is stuck in the
   // loader lock.
   HANDLE injected_thread;
-  const size_t kStackSize = 0x4000;  // This is what DebugBreakProcess() uses.
+
+  // This is what DebugBreakProcess() uses.
+  constexpr size_t kStackSize = 0x4000;
+
   NTSTATUS status = NtCreateThreadEx(&injected_thread,
                                      STANDARD_RIGHTS_ALL | SPECIFIC_RIGHTS_ALL,
                                      nullptr,
@@ -1017,6 +1021,11 @@ bool CrashpadClient::DumpAndCrashTargetProcess(HANDLE process,
     NTSTATUS_LOG(ERROR, status) << "NtCreateThreadEx";
     return false;
   }
+
+  // The injected thread raises an exception and ultimately results in process
+  // termination. The suspension must be made aware that the process may be
+  // terminating, otherwise it’ll log an extraneous error.
+  suspend.TolerateTermination();
 
   bool result = true;
   if (WaitForSingleObject(injected_thread, 60 * 1000) != WAIT_OBJECT_0) {

@@ -8,11 +8,9 @@
 
 #include "base/json/json_file_value_serializer.h"
 #include "base/macros.h"
-#include "base/message_loop/message_loop.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "content/public/test/test_browser_context.h"
-#include "content/public/test/test_browser_thread_bundle.h"
 #include "extensions/browser/extensions_test.h"
 #include "extensions/browser/image_loader.h"
 #include "extensions/browser/test_image_loader.h"
@@ -69,9 +67,7 @@ class ExtensionIconImageTest : public ExtensionsTest,
                                public IconImage::Observer {
  public:
   ExtensionIconImageTest()
-      : ExtensionsTest(base::MakeUnique<content::TestBrowserThreadBundle>()),
-        image_loaded_count_(0),
-        quit_in_image_loaded_(false) {}
+      : image_loaded_count_(0), quit_in_image_loaded_(false) {}
 
   ~ExtensionIconImageTest() override {}
 
@@ -91,7 +87,7 @@ class ExtensionIconImageTest : public ExtensionsTest,
                                            Manifest::Location location) {
     // Create and load an extension.
     base::FilePath test_file;
-    if (!PathService::Get(DIR_TEST_DATA, &test_file)) {
+    if (!base::PathService::Get(DIR_TEST_DATA, &test_file)) {
       EXPECT_FALSE(true);
       return NULL;
     }
@@ -119,7 +115,7 @@ class ExtensionIconImageTest : public ExtensionsTest,
   void OnExtensionIconImageChanged(IconImage* image) override {
     image_loaded_count_++;
     if (quit_in_image_loaded_)
-      base::MessageLoop::current()->QuitWhenIdle();
+      base::RunLoop::QuitCurrentWhenIdleDeprecated();
   }
 
   gfx::ImageSkia GetDefaultIcon() {
@@ -374,8 +370,8 @@ TEST_F(ExtensionIconImageTest, LazyDefaultIcon) {
   ASSERT_TRUE(extension.get() != NULL);
 
   gfx::ImageSkia default_icon = GetDefaultIcon();
-  gfx::ImageSkia lazy_default_icon(new MockImageSkiaSource(default_icon),
-                                    default_icon.size());
+  gfx::ImageSkia lazy_default_icon(
+      std::make_unique<MockImageSkiaSource>(default_icon), default_icon.size());
 
   ExtensionIconSet empty_icon_set;
 
@@ -414,8 +410,8 @@ TEST_F(ExtensionIconImageTest, LazyDefaultIcon_AsyncIconImage) {
   ASSERT_TRUE(extension.get() != NULL);
 
   gfx::ImageSkia default_icon = GetDefaultIcon();
-  gfx::ImageSkia lazy_default_icon(new MockImageSkiaSource(default_icon),
-                                    default_icon.size());
+  gfx::ImageSkia lazy_default_icon(
+      std::make_unique<MockImageSkiaSource>(default_icon), default_icon.size());
 
   const int kInvalidIconSize = 24;
   ExtensionIconSet invalid_icon_set;

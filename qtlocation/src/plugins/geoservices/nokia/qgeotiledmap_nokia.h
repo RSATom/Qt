@@ -40,12 +40,18 @@
 #include "qgeotiledmap_p.h"
 #include <QtGui/QImage>
 #include <QtCore/QPointer>
+#ifdef LOCATIONLABS
+#include <QtLocation/private/qgeotiledmaplabs_p.h>
+typedef QGeoTiledMapLabs Map;
+#else
+typedef QGeoTiledMap Map;
+#endif
 
 QT_BEGIN_NAMESPACE
 
 class QGeoTiledMappingManagerEngineNokia;
 
-class QGeoTiledMapNokia: public QGeoTiledMap
+class QGeoTiledMapNokia: public Map
 {
 Q_OBJECT
 public:

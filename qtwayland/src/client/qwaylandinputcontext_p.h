@@ -74,7 +74,7 @@ class QWaylandTextInput : public QtWayland::zwp_text_input_v2
 {
 public:
     QWaylandTextInput(QWaylandDisplay *display, struct ::zwp_text_input_v2 *text_input);
-    ~QWaylandTextInput();
+    ~QWaylandTextInput() override;
 
     void reset();
     void commit();
@@ -107,22 +107,22 @@ protected:
 private:
     Qt::KeyboardModifiers modifiersToQtModifiers(uint32_t modifiers);
 
-    QWaylandDisplay *m_display;
+    QWaylandDisplay *m_display = nullptr;
     QWaylandInputMethodEventBuilder m_builder;
 
     QVector<Qt::KeyboardModifier> m_modifiersMap;
 
-    uint32_t m_serial;
-    struct ::wl_surface *m_surface;
+    uint32_t m_serial = 0;
+    struct ::wl_surface *m_surface = nullptr;
 
     QString m_preeditCommit;
 
-    bool m_inputPanelVisible;
+    bool m_inputPanelVisible = false;
     QRectF m_keyboardRectangle;
     QLocale m_locale;
-    Qt::LayoutDirection m_inputDirection;
+    Qt::LayoutDirection m_inputDirection = Qt::LayoutDirectionAuto;
 
-    struct ::wl_callback *m_resetCallback;
+    struct ::wl_callback *m_resetCallback = nullptr;
     static const wl_callback_listener callbackListener;
     static void resetCallback(void *data, struct wl_callback *wl_callback, uint32_t time);
 };
@@ -132,7 +132,7 @@ class QWaylandInputContext : public QPlatformInputContext
     Q_OBJECT
 public:
     explicit QWaylandInputContext(QWaylandDisplay *display);
-    ~QWaylandInputContext();
+    ~QWaylandInputContext() override;
 
     bool isValid() const override;
 
@@ -155,7 +155,7 @@ public:
 private:
     QWaylandTextInput *textInput() const;
 
-    QWaylandDisplay *mDisplay;
+    QWaylandDisplay *mDisplay = nullptr;
     QPointer<QWindow> mCurrentWindow;
 };
 

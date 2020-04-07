@@ -69,8 +69,8 @@ public:
     };
     Q_ENUM(TypeNameFormat)
 
-    explicit QQmlNdefRecord(QObject *parent = Q_NULLPTR);
-    explicit QQmlNdefRecord(const QNdefRecord &record, QObject *parent = Q_NULLPTR);
+    explicit QQmlNdefRecord(QObject *parent = nullptr);
+    explicit QQmlNdefRecord(const QNdefRecord &record, QObject *parent = nullptr);
     ~QQmlNdefRecord();
 
     QString type() const;

@@ -8,16 +8,16 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_RTC_BASE_PROXYSERVER_H_
-#define WEBRTC_RTC_BASE_PROXYSERVER_H_
+#ifndef RTC_BASE_PROXYSERVER_H_
+#define RTC_BASE_PROXYSERVER_H_
 
 #include <list>
 #include <memory>
-#include "webrtc/rtc_base/asyncsocket.h"
-#include "webrtc/rtc_base/constructormagic.h"
-#include "webrtc/rtc_base/socketadapters.h"
-#include "webrtc/rtc_base/socketaddress.h"
-#include "webrtc/rtc_base/stream.h"
+#include "rtc_base/asyncsocket.h"
+#include "rtc_base/constructormagic.h"
+#include "rtc_base/socketadapters.h"
+#include "rtc_base/socketaddress.h"
+#include "rtc_base/stream.h"
 
 namespace rtc {
 
@@ -62,8 +62,10 @@ class ProxyBinding : public sigslot::has_slots<> {
 
 class ProxyServer : public sigslot::has_slots<> {
  public:
-  ProxyServer(SocketFactory* int_factory, const SocketAddress& int_addr,
-              SocketFactory* ext_factory, const SocketAddress& ext_ip);
+  ProxyServer(SocketFactory* int_factory,
+              const SocketAddress& int_addr,
+              SocketFactory* ext_factory,
+              const SocketAddress& ext_ip);
   ~ProxyServer() override;
 
   // Returns the address to which the proxy server is bound
@@ -86,10 +88,12 @@ class ProxyServer : public sigslot::has_slots<> {
 // SocksProxyServer is a simple extension of ProxyServer to implement SOCKS.
 class SocksProxyServer : public ProxyServer {
  public:
-  SocksProxyServer(SocketFactory* int_factory, const SocketAddress& int_addr,
-                   SocketFactory* ext_factory, const SocketAddress& ext_ip)
-      : ProxyServer(int_factory, int_addr, ext_factory, ext_ip) {
-  }
+  SocksProxyServer(SocketFactory* int_factory,
+                   const SocketAddress& int_addr,
+                   SocketFactory* ext_factory,
+                   const SocketAddress& ext_ip)
+      : ProxyServer(int_factory, int_addr, ext_factory, ext_ip) {}
+
  protected:
   AsyncProxyServerSocket* WrapSocket(AsyncSocket* socket) override;
   RTC_DISALLOW_COPY_AND_ASSIGN(SocksProxyServer);
@@ -97,4 +101,4 @@ class SocksProxyServer : public ProxyServer {
 
 }  // namespace rtc
 
-#endif  // WEBRTC_RTC_BASE_PROXYSERVER_H_
+#endif  // RTC_BASE_PROXYSERVER_H_

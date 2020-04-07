@@ -8,7 +8,7 @@
 #include "content/public/browser/content_browser_client.h"
 #include "content/public/common/content_client.h"
 #include "ppapi/c/pp_errors.h"
-#include "printing/features/features.h"
+#include "printing/buildflags/buildflags.h"
 
 #if BUILDFLAG(ENABLE_PRINT_PREVIEW)
 #include "printing/printing_context.h"  // nogncheck
@@ -51,7 +51,7 @@ PP_Rect PrintAreaToPPPrintArea(const gfx::Rect& print_area,
 class PrintingContextDelegate : public printing::PrintingContext::Delegate {
  public:
   // PrintingContext::Delegate methods.
-  gfx::NativeView GetParentView() override { return NULL; }
+  gfx::NativeView GetParentView() override { return nullptr; }
   std::string GetAppLocale() override {
     return GetContentClient()->browser()->GetApplicationLocale();
   }
@@ -112,10 +112,8 @@ PepperPrintSettingsManager::Result ComputeDefaultPrintSettings() {
 void PepperPrintSettingsManagerImpl::GetDefaultPrintSettings(
     PepperPrintSettingsManager::Callback callback) {
   BrowserThread::PostTaskAndReplyWithResult(
-      BrowserThread::UI,
-      FROM_HERE,
-      base::Bind(ComputeDefaultPrintSettings),
-      callback);
+      BrowserThread::UI, FROM_HERE, base::Bind(ComputeDefaultPrintSettings),
+      std::move(callback));
 }
 
 }  // namespace content

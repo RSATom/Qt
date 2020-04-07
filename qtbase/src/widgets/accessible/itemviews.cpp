@@ -110,12 +110,12 @@ QAccessibleTable::QAccessibleTable(QWidget *w)
 
 bool QAccessibleTable::isValid() const
 {
-    return (view() && !qobject_cast<QWidget*>(view())->d_func()->data.in_destructor);
+    return view() && !qt_widget_private(view())->data.in_destructor;
 }
 
 QAccessibleTable::~QAccessibleTable()
 {
-    Q_FOREACH (QAccessible::Id id, childToId)
+    for (QAccessible::Id id : qAsConst(childToId))
         QAccessible::deleteAccessibleInterface(id);
 }
 
@@ -221,7 +221,7 @@ QList<QAccessibleInterface *> QAccessibleTable::selectedCells() const
         return cells;
     const QModelIndexList selectedIndexes = view()->selectionModel()->selectedIndexes();
     cells.reserve(selectedIndexes.size());
-    Q_FOREACH (const QModelIndex &index, selectedIndexes)
+    for (const QModelIndex &index : selectedIndexes)
         cells.append(child(logicalIndex(index)));
     return cells;
 }
@@ -233,7 +233,7 @@ QList<int> QAccessibleTable::selectedColumns() const
     QList<int> columns;
     const QModelIndexList selectedColumns = view()->selectionModel()->selectedColumns();
     columns.reserve(selectedColumns.size());
-    Q_FOREACH (const QModelIndex &index, selectedColumns)
+    for (const QModelIndex &index : selectedColumns)
         columns.append(index.column());
 
     return columns;
@@ -246,7 +246,7 @@ QList<int> QAccessibleTable::selectedRows() const
     QList<int> rows;
     const QModelIndexList selectedRows = view()->selectionModel()->selectedRows();
     rows.reserve(selectedRows.size());
-    Q_FOREACH (const QModelIndex &index, selectedRows)
+    for (const QModelIndex &index : selectedRows)
         rows.append(index.row());
 
     return rows;
@@ -553,7 +553,7 @@ void QAccessibleTable::modelChange(QAccessibleTableModelChangeEvent *event)
 
     switch (event->modelChangeType()) {
     case QAccessibleTableModelChangeEvent::ModelReset:
-        Q_FOREACH (QAccessible::Id id, childToId)
+        for (QAccessible::Id id : qAsConst(childToId))
             QAccessible::deleteAccessibleInterface(id);
         childToId.clear();
         break;
@@ -973,7 +973,7 @@ void QAccessibleTableCell::unselectCell()
 {
 
     QAbstractItemView::SelectionMode selectionMode = view->selectionMode();
-    if (!m_index.isValid() || (selectionMode & QAbstractItemView::NoSelection))
+    if (!m_index.isValid() || (selectionMode == QAbstractItemView::NoSelection))
         return;
 
     QAccessibleTableInterface *cellTable = table()->tableInterface();
@@ -1091,7 +1091,8 @@ void QAccessibleTableCell::setText(QAccessible::Text /*t*/, const QString &text)
 
 bool QAccessibleTableCell::isValid() const
 {
-    return view && view->model() && m_index.isValid();
+    return view && !qt_widget_private(view)->data.in_destructor
+            && view->model() && m_index.isValid();
 }
 
 QAccessibleInterface *QAccessibleTableCell::parent() const
@@ -1180,7 +1181,8 @@ void QAccessibleTableHeaderCell::setText(QAccessible::Text, const QString &)
 
 bool QAccessibleTableHeaderCell::isValid() const
 {
-    return view && view->model() && (index >= 0)
+    return view && !qt_widget_private(view)->data.in_destructor
+            && view->model() && (index >= 0)
             && ((orientation == Qt::Horizontal) ? (index < view->model()->columnCount()) : (index < view->model()->rowCount()));
 }
 

@@ -94,7 +94,7 @@ public:
  * Creates a new invalid SCXML error.
  */
 QScxmlError::QScxmlError()
-    : d(Q_NULLPTR)
+    : d(nullptr)
 {}
 
 /*!
@@ -115,7 +115,7 @@ QScxmlError::QScxmlError(const QString &fileName, int line, int column, const QS
  * Constructs a copy of \a other.
  */
 QScxmlError::QScxmlError(const QScxmlError &other)
-    : d(Q_NULLPTR)
+    : d(nullptr)
 {
     *this = other;
 }
@@ -135,7 +135,7 @@ QScxmlError &QScxmlError::operator=(const QScxmlError &other)
         d->description = other.d->description;
     } else {
         delete d;
-        d = Q_NULLPTR;
+        d = nullptr;
     }
     return *this;
 }
@@ -146,7 +146,7 @@ QScxmlError &QScxmlError::operator=(const QScxmlError &other)
 QScxmlError::~QScxmlError()
 {
     delete d;
-    d = Q_NULLPTR;
+    d = nullptr;
 }
 
 /*!
@@ -156,7 +156,7 @@ QScxmlError::~QScxmlError()
  */
 bool QScxmlError::isValid() const
 {
-    return d != Q_NULLPTR;
+    return d != nullptr;
 }
 
 /*!

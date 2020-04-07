@@ -73,8 +73,6 @@ QT_BEGIN_NAMESPACE
                ^
     \endcode
 
-    Note that the \l {Qt Quick 1} version is named QDeclarativeError
-
     \sa QQuickView::errors(), QQmlComponent::errors()
 */
 class QQmlErrorPrivate
@@ -99,7 +97,7 @@ QQmlErrorPrivate::QQmlErrorPrivate()
     Creates an empty error object.
 */
 QQmlError::QQmlError()
-: d(0)
+: d(nullptr)
 {
 }
 
@@ -107,7 +105,7 @@ QQmlError::QQmlError()
     Creates a copy of \a other.
 */
 QQmlError::QQmlError(const QQmlError &other)
-: d(0)
+: d(nullptr)
 {
     *this = other;
 }
@@ -119,7 +117,7 @@ QQmlError &QQmlError::operator=(const QQmlError &other)
 {
     if (!other.d) {
         delete d;
-        d = 0;
+        d = nullptr;
     } else {
         if (!d)
             d = new QQmlErrorPrivate;
@@ -138,7 +136,7 @@ QQmlError &QQmlError::operator=(const QQmlError &other)
 */
 QQmlError::~QQmlError()
 {
-    delete d; d = 0;
+    delete d; d = nullptr;
 }
 
 /*!
@@ -146,7 +144,7 @@ QQmlError::~QQmlError()
 */
 bool QQmlError::isValid() const
 {
-    return d != 0;
+    return d != nullptr;
 }
 
 /*!
@@ -239,7 +237,7 @@ QObject *QQmlError::object() const
 {
     if (d)
         return d->object;
-    return 0;
+    return nullptr;
 }
 
 /*!
@@ -268,7 +266,7 @@ QtMsgType QQmlError::messageType() const
     \since 5.9
 
     Sets the \a messageType for this message. The message type determines which
-    QDebug handlers are responsible for recieving the message.
+    QDebug handlers are responsible for receiving the message.
  */
 void QQmlError::setMessageType(QtMsgType messageType)
 {

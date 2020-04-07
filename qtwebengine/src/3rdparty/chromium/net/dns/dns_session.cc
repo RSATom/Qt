@@ -12,14 +12,12 @@
 #include "base/bind.h"
 #include "base/lazy_instance.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/metrics/field_trial.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/sample_vector.h"
 #include "base/rand_util.h"
 #include "base/stl_util.h"
 #include "base/time/time.h"
-#include "base/values.h"
 #include "net/base/ip_endpoint.h"
 #include "net/base/net_errors.h"
 #include "net/dns/dns_config_service.h"
@@ -135,8 +133,10 @@ void DnsSession::UpdateTimeouts(NetworkChangeNotifier::ConnectionType type) {
 
 void DnsSession::InitializeServerStats() {
   server_stats_.clear();
-  for (size_t i = 0; i < config_.nameservers.size(); ++i) {
-    server_stats_.push_back(base::MakeUnique<ServerStats>(
+  for (size_t i = 0;
+       i < config_.nameservers.size() + config_.dns_over_https_servers.size();
+       ++i) {
+    server_stats_.push_back(std::make_unique<ServerStats>(
         initial_timeout_, rtt_buckets_.Pointer()));
   }
 }
@@ -163,12 +163,11 @@ unsigned DnsSession::NextFirstServerIndex() {
 }
 
 unsigned DnsSession::NextGoodServerIndex(unsigned server_index) {
+  DCHECK_GE(server_index, 0u);
+  DCHECK_LT(server_index, config_.nameservers.size());
   unsigned index = server_index;
   base::Time oldest_server_failure(base::Time::Now());
   unsigned oldest_server_failure_index = 0;
-
-  UMA_HISTOGRAM_BOOLEAN("AsyncDNS.ServerIsGood",
-                        server_stats_[server_index]->last_failure.is_null());
 
   do {
     base::Time cur_server_failure = server_stats_[index]->last_failure;
@@ -183,6 +182,37 @@ unsigned DnsSession::NextGoodServerIndex(unsigned server_index) {
       oldest_server_failure_index = index;
     }
     index = (index + 1) % config_.nameservers.size();
+  } while (index != server_index);
+
+  // If we are here it means that there are no successful servers, so we have
+  // to use one that has failed oldest.
+  return oldest_server_failure_index;
+}
+
+unsigned DnsSession::NextGoodDnsOverHttpsServerIndex(unsigned server_index) {
+  DCHECK_GE(server_index, config_.nameservers.size());
+  DCHECK_LT(server_index,
+            config_.nameservers.size() + config_.dns_over_https_servers.size());
+  unsigned index = server_index;
+  base::Time oldest_server_failure(base::Time::Now());
+  unsigned oldest_server_failure_index = config_.nameservers.size();
+
+  do {
+    base::Time cur_server_failure = server_stats_[index]->last_failure;
+    // If number of failures on this server doesn't exceed number of allowed
+    // attempts, return its index.
+    if (server_stats_[index]->last_failure_count < config_.attempts) {
+      return index;
+    }
+    // Track oldest failed server.
+    if (cur_server_failure < oldest_server_failure) {
+      oldest_server_failure = cur_server_failure;
+      oldest_server_failure_index = index;
+    }
+    // Index of dns over https servers begins at nameservers.size().
+    unsigned doh_index = index - config_.nameservers.size();
+    doh_index = ((doh_index + 1) % config_.dns_over_https_servers.size());
+    index = doh_index + config_.nameservers.size();
   } while (index != server_index);
 
   // If we are here it means that there are no successful servers, so we have
@@ -297,12 +327,6 @@ std::unique_ptr<StreamSocket> DnsSession::CreateTCPSocket(
     unsigned server_index,
     const NetLogSource& source) {
   return socket_pool_->CreateTCPSocket(server_index, source);
-}
-
-void DnsSession::ApplyPersistentData(const base::Value& data) {}
-
-std::unique_ptr<const base::Value> DnsSession::GetPersistentData() const {
-  return std::unique_ptr<const base::Value>();
 }
 
 // Release a socket.

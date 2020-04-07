@@ -13,6 +13,7 @@
 #include "chrome/install_static/user_data_dir.h"
 #include "chrome_elf/blacklist/blacklist.h"
 #include "chrome_elf/crash/crash_helper.h"
+#include "chrome_elf/third_party_dlls/main.h"
 
 // This function is a temporary workaround for https://crbug.com/655788. We
 // need to come up with a better way to initialize crash reporting that can
@@ -29,10 +30,10 @@ void SignalChromeElf() {
   blacklist::ResetBeacon();
 }
 
-extern "C" void GetUserDataDirectoryThunk(wchar_t* user_data_dir,
-                                          size_t user_data_dir_length,
-                                          wchar_t* invalid_user_data_dir,
-                                          size_t invalid_user_data_dir_length) {
+bool GetUserDataDirectoryThunk(wchar_t* user_data_dir,
+                               size_t user_data_dir_length,
+                               wchar_t* invalid_user_data_dir,
+                               size_t invalid_user_data_dir_length) {
   std::wstring user_data_dir_str, invalid_user_data_dir_str;
   bool ret = install_static::GetUserDataDirectory(&user_data_dir_str,
                                                   &invalid_user_data_dir_str);
@@ -42,8 +43,19 @@ extern "C" void GetUserDataDirectoryThunk(wchar_t* user_data_dir,
             _TRUNCATE);
   wcsncpy_s(invalid_user_data_dir, invalid_user_data_dir_length,
             invalid_user_data_dir_str.c_str(), _TRUNCATE);
+
+  return true;
 }
 
+// DllMain
+// -------
+// Warning: The OS loader lock is held during DllMain.  Be careful.
+// https://msdn.microsoft.com/en-us/library/windows/desktop/dn633971.aspx
+//
+// - Note: Do not use install_static::GetUserDataDir from inside DllMain.
+//         This can result in path expansion that triggers secondary DLL loads,
+//         that will blow up with the loader lock held.
+//         https://bugs.chromium.org/p/chromium/issues/detail?id=748949#c18
 BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
   if (reason == DLL_PROCESS_ATTACH) {
     install_static::InitializeProductDetailsForPrimaryModule();
@@ -54,8 +66,16 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
 
     install_static::InitializeProcessType();
 
+    // If this is not the browser process, all done.
+    if (install_static::IsNonBrowserProcess())
+      return TRUE;
+
     __try {
-      blacklist::Initialize(false);  // Don't force, abort if beacon is present.
+      // Initialize blacklist before initializing third_party_dlls.
+      // Note: "blacklist" is deprecated in favor of "third_party_dlls", but
+      //       beacon management temporarily remains in the blacklist project.
+      if (blacklist::Initialize(false))
+        third_party_dlls::Init();
     } __except (elf_crash::GenerateCrashDump(GetExceptionInformation())) {
     }
   } else if (reason == DLL_PROCESS_DETACH) {
@@ -66,4 +86,8 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID reserved) {
 
 void DumpProcessWithoutCrash() {
   elf_crash::DumpWithoutCrashing();
+}
+
+void SetMetricsClientId(const char* client_id) {
+  elf_crash::SetMetricsClientIdImpl(client_id);
 }

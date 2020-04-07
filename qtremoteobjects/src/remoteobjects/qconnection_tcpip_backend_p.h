@@ -51,24 +51,24 @@
 // We mean it.
 //
 
-#include "qconnectionfactories.h"
+#include "qconnectionfactories_p.h"
 
-#include <QTcpServer>
-#include <QTcpSocket>
+#include <QtNetwork/qtcpserver.h>
+#include <QtNetwork/qtcpsocket.h>
 
 QT_BEGIN_NAMESPACE
 
-class TcpClientIo : public ClientIoDevice
+class TcpClientIo final : public ClientIoDevice
 {
     Q_OBJECT
 
 public:
     explicit TcpClientIo(QObject *parent = nullptr);
-    ~TcpClientIo();
+    ~TcpClientIo() override;
 
-    QIODevice *connection() override;
+    QIODevice *connection() const override;
     void connectToServer() override;
-    bool isOpen() override;
+    bool isOpen() const override;
 
 public Q_SLOTS:
     void onError(QAbstractSocket::SocketError error);
@@ -76,12 +76,13 @@ public Q_SLOTS:
 
 protected:
     void doClose() override;
+    void doDisconnectFromServer() override;
 
 private:
-    QTcpSocket m_socket;
+    QTcpSocket *m_socket;
 };
 
-class TcpServerIo : public ServerIoDevice
+class TcpServerIo final : public ServerIoDevice
 {
     Q_OBJECT
 public:
@@ -95,14 +96,14 @@ private:
     QTcpSocket *m_connection;
 };
 
-class TcpServerImpl : public QConnectionAbstractServer
+class TcpServerImpl final : public QConnectionAbstractServer
 {
     Q_OBJECT
     Q_DISABLE_COPY(TcpServerImpl)
 
 public:
     explicit TcpServerImpl(QObject *parent);
-    ~TcpServerImpl();
+    ~TcpServerImpl() override;
 
     bool hasPendingConnections() const override;
     ServerIoDevice *configureNewConnection() override;

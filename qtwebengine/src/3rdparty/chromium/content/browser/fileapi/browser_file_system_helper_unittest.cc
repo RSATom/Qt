@@ -24,11 +24,9 @@
 #include "url/origin.h"
 
 namespace content {
-namespace {
+namespace browser_file_system_helper_unittest {
 
 const int kRendererID = 42;
-
-}  // namespace
 
 TEST(BrowserFileSystemHelperTest,
      PrepareDropDataForChildProcess_FileSystemFiles) {
@@ -64,7 +62,7 @@ TEST(BrowserFileSystemHelperTest,
       new base::NullTaskRunner);
   storage::FileSystemOptions file_system_options(
       storage::FileSystemOptions::PROFILE_MODE_NORMAL,
-      std::vector<std::string>(), nullptr);
+      false /* force_in_memory */, std::vector<std::string>());
   scoped_refptr<storage::FileSystemContext> test_file_system_context(
       new storage::FileSystemContext(
           io_task_runner.get(), file_task_runner.get(),
@@ -185,4 +183,5 @@ TEST(BrowserFileSystemHelperTest, PrepareDropDataForChildProcess_LocalFiles) {
   p->Remove(kRendererID);
 }
 
+}  // namespace browser_file_system_helper_unittest
 }  // namespace content

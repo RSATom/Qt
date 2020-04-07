@@ -16,7 +16,7 @@ namespace crypto {
 class OpenSSLErrStackTracer;
 }
 
-namespace tracked_objects {
+namespace base {
 class Location;
 }
 
@@ -24,7 +24,7 @@ namespace net {
 
 // Puts a net error, |err|, on the error stack in OpenSSL. The file and line are
 // extracted from |posted_from|. The function code of the error is left as 0.
-void OpenSSLPutNetError(const tracked_objects::Location& posted_from, int err);
+void OpenSSLPutNetError(const base::Location& posted_from, int err);
 
 // Utility to construct the appropriate set & clear masks for use the OpenSSL
 // options and mode configuration functions. (SSL_set_options etc)
@@ -77,6 +77,13 @@ NetLogParametersCallback CreateNetLogOpenSSLErrorCallback(
 // Returns the net SSL version number (see ssl_connection_status_flags.h) for
 // this SSL connection.
 int GetNetSSLVersion(SSL* ssl);
+
+// Configures |ssl| to send the specified certificate and either |pkey| or
+// |custom_key|. This is a wrapper over |SSL_set_chain_and_key|.
+bool SetSSLChainAndKey(SSL* ssl,
+                       X509Certificate* cert,
+                       EVP_PKEY* pkey,
+                       const SSL_PRIVATE_KEY_METHOD* custom_key);
 
 }  // namespace net
 

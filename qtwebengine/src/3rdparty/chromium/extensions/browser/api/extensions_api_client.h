@@ -7,12 +7,16 @@
 
 #include <map>
 #include <memory>
+#include <string>
+#include <vector>
 
 #include "base/memory/ref_counted.h"
 #include "extensions/browser/api/clipboard/clipboard_api.h"
 #include "extensions/browser/api/declarative_content/content_rules_registry.h"
 #include "extensions/browser/api/storage/settings_namespace.h"
 #include "extensions/common/api/clipboard.h"
+
+class GURL;
 
 namespace base {
 template <class T>
@@ -35,8 +39,11 @@ class ContentRulesRegistry;
 class DevicePermissionsPrompt;
 class ExtensionOptionsGuest;
 class ExtensionOptionsGuestDelegate;
+class FeedbackPrivateDelegate;
 class FileSystemDelegate;
 class ManagementAPIDelegate;
+class MediaPerceptionAPIDelegate;
+class MessagingDelegate;
 class MetricsPrivateDelegate;
 class MimeHandlerViewGuest;
 class MimeHandlerViewGuestDelegate;
@@ -48,6 +55,7 @@ class ValueStoreCache;
 class ValueStoreFactory;
 class VirtualKeyboardDelegate;
 class WebRequestEventRouterDelegate;
+struct WebRequestInfo;
 class WebViewGuest;
 class WebViewGuestDelegate;
 class WebViewPermissionHelper;
@@ -82,6 +90,15 @@ class ExtensionsAPIClient {
   // to |web_contents|.
   virtual void AttachWebContentsHelpers(content::WebContents* web_contents)
       const;
+
+  // Returns true if the header should be hidden to extensions.
+  virtual bool ShouldHideResponseHeader(const GURL& url,
+                                        const std::string& header_name) const;
+
+  // Returns true if the given |request| should be hidden from extensions. This
+  // should be invoked on the IO thread.
+  virtual bool ShouldHideBrowserNetworkRequest(
+      const WebRequestInfo& request) const;
 
   // Creates the AppViewGuestDelegate.
   virtual AppViewGuestDelegate* CreateAppViewGuestDelegate() const;
@@ -126,7 +143,7 @@ class ExtensionsAPIClient {
 
   // Returns a delegate for some of VirtualKeyboardAPI's behavior.
   virtual std::unique_ptr<VirtualKeyboardDelegate>
-  CreateVirtualKeyboardDelegate() const;
+  CreateVirtualKeyboardDelegate(content::BrowserContext* browser_context) const;
 
   // Creates a delegate for handling the management extension api.
   virtual ManagementAPIDelegate* CreateManagementAPIDelegate() const;
@@ -141,10 +158,20 @@ class ExtensionsAPIClient {
   // Returns a delegate for embedder-specific chrome.fileSystem behavior.
   virtual FileSystemDelegate* GetFileSystemDelegate();
 
+  // Returns a delegate for embedder-specific extension messaging.
+  virtual MessagingDelegate* GetMessagingDelegate();
+
+  // Returns a delegate for the chrome.feedbackPrivate API.
+  virtual FeedbackPrivateDelegate* GetFeedbackPrivateDelegate();
+
 #if defined(OS_CHROMEOS)
   // If supported by the embedder, returns a delegate for querying non-native
   // file systems.
   virtual NonNativeFileSystemDelegate* GetNonNativeFileSystemDelegate();
+
+  // Returns a delegate for embedder-specific chrome.mediaPerceptionPrivate API
+  // behavior.
+  virtual MediaPerceptionAPIDelegate* GetMediaPerceptionAPIDelegate();
 
   // Saves image data on clipboard.
   virtual void SaveImageDataToClipboard(

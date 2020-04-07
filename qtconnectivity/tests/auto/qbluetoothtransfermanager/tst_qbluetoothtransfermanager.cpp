@@ -143,14 +143,15 @@ void tst_QBluetoothTransferManager::tst_request()
     QFETCH(tst_QBluetoothTransferManager_QParameterMap, parameters);
 
     QBluetoothTransferRequest transferRequest(address);
-    foreach (QBluetoothTransferRequest::Attribute key, parameters.keys())
+    const QList<QBluetoothTransferRequest::Attribute> attributes = parameters.keys();
+    for (QBluetoothTransferRequest::Attribute key : attributes)
         QCOMPARE(transferRequest.attribute(key), QVariant());
 
-    foreach (QBluetoothTransferRequest::Attribute key, parameters.keys())
+    for (QBluetoothTransferRequest::Attribute key : attributes)
         transferRequest.setAttribute((QBluetoothTransferRequest::Attribute)key, parameters[key]);
 
     QCOMPARE(transferRequest.address(), address);
-    foreach (QBluetoothTransferRequest::Attribute key, parameters.keys())
+    for (QBluetoothTransferRequest::Attribute key : attributes)
         QCOMPARE(transferRequest.attribute(key), parameters[key]);
 
     //test copy constructor
@@ -158,17 +159,17 @@ void tst_QBluetoothTransferManager::tst_request()
     QVERIFY(constructorCopy == transferRequest);
     QVERIFY(!(constructorCopy != transferRequest));
     QCOMPARE(constructorCopy.address(), address);
-    foreach (QBluetoothTransferRequest::Attribute key, parameters.keys())
+    for (QBluetoothTransferRequest::Attribute key : attributes)
         QCOMPARE(constructorCopy.attribute(key), parameters[key]);
 
     //test assignment operator
     QBluetoothTransferRequest request;
     QVERIFY(request.address().isNull());
-    foreach (QBluetoothTransferRequest::Attribute key, parameters.keys())
+    for (QBluetoothTransferRequest::Attribute key : attributes)
         QCOMPARE(request.attribute(key), QVariant());
     request = transferRequest;
     QCOMPARE(request.address(), address);
-    foreach (QBluetoothTransferRequest::Attribute key, parameters.keys())
+    for (QBluetoothTransferRequest::Attribute key : attributes)
         QCOMPARE(request.attribute(key), parameters[key]);
 
     //test that it's a true and independent copy

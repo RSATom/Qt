@@ -45,20 +45,10 @@
 
 #include "qquicktexthandle.h"
 
-static void initResources()
-{
-#ifndef QT_STATIC
-    Q_INIT_RESOURCE(flatstyle);
-#else
-    Q_INIT_RESOURCE(qmake_QtQuick_Controls_Styles_Flat);
-#endif
-}
-
 #ifndef QT_STATIC
 extern "C" {
     Q_DECL_EXPORT bool qt_quick_controls_style_init()
     {
-        initResources();
         return true;
     }
 
@@ -74,7 +64,6 @@ QT_BEGIN_NAMESPACE
 QtQuickExtrasStylesPlugin::QtQuickExtrasStylesPlugin(QObject *parent) :
     QQmlExtensionPlugin(parent)
 {
-    initResources();
 }
 
 void QtQuickExtrasStylesPlugin::registerTypes(const char *uri)

@@ -14,12 +14,10 @@
 #include "base/lazy_instance.h"
 #include "base/location.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/ref_counted_memory.h"
-#include "base/memory/weak_ptr.h"
-#include "base/profiler/scoped_tracker.h"
 #include "base/single_thread_task_runner.h"
+#include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
@@ -27,11 +25,8 @@
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/trace_event/trace_event.h"
 #include "content/browser/blob_storage/chrome_blob_storage_context.h"
-#include "content/browser/histogram_internals_request_job.h"
 #include "content/browser/net/view_blob_internals_job_factory.h"
-#include "content/browser/net/view_http_cache_job_factory.h"
 #include "content/browser/resource_context_impl.h"
-#include "content/browser/webui/i18n_source_stream.h"
 #include "content/browser/webui/shared_resources_data_source.h"
 #include "content/browser/webui/url_data_source_impl.h"
 #include "content/browser/webui/web_ui_data_source_impl.h"
@@ -53,6 +48,7 @@
 #include "net/url_request/url_request_job.h"
 #include "net/url_request/url_request_job_factory.h"
 #include "ui/base/template_expressions.h"
+#include "ui/base/webui/i18n_source_stream.h"
 #include "url/url_util.h"
 
 namespace content {
@@ -67,7 +63,7 @@ const char kNetworkErrorKey[] = "netError";
 
 bool SchemeIsInSchemes(const std::string& scheme,
                        const std::vector<std::string>& schemes) {
-  return std::find(schemes.begin(), schemes.end(), scheme) != schemes.end();
+  return base::ContainsValue(schemes, scheme);
 }
 
 // Returns a value of 'Origin:' header for the |request| if the header is set.
@@ -89,11 +85,6 @@ void CopyData(const scoped_refptr<net::IOBuffer>& buf,
               int buf_size,
               const scoped_refptr<base::RefCountedMemory>& data,
               int64_t data_offset) {
-  // TODO(pkasting): Remove ScopedTracker below once crbug.com/455423 is
-  // fixed.
-  tracked_objects::ScopedTracker tracking_profile(
-      FROM_HERE_WITH_EXPLICIT_FUNCTION(
-          "455423 URLRequestChromeJob::CompleteRead memcpy"));
   memcpy(buf->data(), data->front() + data_offset, buf_size);
 }
 
@@ -128,9 +119,7 @@ class URLRequestChromeJob : public net::URLRequestJob {
     is_gzipped_ = is_gzipped;
   }
 
-  void SetReplacements(const ui::TemplateReplacements* replacements) {
-    replacements_ = replacements;
-  }
+  void SetSource(scoped_refptr<URLDataSourceImpl> source) { source_ = source; }
 
  private:
   ~URLRequestChromeJob() override;
@@ -171,8 +160,10 @@ class URLRequestChromeJob : public net::URLRequestJob {
   // resources in resources.pak use compress="gzip".
   bool is_gzipped_;
 
-  // Replacement dictionary for i18n.
-  const ui::TemplateReplacements* replacements_;
+  // The URLDataSourceImpl that is servicing this request. This is a shared
+  // pointer so that the request can continue to be served even if the source is
+  // detached from the backend that initially owned it.
+  scoped_refptr<URLDataSourceImpl> source_;
 
   // The backend is owned by net::URLRequestContext and always outlives us.
   URLDataManagerBackend* const backend_;
@@ -190,7 +181,6 @@ URLRequestChromeJob::URLRequestChromeJob(net::URLRequest* request,
       data_available_status_(net::OK),
       pending_buf_size_(0),
       is_gzipped_(false),
-      replacements_(nullptr),
       backend_(backend),
       weak_factory_(this) {
   DCHECK(backend);
@@ -209,18 +199,17 @@ void URLRequestChromeJob::Start() {
   // https://crbug.com/616641.
   if (url.SchemeIs(kChromeDevToolsScheme)) {
     BrowserThread::PostTask(
-        BrowserThread::UI,
-        FROM_HERE,
-        base::Bind(&URLRequestChromeJob::DelayStartForDevTools,
-                   weak_factory_.GetWeakPtr()));
+        BrowserThread::UI, FROM_HERE,
+        base::BindOnce(&URLRequestChromeJob::DelayStartForDevTools,
+                       weak_factory_.GetWeakPtr()));
     return;
   }
 
   // Start reading asynchronously so that all error reporting and data
   // callbacks happen as they would for network requests.
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE,
-      base::Bind(&URLRequestChromeJob::StartAsync, weak_factory_.GetWeakPtr()));
+      FROM_HERE, base::BindOnce(&URLRequestChromeJob::StartAsync,
+                                weak_factory_.GetWeakPtr()));
 
   TRACE_EVENT_ASYNC_BEGIN1("browser", "DataManager:Request", this, "URL",
       url.possibly_invalid_spec());
@@ -257,9 +246,20 @@ std::unique_ptr<net::SourceStream> URLRequestChromeJob::SetUpSourceStream() {
                                                   net::SourceStream::TYPE_GZIP);
   }
 
-  if (replacements_) {
-    source_stream = I18nSourceStream::Create(
-        std::move(source_stream), net::SourceStream::TYPE_NONE, replacements_);
+  // The URLRequestJob and the SourceStreams we are creating are owned by the
+  // same parent URLRequest, thus it is safe to pass the replacements via a raw
+  // pointer.
+  const ui::TemplateReplacements* replacements = nullptr;
+  if (source_)
+    replacements = source_->GetReplacements();
+  if (replacements) {
+    // It is safe to pass the raw replacements directly to the source stream, as
+    // both this URLRequestChromeJob and the I18nSourceStream are owned by the
+    // same root URLRequest. The replacements are owned by the URLDataSourceImpl
+    // which we keep alive via |source_|, ensuring its lifetime is also bound
+    // to the safe URLRequest.
+    source_stream = ui::I18nSourceStream::Create(
+        std::move(source_stream), net::SourceStream::TYPE_NONE, replacements);
   }
 
   return source_stream;
@@ -319,10 +319,10 @@ int URLRequestChromeJob::PostReadTask(scoped_refptr<net::IOBuffer> buf,
 
   base::PostTaskWithTraitsAndReply(
       FROM_HERE, {base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN},
-      base::Bind(&CopyData, base::RetainedRef(buf), buf_size, data_,
-                 data_offset_),
-      base::Bind(&URLRequestChromeJob::ReadRawDataComplete,
-                 weak_factory_.GetWeakPtr(), buf_size));
+      base::BindOnce(&CopyData, base::RetainedRef(buf), buf_size, data_,
+                     data_offset_),
+      base::BindOnce(&URLRequestChromeJob::ReadRawDataComplete,
+                     weak_factory_.GetWeakPtr(), buf_size));
   data_offset_ += buf_size;
 
   return net::ERR_IO_PENDING;
@@ -331,9 +331,8 @@ int URLRequestChromeJob::PostReadTask(scoped_refptr<net::IOBuffer> buf,
 void URLRequestChromeJob::DelayStartForDevTools(
     const base::WeakPtr<URLRequestChromeJob>& job) {
   BrowserThread::PostTask(
-      BrowserThread::IO,
-      FROM_HERE,
-      base::Bind(&URLRequestChromeJob::StartAsync, job));
+      BrowserThread::IO, FROM_HERE,
+      base::BindOnce(&URLRequestChromeJob::StartAsync, job));
 }
 
 void URLRequestChromeJob::StartAsync() {
@@ -362,21 +361,10 @@ class ChromeProtocolHandler
       net::NetworkDelegate* network_delegate) const override {
     DCHECK(request);
 
-    // Check for chrome://view-http-cache/*, which uses its own job type.
-    if (ViewHttpCacheJobFactory::IsSupportedURL(request->url()))
-      return ViewHttpCacheJobFactory::CreateJobForRequest(request,
-                                                          network_delegate);
-
     // Next check for chrome://blob-internals/, which uses its own job type.
     if (ViewBlobInternalsJobFactory::IsSupportedURL(request->url())) {
       return ViewBlobInternalsJobFactory::CreateJobForRequest(
           request, network_delegate, blob_storage_context_->context());
-    }
-
-    // Next check for chrome://histograms/, which uses its own job type.
-    if (request->url().SchemeIs(kChromeUIScheme) &&
-        request->url().host_piece() == kChromeUIHistogramHost) {
-      return new HistogramInternalsRequestJob(request, network_delegate);
     }
 
     // Check for chrome://network-error/, which uses its own job type.
@@ -426,18 +414,14 @@ class ChromeProtocolHandler
 }  // namespace
 
 URLDataManagerBackend::URLDataManagerBackend()
-    : next_request_id_(0) {
+    : next_request_id_(0), weak_factory_(this) {
   URLDataSource* shared_source = new SharedResourcesDataSource();
   URLDataSourceImpl* source_impl =
       new URLDataSourceImpl(shared_source->GetSource(), shared_source);
   AddDataSource(source_impl);
 }
 
-URLDataManagerBackend::~URLDataManagerBackend() {
-  for (const auto& i : data_sources_)
-    i.second->backend_ = nullptr;
-  data_sources_.clear();
-}
+URLDataManagerBackend::~URLDataManagerBackend() = default;
 
 // static
 std::unique_ptr<net::URLRequestJobFactory::ProtocolHandler>
@@ -445,21 +429,20 @@ URLDataManagerBackend::CreateProtocolHandler(
     ResourceContext* resource_context,
     ChromeBlobStorageContext* blob_storage_context) {
   DCHECK(resource_context);
-  return base::MakeUnique<ChromeProtocolHandler>(resource_context,
+  return std::make_unique<ChromeProtocolHandler>(resource_context,
                                                  blob_storage_context);
 }
 
 void URLDataManagerBackend::AddDataSource(
     URLDataSourceImpl* source) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  DataSourceMap::iterator i = data_sources_.find(source->source_name());
-  if (i != data_sources_.end()) {
-    if (!source->source()->ShouldReplaceExistingSource())
+  if (!source->source()->ShouldReplaceExistingSource()) {
+    DataSourceMap::iterator i = data_sources_.find(source->source_name());
+    if (i != data_sources_.end())
       return;
-    i->second->backend_ = nullptr;
   }
   data_sources_[source->source_name()] = source;
-  source->backend_ = this;
+  source->backend_ = weak_factory_.GetWeakPtr();
 }
 
 void URLDataManagerBackend::UpdateWebUIDataSource(
@@ -515,7 +498,7 @@ bool URLDataManagerBackend::StartRequest(const net::URLRequest* request,
   // replacements upon.
   std::string mime_type = source->source()->GetMimeType(path);
   if (mime_type == "text/html")
-    job->SetReplacements(source->GetReplacements());
+    job->SetSource(source);
 
   // Also notifies that the headers are complete.
   job->MimeTypeAvailable(mime_type);
@@ -533,15 +516,15 @@ bool URLDataManagerBackend::StartRequest(const net::URLRequest* request,
     // on for this path.  Call directly into it from this thread, the IO
     // thread.
     source->source()->StartDataRequest(
-        path, wc_getter,
+        path, std::move(wc_getter),
         base::Bind(&URLDataSourceImpl::SendResponse, source, request_id));
   } else {
     // The DataSource wants StartDataRequest to be called on a specific thread,
     // usually the UI thread, for this path.
     target_runner->PostTask(
-        FROM_HERE,
-        base::Bind(&URLDataManagerBackend::CallStartRequest,
-                   base::RetainedRef(source), path, wc_getter, request_id));
+        FROM_HERE, base::BindOnce(&URLDataManagerBackend::CallStartRequest,
+                                  base::RetainedRef(source), path,
+                                  std::move(wc_getter), request_id));
   }
   return true;
 }
@@ -653,7 +636,7 @@ scoped_refptr<net::HttpResponseHeaders> URLDataManagerBackend::GetHeaders(
 
 bool URLDataManagerBackend::CheckURLIsValid(const GURL& url) {
   std::vector<std::string> additional_schemes;
-  DCHECK(url.SchemeIs(kChromeDevToolsScheme) || url.SchemeIs(kChromeUIScheme) ||
+  DCHECK(url.SchemeIs(kChromeUIScheme) ||
          (GetContentClient()->browser()->GetAdditionalWebUISchemes(
               &additional_schemes),
           SchemeIsInSchemes(url.scheme(), additional_schemes)));
@@ -706,48 +689,6 @@ std::vector<std::string> URLDataManagerBackend::GetWebUISchemes() {
   schemes.push_back(kChromeUIScheme);
   GetContentClient()->browser()->GetAdditionalWebUISchemes(&schemes);
   return schemes;
-}
-
-namespace {
-
-class DevToolsJobFactory
-    : public net::URLRequestJobFactory::ProtocolHandler {
- public:
-  explicit DevToolsJobFactory(ResourceContext* resource_context);
-  ~DevToolsJobFactory() override;
-
-  net::URLRequestJob* MaybeCreateJob(
-      net::URLRequest* request,
-      net::NetworkDelegate* network_delegate) const override;
-
- private:
-  // |resource_context_| and |network_delegate_| are owned by ProfileIOData,
-  // which owns this ProtocolHandler.
-  ResourceContext* const resource_context_;
-
-  DISALLOW_COPY_AND_ASSIGN(DevToolsJobFactory);
-};
-
-DevToolsJobFactory::DevToolsJobFactory(ResourceContext* resource_context)
-    : resource_context_(resource_context) {
-  DCHECK(resource_context_);
-}
-
-DevToolsJobFactory::~DevToolsJobFactory() {}
-
-net::URLRequestJob*
-DevToolsJobFactory::MaybeCreateJob(
-    net::URLRequest* request, net::NetworkDelegate* network_delegate) const {
-  return new URLRequestChromeJob(
-      request, network_delegate,
-      GetURLDataManagerForResourceContext(resource_context_));
-}
-
-}  // namespace
-
-net::URLRequestJobFactory::ProtocolHandler* CreateDevToolsProtocolHandler(
-    ResourceContext* resource_context) {
-  return new DevToolsJobFactory(resource_context);
 }
 
 }  // namespace content

@@ -331,31 +331,30 @@ inline bool operator!=(CanvasGlCommandQueue::GlResource lhs, CanvasGlCommandQueu
 class GlCommand
 {
 public:
-    GlCommand()
+    Q_DECL_CONSTEXPR GlCommand()
         : data(0),
           id(CanvasGlCommandQueue::internalNoCommand),
           i1(0), i2(0), i3(0), i4(0), i5(0), i6(0), i7(0), i8(0)
     {}
-    GlCommand(CanvasGlCommandQueue::GlCommandId command)
+    Q_DECL_CONSTEXPR GlCommand(CanvasGlCommandQueue::GlCommandId command)
         : data(0),
           id(command),
           i1(0), i2(0), i3(0), i4(0), i5(0), i6(0), i7(0), i8(0)
     {}
-    GlCommand(CanvasGlCommandQueue::GlCommandId command,
+    Q_DECL_CONSTEXPR GlCommand(CanvasGlCommandQueue::GlCommandId command,
               GLint p1, GLint p2 = 0, GLint p3 = 0, GLint p4 = 0, GLint p5 = 0, GLint p6 = 0,
               GLint p7 = 0, GLint p8 = 0)
         : data(0),
           id(command),
           i1(p1), i2(p2), i3(p3), i4(p4), i5(p5), i6(p6), i7(p7), i8(p8)
     {}
-    GlCommand(CanvasGlCommandQueue::GlCommandId command,
+    Q_DECL_CONSTEXPR GlCommand(CanvasGlCommandQueue::GlCommandId command,
               GLfloat p1, GLfloat p2 = 0.0f, GLfloat p3 = 0.0f, GLfloat p4 = 0.0f)
         : data(0),
           id(command),
           i1(0), i2(0), i3(0), i4(0),
           f1(p1), f2(p2), f3(p3), f4(p4)
     {}
-    ~GlCommand() {}
 
     void deleteData() {
         delete data;

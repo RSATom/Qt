@@ -70,6 +70,9 @@ class BubbleManager {
   // Remove an observer from this BubbleManager.
   void RemoveBubbleManagerObserver(BubbleManagerObserver* observer);
 
+  // Returns the number of bubbles currently being managed.
+  size_t GetBubbleCountForTesting() const;
+
  protected:
   // Will close any open bubbles and prevent new ones from being shown.
   void FinalizePendingRequests();
@@ -79,6 +82,8 @@ class BubbleManager {
   void CloseBubblesOwnedBy(const content::RenderFrameHost* frame);
 
  private:
+  friend class ExtensionInstalledBubbleBrowserTest;
+
   enum ManagerState {
     SHOW_BUBBLES,
     NO_MORE_BUBBLES,

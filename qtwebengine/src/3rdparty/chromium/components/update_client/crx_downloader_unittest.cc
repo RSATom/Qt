@@ -5,13 +5,12 @@
 #include "components/update_client/crx_downloader.h"
 
 #include <memory>
+#include <utility>
 
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/memory/ref_counted.h"
-#include "base/message_loop/message_loop.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "base/test/scoped_task_environment.h"
@@ -40,7 +39,7 @@ const char hash_jebg[] =
 
 base::FilePath MakeTestFilePath(const char* file) {
   base::FilePath path;
-  PathService::Get(base::DIR_SOURCE_ROOT, &path);
+  base::PathService::Get(base::DIR_SOURCE_ROOT, &path);
   return path.AppendASCII("components/test/data/update_client")
       .AppendASCII(file);
 }
@@ -87,15 +86,15 @@ class CrxDownloaderTest : public testing::Test {
  private:
   base::test::ScopedTaskEnvironment scoped_task_environment_;
   scoped_refptr<net::TestURLRequestContextGetter> context_;
-  base::Closure quit_closure_;
+  base::OnceClosure quit_closure_;
 };
 
 const int CrxDownloaderTest::kExpectedContext;
 
 CrxDownloaderTest::CrxDownloaderTest()
-    : callback_(base::Bind(&CrxDownloaderTest::DownloadComplete,
-                           base::Unretained(this),
-                           kExpectedContext)),
+    : callback_(base::BindOnce(&CrxDownloaderTest::DownloadComplete,
+                               base::Unretained(this),
+                               kExpectedContext)),
       progress_callback_(base::Bind(&CrxDownloaderTest::DownloadProgress,
                                     base::Unretained(this),
                                     kExpectedContext)),
@@ -104,11 +103,11 @@ CrxDownloaderTest::CrxDownloaderTest()
       num_progress_calls_(0),
       scoped_task_environment_(
           base::test::ScopedTaskEnvironment::MainThreadType::IO),
-      context_(new net::TestURLRequestContextGetter(
+      context_(base::MakeRefCounted<net::TestURLRequestContextGetter>(
           base::ThreadTaskRunnerHandle::Get())) {}
 
 CrxDownloaderTest::~CrxDownloaderTest() {
-  context_ = NULL;
+  context_ = nullptr;
 
   // The GetInterceptor requires the message loop to run to destruct correctly.
   get_interceptor_.reset();
@@ -122,12 +121,11 @@ void CrxDownloaderTest::SetUp() {
   download_progress_result_ = CrxDownloader::Result();
 
   // Do not use the background downloader in these tests.
-  crx_downloader_.reset(CrxDownloader::Create(false, context_.get()).release());
+  crx_downloader_ = CrxDownloader::Create(false, context_.get());
   crx_downloader_->set_progress_callback(progress_callback_);
 
-  get_interceptor_.reset(
-      new GetInterceptor(base::ThreadTaskRunnerHandle::Get(),
-                         base::ThreadTaskRunnerHandle::Get()));
+  get_interceptor_ = std::make_unique<GetInterceptor>(
+      base::ThreadTaskRunnerHandle::Get(), base::ThreadTaskRunnerHandle::Get());
 }
 
 void CrxDownloaderTest::TearDown() {
@@ -136,7 +134,7 @@ void CrxDownloaderTest::TearDown() {
 
 void CrxDownloaderTest::Quit() {
   if (!quit_closure_.is_null())
-    quit_closure_.Run();
+    std::move(quit_closure_).Run();
 }
 
 void CrxDownloaderTest::DownloadComplete(int crx_context,
@@ -173,7 +171,8 @@ void CrxDownloaderTest::RunThreadsUntilIdle() {
 // Tests that starting a download without a url results in an error.
 TEST_F(CrxDownloaderTest, NoUrl) {
   std::vector<GURL> urls;
-  crx_downloader_->StartDownload(urls, std::string("abcd"), callback_);
+  crx_downloader_->StartDownload(urls, std::string("abcd"),
+                                 std::move(callback_));
   RunThreadsUntilIdle();
 
   EXPECT_EQ(1, num_download_complete_calls_);
@@ -190,7 +189,7 @@ TEST_F(CrxDownloaderTest, NoUrl) {
 TEST_F(CrxDownloaderTest, NoHash) {
   std::vector<GURL> urls(1, GURL("http://somehost/somefile"));
 
-  crx_downloader_->StartDownload(urls, std::string(), callback_);
+  crx_downloader_->StartDownload(urls, std::string(), std::move(callback_));
   RunThreadsUntilIdle();
 
   EXPECT_EQ(1, num_download_complete_calls_);
@@ -211,8 +210,8 @@ TEST_F(CrxDownloaderTest, OneUrl) {
   const base::FilePath test_file(MakeTestFilePath(kTestFileName));
   get_interceptor_->SetResponse(expected_crx_url, test_file);
 
-  crx_downloader_->StartDownloadFromUrl(expected_crx_url,
-                                        std::string(hash_jebg), callback_);
+  crx_downloader_->StartDownloadFromUrl(
+      expected_crx_url, std::string(hash_jebg), std::move(callback_));
   RunThreads();
 
   EXPECT_EQ(1, get_interceptor_->GetHitCount());
@@ -245,7 +244,7 @@ TEST_F(CrxDownloaderTest, OneUrlBadHash) {
       expected_crx_url,
       std::string(
           "813c59747e139a608b3b5fc49633affc6db574373f309f156ea6d27229c0b3f9"),
-      callback_);
+      std::move(callback_));
   RunThreads();
 
   EXPECT_EQ(1, get_interceptor_->GetHitCount());
@@ -265,13 +264,7 @@ TEST_F(CrxDownloaderTest, OneUrlBadHash) {
 
 // Tests that specifying two urls has no side effects. Expect a successful
 // download, and only one download request be made.
-// This test is flaky on Android. crbug.com/329883
-#if defined(OS_ANDROID)
-#define MAYBE_TwoUrls DISABLED_TwoUrls
-#else
-#define MAYBE_TwoUrls TwoUrls
-#endif
-TEST_F(CrxDownloaderTest, MAYBE_TwoUrls) {
+TEST_F(CrxDownloaderTest, TwoUrls) {
   const GURL expected_crx_url =
       GURL("http://localhost/download/jebgalgnebhfojomionfpkfelancnnkf.crx");
 
@@ -282,7 +275,8 @@ TEST_F(CrxDownloaderTest, MAYBE_TwoUrls) {
   urls.push_back(expected_crx_url);
   urls.push_back(expected_crx_url);
 
-  crx_downloader_->StartDownload(urls, std::string(hash_jebg), callback_);
+  crx_downloader_->StartDownload(urls, std::string(hash_jebg),
+                                 std::move(callback_));
   RunThreads();
 
   EXPECT_EQ(1, get_interceptor_->GetHitCount());
@@ -300,72 +294,29 @@ TEST_F(CrxDownloaderTest, MAYBE_TwoUrls) {
   EXPECT_LE(1, num_progress_calls_);
   EXPECT_EQ(1843, download_progress_result_.downloaded_bytes);
   EXPECT_EQ(1843, download_progress_result_.total_bytes);
-}
-
-// Tests that an invalid host results in a download error.
-TEST_F(CrxDownloaderTest, OneUrl_InvalidHost) {
-  const GURL expected_crx_url =
-      GURL("http://localhost/download/jebgalgnebhfojomionfpkfelancnnkf.crx");
-
-  const base::FilePath test_file(MakeTestFilePath(kTestFileName));
-  get_interceptor_->SetResponse(expected_crx_url, test_file);
-
-  crx_downloader_->StartDownloadFromUrl(
-      GURL("http://no.such.host"
-           "/download/jebgalgnebhfojomionfpkfelancnnkf.crx"),
-      std::string(hash_jebg), callback_);
-  RunThreads();
-
-  EXPECT_EQ(0, get_interceptor_->GetHitCount());
-
-  EXPECT_EQ(1, num_download_complete_calls_);
-  EXPECT_EQ(kExpectedContext, crx_context_);
-  EXPECT_NE(0, download_complete_result_.error);
-  EXPECT_TRUE(download_complete_result_.response.empty());
-}
-
-// Tests that an invalid path results in a download error.
-TEST_F(CrxDownloaderTest, OneUrl_InvalidPath) {
-  const GURL expected_crx_url =
-      GURL("http://localhost/download/jebgalgnebhfojomionfpkfelancnnkf.crx");
-
-  const base::FilePath test_file(MakeTestFilePath(kTestFileName));
-  get_interceptor_->SetResponse(expected_crx_url, test_file);
-
-  crx_downloader_->StartDownloadFromUrl(GURL("http://localhost/no/such/file"),
-                                        std::string(hash_jebg), callback_);
-  RunThreads();
-
-  EXPECT_EQ(0, get_interceptor_->GetHitCount());
-
-  EXPECT_EQ(1, num_download_complete_calls_);
-  EXPECT_EQ(kExpectedContext, crx_context_);
-  EXPECT_NE(0, download_complete_result_.error);
-  EXPECT_TRUE(download_complete_result_.response.empty());
 }
 
 // Tests that the fallback to a valid url is successful.
-// This test is flaky on Android. crbug.com/329883
-#if defined(OS_ANDROID)
-#define MAYBE_TwoUrls_FirstInvalid DISABLED_TwoUrls_FirstInvalid
-#else
-#define MAYBE_TwoUrls_FirstInvalid TwoUrls_FirstInvalid
-#endif
-TEST_F(CrxDownloaderTest, MAYBE_TwoUrls_FirstInvalid) {
+TEST_F(CrxDownloaderTest, TwoUrls_FirstInvalid) {
   const GURL expected_crx_url =
       GURL("http://localhost/download/jebgalgnebhfojomionfpkfelancnnkf.crx");
+  const GURL no_file_url =
+      GURL("http://localhost/download/ihfokbkgjpifnbbojhneepfflplebdkc.crx");
 
   const base::FilePath test_file(MakeTestFilePath(kTestFileName));
   get_interceptor_->SetResponse(expected_crx_url, test_file);
+  get_interceptor_->SetResponse(no_file_url,
+                                base::FilePath(FILE_PATH_LITERAL("no-file")));
 
   std::vector<GURL> urls;
-  urls.push_back(GURL("http://localhost/no/such/file"));
+  urls.push_back(no_file_url);
   urls.push_back(expected_crx_url);
 
-  crx_downloader_->StartDownload(urls, std::string(hash_jebg), callback_);
+  crx_downloader_->StartDownload(urls, std::string(hash_jebg),
+                                 std::move(callback_));
   RunThreads();
 
-  EXPECT_EQ(1, get_interceptor_->GetHitCount());
+  EXPECT_EQ(2, get_interceptor_->GetHitCount());
 
   EXPECT_EQ(1, num_download_complete_calls_);
   EXPECT_EQ(kExpectedContext, crx_context_);
@@ -377,9 +328,21 @@ TEST_F(CrxDownloaderTest, MAYBE_TwoUrls_FirstInvalid) {
   EXPECT_TRUE(
       DeleteFileAndEmptyParentDirectory(download_complete_result_.response));
 
+  // Expect at least some progress reported by the fetcher.
   EXPECT_LE(1, num_progress_calls_);
   EXPECT_EQ(1843, download_progress_result_.downloaded_bytes);
   EXPECT_EQ(1843, download_progress_result_.total_bytes);
+
+  const auto download_metrics = crx_downloader_->download_metrics();
+  ASSERT_EQ(2u, download_metrics.size());
+  EXPECT_EQ(no_file_url, download_metrics[0].url);
+  EXPECT_EQ(net::ERR_FILE_NOT_FOUND, download_metrics[0].error);
+  EXPECT_EQ(-1, download_metrics[0].downloaded_bytes);
+  EXPECT_EQ(-1, download_metrics[0].total_bytes);
+  EXPECT_EQ(expected_crx_url, download_metrics[1].url);
+  EXPECT_EQ(0, download_metrics[1].error);
+  EXPECT_EQ(1843, download_metrics[1].downloaded_bytes);
+  EXPECT_EQ(1843, download_metrics[1].total_bytes);
 }
 
 // Tests that the download succeeds if the first url is correct and the
@@ -387,15 +350,20 @@ TEST_F(CrxDownloaderTest, MAYBE_TwoUrls_FirstInvalid) {
 TEST_F(CrxDownloaderTest, TwoUrls_SecondInvalid) {
   const GURL expected_crx_url =
       GURL("http://localhost/download/jebgalgnebhfojomionfpkfelancnnkf.crx");
+  const GURL no_file_url =
+      GURL("http://localhost/download/ihfokbkgjpifnbbojhneepfflplebdkc.crx");
 
   const base::FilePath test_file(MakeTestFilePath(kTestFileName));
   get_interceptor_->SetResponse(expected_crx_url, test_file);
+  get_interceptor_->SetResponse(no_file_url,
+                                base::FilePath(FILE_PATH_LITERAL("no-file")));
 
   std::vector<GURL> urls;
   urls.push_back(expected_crx_url);
-  urls.push_back(GURL("http://localhost/no/such/file"));
+  urls.push_back(no_file_url);
 
-  crx_downloader_->StartDownload(urls, std::string(hash_jebg), callback_);
+  crx_downloader_->StartDownload(urls, std::string(hash_jebg),
+                                 std::move(callback_));
   RunThreads();
 
   EXPECT_EQ(1, get_interceptor_->GetHitCount());
@@ -413,31 +381,43 @@ TEST_F(CrxDownloaderTest, TwoUrls_SecondInvalid) {
   EXPECT_LE(1, num_progress_calls_);
   EXPECT_EQ(1843, download_progress_result_.downloaded_bytes);
   EXPECT_EQ(1843, download_progress_result_.total_bytes);
+
+  EXPECT_EQ(1u, crx_downloader_->download_metrics().size());
 }
 
-// Tests that the download fails if both urls are bad.
+// Tests that the download fails if both urls don't serve content.
 TEST_F(CrxDownloaderTest, TwoUrls_BothInvalid) {
   const GURL expected_crx_url =
       GURL("http://localhost/download/jebgalgnebhfojomionfpkfelancnnkf.crx");
 
-  const base::FilePath test_file(MakeTestFilePath(kTestFileName));
-  get_interceptor_->SetResponse(expected_crx_url, test_file);
+  get_interceptor_->SetResponse(expected_crx_url,
+                                base::FilePath(FILE_PATH_LITERAL("no-file")));
 
   std::vector<GURL> urls;
-  urls.push_back(GURL("http://localhost/no/such/file"));
-  urls.push_back(GURL(
-      "http://no.such.host/"
-      "/download/jebgalgnebhfojomionfpkfelancnnkf.crx"));
+  urls.push_back(expected_crx_url);
+  urls.push_back(expected_crx_url);
 
-  crx_downloader_->StartDownload(urls, std::string(hash_jebg), callback_);
+  crx_downloader_->StartDownload(urls, std::string(hash_jebg),
+                                 std::move(callback_));
   RunThreads();
 
-  EXPECT_EQ(0, get_interceptor_->GetHitCount());
+  EXPECT_EQ(2, get_interceptor_->GetHitCount());
 
   EXPECT_EQ(1, num_download_complete_calls_);
   EXPECT_EQ(kExpectedContext, crx_context_);
   EXPECT_NE(0, download_complete_result_.error);
   EXPECT_TRUE(download_complete_result_.response.empty());
+
+  const auto download_metrics = crx_downloader_->download_metrics();
+  ASSERT_EQ(2u, download_metrics.size());
+  EXPECT_EQ(expected_crx_url, download_metrics[0].url);
+  EXPECT_EQ(net::ERR_FILE_NOT_FOUND, download_metrics[0].error);
+  EXPECT_EQ(-1, download_metrics[0].downloaded_bytes);
+  EXPECT_EQ(-1, download_metrics[0].total_bytes);
+  EXPECT_EQ(expected_crx_url, download_metrics[1].url);
+  EXPECT_EQ(net::ERR_FILE_NOT_FOUND, download_metrics[1].error);
+  EXPECT_EQ(-1, download_metrics[1].downloaded_bytes);
+  EXPECT_EQ(-1, download_metrics[1].total_bytes);
 }
 
 }  // namespace update_client

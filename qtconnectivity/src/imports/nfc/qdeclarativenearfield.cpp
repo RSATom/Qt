@@ -211,7 +211,7 @@ void QDeclarativeNearField::registerMessageHandler()
 
     QNdefFilter ndefFilter;
     ndefFilter.setOrderMatch(m_orderMatch);
-    foreach (const QDeclarativeNdefFilter *filter, m_filterList) {
+    for (const QDeclarativeNdefFilter *filter : qAsConst(m_filterList)) {
         const QString type = filter->type();
         uint min = filter->minimum() < 0 ? UINT_MAX : filter->minimum();
         uint max = filter->maximum() < 0 ? UINT_MAX : filter->maximum();
@@ -236,7 +236,7 @@ void QDeclarativeNearField::_q_handleNdefMessage(const QNdefMessage &message)
 
     listRef.clear();
 
-    foreach (const QNdefRecord &record, message)
+    for (const QNdefRecord &record : message)
         listRef.append(qNewDeclarativeNdefRecordForNdefRecord(record));
 
     m_messageUpdating = false;

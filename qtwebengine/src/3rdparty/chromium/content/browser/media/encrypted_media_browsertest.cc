@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <tuple>
+
 #include "base/command_line.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
@@ -13,8 +15,9 @@
 #include "content/shell/browser/shell.h"
 #include "media/base/media.h"
 #include "media/base/media_switches.h"
-#include "media/mojo/features.h"
-#include "ppapi/features/features.h"
+#include "media/base/test_data_util.h"
+#include "media/media_buildflags.h"
+#include "media/mojo/buildflags.h"
 
 #if defined(OS_ANDROID)
 #include "base/android/build_info.h"
@@ -24,7 +27,7 @@
 #include "base/win/windows_version.h"
 #endif
 
-#if BUILDFLAG(ENABLE_MOJO_CDM) && !BUILDFLAG(ENABLE_PEPPER_CDMS)
+#if BUILDFLAG(ENABLE_MOJO_CDM) && !BUILDFLAG(ENABLE_LIBRARY_CDMS)
 // When mojo CDM is enabled, External Clear Key is supported in //content/shell/
 // by using mojo CDM with AesDecryptor running in the remote (e.g. GPU or
 // Browser) process. When pepper CDM is supported, External Clear Key is
@@ -44,16 +47,24 @@ const char kExternalClearKeyKeySystem[] = "org.chromium.externalclearkey";
 // Supported media types.
 const char kWebMVorbisAudioOnly[] = "audio/webm; codecs=\"vorbis\"";
 const char kWebMOpusAudioOnly[] = "audio/webm; codecs=\"opus\"";
-const char kWebMVP8VideoOnly[] = "video/webm; codecs=\"vp8\"";
-const char kWebMVP9VideoOnly[] = "video/webm; codecs=\"vp9\"";
-const char kWebMOpusAudioVP9Video[] = "video/webm; codecs=\"opus, vp9\"";
-const char kWebMVorbisAudioVP8Video[] = "video/webm; codecs=\"vorbis, vp8\"";
+const char kWebMVp8VideoOnly[] = "video/webm; codecs=\"vp8\"";
+const char kWebMVp9VideoOnly[] = "video/webm; codecs=\"vp9\"";
+const char kWebMOpusAudioVp9Video[] = "video/webm; codecs=\"opus, vp9\"";
+const char kWebMVorbisAudioVp8Video[] = "video/webm; codecs=\"vorbis, vp8\"";
+const char kMp4FlacAudioOnly[] = "audio/mp4; codecs=\"flac\"";
+const char kMp4Vp9VideoOnly[] =
+    "video/mp4; codecs=\"vp09.00.10.08.01.02.02.02.00\"";
+#if BUILDFLAG(USE_PROPRIETARY_CODECS)
+const char kMp4Avc1VideoOnly[] = "video/mp4; codecs=\"avc1.64001E\"";
+const char kMp4AacAudioOnly[] = "audio/mp4; codecs=\"mp4a.40.2\"";
+#endif  // BUILDFLAG(USE_PROPRIETARY_CODECS)
 
 // EME-specific test results and errors.
 const char kEmeKeyError[] = "KEYERROR";
 const char kEmeNotSupportedError[] = "NOTSUPPORTEDERROR";
 
 const char kDefaultEmePlayer[] = "eme_player.html";
+const char kDefaultMseOnlyEmePlayer[] = "mse_different_containers.html";
 
 // The type of video src used to load media.
 enum class SrcType { SRC, MSE };
@@ -71,31 +82,26 @@ enum class ConfigChangeType {
 // - SrcType: The type of video src used to load media, MSE or SRC.
 // It is okay to run this test as a non-parameterized test, in this case,
 // GetParam() should not be called.
-class EncryptedMediaTest : public MediaBrowserTest,
-                           public testing::WithParamInterface<
-                               std::tr1::tuple<const char*, SrcType>> {
+class EncryptedMediaTest
+    : public MediaBrowserTest,
+      public testing::WithParamInterface<std::tuple<const char*, SrcType>> {
  public:
   // Can only be used in parameterized (*_P) tests.
-  const std::string CurrentKeySystem() {
-    return std::tr1::get<0>(GetParam());
-  }
+  const std::string CurrentKeySystem() { return std::get<0>(GetParam()); }
 
   // Can only be used in parameterized (*_P) tests.
-  SrcType CurrentSourceType() {
-    return std::tr1::get<1>(GetParam());
-  }
+  SrcType CurrentSourceType() { return std::get<1>(GetParam()); }
 
   void TestSimplePlayback(const std::string& encrypted_media,
                           const std::string& media_type) {
-    RunSimpleEncryptedMediaTest(
-        encrypted_media, media_type, CurrentKeySystem(), CurrentSourceType());
+    RunSimplePlaybackTest(encrypted_media, media_type, CurrentKeySystem(),
+                          CurrentSourceType());
   }
 
   void TestFrameSizeChange() {
-    RunEncryptedMediaTest("encrypted_frame_size_change.html",
-                          "frame_size_change-av_enc-v.webm",
-                          kWebMVorbisAudioVP8Video, CurrentKeySystem(),
-                          CurrentSourceType(), kEnded);
+    RunTest("encrypted_frame_size_change.html",
+            "frame_size_change-av_enc-v.webm", kWebMVorbisAudioVp8Video,
+            CurrentKeySystem(), CurrentSourceType(), media::kEnded);
   }
 
   void TestConfigChange(ConfigChangeType config_change_type) {
@@ -108,38 +114,63 @@ class EncryptedMediaTest : public MediaBrowserTest,
     }
 
     base::StringPairs query_params;
-    query_params.push_back(std::make_pair("keySystem", CurrentKeySystem()));
-    query_params.push_back(std::make_pair(
+    query_params.emplace_back("keySystem", CurrentKeySystem());
+    query_params.emplace_back(
         "configChangeType",
-        base::IntToString(static_cast<int>(config_change_type))));
-    RunMediaTestPage("mse_config_change.html", query_params, kEnded, true);
+        base::IntToString(static_cast<int>(config_change_type)));
+    RunMediaTestPage("mse_config_change.html", query_params, media::kEnded,
+                     true);
   }
 
-  void RunEncryptedMediaTest(const std::string& html_page,
-                             const std::string& media_file,
-                             const std::string& media_type,
-                             const std::string& key_system,
-                             SrcType src_type,
-                             const std::string& expectation) {
+  void RunTest(const std::string& html_page,
+               const std::string& media_file,
+               const std::string& media_type,
+               const std::string& key_system,
+               SrcType src_type,
+               const std::string& expectation) {
     base::StringPairs query_params;
-    query_params.push_back(std::make_pair("mediaFile", media_file));
-    query_params.push_back(std::make_pair("mediaType", media_type));
-    query_params.push_back(std::make_pair("keySystem", key_system));
+    query_params.emplace_back("mediaFile", media_file);
+    query_params.emplace_back("mediaType", media_type);
+    query_params.emplace_back("keySystem", key_system);
     if (src_type == SrcType::MSE)
-      query_params.push_back(std::make_pair("useMSE", "1"));
+      query_params.emplace_back("useMSE", "1");
     RunMediaTestPage(html_page, query_params, expectation, true);
   }
 
-  void RunSimpleEncryptedMediaTest(const std::string& media_file,
-                                   const std::string& media_type,
-                                   const std::string& key_system,
-                                   SrcType src_type) {
-    RunEncryptedMediaTest(kDefaultEmePlayer,
-                          media_file,
-                          media_type,
-                          key_system,
-                          src_type,
-                          kEnded);
+  void RunSimplePlaybackTest(const std::string& media_file,
+                             const std::string& media_type,
+                             const std::string& key_system,
+                             SrcType src_type) {
+    RunTest(kDefaultEmePlayer, media_file, media_type, key_system, src_type,
+            media::kEnded);
+  }
+
+  void RunMultipleFileTest(const std::string& video_file,
+                           const std::string& video_type,
+                           const std::string& audio_file,
+                           const std::string& audio_type,
+                           const std::string& expected_title) {
+    if (CurrentSourceType() != SrcType::MSE) {
+      DVLOG(0) << "Skipping test; Can only play MP4 encrypted streams by MSE.";
+      return;
+    }
+
+    base::StringPairs query_params;
+    query_params.emplace_back("keySystem", CurrentKeySystem());
+    query_params.emplace_back("runEncrypted", "1");
+    if (!video_file.empty()) {
+      DCHECK(!video_type.empty());
+      query_params.emplace_back("videoFile", video_file);
+      query_params.emplace_back("videoFormat", video_type);
+    }
+    if (!audio_file.empty()) {
+      DCHECK(!audio_type.empty());
+      query_params.emplace_back("audioFile", audio_file);
+      query_params.emplace_back("audioFormat", audio_type);
+    }
+
+    RunMediaTestPage(kDefaultMseOnlyEmePlayer, query_params, expected_title,
+                     true);
   }
 
  protected:
@@ -151,7 +182,9 @@ class EncryptedMediaTest : public MediaBrowserTest,
   }
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
-    command_line->AppendSwitch(switches::kIgnoreAutoplayRestrictionsForTests);
+    command_line->AppendSwitchASCII(
+        switches::kAutoplayPolicy,
+        switches::autoplay::kNoUserGestureRequiredPolicy);
 #if defined(SUPPORTS_EXTERNAL_CLEAR_KEY_IN_CONTENT_SHELL)
     scoped_feature_list_.InitWithFeatures({media::kExternalClearKeyForTesting},
                                           {});
@@ -191,29 +224,29 @@ IN_PROC_BROWSER_TEST_P(EncryptedMediaTest, Playback_AudioOnly_WebM) {
 }
 
 IN_PROC_BROWSER_TEST_P(EncryptedMediaTest, Playback_AudioClearVideo_WebM) {
-  TestSimplePlayback("bear-320x240-av_enc-a.webm", kWebMVorbisAudioVP8Video);
+  TestSimplePlayback("bear-320x240-av_enc-a.webm", kWebMVorbisAudioVp8Video);
 }
 
 IN_PROC_BROWSER_TEST_P(EncryptedMediaTest, Playback_VideoAudio_WebM) {
-  TestSimplePlayback("bear-320x240-av_enc-av.webm", kWebMVorbisAudioVP8Video);
+  TestSimplePlayback("bear-320x240-av_enc-av.webm", kWebMVorbisAudioVp8Video);
 }
 
 IN_PROC_BROWSER_TEST_P(EncryptedMediaTest, Playback_VideoOnly_WebM) {
-  TestSimplePlayback("bear-320x240-v_enc-v.webm", kWebMVP8VideoOnly);
+  TestSimplePlayback("bear-320x240-v_enc-v.webm", kWebMVp8VideoOnly);
 }
 
 IN_PROC_BROWSER_TEST_P(EncryptedMediaTest, Playback_VideoOnly_WebM_Fullsample) {
   TestSimplePlayback("bear-320x240-v-vp9_fullsample_enc-v.webm",
-                     kWebMVP9VideoOnly);
+                     kWebMVp9VideoOnly);
 }
 
 IN_PROC_BROWSER_TEST_P(EncryptedMediaTest, Playback_VideoOnly_WebM_Subsample) {
   TestSimplePlayback("bear-320x240-v-vp9_subsample_enc-v.webm",
-                     kWebMVP9VideoOnly);
+                     kWebMVp9VideoOnly);
 }
 
 IN_PROC_BROWSER_TEST_P(EncryptedMediaTest, Playback_VideoClearAudio_WebM) {
-  TestSimplePlayback("bear-320x240-av_enc-v.webm", kWebMVorbisAudioVP8Video);
+  TestSimplePlayback("bear-320x240-av_enc-v.webm", kWebMVorbisAudioVp8Video);
 }
 
 IN_PROC_BROWSER_TEST_P(EncryptedMediaTest, Playback_AudioOnly_WebM_Opus) {
@@ -230,7 +263,7 @@ IN_PROC_BROWSER_TEST_P(EncryptedMediaTest, Playback_VideoAudio_WebM_Opus) {
     return;
 #endif
   TestSimplePlayback("bear-320x240-opus-av_enc-av.webm",
-                     kWebMOpusAudioVP9Video);
+                     kWebMOpusAudioVp9Video);
 }
 
 IN_PROC_BROWSER_TEST_P(EncryptedMediaTest, Playback_VideoClearAudio_WebM_Opus) {
@@ -238,7 +271,21 @@ IN_PROC_BROWSER_TEST_P(EncryptedMediaTest, Playback_VideoClearAudio_WebM_Opus) {
   if (!media::PlatformHasOpusSupport())
     return;
 #endif
-  TestSimplePlayback("bear-320x240-opus-av_enc-v.webm", kWebMOpusAudioVP9Video);
+  TestSimplePlayback("bear-320x240-opus-av_enc-v.webm", kWebMOpusAudioVp9Video);
+}
+
+IN_PROC_BROWSER_TEST_P(EncryptedMediaTest, Playback_AudioOnly_MP4_FLAC) {
+  RunMultipleFileTest(std::string(), std::string(), "bear-flac-cenc.mp4",
+                      kMp4FlacAudioOnly, media::kEnded);
+}
+
+IN_PROC_BROWSER_TEST_P(EncryptedMediaTest, Playback_VideoOnly_MP4_VP9) {
+  // MP4 without MSE is not support yet, http://crbug.com/170793.
+  if (CurrentSourceType() != SrcType::MSE) {
+    DVLOG(0) << "Skipping test; Can only play MP4 encrypted streams by MSE.";
+    return;
+  }
+  TestSimplePlayback("bear-320x240-v_frag-vp9-cenc.mp4", kMp4Vp9VideoOnly);
 }
 
 // Strictly speaking this is not an "encrypted" media test. Keep it here for
@@ -260,14 +307,66 @@ IN_PROC_BROWSER_TEST_P(EncryptedMediaTest,
   TestConfigChange(ConfigChangeType::ENCRYPTED_TO_ENCRYPTED);
 }
 
-IN_PROC_BROWSER_TEST_P(EncryptedMediaTest, FrameSizeChangeVideo) {
+// https://crbug.com/788748 https://crbug.com/794080
+#if (defined(OS_ANDROID) || defined(OS_LINUX)) && defined(ADDRESS_SANITIZER)
+#define MAYBE_FrameSizeChangeVideo DISABLED_FrameSizeChangeVideo
+#else
+#define MAYBE_FrameSizeChangeVideo FrameSizeChangeVideo
+#endif
+IN_PROC_BROWSER_TEST_P(EncryptedMediaTest, MAYBE_FrameSizeChangeVideo) {
   TestFrameSizeChange();
 }
 
+#if BUILDFLAG(USE_PROPRIETARY_CODECS)
+IN_PROC_BROWSER_TEST_P(EncryptedMediaTest, Playback_Encryption_CENC) {
+  RunMultipleFileTest("bear-640x360-v_frag-cenc.mp4", kMp4Avc1VideoOnly,
+                      "bear-640x360-a_frag-cenc.mp4", kMp4AacAudioOnly,
+                      media::kEnded);
+}
+
+IN_PROC_BROWSER_TEST_P(EncryptedMediaTest, Playback_Encryption_CBC1) {
+  RunMultipleFileTest("bear-640x360-v_frag-cbc1.mp4", kMp4Avc1VideoOnly,
+                      std::string(), std::string(), media::kError);
+}
+
+IN_PROC_BROWSER_TEST_P(EncryptedMediaTest, Playback_Encryption_CENS) {
+  RunMultipleFileTest("bear-640x360-v_frag-cens.mp4", kMp4Avc1VideoOnly,
+                      std::string(), std::string(), media::kError);
+}
+
+#if !defined(OS_ANDROID)
+// TODO(crbug.com/813845): Enable CBCS support on Chrome for Android.
+IN_PROC_BROWSER_TEST_P(EncryptedMediaTest, Playback_Encryption_CBCS) {
+  std::string expected_result =
+      BUILDFLAG(ENABLE_CBCS_ENCRYPTION_SCHEME) ? media::kEnded : media::kError;
+  RunMultipleFileTest("bear-640x360-v_frag-cbcs.mp4", kMp4Avc1VideoOnly,
+                      "bear-640x360-a_frag-cbcs.mp4", kMp4AacAudioOnly,
+                      expected_result);
+}
+
+IN_PROC_BROWSER_TEST_P(EncryptedMediaTest,
+                       Playback_Encryption_CBCS_Video_CENC_Audio) {
+  std::string expected_result =
+      BUILDFLAG(ENABLE_CBCS_ENCRYPTION_SCHEME) ? media::kEnded : media::kError;
+  RunMultipleFileTest("bear-640x360-v_frag-cbcs.mp4", kMp4Avc1VideoOnly,
+                      "bear-640x360-a_frag-cenc.mp4", kMp4AacAudioOnly,
+                      expected_result);
+}
+
+IN_PROC_BROWSER_TEST_P(EncryptedMediaTest,
+                       Playback_Encryption_CENC_Video_CBCS_Audio) {
+  std::string expected_result =
+      BUILDFLAG(ENABLE_CBCS_ENCRYPTION_SCHEME) ? media::kEnded : media::kError;
+  RunMultipleFileTest("bear-640x360-v_frag-cenc.mp4", kMp4Avc1VideoOnly,
+                      "bear-640x360-a_frag-cbcs.mp4", kMp4AacAudioOnly,
+                      expected_result);
+}
+#endif  // !defined(OS_ANDROID)
+#endif  // BUILDFLAG(USE_PROPRIETARY_CODECS)
+
 IN_PROC_BROWSER_TEST_F(EncryptedMediaTest, UnknownKeySystemThrowsException) {
-  RunEncryptedMediaTest(kDefaultEmePlayer, "bear-a_enc-a.webm",
-                        kWebMVorbisAudioOnly, "com.example.foo", SrcType::MSE,
-                        kEmeNotSupportedError);
+  RunTest(kDefaultEmePlayer, "bear-a_enc-a.webm", kWebMVorbisAudioOnly,
+          "com.example.foo", SrcType::MSE, kEmeNotSupportedError);
 }
 
 }  // namespace content

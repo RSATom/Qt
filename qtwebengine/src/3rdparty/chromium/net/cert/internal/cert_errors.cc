@@ -5,7 +5,6 @@
 #include "net/cert/internal/cert_errors.h"
 
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "base/strings/string_split.h"
 #include "base/strings/stringprintf.h"
 #include "net/cert/internal/cert_error_params.h"
@@ -127,6 +126,12 @@ CertPathErrors::~CertPathErrors() = default;
 CertErrors* CertPathErrors::GetErrorsForCert(size_t cert_index) {
   if (cert_index >= cert_errors_.size())
     cert_errors_.resize(cert_index + 1);
+  return &cert_errors_[cert_index];
+}
+
+const CertErrors* CertPathErrors::GetErrorsForCert(size_t cert_index) const {
+  if (cert_index >= cert_errors_.size())
+    return nullptr;
   return &cert_errors_[cert_index];
 }
 

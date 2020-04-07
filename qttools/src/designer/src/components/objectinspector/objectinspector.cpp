@@ -31,14 +31,14 @@
 #include "formwindow.h"
 
 // sdk
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerTaskMenuExtension>
-#include <QtDesigner/QExtensionManager>
-#include <QtDesigner/QDesignerFormWindowCursorInterface>
-#include <QtDesigner/QDesignerFormWindowManagerInterface>
-#include <QtDesigner/QDesignerContainerExtension>
-#include <QtDesigner/QDesignerMetaDataBaseInterface>
-#include <QtDesigner/QDesignerPropertyEditorInterface>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/taskmenu.h>
+#include <QtDesigner/qextensionmanager.h>
+#include <QtDesigner/abstractformwindowcursor.h>
+#include <QtDesigner/abstractformwindowmanager.h>
+#include <QtDesigner/container.h>
+#include <QtDesigner/abstractmetadatabase.h>
+#include <QtDesigner/abstractpropertyeditor.h>
 
 // shared
 #include <qdesigner_utils_p.h>
@@ -50,19 +50,19 @@
 #include <grid_p.h>
 
 // Qt
-#include <QtWidgets/QApplication>
-#include <QtWidgets/QHeaderView>
-#include <QtWidgets/QScrollBar>
-#include <QtGui/QPainter>
-#include <QtWidgets/QVBoxLayout>
-#include <QtCore/QItemSelectionModel>
-#include <QtWidgets/QMenu>
-#include <QtWidgets/QTreeView>
-#include <QtWidgets/QStyledItemDelegate>
+#include <QtWidgets/qapplication.h>
+#include <QtWidgets/qheaderview.h>
+#include <QtWidgets/qscrollbar.h>
+#include <QtGui/qpainter.h>
+#include <QtWidgets/qboxlayout.h>
+#include <QtCore/qitemselectionmodel.h>
+#include <QtWidgets/qmenu.h>
+#include <QtWidgets/qtreeview.h>
+#include <QtWidgets/qstyleditemdelegate.h>
 #include <QtGui/qevent.h>
 
-#include <QtCore/QVector>
-#include <QtCore/QDebug>
+#include <QtCore/qvector.h>
+#include <QtCore/qdebug.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -118,7 +118,7 @@ class ObjectInspectorDelegate : public QStyledItemDelegate {
 public:
     explicit ObjectInspectorDelegate(QObject *parent = 0);
 
-    QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &option, const QModelIndex &index) const Q_DECL_OVERRIDE;
+    QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &option, const QModelIndex &index) const override;
 };
 
 ObjectInspectorDelegate::ObjectInspectorDelegate(QObject *parent) :
@@ -146,8 +146,8 @@ public:
     ObjectInspectorTreeView(QWidget *parent = 0) :  QTreeView(parent) {}
 
 protected:
-    void mouseMoveEvent (QMouseEvent * event) Q_DECL_OVERRIDE;
-    void keyPressEvent(QKeyEvent *event) Q_DECL_OVERRIDE;
+    void mouseMoveEvent (QMouseEvent * event) override;
+    void keyPressEvent(QKeyEvent *event) override;
 
 };
 
@@ -186,6 +186,7 @@ void ObjectInspectorTreeView::keyPressEvent(QKeyEvent *event)
 // ------------ ObjectInspectorPrivate
 
 class ObjectInspector::ObjectInspectorPrivate {
+    Q_DISABLE_COPY(ObjectInspectorPrivate)
 public:
     ObjectInspectorPrivate(QDesignerFormEditorInterface *core);
     ~ObjectInspectorPrivate();
@@ -299,7 +300,7 @@ void ObjectInspector::ObjectInspectorPrivate::showContainersCurrentPage(QWidget 
                 if (count > 1 && !c->widget(c->currentIndex())->isAncestorOf(widget)) {
                     for (int i = 0; i < count; i++)
                         if (c->widget(i)->isAncestorOf(widget)) {
-                            if (macroStarted == false) {
+                            if (!macroStarted) {
                                 macroStarted = true;
                                 fw->beginCommand(tr("Change Current Page"));
                             }
@@ -313,7 +314,7 @@ void ObjectInspector::ObjectInspectorPrivate::showContainersCurrentPage(QWidget 
         }
         w = w->parentWidget();
     }
-    if (macroStarted == true)
+    if (macroStarted)
         fw->endCommand();
 }
 

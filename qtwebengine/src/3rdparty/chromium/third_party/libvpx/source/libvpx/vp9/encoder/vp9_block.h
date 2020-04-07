@@ -92,6 +92,7 @@ struct macroblock {
   int sadperbit4;
   int rddiv;
   int rdmult;
+  int cb_rdmult;
   int mb_energy;
 
   // These are set to their default values at the beginning, and then adjusted
@@ -172,6 +173,16 @@ struct macroblock {
 
   uint8_t last_sb_high_content;
 
+  int sb_use_mv_part;
+
+  int sb_mvcol_part;
+
+  int sb_mvrow_part;
+
+  int sb_pickmode_part;
+
+  int zero_temp_sad_source;
+
   // For each superblock: saves the content value (e.g., low/high sad/sumdiff)
   // based on source sad, prior to encoding the frame.
   uint8_t content_state_sb;
@@ -180,6 +191,9 @@ struct macroblock {
   // choose_partitioning. 0 for 64x64, 1~2 for 64x32, 3~4 for 32x64, 5~8 for
   // 32x32, 9~24 for 16x16.
   uint8_t variance_low[25];
+
+  uint8_t arf_frame_usage;
+  uint8_t lastgolden_frame_usage;
 
   void (*fwd_txfm4x4)(const int16_t *input, tran_low_t *output, int stride);
   void (*inv_txfm_add)(const tran_low_t *input, uint8_t *dest, int stride,

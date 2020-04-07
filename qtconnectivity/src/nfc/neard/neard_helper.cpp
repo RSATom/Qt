@@ -62,10 +62,10 @@ NeardHelper::NeardHelper(QObject *parent) :
         return;
     }
 
-    connect(m_dbusObjectManager, SIGNAL(InterfacesAdded(QDBusObjectPath,InterfaceList)),
-            this,                SLOT(interfacesAdded(QDBusObjectPath,InterfaceList)));
-    connect(m_dbusObjectManager, SIGNAL(InterfacesRemoved(QDBusObjectPath,QStringList)),
-            this,                SLOT(interfacesRemoved(QDBusObjectPath,QStringList)));
+    connect(m_dbusObjectManager, &OrgFreedesktopDBusObjectManagerInterface::InterfacesAdded,
+            this,                &NeardHelper::interfacesAdded);
+    connect(m_dbusObjectManager, &OrgFreedesktopDBusObjectManagerInterface::InterfacesRemoved,
+            this,                &NeardHelper::interfacesRemoved);
 }
 
 NeardHelper *NeardHelper::instance()
@@ -80,7 +80,8 @@ OrgFreedesktopDBusObjectManagerInterface *NeardHelper::dbusObjectManager()
 
 void NeardHelper::interfacesAdded(const QDBusObjectPath &path, InterfaceList interfaceList)
 {
-    foreach (const QString &key, interfaceList.keys()) {
+    const QList<QString> keys = interfaceList.keys();
+    for (const QString &key : keys) {
         if (key == QStringLiteral("org.neard.Tag")) {
             emit tagFound(path);
             break;

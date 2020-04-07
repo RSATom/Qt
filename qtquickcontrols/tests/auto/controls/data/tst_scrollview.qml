@@ -212,21 +212,27 @@ TestCase {
         bigItem.height = 100
         bigItem.width = 100
 
-        verify(!scrollView.__horizontalScrollBar.visible, "Scrollbar showing when contents already fit")
-        verify(!scrollView.__verticalScrollBar.visible, "Scrollbar showing when contents already fit")
+        tryVerify(function() { return !scrollView.__horizontalScrollBar.visible }, 50,
+                  "Scrollbar showing when contents already fit")
+        tryVerify(function() { return !scrollView.__verticalScrollBar.visible }, 50,
+                  "Scrollbar showing when contents already fit")
 
         bigItem.height = 1000
         bigItem.width = 1000
 
-        verify(scrollView.__horizontalScrollBar.visible, "Scrollbar not showing when contents are too big")
-        verify(scrollView.__verticalScrollBar.visible, "Scrollbar not showing when contents are too big")
+        tryVerify(function() { return scrollView.__horizontalScrollBar.visible }, 50,
+                  "Scrollbar not showing when contents are too big")
+        tryVerify(function() { return scrollView.__verticalScrollBar.visible }, 50,
+                  "Scrollbar not showing when contents are too big")
 
         //always off
         bigItem.height = 1000
         scrollView.verticalScrollBarPolicy = Qt.ScrollBarAlwaysOff
-        verify(!scrollView.__verticalScrollBar.visible, "Scrollbar showing when disabled")
+        tryVerify(function() { return !scrollView.__verticalScrollBar.visible }, 50,
+                  "Scrollbar showing when disabled")
         bigItem.height = 100
-        verify(!scrollView.__verticalScrollBar.visible, "Scrollbar showing when disabled")
+        tryVerify(function() { return !scrollView.__verticalScrollBar.visible }, 50,
+                  "Scrollbar showing when disabled")
 
         //always on
         scrollView.verticalScrollBarPolicy = Qt.ScrollBarAlwaysOn
@@ -258,12 +264,14 @@ TestCase {
         verify(scrollView !== null, "view created is null")
         verify(scrollView.flickableItem.contentY === 0)
 
-        mouseClick(scrollView, scrollView.width -2, scrollView.height/2, Qt.LeftButton)
-        verify(Math.round(scrollView.flickableItem.contentY) === 100)
+        tryVerify(function() { return scrollView.__verticalScrollBar.visible });
 
-        verify(scrollView.flickableItem.contentX === 0)
+        mouseClick(scrollView, scrollView.width -2, scrollView.height/2, Qt.LeftButton)
+        tryVerify(function() { return Math.round(scrollView.flickableItem.contentY) === 100 });
+
+        tryVerify(function() { return scrollView.flickableItem.contentX === 0 })
         mouseClick(scrollView, scrollView.width/2, scrollView.height - 2, Qt.LeftButton)
-        verify(Math.round(scrollView.flickableItem.contentX) === 100)
+        tryVerify(function() { return Math.round(scrollView.flickableItem.contentX) === 100 })
     }
 
     function test_viewport() {

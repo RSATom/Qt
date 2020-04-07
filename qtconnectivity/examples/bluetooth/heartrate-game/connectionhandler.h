@@ -63,7 +63,7 @@ class ConnectionHandler : public QObject
 
     Q_OBJECT
 public:
-    explicit ConnectionHandler(QObject *parent = 0);
+    explicit ConnectionHandler(QObject *parent = nullptr);
 
     bool alive() const;
     bool requiresAddressType() const;

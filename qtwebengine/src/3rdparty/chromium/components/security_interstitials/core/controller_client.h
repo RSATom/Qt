@@ -26,11 +26,11 @@ extern const char kPrivacyLinkHtml[];
 // These represent the commands sent from the interstitial JavaScript.
 // DO NOT reorder or change these without also changing the JavaScript!
 // See components/security_interstitials/core/browser/resources/
-enum SecurityInterstitialCommands {
+enum SecurityInterstitialCommand {
   // Used by tests
-  CMD_ERROR = -3,
-  CMD_TEXT_FOUND = -2,
-  CMD_TEXT_NOT_FOUND = -1,
+  CMD_TEXT_FOUND = -3,
+  CMD_TEXT_NOT_FOUND = -2,
+  CMD_ERROR = -1,
   // Decisions
   CMD_DONT_PROCEED = 0,
   CMD_PROCEED = 1,
@@ -99,6 +99,10 @@ class ControllerClient {
   virtual PrefService* GetPrefService() = 0;
 
   virtual const std::string& GetApplicationLocale() const = 0;
+
+  // Returns true if the error page should display a message to account for the
+  // fact that the user has seen the same error multiple times.
+  virtual bool HasSeenRecurrentError();
 
   GURL GetBaseHelpCenterUrl() const;
 

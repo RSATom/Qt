@@ -28,24 +28,22 @@ from grit.tool import interface
 # require importing all of them on every run of GRIT.
 '''Map from <output> node types to modules under grit.format.'''
 _format_modules = {
-  'android':                  'android_xml',
-  'c_format':                 'c_format',
-  'chrome_messages_json':     'chrome_messages_json',
-  'data_package':             'data_pack',
-  'js_map_format':            'js_map_format',
-  'rc_all':                   'rc',
-  'rc_translateable':         'rc',
-  'rc_nontranslateable':      'rc',
-  'rc_header':                'rc_header',
-  'resource_map_header':      'resource_map',
-  'resource_map_source':      'resource_map',
+  'android': 'android_xml',
+  'c_format': 'c_format',
+  'chrome_messages_json': 'chrome_messages_json',
+  'data_package': 'data_pack',
+  'gzipped_resource_file_map_source': 'resource_map',
+  'gzipped_resource_map_header': 'resource_map',
+  'js_map_format': 'js_map_format',
+  'policy_templates': 'policy_templates_json',
+  'rc_all': 'rc',
+  'rc_header': 'rc_header',
+  'rc_nontranslateable': 'rc',
+  'rc_translateable': 'rc',
   'resource_file_map_source': 'resource_map',
+  'resource_map_header': 'resource_map',
+  'resource_map_source': 'resource_map',
 }
-_format_modules.update(
-    (type, 'policy_templates.template_formatter') for type in
-        [ 'adm', 'admx', 'adml', 'reg', 'doc', 'json',
-          'plist', 'plist_strings', 'android_policy' ])
-
 
 def GetFormatter(type):
   modulename = 'grit.format.' + _format_modules[type]
@@ -120,11 +118,6 @@ Options:
                     and {numeric_id}. E.g. "#define {textual_id} {numeric_id}"
                     Otherwise it will use the default "#define SYMBOL 1234"
 
-  --output-all-resource-defines
-  --no-output-all-resource-defines  If specified, overrides the value of the
-                    output_all_resource_defines attribute of the root <grit>
-                    element of the input .grd file.
-
   --write-only-new flag
                     If flag is non-0, write output files to a temporary file
                     first, and copy it to the real output only if the new file
@@ -155,6 +148,7 @@ are exported to translation interchange files (e.g. XMB files), etc.
     return 'A tool that builds RC files for compilation.'
 
   def Run(self, opts, args):
+    os.environ['cwd'] = os.getcwd()
     self.output_directory = '.'
     first_ids_file = None
     predetermined_ids_file = None
@@ -164,7 +158,6 @@ are exported to translation interchange files (e.g. XMB files), etc.
     depfile = None
     depdir = None
     rc_header_format = None
-    output_all_resource_defines = None
     write_only_new = False
     depend_on_stamp = False
     js_minifier = None
@@ -198,10 +191,6 @@ are exported to translation interchange files (e.g. XMB files), etc.
         first_ids_file = val
       elif key == '-w':
         whitelist_filenames.append(val)
-      elif key == '--output-all-resource-defines':
-        output_all_resource_defines = True
-      elif key == '--no-output-all-resource-defines':
-        output_all_resource_defines = False
       elif key == '--no-replace-ellipsis':
         replace_ellipsis = False
       elif key == '-p':
@@ -250,11 +239,6 @@ are exported to translation interchange files (e.g. XMB files), etc.
                                 predetermined_ids_file=predetermined_ids_file,
                                 defines=self.defines,
                                 target_platform=target_platform)
-
-    # If the output_all_resource_defines option is specified, override the value
-    # found in the grd file.
-    if output_all_resource_defines is not None:
-      self.res.SetShouldOutputAllResourceDefines(output_all_resource_defines)
 
     # Set an output context so that conditionals can use defines during the
     # gathering stage; we use a dummy language here since we are not outputting
@@ -336,7 +320,30 @@ are exported to translation interchange files (e.g. XMB files), etc.
     formatter = GetFormatter(output_node.GetType())
     formatted = formatter(node, output_node.GetLanguage(), output_dir=base_dir)
     outfile.writelines(formatted)
+    if output_node.GetType() == 'data_package':
+      with open(output_node.GetOutputFilename() + '.info', 'w') as infofile:
+        if node.info:
+          # We terminate with a newline so that when these files are
+          # concatenated later we consistently terminate with a newline so
+          # consumers can account for terminating newlines.
+          infofile.writelines(['\n'.join(node.info), '\n'])
 
+  @staticmethod
+  def _EncodingForOutputType(output_type):
+    # Microsoft's RC compiler can only deal with single-byte or double-byte
+    # files (no UTF-8), so we make all RC files UTF-16 to support all
+    # character sets.
+    if output_type in ('rc_header', 'resource_map_header',
+                       'resource_map_source', 'resource_file_map_source',
+                       'gzipped_resource_map_header',
+                       'gzipped_resource_file_map_source'):
+      return 'cp1252'
+    if output_type in ('android', 'c_format', 'js_map_format', 'plist',
+                       'plist_strings', 'doc', 'json', 'android_policy',
+                       'chrome_messages_json'):
+      return 'utf_8'
+    # TODO(gfeher) modify here to set utf-8 encoding for admx/adml
+    return 'utf_16'
 
   def Process(self):
     # Update filenames with those provided by SCons if we're being invoked
@@ -362,27 +369,15 @@ are exported to translation interchange files (e.g. XMB files), etc.
     for output in self.res.GetOutputFiles():
       self.VerboseOut('Creating %s...' % output.GetOutputFilename())
 
-      # Microsoft's RC compiler can only deal with single-byte or double-byte
-      # files (no UTF-8), so we make all RC files UTF-16 to support all
-      # character sets.
-      if output.GetType() in ('rc_header', 'resource_map_header',
-          'resource_map_source', 'resource_file_map_source'):
-        encoding = 'cp1252'
-      elif output.GetType() in ('android', 'c_format', 'js_map_format', 'plist',
-                                'plist_strings', 'doc', 'json', 'android_policy'):
-        encoding = 'utf_8'
-      elif output.GetType() in ('chrome_messages_json'):
-        # Chrome Web Store currently expects BOM for UTF-8 files :-(
-        encoding = 'utf-8-sig'
-      else:
-        # TODO(gfeher) modify here to set utf-8 encoding for admx/adml
-        encoding = 'utf_16'
-
       # Set the context, for conditional inclusion of resources
       self.res.SetOutputLanguage(output.GetLanguage())
       self.res.SetOutputContext(output.GetContext())
       self.res.SetFallbackToDefaultLayout(output.GetFallbackToDefaultLayout())
       self.res.SetDefines(self.defines)
+
+      # Assign IDs only once to ensure that all outputs use the same IDs.
+      if self.res.GetIdMap() is None:
+        self.res.InitializeIds()
 
       # Make the output directory if it doesn't exist.
       self.MakeDirectoriesTo(output.GetOutputFilename())
@@ -392,6 +387,7 @@ are exported to translation interchange files (e.g. XMB files), etc.
       outfile = self.fo_create(output.GetOutputFilename() + '.tmp', 'wb')
 
       if output.GetType() != 'data_package':
+        encoding = self._EncodingForOutputType(output.GetType())
         outfile = util.WrapOutputStream(outfile, encoding)
 
       # Iterate in-order through entire resource tree, calling formatters on

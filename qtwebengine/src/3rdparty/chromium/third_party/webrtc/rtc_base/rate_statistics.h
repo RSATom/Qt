@@ -8,13 +8,13 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_RTC_BASE_RATE_STATISTICS_H_
-#define WEBRTC_RTC_BASE_RATE_STATISTICS_H_
+#ifndef RTC_BASE_RATE_STATISTICS_H_
+#define RTC_BASE_RATE_STATISTICS_H_
 
 #include <memory>
 
-#include "webrtc/rtc_base/optional.h"
-#include "webrtc/typedefs.h"
+#include "absl/types/optional.h"
+#include "typedefs.h"  // NOLINT(build/include)
 
 namespace webrtc {
 
@@ -42,7 +42,7 @@ class RateStatistics {
   // from a monotonic clock. Ie, it doesn't matter if this call moves the
   // window, since any subsequent call to Update or Rate would still have moved
   // the window as much or more.
-  rtc::Optional<uint32_t> Rate(int64_t now_ms) const;
+  absl::optional<uint32_t> Rate(int64_t now_ms) const;
 
   // Update the size of the averaging window. The maximum allowed value for
   // window_size_ms is max_window_size_ms as supplied in the constructor.
@@ -81,4 +81,4 @@ class RateStatistics {
 };
 }  // namespace webrtc
 
-#endif  // WEBRTC_RTC_BASE_RATE_STATISTICS_H_
+#endif  // RTC_BASE_RATE_STATISTICS_H_

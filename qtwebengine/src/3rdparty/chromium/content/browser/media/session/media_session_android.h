@@ -28,8 +28,6 @@ class MediaSessionAndroid final : public MediaSessionObserver {
   // avoid leaking the Java object outside.
   struct JavaObjectGetter;
 
-  static bool Register(JNIEnv* env);
-
   explicit MediaSessionAndroid(MediaSessionImpl* session);
   ~MediaSessionAndroid() override;
 
@@ -46,9 +44,18 @@ class MediaSessionAndroid final : public MediaSessionObserver {
   void Resume(JNIEnv* env, const base::android::JavaParamRef<jobject>& j_obj);
   void Suspend(JNIEnv* env, const base::android::JavaParamRef<jobject>& j_obj);
   void Stop(JNIEnv* env, const base::android::JavaParamRef<jobject>& j_obj);
+  void SeekForward(JNIEnv* env,
+                   const base::android::JavaParamRef<jobject>& j_obj,
+                   const jlong millis);
+  void SeekBackward(JNIEnv* env,
+                    const base::android::JavaParamRef<jobject>& j_obj,
+                    const jlong millis);
   void DidReceiveAction(JNIEnv* env,
                         const base::android::JavaParamRef<jobject>& j_obj,
                         jint action);
+  void RequestSystemAudioFocus(
+      JNIEnv* env,
+      const base::android::JavaParamRef<jobject>& j_obj);
 
  private:
   WebContentsAndroid* GetWebContentsAndroid();

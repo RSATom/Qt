@@ -38,7 +38,7 @@
 ****************************************************************************/
 
 #include "qremoteobjectregistrysource_p.h"
-#include <QDataStream>
+#include <QtCore/qdatastream.h>
 
 QT_BEGIN_NAMESPACE
 

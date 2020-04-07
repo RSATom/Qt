@@ -11,7 +11,6 @@
 #include "base/bind.h"
 #include "base/i18n/time_formatting.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/browser/extensions/api/identity/identity_api.h"
@@ -120,7 +119,8 @@ class IdentityInternalsTokenRevoker : public GaiaAuthConsumer {
   const std::string& extension_id() const { return extension_id_; }
 
   // GaiaAuthConsumer implementation.
-  void OnOAuth2RevokeTokenCompleted() override;
+  void OnOAuth2RevokeTokenCompleted(
+      GaiaAuthConsumer::TokenRevocationStatus status) override;
 
  private:
   // An object used to start a token revoke request.
@@ -183,7 +183,7 @@ const std::string IdentityInternalsUIMessageHandler::GetExtensionName(
 
 std::unique_ptr<base::ListValue> IdentityInternalsUIMessageHandler::GetScopes(
     const extensions::ExtensionTokenKey& token_cache_key) {
-  auto scopes_value = base::MakeUnique<base::ListValue>();
+  auto scopes_value = std::make_unique<base::ListValue>();
   for (std::set<std::string>::const_iterator
            iter = token_cache_key.scopes.begin();
        iter != token_cache_key.scopes.end(); ++iter) {
@@ -250,12 +250,15 @@ void IdentityInternalsUIMessageHandler::GetInfoForAllTokens(
 }
 
 void IdentityInternalsUIMessageHandler::RegisterMessages() {
-  web_ui()->RegisterMessageCallback("identityInternalsGetTokens",
-      base::Bind(&IdentityInternalsUIMessageHandler::GetInfoForAllTokens,
-                 base::Unretained(this)));
-  web_ui()->RegisterMessageCallback("identityInternalsRevokeToken",
-      base::Bind(&IdentityInternalsUIMessageHandler::RevokeToken,
-                 base::Unretained(this)));
+  web_ui()->RegisterMessageCallback(
+      "identityInternalsGetTokens",
+      base::BindRepeating(
+          &IdentityInternalsUIMessageHandler::GetInfoForAllTokens,
+          base::Unretained(this)));
+  web_ui()->RegisterMessageCallback(
+      "identityInternalsRevokeToken",
+      base::BindRepeating(&IdentityInternalsUIMessageHandler::RevokeToken,
+                          base::Unretained(this)));
 }
 
 void IdentityInternalsUIMessageHandler::RevokeToken(
@@ -264,7 +267,7 @@ void IdentityInternalsUIMessageHandler::RevokeToken(
   std::string access_token;
   args->GetString(kRevokeTokenExtensionOffset, &extension_id);
   args->GetString(kRevokeTokenTokenOffset, &access_token);
-  token_revokers_.push_back(base::MakeUnique<IdentityInternalsTokenRevoker>(
+  token_revokers_.push_back(std::make_unique<IdentityInternalsTokenRevoker>(
       extension_id, access_token, Profile::FromWebUI(web_ui()), this));
 }
 
@@ -273,8 +276,9 @@ IdentityInternalsTokenRevoker::IdentityInternalsTokenRevoker(
     const std::string& access_token,
     Profile* profile,
     IdentityInternalsUIMessageHandler* consumer)
-    : fetcher_(this, GaiaConstants::kChromeSource,
-               profile->GetRequestContext()),
+    : fetcher_(this,
+               GaiaConstants::kChromeSource,
+               profile->GetURLLoaderFactory()),
       extension_id_(extension_id),
       access_token_(access_token),
       consumer_(consumer) {
@@ -284,7 +288,8 @@ IdentityInternalsTokenRevoker::IdentityInternalsTokenRevoker(
 
 IdentityInternalsTokenRevoker::~IdentityInternalsTokenRevoker() {}
 
-void IdentityInternalsTokenRevoker::OnOAuth2RevokeTokenCompleted() {
+void IdentityInternalsTokenRevoker::OnOAuth2RevokeTokenCompleted(
+    GaiaAuthConsumer::TokenRevocationStatus status) {
   consumer_->OnTokenRevokerDone(this);
 }
 
@@ -325,7 +330,7 @@ IdentityInternalsUI::IdentityInternalsUI(content::WebUI* web_ui)
   content::WebUIDataSource::Add(Profile::FromWebUI(web_ui), html_source);
 
   web_ui->AddMessageHandler(
-      base::MakeUnique<IdentityInternalsUIMessageHandler>());
+      std::make_unique<IdentityInternalsUIMessageHandler>());
 }
 
 IdentityInternalsUI::~IdentityInternalsUI() {}

@@ -44,6 +44,8 @@
 #include <QtTest/private/qbenchmark_p.h>
 #include <QtTest/private/qbenchmarkmetric_p.h>
 
+#include <QtCore/private/qlogging_p.h>
+
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -87,6 +89,10 @@ namespace QTest {
             return "BPASS  ";
         case QAbstractTestLogger::BlacklistedFail:
             return "BFAIL  ";
+        case QAbstractTestLogger::BlacklistedXPass:
+            return "BXPASS ";
+        case QAbstractTestLogger::BlacklistedXFail:
+            return "BXFAIL ";
         }
         return "??????";
     }
@@ -205,15 +211,11 @@ namespace QTest {
     }
 }
 
-#if defined(Q_OS_WIN)
-Q_CORE_EXPORT bool qt_logging_to_console(); // defined in qlogging.cpp
-#endif
-
 void QPlainTestLogger::outputMessage(const char *str)
 {
 #if defined(Q_OS_WIN)
-    // log to system log only if output is not redirected, and no console is attached
-    if (!qt_logging_to_console() && stream == stdout) {
+    // Log to system log only if output is not redirected and stderr not preferred
+    if (stream == stdout && !QtPrivate::shouldLogToStderr()) {
         OutputDebugStringA(str);
         return;
     }
@@ -228,33 +230,29 @@ void QPlainTestLogger::printMessage(const char *type, const char *msg, const cha
     QTEST_ASSERT(type);
     QTEST_ASSERT(msg);
 
-    QTestCharBuffer buf;
+    QTestCharBuffer messagePrefix;
 
-    const char *fn = QTestResult::currentTestFunction() ? QTestResult::currentTestFunction()
-        : "UnknownTestFunc";
-    const char *tag = QTestResult::currentDataTag() ? QTestResult::currentDataTag() : "";
-    const char *gtag = QTestResult::currentGlobalDataTag()
-                     ? QTestResult::currentGlobalDataTag()
-                     : "";
-    const char *filler = (tag[0] && gtag[0]) ? ":" : "";
+    QTestCharBuffer failureLocation;
     if (file) {
-        QTest::qt_asprintf(&buf, "%s: %s::%s(%s%s%s)%s%s\n"
 #ifdef Q_OS_WIN
-                      "%s(%d) : failure location\n"
+#define FAILURE_LOCATION_STR "\n%s(%d) : failure location"
 #else
-                      "   Loc: [%s(%d)]\n"
+#define FAILURE_LOCATION_STR "\n   Loc: [%s(%d)]"
 #endif
-                      , type, QTestResult::currentTestObjectName(), fn, gtag, filler, tag,
-                      msg[0] ? " " : "", msg, file, line);
-    } else {
-        QTest::qt_asprintf(&buf, "%s: %s::%s(%s%s%s)%s%s\n",
-                type, QTestResult::currentTestObjectName(), fn, gtag, filler, tag,
-                msg[0] ? " " : "", msg);
+        QTest::qt_asprintf(&failureLocation, FAILURE_LOCATION_STR, file, line);
     }
+
+    const char *msgFiller = msg[0] ? " " : "";
+    QTestCharBuffer testIdentifier;
+    QTestPrivate::generateTestIdentifier(&testIdentifier);
+    QTest::qt_asprintf(&messagePrefix, "%s: %s%s%s%s\n",
+                       type, testIdentifier.data(), msgFiller, msg, failureLocation.data());
+
     // In colored mode, printf above stripped our nonprintable control characters.
     // Put them back.
-    memcpy(buf.data(), type, strlen(type));
-    outputMessage(buf.data());
+    memcpy(messagePrefix.data(), type, strlen(type));
+
+    outputMessage(messagePrefix.data());
 }
 
 void QPlainTestLogger::printBenchmarkResult(const QBenchmarkResult &result)
@@ -388,6 +386,11 @@ void QPlainTestLogger::addBenchmarkResult(const QBenchmarkResult &result)
         return;
 
     printBenchmarkResult(result);
+}
+
+void QPlainTestLogger::addMessage(QtMsgType type, const QMessageLogContext &context, const QString &message)
+{
+    QAbstractTestLogger::addMessage(type, context, message);
 }
 
 void QPlainTestLogger::addMessage(MessageTypes type, const QString &message,

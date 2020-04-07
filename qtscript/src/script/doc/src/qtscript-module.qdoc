@@ -38,10 +38,7 @@
     Qt Script Tools module provides additional Qt Script-related
     components that application developers may find useful.
 
-    This module is mainly provided for backwards compatibility reasons
-    with Qt 4.x and not being actively developed any further. For new
-    code please consider using the QJSEngine, etc. classes in the
-    Qt Qml module instead.
+    \include deprecation.qdocinc
 
     To include the definitions of the module's classes, use the
     following directive:

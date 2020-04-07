@@ -29,7 +29,7 @@
 \example configureButtons
 \ingroup qtgamepad-examples
 \title Qt Gamepad Configure Buttons Example
-\brief Enables configuring the gamepad buttons
+\brief Enables configuring the gamepad buttons.
 \image configuregamepadbuttons-example.png
 \include examples-run.qdocinc
 */

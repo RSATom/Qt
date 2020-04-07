@@ -7,7 +7,6 @@
 #include <string>
 #include <utility>
 
-#include "base/memory/ptr_util.h"
 #include "components/url_matcher/url_matcher_factory.h"
 #include "ipc/ipc_message.h"
 
@@ -67,7 +66,7 @@ EventFilter::MatcherID EventFilter::AddEventMatcher(
         std::make_pair(condition_set->id(), id));
   }
   id_to_event_name_[id] = event_name;
-  event_matchers_[event_name][id] = base::MakeUnique<EventMatcherEntry>(
+  event_matchers_[event_name][id] = std::make_unique<EventMatcherEntry>(
       std::move(matcher), &url_matcher_, condition_sets);
   return id;
 }

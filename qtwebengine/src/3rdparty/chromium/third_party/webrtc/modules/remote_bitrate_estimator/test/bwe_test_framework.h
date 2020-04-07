@@ -8,8 +8,8 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_MODULES_REMOTE_BITRATE_ESTIMATOR_TEST_BWE_TEST_FRAMEWORK_H_
-#define WEBRTC_MODULES_REMOTE_BITRATE_ESTIMATOR_TEST_BWE_TEST_FRAMEWORK_H_
+#ifndef MODULES_REMOTE_BITRATE_ESTIMATOR_TEST_BWE_TEST_FRAMEWORK_H_
+#define MODULES_REMOTE_BITRATE_ESTIMATOR_TEST_BWE_TEST_FRAMEWORK_H_
 
 #include <assert.h>
 #include <math.h>
@@ -24,17 +24,17 @@
 #include <utility>
 #include <vector>
 
-#include "webrtc/modules/bitrate_controller/include/bitrate_controller.h"
-#include "webrtc/modules/include/module_common_types.h"
-#include "webrtc/modules/pacing/paced_sender.h"
-#include "webrtc/modules/remote_bitrate_estimator/include/remote_bitrate_estimator.h"
-#include "webrtc/modules/remote_bitrate_estimator/test/bwe_test_logging.h"
-#include "webrtc/modules/remote_bitrate_estimator/test/packet.h"
-#include "webrtc/modules/rtp_rtcp/include/rtp_rtcp_defines.h"
-#include "webrtc/rtc_base/constructormagic.h"
-#include "webrtc/rtc_base/random.h"
-#include "webrtc/system_wrappers/include/clock.h"
-#include "webrtc/typedefs.h"
+#include "modules/bitrate_controller/include/bitrate_controller.h"
+#include "modules/include/module_common_types.h"
+#include "modules/pacing/paced_sender.h"
+#include "modules/remote_bitrate_estimator/include/remote_bitrate_estimator.h"
+#include "modules/remote_bitrate_estimator/test/bwe_test_logging.h"
+#include "modules/remote_bitrate_estimator/test/packet.h"
+#include "modules/rtp_rtcp/include/rtp_rtcp_defines.h"
+#include "rtc_base/constructormagic.h"
+#include "rtc_base/random.h"
+#include "system_wrappers/include/clock.h"
+#include "typedefs.h"  // NOLINT(build/include)
 
 namespace webrtc {
 
@@ -75,7 +75,7 @@ class RateCounter {
 };
 
 typedef std::set<int> FlowIds;
-const FlowIds CreateFlowIds(const int *flow_ids_array, size_t num_flow_ids);
+const FlowIds CreateFlowIds(const int* flow_ids_array, size_t num_flow_ids);
 const FlowIds CreateFlowIdRange(int initial_value, int last_value);
 
 template <typename T>
@@ -85,7 +85,8 @@ bool DereferencingComparator(const T* const& a, const T* const& b) {
   return *a < *b;
 }
 
-template<typename T> class Stats {
+template <typename T>
+class Stats {
  public:
   Stats()
       : data_(),
@@ -95,12 +96,9 @@ template<typename T> class Stats {
         mean_(0),
         variance_(0),
         min_(0),
-        max_(0) {
-  }
+        max_(0) {}
 
-  void Push(T data_point) {
-    data_.push_back(data_point);
-  }
+  void Push(T data_point) { data_.push_back(data_point); }
 
   T GetMean() {
     if (last_mean_count_ != data_.size()) {
@@ -125,9 +123,7 @@ template<typename T> class Stats {
     }
     return variance_;
   }
-  T GetStdDev() {
-    return sqrt(static_cast<double>(GetVariance()));
-  }
+  T GetStdDev() { return sqrt(static_cast<double>(GetVariance())); }
   T GetMin() {
     RefreshMinMax();
     return min_;
@@ -139,14 +135,14 @@ template<typename T> class Stats {
 
   std::string AsString() {
     std::stringstream ss;
-    ss << (GetMean() >= 0 ? GetMean() : -1) << ", " <<
-        (GetStdDev() >= 0 ? GetStdDev() : -1);
+    ss << (GetMean() >= 0 ? GetMean() : -1) << ", "
+       << (GetStdDev() >= 0 ? GetStdDev() : -1);
     return ss.str();
   }
 
   void Log(const std::string& units) {
-    BWE_TEST_LOGGING_LOG5("", "%f %s\t+/-%f\t[%f,%f]",
-        GetMean(), units.c_str(), GetStdDev(), GetMin(), GetMax());
+    BWE_TEST_LOGGING_LOG5("", "%f %s\t+/-%f\t[%f,%f]", GetMean(), units.c_str(),
+                          GetStdDev(), GetMin(), GetMax());
   }
 
  private:
@@ -470,4 +466,4 @@ class PeriodicKeyFrameSource : public AdaptiveVideoSource {
 }  // namespace testing
 }  // namespace webrtc
 
-#endif  // WEBRTC_MODULES_REMOTE_BITRATE_ESTIMATOR_TEST_BWE_TEST_FRAMEWORK_H_
+#endif  // MODULES_REMOTE_BITRATE_ESTIMATOR_TEST_BWE_TEST_FRAMEWORK_H_

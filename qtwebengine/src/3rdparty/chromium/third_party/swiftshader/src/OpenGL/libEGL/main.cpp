@@ -39,23 +39,44 @@ static sw::Thread::LocalStorageKey currentTLS = TLS_OUT_OF_INDEXES;
 
 namespace egl
 {
+void releaseCurrent(void *storage)
+{
+	// This pthread destructor is called after the TLS is already reset to NULL,
+	// so we can't call EGL functions here to do the cleanup.
+
+	Current *current = (Current*)storage;
+
+	if(current)
+	{
+		if(current->drawSurface)
+		{
+			current->drawSurface->release();
+		}
+
+		if(current->readSurface)
+		{
+			current->readSurface->release();
+		}
+
+		if(current->context)
+		{
+			current->context->release();
+		}
+
+		free(current);
+	}
+}
+
 Current *attachThread()
 {
 	TRACE("()");
 
 	if(currentTLS == TLS_OUT_OF_INDEXES)
 	{
-		currentTLS = sw::Thread::allocateLocalStorageKey();
+		currentTLS = sw::Thread::allocateLocalStorageKey(releaseCurrent);
 	}
 
-	Current *current = (Current*)sw::Thread::getLocalStorage(currentTLS);
-
-	if(!current)
-	{
-		current = new Current;
-
-		sw::Thread::setLocalStorage(currentTLS, current);
-	}
+	Current *current = (Current*)sw::Thread::allocateLocalStorage(currentTLS, sizeof(Current));
 
 	current->error = EGL_SUCCESS;
 	current->API = EGL_OPENGL_ES_API;
@@ -72,8 +93,7 @@ void detachThread()
 
 	eglMakeCurrent(EGL_NO_DISPLAY, EGL_NO_CONTEXT, EGL_NO_SURFACE, EGL_NO_SURFACE);
 
-	delete (Current*)sw::Thread::getLocalStorage(currentTLS);
-	sw::Thread::setLocalStorage(currentTLS, nullptr);
+	sw::Thread::freeLocalStorage(currentTLS);
 }
 
 CONSTRUCTOR void attachProcess()
@@ -229,7 +249,7 @@ void setCurrentContext(egl::Context *ctx)
 	current->context = ctx;
 }
 
-egl::Context *getCurrentContext()
+NO_SANITIZE_FUNCTION egl::Context *getCurrentContext()
 {
 	Current *current = getCurrent();
 

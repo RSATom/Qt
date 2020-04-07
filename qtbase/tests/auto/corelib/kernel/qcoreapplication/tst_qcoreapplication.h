@@ -43,7 +43,7 @@ private slots:
     void argc();
     void postEvent();
     void removePostedEvents();
-#ifndef QT_NO_THREAD
+#if QT_CONFIG(thread)
     void deliverInDefinedOrder();
 #endif
     void applicationPid();
@@ -59,6 +59,7 @@ private slots:
     void applicationEventFilters_auxThread();
     void threadedEventDelivery_data();
     void threadedEventDelivery();
+    void testTrWithPercantegeAtTheEnd();
 #if QT_CONFIG(library)
     void addRemoveLibPaths();
 #endif

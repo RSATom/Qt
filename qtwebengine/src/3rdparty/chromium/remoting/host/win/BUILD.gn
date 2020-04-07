@@ -37,7 +37,6 @@ windows_manifest("dpi_aware_exe_manifest") {
     default_compatibility_manifest,
     dpi_aware_manifest,
   ]
-  type = "exe"
 }
 
 # Depending on this target gives a default executable manifest with the addition
@@ -49,7 +48,6 @@ windows_manifest("dpi_aware_elevated_exe_manifest") {
     dpi_aware_manifest,
     require_administrator_manifest,
   ]
-  type = "exe"
 }
 
 # Depending on this target gives the executable a default manifest with the
@@ -61,7 +59,6 @@ windows_manifest("dpi_aware_uiaccess_exe_manifest") {
     dpi_aware_manifest,
     enable_uiaccess_manifest,
   ]
-  type = "exe"
 }
 
 # Depending on this target gives the executable a default manifest with the
@@ -73,7 +70,6 @@ windows_manifest("dpi_aware_uiaccess_require_admin_exe_manifest") {
     dpi_aware_manifest,
     enable_uiaccess_require_admin_manifest,
   ]
-  type = "exe"
 }
 
 source_set("win") {
@@ -85,6 +81,8 @@ source_set("win") {
     "com_security.h",
     "default_audio_device_change_detector.cc",
     "default_audio_device_change_detector.h",
+    "evaluate_d3d.cc",
+    "evaluate_d3d.h",
     "launch_process_with_token.cc",
     "launch_process_with_token.h",
     "omaha.cc",
@@ -187,8 +185,6 @@ action("generate_idl") {
 
   args = [
     "-e",
-    "DAEMON_CONTROLLER_CLSID='$daemon_controller_clsid'",
-    "-e",
     "RDP_DESKTOP_SESSION_CLSID='$rdp_desktop_session_clsid'",
     rebase_path(inputs[0], root_build_dir),
     rebase_path(outputs[0], root_build_dir),
@@ -197,6 +193,7 @@ action("generate_idl") {
 
 midl("remoting_lib_idl") {
   sources = get_target_outputs(":generate_idl")
+  dynamic_guid = rdp_desktop_session_clsid
   deps = [
     ":generate_idl",
   ]
@@ -330,7 +327,6 @@ shared_library("remoting_core") {
               "_ATL_NO_AUTOMATIC_NAMESPACE",
               "_ATL_NO_EXCEPTIONS",
               "REMOTING_HOST_BINARY=BINARY_CORE",
-              "DAEMON_CONTROLLER_CLSID=\"$daemon_controller_clsid\"",
               "RDP_DESKTOP_SESSION_CLSID=\"$rdp_desktop_session_clsid\"",
               "HOST_IMPLEMENTATION",
               "ISOLATION_AWARE_ENABLED=1",
@@ -398,7 +394,8 @@ shared_library("remoting_core") {
     "//base/third_party/dynamic_annotations",
     "//build/win:default_exe_manifest",
     "//ipc",
-    "//mojo/edk/system",
+    "//mojo/public/cpp/platform",
+    "//mojo/public/cpp/system",
     "//net",
     "//remoting/base",
     "//remoting/base:breakpad",

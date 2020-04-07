@@ -15,20 +15,11 @@
 #include "core/fxge/cfx_graphstatedata.h"
 #include "core/fxge/cfx_renderdevice.h"
 #include "core/fxge/fx_dib.h"
-#include "core/fxge/fx_font.h"
+#include "xfa/fxgraphics/cxfa_gecolor.h"
 
-class CXFA_Color;
-class CXFA_Path;
+class CXFA_GEPath;
 
 using FX_FillMode = int32_t;
-
-enum FX_DashStyle {
-  FX_DASHSTYLE_Solid = 0,
-  FX_DASHSTYLE_Dash = 1,
-  FX_DASHSTYLE_Dot = 2,
-  FX_DASHSTYLE_DashDot = 3,
-  FX_DASHSTYLE_DashDotDot = 4
-};
 
 enum class FX_HatchStyle {
   Horizontal = 0,
@@ -50,23 +41,21 @@ class CXFA_Graphics {
   void RestoreGraphState();
 
   CFX_RectF GetClipRect() const;
-  CFX_Matrix* GetMatrix();
+  const CFX_Matrix* GetMatrix() const;
   CFX_RenderDevice* GetRenderDevice();
 
   void SetLineCap(CFX_GraphStateData::LineCap lineCap);
   void SetLineDash(float dashPhase, float* dashArray, int32_t dashCount);
-  void SetLineDash(FX_DashStyle dashStyle);
-  void SetLineWidth(float lineWidth, bool isActOnDash = false);
-  void SetStrokeColor(CXFA_Color* color);
-  void SetFillColor(CXFA_Color* color);
+  void SetSolidLineDash();
+  void SetLineWidth(float lineWidth);
+  void EnableActOnDash();
+  void SetStrokeColor(const CXFA_GEColor& color);
+  void SetFillColor(const CXFA_GEColor& color);
   void SetClipRect(const CFX_RectF& rect);
-  void StrokePath(CXFA_Path* path, CFX_Matrix* matrix = nullptr);
-  void FillPath(CXFA_Path* path,
-                FX_FillMode fillMode = FXFILL_WINDING,
-                CFX_Matrix* matrix = nullptr);
-  void StretchImage(const CFX_RetainPtr<CFX_DIBSource>& source,
-                    const CFX_RectF& rect,
-                    CFX_Matrix* matrix = nullptr);
+  void StrokePath(CXFA_GEPath* path, const CFX_Matrix* matrix);
+  void FillPath(CXFA_GEPath* path,
+                FX_FillMode fillMode,
+                const CFX_Matrix* matrix);
   void ConcatMatrix(const CFX_Matrix* matrix);
 
  protected:
@@ -81,28 +70,25 @@ class CXFA_Graphics {
     CFX_GraphStateData graphState;
     CFX_Matrix CTM;
     bool isActOnDash;
-    CXFA_Color* strokeColor;
-    CXFA_Color* fillColor;
+    CXFA_GEColor strokeColor;
+    CXFA_GEColor fillColor;
   } m_info;
 
-  void RenderDeviceSetLineDash(FX_DashStyle dashStyle);
-  void RenderDeviceStrokePath(CXFA_Path* path, CFX_Matrix* matrix);
-  void RenderDeviceFillPath(CXFA_Path* path,
+  void RenderDeviceStrokePath(const CXFA_GEPath* path,
+                              const CFX_Matrix* matrix);
+  void RenderDeviceFillPath(const CXFA_GEPath* path,
                             FX_FillMode fillMode,
-                            CFX_Matrix* matrix);
-  void RenderDeviceStretchImage(const CFX_RetainPtr<CFX_DIBSource>& source,
-                                const CFX_RectF& rect,
-                                CFX_Matrix* matrix);
+                            const CFX_Matrix* matrix);
 
-  void FillPathWithPattern(CXFA_Path* path,
+  void FillPathWithPattern(const CXFA_GEPath* path,
                            FX_FillMode fillMode,
-                           CFX_Matrix* matrix);
-  void FillPathWithShading(CXFA_Path* path,
+                           const CFX_Matrix& matrix);
+  void FillPathWithShading(const CXFA_GEPath* path,
                            FX_FillMode fillMode,
-                           CFX_Matrix* matrix);
+                           const CFX_Matrix& matrix);
 
-  void SetDIBitsWithMatrix(const CFX_RetainPtr<CFX_DIBSource>& source,
-                           CFX_Matrix* matrix);
+  void SetDIBitsWithMatrix(const RetainPtr<CFX_DIBSource>& source,
+                           const CFX_Matrix& matrix);
 
   CFX_RenderDevice* const m_renderDevice;  // Not owned.
   std::vector<std::unique_ptr<TInfo>> m_infoStack;

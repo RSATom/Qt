@@ -9,12 +9,19 @@
 
 namespace subresource_filter {
 
-enum class ActivationList {
+// This enum backs a histogram. Make sure all updates are reflected in
+// enums.xml.
+enum class ActivationList : int {
   NONE,
   SOCIAL_ENG_ADS_INTERSTITIAL,
   PHISHING_INTERSTITIAL,
   SUBRESOURCE_FILTER,
-  LAST = SUBRESOURCE_FILTER,
+
+  // Site violates the better ads standard.
+  BETTER_ADS,
+
+  // Make sure new elements added update the LAST value.
+  LAST = BETTER_ADS
 };
 
 // For logging use only.

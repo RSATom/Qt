@@ -373,13 +373,12 @@ typedef struct TagWelsDecoderContext {
   bool       bNewSeqBegin;
   bool       bNextNewSeqBegin;
   int        iOverwriteFlags;
-  ERROR_CON_IDC eErrorConMethod; //
 
 //for Parse only
   bool bFramePending;
   bool bFrameFinish;
   int32_t iNalNum;
-  int32_t iNalLenInByte[MAX_NAL_UNITS_IN_LAYER];
+  int32_t iMaxNalNum; //permitted max NAL num stored in parser
   SSpsBsInfo sSpsBsInfo [MAX_SPS_COUNT];
   SSpsBsInfo sSubsetSpsBsInfo [MAX_PPS_COUNT];
   SPpsBsInfo sPpsBsInfo [MAX_PPS_COUNT];
@@ -416,6 +415,7 @@ typedef struct TagWelsDecoderContext {
 //feedback whether or not have VCL in current AU, and the temporal ID
   int32_t iFeedbackVclNalInAu;
   int32_t iFeedbackTidInAu;
+  int32_t iFeedbackNalRefIdc;
 
   bool bAuReadyFlag;   // true: one au is ready for decoding; false: default value
 
@@ -448,7 +448,6 @@ typedef struct TagWelsDecoderContext {
   uint16_t (*pDequant_coeff8x8[6])[64];//64 residual coeff ,with 6 kinds of residual type, 52 qp level
   int iDequantCoeffPpsid;//When a new pps actived, reinitialised the scaling list value
   bool bDequantCoeff4x4Init;
-  bool bSpsLatePps;
   bool bUseScalingList;
   CMemoryAlign*     pMemAlign;
 } SWelsDecoderContext, *PWelsDecoderContext;

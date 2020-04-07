@@ -279,11 +279,11 @@ void QNearFieldTagType1Private::progressToNextNdefWriteMessageState()
         m_tlvWriter = new QTlvWriter(q);
 
         // write old TLVs
-        foreach (const Tlv &tlv, m_tlvs)
+        for (const Tlv &tlv : qAsConst(m_tlvs))
             m_tlvWriter->writeTlv(tlv.first, tlv.second);
 
         // write new NDEF message TLVs
-        foreach (const QNdefMessage &message, m_ndefWriteMessages)
+        for (const QNdefMessage &message : qAsConst(m_ndefWriteMessages))
             m_tlvWriter->writeTlv(0x03, message.toByteArray());
 
         // write terminator TLV
@@ -440,9 +440,7 @@ QNearFieldTarget::RequestId QNearFieldTagType1::readNdefMessages()
     if (d->m_readNdefMessageState == QNearFieldTagType1Private::NotReadingNdefMessage) {
         d->progressToNextNdefReadMessageState();
     } else {
-        QMetaObject::invokeMethod(this, "error", Qt::QueuedConnection,
-                                  Q_ARG(QNearFieldTarget::Error, NdefReadError),
-                                  Q_ARG(QNearFieldTarget::RequestId, d->m_readNdefRequestId));
+        reportError(QNearFieldTarget::NdefReadError, d->m_readNdefRequestId);
     }
 
     return d->m_readNdefRequestId;
@@ -462,9 +460,7 @@ QNearFieldTarget::RequestId QNearFieldTagType1::writeNdefMessages(const QList<QN
         d->m_ndefWriteMessages = messages;
         d->progressToNextNdefWriteMessageState();
     } else {
-        QMetaObject::invokeMethod(this, "error", Qt::QueuedConnection,
-                                  Q_ARG(QNearFieldTarget::Error, NdefWriteError),
-                                  Q_ARG(QNearFieldTarget::RequestId, d->m_readNdefRequestId));
+        reportError(QNearFieldTarget::NdefWriteError, d->m_readNdefRequestId);
     }
 
     return d->m_writeNdefRequestId;

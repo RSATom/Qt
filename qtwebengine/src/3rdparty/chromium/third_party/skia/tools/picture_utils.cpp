@@ -83,8 +83,8 @@ namespace sk_tools {
 
         SkAutoTMalloc<uint32_t> rgba(w*h);
 
-        const void* src = bitmap.getPixels();
-        uint32_t*   dst = rgba.get();
+        SkJumper_MemoryCtx src = { bitmap.getPixels(), bitmap.rowBytesAsPixels() },
+                           dst = { rgba.get(), w };
 
         SkRasterPipeline_<256> p;
         switch (bitmap.colorType()) {
@@ -95,7 +95,7 @@ namespace sk_tools {
             default: SkASSERT(false);  // DM doesn't support any other formats, does it?
         }
         if (bitmap.info().gammaCloseToSRGB()) {
-            p.append_from_srgb(kUnpremul_SkAlphaType);
+            p.append(SkRasterPipeline::from_srgb);
         }
         p.append(SkRasterPipeline::unpremul);
         p.append(SkRasterPipeline::clamp_0);
@@ -106,12 +106,7 @@ namespace sk_tools {
         }
         p.append(SkRasterPipeline::store_8888, &dst);
 
-        auto run = p.compile();
-        for (int y = 0; y < h; y++) {
-            run(0,y, w);
-            src = SkTAddOffset<const void>(src, bitmap.rowBytes());
-            dst += w;
-        }
+        p.run(0,0, w,h);
 
         return SkData::MakeFromMalloc(rgba.release(), w*h*sizeof(uint32_t));
     }

@@ -11,6 +11,7 @@
 
 #include "base/logging.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/threading/thread_restrictions.h"
 
 namespace device {
 
@@ -36,10 +37,13 @@ SerialDeviceEnumeratorLinux::SerialDeviceEnumeratorLinux() {
   udev_.reset(udev_new());
 }
 
-SerialDeviceEnumeratorLinux::~SerialDeviceEnumeratorLinux() {}
+SerialDeviceEnumeratorLinux::~SerialDeviceEnumeratorLinux() = default;
 
-std::vector<serial::DeviceInfoPtr> SerialDeviceEnumeratorLinux::GetDevices() {
-  std::vector<serial::DeviceInfoPtr> devices;
+std::vector<mojom::SerialDeviceInfoPtr>
+SerialDeviceEnumeratorLinux::GetDevices() {
+  base::AssertBlockingAllowed();
+
+  std::vector<mojom::SerialDeviceInfoPtr> devices;
   ScopedUdevEnumeratePtr enumerate(udev_enumerate_new(udev_.get()));
   if (!enumerate) {
     LOG(ERROR) << "Serial device enumeration failed.";
@@ -67,7 +71,7 @@ std::vector<serial::DeviceInfoPtr> SerialDeviceEnumeratorLinux::GetDevices() {
         udev_device_get_property_value(device.get(), kHostPathKey);
     const char* bus = udev_device_get_property_value(device.get(), kHostBusKey);
     if (path != NULL && bus != NULL) {
-      serial::DeviceInfoPtr info(serial::DeviceInfo::New());
+      auto info = mojom::SerialDeviceInfo::New();
       info->path = path;
 
       const char* vendor_id =

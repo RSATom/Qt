@@ -10,6 +10,9 @@
 #include <cstddef>
 #include <vector>
 
+namespace angle
+{
+
 namespace pp
 {
 
@@ -18,6 +21,7 @@ class Input
 {
   public:
     Input();
+    ~Input();
     Input(size_t count, const char *const string[], const int length[]);
 
     size_t count() const { return mCount; }
@@ -49,5 +53,7 @@ class Input
 };
 
 }  // namespace pp
+
+}  // namespace angle
 
 #endif  // COMPILER_PREPROCESSOR_INPUT_H_

@@ -86,6 +86,7 @@ protected:
     bool eventFilter(QObject *object, QEvent *event);
 
 private slots:
+    void done();
     void doneAndNext();
     void prev();
     void next();
@@ -139,6 +140,7 @@ private slots:
     void updateLatestModel(const QModelIndex &index);
     void selectedContextChanged(const QModelIndex &sortedIndex, const QModelIndex &oldIndex);
     void selectedMessageChanged(const QModelIndex &sortedIndex, const QModelIndex &oldIndex);
+    void setCurrentMessage(int modelIndex, const Candidate &tm);
 
     // To synchronize from the message editor to the model ...
     void updateTranslation(const QStringList &translations);
@@ -150,7 +152,7 @@ private slots:
     void prevUnfinished();
     void nextUnfinished();
     void findNext(const QString &text, DataModel::FindLocation where,
-                  bool matchCase, bool ignoreAccelerators, bool skipObsolete);
+                  bool matchCase, bool ignoreAccelerators, bool skipObsolete, bool regularExp);
     void revalidate();
     void toggleStatistics();
     void toggleVisualizeWhitespace();
@@ -225,6 +227,7 @@ private:
     Qt::CaseSensitivity m_findMatchCase;
     bool m_findIgnoreAccelerators;
     bool m_findSkipObsolete;
+    bool m_findUseRegExp;
     DataModel::FindLocation m_findWhere;
 
     TranslateDialog *m_translateDialog;

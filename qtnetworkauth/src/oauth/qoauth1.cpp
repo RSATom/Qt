@@ -27,6 +27,8 @@
 **
 ****************************************************************************/
 
+#include <QtNetwork/qtnetwork-config.h>
+
 #ifndef QT_NO_HTTP
 
 #include "qoauth1.h"
@@ -155,7 +157,6 @@ QNetworkReply *QOAuth1Private::requestToken(QNetworkAccessManager::Operation ope
                                             const QPair<QString, QString> &token,
                                             const QVariantMap &parameters)
 {
-    Q_Q(QOAuth1);
     if (Q_UNLIKELY(!networkAccessManager())) {
         qCWarning(loggingCategory, "QNetworkAccessManager not available");
         return nullptr;
@@ -175,27 +176,35 @@ QNetworkReply *QOAuth1Private::requestToken(QNetworkAccessManager::Operation ope
 
     QAbstractOAuth::Stage stage = QAbstractOAuth::Stage::RequestingTemporaryCredentials;
     QVariantMap headers;
+    QVariantMap remainingParameters;
     appendCommonHeaders(&headers);
-    headers.insert(Key::oauthCallback, q->callback());
+    for (auto it = parameters.begin(), end = parameters.end(); it != end; ++it) {
+        const auto key = it.key();
+        const auto value = it.value();
+        if (key.startsWith(QStringLiteral("oauth_")))
+            headers.insert(key, value);
+        else
+            remainingParameters.insert(key, value);
+    }
     if (!token.first.isEmpty()) {
         headers.insert(Key::oauthToken, token.first);
         stage = QAbstractOAuth::Stage::RequestingAccessToken;
     }
-    appendSignature(stage, &headers, url, operation, parameters);
+    appendSignature(stage, &headers, url, operation, remainingParameters);
 
-    request.setRawHeader("Authorization", q->generateAuthorizationHeader(headers));
+    request.setRawHeader("Authorization", QOAuth1::generateAuthorizationHeader(headers));
 
     QNetworkReply *reply = nullptr;
     if (operation == QNetworkAccessManager::GetOperation) {
         if (parameters.size() > 0) {
             QUrl url = request.url();
-            url.setQuery(QOAuth1Private::createQuery(parameters));
+            url.setQuery(QOAuth1Private::createQuery(remainingParameters));
             request.setUrl(url);
         }
         reply = networkAccessManager()->get(request);
     }
     else if (operation == QNetworkAccessManager::PostOperation) {
-        QUrlQuery query = QOAuth1Private::createQuery(parameters);
+        QUrlQuery query = QOAuth1Private::createQuery(remainingParameters);
         const QByteArray data = query.toString(QUrl::FullyEncoded).toUtf8();
         request.setHeader(QNetworkRequest::ContentTypeHeader,
                           QStringLiteral("application/x-www-form-urlencoded"));
@@ -261,6 +270,15 @@ void QOAuth1Private::_q_onTokenRequestError(QNetworkReply::NetworkError error)
 void QOAuth1Private::_q_tokensReceived(const QVariantMap &tokens)
 {
     Q_Q(QOAuth1);
+
+    if (!tokenRequested && status == QAbstractOAuth::Status::TemporaryCredentialsReceived) {
+        // We didn't request a token yet, but in the "TemporaryCredentialsReceived" state _any_
+        // new tokens received will count as a successful authentication and we move to the
+        // 'Granted' state. To avoid this, 'status' will be temporarily set to 'NotAuthenticated'.
+        status = QAbstractOAuth::Status::NotAuthenticated;
+    }
+    if (tokenRequested) // 'Reset' tokenRequested now that we've gotten new tokens
+        tokenRequested = false;
 
     QPair<QString, QString> credential(tokens.value(Key::oauthToken).toString(),
                                        tokens.value(Key::oauthTokenSecret).toString());
@@ -656,7 +674,9 @@ QNetworkReply *QOAuth1::requestTemporaryCredentials(QNetworkAccessManager::Opera
     Q_D(QOAuth1);
     d->token.clear();
     d->tokenSecret.clear();
-    return d->requestToken(operation, url, qMakePair(d->token, d->tokenSecret), parameters);
+    QVariantMap allParameters(parameters);
+    allParameters.insert(Key::oauthCallback, callback());
+    return d->requestToken(operation, url, qMakePair(d->token, d->tokenSecret), allParameters);
 }
 
 /*!
@@ -675,6 +695,7 @@ QNetworkReply *QOAuth1::requestTokenCredentials(QNetworkAccessManager::Operation
                                                 const QVariantMap &parameters)
 {
     Q_D(QOAuth1);
+    d->tokenRequested = true;
     return d->requestToken(operation, url, temporaryToken, parameters);
 }
 
@@ -786,7 +807,7 @@ void QOAuth1::grant()
         qCWarning(d->loggingCategory, "authorizationGrantUrl is empty");
         return;
     }
-    if (!d->token.isEmpty()) {
+    if (!d->token.isEmpty() && status() == Status::Granted) {
         qCWarning(d->loggingCategory, "Already authenticated");
         return;
     }

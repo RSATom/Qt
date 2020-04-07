@@ -5,21 +5,20 @@
 #ifndef CONTENT_BROWSER_DEVTOOLS_DEVTOOLS_IO_CONTEXT_H_
 #define CONTENT_BROWSER_DEVTOOLS_DEVTOOLS_IO_CONTEXT_H_
 
-#include <stddef.h>
-
 #include <map>
 
 #include "base/callback.h"
-#include "base/files/file.h"
 #include "base/memory/ref_counted_delete_on_sequence.h"
 #include "base/memory/ref_counted_memory.h"
+#include "base/memory/weak_ptr.h"
 
 namespace base {
 class SequencedTaskRunner;
 }
+
 namespace content {
 
-class DevToolsIOContext {
+class DevToolsIOContext : public base::SupportsWeakPtr<DevToolsIOContext> {
  public:
   class Stream : public base::RefCountedDeleteOnSequence<Stream> {
    public:
@@ -30,42 +29,46 @@ class DevToolsIOContext {
     };
 
     using ReadCallback =
-        base::OnceCallback<void(std::unique_ptr<std::string> data, int status)>;
+        base::OnceCallback<void(std::unique_ptr<std::string> data,
+                                bool base64_encoded,
+                                int status)>;
 
-    void Read(off_t position, size_t max_size, ReadCallback callback);
-    void Append(std::unique_ptr<std::string> data);
-    const std::string& handle() const { return handle_; }
+    virtual bool SupportsSeek() const;
+    virtual void Read(off_t position,
+                      size_t max_size,
+                      ReadCallback callback) = 0;
 
-   private:
-    explicit Stream(base::SequencedTaskRunner* task_runner);
-    ~Stream();
-    friend class DevToolsIOContext;
+   protected:
+    friend class base::DeleteHelper<content::DevToolsIOContext::Stream>;
     friend class base::RefCountedDeleteOnSequence<Stream>;
-    friend class base::DeleteHelper<Stream>;
 
-    void ReadOnFileSequence(off_t pos, size_t max_size, ReadCallback callback);
-    void AppendOnFileSequence(std::unique_ptr<std::string> data);
-    bool InitOnFileSequenceIfNeeded();
+    explicit Stream(scoped_refptr<base::SequencedTaskRunner> task_runner);
+    virtual ~Stream() = 0;
 
-    const std::string handle_;
-    base::File file_;
-    scoped_refptr<base::SequencedTaskRunner> task_runner_;
-    bool had_errors_;
-    off_t last_read_pos_;
+    // Sub-class API:
+
+    // Caller is reposnsible for generating a unique handle.
+    void Register(DevToolsIOContext* context, const std::string& handle);
+    // We generate handle for the caller and return it.
+    std::string Register(DevToolsIOContext* context);
+
+    DISALLOW_COPY_AND_ASSIGN(Stream);
   };
 
   DevToolsIOContext();
   ~DevToolsIOContext();
 
-  scoped_refptr<Stream> CreateTempFileBackedStream();
   scoped_refptr<Stream> GetByHandle(const std::string& handle);
   bool Close(const std::string& handle);
   void DiscardAllStreams();
 
+  static bool IsTextMimeType(const std::string& mime_type);
+
  private:
-  using StreamsMap = std::map<std::string, scoped_refptr<Stream>>;
-  StreamsMap streams_;
-  scoped_refptr<base::SequencedTaskRunner> task_runner_;
+  // Registration can only be done by Stream subclasses through Stream methods.
+  void RegisterStream(scoped_refptr<Stream> stream, const std::string& handle);
+
+  std::map<std::string, scoped_refptr<Stream>> streams_;
 };
 
 }  // namespace content

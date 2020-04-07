@@ -7,9 +7,10 @@
 
 #include <memory>
 
-#include "base/memory/ptr_util.h"
+#include "base/callback_forward.h"
 #include "base/time/time.h"
 #include "cc/trees/element_id.h"
+#include "cc/trees/layer_tree_mutator.h"
 #include "cc/trees/mutator_host_client.h"
 #include "ui/gfx/geometry/box_f.h"
 #include "ui/gfx/geometry/vector2d_f.h"
@@ -22,6 +23,8 @@ namespace cc {
 
 class MutatorEvents;
 class MutatorHostClient;
+class LayerTreeMutator;
+class ScrollTree;
 
 // A MutatorHost owns all the animation and mutation effects.
 // There is just one MutatorHost for LayerTreeHost on main renderer thread
@@ -46,15 +49,26 @@ class MutatorHost {
 
   virtual void SetMutatorHostClient(MutatorHostClient* client) = 0;
 
+  virtual void SetLayerTreeMutator(
+      std::unique_ptr<LayerTreeMutator> mutator) = 0;
+
   virtual void PushPropertiesTo(MutatorHost* host_impl) = 0;
 
   virtual void SetSupportsScrollAnimations(bool supports_scroll_animations) = 0;
   virtual bool NeedsTickAnimations() const = 0;
 
   virtual bool ActivateAnimations() = 0;
-  virtual bool TickAnimations(base::TimeTicks monotonic_time) = 0;
+  // TODO(smcgruer): Once we only tick scroll-based animations on scroll, we
+  // don't need to pass the scroll tree in here.
+  virtual bool TickAnimations(base::TimeTicks monotonic_time,
+                              const ScrollTree& scroll_tree,
+                              bool is_active_tree) = 0;
+  // Tick animations that depends on scroll offset.
+  virtual void TickScrollAnimations(base::TimeTicks monotonic_time,
+                                    const ScrollTree& scroll_tree) = 0;
   virtual bool UpdateAnimationState(bool start_ready_animations,
                                     MutatorEvents* events) = 0;
+  virtual void PromoteScrollTimelinesPendingToActive() = 0;
 
   virtual std::unique_ptr<MutatorEvents> CreateEvents() = 0;
   virtual void SetAnimationEvents(std::unique_ptr<MutatorEvents> events) = 0;
@@ -84,19 +98,6 @@ class MutatorHost {
       ElementId element_id,
       TargetProperty::Type property) const = 0;
 
-  virtual bool HasFilterAnimationThatInflatesBounds(
-      ElementId element_id) const = 0;
-  virtual bool HasTransformAnimationThatInflatesBounds(
-      ElementId element_id) const = 0;
-  virtual bool HasAnimationThatInflatesBounds(ElementId element_id) const = 0;
-
-  virtual bool FilterAnimationBoundsForBox(ElementId element_id,
-                                           const gfx::BoxF& box,
-                                           gfx::BoxF* bounds) const = 0;
-  virtual bool TransformAnimationBoundsForBox(ElementId element_id,
-                                              const gfx::BoxF& box,
-                                              gfx::BoxF* bounds) const = 0;
-
   virtual bool HasOnlyTranslationTransforms(
       ElementId element_id,
       ElementListType list_type) const = 0;
@@ -109,8 +110,9 @@ class MutatorHost {
                                    ElementListType list_type,
                                    float* start_scale) const = 0;
 
-  virtual bool HasAnyAnimation(ElementId element_id) const = 0;
-  virtual bool HasTickingAnimationForTesting(ElementId element_id) const = 0;
+  virtual bool IsElementAnimating(ElementId element_id) const = 0;
+  virtual bool HasTickingKeyframeModelForTesting(
+      ElementId element_id) const = 0;
 
   virtual void ImplOnlyScrollAnimationCreate(
       ElementId element_id,
@@ -126,6 +128,11 @@ class MutatorHost {
       base::TimeDelta delayed_by) = 0;
 
   virtual void ScrollAnimationAbort() = 0;
+
+  virtual size_t CompositedAnimationsCount() const = 0;
+  virtual size_t MainThreadAnimationsCount() const = 0;
+  virtual bool CurrentFrameHadRAF() const = 0;
+  virtual bool NextFrameHasPendingRAF() const = 0;
 };
 
 class MutatorEvents {

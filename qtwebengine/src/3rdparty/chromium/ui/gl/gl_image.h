@@ -11,10 +11,12 @@
 
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
+#include "ui/gfx/color_space.h"
 #include "ui/gfx/geometry/point.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/rect_f.h"
 #include "ui/gfx/geometry/size.h"
+#include "ui/gfx/gpu_fence.h"
 #include "ui/gfx/native_widget_types.h"
 #include "ui/gfx/overlay_transform.h"
 #include "ui/gl/gl_export.h"
@@ -23,6 +25,10 @@ namespace base {
 namespace trace_event {
 class ProcessMemoryDump;
 }
+}
+
+namespace gfx {
+class GpuFence;
 }
 
 namespace gl {
@@ -66,11 +72,17 @@ class GL_EXPORT GLImage : public base::RefCounted<GLImage> {
                                const gfx::Rect& rect) = 0;
 
   // Schedule image as an overlay plane to be shown at swap time for |widget|.
-  virtual bool ScheduleOverlayPlane(gfx::AcceleratedWidget widget,
-                                    int z_order,
-                                    gfx::OverlayTransform transform,
-                                    const gfx::Rect& bounds_rect,
-                                    const gfx::RectF& crop_rect) = 0;
+  virtual bool ScheduleOverlayPlane(
+      gfx::AcceleratedWidget widget,
+      int z_order,
+      gfx::OverlayTransform transform,
+      const gfx::Rect& bounds_rect,
+      const gfx::RectF& crop_rect,
+      bool enable_blend,
+      std::unique_ptr<gfx::GpuFence> gpu_fence) = 0;
+
+  // Set the color space when image is used as an overlay.
+  virtual void SetColorSpace(const gfx::ColorSpace& color_space) = 0;
 
   // Flush any preceding rendering for the image.
   virtual void Flush() = 0;

@@ -58,9 +58,6 @@
 #include <Qt3DInput/qmousehandler.h>
 #include <QtCore/QDir>
 
-#if QT_CONFIG(library)
-#include <QtCore/QLibrary>
-#endif
 #include <QtCore/QLibraryInfo>
 #include <QtCore/QPluginLoader>
 
@@ -175,7 +172,7 @@ QInputAspect::~QInputAspect()
 {
 }
 
-/*!
+/*
    Create each of the detected input device integrations through the Integration Factory
  */
 void QInputAspectPrivate::loadInputDevicePlugins()
@@ -196,10 +193,10 @@ void QInputAspectPrivate::loadInputDevicePlugins()
 
 /*!
     Create a physical device identified by \a name using the input device integrations present
-    returns a Q_NULLPTR if it is not found.
-    \note caller is responsible for ownership
+    returns a \c nullptr if it is not found.
+
+    \note Caller is responsible for ownership.
 */
-// Note: caller is responsible for ownership
 QAbstractPhysicalDevice *QInputAspect::createPhysicalDevice(const QString &name)
 {
     Q_D(QInputAspect);
@@ -207,7 +204,7 @@ QAbstractPhysicalDevice *QInputAspect::createPhysicalDevice(const QString &name)
 }
 
 /*!
-    \return a list of all available physical devices.
+    Returns a list of all available physical devices.
  */
 QStringList QInputAspect::availablePhysicalDevices() const
 {

@@ -28,6 +28,8 @@ namespace nativegl
 struct SupportRequirement
 {
     SupportRequirement();
+    SupportRequirement(const SupportRequirement &other);
+    ~SupportRequirement();
 
     // Version that this format became supported without extensions
     gl::Version version;
@@ -42,11 +44,15 @@ struct SupportRequirement
 struct InternalFormat
 {
     InternalFormat();
+    InternalFormat(const InternalFormat &other);
+    ~InternalFormat();
 
     SupportRequirement texture;
     SupportRequirement filter;
+    // Texture created with InternalFormat can be used in glFramebufferTexture2D
+    SupportRequirement textureAttachment;
+    // Renderbuffer created with InternalFormat can be used in glFramebufferRenderbuffer
     SupportRequirement renderbuffer;
-    SupportRequirement framebufferAttachment;
 };
 const InternalFormat &GetInternalFormatInfo(GLenum internalFormat, StandardGL standard);
 

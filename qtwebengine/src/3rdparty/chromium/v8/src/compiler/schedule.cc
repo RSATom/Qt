@@ -35,8 +35,8 @@ BasicBlock::BasicBlock(Zone* zone, Id id)
 
 bool BasicBlock::LoopContains(BasicBlock* block) const {
   // RPO numbers must be initialized.
-  DCHECK(rpo_number_ >= 0);
-  DCHECK(block->rpo_number_ >= 0);
+  DCHECK_LE(0, rpo_number_);
+  DCHECK_LE(0, block->rpo_number_);
   if (loop_end_ == nullptr) return false;  // This is not a loop.
   return block->rpo_number_ >= rpo_number_ &&
          block->rpo_number_ < loop_end_->rpo_number_;
@@ -96,7 +96,7 @@ BasicBlock* BasicBlock::GetCommonDominator(BasicBlock* b1, BasicBlock* b2) {
   return b1;
 }
 
-void BasicBlock::Print() { OFStream(stdout) << this; }
+void BasicBlock::Print() { StdoutStream{} << this; }
 
 std::ostream& operator<<(std::ostream& os, const BasicBlock& block) {
   os << "B" << block.id();
@@ -194,20 +194,19 @@ BasicBlock* Schedule::NewBasicBlock() {
 
 void Schedule::PlanNode(BasicBlock* block, Node* node) {
   if (FLAG_trace_turbo_scheduler) {
-    OFStream os(stdout);
-    os << "Planning #" << node->id() << ":" << node->op()->mnemonic()
-       << " for future add to B" << block->id() << "\n";
+    StdoutStream{} << "Planning #" << node->id() << ":"
+                   << node->op()->mnemonic() << " for future add to B"
+                   << block->id() << "\n";
   }
-  DCHECK(this->block(node) == nullptr);
+  DCHECK_NULL(this->block(node));
   SetBlockForNode(block, node);
 }
 
 
 void Schedule::AddNode(BasicBlock* block, Node* node) {
   if (FLAG_trace_turbo_scheduler) {
-    OFStream os(stdout);
-    os << "Adding #" << node->id() << ":" << node->op()->mnemonic() << " to B"
-       << block->id() << "\n";
+    StdoutStream{} << "Adding #" << node->id() << ":" << node->op()->mnemonic()
+                   << " to B" << block->id() << "\n";
   }
   DCHECK(this->block(node) == nullptr || this->block(node) == block);
   block->AddNode(node);
@@ -230,6 +229,7 @@ bool IsPotentiallyThrowingCall(IrOpcode::Value opcode) {
     JS_OP_LIST(BUILD_BLOCK_JS_CASE)
 #undef BUILD_BLOCK_JS_CASE
     case IrOpcode::kCall:
+    case IrOpcode::kCallWithCallerSavedRegisters:
       return true;
     default:
       return false;
@@ -350,6 +350,25 @@ void Schedule::EnsureCFGWellFormedness() {
       }
       if (block->deferred()) {
         EnsureDeferredCodeSingleEntryPoint(block);
+      }
+    } else {
+      EliminateNoopPhiNodes(block);
+    }
+  }
+}
+
+void Schedule::EliminateNoopPhiNodes(BasicBlock* block) {
+  // Ensure that useless phi nodes in blocks that only have a single predecessor
+  // -- which can happen with the automatically generated code in the CSA and
+  // torque -- are pruned.
+  if (block->PredecessorCount() == 1) {
+    for (size_t i = 0; i < block->NodeCount();) {
+      Node* node = block->NodeAt(i);
+      if (node->opcode() == IrOpcode::kPhi) {
+        node->ReplaceUses(node->InputAt(0));
+        block->RemoveNode(block->begin() + i);
+      } else {
+        ++i;
       }
     }
   }
@@ -512,9 +531,7 @@ std::ostream& operator<<(std::ostream& os, const Schedule& s) {
     for (Node* node : *block) {
       os << "  " << *node;
       if (NodeProperties::IsTyped(node)) {
-        Type* type = NodeProperties::GetType(node);
-        os << " : ";
-        type->PrintTo(os);
+        os << " : " << NodeProperties::GetType(node);
       }
       os << "\n";
     }

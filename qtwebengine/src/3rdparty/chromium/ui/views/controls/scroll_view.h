@@ -11,6 +11,7 @@
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "ui/native_theme/native_theme.h"
+#include "ui/views/controls/focus_ring.h"
 #include "ui/views/controls/scrollbar/scroll_bar.h"
 
 namespace gfx {
@@ -21,6 +22,8 @@ namespace views {
 namespace test {
 class ScrollViewTestApi;
 }
+
+class Separator;
 
 /////////////////////////////////////////////////////////////////////////////
 //
@@ -75,6 +78,10 @@ class VIEWS_EXPORT ScrollView : public View, public ScrollBarController {
 
   void set_hide_horizontal_scrollbar(bool visible) {
     hide_horizontal_scrollbar_ = visible;
+  }
+
+  void set_draw_overflow_indicator(bool draw_overflow_indicator) {
+    draw_overflow_indicator_ = draw_overflow_indicator;
   }
 
   // Turns this scroll view into a bounded scroll view, with a fixed height.
@@ -172,7 +179,7 @@ class VIEWS_EXPORT ScrollView : public View, public ScrollBarController {
   bool ScrollsWithLayers() const;
 
   // Callback entrypoint when hosted Layers are scrolled by the Compositor.
-  void OnLayerScrolled(const gfx::ScrollOffset& offset);
+  void OnLayerScrolled(const gfx::ScrollOffset&, const cc::ElementId&);
 
   // Horizontally scrolls the header (if any) to match the contents.
   void ScrollHeader();
@@ -182,6 +189,13 @@ class VIEWS_EXPORT ScrollView : public View, public ScrollBarController {
 
   void UpdateBackground();
   SkColor GetBackgroundColor() const;
+
+  // Positions each overflow indicator against their respective content edge.
+  void PositionOverflowIndicators();
+
+  // Shows/hides the overflow indicators depending on the position of the
+  // scrolling content within the viewport.
+  void UpdateOverflowIndicatorVisibility(const gfx::ScrollOffset& offset);
 
   // The current contents and its viewport. |contents_| is contained in
   // |contents_viewport_|.
@@ -201,6 +215,12 @@ class VIEWS_EXPORT ScrollView : public View, public ScrollBarController {
 
   // Corner view.
   View* corner_view_;
+
+  // Hidden content indicators
+  std::unique_ptr<Separator> more_content_left_;
+  std::unique_ptr<Separator> more_content_top_;
+  std::unique_ptr<Separator> more_content_right_;
+  std::unique_ptr<Separator> more_content_bottom_;
 
   // The min and max height for the bounded scroll view. These are negative
   // values if the view is not bounded.
@@ -223,11 +243,15 @@ class VIEWS_EXPORT ScrollView : public View, public ScrollBarController {
   // Only needed for pre-Harmony. Remove when Harmony is default.
   bool draw_border_ = false;
 
-  // Focus ring, if one is installed.
-  View* focus_ring_ = nullptr;
+  // Whether to draw a white separator on the four sides of the scroll view when
+  // it overflows.
+  bool draw_overflow_indicator_ = true;
 
   // Set to true if the scroll with layers feature is enabled.
   const bool scroll_with_layers_enabled_;
+
+  // The focus ring for this ScrollView.
+  std::unique_ptr<FocusRing> focus_ring_;
 
   DISALLOW_COPY_AND_ASSIGN(ScrollView);
 };

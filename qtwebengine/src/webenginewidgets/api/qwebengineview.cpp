@@ -41,58 +41,76 @@
 #include "qwebengineview_p.h"
 
 #include "qwebenginepage_p.h"
+#include "render_widget_host_view_qt_delegate_widget.h"
 #include "web_contents_adapter.h"
 
-#ifdef QT_UI_DELEGATES
-#include "ui/messagebubblewidget_p.h"
-#endif
-
+#if QT_CONFIG(action)
 #include <QAction>
+#endif
+#if QT_CONFIG(menu)
 #include <QMenu>
+#endif
 #include <QContextMenuEvent>
-#include <QPageLayout>
-#include <QStackedLayout>
 #include <QToolTip>
+#include <QVBoxLayout>
 
 QT_BEGIN_NAMESPACE
 
-void QWebEngineViewPrivate::bind(QWebEngineView *view, QWebEnginePage *page)
+void QWebEngineViewPrivate::pageChanged(QWebEnginePage *oldPage, QWebEnginePage *newPage)
 {
-    if (view && page == view->d_func()->page)
-        return;
+    Q_Q(QWebEngineView);
 
-    if (page) {
-        // Un-bind page from its current view.
-        if (QWebEngineView *oldView = page->d_func()->view) {
-            page->disconnect(oldView);
-            oldView->d_func()->page = 0;
-        }
-        page->d_func()->view = view;
-        page->d_func()->adapter->reattachRWHV();
+    if (oldPage) {
+        oldPage->disconnect(q);
     }
 
-    if (view) {
-        // Un-bind view from its current page.
-        if (QWebEnginePage *oldPage = view->d_func()->page) {
-            oldPage->disconnect(view);
-            oldPage->d_func()->view = 0;
-            oldPage->d_func()->adapter->reattachRWHV();
-            if (oldPage->parent() == view)
-                delete oldPage;
-        }
-        view->d_func()->page = page;
+    if (newPage) {
+        QObject::connect(newPage, &QWebEnginePage::titleChanged, q, &QWebEngineView::titleChanged);
+        QObject::connect(newPage, &QWebEnginePage::urlChanged, q, &QWebEngineView::urlChanged);
+        QObject::connect(newPage, &QWebEnginePage::iconUrlChanged, q, &QWebEngineView::iconUrlChanged);
+        QObject::connect(newPage, &QWebEnginePage::iconChanged, q, &QWebEngineView::iconChanged);
+        QObject::connect(newPage, &QWebEnginePage::loadStarted, q, &QWebEngineView::loadStarted);
+        QObject::connect(newPage, &QWebEnginePage::loadProgress, q, &QWebEngineView::loadProgress);
+        QObject::connect(newPage, &QWebEnginePage::loadFinished, q, &QWebEngineView::loadFinished);
+        QObject::connect(newPage, &QWebEnginePage::selectionChanged, q, &QWebEngineView::selectionChanged);
+        QObject::connect(newPage, &QWebEnginePage::renderProcessTerminated, q, &QWebEngineView::renderProcessTerminated);
     }
 
-    if (view && page) {
-        QObject::connect(page, &QWebEnginePage::titleChanged, view, &QWebEngineView::titleChanged);
-        QObject::connect(page, &QWebEnginePage::urlChanged, view, &QWebEngineView::urlChanged);
-        QObject::connect(page, &QWebEnginePage::iconUrlChanged, view, &QWebEngineView::iconUrlChanged);
-        QObject::connect(page, &QWebEnginePage::iconChanged, view, &QWebEngineView::iconChanged);
-        QObject::connect(page, &QWebEnginePage::loadStarted, view, &QWebEngineView::loadStarted);
-        QObject::connect(page, &QWebEnginePage::loadProgress, view, &QWebEngineView::loadProgress);
-        QObject::connect(page, &QWebEnginePage::loadFinished, view, &QWebEngineView::loadFinished);
-        QObject::connect(page, &QWebEnginePage::selectionChanged, view, &QWebEngineView::selectionChanged);
-        QObject::connect(page, &QWebEnginePage::renderProcessTerminated, view, &QWebEngineView::renderProcessTerminated);
+    auto oldUrl = oldPage ? oldPage->url() : QUrl();
+    auto newUrl = newPage ? newPage->url() : QUrl();
+    if (oldUrl != newUrl)
+        Q_EMIT q->urlChanged(newUrl);
+
+    auto oldTitle = oldPage ? oldPage->title() : QString();
+    auto newTitle = newPage ? newPage->title() : QString();
+    if (oldTitle != newTitle)
+        Q_EMIT q->titleChanged(newTitle);
+
+    auto oldIcon = oldPage ? oldPage->iconUrl() : QUrl();
+    auto newIcon = newPage ? newPage->iconUrl() : QUrl();
+    if (oldIcon != newIcon) {
+        Q_EMIT q->iconUrlChanged(newIcon);
+        Q_EMIT q->iconChanged(newPage ? newPage->icon() : QIcon());
+    }
+
+    if ((oldPage && oldPage->hasSelection()) || (newPage && newPage->hasSelection()))
+        Q_EMIT q->selectionChanged();
+}
+
+void QWebEngineViewPrivate::widgetChanged(QtWebEngineCore::RenderWidgetHostViewQtDelegateWidget *oldWidget,
+                                          QtWebEngineCore::RenderWidgetHostViewQtDelegateWidget *newWidget)
+{
+    Q_Q(QWebEngineView);
+
+    if (oldWidget) {
+        q->layout()->removeWidget(oldWidget);
+        oldWidget->hide();
+    }
+
+    if (newWidget) {
+        q->layout()->addWidget(newWidget);
+        q->setFocusProxy(newWidget);
+        newWidget->show();
     }
 }
 
@@ -141,18 +159,15 @@ QWebEngineView::QWebEngineView(QWidget *parent)
     d->q_ptr = this;
     setAcceptDrops(true);
 
-    // This causes the child RenderWidgetHostViewQtDelegateWidgets to fill this widget.
-    setLayout(new QStackedLayout);
+    QVBoxLayout *layout = new QVBoxLayout;
+    layout->setContentsMargins(0, 0, 0, 0);
+    setLayout(layout);
 }
 
 QWebEngineView::~QWebEngineView()
 {
-    Q_D(QWebEngineView);
-    QWebEngineViewPrivate::bind(0, d->page);
-
-#ifdef QT_UI_DELEGATES
-    QtWebEngineWidgetUI::MessageBubbleWidget::hideBubble();
-#endif
+    blockSignals(true);
+    QWebEnginePagePrivate::bindPageAndView(nullptr, this);
 }
 
 QWebEnginePage* QWebEngineView::page() const
@@ -165,9 +180,9 @@ QWebEnginePage* QWebEngineView::page() const
     return d->page;
 }
 
-void QWebEngineView::setPage(QWebEnginePage* page)
+void QWebEngineView::setPage(QWebEnginePage *newPage)
 {
-    QWebEngineViewPrivate::bind(this, page);
+    QWebEnginePagePrivate::bindPageAndView(newPage, this);
 }
 
 void QWebEngineView::load(const QUrl& url)
@@ -223,7 +238,7 @@ QUrl QWebEngineView::iconUrl() const
 
 /*!
     \property QWebEngineView::icon
-    \brief the icon associated with the page currently viewed
+    \brief The icon associated with the page currently viewed.
     \since 5.7
 
     By default, this property contains a null icon.
@@ -267,7 +282,8 @@ void QWebEngineView::findText(const QString &subString, QWebEnginePage::FindFlag
  */
 QSize QWebEngineView::sizeHint() const
 {
-    return QSize(800, 600);
+    // TODO: Remove this override for Qt 6
+    return QWidget::sizeHint();
 }
 
 QWebEngineSettings *QWebEngineView::settings() const
@@ -346,11 +362,13 @@ bool QWebEngineView::event(QEvent *ev)
 /*!
  * \reimp
  */
+#if QT_CONFIG(contextmenu)
 void QWebEngineView::contextMenuEvent(QContextMenuEvent *event)
 {
     QMenu *menu = page()->createStandardContextMenu();
     menu->popup(event->globalPos());
 }
+#endif // QT_CONFIG(contextmenu)
 
 /*!
  * \reimp
@@ -370,6 +388,7 @@ void QWebEngineView::hideEvent(QHideEvent *event)
     page()->d_ptr->wasHidden();
 }
 
+#if QT_CONFIG(draganddrop)
 /*!
     \reimp
 */
@@ -423,9 +442,10 @@ void QWebEngineView::dropEvent(QDropEvent *e)
     if (!d->m_dragEntered)
         return;
     e->accept();
-    d->page->d_ptr->adapter->endDragging(e->pos(), mapToGlobal(e->pos()));
+    d->page->d_ptr->adapter->endDragging(e, mapToGlobal(e->pos()));
     d->m_dragEntered = false;
 }
+#endif // QT_CONFIG(draganddrop)
 
 #ifndef QT_NO_ACCESSIBILITY
 int QWebEngineViewAccessible::childCount() const

@@ -17,10 +17,9 @@ source_set("signin") {
     "account_tracker_service_factory.h",
     "authentication_service.h",
     "authentication_service.mm",
+    "authentication_service_delegate.h",
     "authentication_service_factory.h",
     "authentication_service_factory.mm",
-    "browser_state_data_remover.h",
-    "browser_state_data_remover.mm",
     "chrome_identity_service_observer_bridge.h",
     "chrome_identity_service_observer_bridge.mm",
     "constants.h",
@@ -30,16 +29,20 @@ source_set("signin") {
     "gaia_auth_fetcher_ios_private.h",
     "gaia_cookie_manager_service_factory.cc",
     "gaia_cookie_manager_service_factory.h",
+    "identity_manager_factory.cc",
+    "identity_manager_factory.h",
+    "identity_service_creator.cc",
+    "identity_service_creator.h",
+    "ios_chrome_signin_client.h",
+    "ios_chrome_signin_client.mm",
     "ios_chrome_signin_status_metrics_provider_delegate.cc",
     "ios_chrome_signin_status_metrics_provider_delegate.h",
-    "oauth2_token_service_factory.h",
-    "oauth2_token_service_factory.mm",
+    "profile_oauth2_token_service_factory.h",
+    "profile_oauth2_token_service_factory.mm",
     "profile_oauth2_token_service_ios_provider_impl.h",
     "profile_oauth2_token_service_ios_provider_impl.mm",
     "signin_client_factory.cc",
     "signin_client_factory.h",
-    "signin_client_impl.h",
-    "signin_client_impl.mm",
     "signin_error_controller_factory.cc",
     "signin_error_controller_factory.h",
     "signin_manager_factory.cc",
@@ -52,6 +55,7 @@ source_set("signin") {
     "//base",
     "//components/browser_sync",
     "//components/content_settings/core/browser",
+    "//components/image_fetcher/ios",
     "//components/keyed_service/core",
     "//components/keyed_service/ios",
     "//components/metrics",
@@ -59,6 +63,7 @@ source_set("signin") {
     "//components/prefs",
     "//components/signin/core/browser",
     "//components/signin/ios/browser",
+    "//components/signin/ios/browser:active_state_manager",
     "//components/sync",
     "//google_apis",
     "//ios/chrome/browser",
@@ -73,6 +78,9 @@ source_set("signin") {
     "//ios/public/provider/chrome/browser/signin",
     "//ios/web",
     "//net",
+    "//services/identity:lib",
+    "//services/identity/public/cpp",
+    "//services/identity/public/mojom",
     "//url",
   ]
 }
@@ -81,6 +89,8 @@ source_set("test_support") {
   configs += [ "//build/config/compiler:enable_arc" ]
   testonly = true
   sources = [
+    "authentication_service_delegate_fake.h",
+    "authentication_service_delegate_fake.mm",
     "authentication_service_fake.h",
     "authentication_service_fake.mm",
     "fake_oauth2_token_service_builder.h",
@@ -117,13 +127,13 @@ source_set("unit_tests") {
     "//components/prefs",
     "//components/signin/core/browser",
     "//components/signin/core/browser:test_support",
-    "//components/signin/core/common",
     "//components/signin/ios/browser",
     "//components/sync_preferences",
     "//components/sync_preferences:test_support",
     "//google_apis",
     "//ios/chrome/browser",
     "//ios/chrome/browser/browser_state:test_support",
+    "//ios/chrome/browser/content_settings",
     "//ios/chrome/browser/prefs:browser_prefs",
     "//ios/chrome/browser/sync",
     "//ios/chrome/browser/sync:test_support",
@@ -137,18 +147,5 @@ source_set("unit_tests") {
     "//testing/gmock",
     "//testing/gtest",
     "//third_party/ocmock",
-  ]
-}
-
-source_set("signin_internal") {
-  sources = [
-    "signin_capability.cc",
-    "signin_capability.h",
-  ]
-  deps = [
-    ":signin",
-    "//base",
-    "//components/signin/core/browser",
-    "//ios/chrome/browser/browser_state",
   ]
 }

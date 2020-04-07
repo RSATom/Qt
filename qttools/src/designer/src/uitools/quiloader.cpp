@@ -1,11 +1,11 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2018 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the Qt Designer of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL$
+** $QT_BEGIN_LICENSE:BSD$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
@@ -14,24 +14,35 @@
 ** and conditions see https://www.qt.io/terms-conditions. For further
 ** information use the contact form at https://www.qt.io/contact-us.
 **
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPL3 included in the
-** packaging of this file. Please review the following information to
-** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
+** BSD License Usage
+** Alternatively, you may use this file under the terms of the BSD license
+** as follows:
 **
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or (at your option) the GNU General
-** Public license version 3 or any later version approved by the KDE Free
-** Qt Foundation. The licenses are as published by the Free Software
-** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-2.0.html and
-** https://www.gnu.org/licenses/gpl-3.0.html.
+** "Redistribution and use in source and binary forms, with or without
+** modification, are permitted provided that the following conditions are
+** met:
+**   * Redistributions of source code must retain the above copyright
+**     notice, this list of conditions and the following disclaimer.
+**   * Redistributions in binary form must reproduce the above copyright
+**     notice, this list of conditions and the following disclaimer in
+**     the documentation and/or other materials provided with the
+**     distribution.
+**   * Neither the name of The Qt Company Ltd nor the names of its
+**     contributors may be used to endorse or promote products derived
+**     from this software without specific prior written permission.
+**
+**
+** THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+** "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+** LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+** A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+** OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+** SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+** LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+** DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+** THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+** (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+** OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE."
 **
 ** $QT_END_LICENSE$
 **
@@ -49,22 +60,22 @@
 #include <ui4_p.h>
 
 #include <QtCore/qdebug.h>
-#include <QtCore/QDataStream>
-#include <QtWidgets/QAction>
-#include <QtWidgets/QActionGroup>
-#include <QtWidgets/QApplication>
-#include <QtCore/QDir>
-#include <QtCore/QLibraryInfo>
-#include <QtWidgets/QLayout>
-#include <QtWidgets/QWidget>
-#include <QtCore/QMap>
-#include <QtWidgets/QTabWidget>
-#include <QtWidgets/QTreeWidget>
-#include <QtWidgets/QListWidget>
-#include <QtWidgets/QTableWidget>
-#include <QtWidgets/QToolBox>
-#include <QtWidgets/QComboBox>
-#include <QtWidgets/QFontComboBox>
+#include <QtCore/qdatastream.h>
+#include <QtWidgets/qaction.h>
+#include <QtWidgets/qactiongroup.h>
+#include <QtWidgets/qapplication.h>
+#include <QtCore/qdir.h>
+#include <QtCore/qlibraryinfo.h>
+#include <QtWidgets/qlayout.h>
+#include <QtWidgets/qwidget.h>
+#include <QtCore/qmap.h>
+#include <QtWidgets/qtabwidget.h>
+#include <QtWidgets/qtreewidget.h>
+#include <QtWidgets/qlistwidget.h>
+#include <QtWidgets/qtablewidget.h>
+#include <QtWidgets/qtoolbox.h>
+#include <QtWidgets/qcombobox.h>
+#include <QtWidgets/qfontcombobox.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -79,16 +90,23 @@ class QUiLoaderPrivate;
 // mime data when dragging items in views with QAbstractItemView::InternalMove.
 QDataStream &operator<<(QDataStream &out, const QUiTranslatableStringValue &s)
 {
-    out << s.comment() << s.value();
+    out << s.qualifier() << s.value();
     return out;
 }
 
 QDataStream &operator>>(QDataStream &in, QUiTranslatableStringValue &s)
 {
-    in >> s.m_comment >> s.m_value;
+    in >> s.m_qualifier >> s.m_value;
     return in;
 }
 #endif // QT_NO_DATASTREAM
+
+QString QUiTranslatableStringValue::translate(const QByteArray &className, bool idBased) const
+{
+    return idBased
+        ? qtTrId(m_qualifier.constData())
+        : QCoreApplication::translate(className.constData(), m_value.constData(), m_qualifier.constData());
+}
 
 #ifdef QFORMINTERNAL_NAMESPACE
 namespace QFormInternal
@@ -98,14 +116,20 @@ namespace QFormInternal
 class TranslatingTextBuilder : public QTextBuilder
 {
 public:
+    explicit TranslatingTextBuilder(bool idBased, bool trEnabled, const QByteArray &className) :
+        m_idBased(idBased), m_trEnabled(trEnabled), m_className(className) {}
+
     TranslatingTextBuilder(bool trEnabled, const QByteArray &className) :
         m_trEnabled(trEnabled), m_className(className) {}
 
-    QVariant loadText(const DomProperty *icon) const Q_DECL_OVERRIDE;
+    QVariant loadText(const DomProperty *icon) const override;
 
-    QVariant toNativeValue(const QVariant &value) const Q_DECL_OVERRIDE;
+    QVariant toNativeValue(const QVariant &value) const override;
+
+    bool idBased() const { return m_idBased; }
 
 private:
+    bool m_idBased;
     bool m_trEnabled;
     QByteArray m_className;
 };
@@ -122,8 +146,10 @@ QVariant TranslatingTextBuilder::loadText(const DomProperty *text) const
     }
     QUiTranslatableStringValue strVal;
     strVal.setValue(str->text().toUtf8());
-    if (str->hasAttributeComment())
-        strVal.setComment(str->attributeComment().toUtf8());
+    if (m_idBased)
+        strVal.setQualifier(str->attributeId().toUtf8());
+    else if (str->hasAttributeComment())
+        strVal.setQualifier(str->attributeComment().toUtf8());
     return QVariant::fromValue(strVal);
 }
 
@@ -133,8 +159,7 @@ QVariant TranslatingTextBuilder::toNativeValue(const QVariant &value) const
         QUiTranslatableStringValue tsv = qvariant_cast<QUiTranslatableStringValue>(value);
         if (!m_trEnabled)
             return QString::fromUtf8(tsv.value().constData());
-        return QVariant::fromValue(
-            QCoreApplication::translate(m_className, tsv.value(), tsv.comment()));
+        return QVariant::fromValue(tsv.translate(m_className, m_idBased));
     }
     if (value.canConvert<QString>())
         return QVariant::fromValue(qvariant_cast<QString>(value));
@@ -144,19 +169,19 @@ QVariant TranslatingTextBuilder::toNativeValue(const QVariant &value) const
 // This is "exported" to linguist
 const QUiItemRolePair qUiItemRoles[] = {
     { Qt::DisplayRole, Qt::DisplayPropertyRole },
-#ifndef QT_NO_TOOLTIP
+#if QT_CONFIG(tooltip)
     { Qt::ToolTipRole, Qt::ToolTipPropertyRole },
 #endif
-#ifndef QT_NO_STATUSTIP
+#if QT_CONFIG(statustip)
     { Qt::StatusTipRole, Qt::StatusTipPropertyRole },
 #endif
-#ifndef QT_NO_WHATSTHIS
+#if QT_CONFIG(whatsthis)
     { Qt::WhatsThisRole, Qt::WhatsThisPropertyRole },
 #endif
     { -1 , -1 }
 };
 
-static void recursiveReTranslate(QTreeWidgetItem *item, const QByteArray &class_name)
+static void recursiveReTranslate(QTreeWidgetItem *item, const QByteArray &class_name, bool idBased)
 {
     const QUiItemRolePair *irs = qUiItemRoles;
 
@@ -166,20 +191,18 @@ static void recursiveReTranslate(QTreeWidgetItem *item, const QByteArray &class_
             QVariant v = item->data(i, irs[j].shadowRole);
             if (v.isValid()) {
                 QUiTranslatableStringValue tsv = qvariant_cast<QUiTranslatableStringValue>(v);
-                const QString text =
-                    QCoreApplication::translate(class_name, tsv.value(), tsv.comment());
-                item->setData(i, irs[j].realRole, text);
+                item->setData(i, irs[j].realRole, tsv.translate(class_name, idBased));
             }
         }
     }
 
     cnt = item->childCount();
     for (int i = 0; i < cnt; ++i)
-        recursiveReTranslate(item->child(i), class_name);
+        recursiveReTranslate(item->child(i), class_name, idBased);
 }
 
 template<typename T>
-static void reTranslateWidgetItem(T *item, const QByteArray &class_name)
+static void reTranslateWidgetItem(T *item, const QByteArray &class_name, bool idBased)
 {
     const QUiItemRolePair *irs = qUiItemRoles;
 
@@ -187,17 +210,15 @@ static void reTranslateWidgetItem(T *item, const QByteArray &class_name)
         QVariant v = item->data(irs[j].shadowRole);
         if (v.isValid()) {
             QUiTranslatableStringValue tsv = qvariant_cast<QUiTranslatableStringValue>(v);
-            const QString text = QCoreApplication::translate(class_name,
-                                                             tsv.value(), tsv.comment());
-            item->setData(irs[j].realRole, text);
+            item->setData(irs[j].realRole, tsv.translate(class_name, idBased));
         }
     }
 }
 
-static void reTranslateTableItem(QTableWidgetItem *item, const QByteArray &class_name)
+static void reTranslateTableItem(QTableWidgetItem *item, const QByteArray &class_name, bool idBased)
 {
     if (item)
-        reTranslateWidgetItem(item, class_name);
+        reTranslateWidgetItem(item, class_name, idBased);
 }
 
 #define RETRANSLATE_SUBWIDGET_PROP(mainWidget, setter, propName) \
@@ -205,9 +226,7 @@ static void reTranslateTableItem(QTableWidgetItem *item, const QByteArray &class
         QVariant v = mainWidget->widget(i)->property(propName); \
         if (v.isValid()) { \
             QUiTranslatableStringValue tsv = qvariant_cast<QUiTranslatableStringValue>(v); \
-            const QString text = QCoreApplication::translate(m_className, \
-                                                             tsv.value(), tsv.comment()); \
-            mainWidget->setter(i, text); \
+            mainWidget->setter(i, tsv.translate(m_className, m_idBased)); \
         } \
     } while (0)
 
@@ -216,13 +235,14 @@ class TranslationWatcher: public QObject
     Q_OBJECT
 
 public:
-    TranslationWatcher(QObject *parent, const QByteArray &className):
+    explicit TranslationWatcher(QObject *parent, const QByteArray &className, bool idBased):
         QObject(parent),
-        m_className(className)
+        m_className(className),
+        m_idBased(idBased)
     {
     }
 
-    virtual bool eventFilter(QObject *o, QEvent *event)
+    bool eventFilter(QObject *o, QEvent *event) override
     {
         if (event->type() == QEvent::LanguageChange) {
             const QList<QByteArray> &dynamicPropertyNames = o->dynamicPropertyNames();
@@ -231,54 +251,52 @@ public:
                     const QByteArray propName = prop.mid(sizeof(PROP_GENERIC_PREFIX) - 1);
                     const QUiTranslatableStringValue tsv =
                                 qvariant_cast<QUiTranslatableStringValue>(o->property(prop));
-                    const QString text = QCoreApplication::translate(m_className,
-                                                                     tsv.value(), tsv.comment());
-                    o->setProperty(propName, text);
+                    o->setProperty(propName, tsv.translate(m_className, m_idBased));
                 }
             }
             if (0) {
-#ifndef QT_NO_TABWIDGET
+#if QT_CONFIG(tabwidget)
             } else if (QTabWidget *tabw = qobject_cast<QTabWidget*>(o)) {
                 const int cnt = tabw->count();
                 for (int i = 0; i < cnt; ++i) {
                     RETRANSLATE_SUBWIDGET_PROP(tabw, setTabText, PROP_TABPAGETEXT);
-# ifndef QT_NO_TOOLTIP
+#if QT_CONFIG(tooltip)
                     RETRANSLATE_SUBWIDGET_PROP(tabw, setTabToolTip, PROP_TABPAGETOOLTIP);
 # endif
-# ifndef QT_NO_WHATSTHIS
+#if QT_CONFIG(whatsthis)
                     RETRANSLATE_SUBWIDGET_PROP(tabw, setTabWhatsThis, PROP_TABPAGEWHATSTHIS);
 # endif
                 }
 #endif
-#ifndef QT_NO_LISTWIDGET
+#if QT_CONFIG(listwidget)
             } else if (QListWidget *listw = qobject_cast<QListWidget*>(o)) {
                 const int cnt = listw->count();
                 for (int i = 0; i < cnt; ++i)
-                    reTranslateWidgetItem(listw->item(i), m_className);
+                    reTranslateWidgetItem(listw->item(i), m_className, m_idBased);
 #endif
-#ifndef QT_NO_TREEWIDGET
+#if QT_CONFIG(treewidget)
             } else if (QTreeWidget *treew = qobject_cast<QTreeWidget*>(o)) {
                 if (QTreeWidgetItem *item = treew->headerItem())
-                    recursiveReTranslate(item, m_className);
+                    recursiveReTranslate(item, m_className, m_idBased);
                 const int cnt = treew->topLevelItemCount();
                 for (int i = 0; i < cnt; ++i) {
                     QTreeWidgetItem *item = treew->topLevelItem(i);
-                    recursiveReTranslate(item, m_className);
+                    recursiveReTranslate(item, m_className, m_idBased);
                 }
 #endif
-#ifndef QT_NO_TABLEWIDGET
+#if QT_CONFIG(tablewidget)
             } else if (QTableWidget *tablew = qobject_cast<QTableWidget*>(o)) {
                 const int row_cnt = tablew->rowCount();
                 const int col_cnt = tablew->columnCount();
                 for (int j = 0; j < col_cnt; ++j)
-                    reTranslateTableItem(tablew->horizontalHeaderItem(j), m_className);
+                    reTranslateTableItem(tablew->horizontalHeaderItem(j), m_className, m_idBased);
                 for (int i = 0; i < row_cnt; ++i) {
-                    reTranslateTableItem(tablew->verticalHeaderItem(i), m_className);
+                    reTranslateTableItem(tablew->verticalHeaderItem(i), m_className, m_idBased);
                     for (int j = 0; j < col_cnt; ++j)
-                        reTranslateTableItem(tablew->item(i, j), m_className);
+                        reTranslateTableItem(tablew->item(i, j), m_className, m_idBased);
                 }
 #endif
-#ifndef QT_NO_COMBOBOX
+#if QT_CONFIG(combobox)
             } else if (QComboBox *combow = qobject_cast<QComboBox*>(o)) {
                 if (!qobject_cast<QFontComboBox*>(o)) {
                     const int cnt = combow->count();
@@ -286,19 +304,17 @@ public:
                         const QVariant v = combow->itemData(i, Qt::DisplayPropertyRole);
                         if (v.isValid()) {
                             QUiTranslatableStringValue tsv = qvariant_cast<QUiTranslatableStringValue>(v);
-                            const QString text = QCoreApplication::translate(m_className,
-                                                                             tsv.value(), tsv.comment());
-                            combow->setItemText(i, text);
+                            combow->setItemText(i, tsv.translate(m_className, m_idBased));
                         }
                     }
                 }
 #endif
-#ifndef QT_NO_TOOLBOX
+#if QT_CONFIG(toolbox)
             } else if (QToolBox *toolw = qobject_cast<QToolBox*>(o)) {
                 const int cnt = toolw->count();
                 for (int i = 0; i < cnt; ++i) {
                     RETRANSLATE_SUBWIDGET_PROP(toolw, setItemText, PROP_TOOLITEMTEXT);
-# ifndef QT_NO_TOOLTIP
+#if QT_CONFIG(tooltip)
                     RETRANSLATE_SUBWIDGET_PROP(toolw, setItemToolTip, PROP_TOOLITEMTOOLTIP);
 # endif
                 }
@@ -310,6 +326,7 @@ public:
 
 private:
     QByteArray m_className;
+    bool m_idBased;
 };
 
 class FormBuilderPrivate: public QFormBuilder
@@ -324,7 +341,8 @@ public:
     bool dynamicTr;
     bool trEnabled;
 
-    FormBuilderPrivate(): loader(0), dynamicTr(false), trEnabled(true), m_trwatch(0) {}
+    FormBuilderPrivate(): loader(nullptr), dynamicTr(false), trEnabled(true),
+        m_trwatch(nullptr), m_idBased(false) {}
 
     QWidget *defaultCreateWidget(const QString &className, QWidget *parent, const QString &name)
     {
@@ -346,7 +364,7 @@ public:
         return ParentClass::createActionGroup(parent, name);
     }
 
-    QWidget *createWidget(const QString &className, QWidget *parent, const QString &name) Q_DECL_OVERRIDE
+    QWidget *createWidget(const QString &className, QWidget *parent, const QString &name) override
     {
         if (QWidget *widget = loader->createWidget(className, parent, name)) {
             widget->setObjectName(name);
@@ -356,7 +374,7 @@ public:
         return 0;
     }
 
-    QLayout *createLayout(const QString &className, QObject *parent, const QString &name) Q_DECL_OVERRIDE
+    QLayout *createLayout(const QString &className, QObject *parent, const QString &name) override
     {
         if (QLayout *layout = loader->createLayout(className, parent, name)) {
             layout->setObjectName(name);
@@ -366,7 +384,7 @@ public:
         return 0;
     }
 
-    QActionGroup *createActionGroup(QObject *parent, const QString &name) Q_DECL_OVERRIDE
+    QActionGroup *createActionGroup(QObject *parent, const QString &name) override
     {
         if (QActionGroup *actionGroup = loader->createActionGroup(parent, name)) {
             actionGroup->setObjectName(name);
@@ -376,7 +394,7 @@ public:
         return 0;
     }
 
-    QAction *createAction(QObject *parent, const QString &name)  Q_DECL_OVERRIDE
+    QAction *createAction(QObject *parent, const QString &name)  override
     {
         if (QAction *action = loader->createAction(parent, name)) {
             action->setObjectName(name);
@@ -386,18 +404,19 @@ public:
         return 0;
     }
 
-    void applyProperties(QObject *o, const QList<DomProperty*> &properties) Q_DECL_OVERRIDE;
-    QWidget *create(DomUI *ui, QWidget *parentWidget) Q_DECL_OVERRIDE;
-    QWidget *create(DomWidget *ui_widget, QWidget *parentWidget) Q_DECL_OVERRIDE;
-    bool addItem(DomWidget *ui_widget, QWidget *widget, QWidget *parentWidget) Q_DECL_OVERRIDE;
+    void applyProperties(QObject *o, const QList<DomProperty*> &properties) override;
+    QWidget *create(DomUI *ui, QWidget *parentWidget) override;
+    QWidget *create(DomWidget *ui_widget, QWidget *parentWidget) override;
+    bool addItem(DomWidget *ui_widget, QWidget *widget, QWidget *parentWidget) override;
 
 private:
     QByteArray m_class;
     TranslationWatcher *m_trwatch;
+    bool m_idBased;
 };
 
 static QString convertTranslatable(const DomProperty *p, const QByteArray &className,
-    QUiTranslatableStringValue *strVal)
+                                   bool idBased, QUiTranslatableStringValue *strVal)
 {
     if (p->kind() != DomProperty::String)
         return QString();
@@ -410,10 +429,10 @@ static QString convertTranslatable(const DomProperty *p, const QByteArray &class
             return QString();
     }
     strVal->setValue(dom_str->text().toUtf8());
-    strVal->setComment(dom_str->attributeComment().toUtf8());
-    if (strVal->value().isEmpty() && strVal->comment().isEmpty())
+    strVal->setQualifier(idBased ? dom_str->attributeId().toUtf8() : dom_str->attributeComment().toUtf8());
+    if (strVal->value().isEmpty() && strVal->qualifier().isEmpty())
         return QString();
-    return QCoreApplication::translate(className, strVal->value(), strVal->comment());
+    return strVal->translate(className, idBased);
 }
 
 void FormBuilderPrivate::applyProperties(QObject *o, const QList<DomProperty*> &properties)
@@ -421,7 +440,7 @@ void FormBuilderPrivate::applyProperties(QObject *o, const QList<DomProperty*> &
     QFormBuilder::applyProperties(o, properties);
 
     if (!m_trwatch)
-        m_trwatch = new TranslationWatcher(o, m_class);
+        m_trwatch = new TranslationWatcher(o, m_class, m_idBased);
 
     if (properties.empty())
         return;
@@ -432,7 +451,7 @@ void FormBuilderPrivate::applyProperties(QObject *o, const QList<DomProperty*> &
     bool anyTrs = false;
     for (const DomProperty *p : properties) {
         QUiTranslatableStringValue strVal;
-        const QString text = convertTranslatable(p, m_class, &strVal);
+        const QString text = convertTranslatable(p, m_class, m_idBased, &strVal);
         if (text.isEmpty())
             continue;
         const QByteArray name = p->attributeName().toUtf8();
@@ -451,7 +470,8 @@ QWidget *FormBuilderPrivate::create(DomUI *ui, QWidget *parentWidget)
 {
     m_class = ui->elementClass().toUtf8();
     m_trwatch = 0;
-    setTextBuilder(new TranslatingTextBuilder(trEnabled, m_class));
+    m_idBased = ui->attributeIdbasedtr();
+    setTextBuilder(new TranslatingTextBuilder(m_idBased, trEnabled, m_class));
     return QFormBuilder::create(ui, parentWidget);
 }
 
@@ -462,24 +482,24 @@ QWidget *FormBuilderPrivate::create(DomWidget *ui_widget, QWidget *parentWidget)
         return 0;
 
     if (0) {
-#ifndef QT_NO_TABWIDGET
+#if QT_CONFIG(tabwidget)
     } else if (qobject_cast<QTabWidget*>(w)) {
 #endif
-#ifndef QT_NO_LISTWIDGET
+#if QT_CONFIG(listwidget)
     } else if (qobject_cast<QListWidget*>(w)) {
 #endif
-#ifndef QT_NO_TREEWIDGET
+#if QT_CONFIG(treewidget)
     } else if (qobject_cast<QTreeWidget*>(w)) {
 #endif
-#ifndef QT_NO_TABLEWIDGET
+#if QT_CONFIG(tablewidget)
     } else if (qobject_cast<QTableWidget*>(w)) {
 #endif
-#ifndef QT_NO_COMBOBOX
+#if QT_CONFIG(combobox)
     } else if (qobject_cast<QComboBox*>(w)) {
         if (qobject_cast<QFontComboBox*>(w))
             return w;
 #endif
-#ifndef QT_NO_TOOLBOX
+#if QT_CONFIG(toolbox)
     } else if (qobject_cast<QToolBox*>(w)) {
 #endif
     } else {
@@ -494,7 +514,7 @@ QWidget *FormBuilderPrivate::create(DomWidget *ui_widget, QWidget *parentWidget)
     do { \
         if (const DomProperty *p##attribute = attributes.value(strings.attribute)) { \
             QUiTranslatableStringValue strVal; \
-            const QString text = convertTranslatable(p##attribute, m_class, &strVal); \
+            const QString text = convertTranslatable(p##attribute, m_class, m_idBased, &strVal); \
             if (!text.isEmpty()) { \
                 if (dynamicTr) \
                     mainWidget->widget(i)->setProperty(propName, QVariant::fromValue(strVal)); \
@@ -519,24 +539,24 @@ bool FormBuilderPrivate::addItem(DomWidget *ui_widget, QWidget *widget, QWidget 
     const QFormBuilderStrings &strings = QFormBuilderStrings::instance();
 
     if (0) {
-#ifndef QT_NO_TABWIDGET
+#if QT_CONFIG(tabwidget)
     } else if (QTabWidget *tabWidget = qobject_cast<QTabWidget*>(parentWidget)) {
         const DomPropertyHash attributes = propertyMap(ui_widget->elementAttribute());
         const int i = tabWidget->count() - 1;
         TRANSLATE_SUBWIDGET_PROP(tabWidget, titleAttribute, setTabText, PROP_TABPAGETEXT);
-# ifndef QT_NO_TOOLTIP
+#if QT_CONFIG(tooltip)
         TRANSLATE_SUBWIDGET_PROP(tabWidget, toolTipAttribute, setTabToolTip, PROP_TABPAGETOOLTIP);
 # endif
-# ifndef QT_NO_WHATSTHIS
+#if QT_CONFIG(whatsthis)
         TRANSLATE_SUBWIDGET_PROP(tabWidget, whatsThisAttribute, setTabWhatsThis, PROP_TABPAGEWHATSTHIS);
 # endif
 #endif
-#ifndef QT_NO_TOOLBOX
+#if QT_CONFIG(toolbox)
     } else if (QToolBox *toolBox = qobject_cast<QToolBox*>(parentWidget)) {
         const DomPropertyHash attributes = propertyMap(ui_widget->elementAttribute());
         const int i = toolBox->count() - 1;
         TRANSLATE_SUBWIDGET_PROP(toolBox, labelAttribute, setItemText, PROP_TOOLITEMTEXT);
-# ifndef QT_NO_TOOLTIP
+#if QT_CONFIG(tooltip)
         TRANSLATE_SUBWIDGET_PROP(toolBox, toolTipAttribute, setItemToolTip, PROP_TOOLITEMTOOLTIP);
 # endif
 #endif
@@ -600,10 +620,12 @@ void QUiLoaderPrivate::setupWidgetMap() const
 
     \snippet quiloader/mywidget.cpp 0
 
+    \if !defined(qtforpython)
     By including the user interface in the form's resources (\c myform.qrc), we
     ensure that it will be present at run-time:
 
     \quotefile quiloader/mywidget.qrc
+    \endif
 
     The availableWidgets() function returns a QStringList with the class names
     of the widgets available in the specified plugin paths. To create these

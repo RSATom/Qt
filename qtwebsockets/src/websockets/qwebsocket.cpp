@@ -297,7 +297,7 @@ QT_BEGIN_NAMESPACE
 QWebSocket::QWebSocket(const QString &origin,
                        QWebSocketProtocol::Version version,
                        QObject *parent) :
-    QObject(*(new QWebSocketPrivate(origin, version, this)), parent)
+    QObject(*(new QWebSocketPrivate(origin, version)), parent)
 {
     Q_D(QWebSocket);
     d->init();
@@ -340,7 +340,7 @@ QAbstractSocket::SocketError QWebSocket::error() const
  */
 QWebSocket::QWebSocket(QTcpSocket *pTcpSocket,
                        QWebSocketProtocol::Version version, QObject *parent) :
-    QObject(*(new QWebSocketPrivate(pTcpSocket, version, this)), parent)
+    QObject(*(new QWebSocketPrivate(pTcpSocket, version)), parent)
 {
     Q_D(QWebSocket);
     d->init();
@@ -402,7 +402,10 @@ qint64 QWebSocket::sendBinaryMessage(const QByteArray &data)
 
     Any data in the write buffer is flushed before the socket is closed.
     The \a closeCode is a QWebSocketProtocol::CloseCode indicating the reason to close, and
-    \a reason describes the reason of the closure more in detail
+    \a reason describes the reason of the closure more in detail. All control
+    frames, including the Close frame, are limited to 125 bytes. Since two of
+    these are used for \a closeCode the maximum length of \a reason is 123! If
+    \a reason exceeds this limit it will be truncated.
  */
 void QWebSocket::close(QWebSocketProtocol::CloseCode closeCode, const QString &reason)
 {
@@ -684,7 +687,7 @@ void QWebSocket::setProxy(const QNetworkProxy &networkProxy)
 
 /*!
     Sets the generator to use for creating masks to \a maskGenerator.
-    The default QWebSocket generator can be reset by supplying a \e Q_NULLPTR.
+    The default QWebSocket generator can be reset by supplying a \e nullptr.
     The mask generator can be changed at any time, even while the connection is open.
  */
 void QWebSocket::setMaskGenerator(const QMaskGenerator *maskGenerator)
@@ -770,6 +773,19 @@ bool QWebSocket::isValid() const
 {
     Q_D(const QWebSocket);
     return d->isValid();
+}
+
+/*!
+    \since 5.12
+    Returns the number of bytes that are waiting to be written. The bytes are written when control
+    goes back to the event loop or when flush() is called.
+
+    \sa flush
+ */
+qint64 QWebSocket::bytesToWrite() const
+{
+    Q_D(const QWebSocket);
+    return d->m_pSocket ? d->m_pSocket->bytesToWrite() : 0;
 }
 
 QT_END_NAMESPACE

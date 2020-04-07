@@ -5,6 +5,7 @@
 #include "net/test/scoped_disable_exit_on_dfatal.h"
 
 #include "base/bind.h"
+#include "base/callback.h"
 #include "base/logging.h"
 #include "base/strings/string_piece.h"
 
@@ -14,7 +15,7 @@ namespace test {
 ScopedDisableExitOnDFatal::ScopedDisableExitOnDFatal()
     : assert_handler_(base::Bind(LogAssertHandler)) {}
 
-ScopedDisableExitOnDFatal::~ScopedDisableExitOnDFatal() {}
+ScopedDisableExitOnDFatal::~ScopedDisableExitOnDFatal() = default;
 
 // static
 void ScopedDisableExitOnDFatal::LogAssertHandler(

@@ -9,7 +9,9 @@
 
 #include "libANGLE/renderer/null/FramebufferNULL.h"
 
+#include "libANGLE/Context.h"
 #include "libANGLE/formatutils.h"
+#include "libANGLE/renderer/null/BufferNULL.h"
 
 #include "common/debug.h"
 
@@ -107,15 +109,65 @@ GLenum FramebufferNULL::getImplementationColorReadType(const gl::Context *contex
 
     const gl::Format &format = readAttachment->getFormat();
     ASSERT(format.info != nullptr);
-    return format.info->getReadPixelsType();
+    return format.info->getReadPixelsType(context->getClientVersion());
 }
 
 gl::Error FramebufferNULL::readPixels(const gl::Context *context,
-                                      const gl::Rectangle &area,
+                                      const gl::Rectangle &origArea,
                                       GLenum format,
                                       GLenum type,
-                                      void *pixels) const
+                                      void *ptrOrOffset)
 {
+    const gl::PixelPackState &packState = context->getGLState().getPackState();
+    gl::Buffer *packBuffer = context->getGLState().getTargetBuffer(gl::BufferBinding::PixelPack);
+
+    // Get the pointer to write to from the argument or the pack buffer
+    GLubyte *pixels = nullptr;
+    if (packBuffer != nullptr)
+    {
+        BufferNULL *packBufferGL = GetImplAs<BufferNULL>(packBuffer);
+        pixels                     = reinterpret_cast<GLubyte *>(packBufferGL->getDataPtr());
+        pixels += reinterpret_cast<intptr_t>(ptrOrOffset);
+    }
+    else
+    {
+        pixels = reinterpret_cast<GLubyte *>(ptrOrOffset);
+    }
+
+    // Clip read area to framebuffer.
+    const gl::Extents fbSize = getState().getReadAttachment()->getSize();
+    const gl::Rectangle fbRect(0, 0, fbSize.width, fbSize.height);
+    gl::Rectangle area;
+    if (!ClipRectangle(origArea, fbRect, &area))
+    {
+        // nothing to read
+        return gl::NoError();
+    }
+
+    // Compute size of unclipped rows and initial skip
+    const gl::InternalFormat &glFormat = gl::GetInternalFormatInfo(format, type);
+
+    GLuint rowBytes = 0;
+    ANGLE_TRY_CHECKED_MATH(glFormat.computeRowPitch(type, origArea.width, packState.alignment,
+                                                    packState.rowLength, &rowBytes));
+
+    GLuint skipBytes = 0;
+    ANGLE_TRY_CHECKED_MATH(
+        glFormat.computeSkipBytes(type, rowBytes, 0, packState, false, &skipBytes));
+    pixels += skipBytes;
+
+    // Skip OOB region up to first in bounds pixel
+    int leftClip = area.x - origArea.x;
+    int topClip  = area.y - origArea.y;
+    pixels += leftClip * glFormat.pixelBytes + topClip * rowBytes;
+
+    // Write the in-bounds readpixels data with non-zero values
+    for (GLint y = area.y; y < area.y + area.height; ++y)
+    {
+        memset(pixels, 42, glFormat.pixelBytes * area.width);
+        pixels += rowBytes;
+    }
+
     return gl::NoError();
 }
 
@@ -128,17 +180,20 @@ gl::Error FramebufferNULL::blit(const gl::Context *context,
     return gl::NoError();
 }
 
-bool FramebufferNULL::checkStatus() const
+bool FramebufferNULL::checkStatus(const gl::Context *context) const
 {
     return true;
 }
 
-void FramebufferNULL::syncState(const gl::Context *context,
-                                const gl::Framebuffer::DirtyBits &dirtyBits)
+gl::Error FramebufferNULL::syncState(const gl::Context *context,
+                                     const gl::Framebuffer::DirtyBits &dirtyBits)
 {
+    return gl::NoError();
 }
 
-gl::Error FramebufferNULL::getSamplePosition(size_t index, GLfloat *xy) const
+gl::Error FramebufferNULL::getSamplePosition(const gl::Context *context,
+                                             size_t index,
+                                             GLfloat *xy) const
 {
     return gl::NoError();
 }

@@ -69,7 +69,19 @@ private slots:
     void sortChildren();
     void subclassing();
     void lessThan();
+    void clearData();
 };
+
+void tst_QStandardItem::clearData()
+{
+    QStandardItem item;
+    item.setData(QStringLiteral("Test"), Qt::EditRole);
+    item.setData(5, Qt::UserRole);
+    item.clearData();
+    QCOMPARE(item.data(Qt::EditRole), QVariant());
+    QCOMPARE(item.data(Qt::UserRole), QVariant());
+    QCOMPARE(item.data(Qt::DisplayRole), QVariant());
+}
 
 void tst_QStandardItem::ctor()
 {
@@ -256,7 +268,7 @@ void tst_QStandardItem::getSetFlags()
     item.setAutoTristate(true);
     QVERIFY(item.isAutoTristate());
     QVERIFY(item.flags() & Qt::ItemIsAutoTristate);
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
     item.setDragEnabled(true);
     QVERIFY(item.isDragEnabled());
     QVERIFY(item.flags() & Qt::ItemIsDragEnabled);
@@ -287,7 +299,7 @@ void tst_QStandardItem::getSetFlags()
     item.setAutoTristate(false);
     QVERIFY(!item.isAutoTristate());
     QVERIFY(!(item.flags() & Qt::ItemIsAutoTristate));
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
     QVERIFY(item.isDragEnabled());
     item.setDragEnabled(false);
     QVERIFY(!item.isDragEnabled());

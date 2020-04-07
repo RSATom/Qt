@@ -76,25 +76,24 @@ public:
 
     QGeoTileFetcher *tileFetcher();
 
-    QGeoMap *createMap() Q_DECL_OVERRIDE;
+    QGeoMap *createMap() override;
     void releaseMap(QGeoTiledMap *map);
 
     QSize tileSize() const;
     int tileVersion() const;
 
-    void updateTileRequests(QGeoTiledMap *map,
+    virtual void updateTileRequests(QGeoTiledMap *map,
                             const QSet<QGeoTileSpec> &tilesAdded,
                             const QSet<QGeoTileSpec> &tilesRemoved);
 
     QAbstractGeoTileCache *tileCache();
-    QSharedPointer<QGeoTileTexture> getTileTexture(const QGeoTileSpec &spec);
-
+    virtual QSharedPointer<QGeoTileTexture> getTileTexture(const QGeoTileSpec &spec);
 
     QAbstractGeoTileCache::CacheAreas cacheHint() const;
 
-private Q_SLOTS:
-    void engineTileFinished(const QGeoTileSpec &spec, const QByteArray &bytes, const QString &format);
-    void engineTileError(const QGeoTileSpec &spec, const QString &errorString);
+protected Q_SLOTS:
+    virtual void engineTileFinished(const QGeoTileSpec &spec, const QByteArray &bytes, const QString &format);
+    virtual void engineTileError(const QGeoTileSpec &spec, const QString &errorString);
 
 Q_SIGNALS:
     void tileError(const QGeoTileSpec &spec, const QString &errorString);
@@ -108,7 +107,6 @@ protected:
     void setTileCache(QAbstractGeoTileCache *cache);
 
     QGeoTiledMap::PrefetchStyle m_prefetchStyle;
-private:
     QGeoTiledMappingManagerEnginePrivate *d_ptr;
 
     Q_DECLARE_PRIVATE(QGeoTiledMappingManagerEngine)

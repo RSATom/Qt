@@ -171,6 +171,7 @@ O           [0-7]
 
 "sampler2D"          { context->lexAfterType = true; return SAMPLER2D; }
 "samplerCube"        { context->lexAfterType = true; return SAMPLERCUBE; }
+"sampler2DRect"      { context->lexAfterType = true; return SAMPLER2DRECT; }
 "samplerExternalOES" { context->lexAfterType = true; return SAMPLER_EXTERNAL_OES; }
 "sampler3D"          { context->lexAfterType = true; return SAMPLER3D; }
 "sampler3DRect"      { return ES2_reserved_ES3_keyword(context, SAMPLER3DRECT); }
@@ -312,7 +313,6 @@ O           [0-7]
 
 "sampler1D"    |
 "sampler1DShadow" |
-"sampler2DRect" |
 "sampler2DRectShadow" |
 
 "sizeof"       |
@@ -492,7 +492,7 @@ int uint_constant(TParseContext *context)
         return 0;
     }
 
-    if (!atoi_clamp(yytext, &(yylval->lex.i)))
+    if (!atou_clamp(yytext, &(yylval->lex.u)))
         yyextra->warning(*yylloc, "Integer overflow", yytext, "");
 
     return UINTCONSTANT;

@@ -54,33 +54,53 @@ class QEglFSKmsGbmCursor;
 class QEglFSKmsGbmScreen : public QEglFSKmsScreen
 {
 public:
-    QEglFSKmsGbmScreen(QKmsDevice *device, const QKmsOutput &output);
+    QEglFSKmsGbmScreen(QKmsDevice *device, const QKmsOutput &output, bool headless);
     ~QEglFSKmsGbmScreen();
 
     QPlatformCursor *cursor() const override;
 
-    gbm_surface *surface() const { return m_gbm_surface; }
-    gbm_surface *createSurface();
-    void destroySurface();
+    gbm_surface *createSurface(EGLConfig eglConfig);
+    void resetSurface();
+
+    void initCloning(QPlatformScreen *screenThisScreenClones,
+                     const QVector<QPlatformScreen *> &screensCloningThisScreen);
 
     void waitForFlip() override;
-    void flip() override;
-    void flipFinished() override;
+
+    void flip();
 
 private:
+    void flipFinished();
+    void ensureModeSet(uint32_t fb);
+    void cloneDestFlipFinished(QEglFSKmsGbmScreen *cloneDestScreen);
+    void updateFlipStatus();
+
+    static void pageFlipHandler(int fd,
+                                unsigned int sequence,
+                                unsigned int tv_sec,
+                                unsigned int tv_usec,
+                                void *user_data);
+
     gbm_surface *m_gbm_surface;
 
     gbm_bo *m_gbm_bo_current;
     gbm_bo *m_gbm_bo_next;
+    bool m_flipPending;
 
     QScopedPointer<QEglFSKmsGbmCursor> m_cursor;
 
     struct FrameBuffer {
-        FrameBuffer() : fb(0) {}
-        uint32_t fb;
+        uint32_t fb = 0;
     };
     static void bufferDestroyedHandler(gbm_bo *bo, void *data);
     FrameBuffer *framebufferForBufferObject(gbm_bo *bo);
+
+    QEglFSKmsGbmScreen *m_cloneSource;
+    struct CloneDestination {
+        QEglFSKmsGbmScreen *screen = nullptr;
+        bool cloneFlipPending = false;
+    };
+    QVector<CloneDestination> m_cloneDests;
 
     static QMutex m_waitForFlipMutex;
 };

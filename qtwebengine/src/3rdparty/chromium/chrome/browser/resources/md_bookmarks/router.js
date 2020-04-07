@@ -22,6 +22,18 @@ Polymer({
      */
     queryParams_: Object,
 
+    /** @private {string} */
+    query_: {
+      type: String,
+      observer: 'onQueryChanged_',
+    },
+
+    /** @private {string} */
+    urlQuery_: {
+      type: String,
+      observer: 'onUrlQueryChanged_',
+    },
+
     /** @private */
     searchTerm_: {
       type: String,
@@ -49,8 +61,8 @@ Polymer({
 
   /** @private */
   onQueryParamsChanged_: function() {
-    var searchTerm = this.queryParams_.q || '';
-    var selectedId = this.queryParams_.id;
+    const searchTerm = this.queryParams_.q || '';
+    let selectedId = this.queryParams_.id;
     if (!selectedId && !searchTerm)
       selectedId = BOOKMARKS_BAR_ID;
 
@@ -63,11 +75,26 @@ Polymer({
       this.selectedId_ = selectedId;
       // Need to dispatch a deferred action so that during page load
       // `this.getState()` will only evaluate after the Store is initialized.
-      this.dispatchAsync(function(dispatch) {
+      this.dispatchAsync((dispatch) => {
         dispatch(
             bookmarks.actions.selectFolder(selectedId, this.getState().nodes));
-      }.bind(this));
+      });
     }
+  },
+
+  /**
+   * @param {?string} current Current value of the query.
+   * @param {?string} previous Previous value of the query.
+   * @private
+   */
+  onQueryChanged_: function(current, previous) {
+    if (previous !== undefined)
+      this.urlQuery_ = this.query_;
+  },
+
+  /** @private */
+  onUrlQueryChanged_: function() {
+    this.query_ = this.urlQuery_;
   },
 
   /** @private */

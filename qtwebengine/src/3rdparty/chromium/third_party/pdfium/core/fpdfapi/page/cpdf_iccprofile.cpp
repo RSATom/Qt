@@ -8,29 +8,29 @@
 
 #include "core/fpdfapi/cpdf_modulemgr.h"
 #include "core/fpdfapi/parser/cpdf_stream.h"
+#include "core/fxcodec/codec/ccodec_iccmodule.h"
 
 namespace {
 
-bool DetectSRGB(const uint8_t* pData, uint32_t dwSize) {
-  return dwSize == 3144 && memcmp(pData + 0x190, "sRGB IEC61966-2.1", 17) == 0;
+bool DetectSRGB(pdfium::span<const uint8_t> span) {
+  static const char kSRGB[] = "sRGB IEC61966-2.1";
+  return span.size() == 3144 && memcmp(&span[400], kSRGB, strlen(kSRGB)) == 0;
 }
 
 }  // namespace
 
-CPDF_IccProfile::CPDF_IccProfile(CPDF_Stream* pStream,
-                                 const uint8_t* pData,
-                                 uint32_t dwSize)
-    : m_bsRGB(DetectSRGB(pData, dwSize)), m_pStream(pStream) {
+CPDF_IccProfile::CPDF_IccProfile(const CPDF_Stream* pStream,
+                                 pdfium::span<const uint8_t> span)
+    : m_bsRGB(DetectSRGB(span)), m_pStream(pStream) {
   if (m_bsRGB) {
     m_nSrcComponents = 3;
     return;
   }
 
-  uint32_t nSrcComps = 0;
   auto* pIccModule = CPDF_ModuleMgr::Get()->GetIccModule();
-  m_Transform = pIccModule->CreateTransform_sRGB(pData, dwSize, &nSrcComps);
+  m_Transform = pIccModule->CreateTransform_sRGB(span);
   if (m_Transform)
-    m_nSrcComponents = nSrcComps;
+    m_nSrcComponents = m_Transform->components();
 }
 
 CPDF_IccProfile::~CPDF_IccProfile() {}

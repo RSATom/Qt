@@ -66,6 +66,7 @@ class QGeoMap;
 class QGeoMapController;
 class QGeoMapParameter;
 class QDeclarativeGeoMapItemBase;
+class QGeoMapObjectPrivate;
 
 class Q_LOCATION_PRIVATE_EXPORT QGeoMapPrivate :  public QObjectPrivate
 {
@@ -77,6 +78,10 @@ public:
     const QGeoProjection *geoProjection() const;
     void setCameraCapabilities(const QGeoCameraCapabilities &cameraCapabilities);
     const QGeoCameraCapabilities &cameraCapabilities() const;
+
+    static const QGeoMapPrivate *get(const QGeoMap &map);
+    virtual QGeoMapObjectPrivate *createMapObjectImplementation(QGeoMapObject *obj);
+
 protected:
     /* Hooks into the actual map implementations */
     virtual void addParameter(QGeoMapParameter *param);
@@ -86,14 +91,30 @@ protected:
     virtual void addMapItem(QDeclarativeGeoMapItemBase *item);
     virtual void removeMapItem(QDeclarativeGeoMapItemBase *item);
 
+    virtual QList<QGeoMapObject *> mapObjects() const;
+
     virtual void changeViewportSize(const QSize &size) = 0; // called by QGeoMap::setSize()
     virtual void changeCameraData(const QGeoCameraData &oldCameraData) = 0; // called by QGeoMap::setCameraData()
     virtual void changeActiveMapType(const QGeoMapType mapType) = 0; // called by QGeoMap::setActiveMapType()
 
+    virtual double mapWidth() const;
+    virtual double mapHeight() const;
+
     virtual void setCopyrightVisible(bool visible);
     virtual bool copyrightVisible() const;
+    virtual double maximumCenterLatitudeAtZoom(const QGeoCameraData &cameraData) const;
+    virtual double minimumCenterLatitudeAtZoom(const QGeoCameraData &cameraData) const;
 
+    virtual void setVisibleArea(const QRectF &visibleArea);
+    virtual QRectF visibleArea() const;
+
+    QRectF clampVisibleArea(const QRectF &visibleArea) const;
+
+#ifdef QT_LOCATION_DEBUG
+public:
+#else
 protected:
+#endif
     QSize m_viewportSize;
     QGeoProjection *m_geoProjection;
     QPointer<QGeoMappingManagerEngine> m_engine;
@@ -103,6 +124,8 @@ protected:
     QList<QDeclarativeGeoMapItemBase *> m_mapItems;
     QGeoCameraCapabilities m_cameraCapabilities;
     bool m_copyrightVisible = true;
+    mutable double m_maximumViewportLatitude = 0;
+    mutable double m_minimumViewportLatitude = 0;
 };
 
 QT_END_NAMESPACE

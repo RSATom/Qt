@@ -112,7 +112,7 @@ const QString HelpEngineWrapper::TrUnfiltered()
     return s;
 }
 
-HelpEngineWrapper *HelpEngineWrapper::helpEngineWrapper = 0;
+HelpEngineWrapper *HelpEngineWrapper::helpEngineWrapper = nullptr;
 
 HelpEngineWrapper &HelpEngineWrapper::instance(const QString &collectionFile)
 {
@@ -130,7 +130,7 @@ void HelpEngineWrapper::removeInstance()
 {
     TRACE_OBJ
     delete helpEngineWrapper;
-    helpEngineWrapper = 0;
+    helpEngineWrapper = nullptr;
 }
 
 HelpEngineWrapper::HelpEngineWrapper(const QString &collectionFile)
@@ -146,6 +146,7 @@ HelpEngineWrapper::HelpEngineWrapper(const QString &collectionFile)
      * This call is reverted by initialDocSetupDone(), which must be
      * called after the new docs have been installed.
      */
+//  TODO: probably remove it
     disconnect(d->m_helpEngine, &QHelpEngineCore::setupFinished,
             searchEngine(), &QHelpSearchEngine::scheduleIndexDocumentation);
 
@@ -175,6 +176,7 @@ HelpEngineWrapper::~HelpEngineWrapper()
 void HelpEngineWrapper::initialDocSetupDone()
 {
     TRACE_OBJ
+//  TODO: probably remove it
     connect(d->m_helpEngine, &QHelpEngineCore::setupFinished,
             searchEngine(), &QHelpSearchEngine::scheduleIndexDocumentation);
     setupData();
@@ -759,12 +761,11 @@ HelpEngineWrapperPrivate::HelpEngineWrapperPrivate(const QString &collectionFile
 void HelpEngineWrapperPrivate::initFileSystemWatchers()
 {
     TRACE_OBJ
-    for (const QString &ns : m_helpEngine->registeredDocumentations()) {
-        const QString &docFile = m_helpEngine->documentationFileName(ns);
-        m_qchWatcher->addPath(docFile);
-        connect(m_qchWatcher, &QFileSystemWatcher::fileChanged, this,
-                QOverload<const QString &>::of(&HelpEngineWrapperPrivate::qchFileChanged));
-    }
+    for (const QString &ns : m_helpEngine->registeredDocumentations())
+        m_qchWatcher->addPath(m_helpEngine->documentationFileName(ns));
+
+    connect(m_qchWatcher, &QFileSystemWatcher::fileChanged, this,
+            QOverload<const QString &>::of(&HelpEngineWrapperPrivate::qchFileChanged));
     checkDocFilesWatched();
 }
 

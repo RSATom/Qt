@@ -29,8 +29,6 @@ namespace content {
 // class is designed to be used on a single thread.
 class CONTENT_EXPORT DOMStorageDatabase {
  public:
-  static base::FilePath GetJournalFilePath(const base::FilePath& database_path);
-
   explicit DOMStorageDatabase(const base::FilePath& file_path);
   virtual ~DOMStorageDatabase();  // virtual for unit testing
 
@@ -75,6 +73,8 @@ class CONTENT_EXPORT DOMStorageDatabase {
   FRIEND_TEST_ALL_PREFIXES(DOMStorageDatabaseTest,
                            TestCanOpenFileThatIsNotADatabase);
   FRIEND_TEST_ALL_PREFIXES(DOMStorageAreaTest, BackingDatabaseOpened);
+  FRIEND_TEST_ALL_PREFIXES(DOMStorageAreaParamTest, ShallowCopyWithBacking);
+  FRIEND_TEST_ALL_PREFIXES(DOMStorageAreaTest, EnableDisableCachingWithBacking);
   FRIEND_TEST_ALL_PREFIXES(DOMStorageAreaTest, CommitTasks);
   FRIEND_TEST_ALL_PREFIXES(DOMStorageAreaTest, PurgeMemory);
 
@@ -123,6 +123,8 @@ class CONTENT_EXPORT DOMStorageDatabase {
   bool failed_to_open_;
   bool tried_to_recreate_;
   bool known_to_be_empty_;
+
+  DISALLOW_COPY_AND_ASSIGN(DOMStorageDatabase);
 };
 
 }  // namespace content

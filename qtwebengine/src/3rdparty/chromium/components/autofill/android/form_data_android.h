@@ -44,7 +44,9 @@ class FormDataAndroid {
 
   // Invoked when form field which specified by |index| is charged to new
   // |value|.
-  void OnTextFieldDidChange(size_t index, const base::string16& value);
+  void OnFormFieldDidChange(size_t index, const base::string16& value);
+
+  const FormData& form_for_testing() { return form_; }
 
  private:
   FormData form_;
@@ -55,8 +57,6 @@ class FormDataAndroid {
 
   DISALLOW_COPY_AND_ASSIGN(FormDataAndroid);
 };
-
-bool RegisterFormDataAndroid(JNIEnv* env);
 
 }  // namespace autofill
 

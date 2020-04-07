@@ -66,8 +66,7 @@ MusicPlayer::MusicPlayer(QWidget *parent) : QWidget(parent)
     connect(&mediaPlayer, &QMediaPlayer::durationChanged, this, &MusicPlayer::updateDuration);
     connect(&mediaPlayer, &QMediaObject::metaDataAvailableChanged, this, &MusicPlayer::updateInfo);
 
-    typedef void(QMediaPlayer::*ErrorSignal)(QMediaPlayer::Error);
-    connect(&mediaPlayer, static_cast<ErrorSignal>(&QMediaPlayer::error),
+    connect(&mediaPlayer, QOverload<QMediaPlayer::Error>::of(&QMediaPlayer::error),
             this, &MusicPlayer::handleError);
     connect(&mediaPlayer, &QMediaPlayer::stateChanged,
             this, &MusicPlayer::updateState);
@@ -183,17 +182,20 @@ void MusicPlayer::mouseReleaseEvent(QMouseEvent *event)
 //! [1]
 void MusicPlayer::stylize()
 {
-    if (QtWin::isCompositionEnabled()) {
-        QtWin::extendFrameIntoClientArea(this, -1, -1, -1, -1);
-        setAttribute(Qt::WA_TranslucentBackground, true);
-        setAttribute(Qt::WA_NoSystemBackground, false);
-        setStyleSheet(QStringLiteral("MusicPlayer { background: transparent; }"));
-    } else {
-        QtWin::resetExtendedFrame(this);
-        setAttribute(Qt::WA_TranslucentBackground, false);
-        setStyleSheet(QStringLiteral("MusicPlayer { background: %1; }").arg(QtWin::realColorizationColor().name()));
+    if (QOperatingSystemVersion::current() < QOperatingSystemVersion::Windows8) {
+        // Set styling options relevant only to Windows 7.
+        if (QtWin::isCompositionEnabled()) {
+            QtWin::extendFrameIntoClientArea(this, -1, -1, -1, -1);
+            setAttribute(Qt::WA_TranslucentBackground, true);
+            setAttribute(Qt::WA_NoSystemBackground, false);
+            setStyleSheet(QStringLiteral("MusicPlayer { background: transparent; }"));
+        } else {
+            QtWin::resetExtendedFrame(this);
+            setAttribute(Qt::WA_TranslucentBackground, false);
+            setStyleSheet(QStringLiteral("MusicPlayer { background: %1; }").arg(QtWin::realColorizationColor().name()));
+        }
+        volumeButton->stylize();
     }
-    volumeButton->stylize();
 }
 //! [1]
 

@@ -11,9 +11,7 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/lazy_instance.h"
-#include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted_memory.h"
-#include "base/message_loop/message_loop.h"
 #include "base/strings/string_util.h"
 #include "base/synchronization/lock.h"
 #include "content/browser/resource_context_impl.h"
@@ -34,7 +32,7 @@ base::LazyInstance<base::Lock>::Leaky g_delete_lock = LAZY_INSTANCE_INITIALIZER;
 URLDataManager* GetFromBrowserContext(BrowserContext* context) {
   if (!context->GetUserData(kURLDataManagerKeyName)) {
     context->SetUserData(kURLDataManagerKeyName,
-                         base::MakeUnique<URLDataManager>(context));
+                         std::make_unique<URLDataManager>(context));
   }
   return static_cast<URLDataManager*>(
       context->GetUserData(kURLDataManagerKeyName));
@@ -60,7 +58,7 @@ static void UpdateWebUIDataSourceOnIOThread(
 }  // namespace
 
 // static
-URLDataManager::URLDataSources* URLDataManager::data_sources_ = NULL;
+URLDataManager::URLDataSources* URLDataManager::data_sources_ = nullptr;
 
 URLDataManager::URLDataManager(BrowserContext* browser_context)
     : browser_context_(browser_context) {
@@ -71,11 +69,10 @@ URLDataManager::~URLDataManager() {
 
 void URLDataManager::AddDataSource(URLDataSourceImpl* source) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
-      base::Bind(&AddDataSourceOnIOThread,
-                 browser_context_->GetResourceContext(),
-                 make_scoped_refptr(source)));
+  BrowserThread::PostTask(BrowserThread::IO, FROM_HERE,
+                          base::BindOnce(&AddDataSourceOnIOThread,
+                                         browser_context_->GetResourceContext(),
+                                         base::WrapRefCounted(source)));
 }
 
 void URLDataManager::UpdateWebUIDataSource(
@@ -84,9 +81,9 @@ void URLDataManager::UpdateWebUIDataSource(
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   BrowserThread::PostTask(
       BrowserThread::IO, FROM_HERE,
-      base::Bind(&UpdateWebUIDataSourceOnIOThread,
-                 browser_context_->GetResourceContext(), source_name,
-                 base::Owned(update.release())));
+      base::BindOnce(&UpdateWebUIDataSourceOnIOThread,
+                     browser_context_->GetResourceContext(), source_name,
+                     base::Owned(update.release())));
 }
 
 // static
@@ -124,9 +121,8 @@ void URLDataManager::DeleteDataSource(const URLDataSourceImpl* data_source) {
   }
   if (schedule_delete) {
     // Schedule a task to delete the DataSource back on the UI thread.
-    BrowserThread::PostTask(
-        BrowserThread::UI, FROM_HERE,
-        base::Bind(&URLDataManager::DeleteDataSources));
+    BrowserThread::PostTask(BrowserThread::UI, FROM_HERE,
+                            base::BindOnce(&URLDataManager::DeleteDataSources));
   }
 }
 

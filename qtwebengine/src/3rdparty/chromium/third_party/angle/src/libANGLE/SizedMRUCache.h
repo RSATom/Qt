@@ -9,7 +9,7 @@
 #define LIBANGLE_SIZED_MRU_CACHE_H_
 
 #include <anglebase/containers/mru_cache.h>
-#include "common/third_party/murmurhash/MurmurHash3.h"
+#include "common/third_party/smhasher/src/PMurHash.h"
 
 namespace angle
 {
@@ -158,14 +158,16 @@ void TrimCache(size_t maxStates, size_t gcLimit, const char *name, T *cache)
     }
 }
 
+// Computes a hash of struct "key". Any structs passed to this function must be multiples of
+// 4 bytes, since the PMurhHas32 method can only operate increments of 4-byte words.
 template <typename T>
 std::size_t ComputeGenericHash(const T &key)
 {
     static const unsigned int seed = 0xABCDEF98;
 
-    std::size_t hash = 0;
-    MurmurHash3_x86_32(&key, sizeof(key), seed, &hash);
-    return hash;
+    // We can't support "odd" alignments.
+    static_assert(sizeof(key) % 4 == 0, "ComputeGenericHash requires aligned types");
+    return PMurHash32(seed, &key, sizeof(T));
 }
 
 }  // namespace angle

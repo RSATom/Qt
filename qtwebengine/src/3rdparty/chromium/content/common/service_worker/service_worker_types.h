@@ -10,24 +10,29 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "base/strings/string_util.h"
 #include "base/time/time.h"
 #include "content/common/content_export.h"
-#include "content/common/service_worker/service_worker_client_info.h"
 #include "content/public/common/referrer.h"
-#include "content/public/common/request_context_frame_type.h"
 #include "content/public/common/request_context_type.h"
-#include "content/public/common/service_worker_modes.h"
-#include "third_party/WebKit/public/platform/WebPageVisibilityState.h"
-#include "third_party/WebKit/public/platform/modules/serviceworker/WebServiceWorkerClientType.h"
-#include "third_party/WebKit/public/platform/modules/serviceworker/WebServiceWorkerResponseError.h"
-#include "third_party/WebKit/public/platform/modules/serviceworker/WebServiceWorkerResponseType.h"
-#include "third_party/WebKit/public/platform/modules/serviceworker/WebServiceWorkerState.h"
+#include "services/network/public/mojom/fetch_api.mojom.h"
+#include "services/network/public/mojom/request_context_frame_type.mojom.h"
+#include "third_party/blink/public/mojom/page/page_visibility_state.mojom.h"
+#include "third_party/blink/public/mojom/service_worker/service_worker_client.mojom.h"
+#include "third_party/blink/public/mojom/service_worker/service_worker_object.mojom.h"
+#include "third_party/blink/public/mojom/service_worker/service_worker_registration.mojom.h"
+#include "third_party/blink/public/mojom/service_worker/service_worker_state.mojom.h"
+#include "third_party/blink/public/platform/modules/fetch/fetch_api_request.mojom.h"
 #include "url/gurl.h"
 
 // This file is to have common definitions that are to be shared by
 // browser and child process.
+
+namespace storage {
+class BlobHandle;
+}
 
 namespace content {
 
@@ -41,51 +46,23 @@ extern const char kServiceWorkerUpdateErrorPrefix[];
 extern const char kServiceWorkerUnregisterErrorPrefix[];
 extern const char kServiceWorkerGetRegistrationErrorPrefix[];
 extern const char kServiceWorkerGetRegistrationsErrorPrefix[];
-extern const char kFetchScriptError[];
+extern const char kServiceWorkerFetchScriptError[];
+extern const char kServiceWorkerBadHTTPResponseError[];
+extern const char kServiceWorkerSSLError[];
+extern const char kServiceWorkerBadMIMEError[];
+extern const char kServiceWorkerNoMIMEError[];
+extern const char kServiceWorkerRedirectError[];
+extern const char kServiceWorkerAllowed[];
 
 // Constants for invalid identifiers.
-static const int kInvalidServiceWorkerHandleId = -1;
-static const int kInvalidServiceWorkerRegistrationHandleId = -1;
-static const int64_t kInvalidServiceWorkerRegistrationId = -1;
-static const int64_t kInvalidServiceWorkerVersionId = -1;
-static const int64_t kInvalidServiceWorkerResourceId = -1;
 static const int kInvalidEmbeddedWorkerThreadId = -1;
+static const int kInvalidServiceWorkerProviderId = -1;
+static const int64_t kInvalidServiceWorkerResourceId = -1;
 
 // The HTTP cache is bypassed for Service Worker scripts if the last network
 // fetch occurred over 24 hours ago.
 static constexpr base::TimeDelta kServiceWorkerScriptMaxCacheAge =
     base::TimeDelta::FromHours(24);
-
-// ServiceWorker provider type.
-enum ServiceWorkerProviderType {
-  SERVICE_WORKER_PROVIDER_UNKNOWN,
-
-  // For ServiceWorker clients.
-  SERVICE_WORKER_PROVIDER_FOR_WINDOW,
-  SERVICE_WORKER_PROVIDER_FOR_WORKER,
-  SERVICE_WORKER_PROVIDER_FOR_SHARED_WORKER,
-
-  // For ServiceWorkers.
-  SERVICE_WORKER_PROVIDER_FOR_CONTROLLER,
-
-  SERVICE_WORKER_PROVIDER_TYPE_LAST =
-      SERVICE_WORKER_PROVIDER_FOR_CONTROLLER
-};
-
-// Indicates how the service worker handled a fetch event.
-enum ServiceWorkerFetchEventResult {
-  // Browser should fallback to native fetch.
-  SERVICE_WORKER_FETCH_EVENT_RESULT_FALLBACK,
-  // Service worker provided a ServiceWorkerResponse.
-  SERVICE_WORKER_FETCH_EVENT_RESULT_RESPONSE,
-  SERVICE_WORKER_FETCH_EVENT_LAST = SERVICE_WORKER_FETCH_EVENT_RESULT_RESPONSE
-};
-
-enum class ServiceWorkerFetchType {
-  FETCH,
-  FOREIGN_FETCH,
-  LAST = FOREIGN_FETCH
-};
 
 struct ServiceWorkerCaseInsensitiveCompare {
   bool operator()(const std::string& lhs, const std::string& rhs) const {
@@ -98,7 +75,10 @@ using ServiceWorkerHeaderMap =
 
 using ServiceWorkerHeaderList = std::vector<std::string>;
 
-// To dispatch fetch request from browser to child process.
+// Roughly corresponds to Fetch API's Request type. This struct is no longer
+// used by the core Service Worker API. Background Fetch and Cache Storage APIs
+// use it.
+// TODO(falken): Move this out of service_worker_types.h and rename it.
 struct CONTENT_EXPORT ServiceWorkerFetchRequest {
   ServiceWorkerFetchRequest();
   ServiceWorkerFetchRequest(const GURL& url,
@@ -107,100 +87,94 @@ struct CONTENT_EXPORT ServiceWorkerFetchRequest {
                             const Referrer& referrer,
                             bool is_reload);
   ServiceWorkerFetchRequest(const ServiceWorkerFetchRequest& other);
+  ServiceWorkerFetchRequest& operator=(const ServiceWorkerFetchRequest& other);
   ~ServiceWorkerFetchRequest();
   size_t EstimatedStructSize();
+  std::string Serialize() const;
 
-  // Be sure to update EstimatedSize() when adding members.
-  FetchRequestMode mode;
-  bool is_main_resource_load;
-  RequestContextType request_context_type;
-  RequestContextFrameType frame_type;
+  static blink::mojom::FetchCacheMode GetCacheModeFromLoadFlags(int load_flags);
+  static ServiceWorkerFetchRequest ParseFromString(
+      const std::string& serialized);
+
+  // Be sure to update EstimatedStructSize(), Serialize(), and ParseFromString()
+  // when adding members.
+  network::mojom::FetchRequestMode mode =
+      network::mojom::FetchRequestMode::kNoCORS;
+  bool is_main_resource_load = false;
+  RequestContextType request_context_type = REQUEST_CONTEXT_TYPE_UNSPECIFIED;
+  network::mojom::RequestContextFrameType frame_type =
+      network::mojom::RequestContextFrameType::kNone;
   GURL url;
   std::string method;
   ServiceWorkerHeaderMap headers;
-  std::string blob_uuid;
-  uint64_t blob_size;
   Referrer referrer;
-  FetchCredentialsMode credentials_mode;
-  FetchRedirectMode redirect_mode;
+  network::mojom::FetchCredentialsMode credentials_mode =
+      network::mojom::FetchCredentialsMode::kOmit;
+  blink::mojom::FetchCacheMode cache_mode =
+      blink::mojom::FetchCacheMode::kDefault;
+  network::mojom::FetchRedirectMode redirect_mode =
+      network::mojom::FetchRedirectMode::kFollow;
   std::string integrity;
+  bool keepalive = false;
   std::string client_id;
-  bool is_reload;
-  ServiceWorkerFetchType fetch_type;
+  bool is_reload = false;
+  bool is_history_navigation = false;
 };
 
-// Represents a response to a fetch.
+// Roughly corresponds to the Fetch API's Response type. This struct has several
+// users:
+// - Service Worker API: The renderer sends the browser this type to
+// represent the response a service worker provided to FetchEvent#respondWith.
+// - Background Fetch API: Uses this type to represent responses to background
+// fetches.
+// - Cache Storage API: Uses this type to represent responses to requests.
+// Note that the Fetch API does not use this type; it uses ResourceResponse
+// instead.
+// TODO(falken): Can everyone just use ResourceResponse?
 struct CONTENT_EXPORT ServiceWorkerResponse {
   ServiceWorkerResponse();
   ServiceWorkerResponse(
       std::unique_ptr<std::vector<GURL>> url_list,
       int status_code,
       const std::string& status_text,
-      blink::WebServiceWorkerResponseType response_type,
+      network::mojom::FetchResponseType response_type,
       std::unique_ptr<ServiceWorkerHeaderMap> headers,
       const std::string& blob_uuid,
       uint64_t blob_size,
-      blink::WebServiceWorkerResponseError error,
+      scoped_refptr<storage::BlobHandle> blob,
+      blink::mojom::ServiceWorkerResponseError error,
       base::Time response_time,
       bool is_in_cache_storage,
       const std::string& cache_storage_cache_name,
       std::unique_ptr<ServiceWorkerHeaderList> cors_exposed_header_names);
   ServiceWorkerResponse(const ServiceWorkerResponse& other);
+  ServiceWorkerResponse& operator=(const ServiceWorkerResponse& other);
   ~ServiceWorkerResponse();
   size_t EstimatedStructSize();
 
-  // Be sure to update EstimatedSize() when adding members.
+  // Be sure to update EstimatedStructSize() when adding members.
   std::vector<GURL> url_list;
   int status_code;
   std::string status_text;
-  blink::WebServiceWorkerResponseType response_type;
+  network::mojom::FetchResponseType response_type;
   ServiceWorkerHeaderMap headers;
   // |blob_uuid| and |blob_size| are set when the body is a blob. For other
   // types of responses, the body is provided separately in Mojo IPC via
   // ServiceWorkerFetchResponseCallback.
   std::string blob_uuid;
   uint64_t blob_size;
-  blink::WebServiceWorkerResponseError error;
+  scoped_refptr<storage::BlobHandle> blob;
+  blink::mojom::ServiceWorkerResponseError error;
   base::Time response_time;
   bool is_in_cache_storage = false;
   std::string cache_storage_cache_name;
   ServiceWorkerHeaderList cors_exposed_header_names;
-};
 
-// Represents initialization info for a WebServiceWorker object.
-struct CONTENT_EXPORT ServiceWorkerObjectInfo {
-  ServiceWorkerObjectInfo();
-
-  // Returns whether the instance is valid. A valid instance has valid
-  // |handle_id| and |version_id|.
-  bool IsValid() const;
-
-  int handle_id;
-  GURL url;
-  blink::WebServiceWorkerState state;
-  int64_t version_id;
-};
-
-// Represents options for register():
-// https://w3c.github.io/ServiceWorker/#dictdef-registrationoptions
-struct CONTENT_EXPORT ServiceWorkerRegistrationOptions {
-  ServiceWorkerRegistrationOptions() = default;
-  explicit ServiceWorkerRegistrationOptions(const GURL& scope);
-  GURL scope;
-  // TODO(yuryu): Other values will be added as they are supported later.
-};
-
-struct CONTENT_EXPORT ServiceWorkerRegistrationObjectInfo {
-  ServiceWorkerRegistrationObjectInfo();
-  int handle_id;
-  ServiceWorkerRegistrationOptions options;
-  int64_t registration_id;
-};
-
-struct ServiceWorkerVersionAttributes {
-  ServiceWorkerObjectInfo installing;
-  ServiceWorkerObjectInfo waiting;
-  ServiceWorkerObjectInfo active;
+  // Side data is used to pass the metadata of the response (eg: V8 code cache).
+  std::string side_data_blob_uuid;
+  uint64_t side_data_blob_size = 0;
+  // |side_data_blob| is only used when features::kMojoBlobs is enabled.
+  scoped_refptr<storage::BlobHandle> side_data_blob;
 };
 
 class ChangedVersionAttributesMask {
@@ -225,32 +199,6 @@ class ChangedVersionAttributesMask {
 
  private:
   int changed_;
-};
-
-struct ServiceWorkerClientQueryOptions {
-  ServiceWorkerClientQueryOptions();
-  blink::WebServiceWorkerClientType client_type;
-  bool include_uncontrolled;
-};
-
-struct ExtendableMessageEventSource {
-  ExtendableMessageEventSource();
-  explicit ExtendableMessageEventSource(
-      const ServiceWorkerClientInfo& client_info);
-  explicit ExtendableMessageEventSource(
-      const ServiceWorkerObjectInfo& service_worker_info);
-
-  // Exactly one of these infos should be valid.
-  ServiceWorkerClientInfo client_info;
-  ServiceWorkerObjectInfo service_worker_info;
-};
-
-struct CONTENT_EXPORT NavigationPreloadState {
-  NavigationPreloadState();
-  NavigationPreloadState(bool enabled, std::string header);
-  NavigationPreloadState(const NavigationPreloadState& other);
-  bool enabled;
-  std::string header;
 };
 
 }  // namespace content

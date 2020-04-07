@@ -34,6 +34,7 @@ HEADERS +=  \
         tools/qlocale_p.h \
         tools/qlocale_tools_p.h \
         tools/qlocale_data_p.h \
+        tools/qmakearray_p.h \
         tools/qmap.h \
         tools/qmargins.h \
         tools/qmessageauthenticationcode.h \
@@ -45,6 +46,7 @@ HEADERS +=  \
         tools/qregexp.h \
         tools/qringbuffer_p.h \
         tools/qrefcount.h \
+        tools/qscopeguard.h \
         tools/qscopedpointer.h \
         tools/qscopedpointer_p.h \
         tools/qscopedvaluerollback.h \
@@ -126,7 +128,6 @@ else:unix {
 }
 else:win32 {
     SOURCES += tools/qlocale_win.cpp
-    winrt-*-msvc2013: LIBS += advapi32.lib
 } else:integrity {
     SOURCES += tools/qlocale_unix.cpp
 }
@@ -159,16 +160,18 @@ qtConfig(timezone) {
     SOURCES += \
         tools/qtimezone.cpp \
         tools/qtimezoneprivate.cpp
-    !nacl:darwin: \
+    !nacl:darwin: {
         SOURCES += tools/qtimezoneprivate_mac.mm
-    else: android:!android-embedded: \
+    } else: android:!android-embedded: {
         SOURCES += tools/qtimezoneprivate_android.cpp
-    else: unix: \
+    } else: unix: {
         SOURCES += tools/qtimezoneprivate_tz.cpp
-    else: win32: \
-        SOURCES += tools/qtimezoneprivate_win.cpp
-    qtConfig(icu): \
+        qtConfig(icu): SOURCES += tools/qtimezoneprivate_icu.cpp
+    } else: qtConfig(icu): {
         SOURCES += tools/qtimezoneprivate_icu.cpp
+    } else: win32: {
+        SOURCES += tools/qtimezoneprivate_win.cpp
+    }
 }
 
 qtConfig(datetimeparser) {
@@ -179,7 +182,8 @@ qtConfig(datetimeparser) {
 qtConfig(regularexpression) {
     QMAKE_USE_PRIVATE += pcre2
 
-    HEADERS += tools/qregularexpression.h
+    HEADERS += \
+        tools/qregularexpression.h
     SOURCES += tools/qregularexpression.cpp
 }
 
@@ -216,11 +220,10 @@ qtConfig(system-doubleconversion) {
 }
 
 # Note: libm should be present by default becaue this is C++
-unix:!macx-icc:!vxworks:!haiku:!integrity: LIBS_PRIVATE += -lm
+unix:!macx-icc:!vxworks:!haiku:!integrity:!wasm: LIBS_PRIVATE += -lm
 
 TR_EXCLUDE += ../3rdparty/*
 
 # MIPS DSP
 MIPS_DSP_ASM += tools/qstring_mips_dsp_asm.S
 MIPS_DSP_HEADERS += ../gui/painting/qt_mips_asm_dsp_p.h
-CONFIG += simd

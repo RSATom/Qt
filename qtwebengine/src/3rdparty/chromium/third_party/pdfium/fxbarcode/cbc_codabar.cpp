@@ -47,33 +47,28 @@ bool CBC_Codabar::SetWideNarrowRatio(int8_t ratio) {
   return GetOnedCodaBarWriter()->SetWideNarrowRatio(ratio);
 }
 
-bool CBC_Codabar::Encode(const CFX_WideStringC& contents, bool isDevice) {
+bool CBC_Codabar::Encode(const WideStringView& contents) {
   if (contents.IsEmpty())
     return false;
 
   BCFORMAT format = BCFORMAT_CODABAR;
   int32_t outWidth = 0;
   int32_t outHeight = 0;
-  CFX_WideString filtercontents =
-      GetOnedCodaBarWriter()->FilterContents(contents);
-  CFX_ByteString byteString = filtercontents.UTF8Encode();
-  m_renderContents = filtercontents;
+  m_renderContents = GetOnedCodaBarWriter()->FilterContents(contents);
+  ByteString byteString = m_renderContents.UTF8Encode();
   auto* pWriter = GetOnedCodaBarWriter();
   std::unique_ptr<uint8_t, FxFreeDeleter> data(
       pWriter->Encode(byteString, format, outWidth, outHeight));
-  if (!data)
-    return false;
-
-  return pWriter->RenderResult(filtercontents.AsStringC(), data.get(), outWidth,
-                               isDevice);
+  return data && pWriter->RenderResult(m_renderContents.AsStringView(),
+                                       data.get(), outWidth);
 }
 
 bool CBC_Codabar::RenderDevice(CFX_RenderDevice* device,
                                const CFX_Matrix* matrix) {
   auto* pWriter = GetOnedCodaBarWriter();
-  CFX_WideString renderCon =
-      pWriter->encodedContents(m_renderContents.AsStringC());
-  return pWriter->RenderDeviceResult(device, matrix, renderCon.AsStringC());
+  WideString renderCon =
+      pWriter->encodedContents(m_renderContents.AsStringView());
+  return pWriter->RenderDeviceResult(device, matrix, renderCon.AsStringView());
 }
 
 BC_TYPE CBC_Codabar::GetType() {

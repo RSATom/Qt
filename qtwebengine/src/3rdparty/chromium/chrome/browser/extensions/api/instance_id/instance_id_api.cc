@@ -4,14 +4,15 @@
 
 #include "chrome/browser/extensions/api/instance_id/instance_id_api.h"
 
+#include <memory>
+
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
-#include "chrome/browser/gcm/instance_id/instance_id_profile_service.h"
 #include "chrome/browser/gcm/instance_id/instance_id_profile_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/extensions/api/instance_id.h"
 #include "components/gcm_driver/instance_id/instance_id_driver.h"
+#include "components/gcm_driver/instance_id/instance_id_profile_service.h"
 #include "extensions/common/extension.h"
 
 namespace extensions {
@@ -75,7 +76,8 @@ ExtensionFunction::ResponseAction InstanceIDApiFunction::Run() {
 bool InstanceIDApiFunction::IsEnabled() const {
   Profile* profile = Profile::FromBrowserContext(browser_context());
 
-  return instance_id::InstanceIDProfileService::IsInstanceIDEnabled(profile);
+  return instance_id::InstanceIDProfileService::IsInstanceIDEnabled(
+      profile->GetPrefs());
 }
 
 instance_id::InstanceID* InstanceIDApiFunction::GetInstanceID() const {
@@ -95,7 +97,7 @@ ExtensionFunction::ResponseAction InstanceIDGetIDFunction::DoWork() {
 }
 
 void InstanceIDGetIDFunction::GetIDCompleted(const std::string& id) {
-  Respond(OneArgument(base::MakeUnique<base::Value>(id)));
+  Respond(OneArgument(std::make_unique<base::Value>(id)));
 }
 
 InstanceIDGetCreationTimeFunction::InstanceIDGetCreationTimeFunction() {}
@@ -112,7 +114,7 @@ ExtensionFunction::ResponseAction InstanceIDGetCreationTimeFunction::DoWork() {
 void InstanceIDGetCreationTimeFunction::GetCreationTimeCompleted(
     const base::Time& creation_time) {
   Respond(
-      OneArgument(base::MakeUnique<base::Value>(creation_time.ToDoubleT())));
+      OneArgument(std::make_unique<base::Value>(creation_time.ToDoubleT())));
 }
 
 InstanceIDGetTokenFunction::InstanceIDGetTokenFunction() {}
@@ -141,7 +143,7 @@ void InstanceIDGetTokenFunction::GetTokenCompleted(
     const std::string& token,
     instance_id::InstanceID::Result result) {
   if (result == instance_id::InstanceID::SUCCESS)
-    Respond(OneArgument(base::MakeUnique<base::Value>(token)));
+    Respond(OneArgument(std::make_unique<base::Value>(token)));
   else
     Respond(Error(InstanceIDResultToError(result)));
 }

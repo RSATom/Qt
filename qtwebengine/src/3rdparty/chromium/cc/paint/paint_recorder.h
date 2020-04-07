@@ -7,14 +7,13 @@
 
 #include "base/compiler_specific.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/optional.h"
 #include "cc/paint/paint_record.h"
 #include "cc/paint/record_paint_canvas.h"
 
 namespace cc {
 
-class PaintOpBuffer;
+class DisplayItemList;
 
 class CC_PAINT_EXPORT PaintRecorder {
  public:
@@ -37,9 +36,8 @@ class CC_PAINT_EXPORT PaintRecorder {
   sk_sp<PaintRecord> finishRecordingAsPicture();
 
  private:
-  sk_sp<PaintOpBuffer> buffer_;
+  scoped_refptr<DisplayItemList> display_item_list_;
   base::Optional<RecordPaintCanvas> canvas_;
-
   DISALLOW_COPY_AND_ASSIGN(PaintRecorder);
 };
 

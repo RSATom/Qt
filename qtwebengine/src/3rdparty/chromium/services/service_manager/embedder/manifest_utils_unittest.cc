@@ -3,7 +3,6 @@
 // found in the LICENSE file.
 
 #include "services/service_manager/embedder/manifest_utils.h"
-#include "base/memory/ptr_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace service_manager {
@@ -14,11 +13,11 @@ TEST(MergeManifestWithOverlayTest, Merge) {
   base::DictionaryValue manifest;
   manifest.SetString("string", "Hello, ");
   std::unique_ptr<base::DictionaryValue> dict_value_original(
-      base::MakeUnique<base::DictionaryValue>());
+      std::make_unique<base::DictionaryValue>());
   dict_value_original->SetString("key1", "original");
   dict_value_original->SetString("key3", "original");
   manifest.Set("dictionary", std::move(dict_value_original));
-  std::unique_ptr<base::ListValue> list(base::MakeUnique<base::ListValue>());
+  std::unique_ptr<base::ListValue> list(std::make_unique<base::ListValue>());
   list->AppendString("A");
   list->AppendString("B");
   manifest.Set("list", std::move(list));
@@ -26,11 +25,11 @@ TEST(MergeManifestWithOverlayTest, Merge) {
   base::DictionaryValue overlay;
   overlay.SetString("string", "World!");
   std::unique_ptr<base::DictionaryValue> dict_value_replacement(
-      base::MakeUnique<base::DictionaryValue>());
+      std::make_unique<base::DictionaryValue>());
   dict_value_replacement->SetString("key1", "new");
   dict_value_replacement->SetString("key2", "new");
   overlay.Set("dictionary", std::move(dict_value_replacement));
-  list = base::MakeUnique<base::ListValue>();
+  list = std::make_unique<base::ListValue>();
   list->AppendString("C");
   overlay.Set("list", std::move(list));
 

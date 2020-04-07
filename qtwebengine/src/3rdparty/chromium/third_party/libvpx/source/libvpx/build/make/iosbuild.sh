@@ -132,7 +132,8 @@ create_vpx_framework_config_shim() {
   done
 
   # Consume the last line of output from the loop: We don't want it.
-  sed -i '' -e '$d' "${config_file}"
+  sed -i.bak -e '$d' "${config_file}"
+  rm "${config_file}.bak"
 
   printf "#endif\n\n" >> "${config_file}"
   printf "#endif  // ${include_guard}" >> "${config_file}"
@@ -350,7 +351,7 @@ if [ "$ENABLE_SHARED" = "yes" ]; then
   IOS_VERSION_MIN="8.0"
 else
   IOS_VERSION_OPTIONS=""
-  IOS_VERSION_MIN="6.0"
+  IOS_VERSION_MIN="7.0"
 fi
 
 if [ "${VERBOSE}" = "yes" ]; then

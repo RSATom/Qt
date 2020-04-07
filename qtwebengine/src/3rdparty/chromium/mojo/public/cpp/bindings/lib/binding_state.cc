@@ -55,10 +55,10 @@ void BindingStateBase::CloseWithReason(uint32_t custom_reason,
 }
 
 ReportBadMessageCallback BindingStateBase::GetBadMessageCallback() {
-  return base::Bind(
-      [](const ReportBadMessageCallback& inner_callback,
+  return base::BindOnce(
+      [](ReportBadMessageCallback inner_callback,
          base::WeakPtr<BindingStateBase> binding, const std::string& error) {
-        inner_callback.Run(error);
+        std::move(inner_callback).Run(error);
         if (binding)
           binding->Close();
       },
@@ -74,6 +74,10 @@ void BindingStateBase::EnableTestingMode() {
   router_->EnableTestingMode();
 }
 
+scoped_refptr<internal::MultiplexRouter> BindingStateBase::RouterForTesting() {
+  return router_;
+}
+
 void BindingStateBase::BindInternal(
     ScopedMessagePipeHandle handle,
     scoped_refptr<base::SingleThreadTaskRunner> runner,
@@ -83,7 +87,8 @@ void BindingStateBase::BindInternal(
     bool has_sync_methods,
     MessageReceiverWithResponderStatus* stub,
     uint32_t interface_version) {
-  DCHECK(!router_);
+  DCHECK(!is_bound()) << "Attempting to bind interface that is already bound: "
+                      << interface_name;
 
   auto sequenced_runner =
       GetTaskRunnerToUseFromUserProvidedTaskRunner(std::move(runner));

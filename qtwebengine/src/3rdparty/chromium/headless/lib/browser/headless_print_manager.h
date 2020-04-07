@@ -15,7 +15,7 @@
 #include "headless/public/headless_export.h"
 #include "printing/print_settings.h"
 
-struct PrintHostMsg_DidPrintPage_Params;
+struct PrintHostMsg_DidPrintDocument_Params;
 struct PrintHostMsg_ScriptedPrint_Params;
 struct PrintMsg_PrintPages_Params;
 
@@ -27,6 +27,7 @@ struct HEADLESS_EXPORT HeadlessPrintSettings {
 
   gfx::Size paper_size_in_points;
   printing::PageMargins margins_in_points;
+  bool prefer_css_page_size;
 
   bool landscape;
   bool display_header_footer;
@@ -36,6 +37,8 @@ struct HEADLESS_EXPORT HeadlessPrintSettings {
 
   std::string page_ranges;
   bool ignore_invalid_page_ranges;
+  std::string header_template;
+  std::string footer_template;
 };
 
 class HeadlessPrintManager
@@ -48,7 +51,6 @@ class HeadlessPrintManager
     INVALID_PRINTER_SETTINGS,
     INVALID_MEMORY_HANDLE,
     METAFILE_MAP_ERROR,
-    UNEXPECTED_VALID_MEMORY_HANDLE,
     METAFILE_INVALID_HEADER,
     METAFILE_GET_DATA_ERROR,
     SIMULTANEOUS_PRINT_ACTIVE,
@@ -62,13 +64,12 @@ class HeadlessPrintManager
     LIMIT_ERROR,
   };
 
-  using GetPDFCallback = base::Callback<void(PrintResult, const std::string&)>;
+  using GetPDFCallback =
+      base::OnceCallback<void(PrintResult, const std::string&)>;
 
   ~HeadlessPrintManager() override;
 
   static std::string PrintResultToString(PrintResult result);
-  static std::unique_ptr<base::DictionaryValue> PDFContentsToDictionaryValue(
-      const std::string& data);
   // Exported for tests.
   HEADLESS_EXPORT static PageRangeStatus PageRangeTextToPages(
       base::StringPiece page_range_text,
@@ -82,7 +83,7 @@ class HeadlessPrintManager
   // finishes.
   void GetPDFContents(content::RenderFrameHost* rfh,
                       const HeadlessPrintSettings& settings,
-                      const GetPDFCallback& callback);
+                      GetPDFCallback callback);
 
  private:
   explicit HeadlessPrintManager(content::WebContents* web_contents);
@@ -95,13 +96,13 @@ class HeadlessPrintManager
                          content::RenderFrameHost* render_frame_host) override;
 
   // IPC Message handlers.
+  struct FrameDispatchHelper;
   void OnGetDefaultPrintSettings(IPC::Message* reply_msg);
   void OnScriptedPrint(const PrintHostMsg_ScriptedPrint_Params& params,
                        IPC::Message* reply_msg);
   void OnShowInvalidPrinterSettingsError();
   void OnPrintingFailed(int cookie) override;
-  void OnDidGetPrintedPagesCount(int cookie, int number_pages) override;
-  void OnDidPrintPage(const PrintHostMsg_DidPrintPage_Params& params);
+  void OnDidPrintDocument(const PrintHostMsg_DidPrintDocument_Params& params);
 
   void Reset();
   void ReleaseJob(PrintResult result);
@@ -112,9 +113,6 @@ class HeadlessPrintManager
   std::string page_ranges_text_;
   bool ignore_invalid_page_ranges_ = false;
   std::string data_;
-
-  // Set to true when OnDidPrintPage() should be expecting the first page.
-  bool expecting_first_page_ = true;
 
   DISALLOW_COPY_AND_ASSIGN(HeadlessPrintManager);
 };

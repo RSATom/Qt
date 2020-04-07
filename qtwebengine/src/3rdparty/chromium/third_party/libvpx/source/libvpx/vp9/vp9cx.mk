@@ -103,6 +103,7 @@ VP9_CX_SRCS-yes += encoder/vp9_mbgraph.h
 VP9_CX_SRCS-$(HAVE_SSE4_1) += encoder/x86/temporal_filter_sse4.c
 
 VP9_CX_SRCS-$(HAVE_SSE2) += encoder/x86/vp9_quantize_sse2.c
+VP9_CX_SRCS-$(HAVE_AVX2) += encoder/x86/vp9_quantize_avx2.c
 VP9_CX_SRCS-$(HAVE_AVX) += encoder/x86/vp9_diamond_search_sad_avx.c
 ifeq ($(CONFIG_VP9_HIGHBITDEPTH),yes)
 VP9_CX_SRCS-$(HAVE_SSE2) += encoder/x86/vp9_highbd_block_error_intrin_sse2.c
@@ -130,6 +131,7 @@ ifneq ($(CONFIG_VP9_HIGHBITDEPTH),yes)
 VP9_CX_SRCS-$(HAVE_NEON) += encoder/arm/neon/vp9_error_neon.c
 endif
 VP9_CX_SRCS-$(HAVE_NEON) += encoder/arm/neon/vp9_dct_neon.c
+VP9_CX_SRCS-$(HAVE_NEON) += encoder/arm/neon/vp9_frame_scale_neon.c
 VP9_CX_SRCS-$(HAVE_NEON) += encoder/arm/neon/vp9_quantize_neon.c
 
 VP9_CX_SRCS-$(HAVE_MSA) += encoder/mips/msa/vp9_error_msa.c
@@ -138,7 +140,12 @@ VP9_CX_SRCS-$(HAVE_MSA) += encoder/mips/msa/vp9_fdct8x8_msa.c
 VP9_CX_SRCS-$(HAVE_MSA) += encoder/mips/msa/vp9_fdct16x16_msa.c
 VP9_CX_SRCS-$(HAVE_MSA) += encoder/mips/msa/vp9_fdct_msa.h
 
+VP9_CX_SRCS-$(HAVE_VSX) += encoder/ppc/vp9_quantize_vsx.c
+
 # Strip unnecessary files with CONFIG_REALTIME_ONLY
 VP9_CX_SRCS_REMOVE-$(CONFIG_REALTIME_ONLY) += encoder/vp9_firstpass.c
+VP9_CX_SRCS_REMOVE-$(CONFIG_REALTIME_ONLY) += encoder/vp9_mbgraph.c
+VP9_CX_SRCS_REMOVE-$(CONFIG_REALTIME_ONLY) += encoder/vp9_temporal_filter.c
+VP9_CX_SRCS_REMOVE-$(CONFIG_REALTIME_ONLY) += encoder/x86/temporal_filter_sse4.c
 
 VP9_CX_SRCS-yes := $(filter-out $(VP9_CX_SRCS_REMOVE-yes),$(VP9_CX_SRCS-yes))

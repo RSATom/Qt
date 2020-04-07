@@ -39,9 +39,8 @@
 
 #include "qtremoteobjectglobal.h"
 
-#include <QDataStream>
-#include <QMetaObject>
-#include <QMetaProperty>
+#include <QtCore/qdatastream.h>
+#include <QtCore/qmetaobject.h>
 
 QT_BEGIN_NAMESPACE
 

@@ -23,7 +23,7 @@
 #include "content/browser/accessibility/browser_accessibility.h"
 #include "content/browser/accessibility/browser_accessibility_manager.h"
 #include "content/browser/accessibility/browser_accessibility_state_impl.h"
-#include "content/browser/frame_host/render_widget_host_view_child_frame.h"
+#include "content/browser/renderer_host/render_widget_host_view_child_frame.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_paths.h"
@@ -52,9 +52,15 @@ const char kSignalDiff[] = "*";
 // that represents a fully loaded web document with the given url.
 bool AccessibilityTreeContainsLoadedDocWithUrl(BrowserAccessibility* node,
                                                const std::string& url) {
-  if ((node->GetRole() == ui::AX_ROLE_WEB_AREA ||
-       node->GetRole() == ui::AX_ROLE_ROOT_WEB_AREA) &&
-      node->GetStringAttribute(ui::AX_ATTR_URL) == url) {
+  if (node->GetRole() == ax::mojom::Role::kRootWebArea &&
+      node->GetStringAttribute(ax::mojom::StringAttribute::kUrl) == url) {
+    // Ensure the doc has finished loading and has a non-zero size.
+    return node->manager()->GetTreeData().loaded &&
+           (node->GetData().location.width() > 0 &&
+            node->GetData().location.height() > 0);
+  }
+  if (node->GetRole() == ax::mojom::Role::kWebArea &&
+      node->GetStringAttribute(ax::mojom::StringAttribute::kUrl) == url) {
     // Ensure the doc has finished loading.
     return node->manager()->GetTreeData().loaded;
   }
@@ -263,13 +269,13 @@ void DumpAccessibilityTestBase::RunTestForPlatform(
     // Load the url, then enable accessibility.
     NavigateToURL(shell(), url);
     AccessibilityNotificationWaiter accessibility_waiter(
-        web_contents, kAccessibilityModeComplete, ui::AX_EVENT_NONE);
+        web_contents, ui::kAXModeComplete, ax::mojom::Event::kNone);
     accessibility_waiter.WaitForNotification();
   } else {
     // Enable accessibility, then load the test html and wait for the
     // "load complete" AX event.
     AccessibilityNotificationWaiter accessibility_waiter(
-        web_contents, kAccessibilityModeComplete, ui::AX_EVENT_LOAD_COMPLETE);
+        web_contents, ui::kAXModeComplete, ax::mojom::Event::kLoadComplete);
     NavigateToURL(shell(), url);
     accessibility_waiter.WaitForNotification();
   }
@@ -340,8 +346,8 @@ void DumpAccessibilityTestBase::RunTestForPlatform(
 
     // Block until the next accessibility notification in any frame.
     VLOG(1) << "Waiting until the next accessibility event";
-    AccessibilityNotificationWaiter accessibility_waiter(main_frame,
-                                                         ui::AX_EVENT_NONE);
+    AccessibilityNotificationWaiter accessibility_waiter(
+        main_frame, ax::mojom::Event::kNone);
     for (FrameTreeNode* node : frame_tree->Nodes())
       accessibility_waiter.ListenToAdditionalFrame(node->current_frame_host());
     accessibility_waiter.WaitForNotification();
@@ -349,6 +355,8 @@ void DumpAccessibilityTestBase::RunTestForPlatform(
 
   // Call the subclass to dump the output.
   std::vector<std::string> actual_lines = Dump();
+  std::string actual_contents_for_output =
+      base::JoinString(actual_lines, "\n") + "\n";
 
   // Perform a diff (or write the initial baseline).
   std::vector<std::string> expected_lines = base::SplitString(
@@ -388,18 +396,17 @@ void DumpAccessibilityTestBase::RunTestForPlatform(
     diff += "------\n";
     diff += actual_contents;
     LOG(ERROR) << "Diff:\n" << diff;
-
-    if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-            switches::kGenerateAccessibilityTestExpectations)) {
-      base::ThreadRestrictions::ScopedAllowIO allow_io_to_write_expected_file;
-      CHECK(base::WriteFile(expected_file, actual_contents.c_str(),
-                            actual_contents.size()) ==
-            static_cast<int>(actual_contents.size()));
-      LOG(INFO) << "Wrote expectations to: "
-                << expected_file.LossyDisplayName();
-    }
   } else {
     LOG(INFO) << "Test output matches expectations.";
+  }
+
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kGenerateAccessibilityTestExpectations)) {
+    base::ScopedAllowBlockingForTesting allow_blocking;
+    CHECK(base::WriteFile(expected_file, actual_contents_for_output.c_str(),
+                          actual_contents_for_output.size()) ==
+          static_cast<int>(actual_contents_for_output.size()));
+    LOG(INFO) << "Wrote expectations to: " << expected_file.LossyDisplayName();
   }
 }
 

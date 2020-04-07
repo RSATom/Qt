@@ -9,8 +9,10 @@
 
 #include "base/callback_forward.h"
 #include "base/files/file.h"
+#include "base/memory/read_only_shared_memory_region.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/shared_memory.h"
+#include "base/memory/unsafe_shared_memory_region.h"
 #include "base/process/process.h"
 #include "content/common/content_export.h"
 #include "ipc/ipc_platform_file.h"
@@ -83,10 +85,6 @@ class RendererPpapiHost {
   virtual blink::WebPluginContainer* GetContainerForInstance(
       PP_Instance instance) const = 0;
 
-  // Returns the PID of the child process containing the plugin. If running
-  // in-process, this returns base::kNullProcessId.
-  virtual base::ProcessId GetPluginPID() const = 0;
-
   // Returns true if the given instance is considered to be currently
   // processing a user gesture or the plugin module has the "override user
   // gesture" flag set (in which case it can always do things normally
@@ -123,6 +121,12 @@ class RendererPpapiHost {
   // message fails, the returned handle is properly closed by the IPC system.
   virtual base::SharedMemoryHandle ShareSharedMemoryHandleWithRemote(
       const base::SharedMemoryHandle& handle) = 0;
+  virtual base::UnsafeSharedMemoryRegion
+  ShareUnsafeSharedMemoryRegionWithRemote(
+      const base::UnsafeSharedMemoryRegion& region) = 0;
+  virtual base::ReadOnlySharedMemoryRegion
+  ShareReadOnlySharedMemoryRegionWithRemote(
+      const base::ReadOnlySharedMemoryRegion& region) = 0;
 
   // Returns true if the plugin is running in process.
   virtual bool IsRunningInProcess() const = 0;

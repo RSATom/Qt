@@ -12,9 +12,9 @@
 namespace v8 {
 namespace internal {
 
-StringHasher::StringHasher(int length, uint32_t seed)
+StringHasher::StringHasher(int length, uint64_t seed)
     : length_(length),
-      raw_running_hash_(seed),
+      raw_running_hash_(static_cast<uint32_t>(seed)),
       array_index_(0),
       is_array_index_(0 < length_ && length_ <= String::kMaxArrayIndexSize),
       is_first_char_(true) {
@@ -45,7 +45,7 @@ uint32_t StringHasher::GetHashCore(uint32_t running_hash) {
 uint32_t StringHasher::ComputeRunningHash(uint32_t running_hash,
                                           const uc16* chars, int length) {
   DCHECK_NOT_NULL(chars);
-  DCHECK(length >= 0);
+  DCHECK_GE(length, 0);
   for (int i = 0; i < length; ++i) {
     running_hash = AddCharacterCore(running_hash, *chars++);
   }
@@ -56,7 +56,7 @@ uint32_t StringHasher::ComputeRunningHashOneByte(uint32_t running_hash,
                                                  const char* chars,
                                                  int length) {
   DCHECK_NOT_NULL(chars);
-  DCHECK(length >= 0);
+  DCHECK_GE(length, 0);
   for (int i = 0; i < length; ++i) {
     uint16_t c = static_cast<uint16_t>(*chars++);
     running_hash = AddCharacterCore(running_hash, c);
@@ -113,16 +113,16 @@ inline void StringHasher::AddCharacters(const Char* chars, int length) {
 
 template <typename schar>
 uint32_t StringHasher::HashSequentialString(const schar* chars, int length,
-                                            uint32_t seed) {
+                                            uint64_t seed) {
   StringHasher hasher(length, seed);
   if (!hasher.has_trivial_hash()) hasher.AddCharacters(chars, length);
   return hasher.GetHashField();
 }
 
-IteratingStringHasher::IteratingStringHasher(int len, uint32_t seed)
+IteratingStringHasher::IteratingStringHasher(int len, uint64_t seed)
     : StringHasher(len, seed) {}
 
-uint32_t IteratingStringHasher::Hash(String* string, uint32_t seed) {
+uint32_t IteratingStringHasher::Hash(String* string, uint64_t seed) {
   IteratingStringHasher hasher(string->length(), seed);
   // Nothing to do.
   if (hasher.has_trivial_hash()) return hasher.GetHashField();
@@ -140,6 +140,11 @@ void IteratingStringHasher::VisitOneByteString(const uint8_t* chars,
 void IteratingStringHasher::VisitTwoByteString(const uint16_t* chars,
                                                int length) {
   AddCharacters(chars, length);
+}
+
+std::size_t SeededStringHasher::operator()(const char* name) const {
+  return StringHasher::HashSequentialString(
+      name, static_cast<int>(strlen(name)), hashseed_);
 }
 
 }  // namespace internal

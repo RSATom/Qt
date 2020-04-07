@@ -8,7 +8,6 @@
 #include <vector>
 
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/time/time.h"
 #include "mojo/public/cpp/bindings/interface_request.h"
 #include "services/ui/common/task_runner_test_base.h"
@@ -71,7 +70,8 @@ TEST_F(UserActivityForwarderTest, ForwardActivityToDetector) {
   // Run pending tasks so |monitor| receives |forwarder|'s registration.
   RunUntilIdle();
 
-  base::TimeTicks now = base::TimeTicks::FromInternalValue(1000);
+  base::TimeTicks now =
+      base::TimeTicks() + base::TimeDelta::FromMicroseconds(1000);
   detector.set_now_for_test(now);
   monitor.NotifyUserActivityObservers();
   RunUntilIdle();

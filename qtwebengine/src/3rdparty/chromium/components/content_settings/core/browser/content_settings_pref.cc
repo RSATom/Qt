@@ -8,7 +8,6 @@
 
 #include "base/auto_reset.h"
 #include "base/bind.h"
-#include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
@@ -54,7 +53,7 @@ bool IsValueAllowedForType(const base::Value* value, ContentSettingsType type) {
 
   // TODO(raymes): We should permit different types of base::Value for
   // website settings.
-  return value->GetType() == base::Value::Type::DICTIONARY;
+  return value->type() == base::Value::Type::DICTIONARY;
 }
 
 // Extract a timestamp from |dictionary[kLastModifiedPath]|.
@@ -131,7 +130,7 @@ bool ContentSettingsPref::SetWebsiteSetting(
 
   {
     base::AutoLock auto_lock(lock_);
-    if (value.get()) {
+    if (value) {
       map_to_modify->SetValue(primary_pattern, secondary_pattern, content_type_,
                               resource_identifier, modified_time,
                               value->DeepCopy());
@@ -371,7 +370,7 @@ void ContentSettingsPref::UpdatePref(
     if (!found && value) {
       settings_dictionary =
           pattern_pairs_settings->SetDictionaryWithoutPathExpansion(
-              pattern_str, base::MakeUnique<base::DictionaryValue>());
+              pattern_str, std::make_unique<base::DictionaryValue>());
     }
 
     if (settings_dictionary) {
@@ -386,7 +385,7 @@ void ContentSettingsPref::UpdatePref(
           resource_dictionary =
               settings_dictionary->SetDictionaryWithoutPathExpansion(
                   kPerResourceIdentifierPrefName,
-                  base::MakeUnique<base::DictionaryValue>());
+                  std::make_unique<base::DictionaryValue>());
         }
         // Update resource dictionary.
         if (value == nullptr) {
@@ -402,9 +401,9 @@ void ContentSettingsPref::UpdatePref(
           resource_dictionary->SetWithoutPathExpansion(resource_identifier,
                                                        value->CreateDeepCopy());
           // Update timestamp for whole resource dictionary.
-          settings_dictionary->SetStringWithoutPathExpansion(
-              kLastModifiedPath,
-              base::Int64ToString(last_modified.ToInternalValue()));
+          settings_dictionary->SetKey(kLastModifiedPath,
+                                      base::Value(base::Int64ToString(
+                                          last_modified.ToInternalValue())));
         }
       } else {
         // Update settings dictionary.
@@ -416,9 +415,9 @@ void ContentSettingsPref::UpdatePref(
         } else {
           settings_dictionary->SetWithoutPathExpansion(kSettingPath,
                                                        value->CreateDeepCopy());
-          settings_dictionary->SetStringWithoutPathExpansion(
-              kLastModifiedPath,
-              base::Int64ToString(last_modified.ToInternalValue()));
+          settings_dictionary->SetKey(kLastModifiedPath,
+                                      base::Value(base::Int64ToString(
+                                          last_modified.ToInternalValue())));
         }
       }
       // Remove the settings dictionary if it is empty.

@@ -55,27 +55,24 @@ QT_BEGIN_NAMESPACE
 namespace QtWaylandClient {
 
 QWaylandIviShellIntegration::QWaylandIviShellIntegration()
-    : m_iviApplication(Q_NULLPTR)
-    , m_iviController(Q_NULLPTR)
-    , m_lastSurfaceId(0)
-    , m_surfaceNumber(0)
-    , m_useEnvSurfaceId(false)
-    , m_mutex(QMutex::Recursive)
 {
-}
-
-QWaylandIviShellIntegration::~QWaylandIviShellIntegration()
-{
-    delete m_iviApplication;
-    delete m_iviController;
 }
 
 bool QWaylandIviShellIntegration::initialize(QWaylandDisplay *display)
 {
-    QWaylandShellIntegration::initialize(display);
-    display->addRegistryListener(registryIvi, this);
+    for (QWaylandDisplay::RegistryGlobal global : display->globals()) {
+        if (global.interface == QLatin1String("ivi_application") && !m_iviApplication)
+            m_iviApplication.reset(new QtWayland::ivi_application(display->wl_registry(), global.id, global.version));
+        if (global.interface == QLatin1String("ivi_controller") && !m_iviController)
+            m_iviController.reset(new QtWayland::ivi_controller(display->wl_registry(), global.id, global.version));
+    }
 
-    return true;
+    if (!m_iviApplication) {
+        qCDebug(lcQpaWayland) << "Couldn't find global ivi_application for ivi-shell";
+        return false;
+    }
+
+    return QWaylandShellIntegration::initialize(display);
 }
 
 /* get unique id
@@ -129,11 +126,11 @@ uint32_t QWaylandIviShellIntegration::getNextUniqueSurfaceId()
 QWaylandShellSurface *QWaylandIviShellIntegration::createShellSurface(QWaylandWindow *window)
 {
     if (!m_iviApplication)
-        return Q_NULLPTR;
+        return nullptr;
 
     uint32_t surfaceId = getNextUniqueSurfaceId();
     if (surfaceId == 0)
-        return Q_NULLPTR;
+        return nullptr;
 
     struct ivi_surface *surface = m_iviApplication->surface_create(surfaceId, window->object());
     if (!m_iviController)
@@ -158,21 +155,6 @@ QWaylandShellSurface *QWaylandIviShellIntegration::createShellSurface(QWaylandWi
     }
 
     return iviSurface;
-}
-
-void QWaylandIviShellIntegration::registryIvi(void *data,
-                                              struct wl_registry *registry,
-                                              uint32_t id,
-                                              const QString &interface,
-                                              uint32_t version)
-{
-    QWaylandIviShellIntegration *shell = static_cast<QWaylandIviShellIntegration *>(data);
-
-    if (interface == QStringLiteral("ivi_application"))
-        shell->m_iviApplication = new QtWayland::ivi_application(registry, id, version);
-
-    if (interface == QStringLiteral("ivi_controller"))
-        shell->m_iviController = new QtWayland::ivi_controller(registry, id, version);
 }
 
 }

@@ -4,6 +4,8 @@
 
 #include "chrome/browser/devtools/device/devtools_device_discovery.h"
 
+#include <map>
+
 #include "base/bind.h"
 #include "base/json/json_reader.h"
 #include "base/memory/ptr_util.h"
@@ -14,8 +16,8 @@
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
-#include "chrome/browser/devtools/devtools_protocol.h"
 #include "chrome/browser/devtools/devtools_window.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/browser/devtools_agent_host.h"
 #include "content/public/browser/devtools_external_agent_proxy.h"
 #include "content/public/browser/devtools_external_agent_proxy_delegate.h"
@@ -36,11 +38,9 @@ const char kActivatePageRequest[] = "/json/activate/%s";
 const char kBrowserTargetSocket[] = "/devtools/browser";
 const int kPollingIntervalMs = 1000;
 
-const char kPageReloadCommand[] = "Page.reload";
+const char kPageReloadCommand[] = "{'method': 'Page.reload', id: 1}";
 
 const char kWebViewSocketPrefix[] = "webview_devtools_remote";
-
-static void NoOp(int, const std::string&) {}
 
 static void ScheduleTaskDefault(const base::Closure& task) {
   BrowserThread::PostDelayedTask(
@@ -55,12 +55,10 @@ static void ScheduleTaskDefault(const base::Closure& task) {
 class ProtocolCommand
     : public AndroidDeviceManager::AndroidWebSocket::Delegate {
  public:
-  ProtocolCommand(
-      scoped_refptr<AndroidDeviceManager::Device> device,
-      const std::string& socket,
-      const std::string& target_path,
-      const std::string& command,
-      const base::Closure callback);
+  ProtocolCommand(scoped_refptr<AndroidDeviceManager::Device> device,
+                  const std::string& socket,
+                  const std::string& target_path,
+                  const std::string& command);
 
  private:
   void OnSocketOpened() override;
@@ -69,7 +67,6 @@ class ProtocolCommand
   ~ProtocolCommand() override;
 
   const std::string command_;
-  const base::Closure callback_;
   std::unique_ptr<AndroidDeviceManager::AndroidWebSocket> web_socket_;
 
   DISALLOW_COPY_AND_ASSIGN(ProtocolCommand);
@@ -79,12 +76,9 @@ ProtocolCommand::ProtocolCommand(
     scoped_refptr<AndroidDeviceManager::Device> device,
     const std::string& socket,
     const std::string& target_path,
-    const std::string& command,
-    const base::Closure callback)
+    const std::string& command)
     : command_(command),
-      callback_(callback),
-      web_socket_(device->CreateWebSocket(socket, target_path, this)) {
-}
+      web_socket_(device->CreateWebSocket(socket, target_path, this)) {}
 
 void ProtocolCommand::OnSocketOpened() {
   web_socket_->SendFrame(command_);
@@ -99,15 +93,56 @@ void ProtocolCommand::OnSocketClosed() {
 }
 
 ProtocolCommand::~ProtocolCommand() {
-  if (!callback_.is_null())
-    callback_.Run();
 }
 
 // AgentHostDelegate ----------------------------------------------------------
 
-class AgentHostDelegate
-    : public content::DevToolsExternalAgentProxyDelegate,
-      public AndroidDeviceManager::AndroidWebSocket::Delegate {
+class WebSocketProxy : public AndroidDeviceManager::AndroidWebSocket::Delegate {
+ public:
+  explicit WebSocketProxy(content::DevToolsExternalAgentProxy* proxy)
+      : socket_opened_(false), proxy_(proxy) {}
+
+  void WebSocketCreated(AndroidDeviceManager::AndroidWebSocket* web_socket) {
+    web_socket_.reset(web_socket);
+  }
+
+  void SendMessageToBackend(std::string message) {
+    if (socket_opened_)
+      web_socket_->SendFrame(std::move(message));
+    else
+      pending_messages_.push_back(std::move(message));
+  }
+
+  void OnSocketOpened() override {
+    socket_opened_ = true;
+    for (std::string& message : pending_messages_)
+      SendMessageToBackend(std::move(message));
+    pending_messages_.clear();
+  }
+
+  void OnFrameRead(const std::string& message) override {
+    proxy_->DispatchOnClientHost(message);
+  }
+
+  void OnSocketClosed() override {
+    std::string message =
+        "{ \"method\": \"Inspector.detached\", "
+        "\"params\": { \"reason\": \"Connection lost.\"} }";
+    proxy_->DispatchOnClientHost(message);
+    web_socket_.reset();
+    socket_opened_ = false;
+    proxy_->ConnectionClosed();  // Deletes |this|.
+  }
+
+ private:
+  bool socket_opened_;
+  std::vector<std::string> pending_messages_;
+  std::unique_ptr<AndroidDeviceManager::AndroidWebSocket> web_socket_;
+  content::DevToolsExternalAgentProxy* proxy_;
+  DISALLOW_COPY_AND_ASSIGN(WebSocketProxy);
+};
+
+class AgentHostDelegate : public content::DevToolsExternalAgentProxyDelegate {
  public:
   static scoped_refptr<content::DevToolsAgentHost> GetOrCreateAgentHost(
       scoped_refptr<AndroidDeviceManager::Device> device,
@@ -128,7 +163,7 @@ class AgentHostDelegate
       base::DictionaryValue* value);
   // DevToolsExternalAgentProxyDelegate overrides.
   void Attach(content::DevToolsExternalAgentProxy* proxy) override;
-  void Detach() override;
+  void Detach(content::DevToolsExternalAgentProxy* proxy) override;
   std::string GetType() override;
   std::string GetTitle() override;
   std::string GetDescription() override;
@@ -139,16 +174,8 @@ class AgentHostDelegate
   void Reload() override;
   bool Close() override;
   base::TimeTicks GetLastActivityTime() override;
-  void SendMessageToBackend(const std::string& message) override;
-
-  void OnSocketOpened() override;
-  void OnFrameRead(const std::string& message) override;
-  void OnSocketClosed() override;
-
-  void SendProtocolCommand(const std::string& target_path,
-                           const std::string& method,
-                           std::unique_ptr<base::DictionaryValue> params,
-                           const base::Closure callback);
+  void SendMessageToBackend(content::DevToolsExternalAgentProxy* proxy,
+                            const std::string& message) override;
 
   scoped_refptr<AndroidDeviceManager::Device> device_;
   std::string browser_id_;
@@ -161,11 +188,10 @@ class AgentHostDelegate
   std::string description_;
   GURL url_;
   GURL favicon_url_;
-  bool socket_opened_;
-  std::vector<std::string> pending_messages_;
-  std::unique_ptr<AndroidDeviceManager::AndroidWebSocket> web_socket_;
   content::DevToolsAgentHost* agent_host_;
-  content::DevToolsExternalAgentProxy* proxy_;
+  std::map<content::DevToolsExternalAgentProxy*,
+           std::unique_ptr<WebSocketProxy>>
+      proxies_;
   DISALLOW_COPY_AND_ASSIGN(AgentHostDelegate);
 };
 
@@ -245,33 +271,31 @@ AgentHostDelegate::AgentHostDelegate(
       remote_type_(type),
       remote_id_(value ? GetStringProperty(value, "id") : ""),
       frontend_url_(value ? GetFrontendURLFromValue(value) : ""),
-      title_(value ? base::UTF16ToUTF8(net::UnescapeForHTML(base::UTF8ToUTF16(
-          GetStringProperty(value, "title")))) : ""),
+      title_(value ? base::UTF16ToUTF8(net::UnescapeForHTML(
+                         base::UTF8ToUTF16(GetStringProperty(value, "title"))))
+                   : ""),
       description_(value ? GetStringProperty(value, "description") : ""),
       url_(GURL(value ? GetStringProperty(value, "url") : "")),
       favicon_url_(GURL(value ? GetStringProperty(value, "faviconUrl") : "")),
-      socket_opened_(false),
-      agent_host_(nullptr),
-      proxy_(nullptr) {
-}
+      agent_host_(nullptr) {}
 
 AgentHostDelegate::~AgentHostDelegate() {
 }
 
 void AgentHostDelegate::Attach(content::DevToolsExternalAgentProxy* proxy) {
-  proxy_ = proxy;
+  std::unique_ptr<WebSocketProxy> ws_proxy(new WebSocketProxy(proxy));
+  ws_proxy->WebSocketCreated(
+      device_->CreateWebSocket(browser_id_, target_path_, ws_proxy.get()));
+  proxies_[proxy] = std::move(ws_proxy);
   base::RecordAction(
       base::StartsWith(browser_id_, kWebViewSocketPrefix,
                        base::CompareCase::SENSITIVE)
           ? base::UserMetricsAction("DevTools_InspectAndroidWebView")
           : base::UserMetricsAction("DevTools_InspectAndroidPage"));
-  web_socket_.reset(
-      device_->CreateWebSocket(browser_id_, target_path_, this));
 }
 
-void AgentHostDelegate::Detach() {
-  web_socket_.reset();
-  proxy_ = nullptr;
+void AgentHostDelegate::Detach(content::DevToolsExternalAgentProxy* proxy) {
+  proxies_.erase(proxy);
 }
 
 std::string AgentHostDelegate::GetType() {
@@ -301,19 +325,21 @@ std::string AgentHostDelegate::GetFrontendURL() {
 bool AgentHostDelegate::Activate() {
   std::string request = base::StringPrintf(kActivatePageRequest,
                                            remote_id_.c_str());
-  device_->SendJsonRequest(browser_id_, request, base::Bind(&NoOp));
+  device_->SendJsonRequest(browser_id_, request, base::DoNothing());
   return true;
 }
 
 void AgentHostDelegate::Reload() {
-  SendProtocolCommand(target_path_, kPageReloadCommand, nullptr,
-                      base::Closure());
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  if (target_path_.empty())
+    return;
+  new ProtocolCommand(device_, browser_id_, target_path_, kPageReloadCommand);
 }
 
 bool AgentHostDelegate::Close() {
   std::string request = base::StringPrintf(kClosePageRequest,
                                            remote_id_.c_str());
-  device_->SendJsonRequest(browser_id_, request, base::Bind(&NoOp));
+  device_->SendJsonRequest(browser_id_, request, base::DoNothing());
   return true;
 }
 
@@ -321,53 +347,14 @@ base::TimeTicks AgentHostDelegate::GetLastActivityTime() {
   return base::TimeTicks();
 }
 
-void AgentHostDelegate::SendMessageToBackend(const std::string& message) {
+void AgentHostDelegate::SendMessageToBackend(
+    content::DevToolsExternalAgentProxy* proxy,
+    const std::string& message) {
+  auto it = proxies_.find(proxy);
   // We could have detached due to physical connection being closed.
-  if (!proxy_)
+  if (it == proxies_.end())
     return;
-  if (socket_opened_)
-    web_socket_->SendFrame(message);
-  else
-    pending_messages_.push_back(message);
-}
-
-void AgentHostDelegate::OnSocketOpened() {
-  socket_opened_ = true;
-  for (std::vector<std::string>::iterator it = pending_messages_.begin();
-       it != pending_messages_.end(); ++it) {
-    SendMessageToBackend(*it);
-  }
-  pending_messages_.clear();
-}
-
-void AgentHostDelegate::OnFrameRead(const std::string& message) {
-  if (proxy_)
-      proxy_->DispatchOnClientHost(message);
-}
-
-void AgentHostDelegate::OnSocketClosed() {
-  content::DevToolsExternalAgentProxy* proxy = proxy_;
-  if (proxy) {
-    std::string message = "{ \"method\": \"Inspector.detached\", "
-        "\"params\": { \"reason\": \"Connection lost.\"} }";
-    proxy->DispatchOnClientHost(message);
-    Detach();
-    proxy->ConnectionClosed();  // May delete |this|.
- }
-}
-
-void AgentHostDelegate::SendProtocolCommand(
-    const std::string& target_path,
-    const std::string& method,
-    std::unique_ptr<base::DictionaryValue> params,
-    const base::Closure callback) {
-  DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  if (target_path.empty())
-    return;
-  new ProtocolCommand(
-      device_, browser_id_, target_path,
-      DevToolsProtocol::SerializeCommand(1, method, std::move(params)),
-      callback);
+  it->second->SendMessageToBackend(message);
 }
 
 }  // namespace
@@ -463,6 +450,9 @@ void DevToolsDeviceDiscovery::DiscoveryRequest::ReceivedVersion(
       else
         browser->version_ = browser_name;
     }
+    browser->browser_target_id_ = GetTargetPath(dict);
+    if (browser->browser_target_id_.empty())
+      browser->browser_target_id_ = kBrowserTargetSocket;
     std::string package;
     if (dict->GetString("Android-Package", &package)) {
       browser->display_name_ =
@@ -602,10 +592,9 @@ DevToolsDeviceDiscovery::CreateBrowserAgentHost(
     scoped_refptr<AndroidDeviceManager::Device> device,
     scoped_refptr<RemoteBrowser> browser) {
   return AgentHostDelegate::GetOrCreateAgentHost(
-      device,
-      browser->browser_id_,
+      device, browser->browser_id_,
       "adb:" + browser->serial() + ":" + browser->socket(),
-      kBrowserTargetSocket, DevToolsAgentHost::kTypeBrowser, nullptr);
+      browser->browser_target_id(), DevToolsAgentHost::kTypeBrowser, nullptr);
 }
 
 void DevToolsDeviceDiscovery::RequestDeviceList() {

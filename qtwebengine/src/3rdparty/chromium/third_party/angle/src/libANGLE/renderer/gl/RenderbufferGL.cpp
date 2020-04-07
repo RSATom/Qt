@@ -11,6 +11,7 @@
 #include "common/debug.h"
 #include "libANGLE/Caps.h"
 #include "libANGLE/angletypes.h"
+#include "libANGLE/renderer/gl/BlitGL.h"
 #include "libANGLE/renderer/gl/FunctionsGL.h"
 #include "libANGLE/renderer/gl/StateManagerGL.h"
 #include "libANGLE/renderer/gl/formatutilsgl.h"
@@ -18,14 +19,17 @@
 
 namespace rx
 {
-RenderbufferGL::RenderbufferGL(const FunctionsGL *functions,
+RenderbufferGL::RenderbufferGL(const gl::RenderbufferState &state,
+                               const FunctionsGL *functions,
                                const WorkaroundsGL &workarounds,
                                StateManagerGL *stateManager,
+                               BlitGL *blitter,
                                const gl::TextureCapsMap &textureCaps)
-    : RenderbufferImpl(),
+    : RenderbufferImpl(state),
       mFunctions(functions),
       mWorkarounds(workarounds),
       mStateManager(stateManager),
+      mBlitter(blitter),
       mTextureCaps(textureCaps),
       mRenderbufferID(0)
 {
@@ -39,7 +43,10 @@ RenderbufferGL::~RenderbufferGL()
     mRenderbufferID = 0;
 }
 
-gl::Error RenderbufferGL::setStorage(GLenum internalformat, size_t width, size_t height)
+gl::Error RenderbufferGL::setStorage(const gl::Context *context,
+                                     GLenum internalformat,
+                                     size_t width,
+                                     size_t height)
 {
     mStateManager->bindRenderbuffer(GL_RENDERBUFFER, mRenderbufferID);
 
@@ -48,10 +55,16 @@ gl::Error RenderbufferGL::setStorage(GLenum internalformat, size_t width, size_t
     mFunctions->renderbufferStorage(GL_RENDERBUFFER, renderbufferFormat.internalFormat,
                                     static_cast<GLsizei>(width), static_cast<GLsizei>(height));
 
+    mNativeInternalFormat = renderbufferFormat.internalFormat;
+
     return gl::NoError();
 }
 
-gl::Error RenderbufferGL::setStorageMultisample(size_t samples, GLenum internalformat, size_t width, size_t height)
+gl::Error RenderbufferGL::setStorageMultisample(const gl::Context *context,
+                                                size_t samples,
+                                                GLenum internalformat,
+                                                size_t width,
+                                                size_t height)
 {
     mStateManager->bindRenderbuffer(GL_RENDERBUFFER, mRenderbufferID);
 
@@ -79,12 +92,16 @@ gl::Error RenderbufferGL::setStorageMultisample(size_t samples, GLenum internalf
         } while (error != GL_NO_ERROR);
     }
 
+    mNativeInternalFormat = renderbufferFormat.internalFormat;
+
     return gl::NoError();
 }
 
-gl::Error RenderbufferGL::setStorageEGLImageTarget(egl::Image *image)
+gl::Error RenderbufferGL::setStorageEGLImageTarget(const gl::Context *context, egl::Image *image)
 {
-    UNIMPLEMENTED();
+    // TODO(geofflang): If implemented, be sure to update mNativeInternalFormat.
+    // http://anglebug.com/2412
+    UNREACHABLE();
     return gl::InternalError();
 }
 
@@ -93,4 +110,10 @@ GLuint RenderbufferGL::getRenderbufferID() const
     return mRenderbufferID;
 }
 
+gl::Error RenderbufferGL::initializeContents(const gl::Context *context,
+                                             const gl::ImageIndex &imageIndex)
+{
+    return mBlitter->clearRenderbuffer(this, mNativeInternalFormat);
 }
+
+}  // namespace rx

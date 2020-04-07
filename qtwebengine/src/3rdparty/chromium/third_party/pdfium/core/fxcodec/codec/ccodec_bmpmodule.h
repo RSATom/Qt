@@ -10,8 +10,8 @@
 #include <memory>
 #include <vector>
 
-#include "core/fxcrt/cfx_unowned_ptr.h"
 #include "core/fxcrt/fx_system.h"
+#include "core/fxcrt/unowned_ptr.h"
 
 class CFX_DIBAttribute;
 
@@ -33,7 +33,7 @@ class CCodec_BmpModule {
   ~CCodec_BmpModule();
 
   std::unique_ptr<Context> Start(Delegate* pDelegate);
-  uint32_t GetAvailInput(Context* pContext, uint8_t** avail_buf_ptr);
+  FX_FILESIZE GetAvailInput(Context* pContext, uint8_t** avail_buf_ptr);
   void Input(Context* pContext, const uint8_t* src_buf, uint32_t src_size);
   int32_t ReadHeader(Context* pContext,
                      int32_t* width,

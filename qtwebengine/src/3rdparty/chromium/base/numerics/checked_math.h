@@ -23,7 +23,7 @@ class CheckedNumeric {
  public:
   using type = T;
 
-  constexpr CheckedNumeric() {}
+  constexpr CheckedNumeric() = default;
 
   // Copy constructor.
   template <typename Src>
@@ -61,9 +61,16 @@ class CheckedNumeric {
   // and is within the range supported by the destination type. Returns true if
   // successful and false otherwise.
   template <typename Dst>
-  constexpr bool AssignIfValid(Dst* result) const {
-    return IsValid<Dst>() ? ((*result = static_cast<Dst>(state_.value())), true)
-                          : false;
+#if defined(__clang__) || defined(__GNUC__)
+  __attribute__((warn_unused_result))
+#elif defined(_MSC_VER)
+  _Check_return_
+#endif
+  constexpr bool
+  AssignIfValid(Dst* result) const {
+    return BASE_NUMERICS_LIKELY(IsValid<Dst>())
+               ? ((*result = static_cast<Dst>(state_.value())), true)
+               : false;
   }
 
   // ValueOrDie() - The primary accessor for the underlying value. If the
@@ -76,8 +83,9 @@ class CheckedNumeric {
   // the underlying value, and it is not available through other means.
   template <typename Dst = T, class CheckHandler = CheckOnFailure>
   constexpr StrictNumeric<Dst> ValueOrDie() const {
-    return IsValid<Dst>() ? static_cast<Dst>(state_.value())
-                          : CheckHandler::template HandleFailure<Dst>();
+    return BASE_NUMERICS_LIKELY(IsValid<Dst>())
+               ? static_cast<Dst>(state_.value())
+               : CheckHandler::template HandleFailure<Dst>();
   }
 
   // ValueOrDefault(T default_value) - A convenience method that returns the
@@ -88,8 +96,9 @@ class CheckedNumeric {
   // if the supplied default_value is not within range of the destination type.
   template <typename Dst = T, typename Src>
   constexpr StrictNumeric<Dst> ValueOrDefault(const Src default_value) const {
-    return IsValid<Dst>() ? static_cast<Dst>(state_.value())
-                          : checked_cast<Dst>(default_value);
+    return BASE_NUMERICS_LIKELY(IsValid<Dst>())
+               ? static_cast<Dst>(state_.value())
+               : checked_cast<Dst>(default_value);
   }
 
   // Returns a checked numeric of the specified type, cast from the current
@@ -108,25 +117,25 @@ class CheckedNumeric {
 
   // Prototypes for the supported arithmetic operator overloads.
   template <typename Src>
-  CheckedNumeric& operator+=(const Src rhs);
+  constexpr CheckedNumeric& operator+=(const Src rhs);
   template <typename Src>
-  CheckedNumeric& operator-=(const Src rhs);
+  constexpr CheckedNumeric& operator-=(const Src rhs);
   template <typename Src>
-  CheckedNumeric& operator*=(const Src rhs);
+  constexpr CheckedNumeric& operator*=(const Src rhs);
   template <typename Src>
-  CheckedNumeric& operator/=(const Src rhs);
+  constexpr CheckedNumeric& operator/=(const Src rhs);
   template <typename Src>
-  CheckedNumeric& operator%=(const Src rhs);
+  constexpr CheckedNumeric& operator%=(const Src rhs);
   template <typename Src>
-  CheckedNumeric& operator<<=(const Src rhs);
+  constexpr CheckedNumeric& operator<<=(const Src rhs);
   template <typename Src>
-  CheckedNumeric& operator>>=(const Src rhs);
+  constexpr CheckedNumeric& operator>>=(const Src rhs);
   template <typename Src>
-  CheckedNumeric& operator&=(const Src rhs);
+  constexpr CheckedNumeric& operator&=(const Src rhs);
   template <typename Src>
-  CheckedNumeric& operator|=(const Src rhs);
+  constexpr CheckedNumeric& operator|=(const Src rhs);
   template <typename Src>
-  CheckedNumeric& operator^=(const Src rhs);
+  constexpr CheckedNumeric& operator^=(const Src rhs);
 
   constexpr CheckedNumeric operator-() const {
     // The negation of two's complement int min is int min, so we simply
@@ -191,23 +200,23 @@ class CheckedNumeric {
         SafeUnsignedAbs(state_.value()), state_.is_valid());
   }
 
-  CheckedNumeric& operator++() {
+  constexpr CheckedNumeric& operator++() {
     *this += 1;
     return *this;
   }
 
-  CheckedNumeric operator++(int) {
+  constexpr CheckedNumeric operator++(int) {
     CheckedNumeric value = *this;
     *this += 1;
     return value;
   }
 
-  CheckedNumeric& operator--() {
+  constexpr CheckedNumeric& operator--() {
     *this -= 1;
     return *this;
   }
 
-  CheckedNumeric operator--(int) {
+  constexpr CheckedNumeric operator--(int) {
     CheckedNumeric value = *this;
     *this -= 1;
     return value;
@@ -218,7 +227,7 @@ class CheckedNumeric {
   template <template <typename, typename, typename> class M,
             typename L,
             typename R>
-  static CheckedNumeric MathOp(const L lhs, const R rhs) {
+  static constexpr CheckedNumeric MathOp(const L lhs, const R rhs) {
     using Math = typename MathWrapper<M, L, R>::math;
     T result = 0;
     bool is_valid =
@@ -229,7 +238,7 @@ class CheckedNumeric {
 
   // Assignment arithmetic operations.
   template <template <typename, typename, typename> class M, typename R>
-  CheckedNumeric& MathOp(const R rhs) {
+  constexpr CheckedNumeric& MathOp(const R rhs) {
     using Math = typename MathWrapper<M, T, R>::math;
     T result = 0;  // Using T as the destination saves a range check.
     bool is_valid = state_.is_valid() && Wrapper<R>::is_valid(rhs) &&
@@ -309,8 +318,9 @@ constexpr CheckedNumeric<typename UnderlyingType<T>::type> MakeCheckedNum(
 template <template <typename, typename, typename> class M,
           typename L,
           typename R>
-CheckedNumeric<typename MathWrapper<M, L, R>::type> CheckMathOp(const L lhs,
-                                                                const R rhs) {
+constexpr CheckedNumeric<typename MathWrapper<M, L, R>::type> CheckMathOp(
+    const L lhs,
+    const R rhs) {
   using Math = typename MathWrapper<M, L, R>::math;
   return CheckedNumeric<typename Math::result_type>::template MathOp<M>(lhs,
                                                                         rhs);
@@ -321,11 +331,9 @@ template <template <typename, typename, typename> class M,
           typename L,
           typename R,
           typename... Args>
-CheckedNumeric<typename ResultType<M, L, R, Args...>::type>
+constexpr CheckedNumeric<typename ResultType<M, L, R, Args...>::type>
 CheckMathOp(const L lhs, const R rhs, const Args... args) {
-  auto tmp = CheckMathOp<M>(lhs, rhs);
-  return tmp.IsValid() ? CheckMathOp<M>(tmp, args...)
-                       : decltype(CheckMathOp<M>(tmp, args...))(tmp);
+  return CheckMathOp<M>(CheckMathOp<M>(lhs, rhs), args...);
 }
 
 BASE_NUMERIC_ARITHMETIC_OPERATORS(Checked, Check, Add, +, +=)

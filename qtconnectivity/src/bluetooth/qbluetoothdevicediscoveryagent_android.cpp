@@ -88,6 +88,9 @@ QBluetoothDeviceDiscoveryAgentPrivate::~QBluetoothDeviceDiscoveryAgentPrivate()
     if (m_active != NoScanActive)
         stop();
 
+    if (leScanner.isValid())
+        leScanner.setField<jlong>("qtObject", reinterpret_cast<jlong>(nullptr));
+
     if (receiver) {
         receiver->unregisterReceiver();
         delete receiver;
@@ -147,23 +150,33 @@ void QBluetoothDeviceDiscoveryAgentPrivate::start(QBluetoothDeviceDiscoveryAgent
     }
 
     // check Android v23+ permissions
-    // -> BTLE search requires android.permission.ACCESS_COARSE_LOCATION
+    // -> BTLE search requires android.permission.ACCESS_COARSE_LOCATION or android.permission.ACCESS_FINE_LOCATION
     if (requestedMethods & QBluetoothDeviceDiscoveryAgent::LowEnergyMethod
         && QtAndroid::androidSdkVersion() >= 23)
     {
-        QString permission(QLatin1String("android.permission.ACCESS_COARSE_LOCATION"));
+        const QString coarsePermission(QLatin1String("android.permission.ACCESS_COARSE_LOCATION"));
+        const QString finePermission(QLatin1String("android.permission.ACCESS_FINE_LOCATION"));
 
         // do we have required permission already, if so nothing to do
-        if (QtAndroidPrivate::checkPermission(permission) == QtAndroidPrivate::PermissionsResult::Denied) {
-            qCWarning(QT_BT_ANDROID) << "Requesting ACCESS_COARSE_LOCATION permission";
+        if (QtAndroidPrivate::checkPermission(coarsePermission) == QtAndroidPrivate::PermissionsResult::Denied
+            && QtAndroidPrivate::checkPermission(finePermission) == QtAndroidPrivate::PermissionsResult::Denied) {
+            qCWarning(QT_BT_ANDROID) << "Requesting ACCESS_*_LOCATION permission";
 
             QAndroidJniEnvironment env;
             const QHash<QString, QtAndroidPrivate::PermissionsResult> results =
-                    QtAndroidPrivate::requestPermissionsSync(env, QStringList() << permission);
-            if (!results.contains(permission)
-                || results[permission] == QtAndroidPrivate::PermissionsResult::Denied)
-            {
-                qCWarning(QT_BT_ANDROID) << "Search not possible due to missing permission (ACCESS_COARSE_LOCATION)";
+                    QtAndroidPrivate::requestPermissionsSync(env, QStringList() << coarsePermission << finePermission);
+
+            bool permissionReceived = false;
+            for (const QString &permission: results.keys()) {
+                qCDebug(QT_BT_ANDROID) << permission << (results[permission] == QtAndroidPrivate::PermissionsResult::Denied);
+                if ((permission == coarsePermission || permission == finePermission)
+                    && results[permission] == QtAndroidPrivate::PermissionsResult::Granted) {
+                        permissionReceived = true;
+                        break;
+                }
+            }
+            if (!permissionReceived) {
+                qCWarning(QT_BT_ANDROID) << "Search not possible due to missing permission (ACCESS_COARSE|FINE_LOCATION)";
                 lastError = QBluetoothDeviceDiscoveryAgent::UnknownError;
                 errorString = QBluetoothDeviceDiscoveryAgent::tr("Missing Location permission. Search is not possible.");
                 emit q->error(lastError);
@@ -171,7 +184,7 @@ void QBluetoothDeviceDiscoveryAgentPrivate::start(QBluetoothDeviceDiscoveryAgent
             }
         }
 
-        qCWarning(QT_BT_ANDROID) << "ACCESS_COARSE_LOCATION permission available";
+        qCWarning(QT_BT_ANDROID) << "ACCESS_COARSE|FINE_LOCATION permission available";
     }
 
     // install Java BroadcastReceiver
@@ -307,19 +320,44 @@ void QBluetoothDeviceDiscoveryAgentPrivate::processDiscoveredDevices(
 
     for (int i = 0; i < discoveredDevices.size(); i++) {
         if (discoveredDevices[i].address() == info.address()) {
-            if (discoveredDevices[i] == info && lowEnergySearchTimeout > 0) {
-                qCDebug(QT_BT_ANDROID) << "Duplicate: " << info.address()
-                                       << "isLeScanResult:" << isLeResult;
+            QBluetoothDeviceInfo::Fields updatedFields = QBluetoothDeviceInfo::Field::None;
+            if (discoveredDevices[i].rssi() != info.rssi()) {
+                qCDebug(QT_BT_ANDROID) << "Updating RSSI for" << info.address()
+                                       << info.rssi();
+                discoveredDevices[i].setRssi(info.rssi());
+                updatedFields.setFlag(QBluetoothDeviceInfo::Field::RSSI);
+            }
+            if (discoveredDevices[i].manufacturerData() != info.manufacturerData()) {
+                qCDebug(QT_BT_ANDROID) << "Updating manufacturer data for" << info.address();
+                const QVector<quint16> keys = info.manufacturerIds();
+                for (auto key: keys)
+                    discoveredDevices[i].setManufacturerData(key, info.manufacturerData(key));
+                updatedFields.setFlag(QBluetoothDeviceInfo::Field::ManufacturerData);
+            }
+
+            if (lowEnergySearchTimeout > 0) {
+                if (discoveredDevices[i] != info) {
+                    if (discoveredDevices.at(i).name() == info.name()) {
+                        qCDebug(QT_BT_ANDROID) << "Almost Duplicate " << info.address()
+                                               << info.name() << "- replacing in place";
+                        discoveredDevices.replace(i, info);
+                        emit q->deviceDiscovered(info);
+                    }
+                } else {
+                    if (!updatedFields.testFlag(QBluetoothDeviceInfo::Field::None))
+                        emit q->deviceUpdated(discoveredDevices[i], updatedFields);
+                }
+
                 return;
             }
 
-            if (discoveredDevices.at(i).name() == info.name()) {
-                qCDebug(QT_BT_ANDROID) << "Almost Duplicate "<< info.address()
-                                       << info.name() << "- replacing in place";
-                discoveredDevices.replace(i, info);
-                emit q->deviceDiscovered(info);
-                return;
-            }
+            discoveredDevices.replace(i, info);
+            emit q->deviceDiscovered(info);
+
+            if (!updatedFields.testFlag(QBluetoothDeviceInfo::Field::None))
+                emit q->deviceUpdated(discoveredDevices[i], updatedFields);
+
+            return;
         }
     }
 

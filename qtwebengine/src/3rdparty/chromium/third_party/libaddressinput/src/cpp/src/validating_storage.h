@@ -20,42 +20,42 @@
 #define I18N_ADDRESSINPUT_VALIDATING_STORAGE_H_
 
 #include <libaddressinput/storage.h>
-#include <libaddressinput/util/basictypes.h>
-#include <libaddressinput/util/scoped_ptr.h>
 
+#include <memory>
 #include <string>
 
 namespace i18n {
 namespace addressinput {
 
 // Wraps Storage to add checksum and timestamp to stored data. Sample usage:
-//    scoped_ptr<Storage> file_storage = ...;
+//    std::unique_ptr<Storage> file_storage = ...;
 //    ValidatingStorage storage(file_storage));
 //    storage.Put("key", new std::string("data"));
-//    const scoped_ptr<const ValidatingStorage::Callback> data_ready(
+//    const std::unique_ptr<const ValidatingStorage::Callback> data_ready(
 //        BuildCallback(this, &MyClass::OnDataReady));
 //    storage.Get("key", *data_ready);
 class ValidatingStorage : public Storage {
  public:
+  ValidatingStorage(const ValidatingStorage&) = delete;
+  ValidatingStorage& operator=(const ValidatingStorage&) = delete;
+
   // Takes ownership of |storage|.
   explicit ValidatingStorage(Storage* storage);
-  virtual ~ValidatingStorage();
+  ~ValidatingStorage() override;
 
   // Storage implementation.
-  virtual void Put(const std::string& key, std::string* data);
+  void Put(const std::string& key, std::string* data) override;
 
   // Storage implementation.
   // If the data is invalid, then |data_ready| will be called with (false, key,
   // empty-string). If the data is valid, but stale, then |data_ready| will be
   // called with (false, key, stale-data). If the data is valid and fresh, then
   // |data_ready| will be called with (true, key, fresh-data).
-  virtual void Get(const std::string& key, const Callback& data_ready) const;
+  void Get(const std::string& key, const Callback& data_ready) const override;
 
  private:
   // The storage being wrapped.
-  scoped_ptr<Storage> wrapped_storage_;
-
-  DISALLOW_COPY_AND_ASSIGN(ValidatingStorage);
+  std::unique_ptr<Storage> wrapped_storage_;
 };
 
 }  // namespace addressinput

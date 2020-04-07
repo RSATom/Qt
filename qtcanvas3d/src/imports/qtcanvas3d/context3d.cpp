@@ -78,7 +78,9 @@ const int maxUniformAttributeNameLen = 512;
  * \since QtCanvas3D 1.0
  * \inqmlmodule QtCanvas3D
  * \brief Provides the 3D rendering API and context.
+ * \deprecated
  *
+ * \b{Deprecated in Qt 5.12.}
  * An uncreatable QML type that provides a WebGL-like API that can be used to draw 3D graphics to
  * the Canvas3D element. You can get it by calling the \l{Canvas3D::getContext}{Canvas3D.getContext}
  * method.
@@ -154,6 +156,7 @@ void CanvasContext::setCanvas(Canvas *canvas)
 
 /*!
  * \qmlproperty Canvas3D Context3D::canvas
+ * \b{Deprecated in Qt 5.12.}
  * Holds the read only reference to the Canvas3D for this Context3D.
  */
 Canvas *CanvasContext::canvas()
@@ -163,6 +166,7 @@ Canvas *CanvasContext::canvas()
 
 /*!
  * \qmlproperty int Context3D::drawingBufferWidth
+ * \b{Deprecated in Qt 5.12.}
  * Holds the current read-only logical pixel width of the drawing buffer.
  * To get the width in physical pixels you need to multiply this with the \c devicePixelRatio.
  */
@@ -179,6 +183,7 @@ uint CanvasContext::drawingBufferWidth()
 
 /*!
  * \qmlproperty int Context3D::drawingBufferHeight
+ * \b{Deprecated in Qt 5.12.}
  * Holds the current read-only logical pixel height of the drawing buffer.
  * To get the height in physical pixels you need to multiply this with the \c devicePixelRatio.
  */
@@ -216,6 +221,7 @@ void CanvasContext::setDevicePixelRatio(float ratio)
 
 /*!
  * \qmlmethod Canvas3DShaderPrecisionFormat Context3D::getShaderPrecisionFormat(glEnums shadertype, glEnums precisiontype)
+ * \b{Deprecated in Qt 5.12.}
  * Return a new Canvas3DShaderPrecisionFormat describing the range and precision for the specified shader
  * numeric format.
  * \a shadertype Type of the shader, either \c Context3D.FRAGMENT_SHADER or
@@ -286,6 +292,7 @@ QJSValue CanvasContext::getShaderPrecisionFormat(glEnums shadertype,
 
 /*!
  * \qmlmethod bool Context3D::isContextLost()
+ * \b{Deprecated in Qt 5.12.}
  * Returns \c{true} if the context is currently lost.
  *
  * \sa {Canvas3D::contextLost}{Canvas3D.contextLost}
@@ -299,6 +306,7 @@ bool CanvasContext::isContextLost()
 
 /*!
  * \qmlmethod Canvas3DContextAttributes Context3D::getContextAttributes()
+ * \b{Deprecated in Qt 5.12.}
  * Returns a copy of the actual context parameters that are used in the current context.
  */
 QJSValue CanvasContext::getContextAttributes()
@@ -326,6 +334,7 @@ QJSValue CanvasContext::getContextAttributes()
 
 /*!
  * \qmlmethod void Context3D::flush()
+ * \b{Deprecated in Qt 5.12.}
  * Indicates to graphics driver that previously sent commands must complete within finite time.
  */
 void CanvasContext::flush()
@@ -340,6 +349,7 @@ void CanvasContext::flush()
 
 /*!
  * \qmlmethod void Context3D::finish()
+ * \b{Deprecated in Qt 5.12.}
  * Forces all previous 3D rendering commands to complete.
  * This command is handled synchronously.
  */
@@ -356,6 +366,7 @@ void CanvasContext::finish()
 
 /*!
  * \qmlmethod Canvas3DTexture Context3D::createTexture()
+ * \b{Deprecated in Qt 5.12.}
  * Create a Canvas3DTexture object and initialize a name for it as by calling \c{glGenTextures()}.
  */
 QJSValue CanvasContext::createTexture()
@@ -373,6 +384,7 @@ QJSValue CanvasContext::createTexture()
 
 /*!
  * \qmlmethod void Context3D::deleteTexture(Canvas3DTexture texture3D)
+ * \b{Deprecated in Qt 5.12.}
  * Deletes the given texture as if by calling \c{glDeleteTextures()}.
  * Calling this method repeatedly on the same object has no side effects.
  * \a texture3D is the Canvas3DTexture to be deleted.
@@ -398,6 +410,7 @@ void CanvasContext::deleteTexture(QJSValue texture3D)
 
 /*!
  * \qmlmethod void Context3D::scissor(int x, int y, int width, int height)
+ * \b{Deprecated in Qt 5.12.}
  * Defines a rectangle that constrains the drawing.
  * \a x is theleft edge of the rectangle.
  * \a y is the bottom edge of the rectangle.
@@ -422,6 +435,7 @@ void CanvasContext::scissor(int x, int y, int width, int height)
 
 /*!
  * \qmlmethod void Context3D::activeTexture(glEnums texture)
+ * \b{Deprecated in Qt 5.12.}
  * Sets the given texture unit as active. The number of texture units is implementation dependent,
  * but must be at least 8. Initially \c Context3D.TEXTURE0 is active.
  * \a texture must be one of \c Context3D.TEXTUREi values where \c i ranges from \c 0 to
@@ -440,6 +454,7 @@ void CanvasContext::activeTexture(glEnums texture)
 
 /*!
  * \qmlmethod void Context3D::bindTexture(glEnums target, Canvas3DTexture texture3D)
+ * \b{Deprecated in Qt 5.12.}
  * Bind a Canvas3DTexture to a texturing target.
  * \a target is the target of the active texture unit to which the Canvas3DTexture will be bound.
  * Must be either \c{Context3D.TEXTURE_2D} or \c{Context3D.TEXTURE_CUBE_MAP}.
@@ -565,6 +580,7 @@ bool CanvasContext::checkValidity(CanvasAbstractObject *obj, const char *functio
 }
 
 /*!
+ * \b{Deprecated in Qt 5.12.}
  * Transposes matrices. \a dim is the dimensions of the square matrices in \a src.
  * A newly allocated array containing transposed matrices is returned. \a count specifies how many
  * matrices are handled.
@@ -586,6 +602,7 @@ float *CanvasContext::transposeMatrix(int dim, int count, float *src)
 }
 
 /*!
+ * \b{Deprecated in Qt 5.12.}
  * Set matrix uniform values.
  */
 void CanvasContext::uniformMatrixNfv(int dim, const QJSValue &location3D, bool transpose,
@@ -621,7 +638,7 @@ void CanvasContext::uniformMatrixNfv(int dim, const QJSValue &location3D, bool t
 
     int arrayLen = 0;
     float *uniformData = reinterpret_cast<float * >(
-                getTypedArrayAsRawDataPtr(array, arrayLen, QV4::Heap::TypedArray::Float32Array));
+                getTypedArrayAsRawDataPtr(array, arrayLen, QV4::TypedArrayType::Float32Array));
 
     if (!m_currentProgram || !uniformData || !locationObj)
         return;
@@ -663,6 +680,7 @@ void CanvasContext::uniformMatrixNfv(int dim, const QJSValue &location3D, bool t
 }
 
 /*!
+ * \b{Deprecated in Qt 5.12.}
  * Set matrix uniform values from JS array.
  */
 void CanvasContext::uniformMatrixNfva(int dim, CanvasUniformLocation *uniformLocation,
@@ -715,6 +733,7 @@ void CanvasContext::uniformMatrixNfva(int dim, CanvasUniformLocation *uniformLoc
 
 /*!
  * \qmlmethod void Context3D::generateMipmap(glEnums target)
+ * \b{Deprecated in Qt 5.12.}
  * Generates a complete set of mipmaps for a texture object of the currently active texture unit.
  * \a target defines the texture target to which the texture object is bound whose mipmaps will be
  * generated. Must be either \c{Context3D.TEXTURE_2D} or \c{Context3D.TEXTURE_CUBE_MAP}.
@@ -733,6 +752,7 @@ void CanvasContext::generateMipmap(glEnums target)
 
 /*!
  * \qmlmethod bool Context3D::isTexture(Object anyObject)
+ * \b{Deprecated in Qt 5.12.}
  * Returns true if the given object is a valid Canvas3DTexture object.
  * \a anyObject is the object that is to be verified as a valid texture.
  * This command is handled synchronously.
@@ -769,6 +789,7 @@ CanvasTexture *CanvasContext::getAsTexture3D(const QJSValue &anyObject)
 
 /*!
  * \qmlmethod void Context3D::compressedTexImage2D(glEnums target, int level, glEnums internalformat, int width, int height, int border, TypedArray pixels)
+ * \b{Deprecated in Qt 5.12.}
  * Specify a 2D compressed texture image.
  * \a target specifies the target texture of the active texture unit. Must be one of:
  * \c{Context3D.TEXTURE_2D},
@@ -805,7 +826,7 @@ void CanvasContext::compressedTexImage2D(glEnums target, int level, glEnums inte
         return;
 
     int byteLen = 0;
-    uchar *srcData = getTypedArrayAsRawDataPtr(pixels, byteLen, QV4::Heap::TypedArray::UInt8Array);
+    uchar *srcData = getTypedArrayAsRawDataPtr(pixels, byteLen, QV4::TypedArrayType::UInt8Array);
 
     if (srcData) {
         // Driver implementation will handle checking of texture
@@ -827,6 +848,7 @@ void CanvasContext::compressedTexImage2D(glEnums target, int level, glEnums inte
 
 /*!
  * \qmlmethod void Context3D::compressedTexSubImage2D(glEnums target, int level, int xoffset, int yoffset, int width, int height, glEnums format, TypedArray pixels)
+ * \b{Deprecated in Qt 5.12.}
  * Specify a 2D compressed texture image.
  * \a target specifies the target texture of the active texture unit. Must be one of:
  * \c{Context3D.TEXTURE_2D},
@@ -865,7 +887,7 @@ void CanvasContext::compressedTexSubImage2D(glEnums target, int level,
         return;
 
     int byteLen = 0;
-    uchar *srcData = getTypedArrayAsRawDataPtr(pixels, byteLen, QV4::Heap::TypedArray::UInt8Array);
+    uchar *srcData = getTypedArrayAsRawDataPtr(pixels, byteLen, QV4::TypedArrayType::UInt8Array);
 
     if (srcData) {
         // Driver implementation will handle checking of texture
@@ -887,6 +909,7 @@ void CanvasContext::compressedTexSubImage2D(glEnums target, int level,
 
 /*!
  * \qmlmethod void Context3D::copyTexImage2D(glEnums target, int level, glEnums internalformat, int x, int y, int width, int height, int border)
+ * \b{Deprecated in Qt 5.12.}
  * Copies pixels into currently bound 2D texture.
  * \a target specifies the target texture of the active texture unit. Must be \c{Context3D.TEXTURE_2D},
  * \c{Context3D.TEXTURE_CUBE_MAP_POSITIVE_X}, \c{Context3D.TEXTURE_CUBE_MAP_NEGATIVE_X},
@@ -934,6 +957,7 @@ void CanvasContext::copyTexImage2D(glEnums target, int level, glEnums internalfo
 
 /*!
  * \qmlmethod void Context3D::copyTexSubImage2D(glEnums target, int level, int xoffset, int yoffset, int x, int y, int width, int height)
+ * \b{Deprecated in Qt 5.12.}
  * Copies to into a currently bound 2D texture subimage.
  * \a target specifies the target texture of the active texture unit. Must be
  * \c{Context3D.TEXTURE_2D},
@@ -1019,6 +1043,7 @@ bool CanvasContext::checkContextLost()
 
 /*!
  * \qmlmethod void Context3D::texImage2D(glEnums target, int level, glEnums internalformat, int width, int height, int border, glEnums format, glEnums type, TypedArray pixels)
+ * \b{Deprecated in Qt 5.12.}
  * Specify a 2D texture image.
  * \a target specifies the target texture of the active texture unit. Must be one of:
  * \c{Context3D.TEXTURE_2D},
@@ -1108,7 +1133,7 @@ void CanvasContext::texImage2D(glEnums target, int level, glEnums internalformat
         }
 
         if (!srcData)
-            srcData = getTypedArrayAsRawDataPtr(pixels, QV4::Heap::TypedArray::UInt8Array);
+            srcData = getTypedArrayAsRawDataPtr(pixels, QV4::TypedArrayType::UInt8Array);
 
         if (!srcData) {
             qCWarning(canvas3drendering).nospace() << "Context3D::"
@@ -1134,7 +1159,7 @@ void CanvasContext::texImage2D(glEnums target, int level, glEnums internalformat
     case UNSIGNED_SHORT_5_6_5:
     case UNSIGNED_SHORT_5_5_5_1: {
         if (!srcData)
-            srcData = getTypedArrayAsRawDataPtr(pixels, QV4::Heap::TypedArray::UInt16Array);
+            srcData = getTypedArrayAsRawDataPtr(pixels, QV4::TypedArrayType::UInt16Array);
 
         if (!srcData) {
             qCWarning(canvas3drendering).nospace() << "Context3D::"
@@ -1168,7 +1193,7 @@ void CanvasContext::texImage2D(glEnums target, int level, glEnums internalformat
 }
 
 uchar *CanvasContext::getTypedArrayAsRawDataPtr(const QJSValue &jsValue, int &byteLength,
-                                                QV4::Heap::TypedArray::Type type)
+                                                QV4::TypedArrayType type)
 {
     QV4::Scope scope(m_v4engine);
     QV4::Scoped<QV4::TypedArray> typedArray(scope,
@@ -1177,8 +1202,8 @@ uchar *CanvasContext::getTypedArrayAsRawDataPtr(const QJSValue &jsValue, int &by
     if (!typedArray)
         return 0;
 
-    QV4::Heap::TypedArray::Type arrayType = typedArray->arrayType();
-    if (type < QV4::Heap::TypedArray::NTypes && arrayType != type)
+    QV4::TypedArrayType arrayType = static_cast<QV4::TypedArrayType>(typedArray->arrayType());
+    if (type < QV4::NTypedArrayTypes && arrayType != type)
         return 0;
 
     uchar *dataPtr = reinterpret_cast<uchar *>(typedArray->arrayData()->data());
@@ -1188,7 +1213,7 @@ uchar *CanvasContext::getTypedArrayAsRawDataPtr(const QJSValue &jsValue, int &by
 }
 
 uchar *CanvasContext::getTypedArrayAsRawDataPtr(const QJSValue &jsValue,
-                                                QV4::Heap::TypedArray::Type type)
+                                                QV4::TypedArrayType type)
 {
     int dummy;
     return getTypedArrayAsRawDataPtr(jsValue, dummy, type);
@@ -1196,7 +1221,7 @@ uchar *CanvasContext::getTypedArrayAsRawDataPtr(const QJSValue &jsValue,
 
 uchar *CanvasContext::getTypedArrayAsRawDataPtr(const QJSValue &jsValue, int &byteLength)
 {
-    return getTypedArrayAsRawDataPtr(jsValue, byteLength, QV4::Heap::TypedArray::NTypes);
+    return getTypedArrayAsRawDataPtr(jsValue, byteLength, QV4::NTypedArrayTypes);
 }
 
 uchar *CanvasContext::getArrayBufferAsRawDataPtr(const QJSValue &jsValue, int &byteLength)
@@ -1214,6 +1239,7 @@ uchar *CanvasContext::getArrayBufferAsRawDataPtr(const QJSValue &jsValue, int &b
 
 /*!
  * \qmlmethod void Context3D::texSubImage2D(glEnums target, int level, int xoffset, int yoffset, int width, int height, glEnums format, glEnums type, TypedArray pixels)
+ * \b{Deprecated in Qt 5.12.}
  * Specify a 2D texture subimage.
  * \a target Target texture of the active texture unit. Must be \c{Context3D.TEXTURE_2D},
  * \c{Context3D.TEXTURE_CUBE_MAP_POSITIVE_X}, \c{Context3D.TEXTURE_CUBE_MAP__NEGATIVE_X},
@@ -1294,7 +1320,7 @@ void CanvasContext::texSubImage2D(glEnums target, int level,
             return;
         }
 
-        srcData = getTypedArrayAsRawDataPtr(pixels, QV4::Heap::TypedArray::UInt8Array);
+        srcData = getTypedArrayAsRawDataPtr(pixels, QV4::TypedArrayType::UInt8Array);
         if (!srcData) {
             qCWarning(canvas3drendering).nospace() << "Context3D::"
                                                    << __FUNCTION__
@@ -1318,7 +1344,7 @@ void CanvasContext::texSubImage2D(glEnums target, int level,
     case UNSIGNED_SHORT_4_4_4_4:
     case UNSIGNED_SHORT_5_6_5:
     case UNSIGNED_SHORT_5_5_5_1: {
-        srcData = getTypedArrayAsRawDataPtr(pixels, QV4::Heap::TypedArray::UInt16Array);
+        srcData = getTypedArrayAsRawDataPtr(pixels, QV4::TypedArrayType::UInt16Array);
         if (!srcData) {
             qCWarning(canvas3drendering).nospace() << "Context3D::"
                                                    << __FUNCTION__
@@ -1347,6 +1373,7 @@ void CanvasContext::texSubImage2D(glEnums target, int level,
 }
 
 /*!
+ * \b{Deprecated in Qt 5.12.}
  * If \a useSrcDataAsDst is true, just modifies the original array and returns a null pointer.
  */
 QByteArray *CanvasContext::unpackPixels(uchar *srcData, bool useSrcDataAsDst,
@@ -1404,6 +1431,7 @@ QByteArray *CanvasContext::unpackPixels(uchar *srcData, bool useSrcDataAsDst,
 
 /*!
  * \qmlmethod void Context3D::texImage2D(glEnums target, int level, glEnums internalformat, glEnums format, glEnums type, TextureImage texImage)
+ * \b{Deprecated in Qt 5.12.}
  * Uploads the given TextureImage element to the currently bound Canvas3DTexture.
  * \a target Target texture of the active texture unit. Must be \c{Context3D.TEXTURE_2D},
  * \c{Context3D.TEXTURE_CUBE_MAP_POSITIVE_X}, \c{Context3D.TEXTURE_CUBE_MAP__NEGATIVE_X},
@@ -1521,6 +1549,7 @@ CanvasTextureImage* CanvasContext::getAsTextureImage(const QJSValue &anyObject)
 
 /*!
  * \qmlmethod void Context3D::texSubImage2D(glEnums target, int level, int xoffset, int yoffset, glEnums format, glEnums type, TextureImage texImage)
+ * \b{Deprecated in Qt 5.12.}
  * Uploads the given TextureImage element to the currently bound Canvas3DTexture.
  * \a target specifies the target texture of the active texture unit. Must be
  * \c{Context3D.TEXTURE_2D}, \c{Context3D.TEXTURE_CUBE_MAP_POSITIVE_X},
@@ -1627,6 +1656,7 @@ void CanvasContext::texSubImage2D(glEnums target, int level,
 
 /*!
  * \qmlmethod void Context3D::texParameterf(glEnums target, glEnums pname, float param)
+ * \b{Deprecated in Qt 5.12.}
  * Sets texture parameters.
  * \a target specifies the target texture of the active texture unit. Must be
  * \c{Context3D.TEXTURE_2D} or \c{Context3D.TEXTURE_CUBE_MAP}.
@@ -1652,6 +1682,7 @@ void CanvasContext::texParameterf(glEnums target, glEnums pname, float param)
 
 /*!
  * \qmlmethod void Context3D::texParameteri(glEnums target, glEnums pname, float param)
+ * \b{Deprecated in Qt 5.12.}
  * Sets texture parameters.
  * \a target specifies the target texture of the active texture unit. Must be
  * \c{Context3D.TEXTURE_2D} or \c{Context3D.TEXTURE_CUBE_MAP}.
@@ -1721,6 +1752,7 @@ int CanvasContext::getSufficientSize(glEnums internalFormat, int width, int heig
 
 /*!
  * \qmlmethod Canvas3DFrameBuffer Context3D::createFramebuffer()
+ * \b{Deprecated in Qt 5.12.}
  * Returns a created Canvas3DFrameBuffer object that is initialized with a framebuffer object name as
  * if by calling \c{glGenFramebuffers()}.
  */
@@ -1739,6 +1771,7 @@ QJSValue CanvasContext::createFramebuffer()
 
 /*!
  * \qmlmethod void Context3D::bindFramebuffer(glEnums target, Canvas3DFrameBuffer buffer)
+ * \b{Deprecated in Qt 5.12.}
  * Binds the given \a buffer object to the given \a target.
  * \a target must be \c{Context3D.FRAMEBUFFER}.
  */
@@ -1772,6 +1805,7 @@ void CanvasContext::bindFramebuffer(glEnums target, QJSValue buffer)
 
 /*!
  * \qmlmethod Context3D::glEnums Context3D::checkFramebufferStatus(glEnums target)
+ * \b{Deprecated in Qt 5.12.}
  * Returns the completeness status of the framebuffer object.
  * \a target must be \c{Context3D.FRAMEBUFFER}.
  * This command is handled synchronously.
@@ -1801,6 +1835,7 @@ CanvasContext::glEnums CanvasContext::checkFramebufferStatus(glEnums target)
 
 /*!
  * \qmlmethod void Context3D::framebufferRenderbuffer(glEnums target, glEnums attachment, glEnums renderbuffertarget, Canvas3DRenderBuffer renderbuffer3D)
+ * \b{Deprecated in Qt 5.12.}
  * Attaches the given \a renderbuffer3D object to the \a attachment point of the current framebuffer
  * object.
  * \a target must be \c{Context3D.FRAMEBUFFER}. \a renderbuffertarget must
@@ -1881,6 +1916,7 @@ void CanvasContext::framebufferRenderbuffer(glEnums target, glEnums attachment,
 
 /*!
  * \qmlmethod void Context3D::framebufferTexture2D(glEnums target, glEnums attachment, glEnums textarget, Canvas3DTexture texture3D, int level)
+ * \b{Deprecated in Qt 5.12.}
  * Attaches the given \a renderbuffer object to the \a attachment point of the current framebuffer
  * object.
  * \a target must be \c{Context3D.FRAMEBUFFER}. \a renderbuffertarget must
@@ -1965,6 +2001,7 @@ void CanvasContext::framebufferTexture2D(glEnums target, glEnums attachment, glE
 
 /*!
  * \qmlmethod void Context3D::isFramebuffer(Object anyObject)
+ * \b{Deprecated in Qt 5.12.}
  * Returns true if the given object is a valid Canvas3DFrameBuffer object.
  * \a anyObject is the object that is to be verified as a valid framebuffer.
  * This command is handled synchronously.
@@ -2002,6 +2039,7 @@ CanvasFrameBuffer *CanvasContext::getAsFramebuffer(const QJSValue &anyObject)
 
 /*!
  * \qmlmethod void Context3D::deleteFramebuffer(Canvas3DFrameBuffer buffer)
+ * \b{Deprecated in Qt 5.12.}
  * Deletes the given framebuffer as if by calling \c{glDeleteFramebuffers()}.
  * Calling this method repeatedly on the same object has no side effects.
  * \a buffer is the Canvas3DFrameBuffer to be deleted.
@@ -2026,6 +2064,7 @@ void CanvasContext::deleteFramebuffer(QJSValue buffer)
 
 /*!
  * \qmlmethod Canvas3DRenderBuffer Context3D::createRenderbuffer()
+ * \b{Deprecated in Qt 5.12.}
  * Returns a created Canvas3DRenderBuffer object that is initialized with a renderbuffer object name
  * as if by calling \c{glGenRenderbuffers()}.
  */
@@ -2045,6 +2084,7 @@ QJSValue CanvasContext::createRenderbuffer()
 
 /*!
  * \qmlmethod void Context3D::bindRenderbuffer(glEnums target, Canvas3DRenderBuffer renderbuffer)
+ * \b{Deprecated in Qt 5.12.}
  * Binds the given \a renderbuffer3D object to the given \a target.
  * \a target must be \c{Context3D.RENDERBUFFER}.
  */
@@ -2078,6 +2118,7 @@ void CanvasContext::bindRenderbuffer(glEnums target, QJSValue renderbuffer3D)
 
 /*!
  * \qmlmethod void Context3D::renderbufferStorage(glEnums target, glEnums internalformat, int width, int height)
+ * \b{Deprecated in Qt 5.12.}
  * Create and initialize a data store for the \c renderbuffer object.
  * \a target must be \c Context3D.RENDERBUFFER.
  * \a internalformat specifies the color-renderable, depth-renderable or stencil-renderable format
@@ -2142,6 +2183,7 @@ void CanvasContext::renderbufferStorage(glEnums target, glEnums internalformat,
 
 /*!
  * \qmlmethod bool Context3D::isRenderbuffer(Object anyObject)
+ * \b{Deprecated in Qt 5.12.}
  * Returns true if the given object is a valid Canvas3DRenderBuffer object.
  * \a anyObject is the object that is to be verified as a valid renderbuffer.
  * This command is handled synchronously.
@@ -2178,6 +2220,7 @@ CanvasRenderBuffer *CanvasContext::getAsRenderbuffer3D(const QJSValue &anyObject
 
 /*!
  * \qmlmethod void Context3D::deleteRenderbuffer(Canvas3DRenderBuffer renderbuffer3D)
+ * \b{Deprecated in Qt 5.12.}
  * Deletes the given renderbuffer as if by calling \c{glDeleteRenderbuffers()}.
  * Calling this method repeatedly on the same object has no side effects.
  * \a renderbuffer3D is the Canvas3DRenderBuffer to be deleted.
@@ -2202,6 +2245,7 @@ void CanvasContext::deleteRenderbuffer(QJSValue renderbuffer3D)
 
 /*!
  * \qmlmethod void Context3D::sampleCoverage(float value, bool invert)
+ * \b{Deprecated in Qt 5.12.}
  * Sets the multisample coverage parameters.
  * \a value specifies the floating-point sample coverage value. The value is clamped to the range
  * \c{[0, 1]} with initial value of \c{1.0}.
@@ -2222,6 +2266,7 @@ void CanvasContext::sampleCoverage(float value, bool invert)
 
 /*!
  * \qmlmethod Canvas3DProgram Context3D::createProgram()
+ * \b{Deprecated in Qt 5.12.}
  * Returns a created Canvas3DProgram object that is initialized with a program object name as if by
  * calling \c{glCreateProgram()}.
  */
@@ -2240,6 +2285,7 @@ QJSValue CanvasContext::createProgram()
 
 /*!
  * \qmlmethod bool Context3D::isProgram(Object anyObject)
+ * \b{Deprecated in Qt 5.12.}
  * Returns true if the given object is a valid Canvas3DProgram object.
  * \a anyObject is the object that is to be verified as a valid program.
  * This command is handled synchronously.
@@ -2277,6 +2323,7 @@ CanvasProgram *CanvasContext::getAsProgram3D(const QJSValue &anyObject, bool dea
 
 /*!
  * \qmlmethod void Context3D::deleteProgram(Canvas3DProgram program3D)
+ * \b{Deprecated in Qt 5.12.}
  * Deletes the given program as if by calling \c{glDeleteProgram()}.
  * Calling this method repeatedly on the same object has no side effects.
  * \a program3D is the Canvas3DProgram to be deleted.
@@ -2303,6 +2350,7 @@ void CanvasContext::deleteProgram(QJSValue program3D)
 
 /*!
  * \qmlmethod void Context3D::attachShader(Canvas3DProgram program3D, Canvas3DShader shader3D)
+ * \b{Deprecated in Qt 5.12.}
  * Attaches the given \a shader3D object to the given \a program3D object.
  * Calling this method repeatedly on the same object has no side effects.
  */
@@ -2340,6 +2388,7 @@ void CanvasContext::attachShader(QJSValue program3D, QJSValue shader3D)
 
 /*!
  * \qmlmethod list<Canvas3DShader> Context3D::getAttachedShaders(Canvas3DProgram program3D)
+ * \b{Deprecated in Qt 5.12.}
  * Returns the list of shaders currently attached to the given \a program3D.
  */
 QJSValue CanvasContext::getAttachedShaders(QJSValue program3D)
@@ -2376,6 +2425,7 @@ QJSValue CanvasContext::getAttachedShaders(QJSValue program3D)
 
 /*!
  * \qmlmethod void Context3D::detachShader(Canvas3DProgram program, Canvas3DShader shader)
+ * \b{Deprecated in Qt 5.12.}
  * Detaches given shader object from given program object.
  * \a program3D specifies the program object from which to detach the shader.
  * \a shader3D specifies the shader object to detach.
@@ -2414,6 +2464,7 @@ void CanvasContext::detachShader(QJSValue program3D, QJSValue shader3D)
 
 /*!
  * \qmlmethod void Context3D::linkProgram(Canvas3DProgram program3D)
+ * \b{Deprecated in Qt 5.12.}
  * Links the given program object.
  * \a program3D specifies the program to be linked.
  */
@@ -2435,6 +2486,7 @@ void CanvasContext::linkProgram(QJSValue program3D)
 
 /*!
  * \qmlmethod void Context3D::lineWidth(float width)
+ * \b{Deprecated in Qt 5.12.}
  * Specifies the width of rasterized lines.
  * \a width specifies the width to be used when rasterizing lines. Initial value is \c{1.0}.
  */
@@ -2451,6 +2503,7 @@ void CanvasContext::lineWidth(float width)
 
 /*!
  * \qmlmethod void Context3D::polygonOffset(float factor, float units)
+ * \b{Deprecated in Qt 5.12.}
  * Sets scale and units used to calculate depth values.
  * \a factor specifies the scale factor that is used to create a variable depth offset for each
  * polygon. Initial value is \c{0.0}.
@@ -2472,6 +2525,7 @@ void CanvasContext::polygonOffset(float factor, float units)
 
 /*!
  * \qmlmethod void Context3D::pixelStorei(glEnums pname, int param)
+ * \b{Deprecated in Qt 5.12.}
  * Set the pixel storage modes.
  * \a pname specifies the name of the parameter to be set. \c {Context3D.PACK_ALIGNMENT} affects the
  * packing of pixel data into memory. \c {Context3D.UNPACK_ALIGNMENT} affects the unpacking of pixel
@@ -2538,6 +2592,7 @@ void CanvasContext::pixelStorei(glEnums pname, int param)
 
 /*!
  * \qmlmethod void Context3D::hint(glEnums target, glEnums mode)
+ * \b{Deprecated in Qt 5.12.}
  * Set implementation-specific hints.
  * \a target \c Context3D.GENERATE_MIPMAP_HINT is accepted.
  * \a mode \c{Context3D.FASTEST}, \c{Context3D.NICEST}, and \c{Context3D.DONT_CARE} are accepted.
@@ -2590,6 +2645,7 @@ void CanvasContext::hint(glEnums target, glEnums mode)
 
 /*!
  * \qmlmethod void Context3D::enable(glEnums cap)
+ * \b{Deprecated in Qt 5.12.}
  * Enable server side GL capabilities.
  * \a cap specifies a constant indicating a GL capability.
  */
@@ -2605,6 +2661,7 @@ void CanvasContext::enable(glEnums cap)
 
 /*!
  * \qmlmethod bool Context3D::isEnabled(glEnums cap)
+ * \b{Deprecated in Qt 5.12.}
  * Returns whether a capability is enabled.
  * \a cap specifies a constant indicating a GL capability.
  * This command is handled synchronously.
@@ -2625,6 +2682,7 @@ bool CanvasContext::isEnabled(glEnums cap)
 
 /*!
  * \qmlmethod void Context3D::disable(glEnums cap)
+ * \b{Deprecated in Qt 5.12.}
  * Disable server side GL capabilities.
  * \a cap specifies a constant indicating a GL capability.
  */
@@ -2640,6 +2698,7 @@ void CanvasContext::disable(glEnums cap)
 
 /*!
  * \qmlmethod void Context3D::blendColor(float red, float green, float blue, float alpha)
+ * \b{Deprecated in Qt 5.12.}
  * Set the blend color.
  * \a red, \a green, \a blue and \a alpha specify the components of \c{Context3D.BLEND_COLOR}.
  */
@@ -2682,6 +2741,7 @@ bool CanvasContext::checkBlendMode(glEnums mode)
 
 /*!
  * \qmlmethod void Context3D::blendEquation(glEnums mode)
+ * \b{Deprecated in Qt 5.12.}
  * Sets the equation used for both the RGB blend equation and the alpha blend equation.
  * \a mode specifies how source and destination colors are to be combined. Must be
  * \c{Context3D.FUNC_ADD}, \c{Context3D.FUNC_SUBTRACT} or \c{Context3D.FUNC_REVERSE_SUBTRACT}.
@@ -2698,6 +2758,7 @@ void CanvasContext::blendEquation(glEnums mode)
 
 /*!
  * \qmlmethod void Context3D::blendEquationSeparate(glEnums modeRGB, glEnums modeAlpha)
+ * \b{Deprecated in Qt 5.12.}
  * Set the RGB blend equation and the alpha blend equation separately.
  * \a modeRGB specifies how the RGB components of the source and destination colors are to be
  * combined. Must be \c{Context3D.FUNC_ADD}, \c{Context3D.FUNC_SUBTRACT} or
@@ -2721,6 +2782,7 @@ void CanvasContext::blendEquationSeparate(glEnums modeRGB, glEnums modeAlpha)
 
 /*!
  * \qmlmethod void Context3D::blendFunc(glEnums sfactor, glEnums dfactor)
+ * \b{Deprecated in Qt 5.12.}
  * Sets the pixel arithmetic.
  * \a sfactor specifies how the RGBA source blending factors are computed. Must be
  * \c{Context3D.ZERO}, \c{Context3D.ONE}, \c{Context3D.SRC_COLOR},
@@ -2766,6 +2828,7 @@ void CanvasContext::blendFunc(glEnums sfactor, glEnums dfactor)
 
 /*!
  * \qmlmethod void Context3D::blendFuncSeparate(glEnums srcRGB, glEnums dstRGB, glEnums srcAlpha, glEnums dstAlpha)
+ * \b{Deprecated in Qt 5.12.}
  * Sets the pixel arithmetic for RGB and alpha components separately.
  * \a srcRGB specifies how the RGB source blending factors are computed. Must be \c{Context3D.ZERO},
  * \c{Context3D.ONE}, \c{Context3D.SRC_COLOR}, \c{Context3D.ONE_MINUS_SRC_COLOR},
@@ -2830,6 +2893,7 @@ void CanvasContext::blendFuncSeparate(glEnums srcRGB, glEnums dstRGB, glEnums sr
 
 /*!
  * \qmlmethod variant Context3D::getProgramParameter(Canvas3DProgram program3D, glEnums paramName)
+ * \b{Deprecated in Qt 5.12.}
  * Return the value for the passed \a paramName given the passed \a program3D. The type returned is
  * the natural type for the requested paramName.
  * \a paramName must be \c{Context3D.DELETE_STATUS}, \c{Context3D.LINK_STATUS},
@@ -2895,6 +2959,7 @@ QJSValue CanvasContext::getProgramParameter(QJSValue program3D, glEnums paramNam
 
 /*!
  * \qmlmethod Canvas3DShader Context3D::createShader(glEnums type)
+ * \b{Deprecated in Qt 5.12.}
  * Creates a shader of \a type. Must be either \c Context3D.VERTEX_SHADER or
  * \c{Context3D.FRAGMENT_SHADER}.
  */
@@ -2924,6 +2989,7 @@ QJSValue CanvasContext::createShader(glEnums type)
 
 /*!
  * \qmlmethod bool Context3D::isShader(Object anyObject)
+ * \b{Deprecated in Qt 5.12.}
  * Returns true if the given object is a valid Canvas3DShader object.
  * \a anyObject is the object that is to be verified as a valid shader.
  * This command is handled synchronously.
@@ -2960,6 +3026,7 @@ CanvasShader *CanvasContext::getAsShader3D(const QJSValue &shader3D, bool deadOr
 
 /*!
  * \qmlmethod void Context3D::deleteShader(Canvas3DShader shader)
+ * \b{Deprecated in Qt 5.12.}
  * Deletes the given shader as if by calling \c{glDeleteShader()}.
  * Calling this method repeatedly on the same object has no side effects.
  * \a shader is the Canvas3DShader to be deleted.
@@ -2987,6 +3054,7 @@ void CanvasContext::deleteShader(QJSValue shader3D)
 
 /*!
  * \qmlmethod void Context3D::shaderSource(Canvas3DShader shader, string shaderSource)
+ * \b{Deprecated in Qt 5.12.}
  * Replaces the shader source code in the given shader object.
  * \a shader specifies the shader object whose source code is to be replaced.
  * \a shaderSource specifies the source code to be loaded in to the shader.
@@ -3020,6 +3088,7 @@ void CanvasContext::shaderSource(QJSValue shader3D, const QString &shaderSource)
 
 /*!
  * \qmlmethod string Context3D::getShaderSource(Canvas3DShader shader)
+ * \b{Deprecated in Qt 5.12.}
  * Returns the source code string from the \a shader object.
  */
 QJSValue CanvasContext::getShaderSource(QJSValue shader3D)
@@ -3078,6 +3147,7 @@ CanvasUniformLocation *CanvasContext::getAsUniformLocation3D(const QJSValue &any
 
 /*!
  * \qmlmethod void Context3D::uniform1i(Canvas3DUniformLocation location3D, int x)
+ * \b{Deprecated in Qt 5.12.}
  * Sets the single integer value given in \a x to the given uniform \a location3D.
  */
 void CanvasContext::uniform1i(QJSValue location3D, int x)
@@ -3087,6 +3157,7 @@ void CanvasContext::uniform1i(QJSValue location3D, int x)
 
 /*!
  * \qmlmethod void Context3D::uniform1iv(Canvas3DUniformLocation location3D, Int32Array array)
+ * \b{Deprecated in Qt 5.12.}
  * Sets the integer array given in \a array to the given uniform \a location3D.
  */
 void CanvasContext::uniform1iv(QJSValue location3D, QJSValue array)
@@ -3096,6 +3167,7 @@ void CanvasContext::uniform1iv(QJSValue location3D, QJSValue array)
 
 /*!
  * \qmlmethod void Context3D::uniform1f(Canvas3DUniformLocation location3D, float x)
+ * \b{Deprecated in Qt 5.12.}
  * Sets the single float value given in \a x to the given uniform \a location3D.
  */
 void CanvasContext::uniform1f(QJSValue location3D, float x)
@@ -3105,6 +3177,7 @@ void CanvasContext::uniform1f(QJSValue location3D, float x)
 
 /*!
  * \qmlmethod void Context3D::uniform1fvt(Canvas3DUniformLocation location3D, Object array)
+ * \b{Deprecated in Qt 5.12.}
  * Sets the float array given in \a array to the given uniform \a location3D. \a array must be
  * a JavaScript \c Array object or a \c Float32Array object.
  */
@@ -3115,6 +3188,7 @@ void CanvasContext::uniform1fv(QJSValue location3D, QJSValue array)
 
 /*!
  * \qmlmethod void Context3D::uniform2f(Canvas3DUniformLocation location3D, float x, float y)
+ * \b{Deprecated in Qt 5.12.}
  * Sets the two float values given in \a x and \a y to the given uniform \a location3D.
  */
 void CanvasContext::uniform2f(QJSValue location3D, float x, float y)
@@ -3124,6 +3198,7 @@ void CanvasContext::uniform2f(QJSValue location3D, float x, float y)
 
 /*!
  * \qmlmethod void Context3D::uniform2fv(Canvas3DUniformLocation location3D, Float32Array array)
+ * \b{Deprecated in Qt 5.12.}
  * Sets the float array given in \a array to the given uniform \a location3D.
  */
 void CanvasContext::uniform2fv(QJSValue location3D, QJSValue array)
@@ -3133,6 +3208,7 @@ void CanvasContext::uniform2fv(QJSValue location3D, QJSValue array)
 
 /*!
  * \qmlmethod void Context3D::uniform2i(Canvas3DUniformLocation location3D, int x, int y)
+ * \b{Deprecated in Qt 5.12.}
  * Sets the two integer values given in \a x and \a y to the given uniform \a location3D.
  */
 void CanvasContext::uniform2i(QJSValue location3D, int x, int y)
@@ -3142,6 +3218,7 @@ void CanvasContext::uniform2i(QJSValue location3D, int x, int y)
 
 /*!
  * \qmlmethod void Context3D::uniform2iv(Canvas3DUniformLocation location3D, Int32Array array)
+ * \b{Deprecated in Qt 5.12.}
  * Sets the integer array given in \a array to the given uniform \a location3D.
  */
 void CanvasContext::uniform2iv(QJSValue location3D, QJSValue array)
@@ -3151,6 +3228,7 @@ void CanvasContext::uniform2iv(QJSValue location3D, QJSValue array)
 
 /*!
  * \qmlmethod void Context3D::uniform3f(Canvas3DUniformLocation location3D, float x, float y, float z)
+ * \b{Deprecated in Qt 5.12.}
  * Sets the three float values given in \a x , \a y and \a z to the given uniform \a location3D.
  */
 void CanvasContext::uniform3f(QJSValue location3D, float x, float y, float z)
@@ -3160,6 +3238,7 @@ void CanvasContext::uniform3f(QJSValue location3D, float x, float y, float z)
 
 /*!
  * \qmlmethod void Context3D::uniform3fv(Canvas3DUniformLocation location3D, Float32Array array)
+ * \b{Deprecated in Qt 5.12.}
  * Sets the float array given in \a array to the given uniform \a location3D.
  */
 void CanvasContext::uniform3fv(QJSValue location3D, QJSValue array)
@@ -3169,6 +3248,7 @@ void CanvasContext::uniform3fv(QJSValue location3D, QJSValue array)
 
 /*!
  * \qmlmethod void Context3D::uniform3i(Canvas3DUniformLocation location3D, int x, int y, int z)
+ * \b{Deprecated in Qt 5.12.}
  * Sets the three integer values given in \a x , \a y and \a z to the given uniform \a location3D.
  */
 void CanvasContext::uniform3i(QJSValue location3D, int x, int y, int z)
@@ -3178,6 +3258,7 @@ void CanvasContext::uniform3i(QJSValue location3D, int x, int y, int z)
 
 /*!
  * \qmlmethod void Context3D::uniform3iv(Canvas3DUniformLocation location3D, Int32Array array)
+ * \b{Deprecated in Qt 5.12.}
  * Sets the integer array given in \a array to the given uniform \a location3D.
  */
 void CanvasContext::uniform3iv(QJSValue location3D, QJSValue array)
@@ -3187,6 +3268,7 @@ void CanvasContext::uniform3iv(QJSValue location3D, QJSValue array)
 
 /*!
  * \qmlmethod void Context3D::uniform4f(Canvas3DUniformLocation location3D, float x, float y, float z, float w)
+ * \b{Deprecated in Qt 5.12.}
  * Sets the four float values given in \a x , \a y , \a z and \a w to the given uniform \a location3D.
  */
 void CanvasContext::uniform4f(QJSValue location3D, float x, float y, float z, float w)
@@ -3196,6 +3278,7 @@ void CanvasContext::uniform4f(QJSValue location3D, float x, float y, float z, fl
 
 /*!
  * \qmlmethod void Context3D::uniform4fv(Canvas3DUniformLocation location3D, Float32Array array)
+ * \b{Deprecated in Qt 5.12.}
  * Sets the float array given in \a array to the given uniform \a location3D.
  */
 void CanvasContext::uniform4fv(QJSValue location3D, QJSValue array)
@@ -3205,6 +3288,7 @@ void CanvasContext::uniform4fv(QJSValue location3D, QJSValue array)
 
 /*!
  * \qmlmethod void Context3D::uniform4i(Canvas3DUniformLocation location3D, int x, int y, int z, int w)
+ * \b{Deprecated in Qt 5.12.}
  * Sets the four integer values given in \a x , \a y , \a z and \a w to the given uniform
  * \a location3D.
  */
@@ -3215,6 +3299,7 @@ void CanvasContext::uniform4i(QJSValue location3D, int x, int y, int z, int w)
 
 /*!
  * \qmlmethod void Context3D::uniform4iv(Canvas3DUniformLocation location3D, Int32Array array)
+ * \b{Deprecated in Qt 5.12.}
  * Sets the integer array given in \a array to the given uniform \a location3D.
  */
 void CanvasContext::uniform4iv(QJSValue location3D, QJSValue array)
@@ -3263,8 +3348,7 @@ void CanvasContext::vertexAttribNfv(int dim, unsigned int indx, const QJSValue &
     }
 
     int arrayLen = 0;
-    uchar *attribData = getTypedArrayAsRawDataPtr(array, arrayLen,
-                                                  QV4::Heap::TypedArray::Float32Array);
+    uchar *attribData = getTypedArrayAsRawDataPtr(array, arrayLen, QV4::TypedArrayType::Float32Array);
 
     if (!attribData) {
         m_error |= CANVAS_INVALID_OPERATION;
@@ -3449,8 +3533,8 @@ void CanvasContext::uniformNxv(int dim, bool typeFloat, const QJSValue &location
 
     int arrayLen = 0;
     uchar *uniformData = getTypedArrayAsRawDataPtr(array, arrayLen,
-                                                   typeFloat ? QV4::Heap::TypedArray::Float32Array
-                                                             : QV4::Heap::TypedArray::Int32Array);
+                                                   typeFloat ? QV4::TypedArrayType::Float32Array
+                                                             : QV4::TypedArrayType::Int32Array);
 
     if (!uniformData) {
         m_error |= CANVAS_INVALID_OPERATION;
@@ -3466,6 +3550,7 @@ void CanvasContext::uniformNxv(int dim, bool typeFloat, const QJSValue &location
 }
 
 /*!
+ * \b{Deprecated in Qt 5.12.}
  * Checks if capability passed to enable, isEnabled, or disable function is valid.
  */
 bool CanvasContext::isCapabilityValid(CanvasContext::glEnums cap)
@@ -3498,6 +3583,7 @@ bool CanvasContext::isCapabilityValid(CanvasContext::glEnums cap)
 
 /*!
  * \qmlmethod void Context3D::vertexAttrib1f(int indx, float x)
+ * \b{Deprecated in Qt 5.12.}
  * Sets the single float value given in \a x to the generic vertex attribute index specified
  * by \a indx.
  */
@@ -3515,6 +3601,7 @@ void CanvasContext::vertexAttrib1f(unsigned int indx, float x)
 
 /*!
  * \qmlmethod void Context3D::vertexAttrib1fv(int indx, Float32Array array)
+ * \b{Deprecated in Qt 5.12.}
  * Sets the float array given in \a array to the generic vertex attribute index
  * specified by \a indx.
  */
@@ -3525,6 +3612,7 @@ void CanvasContext::vertexAttrib1fv(unsigned int indx, QJSValue array)
 
 /*!
  * \qmlmethod void Context3D::vertexAttrib2f(int indx, float x, float y)
+ * \b{Deprecated in Qt 5.12.}
  * Sets the two float values given in \a x and \a y to the generic vertex attribute index
  * specified by \a indx.
  */
@@ -3544,6 +3632,7 @@ void CanvasContext::vertexAttrib2f(unsigned int indx, float x, float y)
 
 /*!
  * \qmlmethod void Context3D::vertexAttrib2fv(int indx, Float32Array array)
+ * \b{Deprecated in Qt 5.12.}
  * Sets the float array given in \a array to the generic vertex attribute index
  * specified by \a indx.
  */
@@ -3554,6 +3643,7 @@ void CanvasContext::vertexAttrib2fv(unsigned int indx, QJSValue array)
 
 /*!
  * \qmlmethod void Context3D::vertexAttrib3f(int indx, float x, float y, float z)
+ * \b{Deprecated in Qt 5.12.}
  * Sets the three float values given in \a x , \a y and \a z to the generic vertex attribute index
  * specified by \a indx.
  */
@@ -3574,6 +3664,7 @@ void CanvasContext::vertexAttrib3f(unsigned int indx, float x, float y, float z)
 
 /*!
  * \qmlmethod void Context3D::vertexAttrib3fv(int indx, Float32Array array)
+ * \b{Deprecated in Qt 5.12.}
  * Sets the float array given in \a array to the generic vertex attribute index
  * specified by \a indx.
  */
@@ -3584,6 +3675,7 @@ void CanvasContext::vertexAttrib3fv(unsigned int indx, QJSValue array)
 
 /*!
  * \qmlmethod void Context3D::vertexAttrib4f(int indx, float x, float y, float z, float w)
+ * \b{Deprecated in Qt 5.12.}
  * Sets the four float values given in \a x , \a y , \a z and \a w to the generic vertex attribute
  * index specified by \a indx.
  */
@@ -3605,6 +3697,7 @@ void CanvasContext::vertexAttrib4f(unsigned int indx, float x, float y, float z,
 
 /*!
  * \qmlmethod void Context3D::vertexAttrib4fv(int indx, Float32Array array)
+ * \b{Deprecated in Qt 5.12.}
  * Sets the float array given in \a array to the generic vertex attribute index
  * specified by \a indx.
  */
@@ -3615,6 +3708,7 @@ void CanvasContext::vertexAttrib4fv(unsigned int indx, QJSValue array)
 
 /*!
  * \qmlmethod int Context3D::getShaderParameter(Canvas3DShader shader, glEnums pname)
+ * \b{Deprecated in Qt 5.12.}
  * Returns the value of the passed \a pname for the given \a shader.
  * \a pname must be one of \c{Context3D.SHADER_TYPE}, \c Context3D.DELETE_STATUS and
  * \c{Context3D.COMPILE_STATUS}.
@@ -3674,6 +3768,7 @@ QJSValue CanvasContext::getShaderParameter(QJSValue shader3D, glEnums pname)
 
 /*!
  * \qmlmethod Canvas3DBuffer Context3D::createBuffer()
+ * \b{Deprecated in Qt 5.12.}
  * Creates a Canvas3DBuffer object and initializes it with a buffer object name as if \c glGenBuffers()
  * was called.
  */
@@ -3694,6 +3789,7 @@ QJSValue CanvasContext::createBuffer()
 
 /*!
  * \qmlmethod Canvas3DUniformLocation Context3D::getUniformLocation(Canvas3DProgram program3D, string name)
+ * \b{Deprecated in Qt 5.12.}
  * Returns Canvas3DUniformLocation object that represents the location3D of a specific uniform variable
  * with the given \a name within the given \a program3D object.
  * Returns \c null if name doesn't correspond to a uniform variable.
@@ -3733,6 +3829,7 @@ QJSValue CanvasContext::getUniformLocation(QJSValue program3D, const QString &na
 
 /*!
  * \qmlmethod int Context3D::getAttribLocation(Canvas3DProgram program3D, string name)
+ * \b{Deprecated in Qt 5.12.}
  * Returns location3D of the given attribute variable \a name in the given \a program3D.
  * This command is handled synchronously.
  */
@@ -3774,6 +3871,7 @@ int CanvasContext::getAttribLocation(QJSValue program3D, const QString &name)
 
 /*!
  * \qmlmethod void Context3D::bindAttribLocation(Canvas3DProgram program3D, int index, string name)
+ * \b{Deprecated in Qt 5.12.}
  * Binds the attribute \a index with the attribute variable \a name in the given \a program3D.
  */
 void CanvasContext::bindAttribLocation(QJSValue program3D, int index, const QString &name)
@@ -3799,6 +3897,7 @@ void CanvasContext::bindAttribLocation(QJSValue program3D, int index, const QStr
 
 /*!
  * \qmlmethod void Context3D::enableVertexAttribArray(int index)
+ * \b{Deprecated in Qt 5.12.}
  * Enables the vertex attribute array at \a index.
  */
 void CanvasContext::enableVertexAttribArray(int index)
@@ -3814,6 +3913,7 @@ void CanvasContext::enableVertexAttribArray(int index)
 
 /*!
  * \qmlmethod void Context3D::disableVertexAttribArray(int index)
+ * \b{Deprecated in Qt 5.12.}
  * Disables the vertex attribute array at \a index.
  */
 void CanvasContext::disableVertexAttribArray(int index)
@@ -3829,6 +3929,7 @@ void CanvasContext::disableVertexAttribArray(int index)
 
 /*!
  * \qmlmethod void Context3D::uniformMatrix2fv(Canvas3DUniformLocation location3D, bool transpose, Value array)
+ * \b{Deprecated in Qt 5.12.}
  * Converts the float array given in \a array to a 2x2 matrix and sets it to the given
  * uniform at \a uniformLocation. Applies \a transpose if set to \c{true}.
  */
@@ -3839,6 +3940,7 @@ void CanvasContext::uniformMatrix2fv(QJSValue location3D, bool transpose, QJSVal
 
 /*!
  * \qmlmethod void Context3D::uniformMatrix3fv(Canvas3DUniformLocation location3D, bool transpose, Value array)
+ * \b{Deprecated in Qt 5.12.}
  * Converts the float array given in \a array to a 3x3 matrix and sets it to the given
  * uniform at \a uniformLocation. Applies \a transpose if set to \c{true}.
  */
@@ -3849,6 +3951,7 @@ void CanvasContext::uniformMatrix3fv(QJSValue location3D, bool transpose, QJSVal
 
 /*!
  * \qmlmethod void Context3D::uniformMatrix4fv(Canvas3DUniformLocation location3D, bool transpose, Value array)
+ * \b{Deprecated in Qt 5.12.}
  * Converts the float array given in \a array to a 4x4 matrix and sets it to the given
  * uniform at \a uniformLocation. Applies \a transpose if set to \c{true}.
  */
@@ -3859,6 +3962,7 @@ void CanvasContext::uniformMatrix4fv(QJSValue location3D, bool transpose, QJSVal
 
 /*!
  * \qmlmethod void Context3D::vertexAttribPointer(int indx, int size, glEnums type, bool normalized, int stride, long offset)
+ * \b{Deprecated in Qt 5.12.}
  * Sets the currently bound array buffer to the vertex attribute at the index passed at \a indx.
  * \a size is the number of components per attribute. \a stride specifies the byte offset between
  * consecutive vertex attributes. \a offset specifies the byte offset to the first vertex attribute
@@ -4021,6 +4125,7 @@ bool CanvasContext::checkBufferUsage(CanvasContext::glEnums usage)
 
 /*!
  * \qmlmethod void Context3D::bufferData(glEnums target, long size, glEnums usage)
+ * \b{Deprecated in Qt 5.12.}
  * Sets the size of the \a target buffer to \a size. Target buffer must be either
  * \c{Context3D.ARRAY_BUFFER} or \c{Context3D.ELEMENT_ARRAY_BUFFER}. \a usage sets the usage pattern
  * of the data, and must be one of \c{Context3D.STREAM_DRAW}, \c{Context3D.STATIC_DRAW}, or
@@ -4042,6 +4147,7 @@ void CanvasContext::bufferData(glEnums target, long size, glEnums usage)
 
 /*!
  * \qmlmethod void Context3D::bufferData(glEnums target, value data, glEnums usage)
+ * \b{Deprecated in Qt 5.12.}
  * Writes the \a data held in \c{ArrayBufferView} or \c{ArrayBuffer} to the \a target buffer.
  * Target buffer must be either \c{Context3D.ARRAY_BUFFER } or \c{Context3D.ELEMENT_ARRAY_BUFFER}.
  * \a usage sets the usage pattern of the data, and must be one of \c{Context3D.STREAM_DRAW},
@@ -4086,6 +4192,7 @@ void CanvasContext::bufferData(glEnums target, QJSValue data, glEnums usage)
 
 /*!
  * \qmlmethod void Context3D::bufferSubData(glEnums target, int offset, value data)
+ * \b{Deprecated in Qt 5.12.}
  * Writes the \a data held in \c{ArrayBufferView} or \c{ArrayBuffer} starting from \a offset to the
  * \a target buffer. Target buffer must be either \c Context3D.ARRAY_BUFFER or
  * \c{Context3D.ELEMENT_ARRAY_BUFFER}.
@@ -4129,6 +4236,7 @@ void CanvasContext::bufferSubData(glEnums target, int offset, QJSValue data)
 
 /*!
  * \qmlmethod value Context3D::getBufferParameter(glEnums target, glEnums pname)
+ * \b{Deprecated in Qt 5.12.}
  * Returns the value for the passed \a pname of the \a target. Target
  * must be either \c Context3D.ARRAY_BUFFER or \c{Context3D.ELEMENT_ARRAY_BUFFER}. pname must be
  * either \c Context3D.BUFFER_SIZE or \c{Context3D.BUFFER_USAGE}.
@@ -4168,6 +4276,7 @@ QJSValue CanvasContext::getBufferParameter(glEnums target, glEnums pname)
 
 /*!
  * \qmlmethod bool Context3D::isBuffer(Object anyObject)
+ * \b{Deprecated in Qt 5.12.}
  * Returns \c true if the given \a anyObect is a valid Canvas3DBuffer object,
  * \c false otherwise.
  * This command is handled synchronously.
@@ -4205,6 +4314,7 @@ CanvasBuffer *CanvasContext::getAsBuffer3D(const QJSValue &anyObject) const
 
 /*!
  * \qmlmethod void Context3D::deleteBuffer(Canvas3DBuffer buffer3D)
+ * \b{Deprecated in Qt 5.12.}
  * Deletes the \a buffer3D. Has no effect if the Canvas3DBuffer object has been deleted already.
  */
 void CanvasContext::deleteBuffer(QJSValue buffer3D)
@@ -4229,6 +4339,7 @@ void CanvasContext::deleteBuffer(QJSValue buffer3D)
 
 /*!
  * \qmlmethod glEnums Context3D::getError()
+ * \b{Deprecated in Qt 5.12.}
  * Returns the error value, if any.
  * This command is handled synchronously.
  */
@@ -4278,6 +4389,7 @@ CanvasContext::glEnums CanvasContext::getError()
 
 /*!
  * \qmlmethod variant Context3D::getParameter(glEnums pname)
+ * \b{Deprecated in Qt 5.12.}
  * Returns the value for the given \a pname.
  * This command is handled synchronously.
  */
@@ -4421,11 +4533,8 @@ QJSValue CanvasContext::getParameter(glEnums pname)
 
         QV4::ScopedFunctionObject constructor(scope,
                                               m_v4engine->typedArrayCtors[
-                                              QV4::Heap::TypedArray::Float32Array]);
-        QV4::ScopedCallData callData(scope, 1);
-        callData->args[0] = buffer;
-        constructor->construct(scope, callData);
-        return QJSValue(m_v4engine, scope.result.asReturnedValue());
+                                              QV4::TypedArrayType::Float32Array]);
+        return QJSValue(m_v4engine, constructor->callAsConstructor(buffer, 1));
     }
 
         // Float32Array (with 4 values)
@@ -4442,11 +4551,8 @@ QJSValue CanvasContext::getParameter(glEnums pname)
 
         QV4::ScopedFunctionObject constructor(scope,
                                               m_v4engine->typedArrayCtors[
-                                              QV4::Heap::TypedArray::Float32Array]);
-        QV4::ScopedCallData callData(scope, 1);
-        callData->args[0] = buffer;
-        constructor->construct(scope, callData);
-        return QJSValue(m_v4engine, scope.result.asReturnedValue());
+                                              QV4::TypedArrayType::Float32Array]);
+        return QJSValue(m_v4engine, constructor->callAsConstructor(buffer, 1));
     }
 
         // Int32Array (with 2 elements)
@@ -4460,11 +4566,8 @@ QJSValue CanvasContext::getParameter(glEnums pname)
 
         QV4::ScopedFunctionObject constructor(scope,
                                               m_v4engine->typedArrayCtors[
-                                              QV4::Heap::TypedArray::Int32Array]);
-        QV4::ScopedCallData callData(scope, 1);
-        callData->args[0] = buffer;
-        constructor->construct(scope, callData);
-        return QJSValue(m_v4engine, scope.result.asReturnedValue());
+                                              QV4::TypedArrayType::Int32Array]);
+        return QJSValue(m_v4engine, constructor->callAsConstructor(buffer, 1));
     }
         // Int32Array (with 4 elements)
         // Intentional flow through
@@ -4479,11 +4582,8 @@ QJSValue CanvasContext::getParameter(glEnums pname)
 
         QV4::ScopedFunctionObject constructor(scope,
                                               m_v4engine->typedArrayCtors[
-                                              QV4::Heap::TypedArray::Int32Array]);
-        QV4::ScopedCallData callData(scope, 1);
-        callData->args[0] = buffer;
-        constructor->construct(scope, callData);
-        return QJSValue(m_v4engine, scope.result.asReturnedValue());
+                                              QV4::TypedArrayType::Int32Array]);
+        return QJSValue(m_v4engine, constructor->callAsConstructor(buffer, 1));
     }
 
         // sequence<GLboolean> (with 4 values)
@@ -4559,11 +4659,8 @@ QJSValue CanvasContext::getParameter(glEnums pname)
         }
         QV4::ScopedFunctionObject constructor(scope,
                                               m_v4engine->typedArrayCtors[
-                                              QV4::Heap::TypedArray::UInt32Array]);
-        QV4::ScopedCallData callData(scope, 1);
-        callData->args[0] = buffer;
-        constructor->construct(scope, callData);
-        return QJSValue(m_v4engine, scope.result.asReturnedValue());
+                                              QV4::TypedArrayType::UInt32Array]);
+        return QJSValue(m_v4engine, constructor->callAsConstructor(buffer, 1));
     }
     case FRAMEBUFFER_BINDING: {
         return m_engine->newQObject(m_currentFramebuffer);
@@ -4599,6 +4696,7 @@ QJSValue CanvasContext::getParameter(glEnums pname)
 
 /*!
  * \qmlmethod string Context3D::getShaderInfoLog(Canvas3DShader shader)
+ * \b{Deprecated in Qt 5.12.}
  * Returns the info log string of the given \a shader.
  * This command is handled synchronously.
  */
@@ -4631,6 +4729,7 @@ QJSValue CanvasContext::getShaderInfoLog(QJSValue shader3D)
 
 /*!
  * \qmlmethod string Context3D::getProgramInfoLog(Canvas3DProgram program3D)
+ * \b{Deprecated in Qt 5.12.}
  * Returns the info log string of the given \a program3D.
  * This command is handled synchronously.
  */
@@ -4664,6 +4763,7 @@ QJSValue CanvasContext::getProgramInfoLog(QJSValue program3D)
 
 /*!
  * \qmlmethod void Context3D::bindBuffer(glEnums target, Canvas3DBuffer buffer3D)
+ * \b{Deprecated in Qt 5.12.}
  * Binds the given \a buffer3D to the given \a target. Target must be either
  * \c Context3D.ARRAY_BUFFER or \c{Context3D.ELEMENT_ARRAY_BUFFER}. If the \a buffer3D given is
  * \c{null}, the current buffer bound to the target is unbound.
@@ -4719,6 +4819,7 @@ void CanvasContext::bindBuffer(glEnums target, QJSValue buffer3D)
 
 /*!
  * \qmlmethod void Context3D::validateProgram(Canvas3DProgram program3D)
+ * \b{Deprecated in Qt 5.12.}
  * Validates the given \a program3D. The validation status is stored into the state of the shader
  * program container in \a program3D and can be queried using \c{Context3D.VALIDATE_STATUS}
  * as \c{paramName} for \c{Context3D.getProgramParameter()} method. Additional information may
@@ -4742,6 +4843,7 @@ void CanvasContext::validateProgram(QJSValue program3D)
 
 /*!
  * \qmlmethod void Context3D::useProgram(Canvas3DProgram program)
+ * \b{Deprecated in Qt 5.12.}
  * Installs the given \a program3D as a part of the current rendering state.
  */
 void CanvasContext::useProgram(QJSValue program3D)
@@ -4764,6 +4866,7 @@ void CanvasContext::useProgram(QJSValue program3D)
 
 /*!
  * \qmlmethod void Context3D::clear(glEnums flags)
+ * \b{Deprecated in Qt 5.12.}
  * Clears the given \a flags.
  */
 void CanvasContext::clear(glEnums flags)
@@ -4795,6 +4898,7 @@ void CanvasContext::clear(glEnums flags)
 
 /*!
  * \qmlmethod void Context3D::cullFace(glEnums mode)
+ * \b{Deprecated in Qt 5.12.}
  * Sets the culling to \a mode. Must be one of \c{Context3D.FRONT}, \c{Context3D.BACK},
  * or \c{Context3D.FRONT_AND_BACK}. Defaults to \c{Context3D.BACK}.
  */
@@ -4810,6 +4914,7 @@ void CanvasContext::cullFace(glEnums mode)
 
 /*!
  * \qmlmethod void Context3D::frontFace(glEnums mode)
+ * \b{Deprecated in Qt 5.12.}
  * Sets the front face drawing to \a mode. Must be either \c Context3D.CW
  * or \c{Context3D.CCW}. Defaults to \c{Context3D.CCW}.
  */
@@ -4825,6 +4930,7 @@ void CanvasContext::frontFace(glEnums mode)
 
 /*!
  * \qmlmethod void Context3D::depthMask(bool flag)
+ * \b{Deprecated in Qt 5.12.}
  * Enables or disables the depth mask based on \a flag. Defaults to \c{true}.
  */
 void CanvasContext::depthMask(bool flag)
@@ -4839,6 +4945,7 @@ void CanvasContext::depthMask(bool flag)
 
 /*!
  * \qmlmethod void Context3D::depthFunc(glEnums func)
+ * \b{Deprecated in Qt 5.12.}
  * Sets the depth function to \a func. Must be one of \c{Context3D.NEVER}, \c{Context3D.LESS},
  * \c{Context3D.EQUAL}, \c{Context3D.LEQUAL}, \c{Context3D.GREATER}, \c{Context3D.NOTEQUAL},
  * \c{Context3D.GEQUAL}, or \c{Context3D.ALWAYS}. Defaults to \c{Context3D.LESS}.
@@ -4855,6 +4962,7 @@ void CanvasContext::depthFunc(glEnums func)
 
 /*!
  * \qmlmethod void Context3D::depthRange(float zNear, float zFar)
+ * \b{Deprecated in Qt 5.12.}
  * Sets the depth range between \a zNear and \a zFar. Values are clamped to \c{[0, 1]}. \a zNear
  * must be less or equal to \a zFar. zNear Range defaults to \c{[0, 1]}.
  */
@@ -4872,6 +4980,7 @@ void CanvasContext::depthRange(float zNear, float zFar)
 
 /*!
  * \qmlmethod void Context3D::clearStencil(int stencil)
+ * \b{Deprecated in Qt 5.12.}
  * Sets the clear value for the stencil buffer to \a stencil. Defaults to \c{0}.
  */
 void CanvasContext::clearStencil(int stencil)
@@ -4886,6 +4995,7 @@ void CanvasContext::clearStencil(int stencil)
 
 /*!
  * \qmlmethod void Context3D::colorMask(bool maskRed, bool maskGreen, bool maskBlue, bool maskAlpha)
+ * \b{Deprecated in Qt 5.12.}
  * Enables or disables the writing of colors to the frame buffer based on \a maskRed, \a maskGreen,
  * \a maskBlue and \a maskAlpha. All default to \c{true}.
  */
@@ -4906,6 +5016,7 @@ void CanvasContext::colorMask(bool maskRed, bool maskGreen, bool maskBlue, bool 
 
 /*!
  * \qmlmethod void Context3D::clearDepth(float depth)
+ * \b{Deprecated in Qt 5.12.}
  * Sets the clear value for the depth buffer to \a depth. Must be between \c{[0, 1]}. Defaults
  * to \c{1}.
  */
@@ -4921,6 +5032,7 @@ void CanvasContext::clearDepth(float depth)
 
 /*!
  * \qmlmethod void Context3D::clearColor(float red, float green, float blue, float alpha)
+ * \b{Deprecated in Qt 5.12.}
  * Sets the clear values for the color buffers with \a red, \a green, \a blue and \a alpha. Values
  * must be between \c{[0, 1]}. All default to \c{0}.
  */
@@ -4941,6 +5053,7 @@ void CanvasContext::clearColor(float red, float green, float blue, float alpha)
 
 /*!
  * \qmlmethod Context3D::viewport(int x, int y, int width, int height)
+ * \b{Deprecated in Qt 5.12.}
  * Defines the affine transformation from normalized x and y device coordinates to window
  * coordinates within the drawing buffer.
  * \a x defines the left edge of the viewport.
@@ -4964,6 +5077,7 @@ void CanvasContext::viewport(int x, int y, int width, int height)
 
 /*!
  * \qmlmethod void Context3D::drawArrays(glEnums mode, int first, int count)
+ * \b{Deprecated in Qt 5.12.}
  * Renders the geometric primitives held in the currently bound array buffer starting from \a first
  * up to \a count using \a mode for drawing. Mode can be one of:
  * \list
@@ -5005,6 +5119,7 @@ void CanvasContext::drawArrays(glEnums mode, int first, int count)
 
 /*!
  * \qmlmethod void Context3D::drawElements(glEnums mode, int count, glEnums type, long offset)
+ * \b{Deprecated in Qt 5.12.}
  * Renders the number of geometric elements given in \a count held in the currently bound element
  * array buffer using \a mode for drawing. Mode can be one of:
  * \list
@@ -5076,6 +5191,7 @@ void CanvasContext::drawElements(glEnums mode, int count, glEnums type, long off
 
 /*!
  * \qmlmethod void Context3D::readPixels(int x, int y, long width, long height, glEnums format, glEnums type, ArrayBufferView pixels)
+ * \b{Deprecated in Qt 5.12.}
  * Returns the pixel data in the rectangle specified by \a x, \a y, \a width and \a height of the
  * frame buffer in \a pixels using \a format (must be \c{Context3D.RGBA}) and \a type
  * (must be \c{Context3D.UNSIGNED_BYTE}).
@@ -5108,7 +5224,7 @@ void CanvasContext::readPixels(int x, int y, long width, long height, glEnums fo
         return;
     }
 
-    uchar *bufferPtr = getTypedArrayAsRawDataPtr(pixels, QV4::Heap::TypedArray::UInt8Array);
+    uchar *bufferPtr = getTypedArrayAsRawDataPtr(pixels, QV4::TypedArrayType::UInt8Array);
     if (!bufferPtr) {
         qCWarning(canvas3drendering).nospace() << "Context3D::" << __FUNCTION__
                                                << ":INVALID_OPERATION:pixels must be Uint8Array.";
@@ -5127,6 +5243,7 @@ void CanvasContext::readPixels(int x, int y, long width, long height, glEnums fo
 
 /*!
  * \qmlmethod Canvas3DActiveInfo Context3D::getActiveAttrib(Canvas3DProgram program3D, uint index)
+ * \b{Deprecated in Qt 5.12.}
  * Returns information about the given active attribute variable defined by \a index for the given
  * \a program3D.
  * This command is handled synchronously.
@@ -5162,6 +5279,7 @@ CanvasActiveInfo *CanvasContext::getActiveAttrib(QJSValue program3D, uint index)
 
 /*!
  * \qmlmethod Canvas3DActiveInfo Context3D::getActiveUniform(Canvas3DProgram program3D, uint index)
+ * \b{Deprecated in Qt 5.12.}
  * Returns information about the given active uniform variable defined by \a index for the given
  * \a program3D.
  * This command is handled synchronously.
@@ -5197,6 +5315,7 @@ CanvasActiveInfo *CanvasContext::getActiveUniform(QJSValue program3D, uint index
 
 /*!
  * \qmlmethod void Context3D::stencilFunc(glEnums func, int ref, uint mask)
+ * \b{Deprecated in Qt 5.12.}
  * Sets front and back function \a func and reference value \a ref for stencil testing.
  * Also sets the \a mask value that is ANDed with both reference and stored stencil value when
  * the test is done. \a func is initially set to \c{Context3D.ALWAYS} and can be one of:
@@ -5231,6 +5350,7 @@ void CanvasContext::stencilFunc(glEnums func, int ref, uint mask)
 
 /*!
  * \qmlmethod void Context3D::stencilFuncSeparate(glEnums face, glEnums func, int ref, uint mask)
+ * \b{Deprecated in Qt 5.12.}
  * Sets front and/or back (defined by \a face) function \a func and reference value \a ref for
  * stencil testing. Also sets the \a mask value that is ANDed with both reference and stored stencil
  * value when the test is done. \a face can be one of:
@@ -5272,6 +5392,7 @@ void CanvasContext::stencilFuncSeparate(glEnums face, glEnums func, int ref, uin
 
 /*!
  * \qmlmethod void Context3D::stencilMask(uint mask)
+ * \b{Deprecated in Qt 5.12.}
  * Controls the front and back writing of individual bits in the stencil planes. \a mask defines
  * the bit mask to enable and disable writing of individual bits in the stencil planes.
  */
@@ -5288,6 +5409,7 @@ void CanvasContext::stencilMask(uint mask)
 
 /*!
  * \qmlmethod void Context3D::stencilMaskSeparate(glEnums face, uint mask)
+ * \b{Deprecated in Qt 5.12.}
  * Controls the front and/or back writing (defined by \a face) of individual bits in the stencil
  * planes. \a mask defines the bit mask to enable and disable writing of individual bits in the
  * stencil planes. \a face can be one of:
@@ -5312,6 +5434,7 @@ void CanvasContext::stencilMaskSeparate(glEnums face, uint mask)
 
 /*!
  * \qmlmethod void Context3D::stencilOp(glEnums sfail, glEnums zfail, glEnums zpass)
+ * \b{Deprecated in Qt 5.12.}
  * Sets the front and back stencil test actions for failing the test \a zfail and passing the test
  * \a zpass. \a sfail, \a zfail and \a zpass are initially set to \c{Context3D.KEEP} and can be one
  * of:
@@ -5342,6 +5465,7 @@ void CanvasContext::stencilOp(glEnums sfail, glEnums zfail, glEnums zpass)
 
 /*!
  * \qmlmethod void Context3D::stencilOpSeparate(glEnums face, glEnums fail, glEnums zfail, glEnums zpass)
+ * \b{Deprecated in Qt 5.12.}
  * Sets the front and/or back (defined by \a face) stencil test actions for failing the test
  * \a zfail and passing the test \a zpass. \a face can be one of:
  * \list
@@ -5379,6 +5503,7 @@ void CanvasContext::stencilOpSeparate(glEnums face, glEnums fail, glEnums zfail,
 
 /*!
  * \qmlmethod int Context3D::getFramebufferAttachmentParameter(glEnums target, glEnums attachment, glEnums pname)
+ * \b{Deprecated in Qt 5.12.}
  * Returns information specified by \a pname about given \a attachment of a framebuffer object
  * bound to the given \a target.
  * This command is handled synchronously.
@@ -5458,6 +5583,7 @@ QJSValue CanvasContext::getFramebufferAttachmentParameter(glEnums target, glEnum
 
 /*!
  * \qmlmethod int Context3D::getRenderbufferParameter(glEnums target, glEnums pname)
+ * \b{Deprecated in Qt 5.12.}
  * Returns information specified by \a pname of a renderbuffer object
  * bound to the given \a target.
  * This command is handled synchronously.
@@ -5512,6 +5638,7 @@ QJSValue CanvasContext::getRenderbufferParameter(glEnums target, glEnums pname)
 
 /*!
  * \qmlmethod variant Context3D::getTexParameter(glEnums target, glEnums pname)
+ * \b{Deprecated in Qt 5.12.}
  * Returns parameter specified by the \a pname of a texture object
  * bound to the given \a target. \a pname must be one of:
  * \list
@@ -5565,6 +5692,7 @@ QJSValue CanvasContext::getTexParameter(glEnums target, glEnums pname)
 
 /*!
  * \qmlmethod int Context3D::getVertexAttribOffset(int index, glEnums pname)
+ * \b{Deprecated in Qt 5.12.}
  * Returns the offset of the specified generic vertex attribute pointer \a index. \a pname must be
  * \c{Context3D.VERTEX_ATTRIB_ARRAY_POINTER}
  * \list
@@ -5611,6 +5739,7 @@ uint CanvasContext::getVertexAttribOffset(uint index, glEnums pname)
 
 /*!
  * \qmlmethod variant Context3D::getVertexAttrib(int index, glEnums pname)
+ * \b{Deprecated in Qt 5.12.}
  * Returns the requested parameter \a pname of the specified generic vertex attribute pointer
  * \a index. The type returned is dependent on the requested \a pname, as shown in the table:
  * \table
@@ -5701,11 +5830,8 @@ QJSValue CanvasContext::getVertexAttrib(uint index, glEnums pname)
             } else {
                 QV4::ScopedFunctionObject constructor(scope,
                                                       m_v4engine->typedArrayCtors[
-                                                      QV4::Heap::TypedArray::Float32Array]);
-                QV4::ScopedCallData callData(scope, 1);
-                callData->args[0] = buffer;
-                constructor->construct(scope, callData);
-                return QJSValue(m_v4engine, scope.result.asReturnedValue());
+                                                      QV4::TypedArrayType::Float32Array]);
+                return QJSValue(m_v4engine, constructor->callAsConstructor(buffer, 1));
             }
         }
         default:
@@ -5719,6 +5845,7 @@ QJSValue CanvasContext::getVertexAttrib(uint index, glEnums pname)
 }
 
 /*!
+ * \b{Deprecated in Qt 5.12.}
  * Implements CanvasTextureProvider::createTextureFromSource() extension functionality
  */
 QJSValue CanvasContext::createTextureFromSource(QQuickItem *item)
@@ -5756,6 +5883,7 @@ QMap<QQuickItem *, CanvasTexture *> &CanvasContext::quickItemToTextureMap()
 
 /*!
  * \qmlmethod variant Context3D::getUniform(Canvas3DProgram program, Canvas3DUniformLocation location3D)
+ * \b{Deprecated in Qt 5.12.}
  * Returns the uniform value at the given \a location3D in the \a program.
  * The type returned is dependent on the uniform type, as shown in the table:
  * \table
@@ -5905,11 +6033,8 @@ QJSValue CanvasContext::getUniform(QJSValue program3D, QJSValue location3D)
             } else {
                 QV4::ScopedFunctionObject constructor(scope,
                                                       m_v4engine->typedArrayCtors[
-                                                      QV4::Heap::TypedArray::Int32Array]);
-                QV4::ScopedCallData callData(scope, 1);
-                callData->args[0] = buffer;
-                constructor->construct(scope, callData);
-                return QJSValue(m_v4engine, scope.result.asReturnedValue());
+                                                      QV4::TypedArrayType::Int32Array]);
+                return QJSValue(m_v4engine, constructor->callAsConstructor(buffer, 1));
             }
         }
         case FLOAT_VEC2:
@@ -5931,11 +6056,8 @@ QJSValue CanvasContext::getUniform(QJSValue program3D, QJSValue location3D)
             } else {
                 QV4::ScopedFunctionObject constructor(scope,
                                                       m_v4engine->typedArrayCtors[
-                                                      QV4::Heap::TypedArray::Float32Array]);
-                QV4::ScopedCallData callData(scope, 1);
-                callData->args[0] = buffer;
-                constructor->construct(scope, callData);
-                return QJSValue(m_v4engine, scope.result.asReturnedValue());
+                                                      QV4::TypedArrayType::Float32Array]);
+                return QJSValue(m_v4engine, constructor->callAsConstructor(buffer, 1));
             }
         }
         case BOOL_VEC2:
@@ -5980,11 +6102,8 @@ QJSValue CanvasContext::getUniform(QJSValue program3D, QJSValue location3D)
             } else {
                 QV4::ScopedFunctionObject constructor(scope,
                                                       m_v4engine->typedArrayCtors[
-                                                      QV4::Heap::TypedArray::Float32Array]);
-                QV4::ScopedCallData callData(scope, 1);
-                callData->args[0] = buffer;
-                constructor->construct(scope, callData);
-                return QJSValue(m_v4engine, scope.result.asReturnedValue());
+                                                      QV4::TypedArrayType::Float32Array]);
+                return QJSValue(m_v4engine, constructor->callAsConstructor(buffer, 1));
             }
         }
         default:
@@ -5996,6 +6115,7 @@ QJSValue CanvasContext::getUniform(QJSValue program3D, QJSValue location3D)
 
 /*!
  * \qmlmethod list<variant> Context3D::getSupportedExtensions()
+ * \b{Deprecated in Qt 5.12.}
  * Returns an array of the extension strings supported by this implementation
  */
 QVariantList CanvasContext::getSupportedExtensions()
@@ -6042,6 +6162,7 @@ bool CanvasContext::isOfType(const QJSValue &value, const char *classname) const
 }
 
 /*!
+ * \b{Deprecated in Qt 5.12.}
  * Schedules a synchronous render job for a command that returns values from OpenGL side.
  */
 void CanvasContext::scheduleSyncCommand(GlSyncCommand *command)
@@ -6079,6 +6200,7 @@ void CanvasContext::scheduleSyncCommand(GlSyncCommand *command)
 }
 
 /*!
+ * \b{Deprecated in Qt 5.12.}
  * Schedules a blocking job to clear the queue.
  */
 void CanvasContext::handleFullCommandQueue()
@@ -6096,6 +6218,7 @@ void CanvasContext::handleTextureIdResolved(QQuickItem *item)
 
 /*!
  * \qmlmethod variant Context3D::getExtension(string name)
+ * \b{Deprecated in Qt 5.12.}
  * \return object if given \a name matches a supported extension.
  * Otherwise returns \c{null}. The returned object may contain constants and/or functions provided
  * by the extension, but at minimum a unique object is returned.

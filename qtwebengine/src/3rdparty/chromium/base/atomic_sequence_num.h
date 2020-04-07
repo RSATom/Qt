@@ -16,7 +16,7 @@ namespace base {
 // global variable or static member.
 class AtomicSequenceNumber {
  public:
-  constexpr AtomicSequenceNumber() {}
+  constexpr AtomicSequenceNumber() = default;
 
   // Returns an increasing sequence number starts from 0 for each call.
   // This function can be called from any thread without data race.
@@ -27,10 +27,6 @@ class AtomicSequenceNumber {
 
   DISALLOW_COPY_AND_ASSIGN(AtomicSequenceNumber);
 };
-
-// TODO(tzik): Replace all usage of StaticAtomicSequenceNumber with
-// AtomicSequenceNumber, and remove this alias.
-using StaticAtomicSequenceNumber = AtomicSequenceNumber;
 
 }  // namespace base
 

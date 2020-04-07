@@ -8,18 +8,18 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_RTC_BASE_WIN32SOCKETSERVER_H_
-#define WEBRTC_RTC_BASE_WIN32SOCKETSERVER_H_
+#ifndef RTC_BASE_WIN32SOCKETSERVER_H_
+#define RTC_BASE_WIN32SOCKETSERVER_H_
 
 #if defined(WEBRTC_WIN)
-#include "webrtc/rtc_base/asyncsocket.h"
-#include "webrtc/rtc_base/criticalsection.h"
-#include "webrtc/rtc_base/messagequeue.h"
-#include "webrtc/rtc_base/socket.h"
-#include "webrtc/rtc_base/socketfactory.h"
-#include "webrtc/rtc_base/socketserver.h"
-#include "webrtc/rtc_base/thread.h"
-#include "webrtc/rtc_base/win32window.h"
+#include "rtc_base/asyncsocket.h"
+#include "rtc_base/criticalsection.h"
+#include "rtc_base/messagequeue.h"
+#include "rtc_base/socket.h"
+#include "rtc_base/socketfactory.h"
+#include "rtc_base/socketserver.h"
+#include "rtc_base/thread.h"
+#include "rtc_base/win32window.h"
 
 namespace rtc {
 
@@ -30,7 +30,7 @@ namespace rtc {
 class Win32Socket : public AsyncSocket {
  public:
   Win32Socket();
-  virtual ~Win32Socket();
+  ~Win32Socket() override;
 
   bool CreateT(int family, int type);
 
@@ -38,25 +38,27 @@ class Win32Socket : public AsyncSocket {
   void SetTimeout(int ms);
 
   // AsyncSocket Interface
-  virtual SocketAddress GetLocalAddress() const;
-  virtual SocketAddress GetRemoteAddress() const;
-  virtual int Bind(const SocketAddress& addr);
-  virtual int Connect(const SocketAddress& addr);
-  virtual int Send(const void *buffer, size_t length);
-  virtual int SendTo(const void *buffer, size_t length, const SocketAddress& addr);
-  virtual int Recv(void* buffer, size_t length, int64_t* timestamp);
-  virtual int RecvFrom(void* buffer,
-                       size_t length,
-                       SocketAddress* out_addr,
-                       int64_t* timestamp);
-  virtual int Listen(int backlog);
-  virtual Win32Socket *Accept(SocketAddress *out_addr);
-  virtual int Close();
-  virtual int GetError() const;
-  virtual void SetError(int error);
-  virtual ConnState GetState() const;
-  virtual int GetOption(Option opt, int* value);
-  virtual int SetOption(Option opt, int value);
+  SocketAddress GetLocalAddress() const override;
+  SocketAddress GetRemoteAddress() const override;
+  int Bind(const SocketAddress& addr) override;
+  int Connect(const SocketAddress& addr) override;
+  int Send(const void* buffer, size_t length) override;
+  int SendTo(const void* buffer,
+             size_t length,
+             const SocketAddress& addr) override;
+  int Recv(void* buffer, size_t length, int64_t* timestamp) override;
+  int RecvFrom(void* buffer,
+               size_t length,
+               SocketAddress* out_addr,
+               int64_t* timestamp) override;
+  int Listen(int backlog) override;
+  Win32Socket* Accept(SocketAddress* out_addr) override;
+  int Close() override;
+  int GetError() const override;
+  void SetError(int error) override;
+  ConnState GetState() const override;
+  int GetOption(Option opt, int* value) override;
+  int SetOption(Option opt, int value) override;
 
  private:
   void CreateSink();
@@ -73,17 +75,17 @@ class Win32Socket : public AsyncSocket {
   SOCKET socket_;
   int error_;
   ConnState state_;
-  SocketAddress addr_;         // address that we connected to (see DoConnect)
+  SocketAddress addr_;  // address that we connected to (see DoConnect)
   uint32_t connect_time_;
   bool closing_;
   int close_error_;
 
   class EventSink;
   friend class EventSink;
-  EventSink * sink_;
+  EventSink* sink_;
 
   struct DnsLookup;
-  DnsLookup * dns_;
+  DnsLookup* dns_;
 };
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -93,22 +95,17 @@ class Win32Socket : public AsyncSocket {
 class Win32SocketServer : public SocketServer {
  public:
   Win32SocketServer();
-  virtual ~Win32SocketServer();
+  ~Win32SocketServer() override;
 
-  void set_modeless_dialog(HWND hdlg) {
-    hdlg_ = hdlg;
-  }
+  void set_modeless_dialog(HWND hdlg) { hdlg_ = hdlg; }
 
   // SocketServer Interface
-  virtual Socket* CreateSocket(int type);
-  virtual Socket* CreateSocket(int family, int type);
+  Socket* CreateSocket(int family, int type) override;
+  AsyncSocket* CreateAsyncSocket(int family, int type) override;
 
-  virtual AsyncSocket* CreateAsyncSocket(int type);
-  virtual AsyncSocket* CreateAsyncSocket(int family, int type);
-
-  virtual void SetMessageQueue(MessageQueue* queue);
-  virtual bool Wait(int cms, bool process_io);
-  virtual void WakeUp();
+  void SetMessageQueue(MessageQueue* queue) override;
+  bool Wait(int cms, bool process_io) override;
+  void WakeUp() override;
 
   void Pump();
 
@@ -118,13 +115,14 @@ class Win32SocketServer : public SocketServer {
   class MessageWindow : public Win32Window {
    public:
     explicit MessageWindow(Win32SocketServer* ss) : ss_(ss) {}
+
    private:
-    virtual bool OnMessage(UINT msg, WPARAM wp, LPARAM lp, LRESULT& result);
+    bool OnMessage(UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) override;
     Win32SocketServer* ss_;
   };
 
   static const TCHAR kWindowName[];
-  MessageQueue *message_queue_;
+  MessageQueue* message_queue_;
   MessageWindow wnd_;
   CriticalSection cs_;
   bool posted_;
@@ -137,18 +135,12 @@ class Win32SocketServer : public SocketServer {
 
 class Win32Thread : public Thread {
  public:
-  explicit Win32Thread(SocketServer* ss) : Thread(ss),  id_(0) {}
-  virtual ~Win32Thread() {
-    Stop();
-  }
-  virtual void Run() {
-    id_ = GetCurrentThreadId();
-    Thread::Run();
-    id_ = 0;
-  }
-  virtual void Quit() {
-    PostThreadMessage(id_, WM_QUIT, 0, 0);
-  }
+  explicit Win32Thread(SocketServer* ss);
+  ~Win32Thread() override;
+
+  void Run() override;
+  void Quit() override;
+
  private:
   DWORD id_;
 };
@@ -159,4 +151,4 @@ class Win32Thread : public Thread {
 
 #endif  // WEBRTC_WIN
 
-#endif  // WEBRTC_RTC_BASE_WIN32SOCKETSERVER_H_
+#endif  // RTC_BASE_WIN32SOCKETSERVER_H_

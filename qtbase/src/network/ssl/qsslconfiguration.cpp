@@ -59,7 +59,7 @@ const char QSslConfiguration::NextProtocolHttp1_1[] = "http/1.1";
 
 /*!
     \class QSslConfiguration
-    \brief The QSslConfiguration class holds the configuration and state of an SSL connection
+    \brief The QSslConfiguration class holds the configuration and state of an SSL connection.
     \since 4.4
 
     \reentrant
@@ -221,12 +221,14 @@ bool QSslConfiguration::operator==(const QSslConfiguration &other) const
         d->peerVerifyMode == other.d->peerVerifyMode &&
         d->peerVerifyDepth == other.d->peerVerifyDepth &&
         d->allowRootCertOnDemandLoading == other.d->allowRootCertOnDemandLoading &&
+        d->backendConfig == other.d->backendConfig &&
         d->sslOptions == other.d->sslOptions &&
         d->sslSession == other.d->sslSession &&
         d->sslSessionTicketLifeTimeHint == other.d->sslSessionTicketLifeTimeHint &&
         d->nextAllowedProtocols == other.d->nextAllowedProtocols &&
         d->nextNegotiatedProtocol == other.d->nextNegotiatedProtocol &&
-        d->nextProtocolNegotiationStatus == other.d->nextProtocolNegotiationStatus;
+        d->nextProtocolNegotiationStatus == other.d->nextProtocolNegotiationStatus &&
+        d->dtlsCookieEnabled == other.d->dtlsCookieEnabled;
 }
 
 /*!
@@ -263,6 +265,7 @@ bool QSslConfiguration::isNull() const
             d->privateKey.isNull() &&
             d->peerCertificate.isNull() &&
             d->peerCertificateChain.count() == 0 &&
+            d->backendConfig.isEmpty() &&
             d->sslOptions == QSslConfigurationPrivate::defaultSslOptions &&
             d->sslSession.isNull() &&
             d->sslSessionTicketLifeTimeHint == -1 &&
@@ -639,6 +642,10 @@ QList<QSslCertificate> QSslConfiguration::caCertificates() const
   The CA certificate database is used by the socket during the
   handshake phase to validate the peer's certificate.
 
+  \note The default configuration uses the system CA certificate database. If
+  that is not available (as is commonly the case on iOS), the default database
+  is empty.
+
   \sa caCertificates()
 */
 void QSslConfiguration::setCaCertificates(const QList<QSslCertificate> &certificates)
@@ -870,6 +877,60 @@ void QSslConfiguration::setDiffieHellmanParameters(const QSslDiffieHellmanParame
 }
 
 /*!
+    \since 5.11
+
+    Returns the backend-specific configuration.
+
+    Only options set by setBackendConfigurationOption() or setBackendConfiguration() will be
+    returned. The internal standard configuration of the backend is not reported.
+
+    \sa setBackendConfigurationOption(), setBackendConfiguration()
+ */
+QMap<QByteArray, QVariant> QSslConfiguration::backendConfiguration() const
+{
+    return d->backendConfig;
+}
+
+/*!
+    \since 5.11
+
+    Sets the option \a name in the backend-specific configuration to \a value.
+
+    Options supported by the OpenSSL (>= 1.0.2) backend are available in the \l
+    {https://www.openssl.org/docs/manmaster/man3/SSL_CONF_cmd.html#SUPPORTED-CONFIGURATION-FILE-COMMANDS}
+    {supported configuration file commands} documentation. The expected type for
+    the \a value parameter is a QByteArray for all options. The \l
+    {https://www.openssl.org/docs/manmaster/man3/SSL_CONF_cmd.html#EXAMPLES}{examples}
+    show how to use some of the options.
+
+    \note The backend-specific configuration will be applied after the general
+    configuration. Using the backend-specific configuration to set a general
+    configuration option again will overwrite the general configuration option.
+
+    \sa backendConfiguration(), setBackendConfiguration()
+ */
+void QSslConfiguration::setBackendConfigurationOption(const QByteArray &name, const QVariant &value)
+{
+    d->backendConfig[name] = value;
+}
+
+/*!
+    \since 5.11
+
+    Sets or clears the backend-specific configuration.
+
+    Without a \a backendConfiguration parameter this function will clear the
+    backend-specific configuration. More information about the supported
+    options is available in the documentation of setBackendConfigurationOption().
+
+    \sa backendConfiguration(), setBackendConfigurationOption()
+ */
+void QSslConfiguration::setBackendConfiguration(const QMap<QByteArray, QVariant> &backendConfiguration)
+{
+    d->backendConfig = backendConfiguration;
+}
+
+/*!
   \since 5.3
 
   This function returns the protocol negotiated with the server
@@ -949,7 +1010,7 @@ QSslConfiguration::NextProtocolNegotiationStatus QSslConfiguration::nextProtocol
 
     \list
       \li no local certificate and no private key
-      \li protocol SecureProtocols (meaning either TLS 1.0 or SSL 3 will be used)
+      \li protocol \l{QSsl::SecureProtocols}{SecureProtocols}
       \li the system's default CA certificate list
       \li the cipher list equal to the list of the SSL libraries'
          supported SSL ciphers that are 128 bits or more
@@ -973,6 +1034,65 @@ void QSslConfiguration::setDefaultConfiguration(const QSslConfiguration &configu
 {
     QSslConfigurationPrivate::setDefaultConfiguration(configuration);
 }
+
+#if QT_CONFIG(dtls) || defined(Q_CLANG_QDOC)
+
+/*!
+  This function returns true if DTLS cookie verification was enabled on a
+  server-side socket.
+
+  \sa setDtlsCookieVerificationEnabled()
+ */
+bool QSslConfiguration::dtlsCookieVerificationEnabled() const
+{
+    return d->dtlsCookieEnabled;
+}
+
+/*!
+  This function enables DTLS cookie verification when \a enable is true.
+
+  \sa dtlsCookieVerificationEnabled()
+ */
+void QSslConfiguration::setDtlsCookieVerificationEnabled(bool enable)
+{
+    d->dtlsCookieEnabled = enable;
+}
+
+/*!
+    Returns the default DTLS configuration to be used in new DTLS
+    connections.
+
+    The default DTLS configuration consists of:
+
+    \list
+      \li no local certificate and no private key
+      \li protocol DtlsV1_2OrLater
+      \li the system's default CA certificate list
+      \li the cipher list equal to the list of the SSL libraries'
+         supported TLS 1.2 ciphers that use 128 or more secret bits
+         for the cipher.
+    \endlist
+
+    \sa setDefaultDtlsConfiguration()
+*/
+QSslConfiguration QSslConfiguration::defaultDtlsConfiguration()
+{
+    return QSslConfigurationPrivate::defaultDtlsConfiguration();
+}
+
+/*!
+    Sets the default DTLS configuration to be used in new DTLS
+    connections to be \a configuration. Existing connections are not
+    affected by this call.
+
+    \sa defaultDtlsConfiguration()
+*/
+void QSslConfiguration::setDefaultDtlsConfiguration(const QSslConfiguration &configuration)
+{
+    QSslConfigurationPrivate::setDefaultDtlsConfiguration(configuration);
+}
+
+#endif // dtls
 
 /*! \internal
 */

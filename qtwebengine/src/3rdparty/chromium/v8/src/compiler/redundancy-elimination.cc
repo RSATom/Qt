@@ -5,6 +5,7 @@
 #include "src/compiler/redundancy-elimination.h"
 
 #include "src/compiler/node-properties.h"
+#include "src/compiler/simplified-operator.h"
 
 namespace v8 {
 namespace internal {
@@ -19,30 +20,40 @@ Reduction RedundancyElimination::Reduce(Node* node) {
   if (node_checks_.Get(node)) return NoChange();
   switch (node->opcode()) {
     case IrOpcode::kCheckBounds:
+    case IrOpcode::kCheckEqualsInternalizedString:
+    case IrOpcode::kCheckEqualsSymbol:
     case IrOpcode::kCheckFloat64Hole:
     case IrOpcode::kCheckHeapObject:
     case IrOpcode::kCheckIf:
     case IrOpcode::kCheckInternalizedString:
+    case IrOpcode::kCheckNotTaggedHole:
     case IrOpcode::kCheckNumber:
     case IrOpcode::kCheckReceiver:
     case IrOpcode::kCheckSmi:
     case IrOpcode::kCheckString:
-    case IrOpcode::kCheckSeqString:
-    case IrOpcode::kCheckNonEmptyString:
-    case IrOpcode::kCheckNotTaggedHole:
+    case IrOpcode::kCheckSymbol:
     case IrOpcode::kCheckedFloat64ToInt32:
     case IrOpcode::kCheckedInt32Add:
-    case IrOpcode::kCheckedInt32Sub:
     case IrOpcode::kCheckedInt32Div:
     case IrOpcode::kCheckedInt32Mod:
     case IrOpcode::kCheckedInt32Mul:
-    case IrOpcode::kCheckedTaggedToFloat64:
+    case IrOpcode::kCheckedInt32Sub:
+    case IrOpcode::kCheckedInt32ToTaggedSigned:
     case IrOpcode::kCheckedTaggedSignedToInt32:
+    case IrOpcode::kCheckedTaggedToFloat64:
     case IrOpcode::kCheckedTaggedToInt32:
+    case IrOpcode::kCheckedTaggedToTaggedPointer:
+    case IrOpcode::kCheckedTaggedToTaggedSigned:
+    case IrOpcode::kCheckedTruncateTaggedToWord32:
+    case IrOpcode::kCheckedUint32Div:
+    case IrOpcode::kCheckedUint32Mod:
     case IrOpcode::kCheckedUint32ToInt32:
+    case IrOpcode::kCheckedUint32ToTaggedSigned:
       return ReduceCheckNode(node);
     case IrOpcode::kSpeculativeNumberAdd:
     case IrOpcode::kSpeculativeNumberSubtract:
+    case IrOpcode::kSpeculativeSafeIntegerAdd:
+    case IrOpcode::kSpeculativeSafeIntegerSubtract:
       // For increments and decrements by a constant, try to learn from the last
       // bounds check.
       return TryReuseBoundsCheckForFirstInput(node);
@@ -123,15 +134,43 @@ RedundancyElimination::EffectPathChecks::AddCheck(Zone* zone,
 
 namespace {
 
-bool IsCompatibleCheck(Node const* a, Node const* b) {
+// Does check {a} subsume check {b}?
+bool CheckSubsumes(Node const* a, Node const* b) {
   if (a->op() != b->op()) {
-    if (b->opcode() == IrOpcode::kCheckString &&
-        (a->opcode() == IrOpcode::kCheckInternalizedString ||
-         a->opcode() == IrOpcode::kCheckSeqString ||
-         a->opcode() == IrOpcode::kCheckNonEmptyString)) {
-      // Check[Internalized,Seq,NonEmpty]String(node) implies CheckString(node)
-    } else {
+    if (a->opcode() == IrOpcode::kCheckInternalizedString &&
+        b->opcode() == IrOpcode::kCheckString) {
+      // CheckInternalizedString(node) implies CheckString(node)
+    } else if (a->opcode() != b->opcode()) {
       return false;
+    } else {
+      switch (a->opcode()) {
+        case IrOpcode::kCheckBounds:
+        case IrOpcode::kCheckSmi:
+        case IrOpcode::kCheckString:
+        case IrOpcode::kCheckNumber:
+          break;
+        case IrOpcode::kCheckedInt32ToTaggedSigned:
+        case IrOpcode::kCheckedTaggedSignedToInt32:
+        case IrOpcode::kCheckedTaggedToTaggedPointer:
+        case IrOpcode::kCheckedTaggedToTaggedSigned:
+        case IrOpcode::kCheckedUint32ToInt32:
+        case IrOpcode::kCheckedUint32ToTaggedSigned:
+          break;
+        case IrOpcode::kCheckedFloat64ToInt32:
+        case IrOpcode::kCheckedTaggedToInt32: {
+          const CheckMinusZeroParameters& ap =
+              CheckMinusZeroParametersOf(a->op());
+          const CheckMinusZeroParameters& bp =
+              CheckMinusZeroParametersOf(b->op());
+          if (ap.mode() != bp.mode()) {
+            return false;
+          }
+          break;
+        }
+        default:
+          DCHECK(!IsCheckedWithFeedback(a->op()));
+          return false;
+      }
     }
   }
   for (int i = a->op()->ValueInputCount(); --i >= 0;) {
@@ -140,11 +179,22 @@ bool IsCompatibleCheck(Node const* a, Node const* b) {
   return true;
 }
 
+bool TypeSubsumes(Node* node, Node* replacement) {
+  if (!NodeProperties::IsTyped(node) || !NodeProperties::IsTyped(replacement)) {
+    // If either node is untyped, we are running during an untyped optimization
+    // phase, and replacement is OK.
+    return true;
+  }
+  Type node_type = NodeProperties::GetType(node);
+  Type replacement_type = NodeProperties::GetType(replacement);
+  return replacement_type.Is(node_type);
+}
+
 }  // namespace
 
 Node* RedundancyElimination::EffectPathChecks::LookupCheck(Node* node) const {
   for (Check const* check = head_; check != nullptr; check = check->next) {
-    if (IsCompatibleCheck(check->node, node)) {
+    if (CheckSubsumes(check->node, node) && TypeSubsumes(node, check->node)) {
       DCHECK(!check->node->IsDead());
       return check->node;
     }
@@ -195,7 +245,9 @@ Reduction RedundancyElimination::ReduceCheckNode(Node* node) {
 
 Reduction RedundancyElimination::TryReuseBoundsCheckForFirstInput(Node* node) {
   DCHECK(node->opcode() == IrOpcode::kSpeculativeNumberAdd ||
-         node->opcode() == IrOpcode::kSpeculativeNumberSubtract);
+         node->opcode() == IrOpcode::kSpeculativeNumberSubtract ||
+         node->opcode() == IrOpcode::kSpeculativeSafeIntegerAdd ||
+         node->opcode() == IrOpcode::kSpeculativeSafeIntegerSubtract);
 
   DCHECK_EQ(1, node->op()->EffectInputCount());
   DCHECK_EQ(1, node->op()->EffectOutputCount());
@@ -214,7 +266,7 @@ Reduction RedundancyElimination::TryReuseBoundsCheckForFirstInput(Node* node) {
     if (Node* bounds_check = checks->LookupBoundsCheckFor(left)) {
       // Only use the bounds checked type if it is better.
       if (NodeProperties::GetType(bounds_check)
-              ->Is(NodeProperties::GetType(left))) {
+              .Is(NodeProperties::GetType(left))) {
         node->ReplaceInput(0, bounds_check);
       }
     }

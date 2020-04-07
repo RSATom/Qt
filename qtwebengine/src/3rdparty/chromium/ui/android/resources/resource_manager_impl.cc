@@ -34,6 +34,27 @@ using base::android::JavaArrayOfIntArrayToIntVector;
 using base::android::JavaParamRef;
 using base::android::JavaRef;
 
+namespace {
+
+base::trace_event::MemoryAllocatorDump* CreateMemoryDump(
+    const std::string& name,
+    size_t memory_usage,
+    base::trace_event::ProcessMemoryDump* pmd) {
+  base::trace_event::MemoryAllocatorDump* dump = pmd->CreateAllocatorDump(name);
+  dump->AddScalar(base::trace_event::MemoryAllocatorDump::kNameSize,
+                  base::trace_event::MemoryAllocatorDump::kUnitsBytes,
+                  memory_usage);
+
+  static const char* system_allocator_name =
+      base::trace_event::MemoryDumpManager::GetInstance()
+          ->system_allocator_pool_name();
+  if (system_allocator_name)
+    pmd->AddSuballocation(dump->guid(), system_allocator_name);
+  return dump;
+}
+
+}  // namespace
+
 namespace ui {
 
 // static
@@ -112,7 +133,7 @@ void ResourceManagerImpl::RemoveUnusedTints(
 Resource* ResourceManagerImpl::GetStaticResourceWithTint(int res_id,
                                                          SkColor tint_color) {
   if (tinted_resources_.find(tint_color) == tinted_resources_.end()) {
-    tinted_resources_[tint_color] = base::MakeUnique<ResourceMap>();
+    tinted_resources_[tint_color] = std::make_unique<ResourceMap>();
   }
   ResourceMap* resource_map = tinted_resources_[tint_color].get();
 
@@ -212,30 +233,22 @@ void ResourceManagerImpl::RemoveResource(
 bool ResourceManagerImpl::OnMemoryDump(
     const base::trace_event::MemoryDumpArgs& args,
     base::trace_event::ProcessMemoryDump* pmd) {
-  size_t memory_usage =
-      base::trace_event::EstimateMemoryUsage(resources_) +
-      base::trace_event::EstimateMemoryUsage(tinted_resources_);
-
-  base::trace_event::MemoryAllocatorDump* dump = pmd->CreateAllocatorDump(
-      base::StringPrintf("ui/resource_manager_0x%" PRIXPTR,
-                         reinterpret_cast<uintptr_t>(this)));
-  dump->AddScalar(base::trace_event::MemoryAllocatorDump::kNameSize,
-                  base::trace_event::MemoryAllocatorDump::kUnitsBytes,
-                  memory_usage);
-
-  const char* system_allocator_name =
-      base::trace_event::MemoryDumpManager::GetInstance()
-          ->system_allocator_pool_name();
-  if (system_allocator_name) {
-    pmd->AddSuballocation(dump->guid(), system_allocator_name);
+  std::string prefix = base::StringPrintf("ui/resource_manager_0x%" PRIXPTR,
+                                          reinterpret_cast<uintptr_t>(this));
+  for (uint32_t type = static_cast<uint32_t>(ANDROID_RESOURCE_TYPE_FIRST);
+       type <= static_cast<uint32_t>(ANDROID_RESOURCE_TYPE_LAST); ++type) {
+    size_t usage = base::trace_event::EstimateMemoryUsage(resources_[type]);
+    auto* dump = CreateMemoryDump(
+        prefix + base::StringPrintf("/default_resource/0x%u",
+                                    static_cast<uint32_t>(type)),
+        usage, pmd);
+    dump->AddScalar("resource_count", "objects", resources_[type].size());
   }
 
+  size_t tinted_resource_usage =
+      base::trace_event::EstimateMemoryUsage(tinted_resources_);
+  CreateMemoryDump(prefix + "/tinted_resource", tinted_resource_usage, pmd);
   return true;
-}
-
-// static
-bool ResourceManagerImpl::RegisterResourceManager(JNIEnv* env) {
-  return RegisterNativesImpl(env);
 }
 
 void ResourceManagerImpl::PreloadResourceFromJava(AndroidResourceType res_type,

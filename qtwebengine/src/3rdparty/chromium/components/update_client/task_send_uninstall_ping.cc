@@ -3,10 +3,10 @@
 // found in the LICENSE file.
 #include "components/update_client/task_send_uninstall_ping.h"
 
+#include <utility>
+
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/location.h"
-#include "base/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/version.h"
 #include "components/update_client/update_client.h"
@@ -14,16 +14,17 @@
 
 namespace update_client {
 
-TaskSendUninstallPing::TaskSendUninstallPing(UpdateEngine* update_engine,
-                                             const std::string& id,
-                                             const base::Version& version,
-                                             int reason,
-                                             const Callback& callback)
+TaskSendUninstallPing::TaskSendUninstallPing(
+    scoped_refptr<UpdateEngine> update_engine,
+    const std::string& id,
+    const base::Version& version,
+    int reason,
+    Callback callback)
     : update_engine_(update_engine),
       id_(id),
       version_(version),
       reason_(reason),
-      callback_(callback) {}
+      callback_(std::move(callback)) {}
 
 TaskSendUninstallPing::~TaskSendUninstallPing() {
   DCHECK(thread_checker_.CalledOnValidThread());
@@ -39,7 +40,7 @@ void TaskSendUninstallPing::Run() {
 
   update_engine_->SendUninstallPing(
       id_, version_, reason_,
-      base::Bind(&TaskSendUninstallPing::TaskComplete, base::Unretained(this)));
+      base::BindOnce(&TaskSendUninstallPing::TaskComplete, this));
 }
 
 void TaskSendUninstallPing::Cancel() {
@@ -56,7 +57,8 @@ void TaskSendUninstallPing::TaskComplete(Error error) {
   DCHECK(thread_checker_.CalledOnValidThread());
 
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::Bind(callback_, this, error));
+      FROM_HERE,
+      base::BindOnce(std::move(callback_), scoped_refptr<Task>(this), error));
 }
 
 }  // namespace update_client

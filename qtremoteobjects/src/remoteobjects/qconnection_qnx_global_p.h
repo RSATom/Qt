@@ -57,7 +57,7 @@
 #include <unistd.h> // provides SETIOV
 #include <sys/netmgr.h>  //FOR ND_LOCAL_NODE
 #include <errno.h>
-#include <QThread>
+#include <QtCore/qthread.h>
 #ifdef USE_HAM
 # include <ha/ham.h>
 #endif

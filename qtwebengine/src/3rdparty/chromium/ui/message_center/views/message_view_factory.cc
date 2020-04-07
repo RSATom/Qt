@@ -5,8 +5,10 @@
 #include "ui/message_center/views/message_view_factory.h"
 
 #include "base/command_line.h"
-#include "ui/message_center/message_center_switches.h"
-#include "ui/message_center/notification_types.h"
+#include "base/feature_list.h"
+#include "base/lazy_instance.h"
+#include "ui/message_center/public/cpp/features.h"
+#include "ui/message_center/public/cpp/notification_types.h"
 #include "ui/message_center/views/notification_view.h"
 #include "ui/message_center/views/notification_view_md.h"
 
@@ -16,9 +18,15 @@
 
 namespace message_center {
 
+namespace {
+
+base::LazyInstance<MessageViewFactory::CustomMessageViewFactoryFunction>::Leaky
+    g_custom_view_factory = LAZY_INSTANCE_INITIALIZER;
+
+}  // namespace
+
 // static
-MessageView* MessageViewFactory::Create(MessageCenterController* controller,
-                                        const Notification& notification,
+MessageView* MessageViewFactory::Create(const Notification& notification,
                                         bool top_level) {
   MessageView* notification_view = nullptr;
   switch (notification.type()) {
@@ -26,31 +34,17 @@ MessageView* MessageViewFactory::Create(MessageCenterController* controller,
     case NOTIFICATION_TYPE_IMAGE:
     case NOTIFICATION_TYPE_MULTIPLE:
     case NOTIFICATION_TYPE_SIMPLE:
-    case NOTIFICATION_TYPE_PROGRESS: {
-      bool new_style_notification_enabled = false;  // default value
-      if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-              switches::kEnableMessageCenterNewStyleNotification)) {
-        new_style_notification_enabled = true;
-      } else if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-                     switches::kDisableMessageCenterNewStyleNotification)) {
-        new_style_notification_enabled = false;
-      }
-
+    case NOTIFICATION_TYPE_PROGRESS:
       // All above roads lead to the generic NotificationView.
-      if (new_style_notification_enabled)
-        notification_view = new NotificationViewMD(controller, notification);
+      if (base::FeatureList::IsEnabled(message_center::kNewStyleNotifications))
+        notification_view = new NotificationViewMD(notification);
       else
-        notification_view = new NotificationView(controller, notification);
+        notification_view = new NotificationView(notification);
       break;
-    }
-#if defined(TOOLKIT_VIEWS) && !defined(OS_MACOSX)
     case NOTIFICATION_TYPE_CUSTOM:
       notification_view =
-          notification.delegate()
-              ->CreateCustomMessageView(controller, notification)
-              .release();
+          g_custom_view_factory.Get().Run(notification).release();
       break;
-#endif
     default:
       // If the caller asks for an unrecognized kind of view (entirely possible
       // if an application is running on an older version of this code that
@@ -60,7 +54,7 @@ MessageView* MessageViewFactory::Create(MessageCenterController* controller,
       LOG(WARNING) << "Unable to fulfill request for unrecognized or"
                    << "unsupported notification type " << notification.type()
                    << ". Falling back to simple notification type.";
-      notification_view = new NotificationView(controller, notification);
+      notification_view = new NotificationView(notification);
   }
 
 #if defined(OS_LINUX)
@@ -78,6 +72,17 @@ MessageView* MessageViewFactory::Create(MessageCenterController* controller,
 
   notification_view->SetIsNested();
   return notification_view;
+}
+
+// static
+void MessageViewFactory::SetCustomNotificationViewFactory(
+    const CustomMessageViewFactoryFunction& factory_function) {
+  g_custom_view_factory.Get() = factory_function;
+}
+
+// static
+bool MessageViewFactory::HasCustomNotificationViewFactory() {
+  return !g_custom_view_factory.Get().is_null();
 }
 
 }  // namespace message_center

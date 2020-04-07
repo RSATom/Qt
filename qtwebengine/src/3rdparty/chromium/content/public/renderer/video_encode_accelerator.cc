@@ -6,8 +6,7 @@
 
 #include "base/task_runner_util.h"
 #include "content/renderer/render_thread_impl.h"
-#include "media/gpu/ipc/client/gpu_video_encode_accelerator_host.h"
-#include "media/renderers/gpu_video_accelerator_factories.h"
+#include "media/video/gpu_video_accelerator_factories.h"
 
 namespace content {
 
@@ -18,7 +17,7 @@ void CreateVideoEncodeAccelerator(
   media::GpuVideoAcceleratorFactories* gpu_factories =
       RenderThreadImpl::current()->GetGpuFactories();
   if (!gpu_factories || !gpu_factories->IsGpuVideoAcceleratorEnabled()) {
-    callback.Run(NULL, std::unique_ptr<media::VideoEncodeAccelerator>());
+    callback.Run(nullptr, std::unique_ptr<media::VideoEncodeAccelerator>());
     return;
   }
 

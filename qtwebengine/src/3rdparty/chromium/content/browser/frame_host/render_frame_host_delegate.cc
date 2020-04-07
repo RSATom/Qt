@@ -11,6 +11,7 @@
 #include "ipc/ipc_message.h"
 #include "ui/gfx/native_widget_types.h"
 #include "url/gurl.h"
+#include "url/origin.h"
 
 namespace content {
 
@@ -33,7 +34,7 @@ bool RenderFrameHostDelegate::DidAddMessageToConsole(
 }
 
 WebContents* RenderFrameHostDelegate::GetAsWebContents() {
-  return NULL;
+  return nullptr;
 }
 
 InterstitialPage* RenderFrameHostDelegate::GetAsInterstitialPage() {
@@ -42,15 +43,16 @@ InterstitialPage* RenderFrameHostDelegate::GetAsInterstitialPage() {
 
 void RenderFrameHostDelegate::RequestMediaAccessPermission(
     const MediaStreamRequest& request,
-    const MediaResponseCallback& callback) {
+    MediaResponseCallback callback) {
   LOG(ERROR) << "RenderFrameHostDelegate::RequestMediaAccessPermission: "
              << "Not supported.";
-  callback.Run(MediaStreamDevices(), MEDIA_DEVICE_NOT_SUPPORTED,
-               std::unique_ptr<MediaStreamUI>());
+  std::move(callback).Run(MediaStreamDevices(), MEDIA_DEVICE_NOT_SUPPORTED,
+                          std::unique_ptr<MediaStreamUI>());
 }
 
 bool RenderFrameHostDelegate::CheckMediaAccessPermission(
-    const GURL& security_origin,
+    RenderFrameHost* render_frame_host,
+    const url::Origin& security_origin,
     MediaStreamType type) {
   LOG(ERROR) << "RenderFrameHostDelegate::CheckMediaAccessPermission: "
              << "Not supported.";
@@ -62,17 +64,18 @@ std::string RenderFrameHostDelegate::GetDefaultMediaDeviceID(
   return std::string();
 }
 
-AccessibilityMode RenderFrameHostDelegate::GetAccessibilityMode() const {
-  return AccessibilityMode();
+ui::AXMode RenderFrameHostDelegate::GetAccessibilityMode() const {
+  return ui::AXMode();
 }
 
 RenderFrameHost* RenderFrameHostDelegate::GetGuestByInstanceID(
     RenderFrameHost* render_frame_host,
     int browser_plugin_instance_id) {
-  return NULL;
+  return nullptr;
 }
 
-device::GeolocationContext* RenderFrameHostDelegate::GetGeolocationContext() {
+device::mojom::GeolocationContext*
+RenderFrameHostDelegate::GetGeolocationContext() {
   return nullptr;
 }
 
@@ -117,6 +120,10 @@ RenderFrameHostDelegate::GetJavaRenderFrameHostDelegate() {
 
 bool RenderFrameHostDelegate::IsBeingDestroyed() const {
   return false;
+}
+
+Visibility RenderFrameHostDelegate::GetVisibility() const {
+  return Visibility::HIDDEN;
 }
 
 }  // namespace content

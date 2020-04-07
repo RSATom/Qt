@@ -12,26 +12,26 @@
  * All possible actions in the menu.
  * @enum {string}
  */
-var MenuActions = {
+const MenuActions = {
   SET_DEFAULT: 'SetDefault',
   REMOVE: 'Remove',
 };
 
 /**
  * @typedef {{host: string,
+ *            is_default: boolean,
  *            protocol: string,
+ *            protocol_display_name: string,
  *            spec: string}}
  */
-var HandlerEntry;
+let HandlerEntry;
 
 /**
- * @typedef {{default_handler: number,
- *            handlers: !Array<!HandlerEntry>,
- *            has_policy_recommendations: boolean,
- *            is_default_handler_set_by_user: boolean,
- *            protocol: string}}
+ * @typedef {{handlers: !Array<!HandlerEntry>,
+ *            protocol: string,
+ *            protocol_display_name: string}}
  */
-var ProtocolEntry;
+let ProtocolEntry;
 
 Polymer({
   is: 'protocol-handlers',
@@ -52,13 +52,27 @@ Polymer({
 
     /**
      * The targetted object for menu operations.
-     * @private {?Object}
+     * @private {?HandlerEntry}
      */
     actionMenuModel_: Object,
 
     /* Labels for the toggle on/off positions. */
     toggleOffLabel: String,
     toggleOnLabel: String,
+
+    /**
+     * Array of ignored (blocked) protocols.
+     * @type {!Array<!HandlerEntry>}
+     */
+    ignoredProtocols: Array,
+
+    // <if expr="chromeos">
+    /** @private */
+    settingsAppAvailable_: {
+      type: Boolean,
+      value: false,
+    },
+    // </if>
   },
 
   /** @override */
@@ -73,6 +87,34 @@ Polymer({
     this.browserProxy.observeProtocolHandlers();
   },
 
+  // <if expr="chromeos">
+  /** @override */
+  attached: function() {
+    if (settings.AndroidAppsBrowserProxyImpl) {
+      cr.addWebUIListener(
+          'android-apps-info-update', this.androidAppsInfoUpdate_.bind(this));
+      settings.AndroidAppsBrowserProxyImpl.getInstance()
+          .requestAndroidAppsInfo();
+    }
+  },
+  // </if>
+
+  // <if expr="chromeos">
+  /**
+   * Receives updates on whether or not ARC settings app is available.
+   * @param {AndroidAppsInfo} info
+   * @private
+   */
+  androidAppsInfoUpdate_: function(info) {
+    this.settingsAppAvailable_ = info.settingsAppAvailable;
+  },
+  // </if>
+
+  /** @private */
+  categoryLabelClicked_: function() {
+    this.$.toggle.click();
+  },
+
   /**
    * Obtains the description for the main toggle.
    * @return {string} The description to use.
@@ -80,17 +122,6 @@ Polymer({
    */
   computeHandlersDescription_: function() {
     return this.categoryEnabled ? this.toggleOnLabel : this.toggleOffLabel;
-  },
-
-  /**
-   * Returns whether the given index matches the default handler.
-   * @param {number} index The index to evaluate.
-   * @param {number} defaultHandler The default handler index.
-   * @return {boolean} Whether the item is default.
-   * @private
-   */
-  isDefault_: function(index, defaultHandler) {
-    return defaultHandler == index;
   },
 
   /**
@@ -113,13 +144,21 @@ Polymer({
 
   /**
    * Updates the list of ignored protocol handlers.
-   * @param {!Array<!ProtocolEntry>} args The new (ignored) protocol handler
-   *     list.
+   * @param {!Array<!HandlerEntry>} ignoredProtocols The new (ignored) protocol
+   *     handler list.
    * @private
    */
-  setIgnoredProtocolHandlers_: function(args) {
-    // TODO(finnur): Figure this out. Have yet to be able to trigger the C++
-    // side to send this.
+  setIgnoredProtocolHandlers_: function(ignoredProtocols) {
+    this.ignoredProtocols = ignoredProtocols;
+  },
+
+  /**
+   * Closes action menu and resets action menu model
+   * @private
+   */
+  closeActionMenu_: function() {
+    this.$$('cr-action-menu').close();
+    this.actionMenuModel_ = null;
   },
 
   /**
@@ -134,48 +173,51 @@ Polymer({
    * The handler for when "Set Default" is selected in the action menu.
    * @private
    */
-  onDefaultTap_: function() {
-    var item = this.actionMenuModel_.item;
-
-    this.$$('dialog[is=cr-action-menu]').close();
-    this.actionMenuModel_ = null;
+  onDefaultClick_: function() {
+    const item = this.actionMenuModel_;
     this.browserProxy.setProtocolDefault(item.protocol, item.spec);
+    this.closeActionMenu_();
   },
 
   /**
    * The handler for when "Remove" is selected in the action menu.
    * @private
    */
-  onRemoveTap_: function() {
-    var item = this.actionMenuModel_.item;
+  onRemoveClick_: function() {
+    const item = this.actionMenuModel_;
+    this.browserProxy.removeProtocolHandler(item.protocol, item.spec);
+    this.closeActionMenu_();
+  },
 
-    this.$$('dialog[is=cr-action-menu]').close();
-    this.actionMenuModel_ = null;
+  /**
+   * Handler for removing handlers that were blocked
+   * @private
+   */
+  onRemoveIgnored_: function(event) {
+    const item = event.model.item;
     this.browserProxy.removeProtocolHandler(item.protocol, item.spec);
   },
 
   /**
-   * Checks whether or not the selected actionMenuModel is the default handler
-   * for its protocol.
-   * @return {boolean} if actionMenuModel_ is default handler of its protocol.
-   */
-  isModelDefault_: function() {
-    return !!this.actionMenuModel_ &&
-        (this.actionMenuModel_.index ==
-         this.actionMenuModel_.protocol.default_handler);
-  },
-
-  /**
    * A handler to show the action menu next to the clicked menu button.
-   * @param {!{model: !{protocol: HandlerEntry, item: ProtocolEntry,
-   *     index: number}}} event
+   * @param {!{model: !{item: HandlerEntry}}} event
    * @private
    */
   showMenu_: function(event) {
-    this.actionMenuModel_ = event.model;
-    /** @type {!CrActionMenuElement} */ (this.$$('dialog[is=cr-action-menu]'))
+    this.actionMenuModel_ = event.model.item;
+    /** @type {!CrActionMenuElement} */ (this.$$('cr-action-menu'))
         .showAt(
             /** @type {!Element} */ (
                 Polymer.dom(/** @type {!Event} */ (event)).localTarget));
-  }
+  },
+
+  // <if expr="chromeos">
+  /**
+   * Opens an activity to handle App links (preferred apps).
+   * @private
+   */
+  onManageAndroidAppsClick_: function() {
+    this.browserProxy.showAndroidManageAppLinks();
+  },
+  // </if>
 });

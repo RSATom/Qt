@@ -5,7 +5,7 @@
 #ifndef MEDIA_BASE_CHANNEL_LAYOUT_H_
 #define MEDIA_BASE_CHANNEL_LAYOUT_H_
 
-#include "media/base/media_export.h"
+#include "media/base/media_shmem_export.h"
 
 namespace media {
 
@@ -108,8 +108,13 @@ enum ChannelLayout {
   // Front L, Front R, Side L, Side R, LFE
   CHANNEL_LAYOUT_4_1_QUAD_SIDE = 31,
 
+  // Actual channel layout is specified in the bitstream and the actual channel
+  // count is unknown at Chromium media pipeline level (useful for audio
+  // pass-through mode).
+  CHANNEL_LAYOUT_BITSTREAM = 32,
+
   // Max value, must always equal the largest entry ever logged.
-  CHANNEL_LAYOUT_MAX = CHANNEL_LAYOUT_4_1_QUAD_SIDE
+  CHANNEL_LAYOUT_MAX = CHANNEL_LAYOUT_BITSTREAM
 };
 
 // Note: Do not reorder or reassign these values; other code depends on their
@@ -136,17 +141,17 @@ constexpr int kMaxConcurrentChannels = 8;
 // Returns the expected channel position in an interleaved stream.  Values of -1
 // mean the channel at that index is not used for that layout.  Values range
 // from 0 to ChannelLayoutToChannelCount(layout) - 1.
-MEDIA_EXPORT int ChannelOrder(ChannelLayout layout, Channels channel);
+MEDIA_SHMEM_EXPORT int ChannelOrder(ChannelLayout layout, Channels channel);
 
 // Returns the number of channels in a given ChannelLayout.
-MEDIA_EXPORT int ChannelLayoutToChannelCount(ChannelLayout layout);
+MEDIA_SHMEM_EXPORT int ChannelLayoutToChannelCount(ChannelLayout layout);
 
 // Given the number of channels, return the best layout,
 // or return CHANNEL_LAYOUT_UNSUPPORTED if there is no good match.
-MEDIA_EXPORT ChannelLayout GuessChannelLayout(int channels);
+MEDIA_SHMEM_EXPORT ChannelLayout GuessChannelLayout(int channels);
 
 // Returns a string representation of the channel layout.
-MEDIA_EXPORT const char* ChannelLayoutToString(ChannelLayout layout);
+MEDIA_SHMEM_EXPORT const char* ChannelLayoutToString(ChannelLayout layout);
 
 }  // namespace media
 

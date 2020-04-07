@@ -192,6 +192,10 @@ void QmlCodeParser::parseSourceFile(const Location& location, const QString& fil
                               metacommandsAllowed,
                               topicCommandsAllowed);
         QQmlJS::AST::Node::accept(ast, &visitor);
+        if (visitor.hasError()) {
+            qDebug().nospace() << qPrintable(filePath) << ": Could not analyze QML file. "
+                               << "The output is incomplete.";
+        }
     }
     foreach (const  QQmlJS::DiagnosticMessage &msg, parser->diagnosticMessages()) {
         qDebug().nospace() << qPrintable(filePath) << ':' << msg.loc.startLine
@@ -202,14 +206,6 @@ void QmlCodeParser::parseSourceFile(const Location& location, const QString& fil
 #else
     location.warning("QtDeclarative not installed; cannot parse QML or JS.");
 #endif
-}
-
-/*!
-  Performs cleanup after qdoc is done parsing all the QML files.
-  Currently, no cleanup is required.
- */
-void QmlCodeParser::doneParsingSourceFiles()
-{
 }
 
 static QSet<QString> topicCommands_;

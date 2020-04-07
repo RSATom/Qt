@@ -243,7 +243,7 @@ void tst_QDialog::showMaximized()
     dialog.showMaximized();
     QVERIFY(dialog.isMaximized());
     QVERIFY(dialog.isVisible());
-#if QT_CONFIG(sizegrip) && !defined(Q_OS_DARWIN) && !defined(Q_OS_IRIX) && !defined(Q_OS_HPUX)
+#if QT_CONFIG(sizegrip) && !defined(Q_OS_DARWIN) && !defined(Q_OS_HPUX)
     QVERIFY(!sizeGrip->isVisible());
 #endif
 
@@ -369,6 +369,10 @@ void tst_QDialog::showAsTool()
     testWidget.activateWindow();
     QVERIFY(QTest::qWaitForWindowActive(&testWidget));
     dialog.exec();
+#ifdef Q_OS_WINRT
+    QEXPECT_FAIL("", "As winrt does not support child widgets, the dialog is being activated"
+                 "together with the main widget.", Continue);
+#endif
     if (testWidget.style()->styleHint(QStyle::SH_Widget_ShareActivation, 0, &testWidget)) {
         QCOMPARE(dialog.wasActive(), true);
     } else {
@@ -551,10 +555,11 @@ void tst_QDialog::snapToDefaultButton()
 #ifdef QT_NO_CURSOR
     QSKIP("Test relies on there being a cursor");
 #else
-    if (!QGuiApplication::platformName().compare(QLatin1String("wayland"), Qt::CaseInsensitive))
-        QSKIP("Wayland: Wayland does not support setting the cursor position.");
+    if (!QGuiApplication::platformName().compare(QLatin1String("wayland"), Qt::CaseInsensitive)
+        || !QGuiApplication::platformName().compare(QLatin1String("winrt"), Qt::CaseInsensitive))
+        QSKIP("This platform does not support setting the cursor position.");
 
-    const QRect dialogGeometry(QApplication::desktop()->availableGeometry().topLeft()
+    const QRect dialogGeometry(QGuiApplication::primaryScreen()->availableGeometry().topLeft()
                                + QPoint(100, 100), QSize(200, 200));
     const QPoint startingPos = dialogGeometry.bottomRight() + QPoint(100, 100);
     QCursor::setPos(startingPos);

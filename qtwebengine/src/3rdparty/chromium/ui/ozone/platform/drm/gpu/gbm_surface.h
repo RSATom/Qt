@@ -31,9 +31,12 @@ class GbmSurface : public GbmSurfaceless {
   bool OnMakeCurrent(gl::GLContext* context) override;
   bool Resize(const gfx::Size& size,
               float scale_factor,
+              ColorSpace color_space,
               bool has_alpha) override;
   bool SupportsPostSubBuffer() override;
-  void SwapBuffersAsync(const SwapCompletionCallback& callback) override;
+  void SwapBuffersAsync(
+      const SwapCompletionCallback& completion_callback,
+      const PresentationCallback& presentation_callback) override;
   void Destroy() override;
   bool IsSurfaceless() const override;
 

@@ -29,7 +29,7 @@
     \example webenginewidgets/stylesheetbrowser
     \title WebEngine StyleSheet Browser Example
     \ingroup webengine-widgetexamples
-    \brief Demonstrates how to inject CSS into web pages using user scripts
+    \brief Demonstrates how to inject CSS into web pages using user scripts.
 
     \image stylesheetbrowser.png
 
@@ -55,4 +55,14 @@
     \quotefromfile webenginewidgets/stylesheetbrowser/mainwindow.cpp
     \skipto MainWindow::removeStyleSheet
     \printuntil /^\}/
+
+    \section1 Files and Attributions
+
+    The example uses icons from the Tango Icon Library:
+
+    \table
+    \row
+        \li \l{stylesheetbrowser-tango}{Tango Icon Library}
+        \li Public Domain
+    \endtable
 */

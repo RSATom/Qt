@@ -43,7 +43,11 @@ const char kAddressLine1Re[] =
     "|地址"                                   // zh-CN
     "|^주소.?$|주소.?1";                      // ko-KR
 const char kAddressLine1LabelRe[] =
-    "address"
+    "(^\\W*address)"
+    "|(address\\W*$)"
+    "|(?:shipping|billing|mailing|pick.?up|drop.?off|delivery|sender|postal|"
+    "recipient|home|work|office|school|business|mail)[\\s\\-]+address"
+    "|address\\s+(of|for|to|from)"
     "|adresse"    // fr-FR
     "|indirizzo"  // it-IT
     "|住所"       // ja-JP
@@ -109,7 +113,7 @@ const char kCityRe[] =
     "|分區"                                  // zh-TW
     "|^시[^도·・]|시[·・]?군[·・]?구";       // ko-KR
 const char kStateRe[] =
-    "(?<!united )state|county|region|province"
+    "(?<!(united|hist|history).?)state|county|region|province"
     "|land"                 // de-DE
     "|county|principality"  // en-UK
     "|都道府県"             // ja-JP
@@ -118,6 +122,22 @@ const char kStateRe[] =
     "|省"                   // zh-CN
     "|地區"                 // zh-TW
     "|^시[·・]?도";         // ko-KR
+
+/////////////////////////////////////////////////////////////////////////////
+// search_field.cc
+/////////////////////////////////////////////////////////////////////////////
+const char kSearchTermRe[] =
+    "^q$"
+    "|search"
+    "|query"
+    "|qry"
+    "|suche.*"              // de-DE
+    "|搜索"                 // zh-CN zh-TW
+    "|探す|検索"            // ja-JP to search
+    "|recherch.*"           // fr-FR
+    "|busca"                // pt-BR, pt-PT
+    "|جستجو"                // fa
+    "|искать|найти|поиск";  // ru
 
 /////////////////////////////////////////////////////////////////////////////
 // credit_card_field.cc
@@ -136,16 +156,17 @@ const char kNameOnCardRe[] =
 const char kNameOnCardContextualRe[] = "name";
 const char kCardNumberRe[] =
     "(add)?(?:card|cc|acct).?(?:number|#|no|num|field)"
-    "|nummer"                 // de-DE
-    "|credito|numero|número"  // es
-    "|numéro"                 // fr-FR
-    "|カード番号"             // ja-JP
-    "|Номер.*карты"           // ru
-    "|信用卡号|信用卡号码"    // zh-CN
-    "|信用卡卡號"             // zh-TW
-    "|카드";                  // ko-KR
+    "|(?<!telefon|haus)nummer"  // de-DE
+    "|credito|numero|número"    // es
+    "|numéro"                   // fr-FR
+    "|カード番号"               // ja-JP
+    "|Номер.*карты"             // ru
+    "|信用卡号|信用卡号码"      // zh-CN
+    "|信用卡卡號"               // zh-TW
+    "|카드";                    // ko-KR
 const char kCardCvcRe[] =
     "verification|card.?identification|security.?code|card.?code"
+    "|security.?value"
     "|security.?number|card.?pin|c-v-v"
     "|(cvn|cvv|cvc|csc|cvd|cid|ccv)(field)?"
     "|\\bcid\\b";
@@ -297,34 +318,73 @@ const char kPhoneSuffixRe[] = "suffix";
 const char kPhoneExtensionRe[] =
     "\\bext|ext\\b|extension"
     "|ramal";  // pt-BR, pt-PT
+
+/////////////////////////////////////////////////////////////////////////////
+// validation.cc
+/////////////////////////////////////////////////////////////////////////////
 const char kUPIVirtualPaymentAddressRe[] =
     "^\\w+@("
-    "upi|"         // BHIM Bharat Interface for Money
-    "allbank|"     // Allahabad Bank UPI
-    "andb|"        // Andhra Bank ONE
-    "axisbank|"    // Axis Pay
-    "barodampay|"  // Baroda MPay
-    "mahb|"        // MAHAUPI
-    "cnrb|"        // Canara Bank UPI - Empower
-    "csbpay|"      // CSB UPI
-    "dcb|"         // DCB Bank
-    "federal|"     // Lotza
-    "hdfcbank|"    // HDFC Bank MobileBanking
-    "pockets|"     // Pockets- ICICI Bank
-    "icici|"       // Pockets- ICICI Bank
-    "idfcbank|"    // IDFC Bank UPI App
-    "indus|"       // Indus Pay
-    "kbl|"         // KBL Smartz
-    "kaypay|"      // KayPay
-    "pnb|"         // PNB UPI
-    "sib|"         // SIB M-Pay (UPI Pay)
-    "sbi|"         // SBI Pay
-    "tjsp|"        // TranZapp
-    "uco|"         // UCO UPI
-    "unionbank|"   // Union Bank UPI
-    "united|"      // United UPI
-    "vijb|"        // Vijaya UPI App
-    "ybl"          // Yes Pay
+    "airtel|"       // My Airtel-Recharge, Bill, Bank
+    "allbank|"      // Allahabad Bank UPI
+    "andb|"         // Andhra Bank ONE
+    "axisbank|"     // Axis Pay
+    "axisgo|"       // Ola
+    "barodampay|"   // Baroda MPay
+    "boi|"          // BHIM BOI UPI
+    "centralbank|"  // Cent UPI
+    "cnrb|"         // Canara Bank UPI - Empower
+    "csbpay|"       // CSB UPI
+    "dbs|"          // digibank by DBS
+    "dcb|"          // DCB Bank
+    "denabank|"     // Dena Bank E-UPI
+    "fbl|"          // Cointab
+    "federal|"      // Lotza
+    "hdfcbank|"     // HDFC Bank MobileBanking
+    "hsbc|"         // HSBC Simply Pay
+    "icici|"        // Pockets- ICICI Bank
+    "idbi|"         // PayWiz
+    "idfcbank|"     // IDFC Bank UPI App
+    "indianbank|"   // Indian Bank UPI
+    "indus|"        // Indus Pay
+    "iob|"          // IOB UPI
+    "jkb|"          // BHIM JK Bank UPI
+    "jsb|"          // JetPay UPI
+    "kaypay|"       // KayPay
+    "kbl|"          // KBL Smartz
+    "kotak|"        // kotak Mahindra Bank
+    "kvb|"          // KVB Upay
+    "lvb|"          // LVB UPay
+    "mahb|"         // MAHAUPI
+    "obc|"          // Oriental BHIM UPI
+    "okicici|"      // Tez
+    "okhdfcbank|"   // Tez
+    "okaxis|"       // Tez
+    "paytm|"        // Paytm
+    "pingpay|"      // Samsung Pay
+    "pnb|"          // PNB UPI
+    "pockets|"      // Pockets- ICICI Bank
+    "psb|"          // PSB UPI App
+    "rbl|"          // RBL Pay
+    "sbi|"          // SBI Pay
+    "scb|"          // Standard Chartered
+    "sib|"          // SIB M-Pay (UPI Pay)
+    "syndicate|"    // Synd UPI
+    "tjsb|"         // TranZapp
+    "ubi|"          // United UPI
+    "uboi|"         // Union Bank UPI
+    "uco|"          // UCO UPI
+    "unionbank|"    // Union Bank UPI
+    "united|"       // United UPI
+    "upi|"          // BHIM Bharat Interface for Money
+    "utbi|"         // United UPI
+    "vijb|"         // Vijaya UPI App
+    "ybl|"          // Yes Pay
+    "yesbank"       // NuPay
     ")$";
+
+/////////////////////////////////////////////////////////////////////////////
+// form_structure.cc
+/////////////////////////////////////////////////////////////////////////////
+const char kUrlSearchActionRe[] = "/search(/|((\\w*\\.\\w+)?$))";
 
 }  // namespace autofill

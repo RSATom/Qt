@@ -3,31 +3,31 @@
 // found in the LICENSE file.
 
 #include "base/bind.h"
-#include "base/message_loop/message_loop.h"
-#include "chrome/browser/apps/app_browsertest_util.h"
+#include "base/run_loop.h"
+#include "chrome/browser/apps/platform_apps/app_browsertest_util.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/extensions/api/feedback_private/feedback_private_api.h"
 #include "chrome/browser/extensions/component_loader.h"
 #include "chrome/browser/extensions/extension_browsertest.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
-#include "chrome/common/extensions/api/feedback_private.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_utils.h"
+#include "extensions/browser/api/feedback_private/feedback_private_api.h"
 #include "extensions/browser/app_window/app_window.h"
 #include "extensions/browser/app_window/app_window_registry.h"
 #include "extensions/browser/event_router.h"
 #include "extensions/browser/extension_system.h"
+#include "extensions/common/api/feedback_private.h"
 
 using extensions::api::feedback_private::FeedbackFlow;
 
 namespace {
 
 void StopMessageLoopCallback() {
-  base::MessageLoopForUI::current()->QuitWhenIdle();
+  base::RunLoop::QuitCurrentWhenIdleDeprecated();
 }
 
 }  // namespace
@@ -78,13 +78,20 @@ class FeedbackTest : public ExtensionBrowserTest {
     extensions::FeedbackPrivateAPI* api =
         extensions::FeedbackPrivateAPI::GetFactoryInstance()->Get(
             browser()->profile());
-    api->RequestFeedbackForFlow("Test description", "Test tag",
-                                extra_diagnostics, GURL("http://www.test.com"),
-                                flow);
+    api->RequestFeedbackForFlow("Test description", "Test placeholder",
+                                "Test tag", extra_diagnostics,
+                                GURL("http://www.test.com"), flow);
   }
 };
 
-IN_PROC_BROWSER_TEST_F(FeedbackTest, ShowFeedback) {
+// Disabled for ASan due to flakiness on Mac ASan 64 Tests (1).
+// See crbug.com/757243.
+#if defined(ADDRESS_SANITIZER)
+#define MAYBE_ShowFeedback DISABLED_ShowFeedback
+#else
+#define MAYBE_ShowFeedback ShowFeedback
+#endif
+IN_PROC_BROWSER_TEST_F(FeedbackTest, MAYBE_ShowFeedback) {
   WaitForExtensionViewsToLoad();
 
   ASSERT_TRUE(IsFeedbackAppAvailable());
@@ -92,7 +99,14 @@ IN_PROC_BROWSER_TEST_F(FeedbackTest, ShowFeedback) {
   VerifyFeedbackAppLaunch();
 }
 
-IN_PROC_BROWSER_TEST_F(FeedbackTest, ShowLoginFeedback) {
+// Disabled for ASan due to flakiness on Mac ASan 64 Tests (1).
+// See crbug.com/757243.
+#if defined(ADDRESS_SANITIZER)
+#define MAYBE_ShowLoginFeedback DISABLED_ShowLoginFeedback
+#else
+#define MAYBE_ShowLoginFeedback ShowLoginFeedback
+#endif
+IN_PROC_BROWSER_TEST_F(FeedbackTest, MAYBE_ShowLoginFeedback) {
   WaitForExtensionViewsToLoad();
 
   ASSERT_TRUE(IsFeedbackAppAvailable());
@@ -114,9 +128,16 @@ IN_PROC_BROWSER_TEST_F(FeedbackTest, ShowLoginFeedback) {
   EXPECT_TRUE(bool_result);
 }
 
+// Disabled for ASan due to flakiness on Mac ASan 64 Tests (1).
+// See crbug.com/757243.
+#if defined(ADDRESS_SANITIZER)
+#define MAYBE_AnonymousUser DISABLED_AnonymousUser
+#else
+#define MAYBE_AnonymousUser AnonymousUser
+#endif
 // Tests that there's an option in the email drop down box with a value
 // 'anonymous_user'.
-IN_PROC_BROWSER_TEST_F(FeedbackTest, AnonymousUser) {
+IN_PROC_BROWSER_TEST_F(FeedbackTest, MAYBE_AnonymousUser) {
   WaitForExtensionViewsToLoad();
 
   ASSERT_TRUE(IsFeedbackAppAvailable());
@@ -145,9 +166,16 @@ IN_PROC_BROWSER_TEST_F(FeedbackTest, AnonymousUser) {
   EXPECT_TRUE(bool_result);
 }
 
+// Disabled for ASan due to flakiness on Mac ASan 64 Tests (1).
+// See crbug.com/757243.
+#if defined(ADDRESS_SANITIZER)
+#define MAYBE_ExtraDiagnostics DISABLED_ExtraDiagnostics
+#else
+#define MAYBE_ExtraDiagnostics ExtraDiagnostics
+#endif
 // Ensures that when extra diagnostics are provided with feedback, they are
 // injected properly in the system information.
-IN_PROC_BROWSER_TEST_F(FeedbackTest, ExtraDiagnostics) {
+IN_PROC_BROWSER_TEST_F(FeedbackTest, MAYBE_ExtraDiagnostics) {
   WaitForExtensionViewsToLoad();
 
   ASSERT_TRUE(IsFeedbackAppAvailable());

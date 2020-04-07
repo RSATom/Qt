@@ -48,10 +48,6 @@
 #include <QtCore/QString>
 #include <QtQml/QQmlListProperty>
 
-namespace QtWebEngineCore {
-class BrowserContextAdapter;
-}
-
 QT_BEGIN_NAMESPACE
 
 class QQuickWebEngineDownloadItem;
@@ -172,6 +168,7 @@ private:
     friend class QQuickWebEngineViewPrivate;
     friend class QQuickWebEngineDownloadItem;
     friend class QQuickWebEngineDownloadItemPrivate;
+    friend class QQuickWebEngineView;
     QScopedPointer<QQuickWebEngineProfilePrivate> d_ptr;
 };
 

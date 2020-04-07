@@ -36,10 +36,10 @@
 #include <qdesigner_utils_p.h>
 #include <shared_enums_p.h>
 
-#include <QtCore/QUrl>
-#include <QtCore/QMap>
-#include <QtGui/QFont>
-#include <QtGui/QIcon>
+#include <QtCore/qurl.h>
+#include <QtCore/qmap.h>
+#include <QtGui/qfont.h>
+#include <QtGui/qicon.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -66,7 +66,7 @@ class ResetDecorator : public QObject
 {
     Q_OBJECT
 public:
-    explicit ResetDecorator(const QDesignerFormEditorInterface *core, QObject *parent = Q_NULLPTR);
+    explicit ResetDecorator(const QDesignerFormEditorInterface *core, QObject *parent = nullptr);
     ~ResetDecorator();
 
     void connectPropertyManager(QtAbstractPropertyManager *manager);
@@ -104,14 +104,16 @@ public:
                  int expectedTypeId, const QVariant &value);
 
 private:
-    QMap<QtProperty *, PropertySheetValue> m_values;
-    QMap<QtProperty *, QtProperty *> m_valueToComment;
-    QMap<QtProperty *, QtProperty *> m_valueToTranslatable;
-    QMap<QtProperty *, QtProperty *> m_valueToDisambiguation;
+    QHash<QtProperty *, PropertySheetValue> m_values;
+    QHash<QtProperty *, QtProperty *> m_valueToComment;
+    QHash<QtProperty *, QtProperty *> m_valueToTranslatable;
+    QHash<QtProperty *, QtProperty *> m_valueToDisambiguation;
+    QHash<QtProperty *, QtProperty *> m_valueToId;
 
-    QMap<QtProperty *, QtProperty *> m_commentToValue;
-    QMap<QtProperty *, QtProperty *> m_translatableToValue;
-    QMap<QtProperty *, QtProperty *> m_disambiguationToValue;
+    QHash<QtProperty *, QtProperty *> m_commentToValue;
+    QHash<QtProperty *, QtProperty *> m_translatableToValue;
+    QHash<QtProperty *, QtProperty *> m_disambiguationToValue;
+    QHash<QtProperty *, QtProperty *> m_idToValue;
 };
 
 class DesignerPropertyManager : public QtVariantPropertyManager
@@ -123,15 +125,15 @@ public:
     explicit DesignerPropertyManager(QDesignerFormEditorInterface *core, QObject *parent = 0);
     ~DesignerPropertyManager();
 
-    QStringList attributes(int propertyType) const Q_DECL_OVERRIDE;
-    int attributeType(int propertyType, const QString &attribute) const Q_DECL_OVERRIDE;
+    QStringList attributes(int propertyType) const override;
+    int attributeType(int propertyType, const QString &attribute) const override;
 
-    QVariant attributeValue(const QtProperty *property, const QString &attribute) const Q_DECL_OVERRIDE;
-    bool isPropertyTypeSupported(int propertyType) const Q_DECL_OVERRIDE;
-    QVariant value(const QtProperty *property) const Q_DECL_OVERRIDE;
-    int valueType(int propertyType) const Q_DECL_OVERRIDE;
-    QString valueText(const QtProperty *property) const Q_DECL_OVERRIDE;
-    QIcon valueIcon(const QtProperty *property) const Q_DECL_OVERRIDE;
+    QVariant attributeValue(const QtProperty *property, const QString &attribute) const override;
+    bool isPropertyTypeSupported(int propertyType) const override;
+    QVariant value(const QtProperty *property) const override;
+    int valueType(int propertyType) const override;
+    QString valueText(const QtProperty *property) const override;
+    QIcon valueIcon(const QtProperty *property) const override;
 
     bool resetFontSubProperty(QtProperty *property);
     bool resetIconSubProperty(QtProperty *subProperty);
@@ -149,16 +151,21 @@ public:
 
     void setObject(QObject *object) { m_object = object; }
 
+    static void setUseIdBasedTranslations(bool v)
+        { m_IdBasedTranslations = v; }
+    static bool useIdBasedTranslations()
+        { return m_IdBasedTranslations; }
+
 public Q_SLOTS:
-    void setAttribute(QtProperty *property, const QString &attribute, const QVariant &value) Q_DECL_OVERRIDE;
-    void setValue(QtProperty *property, const QVariant &value) Q_DECL_OVERRIDE;
+    void setAttribute(QtProperty *property, const QString &attribute, const QVariant &value) override;
+    void setValue(QtProperty *property, const QVariant &value) override;
 Q_SIGNALS:
     // sourceOfChange - a subproperty (or just property) which caused a change
     //void valueChanged(QtProperty *property, const QVariant &value, QtProperty *sourceOfChange);
     void valueChanged(QtProperty *property, const QVariant &value, bool enableSubPropertyHandling);
 protected:
-    void initializeProperty(QtProperty *property) Q_DECL_OVERRIDE;
-    void uninitializeProperty(QtProperty *property) Q_DECL_OVERRIDE;
+    void initializeProperty(QtProperty *property) override;
+    void uninitializeProperty(QtProperty *property) override;
 private Q_SLOTS:
     void slotValueChanged(QtProperty *property, const QVariant &value);
     void slotPropertyDestroyed(QtProperty *property);
@@ -238,6 +245,7 @@ private:
     QObject *m_object;
 
     QtProperty *m_sourceOfChange;
+    static bool m_IdBasedTranslations;
 };
 
 class DesignerEditorFactory : public QtVariantEditorFactory

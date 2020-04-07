@@ -26,12 +26,18 @@
 **
 ****************************************************************************/
 
-#include <QtTest/QtTest>
-#include <QtCore/QCoreApplication>
-#include <QtGui/QStandardItemModel>
+#include <QAbstractItemModelTester>
+#include <QCoreApplication>
+#include <QSignalSpy>
+#include <QStandardItemModel>
+#include <QStringListModel>
+#include <QTest>
+#include <QLoggingCategory>
 
 #include "dynamictreemodel.h"
 #include "qidentityproxymodel.h"
+
+Q_LOGGING_CATEGORY(lcItemModels, "qt.corelib.tests.itemmodels")
 
 class DataChangedModel : public QAbstractListModel
 {
@@ -76,6 +82,7 @@ protected:
 private:
     QStandardItemModel *m_model;
     QIdentityProxyModel *m_proxy;
+    QAbstractItemModelTester *m_modelTest;
 };
 
 tst_QIdentityProxyModel::tst_QIdentityProxyModel()
@@ -88,12 +95,14 @@ void tst_QIdentityProxyModel::initTestCase()
     qRegisterMetaType<QVector<int> >();
     m_model = new QStandardItemModel(0, 1);
     m_proxy = new QIdentityProxyModel();
+    m_modelTest = new QAbstractItemModelTester(m_proxy, this);
 }
 
 void tst_QIdentityProxyModel::cleanupTestCase()
 {
     delete m_proxy;
     delete m_model;
+    delete m_modelTest;
 }
 
 void tst_QIdentityProxyModel::cleanup()
@@ -360,7 +369,7 @@ class AppendStringProxy : public QIdentityProxyModel
 public:
     QVariant data(const QModelIndex &index, int role) const
     {
-        const QVariant result = sourceModel()->data(index, role);
+        const QVariant result = QIdentityProxyModel::data(index, role);
         if (role != Qt::DisplayRole)
             return result;
         return result.toString() + "_appended";
@@ -384,7 +393,7 @@ void dump(QAbstractItemModel* model, QString const& indent = " - ", QModelIndex 
     for (auto row = 0; row < model->rowCount(parent); ++row)
     {
         auto idx = model->index(row, 0, parent);
-        qDebug() << (indent + idx.data().toString());
+        qCDebug(lcItemModels) << (indent + idx.data().toString());
         dump(model, indent + "- ", idx);
     }
 }

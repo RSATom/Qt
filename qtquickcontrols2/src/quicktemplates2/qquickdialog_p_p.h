@@ -50,7 +50,6 @@
 
 #include <QtQuickTemplates2/private/qquickdialog_p.h>
 #include <QtQuickTemplates2/private/qquickpopup_p_p.h>
-#include <QtQuickTemplates2/private/qquickpagelayout_p_p.h>
 #include <QtGui/qpa/qplatformdialoghelper.h>
 
 QT_BEGIN_NAMESPACE
@@ -63,8 +62,6 @@ class QQuickDialogPrivate : public QQuickPopupPrivate
     Q_DECLARE_PUBLIC(QQuickDialog)
 
 public:
-    QQuickDialogPrivate() : result(0), buttonBox(nullptr) { }
-
     static QQuickDialogPrivate *get(QQuickDialog *dialog)
     {
         return dialog->d_func();
@@ -74,11 +71,10 @@ public:
 
     void handleClick(QQuickAbstractButton *button);
 
-    int result;
+    int result = 0;
     QString title;
-    QQuickDialogButtonBox *buttonBox;
-    QScopedPointer<QQuickPageLayout> layout;
-    QPlatformDialogHelper::StandardButtons standardButtons;
+    QQuickDialogButtonBox *buttonBox = nullptr;
+    QPlatformDialogHelper::StandardButtons standardButtons = QPlatformDialogHelper::NoButton;
 };
 
 QT_END_NAMESPACE

@@ -90,10 +90,16 @@ public:
 
     int leftBearing(QChar) const;
     int rightBearing(QChar) const;
+
+#if QT_DEPRECATED_SINCE(5, 11)
     int width(const QString &, int len = -1) const;
     int width(const QString &, int len, int flags) const;
-
     int width(QChar) const;
+#endif
+
+    int horizontalAdvance(const QString &, int len = -1) const;
+    int horizontalAdvance(QChar) const;
+
 #if QT_VERSION < QT_VERSION_CHECK(6,0,0)
     QT_DEPRECATED int charWidth(const QString &str, int pos) const;
 #endif
@@ -101,11 +107,11 @@ public:
     QRect boundingRect(QChar) const;
 
     QRect boundingRect(const QString &text) const;
-    QRect boundingRect(const QRect &r, int flags, const QString &text, int tabstops = 0, int *tabarray = Q_NULLPTR) const;
+    QRect boundingRect(const QRect &r, int flags, const QString &text, int tabstops = 0, int *tabarray = nullptr) const;
     inline QRect boundingRect(int x, int y, int w, int h, int flags, const QString &text,
-                              int tabstops = 0, int *tabarray = Q_NULLPTR) const
+                              int tabstops = 0, int *tabarray = nullptr) const
         { return boundingRect(QRect(x, y, w, h), flags, text, tabstops, tabarray); }
-    QSize size(int flags, const QString& str, int tabstops = 0, int *tabarray = Q_NULLPTR) const;
+    QSize size(int flags, const QString& str, int tabstops = 0, int *tabarray = nullptr) const;
 
     QRect tightBoundingRect(const QString &text) const;
 
@@ -164,14 +170,19 @@ public:
 
     qreal leftBearing(QChar) const;
     qreal rightBearing(QChar) const;
-    qreal width(const QString &string) const;
 
+#if QT_DEPRECATED_SINCE(5, 11)
+    qreal width(const QString &string) const;
     qreal width(QChar) const;
+#endif
+
+    qreal horizontalAdvance(const QString &string, int length = -1) const;
+    qreal horizontalAdvance(QChar) const;
 
     QRectF boundingRect(const QString &string) const;
     QRectF boundingRect(QChar) const;
-    QRectF boundingRect(const QRectF &r, int flags, const QString& string, int tabstops = 0, int *tabarray = Q_NULLPTR) const;
-    QSizeF size(int flags, const QString& str, int tabstops = 0, int *tabarray = Q_NULLPTR) const;
+    QRectF boundingRect(const QRectF &r, int flags, const QString& string, int tabstops = 0, int *tabarray = nullptr) const;
+    QSizeF size(int flags, const QString& str, int tabstops = 0, int *tabarray = nullptr) const;
 
     QRectF tightBoundingRect(const QString &text) const;
 

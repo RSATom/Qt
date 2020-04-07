@@ -50,7 +50,6 @@ struct SourceIndexData
 
 struct TranslatedIndexData
 {
-    gl::IndexRange indexRange;
     unsigned int startIndex;
     unsigned int startOffset;  // In bytes
 
@@ -65,19 +64,18 @@ struct TranslatedIndexData
 class IndexDataManager : angle::NonCopyable
 {
   public:
-    explicit IndexDataManager(BufferFactoryD3D *factory, RendererClass rendererClass);
+    explicit IndexDataManager(BufferFactoryD3D *factory);
     virtual ~IndexDataManager();
 
-    bool usePrimitiveRestartWorkaround(bool primitiveRestartFixedIndexEnabled, GLenum type);
-    bool isStreamingIndexData(bool primitiveRestartWorkaround,
-                              GLenum srcType,
-                              gl::Buffer *glBuffer);
-    gl::Error prepareIndexData(GLenum srcType,
+    void deinitialize();
+
+    gl::Error prepareIndexData(const gl::Context *context,
+                               GLenum srcType,
+                               GLenum dstType,
                                GLsizei count,
                                gl::Buffer *glBuffer,
                                const void *indices,
-                               TranslatedIndexData *translated,
-                               bool primitiveRestartFixedIndexEnabled);
+                               TranslatedIndexData *translated);
 
   private:
     gl::Error streamIndexData(const void *data,
@@ -89,11 +87,20 @@ class IndexDataManager : angle::NonCopyable
     gl::Error getStreamingIndexBuffer(GLenum destinationIndexType,
                                       IndexBufferInterface **outBuffer);
 
+    using StreamingBuffer = std::unique_ptr<StreamingIndexBufferInterface>;
+
     BufferFactoryD3D *const mFactory;
-    RendererClass mRendererClass;
-    StreamingIndexBufferInterface *mStreamingBufferShort;
-    StreamingIndexBufferInterface *mStreamingBufferInt;
+    std::unique_ptr<StreamingIndexBufferInterface> mStreamingBufferShort;
+    std::unique_ptr<StreamingIndexBufferInterface> mStreamingBufferInt;
 };
-}
+
+gl::Error GetIndexTranslationDestType(const gl::Context *context,
+                                      const gl::DrawCallParams &drawCallParams,
+                                      bool usePrimitiveRestartWorkaround,
+                                      GLenum *destTypeOut);
+
+bool IsOffsetAligned(GLenum elementType, unsigned int offset);
+
+}  // namespace rx
 
 #endif  // LIBANGLE_INDEXDATAMANAGER_H_

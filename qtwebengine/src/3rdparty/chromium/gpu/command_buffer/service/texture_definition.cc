@@ -44,7 +44,10 @@ class GLImageSync : public gl::GLImage {
                             int z_order,
                             gfx::OverlayTransform transform,
                             const gfx::Rect& bounds_rect,
-                            const gfx::RectF& crop_rect) override;
+                            const gfx::RectF& crop_rect,
+                            bool enable_blend,
+                            std::unique_ptr<gfx::GpuFence> gpu_fence) override;
+  void SetColorSpace(const gfx::ColorSpace& color_space) override {}
   void Flush() override {}
   void OnMemoryDump(base::trace_event::ProcessMemoryDump* pmd,
                     uint64_t process_tracing_id,
@@ -99,11 +102,14 @@ bool GLImageSync::CopyTexSubImage(unsigned target,
   return false;
 }
 
-bool GLImageSync::ScheduleOverlayPlane(gfx::AcceleratedWidget widget,
-                                       int z_order,
-                                       gfx::OverlayTransform transform,
-                                       const gfx::Rect& bounds_rect,
-                                       const gfx::RectF& crop_rect) {
+bool GLImageSync::ScheduleOverlayPlane(
+    gfx::AcceleratedWidget widget,
+    int z_order,
+    gfx::OverlayTransform transform,
+    const gfx::Rect& bounds_rect,
+    const gfx::RectF& crop_rect,
+    bool enable_blend,
+    std::unique_ptr<gfx::GpuFence> gpu_fence) {
   NOTREACHED();
   return false;
 }
@@ -178,7 +184,7 @@ scoped_refptr<NativeImageBufferEGL> NativeImageBufferEGL::Create(
 NativeImageBufferEGL::ClientInfo::ClientInfo(gl::GLImage* client)
     : client(client), needs_wait_before_read(true) {}
 
-NativeImageBufferEGL::ClientInfo::~ClientInfo() {}
+NativeImageBufferEGL::ClientInfo::~ClientInfo() = default;
 
 NativeImageBufferEGL::NativeImageBufferEGL(EGLDisplay display,
                                            EGLImageKHR image)
@@ -241,7 +247,7 @@ class NativeImageBufferStub : public NativeImageBuffer {
   NativeImageBufferStub() : NativeImageBuffer() {}
 
  private:
-  ~NativeImageBufferStub() override {}
+  ~NativeImageBufferStub() override = default;
   void AddClient(gl::GLImage* client) override {}
   void RemoveClient(gl::GLImage* client) override {}
   bool IsClient(gl::GLImage* client) override { return true; }
@@ -308,7 +314,7 @@ TextureDefinition::LevelInfo::LevelInfo(GLenum target,
 
 TextureDefinition::LevelInfo::LevelInfo(const LevelInfo& other) = default;
 
-TextureDefinition::LevelInfo::~LevelInfo() {}
+TextureDefinition::LevelInfo::~LevelInfo() = default;
 
 TextureDefinition::TextureDefinition()
     : version_(0),
@@ -318,8 +324,8 @@ TextureDefinition::TextureDefinition()
       wrap_s_(0),
       wrap_t_(0),
       usage_(0),
-      immutable_(true) {
-}
+      immutable_(true),
+      defined_(false) {}
 
 TextureDefinition::TextureDefinition(
     Texture* texture,
@@ -333,34 +339,35 @@ TextureDefinition::TextureDefinition(
       wrap_s_(texture->wrap_s()),
       wrap_t_(texture->wrap_t()),
       usage_(texture->usage()),
-      immutable_(texture->IsImmutable()),
-      defined_(texture->IsDefined()) {
+      immutable_(texture->IsImmutable()) {
+  const Texture::LevelInfo* level = texture->GetLevelInfo(target_, 0);
+  defined_ = !!level;
   DCHECK(!image_buffer_.get() || defined_);
-  if (!image_buffer_.get() && defined_) {
+  if (!defined_)
+    return;
+  if (!image_buffer_.get()) {
     image_buffer_ = NativeImageBuffer::Create(texture->service_id());
     DCHECK(image_buffer_.get());
   }
 
-  const Texture::FaceInfo& first_face = texture->face_infos_[0];
   if (image_buffer_.get()) {
-    scoped_refptr<gl::GLImage> gl_image(new GLImageSync(
-        image_buffer_, gfx::Size(first_face.level_infos[0].width,
-                                 first_face.level_infos[0].height)));
+    scoped_refptr<gl::GLImage> gl_image(
+        new GLImageSync(image_buffer_, gfx::Size(level->width, level->height)));
     texture->SetLevelImage(target_, 0, gl_image.get(), Texture::BOUND);
   }
 
-  const Texture::LevelInfo& level = first_face.level_infos[0];
-  level_info_ = LevelInfo(level.target, level.internal_format, level.width,
-                          level.height, level.depth, level.border, level.format,
-                          level.type, level.cleared_rect);
+  level_info_ = LevelInfo(level->target, level->internal_format, level->width,
+                          level->height, level->depth, level->border,
+                          level->format, level->type, level->cleared_rect);
 }
 
 TextureDefinition::TextureDefinition(const TextureDefinition& other) = default;
 
-TextureDefinition::~TextureDefinition() {
-}
+TextureDefinition::~TextureDefinition() = default;
 
 Texture* TextureDefinition::CreateTexture() const {
+  if (!target_)
+    return nullptr;
   GLuint texture_id;
   glGenTextures(1, &texture_id);
 
@@ -385,16 +392,16 @@ void TextureDefinition::UpdateTextureInternal(Texture* texture) const {
     }
   }
 
+  texture->face_infos_.resize(1);
+  texture->face_infos_[0].level_infos.resize(1);
   if (defined_) {
-    texture->face_infos_.resize(1);
-    texture->face_infos_[0].level_infos.resize(1);
     texture->SetLevelInfo(level_info_.target, 0,
                           level_info_.internal_format, level_info_.width,
                           level_info_.height, level_info_.depth,
                           level_info_.border, level_info_.format,
                           level_info_.type, level_info_.cleared_rect);
     texture->face_infos_[0].level_infos.resize(
-        texture->face_infos_[0].num_mip_levels);
+        std::max(1, texture->face_infos_[0].num_mip_levels));
   }
 
   if (image_buffer_.get()) {

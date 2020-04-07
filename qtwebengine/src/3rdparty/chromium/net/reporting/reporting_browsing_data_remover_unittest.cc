@@ -4,10 +4,10 @@
 
 #include "net/reporting/reporting_browsing_data_remover.h"
 
+#include <memory>
 #include <string>
 
 #include "base/bind.h"
-#include "base/memory/ptr_util.h"
 #include "base/test/simple_test_tick_clock.h"
 #include "net/reporting/reporting_cache.h"
 #include "net/reporting/reporting_client.h"
@@ -29,14 +29,28 @@ class ReportingBrowsingDataRemoverTest : public ReportingTestBase {
     if (remove_clients)
       data_type_mask |= ReportingBrowsingDataRemover::DATA_TYPE_CLIENTS;
 
-    base::Callback<bool(const GURL&)> origin_filter;
     if (!host.empty()) {
-      origin_filter =
-          base::Bind(&ReportingBrowsingDataRemoverTest::HostIs, host);
+      base::RepeatingCallback<bool(const GURL&)> origin_filter =
+          base::BindRepeating(&ReportingBrowsingDataRemoverTest::HostIs, host);
+      ReportingBrowsingDataRemover::RemoveBrowsingData(cache(), data_type_mask,
+                                                       origin_filter);
+    } else {
+      ReportingBrowsingDataRemover::RemoveAllBrowsingData(cache(),
+                                                          data_type_mask);
     }
+  }
 
-    ReportingBrowsingDataRemover::RemoveBrowsingData(cache(), data_type_mask,
-                                                     origin_filter);
+  void AddReport(const GURL& url) {
+    cache()->AddReport(url, kUserAgent_, kGroup_, kType_,
+                       std::make_unique<base::DictionaryValue>(), 0,
+                       tick_clock()->NowTicks(), 0);
+  }
+
+  void SetClient(const url::Origin& origin, const GURL& endpoint) {
+    cache()->SetClient(
+        origin, endpoint, ReportingClient::Subdomains::EXCLUDE, kGroup_,
+        tick_clock()->NowTicks() + base::TimeDelta::FromDays(7),
+        ReportingClient::kDefaultPriority, ReportingClient::kDefaultWeight);
   }
 
   static bool HostIs(std::string host, const GURL& url) {
@@ -57,26 +71,20 @@ class ReportingBrowsingDataRemoverTest : public ReportingTestBase {
 
   const GURL kUrl1_ = GURL("https://origin1/path");
   const GURL kUrl2_ = GURL("https://origin2/path");
-  const url::Origin kOrigin1_ = url::Origin(kUrl1_);
-  const url::Origin kOrigin2_ = url::Origin(kUrl2_);
+  const url::Origin kOrigin1_ = url::Origin::Create(kUrl1_);
+  const url::Origin kOrigin2_ = url::Origin::Create(kUrl2_);
   const GURL kEndpoint_ = GURL("https://endpoint/");
+  const std::string kUserAgent_ = "Mozilla/1.0";
   const std::string kGroup_ = "group";
   const std::string kType_ = "default";
 };
 
 TEST_F(ReportingBrowsingDataRemoverTest, RemoveNothing) {
-  cache()->AddReport(kUrl1_, kGroup_, kType_,
-                     base::MakeUnique<base::DictionaryValue>(),
-                     tick_clock()->NowTicks(), 0);
-  cache()->AddReport(kUrl2_, kGroup_, kType_,
-                     base::MakeUnique<base::DictionaryValue>(),
-                     tick_clock()->NowTicks(), 0);
-  cache()->SetClient(kOrigin1_, kEndpoint_,
-                     ReportingClient::Subdomains::EXCLUDE, kGroup_,
-                     tick_clock()->NowTicks() + base::TimeDelta::FromDays(7));
-  cache()->SetClient(kOrigin2_, kEndpoint_,
-                     ReportingClient::Subdomains::EXCLUDE, kGroup_,
-                     tick_clock()->NowTicks() + base::TimeDelta::FromDays(7));
+  AddReport(kUrl1_);
+  AddReport(kUrl2_);
+
+  SetClient(kOrigin1_, kEndpoint_);
+  SetClient(kOrigin2_, kEndpoint_);
 
   RemoveBrowsingData(/* remove_reports= */ false, /* remove_clients= */ false,
                      /* host= */ "");
@@ -85,18 +93,11 @@ TEST_F(ReportingBrowsingDataRemoverTest, RemoveNothing) {
 }
 
 TEST_F(ReportingBrowsingDataRemoverTest, RemoveAllReports) {
-  cache()->AddReport(kUrl1_, kGroup_, kType_,
-                     base::MakeUnique<base::DictionaryValue>(),
-                     tick_clock()->NowTicks(), 0);
-  cache()->AddReport(kUrl2_, kGroup_, kType_,
-                     base::MakeUnique<base::DictionaryValue>(),
-                     tick_clock()->NowTicks(), 0);
-  cache()->SetClient(kOrigin1_, kEndpoint_,
-                     ReportingClient::Subdomains::EXCLUDE, kGroup_,
-                     tick_clock()->NowTicks() + base::TimeDelta::FromDays(7));
-  cache()->SetClient(kOrigin2_, kEndpoint_,
-                     ReportingClient::Subdomains::EXCLUDE, kGroup_,
-                     tick_clock()->NowTicks() + base::TimeDelta::FromDays(7));
+  AddReport(kUrl1_);
+  AddReport(kUrl2_);
+
+  SetClient(kOrigin1_, kEndpoint_);
+  SetClient(kOrigin2_, kEndpoint_);
 
   RemoveBrowsingData(/* remove_reports= */ true, /* remove_clients= */ false,
                      /* host= */ "");
@@ -105,18 +106,11 @@ TEST_F(ReportingBrowsingDataRemoverTest, RemoveAllReports) {
 }
 
 TEST_F(ReportingBrowsingDataRemoverTest, RemoveAllClients) {
-  cache()->AddReport(kUrl1_, kGroup_, kType_,
-                     base::MakeUnique<base::DictionaryValue>(),
-                     tick_clock()->NowTicks(), 0);
-  cache()->AddReport(kUrl2_, kGroup_, kType_,
-                     base::MakeUnique<base::DictionaryValue>(),
-                     tick_clock()->NowTicks(), 0);
-  cache()->SetClient(kOrigin1_, kEndpoint_,
-                     ReportingClient::Subdomains::EXCLUDE, kGroup_,
-                     tick_clock()->NowTicks() + base::TimeDelta::FromDays(7));
-  cache()->SetClient(kOrigin2_, kEndpoint_,
-                     ReportingClient::Subdomains::EXCLUDE, kGroup_,
-                     tick_clock()->NowTicks() + base::TimeDelta::FromDays(7));
+  AddReport(kUrl1_);
+  AddReport(kUrl2_);
+
+  SetClient(kOrigin1_, kEndpoint_);
+  SetClient(kOrigin2_, kEndpoint_);
 
   RemoveBrowsingData(/* remove_reports= */ false, /* remove_clients= */ true,
                      /* host= */ "");
@@ -125,18 +119,11 @@ TEST_F(ReportingBrowsingDataRemoverTest, RemoveAllClients) {
 }
 
 TEST_F(ReportingBrowsingDataRemoverTest, RemoveAllReportsAndClients) {
-  cache()->AddReport(kUrl1_, kGroup_, kType_,
-                     base::MakeUnique<base::DictionaryValue>(),
-                     tick_clock()->NowTicks(), 0);
-  cache()->AddReport(kUrl2_, kGroup_, kType_,
-                     base::MakeUnique<base::DictionaryValue>(),
-                     tick_clock()->NowTicks(), 0);
-  cache()->SetClient(kOrigin1_, kEndpoint_,
-                     ReportingClient::Subdomains::EXCLUDE, kGroup_,
-                     tick_clock()->NowTicks() + base::TimeDelta::FromDays(7));
-  cache()->SetClient(kOrigin2_, kEndpoint_,
-                     ReportingClient::Subdomains::EXCLUDE, kGroup_,
-                     tick_clock()->NowTicks() + base::TimeDelta::FromDays(7));
+  AddReport(kUrl1_);
+  AddReport(kUrl2_);
+
+  SetClient(kOrigin1_, kEndpoint_);
+  SetClient(kOrigin2_, kEndpoint_);
 
   RemoveBrowsingData(/* remove_reports= */ true, /* remove_clients= */ true,
                      /* host= */ "");
@@ -145,18 +132,11 @@ TEST_F(ReportingBrowsingDataRemoverTest, RemoveAllReportsAndClients) {
 }
 
 TEST_F(ReportingBrowsingDataRemoverTest, RemoveSomeReports) {
-  cache()->AddReport(kUrl1_, kGroup_, kType_,
-                     base::MakeUnique<base::DictionaryValue>(),
-                     tick_clock()->NowTicks(), 0);
-  cache()->AddReport(kUrl2_, kGroup_, kType_,
-                     base::MakeUnique<base::DictionaryValue>(),
-                     tick_clock()->NowTicks(), 0);
-  cache()->SetClient(kOrigin1_, kEndpoint_,
-                     ReportingClient::Subdomains::EXCLUDE, kGroup_,
-                     tick_clock()->NowTicks() + base::TimeDelta::FromDays(7));
-  cache()->SetClient(kOrigin2_, kEndpoint_,
-                     ReportingClient::Subdomains::EXCLUDE, kGroup_,
-                     tick_clock()->NowTicks() + base::TimeDelta::FromDays(7));
+  AddReport(kUrl1_);
+  AddReport(kUrl2_);
+
+  SetClient(kOrigin1_, kEndpoint_);
+  SetClient(kOrigin2_, kEndpoint_);
 
   RemoveBrowsingData(/* remove_reports= */ true, /* remove_clients= */ false,
                      /* host= */ kUrl1_.host());
@@ -169,18 +149,11 @@ TEST_F(ReportingBrowsingDataRemoverTest, RemoveSomeReports) {
 }
 
 TEST_F(ReportingBrowsingDataRemoverTest, RemoveSomeClients) {
-  cache()->AddReport(kUrl1_, kGroup_, kType_,
-                     base::MakeUnique<base::DictionaryValue>(),
-                     tick_clock()->NowTicks(), 0);
-  cache()->AddReport(kUrl2_, kGroup_, kType_,
-                     base::MakeUnique<base::DictionaryValue>(),
-                     tick_clock()->NowTicks(), 0);
-  cache()->SetClient(kOrigin1_, kEndpoint_,
-                     ReportingClient::Subdomains::EXCLUDE, kGroup_,
-                     tick_clock()->NowTicks() + base::TimeDelta::FromDays(7));
-  cache()->SetClient(kOrigin2_, kEndpoint_,
-                     ReportingClient::Subdomains::EXCLUDE, kGroup_,
-                     tick_clock()->NowTicks() + base::TimeDelta::FromDays(7));
+  AddReport(kUrl1_);
+  AddReport(kUrl2_);
+
+  SetClient(kOrigin1_, kEndpoint_);
+  SetClient(kOrigin2_, kEndpoint_);
 
   RemoveBrowsingData(/* remove_reports= */ false, /* remove_clients= */ true,
                      /* host= */ kUrl1_.host());

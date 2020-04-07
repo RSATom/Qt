@@ -149,7 +149,7 @@ QNearFieldShareManager::~QNearFieldShareManager()
 void QNearFieldShareManager::setShareModes(ShareModes mode)
 {
     Q_D(QNearFieldShareManager);
-    return d->setShareModes(mode);
+    d->setShareModes(mode);
 }
 
 /*!

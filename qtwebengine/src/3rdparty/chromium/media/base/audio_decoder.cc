@@ -8,9 +8,13 @@
 
 namespace media {
 
-AudioDecoder::AudioDecoder() {}
+AudioDecoder::AudioDecoder() = default;
 
-AudioDecoder::~AudioDecoder() {}
+AudioDecoder::~AudioDecoder() = default;
+
+bool AudioDecoder::IsPlatformDecoder() const {
+  return false;
+}
 
 bool AudioDecoder::NeedsBitstreamConversion() const {
   return false;

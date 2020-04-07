@@ -37,25 +37,38 @@
 **
 ****************************************************************************/
 
+//
+//  W A R N I N G
+//  -------------
+//
+// This file is not part of the Qt API.  It exists purely as an
+// implementation detail.  This header file may change from version to
+// version without notice, or even be removed.
+//
+// We mean it.
+//
+
 #ifndef WEB_ENGINE_SETTINGS_H
 #define WEB_ENGINE_SETTINGS_H
 
-#include "qtwebenginecoreglobal.h"
+#include "qtwebenginecoreglobal_p.h"
 
 #include <QScopedPointer>
 #include <QHash>
 #include <QUrl>
 #include <QSet>
+#include <QTimer>
 
 namespace content {
+struct RendererPreferences;
+class WebContents;
 struct WebPreferences;
 }
 namespace QtWebEngineCore {
 
-class BatchTimer;
 class WebContentsAdapter;
 
-class QWEBENGINE_EXPORT WebEngineSettings {
+class QWEBENGINECORE_PRIVATE_EXPORT WebEngineSettings {
 public:
     // Attributes. Names match the ones from the public widgets API.
     enum Attribute {
@@ -85,7 +98,11 @@ public:
         AllowRunningInsecureContent,
         AllowGeolocationOnInsecureOrigins,
         AllowWindowActivationFromJavaScript,
-        ShowScrollBars
+        ShowScrollBars,
+        PlaybackRequiresUserGesture,
+        WebRTCPublicInterfacesOnly,
+        JavascriptCanPaste,
+        DnsPrefetchEnabled,
     };
 
     // Must match the values from the public API in qwebenginesettings.h.
@@ -107,16 +124,25 @@ public:
         DefaultFixedFontSize
     };
 
+    // Must match the values from the public API in qwebenginesettings.h.
+    enum UnknownUrlSchemePolicy {
+        InheritedUnknownUrlSchemePolicy = 0,
+        DisallowUnknownUrlSchemes = 1,
+        AllowUnknownUrlSchemesFromUserInteraction,
+        AllowAllUnknownUrlSchemes
+    };
+
     explicit WebEngineSettings(WebEngineSettings *parentSettings = 0);
     ~WebEngineSettings();
 
     void setParentSettings(WebEngineSettings *parentSettings);
 
-    void overrideWebPreferences(content::WebPreferences *prefs);
+    void overrideWebPreferences(content::WebContents *webContents, content::WebPreferences *prefs);
 
     void setAttribute(Attribute, bool on);
     bool testAttribute(Attribute) const;
     void resetAttribute(Attribute);
+    bool isAttributeExplicitlySet(Attribute) const;
 
     void setFontFamily(FontFamily, const QString &);
     QString fontFamily(FontFamily);
@@ -129,6 +155,9 @@ public:
     void setDefaultTextEncoding(const QString &encoding);
     QString defaultTextEncoding() const;
 
+    void setUnknownUrlSchemePolicy(UnknownUrlSchemePolicy policy);
+    UnknownUrlSchemePolicy unknownUrlSchemePolicy() const;
+
     void initDefaults();
     void scheduleApply();
 
@@ -139,6 +168,7 @@ public:
 private:
     void doApply();
     void applySettingsToWebPreferences(content::WebPreferences *);
+    bool applySettingsToRendererPreferences(content::RendererPreferences *);
     void setWebContentsAdapter(WebContentsAdapter *adapter) { m_adapter = adapter; }
 
     WebContentsAdapter* m_adapter;
@@ -147,7 +177,7 @@ private:
     QHash<FontSize, int> m_fontSizes;
     QString m_defaultEncoding;
     QScopedPointer<content::WebPreferences> webPreferences;
-    QScopedPointer<BatchTimer> m_batchTimer;
+    QTimer m_batchTimer;
 
     WebEngineSettings *parentSettings;
     QSet<WebEngineSettings *> childSettings;
@@ -155,8 +185,8 @@ private:
     static QHash<Attribute, bool> s_defaultAttributes;
     static QHash<FontFamily, QString> s_defaultFontFamilies;
     static QHash<FontSize, int> s_defaultFontSizes;
+    UnknownUrlSchemePolicy m_unknownUrlSchemePolicy;
 
-    friend class BatchTimer;
     friend class WebContentsAdapter;
 };
 

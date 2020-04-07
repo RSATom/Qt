@@ -15,12 +15,13 @@
 #include "src/mutator.h"
 
 #include <algorithm>
-#include <iostream>
+#include <functional>
 #include <map>
 #include <random>
 #include <string>
 
 #include "src/field_instance.h"
+#include "src/utf8_fix.h"
 #include "src/weighted_reservoir_sampler.h"
 
 namespace protobuf_mutator {
@@ -36,7 +37,7 @@ using std::placeholders::_1;
 
 namespace {
 
-const size_t kMaxInitializeDepth = 32;
+const int kMaxInitializeDepth = 200;
 const uint64_t kDefaultMutateWeight = 1000000;
 
 enum class Mutation {
@@ -154,7 +155,8 @@ class MutationSampler {
   MutationSampler(bool keep_initialized, RandomEngine* random, Message* message)
       : keep_initialized_(keep_initialized), random_(random), sampler_(random) {
     Sample(message);
-    assert(mutation() != Mutation::None);
+    assert(mutation() != Mutation::None ||
+           message->GetDescriptor()->field_count() == 0);
   }
 
   // Returns selected field.
@@ -310,12 +312,14 @@ class DataSourceSampler {
         if (int field_size = reflection->FieldSize(*message, field)) {
           ConstFieldInstance source(message, field,
                                     GetRandomIndex(random_, field_size));
+          if (match_.EnforceUtf8() && !source.EnforceUtf8()) continue;
           if (!IsEqualValueField()(match_, source))
             sampler_.Try(field_size, source);
         }
       } else {
         if (reflection->HasField(*message, field)) {
           ConstFieldInstance source(message, field);
+          if (match_.EnforceUtf8() && !source.EnforceUtf8()) continue;
           if (!IsEqualValueField()(match_, source)) sampler_.Try(1, source);
         }
       }
@@ -333,9 +337,10 @@ class DataSourceSampler {
 class FieldMutator {
  public:
   FieldMutator(size_t size_increase_hint, bool enforce_changes,
-               Mutator* mutator)
+               bool enforce_utf8_strings, Mutator* mutator)
       : size_increase_hint_(size_increase_hint),
         enforce_changes_(enforce_changes),
+        enforce_utf8_strings_(enforce_utf8_strings),
         mutator_(mutator) {}
 
   void Mutate(int32_t* value) const {
@@ -374,8 +379,13 @@ class FieldMutator {
   }
 
   void Mutate(std::string* value) const {
-    RepeatMutate(value, std::bind(&Mutator::MutateString, mutator_, _1,
-                                  size_increase_hint_));
+    if (enforce_utf8_strings_) {
+      RepeatMutate(value, std::bind(&Mutator::MutateUtf8String, mutator_, _1,
+                                    size_increase_hint_));
+    } else {
+      RepeatMutate(value, std::bind(&Mutator::MutateString, mutator_, _1,
+                                    size_increase_hint_));
+    }
   }
 
   void Mutate(std::unique_ptr<Message>* message) const {
@@ -402,6 +412,7 @@ class FieldMutator {
 
   size_t size_increase_hint_;
   size_t enforce_changes_;
+  bool enforce_utf8_strings_;
   Mutator* mutator_;
 };
 
@@ -413,7 +424,8 @@ struct MutateField : public FieldFunction<MutateField> {
                Mutator* mutator) const {
     T value;
     field.Load(&value);
-    FieldMutator(size_increase_hint, true, mutator).Mutate(&value);
+    FieldMutator(size_increase_hint, true, field.EnforceUtf8(), mutator)
+        .Mutate(&value);
     field.Store(value);
   }
 };
@@ -426,7 +438,8 @@ struct CreateField : public FieldFunction<CreateField> {
     T value;
     field.GetDefault(&value);
     FieldMutator field_mutator(size_increase_hint,
-                               false /* defaults could be useful */, mutator);
+                               false /* defaults could be useful */,
+                               field.EnforceUtf8(), mutator);
     field_mutator.Mutate(&value);
     field.Create(value);
   }
@@ -467,10 +480,8 @@ void Mutator::Mutate(Message* message, size_t size_increase_hint) {
     }
   } while (repeat);
 
-  if (keep_initialized_ && !message->IsInitialized()) {
-    InitializeMessage(message, kMaxInitializeDepth);
-    assert(message->IsInitialized());
-  }
+  InitializeAndTrim(message, kMaxInitializeDepth);
+  assert(!keep_initialized_ || message->IsInitialized());
 }
 
 void Mutator::CrossOver(const protobuf::Message& message1,
@@ -482,10 +493,8 @@ void Mutator::CrossOver(const protobuf::Message& message1,
 
   CrossOverImpl(message1, message2);
 
-  if (keep_initialized_ && !message2->IsInitialized()) {
-    InitializeMessage(message2, kMaxInitializeDepth);
-    assert(message2->IsInitialized());
-  }
+  InitializeAndTrim(message2, kMaxInitializeDepth);
+  assert(!keep_initialized_ || message2->IsInitialized());
 
   // Can't call mutate from crossover because of a bug in libFuzzer.
   return;
@@ -568,32 +577,36 @@ void Mutator::CrossOverImpl(const protobuf::Message& message1,
   }
 }
 
-void Mutator::InitializeMessage(Message* message, size_t max_depth) {
-  assert(keep_initialized_);
-  // It's pointless but possible to have infinite recursion of required
-  // messages.
-  assert(max_depth);
+void Mutator::InitializeAndTrim(Message* message, int max_depth) {
   const Descriptor* descriptor = message->GetDescriptor();
   const Reflection* reflection = message->GetReflection();
   for (int i = 0; i < descriptor->field_count(); ++i) {
     const FieldDescriptor* field = descriptor->field(i);
-    if (field->is_required() && !reflection->HasField(*message, field))
+    if (keep_initialized_ && field->is_required() &&
+        !reflection->HasField(*message, field))
       CreateDefaultField()(FieldInstance(message, field));
 
-    if (max_depth > 0 &&
-        field->cpp_type() == FieldDescriptor::CPPTYPE_MESSAGE) {
+    if (field->cpp_type() == FieldDescriptor::CPPTYPE_MESSAGE) {
+      if (max_depth <= 0 && !field->is_required()) {
+        // Clear deep optional fields to avoid stack overflow.
+        reflection->ClearField(message, field);
+        if (field->is_repeated())
+          assert(!reflection->FieldSize(*message, field));
+        else
+          assert(!reflection->HasField(*message, field));
+        continue;
+      }
+
       if (field->is_repeated()) {
         const int field_size = reflection->FieldSize(*message, field);
         for (int j = 0; j < field_size; ++j) {
           Message* nested_message =
               reflection->MutableRepeatedMessage(message, field, j);
-          if (!nested_message->IsInitialized())
-            InitializeMessage(nested_message, max_depth - 1);
+          InitializeAndTrim(nested_message, max_depth - 1);
         }
       } else if (reflection->HasField(*message, field)) {
         Message* nested_message = reflection->MutableMessage(message, field);
-        if (!nested_message->IsInitialized())
-          InitializeMessage(nested_message, max_depth - 1);
+        InitializeAndTrim(nested_message, max_depth - 1);
       }
     }
   }
@@ -645,6 +658,13 @@ std::string Mutator::MutateString(const std::string& value,
   if (!result.empty())
     FlipBit(result.size(), reinterpret_cast<uint8_t*>(&result[0]), random_);
   return result;
+}
+
+std::string Mutator::MutateUtf8String(const std::string& value,
+                                      size_t size_increase_hint) {
+  std::string str = MutateString(value, size_increase_hint);
+  FixUtf8String(&str, random_);
+  return str;
 }
 
 }  // namespace protobuf_mutator

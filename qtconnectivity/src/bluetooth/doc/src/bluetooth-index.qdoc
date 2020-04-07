@@ -41,9 +41,9 @@ Currently, the API is supported on the following platforms:
     \li \l {Qt for Android}{Android}
     \li \l {Qt for iOS}{iOS}
     \li \l {Qt for Linux/X11}{Linux (BlueZ 4.x/5.x)}
-    \li \l {Qt for OS X}{macOS}
+    \li \l \macos
     \li \l {Qt for WinRT}{WinRT}
-    \li \l {Qt for Windows}{Windows}
+    \li \l {Qt for Windows}{Win32}
 \row
     \li Classic Bluetooth
     \li x
@@ -77,6 +77,11 @@ Currently, the API is supported on the following platforms:
     \li
     \li
 \endtable
+
+Despite there not being a Win32 port yet, the WinRT backend is automatically used
+if the win32 target platform supports the required WinRT APIs. Minimal requirement is Windows 10 version 1507
+with slightly improved service discovery since Windows 10 version 1607. Therefore Windows 7 and 8.x
+targets are excluded.
 
 \section1 Overview
 

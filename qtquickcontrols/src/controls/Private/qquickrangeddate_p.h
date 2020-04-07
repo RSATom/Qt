@@ -60,11 +60,11 @@ public:
     void setDate(const QDateTime &date);
     void resetDate() {}
 
-    QDateTime minimumDate() const { return mMinimumDate; }
+    QDateTime minimumDate() const { return QDateTime(mMinimumDate, QTime()); }
     void setMinimumDate(const QDateTime &minimumDate);
     void resetMinimumDate() {}
 
-    QDateTime maximumDate() const { return mMaximumDate; }
+    QDateTime maximumDate() const { return QDateTime(mMaximumDate, QTime(23, 59, 59, 999)); }
     void setMaximumDate(const QDateTime &maximumDate);
     void resetMaximumDate() {}
 
@@ -75,8 +75,8 @@ Q_SIGNALS:
 
 private:
     QDateTime mDate;
-    QDateTime mMinimumDate;
-    QDateTime mMaximumDate;
+    QDate mMinimumDate;
+    QDate mMaximumDate;
 };
 
 QT_END_NAMESPACE

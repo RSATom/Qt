@@ -9,7 +9,7 @@
 
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
-#include "base/metrics/user_metrics.h"
+#include "components/guest_view/browser/bad_message.h"
 #include "components/guest_view/browser/guest_view_base.h"
 #include "components/guest_view/browser/guest_view_manager_delegate.h"
 #include "components/guest_view/browser/guest_view_manager_factory.h"
@@ -20,7 +20,6 @@
 #include "content/public/browser/site_instance.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/common/child_process_host.h"
-#include "content/public/common/result_codes.h"
 #include "content/public/common/url_constants.h"
 #include "url/gurl.h"
 
@@ -58,7 +57,7 @@ class GuestViewManager::EmbedderRenderProcessHostObserver
   }
 
   void RenderProcessHostDestroyed(RenderProcessHost* host) override {
-    if (guest_view_manager_.get())
+    if (guest_view_manager_)
       guest_view_manager_->EmbedderProcessDestroyed(id_);
     delete this;
   }
@@ -175,13 +174,13 @@ int GuestViewManager::GetNextInstanceID() {
 void GuestViewManager::CreateGuest(const std::string& view_type,
                                    content::WebContents* owner_web_contents,
                                    const base::DictionaryValue& create_params,
-                                   const WebContentsCreatedCallback& callback) {
+                                   WebContentsCreatedCallback callback) {
   GuestViewBase* guest = CreateGuestInternal(owner_web_contents, view_type);
   if (!guest) {
-    callback.Run(nullptr);
+    std::move(callback).Run(nullptr);
     return;
   }
-  guest->Init(create_params, callback);
+  guest->Init(create_params, std::move(callback));
 }
 
 content::WebContents* GuestViewManager::CreateGuestWithWebContentsParams(
@@ -193,9 +192,13 @@ content::WebContents* GuestViewManager::CreateGuestWithWebContentsParams(
     return nullptr;
   content::WebContents::CreateParams guest_create_params(create_params);
   guest_create_params.guest_delegate = guest;
-  auto* guest_web_contents = WebContents::Create(guest_create_params);
-  guest->InitWithWebContents(base::DictionaryValue(), guest_web_contents);
-  return guest_web_contents;
+
+  // TODO(erikchen): Fix ownership semantics for this class.
+  // https://crbug.com/832879.
+  std::unique_ptr<content::WebContents> guest_web_contents =
+      WebContents::Create(guest_create_params);
+  guest->InitWithWebContents(base::DictionaryValue(), guest_web_contents.get());
+  return guest_web_contents.release();
 }
 
 content::WebContents* GuestViewManager::GetGuestByInstanceID(
@@ -305,8 +308,11 @@ void GuestViewManager::ViewCreated(int embedder_process_id,
   if (guest_view_registry_.empty())
     RegisterGuestViewTypes();
   auto view_it = guest_view_registry_.find(view_type);
-  CHECK(view_it != guest_view_registry_.end())
-      << "Invalid GuestView created of type \"" << view_type << "\"";
+  if (view_it == guest_view_registry_.end()) {
+    bad_message::ReceivedBadMessage(embedder_process_id,
+                                    bad_message::GVM_INVALID_GUESTVIEW_TYPE);
+    return;
+  }
 
   // Register the cleanup callback for when this view is destroyed.
   RegisterViewDestructionCallback(embedder_process_id,
@@ -421,9 +427,9 @@ bool GuestViewManager::CanEmbedderAccessInstanceIDMaybeKill(
   if (!CanEmbedderAccessInstanceID(embedder_render_process_id,
                                    guest_instance_id)) {
     // The embedder process is trying to access a guest it does not own.
-    base::RecordAction(base::UserMetricsAction("BadMessageTerminate_BPGM"));
-    content::RenderProcessHost::FromID(embedder_render_process_id)
-        ->Shutdown(content::RESULT_CODE_KILLED_BAD_MESSAGE, false);
+    bad_message::ReceivedBadMessage(
+        embedder_render_process_id,
+        bad_message::GVM_EMBEDDER_FORBIDDEN_ACCESS_TO_GUEST);
     return false;
   }
   return true;
@@ -480,8 +486,10 @@ bool GuestViewManager::CanEmbedderAccessInstanceID(
 
   // Other than MimeHandlerViewGuest, all other guest types are only permitted
   // to run in the main frame.
-  return embedder_render_process_id ==
-         guest_view->owner_web_contents()->GetRenderProcessHost()->GetID();
+  return embedder_render_process_id == guest_view->owner_web_contents()
+                                           ->GetMainFrame()
+                                           ->GetProcess()
+                                           ->GetID();
 }
 
 GuestViewManager::ElementInstanceKey::ElementInstanceKey()

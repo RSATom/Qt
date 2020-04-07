@@ -23,28 +23,22 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <type_traits>
+
 #include "base/logging.h"
 #include "base/rand_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/sys_byteorder.h"
-#include "util/stdlib/cxx.h"
 
 #if defined(OS_MACOSX)
 #include <uuid/uuid.h>
 #endif  // OS_MACOSX
 
-#if CXX_LIBRARY_VERSION >= 2011
-#include <type_traits>
-#endif
-
 namespace crashpad {
 
 static_assert(sizeof(UUID) == 16, "UUID must be 16 bytes");
-
-#if CXX_LIBRARY_VERSION >= 2011
 static_assert(std::is_pod<UUID>::value, "UUID must be POD");
-#endif
 
 bool UUID::operator==(const UUID& that) const {
   return memcmp(this, &that, sizeof(*this)) == 0;
@@ -66,7 +60,7 @@ bool UUID::InitializeFromString(const base::StringPiece& string) {
     return false;
 
   UUID temp;
-  const char kScanFormat[] =
+  static constexpr char kScanFormat[] =
       "%08" SCNx32 "-%04" SCNx16 "-%04" SCNx16
       "-%02" SCNx8 "%02" SCNx8
       "-%02" SCNx8 "%02" SCNx8 "%02" SCNx8 "%02" SCNx8 "%02" SCNx8 "%02" SCNx8;
@@ -90,15 +84,21 @@ bool UUID::InitializeFromString(const base::StringPiece& string) {
   return true;
 }
 
+bool UUID::InitializeFromString(const base::StringPiece16& string) {
+  return InitializeFromString(UTF16ToUTF8(string));
+}
+
 bool UUID::InitializeWithNew() {
 #if defined(OS_MACOSX)
   uuid_t uuid;
   uuid_generate(uuid);
   InitializeFromBytes(uuid);
   return true;
-#elif defined(OS_WIN) || defined(OS_LINUX) || defined(OS_ANDROID)
-  // Linux does not provide a UUID generator in a widely-available system
-  // library. uuid_generate() from libuuid is not available everywhere.
+#elif defined(OS_WIN) || defined(OS_LINUX) || defined(OS_ANDROID) || \
+    defined(OS_FUCHSIA)
+  // Linux, Android, and Fuchsia do not provide a UUID generator in a
+  // widely-available system library. On Linux and Android, uuid_generate()
+  // from libuuid is not available everywhere.
   // On Windows, do not use UuidCreate() to avoid a dependency on rpcrt4, so
   // that this function is usable early in DllMain().
   base::RandBytes(this, sizeof(*this));

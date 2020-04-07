@@ -42,14 +42,6 @@
 #include "qquickuniversalstyle_p.h"
 #include "qquickuniversaltheme_p.h"
 
-static inline void initResources()
-{
-    Q_INIT_RESOURCE(qtquickcontrols2universalstyleplugin);
-#ifdef QT_STATIC
-    Q_INIT_RESOURCE(qmake_QtQuick_Controls_2_Universal);
-#endif
-}
-
 QT_BEGIN_NAMESPACE
 
 class QtQuickControls2UniversalStylePlugin: public QQuickStylePlugin
@@ -61,47 +53,41 @@ public:
     QtQuickControls2UniversalStylePlugin(QObject *parent = nullptr);
 
     void registerTypes(const char *uri) override;
-    void initializeEngine(QQmlEngine *engine, const char *uri) override;
 
     QString name() const override;
-    QQuickProxyTheme *createTheme() const override;
+    void initializeTheme(QQuickTheme *theme) override;
 };
 
 QtQuickControls2UniversalStylePlugin::QtQuickControls2UniversalStylePlugin(QObject *parent) : QQuickStylePlugin(parent)
 {
-    initResources();
+    QQuickUniversalStyle::initGlobals();
 }
 
 void QtQuickControls2UniversalStylePlugin::registerTypes(const char *uri)
 {
-    qmlRegisterModule(uri, 2, QT_VERSION_MINOR - 7); // Qt 5.7->2.0, 5.8->2.1, 5.9->2.2...
+    qmlRegisterModule(uri, 2, QT_VERSION_MINOR); // Qt 5.12->2.12, 5.13->2.13...
     qmlRegisterUncreatableType<QQuickUniversalStyle>(uri, 2, 0, "Universal", tr("Universal is an attached property"));
-}
-
-void QtQuickControls2UniversalStylePlugin::initializeEngine(QQmlEngine *engine, const char *uri)
-{
-    QQuickStylePlugin::initializeEngine(engine, uri);
 
     QByteArray import = QByteArray(uri) + ".impl";
-    qmlRegisterModule(import, 2, QT_VERSION_MINOR - 7); // Qt 5.7->2.0, 5.8->2.1, 5.9->2.2...
+    qmlRegisterModule(import, 2, QT_VERSION_MINOR); // Qt 5.12->2.12, 5.13->2.13...
 
     qmlRegisterType<QQuickUniversalFocusRectangle>(import, 2, 0, "FocusRectangle");
     qmlRegisterType<QQuickUniversalBusyIndicator>(import, 2, 0, "BusyIndicatorImpl");
     qmlRegisterType<QQuickUniversalProgressBar>(import, 2, 0, "ProgressBarImpl");
 
-    qmlRegisterType(typeUrl(QStringLiteral("CheckIndicator.qml")), import, 2, 0, "CheckIndicator");
-    qmlRegisterType(typeUrl(QStringLiteral("RadioIndicator.qml")), import, 2, 0, "RadioIndicator");
-    qmlRegisterType(typeUrl(QStringLiteral("SwitchIndicator.qml")), import, 2, 0, "SwitchIndicator");
+    qmlRegisterType(resolvedUrl(QStringLiteral("CheckIndicator.qml")), import, 2, 0, "CheckIndicator");
+    qmlRegisterType(resolvedUrl(QStringLiteral("RadioIndicator.qml")), import, 2, 0, "RadioIndicator");
+    qmlRegisterType(resolvedUrl(QStringLiteral("SwitchIndicator.qml")), import, 2, 0, "SwitchIndicator");
 }
 
 QString QtQuickControls2UniversalStylePlugin::name() const
 {
-    return QStringLiteral("universal");
+    return QStringLiteral("Universal");
 }
 
-QQuickProxyTheme *QtQuickControls2UniversalStylePlugin::createTheme() const
+void QtQuickControls2UniversalStylePlugin::initializeTheme(QQuickTheme *theme)
 {
-    return new QQuickUniversalTheme;
+    QQuickUniversalTheme::initialize(theme);
 }
 
 QT_END_NAMESPACE

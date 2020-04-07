@@ -276,7 +276,7 @@ QGraphicsWidget::~QGraphicsWidget()
     // Unset the parent here, when we're still a QGraphicsWidget.
     // It is otherwise done in ~QGraphicsItem() where we'd be
     // calling QGraphicsWidget members on an ex-QGraphicsWidget object
-    setParentItem(Q_NULLPTR);
+    setParentItem(nullptr);
 }
 
 /*!
@@ -2226,6 +2226,14 @@ bool QGraphicsWidget::testAttribute(Qt::WidgetAttribute attribute) const
     Q_D(const QGraphicsWidget);
     return d->testAttribute(attribute);
 }
+
+/*!
+  \enum QGraphicsWidget::anonymous
+
+  The value returned by the virtual type() function.
+
+  \value Type A graphics widget item
+*/
 
 /*!
     \reimp

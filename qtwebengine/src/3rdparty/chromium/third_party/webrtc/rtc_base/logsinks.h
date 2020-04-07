@@ -8,15 +8,15 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_RTC_BASE_LOGSINKS_H_
-#define WEBRTC_RTC_BASE_LOGSINKS_H_
+#ifndef RTC_BASE_LOGSINKS_H_
+#define RTC_BASE_LOGSINKS_H_
 
 #include <memory>
 #include <string>
 
-#include "webrtc/rtc_base/constructormagic.h"
-#include "webrtc/rtc_base/filerotatingstream.h"
-#include "webrtc/rtc_base/logging.h"
+#include "rtc_base/constructormagic.h"
+#include "rtc_base/filerotatingstream.h"
+#include "rtc_base/logging.h"
 
 namespace rtc {
 
@@ -35,6 +35,9 @@ class FileRotatingLogSink : public LogSink {
   // Writes the message to the current file. It will spill over to the next
   // file if needed.
   void OnLogMessage(const std::string& message) override;
+  void OnLogMessage(const std::string& message,
+                    LoggingSeverity sev,
+                    const char* tag) override;
 
   // Deletes any existing files in the directory and creates a new log file.
   virtual bool Init();
@@ -65,4 +68,4 @@ class CallSessionFileRotatingLogSink : public FileRotatingLogSink {
 
 }  // namespace rtc
 
-#endif  // WEBRTC_RTC_BASE_LOGSINKS_H_
+#endif  // RTC_BASE_LOGSINKS_H_

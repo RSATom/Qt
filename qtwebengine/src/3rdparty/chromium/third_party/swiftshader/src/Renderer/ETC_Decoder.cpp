@@ -26,6 +26,13 @@ namespace
 		return (value < -128) ? -128 : ((value > 127) ? 127 : value);
 	}
 
+	inline int clampEAC(int value, bool isSigned)
+	{
+		int min = isSigned ? -1023 : 0;
+		int max = isSigned ? 1023 : 2047;
+		return (value < min) ? min : ((value > max) ? max : value);
+	}
+
 	struct bgra8
 	{
 		unsigned char b;
@@ -82,35 +89,53 @@ namespace
 	struct ETC2
 	{
 		// Decodes unsigned single or dual channel block to bytes
-		static void DecodeBlock(const ETC2** sources, unsigned char *dest, int nbChannels, int x, int y, int w, int h, int pitch, bool isSigned)
+		static void DecodeBlock(const ETC2** sources, unsigned char *dest, int nbChannels, int x, int y, int w, int h, int pitch, bool isSigned, bool isEAC)
 		{
-			if(isSigned)
+			if(isEAC)
 			{
-				signed char* sDst = reinterpret_cast<signed char*>(dest);
 				for(int j = 0; j < 4 && (y + j) < h; j++)
 				{
+					int* sDst = reinterpret_cast<int*>(dest);
 					for(int i = 0; i < 4 && (x + i) < w; i++)
 					{
 						for(int c = nbChannels - 1; c >= 0; c--)
 						{
-							sDst[i * nbChannels + c] = clampSByte(sources[c]->getSingleChannel(i, j, isSigned));
+							sDst[i * nbChannels + c] = clampEAC(sources[c]->getSingleChannel(i, j, isSigned, true), isSigned);
 						}
 					}
-					sDst += pitch;
+					dest += pitch;
 				}
 			}
 			else
 			{
-				for(int j = 0; j < 4 && (y + j) < h; j++)
+				if(isSigned)
 				{
-					for(int i = 0; i < 4 && (x + i) < w; i++)
+					signed char* sDst = reinterpret_cast<signed char*>(dest);
+					for(int j = 0; j < 4 && (y + j) < h; j++)
 					{
-						for(int c = nbChannels - 1; c >= 0; c--)
+						for(int i = 0; i < 4 && (x + i) < w; i++)
 						{
-							dest[i * nbChannels + c] = clampByte(sources[c]->getSingleChannel(i, j, isSigned));
+							for(int c = nbChannels - 1; c >= 0; c--)
+							{
+								sDst[i * nbChannels + c] = clampSByte(sources[c]->getSingleChannel(i, j, isSigned, false));
+							}
 						}
+						sDst += pitch;
 					}
-					dest += pitch;
+				}
+				else
+				{
+					for(int j = 0; j < 4 && (y + j) < h; j++)
+					{
+						for(int i = 0; i < 4 && (x + i) < w; i++)
+						{
+							for(int c = nbChannels - 1; c >= 0; c--)
+							{
+								dest[i * nbChannels + c] = clampByte(sources[c]->getSingleChannel(i, j, isSigned, false));
+							}
+						}
+						dest += pitch;
+					}
 				}
 			}
 		}
@@ -591,10 +616,14 @@ namespace
 		}
 
 		// Single channel utility functions
-		inline int getSingleChannel(int x, int y, bool isSigned) const
+		inline int getSingleChannel(int x, int y, bool isSigned, bool isEAC) const
 		{
 			int codeword = isSigned ? signed_base_codeword : base_codeword;
-			return codeword + getSingleChannelModifier(x, y) * multiplier;
+			return isEAC ?
+			       ((multiplier == 0) ?
+			        (codeword * 8 + 4 + getSingleChannelModifier(x, y)) :
+			        (codeword * 8 + 4 + getSingleChannelModifier(x, y) * multiplier * 8)) :
+			       codeword + getSingleChannelModifier(x, y) * multiplier;
 		}
 
 		inline int getSingleChannelIndex(int x, int y) const
@@ -661,7 +690,7 @@ bool ETC_Decoder::Decode(const unsigned char* src, unsigned char *dst, int w, in
 			unsigned char *dstRow = dst + (y * dstPitch);
 			for(int x = 0; x < w; x += 4, sources[0]++)
 			{
-				ETC2::DecodeBlock(sources, dstRow + (x * dstBpp), 1, x, y, dstW, dstH, dstPitch, inputType == ETC_R_SIGNED);
+				ETC2::DecodeBlock(sources, dstRow + (x * dstBpp), 1, x, y, dstW, dstH, dstPitch, inputType == ETC_R_SIGNED, true);
 			}
 		}
 		break;
@@ -673,7 +702,7 @@ bool ETC_Decoder::Decode(const unsigned char* src, unsigned char *dst, int w, in
 			unsigned char *dstRow = dst + (y * dstPitch);
 			for(int x = 0; x < w; x += 4, sources[0] += 2, sources[1] += 2)
 			{
-				ETC2::DecodeBlock(sources, dstRow + (x * dstBpp), 2, x, y, dstW, dstH, dstPitch, inputType == ETC_RG_SIGNED);
+				ETC2::DecodeBlock(sources, dstRow + (x * dstBpp), 2, x, y, dstW, dstH, dstPitch, inputType == ETC_RG_SIGNED, true);
 			}
 		}
 		break;
@@ -695,7 +724,7 @@ bool ETC_Decoder::Decode(const unsigned char* src, unsigned char *dst, int w, in
 			for(int x = 0; x < w; x += 4)
 			{
 				// Decode Alpha
-				ETC2::DecodeBlock(&sources[0], &(alphaValues[0][0]), 1, x, y, dstW, dstH, 4, false);
+				ETC2::DecodeBlock(&sources[0], &(alphaValues[0][0]), 1, x, y, dstW, dstH, 4, false, false);
 				sources[0]++; // RGBA packets are 128 bits, so move on to the next 64 bit packet to decode the RGB color
 
 				// Decode RGB

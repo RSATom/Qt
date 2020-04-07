@@ -1,19 +1,19 @@
-/***************************************************************************/
-/*                                                                         */
-/*  cffparse.c                                                             */
-/*                                                                         */
-/*    CFF token stream parser (body)                                       */
-/*                                                                         */
-/*  Copyright 1996-2017 by                                                 */
-/*  David Turner, Robert Wilhelm, and Werner Lemberg.                      */
-/*                                                                         */
-/*  This file is part of the FreeType project, and may only be used,       */
-/*  modified, and distributed under the terms of the FreeType project      */
-/*  license, LICENSE.TXT.  By continuing to use, modify, or distribute     */
-/*  this file you indicate that you have read the license and              */
-/*  understand and accept it fully.                                        */
-/*                                                                         */
-/***************************************************************************/
+/****************************************************************************
+ *
+ * cffparse.c
+ *
+ *   CFF token stream parser (body)
+ *
+ * Copyright 1996-2018 by
+ * David Turner, Robert Wilhelm, and Werner Lemberg.
+ *
+ * This file is part of the FreeType project, and may only be used,
+ * modified, and distributed under the terms of the FreeType project
+ * license, LICENSE.TXT.  By continuing to use, modify, or distribute
+ * this file you indicate that you have read the license and
+ * understand and accept it fully.
+ *
+ */
 
 
 #include <ft2build.h>
@@ -21,19 +21,18 @@
 #include FT_INTERNAL_STREAM_H
 #include FT_INTERNAL_DEBUG_H
 #include FT_INTERNAL_CALC_H
+#include FT_INTERNAL_POSTSCRIPT_AUX_H
 
 #include "cfferrs.h"
-#include "cffpic.h"
-#include "cffgload.h"
 #include "cffload.h"
 
 
-  /*************************************************************************/
-  /*                                                                       */
-  /* The macro FT_COMPONENT is used in trace mode.  It is an implicit      */
-  /* parameter of the FT_TRACE() and FT_ERROR() macros, used to print/log  */
-  /* messages during execution.                                            */
-  /*                                                                       */
+  /**************************************************************************
+   *
+   * The macro FT_COMPONENT is used in trace mode.  It is an implicit
+   * parameter of the FT_TRACE() and FT_ERROR() macros, used to print/log
+   * messages during execution.
+   */
 #undef  FT_COMPONENT
 #define FT_COMPONENT  trace_cffparse
 
@@ -605,7 +604,6 @@
     FT_Vector*       offset = &dict->font_offset;
     FT_ULong*        upm    = &dict->units_per_em;
     FT_Byte**        data   = parser->stack;
-    FT_Error         error  = FT_ERR( Stack_Underflow );
 
 
     if ( parser->top >= parser->stack + 6 )
@@ -616,8 +614,6 @@
       FT_Long  min_scaling, max_scaling;
       int      i;
 
-
-      error = FT_Err_Ok;
 
       dict->has_font_matrix = TRUE;
 
@@ -647,22 +643,11 @@
            ( max_scaling - min_scaling ) < 0 ||
            ( max_scaling - min_scaling ) > 9 )
       {
-        /* Return default matrix in case of unlikely values. */
-
         FT_TRACE1(( "cff_parse_font_matrix:"
                     " strange scaling values (minimum %d, maximum %d),\n"
                     "                      "
                     " using default matrix\n", min_scaling, max_scaling ));
-
-        matrix->xx = 0x10000L;
-        matrix->yx = 0;
-        matrix->xy = 0;
-        matrix->yy = 0x10000L;
-        offset->x  = 0;
-        offset->y  = 0;
-        *upm       = 1;
-
-        goto Exit;
+        goto Unlikely;
       }
 
       for ( i = 0; i < 6; i++ )
@@ -709,10 +694,31 @@
                   (double)matrix->yy / *upm / 65536,
                   (double)offset->x  / *upm / 65536,
                   (double)offset->y  / *upm / 65536 ));
-    }
 
-  Exit:
-    return error;
+      if ( !FT_Matrix_Check( matrix ) )
+      {
+        FT_TRACE1(( "cff_parse_font_matrix:"
+                    " degenerate values, using default matrix\n" ));
+        goto Unlikely;
+      }
+
+      return FT_Err_Ok;
+    }
+    else
+      return FT_THROW( Stack_Underflow );
+
+  Unlikely:
+    /* Return default matrix in case of unlikely values. */
+
+    matrix->xx = 0x10000L;
+    matrix->yx = 0;
+    matrix->xy = 0;
+    matrix->yy = 0x10000L;
+    offset->x  = 0;
+    offset->y  = 0;
+    *upm       = 1;
+
+    return FT_Err_Ok;
   }
 
 
@@ -949,7 +955,9 @@
       goto Exit;
     }
 
-    FT_TRACE4(( "   %d values blended\n", numBlends ));
+    FT_TRACE4(( "   %d value%s blended\n",
+                numBlends,
+                numBlends == 1 ? "" : "s" ));
 
     error = cff_blend_doBlend( subFont, parser, numBlends );
 
@@ -999,9 +1007,6 @@
           CFF_FIELD( code, name, id, cff_kind_string )
 #define CFF_FIELD_BOOL( code, name, id )             \
           CFF_FIELD( code, name, id, cff_kind_bool )
-
-
-#ifndef FT_CONFIG_OPTION_PIC
 
 
 #undef  CFF_FIELD
@@ -1116,192 +1121,19 @@
 #endif /* FT_DEBUG_LEVEL_TRACE */
 
 
-#else /* FT_CONFIG_OPTION_PIC */
-
-
-  void
-  FT_Destroy_Class_cff_field_handlers( FT_Library          library,
-                                       CFF_Field_Handler*  clazz )
-  {
-    FT_Memory  memory = library->memory;
-
-
-    if ( clazz )
-      FT_FREE( clazz );
-  }
-
-
-  FT_Error
-  FT_Create_Class_cff_field_handlers( FT_Library           library,
-                                      CFF_Field_Handler**  output_class )
-  {
-    CFF_Field_Handler*  clazz  = NULL;
-    FT_Error            error;
-    FT_Memory           memory = library->memory;
-
-    int  i = 0;
-
-
-#undef CFF_FIELD
-#define CFF_FIELD( code, name, id, kind ) i++;
-#undef CFF_FIELD_DELTA
-#define CFF_FIELD_DELTA( code, name, max, id ) i++;
-#undef CFF_FIELD_CALLBACK
-#define CFF_FIELD_CALLBACK( code, name, id ) i++;
-#undef CFF_FIELD_BLEND
-#define CFF_FIELD_BLEND( code, id ) i++;
-
-#include "cfftoken.h"
-
-    i++; /* { 0, 0, 0, 0, 0, 0, 0 } */
-
-    if ( FT_ALLOC( clazz, sizeof ( CFF_Field_Handler ) * i ) )
-      return error;
-
-    i = 0;
-
-
-#ifndef FT_DEBUG_LEVEL_TRACE
-
-
-#undef CFF_FIELD_CALLBACK
-#define CFF_FIELD_CALLBACK( code_, name_, id_ )        \
-          clazz[i].kind         = cff_kind_callback;   \
-          clazz[i].code         = code_ | CFFCODE;     \
-          clazz[i].offset       = 0;                   \
-          clazz[i].size         = 0;                   \
-          clazz[i].reader       = cff_parse_ ## name_; \
-          clazz[i].array_max    = 0;                   \
-          clazz[i].count_offset = 0;                   \
-          i++;
-
-#undef  CFF_FIELD
-#define CFF_FIELD( code_, name_, id_, kind_ )               \
-          clazz[i].kind         = kind_;                    \
-          clazz[i].code         = code_ | CFFCODE;          \
-          clazz[i].offset       = FT_FIELD_OFFSET( name_ ); \
-          clazz[i].size         = FT_FIELD_SIZE( name_ );   \
-          clazz[i].reader       = 0;                        \
-          clazz[i].array_max    = 0;                        \
-          clazz[i].count_offset = 0;                        \
-          i++;                                              \
-
-#undef  CFF_FIELD_DELTA
-#define CFF_FIELD_DELTA( code_, name_, max_, id_ )                  \
-          clazz[i].kind         = cff_kind_delta;                   \
-          clazz[i].code         = code_ | CFFCODE;                  \
-          clazz[i].offset       = FT_FIELD_OFFSET( name_ );         \
-          clazz[i].size         = FT_FIELD_SIZE_DELTA( name_ );     \
-          clazz[i].reader       = 0;                                \
-          clazz[i].array_max    = max_;                             \
-          clazz[i].count_offset = FT_FIELD_OFFSET( num_ ## name_ ); \
-          i++;
-
-#undef  CFF_FIELD_BLEND
-#define CFF_FIELD_BLEND( code_, id_ )              \
-          clazz[i].kind         = cff_kind_blend;  \
-          clazz[i].code         = code_ | CFFCODE; \
-          clazz[i].offset       = 0;               \
-          clazz[i].size         = 0;               \
-          clazz[i].reader       = cff_parse_blend; \
-          clazz[i].array_max    = 0;               \
-          clazz[i].count_offset = 0;               \
-          i++;
-
-#include "cfftoken.h"
-
-    clazz[i].kind         = 0;
-    clazz[i].code         = 0;
-    clazz[i].offset       = 0;
-    clazz[i].size         = 0;
-    clazz[i].reader       = 0;
-    clazz[i].array_max    = 0;
-    clazz[i].count_offset = 0;
-
-
-#else /* FT_DEBUG_LEVEL_TRACE */
-
-
-#undef CFF_FIELD_CALLBACK
-#define CFF_FIELD_CALLBACK( code_, name_, id_ )        \
-          clazz[i].kind         = cff_kind_callback;   \
-          clazz[i].code         = code_ | CFFCODE;     \
-          clazz[i].offset       = 0;                   \
-          clazz[i].size         = 0;                   \
-          clazz[i].reader       = cff_parse_ ## name_; \
-          clazz[i].array_max    = 0;                   \
-          clazz[i].count_offset = 0;                   \
-          clazz[i].id           = id_;                 \
-          i++;
-
-#undef  CFF_FIELD
-#define CFF_FIELD( code_, name_, id_, kind_ )               \
-          clazz[i].kind         = kind_;                    \
-          clazz[i].code         = code_ | CFFCODE;          \
-          clazz[i].offset       = FT_FIELD_OFFSET( name_ ); \
-          clazz[i].size         = FT_FIELD_SIZE( name_ );   \
-          clazz[i].reader       = 0;                        \
-          clazz[i].array_max    = 0;                        \
-          clazz[i].count_offset = 0;                        \
-          clazz[i].id           = id_;                      \
-          i++;                                              \
-
-#undef  CFF_FIELD_DELTA
-#define CFF_FIELD_DELTA( code_, name_, max_, id_ )                  \
-          clazz[i].kind         = cff_kind_delta;                   \
-          clazz[i].code         = code_ | CFFCODE;                  \
-          clazz[i].offset       = FT_FIELD_OFFSET( name_ );         \
-          clazz[i].size         = FT_FIELD_SIZE_DELTA( name_ );     \
-          clazz[i].reader       = 0;                                \
-          clazz[i].array_max    = max_;                             \
-          clazz[i].count_offset = FT_FIELD_OFFSET( num_ ## name_ ); \
-          clazz[i].id           = id_;                              \
-          i++;
-
-#undef  CFF_FIELD_BLEND
-#define CFF_FIELD_BLEND( code_, id_ )              \
-          clazz[i].kind         = cff_kind_blend;  \
-          clazz[i].code         = code_ | CFFCODE; \
-          clazz[i].offset       = 0;               \
-          clazz[i].size         = 0;               \
-          clazz[i].reader       = cff_parse_blend; \
-          clazz[i].array_max    = 0;               \
-          clazz[i].count_offset = 0;               \
-          clazz[i].id           = id_;             \
-          i++;
-
-#include "cfftoken.h"
-
-    clazz[i].kind         = 0;
-    clazz[i].code         = 0;
-    clazz[i].offset       = 0;
-    clazz[i].size         = 0;
-    clazz[i].reader       = 0;
-    clazz[i].array_max    = 0;
-    clazz[i].count_offset = 0;
-    clazz[i].id           = 0;
-
-
-#endif /* FT_DEBUG_LEVEL_TRACE */
-
-
-    *output_class = clazz;
-
-    return FT_Err_Ok;
-  }
-
-
-#endif /* FT_CONFIG_OPTION_PIC */
-
-
   FT_LOCAL_DEF( FT_Error )
   cff_parser_run( CFF_Parser  parser,
                   FT_Byte*    start,
                   FT_Byte*    limit )
   {
+#ifdef CFF_CONFIG_OPTION_OLD_ENGINE
+    PSAux_Service  psaux;
+#endif
+
     FT_Byte*    p       = start;
     FT_Error    error   = FT_Err_Ok;
     FT_Library  library = parser->library;
+
     FT_UNUSED( library );
 
 
@@ -1388,10 +1220,16 @@
         cff_rec.top_font.font_dict.num_axes    = parser->num_axes;
         decoder.cff                            = &cff_rec;
 
-        error = cff_decoder_parse_charstrings( &decoder,
-                                               charstring_base,
-                                               charstring_len,
-                                               1 );
+        psaux = (PSAux_Service)FT_Get_Module_Interface( library, "psaux" );
+        if ( !psaux )
+        {
+          FT_ERROR(( "cff_parser_run: cannot access `psaux' module\n" ));
+          error = FT_THROW( Missing_Module );
+          goto Exit;
+        }
+
+        error = psaux->cff_decoder_funcs->parse_charstrings_old(
+                  &decoder, charstring_base, charstring_len, 1 );
 
         /* Now copy the stack data in the temporary decoder object,    */
         /* converting it back to charstring number representations     */
@@ -1510,7 +1348,7 @@
         }
         code = code | parser->object_code;
 
-        for ( field = CFF_FIELD_HANDLERS_GET; field->kind; field++ )
+        for ( field = cff_field_handlers; field->kind; field++ )
         {
           if ( field->code == (FT_Int)code )
           {

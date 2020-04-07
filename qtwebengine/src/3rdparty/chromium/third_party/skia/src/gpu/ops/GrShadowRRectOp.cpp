@@ -6,9 +6,13 @@
  */
 
 #include "GrShadowRRectOp.h"
+
+#include "GrContext.h"
+#include "GrContextPriv.h"
 #include "GrDrawOpTest.h"
+#include "GrMemoryPool.h"
 #include "GrOpFlushState.h"
-#include "SkRRect.h"
+#include "SkRRectPriv.h"
 #include "effects/GrShadowGeoProc.h"
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -150,7 +154,7 @@ static int rrect_type_to_vert_count(RRectType type) {
         case kOverstroke_RRectType:
             return kVertsPerOverstrokeRRect;
     }
-    SkFAIL("Invalid type");
+    SK_ABORT("Invalid type");
     return 0;
 }
 
@@ -163,7 +167,7 @@ static int rrect_type_to_index_count(RRectType type) {
         case kOverstroke_RRectType:
             return kIndicesPerOverstrokeRRect;
     }
-    SkFAIL("Invalid type");
+    SK_ABORT("Invalid type");
     return 0;
 }
 
@@ -175,7 +179,7 @@ static const uint16_t* rrect_type_to_indices(RRectType type) {
         case kOverstroke_RRectType:
             return gRRectIndices;
     }
-    SkFAIL("Invalid type");
+    SK_ABORT("Invalid type");
     return nullptr;
 }
 
@@ -459,11 +463,19 @@ private:
         // we also skew the vectors we send to the shader that help define the circle.
         // By doing so, we end up with a quarter circle in the corner rather than the
         // elliptical curve.
-        SkVector outerVec = SkVector::Make(0.5f*(outerRadius - umbraInset), -umbraInset);
+
+        // This is a bit magical, but it gives us the correct results at extrema:
+        //   a) umbraInset == outerRadius produces an orthogonal vector
+        //   b) outerRadius == 0 produces a diagonal vector
+        // And visually the corner looks correct.
+        SkVector outerVec = SkVector::Make(outerRadius - umbraInset, -outerRadius - umbraInset);
         outerVec.normalize();
-        SkVector diagVec = SkVector::Make(outerVec.fX + outerVec.fY,
-                                          outerVec.fX + outerVec.fY);
-        diagVec *= umbraInset / (2 * umbraInset - outerRadius);
+        // We want the circle edge to fall fractionally along the diagonal at
+        //      (sqrt(2)*(umbraInset - outerRadius) + outerRadius)/sqrt(2)*umbraInset
+        //
+        // Setting the components of the diagonal offset to the following value will give us that.
+        SkScalar diagVal = umbraInset / (SK_ScalarSqrt2*(outerRadius - umbraInset) - outerRadius);
+        SkVector diagVec = SkVector::Make(diagVal, diagVal);
         SkScalar distanceCorrection = umbraInset / blurRadius;
         SkScalar clampValue = args.fClampValue;
 
@@ -558,18 +570,17 @@ private:
 
     }
 
-    void onPrepareDraws(Target* target) const override {
+    void onPrepareDraws(Target* target) override {
         // Setup geometry processor
         sk_sp<GrGeometryProcessor> gp = GrRRectShadowGeoProc::Make();
 
         int instanceCount = fGeoData.count();
-        size_t vertexStride = gp->getVertexStride();
-        SkASSERT(sizeof(CircleVertex) == vertexStride);
+        SkASSERT(sizeof(CircleVertex) == gp->debugOnly_vertexStride());
 
         const GrBuffer* vertexBuffer;
         int firstVertex;
-        CircleVertex* verts = (CircleVertex*)target->makeVertexSpace(vertexStride, fVertCount,
-                                                                     &vertexBuffer, &firstVertex);
+        CircleVertex* verts = (CircleVertex*)target->makeVertexSpace(
+                sizeof(CircleVertex), fVertCount, &vertexBuffer, &firstVertex);
         if (!verts) {
             SkDebugf("Could not allocate vertices\n");
             return;
@@ -613,13 +624,14 @@ private:
         }
 
         static const uint32_t kPipelineFlags = 0;
-        const GrPipeline* pipeline =
-                target->makePipeline(kPipelineFlags, &GrProcessorSet::EmptySet());
+        auto pipe = target->makePipeline(kPipelineFlags, GrProcessorSet::MakeEmptySet(),
+                                         target->detachAppliedClip());
 
         GrMesh mesh(GrPrimitiveType::kTriangles);
-        mesh.setIndexed(indexBuffer, fIndexCount, firstIndex, 0, fVertCount - 1);
+        mesh.setIndexed(indexBuffer, fIndexCount, firstIndex, 0, fVertCount - 1,
+                        GrPrimitiveRestart::kNo);
         mesh.setVertexData(vertexBuffer, firstVertex);
-        target->draw(gp.get(), pipeline, mesh);
+        target->draw(gp.get(), pipe.fPipeline, pipe.fFixedDynamicState, mesh);
     }
 
     bool onCombineIfPossible(GrOp* t, const GrCaps& caps) override {
@@ -643,15 +655,15 @@ private:
 ///////////////////////////////////////////////////////////////////////////////
 
 namespace GrShadowRRectOp {
-std::unique_ptr<GrDrawOp> Make(GrColor color,
+std::unique_ptr<GrDrawOp> Make(GrContext* context,
+                               GrColor color,
                                const SkMatrix& viewMatrix,
                                const SkRRect& rrect,
                                SkScalar blurWidth,
                                SkScalar insetWidth,
                                SkScalar blurClamp) {
     // Shadow rrect ops only handle simple circular rrects.
-    SkASSERT(viewMatrix.isSimilarity() &&
-             (rrect.isSimpleCircular() || rrect.isRect() || rrect.isCircle()));
+    SkASSERT(viewMatrix.isSimilarity() && SkRRectPriv::EqualRadii(rrect));
 
     // Do any matrix crunching before we reset the draw state for device coords.
     const SkRect& rrectBounds = rrect.getBounds();
@@ -659,17 +671,19 @@ std::unique_ptr<GrDrawOp> Make(GrColor color,
     viewMatrix.mapRect(&bounds, rrectBounds);
 
     // Map radius and inset. As the matrix is a similarity matrix, this should be isotropic.
-    SkScalar radius = rrect.getSimpleRadii().fX;
+    SkScalar radius = SkRRectPriv::GetSimpleRadii(rrect).fX;
     SkScalar matrixFactor = viewMatrix[SkMatrix::kMScaleX] + viewMatrix[SkMatrix::kMSkewX];
     SkScalar scaledRadius = SkScalarAbs(radius*matrixFactor);
     SkScalar scaledInsetWidth = SkScalarAbs(insetWidth*matrixFactor);
 
-    return std::unique_ptr<GrDrawOp>(new ShadowCircularRRectOp(color, bounds,
-                                                               scaledRadius,
-                                                               rrect.isOval(),
-                                                               blurWidth,
-                                                               scaledInsetWidth,
-                                                               blurClamp));
+    GrOpMemoryPool* pool = context->contextPriv().opMemoryPool();
+
+    return pool->allocate<ShadowCircularRRectOp>(color, bounds,
+                                                 scaledRadius,
+                                                 rrect.isOval(),
+                                                 blurWidth,
+                                                 scaledInsetWidth,
+                                                 blurClamp);
 }
 }
 
@@ -682,7 +696,10 @@ GR_DRAW_OP_TEST_DEFINE(ShadowRRectOp) {
     SkScalar rotate = random->nextSScalar1() * 360.f;
     SkScalar translateX = random->nextSScalar1() * 1000.f;
     SkScalar translateY = random->nextSScalar1() * 1000.f;
-    SkScalar scale = random->nextSScalar1() * 100.f;
+    SkScalar scale;
+    do {
+        scale = random->nextSScalar1() * 100.f;
+    } while (scale == 0);
     SkMatrix viewMatrix;
     viewMatrix.setRotate(rotate);
     viewMatrix.postTranslate(translateX, translateY);
@@ -696,14 +713,16 @@ GR_DRAW_OP_TEST_DEFINE(ShadowRRectOp) {
     if (isCircle) {
         SkRect circle = GrTest::TestSquare(random);
         SkRRect rrect = SkRRect::MakeOval(circle);
-        return GrShadowRRectOp::Make(color, viewMatrix, rrect, blurWidth, insetWidth, blurClamp);
+        return GrShadowRRectOp::Make(context, color, viewMatrix, rrect, blurWidth,
+                                     insetWidth, blurClamp);
     } else {
         SkRRect rrect;
         do {
             // This may return a rrect with elliptical corners, which we don't support.
             rrect = GrTest::TestRRectSimple(random);
-        } while (!rrect.isSimpleCircular());
-        return GrShadowRRectOp::Make(color, viewMatrix, rrect, blurWidth, insetWidth, blurClamp);
+        } while (!SkRRectPriv::IsSimpleCircular(rrect));
+        return GrShadowRRectOp::Make(context, color, viewMatrix, rrect, blurWidth,
+                                     insetWidth, blurClamp);
     }
 }
 

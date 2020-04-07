@@ -61,6 +61,7 @@ QT_BEGIN_NAMESPACE
 class QQuickTransition;
 class QQuickTransitionManager;
 class QQuickPopup;
+class QQuickPopupAnchors;
 class QQuickPopupItem;
 class QQuickPopupPrivate;
 class QQuickPopupPositioner;
@@ -77,7 +78,7 @@ protected:
     void finished() override;
 
 private:
-    QQuickPopupPrivate *popup;
+    QQuickPopupPrivate *popup = nullptr;
 };
 
 class Q_AUTOTEST_EXPORT QQuickPopupPrivate : public QObjectPrivate, public QQuickItemChangeListener
@@ -86,12 +87,14 @@ class Q_AUTOTEST_EXPORT QQuickPopupPrivate : public QObjectPrivate, public QQuic
 
 public:
     QQuickPopupPrivate();
-    ~QQuickPopupPrivate();
 
     static QQuickPopupPrivate *get(QQuickPopup *popup)
     {
         return popup->d_func();
     }
+
+    QQmlListProperty<QObject> contentData();
+    QQmlListProperty<QQuickItem> contentChildren();
 
     void init();
     void closeOrReject();
@@ -114,7 +117,7 @@ public:
     bool handleTouchEvent(QQuickItem *item, QTouchEvent *event);
 #endif
 
-    virtual void reposition();
+    void reposition();
 
     void createOverlay();
     void destroyOverlay();
@@ -135,6 +138,9 @@ public:
     void setRightMargin(qreal value, bool reset = false);
     void setBottomMargin(qreal value, bool reset = false);
 
+    QQuickPopupAnchors *getAnchors();
+    virtual QQuickPopupPositioner *getPositioner();
+
     void setWindow(QQuickWindow *window);
     void itemDestroyed(QQuickItem *item) override;
 
@@ -142,53 +148,54 @@ public:
         NoTransition, EnterTransition, ExitTransition
     };
 
-    bool focus;
-    bool modal;
-    bool dim;
-    bool hasDim;
-    bool visible;
-    bool complete;
-    bool positioning;
-    bool hasWidth;
-    bool hasHeight;
-    bool hasTopMargin;
-    bool hasLeftMargin;
-    bool hasRightMargin;
-    bool hasBottomMargin;
-    bool allowVerticalFlip;
-    bool allowHorizontalFlip;
-    bool allowVerticalMove;
-    bool allowHorizontalMove;
-    bool allowVerticalResize;
-    bool allowHorizontalResize;
-    bool hadActiveFocusBeforeExitTransition;
-    bool interactive;
-    bool hasClosePolicy;
-    int touchId;
-    qreal x;
-    qreal y;
-    qreal effectiveX;
-    qreal effectiveY;
-    qreal margins;
-    qreal topMargin;
-    qreal leftMargin;
-    qreal rightMargin;
-    qreal bottomMargin;
-    qreal contentWidth;
-    qreal contentHeight;
+    static const QQuickPopup::ClosePolicy DefaultClosePolicy;
+
+    bool focus = false;
+    bool modal = false;
+    bool dim = false;
+    bool hasDim = false;
+    bool visible = false;
+    bool complete = true;
+    bool positioning = false;
+    bool hasWidth = false;
+    bool hasHeight = false;
+    bool hasTopMargin = false;
+    bool hasLeftMargin = false;
+    bool hasRightMargin = false;
+    bool hasBottomMargin = false;
+    bool allowVerticalFlip = false;
+    bool allowHorizontalFlip = false;
+    bool allowVerticalMove = true;
+    bool allowHorizontalMove = true;
+    bool allowVerticalResize = true;
+    bool allowHorizontalResize = true;
+    bool hadActiveFocusBeforeExitTransition = false;
+    bool interactive = true;
+    bool hasClosePolicy = false;
+    int touchId = -1;
+    qreal x = 0;
+    qreal y = 0;
+    qreal effectiveX = 0;
+    qreal effectiveY = 0;
+    qreal margins = -1;
+    qreal topMargin = 0;
+    qreal leftMargin = 0;
+    qreal rightMargin = 0;
+    qreal bottomMargin = 0;
     QPointF pressPoint;
-    TransitionState transitionState;
-    QQuickPopup::ClosePolicy closePolicy;
-    QQuickItem *parentItem;
-    QQuickItem *dimmer;
-    QQuickWindow *window;
-    QQuickTransition *enter;
-    QQuickTransition *exit;
-    QQuickPopupItem *popupItem;
-    QQuickPopupPositioner *positioner;
+    TransitionState transitionState = NoTransition;
+    QQuickPopup::ClosePolicy closePolicy = DefaultClosePolicy;
+    QQuickItem *parentItem = nullptr;
+    QQuickItem *dimmer = nullptr;
+    QQuickWindow *window = nullptr;
+    QQuickTransition *enter = nullptr;
+    QQuickTransition *exit = nullptr;
+    QQuickPopupItem *popupItem = nullptr;
+    QQuickPopupPositioner *positioner = nullptr;
     QList<QQuickStateAction> enterActions;
     QList<QQuickStateAction> exitActions;
     QQuickPopupTransitionManager transitionManager;
+    QQuickPopupAnchors *anchors = nullptr;
 
     friend class QQuickPopupTransitionManager;
 };

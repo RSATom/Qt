@@ -112,12 +112,12 @@ QT_BEGIN_NAMESPACE
     \relates QProcess
 
     Disables the
-    \l {QProcess::start(const QString &, OpenMode)}{QProcess::start()}
-    overload taking a single string.
+    \l {QProcess::start(const QString &, QIODevice::OpenMode)}
+    {QProcess::start}() overload taking a single string.
     In most cases where it is used, the user intends for the first argument
     to be treated atomically as per the other overload.
 
-    \sa QProcess::start(const QString &command, OpenMode mode)
+    \sa QProcess::start(const QString &command, QIODevice::OpenMode mode)
 */
 
 /*!
@@ -1094,10 +1094,9 @@ bool QProcessPrivate::_q_canReadStandardError()
 */
 bool QProcessPrivate::_q_canWrite()
 {
-    if (stdinChannel.notifier)
-        stdinChannel.notifier->setEnabled(false);
-
     if (writeBuffer.isEmpty()) {
+        if (stdinChannel.notifier)
+            stdinChannel.notifier->setEnabled(false);
 #if defined QPROCESS_DEBUG
         qDebug("QProcessPrivate::canWrite(), not writing anything (empty write buffer).");
 #endif
@@ -1106,10 +1105,10 @@ bool QProcessPrivate::_q_canWrite()
 
     const bool writeSucceeded = writeToStdin();
 
-    if (stdinChannel.notifier && !writeBuffer.isEmpty())
-        stdinChannel.notifier->setEnabled(true);
     if (writeBuffer.isEmpty() && stdinChannel.closed)
         closeWriteChannel();
+    else if (stdinChannel.notifier)
+        stdinChannel.notifier->setEnabled(!writeBuffer.isEmpty());
     return writeSucceeded;
 }
 
@@ -2148,6 +2147,10 @@ void QProcess::start(OpenMode mode)
     \endlist
     All other properties of the QProcess object are ignored.
 
+    \note The called process inherits the console window of the calling
+    process. To suppress console output, redirect standard/error output to
+    QProcess::nullDevice().
+
     \sa start()
     \sa startDetached(const QString &program, const QStringList &arguments,
                       const QString &workingDirectory, qint64 *pid)
@@ -2554,7 +2557,7 @@ bool QProcess::startDetached(const QString &program,
     After the \a command string has been split and unquoted, this function
     behaves like the overload which takes the arguments as a string list.
 
-    \sa start(const QString &command, OpenMode mode)
+    \sa start(const QString &command, QIODevice::OpenMode mode)
 */
 bool QProcess::startDetached(const QString &command)
 {

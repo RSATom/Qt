@@ -32,9 +32,9 @@
 #include <QtDesigner/extension_global.h>
 #include <QtDesigner/extension.h>
 
-#include <QtCore/QMap>
-#include <QtCore/QHash>
-#include <QtCore/QPair>
+#include <QtCore/qmap.h>
+#include <QtCore/qhash.h>
+#include <QtCore/qpair.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -47,7 +47,7 @@ class QDESIGNER_EXTENSION_EXPORT QExtensionFactory : public QObject, public QAbs
 public:
     explicit QExtensionFactory(QExtensionManager *parent = Q_NULLPTR);
 
-    QObject *extension(QObject *object, const QString &iid) const Q_DECL_OVERRIDE;
+    QObject *extension(QObject *object, const QString &iid) const override;
     QExtensionManager *extensionManager() const;
 
 private Q_SLOTS:

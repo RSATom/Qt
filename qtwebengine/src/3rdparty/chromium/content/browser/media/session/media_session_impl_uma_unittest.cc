@@ -8,12 +8,12 @@
 #include <memory>
 
 #include "base/metrics/histogram_samples.h"
-#include "base/test/histogram_tester.h"
+#include "base/test/metrics/histogram_tester.h"
 #include "content/browser/media/session/media_session_player_observer.h"
 #include "content/test/test_render_view_host.h"
 #include "content/test/test_web_contents.h"
 #include "media/base/media_content_type.h"
-#include "third_party/WebKit/public/platform/modules/mediasession/media_session.mojom.h"
+#include "third_party/blink/public/platform/modules/mediasession/media_session.mojom.h"
 
 namespace content {
 
@@ -34,6 +34,8 @@ class MockMediaSessionPlayerObserver : public MediaSessionPlayerObserver {
 
   void OnSuspend(int player_id) override {}
   void OnResume(int player_id) override {}
+  void OnSeekForward(int player_id, base::TimeDelta seek_time) override {}
+  void OnSeekBackward(int player_id, base::TimeDelta seek_time) override {}
   void OnSetVolumeMultiplier(int player_id, double volume_multiplier) override {
   }
 

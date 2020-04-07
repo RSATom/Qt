@@ -41,7 +41,7 @@
 #include "qbluetoothserver.h"
 #include "qbluetoothserver_p.h"
 #include "qbluetoothsocket.h"
-#include "qbluetoothsocket_p.h"
+#include "qbluetoothsocket_android_p.h"
 #include "qbluetoothlocaldevice.h"
 #include "android/serveracceptancethread_p.h"
 
@@ -70,7 +70,7 @@ QBluetoothServerPrivate::~QBluetoothServerPrivate()
     __fakeServerPorts.remove(this);
 
     thread->deleteLater();
-    thread = 0;
+    thread = nullptr;
 }
 
 bool QBluetoothServerPrivate::initiateActiveListening(
@@ -142,7 +142,7 @@ bool QBluetoothServer::listen(const QBluetoothAddress &localAdapter, quint16 por
 
     if (!localAdapter.isNull()) {
         bool found = false;
-        foreach (const QBluetoothHostInfo &hostInfo, localDevices) {
+        for (const QBluetoothHostInfo &hostInfo : localDevices) {
             if (hostInfo.address() == localAdapter) {
                 found = true;
                 break;
@@ -254,7 +254,7 @@ QBluetoothSocket *QBluetoothServer::nextPendingConnection()
     bool success = newSocket->d_ptr->setSocketDescriptor(socket, d->serverType);
     if (!success) {
         delete newSocket;
-        newSocket = 0;
+        newSocket = nullptr;
     }
 
     return newSocket;

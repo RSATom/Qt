@@ -65,7 +65,7 @@ public:
     explicit QPixmap(QPlatformPixmap *data);
     QPixmap(int w, int h);
     explicit QPixmap(const QSize &);
-    QPixmap(const QString& fileName, const char *format = Q_NULLPTR, Qt::ImageConversionFlags flags = Qt::AutoColor);
+    QPixmap(const QString& fileName, const char *format = nullptr, Qt::ImageConversionFlags flags = Qt::AutoColor);
 #ifndef QT_NO_IMAGEFORMAT_XPM
     explicit QPixmap(const char * const xpm[]);
 #endif
@@ -83,7 +83,7 @@ public:
     operator QVariant() const;
 
     bool isNull() const;
-    int devType() const Q_DECL_OVERRIDE;
+    int devType() const override;
 
     int width() const;
     int height() const;
@@ -138,19 +138,19 @@ public:
     }
 #endif
 
-    bool load(const QString& fileName, const char *format = Q_NULLPTR, Qt::ImageConversionFlags flags = Qt::AutoColor);
-    bool loadFromData(const uchar *buf, uint len, const char* format = Q_NULLPTR, Qt::ImageConversionFlags flags = Qt::AutoColor);
-    inline bool loadFromData(const QByteArray &data, const char* format = Q_NULLPTR, Qt::ImageConversionFlags flags = Qt::AutoColor);
-    bool save(const QString& fileName, const char* format = Q_NULLPTR, int quality = -1) const;
-    bool save(QIODevice* device, const char* format = Q_NULLPTR, int quality = -1) const;
+    bool load(const QString& fileName, const char *format = nullptr, Qt::ImageConversionFlags flags = Qt::AutoColor);
+    bool loadFromData(const uchar *buf, uint len, const char* format = nullptr, Qt::ImageConversionFlags flags = Qt::AutoColor);
+    inline bool loadFromData(const QByteArray &data, const char* format = nullptr, Qt::ImageConversionFlags flags = Qt::AutoColor);
+    bool save(const QString& fileName, const char* format = nullptr, int quality = -1) const;
+    bool save(QIODevice* device, const char* format = nullptr, int quality = -1) const;
 
     bool convertFromImage(const QImage &img, Qt::ImageConversionFlags flags = Qt::AutoColor);
 
     inline QPixmap copy(int x, int y, int width, int height) const;
     QPixmap copy(const QRect &rect = QRect()) const;
 
-    inline void scroll(int dx, int dy, int x, int y, int width, int height, QRegion *exposed = Q_NULLPTR);
-    void scroll(int dx, int dy, const QRect &rect, QRegion *exposed = Q_NULLPTR);
+    inline void scroll(int dx, int dy, int x, int y, int width, int height, QRegion *exposed = nullptr);
+    void scroll(int dx, int dy, const QRect &rect, QRegion *exposed = nullptr);
 
 #if QT_DEPRECATED_SINCE(5, 0)
     QT_DEPRECATED inline int serialNumber() const { return cacheKey() >> 32; }
@@ -162,7 +162,7 @@ public:
 
     bool isQBitmap() const;
 
-    QPaintEngine *paintEngine() const Q_DECL_OVERRIDE;
+    QPaintEngine *paintEngine() const override;
 
     inline bool operator!() const { return isNull(); }
 
@@ -172,7 +172,7 @@ public:
 #endif
 
 protected:
-    int metric(PaintDeviceMetric) const Q_DECL_OVERRIDE;
+    int metric(PaintDeviceMetric) const override;
     static QPixmap fromImageInPlace(QImage &image, Qt::ImageConversionFlags flags = Qt::AutoColor);
 
 private:

@@ -7,8 +7,10 @@
 #include <limits>
 #include <utility>
 
+#include "base/bind.h"
+#include "base/callback_helpers.h"
 #include "base/location.h"
-#include "base/message_loop/message_loop.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
@@ -21,22 +23,8 @@ namespace {
 #if DCHECK_IS_ON()
 // Delays larger than this are often bogus, and a warning should be emitted in
 // debug builds to warn developers.  http://crbug.com/450045
-const int kTaskDelayWarningThresholdInSeconds =
-    14 * 24 * 60 * 60;  // 14 days.
+constexpr TimeDelta kTaskDelayWarningThreshold = TimeDelta::FromDays(14);
 #endif
-
-// Returns true if MessagePump::ScheduleWork() must be called one
-// time for every task that is added to the MessageLoop incoming queue.
-bool AlwaysNotifyPump(MessageLoop::Type type) {
-#if defined(OS_ANDROID)
-  // The Android UI message loop needs to get notified each time a task is
-  // added
-  // to the incoming queue.
-  return type == MessageLoop::TYPE_UI || type == MessageLoop::TYPE_JAVA;
-#else
-  return false;
-#endif
-}
 
 TimeTicks CalculateDelayedRuntime(TimeDelta delay) {
   TimeTicks delayed_run_time;
@@ -49,25 +37,25 @@ TimeTicks CalculateDelayedRuntime(TimeDelta delay) {
 
 }  // namespace
 
-IncomingTaskQueue::IncomingTaskQueue(MessageLoop* message_loop)
-    : high_res_task_count_(0),
-      message_loop_(message_loop),
-      next_sequence_num_(0),
-      message_loop_scheduled_(false),
-      always_schedule_work_(AlwaysNotifyPump(message_loop_->type())),
-      is_ready_for_scheduling_(false) {
+IncomingTaskQueue::IncomingTaskQueue(
+    std::unique_ptr<Observer> task_queue_observer)
+    : task_queue_observer_(std::move(task_queue_observer)),
+      triage_tasks_(this) {
+  // The constructing sequence is not necessarily the running sequence, e.g. in
+  // the case of a MessageLoop created unbound.
+  DETACH_FROM_SEQUENCE(sequence_checker_);
 }
 
-bool IncomingTaskQueue::AddToIncomingQueue(
-    const tracked_objects::Location& from_here,
-    OnceClosure task,
-    TimeDelta delay,
-    bool nestable) {
+IncomingTaskQueue::~IncomingTaskQueue() = default;
+
+bool IncomingTaskQueue::AddToIncomingQueue(const Location& from_here,
+                                           OnceClosure task,
+                                           TimeDelta delay,
+                                           Nestable nestable) {
   // Use CHECK instead of DCHECK to crash earlier. See http://crbug.com/711167
   // for details.
   CHECK(task);
-  DLOG_IF(WARNING,
-          delay.InSeconds() > kTaskDelayWarningThresholdInSeconds)
+  DLOG_IF(WARNING, delay > kTaskDelayWarningThreshold)
       << "Requesting super-long task delay period of " << delay.InSeconds()
       << " seconds from here: " << from_here.ToString();
 
@@ -83,120 +71,235 @@ bool IncomingTaskQueue::AddToIncomingQueue(
     pending_task.is_high_res = true;
   }
 #endif
+
   return PostPendingTask(&pending_task);
 }
 
-bool IncomingTaskQueue::HasHighResolutionTasks() {
-  AutoLock lock(incoming_queue_lock_);
-  return high_res_task_count_ > 0;
+void IncomingTaskQueue::Shutdown() {
+  AutoLock auto_lock(incoming_queue_lock_);
+  accept_new_tasks_ = false;
 }
 
-bool IncomingTaskQueue::IsIdleForTesting() {
-  AutoLock lock(incoming_queue_lock_);
-  return incoming_queue_.empty();
+void IncomingTaskQueue::ReportMetricsOnIdle() const {
+  UMA_HISTOGRAM_COUNTS_1M(
+      "MessageLoop.DelayedTaskQueueForUI.PendingTasksCountOnIdle",
+      delayed_tasks_.Size());
 }
 
-int IncomingTaskQueue::ReloadWorkQueue(TaskQueue* work_queue) {
-  // Make sure no tasks are lost.
-  DCHECK(work_queue->empty());
+IncomingTaskQueue::TriageQueue::TriageQueue(IncomingTaskQueue* outer)
+    : outer_(outer) {}
 
-  // Acquire all we can from the inter-thread queue with one lock acquisition.
-  AutoLock lock(incoming_queue_lock_);
-  if (incoming_queue_.empty()) {
-    // If the loop attempts to reload but there are no tasks in the incoming
-    // queue, that means it will go to sleep waiting for more work. If the
-    // incoming queue becomes nonempty we need to schedule it again.
-    message_loop_scheduled_ = false;
-  } else {
-    incoming_queue_.swap(*work_queue);
+IncomingTaskQueue::TriageQueue::~TriageQueue() = default;
+
+const PendingTask& IncomingTaskQueue::TriageQueue::Peek() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(outer_->sequence_checker_);
+  ReloadFromIncomingQueueIfEmpty();
+  DCHECK(!queue_.empty());
+  return queue_.front();
+}
+
+PendingTask IncomingTaskQueue::TriageQueue::Pop() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(outer_->sequence_checker_);
+  ReloadFromIncomingQueueIfEmpty();
+  DCHECK(!queue_.empty());
+  PendingTask pending_task = std::move(queue_.front());
+  queue_.pop();
+  return pending_task;
+}
+
+bool IncomingTaskQueue::TriageQueue::HasTasks() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(outer_->sequence_checker_);
+  ReloadFromIncomingQueueIfEmpty();
+  return !queue_.empty();
+}
+
+void IncomingTaskQueue::TriageQueue::Clear() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(outer_->sequence_checker_);
+
+  // Clear() should be invoked before WillDestroyCurrentMessageLoop().
+  DCHECK(outer_->accept_new_tasks_);
+
+  // Delete all currently pending tasks but not tasks potentially posted from
+  // their destructors. See ~MessageLoop() for the full logic mitigating against
+  // infite loops when clearing pending tasks. The ScopedClosureRunner below
+  // will be bound to a task posted at the end of the queue. After it is posted,
+  // tasks will be deleted one by one, when the bound ScopedClosureRunner is
+  // deleted and sets |deleted_all_originally_pending|, we know we've deleted
+  // all originally pending tasks.
+  bool deleted_all_originally_pending = false;
+  ScopedClosureRunner capture_deleted_all_originally_pending(BindOnce(
+      [](bool* deleted_all_originally_pending) {
+        *deleted_all_originally_pending = true;
+      },
+      Unretained(&deleted_all_originally_pending)));
+  outer_->AddToIncomingQueue(
+      FROM_HERE,
+      BindOnce([](ScopedClosureRunner) {},
+               std::move(capture_deleted_all_originally_pending)),
+      TimeDelta(), Nestable::kNestable);
+
+  while (!deleted_all_originally_pending) {
+    PendingTask pending_task = Pop();
+
+    if (!pending_task.delayed_run_time.is_null()) {
+      outer_->delayed_tasks().Push(std::move(pending_task));
+    }
   }
-  // Reset the count of high resolution tasks since our queue is now empty.
-  int high_res_tasks = high_res_task_count_;
-  high_res_task_count_ = 0;
-  return high_res_tasks;
 }
 
-void IncomingTaskQueue::WillDestroyCurrentMessageLoop() {
-  base::subtle::AutoWriteLock lock(message_loop_lock_);
-  message_loop_ = NULL;
-}
-
-void IncomingTaskQueue::StartScheduling() {
-  bool schedule_work;
-  {
-    AutoLock lock(incoming_queue_lock_);
-    DCHECK(!is_ready_for_scheduling_);
-    DCHECK(!message_loop_scheduled_);
-    is_ready_for_scheduling_ = true;
-    schedule_work = !incoming_queue_.empty();
-  }
-  if (schedule_work) {
-    DCHECK(message_loop_);
-    // Don't need to lock |message_loop_lock_| here because this function is
-    // called by MessageLoop on its thread.
-    message_loop_->ScheduleWork();
+void IncomingTaskQueue::TriageQueue::ReloadFromIncomingQueueIfEmpty() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(outer_->sequence_checker_);
+  if (queue_.empty()) {
+    outer_->ReloadWorkQueue(&queue_);
   }
 }
 
-IncomingTaskQueue::~IncomingTaskQueue() {
-  // Verify that WillDestroyCurrentMessageLoop() has been called.
-  DCHECK(!message_loop_);
+IncomingTaskQueue::DelayedQueue::DelayedQueue() {
+  DETACH_FROM_SEQUENCE(sequence_checker_);
+}
+
+IncomingTaskQueue::DelayedQueue::~DelayedQueue() = default;
+
+void IncomingTaskQueue::DelayedQueue::Push(PendingTask pending_task) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  if (pending_task.is_high_res)
+    ++pending_high_res_tasks_;
+
+  queue_.push(std::move(pending_task));
+}
+
+const PendingTask& IncomingTaskQueue::DelayedQueue::Peek() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK(!queue_.empty());
+  return queue_.top();
+}
+
+PendingTask IncomingTaskQueue::DelayedQueue::Pop() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK(!queue_.empty());
+  PendingTask delayed_task = std::move(const_cast<PendingTask&>(queue_.top()));
+  queue_.pop();
+
+  if (delayed_task.is_high_res)
+    --pending_high_res_tasks_;
+  DCHECK_GE(pending_high_res_tasks_, 0);
+
+  return delayed_task;
+}
+
+bool IncomingTaskQueue::DelayedQueue::HasTasks() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  // TODO(robliao): The other queues don't check for IsCancelled(). Should they?
+  while (!queue_.empty() && Peek().task.IsCancelled())
+    Pop();
+
+  return !queue_.empty();
+}
+
+void IncomingTaskQueue::DelayedQueue::Clear() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  while (!queue_.empty())
+    Pop();
+}
+
+size_t IncomingTaskQueue::DelayedQueue::Size() const {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  return queue_.size();
+}
+
+IncomingTaskQueue::DeferredQueue::DeferredQueue() {
+  DETACH_FROM_SEQUENCE(sequence_checker_);
+}
+
+IncomingTaskQueue::DeferredQueue::~DeferredQueue() = default;
+
+void IncomingTaskQueue::DeferredQueue::Push(PendingTask pending_task) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  queue_.push(std::move(pending_task));
+}
+
+const PendingTask& IncomingTaskQueue::DeferredQueue::Peek() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK(!queue_.empty());
+  return queue_.front();
+}
+
+PendingTask IncomingTaskQueue::DeferredQueue::Pop() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK(!queue_.empty());
+  PendingTask deferred_task = std::move(queue_.front());
+  queue_.pop();
+  return deferred_task;
+}
+
+bool IncomingTaskQueue::DeferredQueue::HasTasks() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  return !queue_.empty();
+}
+
+void IncomingTaskQueue::DeferredQueue::Clear() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  while (!queue_.empty())
+    Pop();
 }
 
 bool IncomingTaskQueue::PostPendingTask(PendingTask* pending_task) {
   // Warning: Don't try to short-circuit, and handle this thread's tasks more
   // directly, as it could starve handling of foreign threads.  Put every task
   // into this queue.
+  bool accept_new_tasks;
+  bool was_empty = false;
+  {
+    AutoLock auto_lock(incoming_queue_lock_);
+    accept_new_tasks = accept_new_tasks_;
+    if (accept_new_tasks) {
+      was_empty =
+          PostPendingTaskLockRequired(pending_task) && triage_queue_empty_;
+    }
+  }
 
-  // Ensures |message_loop_| isn't destroyed while running.
-  base::subtle::AutoReadLock hold_message_loop(message_loop_lock_);
-
-  if (!message_loop_) {
+  if (!accept_new_tasks) {
+    // Clear the pending task outside of |incoming_queue_lock_| to prevent any
+    // chance of self-deadlock if destroying a task also posts a task to this
+    // queue.
     pending_task->task.Reset();
     return false;
   }
 
-  bool schedule_work = false;
-  {
-    AutoLock hold(incoming_queue_lock_);
-
-#if defined(OS_WIN)
-    if (pending_task->is_high_res)
-      ++high_res_task_count_;
-#endif
-
-    // Initialize the sequence number. The sequence number is used for delayed
-    // tasks (to facilitate FIFO sorting when two tasks have the same
-    // delayed_run_time value) and for identifying the task in about:tracing.
-    pending_task->sequence_num = next_sequence_num_++;
-
-    message_loop_->task_annotator()->DidQueueTask("MessageLoop::PostTask",
-                                                  *pending_task);
-
-    bool was_empty = incoming_queue_.empty();
-    incoming_queue_.push(std::move(*pending_task));
-
-    if (is_ready_for_scheduling_ &&
-        (always_schedule_work_ || (!message_loop_scheduled_ && was_empty))) {
-      schedule_work = true;
-      // After we've scheduled the message loop, we do not need to do so again
-      // until we know it has processed all of the work in our queue and is
-      // waiting for more work again. The message loop will always attempt to
-      // reload from the incoming queue before waiting again so we clear this
-      // flag in ReloadWorkQueue().
-      message_loop_scheduled_ = true;
-    }
-  }
-
-  // Wake up the message loop and schedule work. This is done outside
-  // |incoming_queue_lock_| because signaling the message loop may cause this
-  // thread to be switched. If |incoming_queue_lock_| is held, any other thread
-  // that wants to post a task will be blocked until this thread switches back
-  // in and releases |incoming_queue_lock_|.
-  if (schedule_work)
-    message_loop_->ScheduleWork();
+  // Let |task_queue_observer_| know of the queued task. This is done outside
+  // |incoming_queue_lock_| to avoid conflating locks (DidQueueTask() can also
+  // use a lock).
+  task_queue_observer_->DidQueueTask(was_empty);
 
   return true;
+}
+
+bool IncomingTaskQueue::PostPendingTaskLockRequired(PendingTask* pending_task) {
+  incoming_queue_lock_.AssertAcquired();
+
+  // Initialize the sequence number. The sequence number is used for delayed
+  // tasks (to facilitate FIFO sorting when two tasks have the same
+  // delayed_run_time value) and for identifying the task in about:tracing.
+  pending_task->sequence_num = next_sequence_num_++;
+
+  task_queue_observer_->WillQueueTask(pending_task);
+
+  bool was_empty = incoming_queue_.empty();
+  incoming_queue_.push(std::move(*pending_task));
+  return was_empty;
+}
+
+void IncomingTaskQueue::ReloadWorkQueue(TaskQueue* work_queue) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  // Make sure no tasks are lost.
+  DCHECK(work_queue->empty());
+
+  // Acquire all we can from the inter-thread queue with one lock acquisition.
+  AutoLock lock(incoming_queue_lock_);
+  incoming_queue_.swap(*work_queue);
+  triage_queue_empty_ = work_queue->empty();
 }
 
 }  // namespace internal

@@ -33,7 +33,7 @@
 
 #include "listwidgeteditor.h"
 
-#include <QtWidgets/QDialog>
+#include <QtWidgets/qdialog.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -80,8 +80,9 @@ private slots:
     void cacheReloaded();
 
 protected:
-    void setItemData(int role, const QVariant &v) Q_DECL_OVERRIDE;
-    QVariant getItemData(int role) const Q_DECL_OVERRIDE;
+    void setItemData(int role, const QVariant &v) override;
+    QVariant getItemData(int role) const override;
+    int defaultItemFlags() const override;
 
 private:
     void setPropertyBrowserVisible(bool v);

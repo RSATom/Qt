@@ -8,12 +8,11 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/rtc_base/platform_thread.h"
+#include "rtc_base/platform_thread.h"
 
-#include "webrtc/rtc_base/atomicops.h"
-#include "webrtc/rtc_base/checks.h"
-#include "webrtc/rtc_base/timeutils.h"
-#include "webrtc/rtc_base/trace_event.h"
+#include "rtc_base/atomicops.h"
+#include "rtc_base/checks.h"
+#include "rtc_base/timeutils.h"
 
 #if defined(WEBRTC_LINUX)
 #include <sys/prctl.h>
@@ -21,64 +20,6 @@
 #endif
 
 namespace rtc {
-
-PlatformThreadId CurrentThreadId() {
-  PlatformThreadId ret;
-#if defined(WEBRTC_WIN)
-  ret = GetCurrentThreadId();
-#elif defined(WEBRTC_POSIX)
-#if defined(WEBRTC_MAC) || defined(WEBRTC_IOS)
-  ret = pthread_mach_thread_np(pthread_self());
-#elif defined(WEBRTC_LINUX)
-  ret =  syscall(__NR_gettid);
-#elif defined(WEBRTC_ANDROID)
-  ret = gettid();
-#else
-  // Default implementation for nacl and solaris.
-  ret = reinterpret_cast<pid_t>(pthread_self());
-#endif
-#endif  // defined(WEBRTC_POSIX)
-  RTC_DCHECK(ret);
-  return ret;
-}
-
-PlatformThreadRef CurrentThreadRef() {
-#if defined(WEBRTC_WIN)
-  return GetCurrentThreadId();
-#elif defined(WEBRTC_POSIX)
-  return pthread_self();
-#endif
-}
-
-bool IsThreadRefEqual(const PlatformThreadRef& a, const PlatformThreadRef& b) {
-#if defined(WEBRTC_WIN)
-  return a == b;
-#elif defined(WEBRTC_POSIX)
-  return pthread_equal(a, b);
-#endif
-}
-
-void SetCurrentThreadName(const char* name) {
-#if defined(WEBRTC_WIN)
-  struct {
-    DWORD dwType;
-    LPCSTR szName;
-    DWORD dwThreadID;
-    DWORD dwFlags;
-  } threadname_info = {0x1000, name, static_cast<DWORD>(-1), 0};
-
-  __try {
-    ::RaiseException(0x406D1388, 0, sizeof(threadname_info) / sizeof(DWORD),
-                     reinterpret_cast<ULONG_PTR*>(&threadname_info));
-  } __except (EXCEPTION_EXECUTE_HANDLER) {
-  }
-#elif defined(WEBRTC_LINUX) || defined(WEBRTC_ANDROID)
-  prctl(PR_SET_NAME, reinterpret_cast<unsigned long>(name));
-#elif defined(WEBRTC_MAC) || defined(WEBRTC_IOS)
-  pthread_setname_np(name);
-#endif
-}
-
 namespace {
 #if defined(WEBRTC_WIN)
 void CALLBACK RaiseFlag(ULONG_PTR param) {
@@ -236,8 +177,6 @@ void PlatformThread::Run() {
 #endif
 
   do {
-    TRACE_EVENT1("webrtc", "PlatformThread::Run", "name", name_.c_str());
-
     // The interface contract of Start/Stop is that for a successful call to
     // Start, there should be at least one call to the run function.  So we
     // call the function before checking |stop_|.
@@ -264,7 +203,7 @@ void PlatformThread::Run() {
     SleepEx(0, true);
   } while (!stop_);
 #else
-#if defined(WEBRTC_MAC)
+#if defined(WEBRTC_MAC) || defined(WEBRTC_ANDROID)
     sched_yield();
 #else
     static const struct timespec ts_null = {0};
@@ -291,8 +230,8 @@ bool PlatformThread::SetPriority(ThreadPriority priority) {
 
 #if defined(WEBRTC_WIN)
   return SetThreadPriority(thread_, priority) != FALSE;
-#elif defined(__native_client__)
-  // Setting thread priorities is not supported in NaCl.
+#elif defined(__native_client__) || defined(WEBRTC_FUCHSIA)
+  // Setting thread priorities is not supported in NaCl or Fuchsia.
   return true;
 #elif defined(WEBRTC_CHROMIUM_BUILD) && defined(WEBRTC_LINUX)
   // TODO(tommi): Switch to the same mechanism as Chromium uses for changing

@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2013-2016 Esri <contracts@esri.com>
+** Copyright (C) 2013-2018 Esri <contracts@esri.com>
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtLocation module of the Qt Toolkit.
@@ -56,7 +56,7 @@ public:
                                 QString *errorString);
     virtual ~GeoRoutingManagerEngineEsri();
 
-    QGeoRouteReply *calculateRoute(const QGeoRouteRequest &request) Q_DECL_OVERRIDE;
+    QGeoRouteReply *calculateRoute(const QGeoRouteRequest &request) override;
 
 private Q_SLOTS:
     void replyFinished();

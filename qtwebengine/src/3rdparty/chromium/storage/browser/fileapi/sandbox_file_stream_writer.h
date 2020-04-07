@@ -18,7 +18,7 @@
 #include "storage/browser/fileapi/task_runner_bound_observer_list.h"
 #include "storage/browser/storage_browser_export.h"
 #include "storage/common/fileapi/file_system_types.h"
-#include "storage/common/quota/quota_types.h"
+#include "third_party/blink/public/mojom/quota/quota_types.mojom.h"
 #include "url/gurl.h"
 
 namespace storage {
@@ -26,8 +26,7 @@ namespace storage {
 class FileSystemContext;
 class FileStreamWriter;
 
-class STORAGE_EXPORT SandboxFileStreamWriter
-    : public NON_EXPORTED_BASE(FileStreamWriter) {
+class STORAGE_EXPORT SandboxFileStreamWriter : public FileStreamWriter {
  public:
   SandboxFileStreamWriter(FileSystemContext* file_system_context,
                           const FileSystemURL& url,
@@ -57,9 +56,9 @@ class STORAGE_EXPORT SandboxFileStreamWriter
       base::File::Error file_error,
       const base::File::Info& file_info,
       const base::FilePath& platform_path,
-      const scoped_refptr<storage::ShareableFileReference>& file_ref);
+      scoped_refptr<storage::ShareableFileReference> file_ref);
   void DidGetUsageAndQuota(const net::CompletionCallback& callback,
-                           storage::QuotaStatusCode status,
+                           blink::mojom::QuotaStatusCode status,
                            int64_t usage,
                            int64_t quota);
   void DidInitializeForWrite(net::IOBuffer* buf, int buf_len,

@@ -8,7 +8,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <deque>
 #include <list>
 #include <map>
 #include <set>
@@ -21,7 +20,6 @@
 #include "gpu/command_buffer/common/sync_token.h"
 #include "media/base/overlay_info.h"
 #include "media/base/pipeline_status.h"
-#include "media/base/surface_manager.h"
 #include "media/base/video_decoder.h"
 #include "media/video/video_decode_accelerator.h"
 
@@ -51,17 +49,21 @@ class MEDIA_EXPORT GpuVideoDecoder
  public:
   GpuVideoDecoder(GpuVideoAcceleratorFactories* factories,
                   const RequestOverlayInfoCB& request_overlay_info_cb,
+                  const gfx::ColorSpace& target_color_space,
                   MediaLog* media_log);
   ~GpuVideoDecoder() override;
 
   // VideoDecoder implementation.
   std::string GetDisplayName() const override;
-  void Initialize(const VideoDecoderConfig& config,
-                  bool low_delay,
-                  CdmContext* cdm_context,
-                  const InitCB& init_cb,
-                  const OutputCB& output_cb) override;
-  void Decode(const scoped_refptr<DecoderBuffer>& buffer,
+  bool IsPlatformDecoder() const override;
+  void Initialize(
+      const VideoDecoderConfig& config,
+      bool low_delay,
+      CdmContext* cdm_context,
+      const InitCB& init_cb,
+      const OutputCB& output_cb,
+      const WaitingForDecryptionKeyCB& waiting_for_decryption_key_cb) override;
+  void Decode(scoped_refptr<DecoderBuffer> buffer,
               const DecodeCB& decode_cb) override;
   void Reset(const base::Closure& closure) override;
   bool NeedsBitstreamConversion() const override;
@@ -153,9 +155,12 @@ class MEDIA_EXPORT GpuVideoDecoder
 
   GpuVideoAcceleratorFactories* factories_;
 
-  // For requesting a suface to render to. If this is null the VDA will return
-  // normal video frames and not render them to a surface.
+  // For requesting overlay info updates. If this is null, overlays are not
+  // supported.
   RequestOverlayInfoCB request_overlay_info_cb_;
+  bool overlay_info_requested_;
+
+  gfx::ColorSpace target_color_space_;
 
   MediaLog* media_log_;
 

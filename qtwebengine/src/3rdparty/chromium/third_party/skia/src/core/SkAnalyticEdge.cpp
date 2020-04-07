@@ -5,10 +5,13 @@
  * found in the LICENSE file.
  */
 
-
 #include "SkAnalyticEdge.h"
+
 #include "SkFDot6.h"
 #include "SkMathPriv.h"
+#include "SkTo.h"
+
+#include <utility>
 
 // This will become a bottleneck for small ovals rendering if we call SkFixedDiv twice here.
 // Therefore, we'll let the outter function compute the slope once and send in the value.
@@ -19,6 +22,15 @@ bool SkAnalyticEdge::updateLine(SkFixed x0, SkFixed y0, SkFixed x1, SkFixed y1, 
     // could be a performance bottleneck.
     SkASSERT(fWinding == 1 || fWinding == -1);
     SkASSERT(fCurveCount != 0);
+
+    // We don't chop at y extrema for cubics so the y is not guaranteed to be increasing for them.
+    // In that case, we have to swap x/y and negate the winding.
+    if (y0 > y1) {
+        using std::swap;
+        swap(x0, x1);
+        swap(y0, y1);
+        fWinding = -fWinding;
+    }
 
     SkASSERT(y0 <= y1);
 
@@ -46,6 +58,16 @@ bool SkAnalyticEdge::updateLine(SkFixed x0, SkFixed y0, SkFixed x1, SkFixed y1, 
                     : SkAbs32(QuickSkFDot6Div(dy, dx));
 
     return true;
+}
+
+bool SkAnalyticEdge::update(SkFixed last_y, bool sortY) {
+    SkASSERT(last_y >= fLowerY); // we shouldn't update edge if last_y < fLowerY
+    if (fCurveCount < 0) {
+        return static_cast<SkAnalyticCubicEdge*>(this)->updateCubic(sortY);
+    } else if (fCurveCount > 0) {
+        return static_cast<SkAnalyticQuadraticEdge*>(this)->updateQuadratic();
+    }
+    return false;
 }
 
 bool SkAnalyticQuadraticEdge::setQuadratic(const SkPoint pts[3]) {
@@ -137,10 +159,10 @@ bool SkAnalyticQuadraticEdge::updateQuadratic() {
     return success;
 }
 
-bool SkAnalyticCubicEdge::setCubic(const SkPoint pts[4]) {
+bool SkAnalyticCubicEdge::setCubic(const SkPoint pts[4], bool sortY) {
     fRiteE = nullptr;
 
-    if (!fCEdge.setCubicWithoutUpdate(pts, kDefaultAccuracy)) {
+    if (!fCEdge.setCubicWithoutUpdate(pts, kDefaultAccuracy, sortY)) {
         return false;
     }
 
@@ -164,10 +186,10 @@ bool SkAnalyticCubicEdge::setCubic(const SkPoint pts[4]) {
 
     fSnappedY = fCEdge.fCy;
 
-    return this->updateCubic();
+    return this->updateCubic(sortY);
 }
 
-bool SkAnalyticCubicEdge::updateCubic() {
+bool SkAnalyticCubicEdge::updateCubic(bool sortY) {
     int     success;
     int     count = fCurveCount;
     SkFixed oldx = fCEdge.fCx;
@@ -195,14 +217,14 @@ bool SkAnalyticCubicEdge::updateCubic() {
 
         // we want to say SkASSERT(oldy <= newy), but our finite fixedpoint
         // doesn't always achieve that, so we have to explicitly pin it here.
-        if (newy < oldy) {
+        if (sortY && newy < oldy) {
             newy = oldy;
         }
 
         SkFixed newSnappedY = SnapY(newy);
         // we want to SkASSERT(snappedNewY <= fCEdge.fCLastY), but our finite fixedpoint
         // doesn't always achieve that, so we have to explicitly pin it here.
-        if (fCEdge.fCLastY < newSnappedY) {
+        if (sortY && fCEdge.fCLastY < newSnappedY) {
             newSnappedY = fCEdge.fCLastY;
             count = 0;
         }

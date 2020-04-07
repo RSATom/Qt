@@ -9,11 +9,16 @@
 
 #include "base/macros.h"
 #include "base/optional.h"
+#include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/events/event.h"
 #include "ui/gfx/native_widget_types.h"
 #include "ui/views/bubble/bubble_dialog_delegate.h"
 #include "ui/views/mouse_watcher.h"
 #include "ui/views/views_export.h"
+
+namespace ui {
+class LayerOwner;
+}
 
 namespace views {
 class BoxLayout;
@@ -22,10 +27,6 @@ class Widget;
 }
 
 namespace views {
-
-namespace internal {
-class TrayBubbleContentMask;
-}
 
 // Specialized bubble view for bubbles associated with a tray icon (e.g. the
 // Ash status area). Mostly this handles custom anchor location and arrow and
@@ -95,6 +96,8 @@ class VIEWS_EXPORT TrayBubbleView : public BubbleDialogDelegateView,
     bool show_by_click = false;
     // If not provided, the bg color will be derived from the NativeTheme.
     base::Optional<SkColor> bg_color;
+    base::Optional<int> corner_radius;
+    bool has_shadow = true;
   };
 
   explicit TrayBubbleView(const InitParams& init_params);
@@ -127,6 +130,9 @@ class VIEWS_EXPORT TrayBubbleView : public BubbleDialogDelegateView,
   // ResetDelegate.
   void ResetDelegate();
 
+  // Anchors the bubble to |anchor_view|.
+  void ChangeAnchorView(views::View* anchor_view);
+
   Delegate* delegate() { return delegate_; }
 
   void set_gesture_dragging(bool dragging) { is_gesture_dragging_ = dragging; }
@@ -147,7 +153,6 @@ class VIEWS_EXPORT TrayBubbleView : public BubbleDialogDelegateView,
 
   // Overridden from views::View.
   gfx::Size CalculatePreferredSize() const override;
-  gfx::Size GetMaximumSize() const override;
   int GetHeightForWidth(int width) const override;
   void OnMouseEntered(const ui::MouseEvent& event) override;
   void OnMouseExited(const ui::MouseEvent& event) override;
@@ -160,6 +165,7 @@ class VIEWS_EXPORT TrayBubbleView : public BubbleDialogDelegateView,
  protected:
   // Overridden from views::BubbleDialogDelegateView.
   int GetDialogButtons() const override;
+  ax::mojom::Role GetAccessibleWindowRole() const override;
   void SizeToContents() override;
 
   // Overridden from views::View.
@@ -202,7 +208,7 @@ class VIEWS_EXPORT TrayBubbleView : public BubbleDialogDelegateView,
   // the latter ensures we don't leak it before passing off ownership.
   BubbleBorder* bubble_border_;
   std::unique_ptr<views::BubbleBorder> owned_bubble_border_;
-  std::unique_ptr<internal::TrayBubbleContentMask> bubble_content_mask_;
+  std::unique_ptr<ui::LayerOwner> bubble_content_mask_;
   bool is_gesture_dragging_;
 
   // True once the mouse cursor was actively moved by the user over the bubble.

@@ -630,8 +630,6 @@ void QAbstractTexture::addTextureImage(QAbstractTextureImage *textureImage)
         // Ensures proper bookkeeping
         d->registerDestructionHelper(textureImage, &QAbstractTexture::removeTextureImage, d->m_textureImages);
 
-        if (textureImage->parent() && textureImage->parent() != this)
-            qWarning() << "A QAbstractTextureImage was shared, expect a crash, undefined behavior at best";
         // We need to add it as a child of the current node if it has been declared inline
         // Or not previously added as a child of the current node so that
         // 1) The backend gets notified about it's creation
@@ -938,6 +936,10 @@ void QAbstractTexture::sceneChangeEvent(const Qt3DCore::QSceneChangePtr &change)
         } else if (propertyChange->propertyName() == QByteArrayLiteral("format")) {
             bool blocked = blockNotifications(true);
             setFormat(static_cast<QAbstractTexture::TextureFormat>(propertyChange->value().toInt()));
+            blockNotifications(blocked);
+        } else if (propertyChange->propertyName() == QByteArrayLiteral("status")) {
+            bool blocked = blockNotifications(true);
+            setStatus(static_cast<QAbstractTexture::Status>(propertyChange->value().toInt()));
             blockNotifications(blocked);
         }
         // TODO handle target changes, it's a CONSTANT property but can be affected by loader

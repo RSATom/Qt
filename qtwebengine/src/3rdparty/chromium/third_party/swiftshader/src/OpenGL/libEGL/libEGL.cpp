@@ -25,10 +25,11 @@
 
 #if defined(__ANDROID__)
 #include <system/window.h>
-#elif defined(__linux__)
+#elif defined(USE_X11)
 #include "Main/libX11.hpp"
 #endif
 
+#include <algorithm>
 #include <string.h>
 
 using namespace egl;
@@ -119,7 +120,9 @@ EGLDisplay GetDisplay(EGLNativeDisplayType display_id)
 	}
 
 	#if defined(__linux__) && !defined(__ANDROID__)
+		#if defined(USE_X11)
 		if(!libX11)
+		#endif  // Non X11 linux is headless only
 		{
 			return success(HEADLESS_DISPLAY);
 		}
@@ -174,8 +177,11 @@ const char *QueryString(EGLDisplay dpy, EGLint name)
 	if(dpy == EGL_NO_DISPLAY && name == EGL_EXTENSIONS)
 	{
 		return success(
+			"EGL_KHR_client_get_all_proc_addresses "
 #if defined(__linux__) && !defined(__ANDROID__)
 			"EGL_KHR_platform_gbm "
+#endif
+#if defined(USE_X11)
 			"EGL_KHR_platform_x11 "
 #endif
 			"EGL_EXT_client_extensions "
@@ -195,11 +201,14 @@ const char *QueryString(EGLDisplay dpy, EGLint name)
 		return success("OpenGL_ES");
 	case EGL_EXTENSIONS:
 		return success("EGL_KHR_create_context "
+		               "EGL_KHR_get_all_proc_addresses "
 		               "EGL_KHR_gl_texture_2D_image "
 		               "EGL_KHR_gl_texture_cubemap_image "
 		               "EGL_KHR_gl_renderbuffer_image "
 		               "EGL_KHR_fence_sync "
 		               "EGL_KHR_image_base "
+		               "EGL_KHR_surfaceless_context "
+		               "EGL_ANGLE_iosurface_client_buffer "
 		               "EGL_ANDROID_framebuffer_target "
 		               "EGL_ANDROID_recordable");
 	case EGL_VENDOR:
@@ -387,10 +396,10 @@ EGLBoolean QuerySurface(EGLDisplay dpy, EGLSurface surface, EGLint attribute, EG
 	switch(attribute)
 	{
 	case EGL_VG_ALPHA_FORMAT:
-		UNIMPLEMENTED();   // FIXME
+		*value = EGL_VG_ALPHA_FORMAT_NONPRE;   // Default
 		break;
 	case EGL_VG_COLORSPACE:
-		UNIMPLEMENTED();   // FIXME
+		*value = EGL_VG_COLORSPACE_sRGB;   // Default
 		break;
 	case EGL_CONFIG_ID:
 		*value = eglSurface->getConfigID();
@@ -399,7 +408,7 @@ EGLBoolean QuerySurface(EGLDisplay dpy, EGLSurface surface, EGLint attribute, EG
 		*value = eglSurface->getHeight();
 		break;
 	case EGL_HORIZONTAL_RESOLUTION:
-		UNIMPLEMENTED();   // FIXME
+		*value = EGL_UNKNOWN;
 		break;
 	case EGL_LARGEST_PBUFFER:
 		if(eglSurface->isPBufferSurface())   // For a window or pixmap surface, the contents of *value are not modified.
@@ -408,13 +417,19 @@ EGLBoolean QuerySurface(EGLDisplay dpy, EGLSurface surface, EGLint attribute, EG
 		}
 		break;
 	case EGL_MIPMAP_TEXTURE:
-		UNIMPLEMENTED();   // FIXME
+		if(eglSurface->isPBufferSurface())   // For a window or pixmap surface, the contents of *value are not modified.
+		{
+			*value = EGL_FALSE;   // UNIMPLEMENTED
+		}
 		break;
 	case EGL_MIPMAP_LEVEL:
-		UNIMPLEMENTED();   // FIXME
+		if(eglSurface->isPBufferSurface())   // For a window or pixmap surface, the contents of *value are not modified.
+		{
+			*value = eglSurface->getMipmapLevel();
+		}
 		break;
 	case EGL_MULTISAMPLE_RESOLVE:
-		UNIMPLEMENTED();   // FIXME
+		*value = eglSurface->getMultisampleResolve();
 		break;
 	case EGL_PIXEL_ASPECT_RATIO:
 		*value = eglSurface->getPixelAspectRatio();
@@ -426,13 +441,19 @@ EGLBoolean QuerySurface(EGLDisplay dpy, EGLSurface surface, EGLint attribute, EG
 		*value = eglSurface->getSwapBehavior();
 		break;
 	case EGL_TEXTURE_FORMAT:
-		*value = eglSurface->getTextureFormat();
+		if(eglSurface->isPBufferSurface())   // For a window or pixmap surface, the contents of *value are not modified.
+		{
+			*value = eglSurface->getTextureFormat();
+		}
 		break;
 	case EGL_TEXTURE_TARGET:
-		*value = eglSurface->getTextureTarget();
+		if(eglSurface->isPBufferSurface())   // For a window or pixmap surface, the contents of *value are not modified.
+		{
+			*value = eglSurface->getTextureTarget();
+		}
 		break;
 	case EGL_VERTICAL_RESOLUTION:
-		UNIMPLEMENTED();   // FIXME
+		*value = EGL_UNKNOWN;
 		break;
 	case EGL_WIDTH:
 		*value = eglSurface->getWidth();
@@ -477,9 +498,15 @@ EGLBoolean WaitClient(void)
 {
 	TRACE("()");
 
-	UNIMPLEMENTED();   // FIXME
+	// eglWaitClient is ignored if there is no current EGL rendering context for the current rendering API.
+	egl::Context *context = egl::getCurrentContext();
 
-	return success(EGL_FALSE);
+	if(context)
+	{
+		context->finish();
+	}
+
+	return success(EGL_TRUE);
 }
 
 EGLBoolean ReleaseThread(void)
@@ -488,7 +515,7 @@ EGLBoolean ReleaseThread(void)
 
 	detachThread();
 
-	return success(EGL_TRUE);
+	return EGL_TRUE;   // success() is not called here because it would re-allocate thread-local storage.
 }
 
 EGLSurface CreatePbufferFromClientBuffer(EGLDisplay dpy, EGLenum buftype, EGLClientBuffer buffer, EGLConfig config, const EGLint *attrib_list)
@@ -497,9 +524,25 @@ EGLSurface CreatePbufferFromClientBuffer(EGLDisplay dpy, EGLenum buftype, EGLCli
 	      "EGLConfig config = %p, const EGLint *attrib_list = %p)",
 	      dpy, buftype, buffer, config, attrib_list);
 
-	UNIMPLEMENTED();
+	switch(buftype)
+	{
+	case EGL_IOSURFACE_ANGLE:
+	{
+		egl::Display *display = egl::Display::get(dpy);
 
-	return error(EGL_BAD_PARAMETER, EGL_NO_SURFACE);
+		if(!validateConfig(display, config))
+		{
+			return EGL_NO_SURFACE;
+		}
+
+		return display->createPBufferSurface(config, attrib_list, buffer);
+	}
+	case EGL_OPENVG_IMAGE:
+		UNIMPLEMENTED();
+		return error(EGL_BAD_PARAMETER, EGL_NO_SURFACE);
+	default:
+		return error(EGL_BAD_PARAMETER, EGL_NO_SURFACE);
+	};
 }
 
 EGLBoolean SurfaceAttrib(EGLDisplay dpy, EGLSurface surface, EGLint attribute, EGLint value)
@@ -517,22 +560,43 @@ EGLBoolean SurfaceAttrib(EGLDisplay dpy, EGLSurface surface, EGLint attribute, E
 
 	switch(attribute)
 	{
-	case EGL_SWAP_BEHAVIOR:
-		if(value == EGL_BUFFER_PRESERVED)
+	case EGL_MIPMAP_LEVEL:
+		eglSurface->setMipmapLevel(value);
+		break;
+	case EGL_MULTISAMPLE_RESOLVE:
+		switch(value)
 		{
+		case EGL_MULTISAMPLE_RESOLVE_DEFAULT:
+			break;
+		case EGL_MULTISAMPLE_RESOLVE_BOX:
+			if(!(eglSurface->getSurfaceType() & EGL_MULTISAMPLE_RESOLVE_BOX_BIT))
+			{
+				return error(EGL_BAD_MATCH, EGL_FALSE);
+			}
+			break;
+		default:
+			return error(EGL_BAD_PARAMETER, EGL_FALSE);
+		}
+		eglSurface->setMultisampleResolve(value);
+		break;
+	case EGL_SWAP_BEHAVIOR:
+		switch(value)
+		{
+		case EGL_BUFFER_DESTROYED:
+			break;
+		case EGL_BUFFER_PRESERVED:
 			if(!(eglSurface->getSurfaceType() & EGL_SWAP_BEHAVIOR_PRESERVED_BIT))
 			{
 				return error(EGL_BAD_MATCH, EGL_FALSE);
 			}
-		}
-		else if(value != EGL_BUFFER_DESTROYED)
-		{
+			break;
+		default:
 			return error(EGL_BAD_PARAMETER, EGL_FALSE);
 		}
 		eglSurface->setSwapBehavior(value);
 		break;
 	default:
-		UNIMPLEMENTED();   // FIXME
+		return error(EGL_BAD_PARAMETER, EGL_FALSE);
 	}
 
 	return success(EGL_TRUE);
@@ -800,6 +864,13 @@ EGLBoolean MakeCurrent(EGLDisplay dpy, EGLSurface draw, EGLSurface read, EGLCont
 		return EGL_FALSE;
 	}
 
+	if((draw != EGL_NO_SURFACE && drawSurface->hasClientBuffer()) ||
+	   (read != EGL_NO_SURFACE && readSurface->hasClientBuffer()))
+	{
+		// Make current is not supported on IOSurface pbuffers.
+		return error(EGL_BAD_SURFACE, EGL_FALSE);
+	}
+
 	if((draw != EGL_NO_SURFACE) ^ (read != EGL_NO_SURFACE))
 	{
 		return error(EGL_BAD_MATCH, EGL_FALSE);
@@ -910,18 +981,46 @@ EGLBoolean WaitGL(void)
 {
 	TRACE("()");
 
-	UNIMPLEMENTED();   // FIXME
+	// glWaitGL is ignored if there is no current EGL rendering context for OpenGL ES.
+	egl::Context *context = egl::getCurrentContext();
 
-	return success(EGL_FALSE);
+	if(context)
+	{
+		context->finish();
+	}
+
+	return success(EGL_TRUE);
 }
 
 EGLBoolean WaitNative(EGLint engine)
 {
 	TRACE("(EGLint engine = %d)", engine);
 
-	UNIMPLEMENTED();   // FIXME
+	if(engine != EGL_CORE_NATIVE_ENGINE)
+	{
+		return error(EGL_BAD_PARAMETER, EGL_FALSE);
+	}
 
-	return success(EGL_FALSE);
+	// eglWaitNative is ignored if there is no current EGL rendering context.
+	egl::Context *context = egl::getCurrentContext();
+
+	if(context)
+	{
+		#if defined(USE_X11)
+			egl::Display *display = context->getDisplay();
+
+			if(!display)
+			{
+				return error(EGL_BAD_DISPLAY, EGL_FALSE);
+			}
+
+			libX11->XSync((::Display*)display->getNativeDisplay(), False);
+		#else
+			UNIMPLEMENTED();
+		#endif
+	}
+
+	return success(EGL_TRUE);
 }
 
 EGLBoolean SwapBuffers(EGLDisplay dpy, EGLSurface surface)
@@ -1076,13 +1175,25 @@ EGLDisplay GetPlatformDisplayEXT(EGLenum platform, void *native_display, const E
 	#if defined(__linux__) && !defined(__ANDROID__)
 		switch(platform)
 		{
+		#if defined(USE_X11)
 		case EGL_PLATFORM_X11_EXT: break;
+		#endif
 		case EGL_PLATFORM_GBM_KHR: break;
 		default:
 			return error(EGL_BAD_PARAMETER, EGL_NO_DISPLAY);
 		}
 
-		if(platform == EGL_PLATFORM_X11_EXT)
+		if(platform == EGL_PLATFORM_GBM_KHR)
+		{
+			if(native_display != (void*)EGL_DEFAULT_DISPLAY || attrib_list != NULL)
+			{
+				return error(EGL_BAD_ATTRIBUTE, EGL_NO_DISPLAY);   // Unimplemented
+			}
+
+			return success(HEADLESS_DISPLAY);
+		}
+		#if defined(USE_X11)
+		else if(platform == EGL_PLATFORM_X11_EXT)
 		{
 			if(!libX11)
 			{
@@ -1094,15 +1205,7 @@ EGLDisplay GetPlatformDisplayEXT(EGLenum platform, void *native_display, const E
 				return error(EGL_BAD_ATTRIBUTE, EGL_NO_DISPLAY);   // Unimplemented
 			}
 		}
-		else if(platform == EGL_PLATFORM_GBM_KHR)
-		{
-			if(native_display != (void*)EGL_DEFAULT_DISPLAY || attrib_list != NULL)
-			{
-				return error(EGL_BAD_ATTRIBUTE, EGL_NO_DISPLAY);   // Unimplemented
-			}
-
-			return success(HEADLESS_DISPLAY);
-		}
+		#endif
 
 		return success(PRIMARY_DISPLAY);   // We only support the default display
 	#else
@@ -1241,34 +1344,85 @@ __eglMustCastToProperFunctionPointerType GetProcAddress(const char *procname)
 {
 	TRACE("(const char *procname = \"%s\")", procname);
 
-	struct Extension
+	struct Function
 	{
 		const char *name;
 		__eglMustCastToProperFunctionPointerType address;
 	};
 
-	static const Extension eglExtensions[] =
+	struct CompareFunctor
 	{
-		#define EXTENSION(name) {#name, (__eglMustCastToProperFunctionPointerType)name}
-
-		EXTENSION(eglCreateImageKHR),
-		EXTENSION(eglDestroyImageKHR),
-		EXTENSION(eglGetPlatformDisplayEXT),
-		EXTENSION(eglCreatePlatformWindowSurfaceEXT),
-		EXTENSION(eglCreatePlatformPixmapSurfaceEXT),
-		EXTENSION(eglCreateSyncKHR),
-		EXTENSION(eglDestroySyncKHR),
-		EXTENSION(eglClientWaitSyncKHR),
-		EXTENSION(eglGetSyncAttribKHR),
-
-		#undef EXTENSION
+		bool operator()(const Function &a, const Function &b) const
+		{
+			return strcmp(a.name, b.name) < 0;
+		}
 	};
 
-	for(unsigned int ext = 0; ext < sizeof(eglExtensions) / sizeof(Extension); ext++)
+	// This array must be kept sorted with respect to strcmp(), so that binary search works correctly.
+	// The Unix command "LC_COLLATE=C sort" will generate the correct order.
+	static const Function eglFunctions[] =
 	{
-		if(strcmp(procname, eglExtensions[ext].name) == 0)
+		#define FUNCTION(name) {#name, (__eglMustCastToProperFunctionPointerType)name}
+
+		FUNCTION(eglBindAPI),
+		FUNCTION(eglBindTexImage),
+		FUNCTION(eglChooseConfig),
+		FUNCTION(eglClientWaitSyncKHR),
+		FUNCTION(eglCopyBuffers),
+		FUNCTION(eglCreateContext),
+		FUNCTION(eglCreateImageKHR),
+		FUNCTION(eglCreatePbufferFromClientBuffer),
+		FUNCTION(eglCreatePbufferSurface),
+		FUNCTION(eglCreatePixmapSurface),
+		FUNCTION(eglCreatePlatformPixmapSurfaceEXT),
+		FUNCTION(eglCreatePlatformWindowSurfaceEXT),
+		FUNCTION(eglCreateSyncKHR),
+		FUNCTION(eglCreateWindowSurface),
+		FUNCTION(eglDestroyContext),
+		FUNCTION(eglDestroyImageKHR),
+		FUNCTION(eglDestroySurface),
+		FUNCTION(eglDestroySyncKHR),
+		FUNCTION(eglGetConfigAttrib),
+		FUNCTION(eglGetConfigs),
+		FUNCTION(eglGetCurrentContext),
+		FUNCTION(eglGetCurrentDisplay),
+		FUNCTION(eglGetCurrentSurface),
+		FUNCTION(eglGetDisplay),
+		FUNCTION(eglGetError),
+		FUNCTION(eglGetPlatformDisplayEXT),
+		FUNCTION(eglGetProcAddress),
+		FUNCTION(eglGetSyncAttribKHR),
+		FUNCTION(eglInitialize),
+		FUNCTION(eglMakeCurrent),
+		FUNCTION(eglQueryAPI),
+		FUNCTION(eglQueryContext),
+		FUNCTION(eglQueryString),
+		FUNCTION(eglQuerySurface),
+		FUNCTION(eglReleaseTexImage),
+		FUNCTION(eglReleaseThread),
+		FUNCTION(eglSurfaceAttrib),
+		FUNCTION(eglSwapBuffers),
+		FUNCTION(eglSwapInterval),
+		FUNCTION(eglTerminate),
+		FUNCTION(eglWaitClient),
+		FUNCTION(eglWaitGL),
+		FUNCTION(eglWaitNative),
+
+		#undef FUNCTION
+	};
+
+	static const size_t numFunctions = sizeof eglFunctions / sizeof(Function);
+	static const Function *const eglFunctionsEnd = eglFunctions + numFunctions;
+
+	Function needle;
+	needle.name = procname;
+
+	if(procname && strncmp("egl", procname, 3) == 0)
+	{
+		const Function *result = std::lower_bound(eglFunctions, eglFunctionsEnd, needle, CompareFunctor());
+		if (result != eglFunctionsEnd && strcmp(procname, result->name) == 0)
 		{
-			return success((__eglMustCastToProperFunctionPointerType)eglExtensions[ext].address);
+			return success((__eglMustCastToProperFunctionPointerType)result->address);
 		}
 	}
 

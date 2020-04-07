@@ -16,7 +16,7 @@
 
 namespace ui {
 
-struct CompositionUnderline;
+struct ImeTextSpan;
 
 }  // namespace ui
 
@@ -105,6 +105,8 @@ class CONTENT_EXPORT ImeAdapterAndroid : public RenderWidgetHostConnector {
   }
 
   void UpdateState(const TextInputState& state);
+  void UpdateAfterViewSizeChanged();
+  void UpdateOnTouchDown();
 
   void AdvanceFocusInForm(JNIEnv*,
                           const base::android::JavaParamRef<jobject>&,
@@ -113,7 +115,7 @@ class CONTENT_EXPORT ImeAdapterAndroid : public RenderWidgetHostConnector {
  private:
   RenderWidgetHostImpl* GetFocusedWidget();
   RenderFrameHost* GetFocusedFrame();
-  std::vector<ui::CompositionUnderline> GetUnderlinesFromSpans(
+  std::vector<ui::ImeTextSpan> GetImeTextSpansFromJava(
       JNIEnv* env,
       const base::android::JavaParamRef<jobject>& obj,
       const base::android::JavaParamRef<jobject>& text,
@@ -123,8 +125,6 @@ class CONTENT_EXPORT ImeAdapterAndroid : public RenderWidgetHostConnector {
   RenderWidgetHostViewAndroid* rwhva_;
   JavaObjectWeakGlobalRef java_ime_adapter_;
 };
-
-bool RegisterImeAdapter(JNIEnv* env);
 
 }  // namespace content
 

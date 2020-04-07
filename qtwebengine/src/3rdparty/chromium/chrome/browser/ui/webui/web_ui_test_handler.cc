@@ -6,9 +6,10 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
-#include "base/message_loop/message_loop.h"
+#include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
+#include "chrome/common/chrome_render_frame.mojom.h"
 #include "chrome/common/render_messages.h"
 #include "content/public/browser/notification_details.h"
 #include "content/public/browser/notification_registrar.h"
@@ -19,6 +20,7 @@
 #include "content/public/browser/web_ui.h"
 #include "content/public/test/test_utils.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/blink/public/common/associated_interfaces/associated_interface_provider.h"
 
 using content::RenderViewHost;
 
@@ -27,14 +29,17 @@ WebUITestHandler::WebUITestHandler()
       test_succeeded_(false),
       run_test_done_(false),
       run_test_succeeded_(false),
-      is_waiting_(false) {
-}
+      binding_(this) {}
+
+WebUITestHandler::~WebUITestHandler() = default;
 
 void WebUITestHandler::PreloadJavaScript(const base::string16& js_text,
                                          RenderViewHost* preload_host) {
   DCHECK(preload_host);
-  preload_host->Send(new ChromeViewMsg_WebUIJavaScript(
-      preload_host->GetRoutingID(), js_text));
+  chrome::mojom::ChromeRenderFrameAssociatedPtr chrome_render_frame;
+  preload_host->GetMainFrame()->GetRemoteAssociatedInterfaces()->GetInterface(
+      &chrome_render_frame);
+  chrome_render_frame->ExecuteWebUIJavaScript(js_text);
 }
 
 void WebUITestHandler::RunJavaScript(const base::string16& js_text) {
@@ -54,15 +59,33 @@ bool WebUITestHandler::RunJavaScriptTestWithResult(
 }
 
 void WebUITestHandler::RegisterMessages() {
-  web_ui()->RegisterMessageCallback("testResult",
-      base::Bind(&WebUITestHandler::HandleTestResult, base::Unretained(this)));
+  web_ui()->RegisterMessageCallback(
+      "testResult", base::BindRepeating(&WebUITestHandler::HandleTestResult,
+                                        base::Unretained(this)));
+}
+
+void WebUITestHandler::BindToTestRunnerRequest(
+    web_ui_test::mojom::TestRunnerRequest request) {
+  binding_.Bind(std::move(request));
+}
+
+void WebUITestHandler::TestComplete(
+    const base::Optional<std::string>& message) {
+  // To ensure this gets done, do this before ASSERT* calls.
+  quit_closure_.Run();
+
+  SCOPED_TRACE("WebUITestHandler::TestComplete");
+
+  EXPECT_FALSE(test_done_);
+  test_done_ = true;
+  test_succeeded_ = !message.has_value();
+
+  EXPECT_TRUE(test_succeeded_) << *message;
 }
 
 void WebUITestHandler::HandleTestResult(const base::ListValue* test_result) {
-  // Quit the message loop if |is_waiting_| so waiting process can get result or
-  // error. To ensure this gets done, do this before ASSERT* calls.
-  if (is_waiting_)
-    base::MessageLoopForUI::current()->QuitWhenIdle();
+  // To ensure this gets done, do this before ASSERT* calls.
+  quit_closure_.Run();
 
   SCOPED_TRACE("WebUITestHandler::HandleTestResult");
 
@@ -79,10 +102,8 @@ void WebUITestHandler::HandleTestResult(const base::ListValue* test_result) {
 }
 
 void WebUITestHandler::JavaScriptComplete(const base::Value* result) {
-  // Quit the message loop if |is_waiting_| so waiting process can get result or
-  // error. To ensure this gets done, do this before ASSERT* calls.
-  if (is_waiting_)
-    base::MessageLoopForUI::current()->QuitWhenIdle();
+  // To ensure this gets done, do this before ASSERT* calls.
+  quit_closure_.Run();
 
   SCOPED_TRACE("WebUITestHandler::JavaScriptComplete");
 
@@ -97,20 +118,23 @@ bool WebUITestHandler::WaitForResult() {
   SCOPED_TRACE("WebUITestHandler::WaitForResult");
   test_done_ = false;
   run_test_done_ = false;
-  is_waiting_ = true;
 
   // Either sync test completion or the testDone() will cause message loop
   // to quit.
-  content::RunMessageLoop();
+  {
+    base::RunLoop run_loop;
+    quit_closure_ = run_loop.QuitWhenIdleClosure();
+    content::RunThisRunLoop(&run_loop);
+  }
 
   // Run a second message loop when not |run_test_done_| so that the sync test
   // completes, or |run_test_succeeded_| but not |test_done_| so async tests
   // complete.
   if (!run_test_done_ || (run_test_succeeded_ && !test_done_)) {
-    content::RunMessageLoop();
+    base::RunLoop run_loop;
+    quit_closure_ = run_loop.QuitWhenIdleClosure();
+    content::RunThisRunLoop(&run_loop);
   }
-
-  is_waiting_ = false;
 
   // To succeed the test must execute as well as pass the test.
   return run_test_succeeded_ && test_succeeded_;

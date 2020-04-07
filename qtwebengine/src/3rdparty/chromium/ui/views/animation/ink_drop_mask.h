@@ -34,9 +34,8 @@ class VIEWS_EXPORT InkDropMask : public ui::LayerDelegate {
 
  private:
   // Overriden from ui::LayerDelegate:
-  void OnDelegatedFrameDamage(const gfx::Rect& damage_rect_in_dip) override;
-
-  void OnDeviceScaleFactorChanged(float device_scale_factor) override;
+  void OnDeviceScaleFactorChanged(float old_device_scale_factor,
+                                  float new_device_scale_factor) override;
 
   ui::Layer layer_;
 
@@ -48,14 +47,14 @@ class VIEWS_EXPORT RoundRectInkDropMask : public InkDropMask {
  public:
   RoundRectInkDropMask(const gfx::Size& layer_size,
                        const gfx::InsetsF& mask_insets,
-                       int corner_radius);
+                       float corner_radius);
 
  private:
   // Overriden from InkDropMask:
   void OnPaintLayer(const ui::PaintContext& context) override;
 
   gfx::InsetsF mask_insets_;
-  int corner_radius_;
+  float corner_radius_;
 
   DISALLOW_COPY_AND_ASSIGN(RoundRectInkDropMask);
 };

@@ -16,9 +16,9 @@
 #include "components/webcrypto/status.h"
 #include "crypto/openssl_util.h"
 #include "crypto/secure_util.h"
-#include "third_party/WebKit/public/platform/WebCryptoAlgorithmParams.h"
-#include "third_party/WebKit/public/platform/WebCryptoKey.h"
-#include "third_party/WebKit/public/platform/WebCryptoKeyAlgorithm.h"
+#include "third_party/blink/public/platform/web_crypto_algorithm_params.h"
+#include "third_party/blink/public/platform/web_crypto_key.h"
+#include "third_party/blink/public/platform/web_crypto_key_algorithm.h"
 #include "third_party/boringssl/src/include/openssl/ec.h"
 #include "third_party/boringssl/src/include/openssl/ecdh.h"
 #include "third_party/boringssl/src/include/openssl/evp.h"
@@ -111,7 +111,7 @@ class EcdhImplementation : public EcAlgorithm {
     derived_bytes->resize(NumBitsToBytes(length_bits));
 
     int result = ECDH_compute_key(derived_bytes->data(), derived_bytes->size(),
-                                  public_key_point, private_key_ec, 0);
+                                  public_key_point, private_key_ec, nullptr);
     if (result < 0 || static_cast<size_t>(result) != derived_bytes->size())
       return Status::OperationError();
 

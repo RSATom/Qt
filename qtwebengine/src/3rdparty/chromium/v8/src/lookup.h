@@ -5,8 +5,8 @@
 #ifndef V8_LOOKUP_H_
 #define V8_LOOKUP_H_
 
-#include "src/factory.h"
 #include "src/globals.h"
+#include "src/heap/factory.h"
 #include "src/isolate.h"
 #include "src/objects.h"
 #include "src/objects/descriptor-array.h"
@@ -22,7 +22,7 @@ class V8_EXPORT_PRIVATE LookupIterator final BASE_EMBEDDED {
     kInterceptor = 1 << 0,
     kPrototypeChain = 1 << 1,
 
-    // Convience combinations of bits.
+    // Convenience combinations of bits.
     OWN_SKIP_INTERCEPTOR = 0,
     OWN = kInterceptor,
     PROTOTYPE_CHAIN_SKIP_INTERCEPTOR = kPrototypeChain,
@@ -44,10 +44,6 @@ class V8_EXPORT_PRIVATE LookupIterator final BASE_EMBEDDED {
     BEFORE_PROPERTY = INTERCEPTOR
   };
 
-  LookupIterator(Handle<Object> receiver, Handle<Name> name,
-                 Configuration configuration = DEFAULT)
-      : LookupIterator(name->GetIsolate(), receiver, name, configuration) {}
-
   LookupIterator(Isolate* isolate, Handle<Object> receiver, Handle<Name> name,
                  Configuration configuration = DEFAULT)
       : LookupIterator(isolate, receiver, name, GetRoot(isolate, receiver),
@@ -56,7 +52,7 @@ class V8_EXPORT_PRIVATE LookupIterator final BASE_EMBEDDED {
   LookupIterator(Handle<Object> receiver, Handle<Name> name,
                  Handle<JSReceiver> holder,
                  Configuration configuration = DEFAULT)
-      : LookupIterator(name->GetIsolate(), receiver, name, holder,
+      : LookupIterator(holder->GetIsolate(), receiver, name, holder,
                        configuration) {}
 
   LookupIterator(Isolate* isolate, Handle<Object> receiver, Handle<Name> name,
@@ -110,7 +106,7 @@ class V8_EXPORT_PRIVATE LookupIterator final BASE_EMBEDDED {
       it.name_ = name;
       return it;
     }
-    return LookupIterator(receiver, name, configuration);
+    return LookupIterator(isolate, receiver, name, configuration);
   }
 
   static LookupIterator PropertyOrElement(
@@ -128,7 +124,16 @@ class V8_EXPORT_PRIVATE LookupIterator final BASE_EMBEDDED {
 
   static LookupIterator PropertyOrElement(
       Isolate* isolate, Handle<Object> receiver, Handle<Object> key,
+      bool* success, Handle<JSReceiver> holder,
+      Configuration configuration = DEFAULT);
+
+  static LookupIterator PropertyOrElement(
+      Isolate* isolate, Handle<Object> receiver, Handle<Object> key,
       bool* success, Configuration configuration = DEFAULT);
+
+  static LookupIterator ForTransitionHandler(
+      Isolate* isolate, Handle<Object> receiver, Handle<Name> name,
+      Handle<Object> value, MaybeHandle<Map> maybe_transition_map);
 
   void Restart() {
     InterceptorState state = InterceptorState::kUninitialized;
@@ -164,17 +169,17 @@ class V8_EXPORT_PRIVATE LookupIterator final BASE_EMBEDDED {
   Factory* factory() const { return isolate_->factory(); }
   Handle<Object> GetReceiver() const { return receiver_; }
 
-  Handle<JSObject> GetStoreTarget() const {
-    DCHECK(receiver_->IsJSObject());
+  template <class T>
+  Handle<T> GetStoreTarget() const {
+    DCHECK(receiver_->IsJSReceiver());
     if (receiver_->IsJSGlobalProxy()) {
       Map* map = JSGlobalProxy::cast(*receiver_)->map();
       if (map->has_hidden_prototype()) {
         return handle(JSGlobalObject::cast(map->prototype()), isolate_);
       }
     }
-    return Handle<JSObject>::cast(receiver_);
+    return Handle<T>::cast(receiver_);
   }
-
   bool is_dictionary_holder() const { return !holder_->HasFastProperties(); }
   Handle<Map> transition_map() const {
     DCHECK_EQ(TRANSITION, state_);
@@ -190,6 +195,7 @@ class V8_EXPORT_PRIVATE LookupIterator final BASE_EMBEDDED {
     return Handle<T>::cast(holder_);
   }
 
+  bool HolderIsReceiver() const;
   bool HolderIsReceiverOrHiddenPrototype() const;
 
   bool check_prototype_chain() const {
@@ -200,13 +206,13 @@ class V8_EXPORT_PRIVATE LookupIterator final BASE_EMBEDDED {
   bool HasAccess() const;
 
   /* PROPERTY */
-  bool ExtendingNonExtensible(Handle<JSObject> receiver) {
-    DCHECK(receiver.is_identical_to(GetStoreTarget()));
+  bool ExtendingNonExtensible(Handle<JSReceiver> receiver) {
+    DCHECK(receiver.is_identical_to(GetStoreTarget<JSReceiver>()));
     return !receiver->map()->is_extensible() &&
            (IsElement() || !name_->IsPrivate());
   }
   void PrepareForDataProperty(Handle<Object> value);
-  void PrepareTransitionToDataProperty(Handle<JSObject> receiver,
+  void PrepareTransitionToDataProperty(Handle<JSReceiver> receiver,
                                        Handle<Object> value,
                                        PropertyAttributes attributes,
                                        Object::StoreFromKeyed store_mode);
@@ -214,10 +220,10 @@ class V8_EXPORT_PRIVATE LookupIterator final BASE_EMBEDDED {
     DCHECK_EQ(TRANSITION, state_);
     return transition_->IsPropertyCell() ||
            (transition_map()->is_dictionary_map() &&
-            !GetStoreTarget()->HasFastProperties()) ||
+            !GetStoreTarget<JSReceiver>()->HasFastProperties()) ||
            transition_map()->GetBackPointer()->IsMap();
   }
-  void ApplyTransitionToDataProperty(Handle<JSObject> receiver);
+  void ApplyTransitionToDataProperty(Handle<JSReceiver> receiver);
   void ReconfigureDataProperty(Handle<Object> value,
                                PropertyAttributes attributes);
   void Delete();
@@ -262,11 +268,12 @@ class V8_EXPORT_PRIVATE LookupIterator final BASE_EMBEDDED {
   inline void UpdateProtector() {
     if (IsElement()) return;
     // This list must be kept in sync with
-    // CodeStubAssembler::HasAssociatedProtector!
-    if (*name_ == heap()->is_concat_spreadable_symbol() ||
-        *name_ == heap()->constructor_string() ||
-        *name_ == heap()->species_symbol() ||
-        *name_ == heap()->iterator_symbol()) {
+    // CodeStubAssembler::CheckForAssociatedProtector!
+    ReadOnlyRoots roots(heap());
+    if (*name_ == roots.is_concat_spreadable_symbol() ||
+        *name_ == roots.constructor_string() || *name_ == roots.next_string() ||
+        *name_ == roots.species_symbol() || *name_ == roots.iterator_symbol() ||
+        *name_ == roots.resolve_string() || *name_ == roots.then_string()) {
       InternalUpdateProtector();
     }
   }
@@ -277,6 +284,11 @@ class V8_EXPORT_PRIVATE LookupIterator final BASE_EMBEDDED {
   bool LookupCachedProperty();
 
  private:
+  // For |ForTransitionHandler|.
+  LookupIterator(Isolate* isolate, Handle<Object> receiver, Handle<Name> name,
+                 Handle<Map> transition_map, PropertyDetails details,
+                 bool has_property);
+
   void InternalUpdateProtector();
 
   enum class InterceptorState {
@@ -287,7 +299,7 @@ class V8_EXPORT_PRIVATE LookupIterator final BASE_EMBEDDED {
 
   Handle<Map> GetReceiverMap() const;
 
-  MUST_USE_RESULT inline JSReceiver* NextHolder(Map* map);
+  V8_WARN_UNUSED_RESULT inline JSReceiver* NextHolder(Map* map);
 
   template <bool is_element>
   V8_EXPORT_PRIVATE void Start();

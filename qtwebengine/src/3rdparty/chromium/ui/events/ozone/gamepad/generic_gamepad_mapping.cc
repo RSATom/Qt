@@ -11,7 +11,6 @@
 #include <vector>
 
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "ui/events/ozone/evdev/event_device_info.h"
 #include "ui/events/ozone/gamepad/generic_gamepad_mapping.h"
 #include "ui/events/ozone/gamepad/webgamepad_constants.h"
@@ -69,7 +68,7 @@ class GamepadMapperBuilder {
       : devinfo_(devinfo) {}
 
   std::unique_ptr<ui::GamepadMapper> ToGamepadMapper() {
-    return base::MakeUnique<GenericGamepadMapper>(std::move(axis_mapping_),
+    return std::make_unique<GenericGamepadMapper>(std::move(axis_mapping_),
                                                   std::move(button_mapping_));
   }
 

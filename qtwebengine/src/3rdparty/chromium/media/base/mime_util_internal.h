@@ -5,11 +5,11 @@
 #ifndef MEDIA_BASE_MIME_UTIL_INTERNAL_H_
 #define MEDIA_BASE_MIME_UTIL_INTERNAL_H_
 
-#include <map>
 #include <string>
 #include <vector>
 
-#include "base/containers/hash_tables.h"
+#include "base/containers/flat_map.h"
+#include "base/containers/flat_set.h"
 #include "base/macros.h"
 #include "media/base/media_export.h"
 #include "media/base/mime_util.h"
@@ -44,7 +44,9 @@ class MEDIA_EXPORT MimeUtil {
     VP9,
     THEORA,
     DOLBY_VISION,
-    LAST_CODEC = DOLBY_VISION
+    AV1,
+    MPEG_H_AUDIO,
+    LAST_CODEC = MPEG_H_AUDIO
   };
 
   // Platform configuration structure.  Controls which codecs are supported at
@@ -85,8 +87,6 @@ class MEDIA_EXPORT MimeUtil {
                                       const std::vector<std::string>& codecs,
                                       bool is_encrypted) const;
 
-  void RemoveProprietaryMediaTypesAndCodecs();
-
   // Checks android platform specific codec restrictions. Returns true if
   // |codec| is supported when contained in |mime_type_lower_case|.
   // |is_encrypted| means the codec will be used with encrypted blocks.
@@ -98,8 +98,8 @@ class MEDIA_EXPORT MimeUtil {
                                         const PlatformInfo& platform_info);
 
  private:
-  typedef base::hash_set<int> CodecSet;
-  typedef std::map<std::string, CodecSet> MediaFormatMappings;
+  typedef base::flat_set<int> CodecSet;
+  typedef base::flat_map<std::string, CodecSet> MediaFormatMappings;
 
   // Initializes the supported media types into hash sets for faster lookup.
   void InitializeMimeTypeMaps();
@@ -172,12 +172,6 @@ class MEDIA_EXPORT MimeUtil {
                                 uint8_t video_level,
                                 const VideoColorSpace& eotf,
                                 bool is_encrypted) const;
-
-  // Wrapper around IsCodecSupported for simple codecs that are entirely
-  // described (or implied) by the container mime-type.
-  SupportsType IsSimpleCodecSupported(const std::string& mime_type_lower_case,
-                                      Codec codec,
-                                      bool is_encrypted) const;
 
   // Returns true if |codec| refers to a proprietary codec.
   bool IsCodecProprietary(Codec codec) const;

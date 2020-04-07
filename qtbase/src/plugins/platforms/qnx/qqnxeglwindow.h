@@ -53,21 +53,23 @@ public:
     QQnxEglWindow(QWindow *window, screen_context_t context, bool needRootWindow);
     ~QQnxEglWindow();
 
-    void createEGLSurface();
-    void destroyEGLSurface();
-    void swapEGLBuffers();
-    EGLSurface getSurface();
+    EGLSurface surface() const;
 
-    void setPlatformOpenGLContext(QQnxGLContext *platformOpenGLContext);
-    QQnxGLContext *platformOpenGLContext() const { return m_platformOpenGLContext; }
+    bool isInitialized() const;
+    void ensureInitialized(QQnxGLContext *context);
 
     void setGeometry(const QRect &rect) override;
+
+    QSurfaceFormat format() const override { return m_format; }
 
 protected:
     int pixelFormat() const override;
     void resetBuffers() override;
 
 private:
+    void createEGLSurface(QQnxGLContext *context);
+    void destroyEGLSurface();
+
     QSize m_requestedBufferSize;
 
     // This mutex is used to protect access to the m_requestedBufferSize
@@ -78,9 +80,11 @@ private:
     // QQnxGLContext::makeCurrent()
     mutable QMutex m_mutex;
 
-    QQnxGLContext *m_platformOpenGLContext;
     QAtomicInt m_newSurfaceRequested;
+    EGLDisplay m_eglDisplay;
+    EGLConfig m_eglConfig;
     EGLSurface m_eglSurface;
+    QSurfaceFormat m_format;
 };
 
 QT_END_NAMESPACE

@@ -18,6 +18,7 @@
 #include "libANGLE/Context.h"
 #include "libANGLE/Display.h"
 #include "libANGLE/Surface.h"
+#include "libANGLE/renderer/gl/ContextGL.h"
 #include "libANGLE/renderer/gl/RendererGL.h"
 #include "libANGLE/renderer/gl/glx/PbufferSurfaceGLX.h"
 #include "libANGLE/renderer/gl/glx/WindowSurfaceGLX.h"
@@ -49,7 +50,7 @@ class FunctionsGLGLX : public FunctionsGL
     ~FunctionsGLGLX() override {}
 
   private:
-    void *loadProcAddress(const std::string &function) override
+    void *loadProcAddress(const std::string &function) const override
     {
         return reinterpret_cast<void*>(mGetProc(function.c_str()));
     }
@@ -59,7 +60,6 @@ class FunctionsGLGLX : public FunctionsGL
 
 DisplayGLX::DisplayGLX(const egl::DisplayState &state)
     : DisplayGL(state),
-      mFunctionsGL(nullptr),
       mRequestedVisual(-1),
       mContextConfig(nullptr),
       mContext(nullptr),
@@ -291,13 +291,13 @@ egl::Error DisplayGLX::initialize(egl::Display *display)
         return egl::EglNotInitialized() << "Could not make the dummy pbuffer current.";
     }
 
-    mFunctionsGL = new FunctionsGLGLX(mGLX.getProc);
-    mFunctionsGL->initialize();
+    std::unique_ptr<FunctionsGL> functionsGL(new FunctionsGLGLX(mGLX.getProc));
+    functionsGL->initialize(eglAttributes);
 
     // TODO(cwallez, angleproject:1303) Disable the OpenGL ES backend on Linux NVIDIA and Intel as
     // it has problems on our automated testing. An OpenGL ES backend might not trigger this test if
     // there is no Desktop OpenGL support, but that's not the case in our automated testing.
-    VendorID vendor = GetVendorID(mFunctionsGL);
+    VendorID vendor = GetVendorID(functionsGL.get());
     bool isOpenGLES =
         eglAttributes.get(EGL_PLATFORM_ANGLE_TYPE_ANGLE, EGL_PLATFORM_ANGLE_TYPE_DEFAULT_ANGLE) ==
         EGL_PLATFORM_ANGLE_TYPE_OPENGLES_ANGLE;
@@ -307,6 +307,13 @@ egl::Error DisplayGLX::initialize(egl::Display *display)
     }
 
     syncXCommands();
+
+    mRenderer.reset(new RendererGL(std::move(functionsGL), eglAttributes));
+    const gl::Version &maxVersion = mRenderer->getMaxSupportedESVersion();
+    if (maxVersion < gl::Version(2, 0))
+    {
+        return egl::EglNotInitialized() << "OpenGL ES 2.0 is not supportable.";
+    }
 
     return DisplayGL::initialize(display);
 }
@@ -329,7 +336,12 @@ void DisplayGLX::terminate()
 
     mGLX.terminate();
 
-    SafeDelete(mFunctionsGL);
+    mRenderer.reset();
+
+    if (mUsesNewXDisplay)
+    {
+        XCloseDisplay(mXDisplay);
+    }
 }
 
 egl::Error DisplayGLX::makeCurrent(egl::Surface *drawSurface,
@@ -359,8 +371,7 @@ SurfaceImpl *DisplayGLX::createWindowSurface(const egl::SurfaceState &state,
     ASSERT(configIdToGLXConfig.count(state.config->configID) > 0);
     glx::FBConfig fbConfig = configIdToGLXConfig[state.config->configID];
 
-    return new WindowSurfaceGLX(state, mGLX, this, getRenderer(), window, mGLX.getDisplay(),
-                                fbConfig);
+    return new WindowSurfaceGLX(state, mGLX, this, window, mGLX.getDisplay(), fbConfig);
 }
 
 SurfaceImpl *DisplayGLX::createPbufferSurface(const egl::SurfaceState &state,
@@ -373,7 +384,7 @@ SurfaceImpl *DisplayGLX::createPbufferSurface(const egl::SurfaceState &state,
     EGLint height = static_cast<EGLint>(attribs.get(EGL_HEIGHT, 0));
     bool largest = (attribs.get(EGL_LARGEST_PBUFFER, EGL_FALSE) == EGL_TRUE);
 
-    return new PbufferSurfaceGLX(state, getRenderer(), width, height, largest, mGLX, fbConfig);
+    return new PbufferSurfaceGLX(state, width, height, largest, mGLX, fbConfig);
 }
 
 SurfaceImpl *DisplayGLX::createPbufferFromClientBuffer(const egl::SurfaceState &state,
@@ -393,10 +404,18 @@ SurfaceImpl *DisplayGLX::createPixmapSurface(const egl::SurfaceState &state,
     return nullptr;
 }
 
-egl::Error DisplayGLX::getDevice(DeviceImpl **device)
+ContextImpl *DisplayGLX::createContext(const gl::ContextState &state,
+                                       const egl::Config *configuration,
+                                       const gl::Context *shareContext,
+                                       const egl::AttributeMap &attribs)
+{
+    return new ContextGL(state, mRenderer);
+}
+
+DeviceImpl *DisplayGLX::createDevice()
 {
     UNIMPLEMENTED();
-    return egl::EglBadDisplay();
+    return nullptr;
 }
 
 egl::Error DisplayGLX::initializeContext(glx::FBConfig config,
@@ -650,7 +669,7 @@ bool DisplayGLX::testDeviceLost()
 {
     if (mHasARBCreateContextRobustness)
     {
-        return getRenderer()->getResetStatus() != GL_NO_ERROR;
+        return mRenderer->getResetStatus() != GL_NO_ERROR;
     }
 
     return false;
@@ -689,13 +708,13 @@ std::string DisplayGLX::getVendorString() const
     return "";
 }
 
-egl::Error DisplayGLX::waitClient(const gl::Context *context) const
+egl::Error DisplayGLX::waitClient(const gl::Context *context)
 {
     mGLX.waitGL();
     return egl::NoError();
 }
 
-egl::Error DisplayGLX::waitNative(const gl::Context *context, EGLint engine) const
+egl::Error DisplayGLX::waitNative(const gl::Context *context, EGLint engine)
 {
     // eglWaitNative is used to notice the driver of changes in X11 for the current surface, such as
     // changes of the window size. We use this event to update the child window of WindowSurfaceGLX
@@ -720,6 +739,11 @@ egl::Error DisplayGLX::waitNative(const gl::Context *context, EGLint engine) con
     // We still need to forward the resizing of the child window to the driver.
     mGLX.waitX();
     return egl::NoError();
+}
+
+gl::Version DisplayGLX::getMaxSupportedESVersion() const
+{
+    return mRenderer->getMaxSupportedESVersion();
 }
 
 void DisplayGLX::syncXCommands() const
@@ -778,11 +802,6 @@ bool DisplayGLX::isValidWindowVisualId(unsigned long visualId) const
     return mRequestedVisual == -1 || static_cast<unsigned long>(mRequestedVisual) == visualId;
 }
 
-const FunctionsGL *DisplayGLX::getFunctionsGL() const
-{
-    return mFunctionsGL;
-}
-
 void DisplayGLX::generateExtensions(egl::DisplayExtensions *outExtensions) const
 {
     outExtensions->createContextRobustness = mHasARBCreateContextRobustness;
@@ -791,6 +810,8 @@ void DisplayGLX::generateExtensions(egl::DisplayExtensions *outExtensions) const
     outExtensions->displayTextureShareGroup = true;
 
     outExtensions->surfacelessContext = true;
+
+    DisplayGL::generateExtensions(outExtensions);
 }
 
 void DisplayGLX::generateCaps(egl::Caps *outCaps) const
@@ -821,6 +842,8 @@ egl::Error DisplayGLX::createContextAttribs(glx::FBConfig,
 
     if (mHasARBCreateContextRobustness)
     {
+        attribs.push_back(GLX_CONTEXT_FLAGS_ARB);
+        attribs.push_back(GLX_CONTEXT_ROBUST_ACCESS_BIT_ARB);
         attribs.push_back(GLX_CONTEXT_RESET_NOTIFICATION_STRATEGY_ARB);
         attribs.push_back(GLX_LOSE_CONTEXT_ON_RESET_ARB);
     }

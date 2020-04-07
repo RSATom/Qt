@@ -44,17 +44,17 @@
 #include <signalsloteditor/signalsloteditor_plugin.h>
 #include <tabordereditor/tabordereditor_plugin.h>
 
-#include <QtDesigner/QDesignerLanguageExtension>
-#include <QtDesigner/QExtensionManager>
-#include <QtDesigner/QDesignerIntegrationInterface>
-#include <QtDesigner/QDesignerResourceBrowserInterface>
+#include <QtDesigner/abstractlanguage.h>
+#include <QtDesigner/qextensionmanager.h>
+#include <QtDesigner/abstractintegration.h>
+#include <QtDesigner/abstractresourcebrowser.h>
 
 #include <QtCore/qplugin.h>
-#include <QtCore/QDir>
-#include <QtCore/QTextStream>
-#include <QtCore/QDebug>
-#include <QtCore/QFile>
-#include <QtCore/QFileInfo>
+#include <QtCore/qdir.h>
+#include <QtCore/qtextstream.h>
+#include <QtCore/qdebug.h>
+#include <QtCore/qfile.h>
+#include <QtCore/qfileinfo.h>
 
 #define INIT_PLUGIN_INSTANCE(PLUGIN) \
     do { \
@@ -186,14 +186,14 @@ QDesignerWidgetBoxInterface *QDesignerComponents::createWidgetBox(QDesignerFormE
     const QString userWidgetBoxFile = widgetBoxFileName(QT_VERSION, lang);
 
     widgetBox->setFileName(userWidgetBoxFile);
-    if (!QFileInfo(userWidgetBoxFile).exists()) {
+    if (!QFileInfo::exists(userWidgetBoxFile)) {
         // check previous version, that is, are we running the new version for the first time
         // If so, try to copy the old widget box file
         if (const int minv = qtMinorVersion(QT_VERSION)) {
             int oldVersion = QT_VERSION;
             setMinorVersion(minv - 1, &oldVersion);
             const QString oldWidgetBoxFile = widgetBoxFileName(oldVersion, lang);
-            if (QFileInfo(oldWidgetBoxFile).exists())
+            if (QFileInfo::exists(oldWidgetBoxFile))
                 QFile::copy(oldWidgetBoxFile, userWidgetBoxFile);
         }
     }

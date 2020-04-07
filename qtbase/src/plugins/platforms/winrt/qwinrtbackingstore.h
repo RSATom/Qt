@@ -47,9 +47,6 @@
 
 QT_BEGIN_NAMESPACE
 
-Q_DECLARE_LOGGING_CATEGORY(lcQpaBackingStore)
-Q_DECLARE_LOGGING_CATEGORY(lcQpaBackingStoreVerbose)
-
 class QWinRTScreen;
 
 class QWinRTBackingStorePrivate;
@@ -57,7 +54,7 @@ class QWinRTBackingStore : public QPlatformBackingStore
 {
 public:
     explicit QWinRTBackingStore(QWindow *window);
-    ~QWinRTBackingStore();
+    ~QWinRTBackingStore() override;
     QPaintDevice *paintDevice() override;
     void beginPaint(const QRegion &) override;
     void endPaint() override;

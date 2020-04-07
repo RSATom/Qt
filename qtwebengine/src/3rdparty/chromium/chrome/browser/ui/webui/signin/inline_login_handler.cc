@@ -5,6 +5,7 @@
 #include "chrome/browser/ui/webui/signin/inline_login_handler.h"
 
 #include <limits.h>
+#include <string>
 
 #include "base/bind.h"
 #include "base/metrics/user_metrics.h"
@@ -15,42 +16,50 @@
 #include "chrome/browser/extensions/signin/gaia_auth_extension_loader.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/signin/signin_promo.h"
+#include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_navigator.h"
 #include "chrome/browser/ui/browser_navigator_params.h"
 #include "chrome/browser/ui/signin_view_controller_delegate.h"
 #include "chrome/browser/ui/user_manager.h"
 #include "chrome/browser/ui/webui/signin/signin_utils.h"
+#include "chrome/common/chrome_features.h"
 #include "chrome/common/pref_names.h"
 #include "components/metrics/metrics_pref_names.h"
 #include "components/prefs/pref_service.h"
-#include "components/signin/core/common/signin_pref_names.h"
+#include "components/signin/core/browser/signin_pref_names.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui.h"
 #include "google_apis/gaia/gaia_urls.h"
 #include "net/base/url_util.h"
 
+const char kSignInPromoQueryKeyShowAccountManagement[] =
+    "showAccountManagement";
+
 InlineLoginHandler::InlineLoginHandler() : weak_ptr_factory_(this) {}
 
 InlineLoginHandler::~InlineLoginHandler() {}
 
 void InlineLoginHandler::RegisterMessages() {
-  web_ui()->RegisterMessageCallback("initialize",
-      base::Bind(&InlineLoginHandler::HandleInitializeMessage,
-                  base::Unretained(this)));
-  web_ui()->RegisterMessageCallback("completeLogin",
-      base::Bind(&InlineLoginHandler::HandleCompleteLoginMessage,
-                  base::Unretained(this)));
+  web_ui()->RegisterMessageCallback(
+      "initialize",
+      base::BindRepeating(&InlineLoginHandler::HandleInitializeMessage,
+                          base::Unretained(this)));
+  web_ui()->RegisterMessageCallback(
+      "completeLogin",
+      base::BindRepeating(&InlineLoginHandler::HandleCompleteLoginMessage,
+                          base::Unretained(this)));
   web_ui()->RegisterMessageCallback(
       "switchToFullTab",
-      base::Bind(&InlineLoginHandler::HandleSwitchToFullTabMessage,
-                 base::Unretained(this)));
-  web_ui()->RegisterMessageCallback("navigationButtonClicked",
-      base::Bind(&InlineLoginHandler::HandleNavigationButtonClicked,
-                 base::Unretained(this)));
-  web_ui()->RegisterMessageCallback("dialogClose",
-      base::Bind(&InlineLoginHandler::HandleDialogClose,
-                 base::Unretained(this)));
+      base::BindRepeating(&InlineLoginHandler::HandleSwitchToFullTabMessage,
+                          base::Unretained(this)));
+  web_ui()->RegisterMessageCallback(
+      "navigationButtonClicked",
+      base::BindRepeating(&InlineLoginHandler::HandleNavigationButtonClicked,
+                          base::Unretained(this)));
+  web_ui()->RegisterMessageCallback(
+      "dialogClose", base::BindRepeating(&InlineLoginHandler::HandleDialogClose,
+                                         base::Unretained(this)));
 }
 
 void InlineLoginHandler::HandleInitializeMessage(const base::ListValue* args) {
@@ -85,108 +94,6 @@ void InlineLoginHandler::HandleInitializeMessage(const base::ListValue* args) {
   }
 }
 
-void InlineLoginHandler::RecordSigninUserActionForAccessPoint(
-    signin_metrics::AccessPoint access_point) {
-  switch (access_point) {
-    case signin_metrics::AccessPoint::ACCESS_POINT_START_PAGE:
-      base::RecordAction(
-          base::UserMetricsAction("Signin_Signin_FromStartPage"));
-      break;
-    case signin_metrics::AccessPoint::ACCESS_POINT_NTP_LINK:
-      base::RecordAction(base::UserMetricsAction("Signin_Signin_FromNTP"));
-      break;
-    case signin_metrics::AccessPoint::ACCESS_POINT_MENU:
-      base::RecordAction(base::UserMetricsAction("Signin_Signin_FromMenu"));
-      break;
-    case signin_metrics::AccessPoint::ACCESS_POINT_SETTINGS:
-      base::RecordAction(base::UserMetricsAction("Signin_Signin_FromSettings"));
-      break;
-    case signin_metrics::AccessPoint::ACCESS_POINT_SUPERVISED_USER:
-      base::RecordAction(
-          base::UserMetricsAction("Signin_Signin_FromSupervisedUser"));
-      break;
-    case signin_metrics::AccessPoint::ACCESS_POINT_EXTENSION_INSTALL_BUBBLE:
-      base::RecordAction(
-          base::UserMetricsAction("Signin_Signin_FromExtensionInstallBubble"));
-      break;
-    case signin_metrics::AccessPoint::ACCESS_POINT_EXTENSIONS:
-      base::RecordAction(
-          base::UserMetricsAction("Signin_Signin_FromExtensions"));
-      break;
-    case signin_metrics::AccessPoint::ACCESS_POINT_APPS_PAGE_LINK:
-      base::RecordAction(
-          base::UserMetricsAction("Signin_Signin_FromAppsPageLink"));
-      break;
-    case signin_metrics::AccessPoint::ACCESS_POINT_BOOKMARK_BUBBLE:
-      base::RecordAction(
-          base::UserMetricsAction("Signin_Signin_FromBookmarkBubble"));
-      break;
-    case signin_metrics::AccessPoint::ACCESS_POINT_BOOKMARK_MANAGER:
-      base::RecordAction(
-          base::UserMetricsAction("Signin_Signin_FromBookmarkManager"));
-      break;
-    case signin_metrics::AccessPoint::ACCESS_POINT_AVATAR_BUBBLE_SIGN_IN:
-      base::RecordAction(
-          base::UserMetricsAction("Signin_Signin_FromAvatarBubbleSignin"));
-      break;
-    case signin_metrics::AccessPoint::ACCESS_POINT_USER_MANAGER:
-      base::RecordAction(
-          base::UserMetricsAction("Signin_Signin_FromUserManager"));
-      break;
-    case signin_metrics::AccessPoint::ACCESS_POINT_DEVICES_PAGE:
-      base::RecordAction(
-          base::UserMetricsAction("Signin_Signin_FromDevicesPage"));
-      break;
-    case signin_metrics::AccessPoint::ACCESS_POINT_CLOUD_PRINT:
-      base::RecordAction(
-          base::UserMetricsAction("Signin_Signin_FromCloudPrint"));
-      break;
-    case signin_metrics::AccessPoint::ACCESS_POINT_CONTENT_AREA:
-      base::RecordAction(
-          base::UserMetricsAction("Signin_Signin_FromContentArea"));
-      break;
-    case signin_metrics::AccessPoint::ACCESS_POINT_SIGNIN_PROMO:
-      base::RecordAction(
-          base::UserMetricsAction("Signin_Signin_FromSigninPromo"));
-      break;
-    case signin_metrics::AccessPoint::ACCESS_POINT_RECENT_TABS:
-      base::RecordAction(
-          base::UserMetricsAction("Signin_Signin_FromRecentTabs"));
-      break;
-    case signin_metrics::AccessPoint::ACCESS_POINT_UNKNOWN:
-      base::RecordAction(
-          base::UserMetricsAction("Signin_Signin_FromUnknownAccessPoint"));
-      break;
-    case signin_metrics::AccessPoint::ACCESS_POINT_PASSWORD_BUBBLE:
-      base::RecordAction(
-          base::UserMetricsAction("Signin_Signin_FromPasswordBubble"));
-      break;
-    case signin_metrics::AccessPoint::ACCESS_POINT_AUTOFILL_DROPDOWN:
-      base::RecordAction(
-          base::UserMetricsAction("Signin_Signin_FromAutofillDropdown"));
-      break;
-    case signin_metrics::AccessPoint::ACCESS_POINT_NTP_CONTENT_SUGGESTIONS:
-      base::RecordAction(
-          base::UserMetricsAction("Signin_Signin_FromNTPContentSuggestions"));
-      break;
-    case signin_metrics::AccessPoint::ACCESS_POINT_RESIGNIN_INFOBAR:
-      base::RecordAction(
-          base::UserMetricsAction("Signin_Signin_FromReSigninInfobar"));
-      break;
-    case signin_metrics::AccessPoint::ACCESS_POINT_TAB_SWITCHER:
-      base::RecordAction(
-          base::UserMetricsAction("Signin_Signin_FromTabSwitcher"));
-      break;
-    case signin_metrics::AccessPoint::ACCESS_POINT_FORCE_SIGNIN_WARNING:
-      base::RecordAction(
-          base::UserMetricsAction("Signin_Signin_FromForceSigninWarning"));
-      break;
-    case signin_metrics::AccessPoint::ACCESS_POINT_MAX:
-      NOTREACHED();
-      break;
-  }
-}
-
 void InlineLoginHandler::ContinueHandleInitializeMessage() {
   base::DictionaryValue params;
 
@@ -205,8 +112,12 @@ void InlineLoginHandler::ContinueHandleInitializeMessage() {
   if (reason != signin_metrics::Reason::REASON_REAUTHENTICATION &&
       reason != signin_metrics::Reason::REASON_UNLOCK &&
       reason != signin_metrics::Reason::REASON_ADD_SECONDARY_ACCOUNT) {
-    signin_metrics::LogSigninAccessPointStarted(access_point);
-    RecordSigninUserActionForAccessPoint(access_point);
+    signin_metrics::LogSigninAccessPointStarted(
+        access_point,
+        signin_metrics::PromoAction::PROMO_ACTION_NO_SIGNIN_PROMO);
+    signin_metrics::RecordSigninUserActionForAccessPoint(
+        access_point,
+        signin_metrics::PromoAction::PROMO_ACTION_NO_SIGNIN_PROMO);
     base::RecordAction(base::UserMetricsAction("Signin_SigninPage_Loading"));
     params.SetBoolean("isLoginPrimaryAccount", true);
   }
@@ -215,7 +126,8 @@ void InlineLoginHandler::ContinueHandleInitializeMessage() {
 
   Profile* profile = Profile::FromWebUI(web_ui());
   std::string default_email;
-  if (reason == signin_metrics::Reason::REASON_SIGNIN_PRIMARY_ACCOUNT) {
+  if (reason == signin_metrics::Reason::REASON_SIGNIN_PRIMARY_ACCOUNT ||
+      reason == signin_metrics::Reason::REASON_FORCED_SIGNIN_PRIMARY_ACCOUNT) {
     default_email =
         profile->GetPrefs()->GetString(prefs::kGoogleServicesLastUsername);
   } else {
@@ -247,6 +159,13 @@ void InlineLoginHandler::HandleCompleteLoginMessage(
 
 void InlineLoginHandler::HandleSwitchToFullTabMessage(
     const base::ListValue* args) {
+  Browser* browser =
+      chrome::FindBrowserWithWebContents(web_ui()->GetWebContents());
+  if (browser) {
+    // |web_ui| is already presented in a full tab. Ignore this call.
+    return;
+  }
+
   std::string url_str;
   CHECK(args->GetString(0, &url_str));
 
@@ -258,16 +177,21 @@ void InlineLoginHandler::HandleSwitchToFullTabMessage(
   main_frame_url = net::AppendOrReplaceQueryParameter(
       main_frame_url, signin::kSignInPromoQueryKeyAutoClose, "1");
   main_frame_url = net::AppendOrReplaceQueryParameter(
-      main_frame_url, signin::kSignInPromoQueryKeyShowAccountManagement, "1");
+      main_frame_url, kSignInPromoQueryKeyShowAccountManagement, "1");
   main_frame_url = net::AppendOrReplaceQueryParameter(
       main_frame_url, signin::kSignInPromoQueryKeyForceKeepData, "1");
+  if (base::FeatureList::IsEnabled(
+          features::kRemoveUsageOfDeprecatedGaiaSigninEndpoint)) {
+    main_frame_url = net::AppendOrReplaceQueryParameter(
+        main_frame_url, signin::kSignInPromoQueryKeyConstrained, "1");
+  } else {
+    main_frame_url = net::AppendOrReplaceQueryParameter(
+        main_frame_url, signin::kSignInPromoQueryKeyConstrained, "0");
+  }
 
-  chrome::NavigateParams params(
-      profile,
-      net::AppendOrReplaceQueryParameter(
-          main_frame_url, signin::kSignInPromoQueryKeyConstrained, "0"),
-      ui::PAGE_TRANSITION_AUTO_TOPLEVEL);
-  chrome::Navigate(&params);
+  NavigateParams params(profile, main_frame_url,
+                        ui::PAGE_TRANSITION_AUTO_TOPLEVEL);
+  Navigate(&params);
 
   CloseDialogFromJavascript();
 }
@@ -277,7 +201,7 @@ void InlineLoginHandler::HandleNavigationButtonClicked(
   Browser* browser = signin::GetDesktopBrowser(web_ui());
   DCHECK(browser);
 
-  browser->signin_view_controller()->delegate()->PerformNavigation();
+  browser->signin_view_controller()->PerformNavigation();
 }
 
 void InlineLoginHandler::HandleDialogClose(const base::ListValue* args) {
@@ -286,8 +210,10 @@ void InlineLoginHandler::HandleDialogClose(const base::ListValue* args) {
   if (browser)
     browser->signin_view_controller()->CloseModalSignin();
 
+#if !defined(OS_CHROMEOS)
   // Does nothing if user manager is not showing.
   UserManagerProfileDialog::HideDialog();
+#endif  // !defined(OS_CHROMEOS)
 }
 
 void InlineLoginHandler::CloseDialogFromJavascript() {

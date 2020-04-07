@@ -43,7 +43,7 @@
 #include <qlabel.h>
 #include <qtextedit.h>
 #include <qstylehints.h>
-#include <qdesktopwidget.h>
+#include <qscreen.h>
 #include <private/qmainwindowlayout_p.h>
 #include <private/qdockarealayout_p.h>
 
@@ -768,7 +768,7 @@ void tst_QMainWindow::contentsMargins()
     QFETCH(int, contentsMargin);
 
     QMainWindow mw;
-    const QRect availGeometry = QApplication::desktop()->availableGeometry();
+    const QRect availGeometry = QGuiApplication::primaryScreen()->availableGeometry();
     mw.menuBar()->addMenu("File");
     mw.setWindowTitle(QLatin1String(QTest::currentTestFunction())
                       + QLatin1Char(' ') + QLatin1String(QTest::currentDataTag()));
@@ -1343,8 +1343,10 @@ void tst_QMainWindow::restoreState()
 {
     QMainWindow mw;
     QToolBar tb(&mw);
+    tb.setObjectName(QLatin1String("toolBar"));
     mw.addToolBar(Qt::TopToolBarArea, &tb);
     QDockWidget dw(&mw);
+    dw.setObjectName(QLatin1String("dock"));
     mw.addDockWidget(Qt::LeftDockWidgetArea, &dw);
 
     QByteArray state;
@@ -1745,17 +1747,15 @@ void tst_QMainWindow::setCursor()
     QCOMPARE(cur.shape(), mw.cursor().shape());
     mw.resize(200,200);
     mw.show();
-    QTest::qWait(50);
+    QVERIFY(QTest::qWaitForWindowActive(&mw));
     QCOMPARE(cur.shape(), mw.cursor().shape());
 
     QHoverEvent enterE(QEvent::HoverEnter, QPoint(10,10), QPoint());
     mw.event(&enterE);
-    QTest::qWait(50);
     QCOMPARE(cur.shape(), mw.cursor().shape());
 
     QHoverEvent leaveE(QEvent::HoverLeave, QPoint(), QPoint());
     mw.event(&leaveE);
-    QTest::qWait(50);
     QCOMPARE(cur.shape(), mw.cursor().shape());
 }
 #endif
@@ -1784,6 +1784,9 @@ void tst_QMainWindow::centralWidgetSize()
     mainWindow.setCentralWidget(&widget);
 
     mainWindow.show();
+#ifdef Q_OS_WINRT
+    QEXPECT_FAIL("", "Widgets are maximized by default on WinRT - QTBUG-68297", Abort);
+#endif
     QTRY_COMPARE(widget.size(), widget.sizeHint());
 }
 
@@ -1828,6 +1831,9 @@ void tst_QMainWindow::fixedSizeCentralWidget()
 
     // finally verify that we get the space back when we resize to the old size
     mainWindow.resize(mwSize);
+#ifdef Q_OS_WINRT
+    QEXPECT_FAIL("", "QMainWindow::resize does not work on WinRT", Continue);
+#endif
     QTRY_COMPARE(child->height(), childHeight);
 }
 
@@ -1844,7 +1850,7 @@ void tst_QMainWindow::dockWidgetSize()
     mainWindow.addDockWidget(Qt::TopDockWidgetArea, &dock);
 
     mainWindow.show();
-    QTest::qWait(100);
+    QVERIFY(QTest::qWaitForWindowActive(&mainWindow));
     if (mainWindow.size() == mainWindow.sizeHint()) {
         QCOMPARE(widget.size(), widget.sizeHint());
         QCOMPARE(dock.widget()->size(), dock.widget()->sizeHint());

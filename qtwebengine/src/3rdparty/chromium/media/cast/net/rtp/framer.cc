@@ -10,7 +10,7 @@
 namespace media {
 namespace cast {
 
-Framer::Framer(base::TickClock* clock,
+Framer::Framer(const base::TickClock* clock,
                RtpPayloadFeedback* incoming_payload_feedback,
                uint32_t ssrc,
                bool decoder_faster_than_max_frame_rate,
@@ -28,7 +28,7 @@ Framer::Framer(base::TickClock* clock,
   DCHECK(incoming_payload_feedback) << "Invalid argument";
 }
 
-Framer::~Framer() {}
+Framer::~Framer() = default;
 
 bool Framer::InsertPacket(const uint8_t* payload_data,
                           size_t payload_size,

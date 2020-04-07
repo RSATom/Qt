@@ -66,7 +66,7 @@ INSTANTIATE_TEST_CASE_P(
         "preprocessor.defined.vert",
         "preprocessor.many.endif.vert",
     })),
-    FileNameAsCustomTestName
+    FileNameAsCustomTestSuffix
 );
 // clang-format on
 

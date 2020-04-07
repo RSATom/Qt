@@ -39,6 +39,16 @@
 #endif
 
 
+QStringList logMessages;
+
+static void messageHandler(QtMsgType pType, const QMessageLogContext& pContext, const QString& pMsg)
+{
+    Q_UNUSED(pType);
+    Q_UNUSED(pContext);
+    logMessages.append(pMsg);
+}
+
+
 class tst_QSvgPlugin : public QObject
 {
 Q_OBJECT
@@ -50,6 +60,7 @@ public:
 private slots:
     void checkSize_data();
     void checkSize();
+    void checkImageInclude();
 };
 
 
@@ -101,6 +112,36 @@ void tst_QSvgPlugin::checkSize()
 
     QCOMPARE(imageHeight, image.height());
     QCOMPARE(imageWidth, image.width());
+}
+
+void tst_QSvgPlugin::checkImageInclude()
+{
+    const QString filename(SRCDIR "imageInclude.svg");
+
+    QFile file(filename);
+    file.open(QIODevice::ReadOnly);
+
+    QSvgIOHandler plugin;
+    plugin.setDevice(&file);
+
+    QImage image;
+    qInstallMessageHandler(messageHandler);
+    plugin.read(&image);
+    qInstallMessageHandler(nullptr);
+
+    file.close();
+
+    QCOMPARE(logMessages.size(), 8);
+    QCOMPARE(logMessages.at(0), QString("Could not create image from \"%1notExisting.svg\"").arg(SRCDIR));
+    QCOMPARE(logMessages.at(1), QString("Could not create image from \"%1./notExisting.svg\"").arg(SRCDIR));
+    QCOMPARE(logMessages.at(2), QString("Could not create image from \"%1../notExisting.svg\"").arg(SRCDIR));
+    QCOMPARE(logMessages.at(3), QString("Could not create image from \"%1notExisting.svg\"").arg(QDir::rootPath()));
+    QCOMPARE(logMessages.at(4), QLatin1String("Could not create image from \":/notExisting.svg\""));
+    QCOMPARE(logMessages.at(5), QLatin1String("Could not create image from \"qrc:///notExisting.svg\""));
+    QCOMPARE(logMessages.at(6), QLatin1String("Could not create image from \"file:///notExisting.svg\""));
+    QCOMPARE(logMessages.at(7), QLatin1String("Could not create image from \"http://qt.io/notExisting.svg\""));
+
+    logMessages.clear();
 }
 
 

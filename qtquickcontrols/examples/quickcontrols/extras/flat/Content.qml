@@ -522,7 +522,7 @@ Item {
                     author: "Kurt Vonnegut"
                 }
                 ListElement {
-                    title: "Farenheit 451"
+                    title: "Fahrenheit 451"
                     author: "Ray Bradbury"
                 }
                 ListElement {

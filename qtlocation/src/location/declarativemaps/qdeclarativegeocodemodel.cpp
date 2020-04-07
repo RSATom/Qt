@@ -42,6 +42,7 @@
 #include <QtPositioning/QGeoCircle>
 #include <QtLocation/QGeoServiceProvider>
 #include <QtLocation/QGeoCodingManager>
+#include <QtPositioning/QGeoPolygon>
 
 QT_BEGIN_NAMESPACE
 
@@ -50,7 +51,7 @@ QT_BEGIN_NAMESPACE
     \instantiates QDeclarativeGeocodeModel
     \inqmlmodule QtLocation
     \ingroup qml-QtLocation5-geocoding
-    \since Qt Location 5.5
+    \since QtLocation 5.5
 
     \brief The GeocodeModel type provides support for searching operations
            related to geographic information.
@@ -374,6 +375,8 @@ QVariant QDeclarativeGeocodeModel::bounds() const
         return QVariant::fromValue(QGeoRectangle(boundingArea_));
     else if (boundingArea_.type() == QGeoShape::CircleType)
         return QVariant::fromValue(QGeoCircle(boundingArea_));
+    else if (boundingArea_.type() == QGeoShape::PolygonType)
+        return QVariant::fromValue(QGeoPolygon(boundingArea_));
     else
         return QVariant::fromValue(boundingArea_);
 }

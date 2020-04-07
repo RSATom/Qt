@@ -33,7 +33,6 @@
 #include <qdebug.h>
 #include <qdir.h>
 #include <qfileinfo.h>
-#include <qregexp.h>
 #include <qstringlist.h>
 
 #if defined(Q_OS_WIN)
@@ -56,13 +55,14 @@
 #define Q_NO_SYMLINKS
 #endif
 
+#ifdef Q_OS_WIN
+#define DRIVE "Q:"
+#else
+#define DRIVE
+#endif
+
 #ifdef QT_BUILD_INTERNAL
-
-QT_BEGIN_NAMESPACE
-extern Q_AUTOTEST_EXPORT QString
-    qt_normalizePathSegments(const QString &path, bool allowUncPaths, bool *ok = nullptr);
-QT_END_NAMESPACE
-
+#include "private/qdir_p.h"
 #endif
 
 static QByteArray msgDoesNotExist(const QString &name)
@@ -1371,7 +1371,7 @@ void tst_QDir::normalizePathSegments()
     QFETCH(QString, path);
     QFETCH(UncHandling, uncHandling);
     QFETCH(QString, expected);
-    QString cleaned = qt_normalizePathSegments(path, uncHandling == HandleUnc);
+    QString cleaned = qt_normalizePathSegments(path, uncHandling == HandleUnc ? QDirPrivate::AllowUncPaths : QDirPrivate::DefaultNormalization);
     QCOMPARE(cleaned, expected);
     if (path == expected)
         QVERIFY2(path.isSharedWith(cleaned), "Strings are same but data is not shared");
@@ -1384,16 +1384,25 @@ void tst_QDir::absoluteFilePath_data()
     QTest::addColumn<QString>("fileName");
     QTest::addColumn<QString>("expectedFilePath");
 
-    QTest::newRow("0") << "/etc" << "/passwd" << "/passwd";
-    QTest::newRow("1") << "/etc" << "passwd" << "/etc/passwd";
-    QTest::newRow("2") << "/" << "passwd" << "/passwd";
-    QTest::newRow("3") << "relative" << "path" << QDir::currentPath() + "/relative/path";
-    QTest::newRow("4") << "" << "" << QDir::currentPath();
 #if defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
-    QTest::newRow("5") << "//machine" << "share" << "//machine/share";
+    QTest::newRow("UNC-rel") << "//machine/share" << "dir" << "//machine/share/dir";
+    QTest::newRow("UNC-abs") << "//machine/share/path/to/blah" << "/dir" << "//machine/share/dir";
+    QTest::newRow("UNC-UNC") << "//machine/share/path/to/blah" << "//host/share/path" << "//host/share/path";
+    QTest::newRow("Drive-UNC") << "c:/side/town" << "//host/share/path" << "//host/share/path";
+    QTest::newRow("Drive-LTUNC") << "c:/side/town" << "\\/leaning\\toothpick/path" << "\\/leaning\\toothpick/path";
+    QTest::newRow("Drive-abs") << "c:/side/town" << "/my/way/home" << "c:/my/way/home";
 #endif
 
-    QTest::newRow("resource") << ":/prefix" << "foo.bar" << ":/prefix/foo.bar";
+    QTest::newRow("0") << DRIVE "/etc" << "/passwd" << DRIVE "/passwd";
+    QTest::newRow("1") << DRIVE "/etc" << "passwd" << DRIVE "/etc/passwd";
+    QTest::newRow("2") << DRIVE "/" << "passwd" << DRIVE "/passwd";
+    QTest::newRow("3") << "relative" << "path" << QDir::currentPath() + "/relative/path";
+    QTest::newRow("4") << "" << "" << QDir::currentPath();
+
+    // Resource paths are absolute:
+    QTest::newRow("resource-rel") << ":/prefix" << "foo.bar" << ":/prefix/foo.bar";
+    QTest::newRow("abs-res-res") << ":/prefix" << ":/abc.txt" << ":/abc.txt";
+    QTest::newRow("abs-res-path") << DRIVE "/etc" << ":/abc.txt" << ":/abc.txt";
 }
 
 void tst_QDir::absoluteFilePath()
@@ -1508,12 +1517,22 @@ void tst_QDir::filePath_data()
     QTest::addColumn<QString>("fileName");
     QTest::addColumn<QString>("expectedFilePath");
 
-    QTest::newRow("0") << "/etc" << "/passwd" << "/passwd";
-    QTest::newRow("1") << "/etc" << "passwd" << "/etc/passwd";
-    QTest::newRow("2") << "/" << "passwd" << "/passwd";
-    QTest::newRow("3") << "relative" << "path" << "relative/path";
-    QTest::newRow("4") << "" << "" << ".";
+    QTest::newRow("abs-abs") << DRIVE "/etc" << DRIVE "/passwd" << DRIVE "/passwd";
+    QTest::newRow("abs-rel") << DRIVE "/etc" << "passwd" << DRIVE "/etc/passwd";
+    QTest::newRow("root-rel") << DRIVE "/" << "passwd" << DRIVE "/passwd";
+    QTest::newRow("rel-rel") << "relative" << "path" << "relative/path";
+    QTest::newRow("empty-empty") << "" << "" << ".";
     QTest::newRow("resource") << ":/prefix" << "foo.bar" << ":/prefix/foo.bar";
+#ifdef Q_OS_IOS
+    QTest::newRow("assets-rel") << "assets-library:/" << "foo/bar.baz" << "assets-library:/foo/bar.baz";
+    QTest::newRow("assets-abs") << "assets-library:/" << "/foo/bar.baz" << "/foo/bar.baz";
+    QTest::newRow("abs-assets") << "/some/path" << "assets-library:/foo/bar.baz" << "assets-library:/foo/bar.baz";
+#endif
+#ifdef Q_OS_WIN
+    QTest::newRow("abs-LTUNC") << "Q:/path" << "\\/leaning\\tooth/pick" << "\\/leaning\\tooth/pick";
+    QTest::newRow("LTUNC-slash") << "\\/leaning\\tooth/pick" << "/path" << "//leaning/tooth/path";
+    QTest::newRow("LTUNC-abs") << "\\/leaning\\tooth/pick" << "Q:/path" << "Q:/path";
+#endif
 }
 
 void tst_QDir::filePath()
@@ -1579,6 +1598,9 @@ void tst_QDir::exists2_data()
     QTest::newRow("2") << "" << false;
     QTest::newRow("3") << "testData" << true;
     QTest::newRow("4") << "/testData" << false;
+#ifdef Q_OS_WIN
+    QTest::newRow("abs") << "Q:/testData" << false;
+#endif
     QTest::newRow("5") << "tst_qdir.cpp" << true;
     QTest::newRow("6") << "/resources.cpp" << false;
     QTest::newRow("resource0") << ":/prefix/foo.bar" << false;

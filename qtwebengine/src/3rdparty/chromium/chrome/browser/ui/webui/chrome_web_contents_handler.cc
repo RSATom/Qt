@@ -45,7 +45,7 @@ WebContents* ChromeWebContentsHandler::OpenURLFromTab(
     browser =
         new Browser(Browser::CreateParams(Browser::TYPE_TABBED, profile, true));
   }
-  chrome::NavigateParams nav_params(browser, params.url, params.transition);
+  NavigateParams nav_params(browser, params.url, params.transition);
   nav_params.referrer = params.referrer;
   if (source && source->IsCrashed() &&
       params.disposition == WindowOpenDisposition::CURRENT_TAB &&
@@ -55,15 +55,15 @@ WebContents* ChromeWebContentsHandler::OpenURLFromTab(
   } else {
     nav_params.disposition = params.disposition;
   }
-  nav_params.window_action = chrome::NavigateParams::SHOW_WINDOW;
+  nav_params.window_action = NavigateParams::SHOW_WINDOW;
   nav_params.user_gesture = true;
-  chrome::Navigate(&nav_params);
+  Navigate(&nav_params);
 
   // Close the browser if chrome::Navigate created a new one.
   if (browser_created && (browser != nav_params.browser))
     browser->window()->Close();
 
-  return nav_params.target_contents;
+  return nav_params.navigated_or_inserted_contents;
 }
 
 // Creates a new tab with |new_contents|. |context| is the browser context that
@@ -75,7 +75,7 @@ WebContents* ChromeWebContentsHandler::OpenURLFromTab(
 void ChromeWebContentsHandler::AddNewContents(
     content::BrowserContext* context,
     WebContents* source,
-    WebContents* new_contents,
+    std::unique_ptr<WebContents> new_contents,
     WindowOpenDisposition disposition,
     const gfx::Rect& initial_rect,
     bool user_gesture) {
@@ -90,13 +90,13 @@ void ChromeWebContentsHandler::AddNewContents(
     browser = new Browser(
         Browser::CreateParams(Browser::TYPE_TABBED, profile, user_gesture));
   }
-  chrome::NavigateParams params(browser, new_contents);
+  NavigateParams params(browser, std::move(new_contents));
   params.source_contents = source;
   params.disposition = disposition;
   params.window_bounds = initial_rect;
-  params.window_action = chrome::NavigateParams::SHOW_WINDOW;
+  params.window_action = NavigateParams::SHOW_WINDOW;
   params.user_gesture = user_gesture;
-  chrome::Navigate(&params);
+  Navigate(&params);
 
   // Close the browser if chrome::Navigate created a new one.
   if (browser_created && (browser != params.browser))

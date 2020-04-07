@@ -33,12 +33,6 @@
 #include <private/qgraphicsproxywidget_p.h>
 #include <private/qlayoutengine_p.h>    // qSmartMin functions...
 
-static void sendMouseMove(QWidget *widget, const QPoint &point, Qt::MouseButton button = Qt::NoButton)
-{
-    QMouseEvent event(QEvent::MouseMove, point, widget->mapToGlobal(point), button, button, 0);
-    QApplication::sendEvent(widget, &event);
-}
-
 /*
     Notes:
 
@@ -95,10 +89,8 @@ private slots:
     void focusNextPrevChild();
     void focusOutEvent_data();
     void focusOutEvent();
-#ifndef QT_NO_CURSOR
     void hoverEnterLeaveEvent_data();
     void hoverEnterLeaveEvent();
-#endif
     void hoverMoveEvent_data();
     void hoverMoveEvent();
     void keyPressEvent_data();
@@ -138,9 +130,7 @@ private slots:
     void setFocus_complexTwoWidgets();
     void popup_basic();
     void popup_subwidget();
-#ifndef QT_NO_CURSOR
     void changingCursor_basic();
-#endif
     void tooltip_basic();
     void childPos_data();
     void childPos();
@@ -150,6 +140,7 @@ private slots:
     void palettePropagation();
     void fontPropagation();
     void dontCrashWhenDie();
+    void dontCrashNoParent();
     void createProxyForChildWidget();
 #ifndef QT_NO_CONTEXTMENU
     void actionsContextMenu();
@@ -281,7 +272,7 @@ void tst_QGraphicsProxyWidget::initTestCase()
 // This will be called after every test function.
 void tst_QGraphicsProxyWidget::cleanup()
 {
-    QVERIFY(QApplication::topLevelWidgets().isEmpty());
+    QTRY_VERIFY(QApplication::topLevelWidgets().isEmpty());
 }
 
 void tst_QGraphicsProxyWidget::qgraphicsproxywidget_data()
@@ -685,7 +676,6 @@ void tst_QGraphicsProxyWidget::focusInEvent()
     SubQGraphicsProxyWidget *proxy = new SubQGraphicsProxyWidget;
     proxy->setEnabled(true);
     scene.addItem(proxy);
-    proxy->setVisible(true);
 
     QWidget *widget = new QWidget;
     widget->resize(100, 100);
@@ -716,7 +706,6 @@ void tst_QGraphicsProxyWidget::focusInEventNoWidget()
     SubQGraphicsProxyWidget *proxy = new SubQGraphicsProxyWidget;
     proxy->setEnabled(true);
     scene.addItem(proxy);
-    proxy->setVisible(true);
     view.show();
 
     proxy->setFlag(QGraphicsItem::ItemIsFocusable, true); // <- shouldn't need to do this
@@ -931,7 +920,6 @@ protected:
     }
 };
 
-#ifndef QT_NO_CURSOR
 void tst_QGraphicsProxyWidget::hoverEnterLeaveEvent_data()
 {
     QTest::addColumn<bool>("hasWidget");
@@ -952,8 +940,6 @@ void tst_QGraphicsProxyWidget::hoverEnterLeaveEvent()
 
     QGraphicsScene scene;
     QGraphicsView view(&scene);
-    //do not let the window manager move the window while we are moving the mouse on it
-    view.setWindowFlags(Qt::X11BypassWindowManagerHint);
     view.show();
     QApplication::setActiveWindow(&view);
     QVERIFY(QTest::qWaitForWindowActive(&view));
@@ -968,31 +954,30 @@ void tst_QGraphicsProxyWidget::hoverEnterLeaveEvent()
     if (hasWidget)
         proxy->setWidget(widgetGuard.take());
     proxy->setPos(50, 0);
+    QSignalSpy sceneChangedSpy(&scene, &QGraphicsScene::changed);
     scene.addItem(proxy);
-    QTest::qWait(30);
-    QTest::mouseMove(&view, QPoint(10, 10));
-    QTest::qWait(30);
+    QTRY_VERIFY(sceneChangedSpy.count() > 0);
 
-    // in
+    // outside graphics item
+    QTest::mouseMove(&view, QPoint(10, 10));
+
+    QCOMPARE(widget->testAttribute(Qt::WA_UnderMouse), false);
+    QCOMPARE(widget->enterCount, 0);
+    QCOMPARE(widget->hoverEnter, 0);
+    // over graphics item
     QTest::mouseMove(&view, QPoint(50, 50));
-    QSKIP("QTBUG-25294");
     QTRY_COMPARE(widget->testAttribute(Qt::WA_UnderMouse), hasWidget);
-    // ### this attribute isn't supported
     QCOMPARE(widget->enterCount, hasWidget ? 1 : 0);
     QCOMPARE(widget->hoverEnter, (hasWidget && hoverEnabled) ? 1 : 0);
-    // does not work on all platforms
-    //QCOMPARE(widget->moveCount, 0);
 
-    // out
+    QTRY_COMPARE(widget->leaveCount, 0);
+    QTRY_COMPARE(widget->hoverLeave, 0);
+    // outside graphics item
     QTest::mouseMove(&view, QPoint(10, 10));
-    // QTRY_COMPARE(widget->testAttribute(Qt::WA_UnderMouse), false);
-    // ### this attribute isn't supported
+    QTRY_COMPARE(widget->testAttribute(Qt::WA_UnderMouse), false);
     QTRY_COMPARE(widget->leaveCount, hasWidget ? 1 : 0);
     QTRY_COMPARE(widget->hoverLeave, (hasWidget && hoverEnabled) ? 1 : 0);
-    // does not work on all platforms
-    //QCOMPARE(widget->moveCount, 0);
 }
-#endif
 
 void tst_QGraphicsProxyWidget::hoverMoveEvent_data()
 {
@@ -1174,19 +1159,20 @@ void tst_QGraphicsProxyWidget::mouseDoubleClickEvent()
     widget->setText("foo");
     widget->resize(50, 50);
     view.resize(100, 100);
-    if (hasWidget) {
+    if (hasWidget)
         proxy->setWidget(widget);
-        proxy->show();
-    }
     proxy->setPos(50, 0);
+    QSignalSpy sceneChangedSpy(&scene, &QGraphicsScene::changed);
     scene.addItem(proxy);
     proxy->setFocus();
 
-    QTest::mouseMove(view.viewport(), view.mapFromScene(proxy->mapToScene(15, proxy->boundingRect().center().y())));
-    QTest::mousePress(view.viewport(), Qt::LeftButton, 0, view.mapFromScene(proxy->mapToScene(15, proxy->boundingRect().center().y())));
-    QTest::mouseRelease(view.viewport(), Qt::LeftButton, 0, view.mapFromScene(proxy->mapToScene(15, proxy->boundingRect().center().y())));
-    QTest::mouseDClick(view.viewport(), Qt::LeftButton, 0, view.mapFromScene(proxy->mapToScene(15, proxy->boundingRect().center().y())));
-    QTest::mouseRelease(view.viewport(), Qt::LeftButton, 0, view.mapFromScene(proxy->mapToScene(15, proxy->boundingRect().center().y())));
+    // wait for scene to be updated before doing any coordinate mappings on it
+    QTRY_VERIFY(sceneChangedSpy.count() > 0);
+
+    QPoint pointInLineEdit = view.mapFromScene(proxy->mapToScene(15, proxy->boundingRect().center().y()));
+    QTest::mousePress(view.viewport(), Qt::LeftButton, 0, pointInLineEdit);
+    QTest::mouseRelease(view.viewport(), Qt::LeftButton, 0, pointInLineEdit);
+    QTest::mouseDClick(view.viewport(), Qt::LeftButton, 0, pointInLineEdit);
 
     QTRY_COMPARE(widget->selectedText(), hasWidget ? QString("foo") : QString());
 
@@ -1217,19 +1203,20 @@ void tst_QGraphicsProxyWidget::mousePressReleaseEvent()
     QPushButton *widget = new QPushButton;
     QSignalSpy spy(widget, SIGNAL(clicked()));
     widget->resize(50, 50);
-    if (hasWidget) {
+    if (hasWidget)
         proxy->setWidget(widget);
-        proxy->show();
-    }
     proxy->setPos(50, 0);
+    QSignalSpy sceneChangedSpy(&scene, &QGraphicsScene::changed);
     scene.addItem(proxy);
     proxy->setFocus();
 
-    QTest::mousePress(view.viewport(), Qt::LeftButton, 0,
-                      view.mapFromScene(proxy->mapToScene(proxy->boundingRect().center())));
+    // wait for scene to be updated before doing any coordinate mappings on it
+    QTRY_VERIFY(sceneChangedSpy.count() > 0);
+
+    QPoint buttonCenter = view.mapFromScene(proxy->mapToScene(proxy->boundingRect().center()));
+    QTest::mousePress(view.viewport(), Qt::LeftButton, 0, buttonCenter);
     QTRY_COMPARE(spy.count(), 0);
-    QTest::mouseRelease(view.viewport(), Qt::LeftButton, 0,
-                        view.mapFromScene(proxy->mapToScene(proxy->boundingRect().center())));
+    QTest::mouseRelease(view.viewport(), Qt::LeftButton, 0, buttonCenter);
     QTRY_COMPARE(spy.count(), (hasWidget) ? 1 : 0);
 
     if (!hasWidget)
@@ -1282,16 +1269,13 @@ void tst_QGraphicsProxyWidget::paintEvent()
 
     w->show();
     QVERIFY(QTest::qWaitForWindowExposed(w));
-    QApplication::processEvents();
-    QTest::qWait(30);
     proxy.setWidget(w);
+    QSignalSpy sceneChangedSpy(&scene, &QGraphicsScene::changed);
     scene.addItem(&proxy);
 
-    //make sure we flush all the paint events
-    QTRY_VERIFY(proxy.paintCount > 1);
-    QTest::qWait(30);
-    proxy.paintCount = 0;
+    QTRY_VERIFY(sceneChangedSpy.count() > 0); // make sure the scene is ready
 
+    proxy.paintCount = 0;
     w->update();
     QTRY_VERIFY(proxy.paintCount >= 1); //the widget should have been painted now
 }
@@ -1471,6 +1455,15 @@ protected:
     }
 };
 
+// ### work around missing QVector ctor from iterator pair:
+static QVector<QRect> rects(const QRegion &region)
+{
+    QVector<QRect> result;
+    for (QRect r : region)
+        result.push_back(r);
+    return result;
+}
+
 void tst_QGraphicsProxyWidget::scrollUpdate()
 {
     ScrollWidget *widget = new ScrollWidget;
@@ -1492,10 +1485,10 @@ void tst_QGraphicsProxyWidget::scrollUpdate()
     // QRect(0, 0, 200, 12) is the first update, expanded (-2, -2, 2, 2)
     // QRect(0, 12, 102, 10) is the scroll update, expanded (-2, -2, 2, 2),
     // intersected with the above update.
-    QCOMPARE(view.paintEventRegion.rects(),
+    QCOMPARE(rects(view.paintEventRegion),
              QVector<QRect>() << QRect(0, 0, 200, 12) << QRect(0, 12, 102, 10));
     QCOMPARE(widget->npaints, 2);
-    QCOMPARE(widget->paintEventRegion.rects(),
+    QCOMPARE(rects(widget->paintEventRegion),
              QVector<QRect>() << QRect(0, 0, 200, 12) << QRect(0, 12, 102, 10));
 }
 
@@ -2536,35 +2529,50 @@ void tst_QGraphicsProxyWidget::popup_subwidget()
     QCOMPARE(popup->size(), child->size().toSize());
 }
 
-#ifndef QT_NO_CURSOR
 void tst_QGraphicsProxyWidget::changingCursor_basic()
 {
+#if !QT_CONFIG(cursor)
+    QSKIP("This test requires the QCursor API");
+#else
     // Confirm that mouse events are working properly by checking that
     // when moving the mouse over a line edit it will change the cursor into the I
     QGraphicsScene scene;
     QGraphicsView view(&scene);
     view.show();
+    QVERIFY(QTest::qWaitForWindowActive(&view));
 
     SubQGraphicsProxyWidget *proxy = new SubQGraphicsProxyWidget;
     QLineEdit *widget = new QLineEdit;
     proxy->setWidget(widget);
-    proxy->show();
+    QSignalSpy sceneChangedSpy(&scene, &QGraphicsScene::changed);
     scene.addItem(proxy);
-    QApplication::setActiveWindow(&view);
-    QVERIFY(QTest::qWaitForWindowActive(&view));
-    QVERIFY(view.isActiveWindow());
+    QTRY_VERIFY(sceneChangedSpy.count() > 0); // make sure the scene is ready
 
     // in
     QTest::mouseMove(view.viewport(), view.mapFromScene(proxy->mapToScene(proxy->boundingRect().center())));
-    sendMouseMove(view.viewport(), view.mapFromScene(proxy->mapToScene(proxy->boundingRect().center())));
     QTRY_COMPARE(view.viewport()->cursor().shape(), Qt::IBeamCursor);
 
     // out
     QTest::mouseMove(view.viewport(), QPoint(1, 1));
-    sendMouseMove(view.viewport(), QPoint(1, 1));
     QTRY_COMPARE(view.viewport()->cursor().shape(), Qt::ArrowCursor);
+#endif // !QT_CONFIG(cursor)
 }
-#endif
+
+static bool findViewAndTipLabel(const QWidget *view)
+{
+    bool foundView = false;
+    bool foundTipLabel = false;
+    const QWidgetList &topLevels = QApplication::topLevelWidgets();
+    for (const QWidget *widget : topLevels) {
+        if (widget == view)
+            foundView = true;
+        if (widget->inherits("QTipLabel"))
+            foundTipLabel = true;
+        if (foundView && foundTipLabel)
+            return true;
+    }
+    return false;
+}
 
 void tst_QGraphicsProxyWidget::tooltip_basic()
 {
@@ -2618,18 +2626,7 @@ void tst_QGraphicsProxyWidget::tooltip_basic()
         QHelpEvent helpEvent(QEvent::ToolTip, view.mapFromScene(proxy->boundingRect().center()),
                              view.viewport()->mapToGlobal(view.mapFromScene(proxy->boundingRect().center())));
         QApplication::sendEvent(view.viewport(), &helpEvent);
-        QTest::qWait(350);
-
-        bool foundView = false;
-        bool foundTipLabel = false;
-        foreach (QWidget *widget, QApplication::topLevelWidgets()) {
-            if (widget == &view)
-                foundView = true;
-            if (widget->inherits("QTipLabel"))
-                foundTipLabel = true;
-        }
-        QVERIFY(foundView);
-        QVERIFY(foundTipLabel);
+        QTRY_VERIFY(findViewAndTipLabel(&view));
     }
 }
 
@@ -2661,9 +2658,6 @@ void tst_QGraphicsProxyWidget::childPos_data()
 
 void tst_QGraphicsProxyWidget::childPos()
 {
-#ifdef Q_OS_IRIX
-    QSKIP("This test is not reliable on IRIX.");
-#endif
     QFETCH(bool, moveCombo);
     QFETCH(QPoint, comboPos);
     QFETCH(QPointF, proxyPos);
@@ -2961,7 +2955,7 @@ void tst_QGraphicsProxyWidget::dontCrashWhenDie()
     MainWidget *w = new MainWidget();
     w->show();
     QVERIFY(QTest::qWaitForWindowExposed(w));
-    QTest::qWait(100);
+
     QTest::mouseMove(w->view->viewport(), w->view->mapFromScene(w->widget->mapToScene(w->widget->boundingRect().center())));
     delete w->item;
 
@@ -2969,6 +2963,20 @@ void tst_QGraphicsProxyWidget::dontCrashWhenDie()
     delete w;
     // This leaves an invisible proxy widget behind.
     qDeleteAll(QApplication::topLevelWidgets());
+}
+
+void tst_QGraphicsProxyWidget::dontCrashNoParent()  // QTBUG-15442
+{
+    QGraphicsProxyWidget *parent(new QGraphicsProxyWidget);
+    QGraphicsProxyWidget *child(new QGraphicsProxyWidget);
+    QScopedPointer<QLabel> label0(new QLabel);
+    QScopedPointer<QLabel> label1(new QLabel);
+
+    child->setParentItem(parent);
+    // Set the first label as the proxied widget.
+    parent->setWidget(label0.data());
+    // If we attempt to change the proxied widget we get a crash.
+    parent->setWidget(label1.data());
 }
 
 void tst_QGraphicsProxyWidget::createProxyForChildWidget()
@@ -3208,9 +3216,6 @@ void tst_QGraphicsProxyWidget::bypassGraphicsProxyWidget_data()
 
 void tst_QGraphicsProxyWidget::bypassGraphicsProxyWidget()
 {
-#if defined(Q_OS_MAC) || defined(Q_OS_WIN)
-    QSKIP("Test case unstable on this platform, QTBUG-33067");
-#endif
     QFETCH(bool, bypass);
 
     QWidget *widget = new QWidget;
@@ -3219,6 +3224,7 @@ void tst_QGraphicsProxyWidget::bypassGraphicsProxyWidget()
     QGraphicsScene scene;
     QGraphicsView view(&scene);
     view.show();
+    QVERIFY(QTest::qWaitForWindowActive(&view));
 
     QGraphicsProxyWidget *proxy = scene.addWidget(widget);
 
@@ -3232,6 +3238,7 @@ void tst_QGraphicsProxyWidget::bypassGraphicsProxyWidget()
     QFileDialog *dialog = new QFileDialog(widget, flags);
     dialog->setOption(QFileDialog::DontUseNativeDialog, true);
     dialog->show();
+    QVERIFY(QTest::qWaitForWindowActive(dialog));
 
     QCOMPARE(proxy->childItems().size(), bypass ? 0 : 1);
     if (!bypass)
@@ -3626,25 +3633,21 @@ public:
         QPushButton *hideButton = new QPushButton("I'm a button with a very very long text");
         hideButton->setGeometry(10, 10, 400, 50);
         topButton = addWidget(hideButton);
-        connect(hideButton, SIGNAL(clicked()), this, SLOT(hideButton()));
+        connect(hideButton, &QPushButton::clicked, this, [&]() { topButton->hide(); });
         topButton->setFocus();
     }
 
     QGraphicsProxyWidget *topButton;
     HoverButton *hoverButton;
-
-public slots:
-    void hideButton() {
-       QCursor::setPos(600,600);
-       topButton->hide();
-    }
 };
 
 void tst_QGraphicsProxyWidget::QTBUG_6986_sendMouseEventToAlienWidget()
 {
-#if defined(Q_OS_DARWIN) || defined(Q_OS_WIN) || defined(QT_NO_CURSOR)
-    QSKIP("Test case unstable on this platform");
-#endif
+    if (QGuiApplication::platformName() == QLatin1String("cocoa")) {
+        // The "Second button" does not receive QEvent::HoverLeave
+        QSKIP("This test fails only on Cocoa. Investigate why. See QTBUG-69219");
+    }
+
     QGraphicsView view;
     Scene scene;
     view.setScene(&scene);
@@ -3652,9 +3655,12 @@ void tst_QGraphicsProxyWidget::QTBUG_6986_sendMouseEventToAlienWidget()
     QApplication::setActiveWindow(&view);
     view.show();
     QVERIFY(QTest::qWaitForWindowActive(&view));
-    QCOMPARE(QApplication::activeWindow(), &view);
-    QCursor::setPos(view.mapToGlobal(view.mapFromScene(scene.topButton->boundingRect().center())));
-    QTest::mouseClick(view.viewport(), Qt::LeftButton, 0, view.mapFromScene(scene.topButton->scenePos()));
+
+    QPoint topButtonTopLeftCorner = view.mapFromScene(scene.topButton->scenePos());
+    QTest::mouseClick(view.viewport(), Qt::LeftButton, 0, topButtonTopLeftCorner);
+    // move to the bottom right corner (buttons are placed in the top left corner)
+    QCOMPARE(scene.hoverButton->hoverLeaveReceived, false);
+    QTest::mouseMove(view.viewport(), view.viewport()->rect().bottomRight());
     QTRY_COMPARE(scene.hoverButton->hoverLeaveReceived, true);
 }
 

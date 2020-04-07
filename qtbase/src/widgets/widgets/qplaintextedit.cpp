@@ -44,8 +44,11 @@
 #include <qpainter.h>
 #include <qevent.h>
 #include <qdebug.h>
+#if QT_CONFIG(draganddrop)
 #include <qdrag.h>
+#endif
 #include <qclipboard.h>
+#include <qmath.h>
 #if QT_CONFIG(menu)
 #include <qmenu.h>
 #endif
@@ -107,7 +110,7 @@ public:
 
 /*! \class QPlainTextDocumentLayout
     \since 4.4
-    \brief The QPlainTextDocumentLayout class implements a plain text layout for QTextDocument
+    \brief The QPlainTextDocumentLayout class implements a plain text layout for QTextDocument.
 
     \ingroup richtext-processing
     \inmodule QtWidgets
@@ -291,6 +294,7 @@ void QPlainTextDocumentLayout::documentChanged(int from, int charsRemoved, int c
 
     QTextBlock changeStartBlock = doc->findBlock(from);
     QTextBlock changeEndBlock = doc->findBlock(qMax(0, from + charsChanged - 1));
+    bool blockVisibilityChanged = false;
 
     if (changeStartBlock == changeEndBlock && newBlockCount == d->blockCount) {
         QTextBlock block = changeStartBlock;
@@ -308,14 +312,19 @@ void QPlainTextDocumentLayout::documentChanged(int from, int charsRemoved, int c
         QTextBlock block = changeStartBlock;
         do {
             block.clearLayout();
+            if (block.isVisible()
+                    ? (block.lineCount() == 0)
+                    : (block.lineCount() > 0)) {
+                blockVisibilityChanged = true;
+                block.setLineCount(block.isVisible() ? 1 : 0);
+            }
             if (block == changeEndBlock)
                 break;
             block = block.next();
         } while(block.isValid());
     }
 
-    if (newBlockCount != d->blockCount) {
-
+    if (newBlockCount != d->blockCount || blockVisibilityChanged) {
         int changeEnd = changeEndBlock.blockNumber();
         int blockDiff = newBlockCount - d->blockCount;
         int oldChangeEnd = changeEnd - blockDiff;
@@ -364,7 +373,7 @@ void QPlainTextDocumentLayout::layoutBlock(const QTextBlock &block)
     int extraMargin = 0;
     if (option.flags() & QTextOption::AddSpaceForLineAndParagraphSeparators) {
         QFontMetrics fm(block.charFormat().font());
-        extraMargin += fm.width(QChar(0x21B5));
+        extraMargin += fm.horizontalAdvance(QChar(0x21B5));
     }
     tl->beginLayout();
     qreal availableWidth = d->width;
@@ -380,6 +389,8 @@ void QPlainTextDocumentLayout::layoutBlock(const QTextBlock &block)
         line.setLineWidth(availableWidth);
         line.setPosition(QPointF(margin, height));
         height += line.height();
+        if (line.leading() < 0)
+            height += qCeil(line.leading());
         blockMaximumWidth = qMax(blockMaximumWidth, line.naturalTextWidth() + 2*margin);
     }
     tl->endLayout();
@@ -747,7 +758,8 @@ QPlainTextEditPrivate::QPlainTextEditPrivate()
       tabChangesFocus(false),
       lineWrap(QPlainTextEdit::WidgetWidth),
       wordWrap(QTextOption::WrapAtWordBoundaryOrAnywhere),
-      clickCausedFocus(0),topLine(0),topLineFracture(0),
+      clickCausedFocus(0), placeholderVisible(1),
+      topLine(0), topLineFracture(0),
       pageUpDownLastCursorYIsValid(false)
 {
     showCursorOnInitialShow = true;
@@ -784,6 +796,7 @@ void QPlainTextEditPrivate::init(const QString &txt)
     QObject::connect(control, SIGNAL(selectionChanged()), q, SIGNAL(selectionChanged()));
     QObject::connect(control, SIGNAL(cursorPositionChanged()), q, SLOT(_q_cursorPositionChanged()));
 
+    QObject::connect(control, SIGNAL(textChanged()), q, SLOT(_q_textChanged()));
     QObject::connect(control, SIGNAL(textChanged()), q, SLOT(updateMicroFocus()));
 
     // set a null page size initially to avoid any relayouting until the textedit
@@ -814,6 +827,24 @@ void QPlainTextEditPrivate::init(const QString &txt)
 #if 0 // Used to be included in Qt4 for Q_WS_WIN
     setSingleFingerPanEnabled(true);
 #endif
+}
+
+void QPlainTextEditPrivate::_q_textChanged()
+{
+    Q_Q(QPlainTextEdit);
+
+    // We normally only repaint the part of view that contains text in the
+    // document that has changed (in _q_repaintContents). But the placeholder
+    // text is not a part of the document, but is drawn on separately. So whenever
+    // we either show or hide the placeholder text, we issue a full update.
+    bool placeholderCurrentyVisible = placeholderVisible;
+
+    placeholderVisible = !placeholderText.isEmpty()
+            && q->document()->isEmpty()
+            && q->firstVisibleBlock().layout()->preeditAreaText().isEmpty();
+
+    if (placeholderCurrentyVisible != placeholderVisible)
+        viewport->update();
 }
 
 void QPlainTextEditPrivate::_q_repaintContents(const QRectF &contentsRect)
@@ -1881,6 +1912,7 @@ static void fillBackground(QPainter *p, const QRectF &rect, QBrush brush, const 
 */
 void QPlainTextEdit::paintEvent(QPaintEvent *e)
 {
+    Q_D(QPlainTextEdit);
     QPainter painter(viewport());
     Q_ASSERT(qobject_cast<QPlainTextDocumentLayout*>(document()->documentLayout()));
 
@@ -1903,6 +1935,14 @@ void QPlainTextEdit::paintEvent(QPaintEvent *e)
     er.setRight(qMin(er.right(), maxX));
     painter.setClipRect(er);
 
+    if (d->placeholderVisible) {
+        const QColor col = d->control->palette().placeholderText().color();
+        painter.setPen(col);
+        painter.setClipRect(e->rect());
+        const int margin = int(document()->documentMargin());
+        QRectF textRect = viewportRect.adjusted(margin, margin, 0, 0);
+        painter.drawText(textRect, Qt::AlignTop | Qt::TextWordWrap, placeholderText());
+    }
 
     QAbstractTextDocumentLayout::PaintContext context = getPaintContext();
 
@@ -1977,17 +2017,8 @@ void QPlainTextEdit::paintEvent(QPaintEvent *e)
                 }
             }
 
+            layout->draw(&painter, offset, selections, er);
 
-            if (!placeholderText().isEmpty() && document()->isEmpty() && layout->preeditAreaText().isEmpty()) {
-              Q_D(QPlainTextEdit);
-              QColor col = d->control->palette().text().color();
-              col.setAlpha(128);
-              painter.setPen(col);
-              const int margin = int(document()->documentMargin());
-              painter.drawText(r.adjusted(margin, 0, 0, 0), Qt::AlignTop | Qt::TextWordWrap, placeholderText());
-            } else {
-              layout->draw(&painter, offset, selections, er);
-            }
             if ((drawCursor && !drawCursorAsBlock)
                 || (editable && context.cursorPosition < -1
                     && !layout->preeditAreaText().isEmpty())) {
@@ -2118,7 +2149,7 @@ void QPlainTextEdit::contextMenuEvent(QContextMenuEvent *e)
 }
 #endif // QT_NO_CONTEXTMENU
 
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
 /*! \reimp
 */
 void QPlainTextEdit::dragEnterEvent(QDragEnterEvent *e)
@@ -2159,7 +2190,7 @@ void QPlainTextEdit::dropEvent(QDropEvent *e)
     d->sendControlEvent(e);
 }
 
-#endif // QT_NO_DRAGANDDROP
+#endif // QT_CONFIG(draganddrop)
 
 /*! \reimp
  */
@@ -2313,8 +2344,6 @@ void QPlainTextEdit::wheelEvent(QWheelEvent *e)
 #endif
 
 /*!
-    \fn QPlainTextEdit::zoomIn(int range)
-
     Zooms in on the text by making the base font size \a range
     points larger and recalculating all font sizes to be the new size.
     This does not change the size of any images.
@@ -2327,10 +2356,6 @@ void QPlainTextEdit::zoomIn(int range)
 }
 
 /*!
-    \fn QPlainTextEdit::zoomOut(int range)
-
-    \overload
-
     Zooms out on the text by making the base font size \a range points
     smaller and recalculating all font sizes to be the new size. This
     does not change the size of any images.
@@ -2608,8 +2633,8 @@ void QPlainTextEdit::setReadOnly(bool ro)
     } else {
         flags = Qt::TextEditorInteraction;
     }
-    setAttribute(Qt::WA_InputMethodEnabled, shouldEnableInputMethod(this));
     d->control->setTextInteractionFlags(flags);
+    setAttribute(Qt::WA_InputMethodEnabled, shouldEnableInputMethod(this));
     QEvent event(QEvent::ReadOnlyChange);
     QApplication::sendEvent(this, &event);
 }

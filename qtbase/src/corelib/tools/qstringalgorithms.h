@@ -56,6 +56,7 @@ template <typename T> class QVector;
 namespace QtPrivate {
 
 Q_REQUIRED_RESULT Q_CORE_EXPORT Q_DECL_PURE_FUNCTION qsizetype qustrlen(const ushort *str) Q_DECL_NOTHROW;
+Q_REQUIRED_RESULT Q_CORE_EXPORT Q_DECL_PURE_FUNCTION const ushort *qustrchr(QStringView str, ushort ch) noexcept;
 
 Q_REQUIRED_RESULT Q_CORE_EXPORT Q_DECL_PURE_FUNCTION int compareStrings(QStringView   lhs, QStringView   rhs, Qt::CaseSensitivity cs = Qt::CaseSensitive) Q_DECL_NOTHROW;
 Q_REQUIRED_RESULT Q_CORE_EXPORT Q_DECL_PURE_FUNCTION int compareStrings(QStringView   lhs, QLatin1String rhs, Qt::CaseSensitivity cs = Qt::CaseSensitive) Q_DECL_NOTHROW;
@@ -80,6 +81,12 @@ Q_REQUIRED_RESULT Q_CORE_EXPORT QByteArray convertToLatin1(QStringView str);
 Q_REQUIRED_RESULT Q_CORE_EXPORT QByteArray convertToUtf8(QStringView str);
 Q_REQUIRED_RESULT Q_CORE_EXPORT QByteArray convertToLocal8Bit(QStringView str);
 Q_REQUIRED_RESULT Q_CORE_EXPORT QVector<uint> convertToUcs4(QStringView str);
+Q_REQUIRED_RESULT Q_CORE_EXPORT bool isRightToLeft(QStringView string);
+
+Q_REQUIRED_RESULT Q_CORE_EXPORT bool isAscii(QLatin1String s) Q_DECL_NOTHROW;
+Q_REQUIRED_RESULT Q_CORE_EXPORT bool isAscii(QStringView   s) Q_DECL_NOTHROW;
+Q_REQUIRED_RESULT               bool isLatin1(QLatin1String s) Q_DECL_NOTHROW; // in qstring.h
+Q_REQUIRED_RESULT Q_CORE_EXPORT bool isLatin1(QStringView   s) Q_DECL_NOTHROW;
 
 } // namespace QtPRivate
 

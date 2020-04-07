@@ -11,7 +11,7 @@
 #include "GrResourceHandle.h"
 #include "GrVkDescriptorPool.h"
 #include "GrVkDescriptorSetManager.h"
-#include "GrVkPipelineState.h"
+#include "GrVkPipelineStateBuilder.h"
 #include "GrVkRenderPass.h"
 #include "GrVkResource.h"
 #include "GrVkUtil.h"
@@ -24,10 +24,11 @@
 
 class GrPipeline;
 class GrPrimitiveProcessor;
-class GrSamplerParams;
+class GrSamplerState;
 class GrVkCopyPipeline;
 class GrVkGpu;
 class GrVkPipeline;
+class GrVkPipelineState;
 class GrVkPrimaryCommandBuffer;
 class GrVkRenderTarget;
 class GrVkSampler;
@@ -42,9 +43,9 @@ public:
     // Set up any initial vk objects
     void init();
 
-    GrVkPipeline* createPipeline(const GrPipeline& pipeline,
+    GrVkPipeline* createPipeline(const GrPrimitiveProcessor& primProc,
+                                 const GrPipeline& pipeline,
                                  const GrStencilSettings& stencil,
-                                 const GrPrimitiveProcessor& primProc,
                                  VkPipelineShaderStageCreateInfo* shaderStageInfo,
                                  int shaderStageCount,
                                  GrPrimitiveType primitiveType,
@@ -96,14 +97,14 @@ public:
     //       of our cache of GrVkDescriptorPools.
     GrVkDescriptorPool* findOrCreateCompatibleDescriptorPool(VkDescriptorType type, uint32_t count);
 
-    // Finds or creates a compatible GrVkSampler based on the GrSamplerParams.
+    // Finds or creates a compatible GrVkSampler based on the GrSamplerState.
     // The refcount is incremented and a pointer returned.
-    GrVkSampler* findOrCreateCompatibleSampler(const GrSamplerParams&, uint32_t mipLevels);
+    GrVkSampler* findOrCreateCompatibleSampler(const GrSamplerState&, uint32_t maxMipLevel);
 
-    sk_sp<GrVkPipelineState> findOrCreateCompatiblePipelineState(const GrPipeline&,
-                                                                 const GrPrimitiveProcessor&,
-                                                                 GrPrimitiveType,
-                                                                 const GrVkRenderPass& renderPass);
+    GrVkPipelineState* findOrCreateCompatiblePipelineState(const GrPipeline&,
+                                                           const GrPrimitiveProcessor&,
+                                                           GrPrimitiveType,
+                                                           const GrVkRenderPass& renderPass);
 
     void getSamplerDescriptorSetHandle(VkDescriptorType type,
                                        const GrVkUniformHandler&,
@@ -170,10 +171,10 @@ private:
 
         void abandon();
         void release();
-        sk_sp<GrVkPipelineState> refPipelineState(const GrPipeline&,
-                                                  const GrPrimitiveProcessor&,
-                                                  GrPrimitiveType,
-                                                  const GrVkRenderPass& renderPass);
+        GrVkPipelineState* refPipelineState(const GrPrimitiveProcessor&,
+                                            const GrPipeline&,
+                                            GrPrimitiveType,
+                                            const GrVkRenderPass& renderPass);
 
     private:
         enum {
@@ -190,7 +191,7 @@ private:
             }
         };
 
-        SkLRUCache<const GrVkPipelineState::Desc, std::unique_ptr<Entry>, DescHash> fMap;
+        SkLRUCache<const GrVkPipelineStateBuilder::Desc, std::unique_ptr<Entry>, DescHash> fMap;
 
         GrVkGpu*                    fGpu;
 

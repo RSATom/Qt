@@ -8,14 +8,14 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_COMMON_VIDEO_INCLUDE_VIDEO_FRAME_BUFFER_H_
-#define WEBRTC_COMMON_VIDEO_INCLUDE_VIDEO_FRAME_BUFFER_H_
+#ifndef COMMON_VIDEO_INCLUDE_VIDEO_FRAME_BUFFER_H_
+#define COMMON_VIDEO_INCLUDE_VIDEO_FRAME_BUFFER_H_
 
 #include <memory>
 
-#include "webrtc/api/video/video_frame_buffer.h"
-#include "webrtc/rtc_base/callback.h"
-#include "webrtc/rtc_base/scoped_ref_ptr.h"
+#include "api/video/video_frame_buffer.h"
+#include "rtc_base/callback.h"
+#include "rtc_base/scoped_ref_ptr.h"
 
 namespace webrtc {
 
@@ -78,6 +78,19 @@ rtc::scoped_refptr<I444BufferInterface> WrapI444Buffer(
     int v_stride,
     const rtc::Callback0<void>& no_longer_used);
 
+rtc::scoped_refptr<I420ABufferInterface> WrapI420ABuffer(
+    int width,
+    int height,
+    const uint8_t* y_plane,
+    int y_stride,
+    const uint8_t* u_plane,
+    int u_stride,
+    const uint8_t* v_plane,
+    int v_stride,
+    const uint8_t* a_plane,
+    int a_stride,
+    const rtc::Callback0<void>& no_longer_used);
+
 rtc::scoped_refptr<PlanarYuvBuffer> WrapYuvBuffer(
     VideoFrameBuffer::Type type,
     int width,
@@ -90,6 +103,17 @@ rtc::scoped_refptr<PlanarYuvBuffer> WrapYuvBuffer(
     int v_stride,
     const rtc::Callback0<void>& no_longer_used);
 
+rtc::scoped_refptr<I010BufferInterface> WrapI010Buffer(
+    int width,
+    int height,
+    const uint16_t* y_plane,
+    int y_stride,
+    const uint16_t* u_plane,
+    int u_stride,
+    const uint16_t* v_plane,
+    int v_stride,
+    const rtc::Callback0<void>& no_longer_used);
+
 }  // namespace webrtc
 
-#endif  // WEBRTC_COMMON_VIDEO_INCLUDE_VIDEO_FRAME_BUFFER_H_
+#endif  // COMMON_VIDEO_INCLUDE_VIDEO_FRAME_BUFFER_H_

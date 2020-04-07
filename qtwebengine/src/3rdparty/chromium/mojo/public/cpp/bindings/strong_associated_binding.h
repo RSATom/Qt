@@ -37,12 +37,15 @@ using StrongAssociatedBindingPtr =
 // To use, call StrongAssociatedBinding<T>::Create() (see below) or the helper
 // MakeStrongAssociatedBinding function:
 //
-//   mojo::MakeStrongAssociatedBinding(base::MakeUnique<FooImpl>(),
+//   mojo::MakeStrongAssociatedBinding(std::make_unique<FooImpl>(),
 //                                     std::move(foo_request));
 //
 template <typename Interface>
 class StrongAssociatedBinding {
  public:
+  using ImplPointerType =
+      typename AssociatedBinding<Interface>::ImplPointerType;
+
   // Create a new StrongAssociatedBinding instance. The instance owns itself,
   // cleaning up only in the event of a pipe connection error. Returns a WeakPtr
   // to the new StrongAssociatedBinding instance.
@@ -81,6 +84,11 @@ class StrongAssociatedBinding {
   // verify that no message was sent on a message pipe in response to some
   // stimulus.
   void FlushForTesting() { binding_.FlushForTesting(); }
+
+  // Allows test code to swap the interface implementation.
+  ImplPointerType SwapImplForTesting(ImplPointerType new_impl) {
+    return binding_.SwapImplForTesting(new_impl);
+  }
 
  private:
   StrongAssociatedBinding(std::unique_ptr<Interface> impl,

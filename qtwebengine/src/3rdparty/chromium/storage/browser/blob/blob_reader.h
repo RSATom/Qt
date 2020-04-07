@@ -15,7 +15,7 @@
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "net/base/completion_callback.h"
+#include "net/base/completion_once_callback.h"
 #include "storage/browser/storage_browser_export.h"
 #include "storage/common/blob_storage/blob_storage_constants.h"
 
@@ -75,7 +75,7 @@ class STORAGE_EXPORT BlobReader {
   //  * The 'done' callback is only called if Status::IO_PENDING is returned.
   //    The callback value contains the error code or net::OK. Please use the
   //    total_size() value to query the blob size, as it's uint64_t.
-  Status CalculateSize(const net::CompletionCallback& done);
+  Status CalculateSize(net::CompletionOnceCallback done);
 
   // Returns true when the blob has side data. CalculateSize must be called
   // beforehand. Currently side data is supported only for single DiskCache
@@ -112,7 +112,7 @@ class STORAGE_EXPORT BlobReader {
   Status Read(net::IOBuffer* buffer,
               size_t dest_size,
               int* bytes_read,
-              net::CompletionCallback done);
+              net::CompletionOnceCallback done);
 
   // Kills reading and invalidates all callbacks. The reader cannot be used
   // after this call.
@@ -142,18 +142,25 @@ class STORAGE_EXPORT BlobReader {
   FRIEND_TEST_ALL_PREFIXES(BlobReaderTest, HandleBeforeAsyncCancel);
   FRIEND_TEST_ALL_PREFIXES(BlobReaderTest, ReadFromIncompleteBlob);
 
-  BlobReader(const BlobDataHandle* blob_handle,
-             std::unique_ptr<FileStreamReaderProvider> file_stream_provider);
+  BlobReader(const BlobDataHandle* blob_handle);
 
   bool total_size_calculated() const { return total_size_calculated_; }
 
+  void SetFileStreamProviderForTesting(
+      std::unique_ptr<FileStreamReaderProvider> file_stream_provider) {
+    file_stream_provider_for_testing_ = std::move(file_stream_provider);
+  }
+
  private:
   Status ReportError(int net_error);
-  void InvalidateCallbacksAndDone(int net_error, net::CompletionCallback done);
+  void InvalidateCallbacksAndDone(int net_error,
+                                  net::CompletionOnceCallback done);
 
-  void AsyncCalculateSize(const net::CompletionCallback& done,
-                          BlobStatus status);
-  Status CalculateSizeImpl(const net::CompletionCallback& done);
+  void AsyncCalculateSize(net::CompletionOnceCallback done, BlobStatus status);
+  // If this returns Status::IO_PENDING, it will take ownership of the callback
+  // pointed at by |done| and call it when complete. |done| will not be
+  // modified, otherwise.
+  Status CalculateSizeImpl(net::CompletionOnceCallback* done);
   bool AddItemLength(size_t index, uint64_t length);
   bool ResolveFileItemLength(const BlobDataItem& item,
                              int64_t total_length,
@@ -196,7 +203,7 @@ class STORAGE_EXPORT BlobReader {
 
   std::unique_ptr<BlobDataHandle> blob_handle_;
   std::unique_ptr<BlobDataSnapshot> blob_data_;
-  std::unique_ptr<FileStreamReaderProvider> file_stream_provider_;
+  std::unique_ptr<FileStreamReaderProvider> file_stream_provider_for_testing_;
   scoped_refptr<base::TaskRunner> file_task_runner_;
   scoped_refptr<net::IOBufferWithSize> side_data_;
 
@@ -216,8 +223,8 @@ class STORAGE_EXPORT BlobReader {
 
   bool io_pending_ = false;
 
-  net::CompletionCallback size_callback_;
-  net::CompletionCallback read_callback_;
+  net::CompletionOnceCallback size_callback_;
+  net::CompletionOnceCallback read_callback_;
 
   base::WeakPtrFactory<BlobReader> weak_factory_;
   DISALLOW_COPY_AND_ASSIGN(BlobReader);

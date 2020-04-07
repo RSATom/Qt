@@ -15,6 +15,7 @@
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/macros.h"
+#include "base/task_scheduler/post_task.h"
 #include "base/time/time.h"
 #include "chrome/browser/extensions/api/braille_display_private/brlapi_connection.h"
 #include "chrome/browser/extensions/api/braille_display_private/brlapi_keycode_map.h"
@@ -22,8 +23,6 @@
 
 namespace extensions {
 using content::BrowserThread;
-using base::Time;
-using base::TimeDelta;
 namespace api {
 namespace braille_display_private {
 
@@ -166,34 +165,41 @@ void BrailleControllerImpl::StartConnecting() {
   if (!libbrlapi_loader_.loaded()) {
     return;
   }
+
+  if (!sequenced_task_runner_) {
+    sequenced_task_runner_ = base::CreateSequencedTaskRunnerWithTraits(
+        {base::MayBlock(), base::TaskPriority::USER_VISIBLE});
+  }
+
   // Only try to connect after we've started to watch the
   // socket directory.  This is necessary to avoid a race condition
   // and because we don't retry to connect after errors that will
   // persist until there's a change to the socket directory (i.e.
   // ENOENT).
-  BrowserThread::PostTaskAndReply(
-      BrowserThread::FILE, FROM_HERE,
-      base::BindOnce(&BrailleControllerImpl::StartWatchingSocketDirOnFileThread,
+  sequenced_task_runner_->PostTaskAndReply(
+      FROM_HERE,
+      base::BindOnce(&BrailleControllerImpl::StartWatchingSocketDirOnTaskThread,
                      base::Unretained(this)),
       base::BindOnce(&BrailleControllerImpl::TryToConnect,
                      base::Unretained(this)));
   ResetRetryConnectHorizon();
 }
 
-void BrailleControllerImpl::StartWatchingSocketDirOnFileThread() {
-  DCHECK_CURRENTLY_ON(BrowserThread::FILE);
+void BrailleControllerImpl::StartWatchingSocketDirOnTaskThread() {
+  base::AssertBlockingAllowed();
   base::FilePath brlapi_dir(BRLAPI_SOCKETPATH);
   if (!file_path_watcher_.Watch(
-          brlapi_dir, false, base::Bind(
-              &BrailleControllerImpl::OnSocketDirChangedOnFileThread,
-              base::Unretained(this)))) {
+          brlapi_dir, false,
+          base::Bind(&BrailleControllerImpl::OnSocketDirChangedOnTaskThread,
+                     base::Unretained(this)))) {
     LOG(WARNING) << "Couldn't watch brlapi directory " << BRLAPI_SOCKETPATH;
   }
 }
 
-void BrailleControllerImpl::OnSocketDirChangedOnFileThread(
-    const base::FilePath& path, bool error) {
-  DCHECK_CURRENTLY_ON(BrowserThread::FILE);
+void BrailleControllerImpl::OnSocketDirChangedOnTaskThread(
+    const base::FilePath& path,
+    bool error) {
+  base::AssertBlockingAllowed();
   if (error) {
     LOG(ERROR) << "Error watching brlapi directory: " << path.value();
     return;
@@ -242,18 +248,19 @@ void BrailleControllerImpl::TryToConnect() {
 
 void BrailleControllerImpl::ResetRetryConnectHorizon() {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  retry_connect_horizon_ = Time::Now() + TimeDelta::FromMilliseconds(
-      kConnectRetryTimeout);
+  retry_connect_horizon_ =
+      base::Time::Now() +
+      base::TimeDelta::FromMilliseconds(kConnectRetryTimeout);
 }
 
 void BrailleControllerImpl::ScheduleTryToConnect() {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  TimeDelta delay(TimeDelta::FromMilliseconds(kConnectionDelayMs));
+  base::TimeDelta delay(base::TimeDelta::FromMilliseconds(kConnectionDelayMs));
   // Don't reschedule if there's already a connect scheduled or
   // the next attempt would fall outside of the retry limit.
   if (connect_scheduled_)
     return;
-  if (Time::Now() + delay > retry_connect_horizon_) {
+  if (base::Time::Now() + delay > retry_connect_horizon_) {
     VLOG(1) << "Stopping to retry to connect to brlapi";
     return;
   }

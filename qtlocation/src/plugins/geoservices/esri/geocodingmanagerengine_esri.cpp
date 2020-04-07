@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2013-2016 Esri <contracts@esri.com>
+** Copyright (C) 2013-2018 Esri <contracts@esri.com>
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtLocation module of the Qt Toolkit.
@@ -118,8 +118,8 @@ QGeoCodeReply *GeoCodingManagerEngineEsri::geocode(const QString &address, int l
     query.addQueryItem(QStringLiteral("f"), QStringLiteral("json"));
     query.addQueryItem(QStringLiteral("outFields"), "*");
 
-    if (bounds.type() == QGeoShape::RectangleType)
-        query.addQueryItem(QStringLiteral("searchExtent"), boundingBoxToLtrb(bounds));
+    if (bounds.type() != QGeoShape::UnknownType)
+        query.addQueryItem(QStringLiteral("searchExtent"), boundingBoxToLtrb(bounds.boundingGeoRectangle()));
 
     if (limit != -1)
         query.addQueryItem(QStringLiteral("maxLocations"), QString::number(limit));

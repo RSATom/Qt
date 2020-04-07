@@ -42,21 +42,18 @@
 
 #include "qremoteobjectnode.h"
 
-#include <QDebug>
-#include <QRect>
-#include <QPoint>
+#include <QtCore/qdebug.h>
+#include <QtCore/qrect.h>
+#include <QtCore/qpoint.h>
 
 QT_BEGIN_NAMESPACE
-enum {
-    DefaultRootCacheSize = 1000
-};
 
 inline QDebug operator<<(QDebug stream, const RequestedData &data)
 {
     return stream.nospace() << "RequestedData[start=" << data.start << ", end=" << data.end << ", roles=" << data.roles << "]";
 }
 
-CacheData::CacheData(QAbstractItemModelReplicaPrivate *model, CacheData *parentItem)
+CacheData::CacheData(QAbstractItemModelReplicaImplementation *model, CacheData *parentItem)
     : replicaModel(model)
     , parent(parentItem)
     , hasChildren(false)
@@ -72,42 +69,38 @@ CacheData::~CacheData() {
         replicaModel->m_activeParents.erase(this);
 }
 
-QAbstractItemModelReplicaPrivate::QAbstractItemModelReplicaPrivate()
+QAbstractItemModelReplicaImplementation::QAbstractItemModelReplicaImplementation()
     : QRemoteObjectReplica()
     , m_selectionModel(0)
     , m_rootItem(this)
-    , m_lastRequested(-1)
 {
-    m_rootItem.children.setCacheSize(DefaultRootCacheSize);
-    QAbstractItemModelReplicaPrivate::registerMetatypes();
+    QAbstractItemModelReplicaImplementation::registerMetatypes();
     initializeModelConnections();
-    connect(this, &QAbstractItemModelReplicaPrivate::availableRolesChanged, this, [this]{
+    connect(this, &QAbstractItemModelReplicaImplementation::availableRolesChanged, this, [this]{
         m_availableRoles.clear();
     });
 }
 
-QAbstractItemModelReplicaPrivate::QAbstractItemModelReplicaPrivate(QRemoteObjectNode *node, const QString &name)
+QAbstractItemModelReplicaImplementation::QAbstractItemModelReplicaImplementation(QRemoteObjectNode *node, const QString &name)
     : QRemoteObjectReplica(ConstructWithNode)
     , m_selectionModel(0)
     , m_rootItem(this)
-    , m_lastRequested(-1)
 {
-    m_rootItem.children.setCacheSize(DefaultRootCacheSize);
-    QAbstractItemModelReplicaPrivate::registerMetatypes();
+    QAbstractItemModelReplicaImplementation::registerMetatypes();
     initializeModelConnections();
     initializeNode(node, name);
-    connect(this, &QAbstractItemModelReplicaPrivate::availableRolesChanged, this, [this]{
+    connect(this, &QAbstractItemModelReplicaImplementation::availableRolesChanged, this, [this]{
         m_availableRoles.clear();
     });
 }
 
-QAbstractItemModelReplicaPrivate::~QAbstractItemModelReplicaPrivate()
+QAbstractItemModelReplicaImplementation::~QAbstractItemModelReplicaImplementation()
 {
     m_rootItem.clear();
     qDeleteAll(m_pendingRequests);
 }
 
-void QAbstractItemModelReplicaPrivate::initialize()
+void QAbstractItemModelReplicaImplementation::initialize()
 {
     QVariantList properties;
     properties << QVariant::fromValue(QVector<int>());
@@ -115,35 +108,39 @@ void QAbstractItemModelReplicaPrivate::initialize()
     setProperties(properties);
 }
 
-void QAbstractItemModelReplicaPrivate::registerMetatypes()
+void QAbstractItemModelReplicaImplementation::registerMetatypes()
 {
     static bool alreadyRegistered = false;
-    if (!alreadyRegistered) {
-        alreadyRegistered = true;
-        qRegisterMetaType<Qt::Orientation>();
-        qRegisterMetaType<QVector<Qt::Orientation> >();
-        qRegisterMetaTypeStreamOperators<ModelIndex>();
-        qRegisterMetaTypeStreamOperators<IndexList>();
-        qRegisterMetaTypeStreamOperators<DataEntries>();
-        qRegisterMetaTypeStreamOperators<Qt::Orientation>();
-        qRegisterMetaTypeStreamOperators<QVector<Qt::Orientation> >();
-        qRegisterMetaTypeStreamOperators<QItemSelectionModel::SelectionFlags>();
-        qRegisterMetaType<QItemSelectionModel::SelectionFlags>();
-        qRegisterMetaType<QIntHash>();
-        qRegisterMetaTypeStreamOperators<QIntHash>();
-    }
+    if (alreadyRegistered)
+        return;
+
+    alreadyRegistered = true;
+    qRegisterMetaType<QAbstractItemModel*>();
+    qRegisterMetaType<Qt::Orientation>();
+    qRegisterMetaType<QVector<Qt::Orientation> >();
+    qRegisterMetaTypeStreamOperators<ModelIndex>();
+    qRegisterMetaTypeStreamOperators<IndexList>();
+    qRegisterMetaTypeStreamOperators<DataEntries>();
+    qRegisterMetaTypeStreamOperators<MetaAndDataEntries>();
+    qRegisterMetaTypeStreamOperators<Qt::Orientation>();
+    qRegisterMetaTypeStreamOperators<QVector<Qt::Orientation> >();
+    qRegisterMetaTypeStreamOperators<QItemSelectionModel::SelectionFlags>();
+    qRegisterMetaType<QItemSelectionModel::SelectionFlags>();
+    qRegisterMetaType<QSize>();
+    qRegisterMetaType<QIntHash>();
+    qRegisterMetaTypeStreamOperators<QIntHash>();
 }
 
-void QAbstractItemModelReplicaPrivate::initializeModelConnections()
+void QAbstractItemModelReplicaImplementation::initializeModelConnections()
 {
-    connect(this, &QAbstractItemModelReplicaPrivate::dataChanged, this, &QAbstractItemModelReplicaPrivate::onDataChanged);
-    connect(this, &QAbstractItemModelReplicaPrivate::rowsInserted, this, &QAbstractItemModelReplicaPrivate::onRowsInserted);
-    connect(this, &QAbstractItemModelReplicaPrivate::columnsInserted, this, &QAbstractItemModelReplicaPrivate::onColumnsInserted);
-    connect(this, &QAbstractItemModelReplicaPrivate::rowsRemoved, this, &QAbstractItemModelReplicaPrivate::onRowsRemoved);
-    connect(this, &QAbstractItemModelReplicaPrivate::rowsMoved, this, &QAbstractItemModelReplicaPrivate::onRowsMoved);
-    connect(this, &QAbstractItemModelReplicaPrivate::currentChanged, this, &QAbstractItemModelReplicaPrivate::onCurrentChanged);
-    connect(this, &QAbstractItemModelReplicaPrivate::modelReset, this, &QAbstractItemModelReplicaPrivate::onModelReset);
-    connect(this, &QAbstractItemModelReplicaPrivate::headerDataChanged, this, &QAbstractItemModelReplicaPrivate::onHeaderDataChanged);
+    connect(this, &QAbstractItemModelReplicaImplementation::dataChanged, this, &QAbstractItemModelReplicaImplementation::onDataChanged);
+    connect(this, &QAbstractItemModelReplicaImplementation::rowsInserted, this, &QAbstractItemModelReplicaImplementation::onRowsInserted);
+    connect(this, &QAbstractItemModelReplicaImplementation::columnsInserted, this, &QAbstractItemModelReplicaImplementation::onColumnsInserted);
+    connect(this, &QAbstractItemModelReplicaImplementation::rowsRemoved, this, &QAbstractItemModelReplicaImplementation::onRowsRemoved);
+    connect(this, &QAbstractItemModelReplicaImplementation::rowsMoved, this, &QAbstractItemModelReplicaImplementation::onRowsMoved);
+    connect(this, &QAbstractItemModelReplicaImplementation::currentChanged, this, &QAbstractItemModelReplicaImplementation::onCurrentChanged);
+    connect(this, &QAbstractItemModelReplicaImplementation::modelReset, this, &QAbstractItemModelReplicaImplementation::onModelReset);
+    connect(this, &QAbstractItemModelReplicaImplementation::headerDataChanged, this, &QAbstractItemModelReplicaImplementation::onHeaderDataChanged);
 }
 
 inline void removeIndexFromRow(const QModelIndex &index, const QVector<int> &roles, CachedRowEntry *entry)
@@ -161,7 +158,7 @@ inline void removeIndexFromRow(const QModelIndex &index, const QVector<int> &rol
     }
 }
 
-void QAbstractItemModelReplicaPrivate::onReplicaCurrentChanged(const QModelIndex &current, const QModelIndex &previous)
+void QAbstractItemModelReplicaImplementation::onReplicaCurrentChanged(const QModelIndex &current, const QModelIndex &previous)
 {
     Q_UNUSED(previous)
     IndexList currentIndex = toModelIndexList(current, q);
@@ -169,15 +166,15 @@ void QAbstractItemModelReplicaPrivate::onReplicaCurrentChanged(const QModelIndex
     replicaSetCurrentIndex(currentIndex, QItemSelectionModel::Clear|QItemSelectionModel::Select|QItemSelectionModel::Current);
 }
 
-void QAbstractItemModelReplicaPrivate::setModel(QAbstractItemModelReplica *model)
+void QAbstractItemModelReplicaImplementation::setModel(QAbstractItemModelReplica *model)
 {
     q = model;
     setParent(model);
     m_selectionModel.reset(new QItemSelectionModel(model));
-    connect(m_selectionModel.data(), &QItemSelectionModel::currentChanged, this, &QAbstractItemModelReplicaPrivate::onReplicaCurrentChanged);
+    connect(m_selectionModel.data(), &QItemSelectionModel::currentChanged, this, &QAbstractItemModelReplicaImplementation::onReplicaCurrentChanged);
 }
 
-bool QAbstractItemModelReplicaPrivate::clearCache(const IndexList &start, const IndexList &end, const QVector<int> &roles = QVector<int>())
+bool QAbstractItemModelReplicaImplementation::clearCache(const IndexList &start, const IndexList &end, const QVector<int> &roles = QVector<int>())
 {
     Q_ASSERT(start.size() == end.size());
 
@@ -211,7 +208,7 @@ bool QAbstractItemModelReplicaPrivate::clearCache(const IndexList &start, const 
     return true;
 }
 
-void QAbstractItemModelReplicaPrivate::onDataChanged(const IndexList &start, const IndexList &end, const QVector<int> &roles)
+void QAbstractItemModelReplicaImplementation::onDataChanged(const IndexList &start, const IndexList &end, const QVector<int> &roles)
 {
     qCDebug(QT_REMOTEOBJECT_MODELS) << Q_FUNC_INFO << "start=" << start << "end=" << end << "roles=" << roles;
 
@@ -258,7 +255,7 @@ void QAbstractItemModelReplicaPrivate::onDataChanged(const IndexList &start, con
     }
 }
 
-void QAbstractItemModelReplicaPrivate::onRowsInserted(const IndexList &parent, int start, int end)
+void QAbstractItemModelReplicaImplementation::onRowsInserted(const IndexList &parent, int start, int end)
 {
     qCDebug(QT_REMOTEOBJECT_MODELS) << Q_FUNC_INFO << "start=" << start << "end=" << end << "parent=" << parent;
 
@@ -277,7 +274,7 @@ void QAbstractItemModelReplicaPrivate::onRowsInserted(const IndexList &parent, i
     }
 }
 
-void QAbstractItemModelReplicaPrivate::onColumnsInserted(const IndexList &parent, int start, int end)
+void QAbstractItemModelReplicaImplementation::onColumnsInserted(const IndexList &parent, int start, int end)
 {
     qCDebug(QT_REMOTEOBJECT_MODELS) << Q_FUNC_INFO << "start=" << start << "end=" << end << "parent=" << parent;
 
@@ -304,7 +301,7 @@ void QAbstractItemModelReplicaPrivate::onColumnsInserted(const IndexList &parent
 
 }
 
-void QAbstractItemModelReplicaPrivate::onRowsRemoved(const IndexList &parent, int start, int end)
+void QAbstractItemModelReplicaImplementation::onRowsRemoved(const IndexList &parent, int start, int end)
 {
     qCDebug(QT_REMOTEOBJECT_MODELS) << Q_FUNC_INFO << "start=" << start << "end=" << end << "parent=" << parent;
 
@@ -320,7 +317,7 @@ void QAbstractItemModelReplicaPrivate::onRowsRemoved(const IndexList &parent, in
     q->endRemoveRows();
 }
 
-void QAbstractItemModelReplicaPrivate::onRowsMoved(IndexList srcParent, int srcRow, int count, IndexList destParent, int destRow)
+void QAbstractItemModelReplicaImplementation::onRowsMoved(IndexList srcParent, int srcRow, int count, IndexList destParent, int destRow)
 {
     qCDebug(QT_REMOTEOBJECT_MODELS) << Q_FUNC_INFO;
 
@@ -341,7 +338,7 @@ void QAbstractItemModelReplicaPrivate::onRowsMoved(IndexList srcParent, int srcR
     q->endMoveRows();
 }
 
-void QAbstractItemModelReplicaPrivate::onCurrentChanged(IndexList current, IndexList previous)
+void QAbstractItemModelReplicaImplementation::onCurrentChanged(IndexList current, IndexList previous)
 {
     qCDebug(QT_REMOTEOBJECT_MODELS) << Q_FUNC_INFO << "current=" << current << "previous=" << previous;
     Q_UNUSED(previous);
@@ -356,18 +353,25 @@ void QAbstractItemModelReplicaPrivate::onCurrentChanged(IndexList current, Index
         m_selectionModel->setCurrentIndex(currentIndex, QItemSelectionModel::Clear|QItemSelectionModel::Select|QItemSelectionModel::Current);
 }
 
-void QAbstractItemModelReplicaPrivate::handleInitDone(QRemoteObjectPendingCallWatcher *watcher)
+void QAbstractItemModelReplicaImplementation::handleInitDone(QRemoteObjectPendingCallWatcher *watcher)
 {
     qCDebug(QT_REMOTEOBJECT_MODELS) << Q_FUNC_INFO;
 
     handleModelResetDone(watcher);
-
+    m_initDone = true;
     emit q->initialized();
 }
 
-void QAbstractItemModelReplicaPrivate::handleModelResetDone(QRemoteObjectPendingCallWatcher *watcher)
+void QAbstractItemModelReplicaImplementation::handleModelResetDone(QRemoteObjectPendingCallWatcher *watcher)
 {
-    const QSize size = watcher->returnValue().toSize();
+    QSize size;
+    if (m_initialAction == QtRemoteObjects::FetchRootSize)
+        size = watcher->returnValue().toSize();
+    else {
+        Q_ASSERT(watcher->returnValue().canConvert<MetaAndDataEntries>());
+        size = watcher->returnValue().value<MetaAndDataEntries>().size;
+    }
+
     qCDebug(QT_REMOTEOBJECT_MODELS) << Q_FUNC_INFO << "size=" << size;
 
     q->beginResetModel();
@@ -380,12 +384,17 @@ void QAbstractItemModelReplicaPrivate::handleModelResetDone(QRemoteObjectPending
     m_rootItem.columnCount = size.width();
     m_headerData[0].resize(size.width());
     m_headerData[1].resize(size.height());
+    if (m_initialAction == QtRemoteObjects::PrefetchData) {
+        auto entries = watcher->returnValue().value<MetaAndDataEntries>();
+        for (int i = 0; i < entries.data.size(); ++i)
+            fillCache(entries.data[i], entries.roles);
+    }
     q->endResetModel();
     m_pendingRequests.removeAll(watcher);
     delete watcher;
 }
 
-void QAbstractItemModelReplicaPrivate::handleSizeDone(QRemoteObjectPendingCallWatcher *watcher)
+void QAbstractItemModelReplicaImplementation::handleSizeDone(QRemoteObjectPendingCallWatcher *watcher)
 {
     SizeWatcher *sizeWatcher = static_cast<SizeWatcher*>(watcher);
     const QSize size = sizeWatcher->returnValue().toSize();
@@ -419,21 +428,26 @@ void QAbstractItemModelReplicaPrivate::handleSizeDone(QRemoteObjectPendingCallWa
     delete watcher;
 }
 
-void QAbstractItemModelReplicaPrivate::init()
+void QAbstractItemModelReplicaImplementation::init()
 {
-    qCDebug(QT_REMOTEOBJECT_MODELS) << Q_FUNC_INFO;
-    SizeWatcher *watcher = doModelReset();
-    m_pendingRequests.push_back(watcher);
-    connect(watcher, &SizeWatcher::finished, this, &QAbstractItemModelReplicaPrivate::handleInitDone);
+    qCDebug(QT_REMOTEOBJECT_MODELS) << Q_FUNC_INFO << this->node()->objectName();
+    QRemoteObjectPendingCallWatcher *watcher = doModelReset();
+    connect(watcher, &QRemoteObjectPendingCallWatcher::finished, this, &QAbstractItemModelReplicaImplementation::handleInitDone);
 }
 
-SizeWatcher* QAbstractItemModelReplicaPrivate::doModelReset()
+QRemoteObjectPendingCallWatcher* QAbstractItemModelReplicaImplementation::doModelReset()
 {
     qDeleteAll(m_pendingRequests);
     m_pendingRequests.clear();
     IndexList parentList;
-    QRemoteObjectPendingReply<QSize> reply = replicaSizeRequest(parentList);
-    SizeWatcher *watcher = new SizeWatcher(parentList, reply);
+    QRemoteObjectPendingCallWatcher *watcher;
+    if (m_initialAction == QtRemoteObjects::FetchRootSize) {
+        auto call = replicaSizeRequest(parentList);
+        watcher = new SizeWatcher(parentList, call);
+    } else {
+        auto call = replicaCacheRequest(m_rootItem.children.cacheSize, m_initialFetchRolesHint);
+        watcher = new QRemoteObjectPendingCallWatcher(call);
+    }
     m_pendingRequests.push_back(watcher);
     return watcher;
 }
@@ -494,7 +508,18 @@ int collectEntriesForRow(DataEntries* filteredEntries, int row, const DataEntrie
     return size;
 }
 
-void QAbstractItemModelReplicaPrivate::requestedData(QRemoteObjectPendingCallWatcher *qobject)
+void QAbstractItemModelReplicaImplementation::fillCache(const IndexValuePair &pair, const QVector<int> &roles)
+{
+    if (auto item = createCacheData(pair.index)) {
+        fillRow(item, pair, q, roles);
+        item->rowCount = pair.size.height();
+        item->columnCount = pair.size.width();
+    }
+    for (const auto &it : pair.children)
+        fillCache(it, roles);
+}
+
+void QAbstractItemModelReplicaImplementation::requestedData(QRemoteObjectPendingCallWatcher *qobject)
 {
     RowWatcher *watcher = static_cast<RowWatcher *>(qobject);
     Q_ASSERT(watcher);
@@ -537,7 +562,7 @@ void QAbstractItemModelReplicaPrivate::requestedData(QRemoteObjectPendingCallWat
     delete watcher;
 }
 
-void QAbstractItemModelReplicaPrivate::fetchPendingData()
+void QAbstractItemModelReplicaImplementation::fetchPendingData()
 {
     if (m_requestedData.isEmpty())
         return;
@@ -575,10 +600,12 @@ void QAbstractItemModelReplicaPrivate::fetchPendingData()
             const ModelIndex resStart(std::min(curIndStart.row, dataIndStart.row), std::min(curIndStart.column, dataIndStart.column));
             const ModelIndex resEnd(std::max(curIndEnd.row, dataIndEnd.row), std::max(curIndEnd.column, dataIndEnd.column));
             QVector<int> roles = curData.roles;
-            if (!curData.roles.isEmpty())
-                Q_FOREACH (int role, data.roles)
+            if (!curData.roles.isEmpty()) {
+                Q_FOREACH (int role, data.roles) {
                     if (!curData.roles.contains(role))
                         roles.append(role);
+                }
+            }
             QRect firstRect( QPoint(curIndStart.row, curIndStart.column), QPoint(curIndEnd.row, curIndEnd.column));
             QRect secondRect( QPoint(dataIndStart.row, dataIndStart.column), QPoint(dataIndEnd.row, dataIndEnd.column));
 
@@ -616,19 +643,22 @@ void QAbstractItemModelReplicaPrivate::fetchPendingData()
         RowWatcher *watcher = new RowWatcher(it->start, it->end, it->roles, reply);
         rows += 1 + it->end.first().row - it->start.first().row;
         m_pendingRequests.push_back(watcher);
-        connect(watcher, &RowWatcher::finished, this, &QAbstractItemModelReplicaPrivate::requestedData);
+        connect(watcher, &RowWatcher::finished, this, &QAbstractItemModelReplicaImplementation::requestedData);
     }
     m_requestedData.clear();
 }
 
-void QAbstractItemModelReplicaPrivate::onModelReset()
+void QAbstractItemModelReplicaImplementation::onModelReset()
 {
+    if (!m_initDone)
+        return;
+
     qCDebug(QT_REMOTEOBJECT_MODELS) << Q_FUNC_INFO;
-    SizeWatcher *watcher = doModelReset();
-    connect(watcher, &SizeWatcher::finished, this, &QAbstractItemModelReplicaPrivate::handleModelResetDone);
+    QRemoteObjectPendingCallWatcher *watcher = doModelReset();
+    connect(watcher, &QRemoteObjectPendingCallWatcher::finished, this, &QAbstractItemModelReplicaImplementation::handleModelResetDone);
 }
 
-void QAbstractItemModelReplicaPrivate::onHeaderDataChanged(Qt::Orientation orientation, int first, int last)
+void QAbstractItemModelReplicaImplementation::onHeaderDataChanged(Qt::Orientation orientation, int first, int last)
 {
     // TODO clean cache
     const int index = orientation == Qt::Horizontal ? 0 : 1;
@@ -638,7 +668,7 @@ void QAbstractItemModelReplicaPrivate::onHeaderDataChanged(Qt::Orientation orien
     emit q->headerDataChanged(orientation, first, last);
 }
 
-void QAbstractItemModelReplicaPrivate::fetchPendingHeaderData()
+void QAbstractItemModelReplicaImplementation::fetchPendingHeaderData()
 {
     QVector<int> roles;
     QVector<int> sections;
@@ -650,7 +680,7 @@ void QAbstractItemModelReplicaPrivate::fetchPendingHeaderData()
     }
     QRemoteObjectPendingReply<QVariantList> reply = replicaHeaderRequest(orientations, sections, roles);
     HeaderWatcher *watcher = new HeaderWatcher(orientations, sections, roles, reply);
-    connect(watcher, &HeaderWatcher::finished, this, &QAbstractItemModelReplicaPrivate::requestedHeaderData);
+    connect(watcher, &HeaderWatcher::finished, this, &QAbstractItemModelReplicaImplementation::requestedHeaderData);
     m_requestedHeaderData.clear();
     m_pendingRequests.push_back(watcher);
 }
@@ -679,7 +709,7 @@ static inline QVector<QPair<int, int> > listRanges(const QVector<int> &list)
     return result;
 }
 
-void QAbstractItemModelReplicaPrivate::requestedHeaderData(QRemoteObjectPendingCallWatcher *qobject)
+void QAbstractItemModelReplicaImplementation::requestedHeaderData(QRemoteObjectPendingCallWatcher *qobject)
 {
     HeaderWatcher *watcher = static_cast<HeaderWatcher *>(qobject);
     Q_ASSERT(watcher);
@@ -712,13 +742,15 @@ void QAbstractItemModelReplicaPrivate::requestedHeaderData(QRemoteObjectPendingC
     delete watcher;
 }
 
-QAbstractItemModelReplica::QAbstractItemModelReplica(QAbstractItemModelReplicaPrivate *rep)
+QAbstractItemModelReplica::QAbstractItemModelReplica(QAbstractItemModelReplicaImplementation *rep, QtRemoteObjects::InitialAction action, const QVector<int> &rolesHint)
     : QAbstractItemModel()
     , d(rep)
 {
-    rep->setModel(this);
+    d->m_initialAction = action;
+    d->m_initialFetchRolesHint = rolesHint;
 
-    connect(rep, &QAbstractItemModelReplicaPrivate::initialized, d.data(), &QAbstractItemModelReplicaPrivate::init);
+    rep->setModel(this);
+    connect(rep, &QAbstractItemModelReplicaImplementation::initialized, d.data(), &QAbstractItemModelReplicaImplementation::init);
 }
 
 QAbstractItemModelReplica::~QAbstractItemModelReplica()
@@ -869,7 +901,7 @@ int QAbstractItemModelReplica::rowCount(const QModelIndex &parent) const
         IndexList parentList = toModelIndexList(parent, this);
         QRemoteObjectPendingReply<QSize> reply = d->replicaSizeRequest(parentList);
         SizeWatcher *watcher = new SizeWatcher(parentList, reply);
-        connect(watcher, &SizeWatcher::finished, d.data(), &QAbstractItemModelReplicaPrivate::handleSizeDone);
+        connect(watcher, &SizeWatcher::finished, d.data(), &QAbstractItemModelReplicaImplementation::handleSizeDone);
     } else if (parent.column() > 0) {
         return 0;
     }

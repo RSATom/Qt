@@ -57,40 +57,19 @@ std::string SysInfo::OperatingSystemVersion() {
 void SysInfo::OperatingSystemVersionNumbers(int32_t* major_version,
                                             int32_t* minor_version,
                                             int32_t* bugfix_version) {
-  NSProcessInfo* processInfo = [NSProcessInfo processInfo];
-  // We should try to avoid using Gestalt here because it has been observed to
-  // spin up threads among other things. Using an availability check here would
-  // prevent us from using the private API in 10.9.2. So use a
-  // respondsToSelector check here instead and silence the warning.
-  if ([processInfo respondsToSelector:@selector(operatingSystemVersion)]) {
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wunguarded-availability"
-    NSOperatingSystemVersion version = [processInfo operatingSystemVersion];
-#pragma clang diagnostic pop
+  if (base::mac::IsAtLeastOS10_10()) {
+    NSOperatingSystemVersion version =
+        [[NSProcessInfo processInfo] operatingSystemVersion];
     *major_version = version.majorVersion;
     *minor_version = version.minorVersion;
     *bugfix_version = version.patchVersion;
   } else {
-    // -[NSProcessInfo operatingSystemVersion] is documented available in 10.10.
-    // It's also available via a private API since 10.9.2. For the remaining
-    // cases in 10.9, rely on ::Gestalt(..). Since this code is only needed for
-    // 10.9.0 and 10.9.1 and uses the recommended replacement thereafter,
-    // suppress the warning for this fallback case.
-    DCHECK(base::mac::IsOS10_9());
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-    Gestalt(gestaltSystemVersionMajor,
-            reinterpret_cast<SInt32*>(major_version));
-    Gestalt(gestaltSystemVersionMinor,
-            reinterpret_cast<SInt32*>(minor_version));
-    Gestalt(gestaltSystemVersionBugFix,
-            reinterpret_cast<SInt32*>(bugfix_version));
-#pragma clang diagnostic pop
+    NOTREACHED();
   }
 }
 
 // static
-int64_t SysInfo::AmountOfPhysicalMemory() {
+int64_t SysInfo::AmountOfPhysicalMemoryImpl() {
   struct host_basic_info hostinfo;
   mach_msg_type_number_t count = HOST_BASIC_INFO_COUNT;
   base::mac::ScopedMachSendRight host(mach_host_self());
@@ -107,7 +86,7 @@ int64_t SysInfo::AmountOfPhysicalMemory() {
 }
 
 // static
-int64_t SysInfo::AmountOfAvailablePhysicalMemory() {
+int64_t SysInfo::AmountOfAvailablePhysicalMemoryImpl() {
   SystemMemoryInfoKB info;
   if (!GetSystemMemoryInfo(&info))
     return 0;

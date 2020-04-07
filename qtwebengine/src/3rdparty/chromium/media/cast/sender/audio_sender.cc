@@ -8,7 +8,6 @@
 
 #include "base/bind.h"
 #include "base/logging.h"
-#include "base/message_loop/message_loop.h"
 #include "media/cast/common/rtp_time.h"
 #include "media/cast/net/cast_transport_config.h"
 #include "media/cast/sender/audio_encoder.h"
@@ -51,7 +50,7 @@ AudioSender::AudioSender(scoped_refptr<CastEnvironment> cast_environment,
       audio_config.rtp_timebase / audio_encoder_->GetSamplesPerFrame();
 }
 
-AudioSender::~AudioSender() {}
+AudioSender::~AudioSender() = default;
 
 void AudioSender::InsertAudio(std::unique_ptr<AudioBus> audio_bus,
                               const base::TimeTicks& recorded_time) {

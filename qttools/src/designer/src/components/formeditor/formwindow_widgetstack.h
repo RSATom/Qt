@@ -31,7 +31,7 @@
 
 #include "formeditor_global.h"
 
-#include <QtWidgets/QWidget>
+#include <QtWidgets/qwidget.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -47,7 +47,7 @@ class QT_FORMEDITOR_EXPORT FormWindowWidgetStack: public QObject
     Q_OBJECT
 public:
     FormWindowWidgetStack(QObject *parent = 0);
-    virtual ~FormWindowWidgetStack();
+    ~FormWindowWidgetStack() override;
 
     QLayout *layout() const;
 

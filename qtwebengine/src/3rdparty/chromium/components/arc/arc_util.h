@@ -9,6 +9,8 @@
 // outside of ARC, e.g. CommandLine flag, attribute of global data/state,
 // users' preferences, and FeatureList.
 
+#include <stdint.h>
+
 namespace aura {
 class Window;
 }  // namespace aura
@@ -46,6 +48,9 @@ bool IsPlayStoreAvailable();
 // mode.
 bool ShouldArcAlwaysStart();
 
+// Returns true if ARC OptIn ui needs to be shown for testing.
+bool ShouldShowOptInForTesting();
+
 // Enables to always start ARC for testing, by appending the command line flag.
 // If |bool play_store_available| is not set then flag that disables ARC Play
 // Store UI is added.
@@ -75,6 +80,16 @@ void SetArcAvailableCommandLineForTesting(base::CommandLine* command_line);
 // should also return true in that case.
 bool IsArcKioskMode();
 
+// Returns true if current user is a robot account user, or offline demo mode
+// user.
+// These are Public Session and ARC Kiosk users. Note that demo mode, including
+// offline demo mode, is implemented as a Public Session - offline demo mode
+// is setup offline and it isn't associated with a working robot account.
+// As it can return true only when user is already initialized, it implies
+// that ARC availability was checked before.
+// The check is basically IsArcKioskMode() | IsLoggedInAsPublicSession().
+bool IsRobotOrOfflineDemoAccountMode();
+
 // Returns true if ARC is allowed for the given user. Note this should not be
 // used as a signal of whether ARC is allowed alone because it only considers
 // user meta data. e.g. a user could be allowed for ARC but if the user signs in
@@ -88,12 +103,20 @@ bool IsArcOptInVerificationDisabled();
 
 // Returns true if the |window|'s aura::client::kAppType is ARC_APP. When
 // |window| is nullptr, returns false.
-bool IsArcAppWindow(aura::Window* window);
+bool IsArcAppWindow(const aura::Window* window);
+
+// Returns true if data clean up is requested for each ARC start.
+bool IsArcDataCleanupOnStartRequested();
 
 // Adjusts the amount of CPU the ARC instance is allowed to use. When
 // |do_restrict| is true, the limit is adjusted so ARC can only use tightly
 // restricted CPU resources.
+// TODO(yusukes): Use enum instead of bool.
 void SetArcCpuRestriction(bool do_restrict);
+
+// Returns the Android density that should be used for the given device scale
+// factor used on chrome.
+int32_t GetLcdDensityForDeviceScaleFactor(float device_scale_factor);
 
 }  // namespace arc
 

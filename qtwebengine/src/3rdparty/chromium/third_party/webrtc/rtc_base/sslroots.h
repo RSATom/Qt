@@ -8,8 +8,8 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_RTC_BASE_SSLROOTS_H_
-#define WEBRTC_RTC_BASE_SSLROOTS_H_
+#ifndef RTC_BASE_SSLROOTS_H_
+#define RTC_BASE_SSLROOTS_H_
 
 // This file is the root certificates in C form that are needed to connect to
 // Google.
@@ -17,6 +17,10 @@
 // It was generated with the following command line:
 // > python tools/sslroots/generate_sslroots.py
 //    https://pki.google.com/roots.pem
+
+// clang-format off
+// Don't bother formatting generated code,
+// also it would breaks subject/issuer lines.
 
 /* subject:/C=BE/O=GlobalSign nv-sa/OU=Root CA/CN=GlobalSign Root CA */
 /* issuer :/C=BE/O=GlobalSign nv-sa/OU=Root CA/CN=GlobalSign Root CA */
@@ -4153,7 +4157,7 @@ const unsigned char UTN_DATACorp_SGC_Root_CA_certificate[1122]={
 };
 
 
-const unsigned char* kSSLCertCertificateList[] = {
+const unsigned char* const kSSLCertCertificateList[] = {
  GlobalSign_Root_CA_certificate,
  USERTrust_RSA_Certification_Authority_certificate,
  Starfield_Class_2_CA_certificate,
@@ -4277,4 +4281,6 @@ const size_t kSSLCertCertificateSizeList[] = {
   1122,
 };
 
-#endif  // WEBRTC_RTC_BASE_SSLROOTS_H_
+// clang-format on
+
+#endif  // RTC_BASE_SSLROOTS_H_

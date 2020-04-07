@@ -53,7 +53,7 @@
 
 #include <Qt3DRender/private/backendnode_p.h>
 #include <Qt3DCore/private/qnodecommand_p.h>
-#include <QMatrix4x4>
+#include <Qt3DCore/private/matrix4x4_p.h>
 #include <QRectF>
 
 QT_BEGIN_NAMESPACE
@@ -70,9 +70,9 @@ class CameraLensFunctor : public Qt3DCore::QBackendNodeMapper
 {
 public:
     explicit CameraLensFunctor(AbstractRenderer *renderer, QRenderAspect *renderAspect);
-    Qt3DCore::QBackendNode *create(const Qt3DCore::QNodeCreatedChangeBasePtr &change) const Q_DECL_OVERRIDE;
-    Qt3DCore::QBackendNode *get(Qt3DCore::QNodeId id) const Q_DECL_OVERRIDE;
-    void destroy(Qt3DCore::QNodeId id) const Q_DECL_OVERRIDE;
+    Qt3DCore::QBackendNode *create(const Qt3DCore::QNodeCreatedChangeBasePtr &change) const override;
+    Qt3DCore::QBackendNode *get(Qt3DCore::QNodeId id) const override;
+    void destroy(Qt3DCore::QNodeId id) const override;
 
 private:
     CameraManager *m_manager;
@@ -89,29 +89,29 @@ public:
 
     void setRenderAspect(QRenderAspect* renderAspect);
 
-    QMatrix4x4 viewMatrix(const QMatrix4x4 &worldTransform);
+    Matrix4x4 viewMatrix(const Matrix4x4 &worldTransform);
 
-    void setProjection(const QMatrix4x4 &projection);
-    inline QMatrix4x4 projection() const { return m_projection; }
+    void setProjection(const Matrix4x4 &projection);
+    inline Matrix4x4 projection() const { return m_projection; }
 
     void setExposure(float exposure);
     inline float exposure() const { return m_exposure; }
 
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) Q_DECL_OVERRIDE;
+    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) override;
     void notifySceneBoundingVolume(const Sphere &sphere, Qt3DCore::QNodeCommand::CommandId commandId);
 
     static bool viewMatrixForCamera(EntityManager *manager, Qt3DCore::QNodeId cameraId,
-                                    QMatrix4x4 &viewMatrix, QMatrix4x4 &projectionMatrix);
+                                    Matrix4x4 &viewMatrix, Matrix4x4 &projectionMatrix);
 
 private:
-    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) Q_DECL_FINAL;
+    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) final;
     void computeSceneBoundingVolume(Qt3DCore::QNodeId entityId,
                                     Qt3DCore::QNodeId cameraId,
                                     Qt3DCore::QNodeCommand::CommandId commandId);
 
     QRenderAspect *m_renderAspect;
-    QMatrix4x4 m_projection;
     Qt3DCore::QNodeCommand::CommandId m_pendingViewAllCommand;
+    Matrix4x4 m_projection;
     float m_exposure;
 };
 

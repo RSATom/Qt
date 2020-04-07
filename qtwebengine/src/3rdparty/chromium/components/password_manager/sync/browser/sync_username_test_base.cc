@@ -5,7 +5,7 @@
 #include "components/password_manager/sync/browser/sync_username_test_base.h"
 
 #include "base/strings/utf_string_conversions.h"
-#include "components/signin/core/common/signin_pref_names.h"
+#include "components/signin/core/browser/signin_pref_names.h"
 
 using autofill::PasswordForm;
 
@@ -38,7 +38,7 @@ void SyncUsernameTestBase::FakeSigninAs(const std::string& email) {
 }
 
 void SyncUsernameTestBase::FakeSignout() {
-  signin_manager_.clear_authenticated_user();
+  signin_manager_.ClearAuthenticatedAccountId();
   prefs_.SetString(prefs::kGoogleServicesAccountId, std::string());
 }
 
@@ -55,6 +55,16 @@ PasswordForm SyncUsernameTestBase::SimpleNonGaiaForm(const char* username) {
   PasswordForm form;
   form.signon_realm = "https://site.com";
   form.username_value = base::ASCIIToUTF16(username);
+  return form;
+}
+
+// static
+PasswordForm SyncUsernameTestBase::SimpleNonGaiaForm(const char* username,
+                                                     const char* origin) {
+  PasswordForm form;
+  form.signon_realm = "https://site.com";
+  form.username_value = base::ASCIIToUTF16(username);
+  form.origin = GURL(origin);
   return form;
 }
 

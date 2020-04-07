@@ -8,7 +8,7 @@
 
 #include "base/logging.h"
 #include "base/macros.h"
-#include "media/filters/h264_parser.h"
+#include "media/video/h264_parser.h"
 #include "media/video/h264_poc.h"
 
 namespace media {
@@ -45,7 +45,7 @@ H264POC::H264POC() {
   Reset();
 }
 
-H264POC::~H264POC() {}
+H264POC::~H264POC() = default;
 
 void H264POC::Reset() {
   // It shouldn't be necessary to reset these values, but doing so will improve

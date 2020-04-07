@@ -54,6 +54,11 @@ namespace MyNamespace {
             MyEnum2,
             MyEnum3
         };
+        enum class MyScopedEnum {
+            Enum1,
+            Enum2,
+            Enum3
+        };
         enum MyAnotherEnum {
             MyAnotherEnum1 = 1,
             MyAnotherEnum2 = 2,
@@ -64,7 +69,13 @@ namespace MyNamespace {
             MyFlag2 = 0x02,
             MyFlag3 = 0x04
         };
+        enum class MyScopedFlag {
+            MyFlag1 = 0x10,
+            MyFlag2 = 0x20,
+            MyFlag3 = 0x40
+        };
         Q_DECLARE_FLAGS(MyFlags, MyFlag)
+        Q_DECLARE_FLAGS(MyScopedFlags, MyScopedFlag)
 
         MyEnum myEnum() const { return m_enum; }
         void setMyEnum(MyEnum val) { m_enum = val; }
@@ -79,8 +90,10 @@ namespace MyNamespace {
                 { }
     private:
         Q_ENUM(MyEnum)
+        Q_ENUM(MyScopedEnum)
         Q_ENUM(MyAnotherEnum)
         Q_FLAG(MyFlags)
+        Q_FLAG(MyScopedFlags)
 
         MyEnum m_enum;
         MyFlags m_flags;
@@ -1730,20 +1743,35 @@ void tst_QMetaObject::signalIndex()
 
 void tst_QMetaObject::enumDebugStream()
 {
-    QTest::ignoreMessage(QtDebugMsg, "hello MyNamespace::MyClass::MyEnum(MyEnum2) world ");
-    MyNamespace::MyClass::MyEnum e = MyNamespace::MyClass::MyEnum2;
-    qDebug() << "hello" << e << "world";
+    QTest::ignoreMessage(QtDebugMsg, "hello MyNamespace::MyClass::MyEnum2 world ");
+    qDebug() << "hello" << MyNamespace::MyClass::MyEnum2 << "world";
 
-    QTest::ignoreMessage(QtDebugMsg, "Qt::WindowType(WindowTitleHint) Qt::WindowType(Window) Qt::WindowType(Desktop) Qt::WindowType(WindowSystemMenuHint)");
-    qDebug() << Qt::WindowTitleHint << Qt::Window <<Qt::Desktop << Qt::WindowSystemMenuHint;
+    QTest::ignoreMessage(QtDebugMsg, "hello MyNamespace::MyClass::MyScopedEnum::Enum3 scoped world ");
+    qDebug() << "hello" << MyNamespace::MyClass::MyScopedEnum::Enum3 << "scoped world";
 
-    QTest::ignoreMessage(QtDebugMsg, "hello QFlags<MyNamespace::MyClass::MyFlags>(MyFlag1) world");
+    QTest::ignoreMessage(QtDebugMsg, "Qt::WindowTitleHint Qt::Window Qt::Desktop Qt::WindowSystemMenuHint");
+    qDebug() << Qt::WindowTitleHint << Qt::Window << Qt::Desktop << Qt::WindowSystemMenuHint;
+
+    QTest::ignoreMessage(QtDebugMsg, "hello QFlags<MyNamespace::MyClass::MyFlag>(MyFlag1) world");
     MyNamespace::MyClass::MyFlags f1 = MyNamespace::MyClass::MyFlag1;
     qDebug() << "hello" << f1 << "world";
 
     MyNamespace::MyClass::MyFlags f2 = MyNamespace::MyClass::MyFlag2 | MyNamespace::MyClass::MyFlag3;
-    QTest::ignoreMessage(QtDebugMsg, "QFlags<MyNamespace::MyClass::MyFlags>(MyFlag1) QFlags<MyNamespace::MyClass::MyFlags>(MyFlag2|MyFlag3)");
+    QTest::ignoreMessage(QtDebugMsg, "QFlags<MyNamespace::MyClass::MyFlag>(MyFlag1) QFlags<MyNamespace::MyClass::MyFlag>(MyFlag2|MyFlag3)");
     qDebug() << f1 << f2;
+
+    QTest::ignoreMessage(QtDebugMsg, "QFlags<MyNamespace::MyClass::MyScopedFlag>(MyFlag2)");
+    MyNamespace::MyClass::MyScopedFlags f3 = MyNamespace::MyClass::MyScopedFlag::MyFlag2;
+    qDebug() << f3;
+
+    QTest::ignoreMessage(QtDebugMsg, "QFlags<MyNamespace::MyClass::MyScopedFlag>(MyFlag2|MyFlag3)");
+    f3 |= MyNamespace::MyClass::MyScopedFlag::MyFlag3;
+    qDebug() << f3;
+
+    // Single flag recognized as enum:
+    QTest::ignoreMessage(QtDebugMsg, "MyNamespace::MyClass::MyFlag1");
+    MyNamespace::MyClass::MyFlag f4 = MyNamespace::MyClass::MyFlag1;
+    qDebug() << f4;
 }
 
 void tst_QMetaObject::inherits_data()

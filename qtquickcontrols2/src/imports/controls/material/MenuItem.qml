@@ -34,26 +34,24 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.10
-import QtQuick.Templates 2.3 as T
-import QtQuick.Controls 2.3
-import QtQuick.Controls.impl 2.3
-import QtQuick.Controls.Material 2.3
-import QtQuick.Controls.Material.impl 2.3
+import QtQuick 2.12
+import QtQuick.Templates 2.12 as T
+import QtQuick.Controls 2.12
+import QtQuick.Controls.impl 2.12
+import QtQuick.Controls.Material 2.12
+import QtQuick.Controls.Material.impl 2.12
 
 T.MenuItem {
     id: control
 
-    implicitWidth: Math.max(background ? background.implicitWidth : 0,
-                            contentItem.implicitWidth + leftPadding + rightPadding)
-    implicitHeight: Math.max(background ? background.implicitHeight : 0,
-                             Math.max(contentItem.implicitHeight,
-                                      indicator ? indicator.implicitHeight : 0) + topPadding + bottomPadding)
-    baselineOffset: contentItem.y + contentItem.baselineOffset
+    implicitWidth: Math.max(implicitBackgroundWidth + leftInset + rightInset,
+                            implicitContentWidth + leftPadding + rightPadding)
+    implicitHeight: Math.max(implicitBackgroundHeight + topInset + bottomInset,
+                             implicitContentHeight + topPadding + bottomPadding,
+                             implicitIndicatorHeight + topPadding + bottomPadding)
 
     padding: 16
-    topPadding: 12
-    bottomPadding: 12
+    verticalPadding: Material.menuItemVerticalPadding
     spacing: 16
 
     icon.width: 24
@@ -65,6 +63,7 @@ T.MenuItem {
         y: control.topPadding + (control.availableHeight - height) / 2
         visible: control.checkable
         control: control
+        checkState: control.checked ? Qt.Checked : Qt.Unchecked
     }
 
     arrow: ColorImage {
@@ -96,7 +95,7 @@ T.MenuItem {
 
     background: Rectangle {
         implicitWidth: 200
-        implicitHeight: 48
+        implicitHeight: control.Material.menuItemHeight
         color: control.highlighted ? control.Material.listHighlightColor : "transparent"
 
         Ripple {

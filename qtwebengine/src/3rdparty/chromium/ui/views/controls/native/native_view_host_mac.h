@@ -10,12 +10,16 @@
 #include "ui/views/controls/native/native_view_host_wrapper.h"
 #include "ui/views/views_export.h"
 
+namespace ui {
+class LayerOwner;
+}
+
 namespace views {
 
 class NativeViewHost;
 
 // Mac implementation of NativeViewHostWrapper.
-class VIEWS_EXPORT NativeViewHostMac : public NativeViewHostWrapper {
+class NativeViewHostMac : public NativeViewHostWrapper {
  public:
   explicit NativeViewHostMac(NativeViewHost* host);
   ~NativeViewHostMac() override;
@@ -25,10 +29,12 @@ class VIEWS_EXPORT NativeViewHostMac : public NativeViewHostWrapper {
   void NativeViewDetaching(bool destroyed) override;
   void AddedToWidget() override;
   void RemovedFromWidget() override;
+  bool SetCustomMask(std::unique_ptr<ui::LayerOwner> mask) override;
   void InstallClip(int x, int y, int w, int h) override;
   bool HasInstalledClip() override;
   void UninstallClip() override;
-  void ShowWidget(int x, int y, int w, int h) override;
+  void ShowWidget(int x, int y, int w, int h, int native_w, int native_h)
+      override;
   void HideWidget() override;
   void SetFocus() override;
   gfx::NativeViewAccessible GetNativeViewAccessible() override;
@@ -46,4 +52,4 @@ class VIEWS_EXPORT NativeViewHostMac : public NativeViewHostWrapper {
 
 }  // namespace views
 
-#endif  // UI_VIEWS_CONTROLS_NATIVE_NATIVE_VIEW_HOST_AURA_H_
+#endif  // UI_VIEWS_CONTROLS_NATIVE_NATIVE_VIEW_HOST_MAC_H_

@@ -47,6 +47,7 @@ import java.util.concurrent.Semaphore;
 import android.app.Activity;
 import android.app.Service;
 import android.content.Context;
+import android.content.ContentResolver;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.pm.ActivityInfo;
@@ -57,6 +58,7 @@ import android.os.IBinder;
 import android.os.Looper;
 import android.content.ClipboardManager;
 import android.content.ClipboardManager.OnPrimaryClipChangedListener;
+import android.content.ClipData;
 import android.util.Log;
 import android.view.ContextMenu;
 import android.view.KeyEvent;
@@ -98,6 +100,9 @@ public class QtNative
     private static ClipboardManager m_clipboardManager = null;
     private static Method m_checkSelfPermissionMethod = null;
     private static Boolean m_tabletEventSupported = null;
+    private static boolean m_usePrimaryClip = false;
+    public static QtThread m_qtThread = new QtThread();
+    private static Method m_addItemMethod = null;
     private static final Runnable runPendingCppRunnablesRunnable = new Runnable() {
         @Override
         public void run() {
@@ -164,55 +169,101 @@ public class QtNative
     }
 
     // this method loads full path libs
-    public static void loadQtLibraries(ArrayList<String> libraries)
+    public static void loadQtLibraries(final ArrayList<String> libraries)
     {
-        if (libraries == null)
-            return;
-
-        for (String libName : libraries) {
-            try {
-                File f = new File(libName);
-                if (f.exists())
-                    System.load(libName);
-            } catch (SecurityException e) {
-                Log.i(QtTAG, "Can't load '" + libName + "'", e);
-            } catch (Exception e) {
-                Log.i(QtTAG, "Can't load '" + libName + "'", e);
+        m_qtThread.run(new Runnable() {
+            @Override
+            public void run() {
+                if (libraries == null)
+                    return;
+                for (String libName : libraries) {
+                    try {
+                        File f = new File(libName);
+                        if (f.exists())
+                            System.load(libName);
+                        else
+                            Log.i(QtTAG, "Can't find '" + libName + "'");
+                    } catch (SecurityException e) {
+                        Log.i(QtTAG, "Can't load '" + libName + "'", e);
+                    } catch (Exception e) {
+                        Log.i(QtTAG, "Can't load '" + libName + "'", e);
+                    }
+                }
             }
-        }
+        });
     }
 
     // this method loads bundled libs by name.
-    public static void loadBundledLibraries(ArrayList<String> libraries, String nativeLibraryDir)
+    public static void loadBundledLibraries(final ArrayList<String> libraries, final String nativeLibraryDir)
     {
-        if (libraries == null)
-            return;
+        m_qtThread.run(new Runnable() {
+            @Override
+            public void run() {
+                if (libraries == null)
+                    return;
 
-        for (String libName : libraries) {
-            try {
-                String libNameTemplate = "lib" + libName + ".so";
-                File f = new File(nativeLibraryDir + libNameTemplate);
-                if (!f.exists()) {
-                    Log.i(QtTAG, "Can't find '" + f.getAbsolutePath());
+                for (String libName : libraries) {
                     try {
-                        ActivityInfo info = m_activity.getPackageManager().getActivityInfo(m_activity.getComponentName(),
-                                                                                   PackageManager.GET_META_DATA);
-                        String systemLibraryDir = QtNativeLibrariesDir.systemLibrariesDir;
-                        if (info.metaData.containsKey("android.app.system_libs_prefix"))
-                            systemLibraryDir = info.metaData.getString("android.app.system_libs_prefix");
-                        f = new File(systemLibraryDir + libNameTemplate);
-                    } catch (Exception e) {
+                        String libNameTemplate = "lib" + libName + ".so";
+                        File f = new File(nativeLibraryDir + libNameTemplate);
+                        if (!f.exists()) {
+                            Log.i(QtTAG, "Can't find '" + f.getAbsolutePath());
+                            try {
+                                ActivityInfo info = m_activity.getPackageManager().getActivityInfo(m_activity.getComponentName(),
+                                                                                           PackageManager.GET_META_DATA);
+                                String systemLibraryDir = QtNativeLibrariesDir.systemLibrariesDir;
+                                if (info.metaData.containsKey("android.app.system_libs_prefix"))
+                                    systemLibraryDir = info.metaData.getString("android.app.system_libs_prefix");
+                                f = new File(systemLibraryDir + libNameTemplate);
+                            } catch (Exception e) {
 
+                            }
+                        }
+                        if (f.exists())
+                            System.load(f.getAbsolutePath());
+                        else
+                            Log.i(QtTAG, "Can't find '" + f.getAbsolutePath());
+                    } catch (Exception e) {
+                        Log.i(QtTAG, "Can't load '" + libName + "'", e);
                     }
                 }
-                if (f.exists())
-                    System.load(f.getAbsolutePath());
-                else
-                    Log.i(QtTAG, "Can't find '" + f.getAbsolutePath());
-            } catch (Exception e) {
-                Log.i(QtTAG, "Can't load '" + libName + "'", e);
             }
-        }
+        });
+    }
+
+    public static String loadMainLibrary(final String mainLibrary, final String nativeLibraryDir)
+    {
+        final String[] res = new String[1];
+        res[0] = null;
+        m_qtThread.run(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    String mainLibNameTemplate = "lib" + mainLibrary + ".so";
+                    File f = new File(nativeLibraryDir + mainLibNameTemplate);
+                    if (!f.exists()) {
+                        try {
+                            ActivityInfo info = m_activity.getPackageManager().getActivityInfo(m_activity.getComponentName(),
+                                    PackageManager.GET_META_DATA);
+                            String systemLibraryDir = QtNativeLibrariesDir.systemLibrariesDir;
+                            if (info.metaData.containsKey("android.app.system_libs_prefix"))
+                                systemLibraryDir = info.metaData.getString("android.app.system_libs_prefix");
+                            f = new File(systemLibraryDir + mainLibNameTemplate);
+                        } catch (Exception e) {
+                            e.printStackTrace();
+                            return;
+                        }
+                    }
+                    if (!f.exists())
+                        return;
+                    System.load(f.getAbsolutePath());
+                    res[0] = f.getAbsolutePath();
+                } catch (Exception e) {
+                    Log.e(QtTAG, "Can't load '" + mainLibrary + "'", e);
+                }
+            }
+        });
+        return res[0];
     }
 
     public static void setActivity(Activity qtMainActivity, QtActivityDelegate qtActivityDelegate)
@@ -292,48 +343,41 @@ public class QtNative
         });
     }
 
-    public static boolean startApplication(String params,
-                                           String environment,
-                                           String mainLibrary,
-                                           String nativeLibraryDir) throws Exception
+    public static boolean startApplication(String params, final String environment, String mainLib) throws Exception
     {
-        String mainLibNameTemplate = "lib" + mainLibrary + ".so";
-        File f = new File(nativeLibraryDir + mainLibNameTemplate);
-        if (!f.exists()) {
-            try {
-                ActivityInfo info = m_activity.getPackageManager().getActivityInfo(m_activity.getComponentName(),
-                                                                                   PackageManager.GET_META_DATA);
-                String systemLibraryDir = QtNativeLibrariesDir.systemLibrariesDir;
-                if (info.metaData.containsKey("android.app.system_libs_prefix"))
-                    systemLibraryDir = info.metaData.getString("android.app.system_libs_prefix");
-                f = new File(systemLibraryDir + mainLibNameTemplate);
-            } catch (Exception e) {
-
-            }
-        }
-        if (!f.exists())
-            throw new Exception("Can't find main library '" + mainLibrary + "'");
-
         if (params == null)
             params = "-platform\tandroid";
 
-        boolean res = false;
+        final boolean[] res = new boolean[1];
+        res[0] = false;
         synchronized (m_mainActivityMutex) {
-            res = startQtAndroidPlugin();
-            setDisplayMetrics(m_displayMetricsScreenWidthPixels,
-                              m_displayMetricsScreenHeightPixels,
-                              m_displayMetricsDesktopWidthPixels,
-                              m_displayMetricsDesktopHeightPixels,
-                              m_displayMetricsXDpi,
-                              m_displayMetricsYDpi,
-                              m_displayMetricsScaledDensity,
-                              m_displayMetricsDensity);
             if (params.length() > 0 && !params.startsWith("\t"))
                 params = "\t" + params;
-            startQtApplication(f.getAbsolutePath() + params, environment);
+            final String qtParams = mainLib + params;
+            m_qtThread.run(new Runnable() {
+                @Override
+                public void run() {
+                    res[0] = startQtAndroidPlugin(qtParams, environment);
+                    setDisplayMetrics(m_displayMetricsScreenWidthPixels,
+                                      m_displayMetricsScreenHeightPixels,
+                                      m_displayMetricsDesktopWidthPixels,
+                                      m_displayMetricsDesktopHeightPixels,
+                                      m_displayMetricsXDpi,
+                                      m_displayMetricsYDpi,
+                                      m_displayMetricsScaledDensity,
+                                      m_displayMetricsDensity);
+                }
+            });
+            m_qtThread.post(new Runnable() {
+                @Override
+                public void run() {
+                    startQtApplication();
+                }
+            });
+            waitForServiceSetup();
             m_started = true;
         }
-        return res;
+        return res[0];
     }
 
     public static void setApplicationDisplayMetrics(int screenWidthPixels,
@@ -377,8 +421,9 @@ public class QtNative
 
 
     // application methods
-    public static native void startQtApplication(String params, String env);
-    public static native boolean startQtAndroidPlugin();
+    public static native boolean startQtAndroidPlugin(String params, String env);
+    public static native void startQtApplication();
+    public static native void waitForServiceSetup();
     public static native void quitQtCoreApplication();
     public static native void quitQtAndroidPlugin();
     public static native void terminateQt();
@@ -439,10 +484,11 @@ public class QtNative
         case MotionEvent.TOOL_TYPE_ERASER:
             pointerType = 3; // QTabletEvent::Eraser
             break;
-        // TODO TOOL_TYPE_MOUSE
         }
 
-        if (m_tabletEventSupported && pointerType != 0) {
+        if (event.getToolType(0) == MotionEvent.TOOL_TYPE_MOUSE) {
+            sendMouseEvent(event, id);
+        } else if (m_tabletEventSupported && pointerType != 0) {
             tabletEvent(id, event.getDeviceId(), event.getEventTime(), event.getAction(), pointerType,
                 event.getButtonState(), event.getX(), event.getY(), event.getPressure());
         } else {
@@ -477,7 +523,22 @@ public class QtNative
 
     static public void sendTrackballEvent(MotionEvent event, int id)
     {
-        switch (event.getAction()) {
+        sendMouseEvent(event,id);
+    }
+
+    static public boolean sendGenericMotionEvent(MotionEvent event, int id)
+    {
+        if (((event.getAction() & (MotionEvent.ACTION_SCROLL | MotionEvent.ACTION_HOVER_MOVE)) == 0)
+                || (event.getSource() & InputDevice.SOURCE_CLASS_POINTER) != InputDevice.SOURCE_CLASS_POINTER) {
+            return false;
+        }
+
+        return sendMouseEvent(event, id);
+    }
+
+    static public boolean sendMouseEvent(MotionEvent event, int id)
+    {
+        switch (event.getActionMasked()) {
             case MotionEvent.ACTION_UP:
                 mouseUp(id, (int) event.getX(), (int) event.getY());
                 break;
@@ -487,28 +548,27 @@ public class QtNative
                 m_oldx = (int) event.getX();
                 m_oldy = (int) event.getY();
                 break;
-
+            case MotionEvent.ACTION_HOVER_MOVE:
             case MotionEvent.ACTION_MOVE:
-                int dx = (int) (event.getX() - m_oldx);
-                int dy = (int) (event.getY() - m_oldy);
-                if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
+                if (event.getToolType(0) == MotionEvent.TOOL_TYPE_MOUSE) {
+                    mouseMove(id, (int) event.getX(), (int) event.getY());
+                } else {
+                    int dx = (int) (event.getX() - m_oldx);
+                    int dy = (int) (event.getY() - m_oldy);
+                    if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
                         mouseMove(id, (int) event.getX(), (int) event.getY());
                         m_oldx = (int) event.getX();
                         m_oldy = (int) event.getY();
+                    }
                 }
                 break;
+            case MotionEvent.ACTION_SCROLL:
+                mouseWheel(id, (int) event.getX(), (int) event.getY(),
+                        event.getAxisValue(MotionEvent.AXIS_HSCROLL), event.getAxisValue(MotionEvent.AXIS_VSCROLL));
+                break;
+            default:
+                return false;
         }
-    }
-
-    static public boolean sendGenericMotionEvent(MotionEvent event, int id)
-    {
-        if (event.getActionMasked() != MotionEvent.ACTION_SCROLL
-                || (event.getSource() & InputDevice.SOURCE_CLASS_POINTER) != InputDevice.SOURCE_CLASS_POINTER) {
-            return false;
-        }
-
-        mouseWheel(id, (int) event.getX(), (int) event.getY(),
-                       event.getAxisValue(MotionEvent.AXIS_HSCROLL), event.getAxisValue(MotionEvent.AXIS_VSCROLL));
         return true;
     }
 
@@ -555,6 +615,9 @@ public class QtNative
     }
 
     private static void updateHandles(final int mode,
+                                      final int editX,
+                                      final int editY,
+                                      final int editButtons,
                                       final int x1,
                                       final int y1,
                                       final int x2,
@@ -564,7 +627,7 @@ public class QtNative
         runAction(new Runnable() {
             @Override
             public void run() {
-                m_activityDelegate.updateHandles(mode, x1, y1, x2, y2, rtl);
+                m_activityDelegate.updateHandles(mode, editX, editY, editButtons, x1, y1, x2, y2, rtl);
             }
         });
     }
@@ -647,26 +710,133 @@ public class QtNative
         }
     }
 
+    private static void clearClipData()
+    {
+        m_usePrimaryClip = false;
+    }
     private static void setClipboardText(String text)
     {
-        if (m_clipboardManager != null)
-            m_clipboardManager.setText(text);
+        if (m_clipboardManager != null) {
+            ClipData clipData = ClipData.newPlainText("text/plain", text);
+            updatePrimaryClip(clipData);
+        }
     }
 
     public static boolean hasClipboardText()
     {
-        if (m_clipboardManager != null)
-            return m_clipboardManager.hasText();
-        else
-            return false;
+        if (m_clipboardManager != null && m_clipboardManager.hasPrimaryClip()) {
+            ClipData primaryClip = m_clipboardManager.getPrimaryClip();
+            for (int i = 0; i < primaryClip.getItemCount(); ++i)
+                if (primaryClip.getItemAt(i).getText() != null)
+                    return true;
+        }
+        return false;
     }
 
     private static String getClipboardText()
     {
-        if (m_clipboardManager != null)
-            return m_clipboardManager.getText().toString();
-        else
-            return "";
+        if (m_clipboardManager != null && m_clipboardManager.hasPrimaryClip()) {
+            ClipData primaryClip = m_clipboardManager.getPrimaryClip();
+            for (int i = 0; i < primaryClip.getItemCount(); ++i)
+                if (primaryClip.getItemAt(i).getText() != null)
+                    return primaryClip.getItemAt(i).getText().toString();
+        }
+        return "";
+    }
+
+    private static void updatePrimaryClip(ClipData clipData)
+    {
+        if (m_usePrimaryClip) {
+            ClipData clip = m_clipboardManager.getPrimaryClip();
+            if (Build.VERSION.SDK_INT >= 26) {
+                if (m_addItemMethod == null) {
+                    Class[] cArg = new Class[2];
+                    cArg[0] = ContentResolver.class;
+                    cArg[1] = ClipData.Item.class;
+                    try {
+                        m_addItemMethod = m_clipboardManager.getClass().getMethod("addItem", cArg);
+                    } catch (Exception e) {
+                    }
+                }
+            }
+            if (m_addItemMethod != null) {
+                try {
+                    m_addItemMethod.invoke(m_activity.getContentResolver(), clipData.getItemAt(0));
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            } else {
+                clip.addItem(clipData.getItemAt(0));
+            }
+            m_clipboardManager.setPrimaryClip(clip);
+        } else {
+            m_clipboardManager.setPrimaryClip(clipData);
+            m_usePrimaryClip = true;
+        }
+    }
+
+    private static void setClipboardHtml(String text, String html)
+    {
+        if (m_clipboardManager != null) {
+            ClipData clipData = ClipData.newHtmlText("text/html", text, html);
+            updatePrimaryClip(clipData);
+        }
+    }
+
+    public static boolean hasClipboardHtml()
+    {
+        if (m_clipboardManager != null && m_clipboardManager.hasPrimaryClip()) {
+            ClipData primaryClip = m_clipboardManager.getPrimaryClip();
+            for (int i = 0; i < primaryClip.getItemCount(); ++i)
+                if (primaryClip.getItemAt(i).getHtmlText() != null)
+                    return true;
+        }
+        return false;
+    }
+
+    private static String getClipboardHtml()
+    {
+        if (m_clipboardManager != null && m_clipboardManager.hasPrimaryClip()) {
+            ClipData primaryClip = m_clipboardManager.getPrimaryClip();
+            for (int i = 0; i < primaryClip.getItemCount(); ++i)
+                if (primaryClip.getItemAt(i).getHtmlText() != null)
+                    return primaryClip.getItemAt(i).getHtmlText().toString();
+        }
+        return "";
+    }
+
+    private static void setClipboardUri(String uriString)
+    {
+        if (m_clipboardManager != null) {
+            ClipData clipData = ClipData.newUri(m_activity.getContentResolver(), "text/uri-list",
+                                                Uri.parse(uriString));
+            updatePrimaryClip(clipData);
+        }
+    }
+
+    public static boolean hasClipboardUri()
+    {
+        if (m_clipboardManager != null && m_clipboardManager.hasPrimaryClip()) {
+            ClipData primaryClip = m_clipboardManager.getPrimaryClip();
+            for (int i = 0; i < primaryClip.getItemCount(); ++i)
+                if (primaryClip.getItemAt(i).getUri() != null)
+                    return true;
+        }
+        return false;
+    }
+
+    private static String[] getClipboardUris()
+    {
+        ArrayList<String> uris = new ArrayList<String>();
+        if (m_clipboardManager != null && m_clipboardManager.hasPrimaryClip()) {
+            ClipData primaryClip = m_clipboardManager.getPrimaryClip();
+            for (int i = 0; i < primaryClip.getItemCount(); ++i)
+                if (primaryClip.getItemAt(i).getUri() != null)
+                    uris.add(primaryClip.getItemAt(i).getUri().toString());
+        }
+        String[] strings = new String[uris.size()];
+        strings = uris.toArray(strings);
+        return strings;
     }
 
     private static void openContextMenu(final int x, final int y, final int w, final int h)

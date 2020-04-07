@@ -18,6 +18,9 @@
 #include "compiler/preprocessor/Token.h"
 #include "compiler/preprocessor/Tokenizer.h"
 
+namespace angle
+{
+
 namespace
 {
 enum DirectiveType
@@ -212,6 +215,10 @@ DirectiveParser::DirectiveParser(Tokenizer *tokenizer,
       mDirectiveHandler(directiveHandler),
       mShaderVersion(100),
       mMaxMacroExpansionDepth(maxMacroExpansionDepth)
+{
+}
+
+DirectiveParser::~DirectiveParser()
 {
 }
 
@@ -994,3 +1001,5 @@ int DirectiveParser::parseExpressionIfdef(Token *token)
 }
 
 }  // namespace pp
+
+}  // namespace angle

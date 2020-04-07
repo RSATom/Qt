@@ -2,6 +2,7 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-config("vulkan_headers") {
+config("vulkan_config") {
+  defines = [ "VK_NO_PROTOTYPES" ]
   include_dirs = [ "include" ]
 }

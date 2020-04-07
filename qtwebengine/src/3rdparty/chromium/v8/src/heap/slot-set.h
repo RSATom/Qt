@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef V8_SLOT_SET_H
-#define V8_SLOT_SET_H
+#ifndef V8_HEAP_SLOT_SET_H_
+#define V8_HEAP_SLOT_SET_H_
 
 #include <map>
 #include <stack>
@@ -200,7 +200,7 @@ class SlotSet : public Malloced {
             uint32_t old_cell = cell;
             uint32_t mask = 0;
             while (cell) {
-              int bit_offset = base::bits::CountTrailingZeros32(cell);
+              int bit_offset = base::bits::CountTrailingZeros(cell);
               uint32_t bit_mask = 1u << bit_offset;
               uint32_t slot = (cell_offset + bit_offset) << kPointerSizeLog2;
               if (callback(page_start_ + slot) == KEEP_SLOT) {
@@ -225,20 +225,28 @@ class SlotSet : public Malloced {
     return new_count;
   }
 
+  int NumberOfPreFreedEmptyBuckets() {
+    base::LockGuard<base::Mutex> guard(&to_be_freed_buckets_mutex_);
+    return static_cast<int>(to_be_freed_buckets_.size());
+  }
+
   void PreFreeEmptyBuckets() {
     for (int bucket_index = 0; bucket_index < kBuckets; bucket_index++) {
       Bucket bucket = LoadBucket(&buckets_[bucket_index]);
       if (bucket != nullptr) {
-        bool found_non_empty_cell = false;
-        int cell_offset = bucket_index * kBitsPerBucket;
-        for (int i = 0; i < kCellsPerBucket; i++, cell_offset += kBitsPerCell) {
-          if (LoadCell(&bucket[i])) {
-            found_non_empty_cell = true;
-            break;
-          }
-        }
-        if (!found_non_empty_cell) {
+        if (IsEmptyBucket(bucket)) {
           PreFreeEmptyBucket(bucket_index);
+        }
+      }
+    }
+  }
+
+  void FreeEmptyBuckets() {
+    for (int bucket_index = 0; bucket_index < kBuckets; bucket_index++) {
+      Bucket bucket = LoadBucket(&buckets_[bucket_index]);
+      if (bucket != nullptr) {
+        if (IsEmptyBucket(bucket)) {
+          ReleaseBucket(bucket_index);
         }
       }
     }
@@ -251,6 +259,7 @@ class SlotSet : public Malloced {
       to_be_freed_buckets_.pop();
       DeleteArray<uint32_t>(top);
     }
+    DCHECK_EQ(0u, to_be_freed_buckets_.size());
   }
 
  private:
@@ -300,24 +309,33 @@ class SlotSet : public Malloced {
   template <AccessMode access_mode = AccessMode::ATOMIC>
   Bucket LoadBucket(Bucket* bucket) {
     if (access_mode == AccessMode::ATOMIC)
-      return base::AsAtomicWord::Acquire_Load(bucket);
+      return base::AsAtomicPointer::Acquire_Load(bucket);
     return *bucket;
   }
 
   template <AccessMode access_mode = AccessMode::ATOMIC>
   void StoreBucket(Bucket* bucket, Bucket value) {
     if (access_mode == AccessMode::ATOMIC) {
-      base::AsAtomicWord::Release_Store(bucket, value);
+      base::AsAtomicPointer::Release_Store(bucket, value);
     } else {
       *bucket = value;
     }
   }
 
+  bool IsEmptyBucket(Bucket bucket) {
+    for (int i = 0; i < kCellsPerBucket; i++) {
+      if (LoadCell(&bucket[i])) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   template <AccessMode access_mode = AccessMode::ATOMIC>
   bool SwapInNewBucket(Bucket* bucket, Bucket value) {
     if (access_mode == AccessMode::ATOMIC) {
-      return base::AsAtomicWord::Release_CompareAndSwap(bucket, nullptr,
-                                                        value) == nullptr;
+      return base::AsAtomicPointer::Release_CompareAndSwap(bucket, nullptr,
+                                                           value) == nullptr;
     } else {
       DCHECK_NULL(*bucket);
       *bucket = value;
@@ -369,10 +387,8 @@ class SlotSet : public Malloced {
 enum SlotType {
   EMBEDDED_OBJECT_SLOT,
   OBJECT_SLOT,
-  CELL_TARGET_SLOT,
   CODE_TARGET_SLOT,
   CODE_ENTRY_SLOT,
-  DEBUG_TARGET_SLOT,
   CLEARED_SLOT
 };
 
@@ -589,10 +605,10 @@ class TypedSlotSet {
       return true;
     }
 
-    Chunk* next() const { return base::AsAtomicWord::Acquire_Load(&next_); }
+    Chunk* next() const { return base::AsAtomicPointer::Acquire_Load(&next_); }
 
     void set_next(Chunk* n) {
-      return base::AsAtomicWord::Release_Store(&next_, n);
+      return base::AsAtomicPointer::Release_Store(&next_, n);
     }
 
     TypedSlot* buffer() const { return buffer_; }
@@ -612,9 +628,9 @@ class TypedSlotSet {
     int32_t count_;
   };
 
-  Chunk* load_top() { return base::AsAtomicWord::Acquire_Load(&top_); }
+  Chunk* load_top() { return base::AsAtomicPointer::Acquire_Load(&top_); }
 
-  void set_top(Chunk* c) { base::AsAtomicWord::Release_Store(&top_, c); }
+  void set_top(Chunk* c) { base::AsAtomicPointer::Release_Store(&top_, c); }
 
   Address page_start_;
   Chunk* top_;
@@ -625,4 +641,4 @@ class TypedSlotSet {
 }  // namespace internal
 }  // namespace v8
 
-#endif  // V8_SLOT_SET_H
+#endif  // V8_HEAP_SLOT_SET_H_

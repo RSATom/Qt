@@ -49,9 +49,7 @@
 #include <QSGAbstractRenderer>
 #include <QSGNode>
 #include <QWindow>
-#include <private/qquickwindow_p.h>
-
-#include <private/qwidget_p.h>
+#include <QtQuick/private/qquickwindow_p.h>
 
 namespace QtWebEngineCore {
 
@@ -109,7 +107,6 @@ RenderWidgetHostViewQtDelegateWidget::RenderWidgetHostViewQtDelegateWidget(Rende
     , m_client(client)
     , m_rootItem(new RenderWidgetHostViewQuickItem(client))
     , m_isPopup(false)
-    , m_isPasswordInput(false)
 {
     setFocusPolicy(Qt::StrongFocus);
 
@@ -167,14 +164,26 @@ RenderWidgetHostViewQtDelegateWidget::RenderWidgetHostViewQtDelegateWidget(Rende
     setAttribute(Qt::WA_OpaquePaintEvent);
     setAttribute(Qt::WA_AlwaysShowToolTips);
 
-    if (parent) {
-        // Unset the popup parent if the parent is being destroyed, thus making sure a double
-        // delete does not happen.
-        // Also in case the delegate is destroyed before its parent (when a popup is simply
-        // dismissed), this connection will automatically be removed by ~QObject(), preventing
-        // a use-after-free.
-        connect(parent, &QObject::destroyed,
-                this, &RenderWidgetHostViewQtDelegateWidget::removeParentBeforeParentDelete);
+    setContent(QUrl(), nullptr, m_rootItem.data());
+
+    connectRemoveParentBeforeParentDelete();
+}
+
+RenderWidgetHostViewQtDelegateWidget::~RenderWidgetHostViewQtDelegateWidget()
+{
+    QWebEnginePagePrivate::bindPageAndWidget(nullptr, this);
+}
+
+void RenderWidgetHostViewQtDelegateWidget::connectRemoveParentBeforeParentDelete()
+{
+    disconnect(m_parentDestroyedConnection);
+
+    if (QWidget *parent = parentWidget()) {
+        m_parentDestroyedConnection = connect(parent, &QObject::destroyed,
+                                              this,
+                                              &RenderWidgetHostViewQtDelegateWidget::removeParentBeforeParentDelete);
+    } else {
+        m_parentDestroyedConnection = QMetaObject::Connection();
     }
 }
 
@@ -190,26 +199,9 @@ void RenderWidgetHostViewQtDelegateWidget::removeParentBeforeParentDelete()
         close();
 }
 
-void RenderWidgetHostViewQtDelegateWidget::initAsChild(WebContentsAdapterClient* container)
-{
-    setContent(QUrl(), nullptr, m_rootItem.data());
-
-    QWebEnginePagePrivate *pagePrivate = static_cast<QWebEnginePagePrivate *>(container);
-    if (pagePrivate->view) {
-        if (parentWidget())
-            disconnect(parentWidget(), &QObject::destroyed,
-                this, &RenderWidgetHostViewQtDelegateWidget::removeParentBeforeParentDelete);
-        pagePrivate->view->layout()->addWidget(this);
-        pagePrivate->view->setFocusProxy(this);
-        show();
-    } else
-        setParent(0);
-}
-
 void RenderWidgetHostViewQtDelegateWidget::initAsPopup(const QRect& screenRect)
 {
     m_isPopup = true;
-    setContent(QUrl(), nullptr, m_rootItem.data());
 
     // The keyboard events are supposed to go to the parent RenderHostView
     // so the WebUI popups should never have focus. Besides, if the parent view
@@ -217,18 +209,22 @@ void RenderWidgetHostViewQtDelegateWidget::initAsPopup(const QRect& screenRect)
     // to be destroyed.
     setAttribute(Qt::WA_ShowWithoutActivating);
     setFocusPolicy(Qt::NoFocus);
-
-#ifdef Q_OS_MACOS
-    // macOS doesn't like Qt::ToolTip when QWebEngineView is inside a modal dialog, specifically by
-    // not forwarding click events to the popup. So we use Qt::Tool which behaves the same way, but
-    // works on macOS too.
-    setWindowFlags(Qt::Tool | Qt::FramelessWindowHint | Qt::WindowDoesNotAcceptFocus);
-#else
-    setWindowFlags(Qt::ToolTip | Qt::FramelessWindowHint | Qt::WindowDoesNotAcceptFocus);
-#endif
+    setWindowFlags(Qt::Popup | Qt::FramelessWindowHint | Qt::WindowDoesNotAcceptFocus);
 
     setGeometry(screenRect);
     show();
+}
+
+void RenderWidgetHostViewQtDelegateWidget::closeEvent(QCloseEvent *event)
+{
+    Q_UNUSED(event);
+
+    // If a close event was received from the window manager (e.g. when moving the parent window,
+    // clicking outside the popup area)
+    // make sure to notify the Chromium WebUI popup and its underlying
+    // RenderWidgetHostViewQtDelegate instance to be closed.
+    if (m_isPopup)
+        m_client->closePopup();
 }
 
 QRectF RenderWidgetHostViewQtDelegateWidget::screenRect() const
@@ -244,19 +240,18 @@ QRectF RenderWidgetHostViewQtDelegateWidget::contentsRect() const
 
 void RenderWidgetHostViewQtDelegateWidget::setKeyboardFocus()
 {
-    // If the corresponding window is inactive (for example, because of a popup),
-    // the active focus cannot be set. Sync up with the Window System to try to
-    // reactivate the window in time if the other window (possibly popup) which took
-    // the focus is already closed.
-    if (window() && !window()->isActive())
-        QGuiApplication::sync();
+    // The root item always has focus within the root focus scope:
+    Q_ASSERT(m_rootItem->hasFocus());
 
-    m_rootItem->forceActiveFocus();
+    setFocus();
 }
 
 bool RenderWidgetHostViewQtDelegateWidget::hasKeyboardFocus()
 {
-    return m_rootItem->hasActiveFocus();
+    // The root item always has focus within the root focus scope:
+    Q_ASSERT(m_rootItem->hasFocus());
+
+    return hasFocus();
 }
 
 void RenderWidgetHostViewQtDelegateWidget::lockMouse()
@@ -271,6 +266,7 @@ void RenderWidgetHostViewQtDelegateWidget::unlockMouse()
 
 void RenderWidgetHostViewQtDelegateWidget::show()
 {
+    m_rootItem->setVisible(true);
     // Check if we're attached to a QWebEngineView, we don't
     // want to show anything else than popups as top-level.
     if (parent() || m_isPopup) {
@@ -280,12 +276,13 @@ void RenderWidgetHostViewQtDelegateWidget::show()
 
 void RenderWidgetHostViewQtDelegateWidget::hide()
 {
+    m_rootItem->setVisible(false);
     QQuickWidget::hide();
 }
 
 bool RenderWidgetHostViewQtDelegateWidget::isVisible() const
 {
-    return QQuickWidget::isVisible();
+    return QQuickWidget::isVisible() && m_rootItem->isVisible();
 }
 
 QWindow* RenderWidgetHostViewQtDelegateWidget::window() const
@@ -305,13 +302,13 @@ QSGLayer *RenderWidgetHostViewQtDelegateWidget::createLayer()
     return renderContext->sceneGraphContext()->createLayer(renderContext);
 }
 
-QSGInternalImageNode *RenderWidgetHostViewQtDelegateWidget::createImageNode()
+QSGInternalImageNode *RenderWidgetHostViewQtDelegateWidget::createInternalImageNode()
 {
     QSGRenderContext *renderContext = QQuickWindowPrivate::get(quickWindow())->context;
     return renderContext->sceneGraphContext()->createInternalImageNode();
 }
 
-QSGTextureNode *RenderWidgetHostViewQtDelegateWidget::createTextureNode()
+QSGImageNode *RenderWidgetHostViewQtDelegateWidget::createImageNode()
 {
     return quickWindow()->createImageNode();
 }
@@ -344,14 +341,10 @@ void RenderWidgetHostViewQtDelegateWidget::move(const QPoint &screenPos)
 
 void RenderWidgetHostViewQtDelegateWidget::inputMethodStateChanged(bool editorVisible, bool passwordInput)
 {
-    if (qApp->inputMethod()->isVisible() == editorVisible && m_isPasswordInput == passwordInput)
-        return;
-
     QQuickWidget::setAttribute(Qt::WA_InputMethodEnabled, editorVisible && !passwordInput);
-    m_isPasswordInput = passwordInput;
-
     qApp->inputMethod()->update(Qt::ImQueryInput | Qt::ImEnabled | Qt::ImHints);
-    qApp->inputMethod()->setVisible(editorVisible);
+    if (qApp->inputMethod()->isVisible() != editorVisible)
+        qApp->inputMethod()->setVisible(editorVisible);
 }
 
 void RenderWidgetHostViewQtDelegateWidget::setInputMethodHints(Qt::InputMethodHints hints)
@@ -396,7 +389,7 @@ void RenderWidgetHostViewQtDelegateWidget::showEvent(QShowEvent *event)
     // We don't have a way to catch a top-level window change with QWidget
     // but a widget will most likely be shown again if it changes, so do
     // the reconnection at this point.
-    foreach (const QMetaObject::Connection &c, m_windowConnections)
+    for (const QMetaObject::Connection &c : qAsConst(m_windowConnections))
         disconnect(c);
     m_windowConnections.clear();
     if (QWindow *w = window()) {
@@ -413,9 +406,27 @@ void RenderWidgetHostViewQtDelegateWidget::hideEvent(QHideEvent *event)
     m_client->notifyHidden();
 }
 
+bool RenderWidgetHostViewQtDelegateWidget::copySurface(const QRect &rect, const QSize &size, QImage &image)
+{
+    QPixmap pixmap = rect.isEmpty() ? QQuickWidget::grab(QQuickWidget::rect()) : QQuickWidget::grab(rect);
+    if (pixmap.isNull())
+        return false;
+    image = pixmap.toImage().scaled(size, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+    return true;
+}
+
 bool RenderWidgetHostViewQtDelegateWidget::event(QEvent *event)
 {
     bool handled = false;
+
+    // Track parent to make sure we don't get deleted.
+    switch (event->type()) {
+    case QEvent::ParentChange:
+        connectRemoveParentBeforeParentDelete();
+        break;
+    default:
+        break;
+    }
 
     // Mimic QWidget::event() by ignoring mouse, keyboard, touch and tablet events if the widget is
     // disabled.
@@ -460,12 +471,6 @@ bool RenderWidgetHostViewQtDelegateWidget::event(QEvent *event)
         return false;
     default:
         break;
-    }
-
-    QEvent::Type type = event->type();
-    if (type == QEvent::FocusIn) {
-        QWidgetPrivate *d = QWidgetPrivate::get(this);
-        d->updateWidgetTransform(event);
     }
 
     if (event->type() == QEvent::MouseButtonDblClick) {

@@ -42,6 +42,7 @@ class AccountTrackerService;
 class PrefRegistrySimple;
 class PrefService;
 class SigninClient;
+class SigninErrorController;
 
 namespace password_manager {
 class PasswordStoreSigninNotifierImpl;
@@ -59,10 +60,17 @@ class SigninManagerBase : public KeyedService {
     virtual void GoogleSigninFailed(const GoogleServiceAuthError& error) {}
 
     // Called when a user signs into Google services such as sync.
+    // This method is not called during a reauth.
+    virtual void GoogleSigninSucceeded(const AccountInfo& account_info) {}
+
+    // DEPRECATED: Use the above method instead.
     virtual void GoogleSigninSucceeded(const std::string& account_id,
                                        const std::string& username) {}
 
     // Called when the currently signed-in user for a user has been signed out.
+    virtual void GoogleSignedOut(const AccountInfo& account_info) {}
+
+    // DEPRECATED: Use the above method instead.
     virtual void GoogleSignedOut(const std::string& account_id,
                                  const std::string& username) {}
 
@@ -81,6 +89,7 @@ class SigninManagerBase : public KeyedService {
 
     // Called when a user signs into Google services such as sync. Also passes
     // the password of the Google account that was used to sign in.
+    // This method is not called during a reauth.
     //
     // Observers should override |GoogleSigninSucceeded| if they are not
     // interested in the password thas was used during the sign-in.
@@ -95,7 +104,8 @@ class SigninManagerBase : public KeyedService {
   };
 
   SigninManagerBase(SigninClient* client,
-                    AccountTrackerService* account_tracker_service);
+                    AccountTrackerService* account_tracker_service,
+                    SigninErrorController* signin_error_controller);
   ~SigninManagerBase() override;
 
   // Registers per-profile prefs.
@@ -175,12 +185,19 @@ class SigninManagerBase : public KeyedService {
   }
 
   // Sets the authenticated user's account id.
+  // If the user is already authenticated with the same account id, then this
+  // method is a no-op.
+  // It is forbidden to call this method if the user is already authenticated
+  // with a different account (this method will DCHECK in that case).
+  // |account_id| must not be empty. To log the user out, use
+  // ClearAuthenticatedAccountId() instead.
   void SetAuthenticatedAccountId(const std::string& account_id);
 
-  // Used by subclass to clear the authenticated user instead of using
-  // SetAuthenticatedAccountId, which enforces special preconditions due
-  // to the fact that it is part of the public API and called by clients.
-  void clear_authenticated_user() { authenticated_account_id_.clear(); }
+  // Clears the authenticated user's account id.
+  // This method is not public because SigninManagerBase does not allow signing
+  // out by default. Subclasses implementing a sign-out functionality need to
+  // call this.
+  void ClearAuthenticatedAccountId();
 
   // List of observers to notify on signin events.
   // Makes sure list is empty on destruction.
@@ -197,6 +214,7 @@ class SigninManagerBase : public KeyedService {
 
   SigninClient* client_;
   AccountTrackerService* account_tracker_service_;
+  SigninErrorController* signin_error_controller_;
   bool initialized_;
 
   // Account id after successful authentication.

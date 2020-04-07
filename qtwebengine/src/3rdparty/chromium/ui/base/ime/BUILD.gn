@@ -2,6 +2,8 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/config/jumbo.gni")
+import("//build/config/linux/pangocairo/pangocairo.gni")
 import("//build/config/ui.gni")
 import("//testing/test.gni")
 
@@ -13,7 +15,7 @@ source_set("text_input_types") {
   ]
 }
 
-component("ime") {
+jumbo_component("ime") {
   output_name = "ui_base_ime"
   sources = [
     "candidate_window.cc",
@@ -31,8 +33,6 @@ component("ime") {
     "chromeos/ime_candidate_window_handler_interface.h",
     "chromeos/ime_keyboard.cc",
     "chromeos/ime_keyboard.h",
-    "chromeos/ime_keyboard_x11.cc",
-    "chromeos/ime_keyboard_x11.h",
     "chromeos/ime_keymap.cc",
     "chromeos/ime_keymap.h",
     "chromeos/input_method_delegate.h",
@@ -52,18 +52,15 @@ component("ime") {
     "chromeos/mock_ime_engine_handler.h",
     "composition_text.cc",
     "composition_text.h",
-    "composition_text_util_pango.cc",
-    "composition_text_util_pango.h",
-    "composition_underline.h",
     "ime_bridge.cc",
     "ime_bridge.h",
     "ime_engine_handler_interface.h",
     "ime_input_context_handler_interface.h",
+    "ime_text_span.cc",
+    "ime_text_span.h",
     "infolist_entry.cc",
     "infolist_entry.h",
     "input_method.h",
-    "input_method_auralinux.cc",
-    "input_method_auralinux.h",
     "input_method_base.cc",
     "input_method_base.h",
     "input_method_chromeos.cc",
@@ -73,13 +70,15 @@ component("ime") {
     "input_method_factory.h",
     "input_method_initializer.cc",
     "input_method_initializer.h",
+    "input_method_keyboard_controller.h",
+    "input_method_keyboard_controller_observer.h",
+    "input_method_keyboard_controller_stub.cc",
+    "input_method_keyboard_controller_stub.h",
     "input_method_mac.h",
     "input_method_mac.mm",
     "input_method_minimal.cc",
     "input_method_minimal.h",
     "input_method_observer.h",
-    "input_method_win.cc",
-    "input_method_win.h",
     "linux/fake_input_method_context.cc",
     "linux/fake_input_method_context.h",
     "linux/fake_input_method_context_factory.cc",
@@ -97,8 +96,18 @@ component("ime") {
     "ui_base_ime_export.h",
     "win/imm32_manager.cc",
     "win/imm32_manager.h",
+    "win/on_screen_keyboard_display_manager_input_pane.cc",
+    "win/on_screen_keyboard_display_manager_input_pane.h",
+    "win/on_screen_keyboard_display_manager_tab_tip.cc",
+    "win/on_screen_keyboard_display_manager_tab_tip.h",
+    "win/tsf_bridge.cc",
+    "win/tsf_bridge.h",
+    "win/tsf_event_router.cc",
+    "win/tsf_event_router.h",
     "win/tsf_input_scope.cc",
     "win/tsf_input_scope.h",
+    "win/tsf_text_store.cc",
+    "win/tsf_text_store.h",
   ]
 
   # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
@@ -113,6 +122,7 @@ component("ime") {
     "//net",
     "//third_party/icu",
     "//ui/base",
+    "//ui/base/ime/chromeos/public/interfaces",
     "//ui/display",
     "//ui/events",
     "//ui/gfx",
@@ -126,17 +136,10 @@ component("ime") {
     "//skia",
   ]
 
-  if (!use_aura || (!is_linux && !use_ozone)) {
-    sources -= [
+  if (is_desktop_linux) {
+    sources += [
       "input_method_auralinux.cc",
       "input_method_auralinux.h",
-    ]
-  }
-
-  if (use_aura && is_android) {
-    sources += [
-      "input_method_android.cc",
-      "input_method_android.h",
     ]
   }
 
@@ -161,28 +164,19 @@ component("ime") {
   if (is_chromeos) {
     deps += [
       "//chromeos",
+      "//services/ui/public/cpp/input_devices",
       "//ui/chromeos/strings",
       "//ui/events:dom_keycode_converter",
     ]
-    if (use_ozone) {
-      deps += [ "//services/ui/public/cpp/input_devices" ]
-      sources += [
-        "chromeos/ime_keyboard_mus.cc",
-        "chromeos/ime_keyboard_mus.h",
-      ]
-    }
-    if (!use_x11) {
-      sources -= [
-        "chromeos/ime_keyboard_x11.cc",
-        "chromeos/ime_keyboard_x11.h",
-      ]
-    }
+    sources += [
+      "chromeos/ime_keyboard_mus.cc",
+      "chromeos/ime_keyboard_mus.h",
+    ]
   }
 
-  if (use_pango) {
+  if (use_pangocairo) {
     configs += [ "//build/config/linux/pangocairo" ]
-  } else {
-    sources -= [
+    sources += [
       "composition_text_util_pango.cc",
       "composition_text_util_pango.h",
     ]
@@ -196,17 +190,25 @@ component("ime") {
     cflags = [ "/wd4324" ]  # Structure was padded due to __declspec(align()), which is
                             # uninteresting.
 
+    sources += [
+      "input_method_win.cc",
+      "input_method_win.h",
+      "input_method_win_base.cc",
+      "input_method_win_base.h",
+      "input_method_win_tsf.cc",
+      "input_method_win_tsf.h",
+    ]
     libs = [ "imm32.lib" ]
+
+    jumbo_excluded_sources = [
+      # tsf_text_store.cc needs INITGUID to be defined before
+      # including any header to properly generate GUID objects. That
+      # is not guaranteed when included in a jumbo build.
+      "win/tsf_text_store.cc",
+    ]
   }
 
   if (is_mac) {
     libs = [ "AppKit.framework" ]
-  }
-
-  if (use_ozone) {
-    deps += [
-      "//ui/events/ozone:events_ozone_layout",
-      "//ui/ozone",
-    ]
   }
 }

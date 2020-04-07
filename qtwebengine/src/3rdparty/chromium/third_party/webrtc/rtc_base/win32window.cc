@@ -8,9 +8,9 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/rtc_base/win32window.h"
-#include "webrtc/rtc_base/checks.h"
-#include "webrtc/rtc_base/logging.h"
+#include "rtc_base/win32window.h"
+#include "rtc_base/checks.h"
+#include "rtc_base/logging.h"
 
 namespace rtc {
 
@@ -28,8 +28,14 @@ Win32Window::~Win32Window() {
   RTC_DCHECK(nullptr == wnd_);
 }
 
-bool Win32Window::Create(HWND parent, const wchar_t* title, DWORD style,
-                         DWORD exstyle, int x, int y, int cx, int cy) {
+bool Win32Window::Create(HWND parent,
+                         const wchar_t* title,
+                         DWORD style,
+                         DWORD exstyle,
+                         int x,
+                         int y,
+                         int cx,
+                         int cy) {
   if (wnd_) {
     // Window already exists.
     return false;
@@ -37,10 +43,10 @@ bool Win32Window::Create(HWND parent, const wchar_t* title, DWORD style,
 
   if (!window_class_) {
     if (!GetModuleHandleEx(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
-                           GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                               GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
                            reinterpret_cast<LPCWSTR>(&Win32Window::WndProc),
                            &instance_)) {
-      LOG_GLE(LS_ERROR) << "GetModuleHandleEx failed";
+      RTC_LOG_GLE(LS_ERROR) << "GetModuleHandleEx failed";
       return false;
     }
 
@@ -53,7 +59,7 @@ bool Win32Window::Create(HWND parent, const wchar_t* title, DWORD style,
     wcex.lpszClassName = kWindowBaseClassName;
     window_class_ = ::RegisterClassEx(&wcex);
     if (!window_class_) {
-      LOG_GLE(LS_ERROR) << "RegisterClassEx failed";
+      RTC_LOG_GLE(LS_ERROR) << "RegisterClassEx failed";
       return false;
     }
   }
@@ -74,23 +80,35 @@ void Win32Window::Shutdown() {
   }
 }
 
-bool Win32Window::OnMessage(UINT uMsg, WPARAM wParam, LPARAM lParam,
+bool Win32Window::OnMessage(UINT uMsg,
+                            WPARAM wParam,
+                            LPARAM lParam,
                             LRESULT& result) {
   switch (uMsg) {
-  case WM_CLOSE:
-    if (!OnClose()) {
-      result = 0;
-      return true;
-    }
-    break;
+    case WM_CLOSE:
+      if (!OnClose()) {
+        result = 0;
+        return true;
+      }
+      break;
   }
   return false;
 }
 
-LRESULT Win32Window::WndProc(HWND hwnd, UINT uMsg,
-                             WPARAM wParam, LPARAM lParam) {
-  Win32Window* that = reinterpret_cast<Win32Window*>(
-      ::GetWindowLongPtr(hwnd, GWLP_USERDATA));
+bool Win32Window::OnClose() {
+  return true;
+}
+
+void Win32Window::OnNcDestroy() {
+  // Do nothing. }
+}
+
+LRESULT Win32Window::WndProc(HWND hwnd,
+                             UINT uMsg,
+                             WPARAM wParam,
+                             LPARAM lParam) {
+  Win32Window* that =
+      reinterpret_cast<Win32Window*>(::GetWindowLongPtr(hwnd, GWLP_USERDATA));
   if (!that && (WM_CREATE == uMsg)) {
     CREATESTRUCT* cs = reinterpret_cast<CREATESTRUCT*>(lParam);
     that = static_cast<Win32Window*>(cs->lpCreateParams);
@@ -103,7 +121,7 @@ LRESULT Win32Window::WndProc(HWND hwnd, UINT uMsg,
     if (WM_DESTROY == uMsg) {
       for (HWND child = ::GetWindow(hwnd, GW_CHILD); child;
            child = ::GetWindow(child, GW_HWNDNEXT)) {
-        LOG(LS_INFO) << "Child window: " << static_cast<void*>(child);
+        RTC_LOG(LS_INFO) << "Child window: " << static_cast<void*>(child);
       }
     }
     if (WM_NCDESTROY == uMsg) {

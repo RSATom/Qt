@@ -54,8 +54,8 @@ class Q_CORE_EXPORT QWinEventNotifier : public QObject
     typedef Qt::HANDLE HANDLE;
 
 public:
-    explicit QWinEventNotifier(QObject *parent = Q_NULLPTR);
-    explicit QWinEventNotifier(HANDLE hEvent, QObject *parent = Q_NULLPTR);
+    explicit QWinEventNotifier(QObject *parent = nullptr);
+    explicit QWinEventNotifier(HANDLE hEvent, QObject *parent = nullptr);
     ~QWinEventNotifier();
 
     void setHandle(HANDLE hEvent);
@@ -70,7 +70,7 @@ Q_SIGNALS:
     void activated(HANDLE hEvent, QPrivateSignal);
 
 protected:
-    bool event(QEvent * e);
+    bool event(QEvent *e) override;
 };
 
 QT_END_NAMESPACE

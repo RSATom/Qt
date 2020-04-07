@@ -5,17 +5,17 @@ PLUGIN_TYPE = texttospeech
 PLUGIN_CLASS_NAME = QTextToSpeechEngineFlite
 load(qt_plugin)
 
+include(../common/common.pri)
+
 HEADERS += \
     qtexttospeech_flite.h \
     qtexttospeech_flite_plugin.h \
-    qtexttospeech_flite_processor.h \
-    ../common/qtexttospeechprocessor_p.h
+    qtexttospeech_flite_processor.h
 
 SOURCES += \
     qtexttospeech_flite.cpp \
     qtexttospeech_flite_plugin.cpp \
-    qtexttospeech_flite_processor.cpp \
-    ../common/qtexttospeechprocessor.cpp
+    qtexttospeech_flite_processor.cpp
 
 OTHER_FILES += \
     flite_plugin.json

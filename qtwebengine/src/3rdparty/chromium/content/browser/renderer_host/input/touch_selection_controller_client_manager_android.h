@@ -25,6 +25,7 @@ class TouchSelectionControllerClientManagerAndroid
   float page_scale_factor() { return page_scale_factor_; }
 
   // TouchSelectionControllerClientManager implementation.
+  void DidStopFlinging() override;
   void UpdateClientSelectionBounds(
       const gfx::SelectionBound& start,
       const gfx::SelectionBound& end,
@@ -44,7 +45,9 @@ class TouchSelectionControllerClientManagerAndroid
   void SelectBetweenCoordinates(const gfx::PointF& base,
                                 const gfx::PointF& extent) override;
   void OnSelectionEvent(ui::SelectionEventType event) override;
+  void OnDragUpdate(const gfx::PointF& position) override;
   std::unique_ptr<ui::TouchHandleDrawable> CreateDrawable() override;
+  void DidScroll() override;
 
  private:
   RenderWidgetHostViewAndroid* rwhv_;

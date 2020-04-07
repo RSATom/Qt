@@ -59,13 +59,13 @@
 
 QT_BEGIN_NAMESPACE
 
-class QBluetoothSocketPrivate;
+class QBluetoothSocketPrivateAndroid;
 
 class InputStreamThread : public QObject
 {
     Q_OBJECT
 public:
-    explicit InputStreamThread(QBluetoothSocketPrivate *socket_p);
+    explicit InputStreamThread(QBluetoothSocketPrivateAndroid *socket_p);
 
     qint64 bytesAvailable() const;
     bool canReadLine() const;
@@ -82,7 +82,7 @@ signals:
     void error(int errorCode);
 
 private:
-    QBluetoothSocketPrivate *m_socket_p;
+    QBluetoothSocketPrivateAndroid *m_socket_p;
     QAndroidJniObject javaInputStreamThread;
     mutable QMutex m_mutex;
     bool expectClosure;

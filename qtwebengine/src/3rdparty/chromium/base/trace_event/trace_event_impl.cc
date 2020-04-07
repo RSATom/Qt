@@ -45,18 +45,17 @@ TraceEvent::TraceEvent()
     : duration_(TimeDelta::FromInternalValue(-1)),
       scope_(trace_event_internal::kGlobalScope),
       id_(0u),
-      category_group_enabled_(NULL),
-      name_(NULL),
+      category_group_enabled_(nullptr),
+      name_(nullptr),
       thread_id_(0),
       flags_(0),
       phase_(TRACE_EVENT_PHASE_BEGIN) {
   for (int i = 0; i < kTraceMaxNumArgs; ++i)
-    arg_names_[i] = NULL;
+    arg_names_[i] = nullptr;
   memset(arg_values_, 0, sizeof(arg_values_));
 }
 
-TraceEvent::~TraceEvent() {
-}
+TraceEvent::~TraceEvent() = default;
 
 void TraceEvent::MoveFrom(std::unique_ptr<TraceEvent> other) {
   timestamp_ = other->timestamp_;
@@ -93,7 +92,7 @@ void TraceEvent::Initialize(
     unsigned long long id,
     unsigned long long bind_id,
     int num_args,
-    const char** arg_names,
+    const char* const* arg_names,
     const unsigned char* arg_types,
     const unsigned long long* arg_values,
     std::unique_ptr<ConvertableToTraceFormat>* convertable_values,
@@ -125,7 +124,7 @@ void TraceEvent::Initialize(
     }
   }
   for (; i < kTraceMaxNumArgs; ++i) {
-    arg_names_[i] = NULL;
+    arg_names_[i] = nullptr;
     arg_values_[i].as_uint = 0u;
     convertable_values_[i].reset();
     arg_types_[i] = TRACE_VALUE_TYPE_UINT;
@@ -157,7 +156,7 @@ void TraceEvent::Initialize(
   if (alloc_size) {
     parameter_copy_storage_.reset(new std::string);
     parameter_copy_storage_->resize(alloc_size);
-    char* ptr = string_as_array(parameter_copy_storage_.get());
+    char* ptr = base::data(*parameter_copy_storage_);
     const char* end = ptr + alloc_size;
     if (copy) {
       CopyTraceEventParameter(&ptr, &name_, end);
@@ -229,7 +228,7 @@ void TraceEvent::AppendValueAsJSON(unsigned char type,
       std::string real;
       double val = value.as_double;
       if (std::isfinite(val)) {
-        real = DoubleToString(val);
+        real = NumberToString(val);
         // Ensure that the number has a .0 if there's no decimal or 'e'.  This
         // makes sure that when we read the JSON back, it's interpreted as a
         // real rather than an int.
@@ -454,7 +453,7 @@ namespace trace_event_internal {
 
 std::unique_ptr<base::trace_event::ConvertableToTraceFormat>
 TraceID::AsConvertableToTraceFormat() const {
-  auto value = base::MakeUnique<base::trace_event::TracedValue>();
+  auto value = std::make_unique<base::trace_event::TracedValue>();
 
   if (scope_ != kGlobalScope)
     value->SetString("scope", scope_);

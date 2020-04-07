@@ -42,8 +42,6 @@ class ServerWrapper;
 class DevToolsHttpHandler {
  public:
   // Takes ownership over |socket_factory|.
-  // If |frontend_url| is empty, assumes it's bundled, and uses
-  // |delegate->GetFrontendResource()|.
   // |delegate| is only accessed on UI thread.
   // If |active_port_output_directory| is non-empty, it is assumed the
   // socket_factory was initialized with an ephemeral port (0). The
@@ -52,11 +50,8 @@ class DevToolsHttpHandler {
   DevToolsHttpHandler(
       DevToolsManagerDelegate* delegate,
       std::unique_ptr<DevToolsSocketFactory> server_socket_factory,
-      const std::string& frontend_url,
       const base::FilePath& active_port_output_directory,
-      const base::FilePath& debug_frontend_dir,
-      const std::string& product_name,
-      const std::string& user_agent);
+      const base::FilePath& debug_frontend_dir);
   ~DevToolsHttpHandler();
 
  private:
@@ -101,8 +96,10 @@ class DevToolsHttpHandler {
   void DecompressAndSendJsonProtocol(int connection_id);
 
   // Returns the front end url without the host at the beginning.
-  std::string GetFrontendURLInternal(const std::string& target_id,
-                                     const std::string& host);
+  std::string GetFrontendURLInternal(
+      scoped_refptr<DevToolsAgentHost> agent_host,
+      const std::string& target_id,
+      const std::string& host);
 
   std::unique_ptr<base::DictionaryValue> SerializeDescriptor(
       scoped_refptr<DevToolsAgentHost> agent_host,
@@ -110,9 +107,7 @@ class DevToolsHttpHandler {
 
   // The thread used by the devtools handler to run server socket.
   std::unique_ptr<base::Thread> thread_;
-  std::string frontend_url_;
-  std::string product_name_;
-  std::string user_agent_;
+  std::string browser_guid_;
   std::unique_ptr<ServerWrapper> server_wrapper_;
   std::unique_ptr<net::IPEndPoint> server_ip_address_;
   using ConnectionToClientMap =

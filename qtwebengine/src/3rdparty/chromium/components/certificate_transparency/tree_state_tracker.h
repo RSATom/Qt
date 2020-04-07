@@ -11,12 +11,13 @@
 #include <vector>
 
 #include "base/memory/ref_counted.h"
+#include "components/certificate_transparency/sth_observer.h"
 #include "net/cert/ct_verifier.h"
-#include "net/cert/sth_observer.h"
 
 namespace net {
 class NetLog;
 class CTLogVerifier;
+class HostResolver;
 class X509Certificate;
 
 namespace ct {
@@ -36,8 +37,7 @@ class SingleTreeTracker;
 // TODO(eranm): Export the inclusion check status of SCTs+Certs so it can
 // be used in the DevTools Security panel, for example. See
 // https://crbug.com/506227#c22.
-class TreeStateTracker : public net::CTVerifier::Observer,
-                         public net::ct::STHObserver {
+class TreeStateTracker : public net::CTVerifier::Observer, public STHObserver {
  public:
   // Tracks the state of the logs provided in |ct_logs|. An instance of this
   // class only tracks the logs provided in the constructor. The implementation
@@ -45,15 +45,17 @@ class TreeStateTracker : public net::CTVerifier::Observer,
   // during the object's life time.
   // Observed STHs from logs not in this list will be simply ignored.
   TreeStateTracker(std::vector<scoped_refptr<const net::CTLogVerifier>> ct_logs,
+                   net::HostResolver* host_resolver,
                    net::NetLog* net_log);
   ~TreeStateTracker() override;
 
   // net::ct::CTVerifier::Observer implementation.
   // Delegates to the tree tracker corresponding to the log that issued the SCT.
-  void OnSCTVerified(net::X509Certificate* cert,
+  void OnSCTVerified(base::StringPiece hostname,
+                     net::X509Certificate* cert,
                      const net::ct::SignedCertificateTimestamp* sct) override;
 
-  // net::ct::STHObserver implementation.
+  // STHObserver implementation.
   // Delegates to the tree tracker corresponding to the log that issued the STH.
   void NewSTHObserved(const net::ct::SignedTreeHead& sth) override;
 

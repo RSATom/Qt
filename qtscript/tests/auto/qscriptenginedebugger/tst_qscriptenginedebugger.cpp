@@ -833,7 +833,7 @@ void tst_QScriptEngineDebugger::engineDeleted()
     debugger->attachTo(engine);
 
     debugger->standardWindow()->show();
-    QTest::qWaitForWindowShown(debugger->standardWindow());
+    QTest::qWaitForWindowExposed(debugger->standardWindow());
 
     QSignalSpy destroyedSpy(engine, SIGNAL(destroyed()));
     engine->deleteLater();

@@ -1065,7 +1065,7 @@ bool QAbstractScrollArea::event(QEvent *e)
     case QEvent::MouseButtonDblClick:
     case QEvent::MouseMove:
     case QEvent::Wheel:
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
     case QEvent::Drop:
     case QEvent::DragEnter:
     case QEvent::DragMove:
@@ -1163,7 +1163,7 @@ bool QAbstractScrollArea::event(QEvent *e)
     case QEvent::ApplicationLayoutDirectionChange:
     case QEvent::LayoutRequest:
         d->layoutChildren();
-        // fall through
+        Q_FALLTHROUGH();
     default:
         return QFrame::event(e);
     }
@@ -1206,7 +1206,7 @@ bool QAbstractScrollArea::viewportEvent(QEvent *e)
 #if QT_CONFIG(wheelevent)
     case QEvent::Wheel:
 #endif
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
     case QEvent::Drop:
     case QEvent::DragEnter:
     case QEvent::DragMove:
@@ -1409,7 +1409,7 @@ void QAbstractScrollArea::keyPressEvent(QKeyEvent * e)
 }
 
 
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
 /*!
     \fn void QAbstractScrollArea::dragEnterEvent(QDragEnterEvent *event)
 

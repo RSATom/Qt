@@ -11,16 +11,14 @@
 #include <memory>
 #include <string>
 
-#include "webrtc/rtc_base/asyncudpsocket.h"
-#include "webrtc/rtc_base/gunit.h"
-#include "webrtc/rtc_base/physicalsocketserver.h"
-#include "webrtc/rtc_base/virtualsocketserver.h"
+#include "rtc_base/asyncudpsocket.h"
+#include "rtc_base/gunit.h"
+#include "rtc_base/physicalsocketserver.h"
+#include "rtc_base/virtualsocketserver.h"
 
 namespace rtc {
 
-class AsyncUdpSocketTest
-    : public testing::Test,
-      public sigslot::has_slots<> {
+class AsyncUdpSocketTest : public testing::Test, public sigslot::has_slots<> {
  public:
   AsyncUdpSocketTest()
       : pss_(new rtc::PhysicalSocketServer),
@@ -32,9 +30,7 @@ class AsyncUdpSocketTest
                                            &AsyncUdpSocketTest::OnReadyToSend);
   }
 
-  void OnReadyToSend(rtc::AsyncPacketSocket* socket) {
-    ready_to_send_ = true;
-  }
+  void OnReadyToSend(rtc::AsyncPacketSocket* socket) { ready_to_send_ = true; }
 
  protected:
   std::unique_ptr<PhysicalSocketServer> pss_;

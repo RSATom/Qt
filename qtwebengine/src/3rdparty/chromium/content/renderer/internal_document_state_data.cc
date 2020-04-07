@@ -6,7 +6,7 @@
 
 #include "base/memory/ptr_util.h"
 #include "content/public/renderer/document_state.h"
-#include "third_party/WebKit/public/web/WebDataSource.h"
+#include "third_party/blink/public/web/web_document_loader.h"
 
 namespace content {
 
@@ -22,19 +22,20 @@ InternalDocumentStateData::InternalDocumentStateData()
       is_overriding_user_agent_(false),
       must_reset_scroll_and_scale_state_(false),
       cache_policy_override_set_(false),
-      cache_policy_override_(blink::WebCachePolicy::kUseProtocolCachePolicy) {}
+      cache_policy_override_(blink::mojom::FetchCacheMode::kDefault) {}
 
 // static
-InternalDocumentStateData* InternalDocumentStateData::FromDataSource(
-    blink::WebDataSource* ds) {
-  return FromDocumentState(static_cast<DocumentState*>(ds->GetExtraData()));
+InternalDocumentStateData* InternalDocumentStateData::FromDocumentLoader(
+    blink::WebDocumentLoader* document_loader) {
+  return FromDocumentState(
+      static_cast<DocumentState*>(document_loader->GetExtraData()));
 }
 
 // static
 InternalDocumentStateData* InternalDocumentStateData::FromDocumentState(
     DocumentState* ds) {
   if (!ds)
-    return NULL;
+    return nullptr;
   InternalDocumentStateData* data = static_cast<InternalDocumentStateData*>(
       ds->GetUserData(&kUserDataKey));
   if (!data) {

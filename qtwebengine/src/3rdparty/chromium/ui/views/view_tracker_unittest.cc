@@ -21,4 +21,14 @@ TEST_F(ViewTrackerTest, RemovedOnDelete) {
   EXPECT_EQ(nullptr, tracker.view());
 }
 
+TEST_F(ViewTrackerTest, ObservedAtConstruction) {
+  std::unique_ptr<ViewTracker> tracker;
+  {
+    View view;
+    tracker = std::make_unique<ViewTracker>(&view);
+    EXPECT_EQ(&view, tracker->view());
+  }
+  EXPECT_EQ(nullptr, tracker->view());
+}
+
 }  // namespace views

@@ -30,10 +30,10 @@ BufferNULL::~BufferNULL()
 }
 
 gl::Error BufferNULL::setData(const gl::Context *context,
-                              GLenum target,
+                              gl::BufferBinding target,
                               const void *data,
                               size_t size,
-                              GLenum usage)
+                              gl::BufferUsage usage)
 {
     if (!mAllocationTracker->updateMemoryAllocation(mData.size(), size))
     {
@@ -49,7 +49,7 @@ gl::Error BufferNULL::setData(const gl::Context *context,
 }
 
 gl::Error BufferNULL::setSubData(const gl::Context *context,
-                                 GLenum target,
+                                 gl::BufferBinding target,
                                  const void *data,
                                  size_t size,
                                  size_t offset)
@@ -97,7 +97,8 @@ gl::Error BufferNULL::unmap(const gl::Context *context, GLboolean *result)
     return gl::NoError();
 }
 
-gl::Error BufferNULL::getIndexRange(GLenum type,
+gl::Error BufferNULL::getIndexRange(const gl::Context *context,
+                                    GLenum type,
                                     size_t offset,
                                     size_t count,
                                     bool primitiveRestartEnabled,
@@ -105,6 +106,16 @@ gl::Error BufferNULL::getIndexRange(GLenum type,
 {
     *outRange = gl::ComputeIndexRange(type, mData.data() + offset, count, primitiveRestartEnabled);
     return gl::NoError();
+}
+
+uint8_t *BufferNULL::getDataPtr()
+{
+    return mData.data();
+}
+
+const uint8_t *BufferNULL::getDataPtr() const
+{
+    return mData.data();
 }
 
 }  // namespace rx

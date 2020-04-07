@@ -50,7 +50,7 @@
 
 #ifndef QAXSELECT_H
 #define QAXSELECT_H
-#include <QtWidgets/QDialog>
+#include <QtWidgets/qdialog.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -61,8 +61,8 @@ class QAxSelect : public QDialog
 {
     Q_OBJECT
 public:
-    explicit QAxSelect(QWidget *parent = Q_NULLPTR, Qt::WindowFlags flags = Qt::WindowFlags());
-    ~QAxSelect();
+    explicit QAxSelect(QWidget *parent = nullptr, Qt::WindowFlags flags = Qt::WindowFlags());
+    ~QAxSelect() override;
     QString clsid() const;
 
 private Q_SLOTS:

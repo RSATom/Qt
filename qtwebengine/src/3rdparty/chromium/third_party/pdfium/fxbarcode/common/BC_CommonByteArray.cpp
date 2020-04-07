@@ -19,10 +19,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#include "fxbarcode/common/BC_CommonByteArray.h"
 
 #include <algorithm>
 
-#include "fxbarcode/common/BC_CommonByteArray.h"
+#include "core/fxcrt/fx_memory.h"
 
 CBC_CommonByteArray::CBC_CommonByteArray() {
   m_bytes = nullptr;
@@ -94,8 +95,7 @@ void CBC_CommonByteArray::Set(std::vector<uint8_t>* source,
   m_bytes = FX_Alloc(uint8_t, count);
   m_size = count;
   int32_t i;
-  for (i = 0; i < count; i++) {
-    m_bytes[i] = source->operator[](i + offset);
-  }
+  for (i = 0; i < count; i++)
+    m_bytes[i] = (*source)[i + offset];
   m_index = m_size;
 }

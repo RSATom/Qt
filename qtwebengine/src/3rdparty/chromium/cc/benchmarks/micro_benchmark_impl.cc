@@ -14,22 +14,14 @@
 
 namespace cc {
 
-namespace {
-
-void RunCallback(const MicroBenchmarkImpl::DoneCallback& callback,
-                 std::unique_ptr<base::Value> result) {
-  callback.Run(std::move(result));
-}
-}
-
 MicroBenchmarkImpl::MicroBenchmarkImpl(
-    const DoneCallback& callback,
+    DoneCallback callback,
     scoped_refptr<base::SingleThreadTaskRunner> origin_task_runner)
-    : callback_(callback),
+    : callback_(std::move(callback)),
       is_done_(false),
       origin_task_runner_(origin_task_runner) {}
 
-MicroBenchmarkImpl::~MicroBenchmarkImpl() {}
+MicroBenchmarkImpl::~MicroBenchmarkImpl() = default;
 
 bool MicroBenchmarkImpl::IsDone() const {
   return is_done_;
@@ -39,7 +31,7 @@ void MicroBenchmarkImpl::DidCompleteCommit(LayerTreeHostImpl* host) {}
 
 void MicroBenchmarkImpl::NotifyDone(std::unique_ptr<base::Value> result) {
   origin_task_runner_->PostTask(
-      FROM_HERE, base::BindOnce(RunCallback, callback_, base::Passed(&result)));
+      FROM_HERE, base::BindOnce(std::move(callback_), base::Passed(&result)));
   is_done_ = true;
 }
 

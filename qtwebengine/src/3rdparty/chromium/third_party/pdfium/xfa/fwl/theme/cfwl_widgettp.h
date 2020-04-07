@@ -10,22 +10,21 @@
 #include <memory>
 #include <vector>
 
-#include "core/fxcrt/cfx_retain_ptr.h"
 #include "core/fxcrt/fx_coordinates.h"
 #include "core/fxcrt/fx_system.h"
-#include "xfa/fgas/font/cfgas_gefont.h"
+#include "core/fxcrt/retain_ptr.h"
 #include "xfa/fwl/theme/cfwl_utils.h"
 #include "xfa/fxgraphics/cxfa_graphics.h"
 
 class CFDE_TextOut;
+class CFGAS_FontMgr;
 class CFGAS_GEFont;
 class CFWL_ThemeBackground;
 class CFWL_ThemePart;
 class CFWL_ThemeText;
-class CFGAS_FontMgr;
 class CFWL_Widget;
 
-#if _FXM_PLATFORM_ != _FXM_PLATFORM_WINDOWS_
+#if _FX_PLATFORM_ != _FX_PLATFORM_WINDOWS_
 class CFX_FontSourceEnum_File;
 #endif
 
@@ -39,7 +38,7 @@ class CFWL_WidgetTP {
   virtual void DrawBackground(CFWL_ThemeBackground* pParams);
   virtual void DrawText(CFWL_ThemeText* pParams);
 
-  const CFX_RetainPtr<CFGAS_GEFont>& GetFont() const { return m_pFDEFont; }
+  const RetainPtr<CFGAS_GEFont>& GetFont() const;
 
  protected:
   struct CColorData {
@@ -61,20 +60,10 @@ class CFWL_WidgetTP {
   void FillBackground(CXFA_Graphics* pGraphics,
                       const CFX_RectF* pRect,
                       CFX_Matrix* pMatrix = nullptr);
-  void FillSoildRect(CXFA_Graphics* pGraphics,
+  void FillSolidRect(CXFA_Graphics* pGraphics,
                      FX_ARGB fillColor,
                      const CFX_RectF* pRect,
                      CFX_Matrix* pMatrix = nullptr);
-  void DrawAxialShading(CXFA_Graphics* pGraphics,
-                        float fx1,
-                        float fy1,
-                        float fx2,
-                        float fy2,
-                        FX_ARGB beginColor,
-                        FX_ARGB endColor,
-                        CXFA_Path* path,
-                        int32_t fillMode = FXFILL_WINDING,
-                        CFX_Matrix* pMatrix = nullptr);
   void DrawFocus(CXFA_Graphics* pGraphics,
                  const CFX_RectF* pRect,
                  CFX_Matrix* pMatrix = nullptr);
@@ -95,7 +84,7 @@ class CFWL_WidgetTP {
 
   uint32_t m_dwRefCount;
   std::unique_ptr<CFDE_TextOut> m_pTextOut;
-  CFX_RetainPtr<CFGAS_GEFont> m_pFDEFont;
+  RetainPtr<CFGAS_GEFont> m_pFDEFont;
   std::unique_ptr<CColorData> m_pColorData;
 };
 
@@ -106,23 +95,20 @@ class CFWL_FontData {
   CFWL_FontData();
   virtual ~CFWL_FontData();
 
-  bool Equal(const CFX_WideStringC& wsFontFamily,
+  bool Equal(const WideStringView& wsFontFamily,
              uint32_t dwFontStyles,
              uint16_t wCodePage);
-  bool LoadFont(const CFX_WideStringC& wsFontFamily,
+  bool LoadFont(const WideStringView& wsFontFamily,
                 uint32_t dwFontStyles,
                 uint16_t wCodePage);
-  CFX_RetainPtr<CFGAS_GEFont> GetFont() const { return m_pFont; }
+  RetainPtr<CFGAS_GEFont> GetFont() const;
 
  protected:
-  CFX_WideString m_wsFamily;
+  WideString m_wsFamily;
   uint32_t m_dwStyles;
   uint32_t m_dwCodePage;
-#if _FXM_PLATFORM_ != _FXM_PLATFORM_WINDOWS_
-  std::unique_ptr<CFX_FontSourceEnum_File> m_pFontSource;
-#endif
   std::unique_ptr<CFGAS_FontMgr> m_pFontMgr;
-  CFX_RetainPtr<CFGAS_GEFont> m_pFont;
+  RetainPtr<CFGAS_GEFont> m_pFont;
 };
 
 class CFWL_FontManager {
@@ -130,9 +116,9 @@ class CFWL_FontManager {
   static CFWL_FontManager* GetInstance();
   static void DestroyInstance();
 
-  CFX_RetainPtr<CFGAS_GEFont> FindFont(const CFX_WideStringC& wsFontFamily,
-                                       uint32_t dwFontStyles,
-                                       uint16_t dwCodePage);
+  RetainPtr<CFGAS_GEFont> FindFont(const WideStringView& wsFontFamily,
+                                   uint32_t dwFontStyles,
+                                   uint16_t dwCodePage);
 
  protected:
   CFWL_FontManager();

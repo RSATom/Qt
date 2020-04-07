@@ -11,6 +11,7 @@
 #include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
+#include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_targeter.h"
@@ -18,8 +19,8 @@
 #include "ui/display/screen.h"
 #include "ui/gfx/animation/animation_delegate.h"
 #include "ui/gfx/animation/slide_animation.h"
-#include "ui/message_center/message_center_style.h"
-#include "ui/message_center/notification.h"
+#include "ui/message_center/public/cpp/message_center_constants.h"
+#include "ui/message_center/public/cpp/notification.h"
 #include "ui/message_center/views/message_popup_collection.h"
 #include "ui/message_center/views/message_view.h"
 #include "ui/message_center/views/popup_alignment_delegate.h"
@@ -83,17 +84,12 @@ ToastContentsView::~ToastContentsView() {
 
 void ToastContentsView::SetContents(MessageView* view,
                                     bool a11y_feedback_for_updates) {
-  bool already_has_contents = child_count() > 0;
+  message_view_ = view;
   RemoveAllChildViews(true);
   AddChildView(view);
   UpdatePreferredSize();
-
-  // If it has the contents already, this invocation means an update of the
-  // popup toast, and the new contents should be read through a11y feature.
-  // The notification type should be ALERT, otherwise the accessibility message
-  // won't be read for this view which returns ROLE_WINDOW.
-  if (already_has_contents && a11y_feedback_for_updates)
-    NotifyAccessibilityEvent(ui::AX_EVENT_ALERT, false);
+  if (a11y_feedback_for_updates)
+    NotifyAccessibilityEvent(ax::mojom::Event::kAlert, true);
 }
 
 void ToastContentsView::UpdateContents(const Notification& notification,
@@ -103,7 +99,7 @@ void ToastContentsView::UpdateContents(const Notification& notification,
   message_view->UpdateWithNotification(notification);
   UpdatePreferredSize();
   if (a11y_feedback_for_updates)
-    NotifyAccessibilityEvent(ui::AX_EVENT_ALERT, false);
+    NotifyAccessibilityEvent(ax::mojom::Event::kAlert, true);
 }
 
 void ToastContentsView::RevealWithAnimation(gfx::Point origin) {
@@ -163,9 +159,6 @@ void ToastContentsView::SetBoundsWithAnimation(gfx::Rect new_bounds) {
   animated_bounds_start_ = GetWidget()->GetWindowBoundsInScreen();
   animated_bounds_end_ = new_bounds;
 
-  if (collection_)
-    collection_->IncrementDeferCounter();
-
   if (bounds_animation_.get())
     bounds_animation_->Stop();
 
@@ -174,9 +167,6 @@ void ToastContentsView::SetBoundsWithAnimation(gfx::Rect new_bounds) {
 }
 
 void ToastContentsView::StartFadeIn() {
-  // The decrement is done in OnBoundsAnimationEndedOrCancelled callback.
-  if (collection_)
-    collection_->IncrementDeferCounter();
   fade_animation_->Stop();
 
   GetWidget()->SetOpacity(0);
@@ -186,14 +176,17 @@ void ToastContentsView::StartFadeIn() {
 }
 
 void ToastContentsView::StartFadeOut() {
-  // The decrement is done in OnBoundsAnimationEndedOrCancelled callback.
-  if (collection_)
-    collection_->IncrementDeferCounter();
   fade_animation_->Stop();
 
-  closing_animation_ = (is_closing_ ? fade_animation_.get() : NULL);
-  fade_animation_->Reset(1);
-  fade_animation_->Hide();
+  closing_animation_ = (is_closing_ ? fade_animation_.get() : nullptr);
+  if (GetWidget()->GetLayer()->opacity() > 0.0) {
+    fade_animation_->Reset(1);
+    fade_animation_->Hide();
+  } else {
+    // If the layer is already transparent, do not trigger animation again.
+    // It happens when the toast is removed by touch gesture.
+    OnBoundsAnimationEndedOrCancelled(fade_animation_.get());
+  }
 }
 
 void ToastContentsView::OnBoundsAnimationEndedOrCancelled(
@@ -212,13 +205,6 @@ void ToastContentsView::OnBoundsAnimationEndedOrCancelled(
 
     widget->Close();
   }
-
-  // This cannot be called before GetWidget()->Close(). Decrementing defer count
-  // will invoke update, which may invoke another close animation with
-  // incrementing defer counter. Close() after such process will cause a
-  // mismatch between increment/decrement. See crbug.com/238477
-  if (collection_)
-    collection_->DecrementDeferCounter();
 }
 
 // gfx::AnimationDelegate
@@ -244,7 +230,7 @@ void ToastContentsView::AnimationCanceled(
 
 // views::WidgetDelegate
 void ToastContentsView::WindowClosing() {
-  if (!is_closing_ && collection_.get())
+  if (!is_closing_ && collection_)
     collection_->ForgetToast(this);
 }
 
@@ -325,59 +311,11 @@ void ToastContentsView::UpdatePreferredSize() {
 void ToastContentsView::GetAccessibleNodeData(ui::AXNodeData* node_data) {
   if (child_count() > 0)
     child_at(0)->GetAccessibleNodeData(node_data);
-  node_data->role = ui::AX_ROLE_WINDOW;
+  node_data->role = ax::mojom::Role::kAlertDialog;
 }
 
 const char* ToastContentsView::GetClassName() const {
   return kViewClassName;
-}
-
-void ToastContentsView::ClickOnNotification(
-    const std::string& notification_id) {
-  if (collection_)
-    collection_->ClickOnNotification(notification_id);
-}
-
-void ToastContentsView::ClickOnSettingsButton(
-    const std::string& notification_id) {
-  if (collection_)
-    collection_->ClickOnSettingsButton(notification_id);
-}
-
-void ToastContentsView::UpdateNotificationSize(
-    const std::string& notification_id) {
-  if (collection_)
-    collection_->UpdateNotificationSize(notification_id);
-}
-
-void ToastContentsView::RemoveNotification(
-    const std::string& notification_id,
-    bool by_user) {
-  if (collection_)
-    collection_->RemoveNotification(notification_id, by_user);
-}
-
-std::unique_ptr<ui::MenuModel> ToastContentsView::CreateMenuModel(
-    const NotifierId& notifier_id,
-    const base::string16& display_source) {
-  // Should not reach, the context menu should be handled in
-  // MessagePopupCollection.
-  NOTREACHED();
-  return nullptr;
-}
-
-bool ToastContentsView::HasClickedListener(
-    const std::string& notification_id) {
-  if (!collection_)
-    return false;
-  return collection_->HasClickedListener(notification_id);
-}
-
-void ToastContentsView::ClickOnNotificationButton(
-    const std::string& notification_id,
-    int button_index) {
-  if (collection_)
-    collection_->ClickOnNotificationButton(notification_id, button_index);
 }
 
 void ToastContentsView::CreateWidget(
@@ -411,7 +349,7 @@ void ToastContentsView::CreateWidget(
   // default. But it is not good for popup. So we override it with the normal
   // WindowTargeter.
   gfx::NativeWindow native_window = widget->GetNativeWindow();
-  native_window->SetEventTargeter(base::MakeUnique<aura::WindowTargeter>());
+  native_window->SetEventTargeter(std::make_unique<aura::WindowTargeter>());
 #endif
 }
 

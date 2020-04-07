@@ -11,9 +11,11 @@
 #include "build/build_config.h"
 
 #if defined(OS_ANDROID)
-#include <jni.h>
+#include "base/android/scoped_java_ref.h"
 #elif defined(OS_MACOSX)
 #include <objc/objc.h>
+#elif defined(OS_WIN)
+#include "base/win/windows_types.h"
 #endif
 
 // This file provides cross platform typedefs for native widget types.
@@ -52,7 +54,6 @@ class Event;
 #endif  // defined(USE_AURA)
 
 #if defined(OS_WIN)
-#include <windows.h>  // NOLINT
 typedef struct HFONT__* HFONT;
 struct IAccessible;
 #elif defined(OS_IOS)
@@ -91,8 +92,6 @@ struct NSView;
 class NSWindow;
 class NSTextField;
 #endif  // __OBJC__
-#elif defined(OS_POSIX)
-typedef struct _cairo cairo_t;
 #endif
 
 #if defined(OS_ANDROID)
@@ -104,7 +103,7 @@ class ViewAndroid;
 #endif
 class SkBitmap;
 
-#if defined(USE_X11) && !defined(OS_CHROMEOS)
+#if defined(USE_X11)
 extern "C" {
 struct _AtkObject;
 typedef struct _AtkObject AtkObject;
@@ -132,13 +131,7 @@ typedef NSEvent* NativeEvent;
 typedef void* NativeCursor;
 typedef ui::ViewAndroid* NativeView;
 typedef ui::WindowAndroid* NativeWindow;
-typedef jobject NativeEvent;
-#elif defined(OS_FUCHSIA)
-// TODO(fuchsia): Update when we have a plan for UI on Fuchsia.
-typedef void* NativeCursor;
-typedef void* NativeView;
-typedef void* NativeWindow;
-typedef void* NativeEvent;
+typedef base::android::ScopedJavaGlobalRef<jobject> NativeEvent;
 #else
 #error Unknown build environment.
 #endif
@@ -154,7 +147,7 @@ typedef NSFont* NativeFont;
 typedef id NativeViewAccessible;
 #else  // Android, Linux, Chrome OS, etc.
 // Linux doesn't have a native font type.
-#if defined(USE_X11) && !defined(OS_CHROMEOS)
+#if defined(USE_X11)
 typedef AtkObject* NativeViewAccessible;
 #else
 typedef void* NativeViewAccessible;
@@ -195,17 +188,13 @@ constexpr AcceleratedWidget kNullAcceleratedWidget = 0;
 typedef UIView* AcceleratedWidget;
 constexpr AcceleratedWidget kNullAcceleratedWidget = 0;
 #elif defined(OS_MACOSX)
-typedef NSView* AcceleratedWidget;
+typedef uint64_t AcceleratedWidget;
 constexpr AcceleratedWidget kNullAcceleratedWidget = 0;
 #elif defined(OS_ANDROID)
 typedef ANativeWindow* AcceleratedWidget;
 constexpr AcceleratedWidget kNullAcceleratedWidget = 0;
 #elif defined(USE_OZONE)
 typedef int32_t AcceleratedWidget;
-constexpr AcceleratedWidget kNullAcceleratedWidget = 0;
-#elif defined(OS_FUCHSIA)
-// TODO(fuchsia): Update when we have a plan for UI on Fuchsia.
-typedef void* AcceleratedWidget;
 constexpr AcceleratedWidget kNullAcceleratedWidget = 0;
 #else
 #error unknown platform

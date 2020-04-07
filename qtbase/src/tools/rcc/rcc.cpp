@@ -207,7 +207,11 @@ void RCCFileInfo::writeDataInfo(RCCResourceLibrary &lib)
     if (lib.formatVersion() >= 2) {
         // last modified time stamp
         const QDateTime lastModified = m_fileInfo.lastModified();
-        lib.writeNumber8(quint64(lastModified.isValid() ? lastModified.toMSecsSinceEpoch() : 0));
+        quint64 lastmod = quint64(lastModified.isValid() ? lastModified.toMSecsSinceEpoch() : 0);
+        static const quint64 sourceDate = 1000 * qgetenv("QT_RCC_SOURCE_DATE_OVERRIDE").toULongLong();
+        if (sourceDate != 0)
+            lastmod = sourceDate;
+        lib.writeNumber8(lastmod);
         if (text || pass1)
             lib.writeChar('\n');
     }
@@ -373,7 +377,7 @@ enum RCCXmlTag {
 Q_DECLARE_TYPEINFO(RCCXmlTag, Q_PRIMITIVE_TYPE);
 
 bool RCCResourceLibrary::interpretResourceFile(QIODevice *inputDevice,
-    const QString &fname, QString currentPath, bool ignoreErrors)
+    const QString &fname, QString currentPath, bool listMode)
 {
     Q_ASSERT(m_errorDevice);
     const QChar slash = QLatin1Char('/');
@@ -500,38 +504,8 @@ bool RCCResourceLibrary::interpretResourceFile(QIODevice *inputDevice,
                 if (QDir::isRelativePath(absFileName))
                     absFileName.prepend(currentPath);
                 QFileInfo file(absFileName);
-                if (!file.exists()) {
-                    m_failedResources.push_back(absFileName);
-                    const QString msg = QString::fromLatin1("RCC: Error in '%1': Cannot find file '%2'\n")
-                                        .arg(fname, fileName);
-                    m_errorDevice->write(msg.toUtf8());
-                    if (ignoreErrors)
-                        continue;
-                    else
-                        return false;
-                } else if (file.isFile()) {
-                    const bool arc =
-                        addFile(alias,
-                                RCCFileInfo(alias.section(slash, -1),
-                                            file,
-                                            language,
-                                            country,
-                                            RCCFileInfo::NoFlags,
-                                            compressLevel,
-                                            compressThreshold)
-                                );
-                    if (!arc)
-                        m_failedResources.push_back(absFileName);
-                } else {
-                    QDir dir;
-                    if (file.isDir()) {
-                        dir.setPath(file.filePath());
-                    } else {
-                        dir.setPath(file.path());
-                        dir.setNameFilters(QStringList(file.fileName()));
-                        if (alias.endsWith(file.fileName()))
-                            alias = alias.left(alias.length()-file.fileName().length());
-                    }
+                if (file.isDir()) {
+                    QDir dir(file.filePath());
                     if (!alias.endsWith(slash))
                         alias += slash;
                     QDirIterator it(dir, QDirIterator::FollowSymlinks|QDirIterator::Subdirectories);
@@ -553,6 +527,31 @@ bool RCCResourceLibrary::interpretResourceFile(QIODevice *inputDevice,
                                 m_failedResources.push_back(child.fileName());
                         }
                     }
+                } else if (listMode || file.isFile()) {
+                    const bool arc =
+                        addFile(alias,
+                                RCCFileInfo(alias.section(slash, -1),
+                                            file,
+                                            language,
+                                            country,
+                                            RCCFileInfo::NoFlags,
+                                            compressLevel,
+                                            compressThreshold)
+                                );
+                    if (!arc)
+                        m_failedResources.push_back(absFileName);
+                } else if (file.exists()) {
+                    m_failedResources.push_back(absFileName);
+                    const QString msg = QString::fromLatin1("RCC: Error in '%1': Entry '%2' is neither a file nor a directory\n")
+                                        .arg(fname, fileName);
+                    m_errorDevice->write(msg.toUtf8());
+                    return false;
+                } else {
+                    m_failedResources.push_back(absFileName);
+                    const QString msg = QString::fromLatin1("RCC: Error in '%1': Cannot find file '%2'\n")
+                                        .arg(fname, fileName);
+                    m_errorDevice->write(msg.toUtf8());
+                    return false;
                 }
             }
             break;
@@ -563,8 +562,6 @@ bool RCCResourceLibrary::interpretResourceFile(QIODevice *inputDevice,
     }
 
     if (reader.hasError()) {
-        if (ignoreErrors)
-            return true;
         int errorLine = reader.lineNumber();
         int errorColumn = reader.columnNumber();
         QString errorMessage = reader.errorString();
@@ -576,7 +573,7 @@ bool RCCResourceLibrary::interpretResourceFile(QIODevice *inputDevice,
     if (m_root == 0) {
         const QString msg = QString::fromLatin1("RCC: Warning: No resources in '%1'.\n").arg(fname);
         m_errorDevice->write(msg.toUtf8());
-        if (!ignoreErrors && m_format == Binary) {
+        if (!listMode && m_format == Binary) {
             // create dummy entry, otherwise loading with QResource will crash
             m_root = new RCCFileInfo(QString(), QFileInfo(),
                     QLocale::C, QLocale::AnyCountry, RCCFileInfo::Directory);
@@ -644,14 +641,14 @@ void RCCResourceLibrary::reset()
 }
 
 
-bool RCCResourceLibrary::readFiles(bool ignoreErrors, QIODevice &errorDevice)
+bool RCCResourceLibrary::readFiles(bool listMode, QIODevice &errorDevice)
 {
     reset();
     m_errorDevice = &errorDevice;
     //read in data
     if (m_verbose) {
-        const QString msg = QString::fromLatin1("Processing %1 files [%2]\n")
-            .arg(m_fileNames.size()).arg(static_cast<int>(ignoreErrors));
+        const QString msg = QString::fromLatin1("Processing %1 files [listMode=%2]\n")
+            .arg(m_fileNames.size()).arg(static_cast<int>(listMode));
         m_errorDevice->write(msg.toUtf8());
     }
     for (int i = 0; i < m_fileNames.size(); ++i) {
@@ -679,7 +676,7 @@ bool RCCResourceLibrary::readFiles(bool ignoreErrors, QIODevice &errorDevice)
             m_errorDevice->write(msg.toUtf8());
         }
 
-        if (!interpretResourceFile(&fileIn, fname, pwd, ignoreErrors))
+        if (!interpretResourceFile(&fileIn, fname, pwd, listMode))
             return false;
     }
     return true;

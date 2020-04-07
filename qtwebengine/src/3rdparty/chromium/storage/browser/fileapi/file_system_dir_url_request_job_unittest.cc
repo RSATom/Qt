@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include <stdint.h>
+#include <memory>
 #include <string>
 #include <utility>
 
@@ -11,7 +12,6 @@
 #include "base/files/scoped_temp_dir.h"
 #include "base/format_macros.h"
 #include "base/location.h"
-#include "base/memory/ptr_util.h"
 #include "base/memory/weak_ptr.h"
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
@@ -55,11 +55,10 @@ const char kValidExternalMountPoint[] = "mnt_name";
 // An auto mounter that will try to mount anything for |storage_domain| =
 // "automount", but will only succeed for the mount point "mnt_name".
 bool TestAutoMountForURLRequest(
-    const net::URLRequest* /*url_request*/,
+    const storage::FileSystemRequestInfo& request_info,
     const storage::FileSystemURL& filesystem_url,
-    const std::string& storage_domain,
-    const base::Callback<void(base::File::Error result)>& callback) {
-  if (storage_domain != "automount")
+    base::OnceCallback<void(base::File::Error result)> callback) {
+  if (request_info.storage_domain != "automount")
     return false;
 
   std::vector<base::FilePath::StringType> components;
@@ -72,9 +71,9 @@ bool TestAutoMountForURLRequest(
         storage::kFileSystemTypeTest,
         storage::FileSystemMountOption(),
         base::FilePath());
-    callback.Run(base::File::FILE_OK);
+    std::move(callback).Run(base::File::FILE_OK);
   } else {
-    callback.Run(base::File::FILE_ERROR_NOT_FOUND);
+    std::move(callback).Run(base::File::FILE_ERROR_NOT_FOUND);
   }
   return true;
 }
@@ -137,11 +136,10 @@ class FileSystemDirURLRequestJobTest : public testing::Test {
         CreateFileSystemContextForTesting(NULL, temp_dir_.GetPath());
 
     file_system_context_->OpenFileSystem(
-        GURL("http://remote/"),
-        storage::kFileSystemTypeTemporary,
+        GURL("http://remote/"), storage::kFileSystemTypeTemporary,
         storage::OPEN_FILE_SYSTEM_CREATE_IF_NONEXISTENT,
-        base::Bind(&FileSystemDirURLRequestJobTest::OnOpenFileSystem,
-                   weak_factory_.GetWeakPtr()));
+        base::BindOnce(&FileSystemDirURLRequestJobTest::OnOpenFileSystem,
+                       weak_factory_.GetWeakPtr()));
     base::RunLoop().RunUntilIdle();
   }
 
@@ -157,7 +155,7 @@ class FileSystemDirURLRequestJobTest : public testing::Test {
 
     std::vector<std::unique_ptr<storage::FileSystemBackend>>
         additional_providers;
-    additional_providers.push_back(base::MakeUnique<TestFileSystemBackend>(
+    additional_providers.push_back(std::make_unique<TestFileSystemBackend>(
         base::ThreadTaskRunnerHandle::Get().get(), *mnt_point));
 
     std::vector<storage::URLRequestAutoMountHandler> handlers;
@@ -176,7 +174,6 @@ class FileSystemDirURLRequestJobTest : public testing::Test {
   void TestRequestHelper(const GURL& url, bool run_to_completion,
                          FileSystemContext* file_system_context) {
     delegate_.reset(new net::TestDelegate());
-    delegate_->set_quit_on_redirect(true);
     job_factory_.reset(new FileSystemDirURLRequestJobFactory(
         url.GetOrigin().host(), file_system_context));
     empty_context_.set_job_factory(job_factory_.get());
@@ -187,7 +184,7 @@ class FileSystemDirURLRequestJobTest : public testing::Test {
     request_->Start();
     ASSERT_TRUE(request_->is_pending());  // verify that we're starting async
     if (run_to_completion)
-      base::RunLoop().Run();
+      delegate_->RunUntilComplete();
   }
 
   void TestRequest(const GURL& url) {

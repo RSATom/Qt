@@ -19,8 +19,15 @@
     <div>
       <span id="current-status"></span>
       <button id="refresh">Refresh page</button>
-      <button id="download">Dump</button>
+      <button id="dump">Dump</button>
     </div>
+    <dialog id="dump-modal">
+      <textarea id="dump-box" name="json-box" rows="10" cols="40" readonly>
+      </textarea>
+      <button id="copy-to-clipboard">Copy</button>
+      <button id="close-dump">Close</button>
+      <span id="dump-info"></span>
+    </dialog>
 
     <h2>Event Logs</h2>
     <div>
@@ -45,39 +52,56 @@
 
     <h2>Stored Pages</h2>
     <div>
-      <button id="delete-all-pages">Delete all</button>
       <button id="delete-selected-pages">Delete selected</button>
     </div>
     <table class="stored-pages-table">
       <thead>
         <tr>
-          <th>&nbsp;</th>
+          <th>#</th>
+          <th><input type="checkbox" id="toggle-all-stored"></th>
           <th>URL</th>
           <th>Namespace</th>
           <th>Size (Kb)</th>
-          <th>Expired</th>
         </tr>
       </thead>
       <tbody id="stored-pages"> </tbody>
     </table>
+    <template id="stored-pages-table-row">
+      <tr>
+        <td></td>
+        <td><input type="checkbox" name="stored"></td>
+        <td><a></a></td>
+        <td></td>
+        <td></td>
+      </tr>
+    </template>
     <div id="page-actions-info" class="dump"></div>
 
     <h2>Request Queue</h2>
     <div>
-      <button id="delete-all-requests">Delete all</button>
       <button id="delete-selected-requests">Delete selected</button>
     </div>
     <table class="request-queue-table">
       <thead>
         <tr>
-          <th>&nbsp;</th>
+          <th><input type="checkbox" id="toggle-all-requests"></th>
           <th>URL</th>
           <th>Created Timestamp</th>
           <th>Status</th>
+          <th>Request Origin</th>
         </tr>
       </thead>
       <tbody id="request-queue"> </tbody>
     </table>
+    <template id="request-queue-table-row">
+      <tr>
+        <td><input type="checkbox" name="requests"></td>
+        <td></td>
+        <td></td>
+        <td></td>
+        <td></td>
+      </tr>
+    </template>
     <div id="request-queue-actions-info" class="dump"></div>
     <input id="url" type="url"
         placeholder="http://www.url1.com, http://www.url2.com, ...">
@@ -89,6 +113,10 @@
       <div>
         <button id="schedule-nwake">Schedule NWake</button>
         <button id="cancel-nwake">Cancel NWake</button>
+      </div>
+      <div>
+        <!-- This button is used by UI automation testing !-->
+        <button id="show-notification">Show Notification</button>
       </div>
       <div>
         <input id="generate-urls" type="text"

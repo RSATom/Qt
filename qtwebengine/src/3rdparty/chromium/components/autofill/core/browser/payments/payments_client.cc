@@ -11,7 +11,6 @@
 #include "base/command_line.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
-#include "base/memory/ptr_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
@@ -19,18 +18,23 @@
 #include "base/values.h"
 #include "build/build_config.h"
 #include "components/autofill/core/browser/autofill_data_model.h"
+#include "components/autofill/core/browser/autofill_experiments.h"
 #include "components/autofill/core/browser/autofill_type.h"
 #include "components/autofill/core/browser/credit_card.h"
 #include "components/autofill/core/browser/payments/payments_request.h"
 #include "components/autofill/core/browser/payments/payments_service_url.h"
+#include "components/autofill/core/common/autofill_features.h"
 #include "components/data_use_measurement/core/data_use_user_data.h"
-#include "google_apis/gaia/identity_provider.h"
+#include "components/variations/net/variations_http_headers.h"
 #include "net/base/escape.h"
 #include "net/base/load_flags.h"
 #include "net/http/http_status_code.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
-#include "net/url_request/url_fetcher.h"
-#include "net/url_request/url_request_context_getter.h"
+#include "services/identity/public/cpp/identity_manager.h"
+#include "services/identity/public/cpp/primary_account_access_token_fetcher.h"
+#include "services/network/public/cpp/resource_request.h"
+#include "services/network/public/cpp/shared_url_loader_factory.h"
+#include "services/network/public/cpp/simple_url_loader.h"
 
 namespace autofill {
 namespace payments {
@@ -52,10 +56,16 @@ const char kUploadCardRequestPath[] =
 const char kUploadCardRequestFormat[] =
     "requestContentType=application/json; charset=utf-8&request=%s"
     "&s7e_1_pan=%s&s7e_13_cvc=%s";
+const char kUploadCardRequestFormatWithoutCvc[] =
+    "requestContentType=application/json; charset=utf-8&request=%s"
+    "&s7e_1_pan=%s";
 
-const char kTokenServiceConsumerId[] = "wallet_client";
+const char kTokenFetchId[] = "wallet_client";
 const char kPaymentsOAuth2Scope[] =
     "https://www.googleapis.com/auth/wallet.chrome";
+
+const int kUnmaskCardBillableServiceNumber = 70154;
+const int kUploadCardBillableServiceNumber = 70073;
 
 GURL GetRequestUrl(const std::string& path) {
   if (base::CommandLine::ForCurrentProcess()->HasSwitch("sync-url")) {
@@ -75,20 +85,28 @@ GURL GetRequestUrl(const std::string& path) {
   return GetBaseSecureUrl().Resolve(path);
 }
 
-std::unique_ptr<base::DictionaryValue> BuildRiskDictionary(
+base::DictionaryValue BuildCustomerContextDictionary(
+    int64_t external_customer_id) {
+  base::DictionaryValue customer_context;
+  customer_context.SetString("external_customer_id",
+                             std::to_string(external_customer_id));
+  return customer_context;
+}
+
+base::DictionaryValue BuildRiskDictionary(
     const std::string& encoded_risk_data) {
-  std::unique_ptr<base::DictionaryValue> risk_data(new base::DictionaryValue());
+  base::DictionaryValue risk_data;
 #if defined(OS_IOS)
   // Browser fingerprinting is not available on iOS. Instead, we generate
   // RiskAdvisoryData.
-  risk_data->SetString("message_type", "RISK_ADVISORY_DATA");
-  risk_data->SetString("encoding_type", "BASE_64_URL");
+  risk_data.SetString("message_type", "RISK_ADVISORY_DATA");
+  risk_data.SetString("encoding_type", "BASE_64_URL");
 #else
-  risk_data->SetString("message_type", "BROWSER_NATIVE_FINGERPRINTING");
-  risk_data->SetString("encoding_type", "BASE_64");
+  risk_data.SetString("message_type", "BROWSER_NATIVE_FINGERPRINTING");
+  risk_data.SetString("encoding_type", "BASE_64");
 #endif
 
-  risk_data->SetString("value", encoded_risk_data);
+  risk_data.SetString("value", encoded_risk_data);
 
   return risk_data;
 }
@@ -107,7 +125,7 @@ void AppendStringIfNotEmpty(const AutofillProfile& profile,
                             const ServerFieldType& type,
                             const std::string& app_locale,
                             base::ListValue* list) {
-  const base::string16 value = profile.GetInfo(AutofillType(type), app_locale);
+  const base::string16 value = profile.GetInfo(type, app_locale);
   if (!value.empty())
     list->AppendString(value);
 }
@@ -169,7 +187,7 @@ void SetActiveExperiments(const std::vector<const char*>& active_experiments,
     return;
 
   std::unique_ptr<base::ListValue> active_chrome_experiments(
-      base::MakeUnique<base::ListValue>());
+      std::make_unique<base::ListValue>());
   for (const char* it : active_experiments)
     active_chrome_experiments->AppendString(it);
 
@@ -179,8 +197,9 @@ void SetActiveExperiments(const std::vector<const char*>& active_experiments,
 
 class UnmaskCardRequest : public PaymentsRequest {
  public:
-  UnmaskCardRequest(const PaymentsClient::UnmaskRequestDetails& request_details)
-      : request_details_(request_details) {
+  UnmaskCardRequest(const PaymentsClient::UnmaskRequestDetails& request_details,
+                    PaymentsClientUnmaskDelegate* delegate)
+      : request_details_(request_details), delegate_(delegate) {
     DCHECK(
         CreditCard::MASKED_SERVER_CARD == request_details.card.record_type() ||
         CreditCard::FULL_SERVER_CARD == request_details.card.record_type());
@@ -197,9 +216,16 @@ class UnmaskCardRequest : public PaymentsRequest {
     base::DictionaryValue request_dict;
     request_dict.SetString("encrypted_cvc", "__param:s7e_13_cvc");
     request_dict.SetString("credit_card_id", request_details_.card.server_id());
-    request_dict.Set("risk_data_encoded",
-                     BuildRiskDictionary(request_details_.risk_data));
-    request_dict.Set("context", base::MakeUnique<base::DictionaryValue>());
+    request_dict.SetKey("risk_data_encoded",
+                        BuildRiskDictionary(request_details_.risk_data));
+    std::unique_ptr<base::DictionaryValue> context(new base::DictionaryValue());
+    context->SetInteger("billable_service", kUnmaskCardBillableServiceNumber);
+    if (request_details_.billing_customer_number != 0) {
+      context->SetKey("customer_context",
+                      BuildCustomerContextDictionary(
+                          request_details_.billing_customer_number));
+    }
+    request_dict.Set("context", std::move(context));
 
     int value = 0;
     if (base::StringToInt(request_details_.user_response.exp_month, &value))
@@ -225,24 +251,30 @@ class UnmaskCardRequest : public PaymentsRequest {
 
   bool IsResponseComplete() override { return !real_pan_.empty(); }
 
-  void RespondToDelegate(PaymentsClientDelegate* delegate,
-                         AutofillClient::PaymentsRpcResult result) override {
-    delegate->OnDidGetRealPan(result, real_pan_);
+  void RespondToDelegate(AutofillClient::PaymentsRpcResult result) override {
+    delegate_->OnDidGetRealPan(result, real_pan_);
   }
 
  private:
   PaymentsClient::UnmaskRequestDetails request_details_;
+  PaymentsClientUnmaskDelegate* delegate_;
   std::string real_pan_;
 };
 
 class GetUploadDetailsRequest : public PaymentsRequest {
  public:
   GetUploadDetailsRequest(const std::vector<AutofillProfile>& addresses,
+                          const int detected_values,
+                          const std::string& pan_first_six,
                           const std::vector<const char*>& active_experiments,
-                          const std::string& app_locale)
+                          const std::string& app_locale,
+                          PaymentsClientSaveDelegate* delegate)
       : addresses_(addresses),
+        detected_values_(detected_values),
+        pan_first_six_(pan_first_six),
         active_experiments_(active_experiments),
-        app_locale_(app_locale) {}
+        app_locale_(app_locale),
+        delegate_(delegate) {}
   ~GetUploadDetailsRequest() override {}
 
   std::string GetRequestUrlPath() override {
@@ -262,12 +294,22 @@ class GetUploadDetailsRequest : public PaymentsRequest {
       // These addresses are used by Payments to (1) accurately determine the
       // user's country in order to show the correct legal documents and (2) to
       // verify that the addresses are valid for their purposes so that we don't
-      // offer save in a case where it would definitely fail (e.g. P.O. boxes).
-      // The final parameter directs BuildAddressDictionary to omit names and
-      // phone numbers, which aren't useful for these purposes.
+      // offer save in a case where it would definitely fail (e.g. P.O. boxes if
+      // min address is not possible). The final parameter directs
+      // BuildAddressDictionary to omit names and phone numbers, which aren't
+      // useful for these purposes.
       addresses->Append(BuildAddressDictionary(profile, app_locale_, false));
     }
     request_dict.Set("address", std::move(addresses));
+
+    // It's possible we may not have found name/address/CVC in the checkout
+    // flow. The detected_values_ bitmask tells Payments what *was* found, and
+    // Payments will decide if the provided data is enough to offer upload save.
+    request_dict.SetInteger("detected_values", detected_values_);
+
+    if (IsAutofillUpstreamSendPanFirstSixExperimentEnabled() &&
+        !pan_first_six_.empty())
+      request_dict.SetString("pan_first6", pan_first_six_);
 
     SetActiveExperiments(active_experiments_, &request_dict);
 
@@ -288,24 +330,27 @@ class GetUploadDetailsRequest : public PaymentsRequest {
     return !context_token_.empty() && legal_message_;
   }
 
-  void RespondToDelegate(PaymentsClientDelegate* delegate,
-                         AutofillClient::PaymentsRpcResult result) override {
-    delegate->OnDidGetUploadDetails(result, context_token_,
-                                    std::move(legal_message_));
+  void RespondToDelegate(AutofillClient::PaymentsRpcResult result) override {
+    delegate_->OnDidGetUploadDetails(result, context_token_,
+                                     std::move(legal_message_));
   }
 
  private:
   const std::vector<AutofillProfile> addresses_;
+  const int detected_values_;
+  const std::string pan_first_six_;
   const std::vector<const char*> active_experiments_;
   std::string app_locale_;
+  PaymentsClientSaveDelegate* delegate_;
   base::string16 context_token_;
   std::unique_ptr<base::DictionaryValue> legal_message_;
 };
 
 class UploadCardRequest : public PaymentsRequest {
  public:
-  UploadCardRequest(const PaymentsClient::UploadRequestDetails& request_details)
-      : request_details_(request_details) {}
+  UploadCardRequest(const PaymentsClient::UploadRequestDetails& request_details,
+                    PaymentsClientSaveDelegate* delegate)
+      : request_details_(request_details), delegate_(delegate) {}
   ~UploadCardRequest() override {}
 
   std::string GetRequestUrlPath() override { return kUploadCardRequestPath; }
@@ -317,13 +362,20 @@ class UploadCardRequest : public PaymentsRequest {
   std::string GetRequestContent() override {
     base::DictionaryValue request_dict;
     request_dict.SetString("encrypted_pan", "__param:s7e_1_pan");
-    request_dict.SetString("encrypted_cvc", "__param:s7e_13_cvc");
-    request_dict.Set("risk_data_encoded",
-                     BuildRiskDictionary(request_details_.risk_data));
+    if (!request_details_.cvc.empty())
+      request_dict.SetString("encrypted_cvc", "__param:s7e_13_cvc");
+    request_dict.SetKey("risk_data_encoded",
+                        BuildRiskDictionary(request_details_.risk_data));
 
     const std::string& app_locale = request_details_.app_locale;
     std::unique_ptr<base::DictionaryValue> context(new base::DictionaryValue());
     context->SetString("language_code", app_locale);
+    context->SetInteger("billable_service", kUploadCardBillableServiceNumber);
+    if (request_details_.billing_customer_number != 0) {
+      context->SetKey("customer_context",
+                      BuildCustomerContextDictionary(
+                          request_details_.billing_customer_number));
+    }
     request_dict.Set("context", std::move(context));
 
     SetStringIfNotEmpty(request_details_.card, CREDIT_CARD_NAME_FULL,
@@ -353,13 +405,21 @@ class UploadCardRequest : public PaymentsRequest {
         AutofillType(CREDIT_CARD_NUMBER), app_locale);
     std::string json_request;
     base::JSONWriter::Write(request_dict, &json_request);
-    std::string request_content = base::StringPrintf(
-        kUploadCardRequestFormat,
-        net::EscapeUrlEncodedData(json_request, true).c_str(),
-        net::EscapeUrlEncodedData(base::UTF16ToASCII(pan), true).c_str(),
-        net::EscapeUrlEncodedData(base::UTF16ToASCII(request_details_.cvc),
-                                  true)
-            .c_str());
+    std::string request_content;
+    if (request_details_.cvc.empty()) {
+      request_content = base::StringPrintf(
+          kUploadCardRequestFormatWithoutCvc,
+          net::EscapeUrlEncodedData(json_request, true).c_str(),
+          net::EscapeUrlEncodedData(base::UTF16ToASCII(pan), true).c_str());
+    } else {
+      request_content = base::StringPrintf(
+          kUploadCardRequestFormat,
+          net::EscapeUrlEncodedData(json_request, true).c_str(),
+          net::EscapeUrlEncodedData(base::UTF16ToASCII(pan), true).c_str(),
+          net::EscapeUrlEncodedData(base::UTF16ToASCII(request_details_.cvc),
+                                    true)
+              .c_str());
+    }
     VLOG(3) << "savecard request body: " << request_content;
     return request_content;
   }
@@ -370,13 +430,13 @@ class UploadCardRequest : public PaymentsRequest {
 
   bool IsResponseComplete() override { return true; }
 
-  void RespondToDelegate(PaymentsClientDelegate* delegate,
-                         AutofillClient::PaymentsRpcResult result) override {
-    delegate->OnDidUploadCard(result, server_id_);
+  void RespondToDelegate(AutofillClient::PaymentsRpcResult result) override {
+    delegate_->OnDidUploadCard(result, server_id_);
   }
 
  private:
   const PaymentsClient::UploadRequestDetails request_details_;
+  PaymentsClientSaveDelegate* delegate_;
   std::string server_id_;
 };
 
@@ -386,6 +446,8 @@ const char PaymentsClient::kRecipientName[] = "recipient_name";
 const char PaymentsClient::kPhoneNumber[] = "phone_number";
 
 PaymentsClient::UnmaskRequestDetails::UnmaskRequestDetails() {}
+PaymentsClient::UnmaskRequestDetails::UnmaskRequestDetails(
+    const UnmaskRequestDetails& other) = default;
 PaymentsClient::UnmaskRequestDetails::~UnmaskRequestDetails() {}
 
 PaymentsClient::UploadRequestDetails::UploadRequestDetails() {}
@@ -393,15 +455,21 @@ PaymentsClient::UploadRequestDetails::UploadRequestDetails(
     const UploadRequestDetails& other) = default;
 PaymentsClient::UploadRequestDetails::~UploadRequestDetails() {}
 
-PaymentsClient::PaymentsClient(net::URLRequestContextGetter* context_getter,
-                               PaymentsClientDelegate* delegate)
-    : OAuth2TokenService::Consumer(kTokenServiceConsumerId),
-      context_getter_(context_getter),
-      delegate_(delegate),
+PaymentsClient::PaymentsClient(
+    scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
+    PrefService* pref_service,
+    identity::IdentityManager* identity_manager,
+    PaymentsClientUnmaskDelegate* unmask_delegate,
+    PaymentsClientSaveDelegate* save_delegate,
+    bool is_off_the_record)
+    : url_loader_factory_(url_loader_factory),
+      pref_service_(pref_service),
+      identity_manager_(identity_manager),
+      unmask_delegate_(unmask_delegate),
+      save_delegate_(save_delegate),
+      is_off_the_record_(is_off_the_record),
       has_retried_authorization_(false),
-      weak_ptr_factory_(this) {
-  DCHECK(delegate);
-}
+      weak_ptr_factory_(this) {}
 
 PaymentsClient::~PaymentsClient() {}
 
@@ -410,108 +478,111 @@ void PaymentsClient::Prepare() {
     StartTokenFetch(false);
 }
 
+void PaymentsClient::SetSaveDelegate(
+    PaymentsClientSaveDelegate* save_delegate) {
+  save_delegate_ = save_delegate;
+}
+
+PrefService* PaymentsClient::GetPrefService() const {
+  return pref_service_;
+}
+
 void PaymentsClient::UnmaskCard(
     const PaymentsClient::UnmaskRequestDetails& request_details) {
-  IssueRequest(base::MakeUnique<UnmaskCardRequest>(request_details), true);
+  DCHECK(unmask_delegate_);
+  IssueRequest(
+      std::make_unique<UnmaskCardRequest>(request_details, unmask_delegate_),
+      true);
 }
 
 void PaymentsClient::GetUploadDetails(
     const std::vector<AutofillProfile>& addresses,
+    const int detected_values,
+    const std::string& pan_first_six,
     const std::vector<const char*>& active_experiments,
     const std::string& app_locale) {
-  IssueRequest(base::MakeUnique<GetUploadDetailsRequest>(
-                   addresses, active_experiments, app_locale),
+  DCHECK(save_delegate_);
+  IssueRequest(std::make_unique<GetUploadDetailsRequest>(
+                   addresses, detected_values, pan_first_six,
+                   active_experiments, app_locale, save_delegate_),
                false);
 }
 
 void PaymentsClient::UploadCard(
     const PaymentsClient::UploadRequestDetails& request_details) {
-  IssueRequest(base::MakeUnique<UploadCardRequest>(request_details), true);
+  DCHECK(save_delegate_);
+  IssueRequest(
+      std::make_unique<UploadCardRequest>(request_details, save_delegate_),
+      true);
+}
+
+void PaymentsClient::CancelRequest() {
+  request_.reset();
+  resource_request_.reset();
+  simple_url_loader_.reset();
+  token_fetcher_.reset();
+  access_token_.clear();
+  has_retried_authorization_ = false;
+}
+
+void PaymentsClient::set_url_loader_factory_for_testing(
+    scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory) {
+  url_loader_factory_ = std::move(url_loader_factory);
 }
 
 void PaymentsClient::IssueRequest(std::unique_ptr<PaymentsRequest> request,
                                   bool authenticate) {
   request_ = std::move(request);
   has_retried_authorization_ = false;
-  InitializeUrlFetcher();
 
-  if (!authenticate)
-    url_fetcher_->Start();
-  else if (access_token_.empty())
+  InitializeResourceRequest();
+
+  if (!authenticate) {
+    StartRequest();
+  } else if (access_token_.empty()) {
     StartTokenFetch(false);
-  else
+  } else {
     SetOAuth2TokenAndStartRequest();
+  }
 }
 
-void PaymentsClient::InitializeUrlFetcher() {
-  net::NetworkTrafficAnnotationTag traffic_annotation =
-      net::DefineNetworkTrafficAnnotation("payments_sync_cards", R"(
-        semantics {
-          sender: "Payments"
-          description:
-            "This service communicates with Google Payments servers to upload "
-            "(save) or receive the user's credit card info."
-          trigger:
-            "Requests are triggered by a user action, such as selecting a "
-            "masked server card from Chromium's credit card autofill dropdown, "
-            "submitting a form which has credit card information, or accepting "
-            "the prompt to save a credit card to Payments servers."
-          data:
-            "In case of save, a protocol buffer containing relevant address "
-            "and credit card information which should be saved in Google "
-            "Payments servers, along with user credentials. In case of load, a "
-            "protocol buffer containing the id of the credit card to unmask, "
-            "an encrypted cvc value, an optional updated card expiration date, "
-            "and user credentials."
-          destination: GOOGLE_OWNED_SERVICE
-        }
-        policy {
-          cookies_allowed: false
-          setting:
-            "Users can enable or disable this feature in Chromium settings by "
-            "toggling 'Credit cards and addresses using Google Payments', "
-            "under 'Advanced sync settings...'. This feature is enabled by "
-            "default."
-          chrome_policy {
-            AutoFillEnabled {
-              policy_options {mode: MANDATORY}
-              AutoFillEnabled: false
-            }
-          }
-        })");
-  url_fetcher_ =
-      net::URLFetcher::Create(0, GetRequestUrl(request_->GetRequestUrlPath()),
-                              net::URLFetcher::POST, this, traffic_annotation);
-
-  data_use_measurement::DataUseUserData::AttachToFetcher(
-      url_fetcher_.get(), data_use_measurement::DataUseUserData::AUTOFILL);
-  url_fetcher_->SetRequestContext(context_getter_.get());
-  url_fetcher_->SetLoadFlags(net::LOAD_DO_NOT_SAVE_COOKIES |
-                             net::LOAD_DO_NOT_SEND_COOKIES |
-                             net::LOAD_DISABLE_CACHE);
-
-  url_fetcher_->SetUploadData(request_->GetRequestContentType(),
-                              request_->GetRequestContent());
+void PaymentsClient::InitializeResourceRequest() {
+  resource_request_ = std::make_unique<network::ResourceRequest>();
+  resource_request_->url = GetRequestUrl(request_->GetRequestUrlPath());
+  resource_request_->load_flags = net::LOAD_DO_NOT_SAVE_COOKIES |
+                                  net::LOAD_DO_NOT_SEND_COOKIES |
+                                  net::LOAD_DISABLE_CACHE;
+  resource_request_->method = "POST";
+  if (base::FeatureList::IsEnabled(
+          features::kAutofillSendExperimentIdsInPaymentsRPCs)) {
+    // Add Chrome experiment state to the request headers.
+    net::HttpRequestHeaders headers;
+    // User is always signed-in to be able to upload card to Google Payments.
+    variations::AppendVariationHeaders(
+        resource_request_->url,
+        is_off_the_record_ ? variations::InIncognito::kYes
+                           : variations::InIncognito::kNo,
+        variations::SignedIn::kYes, &resource_request_->headers);
+  }
 }
 
-void PaymentsClient::CancelRequest() {
-  request_.reset();
-  url_fetcher_.reset();
-  access_token_request_.reset();
-  access_token_.clear();
-  has_retried_authorization_ = false;
-}
-
-void PaymentsClient::OnURLFetchComplete(const net::URLFetcher* source) {
-  DCHECK_EQ(source, url_fetcher_.get());
-
-  // |url_fetcher_|, which is aliased to |source|, might continue to be used in
-  // this method, but should be freed once control leaves the method.
-  std::unique_ptr<net::URLFetcher> scoped_url_fetcher(std::move(url_fetcher_));
-  std::unique_ptr<base::DictionaryValue> response_dict;
-  int response_code = source->GetResponseCode();
+void PaymentsClient::OnSimpleLoaderComplete(
+    std::unique_ptr<std::string> response_body) {
+  int response_code = -1;
+  if (simple_url_loader_->ResponseInfo() &&
+      simple_url_loader_->ResponseInfo()->headers) {
+    response_code =
+        simple_url_loader_->ResponseInfo()->headers->response_code();
+  }
   std::string data;
-  source->GetResponseAsString(&data);
+  if (response_body)
+    data = std::move(*response_body);
+  OnSimpleLoaderCompleteInternal(response_code, data);
+}
+
+void PaymentsClient::OnSimpleLoaderCompleteInternal(int response_code,
+                                                    const std::string& data) {
+  std::unique_ptr<base::DictionaryValue> response_dict;
   VLOG(2) << "Got data: " << data;
 
   AutofillClient::PaymentsRpcResult result = AutofillClient::SUCCESS;
@@ -521,8 +592,7 @@ void PaymentsClient::OnURLFetchComplete(const net::URLFetcher* source) {
     case net::HTTP_OK: {
       std::string error_code;
       std::unique_ptr<base::Value> message_value = base::JSONReader::Read(data);
-      if (message_value.get() &&
-          message_value->IsType(base::Value::Type::DICTIONARY)) {
+      if (message_value.get() && message_value->is_dict()) {
         response_dict.reset(
             static_cast<base::DictionaryValue*>(message_value.release()));
         response_dict->GetString("error.code", &error_code);
@@ -544,7 +614,7 @@ void PaymentsClient::OnURLFetchComplete(const net::URLFetcher* source) {
       }
       has_retried_authorization_ = true;
 
-      InitializeUrlFetcher();
+      InitializeResourceRequest();
       StartTokenFetch(true);
       return;
     }
@@ -568,56 +638,111 @@ void PaymentsClient::OnURLFetchComplete(const net::URLFetcher* source) {
             << " with data: " << data;
   }
 
-  request_->RespondToDelegate(delegate_, result);
+  request_->RespondToDelegate(result);
 }
 
-void PaymentsClient::OnGetTokenSuccess(
-    const OAuth2TokenService::Request* request,
-    const std::string& access_token,
-    const base::Time& expiration_time) {
-  DCHECK_EQ(request, access_token_request_.get());
-  access_token_ = access_token;
-  if (url_fetcher_)
-    SetOAuth2TokenAndStartRequest();
+void PaymentsClient::AccessTokenFetchFinished(
+    GoogleServiceAuthError error,
+    identity::AccessTokenInfo access_token_info) {
+  DCHECK(token_fetcher_);
+  token_fetcher_.reset();
 
-  access_token_request_.reset();
-}
-
-void PaymentsClient::OnGetTokenFailure(
-    const OAuth2TokenService::Request* request,
-    const GoogleServiceAuthError& error) {
-  DCHECK_EQ(request, access_token_request_.get());
-  VLOG(1) << "Unhandled OAuth2 error: " << error.ToString();
-  if (url_fetcher_) {
-    url_fetcher_.reset();
-    request_->RespondToDelegate(delegate_, AutofillClient::PERMANENT_FAILURE);
+  if (error.state() != GoogleServiceAuthError::NONE) {
+    AccessTokenError(error);
+    return;
   }
-  access_token_request_.reset();
+
+  access_token_ = access_token_info.token;
+  if (resource_request_)
+    SetOAuth2TokenAndStartRequest();
+}
+
+void PaymentsClient::AccessTokenError(const GoogleServiceAuthError& error) {
+  VLOG(1) << "Unhandled OAuth2 error: " << error.ToString();
+  if (simple_url_loader_)
+    simple_url_loader_.reset();
+  if (request_)
+    request_->RespondToDelegate(AutofillClient::PERMANENT_FAILURE);
 }
 
 void PaymentsClient::StartTokenFetch(bool invalidate_old) {
   // We're still waiting for the last request to come back.
-  if (!invalidate_old && access_token_request_)
+  if (!invalidate_old && token_fetcher_)
     return;
 
   OAuth2TokenService::ScopeSet payments_scopes;
   payments_scopes.insert(kPaymentsOAuth2Scope);
-  IdentityProvider* identity = delegate_->GetIdentityProvider();
   if (invalidate_old) {
     DCHECK(!access_token_.empty());
-    identity->GetTokenService()->InvalidateAccessToken(
-        identity->GetActiveAccountId(), payments_scopes, access_token_);
+    identity_manager_->RemoveAccessTokenFromCache(
+        identity_manager_->GetPrimaryAccountInfo().account_id, payments_scopes,
+        access_token_);
   }
   access_token_.clear();
-  access_token_request_ = identity->GetTokenService()->StartRequest(
-      identity->GetActiveAccountId(), payments_scopes, this);
+  token_fetcher_ = std::make_unique<identity::PrimaryAccountAccessTokenFetcher>(
+      kTokenFetchId, identity_manager_, payments_scopes,
+      base::BindOnce(&PaymentsClient::AccessTokenFetchFinished,
+                     base::Unretained(this)),
+      identity::PrimaryAccountAccessTokenFetcher::Mode::kImmediate);
 }
 
 void PaymentsClient::SetOAuth2TokenAndStartRequest() {
-  url_fetcher_->AddExtraRequestHeader(net::HttpRequestHeaders::kAuthorization +
-                                      std::string(": Bearer ") + access_token_);
+  DCHECK(resource_request_);
+  resource_request_->headers.AddHeaderFromString(
+      net::HttpRequestHeaders::kAuthorization + std::string(": Bearer ") +
+      access_token_);
+  StartRequest();
+}
 
-  url_fetcher_->Start();
+void PaymentsClient::StartRequest() {
+  DCHECK(resource_request_);
+  net::NetworkTrafficAnnotationTag traffic_annotation =
+      net::DefineNetworkTrafficAnnotation("payments_sync_cards", R"(
+        semantics {
+          sender: "Payments"
+          description:
+            "This service communicates with Google Payments servers to upload "
+            "(save) or receive the user's credit card info."
+          trigger:
+            "Requests are triggered by a user action, such as selecting a "
+            "masked server card from Chromium's credit card autofill dropdown, "
+            "submitting a form which has credit card information, or accepting "
+            "the prompt to save a credit card to Payments servers."
+          data:
+            "In case of save, a protocol buffer containing relevant address "
+            "and credit card information which should be saved in Google "
+            "Payments servers, along with user credentials. In case of load, a "
+            "protocol buffer containing the id of the credit card to unmask, "
+            "an encrypted cvc value, an optional updated card expiration date, "
+            "and user credentials."
+          destination: GOOGLE_OWNED_SERVICE
+        }
+        policy {
+          cookies_allowed: NO
+          setting:
+            "Users can enable or disable this feature in Chromium settings by "
+            "toggling 'Credit cards and addresses using Google Payments', "
+            "under 'Advanced sync settings...'. This feature is enabled by "
+            "default."
+          chrome_policy {
+            AutoFillEnabled {
+              policy_options {mode: MANDATORY}
+              AutoFillEnabled: false
+            }
+          }
+        })");
+  // TODO(https://crbug.com/808498): Re-add data use measurement once
+  // SimpleURLLoader supports it.
+  // ID=data_use_measurement::DataUseUserData::AUTOFILL
+  simple_url_loader_ = network::SimpleURLLoader::Create(
+      std::move(resource_request_), traffic_annotation);
+  simple_url_loader_->AttachStringForUpload(request_->GetRequestContent(),
+                                            request_->GetRequestContentType());
+
+  simple_url_loader_->DownloadToStringOfUnboundedSizeUntilCrashAndDie(
+      url_loader_factory_.get(),
+      base::BindOnce(&PaymentsClient::OnSimpleLoaderComplete,
+                     base::Unretained(this)));
 }
 
 }  // namespace payments

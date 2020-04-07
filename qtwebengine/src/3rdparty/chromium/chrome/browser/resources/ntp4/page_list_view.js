@@ -19,7 +19,10 @@
  *            full_name: string,
  *            full_name_direction: string,
  *            homepageUrl: string,
- *            icon: string,
+ *            icon_big: string,
+ *            icon_big_exists: boolean,
+ *            icon_small: string,
+ *            icon_small_exists: boolean,
  *            id: string,
  *            is_component: boolean,
  *            is_webstore: boolean,
@@ -84,7 +87,7 @@ cr.define('ntp', function() {
 
     /**
      * The 'dots-list' element.
-     * @type {!Element|undefined}
+     * @type {!ntp.DotList|undefined}
      */
     dotList: undefined,
 
@@ -142,7 +145,7 @@ cr.define('ntp', function() {
         opt_pageSwitcherEnd) {
       this.pageList = pageList;
 
-      this.dotList = dotList;
+      this.dotList = /** @type {!ntp.DotList} */ (dotList);
       cr.ui.decorate(this.dotList, ntp.DotList);
 
       this.trash = opt_trash;
@@ -158,9 +161,6 @@ cr.define('ntp', function() {
         ntp.initializePageSwitcher(this.pageSwitcherEnd);
 
       this.shownPageIndex = loadTimeData.getInteger('shown_page_index');
-
-      // TODO(dbeam): remove showApps and everything that says if (apps).
-      assert(loadTimeData.getBoolean('showApps'));
 
       // Request data on the apps so we can fill them in.
       // Note that this is kicked off asynchronously.  'getAppsCallback' will
@@ -191,7 +191,8 @@ cr.define('ntp', function() {
       // This listener must be added before the card slider is initialized,
       // because it needs to be called before the card slider's handler.
       cardSliderFrame.addEventListener('mousewheel', function(e) {
-        if (cardSlider.currentCardValue.handleMouseWheel(e)) {
+        if (/** @type {!ntp.TilePage} */ (cardSlider.currentCardValue)
+                .handleMouseWheel(e)) {
           e.preventDefault();            // Prevent default scroll behavior.
           e.stopImmediatePropagation();  // Prevent horizontal card flipping.
         }
@@ -258,8 +259,6 @@ cr.define('ntp', function() {
      *     position indices.
      */
     appMoved: function(appData) {
-      assert(loadTimeData.getBoolean('showApps'));
-
       var app = /** @type {ntp.App} */ ($(appData.id));
       assert(app, 'trying to move an app that doesn\'t exist');
       app.remove(false);
@@ -277,8 +276,6 @@ cr.define('ntp', function() {
      * @param {boolean} fromPage True if the removal was from the current page.
      */
     appRemoved: function(appData, isUninstall, fromPage) {
-      assert(loadTimeData.getBoolean('showApps'));
-
       var app = /** @type {ntp.App} */ ($(appData.id));
       assert(app, 'trying to remove an app that doesn\'t exist');
 
@@ -313,8 +310,6 @@ cr.define('ntp', function() {
      *     An object with all the data on available applications.
      */
     getAppsCallback: function(data) {
-      assert(loadTimeData.getBoolean('showApps'));
-
       var startTime = Date.now();
 
       // Remember this to select the correct card when done rebuilding.
@@ -408,7 +403,6 @@ cr.define('ntp', function() {
         this.appsLoaded_ = true;
         cr.dispatchSimpleEvent(document, 'sectionready', true, true);
       }
-      this.updateAppLauncherPromoHiddenState_();
     },
 
     /**
@@ -420,8 +414,6 @@ cr.define('ntp', function() {
      *     be highlighted.
      */
     appAdded: function(appData, opt_highlight) {
-      assert(loadTimeData.getBoolean('showApps'));
-
       if (appData.id == this.highlightAppId) {
         opt_highlight = true;
         this.highlightAppId = null;
@@ -439,7 +431,7 @@ cr.define('ntp', function() {
       }
 
       var page = this.appsPages[pageIndex];
-      var app = $(appData.id);
+      var app = /** @type {?ntp.App} */ ($(appData.id));
       if (app) {
         app.replaceAppData(appData);
       } else if (opt_highlight) {
@@ -456,8 +448,6 @@ cr.define('ntp', function() {
      *     applications.
      */
     appsPrefChangedCallback: function(data) {
-      assert(loadTimeData.getBoolean('showApps'));
-
       for (var i = 0; i < data.apps.length; ++i) {
         $(data.apps[i].id).appData = data.apps[i];
       }
@@ -470,25 +460,6 @@ cr.define('ntp', function() {
     },
 
     /**
-     * Callback invoked by chrome whenever the app launcher promo pref changes.
-     * @param {boolean} show Identifies if we should show or hide the promo.
-     */
-    appLauncherPromoPrefChangeCallback: function(show) {
-      loadTimeData.overrideValues({showAppLauncherPromo: show});
-      this.updateAppLauncherPromoHiddenState_();
-    },
-
-    /**
-     * Updates the hidden state of the app launcher promo based on the page
-     * shown and load data content.
-     * @private
-     */
-    updateAppLauncherPromoHiddenState_: function() {
-      $('app-launcher-promo').hidden =
-          !loadTimeData.getBoolean('showAppLauncherPromo');
-    },
-
-    /**
      * Invoked whenever the pages in apps-page-list have changed so that
      * the Slider knows about the new elements.
      */
@@ -497,10 +468,8 @@ cr.define('ntp', function() {
           0, Math.min(this.cardSlider.currentCard, this.tilePages.length - 1));
       this.cardSlider.setCards(
           Array.prototype.slice.call(this.tilePages), pageNo);
-      if (loadTimeData.getBoolean('showApps')) {
-        this.cardSlider.selectCardByValue(this.appsPages[Math.min(
-            this.shownPageIndex, this.appsPages.length - 1)]);
-      }
+      this.cardSlider.selectCardByValue(this.appsPages[Math.min(
+          this.shownPageIndex, this.appsPages.length - 1)]);
     },
 
     /**
@@ -508,12 +477,10 @@ cr.define('ntp', function() {
      * of a moving or insert tile.
      */
     enterRearrangeMode: function() {
-      if (loadTimeData.getBoolean('showApps')) {
-        var tempPage = new ntp.AppsPage();
-        tempPage.classList.add('temporary');
-        var pageName = loadTimeData.getString('appDefaultPageName');
-        this.appendTilePage(tempPage, pageName, true);
-      }
+      var tempPage = new ntp.AppsPage();
+      tempPage.classList.add('temporary');
+      var pageName = loadTimeData.getString('appDefaultPageName');
+      this.appendTilePage(tempPage, pageName, true);
 
       if (ntp.getCurrentlyDraggingTile().firstChild.canBeRemoved()) {
         $('footer').classList.add('showing-trash-mode');
@@ -569,7 +536,8 @@ cr.define('ntp', function() {
       if (!this.pageSwitcherStart || !this.pageSwitcherEnd)
         return;
 
-      var page = this.cardSlider.currentCardValue;
+      var page =
+          /** @type {?ntp.TilePage} */ (this.cardSlider.currentCardValue);
 
       this.pageSwitcherStart.hidden =
           !page || (this.cardSlider.currentCard == 0);
@@ -646,7 +614,6 @@ cr.define('ntp', function() {
       assert(shownPageIndex >= 0);
       this.shownPageIndex = shownPageIndex;
       chrome.send('pageSelected', [this.shownPageIndex]);
-      this.updateAppLauncherPromoHiddenState_();
     },
 
     /**
@@ -711,7 +678,8 @@ cr.define('ntp', function() {
      * @private
      */
     updateOfflineEnabledApps_: function() {
-      var apps = document.querySelectorAll('.app');
+      var apps = /** @type {!NodeList<!ntp.App>} */ (
+          document.querySelectorAll('.app'));
       for (var i = 0; i < apps.length; ++i) {
         if (apps[i].appData.enabled && !apps[i].appData.offlineEnabled) {
           apps[i].setIcon();

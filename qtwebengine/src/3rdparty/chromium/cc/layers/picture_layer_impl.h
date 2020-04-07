@@ -20,6 +20,7 @@
 #include "cc/tiles/picture_layer_tiling.h"
 #include "cc/tiles/picture_layer_tiling_set.h"
 #include "cc/tiles/tiling_set_eviction_queue.h"
+#include "cc/trees/image_animation_controller.h"
 
 namespace cc {
 
@@ -29,7 +30,8 @@ class Tile;
 
 class CC_EXPORT PictureLayerImpl
     : public LayerImpl,
-      NON_EXPORTED_BASE(public PictureLayerTilingClient) {
+      public PictureLayerTilingClient,
+      public ImageAnimationController::AnimationDriver {
  public:
   static std::unique_ptr<PictureLayerImpl>
   Create(LayerTreeImpl* tree_impl, int id, Layer::LayerMaskType mask_type) {
@@ -44,7 +46,7 @@ class CC_EXPORT PictureLayerImpl
   const char* LayerTypeAsString() const override;
   std::unique_ptr<LayerImpl> CreateLayerImpl(LayerTreeImpl* tree_impl) override;
   void PushPropertiesTo(LayerImpl* layer) override;
-  void AppendQuads(RenderPass* render_pass,
+  void AppendQuads(viz::RenderPass* render_pass,
                    AppendQuadsData* append_quads_data) override;
   void NotifyTileStateChanged(const Tile* tile) override;
   void ResetRasterScale();
@@ -64,6 +66,9 @@ class CC_EXPORT PictureLayerImpl
   bool RequiresHighResToDraw() const override;
   gfx::Rect GetEnclosingRectInTargetSpace() const override;
 
+  // ImageAnimationController::AnimationDriver overrides.
+  bool ShouldAnimate(PaintImage::Id paint_image_id) const override;
+
   void set_gpu_raster_max_texture_size(gfx::Size gpu_raster_max_texture_size) {
     gpu_raster_max_texture_size_ = gpu_raster_max_texture_size;
   }
@@ -73,10 +78,9 @@ class CC_EXPORT PictureLayerImpl
   bool UpdateTiles();
   // Returns true if the LCD state changed.
   bool UpdateCanUseLCDTextAfterCommit();
-  WhichTree GetTree() const;
 
   // Mask-related functions.
-  void GetContentsResourceId(ResourceId* resource_id,
+  void GetContentsResourceId(viz::ResourceId* resource_id,
                              gfx::Size* resource_size,
                              gfx::SizeF* resource_uv_size) const override;
 
@@ -103,10 +107,23 @@ class CC_EXPORT PictureLayerImpl
     is_directly_composited_image_ = is_directly_composited_image;
   }
 
-  void InvalidateRegionForImages(
+  // This enum is the return value of the InvalidateRegionForImages() call. The
+  // possible values represent the fact that there are no images on this layer
+  // (kNoImages), the fact that the invalidation images don't cause an
+  // invalidation on this layer (kNoInvalidation), or the fact that the layer
+  // was invalidated (kInvalidated).
+  enum class ImageInvalidationResult {
+    kNoImages,
+    kNoInvalidation,
+    kInvalidated,
+  };
+
+  ImageInvalidationResult InvalidateRegionForImages(
       const PaintImageIdFlatSet& images_to_invalidate);
 
   bool RasterSourceUsesLCDTextForTesting() const { return can_use_lcd_text_; }
+
+  const Region& InvalidationForTesting() const { return invalidation_; }
 
  protected:
   PictureLayerImpl(LayerTreeImpl* tree_impl,
@@ -137,17 +154,29 @@ class CC_EXPORT PictureLayerImpl
   float MaximumTilingContentsScale() const;
   std::unique_ptr<PictureLayerTilingSet> CreatePictureLayerTilingSet();
 
+  void RegisterAnimatedImages();
+  void UnregisterAnimatedImages();
+
   PictureLayerImpl* twin_layer_;
 
   std::unique_ptr<PictureLayerTilingSet> tilings_;
   scoped_refptr<RasterSource> raster_source_;
   Region invalidation_;
 
+  // Ideal scales are calcuated from the transforms applied to the layer. They
+  // represent the best known scale from the layer to the final output.
+  // Page scale is from user pinch/zoom.
   float ideal_page_scale_;
+  // Device scale is from screen dpi, and it comes from device scale facter.
   float ideal_device_scale_;
+  // Source scale comes from javascript css scale.
   float ideal_source_scale_;
+  // Contents scale = device scale * page scale * source scale.
   float ideal_contents_scale_;
 
+  // Raster scales are set from ideal scales. They are scales we choose to
+  // raster at. They may not match the ideal scales at times to avoid raster for
+  // performance reasons.
   float raster_page_scale_;
   float raster_device_scale_;
   float raster_source_scale_;

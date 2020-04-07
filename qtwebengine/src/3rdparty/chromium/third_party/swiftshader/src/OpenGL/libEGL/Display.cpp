@@ -30,10 +30,12 @@
 #include <sys/ioctl.h>
 #include <linux/fb.h>
 #include <fcntl.h>
-#elif defined(__linux__)
+#elif defined(USE_X11)
 #include "Main/libX11.hpp"
 #elif defined(__APPLE__)
 #include "OSXUtils.hpp"
+#include <CoreFoundation/CoreFoundation.h>
+#include <IOSurface/IOSurface.h>
 #endif
 
 #include <algorithm>
@@ -64,7 +66,7 @@ Display *Display::get(EGLDisplay dpy)
 
 	static void *nativeDisplay = nullptr;
 
-	#if defined(__linux__) && !defined(__ANDROID__)
+	#if defined(USE_X11)
 		// Even if the application provides a native display handle, we open (and close) our own connection
 		if(!nativeDisplay && dpy != HEADLESS_DISPLAY && libX11 && libX11->XOpenDisplay)
 		{
@@ -87,7 +89,7 @@ Display::~Display()
 {
 	terminate();
 
-	#if defined(__linux__) && !defined(__ANDROID__)
+	#if defined(USE_X11)
 		if(nativeDisplay && libX11->XCloseDisplay)
 		{
 			libX11->XCloseDisplay((::Display*)nativeDisplay);
@@ -181,14 +183,10 @@ bool Display::initialize()
 
 	for(unsigned int samplesIndex = 0; samplesIndex < sizeof(samples) / sizeof(int); samplesIndex++)
 	{
-		for(unsigned int formatIndex = 0; formatIndex < sizeof(renderTargetFormats) / sizeof(sw::Format); formatIndex++)
+		for(sw::Format renderTargetFormat : renderTargetFormats)
 		{
-			sw::Format renderTargetFormat = renderTargetFormats[formatIndex];
-
-			for(unsigned int depthStencilIndex = 0; depthStencilIndex < sizeof(depthStencilFormats) / sizeof(sw::Format); depthStencilIndex++)
+			for(sw::Format depthStencilFormat : depthStencilFormats)
 			{
-				sw::Format depthStencilFormat = depthStencilFormats[depthStencilIndex];
-
 				configSet.add(currentDisplayFormat, mMinSwapInterval, mMaxSwapInterval, renderTargetFormat, depthStencilFormat, samples[samplesIndex]);
 			}
 		}
@@ -338,11 +336,13 @@ EGLSurface Display::createWindowSurface(EGLNativeWindowType window, EGLConfig co
 	return success(surface);
 }
 
-EGLSurface Display::createPBufferSurface(EGLConfig config, const EGLint *attribList)
+EGLSurface Display::createPBufferSurface(EGLConfig config, const EGLint *attribList, EGLClientBuffer clientBuffer)
 {
-	EGLint width = 0, height = 0;
+	EGLint width = -1, height = -1, ioSurfacePlane = -1;
 	EGLenum textureFormat = EGL_NO_TEXTURE;
 	EGLenum textureTarget = EGL_NO_TEXTURE;
+	EGLenum clientBufferFormat = EGL_NO_TEXTURE;
+	EGLenum clientBufferType = EGL_NO_TEXTURE;
 	EGLBoolean largestPBuffer = EGL_FALSE;
 	const Config *configuration = mConfigSet.get(config);
 
@@ -373,11 +373,46 @@ EGLSurface Display::createPBufferSurface(EGLConfig config, const EGLint *attribL
 					return error(EGL_BAD_ATTRIBUTE, EGL_NO_SURFACE);
 				}
 				break;
+			case EGL_TEXTURE_INTERNAL_FORMAT_ANGLE:
+				switch(attribList[1])
+				{
+				case GL_RED:
+				case GL_R16UI:
+				case GL_RG:
+				case GL_BGRA_EXT:
+				case GL_RGBA:
+					clientBufferFormat = attribList[1];
+					break;
+				default:
+					return error(EGL_BAD_ATTRIBUTE, EGL_NO_SURFACE);
+				}
+				break;
+			case EGL_TEXTURE_TYPE_ANGLE:
+				switch(attribList[1])
+				{
+				case GL_UNSIGNED_BYTE:
+				case GL_UNSIGNED_SHORT:
+				case GL_HALF_FLOAT_OES:
+				case GL_HALF_FLOAT:
+					clientBufferType = attribList[1];
+					break;
+				default:
+					return error(EGL_BAD_ATTRIBUTE, EGL_NO_SURFACE);
+				}
+				break;
+			case EGL_IOSURFACE_PLANE_ANGLE:
+				if(attribList[1] < 0)
+				{
+					return error(EGL_BAD_ATTRIBUTE, EGL_NO_SURFACE);
+				}
+				ioSurfacePlane = attribList[1];
+				break;
 			case EGL_TEXTURE_TARGET:
 				switch(attribList[1])
 				{
 				case EGL_NO_TEXTURE:
 				case EGL_TEXTURE_2D:
+				case EGL_TEXTURE_RECTANGLE_ANGLE:
 					textureTarget = attribList[1];
 					break;
 				default:
@@ -387,7 +422,8 @@ EGLSurface Display::createPBufferSurface(EGLConfig config, const EGLint *attribL
 			case EGL_MIPMAP_TEXTURE:
 				if(attribList[1] != EGL_FALSE)
 				{
-					return error(EGL_BAD_ATTRIBUTE, EGL_NO_SURFACE);
+					UNIMPLEMENTED();
+					return error(EGL_BAD_MATCH, EGL_NO_SURFACE);
 				}
 				break;
 			case EGL_VG_COLORSPACE:
@@ -423,13 +459,93 @@ EGLSurface Display::createPBufferSurface(EGLConfig config, const EGLint *attribL
 		return error(EGL_BAD_MATCH, EGL_NO_SURFACE);
 	}
 
-	if((textureFormat == EGL_TEXTURE_RGB && configuration->mBindToTextureRGB != EGL_TRUE) ||
-	   (textureFormat == EGL_TEXTURE_RGBA && configuration->mBindToTextureRGBA != EGL_TRUE))
+	if(clientBuffer)
 	{
-		return error(EGL_BAD_ATTRIBUTE, EGL_NO_SURFACE);
+		switch(clientBufferType)
+		{
+		case GL_UNSIGNED_BYTE:
+			switch(clientBufferFormat)
+			{
+			case GL_RED:
+			case GL_RG:
+			case GL_BGRA_EXT:
+				break;
+			case GL_R16UI:
+			case GL_RGBA:
+				return error(EGL_BAD_ATTRIBUTE, EGL_NO_SURFACE);
+			default:
+				return error(EGL_BAD_PARAMETER, EGL_NO_SURFACE);
+			}
+			break;
+		case GL_UNSIGNED_SHORT:
+			switch(clientBufferFormat)
+			{
+			case GL_R16UI:
+				break;
+			case GL_RED:
+			case GL_RG:
+			case GL_BGRA_EXT:
+			case GL_RGBA:
+				return error(EGL_BAD_ATTRIBUTE, EGL_NO_SURFACE);
+			default:
+				return error(EGL_BAD_PARAMETER, EGL_NO_SURFACE);
+			}
+			break;
+		case GL_HALF_FLOAT_OES:
+		case GL_HALF_FLOAT:
+			switch(clientBufferFormat)
+			{
+			case GL_RGBA:
+				break;
+			case GL_RED:
+			case GL_R16UI:
+			case GL_RG:
+			case GL_BGRA_EXT:
+				return error(EGL_BAD_ATTRIBUTE, EGL_NO_SURFACE);
+			default:
+				return error(EGL_BAD_PARAMETER, EGL_NO_SURFACE);
+			}
+			break;
+		default:
+			return error(EGL_BAD_PARAMETER, EGL_NO_SURFACE);
+		}
+
+		if(ioSurfacePlane < 0)
+		{
+			return error(EGL_BAD_PARAMETER, EGL_NO_SURFACE);
+		}
+
+		if(textureFormat != EGL_TEXTURE_RGBA)
+		{
+			return error(EGL_BAD_ATTRIBUTE, EGL_NO_SURFACE);
+		}
+
+		if(textureTarget != EGL_TEXTURE_RECTANGLE_ANGLE)
+		{
+			return error(EGL_BAD_ATTRIBUTE, EGL_NO_SURFACE);
+		}
+
+#if defined(__APPLE__)
+		IOSurfaceRef ioSurface = reinterpret_cast<IOSurfaceRef>(clientBuffer);
+		size_t planeCount = IOSurfaceGetPlaneCount(ioSurface);
+		if((static_cast<size_t>(width) > IOSurfaceGetWidthOfPlane(ioSurface, ioSurfacePlane)) ||
+		   (static_cast<size_t>(height) > IOSurfaceGetHeightOfPlane(ioSurface, ioSurfacePlane)) ||
+		   ((planeCount != 0) && static_cast<size_t>(ioSurfacePlane) >= planeCount))
+		{
+			return error(EGL_BAD_ATTRIBUTE, EGL_NO_SURFACE);
+		}
+#endif
+	}
+	else
+	{
+		if((textureFormat == EGL_TEXTURE_RGB && configuration->mBindToTextureRGB != EGL_TRUE) ||
+		   ((textureFormat == EGL_TEXTURE_RGBA && configuration->mBindToTextureRGBA != EGL_TRUE)))
+		{
+			return error(EGL_BAD_ATTRIBUTE, EGL_NO_SURFACE);
+		}
 	}
 
-	Surface *surface = new PBufferSurface(this, configuration, width, height, textureFormat, textureTarget, largestPBuffer);
+	Surface *surface = new PBufferSurface(this, configuration, width, height, textureFormat, textureTarget, clientBufferFormat, clientBufferType, largestPBuffer, clientBuffer, ioSurfacePlane);
 
 	if(!surface->initialize())
 	{
@@ -460,7 +576,7 @@ EGLContext Display::createContext(EGLConfig configHandle, const egl::Context *sh
 	{
 		if(libGLESv2)
 		{
-			context = libGLESv2->es2CreateContext(this, shareContext, clientVersion, config);
+			context = libGLESv2->es2CreateContext(this, shareContext, config);
 		}
 	}
 	else
@@ -561,17 +677,22 @@ bool Display::isValidWindow(EGLNativeWindowType window)
 			return false;
 		}
 		return true;
-	#elif defined(__linux__)
+	#elif defined(USE_X11)
 		if(nativeDisplay)
 		{
 			XWindowAttributes windowAttributes;
 			Status status = libX11->XGetWindowAttributes((::Display*)nativeDisplay, window, &windowAttributes);
 
-			return status == True;
+			return status != 0;
 		}
 		return false;
+	#elif defined(__linux__)
+		return false;  // Non X11 linux is headless only
 	#elif defined(__APPLE__)
 		return sw::OSX::IsValidWindow(window);
+	#elif defined(__Fuchsia__)
+		// TODO(crbug.com/800951): Integrate with Mozart.
+		return true;
 	#else
 		#error "Display::isValidWindow unimplemented for this platform"
 		return false;
@@ -580,11 +701,11 @@ bool Display::isValidWindow(EGLNativeWindowType window)
 
 bool Display::hasExistingWindowSurface(EGLNativeWindowType window)
 {
-	for(SurfaceSet::iterator surface = mSurfaceSet.begin(); surface != mSurfaceSet.end(); surface++)
+	for(const auto &surface : mSurfaceSet)
 	{
-		if((*surface)->isWindowSurface())
+		if(surface->isWindowSurface())
 		{
-			if((*surface)->getWindowHandle() == window)
+			if(surface->getWindowHandle() == window)
 			{
 				return true;
 			}
@@ -676,7 +797,10 @@ sw::Format Display::getDisplayFormat() const
 			if(fd != -1)
 			{
 				struct fb_var_screeninfo info;
-				if(ioctl(fd, FBIOGET_VSCREENINFO, &info) >= 0)
+				int io = ioctl(fd, FBIOGET_VSCREENINFO, &info);
+				close(fd);
+
+				if(io >= 0)
 				{
 					switch(info.bits_per_pixel)
 					{
@@ -716,14 +840,12 @@ sw::Format Display::getDisplayFormat() const
 						UNIMPLEMENTED();
 					}
 				}
-
-				close(fd);
 			}
 		}
 
 		// No framebuffer device found, or we're in user space
 		return sw::FORMAT_X8B8G8R8;
-	#elif defined(__linux__)
+	#elif defined(USE_X11)
 		if(nativeDisplay)
 		{
 			Screen *screen = libX11->XDefaultScreenOfDisplay((::Display*)nativeDisplay);
@@ -741,7 +863,11 @@ sw::Format Display::getDisplayFormat() const
 		{
 			return sw::FORMAT_X8R8G8B8;
 		}
+	#elif defined(__linux__)  // Non X11 linux is headless only
+		return sw::FORMAT_A8B8G8R8;
 	#elif defined(__APPLE__)
+		return sw::FORMAT_A8B8G8R8;
+	#elif defined(__Fuchsia__)
 		return sw::FORMAT_A8B8G8R8;
 	#else
 		#error "Display::isValidWindow unimplemented for this platform"

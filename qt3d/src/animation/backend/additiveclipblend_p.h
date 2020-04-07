@@ -71,19 +71,19 @@ public:
     inline float additiveFactor() const { return m_additiveFactor; }
     void setAdditiveFactor(float additiveFactor) { m_additiveFactor = additiveFactor; } // For unit tests
 
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) Q_DECL_FINAL;
+    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) final;
 
-    inline QVector<Qt3DCore::QNodeId> allDependencyIds() const Q_DECL_OVERRIDE
+    inline QVector<Qt3DCore::QNodeId> allDependencyIds() const override
     {
         return currentDependencyIds();
     }
 
-    inline QVector<Qt3DCore::QNodeId> currentDependencyIds() const Q_DECL_OVERRIDE
+    inline QVector<Qt3DCore::QNodeId> currentDependencyIds() const override
     {
         return { m_baseClipId, m_additiveClipId };
     }
 
-    inline double duration() const Q_DECL_OVERRIDE
+    inline double duration() const override
     {
         ClipBlendNode *node = clipBlendNodeManager()->lookupNode(m_baseClipId);
         Q_ASSERT(node);
@@ -91,10 +91,10 @@ public:
     }
 
 protected:
-    ClipResults doBlend(const QVector<ClipResults> &blendData) const Q_DECL_FINAL;
+    ClipResults doBlend(const QVector<ClipResults> &blendData) const final;
 
 private:
-    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) Q_DECL_FINAL;
+    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) final;
 
     Qt3DCore::QNodeId m_baseClipId;
     Qt3DCore::QNodeId m_additiveClipId;

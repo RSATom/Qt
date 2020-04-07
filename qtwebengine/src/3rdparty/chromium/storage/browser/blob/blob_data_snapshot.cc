@@ -35,13 +35,12 @@ BlobDataSnapshot::BlobDataSnapshot(const BlobDataSnapshot& other)
       items_(other.items_) {
 }
 
-BlobDataSnapshot::~BlobDataSnapshot() {
-}
+BlobDataSnapshot::~BlobDataSnapshot() = default;
 
 size_t BlobDataSnapshot::GetMemoryUsage() const {
   int64_t memory = 0;
   for (const auto& data_item : items_) {
-    if (data_item->type() == DataElement::TYPE_BYTES)
+    if (data_item->type() == BlobDataItem::Type::kBytes)
       memory += data_item->length();
   }
   return memory;

@@ -476,10 +476,14 @@ HRESULT QWinRTBluetoothDeviceDiscoveryWorker::onBluetoothLEDeviceFound(ComPtr<IB
         // We need a paired device in order to be able to obtain its information
         if (!isPaired) {
             ComPtr<IAsyncOperation<DevicePairingResult *>> pairingOp;
+            QPointer<QWinRTBluetoothDeviceDiscoveryWorker> tPointer(this);
             hr = pairing.Get()->PairAsync(&pairingOp);
             Q_ASSERT_SUCCEEDED(hr);
             pairingOp.Get()->put_Completed(
-                Callback<IAsyncOperationCompletedHandler<DevicePairingResult *>>([device, this](IAsyncOperation<DevicePairingResult *> *op, AsyncStatus status) {
+                Callback<IAsyncOperationCompletedHandler<DevicePairingResult *>>([device, tPointer](IAsyncOperation<DevicePairingResult *> *op, AsyncStatus status) {
+                if (!tPointer)
+                    return S_OK;
+
                 if (status != AsyncStatus::Completed) {
                     qCDebug(QT_BT_WINRT) << "Could not pair device";
                     return S_OK;
@@ -496,7 +500,7 @@ HRESULT QWinRTBluetoothDeviceDiscoveryWorker::onBluetoothLEDeviceFound(ComPtr<IB
                     return S_OK;
                 }
 
-                onBluetoothLEDeviceFound(device, OmitPairingCheck);
+                tPointer->onBluetoothLEDeviceFound(device, OmitPairingCheck);
                 return S_OK;
             }).Get());
             return S_OK;

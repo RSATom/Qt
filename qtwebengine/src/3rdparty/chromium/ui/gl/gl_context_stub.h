@@ -26,11 +26,9 @@ class GL_EXPORT GLContextStub : public GLContextReal {
   void ReleaseCurrent(GLSurface* surface) override;
   bool IsCurrent(GLSurface* surface) override;
   void* GetHandle() override;
-  void OnSetSwapInterval(int interval) override;
   std::string GetGLVersion() override;
   std::string GetGLRenderer() override;
   bool WasAllocatedUsingRobustnessExtension() override;
-  std::string GetExtensions() override;
 
   void SetUseStubApi(bool stub_api);
   void SetExtensionsString(const char* extensions);
@@ -44,7 +42,6 @@ class GL_EXPORT GLContextStub : public GLContextReal {
  private:
   bool use_stub_api_;
   std::string version_str_;
-  std::string extensions_;
 
   DISALLOW_COPY_AND_ASSIGN(GLContextStub);
 };

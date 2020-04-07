@@ -23,6 +23,14 @@
 
 namespace content {
 
+namespace indexed_db {
+// 0 - Initial version.
+// 1 - Adds UserIntVersion to DatabaseMetaData.
+// 2 - Adds DataVersion to to global metadata.
+// 3 - Adds metadata needed for blob support.
+const constexpr int64_t kLatestKnownSchemaVersion = 3;
+}  // namespace indexed_db
+
 CONTENT_EXPORT extern const unsigned char kMinimumIndexId;
 
 CONTENT_EXPORT std::string MaxIDBKey();
@@ -90,6 +98,12 @@ CONTENT_EXPORT int CompareEncodedIDBKeys(base::StringPiece* slice1,
 CONTENT_EXPORT int Compare(const base::StringPiece& a,
                            const base::StringPiece& b,
                            bool index_keys);
+
+CONTENT_EXPORT int CompareKeys(const base::StringPiece& a,
+                               const base::StringPiece& b);
+
+CONTENT_EXPORT int CompareIndexKeys(const base::StringPiece& a,
+                                    const base::StringPiece& b);
 
 class KeyPrefix {
  public:
@@ -200,6 +214,11 @@ class LiveBlobJournalKey {
   static std::string Encode();
 };
 
+class EarliestSweepKey {
+ public:
+  static std::string Encode();
+};
+
 class DatabaseFreeListKey {
  public:
   DatabaseFreeListKey();
@@ -266,6 +285,9 @@ class ObjectStoreMetaDataKey {
     HAS_KEY_PATH = 6,
     KEY_GENERATOR_CURRENT_NUMBER = 7
   };
+
+  // From the IndexedDB specification.
+  static const int64_t kKeyGeneratorInitialNumber;
 
   ObjectStoreMetaDataKey();
   static bool Decode(base::StringPiece* slice, ObjectStoreMetaDataKey* result);
@@ -453,9 +475,11 @@ class BlobEntryKey {
 
 class IndexDataKey {
  public:
-  IndexDataKey();
-  ~IndexDataKey();
-  static bool Decode(base::StringPiece* slice, IndexDataKey* result);
+  CONTENT_EXPORT IndexDataKey();
+  CONTENT_EXPORT IndexDataKey(IndexDataKey&& other);
+  CONTENT_EXPORT ~IndexDataKey();
+  CONTENT_EXPORT static bool Decode(base::StringPiece* slice,
+                                    IndexDataKey* result);
   CONTENT_EXPORT static std::string Encode(
       int64_t database_id,
       int64_t object_store_id,
@@ -467,14 +491,15 @@ class IndexDataKey {
                             int64_t object_store_id,
                             int64_t index_id,
                             const IndexedDBKey& user_key);
-  static std::string Encode(int64_t database_id,
-                            int64_t object_store_id,
-                            int64_t index_id,
-                            const IndexedDBKey& user_key,
-                            const IndexedDBKey& user_primary_key);
-  static std::string EncodeMinKey(int64_t database_id,
-                                  int64_t object_store_id,
-                                  int64_t index_id);
+  CONTENT_EXPORT static std::string Encode(
+      int64_t database_id,
+      int64_t object_store_id,
+      int64_t index_id,
+      const IndexedDBKey& user_key,
+      const IndexedDBKey& user_primary_key);
+  CONTENT_EXPORT static std::string EncodeMinKey(int64_t database_id,
+                                                 int64_t object_store_id,
+                                                 int64_t index_id);
   CONTENT_EXPORT static std::string EncodeMaxKey(int64_t database_id,
                                                  int64_t object_store_id,
                                                  int64_t index_id);
@@ -483,6 +508,8 @@ class IndexDataKey {
   int64_t IndexId() const;
   std::unique_ptr<IndexedDBKey> user_key() const;
   std::unique_ptr<IndexedDBKey> primary_key() const;
+
+  CONTENT_EXPORT std::string Encode() const;
 
  private:
   int64_t database_id_;

@@ -45,6 +45,12 @@
 
 QT_BEGIN_NAMESPACE
 
+template<>
+QPlacePrivate *QSharedDataPointer<QPlacePrivate>::clone()
+{
+    return d->clone();
+}
+
 /*!
     \class QPlace
     \inmodule QtLocation
@@ -116,8 +122,23 @@ QT_BEGIN_NAMESPACE
     Constructs an empty place object.
 */
 QPlace::QPlace()
-        : d_ptr(new QPlacePrivate())
+        : d_ptr(new QPlacePrivateDefault())
 {
+}
+
+/*!
+    Constructs an place object using \a dd as private implementation.
+*/
+QPlace::QPlace(const QSharedDataPointer<QPlacePrivate> &dd): d_ptr(dd)
+{
+}
+
+/*!
+    Returns the d-pointer.
+*/
+QSharedDataPointer<QPlacePrivate> &QPlace::d()
+{
+    return d_ptr;
 }
 
 /*!
@@ -164,8 +185,8 @@ inline const QPlacePrivate *QPlace::d_func() const
 */
 bool QPlace::operator== (const QPlace &other) const
 {
-    Q_D(const QPlace);
-    return *d == *other.d_func();
+    return ( (d_ptr.constData() == other.d_ptr.constData())
+             || (*d_ptr) == (*other.d_ptr));
 }
 
 /*!
@@ -174,8 +195,7 @@ bool QPlace::operator== (const QPlace &other) const
 */
 bool QPlace::operator!= (const QPlace &other) const
 {
-    Q_D(const QPlace);
-    return !(*d == *other.d_func());
+    return !(operator==(other));
 }
 
 /*!
@@ -183,8 +203,7 @@ bool QPlace::operator!= (const QPlace &other) const
 */
 QList<QPlaceCategory> QPlace::categories() const
 {
-    Q_D(const QPlace);
-    return d->categories;
+    return d_ptr->categories();
 }
 
 /*!
@@ -192,9 +211,8 @@ QList<QPlaceCategory> QPlace::categories() const
 */
 void QPlace::setCategory(const QPlaceCategory &category)
 {
-    Q_D(QPlace);
-    d->categories.clear();
-    d->categories.append(category);
+    d_ptr->setCategories(QList<QPlaceCategory>());
+    d_ptr->setCategories(QList<QPlaceCategory>() << category);
 }
 
 /*!
@@ -202,8 +220,7 @@ void QPlace::setCategory(const QPlaceCategory &category)
 */
 void QPlace::setCategories(const QList<QPlaceCategory> &categories)
 {
-    Q_D(QPlace);
-    d->categories = categories;
+     d_ptr->setCategories(categories);
 }
 
 /*!
@@ -211,8 +228,7 @@ void QPlace::setCategories(const QList<QPlaceCategory> &categories)
 */
 QGeoLocation QPlace::location() const
 {
-    Q_D(const QPlace);
-    return d->location;
+    return d_ptr->location();
 }
 
 /*!
@@ -220,8 +236,7 @@ QGeoLocation QPlace::location() const
 */
 void QPlace::setLocation(const QGeoLocation &location)
 {
-    Q_D(QPlace);
-    d->location = location;
+    d_ptr->setLocation(location);
 }
 
 /*!
@@ -229,8 +244,7 @@ void QPlace::setLocation(const QGeoLocation &location)
 */
 QPlaceRatings QPlace::ratings() const
 {
-    Q_D(const QPlace);
-    return d->ratings;
+    return d_ptr->ratings();
 }
 
 /*!
@@ -238,8 +252,7 @@ QPlaceRatings QPlace::ratings() const
 */
 void QPlace::setRatings(const QPlaceRatings &rating)
 {
-    Q_D(QPlace);
-    d->ratings = rating;
+    d_ptr->setRatings(rating);
 }
 
 /*!
@@ -247,8 +260,7 @@ void QPlace::setRatings(const QPlaceRatings &rating)
 */
 QPlaceSupplier QPlace::supplier() const
 {
-    Q_D(const QPlace);
-    return d->supplier;
+    return d_ptr->supplier();
 }
 
 /*!
@@ -256,8 +268,7 @@ QPlaceSupplier QPlace::supplier() const
 */
 void QPlace::setSupplier(const QPlaceSupplier &supplier)
 {
-    Q_D(QPlace);
-    d->supplier = supplier;
+    d_ptr->setSupplier(supplier);
 }
 
 /*!
@@ -269,8 +280,7 @@ void QPlace::setSupplier(const QPlaceSupplier &supplier)
 */
 QPlaceContent::Collection QPlace::content(QPlaceContent::Type type) const
 {
-    Q_D(const QPlace);
-    return d->contentCollections.value(type);
+    return d_ptr->m_contentCollections.value(type);
 }
 
 /*!
@@ -278,8 +288,7 @@ QPlaceContent::Collection QPlace::content(QPlaceContent::Type type) const
 */
 void QPlace::setContent(QPlaceContent::Type type, const QPlaceContent::Collection &content)
 {
-    Q_D(QPlace);
-    d->contentCollections.insert(type, content);
+    d_ptr->m_contentCollections.insert(type, content);
 }
 
 /*!
@@ -288,11 +297,10 @@ void QPlace::setContent(QPlaceContent::Type type, const QPlaceContent::Collectio
 */
 void QPlace::insertContent(QPlaceContent::Type type, const QPlaceContent::Collection &content)
 {
-    Q_D(QPlace);
     QMapIterator<int, QPlaceContent> iter(content);
     while (iter.hasNext()) {
         iter.next();
-        d->contentCollections[type].insert(iter.key(), iter.value());
+        d_ptr->m_contentCollections[type].insert(iter.key(), iter.value());
     }
 }
 
@@ -306,8 +314,7 @@ void QPlace::insertContent(QPlaceContent::Type type, const QPlaceContent::Collec
 */
 int QPlace::totalContentCount(QPlaceContent::Type type) const
 {
-    Q_D(const QPlace);
-    return d->contentCounts.value(type, 0);
+    return d_ptr->m_contentCounts.value(type, 0);
 }
 
 /*!
@@ -315,8 +322,7 @@ int QPlace::totalContentCount(QPlaceContent::Type type) const
 */
 void QPlace::setTotalContentCount(QPlaceContent::Type type, int totalCount)
 {
-    Q_D(QPlace);
-    d->contentCounts.insert(type, totalCount);
+    d_ptr->m_contentCounts.insert(type, totalCount);
 }
 
 /*!
@@ -324,8 +330,7 @@ void QPlace::setTotalContentCount(QPlaceContent::Type type, int totalCount)
 */
 QString QPlace::name() const
 {
-    Q_D(const QPlace);
-    return d->name;
+    return d_ptr->name();
 }
 
 /*!
@@ -333,8 +338,7 @@ QString QPlace::name() const
 */
 void QPlace::setName(const QString &name)
 {
-    Q_D(QPlace);
-    d->name = name;
+    d_ptr->setName(name);
 }
 
 /*!
@@ -344,8 +348,7 @@ void QPlace::setName(const QString &name)
 */
 QString QPlace::placeId() const
 {
-    Q_D(const QPlace);
-    return d->placeId;
+    return d_ptr->placeId();
 }
 
 /*!
@@ -353,8 +356,7 @@ QString QPlace::placeId() const
 */
 void QPlace::setPlaceId(const QString &identifier)
 {
-    Q_D(QPlace);
-    d->placeId = identifier;
+    d_ptr->setPlaceId(identifier);
 }
 
 /*!
@@ -363,8 +365,7 @@ void QPlace::setPlaceId(const QString &identifier)
 */
 QString QPlace::attribution() const
 {
-    Q_D(const QPlace);
-    return d->attribution;
+    return d_ptr->attribution();
 }
 
 /*!
@@ -372,8 +373,7 @@ QString QPlace::attribution() const
 */
 void QPlace::setAttribution(const QString &attribution)
 {
-    Q_D(QPlace);
-    d->attribution = attribution;
+    d_ptr->setAttribution(attribution);
 }
 
 /*!
@@ -381,8 +381,7 @@ void QPlace::setAttribution(const QString &attribution)
 */
 QPlaceIcon QPlace::icon() const
 {
-    Q_D(const QPlace);
-    return d->icon;
+    return d_ptr->icon();
 }
 
 /*!
@@ -390,8 +389,7 @@ QPlaceIcon QPlace::icon() const
 */
 void QPlace::setIcon(const QPlaceIcon &icon)
 {
-    Q_D(QPlace);
-    d->icon = icon;
+    d_ptr->setIcon(icon);
 }
 
 /*!
@@ -400,8 +398,7 @@ void QPlace::setIcon(const QPlaceIcon &icon)
 */
 QString QPlace::primaryPhone() const
 {
-    Q_D(const QPlace);
-    QList<QPlaceContactDetail> phoneNumbers = d->contacts.value(QPlaceContactDetail::Phone);
+    QList<QPlaceContactDetail> phoneNumbers = d_ptr->contacts().value(QPlaceContactDetail::Phone);
     if (!phoneNumbers.isEmpty())
         return phoneNumbers.at(0).value();
     else
@@ -414,8 +411,7 @@ QString QPlace::primaryPhone() const
 */
 QString QPlace::primaryFax() const
 {
-    Q_D(const QPlace);
-    QList<QPlaceContactDetail> faxNumbers = d->contacts.value(QPlaceContactDetail::Fax);
+    QList<QPlaceContactDetail> faxNumbers = d_ptr->contacts().value(QPlaceContactDetail::Fax);
     if (!faxNumbers.isEmpty())
         return faxNumbers.at(0).value();
     else
@@ -429,8 +425,7 @@ QString QPlace::primaryFax() const
 */
 QString QPlace::primaryEmail() const
 {
-    Q_D(const QPlace);
-    QList<QPlaceContactDetail> emailAddresses = d->contacts.value(QPlaceContactDetail::Email);
+    QList<QPlaceContactDetail> emailAddresses = d_ptr->contacts().value(QPlaceContactDetail::Email);
     if (!emailAddresses.isEmpty())
         return emailAddresses.at(0).value();
     else
@@ -444,8 +439,7 @@ QString QPlace::primaryEmail() const
 */
 QUrl QPlace::primaryWebsite() const
 {
-    Q_D(const QPlace);
-    QList<QPlaceContactDetail> websites = d->contacts.value(QPlaceContactDetail::Website);
+    QList<QPlaceContactDetail> websites = d_ptr->contacts().value(QPlaceContactDetail::Website);
     if (!websites.isEmpty())
         return QUrl(websites.at(0).value());
     else
@@ -458,8 +452,7 @@ QUrl QPlace::primaryWebsite() const
 */
 bool QPlace::detailsFetched() const
 {
-    Q_D(const QPlace);
-    return d->detailsFetched;
+    return d_ptr->detailsFetched();
 }
 
 /*!
@@ -467,8 +460,7 @@ bool QPlace::detailsFetched() const
 */
 void QPlace::setDetailsFetched(bool fetched)
 {
-    Q_D(QPlace);
-    d->detailsFetched = fetched;
+    d_ptr->setDetailsFetched(fetched);
 }
 
 /*!
@@ -476,8 +468,7 @@ void QPlace::setDetailsFetched(bool fetched)
 */
 QStringList QPlace::extendedAttributeTypes() const
 {
-    Q_D(const QPlace);
-    return d->extendedAttributes.keys();
+    return d_ptr->extendedAttributes().keys();
 }
 
 /*!
@@ -487,8 +478,7 @@ QStringList QPlace::extendedAttributeTypes() const
 */
 QPlaceAttribute QPlace::extendedAttribute(const QString &attributeType) const
 {
-    Q_D(const QPlace);
-    return d->extendedAttributes.value(attributeType);
+    return d_ptr->extendedAttribute(attributeType);
 }
 
 /*!
@@ -501,11 +491,10 @@ QPlaceAttribute QPlace::extendedAttribute(const QString &attributeType) const
 void QPlace::setExtendedAttribute(const QString &attributeType,
                                     const QPlaceAttribute &attribute)
 {
-    Q_D(QPlace);
     if (attribute == QPlaceAttribute())
-        d->extendedAttributes.remove(attributeType);
+        d_ptr->extendedAttributes().remove(attributeType);
     else
-        d->extendedAttributes.insert(attributeType, attribute);
+        d_ptr->extendedAttributes().insert(attributeType, attribute);
 }
 
 /*!
@@ -515,8 +504,7 @@ void QPlace::setExtendedAttribute(const QString &attributeType,
 */
 void QPlace::removeExtendedAttribute(const QString &attributeType)
 {
-    Q_D(QPlace);
-    d->extendedAttributes.remove(attributeType);
+    setExtendedAttribute(attributeType, QPlaceAttribute());
 }
 
 /*!
@@ -526,8 +514,7 @@ void QPlace::removeExtendedAttribute(const QString &attributeType)
 */
 QStringList QPlace::contactTypes() const
 {
-    Q_D(const QPlace);
-    return d->contacts.keys();
+    return d_ptr->contacts().keys();
 }
 
 /*!
@@ -537,8 +524,7 @@ QStringList QPlace::contactTypes() const
 */
 QList<QPlaceContactDetail> QPlace::contactDetails(const QString &contactType) const
 {
-    Q_D(const QPlace);
-    return d->contacts.value(contactType);
+    return d_ptr->contacts().value(contactType);
 }
 
 /*!
@@ -551,11 +537,10 @@ QList<QPlaceContactDetail> QPlace::contactDetails(const QString &contactType) co
 */
 void QPlace::setContactDetails(const QString &contactType, QList<QPlaceContactDetail> details)
 {
-    Q_D(QPlace);
     if (details.isEmpty())
-        d->contacts.remove(contactType);
+        d_ptr->contacts().remove(contactType);
     else
-        d->contacts.insert(contactType, details);
+        d_ptr->contacts().insert(contactType, details);
 }
 
 /*!
@@ -565,10 +550,9 @@ void QPlace::setContactDetails(const QString &contactType, QList<QPlaceContactDe
 */
 void QPlace::appendContactDetail(const QString &contactType, const QPlaceContactDetail &detail)
 {
-    Q_D(QPlace);
-    QList<QPlaceContactDetail> details = d->contacts.value(contactType);
+    QList<QPlaceContactDetail> details = d_ptr->contacts().value(contactType);
     details.append(detail);
-    d->contacts.insert(contactType, details);
+    d_ptr->contacts().insert(contactType, details);
 }
 
 /*!
@@ -578,8 +562,7 @@ void QPlace::appendContactDetail(const QString &contactType, const QPlaceContact
 */
 void QPlace::removeContactDetails(const QString &contactType)
 {
-    Q_D(QPlace);
-    d->contacts.remove(contactType);
+    d_ptr->contacts().remove(contactType);
 }
 
 /*!
@@ -587,8 +570,7 @@ void QPlace::removeContactDetails(const QString &contactType)
 */
 void QPlace::setVisibility(QLocation::Visibility visibility)
 {
-    Q_D(QPlace);
-    d->visibility = visibility;
+    d_ptr->setVisibility(visibility);
 }
 
 /*!
@@ -600,8 +582,7 @@ void QPlace::setVisibility(QLocation::Visibility visibility)
 */
 QLocation::Visibility QPlace::visibility() const
 {
-    Q_D(const QPlace);
-    return d->visibility;
+    return d_ptr->visibility();
 }
 
 /*!
@@ -609,113 +590,225 @@ QLocation::Visibility QPlace::visibility() const
 */
 bool QPlace::isEmpty() const
 {
-    Q_D(const QPlace);
-    return d->isEmpty();
+    return d_ptr->isEmpty();
 }
 
 /*******************************************************************************
 *******************************************************************************/
 
 QPlacePrivate::QPlacePrivate()
-:   QSharedData(), visibility(QLocation::UnspecifiedVisibility), detailsFetched(false)
+:   QSharedData()
 {
 }
 
 QPlacePrivate::QPlacePrivate(const QPlacePrivate &other)
         : QSharedData(other),
-        categories(other.categories),
-        location(other.location),
-        ratings(other.ratings),
-        supplier(other.supplier),
-        name(other.name),
-        placeId(other.placeId),
-        attribution(other.attribution),
-        contentCollections(other.contentCollections),
-        contentCounts(other.contentCounts),
-        extendedAttributes(other.extendedAttributes),
-        contacts(other.contacts),
-        visibility(other.visibility),
-        icon(other.icon),
-        detailsFetched(other.detailsFetched)
+        m_contentCollections(other.m_contentCollections),
+        m_contentCounts(other.m_contentCounts)
 {
 }
 
 QPlacePrivate::~QPlacePrivate() {}
 
-QPlacePrivate &QPlacePrivate::operator= (const QPlacePrivate & other)
-{
-    if (this == &other)
-        return *this;
-
-    categories = other.categories;
-    location = other.location;
-    ratings = other.ratings;
-    supplier = other.supplier;
-    name = other.name;
-    placeId = other.placeId;
-    attribution = other.attribution;
-    contentCollections = other.contentCollections;
-    contentCounts = other.contentCounts;
-    contacts = other.contacts;
-    extendedAttributes = other.extendedAttributes;
-    visibility = other.visibility;
-    detailsFetched = other.detailsFetched;
-    icon = other.icon;
-
-    return *this;
-}
-
 bool QPlacePrivate::operator== (const QPlacePrivate &other) const
 {
-#ifdef QPLACE_DEBUG
-    qDebug() << "categories: " << (categories == other.categories);
-    qDebug() << "location:" << (location == other.location);
-    qDebug() << "ratings" << (ratings == other.ratings);
-    qDebug() << "supplier" << (supplier == other.supplier);
-    qDebug() << "contentCollections " << (contentCollections == other.contentCollections);
-    qDebug() << "contentCounts " << (contentCounts == other.contentCounts);
-    qDebug() << "name " << (name == other.name);
-    qDebug() << "placeId" << (placeId == other.placeId);
-    qDebug() << "attribution" << (attribution == other.attribution);
-    qDebug() << "contacts" << (contacts == other.contacts);
-    qDebug() << "extendedAttributes" << (extendedAttributes == other.extendedAttributes);
-    qDebug() << "visibility" << (visibility == other.visibility);
-    qDebug() << "icon" << (icon == other.icon);
-#endif
-
-    return (categories == other.categories
-            && location == other.location
-            && ratings == other.ratings
-            && supplier == other.supplier
-            && contentCollections == other.contentCollections
-            && contentCounts == other.contentCounts
-            && name == other.name
-            && placeId == other.placeId
-            && attribution == other.attribution
-            && contacts == other.contacts
-            && extendedAttributes == other.extendedAttributes
-            && visibility == other.visibility
-            && icon == other.icon
+    return (categories() == other.categories()
+            && location() == other.location()
+            && ratings() == other.ratings()
+            && supplier() == other.supplier()
+            && m_contentCollections == other.m_contentCollections
+            && m_contentCounts == other.m_contentCounts
+            && name() == other.name()
+            && placeId() == other.placeId()
+            && attribution() == other.attribution()
+            && contacts() == other.contacts()
+            && extendedAttributes() == other.extendedAttributes()
+            && visibility() == other.visibility()
+            && icon() == other.icon()
             );
 }
 
 
 bool QPlacePrivate::isEmpty() const
 {
-    return (categories.isEmpty()
-            && location.isEmpty()
-            && ratings.isEmpty()
-            && supplier.isEmpty()
-            && contentCollections.isEmpty()
-            && contentCounts.isEmpty()
-            && name.isEmpty()
-            && placeId.isEmpty()
-            && attribution.isEmpty()
-            && contacts.isEmpty()
-            && extendedAttributes.isEmpty()
-            && QLocation::UnspecifiedVisibility == visibility
-            && icon.isEmpty()
+    return (categories().isEmpty()
+            && location().isEmpty()
+            && ratings().isEmpty()
+            && supplier().isEmpty()
+            && m_contentCollections.isEmpty()
+            && m_contentCounts.isEmpty()
+            && name().isEmpty()
+            && placeId().isEmpty()
+            && attribution().isEmpty()
+            && contacts().isEmpty()
+            && extendedAttributes().isEmpty()
+            && QLocation::UnspecifiedVisibility == visibility()
+            && icon().isEmpty()
             );
 }
+
+QPlaceAttribute QPlacePrivate::extendedAttribute(const QString &attributeType) const
+{
+    return extendedAttributes().value(attributeType);
+}
+
+
+
+//
+//  Default implementation
+//
+
+QPlacePrivateDefault::QPlacePrivateDefault()
+    : QPlacePrivate(), m_visibility(QLocation::UnspecifiedVisibility), m_detailsFetched(false)
+{
+}
+
+QPlacePrivateDefault::QPlacePrivateDefault(const QPlacePrivateDefault &other)
+    : QPlacePrivate(other),
+    m_categories(other.m_categories),
+    m_location(other.m_location),
+    m_ratings(other.m_ratings),
+    m_supplier(other.m_supplier),
+    m_name(other.m_name),
+    m_placeId(other.m_placeId),
+    m_attribution(other.m_attribution),
+    m_extendedAttributes(other.m_extendedAttributes),
+    m_contacts(other.m_contacts),
+    m_visibility(other.m_visibility),
+    m_icon(other.m_icon),
+    m_detailsFetched(other.m_detailsFetched)
+{
+}
+
+QPlacePrivateDefault::~QPlacePrivateDefault()
+{
+}
+
+QPlacePrivate *QPlacePrivateDefault::clone()
+{
+    return new QPlacePrivateDefault(*this);
+}
+
+QList<QPlaceCategory> QPlacePrivateDefault::categories() const
+{
+    return m_categories;
+}
+
+void QPlacePrivateDefault::setCategories(const QList<QPlaceCategory> &categories)
+{
+    m_categories = categories;
+}
+
+QGeoLocation QPlacePrivateDefault::location() const
+{
+    return m_location;
+}
+
+void QPlacePrivateDefault::setLocation(const QGeoLocation &location)
+{
+    m_location = location;
+}
+
+QPlaceRatings QPlacePrivateDefault::ratings() const
+{
+    return m_ratings;
+}
+
+void QPlacePrivateDefault::setRatings(const QPlaceRatings &ratings)
+{
+    m_ratings = ratings;
+}
+
+QPlaceSupplier QPlacePrivateDefault::supplier() const
+{
+    return m_supplier;
+}
+
+void QPlacePrivateDefault::setSupplier(const QPlaceSupplier &supplier)
+{
+    m_supplier = supplier;
+}
+
+QString QPlacePrivateDefault::name() const
+{
+    return m_name;
+}
+
+void QPlacePrivateDefault::setName(const QString &name)
+{
+    m_name = name;
+}
+
+QString QPlacePrivateDefault::placeId() const
+{
+    return m_placeId;
+}
+
+void QPlacePrivateDefault::setPlaceId(const QString &placeIdentifier)
+{
+    m_placeId = placeIdentifier;
+}
+
+QString QPlacePrivateDefault::attribution() const
+{
+    return m_attribution;
+}
+
+void QPlacePrivateDefault::setAttribution(const QString &attribution)
+{
+    m_attribution = attribution;
+}
+
+QLocation::Visibility QPlacePrivateDefault::visibility() const
+{
+    return m_visibility;
+}
+
+void QPlacePrivateDefault::setVisibility(QLocation::Visibility visibility)
+{
+    m_visibility = visibility;
+}
+
+QPlaceIcon QPlacePrivateDefault::icon() const
+{
+    return m_icon;
+}
+
+void QPlacePrivateDefault::setIcon(const QPlaceIcon &icon)
+{
+    m_icon = icon;
+}
+
+bool QPlacePrivateDefault::detailsFetched() const
+{
+    return m_detailsFetched;
+}
+
+void QPlacePrivateDefault::setDetailsFetched(bool fetched)
+{
+    m_detailsFetched = fetched;
+}
+
+QMap<QString, QPlaceAttribute> QPlacePrivateDefault::extendedAttributes() const
+{
+    return m_extendedAttributes;
+}
+
+QMap<QString, QPlaceAttribute> &QPlacePrivateDefault::extendedAttributes()
+{
+    return m_extendedAttributes;
+}
+
+QMap<QString, QList<QPlaceContactDetail> > QPlacePrivateDefault::contacts() const
+{
+    return m_contacts;
+}
+
+QMap<QString, QList<QPlaceContactDetail> > &QPlacePrivateDefault::contacts()
+{
+    return m_contacts;
+}
+
+
 
 QT_END_NAMESPACE

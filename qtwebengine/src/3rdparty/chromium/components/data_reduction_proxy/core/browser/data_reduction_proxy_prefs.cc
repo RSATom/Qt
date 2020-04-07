@@ -87,13 +87,26 @@ void RegisterSyncableProfilePrefs(user_prefs::PrefRegistrySyncable* registry) {
       prefs::kDailyContentLengthViaDataReductionProxyUnknown, 0L);
 
   registry->RegisterInt64Pref(prefs::kDailyHttpContentLengthLastUpdateDate, 0L);
-  registry->RegisterIntegerPref(prefs::kLoFiImplicitOptOutEpoch, 0);
-  registry->RegisterIntegerPref(prefs::kLoFiUIShownPerSession, 0);
-  registry->RegisterIntegerPref(prefs::kLoFiLoadImagesPerSession, 0);
-  registry->RegisterIntegerPref(prefs::kLoFiConsecutiveSessionDisables, 0);
-  registry->RegisterBooleanPref(prefs::kLoFiWasUsedThisSession, false);
-  registry->RegisterInt64Pref(prefs::kSimulatedConfigRetrieveTime, 0L);
   registry->RegisterStringPref(prefs::kDataReductionProxyConfig, std::string());
+  registry->RegisterInt64Pref(prefs::kDataReductionProxyLastConfigRetrievalTime,
+                              0L);
+  registry->RegisterDictionaryPref(prefs::kNetworkProperties);
+
+  registry->RegisterIntegerPref(prefs::kThisWeekNumber, false);
+  registry->RegisterDictionaryPref(
+      prefs::kThisWeekServicesDownstreamBackgroundKB, PrefRegistry::LOSSY_PREF);
+  registry->RegisterDictionaryPref(
+      prefs::kThisWeekServicesDownstreamForegroundKB, PrefRegistry::LOSSY_PREF);
+  registry->RegisterDictionaryPref(
+      prefs::kLastWeekServicesDownstreamBackgroundKB, PrefRegistry::LOSSY_PREF);
+  registry->RegisterDictionaryPref(
+      prefs::kLastWeekServicesDownstreamForegroundKB, PrefRegistry::LOSSY_PREF);
+  registry->RegisterDictionaryPref(
+      prefs::kThisWeekUserTrafficContentTypeDownstreamKB,
+      PrefRegistry::LOSSY_PREF);
+  registry->RegisterDictionaryPref(
+      prefs::kLastWeekUserTrafficContentTypeDownstreamKB,
+      PrefRegistry::LOSSY_PREF);
 }
 
 void RegisterSimpleProfilePrefs(PrefRegistrySimple* registry) {
@@ -171,13 +184,26 @@ void RegisterPrefs(PrefRegistrySimple* registry) {
       prefs::kDailyContentLengthViaDataReductionProxyUnknown, 0L);
   registry->RegisterInt64Pref(
       prefs::kDailyHttpContentLengthLastUpdateDate, 0L);
-  registry->RegisterIntegerPref(prefs::kLoFiImplicitOptOutEpoch, 0);
-  registry->RegisterIntegerPref(prefs::kLoFiUIShownPerSession, 0);
-  registry->RegisterIntegerPref(prefs::kLoFiLoadImagesPerSession, 0);
-  registry->RegisterIntegerPref(prefs::kLoFiConsecutiveSessionDisables, 0);
-  registry->RegisterBooleanPref(prefs::kLoFiWasUsedThisSession, false);
-  registry->RegisterInt64Pref(prefs::kSimulatedConfigRetrieveTime, 0L);
   registry->RegisterStringPref(prefs::kDataReductionProxyConfig, std::string());
+  registry->RegisterInt64Pref(prefs::kDataReductionProxyLastConfigRetrievalTime,
+                              0L);
+  registry->RegisterDictionaryPref(prefs::kNetworkProperties);
+
+  registry->RegisterIntegerPref(prefs::kThisWeekNumber, false);
+  registry->RegisterDictionaryPref(
+      prefs::kThisWeekServicesDownstreamBackgroundKB, PrefRegistry::LOSSY_PREF);
+  registry->RegisterDictionaryPref(
+      prefs::kThisWeekServicesDownstreamForegroundKB, PrefRegistry::LOSSY_PREF);
+  registry->RegisterDictionaryPref(
+      prefs::kLastWeekServicesDownstreamBackgroundKB, PrefRegistry::LOSSY_PREF);
+  registry->RegisterDictionaryPref(
+      prefs::kLastWeekServicesDownstreamForegroundKB, PrefRegistry::LOSSY_PREF);
+  registry->RegisterDictionaryPref(
+      prefs::kThisWeekUserTrafficContentTypeDownstreamKB,
+      PrefRegistry::LOSSY_PREF);
+  registry->RegisterDictionaryPref(
+      prefs::kLastWeekUserTrafficContentTypeDownstreamKB,
+      PrefRegistry::LOSSY_PREF);
 }
 
 }  // namespace data_reduction_proxy

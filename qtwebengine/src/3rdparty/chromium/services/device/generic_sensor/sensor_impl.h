@@ -7,7 +7,7 @@
 
 #include "base/macros.h"
 #include "services/device/generic_sensor/platform_sensor.h"
-#include "services/device/public/interfaces/sensor.mojom.h"
+#include "services/device/public/mojom/sensor.mojom.h"
 
 namespace device {
 
@@ -26,14 +26,14 @@ class SensorImpl final : public mojom::Sensor, public PlatformSensor::Client {
                         AddConfigurationCallback callback) override;
   void GetDefaultConfiguration(
       GetDefaultConfigurationCallback callback) override;
-  void RemoveConfiguration(const PlatformSensorConfiguration& configuration,
-                           RemoveConfigurationCallback callback) override;
+  void RemoveConfiguration(
+      const PlatformSensorConfiguration& configuration) override;
   void Suspend() override;
   void Resume() override;
   void ConfigureReadingChangeNotifications(bool enabled) override;
 
   // device::Sensor::Client implementation.
-  void OnSensorReadingChanged() override;
+  void OnSensorReadingChanged(mojom::SensorType type) override;
   void OnSensorError() override;
   bool IsSuspended() override;
 

@@ -15,10 +15,8 @@
         <translation>Предупреждение</translation>
     </message>
     <message>
-        <source>Unable to launch external application.
-</source>
-        <translation>Невозможно запустить внешнее приложение.
-</translation>
+        <source>Unable to launch external application.</source>
+        <translation>Невозможно запустить внешнее приложение.</translation>
     </message>
     <message>
         <source>OK</source>
@@ -550,8 +548,8 @@ Reason:
         <translation>Ошибка 404...</translation>
     </message>
     <message>
-        <source>The page could not be found!</source>
-        <translation>Не удалось найти страницу!</translation>
+        <source>The page could not be found</source>
+        <translation>Не удалось найти страницу</translation>
     </message>
     <message>
         <source>Please make sure that you have all documentation sets installed.</source>

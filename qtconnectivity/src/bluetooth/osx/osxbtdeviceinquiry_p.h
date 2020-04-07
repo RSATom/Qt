@@ -80,11 +80,6 @@ public:
 QT_END_NAMESPACE
 
 @interface QT_MANGLE_NAMESPACE(OSXBTDeviceInquiry) : NSObject<IOBluetoothDeviceInquiryDelegate>
-{
-    IOBluetoothDeviceInquiry *m_inquiry;
-    bool m_active;
-    QT_PREPEND_NAMESPACE(OSXBluetooth::DeviceInquiryDelegate) *m_delegate;//C++ "delegate"
-}
 
 - (id)initWithDelegate:(QT_PREPEND_NAMESPACE(OSXBluetooth::DeviceInquiryDelegate) *)delegate;
 - (void)dealloc;

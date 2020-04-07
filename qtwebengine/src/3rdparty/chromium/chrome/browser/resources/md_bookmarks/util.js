@@ -22,10 +22,10 @@ cr.define('bookmarks.util', function() {
 
   /**
    * @param {BookmarkTreeNode} treeNode
-   * @return {BookmarkNode}
+   * @return {!BookmarkNode}
    */
   function normalizeNode(treeNode) {
-    var node = Object.assign({}, treeNode);
+    const node = Object.assign({}, treeNode);
     // Node index is not necessary and not kept up-to-date. Remove it from the
     // data structure so we don't accidentally depend on the incorrect
     // information.
@@ -46,12 +46,12 @@ cr.define('bookmarks.util', function() {
    */
   function normalizeNodes(rootNode) {
     /** @type {NodeMap} */
-    var nodeMap = {};
-    var stack = [];
+    const nodeMap = {};
+    const stack = [];
     stack.push(rootNode);
 
     while (stack.length > 0) {
-      var node = stack.pop();
+      const node = stack.pop();
       nodeMap[node.id] = normalizeNode(node);
       if (!node.children)
         continue;
@@ -69,7 +69,7 @@ cr.define('bookmarks.util', function() {
     return {
       nodes: {},
       selectedFolder: BOOKMARKS_BAR_ID,
-      closedFolders: new Set(),
+      folderOpenState: new Map(),
       prefs: {
         canEdit: true,
         incognitoAvailability: IncognitoAvailability.ENABLED,
@@ -127,8 +127,8 @@ cr.define('bookmarks.util', function() {
    * @return {boolean}
    */
   function hasChildFolders(id, nodes) {
-    var children = nodes[id].children;
-    for (var i = 0; i < children.length; i++) {
+    const children = nodes[id].children;
+    for (let i = 0; i < children.length; i++) {
       if (nodes[children[i]].children)
         return true;
     }
@@ -142,13 +142,13 @@ cr.define('bookmarks.util', function() {
    * @return {!Set<string>}
    */
   function getDescendants(nodes, baseId) {
-    var descendants = new Set();
-    var stack = [];
+    const descendants = new Set();
+    const stack = [];
     stack.push(baseId);
 
     while (stack.length > 0) {
-      var id = stack.pop();
-      var node = nodes[id];
+      const id = stack.pop();
+      const node = nodes[id];
 
       if (!node)
         continue;
@@ -167,15 +167,39 @@ cr.define('bookmarks.util', function() {
   }
 
   /**
+   * @param {string} name
+   * @param {number} value
+   * @param {number} maxValue
+   */
+  function recordEnumHistogram(name, value, maxValue) {
+    chrome.send('metricsHandler:recordInHistogram', [name, value, maxValue]);
+  }
+
+  /**
    * @param {!Object<string, T>} map
    * @param {!Set<string>} ids
    * @return {!Object<string, T>}
    * @template T
    */
-  function removeIdsFromMap(map, ids) {
-    var newMap = Object.assign({}, map);
+  function removeIdsFromObject(map, ids) {
+    const newObject = Object.assign({}, map);
     ids.forEach(function(id) {
-      delete newMap[id];
+      delete newObject[id];
+    });
+    return newObject;
+  }
+
+
+  /**
+   * @param {!Map<string, T>} map
+   * @param {!Set<string>} ids
+   * @return {!Map<string, T>}
+   * @template T
+   */
+  function removeIdsFromMap(map, ids) {
+    const newMap = new Map(map);
+    ids.forEach(function(id) {
+      newMap.delete(id);
     });
     return newMap;
   }
@@ -186,7 +210,7 @@ cr.define('bookmarks.util', function() {
    * @return {!Set<string>}
    */
   function removeIdsFromSet(set, ids) {
-    var difference = new Set(set);
+    const difference = new Set(set);
     ids.forEach(function(id) {
       difference.delete(id);
     });
@@ -203,7 +227,9 @@ cr.define('bookmarks.util', function() {
     isShowingSearch: isShowingSearch,
     normalizeNode: normalizeNode,
     normalizeNodes: normalizeNodes,
+    recordEnumHistogram: recordEnumHistogram,
     removeIdsFromMap: removeIdsFromMap,
+    removeIdsFromObject: removeIdsFromObject,
     removeIdsFromSet: removeIdsFromSet,
   };
 });

@@ -46,7 +46,7 @@ class TestWidget : public QMainWindow
     Q_OBJECT
 
 public:
-    explicit TestWidget(QWidget *parent = Q_NULLPTR);
+    explicit TestWidget(QWidget *parent = nullptr);
     ~TestWidget();
 
     void showFile(const QString &path);

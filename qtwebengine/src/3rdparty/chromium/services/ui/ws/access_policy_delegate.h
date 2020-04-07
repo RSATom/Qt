@@ -5,13 +5,7 @@
 #ifndef SERVICES_UI_WS_ACCESS_POLICY_DELEGATE_H_
 #define SERVICES_UI_WS_ACCESS_POLICY_DELEGATE_H_
 
-#include <vector>
-
-#include "base/containers/hash_tables.h"
-#include "services/ui/ws/ids.h"
-
 namespace ui {
-
 namespace ws {
 
 class ServerWindow;
@@ -34,12 +28,15 @@ class AccessPolicyDelegate {
   virtual bool IsWindowCreatedByWindowManager(
       const ServerWindow* window) const = 0;
 
+  // Returns true if the tree intercepts events targetted at |window|.
+  virtual bool ShouldInterceptEventsForAccessPolicy(
+      const ServerWindow* window) const = 0;
+
  protected:
   virtual ~AccessPolicyDelegate() {}
 };
 
 }  // namespace ws
-
 }  // namespace ui
 
 #endif  // SERVICES_UI_WS_ACCESS_POLICY_DELEGATE_H_

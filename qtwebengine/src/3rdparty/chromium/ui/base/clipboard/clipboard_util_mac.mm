@@ -5,7 +5,10 @@
 #include "ui/base/clipboard/clipboard_util_mac.h"
 
 #include "base/mac/foundation_util.h"
+#import "base/mac/mac_util.h"
 #include "base/mac/scoped_cftyperef.h"
+
+namespace ui {
 
 namespace {
 NSString* const kWebURLsWithTitlesPboardType = @"WebURLsWithTitlesPboardType";
@@ -22,13 +25,19 @@ NSString* UTIFromPboardType(NSString* type) {
 }
 }  // namespace
 
-namespace ui {
-
 UniquePasteboard::UniquePasteboard()
     : pasteboard_([[NSPasteboard pasteboardWithUniqueName] retain]) {}
 
 UniquePasteboard::~UniquePasteboard() {
   [pasteboard_ releaseGlobally];
+
+  if (base::mac::IsOS10_12()) {
+    // On 10.12, move ownership to the autorelease pool rather than possibly
+    // triggering -[NSPasteboard dealloc] here. This is a speculative workaround
+    // for https://crbug.com/877979 where a call to __CFPasteboardDeallocate
+    // from here is triggering "Semaphore object deallocated while in use".
+    pasteboard_.autorelease();
+  }
 }
 
 // static

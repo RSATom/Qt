@@ -58,7 +58,7 @@ public:
         m_tag(0),
         m_bus(bus),
         m_helper(parent),
-        m_intervalTimer(Q_NULLPTR)
+        m_intervalTimer(nullptr)
     {
         // glib event loop can be disabled either by env variable or QT_NO_GLIB define, so check the dispacher
         QAbstractEventDispatcher *dispatcher = QCoreApplication::eventDispatcher();
@@ -79,7 +79,11 @@ public:
         delete m_intervalTimer;
 
         if (m_tag)
+#if GST_CHECK_VERSION(1, 6, 0)
+            gst_bus_remove_watch(m_bus);
+#else
             g_source_remove(m_tag);
+#endif
     }
 
     GstBus* bus() const { return m_bus; }
@@ -143,8 +147,10 @@ static GstBusSyncReply syncGstBusFilter(GstBus* bus, GstMessage* message, QGstre
     QMutexLocker lock(&d->filterMutex);
 
     for (QGstreamerSyncMessageFilter *filter : qAsConst(d->syncFilters)) {
-        if (filter->processSyncMessage(QGstreamerMessage(message)))
+        if (filter->processSyncMessage(QGstreamerMessage(message))) {
+            gst_message_unref(message);
             return GST_BUS_DROP;
+        }
     }
 
     return GST_BUS_PASS;

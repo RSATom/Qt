@@ -11,25 +11,16 @@
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/manifest_icon_downloader.h"
-#include "content/public/browser/manifest_icon_selector.h"
+#include "content/public/common/console_message_level.h"
+#include "third_party/blink/public/common/manifest/manifest_icon_selector.h"
 #include "ui/gfx/image/image.h"
+#include "url/origin.h"
 
 namespace content {
 
-namespace {
+PaymentAppInfoFetcher::PaymentAppInfo::PaymentAppInfo() {}
 
-// TODO(gogerald): Choose appropriate icon size dynamically on different
-// platforms.
-// Here we choose a large ideal icon size to be big enough for all platforms.
-// Note that we only scale down for this icon size but not scale up.
-const int kPaymentAppIdealIconSize = 0xFFFF;
-const int kPaymentAppMinimumIconSize = 0;
-
-}  // namespace
-
-PaymentAppInfoFetcher::PaymentAppInfoFetcher()
-    : context_process_id_(-1), context_frame_id_(-1) {}
-PaymentAppInfoFetcher::~PaymentAppInfoFetcher() {}
+PaymentAppInfoFetcher::PaymentAppInfo::~PaymentAppInfo() {}
 
 void PaymentAppInfoFetcher::Start(
     const GURL& context_url,
@@ -37,105 +28,234 @@ void PaymentAppInfoFetcher::Start(
     PaymentAppInfoFetchCallback callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
-  context_url_ = context_url;
-  callback_ = std::move(callback);
-
   std::unique_ptr<std::vector<std::pair<int, int>>> provider_hosts =
       service_worker_context->GetProviderHostIds(context_url.GetOrigin());
 
   BrowserThread::PostTask(
       BrowserThread::UI, FROM_HERE,
-      base::BindOnce(&PaymentAppInfoFetcher::StartFromUIThread, this,
-                     std::move(provider_hosts)));
+      base::BindOnce(&PaymentAppInfoFetcher::StartOnUI, context_url,
+                     std::move(provider_hosts), std::move(callback)));
 }
 
-void PaymentAppInfoFetcher::StartFromUIThread(
+void PaymentAppInfoFetcher::StartOnUI(
+    const GURL& context_url,
+    const std::unique_ptr<std::vector<std::pair<int, int>>>& provider_hosts,
+    PaymentAppInfoFetchCallback callback) {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+
+  SelfDeleteFetcher* fetcher = new SelfDeleteFetcher(std::move(callback));
+  fetcher->Start(context_url, std::move(provider_hosts));
+}
+
+PaymentAppInfoFetcher::WebContentsHelper::WebContentsHelper(
+    WebContents* web_contents)
+    : WebContentsObserver(web_contents) {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+}
+
+PaymentAppInfoFetcher::WebContentsHelper::~WebContentsHelper() {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+}
+
+PaymentAppInfoFetcher::SelfDeleteFetcher::SelfDeleteFetcher(
+    PaymentAppInfoFetchCallback callback)
+    : fetched_payment_app_info_(std::make_unique<PaymentAppInfo>()),
+      callback_(std::move(callback)) {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+}
+
+PaymentAppInfoFetcher::SelfDeleteFetcher::~SelfDeleteFetcher() {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+}
+
+void PaymentAppInfoFetcher::SelfDeleteFetcher::Start(
+    const GURL& context_url,
     const std::unique_ptr<std::vector<std::pair<int, int>>>& provider_hosts) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   if (provider_hosts->size() == 0U) {
-    PostPaymentAppInfoFetchResultToIOThread();
+    RunCallbackAndDestroy();
     return;
   }
 
   for (const auto& frame : *provider_hosts) {
+    // Find out the render frame host registering the payment app.
     RenderFrameHostImpl* render_frame_host =
         RenderFrameHostImpl::FromID(frame.first, frame.second);
-    if (!render_frame_host)
-      continue;
-
-    WebContentsImpl* web_content = static_cast<WebContentsImpl*>(
-        WebContents::FromRenderFrameHost(render_frame_host));
-    if (!web_content || web_content->IsHidden() ||
-        context_url_.spec().compare(
-            web_content->GetLastCommittedURL().spec()) != 0) {
+    if (!render_frame_host ||
+        context_url.spec().compare(
+            render_frame_host->GetLastCommittedURL().spec()) != 0) {
       continue;
     }
 
-    context_process_id_ = frame.first;
-    context_frame_id_ = frame.second;
+    // Get the main frame since web app manifest is only available in the main
+    // frame's document by definition. The main frame's document must come from
+    // the same origin.
+    RenderFrameHostImpl* top_level_render_frame_host = render_frame_host;
+    while (top_level_render_frame_host->GetParent() != nullptr) {
+      top_level_render_frame_host = top_level_render_frame_host->GetParent();
+    }
+    WebContentsImpl* top_level_web_content = static_cast<WebContentsImpl*>(
+        WebContents::FromRenderFrameHost(top_level_render_frame_host));
+    if (!top_level_web_content || top_level_web_content->IsHidden() ||
+        !url::IsSameOriginWith(context_url,
+                               top_level_web_content->GetLastCommittedURL())) {
+      continue;
+    }
 
-    web_content->GetManifest(base::Bind(
-        &PaymentAppInfoFetcher::FetchPaymentAppManifestCallback, this));
+    web_contents_helper_ =
+        std::make_unique<WebContentsHelper>(top_level_web_content);
+
+    top_level_web_content->GetManifest(
+        base::BindOnce(&PaymentAppInfoFetcher::SelfDeleteFetcher::
+                           FetchPaymentAppManifestCallback,
+                       base::Unretained(this)));
     return;
   }
 
-  PostPaymentAppInfoFetchResultToIOThread();
+  RunCallbackAndDestroy();
 }
 
-void PaymentAppInfoFetcher::FetchPaymentAppManifestCallback(
-    const GURL& url,
-    const Manifest& manifest) {
+void PaymentAppInfoFetcher::SelfDeleteFetcher::RunCallbackAndDestroy() {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
-  if (url.is_empty() || manifest.IsEmpty()) {
-    PostPaymentAppInfoFetchResultToIOThread();
-    return;
-  }
-
-  if (manifest.name.is_null() ||
-      !base::UTF16ToUTF8(manifest.name.string().c_str(),
-                         manifest.name.string().length(),
-                         &fetched_payment_app_name_)) {
-    PostPaymentAppInfoFetchResultToIOThread();
-    return;
-  }
-
-  GURL icon_url = ManifestIconSelector::FindBestMatchingIcon(
-      manifest.icons, kPaymentAppIdealIconSize, kPaymentAppMinimumIconSize,
-      Manifest::Icon::ANY);
-  if (!icon_url.is_valid()) {
-    PostPaymentAppInfoFetchResultToIOThread();
-    return;
-  }
-
-  RenderFrameHostImpl* render_frame_host =
-      RenderFrameHostImpl::FromID(context_process_id_, context_frame_id_);
-  if (!render_frame_host) {
-    PostPaymentAppInfoFetchResultToIOThread();
-    return;
-  }
-
-  WebContents* web_content =
-      WebContents::FromRenderFrameHost(render_frame_host);
-  if (!web_content) {
-    PostPaymentAppInfoFetchResultToIOThread();
-    return;
-  }
-
-  if (!content::ManifestIconDownloader::Download(
-          web_content, icon_url, kPaymentAppIdealIconSize,
-          kPaymentAppMinimumIconSize,
-          base::Bind(&PaymentAppInfoFetcher::OnIconFetched, this))) {
-    PostPaymentAppInfoFetchResultToIOThread();
-  }
+  BrowserThread::PostTask(BrowserThread::IO, FROM_HERE,
+                          base::BindOnce(std::move(callback_),
+                                         std::move(fetched_payment_app_info_)));
+  delete this;
 }
 
-void PaymentAppInfoFetcher::OnIconFetched(const SkBitmap& icon) {
+void PaymentAppInfoFetcher::SelfDeleteFetcher::FetchPaymentAppManifestCallback(
+    const GURL& url,
+    const blink::Manifest& manifest) {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+
+  manifest_url_ = url;
+  if (manifest_url_.is_empty()) {
+    WarnIfPossible(
+        "The page that installed the payment handler does not contain a web "
+        "app manifest link: <link rel=\"manifest\" "
+        "href=\"some-file-name-here\">. This manifest defines the payment "
+        "handler's name and icon. User may not recognize this payment handler "
+        "in UI, because it will be labeled only by its origin.");
+    RunCallbackAndDestroy();
+    return;
+  }
+
+  if (manifest.IsEmpty()) {
+    WarnIfPossible(
+        "Unable to download a valid payment handler web app manifest from \"" +
+        manifest_url_.spec() +
+        "\". This manifest cannot be empty and must in JSON format. The "
+        "manifest defines the payment handler's name and icon. User may not "
+        "recognize this payment handler in UI, because it will be labeled only "
+        "by its origin.");
+    RunCallbackAndDestroy();
+    return;
+  }
+
+  fetched_payment_app_info_->prefer_related_applications =
+      manifest.prefer_related_applications;
+  for (const auto& related_application : manifest.related_applications) {
+    fetched_payment_app_info_->related_applications.emplace_back(
+        StoredRelatedApplication());
+    if (!related_application.platform.is_null()) {
+      base::UTF16ToUTF8(
+          related_application.platform.string().c_str(),
+          related_application.platform.string().length(),
+          &(fetched_payment_app_info_->related_applications.back().platform));
+    }
+    if (!related_application.id.is_null()) {
+      base::UTF16ToUTF8(
+          related_application.id.string().c_str(),
+          related_application.id.string().length(),
+          &(fetched_payment_app_info_->related_applications.back().id));
+    }
+  }
+
+  if (manifest.name.is_null()) {
+    WarnIfPossible("The payment handler's web app manifest \"" +
+                   manifest_url_.spec() +
+                   "\" does not contain a \"name\" field. User may not "
+                   "recognize this payment handler in UI, because it will be "
+                   "labeled only by its origin.");
+  } else if (manifest.name.string().empty()) {
+    WarnIfPossible(
+        "The \"name\" field in the payment handler's web app manifest \"" +
+        manifest_url_.spec() +
+        "\" is empty. User may not recognize this payment handler in UI, "
+        "because it will be labeled only by its origin.");
+  } else {
+    base::UTF16ToUTF8(manifest.name.string().c_str(),
+                      manifest.name.string().length(),
+                      &(fetched_payment_app_info_->name));
+  }
+
+  // TODO(gogerald): Choose appropriate icon size dynamically on different
+  // platforms.
+  // Here we choose a large ideal icon size to be big enough for all platforms.
+  // Note that we only scale down for this icon size but not scale up.
+  const int kPaymentAppIdealIconSize = 0xFFFF;
+  const int kPaymentAppMinimumIconSize = 0;
+
+  if (manifest.icons.empty()) {
+    WarnIfPossible(
+        "Unable to download the payment handler's icon, because the web app "
+        "manifest \"" +
+        manifest_url_.spec() +
+        "\" does not contain an \"icons\" field with a valid URL in \"src\" "
+        "sub-field. User may not recognize this payment handler in UI.");
+    RunCallbackAndDestroy();
+    return;
+  }
+
+  icon_url_ = blink::ManifestIconSelector::FindBestMatchingIcon(
+      manifest.icons, kPaymentAppIdealIconSize, kPaymentAppMinimumIconSize,
+      blink::Manifest::ImageResource::Purpose::ANY);
+  if (!icon_url_.is_valid()) {
+    WarnIfPossible(
+        "No suitable payment handler icon found in the \"icons\" field defined "
+        "in the web app manifest \"" +
+        manifest_url_.spec() +
+        "\". This is most likely due to unsupported MIME types in the "
+        "\"icons\" field. User may not recognize this payment handler in UI.");
+    RunCallbackAndDestroy();
+    return;
+  }
+
+  if (!web_contents_helper_->web_contents()) {
+    LOG(WARNING) << "Unable to download the payment handler's icon because no "
+                    "renderer was found, possibly because the page was closed "
+                    "or navigated away during installation. User may not "
+                    "recognize this payment handler in UI, because it will be "
+                    "labeled only by its name and origin.";
+    RunCallbackAndDestroy();
+    return;
+  }
+
+  bool can_download = ManifestIconDownloader::Download(
+      web_contents_helper_->web_contents(), icon_url_, kPaymentAppIdealIconSize,
+      kPaymentAppMinimumIconSize,
+      base::Bind(&PaymentAppInfoFetcher::SelfDeleteFetcher::OnIconFetched,
+                 base::Unretained(this)));
+  // |can_download| is false only if web contents are  null or the icon URL is
+  // not valid. Both of these conditions are manually checked above, so
+  // |can_download| should never be false. The manual checks above are necessary
+  // to provide more detailed error messages.
+  DCHECK(can_download);
+}
+
+void PaymentAppInfoFetcher::SelfDeleteFetcher::OnIconFetched(
+    const SkBitmap& icon) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   if (icon.drawsNothing()) {
-    PostPaymentAppInfoFetchResultToIOThread();
+    WarnIfPossible("Unable to download a valid payment handler icon from \"" +
+                   icon_url_.spec() +
+                   "\", which is defined in the web app manifest \"" +
+                   manifest_url_.spec() +
+                   "\". User may not recognize this payment handler in UI.");
+    RunCallbackAndDestroy();
     return;
   }
 
@@ -143,17 +263,21 @@ void PaymentAppInfoFetcher::OnIconFetched(const SkBitmap& icon) {
   scoped_refptr<base::RefCountedMemory> raw_data = decoded_image.As1xPNGBytes();
   base::Base64Encode(
       base::StringPiece(raw_data->front_as<char>(), raw_data->size()),
-      &fetched_payment_app_icon_);
-  PostPaymentAppInfoFetchResultToIOThread();
+      &(fetched_payment_app_info_->icon));
+  RunCallbackAndDestroy();
 }
 
-void PaymentAppInfoFetcher::PostPaymentAppInfoFetchResultToIOThread() {
+void PaymentAppInfoFetcher::SelfDeleteFetcher::WarnIfPossible(
+    const std::string& message) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  DCHECK(web_contents_helper_);
 
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
-      base::BindOnce(std::move(callback_), fetched_payment_app_name_,
-                     fetched_payment_app_icon_));
+  if (web_contents_helper_->web_contents()) {
+    web_contents_helper_->web_contents()->GetMainFrame()->AddMessageToConsole(
+        CONSOLE_MESSAGE_LEVEL_WARNING, message);
+  } else {
+    LOG(WARNING) << message;
+  }
 }
 
 }  // namespace content

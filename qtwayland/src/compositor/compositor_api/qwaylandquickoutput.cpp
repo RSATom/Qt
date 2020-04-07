@@ -45,16 +45,11 @@
 QT_BEGIN_NAMESPACE
 
 QWaylandQuickOutput::QWaylandQuickOutput()
-    : QWaylandOutput()
-    , m_updateScheduled(false)
-    , m_automaticFrameCallback(true)
 {
 }
 
 QWaylandQuickOutput::QWaylandQuickOutput(QWaylandCompositor *compositor, QWindow *window)
     : QWaylandOutput(compositor, window)
-    , m_updateScheduled(false)
-    , m_automaticFrameCallback(true)
 {
 }
 
@@ -71,7 +66,7 @@ void QWaylandQuickOutput::initialize()
             this, &QWaylandQuickOutput::updateStarted,
             Qt::DirectConnection);
 
-    connect(quickWindow, &QQuickWindow::beforeRendering,
+    connect(quickWindow, &QQuickWindow::afterRendering,
             this, &QWaylandQuickOutput::doFrameCallbacks);
 }
 

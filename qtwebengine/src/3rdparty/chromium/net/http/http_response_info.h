@@ -9,8 +9,8 @@
 
 #include "base/time/time.h"
 #include "net/base/net_export.h"
+#include "net/base/proxy_server.h"
 #include "net/http/http_vary_data.h"
-#include "net/proxy/proxy_server.h"
 #include "net/ssl/ssl_info.h"
 
 namespace base {
@@ -52,6 +52,11 @@ class NET_EXPORT HttpResponseInfo {
     CONNECTION_INFO_QUIC_38 = 16,
     CONNECTION_INFO_QUIC_39 = 17,
     CONNECTION_INFO_QUIC_40 = 18,
+    CONNECTION_INFO_QUIC_41 = 19,
+    CONNECTION_INFO_QUIC_42 = 20,
+    CONNECTION_INFO_QUIC_43 = 21,
+    CONNECTION_INFO_QUIC_99 = 22,
+    CONNECTION_INFO_QUIC_44 = 23,
     NUM_OF_CONNECTION_INFOS,
   };
 
@@ -145,6 +150,16 @@ class NET_EXPORT HttpResponseInfo {
   // used since.
   bool unused_since_prefetch;
 
+  // True if this resource is stale and needs async revalidation.
+  // This value is not persisted by Persist(); it is only ever set when the
+  // response is retrieved from the cache.
+  bool async_revalidation_requested;
+
+  // stale-while-revalidate, if any, will be honored until time given by
+  // |stale_revalidate_timeout|. This value is latched the first time
+  // stale-while-revalidate is used until the resource is revalidated.
+  base::Time stale_revalidate_timeout;
+
   // Remote address of the socket which fetched this resource.
   //
   // NOTE: If the response was served from the cache (was_cached is true),
@@ -189,7 +204,7 @@ class NET_EXPORT HttpResponseInfo {
   // The "Vary" header data for this response.
   HttpVaryData vary_data;
 
-  // Any metadata asociated with this resource's cached data.
+  // Any metadata associated with this resource's cached data.
   scoped_refptr<IOBufferWithSize> metadata;
 
   static std::string ConnectionInfoToString(ConnectionInfo connection_info);

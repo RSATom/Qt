@@ -250,18 +250,21 @@ static inline float quaternionAngle(const QQuaternion &rotation)
 }
 
 /*!
- * \property QBar3DSeries::meshAngle
- *
- * \brief The series rotation angle in degrees.
- *
- * Setting this property is equivalent to the following call:
- * \code setMeshRotation(QQuaternion::fromAxisAndAngle(0.0f, 1.0f, 0.0f, angle)) \endcode
- *
- * \note When reading this property, it is calculated from the
- * QAbstract3DSeries::meshRotation value
- * using floating point precision and always returns a value from zero to 360 degrees.
- *
- * \sa QAbstract3DSeries::meshRotation
+  \property QBar3DSeries::meshAngle
+
+  \brief The series rotation angle in degrees.
+
+  Setting this property is equivalent to the following call:
+
+  \code
+  setMeshRotation(QQuaternion::fromAxisAndAngle(0.0f, 1.0f, 0.0f, angle))
+  \endcode
+
+  \note When reading this property, it is calculated from the
+        QAbstract3DSeries::meshRotation value using floating point precision
+        and always returns a value from zero to 360 degrees.
+
+  \sa QAbstract3DSeries::meshRotation
  */
 void QBar3DSeries::setMeshAngle(float angle)
 {

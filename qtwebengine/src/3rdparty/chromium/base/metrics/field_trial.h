@@ -80,6 +80,7 @@
 #include "base/strings/string_piece.h"
 #include "base/synchronization/lock.h"
 #include "base/time/time.h"
+#include "build/build_config.h"
 
 namespace base {
 
@@ -319,15 +320,13 @@ class BASE_EXPORT FieldTrial : public RefCounted<FieldTrial> {
   bool GetActiveGroup(ActiveGroup* active_group) const;
 
   // Returns the trial name and selected group name for this field trial via
-  // the output parameter |field_trial_state|, but only if the trial has not
-  // been disabled. In that case, true is returned and |field_trial_state| is
-  // filled in; otherwise, the result is false and |field_trial_state| is left
-  // untouched.
-  bool GetState(State* field_trial_state);
-
-  // Does the same thing as above, but is deadlock-free if the caller is holding
-  // a lock.
-  bool GetStateWhileLocked(State* field_trial_state);
+  // the output parameter |field_trial_state| for all the studies when
+  // |bool include_expired| is true. In case when |bool include_expired| is
+  // false, if the trial has not been disabled true is returned and
+  // |field_trial_state| is filled in; otherwise, the result is false and
+  // |field_trial_state| is left untouched.
+  // This function is deadlock-free if the caller is holding a lock.
+  bool GetStateWhileLocked(State* field_trial_state, bool include_expired);
 
   // Returns the group_name. A winner need not have been chosen.
   std::string group_name_internal() const { return group_name_; }
@@ -389,10 +388,15 @@ class BASE_EXPORT FieldTrial : public RefCounted<FieldTrial> {
 //------------------------------------------------------------------------------
 // Class with a list of all active field trials.  A trial is active if it has
 // been registered, which includes evaluating its state based on its probaility.
-// Only one instance of this class exists.
+// Only one instance of this class exists and outside of testing, will live for
+// the entire life time of the process.
 class BASE_EXPORT FieldTrialList {
  public:
   typedef SharedPersistentMemoryAllocator FieldTrialAllocator;
+
+  // Type for function pointer passed to |AllParamsToString| used to escape
+  // special characters from |input|.
+  typedef std::string (*EscapeDataFunc)(const std::string& input);
 
   // Year that is guaranteed to not be expired when instantiating a field trial
   // via |FactoryGetFieldTrial()|.  Set to two years from the build date.
@@ -505,11 +509,21 @@ class BASE_EXPORT FieldTrialList {
   // resurrection in another process. This allows randomization to be done in
   // one process, and secondary processes can be synchronized on the result.
   // The resulting string contains the name and group name pairs of all
-  // registered FieldTrials which have not been disabled, with "/" used
-  // to separate all names and to terminate the string. All activated trials
-  // have their name prefixed with "*". This string is parsed by
-  // |CreateTrialsFromString()|.
-  static void AllStatesToString(std::string* output);
+  // registered FieldTrials including disabled based on |include_expired|,
+  // with "/" used to separate all names and to terminate the string. All
+  // activated trials have their name prefixed with "*". This string is parsed
+  // by |CreateTrialsFromString()|.
+  static void AllStatesToString(std::string* output, bool include_expired);
+
+  // Creates a persistent representation of all FieldTrial params for
+  // resurrection in another process. The returned string contains the trial
+  // name and group name pairs of all registered FieldTrials including disabled
+  // based on |include_expired| separated by '.'. The pair is followed by ':'
+  // separator and list of param name and values separated by '/'. It also takes
+  // |encode_data_func| function pointer for encodeing special charactors.
+  // This string is parsed by |AssociateParamsFromString()|.
+  static std::string AllParamsToString(bool include_expired,
+                                       EscapeDataFunc encode_data_func);
 
   // Fills in the supplied vector |active_groups| (which must be empty when
   // called) with a snapshot of all registered FieldTrials for which the group
@@ -564,12 +578,14 @@ class BASE_EXPORT FieldTrialList {
       const char* disable_features_switch,
       FeatureList* feature_list);
 
-#if defined(OS_WIN) || defined(OS_FUCHSIA)
+#if defined(OS_WIN)
   // On Windows, we need to explicitly pass down any handles to be inherited.
   // This function adds the shared memory handle to field trial state to the
   // list of handles to be inherited.
   static void AppendFieldTrialHandleIfNeeded(
       base::HandlesToInheritVector* handles);
+#elif defined(OS_FUCHSIA)
+  // TODO(fuchsia): Implement shared-memory configuration (crbug.com/752368).
 #elif defined(OS_POSIX) && !defined(OS_NACL)
   // On POSIX, we also need to explicitly pass down this file descriptor that
   // should be shared with the child process. Returns an invalid handle if it
@@ -598,11 +614,26 @@ class BASE_EXPORT FieldTrialList {
 
   // Add an observer to be notified when a field trial is irrevocably committed
   // to being part of some specific field_group (and hence the group_name is
-  // also finalized for that field_trial).
-  static void AddObserver(Observer* observer);
+  // also finalized for that field_trial). Returns false and does nothing if
+  // there is no FieldTrialList singleton.
+  static bool AddObserver(Observer* observer);
 
   // Remove an observer.
   static void RemoveObserver(Observer* observer);
+
+  // Similar to AddObserver(), but the passed observer will be notified
+  // synchronously when a field trial is activated and its group selected. It
+  // will be notified synchronously on the same thread where the activation and
+  // group selection happened. It is the responsibility of the observer to make
+  // sure that this is a safe operation and the operation must be fast, as this
+  // work is done synchronously as part of group() or related APIs. Only a
+  // single such observer is supported, exposed specifically for crash
+  // reporting. Must be called on the main thread before any other threads
+  // have been started.
+  static void SetSynchronousObserver(Observer* observer);
+
+  // Removes the single synchronous observer.
+  static void RemoveSynchronousObserver(Observer* observer);
 
   // Grabs the lock if necessary and adds the field trial to the allocator. This
   // should only be called from FinalizeGroupChoice().
@@ -636,6 +667,9 @@ class BASE_EXPORT FieldTrialList {
   GetAllFieldTrialsFromPersistentAllocator(
       PersistentMemoryAllocator const& allocator);
 
+  // Returns true if a global field trial list is set. Only used for testing.
+  static bool IsGlobalSetForTesting();
+
  private:
   // Allow tests to access our innards for testing purposes.
   FRIEND_TEST_ALL_PREFIXES(FieldTrialListTest, InstantiateAllocator);
@@ -646,6 +680,7 @@ class BASE_EXPORT FieldTrialList {
   FRIEND_TEST_ALL_PREFIXES(FieldTrialListTest, ClearParamsFromSharedMemory);
   FRIEND_TEST_ALL_PREFIXES(FieldTrialListTest,
                            SerializeSharedMemoryHandleMetadata);
+  FRIEND_TEST_ALL_PREFIXES(FieldTrialListTest, CheckReadOnlySharedMemoryHandle);
 
   // Serialization is used to pass information about the handle to child
   // processes. It passes a reference to the relevant OS resource, and it passes
@@ -718,6 +753,9 @@ class BASE_EXPORT FieldTrialList {
   // This should always be called after creating a new FieldTrial instance.
   static void Register(FieldTrial* trial);
 
+  // Returns all the registered trials.
+  static RegistrationMap GetRegisteredTrials();
+
   static FieldTrialList* global_;  // The singleton of this class.
 
   // This will tell us if there is an attempt to register a field
@@ -738,6 +776,9 @@ class BASE_EXPORT FieldTrialList {
 
   // List of observers to be notified when a group is selected for a FieldTrial.
   scoped_refptr<ObserverListThreadSafe<Observer> > observer_list_;
+
+  // Single synchronous observer to be notified when a trial group is chosen.
+  Observer* synchronous_observer_ = nullptr;
 
   // Allocator in shared memory containing field trial data. Used in both
   // browser and child processes, but readonly in the child.

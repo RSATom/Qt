@@ -3,22 +3,11 @@
 // found in the LICENSE file.
 
 #include <stddef.h>
-#include <X11/extensions/shape.h>
-#include <X11/Xlib.h>
-
 #include <memory>
 #include <vector>
 
-// Get rid of X11 macros which conflict with gtest.
-// It is necessary to include this header before the rest so that Bool can be
-// undefined.
-#include "ui/events/test/events_test_utils_x11.h"
-#undef Bool
-#undef None
-
 #include "base/command_line.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_tree_host.h"
@@ -27,10 +16,12 @@
 #include "ui/display/display_switches.h"
 #include "ui/events/devices/x11/touch_factory_x11.h"
 #include "ui/events/platform/x11/x11_event_source_glib.h"
+#include "ui/events/test/events_test_utils_x11.h"
 #include "ui/events/test/platform_event_source_test_api.h"
 #include "ui/gfx/geometry/point.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/path.h"
+#include "ui/gfx/x/x11.h"
 #include "ui/gfx/x/x11_atom_cache.h"
 #include "ui/views/test/views_test_base.h"
 #include "ui/views/test/x11_property_change_waiter.h"
@@ -188,11 +179,11 @@ class DesktopWindowTreeHostX11Test : public ViewsTestBase {
 
     // Make X11 synchronous for our display connection. This does not force the
     // window manager to behave synchronously.
-    XSynchronize(gfx::GetXDisplay(), True);
+    XSynchronize(gfx::GetXDisplay(), x11::True);
   }
 
   void TearDown() override {
-    XSynchronize(gfx::GetXDisplay(), False);
+    XSynchronize(gfx::GetXDisplay(), x11::False);
     ViewsTestBase::TearDown();
   }
 
@@ -267,17 +258,10 @@ TEST_F(DesktopWindowTreeHostX11Test, Shape) {
   }
 
   // 2) Test setting the window shape via Widget::SetShape().
-  gfx::Path shape2;
-  shape2.moveTo(10, 0);
-  shape2.lineTo(10, 10);
-  shape2.lineTo(0, 10);
-  shape2.lineTo(0, 100);
-  shape2.lineTo(100, 100);
-  shape2.lineTo(100, 0);
-  shape2.close();
-
-  auto shape_region = base::MakeUnique<SkRegion>();
-  shape_region->setPath(shape2, SkRegion(shape2.getBounds().round()));
+  auto shape_region = std::make_unique<Widget::ShapeRects>();
+  shape_region->emplace_back(10, 0, 90, 10);
+  shape_region->emplace_back(0, 10, 10, 90);
+  shape_region->emplace_back(10, 10, 90, 90);
 
   std::unique_ptr<Widget> widget2(CreateWidget(nullptr));
   widget2->Show();
@@ -348,9 +332,8 @@ TEST_F(DesktopWindowTreeHostX11Test, WindowManagerTogglesFullscreen) {
     xclient.xclient.data.l[2] = 0;
     xclient.xclient.data.l[3] = 1;
     xclient.xclient.data.l[4] = 0;
-    XSendEvent(display, DefaultRootWindow(display), False,
-               SubstructureRedirectMask | SubstructureNotifyMask,
-               &xclient);
+    XSendEvent(display, DefaultRootWindow(display), x11::False,
+               SubstructureRedirectMask | SubstructureNotifyMask, &xclient);
 
     WMStateWaiter waiter(xid, "_NET_WM_STATE_FULLSCREEN", false);
     waiter.Wait();
@@ -393,9 +376,8 @@ TEST_F(DesktopWindowTreeHostX11Test, ToggleMinimizePropogateToContentWindow) {
     xevent.xproperty.window = xid;
     xevent.xproperty.atom = gfx::GetAtom("_NET_WM_STATE");
     xevent.xproperty.state = 0;
-    XSendEvent(display, DefaultRootWindow(display), False,
-        SubstructureRedirectMask | SubstructureNotifyMask,
-        &xevent);
+    XSendEvent(display, DefaultRootWindow(display), x11::False,
+               SubstructureRedirectMask | SubstructureNotifyMask, &xevent);
 
     WMStateWaiter waiter(xid, "_NET_WM_STATE_HIDDEN", true);
     waiter.Wait();
@@ -417,9 +399,8 @@ TEST_F(DesktopWindowTreeHostX11Test, ToggleMinimizePropogateToContentWindow) {
     xevent.xproperty.window = xid;
     xevent.xproperty.atom = gfx::GetAtom("_NET_WM_STATE");
     xevent.xproperty.state = 0;
-    XSendEvent(display, DefaultRootWindow(display), False,
-        SubstructureRedirectMask | SubstructureNotifyMask,
-        &xevent);
+    XSendEvent(display, DefaultRootWindow(display), x11::False,
+               SubstructureRedirectMask | SubstructureNotifyMask, &xevent);
 
     WMStateWaiter waiter(xid, "_NET_WM_STATE_FOCUSED", true);
     waiter.Wait();

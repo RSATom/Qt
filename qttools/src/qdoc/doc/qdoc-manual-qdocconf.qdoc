@@ -123,6 +123,7 @@
     \li \l {tabsize-variable} {tabsize}
     \li \l {version-variable} {version}
     \li \l {versionsym-variable} {versionsym}
+    \li \l {warninglimit-variable} {warninglimit}
     \endlist
 
     \section1 Categories
@@ -130,7 +131,7 @@
     \list
     \li \l {Generic Configuration Variables}
     \li \l {C++ Specific Configuration Variables}
-    \li \l {HTML Specific Configuration Variables}
+    \li \l {Format-specific Configuration Variables}
     \endlist
 
     \section1 Configuration File Examples
@@ -456,9 +457,10 @@
     The \c falsehoods variable defines the truth value of specified
     preprocessor symbols as false.
 
-    If this variable is not set for a preprocessor symbol, QDoc
-    assumes its truth value is true. The exception is '0', which value
-    always is false.
+    The values of the variable are regular expressions (see QRegExp
+    for details). If this variable is not set for a preprocessor
+    symbol, QDoc assumes its truth value is true. The exception is
+    '0', which is always false.
 
     QDoc will recognize, and is able to evaluate, the following
     preprocessor syntax:
@@ -765,6 +767,23 @@
     \verinfo {QFooBar} {1.0 beta}
     \endcode
 
+    A special macro option, \e match, can be added for additional
+    regular expression pattern matching for expanded macros.
+
+    For example,
+
+    \badcode
+    macro.qtminorversion       = "$QT_VER"
+    macro.qtminorversion.match = "\\d+\\.(\\d+)"
+    \endcode
+
+    This creates a macro \\qtminorversion that expands to the minor
+    version based on the QT_VER environment variable.
+
+    A macro that defines a match pattern outputs all capture groups
+    (parentheses) concatenated together, or the exact matched string
+    if the pattern does not contain any capture groups.
+
     See also \l {alias-variable} {alias}.
 
     \target manifestmeta-variable
@@ -905,11 +924,23 @@
     \target outputformats-variable
     \section1 outputformats
 
-    The \c outputformats variable specifies the format of
+    The \c outputformats variable specifies the format(s) of
     the generated documentation.
 
-    Currently, QDoc only supports the HTML format. It is also
-    the default format, and doesn't need to be specified.
+    Since Qt 5.11, QDoc supports the HTML and WebXML formats. If no
+    \c outputformats are specified, QDoc generates the documentation
+    in HTML (the default format). Both output formats can be specified,
+    with dedicated output directories and other settings. For example:
+
+    \badcode
+    outputformats = WebXML HTML
+    WebXML.nosubdirs = true
+    WebXML.outputsubdir = webxml
+    WebXML.quotinginformation = true
+    \endcode
+
+    This generates HTML documentation using the default settings, as well
+    as WebXML documentation into output subdirectory \e webxml.
 
     \target outputprefixes-variable
     \section1 outputprefixes
@@ -1166,6 +1197,31 @@
     implemented. Currently, it only works within raw HTML code.
 
     See also \l {version} {\\version}.
+
+    \target warninglimit-variable
+    \section1 warninglimit
+
+    The \c warninglimit variable sets the maximum number of documentation
+    warnings allowed. If this limit is exceeded, QDoc continues as normal
+    but exits with the warning count as the error code. If the limit was
+    not exceeded or \c warninglimit was not defined, QDoc process exits
+    with 0, assuming there were no other critical errors.
+
+    Setting the \c warninglimit to \c 0 means failure on any warning.
+
+    \note By default, QDoc does not enforce the warning limit. Enable it
+    with \c {warninglimit.enabled = true} or by defining
+    the \c QDOC_ENABLE_WARNINGLIMIT environment variable.
+
+    For example,
+
+    \badcode
+    # Fail the documentation build if we have more than 100 warnings
+    warninglimit = 100
+    warninglimit.enabled = true
+    \endcode
+
+    The \c warninglimit variable was introduced in Qt 5.11.
 */
 
 /*!
@@ -1179,8 +1235,7 @@
     \section1 Overview
 
     Qt Assistant uses a system for managing Qt documentation that requires
-    QDoc to generate inventories of files in a format that is similar to the
-    old style DCF format, but with additional features.
+    QDoc to generate inventories of files.
 
     QDoc allows configuration variables to be used to specify which pages are
     to be used in each documentation set it generates. These are specified as
@@ -1307,7 +1362,7 @@
     \page 23-qdoc-configuration-cppvariables.html
     \previouspage Creating Help Project Files
     \contentspage QDoc Manual
-    \nextpage HTML Specific Configuration Variables
+    \nextpage Format-specific Configuration Variables
 
     \title C++ Specific Configuration Variables
 
@@ -1420,12 +1475,15 @@
     \contentspage QDoc Manual
     \nextpage Supporting Derived Projects
 
-    \title HTML Specific Configuration Variables
+    \keyword HTML Specific Configuration Variables
+    \title Format-specific Configuration Variables
 
-    The HTML specific configuration variables define the generated
+    The format-specific configuration variables define the generated
     documentation's style, or define the contents of the
-    documentation's footer or postheader. The format of the variable
-    values are raw HTML.
+    documentation's footer or postheader.
+
+    Some of the configuration values are relevant only for the HTML
+    output format and their values contain raw HTML.
 
     \target HTML.footer-variable
     \section1 HTML.footer
@@ -1445,6 +1503,26 @@
                       ...
                       "</tr></table></div></address>"
     \endcode
+
+    \target FORMAT.nosubdirs
+    \section1 <FORMAT>.nosubdirs
+
+    A boolean value which, when \c true, enables single-directory output
+    mode; all generated files go to \l {FORMAT.outputsubdir} directory,
+    instead of a subdirectory based on the documentation project name.
+
+    \target FORMAT.outputsubdir
+    \section1 <FORMAT>.outputsubdir
+
+    Defines the subdirectory under \l outputdir where documentation is
+    generated.
+
+    \badcode
+    HTML.nosubdirs = true
+    HTML.outputsubdir = html
+    \endcode
+
+    With above, the output goes to \c {<outputdir>/html}.
 
     \target HTML.postheader-variable
     \section1 HTML.postheader
@@ -1472,6 +1550,20 @@
     The complete variable entry in \l qtgui.qdocconf provides the
     standard header of the \l {http://doc.qt.io/qt-5/qtgui-index.html}
     {Qt GUI Documentation}.
+
+    \target FORMAT.quotinginformation
+    \section1 <FORMAT>.quotinginformation
+
+    A boolean value which, when \c true, generates references to
+    quoted content (for example, \l {quotefromfile-command}{\\quotefromfile}
+    and \l {snippet-command}{\\snippet} commands) instead of including
+    the content directly.
+
+    Used currently for the \c WebXML output format.
+
+    \badcode
+    WebXML.quotinginformation = true
+    \endcode
 
     \target HTML.style-variable
     \section1 HTML.style
@@ -1506,7 +1598,7 @@
     single stylesheet for any set of documentation; for example:
 
     \badcode
-    HTML.stylesheets = classic.css
+    HTML.stylesheets = path/to/classic.css
     \endcode
 
     QDoc expects to find stylesheets in the directory containing the
@@ -1514,17 +1606,23 @@
     directory alongside the HTML pages.
 
     \target HTML.tocdepth
-    \section1 HTML.tocdepth
+    \section1 <FORMAT>.tocdepth
 
-    The HTML.tocdepth variable defines how many document sections are printed in
-    the table of contents. Setting tocdepth to \c 0 disables the table of
-    contents while not setting the variable prints all document sections.
+    The \c {<FORMAT>.tocdepth} variable defines how many document sections
+    are printed in the table of contents. Setting tocdepth to \c 0 disables
+    the table of contents while leaving it undefined prints all document
+    sections.
 
+    Currently only has an effect for the HTML format:
+
+    \badcode
+    HTML.tocdepth = 3
+    \endcode
 */
 
 /*!
     \page 25-qdoc-configuration-derivedprojects.html
-    \previouspage HTML Specific Configuration Variables
+    \previouspage Format-specific Configuration Variables
     \contentspage QDoc Manual
     \nextpage Example Manifest Files
 
@@ -1758,7 +1856,7 @@
     dita.metadata.default.author      = Qt Development Frameworks
     dita.metadata.default.permissions = all
     dita.metadata.default.publisher   = Qt Project
-    dita.metadata.default.copyryear = 2017
+    dita.metadata.default.copyryear = 2018
     dita.metadata.default.copyrholder = Qt Project
     dita.metadata.default.audience = programmer
     \endcode

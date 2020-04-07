@@ -78,6 +78,7 @@ struct QQmlImportInstance
 {
     QString uri; // e.g. QtQuick
     QString url; // the base path of the import
+    QString localDirectoryPath; // the base path of the import if it's a local file
     int majversion; // the major version imported
     int minversion; // the minor version imported
     bool isLibrary; // true means that this is not a file import
@@ -85,22 +86,23 @@ struct QQmlImportInstance
     QQmlDirComponents qmlDirComponents; // a copy of the components listed in the qmldir
     QQmlDirScripts qmlDirScripts; // a copy of the scripts in the qmldir
 
-    bool setQmldirContent(const QString &resolvedUrl, const QQmlTypeLoaderQmldirContent *qmldir,
+    bool setQmldirContent(const QString &resolvedUrl, const QQmlTypeLoaderQmldirContent &qmldir,
                           QQmlImportNamespace *nameSpace, QList<QQmlError> *errors);
 
     static QQmlDirScripts getVersionedScripts(const QQmlDirScripts &qmldirscripts, int vmaj, int vmin);
 
     bool resolveType(QQmlTypeLoader *typeLoader, const QHashedStringRef &type,
                      int *vmajor, int *vminor, QQmlType* type_return,
-                     QString *base = 0, bool *typeRecursionDetected = 0,
+                     QString *base = nullptr, bool *typeRecursionDetected = nullptr,
                      QQmlType::RegistrationType = QQmlType::AnyRegistrationType,
-                     QQmlImport::RecursionRestriction recursionRestriction = QQmlImport::PreventRecursion) const;
+                     QQmlImport::RecursionRestriction recursionRestriction = QQmlImport::PreventRecursion,
+                     QList<QQmlError> *errors = nullptr) const;
 };
 
 class QQmlImportNamespace
 {
 public:
-    QQmlImportNamespace() : nextNamespace(0) {}
+    QQmlImportNamespace() : nextNamespace(nullptr) {}
     ~QQmlImportNamespace() { qDeleteAll(imports); }
 
     QList<QQmlImportInstance *> imports;
@@ -109,7 +111,7 @@ public:
 
     bool resolveType(QQmlTypeLoader *typeLoader, const QHashedStringRef& type,
                      int *vmajor, int *vminor, QQmlType* type_return,
-                     QString *base = 0, QList<QQmlError> *errors = 0,
+                     QString *base = nullptr, QList<QQmlError> *errors = nullptr,
                      QQmlType::RegistrationType registrationType = QQmlType::AnyRegistrationType,
                      QQmlImport::RecursionRestriction recursionRestriction = QQmlImport::PreventRecursion);
 
@@ -137,7 +139,7 @@ public:
                      QQmlType *type_return,
                      int *version_major, int *version_minor,
                      QQmlImportNamespace **ns_return,
-                     QList<QQmlError> *errors = 0,
+                     QList<QQmlError> *errors = nullptr,
                      QQmlType::RegistrationType registrationType = QQmlType::AnyRegistrationType,
                      QQmlImport::RecursionRestriction recursionRestriction
                      = QQmlImport::PreventRecursion) const;

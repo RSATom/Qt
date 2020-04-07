@@ -13,7 +13,6 @@
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/message_center/message_center_export.h"
-#include "ui/message_center/views/message_center_controller.h"
 #include "ui/views/widget/widget_delegate.h"
 #include "ui/views/widget/widget_observer.h"
 
@@ -37,14 +36,13 @@ class MessageView;
 class Notification;
 class PopupAlignmentDelegate;
 
-// The widget host for a popup. Also implements MessageCenterController
+// The widget host for a popup. Also implements MessageViewDelegate
 // which delegates over to MessagePopupCollection, but takes care about
 // checking the weakref since MessagePopupCollection may disappear before
 // widget/views are closed/destructed.
 class MESSAGE_CENTER_EXPORT ToastContentsView
     : public views::WidgetDelegateView,
       public views::WidgetObserver,
-      public MessageCenterController,
       public gfx::AnimationDelegate {
  public:
   static const char kViewClassName[];
@@ -82,6 +80,8 @@ class MESSAGE_CENTER_EXPORT ToastContentsView
 
   const std::string& id() const { return id_; }
 
+  MessageView* message_view() { return message_view_; }
+
   // Overridden from views::View:
   void OnMouseEntered(const ui::MouseEvent& event) override;
   void OnMouseExited(const ui::MouseEvent& event) override;
@@ -92,19 +92,6 @@ class MESSAGE_CENTER_EXPORT ToastContentsView
 
  private:
   friend class test::MessagePopupCollectionTest;
-
-  // Overridden from MessageCenterController:
-  void ClickOnNotification(const std::string& notification_id) override;
-  void RemoveNotification(const std::string& notification_id,
-                          bool by_user) override;
-  std::unique_ptr<ui::MenuModel> CreateMenuModel(
-      const NotifierId& notifier_id,
-      const base::string16& display_source) override;
-  bool HasClickedListener(const std::string& notification_id) override;
-  void ClickOnNotificationButton(const std::string& notification_id,
-                                 int button_index) override;
-  void ClickOnSettingsButton(const std::string& notification_id) override;
-  void UpdateNotificationSize(const std::string& notification_id) override;
 
   // Overridden from gfx::AnimationDelegate:
   void AnimationProgressed(const gfx::Animation* animation) override;
@@ -155,6 +142,9 @@ class MESSAGE_CENTER_EXPORT ToastContentsView
 
   gfx::Point origin_;
   gfx::Size preferred_size_;
+
+  // Weak reference to the MessageView.
+  MessageView* message_view_ = nullptr;
 
   DISALLOW_COPY_AND_ASSIGN(ToastContentsView);
 };

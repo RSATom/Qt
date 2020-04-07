@@ -14,10 +14,10 @@ extern "C" {
 #endif
 
 // For external C libraries to malloc through PDFium. These may return nullptr.
-void* FXMEM_DefaultAlloc(size_t byte_size, int flags);
+void* FXMEM_DefaultAlloc(size_t byte_size);
 void* FXMEM_DefaultCalloc(size_t num_elems, size_t byte_size);
-void* FXMEM_DefaultRealloc(void* pointer, size_t new_size, int flags);
-void FXMEM_DefaultFree(void* pointer, int flags);
+void* FXMEM_DefaultRealloc(void* pointer, size_t new_size);
+void FXMEM_DefaultFree(void* pointer);
 
 #ifdef __cplusplus
 }  // extern "C"
@@ -57,36 +57,35 @@ inline void* FX_SafeRealloc(void* ptr, size_t num_members, size_t member_size) {
   if (!size.IsValid())
     return nullptr;
 
-  return pdfium::base::PartitionReallocGeneric(
-      gGeneralPartitionAllocator.root(), ptr, size.ValueOrDie(),
-      "GeneralPartition");
+  return pdfium::base::PartitionReallocGenericFlags(
+      gGeneralPartitionAllocator.root(), pdfium::base::PartitionAllocReturnNull,
+      ptr, size.ValueOrDie(), "GeneralPartition");
 }
 
 inline void* FX_AllocOrDie(size_t num_members, size_t member_size) {
   // TODO(tsepez): See if we can avoid the implicit memset(0).
-  if (void* result = FX_SafeAlloc(num_members, member_size))
-    return result;
+  void* result = FX_SafeAlloc(num_members, member_size);
+  if (!result)
+    FX_OutOfMemoryTerminate();  // Never returns.
 
-  FX_OutOfMemoryTerminate();  // Never returns.
-  return nullptr;             // Suppress compiler warning.
+  return result;
 }
 
 inline void* FX_AllocOrDie2D(size_t w, size_t h, size_t member_size) {
-  if (w < std::numeric_limits<size_t>::max() / h)
-    return FX_AllocOrDie(w * h, member_size);
+  if (w >= std::numeric_limits<size_t>::max() / h)
+    FX_OutOfMemoryTerminate();  // Never returns.
 
-  FX_OutOfMemoryTerminate();  // Never returns.
-  return nullptr;             // Suppress compiler warning.
+  return FX_AllocOrDie(w * h, member_size);
 }
 
 inline void* FX_ReallocOrDie(void* ptr,
                              size_t num_members,
                              size_t member_size) {
-  if (void* result = FX_SafeRealloc(ptr, num_members, member_size))
-    return result;
+  void* result = FX_SafeRealloc(ptr, num_members, member_size);
+  if (!result)
+    FX_OutOfMemoryTerminate();  // Never returns.
 
-  FX_OutOfMemoryTerminate();  // Never returns.
-  return nullptr;             // Suppress compiler warning.
+  return result;
 }
 
 // These never return nullptr.
@@ -134,12 +133,6 @@ char (&ArraySizeHelper(T (&array)[N]))[N];
 // Used with std::unique_ptr to FX_Free raw memory.
 struct FxFreeDeleter {
   inline void operator()(void* ptr) const { FX_Free(ptr); }
-};
-
-// Used with std::unique_ptr to Release() objects that can't be deleted.
-template <class T>
-struct ReleaseDeleter {
-  inline void operator()(T* ptr) const { ptr->Release(); }
 };
 
 #endif  // __cplusplus

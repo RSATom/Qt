@@ -44,6 +44,8 @@
 #include <Qt3DRender/qenvironmentlight.h>
 #include <Qt3DRender/qlayer.h>
 #include <Qt3DRender/qlevelofdetail.h>
+#include <Qt3DRender/qraycaster.h>
+#include <Qt3DRender/qscreenraycaster.h>
 #include <Qt3DRender/qmaterial.h>
 #include <Qt3DRender/qmesh.h>
 #include <Qt3DRender/private/renderlogging_p.h>
@@ -96,10 +98,6 @@ void Entity::cleanup()
         Entity *parentEntity = parent();
         if (parentEntity != nullptr)
             parentEntity->removeChildHandle(m_handle);
-        for (int i = 0; i < m_childrenHandles.size(); ++i)
-            m_nodeManagers->renderNodesManager()->release(m_childrenHandles[i]);
-        // We need to release using peerId otherwise the handle will be cleared
-        // but would still remain in the Id to Handle table
         m_nodeManagers->worldMatrixManager()->releaseResource(peerId());
 
         qCDebug(Render::RenderNodes) << Q_FUNC_INFO;
@@ -120,6 +118,7 @@ void Entity::cleanup()
     m_childrenHandles.clear();
     m_layerComponents.clear();
     m_levelOfDetailComponents.clear();
+    m_rayCasterComponents.clear();
     m_shaderDataComponents.clear();
     m_lightComponents.clear();
     m_environmentLightComponents.clear();
@@ -177,6 +176,7 @@ void Entity::initializeFromPeer(const QNodeCreatedChangeBasePtr &change)
     m_computeComponent = QNodeId();
     m_layerComponents.clear();
     m_levelOfDetailComponents.clear();
+    m_rayCasterComponents.clear();
     m_shaderDataComponents.clear();
     m_lightComponents.clear();
     m_environmentLightComponents.clear();
@@ -287,12 +287,12 @@ QVector<Entity *> Entity::children() const
     return childrenVector;
 }
 
-QMatrix4x4 *Entity::worldTransform()
+Matrix4x4 *Entity::worldTransform()
 {
     return m_nodeManagers->worldMatrixManager()->data(m_worldTransform);
 }
 
-const QMatrix4x4 *Entity::worldTransform() const
+const Matrix4x4 *Entity::worldTransform() const
 {
     return m_nodeManagers->worldMatrixManager()->data(m_worldTransform);
 }
@@ -312,6 +312,10 @@ void Entity::addComponent(Qt3DCore::QNodeIdTypePair idAndType)
         m_layerComponents.append(id);
     } else if (type->inherits(&QLevelOfDetail::staticMetaObject)) {
         m_levelOfDetailComponents.append(id);
+    } else if (type->inherits(&QRayCaster::staticMetaObject)) {
+        m_rayCasterComponents.append(id);
+    } else if (type->inherits(&QScreenRayCaster::staticMetaObject)) {
+        m_rayCasterComponents.append(id);
     } else if (type->inherits(&QMaterial::staticMetaObject)) {
         m_materialComponent = id;
     } else if (type->inherits(&QAbstractLight::staticMetaObject)) { // QAbstractLight subclasses QShaderData
@@ -344,6 +348,8 @@ void Entity::removeComponent(Qt3DCore::QNodeId nodeId)
         m_layerComponents.removeAll(nodeId);
     } else if (m_levelOfDetailComponents.contains(nodeId)) {
         m_levelOfDetailComponents.removeAll(nodeId);
+    } else if (m_rayCasterComponents.contains(nodeId)) {
+        m_rayCasterComponents.removeAll(nodeId);
     } else if (m_materialComponent == nodeId) {
         m_materialComponent = QNodeId();
     } else if (m_shaderDataComponents.contains(nodeId)) {
@@ -396,6 +402,7 @@ ENTITY_COMPONENT_TEMPLATE_IMPL(ComputeCommand, HComputeCommand, ComputeCommandMa
 ENTITY_COMPONENT_TEMPLATE_IMPL(Armature, HArmature, ArmatureManager, m_armatureComponent)
 ENTITY_COMPONENT_LIST_TEMPLATE_IMPL(Layer, HLayer, LayerManager, m_layerComponents)
 ENTITY_COMPONENT_LIST_TEMPLATE_IMPL(LevelOfDetail, HLevelOfDetail, LevelOfDetailManager, m_levelOfDetailComponents)
+ENTITY_COMPONENT_LIST_TEMPLATE_IMPL(RayCaster, HRayCaster, RayCasterManager, m_rayCasterComponents)
 ENTITY_COMPONENT_LIST_TEMPLATE_IMPL(ShaderData, HShaderData, ShaderDataManager, m_shaderDataComponents)
 ENTITY_COMPONENT_LIST_TEMPLATE_IMPL(Light, HLight, LightManager, m_lightComponents)
 ENTITY_COMPONENT_LIST_TEMPLATE_IMPL(EnvironmentLight, HEnvironmentLight, EnvironmentLightManager, m_environmentLightComponents)

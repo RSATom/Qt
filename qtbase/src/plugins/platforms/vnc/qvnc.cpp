@@ -476,7 +476,8 @@ void QRfbRawEncoder::write()
 //        rgn &= QRect(0, 0, server->screen()->geometry().width(),
 //                     server->screen()->geometry().height());
 //    }
-    const QVector<QRect> rects = rgn.rects();
+
+    const auto rectsInRegion = rgn.rectCount();
 
     {
         const char tmp[2] = { 0, 0 }; // msg type, padding
@@ -484,16 +485,16 @@ void QRfbRawEncoder::write()
     }
 
     {
-        const quint16 count = htons(rects.size());
+        const quint16 count = htons(rectsInRegion);
         socket->write((char *)&count, sizeof(count));
     }
 
-    if (rects.size() <= 0)
+    if (rectsInRegion <= 0)
         return;
 
     const QImage screenImage = client->server()->screenImage();
 
-    for (const QRect &tileRect: rects) {
+    for (const QRect &tileRect: rgn) {
         const QRfbRect rect(tileRect.x(), tileRect.y(),
                             tileRect.width(), tileRect.height());
         rect.write(socket);
@@ -551,9 +552,9 @@ void QVncClientCursor::write(QVncClient *client) const
     {
         const quint16 tmp[6] = { htons(0),
                                  htons(1),
-                                 htons(hotspot.x()), htons(hotspot.y()),
-                                 htons(cursor.width()),
-                                 htons(cursor.height()) };
+                                 htons(uint16_t(hotspot.x())), htons(uint16_t(hotspot.y())),
+                                 htons(uint16_t(cursor.width())),
+                                 htons(uint16_t(cursor.height())) };
         socket->write((char*)tmp, sizeof(tmp));
 
         const qint32 encoding = qToBigEndian(-239);

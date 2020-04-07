@@ -7,24 +7,26 @@
 #include "base/files/scoped_temp_dir.h"
 #include "base/location.h"
 #include "base/macros.h"
+#include "base/memory/ptr_util.h"
 #include "base/path_service.h"
 #include "base/threading/thread_task_runner_handle.h"
-#include "chrome/browser/apps/app_browsertest_util.h"
+#include "chrome/browser/apps/platform_apps/app_browsertest_util.h"
 #include "chrome/browser/chromeos/drive/drive_integration_service.h"
 #include "chrome/browser/chromeos/drive/file_system_util.h"
 #include "chrome/browser/chromeos/file_manager/volume_manager.h"
 #include "chrome/browser/chromeos/login/users/fake_chrome_user_manager.h"
-#include "chrome/browser/chromeos/login/users/scoped_user_manager_enabler.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/extensions/api/file_system/consent_provider.h"
 #include "chrome/browser/extensions/component_loader.h"
 #include "chrome/common/chrome_paths.h"
 #include "components/drive/chromeos/file_system_interface.h"
 #include "components/drive/service/fake_drive_service.h"
+#include "components/user_manager/scoped_user_manager.h"
 #include "content/public/test/test_utils.h"
 #include "extensions/browser/api/file_system/file_system_api.h"
 #include "extensions/browser/event_router.h"
 #include "extensions/common/api/file_system.h"
+#include "extensions/common/switches.h"
 #include "google_apis/drive/base_requests.h"
 #include "google_apis/drive/drive_api_parser.h"
 #include "google_apis/drive/test_util.h"
@@ -34,6 +36,7 @@
 // TODO(michaelpg): Port these tests to app_shell: crbug.com/505926.
 
 using file_manager::VolumeManager;
+using file_manager::VolumeType;
 
 namespace extensions {
 namespace {
@@ -41,6 +44,7 @@ namespace {
 // Mount point names for chrome.fileSystem.requestFileSystem() tests.
 const char kWritableMountPointName[] = "writable";
 const char kReadOnlyMountPointName[] = "read-only";
+const char kDownloadsMountPointName[] = "downloads";
 
 // Child directory created in each of the mount points.
 const char kChildDirectory[] = "child-dir";
@@ -77,9 +81,9 @@ class ScopedAddListenerObserver : public EventRouter::Observer {
   ScopedAddListenerObserver(Profile* profile,
                             const std::string& event_name,
                             const std::string& extension_id,
-                            const base::Closure& callback)
+                            base::OnceClosure callback)
       : extension_id_(extension_id),
-        callback_(callback),
+        callback_(std::move(callback)),
         event_router_(EventRouter::EventRouter::Get(profile)) {
     DCHECK(profile);
     event_router_->RegisterObserver(this, event_name);
@@ -95,13 +99,13 @@ class ScopedAddListenerObserver : public EventRouter::Observer {
     if (details.extension_id != extension_id_ || !callback_)
       return;
 
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::ResetAndReturn(&callback_));
+    base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE,
+                                                  std::move(callback_));
   }
 
  private:
   const std::string extension_id_;
-  base::Closure callback_;
+  base::OnceClosure callback_;
   EventRouter* const event_router_;
 
   DISALLOW_COPY_AND_ASSIGN(ScopedAddListenerObserver);
@@ -139,7 +143,7 @@ class FileSystemApiTestForDrive : public PlatformAppBrowserTest {
     integration_service_->file_system()->GetResourceEntry(
         base::FilePath::FromUTF8Unsafe("drive/root"),  // whatever
         google_apis::test_util::CreateCopyResultCallback(&error, &entry));
-    content::RunAllBlockingPoolTasksUntilIdle();
+    content::RunAllTasksUntilIdle();
     ASSERT_EQ(drive::FILE_ERROR_OK, error);
   }
 
@@ -152,8 +156,11 @@ class FileSystemApiTestForDrive : public PlatformAppBrowserTest {
   drive::DriveIntegrationService* CreateDriveIntegrationService(
       Profile* profile) {
     // Ignore signin profile.
-    if (profile->GetPath() == chromeos::ProfileHelper::GetSigninProfileDir())
+    if (profile->GetPath() == chromeos::ProfileHelper::GetSigninProfileDir() ||
+        profile->GetPath() ==
+            chromeos::ProfileHelper::GetLockScreenAppProfilePath()) {
       return nullptr;
+    }
 
     // FileSystemApiTestForDrive doesn't expect that several user profiles could
     // exist simultaneously.
@@ -210,10 +217,23 @@ class FileSystemApiTestForRequestFileSystem : public PlatformAppBrowserTest {
  public:
   FileSystemApiTestForRequestFileSystem() : fake_user_manager_(nullptr) {}
 
+  void SetUpCommandLine(base::CommandLine* command_line) override {
+    PlatformAppBrowserTest::SetUpCommandLine(command_line);
+    command_line->AppendSwitchASCII(
+        extensions::switches::kWhitelistedExtensionID, kTestingExtensionId);
+  }
+
   void SetUpOnMainThread() override {
     ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
-    CreateTestingFileSystem(kWritableMountPointName, false /* read_only */);
-    CreateTestingFileSystem(kReadOnlyMountPointName, true /* read_only */);
+    CreateTestingFileSystem(kWritableMountPointName,
+                            file_manager::VOLUME_TYPE_TESTING,
+                            false /* read_only */);
+    CreateTestingFileSystem(kReadOnlyMountPointName,
+                            file_manager::VOLUME_TYPE_TESTING,
+                            true /* read_only */);
+    CreateTestingFileSystem(kDownloadsMountPointName,
+                            file_manager::VOLUME_TYPE_DOWNLOADS_DIRECTORY,
+                            false /* read_only */);
     PlatformAppBrowserTest::SetUpOnMainThread();
   }
 
@@ -236,10 +256,11 @@ class FileSystemApiTestForRequestFileSystem : public PlatformAppBrowserTest {
  protected:
   base::ScopedTempDir temp_dir_;
   chromeos::FakeChromeUserManager* fake_user_manager_;
-  std::unique_ptr<chromeos::ScopedUserManagerEnabler> user_manager_enabler_;
+  std::unique_ptr<user_manager::ScopedUserManager> user_manager_enabler_;
 
   // Creates a testing file system in a testing directory.
   void CreateTestingFileSystem(const std::string& mount_point_name,
+                               VolumeType volume_type,
                                bool read_only) {
     const base::FilePath mount_point_path =
         temp_dir_.GetPath().Append(mount_point_name);
@@ -253,16 +274,16 @@ class FileSystemApiTestForRequestFileSystem : public PlatformAppBrowserTest {
     VolumeManager* const volume_manager =
         VolumeManager::Get(browser()->profile());
     ASSERT_TRUE(volume_manager);
-    volume_manager->AddVolumeForTesting(
-        mount_point_path, file_manager::VOLUME_TYPE_TESTING,
-        chromeos::DEVICE_TYPE_UNKNOWN, read_only);
+    volume_manager->AddVolumeForTesting(mount_point_path, volume_type,
+                                        chromeos::DEVICE_TYPE_UNKNOWN,
+                                        read_only);
   }
 
   // Simulates entering the kiosk session.
   void EnterKioskSession() {
     fake_user_manager_ = new chromeos::FakeChromeUserManager();
-    user_manager_enabler_.reset(
-        new chromeos::ScopedUserManagerEnabler(fake_user_manager_));
+    user_manager_enabler_ = std::make_unique<user_manager::ScopedUserManager>(
+        base::WrapUnique(fake_user_manager_));
 
     const AccountId kiosk_app_account_id =
         AccountId::FromUserEmail("kiosk@foobar.com");
@@ -295,7 +316,7 @@ IN_PROC_BROWSER_TEST_F(FileSystemApiTestForDrive,
                        FileSystemApiOpenMultipleSuggested) {
   base::FilePath test_file = drive::util::GetDriveMountPointPath(
       browser()->profile()).AppendASCII("root/open_existing.txt");
-  ASSERT_TRUE(PathService::OverrideAndCreateIfNeeded(
+  ASSERT_TRUE(base::PathService::OverrideAndCreateIfNeeded(
       chrome::DIR_USER_DOCUMENTS, test_file.DirName(), true, false));
   FileSystemChooseEntryFunction::SkipPickerAndSelectSuggestedPathForTest();
   ASSERT_TRUE(RunPlatformAppTest(
@@ -490,10 +511,19 @@ IN_PROC_BROWSER_TEST_F(FileSystemApiTestForRequestFileSystem,
   ScopedAddListenerObserver observer(
       profile(), extensions::api::file_system::OnVolumeListChanged::kEventName,
       kTestingExtensionId,
-      base::Bind(&FileSystemApiTestForRequestFileSystem::MountFakeVolume,
-                 base::Unretained(this)));
+      base::BindOnce(&FileSystemApiTestForRequestFileSystem::MountFakeVolume,
+                     base::Unretained(this)));
 
   ASSERT_TRUE(RunPlatformAppTest("api_test/file_system/on_volume_list_changed"))
+      << message_;
+}
+
+IN_PROC_BROWSER_TEST_F(FileSystemApiTestForRequestFileSystem,
+                       WhitelistedExtensionForDownloads) {
+  ScopedSkipRequestFileSystemDialog dialog_skipper(ui::DIALOG_BUTTON_CANCEL);
+  ASSERT_TRUE(RunPlatformAppTestWithFlags(
+      "api_test/file_system/request_downloads_whitelisted_extension",
+      kFlagLaunchPlatformApp))
       << message_;
 }
 

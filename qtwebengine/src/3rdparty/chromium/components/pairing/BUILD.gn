@@ -33,8 +33,10 @@ source_set("pairing") {
     "//base",
     "//chromeos",
     "//device/bluetooth",
-    "//device/hid",
     "//net",
+    "//services/device/public/mojom",
+    "//services/device/public/mojom:constants",
+    "//services/service_manager/public/cpp",
   ]
 }
 

@@ -37,9 +37,11 @@
 
 # It also runs update for SDK API, latest SDK tools, latest platform-tools and build-tools version
 
-source "${BASH_SOURCE%/*}/../unix/try_catch.sh"
+# shellcheck source=../unix/DownloadURL.sh
 source "${BASH_SOURCE%/*}/../unix/DownloadURL.sh"
+# shellcheck source=../unix/check_and_set_proxy.sh
 source "${BASH_SOURCE%/*}/../unix/check_and_set_proxy.sh"
+# shellcheck source=../unix/SetEnvVar.sh
 source "${BASH_SOURCE%/*}/../unix/SetEnvVar.sh"
 
 targetFolder="/opt/android"
@@ -47,90 +49,68 @@ sdkTargetFolder="$targetFolder/sdk"
 
 basePath="http://ci-files01-hki.intra.qt.io/input/android"
 
-toolsVersion="r25.2.5"
-toolsFile="tools_$toolsVersion-linux.zip"
-ndkVersion="r10e"
+toolsVersion="r26.1.1"
+toolsFile="sdk-tools-linux-4333796.zip"
+ndkVersion="r18b"
 ndkFile="android-ndk-$ndkVersion-linux-x86_64.zip"
-sdkBuildToolsVersion="25.0.2"
-sdkApiLevel="android-21"
+sdkBuildToolsVersion="28.0.3"
+sdkApiLevel="android-28"
 
-toolsSha1="72df3aa1988c0a9003ccdfd7a13a7b8bd0f47fc1"
-ndkSha1="f692681b007071103277f6edc6f91cb5c5494a32"
+toolsSha1="8c7c28554a32318461802c1291d76fccfafde054"
+ndkSha1="500679655da3a86aecf67007e8ab230ea9b4dd7b"
 
 toolsTargetFile="/tmp/$toolsFile"
 toolsSourceFile="$basePath/$toolsFile"
 ndkTargetFile="/tmp/$ndkFile"
 ndkSourceFile="$basePath/$ndkFile"
 
-ExceptionDownload=99
-ExceptionUnzipTools=100
-ExceptionUnzipNdk=101
-ExceptionRmTools=102
-ExceptionRmNdk=103
-ExceptionSdkManager=104
+DownloadURL "$toolsSourceFile" "$toolsSourceFile" "$toolsSha1" "$toolsTargetFile"
+DownloadURL "$ndkSourceFile" "$ndkSourceFile" "$ndkSha1" "$ndkTargetFile"
+echo "Unzipping Android NDK to '$targetFolder'"
+sudo unzip -q "$ndkTargetFile" -d "$targetFolder"
+echo "Unzipping Android Tools to '$sdkTargetFolder'"
+sudo unzip -q "$toolsTargetFile" -d "$sdkTargetFolder"
+rm "$ndkTargetFile"
+rm "$toolsTargetFile"
 
-try
-(
-    (DownloadURL "$toolsSourceFile" "$toolsSourceFile" "$toolsSha1" "$toolsTargetFile") || throw $ExceptionDownload
-    (DownloadURL "$ndkSourceFile" "$ndkSourceFile" "$ndkSha1" "$ndkTargetFile") || throw $ExceptionDownload
-    echo "Unzipping Android NDK to '$targetFolder'"
-    sudo unzip -q "$ndkTargetFile" -d "$targetFolder" || throw $ExceptionUnzipNdk
-    echo "Unzipping Android Tools to '$sdkTargetFolder'"
-    sudo unzip -q "$toolsTargetFile" -d "$sdkTargetFolder" || throw $ExceptionUnzipTools
-    rm "$ndkTargetFile" || throw $ExceptionRmNdk
-    rm "$toolsTargetFile" || throw $ExceptionRmTools
+echo "Changing ownership of Android files."
+if uname -a |grep -q "el7"; then
+    sudo chown -R qt:wheel "$targetFolder"
+else
+    sudo chown -R qt:users "$targetFolder"
+fi
 
-    echo "Changing ownership of Android files."
-    if uname -a |grep -q "el6\|el7"; then
-        sudo chown -R qt:wheel "$targetFolder"
-    else
-        sudo chown -R qt:users "$targetFolder"
-    fi
+echo "Running SDK manager for platforms;$sdkApiLevel, platform-tools and build-tools;$sdkBuildToolsVersion."
+# shellcheck disable=SC2031
+if [ "$http_proxy" != "" ]; then
+    proxy_host=$(echo "$proxy" | cut -d'/' -f3 | cut -d':' -f1)
+    proxy_port=$(echo "$proxy" | cut -d':' -f3)
+    echo "y" |"$sdkTargetFolder/tools/bin/sdkmanager" --no_https --proxy=http --proxy_host="$proxy_host" --proxy_port="$proxy_port" "platforms;$sdkApiLevel" "platform-tools" "build-tools;$sdkBuildToolsVersion"
+else
+    echo "y" |"$sdkTargetFolder/tools/bin/sdkmanager" "platforms;$sdkApiLevel" "platform-tools" "build-tools;$sdkBuildToolsVersion"
+fi
 
-    echo "Running SDK manager for platforms;$sdkApiLevel, tools, platform-tools and build-tools;$sdkBuildToolsVersion."
-    if [ "$proxy" != "" ]; then
-        proxy_host=$(echo $proxy | cut -d'/' -f3 | cut -d':' -f1)
-        proxy_port=$(echo $proxy | cut -d':' -f3)
-        echo "y" |"$sdkTargetFolder/tools/bin/sdkmanager" --no_https --proxy=http --proxy_host=$proxy_host --proxy_port=$proxy_port "platforms;$sdkApiLevel" "tools" "platform-tools" "build-tools;$sdkBuildToolsVersion" || throw $ExceptionSdkManager
-    else
-        echo "y" |"$sdkTargetFolder/tools/bin/sdkmanager" "platforms;$sdkApiLevel" "tools" "platform-tools" "build-tools;$sdkBuildToolsVersion" || throw $ExceptionSdkManager
-    fi
+echo "Checking the contents of Android SDK..."
+ls -l "$sdkTargetFolder"
 
-    SetEnvVar "ANDROID_SDK_HOME" "$sdkTargetFolder"
-    SetEnvVar "ANDROID_NDK_HOME" "$targetFolder/android-ndk-$ndkVersion"
-    SetEnvVar "ANDROID_NDK_HOST" "linux-x86_64"
-    SetEnvVar "ANDROID_API_VERSION" "$sdkApiLevel"
+SetEnvVar "ANDROID_SDK_HOME" "$sdkTargetFolder"
+SetEnvVar "ANDROID_NDK_HOME" "$targetFolder/android-ndk-$ndkVersion"
+SetEnvVar "ANDROID_NDK_HOST" "linux-x86_64"
+SetEnvVar "ANDROID_API_VERSION" "$sdkApiLevel"
 
-    echo "Android SDK tools = $toolsVersion" >> ~/versions.txt
-    echo "Android SDK Build Tools = $sdkBuildToolsVersion" >> ~/versions.txt
-    echo "Android SDK API level = $sdkApiLevel" >> ~/versions.txt
-    echo "Android NDK = $ndkVersion" >> ~/versions.txt
-)
-catch || {
-        case $ex_code in
-            $ExceptionDownload)
-                exit 1;
-            ;;
-            $ExceptionUnzipTools)
-                echo "Failed to unzip Android SDK Tools."
-                exit 1;
-            ;;
-            $ExceptionUnzipNdk)
-                echo "Failed to unzip Android NDK."
-                exit 1;
-            ;;
-            $ExceptionRmTools)
-                echo "Failed to remove temporary tools package '$toolsTargetFile'."
-                exit 1;
-            ;;
-            $ExceptionRmNdk)
-                echo "Failed to remove temporary NDK package '$ndkTargetFile'."
-                exit 1;
-            ;;
-            $ExceptionSdkManager)
-                echo "Failed to run sdkmanager."
-                exit 1;
-            ;;
-        esac
-}
+# shellcheck disable=SC2129
+echo "Android SDK tools = $toolsVersion" >> ~/versions.txt
+echo "Android SDK Build Tools = $sdkBuildToolsVersion" >> ~/versions.txt
+echo "Android SDK API level = $sdkApiLevel" >> ~/versions.txt
+echo "Android NDK = $ndkVersion" >> ~/versions.txt
 
+cd "$sdkTargetFolder/tools/bin"
+./sdkmanager --install "emulator"
+echo "y" | ./sdkmanager --install "system-images;android-21;google_apis;x86"
+
+echo "Checking the contents of Android SDK again..."
+ls -l "$sdkTargetFolder"
+
+echo "no" | ./avdmanager create avd -n x86emulator -k "system-images;android-21;google_apis;x86" -c 2048M -f
+# Purely informative, show the list of avd devices
+./avdmanager list avd

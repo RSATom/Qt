@@ -59,7 +59,7 @@ public:
     bool loadScript(const QString &file);
 
 protected:
-    void closeEvent(QCloseEvent *) Q_DECL_OVERRIDE;
+    void closeEvent(QCloseEvent *) override;
 
 public slots:
     void appendLogText(const QString &);

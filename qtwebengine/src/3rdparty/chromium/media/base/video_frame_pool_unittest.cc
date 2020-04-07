@@ -12,7 +12,7 @@
 
 namespace media {
 
-class VideoFramePoolTest : public ::testing::Test {
+class VideoFramePoolTest : public ::testing::TestWithParam<VideoPixelFormat> {
  public:
   VideoFramePoolTest() : pool_(new VideoFramePool()) {
     // Seed test clock with some dummy non-zero value to avoid confusion with
@@ -50,29 +50,35 @@ class VideoFramePoolTest : public ::testing::Test {
   std::unique_ptr<VideoFramePool> pool_;
 };
 
-TEST_F(VideoFramePoolTest, FrameInitializedAndZeroed) {
-  scoped_refptr<VideoFrame> frame = CreateFrame(PIXEL_FORMAT_YV12, 10);
+TEST_P(VideoFramePoolTest, FrameInitializedAndZeroed) {
+  scoped_refptr<VideoFrame> frame = CreateFrame(GetParam(), 10);
 
   // Verify that frame is initialized with zeros.
   for (size_t i = 0; i < VideoFrame::NumPlanes(frame->format()); ++i)
     EXPECT_EQ(0, frame->data(i)[0]);
 }
 
+INSTANTIATE_TEST_CASE_P(,
+                        VideoFramePoolTest,
+                        testing::Values(PIXEL_FORMAT_I420,
+                                        PIXEL_FORMAT_NV12,
+                                        PIXEL_FORMAT_ARGB));
+
 TEST_F(VideoFramePoolTest, SimpleFrameReuse) {
-  scoped_refptr<VideoFrame> frame = CreateFrame(PIXEL_FORMAT_YV12, 10);
+  scoped_refptr<VideoFrame> frame = CreateFrame(PIXEL_FORMAT_I420, 10);
   const uint8_t* old_y_data = frame->data(VideoFrame::kYPlane);
 
   // Clear frame reference to return the frame to the pool.
   frame = NULL;
 
   // Verify that the next frame from the pool uses the same memory.
-  scoped_refptr<VideoFrame> new_frame = CreateFrame(PIXEL_FORMAT_YV12, 20);
+  scoped_refptr<VideoFrame> new_frame = CreateFrame(PIXEL_FORMAT_I420, 20);
   EXPECT_EQ(old_y_data, new_frame->data(VideoFrame::kYPlane));
 }
 
 TEST_F(VideoFramePoolTest, SimpleFormatChange) {
-  scoped_refptr<VideoFrame> frame_a = CreateFrame(PIXEL_FORMAT_YV12, 10);
-  scoped_refptr<VideoFrame> frame_b = CreateFrame(PIXEL_FORMAT_YV12, 10);
+  scoped_refptr<VideoFrame> frame_a = CreateFrame(PIXEL_FORMAT_I420, 10);
+  scoped_refptr<VideoFrame> frame_b = CreateFrame(PIXEL_FORMAT_I420, 10);
 
   // Clear frame references to return the frames to the pool.
   frame_a = NULL;
@@ -83,12 +89,12 @@ TEST_F(VideoFramePoolTest, SimpleFormatChange) {
 
   // Verify that requesting a frame with a different format causes the pool
   // to get drained.
-  scoped_refptr<VideoFrame> new_frame = CreateFrame(PIXEL_FORMAT_YV12A, 10);
+  scoped_refptr<VideoFrame> new_frame = CreateFrame(PIXEL_FORMAT_I420A, 10);
   CheckPoolSize(0u);
 }
 
 TEST_F(VideoFramePoolTest, FrameValidAfterPoolDestruction) {
-  scoped_refptr<VideoFrame> frame = CreateFrame(PIXEL_FORMAT_YV12, 10);
+  scoped_refptr<VideoFrame> frame = CreateFrame(PIXEL_FORMAT_I420, 10);
 
   // Destroy the pool.
   pool_.reset();
@@ -100,8 +106,8 @@ TEST_F(VideoFramePoolTest, FrameValidAfterPoolDestruction) {
 }
 
 TEST_F(VideoFramePoolTest, StaleFramesAreExpired) {
-  scoped_refptr<VideoFrame> frame_1 = CreateFrame(PIXEL_FORMAT_YV12, 10);
-  scoped_refptr<VideoFrame> frame_2 = CreateFrame(PIXEL_FORMAT_YV12, 10);
+  scoped_refptr<VideoFrame> frame_1 = CreateFrame(PIXEL_FORMAT_I420, 10);
+  scoped_refptr<VideoFrame> frame_2 = CreateFrame(PIXEL_FORMAT_I420, 10);
   EXPECT_NE(frame_1.get(), frame_2.get());
   CheckPoolSize(0u);
 

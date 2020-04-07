@@ -1,8 +1,6 @@
-SYNCQT.HEADER_FILES = qtx11extrasglobal.h qx11info_x11.h ../../include/QtX11Extras/qtx11extrasversion.h ../../include/QtX11Extras/QtX11Extras 
-SYNCQT.INJECTED_HEADER_FILES = 
-SYNCQT.HEADER_CLASSES = ../../include/QtX11Extras/QX11Info ../../include/QtX11Extras/QtX11ExtrasVersion 
+SYNCQT.HEADER_FILES = qtx11extrasglobal.h qx11info_x11.h 
+SYNCQT.GENERATED_HEADER_FILES = QX11Info qtx11extrasversion.h QtX11ExtrasVersion QtX11Extras 
 SYNCQT.PRIVATE_HEADER_FILES = 
-SYNCQT.INJECTED_PRIVATE_HEADER_FILES = 
 SYNCQT.QPA_HEADER_FILES = 
 SYNCQT.CLEAN_HEADER_FILES = qtx11extrasglobal.h qx11info_x11.h 
 SYNCQT.INJECTIONS = 

@@ -4,6 +4,7 @@
 
 #include "ui/aura/window_targeter.h"
 
+#include "services/ui/public/interfaces/window_tree_constants.mojom.h"
 #include "ui/aura/client/capture_client.h"
 #include "ui/aura/client/event_client.h"
 #include "ui/aura/client/focus_client.h"
@@ -26,8 +27,45 @@ bool WindowTargeter::SubtreeShouldBeExploredForEvent(
          EventLocationInsideBounds(window, event);
 }
 
-Window* WindowTargeter::FindTargetInRootWindow(Window* root_window,
-                                               const ui::LocatedEvent& event) {
+bool WindowTargeter::GetHitTestRects(Window* window,
+                                     gfx::Rect* hit_test_rect_mouse,
+                                     gfx::Rect* hit_test_rect_touch) const {
+  DCHECK(hit_test_rect_mouse);
+  DCHECK(hit_test_rect_touch);
+  *hit_test_rect_mouse = *hit_test_rect_touch = window->bounds();
+
+  if (ShouldUseExtendedBounds(window)) {
+    hit_test_rect_mouse->Inset(mouse_extend_);
+    hit_test_rect_touch->Inset(touch_extend_);
+  }
+
+  return true;
+}
+
+std::unique_ptr<WindowTargeter::HitTestRects>
+WindowTargeter::GetExtraHitTestShapeRects(Window* target) const {
+  return nullptr;
+}
+
+void WindowTargeter::SetInsets(const gfx::Insets& mouse_and_touch_extend) {
+  SetInsets(mouse_and_touch_extend, mouse_and_touch_extend);
+}
+
+void WindowTargeter::SetInsets(const gfx::Insets& mouse_extend,
+                               const gfx::Insets& touch_extend) {
+  if (mouse_extend_ == mouse_extend && touch_extend_ == touch_extend)
+    return;
+
+  const gfx::Insets last_mouse_extend_ = mouse_extend_;
+  const gfx::Insets last_touch_extend_ = touch_extend_;
+  mouse_extend_ = mouse_extend;
+  touch_extend_ = touch_extend;
+  OnSetInsets(last_mouse_extend_, last_touch_extend_);
+}
+
+Window* WindowTargeter::GetPriorityTargetInRootWindow(
+    Window* root_window,
+    const ui::LocatedEvent& event) {
   DCHECK_EQ(root_window, root_window->GetRootWindow());
 
   // Mouse events should be dispatched to the window that processed the
@@ -43,6 +81,14 @@ Window* WindowTargeter::FindTargetInRootWindow(Window* root_window,
   if (capture_window)
     return capture_window;
 
+  if (event.IsPinchEvent()) {
+    DCHECK_EQ(event.AsGestureEvent()->details().device_type(),
+              ui::GestureDeviceType::DEVICE_TOUCHPAD);
+    WindowEventDispatcher* dispatcher = root_window->GetHost()->dispatcher();
+    if (dispatcher->touchpad_pinch_handler())
+      return dispatcher->touchpad_pinch_handler();
+  }
+
   if (event.IsTouchEvent()) {
     // Query the gesture-recognizer to find targets for touch events.
     const ui::TouchEvent& touch = *event.AsTouchEvent();
@@ -50,17 +96,65 @@ Window* WindowTargeter::FindTargetInRootWindow(Window* root_window,
         ui::GestureRecognizer::Get()->GetTouchLockedTarget(touch);
     if (consumer)
       return static_cast<Window*>(consumer);
-    consumer = ui::GestureRecognizer::Get()->GetTargetForLocation(
-        event.location_f(), touch.source_device_id());
+  }
+
+  return nullptr;
+}
+
+Window* WindowTargeter::FindTargetInRootWindow(Window* root_window,
+                                               const ui::LocatedEvent& event) {
+  DCHECK_EQ(root_window, root_window->GetRootWindow());
+
+  Window* priority_target = GetPriorityTargetInRootWindow(root_window, event);
+  if (priority_target)
+    return priority_target;
+
+  if (event.IsTouchEvent()) {
+    // Query the gesture-recognizer to find targets for touch events.
+    const ui::TouchEvent& touch = *event.AsTouchEvent();
+    // GetTouchLockedTarget() is handled in GetPriorityTargetInRootWindow().
+    DCHECK(!ui::GestureRecognizer::Get()->GetTouchLockedTarget(touch));
+    ui::GestureConsumer* consumer =
+        ui::GestureRecognizer::Get()->GetTargetForLocation(
+            event.location_f(), touch.source_device_id());
     if (consumer)
       return static_cast<Window*>(consumer);
 
     // If the initial touch is outside the root window, target the root.
-    if (!root_window->bounds().Contains(event.location()))
+    if (!root_window->bounds().Contains(event.root_location()))
       return root_window;
   }
 
   return nullptr;
+}
+
+bool WindowTargeter::ProcessEventIfTargetsDifferentRootWindow(
+    Window* root_window,
+    Window* target,
+    ui::Event* event) {
+  if (root_window->Contains(target))
+    return false;
+
+  // |window| is the root window, but |target| is not a descendent of
+  // |window|. So do not allow dispatching from here. Instead, dispatch the
+  // event through the WindowEventDispatcher that owns |target|.
+  Window* new_root = target->GetRootWindow();
+  DCHECK(new_root);
+  if (event->IsLocatedEvent()) {
+    // The event has been transformed to be in |target|'s coordinate system.
+    // But dispatching the event through the EventProcessor requires the event
+    // to be in the host's coordinate system. So, convert the event to be in
+    // the root's coordinate space, and then to the host's coordinate space by
+    // applying the host's transform.
+    ui::LocatedEvent* located_event = event->AsLocatedEvent();
+    located_event->ConvertLocationToTarget(target, new_root);
+    WindowTreeHost* window_tree_host = new_root->GetHost();
+    located_event->UpdateForRootTransform(
+        window_tree_host->GetRootTransform(),
+        window_tree_host->GetRootTransformForLocalEventCoordinates());
+  }
+  ignore_result(new_root->GetHost()->event_sink()->OnEventFromSource(event));
+  return true;
 }
 
 ui::EventTarget* WindowTargeter::FindTargetForEvent(ui::EventTarget* root,
@@ -69,26 +163,9 @@ ui::EventTarget* WindowTargeter::FindTargetForEvent(ui::EventTarget* root,
   Window* target = event->IsKeyEvent()
                        ? FindTargetForKeyEvent(window, *event->AsKeyEvent())
                        : FindTargetForNonKeyEvent(window, event);
-  if (target && !window->parent() && !window->Contains(target)) {
-    // |window| is the root window, but |target| is not a descendent of
-    // |window|. So do not allow dispatching from here. Instead, dispatch the
-    // event through the WindowEventDispatcher that owns |target|.
-    Window* new_root = target->GetRootWindow();
-    DCHECK(new_root);
-    if (event->IsLocatedEvent()) {
-      // The event has been transformed to be in |target|'s coordinate system.
-      // But dispatching the event through the EventProcessor requires the event
-      // to be in the host's coordinate system. So, convert the event to be in
-      // the root's coordinate space, and then to the host's coordinate space by
-      // applying the host's transform.
-      ui::LocatedEvent* located_event = static_cast<ui::LocatedEvent*>(event);
-      located_event->ConvertLocationToTarget(target, new_root);
-      located_event->UpdateForRootTransform(
-          new_root->GetHost()->GetRootTransform());
-    }
-    ignore_result(new_root->GetHost()->event_sink()->OnEventFromSource(event));
-
-    target = nullptr;
+  if (target && !window->parent() &&
+      ProcessEventIfTargetsDifferentRootWindow(window, target, event)) {
+    return nullptr;
   }
   return target;
 }
@@ -105,6 +182,25 @@ Window* WindowTargeter::FindTargetForLocatedEvent(Window* window,
     Window* target = FindTargetInRootWindow(window, *event);
     if (target) {
       window->ConvertEventToTarget(target, event);
+
+#if defined(OS_CHROMEOS)
+      if (window->IsRootWindow() && event->HasNativeEvent()) {
+        // If window is root, and the target is in a different host, we need to
+        // convert the native event to the target's host as well. This happens
+        // while a widget is being dragged and when the majority of its bounds
+        // reside in a different display. Setting the widget's bounds at this
+        // point changes the window's root, and the event's target's root, but
+        // the events are still being generated relative to the original
+        // display. crbug.com/714578.
+        ui::LocatedEvent* e =
+            static_cast<ui::LocatedEvent*>(event->native_event());
+        gfx::PointF native_point = e->location_f();
+        aura::Window::ConvertNativePointToTargetHost(window, target,
+                                                     &native_point);
+        e->set_location_f(native_point);
+      }
+#endif
+
       return target;
     }
   }
@@ -116,8 +212,12 @@ bool WindowTargeter::SubtreeCanAcceptEvent(
     const ui::LocatedEvent& event) const {
   if (!window->IsVisible())
     return false;
-  if (window->ignore_events())
+  if (window->event_targeting_policy() ==
+          ui::mojom::EventTargetingPolicy::NONE ||
+      window->event_targeting_policy() ==
+          ui::mojom::EventTargetingPolicy::TARGET_ONLY) {
     return false;
+  }
   client::EventClient* client = client::GetEventClient(window->GetRootWindow());
   if (client && !client->CanProcessEventsWithinSubtree(window))
     return false;
@@ -134,11 +234,43 @@ bool WindowTargeter::SubtreeCanAcceptEvent(
 bool WindowTargeter::EventLocationInsideBounds(
     Window* window,
     const ui::LocatedEvent& event) const {
+  gfx::Rect mouse_rect;
+  gfx::Rect touch_rect;
+  if (!GetHitTestRects(window, &mouse_rect, &touch_rect))
+    return false;
+
+  const gfx::Vector2d offset = -window->bounds().OffsetFromOrigin();
+  mouse_rect.Offset(offset);
+  touch_rect.Offset(offset);
   gfx::Point point = event.location();
   if (window->parent())
     Window::ConvertPointToTarget(window->parent(), window, &point);
-  return gfx::Rect(window->bounds().size()).Contains(point);
+
+  const bool point_in_rect = event.IsTouchEvent() || event.IsGestureEvent()
+                                 ? touch_rect.Contains(point)
+                                 : mouse_rect.Contains(point);
+  if (!point_in_rect)
+    return false;
+
+  auto shape_rects = GetExtraHitTestShapeRects(window);
+  if (!shape_rects)
+    return true;
+
+  for (const gfx::Rect& shape_rect : *shape_rects) {
+    if (shape_rect.Contains(point)) {
+      return true;
+    }
+  }
+
+  return false;
 }
+
+bool WindowTargeter::ShouldUseExtendedBounds(const aura::Window* window) const {
+  return true;
+}
+
+void WindowTargeter::OnSetInsets(const gfx::Insets& last_mouse_extend,
+                                 const gfx::Insets& last_touch_extend) {}
 
 Window* WindowTargeter::FindTargetForKeyEvent(Window* window,
                                               const ui::KeyEvent& key) {

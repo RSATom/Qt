@@ -68,8 +68,8 @@ public:
 
     gruesensorimpl(QSensor *sensor);
 
-    void start();
-    void stop();
+    void start() override;
+    void stop() override;
 
 private Q_SLOTS:
     void lightChanged();

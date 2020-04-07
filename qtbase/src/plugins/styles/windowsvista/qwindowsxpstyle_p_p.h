@@ -64,6 +64,8 @@
 
 QT_BEGIN_NAMESPACE
 
+class QDebug;
+
 // TMT_TEXTSHADOWCOLOR is wrongly defined in mingw
 #if TMT_TEXTSHADOWCOLOR != 3818
 #undef TMT_TEXTSHADOWCOLOR
@@ -181,6 +183,12 @@ struct ThemeMapData {
                      hasAlphaChannel(false), wasAlphaSwapped(false), hadInvalidAlpha(false) {}
 };
 
+#ifndef QT_NO_DEBUG_STREAM
+QDebug operator<<(QDebug d, const XPThemeData &t);
+QDebug operator<<(QDebug d, const ThemeMapKey &k);
+QDebug operator<<(QDebug d, const ThemeMapData &td);
+#endif
+
 class QWindowsXPStylePrivate : public QWindowsStylePrivate
 {
     Q_DECLARE_PUBLIC(QWindowsXPStyle)
@@ -224,7 +232,6 @@ public:
     void init(bool force = false);
     void cleanup(bool force = false);
     void cleanupHandleMap();
-    const QPixmap *tabBody(QWidget *widget);
 
     HBITMAP buffer(int w = 0, int h = 0);
     HDC bufferHDC()
@@ -236,7 +243,6 @@ public:
     bool isTransparent(XPThemeData &themeData);
     QRegion region(XPThemeData &themeData);
 
-    void setTransparency(QWidget *widget, XPThemeData &themeData);
     bool drawBackground(XPThemeData &themeData);
     bool drawBackgroundThruNativeBuffer(XPThemeData &themeData, qreal aditionalDevicePixelRatio);
     bool drawBackgroundDirectly(HDC dc, XPThemeData &themeData, qreal aditionalDevicePixelRatio);
@@ -269,7 +275,6 @@ private:
 
     static QBasicAtomicInt ref;
     static bool use_xp;
-    static QPixmap *tabbody;
 
     QHash<ThemeMapKey, ThemeMapData> alphaCache;
     HDC bufferDC;

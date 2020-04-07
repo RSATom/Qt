@@ -5,10 +5,11 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <deque>
 #include <memory>
 #include <utility>
 
+#include "base/callback_helpers.h"
+#include "base/containers/circular_deque.h"
 #include "base/macros.h"
 #include "base/strings/string_piece.h"
 #include "extensions/browser/api/socket/tls_socket.h"
@@ -20,8 +21,10 @@
 #include "net/log/net_log_source.h"
 #include "net/log/net_log_with_source.h"
 #include "net/socket/next_proto.h"
+#include "net/socket/socket_tag.h"
 #include "net/socket/ssl_client_socket.h"
 #include "net/socket/tcp_client_socket.h"
+#include "net/traffic_annotation/network_traffic_annotation.h"
 #include "testing/gmock/include/gmock/gmock.h"
 
 using testing::_;
@@ -38,15 +41,35 @@ namespace extensions {
 class MockSSLClientSocket : public net::SSLClientSocket {
  public:
   MockSSLClientSocket() {}
+  int Read(net::IOBuffer* buffer,
+           int bytes,
+           net::CompletionOnceCallback callback) override {
+    return Read(buffer, bytes,
+                base::AdaptCallbackForRepeating(std::move(callback)));
+  }
+
+  int Write(net::IOBuffer* buffer,
+            int bytes,
+            net::CompletionOnceCallback callback,
+            const net::NetworkTrafficAnnotationTag& tag) override {
+    return Write(buffer, bytes,
+                 base::AdaptCallbackForRepeating(std::move(callback)), tag);
+  }
+
+  int Connect(net::CompletionOnceCallback callback) override {
+    return Connect(base::AdaptCallbackForRepeating(std::move(callback)));
+  }
+
   MOCK_METHOD0(Disconnect, void());
   MOCK_METHOD3(Read,
                int(net::IOBuffer* buf,
                    int buf_len,
                    const net::CompletionCallback& callback));
-  MOCK_METHOD3(Write,
+  MOCK_METHOD4(Write,
                int(net::IOBuffer* buf,
                    int buf_len,
-                   const net::CompletionCallback& callback));
+                   const net::CompletionCallback& callback,
+                   const net::NetworkTrafficAnnotationTag&));
   MOCK_METHOD1(SetReceiveBufferSize, int(int32_t));
   MOCK_METHOD1(SetSendBufferSize, int(int32_t));
   MOCK_METHOD1(Connect, int(const CompletionCallback&));
@@ -54,8 +77,6 @@ class MockSSLClientSocket : public net::SSLClientSocket {
   MOCK_CONST_METHOD1(GetPeerAddress, int(net::IPEndPoint*));
   MOCK_CONST_METHOD1(GetLocalAddress, int(net::IPEndPoint*));
   MOCK_CONST_METHOD0(NetLog, const net::NetLogWithSource&());
-  MOCK_METHOD0(SetSubresourceSpeculation, void());
-  MOCK_METHOD0(SetOmniboxSpeculation, void());
   MOCK_CONST_METHOD0(WasEverUsed, bool());
   MOCK_CONST_METHOD0(UsingTCPFastOpen, bool());
   MOCK_CONST_METHOD0(WasAlpnNegotiated, bool());
@@ -65,13 +86,14 @@ class MockSSLClientSocket : public net::SSLClientSocket {
   MOCK_METHOD0(ClearConnectionAttempts, void());
   MOCK_METHOD1(AddConnectionAttempts, void(const net::ConnectionAttempts&));
   MOCK_CONST_METHOD0(GetTotalReceivedBytes, int64_t());
+  MOCK_METHOD1(ApplySocketTag, void(const net::SocketTag&));
   MOCK_METHOD5(ExportKeyingMaterial,
                int(const StringPiece&,
                    bool,
                    const StringPiece&,
                    unsigned char*,
                    unsigned int));
-  MOCK_METHOD1(GetSSLCertRequestInfo, void(net::SSLCertRequestInfo*));
+  MOCK_CONST_METHOD1(GetSSLCertRequestInfo, void(net::SSLCertRequestInfo*));
   MOCK_CONST_METHOD0(GetUnverifiedServerCertificateChain,
                      scoped_refptr<net::X509Certificate>());
   MOCK_CONST_METHOD0(GetChannelIDService, net::ChannelIDService*());
@@ -91,14 +113,30 @@ class MockTCPSocket : public net::TCPClientSocket {
   explicit MockTCPSocket(const net::AddressList& address_list)
       : net::TCPClientSocket(address_list, NULL, NULL, net::NetLogSource()) {}
 
+  int Read(net::IOBuffer* buffer,
+           int bytes,
+           net::CompletionOnceCallback callback) override {
+    return Read(buffer, bytes,
+                base::AdaptCallbackForRepeating(std::move(callback)));
+  }
+
+  int Write(net::IOBuffer* buffer,
+            int bytes,
+            net::CompletionOnceCallback callback,
+            const net::NetworkTrafficAnnotationTag& tag) override {
+    return Write(buffer, bytes,
+                 base::AdaptCallbackForRepeating(std::move(callback)), tag);
+  }
+
   MOCK_METHOD3(Read,
                int(net::IOBuffer* buf,
                    int buf_len,
                    const net::CompletionCallback& callback));
-  MOCK_METHOD3(Write,
+  MOCK_METHOD4(Write,
                int(net::IOBuffer* buf,
                    int buf_len,
-                   const net::CompletionCallback& callback));
+                   const net::CompletionCallback& callback,
+                   const net::NetworkTrafficAnnotationTag&));
   MOCK_METHOD2(SetKeepAlive, bool(bool enable, int delay));
   MOCK_METHOD1(SetNoDelay, bool(bool no_delay));
 
@@ -167,8 +205,9 @@ TEST_F(TLSSocketTest, TestTLSSocketWrite) {
   CompleteHandler handler;
   net::CompletionCallback callback;
 
-  EXPECT_CALL(*ssl_socket_, Write(_, _, _)).Times(2).WillRepeatedly(
-      DoAll(SaveArg<2>(&callback), Return(128)));
+  EXPECT_CALL(*ssl_socket_, Write(_, _, _, _))
+      .Times(2)
+      .WillRepeatedly(DoAll(SaveArg<2>(&callback), Return(128)));
   EXPECT_CALL(handler, OnComplete(_)).Times(1);
 
   scoped_refptr<net::IOBufferWithSize> io_buffer(
@@ -187,8 +226,10 @@ TEST_F(TLSSocketTest, TestTLSSocketBlockedWrite) {
 
   // Return ERR_IO_PENDING to say the Write()'s blocked. Save the |callback|
   // Write()'s passed.
-  EXPECT_CALL(*ssl_socket_, Write(_, _, _)).Times(2).WillRepeatedly(
-      DoAll(SaveArg<2>(&callback), Return(net::ERR_IO_PENDING)));
+  EXPECT_CALL(*ssl_socket_, Write(_, _, _, _))
+      .Times(2)
+      .WillRepeatedly(
+          DoAll(SaveArg<2>(&callback), Return(net::ERR_IO_PENDING)));
 
   scoped_refptr<net::IOBufferWithSize> io_buffer(new net::IOBufferWithSize(42));
   socket_->Write(
@@ -218,8 +259,10 @@ TEST_F(TLSSocketTest, TestTLSSocketBlockedWriteReentry) {
   // will all be equivalent), and return ERR_IO_PENDING, to indicate a blocked
   // request. The mocked SSLClientSocket::Write() will get one request per
   // TLSSocket::Write() request invoked on |socket_| below.
-  EXPECT_CALL(*ssl_socket_, Write(_, _, _)).Times(kNumIOs).WillRepeatedly(
-      DoAll(SaveArg<2>(&callback), Return(net::ERR_IO_PENDING)));
+  EXPECT_CALL(*ssl_socket_, Write(_, _, _, _))
+      .Times(kNumIOs)
+      .WillRepeatedly(
+          DoAll(SaveArg<2>(&callback), Return(net::ERR_IO_PENDING)));
 
   // Send out |kNuMIOs| requests, each with a different size.
   for (int i = 0; i < kNumIOs; i++) {
@@ -242,7 +285,7 @@ TEST_F(TLSSocketTest, TestTLSSocketBlockedWriteReentry) {
 
 typedef std::pair<net::CompletionCallback, int> PendingCallback;
 
-class CallbackList : public std::deque<PendingCallback> {
+class CallbackList : public base::circular_deque<PendingCallback> {
  public:
   void append(const net::CompletionCallback& cb, int arg) {
     push_back(std::make_pair(cb, arg));
@@ -282,9 +325,10 @@ TEST_F(TLSSocketTest, TestTLSSocketLargeWrites) {
   // from Socket::Write(). If the callback is invoked with a smaller number,
   // Socket::WriteImpl() will get repeatedly invoked until the sum of the
   // callbacks' arguments is equal to the original requested amount.
-  EXPECT_CALL(*ssl_socket_, Write(_, _, _)).WillRepeatedly(
-      DoAll(WithArgs<2, 1>(Invoke(&pending_callbacks, &CallbackList::append)),
-            Return(net::ERR_IO_PENDING)));
+  EXPECT_CALL(*ssl_socket_, Write(_, _, _, _))
+      .WillRepeatedly(DoAll(
+          WithArgs<2, 1>(Invoke(&pending_callbacks, &CallbackList::append)),
+          Return(net::ERR_IO_PENDING)));
 
   // Observe what comes back from Socket::Write() here.
   EXPECT_CALL(handler, OnComplete(Gt(0))).Times(kNumIncrements);

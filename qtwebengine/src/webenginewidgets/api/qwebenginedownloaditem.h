@@ -46,6 +46,7 @@
 
 QT_BEGIN_NAMESPACE
 
+class QWebEnginePage;
 class QWebEngineDownloadItemPrivate;
 class QWebEngineProfilePrivate;
 
@@ -123,9 +124,12 @@ public:
     bool isPaused() const;
     SavePageFormat savePageFormat() const;
     void setSavePageFormat(SavePageFormat format);
-    DownloadType type() const;
+    DownloadType Q_DECL_DEPRECATED type() const;
     DownloadInterruptReason interruptReason() const;
     QString interruptReasonString() const;
+    bool isSavePageDownload() const;
+
+    QWebEnginePage *page() const;
 
 public Q_SLOTS:
     void accept();

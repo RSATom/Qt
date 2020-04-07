@@ -3,7 +3,7 @@
 ** Copyright (C) 2016 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
-** This file is part of the QtGui module of the Qt Toolkit.
+** This file is part of the QtCore module of the Qt Toolkit.
 **
 ** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
@@ -46,8 +46,6 @@
 #include <QtCore/qvector.h>
 
 #include <algorithm>
-
-#ifndef QT_NO_STRINGLISTMODEL
 
 QT_BEGIN_NAMESPACE
 
@@ -186,7 +184,10 @@ bool QStringListModel::setData(const QModelIndex &index, const QVariant &value, 
 {
     if (index.row() >= 0 && index.row() < lst.size()
         && (role == Qt::EditRole || role == Qt::DisplayRole)) {
-        lst.replace(index.row(), value.toString());
+        const QString valueString = value.toString();
+        if (lst.at(index.row()) == valueString)
+            return true;
+        lst.replace(index.row(), valueString);
         QVector<int> roles;
         roles.reserve(2);
         roles.append(Qt::DisplayRole);
@@ -329,5 +330,3 @@ Qt::DropActions QStringListModel::supportedDropActions() const
 QT_END_NAMESPACE
 
 #include "moc_qstringlistmodel.cpp"
-
-#endif // QT_NO_STRINGLISTMODEL

@@ -66,7 +66,13 @@ Q_LOGGING_CATEGORY(canvas3dglerrors, "qt.canvas3d.glerrors")
  * \qmltype Canvas3D
  * \since QtCanvas3D 1.0
  * \inqmlmodule QtCanvas3D
- * \brief Canvas that provides a 3D rendering context.
+ * \brief Canvas that provides a 3D rendering context (deprecated).
+ * \deprecated
+ *
+ * \b{Canvas3D module was deprecated in Qt 5.12.} Depracated modules are no
+ * longer maintained. They are provided to keep old source code working, but
+ * they can be removed in a future release. We strongly advise against using
+ * deprecated modules in new code or project.
  *
  * The Canvas3D is a QML element that, when placed in your Qt Quick 2 scene, allows you to
  * get a 3D rendering context and call 3D rendering API calls through that context object.
@@ -125,17 +131,20 @@ Canvas::Canvas(QQuickItem *parent):
 
 /*!
  * \qmlsignal void Canvas3D::initializeGL()
+ * \b{Deprecated in Qt 5.12.}
  * Emitted once when Canvas3D is ready and OpenGL state initialization can be done by the client.
  */
 
 /*!
  * \qmlsignal void Canvas3D::paintGL()
+ * \b{Deprecated in Qt 5.12.}
  * Emitted each time a new frame should be drawn to Canvas3D.
  * Driven by the Qt Quick scenegraph loop.
  */
 
 /*!
  * \qmlsignal void Canvas3D::contextLost()
+ * \b{Deprecated in Qt 5.12.}
  * Emitted when OpenGL context is lost. This happens whenever the parent window of the Canvas3D
  * is destroyed (or otherwise loses its context), or Canvas3D is moved to a different window.
  * Removing Canvas3D from a window and adding it back to the same window doesn't cause context
@@ -148,6 +157,7 @@ Canvas::Canvas(QQuickItem *parent):
 
 /*!
  * \qmlsignal void Canvas3D::contextRestored()
+ * \b{Deprecated in Qt 5.12.}
  * Emitted when OpenGL context is restored after a loss of context occurred. The Context3D attached
  * to the canvas needs to be reinitialized, so initializeGL is also emitted after this signal.
  *
@@ -166,6 +176,7 @@ Canvas::~Canvas()
 
 /*!
  * \qmlproperty RenderTarget Canvas3D::renderTarget
+ * \b{Deprecated in Qt 5.12.}
  * Specifies how the rendering should be done.
  * \list
  * \li \c Canvas3D.RenderTargetOffscreenBuffer indicates rendering is done into an offscreen
@@ -268,6 +279,7 @@ Canvas::RenderTarget Canvas::renderTarget() const
 
 /*!
  * \qmlproperty bool Canvas3D::renderOnDemand
+ * \b{Deprecated in Qt 5.12.}
  * If the value is \c{false}, the render loop runs constantly and
  * \l{Canvas3D::paintGL}{Canvas3D.paintGL()} signal is emitted once per frame.
  * If the value is \c{true}, \l{Canvas3D::paintGL}{Canvas3D.paintGL()} is only emitted when
@@ -296,6 +308,7 @@ bool Canvas::renderOnDemand() const
 
 /*!
  * \qmlproperty float Canvas3D::devicePixelRatio
+ * \b{Deprecated in Qt 5.12.}
  * Specifies the ratio between logical pixels (used by the Qt Quick) and actual physical
  * on-screen pixels (used by the 3D rendering).
  */
@@ -323,6 +336,7 @@ QJSValue Canvas::getContext(const QString &type)
 
 /*!
  * \qmlmethod Context3D Canvas3D::getContext(string type, Canvas3DContextAttributes options)
+ * \b{Deprecated in Qt 5.12.}
  * Returns the 3D rendering context that allows 3D rendering calls to be made.
  * The \a type parameter is ignored for now, but a string is expected to be given.
  * If Canvas3D.renderTarget property value is either \c Canvas3D.RenderTargetBackground or
@@ -404,6 +418,7 @@ QJSValue Canvas::getContext(const QString &type, const QVariantMap &options)
 
 /*!
  * \qmlproperty size Canvas3D::pixelSize
+ * \b{Deprecated in Qt 5.12.}
  * Specifies the size of the render target surface in physical on-screen pixels used by
  * the 3D rendering.
  */
@@ -529,6 +544,7 @@ void Canvas::itemChange(ItemChange change, const ItemChangeData &value)
 
 /*!
  * \qmlproperty Context3D Canvas3D::context
+ * \b{Deprecated in Qt 5.12.}
  * This property can be used to access the context created with getContext() method.
  *
  * \sa getContext()
@@ -724,6 +740,7 @@ QSGNode *Canvas::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *data)
 
 /*!
  * \qmlproperty int Canvas3D::fps
+ * \b{Deprecated in Qt 5.12.}
  * This property specifies the current number of frames rendered per second.
  * The value is recalculated every 500 ms, as long as any rendering is done.
  *
@@ -742,7 +759,7 @@ uint Canvas::fps()
 
 /*!
    \qmlmethod int Canvas3D::frameTimeMs()
-
+   \b{Deprecated in Qt 5.12.}
    This method returns the number of milliseconds the renderer took to process the OpenGL portion
    of the rendering for the previous frame.
    Before any frames have been rendered this method returns 0.
@@ -761,7 +778,7 @@ int Canvas::frameTimeMs()
 /*!
    \qmlmethod int Canvas3D::frameSetupTimeMs()
    \since QtCanvas3D 1.1
-
+   \b{Deprecated in Qt 5.12.}
    This method returns the number of milliseconds Canvas3D took to process the PaintGL signal
    for the previous frame. Before any frames have been rendered this method returns 0.
    This time doesn't include time spent on actual OpenGL rendering of the frame, nor the time
@@ -862,6 +879,7 @@ void Canvas::queueResizeGL()
 
 /*!
  * \qmlmethod void Canvas3D::requestRender()
+   \b{Deprecated in Qt 5.12.}
  * Queues a new frame for rendering when \l{Canvas3D::renderOnDemand}{Canvas3D.renderOnDemand}
  * property is \c{true}.
  * Does nothing when \l{Canvas3D::renderOnDemand}{Canvas3D.renderOnDemand} property is \c{false}.

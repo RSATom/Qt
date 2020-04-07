@@ -7,7 +7,6 @@
 
 #include "content/public/common/referrer.h"
 #include "ui/base/page_transition_types.h"
-#include "ui/base/page_transition_types.h"
 #include "url/gurl.h"
 
 namespace navigation_interception {
@@ -23,6 +22,7 @@ class NavigationParams {
                    bool is_external_protocol,
                    bool is_main_frame,
                    const GURL& base_url_for_data_url);
+  ~NavigationParams();
   NavigationParams(const NavigationParams&);
   NavigationParams& operator=(const NavigationParams&) = delete;
 

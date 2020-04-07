@@ -19,11 +19,11 @@
 #include "ppapi/c/dev/ppb_var_deprecated.h"
 #include "ppapi/c/ppb_var.h"
 #include "ppapi/shared_impl/ppb_var_shared.h"
-#include "third_party/WebKit/public/web/WebDocument.h"
-#include "third_party/WebKit/public/web/WebLocalFrame.h"
-#include "third_party/WebKit/public/web/WebPluginContainer.h"
-#include "third_party/WebKit/public/web/WebPluginScriptForbiddenScope.h"
-#include "third_party/WebKit/public/web/WebScopedUserGesture.h"
+#include "third_party/blink/public/web/web_document.h"
+#include "third_party/blink/public/web/web_local_frame.h"
+#include "third_party/blink/public/web/web_plugin_container.h"
+#include "third_party/blink/public/web/web_plugin_script_forbidden_scope.h"
+#include "third_party/blink/public/web/web_scoped_user_gesture.h"
 
 using ppapi::V8ObjectVar;
 using ppapi::PpapiGlobals;
@@ -44,7 +44,7 @@ class ObjectAccessor {
  public:
   ObjectAccessor(PP_Var var)
       : object_var_(V8ObjectVar::FromPPVar(var).get()),
-        instance_(object_var_ ? object_var_->instance() : NULL) {
+        instance_(object_var_ ? object_var_->instance() : nullptr) {
     if (instance_) {
       converter_.reset(new V8VarConverter(instance_->pp_instance(),
                                           V8VarConverter::kAllowObjectVars));
@@ -151,7 +151,7 @@ void EnumerateProperties(PP_Var var,
   PepperTryCatchVar try_catch(accessor.instance(), accessor.converter(),
                               exception);
 
-  *properties = NULL;
+  *properties = nullptr;
   *property_count = 0;
 
   v8::Local<v8::Array> identifiers = accessor.GetObject()->GetPropertyNames();
@@ -159,10 +159,10 @@ void EnumerateProperties(PP_Var var,
     return;
   ScopedPPVarArray identifier_vars(identifiers->Length());
   for (uint32_t i = 0; i < identifiers->Length(); ++i) {
-    ScopedPPVar var = try_catch.FromV8(identifiers->Get(i));
+    ScopedPPVar identifier = try_catch.FromV8(identifiers->Get(i));
     if (try_catch.HasException())
       return;
-    identifier_vars.Set(i, var);
+    identifier_vars.Set(i, identifier);
   }
 
   size_t size = identifier_vars.size();
@@ -261,7 +261,7 @@ PP_Var CallDeprecatedInternal(PP_Var var,
   }
 
   blink::WebPluginContainer* container = accessor.instance()->container();
-  blink::WebLocalFrame* frame = NULL;
+  blink::WebLocalFrame* frame = nullptr;
   if (container)
     frame = container->GetDocument().GetFrame();
 
@@ -270,9 +270,14 @@ PP_Var CallDeprecatedInternal(PP_Var var,
     return PP_MakeUndefined();
   }
 
-  v8::Local<v8::Value> result = frame->CallFunctionEvenIfScriptDisabled(
-      function.As<v8::Function>(), recv, argc, converted_args.get());
-  ScopedPPVar result_var = try_catch.FromV8(result);
+  ScopedPPVar result_var;
+  v8::Local<v8::Value> result;
+  if (frame
+          ->CallFunctionEvenIfScriptDisabled(function.As<v8::Function>(), recv,
+                                             argc, converted_args.get())
+          .ToLocal(&result)) {
+    result_var = try_catch.FromV8(result);
+  }
 
   if (try_catch.HasException())
     return PP_MakeUndefined();

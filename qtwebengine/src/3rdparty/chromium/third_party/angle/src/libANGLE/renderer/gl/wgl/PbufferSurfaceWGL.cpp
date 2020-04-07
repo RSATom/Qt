@@ -17,7 +17,6 @@ namespace rx
 {
 
 PbufferSurfaceWGL::PbufferSurfaceWGL(const egl::SurfaceState &state,
-                                     RendererGL *renderer,
                                      EGLint width,
                                      EGLint height,
                                      EGLenum textureFormat,
@@ -26,7 +25,7 @@ PbufferSurfaceWGL::PbufferSurfaceWGL(const egl::SurfaceState &state,
                                      int pixelFormat,
                                      HDC deviceContext,
                                      const FunctionsWGL *functions)
-    : SurfaceWGL(state, renderer),
+    : SurfaceWGL(state),
       mWidth(width),
       mHeight(height),
       mLargest(largest),
@@ -146,7 +145,9 @@ static int GetWGLBufferBindTarget(EGLint buffer)
     }
 }
 
-egl::Error PbufferSurfaceWGL::bindTexImage(gl::Texture *texture, EGLint buffer)
+egl::Error PbufferSurfaceWGL::bindTexImage(const gl::Context *context,
+                                           gl::Texture *texture,
+                                           EGLint buffer)
 {
     if (!mFunctionsWGL->bindTexImageARB(mPbuffer, GetWGLBufferBindTarget(buffer)))
     {
@@ -158,7 +159,7 @@ egl::Error PbufferSurfaceWGL::bindTexImage(gl::Texture *texture, EGLint buffer)
     return egl::NoError();
 }
 
-egl::Error PbufferSurfaceWGL::releaseTexImage(EGLint buffer)
+egl::Error PbufferSurfaceWGL::releaseTexImage(const gl::Context *context, EGLint buffer)
 {
     if (!mFunctionsWGL->releaseTexImageARB(mPbuffer, GetWGLBufferBindTarget(buffer)))
     {

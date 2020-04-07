@@ -70,7 +70,7 @@ void NeverCalled(int unused) { ADD_FAILURE(); }
 
 class FileSystemFileStreamReaderTest : public testing::Test {
  public:
-  FileSystemFileStreamReaderTest() {}
+  FileSystemFileStreamReaderTest() = default;
 
   void SetUp() override {
     ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
@@ -79,10 +79,9 @@ class FileSystemFileStreamReaderTest : public testing::Test {
         CreateFileSystemContextForTesting(NULL, temp_dir_.GetPath());
 
     file_system_context_->OpenFileSystem(
-        GURL(kURLOrigin),
-        storage::kFileSystemTypeTemporary,
+        GURL(kURLOrigin), storage::kFileSystemTypeTemporary,
         storage::OPEN_FILE_SYSTEM_CREATE_IF_NONEXISTENT,
-        base::Bind(&OnOpenFileSystem));
+        base::BindOnce(&OnOpenFileSystem));
     base::RunLoop().RunUntilIdle();
 
     WriteFile(kTestFileName, kTestData, kTestDataSize,

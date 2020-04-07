@@ -234,6 +234,24 @@ void test_partners(SkCanvas* canvas, const SkPaint& paint) {
     canvas->restore();
 }
 
+// A split edge causes one half to be merged to zero winding (destroyed).
+// Test that the other half of the split doesn't also get zero winding.
+void test_winding_merged_to_zero(SkCanvas* canvas, const SkPaint& paint) {
+    SkPath path;
+    canvas->save();
+    canvas->translate(400, 350);
+    path.moveTo(20, 80);
+    path.moveTo(70,  -0.000001f);
+    path.lineTo(70,   0.0);
+    path.lineTo(60, -30.0);
+    path.lineTo(40,  20.0);
+    path.moveTo(50,  50.0);
+    path.lineTo(50, -50.0);
+    path.lineTo(10,  50.0);
+    canvas->drawPath(path, paint);
+    canvas->restore();
+}
+
 // Monotone test 1 (point in the middle)
 void test_monotone_1(SkCanvas* canvas, const SkPaint& paint) {
     SkPath path;
@@ -349,6 +367,22 @@ void test_bowtie_coincident_triangle(SkCanvas* canvas, const SkPaint& paint) {
     canvas->restore();
 }
 
+// Collinear outer boundary edges. In the edge-AA codepath, this creates an overlap region
+// which contains a boundary edge. It can't be removed, but it must have the correct winding.
+void test_collinear_outer_boundary_edge(SkCanvas* canvas, const SkPaint& paint) {
+    SkPath path;
+    canvas->save();
+    canvas->translate(400, 400);
+    path.moveTo(20, 20);
+    path.lineTo(20, 50);
+    path.lineTo(50, 50);
+    path.moveTo(80, 50);
+    path.lineTo(50, 50);
+    path.lineTo(80, 20);
+    canvas->drawPath(path, paint);
+    canvas->restore();
+}
+
 // Coincident edges (big ones first, coincident vert on top).
 void test_coincident_edges_1(SkCanvas* canvas, const SkPaint& paint) {
     SkPath path;
@@ -429,6 +463,7 @@ DEF_SIMPLE_GM(concavepaths, canvas, 500, 600) {
     test_stairstep2(canvas, paint);
     test_overlapping(canvas, paint);
     test_partners(canvas, paint);
+    test_winding_merged_to_zero(canvas, paint);
     test_monotone_1(canvas, paint);
     test_monotone_2(canvas, paint);
     test_monotone_3(canvas, paint);
@@ -437,6 +472,7 @@ DEF_SIMPLE_GM(concavepaths, canvas, 500, 600) {
     test_degenerate(canvas, paint);
     test_coincident_edge(canvas, paint);
     test_bowtie_coincident_triangle(canvas, paint);
+    test_collinear_outer_boundary_edge(canvas, paint);
     test_coincident_edges_1(canvas, paint);
     test_coincident_edges_2(canvas, paint);
     test_coincident_edges_3(canvas, paint);

@@ -18,6 +18,7 @@
 #include "jingle/notifier/communicator/login_settings.h"
 #include "jingle/notifier/communicator/single_login_attempt.h"
 #include "net/base/network_change_notifier.h"
+#include "net/traffic_annotation/network_traffic_annotation.h"
 #include "third_party/libjingle_xmpp/xmpp/xmppengine.h"
 
 namespace buzz {
@@ -38,8 +39,7 @@ class LoginSettings;
 // to take on the various errors that may occur.
 //
 // TODO(akalin): Make this observe proxy config changes also.
-class Login : public net::NetworkChangeNotifier::IPAddressObserver,
-              public net::NetworkChangeNotifier::ConnectionTypeObserver,
+class Login : public net::NetworkChangeNotifier::NetworkChangeObserver,
               public net::NetworkChangeNotifier::DNSObserver,
               public SingleLoginAttempt::Delegate {
  public:
@@ -65,13 +65,14 @@ class Login : public net::NetworkChangeNotifier::IPAddressObserver,
   };
 
   // Does not take ownership of |delegate|, which must not be NULL.
-  Login(Delegate* delegate,
-        const buzz::XmppClientSettings& user_settings,
-        const scoped_refptr<net::URLRequestContextGetter>&
-            request_context_getter,
-        const ServerList& servers,
-        bool try_ssltcp_first,
-        const std::string& auth_mechanism);
+  Login(
+      Delegate* delegate,
+      const buzz::XmppClientSettings& user_settings,
+      const scoped_refptr<net::URLRequestContextGetter>& request_context_getter,
+      const ServerList& servers,
+      bool try_ssltcp_first,
+      const std::string& auth_mechanism,
+      const net::NetworkTrafficAnnotationTag& traffic_annotation);
   ~Login() override;
 
   // Starts connecting (or forces a reconnection if we're backed off).
@@ -82,11 +83,8 @@ class Login : public net::NetworkChangeNotifier::IPAddressObserver,
   // StartConnection()).
   void UpdateXmppSettings(const buzz::XmppClientSettings& user_settings);
 
-  // net::NetworkChangeNotifier::IPAddressObserver implementation.
-  void OnIPAddressChanged() override;
-
-  // net::NetworkChangeNotifier::ConnectionTypeObserver implementation.
-  void OnConnectionTypeChanged(
+  // net::NetworkChangeNotifier::NetworkChangeObserver implementation.
+  void OnNetworkChanged(
       net::NetworkChangeNotifier::ConnectionType type) override;
 
   // net::NetworkChangeNotifier::DNSObserver implementation.

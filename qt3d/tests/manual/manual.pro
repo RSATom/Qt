@@ -53,9 +53,14 @@ SUBDIRS += \
     animation-keyframe-programmatic \
     layerfilter-qml \
     skinned-mesh \
+    rigged-simple \
     proximityfilter \
     rendercapture-qml-fbo \
-    blitframebuffer-qml
+    blitframebuffer-qml \
+    raycasting-qml \
+    shared_texture_image \
+    texture_property_updates \
+    qtbug-72236
 
 qtHaveModule(widgets): {
     SUBDIRS += \

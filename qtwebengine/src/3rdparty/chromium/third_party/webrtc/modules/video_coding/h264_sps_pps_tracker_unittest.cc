@@ -8,19 +8,44 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/modules/video_coding/h264_sps_pps_tracker.h"
+#include "modules/video_coding/h264_sps_pps_tracker.h"
 
 #include <vector>
 
-#include "webrtc/modules/video_coding/packet.h"
-#include "webrtc/test/gtest.h"
-#include "webrtc/common_video/h264/h264_common.h"
+#include "common_video/h264/h264_common.h"
+#include "modules/video_coding/packet.h"
+#include "test/gtest.h"
 
 namespace webrtc {
 namespace video_coding {
 
 namespace {
 const uint8_t start_code[] = {0, 0, 0, 1};
+
+void ExpectSpsPpsIdr(const RTPVideoHeaderH264& codec_header,
+                     uint8_t sps_id,
+                     uint8_t pps_id) {
+  bool contains_sps = false;
+  bool contains_pps = false;
+  bool contains_idr = false;
+  for (const auto& nalu : codec_header.nalus) {
+    if (nalu.type == H264::NaluType::kSps) {
+      EXPECT_EQ(sps_id, nalu.sps_id);
+      contains_sps = true;
+    } else if (nalu.type == H264::NaluType::kPps) {
+      EXPECT_EQ(sps_id, nalu.sps_id);
+      EXPECT_EQ(pps_id, nalu.pps_id);
+      contains_pps = true;
+    } else if (nalu.type == H264::NaluType::kIdr) {
+      EXPECT_EQ(pps_id, nalu.pps_id);
+      contains_idr = true;
+    }
+  }
+  EXPECT_TRUE(contains_sps);
+  EXPECT_TRUE(contains_pps);
+  EXPECT_TRUE(contains_idr);
+}
+
 }  // namespace
 
 class TestH264SpsPpsTracker : public ::testing::Test {
@@ -28,9 +53,9 @@ class TestH264SpsPpsTracker : public ::testing::Test {
   VCMPacket GetDefaultPacket() {
     VCMPacket packet;
     packet.codec = kVideoCodecH264;
-    packet.video_header.codecHeader.H264.nalus_length = 0;
+    packet.video_header.h264().nalus_length = 0;
     packet.video_header.is_first_packet_in_frame = false;
-    packet.video_header.codecHeader.H264.packetization_type = kH264SingleNalu;
+    packet.video_header.h264().packetization_type = kH264SingleNalu;
 
     return packet;
   }
@@ -43,8 +68,8 @@ class TestH264SpsPpsTracker : public ::testing::Test {
     data->push_back(H264::NaluType::kSps);
     data->push_back(sps_id);  // The sps data, just a single byte.
 
-    packet->video_header.codecHeader.H264
-        .nalus[packet->video_header.codecHeader.H264.nalus_length++] = info;
+    packet->video_header.h264()
+        .nalus[packet->video_header.h264().nalus_length++] = info;
   }
 
   void AddPps(VCMPacket* packet,
@@ -58,8 +83,8 @@ class TestH264SpsPpsTracker : public ::testing::Test {
     data->push_back(H264::NaluType::kPps);
     data->push_back(pps_id);  // The pps data, just a single byte.
 
-    packet->video_header.codecHeader.H264
-        .nalus[packet->video_header.codecHeader.H264.nalus_length++] = info;
+    packet->video_header.h264()
+        .nalus[packet->video_header.h264().nalus_length++] = info;
   }
 
   void AddIdr(VCMPacket* packet, int pps_id) {
@@ -68,8 +93,8 @@ class TestH264SpsPpsTracker : public ::testing::Test {
     info.sps_id = -1;
     info.pps_id = pps_id;
 
-    packet->video_header.codecHeader.H264
-        .nalus[packet->video_header.codecHeader.H264.nalus_length++] = info;
+    packet->video_header.h264()
+        .nalus[packet->video_header.h264().nalus_length++] = info;
   }
 
  protected:
@@ -79,7 +104,7 @@ class TestH264SpsPpsTracker : public ::testing::Test {
 TEST_F(TestH264SpsPpsTracker, NoNalus) {
   uint8_t data[] = {1, 2, 3};
   VCMPacket packet = GetDefaultPacket();
-  packet.video_header.codecHeader.H264.packetization_type = kH264FuA;
+  packet.video_header.h264().packetization_type = kH264FuA;
   packet.dataPtr = data;
   packet.sizeBytes = sizeof(data);
 
@@ -91,7 +116,7 @@ TEST_F(TestH264SpsPpsTracker, NoNalus) {
 TEST_F(TestH264SpsPpsTracker, FuAFirstPacket) {
   uint8_t data[] = {1, 2, 3};
   VCMPacket packet = GetDefaultPacket();
-  packet.video_header.codecHeader.H264.packetization_type = kH264FuA;
+  packet.video_header.h264().packetization_type = kH264FuA;
   packet.video_header.is_first_packet_in_frame = true;
   packet.dataPtr = data;
   packet.sizeBytes = sizeof(data);
@@ -107,7 +132,7 @@ TEST_F(TestH264SpsPpsTracker, FuAFirstPacket) {
 TEST_F(TestH264SpsPpsTracker, StapAIncorrectSegmentLength) {
   uint8_t data[] = {0, 0, 2, 0};
   VCMPacket packet = GetDefaultPacket();
-  packet.video_header.codecHeader.H264.packetization_type = kH264StapA;
+  packet.video_header.h264().packetization_type = kH264StapA;
   packet.video_header.is_first_packet_in_frame = true;
   packet.dataPtr = data;
   packet.sizeBytes = sizeof(data);
@@ -133,7 +158,7 @@ TEST_F(TestH264SpsPpsTracker, NoNalusFirstPacket) {
 TEST_F(TestH264SpsPpsTracker, IdrNoSpsPpsInserted) {
   std::vector<uint8_t> data = {1, 2, 3};
   VCMPacket packet = GetDefaultPacket();
-  packet.video_header.codecHeader.H264.packetization_type = kH264FuA;
+  packet.video_header.h264().packetization_type = kH264FuA;
 
   AddIdr(&packet, 0);
   packet.dataPtr = data.data();
@@ -219,7 +244,7 @@ TEST_F(TestH264SpsPpsTracker, SpsPpsPacketThenIdrFirstPacket) {
 TEST_F(TestH264SpsPpsTracker, SpsPpsIdrInStapA) {
   std::vector<uint8_t> data;
   VCMPacket packet = GetDefaultPacket();
-  packet.video_header.codecHeader.H264.packetization_type = kH264StapA;
+  packet.video_header.h264().packetization_type = kH264StapA;
   packet.video_header.is_first_packet_in_frame = true;  // Always true for StapA
 
   data.insert(data.end(), {0});     // First byte is ignored
@@ -264,10 +289,14 @@ TEST_F(TestH264SpsPpsTracker, SpsPpsOutOfBand) {
   AddIdr(&idr_packet, 0);
   idr_packet.dataPtr = kData;
   idr_packet.sizeBytes = sizeof(kData);
+  EXPECT_EQ(1u, idr_packet.video_header.h264().nalus_length);
   EXPECT_EQ(H264SpsPpsTracker::kInsert,
             tracker_.CopyAndFixBitstream(&idr_packet));
+  EXPECT_EQ(3u, idr_packet.video_header.h264().nalus_length);
   EXPECT_EQ(320, idr_packet.width);
   EXPECT_EQ(240, idr_packet.height);
+  ExpectSpsPpsIdr(idr_packet.video_header.h264(), 0, 0);
+
   if (idr_packet.dataPtr != kData) {
     // In case CopyAndFixBitStream() prepends SPS/PPS nalus to the packet, it
     // uses new uint8_t[] to allocate memory. Caller of CopyAndFixBitStream()

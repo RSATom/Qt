@@ -1076,7 +1076,7 @@ void Surface3DRenderer::drawSlicedScene()
                                 positionComp, totalRotation, 0, QAbstract3DGraph::SelectionRow,
                                 m_labelShader, m_labelObj, activeCamera,
                                 false, false, Drawer::LabelBelow,
-                                Qt::AlignmentFlag(Qt::AlignLeft | Qt::AlignTop), true);
+                                Qt::AlignLeft | Qt::AlignTop, true);
         }
         labelNbr++;
     }
@@ -1972,7 +1972,7 @@ void Surface3DRenderer::drawLabels(bool drawSelection, const Q3DCamera *activeCa
             if (m_radialLabelOffset < 1.0f)
                 labelYTrans += gridLineOffset + gridLineWidth;
         }
-        Qt::AlignmentFlag alignment = (m_xFlipped == m_zFlipped) ? Qt::AlignLeft : Qt::AlignRight;
+        Qt::Alignment alignment = (m_xFlipped == m_zFlipped) ? Qt::AlignLeft : Qt::AlignRight;
         QVector3D labelRotation;
         if (m_xFlipped)
             labelXTrans = -labelXTrans;
@@ -2128,7 +2128,7 @@ void Surface3DRenderer::drawLabels(bool drawSelection, const Q3DCamera *activeCa
         else
             labelZTrans = m_scaleZWithBackground + labelMargin;
 
-        Qt::AlignmentFlag alignment = (m_xFlipped != m_zFlipped) ? Qt::AlignLeft : Qt::AlignRight;
+        Qt::Alignment alignment = (m_xFlipped != m_zFlipped) ? Qt::AlignLeft : Qt::AlignRight;
         QVector3D labelRotation;
         if (m_zFlipped)
             labelZTrans = -labelZTrans;
@@ -2256,7 +2256,7 @@ void Surface3DRenderer::drawLabels(bool drawSelection, const Q3DCamera *activeCa
                     hAlignment = m_zFlipped ? Qt::AlignLeft : Qt::AlignRight;
                 if (m_yFlippedForGrid && vAlignment != Qt::AlignCenter)
                     vAlignment = (vAlignment == Qt::AlignTop) ? Qt::AlignBottom : Qt::AlignTop;
-                alignment = Qt::AlignmentFlag(vAlignment | hAlignment);
+                alignment = vAlignment | hAlignment;
             } else {
                 labelTrans.setX(m_axisCacheX.labelPosition(label));
             }

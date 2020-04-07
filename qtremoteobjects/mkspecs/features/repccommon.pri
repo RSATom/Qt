@@ -54,7 +54,8 @@ for(group, groups) {
     $${group}_moc.output = $$moc_header.output
     $${group}_moc.input = $${GROUP}_HEADERS
     $${group}_moc.variable_out = GENERATED_SOURCES
-    $${group}_moc.name = $$moc_header.name
+    !contains(TEMPLATE, vc.*): \
+        $${group}_moc.name = $$moc_header.name
 
     QMAKE_EXTRA_COMPILERS += $${group}_header $${group}_moc
 }

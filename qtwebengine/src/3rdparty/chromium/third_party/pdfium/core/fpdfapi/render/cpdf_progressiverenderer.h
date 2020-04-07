@@ -17,7 +17,7 @@
 class CPDF_RenderOptions;
 class CPDF_RenderStatus;
 class CFX_RenderDevice;
-class IFX_Pause;
+class PauseIndicatorIface;
 
 class CPDF_ProgressiveRenderer {
  public:
@@ -25,7 +25,7 @@ class CPDF_ProgressiveRenderer {
   // cannot #include that header. fpdfsdk/fpdf_progressive.cpp has
   // static_asserts to make sure the two sets of values match.
   enum Status {
-    Ready,          // FPDF_RENDER_READER
+    Ready,          // FPDF_RENDER_READY
     ToBeContinued,  // FPDF_RENDER_TOBECONTINUED
     Done,           // FPDF_RENDER_DONE
     Failed          // FPDF_RENDER_FAILED
@@ -39,22 +39,22 @@ class CPDF_ProgressiveRenderer {
   ~CPDF_ProgressiveRenderer();
 
   Status GetStatus() const { return m_Status; }
-  void Start(IFX_Pause* pPause);
-  void Continue(IFX_Pause* pPause);
+  void Start(PauseIndicatorIface* pPause);
+  void Continue(PauseIndicatorIface* pPause);
 
  private:
   // Maximum page objects to render before checking for pause.
   static const int kStepLimit = 100;
 
   Status m_Status;
-  CFX_UnownedPtr<CPDF_RenderContext> const m_pContext;
-  CFX_UnownedPtr<CFX_RenderDevice> const m_pDevice;
+  UnownedPtr<CPDF_RenderContext> const m_pContext;
+  UnownedPtr<CFX_RenderDevice> const m_pDevice;
   const CPDF_RenderOptions* const m_pOptions;
   std::unique_ptr<CPDF_RenderStatus> m_pRenderStatus;
   CFX_FloatRect m_ClipRect;
   uint32_t m_LayerIndex;
   CPDF_RenderContext::Layer* m_pCurrentLayer;
-  CPDF_PageObjectList::iterator m_LastObjectRendered;
+  CPDF_PageObjectList::const_iterator m_LastObjectRendered;
 };
 
 #endif  // CORE_FPDFAPI_RENDER_CPDF_PROGRESSIVERENDERER_H_

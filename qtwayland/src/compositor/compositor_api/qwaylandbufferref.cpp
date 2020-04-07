@@ -48,7 +48,7 @@ QT_BEGIN_NAMESPACE
 class QWaylandBufferRefPrivate
 {
 public:
-    QtWayland::ClientBuffer *buffer;
+    QtWayland::ClientBuffer *buffer = nullptr;
 
     bool nullOrDestroyed() {
         return !buffer || buffer->isDestroyed();
@@ -59,7 +59,7 @@ public:
  * \class QWaylandBufferRef
  * \inmodule QtWaylandCompositor
  * \since 5.8
- * \brief The QWaylandBufferRef class holds the reference to a surface buffer
+ * \brief The QWaylandBufferRef class holds the reference to a surface buffer.
  *
  * This class can be used to reference a surface buffer. As long as a reference
  * to the buffer exists, it is owned by the compositor and the client cannot modify it.
@@ -71,7 +71,7 @@ public:
 QWaylandBufferRef::QWaylandBufferRef()
                  : d(new QWaylandBufferRefPrivate)
 {
-    d->buffer = 0;
+    d->buffer = nullptr;
 }
 
 /*!
@@ -185,7 +185,7 @@ bool QWaylandBufferRef::isDestroyed() const
  */
 struct ::wl_resource *QWaylandBufferRef::wl_buffer() const
 {
-    return d->buffer ? d->buffer->waylandBufferHandle() : Q_NULLPTR;
+    return d->buffer ? d->buffer->waylandBufferHandle() : nullptr;
 }
 
 /*!

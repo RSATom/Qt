@@ -43,7 +43,7 @@
 #include "shared_global_p.h"
 #include "shared_enums_p.h"
 
-#include <QtWidgets/QWidget>
+#include <QtWidgets/qwidget.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -87,8 +87,8 @@ namespace qdesigner_internal {
 
         QString text() const;
 
-        QSize sizeHint () const Q_DECL_OVERRIDE;
-        QSize minimumSizeHint () const Q_DECL_OVERRIDE;
+        QSize sizeHint () const override;
+        QSize minimumSizeHint () const override;
 
         void setAlignment(Qt::Alignment alignment);
 
@@ -117,7 +117,7 @@ namespace qdesigner_internal {
         void clear();
 
     protected:
-        void resizeEvent(QResizeEvent * event ) Q_DECL_OVERRIDE;
+        void resizeEvent(QResizeEvent * event ) override;
 
     private slots:
         void slotTextChanged(const QString &text);

@@ -39,7 +39,7 @@ class Q_SCRIPT_EXPORT QScriptExtensionPlugin : public QObject,
     Q_OBJECT
     Q_INTERFACES(QScriptExtensionInterface:QFactoryInterface)
 public:
-    explicit QScriptExtensionPlugin(QObject *parent = Q_NULLPTR);
+    explicit QScriptExtensionPlugin(QObject *parent = nullptr);
     ~QScriptExtensionPlugin();
 
     virtual QStringList keys() const = 0;

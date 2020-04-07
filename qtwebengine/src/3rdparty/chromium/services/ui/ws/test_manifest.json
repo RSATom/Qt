@@ -5,7 +5,7 @@
     "service_manager:connector": {
       "provides": {
         "ui:window_tree_client": [
-          "ui::mojom::WindowTreeClient"
+          "ui.mojom.WindowTreeClient"
         ]
       },
       "requires": {
@@ -14,7 +14,8 @@
         "ui": [
           "window_manager",
           "window_tree_host_factory"
-        ]
+        ],
+        "viz": [ "viz_host" ]
       }
     }
   }

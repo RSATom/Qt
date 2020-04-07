@@ -65,11 +65,20 @@ class Q_QUICKTEMPLATES2_PRIVATE_EXPORT QQuickAbstractButton : public QQuickContr
     Q_PROPERTY(bool checked READ isChecked WRITE setChecked NOTIFY checkedChanged FINAL)
     Q_PROPERTY(bool checkable READ isCheckable WRITE setCheckable NOTIFY checkableChanged FINAL)
     Q_PROPERTY(bool autoExclusive READ autoExclusive WRITE setAutoExclusive NOTIFY autoExclusiveChanged FINAL)
+    Q_PROPERTY(bool autoRepeat READ autoRepeat WRITE setAutoRepeat NOTIFY autoRepeatChanged FINAL)
     Q_PROPERTY(QQuickItem *indicator READ indicator WRITE setIndicator NOTIFY indicatorChanged FINAL)
     // 2.3 (Qt 5.10)
     Q_PROPERTY(QQuickIcon icon READ icon WRITE setIcon NOTIFY iconChanged FINAL REVISION 3)
     Q_PROPERTY(Display display READ display WRITE setDisplay NOTIFY displayChanged FINAL REVISION 3)
     Q_PROPERTY(QQuickAction *action READ action WRITE setAction NOTIFY actionChanged FINAL REVISION 3)
+    // 2.4 (Qt 5.11)
+    Q_PROPERTY(int autoRepeatDelay READ autoRepeatDelay WRITE setAutoRepeatDelay NOTIFY autoRepeatDelayChanged FINAL REVISION 4)
+    Q_PROPERTY(int autoRepeatInterval READ autoRepeatInterval WRITE setAutoRepeatInterval NOTIFY autoRepeatIntervalChanged FINAL REVISION 4)
+    Q_PROPERTY(qreal pressX READ pressX NOTIFY pressXChanged FINAL REVISION 4)
+    Q_PROPERTY(qreal pressY READ pressY NOTIFY pressYChanged FINAL REVISION 4)
+    // 2.5 (Qt 5.12)
+    Q_PROPERTY(qreal implicitIndicatorWidth READ implicitIndicatorWidth NOTIFY implicitIndicatorWidthChanged FINAL REVISION 5)
+    Q_PROPERTY(qreal implicitIndicatorHeight READ implicitIndicatorHeight NOTIFY implicitIndicatorHeightChanged FINAL REVISION 5)
     Q_CLASSINFO("DeferredPropertyNames", "background,contentItem,indicator")
 
 public:
@@ -125,6 +134,20 @@ public:
     void setShortcut(const QKeySequence &shortcut);
 #endif
 
+    // 2.4 (Qt 5.11)
+    int autoRepeatDelay() const;
+    void setAutoRepeatDelay(int delay);
+
+    int autoRepeatInterval() const;
+    void setAutoRepeatInterval(int interval);
+
+    qreal pressX() const;
+    qreal pressY() const;
+
+    // 2.5 (Qt 5.12)
+    qreal implicitIndicatorWidth() const;
+    qreal implicitIndicatorHeight() const;
+
 public Q_SLOTS:
     void toggle();
 
@@ -141,6 +164,7 @@ Q_SIGNALS:
     void checkedChanged();
     void checkableChanged();
     void autoExclusiveChanged();
+    void autoRepeatChanged();
     void indicatorChanged();
     // 2.2 (Qt 5.9)
     Q_REVISION(2) void toggled();
@@ -148,6 +172,14 @@ Q_SIGNALS:
     Q_REVISION(3) void iconChanged();
     Q_REVISION(3) void displayChanged();
     Q_REVISION(3) void actionChanged();
+    // 2.4 (Qt 5.11)
+    Q_REVISION(4) void autoRepeatDelayChanged();
+    Q_REVISION(4) void autoRepeatIntervalChanged();
+    Q_REVISION(4) void pressXChanged();
+    Q_REVISION(4) void pressYChanged();
+    // 2.5 (Qt 5.12)
+    Q_REVISION(5) void implicitIndicatorWidthChanged();
+    Q_REVISION(5) void implicitIndicatorHeightChanged();
 
 protected:
     QQuickAbstractButton(QQuickAbstractButtonPrivate &dd, QQuickItem *parent);
@@ -165,7 +197,6 @@ protected:
     void itemChange(ItemChange change, const ItemChangeData &value) override;
 
     enum ButtonChange {
-        ButtonAutoRepeatChange,
         ButtonCheckedChange,
         ButtonCheckableChange,
         ButtonPressedChanged,

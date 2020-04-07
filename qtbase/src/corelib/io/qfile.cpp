@@ -676,8 +676,11 @@ QFile::rename(const QString &newName)
                 return !error;
             }
             close();
+            d->setError(QFile::RenameError,
+                        tr("Cannot open destination file: %1").arg(out.errorString()));
+        } else {
+            d->setError(QFile::RenameError, errorString());
         }
-        d->setError(QFile::RenameError, out.isOpen() ? errorString() : out.errorString());
     }
     return false;
 }
@@ -893,9 +896,9 @@ bool QFile::open(OpenMode mode)
         qWarning("QFile::open: File (%s) already open", qPrintable(fileName()));
         return false;
     }
-    if (mode & Append)
+    // Either Append or NewOnly implies WriteOnly
+    if (mode & (Append | NewOnly))
         mode |= WriteOnly;
-
     unsetError();
     if ((mode & (ReadOnly | WriteOnly)) == 0) {
         qWarning("QIODevice::open: File access not specified");
@@ -965,7 +968,8 @@ bool QFile::open(FILE *fh, OpenMode mode, FileHandleFlags handleFlags)
         qWarning("QFile::open: File (%s) already open", qPrintable(fileName()));
         return false;
     }
-    if (mode & Append)
+    // Either Append or NewOnly implies WriteOnly
+    if (mode & (Append | NewOnly))
         mode |= WriteOnly;
     unsetError();
     if ((mode & (ReadOnly | WriteOnly)) == 0) {
@@ -1023,7 +1027,8 @@ bool QFile::open(int fd, OpenMode mode, FileHandleFlags handleFlags)
         qWarning("QFile::open: File (%s) already open", qPrintable(fileName()));
         return false;
     }
-    if (mode & Append)
+    // Either Append or NewOnly implies WriteOnly
+    if (mode & (Append | NewOnly))
         mode |= WriteOnly;
     unsetError();
     if ((mode & (ReadOnly | WriteOnly)) == 0) {

@@ -4,6 +4,8 @@
 
 #include "chrome/browser/ui/webui/interstitials/interstitial_ui.h"
 
+#include <memory>
+
 #include "base/atomic_sequence_num.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
@@ -15,11 +17,13 @@
 #include "chrome/browser/safe_browsing/test_safe_browsing_blocking_page_quiet.h"
 #include "chrome/browser/safe_browsing/ui_manager.h"
 #include "chrome/browser/ssl/bad_clock_blocking_page.h"
+#include "chrome/browser/ssl/mitm_software_blocking_page.h"
 #include "chrome/browser/ssl/ssl_blocking_page.h"
 #include "chrome/browser/supervised_user/supervised_user_interstitial.h"
-#include "chrome/common/features.h"
+#include "chrome/common/buildflags.h"
 #include "chrome/common/url_constants.h"
 #include "components/grit/components_resources.h"
+#include "components/safe_browsing/db/database_manager.h"
 #include "components/security_interstitials/core/ssl_error_ui.h"
 #include "components/supervised_user_error_page/supervised_user_error_page.h"
 #include "content/public/browser/interstitial_page_delegate.h"
@@ -110,6 +114,7 @@ class CaptivePortalBlockingPageWithNetInfo : public CaptivePortalBlockingPage {
                                   login_url,
                                   nullptr,
                                   ssl_info,
+                                  net::ERR_CERT_COMMON_NAME_INVALID,
                                   callback),
         is_wifi_(is_wifi),
         wifi_ssid_(wifi_ssid) {}
@@ -158,6 +163,8 @@ SSLBlockingPage* CreateSSLBlockingPage(content::WebContents* web_contents,
   if (net::GetValueForKeyInQuery(web_contents->GetURL(), "type", &type_param)) {
     if (type_param == "hpkp_failure") {
       cert_error = net::ERR_SSL_PINNED_KEY_NOT_IN_CERT_CHAIN;
+    } else if (type_param == "ct_failure") {
+      cert_error = net::ERR_CERTIFICATE_TRANSPARENCY_REQUIRED;
     }
   }
   net::SSLInfo ssl_info;
@@ -170,7 +177,28 @@ SSLBlockingPage* CreateSSLBlockingPage(content::WebContents* web_contents,
     options_mask |= security_interstitials::SSLErrorUI::STRICT_ENFORCEMENT;
   return SSLBlockingPage::Create(
       web_contents, cert_error, ssl_info, request_url, options_mask,
-      time_triggered_, nullptr, is_superfish,
+      time_triggered_, GURL(), nullptr, is_superfish,
+      base::Callback<void(content::CertificateRequestResultType)>());
+}
+
+MITMSoftwareBlockingPage* CreateMITMSoftwareBlockingPage(
+    content::WebContents* web_contents) {
+  const int cert_error = net::ERR_CERT_AUTHORITY_INVALID;
+  const GURL request_url("https://example.com");
+  const std::string mitm_software_name = "Misconfigured Antivirus";
+  bool is_enterprise_managed = false;
+
+  std::string is_enterprise_managed_param;
+  if (net::GetValueForKeyInQuery(web_contents->GetURL(), "enterprise",
+                                 &is_enterprise_managed_param)) {
+    is_enterprise_managed = is_enterprise_managed_param == "1";
+  }
+
+  net::SSLInfo ssl_info;
+  ssl_info.cert = ssl_info.unverified_cert = CreateFakeCert();
+  return new MITMSoftwareBlockingPage(
+      web_contents, cert_error, request_url, nullptr, ssl_info,
+      mitm_software_name, is_enterprise_managed,
       base::Callback<void(content::CertificateRequestResultType)>());
 }
 
@@ -260,10 +288,12 @@ safe_browsing::SafeBrowsingBlockingPage* CreateSafeBrowsingBlockingPage(
   resource.is_subframe = false;
   resource.threat_type = threat_type;
   resource.web_contents_getter =
-      security_interstitials::UnsafeResource::
-          GetWebContentsGetter(web_contents->GetRenderProcessHost()->GetID(),
-                               web_contents->GetMainFrame()->GetRoutingID());
-  resource.threat_source = safe_browsing::ThreatSource::LOCAL_PVER3;
+      security_interstitials::UnsafeResource::GetWebContentsGetter(
+          web_contents->GetMainFrame()->GetProcess()->GetID(),
+          web_contents->GetMainFrame()->GetRoutingID());
+  resource.threat_source = g_browser_process->safe_browsing_service()
+                               ->database_manager()
+                               ->GetThreatSource();
 
   // Normally safebrowsing interstitial types which block the main page load
   // (SB_THREAT_TYPE_URL_MALWARE, SB_THREAT_TYPE_URL_PHISHING, and
@@ -307,9 +337,11 @@ TestSafeBrowsingBlockingPageQuiet* CreateSafeBrowsingQuietBlockingPage(
   resource.threat_type = threat_type;
   resource.web_contents_getter =
       security_interstitials::UnsafeResource::GetWebContentsGetter(
-          web_contents->GetRenderProcessHost()->GetID(),
+          web_contents->GetMainFrame()->GetProcess()->GetID(),
           web_contents->GetMainFrame()->GetRoutingID());
-  resource.threat_source = safe_browsing::ThreatSource::LOCAL_PVER3;
+  resource.threat_source = g_browser_process->safe_browsing_service()
+                               ->database_manager()
+                               ->GetThreatSource();
 
   // Normally safebrowsing interstitial types which block the main page load
   // (SB_THREAT_TYPE_URL_MALWARE, SB_THREAT_TYPE_URL_PHISHING, and
@@ -366,7 +398,7 @@ CaptivePortalBlockingPage* CreateCaptivePortalBlockingPage(
 }
 #endif
 
-} //  namespace
+}  //  namespace
 
 InterstitialUI::InterstitialUI(content::WebUI* web_ui)
     : WebUIController(web_ui) {
@@ -390,7 +422,7 @@ std::string InterstitialHTMLSource::GetSource() const {
 
 std::string InterstitialHTMLSource::GetContentSecurityPolicyScriptSrc() const {
   // 'unsafe-inline' is added to script-src.
-  return "script-src chrome://resources 'self' 'unsafe-eval' 'unsafe-inline';";
+  return "script-src chrome://resources 'self' 'unsafe-inline';";
 }
 
 std::string InterstitialHTMLSource::GetContentSecurityPolicyStyleSrc() const {
@@ -413,30 +445,32 @@ void InterstitialHTMLSource::StartDataRequest(
   }
   std::unique_ptr<content::InterstitialPageDelegate> interstitial_delegate;
   std::string html;
-  if (base::StartsWith(path, "ssl", base::CompareCase::SENSITIVE)) {
+  // Using this form of the path so we can do exact matching, while ignoring the
+  // query (everything after the ? character).
+  GURL url =
+      GURL(chrome::kChromeUIInterstitialURL).GetWithEmptyPath().Resolve(path);
+  std::string path_without_query = url.path();
+  if (path_without_query == "/ssl") {
     interstitial_delegate.reset(
         CreateSSLBlockingPage(web_contents, false /* is superfish */));
-  } else if (base::StartsWith(path, "superfish-ssl",
-                              base::CompareCase::SENSITIVE)) {
+  } else if (path_without_query == "/superfish-ssl") {
     interstitial_delegate.reset(
         CreateSSLBlockingPage(web_contents, true /* is superfish */));
-  } else if (base::StartsWith(path, "safebrowsing",
-                              base::CompareCase::SENSITIVE)) {
+  } else if (path_without_query == "/mitm-software-ssl") {
+    interstitial_delegate.reset(CreateMITMSoftwareBlockingPage(web_contents));
+  } else if (path_without_query == "/safebrowsing") {
     interstitial_delegate.reset(CreateSafeBrowsingBlockingPage(web_contents));
-  } else if (base::StartsWith(path, "clock", base::CompareCase::SENSITIVE)) {
+  } else if (path_without_query == "/clock") {
     interstitial_delegate.reset(CreateBadClockBlockingPage(web_contents));
-  }
 #if BUILDFLAG(ENABLE_CAPTIVE_PORTAL_DETECTION)
-  else if (base::StartsWith(path, "captiveportal",
-                            base::CompareCase::SENSITIVE))
-  {
+  } else if (path_without_query == "/captiveportal") {
     interstitial_delegate.reset(CreateCaptivePortalBlockingPage(web_contents));
-  }
 #endif
-  if (base::StartsWith(path, "supervised_user", base::CompareCase::SENSITIVE)) {
+  }
+
+  if (path_without_query == "/supervised_user") {
     html = GetSupervisedUserInterstitialHTML(path);
-  } else if (base::StartsWith(path, "quietsafebrowsing",
-                              base::CompareCase::SENSITIVE)) {
+  } else if (path_without_query == "/quietsafebrowsing") {
     TestSafeBrowsingBlockingPageQuiet* blocking_page =
         CreateSafeBrowsingQuietBlockingPage(web_contents);
     interstitial_delegate.reset(blocking_page);
@@ -444,7 +478,7 @@ void InterstitialHTMLSource::StartDataRequest(
   } else if (interstitial_delegate.get()) {
     html = interstitial_delegate.get()->GetHTMLContents();
   } else {
-    html = ResourceBundle::GetSharedInstance()
+    html = ui::ResourceBundle::GetSharedInstance()
                .GetRawDataResource(IDR_SECURITY_INTERSTITIAL_UI_HTML)
                .as_string();
   }

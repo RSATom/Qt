@@ -149,16 +149,16 @@ class HookManager {
                           co_create_instance_padded_address_);
       return;
     } else if (format == HotpatchPlaceholderFormat::EXTERNALLY_PATCHED) {
-      // TODO(robliao): Make this crash after resolving http://crbug.com/737090.
       hotpatch_placeholder_format_ = format;
-      DLOG(WARNING)
-          << "CoCreateInstance appears to be previously patched. Skipping. ("
-          << FirstSevenBytesToString(co_create_instance_padded_address_) << ")";
+      NOTREACHED() << "CoCreateInstance appears to be previously patched. ("
+                   << FirstSevenBytesToString(
+                          co_create_instance_padded_address_)
+                   << ")";
       return;
     }
 
-    uint32_t dchecked_co_create_instance_address = reinterpret_cast<uint32_t>(
-        static_cast<void*>(&HookManager::DCheckedCoCreateInstance));
+    uint32_t dchecked_co_create_instance_address =
+        reinterpret_cast<uint32_t>(&HookManager::DCheckedCoCreateInstance);
     uint32_t jmp_offset_base_address = co_create_instance_padded_address_ + 5;
     StructuredHotpatch structured_hotpatch;
     structured_hotpatch.relative_address =

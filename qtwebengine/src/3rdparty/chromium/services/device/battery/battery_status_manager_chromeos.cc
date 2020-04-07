@@ -127,7 +127,7 @@ class BatteryStatusManagerChromeOS
  public:
   explicit BatteryStatusManagerChromeOS(
       const BatteryStatusService::BatteryUpdateCallback& callback)
-      : observer_(new PowerManagerObserver(callback)) {}
+      : observer_(base::MakeRefCounted<PowerManagerObserver>(callback)) {}
 
   ~BatteryStatusManagerChromeOS() override { observer_->Stop(); }
 
@@ -150,8 +150,7 @@ class BatteryStatusManagerChromeOS
 // static
 std::unique_ptr<BatteryStatusManager> BatteryStatusManager::Create(
     const BatteryStatusService::BatteryUpdateCallback& callback) {
-  return std::unique_ptr<BatteryStatusManager>(
-      new BatteryStatusManagerChromeOS(callback));
+  return std::make_unique<BatteryStatusManagerChromeOS>(callback);
 }
 
 }  // namespace device

@@ -29,7 +29,10 @@
  *   networkListItemConnected: string,
  *   networkListItemConnecting: string,
  *   networkListItemConnectingTo: string,
+ *   networkListItemInitializing: string,
+ *   networkListItemScanning: string,
  *   networkListItemNotConnected: string,
+ *   networkListItemNoNetwork: string,
  *   vpnNameTemplate: string,
  * }}
  */
@@ -43,7 +46,7 @@ CrOnc.NetworkStateProperties;
 /** @typedef {chrome.networkingPrivate.ManagedProperties} */
 CrOnc.NetworkProperties;
 
-/** @typedef {string|number|boolean|Object|Array<Object>} */
+/** @typedef {string|number|boolean|Array<string>|Object|Array<Object>} */
 CrOnc.NetworkPropertyType;
 
 /**
@@ -122,6 +125,18 @@ CrOnc.ProxySettingsType = chrome.networkingPrivate.ProxySettingsType;
 CrOnc.Type = chrome.networkingPrivate.NetworkType;
 
 /** @enum {string} */
+CrOnc.Authentication = {
+  NONE: 'None',
+  WEP_8021X: '8021X',
+};
+
+/** @enum {string} */
+CrOnc.IPsecAuthenticationType = {
+  CERT: 'Cert',
+  PSK: 'PSK',
+};
+
+/** @enum {string} */
 CrOnc.IPType = {
   IPV4: 'IPv4',
   IPV6: 'IPv6',
@@ -184,6 +199,22 @@ CrOnc.Source = {
   ACTIVE_EXTENSION: 'ActiveExtension',
 };
 
+/** @enum {string} */
+CrOnc.UserAuthenticationType = {
+  NONE: 'None',
+  OTP: 'OTP',
+  PASSWORD: 'Password',
+  PASSWORD_AND_OTP: 'PasswordAndOTP',
+};
+
+/** @enum {string} */
+CrOnc.VPNType = {
+  L2TP_IPSEC: 'L2TP-IPsec',
+  OPEN_VPN: 'OpenVPN',
+  THIRD_PARTY_VPN: 'ThirdPartyVPN',
+  ARCVPN: 'ARCVPN',
+};
+
 /**
  * Helper function to retrieve the active ONC property value from a managed
  * dictionary.
@@ -196,7 +227,7 @@ CrOnc.getActiveValue = function(property) {
   if (property == undefined)
     return undefined;
 
-  if (typeof property != 'object') {
+  if (typeof property != 'object' || Array.isArray(property)) {
     console.error(
         'getActiveValue called on non object: ' + JSON.stringify(property));
     return undefined;
@@ -277,16 +308,19 @@ CrOnc.getSimpleActiveProperties = function(properties) {
 CrOnc.getIPConfigForType = function(properties, type) {
   'use strict';
   /** @type {!CrOnc.IPConfigProperties|undefined} */ var ipConfig = undefined;
+  /** @type {!CrOnc.IPType|undefined} */ var ipType = undefined;
   var ipConfigs = properties.IPConfigs;
   if (ipConfigs) {
     for (var i = 0; i < ipConfigs.length; ++i) {
       ipConfig = ipConfigs[i];
-      if (ipConfig.Type == type)
+      ipType = ipConfig.Type ? /** @type {CrOnc.IPType} */ (ipConfig.Type) :
+                               undefined;
+      if (ipType == type)
         break;
     }
   }
   if (type != CrOnc.IPType.IPV4)
-    return ipConfig;
+    return type == ipType ? ipConfig : undefined;
 
   var staticIpConfig =
       /** @type {!CrOnc.IPConfigProperties|undefined} */ (
@@ -391,6 +425,15 @@ CrOnc.getNetworkName = function(properties) {
 
 /**
  * @param {!CrOnc.NetworkProperties|!CrOnc.NetworkStateProperties|undefined}
+ *     properties The ONC network properties or state properties.
+ * @return {string} The name to display for |network|.
+ */
+CrOnc.getEscapedNetworkName = function(properties) {
+  return HTMLEscape(CrOnc.getNetworkName(properties));
+};
+
+/**
+ * @param {!CrOnc.NetworkProperties|!CrOnc.NetworkStateProperties|undefined}
  *   properties The ONC network properties or state properties.
  * @return {boolean} True if |properties| is a Cellular network with a
  *   locked SIM.
@@ -456,7 +499,8 @@ CrOnc.setValidStaticIPConfig = function(config, properties) {
  * @param {!chrome.networkingPrivate.NetworkConfigProperties} properties
  *     The ONC property dictionary to modify.
  * @param {string} key The property key which may be nested, e.g. 'Foo.Bar'.
- * @param {!CrOnc.NetworkPropertyType} value The property value to set.
+ * @param {!CrOnc.NetworkPropertyType|undefined} value The property value to
+ *     set. If undefined the property will be removed.
  */
 CrOnc.setProperty = function(properties, key, value) {
   while (true) {
@@ -469,7 +513,10 @@ CrOnc.setProperty = function(properties, key, value) {
     properties = properties[keyComponent];
     key = key.substr(index + 1);
   }
-  properties[key] = value;
+  if (value === undefined)
+    delete properties[key];
+  else
+    properties[key] = value;
 };
 
 /**
@@ -477,7 +524,8 @@ CrOnc.setProperty = function(properties, key, value) {
  * @param {!chrome.networkingPrivate.NetworkConfigProperties} properties The
  *     ONC properties to set. properties.Type must be set already.
  * @param {string} key The type property key, e.g. 'AutoConnect'.
- * @param {!CrOnc.NetworkPropertyType} value The property value to set.
+ * @param {!CrOnc.NetworkPropertyType|undefined} value The property value to
+ *     set. If undefined the property will be removed.
  */
 CrOnc.setTypeProperty = function(properties, key, value) {
   if (properties.Type == undefined) {

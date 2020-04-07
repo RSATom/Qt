@@ -3,7 +3,7 @@
 #
 
 
-# Copyright 1996-2017 by
+# Copyright 1996-2018 by
 # David Turner, Robert Wilhelm, and Werner Lemberg.
 #
 # This file is part of the FreeType project, and may only be used, modified,
@@ -28,8 +28,7 @@ PSNAMES_COMPILE := $(CC) $(ANSIFLAGS)                                \
 
 # PSNames driver sources (i.e., C files)
 #
-PSNAMES_DRV_SRC := $(PSNAMES_DIR)/psmodule.c \
-                   $(PSNAMES_DIR)/pspic.c
+PSNAMES_DRV_SRC := $(PSNAMES_DIR)/psmodule.c
 
 
 # PSNames driver headers

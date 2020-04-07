@@ -49,9 +49,13 @@
 #include <QtCore/QFile>
 #include <QtCore/QDebug>
 #include <QtCore/QHash>
+#if QT_CONFIG(mimetype)
 #include <QtCore/QMimeDatabase>
+#endif
 #include <QtCore/QLoggingCategory>
+#if QT_CONFIG(settings)
 #include <QtCore/QSettings>
+#endif
 #include <QtCore/QVariant>
 #include <QtCore/QStandardPaths>
 #include <QtCore/QStringList>
@@ -178,6 +182,12 @@ QStringList QGenericUnixTheme::xdgIconThemePaths()
             paths.append(xdgIconsDir.absoluteFilePath());
     }
 
+    return paths;
+}
+
+QStringList QGenericUnixTheme::iconFallbackPaths()
+{
+    QStringList paths;
     const QFileInfo pixmapsIconsDir(QStringLiteral("/usr/share/pixmaps"));
     if (pixmapsIconsDir.isDir())
         paths.append(pixmapsIconsDir.absoluteFilePath());
@@ -199,7 +209,7 @@ QPlatformSystemTrayIcon *QGenericUnixTheme::createPlatformSystemTrayIcon() const
 {
     if (isDBusTrayAvailable())
         return new QDBusTrayIcon();
-    return Q_NULLPTR;
+    return nullptr;
 }
 #endif
 
@@ -210,6 +220,8 @@ QVariant QGenericUnixTheme::themeHint(ThemeHint hint) const
         return QVariant(QString(QStringLiteral("hicolor")));
     case QPlatformTheme::IconThemeSearchPaths:
         return xdgIconThemePaths();
+    case QPlatformTheme::IconFallbackSearchPaths:
+        return iconFallbackPaths();
     case QPlatformTheme::DialogButtonBoxButtonsHaveIcons:
         return QVariant(true);
     case QPlatformTheme::StyleNames: {
@@ -251,7 +263,7 @@ static QIcon xdgFileIcon(const QFileInfo &fileInfo)
 }
 #endif
 
-#ifndef QT_NO_SETTINGS
+#if QT_CONFIG(settings)
 class QKdeThemePrivate : public QPlatformThemePrivate
 {
 public:
@@ -674,11 +686,11 @@ QPlatformSystemTrayIcon *QKdeTheme::createPlatformSystemTrayIcon() const
 {
     if (isDBusTrayAvailable())
         return new QDBusTrayIcon();
-    return Q_NULLPTR;
+    return nullptr;
 }
 #endif
 
-#endif // QT_NO_SETTINGS
+#endif // settings
 
 /*!
     \class QGnomeTheme
@@ -693,7 +705,7 @@ const char *QGnomeTheme::name = "gnome";
 class QGnomeThemePrivate : public QPlatformThemePrivate
 {
 public:
-    QGnomeThemePrivate() : systemFont(Q_NULLPTR), fixedFont(Q_NULLPTR) {}
+    QGnomeThemePrivate() : systemFont(nullptr), fixedFont(nullptr) {}
     ~QGnomeThemePrivate() { delete systemFont; delete fixedFont; }
 
     void configureFonts(const QString &gtkFontName) const
@@ -793,7 +805,7 @@ QPlatformSystemTrayIcon *QGnomeTheme::createPlatformSystemTrayIcon() const
 {
     if (isDBusTrayAvailable())
         return new QDBusTrayIcon();
-    return Q_NULLPTR;
+    return nullptr;
 }
 #endif
 
@@ -824,14 +836,14 @@ QPlatformTheme *QGenericUnixTheme::createUnixTheme(const QString &name)
 {
     if (name == QLatin1String(QGenericUnixTheme::name))
         return new QGenericUnixTheme;
-#ifndef QT_NO_SETTINGS
+#if QT_CONFIG(settings)
     if (name == QLatin1String(QKdeTheme::name))
         if (QPlatformTheme *kdeTheme = QKdeTheme::createKdeTheme())
             return kdeTheme;
 #endif
     if (name == QLatin1String(QGnomeTheme::name))
         return new QGnomeTheme;
-    return Q_NULLPTR;
+    return nullptr;
 }
 
 QStringList QGenericUnixTheme::themeNames()
@@ -849,7 +861,7 @@ QStringList QGenericUnixTheme::themeNames()
         const QList<QByteArray> desktopNames = desktopEnvironment.split(':');
         for (const QByteArray &desktopName : desktopNames) {
             if (desktopEnvironment == "KDE") {
-#ifndef QT_NO_SETTINGS
+#if QT_CONFIG(settings)
                 result.push_back(QLatin1String(QKdeTheme::name));
 #endif
             } else if (gtkBasedEnvironments.contains(desktopName)) {

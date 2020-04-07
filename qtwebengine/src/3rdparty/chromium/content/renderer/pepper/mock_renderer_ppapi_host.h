@@ -39,7 +39,6 @@ class MockRendererPpapiHost : public RendererPpapiHost {
   RenderView* GetRenderViewForInstance(PP_Instance instance) const override;
   blink::WebPluginContainer* GetContainerForInstance(
       PP_Instance instance) const override;
-  base::ProcessId GetPluginPID() const override;
   bool HasUserGesture(PP_Instance instance) const override;
   int GetRoutingIDForWidget(PP_Instance instance) const override;
   gfx::Point PluginPointToRenderFrame(PP_Instance instance,
@@ -49,6 +48,10 @@ class MockRendererPpapiHost : public RendererPpapiHost {
       bool should_close_source) override;
   base::SharedMemoryHandle ShareSharedMemoryHandleWithRemote(
       const base::SharedMemoryHandle& handle) override;
+  base::UnsafeSharedMemoryRegion ShareUnsafeSharedMemoryRegionWithRemote(
+      const base::UnsafeSharedMemoryRegion& region) override;
+  base::ReadOnlySharedMemoryRegion ShareReadOnlySharedMemoryRegionWithRemote(
+      const base::ReadOnlySharedMemoryRegion& region) override;
   bool IsRunningInProcess() const override;
   std::string GetPluginName() const override;
   void SetToExternalPluginHost() override;

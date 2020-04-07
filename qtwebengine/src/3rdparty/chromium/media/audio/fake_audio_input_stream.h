@@ -13,8 +13,8 @@
 #include "base/callback_forward.h"
 #include "base/macros.h"
 #include "media/audio/audio_io.h"
-#include "media/audio/fake_audio_worker.h"
 #include "media/base/audio_parameters.h"
+#include "media/base/fake_audio_worker.h"
 
 namespace media {
 
@@ -41,6 +41,7 @@ class MEDIA_EXPORT FakeAudioInputStream
   bool IsMuted() override;
   bool SetAutomaticGainControl(bool enabled) override;
   bool GetAutomaticGainControl() override;
+  void SetOutputDeviceForAec(const std::string& output_device_id) override;
 
   // Generate one beep sound. This method is called by FakeVideoCaptureDevice to
   // test audio/video synchronization. This is a static method because

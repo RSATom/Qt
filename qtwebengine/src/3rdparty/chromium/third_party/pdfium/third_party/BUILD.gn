@@ -3,6 +3,8 @@
 # found in the LICENSE file.
 
 import("//build/config/arm.gni")
+import("//build/config/jumbo.gni")
+import("//build/config/linux/pkg_config.gni")
 import("//build_overrides/build.gni")
 import("../pdfium.gni")
 
@@ -10,6 +12,7 @@ group("third_party") {
   deps = [
     ":bigint",
     ":pdfium_base",
+    ":skia_shared",
   ]
   if (pdf_bundle_freetype) {
     deps += [ ":fx_freetype" ]
@@ -74,7 +77,7 @@ if (pdf_bundle_freetype) {
 
   # Tests may link against this even if the production library doesn't,
   # so it needs to be separate from it.
-  static_library("fx_freetype") {
+  jumbo_static_library("fx_freetype") {
     configs -= [ "//build/config/compiler:chromium_code" ]
     configs += [
       "//build/config/compiler:no_chromium_code",
@@ -88,6 +91,7 @@ if (pdf_bundle_freetype) {
 
     defines = [ "FT2_BUILD_LIBRARY" ]
     sources = [
+      "//third_party/freetype/include/pstables.h",
       "//third_party/freetype/src/include/freetype/config/ftconfig.h",
       "//third_party/freetype/src/include/freetype/config/ftheader.h",
       "//third_party/freetype/src/include/freetype/config/ftstdlib.h",
@@ -97,6 +101,7 @@ if (pdf_bundle_freetype) {
       "//third_party/freetype/src/include/freetype/ftcffdrv.h",
       "//third_party/freetype/src/include/freetype/fterrdef.h",
       "//third_party/freetype/src/include/freetype/fterrors.h",
+      "//third_party/freetype/src/include/freetype/ftfntfmt.h",
       "//third_party/freetype/src/include/freetype/ftglyph.h",
       "//third_party/freetype/src/include/freetype/ftgzip.h",
       "//third_party/freetype/src/include/freetype/ftimage.h",
@@ -160,7 +165,6 @@ if (pdf_bundle_freetype) {
       "//third_party/freetype/src/src/base/ftbitmap.c",
       "//third_party/freetype/src/src/base/ftglyph.c",
       "//third_party/freetype/src/src/base/ftinit.c",
-      "//third_party/freetype/src/src/base/ftlcdfil.c",
       "//third_party/freetype/src/src/base/ftmm.c",
       "//third_party/freetype/src/src/base/ftsystem.c",
       "//third_party/freetype/src/src/cff/cff.c",
@@ -178,9 +182,7 @@ if (pdf_bundle_freetype) {
     ]
     if (pdf_use_skia || pdf_use_skia_paths) {
       sources += [
-        "//third_party/freetype/src/include/freetype/ftfntfmt.h",
         "//third_party/freetype/src/include/freetype/ftsynth.h",
-        "//third_party/freetype/src/src/base/ftfntfmt.c",
         "//third_party/freetype/src/src/base/ftfstype.c",
         "//third_party/freetype/src/src/base/fttype1.c",
       ]
@@ -197,7 +199,7 @@ if (!pdf_use_skia && !pdf_use_skia_paths) {
     }
   }
 
-  static_library("fx_agg") {
+  jumbo_static_library("fx_agg") {
     configs -= [ "//build/config/compiler:chromium_code" ]
     configs += [
       "//build/config/compiler:no_chromium_code",
@@ -247,39 +249,41 @@ static_library("fx_lcms2") {
   configs -= [ "//build/config/compiler:chromium_code" ]
   configs += [
     "//build/config/compiler:no_chromium_code",
+    "//build/config/sanitizers:cfi_icall_generalize_pointers",
     ":pdfium_third_party_config",
 
     # Must be after no_chromium_code for warning flags to be ordered correctly.
     ":fx_lcms2_warnings",
   ]
   sources = [
-    "lcms2-2.6/include/lcms2.h",
-    "lcms2-2.6/include/lcms2_plugin.h",
-    "lcms2-2.6/src/cmscam02.c",
-    "lcms2-2.6/src/cmscgats.c",
-    "lcms2-2.6/src/cmscnvrt.c",
-    "lcms2-2.6/src/cmserr.c",
-    "lcms2-2.6/src/cmsgamma.c",
-    "lcms2-2.6/src/cmsgmt.c",
-    "lcms2-2.6/src/cmshalf.c",
-    "lcms2-2.6/src/cmsintrp.c",
-    "lcms2-2.6/src/cmsio0.c",
-    "lcms2-2.6/src/cmsio1.c",
-    "lcms2-2.6/src/cmslut.c",
-    "lcms2-2.6/src/cmsmd5.c",
-    "lcms2-2.6/src/cmsmtrx.c",
-    "lcms2-2.6/src/cmsnamed.c",
-    "lcms2-2.6/src/cmsopt.c",
-    "lcms2-2.6/src/cmspack.c",
-    "lcms2-2.6/src/cmspcs.c",
-    "lcms2-2.6/src/cmsplugin.c",
-    "lcms2-2.6/src/cmsps2.c",
-    "lcms2-2.6/src/cmssamp.c",
-    "lcms2-2.6/src/cmssm.c",
-    "lcms2-2.6/src/cmstypes.c",
-    "lcms2-2.6/src/cmsvirt.c",
-    "lcms2-2.6/src/cmswtpnt.c",
-    "lcms2-2.6/src/cmsxform.c",
+    "lcms/include/lcms2.h",
+    "lcms/include/lcms2_plugin.h",
+    "lcms/src/cmsalpha.c",
+    "lcms/src/cmscam02.c",
+    "lcms/src/cmscgats.c",
+    "lcms/src/cmscnvrt.c",
+    "lcms/src/cmserr.c",
+    "lcms/src/cmsgamma.c",
+    "lcms/src/cmsgmt.c",
+    "lcms/src/cmshalf.c",
+    "lcms/src/cmsintrp.c",
+    "lcms/src/cmsio0.c",
+    "lcms/src/cmsio1.c",
+    "lcms/src/cmslut.c",
+    "lcms/src/cmsmd5.c",
+    "lcms/src/cmsmtrx.c",
+    "lcms/src/cmsnamed.c",
+    "lcms/src/cmsopt.c",
+    "lcms/src/cmspack.c",
+    "lcms/src/cmspcs.c",
+    "lcms/src/cmsplugin.c",
+    "lcms/src/cmsps2.c",
+    "lcms/src/cmssamp.c",
+    "lcms/src/cmssm.c",
+    "lcms/src/cmstypes.c",
+    "lcms/src/cmsvirt.c",
+    "lcms/src/cmswtpnt.c",
+    "lcms/src/cmsxform.c",
   ]
 }
 
@@ -336,14 +340,15 @@ group("zlib") {
   }
 }
 
-config("system_lcms2_config") {
-  libs = [ "lcms2" ]
-  defines = [ "USE_SYSTEM_LCMS2" ]
+if (use_system_lcms2) {
+  pkg_config("lcms2_from_pkgconfig") {
+    defines = [ "USE_SYSTEM_LCMS2" ]
+    packages = [ "lcms2" ]
+  }
 }
-
 group("lcms2") {
   if (use_system_lcms2) {
-    public_configs = [ ":system_lcms2_config" ]
+    public_configs = [ ":lcms2_from_pkgconfig" ]
   } else {
     public_deps = [
       ":fx_lcms2",
@@ -365,6 +370,7 @@ static_library("fx_libopenjpeg") {
   configs -= [ "//build/config/compiler:chromium_code" ]
   configs += [
     "//build/config/compiler:no_chromium_code",
+    "//build/config/sanitizers:cfi_icall_generalize_pointers",
     ":pdfium_third_party_config",
 
     # Must be after no_chromium_code for warning flags to be ordered correctly.
@@ -385,15 +391,32 @@ static_library("fx_libopenjpeg") {
     "libopenjpeg20/openjpeg.c",
     "libopenjpeg20/opj_clock.c",
     "libopenjpeg20/pi.c",
-    "libopenjpeg20/raw.c",
+    "libopenjpeg20/sparse_array.c",
+    "libopenjpeg20/sparse_array.h",
     "libopenjpeg20/t1.c",
     "libopenjpeg20/t2.c",
     "libopenjpeg20/tcd.c",
     "libopenjpeg20/tgt.c",
+    "libopenjpeg20/thread.c",
   ]
 }
 
-static_library("fx_lpng") {
+config("system_libpng_config") {
+  libs = [ "png" ]
+  defines = [ "USE_SYSTEM_LIBPNG" ]
+}
+
+group("png") {
+  if (pdfium_use_system_libpng) {
+    public_configs = [ ":system_libpng_config" ]
+  } else {
+    public_deps = [
+      ":fx_lpng",
+    ]
+  }
+}
+
+jumbo_static_library("fx_lpng") {
   configs -= [ "//build/config/compiler:chromium_code" ]
   configs += [
     "//build/config/compiler:no_chromium_code",
@@ -512,7 +535,7 @@ if (pdf_enable_xfa) {
   }
 }
 
-source_set("pdfium_base") {
+jumbo_source_set("pdfium_base") {
   configs -= [ "//build/config/compiler:chromium_code" ]
   configs += [
     "//build/config/compiler:no_chromium_code",
@@ -531,16 +554,32 @@ source_set("pdfium_base") {
     "base/base_export.h",
     "base/bits.h",
     "base/compiler_specific.h",
+    "base/debug/alias.cc",
+    "base/debug/alias.h",
     "base/logging.h",
     "base/macros.h",
     "base/numerics/safe_conversions.h",
     "base/numerics/safe_conversions_impl.h",
     "base/numerics/safe_math.h",
     "base/numerics/safe_math_impl.h",
+    "base/optional.h",
     "base/ptr_util.h",
+    "base/span.h",
     "base/stl_util.h",
     "base/sys_byteorder.h",
     "base/template_util.h",
     "build/build_config.h",
+  ]
+}
+
+jumbo_source_set("skia_shared") {
+  configs -= [ "//build/config/compiler:chromium_code" ]
+  configs += [
+    "//build/config/compiler:no_chromium_code",
+    ":pdfium_third_party_config",
+  ]
+  sources = [
+    "skia_shared/SkFloatToDecimal.cpp",
+    "skia_shared/SkFloatToDecimal.h",
   ]
 }

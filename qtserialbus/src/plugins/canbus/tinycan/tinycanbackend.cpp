@@ -45,10 +45,13 @@
 #include <QtCore/qtimer.h>
 #include <QtCore/qmutex.h>
 #include <QtCore/qcoreevent.h>
+#include <QtCore/qloggingcategory.h>
 
 #include <algorithm>
 
 QT_BEGIN_NAMESPACE
+
+Q_DECLARE_LOGGING_CATEGORY(QT_CANBUS_PLUGINS_TINYCAN)
 
 #ifndef LINK_LIBMHSTCAN
 Q_GLOBAL_STATIC(QLibrary, mhstcanLibrary)
@@ -107,7 +110,7 @@ protected:
     }
 
 private:
-    TinyCanBackendPrivate *dptr;
+    TinyCanBackendPrivate * const dptr;
 };
 
 static int driverRefCount = 0;
@@ -353,7 +356,7 @@ void TinyCanBackendPrivate::startWrite()
     ::memset(&message, 0, sizeof(message));
 
     if (Q_UNLIKELY(payload.size() > int(sizeof(message.Data.Bytes)))) {
-        qWarning("Can not write frame with payload size %d, ignored", payload.size());
+        qCWarning(QT_CANBUS_PLUGINS_TINYCAN, "Cannot write frame with payload size %d.", payload.size());
     } else {
         message.Id = frame.frameId();
         message.Flags.Flag.Len = payload.size();
@@ -401,7 +404,7 @@ void TinyCanBackendPrivate::startRead()
                 q->setError(systemErrorString(ret), QCanBusDevice::CanBusError::ReadError);
             } else {
                 if (status.CanStatus == CAN_STATUS_BUS_OFF) {
-                    qWarning("CAN bus is in off state, trying to reset the bus");
+                    qCWarning(QT_CANBUS_PLUGINS_TINYCAN, "CAN bus is in off state, trying to reset the bus.");
                     if (::CanSetMode(channelIndex, OP_CAN_RESET, CAN_CMD_NONE) < 0)
                         q->setError(systemErrorString(ret), QCanBusDevice::CanBusError::ReadError);
                 }
@@ -517,8 +520,8 @@ bool TinyCanBackend::open()
             const QVariant param = configurationParameter(key);
             const bool success = d->setConfigurationParameter(key, param);
             if (Q_UNLIKELY(!success)) {
-                qWarning("Cannot apply parameter: %d with value: %ls",
-                         key, qUtf16Printable(param.toString()));
+                qCWarning(QT_CANBUS_PLUGINS_TINYCAN, "Cannot apply parameter: %d with value: %ls.",
+                          key, qUtf16Printable(param.toString()));
             }
         }
     }
@@ -565,7 +568,7 @@ bool TinyCanBackend::writeFrame(const QCanBusFrame &newData)
     }
 
     // CAN FD frame format not supported at this stage
-    if (Q_UNLIKELY(newData.payload().size() > 8)) {
+    if (Q_UNLIKELY(newData.hasFlexibleDataRateFormat())) {
         setError(tr("CAN FD frame format not supported."), QCanBusDevice::WriteError);
         return false;
     }

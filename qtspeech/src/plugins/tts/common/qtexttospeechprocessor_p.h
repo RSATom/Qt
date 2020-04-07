@@ -66,7 +66,7 @@ public:
         QVoice::Age age;
     };
     QTextToSpeechProcessor();
-    ~QTextToSpeechProcessor();
+    ~QTextToSpeechProcessor() override;
     void say(const QString &text, int voiceId);
     void stop();
     void pause();
@@ -89,8 +89,8 @@ protected:
     // These methods can be used for audio output.
     // audioOutput() blocks until all the audio has been written or processing
     // is interrupted.
-    bool audioStart(int sampleRate, int channelCount, QString *errorString = 0);
-    bool audioOutput(const char* data, qint64 dataSize, QString *errorString = 0);
+    bool audioStart(int sampleRate, int channelCount, QString *errorString = nullptr);
+    bool audioOutput(const char* data, qint64 dataSize, QString *errorString = nullptr);
     void audioStop(bool abort = false);
 
     // These methods should be re-implemented if the parameters need
@@ -119,7 +119,7 @@ private:
     volatile bool m_paused;
     double m_rate;
     double m_pitch;
-    int m_volume;
+    double m_volume;
     QSemaphore m_speakSem;
     QString m_nextText;
     int m_nextVoice;

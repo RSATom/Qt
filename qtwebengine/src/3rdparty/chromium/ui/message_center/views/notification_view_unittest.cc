@@ -9,6 +9,7 @@
 #include "base/macros.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "third_party/skia/include/core/SkCanvas.h"
@@ -21,12 +22,12 @@
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/image/image.h"
+#include "ui/message_center/message_center.h"
 #include "ui/message_center/message_center_style.h"
-#include "ui/message_center/notification.h"
 #include "ui/message_center/notification_list.h"
-#include "ui/message_center/notification_types.h"
-#include "ui/message_center/views/constants.h"
-#include "ui/message_center/views/message_center_controller.h"
+#include "ui/message_center/public/cpp/message_center_constants.h"
+#include "ui/message_center/public/cpp/notification.h"
+#include "ui/message_center/public/cpp/notification_types.h"
 #include "ui/message_center/views/message_view_factory.h"
 #include "ui/message_center/views/notification_button.h"
 #include "ui/message_center/views/notification_control_buttons_view.h"
@@ -38,21 +39,15 @@
 #include "ui/views/test/widget_test.h"
 #include "ui/views/widget/widget_delegate.h"
 
+#if defined(OS_WIN)
+#include "ui/base/win/shell.h"
+#endif
+
 namespace message_center {
-
-// A test delegate used for tests that deal with the notification settings
-// button.
-class NotificationSettingsDelegate : public NotificationDelegate {
-  bool ShouldDisplaySettingsButton() override { return true; }
-
- private:
-  ~NotificationSettingsDelegate() override {}
-};
 
 /* Test fixture ***************************************************************/
 
-class NotificationViewTest : public views::ViewsTestBase,
-                             public MessageCenterController {
+class NotificationViewTest : public views::ViewsTestBase {
  public:
   NotificationViewTest();
   ~NotificationViewTest() override;
@@ -66,19 +61,6 @@ class NotificationViewTest : public views::ViewsTestBase,
   }
   Notification* notification() { return notification_.get(); }
   RichNotificationData* data() { return data_.get(); }
-
-  // Overridden from MessageCenterController:
-  void ClickOnNotification(const std::string& notification_id) override;
-  void RemoveNotification(const std::string& notification_id,
-                          bool by_user) override;
-  std::unique_ptr<ui::MenuModel> CreateMenuModel(
-      const NotifierId& notifier_id,
-      const base::string16& display_source) override;
-  bool HasClickedListener(const std::string& notification_id) override;
-  void ClickOnNotificationButton(const std::string& notification_id,
-                                 int button_index) override;
-  void ClickOnSettingsButton(const std::string& notification_id) override;
-  void UpdateNotificationSize(const std::string& notification_id) override;
 
  protected:
   // Used to fill bitmaps returned by CreateBitmap().
@@ -162,15 +144,17 @@ class NotificationViewTest : public views::ViewsTestBase,
     }
   }
 
-  PaddedButton* GetCloseButton() {
+  views::Button* GetCloseButton() {
     return notification_view()->control_buttons_view_->close_button();
   }
 
-  PaddedButton* GetSettingsButton() {
+  views::Button* GetSettingsButton() {
     return notification_view()->control_buttons_view_->settings_button();
   }
 
   void UpdateNotificationViews() {
+    MessageCenter::Get()->AddNotification(
+        std::make_unique<Notification>(*notification()));
     notification_view()->UpdateWithNotification(*notification());
   }
 
@@ -182,7 +166,7 @@ class NotificationViewTest : public views::ViewsTestBase,
   }
 
   bool IsRemoved(const std::string& notification_id) const {
-    return (removed_ids_.find(notification_id) != removed_ids_.end());
+    return !MessageCenter::Get()->FindVisibleNotificationById(notification_id);
   }
 
   void RemoveNotificationView() { notification_view_.reset(); }
@@ -208,8 +192,6 @@ class NotificationViewTest : public views::ViewsTestBase,
   }
 
  private:
-  std::set<std::string> removed_ids_;
-
   std::unique_ptr<RichNotificationData> data_;
   std::unique_ptr<Notification> notification_;
   std::unique_ptr<NotificationView> notification_view_;
@@ -225,6 +207,9 @@ NotificationViewTest::~NotificationViewTest() {
 
 void NotificationViewTest::SetUp() {
   views::ViewsTestBase::SetUp();
+
+  MessageCenter::Initialize();
+
   // Create a dummy notification.
   SkBitmap bitmap;
   data_.reset(new RichNotificationData());
@@ -238,8 +223,21 @@ void NotificationViewTest::SetUp() {
   notification_->set_image(CreateTestImage(320, 240));
 
   // Then create a new NotificationView with that single notification.
-  notification_view_.reset(static_cast<NotificationView*>(
-      MessageViewFactory::Create(this, *notification_, true)));
+  notification_view_.reset(new NotificationView(*notification_));
+
+  // It depends on platform whether shadows are added.
+  // See MessageViewFactory::Create.
+  bool is_nested = true;
+#if defined(OS_LINUX)
+  is_nested = false;
+#endif
+#if defined(OS_WIN)
+  if (!ui::win::IsAeroGlassEnabled())
+    is_nested = false;
+#endif
+  if (is_nested)
+    notification_view_->SetIsNested();
+
   notification_view_->set_owned_by_client();
 
   views::Widget::InitParams init_params(
@@ -255,50 +253,7 @@ void NotificationViewTest::TearDown() {
   widget()->Close();
   notification_view_.reset();
   views::ViewsTestBase::TearDown();
-}
-
-void NotificationViewTest::ClickOnNotification(
-    const std::string& notification_id) {
-  // For this test, this method should not be invoked.
-  NOTREACHED();
-}
-
-void NotificationViewTest::RemoveNotification(
-    const std::string& notification_id,
-    bool by_user) {
-  removed_ids_.insert(notification_id);
-}
-
-std::unique_ptr<ui::MenuModel> NotificationViewTest::CreateMenuModel(
-    const NotifierId& notifier_id,
-    const base::string16& display_source) {
-  // For this test, this method should not be invoked.
-  NOTREACHED();
-  return nullptr;
-}
-
-bool NotificationViewTest::HasClickedListener(
-    const std::string& notification_id) {
-  return true;
-}
-
-void NotificationViewTest::ClickOnNotificationButton(
-    const std::string& notification_id,
-    int button_index) {
-  // For this test, this method should not be invoked.
-  NOTREACHED();
-}
-
-void NotificationViewTest::ClickOnSettingsButton(
-    const std::string& notification_id) {
-  // For this test, this method should not be invoked.
-  NOTREACHED();
-}
-
-void NotificationViewTest::UpdateNotificationSize(
-    const std::string& notification_id) {
-  // For this test, this method should not be invoked.
-  NOTREACHED();
+  MessageCenter::Shutdown();
 }
 
 /* Unit tests *****************************************************************/
@@ -329,17 +284,15 @@ TEST_F(NotificationViewTest, CreateOrUpdateTest) {
 }
 
 TEST_F(NotificationViewTest, CreateOrUpdateTestSettingsButton) {
-  scoped_refptr<NotificationSettingsDelegate> delegate =
-      new NotificationSettingsDelegate();
-  Notification notf(NOTIFICATION_TYPE_BASE_FORMAT,
-                    std::string("notification id"), base::UTF8ToUTF16("title"),
-                    base::UTF8ToUTF16("message"), CreateTestImage(80, 80),
-                    base::UTF8ToUTF16("display source"),
-                    GURL("https://hello.com"),
-                    NotifierId(NotifierId::APPLICATION, "extension_id"),
-                    *data(), delegate.get());
+  data()->settings_button_handler = SettingsButtonHandler::INLINE;
+  Notification notification(
+      NOTIFICATION_TYPE_BASE_FORMAT, std::string("notification id"),
+      base::UTF8ToUTF16("title"), base::UTF8ToUTF16("message"),
+      CreateTestImage(80, 80), base::UTF8ToUTF16("display source"),
+      GURL("https://hello.com"),
+      NotifierId(NotifierId::APPLICATION, "extension_id"), *data(), nullptr);
 
-  notification_view()->UpdateWithNotification(notf);
+  notification_view()->UpdateWithNotification(notification);
   EXPECT_TRUE(NULL != notification_view()->title_view_);
   EXPECT_TRUE(NULL != notification_view()->message_view_);
   EXPECT_TRUE(NULL != notification_view()->context_message_view_);
@@ -463,7 +416,7 @@ TEST_F(NotificationViewTest, UpdateButtonsStateTest) {
   notification_view()->UpdateWithNotification(*notification());
   widget()->Show();
 
-  EXPECT_EQ(views::CustomButton::STATE_NORMAL,
+  EXPECT_EQ(views::Button::STATE_NORMAL,
             notification_view()->action_buttons_[0]->state());
 
   // Now construct a mouse move event 1 pixel inside the boundary of the action
@@ -475,12 +428,12 @@ TEST_F(NotificationViewTest, UpdateButtonsStateTest) {
                       ui::EventTimeForNow(), ui::EF_NONE, ui::EF_NONE);
   widget()->OnMouseEvent(&move);
 
-  EXPECT_EQ(views::CustomButton::STATE_HOVERED,
+  EXPECT_EQ(views::Button::STATE_HOVERED,
             notification_view()->action_buttons_[0]->state());
 
   notification_view()->UpdateWithNotification(*notification());
 
-  EXPECT_EQ(views::CustomButton::STATE_HOVERED,
+  EXPECT_EQ(views::Button::STATE_HOVERED,
             notification_view()->action_buttons_[0]->state());
 
   // Now construct a mouse move event 1 pixel outside the boundary of the
@@ -490,7 +443,7 @@ TEST_F(NotificationViewTest, UpdateButtonsStateTest) {
                         ui::EventTimeForNow(), ui::EF_NONE, ui::EF_NONE);
   widget()->OnMouseEvent(&move);
 
-  EXPECT_EQ(views::CustomButton::STATE_NORMAL,
+  EXPECT_EQ(views::Button::STATE_NORMAL,
             notification_view()->action_buttons_[0]->state());
 }
 
@@ -499,9 +452,9 @@ TEST_F(NotificationViewTest, UpdateButtonCountTest) {
   notification_view()->UpdateWithNotification(*notification());
   widget()->Show();
 
-  EXPECT_EQ(views::CustomButton::STATE_NORMAL,
+  EXPECT_EQ(views::Button::STATE_NORMAL,
             notification_view()->action_buttons_[0]->state());
-  EXPECT_EQ(views::CustomButton::STATE_NORMAL,
+  EXPECT_EQ(views::Button::STATE_NORMAL,
             notification_view()->action_buttons_[1]->state());
 
   // Now construct a mouse move event 1 pixel inside the boundary of the action
@@ -515,15 +468,15 @@ TEST_F(NotificationViewTest, UpdateButtonCountTest) {
       views::test::WidgetTest::GetEventSink(widget())->OnEventFromSource(&move);
   EXPECT_FALSE(details.dispatcher_destroyed);
 
-  EXPECT_EQ(views::CustomButton::STATE_HOVERED,
+  EXPECT_EQ(views::Button::STATE_HOVERED,
             notification_view()->action_buttons_[0]->state());
-  EXPECT_EQ(views::CustomButton::STATE_NORMAL,
+  EXPECT_EQ(views::Button::STATE_NORMAL,
             notification_view()->action_buttons_[1]->state());
 
   notification()->set_buttons(CreateButtons(1));
   notification_view()->UpdateWithNotification(*notification());
 
-  EXPECT_EQ(views::CustomButton::STATE_HOVERED,
+  EXPECT_EQ(views::Button::STATE_HOVERED,
             notification_view()->action_buttons_[0]->state());
   EXPECT_EQ(1u, notification_view()->action_buttons_.size());
 
@@ -534,25 +487,23 @@ TEST_F(NotificationViewTest, UpdateButtonCountTest) {
                         ui::EventTimeForNow(), ui::EF_NONE, ui::EF_NONE);
   widget()->OnMouseEvent(&move);
 
-  EXPECT_EQ(views::CustomButton::STATE_NORMAL,
+  EXPECT_EQ(views::Button::STATE_NORMAL,
             notification_view()->action_buttons_[0]->state());
 }
 
 TEST_F(NotificationViewTest, SettingsButtonTest) {
-  scoped_refptr<NotificationSettingsDelegate> delegate =
-      new NotificationSettingsDelegate();
-  Notification notf(NOTIFICATION_TYPE_BASE_FORMAT,
-                    std::string("notification id"), base::UTF8ToUTF16("title"),
-                    base::UTF8ToUTF16("message"), CreateTestImage(80, 80),
-                    base::UTF8ToUTF16("display source"),
-                    GURL("https://hello.com"),
-                    NotifierId(NotifierId::APPLICATION, "extension_id"),
-                    *data(), delegate.get());
+  data()->settings_button_handler = SettingsButtonHandler::INLINE;
+  Notification notf(
+      NOTIFICATION_TYPE_BASE_FORMAT, std::string("notification id"),
+      base::UTF8ToUTF16("title"), base::UTF8ToUTF16("message"),
+      CreateTestImage(80, 80), base::UTF8ToUTF16("display source"),
+      GURL("https://hello.com"),
+      NotifierId(NotifierId::APPLICATION, "extension_id"), *data(), nullptr);
   notification_view()->UpdateWithNotification(notf);
   widget()->Show();
 
   EXPECT_TRUE(NULL != GetSettingsButton());
-  EXPECT_EQ(views::CustomButton::STATE_NORMAL, GetSettingsButton()->state());
+  EXPECT_EQ(views::Button::STATE_NORMAL, GetSettingsButton()->state());
 
   // Now construct a mouse move event 1 pixel inside the boundary of the action
   // button.
@@ -565,7 +516,7 @@ TEST_F(NotificationViewTest, SettingsButtonTest) {
       views::test::WidgetTest::GetEventSink(widget())->OnEventFromSource(&move);
   EXPECT_FALSE(details.dispatcher_destroyed);
 
-  EXPECT_EQ(views::CustomButton::STATE_HOVERED, GetSettingsButton()->state());
+  EXPECT_EQ(views::Button::STATE_HOVERED, GetSettingsButton()->state());
 
   // Now construct a mouse move event 1 pixel outside the boundary of the
   // widget.
@@ -574,7 +525,7 @@ TEST_F(NotificationViewTest, SettingsButtonTest) {
                         ui::EventTimeForNow(), ui::EF_NONE, ui::EF_NONE);
   widget()->OnMouseEvent(&move);
 
-  EXPECT_EQ(views::CustomButton::STATE_NORMAL, GetSettingsButton()->state());
+  EXPECT_EQ(views::Button::STATE_NORMAL, GetSettingsButton()->state());
 }
 
 TEST_F(NotificationViewTest, ViewOrderingTest) {
@@ -611,10 +562,10 @@ TEST_F(NotificationViewTest, FormatContextMessageTest) {
       "veryveryveryveryveyryveryveryveryveryveyryveryvery.veryveryveyrylong."
       "chromium.org/hello";
 
-  Notification notification1(
-      NOTIFICATION_TYPE_BASE_FORMAT, std::string(""), base::UTF8ToUTF16(""),
-      base::UTF8ToUTF16(""), CreateTestImage(80, 80), base::UTF8ToUTF16(""),
-      GURL(), message_center::NotifierId(GURL()), *data(), NULL);
+  Notification notification1(NOTIFICATION_TYPE_BASE_FORMAT, std::string(""),
+                             base::UTF8ToUTF16(""), base::UTF8ToUTF16(""),
+                             CreateTestImage(80, 80), base::UTF8ToUTF16(""),
+                             GURL(), NotifierId(GURL()), *data(), NULL);
   notification1.set_context_message(base::ASCIIToUTF16(kRegularContextText));
 
   base::string16 result =
@@ -628,7 +579,7 @@ TEST_F(NotificationViewTest, FormatContextMessageTest) {
   Notification notification2(
       NOTIFICATION_TYPE_BASE_FORMAT, std::string(""), base::UTF8ToUTF16(""),
       base::UTF8ToUTF16(""), CreateTestImage(80, 80), base::UTF8ToUTF16(""),
-      GURL(kUrlContext), message_center::NotifierId(GURL()), *data(), NULL);
+      GURL(kUrlContext), NotifierId(GURL()), *data(), NULL);
   notification2.set_context_message(base::ASCIIToUTF16(""));
 
   result = notification_view()->FormatContextMessage(notification2);
@@ -639,7 +590,7 @@ TEST_F(NotificationViewTest, FormatContextMessageTest) {
   Notification notification3(
       NOTIFICATION_TYPE_BASE_FORMAT, std::string(""), base::UTF8ToUTF16(""),
       base::UTF8ToUTF16(""), CreateTestImage(80, 80), base::UTF8ToUTF16(""),
-      GURL(kChromeUrl), message_center::NotifierId(GURL()), *data(), NULL);
+      GURL(kChromeUrl), NotifierId(GURL()), *data(), NULL);
   notification3.set_context_message(base::ASCIIToUTF16(""));
   result = notification_view()->FormatContextMessage(notification3);
   EXPECT_TRUE(result.empty());
@@ -648,7 +599,7 @@ TEST_F(NotificationViewTest, FormatContextMessageTest) {
   Notification notification4(
       NOTIFICATION_TYPE_BASE_FORMAT, std::string(""), base::UTF8ToUTF16(""),
       base::UTF8ToUTF16(""), CreateTestImage(80, 80), base::UTF8ToUTF16(""),
-      GURL(kLongUrlContext), message_center::NotifierId(GURL()), *data(), NULL);
+      GURL(kLongUrlContext), NotifierId(GURL()), *data(), NULL);
   notification4.set_context_message(base::ASCIIToUTF16(""));
   result = notification_view()->FormatContextMessage(notification4);
 
@@ -693,7 +644,6 @@ TEST_F(NotificationViewTest, SlideOutNested) {
       ui::ScopedAnimationDurationScaleMode::ZERO_DURATION);
 
   UpdateNotificationViews();
-  notification_view()->SetIsNested();
   std::string notification_id = notification()->id();
 
   BeginScroll();
@@ -720,6 +670,7 @@ TEST_F(NotificationViewTest, SlideOutPinned) {
       ui::ScopedAnimationDurationScaleMode::ZERO_DURATION);
 
   notification()->set_pinned(true);
+  notification_view()->SetIsNested();
   UpdateNotificationViews();
   std::string notification_id = notification()->id();
 
@@ -731,11 +682,42 @@ TEST_F(NotificationViewTest, SlideOutPinned) {
   EXPECT_FALSE(IsRemoved(notification_id));
 }
 
-TEST_F(NotificationViewTest, Pinned) {
-  notification()->set_pinned(true);
+TEST_F(NotificationViewTest, PopupsCantPin) {
+  ui::ScopedAnimationDurationScaleMode zero_duration_scope(
+      ui::ScopedAnimationDurationScaleMode::ZERO_DURATION);
 
+  notification()->set_pinned(true);
   UpdateNotificationViews();
-  EXPECT_EQ(NULL, GetCloseButton());
+  std::string notification_id = notification()->id();
+
+  auto shown_as_popup = [](const std::string& notification_id) {
+    auto notifications = MessageCenter::Get()->GetPopupNotifications();
+    for (auto* notification : notifications) {
+      if (notification->id() == notification_id)
+        return true;
+    }
+    return false;
+  };
+
+  BeginScroll();
+  ScrollBy(-200);
+  EXPECT_FALSE(IsRemoved(notification_id));
+  EXPECT_TRUE(shown_as_popup(notification_id));
+  EXPECT_EQ(-200.f, GetNotificationSlideAmount());
+  EndScroll();
+  EXPECT_FALSE(IsRemoved(notification_id));
+  EXPECT_FALSE(shown_as_popup(notification_id));
+}
+
+TEST_F(NotificationViewTest, Pinned) {
+  // Notifications are popups by default (can't be pinned).
+  notification()->set_pinned(true);
+  UpdateNotificationViews();
+  EXPECT_TRUE(GetCloseButton());
+
+  notification_view()->SetIsNested();
+  UpdateNotificationViews();
+  EXPECT_FALSE(GetCloseButton());
 }
 
 #endif // defined(OS_CHROMEOS)

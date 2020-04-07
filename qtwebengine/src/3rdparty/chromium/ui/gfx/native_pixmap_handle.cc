@@ -4,11 +4,18 @@
 
 #include "ui/gfx/native_pixmap_handle.h"
 
-#if defined(OS_LINUX)
+#if defined(OS_LINUX) && !defined(TOOLKIT_QT)
+#include <drm_fourcc.h>
 #include "base/posix/eintr_wrapper.h"
 #endif
 
 namespace gfx {
+
+#if defined(OS_LINUX) && !defined(TOOLKIT_QT)
+static_assert(NativePixmapPlane::kNoModifier == DRM_FORMAT_MOD_INVALID,
+              "gfx::NativePixmapPlane::kNoModifier should be an alias for"
+              "DRM_FORMAT_MOD_INVALID");
+#endif
 
 NativePixmapPlane::NativePixmapPlane()
     : stride(0), offset(0), size(0), modifier(0) {}
@@ -29,7 +36,7 @@ NativePixmapHandle::NativePixmapHandle(const NativePixmapHandle& other) =
 
 NativePixmapHandle::~NativePixmapHandle() {}
 
-#if defined(OS_LINUX)
+#if defined(OS_LINUX) && !defined(TOOLKIT_QT)
 NativePixmapHandle CloneHandleForIPC(const NativePixmapHandle& handle) {
   NativePixmapHandle clone;
   std::vector<base::ScopedFD> scoped_fds;

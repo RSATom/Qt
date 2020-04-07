@@ -7,7 +7,6 @@
 #include <memory>
 
 #include "base/bind.h"
-#include "base/memory/ptr_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/values.h"
 #include "extensions/common/extension_api.h"
@@ -74,26 +73,25 @@ class DeclarativeEventTest : public APIBindingTest {
     APIBindingTest::SetUp();
 
     {
-      auto action1 = base::MakeUnique<ArgumentSpec>(ArgumentType::STRING);
+      auto action1 = std::make_unique<ArgumentSpec>(ArgumentType::STRING);
       action1->set_enum_values({"actionA"});
       type_refs_.AddSpec("action1", std::move(action1));
-      auto action2 = base::MakeUnique<ArgumentSpec>(ArgumentType::STRING);
+      auto action2 = std::make_unique<ArgumentSpec>(ArgumentType::STRING);
       action2->set_enum_values({"actionB"});
       type_refs_.AddSpec("action2", std::move(action2));
     }
 
     {
-      auto condition = base::MakeUnique<ArgumentSpec>(ArgumentType::OBJECT);
-      auto prop = base::MakeUnique<ArgumentSpec>(ArgumentType::STRING);
+      auto condition = std::make_unique<ArgumentSpec>(ArgumentType::OBJECT);
+      auto prop = std::make_unique<ArgumentSpec>(ArgumentType::STRING);
       ArgumentSpec::PropertiesMap props;
       props["url"] = std::move(prop);
       condition->set_properties(std::move(props));
       type_refs_.AddSpec("condition", std::move(condition));
     }
 
-    request_handler_ = base::MakeUnique<APIRequestHandler>(
+    request_handler_ = std::make_unique<APIRequestHandler>(
         base::Bind(&DeclarativeEventTest::OnRequest, base::Unretained(this)),
-        base::Bind(&RunFunctionOnGlobalAndIgnoreResult),
         APILastError(APILastError::GetParent(), binding::AddConsoleError()),
         nullptr);
   }

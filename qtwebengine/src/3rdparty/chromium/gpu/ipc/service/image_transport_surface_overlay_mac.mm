@@ -4,38 +4,19 @@
 
 #include "gpu/ipc/service/image_transport_surface_overlay_mac.h"
 
-#include <CoreGraphics/CoreGraphics.h>
-#include <IOSurface/IOSurface.h>
-#include <OpenGL/CGLRenderers.h>
-#include <OpenGL/CGLTypes.h>
-#include <OpenGL/gl.h>
-#include <stddef.h>
-
-#include <algorithm>
-
-// This type consistently causes problem on Mac, and needs to be dealt with
-// in a systemic way.
-// http://crbug.com/517208
-#ifndef GL_OES_EGL_image
-typedef void* GLeglImageOES;
-#endif
-
 #include "base/bind.h"
-#include "base/bind_helpers.h"
 #include "base/command_line.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/trace_event/trace_event.h"
+#include "gpu/command_buffer/common/swap_buffers_complete_params.h"
 #include "gpu/ipc/service/gpu_channel_manager.h"
 #include "gpu/ipc/service/gpu_channel_manager_delegate.h"
+#include "gpu/ipc/service/image_transport_surface_delegate.h"
 #include "ui/accelerated_widget_mac/ca_layer_tree_coordinator.h"
 #include "ui/accelerated_widget_mac/io_surface_context.h"
-#include "ui/base/cocoa/animation_utils.h"
 #include "ui/base/cocoa/remote_layer_api.h"
 #include "ui/base/ui_base_switches.h"
-#include "ui/gfx/geometry/rect_conversions.h"
-#include "ui/gfx/swap_result.h"
-#include "ui/gfx/transform.h"
 #include "ui/gl/ca_renderer_layer_params.h"
 #include "ui/gl/gl_context.h"
 #include "ui/gl/gl_fence.h"
@@ -52,9 +33,6 @@ void CheckGLErrors(const char* msg) {
   }
 }
 
-void IOSurfaceContextNoOp(scoped_refptr<ui::IOSurfaceContext>) {
-}
-
 }  // namespace
 
 namespace gpu {
@@ -64,7 +42,8 @@ ImageTransportSurfaceOverlayMac::ImageTransportSurfaceOverlayMac(
     : delegate_(delegate),
       use_remote_layer_api_(ui::RemoteLayerAPISupported()),
       scale_factor_(1),
-      gl_renderer_id_(0) {
+      gl_renderer_id_(0),
+      weak_ptr_factory_(this) {
   ui::GpuSwitchingManager::GetInstance()->AddObserver(this);
 
   static bool av_disabled_at_command_line =
@@ -83,18 +62,10 @@ ImageTransportSurfaceOverlayMac::ImageTransportSurfaceOverlayMac(
 
 ImageTransportSurfaceOverlayMac::~ImageTransportSurfaceOverlayMac() {
   ui::GpuSwitchingManager::GetInstance()->RemoveObserver(this);
-  if (delegate_.get()) {
-    delegate_->SetLatencyInfoCallback(
-        base::Callback<void(const std::vector<ui::LatencyInfo>&)>());
-  }
   Destroy();
 }
 
 bool ImageTransportSurfaceOverlayMac::Initialize(gl::GLSurfaceFormat format) {
-  delegate_->SetLatencyInfoCallback(
-      base::Bind(&ImageTransportSurfaceOverlayMac::SetLatencyInfo,
-                 base::Unretained(this)));
-
   // Create the CAContext to send this to the GPU process, and the layer for
   // the context.
   if (use_remote_layer_api_) {
@@ -102,85 +73,40 @@ bool ImageTransportSurfaceOverlayMac::Initialize(gl::GLSurfaceFormat format) {
     ca_context_.reset([
         [CAContext contextWithCGSConnection:connection_id options:@{}] retain]);
     [ca_context_ setLayer:ca_layer_tree_coordinator_->GetCALayerForDisplay()];
-
-    fullscreen_low_power_ca_context_.reset([
-        [CAContext contextWithCGSConnection:connection_id options:@{}] retain]);
-    [fullscreen_low_power_ca_context_ setLayer:
-        ca_layer_tree_coordinator_->GetFullscreenLowPowerLayerForDisplay()];
   }
   return true;
 }
 
+void ImageTransportSurfaceOverlayMac::PrepareToDestroy(bool have_context) {
+  if (!previous_frame_fence_)
+    return;
+  if (!have_context) {
+    // If we have no context, leak the GL objects, since we have no way to
+    // delete them.
+    DLOG(ERROR) << "Leaking GL fences.";
+    previous_frame_fence_.release();
+    return;
+  }
+  // Ensure we are using the context with which the fence was created.
+  DCHECK_EQ(fence_context_obj_, CGLGetCurrentContext());
+  CheckGLErrors("Before destroy fence");
+  previous_frame_fence_.reset();
+  CheckGLErrors("After destroy fence");
+}
+
 void ImageTransportSurfaceOverlayMac::Destroy() {
   ca_layer_tree_coordinator_.reset();
-  if (previous_frame_fence_) {
-    // Ensure we are using the context with which the fence was created.
-    gl::ScopedCGLSetCurrentContext scoped_set_current(fence_context_obj_);
-    CheckGLErrors("Before destroy fence");
-    previous_frame_fence_.reset();
-    CheckGLErrors("After destroy fence");
-  }
+  DCHECK(!previous_frame_fence_);
 }
 
 bool ImageTransportSurfaceOverlayMac::IsOffscreen() {
   return false;
 }
 
-void ImageTransportSurfaceOverlayMac::SetLatencyInfo(
-    const std::vector<ui::LatencyInfo>& latency_info) {
-  latency_info_.insert(latency_info_.end(), latency_info.begin(),
-                       latency_info.end());
-}
-
-void ImageTransportSurfaceOverlayMac::SendAcceleratedSurfaceBuffersSwapped(
-    CAContextID ca_context_id,
-    bool fullscreen_low_power_ca_context_valid,
-    CAContextID fullscreen_low_power_ca_context_id,
-    const gfx::ScopedRefCountedIOSurfaceMachPort& io_surface,
-    const gfx::Size& size,
-    float scale_factor,
-    std::vector<ui::LatencyInfo> latency_info) {
-  // TRACE_EVENT for gpu tests:
-  TRACE_EVENT_INSTANT2("test_gpu", "SwapBuffers", TRACE_EVENT_SCOPE_THREAD,
-                       "GLImpl", static_cast<int>(gl::GetGLImplementation()),
-                       "width", size.width());
-
-  SwapBuffersCompleteParams params;
-  params.ca_context_id = ca_context_id;
-  params.fullscreen_low_power_ca_context_valid =
-      fullscreen_low_power_ca_context_valid;
-  params.fullscreen_low_power_ca_context_id =
-      fullscreen_low_power_ca_context_id;
-  params.io_surface = io_surface;
-  params.pixel_size = size;
-  params.scale_factor = scale_factor;
-  params.latency_info = std::move(latency_info);
-  params.result = gfx::SwapResult::SWAP_ACK;
-
-  for (auto& query : ca_layer_in_use_queries_) {
-    gpu::TextureInUseResponse response;
-    response.texture = query.texture;
-    bool in_use = false;
-    gl::GLImageIOSurface* io_surface_image =
-        gl::GLImageIOSurface::FromGLImage(query.image.get());
-    if (io_surface_image) {
-      in_use = io_surface_image->CanCheckIOSurfaceIsInUse() &&
-               IOSurfaceIsInUse(io_surface_image->io_surface());
-    }
-    response.in_use = in_use;
-    params.in_use_responses.push_back(std::move(response));
-  }
-  ca_layer_in_use_queries_.clear();
-
-  delegate_->DidSwapBuffersComplete(std::move(params));
-}
-
-gfx::SwapResult ImageTransportSurfaceOverlayMac::SwapBuffersInternal(
-    const gfx::Rect& pixel_damage_rect) {
-  TRACE_EVENT0("gpu", "ImageTransportSurfaceOverlayMac::SwapBuffersInternal");
-
-  base::TimeTicks before_flush_time;
-  base::TimeTicks after_flush_before_commit_time;
+void ImageTransportSurfaceOverlayMac::ApplyBackpressure(
+    base::TimeTicks* before_flush_time,
+    base::TimeTicks* after_flush_before_commit_time) {
+  TRACE_EVENT0("gpu", "ImageTransportSurfaceOverlayMac::ApplyBackpressure");
 
   // If supported, use GLFence to ensure that we haven't gotten more than one
   // frame ahead of GL.
@@ -189,11 +115,18 @@ gfx::SwapResult ImageTransportSurfaceOverlayMac::SwapBuffersInternal(
 
     // If we have gotten more than one frame ahead of GL, wait for the previous
     // frame to complete.
+    bool fence_context_changed = true;
     if (previous_frame_fence_) {
+      fence_context_changed =
+          fence_context_obj_.get() != CGLGetCurrentContext();
       TRACE_EVENT0("gpu", "ClientWait");
 
       // Ensure we are using the context with which the fence was created.
-      gl::ScopedCGLSetCurrentContext scoped_set_current(fence_context_obj_);
+      base::Optional<gl::ScopedCGLSetCurrentContext> scoped_set_current;
+      if (fence_context_changed) {
+        TRACE_EVENT0("gpu", "SetCurrentContext");
+        scoped_set_current.emplace(fence_context_obj_);
+      }
 
       // While we could call GLFence::ClientWait, this performs a busy wait on
       // Mac, leading to high CPU usage. Instead we poll with a 1ms delay. This
@@ -203,23 +136,40 @@ gfx::SwapResult ImageTransportSurfaceOverlayMac::SwapBuffersInternal(
       // Note that on some platforms (10.9), fences appear to sometimes get
       // lost and will never pass. Add a 32ms timout to prevent these
       // situations from causing a GPU process hang. crbug.com/618075
-      int timeout_msec = 32;
-      while (!previous_frame_fence_->HasCompleted() && timeout_msec > 0) {
-        --timeout_msec;
-        base::PlatformThread::Sleep(base::TimeDelta::FromMilliseconds(1));
+      bool fence_completed = false;
+      for (int poll_iter = 0; !fence_completed && poll_iter < 32; ++poll_iter) {
+        if (poll_iter > 0) {
+          base::PlatformThread::Sleep(base::TimeDelta::FromMilliseconds(1));
+        }
+        {
+          TRACE_EVENT0("gpu", "GLFence::HasCompleted");
+          fence_completed = previous_frame_fence_->HasCompleted();
+        }
       }
-      if (!previous_frame_fence_->HasCompleted()) {
+      if (!fence_completed) {
+        TRACE_EVENT0("gpu", "Finish");
         // We timed out waiting for the above fence, just issue a glFinish.
         glFinish();
       }
+
+      // Ensure that the GLFence object be destroyed while its context is
+      // current, lest we crash.
+      // https://crbug.com/863817
+      previous_frame_fence_.reset();
     }
+    // Save the context that we will be using for the GLFence object we will
+    // create (or just leave the previously saved one, if it is unchanged).
+    if (fence_context_changed) {
+      fence_context_obj_.reset(CGLGetCurrentContext(),
+                               base::scoped_policy::RETAIN);
+    }
+    *before_flush_time = base::TimeTicks::Now();
 
-    before_flush_time = base::TimeTicks::Now();
-
-    // Create a fence for the current frame's work and save the context.
-    previous_frame_fence_.reset(gl::GLFence::Create());
-    fence_context_obj_.reset(CGLGetCurrentContext(),
-                             base::scoped_policy::RETAIN);
+    // Create a fence for the current frame's work.
+    {
+      TRACE_EVENT0("gpu", "Create GLFence");
+      previous_frame_fence_ = gl::GLFence::Create();
+    }
 
     // A glFlush is necessary to ensure correct content appears.
     {
@@ -228,9 +178,9 @@ gfx::SwapResult ImageTransportSurfaceOverlayMac::SwapBuffersInternal(
       CheckGLErrors("After fence/flush");
     }
 
-    after_flush_before_commit_time = base::TimeTicks::Now();
+    *after_flush_before_commit_time = base::TimeTicks::Now();
     UMA_HISTOGRAM_TIMES("GPU.IOSurface.GLFlushTime",
-                        after_flush_before_commit_time - before_flush_time);
+                        *after_flush_before_commit_time - *before_flush_time);
   } else {
     // GLFence isn't supported - issue a glFinish on each frame to ensure
     // there is backpressure from GL.
@@ -238,64 +188,106 @@ gfx::SwapResult ImageTransportSurfaceOverlayMac::SwapBuffersInternal(
     CheckGLErrors("Before finish");
     glFinish();
     CheckGLErrors("After finish");
-    after_flush_before_commit_time = base::TimeTicks::Now();
+    *after_flush_before_commit_time = base::TimeTicks::Now();
   }
+}
 
-  bool fullscreen_low_power_layer_valid = false;
+void ImageTransportSurfaceOverlayMac::BufferPresented(
+    const PresentationCallback& callback,
+    const gfx::PresentationFeedback& feedback) {
+  DCHECK(!callback.is_null());
+  callback.Run(feedback);
+  if (delegate_)
+    delegate_->BufferPresented(feedback);
+}
+
+gfx::SwapResult ImageTransportSurfaceOverlayMac::SwapBuffersInternal(
+    const gfx::Rect& pixel_damage_rect,
+    const PresentationCallback& callback) {
+  TRACE_EVENT0("gpu", "ImageTransportSurfaceOverlayMac::SwapBuffersInternal");
+
+  // Do a GL fence for flush to apply back-pressure before drawing.
+  base::TimeTicks before_flush_time;
+  base::TimeTicks after_flush_before_commit_time;
+  ApplyBackpressure(&before_flush_time, &after_flush_before_commit_time);
+
   {
     TRACE_EVENT0("gpu", "CommitPendingTreesToCA");
-    ca_layer_tree_coordinator_->CommitPendingTreesToCA(
-        pixel_damage_rect, &fullscreen_low_power_layer_valid);
+    ca_layer_tree_coordinator_->CommitPendingTreesToCA(pixel_damage_rect);
   }
 
   base::TimeTicks after_transaction_time = base::TimeTicks::Now();
   UMA_HISTOGRAM_TIMES("GPU.IOSurface.CATransactionTime",
                       after_transaction_time - after_flush_before_commit_time);
 
-  // Update the latency info to reflect the swap time.
-  for (auto& latency_info : latency_info_) {
-    latency_info.AddLatencyNumberWithTimestamp(
-        ui::INPUT_EVENT_GPU_SWAP_BUFFER_COMPONENT, 0, 0,
-        after_flush_before_commit_time, 1);
-    latency_info.AddLatencyNumberWithTimestamp(
-        ui::INPUT_EVENT_LATENCY_TERMINATED_FRAME_SWAP_COMPONENT, 0, 0,
-        after_flush_before_commit_time, 1);
+  // Populate the swap-complete parameters to send to the browser.
+  SwapBuffersCompleteParams params;
+  {
+    TRACE_EVENT_INSTANT2("test_gpu", "SwapBuffers", TRACE_EVENT_SCOPE_THREAD,
+                         "GLImpl", static_cast<int>(gl::GetGLImplementation()),
+                         "width", pixel_size_.width());
+    if (use_remote_layer_api_) {
+      params.ca_layer_params.ca_context_id = [ca_context_ contextId];
+    } else {
+      IOSurfaceRef io_surface =
+          ca_layer_tree_coordinator_->GetIOSurfaceForDisplay();
+      if (io_surface) {
+        params.ca_layer_params.io_surface_mach_port.reset(
+            IOSurfaceCreateMachPort(io_surface));
+      }
+    }
+    params.ca_layer_params.pixel_size = pixel_size_;
+    params.ca_layer_params.scale_factor = scale_factor_;
+    params.ca_layer_params.is_empty = false;
+    params.swap_response.swap_id = 0;  // Set later, in DecoderClient.
+    params.swap_response.result = gfx::SwapResult::SWAP_ACK;
+    // TODO(brianderson): Tie swap_start to before_flush_time.
+    params.swap_response.swap_start = after_flush_before_commit_time;
+    params.swap_response.swap_end = after_flush_before_commit_time;
+    for (auto& query : ca_layer_in_use_queries_) {
+      gpu::TextureInUseResponse response;
+      response.texture = query.texture;
+      bool in_use = false;
+      gl::GLImageIOSurface* io_surface_image =
+          gl::GLImageIOSurface::FromGLImage(query.image.get());
+      if (io_surface_image) {
+        in_use = io_surface_image->CanCheckIOSurfaceIsInUse() &&
+                 IOSurfaceIsInUse(io_surface_image->io_surface());
+      }
+      response.in_use = in_use;
+      params.texture_in_use_responses.push_back(std::move(response));
+    }
+    ca_layer_in_use_queries_.clear();
   }
 
-  // Send acknowledgement to the browser.
-  CAContextID ca_context_id = 0;
-  CAContextID fullscreen_low_power_ca_context_id = 0;
-  gfx::ScopedRefCountedIOSurfaceMachPort io_surface_mach_port;
-  if (use_remote_layer_api_) {
-    ca_context_id = [ca_context_ contextId];
-    fullscreen_low_power_ca_context_id =
-        [fullscreen_low_power_ca_context_ contextId];
-  } else {
-    IOSurfaceRef io_surface =
-        ca_layer_tree_coordinator_->GetIOSurfaceForDisplay();
-    if (io_surface)
-      io_surface_mach_port.reset(IOSurfaceCreateMachPort(io_surface));
-  }
-  SendAcceleratedSurfaceBuffersSwapped(
-      ca_context_id, fullscreen_low_power_layer_valid,
-      fullscreen_low_power_ca_context_id, io_surface_mach_port, pixel_size_,
-      scale_factor_, std::move(latency_info_));
-
-  // Reset all state for the next frame.
-  latency_info_.clear();
+  // Send the swap parameters to the browser.
+  delegate_->DidSwapBuffersComplete(std::move(params));
+  constexpr int64_t kRefreshIntervalInMicroseconds =
+      base::Time::kMicrosecondsPerSecond / 60;
+  gfx::PresentationFeedback feedback(
+      base::TimeTicks::Now(),
+      base::TimeDelta::FromMicroseconds(kRefreshIntervalInMicroseconds),
+      0 /* flags */);
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE,
+      base::BindOnce(&ImageTransportSurfaceOverlayMac::BufferPresented,
+                     weak_ptr_factory_.GetWeakPtr(), callback, feedback));
   return gfx::SwapResult::SWAP_ACK;
 }
 
-gfx::SwapResult ImageTransportSurfaceOverlayMac::SwapBuffers() {
+gfx::SwapResult ImageTransportSurfaceOverlayMac::SwapBuffers(
+    const PresentationCallback& callback) {
   return SwapBuffersInternal(
-      gfx::Rect(0, 0, pixel_size_.width(), pixel_size_.height()));
+      gfx::Rect(0, 0, pixel_size_.width(), pixel_size_.height()), callback);
 }
 
-gfx::SwapResult ImageTransportSurfaceOverlayMac::PostSubBuffer(int x,
-                                                               int y,
-                                                               int width,
-                                                               int height) {
-  return SwapBuffersInternal(gfx::Rect(x, y, width, height));
+gfx::SwapResult ImageTransportSurfaceOverlayMac::PostSubBuffer(
+    int x,
+    int y,
+    int width,
+    int height,
+    const PresentationCallback& callback) {
+  return SwapBuffersInternal(gfx::Rect(x, y, width, height), callback);
 }
 
 bool ImageTransportSurfaceOverlayMac::SupportsPostSubBuffer() {
@@ -327,7 +319,9 @@ bool ImageTransportSurfaceOverlayMac::ScheduleOverlayPlane(
     gfx::OverlayTransform transform,
     gl::GLImage* image,
     const gfx::Rect& pixel_frame_rect,
-    const gfx::RectF& crop_rect) {
+    const gfx::RectF& crop_rect,
+    bool enable_blend,
+    std::unique_ptr<gfx::GpuFence> gpu_fence) {
   if (transform != gfx::OVERLAY_TRANSFORM_NONE) {
     DLOG(ERROR) << "Invalid overlay plane transform.";
     return false;
@@ -380,8 +374,13 @@ bool ImageTransportSurfaceOverlayMac::IsSurfaceless() const {
   return true;
 }
 
+bool ImageTransportSurfaceOverlayMac::SupportsPresentationCallback() {
+  return true;
+}
+
 bool ImageTransportSurfaceOverlayMac::Resize(const gfx::Size& pixel_size,
                                              float scale_factor,
+                                             ColorSpace color_space,
                                              bool has_alpha) {
   pixel_size_ = pixel_size;
   scale_factor_ = scale_factor;
@@ -408,7 +407,10 @@ void ImageTransportSurfaceOverlayMac::OnGpuSwitched() {
   // this is to avoid creating-then-destroying the context for every image
   // transport surface that is observing the GPU switch.
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::Bind(&IOSurfaceContextNoOp, context_on_new_gpu));
+      FROM_HERE,
+      base::Bind(
+          base::DoNothing::Repeatedly<scoped_refptr<ui::IOSurfaceContext>>(),
+          context_on_new_gpu));
 }
 
 }  // namespace gpu

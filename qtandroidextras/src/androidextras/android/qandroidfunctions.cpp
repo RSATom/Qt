@@ -211,7 +211,7 @@ void QtAndroid::startIntentSender(const QAndroidJniObject &intentSender,
                                   0); // extraFlags
     } else {
         activity.callMethod<void>("startIntentSender",
-                                  "(Landroid/content/Intent;Landroid/content/Intent;III)V",
+                                  "(Landroid/content/IntentSender;Landroid/content/Intent;III)V",
                                   intentSender.object<jobject>(),
                                   0,  // fillInIntent
                                   0,  // flagsMask

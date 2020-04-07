@@ -72,6 +72,9 @@
 #  endif
 #endif
 
+#include <qpa/qplatforminputcontextfactory_p.h>
+#include <qpa/qplatforminputcontext.h>
+
 #include "private/qgenericunixfontdatabase_p.h"
 #include "private/qgenericunixeventdispatcher_p.h"
 
@@ -88,7 +91,10 @@
 #include <private/qsimpledrag_p.h>
 
 #include <QtCore/QDebug>
-
+#include <QtCore/QJsonDocument>
+#include <QtCore/QJsonObject>
+#include <QtCore/QJsonArray>
+#include <QtCore/QFile>
 #include <errno.h>
 
 #if defined(QQNXINTEGRATION_DEBUG)
@@ -99,8 +105,7 @@
 
 QT_BEGIN_NAMESPACE
 
-QQnxWindowMapper QQnxIntegration::ms_windowMapper;
-QMutex QQnxIntegration::ms_windowMapperMutex;
+QQnxIntegration *QQnxIntegration::ms_instance;
 
 static inline QQnxIntegration::Options parseOptions(const QStringList &paramList)
 {
@@ -117,7 +122,27 @@ static inline QQnxIntegration::Options parseOptions(const QStringList &paramList
         options |= QQnxIntegration::RootWindow;
     }
 
+    if (!paramList.contains(QLatin1String("disable-EGL_KHR_surfaceless_context"))) {
+        options |= QQnxIntegration::SurfacelessEGLContext;
+    }
+
     return options;
+}
+
+static inline int getContextCapabilities(const QStringList &paramList)
+{
+    QString contextCapabilitiesPrefix = QStringLiteral("screen-context-capabilities=");
+    int contextCapabilities = SCREEN_APPLICATION_CONTEXT;
+    for (const QString &param : paramList) {
+        if (param.startsWith(contextCapabilitiesPrefix)) {
+            QStringRef value = param.midRef(contextCapabilitiesPrefix.length());
+            bool ok = false;
+            contextCapabilities = value.toInt(&ok, 0);
+            if (!ok)
+                contextCapabilities = SCREEN_APPLICATION_CONTEXT;
+        }
+    }
+    return contextCapabilities;
 }
 
 QQnxIntegration::QQnxIntegration(const QStringList &paramList)
@@ -130,6 +155,7 @@ QQnxIntegration::QQnxIntegration(const QStringList &paramList)
     , m_inputContext(0)
     , m_buttonsNotifier(new QQnxButtonEventNotifier())
 #endif
+    , m_qpaInputContext(0)
     , m_services(0)
     , m_fontDatabase(new QGenericUnixFontDatabase())
     , m_eventDispatcher(createUnixEventDispatcher())
@@ -139,15 +165,19 @@ QQnxIntegration::QQnxIntegration(const QStringList &paramList)
     , m_clipboard(0)
 #endif
     , m_navigator(0)
-#if !defined(QT_NO_DRAGANDDROP)
+#if QT_CONFIG(draganddrop)
     , m_drag(new QSimpleDrag())
 #endif
 {
-    ms_options = parseOptions(paramList);
+    ms_instance = this;
+    m_options = parseOptions(paramList);
     qIntegrationDebug();
+
     // Open connection to QNX composition manager
-    Q_SCREEN_CRITICALERROR(screen_create_context(&ms_screenContext, SCREEN_APPLICATION_CONTEXT),
-                           "Failed to create screen context");
+    if (screen_create_context(&m_screenContext, getContextCapabilities(paramList))) {
+        qFatal("%s - Screen: Failed to create screen context - Error: %s (%i)",
+               Q_FUNC_INFO, strerror(errno), errno);
+    }
 
 #if QT_CONFIG(qqnx_pps)
     // Create/start navigator event notifier
@@ -164,16 +194,21 @@ QQnxIntegration::QQnxIntegration(const QStringList &paramList)
 #endif
 
     // Create/start event thread
-    m_screenEventThread = new QQnxScreenEventThread(ms_screenContext, m_screenEventHandler);
+    m_screenEventThread = new QQnxScreenEventThread(m_screenContext);
+    m_screenEventHandler->setScreenEventThread(m_screenEventThread);
     m_screenEventThread->start();
 
-#if QT_CONFIG(qqnx_pps)
-    // Create/start the keyboard class.
-    m_virtualKeyboard = new QQnxVirtualKeyboardPps();
+    m_qpaInputContext = QPlatformInputContextFactory::create();
 
-    // delay invocation of start() to the time the event loop is up and running
-    // needed to have the QThread internals of the main thread properly initialized
-    QMetaObject::invokeMethod(m_virtualKeyboard, "start", Qt::QueuedConnection);
+#if QT_CONFIG(qqnx_pps)
+    if (!m_qpaInputContext) {
+        // Create/start the keyboard class.
+        m_virtualKeyboard = new QQnxVirtualKeyboardPps();
+
+        // delay invocation of start() to the time the event loop is up and running
+        // needed to have the QThread internals of the main thread properly initialized
+        QMetaObject::invokeMethod(m_virtualKeyboard, "start", Qt::QueuedConnection);
+    }
 #endif
 
 #if QT_CONFIG(qqnx_pps)
@@ -212,7 +247,7 @@ QQnxIntegration::~QQnxIntegration()
     qIntegrationDebug("platform plugin shutdown begin");
     delete m_nativeInterface;
 
-#if !defined(QT_NO_DRAGANDDROP)
+#if QT_CONFIG(draganddrop)
     // Destroy the drag object
     delete m_drag;
 #endif
@@ -240,7 +275,7 @@ QQnxIntegration::~QQnxIntegration()
     destroyDisplays();
 
     // Close connection to QNX composition manager
-    screen_destroy_context(ms_screenContext);
+    screen_destroy_context(m_screenContext);
 
 #if !defined(QT_NO_OPENGL)
     // Cleanup global OpenGL resources
@@ -254,6 +289,7 @@ QQnxIntegration::~QQnxIntegration()
     // Destroy input context
     delete m_inputContext;
 #endif
+    delete m_qpaInputContext;
 
     // Destroy the keyboard class.
     delete m_virtualKeyboard;
@@ -263,6 +299,8 @@ QQnxIntegration::~QQnxIntegration()
 
     // Destroy navigator interface
     delete m_navigator;
+
+    ms_instance = nullptr;
 
     qIntegrationDebug("platform plugin shutdown end");
 }
@@ -292,10 +330,10 @@ QPlatformWindow *QQnxIntegration::createPlatformWindow(QWindow *window) const
     const bool needRootWindow = options() & RootWindow;
     switch (surfaceType) {
     case QSurface::RasterSurface:
-        return new QQnxRasterWindow(window, ms_screenContext, needRootWindow);
+        return new QQnxRasterWindow(window, m_screenContext, needRootWindow);
 #if !defined(QT_NO_OPENGL)
     case QSurface::OpenGLSurface:
-        return new QQnxEglWindow(window, ms_screenContext, needRootWindow);
+        return new QQnxEglWindow(window, m_screenContext, needRootWindow);
 #endif
     default:
         qFatal("QQnxWindow: unsupported window API");
@@ -313,17 +351,68 @@ QPlatformBackingStore *QQnxIntegration::createPlatformBackingStore(QWindow *wind
 QPlatformOpenGLContext *QQnxIntegration::createPlatformOpenGLContext(QOpenGLContext *context) const
 {
     qIntegrationDebug();
-    return new QQnxGLContext(context);
+
+    // Get color channel sizes from window format
+    QSurfaceFormat format = context->format();
+    int alphaSize = format.alphaBufferSize();
+    int redSize = format.redBufferSize();
+    int greenSize = format.greenBufferSize();
+    int blueSize = format.blueBufferSize();
+
+    // Check if all channels are don't care
+    if (alphaSize == -1 && redSize == -1 && greenSize == -1 && blueSize == -1) {
+        // Set color channels based on depth of window's screen
+        QQnxScreen *screen = static_cast<QQnxScreen*>(context->screen()->handle());
+        int depth = screen->depth();
+        if (depth == 32) {
+            // SCREEN_FORMAT_RGBA8888
+            alphaSize = 8;
+            redSize = 8;
+            greenSize = 8;
+            blueSize = 8;
+        } else {
+            // SCREEN_FORMAT_RGB565
+            alphaSize = 0;
+            redSize = 5;
+            greenSize = 6;
+            blueSize = 5;
+        }
+    } else {
+        // Choose best match based on supported pixel formats
+        if (alphaSize <= 0 && redSize <= 5 && greenSize <= 6 && blueSize <= 5) {
+            // SCREEN_FORMAT_RGB565
+            alphaSize = 0;
+            redSize = 5;
+            greenSize = 6;
+            blueSize = 5;
+        } else {
+            // SCREEN_FORMAT_RGBA8888
+            alphaSize = 8;
+            redSize = 8;
+            greenSize = 8;
+            blueSize = 8;
+        }
+    }
+
+    // Update color channel sizes in window format
+    format.setAlphaBufferSize(alphaSize);
+    format.setRedBufferSize(redSize);
+    format.setGreenBufferSize(greenSize);
+    format.setBlueBufferSize(blueSize);
+    context->setFormat(format);
+
+    QQnxGLContext *ctx = new QQnxGLContext(context->format(), context->shareHandle());
+    return ctx;
 }
 #endif
 
-#if QT_CONFIG(qqnx_pps)
 QPlatformInputContext *QQnxIntegration::inputContext() const
 {
     qIntegrationDebug();
+    if (m_qpaInputContext)
+        return m_qpaInputContext;
     return m_inputContext;
 }
-#endif
 
 void QQnxIntegration::moveToScreen(QWindow *window, int screen)
 {
@@ -368,7 +457,7 @@ QPlatformClipboard *QQnxIntegration::clipboard() const
 }
 #endif
 
-#if !defined(QT_NO_DRAGANDDROP)
+#if QT_CONFIG(draganddrop)
 QPlatformDrag *QQnxIntegration::drag() const
 {
     return m_drag;
@@ -378,7 +467,7 @@ QPlatformDrag *QQnxIntegration::drag() const
 QVariant QQnxIntegration::styleHint(QPlatformIntegration::StyleHint hint) const
 {
     qIntegrationDebug();
-    if ((hint == ShowIsFullScreen) && (ms_options & FullScreenApplication))
+    if ((hint == ShowIsFullScreen) && (m_options & FullScreenApplication))
         return true;
 
     return QPlatformIntegration::styleHint(hint);
@@ -392,25 +481,127 @@ QPlatformServices * QQnxIntegration::services() const
 QWindow *QQnxIntegration::window(screen_window_t qnxWindow)
 {
     qIntegrationDebug();
-    QMutexLocker locker(&ms_windowMapperMutex);
+    QMutexLocker locker(&m_windowMapperMutex);
     Q_UNUSED(locker);
-    return ms_windowMapper.value(qnxWindow, 0);
+    return m_windowMapper.value(qnxWindow, 0);
 }
 
 void QQnxIntegration::addWindow(screen_window_t qnxWindow, QWindow *window)
 {
     qIntegrationDebug();
-    QMutexLocker locker(&ms_windowMapperMutex);
+    QMutexLocker locker(&m_windowMapperMutex);
     Q_UNUSED(locker);
-    ms_windowMapper.insert(qnxWindow, window);
+    m_windowMapper.insert(qnxWindow, window);
 }
 
 void QQnxIntegration::removeWindow(screen_window_t qnxWindow)
 {
     qIntegrationDebug();
-    QMutexLocker locker(&ms_windowMapperMutex);
+    QMutexLocker locker(&m_windowMapperMutex);
     Q_UNUSED(locker);
-    ms_windowMapper.remove(qnxWindow);
+    m_windowMapper.remove(qnxWindow);
+}
+
+/*!
+  Get display ID for given \a display
+
+  Returns -1 for failure, otherwise returns display ID
+ */
+static int getIdOfDisplay(screen_display_t display)
+{
+    int displayId;
+    if (screen_get_display_property_iv(display,
+                                       SCREEN_PROPERTY_ID,
+                                       &displayId) == 0) {
+        return displayId;
+    }
+    return -1;
+}
+
+/*!
+  Read JSON configuration file for the QNX display order
+
+  Returns true if file was read successfully and fills \a requestedDisplays
+ */
+static bool getRequestedDisplays(QJsonArray &requestedDisplays)
+{
+   // Check if display configuration file is provided
+    QByteArray json = qgetenv("QT_QPA_QNX_DISPLAY_CONFIG");
+    if (json.isEmpty())
+        return false;
+
+    // Check if configuration file exists
+    QFile file(QString::fromUtf8(json));
+    if (!file.open(QFile::ReadOnly)) {
+        qWarning() << "Could not open config file" << json << "for reading";
+        return false;
+    }
+
+    // Read config file and check it's json
+    const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
+    if (!doc.isObject()) {
+        qWarning() << "Invalid config file" << json
+                   << "- no top-level JSON object";
+        return false;
+    }
+
+    // Read the requested display order
+    const QJsonObject object = doc.object();
+    requestedDisplays = object.value(QLatin1String("displayOrder")).toArray();
+
+    return true;
+}
+
+/*!
+  Match \a availableDisplays with display order defined in a json file
+  pointed to by QT_QPA_QNX_DISPLAY_CONFIG. Display order must use same
+  identifiers as defined for displays in graphics.conf. Number of
+  available displays must be specified in \a displayCount
+
+  An example configuration is below:
+  \badcode
+    {
+      "displayOrder": [ 3, 1 ]
+    }
+  \endcode
+
+  Returns ordered list of displays. If no order was specified, returns
+  displays in the same order as in the original list.
+*/
+QList<screen_display_t *> QQnxIntegration::sortDisplays(screen_display_t *availableDisplays, int displayCount)
+{
+    // Intermediate list for sorting
+    QList<screen_display_t *> allDisplays;
+    for (int i = 0; i < displayCount; i++)
+        allDisplays.append(&availableDisplays[i]);
+
+    // Read requested display order if available
+    QJsonArray requestedDisplays;
+    if (!getRequestedDisplays(requestedDisplays))
+        return allDisplays;
+
+    // Go through all the requested displays IDs
+    QList<screen_display_t *> orderedDisplays;
+    for (const QJsonValue &value : qAsConst(requestedDisplays)) {
+        int requestedValue = value.toInt();
+
+        // Move all displays with matching ID from the intermediate list
+        // to the beginning of the ordered list
+        QMutableListIterator<screen_display_t *> iter(allDisplays);
+        while (iter.hasNext()) {
+            screen_display_t *display = iter.next();
+            if (getIdOfDisplay(*display) == requestedValue) {
+                orderedDisplays.append(display);
+                iter.remove();
+                break;
+            }
+        }
+    }
+
+    // Place all unordered displays to the end of list
+    orderedDisplays.append(allDisplays);
+
+    return orderedDisplays;
 }
 
 void QQnxIntegration::createDisplays()
@@ -418,7 +609,7 @@ void QQnxIntegration::createDisplays()
     qIntegrationDebug();
     // Query number of displays
     int displayCount = 0;
-    int result = screen_get_context_property_iv(ms_screenContext, SCREEN_PROPERTY_DISPLAY_COUNT,
+    int result = screen_get_context_property_iv(m_screenContext, SCREEN_PROPERTY_DISPLAY_COUNT,
                                                 &displayCount);
     Q_SCREEN_CRITICALERROR(result, "Failed to query display count");
 
@@ -429,17 +620,18 @@ void QQnxIntegration::createDisplays()
 
     // Get all displays
     screen_display_t *displays = (screen_display_t *)alloca(sizeof(screen_display_t) * displayCount);
-    result = screen_get_context_property_pv(ms_screenContext, SCREEN_PROPERTY_DISPLAYS,
+    result = screen_get_context_property_pv(m_screenContext, SCREEN_PROPERTY_DISPLAYS,
                                             (void **)displays);
+    QList<screen_display_t *> orderedDisplays = sortDisplays(displays, displayCount);
     Q_SCREEN_CRITICALERROR(result, "Failed to query displays");
 
     // If it's primary, we create a QScreen for it even if it's not attached
     // since Qt will dereference QGuiApplication::primaryScreen()
-    createDisplay(displays[0], /*isPrimary=*/true);
+    createDisplay(*orderedDisplays[0], /*isPrimary=*/true);
 
     for (int i=1; i<displayCount; i++) {
         int isAttached = 1;
-        result = screen_get_display_property_iv(displays[i], SCREEN_PROPERTY_ATTACHED,
+        result = screen_get_display_property_iv(*orderedDisplays[i], SCREEN_PROPERTY_ATTACHED,
                                                 &isAttached);
         Q_SCREEN_CHECKERROR(result, "Failed to query display attachment");
 
@@ -449,15 +641,15 @@ void QQnxIntegration::createDisplays()
         }
 
         qIntegrationDebug("Creating screen for display %d", i);
-        createDisplay(displays[i], /*isPrimary=*/false);
+        createDisplay(*orderedDisplays[i], /*isPrimary=*/false);
     } // of displays iteration
 }
 
 void QQnxIntegration::createDisplay(screen_display_t display, bool isPrimary)
 {
-    QQnxScreen *screen = new QQnxScreen(ms_screenContext, display, isPrimary);
+    QQnxScreen *screen = new QQnxScreen(m_screenContext, display, isPrimary);
     m_screens.append(screen);
-    screenAdded(screen);
+    QWindowSystemInterface::handleScreenAdded(screen);
     screen->adjustOrientation();
 
     QObject::connect(m_screenEventHandler, SIGNAL(newWindowCreated(void*)),
@@ -477,14 +669,14 @@ void QQnxIntegration::removeDisplay(QQnxScreen *screen)
     Q_CHECK_PTR(screen);
     Q_ASSERT(m_screens.contains(screen));
     m_screens.removeAll(screen);
-    destroyScreen(screen);
+    QWindowSystemInterface::handleScreenRemoved(screen);
 }
 
 void QQnxIntegration::destroyDisplays()
 {
     qIntegrationDebug();
     Q_FOREACH (QQnxScreen *screen, m_screens) {
-        QPlatformIntegration::destroyScreen(screen);
+        QWindowSystemInterface::handleScreenRemoved(screen);
     }
     m_screens.clear();
 }
@@ -504,24 +696,20 @@ QQnxScreen *QQnxIntegration::primaryDisplay() const
     return m_screens.first();
 }
 
-QQnxIntegration::Options QQnxIntegration::options()
+QQnxIntegration::Options QQnxIntegration::options() const
 {
-    return ms_options;
+    return m_options;
 }
 
 screen_context_t QQnxIntegration::screenContext()
 {
-    return ms_screenContext;
+    return m_screenContext;
 }
 
 QQnxNavigatorEventHandler *QQnxIntegration::navigatorEventHandler()
 {
     return m_navigatorEventHandler;
 }
-
-screen_context_t QQnxIntegration::ms_screenContext = 0;
-
-QQnxIntegration::Options QQnxIntegration::ms_options = 0;
 
 bool QQnxIntegration::supportsNavigatorEvents() const
 {

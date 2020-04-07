@@ -41,25 +41,20 @@ RenderFrame* MockRendererPpapiHost::GetRenderFrameForInstance(
     PP_Instance instance) const {
   if (instance == pp_instance_)
     return render_frame_;
-  return NULL;
+  return nullptr;
 }
 
 RenderView* MockRendererPpapiHost::GetRenderViewForInstance(
     PP_Instance instance) const {
   if (instance == pp_instance_)
     return render_view_;
-  return NULL;
+  return nullptr;
 }
 
 blink::WebPluginContainer* MockRendererPpapiHost::GetContainerForInstance(
     PP_Instance instance) const {
   NOTIMPLEMENTED();
-  return NULL;
-}
-
-base::ProcessId MockRendererPpapiHost::GetPluginPID() const {
-  NOTIMPLEMENTED();
-  return base::kNullProcessId;
+  return nullptr;
 }
 
 bool MockRendererPpapiHost::HasUserGesture(PP_Instance instance) const {
@@ -88,6 +83,20 @@ MockRendererPpapiHost::ShareSharedMemoryHandleWithRemote(
     const base::SharedMemoryHandle& handle) {
   NOTIMPLEMENTED();
   return base::SharedMemoryHandle();
+}
+
+base::UnsafeSharedMemoryRegion
+MockRendererPpapiHost::ShareUnsafeSharedMemoryRegionWithRemote(
+    const base::UnsafeSharedMemoryRegion& region) {
+  NOTIMPLEMENTED();
+  return base::UnsafeSharedMemoryRegion();
+}
+
+base::ReadOnlySharedMemoryRegion
+MockRendererPpapiHost::ShareReadOnlySharedMemoryRegionWithRemote(
+    const base::ReadOnlySharedMemoryRegion& region) {
+  NOTIMPLEMENTED();
+  return base::ReadOnlySharedMemoryRegion();
 }
 
 bool MockRendererPpapiHost::IsRunningInProcess() const { return false; }

@@ -11,6 +11,7 @@
 
 #include "base/strings/string16.h"
 #include "build/build_config.h"
+#include "ui/gfx/text_constants.h"
 
 class GURL;
 
@@ -28,7 +29,7 @@ namespace url_formatter {
 // gfx::GetStringWidthF which is not implemented in Android
 #if !defined(OS_ANDROID)
 // This function takes a GURL object and elides it. It returns a string
-// which composed of parts from subdomain, domain, path, filename and query.
+// composed of parts from subdomain, domain, path, filename and query.
 // A "..." is added automatically at the end if the elided string is bigger
 // than the |available_pixel_width|. For |available_pixel_width| == 0, a
 // formatted, but un-elided, string is returned.
@@ -40,7 +41,8 @@ namespace url_formatter {
 // http://crbug.com/6487 for more information.
 base::string16 ElideUrl(const GURL& url,
                         const gfx::FontList& font_list,
-                        float available_pixel_width);
+                        float available_pixel_width,
+                        gfx::Typesetter typesetter = gfx::Typesetter::DEFAULT);
 
 // This function takes a GURL object and elides the host to fit within
 // the given width. The function will never elide past the TLD+1 point,
@@ -49,7 +51,8 @@ base::string16 ElideUrl(const GURL& url,
 // depending on the width.
 base::string16 ElideHost(const GURL& host_url,
                          const gfx::FontList& font_list,
-                         float available_pixel_width);
+                         float available_pixel_width,
+                         gfx::Typesetter typesetter = gfx::Typesetter::DEFAULT);
 #endif  // !defined(OS_ANDROID)
 
 enum class SchemeDisplay {

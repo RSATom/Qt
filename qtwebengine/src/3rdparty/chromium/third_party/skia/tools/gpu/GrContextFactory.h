@@ -39,9 +39,7 @@ public:
         kANGLE_GL_ES2_ContextType,   //! ANGLE on OpenGL OpenGL ES 2 context.
         kANGLE_GL_ES3_ContextType,   //! ANGLE on OpenGL OpenGL ES 3 context.
         kCommandBuffer_ContextType,  //! Chromium command buffer OpenGL ES context.
-        kMESA_ContextType,           //! MESA OpenGL context
         kNullGL_ContextType,         //! Non-rendering OpenGL mock context.
-        kDebugGL_ContextType,        //! Non-rendering, state verifying OpenGL context.
         kVulkan_ContextType,         //! Vulkan
         kMetal_ContextType,          //! Metal
         kMock_ContextType,           //! Mock context that does not draw.
@@ -57,18 +55,14 @@ public:
     enum class ContextOverrides {
         kNone                          = 0x0,
         kDisableNVPR                   = 0x1,
-        kUseInstanced                  = 0x2,
-        kAllowSRGBWithoutDecodeControl = 0x4,
-        kAvoidStencilBuffers           = 0x8,
+        kAvoidStencilBuffers           = 0x2,
 
-        kRequireNVPRSupport            = 0x10,
-        kRequireSRGBSupport            = 0x20,
+        kRequireNVPRSupport            = 0x4,
     };
 
     static bool IsRenderingContext(ContextType type) {
         switch (type) {
             case kNullGL_ContextType:
-            case kDebugGL_ContextType:
             case kMock_ContextType:
                 return false;
             default:
@@ -107,12 +101,8 @@ public:
                 return "ANGLE GL ES3";
             case kCommandBuffer_ContextType:
                 return "Command Buffer";
-            case kMESA_ContextType:
-                return "Mesa";
             case kNullGL_ContextType:
                 return "Null GL";
-            case kDebugGL_ContextType:
-                return "Debug GL";
             case kVulkan_ContextType:
                 return "Vulkan";
             case kMetal_ContextType:
@@ -120,7 +110,7 @@ public:
             case kMock_ContextType:
                 return "Mock";
         }
-        SkFAIL("Unreachable");
+        SK_ABORT("Unreachable");
         return "Unknown";
     }
 
@@ -159,6 +149,7 @@ private:
     struct Context {
         ContextType       fType;
         ContextOverrides  fOverrides;
+        GrContextOptions  fOptions;
         GrBackend         fBackend;
         TestContext*      fTestContext;
         GrContext*        fGrContext;
@@ -189,19 +180,18 @@ public:
         return static_cast<GLTestContext*>(fTestContext);
     }
 
+    const GrContextOptions& options() const { return fOptions; }
+
 private:
-    ContextInfo(GrContextFactory::ContextType type,
-                TestContext* testContext,
-                GrContext* grContext)
-        : fType(type)
-        , fTestContext(testContext)
-        , fGrContext(grContext) {
-    }
+    ContextInfo(GrContextFactory::ContextType type, TestContext* testContext, GrContext* grContext,
+                const GrContextOptions& options)
+            : fType(type), fTestContext(testContext), fGrContext(grContext), fOptions(options) {}
 
     GrContextFactory::ContextType fType = GrContextFactory::kGL_ContextType;
     // Valid until the factory destroys it via abandonContexts() or destroyContexts().
-    TestContext*    fTestContext = nullptr;
-    GrContext*      fGrContext = nullptr;
+    TestContext* fTestContext = nullptr;
+    GrContext* fGrContext = nullptr;
+    GrContextOptions fOptions;
 
     friend class GrContextFactory;
 };

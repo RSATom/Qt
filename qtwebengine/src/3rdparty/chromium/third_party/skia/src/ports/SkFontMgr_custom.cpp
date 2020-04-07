@@ -50,6 +50,9 @@ SkTypeface_Empty::SkTypeface_Empty() : INHERITED(SkFontStyle(), false, true, SkS
 
 SkStreamAsset* SkTypeface_Empty::onOpenStream(int*) const { return nullptr; }
 
+sk_sp<SkTypeface> SkTypeface_Empty::onMakeClone(const SkFontArguments& args) const {
+    return sk_ref_sp(this);
+}
 
 SkTypeface_Stream::SkTypeface_Stream(std::unique_ptr<SkFontData> fontData,
                                      const SkFontStyle& style, bool isFixedPitch, bool sysFont,
@@ -60,13 +63,28 @@ SkTypeface_Stream::SkTypeface_Stream(std::unique_ptr<SkFontData> fontData,
 
 SkStreamAsset* SkTypeface_Stream::onOpenStream(int* ttcIndex) const {
     *ttcIndex = fData->getIndex();
-    return fData->getStream()->duplicate();
+    return fData->getStream()->duplicate().release();
 }
 
 std::unique_ptr<SkFontData> SkTypeface_Stream::onMakeFontData() const {
     return skstd::make_unique<SkFontData>(*fData);
 }
 
+sk_sp<SkTypeface> SkTypeface_Stream::onMakeClone(const SkFontArguments& args) const {
+    std::unique_ptr<SkFontData> data = this->cloneFontData(args);
+    if (!data) {
+        return nullptr;
+    }
+
+    SkString familyName;
+    this->getFamilyName(&familyName);
+
+    return sk_make_sp<SkTypeface_Stream>(std::move(data),
+                                         this->fontStyle(),
+                                         this->isFixedPitch(),
+                                         this->isSysFont(),
+                                         familyName);
+}
 
 SkTypeface_File::SkTypeface_File(const SkFontStyle& style, bool isFixedPitch, bool sysFont,
                                  const SkString familyName, const char path[], int index)
@@ -77,6 +95,22 @@ SkTypeface_File::SkTypeface_File(const SkFontStyle& style, bool isFixedPitch, bo
 SkStreamAsset* SkTypeface_File::onOpenStream(int* ttcIndex) const {
     *ttcIndex = this->getIndex();
     return SkStream::MakeFromFile(fPath.c_str()).release();
+}
+
+sk_sp<SkTypeface> SkTypeface_File::onMakeClone(const SkFontArguments& args) const {
+    std::unique_ptr<SkFontData> data = this->cloneFontData(args);
+    if (!data) {
+        return nullptr;
+    }
+
+    SkString familyName;
+    this->getFamilyName(&familyName);
+
+    return sk_make_sp<SkTypeface_Stream>(std::move(data),
+                                         this->fontStyle(),
+                                         this->isFixedPitch(),
+                                         this->isSysFont(),
+                                         familyName);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -192,19 +226,18 @@ SkTypeface* SkFontMgr_Custom::onMatchFaceStyle(const SkTypeface* familyMember,
     return nullptr;
 }
 
-SkTypeface* SkFontMgr_Custom::onCreateFromData(SkData* data, int ttcIndex) const {
-    return this->createFromStream(new SkMemoryStream(sk_ref_sp(data)), ttcIndex);
+sk_sp<SkTypeface> SkFontMgr_Custom::onMakeFromData(sk_sp<SkData> data, int ttcIndex) const {
+    return this->makeFromStream(skstd::make_unique<SkMemoryStream>(std::move(data)), ttcIndex);
 }
 
-SkTypeface* SkFontMgr_Custom::onCreateFromStream(SkStreamAsset* bareStream, int ttcIndex) const {
-    return this->createFromStream(bareStream, FontParameters().setCollectionIndex(ttcIndex));
+sk_sp<SkTypeface> SkFontMgr_Custom::onMakeFromStreamIndex(std::unique_ptr<SkStreamAsset> stream,
+                                                          int ttcIndex) const {
+    return this->makeFromStream(std::move(stream), SkFontArguments().setCollectionIndex(ttcIndex));
 }
 
-SkTypeface* SkFontMgr_Custom::onCreateFromStream(SkStreamAsset* s,
-                                                 const SkFontArguments& args) const
-{
+sk_sp<SkTypeface> SkFontMgr_Custom::onMakeFromStreamArgs(std::unique_ptr<SkStreamAsset> stream,
+                                                         const SkFontArguments& args) const {
     using Scanner = SkTypeface_FreeType::Scanner;
-    std::unique_ptr<SkStreamAsset> stream(s);
     bool isFixedPitch;
     SkFontStyle style;
     SkString name;
@@ -221,37 +254,35 @@ SkTypeface* SkFontMgr_Custom::onCreateFromStream(SkStreamAsset* s,
 
     auto data = skstd::make_unique<SkFontData>(std::move(stream), args.getCollectionIndex(),
                                                axisValues.get(), axisDefinitions.count());
-    return new SkTypeface_Stream(std::move(data), style, isFixedPitch, false, name);
+    return sk_sp<SkTypeface>(new SkTypeface_Stream(std::move(data), style, isFixedPitch, false, name));
 }
 
-SkTypeface* SkFontMgr_Custom::onCreateFromFontData(std::unique_ptr<SkFontData> data) const {
+sk_sp<SkTypeface> SkFontMgr_Custom::onMakeFromFontData(std::unique_ptr<SkFontData> data) const {
     bool isFixedPitch;
     SkFontStyle style;
     SkString name;
     if (!fScanner.scanFont(data->getStream(), data->getIndex(),
-                            &name, &style, &isFixedPitch, nullptr))
-    {
+                            &name, &style, &isFixedPitch, nullptr)) {
         return nullptr;
     }
-    return new SkTypeface_Stream(std::move(data), style, isFixedPitch, false, name);
+    return sk_sp<SkTypeface>(new SkTypeface_Stream(std::move(data), style, isFixedPitch, false, name));
 }
 
-SkTypeface* SkFontMgr_Custom::onCreateFromFile(const char path[], int ttcIndex) const {
+sk_sp<SkTypeface> SkFontMgr_Custom::onMakeFromFile(const char path[], int ttcIndex) const {
     std::unique_ptr<SkStreamAsset> stream = SkStream::MakeFromFile(path);
-    return stream.get() ? this->createFromStream(stream.release(), ttcIndex) : nullptr;
+    return stream ? this->makeFromStream(std::move(stream), ttcIndex) : nullptr;
 }
 
-SkTypeface* SkFontMgr_Custom::onLegacyCreateTypeface(const char familyName[],
-                                                     SkFontStyle style) const
-{
-    SkTypeface* tf = nullptr;
+sk_sp<SkTypeface> SkFontMgr_Custom::onLegacyMakeTypeface(const char familyName[],
+                                                         SkFontStyle style) const {
+    sk_sp<SkTypeface> tf;
 
     if (familyName) {
-        tf = this->onMatchFamilyStyle(familyName, style);
+        tf.reset(this->onMatchFamilyStyle(familyName, style));
     }
 
     if (nullptr == tf) {
-        tf = fDefaultFamily->matchStyle(style);
+        tf.reset(fDefaultFamily->matchStyle(style));
     }
 
     return tf;

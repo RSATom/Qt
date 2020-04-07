@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2018 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the plugins of the Qt Toolkit.
@@ -39,7 +39,8 @@
 
 #include "messages.h"
 
-#include <QCoreApplication>
+#include <QtCore/qcoreapplication.h>
+#include <QtCore/qregularexpression.h>
 
 // Translatable messages should go into this .cpp file for them to be picked up by lupdate.
 
@@ -52,13 +53,13 @@ QString msgAboutQt()
 
 static const char *application_menu_strings[] =
 {
+    QT_TRANSLATE_NOOP("MAC_APPLICATION_MENU","About %1"),
+    QT_TRANSLATE_NOOP("MAC_APPLICATION_MENU","Preferences..."),
     QT_TRANSLATE_NOOP("MAC_APPLICATION_MENU","Services"),
     QT_TRANSLATE_NOOP("MAC_APPLICATION_MENU","Hide %1"),
     QT_TRANSLATE_NOOP("MAC_APPLICATION_MENU","Hide Others"),
     QT_TRANSLATE_NOOP("MAC_APPLICATION_MENU","Show All"),
-    QT_TRANSLATE_NOOP("MAC_APPLICATION_MENU","Preferences..."),
-    QT_TRANSLATE_NOOP("MAC_APPLICATION_MENU","Quit %1"),
-    QT_TRANSLATE_NOOP("MAC_APPLICATION_MENU","About %1")
+    QT_TRANSLATE_NOOP("MAC_APPLICATION_MENU","Quit %1")
 };
 
 QString qt_mac_applicationmenu_string(int type)
@@ -77,8 +78,13 @@ QPlatformMenuItem::MenuRole detectMenuRole(const QString &caption)
     QString captionNoAmpersand(caption);
     captionNoAmpersand.remove(QLatin1Char('&'));
     const QString aboutString = QCoreApplication::translate("QCocoaMenuItem", "About");
-    if (captionNoAmpersand.startsWith(aboutString, Qt::CaseInsensitive) || caption.endsWith(aboutString, Qt::CaseInsensitive))
+    if (captionNoAmpersand.startsWith(aboutString, Qt::CaseInsensitive)
+        || captionNoAmpersand.endsWith(aboutString, Qt::CaseInsensitive)) {
+        static const QRegularExpression qtRegExp(QLatin1String("qt$"), QRegularExpression::CaseInsensitiveOption);
+        if (captionNoAmpersand.contains(qtRegExp))
+            return QPlatformMenuItem::AboutQtRole;
         return QPlatformMenuItem::AboutRole;
+    }
     if (captionNoAmpersand.startsWith(QCoreApplication::translate("QCocoaMenuItem", "Config"), Qt::CaseInsensitive)
         || captionNoAmpersand.startsWith(QCoreApplication::translate("QCocoaMenuItem", "Preference"), Qt::CaseInsensitive)
         || captionNoAmpersand.startsWith(QCoreApplication::translate("QCocoaMenuItem", "Options"), Qt::CaseInsensitive)

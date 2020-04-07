@@ -6,5 +6,6 @@ qtHaveModule(quick) {
                places_map \
                mapviewer \
                minimal_map \
+               itemview_transitions \
                planespotter
 }

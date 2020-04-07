@@ -4,6 +4,8 @@
 
 #include "components/signin/core/browser/child_account_info_fetcher_android.h"
 
+#include <memory>
+
 #include "base/android/jni_android.h"
 #include "base/android/jni_string.h"
 #include "components/signin/core/browser/account_fetcher_service.h"
@@ -22,7 +24,7 @@ std::unique_ptr<ChildAccountInfoFetcher> ChildAccountInfoFetcherAndroid::Create(
   if (account_name.empty())
     return nullptr;
 
-  // Call the constructor directly instead of using base::MakeUnique because the
+  // Call the constructor directly instead of using std::make_unique because the
   // constructor is private. Also, use the std::unique_ptr<> constructor instead
   // of base::WrapUnique because the _destructor_ of the subclass is private.
   return std::unique_ptr<ChildAccountInfoFetcher>(
@@ -47,14 +49,15 @@ ChildAccountInfoFetcherAndroid::ChildAccountInfoFetcherAndroid(
 
 ChildAccountInfoFetcherAndroid::~ChildAccountInfoFetcherAndroid() {
   Java_ChildAccountInfoFetcher_destroy(base::android::AttachCurrentThread(),
-                                       j_child_account_info_fetcher_.obj());
+                                       j_child_account_info_fetcher_);
 }
 
-void SetIsChildAccount(JNIEnv* env,
-                       const JavaParamRef<jclass>& caller,
-                       jlong native_service,
-                       const JavaParamRef<jstring>& j_account_id,
-                       jboolean is_child_account) {
+void JNI_ChildAccountInfoFetcher_SetIsChildAccount(
+    JNIEnv* env,
+    const JavaParamRef<jclass>& caller,
+    jlong native_service,
+    const JavaParamRef<jstring>& j_account_id,
+    jboolean is_child_account) {
   AccountFetcherService* service =
       reinterpret_cast<AccountFetcherService*>(native_service);
   service->SetIsChildAccount(

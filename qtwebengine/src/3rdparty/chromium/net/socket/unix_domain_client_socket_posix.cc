@@ -12,6 +12,7 @@
 #include "net/base/net_errors.h"
 #include "net/base/sockaddr_storage.h"
 #include "net/socket/socket_posix.h"
+#include "net/traffic_annotation/network_traffic_annotation.h"
 
 namespace net {
 
@@ -68,7 +69,7 @@ bool UnixDomainClientSocket::FillAddress(const std::string& socket_path,
 #endif
 }
 
-int UnixDomainClientSocket::Connect(const CompletionCallback& callback) {
+int UnixDomainClientSocket::Connect(CompletionOnceCallback callback) {
   DCHECK(!socket_);
 
   SockaddrStorage address;
@@ -81,7 +82,7 @@ int UnixDomainClientSocket::Connect(const CompletionCallback& callback) {
   if (rv != OK)
     return rv;
 
-  return socket_->Connect(address, callback);
+  return socket_->Connect(address, std::move(callback));
 }
 
 void UnixDomainClientSocket::Disconnect() {
@@ -122,12 +123,6 @@ const NetLogWithSource& UnixDomainClientSocket::NetLog() const {
   return net_log_;
 }
 
-void UnixDomainClientSocket::SetSubresourceSpeculation() {
-}
-
-void UnixDomainClientSocket::SetOmniboxSpeculation() {
-}
-
 bool UnixDomainClientSocket::WasEverUsed() const {
   return true;  // We don't care.
 }
@@ -154,16 +149,24 @@ int64_t UnixDomainClientSocket::GetTotalReceivedBytes() const {
   return 0;
 }
 
-int UnixDomainClientSocket::Read(IOBuffer* buf, int buf_len,
-                                 const CompletionCallback& callback) {
-  DCHECK(socket_);
-  return socket_->Read(buf, buf_len, callback);
+void UnixDomainClientSocket::ApplySocketTag(const SocketTag& tag) {
+  // Ignore socket tags as Unix domain sockets are local only.
 }
 
-int UnixDomainClientSocket::Write(IOBuffer* buf, int buf_len,
-                                  const CompletionCallback& callback) {
+int UnixDomainClientSocket::Read(IOBuffer* buf,
+                                 int buf_len,
+                                 CompletionOnceCallback callback) {
   DCHECK(socket_);
-  return socket_->Write(buf, buf_len, callback);
+  return socket_->Read(buf, buf_len, std::move(callback));
+}
+
+int UnixDomainClientSocket::Write(
+    IOBuffer* buf,
+    int buf_len,
+    CompletionOnceCallback callback,
+    const NetworkTrafficAnnotationTag& traffic_annotation) {
+  DCHECK(socket_);
+  return socket_->Write(buf, buf_len, std::move(callback), traffic_annotation);
 }
 
 int UnixDomainClientSocket::SetReceiveBufferSize(int32_t size) {

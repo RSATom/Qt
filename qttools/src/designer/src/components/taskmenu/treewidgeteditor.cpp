@@ -35,13 +35,13 @@
 #include <designerpropertymanager.h>
 #include <qttreepropertybrowser.h>
 
-#include <QtDesigner/QDesignerFormWindowInterface>
-#include <QtDesigner/QDesignerFormEditorInterface>
+#include <QtDesigner/abstractformwindow.h>
+#include <QtDesigner/abstractformeditor.h>
 
-#include <QtCore/QDir>
-#include <QtCore/QQueue>
-#include <QtWidgets/QHeaderView>
-#include <QtWidgets/QTreeWidgetItemIterator>
+#include <QtCore/qdir.h>
+#include <QtCore/qqueue.h>
+#include <QtWidgets/qheaderview.h>
+#include <QtWidgets/qtreewidgetitemiterator.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -194,6 +194,12 @@ QVariant TreeWidgetEditor::getItemData(int role) const
 {
     const int col = (role == ItemFlagsShadowRole) ? 0 : ui.treeWidget->currentColumn();
     return ui.treeWidget->currentItem()->data(col, role);
+}
+
+int TreeWidgetEditor::defaultItemFlags() const
+{
+    static const int flags = QTreeWidgetItem().flags();
+    return flags;
 }
 
 void TreeWidgetEditor::on_newItemButton_clicked()

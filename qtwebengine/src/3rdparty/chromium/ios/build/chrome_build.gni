@@ -7,10 +7,9 @@ import("//build/config/ios/ios_sdk.gni")
 import("//build/config/mac/symbols.gni")
 
 declare_args() {
-  # Enable today extension.
-  ios_enable_today_extension = true
-  ios_enable_search_widget_extension = true
+  # Enable widget extensions.
   ios_enable_content_widget_extension = true
+  ios_enable_search_widget_extension = true
 
   # Enable share extension.
   ios_enable_share_extension = true
@@ -29,6 +28,10 @@ declare_args() {
   # List of plist templates to merge when generating EarlGrey tests
   # entitlements.
   ios_egtests_entitlements_additions = []
+
+  # Overridable list of dependencies that are forbidden for
+  # //ios/chrome/app:chrome target.
+  ios_chrome_extra_assert_no_deps = []
 }
 
 # Configure whether breakpad support is enabled.

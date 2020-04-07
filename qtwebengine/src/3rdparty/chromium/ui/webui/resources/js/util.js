@@ -56,7 +56,7 @@ function announceAccessibleMessage(msg) {
  * @param {string} s The URL to generate the CSS url for.
  * @return {string} The CSS url string.
  */
-function url(s) {
+function getUrlForCss(s) {
   // http://www.w3.org/TR/css3-values/#uris
   // Parentheses, commas, whitespace characters, single quotes (') and double
   // quotes (") appearing in a URI must be escaped with a backslash
@@ -506,20 +506,6 @@ if (!('key' in KeyboardEvent.prototype)) {
   window.console.log('KeyboardEvent.Key polyfill not required');
 }
 // </if>  /* is_ios */
-
-/**
- * Helper to convert callback-based define() API to a promise-based API.
- * @suppress {undefinedVars}
- * @param {!Array<string>} moduleNames
- * @return {!Promise}
- */
-function importModules(moduleNames) {
-  return new Promise(function(resolve) {
-    define(moduleNames, function() {
-      resolve(Array.from(arguments));
-    });
-  });
-}
 
 /**
  * @param {!Event} e

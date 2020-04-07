@@ -8,7 +8,7 @@
 #include <string>
 
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
+#include "base/time/time.h"
 #include "base/values.h"
 #include "components/prefs/json_pref_store.h"
 #include "components/prefs/mock_pref_change_callback.h"
@@ -85,7 +85,7 @@ TEST(PrefServiceTest, Observers) {
 
   TestingPrefServiceSimple prefs;
   prefs.SetUserPref(pref_name,
-                    base::MakeUnique<base::Value>("http://www.cnn.com"));
+                    std::make_unique<base::Value>("http://www.cnn.com"));
   prefs.registry()->RegisterStringPref(pref_name, std::string());
 
   const char new_pref_value[] = "http://www.google.com/";
@@ -143,12 +143,12 @@ TEST(PrefServiceTest, GetValueChangedType) {
   prefs.registry()->RegisterIntegerPref(kPrefName, kTestValue);
 
   // Check falling back to a recommended value.
-  prefs.SetUserPref(kPrefName, base::MakeUnique<base::Value>("not an integer"));
+  prefs.SetUserPref(kPrefName, std::make_unique<base::Value>("not an integer"));
   const PrefService::Preference* pref = prefs.FindPreference(kPrefName);
   ASSERT_TRUE(pref);
   const base::Value* value = pref->GetValue();
   ASSERT_TRUE(value);
-  EXPECT_EQ(base::Value::Type::INTEGER, value->GetType());
+  EXPECT_EQ(base::Value::Type::INTEGER, value->type());
   int actual_int_value = -1;
   EXPECT_TRUE(value->GetAsInteger(&actual_int_value));
   EXPECT_EQ(kTestValue, actual_int_value);
@@ -168,7 +168,7 @@ TEST(PrefServiceTest, GetValueAndGetRecommendedValue) {
   // Check that GetValue() returns the default value.
   const base::Value* value = pref->GetValue();
   ASSERT_TRUE(value);
-  EXPECT_EQ(base::Value::Type::INTEGER, value->GetType());
+  EXPECT_EQ(base::Value::Type::INTEGER, value->type());
   int actual_int_value = -1;
   EXPECT_TRUE(value->GetAsInteger(&actual_int_value));
   EXPECT_EQ(kDefaultValue, actual_int_value);
@@ -178,12 +178,12 @@ TEST(PrefServiceTest, GetValueAndGetRecommendedValue) {
   ASSERT_FALSE(value);
 
   // Set a user-set value.
-  prefs.SetUserPref(kPrefName, base::MakeUnique<base::Value>(kUserValue));
+  prefs.SetUserPref(kPrefName, std::make_unique<base::Value>(kUserValue));
 
   // Check that GetValue() returns the user-set value.
   value = pref->GetValue();
   ASSERT_TRUE(value);
-  EXPECT_EQ(base::Value::Type::INTEGER, value->GetType());
+  EXPECT_EQ(base::Value::Type::INTEGER, value->type());
   actual_int_value = -1;
   EXPECT_TRUE(value->GetAsInteger(&actual_int_value));
   EXPECT_EQ(kUserValue, actual_int_value);
@@ -194,12 +194,12 @@ TEST(PrefServiceTest, GetValueAndGetRecommendedValue) {
 
   // Set a recommended value.
   prefs.SetRecommendedPref(kPrefName,
-                           base::MakeUnique<base::Value>(kRecommendedValue));
+                           std::make_unique<base::Value>(kRecommendedValue));
 
   // Check that GetValue() returns the user-set value.
   value = pref->GetValue();
   ASSERT_TRUE(value);
-  EXPECT_EQ(base::Value::Type::INTEGER, value->GetType());
+  EXPECT_EQ(base::Value::Type::INTEGER, value->type());
   actual_int_value = -1;
   EXPECT_TRUE(value->GetAsInteger(&actual_int_value));
   EXPECT_EQ(kUserValue, actual_int_value);
@@ -207,7 +207,7 @@ TEST(PrefServiceTest, GetValueAndGetRecommendedValue) {
   // Check that GetRecommendedValue() returns the recommended value.
   value = pref->GetRecommendedValue();
   ASSERT_TRUE(value);
-  EXPECT_EQ(base::Value::Type::INTEGER, value->GetType());
+  EXPECT_EQ(base::Value::Type::INTEGER, value->type());
   actual_int_value = -1;
   EXPECT_TRUE(value->GetAsInteger(&actual_int_value));
   EXPECT_EQ(kRecommendedValue, actual_int_value);
@@ -218,7 +218,7 @@ TEST(PrefServiceTest, GetValueAndGetRecommendedValue) {
   // Check that GetValue() returns the recommended value.
   value = pref->GetValue();
   ASSERT_TRUE(value);
-  EXPECT_EQ(base::Value::Type::INTEGER, value->GetType());
+  EXPECT_EQ(base::Value::Type::INTEGER, value->type());
   actual_int_value = -1;
   EXPECT_TRUE(value->GetAsInteger(&actual_int_value));
   EXPECT_EQ(kRecommendedValue, actual_int_value);
@@ -226,10 +226,66 @@ TEST(PrefServiceTest, GetValueAndGetRecommendedValue) {
   // Check that GetRecommendedValue() returns the recommended value.
   value = pref->GetRecommendedValue();
   ASSERT_TRUE(value);
-  EXPECT_EQ(base::Value::Type::INTEGER, value->GetType());
+  EXPECT_EQ(base::Value::Type::INTEGER, value->type());
   actual_int_value = -1;
   EXPECT_TRUE(value->GetAsInteger(&actual_int_value));
   EXPECT_EQ(kRecommendedValue, actual_int_value);
+}
+
+TEST(PrefServiceTest, SetTimeValue_RegularTime) {
+  TestingPrefServiceSimple prefs;
+
+  // Register a null time as the default.
+  prefs.registry()->RegisterTimePref(kPrefName, base::Time());
+  EXPECT_TRUE(prefs.GetTime(kPrefName).is_null());
+
+  // Set a time and make sure that we can read it without any loss of precision.
+  const base::Time time = base::Time::Now();
+  prefs.SetTime(kPrefName, time);
+  EXPECT_EQ(time, prefs.GetTime(kPrefName));
+}
+
+TEST(PrefServiceTest, SetTimeValue_NullTime) {
+  TestingPrefServiceSimple prefs;
+
+  // Register a non-null time as the default.
+  const base::Time default_time = base::Time::FromDeltaSinceWindowsEpoch(
+      base::TimeDelta::FromMicroseconds(12345));
+  prefs.registry()->RegisterTimePref(kPrefName, default_time);
+  EXPECT_FALSE(prefs.GetTime(kPrefName).is_null());
+
+  // Set a null time and make sure that it remains null upon deserialization.
+  prefs.SetTime(kPrefName, base::Time());
+  EXPECT_TRUE(prefs.GetTime(kPrefName).is_null());
+}
+
+TEST(PrefServiceTest, SetTimeDeltaValue_RegularTimeDelta) {
+  TestingPrefServiceSimple prefs;
+
+  // Register a zero time delta as the default.
+  prefs.registry()->RegisterTimeDeltaPref(kPrefName, base::TimeDelta());
+  EXPECT_TRUE(prefs.GetTimeDelta(kPrefName).is_zero());
+
+  // Set a time delta and make sure that we can read it without any loss of
+  // precision.
+  const base::TimeDelta delta = base::Time::Now() - base::Time();
+  prefs.SetTimeDelta(kPrefName, delta);
+  EXPECT_EQ(delta, prefs.GetTimeDelta(kPrefName));
+}
+
+TEST(PrefServiceTest, SetTimeDeltaValue_ZeroTimeDelta) {
+  TestingPrefServiceSimple prefs;
+
+  // Register a non-zero time delta as the default.
+  const base::TimeDelta default_delta =
+      base::TimeDelta::FromMicroseconds(12345);
+  prefs.registry()->RegisterTimeDeltaPref(kPrefName, default_delta);
+  EXPECT_FALSE(prefs.GetTimeDelta(kPrefName).is_zero());
+
+  // Set a zero time delta and make sure that it remains zero upon
+  // deserialization.
+  prefs.SetTimeDelta(kPrefName, base::TimeDelta());
+  EXPECT_TRUE(prefs.GetTimeDelta(kPrefName).is_zero());
 }
 
 // A PrefStore which just stores the last write flags that were used to write
@@ -316,7 +372,7 @@ TEST(PrefServiceTest, WriteablePrefStoreFlags) {
   for (size_t i = 0; i < arraysize(kRegistrationToWriteFlags); ++i) {
     RegistrationToWriteFlags entry = kRegistrationToWriteFlags[i];
     registry->RegisterDictionaryPref(entry.pref_name,
-                                     base::MakeUnique<base::DictionaryValue>(),
+                                     std::make_unique<base::DictionaryValue>(),
                                      entry.registration_flags);
 
     SCOPED_TRACE("Currently testing pref with name: " +
@@ -335,7 +391,7 @@ TEST(PrefServiceTest, WriteablePrefStoreFlags) {
     EXPECT_EQ(entry.write_flags, flag_checker->GetLastFlagsAndClear());
 
     prefs->SetUserPrefValue(entry.pref_name,
-                            base::MakeUnique<base::DictionaryValue>());
+                            std::make_unique<base::DictionaryValue>());
     EXPECT_TRUE(flag_checker->last_write_flags_set());
     EXPECT_EQ(entry.write_flags, flag_checker->GetLastFlagsAndClear());
   }

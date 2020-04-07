@@ -43,13 +43,13 @@ static float MaximumDimension(const gfx::Vector2dF& delta) {
 static std::unique_ptr<TimingFunction> EaseOutWithInitialVelocity(
     double velocity) {
   // Clamp velocity to a sane value.
-  velocity = std::min(std::max(velocity, -1000.0), 1000.0);
+  velocity = std::min(std::max(velocity, -100.0), 100.0);
 
-  // Based on CubicBezierTimingFunction::EaseType::EASE_IN_OUT preset
+  // Based on CubicBezierTimingFunction::EaseType::EASE_OUT_NATURAL preset
   // with first control point scaled.
-  const double x1 = 0.42;
+  const double x1 = 0.25;
   const double y1 = velocity * x1;
-  return CubicBezierTimingFunction::Create(x1, y1, 0.58, 1);
+  return CubicBezierTimingFunction::Create(x1, y1, 0.45, 0.94);
 }
 
 }  // namespace
@@ -71,7 +71,7 @@ ScrollOffsetAnimationCurve::ScrollOffsetAnimationCurve(
       duration_behavior_(duration_behavior),
       has_set_initial_value_(false) {}
 
-ScrollOffsetAnimationCurve::~ScrollOffsetAnimationCurve() {}
+ScrollOffsetAnimationCurve::~ScrollOffsetAnimationCurve() = default;
 
 base::TimeDelta ScrollOffsetAnimationCurve::SegmentDuration(
     const gfx::Vector2dF& delta,

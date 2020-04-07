@@ -29,7 +29,7 @@
 #ifndef QACTIVEXTASKMENU_H
 #define QACTIVEXTASKMENU_H
 
-#include <QtDesigner/QDesignerTaskMenuExtension>
+#include <QtDesigner/taskmenu.h>
 #include <QtDesigner/private/extensionfactory_p.h>
 
 QT_BEGIN_NAMESPACE
@@ -43,7 +43,7 @@ class QAxWidgetTaskMenu: public QObject, public QDesignerTaskMenuExtension
 public:
     explicit QAxWidgetTaskMenu(QDesignerAxWidget *object, QObject *parent = 0);
     virtual ~QAxWidgetTaskMenu();
-    QList<QAction*> taskActions() const Q_DECL_OVERRIDE;
+    QList<QAction*> taskActions() const override;
 
 private slots:
     void setActiveXControl();

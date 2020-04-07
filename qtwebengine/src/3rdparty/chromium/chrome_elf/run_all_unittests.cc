@@ -6,7 +6,6 @@
 #include "base/command_line.h"
 #include "base/test/launcher/unit_test_launcher.h"
 #include "base/test/test_suite.h"
-#include "build/build_config.h"
 #include "chrome/install_static/test/scoped_install_details.h"
 
 int main(int argc, char** argv) {
@@ -20,8 +19,7 @@ int main(int argc, char** argv) {
   install_static::ScopedInstallDetails scoped_install_details;
 
   base::TestSuite test_suite(argc, argv);
-  int ret = base::LaunchUnitTests(
+  return base::LaunchUnitTests(
       argc, argv,
       base::Bind(&base::TestSuite::Run, base::Unretained(&test_suite)));
-  return ret;
 }

@@ -53,7 +53,7 @@
     \since QtCanvas3D 1.0
     \title Qt Quick Item as Texture Example
     \ingroup qtcanvas3d-examples
-    \brief A simple cube with a Qt Quick item as a texture
+    \brief A simple cube with a Qt Quick item as a texture.
 
     The Qt Quick Item as Texture example shows how to use other Qt Quick items as
     a texture source for Qt Canvas3D textures.

@@ -110,6 +110,7 @@ void tst_QXmlNodeModelIndex::copyConstructor() const
     {
         /* The extra paranthesis silences a warning on win32-msvc. */
         const QXmlNodeModelIndex copy((QXmlNodeModelIndex()));
+        Q_UNUSED(copy)
     }
 }
 

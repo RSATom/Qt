@@ -5,7 +5,7 @@ QT_BUILD_TREE = $$shadowed($$PWD)
 # custom command line handling
 
 defineTest(qtConfCommandline_qmakeArgs) {
-    contains(1, QMAKE_[A-Z_]+ *[-+]?=.*) {
+    contains(1, QMAKE_[A-Z0-9_]+ *[-+]?=.*) {
         config.input.qmakeArgs += $$1
         export(config.input.qmakeArgs)
         return(true)
@@ -68,11 +68,11 @@ defineReplace(qtConfFunc_crossCompile) {
 }
 
 defineReplace(qtConfFunc_licenseCheck) {
-    exists($$QT_SOURCE_TREE/LICENSE.LGPL3)|exists($$QT_SOURCE_TREE/LICENSE.GPL2): \
+    exists($$QT_SOURCE_TREE/LICENSE.LGPL3)|exists($$QT_SOURCE_TREE/LICENSE.GPL2)|exists($$QT_SOURCE_TREE/LICENSE.GPL3): \
         hasOpenSource = true
     else: \
         hasOpenSource = false
-    exists($$QT_SOURCE_TREE/LICENSE.PREVIEW.COMMERCIAL)|exists($$QT_SOURCE_TREE/bin/licheck*): \
+    exists($$QT_SOURCE_TREE/LICENSE.QT-LICENSE-AGREEMENT-4.0): \
         hasCommercial = true
     else: \
         hasCommercial = false
@@ -106,8 +106,7 @@ defineReplace(qtConfFunc_licenseCheck) {
             }
         } else {
             !$$hasCommercial: \
-                qtConfFatalError("No license files and no licheck executables found." \
-                                 "Cannot proceed. Try re-installing Qt.")
+                qtConfFatalError("No license files. Cannot proceed. Try re-installing Qt.")
             commercial = yes
         }
     }
@@ -128,14 +127,18 @@ defineReplace(qtConfFunc_licenseCheck) {
             qtConfFatalError("This is the Qt Open Source Edition." \
                              "Cannot proceed with -commercial.")
 
-        exists($$QT_SOURCE_TREE/LICENSE.PREVIEW.COMMERCIAL) {
-            logn()
-            logn("This is the Qt Technology Preview Edition.")
+        !exists($$QT_SOURCE_TREE/.release-timestamp) {
+            #  Build from git
 
-            EditionString = "Technology Preview"
-            config.input.qt_edition = Preview
+            logn()
+            logn("This is the Qt Commercial Edition.")
+
+            EditionString = "Commercial"
+            config.input.qt_edition = Commercial
             export(config.input.qt_edition)
         } else {
+            # Build from a released source package
+
             equals(QMAKE_HOST.os, Linux) {
                 !equals(QMAKE_HOST.arch, x86_64): \
                     Licheck = licheck32
@@ -183,8 +186,13 @@ defineReplace(qtConfFunc_licenseCheck) {
         theLicense = "GNU Lesser General Public License (LGPL) version 3"
         showWhat = "Type 'L' to view the GNU Lesser General Public License version 3 (LGPLv3)."
         gpl2Ok = false
+        gpl3Ok = false
         winrt {
             notTheLicense = "Note: GPL version 2 is not available on WinRT."
+        } else: wasm {
+            gpl3Ok = true
+            theLicense = "GNU General Public License (GPL) version 3"
+            showWhat = "Type 'G' to view the GNU General Public License version 3 (GPLv3)."
         } else: $$qtConfEvaluate("features.android-style-assets") {
             notTheLicense = "Note: GPL version 2 is not available due to using Android style assets."
         } else {
@@ -194,7 +202,7 @@ defineReplace(qtConfFunc_licenseCheck) {
             affix = either
         }
     } else {
-        theLicense = $$cat($$QT_SOURCE_TREE/LICENSE.PREVIEW.COMMERCIAL, lines)
+        theLicense = $$cat($$QT_SOURCE_TREE/LICENSE.QT-LICENSE-AGREEMENT-4.0, lines)
         theLicense = $$first(theLicense)
         showWhat = "Type '?' to view the $${theLicense}."
     }
@@ -221,11 +229,13 @@ defineReplace(qtConfFunc_licenseCheck) {
             } else: equals(val, n)|equals(val, no) {
                 return(false)
             } else: equals(commercial, yes):equals(val, ?) {
-                licenseFile = $$QT_SOURCE_TREE/LICENSE.PREVIEW.COMMERCIAL
+                licenseFile = $$QT_SOURCE_TREE/LICENSE.QT-LICENSE-AGREEMENT-4.0
             } else: equals(commercial, no):equals(val, l) {
                 licenseFile = $$QT_SOURCE_TREE/LICENSE.LGPL3
             } else: equals(commercial, no):equals(val, g):$$gpl2Ok {
                 licenseFile = $$QT_SOURCE_TREE/LICENSE.GPL2
+            } else: equals(commercial, no):equals(val, g):$$gpl3Ok {
+                licenseFile = $$QT_SOURCE_TREE/LICENSE.GPL3
             } else {
                 next()
             }
@@ -247,6 +257,11 @@ defineTest(qtConfTest_machineTuple) {
     return(true)
 }
 
+defineTest(qtConfTest_verifySpec) {
+    qtConfTest_compile($$1): return(true)
+    qtConfFatalError("Cannot compile a minimal program. The toolchain or QMakeSpec is broken.", log)
+}
+
 defineTest(qtConfTest_architecture) {
     !qtConfTest_compile($${1}): \
         error("Could not determine $$eval($${1}.label). See config.log for details.")
@@ -259,6 +274,8 @@ defineTest(qtConfTest_architecture) {
         content = $$cat($$test_out_dir/arch.exe, blob)
     else: android:exists($$test_out_dir/libarch.so): \
         content = $$cat($$test_out_dir/libarch.so, blob)
+    else: wasm:exists($$test_out_dir/arch.wasm): \
+        content = $$cat($$test_out_dir/arch.wasm, blob)
     else: \
         error("$$eval($${1}.label) detection binary not found.")
 
@@ -366,12 +383,6 @@ defineTest(qtConfTest_detectPkgConfig) {
     return(true)
 }
 
-defineTest(qtConfTest_subarch) {
-    subarch = $$eval($${1}.subarch)
-    contains($${currentConfig}.tests.architecture.subarch, $${subarch}): return(true)
-    return(false)
-}
-
 defineTest(qtConfTest_buildParts) {
     parts = $$config.input.make
     isEmpty(parts) {
@@ -395,6 +406,29 @@ defineTest(qtConfTest_buildParts) {
     return(true)
 }
 
+defineTest(qtConfTest_x86Simd) {
+    simd = $$section(1, ".", -1)    # last component
+    $${1}.args = CONFIG+=add_cflags DEFINES+=NO_ATTRIBUTE SIMD=$$simd
+    $${1}.test = x86_simd
+    qtConfTest_compile($${1})
+}
+
+defineTest(qtConfTest_x86SimdAlways) {
+    configs =
+    fpfx = $${currentConfig}.features
+    tpfx = $${currentConfig}.tests
+
+    # Make a list of all passing features whose tests have type=x86Simd
+    for (f, $${tpfx}._KEYS_) {
+        !equals($${tpfx}.$${f}.type, "x86Simd"): \
+            next()
+        qtConfCheckFeature($$f)
+        equals($${fpfx}.$${f}.available, true): configs += $$f
+    }
+    $${1}.literal_args = SIMD=$$join(configs, " ")
+    qtConfTest_compile($${1})
+}
+
 # custom outputs
 
 # this reloads the qmakespec as completely as reasonably possible.
@@ -414,7 +448,9 @@ defineTest(reloadSpec) {
             $$[QT_HOST_DATA/src]/mkspecs/features/mac/toolchain.prf \
             $$[QT_HOST_DATA/src]/mkspecs/features/toolchain.prf
 
-        _SAVED_CONFIG = $$CONFIG
+        saved_variables = CONFIG QMAKE_CXXFLAGS
+        for (name, saved_variables): \
+            _SAVED_$$name = $$eval($$name)
         load(spec_pre)
         # qdevice.pri gets written too late (and we can't write it early
         # enough, as it's populated in stages, with later ones depending
@@ -423,8 +459,9 @@ defineTest(reloadSpec) {
             eval($$l)
         include($$QMAKESPEC/qmake.conf)
         load(spec_post)
+        for (name, saved_variables): \
+            $$name += $$eval(_SAVED_$$name)
         load(default_pre)
-        CONFIG += $$_SAVED_CONFIG
 
         # ensure pristine environment for configuration. again.
         discard_from($$[QT_HOST_DATA/get]/mkspecs/qconfig.pri)
@@ -569,6 +606,12 @@ defineTest(qtConfOutput_prepareOptions) {
             target_arch = armeabi-v7a
 
         platform = $$eval(config.input.android-ndk-platform)
+        isEmpty(platform): equals(target_arch, arm64-v8a): \
+            platform = android-21
+
+        isEmpty(platform): equals(target_arch, x86_64): \
+            platform = android-21
+
         isEmpty(platform): \
             platform = android-16  ### the windows configure disagrees ...
 
@@ -677,10 +720,14 @@ defineReplace(printHostPaths) {
 
 defineTest(qtConfOutput_preparePaths) {
     isEmpty(config.input.prefix) {
-        $$qtConfEvaluate("features.developer-build"): \
+        $$qtConfEvaluate("features.developer-build") {
             config.input.prefix = $$QT_BUILD_TREE  # In Development, we use sandboxed builds by default
-        else: \
-            config.input.prefix = /usr/local/Qt-$$[QT_VERSION]
+        } else {
+            win32: \
+                config.input.prefix = C:/Qt/Qt-$$[QT_VERSION]
+            else: \
+                config.input.prefix = /usr/local/Qt-$$[QT_VERSION]
+        }
         have_prefix = false
     } else {
         config.input.prefix = $$absolute_path($$config.input.prefix, $$OUT_PWD)
@@ -891,6 +938,7 @@ defineTest(qtConfOutput_sanitizer) {
 
 defineTest(qtConfOutput_architecture) {
     arch = $$qtConfEvaluate("tests.architecture.arch")
+    subarch = $$qtConfEvaluate('tests.architecture.subarch')
     buildabi = $$qtConfEvaluate("tests.architecture.buildabi")
 
     $$qtConfEvaluate("features.cross_compile") {
@@ -901,7 +949,7 @@ defineTest(qtConfOutput_architecture) {
             "host_build {" \
             "    QT_CPU_FEATURES.$$host_arch = $$qtConfEvaluate('tests.host_architecture.subarch')" \
             "} else {" \
-            "    QT_CPU_FEATURES.$$arch = $$qtConfEvaluate('tests.architecture.subarch')" \
+            "    QT_CPU_FEATURES.$$arch = $$subarch" \
             "}"
         publicPro = \
             "host_build {" \
@@ -916,7 +964,7 @@ defineTest(qtConfOutput_architecture) {
 
     } else {
         privatePro = \
-            "QT_CPU_FEATURES.$$arch = $$qtConfEvaluate('tests.architecture.subarch')"
+            "QT_CPU_FEATURES.$$arch = $$subarch"
         publicPro = \
             "QT_ARCH = $$arch" \
             "QT_BUILDABI = $$buildabi"
@@ -927,9 +975,11 @@ defineTest(qtConfOutput_architecture) {
     $${currentConfig}.output.privatePro += $$privatePro
     export($${currentConfig}.output.privatePro)
 
-    # setup QT_ARCH variable used by qtConfEvaluate
+    # setup QT_ARCH and QT_CPU_FEATURES variables used by qtConfEvaluate
     QT_ARCH = $$arch
     export(QT_ARCH)
+    QT_CPU_FEATURES.$$arch = $$subarch
+    export(QT_CPU_FEATURES.$$arch)
 }
 
 defineTest(qtConfOutput_qreal) {
@@ -1041,6 +1091,10 @@ defineTest(qtConfOutput_gccSysroot) {
         "\"QMAKE_LFLAGS += --sysroot=$$config.input.sysroot\""
     export(EXTRA_QMAKE_ARGS)
 
+    # This one is for qtConfToolchainSupportsFlag().
+    QMAKE_CXXFLAGS += --sysroot=$$config.input.sysroot
+    export(QMAKE_CXXFLAGS)
+
     output = \
         "!host_build {" \
         "    QMAKE_CFLAGS    += --sysroot=\$\$[QT_SYSROOT]" \
@@ -1083,6 +1137,8 @@ defineReplace(qtConfOutputPostProcess_publicPro) {
             "QT_GCC_MINOR_VERSION = $$QMAKE_GCC_MINOR_VERSION" \
             "QT_GCC_PATCH_VERSION = $$QMAKE_GCC_PATCH_VERSION"
     }
+    !isEmpty(QMAKE_MAC_SDK_VERSION): \
+        output += "QT_MAC_SDK_VERSION = $$QMAKE_MAC_SDK_VERSION"
     !isEmpty(QMAKE_CLANG_MAJOR_VERSION) {
         output += \
             "QT_CLANG_MAJOR_VERSION = $$QMAKE_CLANG_MAJOR_VERSION" \
@@ -1106,6 +1162,12 @@ defineReplace(qtConfOutputPostProcess_publicPro) {
             "QT_ICC_MAJOR_VERSION = $$replace(QMAKE_ICC_VER, "(..)(..)", "\\1")" \
             "QT_ICC_MINOR_VERSION = $$format_number($$replace(QMAKE_ICC_VER, "(..)(..)", "\\2"))" \
             "QT_ICC_PATCH_VERSION = $$QMAKE_ICC_UPDATE_VER"
+    }
+    !isEmpty(QMAKE_GHS_VERSION) {
+        output += \
+            "QT_GHS_MAJOR_VERSION = $$replace(QMAKE_GHS_VERSION, "(.*)(.)(.)", "\\1")" \
+            "QT_GHS_MINOR_VERSION = $$replace(QMAKE_GHS_VERSION, "(.*)(.)(.)", "\\2")" \
+            "QT_GHS_PATCH_VERSION = $$replace(QMAKE_GHS_VERSION, "(.*)(.)(.)", "\\3")"
     }
 
     output += "QT_EDITION = $$config.input.qt_edition"
@@ -1164,13 +1226,43 @@ defineReplace(qtConfReportArch) {
     return("$$arch, CPU features: $$subarch")
 }
 
+defineReplace(qtConfReportCompiler) {
+    clang_cl: {
+        return("clang-cl $${QMAKE_CLANG_MAJOR_VERSION}.$${QMAKE_CLANG_MINOR_VERSION}.$${QMAKE_CLANG_PATCH_VERSION}")
+    } else: clang {
+        !isEmpty(QMAKE_APPLE_CLANG_MAJOR_VERSION) {
+            return("clang (Apple) $${QMAKE_APPLE_CLANG_MAJOR_VERSION}.$${QMAKE_APPLE_CLANG_MINOR_VERSION}.$${QMAKE_APPLE_CLANG_PATCH_VERSION}")
+        } else {
+            return("clang $${QMAKE_CLANG_MAJOR_VERSION}.$${QMAKE_CLANG_MINOR_VERSION}.$${QMAKE_CLANG_PATCH_VERSION}")
+        }
+    } else: intel_icc {
+        return("intel_icc $$QMAKE_ICC_VER")
+    } else: intel_icl {
+        return("intel_icl $$QMAKE_ICC_VER")
+    } else: rim_qcc {
+        return("rim_qcc $${QMAKE_GCC_MAJOR_VERSION}.$${QMAKE_GCC_MINOR_VERSION}.$${QMAKE_GCC_PATCH_VERSION}")
+    } else: gcc {
+        return("gcc $${QMAKE_GCC_MAJOR_VERSION}.$${QMAKE_GCC_MINOR_VERSION}.$${QMAKE_GCC_PATCH_VERSION}")
+    } else: msvc {
+        return("msvc $$QMAKE_MSC_FULL_VER")
+    } else: ghs {
+        return("ghs $$QMAKE_GHS_VERSION")
+    } else {
+        return("unknown ($$QMAKE_COMPILER)")
+    }
+}
+
+
 defineTest(qtConfReport_buildTypeAndConfig) {
     !$$qtConfEvaluate("features.cross_compile") {
         qtConfAddReport("Build type: $$[QMAKE_SPEC] ($$qtConfReportArch(architecture))")
+        qtConfAddReport("Compiler: $$qtConfReportCompiler()")
     } else {
         qtConfAddReport("Building on: $$[QMAKE_SPEC] ($$qtConfReportArch(host_architecture))")
         qtConfAddReport("Building for: $$[QMAKE_XSPEC] ($$qtConfReportArch(architecture))")
+        qtConfAddReport("Target compiler: $$qtConfReportCompiler()")
     }
+
     qtConfAddReport()
     qtConfAddReport("Configuration: $$eval($${currentConfig}.output.privatePro.append.CONFIG) $$eval($${currentConfig}.output.publicPro.append.QT_CONFIG)")
     qtConfAddReport()
@@ -1216,6 +1308,7 @@ defineTest(createConfigStatus) {
         cont = \
             "$$system_quote($$system_path($$cfg)$$ext) -redo %*"
     } else {
+        !contains(cfg, .*/.*): cfg = ./$$cfg
         cont = \
             "$${LITERAL_HASH}!/bin/sh" \
             "exec $$system_quote($$cfg) -redo \"$@\""

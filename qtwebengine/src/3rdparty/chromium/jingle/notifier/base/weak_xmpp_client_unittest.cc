@@ -12,7 +12,7 @@
 #include "jingle/glue/task_pump.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "webrtc/rtc_base/sigslot.h"
+#include "third_party/webrtc/rtc_base/sigslot.h"
 
 namespace notifier {
 
@@ -20,7 +20,7 @@ namespace {
 
 class MockXmppDelegate : public sigslot::has_slots<> {
  public:
-  virtual ~MockXmppDelegate() {}
+  ~MockXmppDelegate() override {}
 
   MOCK_METHOD1(OnStateChange, void(buzz::XmppEngine::State));
   MOCK_METHOD2(OnInputLog, void(const char*, int));

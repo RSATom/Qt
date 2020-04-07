@@ -39,10 +39,23 @@
 #ifndef CONTENT_RENDERER_CLIENT_QT_H
 #define CONTENT_RENDERER_CLIENT_QT_H
 
+#include "qtwebenginecoreglobal_p.h"
 #include "content/public/renderer/content_renderer_client.h"
-#include "components/spellcheck/spellcheck_build_features.h"
+#include "components/spellcheck/spellcheck_buildflags.h"
+#include "services/service_manager/public/cpp/binder_registry.h"
+#include "services/service_manager/public/cpp/connector.h"
+#include "services/service_manager/public/cpp/local_interface_provider.h"
+#include "services/service_manager/public/cpp/service.h"
 
 #include <QScopedPointer>
+
+namespace error_page {
+class Error;
+}
+
+namespace network_hints {
+class PrescientNetworkingDispatcher;
+}
 
 namespace visitedlink {
 class VisitedLinkSlave;
@@ -52,37 +65,72 @@ namespace web_cache {
 class WebCacheImpl;
 }
 
-#if BUILDFLAG(ENABLE_SPELLCHECK)
+#if QT_CONFIG(webengine_spellchecker)
 class SpellCheck;
 #endif
 
 namespace QtWebEngineCore {
 
-class ContentRendererClientQt : public content::ContentRendererClient {
+class ContentRendererClientQt : public content::ContentRendererClient
+                              , public service_manager::Service
+                              , public service_manager::LocalInterfaceProvider
+{
 public:
     ContentRendererClientQt();
     ~ContentRendererClientQt();
+
+    // content::ContentRendererClient:
     void RenderThreadStarted() override;
     void RenderViewCreated(content::RenderView *render_view) override;
     void RenderFrameCreated(content::RenderFrame* render_frame) override;
     bool ShouldSuppressErrorPage(content::RenderFrame *, const GURL &) override;
-    bool HasErrorPage(int httpStatusCode, std::string *errorDomain) override;
-    void GetNavigationErrorStrings(content::RenderFrame* renderFrame, const blink::WebURLRequest& failedRequest,
-                                   const blink::WebURLError& error, std::string* errorHtml, base::string16* errorDescription) override;
+    bool HasErrorPage(int http_status_code) override;
+    void PrepareErrorPage(content::RenderFrame* renderFrame, const blink::WebURLRequest& failedRequest,
+                          const blink::WebURLError& error, std::string* errorHtml, base::string16* errorDescription) override;
+    void PrepareErrorPageForHttpStatusError(content::RenderFrame* render_frame, const blink::WebURLRequest& failed_request,
+                                            const GURL& unreachable_url, int http_status,
+                                            std::string* error_html, base::string16* error_description) override;
 
     unsigned long long VisitedLinkHash(const char *canonicalUrl, size_t length) override;
     bool IsLinkVisited(unsigned long long linkHash) override;
+    blink::WebPrescientNetworking* GetPrescientNetworking() override;
     void AddSupportedKeySystems(std::vector<std::unique_ptr<media::KeySystemProperties>>* key_systems) override;
 
-    void RunScriptsAtDocumentStart(content::RenderFrame* render_frame) override;
     void RunScriptsAtDocumentEnd(content::RenderFrame* render_frame) override;
 
+    void CreateRendererService(service_manager::mojom::ServiceRequest service_request) override;
+
 private:
+#if BUILDFLAG(ENABLE_SPELLCHECK)
+    void InitSpellCheck();
+#endif
+    service_manager::Connector *GetConnector();
+
+    // service_manager::Service:
+    void OnStart() override;
+    void OnBindInterface(const service_manager::BindSourceInfo &remote_info,
+                         const std::string &name,
+                         mojo::ScopedMessagePipeHandle handle) override;
+
+    // service_manager::LocalInterfaceProvider:
+    void GetInterface(const std::string& name, mojo::ScopedMessagePipeHandle request_handle) override;
+
+    void GetNavigationErrorStringsInternal(content::RenderFrame* renderFrame, const blink::WebURLRequest& failedRequest,
+                                           const error_page::Error& error, std::string* errorHtml, base::string16* errorDescription);
+
     QScopedPointer<visitedlink::VisitedLinkSlave> m_visitedLinkSlave;
     QScopedPointer<web_cache::WebCacheImpl> m_webCacheImpl;
-#if BUILDFLAG(ENABLE_SPELLCHECK)
+#if QT_CONFIG(webengine_spellchecker)
     QScopedPointer<SpellCheck> m_spellCheck;
 #endif
+
+    std::unique_ptr<service_manager::Connector> m_connector;
+    service_manager::mojom::ConnectorRequest m_connectorRequest;
+    std::unique_ptr<service_manager::ServiceContext> m_serviceContext;
+    service_manager::BinderRegistry m_registry;
+    std::unique_ptr<network_hints::PrescientNetworkingDispatcher> m_prescientNetworkingDispatcher;
+
+    DISALLOW_COPY_AND_ASSIGN(ContentRendererClientQt);
 };
 
 } // namespace

@@ -28,9 +28,13 @@ CMAKE_OUT_DIR = $$MODULE_BASE_OUTDIR/lib/cmake
 
 CMAKE_MODULE_NAME = $$cmakeModuleName($${MODULE})
 
+!generated_privates {
+    isEmpty(SYNCQT.INJECTED_PRIVATE_HEADER_FILES):isEmpty(SYNCQT.PRIVATE_HEADER_FILES): \
+        CMAKE_NO_PRIVATE_INCLUDES = true
+}
+
 split_incpath {
     CMAKE_ADD_SOURCE_INCLUDE_DIRS = true
-    CMAKE_NO_PRIVATE_INCLUDES = true # Don't add private includes in the build dir which don't exist
     CMAKE_SOURCE_INCLUDES = \
         $$cmakeTargetPaths($$QT_MODULE_INCLUDE_BASE $$QT_MODULE_INCLUDE_BASE/Qt$${CMAKE_MODULE_NAME})
     CMAKE_SOURCE_PRIVATE_INCLUDES = \
@@ -52,8 +56,6 @@ contains(CMAKE_INCLUDE_DIR, "^\\.\\./.*") {
     CMAKE_INCLUDE_DIR = $$[QT_INSTALL_HEADERS]/
     CMAKE_INCLUDE_DIR_IS_ABSOLUTE = True
 }
-
-!exists($$first(QT.$${MODULE}_private.includes)): CMAKE_NO_PRIVATE_INCLUDES = true
 
 CMAKE_LIB_DIR = $$cmakeRelativePath($$[QT_INSTALL_LIBS], $$[QT_INSTALL_PREFIX])
 contains(CMAKE_LIB_DIR,"^\\.\\./.*") {
@@ -198,7 +200,9 @@ CMAKE_QT5_MODULE_DEPS = $$join(lib_deps, ";")
 CMAKE_INTERFACE_MODULE_DEPS = $$join(aux_mod_deps, ";")
 CMAKE_INTERFACE_QT5_MODULE_DEPS = $$join(aux_lib_deps, ";")
 
-CMAKE_QT_STEM = Qt$$QT_MAJOR_VERSION$${CMAKE_MODULE_NAME}$${QT_LIBINFIX}
+# TARGET here is the one changed at the end of qt_module.prf,
+# which already contains the Qt5 prefix and QT_LIBINFIX suffix
+CMAKE_QT_STEM = $${TARGET}
 
 mac {
     !isEmpty(CMAKE_STATIC_TYPE) {

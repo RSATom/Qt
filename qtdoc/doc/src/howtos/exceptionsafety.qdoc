@@ -115,14 +115,17 @@
     \code
     QApplication app(argc, argv);
     ...
+    int ret;
     try {
-        app.exec();
+        ret = app.exec();
     } catch (const std::bad_alloc &) {
         // clean up here, e.g. save the session
         // and close all config files.
 
-        return 0; // exit the application
+        return EXIT_FAILURE; // exit the application
     }
+    ...
+    return ret;
     \endcode
 
     After an exception is thrown, the connection to the windowing server

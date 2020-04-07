@@ -39,10 +39,12 @@
 
 #include "qqmlsettings_p.h"
 #include <qcoreevent.h>
+#include <qcoreapplication.h>
 #include <qloggingcategory.h>
 #include <qsettings.h>
 #include <qpointer.h>
 #include <qjsvalue.h>
+#include <qqmlinfo.h>
 #include <qdebug.h>
 #include <qhash.h>
 
@@ -156,7 +158,8 @@ QT_BEGIN_NAMESPACE
     Application specific settings are identified by providing application
     \l {QCoreApplication::applicationName}{name},
     \l {QCoreApplication::organizationName}{organization} and
-    \l {QCoreApplication::organizationDomain}{domain}.
+    \l {QCoreApplication::organizationDomain}{domain}, or by specifying
+    \l fileName.
 
     \code
     #include <QGuiApplication>
@@ -254,24 +257,42 @@ public:
     void _q_propertyChanged();
     QVariant readProperty(const QMetaProperty &property) const;
 
-    QQmlSettings *q_ptr;
-    int timerId;
-    bool initialized;
+    QQmlSettings *q_ptr = nullptr;
+    int timerId = 0;
+    bool initialized = false;
     QString category;
+    QString fileName;
     mutable QPointer<QSettings> settings;
     QHash<const char *, QVariant> changedProperties;
 };
 
-QQmlSettingsPrivate::QQmlSettingsPrivate()
-    : q_ptr(0), timerId(0), initialized(false)
-{
-}
+QQmlSettingsPrivate::QQmlSettingsPrivate() {}
 
 QSettings *QQmlSettingsPrivate::instance() const
 {
     if (!settings) {
         QQmlSettings *q = const_cast<QQmlSettings*>(q_func());
-        settings = new QSettings(q);
+        settings = fileName.isEmpty() ? new QSettings(q) : new QSettings(fileName, QSettings::IniFormat, q);
+        if (settings->status() != QSettings::NoError) {
+            // TODO: can't print out the enum due to the following error:
+            // error: C2666: 'QQmlInfo::operator <<': 15 overloads have similar conversions
+            qmlWarning(q) << "Failed to initialize QSettings instance. Status code is: " << int(settings->status());
+
+            if (settings->status() == QSettings::AccessError) {
+                QVector<QString> missingIdentifiers;
+                if (QCoreApplication::organizationName().isEmpty())
+                    missingIdentifiers.append(QLatin1String("organizationName"));
+                if (QCoreApplication::organizationDomain().isEmpty())
+                    missingIdentifiers.append(QLatin1String("organizationDomain"));
+                if (QCoreApplication::applicationName().isEmpty())
+                    missingIdentifiers.append(QLatin1String("applicationName"));
+
+                if (!missingIdentifiers.isEmpty())
+                    qmlWarning(q) << "The following application identifiers have not been set: " << missingIdentifiers;
+            }
+            return settings;
+        }
+
         if (!category.isEmpty())
             settings->beginGroup(category);
         if (initialized)
@@ -302,6 +323,11 @@ void QQmlSettingsPrivate::load()
     const QMetaObject *mo = q->metaObject();
     const int offset = mo->propertyOffset();
     const int count = mo->propertyCount();
+
+    // don't save built-in properties if there aren't any qml properties
+    if (offset == 1)
+        return;
+
     for (int i = offset; i < count; ++i) {
         QMetaProperty property = mo->property(i);
 
@@ -399,6 +425,66 @@ void QQmlSettings::setCategory(const QString &category)
         if (d->initialized)
             d->load();
     }
+}
+
+/*!
+    \qmlproperty string Settings::fileName
+
+    This property holds the path to the settings file. If the file doesn't
+    already exist, it is created.
+
+    \since Qt 5.12
+
+    \sa QSettings::fileName, QSettings::IniFormat
+*/
+QString QQmlSettings::fileName() const
+{
+    Q_D(const QQmlSettings);
+    return d->fileName;
+}
+
+void QQmlSettings::setFileName(const QString &fileName)
+{
+    Q_D(QQmlSettings);
+    if (d->fileName != fileName) {
+        d->reset();
+        d->fileName = fileName;
+        if (d->initialized)
+            d->load();
+    }
+}
+
+/*!
+   \qmlmethod var Settings::value(string key, var defaultValue)
+
+   Returns the value for setting \a key. If the setting doesn't exist,
+   returns \a defaultValue.
+
+   \since Qt 5.12
+
+   \sa QSettings::value
+*/
+QVariant QQmlSettings::value(const QString &key, const QVariant &defaultValue) const
+{
+    Q_D(const QQmlSettings);
+    return d->instance()->value(key, defaultValue);
+}
+
+/*!
+   \qmlmethod Settings::setValue(string key, var value)
+
+   Sets the value of setting key to value. If the key already exists,
+   the previous value is overwritten.
+
+   \since Qt 5.12
+
+   \sa QSettings::setValue
+*/
+void QQmlSettings::setValue(const QString &key, const QVariant &value)
+{
+    Q_D(const QQmlSettings);
+    d->instance()->setValue(key, value);
+    qCDebug(lcSettings) << "QQmlSettings: setValue" << key << ":" << value;
 }
 
 void QQmlSettings::classBegin()

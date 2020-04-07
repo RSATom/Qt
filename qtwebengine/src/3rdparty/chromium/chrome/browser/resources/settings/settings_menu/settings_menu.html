@@ -33,7 +33,6 @@
         min-height: 20px;
         padding-bottom: 10px;
         padding-top: 10px;
-        word-break: break-word;
       }
 
       a[href].iron-selected {
@@ -43,6 +42,7 @@
       iron-icon {
         --iron-icon-fill-color: var(--settings-nav-grey);
         -webkit-margin-end: 24px;
+        pointer-events: none;
         vertical-align: top;
       }
 
@@ -53,12 +53,15 @@
       #advancedButton {
         -webkit-padding-end: 0;
         background-color: unset;
+        border: none;
+        border-radius: initial;
         height: unset;
         margin-top: 8px;
         text-transform: none;
       }
 
       #advancedButton:focus {
+        box-shadow: none;
         outline: none;
       }
 
@@ -66,30 +69,34 @@
         outline: auto 5px -webkit-focus-ring-color;
       }
 
-      #advancedButton > span {
+      #advancedButton > span,
+      #extensionsLink > span {
         flex: 1;
       }
 
-      #advancedButton > iron-icon {
-        -webkit-margin-end: 22px;  /* 24px - 2px from margin for outline. */
+      #advancedButton > iron-icon,
+      #extensionsLink > iron-icon {
+        @apply --cr-icon-height-width;
+        -webkit-margin-end: 14px;  /* 16px - 2px from margin for outline. */
       }
 
-      .separator {
-        /* Per Alan@, this line is different from the other separator lines. */
+      #menuSeparator {
+        /* Per bettes@, this is different from the other separator lines. */
         border-bottom: 1px solid rgba(0, 0, 0, 0.08);
         margin-bottom: 8px;
         margin-top: 8px;
       }
     </style>
-    <iron-selector id="topMenu" selectable="a" attr-for-selected="href"
-        on-iron-activate="onSelectorActivate_">
+    <iron-selector id="topMenu" selectable="a:not(#extensionsLink)"
+        attr-for-selected="href" on-iron-activate="onSelectorActivate_"
+        role="navigation">
 <if expr="chromeos">
       <a href="/internet">
         <iron-icon icon="settings:network-wifi"></iron-icon>
         $i18n{internetPageTitle}
       </a>
       <a href="/bluetooth">
-        <iron-icon icon="settings:bluetooth"></iron-icon>
+        <iron-icon icon="cr:bluetooth"></iron-icon>
         $i18n{bluetoothPageTitle}
       </a>
 </if>
@@ -97,7 +104,8 @@
         <iron-icon icon="cr:person"></iron-icon>
         $i18n{peoplePageTitle}
       </a>
-      <a href="/appearance" hidden="[[!pageVisibility.appearance]]">
+      <a id="appearance" href="/appearance"
+        hidden="[[!pageVisibility.appearance]]">
         <iron-icon icon="settings:palette"></iron-icon>
         $i18n{appearancePageTitle}
       </a>
@@ -113,17 +121,25 @@
       </a>
 <if expr="chromeos">
       <a href="/androidApps" hidden="[[!showAndroidApps]]">
-        <iron-icon icon="settings:android"></iron-icon>
+        <iron-icon icon="settings:play-prism"></iron-icon>
         $i18n{androidAppsPageTitle}
       </a>
 </if>
+<if expr="chromeos">
+      <a href="/crostini" hidden="[[!showCrostini]]">
+        <iron-icon icon="settings:crostini-mascot"></iron-icon>
+        $i18n{crostiniPageTitle}
+      </a>
+</if>
 <if expr="not chromeos">
-      <a href="/defaultBrowser" hidden="[[!pageVisibility.defaultBrowser]]">
+      <a id="defaultBrowser" href="/defaultBrowser"
+        hidden="[[!pageVisibility.defaultBrowser]]">
         <iron-icon icon="settings:web"></iron-icon>
         $i18n{defaultBrowser}
       </a>
 </if>
-      <a href="/onStartup" hidden="[[!pageVisibility.onStartup]]">
+      <a id="onStartup" href="/onStartup"
+        hidden="[[!pageVisibility.onStartup]]">
         <iron-icon icon="settings:power-settings-new"></iron-icon>
         $i18n{onStartup}
       </a>
@@ -135,7 +151,8 @@
         </iron-icon></paper-button>
       <iron-collapse id="advancedSubmenu" opened="[[advancedOpened]]"
           hidden="[[!pageVisibility.advancedSettings]]">
-        <iron-selector id="subMenu" selectable="a" attr-for-selected="href">
+        <iron-selector id="subMenu" selectable="a" attr-for-selected="href"
+            role="navigation">
 <if expr="chromeos">
           <a href="/dateTime">
             <iron-icon icon="settings:access-time"></iron-icon>
@@ -143,14 +160,16 @@
           </a>
 </if>
           <a href="/privacy">
-            <iron-icon icon="settings:security"></iron-icon>
+            <iron-icon icon="cr:security"></iron-icon>
             $i18n{privacyPageTitle}
           </a>
-          <a href="/passwordsAndForms"
-              hidden="[[!pageVisibility.passwordsAndForms]]">
-            <iron-icon icon="settings:assignment"></iron-icon>
-            $i18n{passwordsAndAutofillPageTitle}
-          </a>
+          <template is="dom-if" if="[[!autofillHomeEnabled]]">
+            <a id="passwordsAndForms" href="/passwordsAndForms"
+                hidden="[[!pageVisibility.passwordsAndForms]]">
+              <iron-icon icon="settings:assignment"></iron-icon>
+              $i18n{passwordsAndAutofillPageTitle}
+            </a>
+          </template>
           <a href="/languages">
             <iron-icon icon="settings:language"></iron-icon>
             $i18n{languagesPageTitle}
@@ -165,7 +184,7 @@
           </a>
 <if expr="chromeos">
           <a href="/multidevice" hidden="[[!showMultidevice]]">
-            <iron-icon icon="settings:sync"></iron-icon>
+            <iron-icon icon="settings:devices-other"></iron-icon>
             $i18n{multidevicePageTitle}
           </a>
 </if>
@@ -179,13 +198,19 @@
             $i18n{systemPageTitle}
           </a>
 </if>
-          <a href="/reset" hidden="[[!pageVisibility.reset]]">
+          <a id="reset" href="/reset" hidden="[[!pageVisibility.reset]]">
             <iron-icon icon="settings:restore"></iron-icon>
             $i18n{resetPageTitle}
           </a>
         </iron-selector>
       </iron-collapse>
-      <div class="separator"></div>
+      <div id="menuSeparator"></div>
+      <a id="extensionsLink" href="chrome://extensions" target="_blank"
+          on-click="onExtensionsLinkClick_"
+          title="$i18n{extensionsLinkTooltip}">
+        <span>$i18n{extensionsPageTitle}</span>
+        <iron-icon class="cr-icon icon-external" actionable></iron-icon>
+      </a>
       <a id="about-menu" href="/help">$i18n{aboutPageTitle}</a>
     </iron-selector>
   </template>

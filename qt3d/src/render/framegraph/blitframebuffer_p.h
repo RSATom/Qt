@@ -65,7 +65,7 @@ class Q_AUTOTEST_EXPORT BlitFramebuffer : public FrameGraphNode
 public:
     BlitFramebuffer();
 
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) Q_DECL_OVERRIDE;
+    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) override;
 
     Qt3DCore::QNodeId sourceRenderTargetId() const;
 
@@ -82,7 +82,7 @@ public:
     QBlitFramebuffer::InterpolationMethod interpolationMethod() const;
 
 private:
-    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) Q_DECL_FINAL;
+    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) final;
 
     Qt3DCore::QNodeId m_sourceRenderTargetId;
     Qt3DCore::QNodeId m_destinationRenderTargetId;

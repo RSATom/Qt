@@ -32,13 +32,13 @@
 #include <signalslotdialog_p.h>
 #include <metadatabase_p.h>
 
-#include <QtDesigner/QDesignerFormWindowInterface>
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerWidgetDataBaseInterface>
-#include <QtDesigner/QExtensionManager>
-#include <QtDesigner/QDesignerLanguageExtension>
+#include <QtDesigner/abstractformwindow.h>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/abstractwidgetdatabase.h>
+#include <QtDesigner/qextensionmanager.h>
+#include <QtDesigner/abstractlanguage.h>
 
-#include <QtWidgets/QPushButton>
+#include <QtWidgets/qpushbutton.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -59,8 +59,8 @@ static QString realClassName(QDesignerFormEditorInterface *core, QWidget *widget
 static QString widgetLabel(QDesignerFormEditorInterface *core, QWidget *widget)
 {
     return QString::fromUtf8("%1 (%2)")
-            .arg(qdesigner_internal::realObjectName(core, widget))
-            .arg(realClassName(core, widget));
+            .arg(qdesigner_internal::realObjectName(core, widget),
+                 realClassName(core, widget));
 }
 
 namespace qdesigner_internal {

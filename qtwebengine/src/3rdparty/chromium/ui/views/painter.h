@@ -13,15 +13,19 @@
 #include "base/macros.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/base/nine_image_painter_factory.h"
+#include "ui/gfx/geometry/insets.h"
 #include "ui/views/views_export.h"
 
 namespace gfx {
 class Canvas;
 class ImageSkia;
-class Insets;
 class InsetsF;
 class Rect;
 class Size;
+}
+
+namespace ui {
+class LayerOwner;
 }
 
 namespace views {
@@ -50,8 +54,10 @@ class VIEWS_EXPORT Painter {
 
   // Creates a painter that draws a RoundRect with a solid color and given
   // corner radius.
-  static std::unique_ptr<Painter> CreateSolidRoundRectPainter(SkColor color,
-                                                              float radius);
+  static std::unique_ptr<Painter> CreateSolidRoundRectPainter(
+      SkColor color,
+      float radius,
+      const gfx::Insets& insets = gfx::Insets());
 
   // Creates a painter that draws a RoundRect with a solid color and a given
   // corner radius, and also adds a 1px border (inset) in the given color.
@@ -88,6 +94,10 @@ class VIEWS_EXPORT Painter {
       SkColor color,
       int thickness,
       const gfx::InsetsF& insets);
+
+  // Creates and returns a texture layer that is painted by |painter|.
+  static std::unique_ptr<ui::LayerOwner> CreatePaintedLayer(
+      std::unique_ptr<Painter> painter);
 
   // Returns the minimum size this painter can paint without obvious graphical
   // problems (e.g. overlapping images).

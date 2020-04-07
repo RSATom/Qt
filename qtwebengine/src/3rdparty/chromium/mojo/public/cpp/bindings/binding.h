@@ -27,7 +27,10 @@ class MessageReceiver;
 // Represents the binding of an interface implementation to a message pipe.
 // When the |Binding| object is destroyed, the binding between the message pipe
 // and the interface is torn down and the message pipe is closed, leaving the
-// interface implementation in an unbound state.
+// interface implementation in an unbound state. Once the |Binding| object is
+// destroyed, it is guaranteed that no more method calls are dispatched to the
+// implementation and the connection error handler (if registered) won't be
+// called.
 //
 // Example:
 //
@@ -191,6 +194,8 @@ class Binding {
   // pipe has been bound to the implementation).
   bool is_bound() const { return internal_state_.is_bound(); }
 
+  explicit operator bool() const { return internal_state_.is_bound(); }
+
   // Returns the value of the handle currently bound to this Binding which can
   // be used to make explicit Wait/WaitMany calls. Requires that the Binding be
   // bound. Ownership of the handle is retained by the Binding, it is not
@@ -224,6 +229,20 @@ class Binding {
 
   // Exposed for testing, should not generally be used.
   void EnableTestingMode() { internal_state_.EnableTestingMode(); }
+
+  scoped_refptr<internal::MultiplexRouter> RouterForTesting() {
+    return internal_state_.RouterForTesting();
+  }
+
+  // Allows test code to swap the interface implementation.
+  ImplPointerType SwapImplForTesting(ImplPointerType new_impl) {
+    return internal_state_.SwapImplForTesting(new_impl);
+  }
+
+  // DO NOT USE. Exposed only for internal use and for testing.
+  internal::BindingState<Interface, ImplRefTraits>* internal_state() {
+    return &internal_state_;
+  }
 
  private:
   internal::BindingState<Interface, ImplRefTraits> internal_state_;

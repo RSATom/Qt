@@ -146,7 +146,7 @@ bool IsColorModelSelected(int color_mode) {
 }
 
 // Global SequenceNumber used for generating unique cookie values.
-static base::StaticAtomicSequenceNumber cookie_seq;
+static base::AtomicSequenceNumber cookie_seq;
 
 PrintSettings::PrintSettings() {
   Clear();
@@ -154,8 +154,7 @@ PrintSettings::PrintSettings() {
 
 PrintSettings::PrintSettings(const PrintSettings& other) = default;
 
-PrintSettings::~PrintSettings() {
-}
+PrintSettings::~PrintSettings() = default;
 
 void PrintSettings::Clear() {
   ranges_.clear();
@@ -172,8 +171,7 @@ void PrintSettings::Clear() {
   device_name_.clear();
   requested_media_ = RequestedMedia();
   page_setup_device_units_.Clear();
-  dpi_[0] = 0;
-  dpi_[1] = 0;
+  dpi_ = gfx::Size();
   scale_factor_ = 1.0f;
   rasterize_pdf_ = false;
   landscape_ = false;
@@ -182,6 +180,8 @@ void PrintSettings::Clear() {
   print_text_with_gdi_ = false;
   printer_type_ = PrintSettings::PrinterType::TYPE_NONE;
 #endif
+  is_modifiable_ = true;
+  pages_per_sheet_ = 1;
 }
 
 void PrintSettings::SetPrinterPrintableArea(
@@ -203,8 +203,9 @@ void PrintSettings::SetPrinterPrintableArea(
       // Default margins 1.0cm = ~2/5 of an inch, unless a page dimension is
       // less than 2.54 cm = ~1 inch, in which case set the margins in that
       // dimension to 0.
-      int margin_printer_units = ConvertUnit(1000, kHundrethsMMPerInch,
-                                             units_per_inch);
+      static constexpr double kCmInMicrons = 10000;
+      int margin_printer_units =
+          ConvertUnit(kCmInMicrons, kMicronsPerInch, units_per_inch);
       int min_size_printer_units = units_per_inch;
       margins.header = header_footer_text_height;
       margins.footer = header_footer_text_height;

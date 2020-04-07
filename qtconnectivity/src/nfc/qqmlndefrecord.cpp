@@ -40,7 +40,7 @@
 #include "qqmlndefrecord.h"
 
 #include <QtCore/QMap>
-#include <QtCore/QRegExp>
+#include <QtCore/QRegularExpression>
 
 #include <QtCore/qglobalstatic.h>
 
@@ -219,8 +219,8 @@ QQmlNdefRecord *qNewDeclarativeNdefRecordForNdefRecord(const QNdefRecord &record
     while (i.hasNext()) {
         i.next();
 
-        QRegExp ex(i.key());
-        if (!ex.exactMatch(urn))
+        QRegularExpression rx(QRegularExpression::anchoredPattern(i.key()));
+        if (!rx.match(urn).hasMatch())
             continue;
 
         const QMetaObject *metaObject = i.value();
@@ -228,7 +228,7 @@ QQmlNdefRecord *qNewDeclarativeNdefRecordForNdefRecord(const QNdefRecord &record
             continue;
 
         return static_cast<QQmlNdefRecord *>(metaObject->newInstance(
-            Q_ARG(QNdefRecord, record), Q_ARG(QObject *, 0)));
+            Q_ARG(QNdefRecord, record), Q_ARG(QObject*, 0)));
     }
 
     return new QQmlNdefRecord(record);

@@ -6,7 +6,6 @@
 
 #include "base/big_endian.h"
 #include "base/logging.h"
-#include "components/history/core/browser/url_row.h"
 #include "sql/statement.h"
 
 namespace history {
@@ -39,12 +38,10 @@ bool TypedURLSyncMetadataDatabase::GetAllSyncMetadata(
   }
 
   sync_pb::ModelTypeState model_type_state;
-  if (GetModelTypeState(&model_type_state)) {
-    metadata_batch->SetModelTypeState(model_type_state);
-  } else {
+  if (!GetModelTypeState(&model_type_state))
     return false;
-  }
 
+  metadata_batch->SetModelTypeState(model_type_state);
   return true;
 }
 
@@ -55,16 +52,10 @@ bool TypedURLSyncMetadataDatabase::UpdateSyncMetadata(
   DCHECK_EQ(model_type, syncer::TYPED_URLS)
       << "Only the TYPED_URLS model type is supported";
 
-  int64_t storage_key_int = 0;
-  DCHECK_EQ(storage_key.size(), sizeof(storage_key_int));
-  base::ReadBigEndian(storage_key.data(), &storage_key_int);
-  // Make sure storage_key_int is set.
-  DCHECK_NE(storage_key_int, 0);
-
   sql::Statement s(GetDB().GetUniqueStatement(
       "INSERT OR REPLACE INTO typed_url_sync_metadata "
       "(storage_key, value) VALUES(?, ?)"));
-  s.BindInt64(0, storage_key_int);
+  s.BindInt64(0, StorageKeyToURLID(storage_key));
   s.BindString(1, metadata.SerializeAsString());
 
   return s.Run();
@@ -76,15 +67,9 @@ bool TypedURLSyncMetadataDatabase::ClearSyncMetadata(
   DCHECK_EQ(model_type, syncer::TYPED_URLS)
       << "Only the TYPED_URLS model type is supported";
 
-  int64_t storage_key_int = 0;
-  DCHECK_EQ(storage_key.size(), sizeof(storage_key_int));
-  base::ReadBigEndian(storage_key.data(), &storage_key_int);
-  // Make sure storage_key_int is set.
-  DCHECK_NE(storage_key_int, 0);
-
   sql::Statement s(GetDB().GetUniqueStatement(
       "DELETE FROM typed_url_sync_metadata WHERE storage_key=?"));
-  s.BindInt64(0, storage_key_int);
+  s.BindInt64(0, StorageKeyToURLID(storage_key));
 
   return s.Run();
 }
@@ -108,6 +93,17 @@ bool TypedURLSyncMetadataDatabase::ClearModelTypeState(
   return GetMetaTable().DeleteKey(kTypedURLModelTypeStateKey);
 }
 
+// static
+URLID TypedURLSyncMetadataDatabase::StorageKeyToURLID(
+    const std::string& storage_key) {
+  URLID storage_key_int = 0;
+  DCHECK_EQ(storage_key.size(), sizeof(storage_key_int));
+  base::ReadBigEndian(storage_key.data(), &storage_key_int);
+  // Make sure storage_key_int is set.
+  DCHECK_NE(storage_key_int, 0);
+  return storage_key_int;
+}
+
 bool TypedURLSyncMetadataDatabase::InitSyncTable() {
   if (!GetDB().DoesTableExist("typed_url_sync_metadata")) {
     if (!GetDB().Execute("CREATE TABLE typed_url_sync_metadata ("
@@ -117,6 +113,49 @@ bool TypedURLSyncMetadataDatabase::InitSyncTable() {
       return false;
     }
   }
+  return true;
+}
+
+bool TypedURLSyncMetadataDatabase::
+    CleanTypedURLOrphanedMetadataForMigrationToVersion40(
+        const std::vector<URLID>& sorted_valid_rowids) {
+  DCHECK(
+      std::is_sorted(sorted_valid_rowids.begin(), sorted_valid_rowids.end()));
+  std::vector<URLID> invalid_metadata_rowids;
+  auto valid_rowids_iter = sorted_valid_rowids.begin();
+
+  sql::Statement sorted_metadata_rowids(GetDB().GetUniqueStatement(
+      "SELECT storage_key FROM typed_url_sync_metadata ORDER BY storage_key"));
+  while (sorted_metadata_rowids.Step()) {
+    URLID metadata_rowid = sorted_metadata_rowids.ColumnInt64(0);
+    // Both collections are sorted, we check whether |metadata_rowid| is valid
+    // by iterating both at the same time.
+
+    // First, skip all valid IDs that are omitted in |sorted_metadata_rowids|.
+    while (valid_rowids_iter != sorted_valid_rowids.end() &&
+           *valid_rowids_iter < metadata_rowid) {
+      valid_rowids_iter++;
+    }
+    // Now, is |metadata_rowid| invalid?
+    if (valid_rowids_iter == sorted_valid_rowids.end() ||
+        *valid_rowids_iter != metadata_rowid) {
+      invalid_metadata_rowids.push_back(metadata_rowid);
+    }
+  }
+
+  if (!sorted_metadata_rowids.Succeeded()) {
+    return false;
+  }
+
+  for (const URLID& rowid : invalid_metadata_rowids) {
+    sql::Statement del(GetDB().GetCachedStatement(
+        SQL_FROM_HERE,
+        "DELETE FROM typed_url_sync_metadata WHERE storage_key=?"));
+    del.BindInt64(0, rowid);
+    if (!del.Run())
+      return false;
+  }
+
   return true;
 }
 

@@ -8,18 +8,18 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_MODULES_REMOTE_BITRATE_ESTIMATOR_TEST_BWE_TEST_H_
-#define WEBRTC_MODULES_REMOTE_BITRATE_ESTIMATOR_TEST_BWE_TEST_H_
+#ifndef MODULES_REMOTE_BITRATE_ESTIMATOR_TEST_BWE_TEST_H_
+#define MODULES_REMOTE_BITRATE_ESTIMATOR_TEST_BWE_TEST_H_
 
 #include <map>
 #include <string>
 #include <vector>
 
-#include "webrtc/modules/remote_bitrate_estimator/include/remote_bitrate_estimator.h"
-#include "webrtc/modules/remote_bitrate_estimator/test/bwe.h"
-#include "webrtc/modules/remote_bitrate_estimator/test/bwe_test_framework.h"
-#include "webrtc/rtc_base/constructormagic.h"
-#include "webrtc/test/gtest.h"
+#include "modules/remote_bitrate_estimator/include/remote_bitrate_estimator.h"
+#include "modules/remote_bitrate_estimator/test/bwe.h"
+#include "modules/remote_bitrate_estimator/test/bwe_test_framework.h"
+#include "rtc_base/constructormagic.h"
+#include "test/gtest.h"
 
 namespace webrtc {
 
@@ -133,8 +133,7 @@ class BweTest {
   Link uplink_;
 
  private:
-  void FindPacketsToProcess(const FlowIds& flow_ids, Packets* in,
-                            Packets* out);
+  void FindPacketsToProcess(const FlowIds& flow_ids, Packets* in, Packets* out);
   void GiveFeedbackToAffectedSenders(PacketReceiver* receiver);
 
   int64_t run_time_ms_;
@@ -193,4 +192,4 @@ struct DefaultEvaluationFilter {
 }  // namespace testing
 }  // namespace webrtc
 
-#endif  // WEBRTC_MODULES_REMOTE_BITRATE_ESTIMATOR_TEST_BWE_TEST_H_
+#endif  // MODULES_REMOTE_BITRATE_ESTIMATOR_TEST_BWE_TEST_H_

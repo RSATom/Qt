@@ -28,15 +28,14 @@ void InkDropMask::UpdateLayerSize(const gfx::Size& new_layer_size) {
   layer_.SetBounds(gfx::Rect(new_layer_size));
 }
 
-void InkDropMask::OnDelegatedFrameDamage(const gfx::Rect& damage_rect_in_dip) {}
-
-void InkDropMask::OnDeviceScaleFactorChanged(float device_scale_factor) {}
+void InkDropMask::OnDeviceScaleFactorChanged(float old_device_scale_factor,
+                                             float new_device_scale_factor) {}
 
 // RoundRectInkDropMask
 
 RoundRectInkDropMask::RoundRectInkDropMask(const gfx::Size& layer_size,
                                            const gfx::InsetsF& mask_insets,
-                                           int corner_radius)
+                                           float corner_radius)
     : InkDropMask(layer_size),
       mask_insets_(mask_insets),
       corner_radius_(corner_radius) {}
@@ -48,9 +47,13 @@ void RoundRectInkDropMask::OnPaintLayer(const ui::PaintContext& context) {
   flags.setAntiAlias(true);
 
   ui::PaintRecorder recorder(context, layer()->size());
-  gfx::RectF bounds(layer()->bounds());
-  bounds.Inset(mask_insets_);
-  recorder.canvas()->DrawRoundRect(bounds, corner_radius_, flags);
+  const float dsf = recorder.canvas()->UndoDeviceScaleFactor();
+
+  gfx::RectF masking_bound(layer()->bounds());
+  masking_bound.Inset(mask_insets_);
+
+  recorder.canvas()->DrawRoundRect(gfx::ScaleRect(masking_bound, dsf),
+                                   corner_radius_ * dsf, flags);
 }
 
 // CircleInkDropMask

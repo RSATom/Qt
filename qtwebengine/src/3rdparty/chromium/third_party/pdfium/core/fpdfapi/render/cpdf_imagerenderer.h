@@ -10,8 +10,8 @@
 #include <memory>
 
 #include "core/fpdfapi/render/cpdf_imageloader.h"
-#include "core/fxcrt/cfx_unowned_ptr.h"
 #include "core/fxcrt/fx_coordinates.h"
+#include "core/fxcrt/unowned_ptr.h"
 #include "core/fxge/dib/cfx_imagerenderer.h"
 
 class CFX_DIBitmap;
@@ -29,13 +29,13 @@ class CPDF_ImageRenderer {
   ~CPDF_ImageRenderer();
 
   bool Start(CPDF_RenderStatus* pStatus,
-             CPDF_PageObject* pObj,
+             CPDF_ImageObject* pImageObject,
              const CFX_Matrix* pObj2Device,
              bool bStdCS,
              int blendType);
 
   bool Start(CPDF_RenderStatus* pStatus,
-             const CFX_RetainPtr<CFX_DIBSource>& pDIBSource,
+             const RetainPtr<CFX_DIBSource>& pDIBSource,
              FX_ARGB bitmap_argb,
              int bitmap_alpha,
              const CFX_Matrix* pImage2Device,
@@ -43,7 +43,7 @@ class CPDF_ImageRenderer {
              bool bStdCS,
              int blendType);
 
-  bool Continue(IFX_Pause* pPause);
+  bool Continue(PauseIndicatorIface* pPause);
   bool GetResult() const { return m_Result; }
 
  private:
@@ -58,22 +58,21 @@ class CPDF_ImageRenderer {
   CFX_Matrix GetDrawMatrix(const FX_RECT& rect) const;
   void CalculateDrawImage(CFX_DefaultRenderDevice* bitmap_device1,
                           CFX_DefaultRenderDevice* bitmap_device2,
-                          const CFX_RetainPtr<CFX_DIBSource>& pDIBSource,
+                          const RetainPtr<CFX_DIBSource>& pDIBSource,
                           CFX_Matrix* pNewMatrix,
                           const FX_RECT& rect) const;
   void HandleFilters();
 
-  CFX_UnownedPtr<CPDF_RenderStatus> m_pRenderStatus;
-  CFX_UnownedPtr<CPDF_ImageObject> m_pImageObject;
+  UnownedPtr<CPDF_RenderStatus> m_pRenderStatus;
+  UnownedPtr<CPDF_ImageObject> m_pImageObject;
   int m_Status;
-  CFX_UnownedPtr<const CFX_Matrix> m_pObj2Device;
+  UnownedPtr<const CFX_Matrix> m_pObj2Device;
   CFX_Matrix m_ImageMatrix;
   CPDF_ImageLoader m_Loader;
-  CFX_RetainPtr<CFX_DIBSource> m_pDIBSource;
-  CFX_RetainPtr<CFX_DIBitmap> m_pClone;
+  RetainPtr<CFX_DIBSource> m_pDIBSource;
   int m_BitmapAlpha;
   bool m_bPatternColor;
-  CFX_UnownedPtr<CPDF_Pattern> m_pPattern;
+  UnownedPtr<CPDF_Pattern> m_pPattern;
   FX_ARGB m_FillArgb;
   uint32_t m_Flags;
   std::unique_ptr<CFX_ImageTransformer> m_pTransformer;

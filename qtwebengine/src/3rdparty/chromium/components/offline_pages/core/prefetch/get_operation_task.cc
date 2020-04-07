@@ -9,45 +9,103 @@
 
 #include "base/bind.h"
 #include "base/callback.h"
+#include "components/offline_pages/core/prefetch/prefetch_dispatcher.h"
 #include "components/offline_pages/core/prefetch/prefetch_network_request_factory.h"
+#include "components/offline_pages/core/prefetch/store/prefetch_store.h"
+#include "sql/connection.h"
+#include "sql/statement.h"
+#include "sql/transaction.h"
 
 namespace offline_pages {
 
 namespace {
 
-// Will hold the actual SQL implementation for marking a GetOperation attempt in
-// the database.
-static int MarkOperationAttemptStarted(const std::string& operation_name) {
-  NOTIMPLEMENTED();
-  return 1;
+GetOperationTask::OperationResultList MakeError() {
+  return nullptr;
 }
 
-// TODO(fgorski): replace this with the SQL executor.
-static void Execute(base::RepeatingCallback<int()> command_callback,
-                    base::OnceCallback<void(int)> result_callback) {
-  std::move(result_callback).Run(command_callback.Run());
+bool UpdatePrefetchItemsForOperationSync(sql::Connection* db,
+                                         const std::string& operation_name) {
+  static const char kSql[] =
+      "UPDATE prefetch_items SET"
+      " state = ?,"
+      " get_operation_attempts = get_operation_attempts + 1"
+      " WHERE state = ? AND operation_name = ?";
+
+  sql::Statement statement(db->GetCachedStatement(SQL_FROM_HERE, kSql));
+  statement.BindInt(0, static_cast<int>(PrefetchItemState::SENT_GET_OPERATION));
+  statement.BindInt(1, static_cast<int>(PrefetchItemState::RECEIVED_GCM));
+  statement.BindString(2, operation_name);
+
+  return statement.Run();
 }
+
+std::unique_ptr<std::vector<std::string>> AvailableOperationsSync(
+    sql::Connection* db) {
+  static const char kSql[] =
+      "SELECT DISTINCT operation_name FROM prefetch_items WHERE state = ?";
+
+  sql::Statement statement(db->GetCachedStatement(SQL_FROM_HERE, kSql));
+  statement.BindInt(0, static_cast<int>(PrefetchItemState::RECEIVED_GCM));
+
+  auto operations = std::make_unique<std::vector<std::string>>();
+  while (statement.Step()) {
+    operations->push_back(statement.ColumnString(0));  // operation_name
+  }
+  return operations;
+}
+
+GetOperationTask::OperationResultList SelectOperationsToFetch(
+    sql::Connection* db) {
+  sql::Transaction transaction(db);
+  if (!transaction.Begin())
+    return MakeError();
+
+  auto operations = AvailableOperationsSync(db);
+  if (!operations)
+    return MakeError();
+
+  for (std::string operation : *operations) {
+    if (!UpdatePrefetchItemsForOperationSync(db, operation))
+      return MakeError();  // Rollback.
+  }
+
+  if (!transaction.Commit())
+    return MakeError();
+
+  return operations;
+}
+
 }  // namespace
 
 GetOperationTask::GetOperationTask(
-    const std::string& operation_name,
+    PrefetchStore* store,
     PrefetchNetworkRequestFactory* request_factory,
-    const PrefetchRequestFinishedCallback& callback)
-    : operation_name_(operation_name),
+    PrefetchRequestFinishedCallback callback)
+    : prefetch_store_(store),
       request_factory_(request_factory),
-      callback_(callback),
+      callback_(std::move(callback)),
       weak_factory_(this) {}
 
 GetOperationTask::~GetOperationTask() {}
 
 void GetOperationTask::Run() {
-  Execute(base::BindRepeating(&MarkOperationAttemptStarted, operation_name_),
-          base::BindOnce(&GetOperationTask::StartGetOperation,
-                         weak_factory_.GetWeakPtr()));
+  prefetch_store_->Execute(
+      base::BindOnce(&SelectOperationsToFetch),
+      base::BindOnce(&GetOperationTask::StartGetOperationRequests,
+                     weak_factory_.GetWeakPtr()),
+      MakeError());
 }
 
-void GetOperationTask::StartGetOperation(int updated_entry_count) {
-  request_factory_->MakeGetOperationRequest(operation_name_, callback_);
+void GetOperationTask::StartGetOperationRequests(
+    OperationResultList operation_names) {
+  if (operation_names) {
+    for (std::string& operation : *operation_names) {
+      request_factory_->MakeGetOperationRequest(operation,
+                                                std::move(callback_));
+    }
+  }
+
   TaskComplete();
 }
 

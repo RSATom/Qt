@@ -20,21 +20,26 @@
 
 namespace gl {
 
-DriverWGL g_driver_wgl;
+DriverWGL g_driver_wgl;  // Exists in .bss
 
 void DriverWGL::InitializeStaticBindings() {
-  fn.wglChoosePixelFormatARBFn = 0;
+  // Ensure struct has been zero-initialized.
+  char* this_bytes = reinterpret_cast<char*>(this);
+  DCHECK(this_bytes[0] == 0);
+  DCHECK(memcmp(this_bytes, this_bytes + 1, sizeof(*this) - 1) == 0);
+
   fn.wglCopyContextFn =
       reinterpret_cast<wglCopyContextProc>(GetGLProcAddress("wglCopyContext"));
   fn.wglCreateContextFn = reinterpret_cast<wglCreateContextProc>(
       GetGLProcAddress("wglCreateContext"));
-  fn.wglCreateContextAttribsARBFn = 0;
   fn.wglCreateLayerContextFn = reinterpret_cast<wglCreateLayerContextProc>(
       GetGLProcAddress("wglCreateLayerContext"));
-  fn.wglCreatePbufferARBFn = 0;
+  fn.wglCreatePbufferARBFn = reinterpret_cast<wglCreatePbufferARBProc>(
+      GetGLProcAddress("wglCreatePbufferARB"));
   fn.wglDeleteContextFn = reinterpret_cast<wglDeleteContextProc>(
       GetGLProcAddress("wglDeleteContext"));
-  fn.wglDestroyPbufferARBFn = 0;
+  fn.wglDestroyPbufferARBFn = reinterpret_cast<wglDestroyPbufferARBProc>(
+      GetGLProcAddress("wglDestroyPbufferARB"));
   fn.wglGetCurrentContextFn = reinterpret_cast<wglGetCurrentContextProc>(
       GetGLProcAddress("wglGetCurrentContext"));
   fn.wglGetCurrentDCFn = reinterpret_cast<wglGetCurrentDCProc>(
@@ -45,35 +50,36 @@ void DriverWGL::InitializeStaticBindings() {
   fn.wglGetExtensionsStringEXTFn =
       reinterpret_cast<wglGetExtensionsStringEXTProc>(
           GetGLProcAddress("wglGetExtensionsStringEXT"));
-  fn.wglGetPbufferDCARBFn = 0;
+  fn.wglGetPbufferDCARBFn = reinterpret_cast<wglGetPbufferDCARBProc>(
+      GetGLProcAddress("wglGetPbufferDCARB"));
   fn.wglMakeCurrentFn =
       reinterpret_cast<wglMakeCurrentProc>(GetGLProcAddress("wglMakeCurrent"));
-  fn.wglQueryPbufferARBFn = 0;
-  fn.wglReleasePbufferDCARBFn = 0;
+  fn.wglQueryPbufferARBFn = reinterpret_cast<wglQueryPbufferARBProc>(
+      GetGLProcAddress("wglQueryPbufferARB"));
+  fn.wglReleasePbufferDCARBFn = reinterpret_cast<wglReleasePbufferDCARBProc>(
+      GetGLProcAddress("wglReleasePbufferDCARB"));
   fn.wglShareListsFn =
       reinterpret_cast<wglShareListsProc>(GetGLProcAddress("wglShareLists"));
-  fn.wglSwapIntervalEXTFn = 0;
   fn.wglSwapLayerBuffersFn = reinterpret_cast<wglSwapLayerBuffersProc>(
       GetGLProcAddress("wglSwapLayerBuffers"));
 }
 
 void DriverWGL::InitializeExtensionBindings() {
-  std::string extensions(GetPlatformExtensions());
-  extensions += " ";
+  std::string platform_extensions(GetPlatformExtensions());
+  gfx::ExtensionSet extensions(gfx::MakeExtensionSet(platform_extensions));
   ALLOW_UNUSED_LOCAL(extensions);
 
   ext.b_WGL_ARB_create_context =
-      extensions.find("WGL_ARB_create_context ") != std::string::npos;
+      gfx::HasExtension(extensions, "WGL_ARB_create_context");
   ext.b_WGL_ARB_extensions_string =
-      extensions.find("WGL_ARB_extensions_string ") != std::string::npos;
-  ext.b_WGL_ARB_pbuffer =
-      extensions.find("WGL_ARB_pbuffer ") != std::string::npos;
+      gfx::HasExtension(extensions, "WGL_ARB_extensions_string");
+  ext.b_WGL_ARB_pbuffer = gfx::HasExtension(extensions, "WGL_ARB_pbuffer");
   ext.b_WGL_ARB_pixel_format =
-      extensions.find("WGL_ARB_pixel_format ") != std::string::npos;
+      gfx::HasExtension(extensions, "WGL_ARB_pixel_format");
   ext.b_WGL_EXT_extensions_string =
-      extensions.find("WGL_EXT_extensions_string ") != std::string::npos;
+      gfx::HasExtension(extensions, "WGL_EXT_extensions_string");
   ext.b_WGL_EXT_swap_control =
-      extensions.find("WGL_EXT_swap_control ") != std::string::npos;
+      gfx::HasExtension(extensions, "WGL_EXT_swap_control");
 
   if (ext.b_WGL_ARB_pixel_format) {
     fn.wglChoosePixelFormatARBFn =
@@ -85,31 +91,6 @@ void DriverWGL::InitializeExtensionBindings() {
     fn.wglCreateContextAttribsARBFn =
         reinterpret_cast<wglCreateContextAttribsARBProc>(
             GetGLProcAddress("wglCreateContextAttribsARB"));
-  }
-
-  if (ext.b_WGL_ARB_pbuffer) {
-    fn.wglCreatePbufferARBFn = reinterpret_cast<wglCreatePbufferARBProc>(
-        GetGLProcAddress("wglCreatePbufferARB"));
-  }
-
-  if (ext.b_WGL_ARB_pbuffer) {
-    fn.wglDestroyPbufferARBFn = reinterpret_cast<wglDestroyPbufferARBProc>(
-        GetGLProcAddress("wglDestroyPbufferARB"));
-  }
-
-  if (ext.b_WGL_ARB_pbuffer) {
-    fn.wglGetPbufferDCARBFn = reinterpret_cast<wglGetPbufferDCARBProc>(
-        GetGLProcAddress("wglGetPbufferDCARB"));
-  }
-
-  if (ext.b_WGL_ARB_pbuffer) {
-    fn.wglQueryPbufferARBFn = reinterpret_cast<wglQueryPbufferARBProc>(
-        GetGLProcAddress("wglQueryPbufferARB"));
-  }
-
-  if (ext.b_WGL_ARB_pbuffer) {
-    fn.wglReleasePbufferDCARBFn = reinterpret_cast<wglReleasePbufferDCARBProc>(
-        GetGLProcAddress("wglReleasePbufferDCARB"));
   }
 
   if (ext.b_WGL_EXT_swap_control) {

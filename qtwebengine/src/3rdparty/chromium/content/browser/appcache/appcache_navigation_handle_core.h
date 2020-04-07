@@ -29,7 +29,6 @@ class ChromeAppCacheService;
 class AppCacheNavigationHandleCore : public AppCacheFrontend {
  public:
   AppCacheNavigationHandleCore(
-      base::WeakPtr<AppCacheNavigationHandle> ui_handle,
       ChromeAppCacheService* appcache_service,
       int appcache_host_id);
   ~AppCacheNavigationHandleCore() override;
@@ -65,12 +64,14 @@ class AppCacheNavigationHandleCore : public AppCacheFrontend {
                     AppCacheLogLevel log_level,
                     const std::string& message) override;
   void OnContentBlocked(int host_id, const GURL& manifest_url) override;
+  void OnSetSubresourceFactory(
+      int host_id,
+      network::mojom::URLLoaderFactoryPtr url_loader_factory) override;
 
  private:
   std::unique_ptr<AppCacheHost> precreated_host_;
   scoped_refptr<ChromeAppCacheService> appcache_service_;
   int appcache_host_id_;
-  base::WeakPtr<AppCacheNavigationHandle> ui_handle_;
 
   DISALLOW_COPY_AND_ASSIGN(AppCacheNavigationHandleCore);
 };

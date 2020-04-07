@@ -34,29 +34,25 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.10
-import QtQuick.Templates 2.3 as T
-import QtQuick.Controls 2.3
-import QtQuick.Controls.Universal 2.3
+import QtQuick 2.12
+import QtQuick.Templates 2.12 as T
+import QtQuick.Controls 2.12
+import QtQuick.Controls.Universal 2.12
 
 T.Dialog {
     id: control
 
-    implicitWidth: Math.max(background ? background.implicitWidth : 0,
-                            header && header.visible ? header.implicitWidth : 0,
-                            footer && footer.visible ? footer.implicitWidth : 0,
-                            contentWidth > 0 ? contentWidth + leftPadding + rightPadding : 0)
-    implicitHeight: Math.max(background ? background.implicitHeight : 0,
-                             (header && header.visible ? header.implicitHeight + spacing : 0)
-                              + (footer && footer.visible ? footer.implicitHeight + spacing : 0)
-                              + (contentHeight > 0 ? contentHeight + topPadding + bottomPadding : 0))
-
-    contentWidth: contentItem.implicitWidth || (contentChildren.length === 1 ? contentChildren[0].implicitWidth : 0)
-    contentHeight: contentItem.implicitHeight || (contentChildren.length === 1 ? contentChildren[0].implicitHeight : 0)
+    implicitWidth: Math.max(implicitBackgroundWidth + leftInset + rightInset,
+                            contentWidth + leftPadding + rightPadding,
+                            implicitHeaderWidth,
+                            implicitFooterWidth)
+    implicitHeight: Math.max(implicitBackgroundHeight + topInset + bottomInset,
+                             contentHeight + topPadding + bottomPadding
+                             + (implicitHeaderHeight > 0 ? implicitHeaderHeight + spacing : 0)
+                             + (implicitFooterHeight > 0 ? implicitFooterHeight + spacing : 0))
 
     padding: 24
-    topPadding: 18
-    bottomPadding: 18
+    verticalPadding: 18
 
     background: Rectangle {
         color: control.Universal.chromeMediumLowColor

@@ -9,7 +9,6 @@
 #include <utility>
 
 #include "base/json/json_writer.h"
-#include "base/memory/ptr_util.h"
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
@@ -71,7 +70,7 @@ namespace data_reduction_proxy {
 // static
 void DataReductionProxyEventStore::AddConstants(
     base::DictionaryValue* constants_dict) {
-  auto dict = base::MakeUnique<base::DictionaryValue>();
+  auto dict = std::make_unique<base::DictionaryValue>();
   for (size_t i = 0;
        i < arraysize(kDataReductionProxyBypassEventTypeTable); ++i) {
     dict->SetInteger(kDataReductionProxyBypassEventTypeTable[i].name,
@@ -80,7 +79,7 @@ void DataReductionProxyEventStore::AddConstants(
 
   constants_dict->Set("dataReductionProxyBypassEventType", std::move(dict));
 
-  dict = base::MakeUnique<base::DictionaryValue>();
+  dict = std::make_unique<base::DictionaryValue>();
   for (size_t i = 0; i < arraysize(kDataReductionProxyBypassActionTypeTable);
        ++i) {
     dict->SetInteger(kDataReductionProxyBypassActionTypeTable[i].name,
@@ -103,11 +102,11 @@ std::unique_ptr<base::DictionaryValue>
 DataReductionProxyEventStore::GetSummaryValue() const {
   DCHECK(thread_checker_.CalledOnValidThread());
 
-  auto data_reduction_proxy_values = base::MakeUnique<base::DictionaryValue>();
+  auto data_reduction_proxy_values = std::make_unique<base::DictionaryValue>();
   data_reduction_proxy_values->SetBoolean("enabled", enabled_);
   if (current_configuration_) {
-    data_reduction_proxy_values->Set(
-        "proxy_config", base::MakeUnique<base::Value>(*current_configuration_));
+    data_reduction_proxy_values->SetKey("proxy_config",
+                                        current_configuration_->Clone());
   }
 
   switch (secure_proxy_check_state_) {
@@ -129,12 +128,12 @@ DataReductionProxyEventStore::GetSummaryValue() const {
     int current_time_ticks_ms =
         (base::TimeTicks::Now() - base::TimeTicks()).InMilliseconds();
     if (expiration_ticks_ > current_time_ticks_ms) {
-      data_reduction_proxy_values->Set(
-          "last_bypass", base::MakeUnique<base::Value>(*last_bypass_event));
+      data_reduction_proxy_values->SetKey("last_bypass",
+                                          last_bypass_event->Clone());
     }
   }
 
-  auto events_list = base::MakeUnique<base::ListValue>();
+  auto events_list = std::make_unique<base::ListValue>();
 
   DCHECK(oldest_event_index_ == 0 ||
          stored_events_.size() == kMaxEventsToStore);
@@ -223,7 +222,7 @@ std::string DataReductionProxyEventStore::SanitizedLastBypassEvent() const {
     return std::string();
 
   // Explicitly add parameters to prevent automatic adding of new parameters.
-  auto last_bypass = base::MakeUnique<base::DictionaryValue>();
+  auto last_bypass = std::make_unique<base::DictionaryValue>();
 
   std::string str_value;
   int int_value;
@@ -270,7 +269,7 @@ std::string DataReductionProxyEventStore::SanitizedLastBypassEvent() const {
   }
 
   std::string json;
-  base::JSONWriter::Write(*last_bypass.get(), &json);
+  base::JSONWriter::Write(*last_bypass, &json);
   return json;
 }
 

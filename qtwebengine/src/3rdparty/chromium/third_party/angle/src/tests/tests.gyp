@@ -41,6 +41,13 @@
             'third_party/rapidjson/include/rapidjson/msinttypes/stdint.h',
         ],
     },
+    'target_defaults':
+    {
+        'dependencies':
+        [
+            '../../gyp/warnings.gyp:gyp_deprecation',
+        ],
+    },
     'conditions':
     [
         # GoogleTest doesn't support WinRT
@@ -71,12 +78,12 @@
                     'includes': [ '../../gyp/common_defines.gypi', ],
                     'include_dirs':
                     [
-                        '<(angle_path)/testing/gtest',
-                        '<(angle_path)/testing/gtest/include',
+                        '<(angle_path)/third_party/googletest/src/googletest',
+                        '<(angle_path)/third_party/googletest/src/googletest/include',
                     ],
                     'sources':
                     [
-                        '<(angle_path)/testing/gtest/src/gtest-all.cc',
+                        '<(angle_path)/third_party/googletest/src/googletest/src/gtest-all.cc',
                     ],
                     'defines':
                     [
@@ -90,8 +97,8 @@
                         ],
                         'include_dirs':
                         [
-                            '<(angle_path)/testing/gtest',
-                            '<(angle_path)/testing/gtest/include',
+                            '<(angle_path)/third_party/googletest/src/googletest',
+                            '<(angle_path)/third_party/googletest/src/googletest/include',
                         ],
                     },
                 },
@@ -102,13 +109,13 @@
                     'includes': [ '../../gyp/common_defines.gypi', ],
                     'include_dirs':
                     [
-                        '<(angle_path)/testing/gmock',
-                        '<(angle_path)/testing/gmock/include',
-                        '<(angle_path)/testing/gtest/include',
+                        '<(angle_path)/third_party/googletest/src/googlemock',
+                        '<(angle_path)/third_party/googletest/src/googlemock/include',
+                        '<(angle_path)/third_party/googletest/src/googletest/include',
                     ],
                     'sources':
                     [
-                        '<(angle_path)/testing/gmock/src/gmock-all.cc',
+                        '<(angle_path)/third_party/googletest/src/googlemock/src/gmock-all.cc',
                     ],
                     'defines':
                     [
@@ -122,9 +129,9 @@
                         ],
                         'include_dirs':
                         [
-                            '<(angle_path)/testing/gmock',
-                            '<(angle_path)/testing/gmock/include',
-                            '<(angle_path)/testing/gtest/include',
+                            '<(angle_path)/third_party/googletest/src/googlemock',
+                            '<(angle_path)/third_party/googletest/src/googlemock/include',
+                            '<(angle_path)/third_party/googletest/src/googletest/include',
                         ],
                     },
                 },

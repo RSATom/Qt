@@ -13,7 +13,6 @@
 
 #include "base/bind.h"
 #include "base/lazy_instance.h"
-#include "base/memory/ptr_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "chromeos/network/managed_network_configuration_handler.h"
@@ -193,9 +192,9 @@ NetworkingConfigService::CreatePortalDetectedEventAndDispatch(
   network_info.type = api::networking_config::NETWORK_TYPE_WIFI;
   const std::vector<uint8_t>& raw_ssid = network->raw_ssid();
   std::string hex_ssid = base::HexEncode(raw_ssid.data(), raw_ssid.size());
-  network_info.hex_ssid = base::MakeUnique<std::string>(hex_ssid);
-  network_info.ssid = base::MakeUnique<std::string>(network->name());
-  network_info.guid = base::MakeUnique<std::string>(network->guid());
+  network_info.hex_ssid = std::make_unique<std::string>(hex_ssid);
+  network_info.ssid = std::make_unique<std::string>(network->name());
+  network_info.guid = std::make_unique<std::string>(network->guid());
   if (bssid)
     network_info.bssid.reset(new std::string(*bssid));
   std::unique_ptr<base::ListValue> results =

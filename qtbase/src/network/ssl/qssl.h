@@ -91,6 +91,14 @@ namespace QSsl {
         TlsV1_1OrLater,
         TlsV1_2OrLater,
 
+        DtlsV1_0,
+        DtlsV1_0OrLater,
+        DtlsV1_2,
+        DtlsV1_2OrLater,
+
+        TlsV1_3,
+        TlsV1_3OrLater,
+
         UnknownProtocol = -1
     };
 

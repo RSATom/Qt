@@ -23,6 +23,40 @@ So let's go!
 _Note:_ We sometimes refer to Google C++ Testing Framework informally
 as _Google Test_.
 
+# Beware of the nomenclature #
+
+_Note:_ There might be some confusion of idea due to different
+definitions of the terms _Test_, _Test Case_ and _Test Suite_, so beware
+of misunderstanding these.
+
+Historically, the Google C++ Testing Framework started to use the term
+_Test Case_ for grouping related tests, whereas current publications
+including the International Software Testing Qualifications Board
+([ISTQB](http://www.istqb.org/)) and various textbooks on Software
+Quality use the term _[Test
+Suite](http://glossary.istqb.org/search/test%20suite)_ for this.
+
+The related term _Test_, as it is used in the Google C++ Testing
+Framework, is corresponding to the term _[Test
+Case](http://glossary.istqb.org/search/test%20case)_ of ISTQB and
+others.
+
+The term _Test_ is commonly of broad enough sense, including ISTQB's
+definition of _Test Case_, so it's not much of a problem here. But the
+term _Test Case_ as used in Google Test is of contradictory sense and thus confusing.
+
+Unfortunately replacing the term _Test Case_ by _Test Suite_ throughout
+the Google C++ Testing Framework is not easy without breaking dependent
+projects, as `TestCase` is part of the public API at various places.
+
+So for the time being, please be aware of the different definitions of
+the terms:
+
+Meaning | Google Test Term | [ISTQB](http://www.istqb.org/) Term
+------- | ---------------- | -----------------------------------
+Exercise a particular program path with specific input values and verify the results | [TEST()](#simple-tests) | [Test Case](http://glossary.istqb.org/search/test%20case)
+A set of several tests related to one component | [Test Case](#basic-concepts) | [Test Suite](http://glossary.istqb.org/search/test%20suite)
+
 # Setting up a New Test Project #
 
 To write a test program using Google Test, you need to compile Google
@@ -179,7 +213,7 @@ two `string` objects, use `EXPECT_EQ`, `EXPECT_NE`, and etc instead.
 
 | **Fatal assertion** | **Nonfatal assertion** | **Verifies** |
 |:--------------------|:-----------------------|:-------------|
-| `ASSERT_STREQ(`_str1_`, `_str2_`);`    | `EXPECT_STREQ(`_str1_`, `_str_2`);`     | the two C strings have the same content |
+| `ASSERT_STREQ(`_str1_`, `_str2_`);`    | `EXPECT_STREQ(`_str1_`, `_str2_`);`     | the two C strings have the same content |
 | `ASSERT_STRNE(`_str1_`, `_str2_`);`    | `EXPECT_STRNE(`_str1_`, `_str2_`);`     | the two C strings have different content |
 | `ASSERT_STRCASEEQ(`_str1_`, `_str2_`);`| `EXPECT_STRCASEEQ(`_str1_`, `_str2_`);` | the two C strings have the same content, ignoring case |
 | `ASSERT_STRCASENE(`_str1_`, `_str2_`);`| `EXPECT_STRCASENE(`_str1_`, `_str2_`);` | the two C strings have different content, ignoring case |
@@ -195,7 +229,7 @@ A `NULL` pointer and an empty string are considered _different_.
 _Availability_: Linux, Windows, Mac.
 
 See also: For more string comparison tricks (substring, prefix, suffix, and
-regular expression matching, for example), see the [Advanced Google Test Guide](AdvancedGuide.md).
+regular expression matching, for example), see the [Advanced Google Test Guide](advanced.md).
 
 # Simple Tests #
 
@@ -205,7 +239,7 @@ To create a test:
   1. The test's result is determined by the assertions; if any assertion in the test fails (either fatally or non-fatally), or if the test crashes, the entire test fails. Otherwise, it succeeds.
 
 ```
-TEST(test_case_name, test_name) {
+TEST(testCaseName, testName) {
  ... test body ...
 }
 ```
@@ -256,7 +290,7 @@ To create a fixture, just:
   1. Derive a class from `::testing::Test` . Start its body with `protected:` or `public:` as we'll want to access fixture members from sub-classes.
   1. Inside the class, declare any objects you plan to use.
   1. If necessary, write a default constructor or `SetUp()` function to prepare the objects for each test. A common mistake is to spell `SetUp()` as `Setup()` with a small `u` - don't let that happen to you.
-  1. If necessary, write a destructor or `TearDown()` function to release any resources you allocated in `SetUp()` . To learn when you should use the constructor/destructor and when you should use `SetUp()/TearDown()`, read this [FAQ entry](FAQ.md#should-i-use-the-constructordestructor-of-the-test-fixture-or-the-set-uptear-down-function).
+  1. If necessary, write a destructor or `TearDown()` function to release any resources you allocated in `SetUp()` . To learn when you should use the constructor/destructor and when you should use `SetUp()/TearDown()`, read this [FAQ entry](faq.md#should-i-use-the-constructordestructor-of-the-test-fixture-or-the-set-uptear-down-function).
   1. If needed, define subroutines for your tests to share.
 
 When using a fixture, use `TEST_F()` instead of `TEST()` as it allows you to
@@ -281,7 +315,7 @@ declaration`".
 
 For each test defined with `TEST_F()`, Google Test will:
   1. Create a _fresh_ test fixture at runtime
-  1. Immediately initialize it via `SetUp()` ,
+  1. Immediately initialize it via `SetUp()`
   1. Run the test
   1. Clean up by calling `TearDown()`
   1. Delete the test fixture.  Note that different tests in the same test case have different test fixture objects, and Google Test always deletes a test fixture before it creates the next one. Google Test does not reuse the same test fixture for multiple tests. Any changes one test makes to the fixture do not affect other tests.
@@ -382,7 +416,7 @@ When invoked, the `RUN_ALL_TESTS()` macro:
   1. Restores the state of all Google Test flags.
   1. Repeats the above steps for the next test, until all tests have run.
 
-In addition, if the text fixture's constructor generates a fatal failure in
+In addition, if the test fixture's constructor generates a fatal failure in
 step 2, there is no point for step 3 - 5 and they are thus skipped. Similarly,
 if step 3 generates a fatal failure, step 4 will be skipped.
 
@@ -460,7 +494,7 @@ int main(int argc, char **argv) {
 
 The `::testing::InitGoogleTest()` function parses the command line for Google
 Test flags, and removes all recognized flags. This allows the user to control a
-test program's behavior via various flags, which we'll cover in [AdvancedGuide](AdvancedGuide.md).
+test program's behavior via various flags, which we'll cover in [AdvancedGuide](advanced.md).
 You must call this function before calling `RUN_ALL_TESTS()`, or the flags
 won't be properly initialized.
 
@@ -488,8 +522,8 @@ There is one more pitfall, though. If you use Google Test as a static library (t
 # Where to Go from Here #
 
 Congratulations! You've learned the Google Test basics. You can start writing
-and running Google Test tests, read some [samples](Samples.md), or continue with
-[AdvancedGuide](AdvancedGuide.md), which describes many more useful Google Test features.
+and running Google Test tests, read some [samples](samples.md), or continue with
+[AdvancedGuide](advanced.md), which describes many more useful Google Test features.
 
 # Known Limitations #
 

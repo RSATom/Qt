@@ -12,7 +12,6 @@
 
 #include <algorithm>
 
-#include "base/memory/ptr_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "content/browser/bluetooth/bluetooth_blocklist.h"
@@ -178,8 +177,8 @@ WebBluetoothServiceImpl::~WebBluetoothServiceImpl() {
 }
 
 void WebBluetoothServiceImpl::SetClientConnectionErrorHandler(
-    base::Closure closure) {
-  binding_.set_connection_error_handler(closure);
+    base::OnceClosure closure) {
+  binding_.set_connection_error_handler(std::move(closure));
 }
 
 bool WebBluetoothServiceImpl::IsDevicePaired(
@@ -261,9 +260,10 @@ void WebBluetoothServiceImpl::GattCharacteristicValueChanged(
   // in an event being fired before the readValue promise is resolved.
   if (!base::ThreadTaskRunnerHandle::Get()->PostTask(
           FROM_HERE,
-          base::Bind(&WebBluetoothServiceImpl::NotifyCharacteristicValueChanged,
-                     weak_ptr_factory_.GetWeakPtr(),
-                     characteristic->GetIdentifier(), value))) {
+          base::BindOnce(
+              &WebBluetoothServiceImpl::NotifyCharacteristicValueChanged,
+              weak_ptr_factory_.GetWeakPtr(), characteristic->GetIdentifier(),
+              value))) {
     LOG(WARNING) << "No TaskRunner.";
   }
 }
@@ -822,11 +822,12 @@ void WebBluetoothServiceImpl::RequestDeviceImpl(
     blink::mojom::WebBluetoothRequestDeviceOptionsPtr options,
     RequestDeviceCallback callback,
     device::BluetoothAdapter* adapter) {
-  // requestDevice() can only be called when processing a user-gesture and any
-  // user gesture outside of a chooser should close the chooser. This does
-  // not happen on all platforms so we don't DCHECK that the old one is closed.
-  // We destroy the old chooser before constructing the new one to make sure
-  // they can't conflict.
+  // Calls to requestDevice() require user activation (user gestures).  We
+  // should close any opened chooser when a duplicate requestDevice call is made
+  // with the same user activation or when any gesture occurs outside of the
+  // opened chooser. This does not happen on all platforms so we don't DCHECK
+  // that the old one is closed.  We destroy the old chooser before constructing
+  // the new one to make sure they can't conflict.
   device_chooser_controller_.reset();
 
   device_chooser_controller_.reset(
@@ -1028,7 +1029,7 @@ void WebBluetoothServiceImpl::OnStartNotifySessionSuccess(
   std::move(callback).Run(blink::mojom::WebBluetoothResult::SUCCESS);
   // Saving the BluetoothGattNotifySession keeps notifications active.
   auto gatt_notify_session_and_client =
-      base::MakeUnique<GATTNotifySessionAndCharacteristicClient>(
+      std::make_unique<GATTNotifySessionAndCharacteristicClient>(
           std::move(notify_session), std::move(client));
   characteristic_id_to_notify_session_[characteristic_instance_id] =
       std::move(gatt_notify_session_and_client);
@@ -1241,6 +1242,10 @@ BluetoothAllowedDevices& WebBluetoothServiceImpl::allowed_devices() {
 }
 
 void WebBluetoothServiceImpl::ClearState() {
+  // Releasing the adapter will drop references to callbacks that have not yet
+  // been executed. The binding must be closed first so that this is allowed.
+  binding_.Close();
+
   characteristic_id_to_notify_session_.clear();
   pending_primary_services_requests_.clear();
   descriptor_id_to_characteristic_id_.clear();

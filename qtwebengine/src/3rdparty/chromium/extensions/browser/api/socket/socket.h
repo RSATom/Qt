@@ -7,19 +7,21 @@
 
 #include <stdint.h>
 
-#include <queue>
 #include <string>
 #include <utility>
 
 #include "base/callback.h"
+#include "base/containers/queue.h"
 #include "base/memory/ref_counted.h"
 #include "build/build_config.h"
+#include "content/public/browser/browser_thread.h"
 #include "extensions/browser/api/api_resource.h"
 #include "extensions/browser/api/api_resource_manager.h"
 #include "net/base/completion_callback.h"
 #include "net/base/io_buffer.h"
 #include "net/base/ip_endpoint.h"
 #include "net/socket/tcp_client_socket.h"
+#include "net/traffic_annotation/network_traffic_annotation.h"
 
 #if defined(OS_CHROMEOS)
 #include "extensions/browser/api/socket/app_firewall_hole_manager.h"
@@ -80,7 +82,9 @@ class Socket : public ApiResource {
   // |socket_destroying| is true if disconnect is due to destruction of the
   // socket.
   virtual void Disconnect(bool socket_destroying) = 0;
-  virtual int Bind(const std::string& address, uint16_t port) = 0;
+  virtual void Bind(const std::string& address,
+                    uint16_t port,
+                    const CompletionCallback& callback) = 0;
 
   // The |callback| will be called with the number of bytes read into the
   // buffer, or a negative number if an error occurred.
@@ -121,6 +125,8 @@ class Socket : public ApiResource {
                                         std::string* ip_address_str,
                                         uint16_t* port);
 
+  static net::NetworkTrafficAnnotationTag GetNetworkTrafficAnnotationTag();
+
  protected:
   explicit Socket(const std::string& owner_extension_id_);
 
@@ -128,7 +134,6 @@ class Socket : public ApiResource {
   virtual int WriteImpl(net::IOBuffer* io_buffer,
                         int io_buffer_size,
                         const net::CompletionCallback& callback) = 0;
-  virtual void OnWriteComplete(int result);
 
   std::string hostname_;
   bool is_connected_;
@@ -148,7 +153,10 @@ class Socket : public ApiResource {
     CompletionCallback callback;
     int bytes_written;
   };
-  std::queue<WriteRequest> write_queue_;
+
+  void OnWriteComplete(int result);
+
+  base::queue<WriteRequest> write_queue_;
   scoped_refptr<net::IOBuffer> io_buffer_write_;
 
 #if defined(OS_CHROMEOS)

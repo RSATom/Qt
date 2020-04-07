@@ -57,7 +57,8 @@ class AboutSigninInternals
                        AccountTrackerService* account_tracker,
                        SigninManagerBase* signin_manager,
                        SigninErrorController* signin_error_controller,
-                       GaiaCookieManagerService* cookie_manager_service);
+                       GaiaCookieManagerService* cookie_manager_service,
+                       signin::AccountConsistencyMethod account_consistency);
   ~AboutSigninInternals() override;
 
   // Registers the preferences used by AboutSigninInternals.
@@ -164,7 +165,8 @@ class AboutSigninInternals
         SigninErrorController* signin_error_controller,
         ProfileOAuth2TokenService* token_service,
         GaiaCookieManagerService* cookie_manager_service_,
-        const std::string& product_version);
+        SigninClient* signin_client,
+        signin::AccountConsistencyMethod account_consistency);
   };
 
   // SigninManager::SigninDiagnosticsObserver implementation.
@@ -187,6 +189,7 @@ class AboutSigninInternals
 
   // OAuth2TokenServiceDelegate::Observer implementations.
   void OnRefreshTokensLoaded() override;
+  void OnEndBatchChanges() override;
 
   // SigninManagerBase::Observer implementations.
   void GoogleSigninFailed(const GoogleServiceAuthError& error) override;
@@ -221,6 +224,8 @@ class AboutSigninInternals
   // Encapsulates the actual signin and token related values.
   // Most of the values are mirrored in the prefs for persistence.
   SigninStatus signin_status_;
+
+  signin::AccountConsistencyMethod account_consistency_;
 
   base::ObserverList<Observer> signin_observers_;
 

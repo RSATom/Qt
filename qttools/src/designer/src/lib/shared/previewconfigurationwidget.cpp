@@ -36,17 +36,17 @@
 
 #include <deviceskin.h>
 
-#include <QtDesigner/QDesignerSettingsInterface>
+#include <QtDesigner/abstractsettings.h>
 
-#include <QtWidgets/QFileDialog>
-#include <QtWidgets/QStyleFactory>
-#include <QtWidgets/QFileDialog>
-#include <QtWidgets/QMessageBox>
-#include <QtCore/QPair>
-#include <QtCore/QList>
-#include <QtCore/QDebug>
-#include <QtCore/QFileInfo>
-#include <QtCore/QSharedData>
+#include <QtWidgets/qfiledialog.h>
+#include <QtWidgets/qstylefactory.h>
+#include <QtWidgets/qfiledialog.h>
+#include <QtWidgets/qmessagebox.h>
+#include <QtCore/qpair.h>
+#include <QtCore/qlist.h>
+#include <QtCore/qdebug.h>
+#include <QtCore/qfileinfo.h>
+#include <QtCore/qshareddata.h>
 
 
 static const char *skinResourcePathC = ":/skins/";
@@ -298,11 +298,11 @@ int  PreviewConfigurationWidget::PreviewConfigurationWidgetPrivate::browseSkin()
             rc = m_browseSkinIndex++;
 
             break;
-        } else {
-            const QString msgTitle = tr("%1 - Error").arg(title);
-            const QString msg = tr("%1 is not a valid skin directory:\n%2").arg(directory).arg(readError);
-            QMessageBox::warning (m_parent, msgTitle, msg);
         }
+        const QString msgTitle = tr("%1 - Error").arg(title);
+        const QString msg = tr("%1 is not a valid skin directory:\n%2")
+                            .arg(directory, readError);
+        QMessageBox::warning (m_parent, msgTitle, msg);
     } while (true);
     return rc;
 }

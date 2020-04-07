@@ -274,15 +274,16 @@ const FunctionNode* Tree::findFunctionNode(const QStringList& path,
             // functions are private.
             const FunctionNode* func = static_cast<const FunctionNode*>(node);
             while (func->access() == Node::Private) {
-                const FunctionNode* from = func->reimplementedFrom();
-                if (from != 0) {
-                    if (from->access() != Node::Private)
-                        return from;
-                    else
-                        func = from;
-                }
-                else
+                if (func->reimplementedFrom().isEmpty())
+                    return func;
+                QString path = func->reimplementedFrom();
+                const FunctionNode* from = qdb_->findFunctionNode(path, params, relative, genus);
+                if (from == 0)
                     break;
+                if (from->access() != Node::Private)
+                    return from;
+                else
+                    func = from;
             }
             return func;
         }
@@ -415,16 +416,7 @@ void Tree::resolveInheritanceHelper(int pass, ClassNode* cn)
     else {
         NodeList::ConstIterator c = cn->childNodes().constBegin();
         while (c != cn->childNodes().constEnd()) {
-            if ((*c)->type() == Node::Function) {
-                FunctionNode* func = (FunctionNode*)* c;
-                FunctionNode* from = findVirtualFunctionInBaseClasses(cn, func);
-                if (from != 0) {
-                    if (func->isNonvirtual())
-                        func->setVirtual();
-                    func->setReimplementedFrom(from);
-                }
-            }
-            else if ((*c)->type() == Node::Property)
+            if ((*c)->type() == Node::Property)
                 cn->fixPropertyUsingBaseClasses(static_cast<PropertyNode*>(*c));
             ++c;
         }
@@ -542,26 +534,6 @@ void Tree::fixInheritance(NamespaceNode* rootNode)
         }
         ++c;
     }
-}
-
-/*!
- */
-FunctionNode* Tree::findVirtualFunctionInBaseClasses(ClassNode* cn, FunctionNode* clone)
-{
-    const QList<RelatedClass>& rc = cn->baseClasses();
-    QList<RelatedClass>::ConstIterator r = rc.constBegin();
-    while (r != rc.constEnd()) {
-        FunctionNode* func;
-        if ((*r).node_) {
-            if (((func = findVirtualFunctionInBaseClasses((*r).node_, clone)) != 0 ||
-                 (func = (*r).node_->findFunctionNode(clone)) != 0)) {
-                if (!func->isNonvirtual())
-                    return func;
-            }
-        }
-        ++r;
-    }
-    return 0;
 }
 
 /*!
@@ -913,7 +885,11 @@ const Node* Tree::findNode(const QStringList& path,
             if (node == 0 || !node->isAggregate())
                 break;
 
-            const Node* next = static_cast<const Aggregate*>(node)->findChildNode(path.at(i), genus);
+            // Clear the TypesOnly flag until the last path segment, as e.g. namespaces are not types.
+            // We also ignore module nodes as they are not aggregates and thus have no children.
+            int tmpFlags = (i < path.size() - 1) ? (findFlags & ~TypesOnly) | IgnoreModules : findFlags;
+
+            const Node* next = static_cast<const Aggregate*>(node)->findChildNode(path.at(i), genus, tmpFlags);
             if (!next && (findFlags & SearchEnumValues) && i == path.size()-1) {
                 next = static_cast<const Aggregate*>(node)->findEnumNodeForValue(path.at(i));
             }
@@ -921,7 +897,7 @@ const Node* Tree::findNode(const QStringList& path,
                 node->isClass() && (findFlags & SearchBaseClasses)) {
                 NodeList baseClasses = allBaseClasses(static_cast<const ClassNode*>(node));
                 foreach (const Node* baseClass, baseClasses) {
-                    next = static_cast<const Aggregate*>(baseClass)->findChildNode(path.at(i), genus);
+                    next = static_cast<const Aggregate*>(baseClass)->findChildNode(path.at(i), genus, tmpFlags);
                     if (!next && (findFlags & SearchEnumValues) && i == path.size() - 1)
                         next = static_cast<const Aggregate*>(baseClass)->findEnumNodeForValue(path.at(i));
                     if (next) {
@@ -1450,6 +1426,10 @@ void Tree::insertQmlType(const QString& key, QmlTypeNode* n)
 /*!
   Split \a target on "::" and find the function node with that
   path.
+
+  This function used to return 0 if a matching node was found,
+  but the node represented a macro without parameters. That test
+  was removed by mws 26/01/2018.
  */
 const Node* Tree::findFunctionNode(const QString& target,
                                    const QString& params,
@@ -1461,10 +1441,7 @@ const Node* Tree::findFunctionNode(const QString& target,
         t.chop(2);
     }
     QStringList path = t.split("::");
-    const FunctionNode* fn = findFunctionNode(path, params, relative, SearchBaseClasses, genus);
-    if (fn && !fn->isMacroWithoutParams())
-        return fn;
-    return 0;
+    return findFunctionNode(path, params, relative, SearchBaseClasses, genus);
 }
 
 /*!
@@ -1521,6 +1498,55 @@ QString Tree::getNewLinkTarget(const Node* locNode,
 TargetList* Tree::getTargetList(const QString& module)
 {
     return targetListMap_->value(module);
+}
+
+/*!
+  Search this tree recursively from \a parent to find a function
+  node with the specified \a tag. If no function node is found
+  with the required \a tag, return 0.
+ */
+Node* Tree::findFunctionNodeForTag(const QString &tag, Aggregate* parent)
+{
+    if (!parent)
+        parent = root();
+    const NodeList& children = parent->childNodes();
+    for (Node *n : children) {
+        if (n && n->isFunction() && n->hasTag(tag))
+            return n;
+    }
+    for (Node *n : children) {
+        if (n && n->isAggregate()) {
+            Aggregate* a = static_cast<Aggregate*>(n);
+            n = findFunctionNodeForTag(tag, a);
+            if (n)
+                return n;
+        }
+    }
+    return 0;
+}
+
+/*!
+  There should only be one macro node for macro name \a t.
+  The macro node is not built until the \macro command is seen.
+ */
+Node *Tree::findMacroNode(const QString &t, const Aggregate *parent)
+{
+    if (!parent)
+        parent = root();
+    const NodeList &children = parent->childNodes();
+    for (Node *n : children) {
+        if (n && (n->isMacro() || n->isFunction()) && n->name() == t)
+            return n;
+    }
+    for (Node *n : children) {
+        if (n && n->isAggregate()) {
+            Aggregate *a = static_cast<Aggregate*>(n);
+            n = findMacroNode(t, a);
+            if (n)
+                return n;
+        }
+    }
+    return 0;
 }
 
 QT_END_NAMESPACE

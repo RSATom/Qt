@@ -50,10 +50,10 @@
 
 #include "chatclient.h"
 
-#include <qbluetoothsocket.h>
+#include <QtCore/qmetaobject.h>
 
 ChatClient::ChatClient(QObject *parent)
-:   QObject(parent), socket(0)
+    :   QObject(parent)
 {
 }
 
@@ -74,9 +74,12 @@ void ChatClient::startClient(const QBluetoothServiceInfo &remoteService)
     socket->connectToService(remoteService);
     qDebug() << "ConnectToService done";
 
-    connect(socket, SIGNAL(readyRead()), this, SLOT(readSocket()));
-    connect(socket, SIGNAL(connected()), this, SLOT(connected()));
-    connect(socket, SIGNAL(disconnected()), this, SIGNAL(disconnected()));
+    connect(socket, &QBluetoothSocket::readyRead, this, &ChatClient::readSocket);
+    connect(socket, &QBluetoothSocket::connected, this, QOverload<>::of(&ChatClient::connected));
+    connect(socket, &QBluetoothSocket::disconnected, this, &ChatClient::disconnected);
+    connect(socket, QOverload<QBluetoothSocket::SocketError>::of(&QBluetoothSocket::error),
+            this, &ChatClient::onSocketErrorOccurred);
+
 }
 //! [startClient]
 
@@ -84,7 +87,7 @@ void ChatClient::startClient(const QBluetoothServiceInfo &remoteService)
 void ChatClient::stopClient()
 {
     delete socket;
-    socket = 0;
+    socket = nullptr;
 }
 //! [stopClient]
 
@@ -109,6 +112,18 @@ void ChatClient::sendMessage(const QString &message)
     socket->write(text);
 }
 //! [sendMessage]
+
+void ChatClient::onSocketErrorOccurred(QBluetoothSocket::SocketError error)
+{
+    if (error == QBluetoothSocket::NoSocketError)
+        return;
+
+    QMetaEnum metaEnum = QMetaEnum::fromType<QBluetoothSocket::SocketError>();
+    QString errorString = socket->peerName() + QLatin1Char(' ')
+            + metaEnum.valueToKey(error) + QLatin1String(" occurred");
+
+    emit socketErrorOccurred(errorString);
+}
 
 //! [connected]
 void ChatClient::connected()

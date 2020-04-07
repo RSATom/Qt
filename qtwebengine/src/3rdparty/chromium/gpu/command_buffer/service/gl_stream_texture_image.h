@@ -5,7 +5,8 @@
 #ifndef GPU_COMMAND_BUFFER_SERVICE_GL_STREAM_TEXTURE_IMAGE_H_
 #define GPU_COMMAND_BUFFER_SERVICE_GL_STREAM_TEXTURE_IMAGE_H_
 
-#include "gpu/gpu_export.h"
+#include "gpu/gpu_gles2_export.h"
+#include "ui/gfx/gpu_fence.h"
 #include "ui/gl/gl_image.h"
 
 namespace gpu {
@@ -13,24 +14,22 @@ namespace gles2 {
 
 // Specialization of GLImage that allows us to support (stream) textures
 // that supply a texture matrix.
-class GPU_EXPORT GLStreamTextureImage : public gl::GLImage {
+class GPU_GLES2_EXPORT GLStreamTextureImage : public gl::GLImage {
  public:
-  GLStreamTextureImage() {}
-
   // Get the matrix.
   // Copy the texture matrix for this image into |matrix|.
   // Subclasses must return a matrix appropriate for a coordinate system where
   // UV=(0,0) corresponds to the top left corner of the image.
   virtual void GetTextureMatrix(float matrix[16]) = 0;
 
-  void Flush() override {}
-
   virtual void NotifyPromotionHint(bool promotion_hint,
                                    int display_x,
-                                   int display_y) {}
+                                   int display_y,
+                                   int display_width,
+                                   int display_height) = 0;
 
  protected:
-  ~GLStreamTextureImage() override {}
+  ~GLStreamTextureImage() override = default;
 
   // Convenience function for subclasses that deal with SurfaceTextures, whose
   // coordinate system has (0,0) at the bottom left of the image.
@@ -44,9 +43,6 @@ class GPU_EXPORT GLStreamTextureImage : public gl::GLImage {
       matrix[i + 4] = -matrix[i + 4];
     }
   }
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(GLStreamTextureImage);
 };
 
 }  // namespace gles2

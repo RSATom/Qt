@@ -52,8 +52,8 @@
 //
 
 #include <QtWinExtras/qwinextrasglobal.h>
-#include <QAbstractNativeEventFilter>
-#include <qt_windows.h>
+#include <QtCore/qabstractnativeeventfilter.h>
+#include <QtCore/qt_windows.h>
 
 QT_BEGIN_NAMESPACE
 

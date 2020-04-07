@@ -1,7 +1,7 @@
 /****************************************************************************
 **
 ** Copyright (C) 2016 The Qt Company Ltd.
-** Copyright (C) 2016 Intel Corporation.
+** Copyright (C) 2018 Intel Corporation.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtCore module of the Qt Toolkit.
@@ -70,9 +70,14 @@ static inline bool simdEncodeAscii(uchar *&dst, const ushort *&nextAscii, const 
 {
     // do sixteen characters at a time
     for ( ; end - src >= 16; src += 16, dst += 16) {
+#  ifdef __AVX2__
+        __m256i data = _mm256_loadu_si256(reinterpret_cast<const __m256i *>(src));
+        __m128i data1 = _mm256_castsi256_si128(data);
+        __m128i data2 = _mm256_extracti128_si256(data, 1);
+#  else
         __m128i data1 = _mm_loadu_si128((const __m128i*)src);
         __m128i data2 = _mm_loadu_si128(1+(const __m128i*)src);
-
+#  endif
 
         // check if everything is ASCII
         // the highest ASCII value is U+007F
@@ -102,6 +107,26 @@ static inline bool simdEncodeAscii(uchar *&dst, const ushort *&nextAscii, const 
             return false;
         }
     }
+
+    if (end - src >= 8) {
+        // do eight characters at a time
+        __m128i data = _mm_loadu_si128(reinterpret_cast<const __m128i *>(src));
+        __m128i packed = _mm_packus_epi16(data, data);
+        __m128i nonAscii = _mm_cmpgt_epi8(packed, _mm_setzero_si128());
+
+        // store even non-ASCII
+        _mm_storel_epi64(reinterpret_cast<__m128i *>(dst), packed);
+
+        uchar n = ~_mm_movemask_epi8(nonAscii);
+        if (n) {
+            nextAscii = src + qBitScanReverse(n) + 1;
+            n = qCountTrailingZeroBits(n);
+            dst += n;
+            src += n;
+            return false;
+        }
+    }
+
     return src == end;
 }
 
@@ -150,7 +175,86 @@ static inline bool simdDecodeAscii(ushort *&dst, const uchar *&nextAscii, const 
         return false;
 
     }
+
+    if (end - src >= 8) {
+        __m128i data = _mm_loadl_epi64(reinterpret_cast<const __m128i *>(src));
+        uint n = _mm_movemask_epi8(data) & 0xff;
+        if (!n) {
+            // unpack and store
+            _mm_storeu_si128(reinterpret_cast<__m128i *>(dst), _mm_unpacklo_epi8(data, _mm_setzero_si128()));
+        } else {
+            while (!(n & 1)) {
+                *dst++ = *src++;
+                n >>= 1;
+            }
+
+            n = qBitScanReverse(n);
+            nextAscii = src + n + 1;
+            return false;
+        }
+    }
+
     return src == end;
+}
+
+static inline const uchar *simdFindNonAscii(const uchar *src, const uchar *end, const uchar *&nextAscii)
+{
+#ifdef __AVX2__
+    // do 32 characters at a time
+    // (this is similar to simdTestMask in qstring.cpp)
+    const __m256i mask = _mm256_set1_epi8(0x80);
+    for ( ; end - src >= 32; src += 32) {
+        __m256i data = _mm256_loadu_si256(reinterpret_cast<const __m256i *>(src));
+        if (_mm256_testz_si256(mask, data))
+            continue;
+
+        uint n = _mm256_movemask_epi8(data);
+        Q_ASSUME(n);
+
+        // find the next probable ASCII character
+        // we don't want to load 32 bytes again in this loop if we know there are non-ASCII
+        // characters still coming
+        nextAscii = src + qBitScanReverse(n) + 1;
+
+        // return the non-ASCII character
+        return src + qCountTrailingZeroBits(n);
+    }
+#endif
+
+    // do sixteen characters at a time
+    for ( ; end - src >= 16; src += 16) {
+        __m128i data = _mm_loadu_si128(reinterpret_cast<const __m128i*>(src));
+
+        // check if everything is ASCII
+        // movemask extracts the high bit of every byte, so n is non-zero if something isn't ASCII
+        uint n = _mm_movemask_epi8(data);
+        if (!n)
+            continue;
+
+        // find the next probable ASCII character
+        // we don't want to load 16 bytes again in this loop if we know there are non-ASCII
+        // characters still coming
+        nextAscii = src + qBitScanReverse(n) + 1;
+
+        // return the non-ASCII character
+        return src + qCountTrailingZeroBits(n);
+    }
+
+    // do four characters at a time
+    for ( ; end - src >= 4; src += 4) {
+        quint32 data = qFromUnaligned<quint32>(src);
+        data &= 0x80808080U;
+        if (!data)
+            continue;
+
+        // We don't try to guess which of the three bytes is ASCII and which
+        // one isn't. The chance that at least two of them are non-ASCII is
+        // better than 75%.
+        nextAscii = src;
+        return src;
+    }
+    nextAscii = end;
+    return src;
 }
 #elif defined(__ARM_NEON__) && defined(Q_PROCESSOR_ARM_64) // vaddv is only available on Aarch64
 static inline bool simdEncodeAscii(uchar *&dst, const ushort *&nextAscii, const ushort *&src, const ushort *end)
@@ -220,6 +324,34 @@ static inline bool simdDecodeAscii(ushort *&dst, const uchar *&nextAscii, const 
     }
     return src == end;
 }
+
+static inline const uchar *simdFindNonAscii(const uchar *src, const uchar *end, const uchar *&nextAscii)
+{
+    // The SIMD code below is untested, so just force an early return until
+    // we've had the time to verify it works.
+    nextAscii = end;
+    return src;
+
+    // do eight characters at a time
+    uint8x8_t msb_mask = vdup_n_u8(0x80);
+    uint8x8_t add_mask = { 1, 1 << 1, 1 << 2, 1 << 3, 1 << 4, 1 << 5, 1 << 6, 1 << 7 };
+    for ( ; end - src >= 8; src += 8) {
+        uint8x8_t c = vld1_u8(src);
+        uint8_t n = vaddv_u8(vand_u8(vcge_u8(c, msb_mask), add_mask));
+        if (!n)
+            continue;
+
+        // find the next probable ASCII character
+        // we don't want to load 16 bytes again in this loop if we know there are non-ASCII
+        // characters still coming
+        nextAscii = src + qBitScanReverse(n) + 1;
+
+        // return the non-ASCII character
+        return src + qCountTrailingZeroBits(n);
+    }
+    nextAscii = end;
+    return src;
+}
 #else
 static inline bool simdEncodeAscii(uchar *, const ushort *, const ushort *, const ushort *)
 {
@@ -229,6 +361,12 @@ static inline bool simdEncodeAscii(uchar *, const ushort *, const ushort *, cons
 static inline bool simdDecodeAscii(ushort *, const uchar *, const uchar *, const uchar *)
 {
     return false;
+}
+
+static inline const uchar *simdFindNonAscii(const uchar *src, const uchar *end, const uchar *&nextAscii)
+{
+    nextAscii = end;
+    return src;
 }
 #endif
 
@@ -518,6 +656,95 @@ QString QUtf8::convertToUnicode(const char *chars, int len, QTextCodec::Converte
     return result;
 }
 
+struct QUtf8NoOutputTraits : public QUtf8BaseTraitsNoAscii
+{
+    struct NoOutput {};
+    static void appendUtf16(const NoOutput &, ushort) {}
+    static void appendUcs4(const NoOutput &, uint) {}
+};
+
+QUtf8::ValidUtf8Result QUtf8::isValidUtf8(const char *chars, qsizetype len)
+{
+    const uchar *src = reinterpret_cast<const uchar *>(chars);
+    const uchar *end = src + len;
+    const uchar *nextAscii = src;
+    bool isValidAscii = true;
+
+    while (src < end) {
+        if (src >= nextAscii)
+            src = simdFindNonAscii(src, end, nextAscii);
+        if (src == end)
+            break;
+
+        do {
+            uchar b = *src++;
+            if ((b & 0x80) == 0)
+                continue;
+
+            isValidAscii = false;
+            QUtf8NoOutputTraits::NoOutput output;
+            int res = QUtf8Functions::fromUtf8<QUtf8NoOutputTraits>(b, output, src, end);
+            if (res < 0) {
+                // decoding error
+                return { false, false };
+            }
+        } while (src < nextAscii);
+    }
+
+    return { true, isValidAscii };
+}
+
+int QUtf8::compareUtf8(const char *utf8, qsizetype u8len, const QChar *utf16, int u16len)
+{
+    uint uc1, uc2;
+    auto src1 = reinterpret_cast<const uchar *>(utf8);
+    auto end1 = src1 + u8len;
+    QStringIterator src2(utf16, utf16 + u16len);
+
+    while (src1 < end1 && src2.hasNext()) {
+        uchar b = *src1++;
+        uint *output = &uc1;
+        int res = QUtf8Functions::fromUtf8<QUtf8BaseTraits>(b, output, src1, end1);
+        if (res < 0) {
+            // decoding error
+            uc1 = QChar::ReplacementCharacter;
+        }
+
+        uc2 = src2.next();
+        if (uc1 != uc2)
+            return int(uc1) - int(uc2);
+    }
+
+    // the shorter string sorts first
+    return (end1 > src1) - int(src2.hasNext());
+}
+
+int QUtf8::compareUtf8(const char *utf8, qsizetype u8len, QLatin1String s)
+{
+    uint uc1;
+    auto src1 = reinterpret_cast<const uchar *>(utf8);
+    auto end1 = src1 + u8len;
+    auto src2 = reinterpret_cast<const uchar *>(s.latin1());
+    auto end2 = src2 + s.size();
+
+    while (src1 < end1 && src2 < end2) {
+        uchar b = *src1++;
+        uint *output = &uc1;
+        int res = QUtf8Functions::fromUtf8<QUtf8BaseTraits>(b, output, src1, end1);
+        if (res < 0) {
+            // decoding error
+            uc1 = QChar::ReplacementCharacter;
+        }
+
+        uint uc2 = *src2++;
+        if (uc1 != uc2)
+            return int(uc1) - int(uc2);
+    }
+
+    // the shorter string sorts first
+    return (end1 > src1) - (end2 > src2);
+}
+
 QByteArray QUtf16::convertFromUnicode(const QChar *uc, int len, QTextCodec::ConverterState *state, DataEndianness e)
 {
     DataEndianness endian = e;
@@ -534,26 +761,16 @@ QByteArray QUtf16::convertFromUnicode(const QChar *uc, int len, QTextCodec::Conv
     char *data = d.data();
     if (!state || !(state->flags & QTextCodec::IgnoreHeader)) {
         QChar bom(QChar::ByteOrderMark);
-        if (endian == BigEndianness) {
-            data[0] = bom.row();
-            data[1] = bom.cell();
-        } else {
-            data[0] = bom.cell();
-            data[1] = bom.row();
-        }
+        if (endian == BigEndianness)
+            qToBigEndian(bom.unicode(), data);
+        else
+            qToLittleEndian(bom.unicode(), data);
         data += 2;
     }
-    if (endian == BigEndianness) {
-        for (int i = 0; i < len; ++i) {
-            *(data++) = uc[i].row();
-            *(data++) = uc[i].cell();
-        }
-    } else {
-        for (int i = 0; i < len; ++i) {
-            *(data++) = uc[i].cell();
-            *(data++) = uc[i].row();
-        }
-    }
+    if (endian == BigEndianness)
+        qToBigEndian<ushort>(uc, len, data);
+    else
+        qToLittleEndian<ushort>(uc, len, data);
 
     if (state) {
         state->remainingChars = 0;
@@ -669,20 +886,14 @@ QByteArray QUtf32::convertFromUnicode(const QChar *uc, int len, QTextCodec::Conv
     if (endian == BigEndianness) {
         while (i.hasNext()) {
             uint cp = i.next();
-
-            *(data++) = cp >> 24;
-            *(data++) = (cp >> 16) & 0xff;
-            *(data++) = (cp >> 8) & 0xff;
-            *(data++) = cp & 0xff;
+            qToBigEndian(cp, data);
+            data += 4;
         }
     } else {
         while (i.hasNext()) {
             uint cp = i.next();
-
-            *(data++) = cp & 0xff;
-            *(data++) = (cp >> 8) & 0xff;
-            *(data++) = (cp >> 16) & 0xff;
-            *(data++) = cp >> 24;
+            qToLittleEndian(cp, data);
+            data += 4;
         }
     }
 
@@ -761,7 +972,7 @@ QString QUtf32::convertToUnicode(const char *chars, int len, QTextCodec::Convert
 }
 
 
-#ifndef QT_NO_TEXTCODEC
+#if QT_CONFIG(textcodec)
 
 QUtf8Codec::~QUtf8Codec()
 {
@@ -915,6 +1126,6 @@ QList<QByteArray> QUtf32LECodec::aliases() const
     return list;
 }
 
-#endif //QT_NO_TEXTCODEC
+#endif // textcodec
 
 QT_END_NAMESPACE

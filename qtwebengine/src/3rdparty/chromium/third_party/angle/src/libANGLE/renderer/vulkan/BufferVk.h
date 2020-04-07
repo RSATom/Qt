@@ -10,13 +10,15 @@
 #ifndef LIBANGLE_RENDERER_VULKAN_BUFFERVK_H_
 #define LIBANGLE_RENDERER_VULKAN_BUFFERVK_H_
 
+#include "libANGLE/Observer.h"
 #include "libANGLE/renderer/BufferImpl.h"
-#include "libANGLE/renderer/vulkan/renderervk_utils.h"
+#include "libANGLE/renderer/vulkan/vk_helpers.h"
 
 namespace rx
 {
+class RendererVk;
 
-class BufferVk : public BufferImpl, public ResourceVk
+class BufferVk : public BufferImpl, public vk::CommandGraphResource
 {
   public:
     BufferVk(const gl::BufferState &state);
@@ -24,12 +26,12 @@ class BufferVk : public BufferImpl, public ResourceVk
     void destroy(const gl::Context *context) override;
 
     gl::Error setData(const gl::Context *context,
-                      GLenum target,
+                      gl::BufferBinding target,
                       const void *data,
                       size_t size,
-                      GLenum usage) override;
+                      gl::BufferUsage usage) override;
     gl::Error setSubData(const gl::Context *context,
-                         GLenum target,
+                         gl::BufferBinding target,
                          const void *data,
                          size_t size,
                          size_t offset) override;
@@ -46,19 +48,27 @@ class BufferVk : public BufferImpl, public ResourceVk
                        void **mapPtr) override;
     gl::Error unmap(const gl::Context *context, GLboolean *result) override;
 
-    gl::Error getIndexRange(GLenum type,
+    gl::Error getIndexRange(const gl::Context *context,
+                            GLenum type,
                             size_t offset,
                             size_t count,
                             bool primitiveRestartEnabled,
                             gl::IndexRange *outRange) override;
+    GLint64 getSize();
 
     const vk::Buffer &getVkBuffer() const;
 
+    angle::Result mapImpl(ContextVk *contextVk, void **mapPtr);
+
   private:
-    vk::Error setDataImpl(VkDevice device, const uint8_t *data, size_t size, size_t offset);
+    angle::Result setDataImpl(ContextVk *contextVk,
+                              const uint8_t *data,
+                              size_t size,
+                              size_t offset);
+    void release(RendererVk *renderer);
 
     vk::Buffer mBuffer;
-    size_t mRequiredSize;
+    vk::DeviceMemory mBufferMemory;
 };
 
 }  // namespace rx

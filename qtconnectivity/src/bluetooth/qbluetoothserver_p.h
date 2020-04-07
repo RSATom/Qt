@@ -98,6 +98,8 @@ public:
     void _q_newConnection();
     void setSocketSecurityLevel(QBluetooth::SecurityFlags requestedSecLevel, int *errnoCode);
     QBluetooth::SecurityFlags socketSecurityLevel() const;
+    static QBluetoothSocket *createSocketForServer(
+                QBluetoothServiceInfo::Protocol socketType = QBluetoothServiceInfo::RfcommProtocol);
 #endif
 
 public:
@@ -113,7 +115,7 @@ protected:
 private:
     QBluetoothServer::Error m_lastError;
 #if QT_CONFIG(bluez)
-    QSocketNotifier *socketNotifier;
+    QSocketNotifier *socketNotifier = nullptr;
 #elif defined(QT_ANDROID_BLUETOOTH)
     ServerAcceptanceThread *thread;
     QString m_serviceName;

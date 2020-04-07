@@ -9,7 +9,6 @@
 
 #include <map>
 #include <string>
-#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -41,7 +40,7 @@
 //       dbus::Property<std::string> name;
 //       dbus::Property<uint16_t> version;
 //       dbus::Property<dbus::ObjectPath> parent;
-//       dbus::Property<std::vector<std::string> > children;
+//       dbus::Property<std::vector<std::string>> children;
 //
 //       Properties(dbus::ObjectProxy* object_proxy,
 //                  const PropertyChangedCallback callback)
@@ -62,7 +61,7 @@
 //
 // Example (continued):
 //
-//     typedef std::map<std::pair<dbus::ObjectProxy*, Properties*> > Object;
+//     typedef std::map<std::pair<dbus::ObjectProxy*, Properties*>> Object;
 //     typedef std::map<dbus::ObjectPath, Object> ObjectMap;
 //     ObjectMap object_map_;
 //
@@ -613,25 +612,25 @@ extern template class CHROME_DBUS_EXPORT
 
 template <>
 CHROME_DBUS_EXPORT bool
-Property<std::unordered_map<std::string, std::vector<uint8_t>>>::
-    PopValueFromReader(MessageReader* reader);
+Property<std::map<std::string, std::vector<uint8_t>>>::PopValueFromReader(
+    MessageReader* reader);
 template <>
 CHROME_DBUS_EXPORT void
-Property<std::unordered_map<std::string, std::vector<uint8_t>>>::
-    AppendSetValueToWriter(MessageWriter* writer);
+Property<std::map<std::string, std::vector<uint8_t>>>::AppendSetValueToWriter(
+    MessageWriter* writer);
 extern template class CHROME_DBUS_EXPORT
-    Property<std::unordered_map<std::string, std::vector<uint8_t>>>;
+    Property<std::map<std::string, std::vector<uint8_t>>>;
 
 template <>
 CHROME_DBUS_EXPORT bool
-Property<std::unordered_map<uint16_t, std::vector<uint8_t>>>::
-    PopValueFromReader(MessageReader* reader);
+Property<std::map<uint16_t, std::vector<uint8_t>>>::PopValueFromReader(
+    MessageReader* reader);
 template <>
 CHROME_DBUS_EXPORT void
-Property<std::unordered_map<uint16_t, std::vector<uint8_t>>>::
-    AppendSetValueToWriter(MessageWriter* writer);
+Property<std::map<uint16_t, std::vector<uint8_t>>>::AppendSetValueToWriter(
+    MessageWriter* writer);
 extern template class CHROME_DBUS_EXPORT
-    Property<std::unordered_map<uint16_t, std::vector<uint8_t>>>;
+    Property<std::map<uint16_t, std::vector<uint8_t>>>;
 
 #pragma GCC diagnostic pop
 

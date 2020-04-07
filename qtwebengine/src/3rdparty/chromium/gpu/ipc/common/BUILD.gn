@@ -49,12 +49,12 @@ source_set("command_buffer_traits_sources") {
   public_deps = [
     "//gpu/command_buffer/common:common_sources",
     "//ipc",
+    "//ui/gfx/ipc",
   ]
 
   deps = [
     "//base",
-    "//gpu/command_buffer/common:gles2_utils",
-    "//ui/gfx/ipc",
+    "//ui/gfx/ipc/buffer_types",
     "//ui/gfx/ipc/geometry",
   ]
 }
@@ -65,6 +65,12 @@ source_set("ipc_common_sources") {
   visibility = [ "//gpu/*" ]
 
   sources = [
+    "flush_params.cc",
+    "flush_params.h",
+    "gpu_memory_buffer_impl.cc",
+    "gpu_memory_buffer_impl.h",
+    "gpu_memory_buffer_impl_shared_memory.cc",
+    "gpu_memory_buffer_impl_shared_memory.h",
     "gpu_memory_buffer_support.cc",
     "gpu_memory_buffer_support.h",
     "gpu_message_generator.cc",
@@ -77,6 +83,32 @@ source_set("ipc_common_sources") {
     "memory_stats.h",
   ]
 
+  if (is_mac) {
+    sources += [
+      "gpu_memory_buffer_impl_io_surface.cc",
+      "gpu_memory_buffer_impl_io_surface.h",
+    ]
+    libs = [ "IOSurface.framework" ]
+  }
+  if (is_win) {
+    sources += [
+      "gpu_memory_buffer_impl_dxgi.cc",
+      "gpu_memory_buffer_impl_dxgi.h",
+    ]
+  }
+  if (is_linux) {
+    sources += [
+      "gpu_memory_buffer_impl_native_pixmap.cc",
+      "gpu_memory_buffer_impl_native_pixmap.h",
+    ]
+  }
+  if (is_android) {
+    sources += [
+      "gpu_memory_buffer_impl_android_hardware_buffer.cc",
+      "gpu_memory_buffer_impl_android_hardware_buffer.h",
+    ]
+  }
+
   configs += [
     "//gpu:gpu_implementation",
     "//third_party/khronos:khronos_headers",
@@ -85,8 +117,8 @@ source_set("ipc_common_sources") {
   public_deps = [
     ":command_buffer_traits_sources",
     ":surface_handle_type",
-    "//gpu/command_buffer/common:gles2_utils",
     "//ipc",
+    "//url/ipc:url_ipc",
   ]
 
   deps = [
@@ -95,26 +127,21 @@ source_set("ipc_common_sources") {
     "//gpu/config:config_sources",
     "//ui/base",
     "//ui/gfx/ipc",
+    "//ui/gfx/ipc/buffer_types",
     "//ui/gfx/ipc/geometry",
     "//ui/gl",
-    "//ui/latency/ipc",
-    "//url/ipc:url_ipc",
   ]
 
   if (is_android) {
     sources += [
       "android/scoped_surface_request_conduit.cc",
       "android/scoped_surface_request_conduit.h",
-    ]
-  }
-
-  if (is_mac || is_android) {
-    sources += [
       "gpu_surface_lookup.cc",
       "gpu_surface_lookup.h",
       "gpu_surface_tracker.cc",
       "gpu_surface_tracker.h",
     ]
+    libs = [ "android" ]
   }
 
   if (use_ozone) {
@@ -139,7 +166,6 @@ mojom("interfaces") {
     "dx_diag_node.mojom",
     "gpu_feature_info.mojom",
     "gpu_info.mojom",
-    "gpu_preferences.mojom",
     "mailbox.mojom",
     "mailbox_holder.mojom",
     "memory_stats.mojom",
@@ -148,8 +174,20 @@ mojom("interfaces") {
   ]
 
   public_deps = [
-    "//mojo/common:common_custom_types",
+    ":gpu_preferences_interface",
+    "//mojo/public/mojom/base",
     "//ui/gfx/geometry/mojo",
+  ]
+}
+
+mojom("gpu_preferences_interface") {
+  sources = [
+    "gpu_preferences.mojom",
+  ]
+
+  public_deps = [
+    "//mojo/public/mojom/base",
+    "//ui/gfx/mojo",
   ]
 }
 
@@ -160,6 +198,7 @@ mojom("test_interfaces") {
   ]
 
   public_deps = [
+    ":gpu_preferences_interface",
     ":interfaces",
   ]
 }

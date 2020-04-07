@@ -100,30 +100,6 @@ QGeoCoordinate QWebMercator::mercatorToCoord(const QDoubleVector2D &mercator)
     return QGeoCoordinate(lat, lng, 0.0);
 }
 
-QGeoCoordinate QWebMercator::mercatorToCoordClamped(const QDoubleVector2D &mercator)
-{
-    double fx = mercator.x();
-    double fy = mercator.y();
-
-    if (fy < 0.0)
-        fy = 0.0;
-    else if (fy > 1.0)
-        fy = 1.0;
-
-    double lat = qRadiansToDegrees(2.0 * std::atan(std::exp(M_PI * (1.0 - 2.0 * fy))) - (M_PI / 2.0));
-
-    double lng;
-    if (fx >= 0) {
-        lng = realmod(fx, 1.0);
-    } else {
-        lng = realmod(1.0 - realmod(-1.0 * fx, 1.0), 1.0);
-    }
-
-    lng = lng * 360.0 - 180.0;
-
-    return QGeoCoordinate(lat, lng, 0.0);
-}
-
 QGeoCoordinate QWebMercator::coordinateInterpolation(const QGeoCoordinate &from, const QGeoCoordinate &to, qreal progress)
 {
     QDoubleVector2D s = QWebMercator::coordToMercator(from);

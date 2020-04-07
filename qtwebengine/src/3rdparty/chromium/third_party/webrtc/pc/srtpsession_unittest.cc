@@ -8,18 +8,26 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/pc/srtpsession.h"
+#include "pc/srtpsession.h"
 
 #include <string>
 
-#include "webrtc/media/base/fakertp.h"
-#include "webrtc/pc/srtptestutil.h"
-#include "webrtc/rtc_base/gunit.h"
-#include "webrtc/rtc_base/sslstreamadapter.h"  // For rtc::SRTP_*
+#include "absl/memory/memory.h"
+#include "media/base/fakertp.h"
+#include "pc/srtptestutil.h"
+#include "rtc_base/gunit.h"
+#include "rtc_base/sslstreamadapter.h"  // For rtc::SRTP_*
+#include "system_wrappers/include/metrics_default.h"
+#include "third_party/libsrtp/include/srtp.h"
 
 namespace rtc {
 
+std::vector<int> kEncryptedHeaderExtensionIds;
+
 class SrtpSessionTest : public testing::Test {
+ public:
+  SrtpSessionTest() { webrtc::metrics::Reset(); }
+
  protected:
   virtual void SetUp() {
     rtp_len_ = sizeof(kPcmuFrame);
@@ -65,28 +73,38 @@ class SrtpSessionTest : public testing::Test {
 
 // Test that we can set up the session and keys properly.
 TEST_F(SrtpSessionTest, TestGoodSetup) {
-  EXPECT_TRUE(s1_.SetSend(SRTP_AES128_CM_SHA1_80, kTestKey1, kTestKeyLen));
-  EXPECT_TRUE(s2_.SetRecv(SRTP_AES128_CM_SHA1_80, kTestKey1, kTestKeyLen));
+  EXPECT_TRUE(s1_.SetSend(SRTP_AES128_CM_SHA1_80, kTestKey1, kTestKeyLen,
+                          kEncryptedHeaderExtensionIds));
+  EXPECT_TRUE(s2_.SetRecv(SRTP_AES128_CM_SHA1_80, kTestKey1, kTestKeyLen,
+                          kEncryptedHeaderExtensionIds));
 }
 
 // Test that we can't change the keys once set.
 TEST_F(SrtpSessionTest, TestBadSetup) {
-  EXPECT_TRUE(s1_.SetSend(SRTP_AES128_CM_SHA1_80, kTestKey1, kTestKeyLen));
-  EXPECT_TRUE(s2_.SetRecv(SRTP_AES128_CM_SHA1_80, kTestKey1, kTestKeyLen));
-  EXPECT_FALSE(s1_.SetSend(SRTP_AES128_CM_SHA1_80, kTestKey2, kTestKeyLen));
-  EXPECT_FALSE(s2_.SetRecv(SRTP_AES128_CM_SHA1_80, kTestKey2, kTestKeyLen));
+  EXPECT_TRUE(s1_.SetSend(SRTP_AES128_CM_SHA1_80, kTestKey1, kTestKeyLen,
+                          kEncryptedHeaderExtensionIds));
+  EXPECT_TRUE(s2_.SetRecv(SRTP_AES128_CM_SHA1_80, kTestKey1, kTestKeyLen,
+                          kEncryptedHeaderExtensionIds));
+  EXPECT_FALSE(s1_.SetSend(SRTP_AES128_CM_SHA1_80, kTestKey2, kTestKeyLen,
+                           kEncryptedHeaderExtensionIds));
+  EXPECT_FALSE(s2_.SetRecv(SRTP_AES128_CM_SHA1_80, kTestKey2, kTestKeyLen,
+                           kEncryptedHeaderExtensionIds));
 }
 
 // Test that we fail keys of the wrong length.
 TEST_F(SrtpSessionTest, TestKeysTooShort) {
-  EXPECT_FALSE(s1_.SetSend(SRTP_AES128_CM_SHA1_80, kTestKey1, 1));
-  EXPECT_FALSE(s2_.SetRecv(SRTP_AES128_CM_SHA1_80, kTestKey1, 1));
+  EXPECT_FALSE(s1_.SetSend(SRTP_AES128_CM_SHA1_80, kTestKey1, 1,
+                           kEncryptedHeaderExtensionIds));
+  EXPECT_FALSE(s2_.SetRecv(SRTP_AES128_CM_SHA1_80, kTestKey1, 1,
+                           kEncryptedHeaderExtensionIds));
 }
 
 // Test that we can encrypt and decrypt RTP/RTCP using AES_CM_128_HMAC_SHA1_80.
 TEST_F(SrtpSessionTest, TestProtect_AES_CM_128_HMAC_SHA1_80) {
-  EXPECT_TRUE(s1_.SetSend(SRTP_AES128_CM_SHA1_80, kTestKey1, kTestKeyLen));
-  EXPECT_TRUE(s2_.SetRecv(SRTP_AES128_CM_SHA1_80, kTestKey1, kTestKeyLen));
+  EXPECT_TRUE(s1_.SetSend(SRTP_AES128_CM_SHA1_80, kTestKey1, kTestKeyLen,
+                          kEncryptedHeaderExtensionIds));
+  EXPECT_TRUE(s2_.SetRecv(SRTP_AES128_CM_SHA1_80, kTestKey1, kTestKeyLen,
+                          kEncryptedHeaderExtensionIds));
   TestProtectRtp(CS_AES_CM_128_HMAC_SHA1_80);
   TestProtectRtcp(CS_AES_CM_128_HMAC_SHA1_80);
   TestUnprotectRtp(CS_AES_CM_128_HMAC_SHA1_80);
@@ -95,8 +113,10 @@ TEST_F(SrtpSessionTest, TestProtect_AES_CM_128_HMAC_SHA1_80) {
 
 // Test that we can encrypt and decrypt RTP/RTCP using AES_CM_128_HMAC_SHA1_32.
 TEST_F(SrtpSessionTest, TestProtect_AES_CM_128_HMAC_SHA1_32) {
-  EXPECT_TRUE(s1_.SetSend(SRTP_AES128_CM_SHA1_32, kTestKey1, kTestKeyLen));
-  EXPECT_TRUE(s2_.SetRecv(SRTP_AES128_CM_SHA1_32, kTestKey1, kTestKeyLen));
+  EXPECT_TRUE(s1_.SetSend(SRTP_AES128_CM_SHA1_32, kTestKey1, kTestKeyLen,
+                          kEncryptedHeaderExtensionIds));
+  EXPECT_TRUE(s2_.SetRecv(SRTP_AES128_CM_SHA1_32, kTestKey1, kTestKeyLen,
+                          kEncryptedHeaderExtensionIds));
   TestProtectRtp(CS_AES_CM_128_HMAC_SHA1_32);
   TestProtectRtcp(CS_AES_CM_128_HMAC_SHA1_32);
   TestUnprotectRtp(CS_AES_CM_128_HMAC_SHA1_32);
@@ -104,7 +124,8 @@ TEST_F(SrtpSessionTest, TestProtect_AES_CM_128_HMAC_SHA1_32) {
 }
 
 TEST_F(SrtpSessionTest, TestGetSendStreamPacketIndex) {
-  EXPECT_TRUE(s1_.SetSend(SRTP_AES128_CM_SHA1_32, kTestKey1, kTestKeyLen));
+  EXPECT_TRUE(s1_.SetSend(SRTP_AES128_CM_SHA1_32, kTestKey1, kTestKeyLen,
+                          kEncryptedHeaderExtensionIds));
   int64_t index;
   int out_len = 0;
   EXPECT_TRUE(s1_.ProtectRtp(rtp_packet_, rtp_len_, sizeof(rtp_packet_),
@@ -117,29 +138,54 @@ TEST_F(SrtpSessionTest, TestGetSendStreamPacketIndex) {
 // Test that we fail to unprotect if someone tampers with the RTP/RTCP paylaods.
 TEST_F(SrtpSessionTest, TestTamperReject) {
   int out_len;
-  EXPECT_TRUE(s1_.SetSend(SRTP_AES128_CM_SHA1_80, kTestKey1, kTestKeyLen));
-  EXPECT_TRUE(s2_.SetRecv(SRTP_AES128_CM_SHA1_80, kTestKey1, kTestKeyLen));
+  EXPECT_TRUE(s1_.SetSend(SRTP_AES128_CM_SHA1_80, kTestKey1, kTestKeyLen,
+                          kEncryptedHeaderExtensionIds));
+  EXPECT_TRUE(s2_.SetRecv(SRTP_AES128_CM_SHA1_80, kTestKey1, kTestKeyLen,
+                          kEncryptedHeaderExtensionIds));
   TestProtectRtp(CS_AES_CM_128_HMAC_SHA1_80);
   TestProtectRtcp(CS_AES_CM_128_HMAC_SHA1_80);
   rtp_packet_[0] = 0x12;
   rtcp_packet_[1] = 0x34;
   EXPECT_FALSE(s2_.UnprotectRtp(rtp_packet_, rtp_len_, &out_len));
+  EXPECT_EQ(1, webrtc::metrics::NumSamples(
+                   "WebRTC.PeerConnection.SrtpUnprotectError"));
+  EXPECT_EQ(
+      1, webrtc::metrics::NumEvents("WebRTC.PeerConnection.SrtpUnprotectError",
+                                    srtp_err_status_bad_param));
   EXPECT_FALSE(s2_.UnprotectRtcp(rtcp_packet_, rtcp_len_, &out_len));
+  EXPECT_EQ(1, webrtc::metrics::NumSamples(
+                   "WebRTC.PeerConnection.SrtcpUnprotectError"));
+  EXPECT_EQ(
+      1, webrtc::metrics::NumEvents("WebRTC.PeerConnection.SrtcpUnprotectError",
+                                    srtp_err_status_auth_fail));
 }
 
 // Test that we fail to unprotect if the payloads are not authenticated.
 TEST_F(SrtpSessionTest, TestUnencryptReject) {
   int out_len;
-  EXPECT_TRUE(s1_.SetSend(SRTP_AES128_CM_SHA1_80, kTestKey1, kTestKeyLen));
-  EXPECT_TRUE(s2_.SetRecv(SRTP_AES128_CM_SHA1_80, kTestKey1, kTestKeyLen));
+  EXPECT_TRUE(s1_.SetSend(SRTP_AES128_CM_SHA1_80, kTestKey1, kTestKeyLen,
+                          kEncryptedHeaderExtensionIds));
+  EXPECT_TRUE(s2_.SetRecv(SRTP_AES128_CM_SHA1_80, kTestKey1, kTestKeyLen,
+                          kEncryptedHeaderExtensionIds));
   EXPECT_FALSE(s2_.UnprotectRtp(rtp_packet_, rtp_len_, &out_len));
+  EXPECT_EQ(1, webrtc::metrics::NumSamples(
+                   "WebRTC.PeerConnection.SrtpUnprotectError"));
+  EXPECT_EQ(
+      1, webrtc::metrics::NumEvents("WebRTC.PeerConnection.SrtpUnprotectError",
+                                    srtp_err_status_auth_fail));
   EXPECT_FALSE(s2_.UnprotectRtcp(rtcp_packet_, rtcp_len_, &out_len));
+  EXPECT_EQ(1, webrtc::metrics::NumSamples(
+                   "WebRTC.PeerConnection.SrtcpUnprotectError"));
+  EXPECT_EQ(
+      1, webrtc::metrics::NumEvents("WebRTC.PeerConnection.SrtcpUnprotectError",
+                                    srtp_err_status_cant_check));
 }
 
 // Test that we fail when using buffers that are too small.
 TEST_F(SrtpSessionTest, TestBuffersTooSmall) {
   int out_len;
-  EXPECT_TRUE(s1_.SetSend(SRTP_AES128_CM_SHA1_80, kTestKey1, kTestKeyLen));
+  EXPECT_TRUE(s1_.SetSend(SRTP_AES128_CM_SHA1_80, kTestKey1, kTestKeyLen,
+                          kEncryptedHeaderExtensionIds));
   EXPECT_FALSE(s1_.ProtectRtp(rtp_packet_, rtp_len_, sizeof(rtp_packet_) - 10,
                               &out_len));
   EXPECT_FALSE(s1_.ProtectRtcp(rtcp_packet_, rtcp_len_,
@@ -153,8 +199,10 @@ TEST_F(SrtpSessionTest, TestReplay) {
   static const uint16_t replay_window = 1024;
   int out_len;
 
-  EXPECT_TRUE(s1_.SetSend(SRTP_AES128_CM_SHA1_80, kTestKey1, kTestKeyLen));
-  EXPECT_TRUE(s2_.SetRecv(SRTP_AES128_CM_SHA1_80, kTestKey1, kTestKeyLen));
+  EXPECT_TRUE(s1_.SetSend(SRTP_AES128_CM_SHA1_80, kTestKey1, kTestKeyLen,
+                          kEncryptedHeaderExtensionIds));
+  EXPECT_TRUE(s2_.SetRecv(SRTP_AES128_CM_SHA1_80, kTestKey1, kTestKeyLen,
+                          kEncryptedHeaderExtensionIds));
 
   // Initial sequence number.
   SetBE16(reinterpret_cast<uint8_t*>(rtp_packet_) + 2, seqnum_big);

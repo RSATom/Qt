@@ -4,7 +4,6 @@
 
 #include "content/browser/bluetooth/frame_connected_bluetooth_devices.h"
 
-#include "base/memory/ptr_util.h"
 #include "base/optional.h"
 #include "base/strings/string_util.h"
 #include "content/browser/web_contents/web_contents_impl.h"
@@ -64,7 +63,7 @@ void FrameConnectedBluetoothDevices::Insert(
   }
   device_address_to_id_map_[connection->GetDeviceAddress()] = device_id;
   auto gatt_connection_and_client =
-      base::MakeUnique<GATTConnectionAndServerClient>(std::move(connection),
+      std::make_unique<GATTConnectionAndServerClient>(std::move(connection),
                                                       std::move(client));
   device_id_to_connection_map_[device_id] =
       std::move(gatt_connection_and_client);

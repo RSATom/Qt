@@ -41,7 +41,7 @@
 */
 
 /*!
-    \qmlmodule QtSensors 5.0
+    \qmlmodule QtSensors 5.11
     \title Qt Sensors QML Types
     \ingroup qmlmodules
 
@@ -52,7 +52,7 @@
     If the module is imported into a namespace, some additional methods become available.
 
     \qml
-    import QtSensors 5.0
+    import QtSensors 5.11
     //  ...
         Component.onCompleted: {
             var types = QmlSensors.sensorTypes();
@@ -60,7 +60,7 @@
         }
     \endqml
 
-    The documentation for the module API can be found in SensorGlobal.
+    The documentation for the module API can be found in QmlSensors.
 
     \section1 QML Sensor Types
 

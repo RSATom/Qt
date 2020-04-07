@@ -16,15 +16,12 @@
 #define CRASHPAD_UTIL_LINUX_THREAD_INFO_H_
 
 #include <stdint.h>
-#include <sys/types.h>
 #include <sys/user.h>
 
 #include <type_traits>
 
 #include "build/build_config.h"
 #include "util/linux/address_types.h"
-#include "util/linux/scoped_ptrace_attach.h"
-#include "util/misc/initialization_state_dcheck.h"
 #include "util/numeric/int128.h"
 
 #if defined(OS_ANDROID)
@@ -40,7 +37,7 @@ union ThreadContext {
 
   //! \brief The general purpose registers used by the 32-bit variant of the
   //!     architecture.
-  struct t32 {
+  struct t32_t {
 #if defined(ARCH_CPU_X86_FAMILY)
     // Reflects user_regs_struct in sys/user.h.
     uint32_t ebx;
@@ -70,6 +67,18 @@ union ThreadContext {
     uint32_t pc;
     uint32_t cpsr;
     uint32_t orig_r0;
+#elif defined(ARCH_CPU_MIPS_FAMILY)
+    // Reflects output format of static int gpr32_get(), defined in
+    // arch/mips/kernel/ptrace.c in kernel source
+    uint32_t padding0_[6];
+    uint32_t regs[32];
+    uint32_t lo;
+    uint32_t hi;
+    uint32_t cp0_epc;
+    uint32_t cp0_badvaddr;
+    uint32_t cp0_status;
+    uint32_t cp0_cause;
+    uint32_t padding1_;
 #else
 #error Port.
 #endif  // ARCH_CPU_X86_FAMILY
@@ -77,7 +86,7 @@ union ThreadContext {
 
   //! \brief The general purpose registers used by the 64-bit variant of the
   //!     architecture.
-  struct t64 {
+  struct t64_t {
 #if defined(ARCH_CPU_X86_FAMILY)
     // Reflects user_regs_struct in sys/user.h.
     uint64_t r15;
@@ -113,6 +122,16 @@ union ThreadContext {
     uint64_t sp;
     uint64_t pc;
     uint64_t pstate;
+#elif defined(ARCH_CPU_MIPS_FAMILY)
+    // Reflects output format of static int gpr64_get(), defined in
+    // arch/mips/kernel/ptrace.c in kernel source
+    uint64_t regs[32];
+    uint64_t lo;
+    uint64_t hi;
+    uint64_t cp0_epc;
+    uint64_t cp0_badvaddr;
+    uint64_t cp0_status;
+    uint64_t cp0_cause;
 #else
 #error Port.
 #endif  // ARCH_CPU_X86_FAMILY
@@ -122,15 +141,19 @@ union ThreadContext {
   using NativeThreadContext = user_regs_struct;
 #elif defined(ARCH_CPU_ARMEL)
   using NativeThreadContext = user_regs;
+#elif defined(ARCH_CPU_MIPS_FAMILY)
+// No appropriate NativeThreadsContext type available for MIPS
 #else
 #error Port.
 #endif  // ARCH_CPU_X86_FAMILY || ARCH_CPU_ARM64
 
+#if !defined(ARCH_CPU_MIPS_FAMILY)
 #if defined(ARCH_CPU_32_BITS)
-  static_assert(sizeof(t32) == sizeof(NativeThreadContext), "Size mismatch");
+  static_assert(sizeof(t32_t) == sizeof(NativeThreadContext), "Size mismatch");
 #else  // ARCH_CPU_64_BITS
-  static_assert(sizeof(t64) == sizeof(NativeThreadContext), "Size mismatch");
+  static_assert(sizeof(t64_t) == sizeof(NativeThreadContext), "Size mismatch");
 #endif  // ARCH_CPU_32_BITS
+#endif  // !ARCH_CPU_MIPS_FAMILY
 };
 static_assert(std::is_standard_layout<ThreadContext>::value,
               "Not standard layout");
@@ -142,7 +165,7 @@ union FloatContext {
 
   //! \brief The floating point registers used by the 32-bit variant of the
   //!     architecture.
-  struct f32 {
+  struct f32_t {
 #if defined(ARCH_CPU_X86_FAMILY)
     // Reflects user_fpxregs_struct in sys/user.h
     struct fxsave {
@@ -179,13 +202,22 @@ union FloatContext {
     } fpregs;
 
     // Reflects user_vfp in sys/user.h.
-    struct vfp {
+    struct vfp_t {
       uint64_t fpregs[32];
       uint32_t fpscr;
     } vfp;
 
     bool have_fpregs;
     bool have_vfp;
+#elif defined(ARCH_CPU_MIPS_FAMILY)
+    // Reflects data format filled by ptrace_getfpregs() in
+    // arch/mips/kernel/ptrace.c
+    struct {
+      float _fp_fregs;
+      unsigned int _fp_pad;
+    } fpregs[32];
+    uint32_t fpcsr;
+    uint32_t fpu_id;
 #else
 #error Port.
 #endif  // ARCH_CPU_X86_FAMILY
@@ -193,7 +225,7 @@ union FloatContext {
 
   //! \brief The floating point registers used by the 64-bit variant of the
   //!     architecture.
-  struct f64 {
+  struct f64_t {
 #if defined(ARCH_CPU_X86_FAMILY)
     // Refelects user_fpregs_struct in sys/user.h
     struct fxsave {
@@ -214,26 +246,40 @@ union FloatContext {
     uint32_t fpsr;
     uint32_t fpcr;
     uint8_t padding[8];
+#elif defined(ARCH_CPU_MIPS_FAMILY)
+    // Reflects data format filled by ptrace_getfpregs() in
+    // arch/mips/kernel/ptrace.c
+    double fpregs[32];
+    uint32_t fpcsr;
+    uint32_t fpu_id;
 #else
 #error Port.
 #endif  // ARCH_CPU_X86_FAMILY
   } f64;
 
 #if defined(ARCH_CPU_X86)
-#if defined(OS_ANDROID) && __ANDROID_API__ <= 19
+// __ANDROID_API_N__ is a proxy for determining whether unified headers are in
+// use. It’s only defined by unified headers. Unified headers call this
+// structure user_fpxregs_struct regardless of API level.
+#if defined(OS_ANDROID) && __ANDROID_API__ <= 19 && !defined(__ANDROID_API_N__)
   using NativeFpxregs = user_fxsr_struct;
 #else
   using NativeFpxregs = user_fpxregs_struct;
 #endif  // OS_ANDROID
-  static_assert(sizeof(f32::fxsave) == sizeof(NativeFpxregs), "Size mismatch");
+  static_assert(sizeof(f32_t::fxsave) == sizeof(NativeFpxregs),
+                "Size mismatch");
 #elif defined(ARCH_CPU_X86_64)
-  static_assert(sizeof(f64::fxsave) == sizeof(user_fpregs_struct),
+  static_assert(sizeof(f64_t::fxsave) == sizeof(user_fpregs_struct),
                 "Size mismatch");
 #elif defined(ARCH_CPU_ARMEL)
-  static_assert(sizeof(f32::fpregs) == sizeof(user_fpregs), "Size mismatch");
-  static_assert(sizeof(f32::vfp) == sizeof(user_vfp), "Size mismatch");
+  static_assert(sizeof(f32_t::fpregs) == sizeof(user_fpregs), "Size mismatch");
+#if !defined(__GLIBC__)
+  static_assert(sizeof(f32_t::vfp) == sizeof(user_vfp), "Size mismatch");
+#endif
 #elif defined(ARCH_CPU_ARM64)
   static_assert(sizeof(f64) == sizeof(user_fpsimd_struct), "Size mismatch");
+#elif defined(ARCH_CPU_MIPS_FAMILY)
+// No appropriate floating point context native type for available MIPS.
 #else
 #error Port.
 #endif  // ARCH_CPU_X86
@@ -241,62 +287,19 @@ union FloatContext {
 static_assert(std::is_standard_layout<FloatContext>::value,
               "Not standard layout");
 
-class ThreadInfo {
- public:
+//! \brief A collection of `ptrace`-able information about a thread.
+struct ThreadInfo {
   ThreadInfo();
   ~ThreadInfo();
 
-  //! \brief Initializes this object with information about the thread whose ID
-  //!     is \a tid.
-  //!
-  //! This method must be called successfully prior to calling any other method
-  //! in this class. This method may only be called once.
-  //!
-  //! It is unspecified whether the information that an object of this class
-  //! returns is loaded at the time Initialize() is called or subsequently, and
-  //! whether this information is cached in the object or not.
-  //!
-  //! \param[in] tid The thread ID to obtain information for.
-  //!
-  //! \return `true` on success, `false` on failure with a message logged.
-  bool Initialize(pid_t tid);
+  //! \brief The general purpose registers for the thread.
+  ThreadContext thread_context;
 
-  //! \brief Determines the target thread’s bitness.
-  //!
-  //! \return `true` if the target is 64-bit.
-  bool Is64Bit();
+  //! \brief The floating point registers for the thread.
+  FloatContext float_context;
 
-  //! \brief Uses `ptrace` to collect general purpose registers from the target
-  //!     thread and places the result in \a context.
-  //!
-  //! \param[out] context The registers read from the target thread.
-  void GetGeneralPurposeRegisters(ThreadContext* context);
-
-  //! \brief Uses `ptrace` to collect floating point registers from the target
-  //!     thread and places the result in \a context.
-  //!
-  //! \param[out] context The registers read from the target thread.
-  //!
-  //! \return `true` on success, with \a context set. Otherwise, `false` with a
-  //!     message logged.
-  bool GetFloatingPointRegisters(FloatContext* context);
-
-  //! \brief Uses `ptrace` to determine the thread-local storage address for the
-  //!     target thread and places the result in \a address.
-  //!
-  //! \param[out] address The address of the TLS area.
-  //!
-  //! \return `true` on success. `false` on failure with a message logged.
-  bool GetThreadArea(LinuxVMAddress* address);
-
- private:
-  size_t GetGeneralPurposeRegistersAndLength(ThreadContext* context);
-
-  ThreadContext context_;
-  ScopedPtraceAttach attachment_;
-  pid_t tid_;
-  InitializationStateDcheck initialized_;
-  bool is_64_bit_;
+  //! \brief The thread-local storage address for the thread.
+  LinuxVMAddress thread_specific_data_address;
 };
 
 }  // namespace crashpad

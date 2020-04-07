@@ -11,11 +11,11 @@
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/weak_ptr.h"
-#include "base/message_loop/message_loop.h"
+#include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "mojo/public/cpp/bindings/binding.h"
-#include "services/catalog/public/interfaces/catalog.mojom.h"
-#include "services/catalog/public/interfaces/constants.mojom.h"
+#include "services/catalog/public/mojom/catalog.mojom.h"
+#include "services/catalog/public/mojom/constants.mojom.h"
 #include "services/service_manager/public/cpp/connector.h"
 #include "services/service_manager/public/cpp/service_context.h"
 #include "ui/base/models/table_model.h"
@@ -53,8 +53,8 @@ class CatalogViewerContents : public views::WidgetDelegateView,
     SetBorder(views::CreateEmptyBorder(gfx::Insets(kPadding)));
     SetBackground(views::CreateStandardPanelBackground());
 
-    views::GridLayout* layout = new views::GridLayout(this);
-    SetLayoutManager(layout);
+    views::GridLayout* layout =
+        SetLayoutManager(std::make_unique<views::GridLayout>(this));
 
     views::ColumnSet* columns = layout->AddColumnSet(0);
     columns->AddColumn(views::GridLayout::FILL, views::GridLayout::FILL, 0,
@@ -103,7 +103,7 @@ class CatalogViewerContents : public views::WidgetDelegateView,
   gfx::ImageSkia GetWindowAppIcon() override {
     // TODO(jamescook): Create a new .pak file for this app and make a custom
     // icon, perhaps one that looks like the Chrome OS task viewer icon.
-    ResourceBundle& rb = ResourceBundle::GetSharedInstance();
+    ui::ResourceBundle& rb = ui::ResourceBundle::GetSharedInstance();
     return *rb.GetImageSkiaNamed(IDR_NOTIFICATION_SETTINGS);
   }
 
@@ -112,16 +112,16 @@ class CatalogViewerContents : public views::WidgetDelegateView,
     return static_cast<int>(entries_.size());
   }
   base::string16 GetText(int row, int column_id) override {
-    switch(column_id) {
-    case 0:
-      DCHECK(row < static_cast<int>(entries_.size()));
-      return base::UTF8ToUTF16(entries_[row].name);
-    case 1:
-      DCHECK(row < static_cast<int>(entries_.size()));
-      return base::UTF8ToUTF16(entries_[row].url);
-    default:
-      NOTREACHED();
-      break;
+    switch (column_id) {
+      case 0:
+        DCHECK(row < static_cast<int>(entries_.size()));
+        return base::UTF8ToUTF16(entries_[row].name);
+      case 1:
+        DCHECK(row < static_cast<int>(entries_.size()));
+        return base::UTF8ToUTF16(entries_[row].url);
+      default:
+        NOTREACHED();
+        break;
     }
     return base::string16();
   }
@@ -211,20 +211,22 @@ CatalogViewer::CatalogViewer() {
   registry_.AddInterface<mojom::Launchable>(
       base::Bind(&CatalogViewer::Create, base::Unretained(this)));
 }
-CatalogViewer::~CatalogViewer() {}
+CatalogViewer::~CatalogViewer() = default;
 
 void CatalogViewer::RemoveWindow(views::Widget* window) {
   auto it = std::find(windows_.begin(), windows_.end(), window);
   DCHECK(it != windows_.end());
   windows_.erase(it);
   if (windows_.empty())
-    base::MessageLoop::current()->QuitWhenIdle();
+    base::RunLoop::QuitCurrentWhenIdleDeprecated();
 }
 
 void CatalogViewer::OnStart() {
-  aura_init_ = views::AuraInit::Create(
-      context()->connector(), context()->identity(), "views_mus_resources.pak",
-      std::string(), nullptr, views::AuraInit::Mode::AURA_MUS);
+  views::AuraInit::InitParams params;
+  params.connector = context()->connector();
+  params.identity = context()->identity();
+  params.mode = views::AuraInit::Mode::AURA_MUS;
+  aura_init_ = views::AuraInit::Create(params);
   if (!aura_init_)
     context()->QuitNow();
 }

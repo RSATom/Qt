@@ -5,10 +5,11 @@
 #ifndef CC_TREES_SCROLL_NODE_H_
 #define CC_TREES_SCROLL_NODE_H_
 
-#include "cc/base/filter_operations.h"
 #include "cc/base/region.h"
 #include "cc/cc_export.h"
-#include "cc/input/scroll_boundary_behavior.h"
+#include "cc/input/overscroll_behavior.h"
+#include "cc/input/scroll_snap_data.h"
+#include "cc/paint/filter_operations.h"
 #include "ui/gfx/geometry/size.h"
 
 namespace base {
@@ -22,6 +23,7 @@ namespace cc {
 struct CC_EXPORT ScrollNode {
   ScrollNode();
   ScrollNode(const ScrollNode& other);
+  ~ScrollNode();
 
   // The node index of this node in the scroll tree node vector.
   int id;
@@ -57,7 +59,9 @@ struct CC_EXPORT ScrollNode {
   ElementId element_id;
   int transform_id;
 
-  ScrollBoundaryBehavior scroll_boundary_behavior;
+  OverscrollBehavior overscroll_behavior;
+
+  base::Optional<SnapContainerData> snap_container_data;
 
   bool operator==(const ScrollNode& other) const;
   void AsValueInto(base::trace_event::TracedValue* value) const;

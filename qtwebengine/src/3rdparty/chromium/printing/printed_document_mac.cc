@@ -8,34 +8,42 @@
 #import <CoreFoundation/CoreFoundation.h>
 
 #include "base/logging.h"
-#include "printing/page_number.h"
-#include "printing/printed_page.h"
+#include "printing/metafile.h"
+#include "printing/printing_context.h"
 
 namespace printing {
 
-void PrintedDocument::RenderPrintedPage(
-    const PrintedPage& page,
-    skia::NativeDrawingContext context) const {
-#ifndef NDEBUG
-  {
-    // Make sure the page is from our list.
-    base::AutoLock lock(lock_);
-    DCHECK(&page == mutable_.pages_.find(page.page_number() - 1)->second.get());
-  }
-#endif
-
+bool PrintedDocument::RenderPrintedDocument(PrintingContext* context) {
   DCHECK(context);
 
-  const PageSetup& page_setup(immutable_.settings_.page_setup_device_units());
-  gfx::Rect content_area;
-  page.GetCenteredPageContentRect(page_setup.physical_size(), &content_area);
+  const MetafilePlayer* metafile;
+  gfx::Size page_size;
+  gfx::Rect page_content_rect;
+  {
+    base::AutoLock lock(lock_);
+    metafile = GetMetafile();
+    page_size = mutable_.page_size_;
+    page_content_rect = mutable_.page_content_rect_;
+  }
 
-  const MetafilePlayer* metafile = page.metafile();
-  // Each Metafile is a one-page PDF, and pages use 1-based indexing.
-  const int page_number = 1;
+  DCHECK(metafile);
+  const PageSetup& page_setup = immutable_.settings_.page_setup_device_units();
+  gfx::Rect content_area = GetCenteredPageContentRect(
+      page_setup.physical_size(), page_size, page_content_rect);
+
   struct Metafile::MacRenderPageParams params;
   params.autorotate = true;
-  metafile->RenderPage(page_number, context, content_area.ToCGRect(), params);
+  size_t num_pages = expected_page_count();
+  for (size_t metafile_page_number = 1; metafile_page_number <= num_pages;
+       metafile_page_number++) {
+    if (context->NewPage() != PrintingContext::OK)
+      return false;
+    metafile->RenderPage(metafile_page_number, context->context(),
+                         content_area.ToCGRect(), params);
+    if (context->PageDone() != PrintingContext::OK)
+      return false;
+  }
+  return true;
 }
 
 }  // namespace printing

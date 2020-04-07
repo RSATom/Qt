@@ -3,10 +3,12 @@
 // found in the LICENSE file.
 
 #include "base/command_line.h"
+#include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
 #include "content/browser/media/media_browsertest.h"
 #include "media/base/media_switches.h"
-#include "media/media_features.h"
+#include "media/base/test_data_util.h"
+#include "media/media_buildflags.h"
 
 #if defined(OS_ANDROID)
 #include "base/android/build_info.h"
@@ -22,12 +24,19 @@ const char kWebMOpusAudioOnly[] = "audio/webm; codecs=\"opus\"";
 #endif
 const char kWebMVideoOnly[] = "video/webm; codecs=\"vp8\"";
 const char kWebMAudioVideo[] = "video/webm; codecs=\"vorbis, vp8\"";
+const char kMp4FlacAudioOnly[] = "audio/mp4; codecs=\"flac\"";
 
 #if BUILDFLAG(USE_PROPRIETARY_CODECS)
+const char kMp4AudioOnly[] = "audio/mp4; codecs=\"mp4a.40.2\"'";
+
+#if !defined(OS_ANDROID)
+const char kMp4VideoOnly[] = "video/mp4; codecs=\"avc1.4D4041\"'";
+#endif  // !defined(OS_ANDROID)
+
 #if BUILDFLAG(ENABLE_MSE_MPEG2TS_STREAM_PARSER)
 const char kMp2tAudioVideo[] = "video/mp2t; codecs=\"mp4a.40.2, avc1.42E01E\"";
-#endif
-#endif
+#endif  // BUILDFLAG(ENABLE_MSE_MPEG2TS_STREAM_PARSER)
+#endif  // BUILDFLAG(USE_PROPRIETARY_CODECS)
 
 namespace content {
 
@@ -44,16 +53,22 @@ class MediaSourceTest : public content::MediaBrowserTest {
   }
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
-    command_line->AppendSwitch(switches::kIgnoreAutoplayRestrictionsForTests);
+    command_line->AppendSwitchASCII(
+        switches::kAutoplayPolicy,
+        switches::autoplay::kNoUserGestureRequiredPolicy);
   }
+
+ protected:
+  base::test::ScopedFeatureList scoped_feature_list_;
 };
 
 IN_PROC_BROWSER_TEST_F(MediaSourceTest, Playback_VideoAudio_WebM) {
-  TestSimplePlayback("bear-320x240.webm", kWebMAudioVideo, kEnded);
+  TestSimplePlayback("bear-320x240.webm", kWebMAudioVideo, media::kEnded);
 }
 
 IN_PROC_BROWSER_TEST_F(MediaSourceTest, Playback_VideoOnly_WebM) {
-  TestSimplePlayback("bear-320x240-video-only.webm", kWebMVideoOnly, kEnded);
+  TestSimplePlayback("bear-320x240-video-only.webm", kWebMVideoOnly,
+                     media::kEnded);
 }
 
 // TODO(servolk): Android is supposed to support AAC in ADTS container with
@@ -61,30 +76,32 @@ IN_PROC_BROWSER_TEST_F(MediaSourceTest, Playback_VideoOnly_WebM) {
 // some issue in OMX AAC decoder (crbug.com/528361)
 #if BUILDFLAG(USE_PROPRIETARY_CODECS) && !defined(OS_ANDROID)
 IN_PROC_BROWSER_TEST_F(MediaSourceTest, Playback_AudioOnly_AAC_ADTS) {
-  TestSimplePlayback("sfx.adts", kAAC_ADTS_AudioOnly, kEnded);
+  TestSimplePlayback("sfx.adts", kAAC_ADTS_AudioOnly, media::kEnded);
 }
 #endif
 
 // Opus is not supported in Android as of now.
 #if !defined(OS_ANDROID)
 IN_PROC_BROWSER_TEST_F(MediaSourceTest, Playback_AudioOnly_Opus_WebM) {
-  TestSimplePlayback("bear-opus.webm", kWebMOpusAudioOnly, kEnded);
+  TestSimplePlayback("bear-opus.webm", kWebMOpusAudioOnly, media::kEnded);
 }
 #endif
 
 IN_PROC_BROWSER_TEST_F(MediaSourceTest, Playback_AudioOnly_WebM) {
-  TestSimplePlayback("bear-320x240-audio-only.webm", kWebMAudioOnly, kEnded);
+  TestSimplePlayback("bear-320x240-audio-only.webm", kWebMAudioOnly,
+                     media::kEnded);
 }
 
 IN_PROC_BROWSER_TEST_F(MediaSourceTest, Playback_Type_Error) {
   TestSimplePlayback("bear-320x240-video-only.webm", kWebMAudioOnly,
-                     kErrorEvent);
+                     media::kErrorEvent);
 }
 
 // Flaky test crbug.com/246308
 // Test changed to skip checks resulting in flakiness. Proper fix still needed.
 IN_PROC_BROWSER_TEST_F(MediaSourceTest, ConfigChangeVideo) {
-  RunMediaTestPage("mse_config_change.html", base::StringPairs(), kEnded, true);
+  RunMediaTestPage("mse_config_change.html", base::StringPairs(), media::kEnded,
+                   true);
 }
 
 #if BUILDFLAG(USE_PROPRIETARY_CODECS)
@@ -93,25 +110,41 @@ IN_PROC_BROWSER_TEST_F(MediaSourceTest, ConfigChangeVideo) {
 #if !defined(OS_ANDROID)
 IN_PROC_BROWSER_TEST_F(MediaSourceTest, Playback_Video_MP4_Audio_WEBM) {
   base::StringPairs query_params;
-  query_params.push_back(std::make_pair("videoFormat", "CLEAR_MP4"));
-  query_params.push_back(std::make_pair("audioFormat", "CLEAR_WEBM"));
-  RunMediaTestPage("mse_different_containers.html", query_params, kEnded, true);
+  query_params.push_back(
+      std::make_pair("videoFile", "bear-640x360-v_frag.mp4"));
+  query_params.push_back(std::make_pair("videoFormat", kMp4VideoOnly));
+  query_params.push_back(
+      std::make_pair("audioFile", "bear-320x240-audio-only.webm"));
+  query_params.push_back(std::make_pair("audioFormat", kWebMAudioOnly));
+  RunMediaTestPage("mse_different_containers.html", query_params, media::kEnded,
+                   true);
 }
 #endif  // !defined(OS_ANDROID)
 
 IN_PROC_BROWSER_TEST_F(MediaSourceTest, Playback_Video_WEBM_Audio_MP4) {
   base::StringPairs query_params;
-  query_params.push_back(std::make_pair("videoFormat", "CLEAR_WEBM"));
-  query_params.push_back(std::make_pair("audioFormat", "CLEAR_MP4"));
-  RunMediaTestPage("mse_different_containers.html", query_params, kEnded, true);
+  query_params.push_back(
+      std::make_pair("videoFile", "bear-320x240-video-only.webm"));
+  query_params.push_back(std::make_pair("videoFormat", kWebMVideoOnly));
+  query_params.push_back(
+      std::make_pair("audioFile", "bear-640x360-a_frag.mp4"));
+  query_params.push_back(std::make_pair("audioFormat", kMp4AudioOnly));
+  RunMediaTestPage("mse_different_containers.html", query_params, media::kEnded,
+                   true);
 }
-#endif
+
+#endif  // BUILDFLAG(USE_PROPRIETARY_CODECS)
+
+IN_PROC_BROWSER_TEST_F(MediaSourceTest, Playback_AudioOnly_FLAC_MP4) {
+  TestSimplePlayback("bear-flac_frag.mp4", kMp4FlacAudioOnly, media::kEnded);
+}
 
 #if BUILDFLAG(USE_PROPRIETARY_CODECS)
 #if BUILDFLAG(ENABLE_MSE_MPEG2TS_STREAM_PARSER)
 IN_PROC_BROWSER_TEST_F(MediaSourceTest, Playback_AudioVideo_Mp2t) {
-  TestSimplePlayback("bear-1280x720.ts", kMp2tAudioVideo, kEnded);
+  TestSimplePlayback("bear-1280x720.ts", kMp2tAudioVideo, media::kEnded);
 }
 #endif
 #endif
+
 }  // namespace content

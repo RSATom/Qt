@@ -57,7 +57,9 @@ QT_CANVAS3D_BEGIN_NAMESPACE
    \since QtCanvas3D 1.0
    \inqmlmodule QtCanvas3D
    \brief Provides means to print current GL driver state info.
+   \deprecated
 
+   \b{Deprecated in Qt 5.12.}
    An uncreatable QML type that provides an extension API that can be used to dump current OpenGL
    driver state as a string that can be then, for example, be printed on the console log.
    You can get it by calling \l{Context3D::getExtension}{Context3D.getExtension} with
@@ -421,6 +423,7 @@ void CanvasGLStateDump::doGLStateDump()
 
 /*!
  * \qmlmethod string GLStateDumpExt::getGLStateDump(stateDumpEnums options)
+   \b{Deprecated in Qt 5.12.}
  * \return OpenGL driver state with given options as a human readable string that can be printed.
  * Optional paremeter \a options may contain bitfields masked together from following options:
  * \list

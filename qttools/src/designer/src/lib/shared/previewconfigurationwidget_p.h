@@ -42,8 +42,8 @@
 
 #include "shared_global_p.h"
 
-#include <QtWidgets/QGroupBox>
-#include <QtCore/QSharedDataPointer>
+#include <QtWidgets/qgroupbox.h>
+#include <QtCore/qshareddata.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -60,7 +60,7 @@ class QDESIGNER_SHARED_EXPORT PreviewConfigurationWidget : public QGroupBox
 public:
     explicit PreviewConfigurationWidget(QDesignerFormEditorInterface *core,
                                         QWidget *parent = 0);
-    virtual ~PreviewConfigurationWidget();
+    ~PreviewConfigurationWidget() override;
     void saveState();
 
 private slots:

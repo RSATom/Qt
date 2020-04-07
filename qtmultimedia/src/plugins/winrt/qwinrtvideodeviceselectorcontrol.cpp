@@ -68,7 +68,7 @@ static QString deviceName(IDeviceInformation *device)
     Q_ASSERT_SUCCEEDED(hr);
     quint32 length;
     const wchar_t *buffer = id.GetRawBuffer(&length);
-    return QString::fromWCharArray(buffer, length);
+    return QString::fromWCharArray(buffer, int(length));
 }
 
 static QString deviceDescription(IDeviceInformation *device)
@@ -79,7 +79,7 @@ static QString deviceDescription(IDeviceInformation *device)
     Q_ASSERT_SUCCEEDED(hr);
     quint32 length;
     const wchar_t *buffer = name.GetRawBuffer(&length);
-    return QString::fromWCharArray(buffer, length);
+    return QString::fromWCharArray(buffer, int(length));
 }
 
 struct QWinRTVideoDeviceSelectorControlGlobal
@@ -124,7 +124,7 @@ struct QWinRTVideoDeviceSelectorControlGlobal
             IDeviceInformation *device;
             hr = deviceList->GetAt(i, &device);
             Q_ASSERT_SUCCEEDED(hr);
-            onDeviceAdded(Q_NULLPTR, device);
+            onDeviceAdded(nullptr, device);
         }
 
         // If there is no default device provided by the API, choose the first one
@@ -179,7 +179,7 @@ private:
         Q_ASSERT_SUCCEEDED(hr);
         quint32 nameLength;
         const wchar_t *nameString = name.GetRawBuffer(&nameLength);
-        const int index = deviceIndex.take(QString::fromWCharArray(nameString, nameLength));
+        const int index = deviceIndex.take(QString::fromWCharArray(nameString, int(nameLength)));
         if (index >= 0)
             devices.remove(index);
 
@@ -251,6 +251,22 @@ private:
 };
 Q_GLOBAL_STATIC(QWinRTVideoDeviceSelectorControlGlobal, g)
 
+static ComPtr<IEnclosureLocation> enclosureLocation(const QString &deviceName)
+{
+    ComPtr<IEnclosureLocation> enclosureLocation;
+    int deviceIndex = g->deviceIndex.value(deviceName);
+    IDeviceInformation *deviceInfo = g->devices.value(deviceIndex).Get();
+    if (!deviceInfo)
+        return enclosureLocation;
+
+    HRESULT hr;
+    hr = deviceInfo->get_EnclosureLocation(&enclosureLocation);
+    if (FAILED(hr))
+        qErrnoWarning(hr, "Failed to get camera enclosure location");
+
+    return enclosureLocation;
+}
+
 class QWinRTVideoDeviceSelectorControlPrivate
 {
 public:
@@ -307,20 +323,13 @@ int QWinRTVideoDeviceSelectorControl::selectedDevice() const
 
 QCamera::Position QWinRTVideoDeviceSelectorControl::cameraPosition(const QString &deviceName)
 {
-    int deviceIndex = g->deviceIndex.value(deviceName);
-    IDeviceInformation *deviceInfo = g->devices.value(deviceIndex).Get();
-    if (!deviceInfo)
+    ComPtr<IEnclosureLocation> enclosure = enclosureLocation(deviceName);
+    if (!enclosure)
         return QCamera::UnspecifiedPosition;
 
-    ComPtr<IEnclosureLocation> enclosureLocation;
     HRESULT hr;
-    hr = deviceInfo->get_EnclosureLocation(&enclosureLocation);
-    RETURN_IF_FAILED("Failed to get camera enclosure location", return QCamera::UnspecifiedPosition);
-    if (!enclosureLocation)
-        return QCamera::UnspecifiedPosition;
-
     Panel panel;
-    hr = enclosureLocation->get_Panel(&panel);
+    hr = enclosure->get_Panel(&panel);
     RETURN_IF_FAILED("Failed to get camera panel location", return QCamera::UnspecifiedPosition);
 
     switch (panel) {
@@ -336,18 +345,18 @@ QCamera::Position QWinRTVideoDeviceSelectorControl::cameraPosition(const QString
 
 int QWinRTVideoDeviceSelectorControl::cameraOrientation(const QString &deviceName)
 {
-#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_PHONE_APP)
-    switch (cameraPosition(deviceName)) {
-    case QCamera::FrontFace:
-    case QCamera::BackFace:
-        return 270;
-    default:
-        break;
-    }
-#else
-    Q_UNUSED(deviceName);
-#endif
-    return 0;
+    ComPtr<IEnclosureLocation> enclosure = enclosureLocation(deviceName);
+    if (!enclosure)
+        return 0;
+
+    HRESULT hr;
+    ComPtr<IEnclosureLocation2> enclosure2;
+    hr = enclosure.As(&enclosure2);
+    RETURN_IF_FAILED("Failed to cast camera enclosure location", return 0);
+    quint32 rotation;
+    hr = enclosure2->get_RotationAngleInDegreesClockwise(&rotation);
+    RETURN_IF_FAILED("Failed to get camera rotation angle", return 0);
+    return int(rotation);
 }
 
 QList<QByteArray> QWinRTVideoDeviceSelectorControl::deviceNames()

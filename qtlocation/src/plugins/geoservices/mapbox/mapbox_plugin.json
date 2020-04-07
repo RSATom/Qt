@@ -5,6 +5,13 @@
     "Experimental": false,
     "Features": [
         "OnlineMappingFeature",
-        "OnlineRoutingFeature"
+        "OnlineRoutingFeature",
+        "OnlinePlacesFeature",
+        "PlaceRecommendationsFeature",
+        "SearchSuggestionsFeature",
+        "LocalizedPlacesFeature",
+        "OnlineGeocodingFeature",
+        "ReverseGeocodingFeature",
+        "LocalizedGeocodingFeature"
     ]
 }

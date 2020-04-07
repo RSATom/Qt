@@ -29,7 +29,8 @@ namespace sw
 		int height;
 		Format destFormat;
 		Format sourceFormat;
-		int stride;
+		int destStride;
+		int sourceStride;
 		int cursorWidth;
 		int cursorHeight;
 	};
@@ -41,12 +42,8 @@ namespace sw
 
 		virtual ~FrameBuffer() = 0;
 
-		int getWidth() const;
-		int getHeight() const;
-		int getStride() const;
-
-		virtual void flip(void *source, Format sourceFormat, size_t sourceStride) = 0;
-		virtual void blit(void *source, const Rect *sourceRect, const Rect *destRect, Format sourceFormat, size_t sourceStride) = 0;
+		virtual void flip(sw::Surface *source) = 0;
+		virtual void blit(sw::Surface *source, const Rect *sourceRect, const Rect *destRect) = 0;
 
 		virtual void *lock() = 0;
 		virtual void unlock() = 0;
@@ -58,22 +55,22 @@ namespace sw
 		static Routine *copyRoutine(const BlitState &state);
 
 	protected:
-		void copy(void *source, Format format, size_t stride);
-		int width;
-		int height;
-		Format sourceFormat;
-		Format destFormat;
-		int stride;
+		void copy(sw::Surface *source);
+
 		bool windowed;
 
-		void *locked;   // Video memory back buffer
+		void *framebuffer;   // Native window buffer.
+		int width;
+		int height;
+		int stride;
+		Format format;
 
 	private:
 		void copyLocked();
 
 		static void threadFunction(void *parameters);
 
-		void *target;   // Render target buffer
+		void *renderbuffer;   // Render target buffer.
 
 		struct Cursor
 		{
@@ -92,7 +89,8 @@ namespace sw
 
 		void (*blitFunction)(void *dst, void *src, Cursor *cursor);
 		Routine *blitRoutine;
-		BlitState blitState;
+		BlitState blitState;     // State of the current blitRoutine.
+		BlitState updateState;   // State of the routine to be generated.
 
 		static void blend(const BlitState &state, const Pointer<Byte> &d, const Pointer<Byte> &s, const Pointer<Byte> &c);
 

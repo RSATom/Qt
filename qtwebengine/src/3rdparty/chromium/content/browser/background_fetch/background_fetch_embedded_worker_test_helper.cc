@@ -7,8 +7,8 @@
 #include "base/callback.h"
 #include "base/time/time.h"
 #include "content/common/background_fetch/background_fetch_types.h"
-#include "content/common/service_worker/service_worker_event_dispatcher.mojom.h"
-#include "content/common/service_worker/service_worker_status_code.h"
+#include "content/common/service_worker/service_worker.mojom.h"
+#include "third_party/blink/public/mojom/service_worker/service_worker_event_status.mojom.h"
 
 namespace content {
 
@@ -20,16 +20,20 @@ BackgroundFetchEmbeddedWorkerTestHelper::
     ~BackgroundFetchEmbeddedWorkerTestHelper() = default;
 
 void BackgroundFetchEmbeddedWorkerTestHelper::OnBackgroundFetchAbortEvent(
-    const std::string& tag,
-    mojom::ServiceWorkerEventDispatcher::
-        DispatchBackgroundFetchAbortEventCallback callback) {
-  last_tag_ = tag;
+    const std::string& developer_id,
+    const std::string& unique_id,
+    const std::vector<BackgroundFetchSettledFetch>& fetches,
+    mojom::ServiceWorker::DispatchBackgroundFetchAbortEventCallback callback) {
+  last_developer_id_ = developer_id;
+  last_unique_id_ = unique_id;
+  last_fetches_ = fetches;
 
   if (fail_abort_event_) {
-    std::move(callback).Run(SERVICE_WORKER_ERROR_EVENT_WAITUNTIL_REJECTED,
+    std::move(callback).Run(blink::mojom::ServiceWorkerEventStatus::REJECTED,
                             base::Time::Now());
   } else {
-    std::move(callback).Run(SERVICE_WORKER_OK, base::Time::Now());
+    std::move(callback).Run(blink::mojom::ServiceWorkerEventStatus::COMPLETED,
+                            base::Time::Now());
   }
 
   if (abort_event_closure_)
@@ -37,18 +41,18 @@ void BackgroundFetchEmbeddedWorkerTestHelper::OnBackgroundFetchAbortEvent(
 }
 
 void BackgroundFetchEmbeddedWorkerTestHelper::OnBackgroundFetchClickEvent(
-    const std::string& tag,
+    const std::string& developer_id,
     mojom::BackgroundFetchState state,
-    mojom::ServiceWorkerEventDispatcher::
-        DispatchBackgroundFetchClickEventCallback callback) {
-  last_tag_ = tag;
+    mojom::ServiceWorker::DispatchBackgroundFetchClickEventCallback callback) {
+  last_developer_id_ = developer_id;
   last_state_ = state;
 
   if (fail_click_event_) {
-    std::move(callback).Run(SERVICE_WORKER_ERROR_EVENT_WAITUNTIL_REJECTED,
+    std::move(callback).Run(blink::mojom::ServiceWorkerEventStatus::REJECTED,
                             base::Time::Now());
   } else {
-    std::move(callback).Run(SERVICE_WORKER_OK, base::Time::Now());
+    std::move(callback).Run(blink::mojom::ServiceWorkerEventStatus::COMPLETED,
+                            base::Time::Now());
   }
 
   if (click_event_closure_)
@@ -56,18 +60,20 @@ void BackgroundFetchEmbeddedWorkerTestHelper::OnBackgroundFetchClickEvent(
 }
 
 void BackgroundFetchEmbeddedWorkerTestHelper::OnBackgroundFetchFailEvent(
-    const std::string& tag,
+    const std::string& developer_id,
+    const std::string& unique_id,
     const std::vector<BackgroundFetchSettledFetch>& fetches,
-    mojom::ServiceWorkerEventDispatcher::
-        DispatchBackgroundFetchFailEventCallback callback) {
-  last_tag_ = tag;
+    mojom::ServiceWorker::DispatchBackgroundFetchFailEventCallback callback) {
+  last_developer_id_ = developer_id;
+  last_unique_id_ = unique_id;
   last_fetches_ = fetches;
 
   if (fail_fetch_fail_event_) {
-    std::move(callback).Run(SERVICE_WORKER_ERROR_EVENT_WAITUNTIL_REJECTED,
+    std::move(callback).Run(blink::mojom::ServiceWorkerEventStatus::REJECTED,
                             base::Time::Now());
   } else {
-    std::move(callback).Run(SERVICE_WORKER_OK, base::Time::Now());
+    std::move(callback).Run(blink::mojom::ServiceWorkerEventStatus::COMPLETED,
+                            base::Time::Now());
   }
 
   if (fetch_fail_event_closure_)
@@ -75,18 +81,20 @@ void BackgroundFetchEmbeddedWorkerTestHelper::OnBackgroundFetchFailEvent(
 }
 
 void BackgroundFetchEmbeddedWorkerTestHelper::OnBackgroundFetchedEvent(
-    const std::string& tag,
+    const std::string& developer_id,
+    const std::string& unique_id,
     const std::vector<BackgroundFetchSettledFetch>& fetches,
-    mojom::ServiceWorkerEventDispatcher::DispatchBackgroundFetchedEventCallback
-        callback) {
-  last_tag_ = tag;
+    mojom::ServiceWorker::DispatchBackgroundFetchedEventCallback callback) {
+  last_developer_id_ = developer_id;
+  last_unique_id_ = unique_id;
   last_fetches_ = fetches;
 
   if (fail_fetched_event_) {
-    std::move(callback).Run(SERVICE_WORKER_ERROR_EVENT_WAITUNTIL_REJECTED,
+    std::move(callback).Run(blink::mojom::ServiceWorkerEventStatus::REJECTED,
                             base::Time::Now());
   } else {
-    std::move(callback).Run(SERVICE_WORKER_OK, base::Time::Now());
+    std::move(callback).Run(blink::mojom::ServiceWorkerEventStatus::COMPLETED,
+                            base::Time::Now());
   }
 
   if (fetched_event_closure_)

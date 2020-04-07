@@ -45,15 +45,12 @@
 
 #include <QtCore/QLoggingCategory>
 
-Q_DECLARE_METATYPE(QGeoPositionInfo)
-
 Q_LOGGING_CATEGORY(lcPositioningGeoclue, "qt.positioning.geoclue")
 
 QT_BEGIN_NAMESPACE
 
 QGeoPositionInfoSource *QGeoPositionInfoSourceFactoryGeoclue::positionInfoSource(QObject *parent)
 {
-    qRegisterMetaType<QGeoPositionInfo>();
     return new QGeoPositionInfoSourceGeoclueMaster(parent);
 }
 

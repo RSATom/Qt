@@ -27,10 +27,11 @@
 **
 ****************************************************************************/
 
-#include "plaininputmethod.h"
-#include "inputengine.h"
-#include "inputcontext.h"
+#include <QtVirtualKeyboard/private/plaininputmethod_p.h>
+#include <QtVirtualKeyboard/qvirtualkeyboardinputengine.h>
+#include <QtVirtualKeyboard/qvirtualkeyboardinputcontext.h>
 
+QT_BEGIN_NAMESPACE
 namespace QtVirtualKeyboard {
 
 /*!
@@ -39,7 +40,7 @@ namespace QtVirtualKeyboard {
 */
 
 PlainInputMethod::PlainInputMethod(QObject *parent) :
-    AbstractInputMethod(parent)
+    QVirtualKeyboardAbstractInputMethod(parent)
 {
 }
 
@@ -47,38 +48,38 @@ PlainInputMethod::~PlainInputMethod()
 {
 }
 
-QList<InputEngine::InputMode> PlainInputMethod::inputModes(const QString &locale)
+QList<QVirtualKeyboardInputEngine::InputMode> PlainInputMethod::inputModes(const QString &locale)
 {
-    QList<InputEngine::InputMode> result;
+    QList<QVirtualKeyboardInputEngine::InputMode> result;
     switch (QLocale(locale).script()) {
     case QLocale::GreekScript:
-        result.append(InputEngine::Greek);
+        result.append(QVirtualKeyboardInputEngine::InputMode::Greek);
         break;
     case QLocale::CyrillicScript:
-        result.append(InputEngine::Cyrillic);
+        result.append(QVirtualKeyboardInputEngine::InputMode::Cyrillic);
         break;
     case QLocale::ArabicScript:
-        result.append(InputEngine::Arabic);
+        result.append(QVirtualKeyboardInputEngine::InputMode::Arabic);
         break;
     case QLocale::HebrewScript:
-        result.append(InputEngine::Hebrew);
+        result.append(QVirtualKeyboardInputEngine::InputMode::Hebrew);
         break;
     default:
         break;
     }
-    result.append(InputEngine::Latin);
-    result.append(InputEngine::Numeric);
+    result.append(QVirtualKeyboardInputEngine::InputMode::Latin);
+    result.append(QVirtualKeyboardInputEngine::InputMode::Numeric);
     return result;
 }
 
-bool PlainInputMethod::setInputMode(const QString &locale, InputEngine::InputMode inputMode)
+bool PlainInputMethod::setInputMode(const QString &locale, QVirtualKeyboardInputEngine::InputMode inputMode)
 {
     Q_UNUSED(locale)
     Q_UNUSED(inputMode)
     return true;
 }
 
-bool PlainInputMethod::setTextCase(InputEngine::TextCase textCase)
+bool PlainInputMethod::setTextCase(QVirtualKeyboardInputEngine::TextCase textCase)
 {
     Q_UNUSED(textCase)
     return true;
@@ -102,3 +103,4 @@ void PlainInputMethod::update()
 }
 
 } // namespace QtVirtualKeyboard
+QT_END_NAMESPACE

@@ -41,7 +41,7 @@
 #include "fxbarcode/qrcode/BC_QRCoderVersion.h"
 #include "third_party/base/ptr_util.h"
 
-using ModeStringPair = std::pair<CBC_QRCoderMode*, CFX_ByteString>;
+using ModeStringPair = std::pair<CBC_QRCoderMode*, ByteString>;
 
 namespace {
 
@@ -61,7 +61,7 @@ int32_t GetAlphaNumericCode(int32_t code) {
   return g_alphaNumericTable[code_index];
 }
 
-void AppendNumericBytes(const CFX_ByteString& content,
+void AppendNumericBytes(const ByteString& content,
                         CBC_QRCoderBitVector* bits,
                         int32_t& e) {
   int32_t length = content.GetLength();
@@ -84,7 +84,7 @@ void AppendNumericBytes(const CFX_ByteString& content,
   }
 }
 
-void AppendAlphaNumericBytes(const CFX_ByteString& content,
+void AppendAlphaNumericBytes(const ByteString& content,
                              CBC_QRCoderBitVector* bits,
                              int32_t& e) {
   int32_t length = content.GetLength();
@@ -110,7 +110,7 @@ void AppendAlphaNumericBytes(const CFX_ByteString& content,
   }
 }
 
-void AppendGBKBytes(const CFX_ByteString& content,
+void AppendGBKBytes(const ByteString& content,
                     CBC_QRCoderBitVector* bits,
                     int32_t& e) {
   int32_t length = content.GetLength();
@@ -130,15 +130,15 @@ void AppendGBKBytes(const CFX_ByteString& content,
   }
 }
 
-void Append8BitBytes(const CFX_ByteString& content,
+void Append8BitBytes(const ByteString& content,
                      CBC_QRCoderBitVector* bits,
-                     CFX_ByteString encoding,
+                     ByteString encoding,
                      int32_t& e) {
-  for (int32_t i = 0; i < content.GetLength(); i++)
+  for (size_t i = 0; i < content.GetLength(); i++)
     bits->AppendBits(content[i], 8);
 }
 
-void AppendKanjiBytes(const CFX_ByteString& content,
+void AppendKanjiBytes(const ByteString& content,
                       CBC_QRCoderBitVector* bits,
                       int32_t& e) {
   std::vector<uint8_t> bytes;
@@ -184,10 +184,10 @@ bool AppendLengthInfo(int32_t numLetters,
   return true;
 }
 
-void AppendBytes(const CFX_ByteString& content,
+void AppendBytes(const ByteString& content,
                  CBC_QRCoderMode* mode,
                  CBC_QRCoderBitVector* bits,
-                 CFX_ByteString encoding,
+                 ByteString encoding,
                  int32_t& e) {
   if (mode == CBC_QRCoderMode::sNUMERIC)
     AppendNumericBytes(content, bits, e);
@@ -380,8 +380,8 @@ void MergeString(std::vector<ModeStringPair>* result,
                                      CBC_QRCoderMode::sBYTE, versionNum, e);
       if (e != BCExceptionNO)
         return;
-      if (element2.first == CBC_QRCoderMode::sBYTE &&
-          element1.second.GetLength() < tmp) {
+      if (element2.first == CBC_QRCoderMode::sBYTE && tmp >= 0 &&
+          element1.second.GetLength() < static_cast<size_t>(tmp)) {
         element2.second = element1.second + element2.second;
         result->erase(result->begin() + i);
         i--;
@@ -399,8 +399,8 @@ void MergeString(std::vector<ModeStringPair>* result,
                                      CBC_QRCoderMode::sBYTE, versionNum, e);
       if (e != BCExceptionNO)
         return;
-      if (element2.first == CBC_QRCoderMode::sBYTE &&
-          element1.second.GetLength() < tmp) {
+      if (element2.first == CBC_QRCoderMode::sBYTE && tmp >= 0 &&
+          element1.second.GetLength() < static_cast<size_t>(tmp)) {
         element2.second = element1.second + element2.second;
         result->erase(result->begin() + i);
         i--;
@@ -410,8 +410,8 @@ void MergeString(std::vector<ModeStringPair>* result,
                              CBC_QRCoderMode::sALPHANUMERIC, versionNum, e);
       if (e != BCExceptionNO)
         return;
-      if (element2.first == CBC_QRCoderMode::sALPHANUMERIC &&
-          element1.second.GetLength() < tmp) {
+      if (element2.first == CBC_QRCoderMode::sALPHANUMERIC && tmp >= 0 &&
+          element1.second.GetLength() < static_cast<size_t>(tmp)) {
         element2.second = element1.second + element2.second;
         result->erase(result->begin() + i);
         i--;
@@ -423,25 +423,27 @@ void MergeString(std::vector<ModeStringPair>* result,
     MergeString(result, versionNum, e);
 }
 
-void SplitString(const CFX_ByteString& content,
+void SplitString(const ByteString& content,
                  std::vector<ModeStringPair>* result) {
-  int32_t index = 0;
-  while (index < content.GetLength() &&
-         ((content[index] >= 0xA1 && content[index] <= 0xAA) ||
-          (content[index] >= 0xB0 && content[index] <= 0xFA))) {
+  size_t index = 0;
+  while (index < content.GetLength()) {
+    uint8_t c = static_cast<uint8_t>(content[index]);
+    if (!((c >= 0xA1 && c <= 0xAA) || (c >= 0xB0 && c <= 0xFA)))
+      break;
     index += 2;
   }
   if (index)
-    result->push_back({CBC_QRCoderMode::sGBK, content.Mid(0, index)});
+    result->push_back({CBC_QRCoderMode::sGBK, content.Left(index)});
   if (index >= content.GetLength())
     return;
 
-  int32_t flag = index;
+  size_t flag = index;
   while (GetAlphaNumericCode(content[index]) == -1 &&
-         index < content.GetLength() &&
-         !((content[index] >= 0xA1 && content[index] <= 0xAA) ||
-           (content[index] >= 0xB0 && content[index] <= 0xFA))) {
-#if _FXM_PLATFORM_ == _FXM_PLATFORM_WINDOWS_
+         index < content.GetLength()) {
+    uint8_t c = static_cast<uint8_t>(content[index]);
+    if (((c >= 0xA1 && c <= 0xAA) || (c >= 0xB0 && c <= 0xFA)))
+      break;
+#if _FX_PLATFORM_ == _FX_PLATFORM_WINDOWS_
     bool high = !!IsDBCSLeadByte(content[index]);
 #else
     bool high = content[index] > 127;
@@ -477,19 +479,17 @@ void SplitString(const CFX_ByteString& content,
     result->push_back(
         {CBC_QRCoderMode::sALPHANUMERIC, content.Mid(flag, index - flag)});
   }
-  flag = index;
   if (index < content.GetLength())
-    SplitString(content.Mid(index, content.GetLength() - index), result);
+    SplitString(content.Right(content.GetLength() - index), result);
 }
 
-CBC_QRCoderMode* ChooseMode(const CFX_ByteString& content,
-                            CFX_ByteString encoding) {
+CBC_QRCoderMode* ChooseMode(const ByteString& content, ByteString encoding) {
   if (encoding.Compare("SHIFT_JIS") == 0)
     return CBC_QRCoderMode::sKANJI;
 
   bool hasNumeric = false;
   bool hasAlphaNumeric = false;
-  for (int32_t i = 0; i < content.GetLength(); i++) {
+  for (size_t i = 0; i < content.GetLength(); i++) {
     if (isdigit(content[i])) {
       hasNumeric = true;
     } else if (GetAlphaNumericCode(content[i]) != -1) {
@@ -564,11 +564,11 @@ CBC_QRCoderEncoder::CBC_QRCoderEncoder() {}
 CBC_QRCoderEncoder::~CBC_QRCoderEncoder() {}
 
 // static
-bool CBC_QRCoderEncoder::Encode(const CFX_WideString& content,
+bool CBC_QRCoderEncoder::Encode(const WideString& content,
                                 const CBC_QRCoderErrorCorrectionLevel* ecLevel,
                                 CBC_QRCoder* qrCode) {
-  CFX_ByteString encoding = "utf8";
-  CFX_ByteString utf8Data;
+  ByteString encoding = "utf8";
+  ByteString utf8Data;
   CBC_UtilCodingConvert::UnicodeToUTF8(content, utf8Data);
   CBC_QRCoderMode* mode = ChooseMode(utf8Data, encoding);
   CBC_QRCoderBitVector dataBits;
@@ -599,7 +599,6 @@ bool CBC_QRCoderEncoder::Encode(const CFX_WideString& content,
 
   auto matrix = pdfium::MakeUnique<CBC_CommonByteMatrix>(
       qrCode->GetMatrixWidth(), qrCode->GetMatrixWidth());
-  matrix->Init();
   int32_t maskPattern = ChooseMaskPattern(
       &finalBits, qrCode->GetECLevel(), qrCode->GetVersion(), matrix.get(), e);
   if (e != BCExceptionNO)

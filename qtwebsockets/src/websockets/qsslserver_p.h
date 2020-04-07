@@ -65,8 +65,8 @@ class QSslServer : public QTcpServer
     Q_DISABLE_COPY(QSslServer)
 
 public:
-    explicit QSslServer(QObject *parent = Q_NULLPTR);
-    virtual ~QSslServer();
+    explicit QSslServer(QObject *parent = nullptr);
+    ~QSslServer() override;
 
     void setSslConfiguration(const QSslConfiguration &sslConfiguration);
     QSslConfiguration sslConfiguration() const;
@@ -78,7 +78,7 @@ Q_SIGNALS:
     void preSharedKeyAuthenticationRequired(QSslPreSharedKeyAuthenticator *authenticator);
 
 protected:
-    virtual void incomingConnection(qintptr socket);
+    void incomingConnection(qintptr socket) override;
 
 private:
     QSslConfiguration m_sslConfiguration;

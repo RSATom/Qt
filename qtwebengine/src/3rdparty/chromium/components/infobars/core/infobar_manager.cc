@@ -35,16 +35,18 @@ void InfoBarManager::Observer::OnManagerShuttingDown(InfoBarManager* manager) {
 
 // InfoBarManager --------------------------------------------------------------
 
-InfoBar* InfoBarManager::AddInfoBar(std::unique_ptr<InfoBar> infobar) {
+InfoBar* InfoBarManager::AddInfoBar(std::unique_ptr<InfoBar> infobar,
+                                    bool replace_existing) {
   DCHECK(infobar);
   if (!infobars_enabled_)
-    return NULL;
+    return nullptr;
 
   for (InfoBars::const_iterator i(infobars_.begin()); i != infobars_.end();
        ++i) {
     if ((*i)->delegate()->EqualsDelegate(infobar->delegate())) {
       DCHECK_NE((*i)->delegate(), infobar->delegate());
-      return NULL;
+      return replace_existing ? ReplaceInfoBar(*i, std::move(infobar))
+                              : nullptr;
     }
   }
 
@@ -52,7 +54,8 @@ InfoBar* InfoBarManager::AddInfoBar(std::unique_ptr<InfoBar> infobar) {
   infobars_.push_back(infobar_ptr);
   infobar_ptr->SetOwner(this);
 
-  NotifyInfoBarAdded(infobar_ptr);
+  for (Observer& observer : observer_list_)
+    observer.OnInfoBarAdded(infobar_ptr);
 
   return infobar_ptr;
 }
@@ -128,16 +131,6 @@ void InfoBarManager::OnNavigation(
   }
 }
 
-void InfoBarManager::NotifyInfoBarAdded(InfoBar* infobar) {
-  for (Observer& observer : observer_list_)
-    observer.OnInfoBarAdded(infobar);
-}
-
-void InfoBarManager::NotifyInfoBarRemoved(InfoBar* infobar, bool animate) {
-  for (Observer& observer : observer_list_)
-    observer.OnInfoBarRemoved(infobar, animate);
-}
-
 void InfoBarManager::RemoveInfoBarInternal(InfoBar* infobar, bool animate) {
   DCHECK(infobar);
   if (!infobars_enabled_) {
@@ -154,7 +147,8 @@ void InfoBarManager::RemoveInfoBarInternal(InfoBar* infobar, bool animate) {
 
   // This notification must happen before the call to CloseSoon() below, since
   // observers may want to access |infobar| and that call can delete it.
-  NotifyInfoBarRemoved(infobar, animate);
+  for (Observer& observer : observer_list_)
+    observer.OnInfoBarRemoved(infobar, animate);
 
   infobar->CloseSoon();
 }

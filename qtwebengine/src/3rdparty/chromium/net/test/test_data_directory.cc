@@ -26,7 +26,7 @@ base::FilePath GetTestNetDataDirectory() {
   base::FilePath src_root;
   {
     base::ThreadRestrictions::ScopedAllowIO allow_io_for_path_service;
-    PathService::Get(base::DIR_SOURCE_ROOT, &src_root);
+    base::PathService::Get(base::DIR_SOURCE_ROOT, &src_root);
   }
 
   return src_root.Append(kNetDataRelativePath);
@@ -37,11 +37,7 @@ base::FilePath GetTestCertsDirectory() {
 }
 
 base::FilePath GetTestClientCertsDirectory() {
-#if defined(OS_ANDROID)
   return base::FilePath(kNetDataRelativePath).Append(kCertificateDataSubPath);
-#else
-  return GetTestCertsDirectory();
-#endif
 }
 
 base::FilePath GetWebSocketTestDataDirectory() {

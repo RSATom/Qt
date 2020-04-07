@@ -43,14 +43,14 @@
 #include "shared_global_p.h"
 #include "layoutinfo_p.h"
 
-#include <QtCore/QPointer>
-#include <QtCore/QObject>
-#include <QtCore/QMap>
-#include <QtCore/QHash>
+#include <QtCore/qpointer.h>
+#include <QtCore/qobject.h>
+#include <QtCore/qmap.h>
+#include <QtCore/qhash.h>
 
-#include <QtWidgets/QLayout>
-#include <QtWidgets/QGridLayout>
-#include <QtWidgets/QWidget>
+#include <QtWidgets/qlayout.h>
+#include <QtWidgets/qgridlayout.h>
+#include <QtWidgets/qwidget.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -69,7 +69,7 @@ public:
                                  QDesignerFormWindowInterface *fw,
                                  QWidget *layoutBase, LayoutInfo::Type layoutType);
 
-    virtual ~Layout();
+    ~Layout() override;
 
     virtual void sort() = 0;
     virtual void doLayout() = 0;

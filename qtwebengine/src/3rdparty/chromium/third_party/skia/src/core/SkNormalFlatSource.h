@@ -15,7 +15,7 @@ public:
     SkNormalFlatSourceImpl(){}
 
 #if SK_SUPPORT_GPU
-    sk_sp<GrFragmentProcessor> asFragmentProcessor(const SkShaderBase::AsFPArgs&) const override;
+    std::unique_ptr<GrFragmentProcessor> asFragmentProcessor(const GrFPArgs& args) const override;
 #endif
 
     SkNormalSource::Provider* asProvider(const SkShaderBase::ContextRec& rec,

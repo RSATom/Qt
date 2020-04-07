@@ -57,13 +57,12 @@ public:
 
     xcb_window_t trayWindow();
     void requestSystemTrayWindowDock(xcb_window_t window) const;
-    QRect systemTrayWindowGlobalGeometry(xcb_window_t window) const;
 
     void notifyManagerClientMessageEvent(const xcb_client_message_event_t *);
 
     void handleDestroyNotifyEvent(const xcb_destroy_notify_event_t *) override;
 
-    bool visualHasAlphaChannel();
+    xcb_visualid_t visualId();
 signals:
     void systemTrayWindowChanged(QScreen *screen);
 
@@ -73,6 +72,7 @@ private:
                                    xcb_atom_t selection);
     static xcb_window_t locateTrayWindow(const QXcbConnection *connection, xcb_atom_t selection);
     void emitSystemTrayWindowChanged();
+    xcb_visualid_t netSystemTrayVisual();
 
     const xcb_atom_t m_selection;
     const xcb_atom_t m_trayAtom;

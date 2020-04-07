@@ -17,6 +17,7 @@
 #include "base/test/scoped_feature_list.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "net/http/transport_security_state.h"
+#include "net/test/test_with_scoped_task_environment.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace net {
@@ -25,10 +26,9 @@ namespace {
 
 const char kReportUri[] = "http://www.example.test/report";
 
-class TransportSecurityPersisterTest : public testing::Test {
+class TransportSecurityPersisterTest : public TestWithScopedTaskEnvironment {
  public:
-  TransportSecurityPersisterTest() {
-  }
+  TransportSecurityPersisterTest() = default;
 
   ~TransportSecurityPersisterTest() override {
     EXPECT_TRUE(base::MessageLoopForIO::IsCurrent());
@@ -38,9 +38,8 @@ class TransportSecurityPersisterTest : public testing::Test {
   void SetUp() override {
     ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
     ASSERT_TRUE(base::MessageLoopForIO::IsCurrent());
-    persister_.reset(new TransportSecurityPersister(
-        &state_, temp_dir_.GetPath(), base::ThreadTaskRunnerHandle::Get(),
-        false));
+    persister_ = std::make_unique<TransportSecurityPersister>(
+        &state_, temp_dir_.GetPath(), base::ThreadTaskRunnerHandle::Get());
   }
 
  protected:
@@ -285,7 +284,7 @@ TEST_F(TransportSecurityPersisterTest, PublicKeyPins) {
   TransportSecurityState::PKPState new_pkp_state;
   EXPECT_TRUE(state_.GetDynamicPKPState(kTestDomain, &new_pkp_state));
   EXPECT_EQ(1u, new_pkp_state.spki_hashes.size());
-  EXPECT_EQ(sha256.tag, new_pkp_state.spki_hashes[0].tag);
+  EXPECT_EQ(sha256.tag(), new_pkp_state.spki_hashes[0].tag());
   EXPECT_EQ(0, memcmp(new_pkp_state.spki_hashes[0].data(), sha256.data(),
                       sha256.size()));
   EXPECT_EQ(report_uri, new_pkp_state.report_uri);

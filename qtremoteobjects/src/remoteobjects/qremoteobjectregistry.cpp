@@ -40,29 +40,37 @@
 #include "qremoteobjectregistry.h"
 #include "qremoteobjectreplica_p.h"
 
-#include <QSet>
-#include <QDataStream>
-
+#include <private/qobject_p.h>
+#include <QtCore/qset.h>
+#include <QtCore/qdatastream.h>
 
 QT_BEGIN_NAMESPACE
+
+class QRemoteObjectRegistryPrivate : public QObjectPrivate
+{
+    Q_DECLARE_PUBLIC(QRemoteObjectRegistry)
+
+    QRemoteObjectSourceLocations hostedSources;
+};
 
 /*!
     \class QRemoteObjectRegistry
     \inmodule QtRemoteObjects
-    \brief A class holding information about \l {Source} objects available on the Qt Remote Objects network
+    \brief A class holding information about \l {Source} objects available on the Qt Remote Objects network.
 
     The Registry is a special Source/Replica pair held by a \l
     {QRemoteObjectNode} {node} itself. It knows about all other \l {Source}s
     available on the network, and simplifies the process of connecting to other
     \l {QRemoteObjectNode} {node}s.
 */
-QRemoteObjectRegistry::QRemoteObjectRegistry() : QRemoteObjectReplica()
+QRemoteObjectRegistry::QRemoteObjectRegistry(QObject *parent)
+    : QRemoteObjectReplica(*new QRemoteObjectRegistryPrivate, parent)
 {
     connect(this, &QRemoteObjectRegistry::stateChanged, this, &QRemoteObjectRegistry::pushToRegistryIfNeeded);
 }
 
-QRemoteObjectRegistry::QRemoteObjectRegistry(QRemoteObjectNode *node, const QString &name)
-    : QRemoteObjectReplica(ConstructWithNode)
+QRemoteObjectRegistry::QRemoteObjectRegistry(QRemoteObjectNode *node, const QString &name, QObject *parent)
+    : QRemoteObjectReplica(*new QRemoteObjectRegistryPrivate, parent)
 {
     connect(this, &QRemoteObjectRegistry::stateChanged, this, &QRemoteObjectRegistry::pushToRegistryIfNeeded);
     initializeNode(node, name);
@@ -138,12 +146,13 @@ QRemoteObjectSourceLocations QRemoteObjectRegistry::sourceLocations() const
 */
 void QRemoteObjectRegistry::addSource(const QRemoteObjectSourceLocation &entry)
 {
-    if (hostedSources.contains(entry.first)) {
+    Q_D(QRemoteObjectRegistry);
+    if (d->hostedSources.contains(entry.first)) {
         qCWarning(QT_REMOTEOBJECT) << "Node warning: ignoring source" << entry.first
                                    << "as this node already has a source by that name.";
         return;
     }
-    hostedSources.insert(entry.first, entry.second);
+    d->hostedSources.insert(entry.first, entry.second);
     if (state() != QRemoteObjectReplica::State::Valid)
         return;
 
@@ -166,9 +175,11 @@ void QRemoteObjectRegistry::addSource(const QRemoteObjectSourceLocation &entry)
 */
 void QRemoteObjectRegistry::removeSource(const QRemoteObjectSourceLocation &entry)
 {
-    if (!hostedSources.contains(entry.first))
+    Q_D(QRemoteObjectRegistry);
+    if (!d->hostedSources.contains(entry.first))
         return;
-    hostedSources.remove(entry.first);
+
+    d->hostedSources.remove(entry.first);
     if (state() != QRemoteObjectReplica::State::Valid)
         return;
 
@@ -189,23 +200,26 @@ void QRemoteObjectRegistry::removeSource(const QRemoteObjectSourceLocation &entr
 */
 void QRemoteObjectRegistry::pushToRegistryIfNeeded()
 {
+    Q_D(QRemoteObjectRegistry);
     if (state() != QRemoteObjectReplica::State::Valid)
         return;
-    const QSet<QString> myLocs = QSet<QString>::fromList(hostedSources.keys());
+
+    const QSet<QString> myLocs = QSet<QString>::fromList(d->hostedSources.keys());
     if (myLocs.empty())
         return;
+
     const QSet<QString> registryLocs = QSet<QString>::fromList(sourceLocations().keys());
     foreach (const QString &loc, myLocs & registryLocs) {
         qCWarning(QT_REMOTEOBJECT) << "Node warning: Ignoring Source" << loc << "as another source ("
                                    << sourceLocations().value(loc) << ") has already registered that name.";
-        hostedSources.remove(loc);
+        d->hostedSources.remove(loc);
         return;
     }
     //Sources that need to be pushed to the registry...
     foreach (const QString &loc, myLocs - registryLocs) {
         static int index = QRemoteObjectRegistry::staticMetaObject.indexOfMethod("addSource(QRemoteObjectSourceLocation)");
         QVariantList args;
-        args << QVariant::fromValue(QRemoteObjectSourceLocation(loc, hostedSources[loc]));
+        args << QVariant::fromValue(QRemoteObjectSourceLocation(loc, d->hostedSources[loc]));
         send(QMetaObject::InvokeMetaMethod, index, args);
     }
 }

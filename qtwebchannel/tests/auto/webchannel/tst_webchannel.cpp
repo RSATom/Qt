@@ -1,6 +1,7 @@
 /****************************************************************************
 **
 ** Copyright (C) 2016 Klarälvdalens Datakonsult AB, a KDAB Group company, info@kdab.com, author Milian Wolff <milian.wolff@kdab.com>
+** Copyright (C) 2019 Menlo Systems GmbH, author Arno Rehn <a.rehn@menlosystems.com>
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtWebChannel module of the Qt Toolkit.
@@ -47,7 +48,7 @@ class TestEngineTransport : public QWebChannelAbstractTransport
     Q_OBJECT
 public:
     TestEngineTransport(TestJSEngine *);
-    void sendMessage(const QJsonObject &message) Q_DECL_OVERRIDE;
+    void sendMessage(const QJsonObject &message) override;
 
     Q_INVOKABLE void channelSetupReady();
     Q_INVOKABLE void send(const QByteArray &message);
@@ -341,8 +342,12 @@ void TestWebChannel::testInfoForObject()
         QJsonObject fooEnum;
         fooEnum["Asdf"] = TestObject::Asdf;
         fooEnum["Bar"] = TestObject::Bar;
+        QJsonObject testFlags;
+        testFlags["FirstFlag"] = static_cast<int>(TestObject::FirstFlag);
+        testFlags["SecondFlag"] = static_cast<int>(TestObject::SecondFlag);
         QJsonObject expected;
         expected["Foo"] = fooEnum;
+        expected["TestFlags"] = testFlags;
         QCOMPARE(info["enums"].toObject(), expected);
     }
 
@@ -703,6 +708,25 @@ void TestWebChannel::testWrapRegisteredObject()
     QCOMPARE(obj.objectName(), returnedId);
 }
 
+void TestWebChannel::testUnwrapObject()
+{
+    QWebChannel channel;
+
+    {
+        TestObject obj;
+        obj.setObjectName("testObject");
+        channel.registerObject(obj.objectName(), &obj);
+        QObject *unwrapped = channel.d_func()->publisher->unwrapObject(obj.objectName());
+        QCOMPARE(unwrapped, &obj);
+    }
+    {
+        TestObject obj;
+        QJsonObject objectInfo = channel.d_func()->publisher->wrapResult(QVariant::fromValue(&obj), m_dummyTransport).toObject();
+        QObject *unwrapped = channel.d_func()->publisher->unwrapObject(objectInfo["id"].toString());
+        QCOMPARE(unwrapped, &obj);
+    }
+}
+
 void TestWebChannel::testRemoveUnusedTransports()
 {
     QWebChannel channel;
@@ -753,6 +777,60 @@ void TestWebChannel::testPassWrappedObjectBack()
     QCOMPARE(registeredObj.mReturnedObject, &returnedObjMethod);
     pub->setProperty(&registeredObj, registeredObj.metaObject()->indexOfProperty("returnedObject"), argProperty);
     QCOMPARE(registeredObj.mReturnedObject, &returnedObjProperty);
+}
+
+void TestWebChannel::testWrapValues()
+{
+    QWebChannel channel;
+    channel.connectTo(m_dummyTransport);
+
+    {
+        QVariant variant = QVariant::fromValue(TestObject::Asdf);
+        QJsonValue value = channel.d_func()->publisher->wrapResult(variant, m_dummyTransport);
+        QVERIFY(value.isDouble());
+        QCOMPARE(value.toInt(), (int) TestObject::Asdf);
+    }
+    {
+        TestObject::TestFlags flags =  TestObject::FirstFlag | TestObject::SecondFlag;
+        QVariant variant = QVariant::fromValue(flags);
+        QJsonValue value = channel.d_func()->publisher->wrapResult(variant, m_dummyTransport);
+        QVERIFY(value.isDouble());
+        QCOMPARE(value.toInt(), (int) flags);
+    }
+}
+
+void TestWebChannel::testWrapObjectWithMultipleTransports()
+{
+    QWebChannel channel;
+    QMetaObjectPublisher *pub = channel.d_func()->publisher;
+
+    DummyTransport *dummyTransport = new DummyTransport(this);
+    DummyTransport *dummyTransport2 = new DummyTransport(this);
+
+    TestObject obj;
+
+    pub->wrapResult(QVariant::fromValue(&obj), dummyTransport);
+    pub->wrapResult(QVariant::fromValue(&obj), dummyTransport2);
+
+    QCOMPARE(pub->transportedWrappedObjects.count(), 2);
+}
+
+void TestWebChannel::testJsonToVariant()
+{
+    QWebChannel channel;
+    channel.connectTo(m_dummyTransport);
+
+    {
+        QVariant variant = QVariant::fromValue(TestObject::Asdf);
+        QVariant convertedValue = channel.d_func()->publisher->toVariant(static_cast<int>(TestObject::Asdf), variant.userType());
+        QCOMPARE(convertedValue, variant);
+    }
+    {
+        TestObject::TestFlags flags =  TestObject::FirstFlag | TestObject::SecondFlag;
+        QVariant variant = QVariant::fromValue(flags);
+        QVariant convertedValue = channel.d_func()->publisher->toVariant(static_cast<int>(flags), variant.userType());
+        QCOMPARE(convertedValue, variant);
+    }
 }
 
 void TestWebChannel::testInfiniteRecursion()

@@ -4,12 +4,13 @@
 
 #include "components/crash/content/app/breakpad_win.h"
 
-#include <windows.h>
+#include <crtdbg.h>
 #include <intrin.h>
 #include <shellapi.h>
 #include <stddef.h>
 #include <tchar.h>
 #include <userenv.h>
+#include <windows.h>
 #include <winnt.h>
 
 #include <algorithm>
@@ -32,8 +33,6 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/win/pe_image.h"
 #include "base/win/win_util.h"
-#include "breakpad/src/client/windows/common/ipc_protocol.h"
-#include "breakpad/src/client/windows/handler/exception_handler.h"
 #include "components/crash/content/app/crash_keys_win.h"
 #include "components/crash/content/app/crash_reporter_client.h"
 #include "components/crash/content/app/hard_error_handler_win.h"
@@ -41,6 +40,8 @@
 #include "content/public/common/result_codes.h"
 #include "sandbox/win/src/nt_internals.h"
 #include "sandbox/win/src/sidestep/preamble_patcher.h"
+#include "third_party/breakpad/breakpad/src/client/windows/common/ipc_protocol.h"
+#include "third_party/breakpad/breakpad/src/client/windows/handler/exception_handler.h"
 
 #pragma intrinsic(_AddressOfReturnAddress)
 #pragma intrinsic(_ReturnAddress)
@@ -90,8 +91,8 @@ const wchar_t kChromePipeName[] = L"\\\\.\\pipe\\ChromeCrashServices";
 // This is the well known SID for the system principal.
 const wchar_t kSystemPrincipalSid[] = L"S-1-5-18";
 
-google_breakpad::ExceptionHandler* g_breakpad = NULL;
-google_breakpad::ExceptionHandler* g_dumphandler_no_crash = NULL;
+google_breakpad::ExceptionHandler* g_breakpad = nullptr;
+google_breakpad::ExceptionHandler* g_dumphandler_no_crash = nullptr;
 
 #if !defined(_WIN64)
 EXCEPTION_POINTERS g_surrogate_exception_pointers = {0};
@@ -101,7 +102,7 @@ CONTEXT g_surrogate_context = {0};
 
 typedef NTSTATUS (WINAPI* NtTerminateProcessPtr)(HANDLE ProcessHandle,
                                                  NTSTATUS ExitStatus);
-char* g_real_terminate_process_stub = NULL;
+char* g_real_terminate_process_stub = nullptr;
 
 }  // namespace
 
@@ -129,21 +130,11 @@ DWORD WINAPI DumpProcessWithoutCrashThread(void*) {
 }  // namespace
 
 extern "C" HANDLE __declspec(dllexport) __cdecl InjectDumpForHungInput(
-    HANDLE process,
-    void* serialized_crash_keys) {
+    HANDLE process) {
   // |serialized_crash_keys| is not propagated in breakpad but is in crashpad
   // since breakpad is deprecated.
-  return CreateRemoteThread(process, NULL, 0, DumpProcessWithoutCrashThread,
-                            0, 0, NULL);
-}
-
-extern "C" HANDLE __declspec(
-    dllexport) __cdecl InjectDumpForHungInputNoCrashKeys(HANDLE process,
-                                                         int reason) {
-  // |reason| is not propagated in breakpad but is in crashpad since breakpad
-  // is deprecated.
-  return CreateRemoteThread(process, NULL, 0, DumpProcessWithoutCrashThread, 0,
-                            0, NULL);
+  return CreateRemoteThread(process, nullptr, 0, DumpProcessWithoutCrashThread,
+                            nullptr, 0, nullptr);
 }
 
 // Returns a string containing a list of all modifiers for the loaded profile.
@@ -207,8 +198,9 @@ bool DumpDoneCallback(const wchar_t*, const wchar_t*, void*,
   // Now we just start chrome browser with the same command line.
   STARTUPINFOW si = {sizeof(si)};
   PROCESS_INFORMATION pi;
-  if (::CreateProcessW(NULL, ::GetCommandLineW(), NULL, NULL, FALSE,
-                       CREATE_UNICODE_ENVIRONMENT, NULL, NULL, &si, &pi)) {
+  if (::CreateProcessW(nullptr, ::GetCommandLineW(), nullptr, nullptr, FALSE,
+                       CREATE_UNICODE_ENVIRONMENT, nullptr, nullptr, &si,
+                       &pi)) {
     ::CloseHandle(pi.hProcess);
     ::CloseHandle(pi.hThread);
   }
@@ -243,12 +235,12 @@ bool FilterCallback(void*, EXCEPTION_POINTERS*, MDRawAssertionInfo*) {
 
 // Previous unhandled filter. Will be called if not null when we
 // intercept a crash.
-LPTOP_LEVEL_EXCEPTION_FILTER previous_filter = NULL;
+LPTOP_LEVEL_EXCEPTION_FILTER previous_filter = nullptr;
 
 // Exception filter used when breakpad is not enabled. We just display
 // the "Do you want to restart" message and then we call the previous filter.
 long WINAPI ChromeExceptionFilter(EXCEPTION_POINTERS* info) {
-  DumpDoneCallback(NULL, NULL, NULL, info, NULL, false);
+  DumpDoneCallback(nullptr, nullptr, nullptr, info, nullptr, false);
 
   if (previous_filter)
     return previous_filter(info);
@@ -260,25 +252,9 @@ long WINAPI ChromeExceptionFilter(EXCEPTION_POINTERS* info) {
 // not enabled. We just display the "Do you want to restart" message and then
 // die (without calling the previous filter).
 long WINAPI CloudPrintServiceExceptionFilter(EXCEPTION_POINTERS* info) {
-  DumpDoneCallback(NULL, NULL, NULL, info, NULL, false);
+  DumpDoneCallback(nullptr, nullptr, nullptr, info, nullptr, false);
   return EXCEPTION_EXECUTE_HANDLER;
 }
-
-#if !defined(COMPONENT_BUILD)
-// Installed via base::debug::SetCrashKeyReportingFunctions.
-void SetCrashKeyValueForBaseDebug(const base::StringPiece& key,
-                                  const base::StringPiece& value) {
-  DCHECK(CrashKeysWin::keeper());
-  CrashKeysWin::keeper()->SetCrashKeyValue(base::UTF8ToUTF16(key),
-                                           base::UTF8ToUTF16(value));
-}
-
-// Installed via base::debug::SetCrashKeyReportingFunctions.
-void ClearCrashKeyForBaseDebug(const base::StringPiece& key) {
-  DCHECK(CrashKeysWin::keeper());
-  CrashKeysWin::keeper()->ClearCrashKeyValue(base::UTF8ToUTF16(key));
-}
-#endif  // !defined(COMPONENT_BUILD)
 
 }  // namespace
 
@@ -314,7 +290,7 @@ static bool WrapMessageBoxWithSEH(const wchar_t* text, const wchar_t* caption,
   // machines with CursorXP, PeaDict or with FontExplorer installed it crashes
   // uncontrollably here. Being this a best effort deal we better go away.
   __try {
-    *exit_now = (IDOK != ::MessageBoxW(NULL, text, caption, flags));
+    *exit_now = (IDOK != ::MessageBoxW(nullptr, text, caption, flags));
   } __except(EXCEPTION_EXECUTE_HANDLER) {
     // Its not safe to continue executing, exit silently here.
     ::TerminateProcess(::GetCurrentProcess(),
@@ -349,7 +325,7 @@ extern "C" void __declspec(dllexport) TerminateProcessWithoutDump() {
   // Patched stub exists based on conditions (See InitCrashReporter).
   // As a side note this function also gets called from
   // WindowProcExceptionFilter.
-  if (g_real_terminate_process_stub == NULL) {
+  if (g_real_terminate_process_stub == nullptr) {
     ::TerminateProcess(::GetCurrentProcess(), content::RESULT_CODE_KILLED);
   } else {
     NtTerminateProcessPtr real_terminate_proc =
@@ -404,8 +380,8 @@ static void InitTerminateProcessHooks() {
     return;
 
   DWORD old_protect = 0;
-  if (!::VirtualProtect(terminate_process_func_address, 5,
-                        PAGE_EXECUTE_READWRITE, &old_protect))
+  if (!::VirtualProtect(reinterpret_cast<void*>(terminate_process_func_address),
+                        5, PAGE_EXECUTE_READWRITE, &old_protect))
     return;
 
   g_real_terminate_process_stub = reinterpret_cast<char*>(VirtualAllocEx(
@@ -418,23 +394,23 @@ static void InitTerminateProcessHooks() {
   g_surrogate_exception_pointers.ExceptionRecord =
       &g_surrogate_exception_record;
 
-  sidestep::SideStepError patch_result =
-      sidestep::PreamblePatcher::Patch(
-          terminate_process_func_address, HookNtTerminateProcess,
-          g_real_terminate_process_stub, sidestep::kMaxPreambleStubSize);
+  sidestep::SideStepError patch_result = sidestep::PreamblePatcher::Patch(
+      reinterpret_cast<void*>(terminate_process_func_address),
+      reinterpret_cast<void*>(HookNtTerminateProcess),
+      g_real_terminate_process_stub, sidestep::kMaxPreambleStubSize);
   if (patch_result != sidestep::SIDESTEP_SUCCESS) {
     CHECK(::VirtualFreeEx(::GetCurrentProcess(), g_real_terminate_process_stub,
                     0, MEM_RELEASE));
-    CHECK(::VirtualProtect(terminate_process_func_address, 5, old_protect,
-                           &old_protect));
+    CHECK(::VirtualProtect(
+        reinterpret_cast<void*>(terminate_process_func_address), 5, old_protect,
+        &old_protect));
     return;
   }
 
   DWORD dummy = 0;
-  CHECK(::VirtualProtect(terminate_process_func_address,
-                         5,
-                         old_protect,
-                         &dummy));
+  CHECK(
+      ::VirtualProtect(reinterpret_cast<void*>(terminate_process_func_address),
+                       5, old_protect, &dummy));
   CHECK(::VirtualProtect(g_real_terminate_process_stub,
                          sidestep::kMaxPreambleStubSize,
                          old_protect,
@@ -500,12 +476,6 @@ void InitDefaultCrashCallback(LPTOP_LEVEL_EXCEPTION_FILTER filter) {
 }
 
 void InitCrashReporter(const std::string& process_type_switch) {
-  // The maximum lengths specified by breakpad include the trailing NULL, so the
-  // actual length of the chunk is one less.
-  static_assert(google_breakpad::CustomInfoEntry::kValueMaxLength - 1 ==
-                crash_keys::kChunkMaxLength, "kChunkMaxLength mismatch");
-  static_assert(crash_keys::kSmallSize <= crash_keys::kChunkMaxLength,
-                "crash key chunk size too small");
   const base::CommandLine& command = *base::CommandLine::ForCurrentProcess();
   if (command.HasSwitch(switches::kDisableBreakpad))
     return;
@@ -519,7 +489,7 @@ void InitCrashReporter(const std::string& process_type_switch) {
 
   wchar_t exe_path[MAX_PATH];
   exe_path[0] = 0;
-  GetModuleFileNameW(NULL, exe_path, MAX_PATH);
+  GetModuleFileNameW(nullptr, exe_path, MAX_PATH);
 
   // This is intentionally leaked.
   CrashKeysWin* keeper = new CrashKeysWin();
@@ -529,19 +499,8 @@ void InitCrashReporter(const std::string& process_type_switch) {
                             base::CommandLine::ForCurrentProcess(),
                             GetCrashReporterClient());
 
-#if !defined(COMPONENT_BUILD)
-  // chrome/common/child_process_logging_win.cc registers crash keys for
-  // chrome.dll. In a component build, that is sufficient as chrome.dll and
-  // chrome.exe share a copy of base (in base.dll).
-  // In a static build, the EXE must separately initialize the crash keys
-  // configuration as it has its own statically linked copy of base.
-  base::debug::SetCrashKeyReportingFunctions(&SetCrashKeyValueForBaseDebug,
-                                             &ClearCrashKeyForBaseDebug);
-  GetCrashReporterClient()->RegisterCrashKeys();
-#endif
-
-  google_breakpad::ExceptionHandler::MinidumpCallback callback = NULL;
-  LPTOP_LEVEL_EXCEPTION_FILTER default_filter = NULL;
+  google_breakpad::ExceptionHandler::MinidumpCallback callback = nullptr;
+  LPTOP_LEVEL_EXCEPTION_FILTER default_filter = nullptr;
   // We install the post-dump callback only for the browser and service
   // processes. It spawns a new browser/service process.
   if (process_type == L"browser") {
@@ -588,21 +547,20 @@ void InitCrashReporter(const std::string& process_type_switch) {
   else if (GetCrashReporterClient()->GetShouldDumpLargerDumps())
     dump_type = kLargerDumpType;
 
-  g_breakpad = new google_breakpad::ExceptionHandler(temp_dir, &FilterCallback,
-                   callback, NULL,
-                   google_breakpad::ExceptionHandler::HANDLER_ALL,
-                   dump_type, pipe_name.c_str(), custom_info);
+  g_breakpad = new google_breakpad::ExceptionHandler(
+      temp_dir, &FilterCallback, callback, nullptr,
+      google_breakpad::ExceptionHandler::HANDLER_ALL, dump_type,
+      pipe_name.c_str(), custom_info);
 
   // Now initialize the non crash dump handler.
-  g_dumphandler_no_crash = new google_breakpad::ExceptionHandler(temp_dir,
-      &FilterCallbackWhenNoCrash,
-      &DumpDoneCallbackWhenNoCrash,
-      NULL,
+  g_dumphandler_no_crash = new google_breakpad::ExceptionHandler(
+      temp_dir, &FilterCallbackWhenNoCrash, &DumpDoneCallbackWhenNoCrash,
+      nullptr,
       // Set the handler to none so this handler would not be added to
       // |handler_stack_| in |ExceptionHandler| which is a list of exception
       // handlers.
-      google_breakpad::ExceptionHandler::HANDLER_NONE,
-      dump_type, pipe_name.c_str(), custom_info);
+      google_breakpad::ExceptionHandler::HANDLER_NONE, dump_type,
+      pipe_name.c_str(), custom_info);
 
   // Set the DumpWithoutCrashingFunction for this instance of base.lib.  Other
   // executable images linked with base should set this again for
@@ -691,7 +649,8 @@ RegisterNonABICompliantCodeRange(void* start, size_t size_in_bytes) {
   // mov imm64, rax
   record->thunk[0] = 0x48;
   record->thunk[1] = 0xb8;
-  void* handler = &CrashForExceptionInNonABICompliantCodeRange;
+  void* handler =
+      reinterpret_cast<void*>(&CrashForExceptionInNonABICompliantCodeRange);
   memcpy(&record->thunk[2], &handler, 8);
 
   // jmp rax

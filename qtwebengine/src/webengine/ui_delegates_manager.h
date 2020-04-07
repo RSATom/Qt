@@ -40,6 +40,7 @@
 #ifndef UI_DELEGATES_MANAGER_H
 #define UI_DELEGATES_MANAGER_H
 
+#include "api/qquickwebengineaction_p.h"
 #include "qglobal.h"
 #include "web_contents_adapter.h"
 #include "web_contents_adapter_client.h"
@@ -58,7 +59,6 @@
     F(ConfirmDialog, confirmDialog) SEPARATOR \
     F(PromptDialog, promptDialog) SEPARATOR \
     F(FilePicker, filePicker) SEPARATOR \
-    F(MessageBubble, messageBubble) SEPARATOR \
     F(AuthenticationDialog, authenticationDialog) SEPARATOR \
     F(ToolTip, toolTip) SEPARATOR \
 
@@ -84,15 +84,6 @@ class FilePickerController;
 
 const char *defaultPropertyName(QObject *obj);
 
-class MenuItemHandler : public QObject {
-Q_OBJECT
-public:
-    MenuItemHandler(QObject *parent);
-
-Q_SIGNALS:
-    void triggered();
-};
-
 class UIDelegatesManager
 {
     Q_DECLARE_TR_FUNCTIONS(UIDelegatesManager)
@@ -107,9 +98,7 @@ public:
     virtual ~UIDelegatesManager();
 
     virtual bool initializeImportDirs(QStringList &dirs, QQmlEngine *engine);
-    virtual void addMenuItem(MenuItemHandler *menuItemHandler, const QString &text,
-                             const QString &iconName = QString(),
-                             bool enabled = true,
+    virtual void addMenuItem(QQuickWebEngineAction *action, QObject *menu,
                              bool checkable = false, bool checked = true);
     void addMenuSeparator(QObject *menu);
     virtual QObject *addMenu(QObject *parentMenu, const QString &title,
@@ -120,17 +109,12 @@ public:
     void showDialog(QSharedPointer<AuthenticationDialogController>);
     void showFilePicker(QSharedPointer<FilePickerController>);
     virtual void showMenu(QObject *menu);
-    void showMessageBubble(const QRect &anchor, const QString &mainText,
-                           const QString &subText);
-    void hideMessageBubble();
-    void moveMessageBubble(const QRect &anchor);
     void showToolTip(const QString &text);
 
 protected:
     bool ensureComponentLoaded(ComponentType);
 
     QQuickWebEngineView *m_view;
-    QScopedPointer<QQuickItem> m_messageBubbleItem;
     QScopedPointer<QObject> m_toolTip;
     QStringList m_importDirs;
 
@@ -149,9 +133,7 @@ public:
     bool initializeImportDirs(QStringList &dirs, QQmlEngine *engine) override;
     QObject *addMenu(QObject *parentMenu, const QString &title,
                      const QPoint &pos = QPoint()) override;
-    void addMenuItem(MenuItemHandler *menuItemHandler, const QString &text,
-                     const QString &iconName = QString(),
-                     bool enabled = true,
+    void addMenuItem(QQuickWebEngineAction *action, QObject *menu,
                      bool checkable = false, bool checked = false) override;
     void showMenu(QObject *menu) override;
     Q_DISABLE_COPY(UI2DelegatesManager)

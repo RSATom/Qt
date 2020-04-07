@@ -4,9 +4,11 @@
 
 #include "device/bluetooth/bluetooth_local_gatt_service.h"
 
+#include "build/build_config.h"
+
 namespace device {
 
-#if !defined(OS_CHROMEOS) && !defined(OS_LINUX)
+#if !defined(OS_LINUX) || defined(LINUX_WITHOUT_DBUS)
 // static
 base::WeakPtr<BluetoothLocalGattService> BluetoothLocalGattService::Create(
     BluetoothAdapter* adapter,
@@ -19,8 +21,8 @@ base::WeakPtr<BluetoothLocalGattService> BluetoothLocalGattService::Create(
 }
 #endif
 
-BluetoothLocalGattService::BluetoothLocalGattService() {}
+BluetoothLocalGattService::BluetoothLocalGattService() = default;
 
-BluetoothLocalGattService::~BluetoothLocalGattService() {}
+BluetoothLocalGattService::~BluetoothLocalGattService() = default;
 
 }  // namespace device

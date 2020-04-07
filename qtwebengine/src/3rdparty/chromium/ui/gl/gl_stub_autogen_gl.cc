@@ -42,6 +42,17 @@ GLint GLStubApiBase::glGetAttribLocationFn(GLuint program, const char* name) {
   return 0;
 }
 
+GLuint GLStubApiBase::glGetDebugMessageLogFn(GLuint count,
+                                             GLsizei bufSize,
+                                             GLenum* sources,
+                                             GLenum* types,
+                                             GLuint* ids,
+                                             GLenum* severities,
+                                             GLsizei* lengths,
+                                             char* messageLog) {
+  return 0;
+}
+
 GLenum GLStubApiBase::glGetErrorFn() {
   return 0;
 }
@@ -161,12 +172,6 @@ GLboolean GLStubApiBase::glTestFenceNVFn(GLuint fence) {
 }
 
 GLboolean GLStubApiBase::glUnmapBufferFn(GLenum target) {
-  return 0;
-}
-
-GLenum GLStubApiBase::glWaitSyncFn(GLsync sync,
-                                   GLbitfield flags,
-                                   GLuint64 timeout) {
   return 0;
 }
 

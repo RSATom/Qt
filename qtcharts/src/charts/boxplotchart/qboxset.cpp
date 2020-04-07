@@ -35,7 +35,7 @@ QT_CHARTS_BEGIN_NAMESPACE
 
 /*!
     \class QBoxSet
-    \inmodule Qt Charts
+    \inmodule QtCharts
     \brief The QBoxSet class represents one item in a box-and-whiskers chart.
 
     A box-and-whiskers item is a graphical representation of a range and three median values
@@ -368,7 +368,7 @@ qreal QBoxSetPrivate::value(const int index)
     return m_values[index];
 }
 
+QT_CHARTS_END_NAMESPACE
+
 #include "moc_qboxset.cpp"
 #include "moc_qboxset_p.cpp"
-
-QT_CHARTS_END_NAMESPACE

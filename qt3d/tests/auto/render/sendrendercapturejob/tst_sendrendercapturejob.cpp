@@ -48,7 +48,7 @@ private Q_SLOTS:
         QImage image(10, 10, QImage::Format_ARGB32);
 
         Qt3DRender::Render::Renderer renderer(Qt3DRender::QRenderAspect::Synchronous);
-        Qt3DRender::Render::SendRenderCaptureJob job(&renderer);
+        Qt3DRender::Render::SendRenderCaptureJob job;
 
         Qt3DRender::Render::NodeManagers nodeManagers;
         nodeManagers.frameGraphManager()->appendNode(renderCapture->peerId(), renderCapture);
@@ -59,6 +59,7 @@ private Q_SLOTS:
         auto request = renderCapture->takeCaptureRequest();
         renderCapture->addRenderCapture(request.captureId, image);
         renderer.addRenderCaptureSendRequest(renderCapture->peerId());
+        job.setPendingCaptureRequests(renderer.takePendingRenderCaptureSendRequests());
 
         //WHEN
         job.run();
@@ -75,6 +76,7 @@ private Q_SLOTS:
         QCOMPARE(data.data()->image.format(), QImage::Format_ARGB32);
 
         // renderCapture will be deallocated by the nodeManagers destructor
+        renderer.shutdown();
     }
 };
 

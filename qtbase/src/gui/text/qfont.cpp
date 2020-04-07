@@ -1254,7 +1254,7 @@ QFont::StyleStrategy QFont::styleStrategy() const
 /*!
     Returns the StyleHint.
 
-    The style hint affects the \l{QFont}{font matching} algorithm.
+    The style hint affects the \l{QFont#fontmatching}{font matching algorithm}.
     See \l QFont::StyleHint for the list of available hints.
 
     \sa setStyleHint(), QFont::StyleStrategy, QFontInfo::styleHint()
@@ -1328,7 +1328,7 @@ QFont::StyleHint QFont::styleHint() const
            order to display them correctly. In some writing systems, such as Brahmic scripts, this is
            required in order for the text to be legible, but in e.g. Latin script, it is merely
            a cosmetic feature. The PreferNoShaping flag will disable all such features when they
-           are not required, which will improve performance in most cases.
+           are not required, which will improve performance in most cases (since Qt 5.10).
 
     Any of these may be OR-ed with one of these flags:
 
@@ -2703,18 +2703,6 @@ static const int slow_timeout = 300000; //  5m
 
 const uint QFontCache::min_cost = 4*1024; // 4mb
 
-#ifdef QT_NO_THREAD
-Q_GLOBAL_STATIC(QFontCache, theFontCache)
-
-QFontCache *QFontCache::instance()
-{
-    return theFontCache();
-}
-
-void QFontCache::cleanup()
-{
-}
-#else
 Q_GLOBAL_STATIC(QThreadStorage<QFontCache *>, theFontCache)
 
 QFontCache *QFontCache::instance()
@@ -2736,7 +2724,6 @@ void QFontCache::cleanup()
     if (cache && cache->hasLocalData())
         cache->setLocalData(0);
 }
-#endif // QT_NO_THREAD
 
 QBasicAtomicInt font_cache_id = Q_BASIC_ATOMIC_INITIALIZER(1);
 
@@ -2849,7 +2836,7 @@ QFontEngine *QFontCache::findEngine(const Key &key)
                          end = engineCache.end();
     if (it == end) return 0;
 
-    Q_ASSERT(it.value().data != Q_NULLPTR);
+    Q_ASSERT(it.value().data != nullptr);
     Q_ASSERT(key.multi == (it.value().data->type() == QFontEngine::Multi));
 
     // found... update the hitcount and timestamp
@@ -2872,7 +2859,7 @@ void QFontCache::updateHitCountAndTimeStamp(Engine &value)
 
 void QFontCache::insertEngine(const Key &key, QFontEngine *engine, bool insertMulti)
 {
-    Q_ASSERT(engine != Q_NULLPTR);
+    Q_ASSERT(engine != nullptr);
     Q_ASSERT(key.multi == (engine->type() == QFontEngine::Multi));
 
 #ifdef QFONTCACHE_DEBUG

@@ -10,8 +10,9 @@
 #include "base/threading/thread_local_storage.h"
 #include "base/trace_event/memory_dump_request_args.h"
 #include "services/resource_coordinator/public/cpp/memory_instrumentation/coordinator.h"
+#include "services/resource_coordinator/public/cpp/memory_instrumentation/global_memory_dump.h"
 #include "services/resource_coordinator/public/cpp/resource_coordinator_export.h"
-#include "services/resource_coordinator/public/interfaces/memory_instrumentation/memory_instrumentation.mojom.h"
+#include "services/resource_coordinator/public/mojom/memory_instrumentation/memory_instrumentation.mojom.h"
 #include "services/service_manager/public/cpp/connector.h"
 
 namespace base {
@@ -30,21 +31,54 @@ class SERVICES_RESOURCE_COORDINATOR_PUBLIC_CPP_EXPORT MemoryInstrumentation {
   using MemoryDumpType = base::trace_event::MemoryDumpType;
   using MemoryDumpLevelOfDetail = base::trace_event::MemoryDumpLevelOfDetail;
   using RequestGlobalDumpCallback =
-      base::Callback<void(bool success, mojom::GlobalMemoryDumpPtr)>;
-  using RequestGlobalDumpAndAppendToTraceCallback =
-      base::Callback<void(bool success, uint64_t dump_id)>;
+      base::RepeatingCallback<void(bool success,
+                                   std::unique_ptr<GlobalMemoryDump> dump)>;
+  using RequestGlobalMemoryDumpAndAppendToTraceCallback =
+      base::RepeatingCallback<void(bool success, uint64_t dump_id)>;
 
   static void CreateInstance(service_manager::Connector*,
                              const std::string& service_name);
   static MemoryInstrumentation* GetInstance();
 
-  // Requests a global memory dump.
+  // Requests a global memory dump with |allocator_dump_names| indicating
+  // the name of allocator dumps in which the consumer is interested. If
+  // |allocator_dump_names| is empty, no dumps will be returned.
   // Returns asynchronously, via the callback argument:
   //  (true, global_dump) if succeeded;
-  //  (false, nullptr) if failed.
+  //  (false, global_dump) if failed, with global_dump being non-null
+  //  but missing data.
   // The callback (if not null), will be posted on the same thread of the
   // RequestGlobalDump() call.
-  void RequestGlobalDump(RequestGlobalDumpCallback);
+  // Note: Even if |allocator_dump_names| is empty, all MemoryDumpProviders will
+  // still be queried.
+  void RequestGlobalDump(const std::vector<std::string>& allocator_dump_names,
+                         RequestGlobalDumpCallback);
+
+  // Returns asynchronously, via the callback argument:
+  //  (true, global_dump) if succeeded;
+  //  (false, global_dump) if failed, with global_dump being non-null
+  //  but missing data.
+  // The callback (if not null), will be posted on the same thread of the
+  // RequestPrivateMemoryFootprint() call.
+  // Passing a null |pid| is the same as requesting the PrivateMemoryFootprint
+  // for all processes.
+  void RequestPrivateMemoryFootprint(base::ProcessId pid,
+                                     RequestGlobalDumpCallback);
+
+  // Requests a global memory dump with |allocator_dump_names| indicating
+  // the name of allocator dumps in which the consumer is interested. If
+  // |allocator_dump_names| is empty, all allocator dumps will be returned.
+  // Returns asynchronously, via the callback argument, the global memory
+  // dump with the process memory dump for the given pid:
+  //  (true, global_dump) if succeeded;
+  //  (false, global_dump) if failed, with global_dump being non-null
+  //  but missing data.
+  // The callback (if not null), will be posted on the same thread of the
+  // RequestGlobalDump() call.
+  void RequestGlobalDumpForPid(
+      base::ProcessId pid,
+      const std::vector<std::string>& allocator_dump_names,
+      RequestGlobalDumpCallback);
 
   // Requests a global memory dump and serializes the result into the trace.
   // This requires that both tracing and the memory-infra category have been
@@ -57,12 +91,7 @@ class SERVICES_RESOURCE_COORDINATOR_PUBLIC_CPP_EXPORT MemoryInstrumentation {
   void RequestGlobalDumpAndAppendToTrace(
       MemoryDumpType,
       MemoryDumpLevelOfDetail,
-      RequestGlobalDumpAndAppendToTraceCallback);
-
-  // TODO(hjd): Add a RequestGlobalDump() helper, not bound to tracing.
-  // here. The mojom interface is about to change soon and right now there is
-  // only one client of this API (process_memory_metrics_emitter.cc). Delay this
-  // API and change that only once the cleaned up interface is ready.
+      RequestGlobalMemoryDumpAndAppendToTraceCallback);
 
  private:
   MemoryInstrumentation(service_manager::Connector* connector,

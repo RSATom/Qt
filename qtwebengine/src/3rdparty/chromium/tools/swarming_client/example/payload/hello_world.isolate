@@ -4,46 +4,7 @@
 {
   'variables': {
     'files': [
-      'hello_world.py',
+      'hello_world.py'
     ],
   },
-  #
-  'conditions': [
-    ['OS=="Ubuntu"', {
-      'variables': {
-        'command': [
-          'python',
-          'hello_world.py',
-          'Ubuntu',
-        ],
-      },
-    }],
-    ['OS=="Mac"', {
-      'variables': {
-        'command': [
-          'python',
-          'hello_world.py',
-          'OSX',
-        ],
-      },
-    }],
-    ['OS=="Yours"', {
-      'variables': {
-        'command': [
-          'python',
-          'hello_world.py',
-          'your OS is the best',
-        ],
-      },
-    }],
-    ['OS=="Windows"', {
-      'variables': {
-        'command': [
-          'python',
-          'hello_world.py',
-          'Windows',
-        ],
-      },
-    }],
-  ],
 }

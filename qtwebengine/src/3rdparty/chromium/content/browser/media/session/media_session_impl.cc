@@ -6,7 +6,7 @@
 
 #include <algorithm>
 
-#include "base/memory/ptr_util.h"
+#include "base/numerics/ranges.h"
 #include "content/browser/media/session/audio_focus_delegate.h"
 #include "content/browser/media/session/media_session_controller.h"
 #include "content/browser/media/session/media_session_player_observer.h"
@@ -17,7 +17,7 @@
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/web_contents.h"
 #include "media/base/media_content_type.h"
-#include "third_party/WebKit/public/platform/modules/mediasession/media_session.mojom.h"
+#include "third_party/blink/public/platform/modules/mediasession/media_session.mojom.h"
 
 #if defined(OS_ANDROID)
 #include "content/browser/media/session/media_session_android.h"
@@ -29,8 +29,8 @@ using MediaSessionUserAction = MediaSessionUmaHelper::MediaSessionUserAction;
 
 namespace {
 
-const double kDefaultVolumeMultiplier = 1.0;
-const double kDuckingVolumeMultiplier = 0.2;
+const double kUnduckedVolumeMultiplier = 1.0;
+const double kDefaultDuckingVolumeMultiplier = 0.2;
 
 using MapRenderFrameHostToDepth = std::map<RenderFrameHost*, size_t>;
 
@@ -395,6 +395,38 @@ void MediaSessionImpl::Stop(SuspendType suspend_type) {
   AbandonSystemAudioFocusIfNeeded();
 }
 
+void MediaSessionImpl::SeekForward(base::TimeDelta seek_time) {
+  for (const auto& it : normal_players_)
+    it.observer->OnSeekForward(it.player_id, seek_time);
+}
+
+void MediaSessionImpl::SeekBackward(base::TimeDelta seek_time) {
+  for (const auto& it : normal_players_)
+    it.observer->OnSeekBackward(it.player_id, seek_time);
+}
+
+bool MediaSessionImpl::IsControllable() const {
+  // Only media session having focus Gain can be controllable unless it is
+  // inactive. Also, the session will be uncontrollable if it contains one-shot
+  // players.
+  return audio_focus_state_ != State::INACTIVE &&
+         audio_focus_type_ == AudioFocusManager::AudioFocusType::Gain &&
+         one_shot_players_.empty();
+}
+
+bool MediaSessionImpl::IsActuallyPaused() const {
+  if (routed_service_ && routed_service_->playback_state() ==
+                             blink::mojom::MediaSessionPlaybackState::PLAYING) {
+    return false;
+  }
+
+  return !IsActive();
+}
+
+void MediaSessionImpl::SetDuckingVolumeMultiplier(double multiplier) {
+  ducking_volume_multiplier_ = base::ClampToRange(multiplier, 0.0, 1.0);
+}
+
 void MediaSessionImpl::StartDucking() {
   if (is_ducking_)
     return;
@@ -417,7 +449,7 @@ void MediaSessionImpl::UpdateVolumeMultiplier() {
 }
 
 double MediaSessionImpl::GetVolumeMultiplier() const {
-  return is_ducking_ ? kDuckingVolumeMultiplier : kDefaultVolumeMultiplier;
+  return is_ducking_ ? ducking_volume_multiplier_ : kUnduckedVolumeMultiplier;
 }
 
 bool MediaSessionImpl::IsActive() const {
@@ -426,24 +458,6 @@ bool MediaSessionImpl::IsActive() const {
 
 bool MediaSessionImpl::IsSuspended() const {
   return audio_focus_state_ == State::SUSPENDED;
-}
-
-bool MediaSessionImpl::IsControllable() const {
-  // Only media session having focus Gain can be controllable unless it is
-  // inactive. Also, the session will be uncontrollable if it contains one-shot
-  // players.
-  return audio_focus_state_ != State::INACTIVE &&
-         audio_focus_type_ == AudioFocusManager::AudioFocusType::Gain &&
-         one_shot_players_.empty();
-}
-
-bool MediaSessionImpl::IsActuallyPaused() const {
-  if (routed_service_ && routed_service_->playback_state() ==
-                             blink::mojom::MediaSessionPlaybackState::PLAYING) {
-    return false;
-  }
-
-  return !IsActive();
 }
 
 bool MediaSessionImpl::HasPepper() const {
@@ -522,7 +536,8 @@ void MediaSessionImpl::OnSuspendInternal(SuspendType suspend_type,
   }
 
   for (const auto& it : pepper_players_)
-    it.observer->OnSetVolumeMultiplier(it.player_id, kDuckingVolumeMultiplier);
+    it.observer->OnSetVolumeMultiplier(it.player_id,
+                                       ducking_volume_multiplier_);
 
   NotifyAboutStateChange();
 }
@@ -548,6 +563,7 @@ MediaSessionImpl::MediaSessionImpl(WebContents* web_contents)
       audio_focus_type_(
           AudioFocusManager::AudioFocusType::GainTransientMayDuck),
       is_ducking_(false),
+      ducking_volume_multiplier_(kDefaultDuckingVolumeMultiplier),
       routed_service_(nullptr) {
 #if defined(OS_ANDROID)
   session_android_.reset(new MediaSessionAndroid(this));
@@ -563,6 +579,10 @@ bool MediaSessionImpl::RequestSystemAudioFocus(
   bool result = delegate_->RequestAudioFocus(audio_focus_type);
   uma_helper_.RecordRequestAudioFocusResult(result);
 
+  // Make sure we are unducked.
+  if (result)
+    StopDucking();
+
   // MediaSessionImpl must change its state & audio focus type AFTER requesting
   // audio focus.
   SetAudioFocusState(result ? State::ACTIVE : State::INACTIVE);
@@ -576,6 +596,7 @@ void MediaSessionImpl::AbandonSystemAudioFocusIfNeeded() {
     return;
   }
   delegate_->AbandonAudioFocus();
+  is_ducking_ = false;
 
   SetAudioFocusState(State::INACTIVE);
   NotifyAboutStateChange();
@@ -702,7 +723,7 @@ void MediaSessionImpl::DidReceiveAction(
     for (const auto& player : pepper_players_) {
       if (player.observer->render_frame_host() != rfh_of_routed_service) {
         player.observer->OnSetVolumeMultiplier(player.player_id,
-                                               kDuckingVolumeMultiplier);
+                                               ducking_volume_multiplier_);
       }
     }
     for (const auto& player : one_shot_players_) {

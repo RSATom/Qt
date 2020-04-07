@@ -42,7 +42,7 @@ QT_CHARTS_BEGIN_NAMESPACE
 
 /*!
     \class QAbstractSeries
-    \inmodule Qt Charts
+    \inmodule QtCharts
     \brief The QAbstractSeries class is a base class for all Qt Chart series.
 
     Usually, the series type specific inherited classes are used instead of the base class.
@@ -477,9 +477,7 @@ void QAbstractSeriesPrivate::setBlockOpenGL(bool enable)
         q_ptr->setUseOpenGL(false);
 }
 
-#include "moc_qabstractseries.cpp"
-#include "moc_qabstractseries_p.cpp"
-
 QT_CHARTS_END_NAMESPACE
 
-
+#include "moc_qabstractseries.cpp"
+#include "moc_qabstractseries_p.cpp"

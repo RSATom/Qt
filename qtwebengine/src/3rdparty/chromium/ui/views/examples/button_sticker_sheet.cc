@@ -31,7 +31,8 @@ GridLayout* MakeStretchyGridLayout(View* host, int ncols) {
   const GridLayout::SizeType kColumnUsesFixedSize = GridLayout::FIXED;
   const int kColumnWidth = 96;
 
-  GridLayout* layout = new GridLayout(host);
+  GridLayout* layout =
+      host->SetLayoutManager(std::make_unique<views::GridLayout>(host));
   ColumnSet* columns = layout->AddColumnSet(kStretchyGridColumnSetId);
   for (int i = 0; i < ncols; ++i) {
     if (i != 0)
@@ -89,7 +90,6 @@ ButtonStickerSheet::~ButtonStickerSheet() {}
 
 void ButtonStickerSheet::CreateExampleView(View* container) {
   GridLayout* layout = MakeStretchyGridLayout(container, 3);
-  container->SetLayoutManager(layout);
 
   if (!ui::MaterialDesignController::IsSecondaryUiMaterial()) {
     const char* kNeedsMdWarning =
@@ -116,11 +116,6 @@ void ButtonStickerSheet::CreateExampleView(View* container) {
   AddLabelledRowToGridLayout(layout, "Pressed", {primary, secondary});
   MakeButtonsInState(&primary, &secondary, this, Button::STATE_DISABLED);
   AddLabelledRowToGridLayout(layout, "Disabled", {primary, secondary});
-
-  MakeButtonsInState(&primary, &secondary, this, Button::STATE_NORMAL);
-  primary->OnFocus();
-  secondary->OnFocus();
-  AddLabelledRowToGridLayout(layout, "Focused", {primary, secondary});
 }
 
 void ButtonStickerSheet::ButtonPressed(Button* button, const ui::Event& event) {

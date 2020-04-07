@@ -6,13 +6,14 @@
 #define MEDIA_REMOTING_FAKE_REMOTER_H_
 
 #include "media/base/decoder_buffer.h"
+#include "media/mojo/common/mojo_data_pipe_read_write.h"
 #include "media/mojo/interfaces/remoting.mojom.h"
 #include "mojo/public/cpp/bindings/binding.h"
 
 namespace media {
 namespace remoting {
 
-class SharedSession;
+class RendererController;
 
 class FakeRemotingDataStreamSender : public mojom::RemotingDataStreamSender {
  public:
@@ -21,9 +22,6 @@ class FakeRemotingDataStreamSender : public mojom::RemotingDataStreamSender {
       mojo::ScopedDataPipeConsumerHandle consumer_handle);
   ~FakeRemotingDataStreamSender() override;
 
-  uint32_t consume_data_chunk_count() const {
-    return consume_data_chunk_count_;
-  }
   uint32_t send_frame_count() const { return send_frame_count_; }
   uint32_t cancel_in_flight_count() const { return cancel_in_flight_count_; }
   void ResetHistory();
@@ -34,18 +32,16 @@ class FakeRemotingDataStreamSender : public mojom::RemotingDataStreamSender {
 
  private:
   // mojom::RemotingDataStreamSender implementation.
-  void ConsumeDataChunk(uint32_t offset,
-                        uint32_t size,
-                        uint32_t total_payload_size) final;
-  void SendFrame() final;
+  void SendFrame(uint32_t frame_size) final;
   void CancelInFlightData() final;
 
+  void OnFrameRead(bool success);
+
   mojo::Binding<RemotingDataStreamSender> binding_;
-  mojo::ScopedDataPipeConsumerHandle consumer_handle_;
+  MojoDataPipeReader data_pipe_reader_;
 
   std::vector<uint8_t> next_frame_data_;
   std::vector<std::vector<uint8_t>> received_frame_list;
-  uint32_t consume_data_chunk_count_;
   uint32_t send_frame_count_;
   uint32_t cancel_in_flight_count_;
 
@@ -67,6 +63,8 @@ class FakeRemoter final : public mojom::Remoter {
       mojom::RemotingDataStreamSenderRequest video_sender_request) override;
   void Stop(mojom::RemotingStopReason reason) override;
   void SendMessageToSink(const std::vector<uint8_t>& message) override;
+  void EstimateTransmissionCapacity(
+      mojom::Remoter::EstimateTransmissionCapacityCallback callback) override;
 
  private:
   void Started();
@@ -94,7 +92,8 @@ class FakeRemoterFactory final : public mojom::RemoterFactory {
   void Create(mojom::RemotingSourcePtr source,
               mojom::RemoterRequest request) override;
 
-  static scoped_refptr<SharedSession> CreateSharedSession(bool start_will_fail);
+  static std::unique_ptr<RendererController> CreateController(
+      bool start_will_fail);
 
  private:
   bool start_will_fail_;

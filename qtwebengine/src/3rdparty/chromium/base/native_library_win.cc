@@ -82,7 +82,7 @@ LoadLibraryResult GetLoadLibraryResult(bool are_search_flags_available,
 NativeLibrary LoadNativeLibraryHelper(const FilePath& library_path,
                                       NativeLibraryLoadError* error) {
   // LoadLibrary() opens the file off disk.
-  ThreadRestrictions::AssertIOAllowed();
+  AssertBlockingAllowed();
 
   HMODULE module = nullptr;
 
@@ -147,31 +147,31 @@ NativeLibrary LoadNativeLibraryHelper(const FilePath& library_path,
 }  // namespace
 
 std::string NativeLibraryLoadError::ToString() const {
-  return StringPrintf("%u", code);
+  return StringPrintf("%lu", code);
 }
 
-// static
 NativeLibrary LoadNativeLibraryWithOptions(const FilePath& library_path,
                                            const NativeLibraryOptions& options,
                                            NativeLibraryLoadError* error) {
   return LoadNativeLibraryHelper(library_path, error);
 }
 
-// static
 void UnloadNativeLibrary(NativeLibrary library) {
   FreeLibrary(library);
 }
 
-// static
 void* GetFunctionPointerFromNativeLibrary(NativeLibrary library,
                                           StringPiece name) {
-  return GetProcAddress(library, name.data());
+  return reinterpret_cast<void*>(GetProcAddress(library, name.data()));
 }
 
-// static
 std::string GetNativeLibraryName(StringPiece name) {
   DCHECK(IsStringASCII(name));
   return name.as_string() + ".dll";
+}
+
+std::string GetLoadableModuleName(StringPiece name) {
+  return GetNativeLibraryName(name);
 }
 
 }  // namespace base

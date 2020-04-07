@@ -14,18 +14,30 @@ ThreadSafeScriptContainer::ThreadSafeScriptContainer()
 void ThreadSafeScriptContainer::AddOnIOThread(const GURL& url,
                                               std::unique_ptr<Data> data) {
   base::AutoLock lock(lock_);
-  DCHECK(script_data_.find(url) == script_data_.end());
   script_data_[url] = std::move(data);
   if (url == waiting_url_)
     waiting_cv_.Signal();
 }
 
-bool ThreadSafeScriptContainer::ExistsOnWorkerThread(const GURL& url) {
+ThreadSafeScriptContainer::ScriptStatus
+ThreadSafeScriptContainer::GetStatusOnWorkerThread(const GURL& url) {
   base::AutoLock lock(lock_);
-  return base::ContainsKey(script_data_, url);
+  auto it = script_data_.find(url);
+  if (it == script_data_.end())
+    return ScriptStatus::kPending;
+  if (!it->second)
+    return ScriptStatus::kTaken;
+  if (!it->second->IsValid())
+    return ScriptStatus::kFailed;
+  return ScriptStatus::kReceived;
 }
 
-bool ThreadSafeScriptContainer::WaitOnIOThread(const GURL& url) {
+void ThreadSafeScriptContainer::ResetOnWorkerThread(const GURL& url) {
+  base::AutoLock lock(lock_);
+  script_data_.erase(url);
+}
+
+bool ThreadSafeScriptContainer::WaitOnWorkerThread(const GURL& url) {
   base::AutoLock lock(lock_);
   DCHECK(waiting_url_.is_empty())
       << "The script container is unexpectedly shared among worker threads.";
@@ -42,17 +54,17 @@ bool ThreadSafeScriptContainer::WaitOnIOThread(const GURL& url) {
     waiting_cv_.Wait();
   }
   waiting_url_ = GURL();
-  return true;
+  // TODO(shimazu): Keep the status for each entries instead of using IsValid().
+  const auto& data = script_data_[url];
+  return !data || data->IsValid();
 }
 
 std::unique_ptr<ThreadSafeScriptContainer::Data>
 ThreadSafeScriptContainer::TakeOnWorkerThread(const GURL& url) {
   base::AutoLock lock(lock_);
-  DCHECK(script_data_.find(url) != script_data_.end())
+  DCHECK(base::ContainsKey(script_data_, url))
       << "Script should be added before calling Take.";
-  auto data = std::move(script_data_[url]);
-  DCHECK(script_data_[url] == nullptr);
-  return data;
+  return std::move(script_data_[url]);
 }
 
 void ThreadSafeScriptContainer::OnAllDataAddedOnIOThread() {

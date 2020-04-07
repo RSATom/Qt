@@ -4,7 +4,6 @@
 
 #include <memory>
 
-#include "base/memory/ptr_util.h"
 #include "chrome/browser/printing/cloud_print/privet_device_lister_impl.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -44,7 +43,7 @@ class MockServiceWatcher : public ServiceWatcher {
 
   ~MockServiceWatcher() override {}
 
-  virtual void Start() {
+  void Start() override {
     DCHECK(!started_);
     started_ = true;
     mock_delegate_->ServiceWatcherStarted(service_type_, this);
@@ -55,9 +54,7 @@ class MockServiceWatcher : public ServiceWatcher {
   MOCK_METHOD1(SetActivelyRefreshServices, void(
       bool actively_refresh_services));
 
-  virtual std::string GetServiceType() const {
-    return service_type_;
-  }
+  std::string GetServiceType() const override { return service_type_; }
 
   bool started() {
     return started_;
@@ -77,11 +74,12 @@ class MockServiceWatcher : public ServiceWatcher {
 class MockServiceResolver : public ServiceResolver {
  public:
   MockServiceResolver(const std::string& service_name,
-                      const ServiceResolver::ResolveCompleteCallback& callback,
+                      ServiceResolver::ResolveCompleteCallback callback,
                       ServiceDiscoveryMockDelegate* mock_delegate)
-      : started_resolving_(false), service_name_(service_name),
-        callback_(callback), mock_delegate_(mock_delegate) {
-  }
+      : started_resolving_(false),
+        service_name_(service_name),
+        callback_(std::move(callback)),
+        mock_delegate_(mock_delegate) {}
 
   ~MockServiceResolver() override {}
 
@@ -96,8 +94,7 @@ class MockServiceResolver : public ServiceResolver {
 
   std::string GetName() const override { return service_name_; }
 
-  const ServiceResolver::ResolveCompleteCallback& callback() {
-    return callback_; }
+  ServiceResolver::ResolveCompleteCallback* callback() { return &callback_; }
 
  private:
   bool started_resolving_;
@@ -120,7 +117,7 @@ class MockServiceDiscoveryClient : public ServiceDiscoveryClient {
   std::unique_ptr<ServiceWatcher> CreateServiceWatcher(
       const std::string& service_type,
       const ServiceWatcher::UpdatedCallback& callback) override {
-    return base::MakeUnique<MockServiceWatcher>(service_type, callback,
+    return std::make_unique<MockServiceWatcher>(service_type, callback,
                                                 mock_delegate_);
   }
 
@@ -128,16 +125,16 @@ class MockServiceDiscoveryClient : public ServiceDiscoveryClient {
   // for the service called |service_name|.
   std::unique_ptr<ServiceResolver> CreateServiceResolver(
       const std::string& service_name,
-      const ServiceResolver::ResolveCompleteCallback& callback) override {
-    return base::MakeUnique<MockServiceResolver>(service_name, callback,
-                                                 mock_delegate_);
+      ServiceResolver::ResolveCompleteCallback callback) override {
+    return std::make_unique<MockServiceResolver>(
+        service_name, std::move(callback), mock_delegate_);
   }
 
   // Not used in this test.
   std::unique_ptr<LocalDomainResolver> CreateLocalDomainResolver(
       const std::string& domain,
       net::AddressFamily address_family,
-      const LocalDomainResolver::IPAddressCallback& callback) override {
+      LocalDomainResolver::IPAddressCallback callback) override {
     NOTREACHED();
     return std::unique_ptr<LocalDomainResolver>();
   }
@@ -157,7 +154,7 @@ class MockServiceDiscoveryMockDelegate : public ServiceDiscoveryMockDelegate {
 class MockDeviceListerDelegate : public PrivetDeviceLister::Delegate {
  public:
   MockDeviceListerDelegate() {}
-  virtual ~MockDeviceListerDelegate() {}
+  ~MockDeviceListerDelegate() override {}
 
   MOCK_METHOD2(DeviceChanged,
                void(const std::string& name,
@@ -219,8 +216,8 @@ TEST_F(PrivetDeviceListerTest, SimpleUpdateTest) {
   EXPECT_CALL(delegate_, DeviceChanged("myprinter._privet._tcp.local", _))
       .WillOnce(SaveArg<1>(&outgoing_description));
 
-  service_resolver->callback().Run(ServiceResolver::STATUS_SUCCESS,
-                                   service_description_);
+  std::move(*service_resolver->callback())
+      .Run(ServiceResolver::STATUS_SUCCESS, service_description_);
 
   EXPECT_EQ(service_description_.address.host(),
             outgoing_description.address.host());
@@ -256,8 +253,8 @@ TEST_F(PrivetDeviceListerTest, MultipleUpdatesPostResolve) {
   testing::Mock::VerifyAndClear(&mock_delegate_);
 
   EXPECT_CALL(delegate_, DeviceChanged("myprinter._privet._tcp.local", _));
-  service_resolver->callback().Run(ServiceResolver::STATUS_SUCCESS,
-                                   service_description_);
+  std::move(*service_resolver->callback())
+      .Run(ServiceResolver::STATUS_SUCCESS, service_description_);
 
   EXPECT_CALL(mock_delegate_,
               ServiceResolverStarted("myprinter._privet._tcp.local", _));

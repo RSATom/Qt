@@ -5,6 +5,8 @@
 #ifndef HEADLESS_LIB_HEADLESS_MACROS_H_
 #define HEADLESS_LIB_HEADLESS_MACROS_H_
 
+#include "build/build_config.h"
+
 #if defined(OS_POSIX) && !defined(OS_MACOSX)
 #define HEADLESS_USE_BREAKPAD
 #endif  // defined(OS_POSIX) && !defined(OS_MACOSX)

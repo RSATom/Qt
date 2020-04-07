@@ -10,7 +10,8 @@
 #include "base/macros.h"
 #include "cc/base/rolling_time_delta_history.h"
 #include "cc/cc_export.h"
-#include "cc/output/begin_frame_args.h"
+#include "cc/tiles/tile_priority.h"
+#include "components/viz/common/frame_sinks/begin_frame_args.h"
 
 namespace base {
 namespace trace_event {
@@ -44,7 +45,9 @@ class CC_EXPORT CompositorTimingHistory {
   virtual base::TimeDelta BeginMainFrameQueueDurationCriticalEstimate() const;
   virtual base::TimeDelta BeginMainFrameQueueDurationNotCriticalEstimate()
       const;
-  virtual base::TimeDelta BeginMainFrameStartToCommitDurationEstimate() const;
+  virtual base::TimeDelta BeginMainFrameStartToReadyToCommitDurationEstimate()
+      const;
+  virtual base::TimeDelta CommitDurationEstimate() const;
   virtual base::TimeDelta CommitToReadyToActivateDurationEstimate() const;
   virtual base::TimeDelta PrepareTilesDurationEstimate() const;
   virtual base::TimeDelta ActivateDurationEstimate() const;
@@ -57,7 +60,7 @@ class CC_EXPORT CompositorTimingHistory {
   // Events to be timed.
   void WillBeginImplFrame(bool new_active_tree_is_likely,
                           base::TimeTicks frame_time,
-                          BeginFrameArgs::BeginFrameArgsType frame_type,
+                          viz::BeginFrameArgs::BeginFrameArgsType frame_type,
                           base::TimeTicks now);
   void WillFinishImplFrame(bool needs_redraw);
   void BeginImplFrameNotExpectedSoon();
@@ -65,6 +68,8 @@ class CC_EXPORT CompositorTimingHistory {
                           base::TimeTicks main_frame_time);
   void BeginMainFrameStarted(base::TimeTicks main_thread_start_time);
   void BeginMainFrameAborted();
+  void NotifyReadyToCommit();
+  void WillCommit();
   void DidCommit();
   void WillPrepareTiles();
   void DidPrepareTiles();
@@ -74,13 +79,31 @@ class CC_EXPORT CompositorTimingHistory {
   void DrawAborted();
   void WillDraw();
   void DidDraw(bool used_new_active_tree,
-               bool main_thread_missed_last_deadline,
-               base::TimeTicks impl_frame_time);
+               base::TimeTicks impl_frame_time,
+               size_t composited_animations_count,
+               size_t main_thread_animations_count,
+               bool current_frame_had_raf,
+               bool next_frame_has_pending_raf);
   void DidSubmitCompositorFrame();
   void DidReceiveCompositorFrameAck();
+  void WillInvalidateOnImplSide();
+  void SetTreePriority(TreePriority priority);
+
+  base::TimeTicks begin_main_frame_sent_time() const {
+    return begin_main_frame_sent_time_;
+  }
+
+  void ClearHistory();
+  size_t begin_main_frame_start_to_ready_to_commit_sample_count() const {
+    return begin_main_frame_start_to_ready_to_commit_duration_history_
+        .sample_count();
+  }
+  size_t commit_to_ready_to_activate_sample_count() const {
+    return commit_to_ready_to_activate_duration_history_.sample_count();
+  }
 
  protected:
-  void DidBeginMainFrame();
+  void DidBeginMainFrame(base::TimeTicks begin_main_frame_end_time);
 
   void SetBeginMainFrameNeededContinuously(bool active);
   void SetBeginMainFrameCommittingContinuously(bool active);
@@ -99,12 +122,17 @@ class CC_EXPORT CompositorTimingHistory {
   bool compositor_drawing_continuously_;
   base::TimeTicks begin_main_frame_end_time_prev_;
   base::TimeTicks new_active_tree_draw_end_time_prev_;
+  base::TimeTicks new_active_tree_draw_end_time_prev_committing_continuously_;
   base::TimeTicks draw_end_time_prev_;
 
+  // If you add any history here, please remember to reset it in
+  // ClearHistory.
   RollingTimeDeltaHistory begin_main_frame_queue_duration_history_;
   RollingTimeDeltaHistory begin_main_frame_queue_duration_critical_history_;
   RollingTimeDeltaHistory begin_main_frame_queue_duration_not_critical_history_;
-  RollingTimeDeltaHistory begin_main_frame_start_to_commit_duration_history_;
+  RollingTimeDeltaHistory
+      begin_main_frame_start_to_ready_to_commit_duration_history_;
+  RollingTimeDeltaHistory commit_duration_history_;
   RollingTimeDeltaHistory commit_to_ready_to_activate_duration_history_;
   RollingTimeDeltaHistory prepare_tiles_duration_history_;
   RollingTimeDeltaHistory activate_duration_history_;
@@ -114,19 +142,30 @@ class CC_EXPORT CompositorTimingHistory {
   base::TimeTicks begin_main_frame_frame_time_;
   base::TimeTicks begin_main_frame_sent_time_;
   base::TimeTicks begin_main_frame_start_time_;
-  base::TimeTicks begin_main_frame_end_time_;
+  base::TimeTicks commit_start_time_;
   base::TimeTicks pending_tree_main_frame_time_;
+  base::TimeTicks pending_tree_creation_time_;
+  base::TimeTicks pending_tree_ready_to_activate_time_;
   base::TimeTicks prepare_tiles_start_time_;
   base::TimeTicks activate_start_time_;
   base::TimeTicks active_tree_main_frame_time_;
   base::TimeTicks draw_start_time_;
   base::TimeTicks submit_start_time_;
 
+  bool pending_tree_is_impl_side_;
+
   // Watchdog timers.
   bool submit_ack_watchdog_enabled_;
 
   std::unique_ptr<UMAReporter> uma_reporter_;
   RenderingStatsInstrumentation* rendering_stats_instrumentation_;
+
+  // Used only for reporting animation targeted UMA.
+  bool previous_frame_had_composited_animations_ = false;
+  bool previous_frame_had_main_thread_animations_ = false;
+  bool previous_frame_had_raf_ = false;
+
+  TreePriority tree_priority_ = SAME_PRIORITY_FOR_BOTH_TREES;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(CompositorTimingHistory);

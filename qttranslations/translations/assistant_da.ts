@@ -15,10 +15,8 @@
         <translation>Advarsel</translation>
     </message>
     <message>
-        <source>Unable to launch external application.
-</source>
-        <translation>Kunne ikke starte eksternt program.
-</translation>
+        <source>Unable to launch external application.</source>
+        <translation>Kunne ikke starte eksternt program.</translation>
     </message>
     <message>
         <source>OK</source>
@@ -326,23 +324,23 @@ Reason:
 </source>
         <translation>Brug: assistant [valgmuligheder]
 
--collectionFile fil        Bruger den specificerede samlingsfil
+-collectionFile fil        Bruger den angivne samlingsfil
                            i stedet for den som er standard
 -showUrl url               Viser dokumentet med URL&apos;en.
 -enableRemoteControl       Aktiverer fjernstyring af Assistant.
--show widget               Viser den specificerede dock-widget
+-show widget               Viser den angivne dock-widget
                            som kan være &quot;contents&quot;, &quot;index&quot;,
                            &quot;bookmarks&quot; eller &quot;search&quot;.
--activate widget           Aktiverer den specificerede dock-widget
+-activate widget           Aktiverer den angivne dock-widget
                            som kan være &quot;contents&quot;, &quot;index&quot;,
                            &quot;bookmarks&quot; eller &quot;search&quot;.
--hide widget               Skjuler den specificerede dock-widget
+-hide widget               Skjuler den angivne dock-widget
                            som kan være &quot;contents&quot;, &quot;index&quot;
                            &quot;bookmarks&quot; eller &quot;search&quot;.
--register hjælp-Fil        Registrerer den specificerede hjælp-fil
-                           (.qch) i den angivne samlingsfil.
--unregister hjælp-Fil      Afregistrerer den specificerede hjælp-fil
-                           (.qch) fra den angivne samlingsfil.
+-register hjælp-Fil        Registrerer den angivne hjælp-fil
+                           (.qch) i den givne samlingsfil.
+-unregister hjælp-Fil      Afregistrerer den angivne hjælp-fil
+                           (.qch) fra den givne samlingsfil.
 -setCurrentFilter filter   Sæt filteret som det aktive filter.
 -remove-search-index       Fjerner fuldtekst-søgeindekset.
 -rebuild-search-index      Forældet. Brug i stedet -remove-search-index.
@@ -522,8 +520,8 @@ Reason:
         <translation>Fejl 404...</translation>
     </message>
     <message>
-        <source>The page could not be found!</source>
-        <translation>Siden blev ikke fundet!</translation>
+        <source>The page could not be found</source>
+        <translation>Siden blev ikke fundet</translation>
     </message>
     <message>
         <source>Please make sure that you have all documentation sets installed.</source>
@@ -823,7 +821,7 @@ Reason:
     </message>
     <message>
         <source>The specified file is not a valid Qt Help File!</source>
-        <translation>Den specificerede fil er ikke en gyldig Qt-hjælp-fil!</translation>
+        <translation>Den angivne fil er ikke en gyldig Qt-hjælp-fil!</translation>
     </message>
     <message>
         <source>Remove Documentation</source>
@@ -934,7 +932,7 @@ Reason:
     </message>
     <message>
         <source>Current Page</source>
-        <translation>Aktuelle side</translation>
+        <translation>Nuværende side</translation>
     </message>
     <message>
         <source>Blank Page</source>

@@ -1,4 +1,5 @@
-QT_FOR_CONFIG += webengine
+include($$QTWEBENGINE_OUT_ROOT/src/core/qtwebenginecore-config.pri) # workaround for QTBUG-68093
+QT_FOR_CONFIG += webenginecore
 
 TEMPLATE=subdirs
 
@@ -7,12 +8,13 @@ SUBDIRS += \
     contentmanipulation \
     cookiebrowser \
     html2pdf \
-    markdowneditor \
     simplebrowser \
     stylesheetbrowser \
-    videoplayer
+    videoplayer \
+    webui
 
-qtHaveModule(positioning): SUBDIRS += maps
+qtConfig(webengine-geolocation): SUBDIRS += maps
+qtConfig(webengine-webchannel): SUBDIRS += markdowneditor
 
 qtConfig(webengine-spellchecker):!qtConfig(webengine-native-spellchecker):!cross_compile {
     SUBDIRS += spellchecker

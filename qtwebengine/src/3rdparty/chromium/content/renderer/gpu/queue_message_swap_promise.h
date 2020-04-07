@@ -8,7 +8,7 @@
 #include <stdint.h>
 
 #include "base/memory/ref_counted.h"
-#include "cc/output/swap_promise.h"
+#include "cc/trees/swap_promise.h"
 
 namespace IPC {
 class SyncMessageFilter;
@@ -27,9 +27,9 @@ class QueueMessageSwapPromise : public cc::SwapPromise {
   ~QueueMessageSwapPromise() override;
 
   void DidActivate() override;
-  void WillSwap(cc::CompositorFrameMetadata* metadata) override;
+  void WillSwap(viz::CompositorFrameMetadata* metadata) override;
   void DidSwap() override;
-  DidNotSwapAction DidNotSwap(DidNotSwapReason reason) override;
+  void DidNotSwap(DidNotSwapReason reason) override;
 
   int64_t TraceId() const override;
 

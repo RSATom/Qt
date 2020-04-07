@@ -6,9 +6,9 @@
 */
 
 #include "GrVkPipeline.h"
-
 #include "GrGeometryProcessor.h"
 #include "GrPipeline.h"
+#include "GrStencilSettings.h"
 #include "GrVkCommandBuffer.h"
 #include "GrVkGpu.h"
 #include "GrVkRenderTarget.h"
@@ -17,31 +17,55 @@
 static inline VkFormat attrib_type_to_vkformat(GrVertexAttribType type) {
     switch (type) {
         case kFloat_GrVertexAttribType:
+        case kHalf_GrVertexAttribType:
             return VK_FORMAT_R32_SFLOAT;
-        case kVec2f_GrVertexAttribType:
+        case kFloat2_GrVertexAttribType:
+        case kHalf2_GrVertexAttribType:
             return VK_FORMAT_R32G32_SFLOAT;
-        case kVec3f_GrVertexAttribType:
+        case kFloat3_GrVertexAttribType:
+        case kHalf3_GrVertexAttribType:
             return VK_FORMAT_R32G32B32_SFLOAT;
-        case kVec4f_GrVertexAttribType:
+        case kFloat4_GrVertexAttribType:
+        case kHalf4_GrVertexAttribType:
             return VK_FORMAT_R32G32B32A32_SFLOAT;
-        case kVec2i_GrVertexAttribType:
+        case kInt2_GrVertexAttribType:
             return VK_FORMAT_R32G32_SINT;
-        case kVec3i_GrVertexAttribType:
+        case kInt3_GrVertexAttribType:
             return VK_FORMAT_R32G32B32_SINT;
-        case kVec4i_GrVertexAttribType:
+        case kInt4_GrVertexAttribType:
             return VK_FORMAT_R32G32B32A32_SINT;
+        case kByte_GrVertexAttribType:
+            return VK_FORMAT_R8_SINT;
+        case kByte2_GrVertexAttribType:
+            return VK_FORMAT_R8G8_SINT;
+        case kByte3_GrVertexAttribType:
+            return VK_FORMAT_R8G8B8_SINT;
+        case kByte4_GrVertexAttribType:
+            return VK_FORMAT_R8G8B8A8_SINT;
         case kUByte_GrVertexAttribType:
+            return VK_FORMAT_R8_UINT;
+        case kUByte2_GrVertexAttribType:
+            return VK_FORMAT_R8G8_UINT;
+        case kUByte3_GrVertexAttribType:
+            return VK_FORMAT_R8G8B8_UINT;
+        case kUByte4_GrVertexAttribType:
+            return VK_FORMAT_R8G8B8A8_UINT;
+        case kUByte_norm_GrVertexAttribType:
             return VK_FORMAT_R8_UNORM;
-        case kVec4ub_GrVertexAttribType:
+        case kUByte4_norm_GrVertexAttribType:
             return VK_FORMAT_R8G8B8A8_UNORM;
-        case kVec2us_GrVertexAttribType:
+        case kShort2_GrVertexAttribType:
+            return VK_FORMAT_R16G16_SINT;
+        case kUShort2_GrVertexAttribType:
+            return VK_FORMAT_R16G16_UINT;
+        case kUShort2_norm_GrVertexAttribType:
             return VK_FORMAT_R16G16_UNORM;
         case kInt_GrVertexAttribType:
             return VK_FORMAT_R32_SINT;
         case kUint_GrVertexAttribType:
             return VK_FORMAT_R32_UINT;
     }
-    SkFAIL("Unknown vertex attrib type");
+    SK_ABORT("Unknown vertex attrib type");
     return VK_FORMAT_UNDEFINED;
 }
 
@@ -49,39 +73,60 @@ static void setup_vertex_input_state(const GrPrimitiveProcessor& primProc,
                                   VkPipelineVertexInputStateCreateInfo* vertexInputInfo,
                                   SkSTArray<2, VkVertexInputBindingDescription, true>* bindingDescs,
                                   VkVertexInputAttributeDescription* attributeDesc) {
-    uint32_t vertexBinding, instanceBinding;
+    uint32_t vertexBinding = 0, instanceBinding = 0;
 
-    if (primProc.hasVertexAttribs()) {
-        vertexBinding = bindingDescs->count();
-        bindingDescs->push_back() = {
-            vertexBinding,
-            (uint32_t) primProc.getVertexStride(),
-            VK_VERTEX_INPUT_RATE_VERTEX
-        };
+    int nextBinding = bindingDescs->count();
+    if (primProc.hasVertexAttributes()) {
+        vertexBinding = nextBinding++;
     }
 
-    if (primProc.hasInstanceAttribs()) {
-        instanceBinding = bindingDescs->count();
-        bindingDescs->push_back() = {
-            instanceBinding,
-            (uint32_t) primProc.getInstanceStride(),
-            VK_VERTEX_INPUT_RATE_INSTANCE
-        };
+    if (primProc.hasInstanceAttributes()) {
+        instanceBinding = nextBinding;
     }
 
     // setup attribute descriptions
-    int vaCount = primProc.numAttribs();
-    if (vaCount > 0) {
-        for (int attribIndex = 0; attribIndex < vaCount; attribIndex++) {
-            using InputRate = GrPrimitiveProcessor::Attribute::InputRate;
-            const GrGeometryProcessor::Attribute& attrib = primProc.getAttrib(attribIndex);
-            VkVertexInputAttributeDescription& vkAttrib = attributeDesc[attribIndex];
-            vkAttrib.location = attribIndex; // for now assume location = attribIndex
-            vkAttrib.binding = InputRate::kPerInstance == attrib.fInputRate ? instanceBinding
-                                                                            : vertexBinding;
-            vkAttrib.format = attrib_type_to_vkformat(attrib.fType);
-            vkAttrib.offset = attrib.fOffsetInRecord;
-        }
+    int vaCount = primProc.numVertexAttributes();
+    int attribIndex = 0;
+    size_t vertexAttributeOffset = 0;
+    for (; attribIndex < vaCount; attribIndex++) {
+        const GrGeometryProcessor::Attribute& attrib = primProc.vertexAttribute(attribIndex);
+        VkVertexInputAttributeDescription& vkAttrib = attributeDesc[attribIndex];
+        vkAttrib.location = attribIndex;  // for now assume location = attribIndex
+        vkAttrib.binding = vertexBinding;
+        vkAttrib.format = attrib_type_to_vkformat(attrib.type());
+        vkAttrib.offset = vertexAttributeOffset;
+        SkASSERT(vkAttrib.offset == primProc.debugOnly_vertexAttributeOffset(attribIndex));
+        vertexAttributeOffset += attrib.sizeAlign4();
+    }
+    SkASSERT(vertexAttributeOffset == primProc.debugOnly_vertexStride());
+
+    int iaCount = primProc.numInstanceAttributes();
+    size_t instanceAttributeOffset = 0;
+    for (int iaIndex = 0; iaIndex < iaCount; ++iaIndex, ++attribIndex) {
+        const GrGeometryProcessor::Attribute& attrib = primProc.instanceAttribute(iaIndex);
+        VkVertexInputAttributeDescription& vkAttrib = attributeDesc[attribIndex];
+        vkAttrib.location = attribIndex;  // for now assume location = attribIndex
+        vkAttrib.binding = instanceBinding;
+        vkAttrib.format = attrib_type_to_vkformat(attrib.type());
+        vkAttrib.offset = instanceAttributeOffset;
+        SkASSERT(vkAttrib.offset == primProc.debugOnly_instanceAttributeOffset(iaIndex));
+        instanceAttributeOffset += attrib.sizeAlign4();
+    }
+    SkASSERT(instanceAttributeOffset == primProc.debugOnly_instanceStride());
+
+    if (primProc.hasVertexAttributes()) {
+        bindingDescs->push_back() = {
+                vertexBinding,
+                (uint32_t) vertexAttributeOffset,
+                VK_VERTEX_INPUT_RATE_VERTEX
+        };
+    }
+    if (primProc.hasInstanceAttributes()) {
+        bindingDescs->push_back() = {
+                instanceBinding,
+                (uint32_t) instanceAttributeOffset,
+                VK_VERTEX_INPUT_RATE_INSTANCE
+        };
     }
 
     memset(vertexInputInfo, 0, sizeof(VkPipelineVertexInputStateCreateInfo));
@@ -90,7 +135,7 @@ static void setup_vertex_input_state(const GrPrimitiveProcessor& primProc,
     vertexInputInfo->flags = 0;
     vertexInputInfo->vertexBindingDescriptionCount = bindingDescs->count();
     vertexInputInfo->pVertexBindingDescriptions = bindingDescs->begin();
-    vertexInputInfo->vertexAttributeDescriptionCount = vaCount;
+    vertexInputInfo->vertexAttributeDescriptionCount = vaCount + iaCount;
     vertexInputInfo->pVertexAttributeDescriptions = attributeDesc;
 }
 
@@ -100,8 +145,6 @@ static VkPrimitiveTopology gr_primitive_type_to_vk_topology(GrPrimitiveType prim
             return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
         case GrPrimitiveType::kTriangleStrip:
             return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
-        case GrPrimitiveType::kTriangleFan:
-            return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_FAN;
         case GrPrimitiveType::kPoints:
             return VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
         case GrPrimitiveType::kLines:
@@ -111,7 +154,7 @@ static VkPrimitiveTopology gr_primitive_type_to_vk_topology(GrPrimitiveType prim
         case GrPrimitiveType::kLinesAdjacency:
             return VK_PRIMITIVE_TOPOLOGY_LINE_LIST_WITH_ADJACENCY;
     }
-    SkFAIL("invalid GrPrimitiveType");
+    SK_ABORT("invalid GrPrimitiveType");
     return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 }
 
@@ -231,15 +274,15 @@ static void setup_viewport_scissor_state(VkPipelineViewportStateCreateInfo* view
     SkASSERT(viewportInfo->viewportCount == viewportInfo->scissorCount);
 }
 
-static void setup_multisample_state(const GrPipeline& pipeline,
-                                    const GrPrimitiveProcessor& primProc,
+static void setup_multisample_state(const GrPrimitiveProcessor& primProc,
+                                    const GrPipeline& pipeline,
                                     const GrCaps* caps,
                                     VkPipelineMultisampleStateCreateInfo* multisampleInfo) {
     memset(multisampleInfo, 0, sizeof(VkPipelineMultisampleStateCreateInfo));
     multisampleInfo->sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
     multisampleInfo->pNext = nullptr;
     multisampleInfo->flags = 0;
-    int numSamples = pipeline.getRenderTarget()->numColorSamples();
+    int numSamples = pipeline.proxy()->numColorSamples();
     SkAssertResult(GrSampleCountToVkSampleCount(numSamples,
                    &multisampleInfo->rasterizationSamples));
     float sampleShading = primProc.getSampleShading();
@@ -414,20 +457,18 @@ static void setup_dynamic_state(VkPipelineDynamicStateCreateInfo* dynamicInfo,
     dynamicInfo->pDynamicStates = dynamicStates;
 }
 
-GrVkPipeline* GrVkPipeline::Create(GrVkGpu* gpu, const GrPipeline& pipeline,
-                                   const GrStencilSettings& stencil,
-                                   const GrPrimitiveProcessor& primProc,
+GrVkPipeline* GrVkPipeline::Create(GrVkGpu* gpu, const GrPrimitiveProcessor& primProc,
+                                   const GrPipeline& pipeline, const GrStencilSettings& stencil,
                                    VkPipelineShaderStageCreateInfo* shaderStageInfo,
-                                   int shaderStageCount,
-                                   GrPrimitiveType primitiveType,
-                                   const GrVkRenderPass& renderPass,
-                                   VkPipelineLayout layout,
+                                   int shaderStageCount, GrPrimitiveType primitiveType,
+                                   const GrVkRenderPass& renderPass, VkPipelineLayout layout,
                                    VkPipelineCache cache) {
     VkPipelineVertexInputStateCreateInfo vertexInputInfo;
     SkSTArray<2, VkVertexInputBindingDescription, true> bindingDescs;
     SkSTArray<16, VkVertexInputAttributeDescription> attributeDesc;
-    SkASSERT(primProc.numAttribs() <= gpu->vkCaps().maxVertexAttributes());
-    VkVertexInputAttributeDescription* pAttribs = attributeDesc.push_back_n(primProc.numAttribs());
+    int totalAttributeCnt = primProc.numVertexAttributes() + primProc.numInstanceAttributes();
+    SkASSERT(totalAttributeCnt <= gpu->vkCaps().maxVertexAttributes());
+    VkVertexInputAttributeDescription* pAttribs = attributeDesc.push_back_n(totalAttributeCnt);
     setup_vertex_input_state(primProc, &vertexInputInfo, &bindingDescs, pAttribs);
 
     VkPipelineInputAssemblyStateCreateInfo inputAssemblyInfo;
@@ -440,7 +481,7 @@ GrVkPipeline* GrVkPipeline::Create(GrVkGpu* gpu, const GrPipeline& pipeline,
     setup_viewport_scissor_state(&viewportInfo);
 
     VkPipelineMultisampleStateCreateInfo multisampleInfo;
-    setup_multisample_state(pipeline, primProc, gpu->caps(), &multisampleInfo);
+    setup_multisample_state(primProc, pipeline, gpu->caps(), &multisampleInfo);
 
     // We will only have one color attachment per pipeline.
     VkPipelineColorBlendAttachmentState attachmentStates[1];
@@ -482,6 +523,7 @@ GrVkPipeline* GrVkPipeline::Create(GrVkGpu* gpu, const GrPipeline& pipeline,
                                                                           &pipelineCreateInfo,
                                                                           nullptr, &vkPipeline));
     if (err) {
+        SkDebugf("Failed to create pipeline. Error: %d\n", err);
         return nullptr;
     }
 
@@ -495,6 +537,7 @@ void GrVkPipeline::freeGPUData(const GrVkGpu* gpu) const {
 void GrVkPipeline::SetDynamicScissorRectState(GrVkGpu* gpu,
                                               GrVkCommandBuffer* cmdBuffer,
                                               const GrRenderTarget* renderTarget,
+                                              GrSurfaceOrigin rtOrigin,
                                               SkIRect scissorRect) {
     if (!scissorRect.intersect(SkIRect::MakeWH(renderTarget->width(), renderTarget->height()))) {
         scissorRect.setEmpty();
@@ -503,10 +546,10 @@ void GrVkPipeline::SetDynamicScissorRectState(GrVkGpu* gpu,
     VkRect2D scissor;
     scissor.offset.x = scissorRect.fLeft;
     scissor.extent.width = scissorRect.width();
-    if (kTopLeft_GrSurfaceOrigin == renderTarget->origin()) {
+    if (kTopLeft_GrSurfaceOrigin == rtOrigin) {
         scissor.offset.y = scissorRect.fTop;
     } else {
-        SkASSERT(kBottomLeft_GrSurfaceOrigin == renderTarget->origin());
+        SkASSERT(kBottomLeft_GrSurfaceOrigin == rtOrigin);
         scissor.offset.y = renderTarget->height() - scissorRect.fBottom;
     }
     scissor.extent.height = scissorRect.height();

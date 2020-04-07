@@ -58,6 +58,7 @@
 #include <QGraphicsView>
 #endif
 #include <QDesktopWidget>
+#include <private/qdesktopwidget_p.h>
 #include <QVector2D>
 #include <QtCore/qmath.h>
 #include <QtGui/qevent.h>
@@ -190,7 +191,7 @@ static qreal progressForValue(const QEasingCurve &curve, qreal value)
 }
 
 
-#ifndef QT_NO_ANIMATION
+#if QT_CONFIG(animation)
 class QScrollTimer : public QAbstractAnimation
 {
 public:
@@ -198,7 +199,7 @@ public:
         : QAbstractAnimation(_d), d(_d), ignoreUpdate(false), skip(0)
     { }
 
-    int duration() const Q_DECL_OVERRIDE
+    int duration() const override
     {
         return -1;
     }
@@ -214,7 +215,7 @@ public:
     }
 
 protected:
-    void updateCurrentTime(int /*currentTime*/) Q_DECL_OVERRIDE
+    void updateCurrentTime(int /*currentTime*/) override
    {
         if (!ignoreUpdate) {
             if (++skip >= d->frameRateSkip()) {
@@ -229,7 +230,7 @@ private:
     bool ignoreUpdate;
     int skip;
 };
-#endif // QT_NO_ANIMATION
+#endif // animation
 
 /*!
     \class QScroller
@@ -248,18 +249,11 @@ private:
     scrolling speed and takes care of updates.
     QScroller can be triggered by a flick gesture
 
-    \code
-        QWidget *w = ...;
-        QScroller::grabGesture(w, QScroller::LeftMouseButtonGesture);
-    \endcode
+    \snippet code/src_widgets_util_qscroller.cpp 0
 
     or directly like this:
 
-    \code
-        QWidget *w = ...;
-        QScroller *scroller = QScroller::scroller(w);
-        scroller->scrollTo(QPointF(100, 100));
-    \endcode
+    \snippet code/src_widgets_util_qscroller.cpp 1
 
     The scrolled QObjects receive a QScrollPrepareEvent whenever the scroller needs to
     update its geometry information and a QScrollEvent whenever the content of the object should
@@ -280,10 +274,9 @@ private:
 */
 
 typedef QMap<QObject *, QScroller *> ScrollerHash;
-typedef QSet<QScroller *> ScrollerSet;
 
 Q_GLOBAL_STATIC(ScrollerHash, qt_allScrollers)
-Q_GLOBAL_STATIC(ScrollerSet, qt_activeScrollers)
+Q_GLOBAL_STATIC(QList<QScroller *>, qt_activeScrollers)
 
 /*!
     Returns \c true if a QScroller object was already created for \a target; \c false otherwise.
@@ -334,7 +327,7 @@ const QScroller *QScroller::scroller(const QObject *target)
 */
 QList<QScroller *> QScroller::activeScrollers()
 {
-    return qt_activeScrollers()->toList();
+    return *qt_activeScrollers();
 }
 
 /*!
@@ -348,7 +341,7 @@ QObject *QScroller::target() const
 }
 
 /*!
-    \fn QScroller::scrollerPropertiesChanged(const QScrollerProperties &newProperties);
+    \fn void QScroller::scrollerPropertiesChanged(const QScrollerProperties &newProperties);
 
     QScroller emits this signal whenever its scroller properties change.
     \a newProperties are the new scroller properties.
@@ -495,6 +488,7 @@ QScroller::QScroller(QObject *target)
     : d_ptr(new QScrollerPrivate(this, target))
 {
     Q_ASSERT(target); // you can't create a scroller without a target in any normal way
+    setParent(target);
     Q_D(QScroller);
     d->init();
 }
@@ -511,14 +505,14 @@ QScroller::~QScroller()
     d->recognizer = 0;
 #endif
     qt_allScrollers()->remove(d->target);
-    qt_activeScrollers()->remove(this);
+    qt_activeScrollers()->removeOne(this);
 
     delete d_ptr;
 }
 
 
 /*!
-    \fn QScroller::stateChanged(QScroller::State newState);
+    \fn void QScroller::stateChanged(QScroller::State newState);
 
     QScroller emits this signal whenever the state changes. \a newState is the new State.
 
@@ -896,7 +890,7 @@ QScrollerPrivate::QScrollerPrivate(QScroller *q, QObject *_target)
     , snapIntervalX(0.0)
     , snapFirstY(-1.0)
     , snapIntervalY(0.0)
-#ifndef QT_NO_ANIMATION
+#if QT_CONFIG(animation)
     , scrollTimer(new QScrollTimer(this))
 #endif
     , q_ptr(q)
@@ -938,7 +932,7 @@ const char *QScrollerPrivate::inputName(QScroller::Input input)
 
 void QScrollerPrivate::targetDestroyed()
 {
-#ifndef QT_NO_ANIMATION
+#if QT_CONFIG(animation)
     scrollTimer->stop();
 #endif
     delete q_ptr;
@@ -966,7 +960,7 @@ void QScrollerPrivate::timerTick()
         }
     }
 
-#ifndef QT_NO_ANIMATION
+#if QT_CONFIG(animation)
     scrollTimer->stop();
 #endif
 }
@@ -1013,40 +1007,6 @@ bool QScroller::handleInput(Input input, const QPointF &position, qint64 timesta
     return false;
 }
 
-#if 1 // Used to be excluded in Qt4 for Q_WS_MAC
-// the Mac version is implemented in qscroller_mac.mm
-
-QPointF QScrollerPrivate::realDpi(int screen) const
-{
-#  if 0 /* Used to be included in Qt4 for Q_WS_X11 */ && !defined(QT_NO_XRANDR)
-    if (X11 && X11->use_xrandr && X11->ptrXRRSizes && X11->ptrXRRRootToScreen) {
-        int nsizes = 0;
-        // QDesktopWidget is based on Xinerama screens, which do not always
-        // correspond to RandR screens: NVidia's TwinView e.g.  will show up
-        // as 2 screens in QDesktopWidget, but libXRandR will only see 1 screen.
-        // (although with the combined size of the Xinerama screens).
-        // Additionally, libXrandr will simply crash when calling XRRSizes
-        // for (the non-existent) screen 1 in this scenario.
-        Window root =  RootWindow(X11->display, screen == -1 ? X11->defaultScreen : screen);
-        int randrscreen = (root != XNone) ? X11->ptrXRRRootToScreen(X11->display, root) : -1;
-
-        XRRScreenSize *sizes = X11->ptrXRRSizes(X11->display, randrscreen == -1 ? 0 : randrscreen, &nsizes);
-        if (nsizes > 0 && sizes && sizes->width && sizes->height && sizes->mwidth && sizes->mheight) {
-            qScrollerDebug() << "XRandR DPI:" << QPointF(qreal(25.4) * qreal(sizes->width) / qreal(sizes->mwidth),
-                                                         qreal(25.4) * qreal(sizes->height) / qreal(sizes->mheight));
-            return QPointF(qreal(25.4) * qreal(sizes->width) / qreal(sizes->mwidth),
-                           qreal(25.4) * qreal(sizes->height) / qreal(sizes->mheight));
-        }
-    }
-#  endif
-
-    QWidget *w = QApplication::desktop()->screen(screen);
-    return QPointF(w->physicalDpiX(), w->physicalDpiY());
-}
-
-#endif
-
-
 /*! \internal
     Returns the resolution of the used screen.
 */
@@ -1071,8 +1031,8 @@ void QScrollerPrivate::setDpi(const QPointF &dpi)
 */
 void QScrollerPrivate::setDpiFromWidget(QWidget *widget)
 {
-    QDesktopWidget *dw = QApplication::desktop();
-    setDpi(realDpi(widget ? dw->screenNumber(widget) : dw->primaryScreen()));
+    const QScreen *screen = QGuiApplication::screens().at(QApplication::desktop()->screenNumber(widget));
+    setDpi(QPointF(screen->physicalDotsPerInchX(), screen->physicalDotsPerInchY()));
 }
 
 /*! \internal
@@ -1724,7 +1684,7 @@ void QScrollerPrivate::setState(QScroller::State newstate)
 
     switch (newstate) {
     case QScroller::Inactive:
-#ifndef QT_NO_ANIMATION
+#if QT_CONFIG(animation)
         scrollTimer->stop();
 #endif
 
@@ -1736,7 +1696,7 @@ void QScrollerPrivate::setState(QScroller::State newstate)
         break;
 
     case QScroller::Pressed:
-#ifndef QT_NO_ANIMATION
+#if QT_CONFIG(animation)
         scrollTimer->stop();
 #endif
 
@@ -1746,14 +1706,14 @@ void QScrollerPrivate::setState(QScroller::State newstate)
 
     case QScroller::Dragging:
         dragDistance = QPointF(0, 0);
-#ifndef QT_NO_ANIMATION
+#if QT_CONFIG(animation)
         if (state == QScroller::Pressed)
             scrollTimer->start();
 #endif
         break;
 
     case QScroller::Scrolling:
-#ifndef QT_NO_ANIMATION
+#if QT_CONFIG(animation)
         scrollTimer->start();
 #endif
         break;
@@ -1766,10 +1726,12 @@ void QScrollerPrivate::setState(QScroller::State newstate)
         sendEvent(target, &se);
         firstScroll = true;
     }
-    if (state == QScroller::Dragging || state == QScroller::Scrolling)
-        qt_activeScrollers()->insert(q);
-    else
-        qt_activeScrollers()->remove(q);
+    if (state == QScroller::Dragging || state == QScroller::Scrolling) {
+        if (!qt_activeScrollers()->contains(q))
+            qt_activeScrollers()->push_back(q);
+    } else {
+        qt_activeScrollers()->removeOne(q);
+    }
     emit q->stateChanged(state);
 }
 
@@ -1928,7 +1890,7 @@ qreal QScrollerPrivate::nextSnapPos(qreal p, int dir, Qt::Orientation orientatio
 
     if (orientation == Qt::Horizontal) {
         // the snap points in the list
-        foreach (qreal snapPos, snapPositionsX) {
+        for (qreal snapPos : snapPositionsX) {
             qreal snapPosDist = snapPos - p;
             if ((dir > 0 && snapPosDist < 0) ||
                 (dir < 0 && snapPosDist > 0))
@@ -1975,7 +1937,7 @@ qreal QScrollerPrivate::nextSnapPos(qreal p, int dir, Qt::Orientation orientatio
 
     } else { // (orientation == Qt::Vertical)
         // the snap points in the list
-        foreach (qreal snapPos, snapPositionsY) {
+        for (qreal snapPos : snapPositionsY) {
             qreal snapPosDist = snapPos - p;
             if ((dir > 0 && snapPosDist < 0) ||
                 (dir < 0 && snapPosDist > 0))

@@ -8,7 +8,6 @@
 #include <stddef.h>
 
 #include "base/strings/stringprintf.h"
-#include "base/threading/thread_task_runner_handle.h"
 #include "base/trace_event/memory_dump_manager.h"
 #include "base/trace_event/process_memory_dump.h"
 #include "gin/public/isolate_holder.h"
@@ -17,10 +16,12 @@
 namespace gin {
 
 V8IsolateMemoryDumpProvider::V8IsolateMemoryDumpProvider(
-    IsolateHolder* isolate_holder)
+    IsolateHolder* isolate_holder,
+    scoped_refptr<base::SingleThreadTaskRunner> task_runner)
     : isolate_holder_(isolate_holder) {
+  DCHECK(task_runner);
   base::trace_event::MemoryDumpManager::GetInstance()->RegisterDumpProvider(
-      this, "V8Isolate", base::ThreadTaskRunnerHandle::Get());
+      this, "V8Isolate", task_runner);
 }
 
 V8IsolateMemoryDumpProvider::~V8IsolateMemoryDumpProvider() {
@@ -78,6 +79,40 @@ void DumpCodeStatistics(
       "bytecode_and_metadata_size",
       base::trace_event::MemoryAllocatorDump::kUnitsBytes,
       code_statistics.bytecode_and_metadata_size());
+  heap_spaces_dump->AddScalar(
+      "external_script_source_size",
+      base::trace_event::MemoryAllocatorDump::kUnitsBytes,
+      code_statistics.external_script_source_size());
+}
+
+// Dump the number of native and detached contexts.
+// The result looks as follows in the Chrome trace viewer:
+// ======================================
+// Component                 object_count
+// - v8
+//   - isolate
+//     - contexts
+//       - detached_context  10
+//       - native_context    20
+// ======================================
+void DumpContextStatistics(
+    base::trace_event::ProcessMemoryDump* process_memory_dump,
+    std::string dump_base_name,
+    size_t number_of_detached_contexts,
+    size_t number_of_native_contexts) {
+  std::string dump_name_prefix = dump_base_name + "/contexts";
+  std::string native_context_name = dump_name_prefix + "/native_context";
+  auto* native_context_dump =
+      process_memory_dump->CreateAllocatorDump(native_context_name);
+  native_context_dump->AddScalar(
+      "object_count", base::trace_event::MemoryAllocatorDump::kUnitsObjects,
+      number_of_native_contexts);
+  std::string detached_context_name = dump_name_prefix + "/detached_context";
+  auto* detached_context_dump =
+      process_memory_dump->CreateAllocatorDump(detached_context_name);
+  detached_context_dump->AddScalar(
+      "object_count", base::trace_event::MemoryAllocatorDump::kUnitsObjects,
+      number_of_detached_contexts);
 }
 
 }  // namespace anonymous
@@ -127,24 +162,10 @@ void V8IsolateMemoryDumpProvider::DumpHeapStatistics(
                           space_used_size);
   }
 
-  // Compute the rest of the memory, not accounted by the spaces above.
-  std::string other_spaces_name = space_name_prefix + "/other_spaces";
-  auto* other_dump =
-      process_memory_dump->CreateAllocatorDump(other_spaces_name);
-
-  other_dump->AddScalar(
-      base::trace_event::MemoryAllocatorDump::kNameSize,
-      base::trace_event::MemoryAllocatorDump::kUnitsBytes,
-      heap_statistics.total_physical_size() - known_spaces_physical_size);
-
-  other_dump->AddScalar(
-      "allocated_objects_size",
-      base::trace_event::MemoryAllocatorDump::kUnitsBytes,
-      heap_statistics.used_heap_size() - known_spaces_used_size);
-
-  other_dump->AddScalar("virtual_size",
-                        base::trace_event::MemoryAllocatorDump::kUnitsBytes,
-                        heap_statistics.total_heap_size() - known_spaces_size);
+  // Sanity checks.
+  DCHECK_EQ(heap_statistics.total_physical_size(), known_spaces_physical_size);
+  DCHECK_EQ(heap_statistics.used_heap_size(), known_spaces_used_size);
+  DCHECK_EQ(heap_statistics.total_heap_size(), known_spaces_size);
 
   // If V8 zaps garbage, all the memory mapped regions become resident,
   // so we add an extra dump to avoid mismatches w.r.t. the total
@@ -174,6 +195,10 @@ void V8IsolateMemoryDumpProvider::DumpHeapStatistics(
     process_memory_dump->AddSuballocation(malloc_dump->guid(),
                                           system_allocator_name);
   }
+
+  DumpContextStatistics(process_memory_dump, dump_base_name,
+                        heap_statistics.number_of_detached_contexts(),
+                        heap_statistics.number_of_native_contexts());
 
   // Add an empty row for the heap_spaces. This is to keep the shape of the
   // dump stable, whether code stats are enabled or not.

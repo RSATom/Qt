@@ -7,7 +7,6 @@
 
 #include "base/command_line.h"
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "services/ui/common/task_runner_test_base.h"
 #include "services/ui/display/screen_manager_ozone_internal.h"
@@ -16,8 +15,8 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/display/display.h"
 #include "ui/display/display_switches.h"
-#include "ui/display/fake_display_delegate.h"
-#include "ui/display/fake_display_snapshot.h"
+#include "ui/display/manager/fake_display_delegate.h"
+#include "ui/display/manager/fake_display_snapshot.h"
 #include "ui/display/screen.h"
 #include "ui/display/types/display_constants.h"
 #include "ui/display/types/display_mode.h"
@@ -155,11 +154,11 @@ class ScreenManagerOzoneInternalTest : public ui::TaskRunnerTestBase {
     base::CommandLine::ForCurrentProcess()->AppendSwitchNative(
         switches::kScreenConfig, "none");
 
-    screen_manager_ = base::MakeUnique<ScreenManagerOzoneInternal>();
+    screen_manager_ = std::make_unique<ScreenManagerOzoneInternal>();
 
     // Create NDD for FakeDisplayController.
     std::unique_ptr<NativeDisplayDelegate> ndd =
-        base::MakeUnique<FakeDisplayDelegate>();
+        std::make_unique<FakeDisplayDelegate>();
     fake_display_controller_ = ndd->GetFakeDisplayController();
 
     // Add NDD to ScreenManager so one isn't loaded from Ozone.
@@ -255,10 +254,8 @@ TEST_F(ScreenManagerOzoneInternalTest, AddDisplay4k) {
                  .SetType(DISPLAY_CONNECTION_TYPE_DVI)
                  .Build());
 
-  // Check that display 2 has a device scale factor of 2 since it's a 4k
-  // display.
   EXPECT_EQ("Added(2)", delegate()->changes());
-  EXPECT_THAT(delegate()->added()[0], DisplayBoundsIs("1024,0 2048x1080"));
+  EXPECT_THAT(delegate()->added()[0], DisplayBoundsIs("1024,0 4096x2160"));
   EXPECT_THAT(delegate()->added()[0], DisplayPixelSizeIs("4096x2160"));
 }
 

@@ -4,24 +4,23 @@
 
 #include "media/blink/webencryptedmediaclient_impl.h"
 
+#include <memory>
 #include <utility>
 
 #include "base/bind.h"
-#include "base/memory/ptr_util.h"
-#include "base/metrics/histogram.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "media/base/key_systems.h"
-#include "media/base/media_log.h"
 #include "media/base/media_permission.h"
 #include "media/blink/webcontentdecryptionmodule_impl.h"
 #include "media/blink/webcontentdecryptionmoduleaccess_impl.h"
-#include "third_party/WebKit/public/platform/URLConversion.h"
-#include "third_party/WebKit/public/platform/WebContentDecryptionModuleResult.h"
-#include "third_party/WebKit/public/platform/WebEncryptedMediaRequest.h"
-#include "third_party/WebKit/public/platform/WebMediaKeySystemConfiguration.h"
-#include "third_party/WebKit/public/platform/WebSecurityOrigin.h"
-#include "third_party/WebKit/public/platform/WebString.h"
+#include "third_party/blink/public/platform/url_conversion.h"
+#include "third_party/blink/public/platform/web_content_decryption_module_result.h"
+#include "third_party/blink/public/platform/web_encrypted_media_request.h"
+#include "third_party/blink/public/platform/web_media_key_system_configuration.h"
+#include "third_party/blink/public/platform/web_security_origin.h"
+#include "third_party/blink/public/platform/web_string.h"
 #include "url/gurl.h"
 #include "url/origin.h"
 
@@ -53,7 +52,7 @@ class WebEncryptedMediaClientImpl::Reporter {
       : uma_name_(kKeySystemSupportUMAPrefix + key_system_for_uma),
         is_request_reported_(false),
         is_support_reported_(false) {}
-  ~Reporter() {}
+  ~Reporter() = default;
 
   void ReportRequested() {
     if (is_request_reported_)
@@ -72,12 +71,8 @@ class WebEncryptedMediaClientImpl::Reporter {
 
  private:
   void Report(KeySystemSupportStatus status) {
-    // Not using UMA_HISTOGRAM_ENUMERATION directly because UMA_* macros
-    // require the names to be constant throughout the process' lifetime.
-    base::LinearHistogram::FactoryGet(
-        uma_name_, 1, KEY_SYSTEM_SUPPORT_STATUS_COUNT,
-        KEY_SYSTEM_SUPPORT_STATUS_COUNT + 1,
-        base::Histogram::kUmaTargetedHistogramFlag)->Add(status);
+    base::UmaHistogramEnumeration(uma_name_, status,
+                                  KEY_SYSTEM_SUPPORT_STATUS_COUNT);
   }
 
   const std::string uma_name_;
@@ -87,30 +82,21 @@ class WebEncryptedMediaClientImpl::Reporter {
 
 WebEncryptedMediaClientImpl::WebEncryptedMediaClientImpl(
     CdmFactory* cdm_factory,
-    MediaPermission* media_permission,
-    MediaLog* media_log)
+    MediaPermission* media_permission)
     : cdm_factory_(cdm_factory),
       key_system_config_selector_(KeySystems::GetInstance(), media_permission),
-      media_log_(media_log),
       weak_factory_(this) {
   DCHECK(cdm_factory_);
 }
 
-WebEncryptedMediaClientImpl::~WebEncryptedMediaClientImpl() {
-}
+WebEncryptedMediaClientImpl::~WebEncryptedMediaClientImpl() = default;
 
 void WebEncryptedMediaClientImpl::RequestMediaKeySystemAccess(
     blink::WebEncryptedMediaRequest request) {
   GetReporter(request.KeySystem())->ReportRequested();
 
-  media_log_->RecordRapporWithSecurityOrigin("Media.OriginUrl.EME");
-  if (!request.GetSecurityOrigin().IsPotentiallyTrustworthy()) {
-    media_log_->RecordRapporWithSecurityOrigin("Media.OriginUrl.EME.Insecure");
-  }
-
   key_system_config_selector_.SelectConfig(
       request.KeySystem(), request.SupportedConfigurations(),
-      request.GetSecurityOrigin(),
       base::Bind(&WebEncryptedMediaClientImpl::OnRequestSucceeded,
                  weak_factory_.GetWeakPtr(), request),
       base::Bind(&WebEncryptedMediaClientImpl::OnRequestNotSupported,
@@ -152,9 +138,14 @@ void WebEncryptedMediaClientImpl::OnRequestSucceeded(
 }
 
 void WebEncryptedMediaClientImpl::OnRequestNotSupported(
-    blink::WebEncryptedMediaRequest request,
-    const blink::WebString& error_message) {
-  request.RequestNotSupported(error_message);
+    blink::WebEncryptedMediaRequest request) {
+  // The rejection message when the key system is not supported or when none of
+  // the requested configurations is supported should always be the same to help
+  // avoid leaking information unnecessarily. See https://crbug.com/760720
+  const char kUnsupportedKeySystemOrConfigMessage[] =
+      "Unsupported keySystem or supportedConfigurations.";
+
+  request.RequestNotSupported(kUnsupportedKeySystemOrConfigMessage);
 }
 
 WebEncryptedMediaClientImpl::Reporter* WebEncryptedMediaClientImpl::GetReporter(
@@ -169,7 +160,7 @@ WebEncryptedMediaClientImpl::Reporter* WebEncryptedMediaClientImpl::GetReporter(
   std::string uma_name = GetKeySystemNameForUMA(key_system_ascii);
   std::unique_ptr<Reporter>& reporter = reporters_[uma_name];
   if (!reporter)
-    reporter = base::MakeUnique<Reporter>(uma_name);
+    reporter = std::make_unique<Reporter>(uma_name);
   return reporter.get();
 }
 

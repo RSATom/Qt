@@ -747,7 +747,6 @@ Item {
         }
 
         function test_indexAt() {
-            skip("Fails because of bug QTBUG-47523")
             var component = Qt.createComponent("treeview/treeview_1.qml")
             compare(component.status, Component.Ready)
             var tree = component.createObject(container);

@@ -21,25 +21,6 @@
 #include "media/base/audio_parameters.h"
 #include "media/base/audio_timestamp_helper.h"
 
-// On L+, we want to use floating point output for better fidelity.
-#if __ANDROID_API__ < 21
-#define SL_ANDROID_PCM_REPRESENTATION_SIGNED_INT ((SLuint32)0x00000001)
-#define SL_ANDROID_PCM_REPRESENTATION_UNSIGNED_INT ((SLuint32)0x00000002)
-#define SL_ANDROID_PCM_REPRESENTATION_FLOAT ((SLuint32)0x00000003)
-#define SL_ANDROID_DATAFORMAT_PCM_EX ((SLuint32)0x00000004)
-
-typedef struct SLAndroidDataFormat_PCM_EX_ {
-  SLuint32 formatType;
-  SLuint32 numChannels;
-  SLuint32 sampleRate;
-  SLuint32 bitsPerSample;
-  SLuint32 containerSize;
-  SLuint32 channelMask;
-  SLuint32 endianness;
-  SLuint32 representation;
-} SLAndroidDataFormat_PCM_EX;
-#endif
-
 namespace media {
 
 class AudioManagerAndroid;
@@ -141,11 +122,16 @@ class OpenSLESOutputStream : public MuteableAudioOutputStream {
 
   int samples_per_second_;
 
-  // On Android 5.0+ we can output directly to float instead of in integer.
-  bool have_float_output_;
+  // On Android 5.0+ we can output directly to float instead of in integer, so
+  // there we'll use kSampleFormatF32. If not, this will be kSampleFormatS16.
+  SampleFormat sample_format_;
 
   int bytes_per_frame_;
   size_t buffer_size_bytes_;
+
+  // On API level 25+ we can provide hints to OpenSLES about what type of
+  // content the stream is being used for.
+  SLuint32 performance_mode_;
 
   // Used to calculate the delay value for each OnMoreData() call.
   AudioTimestampHelper delay_calculator_;

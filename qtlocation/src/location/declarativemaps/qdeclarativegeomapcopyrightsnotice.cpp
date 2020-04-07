@@ -59,7 +59,7 @@ public:
     \instantiates QDeclarativeGeoMapCopyrightNotice
     \inqmlmodule QtLocation
     \ingroup qml-QtLocation5-maps
-    \since Qt Location 5.9
+    \since QtLocation 5.9
 
     \brief The MapCopyrightNotice item displays the current valid
     copyright notice for a Map element.
@@ -134,7 +134,7 @@ void QDeclarativeGeoMapCopyrightNotice::setMapSource(QDeclarativeGeoMap *map)
         if (m_copyrightsHtml)
             m_copyrightsHtml->clear();
         m_copyrightsImage = QImage();
-        m_mapSource = Q_NULLPTR;
+        m_mapSource = nullptr;
     }
 
     if (map) {

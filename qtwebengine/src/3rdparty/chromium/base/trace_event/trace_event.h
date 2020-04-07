@@ -15,8 +15,10 @@
 #include <string>
 
 #include "base/atomicops.h"
+#include "base/debug/debugging_buildflags.h"
 #include "base/macros.h"
 #include "base/time/time.h"
+#include "base/time/time_override.h"
 #include "base/trace_event/common/trace_event_common.h"
 #include "base/trace_event/heap_profiler.h"
 #include "base/trace_event/trace_category.h"
@@ -248,6 +250,17 @@
         INTERNAL_TRACE_EVENT_UID(atomic), \
         INTERNAL_TRACE_EVENT_UID(category_group_enabled));
 
+// Implementation detail: internal macro to return unoverridden
+// base::TimeTicks::Now(). This is important because in headless VirtualTime can
+// override base:TimeTicks::Now().
+#define INTERNAL_TRACE_TIME_TICKS_NOW() \
+  base::subtle::TimeTicksNowIgnoringOverride()
+
+// Implementation detail: internal macro to return unoverridden
+// base::Time::Now(). This is important because in headless VirtualTime can
+// override base:TimeTicks::Now().
+#define INTERNAL_TRACE_TIME_NOW() base::subtle::TimeNowIgnoringOverride()
+
 // Implementation detail: internal macro to create static category and add
 // event if the category is enabled.
 #define INTERNAL_TRACE_EVENT_ADD(phase, category_group, name, flags, ...)  \
@@ -426,14 +439,35 @@
   INTERNAL_TRACE_EVENT_UID(ScopedContext)                                  \
   INTERNAL_TRACE_EVENT_UID(scoped_context)(context);
 
+#if BUILDFLAG(ENABLE_LOCATION_SOURCE)
+
 // Implementation detail: internal macro to trace a task execution with the
 // location where it was posted from.
+//
+// This implementation is for when location sources are available.
+// TODO(ssid): The program counter of the current task should be added here.
 #define INTERNAL_TRACE_TASK_EXECUTION(run_function, task)                 \
   TRACE_EVENT2("toplevel", run_function, "src_file",                      \
                (task).posted_from.file_name(), "src_func",                \
                (task).posted_from.function_name());                       \
   TRACE_HEAP_PROFILER_API_SCOPED_TASK_EXECUTION INTERNAL_TRACE_EVENT_UID( \
-      task_event)((task).posted_from.file_name());
+      task_event)((task).posted_from.file_name());                        \
+  TRACE_HEAP_PROFILER_API_SCOPED_WITH_PROGRAM_COUNTER                     \
+  INTERNAL_TRACE_EVENT_UID(task_pc_event)((task).posted_from.program_counter());
+
+#else
+
+// TODO(http://crbug.com760702) remove file name and just pass the program
+// counter to the heap profiler macro.
+// TODO(ssid): The program counter of the current task should be added here.
+#define INTERNAL_TRACE_TASK_EXECUTION(run_function, task)                      \
+  TRACE_EVENT1("toplevel", run_function, "src", (task).posted_from.ToString()) \
+  TRACE_HEAP_PROFILER_API_SCOPED_TASK_EXECUTION INTERNAL_TRACE_EVENT_UID(      \
+      task_event)((task).posted_from.file_name());                             \
+  TRACE_HEAP_PROFILER_API_SCOPED_WITH_PROGRAM_COUNTER                          \
+  INTERNAL_TRACE_EVENT_UID(task_pc_event)((task).posted_from.program_counter());
+
+#endif
 
 namespace trace_event_internal {
 
@@ -856,7 +890,7 @@ static inline base::trace_event::TraceEventHandle AddTraceEvent(
     unsigned int flags,
     unsigned long long bind_id) {
   const int thread_id = static_cast<int>(base::PlatformThread::CurrentId());
-  const base::TimeTicks now = base::TimeTicks::Now();
+  const base::TimeTicks now = TRACE_TIME_TICKS_NOW();
   return AddTraceEventWithThreadIdAndTimestamp(
       phase, category_group_enabled, name, scope, id, thread_id, now, flags,
       bind_id);
@@ -897,7 +931,7 @@ static inline base::trace_event::TraceEventHandle AddTraceEvent(
     const char* arg1_name,
     const ARG1_TYPE& arg1_val) {
   int thread_id = static_cast<int>(base::PlatformThread::CurrentId());
-  base::TimeTicks now = base::TimeTicks::Now();
+  base::TimeTicks now = TRACE_TIME_TICKS_NOW();
   return AddTraceEventWithThreadIdAndTimestamp(
       phase, category_group_enabled, name, scope, id, thread_id, now, flags,
       bind_id, arg1_name, arg1_val);
@@ -915,7 +949,7 @@ static inline base::trace_event::TraceEventHandle AddTraceEvent(
     const char* arg1_name,
     std::unique_ptr<ARG1_CONVERTABLE_TYPE> arg1_val) {
   int thread_id = static_cast<int>(base::PlatformThread::CurrentId());
-  base::TimeTicks now = base::TimeTicks::Now();
+  base::TimeTicks now = TRACE_TIME_TICKS_NOW();
   return AddTraceEventWithThreadIdAndTimestamp(
       phase, category_group_enabled, name, scope, id, thread_id, now, flags,
       bind_id, arg1_name, std::move(arg1_val));
@@ -962,7 +996,7 @@ static inline base::trace_event::TraceEventHandle AddTraceEvent(
     const char* arg2_name,
     const ARG2_TYPE& arg2_val) {
   int thread_id = static_cast<int>(base::PlatformThread::CurrentId());
-  base::TimeTicks now = base::TimeTicks::Now();
+  base::TimeTicks now = TRACE_TIME_TICKS_NOW();
   return AddTraceEventWithThreadIdAndTimestamp(
       phase, category_group_enabled, name, scope, id, thread_id, now, flags,
       bind_id, arg1_name, std::move(arg1_val), arg2_name, arg2_val);
@@ -982,7 +1016,7 @@ static inline base::trace_event::TraceEventHandle AddTraceEvent(
     const char* arg2_name,
     std::unique_ptr<ARG2_CONVERTABLE_TYPE> arg2_val) {
   int thread_id = static_cast<int>(base::PlatformThread::CurrentId());
-  base::TimeTicks now = base::TimeTicks::Now();
+  base::TimeTicks now = TRACE_TIME_TICKS_NOW();
   return AddTraceEventWithThreadIdAndTimestamp(
       phase, category_group_enabled, name, scope, id, thread_id, now, flags,
       bind_id, arg1_name, arg1_val, arg2_name, std::move(arg2_val));
@@ -1002,7 +1036,7 @@ static inline base::trace_event::TraceEventHandle AddTraceEvent(
     const char* arg2_name,
     std::unique_ptr<ARG2_CONVERTABLE_TYPE> arg2_val) {
   int thread_id = static_cast<int>(base::PlatformThread::CurrentId());
-  base::TimeTicks now = base::TimeTicks::Now();
+  base::TimeTicks now = TRACE_TIME_TICKS_NOW();
   return AddTraceEventWithThreadIdAndTimestamp(
       phase, category_group_enabled, name, scope, id, thread_id, now, flags,
       bind_id, arg1_name, std::move(arg1_val), arg2_name, std::move(arg2_val));
@@ -1022,7 +1056,7 @@ static inline base::trace_event::TraceEventHandle AddTraceEvent(
     const char* arg2_name,
     const ARG2_TYPE& arg2_val) {
   int thread_id = static_cast<int>(base::PlatformThread::CurrentId());
-  base::TimeTicks now = base::TimeTicks::Now();
+  base::TimeTicks now = TRACE_TIME_TICKS_NOW();
   return AddTraceEventWithThreadIdAndTimestamp(
       phase, category_group_enabled, name, scope, id, thread_id, now, flags,
       bind_id, arg1_name, arg1_val, arg2_name, arg2_val);

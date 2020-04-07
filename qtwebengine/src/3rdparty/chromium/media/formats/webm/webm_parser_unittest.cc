@@ -27,7 +27,7 @@ enum { kBlockCount = 5 };
 
 class MockWebMParserClient : public WebMParserClient {
  public:
-  virtual ~MockWebMParserClient() {}
+  ~MockWebMParserClient() override = default;
 
   // WebMParserClient methods.
   MOCK_METHOD1(OnListStart, WebMParserClient*(int));

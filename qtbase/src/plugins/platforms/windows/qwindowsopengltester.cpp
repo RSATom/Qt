@@ -40,15 +40,15 @@
 #include "qwindowsopengltester.h"
 #include "qwindowscontext.h"
 
-#include <QtCore/QVariantMap>
-#include <QtCore/QDebug>
-#include <QtCore/QTextStream>
-#include <QtCore/QCoreApplication>
-#include <QtCore/QFile>
-#include <QtCore/QFileInfo>
-#include <QtCore/QStandardPaths>
-#include <QtCore/QLibraryInfo>
-#include <QtCore/QHash>
+#include <QtCore/qvariant.h>
+#include <QtCore/qdebug.h>
+#include <QtCore/qtextstream.h>
+#include <QtCore/qcoreapplication.h>
+#include <QtCore/qfile.h>
+#include <QtCore/qfileinfo.h>
+#include <QtCore/qstandardpaths.h>
+#include <QtCore/qlibraryinfo.h>
+#include <QtCore/qhash.h>
 
 #ifndef QT_NO_OPENGL
 #include <private/qopengl_p.h>
@@ -60,36 +60,125 @@
 
 QT_BEGIN_NAMESPACE
 
+static const DWORD VENDOR_ID_AMD = 0x1002;
+
+static GpuDescription adapterIdentifierToGpuDescription(const D3DADAPTER_IDENTIFIER9 &adapterIdentifier)
+{
+    GpuDescription result;
+    result.vendorId = adapterIdentifier.VendorId;
+    result.deviceId = adapterIdentifier.DeviceId;
+    result.revision = adapterIdentifier.Revision;
+    result.subSysId = adapterIdentifier.SubSysId;
+    QVector<int> version(4, 0);
+    version[0] = HIWORD(adapterIdentifier.DriverVersion.HighPart); // Product
+    version[1] = LOWORD(adapterIdentifier.DriverVersion.HighPart); // Version
+    version[2] = HIWORD(adapterIdentifier.DriverVersion.LowPart); // Sub version
+    version[3] = LOWORD(adapterIdentifier.DriverVersion.LowPart); // build
+    result.driverVersion = QVersionNumber(version);
+    result.driverName = adapterIdentifier.Driver;
+    result.description = adapterIdentifier.Description;
+    return result;
+}
+
+class QDirect3D9Handle
+{
+public:
+    Q_DISABLE_COPY(QDirect3D9Handle)
+
+    QDirect3D9Handle();
+    ~QDirect3D9Handle();
+
+    bool isValid() const { return m_direct3D9 != nullptr; }
+
+    UINT adapterCount() const { return m_direct3D9 ? m_direct3D9->GetAdapterCount() : 0u; }
+    bool retrieveAdapterIdentifier(UINT n, D3DADAPTER_IDENTIFIER9 *adapterIdentifier) const;
+
+private:
+    QSystemLibrary m_d3d9lib;
+    IDirect3D9 *m_direct3D9 = nullptr;
+};
+
+QDirect3D9Handle::QDirect3D9Handle() :
+    m_d3d9lib(QStringLiteral("d3d9"))
+{
+    using PtrDirect3DCreate9 = IDirect3D9 *(WINAPI *)(UINT);
+
+    if (m_d3d9lib.load()) {
+        if (auto direct3DCreate9 = (PtrDirect3DCreate9)m_d3d9lib.resolve("Direct3DCreate9"))
+            m_direct3D9 = direct3DCreate9(D3D_SDK_VERSION);
+    }
+}
+
+QDirect3D9Handle::~QDirect3D9Handle()
+{
+    if (m_direct3D9)
+       m_direct3D9->Release();
+}
+
+bool QDirect3D9Handle::retrieveAdapterIdentifier(UINT n, D3DADAPTER_IDENTIFIER9 *adapterIdentifier) const
+{
+    return m_direct3D9
+        && SUCCEEDED(m_direct3D9->GetAdapterIdentifier(n, 0, adapterIdentifier));
+}
+
 GpuDescription GpuDescription::detect()
 {
-    typedef IDirect3D9 * (WINAPI *PtrDirect3DCreate9)(UINT);
-
     GpuDescription result;
-    QSystemLibrary d3d9lib(QStringLiteral("d3d9"));
-    if (!d3d9lib.load())
+    QDirect3D9Handle direct3D9;
+    if (!direct3D9.isValid())
         return result;
-    PtrDirect3DCreate9 direct3DCreate9 = (PtrDirect3DCreate9)d3d9lib.resolve("Direct3DCreate9");
-    if (!direct3DCreate9)
-        return result;
-    IDirect3D9 *direct3D9 = direct3DCreate9(D3D_SDK_VERSION);
-    if (!direct3D9)
-        return result;
+
     D3DADAPTER_IDENTIFIER9 adapterIdentifier;
-    const HRESULT hr = direct3D9->GetAdapterIdentifier(0, 0, &adapterIdentifier);
-    direct3D9->Release();
-    if (SUCCEEDED(hr)) {
-        result.vendorId = adapterIdentifier.VendorId;
-        result.deviceId = adapterIdentifier.DeviceId;
-        result.revision = adapterIdentifier.Revision;
-        result.subSysId = adapterIdentifier.SubSysId;
-        QVector<int> version(4, 0);
-        version[0] = HIWORD(adapterIdentifier.DriverVersion.HighPart); // Product
-        version[1] = LOWORD(adapterIdentifier.DriverVersion.HighPart); // Version
-        version[2] = HIWORD(adapterIdentifier.DriverVersion.LowPart); // Sub version
-        version[3] = LOWORD(adapterIdentifier.DriverVersion.LowPart); // build
-        result.driverVersion = QVersionNumber(version);
-        result.driverName = adapterIdentifier.Driver;
-        result.description = adapterIdentifier.Description;
+    bool isAMD = false;
+    // Adapter "0" is D3DADAPTER_DEFAULT which returns the default adapter. In
+    // multi-GPU, multi-screen setups this is the GPU that is associated with
+    // the "main display" in the Display Settings, and this is the GPU OpenGL
+    // and D3D uses by default. Therefore querying any additional adapters is
+    // futile and not useful for our purposes in general, except for
+    // identifying a few special cases later on.
+    if (direct3D9.retrieveAdapterIdentifier(0, &adapterIdentifier)) {
+        result = adapterIdentifierToGpuDescription(adapterIdentifier);
+        isAMD = result.vendorId == VENDOR_ID_AMD;
+    }
+
+    // Detect QTBUG-50371 (having AMD as the default adapter results in a crash
+    // when starting apps on a screen connected to the Intel card) by looking
+    // for a default AMD adapter and an additional non-AMD one.
+    if (isAMD) {
+        const UINT adapterCount = direct3D9.adapterCount();
+        for (UINT adp = 1; adp < adapterCount; ++adp) {
+            if (direct3D9.retrieveAdapterIdentifier(adp, &adapterIdentifier)
+                && adapterIdentifier.VendorId != VENDOR_ID_AMD) {
+                // Bingo. Now figure out the display for the AMD card.
+                DISPLAY_DEVICE dd;
+                memset(&dd, 0, sizeof(dd));
+                dd.cb = sizeof(dd);
+                for (int dev = 0; EnumDisplayDevices(nullptr, dev, &dd, 0); ++dev) {
+                    if (dd.StateFlags & DISPLAY_DEVICE_PRIMARY_DEVICE) {
+                        // DeviceName is something like \\.\DISPLAY1 which can be used to
+                        // match with the MONITORINFOEX::szDevice queried by QWindowsScreen.
+                        result.gpuSuitableScreen = QString::fromWCharArray(dd.DeviceName);
+                        break;
+                    }
+                }
+                break;
+            }
+        }
+    }
+
+    return result;
+}
+
+QVector<GpuDescription> GpuDescription::detectAll()
+{
+    QVector<GpuDescription> result;
+    QDirect3D9Handle direct3D9;
+    if (const UINT adapterCount = direct3D9.adapterCount()) {
+        for (UINT adp = 0; adp < adapterCount; ++adp) {
+            D3DADAPTER_IDENTIFIER9 adapterIdentifier;
+            if (direct3D9.retrieveAdapterIdentifier(adp, &adapterIdentifier))
+                result.append(adapterIdentifierToGpuDescription(adapterIdentifier));
+        }
     }
     return result;
 }
@@ -103,7 +192,8 @@ QDebug operator<<(QDebug d, const GpuDescription &gd)
       << ", deviceId=" << gd.deviceId << ", subSysId=" << gd.subSysId
       << dec << noshowbase << ", revision=" << gd.revision
       << ", driver: " << gd.driverName
-      << ", version=" << gd.driverVersion << ", " << gd.description << ')';
+      << ", version=" << gd.driverVersion << ", " << gd.description
+      << gd.gpuSuitableScreen << ')';
     return d;
 }
 #endif // !QT_NO_DEBUG_STREAM
@@ -113,15 +203,17 @@ QString GpuDescription::toString() const
 {
     QString result;
     QTextStream str(&result);
-    str <<   "         Card name: " << description
-        << "\n       Driver Name: " << driverName
-        << "\n    Driver Version: " << driverVersion.toString()
-        << "\n         Vendor ID: 0x" << qSetPadChar(QLatin1Char('0'))
+    str <<   "         Card name         : " << description
+        << "\n       Driver Name         : " << driverName
+        << "\n    Driver Version         : " << driverVersion.toString()
+        << "\n         Vendor ID         : 0x" << qSetPadChar(QLatin1Char('0'))
         << uppercasedigits << hex << qSetFieldWidth(4) << vendorId
-        << "\n         Device ID: 0x" << qSetFieldWidth(4) << deviceId
-        << "\n         SubSys ID: 0x" << qSetFieldWidth(8) << subSysId
-        << "\n       Revision ID: 0x" << qSetFieldWidth(4) << revision
+        << "\n         Device ID         : 0x" << qSetFieldWidth(4) << deviceId
+        << "\n         SubSys ID         : 0x" << qSetFieldWidth(8) << subSysId
+        << "\n       Revision ID         : 0x" << qSetFieldWidth(4) << revision
         << dec;
+    if (!gpuSuitableScreen.isEmpty())
+        str << "\nGL windows forced to screen: " << gpuSuitableScreen;
     return result;
 }
 
@@ -205,11 +297,12 @@ typedef QHash<QOpenGLConfig::Gpu, QWindowsOpenGLTester::Renderers> SupportedRend
 Q_GLOBAL_STATIC(SupportedRenderersCache, supportedRenderersCache)
 #endif
 
-QWindowsOpenGLTester::Renderers QWindowsOpenGLTester::detectSupportedRenderers(const GpuDescription &gpu, bool glesOnly)
+QWindowsOpenGLTester::Renderers QWindowsOpenGLTester::detectSupportedRenderers(const GpuDescription &gpu,
+                                                                               Renderer requested)
 {
-    Q_UNUSED(gpu)
-    Q_UNUSED(glesOnly)
 #if defined(QT_NO_OPENGL)
+    Q_UNUSED(gpu)
+    Q_UNUSED(requested)
     return 0;
 #else
     QOpenGLConfig::Gpu qgpu = QOpenGLConfig::Gpu::fromDevice(gpu.vendorId, gpu.deviceId, gpu.driverVersion, gpu.description);
@@ -223,8 +316,11 @@ QWindowsOpenGLTester::Renderers QWindowsOpenGLTester::detectSupportedRenderers(c
         | QWindowsOpenGLTester::AngleRendererD3d11Warp
         | QWindowsOpenGLTester::SoftwareRasterizer);
 
-    if (!glesOnly && testDesktopGL())
-        result |= QWindowsOpenGLTester::DesktopGl;
+    // Don't test for GL if explicitly requested or GLES only is requested
+    if (requested == DesktopGl
+        || ((requested & GlesMask) == 0 && testDesktopGL())) {
+            result |= QWindowsOpenGLTester::DesktopGl;
+    }
 
     const char bugListFileVar[] = "QT_OPENGL_BUGLIST";
     QString buglistFileName = QStringLiteral(":/qt-project.org/windows/openglblacklists/default.json");
@@ -259,40 +355,41 @@ QWindowsOpenGLTester::Renderers QWindowsOpenGLTester::detectSupportedRenderers(c
         qCDebug(lcQpaGl) << "Disabling rotation: " << gpu;
         result |= DisableRotationFlag;
     }
+    if (features.contains(QStringLiteral("disable_program_cache"))) {
+        qCDebug(lcQpaGl) << "Disabling program cache: " << gpu;
+        result |= DisableProgramCacheFlag;
+    }
     srCache->insert(qgpu, result);
     return result;
 #endif // !QT_NO_OPENGL
 }
 
-QWindowsOpenGLTester::Renderers QWindowsOpenGLTester::supportedGlesRenderers()
+QWindowsOpenGLTester::Renderers QWindowsOpenGLTester::supportedRenderers(Renderer requested)
 {
     const GpuDescription gpu = GpuDescription::detect();
-    const QWindowsOpenGLTester::Renderers result = detectSupportedRenderers(gpu, true);
-    qCDebug(lcQpaGl) << __FUNCTION__ << gpu << "renderer: " << result;
-    return result;
-}
-
-QWindowsOpenGLTester::Renderers QWindowsOpenGLTester::supportedRenderers()
-{
-    const GpuDescription gpu = GpuDescription::detect();
-    const QWindowsOpenGLTester::Renderers result = detectSupportedRenderers(gpu, false);
-    qCDebug(lcQpaGl) << __FUNCTION__ << gpu << "renderer: " << result;
+    const QWindowsOpenGLTester::Renderers result = detectSupportedRenderers(gpu, requested);
+    qCDebug(lcQpaGl) << __FUNCTION__ << gpu << requested << "renderer: " << result;
     return result;
 }
 
 bool QWindowsOpenGLTester::testDesktopGL()
 {
 #if !defined(QT_NO_OPENGL)
-    HMODULE lib = 0;
-    HWND wnd = 0;
-    HDC dc = 0;
-    HGLRC context = 0;
+    typedef HGLRC (WINAPI *CreateContextType)(HDC);
+    typedef BOOL (WINAPI *DeleteContextType)(HGLRC);
+    typedef BOOL (WINAPI *MakeCurrentType)(HDC, HGLRC);
+    typedef PROC (WINAPI *WglGetProcAddressType)(LPCSTR);
+
+    HMODULE lib = nullptr;
+    HWND wnd = nullptr;
+    HDC dc = nullptr;
+    HGLRC context = nullptr;
     LPCTSTR className = L"qtopengltest";
 
-    HGLRC (WINAPI * CreateContext)(HDC dc) = 0;
-    BOOL (WINAPI * DeleteContext)(HGLRC context) = 0;
-    BOOL (WINAPI * MakeCurrent)(HDC dc, HGLRC context) = 0;
-    PROC (WINAPI * WGL_GetProcAddress)(LPCSTR name) = 0;
+    CreateContextType CreateContext = nullptr;
+    DeleteContextType DeleteContext = nullptr;
+    MakeCurrentType MakeCurrent = nullptr;
+    WglGetProcAddressType WGL_GetProcAddress = nullptr;
 
     bool result = false;
 
@@ -300,34 +397,38 @@ bool QWindowsOpenGLTester::testDesktopGL()
     // This will typically fail on systems that do not have a real OpenGL driver.
     lib = LoadLibraryA("opengl32.dll");
     if (lib) {
-        CreateContext = reinterpret_cast<HGLRC (WINAPI *)(HDC)>(::GetProcAddress(lib, "wglCreateContext"));
+        CreateContext = reinterpret_cast<CreateContextType>(
+            reinterpret_cast<QFunctionPointer>(::GetProcAddress(lib, "wglCreateContext")));
         if (!CreateContext)
             goto cleanup;
-        DeleteContext = reinterpret_cast<BOOL (WINAPI *)(HGLRC)>(::GetProcAddress(lib, "wglDeleteContext"));
+        DeleteContext = reinterpret_cast<DeleteContextType>(
+            reinterpret_cast<QFunctionPointer>(::GetProcAddress(lib, "wglDeleteContext")));
         if (!DeleteContext)
             goto cleanup;
-        MakeCurrent = reinterpret_cast<BOOL (WINAPI *)(HDC, HGLRC)>(::GetProcAddress(lib, "wglMakeCurrent"));
+        MakeCurrent = reinterpret_cast<MakeCurrentType>(
+            reinterpret_cast<QFunctionPointer>(::GetProcAddress(lib, "wglMakeCurrent")));
         if (!MakeCurrent)
             goto cleanup;
-        WGL_GetProcAddress = reinterpret_cast<PROC (WINAPI *)(LPCSTR)>(::GetProcAddress(lib, "wglGetProcAddress"));
+        WGL_GetProcAddress = reinterpret_cast<WglGetProcAddressType>(
+            reinterpret_cast<QFunctionPointer>(::GetProcAddress(lib, "wglGetProcAddress")));
         if (!WGL_GetProcAddress)
             goto cleanup;
 
         WNDCLASS wclass;
         wclass.cbClsExtra = 0;
         wclass.cbWndExtra = 0;
-        wclass.hInstance = static_cast<HINSTANCE>(GetModuleHandle(0));
-        wclass.hIcon = 0;
-        wclass.hCursor = 0;
+        wclass.hInstance = static_cast<HINSTANCE>(GetModuleHandle(nullptr));
+        wclass.hIcon = nullptr;
+        wclass.hCursor = nullptr;
         wclass.hbrBackground = HBRUSH(COLOR_BACKGROUND);
-        wclass.lpszMenuName = 0;
+        wclass.lpszMenuName = nullptr;
         wclass.lpfnWndProc = DefWindowProc;
         wclass.lpszClassName = className;
         wclass.style = CS_OWNDC;
         if (!RegisterClass(&wclass))
             goto cleanup;
         wnd = CreateWindow(className, L"qtopenglproxytest", WS_OVERLAPPED,
-                           0, 0, 640, 480, 0, 0, wclass.hInstance, 0);
+                           0, 0, 640, 480, nullptr, nullptr, wclass.hInstance, nullptr);
         if (!wnd)
             goto cleanup;
         dc = GetDC(wnd);
@@ -356,7 +457,8 @@ bool QWindowsOpenGLTester::testDesktopGL()
 
         // Check the version. If we got 1.x then it's all hopeless and we can stop right here.
         typedef const GLubyte * (APIENTRY * GetString_t)(GLenum name);
-        GetString_t GetString = reinterpret_cast<GetString_t>(::GetProcAddress(lib, "glGetString"));
+        GetString_t GetString = reinterpret_cast<GetString_t>(
+            reinterpret_cast<QFunctionPointer>(::GetProcAddress(lib, "glGetString")));
         if (GetString) {
             if (const char *versionStr = reinterpret_cast<const char *>(GetString(GL_VERSION))) {
                 const QByteArray version(versionStr);
@@ -395,14 +497,14 @@ bool QWindowsOpenGLTester::testDesktopGL()
 
 cleanup:
     if (MakeCurrent)
-        MakeCurrent(0, 0);
+        MakeCurrent(nullptr, nullptr);
     if (context)
         DeleteContext(context);
     if (dc && wnd)
         ReleaseDC(wnd, dc);
     if (wnd) {
         DestroyWindow(wnd);
-        UnregisterClass(className, GetModuleHandle(0));
+        UnregisterClass(className, GetModuleHandle(nullptr));
     }
     // No FreeLibrary. Some implementations, Mesa in particular, deadlock when trying to unload.
 

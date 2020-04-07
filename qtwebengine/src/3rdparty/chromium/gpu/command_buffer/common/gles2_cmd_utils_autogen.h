@@ -25,6 +25,7 @@ static std::string GetStringBufferfv(uint32_t value);
 static std::string GetStringBufferiv(uint32_t value);
 static std::string GetStringBufferuiv(uint32_t value);
 static std::string GetStringCapability(uint32_t value);
+static std::string GetStringClientBufferUsage(uint32_t value);
 static std::string GetStringCmpFunction(uint32_t value);
 static std::string GetStringCompressedTextureFormat(uint32_t value);
 static std::string GetStringCoverageModulationComponents(uint32_t value);
@@ -33,7 +34,7 @@ static std::string GetStringDstBlendFactor(uint32_t value);
 static std::string GetStringEquation(uint32_t value);
 static std::string GetStringFaceMode(uint32_t value);
 static std::string GetStringFaceType(uint32_t value);
-static std::string GetStringFramebufferParameter(uint32_t value);
+static std::string GetStringFramebufferAttachmentParameter(uint32_t value);
 static std::string GetStringFramebufferTarget(uint32_t value);
 static std::string GetStringGLState(uint32_t value);
 static std::string GetStringGetMaxIndexType(uint32_t value);
@@ -111,5 +112,6 @@ static std::string GetStringVertexAttribIType(uint32_t value);
 static std::string GetStringVertexAttribType(uint32_t value);
 static std::string GetStringVertexAttribute(uint32_t value);
 static std::string GetStringVertexPointer(uint32_t value);
+static std::string GetStringWindowRectanglesMode(uint32_t value);
 
 #endif  // GPU_COMMAND_BUFFER_COMMON_GLES2_CMD_UTILS_AUTOGEN_H_

@@ -29,8 +29,7 @@ void Log(media::MediaLogEvent* event) {
       event->type == media::MediaLogEvent::MEDIA_ERROR_LOG_ENTRY) {
     LOG(ERROR) << "MediaEvent: "
                << media::MediaLog::MediaEventToLogString(*event);
-  } else if (event->type != media::MediaLogEvent::PROPERTY_CHANGE &&
-             event->type != media::MediaLogEvent::WATCH_TIME_UPDATE) {
+  } else if (event->type != media::MediaLogEvent::PROPERTY_CHANGE) {
     MEDIA_EVENT_LOG_UTILITY << "MediaEvent: "
                             << media::MediaLog::MediaEventToLogString(*event);
   }
@@ -40,10 +39,12 @@ void Log(media::MediaLogEvent* event) {
 
 namespace content {
 
-RenderMediaLog::RenderMediaLog(const GURL& security_origin)
+RenderMediaLog::RenderMediaLog(
+    const GURL& security_origin,
+    scoped_refptr<base::SingleThreadTaskRunner> task_runner)
     : security_origin_(security_origin),
-      task_runner_(base::ThreadTaskRunnerHandle::Get()),
-      tick_clock_(new base::DefaultTickClock()),
+      task_runner_(std::move(task_runner)),
+      tick_clock_(base::DefaultTickClock::GetInstance()),
       last_ipc_send_time_(tick_clock_->NowTicks()),
       ipc_send_pending_(false),
       weak_factory_(this) {
@@ -109,7 +110,7 @@ void RenderMediaLog::AddEvent(std::unique_ptr<media::MediaLogEvent> event) {
   if (delay_for_next_ipc_send > base::TimeDelta()) {
     task_runner_->PostDelayedTask(
         FROM_HERE,
-        base::Bind(&RenderMediaLog::SendQueuedMediaEvents, weak_this_),
+        base::BindOnce(&RenderMediaLog::SendQueuedMediaEvents, weak_this_),
         delay_for_next_ipc_send);
     return;
   }
@@ -121,7 +122,7 @@ void RenderMediaLog::AddEvent(std::unique_ptr<media::MediaLogEvent> event) {
   }
   task_runner_->PostTask(
       FROM_HERE,
-      base::Bind(&RenderMediaLog::SendQueuedMediaEvents, weak_this_));
+      base::BindOnce(&RenderMediaLog::SendQueuedMediaEvents, weak_this_));
 }
 
 std::string RenderMediaLog::GetErrorMessage() {
@@ -149,8 +150,9 @@ std::string RenderMediaLog::GetErrorMessage() {
 void RenderMediaLog::RecordRapporWithSecurityOrigin(const std::string& metric) {
   if (!task_runner_->BelongsToCurrentThread()) {
     task_runner_->PostTask(
-        FROM_HERE, base::Bind(&RenderMediaLog::RecordRapporWithSecurityOrigin,
-                              weak_this_, metric));
+        FROM_HERE,
+        base::BindOnce(&RenderMediaLog::RecordRapporWithSecurityOrigin,
+                       weak_this_, metric));
     return;
   }
 
@@ -182,10 +184,9 @@ void RenderMediaLog::SendQueuedMediaEvents() {
   RenderThread::Get()->Send(new ViewHostMsg_MediaLogEvents(events_to_send));
 }
 
-void RenderMediaLog::SetTickClockForTesting(
-    std::unique_ptr<base::TickClock> tick_clock) {
+void RenderMediaLog::SetTickClockForTesting(const base::TickClock* tick_clock) {
   base::AutoLock auto_lock(lock_);
-  tick_clock_.swap(tick_clock);
+  tick_clock_ = tick_clock;
   last_ipc_send_time_ = tick_clock_->NowTicks();
 }
 

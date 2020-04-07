@@ -1,19 +1,19 @@
-/***************************************************************************/
-/*                                                                         */
-/*  t1driver.c                                                             */
-/*                                                                         */
-/*    Type 1 driver interface (body).                                      */
-/*                                                                         */
-/*  Copyright 1996-2017 by                                                 */
-/*  David Turner, Robert Wilhelm, and Werner Lemberg.                      */
-/*                                                                         */
-/*  This file is part of the FreeType project, and may only be used,       */
-/*  modified, and distributed under the terms of the FreeType project      */
-/*  license, LICENSE.TXT.  By continuing to use, modify, or distribute     */
-/*  this file you indicate that you have read the license and              */
-/*  understand and accept it fully.                                        */
-/*                                                                         */
-/***************************************************************************/
+/****************************************************************************
+ *
+ * t1driver.c
+ *
+ *   Type 1 driver interface (body).
+ *
+ * Copyright 1996-2018 by
+ * David Turner, Robert Wilhelm, and Werner Lemberg.
+ *
+ * This file is part of the FreeType project, and may only be used,
+ * modified, and distributed under the terms of the FreeType project
+ * license, LICENSE.TXT.  By continuing to use, modify, or distribute
+ * this file you indicate that you have read the license and
+ * understand and accept it fully.
+ *
+ */
 
 
 #include <ft2build.h>
@@ -30,6 +30,8 @@
 #include FT_INTERNAL_DEBUG_H
 #include FT_INTERNAL_STREAM_H
 #include FT_INTERNAL_HASH_H
+#include FT_INTERNAL_POSTSCRIPT_PROPS_H
+#include FT_DRIVER_H
 
 #include FT_SERVICE_MULTIPLE_MASTERS_H
 #include FT_SERVICE_GLYPH_DICT_H
@@ -37,22 +39,23 @@
 #include FT_SERVICE_POSTSCRIPT_NAME_H
 #include FT_SERVICE_POSTSCRIPT_CMAPS_H
 #include FT_SERVICE_POSTSCRIPT_INFO_H
+#include FT_SERVICE_PROPERTIES_H
 #include FT_SERVICE_KERNING_H
 
 
-  /*************************************************************************/
-  /*                                                                       */
-  /* The macro FT_COMPONENT is used in trace mode.  It is an implicit      */
-  /* parameter of the FT_TRACE() and FT_ERROR() macros, used to print/log  */
-  /* messages during execution.                                            */
-  /*                                                                       */
+  /**************************************************************************
+   *
+   * The macro FT_COMPONENT is used in trace mode.  It is an implicit
+   * parameter of the FT_TRACE() and FT_ERROR() macros, used to print/log
+   * messages during execution.
+   */
 #undef  FT_COMPONENT
 #define FT_COMPONENT  trace_t1driver
 
- /*
-  *  GLYPH DICT SERVICE
-  *
-  */
+  /*
+   * GLYPH DICT SERVICE
+   *
+   */
 
   static FT_Error
   t1_get_glyph_name( T1_Face     face,
@@ -94,7 +97,7 @@
 
 
   /*
-   *  POSTSCRIPT NAME SERVICE
+   * POSTSCRIPT NAME SERVICE
    *
    */
 
@@ -112,7 +115,7 @@
 
 
   /*
-   *  MULTIPLE MASTERS SERVICE
+   * MULTIPLE MASTERS SERVICE
    *
    */
 
@@ -126,6 +129,7 @@
     (FT_Get_MM_Var_Func)    T1_Get_MM_Var,         /* get_mm_var     */
     (FT_Set_Var_Design_Func)T1_Set_Var_Design,     /* set_var_design */
     (FT_Get_Var_Design_Func)T1_Get_Var_Design,     /* get_var_design */
+    (FT_Set_Instance_Func)  T1_Reset_MM_Blend,     /* set_instance   */
 
     (FT_Get_Var_Blend_Func) NULL,                  /* get_var_blend  */
     (FT_Done_Blend_Func)    T1_Done_Blend          /* done_blend     */
@@ -134,7 +138,7 @@
 
 
   /*
-   *  POSTSCRIPT INFO SERVICE
+   * POSTSCRIPT INFO SERVICE
    *
    */
 
@@ -614,7 +618,19 @@
 
 
   /*
-   *  SERVICE LIST
+   * PROPERTY SERVICE
+   *
+   */
+
+  FT_DEFINE_SERVICE_PROPERTIESREC(
+    t1_service_properties,
+
+    (FT_Properties_SetFunc)ps_property_set,      /* set_property */
+    (FT_Properties_GetFunc)ps_property_get )     /* get_property */
+
+
+  /*
+   * SERVICE LIST
    *
    */
 
@@ -624,6 +640,7 @@
     { FT_SERVICE_ID_GLYPH_DICT,           &t1_service_glyph_dict },
     { FT_SERVICE_ID_FONT_FORMAT,          FT_FONT_FORMAT_TYPE_1 },
     { FT_SERVICE_ID_POSTSCRIPT_INFO,      &t1_service_ps_info },
+    { FT_SERVICE_ID_PROPERTIES,           &t1_service_properties },
 
 #ifndef T1_CONFIG_OPTION_NO_AFM
     { FT_SERVICE_ID_KERNING,              &t1_service_kerning },
@@ -648,38 +665,42 @@
 
 #ifndef T1_CONFIG_OPTION_NO_AFM
 
-  /*************************************************************************/
-  /*                                                                       */
-  /* <Function>                                                            */
-  /*    Get_Kerning                                                        */
-  /*                                                                       */
-  /* <Description>                                                         */
-  /*    A driver method used to return the kerning vector between two      */
-  /*    glyphs of the same face.                                           */
-  /*                                                                       */
-  /* <Input>                                                               */
-  /*    face        :: A handle to the source face object.                 */
-  /*                                                                       */
-  /*    left_glyph  :: The index of the left glyph in the kern pair.       */
-  /*                                                                       */
-  /*    right_glyph :: The index of the right glyph in the kern pair.      */
-  /*                                                                       */
-  /* <Output>                                                              */
-  /*    kerning     :: The kerning vector.  This is in font units for      */
-  /*                   scalable formats, and in pixels for fixed-sizes     */
-  /*                   formats.                                            */
-  /*                                                                       */
-  /* <Return>                                                              */
-  /*    FreeType error code.  0 means success.                             */
-  /*                                                                       */
-  /* <Note>                                                                */
-  /*    Only horizontal layouts (left-to-right & right-to-left) are        */
-  /*    supported by this function.  Other layouts, or more sophisticated  */
-  /*    kernings are out of scope of this method (the basic driver         */
-  /*    interface is meant to be simple).                                  */
-  /*                                                                       */
-  /*    They can be implemented by format-specific interfaces.             */
-  /*                                                                       */
+  /**************************************************************************
+   *
+   * @Function:
+   *   Get_Kerning
+   *
+   * @Description:
+   *   A driver method used to return the kerning vector between two
+   *   glyphs of the same face.
+   *
+   * @Input:
+   *   face ::
+   *     A handle to the source face object.
+   *
+   *   left_glyph ::
+   *     The index of the left glyph in the kern pair.
+   *
+   *   right_glyph ::
+   *     The index of the right glyph in the kern pair.
+   *
+   * @Output:
+   *   kerning ::
+   *     The kerning vector.  This is in font units for
+   *     scalable formats, and in pixels for fixed-sizes
+   *     formats.
+   *
+   * @Return:
+   *   FreeType error code.  0 means success.
+   *
+   * @Note:
+   *   Only horizontal layouts (left-to-right & right-to-left) are
+   *   supported by this function.  Other layouts, or more sophisticated
+   *   kernings are out of scope of this method (the basic driver
+   *   interface is meant to be simple).
+   *
+   *   They can be implemented by format-specific interfaces.
+   */
   static FT_Error
   Get_Kerning( FT_Face     t1face,        /* T1_Face */
                FT_UInt     left_glyph,
@@ -713,7 +734,7 @@
       FT_MODULE_DRIVER_SCALABLE   |
       FT_MODULE_DRIVER_HAS_HINTER,
 
-      sizeof ( FT_DriverRec ),
+      sizeof ( PS_DriverRec ),
 
       "type1",
       0x10000L,

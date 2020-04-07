@@ -248,9 +248,9 @@ QPixmap::QPixmap(const char * const xpm[])
     QImage image(xpm);
     if (!image.isNull()) {
         if (data && data->pixelType() == QPlatformPixmap::BitmapType)
-            *this = QBitmap::fromImage(image);
+            *this = QBitmap::fromImage(std::move(image));
         else
-            *this = fromImage(image);
+            *this = fromImage(std::move(image));
     }
 }
 #endif
@@ -691,7 +691,7 @@ QBitmap QPixmap::createHeuristicMask(bool clipTight) const
 QBitmap QPixmap::createMaskFromColor(const QColor &maskColor, Qt::MaskMode mode) const
 {
     QImage image = toImage().convertToFormat(QImage::Format_ARGB32);
-    return QBitmap::fromImage(image.createMaskFromColor(maskColor.rgba(), mode));
+    return QBitmap::fromImage(std::move(image).createMaskFromColor(maskColor.rgba(), mode));
 }
 
 /*!
@@ -714,8 +714,8 @@ QBitmap QPixmap::createMaskFromColor(const QColor &maskColor, Qt::MaskMode mode)
     control the conversion.
 
     Note that QPixmaps are automatically added to the QPixmapCache
-    when loaded from a file; the key used is internal and can not
-    be acquired.
+    when loaded from a file in main thread; the key used is internal
+    and cannot be acquired.
 
     \sa loadFromData(), {QPixmap#Reading and Writing Image
     Files}{Reading and Writing Image Files}
@@ -729,6 +729,7 @@ bool QPixmap::load(const QString &fileName, const char *format, Qt::ImageConvers
         // Note: If no extension is provided, we try to match the
         // file against known plugin extensions
         if (info.completeSuffix().isEmpty() || info.exists()) {
+            const bool inGuiThread = qApp->thread() == QThread::currentThread();
 
             QString key = QLatin1String("qt_pixmap")
                     % info.absoluteFilePath()
@@ -736,13 +737,14 @@ bool QPixmap::load(const QString &fileName, const char *format, Qt::ImageConvers
                     % HexString<quint64>(info.size())
                     % HexString<uint>(data ? data->pixelType() : QPlatformPixmap::PixmapType);
 
-            if (QPixmapCache::find(key, this))
+            if (inGuiThread && QPixmapCache::find(key, this))
                 return true;
 
             data = QPlatformPixmap::create(0, 0, data ? data->pixelType() : QPlatformPixmap::PixmapType);
 
             if (data->fromFile(fileName, format, flags)) {
-                QPixmapCache::insert(key, *this);
+                if (inGuiThread)
+                    QPixmapCache::insert(key, *this);
                 return true;
             }
         }
@@ -1018,9 +1020,9 @@ QDataStream &operator>>(QDataStream &stream, QPixmap &pixmap)
     if (image.isNull()) {
         pixmap = QPixmap();
     } else if (image.depth() == 1) {
-        pixmap = QBitmap::fromImage(image);
+        pixmap = QBitmap::fromImage(std::move(image));
     } else {
-        pixmap = QPixmap::fromImage(image);
+        pixmap = QPixmap::fromImage(std::move(image));
     }
     return stream;
 }
@@ -1467,12 +1469,18 @@ QBitmap QPixmap::mask() const
 
     On all platforms the depth of the primary screen will be returned.
 
+    \note QGuiApplication must be created before calling this function.
+
     \sa depth(), QColormap::depth(), {QPixmap#Pixmap Information}{Pixmap Information}
 
 */
 int QPixmap::defaultDepth()
 {
-    return QGuiApplication::primaryScreen()->depth();
+    QScreen *primary = QGuiApplication::primaryScreen();
+    if (Q_LIKELY(primary))
+        return primary->depth();
+    qWarning("QPixmap: QGuiApplication must be created before calling defaultDepth().");
+    return 0;
 }
 
 /*!
@@ -1535,6 +1543,11 @@ QPixmap QPixmap::fromImage(const QImage &image, Qt::ImageConversionFlags flags)
     if (image.isNull())
         return QPixmap();
 
+    if (Q_UNLIKELY(!qobject_cast<QGuiApplication *>(QCoreApplication::instance()))) {
+        qWarning("QPixmap::fromImage: QPixmap cannot be created without a QGuiApplication");
+        return QPixmap();
+    }
+
     QScopedPointer<QPlatformPixmap> data(QGuiApplicationPrivate::platformIntegration()->createPlatformPixmap(QPlatformPixmap::PixmapType));
     data->fromImage(image, flags);
     return QPixmap(data.take());
@@ -1557,6 +1570,11 @@ QPixmap QPixmap::fromImageInPlace(QImage &image, Qt::ImageConversionFlags flags)
     if (image.isNull())
         return QPixmap();
 
+    if (Q_UNLIKELY(!qobject_cast<QGuiApplication *>(QCoreApplication::instance()))) {
+        qWarning("QPixmap::fromImageInPlace: QPixmap cannot be created without a QGuiApplication");
+        return QPixmap();
+    }
+
     QScopedPointer<QPlatformPixmap> data(QGuiApplicationPrivate::platformIntegration()->createPlatformPixmap(QPlatformPixmap::PixmapType));
     data->fromImageInPlace(image, flags);
     return QPixmap(data.take());
@@ -1576,6 +1594,11 @@ QPixmap QPixmap::fromImageInPlace(QImage &image, Qt::ImageConversionFlags flags)
 */
 QPixmap QPixmap::fromImageReader(QImageReader *imageReader, Qt::ImageConversionFlags flags)
 {
+    if (Q_UNLIKELY(!qobject_cast<QGuiApplication *>(QCoreApplication::instance()))) {
+        qWarning("QPixmap::fromImageReader: QPixmap cannot be created without a QGuiApplication");
+        return QPixmap();
+    }
+
     QScopedPointer<QPlatformPixmap> data(QGuiApplicationPrivate::platformIntegration()->createPlatformPixmap(QPlatformPixmap::PixmapType));
     data->fromImageReader(imageReader, flags);
     return QPixmap(data.take());

@@ -41,18 +41,19 @@
 #include <QtCore/QRegularExpression>
 #include <QtCore/QStringList>
 #include <QtPositioning/QGeoPath>
+#include <QtPositioning/QGeoPolygon>
 #include <QtQml/QJSValue>
 
 namespace {
 
-QString formatPropertyName(QString *name)
+QByteArray formatPropertyName(const QByteArray &name)
 {
+    QString nameAsString = QString::fromLatin1(name);
     static const QRegularExpression camelCaseRegex(QStringLiteral("([a-z0-9])([A-Z])"));
-
-    return name->replace(camelCaseRegex, QStringLiteral("\\1-\\2")).toLower();
+    return nameAsString.replace(camelCaseRegex, QStringLiteral("\\1-\\2")).toLower().toLatin1();
 }
 
-bool isImmutableProperty(const QString &name)
+bool isImmutableProperty(const QByteArray &name)
 {
     return name == QStringLiteral("type") || name == QStringLiteral("layer");
 }
@@ -66,7 +67,7 @@ QString getId(QDeclarativeGeoMapItemBase *mapItem)
 // Mapbox GL supports geometry segments that spans above 180 degrees in
 // longitude. To keep visual expectations in parity with Qt, we need to adapt
 // the coordinates to always use the shortest path when in ambiguity.
-bool geoRectangleCrossesDateLine(const QGeoRectangle &rect) {
+static bool geoRectangleCrossesDateLine(const QGeoRectangle &rect) {
     return rect.topLeft().longitude() > rect.bottomRight().longitude();
 }
 
@@ -89,18 +90,18 @@ QMapbox::Feature featureFromMapRectangle(QDeclarativeRectangleMapItem *mapItem)
 QMapbox::Feature featureFromMapCircle(QDeclarativeCircleMapItem *mapItem)
 {
     static const int circleSamples = 128;
-
+    const QGeoProjectionWebMercator &p = static_cast<const QGeoProjectionWebMercator&>(mapItem->map()->geoProjection());
     QList<QGeoCoordinate> path;
     QGeoCoordinate leftBound;
     QDeclarativeCircleMapItem::calculatePeripheralPoints(path, mapItem->center(), mapItem->radius(), circleSamples, leftBound);
     QList<QDoubleVector2D> pathProjected;
     for (const QGeoCoordinate &c : qAsConst(path))
-        pathProjected << mapItem->map()->geoProjection().geoToMapProjection(c);
+        pathProjected << p.geoToMapProjection(c);
     if (QDeclarativeCircleMapItem::crossEarthPole(mapItem->center(), mapItem->radius()))
-        mapItem->preserveCircleGeometry(pathProjected, mapItem->center(), mapItem->radius());
+        mapItem->preserveCircleGeometry(pathProjected, mapItem->center(), mapItem->radius(), p);
     path.clear();
     for (const QDoubleVector2D &c : qAsConst(pathProjected))
-        path << mapItem->map()->geoProjection().mapProjectionToGeo(c);
+        path << p.mapProjectionToGeo(c);
 
 
     QMapbox::Coordinates coordinates;
@@ -112,24 +113,35 @@ QMapbox::Feature featureFromMapCircle(QDeclarativeCircleMapItem *mapItem)
     return QMapbox::Feature(QMapbox::Feature::PolygonType, geometry, {}, getId(mapItem));
 }
 
-QMapbox::Feature featureFromMapPolygon(QDeclarativePolygonMapItem *mapItem)
+static QMapbox::Coordinates qgeocoordinate2mapboxcoordinate(const QList<QGeoCoordinate> &crds, const bool crossesDateline, bool closed = false)
 {
-    const QGeoPath *path = static_cast<const QGeoPath *>(&mapItem->geoShape());
     QMapbox::Coordinates coordinates;
-    const bool crossesDateline = geoRectangleCrossesDateLine(path->boundingGeoRectangle());
-    for (const QGeoCoordinate &coordinate : path->path()) {
+    for (const QGeoCoordinate &coordinate : crds) {
         if (!coordinates.empty() && crossesDateline && qAbs(coordinate.longitude() - coordinates.last().second) > 180.0) {
             coordinates << QMapbox::Coordinate { coordinate.latitude(), coordinate.longitude() + (coordinate.longitude() >= 0 ? -360.0 : 360.0) };
         } else {
             coordinates << QMapbox::Coordinate { coordinate.latitude(), coordinate.longitude() };
         }
     }
+    if (closed && !coordinates.empty() && coordinates.last() != coordinates.first())
+        coordinates.append(coordinates.first());  // closing the path
+    return coordinates;
+}
 
-    if (!coordinates.empty())
-        coordinates.append(coordinates.first()); // closing the path
+QMapbox::Feature featureFromMapPolygon(QDeclarativePolygonMapItem *mapItem)
+{
+    const QGeoPolygon *polygon = static_cast<const QGeoPolygon *>(&mapItem->geoShape());
+    const bool crossesDateline = geoRectangleCrossesDateLine(polygon->boundingGeoRectangle());
+    QMapbox::CoordinatesCollections geometry;
+    QMapbox::CoordinatesCollection poly;
+    QMapbox::Coordinates coordinates = qgeocoordinate2mapboxcoordinate(polygon->path(), crossesDateline, true);
+    poly.push_back(coordinates);
+    for (int i = 0; i < polygon->holesCount(); ++i) {
+        coordinates = qgeocoordinate2mapboxcoordinate(polygon->holePath(i), crossesDateline, true);
+        poly.push_back(coordinates);
+    }
 
-    QMapbox::CoordinatesCollections geometry { { coordinates } };
-
+    geometry.push_back(poly);
     return QMapbox::Feature(QMapbox::Feature::PolygonType, geometry, {}, getId(mapItem));
 }
 
@@ -165,6 +177,16 @@ QMapbox::Feature featureFromMapItem(QDeclarativeGeoMapItemBase *item)
         qWarning() << "Unsupported QGeoMap item type: " << item->itemType();
         return QMapbox::Feature();
     }
+}
+
+QList<QByteArray> getAllPropertyNamesList(QObject *object)
+{
+    const QMetaObject *metaObject = object->metaObject();
+    QList<QByteArray> propertyNames(object->dynamicPropertyNames());
+    for (int i = metaObject->propertyOffset(); i < metaObject->propertyCount(); ++i) {
+        propertyNames.append(metaObject->property(i).name());
+    }
+    return propertyNames;
 }
 
 } // namespace
@@ -257,22 +279,20 @@ QList<QSharedPointer<QMapboxGLStyleChange>> QMapboxGLStyleSetLayoutProperty::fro
 
     QList<QSharedPointer<QMapboxGLStyleChange>> changes;
 
-    // Offset objectName and type properties.
-    for (int i = 2; i < param->metaObject()->propertyCount(); ++i) {
-        QString name = param->metaObject()->property(i).name();
-
-        if (isImmutableProperty(name))
+    QList<QByteArray> propertyNames = getAllPropertyNamesList(param);
+    for (const QByteArray &propertyName : propertyNames) {
+        if (isImmutableProperty(propertyName))
             continue;
 
         auto layout = new QMapboxGLStyleSetLayoutProperty();
 
-        layout->m_value = param->property(name.toLatin1());
+        layout->m_value = param->property(propertyName);
         if (layout->m_value.canConvert<QJSValue>()) {
             layout->m_value = layout->m_value.value<QJSValue>().toVariant();
         }
 
         layout->m_layer = param->property("layer").toString();
-        layout->m_property = formatPropertyName(&name);
+        layout->m_property = formatPropertyName(propertyName);
 
         changes << QSharedPointer<QMapboxGLStyleChange>(layout);
     }
@@ -336,22 +356,20 @@ QList<QSharedPointer<QMapboxGLStyleChange>> QMapboxGLStyleSetPaintProperty::from
 
     QList<QSharedPointer<QMapboxGLStyleChange>> changes;
 
-    // Offset objectName and type properties.
-    for (int i = 2; i < param->metaObject()->propertyCount(); ++i) {
-        QString name = param->metaObject()->property(i).name();
-
-        if (isImmutableProperty(name))
+    QList<QByteArray> propertyNames = getAllPropertyNamesList(param);
+    for (const QByteArray &propertyName : propertyNames) {
+        if (isImmutableProperty(propertyName))
             continue;
 
         auto paint = new QMapboxGLStyleSetPaintProperty();
 
-        paint->m_value = param->property(name.toLatin1());
+        paint->m_value = param->property(propertyName);
         if (paint->m_value.canConvert<QJSValue>()) {
             paint->m_value = paint->m_value.value<QJSValue>().toVariant();
         }
 
         paint->m_layer = param->property("layer").toString();
-        paint->m_property = formatPropertyName(&name);
+        paint->m_property = formatPropertyName(propertyName);
 
         changes << QSharedPointer<QMapboxGLStyleChange>(paint);
     }
@@ -460,14 +478,16 @@ QSharedPointer<QMapboxGLStyleChange> QMapboxGLStyleAddLayer::fromMapParameter(QG
     static const QStringList layerProperties = QStringList()
         << QStringLiteral("name") << QStringLiteral("layerType") << QStringLiteral("before");
 
-    // Offset objectName and type properties.
-    for (int i = 2; i < param->metaObject()->propertyCount(); ++i) {
-        QString name = param->metaObject()->property(i).name();
-        QVariant value = param->property(name.toLatin1());
+    QList<QByteArray> propertyNames = getAllPropertyNamesList(param);
+    for (const QByteArray &propertyName : propertyNames) {
+        if (isImmutableProperty(propertyName))
+            continue;
 
-        switch (layerProperties.indexOf(name)) {
+        const QVariant value = param->property(propertyName);
+
+        switch (layerProperties.indexOf(propertyName)) {
         case -1:
-            layer->m_params[formatPropertyName(&name)] = value;
+            layer->m_params[formatPropertyName(propertyName)] = value;
             break;
         case 0: // name
             layer->m_params[QStringLiteral("id")] = value;
@@ -532,7 +552,7 @@ QSharedPointer<QMapboxGLStyleChange> QMapboxGLStyleAddSource::fromMapParameter(Q
     Q_ASSERT(param->type() == "source");
 
     static const QStringList acceptedSourceTypes = QStringList()
-        << QStringLiteral("vector") << QStringLiteral("raster") << QStringLiteral("geojson");
+        << QStringLiteral("vector") << QStringLiteral("raster") << QStringLiteral("raster-dem") << QStringLiteral("geojson");
 
     QString sourceType = param->property("sourceType").toString();
 
@@ -546,9 +566,10 @@ QSharedPointer<QMapboxGLStyleChange> QMapboxGLStyleAddSource::fromMapParameter(Q
         break;
     case 0: // vector
     case 1: // raster
+    case 2: // raster-dem
         source->m_params[QStringLiteral("url")] = param->property("url");
         break;
-    case 2: { // geojson
+    case 3: { // geojson
         auto data = param->property("data").toString();
         if (data.startsWith(':')) {
             QFile geojson(data);

@@ -14,7 +14,9 @@
 #include "angle_gl.h"
 #include "compiler/translator/ASTMetadataHLSL.h"
 #include "compiler/translator/Compiler.h"
-#include "compiler/translator/IntermTraverse.h"
+#include "compiler/translator/FlagStd140Structs.h"
+#include "compiler/translator/ImmutableString.h"
+#include "compiler/translator/tree_util/IntermTraverse.h"
 
 class BuiltInFunctionEmulator;
 
@@ -22,10 +24,23 @@ namespace sh
 {
 class StructureHLSL;
 class TextureFunctionHLSL;
+class TSymbolTable;
+class TVariable;
+class ImageFunctionHLSL;
 class UnfoldShortCircuit;
 class UniformHLSL;
 
-typedef std::map<TString, TIntermSymbol *> ReferencedSymbols;
+struct TReferencedBlock : angle::NonCopyable
+{
+    POOL_ALLOCATOR_NEW_DELETE();
+    TReferencedBlock(const TInterfaceBlock *block, const TVariable *instanceVariable);
+    const TInterfaceBlock *block;
+    const TVariable *instanceVariable;  // May be nullptr if the block is not instanced.
+};
+
+// Maps from uniqueId to a variable.
+using ReferencedInterfaceBlocks = std::map<int, const TReferencedBlock *>;
+using ReferencedVariables       = std::map<int, const TVariable *>;
 
 class OutputHLSL : public TIntermTraverser
 {
@@ -37,16 +52,18 @@ class OutputHLSL : public TIntermTraverser
                ShShaderOutput outputType,
                int numRenderTargets,
                const std::vector<Uniform> &uniforms,
-               ShCompileOptions compileOptions);
+               ShCompileOptions compileOptions,
+               TSymbolTable *symbolTable,
+               PerformanceDiagnostics *perfDiagnostics);
 
     ~OutputHLSL();
 
     void output(TIntermNode *treeRoot, TInfoSinkBase &objSink);
 
-    const std::map<std::string, unsigned int> &getInterfaceBlockRegisterMap() const;
+    const std::map<std::string, unsigned int> &getUniformBlockRegisterMap() const;
     const std::map<std::string, unsigned int> &getUniformRegisterMap() const;
 
-    static TString initializer(const TType &type);
+    static TString zeroInitializer(const TType &type);
 
     TInfoSinkBase &getInfoSink()
     {
@@ -54,10 +71,12 @@ class OutputHLSL : public TIntermTraverser
         return *mInfoSinkStack.top();
     }
 
-    static bool canWriteAsHLSLLiteral(TIntermTyped *expression);
-
   protected:
-    void header(TInfoSinkBase &out, const BuiltInFunctionEmulator *builtInFunctionEmulator);
+    void writeReferencedAttributes(TInfoSinkBase &out) const;
+    void writeReferencedVaryings(TInfoSinkBase &out) const;
+    void header(TInfoSinkBase &out,
+                const std::vector<MappedStruct> &std140Structs,
+                const BuiltInFunctionEmulator *builtInFunctionEmulator) const;
 
     void writeFloat(TInfoSinkBase &out, float f);
     void writeSingleConstant(TInfoSinkBase &out, const TConstantUnion *const constUnion);
@@ -66,24 +85,23 @@ class OutputHLSL : public TIntermTraverser
                                                   const size_t size);
 
     // Visit AST nodes and output their code to the body stream
-    void visitSymbol(TIntermSymbol *);
-    void visitRaw(TIntermRaw *);
-    void visitConstantUnion(TIntermConstantUnion *);
+    void visitSymbol(TIntermSymbol *) override;
+    void visitConstantUnion(TIntermConstantUnion *) override;
     bool visitSwizzle(Visit visit, TIntermSwizzle *node) override;
-    bool visitBinary(Visit visit, TIntermBinary *);
-    bool visitUnary(Visit visit, TIntermUnary *);
-    bool visitTernary(Visit visit, TIntermTernary *);
-    bool visitIfElse(Visit visit, TIntermIfElse *);
-    bool visitSwitch(Visit visit, TIntermSwitch *);
-    bool visitCase(Visit visit, TIntermCase *);
-    bool visitFunctionPrototype(Visit visit, TIntermFunctionPrototype *node) override;
+    bool visitBinary(Visit visit, TIntermBinary *) override;
+    bool visitUnary(Visit visit, TIntermUnary *) override;
+    bool visitTernary(Visit visit, TIntermTernary *) override;
+    bool visitIfElse(Visit visit, TIntermIfElse *) override;
+    bool visitSwitch(Visit visit, TIntermSwitch *) override;
+    bool visitCase(Visit visit, TIntermCase *) override;
+    void visitFunctionPrototype(TIntermFunctionPrototype *node) override;
     bool visitFunctionDefinition(Visit visit, TIntermFunctionDefinition *node) override;
-    bool visitAggregate(Visit visit, TIntermAggregate *);
-    bool visitBlock(Visit visit, TIntermBlock *node);
-    bool visitInvariantDeclaration(Visit visit, TIntermInvariantDeclaration *node);
-    bool visitDeclaration(Visit visit, TIntermDeclaration *node);
-    bool visitLoop(Visit visit, TIntermLoop *);
-    bool visitBranch(Visit visit, TIntermBranch *);
+    bool visitAggregate(Visit visit, TIntermAggregate *) override;
+    bool visitBlock(Visit visit, TIntermBlock *node) override;
+    bool visitInvariantDeclaration(Visit visit, TIntermInvariantDeclaration *node) override;
+    bool visitDeclaration(Visit visit, TIntermDeclaration *node) override;
+    bool visitLoop(Visit visit, TIntermLoop *) override;
+    bool visitBranch(Visit visit, TIntermBranch *) override;
 
     bool handleExcessiveLoop(TInfoSinkBase &out, TIntermLoop *node);
 
@@ -95,23 +113,17 @@ class OutputHLSL : public TIntermTraverser
                        const char *inString,
                        const char *postString);
     void outputLineDirective(TInfoSinkBase &out, int line);
-    TString argumentString(const TIntermSymbol *symbol);
-    int vectorSize(const TType &type) const;
+    void writeParameter(const TVariable *param, TInfoSinkBase &out);
 
-    // Emit constructor. Called with literal names so using const char* instead of TString.
-    void outputConstructor(TInfoSinkBase &out,
-                           Visit visit,
-                           const TType &type,
-                           const char *name,
-                           const TIntermSequence *parameters);
+    void outputConstructor(TInfoSinkBase &out, Visit visit, TIntermAggregate *node);
     const TConstantUnion *writeConstantUnion(TInfoSinkBase &out,
                                              const TType &type,
                                              const TConstantUnion *constUnion);
 
     void outputEqual(Visit visit, const TType &type, TOperator op, TInfoSinkBase &out);
+    void outputAssign(Visit visit, const TType &type, TInfoSinkBase &out);
 
     void writeEmulatedFunctionTriplet(TInfoSinkBase &out, Visit visit, TOperator op);
-    void makeFlaggedStructMaps(const std::vector<TIntermTyped *> &flaggedStructs);
 
     // Returns true if it found a 'same symbol' initializer (initializer that references the
     // variable it's initting)
@@ -153,15 +165,19 @@ class OutputHLSL : public TIntermTraverser
     // TODO (jmadill): Just passing an InfoSink in function parameters would be simpler.
     std::stack<TInfoSinkBase *> mInfoSinkStack;
 
-    ReferencedSymbols mReferencedUniforms;
-    ReferencedSymbols mReferencedInterfaceBlocks;
-    ReferencedSymbols mReferencedAttributes;
-    ReferencedSymbols mReferencedVaryings;
-    ReferencedSymbols mReferencedOutputVariables;
+    ReferencedVariables mReferencedUniforms;
+
+    // Indexed by block id, not instance id.
+    ReferencedInterfaceBlocks mReferencedUniformBlocks;
+
+    ReferencedVariables mReferencedAttributes;
+    ReferencedVariables mReferencedVaryings;
+    ReferencedVariables mReferencedOutputVariables;
 
     StructureHLSL *mStructureHLSL;
     UniformHLSL *mUniformHLSL;
     TextureFunctionHLSL *mTextureFunctionHLSL;
+    ImageFunctionHLSL *mImageFunctionHLSL;
 
     // Parameters determining what goes in the header output
     bool mUsesFragColor;
@@ -172,6 +188,8 @@ class OutputHLSL : public TIntermTraverser
     bool mUsesFrontFacing;
     bool mUsesPointSize;
     bool mUsesInstanceID;
+    bool mHasMultiviewExtensionEnabled;
+    bool mUsesViewID;
     bool mUsesVertexID;
     bool mUsesFragDepth;
     bool mUsesNumWorkGroups;
@@ -197,12 +215,7 @@ class OutputHLSL : public TIntermTraverser
 
     TIntermSymbol *mExcessiveLoopIndex;
 
-    TString structInitializerString(int indent,
-                                    const TStructure &structure,
-                                    const TString &rhsStructName);
-
-    std::map<TIntermTyped *, TString> mFlaggedStructMappedNames;
-    std::map<TIntermTyped *, TString> mFlaggedStructOriginalNames;
+    TString structInitializerString(int indent, const TType &type, const TString &name) const;
 
     struct HelperFunction
     {
@@ -237,8 +250,11 @@ class OutputHLSL : public TIntermTraverser
     // arrays can't be return values in HLSL.
     std::vector<ArrayHelperFunction> mArrayConstructIntoFunctions;
 
+    PerformanceDiagnostics *mPerfDiagnostics;
+
   private:
-    TString samplerNamePrefixFromStruct(TIntermTyped *node);
+    TString generateStructMapping(const std::vector<MappedStruct> &std140Structs) const;
+    ImmutableString samplerNamePrefixFromStruct(TIntermTyped *node);
     bool ancestorEvaluatesToSamplerInStruct();
 };
 }

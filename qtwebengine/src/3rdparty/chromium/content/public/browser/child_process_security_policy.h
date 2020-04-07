@@ -162,13 +162,20 @@ class ChildProcessSecurityPolicy {
   virtual void GrantDeleteFromFileSystem(int child_id,
                                          const std::string& filesystem_id) = 0;
 
-  // Grants the child process the capability to access URLs with the provided
+  // Grants the child process the capability to commit URLs with the provided
+  // origin. Usage should be extremely rare: the content framework already
+  // automatically grants this privilege as needed on successful navigation to a
+  // URL.
+  // If you think you need this, please reach out to site-isolation-dev@ first.
+  virtual void GrantCommitOrigin(int child_id, const url::Origin& origin) = 0;
+  //
+  // Grants the child process the capability to request URLs with the provided
   // origin.
-  virtual void GrantOrigin(int child_id, const url::Origin& origin) = 0;
+  virtual void GrantRequestOrigin(int child_id, const url::Origin& origin) = 0;
 
-  // Grants the child process the capability to access URLs of the provided
+  // Grants the child process the capability to request URLs of the provided
   // scheme.
-  virtual void GrantScheme(int child_id, const std::string& scheme) = 0;
+  virtual void GrantRequestScheme(int child_id, const std::string& scheme) = 0;
 
   // Returns true if read access has been granted to |filesystem_id|.
   virtual bool CanReadFileSystem(int child_id,
@@ -195,19 +202,40 @@ class ChildProcessSecurityPolicy {
   virtual void GrantSendMidiSysExMessage(int child_id) = 0;
 
   // Returns true if the process is permitted to read and modify the data for
-  // the given origin. This is currently used for cookies and passwords.
-  // Does not affect cookies attached to or set by network requests.
-  // Only might return false if the --site-per-process flag is used.
-  virtual bool CanAccessDataForOrigin(int child_id, const GURL& gurl) = 0;
-
-  // Returns true if GrantOrigin was called earlier with the same parameters.
+  // the origin of |url|. This is currently used to protect data such as
+  // cookies, passwords, and local storage. Does not affect cookies attached to
+  // or set by network requests.
   //
-  // TODO(alexmos): This currently exists to support checking whether a
-  // <webview> guest process has permission to request blob URLs in its
-  // embedder's origin on the IO thread.  This should be removed once that
-  // check is superseded by a UI thread check.  See https://crbug.com/656752.
-  virtual bool HasSpecificPermissionForOrigin(int child_id,
-                                              const url::Origin& origin) = 0;
+  // This can only return false for processes locked to a particular origin,
+  // which can happen for any origin when the --site-per-process flag is used,
+  // or for isolated origins that require a dedicated process (see
+  // AddIsolatedOrigin).
+  virtual bool CanAccessDataForOrigin(int child_id, const GURL& url) = 0;
+
+  // This function will check whether |origin| requires process isolation, and
+  // if so, it will return true and put the most specific matching isolated
+  // origin into |result|.
+  //
+  // Such origins may be registered with the --isolate-origins command-line
+  // flag, via features::IsolateOrigins, via an IsolateOrigins enterprise
+  // policy, or by a content/ embedder using
+  // ContentBrowserClient::GetOriginsRequiringDedicatedProcess().
+  //
+  // If |origin| does not require process isolation, this function will return
+  // false, and |result| will be a unique origin. This means that neither
+  // |origin|, nor any origins for which |origin| is a subdomain, have been
+  // registered as isolated origins.
+  //
+  // For example, if both https://isolated.com/ and
+  // https://bar.foo.isolated.com/ are registered as isolated origins, then the
+  // values returned in |result| are:
+  //   https://isolated.com/             -->  https://isolated.com/
+  //   https://foo.isolated.com/         -->  https://isolated.com/
+  //   https://bar.foo.isolated.com/     -->  https://bar.foo.isolated.com/
+  //   https://baz.bar.foo.isolated.com/ -->  https://bar.foo.isolated.com/
+  //   https://unisolated.com/           -->  (unique origin)
+  virtual bool GetMatchingIsolatedOrigin(const url::Origin& origin,
+                                         url::Origin* result) = 0;
 };
 
 }  // namespace content

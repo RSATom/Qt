@@ -8,10 +8,10 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/rtc_base/bytebuffer.h"
-#include "webrtc/rtc_base/arraysize.h"
-#include "webrtc/rtc_base/byteorder.h"
-#include "webrtc/rtc_base/gunit.h"
+#include "rtc_base/bytebuffer.h"
+#include "rtc_base/arraysize.h"
+#include "rtc_base/byteorder.h"
+#include "rtc_base/gunit.h"
 
 namespace rtc {
 
@@ -79,8 +79,8 @@ TEST(ByteBufferTest, TestBufferLength) {
 }
 
 TEST(ByteBufferTest, TestReadWriteBuffer) {
-  ByteBufferWriter::ByteOrder orders[2] = { ByteBufferWriter::ORDER_HOST,
-                                            ByteBufferWriter::ORDER_NETWORK };
+  ByteBufferWriter::ByteOrder orders[2] = {ByteBufferWriter::ORDER_HOST,
+                                           ByteBufferWriter::ORDER_NETWORK};
   for (size_t i = 0; i < arraysize(orders); i++) {
     ByteBufferWriter buffer(orders[i]);
     EXPECT_EQ(orders[i], buffer.Order());

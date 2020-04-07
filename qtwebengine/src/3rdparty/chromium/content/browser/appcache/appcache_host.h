@@ -22,6 +22,7 @@
 #include "content/common/content_export.h"
 #include "content/public/common/resource_type.h"
 #include "url/gurl.h"
+#include "url/origin.h"
 
 namespace net {
 class URLRequest;
@@ -49,12 +50,16 @@ class AppCacheRequest;
 class AppCacheRequestHandler;
 class AppCacheRequestHandlerTest;
 class AppCacheStorageImplTest;
+class AppCacheSubresourceURLFactory;
 class AppCacheTest;
-class AppCacheUpdateJobTest;
 
-typedef base::Callback<void(AppCacheStatus, void*)> GetStatusCallback;
-typedef base::Callback<void(bool, void*)> StartUpdateCallback;
-typedef base::Callback<void(bool, void*)> SwapCacheCallback;
+namespace appcache_update_job_unittest {
+class AppCacheUpdateJobTest;
+}
+
+using GetStatusCallback = base::OnceCallback<void(AppCacheStatus)>;
+using StartUpdateCallback = base::OnceCallback<void(bool)>;
+using SwapCacheCallback = base::OnceCallback<void(bool)>;
 
 // Server-side representation of an application cache host.
 class CONTENT_EXPORT AppCacheHost
@@ -87,17 +92,12 @@ class CONTENT_EXPORT AppCacheHost
   bool SelectCache(const GURL& document_url,
                    const int64_t cache_document_was_loaded_from,
                    const GURL& manifest_url);
-  bool SelectCacheForWorker(int parent_process_id,
-                            int parent_host_id);
   bool SelectCacheForSharedWorker(int64_t appcache_id);
   bool MarkAsForeignEntry(const GURL& document_url,
                           int64_t cache_document_was_loaded_from);
-  void GetStatusWithCallback(const GetStatusCallback& callback,
-                             void* callback_param);
-  void StartUpdateWithCallback(const StartUpdateCallback& callback,
-                               void* callback_param);
-  void SwapCacheWithCallback(const SwapCacheCallback& callback,
-                             void* callback_param);
+  void GetStatusWithCallback(GetStatusCallback callback);
+  void StartUpdateWithCallback(StartUpdateCallback callback);
+  void SwapCacheWithCallback(SwapCacheCallback callback);
 
   // Called prior to the main resource load. When the system contains multiple
   // candidates for a main resource load, the appcache preferred by the host
@@ -191,18 +191,24 @@ class CONTENT_EXPORT AppCacheHost
 
   const GURL& first_party_url() const { return first_party_url_; }
 
-  // Methods to support cross site navigations.
-  void PrepareForTransfer();
-  void CompleteTransfer(int host_id, AppCacheFrontend* frontend);
-
   // Returns a weak pointer reference to the host.
   base::WeakPtr<AppCacheHost> GetWeakPtr();
+
+  // In the network service world, we need to pass the URLLoaderFactory
+  // instance to the renderer which it can use to request subresources.
+  // This ensures that they can be served out of the AppCache.
+  void MaybePassSubresourceFactory();
+
+  // This is called when the frame is navigated to a page which loads from
+  // the AppCache.
+  void SetAppCacheSubresourceFactory(
+      AppCacheSubresourceURLFactory* subresource_factory);
 
  private:
   friend class content::AppCacheHostTest;
   friend class content::AppCacheStorageImplTest;
   friend class content::AppCacheRequestHandlerTest;
-  friend class content::AppCacheUpdateJobTest;
+  friend class content::appcache_update_job_unittest::AppCacheUpdateJobTest;
 
   AppCacheStatus GetStatus();
   void LoadSelectedCache(int64_t cache_id);
@@ -319,7 +325,6 @@ class CONTENT_EXPORT AppCacheHost
   GetStatusCallback pending_get_status_callback_;
   StartUpdateCallback pending_start_update_callback_;
   SwapCacheCallback pending_swap_cache_callback_;
-  void* pending_callback_param_;
 
   // True if an intercept or fallback namespace resource was
   // delivered as the main resource.
@@ -338,7 +343,7 @@ class CONTENT_EXPORT AppCacheHost
   base::ObserverList<Observer> observers_;
 
   // Used to inform the QuotaManager of what origins are currently in use.
-  GURL origin_in_use_;
+  url::Origin origin_in_use_;
 
   // First party url to be used in policy checks.
   GURL first_party_url_;
@@ -356,6 +361,9 @@ class CONTENT_EXPORT AppCacheHost
   FRIEND_TEST_ALL_PREFIXES(content::AppCacheHostTest, SelectCacheBlocked);
   FRIEND_TEST_ALL_PREFIXES(content::AppCacheHostTest, SelectCacheTwice);
   FRIEND_TEST_ALL_PREFIXES(content::AppCacheTest, CleanupUnusedCache);
+
+  // In the network service world points to the subresource URLLoaderFactory.
+  base::WeakPtr<AppCacheSubresourceURLFactory> subresource_url_factory_;
 
   base::WeakPtrFactory<AppCacheHost> weak_factory_;
 

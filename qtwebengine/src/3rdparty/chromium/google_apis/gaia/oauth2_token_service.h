@@ -14,6 +14,7 @@
 
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
+#include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "base/sequence_checker.h"
@@ -22,8 +23,12 @@
 #include "google_apis/gaia/oauth2_access_token_consumer.h"
 #include "google_apis/gaia/oauth2_access_token_fetcher.h"
 
-namespace net {
-class URLRequestContextGetter;
+namespace network {
+class SharedURLLoaderFactory;
+}
+
+namespace network {
+class SharedURLLoaderFactory;
 }
 
 class GoogleServiceAuthError;
@@ -110,6 +115,11 @@ class OAuth2TokenService {
     virtual void OnStartBatchChanges() {}
     // Sent after a batch of refresh token changes is done.
     virtual void OnEndBatchChanges() {}
+    // Called when the authentication error state for |account_id| has changed.
+    // Note: It is always called after |OnRefreshTokenAvailable| when refresh
+    // token is updated. It is not called when the refresh token is revoked.
+    virtual void OnAuthErrorChanged(const std::string& account_id,
+                                    const GoogleServiceAuthError& auth_error) {}
 
    protected:
     virtual ~Observer() {}
@@ -123,7 +133,7 @@ class OAuth2TokenService {
     // Called when receiving request for access token.
     virtual void OnAccessTokenRequested(const std::string& account_id,
                                         const std::string& consumer_id,
-                                        const ScopeSet& scopes) = 0;
+                                        const ScopeSet& scopes) {}
     // Called when access token fetching finished successfully or
     // unsuccessfully. |expiration_time| are only valid with
     // successful completion.
@@ -131,9 +141,9 @@ class OAuth2TokenService {
                                             const std::string& consumer_id,
                                             const ScopeSet& scopes,
                                             GoogleServiceAuthError error,
-                                            base::Time expiration_time) = 0;
+                                            base::Time expiration_time) {}
     virtual void OnTokenRemoved(const std::string& account_id,
-                                const ScopeSet& scopes) = 0;
+                                const ScopeSet& scopes) {}
   };
 
   explicit OAuth2TokenService(
@@ -169,12 +179,12 @@ class OAuth2TokenService {
       const ScopeSet& scopes,
       Consumer* consumer);
 
-  // This method does the same as |StartRequest| except it uses the request
-  // context given by |getter| instead of using the one returned by
-  // |GetRequestContext| implemented by derived classes.
+  // This method does the same as |StartRequest| except it uses the
+  // URLLoaderfactory given by |url_loader_factory| instead of using the one
+  // returned by |GetURLLoaderFactory| implemented by derived classes.
   std::unique_ptr<Request> StartRequestWithContext(
       const std::string& account_id,
-      net::URLRequestContextGetter* getter,
+      scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
       const ScopeSet& scopes,
       Consumer* consumer);
 
@@ -185,6 +195,14 @@ class OAuth2TokenService {
   // Returns true if a refresh token exists for |account_id|. If false, calls to
   // |StartRequest| will result in a Consumer::OnGetTokenFailure callback.
   bool RefreshTokenIsAvailable(const std::string& account_id) const;
+
+  // Returns true if a refresh token exists for |account_id| and it is in a
+  // persistent error state.
+  bool RefreshTokenHasError(const std::string& account_id) const;
+
+  // Returns the auth error associated with |account_id|. Only persistent errors
+  // will be returned.
+  GoogleServiceAuthError GetAuthError(const std::string& account_id) const;
 
   // This method cancels all token requests, revoke all refresh tokens and
   // cached access tokens.
@@ -274,17 +292,18 @@ class OAuth2TokenService {
 
   // Fetches an OAuth token for the specified client/scopes. Virtual so it can
   // be overridden for tests and for platform-specific behavior.
-  virtual void FetchOAuth2Token(RequestImpl* request,
-                                const std::string& account_id,
-                                net::URLRequestContextGetter* getter,
-                                const std::string& client_id,
-                                const std::string& client_secret,
-                                const ScopeSet& scopes);
+  virtual void FetchOAuth2Token(
+      RequestImpl* request,
+      const std::string& account_id,
+      scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
+      const std::string& client_id,
+      const std::string& client_secret,
+      const ScopeSet& scopes);
 
   // Create an access token fetcher for the given account id.
   OAuth2AccessTokenFetcher* CreateAccessTokenFetcher(
       const std::string& account_id,
-      net::URLRequestContextGetter* getter,
+      scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
       OAuth2AccessTokenConsumer* consumer);
 
   // Invalidates the |access_token| issued for |account_id|, |client_id| and
@@ -317,9 +336,9 @@ class OAuth2TokenService {
     ScopeSet scopes;
   };
 
-  // Provide a request context used for fetching access tokens with the
+  // Provide a URLLoaderFactory used for fetching access tokens with the
   // |StartRequest| method.
-  net::URLRequestContextGetter* GetRequestContext() const;
+  scoped_refptr<network::SharedURLLoaderFactory> GetURLLoaderFactory() const;
 
   // Struct that contains the information of an OAuth2 access token.
   struct CacheEntry {
@@ -332,21 +351,16 @@ class OAuth2TokenService {
   // client app instead of using Chrome's default values.
   std::unique_ptr<Request> StartRequestForClientWithContext(
       const std::string& account_id,
-      net::URLRequestContextGetter* getter,
+      scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
       const std::string& client_id,
       const std::string& client_secret,
       const ScopeSet& scopes,
       Consumer* consumer);
 
-  // Returns true if GetCacheEntry would return a valid cache entry for the
-  // given scopes.
-  bool HasCacheEntry(const RequestParameters& client_scopes);
-
-  // Posts a task to fire the Consumer callback with the cached token.  Must
-  // Must only be called if HasCacheEntry() returns true.
-  void StartCacheLookupRequest(RequestImpl* request,
-                               const RequestParameters& client_scopes,
-                               Consumer* consumer);
+  // Posts a task to fire the Consumer callback with the cached token.
+  void InformConsumerWithCacheEntry(const CacheEntry* cache_entry,
+                                    RequestImpl* request,
+                                    const RequestParameters& client_scopes);
 
   // Returns a currently valid OAuth2 access token for the given set of scopes,
   // or NULL if none have been cached. Note the user of this method should

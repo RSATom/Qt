@@ -4,11 +4,11 @@
 
 #include "components/offline_pages/core/background/pick_request_task.h"
 
-#include <deque>
 #include <memory>
 #include <set>
 
 #include "base/bind.h"
+#include "base/containers/circular_deque.h"
 #include "base/test/test_simple_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
@@ -100,7 +100,10 @@ class PickRequestTaskTest : public testing::Test {
 
   void AddRequestDone(ItemActionStatus status);
 
-  void RequestPicked(const SavePageRequest& request, bool cleanup_needed);
+  void RequestPicked(
+      const SavePageRequest& request,
+      const std::unique_ptr<std::vector<SavePageRequest>> available_requests,
+      bool cleanup_needed);
 
   void RequestNotPicked(const bool non_user_requested_tasks_remaining,
                         bool cleanup_needed);
@@ -128,7 +131,7 @@ class PickRequestTaskTest : public testing::Test {
   std::unique_ptr<OfflinerPolicy> policy_;
   RequestCoordinatorEventLogger event_logger_;
   std::set<int64_t> disabled_requests_;
-  std::deque<int64_t> prioritized_requests_;
+  base::circular_deque<int64_t> prioritized_requests_;
   std::unique_ptr<PickRequestTask> task_;
   bool request_queue_not_picked_called_;
   bool cleanup_needed_;
@@ -160,8 +163,8 @@ void PickRequestTaskTest::SetUp() {
   last_picked_.reset();
   cleanup_needed_ = false;
 
-  store_->Initialize(base::Bind(&PickRequestTaskTest::InitializeStoreDone,
-                                base::Unretained(this)));
+  store_->Initialize(base::BindOnce(&PickRequestTaskTest::InitializeStoreDone,
+                                    base::Unretained(this)));
   PumpLoop();
 }
 
@@ -175,8 +178,10 @@ void PickRequestTaskTest::TaskCompletionCallback(Task* completed_task) {
 
 void PickRequestTaskTest::AddRequestDone(ItemActionStatus status) {}
 
-void PickRequestTaskTest::RequestPicked(const SavePageRequest& request,
-                                        const bool cleanup_needed) {
+void PickRequestTaskTest::RequestPicked(
+    const SavePageRequest& request,
+    std::unique_ptr<std::vector<SavePageRequest>> available_requests,
+    const bool cleanup_needed) {
   last_picked_.reset(new SavePageRequest(request));
   cleanup_needed_ = cleanup_needed;
 }
@@ -199,10 +204,12 @@ void PickRequestTaskTest::QueueRequests(const SavePageRequest& request1,
   DeviceConditions conditions;
   std::set<int64_t> disabled_requests;
   // Add test requests on the Queue.
-  store_->AddRequest(request1, base::Bind(&PickRequestTaskTest::AddRequestDone,
-                                          base::Unretained(this)));
-  store_->AddRequest(request2, base::Bind(&PickRequestTaskTest::AddRequestDone,
-                                          base::Unretained(this)));
+  store_->AddRequest(request1,
+                     base::BindOnce(&PickRequestTaskTest::AddRequestDone,
+                                    base::Unretained(this)));
+  store_->AddRequest(request2,
+                     base::BindOnce(&PickRequestTaskTest::AddRequestDone,
+                                    base::Unretained(this)));
 
   // Pump the loop to give the async queue the opportunity to do the adds.
   PumpLoop();
@@ -212,16 +219,17 @@ void PickRequestTaskTest::MakePickRequestTask() {
   DeviceConditions conditions;
   task_.reset(new PickRequestTask(
       store_.get(), policy_.get(),
-      base::Bind(&PickRequestTaskTest::RequestPicked, base::Unretained(this)),
-      base::Bind(&PickRequestTaskTest::RequestNotPicked,
-                 base::Unretained(this)),
-      base::Bind(&PickRequestTaskTest::RequestCountCallback,
-                 base::Unretained(this)),
+      base::BindOnce(&PickRequestTaskTest::RequestPicked,
+                     base::Unretained(this)),
+      base::BindOnce(&PickRequestTaskTest::RequestNotPicked,
+                     base::Unretained(this)),
+      base::BindOnce(&PickRequestTaskTest::RequestCountCallback,
+                     base::Unretained(this)),
       conditions, disabled_requests_, prioritized_requests_));
   task_->SetTaskCompletionCallbackForTesting(
       task_runner_.get(),
-      base::Bind(&PickRequestTaskTest::TaskCompletionCallback,
-                 base::Unretained(this)));
+      base::BindRepeating(&PickRequestTaskTest::TaskCompletionCallback,
+                          base::Unretained(this)));
 }
 
 void PickRequestTaskTest::InitializeStoreDone(bool success) {

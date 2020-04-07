@@ -27,7 +27,6 @@
 
 #include "base/base_switches.h"
 #include "base/command_line.h"
-#include "base/debug/crash_logging.h"
 #include "base/debug/dump_without_crashing.h"
 #include "base/files/file_path.h"
 #include "base/lazy_instance.h"
@@ -40,22 +39,23 @@
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/threading/thread_checker.h"
-#include "breakpad/src/client/linux/crash_generation/crash_generation_client.h"
-#include "breakpad/src/client/linux/handler/exception_handler.h"
-#include "breakpad/src/client/linux/minidump_writer/directory_reader.h"
-#include "breakpad/src/common/linux/linux_libc_support.h"
-#include "breakpad/src/common/memory.h"
 #include "build/build_config.h"
 #include "components/crash/content/app/breakpad_linux_impl.h"
 #include "components/crash/content/app/crash_reporter_client.h"
 #include "components/crash/core/common/crash_keys.h"
 #include "content/public/common/content_descriptors.h"
+#include "third_party/breakpad/breakpad/src/client/linux/crash_generation/crash_generation_client.h"
+#include "third_party/breakpad/breakpad/src/client/linux/handler/exception_handler.h"
+#include "third_party/breakpad/breakpad/src/client/linux/minidump_writer/directory_reader.h"
+#include "third_party/breakpad/breakpad/src/common/linux/linux_libc_support.h"
+#include "third_party/breakpad/breakpad/src/common/memory_allocator.h"
 
 #if defined(OS_ANDROID)
 #include <android/log.h>
 #include <sys/stat.h>
 
 #include "base/android/build_info.h"
+#include "base/android/java_exception_reporter.h"
 #include "base/android/path_utils.h"
 #include "base/debug/leak_annotations.h"
 #endif
@@ -110,6 +110,21 @@ uint32_t g_dumps_suppressed = 0;
 char* g_process_type = nullptr;
 ExceptionHandler* g_microdump = nullptr;
 int g_signal_code_pipe_fd = -1;
+char* g_java_exception_info = nullptr;
+
+void SetJavaExceptionInfo(const char* exception) {
+  if (g_java_exception_info) {
+    // The old exception should be cleared before setting a new one.
+    DCHECK(!exception);
+    free(g_java_exception_info);
+  }
+
+  if (exception) {
+    g_java_exception_info = strndup(exception, 5 * 4096);
+  } else {
+    g_java_exception_info = nullptr;
+  }
+}
 
 class MicrodumpInfo {
  public:
@@ -147,8 +162,6 @@ base::LazyInstance<MicrodumpInfo>::DestructorAtExit g_microdump_info =
     LAZY_INSTANCE_INITIALIZER;
 
 #endif
-
-CrashKeyStorage* g_crash_keys = nullptr;
 
 // Writes the value |v| as 16 hex characters to the memory pointed at by
 // |output|.
@@ -192,8 +205,8 @@ void SetProcessStartTime() {
 }
 
 // uint64_t version of my_int_len() from
-// breakpad/src/common/linux/linux_libc_support.h. Return the length of the
-// given, non-negative integer when expressed in base 10.
+// third_party/breakpad/breakpad/src/common/linux/linux_libc_support.h. Return
+// the length of the given, non-negative integer when expressed in base 10.
 unsigned my_uint64_len(uint64_t i) {
   if (!i)
     return 1;
@@ -208,8 +221,8 @@ unsigned my_uint64_len(uint64_t i) {
 }
 
 // uint64_t version of my_uitos() from
-// breakpad/src/common/linux/linux_libc_support.h. Convert a non-negative
-// integer to a string (not null-terminated).
+// third_party/breakpad/breakpad/src/common/linux/linux_libc_support.h. Convert
+// a non-negative integer to a string (not null-terminated).
 void my_uint64tos(char* output, uint64_t i, unsigned i_len) {
   for (unsigned index = i_len; index; --index, i /= 10)
     output[index - 1] = '0' + (i % 10);
@@ -249,7 +262,7 @@ void SetChannelFromCommandLine(const base::CommandLine& command_line) {
   if (!GetEnableCrashReporterSwitchParts(command_line, &switch_parts))
     return;
 
-  base::debug::SetCrashKeyValue(crash_keys::kChannel, switch_parts[1]);
+  SetChannelCrashKey(switch_parts[1]);
 }
 #endif
 
@@ -559,7 +572,7 @@ void CrashReporterWriter::AddFileContents(const char* filename_msg,
 
 #if defined(OS_ANDROID)
 // Writes the "package" field, which is in the format:
-// $PACKAGE_NAME v$VERSION_CODE ($VERSION_NAME)
+// $FIREBASE_APP_ID v$VERSION_CODE ($VERSION_NAME)
 void WriteAndroidPackage(MimeWriter& writer,
                          base::android::BuildInfo* android_build_info) {
   // The actual size limits on packageId and versionName are quite generous.
@@ -568,7 +581,7 @@ void WriteAndroidPackage(MimeWriter& writer,
   char buf[kMaxSize];
 
   // Not using sprintf to ensure no heap allocations.
-  my_strlcpy(buf, android_build_info->package_name(), kMaxSize);
+  my_strlcpy(buf, android_build_info->firebase_app_id(), kMaxSize);
   my_strlcat(buf, " v", kMaxSize);
   my_strlcat(buf, android_build_info->package_version_code(), kMaxSize);
   my_strlcat(buf, " (", kMaxSize);
@@ -625,7 +638,8 @@ bool FinalizeCrashDoneAndroid(bool is_browser_process) {
   AndroidLogWriteHorizontalRule();
 
   if (!is_browser_process &&
-      android_build_info->sdk_int() >= 18 &&
+      android_build_info->sdk_int() >=
+          base::android::SDK_VERSION_JELLY_BEAN_MR2 &&
       my_strcmp(android_build_info->build_type(), "eng") != 0 &&
       my_strcmp(android_build_info->build_type(), "userdebug") != 0) {
     // On JB MR2 and later, the system crash handler displays a dialog. For
@@ -692,7 +706,7 @@ bool CrashDone(const MinidumpDescriptor& minidump,
   info.process_start_time = g_process_start_time;
   info.oom_size = base::g_oom_size;
   info.pid = g_pid;
-  info.crash_keys = g_crash_keys;
+  info.crash_keys = crash_reporter::internal::GetCrashKeyStorage();
   HandleCrashDump(info);
 #if defined(OS_ANDROID)
   return !should_finalize ||
@@ -778,7 +792,7 @@ void EnableCrashDumping(bool unattended) {
   g_is_crash_reporter_enabled = true;
 
   base::FilePath tmp_path("/tmp");
-  PathService::Get(base::DIR_TEMP, &tmp_path);
+  base::PathService::Get(base::DIR_TEMP, &tmp_path);
 
   base::FilePath dumps_path(tmp_path);
   if (GetCrashReporterClient()->GetCrashDumpLocation(&dumps_path)) {
@@ -871,7 +885,7 @@ bool CrashDoneInProcessNoUpload(
   info.upload = false;
   info.process_start_time = g_process_start_time;
   info.pid = g_pid;
-  info.crash_keys = g_crash_keys;
+  info.crash_keys = crash_reporter::internal::GetCrashKeyStorage();
   HandleCrashDump(info);
   return FinalizeCrashDoneAndroid(false /* is_browser_process */);
 }
@@ -994,8 +1008,7 @@ class NonBrowserCrashHandler : public google_breakpad::CrashGenerationClient {
  public:
   NonBrowserCrashHandler()
       : server_fd_(base::GlobalDescriptors::GetInstance()->Get(
-            kCrashDumpSignal)) {
-  }
+            service_manager::kCrashDumpSignal)) {}
 
   ~NonBrowserCrashHandler() override {}
 
@@ -1033,7 +1046,7 @@ class NonBrowserCrashHandler : public google_breakpad::CrashGenerationClient {
     iov[4].iov_base = &base::g_oom_size;
     iov[4].iov_len = sizeof(base::g_oom_size);
     google_breakpad::SerializedNonAllocatingMap* serialized_map;
-    iov[5].iov_len = g_crash_keys->Serialize(
+    iov[5].iov_len = crash_reporter::internal::GetCrashKeyStorage()->Serialize(
         const_cast<const google_breakpad::SerializedNonAllocatingMap**>(
             &serialized_map));
     iov[5].iov_base = serialized_map;
@@ -1109,26 +1122,13 @@ bool IsInWhiteList(const base::StringPiece& key) {
   return false;
 }
 
-void SetCrashKeyValue(const base::StringPiece& key,
-                      const base::StringPiece& value) {
-  if (!g_use_crash_key_white_list || IsInWhiteList(key)) {
-    g_crash_keys->SetKeyValue(key.data(), value.data());
-  }
-}
-
-void ClearCrashKey(const base::StringPiece& key) {
-  g_crash_keys->RemoveKey(key.data());
-}
-
 // GetCrashReporterClient() cannot call any Set methods until after
 // InitCrashKeys().
 void InitCrashKeys() {
-  g_crash_keys = new CrashKeyStorage;
-  GetCrashReporterClient()->RegisterCrashKeys();
+  crash_reporter::InitializeCrashKeys();
   g_use_crash_key_white_list =
       GetCrashReporterClient()->UseCrashKeysWhiteList();
   g_crash_key_white_list = GetCrashReporterClient()->GetCrashKeyWhiteList();
-  base::debug::SetCrashKeyReportingFunctions(&SetCrashKeyValue, &ClearCrashKey);
 }
 
 // Miscellaneous initialization functions to call after Breakpad has been
@@ -1391,7 +1391,8 @@ size_t WaitForCrashReportUploadProcess(int fd, size_t bytes_to_read,
     if (ret < 0) {
       // Error
       break;
-    } else if (ret > 0) {
+    }
+    if (ret > 0) {
       // There is data to read.
       ssize_t len = HANDLE_EINTR(
           sys_read(fd, buf + bytes_read, bytes_to_read - bytes_read));
@@ -1711,6 +1712,8 @@ void HandleCrashDump(const BreakpadInfo& info) {
     }
 #if defined(OS_ANDROID)
     // Addtional MIME blocks are added for logging on Android devices.
+    // When make changes to the name, please sync it with
+    // PureJavaExceptionReporter.java if needed.
     static const char android_build_id[] = "android_build_id";
     static const char android_build_fp[] = "android_build_fp";
     static const char device[] = "device";
@@ -1719,7 +1722,10 @@ void HandleCrashDump(const BreakpadInfo& info) {
     static const char abi_name[] = "abi_name";
     static const char model[] = "model";
     static const char brand[] = "brand";
+    static const char board[] = "board";
     static const char exception_info[] = "exception_info";
+    static const char custom_themes[] = "custom_themes";
+    static const char resources_version[] = "resources_version";
 
     base::android::BuildInfo* android_build_info =
         base::android::BuildInfo::GetInstance();
@@ -1735,6 +1741,8 @@ void HandleCrashDump(const BreakpadInfo& info) {
     writer.AddBoundary();
     writer.AddPairString(brand, android_build_info->brand());
     writer.AddBoundary();
+    writer.AddPairString(board, android_build_info->board());
+    writer.AddBoundary();
     writer.AddPairString(gms_core_version,
         android_build_info->gms_version_code());
     writer.AddBoundary();
@@ -1743,11 +1751,18 @@ void HandleCrashDump(const BreakpadInfo& info) {
     writer.AddBoundary();
     writer.AddPairString(abi_name, android_build_info->abi_name());
     writer.AddBoundary();
-    WriteAndroidPackage(writer, android_build_info);
+    writer.AddPairString(custom_themes, android_build_info->custom_themes());
     writer.AddBoundary();
-    if (android_build_info->java_exception_info() != nullptr) {
-      writer.AddPairString(exception_info,
-                           android_build_info->java_exception_info());
+    writer.AddPairString(resources_version,
+                         android_build_info->resources_version());
+    writer.AddBoundary();
+    // Don't write the field if no Firebase ID is set.
+    if (android_build_info->firebase_app_id()[0] != '\0') {
+      WriteAndroidPackage(writer, android_build_info);
+      writer.AddBoundary();
+    }
+    if (g_java_exception_info != nullptr) {
+      writer.AddPairString(exception_info, g_java_exception_info);
       writer.AddBoundary();
     }
 #endif
@@ -1798,9 +1813,13 @@ void HandleCrashDump(const BreakpadInfo& info) {
   }
 
   if (info.crash_keys) {
+    using CrashKeyStorage =
+        crash_reporter::internal::TransitionalCrashKeyStorage;
     CrashKeyStorage::Iterator crash_key_iterator(*info.crash_keys);
     const CrashKeyStorage::Entry* entry;
     while ((entry = crash_key_iterator.Next())) {
+      if (g_use_crash_key_white_list && !IsInWhiteList(entry->key))
+        continue;
       writer.AddPairString(entry->key, entry->value);
       writer.AddBoundary();
       writer.Flush();
@@ -1937,12 +1956,9 @@ void InitCrashReporter(const std::string& process_type,
 #else
 void InitCrashReporter(const std::string& process_type) {
 #endif  // defined(OS_ANDROID)
-  // The maximum lengths specified by breakpad include the trailing NULL, so the
-  // actual length of the chunk is one less.
-  static_assert(crash_keys::kChunkMaxLength == 63, "kChunkMaxLength mismatch");
-  static_assert(crash_keys::kSmallSize <= crash_keys::kChunkMaxLength,
-                "crash key chunk size too small");
 #if defined(OS_ANDROID)
+  base::android::SetJavaExceptionCallback(SetJavaExceptionInfo);
+
   // This will guarantee that the BuildInfo has been initialized and subsequent
   // calls will not require memory allocation.
   base::android::BuildInfo::GetInstance();
@@ -2011,6 +2027,11 @@ void InitCrashReporter(const std::string& process_type) {
   PostEnableBreakpadInitialization();
 }
 
+void SetChannelCrashKey(const std::string& channel) {
+  static crash_reporter::CrashKeyString<16> channel_key("channel");
+  channel_key.Set(channel);
+}
+
 #if defined(OS_ANDROID)
 void InitNonBrowserCrashReporterForAndroid(const std::string& process_type) {
   SanitizationInfo sanitization_info;
@@ -2024,6 +2045,8 @@ void InitNonBrowserCrashReporterForAndroid(
     const SanitizationInfo& sanitization_info) {
   const base::CommandLine* command_line =
       base::CommandLine::ForCurrentProcess();
+
+  base::android::SetJavaExceptionCallback(SetJavaExceptionInfo);
 
   // Handler registration is LIFO. Install the microdump handler first, such
   // that if conventional minidump crash reporting is enabled below, it takes

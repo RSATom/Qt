@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include "base/numerics/math_constants.h"
 #include "base/strings/stringprintf.h"
 #include "ui/gfx/geometry/vector3d_f.h"
 
@@ -80,15 +81,26 @@ Quaternion Quaternion::Lerp(const Quaternion& q, double t) const {
   return (((1.0 - t) * *this) + (t * q)).Normalized();
 }
 
+double Quaternion::Length() const {
+  return x_ * x_ + y_ * y_ + z_ * z_ + w_ * w_;
+}
+
 Quaternion Quaternion::Normalized() const {
-  double length = x_ * x_ + y_ * y_ + z_ * z_ + w_ * w_;
+  double length = Length();
   if (length < kEpsilon)
     return *this;
   return *this / sqrt(length);
 }
 
 std::string Quaternion::ToString() const {
-  return base::StringPrintf("[%f %f %f %f]", x_, y_, z_, w_);
+  // q = (con(abs(v_theta)/2), v_theta/abs(v_theta) * sin(abs(v_theta)/2))
+  float abs_theta = acos(w_) * 2;
+  float scale = 1. / sin(abs_theta * .5);
+  gfx::Vector3dF v(x_, y_, z_);
+  v.Scale(scale);
+  return base::StringPrintf("[%f %f %f %f], v:", x_, y_, z_, w_) +
+         v.ToString() +
+         base::StringPrintf(", θ:%fπ", abs_theta / base::kPiFloat);
 }
 
 }  // namespace gfx

@@ -33,8 +33,7 @@
 #include <wayland-server.h>
 
 TestCompositor::TestCompositor(bool createInputDev)
-    : QWaylandCompositor()
-    , shell(new QWaylandWlShell(this))
+    : shell(new QWaylandWlShell(this))
     , m_createSeat(createInputDev)
 {
     setSocketName("wayland-qt-test-0");
@@ -42,7 +41,7 @@ TestCompositor::TestCompositor(bool createInputDev)
 
 void TestCompositor::create()
 {
-    new QWaylandOutput(this, Q_NULLPTR);
+    new QWaylandOutput(this, nullptr);
     QWaylandCompositor::create();
 
     connect(this, &QWaylandCompositor::surfaceCreated, this, &TestCompositor::onSurfaceCreated);

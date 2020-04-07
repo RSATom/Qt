@@ -15,11 +15,14 @@
 #include "base/files/file_util.h"
 #include "base/macros.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/stl_util.h"
 #include "sql/connection.h"
 #include "sql/meta_table.h"
 #include "sql/statement.h"
 #include "sql/transaction.h"
 #include "storage/browser/quota/special_storage_policy.h"
+
+using blink::mojom::StorageType;
 
 namespace storage {
 namespace {
@@ -125,9 +128,7 @@ struct QuotaDatabase::QuotaTableImporter {
 
 // Clang requires explicit out-of-line constructors for them.
 QuotaDatabase::QuotaTableEntry::QuotaTableEntry()
-    : type(kStorageTypeUnknown),
-      quota(0) {
-}
+    : type(StorageType::kUnknown), quota(0) {}
 
 QuotaDatabase::QuotaTableEntry::QuotaTableEntry(const std::string& host,
                                                 StorageType type,
@@ -135,9 +136,7 @@ QuotaDatabase::QuotaTableEntry::QuotaTableEntry(const std::string& host,
     : host(host), type(type), quota(quota) {}
 
 QuotaDatabase::OriginInfoTableEntry::OriginInfoTableEntry()
-    : type(kStorageTypeUnknown),
-      used_count(0) {
-}
+    : type(StorageType::kUnknown), used_count(0) {}
 
 QuotaDatabase::OriginInfoTableEntry::OriginInfoTableEntry(
     const GURL& origin,
@@ -199,6 +198,8 @@ bool QuotaDatabase::SetHostQuota(const std::string& host,
   DCHECK_GE(quota, 0);
   if (!LazyOpen(true))
     return false;
+  if (quota == 0)
+    return DeleteHostQuota(host, type);
   if (!InsertOrReplaceHostQuota(host, type, quota))
     return false;
   ScheduleCommit();
@@ -225,9 +226,10 @@ bool QuotaDatabase::SetOriginLastAccessTime(
     entry.used_count = 1;
     const char* kSql =
         "INSERT INTO OriginInfoTable"
-        " (used_count, last_access_time, origin, type)"
-        " VALUES (?, ?, ?, ?)";
+        " (used_count, last_access_time, origin, type, last_modified_time)"
+        " VALUES (?, ?, ?, ?, ?)";
     statement.Assign(db_->GetCachedStatement(SQL_FROM_HERE, kSql));
+    statement.BindInt64(4, last_access_time.ToInternalValue());
   }
   statement.BindInt(0, entry.used_count);
   statement.BindInt64(1, last_access_time.ToInternalValue());
@@ -259,8 +261,9 @@ bool QuotaDatabase::SetOriginLastModifiedTime(
   } else {
     const char* kSql =
         "INSERT INTO OriginInfoTable"
-        " (last_modified_time, origin, type)  VALUES (?, ?, ?)";
+        " (last_modified_time, origin, type, last_access_time)  VALUES (?, ?, ?, ?)";
     statement.Assign(db_->GetCachedStatement(SQL_FROM_HERE, kSql));
+    statement.BindInt64(3, last_modified_time.ToInternalValue());
   }
   statement.BindInt64(0, last_modified_time.ToInternalValue());
   statement.BindString(1, origin.spec());
@@ -280,7 +283,7 @@ bool QuotaDatabase::GetOriginLastEvictionTime(const GURL& origin,
   if (!LazyOpen(false))
     return false;
 
-  const char kSql[] =
+  static const char kSql[] =
       "SELECT last_eviction_time"
       " FROM EvictionInfoTable"
       " WHERE origin = ? AND type = ?";
@@ -302,7 +305,7 @@ bool QuotaDatabase::SetOriginLastEvictionTime(const GURL& origin,
   if (!LazyOpen(true))
     return false;
 
-  const char kSql[] =
+  static const char kSql[] =
       "INSERT OR REPLACE INTO EvictionInfoTable"
       " (last_eviction_time, origin, type)"
       " VALUES (?, ?, ?)";
@@ -323,7 +326,7 @@ bool QuotaDatabase::DeleteOriginLastEvictionTime(const GURL& origin,
   if (!LazyOpen(false))
     return false;
 
-  const char kSql[] =
+  static const char kSql[] =
       "DELETE FROM EvictionInfoTable"
       " WHERE origin = ? AND type = ?";
 
@@ -343,14 +346,12 @@ bool QuotaDatabase::RegisterInitialOriginInfo(
   if (!LazyOpen(true))
     return false;
 
-  typedef std::set<GURL>::const_iterator itr_type;
-  for (itr_type itr = origins.begin(), end = origins.end();
-       itr != end; ++itr) {
+  for (const auto& origin : origins) {
     const char* kSql =
         "INSERT OR IGNORE INTO OriginInfoTable"
         " (origin, type) VALUES (?, ?)";
     sql::Statement statement(db_->GetCachedStatement(SQL_FROM_HERE, kSql));
-    statement.BindString(0, itr->spec());
+    statement.BindString(0, origin.spec());
     statement.BindInt(1, static_cast<int>(type));
 
     if (!statement.Run())
@@ -458,7 +459,7 @@ bool QuotaDatabase::GetLRUOrigin(
 
   while (statement.Step()) {
     GURL url(statement.ColumnString(0));
-    if (exceptions.find(url) != exceptions.end()) {
+    if (base::ContainsKey(exceptions, url)) {
       HistogramOriginType(IN_USE);
       continue;
     }
@@ -689,9 +690,8 @@ bool QuotaDatabase::UpgradeSchema(int current_version) {
 
   if (current_version == 2) {
     QuotaTableImporter importer;
-    typedef std::vector<QuotaTableEntry> QuotaTableEntries;
-    if (!DumpQuotaTable(base::Bind(&QuotaTableImporter::Append,
-                                   base::Unretained(&importer)))) {
+    if (!DumpQuotaTable(base::BindRepeating(&QuotaTableImporter::Append,
+                                            base::Unretained(&importer)))) {
       return false;
     }
     ResetSchema();
@@ -699,9 +699,8 @@ bool QuotaDatabase::UpgradeSchema(int current_version) {
     sql::Transaction transaction(db_.get());
     if (!transaction.Begin())
       return false;
-    for (QuotaTableEntries::const_iterator iter = importer.entries.begin();
-         iter != importer.entries.end(); ++iter) {
-      if (!InsertOrReplaceHostQuota(iter->host, iter->type, iter->quota))
+    for (const auto& entry : importer.entries) {
+      if (!InsertOrReplaceHostQuota(entry.host, entry.type, entry.quota))
         return false;
     }
     return transaction.Commit();

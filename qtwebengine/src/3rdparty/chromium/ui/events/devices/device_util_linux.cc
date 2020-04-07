@@ -9,7 +9,6 @@
 #include "base/files/file_enumerator.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
-#include "base/message_loop/message_loop.h"
 #include "base/strings/string_util.h"
 #include "base/threading/thread_restrictions.h"
 
@@ -21,7 +20,7 @@ base::FilePath GetInputPathInSys(const base::FilePath& path) {
 }
 
 InputDeviceType GetInputDeviceTypeFromPath(const base::FilePath& path) {
-  base::ThreadRestrictions::AssertIOAllowed();
+  base::AssertBlockingAllowed();
   std::string event_node = path.BaseName().value();
   if (event_node.empty() ||
       !base::StartsWith(event_node, "event",

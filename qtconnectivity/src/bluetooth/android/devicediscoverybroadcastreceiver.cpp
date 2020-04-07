@@ -120,7 +120,7 @@ static const MajorClassJavaToQtMapping majorMappings[] = {
     { "TOY", QBluetoothDeviceInfo::ToyDevice },
     { "UNCATEGORIZED", QBluetoothDeviceInfo::UncategorizedDevice },
     { "WEARABLE", QBluetoothDeviceInfo::WearableDevice },
-    { Q_NULLPTR, QBluetoothDeviceInfo::UncategorizedDevice } //end of list
+    { nullptr, QBluetoothDeviceInfo::UncategorizedDevice } //end of list
 };
 
 // QBluetoothDeviceInfo::MajorDeviceClass value plus 1 matches index
@@ -164,7 +164,7 @@ static const MinorClassJavaToQtMapping minorMappings[] = {
     { "AUDIO_VIDEO_VIDEO_GAMING_TOY", QBluetoothDeviceInfo::GamingDevice },
     { "AUDIO_VIDEO_VIDEO_MONITOR", QBluetoothDeviceInfo::VideoMonitor },
     { "AUDIO_VIDEO_WEARABLE_HEADSET", QBluetoothDeviceInfo::WearableHeadsetDevice },
-    { Q_NULLPTR, 0 }, // separator
+    { nullptr, 0 }, // separator
 
     // QBluetoothDevice::ComputerDevice -> 7 entries
     { "COMPUTER_UNCATEGORIZED", QBluetoothDeviceInfo::UncategorizedComputer }, // index 18
@@ -174,7 +174,7 @@ static const MinorClassJavaToQtMapping minorMappings[] = {
     { "COMPUTER_PALM_SIZE_PC_PDA", QBluetoothDeviceInfo::HandheldClamShellComputer },
     { "COMPUTER_SERVER", QBluetoothDeviceInfo::ServerComputer },
     { "COMPUTER_WEARABLE", QBluetoothDeviceInfo::WearableComputer },
-    { Q_NULLPTR, 0 },  // separator
+    { nullptr, 0 },  // separator
 
     // QBluetoothDevice::HealthDevice -> 8 entries
     { "HEALTH_BLOOD_PRESSURE", QBluetoothDeviceInfo::HealthBloodPressureMonitor }, // index 26
@@ -185,7 +185,7 @@ static const MinorClassJavaToQtMapping minorMappings[] = {
     { "HEALTH_THERMOMETER", QBluetoothDeviceInfo::HealthThermometer },
     { "HEALTH_UNCATEGORIZED", QBluetoothDeviceInfo::UncategorizedHealthDevice },
     { "HEALTH_WEIGHING", QBluetoothDeviceInfo::HealthWeightScale },
-    { Q_NULLPTR, 0 }, // separator
+    { nullptr, 0 }, // separator
 
     // QBluetoothDevice::PhoneDevice -> 6 entries
     { "PHONE_CELLULAR", QBluetoothDeviceInfo::CellularPhone }, // index 35
@@ -194,7 +194,7 @@ static const MinorClassJavaToQtMapping minorMappings[] = {
     { "PHONE_MODEM_OR_GATEWAY", QBluetoothDeviceInfo::WiredModemOrVoiceGatewayPhone },
     { "PHONE_SMART", QBluetoothDeviceInfo::SmartPhone },
     { "PHONE_UNCATEGORIZED", QBluetoothDeviceInfo::UncategorizedPhone },
-    { Q_NULLPTR, 0 }, // separator
+    { nullptr, 0 }, // separator
 
     // QBluetoothDevice::ToyDevice -> 6 entries
     { "TOY_CONTROLLER", QBluetoothDeviceInfo::ToyController }, // index 42
@@ -203,7 +203,7 @@ static const MinorClassJavaToQtMapping minorMappings[] = {
     { "TOY_ROBOT", QBluetoothDeviceInfo::ToyRobot },
     { "TOY_UNCATEGORIZED", QBluetoothDeviceInfo::UncategorizedToy },
     { "TOY_VEHICLE", QBluetoothDeviceInfo::ToyVehicle },
-    { Q_NULLPTR, 0 }, // separator
+    { nullptr, 0 }, // separator
 
     // QBluetoothDevice::WearableDevice -> 6 entries
     { "WEARABLE_GLASSES", QBluetoothDeviceInfo::WearableGlasses }, // index 49
@@ -212,7 +212,7 @@ static const MinorClassJavaToQtMapping minorMappings[] = {
     { "WEARABLE_PAGER", QBluetoothDeviceInfo::WearablePager },
     { "WEARABLE_UNCATEGORIZED", QBluetoothDeviceInfo::UncategorizedWearableDevice },
     { "WEARABLE_WRIST_WATCH", QBluetoothDeviceInfo::WearableWristWatch },
-    { Q_NULLPTR, 0 }, // separator
+    { nullptr, 0 }, // separator
 
     // QBluetoothDevice::PeripheralDevice -> 3 entries
     // For some reason these are not mentioned in Android docs but still exist
@@ -220,21 +220,21 @@ static const MinorClassJavaToQtMapping minorMappings[] = {
     { "PERIPHERAL_KEYBOARD", QBluetoothDeviceInfo::KeyboardPeripheral },
     { "PERIPHERAL_POINTING", QBluetoothDeviceInfo::PointingDevicePeripheral },
     { "PERIPHERAL_KEYBOARD_POINTING", QBluetoothDeviceInfo::KeyboardWithPointingDevicePeripheral },
-    { Q_NULLPTR, 0 }, // separator
+    { nullptr, 0 }, // separator
 
     // the following entries do not exist on Android
     // we map them to the unknown minor version case
     // QBluetoothDevice::Miscellaneous
-    { Q_NULLPTR, 0 }, // index 61 & separator
+    { nullptr, 0 }, // index 61 & separator
 
     // QBluetoothDevice::LANAccessDevice
-    { Q_NULLPTR, 0 }, // index 62 & separator
+    { nullptr, 0 }, // index 62 & separator
 
     // QBluetoothDevice::ImagingDevice
-    { Q_NULLPTR, 0 }, // index 63 & separator
+    { nullptr, 0 }, // index 63 & separator
 
     // QBluetoothDevice::UncategorizedDevice
-    { Q_NULLPTR, 0 }, // index 64 & separator
+    { nullptr, 0 }, // index 64 & separator
 };
 
 /* Advertising Data Type (AD type) for LE scan records, as defined in Bluetooth CSS v6. */
@@ -245,6 +245,7 @@ enum ADType {
     ADType32BitUuidComplete = 0x05,
     ADType128BitUuidIncomplete = 0x06,
     ADType128BitUuidComplete = 0x07,
+    ADTypeManufacturerSpecificData = 0xff,
     // .. more will be added when required
 };
 
@@ -308,7 +309,7 @@ QBluetoothDeviceInfo::MajorDeviceClass resolveAndroidMajorClass(jint javaType)
         int i = 0;
         jint fieldValue;
         QBluetoothDeviceInfo::MajorDeviceClass result = QBluetoothDeviceInfo::UncategorizedDevice;
-        while (majorMappings[i].javaFieldName != Q_NULLPTR) {
+        while (majorMappings[i].javaFieldName != nullptr) {
             fieldValue = QAndroidJniObject::getStaticField<jint>(
                                     javaBluetoothClassDeviceMajorClassName, majorMappings[i].javaFieldName);
             if (env->ExceptionCheck()) {
@@ -359,7 +360,7 @@ void triggerCachingOfMinorsForMajor(QBluetoothDeviceInfo::MajorDeviceClass major
     int sizeIndex = minorIndexSizes[mappingIndex];
     QAndroidJniEnvironment env;
 
-    while (minorMappings[sizeIndex].javaFieldName != Q_NULLPTR) {
+    while (minorMappings[sizeIndex].javaFieldName != nullptr) {
         jint fieldValue = QAndroidJniObject::getStaticField<jint>(
                     javaBluetoothClassDeviceClassName, minorMappings[sizeIndex].javaFieldName);
         if (env->ExceptionCheck()) { // field lookup failed? skip it
@@ -547,6 +548,12 @@ QBluetoothDeviceInfo DeviceDiscoveryBroadcastReceiver::retrieveDeviceInfo(JNIEnv
             case ADType128BitUuidComplete:
                 foundService =
                     QBluetoothUuid(qToBigEndian<quint128>(qFromLittleEndian<quint128>(dataPtr)));
+                break;
+            case ADTypeManufacturerSpecificData:
+                if (nBytes >= 3) {
+                    info.setManufacturerData(qFromLittleEndian<quint16>(dataPtr),
+                                              QByteArray(dataPtr + 2, nBytes - 3));
+                }
                 break;
             default:
                 // no other types supported yet and therefore skipped

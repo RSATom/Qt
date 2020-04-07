@@ -42,8 +42,8 @@
 
 #include <qpa/qplatformtheme.h>
 
-#include <QtCore/QSharedPointer>
-#include <QtCore/QVariant>
+#include <QtCore/qsharedpointer.h>
+#include <QtCore/qvariant.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -51,9 +51,10 @@ class QWindow;
 
 class QWindowsTheme : public QPlatformTheme
 {
+    Q_DISABLE_COPY(QWindowsTheme)
 public:
     QWindowsTheme();
-    ~QWindowsTheme();
+    ~QWindowsTheme() override;
 
     static QWindowsTheme *instance() { return m_instance; }
 

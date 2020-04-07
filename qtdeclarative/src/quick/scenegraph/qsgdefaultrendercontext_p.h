@@ -84,8 +84,9 @@ public:
 
     QSGTexture *createTexture(const QImage &image, uint flags) const override;
     QSGRenderer *createRenderer() override;
+    QSGTexture *compressedTextureForFactory(const QSGCompressedTextureFactory *factory) const override;
 
-    virtual void compileShader(QSGMaterialShader *shader, QSGMaterial *material, const char *vertexCode = 0, const char *fragmentCode = 0);
+    virtual void compileShader(QSGMaterialShader *shader, QSGMaterial *material, const char *vertexCode = nullptr, const char *fragmentCode = nullptr);
     virtual void initializeShader(QSGMaterialShader *shader);
 
     void setAttachToGraphicsContext(bool attach) override;
@@ -94,6 +95,7 @@ public:
 
     bool hasBrokenIndexBufferObjects() const { return m_brokenIBOs; }
     int maxTextureSize() const override { return m_maxTextureSize; }
+    bool separateIndexBuffer() const;
 
 protected:
     static QString fontKey(const QRawFont &font);
@@ -105,8 +107,6 @@ protected:
     bool m_serializedRender;
     bool m_attachToGLContext;
     QSGAtlasTexture::Manager *m_atlasManager;
-
-
 };
 
 QT_END_NAMESPACE

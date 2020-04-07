@@ -736,7 +736,7 @@ void QHashData::checkSanity()
 #endif
 
 /*!
-    \fn uint qHash(const QPair<T1, T2> &key, uint seed = 0)
+    \fn template <typename T1, typename T2> uint qHash(const QPair<T1, T2> &key, uint seed = 0)
     \since 5.0
     \relates QHash
 
@@ -746,7 +746,7 @@ void QHashData::checkSanity()
 */
 
 /*!
-    \fn uint qHash(const std::pair<T1, T2> &key, uint seed = 0)
+    \fn template <typename T1, typename T2> uint qHash(const std::pair<T1, T2> &key, uint seed = 0)
     \since 5.7
     \relates QHash
 
@@ -755,14 +755,12 @@ void QHashData::checkSanity()
     Types \c T1 and \c T2 must be supported by qHash().
 
     \note The return type of this function is \e{not} the same as that of
-    \code
-    qHash(qMakePair(key.first, key.second), seed);
-    \endcode
+    \snippet code/src_corelib_tools_qhash.cpp 29
     The two functions use different hashing algorithms; due to binary compatibility
     constraints, we cannot change the QPair algorithm to match the std::pair one before Qt 6.
 */
 
-/*! \fn uint qHashRange(InputIterator first, InputIterator last, uint seed = 0)
+/*! \fn template <typename InputIterator> uint qHashRange(InputIterator first, InputIterator last, uint seed = 0)
     \relates QHash
     \since 5.5
 
@@ -773,14 +771,10 @@ void QHashData::checkSanity()
     The return value of this function depends on the order of elements
     in the range. That means that
 
-    \code
-    {0, 1, 2}
-    \endcode
+    \snippet code/src_corelib_tools_qhash.cpp 30
 
     and
-    \code
-    {1, 2, 0}
-    \endcode
+    \snippet code/src_corelib_tools_qhash.cpp 31
 
     hash to \b{different} values. If order does not matter, for example for hash
     tables, use qHashRangeCommutative() instead. If you are hashing raw
@@ -801,7 +795,7 @@ void QHashData::checkSanity()
     \sa qHashBits(), qHashRangeCommutative()
 */
 
-/*! \fn uint qHashRangeCommutative(InputIterator first, InputIterator last, uint seed = 0)
+/*! \fn template <typename InputIterator> uint qHashRangeCommutative(InputIterator first, InputIterator last, uint seed = 0)
     \relates QHash
     \since 5.5
 
@@ -812,14 +806,10 @@ void QHashData::checkSanity()
     The return value of this function does not depend on the order of
     elements in the range. That means that
 
-    \code
-    {0, 1, 2}
-    \endcode
+    \snippet code/src_corelib_tools_qhash.cpp 30
 
     and
-    \code
-    {1, 2, 0}
-    \endcode
+    \snippet code/src_corelib_tools_qhash.cpp 31
 
     hash to the \b{same} values. If order matters, for example, for vectors
     and arrays, use qHashRange() instead. If you are hashing raw
@@ -963,7 +953,7 @@ uint qHash(double key, uint seed) Q_DECL_NOTHROW
     return key != 0.0  ? hash(reinterpret_cast<const uchar *>(&key), sizeof(key), seed) : seed ;
 }
 
-#ifndef Q_OS_DARWIN
+#if !defined(Q_OS_DARWIN) || defined(Q_CLANG_QDOC)
 /*! \relates QHash
     \since 5.3
 
@@ -1024,7 +1014,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     Returns the hash value for the \a key, using \a seed to seed the calculation.
 */
 
-/*! \fn uint qHash(const T *key, uint seed = 0)
+/*! \fn template <class T> uint qHash(const T *key, uint seed = 0)
     \relates QHash
     \since 5.0
 
@@ -1100,9 +1090,8 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     To avoid this problem, replace \c hash[i] with \c hash.value(i)
     in the code above.
 
-    Internally, QHash uses a hash table to perform lookups. Unlike Qt
-    3's \c QDict class, which needed to be initialized with a prime
-    number, QHash's hash table automatically grows and shrinks to
+    Internally, QHash uses a hash table to perform lookups. This
+    hash table automatically grows and shrinks to
     provide fast lookups without wasting too much memory. You can
     still control the size of the hash table by calling reserve() if
     you already know approximately how many items the QHash will
@@ -1178,13 +1167,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
 
     For a key type \c{K}, the qHash function must have one of these signatures:
 
-    \code
-    uint qHash(K key);
-    uint qHash(const K &key);
-
-    uint qHash(K key, uint seed);
-    uint qHash(const K &key, uint seed);
-    \endcode
+    \snippet code/src_corelib_tools_qhash.cpp 32
 
     The two-arguments overloads take an unsigned integer that should be used to
     seed the calculation of the hash function. This seed is provided by QHash
@@ -1242,7 +1225,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa QHashIterator, QMutableHashIterator, QMap, QSet
 */
 
-/*! \fn QHash::QHash()
+/*! \fn template <class Key, class T> QHash<Key, T>::QHash()
 
     Constructs an empty hash.
 
@@ -1250,7 +1233,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
 */
 
 /*!
-    \fn QHash::QHash(QHash &&other)
+    \fn template <class Key, class T> QHash<Key, T>::QHash(QHash &&other)
 
     Move-constructs a QHash instance, making it point at the same
     object that \a other was pointing to.
@@ -1258,7 +1241,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \since 5.2
 */
 
-/*! \fn QHash::QHash(std::initializer_list<std::pair<Key,T> > list)
+/*! \fn template <class Key, class T> QHash<Key, T>::QHash(std::initializer_list<std::pair<Key,T> > list)
     \since 5.1
 
     Constructs a hash with a copy of each of the elements in the
@@ -1268,7 +1251,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     compiled in C++11 mode.
 */
 
-/*! \fn QHash::QHash(const QHash &other)
+/*! \fn template <class Key, class T> QHash<Key, T>::QHash(const QHash &other)
 
     Constructs a copy of \a other.
 
@@ -1280,40 +1263,40 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa operator=()
 */
 
-/*! \fn QHash::~QHash()
+/*! \fn template <class Key, class T> QHash<Key, T>::~QHash()
 
     Destroys the hash. References to the values in the hash and all
     iterators of this hash become invalid.
 */
 
-/*! \fn QHash &QHash::operator=(const QHash &other)
+/*! \fn template <class Key, class T> QHash &QHash<Key, T>::operator=(const QHash &other)
 
     Assigns \a other to this hash and returns a reference to this hash.
 */
 
 /*!
-    \fn QHash &QHash::operator=(QHash &&other)
+    \fn template <class Key, class T> QHash &QHash<Key, T>::operator=(QHash &&other)
 
     Move-assigns \a other to this QHash instance.
 
     \since 5.2
 */
 
-/*! \fn void QHash::swap(QHash &other)
+/*! \fn template <class Key, class T> void QHash<Key, T>::swap(QHash &other)
     \since 4.8
 
     Swaps hash \a other with this hash. This operation is very
     fast and never fails.
 */
 
-/*! \fn void QMultiHash::swap(QMultiHash &other)
+/*! \fn template <class Key, class T> void QMultiHash<Key, T>::swap(QMultiHash &other)
     \since 4.8
 
     Swaps hash \a other with this hash. This operation is very
     fast and never fails.
 */
 
-/*! \fn bool QHash::operator==(const QHash &other) const
+/*! \fn template <class Key, class T> bool QHash<Key, T>::operator==(const QHash &other) const
 
     Returns \c true if \a other is equal to this hash; otherwise returns
     false.
@@ -1326,7 +1309,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa operator!=()
 */
 
-/*! \fn bool QHash::operator!=(const QHash &other) const
+/*! \fn template <class Key, class T> bool QHash<Key, T>::operator!=(const QHash &other) const
 
     Returns \c true if \a other is not equal to this hash; otherwise
     returns \c false.
@@ -1339,14 +1322,14 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa operator==()
 */
 
-/*! \fn int QHash::size() const
+/*! \fn template <class Key, class T> int QHash<Key, T>::size() const
 
     Returns the number of items in the hash.
 
     \sa isEmpty(), count()
 */
 
-/*! \fn bool QHash::isEmpty() const
+/*! \fn template <class Key, class T> bool QHash<Key, T>::isEmpty() const
 
     Returns \c true if the hash contains no items; otherwise returns
     false.
@@ -1354,7 +1337,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa size()
 */
 
-/*! \fn int QHash::capacity() const
+/*! \fn template <class Key, class T> int QHash<Key, T>::capacity() const
 
     Returns the number of buckets in the QHash's internal hash table.
 
@@ -1366,7 +1349,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa reserve(), squeeze()
 */
 
-/*! \fn void QHash::reserve(int size)
+/*! \fn template <class Key, class T> void QHash<Key, T>::reserve(int size)
 
     Ensures that the QHash's internal hash table consists of at least
     \a size buckets.
@@ -1389,7 +1372,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa squeeze(), capacity()
 */
 
-/*! \fn void QHash::squeeze()
+/*! \fn template <class Key, class T> void QHash<Key, T>::squeeze()
 
     Reduces the size of the QHash's internal hash table to save
     memory.
@@ -1401,7 +1384,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa reserve(), capacity()
 */
 
-/*! \fn void QHash::detach()
+/*! \fn template <class Key, class T> void QHash<Key, T>::detach()
 
     \internal
 
@@ -1411,7 +1394,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa isDetached()
 */
 
-/*! \fn bool QHash::isDetached() const
+/*! \fn template <class Key, class T> bool QHash<Key, T>::isDetached() const
 
     \internal
 
@@ -1421,24 +1404,24 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa detach()
 */
 
-/*! \fn void QHash::setSharable(bool sharable)
+/*! \fn template <class Key, class T> void QHash<Key, T>::setSharable(bool sharable)
 
     \internal
 */
 
-/*! \fn bool QHash::isSharedWith(const QHash &other) const
+/*! \fn template <class Key, class T> bool QHash<Key, T>::isSharedWith(const QHash &other) const
 
     \internal
 */
 
-/*! \fn void QHash::clear()
+/*! \fn template <class Key, class T> void QHash<Key, T>::clear()
 
     Removes all items from the hash.
 
     \sa remove()
 */
 
-/*! \fn int QHash::remove(const Key &key)
+/*! \fn template <class Key, class T> int QHash<Key, T>::remove(const Key &key)
 
     Removes all the items that have the \a key from the hash.
     Returns the number of items removed which is usually 1 but will
@@ -1448,7 +1431,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa clear(), take(), QMultiHash::remove()
 */
 
-/*! \fn T QHash::take(const Key &key)
+/*! \fn template <class Key, class T> T QHash<Key, T>::take(const Key &key)
 
     Removes the item with the \a key from the hash and returns
     the value associated with it.
@@ -1463,7 +1446,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa remove()
 */
 
-/*! \fn bool QHash::contains(const Key &key) const
+/*! \fn template <class Key, class T> bool QHash<Key, T>::contains(const Key &key) const
 
     Returns \c true if the hash contains an item with the \a key;
     otherwise returns \c false.
@@ -1471,7 +1454,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa count(), QMultiHash::contains()
 */
 
-/*! \fn const T QHash::value(const Key &key) const
+/*! \fn template <class Key, class T> const T QHash<Key, T>::value(const Key &key) const
 
     Returns the value associated with the \a key.
 
@@ -1483,14 +1466,14 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa key(), values(), contains(), operator[]()
 */
 
-/*! \fn const T QHash::value(const Key &key, const T &defaultValue) const
+/*! \fn template <class Key, class T> const T QHash<Key, T>::value(const Key &key, const T &defaultValue) const
     \overload
 
     If the hash contains no item with the given \a key, the function returns
     \a defaultValue.
 */
 
-/*! \fn T &QHash::operator[](const Key &key)
+/*! \fn template <class Key, class T> T &QHash<Key, T>::operator[](const Key &key)
 
     Returns the value associated with the \a key as a modifiable
     reference.
@@ -1504,14 +1487,14 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa insert(), value()
 */
 
-/*! \fn const T QHash::operator[](const Key &key) const
+/*! \fn template <class Key, class T> const T QHash<Key, T>::operator[](const Key &key) const
 
     \overload
 
     Same as value().
 */
 
-/*! \fn QList<Key> QHash::uniqueKeys() const
+/*! \fn template <class Key, class T> QList<Key> QHash<Key, T>::uniqueKeys() const
     \since 4.2
 
     Returns a list containing all the keys in the map. Keys that occur multiple
@@ -1521,7 +1504,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa keys(), values()
 */
 
-/*! \fn QList<Key> QHash::keys() const
+/*! \fn template <class Key, class T> QList<Key> QHash<Key, T>::keys() const
 
     Returns a list containing all the keys in the hash, in an
     arbitrary order. Keys that occur multiple times in the hash
@@ -1536,7 +1519,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa uniqueKeys(), values(), key()
 */
 
-/*! \fn QList<Key> QHash::keys(const T &value) const
+/*! \fn template <class Key, class T> QList<Key> QHash<Key, T>::keys(const T &value) const
 
     \overload
 
@@ -1548,7 +1531,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     by value.
 */
 
-/*! \fn QList<T> QHash::values() const
+/*! \fn template <class Key, class T> QList<T> QHash<Key, T>::values() const
 
     Returns a list containing all the values in the hash, in an
     arbitrary order. If a key is associated with multiple values, all of
@@ -1560,7 +1543,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa keys(), value()
 */
 
-/*! \fn QList<T> QHash::values(const Key &key) const
+/*! \fn template <class Key, class T> QList<T> QHash<Key, T>::values(const Key &key) const
 
     \overload
 
@@ -1570,7 +1553,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa count(), insertMulti()
 */
 
-/*! \fn Key QHash::key(const T &value) const
+/*! \fn template <class Key, class T> Key QHash<Key, T>::key(const T &value) const
 
     Returns the first key mapped to \a value.
 
@@ -1585,7 +1568,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
 */
 
 /*!
-    \fn Key QHash::key(const T &value, const Key &defaultKey) const
+    \fn template <class Key, class T> Key QHash<Key, T>::key(const T &value, const Key &defaultKey) const
     \since 4.3
     \overload
 
@@ -1597,21 +1580,21 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     by value.
 */
 
-/*! \fn int QHash::count(const Key &key) const
+/*! \fn template <class Key, class T> int QHash<Key, T>::count(const Key &key) const
 
     Returns the number of items associated with the \a key.
 
     \sa contains(), insertMulti()
 */
 
-/*! \fn int QHash::count() const
+/*! \fn template <class Key, class T> int QHash<Key, T>::count() const
 
     \overload
 
     Same as size().
 */
 
-/*! \fn QHash::iterator QHash::begin()
+/*! \fn template <class Key, class T> QHash<Key, T>::iterator QHash<Key, T>::begin()
 
     Returns an \l{STL-style iterators}{STL-style iterator} pointing to the first item in
     the hash.
@@ -1619,12 +1602,12 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa constBegin(), end()
 */
 
-/*! \fn QHash::const_iterator QHash::begin() const
+/*! \fn template <class Key, class T> QHash<Key, T>::const_iterator QHash<Key, T>::begin() const
 
     \overload
 */
 
-/*! \fn QHash::const_iterator QHash::cbegin() const
+/*! \fn template <class Key, class T> QHash<Key, T>::const_iterator QHash<Key, T>::cbegin() const
     \since 5.0
 
     Returns a const \l{STL-style iterators}{STL-style iterator} pointing to the first item
@@ -1633,7 +1616,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa begin(), cend()
 */
 
-/*! \fn QHash::const_iterator QHash::constBegin() const
+/*! \fn template <class Key, class T> QHash<Key, T>::const_iterator QHash<Key, T>::constBegin() const
 
     Returns a const \l{STL-style iterators}{STL-style iterator} pointing to the first item
     in the hash.
@@ -1641,7 +1624,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa begin(), constEnd()
 */
 
-/*! \fn QHash::key_iterator QHash::keyBegin() const
+/*! \fn template <class Key, class T> QHash<Key, T>::key_iterator QHash<Key, T>::keyBegin() const
     \since 5.6
 
     Returns a const \l{STL-style iterators}{STL-style iterator} pointing to the first key
@@ -1650,7 +1633,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa keyEnd()
 */
 
-/*! \fn QHash::iterator QHash::end()
+/*! \fn template <class Key, class T> QHash<Key, T>::iterator QHash<Key, T>::end()
 
     Returns an \l{STL-style iterators}{STL-style iterator} pointing to the imaginary item
     after the last item in the hash.
@@ -1658,12 +1641,12 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa begin(), constEnd()
 */
 
-/*! \fn QHash::const_iterator QHash::end() const
+/*! \fn template <class Key, class T> QHash<Key, T>::const_iterator QHash<Key, T>::end() const
 
     \overload
 */
 
-/*! \fn QHash::const_iterator QHash::constEnd() const
+/*! \fn template <class Key, class T> QHash<Key, T>::const_iterator QHash<Key, T>::constEnd() const
 
     Returns a const \l{STL-style iterators}{STL-style iterator} pointing to the imaginary
     item after the last item in the hash.
@@ -1671,7 +1654,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa constBegin(), end()
 */
 
-/*! \fn QHash::const_iterator QHash::cend() const
+/*! \fn template <class Key, class T> QHash<Key, T>::const_iterator QHash<Key, T>::cend() const
     \since 5.0
 
     Returns a const \l{STL-style iterators}{STL-style iterator} pointing to the imaginary
@@ -1680,7 +1663,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa cbegin(), end()
 */
 
-/*! \fn QHash::key_iterator QHash::keyEnd() const
+/*! \fn template <class Key, class T> QHash<Key, T>::key_iterator QHash<Key, T>::keyEnd() const
     \since 5.6
 
     Returns a const \l{STL-style iterators}{STL-style iterator} pointing to the imaginary
@@ -1689,7 +1672,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa keyBegin()
 */
 
-/*! \fn QHash::key_value_iterator QHash::keyValueBegin()
+/*! \fn template <class Key, class T> QHash<Key, T>::key_value_iterator QHash<Key, T>::keyValueBegin()
     \since 5.10
 
     Returns an \l{STL-style iterators}{STL-style iterator} pointing to the first entry
@@ -1698,7 +1681,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa keyValueEnd()
 */
 
-/*! \fn QHash::key_value_iterator QHash::keyValueEnd()
+/*! \fn template <class Key, class T> QHash<Key, T>::key_value_iterator QHash<Key, T>::keyValueEnd()
     \since 5.10
 
     Returns an \l{STL-style iterators}{STL-style iterator} pointing to the imaginary
@@ -1707,7 +1690,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa keyValueBegin()
 */
 
-/*! \fn QHash::const_key_value_iterator QHash::keyValueBegin() const
+/*! \fn template <class Key, class T> QHash<Key, T>::const_key_value_iterator QHash<Key, T>::keyValueBegin() const
     \since 5.10
 
     Returns a const \l{STL-style iterators}{STL-style iterator} pointing to the first entry
@@ -1716,7 +1699,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa keyValueEnd()
 */
 
-/*! \fn QHash::const_key_value_iterator QHash::constKeyValueBegin() const
+/*! \fn template <class Key, class T> QHash<Key, T>::const_key_value_iterator QHash<Key, T>::constKeyValueBegin() const
     \since 5.10
 
     Returns a const \l{STL-style iterators}{STL-style iterator} pointing to the first entry
@@ -1725,7 +1708,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa keyValueBegin()
 */
 
-/*! \fn QHash::const_key_value_iterator QHash::keyValueEnd() const
+/*! \fn template <class Key, class T> QHash<Key, T>::const_key_value_iterator QHash<Key, T>::keyValueEnd() const
     \since 5.10
 
     Returns a const \l{STL-style iterators}{STL-style iterator} pointing to the imaginary
@@ -1734,7 +1717,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa keyValueBegin()
 */
 
-/*! \fn QHash::const_key_value_iterator QHash::constKeyValueEnd() const
+/*! \fn template <class Key, class T> QHash<Key, T>::const_key_value_iterator QHash<Key, T>::constKeyValueEnd() const
     \since 5.10
 
     Returns a const \l{STL-style iterators}{STL-style iterator} pointing to the imaginary
@@ -1743,7 +1726,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa constKeyValueBegin()
 */
 
-/*! \fn QHash::iterator QHash::erase(const_iterator pos)
+/*! \fn template <class Key, class T> QHash<Key, T>::iterator QHash<Key, T>::erase(const_iterator pos)
     \since 5.7
 
     Removes the (key, value) pair associated with the iterator \a pos
@@ -1760,11 +1743,11 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa remove(), take(), find()
 */
 
-/*! \fn QHash::iterator QHash::erase(iterator pos)
+/*! \fn template <class Key, class T> QHash<Key, T>::iterator QHash<Key, T>::erase(iterator pos)
     \overload
 */
 
-/*! \fn QHash::iterator QHash::find(const Key &key)
+/*! \fn template <class Key, class T> QHash<Key, T>::iterator QHash<Key, T>::find(const Key &key)
 
     Returns an iterator pointing to the item with the \a key in the
     hash.
@@ -1783,12 +1766,12 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa value(), values(), QMultiHash::find()
 */
 
-/*! \fn QHash::const_iterator QHash::find(const Key &key) const
+/*! \fn template <class Key, class T> QHash<Key, T>::const_iterator QHash<Key, T>::find(const Key &key) const
 
     \overload
 */
 
-/*! \fn QHash::const_iterator QHash::constFind(const Key &key) const
+/*! \fn template <class Key, class T> QHash<Key, T>::const_iterator QHash<Key, T>::constFind(const Key &key) const
     \since 4.1
 
     Returns an iterator pointing to the item with the \a key in the
@@ -1800,7 +1783,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa find(), QMultiHash::constFind()
 */
 
-/*! \fn QHash::iterator QHash::insert(const Key &key, const T &value)
+/*! \fn template <class Key, class T> QHash<Key, T>::iterator QHash<Key, T>::insert(const Key &key, const T &value)
 
     Inserts a new item with the \a key and a value of \a value.
 
@@ -1813,7 +1796,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa insertMulti()
 */
 
-/*! \fn QHash::iterator QHash::insertMulti(const Key &key, const T &value)
+/*! \fn template <class Key, class T> QHash<Key, T>::iterator QHash<Key, T>::insertMulti(const Key &key, const T &value)
 
     Inserts a new item with the \a key and a value of \a value.
 
@@ -1825,7 +1808,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa insert(), values()
 */
 
-/*! \fn QHash &QHash::unite(const QHash &other)
+/*! \fn template <class Key, class T> QHash &QHash<Key, T>::unite(const QHash &other)
 
     Inserts all the items in the \a other hash into this hash. If a
     key is common to both hashes, the resulting hash will contain the
@@ -1834,14 +1817,14 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa insertMulti()
 */
 
-/*! \fn bool QHash::empty() const
+/*! \fn template <class Key, class T> bool QHash<Key, T>::empty() const
 
     This function is provided for STL compatibility. It is equivalent
     to isEmpty(), returning true if the hash is empty; otherwise
     returns \c false.
 */
 
-/*! \fn QPair<iterator, iterator> QHash::equal_range(const Key &key)
+/*! \fn template <class Key, class T> QPair<iterator, iterator> QHash<Key, T>::equal_range(const Key &key)
     \since 5.7
 
     Returns a pair of iterators delimiting the range of values \c{[first, second)}, that
@@ -1849,7 +1832,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
 */
 
 /*!
-    \fn QPair<const_iterator, const_iterator> QHash::equal_range(const Key &key) const
+    \fn template <class Key, class T> QPair<const_iterator, const_iterator> QHash<Key, T>::equal_range(const Key &key) const
     \overload
     \since 5.7
 */
@@ -2020,7 +2003,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa QHash::const_iterator, QHash::key_iterator, QMutableHashIterator
 */
 
-/*! \fn QHash::iterator::iterator()
+/*! \fn template <class Key, class T> QHash<Key, T>::iterator::iterator()
 
     Constructs an uninitialized iterator.
 
@@ -2031,12 +2014,12 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa QHash::begin(), QHash::end()
 */
 
-/*! \fn QHash::iterator::iterator(void *node)
+/*! \fn template <class Key, class T> QHash<Key, T>::iterator::iterator(void *node)
 
     \internal
 */
 
-/*! \fn const Key &QHash::iterator::key() const
+/*! \fn template <class Key, class T> const Key &QHash<Key, T>::iterator::key() const
 
     Returns the current item's key as a const reference.
 
@@ -2047,7 +2030,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa value()
 */
 
-/*! \fn T &QHash::iterator::value() const
+/*! \fn template <class Key, class T> T &QHash<Key, T>::iterator::value() const
 
     Returns a modifiable reference to the current item's value.
 
@@ -2059,7 +2042,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa key(), operator*()
 */
 
-/*! \fn T &QHash::iterator::operator*() const
+/*! \fn template <class Key, class T> T &QHash<Key, T>::iterator::operator*() const
 
     Returns a modifiable reference to the current item's value.
 
@@ -2068,7 +2051,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa key()
 */
 
-/*! \fn T *QHash::iterator::operator->() const
+/*! \fn template <class Key, class T> T *QHash<Key, T>::iterator::operator->() const
 
     Returns a pointer to the current item's value.
 
@@ -2076,8 +2059,8 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
 */
 
 /*!
-    \fn bool QHash::iterator::operator==(const iterator &other) const
-    \fn bool QHash::iterator::operator==(const const_iterator &other) const
+    \fn template <class Key, class T> bool QHash<Key, T>::iterator::operator==(const iterator &other) const
+    \fn template <class Key, class T> bool QHash<Key, T>::iterator::operator==(const const_iterator &other) const
 
     Returns \c true if \a other points to the same item as this
     iterator; otherwise returns \c false.
@@ -2086,8 +2069,8 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
 */
 
 /*!
-    \fn bool QHash::iterator::operator!=(const iterator &other) const
-    \fn bool QHash::iterator::operator!=(const const_iterator &other) const
+    \fn template <class Key, class T> bool QHash<Key, T>::iterator::operator!=(const iterator &other) const
+    \fn template <class Key, class T> bool QHash<Key, T>::iterator::operator!=(const const_iterator &other) const
 
     Returns \c true if \a other points to a different item than this
     iterator; otherwise returns \c false.
@@ -2096,7 +2079,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
 */
 
 /*!
-    \fn QHash::iterator &QHash::iterator::operator++()
+    \fn template <class Key, class T> QHash<Key, T>::iterator &QHash<Key, T>::iterator::operator++()
 
     The prefix ++ operator (\c{++i}) advances the iterator to the
     next item in the hash and returns an iterator to the new current
@@ -2107,7 +2090,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa operator--()
 */
 
-/*! \fn QHash::iterator QHash::iterator::operator++(int)
+/*! \fn template <class Key, class T> QHash<Key, T>::iterator QHash<Key, T>::iterator::operator++(int)
 
     \overload
 
@@ -2117,7 +2100,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
 */
 
 /*!
-    \fn QHash::iterator &QHash::iterator::operator--()
+    \fn template <class Key, class T> QHash<Key, T>::iterator &QHash<Key, T>::iterator::operator--()
 
     The prefix -- operator (\c{--i}) makes the preceding item
     current and returns an iterator pointing to the new current item.
@@ -2129,7 +2112,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
 */
 
 /*!
-    \fn QHash::iterator QHash::iterator::operator--(int)
+    \fn template <class Key, class T> QHash<Key, T>::iterator QHash<Key, T>::iterator::operator--(int)
 
     \overload
 
@@ -2138,7 +2121,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     current item.
 */
 
-/*! \fn QHash::iterator QHash::iterator::operator+(int j) const
+/*! \fn template <class Key, class T> QHash<Key, T>::iterator QHash<Key, T>::iterator::operator+(int j) const
 
     Returns an iterator to the item at \a j positions forward from
     this iterator. (If \a j is negative, the iterator goes backward.)
@@ -2149,7 +2132,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
 
 */
 
-/*! \fn QHash::iterator QHash::iterator::operator-(int j) const
+/*! \fn template <class Key, class T> QHash<Key, T>::iterator QHash<Key, T>::iterator::operator-(int j) const
 
     Returns an iterator to the item at \a j positions backward from
     this iterator. (If \a j is negative, the iterator goes forward.)
@@ -2159,7 +2142,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa operator+()
 */
 
-/*! \fn QHash::iterator &QHash::iterator::operator+=(int j)
+/*! \fn template <class Key, class T> QHash<Key, T>::iterator &QHash<Key, T>::iterator::operator+=(int j)
 
     Advances the iterator by \a j items. (If \a j is negative, the
     iterator goes backward.)
@@ -2167,7 +2150,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa operator-=(), operator+()
 */
 
-/*! \fn QHash::iterator &QHash::iterator::operator-=(int j)
+/*! \fn template <class Key, class T> QHash<Key, T>::iterator &QHash<Key, T>::iterator::operator-=(int j)
 
     Makes the iterator go back by \a j items. (If \a j is negative,
     the iterator goes forward.)
@@ -2222,7 +2205,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa QHash::iterator, QHashIterator
 */
 
-/*! \fn QHash::const_iterator::const_iterator()
+/*! \fn template <class Key, class T> QHash<Key, T>::const_iterator::const_iterator()
 
     Constructs an uninitialized iterator.
 
@@ -2233,31 +2216,31 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa QHash::constBegin(), QHash::constEnd()
 */
 
-/*! \fn QHash::const_iterator::const_iterator(void *node)
+/*! \fn template <class Key, class T> QHash<Key, T>::const_iterator::const_iterator(void *node)
 
     \internal
 */
 
-/*! \fn QHash::const_iterator::const_iterator(const iterator &other)
+/*! \fn template <class Key, class T> QHash<Key, T>::const_iterator::const_iterator(const iterator &other)
 
     Constructs a copy of \a other.
 */
 
-/*! \fn const Key &QHash::const_iterator::key() const
+/*! \fn template <class Key, class T> const Key &QHash<Key, T>::const_iterator::key() const
 
     Returns the current item's key.
 
     \sa value()
 */
 
-/*! \fn const T &QHash::const_iterator::value() const
+/*! \fn template <class Key, class T> const T &QHash<Key, T>::const_iterator::value() const
 
     Returns the current item's value.
 
     \sa key(), operator*()
 */
 
-/*! \fn const T &QHash::const_iterator::operator*() const
+/*! \fn template <class Key, class T> const T &QHash<Key, T>::const_iterator::operator*() const
 
     Returns the current item's value.
 
@@ -2266,14 +2249,14 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa key()
 */
 
-/*! \fn const T *QHash::const_iterator::operator->() const
+/*! \fn template <class Key, class T> const T *QHash<Key, T>::const_iterator::operator->() const
 
     Returns a pointer to the current item's value.
 
     \sa value()
 */
 
-/*! \fn bool QHash::const_iterator::operator==(const const_iterator &other) const
+/*! \fn template <class Key, class T> bool QHash<Key, T>::const_iterator::operator==(const const_iterator &other) const
 
     Returns \c true if \a other points to the same item as this
     iterator; otherwise returns \c false.
@@ -2281,7 +2264,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa operator!=()
 */
 
-/*! \fn bool QHash::const_iterator::operator!=(const const_iterator &other) const
+/*! \fn template <class Key, class T> bool QHash<Key, T>::const_iterator::operator!=(const const_iterator &other) const
 
     Returns \c true if \a other points to a different item than this
     iterator; otherwise returns \c false.
@@ -2290,7 +2273,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
 */
 
 /*!
-    \fn QHash::const_iterator &QHash::const_iterator::operator++()
+    \fn template <class Key, class T> QHash<Key, T>::const_iterator &QHash<Key, T>::const_iterator::operator++()
 
     The prefix ++ operator (\c{++i}) advances the iterator to the
     next item in the hash and returns an iterator to the new current
@@ -2301,7 +2284,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa operator--()
 */
 
-/*! \fn QHash::const_iterator QHash::const_iterator::operator++(int)
+/*! \fn template <class Key, class T> QHash<Key, T>::const_iterator QHash<Key, T>::const_iterator::operator++(int)
 
     \overload
 
@@ -2310,7 +2293,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     current item.
 */
 
-/*! \fn QHash::const_iterator &QHash::const_iterator::operator--()
+/*! \fn template <class Key, class T> QHash<Key, T>::const_iterator &QHash<Key, T>::const_iterator::operator--()
 
     The prefix -- operator (\c{--i}) makes the preceding item
     current and returns an iterator pointing to the new current item.
@@ -2321,7 +2304,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa operator++()
 */
 
-/*! \fn QHash::const_iterator QHash::const_iterator::operator--(int)
+/*! \fn template <class Key, class T> QHash<Key, T>::const_iterator QHash<Key, T>::const_iterator::operator--(int)
 
     \overload
 
@@ -2330,7 +2313,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     current item.
 */
 
-/*! \fn QHash::const_iterator QHash::const_iterator::operator+(int j) const
+/*! \fn template <class Key, class T> QHash<Key, T>::const_iterator QHash<Key, T>::const_iterator::operator+(int j) const
 
     Returns an iterator to the item at \a j positions forward from
     this iterator. (If \a j is negative, the iterator goes backward.)
@@ -2340,7 +2323,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa operator-()
 */
 
-/*! \fn QHash::const_iterator QHash::const_iterator::operator-(int j) const
+/*! \fn template <class Key, class T> QHash<Key, T>::const_iterator QHash<Key, T>::const_iterator::operator-(int j) const
 
     Returns an iterator to the item at \a j positions backward from
     this iterator. (If \a j is negative, the iterator goes forward.)
@@ -2350,7 +2333,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa operator+()
 */
 
-/*! \fn QHash::const_iterator &QHash::const_iterator::operator+=(int j)
+/*! \fn template <class Key, class T> QHash<Key, T>::const_iterator &QHash<Key, T>::const_iterator::operator+=(int j)
 
     Advances the iterator by \a j items. (If \a j is negative, the
     iterator goes backward.)
@@ -2360,7 +2343,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa operator-=(), operator+()
 */
 
-/*! \fn QHash::const_iterator &QHash::const_iterator::operator-=(int j)
+/*! \fn template <class Key, class T> QHash<Key, T>::const_iterator &QHash<Key, T>::const_iterator::operator-=(int j)
 
     Makes the iterator go back by \a j items. (If \a j is negative,
     the iterator goes forward.)
@@ -2407,17 +2390,17 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa QHash::const_iterator, QHash::iterator
 */
 
-/*! \fn const T &QHash::key_iterator::operator*() const
+/*! \fn template <class Key, class T> const T &QHash<Key, T>::key_iterator::operator*() const
 
     Returns the current item's key.
 */
 
-/*! \fn const T *QHash::key_iterator::operator->() const
+/*! \fn template <class Key, class T> const T *QHash<Key, T>::key_iterator::operator->() const
 
     Returns a pointer to the current item's key.
 */
 
-/*! \fn bool QHash::key_iterator::operator==(key_iterator other) const
+/*! \fn template <class Key, class T> bool QHash<Key, T>::key_iterator::operator==(key_iterator other) const
 
     Returns \c true if \a other points to the same item as this
     iterator; otherwise returns \c false.
@@ -2425,7 +2408,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa operator!=()
 */
 
-/*! \fn bool QHash::key_iterator::operator!=(key_iterator other) const
+/*! \fn template <class Key, class T> bool QHash<Key, T>::key_iterator::operator!=(key_iterator other) const
 
     Returns \c true if \a other points to a different item than this
     iterator; otherwise returns \c false.
@@ -2434,7 +2417,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
 */
 
 /*!
-    \fn QHash::key_iterator &QHash::key_iterator::operator++()
+    \fn template <class Key, class T> QHash<Key, T>::key_iterator &QHash<Key, T>::key_iterator::operator++()
 
     The prefix ++ operator (\c{++i}) advances the iterator to the
     next item in the hash and returns an iterator to the new current
@@ -2445,7 +2428,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa operator--()
 */
 
-/*! \fn QHash::key_iterator QHash::key_iterator::operator++(int)
+/*! \fn template <class Key, class T> QHash<Key, T>::key_iterator QHash<Key, T>::key_iterator::operator++(int)
 
     \overload
 
@@ -2454,7 +2437,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     item.
 */
 
-/*! \fn QHash::key_iterator &QHash::key_iterator::operator--()
+/*! \fn template <class Key, class T> QHash<Key, T>::key_iterator &QHash<Key, T>::key_iterator::operator--()
 
     The prefix -- operator (\c{--i}) makes the preceding item
     current and returns an iterator pointing to the new current item.
@@ -2465,7 +2448,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa operator++()
 */
 
-/*! \fn QHash::key_iterator QHash::key_iterator::operator--(int)
+/*! \fn template <class Key, class T> QHash<Key, T>::key_iterator QHash<Key, T>::key_iterator::operator--(int)
 
     \overload
 
@@ -2474,8 +2457,20 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     item.
 */
 
-/*! \fn const_iterator QHash::key_iterator::base() const
+/*! \fn template <class Key, class T> const_iterator QHash<Key, T>::key_iterator::base() const
     Returns the underlying const_iterator this key_iterator is based on.
+*/
+
+/*! \typedef QHash::const_key_value_iterator
+    \inmodule QtCore
+    \since 5.10
+    \brief The QMap::const_key_value_iterator typedef provides an STL-style const iterator for QHash and QMultiHash.
+
+    QHash::const_key_value_iterator is essentially the same as QHash::const_iterator
+    with the difference that operator*() returns a key/value pair instead of a
+    value.
+
+    \sa QKeyValueIterator
 */
 
 /*! \typedef QHash::key_value_iterator
@@ -2490,7 +2485,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa QKeyValueIterator
 */
 
-/*! \fn QDataStream &operator<<(QDataStream &out, const QHash<Key, T>& hash)
+/*! \fn template <class Key, class T> QDataStream &operator<<(QDataStream &out, const QHash<Key, T>& hash)
     \relates QHash
 
     Writes the hash \a hash to stream \a out.
@@ -2501,7 +2496,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa {Serializing Qt Data Types}
 */
 
-/*! \fn QDataStream &operator>>(QDataStream &in, QHash<Key, T> &hash)
+/*! \fn template <class Key, class T> QDataStream &operator>>(QDataStream &in, QHash<Key, T> &hash)
     \relates QHash
 
     Reads a hash from stream \a in into \a hash.
@@ -2568,12 +2563,12 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa QHash, QHashIterator, QMutableHashIterator, QMultiMap
 */
 
-/*! \fn QMultiHash::QMultiHash()
+/*! \fn template <class Key, class T> QMultiHash<Key, T>::QMultiHash()
 
     Constructs an empty hash.
 */
 
-/*! \fn QMultiHash::QMultiHash(std::initializer_list<std::pair<Key,T> > list)
+/*! \fn template <class Key, class T> QMultiHash<Key, T>::QMultiHash(std::initializer_list<std::pair<Key,T> > list)
     \since 5.1
 
     Constructs a multi-hash with a copy of each of the elements in the
@@ -2583,7 +2578,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     compiled in C++11 mode.
 */
 
-/*! \fn QMultiHash::QMultiHash(const QHash<Key, T> &other)
+/*! \fn template <class Key, class T> QMultiHash<Key, T>::QMultiHash(const QHash<Key, T> &other)
 
     Constructs a copy of \a other (which can be a QHash or a
     QMultiHash).
@@ -2591,7 +2586,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa operator=()
 */
 
-/*! \fn QMultiHash::iterator QMultiHash::replace(const Key &key, const T &value)
+/*! \fn template <class Key, class T> QMultiHash<Key, T>::iterator QMultiHash<Key, T>::replace(const Key &key, const T &value)
 
     Inserts a new item with the \a key and a value of \a value.
 
@@ -2604,7 +2599,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa insert()
 */
 
-/*! \fn QMultiHash::iterator QMultiHash::insert(const Key &key, const T &value)
+/*! \fn template <class Key, class T> QMultiHash<Key, T>::iterator QMultiHash<Key, T>::insert(const Key &key, const T &value)
 
     Inserts a new item with the \a key and a value of \a value.
 
@@ -2616,7 +2611,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa replace()
 */
 
-/*! \fn QMultiHash &QMultiHash::operator+=(const QMultiHash &other)
+/*! \fn template <class Key, class T> QMultiHash &QMultiHash<Key, T>::operator+=(const QMultiHash &other)
 
     Inserts all the items in the \a other hash into this hash
     and returns a reference to this hash.
@@ -2624,7 +2619,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
     \sa insert()
 */
 
-/*! \fn QMultiHash QMultiHash::operator+(const QMultiHash &other) const
+/*! \fn template <class Key, class T> QMultiHash QMultiHash<Key, T>::operator+(const QMultiHash &other) const
 
     Returns a hash that contains all the items in this hash in
     addition to all the items in \a other. If a key is common to both
@@ -2634,7 +2629,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
 */
 
 /*!
-    \fn bool QMultiHash::contains(const Key &key, const T &value) const
+    \fn template <class Key, class T> bool QMultiHash<Key, T>::contains(const Key &key, const T &value) const
     \since 4.3
 
     Returns \c true if the hash contains an item with the \a key and
@@ -2644,7 +2639,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
 */
 
 /*!
-    \fn int QMultiHash::remove(const Key &key, const T &value)
+    \fn template <class Key, class T> int QMultiHash<Key, T>::remove(const Key &key, const T &value)
     \since 4.3
 
     Removes all the items that have the \a key and the value \a
@@ -2654,7 +2649,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
 */
 
 /*!
-    \fn int QMultiHash::count(const Key &key, const T &value) const
+    \fn template <class Key, class T> int QMultiHash<Key, T>::count(const Key &key, const T &value) const
     \since 4.3
 
     Returns the number of items with the \a key and \a value.
@@ -2663,7 +2658,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
 */
 
 /*!
-    \fn typename QHash<Key, T>::iterator QMultiHash::find(const Key &key, const T &value)
+    \fn template <class Key, class T> typename QHash<Key, T>::iterator QMultiHash<Key, T>::find(const Key &key, const T &value)
     \since 4.3
 
     Returns an iterator pointing to the item with the \a key and \a value.
@@ -2676,13 +2671,13 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
 */
 
 /*!
-    \fn typename QHash<Key, T>::const_iterator QMultiHash::find(const Key &key, const T &value) const
+    \fn template <class Key, class T> typename QHash<Key, T>::const_iterator QMultiHash<Key, T>::find(const Key &key, const T &value) const
     \since 4.3
     \overload
 */
 
 /*!
-    \fn typename QHash<Key, T>::const_iterator QMultiHash::constFind(const Key &key, const T &value) const
+    \fn template <class Key, class T> typename QHash<Key, T>::const_iterator QMultiHash<Key, T>::constFind(const Key &key, const T &value) const
     \since 4.3
 
     Returns an iterator pointing to the item with the \a key and the
@@ -2695,7 +2690,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
 */
 
 /*!
-    \fn uint qHash(const QHash<Key, T> &key, uint seed = 0)
+    \fn template <class Key, class T> uint qHash(const QHash<Key, T> &key, uint seed = 0)
     \since 5.8
     \relates QHash
 
@@ -2705,7 +2700,7 @@ uint qHash(long double key, uint seed) Q_DECL_NOTHROW
 */
 
 /*!
-    \fn uint qHash(const QMultiHash<Key, T> &key, uint seed = 0)
+    \fn template <class Key, class T> uint qHash(const QMultiHash<Key, T> &key, uint seed = 0)
     \since 5.8
     \relates QMultiHash
 

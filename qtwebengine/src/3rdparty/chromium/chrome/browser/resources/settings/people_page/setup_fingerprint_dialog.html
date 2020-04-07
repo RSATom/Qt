@@ -1,5 +1,6 @@
 <link rel="import" href="chrome://resources/html/polymer.html">
 
+<link rel="import" href="chrome://resources/cr_elements/cr_dialog/cr_dialog.html">
 <link rel="import" href="chrome://resources/cr_elements/icons.html">
 <link rel="import" href="chrome://resources/html/i18n_behavior.html">
 <link rel="import" href="chrome://resources/html/web_ui_listener_behavior.html">
@@ -20,8 +21,10 @@
       }
 
       #dialog {
-        min-width: 500px;
-        width: 500px;
+        --cr-dialog-native: {
+          min-width: 500px;
+          width: 500px;
+        };
       }
 
       #image {
@@ -38,7 +41,7 @@
         --iron-icon-fill-color: var(--google-blue-700);
       }
 
-      /* Put the image in a seperate div with 0 height, otherwise the div will
+      /* Put the image in a separate div with 0 height, otherwise the div will
          take the height of the image, leaving us with a row of whitespace when
          we position the #image to be inside #arc. */
       #imageDiv {
@@ -52,10 +55,10 @@
       }
     </style>
 
-    <dialog is="cr-dialog" id="dialog" on-close="close"
+    <cr-dialog id="dialog" on-close="close"
         close-text="$i18n{close}">
-      <div class="title" slot="title">$i18n{configureFingerprintTitle}</div>
-      <div class="body" slot="body">
+      <div slot="title">$i18n{configureFingerprintTitle}</div>
+      <div slot="body">
         <div class="settings-box first">
           <span class="middle">[[getInstructionMessage_(step_)]]</span>
         </div>
@@ -67,22 +70,22 @@
         </div>
         <div id="problemDiv" class="settings-box first"
             invisible$="[[!problemMessage_]]">
-          <iron-icon icon="settings:warning"></iron-icon>
+          <iron-icon icon="cr:warning"></iron-icon>
           <span class="middle">[[problemMessage_]]</span>
         </div>
       </div>
-      <div class="button-container" slot="button-container">
-        <paper-button id="addAnotherButton" on-tap="onAddAnotherFingerprint_"
+      <div slot="button-container">
+        <paper-button id="addAnotherButton" on-click="onAddAnotherFingerprint_"
             hidden$="[[hideAddAnother_(step_)]]">
           $i18n{configureFingerprintAddAnotherButton}
         </paper-button>
 
         <paper-button id="closeButton"
-            class$="[[getCloseButtonClass_(step_)]]" on-tap="onClose_">
+            class$="[[getCloseButtonClass_(step_)]]" on-click="onClose_">
           [[getCloseButtonText_(step_)]]
         </paper-button>
       </div>
-    </dialog>
+    </cr-dialog>
   </template>
 
   <script src="setup_fingerprint_dialog.js"></script>

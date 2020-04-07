@@ -1148,9 +1148,15 @@ static void resize_context_buffers(VP9_COMMON *cm, int width, int height) {
     // Allocations in vp9_alloc_context_buffers() depend on individual
     // dimensions as well as the overall size.
     if (new_mi_cols > cm->mi_cols || new_mi_rows > cm->mi_rows) {
-      if (vp9_alloc_context_buffers(cm, width, height))
+      if (vp9_alloc_context_buffers(cm, width, height)) {
+        // The cm->mi_* values have been cleared and any existing context
+        // buffers have been freed. Clear cm->width and cm->height to be
+        // consistent and to force a realloc next time.
+        cm->width = 0;
+        cm->height = 0;
         vpx_internal_error(&cm->error, VPX_CODEC_MEM_ERROR,
                            "Failed to allocate context buffers");
+      }
     } else {
       vp9_set_mb_mi(cm, width, height);
     }
@@ -1184,6 +1190,7 @@ static void setup_frame_size(VP9_COMMON *cm, struct vpx_read_bit_buffer *rb) {
                        "Failed to allocate frame buffer");
   }
 
+  pool->frame_bufs[cm->new_fb_idx].released = 0;
   pool->frame_bufs[cm->new_fb_idx].buf.subsampling_x = cm->subsampling_x;
   pool->frame_bufs[cm->new_fb_idx].buf.subsampling_y = cm->subsampling_y;
   pool->frame_bufs[cm->new_fb_idx].buf.bit_depth = (unsigned int)cm->bit_depth;
@@ -1267,6 +1274,7 @@ static void setup_frame_size_with_refs(VP9_COMMON *cm,
                        "Failed to allocate frame buffer");
   }
 
+  pool->frame_bufs[cm->new_fb_idx].released = 0;
   pool->frame_bufs[cm->new_fb_idx].buf.subsampling_x = cm->subsampling_x;
   pool->frame_bufs[cm->new_fb_idx].buf.subsampling_y = cm->subsampling_y;
   pool->frame_bufs[cm->new_fb_idx].buf.bit_depth = (unsigned int)cm->bit_depth;
@@ -1362,7 +1370,7 @@ static const uint8_t *decode_tiles(VP9Decoder *pbi, const uint8_t *data,
       pbi->lf_worker.data1 == NULL) {
     CHECK_MEM_ERROR(cm, pbi->lf_worker.data1,
                     vpx_memalign(32, sizeof(LFWorkerData)));
-    pbi->lf_worker.hook = (VPxWorkerHook)vp9_loop_filter_worker;
+    pbi->lf_worker.hook = vp9_loop_filter_worker;
     if (pbi->max_threads > 1 && !winterface->reset(&pbi->lf_worker)) {
       vpx_internal_error(&cm->error, VPX_CODEC_ERROR,
                          "Loop filter thread creation failed");
@@ -1472,8 +1480,10 @@ static const uint8_t *decode_tiles(VP9Decoder *pbi, const uint8_t *data,
 // On entry 'tile_data->data_end' points to the end of the input frame, on exit
 // it is updated to reflect the bitreader position of the final tile column if
 // present in the tile buffer group or NULL otherwise.
-static int tile_worker_hook(TileWorkerData *const tile_data,
-                            VP9Decoder *const pbi) {
+static int tile_worker_hook(void *arg1, void *arg2) {
+  TileWorkerData *const tile_data = (TileWorkerData *)arg1;
+  VP9Decoder *const pbi = (VP9Decoder *)arg2;
+
   TileInfo *volatile tile = &tile_data->xd.tile;
   const int final_col = (1 << pbi->common.log2_tile_cols) - 1;
   const uint8_t *volatile bit_reader_end = NULL;
@@ -1524,7 +1534,7 @@ static int tile_worker_hook(TileWorkerData *const tile_data,
 static int compare_tile_buffers(const void *a, const void *b) {
   const TileBuffer *const buf1 = (const TileBuffer *)a;
   const TileBuffer *const buf2 = (const TileBuffer *)b;
-  return (int)(buf2->size - buf1->size);
+  return (int)((int64_t)buf2->size - buf1->size);
 }
 
 static const uint8_t *decode_tiles_mt(VP9Decoder *pbi, const uint8_t *data,
@@ -1567,7 +1577,7 @@ static const uint8_t *decode_tiles_mt(VP9Decoder *pbi, const uint8_t *data,
     tile_data->xd = pbi->mb;
     tile_data->xd.counts =
         cm->frame_parallel_decoding_mode ? NULL : &tile_data->counts;
-    worker->hook = (VPxWorkerHook)tile_worker_hook;
+    worker->hook = tile_worker_hook;
     worker->data1 = tile_data;
     worker->data2 = pbi;
   }

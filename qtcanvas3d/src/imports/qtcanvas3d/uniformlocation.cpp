@@ -49,7 +49,9 @@ QT_CANVAS3D_BEGIN_NAMESPACE
  * \inqmlmodule QtCanvas3D
  * \inherits Canvas3DAbstractObject
  * \brief Contains uniform location id.
+ * \deprecated
  *
+ * \b{Deprecated in Qt 5.12.}
  * An uncreatable QML type that contains an uniform location id. You can get it by calling
  * the \l{Context3D::getUniformLocation()}{Context3D.getUniformLocation()} method.
  */

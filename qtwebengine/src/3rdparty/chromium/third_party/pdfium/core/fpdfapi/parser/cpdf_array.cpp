@@ -14,13 +14,13 @@
 #include "core/fpdfapi/parser/cpdf_reference.h"
 #include "core/fpdfapi/parser/cpdf_stream.h"
 #include "core/fpdfapi/parser/cpdf_string.h"
+#include "core/fxcrt/fx_stream.h"
 #include "third_party/base/logging.h"
 #include "third_party/base/stl_util.h"
 
 CPDF_Array::CPDF_Array() {}
 
-CPDF_Array::CPDF_Array(const CFX_WeakPtr<CFX_ByteStringPool>& pPool)
-    : m_pPool(pPool) {}
+CPDF_Array::CPDF_Array(const WeakPtr<ByteStringPool>& pPool) : m_pPool(pPool) {}
 
 CPDF_Array::~CPDF_Array() {
   // Break cycles for cyclic references.
@@ -66,7 +66,7 @@ std::unique_ptr<CPDF_Object> CPDF_Array::CloneNonCyclic(
   return std::move(pCopy);
 }
 
-CFX_FloatRect CPDF_Array::GetRect() {
+CFX_FloatRect CPDF_Array::GetRect() const {
   CFX_FloatRect rect;
   if (!IsArray() || m_Objects.size() != 4)
     return rect;
@@ -78,7 +78,7 @@ CFX_FloatRect CPDF_Array::GetRect() {
   return rect;
 }
 
-CFX_Matrix CPDF_Array::GetMatrix() {
+CFX_Matrix CPDF_Array::GetMatrix() const {
   CFX_Matrix matrix;
   if (!IsArray() || m_Objects.size() != 6)
     return CFX_Matrix();
@@ -87,27 +87,39 @@ CFX_Matrix CPDF_Array::GetMatrix() {
                     GetNumberAt(3), GetNumberAt(4), GetNumberAt(5));
 }
 
-CPDF_Object* CPDF_Array::GetObjectAt(size_t i) const {
+CPDF_Object* CPDF_Array::GetObjectAt(size_t i) {
   if (i >= m_Objects.size())
     return nullptr;
   return m_Objects[i].get();
 }
 
-CPDF_Object* CPDF_Array::GetDirectObjectAt(size_t i) const {
+const CPDF_Object* CPDF_Array::GetObjectAt(size_t i) const {
+  if (i >= m_Objects.size())
+    return nullptr;
+  return m_Objects[i].get();
+}
+
+CPDF_Object* CPDF_Array::GetDirectObjectAt(size_t i) {
   if (i >= m_Objects.size())
     return nullptr;
   return m_Objects[i]->GetDirect();
 }
 
-CFX_ByteString CPDF_Array::GetStringAt(size_t i) const {
+const CPDF_Object* CPDF_Array::GetDirectObjectAt(size_t i) const {
   if (i >= m_Objects.size())
-    return CFX_ByteString();
+    return nullptr;
+  return m_Objects[i]->GetDirect();
+}
+
+ByteString CPDF_Array::GetStringAt(size_t i) const {
+  if (i >= m_Objects.size())
+    return ByteString();
   return m_Objects[i]->GetString();
 }
 
-CFX_WideString CPDF_Array::GetUnicodeTextAt(size_t i) const {
+WideString CPDF_Array::GetUnicodeTextAt(size_t i) const {
   if (i >= m_Objects.size())
-    return CFX_WideString();
+    return WideString();
   return m_Objects[i]->GetUnicodeText();
 }
 
@@ -123,7 +135,7 @@ float CPDF_Array::GetNumberAt(size_t i) const {
   return m_Objects[i]->GetNumber();
 }
 
-CPDF_Dictionary* CPDF_Array::GetDictAt(size_t i) const {
+CPDF_Dictionary* CPDF_Array::GetDictAt(size_t i) {
   CPDF_Object* p = GetDirectObjectAt(i);
   if (!p)
     return nullptr;
@@ -134,28 +146,40 @@ CPDF_Dictionary* CPDF_Array::GetDictAt(size_t i) const {
   return nullptr;
 }
 
-CPDF_Stream* CPDF_Array::GetStreamAt(size_t i) const {
+const CPDF_Dictionary* CPDF_Array::GetDictAt(size_t i) const {
+  const CPDF_Object* p = GetDirectObjectAt(i);
+  if (!p)
+    return nullptr;
+  if (const CPDF_Dictionary* pDict = p->AsDictionary())
+    return pDict;
+  if (const CPDF_Stream* pStream = p->AsStream())
+    return pStream->GetDict();
+  return nullptr;
+}
+
+CPDF_Stream* CPDF_Array::GetStreamAt(size_t i) {
   return ToStream(GetDirectObjectAt(i));
 }
 
-CPDF_Array* CPDF_Array::GetArrayAt(size_t i) const {
+const CPDF_Stream* CPDF_Array::GetStreamAt(size_t i) const {
+  return ToStream(GetDirectObjectAt(i));
+}
+
+CPDF_Array* CPDF_Array::GetArrayAt(size_t i) {
   return ToArray(GetDirectObjectAt(i));
 }
 
-void CPDF_Array::RemoveAt(size_t i) {
-  if (i < m_Objects.size())
-    m_Objects.erase(m_Objects.begin() + i);
+const CPDF_Array* CPDF_Array::GetArrayAt(size_t i) const {
+  return ToArray(GetDirectObjectAt(i));
 }
 
 void CPDF_Array::Clear() {
   m_Objects.clear();
 }
 
-void CPDF_Array::Truncate(size_t nNewSize) {
-  if (nNewSize >= m_Objects.size())
-    return;
-
-  m_Objects.resize(nNewSize);
+void CPDF_Array::RemoveAt(size_t i) {
+  if (i < m_Objects.size())
+    m_Objects.erase(m_Objects.begin() + i);
 }
 
 void CPDF_Array::ConvertToIndirectObjectAt(size_t i,
@@ -167,7 +191,7 @@ void CPDF_Array::ConvertToIndirectObjectAt(size_t i,
     return;
 
   CPDF_Object* pNew = pHolder->AddIndirectObject(std::move(m_Objects[i]));
-  m_Objects[i] = pdfium::MakeUnique<CPDF_Reference>(pHolder, pNew->GetObjNum());
+  m_Objects[i] = pNew->MakeReference(pHolder);
 }
 
 CPDF_Object* CPDF_Array::SetAt(size_t i, std::unique_ptr<CPDF_Object> pObj) {
@@ -211,16 +235,8 @@ bool CPDF_Array::WriteTo(IFX_ArchiveStream* archive) const {
     return false;
 
   for (size_t i = 0; i < GetCount(); ++i) {
-    CPDF_Object* pElement = GetObjectAt(i);
-    if (!pElement->IsInline()) {
-      if (!archive->WriteString(" ") ||
-          !archive->WriteDWord(pElement->GetObjNum()) ||
-          !archive->WriteString(" 0 R")) {
-        return false;
-      }
-    } else if (!pElement->WriteTo(archive)) {
+    if (!GetObjectAt(i)->WriteTo(archive))
       return false;
-    }
   }
   return archive->WriteString("]");
 }

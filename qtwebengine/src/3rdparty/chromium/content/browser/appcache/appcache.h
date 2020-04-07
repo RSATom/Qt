@@ -22,20 +22,18 @@
 #include "content/common/content_export.h"
 #include "url/gurl.h"
 
-namespace net {
-class IOBuffer;
-}
-
 namespace content {
 FORWARD_DECLARE_TEST(AppCacheTest, InitializeWithManifest);
 FORWARD_DECLARE_TEST(AppCacheTest, ToFromDatabaseRecords);
-class AppCacheExecutableHandler;
 class AppCacheGroup;
 class AppCacheHost;
 class AppCacheStorage;
 class AppCacheTest;
 class AppCacheStorageImplTest;
+
+namespace appcache_update_job_unittest {
 class AppCacheUpdateJobTest;
+}
 
 // Set of cached resources for an application. A cache exists as long as a
 // host is associated with it, the cache is in an appcache group or the
@@ -43,8 +41,8 @@ class AppCacheUpdateJobTest;
 class CONTENT_EXPORT AppCache
     : public base::RefCounted<AppCache> {
  public:
-  typedef std::map<GURL, AppCacheEntry> EntryMap;
-  typedef std::set<AppCacheHost*> AppCacheHosts;
+  using EntryMap = std::map<GURL, AppCacheEntry>;
+  using AppCacheHosts = std::set<AppCacheHost*>;
 
   AppCache(AppCacheStorage* storage, int64_t cache_id);
 
@@ -74,16 +72,6 @@ class CONTENT_EXPORT AppCache
   const AppCacheEntry* GetEntryAndUrlWithResponseId(int64_t response_id,
                                                     GURL* optional_url);
   const EntryMap& entries() const { return entries_; }
-
-  // The AppCache owns the collection of executable handlers that have
-  // been started for this instance. The getter looks up an existing
-  // handler returning null if not found, the GetOrCreate method will
-  // cons one up if not found.
-  // Do not store the returned ptrs, they're owned by 'this'.
-  AppCacheExecutableHandler* GetExecutableHandler(int64_t response_id);
-  AppCacheExecutableHandler* GetOrCreateExecutableHandler(
-      int64_t response_id,
-      net::IOBuffer* handler_source);
 
   // Returns the URL of the resource used as entry for 'namespace_url'.
   GURL GetFallbackEntryUrl(const GURL& namespace_url) const {
@@ -153,7 +141,7 @@ class CONTENT_EXPORT AppCache
   friend class AppCacheHost;
   friend class content::AppCacheTest;
   friend class content::AppCacheStorageImplTest;
-  friend class content::AppCacheUpdateJobTest;
+  friend class content::appcache_update_job_unittest::AppCacheUpdateJobTest;
   friend class base::RefCounted<AppCache>;
 
   ~AppCache();
@@ -198,10 +186,6 @@ class CONTENT_EXPORT AppCache
   base::Time update_time_;
 
   int64_t cache_size_;
-
-  typedef std::map<int64_t, std::unique_ptr<AppCacheExecutableHandler>>
-      HandlerMap;
-  HandlerMap executable_handlers_;
 
   // to notify storage when cache is deleted
   AppCacheStorage* storage_;

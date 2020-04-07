@@ -5,7 +5,6 @@
 #ifndef UI_BASE_CURSOR_CURSOR_LOADER_X11_H_
 #define UI_BASE_CURSOR_CURSOR_LOADER_X11_H_
 
-#include <X11/Xcursor/Xcursor.h>
 #include <map>
 
 #include "base/compiler_specific.h"
@@ -14,6 +13,7 @@
 #include "ui/base/cursor/cursor_loader.h"
 #include "ui/base/ui_base_export.h"
 #include "ui/base/x/x11_util.h"
+#include "ui/gfx/x/x11.h"
 
 namespace ui {
 
@@ -60,15 +60,12 @@ class UI_BASE_EXPORT CursorLoaderX11 : public CursorLoader {
 
   // A map to hold all image cursors. It maps the cursor ID to the X Cursor, the
   // display's scale factor, and the display's rotation.
-  typedef std::map<CursorType, std::unique_ptr<ImageCursor>> ImageCursorMap;
-  ImageCursorMap image_cursors_;
+  std::map<CursorType, std::unique_ptr<ImageCursor>> image_cursors_;
 
   // A map to hold all animated cursors. It maps the cursor ID to the pair of
   // the X Cursor and the corresponding XcursorImages. We need a pointer to the
   // images so that we can free them on destruction.
-  typedef std::map<CursorType, std::pair<::Cursor, XcursorImages*>>
-      AnimatedCursorMap;
-  AnimatedCursorMap animated_cursors_;
+  std::map<CursorType, std::pair<::Cursor, XcursorImages*>> animated_cursors_;
 
   const XScopedCursor invisible_cursor_;
 

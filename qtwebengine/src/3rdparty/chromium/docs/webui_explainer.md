@@ -138,7 +138,7 @@ class DonutsUI : public content::WebUIController {
     content::WebUIDataSource::Add(source);
 
     // Handles messages from JavaScript to C++ via chrome.send().
-    web_ui->AddMessageHandler(base::MakeUnique<OvenHandler>());
+    web_ui->AddMessageHandler(std::make_unique<OvenHandler>());
   }
 };
 ```
@@ -516,17 +516,17 @@ chrome.send('messageName', [arg1, arg2, ...]);
 ```
 
 The message name and argument list are serialized to JSON and sent via the
-`ViewHostMsg_WebUISend` IPC message from the renderer to the browser.
+`FrameHostMsg_WebUISend` IPC message from the renderer to the browser.
 
 ```c++
 // In the renderer (WebUIExtension::Send()):
-render_view->Send(new ViewHostMsg_WebUISend(render_view->GetRoutingID(),
-                                            frame->GetDocument().Url(),
-                                            message, *content));
+render_frame->Send(new FrameHostMsg_WebUISend(render_frame->GetRoutingID(),
+                                              frame->GetDocument().Url(),
+                                              message, *content));
 ```
 ```c++
 // In the browser (WebUIImpl::OnMessageReceived()):
-IPC_MESSAGE_HANDLER(ViewHostMsg_WebUISend, OnWebUISend)
+IPC_MESSAGE_HANDLER(FrameHostMsg_WebUISend, OnWebUISend)
 ```
 
 The browser-side code does a map lookup for the message name and calls the found
@@ -655,7 +655,7 @@ are in flight.
 
 ## See also
 
-* WebUI's C++ code follows the [Chromium C++ styleguide](../c++/c++.md).
+* WebUI's C++ code follows the [Chromium C++ styleguide](../styleguide/c++/c++.md).
 * WebUI's HTML/CSS/JS code follows the [Chromium Web
   Development Style Guide](../styleguide/web/web.md)
 

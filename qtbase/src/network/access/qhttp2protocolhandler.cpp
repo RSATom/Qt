@@ -40,8 +40,6 @@
 #include "qhttpnetworkconnection_p.h"
 #include "qhttp2protocolhandler_p.h"
 
-#if !defined(QT_NO_HTTP)
-
 #include "http2/bitstreams_p.h"
 
 #include <private/qnoncontiguousbytedevice_p.h>
@@ -88,7 +86,8 @@ HPack::HttpHeader build_headers(const QHttpNetworkRequest &request, quint32 maxH
     if (size.second > maxHeaderListSize)
         return HttpHeader(); // Bad, we cannot send this request ...
 
-    for (const auto &field : request.header()) {
+    const auto requestHeader = request.header();
+    for (const auto &field : requestHeader) {
         const HeaderSize delta = entry_size(field.first, field.second);
         if (!delta.first) // Overflow???
             break;
@@ -98,16 +97,18 @@ HPack::HttpHeader build_headers(const QHttpNetworkRequest &request, quint32 maxH
         if (size.second > maxHeaderListSize)
             break;
 
-        QByteArray key(field.first.toLower());
-        if (key == "connection" || key == "host" || key == "keep-alive"
-            || key == "proxy-connection" || key == "transfer-encoding")
+        if (field.first.compare("connection", Qt::CaseInsensitive) == 0 ||
+                field.first.compare("host", Qt::CaseInsensitive) == 0 ||
+                field.first.compare("keep-alive", Qt::CaseInsensitive) == 0 ||
+                field.first.compare("proxy-connection", Qt::CaseInsensitive) == 0 ||
+                field.first.compare("transfer-encoding", Qt::CaseInsensitive) == 0)
             continue; // Those headers are not valid (section 3.2.1) - from QSpdyProtocolHandler
         // TODO: verify with specs, which fields are valid to send ....
         // toLower - 8.1.2 .... "header field names MUST be converted to lowercase prior
         // to their encoding in HTTP/2.
         // A request or response containing uppercase header field names
         // MUST be treated as malformed (Section 8.1.2.6)".
-        header.push_back(HeaderField(key, field.second));
+        header.push_back(HeaderField(field.first.toLower(), field.second));
     }
 
     return header;
@@ -197,7 +198,7 @@ QHttp2ProtocolHandler::QHttp2ProtocolHandler(QHttpNetworkConnectionChannel *chan
         }
     }
 
-    if (!channel->ssl) {
+    if (!channel->ssl && m_connection->connectionType() != QHttpNetworkConnection::ConnectionTypeHTTP2Direct) {
         // We upgraded from HTTP/1.1 to HTTP/2. channel->request was already sent
         // as HTTP/1.1 request. The response with status code 101 triggered
         // protocol switch and now we are waiting for the real response, sent
@@ -213,6 +214,9 @@ QHttp2ProtocolHandler::QHttp2ProtocolHandler(QHttpNetworkConnectionChannel *chan
 
 void QHttp2ProtocolHandler::_q_uploadDataReadyRead()
 {
+    if (!sender()) // QueuedConnection, firing after sender (byte device) was deleted.
+        return;
+
     auto data = qobject_cast<QNonContiguousByteDevice *>(sender());
     Q_ASSERT(data);
     const qint32 streamID = data->property("HTTP2StreamID").toInt();
@@ -918,10 +922,11 @@ void QHttp2ProtocolHandler::handleContinuedHEADERS()
         if (activeStreams.contains(streamID)) {
             Stream &stream = activeStreams[streamID];
             if (stream.state != Stream::halfClosedLocal
-                && stream.state != Stream::remoteReserved) {
+                && stream.state != Stream::remoteReserved
+                && stream.state != Stream::open) {
                 // We can receive HEADERS on streams initiated by our requests
-                // (these streams are in halfClosedLocal state) or remote-reserved
-                // streams from a server's PUSH_PROMISE.
+                // (these streams are in halfClosedLocal or open state) or
+                // remote-reserved streams from a server's PUSH_PROMISE.
                 finishStreamWithError(stream, QNetworkReply::ProtocolFailure,
                                       QLatin1String("HEADERS on invalid stream"));
                 sendRST_STREAM(streamID, CANCEL);
@@ -1051,6 +1056,7 @@ void QHttp2ProtocolHandler::updateStream(Stream &stream, const HPack::HttpHeader
                                          Qt::ConnectionType connectionType)
 {
     const auto httpReply = stream.reply();
+    const auto &httpRequest = stream.request();
     Q_ASSERT(httpReply || stream.state == Stream::remoteReserved);
 
     if (!httpReply) {
@@ -1110,6 +1116,20 @@ void QHttp2ProtocolHandler::updateStream(Stream &stream, const HPack::HttpHeader
     if (QHttpNetworkReply::isHttpRedirect(statusCode) && redirectUrl.isValid())
         httpReply->setRedirectUrl(redirectUrl);
 
+    if (httpReplyPrivate->isCompressed() && httpRequest.d->autoDecompress)
+        httpReplyPrivate->removeAutoDecompressHeader();
+
+    if (QHttpNetworkReply::isHttpRedirect(statusCode)
+        || statusCode == 401 || statusCode == 407) {
+        // These are the status codes that can trigger uploadByteDevice->reset()
+        // in QHttpNetworkConnectionChannel::handleStatus. Alas, we have no
+        // single request/reply, we multiplex several requests and thus we never
+        // simply call 'handleStatus'. If we have byte-device - we try to reset
+        // it here, we don't (and can't) handle any error during reset operation.
+        if (stream.data())
+            stream.data()->reset();
+    }
+
     if (connectionType == Qt::DirectConnection)
         emit httpReply->headerChanged();
     else
@@ -1136,7 +1156,6 @@ void QHttp2ProtocolHandler::updateStream(Stream &stream, const Frame &frame,
         auto &httpRequest = stream.request();
         auto replyPrivate = httpReply->d_func();
 
-        replyPrivate->compressedData.append(data, length);
         replyPrivate->totalProgress += length;
 
         const QByteArray wrapped(data, length);
@@ -1391,8 +1410,9 @@ bool QHttp2ProtocolHandler::tryReserveStream(const Http2::Frame &pushPromiseFram
         return false;
     }
 
-    const auto method = pseudoHeaders[":method"].toLower();
-    if (method != "get" && method != "head")
+    const QByteArray method = pseudoHeaders[":method"];
+    if (method.compare("get", Qt::CaseInsensitive) != 0 &&
+            method.compare("head", Qt::CaseInsensitive) != 0)
         return false;
 
     QUrl url;
@@ -1511,5 +1531,3 @@ void QHttp2ProtocolHandler::closeSession()
 }
 
 QT_END_NAMESPACE
-
-#endif // !defined(QT_NO_HTTP)

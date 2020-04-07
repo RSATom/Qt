@@ -59,7 +59,7 @@ public:
     QQuickTextHandle(QQuickItem *parent = 0);
     ~QQuickTextHandle();
 
-    void paint(QPainter *painter) Q_DECL_OVERRIDE;
+    void paint(QPainter *painter) override;
 
     TextHandleType type() const;
     void setType(TextHandleType type);

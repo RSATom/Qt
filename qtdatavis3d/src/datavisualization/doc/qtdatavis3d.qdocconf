@@ -3,6 +3,7 @@ include($QT_INSTALL_DOCS/global/qt-module-defaults.qdocconf)
 project             = QtDataVisualization
 description         = Qt Data Visualization Reference Documentation
 version             = $QT_VERSION
+buildversion        = Qt Data Visualization | Commercial or GPLv3
 
 exampledirs += ../../../examples/datavisualization \
                snippets

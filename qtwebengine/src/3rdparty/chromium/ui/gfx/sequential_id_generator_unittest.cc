@@ -13,33 +13,6 @@ namespace ui {
 
 typedef testing::Test SequentialIDGeneratorTest;
 
-TEST(SequentialIDGeneratorTest, AddRemove) {
-  const uint32_t kMinID = 2;
-  SequentialIDGenerator generator(kMinID);
-
-  EXPECT_EQ(2U, generator.GetGeneratedID(45));
-  EXPECT_EQ(3U, generator.GetGeneratedID(23));
-  EXPECT_EQ(2U, generator.GetGeneratedID(45));
-  EXPECT_TRUE(generator.HasGeneratedIDFor(45));
-  EXPECT_TRUE(generator.HasGeneratedIDFor(23));
-
-  generator.ReleaseGeneratedID(2);
-  EXPECT_FALSE(generator.HasGeneratedIDFor(45));
-  EXPECT_TRUE(generator.HasGeneratedIDFor(23));
-  EXPECT_EQ(3U, generator.GetGeneratedID(23));
-
-  EXPECT_FALSE(generator.HasGeneratedIDFor(1));
-  EXPECT_EQ(2U, generator.GetGeneratedID(1));
-  EXPECT_TRUE(generator.HasGeneratedIDFor(1));
-
-  generator.ReleaseGeneratedID(3);
-  EXPECT_EQ(3U, generator.GetGeneratedID(45));
-  EXPECT_TRUE(generator.HasGeneratedIDFor(45));
-
-  generator.ReleaseNumber(45);
-  EXPECT_FALSE(generator.HasGeneratedIDFor(45));
-}
-
 TEST(SequentialIDGeneratorTest, RemoveMultipleNumbers) {
   const uint32_t kMinID = 4;
   SequentialIDGenerator generator(kMinID);
@@ -59,6 +32,17 @@ TEST(SequentialIDGeneratorTest, RemoveMultipleNumbers) {
   generator.ReleaseNumber(12);
   generator.ReleaseNumber(55);
   EXPECT_EQ(4U, generator.GetGeneratedID(0));
+}
+
+TEST(SequentialIDGeneratorTest, MaybeRemoveNumbers) {
+  const uint32_t kMinID = 0;
+  SequentialIDGenerator generator(kMinID);
+
+  EXPECT_EQ(0U, generator.GetGeneratedID(42));
+
+  generator.ReleaseNumber(42);
+  EXPECT_FALSE(generator.HasGeneratedIDFor(42));
+  generator.ReleaseNumber(42);
 }
 
 }  // namespace ui

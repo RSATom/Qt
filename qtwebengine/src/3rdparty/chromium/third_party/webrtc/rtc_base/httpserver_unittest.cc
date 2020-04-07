@@ -8,68 +8,65 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/rtc_base/httpserver.h"
-#include "webrtc/rtc_base/gunit.h"
-#include "webrtc/rtc_base/testutils.h"
+#include "rtc_base/httpserver.h"
+#include "rtc_base/gunit.h"
+#include "rtc_base/testutils.h"
 
 using namespace webrtc::testing;
 
 namespace rtc {
 
 namespace {
-  const char* const kRequest =
+const char* const kRequest =
     "GET /index.html HTTP/1.1\r\n"
     "Host: localhost\r\n"
     "\r\n";
 
-  struct HttpServerMonitor : public sigslot::has_slots<> {
-    HttpServerTransaction* transaction;
-    bool server_closed, connection_closed;
+struct HttpServerMonitor : public sigslot::has_slots<> {
+  HttpServerTransaction* transaction;
+  bool server_closed, connection_closed;
 
-    HttpServerMonitor(HttpServer* server)
-        : transaction(nullptr), server_closed(false), connection_closed(false) {
-      server->SignalCloseAllComplete.connect(this,
-        &HttpServerMonitor::OnClosed);
-      server->SignalHttpRequest.connect(this, &HttpServerMonitor::OnRequest);
-      server->SignalHttpRequestComplete.connect(this,
-        &HttpServerMonitor::OnRequestComplete);
-      server->SignalConnectionClosed.connect(this,
-        &HttpServerMonitor::OnConnectionClosed);
-    }
-    void OnRequest(HttpServer*, HttpServerTransaction* t) {
-      ASSERT_FALSE(transaction);
-      transaction = t;
-      transaction->response.set_success();
-      transaction->response.setHeader(HH_CONNECTION, "Close");
-    }
-    void OnRequestComplete(HttpServer*, HttpServerTransaction* t, int) {
-      ASSERT_EQ(transaction, t);
-      transaction = nullptr;
-    }
-    void OnClosed(HttpServer*) {
-      server_closed = true;
-    }
-    void OnConnectionClosed(HttpServer*, int, StreamInterface* stream) {
-      connection_closed = true;
-      delete stream;
-    }
-  };
-
-  void CreateClientConnection(HttpServer& server,
-                              HttpServerMonitor& monitor,
-                              bool send_request) {
-    StreamSource* client = new StreamSource;
-    client->SetState(SS_OPEN);
-    server.HandleConnection(client);
-    EXPECT_FALSE(monitor.server_closed);
-    EXPECT_FALSE(monitor.transaction);
-
-    if (send_request) {
-      // Simulate a request
-      client->QueueString(kRequest);
-      EXPECT_FALSE(monitor.server_closed);
-    }
+  HttpServerMonitor(HttpServer* server)
+      : transaction(nullptr), server_closed(false), connection_closed(false) {
+    server->SignalCloseAllComplete.connect(this, &HttpServerMonitor::OnClosed);
+    server->SignalHttpRequest.connect(this, &HttpServerMonitor::OnRequest);
+    server->SignalHttpRequestComplete.connect(
+        this, &HttpServerMonitor::OnRequestComplete);
+    server->SignalConnectionClosed.connect(
+        this, &HttpServerMonitor::OnConnectionClosed);
   }
+  void OnRequest(HttpServer*, HttpServerTransaction* t) {
+    ASSERT_FALSE(transaction);
+    transaction = t;
+    transaction->response.set_success();
+    transaction->response.setHeader(HH_CONNECTION, "Close");
+  }
+  void OnRequestComplete(HttpServer*, HttpServerTransaction* t, int) {
+    ASSERT_EQ(transaction, t);
+    transaction = nullptr;
+  }
+  void OnClosed(HttpServer*) { server_closed = true; }
+  void OnConnectionClosed(HttpServer*, int, StreamInterface* stream) {
+    connection_closed = true;
+    delete stream;
+  }
+};
+
+void CreateClientConnection(HttpServer& server,
+                            HttpServerMonitor& monitor,
+                            bool send_request) {
+  StreamSource* client = new StreamSource;
+  client->SetState(SS_OPEN);
+  server.HandleConnection(client);
+  EXPECT_FALSE(monitor.server_closed);
+  EXPECT_FALSE(monitor.transaction);
+
+  if (send_request) {
+    // Simulate a request
+    client->QueueString(kRequest);
+    EXPECT_FALSE(monitor.server_closed);
+  }
+}
 }  // anonymous namespace
 
 TEST(HttpServer, DoesNotSignalCloseUnlessCloseAllIsCalled) {
@@ -127,4 +124,4 @@ TEST(HttpServer, SignalsCloseAfterForcedCloseAll) {
   EXPECT_TRUE(monitor.connection_closed);
 }
 
-} // namespace rtc
+}  // namespace rtc

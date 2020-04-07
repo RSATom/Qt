@@ -333,8 +333,8 @@ void PersistentSystemProfile::AddFieldTrial(base::StringPiece trial,
   DCHECK(!group.empty());
 
   base::Pickle pickler;
-  if (!pickler.WriteString(trial) || !pickler.WriteString(group))
-    return;
+  pickler.WriteString(trial);
+  pickler.WriteString(group);
 
   WriteToAll(kFieldTrialInfo,
              base::StringPiece(static_cast<const char*>(pickler.data()),
@@ -360,6 +360,9 @@ bool PersistentSystemProfile::GetSystemProfile(
     if (!records.Read(&type, &record))
       return false;
   } while (type != kSystemProfileProto);
+
+  if (!system_profile)
+    return true;
 
   if (!system_profile->ParseFromString(record))
     return false;

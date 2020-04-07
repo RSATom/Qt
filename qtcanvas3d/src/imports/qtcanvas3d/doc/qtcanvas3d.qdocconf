@@ -4,6 +4,10 @@ project             = QtCanvas3D
 description         = Qt Canvas 3D Reference Documentation
 version             = $QT_VERSION
 
+# Qt Canvas 3D doesn't expose a C++ API - pass a dummy header for Clang parser
+moduleheader = QtCanvas3D
+includepaths = .
+
 exampledirs = ../../../../examples/canvas3d \
               snippets
 
@@ -12,8 +16,6 @@ headerdirs += ..
 sourcedirs += ..
 
 examplesinstallpath = canvas3d
-
-manifestmeta.highlighted.names = "QtCanvas3D/Interactive Mobile Phone Example"
 
 depends     = qtcore qtgui qtqml qtquick qtquickcontrols qtquicklayouts qtdoc qtmultimedia
 
@@ -44,5 +46,7 @@ qhp.QtCanvas3D.subprojects.types.selectors             = qmlclass
 qhp.QtCanvas3D.subprojects.types.sortPages             = true
 
 navigation.landingpage = Qt Canvas 3D
+navigation.landingtitle = Qt Canvas 3D (deprecated)
 navigation.qmltypespage = Qt Canvas 3D QML Types
+navigation.qmltypestitle = Qt Canvas 3D QML Types (deprecated)
 navigation.examplespage = Qt Canvas 3D Examples

@@ -2,6 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifndef CONTENT_BROWSER_ACCESSIBILITY_DUMP_ACCESSIBILITY_BROWSERTEST_BASE_H_
+#define CONTENT_BROWSER_ACCESSIBILITY_DUMP_ACCESSIBILITY_BROWSERTEST_BASE_H_
+
 #include <string>
 #include <vector>
 
@@ -19,6 +22,8 @@ namespace content {
 //
 // The system was inspired by WebKit/Blink LayoutTests, but customized for
 // testing accessibility in Chromium.
+//
+// See content/test/data/accessibility/readme.md for an overview.
 class DumpAccessibilityTestBase : public ContentBrowserTest {
  public:
   DumpAccessibilityTestBase();
@@ -114,3 +119,5 @@ class DumpAccessibilityTestBase : public ContentBrowserTest {
 };
 
 }  // namespace content
+
+#endif  // CONTENT_BROWSER_ACCESSIBILITY_DUMP_ACCESSIBILITY_BROWSERTEST_BASE_H_

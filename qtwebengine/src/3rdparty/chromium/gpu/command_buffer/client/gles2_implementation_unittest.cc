@@ -19,11 +19,11 @@
 #include "base/compiler_specific.h"
 #include "gpu/command_buffer/client/client_test_helper.h"
 #include "gpu/command_buffer/client/gles2_cmd_helper.h"
+#include "gpu/command_buffer/client/mock_transfer_buffer.h"
 #include "gpu/command_buffer/client/program_info_manager.h"
 #include "gpu/command_buffer/client/query_tracker.h"
 #include "gpu/command_buffer/client/ring_buffer.h"
 #include "gpu/command_buffer/client/shared_memory_limits.h"
-#include "gpu/command_buffer/client/transfer_buffer.h"
 #include "gpu/command_buffer/common/command_buffer.h"
 #include "gpu/command_buffer/common/sync_token.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -46,6 +46,7 @@ using testing::Sequence;
 using testing::StrictMock;
 using testing::Truly;
 using testing::Return;
+using testing::ReturnRef;
 
 namespace gpu {
 namespace gles2 {
@@ -93,246 +94,6 @@ struct Str7 {
   char str[7];
 };
 #pragma pack(pop)
-
-class MockTransferBuffer : public TransferBufferInterface {
- public:
-  struct ExpectedMemoryInfo {
-    uint32_t offset;
-    int32_t id;
-    uint8_t* ptr;
-  };
-
-  MockTransferBuffer(
-      CommandBuffer* command_buffer,
-      unsigned int size,
-      unsigned int result_size,
-      unsigned int alignment,
-      bool initialize_fail)
-      : command_buffer_(command_buffer),
-        size_(size),
-        result_size_(result_size),
-        alignment_(alignment),
-        actual_buffer_index_(0),
-        expected_buffer_index_(0),
-        last_alloc_(NULL),
-        expected_offset_(result_size),
-        actual_offset_(result_size),
-        initialize_fail_(initialize_fail) {
-    // We have to allocate the buffers here because
-    // we need to know their address before GLES2Implementation::Initialize
-    // is called.
-    for (int ii = 0; ii < kNumBuffers; ++ii) {
-      buffers_[ii] = command_buffer_->CreateTransferBuffer(
-          size_ + ii * alignment_,
-          &buffer_ids_[ii]);
-      EXPECT_NE(-1, buffer_ids_[ii]);
-    }
-  }
-
-  ~MockTransferBuffer() override {}
-
-  base::SharedMemoryHandle shared_memory_handle() const override;
-  bool Initialize(unsigned int starting_buffer_size,
-                  unsigned int result_size,
-                  unsigned int /* min_buffer_size */,
-                  unsigned int /* max_buffer_size */,
-                  unsigned int alignment,
-                  unsigned int size_to_flush) override;
-  int GetShmId() override;
-  void* GetResultBuffer() override;
-  int GetResultOffset() override;
-  void Free() override;
-  bool HaveBuffer() const override;
-  void* AllocUpTo(unsigned int size, unsigned int* size_allocated) override;
-  void* Alloc(unsigned int size) override;
-  RingBuffer::Offset GetOffset(void* pointer) const override;
-  void DiscardBlock(void* p) override;
-  void FreePendingToken(void* p, unsigned int /* token */) override;
-  unsigned int GetSize() const override;
-  unsigned int GetFreeSize() const override;
-
-  size_t MaxTransferBufferSize() {
-    return size_ - result_size_;
-  }
-
-  unsigned int RoundToAlignment(unsigned int size) {
-    return (size + alignment_ - 1) & ~(alignment_ - 1);
-  }
-
-  bool InSync() {
-    return expected_buffer_index_ == actual_buffer_index_ &&
-           expected_offset_ == actual_offset_;
-  }
-
-  ExpectedMemoryInfo GetExpectedMemory(size_t size) {
-    ExpectedMemoryInfo mem;
-    mem.offset = AllocateExpectedTransferBuffer(size);
-    mem.id = GetExpectedTransferBufferId();
-    mem.ptr = static_cast<uint8_t*>(
-        GetExpectedTransferAddressFromOffset(mem.offset, size));
-    return mem;
-  }
-
-  ExpectedMemoryInfo GetExpectedResultMemory(size_t size) {
-    ExpectedMemoryInfo mem;
-    mem.offset = GetExpectedResultBufferOffset();
-    mem.id = GetExpectedResultBufferId();
-    mem.ptr = static_cast<uint8_t*>(
-        GetExpectedTransferAddressFromOffset(mem.offset, size));
-    return mem;
-  }
-
- private:
-  static const int kNumBuffers = 2;
-
-  uint8_t* actual_buffer() const {
-    return static_cast<uint8_t*>(buffers_[actual_buffer_index_]->memory());
-  }
-
-  uint8_t* expected_buffer() const {
-    return static_cast<uint8_t*>(buffers_[expected_buffer_index_]->memory());
-  }
-
-  uint32_t AllocateExpectedTransferBuffer(size_t size) {
-    EXPECT_LE(size, MaxTransferBufferSize());
-
-    // Toggle which buffer we get each time to simulate the buffer being
-    // reallocated.
-    expected_buffer_index_ = (expected_buffer_index_ + 1) % kNumBuffers;
-
-    if (expected_offset_ + size > size_) {
-      expected_offset_ = result_size_;
-    }
-    uint32_t offset = expected_offset_;
-    expected_offset_ += RoundToAlignment(size);
-
-    // Make sure each buffer has a different offset.
-    return offset + expected_buffer_index_ * alignment_;
-  }
-
-  void* GetExpectedTransferAddressFromOffset(uint32_t offset, size_t size) {
-    EXPECT_GE(offset, expected_buffer_index_ * alignment_);
-    EXPECT_LE(offset + size, size_ + expected_buffer_index_ * alignment_);
-    return expected_buffer() + offset;
-  }
-
-  int GetExpectedResultBufferId() {
-    return buffer_ids_[expected_buffer_index_];
-  }
-
-  uint32_t GetExpectedResultBufferOffset() {
-    return expected_buffer_index_ * alignment_;
-  }
-
-  int GetExpectedTransferBufferId() {
-    return buffer_ids_[expected_buffer_index_];
-  }
-
-  CommandBuffer* command_buffer_;
-  size_t size_;
-  size_t result_size_;
-  uint32_t alignment_;
-  int buffer_ids_[kNumBuffers];
-  scoped_refptr<Buffer> buffers_[kNumBuffers];
-  int actual_buffer_index_;
-  int expected_buffer_index_;
-  void* last_alloc_;
-  uint32_t expected_offset_;
-  uint32_t actual_offset_;
-  bool initialize_fail_;
-
-  DISALLOW_COPY_AND_ASSIGN(MockTransferBuffer);
-};
-
-base::SharedMemoryHandle MockTransferBuffer::shared_memory_handle() const {
-  return base::SharedMemoryHandle();
-}
-
-bool MockTransferBuffer::Initialize(
-    unsigned int starting_buffer_size,
-    unsigned int result_size,
-    unsigned int /* min_buffer_size */,
-    unsigned int /* max_buffer_size */,
-    unsigned int alignment,
-    unsigned int /* size_to_flush */) {
-  // Just check they match.
-  return size_ == starting_buffer_size &&
-         result_size_ == result_size &&
-         alignment_ == alignment && !initialize_fail_;
-};
-
-int MockTransferBuffer::GetShmId() {
-  return buffer_ids_[actual_buffer_index_];
-}
-
-void* MockTransferBuffer::GetResultBuffer() {
-  return actual_buffer() + actual_buffer_index_ * alignment_;
-}
-
-int MockTransferBuffer::GetResultOffset() {
-  return actual_buffer_index_ * alignment_;
-}
-
-void MockTransferBuffer::Free() {
-  NOTREACHED();
-}
-
-bool MockTransferBuffer::HaveBuffer() const {
-  return true;
-}
-
-void* MockTransferBuffer::AllocUpTo(
-    unsigned int size, unsigned int* size_allocated) {
-  EXPECT_TRUE(size_allocated != NULL);
-  EXPECT_TRUE(last_alloc_ == NULL);
-
-  // Toggle which buffer we get each time to simulate the buffer being
-  // reallocated.
-  actual_buffer_index_ = (actual_buffer_index_ + 1) % kNumBuffers;
-
-  size = std::min(static_cast<size_t>(size), MaxTransferBufferSize());
-  if (actual_offset_ + size > size_) {
-    actual_offset_ = result_size_;
-  }
-  uint32_t offset = actual_offset_;
-  actual_offset_ += RoundToAlignment(size);
-  *size_allocated = size;
-
-  // Make sure each buffer has a different offset.
-  last_alloc_ = actual_buffer() + offset + actual_buffer_index_ * alignment_;
-  return last_alloc_;
-}
-
-void* MockTransferBuffer::Alloc(unsigned int size) {
-  EXPECT_LE(size, MaxTransferBufferSize());
-  unsigned int temp = 0;
-  void* p = AllocUpTo(size, &temp);
-  EXPECT_EQ(temp, size);
-  return p;
-}
-
-RingBuffer::Offset MockTransferBuffer::GetOffset(void* pointer) const {
-  // Make sure each buffer has a different offset.
-  return static_cast<uint8_t*>(pointer) - actual_buffer();
-}
-
-void MockTransferBuffer::DiscardBlock(void* p) {
-  EXPECT_EQ(last_alloc_, p);
-  last_alloc_ = NULL;
-}
-
-void MockTransferBuffer::FreePendingToken(void* p, unsigned int /* token */) {
-  EXPECT_EQ(last_alloc_, p);
-  last_alloc_ = NULL;
-}
-
-unsigned int MockTransferBuffer::GetSize() const {
-  return 0;
-}
-
-unsigned int MockTransferBuffer::GetFreeSize() const {
-  return 0;
-}
 
 // API wrapper for Buffers.
 class GenBuffersAPI {
@@ -428,6 +189,7 @@ class GLES2ImplementationTest : public testing::Test {
                     bool timer_queries,
                     int major_version,
                     int minor_version) {
+      SharedMemoryLimits limits = SharedMemoryLimitsForTesting();
       command_buffer_.reset(new StrictMock<MockClientCommandBuffer>());
 
       transfer_buffer_.reset(
@@ -438,45 +200,45 @@ class GLES2ImplementationTest : public testing::Test {
                                  transfer_buffer_initialize_fail));
 
       helper_.reset(new GLES2CmdHelper(command_buffer()));
-      helper_->Initialize(kCommandBufferSizeBytes);
+      helper_->Initialize(limits.command_buffer_size);
 
       gpu_control_.reset(new StrictMock<MockClientGpuControl>());
-      Capabilities capabilities;
-      capabilities.VisitPrecisions(
+      capabilities_.VisitPrecisions(
           [](GLenum shader, GLenum type,
              Capabilities::ShaderPrecision* precision) {
             precision->min_range = 3;
             precision->max_range = 5;
             precision->precision = 7;
           });
-      capabilities.max_combined_texture_image_units =
+      capabilities_.max_combined_texture_image_units =
           kMaxCombinedTextureImageUnits;
-      capabilities.max_cube_map_texture_size = kMaxCubeMapTextureSize;
-      capabilities.max_fragment_uniform_vectors = kMaxFragmentUniformVectors;
-      capabilities.max_renderbuffer_size = kMaxRenderbufferSize;
-      capabilities.max_texture_image_units = kMaxTextureImageUnits;
-      capabilities.max_texture_size = kMaxTextureSize;
-      capabilities.max_varying_vectors = kMaxVaryingVectors;
-      capabilities.max_vertex_attribs = kMaxVertexAttribs;
-      capabilities.max_vertex_texture_image_units = kMaxVertexTextureImageUnits;
-      capabilities.max_vertex_uniform_vectors = kMaxVertexUniformVectors;
-      capabilities.max_viewport_width = kMaxViewportWidth;
-      capabilities.max_viewport_height = kMaxViewportHeight;
-      capabilities.num_compressed_texture_formats =
+      capabilities_.max_cube_map_texture_size = kMaxCubeMapTextureSize;
+      capabilities_.max_fragment_uniform_vectors = kMaxFragmentUniformVectors;
+      capabilities_.max_renderbuffer_size = kMaxRenderbufferSize;
+      capabilities_.max_texture_image_units = kMaxTextureImageUnits;
+      capabilities_.max_texture_size = kMaxTextureSize;
+      capabilities_.max_varying_vectors = kMaxVaryingVectors;
+      capabilities_.max_vertex_attribs = kMaxVertexAttribs;
+      capabilities_.max_vertex_texture_image_units =
+          kMaxVertexTextureImageUnits;
+      capabilities_.max_vertex_uniform_vectors = kMaxVertexUniformVectors;
+      capabilities_.max_viewport_width = kMaxViewportWidth;
+      capabilities_.max_viewport_height = kMaxViewportHeight;
+      capabilities_.num_compressed_texture_formats =
           kNumCompressedTextureFormats;
-      capabilities.num_shader_binary_formats = kNumShaderBinaryFormats;
-      capabilities.max_transform_feedback_separate_attribs =
+      capabilities_.num_shader_binary_formats = kNumShaderBinaryFormats;
+      capabilities_.max_transform_feedback_separate_attribs =
           kMaxTransformFeedbackSeparateAttribs;
-      capabilities.max_uniform_buffer_bindings = kMaxUniformBufferBindings;
-      capabilities.bind_generates_resource_chromium =
+      capabilities_.max_uniform_buffer_bindings = kMaxUniformBufferBindings;
+      capabilities_.bind_generates_resource_chromium =
           bind_generates_resource_service ? 1 : 0;
-      capabilities.sync_query = sync_query;
-      capabilities.occlusion_query_boolean = occlusion_query_boolean;
-      capabilities.timer_queries = timer_queries;
-      capabilities.major_version = major_version;
-      capabilities.minor_version = minor_version;
+      capabilities_.sync_query = sync_query;
+      capabilities_.occlusion_query_boolean = occlusion_query_boolean;
+      capabilities_.timer_queries = timer_queries;
+      capabilities_.major_version = major_version;
+      capabilities_.minor_version = minor_version;
       EXPECT_CALL(*gpu_control_, GetCapabilities())
-          .WillOnce(Return(capabilities));
+          .WillOnce(ReturnRef(capabilities_));
 
       {
         InSequence sequence;
@@ -494,8 +256,7 @@ class GLES2ImplementationTest : public testing::Test {
       // The client should be set to something non-null.
       EXPECT_CALL(*gpu_control_, SetGpuControlClient(gl_.get())).Times(1);
 
-      if (!gl_->Initialize(kTransferBufferSize, kTransferBufferSize,
-                           kTransferBufferSize, SharedMemoryLimits::kNoLimit))
+      if (gl_->Initialize(limits) != gpu::ContextResult::kSuccess)
         return false;
 
       helper_->CommandBufferHelper::Finish();
@@ -540,6 +301,7 @@ class GLES2ImplementationTest : public testing::Test {
     std::unique_ptr<GLES2Implementation> gl_;
     CommandBufferEntry* commands_;
     int token_;
+    Capabilities capabilities_;
   };
 
   GLES2ImplementationTest() : commands_(NULL) {}
@@ -689,6 +451,18 @@ class GLES2ImplementationTest : public testing::Test {
     return gl_->max_extra_transfer_buffer_size_ > 0;
   }
 
+  static SharedMemoryLimits SharedMemoryLimitsForTesting() {
+    SharedMemoryLimits limits;
+    limits.command_buffer_size = kCommandBufferSizeBytes;
+    limits.start_transfer_buffer_size = kTransferBufferSize;
+    limits.min_transfer_buffer_size = kTransferBufferSize;
+    limits.max_transfer_buffer_size = kTransferBufferSize;
+    limits.mapped_memory_reclaim_limit = SharedMemoryLimits::kNoLimit;
+    return limits;
+  }
+
+  void ResetErrorMessageCallback() { gl_->error_message_callback_.Reset(); }
+
   TestContext test_contexts_[kNumTestContexts];
 
   scoped_refptr<ShareGroup> share_group_;
@@ -800,6 +574,30 @@ class GLES2ImplementationStrictSharedTest : public GLES2ImplementationTest {
     ResApi::Delete(gl1, 1, &id2);
     ResApi::Gen(gl2, 1, &id3);
     EXPECT_EQ(id1, id3);
+  }
+
+  // Require that deleting definitely-invalid IDs produces an error.
+  template <class ResApi>
+  void DeletingInvalidIdGeneratesError() {
+    GLES2Implementation* gl1 = test_contexts_[0].gl_.get();
+    GLuint id1;
+    ResApi::Gen(gl1, 1, &id1);
+    const GLuint kDefinitelyInvalidId = 0xBEEF;
+    EXPECT_EQ(GL_NO_ERROR, CheckError());
+    ResApi::Delete(gl1, 1, &kDefinitelyInvalidId);
+    EXPECT_EQ(GL_INVALID_VALUE, CheckError());
+  }
+
+  // Require that double-deleting IDs produces an error.
+  template <class ResApi>
+  void DoubleDeletingIdGeneratesError() {
+    GLES2Implementation* gl1 = test_contexts_[0].gl_.get();
+    GLuint id1;
+    ResApi::Gen(gl1, 1, &id1);
+    ResApi::Delete(gl1, 1, &id1);
+    EXPECT_EQ(GL_NO_ERROR, CheckError());
+    ResApi::Delete(gl1, 1, &id1);
+    EXPECT_EQ(GL_INVALID_VALUE, CheckError());
   }
 };
 
@@ -3175,15 +2973,45 @@ TEST_F(GLES2ImplementationStrictSharedTest,
   CrossContextGenerationAutoFlushTest<GenTexturesAPI>();
 }
 
+// Test deleting an invalid ID.
+TEST_F(GLES2ImplementationStrictSharedTest,
+       DeletingInvalidIdGeneratesErrorBuffers) {
+  DeletingInvalidIdGeneratesError<GenBuffersAPI>();
+}
+TEST_F(GLES2ImplementationStrictSharedTest,
+       DeletingInvalidIdGeneratesErrorRenderbuffers) {
+  DeletingInvalidIdGeneratesError<GenRenderbuffersAPI>();
+}
+TEST_F(GLES2ImplementationStrictSharedTest,
+       DeletingInvalidIdGeneratesErrorTextures) {
+  DeletingInvalidIdGeneratesError<GenTexturesAPI>();
+}
+
+// Test double-deleting the same ID.
+TEST_F(GLES2ImplementationStrictSharedTest,
+       DoubleDeletingIdGeneratesErrorBuffers) {
+  DoubleDeletingIdGeneratesError<GenBuffersAPI>();
+}
+TEST_F(GLES2ImplementationStrictSharedTest,
+       DoubleDeletingIdGeneratesErrorRenderbuffers) {
+  DoubleDeletingIdGeneratesError<GenRenderbuffersAPI>();
+}
+TEST_F(GLES2ImplementationStrictSharedTest,
+       DoubleDeletingIdGeneratesErrorTextures) {
+  DoubleDeletingIdGeneratesError<GenTexturesAPI>();
+}
+
 TEST_F(GLES2ImplementationTest, GetString) {
   const uint32_t kBucketId = GLES2Implementation::kResultBucketId;
   const Str7 kString = {"foobar"};
   // GL_CHROMIUM_map_sub is hard coded into GLES2Implementation.
   const char* expected_str =
       "foobar "
-      "GL_EXT_unpack_subimage "
+      "GL_CHROMIUM_image "
       "GL_CHROMIUM_map_sub "
-      "GL_CHROMIUM_image";
+      "GL_CHROMIUM_ordering_barrier "
+      "GL_CHROMIUM_sync_point "
+      "GL_EXT_unpack_subimage";
   const char kBad = 0x12;
   struct Cmds {
     cmd::SetBucketSize set_bucket_size1;
@@ -3376,11 +3204,11 @@ TEST_F(GLES2ImplementationTest, BeginEndQueryEXT) {
   struct EndCmds {
     cmds::EndQueryEXT end_query;
   };
+  commands = GetPut();
+  gl_->EndQueryEXT(GL_ANY_SAMPLES_PASSED_EXT);
   EndCmds expected_end_cmds;
   expected_end_cmds.end_query.Init(
       GL_ANY_SAMPLES_PASSED_EXT, query->submit_count());
-  commands = GetPut();
-  gl_->EndQueryEXT(GL_ANY_SAMPLES_PASSED_EXT);
   EXPECT_EQ(0, memcmp(
       &expected_end_cmds, commands, sizeof(expected_end_cmds)));
 
@@ -3393,11 +3221,12 @@ TEST_F(GLES2ImplementationTest, BeginEndQueryEXT) {
   // Test 2nd Begin/End increments count.
   base::subtle::Atomic32 old_submit_count = query->submit_count();
   gl_->BeginQueryEXT(GL_ANY_SAMPLES_PASSED_EXT, id1);
+  EXPECT_EQ(old_submit_count, query->submit_count());
+  commands = GetPut();
+  gl_->EndQueryEXT(GL_ANY_SAMPLES_PASSED_EXT);
   EXPECT_NE(old_submit_count, query->submit_count());
   expected_end_cmds.end_query.Init(
       GL_ANY_SAMPLES_PASSED_EXT, query->submit_count());
-  commands = GetPut();
-  gl_->EndQueryEXT(GL_ANY_SAMPLES_PASSED_EXT);
   EXPECT_EQ(0, memcmp(
       &expected_end_cmds, commands, sizeof(expected_end_cmds)));
 
@@ -3606,13 +3435,13 @@ TEST_F(GLES2ImplementationTest, ErrorQuery) {
     cmds::BeginQueryEXT begin_query;
     cmds::EndQueryEXT end_query;
   };
+  const void* commands = GetPut();
+  gl_->EndQueryEXT(GL_GET_ERROR_QUERY_CHROMIUM);
   EndCmds expected_end_cmds;
   expected_end_cmds.begin_query.Init(
       GL_GET_ERROR_QUERY_CHROMIUM, id, query->shm_id(), query->shm_offset());
   expected_end_cmds.end_query.Init(
       GL_GET_ERROR_QUERY_CHROMIUM, query->submit_count());
-  const void* commands = GetPut();
-  gl_->EndQueryEXT(GL_GET_ERROR_QUERY_CHROMIUM);
   EXPECT_EQ(0, memcmp(
       &expected_end_cmds, commands, sizeof(expected_end_cmds)));
   ClearCommands();
@@ -3701,19 +3530,6 @@ TEST_F(GLES2ImplementationTest, Enable) {
   EXPECT_TRUE(NoCommandsWritten());
 }
 
-TEST_F(GLES2ImplementationTest, ConsumeTextureCHROMIUM) {
-  struct Cmds {
-    cmds::ConsumeTextureCHROMIUMImmediate cmd;
-    GLbyte data[GL_MAILBOX_SIZE_CHROMIUM];
-  };
-
-  Mailbox mailbox = Mailbox::Generate();
-  Cmds expected;
-  expected.cmd.Init(GL_TEXTURE_2D, mailbox.name);
-  gl_->ConsumeTextureCHROMIUM(GL_TEXTURE_2D, mailbox.name);
-  EXPECT_EQ(0, memcmp(&expected, commands_, sizeof(expected)));
-}
-
 TEST_F(GLES2ImplementationTest, CreateAndConsumeTextureCHROMIUM) {
   struct Cmds {
     cmds::CreateAndConsumeTextureINTERNALImmediate cmd;
@@ -3722,23 +3538,10 @@ TEST_F(GLES2ImplementationTest, CreateAndConsumeTextureCHROMIUM) {
 
   Mailbox mailbox = Mailbox::Generate();
   Cmds expected;
-  expected.cmd.Init(GL_TEXTURE_2D, kTexturesStartId, mailbox.name);
-  GLuint id = gl_->CreateAndConsumeTextureCHROMIUM(GL_TEXTURE_2D, mailbox.name);
+  expected.cmd.Init(kTexturesStartId, mailbox.name);
+  GLuint id = gl_->CreateAndConsumeTextureCHROMIUM(mailbox.name);
   EXPECT_EQ(0, memcmp(&expected, commands_, sizeof(expected)));
   EXPECT_EQ(kTexturesStartId, id);
-}
-
-TEST_F(GLES2ImplementationTest, ProduceTextureCHROMIUM) {
-  struct Cmds {
-    cmds::ProduceTextureCHROMIUMImmediate cmd;
-    GLbyte data[GL_MAILBOX_SIZE_CHROMIUM];
-  };
-
-  Mailbox mailbox = Mailbox::Generate();
-  Cmds expected;
-  expected.cmd.Init(GL_TEXTURE_2D, mailbox.name);
-  gl_->ProduceTextureCHROMIUM(GL_TEXTURE_2D, mailbox.name);
-  EXPECT_EQ(0, memcmp(&expected, commands_, sizeof(expected)));
 }
 
 TEST_F(GLES2ImplementationTest, ProduceTextureDirectCHROMIUM) {
@@ -3747,11 +3550,10 @@ TEST_F(GLES2ImplementationTest, ProduceTextureDirectCHROMIUM) {
     GLbyte data[GL_MAILBOX_SIZE_CHROMIUM];
   };
 
-  Mailbox mailbox = Mailbox::Generate();
+  Mailbox mailbox;
+  gl_->ProduceTextureDirectCHROMIUM(kTexturesStartId, mailbox.name);
   Cmds expected;
-  expected.cmd.Init(kTexturesStartId, GL_TEXTURE_2D, mailbox.name);
-  gl_->ProduceTextureDirectCHROMIUM(
-      kTexturesStartId, GL_TEXTURE_2D, mailbox.name);
+  expected.cmd.Init(kTexturesStartId, mailbox.name);
   EXPECT_EQ(0, memcmp(&expected, commands_, sizeof(expected)));
 }
 
@@ -3929,61 +3731,33 @@ TEST_F(GLES2ImplementationTest, AllowNestedTracesCHROMIUM) {
   EXPECT_EQ(GL_INVALID_OPERATION, CheckError());
 }
 
-TEST_F(GLES2ImplementationTest, InsertFenceSyncCHROMIUM) {
-  const GLuint64 kFenceSync = 123u;
-  EXPECT_CALL(*gpu_control_, GenerateFenceSyncRelease())
-      .WillOnce(Return(kFenceSync));
-
-  struct Cmds {
-    cmds::InsertFenceSyncCHROMIUM insert_fence_sync;
-  };
-  Cmds expected;
-  expected.insert_fence_sync.Init(kFenceSync);
-
-  const GLuint64 fence_sync = gl_->InsertFenceSyncCHROMIUM();
-  EXPECT_EQ(kFenceSync, fence_sync);
-  EXPECT_EQ(0, memcmp(&expected, commands_, sizeof(expected)));
-}
-
 TEST_F(GLES2ImplementationTest, GenSyncTokenCHROMIUM) {
   const CommandBufferNamespace kNamespaceId = CommandBufferNamespace::GPU_IO;
   const CommandBufferId kCommandBufferId =
       CommandBufferId::FromUnsafeValue(234u);
   const GLuint64 kFenceSync = 123u;
-  GLbyte sync_token_data[GL_SYNC_TOKEN_SIZE_CHROMIUM];
+  SyncToken sync_token;
 
   EXPECT_CALL(*gpu_control_, GetNamespaceID())
       .WillRepeatedly(Return(kNamespaceId));
   EXPECT_CALL(*gpu_control_, GetCommandBufferID())
       .WillRepeatedly(Return(kCommandBufferId));
-  EXPECT_CALL(*gpu_control_, GetStreamId()).WillRepeatedly(Return(0));
 
-  gl_->GenSyncTokenCHROMIUM(kFenceSync, nullptr);
-  EXPECT_EQ(GL_INVALID_VALUE, CheckError());
-
-  EXPECT_CALL(*gpu_control_, IsFenceSyncRelease(kFenceSync))
-      .WillOnce(Return(false));
-  gl_->GenSyncTokenCHROMIUM(kFenceSync, sync_token_data);
-  EXPECT_EQ(GL_INVALID_VALUE, CheckError());
-
-  EXPECT_CALL(*gpu_control_, IsFenceSyncRelease(kFenceSync))
-      .WillOnce(Return(true));
-  EXPECT_CALL(*gpu_control_, IsFenceSyncFlushReceived(kFenceSync))
-      .WillOnce(Return(false));
-  gl_->GenSyncTokenCHROMIUM(kFenceSync, sync_token_data);
-  EXPECT_EQ(GL_INVALID_OPERATION, CheckError());
-
-  EXPECT_CALL(*gpu_control_, IsFenceSyncRelease(kFenceSync))
-      .WillOnce(Return(true));
-  EXPECT_CALL(*gpu_control_, IsFenceSyncFlushReceived(kFenceSync))
-      .WillOnce(Return(true));
-  ClearCommands();
-  gl_->GenSyncTokenCHROMIUM(kFenceSync, sync_token_data);
+  gl_->GenSyncTokenCHROMIUM(nullptr);
   EXPECT_TRUE(NoCommandsWritten());
+  EXPECT_EQ(GL_INVALID_VALUE, CheckError());
+
+  const void* commands = GetPut();
+  cmds::InsertFenceSyncCHROMIUM insert_fence_sync;
+  insert_fence_sync.Init(kFenceSync);
+
+  EXPECT_CALL(*gpu_control_, GenerateFenceSyncRelease())
+      .WillOnce(Return(kFenceSync));
+  EXPECT_CALL(*gpu_control_, EnsureWorkVisible());
+  gl_->GenSyncTokenCHROMIUM(sync_token.GetData());
+  EXPECT_EQ(0, memcmp(&insert_fence_sync, commands, sizeof(insert_fence_sync)));
   EXPECT_EQ(GL_NO_ERROR, CheckError());
 
-  SyncToken sync_token;
-  memcpy(&sync_token, sync_token_data, sizeof(SyncToken));
   EXPECT_TRUE(sync_token.verified_flush());
   EXPECT_EQ(kNamespaceId, sync_token.namespace_id());
   EXPECT_EQ(kCommandBufferId, sync_token.command_buffer_id());
@@ -3995,40 +3769,27 @@ TEST_F(GLES2ImplementationTest, GenUnverifiedSyncTokenCHROMIUM) {
   const CommandBufferId kCommandBufferId =
       CommandBufferId::FromUnsafeValue(234u);
   const GLuint64 kFenceSync = 123u;
-  GLbyte sync_token_data[GL_SYNC_TOKEN_SIZE_CHROMIUM];
+  SyncToken sync_token;
 
   EXPECT_CALL(*gpu_control_, GetNamespaceID())
       .WillRepeatedly(Return(kNamespaceId));
   EXPECT_CALL(*gpu_control_, GetCommandBufferID())
       .WillRepeatedly(Return(kCommandBufferId));
-  EXPECT_CALL(*gpu_control_, GetStreamId()).WillRepeatedly(Return(0));
 
-  gl_->GenUnverifiedSyncTokenCHROMIUM(kFenceSync, nullptr);
-  EXPECT_EQ(GL_INVALID_VALUE, CheckError());
-
-  EXPECT_CALL(*gpu_control_, IsFenceSyncRelease(kFenceSync))
-      .WillOnce(Return(false));
-  gl_->GenUnverifiedSyncTokenCHROMIUM(kFenceSync, sync_token_data);
-  EXPECT_EQ(GL_INVALID_VALUE, CheckError());
-
-  EXPECT_CALL(*gpu_control_, IsFenceSyncRelease(kFenceSync))
-      .WillOnce(Return(true));
-  EXPECT_CALL(*gpu_control_, IsFenceSyncFlushed(kFenceSync))
-      .WillOnce(Return(false));
-  gl_->GenUnverifiedSyncTokenCHROMIUM(kFenceSync, sync_token_data);
-  EXPECT_EQ(GL_INVALID_OPERATION, CheckError());
-
-  EXPECT_CALL(*gpu_control_, IsFenceSyncRelease(kFenceSync))
-      .WillOnce(Return(true));
-  EXPECT_CALL(*gpu_control_, IsFenceSyncFlushed(kFenceSync))
-      .WillOnce(Return(true));
-  ClearCommands();
-  gl_->GenUnverifiedSyncTokenCHROMIUM(kFenceSync, sync_token_data);
+  gl_->GenUnverifiedSyncTokenCHROMIUM(nullptr);
   EXPECT_TRUE(NoCommandsWritten());
+  EXPECT_EQ(GL_INVALID_VALUE, CheckError());
+
+  const void* commands = GetPut();
+  cmds::InsertFenceSyncCHROMIUM insert_fence_sync;
+  insert_fence_sync.Init(kFenceSync);
+
+  EXPECT_CALL(*gpu_control_, GenerateFenceSyncRelease())
+      .WillOnce(Return(kFenceSync));
+  gl_->GenUnverifiedSyncTokenCHROMIUM(sync_token.GetData());
+  EXPECT_EQ(0, memcmp(&insert_fence_sync, commands, sizeof(insert_fence_sync)));
   EXPECT_EQ(GL_NO_ERROR, CheckError());
 
-  SyncToken sync_token;
-  memcpy(&sync_token, sync_token_data, sizeof(SyncToken));
   EXPECT_FALSE(sync_token.verified_flush());
   EXPECT_EQ(kNamespaceId, sync_token.namespace_id());
   EXPECT_EQ(kCommandBufferId, sync_token.command_buffer_id());
@@ -4047,21 +3808,18 @@ TEST_F(GLES2ImplementationTest, VerifySyncTokensCHROMIUM) {
       CommandBufferId::FromUnsafeValue(234u);
   const GLuint64 kFenceSync = 123u;
   gpu::SyncToken sync_token;
-  GLbyte* sync_token_datas[] = { sync_token.GetData() };
+  GLbyte* sync_token_datas[] = {sync_token.GetData()};
 
   EXPECT_CALL(*gpu_control_, GetNamespaceID())
       .WillRepeatedly(Return(kNamespaceId));
   EXPECT_CALL(*gpu_control_, GetCommandBufferID())
       .WillRepeatedly(Return(kCommandBufferId));
-  EXPECT_CALL(*gpu_control_, GetStreamId()).WillRepeatedly(Return(0));
 
-  EXPECT_CALL(*gpu_control_, IsFenceSyncRelease(kFenceSync))
-      .WillOnce(Return(true));
-  EXPECT_CALL(*gpu_control_, IsFenceSyncFlushed(kFenceSync))
-      .WillOnce(Return(true));
-  gl_->GenUnverifiedSyncTokenCHROMIUM(kFenceSync, sync_token.GetData());
-  ASSERT_TRUE(sync_token.HasData());
-  ASSERT_FALSE(sync_token.verified_flush());
+  EXPECT_CALL(*gpu_control_, GenerateFenceSyncRelease())
+      .WillOnce(Return(kFenceSync));
+  gl_->GenUnverifiedSyncTokenCHROMIUM(sync_token.GetData());
+  EXPECT_TRUE(sync_token.HasData());
+  EXPECT_FALSE(sync_token.verified_flush());
 
   ClearCommands();
   EXPECT_CALL(*gpu_control_, CanWaitUnverifiedSyncToken(sync_token))
@@ -4102,31 +3860,26 @@ TEST_F(GLES2ImplementationTest, VerifySyncTokensCHROMIUM_Sequence) {
   const GLuint64 kFenceSync2 = 234u;
   gpu::SyncToken sync_token1;
   gpu::SyncToken sync_token2;
-  GLbyte* sync_token_datas[] = { sync_token1.GetData(), sync_token2.GetData() };
+  GLbyte* sync_token_datas[] = {sync_token1.GetData(), sync_token2.GetData()};
 
   EXPECT_CALL(*gpu_control_, GetNamespaceID())
       .WillRepeatedly(Return(kNamespaceId));
   EXPECT_CALL(*gpu_control_, GetCommandBufferID())
       .WillRepeatedly(Return(kCommandBufferId));
-  EXPECT_CALL(*gpu_control_, GetStreamId()).WillRepeatedly(Return(0));
 
   // Generate sync token 1.
-  EXPECT_CALL(*gpu_control_, IsFenceSyncRelease(kFenceSync1))
-      .WillOnce(Return(true));
-  EXPECT_CALL(*gpu_control_, IsFenceSyncFlushed(kFenceSync1))
-      .WillOnce(Return(true));
-  gl_->GenUnverifiedSyncTokenCHROMIUM(kFenceSync1, sync_token1.GetData());
-  ASSERT_TRUE(sync_token1.HasData());
-  ASSERT_FALSE(sync_token1.verified_flush());
+  EXPECT_CALL(*gpu_control_, GenerateFenceSyncRelease())
+      .WillOnce(Return(kFenceSync1));
+  gl_->GenUnverifiedSyncTokenCHROMIUM(sync_token1.GetData());
+  EXPECT_TRUE(sync_token1.HasData());
+  EXPECT_FALSE(sync_token1.verified_flush());
 
   // Generate sync token 2.
-  EXPECT_CALL(*gpu_control_, IsFenceSyncRelease(kFenceSync2))
-      .WillOnce(Return(true));
-  EXPECT_CALL(*gpu_control_, IsFenceSyncFlushed(kFenceSync2))
-      .WillOnce(Return(true));
-  gl_->GenUnverifiedSyncTokenCHROMIUM(kFenceSync2, sync_token2.GetData());
-  ASSERT_TRUE(sync_token2.HasData());
-  ASSERT_FALSE(sync_token2.verified_flush());
+  EXPECT_CALL(*gpu_control_, GenerateFenceSyncRelease())
+      .WillOnce(Return(kFenceSync2));
+  gl_->GenUnverifiedSyncTokenCHROMIUM(sync_token2.GetData());
+  EXPECT_TRUE(sync_token2.HasData());
+  EXPECT_FALSE(sync_token2.verified_flush());
 
   // Ensure proper sequence of checking and validating.
   Sequence sequence;
@@ -4136,8 +3889,30 @@ TEST_F(GLES2ImplementationTest, VerifySyncTokensCHROMIUM_Sequence) {
   EXPECT_CALL(*gpu_control_, CanWaitUnverifiedSyncToken(sync_token2))
       .InSequence(sequence)
       .WillOnce(Return(true));
-  EXPECT_CALL(*gpu_control_, EnsureWorkVisible())
-      .InSequence(sequence);
+  EXPECT_CALL(*gpu_control_, EnsureWorkVisible()).InSequence(sequence);
+  gl_->VerifySyncTokensCHROMIUM(sync_token_datas, arraysize(sync_token_datas));
+  EXPECT_EQ(GL_NO_ERROR, CheckError());
+
+  EXPECT_TRUE(sync_token1.verified_flush());
+  EXPECT_TRUE(sync_token2.verified_flush());
+}
+
+TEST_F(GLES2ImplementationTest, VerifySyncTokensCHROMIUM_EmptySyncToken) {
+  // To verify sync tokens, the sync tokens must all be verified after
+  // CanWaitUnverifiedSyncTokens() are called. This test ensures the right
+  // sequence.
+  ExpectedMemoryInfo result =
+      GetExpectedResultMemory(sizeof(cmds::GetError::Result));
+  EXPECT_CALL(*command_buffer(), OnFlush())
+      .WillRepeatedly(SetMemory(result.ptr, GLuint(GL_NO_ERROR)))
+      .RetiresOnSaturation();
+
+  gpu::SyncToken sync_token1, sync_token2;
+  GLbyte* sync_token_datas[] = {sync_token1.GetData(), sync_token2.GetData()};
+
+  // Ensure proper sequence of checking and validating.
+  EXPECT_CALL(*gpu_control_, CanWaitUnverifiedSyncToken(_)).Times(0);
+  EXPECT_CALL(*gpu_control_, EnsureWorkVisible()).Times(0);
   gl_->VerifySyncTokensCHROMIUM(sync_token_datas, arraysize(sync_token_datas));
   EXPECT_TRUE(NoCommandsWritten());
   EXPECT_EQ(GL_NO_ERROR, CheckError());
@@ -4147,29 +3922,30 @@ TEST_F(GLES2ImplementationTest, VerifySyncTokensCHROMIUM_Sequence) {
 }
 
 TEST_F(GLES2ImplementationTest, WaitSyncTokenCHROMIUM) {
-  CommandBufferNamespace kNamespaceId = CommandBufferNamespace::GPU_IO;
-  CommandBufferId kCommandBufferId = CommandBufferId::FromUnsafeValue(234u);
-  GLuint64 kFenceSync = 456u;
+  const CommandBufferNamespace kNamespaceId = CommandBufferNamespace::GPU_IO;
+  const CommandBufferId kCommandBufferId =
+      CommandBufferId::FromUnsafeValue(234u);
+  const GLuint64 kFenceSync = 456u;
 
   gpu::SyncToken sync_token;
   GLbyte* sync_token_data = sync_token.GetData();
 
-  EXPECT_CALL(*gpu_control_, IsFenceSyncRelease(kFenceSync))
-      .WillOnce(Return(true));
-  EXPECT_CALL(*gpu_control_, IsFenceSyncFlushReceived(kFenceSync))
-      .WillOnce(Return(true));
-  EXPECT_CALL(*gpu_control_, GetNamespaceID()).WillOnce(Return(kNamespaceId));
-  EXPECT_CALL(*gpu_control_, GetCommandBufferID())
-      .WillOnce(Return(kCommandBufferId));
-  EXPECT_CALL(*gpu_control_, GetStreamId()).WillOnce(Return(0));
-  gl_->GenSyncTokenCHROMIUM(kFenceSync, sync_token_data);
-
   struct Cmds {
+    cmds::InsertFenceSyncCHROMIUM insert_fence_sync;
     cmds::WaitSyncTokenCHROMIUM wait_sync_token;
   };
   Cmds expected;
+  expected.insert_fence_sync.Init(kFenceSync);
   expected.wait_sync_token.Init(kNamespaceId, kCommandBufferId.GetUnsafeValue(),
                                 kFenceSync);
+
+  EXPECT_CALL(*gpu_control_, GetNamespaceID()).WillOnce(Return(kNamespaceId));
+  EXPECT_CALL(*gpu_control_, GetCommandBufferID())
+      .WillOnce(Return(kCommandBufferId));
+  EXPECT_CALL(*gpu_control_, GenerateFenceSyncRelease())
+      .WillOnce(Return(kFenceSync));
+  EXPECT_CALL(*gpu_control_, EnsureWorkVisible());
+  gl_->GenSyncTokenCHROMIUM(sync_token_data);
 
   EXPECT_CALL(*gpu_control_, WaitSyncTokenHint(sync_token));
   gl_->WaitSyncTokenCHROMIUM(sync_token_data);
@@ -4198,7 +3974,7 @@ TEST_F(GLES2ImplementationTest, WaitSyncTokenCHROMIUMErrors) {
 
   // Unverified sync token should produce INVALID_OPERATION.
   ClearCommands();
-  gpu::SyncToken unverified_sync_token(CommandBufferNamespace::GPU_IO, 0,
+  gpu::SyncToken unverified_sync_token(CommandBufferNamespace::GPU_IO,
                                        gpu::CommandBufferId(), 0);
   EXPECT_CALL(*gpu_control_, CanWaitUnverifiedSyncToken(unverified_sync_token))
       .WillOnce(Return(false));
@@ -4411,59 +4187,6 @@ TEST_F(GLES2ImplementationTest, DeleteBuffersUnmapsDataStore) {
   EXPECT_EQ(GL_INVALID_OPERATION, CheckError());
 }
 
-TEST_F(GLES3ImplementationTest, GetBufferSubDataAsyncCHROMIUM) {
-  const GLuint kBufferId = 123;
-  void* mem;
-
-  const int TARGET_COUNT = 8;
-  GLenum targets[TARGET_COUNT] = {
-    GL_ARRAY_BUFFER,
-    GL_ELEMENT_ARRAY_BUFFER,
-    GL_COPY_READ_BUFFER,
-    GL_COPY_WRITE_BUFFER,
-    GL_TRANSFORM_FEEDBACK_BUFFER,
-    GL_UNIFORM_BUFFER,
-    GL_PIXEL_PACK_BUFFER,
-    GL_PIXEL_UNPACK_BUFFER,
-  };
-
-  // Positive tests
-  for (int i = 0; i < TARGET_COUNT; i++) {
-    gl_->BindBuffer(targets[i], kBufferId);
-    mem = gl_->GetBufferSubDataAsyncCHROMIUM(targets[i], 10, 64);
-    EXPECT_TRUE(mem != nullptr);
-    EXPECT_EQ(GL_NO_ERROR, CheckError());
-    gl_->FreeSharedMemory(mem);
-    EXPECT_EQ(GL_NO_ERROR, CheckError());
-    gl_->BindBuffer(targets[i], 0);
-  }
-
-  // Negative tests: invalid target
-  for (int i = 0; i < TARGET_COUNT; i++) {
-    GLenum wrong_target = targets[(i + 1) % TARGET_COUNT];
-    gl_->BindBuffer(targets[i], kBufferId);
-    mem = gl_->GetBufferSubDataAsyncCHROMIUM(wrong_target, 10, 64);
-    EXPECT_TRUE(mem == nullptr);
-    EXPECT_EQ(GL_INVALID_OPERATION, CheckError());
-    gl_->BindBuffer(targets[i], 0);
-  }
-}
-
-TEST_F(GLES3ImplementationTest, GetBufferSubDataAsyncCHROMIUMInvalidValue) {
-  const GLuint kBufferId = 123;
-  void* mem;
-
-  gl_->BindBuffer(GL_ARRAY_BUFFER, kBufferId);
-
-  mem = gl_->GetBufferSubDataAsyncCHROMIUM(GL_ARRAY_BUFFER, -1, 64);
-  EXPECT_TRUE(mem == nullptr);
-  EXPECT_EQ(GL_INVALID_VALUE, CheckError());
-
-  mem = gl_->GetBufferSubDataAsyncCHROMIUM(GL_ARRAY_BUFFER, 0, -1);
-  EXPECT_TRUE(mem == nullptr);
-  EXPECT_EQ(GL_INVALID_VALUE, CheckError());
-}
-
 TEST_F(GLES2ImplementationTest, GetInternalformativ) {
   const GLint kNumSampleCounts = 8;
   struct Cmds {
@@ -4490,61 +4213,67 @@ static void CountCallback(int* count) {
 }
 
 TEST_F(GLES2ImplementationTest, SignalSyncToken) {
-  EXPECT_CALL(*gpu_control_, GenerateFenceSyncRelease()).WillOnce(Return(1));
-  const uint64_t fence_sync = gl_->InsertFenceSyncCHROMIUM();
-  gl_->ShallowFlushCHROMIUM();
+  const CommandBufferNamespace kNamespaceId = CommandBufferNamespace::GPU_IO;
+  const CommandBufferId kCommandBufferId = CommandBufferId::FromUnsafeValue(1);
+  const uint64_t kFenceSync = 123u;
 
-  EXPECT_CALL(*gpu_control_, IsFenceSyncRelease(fence_sync))
-      .WillOnce(Return(true));
-  EXPECT_CALL(*gpu_control_, IsFenceSyncFlushReceived(fence_sync))
-      .WillOnce(Return(true));
-  EXPECT_CALL(*gpu_control_, GetNamespaceID()).WillOnce(Return(GPU_IO));
-  EXPECT_CALL(*gpu_control_, GetStreamId()).WillOnce(Return(0));
+  EXPECT_CALL(*gpu_control_, GetNamespaceID())
+      .WillRepeatedly(Return(kNamespaceId));
   EXPECT_CALL(*gpu_control_, GetCommandBufferID())
-      .WillOnce(Return(CommandBufferId::FromUnsafeValue(1)));
+      .WillRepeatedly(Return(kCommandBufferId));
+
+  EXPECT_CALL(*gpu_control_, GenerateFenceSyncRelease())
+      .WillOnce(Return(kFenceSync));
+  EXPECT_CALL(*gpu_control_, EnsureWorkVisible());
   gpu::SyncToken sync_token;
-  gl_->GenSyncTokenCHROMIUM(fence_sync, sync_token.GetData());
+  gl_->GenSyncTokenCHROMIUM(sync_token.GetData());
 
   int signaled_count = 0;
 
   // Request a signal sync token, which gives a callback to the GpuControl to
   // run when the sync token is reached.
-  base::Closure signal_closure;
-  EXPECT_CALL(*gpu_control_, SignalSyncToken(_, _))
-      .WillOnce(SaveArg<1>(&signal_closure));
-  gl_->SignalSyncToken(sync_token, base::Bind(&CountCallback, &signaled_count));
+  base::OnceClosure signal_closure;
+  EXPECT_CALL(*gpu_control_, DoSignalSyncToken(_, _))
+      .WillOnce(Invoke([&signal_closure](const SyncToken& sync_token,
+                                         base::OnceClosure* callback) {
+        signal_closure = std::move(*callback);
+      }));
+  gl_->SignalSyncToken(sync_token,
+                       base::BindOnce(&CountCallback, &signaled_count));
   EXPECT_EQ(0, signaled_count);
 
   // When GpuControl runs the callback, the original callback we gave to
   // GLES2Implementation is run.
-  signal_closure.Run();
+  std::move(signal_closure).Run();
   EXPECT_EQ(1, signaled_count);
 }
 
 TEST_F(GLES2ImplementationTest, SignalSyncTokenAfterContextLoss) {
-  EXPECT_CALL(*gpu_control_, GenerateFenceSyncRelease()).WillOnce(Return(1));
-  const uint64_t fence_sync = gl_->InsertFenceSyncCHROMIUM();
-  gl_->ShallowFlushCHROMIUM();
+  const CommandBufferNamespace kNamespaceId = CommandBufferNamespace::GPU_IO;
+  const CommandBufferId kCommandBufferId = CommandBufferId::FromUnsafeValue(1);
+  const uint64_t kFenceSync = 123u;
 
-  EXPECT_CALL(*gpu_control_, IsFenceSyncRelease(fence_sync))
-      .WillOnce(Return(true));
-  EXPECT_CALL(*gpu_control_, IsFenceSyncFlushReceived(fence_sync))
-      .WillOnce(Return(true));
-  EXPECT_CALL(*gpu_control_, GetNamespaceID()).WillOnce(Return(GPU_IO));
-  EXPECT_CALL(*gpu_control_, GetStreamId()).WillOnce(Return(0));
+  EXPECT_CALL(*gpu_control_, GetNamespaceID()).WillOnce(Return(kNamespaceId));
   EXPECT_CALL(*gpu_control_, GetCommandBufferID())
-      .WillOnce(Return(CommandBufferId::FromUnsafeValue(1)));
+      .WillOnce(Return(kCommandBufferId));
+  EXPECT_CALL(*gpu_control_, GenerateFenceSyncRelease())
+      .WillOnce(Return(kFenceSync));
+  EXPECT_CALL(*gpu_control_, EnsureWorkVisible());
   gpu::SyncToken sync_token;
-  gl_->GenSyncTokenCHROMIUM(fence_sync, sync_token.GetData());
+  gl_->GenSyncTokenCHROMIUM(sync_token.GetData());
 
   int signaled_count = 0;
 
   // Request a signal sync token, which gives a callback to the GpuControl to
   // run when the sync token is reached.
-  base::Closure signal_closure;
-  EXPECT_CALL(*gpu_control_, SignalSyncToken(_, _))
-      .WillOnce(SaveArg<1>(&signal_closure));
-  gl_->SignalSyncToken(sync_token, base::Bind(&CountCallback, &signaled_count));
+  base::OnceClosure signal_closure;
+  EXPECT_CALL(*gpu_control_, DoSignalSyncToken(_, _))
+      .WillOnce(Invoke([&signal_closure](const SyncToken& sync_token,
+                                         base::OnceClosure* callback) {
+        signal_closure = std::move(*callback);
+      }));
+  gl_->SignalSyncToken(sync_token,
+                       base::BindOnce(&CountCallback, &signaled_count));
   EXPECT_EQ(0, signaled_count);
 
   // Inform the GLES2Implementation that the context is lost.
@@ -4554,14 +4283,14 @@ TEST_F(GLES2ImplementationTest, SignalSyncTokenAfterContextLoss) {
   // When GpuControl runs the callback, the original callback we gave to
   // GLES2Implementation is *not* run, since the context is lost and we
   // have already run the lost context callback.
-  signal_closure.Run();
+  std::move(signal_closure).Run();
   EXPECT_EQ(0, signaled_count);
 }
 
 TEST_F(GLES2ImplementationTest, ReportLoss) {
   GpuControlClient* gl_as_client = gl_;
   int lost_count = 0;
-  gl_->SetLostContextCallback(base::Bind(&CountCallback, &lost_count));
+  gl_->SetLostContextCallback(base::BindOnce(&CountCallback, &lost_count));
   EXPECT_EQ(0, lost_count);
 
   EXPECT_EQ(static_cast<GLenum>(GL_NO_ERROR), gl_->GetGraphicsResetStatusKHR());
@@ -4575,7 +4304,7 @@ TEST_F(GLES2ImplementationTest, ReportLoss) {
 TEST_F(GLES2ImplementationTest, ReportLossReentrant) {
   GpuControlClient* gl_as_client = gl_;
   int lost_count = 0;
-  gl_->SetLostContextCallback(base::Bind(&CountCallback, &lost_count));
+  gl_->SetLostContextCallback(base::BindOnce(&CountCallback, &lost_count));
   EXPECT_EQ(0, lost_count);
 
   EXPECT_EQ(static_cast<GLenum>(GL_NO_ERROR), gl_->GetGraphicsResetStatusKHR());
@@ -4608,23 +4337,31 @@ TEST_F(GLES2ImplementationManualInitTest, FailInitOnTransferBufferFail) {
 
 TEST_F(GLES2ImplementationTest, DiscardableMemoryDelete) {
   const GLuint texture_id = 1;
-  EXPECT_FALSE(share_group_->discardable_manager()->TextureIsValid(texture_id));
+  EXPECT_FALSE(
+      share_group_->discardable_texture_manager()->TextureIsValid(texture_id));
   gl_->InitializeDiscardableTextureCHROMIUM(texture_id);
-  EXPECT_TRUE(share_group_->discardable_manager()->TextureIsValid(texture_id));
+  EXPECT_TRUE(
+      share_group_->discardable_texture_manager()->TextureIsValid(texture_id));
 
   // Deleting a texture should clear its discardable entry.
   gl_->DeleteTextures(1, &texture_id);
-  EXPECT_FALSE(share_group_->discardable_manager()->TextureIsValid(texture_id));
+  EXPECT_FALSE(
+      share_group_->discardable_texture_manager()->TextureIsValid(texture_id));
 }
 
-TEST_F(GLES2ImplementationTest, DiscardableMemoryLockFail) {
+TEST_F(GLES2ImplementationTest, DiscardableTextureLockFail) {
   const GLuint texture_id = 1;
   gl_->InitializeDiscardableTextureCHROMIUM(texture_id);
-  EXPECT_TRUE(share_group_->discardable_manager()->TextureIsValid(texture_id));
+  EXPECT_TRUE(
+      share_group_->discardable_texture_manager()->TextureIsValid(texture_id));
 
-  // Unlock and delete the handle.
+  // Unlock the handle on the client side.
+  gl_->UnlockDiscardableTextureCHROMIUM(texture_id);
+
+  // Unlock and delete the handle on the service side.
   ClientDiscardableHandle client_handle =
-      share_group_->discardable_manager()->GetHandleForTesting(texture_id);
+      share_group_->discardable_texture_manager()->GetHandleForTesting(
+          texture_id);
   ServiceDiscardableHandle service_handle(client_handle.BufferForTesting(),
                                           client_handle.byte_offset(),
                                           client_handle.shm_id());
@@ -4633,10 +4370,11 @@ TEST_F(GLES2ImplementationTest, DiscardableMemoryLockFail) {
 
   // Trying to re-lock the texture via GL should fail and delete the entry.
   EXPECT_FALSE(gl_->LockDiscardableTextureCHROMIUM(texture_id));
-  EXPECT_FALSE(share_group_->discardable_manager()->TextureIsValid(texture_id));
+  EXPECT_FALSE(
+      share_group_->discardable_texture_manager()->TextureIsValid(texture_id));
 }
 
-TEST_F(GLES2ImplementationTest, DiscardableMemoryDoubleInitError) {
+TEST_F(GLES2ImplementationTest, DiscardableTextureDoubleInitError) {
   const GLuint texture_id = 1;
   gl_->InitializeDiscardableTextureCHROMIUM(texture_id);
   EXPECT_EQ(GL_NO_ERROR, CheckError());
@@ -4644,10 +4382,63 @@ TEST_F(GLES2ImplementationTest, DiscardableMemoryDoubleInitError) {
   EXPECT_EQ(GL_INVALID_VALUE, CheckError());
 }
 
-TEST_F(GLES2ImplementationTest, DiscardableMemoryLockError) {
+TEST_F(GLES2ImplementationTest, DiscardableTextureLockError) {
   const GLuint texture_id = 1;
   EXPECT_FALSE(gl_->LockDiscardableTextureCHROMIUM(texture_id));
   EXPECT_EQ(GL_INVALID_VALUE, CheckError());
+}
+
+TEST_F(GLES2ImplementationTest, DiscardableTextureLockCounting) {
+  const GLint texture_id = 1;
+  gl_->InitializeDiscardableTextureCHROMIUM(texture_id);
+  EXPECT_TRUE(
+      share_group_->discardable_texture_manager()->TextureIsValid(texture_id));
+
+  // Bind the texture.
+  gl_->BindTexture(GL_TEXTURE_2D, texture_id);
+  GLint bound_texture_id = 0;
+  gl_->GetIntegerv(GL_TEXTURE_BINDING_2D, &bound_texture_id);
+  EXPECT_EQ(texture_id, bound_texture_id);
+
+  // Lock the texture 3 more times (for 4 locks total).
+  for (int i = 0; i < 3; ++i) {
+    gl_->LockDiscardableTextureCHROMIUM(texture_id);
+  }
+
+  // Unlock 4 times. Only after the last unlock should the texture be unbound.
+  for (int i = 0; i < 4; ++i) {
+    gl_->UnlockDiscardableTextureCHROMIUM(texture_id);
+    bound_texture_id = 0;
+    gl_->GetIntegerv(GL_TEXTURE_BINDING_2D, &bound_texture_id);
+    if (i < 3) {
+      EXPECT_EQ(texture_id, bound_texture_id);
+    } else {
+      EXPECT_EQ(0, bound_texture_id);
+    }
+  }
+}
+
+struct ErrorMessageCounter {
+  explicit ErrorMessageCounter(GLES2Implementation* gl) : gl(gl) {}
+
+  void Callback(const char* message, int32_t id) {
+    if (++num_calls == 1)
+      gl->ShaderBinary(-1, nullptr, 0, nullptr, 0);
+  }
+
+  GLES2Implementation* gl;
+  int32_t num_calls = 0;
+};
+
+TEST_F(GLES2ImplementationTest, ReentrantErrorCallbacksShouldNotCrash) {
+  ErrorMessageCounter counter(gl_);
+  gl_->SetErrorMessageCallback(base::BindRepeating(
+      &ErrorMessageCounter::Callback, base::Unretained(&counter)));
+  // Call any function which can easily provoke an error. See also the
+  // callback above.
+  gl_->ShaderBinary(-1, nullptr, 0, nullptr, 0);
+  EXPECT_EQ(2, counter.num_calls);
+  ResetErrorMessageCallback();
 }
 
 #include "base/macros.h"

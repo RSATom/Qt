@@ -6,31 +6,630 @@
 #include "src/builtins/builtins-iterator-gen.h"
 #include "src/builtins/builtins-utils-gen.h"
 #include "src/code-stub-assembler.h"
-#include "src/objects/hash-table.h"
+#include "src/heap/factory-inl.h"
+#include "src/objects/hash-table-inl.h"
+#include "src/objects/js-collection.h"
 
 namespace v8 {
 namespace internal {
 
 using compiler::Node;
+template <class T>
+using TNode = compiler::TNode<T>;
+template <class T>
+using TVariable = compiler::TypedCodeAssemblerVariable<T>;
 
-class CollectionsBuiltinsAssembler : public CodeStubAssembler {
+class BaseCollectionsAssembler : public CodeStubAssembler {
  public:
-  explicit CollectionsBuiltinsAssembler(compiler::CodeAssemblerState* state)
+  explicit BaseCollectionsAssembler(compiler::CodeAssemblerState* state)
       : CodeStubAssembler(state) {}
 
- protected:
-  Node* AllocateJSMap(Node* js_map_function);
+  virtual ~BaseCollectionsAssembler() {}
 
-  template <typename CollectionType>
-  Node* AllocateOrderedHashTable();
-  Node* AllocateJSCollection(Node* js_map_function);
+ protected:
+  enum Variant { kMap, kSet, kWeakMap, kWeakSet };
+
+  // Adds an entry to a collection.  For Maps, properly handles extracting the
+  // key and value from the entry (see LoadKeyValue()).
+  void AddConstructorEntry(Variant variant, TNode<Context> context,
+                           TNode<Object> collection, TNode<Object> add_function,
+                           TNode<Object> key_value,
+                           Label* if_may_have_side_effects = nullptr,
+                           Label* if_exception = nullptr,
+                           TVariable<Object>* var_exception = nullptr);
+
+  // Adds constructor entries to a collection.  Choosing a fast path when
+  // possible.
+  void AddConstructorEntries(Variant variant, TNode<Context> context,
+                             TNode<Context> native_context,
+                             TNode<Object> collection,
+                             TNode<Object> initial_entries);
+
+  // Fast path for adding constructor entries.  Assumes the entries are a fast
+  // JS array (see CodeStubAssembler::BranchIfFastJSArray()).
+  void AddConstructorEntriesFromFastJSArray(Variant variant,
+                                            TNode<Context> context,
+                                            TNode<Context> native_context,
+                                            TNode<Object> collection,
+                                            TNode<JSArray> fast_jsarray,
+                                            Label* if_may_have_side_effects);
+
+  // Adds constructor entries to a collection using the iterator protocol.
+  void AddConstructorEntriesFromIterable(Variant variant,
+                                         TNode<Context> context,
+                                         TNode<Context> native_context,
+                                         TNode<Object> collection,
+                                         TNode<Object> iterable);
+
+  // Constructs a collection instance. Choosing a fast path when possible.
+  TNode<Object> AllocateJSCollection(TNode<Context> context,
+                                     TNode<JSFunction> constructor,
+                                     TNode<Object> new_target);
+
+  // Fast path for constructing a collection instance if the constructor
+  // function has not been modified.
+  TNode<Object> AllocateJSCollectionFast(TNode<HeapObject> constructor);
+
+  // Fallback for constructing a collection instance if the constructor function
+  // has been modified.
+  TNode<Object> AllocateJSCollectionSlow(TNode<Context> context,
+                                         TNode<JSFunction> constructor,
+                                         TNode<Object> new_target);
+
+  // Allocates the backing store for a collection.
+  virtual TNode<Object> AllocateTable(Variant variant, TNode<Context> context,
+                                      TNode<IntPtrT> at_least_space_for) = 0;
+
+  // Main entry point for a collection constructor builtin.
+  void GenerateConstructor(Variant variant,
+                           Handle<String> constructor_function_name,
+                           TNode<Object> new_target, TNode<IntPtrT> argc,
+                           TNode<Context> context);
+
+  // Retrieves the collection function that adds an entry. `set` for Maps and
+  // `add` for Sets.
+  TNode<Object> GetAddFunction(Variant variant, TNode<Context> context,
+                               TNode<Object> collection);
+
+  // Retrieves the collection constructor function.
+  TNode<JSFunction> GetConstructor(Variant variant,
+                                   TNode<Context> native_context);
+
+  // Retrieves the initial collection function that adds an entry. Should only
+  // be called when it is certain that a collection prototype's map hasn't been
+  // changed.
+  TNode<JSFunction> GetInitialAddFunction(Variant variant,
+                                          TNode<Context> native_context);
+
+  // Retrieves the offset to access the backing table from the collection.
+  int GetTableOffset(Variant variant);
+
+  // Estimates the number of entries the collection will have after adding the
+  // entries passed in the constructor. AllocateTable() can use this to avoid
+  // the time of growing/rehashing when adding the constructor entries.
+  TNode<IntPtrT> EstimatedInitialSize(TNode<Object> initial_entries,
+                                      TNode<BoolT> is_fast_jsarray);
+
+  void GotoIfNotJSReceiver(Node* const obj, Label* if_not_receiver);
+
+  // Determines whether the collection's prototype has been modified.
+  TNode<BoolT> HasInitialCollectionPrototype(Variant variant,
+                                             TNode<Context> native_context,
+                                             TNode<Object> collection);
+
+  // Loads an element from a fixed array.  If the element is the hole, returns
+  // `undefined`.
+  TNode<Object> LoadAndNormalizeFixedArrayElement(TNode<HeapObject> elements,
+                                                  TNode<IntPtrT> index);
+
+  // Loads an element from a fixed double array.  If the element is the hole,
+  // returns `undefined`.
+  TNode<Object> LoadAndNormalizeFixedDoubleArrayElement(
+      TNode<HeapObject> elements, TNode<IntPtrT> index);
+
+  // Loads key and value variables with the first and second elements of an
+  // array.  If the array lacks 2 elements, undefined is used.
+  void LoadKeyValue(TNode<Context> context, TNode<Object> maybe_array,
+                    TVariable<Object>* key, TVariable<Object>* value,
+                    Label* if_may_have_side_effects = nullptr,
+                    Label* if_exception = nullptr,
+                    TVariable<Object>* var_exception = nullptr);
+};
+
+void BaseCollectionsAssembler::AddConstructorEntry(
+    Variant variant, TNode<Context> context, TNode<Object> collection,
+    TNode<Object> add_function, TNode<Object> key_value,
+    Label* if_may_have_side_effects, Label* if_exception,
+    TVariable<Object>* var_exception) {
+  CSA_ASSERT(this, Word32BinaryNot(IsTheHole(key_value)));
+  if (variant == kMap || variant == kWeakMap) {
+    TVARIABLE(Object, key);
+    TVARIABLE(Object, value);
+    LoadKeyValue(context, key_value, &key, &value, if_may_have_side_effects,
+                 if_exception, var_exception);
+    Node* key_n = key.value();
+    Node* value_n = value.value();
+    Node* ret = CallJS(CodeFactory::Call(isolate()), context, add_function,
+                       collection, key_n, value_n);
+    GotoIfException(ret, if_exception, var_exception);
+  } else {
+    DCHECK(variant == kSet || variant == kWeakSet);
+    Node* ret = CallJS(CodeFactory::Call(isolate()), context, add_function,
+                       collection, key_value);
+    GotoIfException(ret, if_exception, var_exception);
+  }
+}
+
+void BaseCollectionsAssembler::AddConstructorEntries(
+    Variant variant, TNode<Context> context, TNode<Context> native_context,
+    TNode<Object> collection, TNode<Object> initial_entries) {
+  TVARIABLE(BoolT, use_fast_loop,
+            IsFastJSArrayWithNoCustomIteration(initial_entries, context,
+                                               native_context));
+  TNode<IntPtrT> at_least_space_for =
+      EstimatedInitialSize(initial_entries, use_fast_loop.value());
+  Label allocate_table(this, &use_fast_loop), exit(this), fast_loop(this),
+      slow_loop(this, Label::kDeferred);
+  Goto(&allocate_table);
+  BIND(&allocate_table);
+  {
+    TNode<Object> table = AllocateTable(variant, context, at_least_space_for);
+    StoreObjectField(collection, GetTableOffset(variant), table);
+    GotoIf(IsNullOrUndefined(initial_entries), &exit);
+    GotoIfNot(
+        HasInitialCollectionPrototype(variant, native_context, collection),
+        &slow_loop);
+    Branch(use_fast_loop.value(), &fast_loop, &slow_loop);
+  }
+  BIND(&fast_loop);
+  {
+    TNode<JSArray> initial_entries_jsarray =
+        UncheckedCast<JSArray>(initial_entries);
+#if DEBUG
+    CSA_ASSERT(this, IsFastJSArrayWithNoCustomIteration(
+                         initial_entries_jsarray, context, native_context));
+    TNode<Map> original_initial_entries_map = LoadMap(initial_entries_jsarray);
+#endif
+
+    Label if_may_have_side_effects(this, Label::kDeferred);
+    AddConstructorEntriesFromFastJSArray(variant, context, native_context,
+                                         collection, initial_entries_jsarray,
+                                         &if_may_have_side_effects);
+    Goto(&exit);
+
+    if (variant == kMap || variant == kWeakMap) {
+      BIND(&if_may_have_side_effects);
+#if DEBUG
+      CSA_ASSERT(this, HasInitialCollectionPrototype(variant, native_context,
+                                                     collection));
+      CSA_ASSERT(this, WordEqual(original_initial_entries_map,
+                                 LoadMap(initial_entries_jsarray)));
+#endif
+      use_fast_loop = Int32FalseConstant();
+      Goto(&allocate_table);
+    }
+  }
+  BIND(&slow_loop);
+  {
+    AddConstructorEntriesFromIterable(variant, context, native_context,
+                                      collection, initial_entries);
+    Goto(&exit);
+  }
+  BIND(&exit);
+}
+
+void BaseCollectionsAssembler::AddConstructorEntriesFromFastJSArray(
+    Variant variant, TNode<Context> context, TNode<Context> native_context,
+    TNode<Object> collection, TNode<JSArray> fast_jsarray,
+    Label* if_may_have_side_effects) {
+  TNode<FixedArrayBase> elements = LoadElements(fast_jsarray);
+  TNode<Int32T> elements_kind = LoadElementsKind(fast_jsarray);
+  TNode<JSFunction> add_func = GetInitialAddFunction(variant, native_context);
+  CSA_ASSERT(
+      this,
+      WordEqual(GetAddFunction(variant, native_context, collection), add_func));
+  CSA_ASSERT(this, IsFastJSArrayWithNoCustomIteration(fast_jsarray, context,
+                                                      native_context));
+  TNode<IntPtrT> length = SmiUntag(LoadFastJSArrayLength(fast_jsarray));
+  CSA_ASSERT(this, IntPtrGreaterThanOrEqual(length, IntPtrConstant(0)));
+  CSA_ASSERT(
+      this, HasInitialCollectionPrototype(variant, native_context, collection));
+
+#if DEBUG
+  TNode<Map> original_collection_map = LoadMap(CAST(collection));
+  TNode<Map> original_fast_js_array_map = LoadMap(fast_jsarray);
+#endif
+  Label exit(this), if_doubles(this), if_smiorobjects(this);
+  GotoIf(IntPtrEqual(length, IntPtrConstant(0)), &exit);
+  Branch(IsFastSmiOrTaggedElementsKind(elements_kind), &if_smiorobjects,
+         &if_doubles);
+  BIND(&if_smiorobjects);
+  {
+    auto set_entry = [&](Node* index) {
+      TNode<Object> element = LoadAndNormalizeFixedArrayElement(
+          elements, UncheckedCast<IntPtrT>(index));
+      AddConstructorEntry(variant, context, collection, add_func, element,
+                          if_may_have_side_effects);
+    };
+
+    // Instead of using the slower iteration protocol to iterate over the
+    // elements, a fast loop is used.  This assumes that adding an element
+    // to the collection does not call user code that could mutate the elements
+    // or collection.
+    BuildFastLoop(IntPtrConstant(0), length, set_entry, 1,
+                  ParameterMode::INTPTR_PARAMETERS, IndexAdvanceMode::kPost);
+    Goto(&exit);
+  }
+  BIND(&if_doubles);
+  {
+    // A Map constructor requires entries to be arrays (ex. [key, value]),
+    // so a FixedDoubleArray can never succeed.
+    if (variant == kMap || variant == kWeakMap) {
+      CSA_ASSERT(this, IntPtrGreaterThan(length, IntPtrConstant(0)));
+      TNode<Object> element =
+          LoadAndNormalizeFixedDoubleArrayElement(elements, IntPtrConstant(0));
+      ThrowTypeError(context, MessageTemplate::kIteratorValueNotAnObject,
+                     element);
+    } else {
+      DCHECK(variant == kSet || variant == kWeakSet);
+      auto set_entry = [&](Node* index) {
+        TNode<Object> entry = LoadAndNormalizeFixedDoubleArrayElement(
+            elements, UncheckedCast<IntPtrT>(index));
+        AddConstructorEntry(variant, context, collection, add_func, entry);
+      };
+      BuildFastLoop(IntPtrConstant(0), length, set_entry, 1,
+                    ParameterMode::INTPTR_PARAMETERS, IndexAdvanceMode::kPost);
+      Goto(&exit);
+    }
+  }
+  BIND(&exit);
+#if DEBUG
+  CSA_ASSERT(this,
+             WordEqual(original_collection_map, LoadMap(CAST(collection))));
+  CSA_ASSERT(this,
+             WordEqual(original_fast_js_array_map, LoadMap(fast_jsarray)));
+#endif
+}
+
+void BaseCollectionsAssembler::AddConstructorEntriesFromIterable(
+    Variant variant, TNode<Context> context, TNode<Context> native_context,
+    TNode<Object> collection, TNode<Object> iterable) {
+  Label exit(this), loop(this), if_exception(this, Label::kDeferred);
+  CSA_ASSERT(this, Word32BinaryNot(IsNullOrUndefined(iterable)));
+
+  TNode<Object> add_func = GetAddFunction(variant, context, collection);
+  IteratorBuiltinsAssembler iterator_assembler(this->state());
+  IteratorRecord iterator = iterator_assembler.GetIterator(context, iterable);
+
+  CSA_ASSERT(this, Word32BinaryNot(IsUndefined(iterator.object)));
+
+  TNode<Object> fast_iterator_result_map =
+      LoadContextElement(native_context, Context::ITERATOR_RESULT_MAP_INDEX);
+  TVARIABLE(Object, var_exception);
+
+  Goto(&loop);
+  BIND(&loop);
+  {
+    TNode<Object> next = CAST(iterator_assembler.IteratorStep(
+        context, iterator, &exit, fast_iterator_result_map));
+    TNode<Object> next_value = CAST(iterator_assembler.IteratorValue(
+        context, next, fast_iterator_result_map));
+    AddConstructorEntry(variant, context, collection, add_func, next_value,
+                        nullptr, &if_exception, &var_exception);
+    Goto(&loop);
+  }
+  BIND(&if_exception);
+  {
+    iterator_assembler.IteratorCloseOnException(context, iterator,
+                                                &var_exception);
+  }
+  BIND(&exit);
+}
+
+TNode<Object> BaseCollectionsAssembler::AllocateJSCollection(
+    TNode<Context> context, TNode<JSFunction> constructor,
+    TNode<Object> new_target) {
+  TNode<BoolT> is_target_unmodified = WordEqual(constructor, new_target);
+
+  return Select<Object>(is_target_unmodified,
+                        [=] { return AllocateJSCollectionFast(constructor); },
+                        [=] {
+                          return AllocateJSCollectionSlow(context, constructor,
+                                                          new_target);
+                        });
+}
+
+TNode<Object> BaseCollectionsAssembler::AllocateJSCollectionFast(
+    TNode<HeapObject> constructor) {
+  CSA_ASSERT(this, IsConstructorMap(LoadMap(constructor)));
+  TNode<Object> initial_map =
+      LoadObjectField(constructor, JSFunction::kPrototypeOrInitialMapOffset);
+  return CAST(AllocateJSObjectFromMap(initial_map));
+}
+
+TNode<Object> BaseCollectionsAssembler::AllocateJSCollectionSlow(
+    TNode<Context> context, TNode<JSFunction> constructor,
+    TNode<Object> new_target) {
+  ConstructorBuiltinsAssembler constructor_assembler(this->state());
+  return CAST(constructor_assembler.EmitFastNewObject(context, constructor,
+                                                      new_target));
+}
+
+void BaseCollectionsAssembler::GenerateConstructor(
+    Variant variant, Handle<String> constructor_function_name,
+    TNode<Object> new_target, TNode<IntPtrT> argc, TNode<Context> context) {
+  const int kIterableArg = 0;
+  CodeStubArguments args(this, argc);
+  TNode<Object> iterable = args.GetOptionalArgumentValue(kIterableArg);
+
+  Label if_undefined(this, Label::kDeferred);
+  GotoIf(IsUndefined(new_target), &if_undefined);
+
+  TNode<Context> native_context = LoadNativeContext(context);
+  TNode<Object> collection = AllocateJSCollection(
+      context, GetConstructor(variant, native_context), new_target);
+
+  AddConstructorEntries(variant, context, native_context, collection, iterable);
+  Return(collection);
+
+  BIND(&if_undefined);
+  ThrowTypeError(context, MessageTemplate::kConstructorNotFunction,
+                 HeapConstant(constructor_function_name));
+}
+
+TNode<Object> BaseCollectionsAssembler::GetAddFunction(
+    Variant variant, TNode<Context> context, TNode<Object> collection) {
+  Handle<String> add_func_name = (variant == kMap || variant == kWeakMap)
+                                     ? isolate()->factory()->set_string()
+                                     : isolate()->factory()->add_string();
+  TNode<Object> add_func = GetProperty(context, collection, add_func_name);
+
+  Label exit(this), if_notcallable(this, Label::kDeferred);
+  GotoIf(TaggedIsSmi(add_func), &if_notcallable);
+  GotoIfNot(IsCallable(CAST(add_func)), &if_notcallable);
+  Goto(&exit);
+
+  BIND(&if_notcallable);
+  ThrowTypeError(context, MessageTemplate::kPropertyNotFunction, add_func,
+                 HeapConstant(add_func_name), collection);
+
+  BIND(&exit);
+  return add_func;
+}
+
+TNode<JSFunction> BaseCollectionsAssembler::GetConstructor(
+    Variant variant, TNode<Context> native_context) {
+  int index;
+  switch (variant) {
+    case kMap:
+      index = Context::JS_MAP_FUN_INDEX;
+      break;
+    case kSet:
+      index = Context::JS_SET_FUN_INDEX;
+      break;
+    case kWeakMap:
+      index = Context::JS_WEAK_MAP_FUN_INDEX;
+      break;
+    case kWeakSet:
+      index = Context::JS_WEAK_SET_FUN_INDEX;
+      break;
+  }
+  return CAST(LoadContextElement(native_context, index));
+}
+
+TNode<JSFunction> BaseCollectionsAssembler::GetInitialAddFunction(
+    Variant variant, TNode<Context> native_context) {
+  int index;
+  switch (variant) {
+    case kMap:
+      index = Context::MAP_SET_INDEX;
+      break;
+    case kSet:
+      index = Context::SET_ADD_INDEX;
+      break;
+    case kWeakMap:
+      index = Context::WEAKMAP_SET_INDEX;
+      break;
+    case kWeakSet:
+      index = Context::WEAKSET_ADD_INDEX;
+      break;
+  }
+  return CAST(LoadContextElement(native_context, index));
+}
+
+int BaseCollectionsAssembler::GetTableOffset(Variant variant) {
+  switch (variant) {
+    case kMap:
+      return JSMap::kTableOffset;
+    case kSet:
+      return JSSet::kTableOffset;
+    case kWeakMap:
+      return JSWeakMap::kTableOffset;
+    case kWeakSet:
+      return JSWeakSet::kTableOffset;
+  }
+  UNREACHABLE();
+}
+
+TNode<IntPtrT> BaseCollectionsAssembler::EstimatedInitialSize(
+    TNode<Object> initial_entries, TNode<BoolT> is_fast_jsarray) {
+  return Select<IntPtrT>(
+      is_fast_jsarray,
+      [=] { return SmiUntag(LoadFastJSArrayLength(CAST(initial_entries))); },
+      [=] { return IntPtrConstant(0); });
+}
+
+void BaseCollectionsAssembler::GotoIfNotJSReceiver(Node* const obj,
+                                                   Label* if_not_receiver) {
+  GotoIf(TaggedIsSmi(obj), if_not_receiver);
+  GotoIfNot(IsJSReceiver(obj), if_not_receiver);
+}
+
+TNode<BoolT> BaseCollectionsAssembler::HasInitialCollectionPrototype(
+    Variant variant, TNode<Context> native_context, TNode<Object> collection) {
+  int initial_prototype_index;
+  switch (variant) {
+    case kMap:
+      initial_prototype_index = Context::INITIAL_MAP_PROTOTYPE_MAP_INDEX;
+      break;
+    case kSet:
+      initial_prototype_index = Context::INITIAL_SET_PROTOTYPE_MAP_INDEX;
+      break;
+    case kWeakMap:
+      initial_prototype_index = Context::INITIAL_WEAKMAP_PROTOTYPE_MAP_INDEX;
+      break;
+    case kWeakSet:
+      initial_prototype_index = Context::INITIAL_WEAKSET_PROTOTYPE_MAP_INDEX;
+      break;
+  }
+  TNode<Map> initial_prototype_map =
+      CAST(LoadContextElement(native_context, initial_prototype_index));
+  TNode<Map> collection_proto_map =
+      LoadMap(LoadMapPrototype(LoadMap(CAST(collection))));
+
+  return WordEqual(collection_proto_map, initial_prototype_map);
+}
+
+TNode<Object> BaseCollectionsAssembler::LoadAndNormalizeFixedArrayElement(
+    TNode<HeapObject> elements, TNode<IntPtrT> index) {
+  TNode<Object> element = LoadFixedArrayElement(elements, index);
+  return Select<Object>(IsTheHole(element), [=] { return UndefinedConstant(); },
+                        [=] { return element; });
+}
+
+TNode<Object> BaseCollectionsAssembler::LoadAndNormalizeFixedDoubleArrayElement(
+    TNode<HeapObject> elements, TNode<IntPtrT> index) {
+  TVARIABLE(Object, entry);
+  Label if_hole(this, Label::kDeferred), next(this);
+  TNode<Float64T> element =
+      LoadFixedDoubleArrayElement(CAST(elements), index, MachineType::Float64(),
+                                  0, INTPTR_PARAMETERS, &if_hole);
+  {  // not hole
+    entry = AllocateHeapNumberWithValue(element);
+    Goto(&next);
+  }
+  BIND(&if_hole);
+  {
+    entry = UndefinedConstant();
+    Goto(&next);
+  }
+  BIND(&next);
+  return entry.value();
+}
+
+void BaseCollectionsAssembler::LoadKeyValue(
+    TNode<Context> context, TNode<Object> maybe_array, TVariable<Object>* key,
+    TVariable<Object>* value, Label* if_may_have_side_effects,
+    Label* if_exception, TVariable<Object>* var_exception) {
+  CSA_ASSERT(this, Word32BinaryNot(IsTheHole(maybe_array)));
+
+  Label exit(this), if_fast(this), if_slow(this, Label::kDeferred);
+  BranchIfFastJSArray(maybe_array, context, &if_fast, &if_slow);
+  BIND(&if_fast);
+  {
+    TNode<JSArray> array = CAST(maybe_array);
+    TNode<Smi> length = LoadFastJSArrayLength(array);
+    TNode<FixedArrayBase> elements = LoadElements(array);
+    TNode<Int32T> elements_kind = LoadElementsKind(array);
+
+    Label if_smiorobjects(this), if_doubles(this);
+    Branch(IsFastSmiOrTaggedElementsKind(elements_kind), &if_smiorobjects,
+           &if_doubles);
+    BIND(&if_smiorobjects);
+    {
+      Label if_one(this), if_two(this);
+      GotoIf(SmiGreaterThan(length, SmiConstant(1)), &if_two);
+      GotoIf(SmiEqual(length, SmiConstant(1)), &if_one);
+      {  // empty array
+        *key = UndefinedConstant();
+        *value = UndefinedConstant();
+        Goto(&exit);
+      }
+      BIND(&if_one);
+      {
+        *key = LoadAndNormalizeFixedArrayElement(elements, IntPtrConstant(0));
+        *value = UndefinedConstant();
+        Goto(&exit);
+      }
+      BIND(&if_two);
+      {
+        *key = LoadAndNormalizeFixedArrayElement(elements, IntPtrConstant(0));
+        *value = LoadAndNormalizeFixedArrayElement(elements, IntPtrConstant(1));
+        Goto(&exit);
+      }
+    }
+    BIND(&if_doubles);
+    {
+      Label if_one(this), if_two(this);
+      GotoIf(SmiGreaterThan(length, SmiConstant(1)), &if_two);
+      GotoIf(SmiEqual(length, SmiConstant(1)), &if_one);
+      {  // empty array
+        *key = UndefinedConstant();
+        *value = UndefinedConstant();
+        Goto(&exit);
+      }
+      BIND(&if_one);
+      {
+        *key = LoadAndNormalizeFixedDoubleArrayElement(elements,
+                                                       IntPtrConstant(0));
+        *value = UndefinedConstant();
+        Goto(&exit);
+      }
+      BIND(&if_two);
+      {
+        *key = LoadAndNormalizeFixedDoubleArrayElement(elements,
+                                                       IntPtrConstant(0));
+        *value = LoadAndNormalizeFixedDoubleArrayElement(elements,
+                                                         IntPtrConstant(1));
+        Goto(&exit);
+      }
+    }
+  }
+  BIND(&if_slow);
+  {
+    Label if_notobject(this, Label::kDeferred);
+    GotoIfNotJSReceiver(maybe_array, &if_notobject);
+    if (if_may_have_side_effects != nullptr) {
+      // If the element is not a fast array, we cannot guarantee accessing the
+      // key and value won't execute user code that will break fast path
+      // assumptions.
+      Goto(if_may_have_side_effects);
+    } else {
+      *key = UncheckedCast<Object>(GetProperty(
+          context, maybe_array, isolate()->factory()->zero_string()));
+      GotoIfException(key->value(), if_exception, var_exception);
+
+      *value = UncheckedCast<Object>(GetProperty(
+          context, maybe_array, isolate()->factory()->one_string()));
+      GotoIfException(value->value(), if_exception, var_exception);
+      Goto(&exit);
+    }
+    BIND(&if_notobject);
+    {
+      Node* ret = CallRuntime(
+          Runtime::kThrowTypeError, context,
+          SmiConstant(MessageTemplate::kIteratorValueNotAnObject), maybe_array);
+      GotoIfException(ret, if_exception, var_exception);
+      Unreachable();
+    }
+  }
+  BIND(&exit);
+}
+
+class CollectionsBuiltinsAssembler : public BaseCollectionsAssembler {
+ public:
+  explicit CollectionsBuiltinsAssembler(compiler::CodeAssemblerState* state)
+      : BaseCollectionsAssembler(state) {}
+
+ protected:
   template <typename IteratorType>
   Node* AllocateJSCollectionIterator(Node* context, int map_index,
                                      Node* collection);
-
+  TNode<Object> AllocateTable(Variant variant, TNode<Context> context,
+                              TNode<IntPtrT> at_least_space_for);
+  Node* GetHash(Node* const key);
   Node* CallGetHashRaw(Node* const key);
-  template <typename CollectionType, int entrysize>
-  Node* CallHasRaw(Node* const table, Node* const key);
+  Node* CallGetOrCreateHashRaw(Node* const key);
 
   // Transitions the iterator to the non obsolete backing store.
   // This is a NOP if the [table] is not obsolete.
@@ -46,45 +645,45 @@ class CollectionsBuiltinsAssembler : public CodeStubAssembler {
   std::tuple<Node*, Node*, Node*> NextSkipHoles(Node* table, Node* index,
                                                 Label* if_end);
 
-  // Builds code that finds OrderedHashTable entry for a key with hash code
-  // {hash} with using the comparison code generated by {key_compare}. The code
-  // jumps to {entry_found} if the key is found, or to {not_found} if the key
-  // was not found. In the {entry_found} branch, the variable
-  // entry_start_position will be bound to the index of the entry (relative to
-  // OrderedHashTable::kHashTableStartIndex).
-  //
-  // The {CollectionType} template parameter stands for the particular instance
-  // of OrderedHashTable, it should be OrderedHashMap or OrderedHashSet.
-  template <typename CollectionType>
-  void FindOrderedHashTableEntry(
-      Node* table, Node* hash,
-      std::function<void(Node* other, Label* if_same, Label* if_not_same)>
-          key_compare,
-      Variable* entry_start_position, Label* entry_found, Label* not_found);
-
   // Specialization for Smi.
+  // The {result} variable will contain the entry index if the key was found,
+  // or the hash code otherwise.
   template <typename CollectionType>
   void FindOrderedHashTableEntryForSmiKey(Node* table, Node* key_tagged,
-                                          Variable* entry_start_position,
-                                          Label* entry_found, Label* not_found);
+                                          Variable* result, Label* entry_found,
+                                          Label* not_found);
   void SameValueZeroSmi(Node* key_smi, Node* candidate_key, Label* if_same,
                         Label* if_not_same);
 
   // Specialization for heap numbers.
+  // The {result} variable will contain the entry index if the key was found,
+  // or the hash code otherwise.
   void SameValueZeroHeapNumber(Node* key_string, Node* candidate_key,
                                Label* if_same, Label* if_not_same);
   template <typename CollectionType>
   void FindOrderedHashTableEntryForHeapNumberKey(Node* context, Node* table,
                                                  Node* key_heap_number,
-                                                 Variable* entry_start_position,
+                                                 Variable* result,
                                                  Label* entry_found,
                                                  Label* not_found);
 
+  // Specialization for bigints.
+  // The {result} variable will contain the entry index if the key was found,
+  // or the hash code otherwise.
+  void SameValueZeroBigInt(Node* key, Node* candidate_key, Label* if_same,
+                           Label* if_not_same);
+  template <typename CollectionType>
+  void FindOrderedHashTableEntryForBigIntKey(Node* context, Node* table,
+                                             Node* key, Variable* result,
+                                             Label* entry_found,
+                                             Label* not_found);
+
   // Specialization for string.
+  // The {result} variable will contain the entry index if the key was found,
+  // or the hash code otherwise.
   template <typename CollectionType>
   void FindOrderedHashTableEntryForStringKey(Node* context, Node* table,
-                                             Node* key_tagged,
-                                             Variable* entry_start_position,
+                                             Node* key_tagged, Variable* result,
                                              Label* entry_found,
                                              Label* not_found);
   Node* ComputeIntegerHashForString(Node* context, Node* string_key);
@@ -93,81 +692,31 @@ class CollectionsBuiltinsAssembler : public CodeStubAssembler {
 
   // Specialization for non-strings, non-numbers. For those we only need
   // reference equality to compare the keys.
+  // The {result} variable will contain the entry index if the key was found,
+  // or the hash code otherwise. If the hash-code has not been computed, it
+  // should be Smi -1.
   template <typename CollectionType>
   void FindOrderedHashTableEntryForOtherKey(Node* context, Node* table,
-                                            Node* key,
-                                            Variable* entry_start_position,
+                                            Node* key, Variable* result,
                                             Label* entry_found,
                                             Label* not_found);
+
+  template <typename CollectionType>
+  void TryLookupOrderedHashTableIndex(Node* const table, Node* const key,
+                                      Node* const context, Variable* result,
+                                      Label* if_entry_found,
+                                      Label* if_not_found);
+
+  Node* NormalizeNumberKey(Node* key);
+  void StoreOrderedHashMapNewEntry(Node* const table, Node* const key,
+                                   Node* const value, Node* const hash,
+                                   Node* const number_of_buckets,
+                                   Node* const occupancy);
+  void StoreOrderedHashSetNewEntry(Node* const table, Node* const key,
+                                   Node* const hash,
+                                   Node* const number_of_buckets,
+                                   Node* const occupancy);
 };
-
-template <typename CollectionType>
-Node* CollectionsBuiltinsAssembler::AllocateOrderedHashTable() {
-  static const int kCapacity = CollectionType::kMinCapacity;
-  static const int kBucketCount = kCapacity / CollectionType::kLoadFactor;
-  static const int kDataTableLength = kCapacity * CollectionType::kEntrySize;
-  static const int kFixedArrayLength =
-      CollectionType::kHashTableStartIndex + kBucketCount + kDataTableLength;
-  static const int kDataTableStartIndex =
-      CollectionType::kHashTableStartIndex + kBucketCount;
-
-  STATIC_ASSERT(base::bits::IsPowerOfTwo(kCapacity));
-  STATIC_ASSERT(kCapacity <= CollectionType::kMaxCapacity);
-
-  // Allocate the table and add the proper map.
-  const ElementsKind elements_kind = HOLEY_ELEMENTS;
-  Node* const length_intptr = IntPtrConstant(kFixedArrayLength);
-  Node* const table = AllocateFixedArray(elements_kind, length_intptr);
-  CSA_ASSERT(this,
-             IntPtrLessThanOrEqual(
-                 length_intptr, IntPtrConstant(FixedArray::kMaxRegularLength)));
-  Heap::RootListIndex map_index = Heap::kOrderedHashTableMapRootIndex;
-  // TODO(gsathya): Directly store correct in AllocateFixedArray,
-  // instead of overwriting here.
-  StoreMapNoWriteBarrier(table, map_index);
-
-  // Initialize the OrderedHashTable fields.
-  const WriteBarrierMode barrier_mode = SKIP_WRITE_BARRIER;
-  StoreFixedArrayElement(table, CollectionType::kNumberOfElementsIndex,
-                         SmiConstant(0), barrier_mode);
-  StoreFixedArrayElement(table, CollectionType::kNumberOfDeletedElementsIndex,
-                         SmiConstant(0), barrier_mode);
-  StoreFixedArrayElement(table, CollectionType::kNumberOfBucketsIndex,
-                         SmiConstant(kBucketCount), barrier_mode);
-
-  // Fill the buckets with kNotFound.
-  Node* const not_found = SmiConstant(CollectionType::kNotFound);
-  STATIC_ASSERT(CollectionType::kHashTableStartIndex ==
-                CollectionType::kNumberOfBucketsIndex + 1);
-  STATIC_ASSERT((CollectionType::kHashTableStartIndex + kBucketCount) ==
-                kDataTableStartIndex);
-  for (int i = 0; i < kBucketCount; i++) {
-    StoreFixedArrayElement(table, CollectionType::kHashTableStartIndex + i,
-                           not_found, barrier_mode);
-  }
-
-  // Fill the data table with undefined.
-  STATIC_ASSERT(kDataTableStartIndex + kDataTableLength == kFixedArrayLength);
-  for (int i = 0; i < kDataTableLength; i++) {
-    StoreFixedArrayElement(table, kDataTableStartIndex + i, UndefinedConstant(),
-                           barrier_mode);
-  }
-
-  return table;
-}
-
-Node* CollectionsBuiltinsAssembler::AllocateJSCollection(
-    Node* js_map_function) {
-  CSA_ASSERT(this, IsConstructorMap(LoadMap(js_map_function)));
-  Node* const initial_map = LoadObjectField(
-      js_map_function, JSFunction::kPrototypeOrInitialMapOffset);
-  Node* const instance = AllocateJSObjectFromMap(initial_map);
-
-  StoreObjectFieldRoot(instance, JSMap::kTableOffset,
-                       Heap::kUndefinedValueRootIndex);
-
-  return instance;
-}
 
 template <typename IteratorType>
 Node* CollectionsBuiltinsAssembler::AllocateJSCollectionIterator(
@@ -187,229 +736,37 @@ Node* CollectionsBuiltinsAssembler::AllocateJSCollectionIterator(
   return iterator;
 }
 
+TNode<Object> CollectionsBuiltinsAssembler::AllocateTable(
+    Variant variant, TNode<Context> context,
+    TNode<IntPtrT> at_least_space_for) {
+  return CAST((variant == kMap || variant == kWeakMap)
+                  ? AllocateOrderedHashTable<OrderedHashMap>()
+                  : AllocateOrderedHashTable<OrderedHashSet>());
+}
+
 TF_BUILTIN(MapConstructor, CollectionsBuiltinsAssembler) {
-  const int kIterableArg = 0;
+  TNode<Object> new_target = CAST(Parameter(Descriptor::kJSNewTarget));
+  TNode<IntPtrT> argc =
+      ChangeInt32ToIntPtr(Parameter(Descriptor::kJSActualArgumentsCount));
+  TNode<Context> context = CAST(Parameter(Descriptor::kContext));
 
-  Node* argc =
-      ChangeInt32ToIntPtr(Parameter(BuiltinDescriptor::kArgumentsCount));
-  CodeStubArguments args(this, argc);
-
-  Node* const iterable = args.GetOptionalArgumentValue(kIterableArg);
-  Node* const new_target = Parameter(BuiltinDescriptor::kNewTarget);
-  Node* const context = Parameter(BuiltinDescriptor::kContext);
-
-  Label if_target_is_undefined(this, Label::kDeferred);
-  GotoIf(IsUndefined(new_target), &if_target_is_undefined);
-
-  Node* const native_context = LoadNativeContext(context);
-  Node* const js_map_fun =
-      LoadContextElement(native_context, Context::JS_MAP_FUN_INDEX);
-
-  VARIABLE(var_result, MachineRepresentation::kTagged);
-
-  Label init(this), exit(this), if_targetisnotmodified(this),
-      if_targetismodified(this);
-  Branch(WordEqual(js_map_fun, new_target), &if_targetisnotmodified,
-         &if_targetismodified);
-
-  BIND(&if_targetisnotmodified);
-  {
-    Node* const instance = AllocateJSCollection(js_map_fun);
-    var_result.Bind(instance);
-    Goto(&init);
-  }
-
-  BIND(&if_targetismodified);
-  {
-    ConstructorBuiltinsAssembler constructor_assembler(this->state());
-    Node* const instance = constructor_assembler.EmitFastNewObject(
-        context, js_map_fun, new_target);
-    var_result.Bind(instance);
-    Goto(&init);
-  }
-
-  BIND(&init);
-  Node* table = AllocateOrderedHashTable<OrderedHashMap>();
-  StoreObjectField(var_result.value(), JSMap::kTableOffset, table);
-
-  GotoIf(Word32Or(IsUndefined(iterable), IsNull(iterable)), &exit);
-
-  Label if_notcallable(this);
-  // TODO(gsathya): Add fast path for unmodified maps.
-  Node* const adder = GetProperty(context, var_result.value(),
-                                  isolate()->factory()->set_string());
-  GotoIf(TaggedIsSmi(adder), &if_notcallable);
-  GotoIfNot(IsCallable(adder), &if_notcallable);
-
-  IteratorBuiltinsAssembler iterator_assembler(this->state());
-  Node* const iterator = iterator_assembler.GetIterator(context, iterable);
-  GotoIf(IsUndefined(iterator), &exit);
-
-  Node* const fast_iterator_result_map =
-      LoadContextElement(native_context, Context::ITERATOR_RESULT_MAP_INDEX);
-
-  VARIABLE(var_exception, MachineRepresentation::kTagged, TheHoleConstant());
-
-  Label loop(this), if_notobject(this), if_exception(this);
-  Goto(&loop);
-
-  BIND(&loop);
-  {
-    Node* const next = iterator_assembler.IteratorStep(
-        context, iterator, &exit, fast_iterator_result_map);
-
-    Node* const next_value = iterator_assembler.IteratorValue(
-        context, next, fast_iterator_result_map);
-
-    GotoIf(TaggedIsSmi(next_value), &if_notobject);
-    GotoIfNot(IsJSReceiver(next_value), &if_notobject);
-
-    Node* const k =
-        GetProperty(context, next_value, isolate()->factory()->zero_string());
-    GotoIfException(k, &if_exception, &var_exception);
-
-    Node* const v =
-        GetProperty(context, next_value, isolate()->factory()->one_string());
-    GotoIfException(v, &if_exception, &var_exception);
-
-    Node* add_call = CallJS(CodeFactory::Call(isolate()), context, adder,
-                            var_result.value(), k, v);
-    GotoIfException(add_call, &if_exception, &var_exception);
-    Goto(&loop);
-
-    BIND(&if_notobject);
-    {
-      Node* const exception = MakeTypeError(
-          MessageTemplate::kIteratorValueNotAnObject, context, next_value);
-      var_exception.Bind(exception);
-      Goto(&if_exception);
-    }
-  }
-
-  BIND(&if_exception);
-  {
-    iterator_assembler.IteratorCloseOnException(context, iterator,
-                                                &var_exception);
-  }
-
-  BIND(&if_notcallable);
-  {
-    Node* const receiver_str = HeapConstant(isolate()->factory()->add_string());
-    ThrowTypeError(context, MessageTemplate::kPropertyNotFunction, adder,
-                   receiver_str, var_result.value());
-  }
-
-  BIND(&if_target_is_undefined);
-  ThrowTypeError(context, MessageTemplate::kConstructorNotFunction,
-                 HeapConstant(isolate()->factory()->Map_string()));
-
-  BIND(&exit);
-  args.PopAndReturn(var_result.value());
+  GenerateConstructor(kMap, isolate()->factory()->Map_string(), new_target,
+                      argc, context);
 }
 
 TF_BUILTIN(SetConstructor, CollectionsBuiltinsAssembler) {
-  const int kIterableArg = 0;
+  TNode<Object> new_target = CAST(Parameter(Descriptor::kJSNewTarget));
+  TNode<IntPtrT> argc =
+      ChangeInt32ToIntPtr(Parameter(Descriptor::kJSActualArgumentsCount));
+  TNode<Context> context = CAST(Parameter(Descriptor::kContext));
 
-  Node* argc =
-      ChangeInt32ToIntPtr(Parameter(BuiltinDescriptor::kArgumentsCount));
-  CodeStubArguments args(this, argc);
-
-  Node* const iterable = args.GetOptionalArgumentValue(kIterableArg);
-  Node* const new_target = Parameter(BuiltinDescriptor::kNewTarget);
-  Node* const context = Parameter(BuiltinDescriptor::kContext);
-
-  Label if_target_is_undefined(this, Label::kDeferred);
-  GotoIf(IsUndefined(new_target), &if_target_is_undefined);
-
-  Node* const native_context = LoadNativeContext(context);
-  Node* const js_set_fun =
-      LoadContextElement(native_context, Context::JS_SET_FUN_INDEX);
-
-  VARIABLE(var_result, MachineRepresentation::kTagged);
-
-  Label init(this), exit(this), if_targetisnotmodified(this),
-      if_targetismodified(this);
-  Branch(WordEqual(js_set_fun, new_target), &if_targetisnotmodified,
-         &if_targetismodified);
-
-  BIND(&if_targetisnotmodified);
-  {
-    Node* const instance = AllocateJSCollection(js_set_fun);
-    var_result.Bind(instance);
-    Goto(&init);
-  }
-
-  BIND(&if_targetismodified);
-  {
-    ConstructorBuiltinsAssembler constructor_assembler(this->state());
-    Node* const instance = constructor_assembler.EmitFastNewObject(
-        context, js_set_fun, new_target);
-    var_result.Bind(instance);
-    Goto(&init);
-  }
-
-  BIND(&init);
-  Node* table = AllocateOrderedHashTable<OrderedHashSet>();
-  StoreObjectField(var_result.value(), JSSet::kTableOffset, table);
-
-  GotoIf(Word32Or(IsUndefined(iterable), IsNull(iterable)), &exit);
-
-  Label if_notcallable(this);
-  // TODO(gsathya): Add fast path for unmodified maps.
-  Node* const adder = GetProperty(context, var_result.value(),
-                                  isolate()->factory()->add_string());
-  GotoIf(TaggedIsSmi(adder), &if_notcallable);
-  GotoIfNot(IsCallable(adder), &if_notcallable);
-
-  IteratorBuiltinsAssembler iterator_assembler(this->state());
-  Node* const iterator = iterator_assembler.GetIterator(context, iterable);
-  GotoIf(IsUndefined(iterator), &exit);
-
-  Node* const fast_iterator_result_map =
-      LoadContextElement(native_context, Context::ITERATOR_RESULT_MAP_INDEX);
-
-  VARIABLE(var_exception, MachineRepresentation::kTagged, TheHoleConstant());
-
-  Label loop(this), if_notobject(this), if_exception(this);
-  Goto(&loop);
-
-  BIND(&loop);
-  {
-    Node* const next = iterator_assembler.IteratorStep(
-        context, iterator, &exit, fast_iterator_result_map);
-
-    Node* const next_value = iterator_assembler.IteratorValue(
-        context, next, fast_iterator_result_map);
-
-    Node* add_call = CallJS(CodeFactory::Call(isolate()), context, adder,
-                            var_result.value(), next_value);
-
-    GotoIfException(add_call, &if_exception, &var_exception);
-    Goto(&loop);
-  }
-
-  BIND(&if_exception);
-  {
-    iterator_assembler.IteratorCloseOnException(context, iterator,
-                                                &var_exception);
-  }
-
-  BIND(&if_notcallable);
-  ThrowTypeError(context, MessageTemplate::kPropertyNotFunction, adder,
-                 HeapConstant(isolate()->factory()->add_string()),
-                 var_result.value());
-
-  BIND(&if_target_is_undefined);
-  ThrowTypeError(context, MessageTemplate::kConstructorNotFunction,
-                 HeapConstant(isolate()->factory()->Set_string()));
-
-  BIND(&exit);
-  args.PopAndReturn(var_result.value());
+  GenerateConstructor(kSet, isolate()->factory()->Set_string(), new_target,
+                      argc, context);
 }
 
-Node* CollectionsBuiltinsAssembler::CallGetHashRaw(Node* const key) {
-  Node* const function_addr = ExternalConstant(
-      ExternalReference::orderedhashmap_gethash_raw(isolate()));
+Node* CollectionsBuiltinsAssembler::CallGetOrCreateHashRaw(Node* const key) {
+  Node* const function_addr =
+      ExternalConstant(ExternalReference::get_or_create_hash_raw(isolate()));
   Node* const isolate_ptr =
       ExternalConstant(ExternalReference::isolate_address(isolate()));
 
@@ -420,6 +777,41 @@ Node* CollectionsBuiltinsAssembler::CallGetHashRaw(Node* const key) {
                                       function_addr, isolate_ptr, key);
 
   return result;
+}
+
+Node* CollectionsBuiltinsAssembler::CallGetHashRaw(Node* const key) {
+  Node* const function_addr =
+      ExternalConstant(ExternalReference::orderedhashmap_gethash_raw());
+  Node* const isolate_ptr =
+      ExternalConstant(ExternalReference::isolate_address(isolate()));
+
+  MachineType type_ptr = MachineType::Pointer();
+  MachineType type_tagged = MachineType::AnyTagged();
+
+  Node* const result = CallCFunction2(type_tagged, type_ptr, type_tagged,
+                                      function_addr, isolate_ptr, key);
+  return SmiUntag(result);
+}
+
+Node* CollectionsBuiltinsAssembler::GetHash(Node* const key) {
+  VARIABLE(var_hash, MachineType::PointerRepresentation());
+  Label if_receiver(this), if_other(this), done(this);
+  Branch(IsJSReceiver(key), &if_receiver, &if_other);
+
+  BIND(&if_receiver);
+  {
+    var_hash.Bind(LoadJSReceiverIdentityHash(key));
+    Goto(&done);
+  }
+
+  BIND(&if_other);
+  {
+    var_hash.Bind(CallGetHashRaw(key));
+    Goto(&done);
+  }
+
+  BIND(&done);
+  return var_hash.value();
 }
 
 void CollectionsBuiltinsAssembler::SameValueZeroSmi(Node* key_smi,
@@ -447,60 +839,81 @@ void CollectionsBuiltinsAssembler::SameValueZeroSmi(Node* key_smi,
 
 template <typename CollectionType>
 void CollectionsBuiltinsAssembler::FindOrderedHashTableEntryForSmiKey(
-    Node* table, Node* smi_key, Variable* entry_start_position,
-    Label* entry_found, Label* not_found) {
+    Node* table, Node* smi_key, Variable* result, Label* entry_found,
+    Label* not_found) {
   Node* const key_untagged = SmiUntag(smi_key);
   Node* const hash =
       ChangeInt32ToIntPtr(ComputeIntegerHash(key_untagged, Int32Constant(0)));
+  CSA_ASSERT(this, IntPtrGreaterThanOrEqual(hash, IntPtrConstant(0)));
+  result->Bind(hash);
   FindOrderedHashTableEntry<CollectionType>(
       table, hash,
       [&](Node* other_key, Label* if_same, Label* if_not_same) {
         SameValueZeroSmi(smi_key, other_key, if_same, if_not_same);
       },
-      entry_start_position, entry_found, not_found);
+      result, entry_found, not_found);
 }
 
 template <typename CollectionType>
 void CollectionsBuiltinsAssembler::FindOrderedHashTableEntryForStringKey(
-    Node* context, Node* table, Node* key_tagged,
-    Variable* entry_start_position, Label* entry_found, Label* not_found) {
+    Node* context, Node* table, Node* key_tagged, Variable* result,
+    Label* entry_found, Label* not_found) {
   Node* const hash = ComputeIntegerHashForString(context, key_tagged);
+  CSA_ASSERT(this, IntPtrGreaterThanOrEqual(hash, IntPtrConstant(0)));
+  result->Bind(hash);
   FindOrderedHashTableEntry<CollectionType>(
       table, hash,
       [&](Node* other_key, Label* if_same, Label* if_not_same) {
         SameValueZeroString(context, key_tagged, other_key, if_same,
                             if_not_same);
       },
-      entry_start_position, entry_found, not_found);
+      result, entry_found, not_found);
 }
 
 template <typename CollectionType>
 void CollectionsBuiltinsAssembler::FindOrderedHashTableEntryForHeapNumberKey(
-    Node* context, Node* table, Node* key_heap_number,
-    Variable* entry_start_position, Label* entry_found, Label* not_found) {
-  Node* tagged_hash = CallGetHashRaw(key_heap_number);
-  CSA_ASSERT(this, TaggedIsSmi(tagged_hash));
+    Node* context, Node* table, Node* key_heap_number, Variable* result,
+    Label* entry_found, Label* not_found) {
+  Node* hash = CallGetHashRaw(key_heap_number);
+  CSA_ASSERT(this, IntPtrGreaterThanOrEqual(hash, IntPtrConstant(0)));
+  result->Bind(hash);
   Node* const key_float = LoadHeapNumberValue(key_heap_number);
   FindOrderedHashTableEntry<CollectionType>(
-      table, SmiUntag(tagged_hash),
+      table, hash,
       [&](Node* other_key, Label* if_same, Label* if_not_same) {
         SameValueZeroHeapNumber(key_float, other_key, if_same, if_not_same);
       },
-      entry_start_position, entry_found, not_found);
+      result, entry_found, not_found);
+}
+
+template <typename CollectionType>
+void CollectionsBuiltinsAssembler::FindOrderedHashTableEntryForBigIntKey(
+    Node* context, Node* table, Node* key, Variable* result, Label* entry_found,
+    Label* not_found) {
+  Node* hash = CallGetHashRaw(key);
+  CSA_ASSERT(this, IntPtrGreaterThanOrEqual(hash, IntPtrConstant(0)));
+  result->Bind(hash);
+  FindOrderedHashTableEntry<CollectionType>(
+      table, hash,
+      [&](Node* other_key, Label* if_same, Label* if_not_same) {
+        SameValueZeroBigInt(key, other_key, if_same, if_not_same);
+      },
+      result, entry_found, not_found);
 }
 
 template <typename CollectionType>
 void CollectionsBuiltinsAssembler::FindOrderedHashTableEntryForOtherKey(
-    Node* context, Node* table, Node* key, Variable* entry_start_position,
-    Label* entry_found, Label* not_found) {
-  Node* tagged_hash = CallGetHashRaw(key);
-  CSA_ASSERT(this, TaggedIsSmi(tagged_hash));
+    Node* context, Node* table, Node* key, Variable* result, Label* entry_found,
+    Label* not_found) {
+  Node* hash = GetHash(key);
+  CSA_ASSERT(this, IntPtrGreaterThanOrEqual(hash, IntPtrConstant(0)));
+  result->Bind(hash);
   FindOrderedHashTableEntry<CollectionType>(
-      table, SmiUntag(tagged_hash),
+      table, hash,
       [&](Node* other_key, Label* if_same, Label* if_not_same) {
         Branch(WordEqual(key, other_key), if_same, if_not_same);
       },
-      entry_start_position, entry_found, not_found);
+      result, entry_found, not_found);
 }
 
 Node* CollectionsBuiltinsAssembler::ComputeIntegerHashForString(
@@ -514,9 +927,7 @@ Node* CollectionsBuiltinsAssembler::ComputeIntegerHashForString(
   Goto(&done);
 
   BIND(&hash_not_computed);
-  Node* tagged_hash = CallGetHashRaw(string_key);
-  CSA_ASSERT(this, TaggedIsSmi(tagged_hash));
-  var_result.Bind(SmiUntag(tagged_hash));
+  var_result.Bind(CallGetHashRaw(string_key));
   Goto(&done);
 
   BIND(&done);
@@ -538,13 +949,26 @@ void CollectionsBuiltinsAssembler::SameValueZeroString(Node* context,
          if_same, if_not_same);
 }
 
+void CollectionsBuiltinsAssembler::SameValueZeroBigInt(Node* key,
+                                                       Node* candidate_key,
+                                                       Label* if_same,
+                                                       Label* if_not_same) {
+  CSA_ASSERT(this, IsBigInt(key));
+  GotoIf(TaggedIsSmi(candidate_key), if_not_same);
+  GotoIfNot(IsBigInt(candidate_key), if_not_same);
+
+  Branch(WordEqual(CallRuntime(Runtime::kBigIntEqualToBigInt,
+                               NoContextConstant(), key, candidate_key),
+                   TrueConstant()),
+         if_same, if_not_same);
+}
+
 void CollectionsBuiltinsAssembler::SameValueZeroHeapNumber(Node* key_float,
                                                            Node* candidate_key,
                                                            Label* if_same,
                                                            Label* if_not_same) {
   Label if_smi(this), if_keyisnan(this);
 
-  // If the candidate is not a string, the keys are not equal.
   GotoIf(TaggedIsSmi(candidate_key), &if_smi);
   GotoIfNot(IsHeapNumber(candidate_key), if_not_same);
 
@@ -572,77 +996,13 @@ void CollectionsBuiltinsAssembler::SameValueZeroHeapNumber(Node* key_float,
   }
 }
 
-template <typename CollectionType>
-void CollectionsBuiltinsAssembler::FindOrderedHashTableEntry(
-    Node* table, Node* hash,
-    std::function<void(Node*, Label*, Label*)> key_compare,
-    Variable* entry_start_position, Label* entry_found, Label* not_found) {
-  // Get the index of the bucket.
-  Node* const number_of_buckets = SmiUntag(
-      LoadFixedArrayElement(table, CollectionType::kNumberOfBucketsIndex));
-  Node* const bucket =
-      WordAnd(hash, IntPtrSub(number_of_buckets, IntPtrConstant(1)));
-  Node* const first_entry = SmiUntag(LoadFixedArrayElement(
-      table, bucket, CollectionType::kHashTableStartIndex * kPointerSize));
-
-  // Walk the bucket chain.
-  {
-    VARIABLE(var_entry, MachineType::PointerRepresentation(), first_entry);
-    Label loop(this, {&var_entry, entry_start_position}),
-        continue_next_entry(this);
-    Goto(&loop);
-    BIND(&loop);
-
-    // If the entry index is the not-found sentinel, we are done.
-    GotoIf(
-        WordEqual(var_entry.value(), IntPtrConstant(CollectionType::kNotFound)),
-        not_found);
-
-    // Make sure the entry index is within range.
-    CSA_ASSERT(
-        this,
-        UintPtrLessThan(
-            var_entry.value(),
-            SmiUntag(SmiAdd(
-                LoadFixedArrayElement(table,
-                                      CollectionType::kNumberOfElementsIndex),
-                LoadFixedArrayElement(
-                    table, CollectionType::kNumberOfDeletedElementsIndex)))));
-
-    // Compute the index of the entry relative to kHashTableStartIndex.
-    Node* entry_start =
-        IntPtrAdd(IntPtrMul(var_entry.value(),
-                            IntPtrConstant(CollectionType::kEntrySize)),
-                  number_of_buckets);
-    entry_start_position->Bind(entry_start);
-
-    // Load the key from the entry.
-    Node* const candidate_key = LoadFixedArrayElement(
-        table, entry_start,
-        CollectionType::kHashTableStartIndex * kPointerSize);
-
-    key_compare(candidate_key, entry_found, &continue_next_entry);
-
-    BIND(&continue_next_entry);
-    // Load the index of the next entry in the bucket chain.
-    var_entry.Bind(SmiUntag(LoadFixedArrayElement(
-        table, entry_start,
-        (CollectionType::kHashTableStartIndex + CollectionType::kChainOffset) *
-            kPointerSize)));
-
-    Goto(&loop);
-  }
-}
-
 TF_BUILTIN(OrderedHashTableHealIndex, CollectionsBuiltinsAssembler) {
-  Node* table = Parameter(Descriptor::kTable);
-  Node* index = Parameter(Descriptor::kIndex);
-  CSA_ASSERT(this, TaggedIsNotSmi(table));
-  CSA_ASSERT(this, TaggedIsSmi(index));
+  TNode<HeapObject> table = CAST(Parameter(Descriptor::kTable));
+  TNode<Smi> index = CAST(Parameter(Descriptor::kIndex));
   Label return_index(this), return_zero(this);
 
   // Check if we need to update the {index}.
-  GotoIfNot(SmiLessThan(SmiConstant(Smi::kZero), index), &return_zero);
+  GotoIfNot(SmiLessThan(SmiConstant(0), index), &return_zero);
 
   // Check if the {table} was cleared.
   Node* number_of_deleted_elements = LoadAndUntagObjectField(
@@ -659,11 +1019,11 @@ TF_BUILTIN(OrderedHashTableHealIndex, CollectionsBuiltinsAssembler) {
   {
     Node* i = var_i.value();
     GotoIfNot(IntPtrLessThan(i, number_of_deleted_elements), &return_index);
-    Node* removed_index = LoadFixedArrayElement(
-        table, i, OrderedHashTableBase::kRemovedHolesIndex * kPointerSize);
+    TNode<Smi> removed_index = CAST(LoadFixedArrayElement(
+        table, i, OrderedHashTableBase::kRemovedHolesIndex * kPointerSize));
     GotoIf(SmiGreaterThanOrEqual(removed_index, index), &return_index);
-    Decrement(var_index, 1, SMI_PARAMETERS);
-    Increment(var_i);
+    Decrement(&var_index, 1, SMI_PARAMETERS);
+    Increment(&var_i);
     Goto(&loop);
   }
 
@@ -671,7 +1031,7 @@ TF_BUILTIN(OrderedHashTableHealIndex, CollectionsBuiltinsAssembler) {
   Return(var_index.value());
 
   BIND(&return_zero);
-  Return(SmiConstant(Smi::kZero));
+  Return(SmiConstant(0));
 }
 
 template <typename TableType>
@@ -698,9 +1058,9 @@ std::tuple<Node*, Node*> CollectionsBuiltinsAssembler::Transition(
       GotoIf(TaggedIsSmi(next_table), &done_loop);
 
       var_table.Bind(next_table);
-      var_index.Bind(
-          SmiUntag(CallBuiltin(Builtins::kOrderedHashTableHealIndex,
-                               NoContextConstant(), table, SmiTag(index))));
+      var_index.Bind(SmiUntag(
+          CAST(CallBuiltin(Builtins::kOrderedHashTableHealIndex,
+                           NoContextConstant(), table, SmiTag(index)))));
       Goto(&loop);
     }
     BIND(&done_loop);
@@ -755,7 +1115,7 @@ std::tuple<Node*, Node*, Node*> CollectionsBuiltinsAssembler::NextSkipHoles(
     entry_key =
         LoadFixedArrayElement(table, entry_start_position,
                               TableType::kHashTableStartIndex * kPointerSize);
-    Increment(var_index);
+    Increment(&var_index);
     Branch(IsTheHole(entry_key), &loop, &done_loop);
   }
 
@@ -764,7 +1124,7 @@ std::tuple<Node*, Node*, Node*> CollectionsBuiltinsAssembler::NextSkipHoles(
                                          var_index.value());
 }
 
-TF_BUILTIN(MapGet, CollectionsBuiltinsAssembler) {
+TF_BUILTIN(MapPrototypeGet, CollectionsBuiltinsAssembler) {
   Node* const receiver = Parameter(Descriptor::kReceiver);
   Node* const key = Parameter(Descriptor::kKey);
   Node* const context = Parameter(Descriptor::kContext);
@@ -772,20 +1132,24 @@ TF_BUILTIN(MapGet, CollectionsBuiltinsAssembler) {
   ThrowIfNotInstanceType(context, receiver, JS_MAP_TYPE, "Map.prototype.get");
 
   Node* const table = LoadObjectField(receiver, JSMap::kTableOffset);
-  Node* index = CallBuiltin(Builtins::kMapLookupHashIndex, context, table, key);
+  TNode<Smi> index = CAST(
+      CallBuiltin(Builtins::kFindOrderedHashMapEntry, context, table, key));
 
   Label if_found(this), if_not_found(this);
   Branch(SmiGreaterThanOrEqual(index, SmiConstant(0)), &if_found,
          &if_not_found);
 
   BIND(&if_found);
-  Return(LoadFixedArrayElement(table, SmiUntag(index)));
+  Return(LoadFixedArrayElement(
+      table, SmiUntag(index),
+      (OrderedHashMap::kHashTableStartIndex + OrderedHashMap::kValueOffset) *
+          kPointerSize));
 
   BIND(&if_not_found);
   Return(UndefinedConstant());
 }
 
-TF_BUILTIN(MapHas, CollectionsBuiltinsAssembler) {
+TF_BUILTIN(MapPrototypeHas, CollectionsBuiltinsAssembler) {
   Node* const receiver = Parameter(Descriptor::kReceiver);
   Node* const key = Parameter(Descriptor::kKey);
   Node* const context = Parameter(Descriptor::kContext);
@@ -793,7 +1157,8 @@ TF_BUILTIN(MapHas, CollectionsBuiltinsAssembler) {
   ThrowIfNotInstanceType(context, receiver, JS_MAP_TYPE, "Map.prototype.has");
 
   Node* const table = LoadObjectField(receiver, JSMap::kTableOffset);
-  Node* index = CallBuiltin(Builtins::kMapLookupHashIndex, context, table, key);
+  TNode<Smi> index = CAST(
+      CallBuiltin(Builtins::kFindOrderedHashMapEntry, context, table, key));
 
   Label if_found(this), if_not_found(this);
   Branch(SmiGreaterThanOrEqual(index, SmiConstant(0)), &if_found,
@@ -804,6 +1169,353 @@ TF_BUILTIN(MapHas, CollectionsBuiltinsAssembler) {
 
   BIND(&if_not_found);
   Return(FalseConstant());
+}
+
+Node* CollectionsBuiltinsAssembler::NormalizeNumberKey(Node* const key) {
+  VARIABLE(result, MachineRepresentation::kTagged, key);
+  Label done(this);
+
+  GotoIf(TaggedIsSmi(key), &done);
+  GotoIfNot(IsHeapNumber(key), &done);
+  Node* const number = LoadHeapNumberValue(key);
+  GotoIfNot(Float64Equal(number, Float64Constant(0.0)), &done);
+  // We know the value is zero, so we take the key to be Smi 0.
+  // Another option would be to normalize to Smi here.
+  result.Bind(SmiConstant(0));
+  Goto(&done);
+
+  BIND(&done);
+  return result.value();
+}
+
+TF_BUILTIN(MapPrototypeSet, CollectionsBuiltinsAssembler) {
+  Node* const receiver = Parameter(Descriptor::kReceiver);
+  Node* key = Parameter(Descriptor::kKey);
+  Node* const value = Parameter(Descriptor::kValue);
+  Node* const context = Parameter(Descriptor::kContext);
+
+  ThrowIfNotInstanceType(context, receiver, JS_MAP_TYPE, "Map.prototype.set");
+
+  key = NormalizeNumberKey(key);
+
+  Node* const table = LoadObjectField(receiver, JSMap::kTableOffset);
+
+  VARIABLE(entry_start_position_or_hash, MachineType::PointerRepresentation(),
+           IntPtrConstant(0));
+  Label entry_found(this), not_found(this);
+
+  TryLookupOrderedHashTableIndex<OrderedHashMap>(table, key, context,
+                                                 &entry_start_position_or_hash,
+                                                 &entry_found, &not_found);
+
+  BIND(&entry_found);
+  // If we found the entry, we just store the value there.
+  StoreFixedArrayElement(table, entry_start_position_or_hash.value(), value,
+                         UPDATE_WRITE_BARRIER,
+                         kPointerSize * (OrderedHashMap::kHashTableStartIndex +
+                                         OrderedHashMap::kValueOffset));
+  Return(receiver);
+
+  Label no_hash(this), add_entry(this), store_new_entry(this);
+  BIND(&not_found);
+  {
+    // If we have a hash code, we can start adding the new entry.
+    GotoIf(IntPtrGreaterThan(entry_start_position_or_hash.value(),
+                             IntPtrConstant(0)),
+           &add_entry);
+
+    // Otherwise, go to runtime to compute the hash code.
+    entry_start_position_or_hash.Bind(SmiUntag(CallGetOrCreateHashRaw(key)));
+    Goto(&add_entry);
+  }
+
+  BIND(&add_entry);
+  VARIABLE(number_of_buckets, MachineType::PointerRepresentation());
+  VARIABLE(occupancy, MachineType::PointerRepresentation());
+  VARIABLE(table_var, MachineRepresentation::kTaggedPointer, table);
+  {
+    // Check we have enough space for the entry.
+    number_of_buckets.Bind(SmiUntag(CAST(
+        LoadFixedArrayElement(table, OrderedHashMap::kNumberOfBucketsIndex))));
+
+    STATIC_ASSERT(OrderedHashMap::kLoadFactor == 2);
+    Node* const capacity = WordShl(number_of_buckets.value(), 1);
+    Node* const number_of_elements = SmiUntag(
+        CAST(LoadObjectField(table, OrderedHashMap::kNumberOfElementsOffset)));
+    Node* const number_of_deleted = SmiUntag(CAST(LoadObjectField(
+        table, OrderedHashMap::kNumberOfDeletedElementsOffset)));
+    occupancy.Bind(IntPtrAdd(number_of_elements, number_of_deleted));
+    GotoIf(IntPtrLessThan(occupancy.value(), capacity), &store_new_entry);
+
+    // We do not have enough space, grow the table and reload the relevant
+    // fields.
+    CallRuntime(Runtime::kMapGrow, context, receiver);
+    table_var.Bind(LoadObjectField(receiver, JSMap::kTableOffset));
+    number_of_buckets.Bind(SmiUntag(CAST(LoadFixedArrayElement(
+        table_var.value(), OrderedHashMap::kNumberOfBucketsIndex))));
+    Node* const new_number_of_elements = SmiUntag(CAST(LoadObjectField(
+        table_var.value(), OrderedHashMap::kNumberOfElementsOffset)));
+    Node* const new_number_of_deleted = SmiUntag(CAST(LoadObjectField(
+        table_var.value(), OrderedHashMap::kNumberOfDeletedElementsOffset)));
+    occupancy.Bind(IntPtrAdd(new_number_of_elements, new_number_of_deleted));
+    Goto(&store_new_entry);
+  }
+  BIND(&store_new_entry);
+  // Store the key, value and connect the element to the bucket chain.
+  StoreOrderedHashMapNewEntry(table_var.value(), key, value,
+                              entry_start_position_or_hash.value(),
+                              number_of_buckets.value(), occupancy.value());
+  Return(receiver);
+}
+
+void CollectionsBuiltinsAssembler::StoreOrderedHashMapNewEntry(
+    Node* const table, Node* const key, Node* const value, Node* const hash,
+    Node* const number_of_buckets, Node* const occupancy) {
+  Node* const bucket =
+      WordAnd(hash, IntPtrSub(number_of_buckets, IntPtrConstant(1)));
+  Node* const bucket_entry = LoadFixedArrayElement(
+      table, bucket, OrderedHashMap::kHashTableStartIndex * kPointerSize);
+
+  // Store the entry elements.
+  Node* const entry_start = IntPtrAdd(
+      IntPtrMul(occupancy, IntPtrConstant(OrderedHashMap::kEntrySize)),
+      number_of_buckets);
+  StoreFixedArrayElement(table, entry_start, key, UPDATE_WRITE_BARRIER,
+                         kPointerSize * OrderedHashMap::kHashTableStartIndex);
+  StoreFixedArrayElement(table, entry_start, value, UPDATE_WRITE_BARRIER,
+                         kPointerSize * (OrderedHashMap::kHashTableStartIndex +
+                                         OrderedHashMap::kValueOffset));
+  StoreFixedArrayElement(table, entry_start, bucket_entry, SKIP_WRITE_BARRIER,
+                         kPointerSize * (OrderedHashMap::kHashTableStartIndex +
+                                         OrderedHashMap::kChainOffset));
+
+  // Update the bucket head.
+  StoreFixedArrayElement(table, bucket, SmiTag(occupancy), SKIP_WRITE_BARRIER,
+                         OrderedHashMap::kHashTableStartIndex * kPointerSize);
+
+  // Bump the elements count.
+  TNode<Smi> const number_of_elements =
+      CAST(LoadObjectField(table, OrderedHashMap::kNumberOfElementsOffset));
+  StoreObjectFieldNoWriteBarrier(table, OrderedHashMap::kNumberOfElementsOffset,
+                                 SmiAdd(number_of_elements, SmiConstant(1)));
+}
+
+TF_BUILTIN(MapPrototypeDelete, CollectionsBuiltinsAssembler) {
+  Node* const receiver = Parameter(Descriptor::kReceiver);
+  Node* key = Parameter(Descriptor::kKey);
+  Node* const context = Parameter(Descriptor::kContext);
+
+  ThrowIfNotInstanceType(context, receiver, JS_MAP_TYPE,
+                         "Map.prototype.delete");
+
+  Node* const table = LoadObjectField(receiver, JSMap::kTableOffset);
+
+  VARIABLE(entry_start_position_or_hash, MachineType::PointerRepresentation(),
+           IntPtrConstant(0));
+  Label entry_found(this), not_found(this);
+
+  TryLookupOrderedHashTableIndex<OrderedHashMap>(table, key, context,
+                                                 &entry_start_position_or_hash,
+                                                 &entry_found, &not_found);
+
+  BIND(&not_found);
+  Return(FalseConstant());
+
+  BIND(&entry_found);
+  // If we found the entry, mark the entry as deleted.
+  StoreFixedArrayElement(table, entry_start_position_or_hash.value(),
+                         TheHoleConstant(), UPDATE_WRITE_BARRIER,
+                         kPointerSize * OrderedHashMap::kHashTableStartIndex);
+  StoreFixedArrayElement(table, entry_start_position_or_hash.value(),
+                         TheHoleConstant(), UPDATE_WRITE_BARRIER,
+                         kPointerSize * (OrderedHashMap::kHashTableStartIndex +
+                                         OrderedHashMap::kValueOffset));
+
+  // Decrement the number of elements, increment the number of deleted elements.
+  TNode<Smi> const number_of_elements = SmiSub(
+      CAST(LoadObjectField(table, OrderedHashMap::kNumberOfElementsOffset)),
+      SmiConstant(1));
+  StoreObjectFieldNoWriteBarrier(table, OrderedHashMap::kNumberOfElementsOffset,
+                                 number_of_elements);
+  TNode<Smi> const number_of_deleted =
+      SmiAdd(CAST(LoadObjectField(
+                 table, OrderedHashMap::kNumberOfDeletedElementsOffset)),
+             SmiConstant(1));
+  StoreObjectFieldNoWriteBarrier(
+      table, OrderedHashMap::kNumberOfDeletedElementsOffset, number_of_deleted);
+
+  TNode<Smi> const number_of_buckets =
+      CAST(LoadFixedArrayElement(table, OrderedHashMap::kNumberOfBucketsIndex));
+
+  // If there fewer elements than #buckets / 2, shrink the table.
+  Label shrink(this);
+  GotoIf(SmiLessThan(SmiAdd(number_of_elements, number_of_elements),
+                     number_of_buckets),
+         &shrink);
+  Return(TrueConstant());
+
+  BIND(&shrink);
+  CallRuntime(Runtime::kMapShrink, context, receiver);
+  Return(TrueConstant());
+}
+
+TF_BUILTIN(SetPrototypeAdd, CollectionsBuiltinsAssembler) {
+  Node* const receiver = Parameter(Descriptor::kReceiver);
+  Node* key = Parameter(Descriptor::kKey);
+  Node* const context = Parameter(Descriptor::kContext);
+
+  ThrowIfNotInstanceType(context, receiver, JS_SET_TYPE, "Set.prototype.add");
+
+  key = NormalizeNumberKey(key);
+
+  Node* const table = LoadObjectField(receiver, JSMap::kTableOffset);
+
+  VARIABLE(entry_start_position_or_hash, MachineType::PointerRepresentation(),
+           IntPtrConstant(0));
+  Label entry_found(this), not_found(this);
+
+  TryLookupOrderedHashTableIndex<OrderedHashSet>(table, key, context,
+                                                 &entry_start_position_or_hash,
+                                                 &entry_found, &not_found);
+
+  BIND(&entry_found);
+  // The entry was found, there is nothing to do.
+  Return(receiver);
+
+  Label no_hash(this), add_entry(this), store_new_entry(this);
+  BIND(&not_found);
+  {
+    // If we have a hash code, we can start adding the new entry.
+    GotoIf(IntPtrGreaterThan(entry_start_position_or_hash.value(),
+                             IntPtrConstant(0)),
+           &add_entry);
+
+    // Otherwise, go to runtime to compute the hash code.
+    entry_start_position_or_hash.Bind(SmiUntag(CallGetOrCreateHashRaw(key)));
+    Goto(&add_entry);
+  }
+
+  BIND(&add_entry);
+  VARIABLE(number_of_buckets, MachineType::PointerRepresentation());
+  VARIABLE(occupancy, MachineType::PointerRepresentation());
+  VARIABLE(table_var, MachineRepresentation::kTaggedPointer, table);
+  {
+    // Check we have enough space for the entry.
+    number_of_buckets.Bind(SmiUntag(CAST(
+        LoadFixedArrayElement(table, OrderedHashSet::kNumberOfBucketsIndex))));
+
+    STATIC_ASSERT(OrderedHashSet::kLoadFactor == 2);
+    Node* const capacity = WordShl(number_of_buckets.value(), 1);
+    Node* const number_of_elements = SmiUntag(
+        CAST(LoadObjectField(table, OrderedHashSet::kNumberOfElementsOffset)));
+    Node* const number_of_deleted = SmiUntag(CAST(LoadObjectField(
+        table, OrderedHashSet::kNumberOfDeletedElementsOffset)));
+    occupancy.Bind(IntPtrAdd(number_of_elements, number_of_deleted));
+    GotoIf(IntPtrLessThan(occupancy.value(), capacity), &store_new_entry);
+
+    // We do not have enough space, grow the table and reload the relevant
+    // fields.
+    CallRuntime(Runtime::kSetGrow, context, receiver);
+    table_var.Bind(LoadObjectField(receiver, JSMap::kTableOffset));
+    number_of_buckets.Bind(SmiUntag(CAST(LoadFixedArrayElement(
+        table_var.value(), OrderedHashSet::kNumberOfBucketsIndex))));
+    Node* const new_number_of_elements = SmiUntag(CAST(LoadObjectField(
+        table_var.value(), OrderedHashSet::kNumberOfElementsOffset)));
+    Node* const new_number_of_deleted = SmiUntag(CAST(LoadObjectField(
+        table_var.value(), OrderedHashSet::kNumberOfDeletedElementsOffset)));
+    occupancy.Bind(IntPtrAdd(new_number_of_elements, new_number_of_deleted));
+    Goto(&store_new_entry);
+  }
+  BIND(&store_new_entry);
+  // Store the key, value and connect the element to the bucket chain.
+  StoreOrderedHashSetNewEntry(table_var.value(), key,
+                              entry_start_position_or_hash.value(),
+                              number_of_buckets.value(), occupancy.value());
+  Return(receiver);
+}
+
+void CollectionsBuiltinsAssembler::StoreOrderedHashSetNewEntry(
+    Node* const table, Node* const key, Node* const hash,
+    Node* const number_of_buckets, Node* const occupancy) {
+  Node* const bucket =
+      WordAnd(hash, IntPtrSub(number_of_buckets, IntPtrConstant(1)));
+  Node* const bucket_entry = LoadFixedArrayElement(
+      table, bucket, OrderedHashSet::kHashTableStartIndex * kPointerSize);
+
+  // Store the entry elements.
+  Node* const entry_start = IntPtrAdd(
+      IntPtrMul(occupancy, IntPtrConstant(OrderedHashSet::kEntrySize)),
+      number_of_buckets);
+  StoreFixedArrayElement(table, entry_start, key, UPDATE_WRITE_BARRIER,
+                         kPointerSize * OrderedHashSet::kHashTableStartIndex);
+  StoreFixedArrayElement(table, entry_start, bucket_entry, SKIP_WRITE_BARRIER,
+                         kPointerSize * (OrderedHashSet::kHashTableStartIndex +
+                                         OrderedHashSet::kChainOffset));
+
+  // Update the bucket head.
+  StoreFixedArrayElement(table, bucket, SmiTag(occupancy), SKIP_WRITE_BARRIER,
+                         OrderedHashSet::kHashTableStartIndex * kPointerSize);
+
+  // Bump the elements count.
+  TNode<Smi> const number_of_elements =
+      CAST(LoadObjectField(table, OrderedHashSet::kNumberOfElementsOffset));
+  StoreObjectFieldNoWriteBarrier(table, OrderedHashSet::kNumberOfElementsOffset,
+                                 SmiAdd(number_of_elements, SmiConstant(1)));
+}
+
+TF_BUILTIN(SetPrototypeDelete, CollectionsBuiltinsAssembler) {
+  Node* const receiver = Parameter(Descriptor::kReceiver);
+  Node* key = Parameter(Descriptor::kKey);
+  Node* const context = Parameter(Descriptor::kContext);
+
+  ThrowIfNotInstanceType(context, receiver, JS_SET_TYPE,
+                         "Set.prototype.delete");
+
+  Node* const table = LoadObjectField(receiver, JSMap::kTableOffset);
+
+  VARIABLE(entry_start_position_or_hash, MachineType::PointerRepresentation(),
+           IntPtrConstant(0));
+  Label entry_found(this), not_found(this);
+
+  TryLookupOrderedHashTableIndex<OrderedHashSet>(table, key, context,
+                                                 &entry_start_position_or_hash,
+                                                 &entry_found, &not_found);
+
+  BIND(&not_found);
+  Return(FalseConstant());
+
+  BIND(&entry_found);
+  // If we found the entry, mark the entry as deleted.
+  StoreFixedArrayElement(table, entry_start_position_or_hash.value(),
+                         TheHoleConstant(), UPDATE_WRITE_BARRIER,
+                         kPointerSize * OrderedHashSet::kHashTableStartIndex);
+
+  // Decrement the number of elements, increment the number of deleted elements.
+  TNode<Smi> const number_of_elements = SmiSub(
+      CAST(LoadObjectField(table, OrderedHashSet::kNumberOfElementsOffset)),
+      SmiConstant(1));
+  StoreObjectFieldNoWriteBarrier(table, OrderedHashSet::kNumberOfElementsOffset,
+                                 number_of_elements);
+  TNode<Smi> const number_of_deleted =
+      SmiAdd(CAST(LoadObjectField(
+                 table, OrderedHashSet::kNumberOfDeletedElementsOffset)),
+             SmiConstant(1));
+  StoreObjectFieldNoWriteBarrier(
+      table, OrderedHashSet::kNumberOfDeletedElementsOffset, number_of_deleted);
+
+  TNode<Smi> const number_of_buckets =
+      CAST(LoadFixedArrayElement(table, OrderedHashSet::kNumberOfBucketsIndex));
+
+  // If there fewer elements than #buckets / 2, shrink the table.
+  Label shrink(this);
+  GotoIf(SmiLessThan(SmiAdd(number_of_elements, number_of_elements),
+                     number_of_buckets),
+         &shrink);
+  Return(TrueConstant());
+
+  BIND(&shrink);
+  CallRuntime(Runtime::kSetShrink, context, receiver);
+  Return(TrueConstant());
 }
 
 TF_BUILTIN(MapPrototypeEntries, CollectionsBuiltinsAssembler) {
@@ -826,8 +1538,8 @@ TF_BUILTIN(MapPrototypeGetSize, CollectionsBuiltinsAssembler) {
 
 TF_BUILTIN(MapPrototypeForEach, CollectionsBuiltinsAssembler) {
   const char* const kMethodName = "Map.prototype.forEach";
-  Node* const argc = Parameter(BuiltinDescriptor::kArgumentsCount);
-  Node* const context = Parameter(BuiltinDescriptor::kContext);
+  Node* const argc = Parameter(Descriptor::kJSActualArgumentsCount);
+  Node* const context = Parameter(Descriptor::kContext);
   CodeStubArguments args(this, ChangeInt32ToIntPtr(argc));
   Node* const receiver = args.GetReceiver();
   Node* const callback = args.GetOptionalArgumentValue(0);
@@ -921,7 +1633,8 @@ TF_BUILTIN(MapIteratorPrototypeNext, CollectionsBuiltinsAssembler) {
   Branch(InstanceTypeEqual(receiver_instance_type, JS_MAP_VALUE_ITERATOR_TYPE),
          &if_receiver_valid, &if_receiver_invalid);
   BIND(&if_receiver_invalid);
-  ThrowIncompatibleMethodReceiver(context, kMethodName, receiver);
+  ThrowTypeError(context, MessageTemplate::kIncompatibleMethodReceiver,
+                 StringConstant(kMethodName), receiver);
   BIND(&if_receiver_valid);
 
   // Check if the {receiver} is exhausted.
@@ -973,12 +1686,12 @@ TF_BUILTIN(MapIteratorPrototypeNext, CollectionsBuiltinsAssembler) {
   BIND(&return_end);
   {
     StoreObjectFieldRoot(receiver, JSMapIterator::kTableOffset,
-                         Heap::kEmptyOrderedHashTableRootIndex);
+                         Heap::kEmptyOrderedHashMapRootIndex);
     Goto(&return_value);
   }
 }
 
-TF_BUILTIN(SetHas, CollectionsBuiltinsAssembler) {
+TF_BUILTIN(SetPrototypeHas, CollectionsBuiltinsAssembler) {
   Node* const receiver = Parameter(Descriptor::kReceiver);
   Node* const key = Parameter(Descriptor::kKey);
   Node* const context = Parameter(Descriptor::kContext);
@@ -991,11 +1704,16 @@ TF_BUILTIN(SetHas, CollectionsBuiltinsAssembler) {
            IntPtrConstant(0));
   VARIABLE(result, MachineRepresentation::kTaggedSigned, IntPtrConstant(0));
   Label if_key_smi(this), if_key_string(this), if_key_heap_number(this),
-      entry_found(this), not_found(this), done(this);
+      if_key_bigint(this), entry_found(this), not_found(this), done(this);
 
   GotoIf(TaggedIsSmi(key), &if_key_smi);
-  GotoIf(IsString(key), &if_key_string);
-  GotoIf(IsHeapNumber(key), &if_key_heap_number);
+
+  Node* key_map = LoadMap(key);
+  Node* key_instance_type = LoadMapInstanceType(key_map);
+
+  GotoIf(IsStringInstanceType(key_instance_type), &if_key_string);
+  GotoIf(IsHeapNumberMap(key_map), &if_key_heap_number);
+  GotoIf(IsBigIntInstanceType(key_instance_type), &if_key_bigint);
 
   FindOrderedHashTableEntryForOtherKey<OrderedHashSet>(
       context, table, key, &entry_start_position, &entry_found, &not_found);
@@ -1015,6 +1733,12 @@ TF_BUILTIN(SetHas, CollectionsBuiltinsAssembler) {
   BIND(&if_key_heap_number);
   {
     FindOrderedHashTableEntryForHeapNumberKey<OrderedHashSet>(
+        context, table, key, &entry_start_position, &entry_found, &not_found);
+  }
+
+  BIND(&if_key_bigint);
+  {
+    FindOrderedHashTableEntryForBigIntKey<OrderedHashSet>(
         context, table, key, &entry_start_position, &entry_found, &not_found);
   }
 
@@ -1045,8 +1769,8 @@ TF_BUILTIN(SetPrototypeGetSize, CollectionsBuiltinsAssembler) {
 
 TF_BUILTIN(SetPrototypeForEach, CollectionsBuiltinsAssembler) {
   const char* const kMethodName = "Set.prototype.forEach";
-  Node* const argc = Parameter(BuiltinDescriptor::kArgumentsCount);
-  Node* const context = Parameter(BuiltinDescriptor::kContext);
+  Node* const argc = Parameter(Descriptor::kJSActualArgumentsCount);
+  Node* const context = Parameter(Descriptor::kContext);
   CodeStubArguments args(this, ChangeInt32ToIntPtr(argc));
   Node* const receiver = args.GetReceiver();
   Node* const callback = args.GetOptionalArgumentValue(0);
@@ -1123,7 +1847,8 @@ TF_BUILTIN(SetIteratorPrototypeNext, CollectionsBuiltinsAssembler) {
       InstanceTypeEqual(receiver_instance_type, JS_SET_KEY_VALUE_ITERATOR_TYPE),
       &if_receiver_valid, &if_receiver_invalid);
   BIND(&if_receiver_invalid);
-  ThrowIncompatibleMethodReceiver(context, kMethodName, receiver);
+  ThrowTypeError(context, MessageTemplate::kIncompatibleMethodReceiver,
+                 StringConstant(kMethodName), receiver);
   BIND(&if_receiver_valid);
 
   // Check if the {receiver} is exhausted.
@@ -1169,113 +1894,386 @@ TF_BUILTIN(SetIteratorPrototypeNext, CollectionsBuiltinsAssembler) {
   BIND(&return_end);
   {
     StoreObjectFieldRoot(receiver, JSSetIterator::kTableOffset,
-                         Heap::kEmptyOrderedHashTableRootIndex);
+                         Heap::kEmptyOrderedHashSetRootIndex);
     Goto(&return_value);
   }
 }
 
-TF_BUILTIN(MapLookupHashIndex, CollectionsBuiltinsAssembler) {
+template <typename CollectionType>
+void CollectionsBuiltinsAssembler::TryLookupOrderedHashTableIndex(
+    Node* const table, Node* const key, Node* const context, Variable* result,
+    Label* if_entry_found, Label* if_not_found) {
+  Label if_key_smi(this), if_key_string(this), if_key_heap_number(this),
+      if_key_bigint(this);
+
+  GotoIf(TaggedIsSmi(key), &if_key_smi);
+
+  Node* key_map = LoadMap(key);
+  Node* key_instance_type = LoadMapInstanceType(key_map);
+
+  GotoIf(IsStringInstanceType(key_instance_type), &if_key_string);
+  GotoIf(IsHeapNumberMap(key_map), &if_key_heap_number);
+  GotoIf(IsBigIntInstanceType(key_instance_type), &if_key_bigint);
+
+  FindOrderedHashTableEntryForOtherKey<CollectionType>(
+      context, table, key, result, if_entry_found, if_not_found);
+
+  BIND(&if_key_smi);
+  {
+    FindOrderedHashTableEntryForSmiKey<CollectionType>(
+        table, key, result, if_entry_found, if_not_found);
+  }
+
+  BIND(&if_key_string);
+  {
+    FindOrderedHashTableEntryForStringKey<CollectionType>(
+        context, table, key, result, if_entry_found, if_not_found);
+  }
+
+  BIND(&if_key_heap_number);
+  {
+    FindOrderedHashTableEntryForHeapNumberKey<CollectionType>(
+        context, table, key, result, if_entry_found, if_not_found);
+  }
+
+  BIND(&if_key_bigint);
+  {
+    FindOrderedHashTableEntryForBigIntKey<CollectionType>(
+        context, table, key, result, if_entry_found, if_not_found);
+  }
+}
+
+TF_BUILTIN(FindOrderedHashMapEntry, CollectionsBuiltinsAssembler) {
   Node* const table = Parameter(Descriptor::kTable);
   Node* const key = Parameter(Descriptor::kKey);
   Node* const context = Parameter(Descriptor::kContext);
 
   VARIABLE(entry_start_position, MachineType::PointerRepresentation(),
            IntPtrConstant(0));
-  VARIABLE(result, MachineRepresentation::kTaggedSigned, IntPtrConstant(0));
-  Label if_key_smi(this), if_key_string(this), if_key_heap_number(this),
-      entry_found(this), not_found(this), done(this);
+  Label entry_found(this), not_found(this);
 
-  GotoIf(TaggedIsSmi(key), &if_key_smi);
-  GotoIf(IsString(key), &if_key_string);
-  GotoIf(IsHeapNumber(key), &if_key_heap_number);
-
-  FindOrderedHashTableEntryForOtherKey<OrderedHashMap>(
-      context, table, key, &entry_start_position, &entry_found, &not_found);
-
-  BIND(&if_key_smi);
-  {
-    FindOrderedHashTableEntryForSmiKey<OrderedHashMap>(
-        table, key, &entry_start_position, &entry_found, &not_found);
-  }
-
-  BIND(&if_key_string);
-  {
-    FindOrderedHashTableEntryForStringKey<OrderedHashMap>(
-        context, table, key, &entry_start_position, &entry_found, &not_found);
-  }
-
-  BIND(&if_key_heap_number);
-  {
-    FindOrderedHashTableEntryForHeapNumberKey<OrderedHashMap>(
-        context, table, key, &entry_start_position, &entry_found, &not_found);
-  }
+  TryLookupOrderedHashTableIndex<OrderedHashMap>(
+      table, key, context, &entry_start_position, &entry_found, &not_found);
 
   BIND(&entry_found);
-  Node* index = IntPtrAdd(entry_start_position.value(),
-                          IntPtrConstant(OrderedHashMap::kHashTableStartIndex +
-                                         OrderedHashMap::kValueOffset));
-  result.Bind(SmiTag(index));
-  Goto(&done);
+  Return(SmiTag(entry_start_position.value()));
 
   BIND(&not_found);
-  result.Bind(SmiConstant(-1));
-  Goto(&done);
-
-  BIND(&done);
-  Return(result.value());
+  Return(SmiConstant(-1));
 }
 
-TF_BUILTIN(WeakMapLookupHashIndex, CollectionsBuiltinsAssembler) {
-  Node* const table = Parameter(Descriptor::kTable);
-  Node* const key = Parameter(Descriptor::kKey);
+class WeakCollectionsBuiltinsAssembler : public BaseCollectionsAssembler {
+ public:
+  explicit WeakCollectionsBuiltinsAssembler(compiler::CodeAssemblerState* state)
+      : BaseCollectionsAssembler(state) {}
 
-  Label if_found(this), if_not_found(this);
+ protected:
+  void AddEntry(TNode<HeapObject> table, TNode<IntPtrT> key_index,
+                TNode<Object> key, TNode<Object> value,
+                TNode<IntPtrT> number_of_elements);
 
-  Node* const capacity =
-      SmiUntag(LoadFixedArrayElement(table, WeakHashTable::kCapacityIndex));
-  Node* const mask = IntPtrSub(capacity, IntPtrConstant(1));
+  TNode<Object> AllocateTable(Variant variant, TNode<Context> context,
+                              TNode<IntPtrT> at_least_space_for);
 
-  Node* const hash = SmiUntag(CallGetHashRaw(key));
+  // Generates and sets the identity for a JSRececiver.
+  TNode<Smi> CreateIdentityHash(TNode<Object> receiver);
+  TNode<IntPtrT> EntryMask(TNode<IntPtrT> capacity);
 
-  GotoIf(IntPtrLessThan(hash, IntPtrConstant(0)), &if_not_found);
+  // Builds code that finds the EphemeronHashTable entry for a {key} using the
+  // comparison code generated by {key_compare}. The key index is returned if
+  // the {key} is found.
+  typedef std::function<void(TNode<Object> entry_key, Label* if_same)>
+      KeyComparator;
+  TNode<IntPtrT> FindKeyIndex(TNode<HeapObject> table, TNode<IntPtrT> key_hash,
+                              TNode<IntPtrT> entry_mask,
+                              const KeyComparator& key_compare);
 
+  // Builds code that finds an EphemeronHashTable entry available for a new
+  // entry.
+  TNode<IntPtrT> FindKeyIndexForInsertion(TNode<HeapObject> table,
+                                          TNode<IntPtrT> key_hash,
+                                          TNode<IntPtrT> entry_mask);
+
+  // Builds code that finds the EphemeronHashTable entry with key that matches
+  // {key} and returns the entry's key index. If {key} cannot be found, jumps to
+  // {if_not_found}.
+  TNode<IntPtrT> FindKeyIndexForKey(TNode<HeapObject> table, TNode<Object> key,
+                                    TNode<IntPtrT> hash,
+                                    TNode<IntPtrT> entry_mask,
+                                    Label* if_not_found);
+
+  TNode<Word32T> InsufficientCapacityToAdd(TNode<IntPtrT> capacity,
+                                           TNode<IntPtrT> number_of_elements,
+                                           TNode<IntPtrT> number_of_deleted);
+  TNode<IntPtrT> KeyIndexFromEntry(TNode<IntPtrT> entry);
+
+  TNode<IntPtrT> LoadNumberOfElements(TNode<HeapObject> table, int offset);
+  TNode<IntPtrT> LoadNumberOfDeleted(TNode<HeapObject> table, int offset = 0);
+  TNode<HeapObject> LoadTable(SloppyTNode<HeapObject> collection);
+  TNode<IntPtrT> LoadTableCapacity(TNode<HeapObject> table);
+
+  void RemoveEntry(TNode<HeapObject> table, TNode<IntPtrT> key_index,
+                   TNode<IntPtrT> number_of_elements);
+  TNode<BoolT> ShouldRehash(TNode<IntPtrT> number_of_elements,
+                            TNode<IntPtrT> number_of_deleted);
+  TNode<Word32T> ShouldShrink(TNode<IntPtrT> capacity,
+                              TNode<IntPtrT> number_of_elements);
+  TNode<IntPtrT> ValueIndexFromKeyIndex(TNode<IntPtrT> key_index);
+};
+
+void WeakCollectionsBuiltinsAssembler::AddEntry(
+    TNode<HeapObject> table, TNode<IntPtrT> key_index, TNode<Object> key,
+    TNode<Object> value, TNode<IntPtrT> number_of_elements) {
+  // See EphemeronHashTable::AddEntry().
+  TNode<IntPtrT> value_index = ValueIndexFromKeyIndex(key_index);
+  StoreFixedArrayElement(table, key_index, key);
+  StoreFixedArrayElement(table, value_index, value);
+
+  // See HashTableBase::ElementAdded().
+  StoreFixedArrayElement(table, EphemeronHashTable::kNumberOfElementsIndex,
+                         SmiFromIntPtr(number_of_elements), SKIP_WRITE_BARRIER);
+}
+
+TNode<Object> WeakCollectionsBuiltinsAssembler::AllocateTable(
+    Variant variant, TNode<Context> context,
+    TNode<IntPtrT> at_least_space_for) {
+  // See HashTable::New().
+  CSA_ASSERT(this,
+             IntPtrLessThanOrEqual(IntPtrConstant(0), at_least_space_for));
+  TNode<IntPtrT> capacity = HashTableComputeCapacity(at_least_space_for);
+
+  // See HashTable::NewInternal().
+  TNode<IntPtrT> length = KeyIndexFromEntry(capacity);
+  TNode<FixedArray> table =
+      AllocateFixedArray(HOLEY_ELEMENTS, length, kAllowLargeObjectAllocation);
+
+  Heap::RootListIndex map_root_index = static_cast<Heap::RootListIndex>(
+      EphemeronHashTableShape::GetMapRootIndex());
+  StoreMapNoWriteBarrier(table, map_root_index);
+  StoreFixedArrayElement(table, EphemeronHashTable::kNumberOfElementsIndex,
+                         SmiConstant(0), SKIP_WRITE_BARRIER);
+  StoreFixedArrayElement(table,
+                         EphemeronHashTable::kNumberOfDeletedElementsIndex,
+                         SmiConstant(0), SKIP_WRITE_BARRIER);
+  StoreFixedArrayElement(table, EphemeronHashTable::kCapacityIndex,
+                         SmiFromIntPtr(capacity), SKIP_WRITE_BARRIER);
+
+  TNode<IntPtrT> start = KeyIndexFromEntry(IntPtrConstant(0));
+  FillFixedArrayWithValue(HOLEY_ELEMENTS, table, start, length,
+                          Heap::kUndefinedValueRootIndex);
+  return table;
+}
+
+TNode<Smi> WeakCollectionsBuiltinsAssembler::CreateIdentityHash(
+    TNode<Object> key) {
+  TNode<ExternalReference> function_addr = ExternalConstant(
+      ExternalReference::jsreceiver_create_identity_hash(isolate()));
+  TNode<ExternalReference> isolate_ptr =
+      ExternalConstant(ExternalReference::isolate_address(isolate()));
+
+  MachineType type_ptr = MachineType::Pointer();
+  MachineType type_tagged = MachineType::AnyTagged();
+
+  return CAST(CallCFunction2(type_tagged, type_ptr, type_tagged, function_addr,
+                             isolate_ptr, key));
+}
+
+TNode<IntPtrT> WeakCollectionsBuiltinsAssembler::EntryMask(
+    TNode<IntPtrT> capacity) {
+  return IntPtrSub(capacity, IntPtrConstant(1));
+}
+
+TNode<IntPtrT> WeakCollectionsBuiltinsAssembler::FindKeyIndex(
+    TNode<HeapObject> table, TNode<IntPtrT> key_hash, TNode<IntPtrT> entry_mask,
+    const KeyComparator& key_compare) {
   // See HashTable::FirstProbe().
-  Node* entry = WordAnd(hash, mask);
+  TVARIABLE(IntPtrT, var_entry, WordAnd(key_hash, entry_mask));
+  TVARIABLE(IntPtrT, var_count, IntPtrConstant(0));
 
-  VARIABLE(var_count, MachineType::PointerRepresentation(), IntPtrConstant(0));
-  VARIABLE(var_entry, MachineType::PointerRepresentation(), entry);
   Variable* loop_vars[] = {&var_count, &var_entry};
-  Label loop(this, arraysize(loop_vars), loop_vars);
+  Label loop(this, arraysize(loop_vars), loop_vars), if_found(this);
   Goto(&loop);
   BIND(&loop);
-  Node* index;
+  TNode<IntPtrT> key_index;
   {
-    Node* entry = var_entry.value();
+    key_index = KeyIndexFromEntry(var_entry.value());
+    TNode<Object> entry_key = LoadFixedArrayElement(table, key_index);
 
-    index = IntPtrMul(entry, IntPtrConstant(WeakHashTable::kEntrySize));
-    index =
-        IntPtrAdd(index, IntPtrConstant(WeakHashTable::kElementsStartIndex));
-
-    Node* current = LoadFixedArrayElement(table, index);
-    GotoIf(WordEqual(current, UndefinedConstant()), &if_not_found);
-    GotoIf(WordEqual(current, key), &if_found);
+    key_compare(entry_key, &if_found);
 
     // See HashTable::NextProbe().
-    Increment(var_count);
-    entry = WordAnd(IntPtrAdd(entry, var_count.value()), mask);
-
-    var_entry.Bind(entry);
+    Increment(&var_count);
+    var_entry =
+        WordAnd(IntPtrAdd(var_entry.value(), var_count.value()), entry_mask);
     Goto(&loop);
   }
 
-  BIND(&if_not_found);
-  Return(SmiConstant(-1));
-
   BIND(&if_found);
-  Return(SmiTag(IntPtrAdd(index, IntPtrConstant(1))));
+  return key_index;
 }
 
-TF_BUILTIN(WeakMapGet, CollectionsBuiltinsAssembler) {
+TNode<IntPtrT> WeakCollectionsBuiltinsAssembler::FindKeyIndexForInsertion(
+    TNode<HeapObject> table, TNode<IntPtrT> key_hash,
+    TNode<IntPtrT> entry_mask) {
+  // See HashTable::FindInsertionEntry().
+  auto is_not_live = [&](TNode<Object> entry_key, Label* if_found) {
+    // This is the the negative form BaseShape::IsLive().
+    GotoIf(Word32Or(IsTheHole(entry_key), IsUndefined(entry_key)), if_found);
+  };
+  return FindKeyIndex(table, key_hash, entry_mask, is_not_live);
+}
+
+TNode<IntPtrT> WeakCollectionsBuiltinsAssembler::FindKeyIndexForKey(
+    TNode<HeapObject> table, TNode<Object> key, TNode<IntPtrT> hash,
+    TNode<IntPtrT> entry_mask, Label* if_not_found) {
+  // See HashTable::FindEntry().
+  auto match_key_or_exit_on_empty = [&](TNode<Object> entry_key,
+                                        Label* if_same) {
+    GotoIf(IsUndefined(entry_key), if_not_found);
+    GotoIf(WordEqual(entry_key, key), if_same);
+  };
+  return FindKeyIndex(table, hash, entry_mask, match_key_or_exit_on_empty);
+}
+
+TNode<IntPtrT> WeakCollectionsBuiltinsAssembler::KeyIndexFromEntry(
+    TNode<IntPtrT> entry) {
+  // See HashTable::KeyAt().
+  // (entry * kEntrySize) + kElementsStartIndex + kEntryKeyIndex
+  return IntPtrAdd(
+      IntPtrMul(entry, IntPtrConstant(EphemeronHashTable::kEntrySize)),
+      IntPtrConstant(EphemeronHashTable::kElementsStartIndex +
+                     EphemeronHashTable::kEntryKeyIndex));
+}
+
+TNode<IntPtrT> WeakCollectionsBuiltinsAssembler::LoadNumberOfElements(
+    TNode<HeapObject> table, int offset) {
+  TNode<IntPtrT> number_of_elements = SmiUntag(CAST(LoadFixedArrayElement(
+      table, EphemeronHashTable::kNumberOfElementsIndex)));
+  return IntPtrAdd(number_of_elements, IntPtrConstant(offset));
+}
+
+TNode<IntPtrT> WeakCollectionsBuiltinsAssembler::LoadNumberOfDeleted(
+    TNode<HeapObject> table, int offset) {
+  TNode<IntPtrT> number_of_deleted = SmiUntag(CAST(LoadFixedArrayElement(
+      table, EphemeronHashTable::kNumberOfDeletedElementsIndex)));
+  return IntPtrAdd(number_of_deleted, IntPtrConstant(offset));
+}
+
+TNode<HeapObject> WeakCollectionsBuiltinsAssembler::LoadTable(
+    SloppyTNode<HeapObject> collection) {
+  return CAST(LoadObjectField(collection, JSWeakCollection::kTableOffset));
+}
+
+TNode<IntPtrT> WeakCollectionsBuiltinsAssembler::LoadTableCapacity(
+    TNode<HeapObject> table) {
+  return SmiUntag(
+      CAST(LoadFixedArrayElement(table, EphemeronHashTable::kCapacityIndex)));
+}
+
+TNode<Word32T> WeakCollectionsBuiltinsAssembler::InsufficientCapacityToAdd(
+    TNode<IntPtrT> capacity, TNode<IntPtrT> number_of_elements,
+    TNode<IntPtrT> number_of_deleted) {
+  // This is the negative form of HashTable::HasSufficientCapacityToAdd().
+  // Return true if:
+  //   - more than 50% of the available space are deleted elements
+  //   - less than 50% will be available
+  TNode<IntPtrT> available = IntPtrSub(capacity, number_of_elements);
+  TNode<IntPtrT> half_available = WordShr(available, 1);
+  TNode<IntPtrT> needed_available = WordShr(number_of_elements, 1);
+  return Word32Or(
+      // deleted > half
+      IntPtrGreaterThan(number_of_deleted, half_available),
+      // elements + needed available > capacity
+      IntPtrGreaterThan(IntPtrAdd(number_of_elements, needed_available),
+                        capacity));
+}
+
+void WeakCollectionsBuiltinsAssembler::RemoveEntry(
+    TNode<HeapObject> table, TNode<IntPtrT> key_index,
+    TNode<IntPtrT> number_of_elements) {
+  // See EphemeronHashTable::RemoveEntry().
+  TNode<IntPtrT> value_index = ValueIndexFromKeyIndex(key_index);
+  StoreFixedArrayElement(table, key_index, TheHoleConstant());
+  StoreFixedArrayElement(table, value_index, TheHoleConstant());
+
+  // See HashTableBase::ElementRemoved().
+  TNode<IntPtrT> number_of_deleted = LoadNumberOfDeleted(table, 1);
+  StoreFixedArrayElement(table, EphemeronHashTable::kNumberOfElementsIndex,
+                         SmiFromIntPtr(number_of_elements), SKIP_WRITE_BARRIER);
+  StoreFixedArrayElement(table,
+                         EphemeronHashTable::kNumberOfDeletedElementsIndex,
+                         SmiFromIntPtr(number_of_deleted), SKIP_WRITE_BARRIER);
+}
+
+TNode<BoolT> WeakCollectionsBuiltinsAssembler::ShouldRehash(
+    TNode<IntPtrT> number_of_elements, TNode<IntPtrT> number_of_deleted) {
+  // Rehash if more than 33% of the entries are deleted.
+  return IntPtrGreaterThanOrEqual(WordShl(number_of_deleted, 1),
+                                  number_of_elements);
+}
+
+TNode<Word32T> WeakCollectionsBuiltinsAssembler::ShouldShrink(
+    TNode<IntPtrT> capacity, TNode<IntPtrT> number_of_elements) {
+  // See HashTable::Shrink().
+  TNode<IntPtrT> quarter_capacity = WordShr(capacity, 2);
+  return Word32And(
+      // Shrink to fit the number of elements if only a quarter of the
+      // capacity is filled with elements.
+      IntPtrLessThanOrEqual(number_of_elements, quarter_capacity),
+
+      // Allocate a new dictionary with room for at least the current
+      // number of elements. The allocation method will make sure that
+      // there is extra room in the dictionary for additions. Don't go
+      // lower than room for 16 elements.
+      IntPtrGreaterThanOrEqual(number_of_elements, IntPtrConstant(16)));
+}
+
+TNode<IntPtrT> WeakCollectionsBuiltinsAssembler::ValueIndexFromKeyIndex(
+    TNode<IntPtrT> key_index) {
+  return IntPtrAdd(key_index,
+                   IntPtrConstant(EphemeronHashTableShape::kEntryValueIndex -
+                                  EphemeronHashTable::kEntryKeyIndex));
+}
+
+TF_BUILTIN(WeakMapConstructor, WeakCollectionsBuiltinsAssembler) {
+  TNode<Object> new_target = CAST(Parameter(Descriptor::kJSNewTarget));
+  TNode<IntPtrT> argc =
+      ChangeInt32ToIntPtr(Parameter(Descriptor::kJSActualArgumentsCount));
+  TNode<Context> context = CAST(Parameter(Descriptor::kContext));
+
+  GenerateConstructor(kWeakMap, isolate()->factory()->WeakMap_string(),
+                      new_target, argc, context);
+}
+
+TF_BUILTIN(WeakSetConstructor, WeakCollectionsBuiltinsAssembler) {
+  TNode<Object> new_target = CAST(Parameter(Descriptor::kJSNewTarget));
+  TNode<IntPtrT> argc =
+      ChangeInt32ToIntPtr(Parameter(Descriptor::kJSActualArgumentsCount));
+  TNode<Context> context = CAST(Parameter(Descriptor::kContext));
+
+  GenerateConstructor(kWeakSet, isolate()->factory()->WeakSet_string(),
+                      new_target, argc, context);
+}
+
+TF_BUILTIN(WeakMapLookupHashIndex, WeakCollectionsBuiltinsAssembler) {
+  TNode<HeapObject> table = CAST(Parameter(Descriptor::kTable));
+  TNode<Object> key = CAST(Parameter(Descriptor::kKey));
+
+  Label if_not_found(this);
+
+  GotoIfNotJSReceiver(key, &if_not_found);
+
+  TNode<IntPtrT> hash = LoadJSReceiverIdentityHash(key, &if_not_found);
+  TNode<IntPtrT> capacity = LoadTableCapacity(table);
+  TNode<IntPtrT> key_index =
+      FindKeyIndexForKey(table, key, hash, EntryMask(capacity), &if_not_found);
+  Return(SmiTag(ValueIndexFromKeyIndex(key_index)));
+
+  BIND(&if_not_found);
+  Return(SmiConstant(-1));
+}
+
+TF_BUILTIN(WeakMapGet, WeakCollectionsBuiltinsAssembler) {
   Node* const receiver = Parameter(Descriptor::kReceiver);
   Node* const key = Parameter(Descriptor::kKey);
   Node* const context = Parameter(Descriptor::kContext);
@@ -1285,11 +2283,7 @@ TF_BUILTIN(WeakMapGet, CollectionsBuiltinsAssembler) {
   ThrowIfNotInstanceType(context, receiver, JS_WEAK_MAP_TYPE,
                          "WeakMap.prototype.get");
 
-  GotoIf(TaggedIsSmi(key), &return_undefined);
-  GotoIfNot(IsJSReceiver(key), &return_undefined);
-
-  Node* const table = LoadObjectField(receiver, JSWeakCollection::kTableOffset);
-
+  Node* const table = LoadTable(receiver);
   Node* const index =
       CallBuiltin(Builtins::kWeakMapLookupHashIndex, context, table, key);
 
@@ -1301,7 +2295,7 @@ TF_BUILTIN(WeakMapGet, CollectionsBuiltinsAssembler) {
   Return(UndefinedConstant());
 }
 
-TF_BUILTIN(WeakMapHas, CollectionsBuiltinsAssembler) {
+TF_BUILTIN(WeakMapHas, WeakCollectionsBuiltinsAssembler) {
   Node* const receiver = Parameter(Descriptor::kReceiver);
   Node* const key = Parameter(Descriptor::kKey);
   Node* const context = Parameter(Descriptor::kContext);
@@ -1309,13 +2303,9 @@ TF_BUILTIN(WeakMapHas, CollectionsBuiltinsAssembler) {
   Label return_false(this);
 
   ThrowIfNotInstanceType(context, receiver, JS_WEAK_MAP_TYPE,
-                         "WeakMap.prototype.get");
+                         "WeakMap.prototype.has");
 
-  GotoIf(TaggedIsSmi(key), &return_false);
-  GotoIfNot(IsJSReceiver(key), &return_false);
-
-  Node* const table = LoadObjectField(receiver, JSWeakCollection::kTableOffset);
-
+  Node* const table = LoadTable(receiver);
   Node* const index =
       CallBuiltin(Builtins::kWeakMapLookupHashIndex, context, table, key);
 
@@ -1327,7 +2317,149 @@ TF_BUILTIN(WeakMapHas, CollectionsBuiltinsAssembler) {
   Return(FalseConstant());
 }
 
-TF_BUILTIN(WeakSetHas, CollectionsBuiltinsAssembler) {
+// Helper that removes the entry with a given key from the backing store
+// (EphemeronHashTable) of a WeakMap or WeakSet.
+TF_BUILTIN(WeakCollectionDelete, WeakCollectionsBuiltinsAssembler) {
+  TNode<Context> context = CAST(Parameter(Descriptor::kContext));
+  TNode<HeapObject> collection = CAST(Parameter(Descriptor::kCollection));
+  TNode<Object> key = CAST(Parameter(Descriptor::kKey));
+
+  Label call_runtime(this), if_not_found(this);
+
+  GotoIfNotJSReceiver(key, &if_not_found);
+
+  TNode<IntPtrT> hash = LoadJSReceiverIdentityHash(key, &if_not_found);
+  TNode<HeapObject> table = LoadTable(collection);
+  TNode<IntPtrT> capacity = LoadTableCapacity(table);
+  TNode<IntPtrT> key_index =
+      FindKeyIndexForKey(table, key, hash, EntryMask(capacity), &if_not_found);
+  TNode<IntPtrT> number_of_elements = LoadNumberOfElements(table, -1);
+  GotoIf(ShouldShrink(capacity, number_of_elements), &call_runtime);
+
+  RemoveEntry(table, key_index, number_of_elements);
+  Return(TrueConstant());
+
+  BIND(&if_not_found);
+  Return(FalseConstant());
+
+  BIND(&call_runtime);
+  Return(CallRuntime(Runtime::kWeakCollectionDelete, context, collection, key,
+                     SmiTag(hash)));
+}
+
+// Helper that sets the key and value to the backing store (EphemeronHashTable)
+// of a WeakMap or WeakSet.
+TF_BUILTIN(WeakCollectionSet, WeakCollectionsBuiltinsAssembler) {
+  TNode<Context> context = CAST(Parameter(Descriptor::kContext));
+  TNode<HeapObject> collection = CAST(Parameter(Descriptor::kCollection));
+  TNode<JSReceiver> key = CAST(Parameter(Descriptor::kKey));
+  TNode<Object> value = CAST(Parameter(Descriptor::kValue));
+
+  CSA_ASSERT(this, IsJSReceiver(key));
+
+  Label call_runtime(this), if_no_hash(this), if_not_found(this);
+
+  TNode<HeapObject> table = LoadTable(collection);
+  TNode<IntPtrT> capacity = LoadTableCapacity(table);
+  TNode<IntPtrT> entry_mask = EntryMask(capacity);
+
+  TVARIABLE(IntPtrT, var_hash, LoadJSReceiverIdentityHash(key, &if_no_hash));
+  TNode<IntPtrT> key_index = FindKeyIndexForKey(table, key, var_hash.value(),
+                                                entry_mask, &if_not_found);
+
+  StoreFixedArrayElement(table, ValueIndexFromKeyIndex(key_index), value);
+  Return(collection);
+
+  BIND(&if_no_hash);
+  {
+    var_hash = SmiUntag(CreateIdentityHash(key));
+    Goto(&if_not_found);
+  }
+  BIND(&if_not_found);
+  {
+    TNode<IntPtrT> number_of_deleted = LoadNumberOfDeleted(table);
+    TNode<IntPtrT> number_of_elements = LoadNumberOfElements(table, 1);
+
+    // TODO(pwong): Port HashTable's Rehash() and EnsureCapacity() to CSA.
+    GotoIf(Word32Or(ShouldRehash(number_of_elements, number_of_deleted),
+                    InsufficientCapacityToAdd(capacity, number_of_elements,
+                                              number_of_deleted)),
+           &call_runtime);
+
+    TNode<IntPtrT> insertion_key_index =
+        FindKeyIndexForInsertion(table, var_hash.value(), entry_mask);
+    AddEntry(table, insertion_key_index, key, value, number_of_elements);
+    Return(collection);
+  }
+  BIND(&call_runtime);
+  {
+    CallRuntime(Runtime::kWeakCollectionSet, context, collection, key, value,
+                SmiTag(var_hash.value()));
+    Return(collection);
+  }
+}
+
+TF_BUILTIN(WeakMapPrototypeDelete, CodeStubAssembler) {
+  TNode<Context> context = CAST(Parameter(Descriptor::kContext));
+  TNode<Object> receiver = CAST(Parameter(Descriptor::kReceiver));
+  TNode<Object> key = CAST(Parameter(Descriptor::kKey));
+
+  ThrowIfNotInstanceType(context, receiver, JS_WEAK_MAP_TYPE,
+                         "WeakMap.prototype.delete");
+
+  Return(CallBuiltin(Builtins::kWeakCollectionDelete, context, receiver, key));
+}
+
+TF_BUILTIN(WeakMapPrototypeSet, WeakCollectionsBuiltinsAssembler) {
+  TNode<Context> context = CAST(Parameter(Descriptor::kContext));
+  TNode<Object> receiver = CAST(Parameter(Descriptor::kReceiver));
+  TNode<Object> key = CAST(Parameter(Descriptor::kKey));
+  TNode<Object> value = CAST(Parameter(Descriptor::kValue));
+
+  ThrowIfNotInstanceType(context, receiver, JS_WEAK_MAP_TYPE,
+                         "WeakMap.prototype.set");
+
+  Label throw_invalid_key(this);
+  GotoIfNotJSReceiver(key, &throw_invalid_key);
+
+  Return(
+      CallBuiltin(Builtins::kWeakCollectionSet, context, receiver, key, value));
+
+  BIND(&throw_invalid_key);
+  ThrowTypeError(context, MessageTemplate::kInvalidWeakMapKey, key);
+}
+
+TF_BUILTIN(WeakSetPrototypeAdd, WeakCollectionsBuiltinsAssembler) {
+  TNode<Context> context = CAST(Parameter(Descriptor::kContext));
+  TNode<Object> receiver = CAST(Parameter(Descriptor::kReceiver));
+  TNode<Object> value = CAST(Parameter(Descriptor::kValue));
+
+  ThrowIfNotInstanceType(context, receiver, JS_WEAK_SET_TYPE,
+                         "WeakSet.prototype.add");
+
+  Label throw_invalid_value(this);
+  GotoIfNotJSReceiver(value, &throw_invalid_value);
+
+  Return(CallBuiltin(Builtins::kWeakCollectionSet, context, receiver, value,
+                     TrueConstant()));
+
+  BIND(&throw_invalid_value);
+  ThrowTypeError(context, MessageTemplate::kInvalidWeakSetValue, value);
+}
+
+TF_BUILTIN(WeakSetPrototypeDelete, CodeStubAssembler) {
+  TNode<Context> context = CAST(Parameter(Descriptor::kContext));
+  TNode<Object> receiver = CAST(Parameter(Descriptor::kReceiver));
+  TNode<Object> value = CAST(Parameter(Descriptor::kValue));
+
+  ThrowIfNotInstanceType(context, receiver, JS_WEAK_SET_TYPE,
+                         "WeakSet.prototype.delete");
+
+  Return(
+      CallBuiltin(Builtins::kWeakCollectionDelete, context, receiver, value));
+}
+
+TF_BUILTIN(WeakSetHas, WeakCollectionsBuiltinsAssembler) {
   Node* const receiver = Parameter(Descriptor::kReceiver);
   Node* const key = Parameter(Descriptor::kKey);
   Node* const context = Parameter(Descriptor::kContext);
@@ -1335,13 +2467,9 @@ TF_BUILTIN(WeakSetHas, CollectionsBuiltinsAssembler) {
   Label return_false(this);
 
   ThrowIfNotInstanceType(context, receiver, JS_WEAK_SET_TYPE,
-                         "WeakSet.prototype.get");
+                         "WeakSet.prototype.has");
 
-  GotoIf(TaggedIsSmi(key), &return_false);
-  GotoIfNot(IsJSReceiver(key), &return_false);
-
-  Node* const table = LoadObjectField(receiver, JSWeakCollection::kTableOffset);
-
+  Node* const table = LoadTable(receiver);
   Node* const index =
       CallBuiltin(Builtins::kWeakMapLookupHashIndex, context, table, key);
 

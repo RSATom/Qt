@@ -44,11 +44,11 @@ FXCODEC_STATUS CCodec_Jbig2Module::StartDecode(
     std::unique_ptr<JBig2_DocumentContext>* pContextHolder,
     uint32_t width,
     uint32_t height,
-    const CFX_RetainPtr<CPDF_StreamAcc>& src_stream,
-    const CFX_RetainPtr<CPDF_StreamAcc>& global_stream,
+    const RetainPtr<CPDF_StreamAcc>& src_stream,
+    const RetainPtr<CPDF_StreamAcc>& global_stream,
     uint8_t* dest_buf,
     uint32_t dest_pitch,
-    IFX_Pause* pPause) {
+    PauseIndicatorIface* pPause) {
   if (!pJbig2Context)
     return FXCODEC_STATUS_ERR_PARAMS;
 
@@ -64,26 +64,26 @@ FXCODEC_STATUS CCodec_Jbig2Module::StartDecode(
   pJbig2Context->m_pContext = pdfium::MakeUnique<CJBig2_Context>(
       global_stream, src_stream, pJBig2DocumentContext->GetSymbolDictCache(),
       false);
-  int ret = pJbig2Context->m_pContext->getFirstPage(dest_buf, width, height,
-                                                    dest_pitch, pPause);
-  return Decode(pJbig2Context, ret);
+  bool succeeded = pJbig2Context->m_pContext->GetFirstPage(
+      dest_buf, width, height, dest_pitch, pPause);
+  return Decode(pJbig2Context, succeeded);
 }
 
 FXCODEC_STATUS CCodec_Jbig2Module::ContinueDecode(
     CCodec_Jbig2Context* pJbig2Context,
-    IFX_Pause* pPause) {
-  int ret = pJbig2Context->m_pContext->Continue(pPause);
-  return Decode(pJbig2Context, ret);
+    PauseIndicatorIface* pPause) {
+  bool succeeded = pJbig2Context->m_pContext->Continue(pPause);
+  return Decode(pJbig2Context, succeeded);
 }
 
 FXCODEC_STATUS CCodec_Jbig2Module::Decode(CCodec_Jbig2Context* pJbig2Context,
-                                          int result) {
+                                          bool decode_success) {
   FXCODEC_STATUS status = pJbig2Context->m_pContext->GetProcessingStatus();
   if (status != FXCODEC_STATUS_DECODE_FINISH)
     return status;
 
   pJbig2Context->m_pContext.reset();
-  if (result != JBIG2_SUCCESS)
+  if (!decode_success)
     return FXCODEC_STATUS_ERROR;
 
   int dword_size = pJbig2Context->m_height * pJbig2Context->m_dest_pitch / 4;

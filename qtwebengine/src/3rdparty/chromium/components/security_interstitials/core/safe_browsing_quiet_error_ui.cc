@@ -81,6 +81,10 @@ void SafeBrowsingQuietErrorUI::PopulateStringsForHtml(
   } else {
     NOTREACHED();
   }
+
+  // Not used by this interstitial.
+  load_time_data->SetString("recurrentErrorParagraph", base::string16());
+  load_time_data->SetBoolean("show_recurrent_error_paragraph", false);
 }
 
 void SafeBrowsingQuietErrorUI::SetGiantWebViewForTesting(
@@ -89,7 +93,7 @@ void SafeBrowsingQuietErrorUI::SetGiantWebViewForTesting(
 }
 
 void SafeBrowsingQuietErrorUI::HandleCommand(
-    SecurityInterstitialCommands command) {
+    SecurityInterstitialCommand command) {
   switch (command) {
     case CMD_PROCEED: {
       // User pressed on the button to proceed.

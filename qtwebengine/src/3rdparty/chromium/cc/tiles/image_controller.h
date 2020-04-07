@@ -37,8 +37,9 @@ class CC_EXPORT ImageController {
 
   void SetImageDecodeCache(ImageDecodeCache* cache);
   void GetTasksForImagesAndRef(
-      std::vector<DrawImage>* images,
+      std::vector<DrawImage>* sync_decoded_images,
       std::vector<scoped_refptr<TileTask>>* tasks,
+      bool* has_at_raster_images,
       const ImageDecodeCache::TracingInfo& tracing_info);
   void UnrefImages(const std::vector<DrawImage>& images);
   void ReduceMemoryUsage();
@@ -64,6 +65,8 @@ class CC_EXPORT ImageController {
   void SetMaxImageCacheLimitBytesForTesting(size_t bytes) {
     image_cache_max_limit_bytes_ = bytes;
   }
+
+  ImageDecodeCache* cache() const { return cache_; }
 
  protected:
   scoped_refptr<base::SequencedTaskRunner> worker_task_runner_;
@@ -97,6 +100,8 @@ class CC_EXPORT ImageController {
 
   void ImageDecodeCompleted(ImageDecodeRequestId id);
   void GenerateTasksForOrphanedRequests();
+
+  base::WeakPtr<ImageController> weak_ptr_;
 
   ImageDecodeCache* cache_ = nullptr;
   std::vector<DrawImage> predecode_locked_images_;

@@ -48,6 +48,8 @@
 #include <cstdlib>
 #include <string>
 
+#include "emulationdetector.h"
+
 #if !defined(QT_NO_OPENSSL) && OPENSSL_VERSION_NUMBER >= 0x10002000L && !defined(OPENSSL_NO_TLSEXT)
 // HTTP/2 over TLS requires ALPN/NPN to negotiate the protocol version.
 const bool clearTextHTTP2 = false;
@@ -74,6 +76,7 @@ private slots:
     void pushPromise();
     void goaway_data();
     void goaway();
+    void earlyResponse();
 
 protected slots:
     // Slots to listen to our in-process server:
@@ -109,8 +112,7 @@ private:
     QThread *workerThread = nullptr;
     QNetworkAccessManager manager;
 
-    QEventLoop eventLoop;
-    QTimer timer;
+    QTestEventLoop eventLoop;
 
     int nRequests = 0;
     int nSentRequests = 0;
@@ -132,8 +134,10 @@ struct ServerDeleter
 {
     static void cleanup(Http2Server *srv)
     {
-        if (srv)
+        if (srv) {
+            srv->stopSendingDATAFrames();
             QMetaObject::invokeMethod(srv, "deleteLater", Qt::QueuedConnection);
+        }
     }
 };
 
@@ -145,11 +149,6 @@ tst_Http2::tst_Http2()
     : workerThread(new QThread)
 {
     workerThread->start();
-
-    timer.setInterval(10000);
-    timer.setSingleShot(true);
-
-    connect(&timer, SIGNAL(timeout()), &eventLoop, SLOT(quit()));
 }
 
 tst_Http2::~tst_Http2()
@@ -290,6 +289,9 @@ void tst_Http2::flowControlServerSide()
     // on a session/stream level correctly + resume/suspend streams
     // to let all replies finish without any error.
     using namespace Http2;
+
+    if (EmulationDetector::isRunningArmOnX86())
+        QSKIP("Test is too slow to run on emulator");
 
     clearHTTP2State();
 
@@ -439,6 +441,47 @@ void tst_Http2::goaway()
     QVERIFY(!serverGotSettingsACK);
 }
 
+void tst_Http2::earlyResponse()
+{
+    // In this test we'd like to verify client side can handle HEADERS frame while
+    // its stream is in 'open' state. To achieve this, we send a POST request
+    // with some payload, so that the client is first sending HEADERS and then
+    // DATA frames without END_STREAM flag set yet (thus the stream is in Stream::open
+    // state). Upon receiving the client's HEADERS frame our server ('redirector')
+    // immediately (without trying to read any DATA frames) responds with status
+    // code 308. The client should properly handle this.
+
+    clearHTTP2State();
+
+    serverPort = 0;
+    nRequests = 1;
+
+    ServerPtr targetServer(newServer(defaultServerSettings));
+
+    QMetaObject::invokeMethod(targetServer.data(), "startServer", Qt::QueuedConnection);
+    runEventLoop();
+
+    QVERIFY(serverPort != 0);
+
+    const quint16 targetPort = serverPort;
+    serverPort = 0;
+
+    ServerPtr redirector(newServer(defaultServerSettings));
+    redirector->redirectOpenStream(targetPort);
+
+    QMetaObject::invokeMethod(redirector.data(), "startServer", Qt::QueuedConnection);
+    runEventLoop();
+
+    QVERIFY(serverPort);
+    sendRequest(1, QNetworkRequest::NormalPriority, {1000000, Qt::Uninitialized});
+
+    runEventLoop();
+
+    QVERIFY(nRequests == 0);
+    QVERIFY(prefaceOK);
+    QVERIFY(serverGotSettingsACK);
+}
+
 void tst_Http2::serverStarted(quint16 port)
 {
     serverPort = port;
@@ -455,15 +498,12 @@ void tst_Http2::clearHTTP2State()
 
 void tst_Http2::runEventLoop(int ms)
 {
-    timer.setInterval(ms);
-    timer.start();
-    eventLoop.exec();
+    eventLoop.enterLoopMSecs(ms);
 }
 
 void tst_Http2::stopEventLoop()
 {
-    timer.stop();
-    eventLoop.quit();
+    eventLoop.exitLoop();
 }
 
 Http2Server *tst_Http2::newServer(const Http2::RawSettings &serverSettings,
@@ -500,6 +540,7 @@ void tst_Http2::sendRequest(int streamNumber,
 
     QNetworkRequest request(url);
     request.setAttribute(QNetworkRequest::HTTP2AllowedAttribute, QVariant(true));
+    request.setAttribute(QNetworkRequest::FollowRedirectsAttribute, QVariant(true));
     request.setHeader(QNetworkRequest::ContentTypeHeader, QVariant("text/plain"));
     request.setPriority(priority);
 
@@ -592,6 +633,10 @@ void tst_Http2::replyFinished()
         const QVariant spdyUsed(reply->attribute(QNetworkRequest::SpdyWasUsedAttribute));
         QVERIFY(spdyUsed.isValid());
         QVERIFY(!spdyUsed.toBool());
+        const QVariant code(reply->attribute(QNetworkRequest::HttpStatusCodeAttribute));
+        QVERIFY(code.isValid());
+        QVERIFY(code.canConvert<int>());
+        QCOMPARE(code.value<int>(), 200);
     }
 
     --nRequests;

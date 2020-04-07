@@ -57,6 +57,11 @@ QT_END_NAMESPACE
 QT_USE_NAMESPACE
 
 @implementation QT_MANGLE_NAMESPACE(OSXBTSocketListener)
+{
+    IOBluetoothUserNotification *connectionNotification;
+    QT_PREPEND_NAMESPACE(OSXBluetooth::SocketListener) *delegate;
+    quint16 port;
+}
 
 - (id)initWithListener:(OSXBluetooth::SocketListener *)aDelegate
 {

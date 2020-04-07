@@ -53,9 +53,6 @@
 
 QT_BEGIN_NAMESPACE
 
-// Required for QDoc workaround
-class QString;
-
 struct Q_MULTIMEDIA_EXPORT QAudioSystemFactoryInterface
 {
     virtual QList<QByteArray> availableDevices(QAudio::Mode) const = 0;
@@ -69,16 +66,13 @@ struct Q_MULTIMEDIA_EXPORT QAudioSystemFactoryInterface
     "org.qt-project.qt.audiosystemfactory/5.0"
 Q_DECLARE_INTERFACE(QAudioSystemFactoryInterface, QAudioSystemFactoryInterface_iid)
 
-// Required for QDoc workaround
-class QString;
-
 class Q_MULTIMEDIA_EXPORT QAudioSystemPlugin : public QObject, public QAudioSystemFactoryInterface
 {
     Q_OBJECT
     Q_INTERFACES(QAudioSystemFactoryInterface)
 
 public:
-    explicit QAudioSystemPlugin(QObject *parent = Q_NULLPTR);
+    explicit QAudioSystemPlugin(QObject *parent = nullptr);
     ~QAudioSystemPlugin();
 
     QList<QByteArray> availableDevices(QAudio::Mode) const override = 0;

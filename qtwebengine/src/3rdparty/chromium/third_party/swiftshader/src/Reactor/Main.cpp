@@ -288,6 +288,18 @@ TEST(SubzeroReactorTest, Swizzle)
 			*Pointer<Short4>(out + 16 * (512 + 4)) = UnpackLow(Byte8(1, 2, 3, 4, 5, 6, 7, 8), Byte8(9, 10, 11, 12, 13, 14, 15, 16));
 			*Pointer<Short4>(out + 16 * (512 + 5)) = UnpackHigh(Byte8(1, 2, 3, 4, 5, 6, 7, 8), Byte8(9, 10, 11, 12, 13, 14, 15, 16));
 
+			for(int i = 0; i < 256; i++)
+			{
+				*Pointer<Short4>(out + 16 * (512 + 6) + (8 * i)) =
+                                    Swizzle(Short4(1, 2, 3, 4), i);
+			}
+
+			for(int i = 0; i < 256; i++)
+			{
+				*Pointer<Int4>(out + 16 * (512 + 6 + i) + (8 * 256)) =
+                                    Swizzle(Int4(1, 2, 3, 4), i);
+			}
+
 			Return(0);
 		}
 
@@ -298,7 +310,7 @@ TEST(SubzeroReactorTest, Swizzle)
 			struct
 			{
 				float f[256 + 256 + 2][4];
-				int i[4][4];
+				int i[388][4];
 			} out;
 
 			memset(&out, 0, sizeof(out));
@@ -351,6 +363,26 @@ TEST(SubzeroReactorTest, Swizzle)
 			EXPECT_EQ(out.i[3][1], 0x10080F07);
 			EXPECT_EQ(out.i[3][2], 0x00000000);
 			EXPECT_EQ(out.i[3][3], 0x00000000);
+
+			for(int i = 0; i < 256; i++)
+			{
+				EXPECT_EQ(out.i[4 + i/2][0 + (i%2) * 2] & 0xFFFF,
+                                          ((i >> 0) & 0x03) + 1);
+				EXPECT_EQ(out.i[4 + i/2][0 + (i%2) * 2] >> 16,
+                                          ((i >> 2) & 0x03) + 1);
+				EXPECT_EQ(out.i[4 + i/2][1 + (i%2) * 2] & 0xFFFF,
+                                          ((i >> 4) & 0x03) + 1);
+				EXPECT_EQ(out.i[4 + i/2][1 + (i%2) * 2] >> 16,
+                                          ((i >> 6) & 0x03) + 1);
+			}
+
+			for(int i = 0; i < 256; i++)
+			{
+				EXPECT_EQ(out.i[132 + i][0], ((i >> 0) & 0x03) + 1);
+				EXPECT_EQ(out.i[132 + i][1], ((i >> 2) & 0x03) + 1);
+				EXPECT_EQ(out.i[132 + i][2], ((i >> 4) & 0x03) + 1);
+				EXPECT_EQ(out.i[132 + i][3], ((i >> 6) & 0x03) + 1);
+			}
 		}
 	}
 
@@ -451,62 +483,62 @@ TEST(SubzeroReactorTest, MinMax)
 
 		if(routine)
 		{
-			int out[10][4];
+			unsigned int out[10][4];
 
 			memset(&out, 0, sizeof(out));
 
 			int(*callable)(void*) = (int(*)(void*))routine->getEntry();
 			callable(&out);
 
-			EXPECT_EQ(out[0][0], 0x00000000);
-			EXPECT_EQ(out[0][1], 0x00000000);
-			EXPECT_EQ(out[0][2], 0x00000000);
-			EXPECT_EQ(out[0][3], 0x80000000);
+			EXPECT_EQ(out[0][0], 0x00000000u);
+			EXPECT_EQ(out[0][1], 0x00000000u);
+			EXPECT_EQ(out[0][2], 0x00000000u);
+			EXPECT_EQ(out[0][3], 0x80000000u);
 
-			EXPECT_EQ(out[1][0], 0x3F800000);
-			EXPECT_EQ(out[1][1], 0x3F800000);
-			EXPECT_EQ(out[1][2], 0x00000000);
-			EXPECT_EQ(out[1][3], 0x80000000);
+			EXPECT_EQ(out[1][0], 0x3F800000u);
+			EXPECT_EQ(out[1][1], 0x3F800000u);
+			EXPECT_EQ(out[1][2], 0x00000000u);
+			EXPECT_EQ(out[1][3], 0x80000000u);
 
-			EXPECT_EQ(out[2][0], 0x00000000);
-			EXPECT_EQ(out[2][1], 0x00000000);
-			EXPECT_EQ(out[2][2], 0xFFFFFFFF);
-			EXPECT_EQ(out[2][3], 0x00000000);
+			EXPECT_EQ(out[2][0], 0x00000000u);
+			EXPECT_EQ(out[2][1], 0x00000000u);
+			EXPECT_EQ(out[2][2], 0xFFFFFFFFu);
+			EXPECT_EQ(out[2][3], 0x00000000u);
 
-			EXPECT_EQ(out[3][0], 0x00000001);
-			EXPECT_EQ(out[3][1], 0x00000001);
-			EXPECT_EQ(out[3][2], 0x00000000);
-			EXPECT_EQ(out[3][3], 0x00000000);
+			EXPECT_EQ(out[3][0], 0x00000001u);
+			EXPECT_EQ(out[3][1], 0x00000001u);
+			EXPECT_EQ(out[3][2], 0x00000000u);
+			EXPECT_EQ(out[3][3], 0x00000000u);
 
-			EXPECT_EQ(out[4][0], 0x00000000);
-			EXPECT_EQ(out[4][1], 0x00000000);
-			EXPECT_EQ(out[4][2], 0x00000000);
-			EXPECT_EQ(out[4][3], 0x00000000);
+			EXPECT_EQ(out[4][0], 0x00000000u);
+			EXPECT_EQ(out[4][1], 0x00000000u);
+			EXPECT_EQ(out[4][2], 0x00000000u);
+			EXPECT_EQ(out[4][3], 0x00000000u);
 
-			EXPECT_EQ(out[5][0], 0x00000001);
-			EXPECT_EQ(out[5][1], 0x00000001);
-			EXPECT_EQ(out[5][2], 0xFFFFFFFF);
-			EXPECT_EQ(out[5][3], 0x00000000);
+			EXPECT_EQ(out[5][0], 0x00000001u);
+			EXPECT_EQ(out[5][1], 0x00000001u);
+			EXPECT_EQ(out[5][2], 0xFFFFFFFFu);
+			EXPECT_EQ(out[5][3], 0x00000000u);
 
-			EXPECT_EQ(out[6][0], 0x00000000);
-			EXPECT_EQ(out[6][1], 0x0000FFFF);
-			EXPECT_EQ(out[6][2], 0x00000000);
-			EXPECT_EQ(out[6][3], 0x00000000);
+			EXPECT_EQ(out[6][0], 0x00000000u);
+			EXPECT_EQ(out[6][1], 0x0000FFFFu);
+			EXPECT_EQ(out[6][2], 0x00000000u);
+			EXPECT_EQ(out[6][3], 0x00000000u);
 
-			EXPECT_EQ(out[7][0], 0x00010001);
-			EXPECT_EQ(out[7][1], 0x00000000);
-			EXPECT_EQ(out[7][2], 0x00000000);
-			EXPECT_EQ(out[7][3], 0x00000000);
+			EXPECT_EQ(out[7][0], 0x00010001u);
+			EXPECT_EQ(out[7][1], 0x00000000u);
+			EXPECT_EQ(out[7][2], 0x00000000u);
+			EXPECT_EQ(out[7][3], 0x00000000u);
 
-			EXPECT_EQ(out[8][0], 0x00000000);
-			EXPECT_EQ(out[8][1], 0x00000000);
-			EXPECT_EQ(out[8][2], 0x00000000);
-			EXPECT_EQ(out[8][3], 0x00000000);
+			EXPECT_EQ(out[8][0], 0x00000000u);
+			EXPECT_EQ(out[8][1], 0x00000000u);
+			EXPECT_EQ(out[8][2], 0x00000000u);
+			EXPECT_EQ(out[8][3], 0x00000000u);
 
-			EXPECT_EQ(out[9][0], 0x00010001);
-			EXPECT_EQ(out[9][1], 0x0000FFFF);
-			EXPECT_EQ(out[9][2], 0x00000000);
-			EXPECT_EQ(out[9][3], 0x00000000);
+			EXPECT_EQ(out[9][0], 0x00010001u);
+			EXPECT_EQ(out[9][1], 0x0000FFFFu);
+			EXPECT_EQ(out[9][2], 0x00000000u);
+			EXPECT_EQ(out[9][3], 0x00000000u);
 		}
 	}
 
@@ -541,57 +573,57 @@ TEST(SubzeroReactorTest, NotNeg)
 
 		if(routine)
 		{
-			int out[10][4];
+			unsigned int out[10][4];
 
 			memset(&out, 0, sizeof(out));
 
 			int(*callable)(void*) = (int(*)(void*))routine->getEntry();
 			callable(&out);
 
-			EXPECT_EQ(out[0][0], 0xAAAAAAAA);
-			EXPECT_EQ(out[0][1], 0x00000000);
-			EXPECT_EQ(out[0][2], 0x00000000);
-			EXPECT_EQ(out[0][3], 0x00000000);
+			EXPECT_EQ(out[0][0], 0xAAAAAAAAu);
+			EXPECT_EQ(out[0][1], 0x00000000u);
+			EXPECT_EQ(out[0][2], 0x00000000u);
+			EXPECT_EQ(out[0][3], 0x00000000u);
 
-			EXPECT_EQ(out[1][0], 0x0000AAAA);
-			EXPECT_EQ(out[1][1], 0x00000000);
-			EXPECT_EQ(out[1][2], 0x00000000);
-			EXPECT_EQ(out[1][3], 0x00000000);
+			EXPECT_EQ(out[1][0], 0x0000AAAAu);
+			EXPECT_EQ(out[1][1], 0x00000000u);
+			EXPECT_EQ(out[1][2], 0x00000000u);
+			EXPECT_EQ(out[1][3], 0x00000000u);
 
-			EXPECT_EQ(out[2][0], 0xAAAAAAAA);
-			EXPECT_EQ(out[2][1], 0x55555555);
-			EXPECT_EQ(out[2][2], 0xFFFFFFFF);
-			EXPECT_EQ(out[2][3], 0x00000000);
+			EXPECT_EQ(out[2][0], 0xAAAAAAAAu);
+			EXPECT_EQ(out[2][1], 0x55555555u);
+			EXPECT_EQ(out[2][2], 0xFFFFFFFFu);
+			EXPECT_EQ(out[2][3], 0x00000000u);
 
-			EXPECT_EQ(out[3][0], 0x5555AAAA);
-			EXPECT_EQ(out[3][1], 0x0000FFFF);
-			EXPECT_EQ(out[3][2], 0x00000000);
-			EXPECT_EQ(out[3][3], 0x00000000);
+			EXPECT_EQ(out[3][0], 0x5555AAAAu);
+			EXPECT_EQ(out[3][1], 0x0000FFFFu);
+			EXPECT_EQ(out[3][2], 0x00000000u);
+			EXPECT_EQ(out[3][3], 0x00000000u);
 
-			EXPECT_EQ(out[4][0], 0xAAAAAAAB);
-			EXPECT_EQ(out[4][1], 0x00000000);
-			EXPECT_EQ(out[4][2], 0x00000000);
-			EXPECT_EQ(out[4][3], 0x00000000);
+			EXPECT_EQ(out[4][0], 0xAAAAAAABu);
+			EXPECT_EQ(out[4][1], 0x00000000u);
+			EXPECT_EQ(out[4][2], 0x00000000u);
+			EXPECT_EQ(out[4][3], 0x00000000u);
 
-			EXPECT_EQ(out[5][0], 0x0000AAAB);
-			EXPECT_EQ(out[5][1], 0x00000000);
-			EXPECT_EQ(out[5][2], 0x00000000);
-			EXPECT_EQ(out[5][3], 0x00000000);
+			EXPECT_EQ(out[5][0], 0x0000AAABu);
+			EXPECT_EQ(out[5][1], 0x00000000u);
+			EXPECT_EQ(out[5][2], 0x00000000u);
+			EXPECT_EQ(out[5][3], 0x00000000u);
 
-			EXPECT_EQ(out[6][0], 0xAAAAAAAB);
-			EXPECT_EQ(out[6][1], 0x55555556);
-			EXPECT_EQ(out[6][2], 0x00000000);
-			EXPECT_EQ(out[6][3], 0x00000001);
+			EXPECT_EQ(out[6][0], 0xAAAAAAABu);
+			EXPECT_EQ(out[6][1], 0x55555556u);
+			EXPECT_EQ(out[6][2], 0x00000000u);
+			EXPECT_EQ(out[6][3], 0x00000001u);
 
-			EXPECT_EQ(out[7][0], 0x5556AAAB);
-			EXPECT_EQ(out[7][1], 0x00010000);
-			EXPECT_EQ(out[7][2], 0x00000000);
-			EXPECT_EQ(out[7][3], 0x00000000);
+			EXPECT_EQ(out[7][0], 0x5556AAABu);
+			EXPECT_EQ(out[7][1], 0x00010000u);
+			EXPECT_EQ(out[7][2], 0x00000000u);
+			EXPECT_EQ(out[7][3], 0x00000000u);
 
-			EXPECT_EQ(out[8][0], 0xBF800000);
-			EXPECT_EQ(out[8][1], 0x3F800000);
-			EXPECT_EQ(out[8][2], 0x80000000);
-			EXPECT_EQ(out[8][3], 0x00000000);
+			EXPECT_EQ(out[8][0], 0xBF800000u);
+			EXPECT_EQ(out[8][1], 0x3F800000u);
+			EXPECT_EQ(out[8][2], 0x80000000u);
+			EXPECT_EQ(out[8][3], 0x00000000u);
 		}
 	}
 
@@ -622,38 +654,338 @@ TEST(SubzeroReactorTest, VectorCompare)
 
 		if(routine)
 		{
-			int out[6][4];
+			unsigned int out[6][4];
 
 			memset(&out, 0, sizeof(out));
 
 			int(*callable)(void*) = (int(*)(void*))routine->getEntry();
 			callable(&out);
 
-			EXPECT_EQ(out[0][0], 0x00000000);
-			EXPECT_EQ(out[0][1], 0xFFFFFFFF);
-			EXPECT_EQ(out[0][2], 0xFFFFFFFF);
-			EXPECT_EQ(out[0][3], 0xFFFFFFFF);
+			EXPECT_EQ(out[0][0], 0x00000000u);
+			EXPECT_EQ(out[0][1], 0xFFFFFFFFu);
+			EXPECT_EQ(out[0][2], 0xFFFFFFFFu);
+			EXPECT_EQ(out[0][3], 0xFFFFFFFFu);
 
-			EXPECT_EQ(out[1][0], 0x00000000);
-			EXPECT_EQ(out[1][1], 0x00000000);
-			EXPECT_EQ(out[1][2], 0x00000000);
-			EXPECT_EQ(out[1][3], 0xFFFFFFFF);
+			EXPECT_EQ(out[1][0], 0x00000000u);
+			EXPECT_EQ(out[1][1], 0x00000000u);
+			EXPECT_EQ(out[1][2], 0x00000000u);
+			EXPECT_EQ(out[1][3], 0xFFFFFFFFu);
 
-			EXPECT_EQ(out[2][0], 0xFF000000);
-			EXPECT_EQ(out[2][1], 0x00000000);
+			EXPECT_EQ(out[2][0], 0xFF000000u);
+			EXPECT_EQ(out[2][1], 0x00000000u);
 
-			EXPECT_EQ(out[3][0], 0xFFFFFFFF);
-			EXPECT_EQ(out[3][1], 0xFFFFFFFF);
-			EXPECT_EQ(out[3][2], 0xFFFFFFFF);
-			EXPECT_EQ(out[3][3], 0xFFFFFFFF);
+			EXPECT_EQ(out[3][0], 0xFFFFFFFFu);
+			EXPECT_EQ(out[3][1], 0xFFFFFFFFu);
+			EXPECT_EQ(out[3][2], 0xFFFFFFFFu);
+			EXPECT_EQ(out[3][3], 0xFFFFFFFFu);
 
-			EXPECT_EQ(out[4][0], 0xFFFFFFFF);
-			EXPECT_EQ(out[4][1], 0x00000000);
-			EXPECT_EQ(out[4][2], 0x00000000);
-			EXPECT_EQ(out[4][3], 0xFFFFFFFF);
+			EXPECT_EQ(out[4][0], 0xFFFFFFFFu);
+			EXPECT_EQ(out[4][1], 0x00000000u);
+			EXPECT_EQ(out[4][2], 0x00000000u);
+			EXPECT_EQ(out[4][3], 0xFFFFFFFFu);
 
-			EXPECT_EQ(out[5][0], 0x00000000);
-			EXPECT_EQ(out[5][1], 0xFFFFFFFF);
+			EXPECT_EQ(out[5][0], 0x00000000u);
+			EXPECT_EQ(out[5][1], 0xFFFFFFFFu);
+		}
+	}
+
+	delete routine;
+}
+
+TEST(SubzeroReactorTest, SaturatedAddAndSubtract)
+{
+	Routine *routine = nullptr;
+
+	{
+		Function<Int(Pointer<Byte>)> function;
+		{
+			Pointer<Byte> out = function.Arg<0>();
+
+			*Pointer<Byte8>(out + 8 * 0) =
+				AddSat(Byte8(1, 2, 3, 4, 5, 6, 7, 8),
+				       Byte8(7, 6, 5, 4, 3, 2, 1, 0));
+			*Pointer<Byte8>(out + 8 * 1) =
+				AddSat(Byte8(0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE),
+				       Byte8(7, 6, 5, 4, 3, 2, 1, 0));
+			*Pointer<Byte8>(out + 8 * 2) =
+				SubSat(Byte8(1, 2, 3, 4, 5, 6, 7, 8),
+				       Byte8(7, 6, 5, 4, 3, 2, 1, 0));
+
+			*Pointer<SByte8>(out + 8 * 3) =
+				AddSat(SByte8(1, 2, 3, 4, 5, 6, 7, 8),
+				       SByte8(7, 6, 5, 4, 3, 2, 1, 0));
+			*Pointer<SByte8>(out + 8 * 4) =
+				AddSat(SByte8(0x7E, 0x7E, 0x7E, 0x7E, 0x7E, 0x7E, 0x7E, 0x7E),
+				       SByte8(7, 6, 5, 4, 3, 2, 1, 0));
+			*Pointer<SByte8>(out + 8 * 5) =
+				AddSat(SByte8(0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88),
+				       SByte8(-7, -6, -5, -4, -3, -2, -1, -0));
+			*Pointer<SByte8>(out + 8 * 6) =
+				SubSat(SByte8(0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88),
+				       SByte8(7, 6, 5, 4, 3, 2, 1, 0));
+
+			*Pointer<Short4>(out + 8 * 7) =
+				AddSat(Short4(1, 2, 3, 4), Short4(3, 2, 1, 0));
+			*Pointer<Short4>(out + 8 * 8) =
+				AddSat(Short4(0x7FFE, 0x7FFE, 0x7FFE, 0x7FFE),
+				       Short4(3, 2, 1, 0));
+			*Pointer<Short4>(out + 8 * 9) =
+				AddSat(Short4(0x8001, 0x8002, 0x8003, 0x8004),
+				       Short4(-3, -2, -1, -0));
+			*Pointer<Short4>(out + 8 * 10) =
+				SubSat(Short4(0x8001, 0x8002, 0x8003, 0x8004),
+				       Short4(3, 2, 1, 0));
+
+			*Pointer<UShort4>(out + 8 * 11) =
+				AddSat(UShort4(1, 2, 3, 4), UShort4(3, 2, 1, 0));
+			*Pointer<UShort4>(out + 8 * 12) =
+				AddSat(UShort4(0xFFFE, 0xFFFE, 0xFFFE, 0xFFFE),
+				       UShort4(3, 2, 1, 0));
+			*Pointer<UShort4>(out + 8 * 13) =
+				SubSat(UShort4(1, 2, 3, 4), UShort4(3, 2, 1, 0));
+
+			Return(0);
+		}
+
+		routine = function(L"one");
+
+		if(routine)
+		{
+			unsigned int out[14][2];
+
+			memset(&out, 0, sizeof(out));
+
+			int(*callable)(void*) = (int(*)(void*))routine->getEntry();
+			callable(&out);
+
+			EXPECT_EQ(out[0][0], 0x08080808u);
+			EXPECT_EQ(out[0][1], 0x08080808u);
+
+			EXPECT_EQ(out[1][0], 0xFFFFFFFFu);
+			EXPECT_EQ(out[1][1], 0xFEFFFFFFu);
+
+			EXPECT_EQ(out[2][0], 0x00000000u);
+			EXPECT_EQ(out[2][1], 0x08060402u);
+
+			EXPECT_EQ(out[3][0], 0x08080808u);
+			EXPECT_EQ(out[3][1], 0x08080808u);
+
+			EXPECT_EQ(out[4][0], 0x7F7F7F7Fu);
+			EXPECT_EQ(out[4][1], 0x7E7F7F7Fu);
+
+			EXPECT_EQ(out[5][0], 0x80808080u);
+			EXPECT_EQ(out[5][1], 0x88868482u);
+
+			EXPECT_EQ(out[6][0], 0x80808080u);
+			EXPECT_EQ(out[6][1], 0x88868482u);
+
+			EXPECT_EQ(out[7][0], 0x00040004u);
+			EXPECT_EQ(out[7][1], 0x00040004u);
+
+			EXPECT_EQ(out[8][0], 0x7FFF7FFFu);
+			EXPECT_EQ(out[8][1], 0x7FFE7FFFu);
+
+			EXPECT_EQ(out[9][0], 0x80008000u);
+			EXPECT_EQ(out[9][1], 0x80048002u);
+
+			EXPECT_EQ(out[10][0], 0x80008000u);
+			EXPECT_EQ(out[10][1], 0x80048002u);
+
+			EXPECT_EQ(out[11][0], 0x00040004u);
+			EXPECT_EQ(out[11][1], 0x00040004u);
+
+			EXPECT_EQ(out[12][0], 0xFFFFFFFFu);
+			EXPECT_EQ(out[12][1], 0xFFFEFFFFu);
+
+			EXPECT_EQ(out[13][0], 0x00000000u);
+			EXPECT_EQ(out[13][1], 0x00040002u);
+		}
+	}
+
+	delete routine;
+}
+
+TEST(SubzeroReactorTest, Unpack)
+{
+	Routine *routine = nullptr;
+
+	{
+		Function<Int(Pointer<Byte>,Pointer<Byte>)> function;
+		{
+			Pointer<Byte> in = function.Arg<0>();
+			Pointer<Byte> out = function.Arg<1>();
+
+			Byte4 test_byte_a = *Pointer<Byte4>(in + 4 * 0);
+			Byte4 test_byte_b = *Pointer<Byte4>(in + 4 * 1);
+
+			*Pointer<Short4>(out + 8 * 0) =
+				Unpack(test_byte_a, test_byte_b);
+
+			*Pointer<Short4>(out + 8 * 1) = Unpack(test_byte_a);
+
+			Return(0);
+		}
+
+		routine = function(L"one");
+
+		if(routine)
+		{
+			unsigned int in[1][2];
+			unsigned int out[2][2];
+
+			memset(&out, 0, sizeof(out));
+
+			in[0][0] = 0xABCDEF12u;
+			in[0][1] = 0x34567890u;
+
+			int(*callable)(void*,void*) = (int(*)(void*,void*))routine->getEntry();
+			callable(&in, &out);
+
+			EXPECT_EQ(out[0][0], 0x78EF9012u);
+			EXPECT_EQ(out[0][1], 0x34AB56CDu);
+
+			EXPECT_EQ(out[1][0], 0xEFEF1212u);
+			EXPECT_EQ(out[1][1], 0xABABCDCDu);
+		}
+	}
+
+	delete routine;
+}
+
+TEST(SubzeroReactorTest, Pack)
+{
+	Routine *routine = nullptr;
+
+	{
+		Function<Int(Pointer<Byte>)> function;
+		{
+			Pointer<Byte> out = function.Arg<0>();
+
+			*Pointer<SByte8>(out + 8 * 0) =
+				PackSigned(Short4(-1, -2, 1, 2),
+					   Short4(3, 4, -3, -4));
+
+			*Pointer<Byte8>(out + 8 * 1) =
+				PackUnsigned(Short4(-1, -2, 1, 2),
+					     Short4(3, 4, -3, -4));
+
+			*Pointer<Short8>(out + 8 * 2) =
+				PackSigned(Int4(-1, -2, 1, 2),
+					   Int4(3, 4, -3, -4));
+
+			*Pointer<UShort8>(out + 8 * 4) =
+				PackUnsigned(Int4(-1, -2, 1, 2),
+					     Int4(3, 4, -3, -4));
+
+			Return(0);
+		}
+
+		routine = function(L"one");
+
+		if(routine)
+		{
+			unsigned int out[6][2];
+
+			memset(&out, 0, sizeof(out));
+
+			int(*callable)(void*) = (int(*)(void*))routine->getEntry();
+			callable(&out);
+
+			EXPECT_EQ(out[0][0], 0x0201FEFFu);
+			EXPECT_EQ(out[0][1], 0xFCFD0403u);
+
+			EXPECT_EQ(out[1][0], 0x02010000u);
+			EXPECT_EQ(out[1][1], 0x00000403u);
+
+			EXPECT_EQ(out[2][0], 0xFFFEFFFFu);
+			EXPECT_EQ(out[2][1], 0x00020001u);
+
+			EXPECT_EQ(out[3][0], 0x00040003u);
+			EXPECT_EQ(out[3][1], 0xFFFCFFFDu);
+
+			EXPECT_EQ(out[4][0], 0x00000000u);
+			EXPECT_EQ(out[4][1], 0x00020001u);
+
+			EXPECT_EQ(out[5][0], 0x00040003u);
+			EXPECT_EQ(out[5][1], 0x00000000u);
+		}
+	}
+
+	delete routine;
+}
+
+TEST(SubzeroReactorTest, MulHigh)
+{
+	Routine *routine = nullptr;
+
+	{
+		Function<Int(Pointer<Byte>)> function;
+		{
+			Pointer<Byte> out = function.Arg<0>();
+
+			*Pointer<Short4>(out + 8 * 0) =
+				MulHigh(Short4(0x1aa, 0x2dd, 0x3ee, 0xF422),
+					Short4(0x1bb, 0x2cc, 0x3ff, 0xF411));
+			*Pointer<UShort4>(out + 8 * 1) =
+				MulHigh(UShort4(0x1aa, 0x2dd, 0x3ee, 0xF422),
+					UShort4(0x1bb, 0x2cc, 0x3ff, 0xF411));
+
+			// (U)Short8 variants are mentioned but unimplemented
+			Return(0);
+		}
+
+		routine = function(L"one");
+
+		if(routine)
+		{
+			unsigned int out[2][2];
+
+			memset(&out, 0, sizeof(out));
+
+			int(*callable)(void*) = (int(*)(void*))routine->getEntry();
+			callable(&out);
+
+			EXPECT_EQ(out[0][0], 0x00080002u);
+			EXPECT_EQ(out[0][1], 0x008D000fu);
+
+			EXPECT_EQ(out[1][0], 0x00080002u);
+			EXPECT_EQ(out[1][1], 0xe8C0000Fu);
+		}
+	}
+
+	delete routine;
+}
+
+TEST(SubzeroReactorTest, MulAdd)
+{
+	Routine *routine = nullptr;
+
+	{
+		Function<Int(Pointer<Byte>)> function;
+		{
+			Pointer<Byte> out = function.Arg<0>();
+
+			*Pointer<Int2>(out + 8 * 0) =
+				MulAdd(Short4(0x1aa, 0x2dd, 0x3ee, 0xF422),
+				       Short4(0x1bb, 0x2cc, 0x3ff, 0xF411));
+
+			// (U)Short8 variant is mentioned but unimplemented
+			Return(0);
+		}
+
+		routine = function(L"one");
+
+		if(routine)
+		{
+			unsigned int out[1][2];
+
+			memset(&out, 0, sizeof(out));
+
+			int(*callable)(void*) = (int(*)(void*))routine->getEntry();
+			callable(&out);
+
+			EXPECT_EQ(out[0][0], 0x000AE34Au);
+			EXPECT_EQ(out[0][1], 0x009D5254u);
 		}
 	}
 

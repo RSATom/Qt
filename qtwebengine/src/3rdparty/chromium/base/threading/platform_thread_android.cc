@@ -16,7 +16,6 @@
 #include "base/logging.h"
 #include "base/threading/platform_thread_internal_posix.h"
 #include "base/threading/thread_id_name_manager.h"
-#include "base/tracked_objects.h"
 #include "jni/ThreadUtils_jni.h"
 
 namespace base {
@@ -61,8 +60,7 @@ bool GetCurrentThreadPriorityForPlatform(ThreadPriority* priority) {
 }  // namespace internal
 
 void PlatformThread::SetName(const std::string& name) {
-  ThreadIdNameManager::GetInstance()->SetName(CurrentId(), name);
-  tracked_objects::ThreadData::InitializeThreadContext(name);
+  ThreadIdNameManager::GetInstance()->SetName(name);
 
   // Like linux, on android we can get the thread names to show up in the
   // debugger by setting the process name for the LWP.

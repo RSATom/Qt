@@ -56,12 +56,7 @@
 # include "qquickplatformsystemtrayicon_p.h"
 #endif
 
-static inline void initResources()
-{
-#ifdef QT_STATIC
-    Q_INIT_RESOURCE(qmake_Qt_labs_platform);
-#endif
-}
+#include "qquickplatformicon_p.h"
 
 QT_BEGIN_NAMESPACE
 
@@ -81,7 +76,6 @@ public:
 
 QtLabsPlatformPlugin::QtLabsPlatformPlugin(QObject *parent) : QQmlExtensionPlugin(parent)
 {
-    initResources();
 }
 
 void QtLabsPlatformPlugin::registerTypes(const char *uri)
@@ -108,9 +102,13 @@ void QtLabsPlatformPlugin::registerTypes(const char *uri)
 
 #if QT_CONFIG(systemtrayicon)
     qmlRegisterType<QQuickPlatformSystemTrayIcon>(uri, 1, 0, "SystemTrayIcon");
+    qmlRegisterType<QQuickPlatformSystemTrayIcon, 1>(uri, 1, 1, "SystemTrayIcon");
     qRegisterMetaType<QPlatformSystemTrayIcon::ActivationReason>();
     qRegisterMetaType<QPlatformSystemTrayIcon::MessageIcon>();
 #endif
+
+    qmlRegisterType<QQuickPlatformIcon>();
+    qRegisterMetaType<QQuickPlatformIcon>();
 }
 
 QT_END_NAMESPACE

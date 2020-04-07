@@ -9,61 +9,60 @@
 
 #include <vector>
 
-#include "core/fxcrt/fx_basic.h"
 #include "core/fxcrt/fx_string.h"
 #include "fxbarcode/pdf417/BC_PDF417Compaction.h"
 
 class CBC_PDF417HighLevelEncoder {
  public:
-  static CFX_WideString encodeHighLevel(CFX_WideString msg,
-                                        Compaction compaction,
-                                        int32_t& e);
+  static WideString encodeHighLevel(WideString msg,
+                                    Compaction compaction,
+                                    int32_t& e);
   static void Inverse();
   static void Initialize();
   static void Finalize();
 
  private:
-  static int32_t TEXT_COMPACTION;
-  static int32_t BYTE_COMPACTION;
-  static int32_t NUMERIC_COMPACTION;
-  static int32_t SUBMODE_PUNCTUATION;
-  static int32_t LATCH_TO_TEXT;
-  static int32_t LATCH_TO_BYTE_PADDED;
-  static int32_t LATCH_TO_NUMERIC;
-  static int32_t SHIFT_TO_BYTE;
-  static int32_t LATCH_TO_BYTE;
-  static uint8_t TEXT_MIXED_RAW[];
-  static uint8_t TEXT_PUNCTUATION_RAW[];
+  static const int32_t TEXT_COMPACTION;
+  static const int32_t BYTE_COMPACTION;
+  static const int32_t NUMERIC_COMPACTION;
+  static const int32_t SUBMODE_PUNCTUATION;
+  static const int32_t LATCH_TO_TEXT;
+  static const int32_t LATCH_TO_BYTE_PADDED;
+  static const int32_t LATCH_TO_NUMERIC;
+  static const int32_t SHIFT_TO_BYTE;
+  static const int32_t LATCH_TO_BYTE;
+  static const uint8_t TEXT_MIXED_RAW[];
+  static const uint8_t TEXT_PUNCTUATION_RAW[];
+
   static int32_t MIXED[128];
   static int32_t PUNCTUATION[128];
-  static int32_t encodeText(CFX_WideString msg,
-                            int32_t startpos,
-                            int32_t count,
-                            CFX_WideString& sb,
+
+  static int32_t encodeText(WideString msg,
+                            size_t startpos,
+                            size_t count,
+                            WideString& sb,
                             int32_t initialSubmode);
   static void encodeBinary(std::vector<uint8_t>* bytes,
-                           int32_t startpos,
-                           int32_t count,
+                           size_t startpos,
+                           size_t count,
                            int32_t startmode,
-                           CFX_WideString& sb);
-  static void encodeNumeric(CFX_WideString msg,
-                            int32_t startpos,
-                            int32_t count,
-                            CFX_WideString& sb);
+                           WideString& sb);
+  static void encodeNumeric(WideString msg,
+                            size_t startpos,
+                            size_t count,
+                            WideString& sb);
   static bool isDigit(wchar_t ch);
   static bool isAlphaUpper(wchar_t ch);
   static bool isAlphaLower(wchar_t ch);
   static bool isMixed(wchar_t ch);
   static bool isPunctuation(wchar_t ch);
   static bool isText(wchar_t ch);
-  static int32_t determineConsecutiveDigitCount(CFX_WideString msg,
-                                                int32_t startpos);
-  static int32_t determineConsecutiveTextCount(CFX_WideString msg,
-                                               int32_t startpos);
-  static int32_t determineConsecutiveBinaryCount(CFX_WideString msg,
-                                                 std::vector<uint8_t>* bytes,
-                                                 int32_t startpos,
-                                                 int32_t& e);
+  static size_t determineConsecutiveDigitCount(WideString msg, size_t startpos);
+  static size_t determineConsecutiveTextCount(WideString msg, size_t startpos);
+  static Optional<size_t> determineConsecutiveBinaryCount(
+      WideString msg,
+      std::vector<uint8_t>* bytes,
+      size_t startpos);
 
   friend class PDF417HighLevelEncoder_EncodeNumeric_Test;
   friend class PDF417HighLevelEncoder_EncodeBinary_Test;

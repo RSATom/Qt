@@ -8,8 +8,8 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_RTC_BASE_OPTIONSFILE_H_
-#define WEBRTC_RTC_BASE_OPTIONSFILE_H_
+#ifndef RTC_BASE_OPTIONSFILE_H_
+#define RTC_BASE_OPTIONSFILE_H_
 
 #include <map>
 #include <string>
@@ -21,7 +21,7 @@ namespace rtc {
 // first-class options storage system.
 class OptionsFile {
  public:
-  OptionsFile(const std::string &path);
+  OptionsFile(const std::string& path);
   ~OptionsFile();
 
   // Loads the file from disk, overwriting the in-memory values.
@@ -38,8 +38,8 @@ class OptionsFile {
  private:
   typedef std::map<std::string, std::string> OptionsMap;
 
-  static bool IsLegalName(const std::string &name);
-  static bool IsLegalValue(const std::string &value);
+  static bool IsLegalName(const std::string& name);
+  static bool IsLegalValue(const std::string& value);
 
   std::string path_;
   OptionsMap options_;
@@ -47,4 +47,4 @@ class OptionsFile {
 
 }  // namespace rtc
 
-#endif  // WEBRTC_RTC_BASE_OPTIONSFILE_H_
+#endif  // RTC_BASE_OPTIONSFILE_H_

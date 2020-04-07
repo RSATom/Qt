@@ -31,6 +31,7 @@ SuperfishErrorUI::SuperfishErrorUI(
                  ssl_info,
                  display_options,
                  time_triggered,
+                 GURL(),
                  controller) {}
 
 void SuperfishErrorUI::PopulateStringsForHTML(
@@ -58,9 +59,11 @@ void SuperfishErrorUI::PopulateStringsForHTML(
   load_time_data->SetString("finalParagraph", std::string());
   load_time_data->SetString("openDetails", base::string16());
   load_time_data->SetString("closeDetails", base::string16());
+  load_time_data->SetString("recurrentErrorParagraph", base::string16());
+  load_time_data->SetBoolean("show_recurrent_error_paragraph", false);
 }
 
-void SuperfishErrorUI::HandleCommand(SecurityInterstitialCommands command) {
+void SuperfishErrorUI::HandleCommand(SecurityInterstitialCommand command) {
   // Override the Help Center link to point to a Superfish-specific page.
   if (command == CMD_OPEN_HELP_CENTER) {
     controller()->metrics_helper()->RecordUserInteraction(

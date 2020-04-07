@@ -18,9 +18,6 @@ static const int kBenchmarkIterations = 50000000;
 static const double kSampleRateRatio = 192000.0 / 44100.0;
 static const double kKernelInterpolationFactor = 0.5;
 
-// Helper function to provide no input to SincResampler's Convolve benchmark.
-static void DoNothing(int frames, float* destination) {}
-
 // Define platform independent function name for Convolve* tests.
 #if defined(ARCH_CPU_X86_FAMILY)
 #define CONVOLVE_FUNC Convolve_SSE
@@ -29,16 +26,17 @@ static void DoNothing(int frames, float* destination) {}
 #endif
 
 static void RunConvolveBenchmark(
-    SincResampler* resampler,
     float (*convolve_fn)(const float*, const float*, const float*, double),
     bool aligned,
     const std::string& trace_name) {
+  SincResampler resampler(kSampleRateRatio, SincResampler::kDefaultRequestSize,
+                          base::DoNothing());
+
   base::TimeTicks start = base::TimeTicks::Now();
   for (int i = 0; i < kBenchmarkIterations; ++i) {
-    convolve_fn(resampler->get_kernel_for_testing() + (aligned ? 0 : 1),
-                resampler->get_kernel_for_testing(),
-                resampler->get_kernel_for_testing(),
-                kKernelInterpolationFactor);
+    convolve_fn(resampler.get_kernel_for_testing() + (aligned ? 0 : 1),
+                resampler.get_kernel_for_testing(),
+                resampler.get_kernel_for_testing(), kKernelInterpolationFactor);
   }
   double total_time_milliseconds =
       (base::TimeTicks::Now() - start).InMillisecondsF();
@@ -52,21 +50,20 @@ static void RunConvolveBenchmark(
 
 // Benchmark for the various Convolve() methods.  Make sure to build with
 // branding=Chrome so that DCHECKs are compiled out when benchmarking.
-TEST(SincResamplerPerfTest, Convolve) {
-  SincResampler resampler(kSampleRateRatio,
-                          SincResampler::kDefaultRequestSize,
-                          base::Bind(&DoNothing));
-
-  RunConvolveBenchmark(
-      &resampler, SincResampler::Convolve_C, true, "unoptimized_aligned");
+TEST(SincResamplerPerfTest, Convolve_unoptimized_aligned) {
+  RunConvolveBenchmark(SincResampler::Convolve_C, true, "unoptimized_aligned");
+}
 
 #if defined(CONVOLVE_FUNC)
-  RunConvolveBenchmark(
-      &resampler, SincResampler::CONVOLVE_FUNC, true, "optimized_aligned");
-  RunConvolveBenchmark(
-      &resampler, SincResampler::CONVOLVE_FUNC, false, "optimized_unaligned");
-#endif
+TEST(SincResamplerPerfTest, Convolve_optimized_aligned) {
+  RunConvolveBenchmark(SincResampler::CONVOLVE_FUNC, true, "optimized_aligned");
 }
+
+TEST(SincResamplerPerfTest, Convolve_optimized_unaligned) {
+  RunConvolveBenchmark(SincResampler::CONVOLVE_FUNC, false,
+                       "optimized_unaligned");
+}
+#endif
 
 #undef CONVOLVE_FUNC
 

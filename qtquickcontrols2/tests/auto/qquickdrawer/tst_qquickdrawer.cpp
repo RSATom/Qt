@@ -38,6 +38,7 @@
 #include <QtTest/qsignalspy.h>
 #include "../shared/util.h"
 #include "../shared/visualtestutil.h"
+#include "../shared/qtest_quickcontrols.h"
 
 #include <QtGui/qstylehints.h>
 #include <QtGui/qtouchdevice.h>
@@ -60,6 +61,9 @@ class tst_QQuickDrawer : public QQmlDataTest
 
 private slots:
     void initTestCase();
+
+    void defaults();
+    void invalidEdge();
 
     void visible_data();
     void visible();
@@ -102,6 +106,11 @@ private slots:
     void nonModal_data();
     void nonModal();
 
+    void slider_data();
+    void slider();
+
+    void topEdgeScreenEdge();
+
 private:
     struct TouchDeviceDeleter
     {
@@ -124,6 +133,40 @@ void tst_QQuickDrawer::initTestCase()
     touchDevice.reset(new QTouchDevice);
     touchDevice->setType(QTouchDevice::TouchScreen);
     QWindowSystemInterface::registerTouchDevice(touchDevice.data());
+}
+
+void tst_QQuickDrawer::defaults()
+{
+    QQmlEngine engine;
+    QQmlComponent component(&engine);
+    component.loadUrl(testFileUrl("window.qml"));
+
+    QScopedPointer<QObject> root(component.create());
+    QVERIFY2(!root.isNull(), qPrintable(component.errorString()));
+
+    QQuickDrawer *drawer = root->property("drawer").value<QQuickDrawer *>();
+    QVERIFY(drawer);
+    QCOMPARE(drawer->edge(), Qt::LeftEdge);
+    QCOMPARE(drawer->position(), 0.0);
+    QCOMPARE(drawer->dragMargin(), qGuiApp->styleHints()->startDragDistance());
+}
+
+void tst_QQuickDrawer::invalidEdge()
+{
+    QQmlEngine engine;
+    QQmlComponent component(&engine);
+    component.loadUrl(testFileUrl("window.qml"));
+
+    QScopedPointer<QObject> root(component.create());
+    QVERIFY2(!root.isNull(), qPrintable(component.errorString()));
+
+    QQuickDrawer *drawer = root->property("drawer").value<QQuickDrawer *>();
+    QVERIFY(drawer);
+
+    // Test an invalid value - it should warn and ignore it.
+    QTest::ignoreMessage(QtWarningMsg, qUtf8Printable(testFileUrl("window.qml").toString() + ":61:5: QML Drawer: invalid edge value - valid values are: Qt.TopEdge, Qt.LeftEdge, Qt.RightEdge, Qt.BottomEdge"));
+    drawer->setEdge(static_cast<Qt::Edge>(QQuickDrawer::Right));
+    QCOMPARE(drawer->edge(), Qt::LeftEdge);
 }
 
 void tst_QQuickDrawer::visible_data()
@@ -1219,6 +1262,76 @@ void tst_QQuickDrawer::nonModal()
     QVERIFY(closedSpy.wait());
 }
 
-QTEST_MAIN(tst_QQuickDrawer)
+void tst_QQuickDrawer::slider_data()
+{
+    QTest::addColumn<bool>("mouse");
+    QTest::addColumn<int>("delta");
+
+    QTest::newRow("mouse") << true << 2;
+    QTest::newRow("touch") << false << 2;
+    QTest::newRow("mouse,delta") << true << 296 / 8;
+}
+
+void tst_QQuickDrawer::slider()
+{
+    QFETCH(bool, mouse);
+    QFETCH(int, delta);
+
+    QQuickApplicationHelper helper(this, QStringLiteral("slider.qml"));
+    QQuickWindow *window = helper.window;
+    window->show();
+    QVERIFY(QTest::qWaitForWindowActive(window));
+
+    QQuickDrawer *drawer = window->property("drawer").value<QQuickDrawer *>();
+    QVERIFY(drawer);
+
+    QQuickSlider *slider = window->property("slider").value<QQuickSlider *>();
+    QVERIFY(slider);
+
+    QCOMPARE(slider->value(), 1.0);
+    QCOMPARE(drawer->position(), 1.0);
+
+    const qreal y = slider->height() / 2;
+    const QPoint from(slider->width() - 1, y);
+    const QPoint to(1, y);
+
+    if (mouse)
+        QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, from);
+    else
+        QTest::touchEvent(window, touchDevice.data()).press(0, from);
+
+    int distance = qAbs(from.x() - to.x());
+    for (int dx = delta; dx <= distance; dx += delta) {
+        if (mouse)
+            QTest::mouseMove(window, from - QPoint(dx, 0));
+        else
+            QTest::touchEvent(window, touchDevice.data()).move(0, from - QPoint(dx, 0));
+        QTest::qWait(1); // avoid infinite velocity
+    }
+
+    QCOMPARE(slider->value(), 0.0);
+    QCOMPARE(drawer->position(), 1.0);
+
+    if (mouse)
+        QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, to);
+    else
+        QTest::touchEvent(window, touchDevice.data()).release(0, to);
+}
+
+void tst_QQuickDrawer::topEdgeScreenEdge()
+{
+    QQuickApplicationHelper helper(this, QStringLiteral("topEdgeScreenEdge.qml"));
+    QQuickWindow *window = helper.window;
+    window->show();
+    QVERIFY(QTest::qWaitForWindowActive(window));
+
+    QQuickDrawer *drawer = window->property("drawer").value<QQuickDrawer *>();
+    QVERIFY(drawer);
+
+    QVERIFY(QMetaObject::invokeMethod(drawer, "open"));
+    QTRY_COMPARE(drawer->position(), 1.0);
+}
+
+QTEST_QUICKCONTROLS_MAIN(tst_QQuickDrawer)
 
 #include "tst_qquickdrawer.moc"

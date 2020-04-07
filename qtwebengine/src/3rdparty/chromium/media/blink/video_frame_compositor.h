@@ -15,15 +15,22 @@
 #include "base/time/tick_clock.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
+#include "cc/layers/surface_layer.h"
 #include "cc/layers/video_frame_provider.h"
 #include "media/base/video_renderer_sink.h"
 #include "media/blink/media_blink_export.h"
+#include "media/blink/webmediaplayer_params.h"
+#include "third_party/blink/public/platform/web_video_frame_submitter.h"
 #include "ui/gfx/geometry/size.h"
 
 namespace base {
 namespace trace_event {
 class AutoOpenCloseEvent;
 }
+}
+
+namespace viz {
+class SurfaceId;
 }
 
 namespace media {
@@ -54,25 +61,36 @@ class VideoFrame;
 //
 // VideoFrameCompositor must live on the same thread as the compositor, though
 // it may be constructed on any thread.
-class MEDIA_BLINK_EXPORT VideoFrameCompositor
-    : public VideoRendererSink,
-      NON_EXPORTED_BASE(public cc::VideoFrameProvider) {
+class MEDIA_BLINK_EXPORT VideoFrameCompositor : public VideoRendererSink,
+                                                public cc::VideoFrameProvider {
  public:
   // Used to report back the time when the new frame has been processed.
-  using OnNewProcessedFrameCB = base::Callback<void(base::TimeTicks)>;
+  using OnNewProcessedFrameCB = base::OnceCallback<void(base::TimeTicks)>;
 
-  // |compositor_task_runner| is the task runner on which this class will live,
+  // |task_runner| is the task runner on which this class will live,
   // though it may be constructed on any thread.
-  explicit VideoFrameCompositor(
-      const scoped_refptr<base::SingleThreadTaskRunner>&
-          compositor_task_runner);
+  VideoFrameCompositor(
+      const scoped_refptr<base::SingleThreadTaskRunner>& task_runner,
+      std::unique_ptr<blink::WebVideoFrameSubmitter> submitter);
 
   // Destruction must happen on the compositor thread; Stop() must have been
   // called before destruction starts.
   ~VideoFrameCompositor() override;
 
+  // Can be called from any thread.
+  cc::UpdateSubmissionStateCB GetUpdateSubmissionStateCallback();
+
+  // Signals the VideoFrameSubmitter to prepare to receive BeginFrames and
+  // submit video frames given by VideoFrameCompositor.
+  virtual void EnableSubmission(
+      const viz::SurfaceId& id,
+      media::VideoRotation rotation,
+      bool force_submit,
+      bool is_opaque,
+      blink::WebFrameSinkDestroyedCallback frame_sink_destroyed_callback);
+
   // cc::VideoFrameProvider implementation. These methods must be called on the
-  // |compositor_task_runner_|.
+  // |task_runner_|.
   void SetVideoFrameProviderClient(
       cc::VideoFrameProvider::Client* client) override;
   bool UpdateCurrentFrame(base::TimeTicks deadline_min,
@@ -81,6 +99,12 @@ class MEDIA_BLINK_EXPORT VideoFrameCompositor
   scoped_refptr<VideoFrame> GetCurrentFrame() override;
   void PutCurrentFrame() override;
 
+  // Returns |current_frame_|, without offering a guarantee as to how recently
+  // it was updated. In certain applications, one might need to periodically
+  // call UpdateCurrentFrameIfStale on |task_runner_| to drive the updates.
+  // Can be called from any thread.
+  scoped_refptr<VideoFrame> GetCurrentFrameOnAnyThread();
+
   // VideoRendererSink implementation. These methods must be called from the
   // same thread (typically the media thread).
   void Start(RenderCallback* callback) override;
@@ -88,32 +112,35 @@ class MEDIA_BLINK_EXPORT VideoFrameCompositor
   void PaintSingleFrame(const scoped_refptr<VideoFrame>& frame,
                         bool repaint_duplicate_frame = false) override;
 
-  // Returns |current_frame_| if |client_| is set.  If no |client_| is set,
-  // |is_background_rendering_| is true, and |callback_| is set, it requests a
-  // new frame from |callback_|, using the elapsed time between calls to this
-  // function as the render interval; defaulting to 16.6ms if no prior calls
-  // have been made.  A cap of 250Hz (4ms) is in place to prevent clients from
-  // accidentally (or intentionally) spamming the rendering pipeline.
+  // If |client_| is not set, |callback_| is set, and |is_background_rendering_|
+  // is true, it requests a new frame from |callback_|. Uses the elapsed time
+  // between calls to this function as the render interval, defaulting to 16.6ms
+  // if no prior calls have been made. A cap of 250Hz (4ms) is in place to
+  // prevent clients from accidentally (or intentionally) spamming the rendering
+  // pipeline.
   //
   // This method is primarily to facilitate canvas and WebGL based applications
   // where the <video> tag is invisible (possibly not even in the DOM) and thus
   // does not receive a |client_|.  In this case, frame acquisition is driven by
   // the frequency of canvas or WebGL paints requested via JavaScript.
-  scoped_refptr<VideoFrame> GetCurrentFrameAndUpdateIfStale();
-
-  // Returns the timestamp of the current (possibly stale) frame, or
-  // base::TimeDelta() if there is no current frame. This method may be called
-  // from the media thread as long as the VFC is stopped. (Assuming that
-  // PaintSingleFrame() is not also called while stopped.)
-  base::TimeDelta GetCurrentFrameTimestamp() const;
+  void UpdateCurrentFrameIfStale();
 
   // Sets the callback to be run when the new frame has been processed. The
   // callback is only run once and then reset.
   // Must be called on the compositor thread.
-  void SetOnNewProcessedFrameCallback(const OnNewProcessedFrameCB& cb);
+  virtual void SetOnNewProcessedFrameCallback(OnNewProcessedFrameCB cb);
 
-  void set_tick_clock_for_testing(std::unique_ptr<base::TickClock> tick_clock) {
-    tick_clock_ = std::move(tick_clock);
+  // Updates the rotation information for frames given to |submitter_|.
+  void UpdateRotation(media::VideoRotation rotation);
+
+  // Notifies the |submitter_| that the frames must be submitted.
+  void SetForceSubmit(bool);
+
+  // Updates the opacity inforamtion for frames given to |submitter_|.
+  void UpdateIsOpaque(bool);
+
+  void set_tick_clock_for_testing(const base::TickClock* tick_clock) {
+    tick_clock_ = tick_clock;
   }
 
   void clear_current_frame_for_testing() { current_frame_ = nullptr; }
@@ -126,7 +153,22 @@ class MEDIA_BLINK_EXPORT VideoFrameCompositor
     background_rendering_enabled_ = enabled;
   }
 
+  void set_submitter_for_test(
+      std::unique_ptr<blink::WebVideoFrameSubmitter> submitter) {
+    submitter_ = std::move(submitter);
+  }
+
  private:
+  // Ran on the |task_runner_| to initalize |submitter_|;
+  void InitializeSubmitter();
+
+  // Signals the VideoFrameSubmitter to stop submitting frames.  |is_visible|
+  // indicates whether or not the consumer of the frames is (probably) visible.
+  void UpdateSubmissionState(bool is_visible);
+
+  // Indicates whether the endpoint for the VideoFrame exists.
+  bool IsClientSinkAvailable();
+
   // Called on the compositor thread in response to Start() or Stop() calls;
   // must be used to change |rendering_| state.
   void OnRendererStateUpdate(bool new_state);
@@ -134,6 +176,8 @@ class MEDIA_BLINK_EXPORT VideoFrameCompositor
   // Handles setting of |current_frame_|.
   bool ProcessNewFrame(const scoped_refptr<VideoFrame>& frame,
                        bool repaint_duplicate_frame);
+
+  void SetCurrentFrame(const scoped_refptr<VideoFrame>& frame);
 
   // Called by |background_rendering_timer_| when enough time elapses where we
   // haven't seen a Render() call.
@@ -147,16 +191,20 @@ class MEDIA_BLINK_EXPORT VideoFrameCompositor
                   base::TimeTicks deadline_max,
                   bool background_rendering);
 
-  scoped_refptr<base::SingleThreadTaskRunner> compositor_task_runner_;
-  std::unique_ptr<base::TickClock> tick_clock_;
+  // This will run tasks on the compositor thread. If
+  // kEnableSurfaceLayerForVideo is enabled, it will instead run tasks on the
+  // media thread.
+  scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
+
+  const base::TickClock* tick_clock_;
 
   // Allows tests to disable the background rendering task.
   bool background_rendering_enabled_;
 
   // Manages UpdateCurrentFrame() callbacks if |client_| has stopped sending
-  // them for various reasons.  Runs on |compositor_task_runner_| and is reset
+  // them for various reasons.  Runs on |task_runner_| and is reset
   // after each successful UpdateCurrentFrame() call.
-  base::Timer background_rendering_timer_;
+  base::RetainingOneShotTimer background_rendering_timer_;
 
   // These values are only set and read on the compositor thread.
   cc::VideoFrameProvider::Client* client_;
@@ -167,9 +215,10 @@ class MEDIA_BLINK_EXPORT VideoFrameCompositor
   base::TimeDelta last_interval_;
   base::TimeTicks last_background_render_;
   OnNewProcessedFrameCB new_processed_frame_cb_;
+  cc::UpdateSubmissionStateCB update_submission_state_callback_;
 
-  // These values are set on the compositor thread, but also read on the media
-  // thread when the VFC is stopped.
+  // Set on the compositor thread, but also read on the media thread.
+  base::Lock current_frame_lock_;
   scoped_refptr<VideoFrame> current_frame_;
 
   // These values are updated and read from the media and compositor threads.
@@ -178,6 +227,9 @@ class MEDIA_BLINK_EXPORT VideoFrameCompositor
 
   // AutoOpenCloseEvent for begin/end events.
   std::unique_ptr<base::trace_event::AutoOpenCloseEvent> auto_open_close_;
+  std::unique_ptr<blink::WebVideoFrameSubmitter> submitter_;
+
+  base::WeakPtrFactory<VideoFrameCompositor> weak_ptr_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(VideoFrameCompositor);
 };

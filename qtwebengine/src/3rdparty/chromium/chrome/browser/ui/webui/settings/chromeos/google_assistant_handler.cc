@@ -11,6 +11,7 @@
 #include "chrome/browser/chromeos/arc/voice_interaction/arc_voice_interaction_framework_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "components/arc/arc_service_manager.h"
+#include "ui/gfx/geometry/rect.h"
 
 namespace chromeos {
 namespace settings {
@@ -26,17 +27,23 @@ void GoogleAssistantHandler::OnJavascriptDisallowed() {}
 void GoogleAssistantHandler::RegisterMessages() {
   web_ui()->RegisterMessageCallback(
       "setGoogleAssistantEnabled",
-      base::Bind(&GoogleAssistantHandler::HandleSetGoogleAssistantEnabled,
-                 base::Unretained(this)));
+      base::BindRepeating(
+          &GoogleAssistantHandler::HandleSetGoogleAssistantEnabled,
+          base::Unretained(this)));
   web_ui()->RegisterMessageCallback(
       "setGoogleAssistantContextEnabled",
-      base::Bind(
+      base::BindRepeating(
           &GoogleAssistantHandler::HandleSetGoogleAssistantContextEnabled,
           base::Unretained(this)));
   web_ui()->RegisterMessageCallback(
       "showGoogleAssistantSettings",
-      base::Bind(&GoogleAssistantHandler::HandleShowGoogleAssistantSettings,
-                 base::Unretained(this)));
+      base::BindRepeating(
+          &GoogleAssistantHandler::HandleShowGoogleAssistantSettings,
+          base::Unretained(this)));
+  web_ui()->RegisterMessageCallback(
+      "turnOnGoogleAssistant",
+      base::BindRepeating(&GoogleAssistantHandler::HandleTurnOnGoogleAssistant,
+                          base::Unretained(this)));
 }
 
 void GoogleAssistantHandler::HandleSetGoogleAssistantEnabled(
@@ -69,6 +76,14 @@ void GoogleAssistantHandler::HandleShowGoogleAssistantSettings(
       arc::ArcVoiceInteractionFrameworkService::GetForBrowserContext(profile_);
   if (service)
     service->ShowVoiceInteractionSettings();
+}
+
+void GoogleAssistantHandler::HandleTurnOnGoogleAssistant(
+    const base::ListValue* args) {
+  auto* service =
+      arc::ArcVoiceInteractionFrameworkService::GetForBrowserContext(profile_);
+  if (service)
+    service->StartSessionFromUserInteraction(gfx::Rect());
 }
 
 }  // namespace settings

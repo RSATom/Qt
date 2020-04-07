@@ -50,7 +50,8 @@
 
 #include "pathdeform.h"
 
-#include <QApplication>
+#include <QGuiApplication>
+#include <QScreen>
 #include <QtDebug>
 #include <QMouseEvent>
 #include <QTimerEvent>
@@ -108,13 +109,11 @@ void PathDeformControls::layoutForDesktop()
     QPushButton *showSourceButton = new QPushButton(mainGroup);
     showSourceButton->setText(tr("Show Source"));
 
-#ifdef QT_OPENGL_SUPPORT
+#if QT_CONFIG(opengl)
     QPushButton *enableOpenGLButton = new QPushButton(mainGroup);
     enableOpenGLButton->setText(tr("Use OpenGL"));
     enableOpenGLButton->setCheckable(true);
     enableOpenGLButton->setChecked(m_renderer->usesOpenGL());
-    if (!QGLFormat::hasOpenGL())
-        enableOpenGLButton->hide();
 #endif
 
     QPushButton *whatsThisButton = new QPushButton(mainGroup);
@@ -131,7 +130,7 @@ void PathDeformControls::layoutForDesktop()
     mainGroupLayout->addWidget(textGroup);
     mainGroupLayout->addWidget(animateButton);
     mainGroupLayout->addStretch(1);
-#ifdef QT_OPENGL_SUPPORT
+#if QT_CONFIG(opengl)
     mainGroupLayout->addWidget(enableOpenGLButton);
 #endif
     mainGroupLayout->addWidget(showSourceButton);
@@ -157,7 +156,7 @@ void PathDeformControls::layoutForDesktop()
     connect(deformSlider, SIGNAL(valueChanged(int)), m_renderer, SLOT(setIntensity(int)));
     connect(fontSizeSlider, SIGNAL(valueChanged(int)), m_renderer, SLOT(setFontSize(int)));
     connect(animateButton, SIGNAL(clicked(bool)), m_renderer, SLOT(setAnimated(bool)));
-#ifdef QT_OPENGL_SUPPORT
+#if QT_CONFIG(opengl)
     connect(enableOpenGLButton, SIGNAL(clicked(bool)), m_renderer, SLOT(enableOpenGL(bool)));
 #endif
 
@@ -200,13 +199,11 @@ void PathDeformControls::layoutForSmallScreen()
     QPushButton *animateButton = new QPushButton(tr("Animated"), mainGroup);
     animateButton->setCheckable(true);
 
-#ifdef QT_OPENGL_SUPPORT
+#if QT_CONFIG(opengl)
     QPushButton *enableOpenGLButton = new QPushButton(mainGroup);
     enableOpenGLButton->setText(tr("Use OpenGL"));
     enableOpenGLButton->setCheckable(mainGroup);
     enableOpenGLButton->setChecked(m_renderer->usesOpenGL());
-    if (!QGLFormat::hasOpenGL())
-        enableOpenGLButton->hide();
 #endif
 
     QPushButton *quitButton = new QPushButton(tr("Quit"), mainGroup);
@@ -222,7 +219,7 @@ void PathDeformControls::layoutForSmallScreen()
     mainGroupLayout->addWidget(fontSizeLabel, 2, 0, Qt::AlignRight);
     mainGroupLayout->addWidget(fontSizeSlider, 2, 1);
     mainGroupLayout->addWidget(animateButton, 3,0, 1,2);
-#ifdef QT_OPENGL_SUPPORT
+#if QT_CONFIG(opengl)
     mainGroupLayout->addWidget(enableOpenGLButton, 4,0, 1,2);
 #endif
 
@@ -238,7 +235,7 @@ void PathDeformControls::layoutForSmallScreen()
     connect(deformSlider, SIGNAL(valueChanged(int)), m_renderer, SLOT(setIntensity(int)));
     connect(fontSizeSlider, SIGNAL(valueChanged(int)), m_renderer, SLOT(setFontSize(int)));
     connect(animateButton, SIGNAL(clicked(bool)), m_renderer, SLOT(setAnimated(bool)));
-#ifdef QT_OPENGL_SUPPORT
+#if QT_CONFIG(opengl)
     connect(enableOpenGLButton, SIGNAL(clicked(bool)), m_renderer, SLOT(enableOpenGL(bool)));
 #endif
 
@@ -247,7 +244,7 @@ void PathDeformControls::layoutForSmallScreen()
     deformSlider->setValue(80);
     fontSizeSlider->setValue(120);
 
-    QRect screen_size = QApplication::desktop()->screenGeometry();
+    QRect screen_size = QGuiApplication::primaryScreen()->geometry();
     radiusSlider->setValue(qMin(screen_size.width(), screen_size.height())/5);
 
     m_renderer->setText(tr("Qt"));
@@ -277,7 +274,7 @@ PathDeformWidget::PathDeformWidget(QWidget *parent, bool smallScreen)
 
     connect(m_renderer, SIGNAL(clicked()), this, SLOT(showControls()));
     connect(m_controls, SIGNAL(okPressed()), this, SLOT(hideControls()));
-    connect(m_controls, SIGNAL(quitPressed()), QApplication::instance(), SLOT(quit()));
+    connect(m_controls, SIGNAL(quitPressed()), QCoreApplication::instance(), SLOT(quit()));
 }
 
 
@@ -364,7 +361,7 @@ void PathDeformRenderer::setText(const QString &text)
             path.addText(advance, f, text.mid(i, 1));
             m_pathBounds |= path.boundingRect();
             m_paths << path;
-            advance += QPointF(fm.width(text.mid(i, 1)), 0);
+            advance += QPointF(fm.horizontalAdvance(text.mid(i, 1)), 0);
         }
     } else {
         QPainterPath path;
@@ -462,7 +459,7 @@ void PathDeformRenderer::timerEvent(QTimerEvent *e)
             m_pos.setY(height() - m_radius);
         }
 
-#ifdef QT_OPENGL_SUPPORT
+#if QT_CONFIG(opengl)
         if (usesOpenGL()) {
             update();
         } else
@@ -482,6 +479,10 @@ void PathDeformRenderer::timerEvent(QTimerEvent *e)
 
 void PathDeformRenderer::mousePressEvent(QMouseEvent *e)
 {
+    if (m_show_doc) {
+        setDescriptionEnabled(false);
+        return;
+    }
     setDescriptionEnabled(false);
 
     m_repaintTimer.stop();
@@ -522,7 +523,7 @@ void PathDeformRenderer::mouseMoveEvent(QMouseEvent *e)
             m_direction = (m_direction + dir) / 2;
         }
         m_pos = e->pos() + m_offset;
-#ifdef QT_OPENGL_SUPPORT
+#if QT_CONFIG(opengl)
         if (usesOpenGL()) {
             update();
         } else
@@ -615,7 +616,7 @@ void PathDeformRenderer::setRadius(int radius)
     m_radius = radius;
     generateLensPixmap();
     if (!m_animated || m_radius < max) {
-#ifdef QT_OPENGL_SUPPORT
+#if QT_CONFIG(opengl)
         if (usesOpenGL()){
             update();
             return;
@@ -629,7 +630,7 @@ void PathDeformRenderer::setIntensity(int intensity)
 {
     m_intensity = intensity;
     if (!m_animated) {
-#ifdef QT_OPENGL_SUPPORT
+#if QT_CONFIG(opengl)
         if (usesOpenGL()) {
             update();
             return;

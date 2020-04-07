@@ -11,9 +11,10 @@
 #include "SkImage.h"
 #include "SkSurface.h"
 
-#if SK_SUPPORT_GPU
-
 #include "GrContext.h"
+#include "GrContextPriv.h"
+
+#include <utility>
 
 /** These benchmarks were designed to measure changes to GrResourceCache's replacement policy */
 
@@ -46,7 +47,7 @@ void set_cache_budget(SkCanvas* canvas, int approxImagesInBudget) {
     GrContext* context =  canvas->getGrContext();
     SkASSERT(context);
     context->flush();
-    context->purgeAllUnlockedResources();
+    context->contextPriv().purgeAllUnlockedResources_ForTesting();
     sk_sp<SkImage> image;
     make_images(&image, 1);
     draw_image(canvas, image.get());
@@ -55,7 +56,7 @@ void set_cache_budget(SkCanvas* canvas, int approxImagesInBudget) {
     context->getResourceCacheUsage(&baselineCount, nullptr);
     baselineCount -= 1; // for the image's textures.
     context->setResourceCacheLimits(baselineCount + approxImagesInBudget, 1 << 30);
-    context->purgeAllUnlockedResources();
+    context->contextPriv().purgeAllUnlockedResources_ForTesting();
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -103,7 +104,8 @@ protected:
                 }
                 for (int i = 0; i < kImagesToDraw - 1; ++i) {
                     int other = random.nextULessThan(kImagesToDraw - i) + i;
-                    SkTSwap(base[i], base[other]);
+                    using std::swap;
+                    swap(base[i], base[other]);
                 }
             }
         }
@@ -258,5 +260,3 @@ private:
 
 DEF_BENCH( return new ImageCacheBudgetDynamicBench(ImageCacheBudgetDynamicBench::Mode::kPingPong); )
 DEF_BENCH( return new ImageCacheBudgetDynamicBench(ImageCacheBudgetDynamicBench::Mode::kFlipFlop); )
-
-#endif

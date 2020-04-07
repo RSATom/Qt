@@ -271,7 +271,8 @@ GLTFImporter::~GLTFImporter()
 /*!
     \class Qt3DRender::GLTFImporter
     \inmodule Qt3DRender
-    \brief Handles importing of gltf files
+    \internal
+    \brief Handles importing of gltf files.
 */
 /*!
     Set the base \a path for importing scenes.
@@ -1167,7 +1168,8 @@ void GLTFImporter::processJSONBufferView(const QString &id, const QJsonObject& j
                   qUtf16PrintableImpl(bufferData.path), qUtf16PrintableImpl(id));
     }
 
-    Qt3DRender::QBuffer *b(new Qt3DRender::QBuffer(ty));
+    Qt3DRender::QBuffer *b = new Qt3DRender::QBuffer();
+    b->setType(ty);
     b->setData(bytes);
     m_buffers[id] = b;
 }
@@ -1549,6 +1551,7 @@ void GLTFImporter::processJSONTexture(const QString &id, const QJsonObject &json
     }
 
     QTextureImage *texImage = new QTextureImage(tex);
+    texImage->setMirrored(false);
     texImage->setSource(QUrl::fromLocalFile(imagIt.value()));
     tex->addTextureImage(texImage);
 

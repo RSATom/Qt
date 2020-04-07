@@ -11,11 +11,10 @@
 
 #include "base/atomic_sequence_num.h"
 #include "base/bind.h"
-#include "base/memory/ptr_util.h"
-#include "base/message_loop/message_loop.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/stl_util.h"
 #include "base/values.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_process_host.h"
 #include "extensions/browser/api_activity_monitor.h"
 #include "extensions/browser/event_router_factory.h"
@@ -50,6 +49,9 @@ namespace {
 // A dictionary of event names to lists of filters that this extension has
 // registered from its lazy background page.
 const char kFilteredEvents[] = "filtered_events";
+
+// Similar to |kFilteredEvents|, but applies to extension service worker events.
+const char kFilteredServiceWorkerEvents[] = "filtered_service_worker_events";
 
 // Sends a notification about an event to the API activity monitor and the
 // ExtensionHost for |extension_id| on the UI thread. Can be called from any
@@ -134,9 +136,9 @@ void EventRouter::DispatchEventToSender(IPC::Sender* ipc_sender,
   }
 
   DispatchExtensionMessage(ipc_sender,
-                           // TODO(lazyboy): |kNonWorkerThreadId| means these
+                           // TODO(lazyboy): |kMainThreadId| means these
                            // will not work for extension SW.
-                           kNonWorkerThreadId, browser_context_id, extension_id,
+                           kMainThreadId, browser_context_id, extension_id,
                            event_id, event_name, event_args.get(), user_gesture,
                            info);
 }
@@ -270,9 +272,9 @@ void EventRouter::OnListenerRemoved(const EventListener* listener) {
     observer->second->OnListenerRemoved(details);
 }
 
-void EventRouter::RenderProcessExited(content::RenderProcessHost* host,
-                                      base::TerminationStatus status,
-                                      int exit_code) {
+void EventRouter::RenderProcessExited(
+    content::RenderProcessHost* host,
+    const content::ChildProcessTerminationInfo& info) {
   listeners_.RemoveListenersForProcess(host);
   observed_process_set_.erase(host);
   host->RemoveObserver(this);
@@ -305,7 +307,7 @@ void EventRouter::AddLazyServiceWorkerEventListener(
   std::unique_ptr<EventListener> listener =
       EventListener::ForExtensionServiceWorker(
           event_name, extension_id, nullptr, service_worker_scope,
-          kNonWorkerThreadId,  // Lazy, without worker thread id.
+          kMainThreadId,  // Lazy, without worker thread id.
           nullptr);
   AddLazyEventListenerImpl(std::move(listener),
                            RegisteredEventType::kServiceWorker);
@@ -318,42 +320,59 @@ void EventRouter::RemoveLazyServiceWorkerEventListener(
   std::unique_ptr<EventListener> listener =
       EventListener::ForExtensionServiceWorker(
           event_name, extension_id, nullptr, service_worker_scope,
-          kNonWorkerThreadId,  // Lazy, without worker thread id.
+          kMainThreadId,  // Lazy, without worker thread id.
           nullptr);
   RemoveLazyEventListenerImpl(std::move(listener),
                               RegisteredEventType::kServiceWorker);
 }
 
-// TODO(lazyboy): Support filters for extension SW events.
-void EventRouter::AddFilteredEventListener(const std::string& event_name,
-                                           content::RenderProcessHost* process,
-                                           const std::string& extension_id,
-                                           const base::DictionaryValue& filter,
-                                           bool add_lazy_listener) {
-  listeners_.AddListener(EventListener::ForExtension(
-      event_name, extension_id, process,
-      std::unique_ptr<DictionaryValue>(filter.DeepCopy())));
+void EventRouter::AddFilteredEventListener(
+    const std::string& event_name,
+    content::RenderProcessHost* process,
+    const std::string& extension_id,
+    base::Optional<ServiceWorkerIdentifier> sw_identifier,
+    const base::DictionaryValue& filter,
+    bool add_lazy_listener) {
+  const bool is_for_service_worker = sw_identifier.has_value();
+  listeners_.AddListener(
+      is_for_service_worker
+          ? EventListener::ForExtensionServiceWorker(
+                event_name, extension_id, process, sw_identifier->scope,
+                sw_identifier->thread_id, filter.CreateDeepCopy())
+          : EventListener::ForExtension(event_name, extension_id, process,
+                                        filter.CreateDeepCopy()));
 
   if (!add_lazy_listener)
     return;
 
-  bool added = listeners_.AddListener(EventListener::ForExtension(
-      event_name, extension_id, nullptr,
-      std::unique_ptr<DictionaryValue>(filter.DeepCopy())));
+  bool added = listeners_.AddListener(
+      is_for_service_worker
+          ? EventListener::ForExtensionServiceWorker(
+                event_name, extension_id, nullptr, sw_identifier->scope,
+                kMainThreadId,  // Lazy, without worker thread id.
+                filter.CreateDeepCopy())
+          : EventListener::ForExtension(event_name, extension_id,
+                                        nullptr,  // Lazy, without process.
+                                        filter.CreateDeepCopy()));
   if (added)
-    AddFilterToEvent(event_name, extension_id, &filter);
+    AddFilterToEvent(event_name, extension_id, is_for_service_worker, &filter);
 }
 
-// TODO(lazyboy): Support filters for extension SW events.
 void EventRouter::RemoveFilteredEventListener(
     const std::string& event_name,
     content::RenderProcessHost* process,
     const std::string& extension_id,
+    base::Optional<ServiceWorkerIdentifier> sw_identifier,
     const base::DictionaryValue& filter,
     bool remove_lazy_listener) {
-  std::unique_ptr<EventListener> listener = EventListener::ForExtension(
-      event_name, extension_id, process,
-      std::unique_ptr<DictionaryValue>(filter.DeepCopy()));
+  const bool is_for_service_worker = sw_identifier.has_value();
+  std::unique_ptr<EventListener> listener =
+      is_for_service_worker
+          ? EventListener::ForExtensionServiceWorker(
+                event_name, extension_id, process, sw_identifier->scope,
+                sw_identifier->thread_id, filter.CreateDeepCopy())
+          : EventListener::ForExtension(event_name, extension_id, process,
+                                        filter.CreateDeepCopy());
 
   listeners_.RemoveListener(listener.get());
 
@@ -361,8 +380,10 @@ void EventRouter::RemoveFilteredEventListener(
     listener->MakeLazy();
     bool removed = listeners_.RemoveListener(listener.get());
 
-    if (removed)
-      RemoveFilterFromEvent(event_name, extension_id, &filter);
+    if (removed) {
+      RemoveFilterFromEvent(event_name, extension_id, is_for_service_worker,
+                            &filter);
+    }
   }
 }
 
@@ -416,11 +437,23 @@ bool EventRouter::HasLazyEventListenerForTesting(
                      });
 }
 
+bool EventRouter::HasNonLazyEventListenerForTesting(
+    const std::string& event_name) {
+  const EventListenerMap::ListenerList& listeners =
+      listeners_.GetEventListenersByName(event_name);
+  return std::any_of(listeners.begin(), listeners.end(),
+                     [](const std::unique_ptr<EventListener>& listener) {
+                       return !listener->IsLazy();
+                     });
+}
+
 void EventRouter::RemoveFilterFromEvent(const std::string& event_name,
                                         const std::string& extension_id,
+                                        bool is_for_service_worker,
                                         const DictionaryValue* filter) {
   ExtensionPrefs::ScopedDictionaryUpdate update(
-      extension_prefs_, extension_id, kFilteredEvents);
+      extension_prefs_, extension_id,
+      is_for_service_worker ? kFilteredServiceWorkerEvents : kFilteredEvents);
   auto filtered_events = update.Create();
   ListValue* filter_list = NULL;
   if (!filtered_events ||
@@ -439,10 +472,13 @@ void EventRouter::RemoveFilterFromEvent(const std::string& event_name,
 }
 
 const DictionaryValue* EventRouter::GetFilteredEvents(
-    const std::string& extension_id) {
-  const DictionaryValue* events = NULL;
-  extension_prefs_->ReadPrefAsDictionary(
-      extension_id, kFilteredEvents, &events);
+    const std::string& extension_id,
+    RegisteredEventType type) {
+  const DictionaryValue* events = nullptr;
+  const char* pref_key = type == RegisteredEventType::kLazy
+                             ? kFilteredEvents
+                             : kFilteredServiceWorkerEvents;
+  extension_prefs_->ReadPrefAsDictionary(extension_id, pref_key, &events);
   return events;
 }
 
@@ -495,8 +531,9 @@ void EventRouter::DispatchEventImpl(const std::string& restrict_to_extension_id,
     }
     if (listener->IsLazy()) {
       if (listener->is_for_service_worker()) {
-        lazy_event_dispatcher.DispatchToServiceWorker(
-            listener->extension_id(), listener->listener_url(), nullptr);
+        lazy_event_dispatcher.DispatchToServiceWorker(listener->extension_id(),
+                                                      listener->listener_url(),
+                                                      listener->filter());
       } else {
         lazy_event_dispatcher.DispatchToEventPage(listener->extension_id(),
                                                   listener->filter());
@@ -665,6 +702,13 @@ void EventRouter::OnEventAck(BrowserContext* context,
     pm->DecrementLazyKeepaliveCount(host->extension());
 }
 
+bool EventRouter::HasRegisteredEvents(const ExtensionId& extension_id) const {
+  return !GetRegisteredEvents(extension_id, RegisteredEventType::kLazy)
+              .empty() ||
+         !GetRegisteredEvents(extension_id, RegisteredEventType::kServiceWorker)
+              .empty();
+}
+
 void EventRouter::ReportEvent(events::HistogramValue histogram_value,
                               const Extension* extension,
                               bool did_enqueue) {
@@ -735,7 +779,7 @@ void EventRouter::DispatchPendingEvent(
 void EventRouter::SetRegisteredEvents(const std::string& extension_id,
                                       const std::set<std::string>& events,
                                       RegisteredEventType type) {
-  auto events_value = base::MakeUnique<base::ListValue>();
+  auto events_value = std::make_unique<base::ListValue>();
   for (std::set<std::string>::const_iterator iter = events.begin();
        iter != events.end(); ++iter) {
     events_value->AppendString(*iter);
@@ -749,15 +793,17 @@ void EventRouter::SetRegisteredEvents(const std::string& extension_id,
 
 void EventRouter::AddFilterToEvent(const std::string& event_name,
                                    const std::string& extension_id,
+                                   bool is_for_service_worker,
                                    const DictionaryValue* filter) {
-  ExtensionPrefs::ScopedDictionaryUpdate update(extension_prefs_, extension_id,
-                                                kFilteredEvents);
+  ExtensionPrefs::ScopedDictionaryUpdate update(
+      extension_prefs_, extension_id,
+      is_for_service_worker ? kFilteredServiceWorkerEvents : kFilteredEvents);
   auto filtered_events = update.Create();
 
   ListValue* filter_list = nullptr;
   if (!filtered_events->GetListWithoutPathExpansion(event_name, &filter_list)) {
     filtered_events->SetWithoutPathExpansion(
-        event_name, base::MakeUnique<base::ListValue>());
+        event_name, std::make_unique<base::ListValue>());
     filtered_events->GetListWithoutPathExpansion(event_name, &filter_list);
   }
 
@@ -767,14 +813,27 @@ void EventRouter::AddFilterToEvent(const std::string& event_name,
 void EventRouter::OnExtensionLoaded(content::BrowserContext* browser_context,
                                     const Extension* extension) {
   // Add all registered lazy listeners to our cache.
-  // TODO(lazyboy): Load extension SW lazy events.
   std::set<std::string> registered_events =
       GetRegisteredEvents(extension->id(), RegisteredEventType::kLazy);
   listeners_.LoadUnfilteredLazyListeners(extension->id(), registered_events);
-  // TODO(lazyboy): Load extension SW filtered events when they are available.
-  const DictionaryValue* filtered_events = GetFilteredEvents(extension->id());
+
+  std::set<std::string> registered_worker_events =
+      GetRegisteredEvents(extension->id(), RegisteredEventType::kServiceWorker);
+  listeners_.LoadUnfilteredWorkerListeners(extension->id(),
+                                           registered_worker_events);
+
+  const DictionaryValue* filtered_events =
+      GetFilteredEvents(extension->id(), RegisteredEventType::kLazy);
   if (filtered_events)
-    listeners_.LoadFilteredLazyListeners(extension->id(), *filtered_events);
+    listeners_.LoadFilteredLazyListeners(
+        extension->id(), false /* is_for_service_worker */, *filtered_events);
+
+  const DictionaryValue* filtered_worker_events =
+      GetFilteredEvents(extension->id(), RegisteredEventType::kServiceWorker);
+  if (filtered_worker_events)
+    listeners_.LoadFilteredLazyListeners(extension->id(),
+                                         true /* is_for_service_worker */,
+                                         *filtered_worker_events);
 }
 
 void EventRouter::OnExtensionUnloaded(content::BrowserContext* browser_context,

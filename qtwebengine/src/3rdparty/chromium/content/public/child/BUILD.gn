@@ -2,7 +2,8 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import("//ppapi/features/features.gni")
+import("//build/config/jumbo.gni")
+import("//ppapi/buildflags/buildflags.gni")
 
 # See //content/BUILD.gn for how this works.
 group("child") {
@@ -23,20 +24,14 @@ group("child") {
   }
 }
 
-source_set("child_sources") {
+jumbo_source_set("child_sources") {
   # External code should depend in via ":child" above.
   visibility = [ "//content/*" ]
 
   sources = [
-    "child_process_sandbox_support_linux.h",
     "child_thread.h",
-    "fixed_received_data.cc",
-    "fixed_received_data.h",
+    "dwrite_font_proxy_init_win.h",
     "image_decoder_utils.h",
-    "request_peer.h",
-    "resource_dispatcher_delegate.h",
-    "v8_value_converter.h",
-    "worker_thread.h",
   ]
 
   configs += [

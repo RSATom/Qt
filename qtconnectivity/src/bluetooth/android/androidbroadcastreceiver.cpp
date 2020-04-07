@@ -54,9 +54,7 @@ AndroidBroadcastReceiver::AndroidBroadcastReceiver(QObject* parent)
     : QObject(parent), valid(false)
 {
     // get Qt Context
-    // TODO: replace with QtAndroidPrivate::context() introduced by Qt 5.8
-    contextObject = QAndroidJniObject(QtAndroidPrivate::activity()
-                                      ? QtAndroidPrivate::activity() : QtAndroidPrivate::service());
+    contextObject = QAndroidJniObject(QtAndroidPrivate::context());
 
     broadcastReceiverObject = QAndroidJniObject("org/qtproject/qt5/android/bluetooth/QtBluetoothBroadcastReceiver");
     if (!broadcastReceiverObject.isValid())

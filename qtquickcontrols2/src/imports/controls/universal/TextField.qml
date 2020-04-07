@@ -34,20 +34,19 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.10
-import QtQuick.Templates 2.3 as T
-import QtQuick.Controls 2.3
-import QtQuick.Controls.impl 2.3
-import QtQuick.Controls.Universal 2.3
+import QtQuick 2.12
+import QtQuick.Templates 2.12 as T
+import QtQuick.Controls 2.12
+import QtQuick.Controls.impl 2.12
+import QtQuick.Controls.Universal 2.12
 
 T.TextField {
     id: control
 
-    implicitWidth: Math.max(background ? background.implicitWidth : 0,
-                            placeholderText ? placeholder.implicitWidth + leftPadding + rightPadding : 0)
-                            || contentWidth + leftPadding + rightPadding
-    implicitHeight: Math.max(contentHeight + topPadding + bottomPadding,
-                             background ? background.implicitHeight : 0,
+    implicitWidth: implicitBackgroundWidth + leftInset + rightInset
+                   || Math.max(contentWidth, placeholder.implicitWidth) + leftPadding + rightPadding
+    implicitHeight: Math.max(implicitBackgroundHeight + topInset + bottomInset,
+                             contentHeight + topPadding + bottomPadding,
                              placeholder.implicitHeight + topPadding + bottomPadding)
 
     // TextControlThemePadding + 2 (border)
@@ -61,6 +60,9 @@ T.TextField {
     color: !enabled ? Universal.chromeDisabledLowColor : Universal.foreground
     selectionColor: Universal.accent
     selectedTextColor: Universal.chromeWhiteColor
+    placeholderTextColor: !enabled ? Universal.chromeDisabledLowColor :
+                                     activeFocus ? Universal.chromeBlackMediumLowColor :
+                                                   Universal.baseMediumColor
     verticalAlignment: TextInput.AlignVCenter
 
     PlaceholderText {
@@ -72,11 +74,11 @@ T.TextField {
 
         text: control.placeholderText
         font: control.font
-        color: !control.enabled ? control.Universal.chromeDisabledLowColor :
-                control.activeFocus ? control.Universal.chromeBlackMediumLowColor : control.Universal.baseMediumColor
+        color: control.placeholderTextColor
         visible: !control.length && !control.preeditText && (!control.activeFocus || control.horizontalAlignment !== Qt.AlignHCenter)
         verticalAlignment: control.verticalAlignment
         elide: Text.ElideRight
+        renderType: control.renderType
     }
 
     background: Rectangle {

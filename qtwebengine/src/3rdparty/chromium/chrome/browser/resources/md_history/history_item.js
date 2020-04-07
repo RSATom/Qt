@@ -2,33 +2,28 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-/**
- * @param {!Element} root
- * @param {?Element} boundary
- * @param {cr.ui.FocusRow.Delegate} delegate
- * @constructor
- * @extends {cr.ui.FocusRow}
- */
-function HistoryFocusRow(root, boundary, delegate) {
-  cr.ui.FocusRow.call(this, root, boundary, delegate);
-  this.addItems();
-}
-
-HistoryFocusRow.prototype = {
-  __proto__: cr.ui.FocusRow.prototype,
+class HistoryFocusRow extends cr.ui.FocusRow {
+  /**
+   * @param {!Element} root
+   * @param {?Element} boundary
+   * @param {cr.ui.FocusRow.Delegate} delegate
+   */
+  constructor(root, boundary, delegate) {
+    super(root, boundary, delegate);
+    this.addItems();
+  }
 
   /** @override */
-  getCustomEquivalent: function(sampleElement) {
-    var equivalent;
+  getCustomEquivalent(sampleElement) {
+    let equivalent;
 
     if (this.getTypeForElement(sampleElement) == 'star')
       equivalent = this.getFirstFocusable('title');
 
-    return equivalent ||
-        cr.ui.FocusRow.prototype.getCustomEquivalent.call(this, sampleElement);
-  },
+    return equivalent || super.getCustomEquivalent(sampleElement);
+  }
 
-  addItems: function() {
+  addItems() {
     this.destroy();
 
     assert(this.addItem('checkbox', '#checkbox'));
@@ -36,28 +31,25 @@ HistoryFocusRow.prototype = {
     assert(this.addItem('menu-button', '#menu-button'));
 
     this.addItem('star', '#bookmark-star');
-  },
-};
+  }
+}
 
 cr.define('md_history', function() {
-  /**
-   * @param {{lastFocused: Object}} historyItemElement
-   * @constructor
-   * @implements {cr.ui.FocusRow.Delegate}
-   */
-  function FocusRowDelegate(historyItemElement) {
-    this.historyItemElement = historyItemElement;
-  }
+  /** @implements {cr.ui.FocusRow.Delegate} */
+  class FocusRowDelegate {
+    /** @param {{lastFocused: Object}} historyItemElement */
+    constructor(historyItemElement) {
+      this.historyItemElement = historyItemElement;
+    }
 
-  FocusRowDelegate.prototype = {
     /**
      * @override
      * @param {!cr.ui.FocusRow} row
      * @param {!Event} e
      */
-    onFocus: function(row, e) {
+    onFocus(row, e) {
       this.historyItemElement.lastFocused = e.path[0];
-    },
+    }
 
     /**
      * @override
@@ -65,7 +57,7 @@ cr.define('md_history', function() {
      * @param {!Event} e
      * @return {boolean} Whether the event was handled.
      */
-    onKeydown: function(row, e) {
+    onKeydown(row, e) {
       // Allow Home and End to move the history list.
       if (e.key == 'Home' || e.key == 'End')
         return true;
@@ -75,10 +67,10 @@ cr.define('md_history', function() {
         e.stopPropagation();
 
       return false;
-    },
-  };
+    }
+  }
 
-  var HistoryItem = Polymer({
+  const HistoryItem = Polymer({
     is: 'history-item',
 
     properties: {
@@ -135,6 +127,9 @@ cr.define('md_history', function() {
 
     /** @private {boolean} */
     mouseDown_: false,
+
+    /** @private {boolean} */
+    isShiftKeyDown_: false,
 
     /** @override */
     attached: function() {
@@ -196,8 +191,8 @@ cr.define('md_history', function() {
      * @private
      */
     onItemClick_: function(e) {
-      for (var i = 0; i < e.path.length; i++) {
-        var elem = e.path[i];
+      for (let i = 0; i < e.path.length; i++) {
+        const elem = e.path[i];
         if (elem.id != 'checkbox' &&
             (elem.nodeName == 'A' || elem.nodeName == 'BUTTON')) {
           return;
@@ -215,14 +210,41 @@ cr.define('md_history', function() {
     },
 
     /**
+     * This is bound to mouse/keydown instead of click/press because this
+     * has to fire before onCheckboxChange_. If we bind it to click/press,
+     * it might trigger out of disired order.
+     *
+     * @param {!Event} e
+     * @private
+     */
+    onCheckboxClick_: function(e) {
+      this.isShiftKeyDown_ = e.shiftKey;
+    },
+
+    /**
+     * @param {!Event} e
+     * @private
+     */
+    onCheckboxChange_: function(e) {
+      this.fire('history-checkbox-select', {
+        index: this.index,
+        // If the user clicks or press enter/space key, oncheckboxClick_ will
+        // trigger before this function, so a shift-key might be recorded.
+        shiftKey: this.isShiftKeyDown_,
+      });
+
+      this.isShiftKeyDown_ = false;
+    },
+
+    /**
      * @param {MouseEvent} e
      * @private
      */
     onItemMousedown_: function(e) {
       this.mouseDown_ = true;
-      listenOnce(document, 'mouseup', function() {
+      listenOnce(document, 'mouseup', () => {
         this.mouseDown_ = false;
-      }.bind(this));
+      });
       // Prevent shift clicking a checkbox from selecting text.
       if (e.shiftKey)
         e.preventDefault();
@@ -233,7 +255,7 @@ cr.define('md_history', function() {
      * @return {string}
      */
     getEntrySummary_: function() {
-      var item = this.item;
+      const item = this.item;
       return loadTimeData.getStringF(
           'entrySummary', item.dateTimeOfDay,
           item.starred ? loadTimeData.getString('bookmarked') : '', item.title,
@@ -260,7 +282,7 @@ cr.define('md_history', function() {
       if (this.$$('#bookmark-star') == this.root.activeElement)
         this.$['menu-button'].focus();
 
-      var browserService = md_history.BrowserService.getInstance();
+      const browserService = md_history.BrowserService.getInstance();
       browserService.removeBookmark(this.item.url);
       browserService.recordAction('BookmarkStarClicked');
 
@@ -278,16 +300,16 @@ cr.define('md_history', function() {
         item: this.item,
       });
 
-      // Stops the 'tap' event from closing the menu when it opens.
+      // Stops the 'click' event from closing the menu when it opens.
       e.stopPropagation();
     },
 
     /**
-     * Record metrics when a result is clicked. This is deliberately tied to
-     * on-click rather than on-tap, as on-click triggers from middle clicks.
+     * Record metrics when a result is clicked.
+     * @private
      */
     onLinkClick_: function() {
-      var browserService = md_history.BrowserService.getInstance();
+      const browserService = md_history.BrowserService.getInstance();
       browserService.recordAction('EntryLinkClick');
 
       if (this.searchTerm)
@@ -336,7 +358,7 @@ cr.define('md_history', function() {
 
     /** @private */
     addTimeTitle_: function() {
-      var el = this.$['time-accessed'];
+      const el = this.$['time-accessed'];
       el.setAttribute('title', new Date(this.item.time).toString());
       this.unlisten(el, 'mouseover', 'addTimeTitle_');
     },
@@ -348,7 +370,7 @@ cr.define('md_history', function() {
    * @return {string} The title for a page of search results.
    */
   HistoryItem.searchResultsTitle = function(numberOfResults, searchTerm) {
-    var resultId = numberOfResults == 1 ? 'searchResult' : 'searchResults';
+    const resultId = numberOfResults == 1 ? 'searchResult' : 'searchResults';
     return loadTimeData.getStringF(
         'foundSearchResults', numberOfResults, loadTimeData.getString(resultId),
         searchTerm);

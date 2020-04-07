@@ -658,7 +658,14 @@
 
   When \c mode is not defined, the mode that is reported as preferred by the
   system is chosen. The accepted values for \c mode are: \c off, \c current,
-  \c preferred, width\c{x}height, or a modeline string.
+  \c preferred, width\c{x}height, width\c{x}height\c{@}vrefresh, or a modeline
+  string.
+
+  Specifying \c current will choose a mode with a resolution matching the
+  current one. Due to the fact that modesetting is done only when the desired
+  mode is actually different from the active one (unless forced via the
+  \c QT_QPA_EGLFS_ALWAYS_SET_MODE environment variable), this value is useful to
+  keep the current mode and any content in the planes not touched by Qt.
 
   All screens reported by the DRM layer will be treated as one big virtual
   desktop by default. The mouse cursor implementation will take this into
@@ -794,6 +801,105 @@
 
         qDeleteAll(views);
         return result;
+    }
+  \endcode
+
+  \section2 Advanced eglfs_kms features
+
+  Screen cloning (mirroring) is supported as of Qt 5.11. It can be enabled by
+  the \c clones property:
+
+  \badcode
+    {
+      "device": "/dev/dri/card0",
+      "outputs": [
+          { "name": "HDMI1", "mode": "1920x1080" },
+          { "name": "DP1", "mode": "1920x1080", "clones": "HDMI1" }
+     ]
+    }
+  \endcode
+
+  Here the content on the display connected via DisplayPort will be the same as
+  on the HDMI one. This is ensured by simply scanning out the same buffer on
+  both.
+
+  \note This can only work if the resolutions are the same, there are no
+  incompatibilities when it comes to accepted buffer formats, and the
+  application does not have any output on the QScreen associated with a clone
+  destination. In practice the latter means that no QWindow associated with the
+  QScreen in question - DP1 in the example - must ever perform a
+  QOpenGLContext::swapBuffers() operation. It is up to the configuration and the
+  application to ensure these.
+
+  Headless mode via DRM render nodes is supported as of Qt 5.11. This allows
+  performing GPU compute (OpenGL compute shaders, OpenCL) or offscreen OpenGL
+  rendering without needing DRM master privileges. In this mode applications can
+  function even when there is already another process outputting to the screen.
+
+  Just switching \c device from \c{/dev/dri/card0} to \c{/dev/dri/renderD128} is
+  futile on its own since there are a number of operations that cannot be
+  performed in headless mode. Therefore, this must be combined with a
+  \c headless property, for example:
+
+  \badcode
+    {
+        "device": "/dev/dri/renderD128",
+        "headless": "1024x768"
+    }
+  \endcode
+
+  Keep in mind that windows are still sized to match the - now virtual -
+  screen size, hence the need for specifying a size in the \c headless
+  property. There is also a lack of vsync-based throttling.
+
+  Once enabled, applications have two typical choices to perform offscreen
+  rendering in headless mode:
+
+  Use an ordinary window, such as a QOpenGLWindow subclass, targeting the
+  window's default framebuffer, meaning a \c{gbm_surface} in practice:
+
+  \badcode
+      MyOpenGLWindow w;
+      w.show(); // will not actually show up on screen
+      w.grabFramebuffer().save("output.png");
+  \endcode
+
+  Or the typical offscreen approach with an extra FBO:
+
+  \badcode
+     QOffscreenSurface s;
+     s.setFormat(ctx.format());
+     s.create();
+     ctx.makeCurrent(&s);
+     QOpenGLFramebufferObject fbo(1024, 768);
+     fbo.bind();
+     ctx.functions()->glClearColor(1, 0, 0, 1);
+     ctx.functions()->glClear(GL_COLOR_BUFFER_BIT);
+     fbo.toImage().save("output.png");
+     ctx.doneCurrent();
+  \endcode
+
+  KMS/DRM can be used with two different DRM APIs which are \e legacy and \e atomic.
+  The main benefit of DRM atomic API is to allow several DRM plane updates
+  within the same renderloop, whereas legacy API would require one plane update
+  per vsync.
+
+  Atomic API is useful when you application needs to blend content into overlays
+  keeping all the updates within the same vsync. Still not all devices
+  support this API and it could be unavailable on some older devices.
+  KMS backend will by default use the legacy API, but you can enable the DRM
+  atomic API with \c QT_QPA_EGLFS_KMS_ATOMIC environment variable set to 1.
+
+  Using a smaller framebuffer than screen resolution can also be useful.
+  This is possible with DRM atomic using the \c size parameter in the JSON file.
+  The example below uses a 1280x720 framebuffer on a 3840x2160 videomode :
+
+  \badcode
+    {
+      "device": "/dev/dri/card0",
+      "outputs": [
+        { "name": "HDMI1", "mode": "3840x2160", "size": "1280x720", "format": "argb8888" }
+      ]
     }
   \endcode
 
@@ -986,5 +1092,7 @@
    \li \l{Qt for Device Creation}
    \li \l Emulator
    \li \l{Qt Virtual Keyboard}
+   \li \l{Qt Quick WebGL}
   \endlist
+
 */

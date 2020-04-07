@@ -7,7 +7,7 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/macros.h"
-#include "base/message_loop/message_loop.h"
+#include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread_restrictions.h"
 #include "build/build_config.h"
@@ -21,8 +21,9 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
+#include "chrome/common/buildflags.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/features.h"
+#include "chrome/common/extensions/extension_test_util.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "content/public/browser/gpu_data_manager.h"
 #include "content/public/browser/notification_observer.h"
@@ -39,6 +40,11 @@
 
 #if BUILDFLAG(ENABLE_SUPERVISED_USERS)
 #include "chrome/browser/supervised_user/supervised_user_constants.h"
+
+#if defined(OS_CHROMEOS)
+#include "chromeos/chromeos_switches.h"
+#endif
+
 #endif  // BUILDFLAG(ENABLE_SUPERVISED_USERS)
 
 namespace utils = extension_function_test_utils;
@@ -58,7 +64,7 @@ class WebstoreInstallListener : public WebstoreInstaller::Delegate {
 
     if (waiting_) {
       waiting_ = false;
-      base::MessageLoopForUI::current()->QuitWhenIdle();
+      base::RunLoop::QuitCurrentWhenIdleDeprecated();
     }
   }
 
@@ -72,7 +78,7 @@ class WebstoreInstallListener : public WebstoreInstaller::Delegate {
 
     if (waiting_) {
       waiting_ = false;
-      base::MessageLoopForUI::current()->QuitWhenIdle();
+      base::RunLoop::QuitCurrentWhenIdleDeprecated();
     }
   }
 
@@ -116,7 +122,7 @@ class ExtensionWebstorePrivateApiTest : public ExtensionApiTest {
     // API functions.
     host_resolver()->AddRule("www.example.com", "127.0.0.1");
     ASSERT_TRUE(StartEmbeddedTestServer());
-    extensions::ExtensionInstallUI::set_disable_failure_ui_for_tests();
+    extensions::ExtensionInstallUI::set_disable_ui_for_tests();
 
     auto_confirm_install_.reset(
         new ScopedTestDialogAutoConfirm(ScopedTestDialogAutoConfirm::ACCEPT));
@@ -153,9 +159,8 @@ class ExtensionWebstorePrivateApiTest : public ExtensionApiTest {
     // See http://crbug.com/177163 for details.
     return true;
 #else
-    GURL crx_url = GetTestServerURL(crx_file);
-    base::CommandLine::ForCurrentProcess()->AppendSwitchASCII(
-        switches::kAppsGalleryUpdateURL, crx_url.spec());
+    const GURL crx_url = GetTestServerURL(crx_file);
+    extension_test_util::SetGalleryUpdateURL(crx_url);
 
     GURL page_url = GetTestServerURL(page);
     return RunPageTest(page_url.spec());
@@ -220,7 +225,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionWebstorePrivateApiTest, InstallAccepted) {
 // Test having the default download directory missing.
 IN_PROC_BROWSER_TEST_F(ExtensionWebstorePrivateApiTest, MissingDownloadDir) {
   // Set a non-existent directory as the download path.
-  base::ThreadRestrictions::ScopedAllowIO allow_io;
+  base::ScopedAllowBlockingForTesting allow_blocking;
   base::ScopedTempDir temp_dir;
   EXPECT_TRUE(temp_dir.CreateUniqueTempDir());
   base::FilePath missing_directory = temp_dir.Take();
@@ -371,6 +376,12 @@ class ExtensionWebstorePrivateApiTestChild
     ExtensionWebstorePrivateApiTest::SetUpCommandLine(command_line);
     command_line->AppendSwitchASCII(switches::kSupervisedUserId,
                                     supervised_users::kChildAccountSUID);
+#if defined(OS_CHROMEOS)
+    command_line->AppendSwitchASCII(
+        chromeos::switches::kLoginUser,
+        "supervised_user@locally-managed.localhost");
+    command_line->AppendSwitchASCII(chromeos::switches::kLoginProfile, "hash");
+#endif
   }
 };
 
@@ -398,7 +409,7 @@ class ExtensionWebstoreGetWebGLStatusTest : public InProcessBrowserTest {
     std::unique_ptr<base::Value> result(utils::RunFunctionAndReturnSingleResult(
         function.get(), kEmptyArgs, browser()));
     ASSERT_TRUE(result);
-    EXPECT_EQ(base::Value::Type::STRING, result->GetType());
+    EXPECT_EQ(base::Value::Type::STRING, result->type());
     std::string webgl_status;
     EXPECT_TRUE(result->GetAsString(&webgl_status));
     EXPECT_STREQ(webgl_allowed ? kWebGLStatusAllowed : kWebGLStatusBlocked,
@@ -415,11 +426,55 @@ IN_PROC_BROWSER_TEST_F(ExtensionWebstoreGetWebGLStatusTest, Allowed) {
 // Tests getWebGLStatus function when WebGL is blacklisted.
 IN_PROC_BROWSER_TEST_F(ExtensionWebstoreGetWebGLStatusTest, Blocked) {
   content::GpuDataManager::GetInstance()->BlacklistWebGLForTesting();
-  EXPECT_TRUE(content::GpuDataManager::GetInstance()->IsFeatureBlacklisted(
-      gpu::GPU_FEATURE_TYPE_ACCELERATED_WEBGL));
 
   bool webgl_allowed = false;
   RunTest(webgl_allowed);
+}
+
+class ExtensionWebstorePrivateGetReferrerChainApiTest
+    : public ExtensionWebstorePrivateApiTest {
+ public:
+  void SetUpOnMainThread() override {
+    host_resolver()->AddRule("redirect1.com", "127.0.0.1");
+    host_resolver()->AddRule("redirect2.com", "127.0.0.1");
+
+    ExtensionWebstorePrivateApiTest::SetUpOnMainThread();
+  }
+
+  GURL GetTestServerURLWithReferrers(const std::string& path) {
+    // Hand craft a url that will cause the test server to issue redirects.
+    const std::vector<std::string> redirects = {"redirect1.com",
+                                                "redirect2.com"};
+    net::HostPortPair host_port = embedded_test_server()->host_port_pair();
+    std::string redirect_chain;
+    for (const auto& redirect : redirects) {
+      std::string redirect_url = base::StringPrintf(
+          "http://%s:%d/server-redirect?", redirect.c_str(), host_port.port());
+      redirect_chain += redirect_url;
+    }
+
+    return GURL(redirect_chain + GetTestServerURL(path).spec());
+  }
+};
+
+// Tests that the GetReferrerChain API returns the redirect information.
+IN_PROC_BROWSER_TEST_F(ExtensionWebstorePrivateGetReferrerChainApiTest,
+                       GetReferrerChain) {
+  GURL page_url = GetTestServerURLWithReferrers("referrer_chain.html");
+  ASSERT_TRUE(RunPageTest(page_url.spec()));
+}
+
+// Tests that the GetReferrerChain API returns an empty string for profiles
+// opted out of SafeBrowsing.
+IN_PROC_BROWSER_TEST_F(ExtensionWebstorePrivateGetReferrerChainApiTest,
+                       GetReferrerChainForNonSafeBrowsingUser) {
+  PrefService* pref_service = browser()->profile()->GetPrefs();
+  EXPECT_TRUE(pref_service->GetBoolean(prefs::kSafeBrowsingEnabled));
+  // Disable SafeBrowsing.
+  pref_service->SetBoolean(prefs::kSafeBrowsingEnabled, false);
+
+  GURL page_url = GetTestServerURLWithReferrers("empty_referrer_chain.html");
+  ASSERT_TRUE(RunPageTest(page_url.spec()));
 }
 
 }  // namespace extensions

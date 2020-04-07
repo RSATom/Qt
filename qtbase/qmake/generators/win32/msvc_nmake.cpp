@@ -34,22 +34,9 @@
 #include <qdiriterator.h>
 #include <qset.h>
 
-#include <registry_p.h>
-
 #include <time.h>
 
 QT_BEGIN_NAMESPACE
-
-static QString nmakePathList(const QStringList &list)
-{
-    QStringList pathList;
-    pathList.reserve(list.size());
-    for (const QString &path : list)
-        pathList.append(QDir::cleanPath(path));
-
-    return QDir::toNativeSeparators(pathList.join(QLatin1Char(';')))
-            .replace('#', QLatin1String("^#")).replace('$', QLatin1String("$$"));
-}
 
 NmakeMakefileGenerator::NmakeMakefileGenerator() : usePCH(false), usePCHC(false)
 {
@@ -70,180 +57,6 @@ NmakeMakefileGenerator::writeMakefile(QTextStream &t)
         if(Option::mkfile::do_stub_makefile)
             return MakefileGenerator::writeStubMakefile(t);
 #endif
-        if (!project->isHostBuild()) {
-            if (project->isActiveConfig(QStringLiteral("winrt"))) {
-                QString arch = project->first("VCPROJ_ARCH").toQString().toLower();
-                QString compiler;
-                QString compilerArch;
-                const QString msvcVer = project->first("MSVC_VER").toQString();
-                if (msvcVer.isEmpty()) {
-                    fprintf(stderr, "Mkspec does not specify MSVC_VER. Cannot continue.\n");
-                    return false;
-                }
-
-                if (msvcVer == QStringLiteral("15.0")) {
-                    const ProStringList hostArch = project->values("QMAKE_TARGET.arch");
-                    if (hostArch.contains("x86_64"))
-                        compiler = QStringLiteral("HostX64/");
-                    else
-                        compiler = QStringLiteral("HostX86/");
-                    if (arch == QLatin1String("arm")) {
-                        compiler += QStringLiteral("arm");
-                        compilerArch = QStringLiteral("arm");
-                    } else if (arch == QLatin1String("x64")) {
-                        compiler += QStringLiteral("x64");
-                        compilerArch = QStringLiteral("amd64");
-                    } else {
-                        arch = QStringLiteral("x86");
-                        compiler += QStringLiteral("x86");
-                    }
-                } else {
-                    if (arch == QLatin1String("arm")) {
-                        compiler = QStringLiteral("x86_arm");
-                        compilerArch = QStringLiteral("arm");
-                    } else if (arch == QLatin1String("x64")) {
-                        const ProStringList hostArch = project->values("QMAKE_TARGET.arch");
-                        if (hostArch.contains("x86_64"))
-                            compiler = QStringLiteral("amd64");
-                        else
-                            compiler = QStringLiteral("x86_amd64");
-                        compilerArch = QStringLiteral("amd64");
-                    } else {
-                        arch = QStringLiteral("x86");
-                    }
-                }
-
-                const QString winsdkVer = project->first("WINSDK_VER").toQString();
-                if (winsdkVer.isEmpty()) {
-                    fprintf(stderr, "Mkspec does not specify WINSDK_VER. Cannot continue.\n");
-                    return false;
-                }
-                const QString targetVer = project->first("WINTARGET_VER").toQString();
-                if (targetVer.isEmpty()) {
-                    fprintf(stderr, "Mkspec does not specify WINTARGET_VER. Cannot continue.\n");
-                    return false;
-                }
-
-#ifdef Q_OS_WIN
-                QString regKey;
-                if (msvcVer == QStringLiteral("15.0"))
-                    regKey = QStringLiteral("Software\\Microsoft\\VisualStudio\\SxS\\VS7\\") + msvcVer;
-                else
-                    regKey = QStringLiteral("Software\\Microsoft\\VisualStudio\\") + msvcVer + ("\\Setup\\VC\\ProductDir");
-                const QString vcInstallDir = qt_readRegistryKey(HKEY_LOCAL_MACHINE, regKey, KEY_WOW64_32KEY);
-                if (vcInstallDir.isEmpty()) {
-                    fprintf(stderr, "Failed to find the Visual Studio installation directory.\n");
-                    return false;
-                }
-
-                const QString windowsPath = "Software\\Microsoft\\Microsoft SDKs\\Windows\\v";
-
-                regKey = windowsPath + winsdkVer + QStringLiteral("\\InstallationFolder");
-                const QString kitDir = qt_readRegistryKey(HKEY_LOCAL_MACHINE, regKey, KEY_WOW64_32KEY);
-                if (kitDir.isEmpty()) {
-                    fprintf(stderr, "Failed to find the Windows Kit installation directory.\n");
-                    return false;
-                }
-#else
-                const QString vcInstallDir = "/fake/vc_install_dir";
-                const QString kitDir = "/fake/sdk_install_dir";
-#endif // Q_OS_WIN
-                QStringList incDirs;
-                QStringList libDirs;
-                QStringList binDirs;
-                if (msvcVer == QStringLiteral("15.0")) {
-                    const QString toolsInstallDir = qgetenv("VCToolsInstallDir");
-                    if (toolsInstallDir.isEmpty()) {
-                        fprintf(stderr, "Failed to access tools installation dir.\n");
-                        return false;
-                    }
-
-                    binDirs << toolsInstallDir + QStringLiteral("bin/") + compiler;
-                    if (arch == QStringLiteral("x64"))
-                        binDirs << toolsInstallDir + QStringLiteral("bin/HostX86/X86");
-                    binDirs << kitDir + QStringLiteral("bin/x86");
-                    binDirs << vcInstallDir + QStringLiteral("Common7/Tools");
-                    binDirs << vcInstallDir + QStringLiteral("Common7/ide");
-                    binDirs << vcInstallDir + QStringLiteral("MSBuild/15.0/bin");
-
-                    incDirs << toolsInstallDir + QStringLiteral("include");
-                    incDirs << vcInstallDir + QStringLiteral("VC/Auxiliary/VS/include");
-
-                    const QString crtVersion = qgetenv("UCRTVersion");
-                    if (crtVersion.isEmpty()) {
-                        fprintf(stderr, "Failed to access CRT version.\n");
-                        return false;
-                    }
-                    const QString crtInclude = kitDir + QStringLiteral("Include/") + crtVersion;
-                    const QString crtLib = kitDir + QStringLiteral("Lib/") + crtVersion;
-                    incDirs << crtInclude + QStringLiteral("/ucrt");
-                    incDirs << crtInclude + QStringLiteral("/um");
-                    incDirs << crtInclude + QStringLiteral("/shared");
-                    incDirs << crtInclude + QStringLiteral("/winrt");
-
-                    incDirs << kitDir + QStringLiteral("Extension SDKs/WindowsMobile/")
-                                      + crtVersion + QStringLiteral("/Include/WinRT");
-
-                    libDirs << toolsInstallDir + QStringLiteral("lib/") + arch + QStringLiteral("/store");
-
-                    libDirs << vcInstallDir + QStringLiteral("VC/Auxiliary/VS/lib/") + arch;
-
-                    libDirs << crtLib + QStringLiteral("/ucrt/") + arch;
-                    libDirs << crtLib + QStringLiteral("/um/") + arch;
-                } else if (msvcVer == QStringLiteral("14.0")) {
-                    binDirs << vcInstallDir + QStringLiteral("bin/") + compiler;
-                    binDirs << vcInstallDir + QStringLiteral("bin/"); // Maybe remove for x86 again?
-                    binDirs << kitDir + QStringLiteral("bin/") + (arch == QStringLiteral("arm") ? QStringLiteral("x86") : arch);
-                    binDirs << vcInstallDir + QStringLiteral("../Common7/Tools/bin");
-                    binDirs << vcInstallDir + QStringLiteral("../Common7/Tools");
-                    binDirs << vcInstallDir + QStringLiteral("../Common7/ide");
-                    binDirs << kitDir + QStringLiteral("Windows Performance Toolkit/");
-
-                    incDirs << vcInstallDir + QStringLiteral("include");
-                    incDirs << vcInstallDir + QStringLiteral("atlmfc/include");
-
-                    const QString crtVersion = qgetenv("UCRTVersion");
-                    if (crtVersion.isEmpty()) {
-                        fprintf(stderr, "Failed to access CRT version.\n");
-                        return false;
-                    }
-                    const QString crtInclude = kitDir + QStringLiteral("Include/") + crtVersion;
-                    const QString crtLib = kitDir + QStringLiteral("Lib/") + crtVersion;
-                    incDirs << crtInclude + QStringLiteral("/ucrt");
-                    incDirs << crtInclude + QStringLiteral("/um");
-                    incDirs << crtInclude + QStringLiteral("/shared");
-                    incDirs << crtInclude + QStringLiteral("/winrt");
-
-                    incDirs << kitDir + QStringLiteral("Extension SDKs/WindowsMobile/")
-                                      + crtVersion + QStringLiteral("/Include/WinRT");
-
-                    libDirs << vcInstallDir + QStringLiteral("lib/store/") + compilerArch;
-                    libDirs << vcInstallDir + QStringLiteral("atlmfc/lib") + compilerArch;
-
-                    libDirs << crtLib + QStringLiteral("/ucrt/") + arch;
-                    libDirs << crtLib + QStringLiteral("/um/") + arch;
-                } else {
-                    incDirs << vcInstallDir + QStringLiteral("/include");
-                    libDirs << vcInstallDir + QStringLiteral("/lib/store/") + compilerArch
-                            << vcInstallDir + QStringLiteral("/lib/") + compilerArch;
-                    binDirs << vcInstallDir + QStringLiteral("/bin/") + compiler
-                            << vcInstallDir + QStringLiteral("/../Common7/IDE");
-                    libDirs << kitDir + QStringLiteral("/Lib/") + targetVer + ("/um/") + arch;
-                    incDirs << kitDir + QStringLiteral("/include/um")
-                            << kitDir + QStringLiteral("/include/shared")
-                            << kitDir + QStringLiteral("/include/winrt");
-                }
-
-                binDirs << vcInstallDir + QStringLiteral("/bin");
-
-                // Inherit PATH
-                binDirs << QString::fromLocal8Bit(qgetenv("PATH")).split(QLatin1Char(';'));
-
-                t << "\nINCLUDE = " << nmakePathList(incDirs);
-                t << "\nLIB = " << nmakePathList(libDirs);
-                t << "\nPATH = " << nmakePathList(binDirs) << '\n';
-            }
-        }
         writeNmakeParts(t);
         return MakefileGenerator::writeMakefile(t);
     }
@@ -263,6 +76,11 @@ void NmakeMakefileGenerator::writeSubMakeCall(QTextStream &t, const QString &cal
     Win32MakefileGenerator::writeSubMakeCall(t, callPrefix, makeArguments);
 }
 
+ProStringList NmakeMakefileGenerator::extraSubTargetDependencies()
+{
+    return { "$(MAKEFILE)" };
+}
+
 QString NmakeMakefileGenerator::defaultInstall(const QString &t)
 {
     QString ret = Win32MakefileGenerator::defaultInstall(t);
@@ -277,7 +95,9 @@ QString NmakeMakefileGenerator::defaultInstall(const QString &t)
 
     if (project->isActiveConfig("debug_info")) {
         if (t == "dlltarget" || project->values(ProKey(t + ".CONFIG")).indexOf("no_dll") == -1) {
-            QString pdb_target = project->first("TARGET") + project->first("TARGET_VERSION_EXT") + ".pdb";
+            const QFileInfo targetFileInfo = project->first("DESTDIR") + project->first("TARGET")
+                    + project->first("TARGET_EXT");
+            const QString pdb_target = targetFileInfo.completeBaseName() + ".pdb";
             QString src_targ = (project->isEmpty("DESTDIR") ? QString("$(DESTDIR)") : project->first("DESTDIR")) + pdb_target;
             QString dst_targ = filePrefixRoot(root, fileFixify(targetdir + pdb_target, FileFixifyAbsolute));
             if(!ret.isEmpty())
@@ -321,7 +141,7 @@ void NmakeMakefileGenerator::writeNmakeParts(QTextStream &t)
         QString precompRule = QString("-c -Yc -Fp%1 -Fo%2")
                 .arg(escapeFilePath(precompPch), escapeFilePath(precompObj));
         t << escapeDependencyPath(precompObj) << ": " << escapeDependencyPath(precompH) << ' '
-          << escapeDependencyPaths(findDependencies(precompH)).join(" \\\n\t\t")
+          << finalizeDependencyPaths(findDependencies(precompH)).join(" \\\n\t\t")
           << "\n\t$(CXX) " + precompRule +" $(CXXFLAGS) $(INCPATH) -TP "
           << escapeFilePath(precompH) << endl << endl;
     }
@@ -329,7 +149,7 @@ void NmakeMakefileGenerator::writeNmakeParts(QTextStream &t)
         QString precompRuleC = QString("-c -Yc -Fp%1 -Fo%2")
                 .arg(escapeFilePath(precompPchC), escapeFilePath(precompObjC));
         t << escapeDependencyPath(precompObjC) << ": " << escapeDependencyPath(precompH) << ' '
-          << escapeDependencyPaths(findDependencies(precompH)).join(" \\\n\t\t")
+          << finalizeDependencyPaths(findDependencies(precompH)).join(" \\\n\t\t")
           << "\n\t$(CC) " + precompRuleC +" $(CFLAGS) $(INCPATH) -TC "
           << escapeFilePath(precompH) << endl << endl;
     }
@@ -383,7 +203,7 @@ void NmakeMakefileGenerator::init()
 
     processVars();
 
-    project->values("QMAKE_LIBS") += project->values("RES_FILE");
+    project->values("LIBS") += project->values("RES_FILE");
 
     if (!project->values("DEF_FILE").isEmpty()) {
         QString defFileName = fileFixify(project->first("DEF_FILE").toQString());
@@ -434,15 +254,16 @@ void NmakeMakefileGenerator::init()
         project->values("PRECOMPILED_PCH_C")    = ProStringList(precompPchC);
     }
 
-    ProString tgt = project->first("DESTDIR")
-                    + project->first("TARGET") + project->first("TARGET_VERSION_EXT");
-    if(project->isActiveConfig("shared")) {
-        project->values("QMAKE_CLEAN").append(tgt + ".exp");
-        project->values("QMAKE_DISTCLEAN").append(tgt + ".lib");
+    const QFileInfo targetFileInfo = project->first("DESTDIR") + project->first("TARGET")
+            + project->first("TARGET_EXT");
+    const ProString targetBase = targetFileInfo.path() + '/' + targetFileInfo.completeBaseName();
+    if (project->first("TEMPLATE") == "lib" && project->isActiveConfig("shared")) {
+        project->values("QMAKE_CLEAN").append(targetBase + ".exp");
+        project->values("QMAKE_DISTCLEAN").append(targetBase + ".lib");
     }
     if (project->isActiveConfig("debug_info")) {
         QString pdbfile;
-        QString distPdbFile = tgt + ".pdb";
+        QString distPdbFile = targetBase + ".pdb";
         if (project->isActiveConfig("staticlib")) {
             // For static libraries, the compiler's pdb file and the dist pdb file are the same.
             pdbfile = distPdbFile;
@@ -458,8 +279,8 @@ void NmakeMakefileGenerator::init()
         project->values("QMAKE_DISTCLEAN").append(distPdbFile);
     }
     if (project->isActiveConfig("debug")) {
-        project->values("QMAKE_CLEAN").append(tgt + ".ilk");
-        project->values("QMAKE_CLEAN").append(tgt + ".idb");
+        project->values("QMAKE_CLEAN").append(targetBase + ".ilk");
+        project->values("QMAKE_CLEAN").append(targetBase + ".idb");
     } else {
         ProStringList &defines = project->values("DEFINES");
         if (!defines.contains("NDEBUG"))
@@ -499,7 +320,7 @@ void NmakeMakefileGenerator::writeImplicitRulesPart(QTextStream &t)
     QSet<QString> source_directories;
     if (useInferenceRules) {
         source_directories.insert(".");
-        static const char * const directories[] = { "UI_SOURCES_DIR", "UI_DIR", 0 };
+        static const char * const directories[] = { "UI_SOURCES_DIR", "UI_DIR", nullptr };
         for (int y = 0; directories[y]; y++) {
             QString dirTemp = project->first(directories[y]).toQString();
             if (dirTemp.endsWith("\\"))
@@ -507,7 +328,7 @@ void NmakeMakefileGenerator::writeImplicitRulesPart(QTextStream &t)
             if(!dirTemp.isEmpty())
                 source_directories.insert(dirTemp);
         }
-        static const char * const srcs[] = { "SOURCES", "GENERATED_SOURCES", 0 };
+        static const char * const srcs[] = { "SOURCES", "GENERATED_SOURCES", nullptr };
         for (int x = 0; srcs[x]; x++) {
             const ProStringList &l = project->values(srcs[x]);
             for (ProStringList::ConstIterator sit = l.begin(); sit != l.end(); ++sit) {
@@ -531,12 +352,13 @@ void NmakeMakefileGenerator::writeImplicitRulesPart(QTextStream &t)
             QDirIterator dit(sourceDir, sourceFilesFilter, QDir::Files | QDir::NoDotAndDotDot);
             while (dit.hasNext()) {
                 dit.next();
-                QString &duplicate = fileNames[dit.fileName()];
+                const QFileInfo fi = dit.fileInfo();
+                QString &duplicate = fileNames[fi.completeBaseName()];
                 if (duplicate.isNull()) {
-                    duplicate = dit.filePath();
+                    duplicate = fi.filePath();
                 } else {
                     warn_msg(WarnLogic, "%s conflicts with %s", qPrintable(duplicate),
-                             qPrintable(dit.filePath()));
+                             qPrintable(fi.filePath()));
                     duplicatesFound = true;
                 }
             }
@@ -584,8 +406,9 @@ void NmakeMakefileGenerator::writeBuildRulesPart(QTextStream &t)
 
     t << "first: all\n";
     t << "all: " << escapeDependencyPath(fileFixify(Option::output.fileName()))
-      << ' ' << depVar("ALL_DEPS") << " $(DESTDIR_TARGET)\n\n";
-    t << "$(DESTDIR_TARGET): " << depVar("PRE_TARGETDEPS") << " $(OBJECTS) " << depVar("POST_TARGETDEPS");
+      << ' ' << depVar("ALL_DEPS") << ' ' << depVar("DEST_TARGET") << "\n\n";
+    t << depVar("DEST_TARGET") << ": "
+      << depVar("PRE_TARGETDEPS") << " $(OBJECTS) " << depVar("POST_TARGETDEPS");
     if (templateName == "aux") {
         t << "\n\n";
         return;
@@ -619,6 +442,8 @@ void NmakeMakefileGenerator::writeBuildRulesPart(QTextStream &t)
                 }
             } else {
                 manifest = fileFixify(manifest);
+                if (linkerSupportsEmbedding)
+                    extraLFlags = "/MANIFEST:embed /MANIFESTINPUT:" + escapeFilePath(manifest);
             }
 
             const QString resourceId = (templateName == "app") ? "1" : "2";

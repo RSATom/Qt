@@ -3,6 +3,7 @@ include_directories(../include)
 add_subdirectory(bio)
 add_subdirectory(blowfish)
 add_subdirectory(cast)
+add_subdirectory(cfb)
 add_subdirectory(des)
 add_subdirectory(dh)
 add_subdirectory(dsa)
@@ -21,6 +22,7 @@ add_library(
   $<TARGET_OBJECTS:bio_decrepit>
   $<TARGET_OBJECTS:blowfish>
   $<TARGET_OBJECTS:cast>
+  $<TARGET_OBJECTS:cfb>
   $<TARGET_OBJECTS:des_decrepit>
   $<TARGET_OBJECTS:dh_decrepit>
   $<TARGET_OBJECTS:dsa_decrepit>
@@ -40,12 +42,13 @@ add_executable(
   decrepit_test
 
   ripemd/ripemd_test.cc
+  cfb/cfb_test.cc
 
-  $<TARGET_OBJECTS:gtest_main>
+  $<TARGET_OBJECTS:boringssl_gtest_main>
   $<TARGET_OBJECTS:test_support>
 )
 
-target_link_libraries(decrepit_test crypto decrepit gtest)
+target_link_libraries(decrepit_test crypto decrepit boringssl_gtest)
 if (WIN32)
   target_link_libraries(decrepit_test ws2_32)
 endif()

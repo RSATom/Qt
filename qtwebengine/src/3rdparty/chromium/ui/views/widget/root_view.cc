@@ -8,7 +8,7 @@
 
 #include "base/logging.h"
 #include "base/macros.h"
-#include "base/message_loop/message_loop.h"
+#include "build/build_config.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/base/cursor/cursor.h"
 #include "ui/base/dragdrop/drag_drop_types.h"
@@ -73,7 +73,8 @@ class PreEventDispatchHandler : public ui::EventHandler {
     View* v = NULL;
     if (owner_->GetFocusManager())  // Can be NULL in unittests.
       v = owner_->GetFocusManager()->GetFocusedView();
-
+// macOS doesn't have keyboard-triggered context menus.
+#if !defined(OS_MACOSX)
     // Special case to handle keyboard-triggered context menus.
     if (v && v->enabled() && ((event->key_code() == ui::VKEY_APPS) ||
        (event->key_code() == ui::VKEY_F10 && event->IsShiftDown()))) {
@@ -88,6 +89,7 @@ class PreEventDispatchHandler : public ui::EventHandler {
       v->ShowContextMenu(location, ui::MENU_SOURCE_KEYBOARD);
       event->StopPropagation();
     }
+#endif
   }
 
   View* owner_;
@@ -188,7 +190,7 @@ void RootView::SetContentsView(View* contents_view) {
       "Can't be called until after the native widget is created!";
   // The ContentsView must be set up _after_ the window is created so that its
   // Widget pointer is valid.
-  SetLayoutManager(new FillLayout);
+  SetLayoutManager(std::make_unique<FillLayout>());
   if (has_children())
     RemoveAllChildViews(true);
   AddChildView(contents_view);
@@ -219,12 +221,10 @@ void RootView::ThemeChanged() {
   View::PropagateThemeChanged();
 }
 
-void RootView::LocaleChanged() {
-  View::PropagateLocaleChanged();
-}
-
-void RootView::DeviceScaleFactorChanged(float device_scale_factor) {
-  View::PropagateDeviceScaleFactorChanged(device_scale_factor);
+void RootView::DeviceScaleFactorChanged(float old_device_scale_factor,
+                                        float new_device_scale_factor) {
+  View::PropagateDeviceScaleFactorChanged(old_device_scale_factor,
+                                          new_device_scale_factor);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -244,6 +244,11 @@ View* RootView::GetFocusTraversableParentView() {
 
 ////////////////////////////////////////////////////////////////////////////////
 // RootView, ui::EventProcessor overrides:
+
+ui::EventTarget* RootView::GetInitialEventTarget(ui::Event* event) {
+  // Views has no special initial target.
+  return nullptr;
+}
 
 ui::EventTarget* RootView::GetRootForEvent(ui::Event* event) {
   return this;
@@ -644,12 +649,13 @@ void RootView::OnPaint(gfx::Canvas* canvas) {
   View::OnPaint(canvas);
 }
 
-gfx::Vector2d RootView::CalculateOffsetToAncestorWithLayer(
+View::LayerOffsetData RootView::CalculateOffsetToAncestorWithLayer(
     ui::Layer** layer_parent) {
-  gfx::Vector2d offset(View::CalculateOffsetToAncestorWithLayer(layer_parent));
-  if (!layer() && layer_parent)
+  if (layer() || !widget_->GetLayer())
+    return View::CalculateOffsetToAncestorWithLayer(layer_parent);
+  if (layer_parent)
     *layer_parent = widget_->GetLayer();
-  return offset;
+  return LayerOffsetData(widget_->GetLayer()->device_scale_factor());
 }
 
 View::DragInfo* RootView::GetDragInfo() {

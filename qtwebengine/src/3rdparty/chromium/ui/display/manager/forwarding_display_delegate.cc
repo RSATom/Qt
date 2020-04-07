@@ -8,7 +8,7 @@
 
 #include "base/bind.h"
 #include "mojo/public/cpp/bindings/sync_call_restrictions.h"
-#include "ui/display/types/display_snapshot_mojo.h"
+#include "ui/display/types/display_snapshot.h"
 
 namespace display {
 
@@ -31,49 +31,35 @@ void ForwardingDisplayDelegate::Initialize() {
   delegate_->Initialize(std::move(observer), &snapshots_);
 }
 
-void ForwardingDisplayDelegate::GrabServer() {}
-
-void ForwardingDisplayDelegate::UngrabServer() {}
-
 void ForwardingDisplayDelegate::TakeDisplayControl(
-    const DisplayControlCallback& callback) {
-  delegate_->TakeDisplayControl(callback);
+    DisplayControlCallback callback) {
+  delegate_->TakeDisplayControl(std::move(callback));
 }
 
 void ForwardingDisplayDelegate::RelinquishDisplayControl(
-    const DisplayControlCallback& callback) {
-  delegate_->TakeDisplayControl(callback);
+    DisplayControlCallback callback) {
+  delegate_->RelinquishDisplayControl(std::move(callback));
 }
 
-void ForwardingDisplayDelegate::SyncWithServer() {}
-
-void ForwardingDisplayDelegate::SetBackgroundColor(uint32_t color_argb) {}
-
-void ForwardingDisplayDelegate::ForceDPMSOn() {}
-
-void ForwardingDisplayDelegate::GetDisplays(
-    const GetDisplaysCallback& callback) {
+void ForwardingDisplayDelegate::GetDisplays(GetDisplaysCallback callback) {
   if (!use_delegate_) {
-    ForwardDisplays(callback);
+    ForwardDisplays(std::move(callback));
     return;
   }
 
   delegate_->GetDisplays(
-      base::Bind(&ForwardingDisplayDelegate::StoreAndForwardDisplays,
-                 base::Unretained(this), callback));
+      base::BindOnce(&ForwardingDisplayDelegate::StoreAndForwardDisplays,
+                     base::Unretained(this), std::move(callback)));
 }
-
-void ForwardingDisplayDelegate::AddMode(const DisplaySnapshot& snapshot,
-                                        const DisplayMode* mode) {}
 
 void ForwardingDisplayDelegate::Configure(const DisplaySnapshot& snapshot,
                                           const DisplayMode* mode,
                                           const gfx::Point& origin,
-                                          const ConfigureCallback& callback) {
+                                          ConfigureCallback callback) {
   if (!use_delegate_) {
     // Pretend configuration succeeded. When the first OnConfigurationChanged()
     // is received this will run again and actually happen.
-    callback.Run(true);
+    std::move(callback).Run(true);
     return;
   }
 
@@ -81,43 +67,33 @@ void ForwardingDisplayDelegate::Configure(const DisplaySnapshot& snapshot,
   if (mode)
     transport_mode = mode->Clone();
   delegate_->Configure(snapshot.display_id(), std::move(transport_mode), origin,
-                       callback);
+                       std::move(callback));
 }
 
-void ForwardingDisplayDelegate::CreateFrameBuffer(const gfx::Size& size) {}
-
-void ForwardingDisplayDelegate::GetHDCPState(
-    const DisplaySnapshot& snapshot,
-    const GetHDCPStateCallback& callback) {
-  delegate_->GetHDCPState(snapshot.display_id(), callback);
+void ForwardingDisplayDelegate::GetHDCPState(const DisplaySnapshot& snapshot,
+                                             GetHDCPStateCallback callback) {
+  delegate_->GetHDCPState(snapshot.display_id(), std::move(callback));
 }
 
-void ForwardingDisplayDelegate::SetHDCPState(
-    const DisplaySnapshot& snapshot,
-    HDCPState state,
-    const SetHDCPStateCallback& callback) {
-  delegate_->SetHDCPState(snapshot.display_id(), state, callback);
+void ForwardingDisplayDelegate::SetHDCPState(const DisplaySnapshot& snapshot,
+                                             HDCPState state,
+                                             SetHDCPStateCallback callback) {
+  delegate_->SetHDCPState(snapshot.display_id(), state, std::move(callback));
 }
 
-std::vector<ColorCalibrationProfile>
-ForwardingDisplayDelegate::GetAvailableColorCalibrationProfiles(
-    const DisplaySnapshot& output) {
-  return std::vector<ColorCalibrationProfile>();
+bool ForwardingDisplayDelegate::SetColorMatrix(
+    int64_t display_id,
+    const std::vector<float>& color_matrix) {
+  delegate_->SetColorMatrix(display_id, color_matrix);
+  // DrmNativeDisplayDelegate always returns true so this will too.
+  return true;
 }
 
-bool ForwardingDisplayDelegate::SetColorCalibrationProfile(
-    const DisplaySnapshot& output,
-    ColorCalibrationProfile new_profile) {
-  return false;
-}
-
-bool ForwardingDisplayDelegate::SetColorCorrection(
-    const DisplaySnapshot& output,
-    const std::vector<GammaRampRGBEntry>& degamma_lut,
-    const std::vector<GammaRampRGBEntry>& gamma_lut,
-    const std::vector<float>& correction_matrix) {
-  delegate_->SetColorCorrection(output.display_id(), degamma_lut, gamma_lut,
-                                correction_matrix);
+bool ForwardingDisplayDelegate::SetGammaCorrection(
+    int64_t display_id,
+    const std::vector<display::GammaRampRGBEntry>& degamma_lut,
+    const std::vector<display::GammaRampRGBEntry>& gamma_lut) {
+  delegate_->SetGammaCorrection(display_id, degamma_lut, gamma_lut);
   // DrmNativeDisplayDelegate always returns true so this will too.
   return true;
 }
@@ -147,21 +123,20 @@ void ForwardingDisplayDelegate::OnConfigurationChanged() {
 }
 
 void ForwardingDisplayDelegate::StoreAndForwardDisplays(
-    const GetDisplaysCallback& callback,
-    std::vector<std::unique_ptr<DisplaySnapshotMojo>> snapshots) {
+    GetDisplaysCallback callback,
+    std::vector<std::unique_ptr<DisplaySnapshot>> snapshots) {
   for (auto& observer : observers_)
     observer.OnDisplaySnapshotsInvalidated();
   snapshots_ = std::move(snapshots);
 
-  ForwardDisplays(callback);
+  ForwardDisplays(std::move(callback));
 }
 
-void ForwardingDisplayDelegate::ForwardDisplays(
-    const GetDisplaysCallback& callback) {
+void ForwardingDisplayDelegate::ForwardDisplays(GetDisplaysCallback callback) {
   std::vector<DisplaySnapshot*> snapshot_ptrs;
   for (auto& snapshot : snapshots_)
     snapshot_ptrs.push_back(snapshot.get());
-  callback.Run(snapshot_ptrs);
+  std::move(callback).Run(snapshot_ptrs);
 }
 
 }  // namespace display

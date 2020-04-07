@@ -1,5 +1,4 @@
 file://media/OWNERS
-mcasas@chromium.org
 miu@chromium.org
 
 # WebRTC OWNERS.
@@ -8,8 +7,7 @@ hbos@chromium.org
 perkj@chromium.org
 tommi@chromium.org
 guidou@chromium.org
-
-per-file *midi*=toyoshim@chromium.org
-per-file media_stream_audio_processor*=aluebs@chromium.org
+olka@chromium.org
+maxmorin@chromium.org
 
 # COMPONENT: Internals>Media

@@ -381,7 +381,7 @@ QT_BEGIN_NAMESPACE
   QOpenGLContext. By connecting a slot, using direct connection, to this signal,
   it is possible to perform cleanup whenever the the underlying native context
   handle, or the entire QOpenGLContext instance, is going to be released. The
-  following snippet is in principal equivalent to the previous one:
+  following snippet is in principle equivalent to the previous one:
 
   \snippet code/doc_gui_widgets_qopenglwidget.cpp 5
 
@@ -536,8 +536,8 @@ public:
         : QOpenGLPaintDevicePrivate(QSize()),
           w(widget) { }
 
-    void beginPaint() Q_DECL_OVERRIDE;
-    void endPaint() Q_DECL_OVERRIDE;
+    void beginPaint() override;
+    void endPaint() override;
 
     QOpenGLWidget *w;
 };
@@ -547,7 +547,7 @@ class QOpenGLWidgetPaintDevice : public QOpenGLPaintDevice
 public:
     QOpenGLWidgetPaintDevice(QOpenGLWidget *widget)
         : QOpenGLPaintDevice(*new QOpenGLWidgetPaintDevicePrivate(widget)) { }
-    void ensureActiveTarget() Q_DECL_OVERRIDE;
+    void ensureActiveTarget() override;
 };
 
 class QOpenGLWidgetPrivate : public QWidgetPrivate
@@ -576,8 +576,8 @@ public:
     void reset();
     void recreateFbo();
 
-    GLuint textureId() const Q_DECL_OVERRIDE;
-    QPlatformTextureList::Flags textureListFlags() Q_DECL_OVERRIDE;
+    GLuint textureId() const override;
+    QPlatformTextureList::Flags textureListFlags() override;
 
     void initialize();
     void invokeUserPaint();
@@ -585,14 +585,14 @@ public:
 
     void invalidateFbo();
 
-    QImage grabFramebuffer() Q_DECL_OVERRIDE;
-    void beginBackingStorePainting() Q_DECL_OVERRIDE { inBackingStorePaint = true; }
-    void endBackingStorePainting() Q_DECL_OVERRIDE { inBackingStorePaint = false; }
-    void beginCompose() Q_DECL_OVERRIDE;
-    void endCompose() Q_DECL_OVERRIDE;
-    void initializeViewportFramebuffer() Q_DECL_OVERRIDE;
-    void resizeViewportFramebuffer() Q_DECL_OVERRIDE;
-    void resolveSamples() Q_DECL_OVERRIDE;
+    QImage grabFramebuffer() override;
+    void beginBackingStorePainting() override { inBackingStorePaint = true; }
+    void endBackingStorePainting() override { inBackingStorePaint = false; }
+    void beginCompose() override;
+    void endCompose() override;
+    void initializeViewportFramebuffer() override;
+    void resizeViewportFramebuffer() override;
+    void resolveSamples() override;
 
     QOpenGLContext *context;
     QOpenGLFramebufferObject *fbo;
@@ -756,6 +756,7 @@ void QOpenGLWidgetPrivate::recreateFbo()
 
     fbo->bind();
     context->functions()->glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+    flushPending = true; // Make sure the FBO is initialized before use
 
     paintDevice->setSize(deviceSize);
     paintDevice->setDevicePixelRatio(q->devicePixelRatioF());
@@ -906,9 +907,19 @@ void QOpenGLWidgetPrivate::invalidateFbo()
         const int gl_color_attachment0 = 0x8CE0;  // GL_COLOR_ATTACHMENT0
         const int gl_depth_attachment = 0x8D00;   // GL_DEPTH_ATTACHMENT
         const int gl_stencil_attachment = 0x8D20; // GL_STENCIL_ATTACHMENT
+#ifdef Q_OS_WASM
+        // webgl does not allow separate depth and stencil attachments
+        // QTBUG-69913
+        const int gl_depth_stencil_attachment = 0x821A; // GL_DEPTH_STENCIL_ATTACHMENT
+
+        const GLenum attachments[] = {
+            gl_color_attachment0, gl_depth_attachment, gl_stencil_attachment, gl_depth_stencil_attachment
+        };
+#else
         const GLenum attachments[] = {
             gl_color_attachment0, gl_depth_attachment, gl_stencil_attachment
         };
+#endif
         f->glDiscardFramebufferEXT(GL_FRAMEBUFFER, sizeof attachments / sizeof *attachments, attachments);
     } else {
         f->glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
@@ -938,7 +949,8 @@ QImage QOpenGLWidgetPrivate::grabFramebuffer()
         q->makeCurrent();
     }
 
-    QImage res = qt_gl_read_framebuffer(q->size() * q->devicePixelRatioF(), false, false);
+    const bool hasAlpha = q->format().hasAlpha();
+    QImage res = qt_gl_read_framebuffer(q->size() * q->devicePixelRatioF(), hasAlpha, hasAlpha);
     res.setDevicePixelRatio(q->devicePixelRatioF());
 
     // While we give no guarantees of what is going to be left bound, prefer the
@@ -1429,7 +1441,7 @@ bool QOpenGLWidget::event(QEvent *e)
             d->reset();
         if (isHidden())
             break;
-        // FALLTHROUGH
+        Q_FALLTHROUGH();
     case QEvent::Show: // reparenting may not lead to a resize so reinitalize on Show too
         if (d->initialized && window()->windowHandle()
                 && d->context->shareContext() != QWidgetPrivate::get(window())->shareContext())

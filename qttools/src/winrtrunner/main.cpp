@@ -40,6 +40,7 @@
 #include <QtCore/QCommandLineParser>
 #include <QtCore/QCoreApplication>
 #include <QtCore/QDir>
+#include <QtCore/QRegExp>
 #include <QtCore/QStringList>
 #include <QtCore/QMap>
 #include <QtCore/QLoggingCategory>
@@ -52,6 +53,23 @@ QT_USE_NAMESPACE
 
 int main(int argc, char *argv[])
 {
+    // If logging rules are set via env variable, we pass these to the application we are running.
+    // winrtrunner behaves different from other applications in the regard that its logging rules
+    // have to be enabled explicitly. Setting "*=true" will not enable extended logging. Reason is
+    // CI setting "*=true" if an auto test fails and additional winrtrunner output might just
+    // confuse users.
+    const QByteArray loggingRules = qgetenv("QT_LOGGING_RULES");
+    const QList<QByteArray> rules = loggingRules.split(';');
+    QRegExp runnerExp(QLatin1String("^qt\\.winrtrunner.*\\s*=\\s*true\\s*$"));
+    bool runnerRuleFound = false;
+    for (const QByteArray &rule : rules) {
+        if (runnerExp.indexIn(QLatin1String(rule)) != -1) {
+            runnerRuleFound = true;
+            break;
+        }
+    }
+    if (!runnerRuleFound)
+        qunsetenv("QT_LOGGING_RULES");
     QCoreApplication a(argc, argv);
     QCommandLineParser parser;
     parser.setApplicationDescription(QLatin1String("winrtrunner installs, runs, and collects test "
@@ -118,7 +136,7 @@ int main(int argc, char *argv[])
 
     QCommandLineOption deviceOption(QStringLiteral("device"),
                                     QLatin1String("Specifies the device to target as a device name "
-                                                  " or index. Use --list-devices to find available "
+                                                  "or index. Use --list-devices to find available "
                                                   "devices. The default device is the first device "
                                                   "found for the active run profile."),
                                     QStringLiteral("name|index"));
@@ -143,6 +161,15 @@ int main(int argc, char *argv[])
     QCommandLineOption ignoreErrorsOption(QStringLiteral("ignore-errors"),
                                           QStringLiteral("Always exit with code 0, regardless of the error state."));
     parser.addOption(ignoreErrorsOption);
+
+    QCommandLineOption loopbackExemptOption(QStringLiteral("loopbackexempt"),
+                                            QLatin1String("Enables localhost communication for clients,"
+                                                          "servers or both. Adding this possibility "
+                                                          "for servers needs elevated rights and "
+                                                          "might ask for these in a dialog."
+                                                          "Possible values: client, server, clientserver"),
+                                            QStringLiteral("mode"));
+    parser.addOption(loopbackExemptOption);
 
     parser.addHelpOption();
     parser.setSingleDashWordOptionMode(QCommandLineParser::ParseAsLongOptions);
@@ -172,6 +199,22 @@ int main(int argc, char *argv[])
             // fall through
         default: // Impossible
             break;
+        }
+    }
+    bool loopbackExemptClient = false;
+    bool loopbackExemptServer = false;
+    if (parser.isSet(loopbackExemptOption)) {
+        const QString value = parser.value(loopbackExemptOption);
+        if (value == QStringLiteral("client")) {
+            loopbackExemptClient = true;
+        } else if (value == QStringLiteral("server")) {
+            loopbackExemptServer = true;
+        } else if (value == QStringLiteral("clientserver")) {
+            loopbackExemptClient = true;
+            loopbackExemptServer = true;
+        } else {
+            qCCritical(lcWinRtRunner) << "Incorrect value specified for loopbackexempt.";
+            parser.showHelp(1);
         }
     }
     QLoggingCategory::setFilterRules(filterRules.join(QLatin1Char('\n')));
@@ -245,6 +288,23 @@ int main(int argc, char *argv[])
         return ignoreErrors ? 0 : 3;
     }
 
+    if (loopbackExemptClient && !runner.setLoopbackExemptClientEnabled(true)) {
+        qCDebug(lcWinRtRunner) << "Could not enable loopback exemption for client, "
+                                  "exiting with code 3.";
+        return ignoreErrors ? 0 : 3;
+    }
+
+    if (loopbackExemptServer && !runner.setLoopbackExemptServerEnabled(true)) {
+        qCDebug(lcWinRtRunner) << "Could not enable loopback exemption for server, "
+                                  "exiting with code 3.";
+        return ignoreErrors ? 0 : 3;
+    }
+
+    if (!loggingRules.isNull() && !runner.setLoggingRules(loggingRules)) {
+        qCDebug(lcWinRtRunner) << "Could not set logging rules, exiting with code 3.";
+        return ignoreErrors ? 0 : 3;
+    }
+
     if (parser.isSet(debugOption)) {
         const QString &debuggerExecutable = parser.value(debugOption);
         const QString &debuggerArguments = parser.value(debuggerArgumentsOption);
@@ -273,6 +333,12 @@ int main(int argc, char *argv[])
 
     if (waitEnabled)
         runner.wait(waitTime);
+
+    if (loopbackExemptClient)
+        runner.setLoopbackExemptClientEnabled(false);
+
+    if (loopbackExemptServer)
+        runner.setLoopbackExemptServerEnabled(false);
 
     if (suspendEnabled && !runner.suspend()) {
         qCDebug(lcWinRtRunner) << "Suspend failed, exiting with code 6.";

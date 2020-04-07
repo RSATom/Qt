@@ -79,6 +79,7 @@ public:
 
     bool saveImage(const QString &file);
     bool loadImage(const QString &file);
+    void clear();
     void setAlphaChannelValuator(Valuator type)
         { m_alphaChannelValuator = type; }
     void setColorSaturationValuator(Valuator type)
@@ -103,7 +104,7 @@ private:
     void initPixmap();
     void paintPixmap(QPainter &painter, QTabletEvent *event);
     Qt::BrushStyle brushPattern(qreal value);
-    qreal pressureToWidth(qreal pressure);
+    static qreal pressureToWidth(qreal pressure);
     void updateBrush(const QTabletEvent *event);
     void updateCursor(const QTabletEvent *event);
 

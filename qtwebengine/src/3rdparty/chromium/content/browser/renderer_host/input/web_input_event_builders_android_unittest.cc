@@ -9,17 +9,19 @@
 
 #include "base/android/jni_android.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/WebKit/public/platform/WebInputEvent.h"
+#include "third_party/blink/public/platform/web_input_event.h"
 #include "ui/events/android/key_event_utils.h"
 #include "ui/events/gesture_detection/motion_event.h"
 #include "ui/events/keycodes/dom/dom_code.h"
 #include "ui/events/keycodes/dom/dom_key.h"
 #include "ui/events/keycodes/dom/keycode_converter.h"
 #include "ui/events/keycodes/keyboard_codes_posix.h"
+#include "ui/events/test/scoped_event_test_tick_clock.h"
 
 using base::android::AttachCurrentThread;
 using base::android::ScopedJavaLocalRef;
 using blink::WebKeyboardEvent;
+using blink::WebMouseEvent;
 
 namespace {
 
@@ -32,12 +34,12 @@ WebKeyboardEvent CreateFakeWebKeyboardEvent(JNIEnv* env,
                                             int web_modifier,
                                             int unicode_character) {
   ScopedJavaLocalRef<jobject> keydown_event =
-      ui::events::android::CreateKeyEvent(env, ui::MotionEvent::ACTION_DOWN,
-                                          key_code);
+      ui::events::android::CreateKeyEvent(env, 0, key_code);
 
   WebKeyboardEvent web_event = content::WebKeyboardEventBuilder::Build(
-      env, keydown_event, WebKeyboardEvent::kKeyDown, web_modifier, 0, key_code,
-      0, unicode_character, false);
+      env, keydown_event, WebKeyboardEvent::kKeyDown, web_modifier,
+      blink::WebInputEvent::GetStaticTimeStampForTests(), key_code, 0,
+      unicode_character, false);
   return web_event;
 }
 
@@ -160,7 +162,8 @@ TEST(WebInputEventBuilderAndroidTest, LastChannelKey) {
 // Synthetic key event should produce DomKey::UNIDENTIFIED.
 TEST(WebInputEventBuilderAndroidTest, DomKeySyntheticEvent) {
   WebKeyboardEvent web_event = content::WebKeyboardEventBuilder::Build(
-      nullptr, nullptr, WebKeyboardEvent::kKeyDown, 0, 0, kCompositionKeyCode,
+      nullptr, nullptr, WebKeyboardEvent::kKeyDown, 0,
+      blink::WebInputEvent::GetStaticTimeStampForTests(), kCompositionKeyCode,
       0, 0, false);
   EXPECT_EQ(kCompositionKeyCode, web_event.native_key_code);
   EXPECT_EQ(ui::KeyboardCode::VKEY_UNKNOWN, web_event.windows_key_code);
@@ -194,3 +197,38 @@ TEST(WebInputEventBuilderAndroidTest, CutCopyPasteKey) {
     EXPECT_EQ(entry.key, web_event.dom_key);
   }
 }
+
+TEST(WebInputEventBuilderAndroidTest, WebMouseEventCoordinates) {
+  constexpr int kEventTimeMs = 5;
+  const base::TimeTicks event_time =
+      base::TimeTicks() + base::TimeDelta::FromMilliseconds(kEventTimeMs);
+
+  ui::test::ScopedEventTestTickClock clock;
+  clock.SetNowTicks(event_time);
+
+  ui::MotionEventAndroid::Pointer p0(1, 13.7f, -7.13f, 5.3f, 1.2f, 0.1f, 0.2f,
+                                     ui::MotionEventAndroid::GetAndroidToolType(
+                                         ui::MotionEvent::ToolType::MOUSE));
+  const float raw_offset_x = 11.f;
+  const float raw_offset_y = 22.f;
+  const float kPixToDip = 0.5f;
+
+  ui::MotionEventAndroid motion_event(
+      AttachCurrentThread(), nullptr, kPixToDip, 0.f, 0.f, 0.f, kEventTimeMs,
+      AMOTION_EVENT_ACTION_DOWN, 1, 0, -1, 0, 1, AMETA_ALT_ON, raw_offset_x,
+      raw_offset_y, false, &p0, nullptr);
+
+  WebMouseEvent web_event = content::WebMouseEventBuilder::Build(
+      motion_event, blink::WebInputEvent::kMouseDown, 1,
+      ui::MotionEvent::BUTTON_PRIMARY);
+  EXPECT_EQ(web_event.PositionInWidget().x, p0.pos_x_pixels * kPixToDip);
+  EXPECT_EQ(web_event.PositionInWidget().y, p0.pos_y_pixels * kPixToDip);
+  EXPECT_EQ(web_event.PositionInScreen().x,
+            (p0.pos_x_pixels + raw_offset_x) * kPixToDip);
+  EXPECT_EQ(web_event.PositionInScreen().y,
+            (p0.pos_y_pixels + raw_offset_y) * kPixToDip);
+  EXPECT_EQ(web_event.button, blink::WebPointerProperties::Button::kLeft);
+  EXPECT_EQ(web_event.TimeStamp(), event_time);
+}
+
+// TODO(crbug.com/781404): Add more tests for WebMouseEventBuilder

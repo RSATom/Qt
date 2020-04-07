@@ -11,9 +11,6 @@
 #include "cc/test/layer_tree_pixel_test.h"
 #include "cc/test/pixel_comparator.h"
 #include "cc/test/solid_color_content_layer_client.h"
-#include "third_party/skia/include/effects/SkColorFilterImageFilter.h"
-#include "third_party/skia/include/effects/SkColorMatrixFilter.h"
-#include "third_party/skia/include/effects/SkOffsetImageFilter.h"
 
 #if !defined(OS_ANDROID)
 
@@ -40,8 +37,8 @@ TEST_F(LayerTreeHostFiltersPixelTest, BackgroundFilterBlur) {
       2.f, SkBlurImageFilter::kClamp_TileMode));
   blur->SetBackgroundFilters(filters);
 
-#if defined(OS_WIN)
-  // Windows has 436 pixels off by 1: crbug.com/259915
+#if defined(OS_WIN) || defined(ARCH_CPU_ARM64)
+  // Windows and ARM64 have 436 pixels off by 1: crbug.com/259915
   float percentage_pixels_large_error = 1.09f;  // 436px / (200*200)
   float percentage_pixels_small_error = 0.0f;
   float average_error_allowed_in_bad_pixels = 1.f;
@@ -82,9 +79,14 @@ TEST_F(LayerTreeHostFiltersPixelTest, BackgroundFilterBlurOutsets) {
       5.f, SkBlurImageFilter::kClamp_TileMode));
   blur->SetBackgroundFilters(filters);
 
-#if defined(OS_WIN)
+#if defined(OS_WIN) || defined(_MIPS_ARCH_LOONGSON) || defined(ARCH_CPU_ARM64)
+#if defined(OS_WIN) || defined(ARCH_CPU_ARM64)
   // Windows has 5.9325% pixels by at most 2: crbug.com/259922
   float percentage_pixels_large_error = 6.0f;
+#else
+  // Loongson has 8.685% pixels by at most 2: crbug.com/819110
+  float percentage_pixels_large_error = 8.7f;
+#endif
   float percentage_pixels_small_error = 0.0f;
   float average_error_allowed_in_bad_pixels = 2.f;
   int large_error_allowed = 2;
@@ -144,12 +146,17 @@ TEST_F(LayerTreeHostFiltersPixelTest, BackgroundFilterBlurOffAxis) {
       2.f, SkBlurImageFilter::kClamp_TileMode));
   blur->SetBackgroundFilters(filters);
 
+#if defined(OS_WIN) || defined(ARCH_CPU_ARM64)
 #if defined(OS_WIN)
   // Windows has 116 pixels off by at most 2: crbug.com/225027
   float percentage_pixels_large_error = 0.3f;  // 116px / (200*200), rounded up
+  int large_error_allowed = 2;
+#else
+  float percentage_pixels_large_error = 0.25f;  // 96px / (200*200), rounded up
+  int large_error_allowed = 1;
+#endif
   float percentage_pixels_small_error = 0.0f;
   float average_error_allowed_in_bad_pixels = 1.f;
-  int large_error_allowed = 2;
   int small_error_allowed = 0;
   pixel_comparator_.reset(new FuzzyPixelComparator(
       true,  // discard_alpha
@@ -174,7 +181,7 @@ class LayerTreeHostFiltersScaledPixelTest
   }
 
   void SetupTree() override {
-    layer_tree_host()->SetDeviceScaleFactor(device_scale_factor_);
+    SetInitialDeviceScaleFactor(device_scale_factor_);
     LayerTreePixelTest::SetupTree();
   }
 
@@ -195,11 +202,11 @@ class LayerTreeHostFiltersScaledPixelTest
     // Add an alpha threshold filter to the blue layer which will filter out
     // everything except the lower right corner.
     FilterOperations filters;
-    SkRegion alpha_region;
-    alpha_region.setRect(
-        half_content, half_content, content_size, content_size);
+    FilterOperation::ShapeRects alpha_shape;
+    alpha_shape.emplace_back(half_content, half_content, content_size,
+                             content_size);
     filters.Append(
-        FilterOperation::CreateAlphaThresholdFilter(alpha_region, 1.f, 0.f));
+        FilterOperation::CreateAlphaThresholdFilter(alpha_shape, 1.f, 0.f));
     foreground->SetFilters(filters);
 
     device_scale_factor_ = device_scale_factor;
@@ -266,8 +273,8 @@ class LayerTreeHostCroppedFilterPixelTest
     // result completely.
     FilterOperations filters;
     SkImageFilter::CropRect cropRect(SkRect::MakeXYWH(0, 0, 100, 0));
-    sk_sp<SkImageFilter> offset(
-        SkOffsetImageFilter::Make(0, 0, nullptr, &cropRect));
+    sk_sp<PaintFilter> offset(
+        sk_make_sp<OffsetPaintFilter>(0, 0, nullptr, &cropRect));
     filters.Append(FilterOperation::CreateReferenceFilter(offset));
     foreground->SetFilters(filters);
 
@@ -301,8 +308,8 @@ class ImageFilterClippedPixelTest : public LayerTreeHostFiltersPixelTest {
     // We filter only the bottom 200x100 pixels of the foreground.
     SkImageFilter::CropRect crop_rect(SkRect::MakeXYWH(0, 100, 200, 100));
     FilterOperations filters;
-    filters.Append(
-        FilterOperation::CreateReferenceFilter(SkColorFilterImageFilter::Make(
+    filters.Append(FilterOperation::CreateReferenceFilter(
+        sk_make_sp<ColorFilterPaintFilter>(
             SkColorFilter::MakeMatrixFilterRowMajor255(matrix), nullptr,
             &crop_rect)));
 
@@ -350,8 +357,8 @@ class ImageFilterNonZeroOriginPixelTest : public LayerTreeHostFiltersPixelTest {
     // Set up a crop rec to filter the bottom 200x100 pixels of the foreground.
     SkImageFilter::CropRect crop_rect(SkRect::MakeXYWH(0, 100, 200, 100));
     FilterOperations filters;
-    filters.Append(
-        FilterOperation::CreateReferenceFilter(SkColorFilterImageFilter::Make(
+    filters.Append(FilterOperation::CreateReferenceFilter(
+        sk_make_sp<ColorFilterPaintFilter>(
             SkColorFilter::MakeMatrixFilterRowMajor255(matrix), nullptr,
             &crop_rect)));
 
@@ -417,12 +424,21 @@ class ImageScaledBackgroundFilter : public LayerTreeHostFiltersPixelTest {
     filters.Append(FilterOperation::CreateGrayscaleFilter(1.0f));
     filter->SetBackgroundFilters(filters);
 
+#if defined(OS_WIN) || defined(_MIPS_ARCH_LOONGSON) || defined(ARCH_CPU_ARM64)
 #if defined(OS_WIN)
     // Windows has 153 pixels off by at most 2: crbug.com/225027
     float percentage_pixels_large_error = 0.3825f;  // 153px / (200*200)
+    int large_error_allowed = 2;
+#elif defined(_MIPS_ARCH_LOONGSON)
+    // Loongson has 2 pixels off by at most 2: crbug.com/819075
+    float percentage_pixels_large_error = 0.005f;  // 2px / (200*200)
+    int large_error_allowed = 2;
+#else
+    float percentage_pixels_large_error = 0.0325f;  // 13px / (200*200)
+    int large_error_allowed = 1;
+#endif
     float percentage_pixels_small_error = 0.0f;
     float average_error_allowed_in_bad_pixels = 1.f;
-    int large_error_allowed = 2;
     int small_error_allowed = 0;
     pixel_comparator_.reset(new FuzzyPixelComparator(
         true,  // discard_alpha
@@ -729,8 +745,8 @@ class RotatedDropShadowFilterTest : public LayerTreeHostFiltersPixelTest {
 
     background->AddChild(child);
 
-#if defined(OS_WIN)
-    // Windows has 3 pixels off by 1: crbug.com/259915
+#if defined(OS_WIN) || defined(ARCH_CPU_ARM64)
+    // Windows and ARM64 have 3 pixels off by 1: crbug.com/259915
     float percentage_pixels_large_error = 0.00333334f;  // 3px / (300*300)
     float percentage_pixels_small_error = 0.0f;
     float average_error_allowed_in_bad_pixels = 1.f;
@@ -838,12 +854,10 @@ class EnlargedTextureWithAlphaThresholdFilter
 
     rect1.Inset(-5, -5);
     rect2.Inset(-5, -5);
-    SkRegion alpha_region;
-    SkIRect rects[2] = {gfx::RectToSkIRect(rect1), gfx::RectToSkIRect(rect2)};
-    alpha_region.setRects(rects, 2);
+    FilterOperation::ShapeRects alpha_shape = {rect1, rect2};
     FilterOperations filters;
     filters.Append(
-        FilterOperation::CreateAlphaThresholdFilter(alpha_region, 0.f, 0.f));
+        FilterOperation::CreateAlphaThresholdFilter(alpha_shape, 0.f, 0.f));
     filter_layer->SetFilters(filters);
 
     background->AddChild(filter_layer);
@@ -895,7 +909,7 @@ class EnlargedTextureWithCropOffsetFilter
     FilterOperations filters;
     SkImageFilter::CropRect cropRect(SkRect::MakeXYWH(10, 10, 80, 80));
     filters.Append(FilterOperation::CreateReferenceFilter(
-        SkOffsetImageFilter::Make(0, 0, nullptr, &cropRect)));
+        sk_make_sp<OffsetPaintFilter>(0, 0, nullptr, &cropRect)));
     filter_layer->SetFilters(filters);
 
     background->AddChild(filter_layer);
@@ -946,9 +960,15 @@ class BlurFilterWithClip : public LayerTreeHostFiltersPixelTest {
     // Force the allocation a larger textures.
     set_enlarge_texture_amount(gfx::Size(50, 50));
 
+#if defined(OS_WIN) || defined(ARCH_CPU_ARM64)
 #if defined(OS_WIN)
     // Windows has 1880 pixels off by 1: crbug.com/259915
     float percentage_pixels_large_error = 4.7f;  // 1880px / (200*200)
+#else
+    // Differences in floating point calculation on ARM means a small percentage
+    // of pixels will have small differences.
+    float percentage_pixels_large_error = 2.76f;  // 1104px / (200*200)
+#endif
     float percentage_pixels_small_error = 0.0f;
     float average_error_allowed_in_bad_pixels = 1.f;
     int large_error_allowed = 2;
@@ -996,10 +1016,10 @@ class FilterWithGiantCropRectPixelTest : public LayerTreeHostFiltersPixelTest {
     FilterOperations filters;
     SkImageFilter::CropRect cropRect(
         SkRect::MakeXYWH(-40000, -40000, 80000, 80000));
-    filters.Append(
-        FilterOperation::CreateReferenceFilter((SkColorFilterImageFilter::Make(
+    filters.Append(FilterOperation::CreateReferenceFilter(
+        sk_make_sp<ColorFilterPaintFilter>(
             SkColorFilter::MakeMatrixFilterRowMajor255(matrix), nullptr,
-            &cropRect))));
+            &cropRect)));
     filter_layer->SetFilters(filters);
     background->SetMasksToBounds(masks_to_bounds);
     background->AddChild(filter_layer);
@@ -1055,7 +1075,7 @@ class BackgroundFilterWithDeviceScaleFactorTest
         gfx::Rect(0, 100, 200, 100), SkColorSetA(SK_ColorGREEN, 127));
     FilterOperations filters;
     filters.Append(FilterOperation::CreateReferenceFilter(
-        SkOffsetImageFilter::Make(0, 80, nullptr)));
+        sk_make_sp<OffsetPaintFilter>(0, 80, nullptr)));
     filtered->SetBackgroundFilters(filters);
     root->AddChild(filtered);
 
@@ -1075,7 +1095,7 @@ class BackgroundFilterWithDeviceScaleFactorTest
   }
 
   void SetupTree() override {
-    layer_tree_host()->SetDeviceScaleFactor(device_scale_factor_);
+    SetInitialDeviceScaleFactor(device_scale_factor_);
     LayerTreeHostFiltersPixelTest::SetupTree();
   }
 

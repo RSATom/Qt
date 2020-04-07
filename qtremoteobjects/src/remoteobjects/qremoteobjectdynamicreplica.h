@@ -47,7 +47,7 @@ QT_BEGIN_NAMESPACE
 class Q_REMOTEOBJECTS_EXPORT QRemoteObjectDynamicReplica : public QRemoteObjectReplica
 {
 public:
-    ~QRemoteObjectDynamicReplica();
+    ~QRemoteObjectDynamicReplica() override;
 
     const QMetaObject *metaObject() const override;
     void *qt_metacast(const char *name) override;

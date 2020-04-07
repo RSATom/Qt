@@ -502,7 +502,7 @@ void Generator::generateCode()
         for (int i = 0; i < extraList.count(); ++i) {
             fprintf(out, "    &%s::staticMetaObject,\n", extraList.at(i).constData());
         }
-        fprintf(out, "    Q_NULLPTR\n};\n\n");
+        fprintf(out, "    nullptr\n};\n\n");
     }
 
 //
@@ -514,24 +514,24 @@ void Generator::generateCode()
         fprintf(out, "const QMetaObject %s::staticMetaObject = {\n", cdef->qualified.constData());
 
     if (isQObject)
-        fprintf(out, "    { Q_NULLPTR, ");
+        fprintf(out, "    { nullptr, ");
     else if (cdef->superclassList.size() && (!cdef->hasQGadget || knownGadgets.contains(purestSuperClass)))
         fprintf(out, "    { &%s::staticMetaObject, ", purestSuperClass.constData());
     else
-        fprintf(out, "    { Q_NULLPTR, ");
+        fprintf(out, "    { nullptr, ");
     fprintf(out, "qt_meta_stringdata_%s.data,\n"
             "      qt_meta_data_%s, ", qualifiedClassNameIdentifier.constData(),
             qualifiedClassNameIdentifier.constData());
     if (hasStaticMetaCall)
         fprintf(out, " qt_static_metacall, ");
     else
-        fprintf(out, " Q_NULLPTR, ");
+        fprintf(out, " nullptr, ");
 
     if (extraList.isEmpty())
-        fprintf(out, "Q_NULLPTR, ");
+        fprintf(out, "nullptr, ");
     else
         fprintf(out, "qt_meta_extradata_%s, ", qualifiedClassNameIdentifier.constData());
-    fprintf(out, "Q_NULLPTR}\n};\n\n");
+    fprintf(out, "nullptr}\n};\n\n");
 
     if(isQt)
         return;
@@ -546,7 +546,7 @@ void Generator::generateCode()
 // Generate smart cast function
 //
     fprintf(out, "\nvoid *%s::qt_metacast(const char *_clname)\n{\n", cdef->qualified.constData());
-    fprintf(out, "    if (!_clname) return Q_NULLPTR;\n");
+    fprintf(out, "    if (!_clname) return nullptr;\n");
     fprintf(out, "    if (!strcmp(_clname, reinterpret_cast<const char *>(\n"
                  "            qt_meta_stringdata_%s.stringdata0)))\n"
                  "        return static_cast<void*>(const_cast< %s*>(this));\n",
@@ -572,7 +572,7 @@ void Generator::generateCode()
         QByteArray superClass = purestSuperClass;
         fprintf(out, "    return %s::qt_metacast(_clname);\n", superClass.constData());
     } else {
-        fprintf(out, "    return Q_NULLPTR;\n");
+        fprintf(out, "    return nullptr;\n");
     }
     fprintf(out, "}\n");
 
@@ -617,7 +617,7 @@ void Generator::generateClassInfos()
     }
 }
 
-void Generator::registerFunctionStrings(const QList<FunctionDef>& list)
+void Generator::registerFunctionStrings(const QList<FunctionDef> &list)
 {
     for (int i = 0; i < list.count(); ++i) {
         const FunctionDef &f = list.at(i);
@@ -637,7 +637,7 @@ void Generator::registerFunctionStrings(const QList<FunctionDef>& list)
     }
 }
 
-void Generator::generateFunctions(const QList<FunctionDef>& list, const char *functype, int type, int &paramsIndex)
+void Generator::generateFunctions(const QList<FunctionDef> &list, const char *functype, int type, int &paramsIndex)
 {
     if (list.isEmpty())
         return;
@@ -683,7 +683,7 @@ void Generator::generateFunctions(const QList<FunctionDef>& list, const char *fu
     }
 }
 
-void Generator::generateFunctionRevisions(const QList<FunctionDef>& list, const char *functype)
+void Generator::generateFunctionRevisions(const QList<FunctionDef> &list, const char *functype)
 {
     if (list.count())
         fprintf(out, "\n // %ss: revision\n", functype);
@@ -693,7 +693,7 @@ void Generator::generateFunctionRevisions(const QList<FunctionDef>& list, const 
     }
 }
 
-void Generator::generateFunctionParameters(const QList<FunctionDef>& list, const char *functype)
+void Generator::generateFunctionParameters(const QList<FunctionDef> &list, const char *functype)
 {
     if (list.isEmpty())
         return;
@@ -1473,7 +1473,7 @@ void Generator::generateSignal(FunctionDef *def,int index)
             fprintf(out, "QPrivateSignal");
 
         fprintf(out, ")%s\n{\n"
-                "    QMetaObject::activate(%s, &staticMetaObject, %d, Q_NULLPTR);\n"
+                "    QMetaObject::activate(%s, &staticMetaObject, %d, nullptr);\n"
                 "}\n", constQualifier, thisPtr.constData(), index);
         return;
     }
@@ -1503,7 +1503,7 @@ void Generator::generateSignal(FunctionDef *def,int index)
 
     fprintf(out, "    void *_a[] = { ");
     if (def->normalizedType == "void") {
-        fprintf(out, "Q_NULLPTR");
+        fprintf(out, "nullptr");
     } else {
         fprintf(out, "const_cast<void*>(reinterpret_cast<const void*>(&_t0))");
     }
@@ -1541,7 +1541,7 @@ void Generator::generateSignalDefs()
 
         fprintf(out, "void %s::%s(bool _t1)\n{\n", cdef->classname.constData(),
                 f.mangledName.constData());
-        fprintf(out, "    void *_a[] = { Q_NULLPTR, "
+        fprintf(out, "    void *_a[] = { nullptr, "
                      "const_cast<void*>(reinterpret_cast<const void*>(&_t1)) };\n    ");
         fprintf(out, f.implementation, "this", methodindex);
         fprintf(out, "\n}\n\n");

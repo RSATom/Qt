@@ -51,6 +51,54 @@ namespace gles2 {
 
 using namespace cmds;
 
+TEST_P(GLES2DecoderTest, DisableVertexAttribArrayValidArgs) {
+  SetDriverVertexAttribEnabled(1, false);
+  SpecializedSetup<cmds::DisableVertexAttribArray, 0>(true);
+  cmds::DisableVertexAttribArray cmd;
+  cmd.Init(1);
+  EXPECT_EQ(error::kNoError, ExecuteCmd(cmd));
+  EXPECT_EQ(GL_NO_ERROR, GetGLError());
+}
+
+TEST_P(GLES2DecoderTest, EnableVertexAttribArrayValidArgs) {
+  SetDriverVertexAttribEnabled(1, true);
+  SpecializedSetup<cmds::EnableVertexAttribArray, 0>(true);
+  cmds::EnableVertexAttribArray cmd;
+  cmd.Init(1);
+  EXPECT_EQ(error::kNoError, ExecuteCmd(cmd));
+  EXPECT_EQ(GL_NO_ERROR, GetGLError());
+}
+
+TEST_P(GLES2DecoderWithShaderTest, EnabledVertexAttribArrayIsDisabledIfUnused) {
+  SetupExpectationsForApplyingDefaultDirtyState();
+
+  // Set up and enable attribs 0, 1, 2
+  SetupAllNeededVertexBuffers();
+  // Enable attrib 3, and verify it's called in the driver
+  {
+    EXPECT_CALL(*gl_, EnableVertexAttribArray(3))
+        .Times(1)
+        .RetiresOnSaturation();
+    cmds::EnableVertexAttribArray cmd;
+    cmd.Init(3);
+    EXPECT_EQ(error::kNoError, ExecuteCmd(cmd));
+  }
+  DoVertexAttribPointer(3, 2, GL_FLOAT, 0, 0);
+
+  // Expect the draw call below causes attrib 3 to be disabled in the driver
+  EXPECT_CALL(*gl_, DisableVertexAttribArray(3)).Times(1).RetiresOnSaturation();
+  // Perform a draw which uses only attributes 0, 1, 2 - not attrib 3
+  {
+    EXPECT_CALL(*gl_, DrawArrays(GL_TRIANGLES, 0, kNumVertices))
+        .Times(1)
+        .RetiresOnSaturation();
+    DrawArrays cmd;
+    cmd.Init(GL_TRIANGLES, 0, kNumVertices);
+    EXPECT_EQ(error::kNoError, ExecuteCmd(cmd));
+    EXPECT_EQ(GL_NO_ERROR, GetGLError());
+  }
+}
+
 TEST_P(GLES2DecoderWithShaderTest, GetVertexAttribPointervSucceeds) {
   const GLuint kOffsetToTestFor = sizeof(float) * 4;
   const GLuint kIndexToTest = 1;
@@ -226,13 +274,13 @@ TEST_P(GLES2DecoderWithShaderTest, VertexAttribPointer) {
 
 class GLES2DecoderVertexArraysOESTest : public GLES2DecoderWithShaderTest {
  public:
-  GLES2DecoderVertexArraysOESTest() {}
+  GLES2DecoderVertexArraysOESTest() = default;
 
   bool vertex_array_deleted_manually_;
 
   void SetUp() override {
     InitState init;
-    init.gl_version = "opengl es 2.0";
+    init.gl_version = "OpenGL ES 2.0";
     init.bind_generates_resource = true;
     InitDecoder(init);
     SetupDefaultProgram();
@@ -366,7 +414,7 @@ INSTANTIATE_TEST_CASE_P(Service,
 class GLES2DecoderEmulatedVertexArraysOESTest
     : public GLES2DecoderVertexArraysOESTest {
  public:
-  GLES2DecoderEmulatedVertexArraysOESTest() {}
+  GLES2DecoderEmulatedVertexArraysOESTest() = default;
 
   void SetUp() override {
     InitState init;

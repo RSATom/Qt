@@ -212,6 +212,11 @@ public class QtAndroidMediaPlayer
         mContext = context;
     }
 
+    public MediaPlayer getMediaPlayerHandle()
+    {
+        return mMediaPlayer;
+    }
+
     private void setState(int state)
     {
         if (mState == state)
@@ -373,7 +378,7 @@ public class QtAndroidMediaPlayer
                 FileDescriptor fd = fis.getFD();
                 mMediaPlayer.setDataSource(fd);
             } else {
-                mMediaPlayer.setDataSource(mContext, mUri);
+                mMediaPlayer.setDataSource(path);
             }
             setState(State.Initialized);
         } catch (final IOException e) {

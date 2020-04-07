@@ -176,7 +176,7 @@ TEST(CommandLineTest, EmptyString) {
   EXPECT_EQ(1U, cl_from_string.argv().size());
   EXPECT_TRUE(cl_from_string.GetArgs().empty());
 #endif
-  CommandLine cl_from_argv(0, NULL);
+  CommandLine cl_from_argv(0, nullptr);
   EXPECT_TRUE(cl_from_argv.GetCommandLineString().empty());
   EXPECT_TRUE(cl_from_argv.GetProgram().empty());
   EXPECT_EQ(1U, cl_from_argv.argv().size());
@@ -208,7 +208,7 @@ TEST(CommandLineTest, GetArgumentsString) {
   CommandLine::StringType expected_third_arg(UTF8ToUTF16(kThirdArgName));
   CommandLine::StringType expected_fourth_arg(UTF8ToUTF16(kFourthArgName));
   CommandLine::StringType expected_fifth_arg(UTF8ToUTF16(kFifthArgName));
-#elif defined(OS_POSIX)
+#elif defined(OS_POSIX) || defined(OS_FUCHSIA)
   CommandLine::StringType expected_first_arg(kFirstArgName);
   CommandLine::StringType expected_second_arg(kSecondArgName);
   CommandLine::StringType expected_third_arg(kThirdArgName);
@@ -382,9 +382,9 @@ TEST(CommandLineTest, ProgramQuotes) {
 TEST(CommandLineTest, Init) {
   // Call Init without checking output once so we know it's been called
   // whether or not the test runner does so.
-  CommandLine::Init(0, NULL);
+  CommandLine::Init(0, nullptr);
   CommandLine* initial = CommandLine::ForCurrentProcess();
-  EXPECT_FALSE(CommandLine::Init(0, NULL));
+  EXPECT_FALSE(CommandLine::Init(0, nullptr));
   CommandLine* current = CommandLine::ForCurrentProcess();
   EXPECT_EQ(initial, current);
 }

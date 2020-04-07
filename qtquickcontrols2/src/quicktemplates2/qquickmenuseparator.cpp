@@ -54,8 +54,8 @@ QT_BEGIN_NAMESPACE
     \image qtquickcontrols2-menuseparator.png
 
     \quotefromfile qtquickcontrols2-menuseparator-custom.qml
-    \skipto import QtQuick 2.6
-    \printuntil import QtQuick.Controls 2.1
+    \skipto import QtQuick
+    \printuntil import QtQuick.Controls
     \skipto Menu
     \printto contentItem.parent: window
     \skipline contentItem.parent: window
@@ -71,9 +71,14 @@ QQuickMenuSeparator::QQuickMenuSeparator(QQuickItem *parent)
 {
 }
 
+QFont QQuickMenuSeparator::defaultFont() const
+{
+    return QQuickTheme::font(QQuickTheme::Menu);
+}
+
 QPalette QQuickMenuSeparator::defaultPalette() const
 {
-    return QQuickControlPrivate::themePalette(QPlatformTheme::MenuPalette);
+    return QQuickTheme::palette(QQuickTheme::Menu);
 }
 
 #if QT_CONFIG(accessibility)

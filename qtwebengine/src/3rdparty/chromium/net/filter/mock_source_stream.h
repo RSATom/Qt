@@ -5,12 +5,12 @@
 #ifndef NET_FILTER_MOCK_SOURCE_STREAM_H_
 #define NET_FILTER_MOCK_SOURCE_STREAM_H_
 
-#include <queue>
 #include <string>
 
+#include "base/containers/queue.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "net/base/completion_callback.h"
+#include "net/base/completion_once_callback.h"
 #include "net/base/net_errors.h"
 #include "net/filter/source_stream.h"
 
@@ -33,7 +33,7 @@ class MockSourceStream : public SourceStream {
   // SourceStream implementation
   int Read(IOBuffer* dest_buffer,
            int buffer_size,
-           const CompletionCallback& callback) override;
+           CompletionOnceCallback callback) override;
   std::string Description() const override;
 
   // Enqueues a result to be returned by |Read|. This method does not make a
@@ -69,10 +69,10 @@ class MockSourceStream : public SourceStream {
   };
 
   bool read_one_byte_at_a_time_;
-  std::queue<QueuedResult> results_;
+  base::queue<QueuedResult> results_;
   bool awaiting_completion_;
   scoped_refptr<IOBuffer> dest_buffer_;
-  CompletionCallback callback_;
+  CompletionOnceCallback callback_;
   int dest_buffer_size_;
 
   DISALLOW_COPY_AND_ASSIGN(MockSourceStream);

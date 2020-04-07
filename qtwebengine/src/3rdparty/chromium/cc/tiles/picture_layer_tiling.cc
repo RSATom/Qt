@@ -13,7 +13,6 @@
 
 #include "base/containers/flat_map.h"
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/trace_event/trace_event.h"
 #include "base/trace_event/trace_event_argument.h"
@@ -65,8 +64,7 @@ PictureLayerTiling::PictureLayerTiling(
   tiling_data_.SetMaxTextureSize(tile_size);
 }
 
-PictureLayerTiling::~PictureLayerTiling() {
-}
+PictureLayerTiling::~PictureLayerTiling() = default;
 
 Tile* PictureLayerTiling::CreateTile(const Tile::CreateInfo& info) {
   const int i = info.tiling_i_index;
@@ -112,10 +110,9 @@ void PictureLayerTiling::CreateMissingTilesInLiveTilesRect() {
                 active_twin->TileAt(key.index_x, key.index_y)) {
           gfx::Rect tile_rect = tile->content_rect();
           gfx::Rect invalidated;
-          for (Region::Iterator iter(*invalidation); iter.has_rect();
-               iter.next()) {
+          for (gfx::Rect rect : *invalidation) {
             gfx::Rect invalid_content_rect =
-                EnclosingContentsRectFromLayerRect(iter.rect());
+                EnclosingContentsRectFromLayerRect(rect);
             invalid_content_rect.Intersect(tile_rect);
             invalidated.Union(invalid_content_rect);
           }
@@ -130,7 +127,6 @@ void PictureLayerTiling::CreateMissingTilesInLiveTilesRect() {
 void PictureLayerTiling::TakeTilesAndPropertiesFrom(
     PictureLayerTiling* pending_twin,
     const Region& layer_invalidation) {
-  TRACE_EVENT0("cc", "TakeTilesAndPropertiesFrom");
   SetRasterSourceAndResize(pending_twin->raster_source_);
 
   RemoveTilesInRegion(layer_invalidation, false /* recreate tiles */);
@@ -237,8 +233,11 @@ void PictureLayerTiling::SetRasterSourceAndResize(
     }
   }
   if (after_bottom > before_bottom) {
+    // Using the smallest horizontal bound here makes sure we don't
+    // create tiles twice and don't iterate into deleted tiles.
+    int boundary_right = std::min(after_right, before_right);
     DCHECK_EQ(after_bottom, before_bottom + 1);
-    for (int i = before_left; i <= before_right; ++i) {
+    for (int i = before_left; i <= boundary_right; ++i) {
       Tile::CreateInfo info = CreateInfoForTile(i, after_bottom);
       if (ShouldCreateTileAt(info))
         CreateTile(info);
@@ -261,9 +260,7 @@ void PictureLayerTiling::RemoveTilesInRegion(const Region& layer_invalidation,
   base::flat_map<TileMapKey, gfx::Rect> remove_tiles;
   gfx::Rect expanded_live_tiles_rect =
       tiling_data_.ExpandRectToTileBounds(live_tiles_rect_);
-  for (Region::Iterator iter(layer_invalidation); iter.has_rect();
-       iter.next()) {
-    gfx::Rect layer_rect = iter.rect();
+  for (gfx::Rect layer_rect : layer_invalidation) {
     // The pixels which are invalid in content space.
     gfx::Rect invalid_content_rect =
         EnclosingContentsRectFromLayerRect(layer_rect);
@@ -342,10 +339,9 @@ bool PictureLayerTiling::ShouldCreateTileAt(
   // If this tile is invalidated, then the pending tree should create one.
   // Do the intersection test in content space to match the corresponding check
   // on the active tree and avoid floating point inconsistencies.
-  for (Region::Iterator iter(*layer_invalidation); iter.has_rect();
-       iter.next()) {
+  for (gfx::Rect layer_rect : *layer_invalidation) {
     gfx::Rect invalid_content_rect =
-        EnclosingContentsRectFromLayerRect(iter.rect());
+        EnclosingContentsRectFromLayerRect(layer_rect);
     if (invalid_content_rect.Intersects(info.content_rect))
       return true;
   }
@@ -425,8 +421,7 @@ PictureLayerTiling::CoverageIterator::CoverageIterator(
   ++(*this);
 }
 
-PictureLayerTiling::CoverageIterator::~CoverageIterator() {
-}
+PictureLayerTiling::CoverageIterator::~CoverageIterator() = default;
 
 PictureLayerTiling::CoverageIterator&
 PictureLayerTiling::CoverageIterator::operator++() {
@@ -442,7 +437,7 @@ PictureLayerTiling::CoverageIterator::operator++() {
       tile_j_++;
       new_row = true;
       if (tile_j_ > bottom_) {
-        current_tile_ = NULL;
+        current_tile_ = nullptr;
         break;
       }
     }

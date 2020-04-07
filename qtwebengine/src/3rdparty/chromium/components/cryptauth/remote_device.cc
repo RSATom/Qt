@@ -5,17 +5,17 @@
 #include "components/cryptauth/remote_device.h"
 
 #include "base/base64.h"
+#include "base/stl_util.h"
 
 namespace cryptauth {
 
 namespace {
 
-// Returns true if both vectors are BeaconSeeds are equal.
+// Returns true if both vectors of BeaconSeeds are equal.
 bool AreBeaconSeedsEqual(const std::vector<BeaconSeed> beacon_seeds1,
                          const std::vector<BeaconSeed> beacon_seeds2) {
-  if (beacon_seeds1.size() != beacon_seeds2.size()) {
+  if (beacon_seeds1.size() != beacon_seeds2.size())
     return false;
-  }
 
   for (size_t i = 0; i < beacon_seeds1.size(); ++i) {
     const BeaconSeed& seed1 = beacon_seeds1[i];
@@ -32,67 +32,46 @@ bool AreBeaconSeedsEqual(const std::vector<BeaconSeed> beacon_seeds1,
 
 }  // namespace
 
-RemoteDevice::RemoteDevice()
-    : unlock_key(false),
-      supports_mobile_hotspot(false),
-      last_update_time_millis(0L) {}
+// static
+std::string RemoteDevice::GenerateDeviceId(const std::string& public_key) {
+  std::string device_id;
+  base::Base64Encode(public_key, &device_id);
+  return device_id;
+}
 
-RemoteDevice::RemoteDevice(const std::string& user_id,
-                           const std::string& name,
-                           const std::string& public_key,
-                           const std::string& bluetooth_address,
-                           const std::string& persistent_symmetric_key,
-                           bool unlock_key,
-                           bool supports_mobile_hotspot,
-                           int64_t last_update_time_millis)
+RemoteDevice::RemoteDevice() : last_update_time_millis(0L) {}
+
+RemoteDevice::RemoteDevice(
+    const std::string& user_id,
+    const std::string& name,
+    const std::string& public_key,
+    const std::string& persistent_symmetric_key,
+    int64_t last_update_time_millis,
+    const std::map<SoftwareFeature, SoftwareFeatureState>& software_features,
+    const std::vector<BeaconSeed>& beacon_seeds)
     : user_id(user_id),
       name(name),
       public_key(public_key),
-      bluetooth_address(bluetooth_address),
       persistent_symmetric_key(persistent_symmetric_key),
-      unlock_key(unlock_key),
-      supports_mobile_hotspot(supports_mobile_hotspot),
-      last_update_time_millis(last_update_time_millis) {}
+      last_update_time_millis(last_update_time_millis),
+      software_features(software_features),
+      beacon_seeds(beacon_seeds) {}
 
 RemoteDevice::RemoteDevice(const RemoteDevice& other) = default;
 
 RemoteDevice::~RemoteDevice() {}
 
-void RemoteDevice::LoadBeaconSeeds(
-    const std::vector<BeaconSeed>& beacon_seeds) {
-  this->are_beacon_seeds_loaded = true;
-  this->beacon_seeds = beacon_seeds;
-}
-
 std::string RemoteDevice::GetDeviceId() const {
-  std::string to_return;
-  base::Base64Encode(public_key, &to_return);
-  return to_return;
-}
-
-std::string RemoteDevice::GetTruncatedDeviceIdForLogs() const {
-  return RemoteDevice::TruncateDeviceIdForLogs(GetDeviceId());
+  return RemoteDevice::GenerateDeviceId(public_key);
 }
 
 bool RemoteDevice::operator==(const RemoteDevice& other) const {
-  // Only compare |beacon_seeds| if they are loaded.
-  bool are_beacon_seeds_equal = false;
-  if (are_beacon_seeds_loaded) {
-    are_beacon_seeds_equal =
-        other.are_beacon_seeds_loaded &&
-        AreBeaconSeedsEqual(beacon_seeds, other.beacon_seeds);
-  } else {
-    are_beacon_seeds_equal = !other.are_beacon_seeds_loaded;
-  }
-
   return user_id == other.user_id && name == other.name &&
          public_key == other.public_key &&
-         bluetooth_address == other.bluetooth_address &&
          persistent_symmetric_key == other.persistent_symmetric_key &&
-         unlock_key == other.unlock_key &&
-         supports_mobile_hotspot == other.supports_mobile_hotspot &&
          last_update_time_millis == other.last_update_time_millis &&
-         are_beacon_seeds_equal;
+         software_features == other.software_features &&
+         AreBeaconSeedsEqual(beacon_seeds, other.beacon_seeds);
 }
 
 bool RemoteDevice::operator<(const RemoteDevice& other) const {
@@ -100,17 +79,6 @@ bool RemoteDevice::operator<(const RemoteDevice& other) const {
   // each RemoteDevice. However, since it can contain null bytes, use
   // GetDeviceId(), which cannot contain null bytes, to compare devices.
   return GetDeviceId().compare(other.GetDeviceId()) < 0;
-}
-
-// static
-std::string RemoteDevice::TruncateDeviceIdForLogs(const std::string& full_id) {
-  if (full_id.length() <= 10) {
-    return full_id;
-  }
-
-  return full_id.substr(0, 5)
-      + "..."
-      + full_id.substr(full_id.length() - 5, full_id.length());
 }
 
 }  // namespace cryptauth

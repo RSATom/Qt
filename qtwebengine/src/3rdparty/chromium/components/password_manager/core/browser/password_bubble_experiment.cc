@@ -23,10 +23,6 @@ const char kSmartBubbleThresholdParam[] = "dismissal_count";
 
 void RegisterPrefs(PrefRegistrySimple* registry) {
   registry->RegisterBooleanPref(
-      password_manager::prefs::kWasAutoSignInFirstRunExperienceShown, false,
-      user_prefs::PrefRegistrySyncable::SYNCABLE_PRIORITY_PREF);
-
-  registry->RegisterBooleanPref(
       password_manager::prefs::kWasSignInPasswordPromoClicked, false);
 
   registry->RegisterIntegerPref(
@@ -42,8 +38,8 @@ int GetSmartBubbleDismissalThreshold() {
 }
 
 bool IsSmartLockUser(const syncer::SyncService* sync_service) {
-  return password_manager_util::GetPasswordSyncState(sync_service) ==
-         password_manager::SYNCING_NORMAL_ENCRYPTION;
+  return password_manager_util::GetPasswordSyncState(sync_service) !=
+         password_manager::NOT_SYNCING;
 }
 
 bool ShouldShowAutoSignInPromptFirstRunExperience(PrefService* prefs) {

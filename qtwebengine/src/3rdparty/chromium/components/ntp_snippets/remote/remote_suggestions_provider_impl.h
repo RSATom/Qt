@@ -6,7 +6,6 @@
 #define COMPONENTS_NTP_SNIPPETS_REMOTE_REMOTE_SUGGESTIONS_PROVIDER_IMPL_H_
 
 #include <cstddef>
-#include <deque>
 #include <map>
 #include <memory>
 #include <set>
@@ -15,15 +14,18 @@
 #include <vector>
 
 #include "base/callback_forward.h"
+#include "base/containers/circular_deque.h"
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/optional.h"
 #include "base/time/clock.h"
 #include "base/time/time.h"
+#include "base/timer/timer.h"
 #include "components/ntp_snippets/category.h"
 #include "components/ntp_snippets/category_status.h"
 #include "components/ntp_snippets/content_suggestion.h"
 #include "components/ntp_snippets/content_suggestions_provider.h"
+#include "components/ntp_snippets/logger.h"
 #include "components/ntp_snippets/remote/cached_image_fetcher.h"
 #include "components/ntp_snippets/remote/json_to_categories.h"
 #include "components/ntp_snippets/remote/prefetched_pages_tracker.h"
@@ -43,6 +45,7 @@ class ImageFetcher;
 
 namespace ntp_snippets {
 
+class BreakingNewsListener;
 class CategoryRanker;
 class RemoteSuggestionsDatabase;
 class RemoteSuggestionsScheduler;
@@ -68,57 +71,57 @@ class RemoteSuggestionsProviderImpl final : public RemoteSuggestionsProvider {
       std::unique_ptr<image_fetcher::ImageFetcher> image_fetcher,
       std::unique_ptr<RemoteSuggestionsDatabase> database,
       std::unique_ptr<RemoteSuggestionsStatusService> status_service,
-      std::unique_ptr<PrefetchedPagesTracker> prefetched_pages_tracker);
+      std::unique_ptr<PrefetchedPagesTracker> prefetched_pages_tracker,
+      std::unique_ptr<BreakingNewsListener> breaking_news_raw_data_provider,
+      Logger* debug_logger,
+      std::unique_ptr<base::OneShotTimer> fetch_timeout_timer);
 
   ~RemoteSuggestionsProviderImpl() override;
 
   static void RegisterProfilePrefs(PrefRegistrySimple* registry);
-
-  // Returns whether the service is ready. While this is false, the list of
-  // suggestions will be empty, and all modifications to it (fetch, dismiss,
-  // etc) will be ignored.
-  bool ready() const { return state_ == State::READY; }
 
   // Returns whether the service is successfully initialized. While this is
   // false, some calls may trigger DCHECKs.
   bool initialized() const { return ready() || state_ == State::DISABLED; }
 
   // RemoteSuggestionsProvider implementation.
-  void RefetchInTheBackground(const FetchStatusCallback& callback) override;
-
+  void RefetchInTheBackground(FetchStatusCallback callback) override;
+  void RefetchWhileDisplaying(FetchStatusCallback callback) override;
   // TODO(fhorschig): Remove this getter when there is an interface for the
   // fetcher that allows better mocks.
   const RemoteSuggestionsFetcher* suggestions_fetcher_for_debugging()
       const override;
-
   GURL GetUrlWithFavicon(
       const ContentSuggestion::ID& suggestion_id) const override;
-
   bool IsDisabled() const override;
+  bool ready() const override;
 
   // ContentSuggestionsProvider implementation.
   CategoryStatus GetCategoryStatus(Category category) override;
   CategoryInfo GetCategoryInfo(Category category) override;
   void DismissSuggestion(const ContentSuggestion::ID& suggestion_id) override;
   void FetchSuggestionImage(const ContentSuggestion::ID& suggestion_id,
-                            const ImageFetchedCallback& callback) override;
+                            ImageFetchedCallback callback) override;
+  void FetchSuggestionImageData(const ContentSuggestion::ID& suggestion_id,
+                                ImageDataFetchedCallback callback) override;
   void Fetch(const Category& category,
              const std::set<std::string>& known_suggestion_ids,
-             const FetchDoneCallback& callback) override;
+             FetchDoneCallback callback) override;
   void ReloadSuggestions() override;
   void ClearHistory(
       base::Time begin,
       base::Time end,
       const base::Callback<bool(const GURL& url)>& filter) override;
-  void ClearCachedSuggestions(Category category) override;
-  void OnSignInStateChanged() override;
+  void ClearCachedSuggestions() override;
+  void OnSignInStateChanged(bool has_signed_in) override;
   void GetDismissedSuggestionsForDebugging(
       Category category,
-      const DismissedSuggestionsCallback& callback) override;
+      DismissedSuggestionsCallback callback) override;
   void ClearDismissedSuggestionsForDebugging(Category category) override;
 
-  // Returns the maximum number of suggestions that will be shown at once.
-  static int GetMaxSuggestionCountForTesting();
+  // Returns the maximum number of suggestions we expect to receive from the
+  // server during a normal (not fetch-more) fetch..
+  static int GetMaxNormalFetchSuggestionCountForTesting();
 
   // Available suggestions, only for unit tests.
   // TODO(treib): Get rid of this. Tests should use a fake observer instead.
@@ -134,13 +137,15 @@ class RemoteSuggestionsProviderImpl final : public RemoteSuggestionsProvider {
   }
 
   // Overrides internal clock for testing purposes.
-  void SetClockForTesting(std::unique_ptr<base::Clock> clock) {
-    clock_ = std::move(clock);
-  }
+  void SetClockForTesting(base::Clock* clock) { clock_ = clock; }
 
   // TODO(tschumann): remove this method as soon as we inject the fetcher into
   // the constructor.
   CachedImageFetcher& GetImageFetcherForTesting() { return image_fetcher_; }
+
+  BreakingNewsListener* breaking_news_listener_for_debugging() {
+    return breaking_news_raw_data_provider_.get();
+  }
 
  private:
   friend class RemoteSuggestionsProviderImplTest;
@@ -158,6 +163,13 @@ class RemoteSuggestionsProviderImpl final : public RemoteSuggestionsProvider {
                            CallsSchedulerWhenSignedIn);
   FRIEND_TEST_ALL_PREFIXES(RemoteSuggestionsProviderImplTest,
                            CallsSchedulerWhenSignedOut);
+  FRIEND_TEST_ALL_PREFIXES(RemoteSuggestionsProviderImplTest,
+                           RestartsFetchWhenSignedInWhileFetching);
+  FRIEND_TEST_ALL_PREFIXES(RemoteSuggestionsProviderImplTest,
+                           ShouldHandleCategoryDisabledBeforeTimeout);
+  FRIEND_TEST_ALL_PREFIXES(
+      RemoteSuggestionsProviderImplTest,
+      ShouldNotSetExclusiveCategoryWhenFetchingSuggestions);
 
   // Possible state transitions:
   //       NOT_INITED --------+
@@ -200,6 +212,25 @@ class RemoteSuggestionsProviderImpl final : public RemoteSuggestionsProvider {
     COUNT
   };
 
+  // Documents the status of the ongoing request and what action should be taken
+  // on completion.
+  enum class FetchRequestStatus {
+    // There is no request in progress for remote suggestions.
+    NONE,
+
+    // There is a valid request in progress that should be treated normally on
+    // completion.
+    IN_PROGRESS,
+
+    // There is a canceled request in progress. The response should be ignored
+    // when it arrives.
+    IN_PROGRESS_CANCELED,
+
+    // There is an invalidated request in progress. On completion, we should
+    // ignore the response and initiate a new fetch (with updated parameters).
+    IN_PROGRESS_NEEDS_REFETCH
+  };
+
   struct CategoryContent {
     // The current status of the category.
     CategoryStatus status = CategoryStatus::INITIALIZING;
@@ -207,10 +238,10 @@ class RemoteSuggestionsProviderImpl final : public RemoteSuggestionsProvider {
     // The additional information about a category.
     CategoryInfo info;
 
+    // TODO(vitaliii): Remove this field. It is always true, because we now
+    // remove categories not included in the last fetch.
     // True iff the server returned results in this category in the last fetch.
-    // We never remove categories that the server still provides, but if the
-    // server stops providing a category, we won't yet report it as NOT_PROVIDED
-    // while we still have non-expired suggestions in it.
+    // We never remove categories that the server still provides.
     bool included_in_last_server_response = true;
 
     // All currently active suggestions (excl. the dismissed ones).
@@ -220,7 +251,7 @@ class RemoteSuggestionsProviderImpl final : public RemoteSuggestionsProvider {
     // be on some open NTP. We do not persist this list so that on a new start
     // of Chrome, this is empty.
     // |archived| is a FIFO buffer with a maximum length.
-    std::deque<std::unique_ptr<RemoteSuggestion>> archived;
+    base::circular_deque<std::unique_ptr<RemoteSuggestion>> archived;
 
     // Suggestions that the user dismissed. We keep these around until they
     // expire so we won't re-add them to |suggestions| on the next fetch.
@@ -243,8 +274,19 @@ class RemoteSuggestionsProviderImpl final : public RemoteSuggestionsProvider {
   // quota for requests, etc.), useful for requests triggered by the user. After
   // the fetch finished, the provided |callback| will be triggered with the
   // status of the fetch.
-  void FetchSuggestions(bool interactive_request,
-                        const FetchStatusCallback& callback);
+  void FetchSuggestions(bool interactive_request, FetchStatusCallback callback);
+
+  // Similar To FetchSuggestions, only adds a loading indicator on top of that.
+  // If |enable_loading_indication_timeout| is true, the indicator is hidden if
+  // the fetch does not finish within a certain amount of time (the fetch itself
+  // is not canceled, though).
+  void FetchSuggestionsWithLoadingIndicator(
+      bool interactive_request,
+      FetchStatusCallback callback,
+      bool enable_loading_indication_timeout);
+  void OnFetchSuggestionsWithLoadingIndicatorFinished(
+      FetchStatusCallback callback,
+      Status status);
 
   // Returns the URL of the image of a suggestion if it is among the current or
   // among the archived suggestions in the matching category. Returns an empty
@@ -257,13 +299,13 @@ class RemoteSuggestionsProviderImpl final : public RemoteSuggestionsProvider {
 
   // Callback for fetch-more requests with the RemoteSuggestionsFetcher.
   void OnFetchMoreFinished(
-      const FetchDoneCallback& fetching_callback,
+      FetchDoneCallback fetching_callback,
       Status status,
       RemoteSuggestionsFetcher::OptionalFetchedCategories fetched_categories);
 
   // Callback for regular fetch requests with the RemoteSuggestionsFetcher.
   void OnFetchFinished(
-      const FetchStatusCallback& callback,
+      FetchStatusCallback callback,
       bool interactive_request,
       Status status,
       RemoteSuggestionsFetcher::OptionalFetchedCategories fetched_categories);
@@ -286,12 +328,23 @@ class RemoteSuggestionsProviderImpl final : public RemoteSuggestionsProvider {
                             CategoryContent* content,
                             RemoteSuggestion::PtrVector new_suggestions);
 
+  // Adds newly available suggestion at the top of Articles category.
+  void PrependArticleSuggestion(
+      std::unique_ptr<RemoteSuggestion> remote_suggestion);
+
+  // Refreshes the content suggestions upon receiving a push-to-refresh request.
+  void RefreshSuggestionsUponPushToRefreshRequest();
+
   // Dismisses a suggestion within a given category content.
   // Note that this modifies the suggestion datastructures of |content|
   // invalidating iterators.
   void DismissSuggestionFromCategoryContent(
       CategoryContent* content,
       const std::string& id_within_category);
+
+  // Sets categories status to NOT_PROVIDED and deletes them (including their
+  // suggestions from the database).
+  void DeleteCategories(const std::vector<Category>& categories);
 
   // Removes expired dismissed suggestions from the service and the database.
   void ClearExpiredDismissedSuggestions();
@@ -305,9 +358,8 @@ class RemoteSuggestionsProviderImpl final : public RemoteSuggestionsProvider {
   // Clears suggestions because any history item has been removed.
   void ClearHistoryDependentState();
 
-  // Clears suggestions for any non-history related reason (e.g., sign-in status
-  // change, etc.).
-  void ClearSuggestions();
+  // Clears the cached suggestions
+  void ClearCachedSuggestionsImpl();
 
   // Clears all stored suggestions and updates the observer.
   void NukeAllSuggestions();
@@ -330,19 +382,15 @@ class RemoteSuggestionsProviderImpl final : public RemoteSuggestionsProvider {
   // SetProviderStatusCallback().
   void NotifyStateChanged();
 
-  // Enables the service. Do not call directly, use |EnterState| instead.
-  void EnterStateReady();
+  // Subscribes or unsubcribes from pushed suggestions depending on the new
+  // status.
+  void UpdatePushedSuggestionsSubscriptionDueToStatusChange(
+      RemoteSuggestionsStatus new_status);
 
-  // Disables the service. Do not call directly, use |EnterState| instead.
-  void EnterStateDisabled();
-
-  // Disables the service permanently because an unrecoverable error occurred.
-  // Do not call directly, use |EnterState| instead.
-  void EnterStateError();
-
-  // Converts the cached suggestions in the given |category| to content
-  // suggestions and notifies the observer.
-  void NotifyNewSuggestions(Category category, const CategoryContent& content);
+  // Converts the given |suggestions| to content suggestions and notifies the
+  // observer with them for category |category|.
+  void NotifyNewSuggestions(Category category,
+                            const RemoteSuggestion::PtrVector& suggestions);
 
   // Updates the internal status for |category| to |category_status_| and
   // notifies the content suggestions observer if it changed.
@@ -359,11 +407,19 @@ class RemoteSuggestionsProviderImpl final : public RemoteSuggestionsProvider {
   void RestoreCategoriesFromPrefs();
   void StoreCategoriesToPrefs();
 
-  // Absence of fetched category corresponds to fetching all categories.
-  RequestParams BuildFetchParams(
-      base::Optional<Category> fetched_category) const;
+  // If |fetched_category| is nullopt, fetches all categories. Otherwise,
+  // fetches at most |count_to_fetch| suggestions only from |fetched_category|.
+  // TODO(vitaliii): Also support |count_to_fetch| when |fetched_category| is
+  // nullopt.
+  RequestParams BuildFetchParams(base::Optional<Category> fetched_category,
+                                 int count_to_fetch) const;
 
-  void MarkEmptyCategoriesAsLoading();
+  bool AreArticlesEmpty() const;
+  bool AreArticlesAvailable() const;
+  void NotifyFetchWithLoadingIndicatorStarted();
+  void NotifyFetchWithLoadingIndicatorFailedOrTimeouted();
+
+  GURL GetImageURLToFetch(const ContentSuggestion::ID& suggestion_id) const;
 
   State state_;
 
@@ -395,25 +451,38 @@ class RemoteSuggestionsProviderImpl final : public RemoteSuggestionsProvider {
   // The service that provides events and data about the signin and sync state.
   std::unique_ptr<RemoteSuggestionsStatusService> status_service_;
 
-  // Set to true if FetchSuggestions is called while the service isn't ready.
-  // The fetch will be executed once the service enters the READY state.
-  // TODO(jkrcal): create a struct and have here just one base::Optional<>?
-  bool fetch_when_ready_;
-
-  // The parameters for the fetch to perform later.
-  bool fetch_when_ready_interactive_;
-  FetchStatusCallback fetch_when_ready_callback_;
-
   // Set to true if ClearHistoryDependentState is called while the service isn't
   // ready. The nuke will be executed once the service finishes initialization
   // or enters the READY state.
   bool clear_history_dependent_state_when_initialized_;
 
+  // Set to true if ClearCachedSuggestions has been called while the service
+  // isn't ready. The clearing will be executed once the service finishes
+  // initialization or enters the READY state.
+  bool clear_cached_suggestions_when_initialized_;
+
   // A clock for getting the time. This allows to inject a clock in tests.
-  std::unique_ptr<base::Clock> clock_;
+  base::Clock* clock_;
 
   // Prefetched pages tracker to query which urls have been prefetched.
+  // |nullptr| is handled gracefully and just disables the functionality.
   std::unique_ptr<PrefetchedPagesTracker> prefetched_pages_tracker_;
+
+  // Listens for BreakingNews updates (e.g. through GCM) and notifies the
+  // provider.
+  std::unique_ptr<BreakingNewsListener> breaking_news_raw_data_provider_;
+
+  // Additional logging, accesible through snippets-internals.
+  Logger* debug_logger_;
+
+  // A Timer for canceling too long fetches.
+  std::unique_ptr<base::OneShotTimer> fetch_timeout_timer_;
+
+  // Keeps track of the status of the ongoing request(s) and what action should
+  // be taken on completion. Requests via Fetch() (fetching more) are _not_
+  // tracked by this variable (as they do not need any special actions on
+  // completion).
+  FetchRequestStatus request_status_;
 
   DISALLOW_COPY_AND_ASSIGN(RemoteSuggestionsProviderImpl);
 };

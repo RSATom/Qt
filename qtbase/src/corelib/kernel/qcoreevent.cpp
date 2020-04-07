@@ -44,6 +44,8 @@
 
 #include "qbasicatomic.h"
 
+#include <qtcore_tracepoints_p.h>
+
 #include <limits>
 
 QT_BEGIN_NAMESPACE
@@ -194,7 +196,7 @@ QT_BEGIN_NAMESPACE
     \omitvalue Pointer
     \value Polish                           The widget is polished.
     \value PolishRequest                    The widget should be polished.
-    \value QueryWhatsThis                   The widget should accept the event if it has "What's This?" help.
+    \value QueryWhatsThis                   The widget should accept the event if it has "What's This?" help (QHelpEvent).
     \value ReadOnlyChange                   Widget's read-only state has changed (since Qt 5.4).
     \value RequestSoftwareInputPanel        A widget wants to open a software input panel (SIP).
     \value Resize                           Widget's size changed (QResizeEvent).
@@ -202,6 +204,12 @@ QT_BEGIN_NAMESPACE
     \value Scroll                           The object needs to scroll to the supplied position (QScrollEvent).
     \value Shortcut                         Key press in child for shortcut key handling (QShortcutEvent).
     \value ShortcutOverride                 Key press in child, for overriding shortcut key handling (QKeyEvent).
+                                            When a shortcut is about to trigger, \c ShortcutOverride
+                                            is sent to the active window. This allows clients (e.g. widgets)
+                                            to signal that they will handle the shortcut themselves, by
+                                            accepting the event. If the shortcut override is accepted, the
+                                            event is delivered as a normal key press to the focus widget.
+                                            Otherwise, it triggers the shortcut action, if one exists.
     \value Show                             Widget was shown on screen (QShowEvent).
     \value ShowToParent                     A child widget has been shown.
     \value SockAct                          Socket activated, used to implement QSocketNotifier.
@@ -288,7 +296,9 @@ QT_BEGIN_NAMESPACE
 */
 QEvent::QEvent(Type type)
     : d(0), t(type), posted(false), spont(false), m_accept(true)
-{}
+{
+    Q_TRACE(QEvent_ctor, this, t);
+}
 
 /*!
     \internal
@@ -301,6 +311,7 @@ QEvent::QEvent(const QEvent &other)
     : d(other.d), t(other.t), posted(other.posted), spont(other.spont),
       m_accept(other.m_accept)
 {
+    Q_TRACE(QEvent_ctor, this, t);
     // if QEventPrivate becomes available, make sure to implement a
     // virtual QEventPrivate *clone() const; function so we can copy here
     Q_ASSERT_X(!d, "QEvent", "Impossible, this can't happen: QEventPrivate isn't defined anywhere");
@@ -333,6 +344,7 @@ QEvent &QEvent::operator=(const QEvent &other)
 
 QEvent::~QEvent()
 {
+    Q_TRACE(QEvent_dtor, this, t);
     if (posted && QCoreApplication::instance())
         QCoreApplicationPrivate::removePostedEvent(this);
     Q_ASSERT_X(!d, "QEvent", "Impossible, this can't happen: QEventPrivate isn't defined anywhere");

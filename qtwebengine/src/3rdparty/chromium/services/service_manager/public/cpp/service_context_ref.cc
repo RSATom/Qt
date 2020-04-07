@@ -5,8 +5,6 @@
 #include "services/service_manager/public/cpp/service_context_ref.h"
 
 #include "base/bind.h"
-#include "base/memory/ptr_util.h"
-#include "base/message_loop/message_loop.h"
 #include "base/sequence_checker.h"
 #include "base/sequenced_task_runner.h"
 #include "base/threading/sequenced_task_runner_handle.h"
@@ -47,7 +45,7 @@ class ServiceContextRefImpl : public ServiceContextRef {
           FROM_HERE, base::Bind(&ServiceContextRefFactory::AddRef, factory_));
     }
 
-    return base::MakeUnique<ServiceContextRefImpl>(factory_,
+    return std::make_unique<ServiceContextRefImpl>(factory_,
                                                    service_task_runner_);
   }
 
@@ -59,8 +57,8 @@ class ServiceContextRefImpl : public ServiceContextRef {
 };
 
 ServiceContextRefFactory::ServiceContextRefFactory(
-    const base::Closure& quit_closure)
-    : quit_closure_(quit_closure), weak_factory_(this) {
+    base::RepeatingClosure quit_closure)
+    : quit_closure_(std::move(quit_closure)), weak_factory_(this) {
   DCHECK(!quit_closure_.is_null());
 }
 
@@ -68,12 +66,19 @@ ServiceContextRefFactory::~ServiceContextRefFactory() {}
 
 std::unique_ptr<ServiceContextRef> ServiceContextRefFactory::CreateRef() {
   AddRef();
-  return base::MakeUnique<ServiceContextRefImpl>(
+  return std::make_unique<ServiceContextRefImpl>(
       weak_factory_.GetWeakPtr(), base::SequencedTaskRunnerHandle::Get());
+}
+
+void ServiceContextRefFactory::SetRefAddedCallback(
+    const base::RepeatingClosure& ref_added_closure) {
+  ref_added_closure_ = ref_added_closure;
 }
 
 void ServiceContextRefFactory::AddRef() {
   ++ref_count_;
+  if (ref_added_closure_)
+    ref_added_closure_.Run();
 }
 
 void ServiceContextRefFactory::Release() {

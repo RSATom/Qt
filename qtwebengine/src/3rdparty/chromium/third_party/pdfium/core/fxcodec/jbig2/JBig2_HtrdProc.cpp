@@ -12,13 +12,12 @@
 #include "core/fxcodec/jbig2/JBig2_BitStream.h"
 #include "core/fxcodec/jbig2/JBig2_GrdProc.h"
 #include "core/fxcodec/jbig2/JBig2_Image.h"
-#include "core/fxcrt/fx_basic.h"
 #include "third_party/base/ptr_util.h"
 
-std::unique_ptr<CJBig2_Image> CJBig2_HTRDProc::decode_Arith(
+std::unique_ptr<CJBig2_Image> CJBig2_HTRDProc::DecodeArith(
     CJBig2_ArithDecoder* pArithDecoder,
     JBig2ArithCtx* gbContext,
-    IFX_Pause* pPause) {
+    PauseIndicatorIface* pPause) {
   std::unique_ptr<CJBig2_Image> HSKIP;
   if (HENABLESKIP == 1) {
     HSKIP = pdfium::MakeUnique<CJBig2_Image>(HGW, HGH);
@@ -28,9 +27,9 @@ std::unique_ptr<CJBig2_Image> CJBig2_HTRDProc::decode_Arith(
         int32_t y = (HGY + mg * HRX - ng * HRY) >> 8;
         if ((x + HPW <= 0) | (x >= static_cast<int32_t>(HBW)) | (y + HPH <= 0) |
             (y >= static_cast<int32_t>(HPH))) {
-          HSKIP->setPixel(ng, mg, 1);
+          HSKIP->SetPixel(ng, mg, 1);
         } else {
-          HSKIP->setPixel(ng, mg, 0);
+          HSKIP->SetPixel(ng, mg, 0);
         }
       }
     }
@@ -65,22 +64,26 @@ std::unique_ptr<CJBig2_Image> CJBig2_HTRDProc::decode_Arith(
   std::vector<std::unique_ptr<CJBig2_Image>> GSPLANES(GSBPP);
   for (int32_t i = GSBPP - 1; i >= 0; --i) {
     std::unique_ptr<CJBig2_Image> pImage;
-    FXCODEC_STATUS status =
-        GRD.Start_decode_Arith(&pImage, pArithDecoder, gbContext, nullptr);
+    CJBig2_GRDProc::ProgressiveArithDecodeState state;
+    state.pImage = &pImage;
+    state.pArithDecoder = pArithDecoder;
+    state.gbContext = gbContext;
+    state.pPause = nullptr;
+    FXCODEC_STATUS status = GRD.StartDecodeArith(&state);
+    state.pPause = pPause;
     while (status == FXCODEC_STATUS_DECODE_TOBECONTINUE)
-      status = GRD.Continue_decode(pPause, pArithDecoder);
-
+      status = GRD.ContinueDecode(&state);
     if (!pImage)
       return nullptr;
 
     GSPLANES[i] = std::move(pImage);
     if (i < GSBPP - 1)
-      GSPLANES[i]->composeFrom(0, 0, GSPLANES[i + 1].get(), JBIG2_COMPOSE_XOR);
+      GSPLANES[i]->ComposeFrom(0, 0, GSPLANES[i + 1].get(), JBIG2_COMPOSE_XOR);
   }
-  return decode_image(GSPLANES);
+  return DecodeImage(GSPLANES);
 }
 
-std::unique_ptr<CJBig2_Image> CJBig2_HTRDProc::decode_MMR(
+std::unique_ptr<CJBig2_Image> CJBig2_HTRDProc::DecodeMMR(
     CJBig2_BitStream* pStream) {
   uint32_t HBPP = 1;
   while (static_cast<uint32_t>(1 << HBPP) < HNUMPATS)
@@ -93,41 +96,40 @@ std::unique_ptr<CJBig2_Image> CJBig2_HTRDProc::decode_MMR(
 
   uint8_t GSBPP = static_cast<uint8_t>(HBPP);
   std::vector<std::unique_ptr<CJBig2_Image>> GSPLANES(GSBPP);
-  GRD.Start_decode_MMR(&GSPLANES[GSBPP - 1], pStream);
+  GRD.StartDecodeMMR(&GSPLANES[GSBPP - 1], pStream);
   if (!GSPLANES[GSBPP - 1])
     return nullptr;
 
   pStream->alignByte();
   pStream->offset(3);
   for (int32_t J = GSBPP - 2; J >= 0; --J) {
-    GRD.Start_decode_MMR(&GSPLANES[J], pStream);
+    GRD.StartDecodeMMR(&GSPLANES[J], pStream);
     if (!GSPLANES[J])
       return nullptr;
 
     pStream->alignByte();
     pStream->offset(3);
-    GSPLANES[J]->composeFrom(0, 0, GSPLANES[J + 1].get(), JBIG2_COMPOSE_XOR);
+    GSPLANES[J]->ComposeFrom(0, 0, GSPLANES[J + 1].get(), JBIG2_COMPOSE_XOR);
   }
-  return decode_image(GSPLANES);
+  return DecodeImage(GSPLANES);
 }
 
-std::unique_ptr<CJBig2_Image> CJBig2_HTRDProc::decode_image(
+std::unique_ptr<CJBig2_Image> CJBig2_HTRDProc::DecodeImage(
     const std::vector<std::unique_ptr<CJBig2_Image>>& GSPLANES) {
   auto HTREG = pdfium::MakeUnique<CJBig2_Image>(HBW, HBH);
-  HTREG->fill(HDEFPIXEL);
-  std::vector<uint32_t> GSVALS(HGW * HGH);
+  if (!HTREG->data())
+    return nullptr;
+
+  HTREG->Fill(HDEFPIXEL);
   for (uint32_t y = 0; y < HGH; ++y) {
     for (uint32_t x = 0; x < HGW; ++x) {
-      for (uint8_t J = 0; J < GSPLANES.size(); ++J)
-        GSVALS[y * HGW + x] |= GSPLANES[J]->getPixel(x, y) << J;
-    }
-  }
-  for (uint32_t mg = 0; mg < HGH; ++mg) {
-    for (uint32_t ng = 0; ng < HGW; ++ng) {
-      int32_t x = (HGX + mg * HRY + ng * HRX) >> 8;
-      int32_t y = (HGY + mg * HRX - ng * HRY) >> 8;
-      uint32_t pat_index = std::min(GSVALS[mg * HGW + ng], HNUMPATS - 1);
-      HTREG->composeFrom(x, y, (*HPATS)[pat_index].get(), HCOMBOP);
+      uint32_t gsval = 0;
+      for (uint8_t i = 0; i < GSPLANES.size(); ++i)
+        gsval |= GSPLANES[i]->GetPixel(x, y) << i;
+      uint32_t pat_index = std::min(gsval, HNUMPATS - 1);
+      int32_t out_x = (HGX + y * HRY + x * HRX) >> 8;
+      int32_t out_y = (HGY + y * HRX - x * HRY) >> 8;
+      (*HPATS)[pat_index]->ComposeTo(HTREG.get(), out_x, out_y, HCOMBOP);
     }
   }
   return HTREG;

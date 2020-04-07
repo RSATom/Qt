@@ -10,10 +10,11 @@ mojom("ime") {
   ]
 
   public_deps = [
-    "//mojo/common:common_custom_types",
+    "//mojo/public/mojom/base",
     "//ui/events/mojo:interfaces",
     "//ui/gfx/geometry/mojo",
     "//ui/gfx/range/mojo",
+    "//ui/platform_window/mojo:interfaces",
   ]
 }
 
@@ -24,5 +25,6 @@ mojom("test_interfaces") {
 
   public_deps = [
     ":ime",
+    "//ui/platform_window/mojo:interfaces",
   ]
 }

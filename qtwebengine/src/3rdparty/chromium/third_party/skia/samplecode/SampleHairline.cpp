@@ -7,8 +7,10 @@
 
 #include "SampleCode.h"
 #include "SkAnimTimer.h"
-#include "SkView.h"
+#include "SkBitmap.h"
 #include "SkCanvas.h"
+#include "SkColorFilter.h"
+#include "SkColorPriv.h"
 #include "SkCornerPathEffect.h"
 #include "SkGradientShader.h"
 #include "SkGraphics.h"
@@ -16,13 +18,12 @@
 #include "SkRandom.h"
 #include "SkRegion.h"
 #include "SkShader.h"
-#include "SkUtils.h"
-#include "SkColorPriv.h"
-#include "SkColorFilter.h"
-#include "SkTime.h"
-#include "SkTypeface.h"
 #include "SkStream.h"
-#include "SkColorPriv.h"
+#include "SkTime.h"
+#include "SkTo.h"
+#include "SkTypeface.h"
+#include "SkUtils.h"
+#include "SkView.h"
 
 static SkRandom gRand;
 
@@ -228,7 +229,6 @@ protected:
 
     SkView::Click* onFindClickHandler(SkScalar x, SkScalar y, unsigned modi) override {
         fDoAA = !fDoAA;
-        this->inval(nullptr);
         return this->INHERITED::onFindClickHandler(x, y, modi);
     }
 

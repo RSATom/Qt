@@ -11,9 +11,8 @@
 #include <memory>
 
 #include "core/fpdfdoc/cpdf_annot.h"
-#include "core/fxcrt/cfx_unowned_ptr.h"
-#include "core/fxcrt/fx_basic.h"
 #include "core/fxcrt/fx_coordinates.h"
+#include "core/fxcrt/unowned_ptr.h"
 #include "fpdfsdk/cpdfsdk_annot.h"
 
 class CFX_Matrix;
@@ -43,7 +42,14 @@ class CPDFSDK_AnnotHandlerMgr {
   void Annot_OnCreate(CPDFSDK_Annot* pAnnot);
   void Annot_OnLoad(CPDFSDK_Annot* pAnnot);
 
-  CFX_WideString Annot_GetSelectedText(CPDFSDK_Annot* pAnnot);
+  WideString Annot_GetText(CPDFSDK_Annot* pAnnot);
+  WideString Annot_GetSelectedText(CPDFSDK_Annot* pAnnot);
+  void Annot_ReplaceSelection(CPDFSDK_Annot* pAnnot, const WideString& text);
+
+  bool Annot_CanUndo(CPDFSDK_Annot* pAnnot);
+  bool Annot_CanRedo(CPDFSDK_Annot* pAnnot);
+  bool Annot_Undo(CPDFSDK_Annot* pAnnot);
+  bool Annot_Redo(CPDFSDK_Annot* pAnnot);
 
   IPDFSDK_AnnotHandler* GetAnnotHandler(CPDFSDK_Annot* pAnnot) const;
   void Annot_OnDraw(CPDFSDK_PageView* pPageView,
@@ -114,8 +120,6 @@ class CPDFSDK_AnnotHandlerMgr {
 #ifdef PDF_ENABLE_XFA
   std::unique_ptr<CPDFSDK_XFAWidgetHandler> m_pXFAWidgetHandler;
 #endif  // PDF_ENABLE_XFA
-
-  CFX_UnownedPtr<CPDFSDK_FormFillEnvironment> const m_pFormFillEnv;
 };
 
 #endif  // FPDFSDK_CPDFSDK_ANNOTHANDLERMGR_H_

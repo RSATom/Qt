@@ -47,13 +47,16 @@ class ProxyRunner : public IPC::Listener {
     std::unique_ptr<IPC::ChannelFactory> factory;
     if (for_server) {
       factory = IPC::ChannelMojo::CreateServerFactory(
-          std::move(pipe), ipc_task_runner);
+          std::move(pipe), ipc_task_runner,
+          base::ThreadTaskRunnerHandle::Get());
     } else {
       factory = IPC::ChannelMojo::CreateClientFactory(
-          std::move(pipe), ipc_task_runner);
+          std::move(pipe), ipc_task_runner,
+          base::ThreadTaskRunnerHandle::Get());
     }
-    channel_ = IPC::ChannelProxy::Create(
-        std::move(factory), this, ipc_task_runner);
+    channel_ =
+        IPC::ChannelProxy::Create(std::move(factory), this, ipc_task_runner,
+                                  base::ThreadTaskRunnerHandle::Get());
   }
 
   void ShutDown() { channel_.reset(); }
@@ -106,7 +109,7 @@ class TestDriverMessageFilter
   void RequestQuit(RequestQuitCallback callback) override {
     EXPECT_EQ(kNumTestMessages, message_count_);
     std::move(callback).Run();
-    base::MessageLoop::current()->QuitWhenIdle();
+    base::RunLoop::QuitCurrentWhenIdleDeprecated();
   }
 
   std::string next_expected_string_;
@@ -119,7 +122,7 @@ class TestClientRunner {
       : client_thread_("Test client") {
     client_thread_.Start();
     client_thread_.task_runner()->PostTask(
-        FROM_HERE, base::Bind(&RunTestClient, base::Passed(&pipe)));
+        FROM_HERE, base::BindOnce(&RunTestClient, std::move(pipe)));
   }
 
   ~TestClientRunner() {
@@ -146,11 +149,9 @@ class TestClientRunner {
       proxy.channel()->Send(message.release());
     }
 
-    driver->RequestQuit(base::MessageLoop::QuitWhenIdleClosure());
+    driver->RequestQuit(base::RunLoop::QuitCurrentWhenIdleClosureDeprecated());
 
-    base::MessageLoop::ScopedNestableTaskAllower allow_nested_loops(
-        base::MessageLoop::current());
-    base::RunLoop().Run();
+    base::RunLoop(base::RunLoop::Type::kNestableTasksAllowed).Run();
 
     proxy.ShutDown();
     io_thread.Stop();

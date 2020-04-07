@@ -48,7 +48,9 @@
 # include <X11/extensions/Xrender.h>
 #endif
 
+#define register        /* C++17 deprecated register */
 #include <X11/Xlib.h>
+#undef register
 
 #ifndef None
 #define None 0L
@@ -60,8 +62,10 @@ QXcbNativeBackingStore::QXcbNativeBackingStore(QWindow *window)
     : QPlatformBackingStore(window)
     , m_translucentBackground(false)
 {
-    if (QXcbWindow *w = static_cast<QXcbWindow *>(window->handle()))
-        m_translucentBackground = w->connection()->hasXRender() && QImage::toPixelFormat(w->imageFormat()).alphaSize() > 0;
+    if (QXcbWindow *w = static_cast<QXcbWindow *>(window->handle())) {
+        m_translucentBackground = w->connection()->hasXRender() &&
+            QImage::toPixelFormat(w->imageFormat()).alphaUsage() == QPixelFormat::UsesAlpha;
+    }
 }
 
 QXcbNativeBackingStore::~QXcbNativeBackingStore()
@@ -121,7 +125,7 @@ void QXcbNativeBackingStore::flush(QWindow *window, const QRegion &region, const
     else
 #endif
     {
-        GC gc = XCreateGC(display(), wid, 0, Q_NULLPTR);
+        GC gc = XCreateGC(display(), wid, 0, nullptr);
 
         if (clipRects.size() != 1)
             XSetClipRectangles(display(), gc, 0, 0, clipRects.data(), clipRects.size(), YXBanded);
@@ -161,7 +165,7 @@ void QXcbNativeBackingStore::resize(const QSize &size, const QRegion &staticCont
         QRect br = staticContents.boundingRect().intersected(QRect(QPoint(0, 0), size));
 
         if (!br.isEmpty()) {
-            GC gc = XCreateGC(display(), to, 0, Q_NULLPTR);
+            GC gc = XCreateGC(display(), to, 0, nullptr);
             XCopyArea(display(), from, to, gc, br.x(), br.y(), br.width(), br.height(), br.x(), br.y());
             XFreeGC(display(), gc);
         }
@@ -178,7 +182,7 @@ bool QXcbNativeBackingStore::scroll(const QRegion &area, int dx, int dy)
     QRect rect = area.boundingRect();
     Pixmap pix = qt_x11PixmapHandle(m_pixmap);
 
-    GC gc = XCreateGC(display(), pix, 0, Q_NULLPTR);
+    GC gc = XCreateGC(display(), pix, 0, nullptr);
     XCopyArea(display(), pix, pix, gc,
               rect.x(), rect.y(), rect.width(), rect.height(),
               rect.x()+dx, rect.y()+dy);
@@ -188,6 +192,10 @@ bool QXcbNativeBackingStore::scroll(const QRegion &area, int dx, int dy)
 
 void QXcbNativeBackingStore::beginPaint(const QRegion &region)
 {
+    QX11PlatformPixmap *x11pm = qt_x11Pixmap(m_pixmap);
+    if (x11pm)
+        x11pm->setIsBackingStore(true);
+
 #if QT_CONFIG(xrender)
     if (m_translucentBackground) {
         const QVector<XRectangle> xrects = qt_region_to_xrectangles(region);

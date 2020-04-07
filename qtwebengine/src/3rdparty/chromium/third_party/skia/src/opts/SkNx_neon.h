@@ -12,14 +12,19 @@
 
 namespace {
 
-// ARMv8 has vrndmq_f32 to floor 4 floats.  Here we emulate it:
+// ARMv8 has vrndm(q)_f32 to floor floats.  Here we emulate it:
 //   - roundtrip through integers via truncation
 //   - subtract 1 if that's too big (possible for negative values).
 // This restricts the domain of our inputs to a maximum somehwere around 2^31.  Seems plenty big.
-AI static float32x4_t armv7_vrndmq_f32(float32x4_t v) {
+AI static float32x4_t emulate_vrndmq_f32(float32x4_t v) {
     auto roundtrip = vcvtq_f32_s32(vcvtq_s32_f32(v));
     auto too_big = vcgtq_f32(roundtrip, v);
     return vsubq_f32(roundtrip, (float32x4_t)vandq_u32(too_big, (uint32x4_t)vdupq_n_f32(1)));
+}
+AI static float32x2_t emulate_vrndm_f32(float32x2_t v) {
+    auto roundtrip = vcvt_f32_s32(vcvt_s32_f32(v));
+    auto too_big = vcgt_f32(roundtrip, v);
+    return vsub_f32(roundtrip, (float32x2_t)vand_u32(too_big, (uint32x2_t)vdup_n_f32(1)));
 }
 
 template <>
@@ -34,11 +39,46 @@ public:
     AI static SkNx Load(const void* ptr) { return vld1_f32((const float*)ptr); }
     AI void store(void* ptr) const { vst1_f32((float*)ptr, fVec); }
 
+    AI static void Load2(const void* ptr, SkNx* x, SkNx* y) {
+        float32x2x2_t xy = vld2_f32((const float*) ptr);
+        *x = xy.val[0];
+        *y = xy.val[1];
+    }
+
+    AI static void Store2(void* dst, const SkNx& a, const SkNx& b) {
+        float32x2x2_t ab = {{
+            a.fVec,
+            b.fVec,
+        }};
+        vst2_f32((float*) dst, ab);
+    }
+
+    AI static void Store3(void* dst, const SkNx& a, const SkNx& b, const SkNx& c) {
+        float32x2x3_t abc = {{
+            a.fVec,
+            b.fVec,
+            c.fVec,
+        }};
+        vst3_f32((float*) dst, abc);
+    }
+
+    AI static void Store4(void* dst, const SkNx& a, const SkNx& b, const SkNx& c, const SkNx& d) {
+        float32x2x4_t abcd = {{
+            a.fVec,
+            b.fVec,
+            c.fVec,
+            d.fVec,
+        }};
+        vst4_f32((float*) dst, abcd);
+    }
+
     AI SkNx invert() const {
         float32x2_t est0 = vrecpe_f32(fVec),
                     est1 = vmul_f32(vrecps_f32(est0, fVec), est0);
         return est1;
     }
+
+    AI SkNx operator - () const { return vneg_f32(fVec); }
 
     AI SkNx operator + (const SkNx& o) const { return vadd_f32(fVec, o.fVec); }
     AI SkNx operator - (const SkNx& o) const { return vsub_f32(fVec, o.fVec); }
@@ -66,6 +106,15 @@ public:
     AI static SkNx Min(const SkNx& l, const SkNx& r) { return vmin_f32(l.fVec, r.fVec); }
     AI static SkNx Max(const SkNx& l, const SkNx& r) { return vmax_f32(l.fVec, r.fVec); }
 
+    AI SkNx abs() const { return vabs_f32(fVec); }
+    AI SkNx floor() const {
+    #if defined(SK_CPU_ARM64)
+        return vrndm_f32(fVec);
+    #else
+        return emulate_vrndm_f32(fVec);
+    #endif
+    }
+
     AI SkNx rsqrt() const {
         float32x2_t est0 = vrsqrte_f32(fVec);
         return vmul_f32(vrsqrts_f32(fVec, vmul_f32(est0, est0)), est0);
@@ -89,12 +138,24 @@ public:
     }
 
     AI bool allTrue() const {
+    #if defined(__aarch64__)
+        return 0 != vminv_u32(vreinterpret_u32_f32(fVec));
+    #else
         auto v = vreinterpret_u32_f32(fVec);
         return vget_lane_u32(v,0) && vget_lane_u32(v,1);
+    #endif
     }
     AI bool anyTrue() const {
+    #if defined(__aarch64__)
+        return 0 != vmaxv_u32(vreinterpret_u32_f32(fVec));
+    #else
         auto v = vreinterpret_u32_f32(fVec);
         return vget_lane_u32(v,0) || vget_lane_u32(v,1);
+    #endif
+    }
+
+    AI SkNx thenElse(const SkNx& t, const SkNx& e) const {
+        return vbsl_f32(vreinterpret_u32_f32(fVec), t.fVec, e.fVec);
     }
 
     float32x2_t fVec;
@@ -111,6 +172,12 @@ public:
 
     AI static SkNx Load(const void* ptr) { return vld1q_f32((const float*)ptr); }
     AI void store(void* ptr) const { vst1q_f32((float*)ptr, fVec); }
+
+    AI static void Load2(const void* ptr, SkNx* x, SkNx* y) {
+        float32x4x2_t xy = vld2q_f32((const float*) ptr);
+        *x = xy.val[0];
+        *y = xy.val[1];
+    }
 
     AI static void Load4(const void* ptr, SkNx* r, SkNx* g, SkNx* b, SkNx* a) {
         float32x4x4_t rgba = vld4q_f32((const float*) ptr);
@@ -134,6 +201,8 @@ public:
                     est1 = vmulq_f32(vrecpsq_f32(est0, fVec), est0);
         return est1;
     }
+
+    AI SkNx operator - () const { return vnegq_f32(fVec); }
 
     AI SkNx operator + (const SkNx& o) const { return vaddq_f32(fVec, o.fVec); }
     AI SkNx operator - (const SkNx& o) const { return vsubq_f32(fVec, o.fVec); }
@@ -166,7 +235,7 @@ public:
     #if defined(SK_CPU_ARM64)
         return vrndmq_f32(fVec);
     #else
-        return armv7_vrndmq_f32(fVec);
+        return emulate_vrndmq_f32(fVec);
     #endif
     }
 
@@ -193,15 +262,41 @@ public:
         return pun.fs[k&3];
     }
 
+    AI float min() const {
+    #if defined(__aarch64__)
+        return vminvq_f32(fVec);
+    #else
+        SkNx min = Min(*this, vrev64q_f32(fVec));
+        return SkTMin(min[0], min[2]);
+    #endif
+    }
+
+    AI float max() const {
+    #if defined(__aarch64__)
+        return vmaxvq_f32(fVec);
+    #else
+        SkNx max = Max(*this, vrev64q_f32(fVec));
+        return SkTMax(max[0], max[2]);
+    #endif
+    }
+
     AI bool allTrue() const {
+    #if defined(__aarch64__)
+        return 0 != vminvq_u32(vreinterpretq_u32_f32(fVec));
+    #else
         auto v = vreinterpretq_u32_f32(fVec);
         return vgetq_lane_u32(v,0) && vgetq_lane_u32(v,1)
             && vgetq_lane_u32(v,2) && vgetq_lane_u32(v,3);
+    #endif
     }
     AI bool anyTrue() const {
+    #if defined(__aarch64__)
+        return 0 != vmaxvq_u32(vreinterpretq_u32_f32(fVec));
+    #else
         auto v = vreinterpretq_u32_f32(fVec);
         return vgetq_lane_u32(v,0) || vgetq_lane_u32(v,1)
             || vgetq_lane_u32(v,2) || vgetq_lane_u32(v,3);
+    #endif
     }
 
     AI SkNx thenElse(const SkNx& t, const SkNx& e) const {
@@ -314,6 +409,13 @@ public:
         return pun.us[k&7];
     }
 
+    AI SkNx mulHi(const SkNx& m) const {
+        uint32x4_t hi = vmull_u16(vget_high_u16(fVec), vget_high_u16(m.fVec));
+        uint32x4_t lo = vmull_u16( vget_low_u16(fVec),  vget_low_u16(m.fVec));
+
+        return { vcombine_u16(vshrn_n_u32(lo,16), vshrn_n_u32(hi,16)) };
+    }
+
     AI SkNx thenElse(const SkNx& t, const SkNx& e) const {
         return vbslq_u16(fVec, t.fVec, e.fVec);
     }
@@ -345,6 +447,30 @@ public:
     }
 
     // TODO as needed
+
+    uint8x8_t fVec;
+};
+
+template <>
+class SkNx<8, uint8_t> {
+public:
+    AI SkNx(const uint8x8_t& vec) : fVec(vec) {}
+
+    AI SkNx() {}
+    AI SkNx(uint8_t val) : fVec(vdup_n_u8(val)) {}
+    AI SkNx(uint8_t a, uint8_t b, uint8_t c, uint8_t d,
+            uint8_t e, uint8_t f, uint8_t g, uint8_t h) {
+        fVec = (uint8x8_t) { a,b,c,d, e,f,g,h };
+    }
+
+    AI static SkNx Load(const void* ptr) { return vld1_u8((const uint8_t*)ptr); }
+    AI void store(void* ptr) const { vst1_u8((uint8_t*)ptr, fVec); }
+
+    AI uint8_t operator[](int k) const {
+        SkASSERT(0 <= k && k < 8);
+        union { uint8x8_t v; uint8_t us[8]; } pun = {fVec};
+        return pun.us[k&7];
+    }
 
     uint8x8_t fVec;
 };
@@ -487,6 +613,13 @@ public:
     AI static SkNx Min(const SkNx& a, const SkNx& b) { return vminq_u32(a.fVec, b.fVec); }
     // TODO as needed
 
+    AI SkNx mulHi(const SkNx& m) const {
+        uint64x2_t hi = vmull_u32(vget_high_u32(fVec), vget_high_u32(m.fVec));
+        uint64x2_t lo = vmull_u32( vget_low_u32(fVec),  vget_low_u32(m.fVec));
+
+        return { vcombine_u32(vshrn_n_u64(lo,32), vshrn_n_u64(hi,32)) };
+    }
+
     AI SkNx thenElse(const SkNx& t, const SkNx& e) const {
         return vbslq_u32(fVec, t.fVec, e.fVec);
     }
@@ -519,9 +652,13 @@ template<> AI /*static*/ Sk4b SkNx_cast<uint8_t, float>(const Sk4f& src) {
     return vqmovn_u16(vcombine_u16(_16, _16));
 }
 
-template<> AI /*static*/ Sk4i SkNx_cast<int32_t, uint8_t>(const Sk4b& src) {
+template<> AI /*static*/ Sk4u SkNx_cast<uint32_t, uint8_t>(const Sk4b& src) {
     uint16x8_t _16 = vmovl_u8(src.fVec);
-    return vreinterpretq_s32_u32(vmovl_u16(vget_low_u16(_16)));
+    return vmovl_u16(vget_low_u16(_16));
+}
+
+template<> AI /*static*/ Sk4i SkNx_cast<int32_t, uint8_t>(const Sk4b& src) {
+    return vreinterpretq_s32_u32(SkNx_cast<uint32_t>(src).fVec);
 }
 
 template<> AI /*static*/ Sk4f SkNx_cast<float, uint8_t>(const Sk4b& src) {
@@ -541,16 +678,38 @@ template<> AI /*static*/ Sk16b SkNx_cast<uint8_t, float>(const Sk16f& src) {
                              (uint8x16_t)vcvtq_u32_f32(d.fVec)).val[0]).val[0];
 }
 
+template<> AI /*static*/ Sk8b SkNx_cast<uint8_t, int32_t>(const Sk8i& src) {
+    Sk4i a, b;
+    SkNx_split(src, &a, &b);
+    uint16x4_t a16 = vqmovun_s32(a.fVec);
+    uint16x4_t b16 = vqmovun_s32(b.fVec);
+
+    return vqmovn_u16(vcombine_u16(a16, b16));
+}
+
 template<> AI /*static*/ Sk4h SkNx_cast<uint16_t, uint8_t>(const Sk4b& src) {
     return vget_low_u16(vmovl_u8(src.fVec));
+}
+
+template<> AI /*static*/ Sk8h SkNx_cast<uint16_t, uint8_t>(const Sk8b& src) {
+    return vmovl_u8(src.fVec);
 }
 
 template<> AI /*static*/ Sk4b SkNx_cast<uint8_t, uint16_t>(const Sk4h& src) {
     return vmovn_u16(vcombine_u16(src.fVec, src.fVec));
 }
 
+template<> AI /*static*/ Sk8b SkNx_cast<uint8_t, uint16_t>(const Sk8h& src) {
+    return vqmovn_u16(src.fVec);
+}
+
 template<> AI /*static*/ Sk4b SkNx_cast<uint8_t, int32_t>(const Sk4i& src) {
     uint16x4_t _16 = vqmovun_s32(src.fVec);
+    return vqmovn_u16(vcombine_u16(_16, _16));
+}
+
+template<> AI /*static*/ Sk4b SkNx_cast<uint8_t, uint32_t>(const Sk4u& src) {
+    uint16x4_t _16 = vqmovn_u32(src.fVec);
     return vqmovn_u16(vcombine_u16(_16, _16));
 }
 

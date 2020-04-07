@@ -7,7 +7,7 @@
 #include <stddef.h>
 #include <utility>
 
-#include "device/usb/public/interfaces/device.mojom.h"
+#include "device/usb/public/mojom/device.mojom.h"
 
 using ::testing::Return;
 using ::testing::_;
@@ -19,7 +19,7 @@ MockPermissionProvider::MockPermissionProvider() : weak_factory_(this) {
   ON_CALL(*this, HasDevicePermission(_)).WillByDefault(Return(true));
 }
 
-MockPermissionProvider::~MockPermissionProvider() {}
+MockPermissionProvider::~MockPermissionProvider() = default;
 
 base::WeakPtr<PermissionProvider> MockPermissionProvider::GetWeakPtr() {
   return weak_factory_.GetWeakPtr();

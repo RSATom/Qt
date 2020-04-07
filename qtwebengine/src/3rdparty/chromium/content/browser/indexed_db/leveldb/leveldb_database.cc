@@ -7,6 +7,7 @@
 #include <inttypes.h>
 #include <stdint.h>
 
+#include <algorithm>
 #include <cerrno>
 #include <memory>
 #include <utility>
@@ -22,6 +23,7 @@
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/sys_info.h"
+#include "base/time/default_clock.h"
 #include "base/trace_event/memory_dump_manager.h"
 #include "base/trace_event/process_memory_dump.h"
 #include "build/build_config.h"
@@ -32,15 +34,17 @@
 #include "content/browser/indexed_db/leveldb/leveldb_iterator_impl.h"
 #include "content/browser/indexed_db/leveldb/leveldb_write_batch.h"
 #include "third_party/leveldatabase/env_chromium.h"
-#include "third_party/leveldatabase/src/helpers/memenv/memenv.h"
-#include "third_party/leveldatabase/src/include/leveldb/cache.h"
+#include "third_party/leveldatabase/leveldb_chrome.h"
 #include "third_party/leveldatabase/src/include/leveldb/db.h"
-#include "third_party/leveldatabase/src/include/leveldb/env.h"
 #include "third_party/leveldatabase/src/include/leveldb/filter_policy.h"
 #include "third_party/leveldatabase/src/include/leveldb/slice.h"
+
 using base::StringPiece;
+using leveldb_env::DBTracker;
 
 namespace content {
+
+namespace {
 
 // Forcing flushes to disk at the end of a transaction guarantees that the
 // data hit disk, but drastically impacts throughput when the filesystem is
@@ -51,121 +55,13 @@ namespace content {
 // Sync writes are necessary on Windows for quota calculations; POSIX
 // calculates file sizes correctly even when not synced to disk.
 #if defined(OS_WIN)
-static const bool kSyncWrites = true;
+const bool kSyncWrites = true;
 #else
 // TODO(dgrogan): Either remove the #if block or change this back to false.
 // See http://crbug.com/338385.
-static const bool kSyncWrites = true;
+const bool kSyncWrites = true;
 #endif
 
-static leveldb::Slice MakeSlice(const StringPiece& s) {
-  return leveldb::Slice(s.begin(), s.size());
-}
-
-static StringPiece MakeStringPiece(const leveldb::Slice& s) {
-  return StringPiece(s.data(), s.size());
-}
-
-LevelDBDatabase::ComparatorAdapter::ComparatorAdapter(
-    const LevelDBComparator* comparator)
-    : comparator_(comparator) {}
-
-int LevelDBDatabase::ComparatorAdapter::Compare(const leveldb::Slice& a,
-                                                const leveldb::Slice& b) const {
-  return comparator_->Compare(MakeStringPiece(a), MakeStringPiece(b));
-}
-
-const char* LevelDBDatabase::ComparatorAdapter::Name() const {
-  return comparator_->Name();
-}
-
-// TODO(jsbell): Support the methods below in the future.
-void LevelDBDatabase::ComparatorAdapter::FindShortestSeparator(
-    std::string* start,
-    const leveldb::Slice& limit) const {}
-
-void LevelDBDatabase::ComparatorAdapter::FindShortSuccessor(
-    std::string* key) const {}
-
-LevelDBSnapshot::LevelDBSnapshot(LevelDBDatabase* db)
-    : db_(db->db_.get()), snapshot_(db_->GetSnapshot()) {}
-
-LevelDBSnapshot::~LevelDBSnapshot() { db_->ReleaseSnapshot(snapshot_); }
-
-LevelDBDatabase::LevelDBDatabase(size_t max_open_iterators)
-    : iterator_lru_(max_open_iterators) {
-  DCHECK(max_open_iterators);
-}
-
-LevelDBDatabase::~LevelDBDatabase() {
-  LOCAL_HISTOGRAM_COUNTS_10000("Storage.IndexedDB.LevelDB.MaxIterators",
-                               max_iterators_);
-  base::trace_event::MemoryDumpManager::GetInstance()->UnregisterDumpProvider(
-      this);
-  // db_'s destructor uses comparator_adapter_; order of deletion is important.
-  CloseDatabase();
-  comparator_adapter_.reset();
-  env_.reset();
-}
-
-void LevelDBDatabase::CloseDatabase() {
-  if (db_) {
-    base::TimeTicks begin_time = base::TimeTicks::Now();
-    db_.reset();
-    UMA_HISTOGRAM_MEDIUM_TIMES("WebCore.IndexedDB.LevelDB.CloseTime",
-                               base::TimeTicks::Now() - begin_time);
-  }
-}
-
-static size_t DefaultBlockCacheSize() {
-  if (base::SysInfo::IsLowEndDevice())
-    return 512 * 1024;  // 512KB
-  else
-    return 8 * 1024 * 1024;  // 8MB
-}
-
-static leveldb::Status OpenDB(
-    leveldb::Comparator* comparator,
-    leveldb::Env* env,
-    const base::FilePath& path,
-    std::unique_ptr<leveldb::DB>* db,
-    std::unique_ptr<const leveldb::FilterPolicy>* filter_policy) {
-  filter_policy->reset(leveldb::NewBloomFilterPolicy(10));
-  leveldb::Options options;
-  options.comparator = comparator;
-  options.create_if_missing = true;
-  options.paranoid_checks = true;
-  options.filter_policy = filter_policy->get();
-  options.reuse_logs = leveldb_env::kDefaultLogReuseOptionValue;
-  options.compression = leveldb::kSnappyCompression;
-  options.write_buffer_size =
-      leveldb_env::WriteBufferSize(base::SysInfo::AmountOfTotalDiskSpace(path));
-
-  // For info about the troubles we've run into with this parameter, see:
-  // https://code.google.com/p/chromium/issues/detail?id=227313#c11
-  options.max_open_files = 80;
-  options.env = env;
-
-  // A shared block cache for all IndexedDB instances across all renderers.
-  // See also components/leveldb_proto/leveldb_database.cc, which has
-  // its own block cache for a different (internal use-cases) set of LevelDB
-  // instances.
-  static leveldb::Cache* default_block_cache =
-      leveldb::NewLRUCache(DefaultBlockCacheSize());
-  options.block_cache = default_block_cache;
-
-  // ChromiumEnv assumes UTF8, converts back to FilePath before using.
-  return leveldb_env::OpenDB(options, path.AsUTF8Unsafe(), db);
-}
-
-leveldb::Status LevelDBDatabase::Destroy(const base::FilePath& file_name) {
-  leveldb::Options options;
-  options.env = LevelDBEnv::Get();
-  // ChromiumEnv assumes UTF8, converts back to FilePath before using.
-  return leveldb::DestroyDB(file_name.AsUTF8Unsafe(), options);
-}
-
-namespace {
 class LockImpl : public LevelDBLock {
  public:
   explicit LockImpl(leveldb::Env* env, leveldb::FileLock* lock)
@@ -178,22 +74,56 @@ class LockImpl : public LevelDBLock {
 
   DISALLOW_COPY_AND_ASSIGN(LockImpl);
 };
-}  // namespace
 
-std::unique_ptr<LevelDBLock> LevelDBDatabase::LockForTesting(
-    const base::FilePath& file_name) {
-  leveldb::Env* env = LevelDBEnv::Get();
-  base::FilePath lock_path = file_name.AppendASCII("LOCK");
-  leveldb::FileLock* lock = NULL;
-  leveldb::Status status = env->LockFile(lock_path.AsUTF8Unsafe(), &lock);
-  if (!status.ok())
-    return std::unique_ptr<LevelDBLock>();
-  DCHECK(lock);
-  return base::MakeUnique<LockImpl>(env, lock);
+class ComparatorAdapter : public leveldb::Comparator {
+ public:
+  explicit ComparatorAdapter(const LevelDBComparator* comparator)
+      : comparator_(comparator) {}
+
+  int Compare(const leveldb::Slice& a, const leveldb::Slice& b) const override {
+    return comparator_->Compare(leveldb_env::MakeStringPiece(a),
+                                leveldb_env::MakeStringPiece(b));
+  }
+
+  const char* Name() const override { return comparator_->Name(); }
+
+  // TODO(jsbell): Support the methods below in the future.
+  void FindShortestSeparator(std::string* start,
+                             const leveldb::Slice& limit) const override {}
+
+  void FindShortSuccessor(std::string* key) const override {}
+
+ private:
+  const LevelDBComparator* comparator_;
+};
+
+leveldb::Status OpenDB(
+    leveldb::Comparator* comparator,
+    leveldb::Env* env,
+    const base::FilePath& path,
+    std::unique_ptr<leveldb::DB>* db,
+    std::unique_ptr<const leveldb::FilterPolicy>* filter_policy) {
+  filter_policy->reset(leveldb::NewBloomFilterPolicy(10));
+  leveldb_env::Options options;
+  options.comparator = comparator;
+  options.create_if_missing = true;
+  options.paranoid_checks = true;
+  options.filter_policy = filter_policy->get();
+  options.compression = leveldb::kSnappyCompression;
+  options.write_buffer_size =
+      leveldb_env::WriteBufferSize(base::SysInfo::AmountOfTotalDiskSpace(path));
+
+  // For info about the troubles we've run into with this parameter, see:
+  // https://code.google.com/p/chromium/issues/detail?id=227313#c11
+  options.max_open_files = 80;
+  options.env = env;
+  options.block_cache = leveldb_chrome::GetSharedWebBlockCache();
+
+  // ChromiumEnv assumes UTF8, converts back to FilePath before using.
+  return leveldb_env::OpenDB(options, path.AsUTF8Unsafe(), db);
 }
 
-static int CheckFreeSpace(const char* const type,
-                          const base::FilePath& file_name) {
+int CheckFreeSpace(const char* const type, const base::FilePath& file_name) {
   std::string name =
       std::string("WebCore.IndexedDB.LevelDB.Open") + type + "FreeDiskSpace";
   int64_t free_disk_space_in_k_bytes =
@@ -221,8 +151,8 @@ static int CheckFreeSpace(const char* const type,
   return clamped_disk_space_k_bytes;
 }
 
-static void ParseAndHistogramIOErrorDetails(const std::string& histogram_name,
-                                            const leveldb::Status& s) {
+void ParseAndHistogramIOErrorDetails(const std::string& histogram_name,
+                                     const leveldb::Status& s) {
   leveldb_env::MethodID method;
   base::File::Error error = base::File::FILE_OK;
   leveldb_env::ErrorParsingResult result =
@@ -253,9 +183,8 @@ static void ParseAndHistogramIOErrorDetails(const std::string& histogram_name,
   }
 }
 
-static void ParseAndHistogramCorruptionDetails(
-    const std::string& histogram_name,
-    const leveldb::Status& status) {
+void ParseAndHistogramCorruptionDetails(const std::string& histogram_name,
+                                        const leveldb::Status& status) {
   int error = leveldb_env::GetCorruptionCode(status);
   DCHECK_GE(error, 0);
   std::string corruption_histogram_name(histogram_name);
@@ -269,8 +198,8 @@ static void ParseAndHistogramCorruptionDetails(
       base::HistogramBase::kUmaTargetedHistogramFlag)->Add(error);
 }
 
-static void HistogramLevelDBError(const std::string& histogram_name,
-                                  const leveldb::Status& s) {
+void HistogramLevelDBError(const std::string& histogram_name,
+                           const leveldb::Status& s) {
   if (s.ok()) {
     NOTREACHED();
     return;
@@ -301,6 +230,62 @@ static void HistogramLevelDBError(const std::string& histogram_name,
     ParseAndHistogramCorruptionDetails(histogram_name, s);
 }
 
+}  // namespace
+
+LevelDBSnapshot::LevelDBSnapshot(LevelDBDatabase* db)
+    : db_(db->db_.get()), snapshot_(db_->GetSnapshot()) {}
+
+LevelDBSnapshot::~LevelDBSnapshot() {
+  db_->ReleaseSnapshot(snapshot_);
+}
+
+LevelDBDatabase::LevelDBDatabase(size_t max_open_iterators)
+    : clock_(new base::DefaultClock()), iterator_lru_(max_open_iterators) {
+  DCHECK(max_open_iterators);
+}
+
+LevelDBDatabase::~LevelDBDatabase() {
+  LOCAL_HISTOGRAM_COUNTS_10000("Storage.IndexedDB.LevelDB.MaxIterators",
+                               max_iterators_);
+  base::trace_event::MemoryDumpManager::GetInstance()->UnregisterDumpProvider(
+      this);
+  // db_'s destructor uses comparator_adapter_; order of deletion is important.
+  CloseDatabase();
+  comparator_adapter_.reset();
+  env_.reset();
+}
+
+void LevelDBDatabase::CloseDatabase() {
+  if (db_) {
+    base::TimeTicks begin_time = base::TimeTicks::Now();
+    db_.reset();
+    UMA_HISTOGRAM_MEDIUM_TIMES("WebCore.IndexedDB.LevelDB.CloseTime",
+                               base::TimeTicks::Now() - begin_time);
+  }
+}
+
+// static
+leveldb::Status LevelDBDatabase::Destroy(const base::FilePath& file_name) {
+  leveldb_env::Options options;
+  options.env = LevelDBEnv::Get();
+  // ChromiumEnv assumes UTF8, converts back to FilePath before using.
+  return leveldb::DestroyDB(file_name.AsUTF8Unsafe(), options);
+}
+
+// static
+std::unique_ptr<LevelDBLock> LevelDBDatabase::LockForTesting(
+    const base::FilePath& file_name) {
+  leveldb::Env* env = LevelDBEnv::Get();
+  base::FilePath lock_path = file_name.AppendASCII("LOCK");
+  leveldb::FileLock* lock = nullptr;
+  leveldb::Status status = env->LockFile(lock_path.AsUTF8Unsafe(), &lock);
+  if (!status.ok())
+    return std::unique_ptr<LevelDBLock>();
+  DCHECK(lock);
+  return std::make_unique<LockImpl>(env, lock);
+}
+
+// static
 leveldb::Status LevelDBDatabase::Open(const base::FilePath& file_name,
                                       const LevelDBComparator* comparator,
                                       size_t max_open_cursors,
@@ -310,7 +295,7 @@ leveldb::Status LevelDBDatabase::Open(const base::FilePath& file_name,
   base::TimeTicks begin_time = base::TimeTicks::Now();
 
   std::unique_ptr<ComparatorAdapter> comparator_adapter(
-      base::MakeUnique<ComparatorAdapter>(comparator));
+      std::make_unique<ComparatorAdapter>(comparator));
 
   std::unique_ptr<leveldb::DB> db;
   std::unique_ptr<const leveldb::FilterPolicy> filter_policy;
@@ -345,12 +330,13 @@ leveldb::Status LevelDBDatabase::Open(const base::FilePath& file_name,
   return s;
 }
 
+// static
 std::unique_ptr<LevelDBDatabase> LevelDBDatabase::OpenInMemory(
     const LevelDBComparator* comparator) {
   std::unique_ptr<ComparatorAdapter> comparator_adapter(
-      base::MakeUnique<ComparatorAdapter>(comparator));
+      std::make_unique<ComparatorAdapter>(comparator));
   std::unique_ptr<leveldb::Env> in_memory_env(
-      leveldb::NewMemEnv(LevelDBEnv::Get()));
+      leveldb_chrome::NewMemEnv("indexed-db", LevelDBEnv::Get()));
 
   std::unique_ptr<leveldb::DB> db;
   std::unique_ptr<const leveldb::FilterPolicy> filter_policy;
@@ -384,13 +370,14 @@ leveldb::Status LevelDBDatabase::Put(const StringPiece& key,
   leveldb::WriteOptions write_options;
   write_options.sync = kSyncWrites;
 
-  const leveldb::Status s =
-      db_->Put(write_options, MakeSlice(key), MakeSlice(*value));
+  const leveldb::Status s = db_->Put(write_options, leveldb_env::MakeSlice(key),
+                                     leveldb_env::MakeSlice(*value));
   if (!s.ok())
     LOG(ERROR) << "LevelDB put failed: " << s.ToString();
   else
     UMA_HISTOGRAM_TIMES("WebCore.IndexedDB.LevelDB.PutTime",
                         base::TimeTicks::Now() - begin_time);
+  last_modified_ = clock_->Now();
   return s;
 }
 
@@ -398,9 +385,11 @@ leveldb::Status LevelDBDatabase::Remove(const StringPiece& key) {
   leveldb::WriteOptions write_options;
   write_options.sync = kSyncWrites;
 
-  const leveldb::Status s = db_->Delete(write_options, MakeSlice(key));
+  const leveldb::Status s =
+      db_->Delete(write_options, leveldb_env::MakeSlice(key));
   if (!s.IsNotFound())
     LOG(ERROR) << "LevelDB remove failed: " << s.ToString();
+  last_modified_ = clock_->Now();
   return s;
 }
 
@@ -412,9 +401,10 @@ leveldb::Status LevelDBDatabase::Get(const StringPiece& key,
   leveldb::ReadOptions read_options;
   read_options.verify_checksums = true;  // TODO(jsbell): Disable this if the
                                          // performance impact is too great.
-  read_options.snapshot = snapshot ? snapshot->snapshot_ : 0;
+  read_options.snapshot = snapshot ? snapshot->snapshot_ : nullptr;
 
-  const leveldb::Status s = db_->Get(read_options, MakeSlice(key), value);
+  const leveldb::Status s =
+      db_->Get(read_options, leveldb_env::MakeSlice(key), value);
   if (s.ok()) {
     *found = true;
     return s;
@@ -440,24 +430,20 @@ leveldb::Status LevelDBDatabase::Write(const LevelDBWriteBatch& write_batch) {
     UMA_HISTOGRAM_TIMES("WebCore.IndexedDB.LevelDB.WriteTime",
                         base::TimeTicks::Now() - begin_time);
   }
+  last_modified_ = clock_->Now();
   return s;
 }
 
 std::unique_ptr<LevelDBIterator> LevelDBDatabase::CreateIterator(
-    const LevelDBSnapshot* snapshot) {
-  leveldb::ReadOptions read_options;
-  read_options.verify_checksums = true;  // TODO(jsbell): Disable this if the
-                                         // performance impact is too great.
-  read_options.snapshot = snapshot ? snapshot->snapshot_ : 0;
-
+    const leveldb::ReadOptions& options) {
   num_iterators_++;
   max_iterators_ = std::max(max_iterators_, num_iterators_);
   // Iterator isn't added to lru cache until it is used, as memory isn't loaded
   // for the iterator until it's first Seek call.
-  std::unique_ptr<leveldb::Iterator> i(db_->NewIterator(read_options));
+  std::unique_ptr<leveldb::Iterator> i(db_->NewIterator(options));
   return std::unique_ptr<LevelDBIterator>(
       IndexedDBClassFactory::Get()->CreateIteratorImpl(std::move(i), this,
-                                                       read_options.snapshot));
+                                                       options.snapshot));
 }
 
 const LevelDBComparator* LevelDBDatabase::Comparator() const {
@@ -467,47 +453,78 @@ const LevelDBComparator* LevelDBDatabase::Comparator() const {
 void LevelDBDatabase::Compact(const base::StringPiece& start,
                               const base::StringPiece& stop) {
   IDB_TRACE("LevelDBDatabase::Compact");
-  const leveldb::Slice start_slice = MakeSlice(start);
-  const leveldb::Slice stop_slice = MakeSlice(stop);
+  const leveldb::Slice start_slice = leveldb_env::MakeSlice(start);
+  const leveldb::Slice stop_slice = leveldb_env::MakeSlice(stop);
   // NULL batch means just wait for earlier writes to be done
-  db_->Write(leveldb::WriteOptions(), NULL);
+  db_->Write(leveldb::WriteOptions(), nullptr);
   db_->CompactRange(&start_slice, &stop_slice);
 }
 
-void LevelDBDatabase::CompactAll() { db_->CompactRange(NULL, NULL); }
+void LevelDBDatabase::CompactAll() {
+  db_->CompactRange(nullptr, nullptr);
+}
+
+leveldb::ReadOptions LevelDBDatabase::DefaultReadOptions() {
+  return DefaultReadOptions(nullptr);
+}
+
+leveldb::ReadOptions LevelDBDatabase::DefaultReadOptions(
+    const LevelDBSnapshot* snapshot) {
+  leveldb::ReadOptions read_options;
+  read_options.verify_checksums = true;  // TODO(jsbell): Disable this if the
+                                         // performance impact is too great.
+  read_options.snapshot = snapshot ? snapshot->snapshot_ : nullptr;
+  return read_options;
+}
 
 bool LevelDBDatabase::OnMemoryDump(
     const base::trace_event::MemoryDumpArgs& args,
     base::trace_event::ProcessMemoryDump* pmd) {
   if (!db_)
     return false;
+  // All leveldb databases are already dumped by leveldb_env::DBTracker. Add
+  // an edge to the existing database.
+  auto* db_tracker_dump =
+      leveldb_env::DBTracker::GetOrCreateAllocatorDump(pmd, db_.get());
+  if (!db_tracker_dump)
+    return true;
 
-  std::string value;
-  uint64_t size;
-  bool res = db_->GetProperty("leveldb.approximate-memory-usage", &value);
-  DCHECK(res);
-  base::StringToUint64(value, &size);
+  auto* db_dump = pmd->CreateAllocatorDump(
+      base::StringPrintf("site_storage/index_db/db_0x%" PRIXPTR,
+                         reinterpret_cast<uintptr_t>(db_.get())));
+  db_dump->AddScalar(base::trace_event::MemoryAllocatorDump::kNameSize,
+                     base::trace_event::MemoryAllocatorDump::kUnitsBytes,
+                     db_tracker_dump->GetSizeInternal());
+  pmd->AddOwnershipEdge(db_dump->guid(), db_tracker_dump->guid());
 
-  auto* dump = pmd->CreateAllocatorDump(base::StringPrintf(
-      "leveldb/index_db/0x%" PRIXPTR, reinterpret_cast<uintptr_t>(db_.get())));
-  dump->AddScalar(base::trace_event::MemoryAllocatorDump::kNameSize,
-                  base::trace_event::MemoryAllocatorDump::kUnitsBytes, size);
+  if (env_ && leveldb_chrome::IsMemEnv(env_.get())) {
+    // All leveldb env's are already dumped by leveldb_env::DBTracker. Add
+    // an edge to the existing env.
+    auto* env_tracker_dump =
+        DBTracker::GetOrCreateAllocatorDump(pmd, env_.get());
+    auto* env_dump = pmd->CreateAllocatorDump(
+        base::StringPrintf("site_storage/index_db/memenv_0x%" PRIXPTR,
+                           reinterpret_cast<uintptr_t>(env_.get())));
+    env_dump->AddScalar(base::trace_event::MemoryAllocatorDump::kNameSize,
+                        base::trace_event::MemoryAllocatorDump::kUnitsBytes,
+                        env_tracker_dump->GetSizeInternal());
+    pmd->AddOwnershipEdge(env_dump->guid(), env_tracker_dump->guid());
+  }
 
-  // Dumps in BACKGROUND mode cannot have strings or edges in order to minimize
-  // trace size and instrumentation overhead.
+  // Dumps in BACKGROUND mode can only have whitelisted strings (and there are
+  // currently none) so return early.
   if (args.level_of_detail ==
       base::trace_event::MemoryDumpLevelOfDetail::BACKGROUND) {
     return true;
   }
 
-  dump->AddString("file_name", "", file_name_for_tracing);
-
-  // All leveldb databases are already dumped by leveldb_env::DBTracker. Add
-  // an edge to avoid double counting.
-  pmd->AddSuballocation(dump->guid(),
-                        leveldb_env::DBTracker::GetMemoryDumpName(db_.get()));
+  db_dump->AddString("file_name", "", file_name_for_tracing);
 
   return true;
+}
+
+void LevelDBDatabase::SetClockForTesting(std::unique_ptr<base::Clock> clock) {
+  clock_ = std::move(clock);
 }
 
 std::unique_ptr<leveldb::Iterator> LevelDBDatabase::CreateLevelDBIterator(

@@ -68,8 +68,7 @@ Q_DECLARE_LOGGING_CATEGORY(QT_BT_BLUEZ)
 QBluetoothTransferReplyBluez::QBluetoothTransferReplyBluez(QIODevice *input, const QBluetoothTransferRequest &request,
                                                            QBluetoothTransferManager *parent)
 :   QBluetoothTransferReply(parent),
-    m_client(0), m_agent(0), m_clientBluez(0), m_objectPushBluez(0),
-    m_tempfile(0), m_source(input),
+    m_source(input),
     m_running(false), m_finished(false), m_size(0),
     m_error(QBluetoothTransferReply::NoError), m_errorStr(), m_transfer_path()
 {
@@ -198,7 +197,7 @@ void QBluetoothTransferReplyBluez::cleanupSession()
         qCWarning(QT_BT_BLUEZ) << "Abort: Cannot remove obex session";
 
     delete m_objectPushBluez;
-    m_objectPushBluez = 0;
+    m_objectPushBluez = nullptr;
 }
 
 void QBluetoothTransferReplyBluez::copyDone()

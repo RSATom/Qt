@@ -178,23 +178,23 @@ private:
     DiscoveryState state;
     QList<QBluetoothUuid> uuidFilter;
 
-    QBluetoothDeviceDiscoveryAgent *deviceDiscoveryAgent;
+    QBluetoothDeviceDiscoveryAgent *deviceDiscoveryAgent = nullptr;
 
     QBluetoothServiceDiscoveryAgent::DiscoveryMode mode;
 
     bool singleDevice;
 #if QT_CONFIG(bluez)
     QString foundHostAdapterPath;
-    OrgBluezManagerInterface *manager;
-    OrgFreedesktopDBusObjectManagerInterface *managerBluez5;
-    OrgBluezAdapterInterface *adapter;
-    OrgBluezDeviceInterface *device;
-    QProcess *sdpScannerProcess;
+    OrgBluezManagerInterface *manager = nullptr;
+    OrgFreedesktopDBusObjectManagerInterface *managerBluez5 = nullptr;
+    OrgBluezAdapterInterface *adapter = nullptr;
+    OrgBluezDeviceInterface *device = nullptr;
+    QProcess *sdpScannerProcess = nullptr;
 #endif
 
 #ifdef QT_ANDROID_BLUETOOTH
-    ServiceDiscoveryBroadcastReceiver *receiver;
-    LocalDeviceBroadcastReceiver *localDeviceReceiver;
+    ServiceDiscoveryBroadcastReceiver *receiver = nullptr;
+    LocalDeviceBroadcastReceiver *localDeviceReceiver = nullptr;
 
     QAndroidJniObject btAdapter;
     QMap<QBluetoothAddress,QPair<QBluetoothDeviceInfo,QList<QBluetoothUuid> > > sdpCache;

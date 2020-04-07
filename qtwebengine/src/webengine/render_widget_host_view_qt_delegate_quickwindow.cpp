@@ -54,13 +54,6 @@ RenderWidgetHostViewQtDelegateQuickWindow::~RenderWidgetHostViewQtDelegateQuickW
 {
 }
 
-void RenderWidgetHostViewQtDelegateQuickWindow::initAsChild(WebContentsAdapterClient *container)
-{
-    Q_UNUSED(container);
-    // We should only use this wrapper class for webUI popups.
-    Q_UNREACHABLE();
-}
-
 void RenderWidgetHostViewQtDelegateQuickWindow::initAsPopup(const QRect &screenRect)
 {
     m_realDelegate->initAsPopup(QRect(QPoint(0, 0), screenRect.size()));
@@ -111,14 +104,14 @@ QSGLayer *RenderWidgetHostViewQtDelegateQuickWindow::createLayer()
     return m_realDelegate->createLayer();
 }
 
-QSGInternalImageNode *RenderWidgetHostViewQtDelegateQuickWindow::createImageNode()
+QSGInternalImageNode *RenderWidgetHostViewQtDelegateQuickWindow::createInternalImageNode()
 {
-    return m_realDelegate->createImageNode();
+    return m_realDelegate->createInternalImageNode();
 }
 
-QSGTextureNode *RenderWidgetHostViewQtDelegateQuickWindow::createTextureNode()
+QSGImageNode *RenderWidgetHostViewQtDelegateQuickWindow::createImageNode()
 {
-    return m_realDelegate->createTextureNode();
+    return m_realDelegate->createImageNode();
 }
 
 QSGRectangleNode *RenderWidgetHostViewQtDelegateQuickWindow::createRectangleNode()

@@ -36,7 +36,7 @@ bool Validators::BackbufferAttachmentValidator::IsValid(
       return true;
   }
   return false;
-};
+}
 
 bool Validators::BlitFilterValidator::IsValid(const GLenum value) const {
   switch (value) {
@@ -45,7 +45,7 @@ bool Validators::BlitFilterValidator::IsValid(const GLenum value) const {
       return true;
   }
   return false;
-};
+}
 
 bool Validators::BufferModeValidator::IsValid(const GLenum value) const {
   switch (value) {
@@ -54,7 +54,7 @@ bool Validators::BufferModeValidator::IsValid(const GLenum value) const {
       return true;
   }
   return false;
-};
+}
 
 Validators::BufferParameterValidator::BufferParameterValidator()
     : is_es3_(false) {}
@@ -68,7 +68,7 @@ bool Validators::BufferParameterValidator::IsValid(const GLenum value) const {
       return is_es3_;
   }
   return false;
-};
+}
 
 bool Validators::BufferParameter64Validator::IsValid(const GLenum value) const {
   switch (value) {
@@ -78,7 +78,7 @@ bool Validators::BufferParameter64Validator::IsValid(const GLenum value) const {
       return true;
   }
   return false;
-};
+}
 
 Validators::BufferTargetValidator::BufferTargetValidator() : is_es3_(false) {}
 bool Validators::BufferTargetValidator::IsValid(const GLenum value) const {
@@ -95,7 +95,7 @@ bool Validators::BufferTargetValidator::IsValid(const GLenum value) const {
       return is_es3_;
   }
   return false;
-};
+}
 
 Validators::BufferUsageValidator::BufferUsageValidator() : is_es3_(false) {}
 bool Validators::BufferUsageValidator::IsValid(const GLenum value) const {
@@ -113,7 +113,7 @@ bool Validators::BufferUsageValidator::IsValid(const GLenum value) const {
       return is_es3_;
   }
   return false;
-};
+}
 
 static const GLenum valid_bufferfi_table[] = {
     GL_DEPTH_STENCIL,
@@ -126,7 +126,7 @@ bool Validators::BufferfvValidator::IsValid(const GLenum value) const {
       return true;
   }
   return false;
-};
+}
 
 bool Validators::BufferivValidator::IsValid(const GLenum value) const {
   switch (value) {
@@ -135,7 +135,7 @@ bool Validators::BufferivValidator::IsValid(const GLenum value) const {
       return true;
   }
   return false;
-};
+}
 
 static const GLenum valid_bufferuiv_table[] = {
     GL_COLOR,
@@ -164,7 +164,7 @@ bool Validators::CmpFunctionValidator::IsValid(const GLenum value) const {
       return true;
   }
   return false;
-};
+}
 
 static const GLenum valid_coverage_modulation_components_table[] = {
     GL_RGB, GL_RGBA, GL_ALPHA, GL_NONE,
@@ -182,7 +182,7 @@ bool Validators::DrawModeValidator::IsValid(const GLenum value) const {
       return true;
   }
   return false;
-};
+}
 
 static const GLenum valid_dst_blend_factor_table[] = {
     GL_ZERO,           GL_ONE,
@@ -213,7 +213,7 @@ bool Validators::FaceModeValidator::IsValid(const GLenum value) const {
       return true;
   }
   return false;
-};
+}
 
 bool Validators::FaceTypeValidator::IsValid(const GLenum value) const {
   switch (value) {
@@ -223,16 +223,16 @@ bool Validators::FaceTypeValidator::IsValid(const GLenum value) const {
       return true;
   }
   return false;
-};
+}
 
-static const GLenum valid_framebuffer_parameter_table[] = {
+static const GLenum valid_framebuffer_attachment_parameter_table[] = {
     GL_FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE,
     GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME,
     GL_FRAMEBUFFER_ATTACHMENT_TEXTURE_LEVEL,
     GL_FRAMEBUFFER_ATTACHMENT_TEXTURE_CUBE_MAP_FACE,
 };
 
-static const GLenum valid_framebuffer_parameter_table_es3[] = {
+static const GLenum valid_framebuffer_attachment_parameter_table_es3[] = {
     GL_FRAMEBUFFER_ATTACHMENT_RED_SIZE,
     GL_FRAMEBUFFER_ATTACHMENT_GREEN_SIZE,
     GL_FRAMEBUFFER_ATTACHMENT_BLUE_SIZE,
@@ -296,6 +296,7 @@ static const GLenum valid_g_l_state_table[] = {
     GL_STENCIL_BITS,
     GL_TEXTURE_BINDING_2D,
     GL_TEXTURE_BINDING_CUBE_MAP,
+    GL_TEXTURE_FILTERING_HINT_CHROMIUM,
     GL_UNPACK_ALIGNMENT,
     GL_BIND_GENERATES_RESOURCE_CHROMIUM,
     GL_VERTEX_ARRAY_BINDING_OES,
@@ -435,7 +436,7 @@ bool Validators::GetMaxIndexTypeValidator::IsValid(const GLenum value) const {
       return true;
   }
   return false;
-};
+}
 
 static const GLenum valid_get_tex_param_target_table[] = {
     GL_TEXTURE_2D, GL_TEXTURE_CUBE_MAP,
@@ -453,10 +454,10 @@ bool Validators::HintModeValidator::IsValid(const GLenum value) const {
       return true;
   }
   return false;
-};
+}
 
 static const GLenum valid_hint_target_table[] = {
-    GL_GENERATE_MIPMAP_HINT,
+    GL_GENERATE_MIPMAP_HINT, GL_TEXTURE_FILTERING_HINT_CHROMIUM,
 };
 
 static const GLenum valid_hint_target_table_es3[] = {
@@ -487,19 +488,15 @@ bool Validators::IndexedBufferTargetValidator::IsValid(
       return true;
   }
   return false;
-};
+}
 
-bool Validators::IndexedGLStateValidator::IsValid(const GLenum value) const {
-  switch (value) {
-    case GL_TRANSFORM_FEEDBACK_BUFFER_BINDING:
-    case GL_TRANSFORM_FEEDBACK_BUFFER_SIZE:
-    case GL_TRANSFORM_FEEDBACK_BUFFER_START:
-    case GL_UNIFORM_BUFFER_BINDING:
-    case GL_UNIFORM_BUFFER_SIZE:
-    case GL_UNIFORM_BUFFER_START:
-      return true;
-  }
-  return false;
+static const GLenum valid_indexed_g_l_state_table[] = {
+    GL_TRANSFORM_FEEDBACK_BUFFER_BINDING,
+    GL_TRANSFORM_FEEDBACK_BUFFER_SIZE,
+    GL_TRANSFORM_FEEDBACK_BUFFER_START,
+    GL_UNIFORM_BUFFER_BINDING,
+    GL_UNIFORM_BUFFER_SIZE,
+    GL_UNIFORM_BUFFER_START,
 };
 
 bool Validators::InternalFormatParameterValidator::IsValid(
@@ -510,7 +507,7 @@ bool Validators::InternalFormatParameterValidator::IsValid(
       return true;
   }
   return false;
-};
+}
 
 bool Validators::MapBufferAccessValidator::IsValid(const GLenum value) const {
   switch (value) {
@@ -523,7 +520,7 @@ bool Validators::MapBufferAccessValidator::IsValid(const GLenum value) const {
       return true;
   }
   return false;
-};
+}
 
 bool Validators::MatrixModeValidator::IsValid(const GLenum value) const {
   switch (value) {
@@ -532,7 +529,7 @@ bool Validators::MatrixModeValidator::IsValid(const GLenum value) const {
       return true;
   }
   return false;
-};
+}
 
 bool Validators::PathCoordTypeValidator::IsValid(const GLenum value) const {
   switch (value) {
@@ -544,7 +541,7 @@ bool Validators::PathCoordTypeValidator::IsValid(const GLenum value) const {
       return true;
   }
   return false;
-};
+}
 
 bool Validators::PathCoverModeValidator::IsValid(const GLenum value) const {
   switch (value) {
@@ -553,7 +550,7 @@ bool Validators::PathCoverModeValidator::IsValid(const GLenum value) const {
       return true;
   }
   return false;
-};
+}
 
 bool Validators::PathFillModeValidator::IsValid(const GLenum value) const {
   switch (value) {
@@ -563,7 +560,7 @@ bool Validators::PathFillModeValidator::IsValid(const GLenum value) const {
       return true;
   }
   return false;
-};
+}
 
 bool Validators::PathFragmentInputGenModeValidator::IsValid(
     const GLenum value) const {
@@ -575,7 +572,7 @@ bool Validators::PathFragmentInputGenModeValidator::IsValid(
       return true;
   }
   return false;
-};
+}
 
 bool Validators::PathInstancedCoverModeValidator::IsValid(
     const GLenum value) const {
@@ -586,7 +583,7 @@ bool Validators::PathInstancedCoverModeValidator::IsValid(
       return true;
   }
   return false;
-};
+}
 
 bool Validators::PathNameTypeValidator::IsValid(const GLenum value) const {
   switch (value) {
@@ -599,7 +596,7 @@ bool Validators::PathNameTypeValidator::IsValid(const GLenum value) const {
       return true;
   }
   return false;
-};
+}
 
 bool Validators::PathParameterValidator::IsValid(const GLenum value) const {
   switch (value) {
@@ -611,7 +608,7 @@ bool Validators::PathParameterValidator::IsValid(const GLenum value) const {
       return true;
   }
   return false;
-};
+}
 
 bool Validators::PathParameterCapValuesValidator::IsValid(
     const GLint value) const {
@@ -622,7 +619,7 @@ bool Validators::PathParameterCapValuesValidator::IsValid(
       return true;
   }
   return false;
-};
+}
 
 bool Validators::PathParameterJoinValuesValidator::IsValid(
     const GLint value) const {
@@ -633,7 +630,7 @@ bool Validators::PathParameterJoinValuesValidator::IsValid(
       return true;
   }
   return false;
-};
+}
 
 bool Validators::PathTransformTypeValidator::IsValid(const GLenum value) const {
   switch (value) {
@@ -649,7 +646,7 @@ bool Validators::PathTransformTypeValidator::IsValid(const GLenum value) const {
       return true;
   }
   return false;
-};
+}
 
 static const GLenum valid_pixel_store_table[] = {
     GL_PACK_ALIGNMENT, GL_UNPACK_ALIGNMENT,
@@ -671,7 +668,7 @@ bool Validators::PixelStoreAlignmentValidator::IsValid(
       return true;
   }
   return false;
-};
+}
 
 static const GLenum valid_pixel_type_table[] = {
     GL_UNSIGNED_BYTE, GL_UNSIGNED_SHORT_5_6_5, GL_UNSIGNED_SHORT_4_4_4_4,
@@ -715,7 +712,7 @@ bool Validators::ProgramParameterValidator::IsValid(const GLenum value) const {
       return is_es3_;
   }
   return false;
-};
+}
 
 bool Validators::QueryObjectParameterValidator::IsValid(
     const GLenum value) const {
@@ -725,7 +722,7 @@ bool Validators::QueryObjectParameterValidator::IsValid(
       return true;
   }
   return false;
-};
+}
 
 bool Validators::QueryTargetValidator::IsValid(const GLenum value) const {
   switch (value) {
@@ -736,10 +733,11 @@ bool Validators::QueryTargetValidator::IsValid(const GLenum value) const {
     case GL_LATENCY_QUERY_CHROMIUM:
     case GL_ASYNC_PIXEL_PACK_COMPLETED_CHROMIUM:
     case GL_COMMANDS_COMPLETED_CHROMIUM:
+    case GL_READBACK_SHADOW_COPIES_UPDATED_CHROMIUM:
       return true;
   }
   return false;
-};
+}
 
 static const GLenum valid_read_buffer_table[] = {
     GL_NONE,
@@ -841,7 +839,7 @@ bool Validators::ResetStatusValidator::IsValid(const GLenum value) const {
       return true;
   }
   return false;
-};
+}
 
 bool Validators::SamplerParameterValidator::IsValid(const GLenum value) const {
   switch (value) {
@@ -857,7 +855,7 @@ bool Validators::SamplerParameterValidator::IsValid(const GLenum value) const {
       return true;
   }
   return false;
-};
+}
 
 bool Validators::ShaderParameterValidator::IsValid(const GLenum value) const {
   switch (value) {
@@ -870,7 +868,7 @@ bool Validators::ShaderParameterValidator::IsValid(const GLenum value) const {
       return true;
   }
   return false;
-};
+}
 
 bool Validators::ShaderPrecisionValidator::IsValid(const GLenum value) const {
   switch (value) {
@@ -883,7 +881,7 @@ bool Validators::ShaderPrecisionValidator::IsValid(const GLenum value) const {
       return true;
   }
   return false;
-};
+}
 
 bool Validators::ShaderTypeValidator::IsValid(const GLenum value) const {
   switch (value) {
@@ -892,7 +890,7 @@ bool Validators::ShaderTypeValidator::IsValid(const GLenum value) const {
       return true;
   }
   return false;
-};
+}
 
 static const GLenum valid_src_blend_factor_table[] = {
     GL_ZERO,
@@ -925,7 +923,7 @@ bool Validators::StencilOpValidator::IsValid(const GLenum value) const {
       return true;
   }
   return false;
-};
+}
 
 bool Validators::StringTypeValidator::IsValid(const GLenum value) const {
   switch (value) {
@@ -937,7 +935,20 @@ bool Validators::StringTypeValidator::IsValid(const GLenum value) const {
       return true;
   }
   return false;
-};
+}
+
+bool Validators::SwapBuffersFlagsValidator::IsValid(
+    const GLbitfield value) const {
+  switch (value) {
+    case 0:
+    case gpu::SwapBuffersFlags::kPresentationFeedback:
+    case gpu::SwapBuffersFlags::kVSyncParams:
+    case gpu::SwapBuffersFlags::kPresentationFeedback |
+        gpu::SwapBuffersFlags::kVSyncParams:
+      return true;
+  }
+  return false;
+}
 
 static const GLbitfield valid_sync_flush_flags_table[] = {
     GL_SYNC_FLUSH_COMMANDS_BIT, 0,
@@ -952,7 +963,7 @@ bool Validators::SyncParameterValidator::IsValid(const GLenum value) const {
       return true;
   }
   return false;
-};
+}
 
 bool Validators::Texture3DTargetValidator::IsValid(const GLenum value) const {
   switch (value) {
@@ -961,7 +972,7 @@ bool Validators::Texture3DTargetValidator::IsValid(const GLenum value) const {
       return true;
   }
   return false;
-};
+}
 
 static const GLenum valid_texture_bind_target_table[] = {
     GL_TEXTURE_2D, GL_TEXTURE_CUBE_MAP,
@@ -985,7 +996,7 @@ bool Validators::TextureCompareFuncValidator::IsValid(
       return true;
   }
   return false;
-};
+}
 
 static const GLenum valid_texture_compare_mode_table[] = {
     GL_NONE, GL_COMPARE_REF_TO_TEXTURE,
@@ -1147,7 +1158,7 @@ bool Validators::TextureMagFilterModeValidator::IsValid(
       return true;
   }
   return false;
-};
+}
 
 bool Validators::TextureMinFilterModeValidator::IsValid(
     const GLenum value) const {
@@ -1161,7 +1172,7 @@ bool Validators::TextureMinFilterModeValidator::IsValid(
       return true;
   }
   return false;
-};
+}
 
 static const GLenum valid_texture_parameter_table[] = {
     GL_TEXTURE_MAG_FILTER, GL_TEXTURE_MIN_FILTER, GL_TEXTURE_WRAP_S,
@@ -1211,6 +1222,7 @@ static const GLenum
         GL_RGB_YCRCB_420_CHROMIUM,
         GL_RGB_YCBCR_422_CHROMIUM,
         GL_RGB_YCBCR_420V_CHROMIUM,
+        GL_R16_EXT,
 };
 
 bool Validators::TextureSrgbDecodeExtValidator::IsValid(
@@ -1221,7 +1233,7 @@ bool Validators::TextureSrgbDecodeExtValidator::IsValid(
       return true;
   }
   return false;
-};
+}
 
 static const GLenum
     valid_texture_stencil_renderable_internal_format_table_es3[] = {
@@ -1239,7 +1251,7 @@ bool Validators::TextureSwizzleValidator::IsValid(const GLenum value) const {
       return true;
   }
   return false;
-};
+}
 
 static const GLenum valid_texture_target_table[] = {
     GL_TEXTURE_2D,
@@ -1262,7 +1274,7 @@ bool Validators::TextureUsageValidator::IsValid(const GLenum value) const {
       return true;
   }
   return false;
-};
+}
 
 bool Validators::TextureWrapModeValidator::IsValid(const GLenum value) const {
   switch (value) {
@@ -1272,7 +1284,7 @@ bool Validators::TextureWrapModeValidator::IsValid(const GLenum value) const {
       return true;
   }
   return false;
-};
+}
 
 static const GLenum valid_transform_feedback_bind_target_table[] = {
     GL_TRANSFORM_FEEDBACK,
@@ -1287,7 +1299,7 @@ bool Validators::TransformFeedbackPrimitiveModeValidator::IsValid(
       return true;
   }
   return false;
-};
+}
 
 bool Validators::UniformBlockParameterValidator::IsValid(
     const GLenum value) const {
@@ -1302,7 +1314,7 @@ bool Validators::UniformBlockParameterValidator::IsValid(
       return true;
   }
   return false;
-};
+}
 
 bool Validators::UniformParameterValidator::IsValid(const GLenum value) const {
   switch (value) {
@@ -1317,7 +1329,7 @@ bool Validators::UniformParameterValidator::IsValid(const GLenum value) const {
       return true;
   }
   return false;
-};
+}
 
 bool Validators::VertexAttribITypeValidator::IsValid(const GLenum value) const {
   switch (value) {
@@ -1330,7 +1342,7 @@ bool Validators::VertexAttribITypeValidator::IsValid(const GLenum value) const {
       return true;
   }
   return false;
-};
+}
 
 static const GLenum valid_vertex_attrib_type_table[] = {
     GL_BYTE, GL_UNSIGNED_BYTE, GL_SHORT, GL_UNSIGNED_SHORT, GL_FLOAT,
@@ -1359,6 +1371,16 @@ static const GLenum valid_vertex_pointer_table[] = {
     GL_VERTEX_ATTRIB_ARRAY_POINTER,
 };
 
+bool Validators::WindowRectanglesModeValidator::IsValid(
+    const GLenum value) const {
+  switch (value) {
+    case GL_INCLUSIVE_EXT:
+    case GL_EXCLUSIVE_EXT:
+      return true;
+  }
+  return false;
+}
+
 Validators::Validators()
     : attachment(valid_attachment_table, arraysize(valid_attachment_table)),
       attachment_query(valid_attachment_query_table,
@@ -1373,8 +1395,9 @@ Validators::Validators()
       dst_blend_factor(valid_dst_blend_factor_table,
                        arraysize(valid_dst_blend_factor_table)),
       equation(valid_equation_table, arraysize(valid_equation_table)),
-      framebuffer_parameter(valid_framebuffer_parameter_table,
-                            arraysize(valid_framebuffer_parameter_table)),
+      framebuffer_attachment_parameter(
+          valid_framebuffer_attachment_parameter_table,
+          arraysize(valid_framebuffer_attachment_parameter_table)),
       framebuffer_target(valid_framebuffer_target_table,
                          arraysize(valid_framebuffer_target_table)),
       g_l_state(valid_g_l_state_table, arraysize(valid_g_l_state_table)),
@@ -1384,6 +1407,8 @@ Validators::Validators()
       image_internal_format(valid_image_internal_format_table,
                             arraysize(valid_image_internal_format_table)),
       index_type(valid_index_type_table, arraysize(valid_index_type_table)),
+      indexed_g_l_state(valid_indexed_g_l_state_table,
+                        arraysize(valid_indexed_g_l_state_table)),
       pixel_store(valid_pixel_store_table, arraysize(valid_pixel_store_table)),
       pixel_type(valid_pixel_type_table, arraysize(valid_pixel_type_table)),
       read_buffer(valid_read_buffer_table, arraysize(valid_read_buffer_table)),
@@ -1454,9 +1479,9 @@ void Validators::UpdateValuesES3() {
                              arraysize(valid_dst_blend_factor_table_es3));
   equation.AddValues(valid_equation_table_es3,
                      arraysize(valid_equation_table_es3));
-  framebuffer_parameter.AddValues(
-      valid_framebuffer_parameter_table_es3,
-      arraysize(valid_framebuffer_parameter_table_es3));
+  framebuffer_attachment_parameter.AddValues(
+      valid_framebuffer_attachment_parameter_table_es3,
+      arraysize(valid_framebuffer_attachment_parameter_table_es3));
   framebuffer_target.AddValues(valid_framebuffer_target_table_es3,
                                arraysize(valid_framebuffer_target_table_es3));
   g_l_state.AddValues(valid_g_l_state_table_es3,

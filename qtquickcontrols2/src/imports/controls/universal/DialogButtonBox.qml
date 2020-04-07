@@ -34,18 +34,19 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.10
-import QtQuick.Templates 2.3 as T
-import QtQuick.Controls 2.3
-import QtQuick.Controls.Universal 2.3
+import QtQuick 2.12
+import QtQuick.Templates 2.12 as T
+import QtQuick.Controls 2.12
+import QtQuick.Controls.Universal 2.12
 
 T.DialogButtonBox {
     id: control
 
-    implicitWidth: Math.max(background ? background.implicitWidth : 0,
-                            contentItem.implicitWidth + leftPadding + rightPadding)
-    implicitHeight: Math.max(background ? background.implicitHeight : 0,
-                             contentItem.implicitHeight + topPadding + bottomPadding)
+    implicitWidth: Math.max(implicitBackgroundWidth + leftInset + rightInset,
+                            (control.count === 1 ? implicitContentWidth * 2 : implicitContentWidth) + leftPadding + rightPadding)
+    implicitHeight: Math.max(implicitBackgroundHeight + topInset + bottomInset,
+                             implicitContentHeight + topPadding + bottomPadding)
+    contentWidth: contentItem.contentWidth
 
     spacing: 4
     padding: 24
@@ -58,9 +59,6 @@ T.DialogButtonBox {
     }
 
     contentItem: ListView {
-        implicitWidth: contentWidth
-        implicitHeight: 32
-
         model: control.contentModel
         spacing: control.spacing
         orientation: ListView.Horizontal

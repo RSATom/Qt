@@ -7,6 +7,7 @@
 #include <stddef.h>
 
 #include "base/bind.h"
+#include "base/containers/queue.h"
 #include "base/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "storage/browser/fileapi/file_system_context.h"
@@ -22,8 +23,7 @@ RecursiveOperationDelegate::RecursiveOperationDelegate(
       failed_some_operations_(false) {
 }
 
-RecursiveOperationDelegate::~RecursiveOperationDelegate() {
-}
+RecursiveOperationDelegate::~RecursiveOperationDelegate() = default;
 
 void RecursiveOperationDelegate::Cancel() {
   canceled_ = true;
@@ -66,7 +66,7 @@ void RecursiveOperationDelegate::DidTryProcessFile(
     return;
   }
 
-  pending_directory_stack_.push(std::queue<FileSystemURL>());
+  pending_directory_stack_.push(base::queue<FileSystemURL>());
   pending_directory_stack_.top().push(root);
   ProcessNextDirectory();
 }
@@ -96,18 +96,16 @@ void RecursiveOperationDelegate::DidProcessDirectory(
   }
 
   const FileSystemURL& parent = pending_directory_stack_.top().front();
-  pending_directory_stack_.push(std::queue<FileSystemURL>());
+  pending_directory_stack_.push(base::queue<FileSystemURL>());
   operation_runner()->ReadDirectory(
-      parent,
-      base::Bind(&RecursiveOperationDelegate::DidReadDirectory,
-                 AsWeakPtr(), parent));
+      parent, base::BindRepeating(&RecursiveOperationDelegate::DidReadDirectory,
+                                  AsWeakPtr(), parent));
 }
 
-void RecursiveOperationDelegate::DidReadDirectory(
-    const FileSystemURL& parent,
-    base::File::Error error,
-    const FileEntryList& entries,
-    bool has_more) {
+void RecursiveOperationDelegate::DidReadDirectory(const FileSystemURL& parent,
+                                                  base::File::Error error,
+                                                  FileEntryList entries,
+                                                  bool has_more) {
   DCHECK(!pending_directory_stack_.empty());
 
   if (canceled_ || error != base::File::FILE_OK) {
@@ -120,7 +118,7 @@ void RecursiveOperationDelegate::DidReadDirectory(
         parent.origin(),
         parent.mount_type(),
         parent.virtual_path().Append(entries[i].name));
-    if (entries[i].is_directory)
+    if (entries[i].type == filesystem::mojom::FsFileType::DIRECTORY)
       pending_directory_stack_.top().push(url);
     else
       pending_files_.push(url);
@@ -151,10 +149,10 @@ void RecursiveOperationDelegate::ProcessPendingFiles() {
   if (!pending_files_.empty()) {
     current_task_runner->PostTask(
         FROM_HERE,
-        base::Bind(&RecursiveOperationDelegate::ProcessFile, AsWeakPtr(),
-                   pending_files_.front(),
-                   base::Bind(&RecursiveOperationDelegate::DidProcessFile,
-                              AsWeakPtr(), pending_files_.front())));
+        base::BindOnce(&RecursiveOperationDelegate::ProcessFile, AsWeakPtr(),
+                       pending_files_.front(),
+                       base::Bind(&RecursiveOperationDelegate::DidProcessFile,
+                                  AsWeakPtr(), pending_files_.front())));
     pending_files_.pop();
   }
 }

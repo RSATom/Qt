@@ -56,6 +56,7 @@
 #include <QObject>
 #include <QQueue>
 #include <QPointer>
+#include <QtCore/qtimer.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -115,10 +116,10 @@ private:
 
     QNmeaPositionInfoSource *m_source;
     QNmeaReader *m_nmeaReader;
-    QBasicTimer *m_updateTimer;
     QGeoPositionInfo m_pendingUpdate;
     QDate m_currentDate;
-    QTimer *m_requestTimer;
+    QBasicTimer *m_updateTimer; // the timer used in startUpdates()
+    QTimer *m_requestTimer; // the timer used in requestUpdate()
     qreal m_horizontalAccuracy;
     qreal m_verticalAccuracy;
     bool m_noUpdateLastInterval;
@@ -146,6 +147,15 @@ class QNmeaRealTimeReader : public QNmeaReader
 public:
     explicit QNmeaRealTimeReader(QNmeaPositionInfoSourcePrivate *sourcePrivate);
     virtual void readAvailableData();
+    void notifyNewUpdate();
+
+    // Data members
+    QGeoPositionInfo m_update;
+    QDateTime m_lastPushedTS;
+    bool m_updateParsed = false;
+    bool m_hasFix = false;
+    QTimer m_timer;
+    int m_pushDelay = -1;
 };
 
 

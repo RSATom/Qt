@@ -135,7 +135,6 @@ static bool scriptDebuggerEventCallback(void **data)
   \brief The QScriptDebugger class provides a Qt Script debugger.
 
   \ingroup script
-
 */
 
 class QScriptDebuggerPrivate
@@ -335,7 +334,7 @@ QPixmap QScriptDebuggerPrivate::pixmap(const QString &path)
     return QPixmap(prefix + path);
 }
 
-/*!
+/*
   \reimp
 */
 int QScriptDebuggerPrivate::scheduleJob(QScriptDebuggerJob *job)
@@ -350,7 +349,7 @@ int QScriptDebuggerPrivate::scheduleJob(QScriptDebuggerJob *job)
     return id;
 }
 
-/*!
+/*
   \reimp
 */
 void QScriptDebuggerPrivate::finishJob(QScriptDebuggerJob *job)
@@ -363,7 +362,7 @@ void QScriptDebuggerPrivate::finishJob(QScriptDebuggerJob *job)
     maybeStartNewJob();
 }
 
-/*!
+/*
   \reimp
 */
 void QScriptDebuggerPrivate::hibernateUntilEvaluateFinished(QScriptDebuggerJob *job)
@@ -373,7 +372,7 @@ void QScriptDebuggerPrivate::hibernateUntilEvaluateFinished(QScriptDebuggerJob *
     activeJobHibernating = true;
 }
 
-/*!
+/*
   Starts a new job if appropriate.
 */
 void QScriptDebuggerPrivate::maybeStartNewJob()
@@ -384,7 +383,7 @@ void QScriptDebuggerPrivate::maybeStartNewJob()
     activeJob->start();
 }
 
-/*!
+/*
   \reimp
 */
 int QScriptDebuggerPrivate::scheduleCommand(
@@ -405,7 +404,7 @@ int QScriptDebuggerPrivate::scheduleCommand(
     return id;
 }
 
-/*!
+/*
   \reimp
 */
 void QScriptDebuggerPrivate::handleResponse(
@@ -478,7 +477,7 @@ void QScriptDebuggerPrivate::handleResponse(
         realHandler->handleResponse(response, commandId);
 }
 
-/*!
+/*
   \reimp
 
   Handles a debugger event from the frontend.
@@ -668,7 +667,7 @@ private:
     QStringList m_path;
 };
 
-/*!
+/*
   \reimp
 */
 void QScriptDebuggerPrivate::showToolTip(const QPoint &pos, int frameIndex,
@@ -684,7 +683,7 @@ void QScriptDebuggerPrivate::showToolTip(const QPoint &pos, int frameIndex,
     scheduleJob(job);
 }
 
-/*!
+/*
   \reimp
 */
 QScriptCompletionTaskInterface *QScriptDebuggerPrivate::createCompletionTask(
@@ -695,7 +694,7 @@ QScriptCompletionTaskInterface *QScriptDebuggerPrivate::createCompletionTask(
         (options & QScriptCompletionProviderInterface::ConsoleCommandCompletion) ? console : 0);
 }
 
-/*!
+/*
   Slot called when a line has been entered in the console widget.
 */
 void QScriptDebuggerPrivate::_q_onLineEntered(const QString &contents)
@@ -710,7 +709,7 @@ void QScriptDebuggerPrivate::_q_onLineEntered(const QString &contents)
     }
 }
 
-/*!
+/*
   Slot called when the current index has changed in the stack widget.
 */
 void QScriptDebuggerPrivate::_q_onCurrentFrameChanged(int frameIndex)
@@ -719,7 +718,7 @@ void QScriptDebuggerPrivate::_q_onCurrentFrameChanged(int frameIndex)
     selectScriptForFrame(frameIndex);
 }
 
-/*!
+/*
   Slot called when the current script has changed in the scripts widget.
 */
 void QScriptDebuggerPrivate::_q_onCurrentScriptChanged(qint64 scriptId)

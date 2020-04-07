@@ -55,7 +55,7 @@ class QTestControl : public QMainWindow
     Q_CLASSINFO("EventsID", "{E1816BBA-BF5D-4A31-9855-D6BA43205510}")
 
 public:
-    explicit QTestControl(QWidget *parent = Q_NULLPTR);
+    explicit QTestControl(QWidget *parent = nullptr);
 
 public slots:
     void appendText(const QString &t) { m_logWindow->appendPlainText(t); }

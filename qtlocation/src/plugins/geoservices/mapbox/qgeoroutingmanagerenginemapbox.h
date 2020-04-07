@@ -47,6 +47,7 @@
 QT_BEGIN_NAMESPACE
 
 class QNetworkAccessManager;
+class QGeoRouteParser;
 
 class QGeoRoutingManagerEngineMapbox : public QGeoRoutingManagerEngine
 {
@@ -59,6 +60,7 @@ public:
     ~QGeoRoutingManagerEngineMapbox();
 
     QGeoRouteReply *calculateRoute(const QGeoRouteRequest &request);
+    const QGeoRouteParser *routeParser() const;
 
 private Q_SLOTS:
     void replyFinished();
@@ -68,6 +70,8 @@ private:
     QNetworkAccessManager *m_networkManager;
     QByteArray m_userAgent;
     QString m_accessToken;
+    bool m_useMapboxText = false;
+    QGeoRouteParser *m_routeParser = nullptr;
 };
 
 QT_END_NAMESPACE

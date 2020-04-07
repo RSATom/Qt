@@ -65,9 +65,11 @@ public:
     QPlatformCursor *globalCursor() const;
     void destroyGlobalCursor();
 
-    void handleDrmEvent();
-
     QPlatformScreen *createScreen(const QKmsOutput &output) override;
+    QPlatformScreen *createHeadlessScreen() override;
+    void registerScreenCloning(QPlatformScreen *screen,
+                               QPlatformScreen *screenThisScreenClones,
+                               const QVector<QPlatformScreen *> &screensCloningThisScreen) override;
 
 private:
     Q_DISABLE_COPY(QEglFSKmsGbmDevice)
@@ -75,12 +77,6 @@ private:
     gbm_device *m_gbm_device;
 
     QEglFSKmsGbmCursor *m_globalCursor;
-
-    static void pageFlipHandler(int fd,
-                                unsigned int sequence,
-                                unsigned int tv_sec,
-                                unsigned int tv_usec,
-                                void *user_data);
 };
 
 QT_END_NAMESPACE

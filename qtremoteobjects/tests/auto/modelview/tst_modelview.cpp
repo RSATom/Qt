@@ -27,6 +27,7 @@
 ****************************************************************************/
 
 #include "modeltest.h"
+#include "../shared/model_utilities.h"
 
 #include <QtTest/QtTest>
 #include <QMetaType>
@@ -69,19 +70,6 @@ bool waitForSignal(QVector<Storage> *storage, QSignalSpy *spy)
         }
     }
     return storage->isEmpty() && spy->size() == storageSize;
-}
-
-inline bool compareIndices(const QModelIndex &lhs, const QModelIndex &rhs)
-{
-    QModelIndex left = lhs;
-    QModelIndex right = rhs;
-    while (left.row() == right.row() && left.column() == right.column() && left.isValid() && right.isValid()) {
-        left = left.parent();
-        right = right.parent();
-    }
-    if (left.isValid() || right.isValid())
-        return false;
-    return true;
 }
 
 QList<QStandardItem*> createInsertionChildren(int num, const QString& name, const QColor &background)
@@ -133,80 +121,6 @@ struct InsertedRow
     QModelIndex m_index;
     int m_start;
     int m_end;
-};
-
-struct WaitForDataChanged
-{
-    struct IndexPair
-    {
-        QModelIndex topLeft;
-        QModelIndex bottomRight;
-    };
-
-    WaitForDataChanged(const QVector<QModelIndex> &pending, QSignalSpy *spy) : m_pending(pending), m_spy(spy){}
-    bool wait()
-    {
-        Q_ASSERT(m_spy);
-        const int maxRuns = std::min(m_pending.size(), 100);
-        int runs = 0;
-        bool cancel = false;
-        while (!cancel) {
-            const int numSignals = m_spy->size();
-            for (int i = 0; i < numSignals; ++i) {
-                const QList<QVariant> &signal = m_spy->at(i);
-                IndexPair pair = extractPair(signal);
-                checkAndRemoveRange(pair.topLeft, pair.bottomRight);
-                cancel = m_pending.isEmpty();
-            }
-            if (!cancel)
-                m_spy->wait(50);
-            ++runs;
-            if (runs >= maxRuns)
-                cancel = true;
-        }
-        return runs < maxRuns;
-    }
-
-    static IndexPair extractPair(const QList<QVariant> &signal)
-    {
-        IndexPair pair;
-        if (signal.size() != 3)
-            return pair;
-        const bool matchingTypes = signal[0].type() == QVariant::nameToType("QModelIndex")
-                                   && signal[1].type() == QVariant::nameToType("QModelIndex")
-                                   && signal[2].type() == QVariant::nameToType("QVector<int>");
-        if (!matchingTypes)
-            return pair;
-        const QModelIndex topLeft = signal[0].value<QModelIndex>();
-        const QModelIndex bottomRight = signal[1].value<QModelIndex>();
-        pair.topLeft = topLeft;
-        pair.bottomRight = bottomRight;
-        return pair;
-    }
-
-    void checkAndRemoveRange(const QModelIndex &topLeft, const QModelIndex &bottomRight)
-    {
-        QVERIFY(topLeft.parent() == bottomRight.parent());
-        QVector<QModelIndex>  toRemove;
-        for (int i = 0; i < m_pending.size(); ++i) {
-            const QModelIndex &pending = m_pending.at(i);
-            if (pending.isValid()  && compareIndices(pending.parent(), topLeft.parent())) {
-                const bool fitLeft = topLeft.column() <= pending.column();
-                const bool fitRight = bottomRight.column() >= pending.column();
-                const bool fitTop = topLeft.row() <= pending.row();
-                const bool fitBottom = bottomRight.row() >= pending.row();
-                if (fitLeft && fitRight && fitTop && fitBottom)
-                    toRemove.append(pending);
-            }
-        }
-        foreach (const QModelIndex &index, toRemove) {
-            const int ind = m_pending.indexOf(index);
-            m_pending.remove(ind);
-        }
-    }
-
-    QVector<QModelIndex> m_pending;
-    QSignalSpy *m_spy;
 };
 
 QTextStream cout(stdout, QIODevice::WriteOnly);
@@ -583,17 +497,27 @@ private:
 
 } // namespace
 
+#define _SETUP_TEST_ \
+    QRemoteObjectHost basicServer; \
+    QRemoteObjectNode client; \
+    QRemoteObjectRegistryHost registryServer; \
+    setup_models(basicServer, client, registryServer);
+
 class TestModelView: public QObject
 {
     Q_OBJECT
 
-    QRemoteObjectHost m_basicServer;
-    QRemoteObjectNode m_client;
-    QRemoteObjectRegistryHost m_registryServer;
     QStandardItemModel m_sourceModel;
     RolenamesListModel m_listModel;
 
+public:
+    void setup_models(QRemoteObjectHost &basicServer,
+                      QRemoteObjectNode &client,
+                      QRemoteObjectRegistryHost &registryServer);
+
 private slots:
+    // NB: The tests have side effects on the models used, and need to be run
+    // in order (they may depend on previous side effects).
     void initTestCase();
 
     void testEmptyModel();
@@ -618,6 +542,9 @@ private slots:
 
     void testSelectionFromReplica();
     void testSelectionFromSource();
+    void testChildSelection();
+
+    void testCacheData();
 
     void cleanup();
 };
@@ -626,16 +553,7 @@ void TestModelView::initTestCase()
 {
     QLoggingCategory::setFilterRules("qt.remoteobjects.warning=false");
 
-    //Setup registry
-    //Registry needs to be created first until we get the retry mechanism implemented
-    m_registryServer.setRegistryUrl(QUrl(QStringLiteral("tcp://127.0.0.1:65212")));
-
-    m_basicServer.setHostUrl(QUrl(QStringLiteral("tcp://127.0.0.1:65211")));
-    m_basicServer.setRegistryUrl(QUrl(QStringLiteral("tcp://127.0.0.1:65212")));
-
     static const int modelSize = 20;
-
-    QVector<int> roles = QVector<int>() << Qt::DisplayRole << Qt::BackgroundRole;
 
     QHash<int,QByteArray> roleNames;
     roleNames[Qt::DisplayRole] = "text";
@@ -660,7 +578,6 @@ void TestModelView::initTestCase()
         m_sourceModel.appendRow(row);
         list << QStringLiteral("FancyTextNumber %1").arg(i);
     }
-    m_basicServer.enableRemoting(&m_sourceModel, "test", roles);
 
     const int numElements = 1000;
     for (int i = 0; i < numElements; ++i) {
@@ -668,20 +585,37 @@ void TestModelView::initTestCase()
         QString pid = QString("%1").arg(i);
         m_listModel.addPair(name, pid);
     }
-    roles.clear();
-    roles << Qt::UserRole << Qt::UserRole+1;
-    m_basicServer.enableRemoting(&m_listModel, "testRoleNames", roles);
+}
 
-    m_client.setRegistryUrl(QUrl(QStringLiteral("tcp://127.0.0.1:65212")));
+void TestModelView::setup_models(QRemoteObjectHost &basicServer, QRemoteObjectNode &client, QRemoteObjectRegistryHost &registryServer)
+{
+    static int port = 65211;
+    static const QString url = QStringLiteral("tcp://127.0.0.1:%1");
+
+    // QStandardItem::flags are stored as data with Qt::UserRole - 1
+    static const QVector<int> sourceModelRoles( {Qt::DisplayRole, Qt::BackgroundRole, (Qt::UserRole - 1)} );
+
+    static const QVector<int> listModelRoles( {Qt::UserRole, Qt::UserRole+1} );
+
+    //Setup registry
+    //Registry needs to be created first until we get the retry mechanism implemented
+    basicServer.setHostUrl(QUrl(url.arg(port)));
+    registryServer.setRegistryUrl(QUrl(url.arg(port+1)));
+    basicServer.setRegistryUrl(QUrl(url.arg(port+1)));
+    basicServer.enableRemoting(&m_sourceModel, "test", sourceModelRoles);
+    basicServer.enableRemoting(&m_listModel, "testRoleNames", listModelRoles);
+    client.setRegistryUrl(QUrl(url.arg(port+1)));
+    port += 2;
 }
 
 void TestModelView::testEmptyModel()
 {
+    _SETUP_TEST_
     QVector<int> roles = QVector<int>() << Qt::DisplayRole << Qt::BackgroundRole;
     QStandardItemModel emptyModel;
-    m_basicServer.enableRemoting(&emptyModel, "emptyModel", roles);
+    basicServer.enableRemoting(&emptyModel, "emptyModel", roles);
 
-    QScopedPointer<QAbstractItemModelReplica> model(m_client.acquireModel("emptyModel"));
+    QScopedPointer<QAbstractItemModelReplica> model(client.acquireModel("emptyModel"));
     model->setRootCacheSize(1000);
 
     FetchData f(model.data());
@@ -693,7 +627,8 @@ void TestModelView::testEmptyModel()
 
 void TestModelView::testInitialData()
 {
-    QScopedPointer<QAbstractItemModelReplica> model(m_client.acquireModel("test"));
+    _SETUP_TEST_
+    QScopedPointer<QAbstractItemModelReplica> model(client.acquireModel("test"));
 
     FetchData f(model.data());
     f.addAll();
@@ -704,7 +639,8 @@ void TestModelView::testInitialData()
 
 void TestModelView::testInitialDataTree()
 {
-    QScopedPointer<QAbstractItemModelReplica> model(m_client.acquireModel("test"));
+    _SETUP_TEST_
+    QScopedPointer<QAbstractItemModelReplica> model(client.acquireModel("test"));
 
     FetchData f(model.data());
     f.addAll();
@@ -715,7 +651,8 @@ void TestModelView::testInitialDataTree()
 
 void TestModelView::testHeaderData()
 {
-    QScopedPointer<QAbstractItemModelReplica> model(m_client.acquireModel("test"));
+    _SETUP_TEST_
+    QScopedPointer<QAbstractItemModelReplica> model(client.acquireModel("test"));
 
     FetchData f(model.data());
     f.addAll();
@@ -737,7 +674,8 @@ void TestModelView::testHeaderData()
 
 void TestModelView::testDataChangedTree()
 {
-    QScopedPointer<QAbstractItemModelReplica> model(m_client.acquireModel("test"));
+    _SETUP_TEST_
+    QScopedPointer<QAbstractItemModelReplica> model(client.acquireModel("test"));
 
     FetchData f(model.data());
     f.addAll();
@@ -745,6 +683,7 @@ void TestModelView::testDataChangedTree()
 
     compareTreeData(&m_sourceModel, model.data());
     QSignalSpy dataChangedSpy(model.data(), SIGNAL(dataChanged(QModelIndex,QModelIndex,QVector<int>)));
+    QSet<int> expected;
     for (int i = 10; i < 20; ++i) {
         const QModelIndex parent = m_sourceModel.index(i,0);
         const int rowCount = m_sourceModel.rowCount(parent);
@@ -758,6 +697,7 @@ void TestModelView::testDataChangedTree()
             }
         }
         m_sourceModel.setData(m_sourceModel.index(i, 1), QColor(Qt::magenta), Qt::BackgroundRole);
+        expected << i;
     }
 
     bool signalsReceived = false;
@@ -766,7 +706,12 @@ void TestModelView::testDataChangedTree()
     while (runs < maxRuns) {
         if (dataChangedSpy.wait() &&!dataChangedSpy.isEmpty()) {
             signalsReceived = true;
-            if (dataChangedSpy.takeFirst().at(1).value<QModelIndex>().row() == 19)
+            for (auto args : dataChangedSpy) {
+                int row = args.at(1).value<QModelIndex>().row();
+                if (row && expected.contains(row))
+                    expected.remove(row);
+            }
+            if (expected.size() == 0)
                 break;
         }
         ++runs;
@@ -777,7 +722,8 @@ void TestModelView::testDataChangedTree()
 
 void TestModelView::testFlags()
 {
-    QScopedPointer<QAbstractItemModelReplica> model(m_client.acquireModel("test"));
+    _SETUP_TEST_
+    QScopedPointer<QAbstractItemModelReplica> model(client.acquireModel("test"));
 
     FetchData f(model.data());
     f.addAll();
@@ -802,7 +748,8 @@ void TestModelView::testFlags()
 
 void TestModelView::testDataChanged()
 {
-    QScopedPointer<QAbstractItemModelReplica> model(m_client.acquireModel("test"));
+    _SETUP_TEST_
+    QScopedPointer<QAbstractItemModelReplica> model(client.acquireModel("test"));
 
     FetchData f(model.data());
     f.addAll();
@@ -824,7 +771,8 @@ void TestModelView::testDataChanged()
 
 void TestModelView::testDataInsertion()
 {
-    QScopedPointer<QAbstractItemModelReplica> model(m_client.acquireModel("test"));
+    _SETUP_TEST_
+    QScopedPointer<QAbstractItemModelReplica> model(client.acquireModel("test"));
 
     FetchData f(model.data());
     f.addAll();
@@ -887,7 +835,8 @@ void TestModelView::testDataInsertion()
 
 void TestModelView::testDataInsertionTree()
 {
-    QScopedPointer<QAbstractItemModelReplica> model(m_client.acquireModel("test"));
+    _SETUP_TEST_
+    QScopedPointer<QAbstractItemModelReplica> model(client.acquireModel("test"));
 
     FetchData f(model.data());
     f.addAll();
@@ -974,7 +923,8 @@ void TestModelView::testDataInsertionTree()
 
 void TestModelView::testDataRemoval()
 {
-    QScopedPointer<QAbstractItemModelReplica> model(m_client.acquireModel("test"));
+    _SETUP_TEST_
+    QScopedPointer<QAbstractItemModelReplica> model(client.acquireModel("test"));
     qputenv("QTRO_NODES_CACHE_SIZE", "1000");
     model->setRootCacheSize(1000);
     FetchData f(model.data());
@@ -1014,7 +964,8 @@ void TestModelView::testDataRemoval()
 
 void TestModelView::testRoleNames()
 {
-    QScopedPointer<QAbstractItemModelReplica> repModel( m_client.acquireModel(QStringLiteral("testRoleNames")));
+    _SETUP_TEST_
+    QScopedPointer<QAbstractItemModelReplica> repModel( client.acquireModel(QStringLiteral("testRoleNames")));
     // Set a bigger cache enough to keep all the data otherwise the last test will fail
     repModel->setRootCacheSize(1500);
     FetchData f(repModel.data());
@@ -1030,17 +981,19 @@ void TestModelView::testRoleNames()
 
 void TestModelView::testDataRemovalTree()
 {
+    _SETUP_TEST_
     m_sourceModel.removeRows(2, 4);
     //Maybe some checks here?
 }
 
 void TestModelView::testServerInsertDataTree()
 {
+    _SETUP_TEST_
     QVector<int> roles = QVector<int>() << Qt::DisplayRole << Qt::BackgroundRole;
     QStandardItemModel testTreeModel;
-    m_basicServer.enableRemoting(&testTreeModel, "testTreeModel", roles);
+    basicServer.enableRemoting(&testTreeModel, "testTreeModel", roles);
 
-    QScopedPointer<QAbstractItemModelReplica> model(m_client.acquireModel("testTreeModel"));
+    QScopedPointer<QAbstractItemModelReplica> model(client.acquireModel("testTreeModel"));
 
     QTRY_COMPARE(testTreeModel.rowCount(), model->rowCount());
 
@@ -1072,7 +1025,8 @@ void TestModelView::testServerInsertDataTree()
 
 void TestModelView::testModelTest()
 {
-    QScopedPointer<QAbstractItemModelReplica> repModel( m_client.acquireModel(QStringLiteral("test")));
+    _SETUP_TEST_
+    QScopedPointer<QAbstractItemModelReplica> repModel( client.acquireModel(QStringLiteral("test")));
     ModelTest test(repModel.data());
 
     FetchData f(repModel.data());
@@ -1083,7 +1037,8 @@ void TestModelView::testModelTest()
 
 void TestModelView::testSortFilterModel()
 {
-    QScopedPointer<QAbstractItemModelReplica> repModel( m_client.acquireModel(QStringLiteral("test")));
+    _SETUP_TEST_
+    QScopedPointer<QAbstractItemModelReplica> repModel( client.acquireModel(QStringLiteral("test")));
 
     FetchData f(repModel.data());
     f.addAll();
@@ -1101,7 +1056,8 @@ void TestModelView::testSortFilterModel()
 
 void TestModelView::testSetData()
 {
-    QScopedPointer<QAbstractItemModelReplica> model(m_client.acquireModel("test"));
+    _SETUP_TEST_
+    QScopedPointer<QAbstractItemModelReplica> model(client.acquireModel("test"));
 
     FetchData f(model.data());
     f.addAll();
@@ -1131,7 +1087,8 @@ void TestModelView::testSetData()
 
 void TestModelView::testSetDataTree()
 {
-    QScopedPointer<QAbstractItemModelReplica> model(m_client.acquireModel("test"));
+    _SETUP_TEST_
+    QScopedPointer<QAbstractItemModelReplica> model(client.acquireModel("test"));
 
     FetchData f(model.data());
     f.addAll();
@@ -1177,14 +1134,15 @@ void TestModelView::testSetDataTree()
 
 void TestModelView::testSelectionFromReplica()
 {
+    _SETUP_TEST_
     QVector<int> roles = QVector<int>() << Qt::DisplayRole << Qt::BackgroundRole;
     QStandardItemModel simpleModel;
     for (int i = 0; i < 4; ++i)
         simpleModel.appendRow(new QStandardItem(QString("item %0").arg(i)));
     QItemSelectionModel selectionModel(&simpleModel);
-    m_basicServer.enableRemoting(&simpleModel, "simpleModelFromReplica", roles, &selectionModel);
+    basicServer.enableRemoting(&simpleModel, "simpleModelFromReplica", roles, &selectionModel);
 
-    QScopedPointer<QAbstractItemModelReplica> model(m_client.acquireModel("simpleModelFromReplica"));
+    QScopedPointer<QAbstractItemModelReplica> model(client.acquireModel("simpleModelFromReplica"));
     QItemSelectionModel *replicaSelectionModel = model->selectionModel();
 
     FetchData f(model.data());
@@ -1197,14 +1155,15 @@ void TestModelView::testSelectionFromReplica()
 
 void TestModelView::testSelectionFromSource()
 {
+    _SETUP_TEST_
     QVector<int> roles = QVector<int>() << Qt::DisplayRole << Qt::BackgroundRole;
     QStandardItemModel simpleModel;
     for (int i = 0; i < 4; ++i)
         simpleModel.appendRow(new QStandardItem(QString("item %0").arg(i)));
     QItemSelectionModel selectionModel(&simpleModel);
-    m_basicServer.enableRemoting(&simpleModel, "simpleModelFromSource", roles, &selectionModel);
+    basicServer.enableRemoting(&simpleModel, "simpleModelFromSource", roles, &selectionModel);
 
-    QScopedPointer<QAbstractItemModelReplica> model(m_client.acquireModel("simpleModelFromSource"));
+    QScopedPointer<QAbstractItemModelReplica> model(client.acquireModel("simpleModelFromSource"));
     QItemSelectionModel *replicaSelectionModel = model->selectionModel();
 
     FetchData f(model.data());
@@ -1213,6 +1172,46 @@ void TestModelView::testSelectionFromSource()
 
     selectionModel.setCurrentIndex(simpleModel.index(1,0), QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Current);
     QTRY_COMPARE(replicaSelectionModel->currentIndex().row(), 1);
+}
+
+void TestModelView::testCacheData()
+{
+    _SETUP_TEST_
+    QVector<int> roles = QVector<int>() << Qt::UserRole << Qt::UserRole + 1;
+    QScopedPointer<QAbstractItemModelReplica> model(client.acquireModel("testRoleNames", QtRemoteObjects::PrefetchData, roles));
+    model->setRootCacheSize(1000);
+
+    QEventLoop l;
+    connect(model.data(), SIGNAL(initialized()), &l, SLOT(quit()));
+    l.exec();
+
+    compareData(&m_listModel, model.data());
+}
+
+void TestModelView::testChildSelection()
+{
+    _SETUP_TEST_
+    QVector<int> roles = {Qt::DisplayRole, Qt::BackgroundRole};
+    QStandardItemModel simpleModel;
+    QStandardItem *parentItem = simpleModel.invisibleRootItem();
+    for (int i = 0; i < 4; ++i) {
+        QStandardItem *item = new QStandardItem(QString("item %0").arg(i));
+        parentItem->appendRow(item);
+        parentItem = item;
+    }
+    QItemSelectionModel selectionModel(&simpleModel);
+    basicServer.enableRemoting(&simpleModel, "treeModelFromSource", roles, &selectionModel);
+
+    QScopedPointer<QAbstractItemModelReplica> model(client.acquireModel("treeModelFromSource", QtRemoteObjects::PrefetchData, roles));
+    QItemSelectionModel *replicaSelectionModel = model->selectionModel();
+
+    QTRY_COMPARE(simpleModel.rowCount(), model->rowCount());
+    QTRY_COMPARE(model->data(model->index(0, 0)), QVariant(QString("item 0")));
+
+    // select an item not yet "seen" by the replica
+    selectionModel.setCurrentIndex(simpleModel.index(0, 0, simpleModel.index(0,0)), QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Current);
+    QTRY_COMPARE(replicaSelectionModel->currentIndex().row(), 0);
+    QVERIFY(replicaSelectionModel->currentIndex().parent().isValid());
 }
 
 void TestModelView::cleanup()

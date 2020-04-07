@@ -20,207 +20,129 @@ namespace internal {
 
 void Builtins::Generate_ConstructVarargs(MacroAssembler* masm) {
   Generate_CallOrConstructVarargs(masm,
-                                  masm->isolate()->builtins()->Construct());
+                                  BUILTIN_CODE(masm->isolate(), Construct));
 }
 
 void Builtins::Generate_ConstructForwardVarargs(MacroAssembler* masm) {
   Generate_CallOrConstructForwardVarargs(
-      masm, masm->isolate()->builtins()->Construct());
+      masm, CallOrConstructMode::kConstruct,
+      BUILTIN_CODE(masm->isolate(), Construct));
 }
 
 void Builtins::Generate_ConstructFunctionForwardVarargs(MacroAssembler* masm) {
   Generate_CallOrConstructForwardVarargs(
-      masm, masm->isolate()->builtins()->ConstructFunction());
+      masm, CallOrConstructMode::kConstruct,
+      BUILTIN_CODE(masm->isolate(), ConstructFunction));
 }
 
 TF_BUILTIN(ConstructWithArrayLike, CallOrConstructBuiltinsAssembler) {
-  Node* target = Parameter(ConstructWithArrayLikeDescriptor::kTarget);
-  Node* new_target = Parameter(ConstructWithArrayLikeDescriptor::kNewTarget);
-  Node* arguments_list =
-      Parameter(ConstructWithArrayLikeDescriptor::kArgumentsList);
-  Node* context = Parameter(ConstructWithArrayLikeDescriptor::kContext);
+  TNode<Object> target = CAST(Parameter(Descriptor::kTarget));
+  SloppyTNode<Object> new_target = CAST(Parameter(Descriptor::kNewTarget));
+  TNode<Object> arguments_list = CAST(Parameter(Descriptor::kArgumentsList));
+  TNode<Context> context = CAST(Parameter(Descriptor::kContext));
   CallOrConstructWithArrayLike(target, new_target, arguments_list, context);
 }
 
 TF_BUILTIN(ConstructWithSpread, CallOrConstructBuiltinsAssembler) {
-  Node* target = Parameter(ConstructWithSpreadDescriptor::kTarget);
-  Node* new_target = Parameter(ConstructWithSpreadDescriptor::kNewTarget);
-  Node* spread = Parameter(ConstructWithSpreadDescriptor::kSpread);
-  Node* args_count = Parameter(ConstructWithSpreadDescriptor::kArgumentsCount);
-  Node* context = Parameter(ConstructWithSpreadDescriptor::kContext);
+  TNode<Object> target = CAST(Parameter(Descriptor::kTarget));
+  SloppyTNode<Object> new_target = CAST(Parameter(Descriptor::kNewTarget));
+  TNode<Object> spread = CAST(Parameter(Descriptor::kSpread));
+  TNode<Int32T> args_count =
+      UncheckedCast<Int32T>(Parameter(Descriptor::kActualArgumentsCount));
+  TNode<Context> context = CAST(Parameter(Descriptor::kContext));
   CallOrConstructWithSpread(target, new_target, spread, args_count, context);
 }
 
 typedef compiler::Node Node;
 
-Node* ConstructorBuiltinsAssembler::CopyFixedArrayBase(Node* fixed_array) {
-  Label if_fixed_array(this), if_fixed_double_array(this), done(this);
-  VARIABLE(result, MachineRepresentation::kTagged);
-  Node* capacity = LoadAndUntagFixedArrayBaseLength(fixed_array);
-  Branch(IsFixedDoubleArrayMap(LoadMap(fixed_array)), &if_fixed_double_array,
-         &if_fixed_array);
-  BIND(&if_fixed_double_array);
+TF_BUILTIN(FastNewClosure, ConstructorBuiltinsAssembler) {
+  Node* shared_function_info = Parameter(Descriptor::kSharedFunctionInfo);
+  Node* feedback_cell = Parameter(Descriptor::kFeedbackCell);
+  Node* context = Parameter(Descriptor::kContext);
+
+  CSA_ASSERT(this, IsFeedbackCell(feedback_cell));
+  CSA_ASSERT(this, IsSharedFunctionInfo(shared_function_info));
+
+  IncrementCounter(isolate()->counters()->fast_new_closure_total(), 1);
+
+  // Bump the closure counter encoded the {feedback_cell}s map.
   {
-    ElementsKind kind = PACKED_DOUBLE_ELEMENTS;
-    Node* copy = AllocateFixedArray(kind, capacity);
-    CopyFixedArrayElements(kind, fixed_array, kind, copy, capacity, capacity,
-                           SKIP_WRITE_BARRIER);
-    result.Bind(copy);
-    Goto(&done);
+    Node* const feedback_cell_map = LoadMap(feedback_cell);
+    Label no_closures(this), one_closure(this), cell_done(this);
+
+    GotoIf(IsNoClosuresCellMap(feedback_cell_map), &no_closures);
+    GotoIf(IsOneClosureCellMap(feedback_cell_map), &one_closure);
+    CSA_ASSERT(this, IsManyClosuresCellMap(feedback_cell_map),
+               feedback_cell_map, feedback_cell);
+    Goto(&cell_done);
+
+    BIND(&no_closures);
+    StoreMapNoWriteBarrier(feedback_cell, Heap::kOneClosureCellMapRootIndex);
+    Goto(&cell_done);
+
+    BIND(&one_closure);
+    StoreMapNoWriteBarrier(feedback_cell, Heap::kManyClosuresCellMapRootIndex);
+    Goto(&cell_done);
+
+    BIND(&cell_done);
   }
-
-  BIND(&if_fixed_array);
-  {
-    ElementsKind kind = PACKED_ELEMENTS;
-    Node* copy = AllocateFixedArray(kind, capacity);
-    CopyFixedArrayElements(kind, fixed_array, kind, copy, capacity, capacity,
-                           UPDATE_WRITE_BARRIER);
-    result.Bind(copy);
-    Goto(&done);
-  }
-  BIND(&done);
-  // Manually copy over the map of the incoming array to preserve the elements
-  // kind.
-  StoreMap(result.value(), LoadMap(fixed_array));
-  return result.value();
-}
-
-Node* ConstructorBuiltinsAssembler::EmitFastNewClosure(Node* shared_info,
-                                                       Node* feedback_vector,
-                                                       Node* slot,
-                                                       Node* context) {
-  Isolate* isolate = this->isolate();
-  Factory* factory = isolate->factory();
-  IncrementCounter(isolate->counters()->fast_new_closure_total(), 1);
-
-  Node* compiler_hints =
-      LoadObjectField(shared_info, SharedFunctionInfo::kCompilerHintsOffset,
-                      MachineType::Uint32());
 
   // The calculation of |function_map_index| must be in sync with
   // SharedFunctionInfo::function_map_index().
-  Node* function_map_index =
-      IntPtrAdd(DecodeWordFromWord32<SharedFunctionInfo::FunctionMapIndexBits>(
-                    compiler_hints),
-                IntPtrConstant(Context::FIRST_FUNCTION_MAP_INDEX));
+  Node* const flags =
+      LoadObjectField(shared_function_info, SharedFunctionInfo::kFlagsOffset,
+                      MachineType::Uint32());
+  Node* const function_map_index = IntPtrAdd(
+      DecodeWordFromWord32<SharedFunctionInfo::FunctionMapIndexBits>(flags),
+      IntPtrConstant(Context::FIRST_FUNCTION_MAP_INDEX));
   CSA_ASSERT(this, UintPtrLessThanOrEqual(
                        function_map_index,
                        IntPtrConstant(Context::LAST_FUNCTION_MAP_INDEX)));
 
   // Get the function map in the current native context and set that
   // as the map of the allocated object.
-  Node* native_context = LoadNativeContext(context);
-  Node* function_map = LoadContextElement(native_context, function_map_index);
+  Node* const native_context = LoadNativeContext(context);
+  Node* const function_map =
+      LoadContextElement(native_context, function_map_index);
 
   // Create a new closure from the given function info in new space
   Node* instance_size_in_bytes =
-      TimesPointerSize(LoadMapInstanceSize(function_map));
-  Node* result = Allocate(instance_size_in_bytes);
+      TimesPointerSize(LoadMapInstanceSizeInWords(function_map));
+  Node* const result = Allocate(instance_size_in_bytes);
   StoreMapNoWriteBarrier(result, function_map);
-  InitializeJSObjectBody(result, function_map, instance_size_in_bytes,
-                         JSFunction::kSize);
+  InitializeJSObjectBodyNoSlackTracking(result, function_map,
+                                        instance_size_in_bytes,
+                                        JSFunction::kSizeWithoutPrototype);
 
   // Initialize the rest of the function.
-  Node* empty_fixed_array = HeapConstant(factory->empty_fixed_array());
-  StoreObjectFieldNoWriteBarrier(result, JSObject::kPropertiesOrHashOffset,
-                                 empty_fixed_array);
-  StoreObjectFieldNoWriteBarrier(result, JSObject::kElementsOffset,
-                                 empty_fixed_array);
-  Node* literals_cell = LoadFixedArrayElement(
-      feedback_vector, slot, 0, CodeStubAssembler::SMI_PARAMETERS);
+  StoreObjectFieldRoot(result, JSObject::kPropertiesOrHashOffset,
+                       Heap::kEmptyFixedArrayRootIndex);
+  StoreObjectFieldRoot(result, JSObject::kElementsOffset,
+                       Heap::kEmptyFixedArrayRootIndex);
   {
-    // Bump the closure counter encoded in the cell's map.
-    Node* cell_map = LoadMap(literals_cell);
-    Label no_closures(this), one_closure(this), cell_done(this);
+    // Set function prototype if necessary.
+    Label done(this), init_prototype(this);
+    Branch(IsFunctionWithPrototypeSlotMap(function_map), &init_prototype,
+           &done);
 
-    GotoIf(IsNoClosuresCellMap(cell_map), &no_closures);
-    GotoIf(IsOneClosureCellMap(cell_map), &one_closure);
-    CSA_ASSERT(this, IsManyClosuresCellMap(cell_map));
-    Goto(&cell_done);
-
-    BIND(&no_closures);
-    StoreMapNoWriteBarrier(literals_cell, Heap::kOneClosureCellMapRootIndex);
-    Goto(&cell_done);
-
-    BIND(&one_closure);
-    StoreMapNoWriteBarrier(literals_cell, Heap::kManyClosuresCellMapRootIndex);
-    Goto(&cell_done);
-
-    BIND(&cell_done);
+    BIND(&init_prototype);
+    StoreObjectFieldRoot(result, JSFunction::kPrototypeOrInitialMapOffset,
+                         Heap::kTheHoleValueRootIndex);
+    Goto(&done);
+    BIND(&done);
   }
-  {
-    // If the feedback vector has optimized code, check whether it is marked
-    // for deopt and, if so, clear the slot.
-    Label optimized_code_ok(this), clear_optimized_code(this);
-    Node* literals = LoadObjectField(literals_cell, Cell::kValueOffset);
-    GotoIfNot(IsFeedbackVector(literals), &optimized_code_ok);
-    Node* optimized_code_cell_slot =
-        LoadFixedArrayElement(literals, FeedbackVector::kOptimizedCodeIndex);
-    GotoIf(TaggedIsSmi(optimized_code_cell_slot), &optimized_code_ok);
 
-    Node* optimized_code =
-        LoadWeakCellValue(optimized_code_cell_slot, &clear_optimized_code);
-    Node* code_flags = LoadObjectField(
-        optimized_code, Code::kKindSpecificFlags1Offset, MachineType::Uint32());
-    Node* marked_for_deopt =
-        DecodeWord32<Code::MarkedForDeoptimizationField>(code_flags);
-    Branch(Word32Equal(marked_for_deopt, Int32Constant(0)), &optimized_code_ok,
-           &clear_optimized_code);
-
-    // Cell is empty or code is marked for deopt, clear the optimized code slot.
-    BIND(&clear_optimized_code);
-    StoreFixedArrayElement(literals, FeedbackVector::kOptimizedCodeIndex,
-                           SmiConstant(0), SKIP_WRITE_BARRIER);
-    Goto(&optimized_code_ok);
-
-    BIND(&optimized_code_ok);
-  }
-  StoreObjectFieldNoWriteBarrier(result, JSFunction::kFeedbackVectorOffset,
-                                 literals_cell);
-  StoreObjectFieldNoWriteBarrier(
-      result, JSFunction::kPrototypeOrInitialMapOffset, TheHoleConstant());
+  STATIC_ASSERT(JSFunction::kSizeWithoutPrototype == 7 * kPointerSize);
+  StoreObjectFieldNoWriteBarrier(result, JSFunction::kFeedbackCellOffset,
+                                 feedback_cell);
   StoreObjectFieldNoWriteBarrier(result, JSFunction::kSharedFunctionInfoOffset,
-                                 shared_info);
+                                 shared_function_info);
   StoreObjectFieldNoWriteBarrier(result, JSFunction::kContextOffset, context);
   Handle<Code> lazy_builtin_handle(
-      isolate->builtins()->builtin(Builtins::kCompileLazy));
+      isolate()->builtins()->builtin(Builtins::kCompileLazy), isolate());
   Node* lazy_builtin = HeapConstant(lazy_builtin_handle);
-  Node* lazy_builtin_entry =
-      IntPtrAdd(BitcastTaggedToWord(lazy_builtin),
-                IntPtrConstant(Code::kHeaderSize - kHeapObjectTag));
-  StoreObjectFieldNoWriteBarrier(result, JSFunction::kCodeEntryOffset,
-                                 lazy_builtin_entry,
-                                 MachineType::PointerRepresentation());
-  StoreObjectFieldNoWriteBarrier(result, JSFunction::kNextFunctionLinkOffset,
-                                 UndefinedConstant());
-
-  return result;
-}
-
-Node* ConstructorBuiltinsAssembler::LoadFeedbackVectorSlot(
-    Node* closure, Node* literal_index) {
-  Node* cell = LoadObjectField(closure, JSFunction::kFeedbackVectorOffset);
-  Node* feedback_vector = LoadObjectField(cell, Cell::kValueOffset);
-  return LoadFixedArrayElement(feedback_vector, literal_index, 0,
-                               CodeStubAssembler::SMI_PARAMETERS);
-}
-
-Node* ConstructorBuiltinsAssembler::NotHasBoilerplate(Node* literal_site) {
-  return TaggedIsSmi(literal_site);
-}
-
-Node* ConstructorBuiltinsAssembler::LoadAllocationSiteBoilerplate(Node* site) {
-  CSA_ASSERT(this, IsAllocationSite(site));
-  return LoadObjectField(site,
-                         AllocationSite::kTransitionInfoOrBoilerplateOffset);
-}
-
-TF_BUILTIN(FastNewClosure, ConstructorBuiltinsAssembler) {
-  Node* shared = Parameter(FastNewClosureDescriptor::kSharedFunctionInfo);
-  Node* context = Parameter(FastNewClosureDescriptor::kContext);
-  Node* vector = Parameter(FastNewClosureDescriptor::kVector);
-  Node* slot = Parameter(FastNewClosureDescriptor::kSlot);
-  Return(EmitFastNewClosure(shared, vector, slot, context));
+  StoreObjectFieldNoWriteBarrier(result, JSFunction::kCodeOffset, lazy_builtin);
+  Return(result);
 }
 
 TF_BUILTIN(FastNewObject, ConstructorBuiltinsAssembler) {
@@ -296,16 +218,12 @@ Node* ConstructorBuiltinsAssembler::EmitFastNewObject(Node* context,
   }
 
   BIND(&instantiate_map);
-
-  Node* object = AllocateJSObjectFromMap(initial_map, properties.value());
-
-  // Perform in-object slack tracking if requested.
-  HandleSlackTracking(context, object, initial_map, JSObject::kHeaderSize);
-  return object;
+  return AllocateJSObjectFromMap(initial_map, properties.value(), nullptr,
+                                 kNone, kWithSlackTracking);
 }
 
 Node* ConstructorBuiltinsAssembler::EmitFastNewFunctionContext(
-    Node* function, Node* slots, Node* context, ScopeType scope_type) {
+    Node* scope_info, Node* slots, Node* context, ScopeType scope_type) {
   slots = ChangeUint32ToWord(slots);
 
   // TODO(ishell): Use CSA::OptimalParameterMode() here.
@@ -333,8 +251,8 @@ Node* ConstructorBuiltinsAssembler::EmitFastNewFunctionContext(
                                  SmiTag(length));
 
   // Set up the fixed slots.
-  StoreFixedArrayElement(function_context, Context::CLOSURE_INDEX, function,
-                         SKIP_WRITE_BARRIER);
+  StoreFixedArrayElement(function_context, Context::SCOPE_INFO_INDEX,
+                         scope_info, SKIP_WRITE_BARRIER);
   StoreFixedArrayElement(function_context, Context::PREVIOUS_INDEX, context,
                          SKIP_WRITE_BARRIER);
   StoreFixedArrayElement(function_context, Context::EXTENSION_INDEX,
@@ -359,30 +277,29 @@ Node* ConstructorBuiltinsAssembler::EmitFastNewFunctionContext(
 }
 
 TF_BUILTIN(FastNewFunctionContextEval, ConstructorBuiltinsAssembler) {
-  Node* function = Parameter(FastNewFunctionContextDescriptor::kFunction);
-  Node* slots = Parameter(FastNewFunctionContextDescriptor::kSlots);
-  Node* context = Parameter(FastNewFunctionContextDescriptor::kContext);
-  Return(EmitFastNewFunctionContext(function, slots, context,
+  Node* scope_info = Parameter(Descriptor::kScopeInfo);
+  Node* slots = Parameter(Descriptor::kSlots);
+  Node* context = Parameter(Descriptor::kContext);
+  Return(EmitFastNewFunctionContext(scope_info, slots, context,
                                     ScopeType::EVAL_SCOPE));
 }
 
 TF_BUILTIN(FastNewFunctionContextFunction, ConstructorBuiltinsAssembler) {
-  Node* function = Parameter(FastNewFunctionContextDescriptor::kFunction);
-  Node* slots = Parameter(FastNewFunctionContextDescriptor::kSlots);
-  Node* context = Parameter(FastNewFunctionContextDescriptor::kContext);
-  Return(EmitFastNewFunctionContext(function, slots, context,
+  Node* scope_info = Parameter(Descriptor::kScopeInfo);
+  Node* slots = Parameter(Descriptor::kSlots);
+  Node* context = Parameter(Descriptor::kContext);
+  Return(EmitFastNewFunctionContext(scope_info, slots, context,
                                     ScopeType::FUNCTION_SCOPE));
 }
 
-Node* ConstructorBuiltinsAssembler::EmitFastCloneRegExp(Node* closure,
-                                                        Node* literal_index,
-                                                        Node* pattern,
-                                                        Node* flags,
-                                                        Node* context) {
+Node* ConstructorBuiltinsAssembler::EmitCreateRegExpLiteral(
+    Node* feedback_vector, Node* slot, Node* pattern, Node* flags,
+    Node* context) {
   Label call_runtime(this, Label::kDeferred), end(this);
 
   VARIABLE(result, MachineRepresentation::kTagged);
-  Node* literal_site = LoadFeedbackVectorSlot(closure, literal_index);
+  TNode<Object> literal_site =
+      CAST(LoadFeedbackVectorSlot(feedback_vector, slot, 0, INTPTR_PARAMETERS));
   GotoIf(NotHasBoilerplate(literal_site), &call_runtime);
   {
     Node* boilerplate = literal_site;
@@ -399,8 +316,8 @@ Node* ConstructorBuiltinsAssembler::EmitFastCloneRegExp(Node* closure,
 
   BIND(&call_runtime);
   {
-    result.Bind(CallRuntime(Runtime::kCreateRegExpLiteral, context, closure,
-                            literal_index, pattern, flags));
+    result.Bind(CallRuntime(Runtime::kCreateRegExpLiteral, context,
+                            feedback_vector, SmiTag(slot), pattern, flags));
     Goto(&end);
   }
 
@@ -408,192 +325,138 @@ Node* ConstructorBuiltinsAssembler::EmitFastCloneRegExp(Node* closure,
   return result.value();
 }
 
-TF_BUILTIN(FastCloneRegExp, ConstructorBuiltinsAssembler) {
-  Node* closure = Parameter(FastCloneRegExpDescriptor::kClosure);
-  Node* literal_index = Parameter(FastCloneRegExpDescriptor::kLiteralIndex);
-  Node* pattern = Parameter(FastCloneRegExpDescriptor::kPattern);
-  Node* flags = Parameter(FastCloneRegExpDescriptor::kFlags);
-  Node* context = Parameter(FastCloneRegExpDescriptor::kContext);
-
-  Return(EmitFastCloneRegExp(closure, literal_index, pattern, flags, context));
+TF_BUILTIN(CreateRegExpLiteral, ConstructorBuiltinsAssembler) {
+  Node* feedback_vector = Parameter(Descriptor::kFeedbackVector);
+  Node* slot = SmiUntag(Parameter(Descriptor::kSlot));
+  Node* pattern = Parameter(Descriptor::kPattern);
+  Node* flags = Parameter(Descriptor::kFlags);
+  Node* context = Parameter(Descriptor::kContext);
+  Node* result =
+      EmitCreateRegExpLiteral(feedback_vector, slot, pattern, flags, context);
+  Return(result);
 }
 
-Node* ConstructorBuiltinsAssembler::NonEmptyShallowClone(
-    Node* boilerplate, Node* boilerplate_map, Node* boilerplate_elements,
-    Node* allocation_site, Node* capacity, ElementsKind kind) {
-  ParameterMode param_mode = OptimalParameterMode();
-
-  Node* length = LoadJSArrayLength(boilerplate);
-  capacity = TaggedToParameter(capacity, param_mode);
-
-  Node *array, *elements;
-  std::tie(array, elements) = AllocateUninitializedJSArrayWithElements(
-      kind, boilerplate_map, length, allocation_site, capacity, param_mode);
-
-  Comment("copy elements header");
-  // Header consists of map and length.
-  STATIC_ASSERT(FixedArrayBase::kHeaderSize == 2 * kPointerSize);
-  StoreMap(elements, LoadMap(boilerplate_elements));
-  {
-    int offset = FixedArrayBase::kLengthOffset;
-    StoreObjectFieldNoWriteBarrier(
-        elements, offset, LoadObjectField(boilerplate_elements, offset));
-  }
-
-  length = TaggedToParameter(length, param_mode);
-
-  Comment("copy boilerplate elements");
-  CopyFixedArrayElements(kind, boilerplate_elements, elements, length,
-                         SKIP_WRITE_BARRIER, param_mode);
-  IncrementCounter(isolate()->counters()->inlined_copied_elements(), 1);
-
-  return array;
-}
-
-Node* ConstructorBuiltinsAssembler::EmitFastCloneShallowArray(
-    Node* closure, Node* literal_index, Node* context, Label* call_runtime,
+Node* ConstructorBuiltinsAssembler::EmitCreateShallowArrayLiteral(
+    Node* feedback_vector, Node* slot, Node* context, Label* call_runtime,
     AllocationSiteMode allocation_site_mode) {
   Label zero_capacity(this), cow_elements(this), fast_elements(this),
       return_result(this);
   VARIABLE(result, MachineRepresentation::kTagged);
 
-  Node* allocation_site = LoadFeedbackVectorSlot(closure, literal_index);
-  GotoIf(NotHasBoilerplate(allocation_site), call_runtime);
+  TNode<Object> maybe_allocation_site =
+      CAST(LoadFeedbackVectorSlot(feedback_vector, slot, 0, INTPTR_PARAMETERS));
+  GotoIf(NotHasBoilerplate(maybe_allocation_site), call_runtime);
 
-  Node* boilerplate = LoadAllocationSiteBoilerplate(allocation_site);
-  Node* boilerplate_map = LoadMap(boilerplate);
-  CSA_ASSERT(this, IsJSArrayMap(boilerplate_map));
-  Node* boilerplate_elements = LoadElements(boilerplate);
-  Node* capacity = LoadFixedArrayBaseLength(boilerplate_elements);
-  allocation_site =
-      allocation_site_mode == TRACK_ALLOCATION_SITE ? allocation_site : nullptr;
+  TNode<AllocationSite> allocation_site = CAST(maybe_allocation_site);
+  TNode<JSArray> boilerplate = CAST(LoadBoilerplate(allocation_site));
 
-  Node* zero = SmiConstant(0);
-  GotoIf(SmiEqual(capacity, zero), &zero_capacity);
-
-  Node* elements_map = LoadMap(boilerplate_elements);
-  GotoIf(IsFixedCOWArrayMap(elements_map), &cow_elements);
-
-  GotoIf(IsFixedArrayMap(elements_map), &fast_elements);
-  {
-    Comment("fast double elements path");
-    if (FLAG_debug_code) CSA_CHECK(this, IsFixedDoubleArrayMap(elements_map));
-    Node* array =
-        NonEmptyShallowClone(boilerplate, boilerplate_map, boilerplate_elements,
-                             allocation_site, capacity, PACKED_DOUBLE_ELEMENTS);
-    result.Bind(array);
-    Goto(&return_result);
+  ParameterMode mode = OptimalParameterMode();
+  if (allocation_site_mode == TRACK_ALLOCATION_SITE) {
+    return CloneFastJSArray(context, boilerplate, mode, allocation_site);
+  } else {
+    return CloneFastJSArray(context, boilerplate, mode);
   }
-
-  BIND(&fast_elements);
-  {
-    Comment("fast elements path");
-    Node* array =
-        NonEmptyShallowClone(boilerplate, boilerplate_map, boilerplate_elements,
-                             allocation_site, capacity, PACKED_ELEMENTS);
-    result.Bind(array);
-    Goto(&return_result);
-  }
-
-  VARIABLE(length, MachineRepresentation::kTagged);
-  VARIABLE(elements, MachineRepresentation::kTagged);
-  Label allocate_without_elements(this);
-
-  BIND(&cow_elements);
-  {
-    Comment("fixed cow path");
-    length.Bind(LoadJSArrayLength(boilerplate));
-    elements.Bind(boilerplate_elements);
-
-    Goto(&allocate_without_elements);
-  }
-
-  BIND(&zero_capacity);
-  {
-    Comment("zero capacity path");
-    length.Bind(zero);
-    elements.Bind(LoadRoot(Heap::kEmptyFixedArrayRootIndex));
-
-    Goto(&allocate_without_elements);
-  }
-
-  BIND(&allocate_without_elements);
-  {
-    Node* array = AllocateUninitializedJSArrayWithoutElements(
-        PACKED_ELEMENTS, boilerplate_map, length.value(), allocation_site);
-    StoreObjectField(array, JSObject::kElementsOffset, elements.value());
-    result.Bind(array);
-    Goto(&return_result);
-  }
-
-  BIND(&return_result);
-  return result.value();
 }
 
-void ConstructorBuiltinsAssembler::CreateFastCloneShallowArrayBuiltin(
-    AllocationSiteMode allocation_site_mode) {
-  Node* closure = Parameter(FastCloneShallowArrayDescriptor::kClosure);
-  Node* literal_index =
-      Parameter(FastCloneShallowArrayDescriptor::kLiteralIndex);
-  Node* constant_elements =
-      Parameter(FastCloneShallowArrayDescriptor::kConstantElements);
-  Node* context = Parameter(FastCloneShallowArrayDescriptor::kContext);
+TF_BUILTIN(CreateShallowArrayLiteral, ConstructorBuiltinsAssembler) {
+  Node* feedback_vector = Parameter(Descriptor::kFeedbackVector);
+  Node* slot = SmiUntag(Parameter(Descriptor::kSlot));
+  Node* constant_elements = Parameter(Descriptor::kConstantElements);
+  Node* context = Parameter(Descriptor::kContext);
   Label call_runtime(this, Label::kDeferred);
-  Return(EmitFastCloneShallowArray(closure, literal_index, context,
-                                   &call_runtime, allocation_site_mode));
+  Return(EmitCreateShallowArrayLiteral(feedback_vector, slot, context,
+                                       &call_runtime,
+                                       DONT_TRACK_ALLOCATION_SITE));
 
   BIND(&call_runtime);
   {
     Comment("call runtime");
-    int flags = AggregateLiteral::kIsShallow;
-    if (allocation_site_mode == TRACK_ALLOCATION_SITE) {
-      // Force initial allocation sites on the initial literal setup step.
-      flags |= AggregateLiteral::kNeedsInitialAllocationSite;
-    } else {
-      flags |= AggregateLiteral::kDisableMementos;
-    }
-    Return(CallRuntime(Runtime::kCreateArrayLiteral, context, closure,
-                       literal_index, constant_elements, SmiConstant(flags)));
+    int const flags =
+        AggregateLiteral::kDisableMementos | AggregateLiteral::kIsShallow;
+    Return(CallRuntime(Runtime::kCreateArrayLiteral, context, feedback_vector,
+                       SmiTag(slot), constant_elements, SmiConstant(flags)));
   }
 }
 
-TF_BUILTIN(FastCloneShallowArrayTrack, ConstructorBuiltinsAssembler) {
-  CreateFastCloneShallowArrayBuiltin(TRACK_ALLOCATION_SITE);
+Node* ConstructorBuiltinsAssembler::EmitCreateEmptyArrayLiteral(
+    Node* feedback_vector, Node* slot, Node* context) {
+  // Array literals always have a valid AllocationSite to properly track
+  // elements transitions.
+  TNode<Object> maybe_allocation_site =
+      CAST(LoadFeedbackVectorSlot(feedback_vector, slot, 0, INTPTR_PARAMETERS));
+  TVARIABLE(AllocationSite, allocation_site);
+
+  Label create_empty_array(this),
+      initialize_allocation_site(this, Label::kDeferred), done(this);
+  GotoIf(TaggedIsSmi(maybe_allocation_site), &initialize_allocation_site);
+  {
+    allocation_site = CAST(maybe_allocation_site);
+    Goto(&create_empty_array);
+  }
+  // TODO(cbruni): create the AllocationSite in CSA.
+  BIND(&initialize_allocation_site);
+  {
+    allocation_site =
+        CreateAllocationSiteInFeedbackVector(feedback_vector, SmiTag(slot));
+    Goto(&create_empty_array);
+  }
+
+  BIND(&create_empty_array);
+  TNode<Int32T> kind = LoadElementsKind(allocation_site.value());
+  TNode<Context> native_context = LoadNativeContext(context);
+  Comment("LoadJSArrayElementsMap");
+  Node* array_map = LoadJSArrayElementsMap(kind, native_context);
+  Node* zero = SmiConstant(0);
+  Comment("Allocate JSArray");
+  Node* result =
+      AllocateJSArray(GetInitialFastElementsKind(), array_map, zero, zero,
+                      allocation_site.value(), ParameterMode::SMI_PARAMETERS);
+
+  Goto(&done);
+  BIND(&done);
+
+  return result;
 }
 
-TF_BUILTIN(FastCloneShallowArrayDontTrack, ConstructorBuiltinsAssembler) {
-  CreateFastCloneShallowArrayBuiltin(DONT_TRACK_ALLOCATION_SITE);
+TF_BUILTIN(CreateEmptyArrayLiteral, ConstructorBuiltinsAssembler) {
+  Node* feedback_vector = Parameter(Descriptor::kFeedbackVector);
+  Node* slot = SmiUntag(Parameter(Descriptor::kSlot));
+  Node* context = Parameter(Descriptor::kContext);
+  Node* result = EmitCreateEmptyArrayLiteral(feedback_vector, slot, context);
+  Return(result);
 }
 
-Node* ConstructorBuiltinsAssembler::EmitFastCloneShallowObject(
-    Label* call_runtime, Node* closure, Node* literals_index) {
-  Node* allocation_site = LoadFeedbackVectorSlot(closure, literals_index);
-  GotoIf(NotHasBoilerplate(allocation_site), call_runtime);
+Node* ConstructorBuiltinsAssembler::EmitCreateShallowObjectLiteral(
+    Node* feedback_vector, Node* slot, Label* call_runtime) {
+  TNode<Object> maybe_allocation_site =
+      CAST(LoadFeedbackVectorSlot(feedback_vector, slot, 0, INTPTR_PARAMETERS));
+  GotoIf(NotHasBoilerplate(maybe_allocation_site), call_runtime);
 
-  Node* boilerplate = LoadAllocationSiteBoilerplate(allocation_site);
-  Node* boilerplate_map = LoadMap(boilerplate);
+  TNode<AllocationSite> allocation_site = CAST(maybe_allocation_site);
+  TNode<JSObject> boilerplate = LoadBoilerplate(allocation_site);
+  TNode<Map> boilerplate_map = LoadMap(boilerplate);
   CSA_ASSERT(this, IsJSObjectMap(boilerplate_map));
 
   VARIABLE(var_properties, MachineRepresentation::kTagged);
   {
     Node* bit_field_3 = LoadMapBitField3(boilerplate_map);
-    GotoIf(IsSetWord32<Map::Deprecated>(bit_field_3), call_runtime);
+    GotoIf(IsSetWord32<Map::IsDeprecatedBit>(bit_field_3), call_runtime);
     // Directly copy over the property store for dict-mode boilerplates.
     Label if_dictionary(this), if_fast(this), done(this);
-    Branch(IsSetWord32<Map::DictionaryMap>(bit_field_3), &if_dictionary,
+    Branch(IsSetWord32<Map::IsDictionaryMapBit>(bit_field_3), &if_dictionary,
            &if_fast);
     BIND(&if_dictionary);
     {
       Comment("Copy dictionary properties");
-      var_properties.Bind(
-          CopyNameDictionary(LoadProperties(boilerplate), call_runtime));
+      var_properties.Bind(CopyNameDictionary(
+          CAST(LoadSlowProperties(boilerplate)), call_runtime));
       // Slow objects have no in-object properties.
       Goto(&done);
     }
     BIND(&if_fast);
     {
       // TODO(cbruni): support copying out-of-object properties.
-      Node* boilerplate_properties = LoadProperties(boilerplate);
+      Node* boilerplate_properties = LoadFastProperties(boilerplate);
       GotoIfNot(IsEmptyFixedArray(boilerplate_properties), call_runtime);
       var_properties.Bind(EmptyFixedArrayConstant());
       Goto(&done);
@@ -616,7 +479,11 @@ Node* ConstructorBuiltinsAssembler::EmitFastCloneShallowObject(
     BIND(&if_copy_elements);
     CSA_ASSERT(this, Word32BinaryNot(
                          IsFixedCOWArrayMap(LoadMap(boilerplate_elements))));
-    var_elements.Bind(CopyFixedArrayBase(boilerplate_elements));
+    ExtractFixedArrayFlags flags;
+    flags |= ExtractFixedArrayFlag::kAllFixedArrays;
+    flags |= ExtractFixedArrayFlag::kNewSpaceAllocationOnly;
+    flags |= ExtractFixedArrayFlag::kDontCopyCOW;
+    var_elements.Bind(CloneFixedArray(boilerplate_elements, flags));
     Goto(&done);
     BIND(&done);
   }
@@ -624,7 +491,8 @@ Node* ConstructorBuiltinsAssembler::EmitFastCloneShallowObject(
   // Ensure new-space allocation for a fresh JSObject so we can skip write
   // barriers when copying all object fields.
   STATIC_ASSERT(JSObject::kMaxInstanceSize < kMaxRegularHeapObjectSize);
-  Node* instance_size = TimesPointerSize(LoadMapInstanceSize(boilerplate_map));
+  Node* instance_size =
+      TimesPointerSize(LoadMapInstanceSizeInWords(boilerplate_map));
   Node* allocation_size = instance_size;
   bool needs_allocation_memento = FLAG_allocation_site_pretenuring;
   if (needs_allocation_memento) {
@@ -709,7 +577,7 @@ Node* ConstructorBuiltinsAssembler::EmitFastCloneShallowObject(
                       {
                         Node* double_value = LoadHeapNumberValue(field);
                         Node* mutable_heap_number =
-                            AllocateHeapNumberWithValue(double_value, MUTABLE);
+                            AllocateMutableHeapNumberWithValue(double_value);
                         StoreObjectField(copy, offset, mutable_heap_number);
                         Goto(&continue_loop);
                       }
@@ -723,21 +591,204 @@ Node* ConstructorBuiltinsAssembler::EmitFastCloneShallowObject(
   return copy;
 }
 
-TF_BUILTIN(FastCloneShallowObject, ConstructorBuiltinsAssembler) {
+TF_BUILTIN(CreateShallowObjectLiteral, ConstructorBuiltinsAssembler) {
   Label call_runtime(this);
-  Node* closure = Parameter(Descriptor::kClosure);
-  Node* literals_index = Parameter(Descriptor::kLiteralIndex);
+  Node* feedback_vector = Parameter(Descriptor::kFeedbackVector);
+  Node* slot = SmiUntag(Parameter(Descriptor::kSlot));
   Node* copy =
-      EmitFastCloneShallowObject(&call_runtime, closure, literals_index);
+      EmitCreateShallowObjectLiteral(feedback_vector, slot, &call_runtime);
   Return(copy);
 
   BIND(&call_runtime);
-  Node* boilerplate_description =
-      Parameter(Descriptor::kBoilerplateDescription);
+  Node* object_boilerplate_description =
+      Parameter(Descriptor::kObjectBoilerplateDescription);
   Node* flags = Parameter(Descriptor::kFlags);
   Node* context = Parameter(Descriptor::kContext);
-  TailCallRuntime(Runtime::kCreateObjectLiteral, context, closure,
-                  literals_index, boilerplate_description, flags);
+  TailCallRuntime(Runtime::kCreateObjectLiteral, context, feedback_vector,
+                  SmiTag(slot), object_boilerplate_description, flags);
+}
+
+// Used by the CreateEmptyObjectLiteral bytecode and the Object constructor.
+Node* ConstructorBuiltinsAssembler::EmitCreateEmptyObjectLiteral(
+    Node* context) {
+  Node* native_context = LoadNativeContext(context);
+  Node* object_function =
+      LoadContextElement(native_context, Context::OBJECT_FUNCTION_INDEX);
+  Node* map = LoadObjectField(object_function,
+                              JSFunction::kPrototypeOrInitialMapOffset);
+  CSA_ASSERT(this, IsMap(map));
+  // Ensure that slack tracking is disabled for the map.
+  STATIC_ASSERT(Map::kNoSlackTracking == 0);
+  CSA_ASSERT(
+      this, IsClearWord32<Map::ConstructionCounterBits>(LoadMapBitField3(map)));
+  Node* empty_fixed_array = EmptyFixedArrayConstant();
+  Node* result =
+      AllocateJSObjectFromMap(map, empty_fixed_array, empty_fixed_array);
+  return result;
+}
+
+// ES #sec-object-constructor
+TF_BUILTIN(ObjectConstructor, ConstructorBuiltinsAssembler) {
+  int const kValueArg = 0;
+  Node* argc =
+      ChangeInt32ToIntPtr(Parameter(Descriptor::kJSActualArgumentsCount));
+  CodeStubArguments args(this, argc);
+  Node* context = Parameter(Descriptor::kContext);
+  Node* new_target = Parameter(Descriptor::kJSNewTarget);
+
+  VARIABLE(var_result, MachineRepresentation::kTagged);
+  Label if_subclass(this, Label::kDeferred), if_notsubclass(this),
+      return_result(this);
+  GotoIf(IsUndefined(new_target), &if_notsubclass);
+  TNode<JSFunction> target = CAST(Parameter(Descriptor::kJSTarget));
+  Branch(WordEqual(new_target, target), &if_notsubclass, &if_subclass);
+
+  BIND(&if_subclass);
+  {
+    Node* result =
+        CallBuiltin(Builtins::kFastNewObject, context, target, new_target);
+    var_result.Bind(result);
+    Goto(&return_result);
+  }
+
+  BIND(&if_notsubclass);
+  {
+    Label if_newobject(this, Label::kDeferred), if_toobject(this);
+
+    Node* value_index = IntPtrConstant(kValueArg);
+    GotoIf(UintPtrGreaterThanOrEqual(value_index, argc), &if_newobject);
+    Node* value = args.AtIndex(value_index);
+    GotoIf(IsNull(value), &if_newobject);
+    Branch(IsUndefined(value), &if_newobject, &if_toobject);
+
+    BIND(&if_newobject);
+    {
+      Node* result = EmitCreateEmptyObjectLiteral(context);
+      var_result.Bind(result);
+      Goto(&return_result);
+    }
+
+    BIND(&if_toobject);
+    {
+      Node* result = CallBuiltin(Builtins::kToObject, context, value);
+      var_result.Bind(result);
+      Goto(&return_result);
+    }
+  }
+
+  BIND(&return_result);
+  args.PopAndReturn(var_result.value());
+}
+
+// ES #sec-number-constructor
+TF_BUILTIN(NumberConstructor, ConstructorBuiltinsAssembler) {
+  Node* context = Parameter(Descriptor::kContext);
+  Node* argc =
+      ChangeInt32ToIntPtr(Parameter(Descriptor::kJSActualArgumentsCount));
+  CodeStubArguments args(this, argc);
+
+  // 1. If no arguments were passed to this function invocation, let n be +0.
+  VARIABLE(var_n, MachineRepresentation::kTagged, SmiConstant(0));
+  Label if_nloaded(this, &var_n);
+  GotoIf(WordEqual(argc, IntPtrConstant(0)), &if_nloaded);
+
+  // 2. Else,
+  //    a. Let prim be ? ToNumeric(value).
+  //    b. If Type(prim) is BigInt, let n be the Number value for prim.
+  //    c. Otherwise, let n be prim.
+  Node* value = args.AtIndex(0);
+  var_n.Bind(ToNumber(context, value, BigIntHandling::kConvertToNumber));
+  Goto(&if_nloaded);
+
+  BIND(&if_nloaded);
+  {
+    // 3. If NewTarget is undefined, return n.
+    Node* n_value = var_n.value();
+    Node* new_target = Parameter(Descriptor::kJSNewTarget);
+    Label return_n(this), constructnumber(this, Label::kDeferred);
+    Branch(IsUndefined(new_target), &return_n, &constructnumber);
+
+    BIND(&return_n);
+    { args.PopAndReturn(n_value); }
+
+    BIND(&constructnumber);
+    {
+      // 4. Let O be ? OrdinaryCreateFromConstructor(NewTarget,
+      //    "%NumberPrototype%", « [[NumberData]] »).
+      // 5. Set O.[[NumberData]] to n.
+      // 6. Return O.
+
+      // We are not using Parameter(Descriptor::kJSTarget) and loading the value
+      // from the current frame here in order to reduce register pressure on the
+      // fast path.
+      TNode<JSFunction> target = LoadTargetFromFrame();
+      Node* result =
+          CallBuiltin(Builtins::kFastNewObject, context, target, new_target);
+      StoreObjectField(result, JSValue::kValueOffset, n_value);
+      args.PopAndReturn(result);
+    }
+  }
+}
+
+// https://tc39.github.io/ecma262/#sec-string-constructor
+TF_BUILTIN(StringConstructor, ConstructorBuiltinsAssembler) {
+  Node* context = Parameter(Descriptor::kContext);
+  Node* argc =
+      ChangeInt32ToIntPtr(Parameter(Descriptor::kJSActualArgumentsCount));
+  CodeStubArguments args(this, argc);
+
+  TNode<Object> new_target = CAST(Parameter(Descriptor::kJSNewTarget));
+
+  // 1. If no arguments were passed to this function invocation, let s be "".
+  VARIABLE(var_s, MachineRepresentation::kTagged, EmptyStringConstant());
+  Label if_sloaded(this, &var_s);
+  GotoIf(WordEqual(argc, IntPtrConstant(0)), &if_sloaded);
+
+  // 2. Else,
+  //    a. If NewTarget is undefined [...]
+  Node* value = args.AtIndex(0);
+  Label if_tostring(this, &var_s);
+  GotoIfNot(IsUndefined(new_target), &if_tostring);
+
+  // 2a. [...] and Type(value) is Symbol, return SymbolDescriptiveString(value).
+  GotoIf(TaggedIsSmi(value), &if_tostring);
+  GotoIfNot(IsSymbol(value), &if_tostring);
+  {
+    Node* result =
+        CallRuntime(Runtime::kSymbolDescriptiveString, context, value);
+    args.PopAndReturn(result);
+  }
+
+  // 2b. Let s be ? ToString(value).
+  BIND(&if_tostring);
+  {
+    var_s.Bind(CallBuiltin(Builtins::kToString, context, value));
+    Goto(&if_sloaded);
+  }
+
+  // 3. If NewTarget is undefined, return s.
+  BIND(&if_sloaded);
+  {
+    Node* s_value = var_s.value();
+    Label return_s(this), constructstring(this, Label::kDeferred);
+    Branch(IsUndefined(new_target), &return_s, &constructstring);
+
+    BIND(&return_s);
+    { args.PopAndReturn(s_value); }
+
+    BIND(&constructstring);
+    {
+      // We are not using Parameter(Descriptor::kJSTarget) and loading the value
+      // from the current frame here in order to reduce register pressure on the
+      // fast path.
+      TNode<JSFunction> target = LoadTargetFromFrame();
+
+      Node* result =
+          CallBuiltin(Builtins::kFastNewObject, context, target, new_target);
+      StoreObjectField(result, JSValue::kValueOffset, s_value);
+      args.PopAndReturn(result);
+    }
+  }
 }
 
 }  // namespace internal

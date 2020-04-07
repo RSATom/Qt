@@ -32,13 +32,11 @@
 
 using namespace QPatternistSDK;
 
-ResultThreader::ResultThreader(QEventLoop &ev,
-                               QFile *file,
+ResultThreader::ResultThreader(QFile *file,
                                const Type t,
                                QObject *p) : QThread(p)
                                            , m_file(file)
                                            , m_type(t)
-                                           , m_eventLoop(ev)
 {
     Q_ASSERT_X(p,       Q_FUNC_INFO, "Should have a parent");
     Q_ASSERT_X(file,    Q_FUNC_INFO, "Should have a valid file");

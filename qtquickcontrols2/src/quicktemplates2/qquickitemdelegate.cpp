@@ -64,11 +64,6 @@ QT_BEGIN_NAMESPACE
     \sa {Customizing ItemDelegate}, {Delegate Controls}
 */
 
-QQuickItemDelegatePrivate::QQuickItemDelegatePrivate()
-    : highlighted(false)
-{
-}
-
 QQuickItemDelegate::QQuickItemDelegate(QQuickItem *parent)
     : QQuickAbstractButton(*(new QQuickItemDelegatePrivate), parent)
 {
@@ -122,12 +117,12 @@ void QQuickItemDelegate::setHighlighted(bool highlighted)
 
 QFont QQuickItemDelegate::defaultFont() const
 {
-    return QQuickControlPrivate::themeFont(QPlatformTheme::ItemViewFont);
+    return QQuickTheme::font(QQuickTheme::ItemView);
 }
 
 QPalette QQuickItemDelegate::defaultPalette() const
 {
-    return QQuickControlPrivate::themePalette(QPlatformTheme::ItemViewPalette);
+    return QQuickTheme::palette(QQuickTheme::ItemView);
 }
 
 #if QT_CONFIG(accessibility)

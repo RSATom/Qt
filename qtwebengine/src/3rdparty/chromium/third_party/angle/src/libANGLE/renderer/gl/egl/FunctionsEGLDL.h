@@ -14,28 +14,17 @@
 
 namespace rx
 {
-
-class DynamicLib final
-{
-  public:
-    void *handle;
-
-    DynamicLib();
-    ~DynamicLib();
-};
-
 class FunctionsEGLDL : public FunctionsEGL
 {
   public:
     FunctionsEGLDL();
     ~FunctionsEGLDL() override;
 
-    egl::Error initialize(EGLNativeDisplayType nativeDisplay, const char *libName);
+    egl::Error initialize(EGLNativeDisplayType nativeDisplay, const char *libName, void *eglHandle);
     void *getProcAddress(const char *name) const override;
 
   private:
     PFNEGLGETPROCADDRESSPROC mGetProcAddressPtr;
-    static DynamicLib sNativeLib;
 };
 }  // namespace rx
 

@@ -10,10 +10,7 @@
 #include "base/memory/ptr_util.h"
 #include "build/build_config.h"
 #include "components/content_settings/core/common/content_settings.h"
-
-#if !defined(OS_IOS)
-#include "media/base/media_switches.h"
-#endif  // !defined(OS_IOS)
+#include "components/content_settings/core/common/features.h"
 
 namespace {
 
@@ -93,6 +90,10 @@ const WebsiteSettingsInfo* WebsiteSettingsRegistry::Register(
   // doesn't allow the settings to be managed in the same way. See
   // crbug.com/642184.
   sync_status = WebsiteSettingsInfo::UNSYNCABLE;
+#elif defined(OS_FUCHSIA)
+  if (!(platform & PLATFORM_FUCHSIA))
+    return nullptr;
+  sync_status = WebsiteSettingsInfo::UNSYNCABLE;
 #else
 #error "Unsupported platform"
 #endif
@@ -147,13 +148,6 @@ void WebsiteSettingsRegistry::Init() {
            WebsiteSettingsInfo::REQUESTING_ORIGIN_AND_TOP_LEVEL_ORIGIN_SCOPE,
            DESKTOP | PLATFORM_ANDROID,
            WebsiteSettingsInfo::DONT_INHERIT_IN_INCOGNITO);
-  // TODO(raymes): Deprecated. See crbug.com/681709. Remove after M60.
-  Register(CONTENT_SETTINGS_TYPE_PROMPT_NO_DECISION_COUNT,
-           "prompt-no-decision-count", nullptr, WebsiteSettingsInfo::UNSYNCABLE,
-           WebsiteSettingsInfo::NOT_LOSSY,
-           WebsiteSettingsInfo::REQUESTING_ORIGIN_ONLY_SCOPE,
-           DESKTOP | PLATFORM_ANDROID,
-           WebsiteSettingsInfo::INHERIT_IN_INCOGNITO);
   Register(CONTENT_SETTINGS_TYPE_IMPORTANT_SITE_INFO, "important-site-info",
            nullptr, WebsiteSettingsInfo::UNSYNCABLE, WebsiteSettingsInfo::LOSSY,
            WebsiteSettingsInfo::REQUESTING_ORIGIN_ONLY_SCOPE,
@@ -165,11 +159,11 @@ void WebsiteSettingsRegistry::Init() {
            WebsiteSettingsInfo::REQUESTING_ORIGIN_ONLY_SCOPE,
            DESKTOP | PLATFORM_ANDROID,
            WebsiteSettingsInfo::INHERIT_IN_INCOGNITO);
-  Register(
-      CONTENT_SETTINGS_TYPE_PASSWORD_PROTECTION, "password-protection", nullptr,
-      WebsiteSettingsInfo::UNSYNCABLE, WebsiteSettingsInfo::NOT_LOSSY,
-      WebsiteSettingsInfo::REQUESTING_ORIGIN_ONLY_SCOPE,
-      DESKTOP | PLATFORM_ANDROID, WebsiteSettingsInfo::INHERIT_IN_INCOGNITO);
+  Register(CONTENT_SETTINGS_TYPE_PASSWORD_PROTECTION, "password-protection",
+           nullptr, WebsiteSettingsInfo::UNSYNCABLE,
+           WebsiteSettingsInfo::NOT_LOSSY,
+           WebsiteSettingsInfo::REQUESTING_ORIGIN_ONLY_SCOPE, DESKTOP,
+           WebsiteSettingsInfo::INHERIT_IN_INCOGNITO);
   // Set when an origin is activated for subresource filtering and the
   // associated UI is shown to the user. Cleared when a site is de-activated or
   // the first URL matching the origin is removed from history.
@@ -178,15 +172,27 @@ void WebsiteSettingsRegistry::Init() {
            WebsiteSettingsInfo::REQUESTING_ORIGIN_ONLY_SCOPE,
            DESKTOP | PLATFORM_ANDROID,
            WebsiteSettingsInfo::INHERIT_IN_INCOGNITO);
-#if !defined(OS_IOS)
-  if (base::FeatureList::IsEnabled(media::kRecordMediaEngagementScores)) {
-    Register(CONTENT_SETTINGS_TYPE_MEDIA_ENGAGEMENT, "media-engagement",
-             nullptr, WebsiteSettingsInfo::SYNCABLE, WebsiteSettingsInfo::LOSSY,
-             WebsiteSettingsInfo::REQUESTING_ORIGIN_ONLY_SCOPE,
-             DESKTOP | PLATFORM_ANDROID,
-             WebsiteSettingsInfo::INHERIT_IN_INCOGNITO);
-  }
-#endif  //! defined(OS_IOS)
+  Register(CONTENT_SETTINGS_TYPE_MEDIA_ENGAGEMENT, "media-engagement", nullptr,
+           WebsiteSettingsInfo::UNSYNCABLE, WebsiteSettingsInfo::LOSSY,
+           WebsiteSettingsInfo::REQUESTING_ORIGIN_ONLY_SCOPE,
+           DESKTOP | PLATFORM_ANDROID,
+           WebsiteSettingsInfo::INHERIT_IN_INCOGNITO);
+  Register(CONTENT_SETTINGS_TYPE_CLIENT_HINTS, "client-hints", nullptr,
+           WebsiteSettingsInfo::UNSYNCABLE, WebsiteSettingsInfo::LOSSY,
+           WebsiteSettingsInfo::REQUESTING_ORIGIN_ONLY_SCOPE,
+           DESKTOP | PLATFORM_ANDROID,
+           WebsiteSettingsInfo::DONT_INHERIT_IN_INCOGNITO);
+  Register(
+      CONTENT_SETTINGS_TYPE_PLUGINS_DATA, "flash-data", nullptr,
+      // To counteract the reduced usability of the Flash permission
+      // when it becomes ephemeral, we sync the bit indicating that
+      // the Flash permission should be displayed in the page info.
+      base::FeatureList::IsEnabled(features::kEnableEphemeralFlashPermission)
+          ? WebsiteSettingsInfo::SYNCABLE
+          : WebsiteSettingsInfo::UNSYNCABLE,
+      WebsiteSettingsInfo::NOT_LOSSY,
+      WebsiteSettingsInfo::REQUESTING_ORIGIN_ONLY_SCOPE, DESKTOP,
+      WebsiteSettingsInfo::INHERIT_IN_INCOGNITO);
 }
 
 }  // namespace content_settings

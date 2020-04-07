@@ -38,16 +38,17 @@
 
 #include "qtexttospeech_ios.h"
 
-@interface QIOSSpeechSynthesizerDelegate : NSObject <AVSpeechSynthesizerDelegate> {
-    QTextToSpeechEngineIos *_engine;
-}
+@interface QIOSSpeechSynthesizerDelegate : NSObject <AVSpeechSynthesizerDelegate>
 @end
 
 @implementation QIOSSpeechSynthesizerDelegate
-
-- (id)initWithQIOSTextToSpeechEngineIos:(QTextToSpeechEngineIos *)engine
 {
-    if (self = [super init]) {
+    QTextToSpeechEngineIos *_engine;
+}
+
+- (instancetype)initWithQIOSTextToSpeechEngineIos:(QTextToSpeechEngineIos *)engine
+{
+    if ((self = [self init])) {
         _engine = engine;
     }
     return self;

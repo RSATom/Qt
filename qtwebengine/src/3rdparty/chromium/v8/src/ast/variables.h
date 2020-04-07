@@ -36,14 +36,15 @@ class Variable final : public ZoneObject {
                    LocationField::encode(VariableLocation::UNALLOCATED) |
                    VariableKindField::encode(kind)) {
     // Var declared variables never need initialization.
-    DCHECK(!(mode == VAR && initialization_flag == kNeedsInitialization));
+    DCHECK(!(mode == VariableMode::kVar &&
+             initialization_flag == kNeedsInitialization));
   }
 
   explicit Variable(Variable* other);
 
   // The source code for an eval() call may refer to a variable that is
   // in an outer scope about which we don't know anything (it may not
-  // be the script scope). scope() is NULL in that case. Currently the
+  // be the script scope). scope() is nullptr in that case. Currently the
   // scope is only used to follow the context chain length.
   Scope* scope() const { return scope_; }
 
@@ -137,7 +138,8 @@ class Variable final : public ZoneObject {
   }
 
   Variable* local_if_not_shadowed() const {
-    DCHECK(mode() == DYNAMIC_LOCAL && local_if_not_shadowed_ != NULL);
+    DCHECK(mode() == VariableMode::kDynamicLocal &&
+           local_if_not_shadowed_ != nullptr);
     return local_if_not_shadowed_;
   }
 
@@ -175,7 +177,8 @@ class Variable final : public ZoneObject {
 
   static InitializationFlag DefaultInitializationFlag(VariableMode mode) {
     DCHECK(IsDeclaredVariableMode(mode));
-    return mode == VAR ? kCreatedInitialized : kNeedsInitialization;
+    return mode == VariableMode::kVar ? kCreatedInitialized
+                                      : kNeedsInitialization;
   }
 
   typedef ThreadedList<Variable> List;

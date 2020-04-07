@@ -12,7 +12,7 @@
 #include "base/memory/weak_ptr.h"
 #include "base/sequence_checker.h"
 #include "components/metrics/metrics_provider.h"
-#include "components/metrics/proto/system_profile.pb.h"
+#include "third_party/metrics_proto/system_profile.pb.h"
 
 namespace base {
 class FilePath;
@@ -28,11 +28,9 @@ class DriveMetricsProvider : public metrics::MetricsProvider {
   ~DriveMetricsProvider() override;
 
   // metrics::MetricsDataProvider:
+  void AsyncInit(const base::Closure& done_callback) override;
   void ProvideSystemProfileMetrics(
       metrics::SystemProfileProto* system_profile_proto) override;
-
-  // Called to start gathering metrics.
-  void GetDriveMetrics(const base::Closure& done_callback);
 
  private:
   FRIEND_TEST_ALL_PREFIXES(DriveMetricsProviderTest, HasSeekPenalty);

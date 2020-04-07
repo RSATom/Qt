@@ -5,11 +5,23 @@
 #include "ui/views/view_properties.h"
 
 #include "ui/gfx/geometry/insets.h"
+#include "ui/views/bubble/bubble_dialog_delegate.h"
 
-DECLARE_EXPORTED_UI_CLASS_PROPERTY_TYPE(VIEWS_EXPORT, gfx::Insets*);
+#if !defined(USE_AURA)
+// aura_constants.cc also declared the bool ClassProperty type.
+DEFINE_EXPORTED_UI_CLASS_PROPERTY_TYPE(VIEWS_EXPORT, bool);
+#endif
+
+DEFINE_EXPORTED_UI_CLASS_PROPERTY_TYPE(VIEWS_EXPORT, gfx::Insets*);
+
+DEFINE_EXPORTED_UI_CLASS_PROPERTY_TYPE(VIEWS_EXPORT,
+                                       views::BubbleDialogDelegateView*);
 
 namespace views {
 
 DEFINE_OWNED_UI_CLASS_PROPERTY_KEY(gfx::Insets, kMarginsKey, nullptr);
+DEFINE_UI_CLASS_PROPERTY_KEY(views::BubbleDialogDelegateView*,
+                             kAnchoredDialogKey,
+                             nullptr);
 
 }  // namespace views

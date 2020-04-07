@@ -70,7 +70,9 @@ def isInChromiumBlacklist(file_path):
             not file_path.startswith('net/test/') and
             not file_path.endswith('mock_chrome_application_mac.h') and
             not file_path.endswith('perftimer.h') and
+            not file_path.endswith('test-torque.tq') and
             not 'ozone' in file_path and
+            not 'fontconfig_util_linux' in file_path and
             not 'core/mojo/test/' in file_path and
             not file_path.startswith('extensions/browser/'))
         or file_path.endswith('.java')
@@ -80,6 +82,9 @@ def isInChromiumBlacklist(file_path):
         or file_path.startswith('base/android')
         or file_path.startswith('breakpad')
         or file_path.startswith('buildtools/clang_format/script')
+        or file_path.startswith('buildtools/third_party/libc++')
+        or file_path.startswith('buildtools/third_party/libc++abi')
+        or file_path.startswith('buildtools/third_party/libunwind')
         or (file_path.startswith('chrome/') and
             not file_path.startswith('chrome/VERSION') and
             not file_path.startswith('chrome/browser/chrome_notification_types.h') and
@@ -92,14 +97,18 @@ def isInChromiumBlacklist(file_path):
             not 'third_party/chromevox' in file_path and
             not 'media/webrtc/desktop_media_list.h' in file_path and
             not 'media/webrtc/desktop_streams_registry.' in file_path and
+            not 'browser/net/chrome_mojo_proxy_resolver_factory.' in file_path and
+            not '/browser/custom_handlers/' in file_path and
             not '/browser/devtools/' in file_path and
             not '/browser/ui/webui/' in file_path and
             not 'common/chrome_constants.' in file_path and
             not 'common/chrome_paths' in file_path and
             not 'common/chrome_switches.' in file_path and
             not 'common/content_restriction.h' in file_path and
+            not 'common/custom_handlers/' in file_path and
             not 'common/spellcheck_' in file_path and
-            not 'common/url_constants' in file_path and
+            not 'common/url_constants.' in file_path and
+            not 'common/webui_url_constants.' in file_path and
             not '/extensions/api/' in file_path and
             not '/extensions/browser/api/' in file_path and
             not '/extensions/permissions/' in file_path and
@@ -143,6 +152,7 @@ def isInChromiumBlacklist(file_path):
         or file_path.startswith('native_client')
         or file_path.startswith('net/android/java')
         or (file_path.startswith('net/data/') and '_unittest/' in file_path)
+        or file_path.startswith('net/data/fuzzer_data/')
         or file_path.startswith('remoting')
         or file_path.startswith('rlz')
         or file_path.startswith('testing/android')
@@ -160,10 +170,12 @@ def isInChromiumBlacklist(file_path):
         or file_path.startswith('third_party/ashmem')
         or file_path.startswith('third_party/binutils')
         or file_path.startswith('third_party/bison')
-        or (file_path.startswith('third_party/cacheinvalidation') and
-            not file_path.endswith('isolate'))
+        or file_path.startswith('third_party/blink/perf_tests/')
+        or file_path.startswith('third_party/breakpad/src/processor/testdata/')
         or file_path.startswith('third_party/boringssl/crypto_test_data.cc')
         or file_path.startswith('third_party/boringssl/src/fuzz')
+        or (file_path.startswith('third_party/cacheinvalidation') and
+            not file_path.endswith('isolate'))
         or file_path.startswith('third_party/catapult')
         or file_path.startswith('third_party/chromite')
         or file_path.startswith('third_party/cld_2')
@@ -188,7 +200,7 @@ def isInChromiumBlacklist(file_path):
         or file_path.startswith('third_party/icu/android')
         or file_path.startswith('third_party/icu/ios')
         or file_path.startswith('third_party/instrumented_libraries')
-        or file_path.startswith('third_party/jsr-305/src')
+        or file_path.startswith('third_party/jsr-305')
         or file_path.startswith('third_party/junit')
         or file_path.startswith('third_party/lcov')
         or file_path.startswith('third_party/libphonenumber')
@@ -220,10 +232,13 @@ def isInChromiumBlacklist(file_path):
         or file_path.startswith('third_party/talloc')
         or file_path.startswith('third_party/trace-viewer')
         or file_path.startswith('third_party/undoview')
+        or file_path.startswith('third_party/wayland')
         or file_path.startswith('third_party/webgl')
+        or file_path.startswith('third_party/webrtc/resources/')
+        or file_path.startswith('third_party/webrtc/third_party/boringssl/crypto_test_data.cc')
+        or file_path.startswith('third_party/webrtc/third_party/boringssl/src/fuzz')
         or file_path.startswith('tools/android')
         or file_path.startswith('tools/luci_go')
-        or file_path.startswith('tools/metrics')
         or file_path.startswith('tools/memory_inspector')
         or file_path.startswith('tools/perf')
         or file_path.startswith('tools/swarming_client')
@@ -288,6 +303,21 @@ def listFilesInCurrentRepository():
             files.append(os.path.join(submodule.pathRelativeToTopMostSupermodule(), submodule_file))
     return files
 
+def exportGn():
+    third_party_upstream_gn = os.path.join(third_party_upstream, 'gn')
+    third_party_gn = os.path.join(third_party, 'gn')
+    os.makedirs(third_party_gn);
+    print 'exporting contents of:' + third_party_upstream_gn
+    os.chdir(third_party_upstream_gn)
+    files = listFilesInCurrentRepository()
+    print 'copying files to ' + third_party_gn
+    for i in xrange(len(files)):
+        printProgress(i+1, len(files))
+        f = files[i]
+        if not isInGitBlacklist(f):
+            copyFile(f, os.path.join(third_party_gn, f))
+    print("")
+
 def exportNinja():
     third_party_upstream_ninja = os.path.join(third_party_upstream, 'ninja')
     third_party_ninja = os.path.join(third_party, 'ninja')
@@ -312,8 +342,8 @@ def exportChromium():
     files = listFilesInCurrentRepository()
     # Add LASTCHANGE files which are not tracked by git.
     files.append('build/util/LASTCHANGE')
-    files.append('build/util/LASTCHANGE.blink')
     files.append('skia/ext/skia_commit_hash.h')
+    files.append('gpu/config/gpu_lists_version.h')
     print 'copying files to ' + third_party_chromium
     for i in xrange(len(files)):
         printProgress(i+1, len(files))
@@ -341,6 +371,7 @@ if 'true' in ignore_case_setting:
 
 clearDirectory(third_party)
 
+exportGn()
 exportNinja()
 exportChromium()
 

@@ -20,11 +20,12 @@
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_metrics.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_network_delegate.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_request_options.h"
+#include "components/data_reduction_proxy/core/browser/data_reduction_proxy_util.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_event_storage_delegate.h"
-#include "components/data_reduction_proxy/core/common/data_reduction_proxy_util.h"
 #include "components/data_reduction_proxy/core/common/lofi_decider.h"
 #include "components/data_reduction_proxy/core/common/lofi_ui_service.h"
 #include "components/data_reduction_proxy/core/common/resource_type_provider.h"
+#include "components/data_use_measurement/core/data_use_user_data.h"
 
 namespace base {
 class Value;
@@ -48,6 +49,7 @@ class DataReductionProxyConfigServiceClient;
 class DataReductionProxyConfigurator;
 class DataReductionProxyEventCreator;
 class DataReductionProxyService;
+class NetworkPropertiesManager;
 
 // Contains and initializes all Data Reduction Proxy objects that operate on
 // the IO thread.
@@ -57,6 +59,7 @@ class DataReductionProxyIOData : public DataReductionProxyEventStorageDelegate {
   // state of the Data Reduction Proxy.
   DataReductionProxyIOData(
       Client client,
+      PrefService* prefs,
       net::NetLog* net_log,
       scoped_refptr<base::SingleThreadTaskRunner> io_task_runner,
       scoped_refptr<base::SingleThreadTaskRunner> ui_task_runner,
@@ -76,6 +79,8 @@ class DataReductionProxyIOData : public DataReductionProxyEventStorageDelegate {
   // Virtual for testing.
   virtual void SetDataReductionProxyService(
       base::WeakPtr<DataReductionProxyService> data_reduction_proxy_service);
+
+  void SetPreviewsDecider(previews::PreviewsDecider* previews_decider);
 
   // Creates an interceptor suitable for following the Data Reduction Proxy
   // bypass protocol.
@@ -99,24 +104,12 @@ class DataReductionProxyIOData : public DataReductionProxyEventStorageDelegate {
   // Applies a serialized Data Reduction Proxy configuration.
   void SetDataReductionProxyConfiguration(const std::string& serialized_config);
 
-  // Returns true when Lo-Fi Previews should be activated. When Lo-Fi is
-  // active, URL requests are modified to request low fidelity versions of the
-  // resources, except when the user is in the Lo-Fi control group.
-  // |previews_decider| is a non-null object that determines eligibility of
-  // showing the preview based on past opt outs.
-  bool ShouldEnableLoFi(const net::URLRequest& request,
-                        previews::PreviewsDecider* previews_decider);
-
-  // Returns true when Lite Page Previews should be activated. When Lite Pages
-  // are active, a low fidelity transcoded page is requested on the main frame
-  // resource, except when the user is in the control group. |previews_decider|
-  // is a non-null object that determines eligibility of showing the preview
-  // based on past opt outs.
-  bool ShouldEnableLitePages(const net::URLRequest& request,
-                             previews::PreviewsDecider* previews_decider);
-
-  // Sets Lo-Fi mode off in |config_|.
-  void SetLoFiModeOff();
+  // Returns true when server previews should be activated. When server previews
+  // are active, URL requests are modified to request low fidelity versions of
+  // the resources.|previews_decider| is a non-null object that determines
+  // eligibility of showing the preview based on past opt outs.
+  bool ShouldAcceptServerPreview(const net::URLRequest& request,
+                                 previews::PreviewsDecider* previews_decider);
 
   // Bridge methods to safely call to the UI thread objects.
   void UpdateDataUseForHost(int64_t network_bytes,
@@ -127,8 +120,10 @@ class DataReductionProxyIOData : public DataReductionProxyEventStorageDelegate {
       int64_t original_size,
       bool data_reduction_proxy_enabled,
       DataReductionProxyRequestType request_type,
-      const std::string& mime_type);
-  void SetLoFiModeActiveOnMainFrame(bool lo_fi_mode_active);
+      const std::string& mime_type,
+      bool is_user_traffic,
+      data_use_measurement::DataUseUserData::DataUseContentType content_type,
+      int32_t service_hash_code);
 
   // Overrides of DataReductionProxyEventStorageDelegate. Bridges to the UI
   // thread objects.
@@ -146,6 +141,17 @@ class DataReductionProxyIOData : public DataReductionProxyEventStorageDelegate {
   // Changes the reporting fraction for the pingback service to
   // |pingback_reporting_fraction|. Overridden in testing.
   virtual void SetPingbackReportingFraction(float pingback_reporting_fraction);
+
+  // Called when the user clears the browsing history.
+  void DeleteBrowsingHistory(const base::Time start, const base::Time end);
+
+  // Notifies |this| that the user has requested to clear the browser
+  // cache. This method is not called if only a subset of site entries are
+  // cleared.
+  void OnCacheCleared(const base::Time start, const base::Time end);
+
+  // Forwards proxy authentication headers to the UI thread.
+  void UpdateProxyRequestHeaders(net::HttpRequestHeaders headers);
 
   // Various accessor methods.
   DataReductionProxyConfigurator* configurator() const {
@@ -208,6 +214,10 @@ class DataReductionProxyIOData : public DataReductionProxyEventStorageDelegate {
     resource_type_provider_ = std::move(resource_type_provider);
   }
 
+  previews::PreviewsDecider* previews_decider() const {
+    return previews_decider_;
+  }
+
   // The production channel of this build.
   std::string channel() const { return channel_; }
 
@@ -221,7 +231,10 @@ class DataReductionProxyIOData : public DataReductionProxyEventStorageDelegate {
                            TestResetBadProxyListOnDisableDataSaver);
 
   // Used for testing.
-  DataReductionProxyIOData();
+  DataReductionProxyIOData(
+      PrefService* prefs,
+      scoped_refptr<base::SingleThreadTaskRunner> ui_task_runner,
+      scoped_refptr<base::SingleThreadTaskRunner> io_task_runner);
 
   // Initializes the weak pointer to |this| on the IO thread. It must be done
   // on the IO thread, since it is used for posting tasks from the UI thread
@@ -288,6 +301,10 @@ class DataReductionProxyIOData : public DataReductionProxyEventStorageDelegate {
   // Observes pageload events and records per host data use.
   std::unique_ptr<DataReductionProxyDataUseObserver> data_use_observer_;
 
+  // Previews IO data that is owned by Profile IO data. Deleted at the same time
+  // as |this|.
+  previews::PreviewsDecider* previews_decider_;
+
   // Whether the Data Reduction Proxy has been enabled or not by the user. In
   // practice, this can be overridden by the command line.
   bool enabled_;
@@ -301,6 +318,11 @@ class DataReductionProxyIOData : public DataReductionProxyEventStorageDelegate {
 
   // The production channel of this build.
   const std::string channel_;
+
+  // Created on the UI thread. Guaranteed to be destroyed on IO thread if the
+  // IO thread is still available at the time of destruction. If the IO thread
+  // is unavailable, then the destruction will happen on the UI thread.
+  std::unique_ptr<NetworkPropertiesManager> network_properties_manager_;
 
   base::WeakPtrFactory<DataReductionProxyIOData> weak_factory_;
 

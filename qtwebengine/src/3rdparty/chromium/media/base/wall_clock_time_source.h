@@ -29,7 +29,7 @@ class MEDIA_EXPORT WallClockTimeSource : public TimeSource {
       const std::vector<base::TimeDelta>& media_timestamps,
       std::vector<base::TimeTicks>* wall_clock_times) override;
 
-  void set_tick_clock_for_testing(base::TickClock* tick_clock) {
+  void set_tick_clock_for_testing(const base::TickClock* tick_clock) {
     tick_clock_ = tick_clock;
   }
 
@@ -37,10 +37,7 @@ class MEDIA_EXPORT WallClockTimeSource : public TimeSource {
   base::TimeDelta CurrentMediaTime_Locked();
 
   // Allow for an injectable tick clock for testing.
-  base::DefaultTickClock default_tick_clock_;
-
-  // If specified, used instead of |default_tick_clock_|.
-  base::TickClock* tick_clock_;
+  const base::TickClock* tick_clock_;
 
   bool ticking_;
 

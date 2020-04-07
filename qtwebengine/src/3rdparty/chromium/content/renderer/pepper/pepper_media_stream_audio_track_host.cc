@@ -22,6 +22,7 @@
 #include "ppapi/proxy/ppapi_messages.h"
 #include "ppapi/shared_impl/media_stream_audio_track_shared.h"
 #include "ppapi/shared_impl/media_stream_buffer.h"
+#include "ppapi/shared_impl/ppb_audio_config_shared.h"
 
 using media::AudioParameters;
 using ppapi::host::HostMessageContext;
@@ -33,8 +34,8 @@ namespace {
 const uint32_t kMinDuration = 10;
 const uint32_t kDefaultDuration = 10;
 
-const int32_t kDefaultNumberOfBuffers = 4;
-const int32_t kMaxNumberOfBuffers = 1000;  // 10 sec
+const int32_t kDefaultNumberOfAudioBuffers = 4;
+const int32_t kMaxNumberOfAudioBuffers = 1000;  // 10 sec
 
 // Returns true if the |sample_rate| is supported in
 // |PP_AudioBuffer_SampleRate|, otherwise false.
@@ -73,12 +74,11 @@ PepperMediaStreamAudioTrackHost::AudioSink::AudioSink(
       active_buffer_frame_offset_(0),
       buffers_generation_(0),
       main_task_runner_(base::ThreadTaskRunnerHandle::Get()),
-      number_of_buffers_(kDefaultNumberOfBuffers),
+      number_of_buffers_(kDefaultNumberOfAudioBuffers),
       bytes_per_second_(0),
       bytes_per_frame_(0),
       user_buffer_duration_(kDefaultDuration),
-      weak_factory_(this) {
-}
+      weak_factory_(this) {}
 
 PepperMediaStreamAudioTrackHost::AudioSink::~AudioSink() {
   DCHECK_EQ(main_task_runner_, base::ThreadTaskRunnerHandle::Get());
@@ -212,8 +212,6 @@ void PepperMediaStreamAudioTrackHost::AudioSink::OnData(
   if (first_frame_capture_time_.is_null())
     first_frame_capture_time_ = estimated_capture_time;
 
-  const int bytes_per_frame = audio_params_.GetBytesPerFrame();
-
   base::AutoLock lock(lock_);
   for (int frame_offset = 0; frame_offset < audio_bus.frames(); ) {
     if (active_buffers_generation_ != buffers_generation_) {
@@ -249,20 +247,19 @@ void PepperMediaStreamAudioTrackHost::AudioSink::OnData(
           static_cast<PP_AudioBuffer_SampleRate>(audio_params_.sample_rate());
       buffer->data_size = output_buffer_size_;
       buffer->number_of_channels = audio_params_.channels();
-      buffer->number_of_samples = buffer->data_size * audio_params_.channels() /
-          bytes_per_frame;
+      buffer->number_of_samples =
+          buffer->data_size * audio_params_.channels() / bytes_per_frame_;
     }
 
     const int frames_per_buffer =
         buffer->number_of_samples / audio_params_.channels();
-    const int frames_to_copy = std::min(
-        frames_per_buffer - active_buffer_frame_offset_,
-        audio_bus.frames() - frame_offset);
-    audio_bus.ToInterleavedPartial(
-        frame_offset,
-        frames_to_copy,
-        audio_params_.bits_per_sample() / 8,
-        buffer->data + active_buffer_frame_offset_ * bytes_per_frame);
+    const int frames_to_copy =
+        std::min(frames_per_buffer - active_buffer_frame_offset_,
+                 audio_bus.frames() - frame_offset);
+    audio_bus.ToInterleavedPartial<media::SignedInt16SampleTypeTraits>(
+        frame_offset, frames_to_copy,
+        reinterpret_cast<int16_t*>(buffer->data + active_buffer_frame_offset_ *
+                                                      bytes_per_frame_));
     active_buffer_frame_offset_ += frames_to_copy;
     frame_offset += frames_to_copy;
 
@@ -270,9 +267,9 @@ void PepperMediaStreamAudioTrackHost::AudioSink::OnData(
     if (active_buffer_frame_offset_ == frames_per_buffer) {
       main_task_runner_->PostTask(
           FROM_HERE,
-          base::Bind(&AudioSink::SendEnqueueBufferMessageOnMainThread,
-                     weak_factory_.GetWeakPtr(), active_buffer_index_,
-                     buffers_generation_));
+          base::BindOnce(&AudioSink::SendEnqueueBufferMessageOnMainThread,
+                         weak_factory_.GetWeakPtr(), active_buffer_index_,
+                         buffers_generation_));
       active_buffer_index_ = -1;
     }
   }
@@ -287,24 +284,25 @@ void PepperMediaStreamAudioTrackHost::AudioSink::OnSetFormat(
   // max(user requested duration, received buffer duration). There are other
   // ways of dealing with it, but which one is "correct"?
   DCHECK_LE(params.GetBufferDuration().InMilliseconds(), kMinDuration);
-  DCHECK_EQ(params.bits_per_sample(), 16);
   DCHECK_NE(GetPPSampleRate(params.sample_rate()),
             PP_AUDIOBUFFER_SAMPLERATE_UNKNOWN);
 
   // TODO(penghuang): support setting format more than once.
   if (audio_params_.IsValid()) {
     DCHECK_EQ(params.sample_rate(), audio_params_.sample_rate());
-    DCHECK_EQ(params.bits_per_sample(), audio_params_.bits_per_sample());
     DCHECK_EQ(params.channels(), audio_params_.channels());
   } else {
     audio_thread_checker_.DetachFromThread();
     audio_params_ = params;
 
+    static_assert(ppapi::kBitsPerAudioOutputSample == 16,
+                  "Data must be pcm_s16le.");
+    int bytes_per_frame = params.GetBytesPerFrame(media::kSampleFormatS16);
+    int bytes_per_second = params.sample_rate() * bytes_per_frame;
     main_task_runner_->PostTask(
-        FROM_HERE,
-        base::Bind(&AudioSink::SetFormatOnMainThread,
-                   weak_factory_.GetWeakPtr(), params.GetBytesPerSecond(),
-                   params.GetBytesPerFrame()));
+        FROM_HERE, base::BindOnce(&AudioSink::SetFormatOnMainThread,
+                                  weak_factory_.GetWeakPtr(), bytes_per_second,
+                                  bytes_per_frame));
   }
 }
 
@@ -342,8 +340,8 @@ int32_t PepperMediaStreamAudioTrackHost::OnHostMsgConfigure(
     return PP_ERROR_BADARGUMENT;
 
   int32_t buffers = attributes.buffers
-                        ? std::min(kMaxNumberOfBuffers, attributes.buffers)
-                        : kDefaultNumberOfBuffers;
+                        ? std::min(kMaxNumberOfAudioBuffers, attributes.buffers)
+                        : kDefaultNumberOfAudioBuffers;
   return audio_sink_.Configure(buffers, attributes.duration,
                                context->MakeReplyMessageContext());
 }

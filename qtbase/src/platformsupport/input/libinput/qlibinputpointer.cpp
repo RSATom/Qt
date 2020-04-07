@@ -39,6 +39,7 @@
 
 #include "qlibinputpointer_p.h"
 #include <libinput.h>
+#include <QtCore/QEvent>
 #include <QtGui/QGuiApplication>
 #include <QtGui/QScreen>
 #include <QtGui/private/qguiapplication_p.h>
@@ -80,8 +81,10 @@ void QLibInputPointer::processButton(libinput_event_pointer *e)
 
     m_buttons.setFlag(button, pressed);
 
-    QWindowSystemInterface::handleMouseEvent(Q_NULLPTR, m_pos, m_pos, m_buttons,
-                                             QGuiApplicationPrivate::inputDeviceManager()->keyboardModifiers());
+    QEvent::Type type = pressed ? QEvent::MouseButtonPress : QEvent::MouseButtonRelease;
+    Qt::KeyboardModifiers mods = QGuiApplicationPrivate::inputDeviceManager()->keyboardModifiers();
+
+    QWindowSystemInterface::handleMouseEvent(nullptr, m_pos, m_pos, m_buttons, button, type, mods);
 }
 
 void QLibInputPointer::processMotion(libinput_event_pointer *e)
@@ -94,8 +97,10 @@ void QLibInputPointer::processMotion(libinput_event_pointer *e)
     m_pos.setX(qBound(g.left(), qRound(m_pos.x() + dx), g.right()));
     m_pos.setY(qBound(g.top(), qRound(m_pos.y() + dy), g.bottom()));
 
-    QWindowSystemInterface::handleMouseEvent(Q_NULLPTR, m_pos, m_pos, m_buttons,
-                                             QGuiApplicationPrivate::inputDeviceManager()->keyboardModifiers());
+    Qt::KeyboardModifiers mods = QGuiApplicationPrivate::inputDeviceManager()->keyboardModifiers();
+
+    QWindowSystemInterface::handleMouseEvent(nullptr, m_pos, m_pos, m_buttons,
+                                             Qt::NoButton, QEvent::MouseMove, mods);
 }
 
 void QLibInputPointer::processAxis(libinput_event_pointer *e)
@@ -120,7 +125,7 @@ void QLibInputPointer::processAxis(libinput_event_pointer *e)
 #endif
     const int factor = 8;
     angleDelta *= -factor;
-    Qt::KeyboardModifiers mods = QGuiApplication::keyboardModifiers();
+    Qt::KeyboardModifiers mods = QGuiApplicationPrivate::inputDeviceManager()->keyboardModifiers();
     QWindowSystemInterface::handleWheelEvent(nullptr, m_pos, m_pos, QPoint(), angleDelta, mods);
 }
 

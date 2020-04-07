@@ -5,10 +5,7 @@
 #include "services/ui/ws/window_server_test_impl.h"
 
 #include "services/ui/public/interfaces/window_tree.mojom.h"
-#include "services/ui/ws/display.h"
-#include "services/ui/ws/display_manager.h"
 #include "services/ui/ws/server_window.h"
-#include "services/ui/ws/server_window_compositor_frame_sink_manager.h"
 #include "services/ui/ws/window_server.h"
 #include "services/ui/ws/window_tree.h"
 
@@ -20,58 +17,44 @@ WindowServerTestImpl::WindowServerTestImpl(WindowServer* window_server)
 
 WindowServerTestImpl::~WindowServerTestImpl() {}
 
-void WindowServerTestImpl::OnWindowPaint(
+void WindowServerTestImpl::OnSurfaceActivated(
     const std::string& name,
-    const EnsureClientHasDrawnWindowCallback& cb,
+    EnsureClientHasDrawnWindowCallback cb,
     ServerWindow* window) {
+  // This api is used to detect when a client has painted once, which is
+  // dictated by whether there is a CompositorFrameSink.
   WindowTree* tree = window_server_->GetTreeWithClientName(name);
-  if (!tree)
-    return;
-  if (tree->HasRoot(window) && window->compositor_frame_sink_manager()) {
-    cb.Run(true);
-    window_server_->SetPaintCallback(base::Callback<void(ServerWindow*)>());
+  if (tree && tree->HasRoot(window) &&
+      window->has_created_compositor_frame_sink()) {
+    std::move(cb).Run(true);
+  } else {
+    // No tree with the given name, or it hasn't painted yet. Install a callback
+    // for the next time a client creates a CompositorFramesink.
+    InstallCallback(name, std::move(cb));
   }
+}
+
+void WindowServerTestImpl::InstallCallback(
+    const std::string& client_name,
+    EnsureClientHasDrawnWindowCallback cb) {
+  window_server_->SetSurfaceActivationCallback(
+      base::BindOnce(&WindowServerTestImpl::OnSurfaceActivated,
+                     base::Unretained(this), client_name, std::move(cb)));
 }
 
 void WindowServerTestImpl::EnsureClientHasDrawnWindow(
     const std::string& client_name,
-    const EnsureClientHasDrawnWindowCallback& callback) {
+    EnsureClientHasDrawnWindowCallback callback) {
   WindowTree* tree = window_server_->GetTreeWithClientName(client_name);
   if (tree) {
     for (const ServerWindow* window : tree->roots()) {
-      if (window->compositor_frame_sink_manager()) {
-        callback.Run(true);
+      if (window->has_created_compositor_frame_sink()) {
+        std::move(callback).Run(true);
         return;
       }
     }
   }
-
-  window_server_->SetPaintCallback(
-      base::Bind(&WindowServerTestImpl::OnWindowPaint, base::Unretained(this),
-                 client_name, std::move(callback)));
-}
-
-void WindowServerTestImpl::DispatchEvent(int64_t display_id,
-                                         std::unique_ptr<ui::Event> event,
-                                         const DispatchEventCallback& cb) {
-  DisplayManager* manager = window_server_->display_manager();
-  if (!manager) {
-    DVLOG(1) << "No display manager in DispatchEvent.";
-    cb.Run(false);
-    return;
-  }
-
-  Display* display = manager->GetDisplayById(display_id);
-  if (!display) {
-    DVLOG(1) << "Invalid display_id in DispatchEvent.";
-    cb.Run(false);
-    return;
-  }
-
-  ignore_result(static_cast<PlatformDisplayDelegate*>(display)
-                    ->GetEventSink()
-                    ->OnEventFromSource(event.get()));
-  cb.Run(true);
+  InstallCallback(client_name, std::move(callback));
 }
 
 }  // namespace ws

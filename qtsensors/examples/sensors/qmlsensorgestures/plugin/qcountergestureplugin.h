@@ -66,11 +66,11 @@ public:
     explicit QCounterGesturePlugin();
     ~QCounterGesturePlugin();
 
-    QList <QSensorGestureRecognizer *> createRecognizers();
+    QList<QSensorGestureRecognizer *> createRecognizers() override;
 
     QStringList gestureSignals() const;
-    QStringList supportedIds() const;
-    QString name() const { return "CounterGestures"; }
+    QStringList supportedIds() const override;
+    QString name() const override { return "CounterGestures"; }
 };
 
 #endif // QCOUNTERGESTUREPLUGIN_H

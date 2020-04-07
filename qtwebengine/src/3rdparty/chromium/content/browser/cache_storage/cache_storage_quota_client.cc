@@ -6,89 +6,99 @@
 
 #include "content/browser/cache_storage/cache_storage_manager.h"
 #include "content/public/browser/browser_thread.h"
+#include "third_party/blink/public/mojom/quota/quota_types.mojom.h"
+#include "url/origin.h"
 
 namespace content {
 
 CacheStorageQuotaClient::CacheStorageQuotaClient(
-    base::WeakPtr<CacheStorageManager> cache_manager)
-    : cache_manager_(cache_manager) {
-}
+    base::WeakPtr<CacheStorageManager> cache_manager,
+    CacheStorageOwner owner)
+    : cache_manager_(cache_manager), owner_(owner) {}
 
-CacheStorageQuotaClient::~CacheStorageQuotaClient() {
-}
+CacheStorageQuotaClient::~CacheStorageQuotaClient() {}
 
 storage::QuotaClient::ID CacheStorageQuotaClient::id() const {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  return kServiceWorkerCache;
+  return GetIDFromOwner(owner_);
 }
 
 void CacheStorageQuotaClient::OnQuotaManagerDestroyed() {
   delete this;
 }
 
-void CacheStorageQuotaClient::GetOriginUsage(const GURL& origin_url,
-                                             storage::StorageType type,
-                                             const GetUsageCallback& callback) {
+void CacheStorageQuotaClient::GetOriginUsage(const url::Origin& origin,
+                                             blink::mojom::StorageType type,
+                                             GetUsageCallback callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
   if (!cache_manager_ || !DoesSupport(type)) {
-    callback.Run(0);
+    std::move(callback).Run(0);
     return;
   }
 
-  cache_manager_->GetOriginUsage(origin_url, callback);
+  cache_manager_->GetOriginUsage(origin, owner_, std::move(callback));
 }
 
-void CacheStorageQuotaClient::GetOriginsForType(
-    storage::StorageType type,
-    const GetOriginsCallback& callback) {
+void CacheStorageQuotaClient::GetOriginsForType(blink::mojom::StorageType type,
+                                                GetOriginsCallback callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
   if (!cache_manager_ || !DoesSupport(type)) {
-    callback.Run(std::set<GURL>());
+    std::move(callback).Run(std::set<url::Origin>());
     return;
   }
 
-  cache_manager_->GetOrigins(callback);
+  cache_manager_->GetOrigins(owner_, std::move(callback));
 }
 
-void CacheStorageQuotaClient::GetOriginsForHost(
-    storage::StorageType type,
-    const std::string& host,
-    const GetOriginsCallback& callback) {
+void CacheStorageQuotaClient::GetOriginsForHost(blink::mojom::StorageType type,
+                                                const std::string& host,
+                                                GetOriginsCallback callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
   if (!cache_manager_ || !DoesSupport(type)) {
-    callback.Run(std::set<GURL>());
+    std::move(callback).Run(std::set<url::Origin>());
     return;
   }
 
-  cache_manager_->GetOriginsForHost(host, callback);
+  cache_manager_->GetOriginsForHost(host, owner_, std::move(callback));
 }
 
-void CacheStorageQuotaClient::DeleteOriginData(
-    const GURL& origin,
-    storage::StorageType type,
-    const DeletionCallback& callback) {
+void CacheStorageQuotaClient::DeleteOriginData(const url::Origin& origin,
+                                               blink::mojom::StorageType type,
+                                               DeletionCallback callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
   if (!cache_manager_) {
-    callback.Run(storage::kQuotaErrorAbort);
+    std::move(callback).Run(blink::mojom::QuotaStatusCode::kErrorAbort);
     return;
   }
 
   if (!DoesSupport(type)) {
-    callback.Run(storage::kQuotaStatusOk);
+    std::move(callback).Run(blink::mojom::QuotaStatusCode::kOk);
     return;
   }
 
-  cache_manager_->DeleteOriginData(origin, callback);
+  cache_manager_->DeleteOriginData(origin, owner_, std::move(callback));
 }
 
-bool CacheStorageQuotaClient::DoesSupport(storage::StorageType type) const {
+bool CacheStorageQuotaClient::DoesSupport(
+    blink::mojom::StorageType type) const {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
-  return type == storage::kStorageTypeTemporary;
+  return type == blink::mojom::StorageType::kTemporary;
+}
+
+// static
+storage::QuotaClient::ID CacheStorageQuotaClient::GetIDFromOwner(
+    CacheStorageOwner owner) {
+  switch (owner) {
+    case CacheStorageOwner::kCacheAPI:
+      return kServiceWorkerCache;
+    case CacheStorageOwner::kBackgroundFetch:
+      return kBackgroundFetch;
+  }
 }
 
 }  // namespace content

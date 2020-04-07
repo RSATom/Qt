@@ -6,8 +6,8 @@
 #define V8_STRING_BUILDER_H_
 
 #include "src/assert-scope.h"
-#include "src/factory.h"
 #include "src/handles.h"
+#include "src/heap/factory.h"
 #include "src/isolate.h"
 #include "src/objects.h"
 #include "src/utils.h"
@@ -91,8 +91,8 @@ static inline int StringBuilderConcatLength(int special_length,
         pos = Smi::ToInt(next_smi);
         if (pos < 0) return -1;
       }
-      DCHECK(pos >= 0);
-      DCHECK(len >= 0);
+      DCHECK_GE(pos, 0);
+      DCHECK_GE(len, 0);
       if (pos > special_length || len > special_length - pos) return -1;
       increment = len;
     } else if (elt->IsString()) {
@@ -122,14 +122,14 @@ class FixedArrayBuilder {
         has_non_smi_elements_(false) {
     // Require a non-zero initial size. Ensures that doubling the size to
     // extend the array will work.
-    DCHECK(initial_capacity > 0);
+    DCHECK_GT(initial_capacity, 0);
   }
 
   explicit FixedArrayBuilder(Handle<FixedArray> backing_store)
       : array_(backing_store), length_(0), has_non_smi_elements_(false) {
     // Require a non-zero initial size. Ensures that doubling the size to
     // extend the array will work.
-    DCHECK(backing_store->length() > 0);
+    DCHECK_GT(backing_store->length(), 0);
   }
 
   bool HasCapacity(int elements) {
@@ -138,7 +138,7 @@ class FixedArrayBuilder {
     return (length >= required_length);
   }
 
-  void EnsureCapacity(int elements) {
+  void EnsureCapacity(Isolate* isolate, int elements) {
     int length = array_->length();
     int required_length = length_ + elements;
     if (length < required_length) {
@@ -147,7 +147,7 @@ class FixedArrayBuilder {
         new_length *= 2;
       } while (new_length < required_length);
       Handle<FixedArray> extended_array =
-          array_->GetIsolate()->factory()->NewFixedArrayWithHoles(new_length);
+          isolate->factory()->NewFixedArrayWithHoles(new_length);
       array_->CopyTo(0, *extended_array, 0, length_);
       array_ = extended_array;
     }
@@ -198,14 +198,14 @@ class ReplacementStringBuilder {
         is_one_byte_(subject->IsOneByteRepresentation()) {
     // Require a non-zero initial size. Ensures that doubling the size to
     // extend the array will work.
-    DCHECK(estimated_part_count > 0);
+    DCHECK_GT(estimated_part_count, 0);
   }
 
   static inline void AddSubjectSlice(FixedArrayBuilder* builder, int from,
                                      int to) {
-    DCHECK(from >= 0);
+    DCHECK_GE(from, 0);
     int length = to - from;
-    DCHECK(length > 0);
+    DCHECK_GT(length, 0);
     if (StringBuilderSubstringLength::is_valid(length) &&
         StringBuilderSubstringPosition::is_valid(from)) {
       int encoded_slice = StringBuilderSubstringLength::encode(length) |
@@ -218,9 +218,9 @@ class ReplacementStringBuilder {
     }
   }
 
-
-  void EnsureCapacity(int elements) { array_builder_.EnsureCapacity(elements); }
-
+  void EnsureCapacity(int elements) {
+    array_builder_.EnsureCapacity(heap_->isolate(), elements);
+  }
 
   void AddSubjectSlice(int from, int to) {
     AddSubjectSlice(&array_builder_, from, to);
@@ -230,7 +230,7 @@ class ReplacementStringBuilder {
 
   void AddString(Handle<String> string) {
     int length = string->length();
-    DCHECK(length > 0);
+    DCHECK_GT(length, 0);
     AddElement(*string);
     if (!string->IsOneByteRepresentation()) {
       is_one_byte_ = false;
@@ -270,12 +270,12 @@ class IncrementalStringBuilder {
  public:
   explicit IncrementalStringBuilder(Isolate* isolate);
 
-  INLINE(String::Encoding CurrentEncoding()) { return encoding_; }
+  V8_INLINE String::Encoding CurrentEncoding() { return encoding_; }
 
   template <typename SrcChar, typename DestChar>
-  INLINE(void Append(SrcChar c));
+  V8_INLINE void Append(SrcChar c);
 
-  INLINE(void AppendCharacter(uint8_t c)) {
+  V8_INLINE void AppendCharacter(uint8_t c) {
     if (encoding_ == String::ONE_BYTE_ENCODING) {
       Append<uint8_t, uint8_t>(c);
     } else {
@@ -283,7 +283,7 @@ class IncrementalStringBuilder {
     }
   }
 
-  INLINE(void AppendCString(const char* s)) {
+  V8_INLINE void AppendCString(const char* s) {
     const uint8_t* u = reinterpret_cast<const uint8_t*>(s);
     if (encoding_ == String::ONE_BYTE_ENCODING) {
       while (*u != '\0') Append<uint8_t, uint8_t>(*(u++));
@@ -292,7 +292,7 @@ class IncrementalStringBuilder {
     }
   }
 
-  INLINE(void AppendCString(const uc16* s)) {
+  V8_INLINE void AppendCString(const uc16* s) {
     if (encoding_ == String::ONE_BYTE_ENCODING) {
       while (*s != '\0') Append<uc16, uint8_t>(*(s++));
     } else {
@@ -300,17 +300,32 @@ class IncrementalStringBuilder {
     }
   }
 
-  INLINE(bool CurrentPartCanFit(int length)) {
+  V8_INLINE bool CurrentPartCanFit(int length) {
     return part_length_ - current_index_ > length;
+  }
+
+  // We make a rough estimate to find out if the current string can be
+  // serialized without allocating a new string part. The worst case length of
+  // an escaped character is 6. Shifting the remaining string length right by 3
+  // is a more pessimistic estimate, but faster to calculate.
+  V8_INLINE int EscapedLengthIfCurrentPartFits(int length) {
+    if (length > kMaxPartLength) return 0;
+    STATIC_ASSERT((kMaxPartLength << 3) <= String::kMaxLength);
+    // This shift will not overflow because length is already less than the
+    // maximum part length.
+    int worst_case_length = length << 3;
+    return CurrentPartCanFit(worst_case_length) ? worst_case_length : 0;
   }
 
   void AppendString(Handle<String> string);
 
   MaybeHandle<String> Finish();
 
-  INLINE(bool HasOverflowed()) const { return overflowed_; }
+  V8_INLINE bool HasOverflowed() const { return overflowed_; }
 
-  INLINE(int Length()) const { return accumulator_->length() + current_index_; }
+  V8_INLINE int Length() const {
+    return accumulator_->length() + current_index_;
+  }
 
   // Change encoding to two-byte.
   void ChangeEncoding() {
@@ -335,8 +350,8 @@ class IncrementalStringBuilder {
       cursor_ = start_;
     }
 
-    INLINE(void Append(DestChar c)) { *(cursor_++) = c; }
-    INLINE(void AppendCString(const char* s)) {
+    V8_INLINE void Append(DestChar c) { *(cursor_++) = c; }
+    V8_INLINE void AppendCString(const char* s) {
       const uint8_t* u = reinterpret_cast<const uint8_t*>(s);
       while (*u != '\0') Append(*(u++));
     }
@@ -389,15 +404,15 @@ class IncrementalStringBuilder {
  private:
   Factory* factory() { return isolate_->factory(); }
 
-  INLINE(Handle<String> accumulator()) { return accumulator_; }
+  V8_INLINE Handle<String> accumulator() { return accumulator_; }
 
-  INLINE(void set_accumulator(Handle<String> string)) {
+  V8_INLINE void set_accumulator(Handle<String> string) {
     *accumulator_.location() = *string;
   }
 
-  INLINE(Handle<String> current_part()) { return current_part_; }
+  V8_INLINE Handle<String> current_part() { return current_part_; }
 
-  INLINE(void set_current_part(Handle<String> string)) {
+  V8_INLINE void set_current_part(Handle<String> string) {
     *current_part_.location() = *string;
   }
 

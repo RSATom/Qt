@@ -48,8 +48,7 @@ class VIEWS_EXPORT DesktopWindowTreeHost {
 
   // Sets up resources needed before the WindowEventDispatcher has been created.
   // It is expected this calls InitHost() on the WindowTreeHost.
-  virtual void Init(aura::Window* content_window,
-                    const Widget::InitParams& params) = 0;
+  virtual void Init(const Widget::InitParams& params) = 0;
 
   // Invoked once the DesktopNativeWidgetAura has been created.
   virtual void OnNativeWidgetCreated(const Widget::InitParams& params) = 0;
@@ -58,7 +57,7 @@ class VIEWS_EXPORT DesktopWindowTreeHost {
   virtual void OnWidgetInitDone() = 0;
 
   // Called from DesktopNativeWidgetAura::OnWindowActivated().
-  virtual void OnNativeWidgetActivationChanged(bool active) = 0;
+  virtual void OnActiveWindowChanged(bool active) = 0;
 
   // Creates and returns the Tooltip implementation to use. Return value is
   // owned by DesktopNativeWidgetAura and lives as long as
@@ -94,9 +93,9 @@ class VIEWS_EXPORT DesktopWindowTreeHost {
 
   virtual gfx::Rect GetWorkAreaBoundsInScreen() const = 0;
 
-  // Sets the shape of the root window. If |native_region| is NULL then the
+  // Sets the shape of the root window. If |native_shape| is nullptr then the
   // window reverts to rectangular.
-  virtual void SetShape(std::unique_ptr<SkRegion> native_region) = 0;
+  virtual void SetShape(std::unique_ptr<Widget::ShapeRects> native_shape) = 0;
 
   virtual void Activate() = 0;
   virtual void Deactivate() = 0;
@@ -141,6 +140,8 @@ class VIEWS_EXPORT DesktopWindowTreeHost {
   virtual bool IsFullscreen() const = 0;
 
   virtual void SetOpacity(float opacity) = 0;
+
+  virtual void SetAspectRatio(const gfx::SizeF& aspect_ratio) = 0;
 
   virtual void SetWindowIcons(const gfx::ImageSkia& window_icon,
                               const gfx::ImageSkia& app_icon) = 0;

@@ -25,6 +25,7 @@ class DictionaryValue;
 }  // namespace base
 
 namespace chromeos {
+class AppDownloadingScreenView;
 class AppLaunchSplashScreenView;
 class ArcKioskSplashScreenView;
 class ArcTermsOfServiceScreenView;
@@ -38,6 +39,7 @@ class EncryptionMigrationScreenView;
 class EnrollmentScreenView;
 class EulaView;
 class ErrorScreen;
+class DiscoverScreenView;
 class GaiaView;
 class HIDDetectionView;
 class HostPairingScreenView;
@@ -46,18 +48,22 @@ class KioskAutolaunchScreenView;
 class KioskEnableScreenView;
 class LoginScreenContext;
 class NativeWindowDelegate;
-class NetworkDropdownHandler;
 class NetworkStateInformer;
-class NetworkView;
+class WelcomeView;
 class OobeDisplayChooser;
+class RecommendAppsScreenView;
 class SigninScreenHandler;
 class SigninScreenHandlerDelegate;
 class SupervisedUserCreationScreenHandler;
 class ResetView;
+class DemoSetupScreenView;
+class DemoPreferencesScreenView;
+class SyncConsentScreenView;
 class TermsOfServiceScreenView;
 class UserBoardView;
 class UserImageView;
 class UpdateView;
+class UpdateRequiredView;
 class VoiceInteractionValuePropScreenView;
 class WaitForContainerReadyScreenView;
 class WrongHWIDScreenView;
@@ -77,12 +83,15 @@ class OobeUI : public content::WebUIController,
   static const char kUserAddingDisplay[];
   static const char kAppLaunchSplashDisplay[];
   static const char kArcKioskSplashDisplay[];
+  static const char kGaiaSigninDisplay[];
 
   class Observer {
    public:
     Observer() {}
     virtual void OnCurrentScreenChanged(OobeScreen current_screen,
                                         OobeScreen new_screen) = 0;
+
+    virtual void OnScreenInitialized(OobeScreen screen) = 0;
 
    protected:
     virtual ~Observer() {}
@@ -93,16 +102,21 @@ class OobeUI : public content::WebUIController,
   ~OobeUI() override;
 
   CoreOobeView* GetCoreOobeView();
-  NetworkView* GetNetworkView();
+  WelcomeView* GetWelcomeView();
   EulaView* GetEulaView();
   UpdateView* GetUpdateView();
   EnableDebuggingScreenView* GetEnableDebuggingScreenView();
   EnrollmentScreenView* GetEnrollmentScreenView();
   ResetView* GetResetView();
+  DemoSetupScreenView* GetDemoSetupScreenView();
+  DemoPreferencesScreenView* GetDemoPreferencesScreenView();
   KioskAutolaunchScreenView* GetKioskAutolaunchScreenView();
   KioskEnableScreenView* GetKioskEnableScreenView();
   TermsOfServiceScreenView* GetTermsOfServiceScreenView();
+  SyncConsentScreenView* GetSyncConsentScreenView();
   ArcTermsOfServiceScreenView* GetArcTermsOfServiceScreenView();
+  RecommendAppsScreenView* GetRecommendAppsScreenView();
+  AppDownloadingScreenView* GetAppDownloadingScreenView();
   UserImageView* GetUserImageView();
   ErrorScreen* GetErrorScreen();
   WrongHWIDScreenView* GetWrongHWIDScreenView();
@@ -117,8 +131,10 @@ class OobeUI : public content::WebUIController,
   EncryptionMigrationScreenView* GetEncryptionMigrationScreenView();
   VoiceInteractionValuePropScreenView* GetVoiceInteractionValuePropScreenView();
   WaitForContainerReadyScreenView* GetWaitForContainerReadyScreenView();
+  UpdateRequiredView* GetUpdateRequiredScreenView();
   GaiaView* GetGaiaScreenView();
   UserBoardView* GetUserBoardView();
+  DiscoverScreenView* GetDiscoverScreenView();
 
   // ShutdownPolicyHandler::Delegate
   void OnShutdownPolicyChanged(bool reboot_on_shutdown) override;
@@ -131,6 +147,11 @@ class OobeUI : public content::WebUIController,
 
   // Called when the screen has changed.
   void CurrentScreenChanged(OobeScreen screen);
+
+  // Called when the screen was initialized.
+  void ScreenInitialized(OobeScreen screen);
+
+  bool IsScreenInitialized(OobeScreen screen);
 
   // Invoked after the async assets load. The screen handler that has the same
   // async assets load id will be initialized.
@@ -145,6 +166,9 @@ class OobeUI : public content::WebUIController,
   void ShowSigninScreen(const LoginScreenContext& context,
                         SigninScreenHandlerDelegate* delegate,
                         NativeWindowDelegate* native_window_delegate);
+
+  // Forwards an accelerator to the webui to be handled.
+  void ForwardAccelerator(std::string accelerator_name);
 
   // Resets the delegate set in ShowSigninScreen.
   void ResetSigninScreenHandlerDelegate();
@@ -167,12 +191,11 @@ class OobeUI : public content::WebUIController,
     return network_state_informer_.get();
   }
 
-  // Does ReloadContent() if needed (for example, if material design mode has
-  // changed).
-  void UpdateLocalizedStringsIfNeeded();
-
   // Re-evaluate OOBE display placement.
   void OnDisplayConfigurationChanged();
+
+  // Notify WebUI of the user count on the views login screen.
+  void SetLoginUserCount(int user_count);
 
  private:
   // Lookup a view by its statically registered OobeScreen.
@@ -202,18 +225,15 @@ class OobeUI : public content::WebUIController,
   // Reference to CoreOobeHandler that handles common requests of Oobe page.
   CoreOobeHandler* core_handler_ = nullptr;
 
-  // Reference to NetworkDropdownHandler that handles interaction with
-  // network dropdown.
-  NetworkDropdownHandler* network_dropdown_handler_ = nullptr;
-
   SupervisedUserCreationScreenHandler* supervised_user_creation_screen_view_ =
       nullptr;
   // Reference to SigninScreenHandler that handles sign-in screen requests and
   // forwards calls from native code to JS side.
   SigninScreenHandler* signin_screen_handler_ = nullptr;
 
-  std::vector<BaseWebUIHandler*> webui_handlers_;    // Non-owning pointers.
-  std::vector<BaseScreenHandler*> screen_handlers_;  // Non-owning pointers.
+  std::vector<BaseWebUIHandler*> webui_handlers_;       // Non-owning pointers.
+  std::vector<BaseWebUIHandler*> webui_only_handlers_;  // Non-owning pointers.
+  std::vector<BaseScreenHandler*> screen_handlers_;     // Non-owning pointers.
 
   KioskAppMenuHandler* kiosk_app_menu_handler_ =
       nullptr;  // Non-owning pointers.
@@ -229,10 +249,6 @@ class OobeUI : public content::WebUIController,
   // Flag that indicates whether JS part is fully loaded and ready to accept
   // calls.
   bool ready_ = false;
-
-  // This flag stores material-design mode (on/off) of currently displayed UI.
-  // If different version of UI is required, UI is updated.
-  bool oobe_ui_md_mode_ = false;
 
   // Callbacks to notify when JS part is fully loaded and ready to accept calls.
   std::vector<base::Closure> ready_callbacks_;

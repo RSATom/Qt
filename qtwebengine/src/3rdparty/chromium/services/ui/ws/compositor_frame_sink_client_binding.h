@@ -6,10 +6,9 @@
 #define SERVICES_UI_WS_COMPOSITOR_FRAME_SINK_CLIENT_BINDING_H_
 
 #include "base/macros.h"
-#include "cc/ipc/compositor_frame_sink.mojom.h"
-#include "cc/ipc/frame_sink_manager.mojom.h"
-#include "components/viz/common/surfaces/local_surface_id_allocator.h"
 #include "mojo/public/cpp/bindings/binding.h"
+#include "services/viz/privileged/interfaces/compositing/frame_sink_manager.mojom.h"
+#include "services/viz/public/interfaces/compositing/compositor_frame_sink.mojom.h"
 
 namespace ui {
 namespace ws {
@@ -18,28 +17,37 @@ namespace ws {
 // and its CompositorFrameSink. CompositorFrameSinkClientBinding exists so
 // that a mock implementation of CompositorFrameSink can be injected for
 // tests. FrameGenerator owns its associated CompositorFrameSinkClientBinding.
-class CompositorFrameSinkClientBinding : public cc::mojom::CompositorFrameSink {
+class CompositorFrameSinkClientBinding
+    : public viz::mojom::CompositorFrameSink {
  public:
   CompositorFrameSinkClientBinding(
-      cc::mojom::CompositorFrameSinkClient* sink_client,
-      cc::mojom::CompositorFrameSinkClientRequest sink_client_request,
-      cc::mojom::CompositorFrameSinkAssociatedPtr compositor_frame_sink,
-      cc::mojom::DisplayPrivateAssociatedPtr display_private);
+      viz::mojom::CompositorFrameSinkClient* sink_client,
+      viz::mojom::CompositorFrameSinkClientRequest sink_client_request,
+      viz::mojom::CompositorFrameSinkAssociatedPtr compositor_frame_sink);
   ~CompositorFrameSinkClientBinding() override;
 
  private:
-  // cc::mojom::CompositorFrameSink implementation:
-  void SubmitCompositorFrame(const viz::LocalSurfaceId& local_surface_id,
-                             cc::CompositorFrame frame) override;
+  // viz::mojom::CompositorFrameSink implementation:
+  void SubmitCompositorFrame(
+      const viz::LocalSurfaceId& local_surface_id,
+      viz::CompositorFrame frame,
+      base::Optional<viz::HitTestRegionList> hit_test_region_list,
+      uint64_t submit_time) override;
+  void SubmitCompositorFrameSync(
+      const viz::LocalSurfaceId& local_surface_id,
+      viz::CompositorFrame frame,
+      base::Optional<viz::HitTestRegionList> hit_test_region_list,
+      uint64_t submit_time,
+      const SubmitCompositorFrameSyncCallback callback) override;
   void SetNeedsBeginFrame(bool needs_begin_frame) override;
-  void DidNotProduceFrame(const cc::BeginFrameAck& ack) override;
+  void SetWantsAnimateOnlyBeginFrames() override;
+  void DidNotProduceFrame(const viz::BeginFrameAck& ack) override;
+  void DidAllocateSharedBitmap(mojo::ScopedSharedBufferHandle buffer,
+                               const viz::SharedBitmapId& id) override;
+  void DidDeleteSharedBitmap(const viz::SharedBitmapId& id) override;
 
-  mojo::Binding<cc::mojom::CompositorFrameSinkClient> binding_;
-  cc::mojom::DisplayPrivateAssociatedPtr display_private_;
-  cc::mojom::CompositorFrameSinkAssociatedPtr compositor_frame_sink_;
-  viz::LocalSurfaceId local_surface_id_;
-  viz::LocalSurfaceIdAllocator id_allocator_;
-  gfx::Size last_submitted_frame_size_;
+  mojo::Binding<viz::mojom::CompositorFrameSinkClient> binding_;
+  viz::mojom::CompositorFrameSinkAssociatedPtr compositor_frame_sink_;
 
   DISALLOW_COPY_AND_ASSIGN(CompositorFrameSinkClientBinding);
 };

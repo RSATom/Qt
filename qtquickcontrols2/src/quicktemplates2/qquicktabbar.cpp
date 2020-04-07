@@ -48,6 +48,7 @@ QT_BEGIN_NAMESPACE
     \since 5.7
     \ingroup qtquickcontrols2-navigation
     \ingroup qtquickcontrols2-containers
+    \ingroup qtquickcontrols2-focusscopes
     \brief Allows the user to switch between different views or subtasks.
 
     TabBar provides a tab-based navigation model.
@@ -90,7 +91,8 @@ QT_BEGIN_NAMESPACE
 
     \snippet qtquickcontrols2-tabbar-flickable.qml 1
 
-    \sa TabButton, {Customizing TabBar}, {Navigation Controls}, {Container Controls}
+    \sa TabButton, {Customizing TabBar}, {Navigation Controls}, {Container Controls},
+        {Focus Management in Qt Quick Controls 2}
 */
 
 class QQuickTabBarPrivate : public QQuickContainerPrivate
@@ -98,22 +100,19 @@ class QQuickTabBarPrivate : public QQuickContainerPrivate
     Q_DECLARE_PUBLIC(QQuickTabBar)
 
 public:
-    QQuickTabBarPrivate();
-
     void updateCurrentItem();
     void updateCurrentIndex();
     void updateLayout();
+
+    qreal getContentWidth() const override;
+    qreal getContentHeight() const override;
 
     void itemGeometryChanged(QQuickItem *item, QQuickGeometryChange change, const QRectF &diff) override;
     void itemImplicitWidthChanged(QQuickItem *item) override;
     void itemImplicitHeightChanged(QQuickItem *item) override;
 
-    bool updatingLayout;
-    bool hasContentWidth;
-    bool hasContentHeight;
-    qreal contentWidth;
-    qreal contentHeight;
-    QQuickTabBar::Position position;
+    bool updatingLayout = false;
+    QQuickTabBar::Position position = QQuickTabBar::Header;
 };
 
 class QQuickTabBarAttachedPrivate : public QObjectPrivate
@@ -121,12 +120,6 @@ class QQuickTabBarAttachedPrivate : public QObjectPrivate
     Q_DECLARE_PUBLIC(QQuickTabBarAttached)
 
 public:
-    QQuickTabBarAttachedPrivate()
-        : index(-1),
-          tabBar(nullptr)
-    {
-    }
-
     static QQuickTabBarAttachedPrivate *get(QQuickTabBarAttached *attached)
     {
         return attached->d_func();
@@ -134,20 +127,9 @@ public:
 
     void update(QQuickTabBar *tabBar, int index);
 
-    int index;
-    QQuickTabBar *tabBar;
+    int index = -1;
+    QQuickTabBar *tabBar = nullptr;
 };
-
-QQuickTabBarPrivate::QQuickTabBarPrivate()
-    : updatingLayout(false),
-      hasContentWidth(false),
-      hasContentHeight(false),
-      contentWidth(0),
-      contentHeight(0),
-      position(QQuickTabBar::Header)
-{
-    changeTypes |= Geometry | ImplicitWidth | ImplicitHeight;
-}
 
 void QQuickTabBarPrivate::updateCurrentItem()
 {
@@ -171,8 +153,6 @@ void QQuickTabBarPrivate::updateLayout()
     if (count <= 0 || !contentItem)
         return;
 
-    qreal maxHeight = 0;
-    qreal totalWidth = 0;
     qreal reservedWidth = 0;
     int resizableCount = 0;
 
@@ -183,21 +163,15 @@ void QQuickTabBarPrivate::updateLayout()
         QQuickItem *item = q->itemAt(i);
         if (item) {
             QQuickItemPrivate *p = QQuickItemPrivate::get(item);
-            if (!p->widthValid) {
+            if (!p->widthValid)
                 ++resizableCount;
-                totalWidth += item->implicitWidth();
-            } else {
+            else
                 reservedWidth += item->width();
-                totalWidth += item->width();
-            }
-            maxHeight = qMax(maxHeight, item->implicitHeight());
             allItems += item;
         }
     }
 
     const qreal totalSpacing = qMax(0, count - 1) * spacing;
-    totalWidth += totalSpacing;
-
     const qreal itemWidth = (contentItem->width() - reservedWidth - totalSpacing) / qMax(1, resizableCount);
 
     updatingLayout = true;
@@ -208,54 +182,75 @@ void QQuickTabBarPrivate::updateLayout()
             p->widthValid = false;
         }
         if (!p->heightValid) {
-            item->setHeight(hasContentHeight ? contentHeight : maxHeight);
+            item->setHeight(contentHeight);
             p->heightValid = false;
         } else {
-            item->setY((maxHeight - item->height()) / 2);
+            item->setY((contentHeight - item->height()) / 2);
         }
     }
     updatingLayout = false;
+}
 
-    bool contentWidthChange = false;
-    if (!hasContentWidth && !qFuzzyCompare(contentWidth, totalWidth)) {
-        contentWidth = totalWidth;
-        contentWidthChange = true;
+qreal QQuickTabBarPrivate::getContentWidth() const
+{
+    Q_Q(const QQuickTabBar);
+    const int count = contentModel->count();
+    qreal totalWidth = qMax(0, count - 1) * spacing;
+    for (int i = 0; i < count; ++i) {
+        QQuickItem *item = q->itemAt(i);
+        if (item) {
+            QQuickItemPrivate *p = QQuickItemPrivate::get(item);
+            if (!p->widthValid)
+                totalWidth += item->implicitWidth();
+            else
+                totalWidth += item->width();
+        }
     }
+    return totalWidth;
+}
 
-    bool contentHeightChange = false;
-    if (!hasContentHeight && !qFuzzyCompare(contentHeight, maxHeight)) {
-        contentHeight = maxHeight;
-        contentHeightChange = true;
+qreal QQuickTabBarPrivate::getContentHeight() const
+{
+    Q_Q(const QQuickTabBar);
+    const int count = contentModel->count();
+    qreal maxHeight = 0;
+    for (int i = 0; i < count; ++i) {
+        QQuickItem *item = q->itemAt(i);
+        if (item)
+            maxHeight = qMax(maxHeight, item->implicitHeight());
     }
-
-    if (contentWidthChange)
-        emit q->contentWidthChanged();
-    if (contentHeightChange)
-        emit q->contentHeightChanged();
+    return maxHeight;
 }
 
-void QQuickTabBarPrivate::itemGeometryChanged(QQuickItem *, QQuickGeometryChange, const QRectF &)
+void QQuickTabBarPrivate::itemGeometryChanged(QQuickItem *item, QQuickGeometryChange change, const QRectF &diff)
 {
-    if (!updatingLayout)
+    QQuickContainerPrivate::itemGeometryChanged(item, change, diff);
+    if (!updatingLayout) {
+        if (change.sizeChange())
+            updateImplicitContentSize();
         updateLayout();
+    }
 }
 
-void QQuickTabBarPrivate::itemImplicitWidthChanged(QQuickItem *)
+void QQuickTabBarPrivate::itemImplicitWidthChanged(QQuickItem *item)
 {
-    if (!updatingLayout && !hasContentWidth)
-        updateLayout();
+    QQuickContainerPrivate::itemImplicitWidthChanged(item);
+    if (item != contentItem)
+        updateImplicitContentWidth();
 }
 
-void QQuickTabBarPrivate::itemImplicitHeightChanged(QQuickItem *)
+void QQuickTabBarPrivate::itemImplicitHeightChanged(QQuickItem *item)
 {
-    if (!updatingLayout && !hasContentHeight)
-        updateLayout();
+    QQuickContainerPrivate::itemImplicitHeightChanged(item);
+    if (item != contentItem)
+        updateImplicitContentHeight();
 }
 
 QQuickTabBar::QQuickTabBar(QQuickItem *parent)
     : QQuickContainer(*(new QQuickTabBarPrivate), parent)
 {
     Q_D(QQuickTabBar);
+    d->changeTypes |= QQuickItemPrivate::Geometry | QQuickItemPrivate::ImplicitWidth | QQuickItemPrivate::ImplicitHeight;
     setFlag(ItemIsFocusScope);
     QObjectPrivate::connect(this, &QQuickTabBar::currentIndexChanged, d, &QQuickTabBarPrivate::updateCurrentItem);
 }
@@ -299,39 +294,11 @@ void QQuickTabBar::setPosition(Position position)
     This property holds the content width. It is used for calculating the total
     implicit width of the tab bar.
 
-    Unless explicitly overridden, the content width is automatically calculated
-    based on the total implicit width of the tabs and the \l {Control::}{spacing}
-    of the tab bar.
+    \note This property is available in TabBar since QtQuick.Controls 2.2 (Qt 5.9),
+    but it was promoted to the Container base type in QtQuick.Controls 2.5 (Qt 5.12).
 
-    \sa contentHeight
+    \sa Container::contentWidth
 */
-qreal QQuickTabBar::contentWidth() const
-{
-    Q_D(const QQuickTabBar);
-    return d->contentWidth;
-}
-
-void QQuickTabBar::setContentWidth(qreal width)
-{
-    Q_D(QQuickTabBar);
-    d->hasContentWidth = true;
-    if (qFuzzyCompare(d->contentWidth, width))
-        return;
-
-    d->contentWidth = width;
-    emit contentWidthChanged();
-}
-
-void QQuickTabBar::resetContentWidth()
-{
-    Q_D(QQuickTabBar);
-    if (!d->hasContentWidth)
-        return;
-
-    d->hasContentWidth = false;
-    if (isComponentComplete())
-        d->updateLayout();
-}
 
 /*!
     \since QtQuick.Controls 2.2 (Qt 5.9)
@@ -340,38 +307,11 @@ void QQuickTabBar::resetContentWidth()
     This property holds the content height. It is used for calculating the total
     implicit height of the tab bar.
 
-    Unless explicitly overridden, the content height is automatically calculated
-    based on the maximum implicit height of the tabs.
+    \note This property is available in TabBar since QtQuick.Controls 2.2 (Qt 5.9),
+    but it was promoted to the Container base type in QtQuick.Controls 2.5 (Qt 5.12).
 
-    \sa contentWidth
+    \sa Container::contentHeight
 */
-qreal QQuickTabBar::contentHeight() const
-{
-    Q_D(const QQuickTabBar);
-    return d->contentHeight;
-}
-
-void QQuickTabBar::setContentHeight(qreal height)
-{
-    Q_D(QQuickTabBar);
-    d->hasContentHeight = true;
-    if (qFuzzyCompare(d->contentHeight, height))
-        return;
-
-    d->contentHeight = height;
-    emit contentHeightChanged();
-}
-
-void QQuickTabBar::resetContentHeight()
-{
-    Q_D(QQuickTabBar);
-    if (!d->hasContentHeight)
-        return;
-
-    d->hasContentHeight = false;
-    if (isComponentComplete())
-        d->updateLayout();
-}
 
 QQuickTabBarAttached *QQuickTabBar::qmlAttachedProperties(QObject *object)
 {
@@ -415,6 +355,7 @@ void QQuickTabBar::itemAdded(int index, QQuickItem *item)
     QQuickTabBarAttached *attached = qobject_cast<QQuickTabBarAttached *>(qmlAttachedPropertiesObject<QQuickTabBar>(item));
     if (attached)
         QQuickTabBarAttachedPrivate::get(attached)->update(this, index);
+    d->updateImplicitContentSize();
     if (isComponentComplete())
         polish();
 }
@@ -435,13 +376,19 @@ void QQuickTabBar::itemRemoved(int index, QQuickItem *item)
     QQuickTabBarAttached *attached = qobject_cast<QQuickTabBarAttached *>(qmlAttachedPropertiesObject<QQuickTabBar>(item));
     if (attached)
         QQuickTabBarAttachedPrivate::get(attached)->update(nullptr, -1);
+    d->updateImplicitContentSize();
     if (isComponentComplete())
         polish();
 }
 
+QFont QQuickTabBar::defaultFont() const
+{
+    return QQuickTheme::font(QQuickTheme::TabBar);
+}
+
 QPalette QQuickTabBar::defaultPalette() const
 {
-    return QQuickControlPrivate::themePalette(QPlatformTheme::TabBarPalette);
+    return QQuickTheme::palette(QQuickTheme::TabBar);
 }
 
 #if QT_CONFIG(accessibility)

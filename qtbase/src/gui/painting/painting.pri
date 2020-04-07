@@ -99,8 +99,13 @@ SOURCES += \
         painting/qplatformbackingstore.cpp \
         painting/qpathsimplifier.cpp
 
+webgradients.files = painting/webgradients.binaryjson
+webgradients.prefix = qgradient
+webgradients.base = painting
+
 RESOURCES += \
-        painting/qpdf.qrc
+        painting/qpdf.qrc \
+        webgradients
 
 darwin {
     HEADERS += painting/qcoregraphics_p.h
@@ -122,13 +127,15 @@ SSE2_SOURCES += painting/qdrawhelper_sse2.cpp
 SSSE3_SOURCES += painting/qdrawhelper_ssse3.cpp
 SSE4_1_SOURCES += painting/qdrawhelper_sse4.cpp \
                   painting/qimagescale_sse4.cpp
-AVX2_SOURCES += painting/qdrawhelper_avx2.cpp
+ARCH_HASWELL_SOURCES += painting/qdrawhelper_avx2.cpp
 
 NEON_SOURCES += painting/qdrawhelper_neon.cpp painting/qimagescale_neon.cpp
 NEON_HEADERS += painting/qdrawhelper_neon_p.h
-NEON_ASM += ../3rdparty/pixman/pixman-arm-neon-asm.S painting/qdrawhelper_neon_asm.S
 !uikit:!win32:contains(QT_ARCH, "arm"): CONFIG += no_clang_integrated_as
-!uikit:!win32:!contains(QT_ARCH, "arm64"): DEFINES += ENABLE_PIXMAN_DRAWHELPERS
+!uikit:!win32:!integrity:!contains(QT_ARCH, "arm64") {
+    NEON_ASM += ../3rdparty/pixman/pixman-arm-neon-asm.S painting/qdrawhelper_neon_asm.S
+    DEFINES += ENABLE_PIXMAN_DRAWHELPERS
+}
 
 MIPS_DSP_SOURCES += painting/qdrawhelper_mips_dsp.cpp
 MIPS_DSP_HEADERS += painting/qdrawhelper_mips_dsp_p.h painting/qt_mips_asm_dsp_p.h

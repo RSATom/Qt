@@ -9,7 +9,6 @@
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
-#include "content/public/common/browser_side_navigation_policy.h"
 #include "content/public/common/url_constants.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/guest_view/web_view/web_view_guest.h"
@@ -42,7 +41,7 @@ ExtensionNavigationThrottle::WillStartOrRedirectRequest() {
   // Is this navigation targeting an extension resource?
   const GURL& url = navigation_handle()->GetURL();
   bool url_has_extension_scheme = url.SchemeIs(kExtensionScheme);
-  url::Origin target_origin(url);
+  url::Origin target_origin = url::Origin::Create(url);
   const Extension* target_extension = nullptr;
   if (url_has_extension_scheme) {
     // "chrome-extension://" URL.
@@ -78,27 +77,27 @@ ExtensionNavigationThrottle::WillStartOrRedirectRequest() {
     }
   }
 
+  // Block all navigations to blob: or filesystem: URLs with extension
+  // origin from non-extension processes.  See https://crbug.com/645028 and
+  // https://crbug.com/836858.
+  bool current_frame_is_extension_process =
+      !!registry->enabled_extensions().GetExtensionOrAppByURL(
+          navigation_handle()->GetStartingSiteInstance()->GetSiteURL());
+
+  if (!url_has_extension_scheme && !current_frame_is_extension_process) {
+    // Relax this restriction for apps that use <webview>.  See
+    // https://crbug.com/652077.
+    bool has_webview_permission =
+        target_extension->permissions_data()->HasAPIPermission(
+            APIPermission::kWebView);
+    if (!has_webview_permission)
+      return content::NavigationThrottle::CANCEL;
+  }
+
   if (navigation_handle()->IsInMainFrame()) {
-    // Block top-level navigations to blob: or filesystem: URLs with extension
-    // origin from non-extension processes.  See https://crbug.com/645028.
-    bool current_frame_is_extension_process =
-        !!registry->enabled_extensions().GetExtensionOrAppByURL(
-            navigation_handle()->GetStartingSiteInstance()->GetSiteURL());
-
-    if (!url_has_extension_scheme && !current_frame_is_extension_process) {
-      // Relax this restriction for apps that use <webview>.  See
-      // https://crbug.com/652077.
-      bool has_webview_permission =
-          target_extension->permissions_data()->HasAPIPermission(
-              APIPermission::kWebView);
-      if (!has_webview_permission)
-        return content::NavigationThrottle::CANCEL;
-    }
-
     guest_view::GuestViewBase* guest =
         guest_view::GuestViewBase::FromWebContents(web_contents);
-    if (content::IsBrowserSideNavigationEnabled() && url_has_extension_scheme &&
-        guest) {
+    if (url_has_extension_scheme && guest) {
       // This variant of this logic applies to PlzNavigate top-level
       // navigations. It is performed for subresources, and for non-PlzNavigate
       // top navigations, in url_request_util::AllowCrossRendererResourceLoad.
@@ -141,7 +140,7 @@ ExtensionNavigationThrottle::WillStartOrRedirectRequest() {
     // case of sandboxed extension resources, which commit with a null origin,
     // but are permitted to load non-webaccessible extension resources in
     // subframes.
-    if (url::Origin(ancestor->GetLastCommittedURL()) == target_origin)
+    if (url::Origin::Create(ancestor->GetLastCommittedURL()) == target_origin)
       continue;
     // Ignore DevTools, as it is allowed to embed extension pages.
     if (ancestor->GetLastCommittedURL().SchemeIs(
@@ -191,7 +190,7 @@ ExtensionNavigationThrottle::WillStartRequest() {
 content::NavigationThrottle::ThrottleCheckResult
 ExtensionNavigationThrottle::WillRedirectRequest() {
   ThrottleCheckResult result = WillStartOrRedirectRequest();
-  if (result == BLOCK_REQUEST) {
+  if (result.action() == BLOCK_REQUEST) {
     // TODO(nick): https://crbug.com/695421 means that BLOCK_REQUEST does not
     // work here. Once PlzNavigate is enabled 100%, just return |result|.
     return CANCEL;

@@ -9,36 +9,13 @@
 
 #include <vector>
 
+#include "skia/public/interfaces/bitmap_skbitmap_struct_traits.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/gfx/image/image_skia.h"
 #include "ui/gfx/image/image_skia_rep.h"
 #include "ui/gfx/image/mojo/image.mojom-shared.h"
 
 namespace mojo {
-
-template <>
-struct StructTraits<gfx::mojom::SharedBufferSkBitmapDataView, SkBitmap> {
-  struct Context {
-    Context();
-    ~Context();
-
-    mojo::ScopedSharedBufferHandle shared_buffer_handle;
-    uint64_t buffer_byte_size = 0;
-  };
-
-  static void* SetUpContext(const SkBitmap& input);
-  static void TearDownContext(const SkBitmap& input, void* context);
-  static mojo::ScopedSharedBufferHandle shared_buffer_handle(
-      const SkBitmap& input,
-      void* context);
-  static uint64_t buffer_byte_size(const SkBitmap& input, void* context);
-
-  static bool IsNull(const SkBitmap& input) { return input.isNull(); }
-  static void SetToNull(SkBitmap* out) { out->reset(); }
-
-  static bool Read(gfx::mojom::SharedBufferSkBitmapDataView data,
-                   SkBitmap* out);
-};
 
 template <>
 struct StructTraits<gfx::mojom::ImageSkiaRepDataView, gfx::ImageSkiaRep> {
@@ -56,15 +33,9 @@ struct StructTraits<gfx::mojom::ImageSkiaRepDataView, gfx::ImageSkiaRep> {
 
 template <>
 struct StructTraits<gfx::mojom::ImageSkiaDataView, gfx::ImageSkia> {
-  static void* SetUpContext(const gfx::ImageSkia& input);
-  static void TearDownContext(const gfx::ImageSkia& input, void* context);
-  static const std::vector<gfx::ImageSkiaRep>& image_reps(
-      const gfx::ImageSkia& input,
-      void* context);
+  static std::vector<gfx::ImageSkiaRep> image_reps(const gfx::ImageSkia& input);
 
-  static bool IsNull(const gfx::ImageSkia& input) {
-    return input.image_reps().empty();
-  }
+  static bool IsNull(const gfx::ImageSkia& input) { return input.isNull(); }
   static void SetToNull(gfx::ImageSkia* out) { *out = gfx::ImageSkia(); }
 
   static bool Read(gfx::mojom::ImageSkiaDataView data, gfx::ImageSkia* out);

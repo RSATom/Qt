@@ -9,7 +9,6 @@
 #include <stdint.h>
 #include <string.h>
 #include <sys/param.h>
-#include <sys/resource.h>
 #include <sys/utsname.h>
 #include <unistd.h>
 
@@ -20,6 +19,10 @@
 #include "base/sys_info_internal.h"
 #include "base/threading/thread_restrictions.h"
 #include "build/build_config.h"
+
+#if !defined(OS_FUCHSIA)
+#include <sys/resource.h>
+#endif
 
 #if defined(OS_ANDROID)
 #include <sys/vfs.h>
@@ -62,8 +65,9 @@ int NumberOfProcessors() {
 base::LazyInstance<
     base::internal::LazySysInfoValue<int, NumberOfProcessors> >::Leaky
     g_lazy_number_of_processors = LAZY_INSTANCE_INITIALIZER;
-#endif
+#endif  // !defined(OS_OPENBSD) && !defined(OS_FUCHSIA)
 
+#if !defined(OS_FUCHSIA)
 int64_t AmountOfVirtualMemory() {
   struct rlimit limit;
   int result = getrlimit(RLIMIT_DATA, &limit);
@@ -77,6 +81,7 @@ int64_t AmountOfVirtualMemory() {
 base::LazyInstance<
     base::internal::LazySysInfoValue<int64_t, AmountOfVirtualMemory>>::Leaky
     g_lazy_virtual_memory = LAZY_INSTANCE_INITIALIZER;
+#endif  // !defined(OS_FUCHSIA)
 
 #if defined(OS_LINUX)
 bool IsStatsZeroIfUnlimited(const base::FilePath& path) {
@@ -134,14 +139,16 @@ int SysInfo::NumberOfProcessors() {
 }
 #endif
 
+#if !defined(OS_FUCHSIA)
 // static
 int64_t SysInfo::AmountOfVirtualMemory() {
   return g_lazy_virtual_memory.Get().value();
 }
+#endif
 
 // static
 int64_t SysInfo::AmountOfFreeDiskSpace(const FilePath& path) {
-  base::ThreadRestrictions::AssertIOAllowed();
+  AssertBlockingAllowed();
 
   int64_t available;
   if (!GetDiskSpaceInfo(path, &available, nullptr))
@@ -151,7 +158,7 @@ int64_t SysInfo::AmountOfFreeDiskSpace(const FilePath& path) {
 
 // static
 int64_t SysInfo::AmountOfTotalDiskSpace(const FilePath& path) {
-  base::ThreadRestrictions::AssertIOAllowed();
+  AssertBlockingAllowed();
 
   int64_t total;
   if (!GetDiskSpaceInfo(path, nullptr, &total))
@@ -171,7 +178,7 @@ std::string SysInfo::OperatingSystemName() {
 }
 #endif
 
-#if !defined(OS_MACOSX) && !defined(OS_ANDROID)
+#if !defined(OS_MACOSX) && !defined(OS_ANDROID) && !(OS_CHROMEOS)
 // static
 std::string SysInfo::OperatingSystemVersion() {
   struct utsname info;

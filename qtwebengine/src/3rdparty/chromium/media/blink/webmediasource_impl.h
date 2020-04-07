@@ -10,19 +10,18 @@
 
 #include "base/macros.h"
 #include "media/blink/media_blink_export.h"
-#include "third_party/WebKit/public/platform/WebMediaSource.h"
+#include "third_party/blink/public/platform/web_media_source.h"
 
 namespace media {
 class ChunkDemuxer;
 
-class MEDIA_BLINK_EXPORT WebMediaSourceImpl
-    : NON_EXPORTED_BASE(public blink::WebMediaSource) {
+class MEDIA_BLINK_EXPORT WebMediaSourceImpl : public blink::WebMediaSource {
  public:
   WebMediaSourceImpl(ChunkDemuxer* demuxer);
   ~WebMediaSourceImpl() override;
 
   // blink::WebMediaSource implementation.
-  AddStatus AddSourceBuffer(const blink::WebString& type,
+  AddStatus AddSourceBuffer(const blink::WebString& content_type,
                             const blink::WebString& codecs,
                             blink::WebSourceBuffer** source_buffer) override;
   double Duration() override;

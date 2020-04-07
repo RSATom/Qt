@@ -97,13 +97,13 @@ public:
 
     QWaylandSurface();
     QWaylandSurface(QWaylandCompositor *compositor, QWaylandClient *client, uint id, int version);
-    virtual ~QWaylandSurface();
+    ~QWaylandSurface() override;
 
     Q_INVOKABLE void initialize(QWaylandCompositor *compositor, QWaylandClient *client, uint id, int version);
     bool isInitialized() const;
 
     QWaylandClient *client() const;
-    struct wl_client *waylandClient() const { return client()->client(); }
+    ::wl_client *waylandClient() const;
 
     bool setRole(QWaylandSurfaceRole *role, wl_resource *errorResource, uint32_t errorCode);
     QWaylandSurfaceRole *role() const;

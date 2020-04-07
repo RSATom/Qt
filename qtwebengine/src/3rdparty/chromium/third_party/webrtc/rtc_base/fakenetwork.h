@@ -8,19 +8,19 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_RTC_BASE_FAKENETWORK_H_
-#define WEBRTC_RTC_BASE_FAKENETWORK_H_
+#ifndef RTC_BASE_FAKENETWORK_H_
+#define RTC_BASE_FAKENETWORK_H_
 
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
-#include "webrtc/rtc_base/messagehandler.h"
-#include "webrtc/rtc_base/network.h"
-#include "webrtc/rtc_base/socketaddress.h"
-#include "webrtc/rtc_base/stringencode.h"
-#include "webrtc/rtc_base/thread.h"
+#include "rtc_base/messagehandler.h"
+#include "rtc_base/network.h"
+#include "rtc_base/socketaddress.h"
+#include "rtc_base/stringencode.h"
+#include "rtc_base/thread.h"
 
 namespace rtc {
 
@@ -28,8 +28,7 @@ const int kFakeIPv4NetworkPrefixLength = 24;
 const int kFakeIPv6NetworkPrefixLength = 64;
 
 // Fake network manager that allows us to manually specify the IPs to use.
-class FakeNetworkManager : public NetworkManagerBase,
-                           public MessageHandler {
+class FakeNetworkManager : public NetworkManagerBase, public MessageHandler {
  public:
   FakeNetworkManager() {}
 
@@ -54,8 +53,7 @@ class FakeNetworkManager : public NetworkManagerBase,
   }
 
   void RemoveInterface(const SocketAddress& iface) {
-    for (IfaceList::iterator it = ifaces_.begin();
-         it != ifaces_.end(); ++it) {
+    for (IfaceList::iterator it = ifaces_.begin(); it != ifaces_.end(); ++it) {
       if (it->first.EqualIPs(iface)) {
         ifaces_.erase(it);
         break;
@@ -79,9 +77,7 @@ class FakeNetworkManager : public NetworkManagerBase,
   virtual void StopUpdating() { --start_count_; }
 
   // MessageHandler interface.
-  virtual void OnMessage(Message* msg) {
-    DoUpdateNetworks();
-  }
+  virtual void OnMessage(Message* msg) { DoUpdateNetworks(); }
 
   using NetworkManagerBase::set_enumeration_permission;
   using NetworkManagerBase::set_default_local_addresses;
@@ -91,8 +87,7 @@ class FakeNetworkManager : public NetworkManagerBase,
     if (start_count_ == 0)
       return;
     std::vector<Network*> networks;
-    for (IfaceList::iterator it = ifaces_.begin();
-         it != ifaces_.end(); ++it) {
+    for (IfaceList::iterator it = ifaces_.begin(); it != ifaces_.end(); ++it) {
       int prefix_length = 0;
       if (it->first.ipaddr().family() == AF_INET) {
         prefix_length = kFakeIPv4NetworkPrefixLength;
@@ -126,4 +121,4 @@ class FakeNetworkManager : public NetworkManagerBase,
 
 }  // namespace rtc
 
-#endif  // WEBRTC_RTC_BASE_FAKENETWORK_H_
+#endif  // RTC_BASE_FAKENETWORK_H_

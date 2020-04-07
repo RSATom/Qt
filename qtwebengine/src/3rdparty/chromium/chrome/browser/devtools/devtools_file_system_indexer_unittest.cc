@@ -5,8 +5,8 @@
 #include <set>
 
 #include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/files/file_util.h"
-#include "base/message_loop/message_loop.h"
 #include "base/path_service.h"
 #include "base/run_loop.h"
 #include "chrome/browser/devtools/devtools_file_system_indexer.h"
@@ -18,7 +18,7 @@ class DevToolsFileSystemIndexerTest : public testing::Test {
  public:
   void SetDone() {
     indexing_done_ = true;
-    base::MessageLoop::current()->QuitWhenIdle();
+    base::RunLoop::QuitCurrentWhenIdleDeprecated();
   }
 
   void SearchCallback(const std::vector<std::string>& results) {
@@ -27,7 +27,7 @@ class DevToolsFileSystemIndexerTest : public testing::Test {
       search_results_.insert(
           base::FilePath::FromUTF8Unsafe(result).BaseName().AsUTF8Unsafe());
     }
-    base::MessageLoop::current()->QuitWhenIdle();
+    base::RunLoop::QuitCurrentWhenIdleDeprecated();
   }
 
  protected:
@@ -44,14 +44,15 @@ class DevToolsFileSystemIndexerTest : public testing::Test {
 
 TEST_F(DevToolsFileSystemIndexerTest, BasicUsage) {
   base::FilePath base_test_path;
-  PathService::Get(chrome::DIR_TEST_DATA, &base_test_path);
+  base::PathService::Get(chrome::DIR_TEST_DATA, &base_test_path);
   base::FilePath index_path =
       base_test_path.Append(FILE_PATH_LITERAL("devtools"))
           .Append(FILE_PATH_LITERAL("indexer"));
 
+  std::vector<std::string> excluded_folders;
   scoped_refptr<DevToolsFileSystemIndexer::FileSystemIndexingJob> job =
-      indexer_->IndexPath(index_path.AsUTF8Unsafe(), base::Bind([](int) {}),
-                          base::Bind([](int) {}),
+      indexer_->IndexPath(index_path.AsUTF8Unsafe(), excluded_folders,
+                          base::DoNothing(), base::DoNothing(),
                           base::Bind(&DevToolsFileSystemIndexerTest::SetDone,
                                      base::Unretained(this)));
 

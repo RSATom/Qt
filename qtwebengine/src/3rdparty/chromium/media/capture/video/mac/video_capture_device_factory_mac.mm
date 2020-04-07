@@ -12,7 +12,6 @@
 #include "base/bind.h"
 #include "base/location.h"
 #include "base/macros.h"
-#include "base/profiler/scoped_tracker.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_util.h"
 #include "base/task_runner_util.h"
@@ -37,7 +36,7 @@ static bool IsDeviceBlacklisted(
                        base::CompareCase::INSENSITIVE_ASCII);
   }
   DVLOG_IF(2, is_device_blacklisted)
-      << "Blacklisted camera: " << descriptor.display_name
+      << "Blacklisted camera: " << descriptor.display_name()
       << ", id: " << descriptor.device_id;
   return is_device_blacklisted;
 }
@@ -70,11 +69,6 @@ std::unique_ptr<VideoCaptureDevice> VideoCaptureDeviceFactoryMac::CreateDevice(
 
 void VideoCaptureDeviceFactoryMac::GetDeviceDescriptors(
     VideoCaptureDeviceDescriptors* device_descriptors) {
-  // TODO(erikchen): Remove ScopedTracker below once http://crbug.com/458397 is
-  // fixed.
-  tracked_objects::ScopedTracker tracking_profile(
-      FROM_HERE_WITH_EXPLICIT_FUNCTION(
-          "458397 VideoCaptureDeviceFactoryMac::GetDeviceDescriptors"));
   DCHECK(thread_checker_.CalledOnValidThread());
   // Loop through all available devices and add to |device_descriptors|.
   NSDictionary* capture_devices;
@@ -117,20 +111,13 @@ void VideoCaptureDeviceFactoryMac::GetSupportedFormats(
       break;
     case VideoCaptureApi::MACOSX_DECKLINK:
       DVLOG(1) << "Enumerating video capture capabilities "
-               << device.display_name;
+               << device.display_name();
       VideoCaptureDeviceDeckLinkMac::EnumerateDeviceCapabilities(
           device, supported_formats);
       break;
     default:
       NOTREACHED();
   }
-}
-
-// static
-VideoCaptureDeviceFactory*
-VideoCaptureDeviceFactory::CreateVideoCaptureDeviceFactory(
-    scoped_refptr<base::SingleThreadTaskRunner> ui_task_runner) {
-  return new VideoCaptureDeviceFactoryMac();
 }
 
 }  // namespace media

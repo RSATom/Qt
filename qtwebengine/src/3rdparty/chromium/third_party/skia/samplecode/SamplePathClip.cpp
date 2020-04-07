@@ -4,19 +4,23 @@
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
  */
+
 #include "SampleCode.h"
-#include "SkView.h"
 #include "SkCanvas.h"
+#include "SkColorFilter.h"
+#include "SkColorPriv.h"
 #include "SkGradientShader.h"
 #include "SkGraphics.h"
 #include "SkPath.h"
 #include "SkRegion.h"
 #include "SkShader.h"
-#include "SkUtils.h"
-#include "SkColorPriv.h"
-#include "SkColorFilter.h"
 #include "SkTime.h"
+#include "SkTo.h"
 #include "SkTypeface.h"
+#include "SkUtils.h"
+#include "SkView.h"
+
+#include <utility>
 
 class PathClipView : public SampleView {
 public:
@@ -61,7 +65,6 @@ protected:
 
     bool onClick(Click* click) override {
         fCenter.set(click->fCurr.fX, click->fCurr.fY);
-        this->inval(nullptr);
         return false;
     }
 
@@ -80,7 +83,8 @@ static int clip_line(const SkRect& bounds, SkPoint p0, SkPoint p1, SkPoint edges
     }
 
     if (p0.fY > p1.fY) {
-        SkTSwap(p0, p1);
+        using std::swap;
+        swap(p0, p1);
     }
     // now we're monotonic in Y: p0 <= p1
     if (p1.fY <= bounds.top() || p0.fY >= bounds.bottom()) {
@@ -100,7 +104,8 @@ static int clip_line(const SkRect& bounds, SkPoint p0, SkPoint p1, SkPoint edges
     // Now p0...p1 is strictly inside bounds vertically, so we just need to clip horizontally
 
     if (p0.fX > p1.fX) {
-        SkTSwap(p0, p1);
+        using std::swap;
+        swap(p0, p1);
     }
     // now we're left-to-right: p0 .. p1
 
@@ -307,7 +312,6 @@ protected:
 
     bool onClick(Click* click) override {
         ((MyClick*)click)->handleMove();
-        this->inval(nullptr);
         return false;
     }
 

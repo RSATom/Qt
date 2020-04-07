@@ -30,6 +30,7 @@
 #include <QtCore>
 #include <QtTest/QtTest>
 
+#include "emulationdetector.h"
 
 enum { OneMinute = 60 * 1000,
        TwoMinutes = OneMinute * 2 };
@@ -256,6 +257,9 @@ public:
 
 void tst_QObjectRace::destroyRace()
 {
+    if (EmulationDetector::isRunningArmOnX86())
+        QSKIP("Test is too slow to run on emulator");
+
     enum { ThreadCount = 10, ObjectCountPerThread = 2777,
            ObjectCount = ThreadCount * ObjectCountPerThread };
 
@@ -420,11 +424,7 @@ void tst_QObjectRace::disconnectRace()
             threads[i]->start();
         }
 
-        QTime timeLimiter;
-        timeLimiter.start();
-
-        while (timeLimiter.elapsed() < TimeLimit)
-            QTest::qWait(10);
+        QTest::qWait(TimeLimit);
 
         for (int i = 0; i < ThreadCount; ++i) {
             threads[i]->requestInterruption();
@@ -450,11 +450,7 @@ void tst_QObjectRace::disconnectRace()
             threads[i]->start();
         }
 
-        QTime timeLimiter;
-        timeLimiter.start();
-
-        while (timeLimiter.elapsed() < TimeLimit)
-            QTest::qWait(10);
+        QTest::qWait(TimeLimit);
 
         senderThread->requestInterruption();
         QVERIFY(senderThread->wait(300));

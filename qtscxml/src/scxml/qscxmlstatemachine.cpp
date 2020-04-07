@@ -94,8 +94,9 @@ Q_LOGGING_CATEGORY(scxmlLog, "scxml.statemachine")
 */
 
 /*!
-    \fn QScxmlStateMachine::connectToEvent(const QString &scxmlEventSpec,
-                                           const QObject *receiver,
+    \fn template<typename PointerToMemberFunction> QMetaObject::Connection QScxmlStateMachine::connectToEvent(
+                                           const QString &scxmlEventSpec,
+                                           const typename QtPrivate::FunctionPointer<PointerToMemberFunction>::Object *receiver,
                                            PointerToMemberFunction method,
                                            Qt::ConnectionType type)
 
@@ -113,7 +114,8 @@ Q_LOGGING_CATEGORY(scxmlLog, "scxml.statemachine")
 */
 
 /*!
-    \fn QScxmlStateMachine::connectToEvent(const QString &scxmlEventSpec,
+    \fn template<typename Functor> typename QtPrivate::QEnableIf<!QtPrivate::FunctionPointer<Functor>::IsPointerToMemberFunction && !std::is_same<const char*, Functor>::value, QMetaObject::Connection>::Type QScxmlStateMachine::connectToEvent(
+                                           const QString &scxmlEventSpec,
                                            Functor functor,
                                            Qt::ConnectionType type)
 
@@ -131,7 +133,8 @@ Q_LOGGING_CATEGORY(scxmlLog, "scxml.statemachine")
 */
 
 /*!
-    \fn QScxmlStateMachine::connectToEvent(const QString &scxmlEventSpec,
+    \fn template<typename Functor> typename QtPrivate::QEnableIf<!QtPrivate::FunctionPointer<Functor>::IsPointerToMemberFunction && !std::is_same<const char*, Functor>::value, QMetaObject::Connection>::Type QScxmlStateMachine::connectToEvent(
+                                           const QString &scxmlEventSpec,
                                            const QObject *context,
                                            Functor functor,
                                            Qt::ConnectionType type)
@@ -150,8 +153,9 @@ Q_LOGGING_CATEGORY(scxmlLog, "scxml.statemachine")
 */
 
 /*!
-    \fn QScxmlStateMachine::connectToState(const QString &scxmlStateName,
-                                           const QObject *receiver,
+    \fn template<typename PointerToMemberFunction> QMetaObject::Connection QScxmlStateMachine::connectToState(
+                                           const QString &scxmlStateName,
+                                           const typename QtPrivate::FunctionPointer<PointerToMemberFunction>::Object *receiver,
                                            PointerToMemberFunction method,
                                            Qt::ConnectionType type)
 
@@ -164,9 +168,9 @@ Q_LOGGING_CATEGORY(scxmlLog, "scxml.statemachine")
     Returns a handle to the connection, which can be used later to disconnect.
 */
 
-
 /*!
-    \fn QScxmlStateMachine::connectToState(const QString &scxmlStateName,
+    \fn template<typename Functor> typename QtPrivate::QEnableIf<!QtPrivate::FunctionPointer<Functor>::IsPointerToMemberFunction && !std::is_same<const char*, Functor>::value, QMetaObject::Connection>::Type QScxmlStateMachine::connectToState(
+                                           const QString &scxmlStateName,
                                            Functor functor,
                                            Qt::ConnectionType type)
 
@@ -180,7 +184,8 @@ Q_LOGGING_CATEGORY(scxmlLog, "scxml.statemachine")
 */
 
 /*!
-    \fn QScxmlStateMachine::connectToState(const QString &scxmlStateName,
+    \fn template<typename Functor> typename QtPrivate::QEnableIf<!QtPrivate::FunctionPointer<Functor>::IsPointerToMemberFunction && !std::is_same<const char*, Functor>::value, QMetaObject::Connection>::Type QScxmlStateMachine::connectToState(
+                                           const QString &scxmlStateName,
                                            const QObject *context,
                                            Functor functor,
                                            Qt::ConnectionType type)
@@ -195,8 +200,8 @@ Q_LOGGING_CATEGORY(scxmlLog, "scxml.statemachine")
 */
 
 /*!
-    \fn QScxmlStateMachine::onEntry(const QObject *receiver,
-                                    const char *method)
+    \fn std::function<void(bool)> QScxmlStateMachine::onEntry(
+            const QObject *receiver, const char *method)
 
     Returns a functor that accepts a boolean argument and calls the given
     \a method on \a receiver using QMetaObject::invokeMethod() if that argument
@@ -210,7 +215,8 @@ Q_LOGGING_CATEGORY(scxmlLog, "scxml.statemachine")
  */
 
 /*!
-    \fn QScxmlStateMachine::onExit(const QObject *receiver, const char *method)
+    \fn std::function<void(bool)> QScxmlStateMachine::onExit(
+            const QObject *receiver, const char *method)
 
     Returns a functor that accepts a boolean argument and calls the given
     \a method on \a receiver using QMetaObject::invokeMethod() if that argument
@@ -224,7 +230,8 @@ Q_LOGGING_CATEGORY(scxmlLog, "scxml.statemachine")
  */
 
 /*!
-    \fn QScxmlStateMachine::onEntry(Functor functor)
+    \fn template<typename Functor> std::function<void(bool)> QScxmlStateMachine::onEntry(
+            Functor functor)
 
     Returns a functor that accepts a boolean argument and calls the given
     \a functor if that argument is \c true. The given \a functor must not
@@ -235,7 +242,7 @@ Q_LOGGING_CATEGORY(scxmlLog, "scxml.statemachine")
  */
 
 /*!
-    \fn QScxmlStateMachine::onExit(Functor functor)
+    \fn template<typename Functor> std::function<void(bool)> QScxmlStateMachine::onExit(Functor functor)
 
     Returns a functor that accepts a boolean argument and calls the given
     \a functor if that argument is \c false. The given \a functor must not
@@ -246,8 +253,9 @@ Q_LOGGING_CATEGORY(scxmlLog, "scxml.statemachine")
  */
 
 /*!
-    \fn QScxmlStateMachine::onEntry(const QObject *receiver,
-                                    PointerToMemberFunction method)
+    \fn template<typename PointerToMemberFunction> std::function<void(bool)> QScxmlStateMachine::onEntry(
+            const typename QtPrivate::FunctionPointer<PointerToMemberFunction>::Object *receiver,
+            PointerToMemberFunction method)
 
     Returns a functor that accepts a boolean argument and calls the given
     \a method on \a receiver if that argument is \c true and the \a receiver
@@ -259,8 +267,9 @@ Q_LOGGING_CATEGORY(scxmlLog, "scxml.statemachine")
  */
 
 /*!
-    \fn QScxmlStateMachine::onExit(const QObject *receiver,
-                                   PointerToMemberFunction method)
+    \fn template<typename PointerToMemberFunction> std::function<void(bool)> QScxmlStateMachine::onExit(
+            const typename QtPrivate::FunctionPointer<PointerToMemberFunction>::Object *receiver,
+            PointerToMemberFunction method)
 
     Returns a functor that accepts a boolean argument and calls the given
     \a method on \a receiver if that argument is \c false and the \a receiver
@@ -399,7 +408,7 @@ QMetaObject::Connection ScxmlEventRouter::connectToEvent(const QStringList &segm
 {
     QString segment = nextSegment(segments);
     if (segment.isEmpty()) {
-        const int *types = Q_NULLPTR;
+        const int *types = nullptr;
         if (type == Qt::QueuedConnection || type == Qt::BlockingQueuedConnection)
             types = QtPrivate::ConnectionTypes<QtPrivate::List<QScxmlEvent> >::types();
 
@@ -422,11 +431,11 @@ QScxmlStateMachinePrivate::QScxmlStateMachinePrivate(const QMetaObject *metaObje
     , m_isInvoked(false)
     , m_isInitialized(false)
     , m_isProcessingEvents(false)
-    , m_dataModel(Q_NULLPTR)
+    , m_dataModel(nullptr)
     , m_loader(&m_defaultLoader)
-    , m_executionEngine(Q_NULLPTR)
-    , m_tableData(Q_NULLPTR)
-    , m_parentStateMachine(Q_NULLPTR)
+    , m_executionEngine(nullptr)
+    , m_tableData(nullptr)
+    , m_parentStateMachine(nullptr)
     , m_eventLoopHook(this)
     , m_metaObject(metaObject)
     , m_infoSignalProxy(nullptr)
@@ -729,7 +738,7 @@ void QScxmlStateMachinePrivate::resetEvent()
 void QScxmlStateMachinePrivate::emitStateActive(int stateIndex, bool active)
 {
     Q_Q(QScxmlStateMachine);
-    void *args[] = { Q_NULLPTR, const_cast<void*>(reinterpret_cast<const void*>(&active)) };
+    void *args[] = { nullptr, const_cast<void*>(reinterpret_cast<const void*>(&active)) };
     const int signalIndex = m_stateIndexToSignalIndex.value(stateIndex, -1);
     if (signalIndex >= 0)
         QMetaObject::activate(q, m_metaObject, signalIndex, args);
@@ -1717,7 +1726,7 @@ void QScxmlStateMachine::setDataModel(QScxmlDataModel *model)
 {
     Q_D(QScxmlStateMachine);
 
-    if (d->m_dataModel == Q_NULLPTR && model != Q_NULLPTR) {
+    if (d->m_dataModel == nullptr && model != nullptr) {
         d->m_dataModel = model;
         if (model)
             model->setStateMachine(this);
@@ -1893,7 +1902,7 @@ QMetaObject::Connection QScxmlStateMachine::connectToStateImpl(const QString &sc
                                                                QtPrivate::QSlotObjectBase *slotObj,
                                                                Qt::ConnectionType type)
 {
-    const int *types = Q_NULLPTR;
+    const int *types = nullptr;
     if (type == Qt::QueuedConnection || type == Qt::BlockingQueuedConnection)
         types = QtPrivate::ConnectionTypes<QtPrivate::List<bool> >::types();
 

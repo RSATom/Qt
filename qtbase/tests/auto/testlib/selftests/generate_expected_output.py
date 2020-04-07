@@ -37,9 +37,7 @@
 # it to the output of each test, ignoring various boring changes.
 # This script canonicalises the parts that would exhibit those boring
 # changes, so as to avoid noise in git (and conflicts in merges) for
-# the saved copies of the output.  If you add or remove any files, be
-# sure to update selftests.qrc to match; the selftest only sees files
-# listed there.
+# the saved copies of the output.
 
 import os
 import subprocess
@@ -116,10 +114,13 @@ class Cleaner (object):
                 raise Fail('Unable to find', command, 'in $PATH')
 
         # Are we being run from the right place ?
-        myNames = scriptPath.split(os.path.sep)
-        if not (here.split(os.path.sep)[-5:] == myNames[-6:-1]
+        scriptPath, myName = os.path.split(scriptPath)
+        hereNames, depth = scriptPath.split(os.path.sep), 5
+        hereNames = hereNames[-depth:] # path components from qtbase down
+        assert hereNames[0] == 'qtbase', ('Script moved: please correct depth', hereNames)
+        if not (here.split(os.path.sep)[-depth:] == hereNames
                 and os.path.isfile(qmake)):
-            raise Fail('Run', myNames[-1], 'in its directory of a completed build')
+            raise Fail('Run', myName, 'in its directory of a completed build')
 
         try:
             qtver = subprocess.check_output([qmake, '-query', 'QT_VERSION'])
@@ -127,8 +128,17 @@ class Cleaner (object):
             raise Fail(what.strerror)
         qtver = qtver.strip().decode('utf-8')
 
-        scriptPath = os.path.dirname(scriptPath) # ditch leaf file-name
-        sentinel = os.path.sep + 'qtbase' + os.path.sep # '/qtbase/'
+        hereNames = tuple(hereNames)
+        # Add path to specific sources and to tst_*.cpp if missing (for in-source builds):
+        patterns += ((r'(^|[^/])\b(qtestcase.cpp)\b', r'\1qtbase/src/testlib/\2'),
+                     # Add more special cases here, if they show up !
+                     (r'([\[" ])\.\./(counting/tst_counting.cpp)\b',
+                      r'\1' + os.path.sep.join(hereNames + (r'\2',))),
+                     # The common pattern:
+                     (r'(^|[^/])\b(tst_)?([a-z]+\d*)\.cpp\b',
+                      r'\1' + os.path.sep.join(hereNames + (r'\3', r'\2\3.cpp'))))
+
+        sentinel = os.path.sep + hereNames[0] + os.path.sep # '/qtbase/'
         # Identify the path prefix of our qtbase ancestor directory
         # (source, build and $PWD, when different); trim such prefixes
         # off all paths we see.
@@ -212,7 +222,7 @@ class Scanner (object):
 del re
 
 def generateTestData(testname, clean,
-                     formats = ('xml', 'txt', 'xunitxml', 'lightxml', 'teamcity'),
+                     formats = ('xml', 'txt', 'xunitxml', 'lightxml', 'teamcity', 'tap'),
                      extraArgs = {
         "commandlinedata": "fiveTablePasses fiveTablePasses:fiveTablePasses_data1 -v2",
         "benchlibcallgrind": "-callgrind",
@@ -252,7 +262,13 @@ def generateTestData(testname, clean,
 
 def main(name, *args):
     """Minimal argument parsing and driver for the real work"""
-    os.environ['LC_ALL'] = 'C'
+    os.environ.update(
+        LC_ALL = 'C', # Use standard locale
+        # Avoid interference from any qtlogging.ini files, e.g. in
+        # /etc/xdg/QtProject/, (must match tst_selftests.cpp's
+        # processEnvironment()'s value):
+        QT_LOGGING_RULES = '*.debug=true;qt.*=false')
+
     herePath = os.getcwd()
     cleaner = Cleaner(herePath, name)
 

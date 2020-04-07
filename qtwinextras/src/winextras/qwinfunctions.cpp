@@ -38,20 +38,27 @@
 **
 ****************************************************************************/
 
+#if defined(NTDDI_VERSION) && NTDDI_VERSION < 0x06010000 // NTDDI_WIN7
+#  undef NTDDI_VERSION
+#endif
+#if !defined(NTDDI_VERSION)
+#  define NTDDI_VERSION 0x06010000 // Enable functions for MinGW
+#endif
+
 #include "qwinfunctions.h"
 #include "qwinfunctions_p.h"
 #include "qwineventfilter_p.h"
 #include "windowsguidsdefs_p.h"
 
-#include <QGuiApplication>
-#include <QWindow>
-#include <QSettings>
-#include <QPixmap>
-#include <QBitmap>
-#include <QImage>
-#include <QColor>
-#include <QRegion>
-#include <QMargins>
+#include <QtGui/qguiapplication.h>
+#include <QtGui/qwindow.h>
+#include <QtGui/qpixmap.h>
+#include <QtGui/qbitmap.h>
+#include <QtGui/qimage.h>
+#include <QtGui/qcolor.h>
+#include <QtGui/qregion.h>
+#include <QtCore/qmargins.h>
+#include <QtCore/qsettings.h>
 
 #include <comdef.h>
 #include "winshobjidl_p.h"
@@ -62,6 +69,8 @@ Q_GUI_EXPORT HBITMAP qt_createIconMask(const QBitmap &bitmap);
 Q_GUI_EXPORT HBITMAP qt_pixmapToWinHBITMAP(const QPixmap &p, int hbitmapFormat = 0);
 Q_GUI_EXPORT QPixmap qt_pixmapFromWinHBITMAP(HBITMAP bitmap, int hbitmapFormat = 0);
 Q_GUI_EXPORT HICON   qt_pixmapToWinHICON(const QPixmap &p);
+Q_GUI_EXPORT HBITMAP qt_imageToWinHBITMAP(const QImage &imageIn, int hbitmapFormat = 0);
+Q_GUI_EXPORT QImage qt_imageFromWinHBITMAP(HBITMAP bitmap, int hbitmapFormat = 0);
 Q_GUI_EXPORT QImage  qt_imageFromWinHBITMAP(HDC hdc, HBITMAP bitmap, int w, int h);
 Q_GUI_EXPORT QPixmap qt_pixmapFromWinHICON(HICON icon);
 
@@ -132,6 +141,22 @@ HICON QtWin::toHICON(const QPixmap &p)
 }
 
 /*!
+    \since 5.12
+
+    Creates a \c HBITMAP equivalent of the QImage \a image,
+    based on the given \a format. Returns the \c HBITMAP handle.
+
+    It is the caller's responsibility to free the \c HBITMAP data
+    after use.
+
+    \sa imageFromHBITMAP()
+*/
+HBITMAP QtWin::imageToHBITMAP(const QImage &image, QtWin::HBitmapFormat format)
+{
+    return qt_imageToWinHBITMAP(image, format);
+}
+
+/*!
     \since 5.2
 
     Returns a QImage that is equivalent to the
@@ -143,6 +168,19 @@ HICON QtWin::toHICON(const QPixmap &p)
 QImage QtWin::imageFromHBITMAP(HDC hdc, HBITMAP bitmap, int width, int height)
 {
     return qt_imageFromWinHBITMAP(hdc, bitmap, width, height);
+}
+
+/*!
+    \since 5.12
+
+    Returns a QImage that is equivalent to the
+    given \a bitmap.  The conversion is based on the specified \a format.
+
+    \sa imageToHBITMAP()
+*/
+QImage QtWin::imageFromHBITMAP(HBITMAP bitmap, QtWin::HBitmapFormat format)
+{
+    return qt_imageFromWinHBITMAP(bitmap, format);
 }
 
 /*!
@@ -169,15 +207,15 @@ HRGN qt_RectToHRGN(const QRect &rc)
  */
 HRGN QtWin::toHRGN(const QRegion &region)
 {
-    if (region.isNull() || region.rectCount() == 0) {
+    const int size = region.rectCount();
+    if (size == 0)
         return 0;
-    }
+
     HRGN resultRgn = 0;
-    QVector<QRect> rects = region.rects();
-    resultRgn = qt_RectToHRGN(rects.at(0));
-    const int size = rects.size();
+    const auto rects = region.begin();
+    resultRgn = qt_RectToHRGN(rects[0]);
     for (int i = 1; i < size; i++) {
-        HRGN tmpRgn = qt_RectToHRGN(rects.at(i));
+        HRGN tmpRgn = qt_RectToHRGN(rects[i]);
         int err = CombineRgn(resultRgn, resultRgn, tmpRgn, RGN_OR);
         if (err == ERROR)
             qWarning("Error combining HRGNs.");
@@ -1812,11 +1850,8 @@ bool QtWin::isCompositionOpaque()
  */
 void QtWin::setCurrentProcessExplicitAppUserModelID(const QString &id)
 {
-    qtShell32Dll.init();
-    if (qtShell32Dll.setCurrentProcessExplicitAppUserModelID) {
-        QScopedArrayPointer<wchar_t> wid(qt_qstringToNullTerminated(id));
-        qtShell32Dll.setCurrentProcessExplicitAppUserModelID(wid.data());
-    }
+    QScopedArrayPointer<wchar_t> wid(qt_qstringToNullTerminated(id));
+    SetCurrentProcessExplicitAppUserModelID(wid.data());
 }
 
 /*!

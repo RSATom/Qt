@@ -39,6 +39,9 @@
 #include "config.h"
 #include "generator.h"
 #include <stdlib.h>
+#if QT_CONFIG(process)
+#include "qprocess.h"
+#endif
 
 QT_BEGIN_NAMESPACE
 
@@ -47,6 +50,7 @@ QString ConfigStrings::AUTOLINKERRORS = QStringLiteral("autolinkerrors");
 QString ConfigStrings::BASE = QStringLiteral("base");
 QString ConfigStrings::BASEDIR = QStringLiteral("basedir");
 QString ConfigStrings::BUILDVERSION = QStringLiteral("buildversion");
+QString ConfigStrings::CLANGDEFINES = QStringLiteral("clangdefines");
 QString ConfigStrings::CODEINDENT = QStringLiteral("codeindent");
 QString ConfigStrings::CODEPREFIX = QStringLiteral("codeprefix");
 QString ConfigStrings::CODESUFFIX = QStringLiteral("codesuffix");
@@ -76,12 +80,14 @@ QString ConfigStrings::IGNOREDIRECTIVES = QStringLiteral("ignoredirectives");
 QString ConfigStrings::IGNORETOKENS = QStringLiteral("ignoretokens");
 QString ConfigStrings::IMAGEDIRS = QStringLiteral("imagedirs");
 QString ConfigStrings::IMAGES = QStringLiteral("images");
+QString ConfigStrings::INCLUDEPATHS = QStringLiteral("includepaths");
 QString ConfigStrings::INDEXES = QStringLiteral("indexes");
 QString ConfigStrings::LANDINGPAGE = QStringLiteral("landingpage");
 QString ConfigStrings::LANDINGTITLE = QStringLiteral("landingtitle");
 QString ConfigStrings::LANGUAGE = QStringLiteral("language");
 QString ConfigStrings::MACRO = QStringLiteral("macro");
 QString ConfigStrings::MANIFESTMETA = QStringLiteral("manifestmeta");
+QString ConfigStrings::MODULEHEADER = QStringLiteral("moduleheader");
 QString ConfigStrings::NATURALLANGUAGE = QStringLiteral("naturallanguage");
 QString ConfigStrings::NAVIGATION = QStringLiteral("navigation");
 QString ConfigStrings::NOLINKERRORS = QStringLiteral("nolinkerrors");
@@ -121,6 +127,7 @@ QString ConfigStrings::IMAGEEXTENSIONS = QStringLiteral("imageextensions");
 QString ConfigStrings::QMLONLY = QStringLiteral("qmlonly");
 QString ConfigStrings::QMLTYPESPAGE = QStringLiteral("qmltypespage");
 QString ConfigStrings::QMLTYPESTITLE = QStringLiteral("qmltypestitle");
+QString ConfigStrings::WARNINGLIMIT = QStringLiteral("warninglimit");
 QString ConfigStrings::WRITEQAPAGES = QStringLiteral("writeqapages");
 
 /*!
@@ -344,11 +351,12 @@ int Config::getInt(const QString& var) const
 }
 
 /*!
-  Function to return the correct outputdir.
+  Function to return the correct outputdir for the output \a format.
+  If \a format is not specified, defaults to 'HTML'.
   outputdir can be set using the qdocconf or the command-line
   variable -outputdir.
   */
-QString Config::getOutputDir() const
+QString Config::getOutputDir(const QString &format) const
 {
     QString t;
     if (overrideOutputDir.isNull())
@@ -359,9 +367,9 @@ QString Config::getOutputDir() const
         QString project = getString(CONFIG_PROJECT);
         t += QLatin1Char('/') + project.toLower();
     }
-    if (!Generator::useOutputSubdirs()) {
+    if (getBool(format + Config::dot + "nosubdirs")) {
         t = t.left(t.lastIndexOf('/'));
-        QString singleOutputSubdir = getString("HTML.outputsubdir");
+        QString singleOutputSubdir = getString(format + Config::dot + "outputsubdir");
         if (singleOutputSubdir.isEmpty())
             singleOutputSubdir = "html";
         t += QLatin1Char('/') + singleOutputSubdir;
@@ -392,12 +400,17 @@ QSet<QString> Config::getOutputFormats() const
 
   If \a var is not contained in the location map it returns
   \a defaultString.
+
+  \note By default, \a defaultString is a null string. If \a var
+  is found but contains an empty string, that is returned instead.
+  This allows determining whether a configuration variable is
+  undefined (null string) or defined as empty (empty string).
  */
 QString Config::getString(const QString& var, const QString& defaultString) const
 {
     QList<ConfigVar> configVars = configVars_.values(var);
     if (!configVars.empty()) {
-        QString value;
+        QString value("");
         int i = configVars.size() - 1;
         while (i >= 0) {
             const ConfigVar& cv = configVars[i];
@@ -702,10 +715,11 @@ QString Config::findFile(const Location& location,
                          const QStringList& files,
                          const QStringList& dirs,
                          const QString& fileName,
-                         QString& userFriendlyFilePath)
+                         QString *userFriendlyFilePath)
 {
     if (fileName.isEmpty() || fileName.startsWith(QLatin1Char('/'))) {
-        userFriendlyFilePath = fileName;
+        if (userFriendlyFilePath)
+            *userFriendlyFilePath = fileName;
         return fileName;
     }
 
@@ -735,26 +749,27 @@ QString Config::findFile(const Location& location,
         }
     }
 
-    userFriendlyFilePath = QString();
+    if (userFriendlyFilePath)
+        userFriendlyFilePath->clear();
     if (!fileInfo.exists())
         return QString();
 
-    QStringList::ConstIterator c = components.constBegin();
-    for (;;) {
-        bool isArchive = (c != components.constEnd() - 1);
-        QString userFriendly = *c;
+    if (userFriendlyFilePath) {
+        QStringList::ConstIterator c = components.constBegin();
+        for (;;) {
+            bool isArchive = (c != components.constEnd() - 1);
+            userFriendlyFilePath->append(*c);
 
-        userFriendlyFilePath += userFriendly;
+            if (isArchive) {
+                QString extracted = extractedDirs[fileInfo.filePath()];
+                ++c;
+                fileInfo.setFile(QDir(extracted), *c);
+            } else {
+                break;
+            }
 
-        if (isArchive) {
-            QString extracted = extractedDirs[fileInfo.filePath()];
-            ++c;
-            fileInfo.setFile(QDir(extracted), *c);
-        } else {
-            break;
+            userFriendlyFilePath->append(QLatin1Char('?'));
         }
-
-        userFriendlyFilePath += QLatin1Char('?');
     }
     return fileInfo.filePath();
 }
@@ -766,7 +781,7 @@ QString Config::findFile(const Location& location,
                          const QStringList& dirs,
                          const QString& fileBase,
                          const QStringList& fileExtensions,
-                         QString& userFriendlyFilePath)
+                         QString *userFriendlyFilePath)
 {
     QStringList::ConstIterator e = fileExtensions.constBegin();
     while (e != fileExtensions.constEnd()) {
@@ -917,6 +932,30 @@ QStringList Config::loadMaster(const QString& fileName)
 }
 
 /*!
+    Returns the value of the environment variable \a varName.
+    If qgetenv() returns null and \a varName starts with 'Q',
+    try to query the variable from qmake.
+*/
+QByteArray Config::getEnv(const char *varName)
+{
+    QByteArray var = qgetenv(varName);
+#if QT_CONFIG(process)
+    if (var.isNull() && varName[0] == 'Q') {
+        QString path(QCoreApplication::applicationFilePath());
+        path.replace(path.lastIndexOf('/') + 1, prog.size(), "qmake");
+        QProcess qmake;
+        qmake.start(path, QStringList() << "-query" << varName);
+        if (qmake.waitForFinished()) {
+            QByteArray result = qmake.readAll().trimmed();
+            if (result.at(0) != '*')
+                var = result;
+        }
+    }
+#endif
+    return var;
+}
+
+/*!
   Load, parse, and process a qdoc configuration file. This
   function is only called by the other load() function, but
   this one is recursive, i.e., it calls itself when it sees
@@ -1020,7 +1059,7 @@ void Config::load(Location location, const QString& fileName)
                             SKIP_CHAR();
                         }
                         if (!var.isEmpty()) {
-                            const QByteArray val = qgetenv(var.toLatin1().data());
+                            const QByteArray val = getEnv(var.toLatin1().data());
                             if (val.isNull()) {
                                 location.fatal(tr("Environment variable '%1' undefined").arg(var));
                             }
@@ -1128,7 +1167,7 @@ void Config::load(Location location, const QString& fileName)
                             SKIP_CHAR();
                         }
                         if (!var.isEmpty()) {
-                            const QByteArray val = qgetenv(var.toLatin1().constData());
+                            const QByteArray val = getEnv(var.toLatin1().constData());
                             if (val.isNull()) {
                                 location.fatal(tr("Environment variable '%1' undefined").arg(var));
                             }

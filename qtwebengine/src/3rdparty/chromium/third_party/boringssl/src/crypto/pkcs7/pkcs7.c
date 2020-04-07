@@ -24,40 +24,31 @@
 #include "../bytestring/internal.h"
 
 
-/* 1.2.840.113549.1.7.1 */
+// 1.2.840.113549.1.7.1
 static const uint8_t kPKCS7Data[] = {0x2a, 0x86, 0x48, 0x86, 0xf7,
                                      0x0d, 0x01, 0x07, 0x01};
 
-/* 1.2.840.113549.1.7.2 */
+// 1.2.840.113549.1.7.2
 static const uint8_t kPKCS7SignedData[] = {0x2a, 0x86, 0x48, 0x86, 0xf7,
                                            0x0d, 0x01, 0x07, 0x02};
 
-/* pkcs7_parse_header reads the non-certificate/non-CRL prefix of a PKCS#7
- * SignedData blob from |cbs| and sets |*out| to point to the rest of the
- * input. If the input is in BER format, then |*der_bytes| will be set to a
- * pointer that needs to be freed by the caller once they have finished
- * processing |*out| (which will be pointing into |*der_bytes|).
- *
- * It returns one on success or zero on error. On error, |*der_bytes| is
- * NULL. */
+// pkcs7_parse_header reads the non-certificate/non-CRL prefix of a PKCS#7
+// SignedData blob from |cbs| and sets |*out| to point to the rest of the
+// input. If the input is in BER format, then |*der_bytes| will be set to a
+// pointer that needs to be freed by the caller once they have finished
+// processing |*out| (which will be pointing into |*der_bytes|).
+//
+// It returns one on success or zero on error. On error, |*der_bytes| is
+// NULL.
 int pkcs7_parse_header(uint8_t **der_bytes, CBS *out, CBS *cbs) {
-  size_t der_len;
   CBS in, content_info, content_type, wrapped_signed_data, signed_data;
   uint64_t version;
 
-  /* The input may be in BER format. */
+  // The input may be in BER format.
   *der_bytes = NULL;
-  if (!CBS_asn1_ber_to_der(cbs, der_bytes, &der_len)) {
-    return 0;
-  }
-  if (*der_bytes != NULL) {
-    CBS_init(&in, *der_bytes, der_len);
-  } else {
-    CBS_init(&in, CBS_data(cbs), CBS_len(cbs));
-  }
-
-  /* See https://tools.ietf.org/html/rfc2315#section-7 */
-  if (!CBS_get_asn1(&in, &content_info, CBS_ASN1_SEQUENCE) ||
+  if (!CBS_asn1_ber_to_der(cbs, &in, der_bytes) ||
+      // See https://tools.ietf.org/html/rfc2315#section-7
+      !CBS_get_asn1(&in, &content_info, CBS_ASN1_SEQUENCE) ||
       !CBS_get_asn1(&content_info, &content_type, CBS_ASN1_OBJECT)) {
     goto err;
   }
@@ -68,7 +59,7 @@ int pkcs7_parse_header(uint8_t **der_bytes, CBS *out, CBS *cbs) {
     goto err;
   }
 
-  /* See https://tools.ietf.org/html/rfc2315#section-9.1 */
+  // See https://tools.ietf.org/html/rfc2315#section-9.1
   if (!CBS_get_asn1(&content_info, &wrapped_signed_data,
                     CBS_ASN1_CONTEXT_SPECIFIC | CBS_ASN1_CONSTRUCTED | 0) ||
       !CBS_get_asn1(&wrapped_signed_data, &signed_data, CBS_ASN1_SEQUENCE) ||
@@ -96,18 +87,19 @@ int PKCS7_get_raw_certificates(STACK_OF(CRYPTO_BUFFER) *out_certs, CBS *cbs,
                                CRYPTO_BUFFER_POOL *pool) {
   CBS signed_data, certificates;
   uint8_t *der_bytes = NULL;
-  int ret = 0;
+  int ret = 0, has_certificates;
   const size_t initial_certs_len = sk_CRYPTO_BUFFER_num(out_certs);
 
-  if (!pkcs7_parse_header(&der_bytes, &signed_data, cbs)) {
-    return 0;
+  // See https://tools.ietf.org/html/rfc2315#section-9.1
+  if (!pkcs7_parse_header(&der_bytes, &signed_data, cbs) ||
+      !CBS_get_optional_asn1(
+          &signed_data, &certificates, &has_certificates,
+          CBS_ASN1_CONTEXT_SPECIFIC | CBS_ASN1_CONSTRUCTED | 0)) {
+    goto err;
   }
 
-  /* See https://tools.ietf.org/html/rfc2315#section-9.1 */
-  if (!CBS_get_asn1(&signed_data, &certificates,
-                    CBS_ASN1_CONTEXT_SPECIFIC | CBS_ASN1_CONSTRUCTED | 0)) {
-    OPENSSL_PUT_ERROR(PKCS7, PKCS7_R_NO_CERTIFICATES_INCLUDED);
-    goto err;
+  if (!has_certificates) {
+    CBS_init(&certificates, NULL, 0);
   }
 
   while (CBS_len(&certificates) > 0) {
@@ -144,13 +136,13 @@ int pkcs7_bundle(CBB *out, int (*cb)(CBB *out, const void *arg),
   CBB outer_seq, oid, wrapped_seq, seq, version_bytes, digest_algos_set,
       content_info;
 
-  /* See https://tools.ietf.org/html/rfc2315#section-7 */
+  // See https://tools.ietf.org/html/rfc2315#section-7
   if (!CBB_add_asn1(out, &outer_seq, CBS_ASN1_SEQUENCE) ||
       !CBB_add_asn1(&outer_seq, &oid, CBS_ASN1_OBJECT) ||
       !CBB_add_bytes(&oid, kPKCS7SignedData, sizeof(kPKCS7SignedData)) ||
       !CBB_add_asn1(&outer_seq, &wrapped_seq,
                     CBS_ASN1_CONTEXT_SPECIFIC | CBS_ASN1_CONSTRUCTED | 0) ||
-      /* See https://tools.ietf.org/html/rfc2315#section-9.1 */
+      // See https://tools.ietf.org/html/rfc2315#section-9.1
       !CBB_add_asn1(&wrapped_seq, &seq, CBS_ASN1_SEQUENCE) ||
       !CBB_add_asn1(&seq, &version_bytes, CBS_ASN1_INTEGER) ||
       !CBB_add_u8(&version_bytes, 1) ||

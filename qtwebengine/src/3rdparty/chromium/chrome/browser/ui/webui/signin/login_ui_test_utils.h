@@ -6,6 +6,7 @@
 #define CHROME_BROWSER_UI_WEBUI_SIGNIN_LOGIN_UI_TEST_UTILS_H_
 
 #include <string>
+#include <vector>
 
 #include "base/time/time.h"
 #include "components/signin/core/browser/signin_metrics.h"
@@ -16,14 +17,6 @@ namespace login_ui_test_utils {
 
 // Blocks until the login UI is available and ready for authorization.
 void WaitUntilUIReady(Browser* browser);
-
-// Blocks until an element with id |element_id| exists in the signin page.
-void WaitUntilElementExistsInSigninFrame(Browser* browser,
-                                         const std::string& element_id);
-
-// Returns whether an element with id |element_id| exists in the signin page.
-bool ElementExistsInSigninFrame(Browser* browser,
-                                const std::string& element_id);
 
 // Executes JavaScript code to sign in a user with email and password to the
 // auth iframe hosted by gaia_auth extension. This function automatically
@@ -44,18 +37,6 @@ void SigninInOldGaiaFlow(Browser* browser,
 
 // A function to sign in a user using Chrome sign-in UI interface.
 // This will block until a signin succeeded or failed notification is observed.
-// In case |wait_for_account_cookies|, the call will block until the account
-// cookies have been written to the cookie jar.
-// |access_point| identifies the access point used to load the signin page.
-bool SignInWithUI(Browser* browser,
-                  const std::string& email,
-                  const std::string& password,
-                  bool wait_for_account_cookies,
-                  signin_metrics::AccessPoint access_point,
-                  signin_metrics::Reason signin_reason);
-
-// Most common way to sign in a user, it does not wait for cookies to be set
-// and uses the SOURCE_START_PAGE as signin source.
 bool SignInWithUI(Browser* browser,
                   const std::string& email,
                   const std::string& password);

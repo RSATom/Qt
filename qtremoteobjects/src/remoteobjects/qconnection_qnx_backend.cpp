@@ -43,13 +43,14 @@ QT_BEGIN_NAMESPACE
 
 QnxClientIo::QnxClientIo(QObject *parent)
     : ClientIoDevice(parent)
+    , m_socket(new QQnxNativeIo(this))
 {
-    connect(&m_socket, &QQnxNativeIo::readyRead, this, &ClientIoDevice::readyRead);
-    connect(&m_socket,
+    connect(m_socket, &QQnxNativeIo::readyRead, this, &ClientIoDevice::readyRead);
+    connect(m_socket,
             static_cast<void(QQnxNativeIo::*)(QAbstractSocket::SocketError)>(&QQnxNativeIo::error),
             this,
             &QnxClientIo::onError);
-    connect(&m_socket, &QQnxNativeIo::stateChanged, this, &QnxClientIo::onStateChanged);
+    connect(m_socket, &QQnxNativeIo::stateChanged, this, &QnxClientIo::onStateChanged);
 }
 
 QnxClientIo::~QnxClientIo()
@@ -57,39 +58,45 @@ QnxClientIo::~QnxClientIo()
     close();
 }
 
-QIODevice *QnxClientIo::connection()
+QIODevice *QnxClientIo::connection() const
 {
-    return &m_socket;
+    return m_socket;
 }
 
 void QnxClientIo::doClose()
 {
-    if (m_socket.isOpen()) {
-        connect(&m_socket, &QQnxNativeIo::disconnected, this, &QObject::deleteLater);
-        m_socket.disconnectFromServer();
+    if (m_socket->isOpen()) {
+        connect(m_socket, &QQnxNativeIo::disconnected, this, &QObject::deleteLater);
+        m_socket->disconnectFromServer();
     } else {
         deleteLater();
     }
 }
 
+void QnxClientIo::doDisconnectFromServer()
+{
+    m_socket->disconnectFromServer();
+}
+
 void QnxClientIo::connectToServer()
 {
     if (!isOpen())
-        m_socket.connectToServer(url().path());
+        m_socket->connectToServer(url().path());
 }
 
-bool QnxClientIo::isOpen()
+bool QnxClientIo::isOpen() const
 {
-    return !isClosing() && m_socket.isOpen();
+    return !isClosing() && (m_socket->state() == QAbstractSocket::ConnectedState
+                            || m_socket->state() == QAbstractSocket::ConnectingState);
 }
 
 void QnxClientIo::onError(QAbstractSocket::SocketError error)
 {
-    qCDebug(QT_REMOTEOBJECT) << "onError" << error << m_socket.serverName();
+    qCDebug(QT_REMOTEOBJECT) << "onError" << error << m_socket->serverName();
 
     switch (error) {
     case QAbstractSocket::RemoteHostClosedError:
-        m_socket.close();
+        m_socket->close();
         qCWarning(QT_REMOTEOBJECT) << "RemoteHostClosedError";
     case QAbstractSocket::HostNotFoundError:     //Host not there, wait and try again
     case QAbstractSocket::AddressInUseError:
@@ -105,25 +112,22 @@ void QnxClientIo::onError(QAbstractSocket::SocketError error)
 void QnxClientIo::onStateChanged(QAbstractSocket::SocketState state)
 {
     if (state == QAbstractSocket::ClosingState && !isClosing()) {
-        m_socket.abort();
+        m_socket->abort();
         emit shouldReconnect(this);
-    } else if (state == QAbstractSocket::ConnectedState) {
-        m_dataStream.setDevice(connection());
-        m_dataStream.resetStatus();
-    }
+    } else if (state == QAbstractSocket::ConnectedState)
+        initializeDataStream();
 }
 
-QnxServerIo::QnxServerIo(QIOQnxSource *conn, QObject *parent)
+QnxServerIo::QnxServerIo(QSharedPointer<QIOQnxSource> conn, QObject *parent)
     : ServerIoDevice(parent), m_connection(conn)
 {
-    m_connection->setParent(this);
-    connect(conn, &QIODevice::readyRead, this, &ServerIoDevice::readyRead);
-    connect(conn, &QIOQnxSource::disconnected, this, &ServerIoDevice::disconnected);
+    connect(conn.data(), &QIODevice::readyRead, this, &ServerIoDevice::readyRead);
+    connect(conn.data(), &QIOQnxSource::disconnected, this, &ServerIoDevice::disconnected);
 }
 
 QIODevice *QnxServerIo::connection() const
 {
-    return m_connection;
+    return m_connection.data();
 }
 
 void QnxServerIo::doClose()

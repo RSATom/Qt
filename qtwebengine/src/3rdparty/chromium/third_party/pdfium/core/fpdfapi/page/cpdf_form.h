@@ -7,6 +7,9 @@
 #ifndef CORE_FPDFAPI_PAGE_CPDF_FORM_H_
 #define CORE_FPDFAPI_PAGE_CPDF_FORM_H_
 
+#include <memory>
+#include <set>
+
 #include "core/fpdfapi/page/cpdf_pageobjectholder.h"
 
 class CPDF_Document;
@@ -27,13 +30,14 @@ class CPDF_Form : public CPDF_PageObjectHolder {
   void ParseContent(CPDF_AllStates* pGraphicStates,
                     const CFX_Matrix* pParentMatrix,
                     CPDF_Type3Char* pType3Char,
-                    int level = 0);
+                    std::set<const uint8_t*>* parsedSet);
+
+  const CPDF_Stream* GetStream() const;
 
  private:
-  void StartParse(CPDF_AllStates* pGraphicStates,
-                  const CFX_Matrix* pParentMatrix,
-                  CPDF_Type3Char* pType3Char,
-                  int level = 0);
+  std::unique_ptr<std::set<const uint8_t*>> m_ParsedSet;
+
+  UnownedPtr<CPDF_Stream> m_pFormStream;
 };
 
 #endif  // CORE_FPDFAPI_PAGE_CPDF_FORM_H_

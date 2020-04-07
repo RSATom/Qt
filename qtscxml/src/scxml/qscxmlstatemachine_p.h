@@ -77,7 +77,7 @@ public:
     Q_INVOKABLE void doProcessEvents();
 
 protected:
-    void timerEvent(QTimerEvent *timerEvent) Q_DECL_OVERRIDE;
+    void timerEvent(QTimerEvent *timerEvent) override;
 };
 
 class ScxmlEventRouter : public QObject

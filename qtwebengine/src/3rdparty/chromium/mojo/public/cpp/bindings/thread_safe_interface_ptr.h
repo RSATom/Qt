@@ -115,7 +115,7 @@ class ThreadSafeForwarder : public MessageReceiverWithResponder {
     // this sequence) to guarantee that two async calls can't be reordered.
     if (!message->has_flag(Message::kFlagIsSync)) {
       auto reply_forwarder =
-          base::MakeUnique<ForwardToCallingThread>(std::move(responder));
+          std::make_unique<ForwardToCallingThread>(std::move(responder));
       task_runner_->PostTask(
           FROM_HERE, base::Bind(forward_with_responder_, base::Passed(message),
                                 base::Passed(&reply_forwarder)));
@@ -133,8 +133,8 @@ class ThreadSafeForwarder : public MessageReceiverWithResponder {
     // If the InterfacePtr is bound on another sequence, post the call.
     // TODO(yzshen, watk): We block both this sequence and the InterfacePtr
     // sequence. Ideally only this sequence would block.
-    auto response = make_scoped_refptr(new SyncResponseInfo());
-    auto response_signaler = base::MakeUnique<SyncResponseSignaler>(response);
+    auto response = base::MakeRefCounted<SyncResponseInfo>();
+    auto response_signaler = std::make_unique<SyncResponseSignaler>(response);
     task_runner_->PostTask(
         FROM_HERE, base::Bind(forward_with_responder_, base::Passed(message),
                               base::Passed(&response_signaler)));
@@ -152,7 +152,8 @@ class ThreadSafeForwarder : public MessageReceiverWithResponder {
     bool event_signaled = false;
     SyncEventWatcher watcher(&response->event,
                              base::Bind(assign_true, &event_signaled));
-    watcher.SyncWatch(&event_signaled);
+    const bool* stop_flags[] = {&event_signaled};
+    watcher.SyncWatch(stop_flags, 1);
 
     {
       base::AutoLock l(sync_calls->lock);
@@ -191,7 +192,7 @@ class ThreadSafeForwarder : public MessageReceiverWithResponder {
         response_->event.Signal();
     }
 
-    bool Accept(Message* message) {
+    bool Accept(Message* message) override {
       response_->message = std::move(*message);
       response_->received = true;
       response_->event.Signal();
@@ -217,9 +218,12 @@ class ThreadSafeForwarder : public MessageReceiverWithResponder {
     explicit ForwardToCallingThread(std::unique_ptr<MessageReceiver> responder)
         : responder_(std::move(responder)),
           caller_task_runner_(base::SequencedTaskRunnerHandle::Get()) {}
+    ~ForwardToCallingThread() override {
+      caller_task_runner_->DeleteSoon(FROM_HERE, std::move(responder_));
+    }
 
    private:
-    bool Accept(Message* message) {
+    bool Accept(Message* message) override {
       // The current instance will be deleted when this method returns, so we
       // have to relinquish the responder's ownership so it does not get
       // deleted.
@@ -331,7 +335,7 @@ class ThreadSafeInterfacePtrBase
     }
 
     std::unique_ptr<ThreadSafeForwarder<InterfaceType>> CreateForwarder() {
-      return base::MakeUnique<ThreadSafeForwarder<InterfaceType>>(
+      return std::make_unique<ThreadSafeForwarder<InterfaceType>>(
           task_runner_, base::Bind(&PtrWrapper::Accept, this),
           base::Bind(&PtrWrapper::AcceptWithResponder, this),
           associated_group_);

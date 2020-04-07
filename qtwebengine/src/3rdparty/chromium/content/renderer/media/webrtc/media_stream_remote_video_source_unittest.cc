@@ -8,18 +8,20 @@
 #include <utility>
 
 #include "base/run_loop.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/test/scoped_task_environment.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "content/child/child_process.h"
-#include "content/renderer/media/media_stream_video_track.h"
-#include "content/renderer/media/mock_media_stream_video_sink.h"
+#include "content/renderer/media/stream/media_stream_video_track.h"
+#include "content/renderer/media/stream/mock_media_stream_video_sink.h"
 #include "content/renderer/media/webrtc/mock_peer_connection_dependency_factory.h"
 #include "content/renderer/media/webrtc/track_observer.h"
 #include "media/base/video_frame.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/WebKit/public/web/WebHeap.h"
+#include "third_party/blink/public/platform/scheduler/test/renderer_scheduler_test_support.h"
+#include "third_party/blink/public/web/web_heap.h"
 #include "third_party/webrtc/api/video/i420_buffer.h"
 
 namespace content {
@@ -34,7 +36,7 @@ class MediaStreamRemoteVideoSourceUnderTest
   explicit MediaStreamRemoteVideoSourceUnderTest(
       std::unique_ptr<TrackObserver> observer)
       : MediaStreamRemoteVideoSource(std::move(observer)) {}
-  using MediaStreamRemoteVideoSource::SinkInterfaceForTest;
+  using MediaStreamRemoteVideoSource::SinkInterfaceForTesting;
 };
 
 class MediaStreamRemoteVideoSourceTest
@@ -52,7 +54,7 @@ class MediaStreamRemoteVideoSourceTest
 
   void SetUp() override {
     scoped_refptr<base::SingleThreadTaskRunner> main_thread =
-        base::ThreadTaskRunnerHandle::Get();
+        blink::scheduler::GetSingleThreadTaskRunnerForTesting();
 
     base::WaitableEvent waitable_event(
         base::WaitableEvent::ResetPolicy::MANUAL,
@@ -61,7 +63,7 @@ class MediaStreamRemoteVideoSourceTest
     std::unique_ptr<TrackObserver> track_observer;
     mock_factory_->GetWebRtcSignalingThread()->PostTask(
         FROM_HERE,
-        base::Bind(
+        base::BindOnce(
             [](scoped_refptr<base::SingleThreadTaskRunner> main_thread,
                webrtc::MediaStreamTrackInterface* webrtc_track,
                std::unique_ptr<TrackObserver>* track_observer,
@@ -116,7 +118,7 @@ class MediaStreamRemoteVideoSourceTest
         base::WaitableEvent::ResetPolicy::MANUAL,
         base::WaitableEvent::InitialState::NOT_SIGNALED);
     mock_factory_->GetWebRtcSignalingThread()->PostTask(
-        FROM_HERE, base::Bind(
+        FROM_HERE, base::BindOnce(
                        [](MockWebRtcVideoTrack* video_track,
                           base::WaitableEvent* waitable_event) {
                          video_track->SetEnded();
@@ -162,14 +164,14 @@ TEST_F(MediaStreamRemoteVideoSourceTest, StartTrack) {
   track->AddSink(&sink, sink.GetDeliverFrameCB(), false);
   base::RunLoop run_loop;
   base::Closure quit_closure = run_loop.QuitClosure();
-  EXPECT_CALL(sink, OnVideoFrame()).WillOnce(
-      RunClosure(quit_closure));
+  EXPECT_CALL(sink, OnVideoFrame())
+      .WillOnce(RunClosure(std::move(quit_closure)));
   rtc::scoped_refptr<webrtc::I420Buffer> buffer(
       new rtc::RefCountedObject<webrtc::I420Buffer>(320, 240));
 
   webrtc::I420Buffer::SetBlack(buffer);
 
-  source()->SinkInterfaceForTest()->OnFrame(
+  source()->SinkInterfaceForTesting()->OnFrame(
       webrtc::VideoFrame(buffer, webrtc::kVideoRotation_0, 1000));
   run_loop.Run();
 

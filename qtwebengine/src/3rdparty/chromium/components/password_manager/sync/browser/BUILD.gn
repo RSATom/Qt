@@ -28,6 +28,10 @@ static_library("browser") {
     "//net",
     "//url",
   ]
+
+  if (!is_ios) {
+    deps += [ "//components/safe_browsing/common:safe_browsing_prefs" ]
+  }
 }
 
 source_set("unit_tests") {
@@ -46,8 +50,8 @@ source_set("unit_tests") {
     "//components/password_manager/core/browser:test_support",
     "//components/password_manager/core/common",
     "//components/prefs",
+    "//components/signin/core/browser",
     "//components/signin/core/browser:test_support",
-    "//components/signin/core/common",
     "//components/sync:test_support_driver",
     "//components/sync:test_support_model",
     "//components/sync_preferences",
@@ -55,4 +59,11 @@ source_set("unit_tests") {
     "//testing/gmock",
     "//testing/gtest",
   ]
+
+  if (!is_ios) {
+    deps += [
+      "//components/safe_browsing:features",
+      "//components/safe_browsing/common:safe_browsing_prefs",
+    ]
+  }
 }

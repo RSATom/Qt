@@ -12,11 +12,12 @@
 #define LIBANGLE_RENDERER_FRAMEBUFFER_ATTACHMENT_OBJECT_IMPL_H_
 
 #include "libANGLE/FramebufferAttachment.h"
+#include "libANGLE/Observer.h"
 
 namespace rx
 {
 
-class FramebufferAttachmentObjectImpl : angle::NonCopyable
+class FramebufferAttachmentObjectImpl : public angle::Subject
 {
   public:
     FramebufferAttachmentObjectImpl() {}
@@ -25,12 +26,29 @@ class FramebufferAttachmentObjectImpl : angle::NonCopyable
     virtual gl::Error getAttachmentRenderTarget(const gl::Context *context,
                                                 GLenum binding,
                                                 const gl::ImageIndex &imageIndex,
-                                                FramebufferAttachmentRenderTarget **rtOut)
-    {
-        UNIMPLEMENTED();
-        return gl::OutOfMemory() << "getAttachmentRenderTarget not supported.";
-    }
+                                                FramebufferAttachmentRenderTarget **rtOut);
+
+    virtual gl::Error initializeContents(const gl::Context *context,
+                                         const gl::ImageIndex &imageIndex);
 };
+
+inline gl::Error FramebufferAttachmentObjectImpl::getAttachmentRenderTarget(
+    const gl::Context *context,
+    GLenum binding,
+    const gl::ImageIndex &imageIndex,
+    FramebufferAttachmentRenderTarget **rtOut)
+{
+    UNIMPLEMENTED();
+    return gl::OutOfMemory() << "getAttachmentRenderTarget not supported.";
+}
+
+inline gl::Error FramebufferAttachmentObjectImpl::initializeContents(
+    const gl::Context *context,
+    const gl::ImageIndex &imageIndex)
+{
+    UNIMPLEMENTED();
+    return gl::OutOfMemory() << "initialize not supported.";
+}
 
 }  // namespace rx
 

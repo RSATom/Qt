@@ -50,8 +50,8 @@ class Q_WEBSOCKETS_EXPORT QMaskGenerator : public QObject
     Q_DISABLE_COPY(QMaskGenerator)
 
 public:
-    explicit QMaskGenerator(QObject *parent = Q_NULLPTR);
-    virtual ~QMaskGenerator();
+    explicit QMaskGenerator(QObject *parent = nullptr);
+    ~QMaskGenerator() override;
 
     virtual bool seed() = 0;
     virtual quint32 nextMask() = 0;

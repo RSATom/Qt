@@ -35,8 +35,8 @@
 #include "base/memory/ref_counted.h"
 #include "base/single_thread_task_runner.h"
 #include "base/values.h"
-#include "components/prefs/base_prefs_export.h"
 #include "components/prefs/pref_observer.h"
+#include "components/prefs/prefs_export.h"
 
 class PrefService;
 
@@ -63,7 +63,7 @@ class COMPONENTS_PREFS_EXPORT PrefMemberBase : public PrefObserver {
     void UpdateValue(base::Value* value,
                      bool is_managed,
                      bool is_user_modifiable,
-                     const base::Closure& callback) const;
+                     base::OnceClosure callback) const;
 
     void MoveToThread(scoped_refptr<base::SingleThreadTaskRunner> task_runner);
 

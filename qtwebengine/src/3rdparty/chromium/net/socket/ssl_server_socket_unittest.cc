@@ -17,19 +17,19 @@
 
 #include <stdint.h>
 #include <stdlib.h>
-#include <queue>
 #include <utility>
 
 #include "base/callback_helpers.h"
 #include "base/compiler_specific.h"
+#include "base/containers/queue.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/macros.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
+#include "base/test/scoped_task_environment.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
 #include "crypto/nss_util.h"
@@ -66,12 +66,13 @@
 #include "net/test/cert_test_util.h"
 #include "net/test/gtest_util.h"
 #include "net/test/test_data_directory.h"
+#include "net/test/test_with_scoped_task_environment.h"
+#include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/platform_test.h"
 #include "third_party/boringssl/src/include/openssl/evp.h"
 #include "third_party/boringssl/src/include/openssl/ssl.h"
-#include "third_party/boringssl/src/include/openssl/x509.h"
 
 using net::test::IsError;
 using net::test::IsOk;
@@ -84,17 +85,16 @@ const char kClientCertFileName[] = "client_1.pem";
 const char kClientPrivateKeyFileName[] = "client_1.pk8";
 const char kWrongClientCertFileName[] = "client_2.pem";
 const char kWrongClientPrivateKeyFileName[] = "client_2.pk8";
-const char kClientCertCAFileName[] = "client_1_ca.pem";
 
 class MockCTPolicyEnforcer : public CTPolicyEnforcer {
  public:
   MockCTPolicyEnforcer() = default;
   ~MockCTPolicyEnforcer() override = default;
-  ct::CertPolicyCompliance DoesConformToCertPolicy(
+  ct::CTPolicyCompliance CheckCompliance(
       X509Certificate* cert,
-      const SCTList& verified_scts,
+      const ct::SCTList& verified_scts,
       const NetLogWithSource& net_log) override {
-    return ct::CertPolicyCompliance::CERT_POLICY_COMPLIES_VIA_SCTS;
+    return ct::CTPolicyCompliance::CT_POLICY_COMPLIES_VIA_SCTS;
   }
 };
 
@@ -107,13 +107,13 @@ class FakeDataChannel {
         weak_factory_(this) {
   }
 
-  int Read(IOBuffer* buf, int buf_len, const CompletionCallback& callback) {
+  int Read(IOBuffer* buf, int buf_len, CompletionOnceCallback callback) {
     DCHECK(read_callback_.is_null());
     DCHECK(!read_buf_.get());
     if (closed_)
       return 0;
     if (data_.empty()) {
-      read_callback_ = callback;
+      read_callback_ = std::move(callback);
       read_buf_ = buf;
       read_buf_len_ = buf_len;
       return ERR_IO_PENDING;
@@ -121,13 +121,16 @@ class FakeDataChannel {
     return PropagateData(buf, buf_len);
   }
 
-  int Write(IOBuffer* buf, int buf_len, const CompletionCallback& callback) {
+  int Write(IOBuffer* buf,
+            int buf_len,
+            CompletionOnceCallback callback,
+            const NetworkTrafficAnnotationTag& traffic_annotation) {
     DCHECK(write_callback_.is_null());
     if (closed_) {
       if (write_called_after_close_)
         return ERR_CONNECTION_RESET;
       write_called_after_close_ = true;
-      write_callback_ = callback;
+      write_callback_ = std::move(callback);
       base::ThreadTaskRunnerHandle::Get()->PostTask(
           FROM_HERE, base::Bind(&FakeDataChannel::DoWriteCallback,
                                 weak_factory_.GetWeakPtr()));
@@ -162,7 +165,7 @@ class FakeDataChannel {
       return;
 
     if (closed_) {
-      base::ResetAndReturn(&read_callback_).Run(ERR_CONNECTION_CLOSED);
+      std::move(read_callback_).Run(ERR_CONNECTION_CLOSED);
       return;
     }
 
@@ -170,20 +173,16 @@ class FakeDataChannel {
       return;
 
     int copied = PropagateData(read_buf_, read_buf_len_);
-    CompletionCallback callback = read_callback_;
-    read_callback_.Reset();
     read_buf_ = NULL;
     read_buf_len_ = 0;
-    callback.Run(copied);
+    std::move(read_callback_).Run(copied);
   }
 
   void DoWriteCallback() {
     if (write_callback_.is_null())
       return;
 
-    CompletionCallback callback = write_callback_;
-    write_callback_.Reset();
-    callback.Run(ERR_CONNECTION_RESET);
+    std::move(write_callback_).Run(ERR_CONNECTION_RESET);
   }
 
   int PropagateData(scoped_refptr<IOBuffer> read_buf, int read_buf_len) {
@@ -197,13 +196,13 @@ class FakeDataChannel {
     return copied;
   }
 
-  CompletionCallback read_callback_;
+  CompletionOnceCallback read_callback_;
   scoped_refptr<IOBuffer> read_buf_;
   int read_buf_len_;
 
-  CompletionCallback write_callback_;
+  CompletionOnceCallback write_callback_;
 
-  std::queue<scoped_refptr<DrainableIOBuffer> > data_;
+  base::queue<scoped_refptr<DrainableIOBuffer>> data_;
 
   // True if Close() has been called.
   bool closed_;
@@ -224,29 +223,31 @@ class FakeSocket : public StreamSocket {
              FakeDataChannel* outgoing_channel)
       : incoming_(incoming_channel), outgoing_(outgoing_channel) {}
 
-  ~FakeSocket() override {}
+  ~FakeSocket() override = default;
 
   int Read(IOBuffer* buf,
            int buf_len,
-           const CompletionCallback& callback) override {
+           CompletionOnceCallback callback) override {
     // Read random number of bytes.
     buf_len = rand() % buf_len + 1;
-    return incoming_->Read(buf, buf_len, callback);
+    return incoming_->Read(buf, buf_len, std::move(callback));
   }
 
   int Write(IOBuffer* buf,
             int buf_len,
-            const CompletionCallback& callback) override {
+            CompletionOnceCallback callback,
+            const NetworkTrafficAnnotationTag& traffic_annotation) override {
     // Write random number of bytes.
     buf_len = rand() % buf_len + 1;
-    return outgoing_->Write(buf, buf_len, callback);
+    return outgoing_->Write(buf, buf_len, std::move(callback),
+                            TRAFFIC_ANNOTATION_FOR_TESTS);
   }
 
   int SetReceiveBufferSize(int32_t size) override { return OK; }
 
   int SetSendBufferSize(int32_t size) override { return OK; }
 
-  int Connect(const CompletionCallback& callback) override { return OK; }
+  int Connect(CompletionOnceCallback callback) override { return OK; }
 
   void Disconnect() override {
     incoming_->Close();
@@ -269,9 +270,6 @@ class FakeSocket : public StreamSocket {
 
   const NetLogWithSource& NetLog() const override { return net_log_; }
 
-  void SetSubresourceSpeculation() override {}
-  void SetOmniboxSpeculation() override {}
-
   bool WasEverUsed() const override { return true; }
 
   bool WasAlpnNegotiated() const override { return false; }
@@ -293,6 +291,8 @@ class FakeSocket : public StreamSocket {
     return 0;
   }
 
+  void ApplySocketTag(const SocketTag& tag) override {}
+
  private:
   NetLogWithSource net_log_;
   FakeDataChannel* incoming_;
@@ -305,6 +305,8 @@ class FakeSocket : public StreamSocket {
 
 // Verify the correctness of the test helper classes first.
 TEST(FakeSocketTest, DataTransfer) {
+  base::test::ScopedTaskEnvironment scoped_task_environment;
+
   // Establish channels between two sockets.
   FakeDataChannel channel_1;
   FakeDataChannel channel_2;
@@ -319,7 +321,8 @@ TEST(FakeSocketTest, DataTransfer) {
 
   // Write then read.
   int written =
-      server.Write(write_buf.get(), kTestDataSize, CompletionCallback());
+      server.Write(write_buf.get(), kTestDataSize, CompletionCallback(),
+                   TRAFFIC_ANNOTATION_FOR_TESTS);
   EXPECT_GT(written, 0);
   EXPECT_LE(written, kTestDataSize);
 
@@ -333,7 +336,8 @@ TEST(FakeSocketTest, DataTransfer) {
   EXPECT_EQ(ERR_IO_PENDING,
             server.Read(read_buf.get(), kReadBufSize, callback.callback()));
 
-  written = client.Write(write_buf.get(), kTestDataSize, CompletionCallback());
+  written = client.Write(write_buf.get(), kTestDataSize, CompletionCallback(),
+                         TRAFFIC_ANNOTATION_FOR_TESTS);
   EXPECT_GT(written, 0);
   EXPECT_LE(written, kTestDataSize);
 
@@ -343,7 +347,8 @@ TEST(FakeSocketTest, DataTransfer) {
   EXPECT_EQ(0, memcmp(kTestData, read_buf->data(), read));
 }
 
-class SSLServerSocketTest : public PlatformTest {
+class SSLServerSocketTest : public PlatformTest,
+                            public WithScopedTaskEnvironment {
  public:
   SSLServerSocketTest()
       : socket_factory_(ClientSocketFactory::GetDefaultFactory()),
@@ -365,6 +370,11 @@ class SSLServerSocketTest : public PlatformTest {
     server_private_key_ = ReadTestKey("unittest.key.bin");
     ASSERT_TRUE(server_private_key_);
 
+    std::unique_ptr<crypto::RSAPrivateKey> key =
+        ReadTestKey("unittest.key.bin");
+    ASSERT_TRUE(key);
+    server_ssl_private_key_ = WrapOpenSSLPrivateKey(bssl::UpRef(key->key()));
+
     client_ssl_config_.false_start_enabled = false;
     client_ssl_config_.channel_id_enabled = false;
 
@@ -382,6 +392,16 @@ class SSLServerSocketTest : public PlatformTest {
     server_context_.reset();
     server_context_ = CreateSSLServerContext(
         server_cert_.get(), *server_private_key_, server_ssl_config_);
+  }
+
+  void CreateContextSSLPrivateKey() {
+    client_socket_.reset();
+    server_socket_.reset();
+    channel_1_.reset();
+    channel_2_.reset();
+    server_context_.reset();
+    server_context_ = CreateSSLServerContext(
+        server_cert_.get(), server_ssl_private_key_, server_ssl_config_);
   }
 
   void CreateSockets() {
@@ -402,6 +422,8 @@ class SSLServerSocketTest : public PlatformTest {
     context.transport_security_state = transport_security_state_.get();
     context.cert_transparency_verifier = ct_verifier_.get();
     context.ct_policy_enforcer = ct_policy_enforcer_.get();
+    // Set a dummy session cache shard to enable session caching.
+    context.ssl_session_cache_shard = "shard";
 
     client_socket_ = socket_factory_->CreateSSLClientSocket(
         std::move(client_connection), host_and_pair, client_ssl_config_,
@@ -424,31 +446,20 @@ class SSLServerSocketTest : public PlatformTest {
         ReadTestKey(private_key_file_name);
     ASSERT_TRUE(key);
 
-    EVP_PKEY_up_ref(key->key());
     client_ssl_config_.client_private_key =
-        WrapOpenSSLPrivateKey(bssl::UniquePtr<EVP_PKEY>(key->key()));
+        WrapOpenSSLPrivateKey(bssl::UpRef(key->key()));
   }
 
   void ConfigureClientCertsForServer() {
     server_ssl_config_.client_cert_type =
         SSLServerConfig::ClientCertType::REQUIRE_CLIENT_CERT;
 
-    bssl::UniquePtr<STACK_OF(X509_NAME)> cert_names(
-        SSL_load_client_CA_file(GetTestCertsDirectory()
-                                    .AppendASCII(kClientCertCAFileName)
-                                    .MaybeAsASCII()
-                                    .c_str()));
-    ASSERT_TRUE(cert_names);
-
-    for (size_t i = 0; i < sk_X509_NAME_num(cert_names.get()); ++i) {
-      uint8_t* str = nullptr;
-      int length = i2d_X509_NAME(sk_X509_NAME_value(cert_names.get(), i), &str);
-      ASSERT_LT(0, length);
-
-      server_ssl_config_.cert_authorities_.push_back(std::string(
-          reinterpret_cast<const char*>(str), static_cast<size_t>(length)));
-      OPENSSL_free(str);
-    }
+    // "CN=B CA" - DER encoded DN of the issuer of client_1.pem
+    static const uint8_t kClientCertCAName[] = {
+        0x30, 0x0f, 0x31, 0x0d, 0x30, 0x0b, 0x06, 0x03, 0x55,
+        0x04, 0x03, 0x0c, 0x04, 0x42, 0x20, 0x43, 0x41};
+    server_ssl_config_.cert_authorities_.push_back(std::string(
+        std::begin(kClientCertCAName), std::end(kClientCertCAName)));
 
     scoped_refptr<X509Certificate> expected_client_cert(
         ImportCertFromFile(GetTestCertsDirectory(), kClientCertFileName));
@@ -489,12 +500,13 @@ class SSLServerSocketTest : public PlatformTest {
   std::unique_ptr<MockCTPolicyEnforcer> ct_policy_enforcer_;
   std::unique_ptr<SSLServerContext> server_context_;
   std::unique_ptr<crypto::RSAPrivateKey> server_private_key_;
+  scoped_refptr<SSLPrivateKey> server_ssl_private_key_;
   scoped_refptr<X509Certificate> server_cert_;
 };
 
 // This test only executes creation of client and server sockets. This is to
 // test that creation of sockets doesn't crash and have minimal code to run
-// under valgrind in order to help debugging memory problems.
+// with memory leak/corruption checking tools.
 TEST_F(SSLServerSocketTest, Initialize) {
   ASSERT_NO_FATAL_FAILURE(CreateContext());
   ASSERT_NO_FATAL_FAILURE(CreateSockets());
@@ -667,7 +679,7 @@ TEST_F(SSLServerSocketTest, HandshakeWithClientCert) {
   EXPECT_EQ(CERT_STATUS_AUTHORITY_INVALID, ssl_info.cert_status);
   server_socket_->GetSSLInfo(&ssl_info);
   ASSERT_TRUE(ssl_info.cert.get());
-  EXPECT_TRUE(client_cert->Equals(ssl_info.cert.get()));
+  EXPECT_TRUE(client_cert->EqualsExcludingChain(ssl_info.cert.get()));
 }
 
 // This test executes Connect() on SSLClientSocket and Handshake() twice on
@@ -702,7 +714,7 @@ TEST_F(SSLServerSocketTest, HandshakeWithClientCertCached) {
   SSLInfo ssl_server_info;
   ASSERT_TRUE(server_socket_->GetSSLInfo(&ssl_server_info));
   ASSERT_TRUE(ssl_server_info.cert.get());
-  EXPECT_TRUE(client_cert->Equals(ssl_server_info.cert.get()));
+  EXPECT_TRUE(client_cert->EqualsExcludingChain(ssl_server_info.cert.get()));
   EXPECT_EQ(ssl_server_info.handshake_type, SSLInfo::HANDSHAKE_FULL);
   server_socket_->Disconnect();
   client_socket_->Disconnect();
@@ -728,7 +740,7 @@ TEST_F(SSLServerSocketTest, HandshakeWithClientCertCached) {
   SSLInfo ssl_server_info2;
   ASSERT_TRUE(server_socket_->GetSSLInfo(&ssl_server_info2));
   ASSERT_TRUE(ssl_server_info2.cert.get());
-  EXPECT_TRUE(client_cert->Equals(ssl_server_info2.cert.get()));
+  EXPECT_TRUE(client_cert->EqualsExcludingChain(ssl_server_info2.cert.get()));
   EXPECT_EQ(ssl_server_info2.handshake_type, SSLInfo::HANDSHAKE_RESUME);
 }
 
@@ -913,7 +925,8 @@ TEST_F(SSLServerSocketTest, DataTransfer) {
   TestCompletionCallback write_callback;
   TestCompletionCallback read_callback;
   server_ret = server_socket_->Write(write_buf.get(), write_buf->size(),
-                                     write_callback.callback());
+                                     write_callback.callback(),
+                                     TRAFFIC_ANNOTATION_FOR_TESTS);
   EXPECT_TRUE(server_ret > 0 || server_ret == ERR_IO_PENDING);
   client_ret = client_socket_->Read(
       read_buf.get(), read_buf->BytesRemaining(), read_callback.callback());
@@ -943,7 +956,8 @@ TEST_F(SSLServerSocketTest, DataTransfer) {
       read_buf.get(), read_buf->BytesRemaining(), read_callback.callback());
   EXPECT_TRUE(server_ret > 0 || server_ret == ERR_IO_PENDING);
   client_ret = client_socket_->Write(write_buf.get(), write_buf->size(),
-                                     write_callback.callback());
+                                     write_callback.callback(),
+                                     TRAFFIC_ANNOTATION_FOR_TESTS);
   EXPECT_TRUE(client_ret > 0 || client_ret == ERR_IO_PENDING);
 
   server_ret = read_callback.GetResult(server_ret);
@@ -995,7 +1009,8 @@ TEST_F(SSLServerSocketTest, ClientWriteAfterServerClose) {
   // will call Read() on the transport socket again.
   TestCompletionCallback write_callback;
   server_ret = server_socket_->Write(write_buf.get(), write_buf->size(),
-                                     write_callback.callback());
+                                     write_callback.callback(),
+                                     TRAFFIC_ANNOTATION_FOR_TESTS);
   EXPECT_TRUE(server_ret > 0 || server_ret == ERR_IO_PENDING);
 
   server_ret = write_callback.GetResult(server_ret);
@@ -1005,16 +1020,17 @@ TEST_F(SSLServerSocketTest, ClientWriteAfterServerClose) {
 
   // The client writes some data. This should not cause an infinite loop.
   client_ret = client_socket_->Write(write_buf.get(), write_buf->size(),
-                                     write_callback.callback());
+                                     write_callback.callback(),
+                                     TRAFFIC_ANNOTATION_FOR_TESTS);
   EXPECT_TRUE(client_ret > 0 || client_ret == ERR_IO_PENDING);
 
   client_ret = write_callback.GetResult(client_ret);
   EXPECT_GT(client_ret, 0);
 
+  base::RunLoop run_loop;
   base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
-      FROM_HERE, base::MessageLoop::QuitWhenIdleClosure(),
-      base::TimeDelta::FromMilliseconds(10));
-  base::RunLoop().Run();
+      FROM_HERE, run_loop.QuitClosure(), base::TimeDelta::FromMilliseconds(10));
+  run_loop.Run();
 }
 
 // This test executes ExportKeyingMaterial() on the client and server sockets,
@@ -1083,6 +1099,82 @@ TEST_F(SSLServerSocketTest, RequireEcdheFlag) {
   server_ssl_config_.require_ecdhe = true;
 
   ASSERT_NO_FATAL_FAILURE(CreateContext());
+  ASSERT_NO_FATAL_FAILURE(CreateSockets());
+
+  TestCompletionCallback connect_callback;
+  int client_ret = client_socket_->Connect(connect_callback.callback());
+
+  TestCompletionCallback handshake_callback;
+  int server_ret = server_socket_->Handshake(handshake_callback.callback());
+
+  client_ret = connect_callback.GetResult(client_ret);
+  server_ret = handshake_callback.GetResult(server_ret);
+
+  ASSERT_THAT(client_ret, IsError(ERR_SSL_VERSION_OR_CIPHER_MISMATCH));
+  ASSERT_THAT(server_ret, IsError(ERR_SSL_VERSION_OR_CIPHER_MISMATCH));
+}
+
+// This test executes Connect() on SSLClientSocket and Handshake() on
+// SSLServerSocket to make sure handshaking between the two sockets is
+// completed successfully. The server key is represented by SSLPrivateKey.
+TEST_F(SSLServerSocketTest, HandshakeServerSSLPrivateKey) {
+  ASSERT_NO_FATAL_FAILURE(CreateContextSSLPrivateKey());
+  ASSERT_NO_FATAL_FAILURE(CreateSockets());
+
+  TestCompletionCallback handshake_callback;
+  int server_ret = server_socket_->Handshake(handshake_callback.callback());
+
+  TestCompletionCallback connect_callback;
+  int client_ret = client_socket_->Connect(connect_callback.callback());
+
+  client_ret = connect_callback.GetResult(client_ret);
+  server_ret = handshake_callback.GetResult(server_ret);
+
+  ASSERT_THAT(client_ret, IsOk());
+  ASSERT_THAT(server_ret, IsOk());
+
+  // Make sure the cert status is expected.
+  SSLInfo ssl_info;
+  ASSERT_TRUE(client_socket_->GetSSLInfo(&ssl_info));
+  EXPECT_EQ(CERT_STATUS_AUTHORITY_INVALID, ssl_info.cert_status);
+
+  // The default cipher suite should be ECDHE and an AEAD.
+  uint16_t cipher_suite =
+      SSLConnectionStatusToCipherSuite(ssl_info.connection_status);
+  const char* key_exchange;
+  const char* cipher;
+  const char* mac;
+  bool is_aead;
+  bool is_tls13;
+  SSLCipherSuiteToStrings(&key_exchange, &cipher, &mac, &is_aead, &is_tls13,
+                          cipher_suite);
+  EXPECT_TRUE(is_aead);
+  ASSERT_FALSE(is_tls13);
+  EXPECT_STREQ("ECDHE_RSA", key_exchange);
+}
+
+// Verifies that non-ECDHE ciphers are disabled when using SSLPrivateKey as the
+// server key.
+TEST_F(SSLServerSocketTest, HandshakeServerSSLPrivateKeyRequireEcdhe) {
+  // Disable all ECDHE suites on the client side.
+  uint16_t kEcdheCiphers[] = {
+      0xc007,  // ECDHE_ECDSA_WITH_RC4_128_SHA
+      0xc009,  // ECDHE_ECDSA_WITH_AES_128_CBC_SHA
+      0xc00a,  // ECDHE_ECDSA_WITH_AES_256_CBC_SHA
+      0xc011,  // ECDHE_RSA_WITH_RC4_128_SHA
+      0xc013,  // ECDHE_RSA_WITH_AES_128_CBC_SHA
+      0xc014,  // ECDHE_RSA_WITH_AES_256_CBC_SHA
+      0xc02b,  // ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
+      0xc02f,  // ECDHE_RSA_WITH_AES_128_GCM_SHA256
+      0xcca8,  // ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256
+      0xcca9,  // ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256
+  };
+  client_ssl_config_.disabled_cipher_suites.assign(
+      kEcdheCiphers, kEcdheCiphers + arraysize(kEcdheCiphers));
+  // TLS 1.3 always works with SSLPrivateKey.
+  client_ssl_config_.version_max = SSL_PROTOCOL_VERSION_TLS1_2;
+
+  ASSERT_NO_FATAL_FAILURE(CreateContextSSLPrivateKey());
   ASSERT_NO_FATAL_FAILURE(CreateSockets());
 
   TestCompletionCallback connect_callback;

@@ -13,52 +13,33 @@
 
 namespace keyboard {
 
-KeyboardUI::KeyboardUI() : keyboard_controller_(nullptr) {}
-KeyboardUI::~KeyboardUI() {}
+KeyboardUI::KeyboardUI() = default;
 
-void KeyboardUI::ShowKeyboardContainer(aura::Window* container) {
-  if (HasContentsWindow()) {
-    {
-      TRACE_EVENT0("vk", "ShowKeyboardContainerWindow");
-      GetContentsWindow()->Show();
-    }
-    {
-      TRACE_EVENT0("vk", "ShowKeyboardContainer");
-      container->Show();
-    }
+KeyboardUI::~KeyboardUI() = default;
+
+void KeyboardUI::ShowKeyboardWindow() {
+  if (HasKeyboardWindow()) {
+    TRACE_EVENT0("vk", "ShowKeyboardWindow");
+    GetKeyboardWindow()->Show();
   }
 }
 
-void KeyboardUI::HideKeyboardContainer(aura::Window* container) {
-  if (HasContentsWindow()) {
-    container->Hide();
-    GetContentsWindow()->Hide();
-  }
+void KeyboardUI::HideKeyboardWindow() {
+  if (HasKeyboardWindow())
+    GetKeyboardWindow()->Hide();
 }
 
-void KeyboardUI::EnsureCaretInWorkArea() {
+void KeyboardUI::EnsureCaretInWorkArea(const gfx::Rect& occluded_bounds) {
   if (!GetInputMethod())
     return;
 
   TRACE_EVENT0("vk", "EnsureCaretInWorkArea");
 
-  const aura::Window* contents_window = GetContentsWindow();
-  const gfx::Rect keyboard_bounds_in_screen =
-      contents_window->IsVisible() ? contents_window->GetBoundsInScreen()
-                                   : gfx::Rect();
-
-  // Use new virtual keyboard behavior only if the flag enabled and in
-  // non-sticky mode.
-  const bool new_vk_behavior =
-      (!base::CommandLine::ForCurrentProcess()->HasSwitch(
-           ::switches::kDisableNewVirtualKeyboardBehavior) &&
-       !keyboard_controller_->keyboard_locked());
-
-  if (new_vk_behavior) {
-    GetInputMethod()->SetOnScreenKeyboardBounds(keyboard_bounds_in_screen);
+  if (keyboard_controller_->IsOverscrollAllowed()) {
+    GetInputMethod()->SetOnScreenKeyboardBounds(occluded_bounds);
   } else if (GetInputMethod()->GetTextInputClient()) {
     GetInputMethod()->GetTextInputClient()->EnsureCaretNotInRect(
-        keyboard_bounds_in_screen);
+        occluded_bounds);
   }
 }
 

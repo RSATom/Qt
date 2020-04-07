@@ -15,6 +15,7 @@
 #include "base/command_line.h"
 #include "base/containers/hash_tables.h"
 #include "base/files/file_util.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/rand_util.h"
@@ -37,7 +38,7 @@ namespace {
 // Current version number. We write databases at the "current" version number,
 // but any previous version that can read the "compatible" one can make do with
 // our database without *too* many bad effects.
-const int kCurrentVersionNumber = 36;
+const int kCurrentVersionNumber = 41;
 const int kCompatibleVersionNumber = 16;
 const char kEarlyExpirationThresholdKey[] = "early_expiration_threshold";
 const int kMaxHostsInMemory = 10000;
@@ -46,8 +47,7 @@ const int kMaxHostsInMemory = 10000;
 // what to return from ::Init (to simplify the call sites). Migration failures
 // are almost always fatal since the database can be in an inconsistent state.
 sql::InitStatus LogMigrationFailure(int from_version) {
-  UMA_HISTOGRAM_SPARSE_SLOWLY("History.MigrateFailureFromVersion",
-                              from_version);
+  base::UmaHistogramSparse("History.MigrateFailureFromVersion", from_version);
   LOG(ERROR) << "History failed to migrate from version " << from_version
              << ". History will be disabled.";
   return sql::INIT_FAILURE;
@@ -68,8 +68,8 @@ enum class InitStep {
 };
 
 sql::InitStatus LogInitFailure(InitStep what) {
-  UMA_HISTOGRAM_SPARSE_SLOWLY("History.InitializationFailureStep",
-                              static_cast<int>(what));
+  base::UmaHistogramSparse("History.InitializationFailureStep",
+                           static_cast<int>(what));
   return sql::INIT_FAILURE;
 }
 
@@ -366,13 +366,9 @@ SegmentID HistoryDatabase::GetSegmentID(VisitID visit_id) {
       "SELECT segment_id FROM visits WHERE id = ?"));
   s.BindInt64(0, visit_id);
 
-  if (s.Step()) {
-    if (s.ColumnType(0) == sql::COLUMN_TYPE_NULL)
-      return 0;
-    else
-      return s.ColumnInt64(0);
-  }
-  return 0;
+  if (!s.Step() || s.ColumnType(0) == sql::COLUMN_TYPE_NULL)
+    return 0;
+  return s.ColumnInt64(0);
 }
 
 base::Time HistoryDatabase::GetEarlyExpirationThreshold() {
@@ -563,23 +559,8 @@ sql::InitStatus HistoryDatabase::EnsureCurrentVersion() {
   }
 
   if (cur_version == 34) {
-    /*
-    This code is commented out because we suspect the additional disk storage
-    requirements of duplicating the URL table to update the schema cause
-    some devices to run out of storage. Errors during initialization are
-    very disruptive to the user experience.
-
-    TODO(https://crbug.com/736136) figure out how to update users to use
-    AUTOINCREMENT.
-
-    // AUTOINCREMENT is added to urls table PRIMARY KEY(id), need to recreate a
-    // new table and copy all contents over. favicon_id is removed from urls
-    // table since we never use it. Also typed_url_sync_metadata and
-    // autofill_model_type_state tables are introduced, no migration needed for
-    // those two tables.
-    if (!RecreateURLTableWithAllContents())
-      return LogMigrationFailure(34);
-    */
+    // This originally contained an autoincrement migration which was abandoned
+    // and added back in version 36. (see https://crbug.com/736136)
     cur_version++;
     meta_table_.SetVersionNumber(cur_version);
   }
@@ -587,6 +568,53 @@ sql::InitStatus HistoryDatabase::EnsureCurrentVersion() {
   if (cur_version == 35) {
     if (!MigrateDownloadTransient())
       return LogMigrationFailure(35);
+    cur_version++;
+    meta_table_.SetVersionNumber(cur_version);
+  }
+
+  if (cur_version == 36) {
+    // Version 34 added AUTOINCREMENT but was reverted. Since some users will
+    // have been migrated and others not, explicitly check for the AUTOINCREMENT
+    // annotation rather than the version number.
+    if (!URLTableContainsAutoincrement()) {
+      if (!RecreateURLTableWithAllContents())
+        return LogMigrationFailure(36);
+    }
+
+    DCHECK(URLTableContainsAutoincrement());
+    cur_version++;
+    meta_table_.SetVersionNumber(cur_version);
+  }
+
+  if (cur_version == 37) {
+    if (!MigrateVisitSegmentNames())
+      return LogMigrationFailure(37);
+    cur_version++;
+    meta_table_.SetVersionNumber(cur_version);
+  }
+
+  if (cur_version == 38) {
+    if (!MigrateDownloadSliceFinished())
+      return LogMigrationFailure(38);
+    cur_version++;
+    meta_table_.SetVersionNumber(cur_version);
+  }
+
+  if (cur_version == 39) {
+    if (!MigrateVisitsWithoutIncrementedOmniboxTypedScore())
+      return LogMigrationFailure(39);
+    cur_version++;
+    meta_table_.SetVersionNumber(cur_version);
+  }
+
+  if (cur_version == 40) {
+    std::vector<URLID> visited_url_rowids_sorted;
+    if (!GetAllVisitedURLRowidsForMigrationToVersion40(
+            &visited_url_rowids_sorted) ||
+        !CleanTypedURLOrphanedMetadataForMigrationToVersion40(
+            visited_url_rowids_sorted)) {
+      return LogMigrationFailure(40);
+    }
     cur_version++;
     meta_table_.SetVersionNumber(cur_version);
   }

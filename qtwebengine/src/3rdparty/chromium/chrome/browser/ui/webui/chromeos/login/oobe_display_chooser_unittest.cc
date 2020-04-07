@@ -11,19 +11,67 @@
 #include "ash/shell.h"
 #include "ash/test/ash_test_base.h"
 #include "base/run_loop.h"
+#include "base/strings/string_number_conversions.h"
+#include "mojo/public/cpp/bindings/binding.h"
+#include "services/ui/public/cpp/input_devices/input_device_client_test_api.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/display/display.h"
 #include "ui/display/display_observer.h"
-#include "ui/display/manager/chromeos/touchscreen_util.h"
 #include "ui/display/manager/display_manager.h"
+#include "ui/display/manager/test/touch_device_manager_test_api.h"
 #include "ui/display/screen.h"
 #include "ui/display/test/display_manager_test_api.h"
-#include "ui/events/devices/device_data_manager.h"
 #include "ui/events/devices/touchscreen_device.h"
 
 namespace chromeos {
 
 namespace {
+
+class TestCrosDisplayConfig : public ash::mojom::CrosDisplayConfigController {
+ public:
+  TestCrosDisplayConfig() : binding_(this) {}
+
+  ash::mojom::CrosDisplayConfigControllerPtr CreateInterfacePtrAndBind() {
+    ash::mojom::CrosDisplayConfigControllerPtr ptr;
+    binding_.Bind(mojo::MakeRequest(&ptr));
+    return ptr;
+  }
+
+  // ash::mojom::CrosDisplayConfigController:
+  void AddObserver(ash::mojom::CrosDisplayConfigObserverAssociatedPtrInfo
+                       observer) override {}
+  void GetDisplayLayoutInfo(GetDisplayLayoutInfoCallback callback) override {}
+  void SetDisplayLayoutInfo(ash::mojom::DisplayLayoutInfoPtr info,
+                            SetDisplayLayoutInfoCallback callback) override {}
+  void GetDisplayUnitInfoList(
+      bool single_unified,
+      GetDisplayUnitInfoListCallback callback) override {}
+  void SetDisplayProperties(const std::string& id,
+                            ash::mojom::DisplayConfigPropertiesPtr properties,
+                            SetDisplayPropertiesCallback callback) override {
+    if (properties->set_primary) {
+      int64_t display_id;
+      base::StringToInt64(id, &display_id);
+      ash::Shell::Get()->window_tree_host_manager()->SetPrimaryDisplayId(
+          display_id);
+    }
+    std::move(callback).Run(ash::mojom::DisplayConfigResult::kSuccess);
+  }
+  void SetUnifiedDesktopEnabled(bool enabled) override {}
+  void OverscanCalibration(const std::string& display_id,
+                           ash::mojom::DisplayConfigOperation op,
+                           const base::Optional<gfx::Insets>& delta,
+                           OverscanCalibrationCallback callback) override {}
+  void TouchCalibration(const std::string& display_id,
+                        ash::mojom::DisplayConfigOperation op,
+                        ash::mojom::TouchCalibrationPtr calibration,
+                        TouchCalibrationCallback callback) override {}
+
+ private:
+  mojo::Binding<ash::mojom::CrosDisplayConfigController> binding_;
+
+  DISALLOW_COPY_AND_ASSIGN(TestCrosDisplayConfig);
+};
 
 class OobeDisplayChooserTest : public ash::AshTestBase {
  public:
@@ -33,15 +81,24 @@ class OobeDisplayChooserTest : public ash::AshTestBase {
     return display::Screen::GetScreen()->GetPrimaryDisplay().id();
   }
 
-  void UpdateTouchscreenDevices(const ui::TouchscreenDevice& touchscreen) {
-    std::vector<ui::TouchscreenDevice> devices{touchscreen};
+  // ash::AshTestBase:
+  void SetUp() override {
+    ash::AshTestBase::SetUp();
 
-    ui::DeviceHotplugEventObserver* manager =
-        ui::DeviceDataManager::GetInstance();
-    manager->OnTouchscreenDevicesUpdated(devices);
+    cros_display_config_ = std::make_unique<TestCrosDisplayConfig>();
+    display_chooser_ = std::make_unique<OobeDisplayChooser>();
+    display_chooser_->set_cros_display_config_ptr_for_test(
+        cros_display_config_->CreateInterfacePtrAndBind());
+
+    ui::InputDeviceClientTestApi().OnDeviceListsComplete();
   }
 
+  OobeDisplayChooser* display_chooser() { return display_chooser_.get(); }
+
  private:
+  std::unique_ptr<TestCrosDisplayConfig> cros_display_config_;
+  std::unique_ptr<OobeDisplayChooser> display_chooser_;
+
   DISALLOW_COPY_AND_ASSIGN(OobeDisplayChooserTest);
 };
 
@@ -67,18 +124,26 @@ TEST_F(OobeDisplayChooserTest, PreferTouchAsPrimary) {
       ui::TouchscreenDevice(1, ui::InputDeviceType::INPUT_DEVICE_EXTERNAL,
                             "Touchscreen", gfx::Size(800, 600), 1);
   touchscreen.vendor_id = kWhitelistedId;
-  UpdateTouchscreenDevices(touchscreen);
+  ui::InputDeviceClientTestApi().SetTouchscreenDevices({touchscreen});
   base::RunLoop().RunUntilIdle();
 
   // Associate touchscreen device with display
-  display_info[1].AddInputDevice(touchscreen.id);
-  display_info[1].set_touch_support(display::Display::TOUCH_SUPPORT_AVAILABLE);
+  display::test::TouchDeviceManagerTestApi(
+      display_manager()->touch_device_manager())
+      .Associate(&display_info[1], touchscreen);
   display_manager()->OnNativeDisplaysChanged(display_info);
   base::RunLoop().RunUntilIdle();
 
-  OobeDisplayChooser display_chooser;
+  // For mus we have to explicitly tell the InputDeviceClient the
+  // TouchscreenDevices. Normally InputDeviceClient is told of the
+  // TouchscreenDevices by way of implementing
+  // ui::mojom::InputDeviceObserverMojo. In unit tests InputDeviceClient is not
+  // wired to the window server (the window server isn't running).
+  touchscreen.target_display_id = display_info[1].id();
+  ui::InputDeviceClientTestApi().SetTouchscreenDevices({touchscreen}, true);
+
   EXPECT_EQ(1, GetPrimaryDisplay());
-  display_chooser.TryToPlaceUiOnTouchDisplay();
+  display_chooser()->TryToPlaceUiOnTouchDisplay();
   base::RunLoop().RunUntilIdle();
   EXPECT_EQ(2, GetPrimaryDisplay());
 }
@@ -90,7 +155,7 @@ TEST_F(OobeDisplayChooserTest, DontSwitchFromTouch) {
       display::ManagedDisplayInfo::CreateFromSpecWithID("0+0-3000x2000", 1));
   display_info.push_back(
       display::ManagedDisplayInfo::CreateFromSpecWithID("3000+0-800x600", 2));
-  display_info[0].set_touch_support(display::Display::TOUCH_SUPPORT_AVAILABLE);
+  display_info[0].set_touch_support(display::Display::TouchSupport::AVAILABLE);
   display_manager()->OnNativeDisplaysChanged(display_info);
   base::RunLoop().RunUntilIdle();
 
@@ -102,18 +167,18 @@ TEST_F(OobeDisplayChooserTest, DontSwitchFromTouch) {
       ui::TouchscreenDevice(1, ui::InputDeviceType::INPUT_DEVICE_EXTERNAL,
                             "Touchscreen", gfx::Size(800, 600), 1);
   touchscreen.vendor_id = kWhitelistedId;
-  UpdateTouchscreenDevices(touchscreen);
+  ui::InputDeviceClientTestApi().SetTouchscreenDevices({touchscreen});
   base::RunLoop().RunUntilIdle();
 
   // Associate touchscreen device with display
-  display_info[1].AddInputDevice(touchscreen.id);
-  display_info[1].set_touch_support(display::Display::TOUCH_SUPPORT_AVAILABLE);
+  display::test::TouchDeviceManagerTestApi(
+      display_manager()->touch_device_manager())
+      .Associate(&display_info[1], touchscreen);
   display_manager()->OnNativeDisplaysChanged(display_info);
   base::RunLoop().RunUntilIdle();
 
-  OobeDisplayChooser display_chooser;
   EXPECT_EQ(1, GetPrimaryDisplay());
-  display_chooser.TryToPlaceUiOnTouchDisplay();
+  display_chooser()->TryToPlaceUiOnTouchDisplay();
   base::RunLoop().RunUntilIdle();
   EXPECT_EQ(1, GetPrimaryDisplay());
 }

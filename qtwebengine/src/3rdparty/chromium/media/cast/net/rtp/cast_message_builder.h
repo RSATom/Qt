@@ -9,9 +9,9 @@
 
 #include <stdint.h>
 
-#include <deque>
 #include <map>
 
+#include "base/containers/circular_deque.h"
 #include "base/time/tick_clock.h"
 #include "media/cast/net/rtp/rtp_defines.h"
 
@@ -23,7 +23,7 @@ class RtpPayloadFeedback;
 
 class CastMessageBuilder {
  public:
-  CastMessageBuilder(base::TickClock* clock,
+  CastMessageBuilder(const base::TickClock* clock,
                      RtpPayloadFeedback* incoming_payload_feedback,
                      const Framer* framer,
                      uint32_t media_ssrc,
@@ -42,7 +42,7 @@ class CastMessageBuilder {
 
   FrameId last_acked_frame_id() const { return cast_msg_.ack_frame_id; }
 
-  base::TickClock* const clock_;  // Not owned by this class.
+  const base::TickClock* const clock_;  // Not owned by this class.
   RtpPayloadFeedback* const cast_feedback_;
 
   // CastMessageBuilder has only const access to the framer.
@@ -58,7 +58,7 @@ class CastMessageBuilder {
 
   bool slowing_down_ack_;
   bool acked_last_frame_;
-  std::deque<FrameId> ack_queue_;
+  base::circular_deque<FrameId> ack_queue_;
 
   DISALLOW_COPY_AND_ASSIGN(CastMessageBuilder);
 };

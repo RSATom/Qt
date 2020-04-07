@@ -60,6 +60,10 @@ PRIVATE_HEADERS += \
                     maps/qgeorouteparserosrmv5_p.h \
                     maps/qgeorouteparserosrmv4_p.h \
                     maps/qgeoprojection_p.h \
+                    maps/qnavigationmanagerengine_p.h \
+                    maps/qnavigationmanager_p.h \
+                    maps/qgeocameratiles_p_p.h \
+                    maps/qgeotiledmapscene_p_p.h \
                     maps/qcache3q_p.h
 
 SOURCES += \
@@ -95,4 +99,7 @@ SOURCES += \
             maps/qgeorouteparserosrmv5.cpp \
             maps/qgeorouteparserosrmv4.cpp \
             maps/qgeomapparameter.cpp \
+            maps/qnavigationmanagerengine.cpp \
+            maps/qnavigationmanager.cpp \
             maps/qgeoprojection.cpp
+

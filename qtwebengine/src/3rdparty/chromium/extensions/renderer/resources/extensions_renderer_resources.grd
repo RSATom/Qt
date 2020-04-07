@@ -10,7 +10,6 @@
     <includes>
       <!-- Extension libraries. -->
       <include name="IDR_APP_VIEW_JS" file="guest_view/app_view/app_view.js" type="BINDATA" />
-      <include name="IDR_ASYNC_WAITER_JS" file="async_waiter.js" type="BINDATA" />
       <include name="IDR_BROWSER_TEST_ENVIRONMENT_SPECIFIC_BINDINGS_JS" file="browser_test_environment_specific_bindings.js" type="BINDATA" />
       <include name="IDR_ENTRY_ID_MANAGER" file="entry_id_manager.js" type="BINDATA" />
       <include name="IDR_EVENT_BINDINGS_JS" file="event.js" type="BINDATA" />
@@ -24,6 +23,7 @@
       <include name="IDR_EXTENSION_VIEW_CONSTANTS_JS" file="guest_view/extension_view/extension_view_constants.js" type="BINDATA" />
       <include name="IDR_EXTENSION_VIEW_EVENTS_JS" file="guest_view/extension_view/extension_view_events.js" type="BINDATA" />
       <include name="IDR_EXTENSION_VIEW_INTERNAL_CUSTOM_BINDINGS_JS" file="guest_view/extension_view/extension_view_internal.js" type="BINDATA" />
+      <include name="IDR_FEEDBACK_PRIVATE_CUSTOM_BINDINGS_JS" file="feedback_private_custom_bindings.js" type="BINDATA" />
       <include name="IDR_GUEST_VIEW_ATTRIBUTES_JS" file="guest_view/guest_view_attributes.js" type="BINDATA" />
       <include name="IDR_GUEST_VIEW_CONTAINER_JS" file="guest_view/guest_view_container.js" type="BINDATA" />
       <include name="IDR_GUEST_VIEW_DENY_JS" file="guest_view/guest_view_deny.js" type="BINDATA" />

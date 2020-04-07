@@ -175,7 +175,7 @@ void QWindowsPipeReader::notified(DWORD errorCode, DWORD numberOfBytesRead)
     case ERROR_OPERATION_ABORTED:
         if (stopped)
             break;
-        // fall through
+        Q_FALLTHROUGH();
     default:
         emit winError(errorCode, QLatin1String("QWindowsPipeReader::notified"));
         pipeBroken = true;
@@ -270,13 +270,11 @@ void QWindowsPipeReader::readFileCompleted(DWORD errorCode, DWORD numberOfBytesT
 DWORD QWindowsPipeReader::checkPipeState()
 {
     DWORD bytes;
-    if (PeekNamedPipe(handle, NULL, 0, NULL, &bytes, NULL)) {
+    if (PeekNamedPipe(handle, nullptr, 0, nullptr, &bytes, nullptr))
         return bytes;
-    } else {
-        if (!pipeBroken) {
-            pipeBroken = true;
-            emit pipeClosed();
-        }
+    if (!pipeBroken) {
+        pipeBroken = true;
+        emit pipeClosed();
     }
     return 0;
 }
@@ -316,14 +314,14 @@ void QWindowsPipeReader::emitPendingReadyRead()
  */
 bool QWindowsPipeReader::waitForReadyRead(int msecs)
 {
-    if (!readSequenceStarted)
-        return false;
-
     if (readyReadPending) {
         if (!inReadyRead)
             emitPendingReadyRead();
         return true;
     }
+
+    if (!readSequenceStarted)
+        return false;
 
     if (!waitForNotification(msecs))
         return false;

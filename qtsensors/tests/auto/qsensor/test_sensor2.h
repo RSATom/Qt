@@ -59,7 +59,7 @@ private:
     public:\
         classname(QObject *parent = 0);\
         virtual ~classname();\
-        void copyValuesFrom(QSensorReading *other);\
+        void copyValuesFrom(QSensorReading *other) override;\
     private:\
         qTypedWrapper<pclassname> d;
 
@@ -80,7 +80,7 @@ class TestSensor2Filter : public QSensorFilter
 public:
     virtual bool filter(TestSensor2Reading *reading) = 0;
 private:
-    bool filter(QSensorReading *reading) { return filter(static_cast<TestSensor2Reading*>(reading)); }
+    bool filter(QSensorReading *reading) override { return filter(static_cast<TestSensor2Reading*>(reading)); }
 };
 
 class TestSensor2 : public QSensor

@@ -252,7 +252,7 @@
 #endif
 
 /* CPU(AARCH64) - AArch64 */
-#if defined(__aarch64__)
+#if defined(__aarch64__) || defined(_M_ARM64)
 #define WTF_CPU_AARCH64 1
 #if defined(__AARCH64EB__)
 #define WTF_CPU_BIG_ENDIAN 1
@@ -396,6 +396,16 @@
 #define WTF_CPU_MIPS32 1
 #endif
 #endif /* __mips__ */
+
+/* CPU(RISCV64) - RISC-V 64-bit */
+#if defined(__riscv) && __riscv_xlen == 64
+#define WTF_CPU_RISCV64 1
+#endif
+
+/* CPU(RISCV32) - RISC-V 32-bit */
+#if defined(__riscv) && __riscv_xlen == 32
+#define WTF_CPU_RISCV32 1
+#endif
 
 /* ==== OS() - underlying operating system; only to be used for mandated low-level services like 
    virtual memory, not to choose a GUI toolkit ==== */
@@ -948,9 +958,9 @@
 #endif
 
 #if !defined(WTF_USE_JSVALUE64) && !defined(WTF_USE_JSVALUE32) && !defined(WTF_USE_JSVALUE32_64)
-#if (CPU(X86_64) && !CPU(X32) && (OS(UNIX) || OS(WINDOWS) || OS(SOLARIS) || OS(HPUX))) || (CPU(IA64) && !CPU(IA64_32)) || CPU(ALPHA) || CPU(AIX64) || CPU(SPARC64) || CPU(MIPS64) || CPU(AARCH64)
+#if (CPU(X86_64) && !CPU(X32) && (OS(UNIX) || OS(WINDOWS) || OS(SOLARIS) || OS(HPUX))) || (CPU(IA64) && !CPU(IA64_32)) || CPU(ALPHA) || CPU(AIX64) || CPU(SPARC64) || CPU(MIPS64) || CPU(AARCH64) || CPU(RISCV64)
 #define WTF_USE_JSVALUE64 1
-#elif CPU(ARM) || CPU(PPC64)
+#elif CPU(ARM) || CPU(PPC64) || CPU(RISCV32)
 #define WTF_USE_JSVALUE32 1
 #elif OS(WINDOWS) && COMPILER(MINGW)
 /* Using JSVALUE32_64 causes padding/alignement issues for JITStubArg

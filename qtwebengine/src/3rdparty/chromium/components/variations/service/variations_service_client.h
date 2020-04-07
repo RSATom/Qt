@@ -8,12 +8,13 @@
 #include <string>
 
 #include "base/callback.h"
+#include "base/memory/scoped_refptr.h"
 #include "base/strings/string16.h"
 #include "base/version.h"
 #include "components/version_info/version_info.h"
 
-namespace net {
-class URLRequestContextGetter;
+namespace network {
+class SharedURLLoaderFactory;
 }
 
 namespace network_time {
@@ -33,11 +34,12 @@ class VariationsServiceClient {
 
   // Returns a callback that when run returns the base::Version to use for
   // variations seed simulation. VariationsService guarantees that the callback
-  // will be run on a background threadt that permits blocking.
+  // will be run on a background thread that permits blocking.
   virtual base::Callback<base::Version(void)>
   GetVersionForSimulationCallback() = 0;
 
-  virtual net::URLRequestContextGetter* GetURLRequestContext() = 0;
+  virtual scoped_refptr<network::SharedURLLoaderFactory>
+  GetURLLoaderFactory() = 0;
   virtual network_time::NetworkTimeTracker* GetNetworkTimeTracker() = 0;
 
   // Gets the channel of the embedder.

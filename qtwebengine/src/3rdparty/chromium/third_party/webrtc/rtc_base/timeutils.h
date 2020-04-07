@@ -8,8 +8,8 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_RTC_BASE_TIMEUTILS_H_
-#define WEBRTC_RTC_BASE_TIMEUTILS_H_
+#ifndef RTC_BASE_TIMEUTILS_H_
+#define RTC_BASE_TIMEUTILS_H_
 
 #include <stdint.h>
 #include <time.h>
@@ -17,7 +17,7 @@
 #include <ctime>
 #include <string>
 
-#include "webrtc/rtc_base/checks.h"
+#include "rtc_base/checks.h"
 
 namespace rtc {
 
@@ -79,7 +79,6 @@ int64_t TimeMicros();
 
 // Returns the current time in nanoseconds.
 int64_t TimeNanos();
-
 
 // Returns a future timestamp, 'elapsed' milliseconds from now.
 int64_t TimeAfter(int64_t elapsed);
@@ -148,6 +147,8 @@ class IntervalRange {
     return min_ == o.min_ && max_ == o.max_;
   }
 
+  bool operator!=(const IntervalRange& o) const { return !operator==(o); }
+
  private:
   int min_;
   int max_;
@@ -155,4 +156,4 @@ class IntervalRange {
 
 }  // namespace rtc
 
-#endif  // WEBRTC_RTC_BASE_TIMEUTILS_H_
+#endif  // RTC_BASE_TIMEUTILS_H_

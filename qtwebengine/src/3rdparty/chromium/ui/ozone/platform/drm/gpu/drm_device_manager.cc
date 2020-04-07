@@ -38,8 +38,7 @@ DrmDeviceManager::~DrmDeviceManager() {
 }
 
 bool DrmDeviceManager::AddDrmDevice(const base::FilePath& path,
-                                    const base::FileDescriptor& fd) {
-  base::File file(fd.fd);
+                                    base::File file) {
   auto it =
       std::find_if(devices_.begin(), devices_.end(), FindByDevicePath(path));
   if (it != devices_.end()) {
@@ -100,10 +99,6 @@ scoped_refptr<DrmDevice> DrmDeviceManager::GetDrmDevice(
     return primary_device_;
 
   return it->second;
-}
-
-scoped_refptr<DrmDevice> DrmDeviceManager::GetPrimaryDrmDevice() {
-  return primary_device_;
 }
 
 const DrmDeviceVector& DrmDeviceManager::GetDrmDevices() const {

@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <utility>
+
 #include "base/callback_helpers.h"
 #include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
@@ -26,8 +28,8 @@ class DelayedRestartTestApiDelegate : public TestRuntimeAPIDelegate {
 
   // TestRuntimeAPIDelegate:
   bool RestartDevice(std::string* error_message) override {
-    if (!quit_closure_.is_null())
-      base::ResetAndReturn(&quit_closure_).Run();
+    if (quit_closure_)
+      std::move(quit_closure_).Run();
 
     *error_message = "Success.";
     restart_done_ = true;
@@ -46,7 +48,7 @@ class DelayedRestartTestApiDelegate : public TestRuntimeAPIDelegate {
   }
 
  private:
-  base::Closure quit_closure_;
+  base::OnceClosure quit_closure_;
 
   bool restart_done_ = false;
 
@@ -98,14 +100,15 @@ class RestartAfterDelayApiTest : public ApiUnitTest {
   ~RestartAfterDelayApiTest() override {}
 
   void SetUp() override {
-    ApiUnitTest::SetUp();
-
     // Use our ExtensionsBrowserClient that returns our RuntimeAPIDelegate.
-    test_browser_client_.reset(
-        new DelayedRestartExtensionsBrowserClient(browser_context()));
-    test_browser_client_->set_extension_system_factory(
-        extensions_browser_client()->extension_system_factory());
-    ExtensionsBrowserClient::Set(test_browser_client_.get());
+    std::unique_ptr<DelayedRestartExtensionsBrowserClient> test_browser_client =
+        std::make_unique<DelayedRestartExtensionsBrowserClient>(
+            browser_context());
+
+    // ExtensionsTest takes ownership of the ExtensionsBrowserClient.
+    SetExtensionsBrowserClient(std::move(test_browser_client));
+
+    ApiUnitTest::SetUp();
 
     // The RuntimeAPI should only be accessed (i.e. constructed) after the above
     // ExtensionsBrowserClient has been setup.
@@ -116,11 +119,17 @@ class RestartAfterDelayApiTest : public ApiUnitTest {
     runtime_api->AllowNonKioskAppsInRestartAfterDelayForTesting();
 
     RuntimeAPI::RegisterPrefs(
-        test_browser_client_->testing_pref_service()->registry());
+        static_cast<DelayedRestartExtensionsBrowserClient*>(
+            extensions_browser_client())
+            ->testing_pref_service()
+            ->registry());
   }
 
   base::TimeTicks WaitForSuccessfulRestart() {
-    return test_browser_client_->api_delegate()->WaitForSuccessfulRestart();
+    return static_cast<DelayedRestartExtensionsBrowserClient*>(
+               extensions_browser_client())
+        ->api_delegate()
+        ->WaitForSuccessfulRestart();
   }
 
   bool IsDelayedRestartTimerRunning() {
@@ -165,8 +174,6 @@ class RestartAfterDelayApiTest : public ApiUnitTest {
     api_test_utils::RunFunction(function, args, browser_context());
     return function->GetError();
   }
-
-  std::unique_ptr<DelayedRestartExtensionsBrowserClient> test_browser_client_;
 
   DISALLOW_COPY_AND_ASSIGN(RestartAfterDelayApiTest);
 };

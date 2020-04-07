@@ -15,7 +15,6 @@
 
 #include "core/fpdfapi/parser/cpdf_indirect_object_holder.h"
 #include "core/fpdfapi/parser/cpdf_object.h"
-#include "core/fxcrt/fx_basic.h"
 #include "core/fxcrt/fx_coordinates.h"
 #include "third_party/base/ptr_util.h"
 
@@ -25,7 +24,7 @@ class CPDF_Array : public CPDF_Object {
       std::vector<std::unique_ptr<CPDF_Object>>::const_iterator;
 
   CPDF_Array();
-  explicit CPDF_Array(const CFX_WeakPtr<CFX_ByteStringPool>& pPool);
+  explicit CPDF_Array(const WeakPtr<ByteStringPool>& pPool);
   ~CPDF_Array() override;
 
   // CPDF_Object:
@@ -38,18 +37,23 @@ class CPDF_Array : public CPDF_Object {
 
   bool IsEmpty() const { return m_Objects.empty(); }
   size_t GetCount() const { return m_Objects.size(); }
-  CPDF_Object* GetObjectAt(size_t index) const;
-  CPDF_Object* GetDirectObjectAt(size_t index) const;
-  CFX_ByteString GetStringAt(size_t index) const;
-  CFX_WideString GetUnicodeTextAt(size_t index) const;
+  CPDF_Object* GetObjectAt(size_t index);
+  const CPDF_Object* GetObjectAt(size_t index) const;
+  CPDF_Object* GetDirectObjectAt(size_t index);
+  const CPDF_Object* GetDirectObjectAt(size_t index) const;
+  ByteString GetStringAt(size_t index) const;
+  WideString GetUnicodeTextAt(size_t index) const;
   int GetIntegerAt(size_t index) const;
   float GetNumberAt(size_t index) const;
-  CPDF_Dictionary* GetDictAt(size_t index) const;
-  CPDF_Stream* GetStreamAt(size_t index) const;
-  CPDF_Array* GetArrayAt(size_t index) const;
+  CPDF_Dictionary* GetDictAt(size_t index);
+  const CPDF_Dictionary* GetDictAt(size_t index) const;
+  CPDF_Stream* GetStreamAt(size_t index);
+  const CPDF_Stream* GetStreamAt(size_t index) const;
+  CPDF_Array* GetArrayAt(size_t index);
+  const CPDF_Array* GetArrayAt(size_t index) const;
   float GetFloatAt(size_t index) const { return GetNumberAt(index); }
-  CFX_Matrix GetMatrix();
-  CFX_FloatRect GetRect();
+  CFX_Matrix GetMatrix() const;
+  CFX_FloatRect GetRect() const;
 
   // Takes ownership of |pObj|, returns unowned pointer to it.
   CPDF_Object* Add(std::unique_ptr<CPDF_Object> pObj);
@@ -100,9 +104,8 @@ class CPDF_Array : public CPDF_Object {
         index, pdfium::MakeUnique<T>(m_pPool, std::forward<Args>(args)...)));
   }
 
-  void RemoveAt(size_t index);
   void Clear();
-  void Truncate(size_t nNewSize);
+  void RemoveAt(size_t index);
   void ConvertToIndirectObjectAt(size_t index, CPDF_IndirectObjectHolder* pDoc);
 
   const_iterator begin() const { return m_Objects.begin(); }
@@ -114,7 +117,7 @@ class CPDF_Array : public CPDF_Object {
       std::set<const CPDF_Object*>* pVisited) const override;
 
   std::vector<std::unique_ptr<CPDF_Object>> m_Objects;
-  CFX_WeakPtr<CFX_ByteStringPool> m_pPool;
+  WeakPtr<ByteStringPool> m_pPool;
 };
 
 inline CPDF_Array* ToArray(CPDF_Object* obj) {

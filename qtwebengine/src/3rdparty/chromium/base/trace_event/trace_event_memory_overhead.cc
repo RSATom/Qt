@@ -47,6 +47,8 @@ const char* ObjectTypeToString(TraceEventMemoryOverhead::ObjectType type) {
       return "base::Value";
     case TraceEventMemoryOverhead::kTraceEventMemoryOverhead:
       return "TraceEventMemoryOverhead";
+    case TraceEventMemoryOverhead::kFrameMetrics:
+      return "FrameMetrics";
     case TraceEventMemoryOverhead::kLast:
       NOTREACHED();
   }
@@ -58,7 +60,7 @@ const char* ObjectTypeToString(TraceEventMemoryOverhead::ObjectType type) {
 
 TraceEventMemoryOverhead::TraceEventMemoryOverhead() : allocated_objects_() {}
 
-TraceEventMemoryOverhead::~TraceEventMemoryOverhead() {}
+TraceEventMemoryOverhead::~TraceEventMemoryOverhead() = default;
 
 void TraceEventMemoryOverhead::AddInternal(ObjectType object_type,
                                            size_t count,
@@ -93,7 +95,7 @@ void TraceEventMemoryOverhead::AddRefCountedString(
 }
 
 void TraceEventMemoryOverhead::AddValue(const Value& value) {
-  switch (value.GetType()) {
+  switch (value.type()) {
     case Value::Type::NONE:
     case Value::Type::BOOLEAN:
     case Value::Type::INTEGER:

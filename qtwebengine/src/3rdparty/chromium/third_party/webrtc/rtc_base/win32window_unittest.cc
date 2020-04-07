@@ -8,9 +8,9 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/rtc_base/win32window.h"
-#include "webrtc/rtc_base/gunit.h"
-#include "webrtc/rtc_base/logging.h"
+#include "rtc_base/win32window.h"
+#include "rtc_base/gunit.h"
+#include "rtc_base/logging.h"
 
 static LRESULT kDummyResult = 0x1234ABCD;
 
@@ -20,17 +20,17 @@ class TestWindow : public rtc::Win32Window {
   const MSG& msg() const { return msg_; }
   bool destroyed() const { return destroyed_; }
 
-  virtual bool OnMessage(UINT uMsg, WPARAM wParam,
-                         LPARAM lParam, LRESULT& result) {
+  bool OnMessage(UINT uMsg,
+                 WPARAM wParam,
+                 LPARAM lParam,
+                 LRESULT& result) override {
     msg_.message = uMsg;
     msg_.wParam = wParam;
     msg_.lParam = lParam;
     result = kDummyResult;
     return true;
   }
-  virtual void OnNcDestroy() {
-    destroyed_ = true;
-  }
+  void OnNcDestroy() override { destroyed_ = true; }
 
  private:
   MSG msg_;

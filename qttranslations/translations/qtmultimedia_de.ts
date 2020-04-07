@@ -58,12 +58,52 @@
 <context>
     <name>DSCameraSession</name>
     <message>
+        <source>Failed to configure preview format</source>
+        <translation>Das Vorschauformat konnte nicht konfiguriert werden</translation>
+    </message>
+    <message>
+        <source>Failed to connect graph</source>
+        <translation>Es konnte keine Verbindung zum Graphen hergestellt werden</translation>
+    </message>
+    <message>
+        <source>Failed to get stream control</source>
+        <translation>Es konnte kein Kontrollobjekt für den Stream erhalten werden</translation>
+    </message>
+    <message>
+        <source>Failed to start</source>
+        <translation>Fehlschlag beim Starten</translation>
+    </message>
+    <message>
+        <source>Failed to stop</source>
+        <translation>Fehlschlag beim Anhalten</translation>
+    </message>
+    <message>
         <source>Camera not ready for capture</source>
         <translation>Die Kamera ist nicht aufnahmebereit</translation>
     </message>
     <message>
         <source>Could not save image to file.</source>
         <translation>Das Bild konnte nicht in eine Datei gespeichert werden.</translation>
+    </message>
+    <message>
+        <source>Failed to create filter graph</source>
+        <translation>Es konnte kein Filtergraph erstellt werden</translation>
+    </message>
+    <message>
+        <source>Failed to create graph builder</source>
+        <translation>Es konnte kein Graph-Builder-Objekt erstellt werden</translation>
+    </message>
+    <message>
+        <source>Failed to connect capture graph and filter graph</source>
+        <translation>Aufnahme- und Filtergraph konnten nicht verbunden werden</translation>
+    </message>
+    <message>
+        <source>No capture device found</source>
+        <translation>Es konnte keine Kamera gefunden werden</translation>
+    </message>
+    <message>
+        <source>Failed to create null renderer</source>
+        <translation>Es konnte kein Null-Renderer erstellt werden</translation>
     </message>
 </context>
 <context>

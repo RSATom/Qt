@@ -40,8 +40,8 @@
 #ifndef SELECTSIGNALDIALOG_H
 #define SELECTSIGNALDIALOG_H
 
-#include <QtWidgets/QDialog>
-#include <QtCore/QStringList>
+#include <QtWidgets/qdialog.h>
+#include <QtCore/qstringlist.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -73,7 +73,8 @@ public:
 
     Method selectedMethod() const;
 
-    void populate(QDesignerFormEditorInterface *core, QObject *object, QString defaultSignal);
+    void populate(QDesignerFormEditorInterface *core, QObject *object,
+                  const QString &defaultSignal);
 
 private slots:
     void currentChanged(const QModelIndex &, const QModelIndex &);

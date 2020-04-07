@@ -8,12 +8,13 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/call/rtcp_demuxer.h"
+#include "call/rtcp_demuxer.h"
 
-#include "webrtc/call/rtcp_packet_sink_interface.h"
-#include "webrtc/call/rtp_rtcp_demuxer_helper.h"
-#include "webrtc/common_types.h"
-#include "webrtc/rtc_base/checks.h"
+#include "api/rtp_headers.h"
+#include "call/rtcp_packet_sink_interface.h"
+#include "call/rtp_rtcp_demuxer_helper.h"
+#include "common_types.h"  // NOLINT(build/include)
+#include "rtc_base/checks.h"
 
 namespace webrtc {
 
@@ -65,7 +66,7 @@ void RtcpDemuxer::RemoveBroadcastSink(const RtcpPacketSinkInterface* sink) {
 
 void RtcpDemuxer::OnRtcpPacket(rtc::ArrayView<const uint8_t> packet) {
   // Perform sender-SSRC-based demuxing for packets with a sender-SSRC.
-  rtc::Optional<uint32_t> sender_ssrc = ParseRtcpPacketSenderSsrc(packet);
+  absl::optional<uint32_t> sender_ssrc = ParseRtcpPacketSenderSsrc(packet);
   if (sender_ssrc) {
     auto it_range = ssrc_sinks_.equal_range(*sender_ssrc);
     for (auto it = it_range.first; it != it_range.second; ++it) {
@@ -80,7 +81,7 @@ void RtcpDemuxer::OnRtcpPacket(rtc::ArrayView<const uint8_t> packet) {
   }
 }
 
-void RtcpDemuxer::OnRsidResolved(const std::string& rsid, uint32_t ssrc) {
+void RtcpDemuxer::OnSsrcBoundToRsid(const std::string& rsid, uint32_t ssrc) {
   // Record the new SSRC association for all of the sinks that were associated
   // with the RSID.
   auto it_range = rsid_sinks_.equal_range(rsid);

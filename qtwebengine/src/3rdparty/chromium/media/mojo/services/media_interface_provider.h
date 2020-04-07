@@ -8,12 +8,12 @@
 #include "media/mojo/services/media_mojo_export.h"
 #include "mojo/public/cpp/bindings/binding.h"
 #include "services/service_manager/public/cpp/binder_registry.h"
-#include "services/service_manager/public/interfaces/interface_provider.mojom.h"
+#include "services/service_manager/public/mojom/interface_provider.mojom.h"
 
 namespace media {
 
 class MEDIA_MOJO_EXPORT MediaInterfaceProvider
-    : public NON_EXPORTED_BASE(service_manager::mojom::InterfaceProvider) {
+    : public service_manager::mojom::InterfaceProvider {
  public:
   explicit MediaInterfaceProvider(
       service_manager::mojom::InterfaceProviderRequest request);

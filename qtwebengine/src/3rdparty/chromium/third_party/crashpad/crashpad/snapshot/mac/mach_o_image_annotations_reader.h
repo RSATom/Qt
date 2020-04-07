@@ -20,12 +20,13 @@
 #include <vector>
 
 #include "base/macros.h"
+#include "snapshot/annotation_snapshot.h"
 #include "snapshot/mac/process_types.h"
 
 namespace crashpad {
 
 class MachOImageReader;
-class ProcessReader;
+class ProcessReaderMac;
 
 //! \brief A reader for annotations stored in a Mach-O image mapped into another
 //!     process.
@@ -53,7 +54,7 @@ class MachOImageAnnotationsReader {
   //!     contained within the remote process.
   //! \param[in] name The module’s name, a string to be used in logged messages.
   //!     This string is for diagnostic purposes only, and may be empty.
-  MachOImageAnnotationsReader(ProcessReader* process_reader,
+  MachOImageAnnotationsReader(ProcessReaderMac* process_reader,
                               const MachOImageReader* image_reader,
                               const std::string& name);
 
@@ -66,6 +67,10 @@ class MachOImageAnnotationsReader {
   //! \brief Returns the module’s annotations that are organized as key-value
   //!     pairs, where all keys and values are strings.
   std::map<std::string, std::string> SimpleMap() const;
+
+  //! \brief Returns the module’s annotations that are organized as a list of
+  //      typed annotation objects.
+  std::vector<AnnotationSnapshot> AnnotationsList() const;
 
  private:
   // Reades crashreporter_annotations_t::message and
@@ -81,8 +86,12 @@ class MachOImageAnnotationsReader {
   void ReadCrashpadSimpleAnnotations(
       std::map<std::string, std::string>* simple_map_annotations) const;
 
+  // Reads CrashpadInfo::annotations_list_ on behalf of AnnotationsList().
+  void ReadCrashpadAnnotationsList(
+      std::vector<AnnotationSnapshot>* vector_annotations) const;
+
   std::string name_;
-  ProcessReader* process_reader_;  // weak
+  ProcessReaderMac* process_reader_;  // weak
   const MachOImageReader* image_reader_;  // weak
 
   DISALLOW_COPY_AND_ASSIGN(MachOImageAnnotationsReader);

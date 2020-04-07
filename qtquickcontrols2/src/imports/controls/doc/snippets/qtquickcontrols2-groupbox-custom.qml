@@ -26,17 +26,17 @@
 ****************************************************************************/
 
 //! [file]
-import QtQuick 2.6
-import QtQuick.Controls 2.1
+import QtQuick 2.12
+import QtQuick.Controls 2.12
 
 GroupBox {
     id: control
     title: qsTr("GroupBox")
 
     background: Rectangle {
-        y: control.topPadding - control.padding
+        y: control.topPadding - control.bottomPadding
         width: parent.width
-        height: parent.height - control.topPadding + control.padding
+        height: parent.height - control.topPadding + control.bottomPadding
         color: "transparent"
         border.color: "#21be2b"
         radius: 2

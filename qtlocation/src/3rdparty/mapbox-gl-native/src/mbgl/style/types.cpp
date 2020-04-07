@@ -25,6 +25,16 @@ MBGL_DEFINE_ENUM(TranslateAnchorType, {
     { TranslateAnchorType::Viewport, "viewport" },
 });
 
+MBGL_DEFINE_ENUM(RasterResamplingType, {
+    { RasterResamplingType::Linear, "linear" },
+    { RasterResamplingType::Nearest, "nearest" },
+});
+
+MBGL_DEFINE_ENUM(HillshadeIlluminationAnchorType, {
+    { HillshadeIlluminationAnchorType::Map, "map" },
+    { HillshadeIlluminationAnchorType::Viewport, "viewport" },
+});
+
 MBGL_DEFINE_ENUM(RotateAnchorType, {
     { RotateAnchorType::Map, "map" },
     { RotateAnchorType::Viewport, "viewport" },
@@ -52,6 +62,7 @@ MBGL_DEFINE_ENUM(LineJoinType, {
 MBGL_DEFINE_ENUM(SymbolPlacementType, {
     { SymbolPlacementType::Point, "point" },
     { SymbolPlacementType::Line, "line" },
+    { SymbolPlacementType::LineCenter, "line-center" },
 });
 
 MBGL_DEFINE_ENUM(SymbolAnchorType, {

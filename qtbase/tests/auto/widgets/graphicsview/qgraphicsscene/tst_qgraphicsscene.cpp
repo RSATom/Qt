@@ -210,7 +210,7 @@ private slots:
     void mouseEventPropagation_focus();
     void mouseEventPropagation_doubleclick();
     void mouseEventPropagation_mouseMove();
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
     void dragAndDrop_simple();
     void dragAndDrop_disabledOrInvisible();
     void dragAndDrop_propagate();
@@ -254,6 +254,7 @@ private slots:
     void zeroScale();
     void focusItemChangedSignal();
     void minimumRenderSize();
+    void focusOnTouch();
 
     // task specific tests below me
     void task139710_bspTreeCrash();
@@ -295,7 +296,7 @@ void tst_QGraphicsScene::construction()
 
 static inline const QGraphicsItem *itemAt(const QGraphicsScene &scene, qreal x, qreal y)
 {
-    return scene.items(QPointF(x, y)).value(0, Q_NULLPTR);
+    return scene.items(QPointF(x, y)).value(0, nullptr);
 }
 
 void tst_QGraphicsScene::sceneRect()
@@ -1275,10 +1276,10 @@ void tst_QGraphicsScene::removeItem()
     view.show();
     QApplication::setActiveWindow(&view);
     QVERIFY(QTest::qWaitForWindowActive(&view));
-    QTest::mouseMove(view.viewport(), view.mapFromScene(hoverItem->scenePos() + QPointF(20, 20)), Qt::NoButton);
+    QTest::mouseMove(view.windowHandle(), view.mapFromScene(hoverItem->scenePos() + QPointF(20, 20)));
     QTRY_VERIFY(!hoverItem->isHovered);
 
-    QTest::mouseMove(view.viewport(), view.mapFromScene(hoverItem->scenePos()), Qt::NoButton);
+    QTest::mouseMove(view.windowHandle(), view.mapFromScene(hoverItem->scenePos()));
     QTRY_VERIFY(hoverItem->isHovered);
 
     scene.removeItem(hoverItem);
@@ -2204,7 +2205,7 @@ private:
     }
 };
 
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
 void tst_QGraphicsScene::dragAndDrop_simple()
 {
     DndTester *item = new DndTester(QRectF(-10, -10, 20, 20));
@@ -2657,7 +2658,7 @@ void tst_QGraphicsScene::render()
 
 void tst_QGraphicsScene::renderItemsWithNegativeWidthOrHeight()
 {
-#if defined(Q_OS_ANDROID) && !defined(Q_OS_ANDROID_EMBEDDED)
+#if defined(Q_OS_ANDROID) && !defined(Q_OS_ANDROID_EMBEDDED) || defined(Q_OS_WINRT)
     QSKIP("Test only works on platforms with resizable windows");
 #endif
 
@@ -3108,7 +3109,6 @@ void tst_QGraphicsScene::tabFocus_sceneWithFocusableItems()
 
     // Check that everyone loses focus when the widget is hidden.
     widget.hide();
-    QTest::qWait(15);
     QTRY_VERIFY(!view->hasFocus());
     QVERIFY(!view->viewport()->hasFocus());
     QVERIFY(!scene.hasFocus());
@@ -4056,7 +4056,6 @@ void tst_QGraphicsScene::isActive()
         QVERIFY(!scene2.hasFocus());
 
         toplevel1.hide();
-        QTest::qWait(50);
         QTRY_VERIFY(!scene1.isActive());
         QTRY_VERIFY(!scene2.isActive());
         QVERIFY(!scene1.hasFocus());
@@ -4319,6 +4318,7 @@ void tst_QGraphicsScene::removeFullyTransparentItem()
     view.show();
     qApp->setActiveWindow(&view);
     QVERIFY(QTest::qWaitForWindowActive(&view));
+    QCoreApplication::processEvents(); // Process all queued paint events
 
     // NB! The parent has the ItemHasNoContents flag set, which means
     // the parent itself doesn't generate any update requests, only the
@@ -4381,7 +4381,6 @@ void tst_QGraphicsScene::taskQT657_paintIntoCacheWithTransparentParts()
     QVERIFY(QTest::qWaitForWindowExposed(view));
     view->repaints = 0;
     proxy->update(10, 10, 10, 10);
-    QTest::qWait(50);
     QTRY_VERIFY(view->repaints > 0);
 
     QPixmap pix;
@@ -4427,7 +4426,6 @@ void tst_QGraphicsScene::taskQTBUG_7863_paintIntoCacheWithTransparentParts()
         QVERIFY(QTest::qWaitForWindowExposed(view));
         view->repaints = 0;
         rectItem->update(10, 10, 10, 10);
-        QTest::qWait(50);
         QTRY_VERIFY(view->repaints > 0);
 
         QPixmap pix;
@@ -4469,7 +4467,6 @@ void tst_QGraphicsScene::taskQTBUG_7863_paintIntoCacheWithTransparentParts()
         QVERIFY(QTest::qWaitForWindowExposed(view));
         view->repaints = 0;
         rectItem->update(10, 10, 10, 10);
-        QTest::qWait(50);
         QTRY_VERIFY(view->repaints > 0);
 
         QPixmap pix;
@@ -4510,7 +4507,6 @@ void tst_QGraphicsScene::taskQTBUG_7863_paintIntoCacheWithTransparentParts()
         QVERIFY(QTest::qWaitForWindowExposed(view));
         view->repaints = 0;
         rectItem->update(10, 10, 10, 10);
-        QTest::qWait(50);
         QTRY_VERIFY(view->repaints > 0);
 
         QPixmap pix;
@@ -4762,6 +4758,41 @@ void tst_QGraphicsScene::minimumRenderSize()
     QCOMPARE(viewRepaints, bigParent->repaints);
     QVERIFY(bigParent->repaints > smallChild->repaints);
     QVERIFY(smallChild->repaints > smallerGrandChild->repaints);
+}
+
+void tst_QGraphicsScene::focusOnTouch()
+{
+    QGraphicsScene scene;
+    QGraphicsView view(&scene);
+    scene.setSceneRect(0, 0, 100, 100);
+    QGraphicsRectItem *rect = scene.addRect(0, 0, 100, 100);
+    rect->setFlag(QGraphicsItem::ItemIsFocusable, true);
+
+    view.show();
+    QApplication::setActiveWindow(&view);
+    QVERIFY(QTest::qWaitForWindowActive(&view));
+
+    QVERIFY(!rect->hasFocus());
+
+    scene.setFocusOnTouch(false);
+
+    QTouchDevice device;
+    device.setType(QTouchDevice::TouchPad);
+    QList<QTouchEvent::TouchPoint> touchPoints;
+    QTouchEvent::TouchPoint point;
+    point.setScenePos(QPointF(10, 10));
+    point.setState(Qt::TouchPointPressed);
+    touchPoints.append(point);
+    QTouchEvent event(QEvent::TouchBegin, &device, Qt::NoModifier, Qt::TouchPointStates(),
+                      touchPoints);
+
+    QApplication::sendEvent(&scene, &event);
+
+    QVERIFY(!rect->hasFocus());
+    scene.setFocusOnTouch(true);
+
+    QApplication::sendEvent(&scene, &event);
+    QVERIFY(rect->hasFocus());
 }
 
 void tst_QGraphicsScene::taskQTBUG_15977_renderWithDeviceCoordinateCache()

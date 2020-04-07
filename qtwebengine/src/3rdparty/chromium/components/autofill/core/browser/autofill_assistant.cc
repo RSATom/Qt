@@ -39,7 +39,8 @@ bool AutofillAssistant::CanShowCreditCardAssist(
 
   for (auto& cur_form : base::Reversed(form_structures)) {
     if (cur_form->IsCompleteCreditCardForm()) {
-      credit_card_form_data_.reset(new FormData(cur_form->ToFormData()));
+      credit_card_form_data_ =
+          std::make_unique<FormData>(cur_form->ToFormData());
       break;
     }
   }
@@ -59,8 +60,10 @@ void AutofillAssistant::OnUserDidAcceptCreditCardFill(const CreditCard& card) {
       autofill_manager_->GetAsFullCardRequestUIDelegate());
 }
 
-void AutofillAssistant::OnFullCardRequestSucceeded(const CreditCard& card,
-                                                   const base::string16& cvc) {
+void AutofillAssistant::OnFullCardRequestSucceeded(
+    const payments::FullCardRequest& /* full_card_request */,
+    const CreditCard& card,
+    const base::string16& cvc) {
   autofill_manager_->FillCreditCardForm(kNoQueryId, *credit_card_form_data_,
                                         credit_card_form_data_->fields[0], card,
                                         cvc);

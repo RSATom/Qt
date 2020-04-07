@@ -5,6 +5,7 @@
 #ifndef PUBLIC_CPP_FPDF_DELETERS_H_
 #define PUBLIC_CPP_FPDF_DELETERS_H_
 
+#include "public/fpdf_annot.h"
 #include "public/fpdf_dataavail.h"
 #include "public/fpdf_edit.h"
 #include "public/fpdf_formfill.h"
@@ -13,6 +14,10 @@
 #include "public/fpdfview.h"
 
 // Custom deleters for using FPDF_* types with std::unique_ptr<>.
+
+struct FPDFAnnotationDeleter {
+  inline void operator()(FPDF_ANNOTATION annot) { FPDFPage_CloseAnnot(annot); }
+};
 
 struct FPDFAvailDeleter {
   inline void operator()(FPDF_AVAIL avail) { FPDFAvail_Destroy(avail); }
@@ -38,6 +43,12 @@ struct FPDFTextPageDeleter {
 
 struct FPDFPageDeleter {
   inline void operator()(FPDF_PAGE page) { FPDF_ClosePage(page); }
+};
+
+struct FPDFPageLinkDeleter {
+  inline void operator()(FPDF_PAGELINK pagelink) {
+    FPDFLink_CloseWebLinks(pagelink);
+  }
 };
 
 struct FPDFStructTreeDeleter {

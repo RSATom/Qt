@@ -8,57 +8,54 @@
 #include <utility>
 
 #include "base/callback_helpers.h"
-#include "base/memory/shared_memory.h"
+#include "base/memory/unsafe_shared_memory_region.h"
 #include "base/sync_socket.h"
 #include "mojo/public/cpp/system/platform_handle.h"
 
 namespace media {
 
 MojoAudioOutputStream::MojoAudioOutputStream(
-    mojom::AudioOutputStreamRequest request,
     CreateDelegateCallback create_delegate_callback,
     StreamCreatedCallback stream_created_callback,
-    base::OnceClosure deleter_callback)
+    DeleterCallback deleter_callback)
     : stream_created_callback_(std::move(stream_created_callback)),
       deleter_callback_(std::move(deleter_callback)),
-      binding_(this, std::move(request)),
+      binding_(this),
       weak_factory_(this) {
-  DCHECK(thread_checker_.CalledOnValidThread());
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK(stream_created_callback_);
   DCHECK(deleter_callback_);
-  // |this| owns |binding_|, so unretained is safe.
-  binding_.set_connection_error_handler(
-      base::Bind(&MojoAudioOutputStream::OnError, base::Unretained(this)));
   delegate_ = std::move(create_delegate_callback).Run(this);
   if (!delegate_) {
     // Failed to initialize the stream. We cannot call |deleter_callback_| yet,
     // since construction isn't done.
-    binding_.Close();
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::Bind(&MojoAudioOutputStream::OnError,
-                              weak_factory_.GetWeakPtr()));
+        FROM_HERE,
+        base::BindOnce(&MojoAudioOutputStream::OnStreamError,
+                       weak_factory_.GetWeakPtr(), /* not used */ 0));
   }
 }
 
 MojoAudioOutputStream::~MojoAudioOutputStream() {
-  DCHECK(thread_checker_.CalledOnValidThread());
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 }
 
 void MojoAudioOutputStream::Play() {
-  DCHECK(thread_checker_.CalledOnValidThread());
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   delegate_->OnPlayStream();
 }
 
 void MojoAudioOutputStream::Pause() {
-  DCHECK(thread_checker_.CalledOnValidThread());
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   delegate_->OnPauseStream();
 }
 
 void MojoAudioOutputStream::SetVolume(double volume) {
-  DCHECK(thread_checker_.CalledOnValidThread());
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if (volume < 0 || volume > 1) {
     LOG(ERROR) << "MojoAudioOutputStream::SetVolume(" << volume
                << ") out of range.";
-    OnError();
+    OnStreamError(/*not used*/ 0);
     return;
   }
   delegate_->OnSetVolume(volume);
@@ -66,38 +63,43 @@ void MojoAudioOutputStream::SetVolume(double volume) {
 
 void MojoAudioOutputStream::OnStreamCreated(
     int stream_id,
-    const base::SharedMemory* shared_memory,
+    base::UnsafeSharedMemoryRegion shared_memory_region,
     std::unique_ptr<base::CancelableSyncSocket> foreign_socket) {
-  DCHECK(thread_checker_.CalledOnValidThread());
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(stream_created_callback_);
-  DCHECK(shared_memory);
   DCHECK(foreign_socket);
 
-  base::SharedMemoryHandle foreign_memory_handle =
-      base::SharedMemory::DuplicateHandle(shared_memory->handle());
-  DCHECK(base::SharedMemory::IsHandleValid(foreign_memory_handle));
+  if (!shared_memory_region.IsValid()) {
+    OnStreamError(/*not used*/ 0);
+    return;
+  }
 
-  mojo::ScopedSharedBufferHandle buffer_handle = mojo::WrapSharedMemoryHandle(
-      foreign_memory_handle, shared_memory->requested_size(), false);
   mojo::ScopedHandle socket_handle =
       mojo::WrapPlatformFile(foreign_socket->Release());
 
-  DCHECK(buffer_handle.is_valid());
   DCHECK(socket_handle.is_valid());
 
-  base::ResetAndReturn(&stream_created_callback_)
-      .Run(std::move(buffer_handle), std::move(socket_handle));
+  mojom::AudioOutputStreamPtr stream;
+  binding_.Bind(mojo::MakeRequest(&stream));
+  // |this| owns |binding_| so unretained is safe.
+  binding_.set_connection_error_handler(base::BindOnce(
+      &MojoAudioOutputStream::StreamConnectionLost, base::Unretained(this)));
+
+  std::move(stream_created_callback_)
+      .Run(std::move(stream), {base::in_place, std::move(shared_memory_region),
+                               std::move(socket_handle)});
 }
 
 void MojoAudioOutputStream::OnStreamError(int stream_id) {
-  DCHECK(thread_checker_.CalledOnValidThread());
-  OnError();
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  DCHECK(deleter_callback_);
+  std::move(deleter_callback_).Run(/*had_error*/ true);  // Deletes |this|.
 }
 
-void MojoAudioOutputStream::OnError() {
-  DCHECK(thread_checker_.CalledOnValidThread());
+void MojoAudioOutputStream::StreamConnectionLost() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(deleter_callback_);
-  std::move(deleter_callback_).Run();  // Deletes |this|.
+  std::move(deleter_callback_).Run(/*had_error*/ false);  // Deletes |this|.
 }
 
 }  // namespace media

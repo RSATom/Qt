@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/message_loop/message_loop.h"
 #include "build/build_config.h"
 
 #if defined(OS_POSIX)
@@ -48,7 +47,7 @@ const unsigned kNumFDsToSend = 7;  // per message
 const unsigned kNumMessages = 20;
 const char* kDevZeroPath = "/dev/zero";
 
-#if defined(OS_POSIX)
+#if defined(OS_POSIX) || defined(OS_FUCHSIA)
 static_assert(kNumFDsToSend ==
                   IPC::MessageAttachmentSet::kMaxDescriptorsPerMessage,
               "The number of FDs to send must be kMaxDescriptorsPerMessage.");
@@ -83,7 +82,7 @@ class MyChannelDescriptorListener : public MyChannelDescriptorListenerBase {
   }
 
   void OnChannelError() override {
-    base::MessageLoop::current()->QuitWhenIdle();
+    base::RunLoop::QuitCurrentWhenIdleDeprecated();
   }
 
  protected:
@@ -106,7 +105,7 @@ class MyChannelDescriptorListener : public MyChannelDescriptorListenerBase {
 
     ++num_fds_received_;
     if (num_fds_received_ == kNumFDsToSend * kNumMessages)
-      base::MessageLoop::current()->QuitWhenIdle();
+      base::RunLoop::QuitCurrentWhenIdleDeprecated();
   }
 
  private:

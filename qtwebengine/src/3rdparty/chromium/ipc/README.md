@@ -54,7 +54,7 @@ In the limit, this is the preferred destination for any message conversions
 pertaining to foundational system services (more info at
 [https://www.chromium.org/servicification](https://www.chromium.org/servicification).)
 For other code it may make sense to introduce services elsewhere (*e.g.*, in
-`//chrome/services` or `//components/foo/service`), or to simply
+`//chrome/services` or `//components/services`), or to simply
 avoid using services altogether for now and instead define some one-off Mojom
 interface alongside the old messages file.
 
@@ -157,7 +157,7 @@ service. Your first order of business is to translate this into a suitable
 public interface definition within that service:
 
 ``` cpp
-// src/services/data_decoder/public/interfaces/png_decoder.mojom
+// src/services/data_decoder/public/mojom/png_decoder.mojom
 module data_decoder.mojom;
 
 interface PngDecoder {
@@ -167,7 +167,7 @@ interface PngDecoder {
 ```
 
 and you'll also want to define the implementation within
-`//services/data_decoder`, pluging in some appropriate binder so the service
+`//services/data_decoder`, plugging in some appropriate binder so the service
 knows how to bind incoming interface requests to your implementation:
 
 ``` cpp
@@ -191,8 +191,8 @@ DataDecoderService::DataDecoderService() {
 ```
 
 and finally you need to update the usage of the old IPC by probably deleting
-lots of ugly code which sets up a `UtilityProcessHostImpl` and replacing it
-with something like:
+lots of ugly code which sets up a `UtilityProcessHost` and replacing it with
+something like:
 
 ``` cpp
 void OnDecodedPng(const std::vector<uint8_t>& rgba_data) { /* ... */ }
@@ -237,11 +237,17 @@ For example, any interfaces registered in
 can be acquired by a renderer as follows:
 
 ``` cpp
-mojom::FooPtr foo;
+mojom::LoggerPtr logger;
 content::RenderThread::Get()->GetConnector()->BindInterface(
-    content::mojom::kBrowserServiceName, &foo);
-foo->DoSomePrettyCoolIPC();
+    content::mojom::kBrowserServiceName, &logger);
+logger->Log("Message to log here");
 ```
+
+Usually `logger` will be saved in a field at construction time, so the
+connection is only created once. There may be situations where you want to
+create one connection per request, e.g. a new instance of the Mojo
+implementation is created with some information about the request, and any
+responses for this request go straight to that instance.
 
 ### On Other Threads
 
@@ -255,20 +261,21 @@ which may be used immediately and retained on that thread -- and asynchronously
 associate it with the main-thread `Connector` like so:
 
 ``` cpp
-class Thinger {
+class Logger {
  public:
-  explicit Thinger(scoped_refptr<base::TaskRunner> main_thread_task_runner) {
+  explicit Logger(scoped_refptr<base::TaskRunner> main_thread_task_runner) {
     service_manager::mojom::ConnectorRequest request;
 
     // Of course we could also retain |connector| if we intend to use it again.
     auto connector = service_manager::Connector::Create(&request);
-    connector->BindInterface("best_service_ever", &thinger_);
-    thinger_->DoTheThing();
+    // Replace service_name with the name of the service to bind on, e.g.
+    // content::mojom::kBrowserServiceName.
+    connector->BindInterface("service_name", &logger_);
+    logger_->Log("Test Message.");
 
-    // Doesn't really matter when this happens, as long as it eventually
-    // happens.
+    // Doesn't matter when this happens, as long as it happens eventually.
     main_thread_task_runner->PostTask(
-        FROM_HERE, base::BindOnce(&Thinger::BindConnectorOnMainThread,
+        FROM_HERE, base::BindOnce(&Logger::BindConnectorOnMainThread,
                                   std::move(request)));
   }
 
@@ -280,9 +287,9 @@ class Thinger {
         std::move(request));
   }
 
-  mojom::ThingerPtr thinger_;
+  mojom::LoggerPtr logger_;
 
-  DISALLOW_COPY_AND_ASSIGN(Thinger);
+  DISALLOW_COPY_AND_ASSIGN(Logger);
 };
 ```
 
@@ -303,7 +310,7 @@ to binder function:
 
 ``` cpp
 void BindFrobinator(mojom::FrobinatorRequest request) {
-  mojo::MakeStrongBinding(base::MakeUnique<FrobinatorImpl>, std::move(request));
+  mojo::MakeStrongBinding(std::make_unique<FrobinatorImpl>, std::move(request));
 }
 
 // |registry| will hereby handle all incoming requests for "mojom::Frobinator"
@@ -338,6 +345,168 @@ interface connection between browser and renderer processes:
 | `RenderFrame::GetInterfaceRegistry()`       | `RenderFrameHost::GetRemoteInterfaces()`   |
 
 As noted above, use of these registries is generally discouraged.
+
+### Deciding Which Interface Registry to Use
+
+Once you have an implementation of a Mojo interface, the next thing to decide is
+which registry and service to register it on.
+
+For browser/renderer communication, you can register your Mojo interface
+implementation in either the Browser or Renderer process (whichever side the
+interface was implemented on). Usually, this involves calling `AddInterface()`
+on the correct registry, passing a method that takes the Mojo Request object
+(e.g. `sample::mojom::LoggerRequest`) and binding it (e.g.
+`mojo::MakeStrongBinding()`, `bindings_.AddBinding()`, etc). Then the class that
+needs this API can call `BindInterface()` on the connector for that process,
+e.g.
+`RenderThread::Get()->GetConnector()->BindInterface(mojom::kBrowserServiceName, std::move(&mojo_interface_))`.
+
+**NOTE:** `content::ServiceManagerConnection::GetForProcess()` must be called in
+the browser process on the main thread, and its connector can only be used on
+the main thread; but you can clone connectors and move the clones around to
+other threads. A `Connector` is only bound to the thread which first calls into
+it.
+
+Depending on what resources you need access to, the main classes are:
+
+| Renderer Class  | Corresponding Browser Class |  Explanation                                                                                                       |
+|-----------------|-----------------------------|--------------------------------------------------------------------------------------------------------------------|
+| `RenderFrame`   | `RenderFrameHost`           |  A single frame. Use this for frame-to-frame messages.                                                             |
+| `RenderView`    | `RenderViewHost`            | A view (conceptually a 'tab'). You cannot send Mojo messages to a `RenderView` directly, since frames in a tab can be in multiple processes (and the classes are deprecated). Migrate these to `RenderFrame` instead, or see section [Migrating IPC calls to `RenderView` or `RenderViewHost`](#UMigrating-IPC-calls-to-RenderView-or-RenderViewHost).  |
+| `RenderProcess` | `RenderProcessHost`         | A process, containing multiple frames (probably from the same origin, but not always).                             |
+
+**NOTE:** Previously, classes that ended with `Host` were implemented on the
+browser side; the equivalent classes on the renderer side had the same name
+without the `Host` suffix. We have since deviated from this convention since
+Mojo interfaces are not intended to prescribe where their endpoints live, so
+future classes should omit such suffixes and just describe the interface they
+are providing.
+
+Of course, any combination of the above is possible, e.g. `RenderProcessHost`
+can register a Mojo interface that can be called by a `RenderFrame` (this would
+be a way of the browser communicating with multiple frames at once).
+
+Once you know which class you want the implementation to be registered in, find
+the corresponding `Impl` class (e.g. `RenderProcessImpl`). There should be a
+`RegisterMojoInterfaces()` method where you can add calls to `AddInterface`,
+e.g. For a strong binding:
+
+```cpp
+  registry->AddInterface(base::Bind(&Logger::Create, GetID()));
+```
+
+Then in `Logger` we add a static `Create()` method that takes the
+`LoggerRequest` object:
+
+```cpp
+// static
+void Logger::Create(int render_process_id,
+                        mojom::LoggerRequest request) {
+  mojo::MakeStrongBinding(std::make_unique<Logger>(render_process_id),
+                          std::move(request));
+}
+```
+
+For a `BindingSet`, we can store a `std::unique_ptr<Logger>` on the
+`RenderProcessHost` instead, e.g.:
+
+```cpp
+// render_process_host_impl.h:
+std::unique_ptr<Logger> logger_;
+
+// render_process_host_impl.cc:
+logger_ = std::make_unique<Logger>(GetID());
+registry->AddInterface(base::Bind(&Logger::BindRequest,
+                       base::Unretained(logger_.get())));
+```
+
+Then in `Logger` we define the `BindRequest` method:
+
+```h
+class Logger : public sample::mojom::Logger {
+ public:
+  explicit Logger(int render_process_id);
+  ~Logger() override;
+
+  void BindRequest(mojom::LoggerRequest request);
+
+  // sample::mojom::Logger:
+  void Log(const std::string& message) override;
+  void GetTail(GetTailCallback callback) override;
+
+ private:
+  mojo::BindingSet<sample::mojom::Logger> bindings_;
+
+  DISALLOW_COPY_AND_ASSIGN(Logger);
+};
+```
+
+```cpp
+void Logger::BindRequest(mojom::LoggerRequest request) {
+  bindings_.AddBinding(this, std::move(request));
+}
+```
+
+#### Setting up Capabilities
+
+Once you've registered your interface, you need to add capabilities (resolved at
+runtime) to the corresponding capabilities manifest json file.
+
+The service manifest files (which contain the capability spec) are located in
+[/content/public/app/mojo/](/content/public/app/mojo/). As a general rule, the
+file you want to edit is the service which *provides* the interface (the side
+which instantiates the implementation), and the part of the file you want to add
+the name of the interface to is the service which *calls* the interface (i.e.
+the side containing `LoggerPtr`).
+
+You can usually just run your Mojo code and look at the error messages. The
+errors look like:
+
+```sh
+[ERROR:service_manager.cc(158)] Connection InterfaceProviderSpec prevented
+service: content_renderer from binding interface: content.mojom.Logger
+exposed by: content_browser
+```
+
+This means something in the renderer process (called "content_renderer") was
+trying to bind to `content.mojom.Logger` in the browser process (called
+"content_browser"). To add a capability for this, we need to find the json file
+with the capabilities for "content_browser", and add our new interface with name
+`content.mojom.Logger` to the "renderer" section.
+
+In this example, the capabilities for "content_browser" are implemented in
+[content_browser_manifest.json](/content/public/app/mojo/content_browser_manifest.json).
+It should look like:
+
+```json
+{
+  "name": "content_browser",
+  "display_name": "Content (browser process)",
+  "interface_provider_specs": {
+    "service_manager:connector": {
+      "provides": {
+        // ...
+        "renderer": [
+          //...
+```
+
+To add permission for `content.mojom.Logger`, add the string
+`"content.mojom.Logger"` to the "renderer" list.
+
+Similarly, if the error was:
+
+```sh
+[ERROR:service_manager.cc(158)] Connection InterfaceProviderSpec prevented
+service: content_browser from binding interface: content.mojom.Logger exposed
+by: content_renderer
+```
+
+We would want the
+`interface_provider_specs.service_manager:connector.provides.browser` section in
+[content_renderer_manifest.json](/content/public/app/mojo/content_renderer_manifest.json)
+(which defines the capabilities for `content_renderer`).
+
+TODO: Add more details on permission manifests here
 
 ## Using Channel-associated Interfaces
 
@@ -518,7 +687,7 @@ if such a use case is blocking your work.
 
 ### Using Legacy IPC Traits
 
-InsSome circumstances there may be a C++ enum, struct, or class that you want
+In some circumstances there may be a C++ enum, struct, or class that you want
 to use in a Mojom via [type mapping](/mojo/public/cpp/bindings#Type-Mapping),
 and that type may already have `IPC::ParamTraits` defined (possibly via
 `IPC_STRUCT_TRAITS*` macros) for legacy IPC.
@@ -548,19 +717,6 @@ the wire format used is defined entirely by `IPC::ParamTraits<T>` for whatever
 `foo::mojom::MyGiganticStructure` to `foo::MyGiganticStructure`, your typemap
 must point to some header which defines
 `IPC::ParamTraits<foo::MyGiganticStructure>`.
-
-Note that if your `ParamTraits` are defined manually (*i.e.* not by invocation
-of `IPC_STRUCT_TRAITS*` macros) you must also ensure that they define the new
-`GetSize` method:
-
-``` cpp
-static void GetSize(base::PickleSizer* sizer, const param_type& p) {
-  // ...
-}
-```
-
-`base::PickleSizer` has an interface analogous to `base::Pickle`, except that it
-merely accumulates a byte count rather than accumulating serialized data.
 
 There are several examples of this traits implementation in common IPC traits
 defined [here](https://code.google.com/p/chromium/codesearch#chromium/src/ipc/ipc_message_utils.h).

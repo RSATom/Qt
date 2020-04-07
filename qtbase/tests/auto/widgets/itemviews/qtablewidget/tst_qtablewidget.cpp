@@ -32,6 +32,7 @@
 #include <qlist.h>
 #include <qpair.h>
 #include <qheaderview.h>
+#include <qlineedit.h>
 
 #include <qtablewidget.h>
 
@@ -81,6 +82,7 @@ private slots:
     void itemData();
     void setItemData();
     void cellWidget();
+    void cellWidgetGeometry();
     void task231094();
     void task219380_removeLastRow();
     void task262056_sortDuplicate();
@@ -360,11 +362,18 @@ void tst_QTableWidget::takeItem()
         for (int c = 0; c < testWidget->columnCount(); ++c)
             QCOMPARE(testWidget->item(r, c)->text(), QString::number(r * c + c));
 
+    QSignalSpy spy(testWidget, &QTableWidget::cellChanged);
     QTableWidgetItem *item = testWidget->takeItem(row, column);
     QCOMPARE(!!item, expectItem);
     if (expectItem) {
         QCOMPARE(item->text(), QString::number(row * column + column));
         delete item;
+
+        QTRY_COMPARE(spy.count(), 1);
+        const QList<QVariant> arguments = spy.takeFirst();
+        QCOMPARE(arguments.size(), 2);
+        QCOMPARE(arguments.at(0).toInt(), row);
+        QCOMPARE(arguments.at(1).toInt(), column);
     }
     QVERIFY(!testWidget->takeItem(row, column));
 }
@@ -1343,27 +1352,45 @@ void tst_QTableWidget::setItemWithSorting()
     }
 }
 
+class QTableWidgetDataChanged : public QTableWidget
+{
+    Q_OBJECT
+public:
+    using QTableWidget::QTableWidget;
+
+    void dataChanged(const QModelIndex &topLeft, const QModelIndex &bottomRight, const QVector<int> &roles) override
+    {
+        QTableWidget::dataChanged(topLeft, bottomRight, roles);
+        currentRoles = roles;
+    }
+    QVector<int> currentRoles;
+};
+
 void tst_QTableWidget::itemData()
 {
-    QTableWidget widget(2, 2);
+    QTableWidgetDataChanged widget(2, 2);
     widget.setItem(0, 0, new QTableWidgetItem());
     QTableWidgetItem *item = widget.item(0, 0);
     QVERIFY(item);
     item->setFlags(item->flags() | Qt::ItemIsEditable);
     item->setData(Qt::DisplayRole,  QString("0"));
+    QCOMPARE(widget.currentRoles, QVector<int>({Qt::DisplayRole, Qt::EditRole}));
     item->setData(Qt::CheckStateRole, Qt::PartiallyChecked);
-    item->setData(Qt::UserRole + 0, QString("1"));
-    item->setData(Qt::UserRole + 1, QString("2"));
-    item->setData(Qt::UserRole + 2, QString("3"));
-    item->setData(Qt::UserRole + 3, QString("4"));
+    QCOMPARE(widget.currentRoles, {Qt::CheckStateRole});
+    for (int i = 0; i < 4; ++i)
+    {
+        item->setData(Qt::UserRole + i, QString::number(i + 1));
+        QCOMPARE(widget.currentRoles, {Qt::UserRole + i});
+    }
     QMap<int, QVariant> flags = widget.model()->itemData(widget.model()->index(0, 0));
     QCOMPARE(flags.count(), 6);
-    QCOMPARE(flags[(Qt::UserRole + 0)].toString(), QString("1"));
+    for (int i = 0; i < 4; ++i)
+        QCOMPARE(flags[Qt::UserRole + i].toString(), QString::number(i + 1));
 }
 
 void tst_QTableWidget::setItemData()
 {
-    QTableWidget table(10, 10);
+    QTableWidgetDataChanged table(10, 10);
     table.setSortingEnabled(false);
     QSignalSpy dataChangedSpy(table.model(), SIGNAL(dataChanged(QModelIndex,QModelIndex)));
 
@@ -1376,6 +1403,7 @@ void tst_QTableWidget::setItemData()
     data.insert(Qt::DisplayRole, QLatin1String("Display"));
     data.insert(Qt::ToolTipRole, QLatin1String("ToolTip"));
     table.model()->setItemData(idx, data);
+    QCOMPARE(table.currentRoles, QVector<int>({Qt::DisplayRole, Qt::EditRole, Qt::ToolTipRole}));
 
     QCOMPARE(table.model()->data(idx, Qt::DisplayRole).toString(), QLatin1String("Display"));
     QCOMPARE(table.model()->data(idx, Qt::ToolTipRole).toString(), QLatin1String("ToolTip"));
@@ -1402,6 +1430,28 @@ void tst_QTableWidget::cellWidget()
     QCOMPARE(table.cellWidget(5, 5), &widget);
     table.removeCellWidget(5, 5);
     QCOMPARE(table.cellWidget(5, 5), static_cast<QWidget*>(0));
+}
+
+void tst_QTableWidget::cellWidgetGeometry()
+{
+    QTableWidget tw(3,2);
+    tw.show();
+    // make sure the next row added is not completely visibile
+    tw.resize(300, tw.rowHeight(0) * 3 + tw.rowHeight(0) / 2);
+    QVERIFY(QTest::qWaitForWindowExposed(&tw));
+
+    tw.scrollToBottom();
+    tw.setRowCount(tw.rowCount() + 1);
+    auto item = new QTableWidgetItem("Hello");
+    tw.setItem(0,0,item);
+    auto le = new QLineEdit("world");
+    tw.setCellWidget(0,1,le);
+    // process delayedPendingLayout triggered by setting the row count
+    tw.doItemsLayout();
+    // so y pos is 0 for the first row
+    tw.scrollToTop();
+    // check if updateEditorGeometries has set the correct y pos for the editors
+    QCOMPARE(tw.visualItemRect(item).top(), le->geometry().top());
 }
 
 void tst_QTableWidget::task231094()

@@ -6,11 +6,10 @@
 
 #include <utility>
 
-#include "base/memory/ptr_util.h"
 #include "base/values.h"
 #include "content/common/android/gin_java_bridge_errors.h"
 #include "content/common/android/gin_java_bridge_value.h"
-#include "content/public/child/v8_value_converter.h"
+#include "content/public/renderer/v8_value_converter.h"
 #include "content/renderer/java/gin_java_bridge_object.h"
 #include "content/renderer/java/gin_java_bridge_value_converter.h"
 
@@ -69,7 +68,7 @@ v8::Local<v8::Value> GinJavaFunctionInvocationHelper::Invoke(
       if (arg.get())
         arguments.Append(std::move(arg));
       else
-        arguments.Append(base::MakeUnique<base::Value>());
+        arguments.Append(std::make_unique<base::Value>());
     }
   }
 
@@ -81,7 +80,7 @@ v8::Local<v8::Value> GinJavaFunctionInvocationHelper::Invoke(
         args->isolate(), GinJavaBridgeErrorToString(error))));
     return v8::Undefined(args->isolate());
   }
-  if (!result->IsType(base::Value::Type::BINARY)) {
+  if (!result->is_blob()) {
     return converter_->ToV8Value(result.get(),
                                  args->isolate()->GetCurrentContext());
   }
@@ -89,14 +88,14 @@ v8::Local<v8::Value> GinJavaFunctionInvocationHelper::Invoke(
   std::unique_ptr<const GinJavaBridgeValue> gin_value =
       GinJavaBridgeValue::FromValue(result.get());
   if (gin_value->IsType(GinJavaBridgeValue::TYPE_OBJECT_ID)) {
-    GinJavaBridgeObject* result = NULL;
+    GinJavaBridgeObject* object_result = NULL;
     GinJavaBridgeDispatcher::ObjectID object_id;
     if (gin_value->GetAsObjectID(&object_id)) {
-      result = dispatcher_->GetObject(object_id);
+      object_result = dispatcher_->GetObject(object_id);
     }
-    if (result) {
+    if (object_result) {
       gin::Handle<GinJavaBridgeObject> controller =
-          gin::CreateHandle(args->isolate(), result);
+          gin::CreateHandle(args->isolate(), object_result);
       if (controller.IsEmpty())
         return v8::Undefined(args->isolate());
       return controller.ToV8();

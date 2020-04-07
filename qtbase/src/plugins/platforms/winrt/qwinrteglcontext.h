@@ -50,7 +50,7 @@ class QWinRTEGLContext : public QPlatformOpenGLContext
 {
 public:
     explicit QWinRTEGLContext(QOpenGLContext *context);
-    ~QWinRTEGLContext();
+    ~QWinRTEGLContext() override;
 
     void initialize() override;
 
@@ -60,6 +60,7 @@ public:
 
     QSurfaceFormat format() const override;
     QFunctionPointer getProcAddress(const char *procName) override;
+    bool isValid() const override;
 
     static EGLDisplay display();
 private:

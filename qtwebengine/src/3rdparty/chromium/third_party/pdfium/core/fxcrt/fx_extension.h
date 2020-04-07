@@ -8,12 +8,24 @@
 #define CORE_FXCRT_FX_EXTENSION_H_
 
 #include <cctype>
+#include <cmath>
 #include <cwctype>
 #include <memory>
 
-#include "core/fxcrt/fx_basic.h"
+#include "core/fxcrt/fx_string.h"
+#include "third_party/base/span.h"
+
+#if defined(USE_SYSTEM_ICUUC)
+#include <unicode/uchar.h>
+#else
+#include "third_party/icu/source/common/unicode/uchar.h"
+#endif
 
 #define FX_INVALID_OFFSET static_cast<uint32_t>(-1)
+
+#ifdef PDF_ENABLE_XFA
+#define FX_IsOdd(a) ((a)&1)
+#endif  // PDF_ENABLE_XFA
 
 float FXSYS_wcstof(const wchar_t* pwsStr,
                    int32_t iLength = -1,
@@ -21,32 +33,32 @@ float FXSYS_wcstof(const wchar_t* pwsStr,
 wchar_t* FXSYS_wcsncpy(wchar_t* dstStr, const wchar_t* srcStr, size_t count);
 int32_t FXSYS_wcsnicmp(const wchar_t* s1, const wchar_t* s2, size_t count);
 
-inline bool FXSYS_islower(int32_t ch) {
-  return ch >= 'a' && ch <= 'z';
+inline bool FXSYS_iswlower(int32_t c) {
+  return u_islower(c);
 }
 
-inline bool FXSYS_isupper(int32_t ch) {
-  return ch >= 'A' && ch <= 'Z';
+inline bool FXSYS_iswupper(int32_t c) {
+  return u_isupper(c);
 }
 
-inline int32_t FXSYS_tolower(int32_t ch) {
-  return ch < 'A' || ch > 'Z' ? ch : (ch + 0x20);
+inline int32_t FXSYS_towlower(wchar_t c) {
+  return u_tolower(c);
 }
 
-inline int32_t FXSYS_toupper(int32_t ch) {
-  return ch < 'a' || ch > 'z' ? ch : (ch - 0x20);
+inline int32_t FXSYS_towupper(wchar_t c) {
+  return u_toupper(c);
 }
 
-inline bool FXSYS_iswalpha(wchar_t wch) {
-  return FXSYS_isupper(wch) || FXSYS_islower(wch);
+inline bool FXSYS_iswalpha(wchar_t c) {
+  return u_isalpha(c);
 }
 
-inline bool FXSYS_iswalnum(wchar_t wch) {
-  return FXSYS_iswalpha(wch) || std::iswdigit(wch);
+inline bool FXSYS_iswalnum(wchar_t c) {
+  return u_isalnum(c);
 }
 
 inline bool FXSYS_iswspace(wchar_t c) {
-  return (c == 0x20) || (c == 0x0d) || (c == 0x0a) || (c == 0x09);
+  return u_isspace(c);
 }
 
 inline bool FXSYS_isHexDigit(const char c) {
@@ -77,29 +89,24 @@ inline int FXSYS_DecimalCharToInt(const wchar_t c) {
 }
 
 void FXSYS_IntToTwoHexChars(uint8_t c, char* buf);
-
 void FXSYS_IntToFourHexChars(uint16_t c, char* buf);
 
 size_t FXSYS_ToUTF16BE(uint32_t unicode, char* buf);
 
-float FXSYS_FractionalScale(size_t scale_factor, int value);
-int FXSYS_FractionalScaleCount();
+// Strict order over floating types where NaNs may be present.
+template <typename T>
+bool FXSYS_SafeEQ(const T& lhs, const T& rhs) {
+  return (std::isnan(lhs) && std::isnan(rhs)) ||
+         (!std::isnan(lhs) && !std::isnan(rhs) && lhs == rhs);
+}
 
-void* FX_Random_MT_Start(uint32_t dwSeed);
-void FX_Random_MT_Close(void* pContext);
-uint32_t FX_Random_MT_Generate(void* pContext);
-void FX_Random_GenerateBase(uint32_t* pBuffer, int32_t iCount);
-void FX_Random_GenerateMT(uint32_t* pBuffer, int32_t iCount);
-
-#ifdef PDF_ENABLE_XFA
-struct FX_GUID {
-  uint32_t data1;
-  uint16_t data2;
-  uint16_t data3;
-  uint8_t data4[8];
-};
-void FX_GUID_CreateV4(FX_GUID* pGUID);
-CFX_ByteString FX_GUID_ToString(const FX_GUID* pGUID, bool bSeparator = true);
-#endif  // PDF_ENABLE_XFA
+template <typename T>
+bool FXSYS_SafeLT(const T& lhs, const T& rhs) {
+  if (std::isnan(lhs) && std::isnan(rhs))
+    return false;
+  if (std::isnan(lhs) || std::isnan(rhs))
+    return std::isnan(lhs) < std::isnan(rhs);
+  return lhs < rhs;
+}
 
 #endif  // CORE_FXCRT_FX_EXTENSION_H_

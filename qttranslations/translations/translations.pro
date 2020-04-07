@@ -49,7 +49,6 @@ addTsTargets(qtdeclarative, qtdeclarative/src/src.pro)
 addTsTargets(qtquickcontrols, qtquickcontrols/src/src.pro)
 addTsTargets(qtquickcontrols2, qtquickcontrols2/src/src.pro)
 addTsTargets(qtmultimedia, qtmultimedia/src/src.pro)
-addTsTargets(qtquick1, qtquick1/src/src.pro)
 addTsTargets(qtscript, qtscript/src/src.pro)
 #addTsTargets(qtsvg, qtsvg/src/src.pro) # empty
 addTsTargets(qtxmlpatterns, qtxmlpatterns/src/src.pro)
@@ -72,8 +71,6 @@ addTsTargets(designer, qttools/src/designer/designer.pro)
 addTsTargets(linguist, qttools/src/linguist/linguist/linguist.pro)
 addTsTargets(assistant, qttools/src/assistant/assistant/assistant.pro)  # add qcollectiongenerator here as well?
 addTsTargets(qt_help, qttools/src/assistant/help/help.pro)
-#addTsTargets(qtconfig, qttools/src/qtconfig/qtconfig.pro)  # dead tool
-addTsTargets(qmlviewer, qtquick1/tools/qml/qml.pro)
 #addTsTargets(qmlscene, qtdeclarative/tools/qmlscene/qmlscene.pro)  # almost empty due to missing tr()
 
 check-ts.commands = (cd $$PWD && perl check-ts.pl)

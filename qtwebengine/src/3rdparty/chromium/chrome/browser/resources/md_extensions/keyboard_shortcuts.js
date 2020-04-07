@@ -5,13 +5,46 @@
 cr.define('extensions', function() {
   'use strict';
 
+  /** @interface */
+  class KeyboardShortcutDelegate {
+    /**
+     * Called when shortcut capturing changes in order to suspend or re-enable
+     * global shortcut handling. This is important so that the shortcuts aren't
+     * processed normally as the user types them.
+     * TODO(devlin): From very brief experimentation, it looks like preventing
+     * the default handling on the event also does this. Investigate more in the
+     * future.
+     * @param {boolean} isCapturing
+     */
+    setShortcutHandlingSuspended(isCapturing) {}
+
+    /**
+     * Updates an extension command's keybinding.
+     * @param {string} extensionId
+     * @param {string} commandName
+     * @param {string} keybinding
+     */
+    updateExtensionCommandKeybinding(extensionId, commandName, keybinding) {}
+
+    /**
+     * Updates an extension command's scope.
+     * @param {string} extensionId
+     * @param {string} commandName
+     * @param {chrome.developerPrivate.CommandScope} scope
+     */
+    updateExtensionCommandScope(extensionId, commandName, scope) {}
+  }
+
   // The UI to display and manage keyboard shortcuts set for extension commands.
-  var KeyboardShortcuts = Polymer({
+  const KeyboardShortcuts = Polymer({
     is: 'extensions-keyboard-shortcuts',
 
-    behaviors: [Polymer.NeonAnimatableBehavior],
+    behaviors: [CrContainerShadowBehavior, extensions.ItemBehavior],
 
     properties: {
+      /** @type {!extensions.KeyboardShortcutDelegate} */
+      delegate: Object,
+
       /** @type {Array<!chrome.developerPrivate.ExtensionInfo>} */
       items: Array,
 
@@ -21,16 +54,17 @@ cr.define('extensions', function() {
        */
       CommandScope_: {
         type: Object,
-        value: chrome.developerPrivate.CommandScope
+        value: chrome.developerPrivate.CommandScope,
       },
     },
 
-    ready: function() {
-      /** @type {!extensions.AnimationHelper} */
-      this.animationHelper = new extensions.AnimationHelper(this, this.$.main);
-      this.animationHelper.setEntryAnimations([extensions.Animation.FADE_IN]);
-      this.animationHelper.setExitAnimations([extensions.Animation.SCALE_DOWN]);
-      this.sharedElements = {hero: this.$.main};
+    listeners: {
+      'view-enter-start': 'onViewEnter_',
+    },
+
+    /** @private */
+    onViewEnter_: function() {
+      chrome.metricsPrivate.recordUserAction('Options_ExtensionCommands');
     },
 
     /**
@@ -85,9 +119,15 @@ cr.define('extensions', function() {
      * @private
      */
     onScopeChanged_: function(event) {
-      event.model.set('command.scope', event.target.value);
+      this.delegate.updateExtensionCommandScope(
+          event.model.get('item.id'), event.model.get('command.name'),
+          /** @type {chrome.developerPrivate.CommandScope} */
+          (event.target.value));
     },
   });
 
-  return {KeyboardShortcuts: KeyboardShortcuts};
+  return {
+    KeyboardShortcutDelegate: KeyboardShortcutDelegate,
+    KeyboardShortcuts: KeyboardShortcuts,
+  };
 });

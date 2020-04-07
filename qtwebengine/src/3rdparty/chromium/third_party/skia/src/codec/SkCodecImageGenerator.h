@@ -8,7 +8,6 @@
 #define SkCodecImageGenerator_DEFINED
 
 #include "SkCodec.h"
-#include "SkColorTable.h"
 #include "SkData.h"
 #include "SkImageGenerator.h"
 
@@ -21,7 +20,7 @@ public:
     static std::unique_ptr<SkImageGenerator> MakeFromEncodedCodec(sk_sp<SkData>);
 
 protected:
-    SkData* onRefEncodedData() override;
+    sk_sp<SkData> onRefEncodedData() override;
 
     bool onGetPixels(const SkImageInfo& info, void* pixels, size_t rowBytes, const Options& opts)
                      override;
@@ -34,11 +33,10 @@ private:
     /*
      * Takes ownership of codec
      */
-    SkCodecImageGenerator(SkCodec* codec, sk_sp<SkData>);
+    SkCodecImageGenerator(std::unique_ptr<SkCodec>, sk_sp<SkData>);
 
     std::unique_ptr<SkCodec> fCodec;
     sk_sp<SkData> fData;
-    sk_sp<SkColorTable> fColorTable;
 
     typedef SkImageGenerator INHERITED;
 };

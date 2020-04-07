@@ -30,6 +30,10 @@
 #include <windows.devices.enumeration.h>
 #include <windows.devices.bluetooth.h>
 
+#if defined(_WIN32) && defined(__INTEL_COMPILER)
+#error "Windows ICC fails to build the WinRT backend (QTBUG-68026)."
+#endif
+
 int main()
 {
     Microsoft::WRL::ComPtr<ABI::Windows::Devices::Enumeration::IDeviceInformationStatics> deviceInformationStatics;

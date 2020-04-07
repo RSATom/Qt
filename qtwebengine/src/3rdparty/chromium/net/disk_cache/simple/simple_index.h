@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "base/callback.h"
+#include "base/feature_list.h"
 #include "base/files/file_path.h"
 #include "base/gtest_prod_util.h"
 #include "base/memory/ref_counted.h"
@@ -24,7 +25,7 @@
 #include "base/time/time.h"
 #include "base/timer/timer.h"
 #include "net/base/cache_type.h"
-#include "net/base/completion_callback.h"
+#include "net/base/completion_once_callback.h"
 #include "net/base/net_export.h"
 
 #if defined(OS_ANDROID)
@@ -38,9 +39,12 @@ class PickleIterator;
 
 namespace disk_cache {
 
+class BackendCleanupTracker;
 class SimpleIndexDelegate;
 class SimpleIndexFile;
 struct SimpleIndexLoadResult;
+
+NET_EXPORT_PRIVATE extern const base::Feature kSimpleCacheEvictionWithSize;
 
 class NET_EXPORT_PRIVATE EntryMetadata {
  public:
@@ -58,9 +62,12 @@ class NET_EXPORT_PRIVATE EntryMetadata {
   uint32_t GetEntrySize() const;
   void SetEntrySize(base::StrictNumeric<uint32_t> entry_size);
 
+  uint8_t GetInMemoryData() const { return in_memory_data_; }
+  void SetInMemoryData(uint8_t val) { in_memory_data_ = val; }
+
   // Serialize the data into the provided pickle.
   void Serialize(base::Pickle* pickle) const;
-  bool Deserialize(base::PickleIterator* it);
+  bool Deserialize(base::PickleIterator* it, bool has_entry_in_memory_data);
 
   static base::TimeDelta GetLowerEpsilonForTimeComparisons() {
     return base::TimeDelta::FromSeconds(1);
@@ -79,7 +86,8 @@ class NET_EXPORT_PRIVATE EntryMetadata {
   // are originally calculated as >32-bit types, the actual necessary size for
   // each shouldn't exceed 32 bits, so we use 32-bit types here.
   uint32_t last_used_time_seconds_since_epoch_;
-  uint32_t entry_size_;  // Storage size in bytes.
+  uint32_t entry_size_256b_chunks_ : 24;  // in 256-byte blocks, rounded up.
+  uint32_t in_memory_data_ : 8;
 };
 static_assert(sizeof(EntryMetadata) == 8, "incorrect metadata size");
 
@@ -106,6 +114,7 @@ class NET_EXPORT_PRIVATE SimpleIndex
   typedef std::vector<uint64_t> HashList;
 
   SimpleIndex(const scoped_refptr<base::SingleThreadTaskRunner>& io_thread,
+              scoped_refptr<BackendCleanupTracker> cleanup_tracker,
               SimpleIndexDelegate* delegate,
               net::CacheType cache_type,
               std::unique_ptr<SimpleIndexFile> simple_index_file);
@@ -127,6 +136,9 @@ class NET_EXPORT_PRIVATE SimpleIndex
   // iff the entry exist in the index.
   bool UseIfExists(uint64_t entry_hash);
 
+  uint8_t GetEntryInMemoryData(uint64_t entry_hash) const;
+  void SetEntryInMemoryData(uint64_t entry_hash, uint8_t value);
+
   void WriteToDisk(IndexWriteToDiskReason reason);
 
   // Update the size (in bytes) of an entry, in the metadata stored in the
@@ -147,7 +159,7 @@ class NET_EXPORT_PRIVATE SimpleIndex
                              const EntryMetadata& entry_metadata);
 
   // Executes the |callback| when the index is ready. Allows multiple callbacks.
-  int ExecuteWhenReady(const net::CompletionCallback& callback);
+  int ExecuteWhenReady(net::CompletionOnceCallback callback);
 
   // Returns entries from the index that have last accessed time matching the
   // range between |initial_time| and |end_time| where open intervals are
@@ -180,6 +192,8 @@ class NET_EXPORT_PRIVATE SimpleIndex
   // Returns the estimate of dynamically allocated memory in bytes.
   size_t EstimateMemoryUsage() const;
 
+  void SetLastUsedTimeForTest(uint64_t entry_hash, const base::Time last_used);
+
  private:
   friend class SimpleIndexTest;
   FRIEND_TEST_ALL_PREFIXES(SimpleIndexTest, IndexSizeCorrectOnMerge);
@@ -204,6 +218,8 @@ class NET_EXPORT_PRIVATE SimpleIndex
   std::unique_ptr<base::android::ApplicationStatusListener>
       app_status_listener_;
 #endif
+
+  scoped_refptr<BackendCleanupTracker> cleanup_tracker_;
 
   // The owner of |this| must ensure the |delegate_| outlives |this|.
   SimpleIndexDelegate* delegate_;
@@ -240,7 +256,7 @@ class NET_EXPORT_PRIVATE SimpleIndex
   base::OneShotTimer write_to_disk_timer_;
   base::Closure write_to_disk_cb_;
 
-  typedef std::list<net::CompletionCallback> CallbackList;
+  typedef std::list<net::CompletionOnceCallback> CallbackList;
   CallbackList to_run_when_initialized_;
 
   // Set to true when the app is on the background. When the app is in the

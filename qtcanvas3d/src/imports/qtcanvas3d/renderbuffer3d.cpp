@@ -48,7 +48,9 @@ QT_CANVAS3D_BEGIN_NAMESPACE
  * \inqmlmodule QtCanvas3D
  * \inherits Canvas3DAbstractObject
  * \brief Contains an OpenGL renderbuffer.
+ * \deprecated
  *
+ * \b{Deprecated in Qt 5.12.}
  * An uncreatable QML type that contains an OpenGL renderbuffer. You can get it by calling
  * the \l{Context3D::createRenderbuffer()}{Context3D.createRenderbuffer()} method.
  */

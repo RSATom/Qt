@@ -46,7 +46,7 @@
 #include "SPIRV/GlslangToSpv.h"
 #include "SPIRV/disassemble.h"
 #include "SPIRV/doc.h"
-#include "StandAlone/DefaultResourceLimits.h"
+#include "StandAlone/ResourceLimits.h"
 #include "glslang/Public/ShaderLang.h"
 
 #include "Initializer.h"
@@ -65,8 +65,13 @@ namespace glslangtest {
 // This function is used to provide custom test name suffixes based on the
 // shader source file names. Otherwise, the test name suffixes will just be
 // numbers, which are not quite obvious.
-std::string FileNameAsCustomTestName(
+std::string FileNameAsCustomTestSuffix(
     const ::testing::TestParamInfo<std::string>& info);
+
+enum class Source {
+  GLSL,
+  HLSL,
+};
 
 // Enum for shader compilation semantics.
 enum class Semantics {
@@ -77,13 +82,13 @@ enum class Semantics {
 // Enum for compilation target.
 enum class Target {
     AST,
-    Spirv,
+    Spv,
+    BothASTAndSpv,
 };
 
-EShLanguage GetGlslLanguageForStage(const std::string& stage);
+EShLanguage GetShaderStage(const std::string& stage);
 
-EShMessages GetSpirvMessageOptionsForSemanticsAndTarget(Semantics semantics,
-                                                        Target target);
+EShMessages DeriveOptions(Source, Semantics, Target);
 
 // Reads the content of the file at the given |path|. On success, returns true
 // and the contents; otherwise, returns false and an empty string.
@@ -124,14 +129,13 @@ public:
     }
 
     // Checks the equality of |expected| and |real|. If they are not equal,
-    // write
-    // |real| to the given file named as |fname| if update mode is on.
+    // write |real| to the given file named as |fname| if update mode is on.
     void checkEqAndUpdateIfRequested(const std::string& expected,
                                      const std::string& real,
                                      const std::string& fname)
     {
-        // In order to output the message we want under proper circumstances, we
-        // need the following operator<< stuff.
+        // In order to output the message we want under proper circumstances,
+        // we need the following operator<< stuff.
         EXPECT_EQ(expected, real)
             << (GlobalTestSettings.updateMode
                     ? ("Mismatch found and update mode turned on - "
@@ -140,77 +144,117 @@ public:
 
         // Update the expected output file if requested.
         // It looks weird to duplicate the comparison between expected_output
-        // and
-        // stream.str(). However, if creating a variable for the comparison
-        // result,
-        // we cannot have pretty print of the string diff in the above.
+        // and stream.str(). However, if creating a variable for the comparison
+        // result, we cannot have pretty print of the string diff in the above.
         if (GlobalTestSettings.updateMode && expected != real) {
             EXPECT_TRUE(WriteFile(fname, real)) << "Flushing failed";
         }
     }
 
+    struct ShaderResult {
+        std::string shaderName;
+        std::string output;
+        std::string error;
+    };
+
     // A struct for holding all the information returned by glslang compilation
     // and linking.
     struct GlslangResult {
-        const std::string compilationOutput;
-        const std::string compilationError;
-        const std::string linkingOutput;
-        const std::string linkingError;
-        const std::string spirvWarningsErrors;
-        const std::string spirv;  // Optional SPIR-V disassembly text.
+        std::vector<ShaderResult> shaderResults;
+        std::string linkingOutput;
+        std::string linkingError;
+        std::string spirvWarningsErrors;
+        std::string spirv;  // Optional SPIR-V disassembly text.
     };
 
-    // Compiles and linkes the given GLSL |source| code of the given shader
-    // |stage| into the given |target| under the given |semantics|. Returns
-    // a GlslangResult instance containing all the information generated
-    // during the process. If |target| is Target::Spirv, also disassembles
-    // the result and returns disassembly text.
-    GlslangResult compileGlsl(const std::string& source,
-                              const std::string& stage, Semantics semantics,
-                              Target target)
+    // Compiles and the given source |code| of the given shader |stage| into
+    // the target under the semantics conveyed via |controls|. Returns true
+    // and modifies |shader| on success.
+    bool compile(glslang::TShader* shader, const std::string& code,
+                 const std::string& entryPointName, EShMessages controls,
+                 const TBuiltInResource* resources=nullptr)
     {
-        const char* shaderStrings = source.data();
-        const int shaderLengths = static_cast<int>(source.size());
-        const EShLanguage language = GetGlslLanguageForStage(stage);
+        const char* shaderStrings = code.data();
+        const int shaderLengths = static_cast<int>(code.size());
 
-        glslang::TShader shader(language);
-        shader.setStringsWithLengths(&shaderStrings, &shaderLengths, 1);
-        const EShMessages messages =
-            GetSpirvMessageOptionsForSemanticsAndTarget(semantics, target);
+        shader->setStringsWithLengths(&shaderStrings, &shaderLengths, 1);
+        if (!entryPointName.empty()) shader->setEntryPoint(entryPointName.c_str());
         // Reinitialize glslang if the semantics change.
         GlslangInitializer::InitializationToken token =
-            GlobalTestSettings.initializer->acquire(messages);
-        bool success =
-            shader.parse(&glslang::DefaultTBuiltInResource, defaultVersion,
-                         isForwardCompatible, messages);
+            GlobalTestSettings.initializer->acquire(controls);
+        return shader->parse(
+                (resources ? resources : &glslang::DefaultTBuiltInResource),
+                defaultVersion, isForwardCompatible, controls);
+    }
+
+    // Compiles and links the given source |code| of the given shader
+    // |stage| into the target under the semantics specified via |controls|.
+    // Returns a GlslangResult instance containing all the information generated
+    // during the process. If the target includes SPIR-V, also disassembles
+    // the result and returns disassembly text.
+    GlslangResult compileAndLink(
+            const std::string shaderName, const std::string& code,
+            const std::string& entryPointName, EShMessages controls)
+    {
+        const EShLanguage kind = GetShaderStage(GetSuffix(shaderName));
+
+        glslang::TShader shader(kind);
+        bool success = compile(&shader, code, entryPointName, controls);
 
         glslang::TProgram program;
         program.addShader(&shader);
-        success &= program.link(messages);
+        success &= program.link(controls);
 
         spv::SpvBuildLogger logger;
 
-        if (success && target == Target::Spirv) {
+        if (success && (controls & EShMsgSpvRules)) {
             std::vector<uint32_t> spirv_binary;
-            glslang::GlslangToSpv(*program.getIntermediate(language),
+            glslang::GlslangToSpv(*program.getIntermediate(kind),
                                   spirv_binary, &logger);
 
             std::ostringstream disassembly_stream;
             spv::Parameterize();
             spv::Disassemble(disassembly_stream, spirv_binary);
-            return {shader.getInfoLog(), shader.getInfoDebugLog(),
+            return {{{shaderName, shader.getInfoLog(), shader.getInfoDebugLog()},},
                     program.getInfoLog(), program.getInfoDebugLog(),
                     logger.getAllMessages(), disassembly_stream.str()};
         } else {
-            return {shader.getInfoLog(), shader.getInfoDebugLog(),
-                    program.getInfoLog(), program.getInfoDebugLog(),
-                    "", ""};
+            return {{{shaderName, shader.getInfoLog(), shader.getInfoDebugLog()},},
+                    program.getInfoLog(), program.getInfoDebugLog(), "", ""};
+        }
+    }
+
+    void outputResultToStream(std::ostringstream* stream,
+                              const GlslangResult& result,
+                              EShMessages controls)
+    {
+        const auto outputIfNotEmpty = [&stream](const std::string& str) {
+            if (!str.empty()) *stream << str << "\n";
+        };
+
+        for (const auto& shaderResult : result.shaderResults) {
+            *stream << shaderResult.shaderName << "\n";
+            outputIfNotEmpty(shaderResult.output);
+            outputIfNotEmpty(shaderResult.error);
+        }
+        outputIfNotEmpty(result.linkingOutput);
+        outputIfNotEmpty(result.linkingError);
+        *stream << result.spirvWarningsErrors;
+
+        if (controls & EShMsgSpvRules) {
+            *stream
+                << (result.spirv.empty()
+                        ? "SPIR-V is not generated for failed compile or link\n"
+                        : result.spirv);
         }
     }
 
     void loadFileCompileAndCheck(const std::string& testDir,
                                  const std::string& testName,
-                                 Semantics semantics, Target target)
+                                 Source source,
+                                 Semantics semantics,
+                                 Target target,
+                                 const std::string& entryPointName="")
     {
         const std::string inputFname = testDir + "/" + testName;
         const std::string expectedOutputFname =
@@ -220,37 +264,22 @@ public:
         tryLoadFile(inputFname, "input", &input);
         tryLoadFile(expectedOutputFname, "expected output", &expectedOutput);
 
+        const EShMessages controls = DeriveOptions(source, semantics, target);
         GlslangResult result =
-            compileGlsl(input, GetSuffix(testName), semantics, target);
+            compileAndLink(testName, input, entryPointName, controls);
 
         // Generate the hybrid output in the way of glslangValidator.
         std::ostringstream stream;
-
-        const auto outputIfNotEmpty = [&stream](const std::string& str) {
-            if (!str.empty()) stream << str << "\n";
-        };
-
-        stream << testName << "\n";
-        outputIfNotEmpty(result.compilationOutput);
-        outputIfNotEmpty(result.compilationError);
-        outputIfNotEmpty(result.linkingOutput);
-        outputIfNotEmpty(result.linkingError);
-        stream << result.spirvWarningsErrors;
-        if (target == Target::Spirv) {
-            stream
-                << (result.spirv.empty()
-                        ? "SPIR-V is not generated for failed compile or link\n"
-                        : result.spirv);
-        }
+        outputResultToStream(&stream, result, controls);
 
         checkEqAndUpdateIfRequested(expectedOutput, stream.str(),
                                     expectedOutputFname);
     }
 
-    // Preprocesses the given GLSL |source| code. On success, returns true, the
+    // Preprocesses the given |source| code. On success, returns true, the
     // preprocessed shader, and warning messages. Otherwise, returns false, an
     // empty string, and error messages.
-    std::tuple<bool, std::string, std::string> preprocessGlsl(
+    std::tuple<bool, std::string, std::string> preprocess(
         const std::string& source)
     {
         const char* shaderStrings = source.data();
@@ -290,7 +319,7 @@ public:
 
         bool ppOk;
         std::string output, error;
-        std::tie(ppOk, output, error) = preprocessGlsl(input);
+        std::tie(ppOk, output, error) = preprocess(input);
         if (!output.empty()) output += '\n';
         if (!error.empty()) error += '\n';
 

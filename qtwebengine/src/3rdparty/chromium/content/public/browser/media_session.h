@@ -6,6 +6,7 @@
 #define CONTENT_PUBLIC_BROWSER_MEDIA_SESSION_H_
 
 #include "base/macros.h"
+#include "base/time/time.h"
 #include "content/common/content_export.h"
 
 namespace blink {
@@ -45,16 +46,32 @@ class MediaSession {
   // |type| represents the origin of the request.
   virtual void Resume(SuspendType suspend_type) = 0;
 
-  // Resume the media session.
+  // Suspend the media session.
   // |type| represents the origin of the request.
   virtual void Suspend(SuspendType suspend_type) = 0;
 
-  // Resume the media session.
+  // Stop the media session.
   // |type| represents the origin of the request.
   virtual void Stop(SuspendType suspend_type) = 0;
 
+  // Seek the media session forward.
+  virtual void SeekForward(base::TimeDelta seek_time) = 0;
+
+  // Seek the media session backward.
+  virtual void SeekBackward(base::TimeDelta seek_time) = 0;
+
+  // Return if the session can be controlled by Resume() and Suspend() calls
+  // above.
+  virtual bool IsControllable() const = 0;
+
+  // Return if the actual playback state is paused.
+  virtual bool IsActuallyPaused() const = 0;
+
   // Tell the media session a user action has performed.
   virtual void DidReceiveAction(blink::mojom::MediaSessionAction action) = 0;
+
+  // Set the volume multiplier applied during ducking.
+  virtual void SetDuckingVolumeMultiplier(double multiplier) = 0;
 
   // Let the media session start ducking such that the volume multiplier is
   // reduced.

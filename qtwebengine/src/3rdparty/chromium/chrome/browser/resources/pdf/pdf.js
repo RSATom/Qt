@@ -22,6 +22,7 @@ function getScrollbarWidth() {
 
 /**
  * Return the filename component of a URL, percent decoded if possible.
+ *
  * @param {string} url The URL to get the filename from.
  * @return {string} The filename component.
  */
@@ -42,6 +43,7 @@ function getFilenameFromURL(url) {
 /**
  * Whether keydown events should currently be ignored. Events are ignored when
  * an editable element has focus, to allow for proper editing controls.
+ *
  * @param {HTMLElement} activeElement The currently selected DOM node.
  * @return {boolean} True if keydown events should be ignored.
  */
@@ -88,25 +90,40 @@ PDFViewer.DARK_BACKGROUND_COLOR = '0xFF525659';
 /**
  * Creates a new PDFViewer. There should only be one of these objects per
  * document.
- * @constructor
+ *
  * @param {!BrowserApi} browserApi An object providing an API to the browser.
+ * @constructor
  */
 function PDFViewer(browserApi) {
   this.browserApi_ = browserApi;
   this.originalUrl_ = this.browserApi_.getStreamInfo().originalUrl;
+  this.javascript_ = this.browserApi_.getStreamInfo().javascript || 'block';
   this.loadState_ = LoadState.LOADING;
   this.parentWindow_ = null;
   this.parentOrigin_ = null;
   this.isFormFieldFocused_ = false;
-
+  this.beepCount_ = 0;
   this.delayedScriptingMessages_ = [];
 
   this.isPrintPreview_ = location.origin === 'chrome://print';
   this.isPrintPreviewLoaded_ = false;
+  this.isUserInitiatedEvent_ = true;
+
+  /**
+   * @type {!PDFMetrics}
+   */
+  this.metrics =
+      (chrome.metricsPrivate ? new PDFMetricsImpl() : new PDFMetricsDummy());
+  this.metrics.onDocumentOpened();
+
+  /**
+   * @private {!PDFCoordsTransformer}
+   */
+  this.coordsTransformer_ =
+      new PDFCoordsTransformer(this.postMessage_.bind(this));
 
   // Parse open pdf parameters.
-  this.paramsParser_ =
-      new OpenPDFParamsParser(this.getNamedDestination_.bind(this));
+  this.paramsParser_ = new OpenPDFParamsParser(this.postMessage_.bind(this));
   var toolbarEnabled =
       this.paramsParser_.getUiUrlParams(this.originalUrl_).toolbar &&
       !this.isPrintPreview_;
@@ -123,9 +140,9 @@ function PDFViewer(browserApi) {
   this.errorScreen_ = $('error-screen');
   // Can only reload if we are in a normal tab.
   if (chrome.tabs && this.browserApi_.getStreamInfo().tabId != -1) {
-    this.errorScreen_.reloadFn = function() {
+    this.errorScreen_.reloadFn = () => {
       chrome.tabs.reload(this.browserApi_.getStreamInfo().tabId);
-    }.bind(this);
+    };
   }
 
   // Create the viewport.
@@ -139,7 +156,8 @@ function PDFViewer(browserApi) {
   this.viewport_ = new Viewport(
       window, this.sizer_, this.viewportChanged_.bind(this),
       this.beforeZoom_.bind(this), this.afterZoom_.bind(this),
-      getScrollbarWidth(), defaultZoom, topToolbarHeight);
+      this.setUserInitiated_.bind(this), getScrollbarWidth(), defaultZoom,
+      topToolbarHeight);
 
   // Create the plugin object dynamically so we can set its src. The plugin
   // element is sized to fill the entire window and is set to be fixed
@@ -147,7 +165,8 @@ function PDFViewer(browserApi) {
   // according to the scroll position of the window.
   this.plugin_ = document.createElement('embed');
   // NOTE: The plugin's 'id' field must be set to 'plugin' since
-  // chrome/renderer/printing/print_web_view_helper.cc actually references it.
+  // chrome/renderer/printing/print_render_frame_helper.cc actually
+  // references it.
   this.plugin_.id = 'plugin';
   this.plugin_.type = 'application/x-google-chrome-pdf';
   this.plugin_.addEventListener(
@@ -172,6 +191,7 @@ function PDFViewer(browserApi) {
   var backgroundColor = PDFViewer.DARK_BACKGROUND_COLOR;
   this.plugin_.setAttribute('background-color', backgroundColor);
   this.plugin_.setAttribute('top-toolbar-height', topToolbarHeight);
+  this.plugin_.setAttribute('javascript', this.javascript_);
 
   if (this.browserApi_.getStreamInfo().embedded) {
     this.plugin_.setAttribute(
@@ -184,8 +204,7 @@ function PDFViewer(browserApi) {
   // Setup the button event listeners.
   this.zoomToolbar_ = $('zoom-toolbar');
   this.zoomToolbar_.addEventListener(
-      'fit-to-width', this.viewport_.fitToWidth.bind(this.viewport_));
-  this.zoomToolbar_.addEventListener('fit-to-page', this.fitToPage_.bind(this));
+      'fit-to-changed', this.fitToChanged_.bind(this));
   this.zoomToolbar_.addEventListener(
       'zoom-in', this.viewport_.zoomIn.bind(this.viewport_));
   this.zoomToolbar_.addEventListener(
@@ -193,7 +212,7 @@ function PDFViewer(browserApi) {
 
   this.gestureDetector_ = new GestureDetector(this.plugin_);
   this.gestureDetector_.addEventListener(
-      'pinchstart', this.viewport_.pinchZoomStart.bind(this.viewport_));
+      'pinchstart', this.onPinchStart_.bind(this));
   this.sentPinchEvent_ = false;
   this.gestureDetector_.addEventListener(
       'pinchupdate', this.onPinchUpdate_.bind(this));
@@ -215,16 +234,33 @@ function PDFViewer(browserApi) {
     this.toolbar_.docTitle = getFilenameFromURL(this.originalUrl_);
   }
 
-  document.body.addEventListener('change-page', function(e) {
+  document.body.addEventListener('change-page', e => {
     this.viewport_.goToPage(e.detail.page);
-  }.bind(this));
+    if (e.detail.origin == 'bookmark')
+      this.metrics.onFollowBookmark();
+    else if (e.detail.origin == 'pageselector')
+      this.metrics.onPageSelectorNavigation();
+  });
 
-  document.body.addEventListener('navigate', function(e) {
+  document.body.addEventListener('change-page-and-xy', e => {
+    // The coordinates received in |e| are in page coordinates and need to be
+    // transformed to screen coordinates.
+    this.coordsTransformer_.request(
+        this.goToPageAndXY_.bind(this, e.detail.origin, e.detail.page), {},
+        e.detail.page, e.detail.x, e.detail.y);
+  });
+
+  document.body.addEventListener('navigate', e => {
     var disposition = e.detail.newtab ?
         Navigator.WindowOpenDisposition.NEW_BACKGROUND_TAB :
         Navigator.WindowOpenDisposition.CURRENT_TAB;
     this.navigator_.navigate(e.detail.uri, disposition);
-  }.bind(this));
+  });
+
+  document.body.addEventListener('dropdown-opened', e => {
+    if (e.detail == 'bookmarks')
+      this.metrics.onOpenBookmarksPanel();
+  });
 
   this.toolbarManager_ =
       new ToolbarManager(window, this.toolbar_, this.zoomToolbar_);
@@ -253,15 +289,16 @@ function PDFViewer(browserApi) {
       new ViewportScroller(this.viewport_, this.plugin_, window);
 
   // Request translated strings.
-  chrome.resourcesPrivate.getStrings('pdf', this.handleStrings_.bind(this));
+  // TO-DO mibrunin: check if this can / needs to be enabled chrome.resourcesPrivate.getStrings('pdf', this.handleStrings_.bind(this));
 }
 
 PDFViewer.prototype = {
   /**
-   * @private
    * Handle key events. These may come from the user directly or via the
    * scripting API.
+   *
    * @param {KeyboardEvent} e the event to handle.
+   * @private
    */
   handleKeyEvent_: function(e) {
     var position = this.viewport_.position;
@@ -273,9 +310,9 @@ PDFViewer.prototype = {
 
     this.toolbarManager_.hideToolbarsAfterTimeout(e);
 
-    var pageUpHandler = function() {
-      // Go to the previous page if we are fit-to-page.
-      if (this.viewport_.fittingType == Viewport.FittingType.FIT_TO_PAGE) {
+    var pageUpHandler = () => {
+      // Go to the previous page if we are fit-to-page or fit-to-height.
+      if (this.viewport_.isPagedMode()) {
         this.viewport_.goToPage(this.viewport_.getMostVisiblePage() - 1);
         // Since we do the movement of the page.
         e.preventDefault();
@@ -283,10 +320,10 @@ PDFViewer.prototype = {
         position.y -= this.viewport.size.height;
         this.viewport.position = position;
       }
-    }.bind(this);
-    var pageDownHandler = function() {
-      // Go to the next page if we are fit-to-page.
-      if (this.viewport_.fittingType == Viewport.FittingType.FIT_TO_PAGE) {
+    };
+    var pageDownHandler = () => {
+      // Go to the next page if we are fit-to-page or fit-to-height.
+      if (this.viewport_.isPagedMode()) {
         this.viewport_.goToPage(this.viewport_.getMostVisiblePage() + 1);
         // Since we do the movement of the page.
         e.preventDefault();
@@ -294,7 +331,7 @@ PDFViewer.prototype = {
         position.y += this.viewport.size.height;
         this.viewport.position = position;
       }
-    }.bind(this);
+    };
 
     switch (e.keyCode) {
       case 9:  // Tab key.
@@ -362,7 +399,7 @@ PDFViewer.prototype = {
         return;
       case 65:  // 'a' key.
         if (e.ctrlKey || e.metaKey) {
-          this.plugin_.postMessage({type: 'selectAll'});
+          this.postMessage_({type: 'selectAll'});
           // Since we do selection ourselves.
           e.preventDefault();
         }
@@ -417,60 +454,69 @@ PDFViewer.prototype = {
   },
 
   /**
-   * @private
    * Rotate the plugin clockwise.
+   *
+   * @private
    */
   rotateClockwise_: function() {
-    this.plugin_.postMessage({type: 'rotateClockwise'});
+    this.metrics.onRotation();
+    this.postMessage_({type: 'rotateClockwise'});
   },
 
   /**
-   * @private
    * Rotate the plugin counter-clockwise.
+   *
+   * @private
    */
   rotateCounterClockwise_: function() {
-    this.plugin_.postMessage({type: 'rotateCounterclockwise'});
+    this.metrics.onRotation();
+    this.postMessage_({type: 'rotateCounterclockwise'});
   },
 
   /**
+   * Request to change the viewport fitting type.
+   *
+   * @param {CustomEvent} e Event received with the new FittingType as detail.
    * @private
-   * Set zoom to "fit to page".
    */
-  fitToPage_: function() {
-    this.viewport_.fitToPage();
-    this.toolbarManager_.forceHideTopToolbar();
+  fitToChanged_: function(e) {
+    if (e.detail.fittingType == FittingType.FIT_TO_PAGE) {
+      this.viewport_.fitToPage();
+      this.toolbarManager_.forceHideTopToolbar();
+    } else if (e.detail.fittingType == FittingType.FIT_TO_WIDTH) {
+      this.viewport_.fitToWidth();
+    } else if (e.detail.fittingType == FittingType.FIT_TO_HEIGHT) {
+      this.viewport_.fitToHeight();
+      this.toolbarManager_.forceHideTopToolbar();
+    }
+
+    if (e.detail.userInitiated)
+      this.metrics.onFitTo(e.detail.fittingType);
   },
 
   /**
-   * @private
    * Notify the plugin to print.
+   *
+   * @private
    */
   print_: function() {
-    this.plugin_.postMessage({type: 'print'});
+    this.postMessage_({type: 'print'});
   },
 
   /**
-   * @private
    * Notify the plugin to save.
+   *
+   * @private
    */
   save_: function() {
-    this.plugin_.postMessage({type: 'save'});
+    this.postMessage_({type: 'save'});
   },
 
   /**
-   * Fetches the page number corresponding to the given named destination from
-   * the plugin.
-   * @param {string} name The namedDestination to fetch page number from plugin.
-   */
-  getNamedDestination_: function(name) {
-    this.plugin_.postMessage(
-        {type: 'getNamedDestination', namedDestination: name});
-  },
-
-  /**
-   * @private
    * Sends a 'documentLoaded' message to the PDFScriptingAPI if the document has
    * finished loading.
+   *
+   * @private
    */
   sendDocumentLoadedMessage_: function() {
     if (this.loadState_ == LoadState.LOADING)
@@ -482,32 +528,62 @@ PDFViewer.prototype = {
   },
 
   /**
-   * @private
    * Handle open pdf parameters. This function updates the viewport as per
    * the parameters mentioned in the url while opening pdf. The order is
    * important as later actions can override the effects of previous actions.
-   * @param {Object} viewportPosition The initial position of the viewport to be
-   *     displayed.
+   *
+   * @param {Object} params The open params passed in the URL.
+   * @private
    */
-  handleURLParams_: function(viewportPosition) {
-    if (viewportPosition.page != undefined)
-      this.viewport_.goToPage(viewportPosition.page);
-    if (viewportPosition.position) {
-      // Make sure we don't cancel effect of page parameter.
-      this.viewport_.position = {
-        x: this.viewport_.position.x + viewportPosition.position.x,
-        y: this.viewport_.position.y + viewportPosition.position.y
-      };
+  handleURLParams_: function(params) {
+    if (params.zoom)
+      this.viewport_.setZoom(params.zoom);
+
+    if (params.position) {
+      this.viewport_.goToPageAndXY(
+          params.page ? params.page : 0, params.position.x, params.position.y);
+    } else if (params.page) {
+      this.viewport_.goToPage(params.page);
     }
-    if (viewportPosition.zoom)
-      this.viewport_.setZoom(viewportPosition.zoom);
+
+    if (params.view) {
+      this.isUserInitiatedEvent_ = false;
+      this.zoomToolbar_.forceFit(params.view);
+      if (params.viewPosition) {
+        var zoomedPositionShift = params.viewPosition * this.viewport_.zoom;
+        var currentViewportPosition = this.viewport_.position;
+        if (params.view == FittingType.FIT_TO_WIDTH)
+          currentViewportPosition.y += zoomedPositionShift;
+        else if (params.view == FittingType.FIT_TO_HEIGHT)
+          currentViewportPosition.x += zoomedPositionShift;
+        this.viewport_.position = currentViewportPosition;
+      }
+      this.isUserInitiatedEvent_ = true;
+    }
   },
 
   /**
+   * Moves the viewport to a point in a page. Called back after a
+   * 'transformPagePointReply' is returned from the plugin.
+   *
+   * @param {string} origin Identifier for the caller for logging purposes.
+   * @param {number} page The index of the page to go to. zero-based.
+   * @param {Object} message Message received from the plugin containing the
+   *     x and y to navigate to in screen coordinates.
    * @private
+   */
+  goToPageAndXY_: function(origin, page, message) {
+    this.viewport_.goToPageAndXY(page, message.x, message.y);
+    if (origin == 'bookmark')
+      this.metrics.onFollowBookmark();
+  },
+
+  /**
    * Update the loading progress of the document in response to a progress
    * message being received from the plugin.
+   *
    * @param {number} progress the progress as a percentage.
+   * @private
    */
   updateProgress_: function(progress) {
     if (this.toolbar_)
@@ -539,10 +615,11 @@ PDFViewer.prototype = {
   },
 
   /**
-   * @private
    * Load a dictionary of translated strings into the UI. Used as a callback for
    * chrome.resourcesPrivate.
+   *
    * @param {Object} strings Dictionary of translated strings
+   * @private
    */
   handleStrings_: function(strings) {
     document.documentElement.dir = strings.textdirection;
@@ -555,26 +632,45 @@ PDFViewer.prototype = {
   },
 
   /**
-   * @private
    * An event handler for handling password-submitted events. These are fired
    * when an event is entered into the password screen.
+   *
    * @param {Object} event a password-submitted event.
+   * @private
    */
   onPasswordSubmitted_: function(event) {
-    this.plugin_.postMessage(
+    this.postMessage_(
         {type: 'getPasswordComplete', password: event.detail.password});
   },
 
   /**
+   * Post a message to the PPAPI plugin. Some messages will cause an async reply
+   * to be received through handlePluginMessage_().
+   *
+   * @param {Object} message Message to post.
    * @private
+   */
+  postMessage_: function(message) {
+    this.plugin_.postMessage(message);
+  },
+
+  /**
    * An event handler for handling message events received from the plugin.
+   *
    * @param {MessageObject} message a message event.
+   * @private
    */
   handlePluginMessage_: function(message) {
     switch (message.data.type.toString()) {
+      case 'beep':
+        // Beeps are annoying, so just track count for now.
+        this.beepCount_ += 1;
+        break;
       case 'documentDimensions':
         this.documentDimensions_ = message.data;
+        this.isUserInitiatedEvent_ = false;
         this.viewport_.setDocumentDimensions(this.documentDimensions_);
+        this.isUserInitiatedEvent_ = true;
         // If we received the document dimensions, the password was good so we
         // can dismiss the password screen.
         if (this.passwordScreen_.active)
@@ -626,12 +722,10 @@ PDFViewer.prototype = {
         this.sendDocumentLoadedMessage_();
         break;
       case 'setScrollPosition':
-        var position = this.viewport_.position;
-        if (message.data.x !== undefined)
-          position.x = message.data.x;
-        if (message.data.y !== undefined)
-          position.y = message.data.y;
-        this.viewport_.position = position;
+        this.viewport_.scrollTo(/** @type {!PartialPoint} */ (message.data));
+        break;
+      case 'scrollBy':
+        this.viewport_.scrollBy(/** @type {!Point} */ (message.data));
         break;
       case 'cancelStreamUrl':
         chrome.mimeHandlerPrivate.abortStream();
@@ -651,29 +745,41 @@ PDFViewer.prototype = {
       case 'setIsSelecting':
         this.viewportScroller_.setEnableScrolling(message.data.isSelecting);
         break;
+      case 'setIsEditMode':
+        // TODO(hnakashima): Replace this with final visual indication from UX.
+        if (message.data.isEditMode)
+          this.toolbar_.docTitle = document.title + ' (edit mode)';
+        else
+          this.toolbar_.docTitle = document.title;
+        break;
       case 'getNamedDestinationReply':
         this.paramsParser_.onNamedDestinationReceived(message.data.pageNumber);
         break;
       case 'formFocusChange':
         this.isFormFieldFocused_ = message.data.focused;
         break;
+      case 'transformPagePointReply':
+        this.coordsTransformer_.onReplyReceived(message);
+        break;
     }
   },
 
   /**
-   * @private
    * A callback that's called before the zoom changes. Notify the plugin to stop
    * reacting to scroll events while zoom is taking place to avoid flickering.
+   *
+   * @private
    */
   beforeZoom_: function() {
-    this.plugin_.postMessage({type: 'stopScrolling'});
+    this.postMessage_({type: 'stopScrolling'});
 
     if (this.viewport_.pinchPhase == Viewport.PinchPhase.PINCH_START) {
       var position = this.viewport_.position;
       var zoom = this.viewport_.zoom;
       var pinchPhase = this.viewport_.pinchPhase;
-      this.plugin_.postMessage({
+      this.postMessage_({
         type: 'viewport',
+        userInitiated: true,
         zoom: zoom,
         xOffset: position.x,
         yOffset: position.y,
@@ -683,9 +789,10 @@ PDFViewer.prototype = {
   },
 
   /**
-   * @private
    * A callback that's called after the zoom changes. Notify the plugin of the
    * zoom change and to continue reacting to scroll events.
+   *
+   * @private
    */
   afterZoom_: function() {
     var position = this.viewport_.position;
@@ -694,8 +801,9 @@ PDFViewer.prototype = {
     var pinchCenter = this.viewport_.pinchCenter || {x: 0, y: 0};
     var pinchPhase = this.viewport_.pinchPhase;
 
-    this.plugin_.postMessage({
+    this.postMessage_({
       type: 'viewport',
+      userInitiated: this.isUserInitiatedEvent_,
       zoom: zoom,
       xOffset: position.x,
       yOffset: position.y,
@@ -709,37 +817,67 @@ PDFViewer.prototype = {
   },
 
   /**
+   * A callback that sets |isUserInitiatedEvent_| to |userInitiated|.
+   *
+   * @param {boolean} userInitiated The value to set |isUserInitiatedEvent_| to.
    * @private
+   */
+  setUserInitiated_: function(userInitiated) {
+    if (this.isUserInitiatedEvent_ == userInitiated) {
+      throw 'Trying to set user initiated to current value.';
+    }
+    this.isUserInitiatedEvent_ = userInitiated;
+  },
+
+  /**
    * A callback that's called when an update to a pinch zoom is detected.
+   *
    * @param {!Object} e the pinch event.
+   * @private
    */
   onPinchUpdate_: function(e) {
     // Throttle number of pinch events to one per frame.
     if (!this.sentPinchEvent_) {
       this.sentPinchEvent_ = true;
-      window.requestAnimationFrame(function() {
+      window.requestAnimationFrame(() => {
         this.sentPinchEvent_ = false;
         this.viewport_.pinchZoom(e);
-      }.bind(this));
+      });
     }
   },
 
   /**
-   * @private
    * A callback that's called when the end of a pinch zoom is detected.
+   *
    * @param {!Object} e the pinch event.
+   * @private
    */
   onPinchEnd_: function(e) {
     // Using rAF for pinch end prevents pinch updates scheduled by rAF getting
     // sent after the pinch end.
-    window.requestAnimationFrame(function() {
+    window.requestAnimationFrame(() => {
       this.viewport_.pinchZoomEnd(e);
-    }.bind(this));
+    });
   },
 
   /**
+   * A callback that's called when the start of a pinch zoom is detected.
+   *
+   * @param {!Object} e the pinch event.
    * @private
+   */
+  onPinchStart_: function(e) {
+    // We also use rAF for pinch start, so that if there is a pinch end event
+    // scheduled by rAF, this pinch start will be sent after.
+    window.requestAnimationFrame(() => {
+      this.viewport_.pinchZoomStart(e);
+    });
+  },
+
+  /**
    * A callback that's called after the viewport changes.
+   *
+   * @private
    */
   viewportChanged_: function() {
     if (!this.documentDimensions_)
@@ -801,6 +939,7 @@ PDFViewer.prototype = {
    * Handle a scripting message from outside the extension (typically sent by
    * PDFScriptingAPI in a page containing the extension) to interact with the
    * plugin.
+   *
    * @param {MessageObject} message the message to handle.
    */
   handleScriptingMessage: function(message) {
@@ -826,16 +965,17 @@ PDFViewer.prototype = {
       case 'getSelectedText':
       case 'print':
       case 'selectAll':
-        this.plugin_.postMessage(message.data);
+        this.postMessage_(message.data);
         break;
     }
   },
 
   /**
-   * @private
    * Handle scripting messages specific to print preview.
+   *
    * @param {MessageObject} message the message to handle.
    * @return {boolean} true if the message was handled, false otherwise.
+   * @private
    */
   handlePrintPreviewScriptingMessage_: function(message) {
     if (!this.isPrintPreview_)
@@ -843,13 +983,15 @@ PDFViewer.prototype = {
 
     switch (message.data.type.toString()) {
       case 'loadPreviewPage':
-        this.plugin_.postMessage(message.data);
+        this.postMessage_(message.data);
         return true;
       case 'resetPrintPreviewMode':
         this.loadState_ = LoadState.LOADING;
         if (!this.inPrintPreviewMode_) {
           this.inPrintPreviewMode_ = true;
-          this.viewport_.fitToPage();
+          this.isUserInitiatedEvent_ = false;
+          this.zoomToolbar_.forceFit(FittingType.FIT_TO_PAGE);
+          this.isUserInitiatedEvent_ = true;
         }
 
         // Stash the scroll location so that it can be restored when the new
@@ -866,7 +1008,7 @@ PDFViewer.prototype = {
 
         this.pageIndicator_.pageLabels = message.data.pageNumbers;
 
-        this.plugin_.postMessage({
+        this.postMessage_({
           type: 'resetPrintPreviewMode',
           url: message.data.url,
           grayscale: message.data.grayscale,
@@ -885,10 +1027,11 @@ PDFViewer.prototype = {
   },
 
   /**
-   * @private
    * Send a scripting message outside the extension (typically to
    * PDFScriptingAPI in a page containing the extension).
+   *
    * @param {Object} message the message to send.
+   * @private
    */
   sendScriptingMessage_: function(message) {
     if (this.parentWindow_ && this.parentOrigin_) {
@@ -919,6 +1062,7 @@ PDFViewer.prototype = {
    * - title
    * - page (optional)
    * - array of children (themselves bookmarks)
+   *
    * @type {Array} the top-level bookmarks of the PDF.
    */
   get bookmarks() {

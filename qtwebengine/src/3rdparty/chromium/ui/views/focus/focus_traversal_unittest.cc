@@ -5,7 +5,6 @@
 #include <stddef.h>
 
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
@@ -152,7 +151,7 @@ class BorderView : public NativeViewHost {
 
     if (details.child == this && details.is_add) {
       if (!widget_) {
-        widget_ = base::MakeUnique<Widget>();
+        widget_ = std::make_unique<Widget>();
         Widget::InitParams params(Widget::InitParams::TYPE_CONTROL);
         params.parent = details.parent->GetWidget()->GetNativeView();
         params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;

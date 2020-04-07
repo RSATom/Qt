@@ -15,7 +15,7 @@
 #include "base/memory/ref_counted.h"
 #include "base/synchronization/lock.h"
 #include "gpu/command_buffer/service/image_factory.h"
-#include "gpu/gpu_export.h"
+#include "gpu/ipc/service/gpu_ipc_service_export.h"
 #include "gpu/ipc/service/gpu_memory_buffer_factory.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/gpu_memory_buffer.h"
@@ -27,7 +27,7 @@ class GLImage;
 
 namespace gpu {
 
-class GPU_EXPORT GpuMemoryBufferFactoryIOSurface
+class GPU_IPC_SERVICE_EXPORT GpuMemoryBufferFactoryIOSurface
     : public GpuMemoryBufferFactory,
       public ImageFactory {
  public:
@@ -54,10 +54,12 @@ class GPU_EXPORT GpuMemoryBufferFactoryIOSurface
       unsigned internalformat,
       int client_id,
       SurfaceHandle surface_handle) override;
-  scoped_refptr<gl::GLImage> CreateAnonymousImage(
-      const gfx::Size& size,
-      gfx::BufferFormat format,
-      unsigned internalformat) override;
+  bool SupportsCreateAnonymousImage() const override;
+  scoped_refptr<gl::GLImage> CreateAnonymousImage(const gfx::Size& size,
+                                                  gfx::BufferFormat format,
+                                                  gfx::BufferUsage usage,
+                                                  unsigned internalformat,
+                                                  bool* is_cleared) override;
   unsigned RequiredTextureType() override;
   bool SupportsFormatRGB() override;
 
@@ -65,10 +67,13 @@ class GPU_EXPORT GpuMemoryBufferFactoryIOSurface
   typedef std::pair<gfx::IOSurfaceId, int> IOSurfaceMapKey;
   typedef base::hash_map<IOSurfaceMapKey, base::ScopedCFTypeRef<IOSurfaceRef>>
       IOSurfaceMap;
-  // TOOD(reveman): Remove |io_surfaces_| and allow IOSurface backed GMBs to be
+  // TODO(reveman): Remove |io_surfaces_| and allow IOSurface backed GMBs to be
   // used with any GPU process by passing a mach_port to CreateImageCHROMIUM.
   IOSurfaceMap io_surfaces_;
   base::Lock io_surfaces_lock_;
+
+  // Assign unique ids to anonymous images to differentiate in memory dumps.
+  int next_anonymous_image_id_ = 1;
 
   DISALLOW_COPY_AND_ASSIGN(GpuMemoryBufferFactoryIOSurface);
 };

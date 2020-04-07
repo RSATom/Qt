@@ -6,8 +6,8 @@
 #define COMPONENTS_GUEST_VIEW_BROWSER_GUEST_VIEW_BASE_H_
 
 #include <memory>
-#include <queue>
 
+#include "base/containers/circular_deque.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/values.h"
@@ -120,9 +120,9 @@ class GuestViewBase : public content::BrowserPluginGuestDelegate,
   // This creates a WebContents and initializes |this| GuestViewBase to use the
   // newly created WebContents.
   using WebContentsCreatedCallback =
-      base::Callback<void(content::WebContents*)>;
+      base::OnceCallback<void(content::WebContents*)>;
   void Init(const base::DictionaryValue& create_params,
-            const WebContentsCreatedCallback& callback);
+            WebContentsCreatedCallback callback);
 
   void InitWithWebContents(const base::DictionaryValue& create_params,
                            content::WebContents* guest_web_contents);
@@ -213,9 +213,6 @@ class GuestViewBase : public content::BrowserPluginGuestDelegate,
 
   ~GuestViewBase() override;
 
-  // BrowserPluginGuestDelegate implementation.
-  void SetContextMenuPosition(const gfx::Point& position) override;
-
   // TODO(ekaramad): If a guest is based on BrowserPlugin and is embedded inside
   // a cross-process frame, we need to notify the destruction of the frame so
   // that the clean-up on the browser side is done appropriately. Remove this
@@ -236,9 +233,8 @@ class GuestViewBase : public content::BrowserPluginGuestDelegate,
   // Given a set of initialization parameters, a concrete subclass of
   // GuestViewBase can create a specialized WebContents that it returns back to
   // GuestViewBase.
-  virtual void CreateWebContents(
-      const base::DictionaryValue& create_params,
-      const WebContentsCreatedCallback& callback) = 0;
+  virtual void CreateWebContents(const base::DictionaryValue& create_params,
+                                 WebContentsCreatedCallback callback) = 0;
 
   // This method is called after the guest has been attached to an embedder and
   // suspended resource loads have been resumed.
@@ -340,17 +336,15 @@ class GuestViewBase : public content::BrowserPluginGuestDelegate,
   void DidAttach(int guest_proxy_routing_id) final;
   void DidDetach() final;
   content::WebContents* GetOwnerWebContents() const final;
-  void GuestSizeChanged(const gfx::Size& new_size) final;
   void SetGuestHost(content::GuestHost* guest_host) final;
   void WillAttach(content::WebContents* embedder_web_contents,
                   int browser_plugin_instance_id,
                   bool is_full_page_plugin,
-                  const base::Closure& callback) final;
+                  const base::Closure& completion_callback) final;
 
   // WebContentsDelegate implementation.
   void ActivateContents(content::WebContents* contents) final;
   void ContentsMouseEvent(content::WebContents* source,
-                          const gfx::Point& location,
                           bool motion,
                           bool exited) final;
   void ContentsZoomChange(bool zoom_in) final;
@@ -359,7 +353,7 @@ class GuestViewBase : public content::BrowserPluginGuestDelegate,
   content::ColorChooser* OpenColorChooser(
       content::WebContents* web_contents,
       SkColor color,
-      const std::vector<content::ColorSuggestion>& suggestions) final;
+      const std::vector<blink::mojom::ColorSuggestionPtr>& suggestions) final;
   void ResizeDueToAutoResize(content::WebContents* web_contents,
                              const gfx::Size& new_size) final;
   void RunFileChooser(content::RenderFrameHost* render_frame_host,
@@ -379,10 +373,19 @@ class GuestViewBase : public content::BrowserPluginGuestDelegate,
   void OnZoomChanged(
       const zoom::ZoomController::ZoomChangedEventData& data) final;
 
+  // See BrowserPluginGuestDelegate::WillAttach.
+  // This version also takes a |perform_attach| callback to specify
+  // attachment operations which must be done synchronously.
+  void WillAttach(content::WebContents* embedder_web_contents,
+                  int element_instance_id,
+                  bool is_full_page_plugin,
+                  base::OnceClosure perform_attach,
+                  const base::Closure& completion_callback);
+
   void SendQueuedEvents();
 
   void CompleteInit(std::unique_ptr<base::DictionaryValue> create_params,
-                    const WebContentsCreatedCallback& callback,
+                    WebContentsCreatedCallback callback,
                     content::WebContents* guest_web_contents);
 
   // Dispatches the onResize event to the embedder.
@@ -439,7 +442,7 @@ class GuestViewBase : public content::BrowserPluginGuestDelegate,
 
   // This is a queue of Events that are destined to be sent to the embedder once
   // the guest is attached to a particular embedder.
-  std::deque<std::unique_ptr<GuestViewEvent>> pending_events_;
+  base::circular_deque<std::unique_ptr<GuestViewEvent>> pending_events_;
 
   // The opener guest view.
   base::WeakPtr<GuestViewBase> opener_;

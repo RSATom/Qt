@@ -56,6 +56,8 @@
 
 #include <openssl/bio.h>
 
+#if !defined(OPENSSL_TRUSTY)
+
 #include <errno.h>
 #include <string.h>
 
@@ -73,6 +75,7 @@ OPENSSL_MSVC_PRAGMA(warning(pop))
 #include <openssl/mem.h>
 
 #include "internal.h"
+#include "../internal.h"
 
 
 static int bio_fd_non_fatal_error(int err) {
@@ -138,7 +141,7 @@ BIO *BIO_new_fd(int fd, int close_flag) {
 }
 
 static int fd_new(BIO *bio) {
-  /* num is used to store the file descriptor. */
+  // num is used to store the file descriptor.
   bio->num = -1;
   return 1;
 }
@@ -190,6 +193,7 @@ static long fd_ctrl(BIO *b, int cmd, long num, void *ptr) {
   switch (cmd) {
     case BIO_CTRL_RESET:
       num = 0;
+      OPENSSL_FALLTHROUGH;
     case BIO_C_FILE_SEEK:
       ret = 0;
       if (b->init) {
@@ -272,3 +276,5 @@ int BIO_set_fd(BIO *bio, int fd, int close_flag) {
 int BIO_get_fd(BIO *bio, int *out_fd) {
   return BIO_ctrl(bio, BIO_C_GET_FD, 0, (char *) out_fd);
 }
+
+#endif  // OPENSSL_TRUSTY

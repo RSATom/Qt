@@ -27,6 +27,7 @@
 #include "media/base/video_frame.h"
 #include "media/base/video_util.h"
 #include "media/ffmpeg/ffmpeg_common.h"
+#include "media/ffmpeg/ffmpeg_decoding_loop.h"
 #include "media/filters/ffmpeg_glue.h"
 
 namespace media {
@@ -38,8 +39,8 @@ namespace media {
 // Handling decoding on separate threads also frees up the pipeline thread to
 // continue processing. Although it'd be nice to have the option of a single
 // decoding thread, FFmpeg treats having one thread the same as having zero
-// threads (i.e., avcodec_decode_video() will execute on the calling thread).
-// Yet another reason for having two threads :)
+// threads (i.e., decoding will execute on the calling thread). Yet another
+// reason for having two threads :)
 static const int kDecodeThreads = 2;
 static const int kMaxDecodeThreads = 16;
 
@@ -60,6 +61,7 @@ static int GetThreadCount(const VideoDecoderConfig& config) {
       case kCodecMPEG2:
       case kCodecHEVC:
       case kCodecVP9:
+      case kCodecAV1:
       case kCodecDolbyVision:
         // We do not compile ffmpeg with support for any of these codecs.
         break;
@@ -131,8 +133,8 @@ int FFmpegVideoDecoder::GetVideoBuffer(struct AVCodecContext* codec_context,
 
   if (format == PIXEL_FORMAT_UNKNOWN)
     return AVERROR(EINVAL);
-  DCHECK(format == PIXEL_FORMAT_YV12 || format == PIXEL_FORMAT_YV16 ||
-         format == PIXEL_FORMAT_YV24 || format == PIXEL_FORMAT_YUV420P9 ||
+  DCHECK(format == PIXEL_FORMAT_I420 || format == PIXEL_FORMAT_I422 ||
+         format == PIXEL_FORMAT_I444 || format == PIXEL_FORMAT_YUV420P9 ||
          format == PIXEL_FORMAT_YUV420P10 || format == PIXEL_FORMAT_YUV422P9 ||
          format == PIXEL_FORMAT_YUV422P10 || format == PIXEL_FORMAT_YUV444P9 ||
          format == PIXEL_FORMAT_YUV444P10 || format == PIXEL_FORMAT_YUV420P12 ||
@@ -149,7 +151,8 @@ int FFmpegVideoDecoder::GetVideoBuffer(struct AVCodecContext* codec_context,
                                   codec_context->sample_aspect_ratio.num,
                                   codec_context->sample_aspect_ratio.den);
   } else {
-    natural_size = config_.natural_size();
+    natural_size =
+        GetNaturalSize(gfx::Rect(size), config_.GetPixelAspectRatio());
   }
 
   // FFmpeg has specific requirements on the allocation size of the frame.  The
@@ -184,9 +187,20 @@ int FFmpegVideoDecoder::GetVideoBuffer(struct AVCodecContext* codec_context,
   video_frame->metadata()->SetInteger(VideoFrameMetadata::COLOR_SPACE,
                                       color_space);
 
-  if (codec_context->color_primaries != AVCOL_PRI_UNSPECIFIED ||
-      codec_context->color_trc != AVCOL_TRC_UNSPECIFIED ||
-      codec_context->colorspace != AVCOL_SPC_UNSPECIFIED) {
+  if (codec_context->codec_id == AV_CODEC_ID_VP8 &&
+      codec_context->color_primaries == AVCOL_PRI_UNSPECIFIED &&
+      codec_context->color_trc == AVCOL_TRC_UNSPECIFIED &&
+      codec_context->colorspace == AVCOL_SPC_BT470BG) {
+    // vp8 has no colorspace information, except for the color range.
+    // However, because of a comment in the vp8 spec, ffmpeg sets the
+    // colorspace to BT470BG. We detect this and treat it as unset.
+    // If the color range is set to full range, we use the jpeg color space.
+    if (codec_context->color_range == AVCOL_RANGE_JPEG) {
+      video_frame->set_color_space(gfx::ColorSpace::CreateJpeg());
+    }
+  } else if (codec_context->color_primaries != AVCOL_PRI_UNSPECIFIED ||
+             codec_context->color_trc != AVCOL_TRC_UNSPECIFIED ||
+             codec_context->colorspace != AVCOL_SPC_UNSPECIFIED) {
     media::VideoColorSpace video_color_space = media::VideoColorSpace(
         codec_context->color_primaries, codec_context->color_trc,
         codec_context->colorspace,
@@ -223,11 +237,13 @@ std::string FFmpegVideoDecoder::GetDisplayName() const {
   return "FFmpegVideoDecoder";
 }
 
-void FFmpegVideoDecoder::Initialize(const VideoDecoderConfig& config,
-                                    bool low_delay,
-                                    CdmContext* /* cdm_context */,
-                                    const InitCB& init_cb,
-                                    const OutputCB& output_cb) {
+void FFmpegVideoDecoder::Initialize(
+    const VideoDecoderConfig& config,
+    bool low_delay,
+    CdmContext* /* cdm_context */,
+    const InitCB& init_cb,
+    const OutputCB& output_cb,
+    const WaitingForDecryptionKeyCB& /* waiting_for_decryption_key_cb */) {
   DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(config.IsValidConfig());
   DCHECK(!output_cb.is_null());
@@ -238,8 +254,6 @@ void FFmpegVideoDecoder::Initialize(const VideoDecoderConfig& config,
     bound_init_cb.Run(false);
     return;
   }
-
-  FFmpegGlue::InitializeFFmpeg();
 
   if (!ConfigureDecoder(config, low_delay)) {
     bound_init_cb.Run(false);
@@ -253,7 +267,7 @@ void FFmpegVideoDecoder::Initialize(const VideoDecoderConfig& config,
   bound_init_cb.Run(true);
 }
 
-void FFmpegVideoDecoder::Decode(const scoped_refptr<DecoderBuffer>& buffer,
+void FFmpegVideoDecoder::Decode(scoped_refptr<DecoderBuffer> buffer,
                                 const DecodeCB& decode_cb) {
   DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(buffer.get());
@@ -275,11 +289,8 @@ void FFmpegVideoDecoder::Decode(const scoped_refptr<DecoderBuffer>& buffer,
   DCHECK_EQ(state_, kNormal);
 
   // During decode, because reads are issued asynchronously, it is possible to
-  // receive multiple end of stream buffers since each decode is acked. When the
-  // first end of stream buffer is read, FFmpeg may still have frames queued
-  // up in the decoder so we need to go through the decode loop until it stops
-  // giving sensible data.  After that, the decoder should output empty
-  // frames.  There are three states the decoder can be in:
+  // receive multiple end of stream buffers since each decode is acked. There
+  // are three states the decoder can be in:
   //
   //   kNormal: This is the starting state. Buffers are decoded. Decode errors
   //            are discarded.
@@ -295,16 +306,11 @@ void FFmpegVideoDecoder::Decode(const scoped_refptr<DecoderBuffer>& buffer,
   // (any state) -> kNormal:
   //     Any time Reset() is called.
 
-  bool has_produced_frame;
-  do {
-    has_produced_frame = false;
-    if (!FFmpegDecode(buffer, &has_produced_frame)) {
-      state_ = kError;
-      decode_cb_bound.Run(DecodeStatus::DECODE_ERROR);
-      return;
-    }
-    // Repeat to flush the decoder after receiving EOS buffer.
-  } while (buffer->end_of_stream() && has_produced_frame);
+  if (!FFmpegDecode(*buffer)) {
+    state_ = kError;
+    decode_cb_bound.Run(DecodeStatus::DECODE_ERROR);
+    return;
+  }
 
   if (buffer->end_of_stream())
     state_ = kDecodeFinished;
@@ -330,85 +336,72 @@ FFmpegVideoDecoder::~FFmpegVideoDecoder() {
     ReleaseFFmpegResources();
 }
 
-bool FFmpegVideoDecoder::FFmpegDecode(
-    const scoped_refptr<DecoderBuffer>& buffer,
-    bool* has_produced_frame) {
-  DCHECK(!*has_produced_frame);
-
+bool FFmpegVideoDecoder::FFmpegDecode(const DecoderBuffer& buffer) {
   // Create a packet for input data.
   // Due to FFmpeg API changes we no longer have const read-only pointers.
   AVPacket packet;
   av_init_packet(&packet);
-  if (buffer->end_of_stream()) {
+  if (buffer.end_of_stream()) {
     packet.data = NULL;
     packet.size = 0;
   } else {
-    packet.data = const_cast<uint8_t*>(buffer->data());
-    packet.size = buffer->data_size();
+    packet.data = const_cast<uint8_t*>(buffer.data());
+    packet.size = buffer.data_size();
 
-    // Starting in M60, avcodec_decode_video2() generates an error if an
-    // empty buffer is provided. Since we're not at EOS and there is no data
-    // available in the current buffer, simply return and let the caller
-    // provide more data. crbug.com/663438 has more context on 0-byte buffers.
-    if (!packet.size)
-      return true;
+    DCHECK(packet.data);
+    DCHECK_GT(packet.size, 0);
 
     // Let FFmpeg handle presentation timestamp reordering.
-    codec_context_->reordered_opaque = buffer->timestamp().InMicroseconds();
+    codec_context_->reordered_opaque = buffer.timestamp().InMicroseconds();
   }
 
-  int frame_decoded = 0;
-  int result = avcodec_decode_video2(codec_context_.get(),
-                                     av_frame_.get(),
-                                     &frame_decoded,
-                                     &packet);
-  // Log the problem if we can't decode a video frame and exit early.
-  if (result < 0) {
-    MEDIA_LOG(DEBUG, media_log_)
-        << GetDisplayName()
-        << ": avcodec_decode_video2(): " << AVErrorToString(result) << ", at "
-        << buffer->AsHumanReadableString();
-    return false;
+  switch (decoding_loop_->DecodePacket(
+      &packet, base::BindRepeating(&FFmpegVideoDecoder::OnNewFrame,
+                                   base::Unretained(this)))) {
+    case FFmpegDecodingLoop::DecodeStatus::kSendPacketFailed:
+      MEDIA_LOG(ERROR, media_log_)
+          << "Failed to send video packet for decoding: "
+          << buffer.AsHumanReadableString();
+      return false;
+    case FFmpegDecodingLoop::DecodeStatus::kFrameProcessingFailed:
+      // OnNewFrame() should have already issued a MEDIA_LOG for this.
+      return false;
+    case FFmpegDecodingLoop::DecodeStatus::kDecodeFrameFailed:
+      MEDIA_LOG(DEBUG, media_log_)
+          << GetDisplayName() << " failed to decode a video frame: "
+          << AVErrorToString(decoding_loop_->last_averror_code()) << ", at "
+          << buffer.AsHumanReadableString();
+      return false;
+    case FFmpegDecodingLoop::DecodeStatus::kOkay:
+      break;
   }
 
-  // FFmpeg says some codecs might have multiple frames per packet.  Previous
-  // discussions with rbultje@ indicate this shouldn't be true for the codecs
-  // we use.
-  DCHECK_EQ(result, packet.size);
+  return true;
+}
 
-  // If no frame was produced then signal that more data is required to
-  // produce more frames. This can happen under two circumstances:
-  //   1) Decoder was recently initialized/flushed
-  //   2) End of stream was reached and all internal frames have been output
-  if (frame_decoded == 0) {
-    return true;
-  }
-
+bool FFmpegVideoDecoder::OnNewFrame(AVFrame* frame) {
   // TODO(fbarchard): Work around for FFmpeg http://crbug.com/27675
   // The decoder is in a bad state and not decoding correctly.
   // Checking for NULL avoids a crash in CopyPlane().
-  if (!av_frame_->data[VideoFrame::kYPlane] ||
-      !av_frame_->data[VideoFrame::kUPlane] ||
-      !av_frame_->data[VideoFrame::kVPlane]) {
-    LOG(ERROR) << "Video frame was produced yet has invalid frame data.";
-    av_frame_unref(av_frame_.get());
+  if (!frame->data[VideoFrame::kYPlane] || !frame->data[VideoFrame::kUPlane] ||
+      !frame->data[VideoFrame::kVPlane]) {
+    DLOG(ERROR) << "Video frame was produced yet has invalid frame data.";
     return false;
   }
 
-  scoped_refptr<VideoFrame> frame =
-      reinterpret_cast<VideoFrame*>(av_buffer_get_opaque(av_frame_->buf[0]));
-  frame->set_timestamp(
-      base::TimeDelta::FromMicroseconds(av_frame_->reordered_opaque));
-  *has_produced_frame = true;
-  output_cb_.Run(frame);
-
-  av_frame_unref(av_frame_.get());
+  scoped_refptr<VideoFrame> video_frame =
+      reinterpret_cast<VideoFrame*>(av_buffer_get_opaque(frame->buf[0]));
+  video_frame->set_timestamp(
+      base::TimeDelta::FromMicroseconds(frame->reordered_opaque));
+  video_frame->metadata()->SetBoolean(VideoFrameMetadata::POWER_EFFICIENT,
+                                      false);
+  output_cb_.Run(video_frame);
   return true;
 }
 
 void FFmpegVideoDecoder::ReleaseFFmpegResources() {
+  decoding_loop_.reset();
   codec_context_.reset();
-  av_frame_.reset();
 }
 
 bool FFmpegVideoDecoder::ConfigureDecoder(const VideoDecoderConfig& config,
@@ -427,12 +420,10 @@ bool FFmpegVideoDecoder::ConfigureDecoder(const VideoDecoderConfig& config,
   codec_context_->thread_type =
       FF_THREAD_SLICE | (low_delay ? 0 : FF_THREAD_FRAME);
   codec_context_->opaque = this;
-  codec_context_->flags |= CODEC_FLAG_EMU_EDGE;
   codec_context_->get_buffer2 = GetVideoBufferImpl;
-  codec_context_->refcounted_frames = 1;
 
   if (decode_nalus_)
-    codec_context_->flags2 |= CODEC_FLAG2_CHUNKS;
+    codec_context_->flags2 |= AV_CODEC_FLAG2_CHUNKS;
 
   AVCodec* codec = avcodec_find_decoder(codec_context_->codec_id);
   if (!codec || avcodec_open2(codec_context_.get(), codec, NULL) < 0) {
@@ -440,7 +431,7 @@ bool FFmpegVideoDecoder::ConfigureDecoder(const VideoDecoderConfig& config,
     return false;
   }
 
-  av_frame_.reset(av_frame_alloc());
+  decoding_loop_.reset(new FFmpegDecodingLoop(codec_context_.get()));
   return true;
 }
 

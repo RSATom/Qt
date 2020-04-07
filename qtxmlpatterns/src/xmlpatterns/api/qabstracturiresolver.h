@@ -47,13 +47,12 @@ QT_BEGIN_NAMESPACE
 
 
 class QUrl;
-class QAbstractUriResolverPrivate;
 
 class Q_XMLPATTERNS_EXPORT QAbstractUriResolver : public QObject
 {
     Q_OBJECT
 public:
-    QAbstractUriResolver(QObject *parent = Q_NULLPTR);
+    QAbstractUriResolver(QObject *parent = nullptr);
     virtual ~QAbstractUriResolver();
 
     virtual QUrl resolve(const QUrl &relative,
@@ -61,7 +60,6 @@ public:
 
 private:
     Q_DISABLE_COPY(QAbstractUriResolver)
-    Q_DECLARE_PRIVATE(QAbstractUriResolver)
 };
 
 QT_END_NAMESPACE

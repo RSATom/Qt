@@ -11,7 +11,6 @@
 
 #include "base/bind.h"
 #include "base/callback.h"
-#include "base/files/file_util_proxy.h"
 #include "base/location.h"
 #include "base/sequenced_task_runner.h"
 #include "base/single_thread_task_runner.h"
@@ -39,8 +38,7 @@ FileWriterDelegate::FileWriterDelegate(
       io_buffer_(new net::IOBufferWithSize(kReadBufSize)),
       weak_factory_(this) {}
 
-FileWriterDelegate::~FileWriterDelegate() {
-}
+FileWriterDelegate::~FileWriterDelegate() = default;
 
 void FileWriterDelegate::Start(std::unique_ptr<net::URLRequest> request,
                                const DelegateWriteCallback& write_callback) {
@@ -50,8 +48,9 @@ void FileWriterDelegate::Start(std::unique_ptr<net::URLRequest> request,
 }
 
 void FileWriterDelegate::Cancel() {
-  // Destroy the request to prevent it from invoking any callbacks.
+  // Destroy the request and invalidate weak ptrs to prevent pending callbacks.
   request_.reset();
+  weak_factory_.InvalidateWeakPtrs();
 
   const int status = file_stream_writer_->Cancel(
       base::Bind(&FileWriterDelegate::OnWriteCancelled,
@@ -69,27 +68,27 @@ void FileWriterDelegate::OnReceivedRedirect(
     const net::RedirectInfo& redirect_info,
     bool* defer_redirect) {
   NOTREACHED();
-  OnError(base::File::FILE_ERROR_SECURITY);
+  OnReadError(base::File::FILE_ERROR_SECURITY);
 }
 
 void FileWriterDelegate::OnAuthRequired(net::URLRequest* request,
                                         net::AuthChallengeInfo* auth_info) {
   NOTREACHED();
-  OnError(base::File::FILE_ERROR_SECURITY);
+  OnReadError(base::File::FILE_ERROR_SECURITY);
 }
 
 void FileWriterDelegate::OnCertificateRequested(
     net::URLRequest* request,
     net::SSLCertRequestInfo* cert_request_info) {
   NOTREACHED();
-  OnError(base::File::FILE_ERROR_SECURITY);
+  OnReadError(base::File::FILE_ERROR_SECURITY);
 }
 
 void FileWriterDelegate::OnSSLCertificateError(net::URLRequest* request,
                                                const net::SSLInfo& ssl_info,
                                                bool fatal) {
   NOTREACHED();
-  OnError(base::File::FILE_ERROR_SECURITY);
+  OnReadError(base::File::FILE_ERROR_SECURITY);
 }
 
 void FileWriterDelegate::OnResponseStarted(net::URLRequest* request,
@@ -98,7 +97,7 @@ void FileWriterDelegate::OnResponseStarted(net::URLRequest* request,
   DCHECK_EQ(request_.get(), request);
 
   if (net_error != net::OK || request->GetResponseCode() != 200) {
-    OnError(base::File::FILE_ERROR_FAILED);
+    OnReadError(base::File::FILE_ERROR_FAILED);
     return;
   }
   Read();
@@ -110,7 +109,7 @@ void FileWriterDelegate::OnReadCompleted(net::URLRequest* request,
   DCHECK_EQ(request_.get(), request);
 
   if (bytes_read < 0) {
-    OnError(base::File::FILE_ERROR_FAILED);
+    OnReadError(base::File::FILE_ERROR_FAILED);
     return;
   }
   OnDataReceived(bytes_read);
@@ -124,10 +123,10 @@ void FileWriterDelegate::Read() {
 
   if (bytes_read_ >= 0) {
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::Bind(&FileWriterDelegate::OnDataReceived,
-                              weak_factory_.GetWeakPtr(), bytes_read_));
+        FROM_HERE, base::BindOnce(&FileWriterDelegate::OnDataReceived,
+                                  weak_factory_.GetWeakPtr(), bytes_read_));
   } else {
-    OnError(base::File::FILE_ERROR_FAILED);
+    OnReadError(base::File::FILE_ERROR_FAILED);
   }
 }
 
@@ -154,14 +153,22 @@ void FileWriterDelegate::Write() {
                                             weak_factory_.GetWeakPtr()));
   if (write_response > 0) {
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::Bind(&FileWriterDelegate::OnDataWritten,
-                              weak_factory_.GetWeakPtr(), write_response));
+        FROM_HERE, base::BindOnce(&FileWriterDelegate::OnDataWritten,
+                                  weak_factory_.GetWeakPtr(), write_response));
   } else if (net::ERR_IO_PENDING != write_response) {
-    OnError(NetErrorToFileError(write_response));
+    OnWriteError(NetErrorToFileError(write_response));
+  } else {
+    async_write_in_progress_ = true;
   }
 }
 
 void FileWriterDelegate::OnDataWritten(int write_response) {
+  async_write_in_progress_ = false;
+  if (saved_read_error_ != base::File::FILE_OK) {
+    OnReadError(saved_read_error_);
+    return;
+  }
+
   if (write_response > 0) {
     OnProgress(write_response, false);
     cursor_->DidConsume(write_response);
@@ -171,7 +178,7 @@ void FileWriterDelegate::OnDataWritten(int write_response) {
     else
       Write();
   } else {
-    OnError(NetErrorToFileError(write_response));
+    OnWriteError(NetErrorToFileError(write_response));
   }
 }
 
@@ -180,14 +187,33 @@ FileWriterDelegate::GetCompletionStatusOnError() const {
   return writing_started_ ? ERROR_WRITE_STARTED : ERROR_WRITE_NOT_STARTED;
 }
 
-void FileWriterDelegate::OnError(base::File::Error error) {
-  // Destroy the request to prevent it from invoking any callbacks.
+void FileWriterDelegate::OnReadError(base::File::Error error) {
+  if (async_write_in_progress_) {
+    // Error signaled by the URLRequest while writing. This will be processed
+    // when the write completes.
+    saved_read_error_ = error;
+    return;
+  }
+
+  // Destroy the request and invalidate weak ptrs to prevent pending callbacks.
   request_.reset();
+  weak_factory_.InvalidateWeakPtrs();
 
   if (writing_started_)
     MaybeFlushForCompletion(error, 0, ERROR_WRITE_STARTED);
   else
     write_callback_.Run(error, 0, ERROR_WRITE_NOT_STARTED);
+}
+
+void FileWriterDelegate::OnWriteError(base::File::Error error) {
+  // Destroy the request and invalidate weak ptrs to prevent pending callbacks.
+  request_.reset();
+  weak_factory_.InvalidateWeakPtrs();
+
+  // Errors when writing are not recoverable, so don't bother flushing.
+  write_callback_.Run(
+      error, 0,
+      writing_started_ ? ERROR_WRITE_STARTED : ERROR_WRITE_NOT_STARTED);
 }
 
 void FileWriterDelegate::OnProgress(int bytes_written, bool done) {

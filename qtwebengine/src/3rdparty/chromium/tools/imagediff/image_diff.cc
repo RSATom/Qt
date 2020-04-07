@@ -6,7 +6,7 @@
 // Tools/DumpRenderTree/ImageDiff.m
 
 // The exact format of this tool's output to stdout is important, to match
-// what the run-webkit-tests script expects.
+// what the run_web_tests.py script expects.
 
 #include <stddef.h>
 #include <stdint.h>
@@ -56,11 +56,7 @@ class Image {
   Image() : w_(0), h_(0) {
   }
 
-  Image(const Image& image)
-      : w_(image.w_),
-        h_(image.h_),
-        data_(image.data_) {
-  }
+  Image(const Image& image) = default;
 
   bool has_image() const {
     return w_ > 0 && h_ > 0;

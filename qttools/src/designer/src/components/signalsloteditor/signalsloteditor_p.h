@@ -40,11 +40,11 @@
 // We mean it.
 //
 
-#include <QtCore/QString>
-#include <QtCore/QStringList>
-#include <QtCore/QList>
-#include <QtCore/QPointer>
-#include <QtCore/QAbstractItemModel>
+#include <QtCore/qstring.h>
+#include <QtCore/qstringlist.h>
+#include <QtCore/qlist.h>
+#include <QtCore/qpointer.h>
+#include <QtCore/qabstractitemmodel.h>
 
 #include <connectionedit_p.h>
 
@@ -73,7 +73,7 @@ public:
 
     DomConnection *toUi() const;
 
-    virtual void updateVisibility();
+    void updateVisibility() override;
 
     enum State { Valid, ObjectDeleted, InvalidMethod, NotAncestor };
     State isValid(const QWidget *background) const;
@@ -92,14 +92,14 @@ public:
     explicit ConnectionModel(QObject *parent = 0);
     void setEditor(SignalSlotEditor *editor = 0);
 
-    QModelIndex index(int row, int column, const QModelIndex &parent = QModelIndex()) const Q_DECL_OVERRIDE;
-    QModelIndex parent(const QModelIndex &child) const Q_DECL_OVERRIDE;
-    int rowCount(const QModelIndex &parent = QModelIndex()) const Q_DECL_OVERRIDE;
-    int columnCount(const QModelIndex &parent = QModelIndex()) const Q_DECL_OVERRIDE;
-    QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const Q_DECL_OVERRIDE;
-    bool setData(const QModelIndex &index, const QVariant &data, int role = Qt::DisplayRole) Q_DECL_OVERRIDE;
-    Qt::ItemFlags flags(const QModelIndex &index) const Q_DECL_OVERRIDE;
-    QVariant headerData(int section, Qt::Orientation orientation, int role = Qt::DisplayRole) const Q_DECL_OVERRIDE;
+    QModelIndex index(int row, int column, const QModelIndex &parent = QModelIndex()) const override;
+    QModelIndex parent(const QModelIndex &child) const override;
+    int rowCount(const QModelIndex &parent = QModelIndex()) const override;
+    int columnCount(const QModelIndex &parent = QModelIndex()) const override;
+    QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
+    bool setData(const QModelIndex &index, const QVariant &data, int role = Qt::DisplayRole) override;
+    Qt::ItemFlags flags(const QModelIndex &index) const override;
+    QVariant headerData(int section, Qt::Orientation orientation, int role = Qt::DisplayRole) const override;
 
     QModelIndex connectionToIndex(Connection *con) const;
     Connection *indexToConnection(const QModelIndex &index) const;

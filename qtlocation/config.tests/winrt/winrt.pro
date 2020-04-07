@@ -1,5 +1,5 @@
 SOURCES += main.cpp
-win32-msvc201* {
+msvc {
     LIBS += runtimeobject.lib
     CONFIG += console
 }

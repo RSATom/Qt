@@ -4,6 +4,7 @@
 
 #include "ui/gl/gpu_timing.h"
 
+#include "base/containers/circular_deque.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/time/time.h"
@@ -91,7 +92,7 @@ class GPUTimingImpl : public GPUTiming {
   uint32_t elapsed_query_count_ = 0;
   scoped_refptr<TimeElapsedTimerQuery> last_elapsed_query_;
 
-  std::deque<scoped_refptr<TimerQuery> > queries_;
+  base::circular_deque<scoped_refptr<TimerQuery>> queries_;
 
   DISALLOW_COPY_AND_ASSIGN(GPUTimingImpl);
 };
@@ -413,7 +414,7 @@ scoped_refptr<QueryResult> GPUTimingImpl::DoTimeStampQuery() {
   if (timestamp_bit_count_gl_ == -1) {
     DCHECK(timer_type_ != GPUTiming::kTimerTypeEXT);
     timestamp_bit_count_gl_ = QueryTimestampBits();
-    force_time_elapsed_query_ = (timestamp_bit_count_gl_ == 0);
+    force_time_elapsed_query_ |= (timestamp_bit_count_gl_ == 0);
   }
 
   if (force_time_elapsed_query_) {

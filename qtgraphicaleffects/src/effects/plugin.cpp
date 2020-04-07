@@ -41,14 +41,6 @@
 #include <QtQml/qqml.h>
 #include <QtQml/qqmlengine.h>
 
-static void initResources()
-{
-#ifdef QT_STATIC
-    Q_INIT_RESOURCE(qmake_QtGraphicalEffects);
-    Q_INIT_RESOURCE(qtgraphicaleffectsshaders);
-#endif
-}
-
 QT_BEGIN_NAMESPACE
 
 class QtGraphicalEffectsPlugin : public QQmlExtensionPlugin
@@ -57,11 +49,15 @@ class QtGraphicalEffectsPlugin : public QQmlExtensionPlugin
     Q_PLUGIN_METADATA(IID QQmlExtensionInterface_iid)
 
 public:
-    QtGraphicalEffectsPlugin(QObject *parent = 0) : QQmlExtensionPlugin(parent) { initResources(); }
+    QtGraphicalEffectsPlugin(QObject *parent = 0) : QQmlExtensionPlugin(parent) { }
     virtual void registerTypes(const char *uri)
     {
         Q_ASSERT(QLatin1String(uri) == QLatin1String("QtGraphicalEffects"));
-        Q_UNUSED(uri);
+
+        qmlRegisterModule(uri, 1, 0);
+
+        // Auto-increment the import to stay in sync with ALL future QtQuick minor versions from 5.12 onward
+        qmlRegisterModule(uri, 1, QT_VERSION_MINOR);
     }
 };
 

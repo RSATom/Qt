@@ -7,8 +7,10 @@
 
 #include <stddef.h>
 #include <iosfwd>
+#include <iterator>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 #include "build/build_config.h"
 
@@ -42,6 +44,25 @@ template <class T> struct is_non_const_reference<const T&> : std::false_type {};
 
 namespace internal {
 
+// Implementation detail of base::void_t below.
+template <typename...>
+struct make_void {
+  using type = void;
+};
+
+}  // namespace internal
+
+// base::void_t is an implementation of std::void_t from C++17.
+//
+// We use |base::internal::make_void| as a helper struct to avoid a C++14
+// defect:
+//   http://en.cppreference.com/w/cpp/types/void_t
+//   http://open-std.org/JTC1/SC22/WG21/docs/cwg_defects.html#1558
+template <typename... Ts>
+using void_t = typename ::base::internal::make_void<Ts...>::type;
+
+namespace internal {
+
 // Uses expression SFINAE to detect whether using operator<< would work.
 template <typename T, typename = void>
 struct SupportsOstreamOperator : std::false_type {};
@@ -49,6 +70,17 @@ template <typename T>
 struct SupportsOstreamOperator<T,
                                decltype(void(std::declval<std::ostream&>()
                                              << std::declval<T>()))>
+    : std::true_type {};
+
+// Used to detech whether the given type is an iterator.  This is normally used
+// with std::enable_if to provide disambiguation for functions that take
+// templatzed iterators as input.
+template <typename T, typename = void>
+struct is_iterator : std::false_type {};
+
+template <typename T>
+struct is_iterator<T,
+                   void_t<typename std::iterator_traits<T>::iterator_category>>
     : std::true_type {};
 
 }  // namespace internal
@@ -94,6 +126,23 @@ struct is_trivially_copyable {
 #else
 template <class T>
 using is_trivially_copyable = std::is_trivially_copyable<T>;
+#endif
+
+#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ <= 7
+// Workaround for g++7 and earlier family.
+// Due to https://gcc.gnu.org/bugzilla/show_bug.cgi?id=80654, without this
+// Optional<std::vector<T>> where T is non-copyable causes a compile error.
+// As we know it is not trivially copy constructible, explicitly declare so.
+template <typename T>
+struct is_trivially_copy_constructible
+    : std::is_trivially_copy_constructible<T> {};
+
+template <typename... T>
+struct is_trivially_copy_constructible<std::vector<T...>> : std::false_type {};
+#else
+// Otherwise use std::is_trivially_copy_constructible as is.
+template <typename T>
+using is_trivially_copy_constructible = std::is_trivially_copy_constructible<T>;
 #endif
 
 }  // namespace base

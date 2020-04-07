@@ -1,5 +1,6 @@
 <link rel="import" href="chrome://resources/html/polymer.html">
 
+<link rel="import" href="chrome://resources/cr_elements/shared_vars_css.html">
 <link rel="import" href="chrome://resources/html/icon.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/paper-icon-button/paper-icon-button-light.html">
 <link rel="import" href="chrome://bookmarks/actions.html">
@@ -10,19 +11,15 @@
   <template>
     <style include="shared-style">
       :host {
-        display: block;
-        flex-direction: row;
-        position: relative;
-      }
-
-      #url {
         -webkit-padding-start: 20px;
-        -webkit-user-select: none;
         align-items: center;
         color: inherit;
         display: flex;
+        flex-direction: row;
         height: 40px;
+        position: relative;
         text-decoration: none;
+        user-select: none;
       }
 
       :host([is-selected-item_]) {
@@ -32,36 +29,59 @@
       #website-title {
         -webkit-margin-start: 20px;
         flex: 1;
-        overflow: hidden;
         text-decoration: none;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+      }
+
+      :host([is-selected-item_]) #website-title {
+        flex: 0 auto;
+      }
+
+      #website-url {
+        -webkit-margin-start: 20px;
+        /* Transparent version of --cr-secondary-text-color */
+        color: rgba(0, 0, 0, 0.54);
+        display: none;
+        flex: 1;
+        min-width: 100px;
+      }
+
+      :host([is-selected-item_]) #website-url {
+        display: block;
       }
 
       #icon {
-        color: var(--secondary-text-color);
+        color: var(--cr-secondary-text-color);
+        flex: none;
       }
 
-      button.more-vert-button {
+      .more-vert-button {
         -webkit-margin-end: 12px;
       }
+
+      :host(:focus) {
+        z-index: 1;
+      }
     </style>
-    <div id="url">
-      <div id="icon"></div>
-      <div id="website-title">
-        [[item_.title]]
-      </div>
-      <button is="paper-icon-button-light"
-          class="more-vert-button"
+    <div id="icon"></div>
+    <div id="website-title" class="elided-text" title="[[item_.title]]">
+      [[item_.title]]
+    </div>
+    <div id="website-url" class="elided-text" title="[[item_.url]]">
+      [[item_.url]]
+    </div>
+    <paper-icon-button-light class="more-vert-button">
+      <button id="menuButton"
           tabindex$="[[ironListTabIndex]]"
           title="$i18n{moreActionsButtonTitle}"
+          aria-label$="[[getButtonAriaLabel_(item_)]]"
           on-click="onMenuButtonClick_"
-          on-dblclick="onMenuButtonDblClick_">
+          on-dblclick="onMenuButtonDblClick_"
+          aria-haspopup="menu">
         <div></div>
         <div></div>
         <div></div>
       </button>
-    </div>
+    </paper-icon-button-light>
   </template>
   <script src="chrome://bookmarks/item.js"></script>
-<dom-module>
+</dom-module>

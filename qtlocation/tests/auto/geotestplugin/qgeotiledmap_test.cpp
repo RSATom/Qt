@@ -36,8 +36,9 @@ class QGeoTiledMapTestPrivate: public QGeoTiledMapPrivate
 {
     Q_DECLARE_PUBLIC(QGeoTiledMapTest)
 public:
-    QGeoTiledMapTestPrivate(QGeoTiledMappingManagerEngine *engine)
-        : QGeoTiledMapPrivate(engine)
+    QGeoTiledMapTestPrivate(QGeoTiledMappingManagerEngine *engine,
+                            const QGeoTiledMapTestOptions &options)
+        : QGeoTiledMapPrivate(engine), m_options(options)
     {
 
     }
@@ -68,18 +69,37 @@ public:
         Q_Q(QGeoTiledMapTest);
         param->disconnect(q);
     }
+
+    virtual void setVisibleArea(const QRectF &visibleArea) override
+    {
+        if (m_options.supportVisibleArea)
+            return QGeoTiledMapPrivate::setVisibleArea(visibleArea);
+        else
+            return QGeoMapPrivate::setVisibleArea(visibleArea);
+    }
+
+    virtual QRectF visibleArea() const override
+    {
+        if (m_options.supportVisibleArea)
+            return QGeoTiledMapPrivate::visibleArea();
+        else
+            return QGeoMapPrivate::visibleArea();
+    }
+
+    QGeoTiledMapTestOptions m_options;
 };
 
-QGeoTiledMapTest::QGeoTiledMapTest(QGeoTiledMappingManagerEngine *engine, QObject *parent)
-:   QGeoTiledMap(*new QGeoTiledMapTestPrivate(engine), engine, parent), m_engine(engine)
+QGeoTiledMapTest::QGeoTiledMapTest(QGeoTiledMappingManagerEngine *engine,
+                                   const QGeoTiledMapTestOptions &options,
+                                   QObject *parent)
+:   QGeoTiledMap(*new QGeoTiledMapTestPrivate(engine, options), engine, parent), m_engine(engine)
 {
 }
 
 void QGeoTiledMapTest::onCameraCenter_testChanged(QGeoMapParameter *param, const char *propertyName)
 {
-    Q_D(QGeoTiledMapTest);
     if (strcmp(propertyName, "center") == 0) {
-        QGeoCameraData cameraData = d->m_cameraData;
+        QGeoCameraData cameraData = this->cameraData();
         // Not testing for propertyName as this param has only one allowed property
         QGeoCoordinate newCenter = param->property(propertyName).value<QGeoCoordinate>();
         cameraData.setCenter(newCenter);

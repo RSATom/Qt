@@ -52,7 +52,8 @@ static NSString* const AVF_TRACKS_KEY       = @"tracks";
 static NSString* const AVF_PLAYABLE_KEY     = @"playable";
 
 //AVPlayerItem keys
-static NSString* const AVF_STATUS_KEY       = @"status";
+static NSString* const AVF_STATUS_KEY                   = @"status";
+static NSString* const AVF_BUFFER_LIKELY_KEEP_UP_KEY    = @"playbackLikelyToKeepUp";
 
 //AVPlayer keys
 static NSString* const AVF_RATE_KEY                     = @"rate";
@@ -61,6 +62,7 @@ static NSString* const AVF_CURRENT_ITEM_DURATION_KEY    = @"currentItem.duration
 
 static void *AVFMediaPlayerSessionObserverRateObservationContext = &AVFMediaPlayerSessionObserverRateObservationContext;
 static void *AVFMediaPlayerSessionObserverStatusObservationContext = &AVFMediaPlayerSessionObserverStatusObservationContext;
+static void *AVFMediaPlayerSessionObserverBufferLikelyToKeepUpContext = &AVFMediaPlayerSessionObserverBufferLikelyToKeepUpContext;
 static void *AVFMediaPlayerSessionObserverCurrentItemObservationContext = &AVFMediaPlayerSessionObserverCurrentItemObservationContext;
 static void *AVFMediaPlayerSessionObserverCurrentItemDurationObservationContext = &AVFMediaPlayerSessionObserverCurrentItemDurationObservationContext;
 
@@ -72,6 +74,7 @@ static void *AVFMediaPlayerSessionObserverCurrentItemDurationObservationContext 
     AVPlayerItem *m_playerItem;
     AVPlayerLayer *m_playerLayer;
     NSURL *m_URL;
+    BOOL m_bufferIsLikelyToKeepUp;
 }
 
 @property (readonly, getter=player) AVPlayer* m_player;
@@ -102,6 +105,7 @@ static void *AVFMediaPlayerSessionObserverCurrentItemDurationObservationContext 
         return nil;
 
     self->m_session = session;
+    self->m_bufferIsLikelyToKeepUp = FALSE;
     return self;
 }
 
@@ -141,6 +145,7 @@ static void *AVFMediaPlayerSessionObserverCurrentItemDurationObservationContext 
 {
     if (m_playerItem) {
         [m_playerItem removeObserver:self forKeyPath:AVF_STATUS_KEY];
+        [m_playerItem removeObserver:self forKeyPath:AVF_BUFFER_LIKELY_KEEP_UP_KEY];
 
         [[NSNotificationCenter defaultCenter] removeObserver:self
                                                     name:AVPlayerItemDidPlayToEndTimeNotification
@@ -218,6 +223,11 @@ static void *AVFMediaPlayerSessionObserverCurrentItemDurationObservationContext 
                    forKeyPath:AVF_STATUS_KEY
                       options:NSKeyValueObservingOptionInitial | NSKeyValueObservingOptionNew
                       context:AVFMediaPlayerSessionObserverStatusObservationContext];
+
+    [m_playerItem addObserver:self
+                   forKeyPath:AVF_BUFFER_LIKELY_KEEP_UP_KEY
+                      options:NSKeyValueObservingOptionInitial | NSKeyValueObservingOptionNew
+                      context:AVFMediaPlayerSessionObserverBufferLikelyToKeepUpContext];
 
     //When the player item has played to its end time we'll toggle
     //the movie controller Pause button to be the Play button
@@ -338,6 +348,15 @@ static void *AVFMediaPlayerSessionObserverCurrentItemDurationObservationContext 
             break;
         }
     }
+    else if (context == AVFMediaPlayerSessionObserverBufferLikelyToKeepUpContext)
+    {
+        const bool isPlaybackLikelyToKeepUp = [m_playerItem isPlaybackLikelyToKeepUp];
+        if (isPlaybackLikelyToKeepUp != m_bufferIsLikelyToKeepUp) {
+            m_bufferIsLikelyToKeepUp = isPlaybackLikelyToKeepUp;
+            QMetaObject::invokeMethod(m_session, "processBufferStateChange", Qt::AutoConnection,
+                                      Q_ARG(int, isPlaybackLikelyToKeepUp ? 100 : 0));
+        }
+    }
     //AVPlayer "rate" property value observer.
     else if (context == AVFMediaPlayerSessionObserverRateObservationContext)
     {
@@ -402,6 +421,7 @@ AVFMediaPlayerSession::AVFMediaPlayerSession(AVFMediaPlayerService *service, QOb
     , m_rate(1.0)
     , m_requestedPosition(-1)
     , m_duration(0)
+    , m_bufferStatus(0)
     , m_videoAvailable(false)
     , m_audioAvailable(false)
     , m_seekable(false)
@@ -536,11 +556,10 @@ qint64 AVFMediaPlayerSession::duration() const
 
 int AVFMediaPlayerSession::bufferStatus() const
 {
-    //BUG: bufferStatus may be relevant?
 #ifdef QT_DEBUG_AVF
     qDebug() << Q_FUNC_INFO;
 #endif
-    return 100;
+    return m_bufferStatus;
 }
 
 int AVFMediaPlayerSession::volume() const
@@ -896,6 +915,15 @@ void AVFMediaPlayerSession::processLoadStateChange()
 void AVFMediaPlayerSession::processLoadStateFailure()
 {
     Q_EMIT stateChanged((m_state = QMediaPlayer::StoppedState));
+}
+
+void AVFMediaPlayerSession::processBufferStateChange(int bufferStatus)
+{
+    if (bufferStatus == m_bufferStatus)
+        return;
+
+    m_bufferStatus = bufferStatus;
+    Q_EMIT bufferStatusChanged(bufferStatus);
 }
 
 void AVFMediaPlayerSession::processDurationChange(qint64 duration)

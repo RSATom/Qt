@@ -14,7 +14,7 @@
 #include "base/values.h"
 #include "net/base/ip_address.h"
 #include "net/base/ip_endpoint.h"
-#include "third_party/webrtc/p2p/base/candidate.h"
+#include "third_party/webrtc/api/candidate.h"
 #include "third_party/webrtc/rtc_base/byteorder.h"
 #include "third_party/webrtc/rtc_base/socketaddress.h"
 
@@ -72,7 +72,7 @@ bool DeserializeP2PCandidate(const std::string& candidate_str,
                              cricket::Candidate* candidate) {
   std::unique_ptr<base::Value> value(
       base::JSONReader::Read(candidate_str, base::JSON_ALLOW_TRAILING_COMMAS));
-  if (!value.get() || !value->IsType(base::Value::Type::DICTIONARY)) {
+  if (!value.get() || !value->is_dict()) {
     return false;
   }
 

@@ -7,10 +7,10 @@
 #include <string.h>
 
 #include <string>
+#include <vector>
 
 #include "base/callback.h"
 #include "base/files/file_util.h"
-#include "base/files/file_util_proxy.h"
 #include "content/browser/child_process_security_policy_impl.h"
 #include "content/browser/fileapi/browser_file_system_helper.h"
 #include "content/browser/renderer_host/pepper/pepper_file_system_browser_host.h"
@@ -80,7 +80,7 @@ base::FilePath PepperInternalFileRefBackend::GetExternalFilePath() const {
 scoped_refptr<storage::FileSystemContext>
 PepperInternalFileRefBackend::GetFileSystemContext() const {
   if (!fs_host_.get())
-    return NULL;
+    return nullptr;
   return fs_host_->GetFileSystemContext();
 }
 
@@ -209,10 +209,9 @@ int32_t PepperInternalFileRefBackend::ReadDirectoryEntries(
       new storage::FileSystemOperation::FileEntryList;
   GetFileSystemContext()->operation_runner()->ReadDirectory(
       GetFileSystemURL(),
-      base::Bind(&PepperInternalFileRefBackend::ReadDirectoryComplete,
-                 weak_factory_.GetWeakPtr(),
-                 reply_context,
-                 base::Owned(accumulated_file_list)));
+      base::BindRepeating(&PepperInternalFileRefBackend::ReadDirectoryComplete,
+                          weak_factory_.GetWeakPtr(), reply_context,
+                          base::Owned(accumulated_file_list)));
   return PP_OK_COMPLETIONPENDING;
 }
 
@@ -220,7 +219,7 @@ void PepperInternalFileRefBackend::ReadDirectoryComplete(
     ppapi::host::ReplyMessageContext context,
     storage::FileSystemOperation::FileEntryList* accumulated_file_list,
     base::File::Error error,
-    const storage::FileSystemOperation::FileEntryList& file_list,
+    storage::FileSystemOperation::FileEntryList file_list,
     bool has_more) {
   accumulated_file_list->insert(
       accumulated_file_list->end(), file_list.begin(), file_list.end());
@@ -237,8 +236,9 @@ void PepperInternalFileRefBackend::ReadDirectoryComplete(
       dir_path += '/';
 
     for (const auto& it : *accumulated_file_list) {
-      file_types.push_back(it.is_directory ? PP_FILETYPE_DIRECTORY
-                                           : PP_FILETYPE_REGULAR);
+      file_types.push_back(it.type == filesystem::mojom::FsFileType::DIRECTORY
+                               ? PP_FILETYPE_DIRECTORY
+                               : PP_FILETYPE_REGULAR);
 
       ppapi::FileRefCreateInfo info;
       info.file_system_type = fs_type_;

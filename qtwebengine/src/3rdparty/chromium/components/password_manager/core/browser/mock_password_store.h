@@ -13,18 +13,12 @@
 #include "components/password_manager/core/browser/statistics_table.h"
 #include "testing/gmock/include/gmock/gmock.h"
 
-class PrefService;
-
 namespace password_manager {
 
 class MockPasswordStore : public PasswordStore {
  public:
   MockPasswordStore();
 
-  bool Init(const syncer::SyncableService::StartSyncFlare& flare,
-            PrefService* prefs) override {
-    return true;
-  };
   MOCK_METHOD1(RemoveLogin, void(const autofill::PasswordForm&));
   MOCK_METHOD2(GetLogins,
                void(const PasswordStore::FormDigest&, PasswordStoreConsumer*));
@@ -77,21 +71,31 @@ class MockPasswordStore : public PasswordStore {
   MOCK_METHOD1(AddSiteStatsImpl, void(const InteractionsStats&));
   MOCK_METHOD1(RemoveSiteStatsImpl, void(const GURL&));
 // TODO(crbug.com/706392): Fix password reuse detection for Android.
-#if !defined(OS_ANDROID) && !defined(OS_IOS)
+#if defined(SYNC_PASSWORD_REUSE_DETECTION_ENABLED)
   MOCK_METHOD3(CheckReuse,
                void(const base::string16&,
                     const std::string&,
                     PasswordReuseDetectorConsumer*));
-#if !defined(OS_CHROMEOS)
-  MOCK_METHOD1(SaveSyncPasswordHash, void(const base::string16&));
-  MOCK_METHOD0(ClearSyncPasswordHash, void());
-#endif
+  MOCK_METHOD3(SaveGaiaPasswordHash,
+               void(const std::string&,
+                    const base::string16&,
+                    metrics_util::SyncPasswordHashChange));
+  MOCK_METHOD2(SaveEnterprisePasswordHash,
+               void(const std::string&, const base::string16&));
+  MOCK_METHOD1(ClearPasswordHash, void(const std::string&));
 #endif
 
   PasswordStoreSync* GetSyncInterface() { return this; }
 
  protected:
-  virtual ~MockPasswordStore();
+  ~MockPasswordStore() override;
+
+ private:
+  // PasswordStore:
+  scoped_refptr<base::SequencedTaskRunner> CreateBackgroundTaskRunner()
+      const override;
+  void InitOnBackgroundSequence(
+      const syncer::SyncableService::StartSyncFlare& flare) override;
 };
 
 }  // namespace password_manager

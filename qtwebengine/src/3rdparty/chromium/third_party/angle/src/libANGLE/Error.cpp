@@ -11,19 +11,28 @@
 
 #include "common/angleutils.h"
 #include "common/debug.h"
+#include "common/utilities.h"
 
 #include <cstdarg>
 
+namespace
+{
+std::unique_ptr<std::string> EmplaceErrorString(std::string &&message)
+{
+    return message.empty() ? std::unique_ptr<std::string>()
+                           : std::unique_ptr<std::string>(new std::string(std::move(message)));
+}
+}  // anonymous namespace
+
 namespace gl
 {
-
 Error::Error(GLenum errorCode, std::string &&message)
-    : mCode(errorCode), mID(errorCode), mMessage(new std::string(std::move(message)))
+    : mCode(errorCode), mID(errorCode), mMessage(EmplaceErrorString(std::move(message)))
 {
 }
 
 Error::Error(GLenum errorCode, GLuint id, std::string &&message)
-    : mCode(errorCode), mID(id), mMessage(new std::string(std::move(message)))
+    : mCode(errorCode), mID(id), mMessage(EmplaceErrorString(std::move(message)))
 {
 }
 
@@ -31,7 +40,7 @@ void Error::createMessageString() const
 {
     if (!mMessage)
     {
-        mMessage.reset(new std::string);
+        mMessage.reset(new std::string(GetGenericErrorMessage(mCode)));
     }
 }
 
@@ -60,7 +69,7 @@ bool Error::operator!=(const Error &other) const
 
 std::ostream &operator<<(std::ostream &os, const Error &err)
 {
-    return gl::FmtHexShort(os, err.getCode());
+    return gl::FmtHex(os, err.getCode());
 }
 
 }  // namespace gl
@@ -69,12 +78,12 @@ namespace egl
 {
 
 Error::Error(EGLint errorCode, std::string &&message)
-    : mCode(errorCode), mID(errorCode), mMessage(new std::string(std::move(message)))
+    : mCode(errorCode), mID(errorCode), mMessage(EmplaceErrorString(std::move(message)))
 {
 }
 
 Error::Error(EGLint errorCode, EGLint id, std::string &&message)
-    : mCode(errorCode), mID(id), mMessage(new std::string(std::move(message)))
+    : mCode(errorCode), mID(id), mMessage(EmplaceErrorString(std::move(message)))
 {
 }
 
@@ -82,7 +91,7 @@ void Error::createMessageString() const
 {
     if (!mMessage)
     {
-        mMessage.reset(new std::string);
+        mMessage.reset(new std::string(GetGenericErrorMessage(mCode)));
     }
 }
 
@@ -94,7 +103,23 @@ const std::string &Error::getMessage() const
 
 std::ostream &operator<<(std::ostream &os, const Error &err)
 {
-    return gl::FmtHexShort(os, err.getCode());
+    return gl::FmtHex(os, err.getCode());
 }
 
 }  // namespace egl
+
+// angle::Result Implementation.
+namespace angle
+{
+Result::operator gl::Error() const
+{
+    if (mStop)
+    {
+        return gl::Error(GL_INTERNAL_ERROR_ANGLEX);
+    }
+    else
+    {
+        return gl::NoError();
+    }
+}
+}  // namespace angle

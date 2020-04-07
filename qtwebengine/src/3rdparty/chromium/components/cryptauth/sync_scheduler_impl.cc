@@ -7,13 +7,13 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <memory>
 
 #include "base/bind.h"
-#include "base/memory/ptr_util.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/rand_util.h"
 #include "base/strings/stringprintf.h"
-#include "components/proximity_auth/logging/logging.h"
+#include "chromeos/components/proximity_auth/logging/logging.h"
 
 namespace cryptauth {
 
@@ -113,13 +113,11 @@ void SyncSchedulerImpl::OnTimerFired() {
   }
 
   delegate_->OnSyncRequested(
-      base::MakeUnique<SyncRequest>(weak_ptr_factory_.GetWeakPtr()));
+      std::make_unique<SyncRequest>(weak_ptr_factory_.GetWeakPtr()));
 }
 
-std::unique_ptr<base::Timer> SyncSchedulerImpl::CreateTimer() {
-  bool retain_user_task = false;
-  bool is_repeating = false;
-  return base::MakeUnique<base::Timer>(retain_user_task, is_repeating);
+std::unique_ptr<base::OneShotTimer> SyncSchedulerImpl::CreateTimer() {
+  return std::make_unique<base::OneShotTimer>();
 }
 
 void SyncSchedulerImpl::ScheduleNextSync(const base::TimeDelta& sync_delta) {
@@ -177,9 +175,9 @@ base::TimeDelta SyncSchedulerImpl::GetJitteredPeriod() {
 }
 
 base::TimeDelta SyncSchedulerImpl::GetPeriod() {
-  if (strategy_ == Strategy::PERIODIC_REFRESH) {
+  if (strategy_ == Strategy::PERIODIC_REFRESH)
     return refresh_period_;
-  } else if (strategy_ == Strategy::AGGRESSIVE_RECOVERY && failure_count_ > 0) {
+  if (strategy_ == Strategy::AGGRESSIVE_RECOVERY && failure_count_ > 0) {
     // The backoff for each consecutive failure is exponentially doubled until
     // it is equal to the normal refresh period.
     // Note: |backoff_factor| may evaulate to INF if |failure_count_| is large,
@@ -187,11 +185,10 @@ base::TimeDelta SyncSchedulerImpl::GetPeriod() {
     double backoff_factor = pow(2, failure_count_ - 1);
     base::TimeDelta backoff_period = base_recovery_period_ * backoff_factor;
     return backoff_period < refresh_period_ ? backoff_period : refresh_period_;
-  } else {
-    PA_LOG(ERROR) << "Error getting period for strategy: "
-                  << static_cast<int>(strategy_);
-    return base::TimeDelta();
   }
+  PA_LOG(ERROR) << "Error getting period for strategy: "
+                << static_cast<int>(strategy_);
+  return base::TimeDelta();
 }
 
 }  // namespace cryptauth

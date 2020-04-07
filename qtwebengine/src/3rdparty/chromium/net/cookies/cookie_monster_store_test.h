@@ -99,6 +99,8 @@ class MockPersistentCookieStore : public CookieMonster::PersistentCookieStore {
 
   void DeleteCookie(const CanonicalCookie& cookie) override;
 
+  void SetBeforeFlushCallback(base::RepeatingClosure callback) override;
+
   void Flush(base::OnceClosure callback) override;
 
   void SetForceKeepSessionState() override;
@@ -121,29 +123,6 @@ class MockPersistentCookieStore : public CookieMonster::PersistentCookieStore {
   DISALLOW_COPY_AND_ASSIGN(MockPersistentCookieStore);
 };
 
-// Mock for CookieMonsterDelegate
-class MockCookieMonsterDelegate : public CookieMonsterDelegate {
- public:
-  typedef std::pair<CanonicalCookie, bool> CookieNotification;
-
-  MockCookieMonsterDelegate();
-
-  const std::vector<CookieNotification>& changes() const { return changes_; }
-
-  void reset() { changes_.clear(); }
-
-  void OnCookieChanged(const CanonicalCookie& cookie,
-                       bool removed,
-                       CookieStore::ChangeCause cause) override;
-
- private:
-  ~MockCookieMonsterDelegate() override;
-
-  std::vector<CookieNotification> changes_;
-
-  DISALLOW_COPY_AND_ASSIGN(MockCookieMonsterDelegate);
-};
-
 // Helper to build a single CanonicalCookie.
 std::unique_ptr<CanonicalCookie> BuildCanonicalCookie(
     const GURL& url,
@@ -158,6 +137,7 @@ void AddCookieToList(const GURL& url,
 
 // Just act like a backing database.  Keep cookie information from
 // Add/Update/Delete and regurgitate it when Load is called.
+// TODO(morlovich): This still assumes that creation times are unique.
 class MockSimplePersistentCookieStore
     : public CookieMonster::PersistentCookieStore {
  public:
@@ -173,6 +153,8 @@ class MockSimplePersistentCookieStore
   void UpdateCookieAccessTime(const CanonicalCookie& cookie) override;
 
   void DeleteCookie(const CanonicalCookie& cookie) override;
+
+  void SetBeforeFlushCallback(base::RepeatingClosure callback) override;
 
   void Flush(base::OnceClosure callback) override;
 

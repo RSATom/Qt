@@ -8,16 +8,13 @@
 #include <vector>
 
 #include "net/base/net_export.h"
-#include "net/cert/ct_policy_enforcer.h"
 #include "net/cert/signed_certificate_timestamp_and_status.h"
 
 namespace net {
 
 namespace ct {
 
-enum class CertPolicyCompliance;
-
-typedef std::vector<scoped_refptr<SignedCertificateTimestamp> > SCTList;
+enum class CTPolicyCompliance;
 
 // Holds Signed Certificate Timestamps, depending on their verification
 // results, and information about CT policies that were applied on the
@@ -30,11 +27,13 @@ struct NET_EXPORT CTVerifyResult {
   // All SCTs and their statuses
   SignedCertificateTimestampAndStatusList scts;
 
-  // True if any CT policies were applied on this connection.
-  bool ct_policies_applied;
   // The result of evaluating whether the connection complies with the
   // CT certificate policy.
-  CertPolicyCompliance cert_policy_compliance;
+  CTPolicyCompliance policy_compliance;
+  // True if the connection was required to comply with the CT certificate
+  // policy. This value is not meaningful if |policy_compliance| is
+  // COMPLIANCE_DETAILS_NOT_AVAILABLE.
+  bool policy_compliance_required;
 };
 
 // Returns a list of SCTs from |sct_and_status_list| whose status matches

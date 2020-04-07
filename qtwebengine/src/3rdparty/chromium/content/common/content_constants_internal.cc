@@ -18,6 +18,8 @@ const int64_t kHungRendererDelayMs = 30000;
 
 const int64_t kNewContentRenderingDelayMs = 4000;
 
+const int64_t kAsyncHitTestTimeoutMs = 5000;
+
 // 20MiB
 const size_t kMaxLengthOfDataURLString = 1024 * 1024 * 20;
 
@@ -28,5 +30,7 @@ const int kTraceEventPpapiBrokerProcessSortIndex = -2;
 const int kTraceEventGpuProcessSortIndex = -1;
 
 const int kTraceEventRendererMainThreadSortIndex = -1;
+
+const char kDoNotTrackHeader[] = "DNT";
 
 } // namespace content

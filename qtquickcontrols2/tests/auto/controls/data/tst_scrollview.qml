@@ -48,9 +48,9 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.2
+import QtQuick 2.12
 import QtTest 1.0
-import QtQuick.Controls 2.2
+import QtQuick.Controls 2.12
 
 TestCase {
     id: testCase
@@ -118,6 +118,22 @@ TestCase {
     }
 
     Component {
+        id: emptyFlickable
+        ScrollView {
+            Flickable {
+            }
+        }
+    }
+
+    Component {
+        id: labelComponent
+        Label {
+            text: "ABC"
+            font.pixelSize: 512
+        }
+    }
+
+    Component {
         id: scrollableListView
         ScrollView {
             ListView {
@@ -125,6 +141,40 @@ TestCase {
                 delegate: Label {
                     text: modelData
                 }
+            }
+        }
+    }
+
+    Component {
+        id: scrollableFlickable
+        ScrollView {
+            Flickable {
+                Item {
+                    width: 100
+                    height: 100
+                }
+            }
+        }
+    }
+
+    Component {
+        id: scrollableWithContentSize
+        ScrollView {
+            contentWidth: 1000
+            contentHeight: 1000
+            Flickable {
+            }
+        }
+    }
+
+    Component {
+        id: scrollableAndFlicableWithContentSize
+        ScrollView {
+            contentWidth: 1000
+            contentHeight: 1000
+            Flickable {
+                contentWidth: 200
+                contentHeight: 200
             }
         }
     }
@@ -239,6 +289,94 @@ TestCase {
 
         compare(control.contentWidth, listview.contentWidth)
         compare(control.contentHeight, listview.contentHeight)
+    }
+
+    function test_scrollableFlickable() {
+        // Check that if the application adds a flickable as a child of a
+        // scrollview, the scrollview doesn't try to calculate and change
+        // the flickables contentWidth/Height based on the flickables
+        // children, even if the flickable has an empty or negative content
+        // size. Some flickables (e.g ListView) sets a negative
+        // contentWidth on purpose, which should be respected.
+        var scrollview = createTemporaryObject(scrollableFlickable, testCase)
+        verify(scrollview)
+
+        var flickable = scrollview.contentItem
+        verify(flickable.hasOwnProperty("contentX"))
+        verify(flickable.hasOwnProperty("contentY"))
+
+        compare(flickable.contentWidth, -1)
+        compare(flickable.contentHeight, -1)
+        compare(scrollview.contentWidth, -1)
+        compare(scrollview.contentHeight, -1)
+    }
+
+    function test_scrollableWithContentSize() {
+        // Check that if the scrollview has contentWidth/Height set, but
+        // not the flickable, then those values will be forwarded and used
+        // by the flickable (rather than trying to calculate the content size
+        // based on the flickables children).
+        var scrollview = createTemporaryObject(scrollableWithContentSize, testCase)
+        verify(scrollview)
+
+        var flickable = scrollview.contentItem
+        verify(flickable.hasOwnProperty("contentX"))
+        verify(flickable.hasOwnProperty("contentY"))
+
+        compare(flickable.contentWidth, 1000)
+        compare(flickable.contentHeight, 1000)
+        compare(scrollview.contentWidth, 1000)
+        compare(scrollview.contentHeight, 1000)
+    }
+
+    function test_scrollableAndFlickableWithContentSize() {
+        // Check that if both the scrollview and the flickable has
+        // contentWidth/Height set (which is an inconsistency/fault
+        // by the app), the content size of the scrollview wins.
+        var scrollview = createTemporaryObject(scrollableAndFlicableWithContentSize, testCase)
+        verify(scrollview)
+
+        var flickable = scrollview.contentItem
+        verify(flickable.hasOwnProperty("contentX"))
+        verify(flickable.hasOwnProperty("contentY"))
+
+        compare(flickable.contentWidth, 1000)
+        compare(flickable.contentHeight, 1000)
+        compare(scrollview.contentWidth, 1000)
+        compare(scrollview.contentHeight, 1000)
+    }
+
+    function test_flickableWithExplicitContentSize() {
+        var control = createTemporaryObject(emptyFlickable, testCase)
+        verify(control)
+
+        var flickable = control.contentItem
+        verify(flickable.hasOwnProperty("contentX"))
+        verify(flickable.hasOwnProperty("contentY"))
+
+        var flickableContentSize = 1000;
+        flickable.contentWidth = flickableContentSize;
+        flickable.contentHeight = flickableContentSize;
+
+        compare(flickable.contentWidth, flickableContentSize)
+        compare(flickable.contentHeight, flickableContentSize)
+        compare(control.implicitWidth, flickableContentSize)
+        compare(control.implicitHeight, flickableContentSize)
+        compare(control.contentWidth, flickableContentSize)
+        compare(control.contentHeight, flickableContentSize)
+
+        // Add a single child to the flickable. This should not
+        // trick ScrollView into taking the implicit size of
+        // the child as content size, since the flickable
+        // already has an explicit content size.
+        labelComponent.createObject(flickable);
+
+        compare(flickable.contentWidth, flickableContentSize)
+        compare(flickable.contentHeight, flickableContentSize)
+        compare(control.implicitWidth, flickableContentSize)
+        compare(control.implicitHeight, flickableContentSize)
+        compare(control.contentWidth, flickableContentSize)
+        compare(control.contentHeight, flickableContentSize)
     }
 
     function test_mouse() {

@@ -7,21 +7,21 @@
  *  in the file PATENTS.  All contributing project authors may
  *  be found in the AUTHORS file in the root of the source tree.
  */
-#include <string.h>
 #include <stdio.h>
+#include <string.h>
 #include <cstring>
 #include <iostream>
 #include <vector>
 
-#include "webrtc/rtc_tools/frame_analyzer/reference_less_video_analysis_lib.h"
-#include "webrtc/test/gtest.h"
-#include "webrtc/test/testsupport/fileutils.h"
+#include "rtc_tools/frame_analyzer/reference_less_video_analysis_lib.h"
+#include "test/gtest.h"
+#include "test/testsupport/fileutils.h"
 
 class ReferenceLessVideoAnalysisTest : public ::testing::Test {
  public:
   void SetUp() override {
     video_file =
-           webrtc::test::ResourcePath("reference_less_video_test_file", "y4m");
+        webrtc::test::ResourcePath("reference_less_video_test_file", "y4m");
   }
   std::string video_file;
   std::vector<double> psnr_per_frame;
@@ -62,7 +62,3 @@ TEST_F(ReferenceLessVideoAnalysisTest, CheckFileExtension) {
       webrtc::test::ResourcePath("video_quality_analysis_frame", "txt");
   EXPECT_FALSE(check_file_extension(txt_file));
 }
-
-
-
-

@@ -8,6 +8,7 @@
 #include "base/compiler_specific.h"
 #include "base/memory/ref_counted.h"
 #include "ui/aura/aura_export.h"
+#include "ui/aura/window.h"
 #include "ui/events/event_constants.h"
 #include "ui/events/event_handler.h"
 #include "ui/gfx/native_widget_types.h"
@@ -66,7 +67,8 @@ class AURA_EXPORT WindowDelegate : public ui::EventHandler {
   virtual void OnPaint(const ui::PaintContext& context) = 0;
 
   // Called when the window's device scale factor has changed.
-  virtual void OnDeviceScaleFactorChanged(float device_scale_factor) = 0;
+  virtual void OnDeviceScaleFactorChanged(float old_device_scale_factor,
+                                          float new_device_scale_factor) = 0;
 
   // Called from Window's destructor before OnWindowDestroyed and before the
   // children have been destroyed and the window has been removed from its
@@ -88,6 +90,12 @@ class AURA_EXPORT WindowDelegate : public ui::EventHandler {
   // Window::TargetVisibility() for details.
   virtual void OnWindowTargetVisibilityChanged(bool visible) = 0;
 
+  // Called when the occlusion state of the Window changes while tracked (see
+  // WindowOcclusionTracker::Track). |occlusion_state| is the new occlusion
+  // state of the Window.
+  virtual void OnWindowOcclusionChanged(
+      Window::OcclusionState occlusion_state) {}
+
   // Called from Window::HitTest to check if the window has a custom hit test
   // mask. It works similar to the views counterparts. That is, if the function
   // returns true, GetHitTestMask below will be called to get the mask.
@@ -98,7 +106,13 @@ class AURA_EXPORT WindowDelegate : public ui::EventHandler {
   // above returns true.
   virtual void GetHitTestMask(gfx::Path* mask) const = 0;
 
-  virtual void OnWindowSurfaceChanged(const viz::SurfaceInfo& surface_info) {}
+  // Called when a child submits a CompositorFrame to a surface with the given
+  // |surface_info| for the first time.
+  virtual void OnFirstSurfaceActivation(const viz::SurfaceInfo& surface_info) {}
+
+  // Returns whether the window wants to receive and handle double tap gesture
+  // events. Defaults to false.
+  virtual bool RequiresDoubleTapGestureEvents() const;
 
  protected:
   ~WindowDelegate() override {}

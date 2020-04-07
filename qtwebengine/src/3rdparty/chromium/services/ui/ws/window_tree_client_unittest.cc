@@ -6,19 +6,19 @@
 #include <stdint.h>
 
 #include "base/bind.h"
+#include "base/containers/flat_map.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
-#include "components/viz/common/surfaces/local_surface_id_allocator.h"
+#include "components/viz/common/surfaces/parent_local_surface_id_allocator.h"
 #include "mojo/public/cpp/bindings/associated_binding.h"
 #include "mojo/public/cpp/bindings/binding.h"
 #include "services/service_manager/public/cpp/binder_registry.h"
 #include "services/service_manager/public/cpp/service_test.h"
+#include "services/ui/common/util.h"
 #include "services/ui/public/interfaces/constants.mojom.h"
 #include "services/ui/public/interfaces/window_tree.mojom.h"
-#include "services/ui/public/interfaces/window_tree_host.mojom.h"
+#include "services/ui/public/interfaces/window_tree_host_factory.mojom.h"
 #include "services/ui/ws/ids.h"
 #include "services/ui/ws/test_change_tracker.h"
 #include "services/ui/ws/window_server_service_test_base.h"
@@ -39,7 +39,8 @@ namespace {
 // Creates an id used for transport from the specified parameters.
 Id BuildWindowId(ClientSpecificId client_id,
                  ClientSpecificId window_id) {
-  return (client_id << 16) | window_id;
+  const Id tmp = client_id;
+  return (tmp << 32) | window_id;
 }
 
 // Callback function from WindowTree functions.
@@ -56,6 +57,13 @@ void EmbedCallbackImpl(base::RunLoop* run_loop,
                        bool* result_cache,
                        bool result) {
   *result_cache = result;
+  run_loop->Quit();
+}
+
+void ScheduleEmbedCallbackImpl(base::RunLoop* run_loop,
+                               base::UnguessableToken* resulting_token,
+                               const base::UnguessableToken& token) {
+  *resulting_token = token;
   run_loop->Quit();
 }
 
@@ -90,6 +98,27 @@ bool Embed(WindowTree* tree, Id root_id, mojom::WindowTreeClientPtr client) {
   return result;
 }
 
+bool EmbedUsingToken(WindowTree* tree,
+                     Id root_id,
+                     const base::UnguessableToken& token) {
+  bool result = false;
+  base::RunLoop run_loop;
+  const uint32_t embed_flags = 0;
+  tree->EmbedUsingToken(root_id, token, embed_flags,
+                        base::Bind(&EmbedCallbackImpl, &run_loop, &result));
+  run_loop.Run();
+  return result;
+}
+
+void ScheduleEmbed(WindowTree* tree,
+                   mojom::WindowTreeClientPtr client,
+                   base::UnguessableToken* token) {
+  base::RunLoop run_loop;
+  tree->ScheduleEmbed(std::move(client),
+                      base::Bind(&ScheduleEmbedCallbackImpl, &run_loop, token));
+  run_loop.Run();
+}
+
 void GetWindowTree(WindowTree* tree,
                    Id window_id,
                    std::vector<TestWindow>* windows) {
@@ -103,8 +132,10 @@ void GetWindowTree(WindowTree* tree,
 
 const Id kNullParentId = 0;
 std::string IdToString(Id id) {
-  return (id == kNullParentId) ? "null" : base::StringPrintf(
-                                              "%d,%d", HiWord(id), LoWord(id));
+  return (id == kNullParentId)
+             ? "null"
+             : base::StringPrintf("%d,%d", ClientIdFromTransportId(id),
+                                  ClientWindowIdFromTransportId(id));
 }
 
 std::string WindowParentToString(Id window, Id parent) {
@@ -121,7 +152,6 @@ class TestWindowTreeClient : public mojom::WindowTreeClient,
  public:
   TestWindowTreeClient()
       : binding_(this),
-        client_id_(0),
         root_window_id_(0),
         // Start with a random large number so tests can use lower ids if they
         // want.
@@ -154,7 +184,7 @@ class TestWindowTreeClient : public mojom::WindowTreeClient,
       return;
 
     ASSERT_TRUE(wait_state_.get() == nullptr);
-    wait_state_ = base::MakeUnique<WaitState>();
+    wait_state_ = std::make_unique<WaitState>();
     wait_state_->change_count = count;
     wait_state_->run_loop.Run();
     wait_state_.reset();
@@ -166,14 +196,14 @@ class TestWindowTreeClient : public mojom::WindowTreeClient,
   void WaitForOnEmbed() {
     if (tree_)
       return;
-    embed_run_loop_ = base::MakeUnique<base::RunLoop>();
+    embed_run_loop_ = std::make_unique<base::RunLoop>();
     embed_run_loop_->Run();
     embed_run_loop_.reset();
   }
 
   bool WaitForChangeCompleted(uint32_t id) {
     waiting_change_id_ = id;
-    change_completed_run_loop_ = base::MakeUnique<base::RunLoop>();
+    change_completed_run_loop_ = std::make_unique<base::RunLoop>();
     change_completed_run_loop_->Run();
     return on_change_completed_result_;
   }
@@ -205,21 +235,18 @@ class TestWindowTreeClient : public mojom::WindowTreeClient,
   }
 
   // Waits for all messages to be received by |ws|. This is done by attempting
-  // to create a bogus window. When we get the response we know all messages
-  // have been processed.
-  bool WaitForAllMessages() {
-    return NewWindowWithCompleteId(WindowIdToTransportId(InvalidWindowId())) ==
-           0;
-  }
+  // to set opacity on an embed/invalid window. 1.0f is the default opacity
+  // value. When we get the response we know all messages have been processed.
+  bool WaitForAllMessages() { return !SetWindowOpacity(0, 1.0f); }
 
   Id NewWindow(ClientSpecificId window_id) {
-    return NewWindowWithCompleteId(BuildWindowId(client_id_, window_id));
+    return NewWindowWithCompleteId(window_id);
   }
 
   // Generally you want NewWindow(), but use this if you need to test given
   // a complete window id (NewWindow() ors with the client id).
   Id NewWindowWithCompleteId(Id id) {
-    std::unordered_map<std::string, std::vector<uint8_t>> properties;
+    base::flat_map<std::string, std::vector<uint8_t>> properties;
     const uint32_t change_id = GetAndAdvanceChangeId();
     tree()->NewWindow(change_id, id, std::move(properties));
     return WaitForChangeCompleted(change_id) ? id : 0;
@@ -274,7 +301,6 @@ class TestWindowTreeClient : public mojom::WindowTreeClient,
 
   // WindowTreeClient:
   void OnEmbed(
-      ClientSpecificId client_id,
       WindowDataPtr root,
       mojom::WindowTreePtr tree,
       int64_t display_id,
@@ -285,11 +311,15 @@ class TestWindowTreeClient : public mojom::WindowTreeClient,
     ASSERT_TRUE(root);
     root_window_id_ = root->window_id;
     tree_ = std::move(tree);
-    client_id_ = client_id;
-    tracker()->OnEmbed(client_id, std::move(root), drawn);
+    tracker()->OnEmbed(std::move(root), drawn);
     if (embed_run_loop_)
       embed_run_loop_->Quit();
   }
+  void OnEmbedFromToken(
+      const base::UnguessableToken& token,
+      mojom::WindowDataPtr root,
+      int64_t display_id,
+      const base::Optional<viz::LocalSurfaceId>& local_surface_id) override {}
   void OnEmbeddedAppDisconnected(Id window_id) override {
     tracker()->OnEmbeddedAppDisconnected(window_id);
   }
@@ -327,15 +357,13 @@ class TestWindowTreeClient : public mojom::WindowTreeClient,
     tracker()->OnWindowTransformChanged(window_id);
   }
   void OnClientAreaChanged(
-      uint32_t window_id,
+      Id window_id,
       const gfx::Insets& new_client_area,
       const std::vector<gfx::Rect>& new_additional_client_areas) override {}
-  void OnTransientWindowAdded(uint32_t window_id,
-                              uint32_t transient_window_id) override {
+  void OnTransientWindowAdded(Id window_id, Id transient_window_id) override {
     tracker()->OnTransientWindowAdded(window_id, transient_window_id);
   }
-  void OnTransientWindowRemoved(uint32_t window_id,
-                                uint32_t transient_window_id) override {
+  void OnTransientWindowRemoved(Id window_id, Id transient_window_id) override {
     tracker()->OnTransientWindowRemoved(window_id, transient_window_id);
   }
   void OnWindowHierarchyChanged(Id window,
@@ -353,22 +381,25 @@ class TestWindowTreeClient : public mojom::WindowTreeClient,
   void OnWindowDeleted(Id window) override {
     tracker()->OnWindowDeleted(window);
   }
-  void OnWindowVisibilityChanged(uint32_t window, bool visible) override {
+  void OnWindowVisibilityChanged(Id window, bool visible) override {
     tracker()->OnWindowVisibilityChanged(window, visible);
   }
-  void OnWindowOpacityChanged(uint32_t window,
+  void OnWindowOpacityChanged(Id window,
                               float old_opacity,
                               float new_opacity) override {
     tracker()->OnWindowOpacityChanged(window, new_opacity);
   }
-  void OnWindowParentDrawnStateChanged(uint32_t window, bool drawn) override {
+  void OnWindowParentDrawnStateChanged(Id window, bool drawn) override {
     tracker()->OnWindowParentDrawnStateChanged(window, drawn);
   }
-  void OnWindowInputEvent(uint32_t event_id,
-                          Id window_id,
-                          int64_t display_id,
-                          std::unique_ptr<ui::Event> event,
-                          bool matches_pointer_watcher) override {
+  void OnWindowInputEvent(
+      uint32_t event_id,
+      Id window_id,
+      int64_t display_id,
+      Id display_root_window_id,
+      const gfx::PointF& event_location_in_screen_pixel_layout,
+      std::unique_ptr<ui::Event> event,
+      bool matches_pointer_watcher) override {
     // Ack input events to clear the state on the server. These can be received
     // during test startup. X11Window::DispatchEvent sends a synthetic move
     // event to notify of entry.
@@ -377,24 +408,22 @@ class TestWindowTreeClient : public mojom::WindowTreeClient,
     // may come in at random points.
   }
   void OnPointerEventObserved(std::unique_ptr<ui::Event>,
-                              uint32_t window_id,
+                              Id window_id,
                               int64_t display_id) override {}
   void OnWindowSharedPropertyChanged(
-      uint32_t window,
+      Id window,
       const std::string& name,
       const base::Optional<std::vector<uint8_t>>& new_data) override {
     tracker_.OnWindowSharedPropertyChanged(window, name, new_data);
   }
   // TODO(sky): add testing coverage.
-  void OnWindowFocused(uint32_t focused_window_id) override {}
-  void OnWindowCursorChanged(uint32_t window_id,
-                             ui::CursorData cursor) override {
+  void OnWindowFocused(Id focused_window_id) override {}
+  void OnWindowCursorChanged(Id window_id, ui::CursorData cursor) override {
     tracker_.OnWindowCursorChanged(window_id, cursor);
   }
 
-  void OnDragDropStart(
-      const std::unordered_map<std::string, std::vector<uint8_t>>& drag_data)
-      override {
+  void OnDragDropStart(const base::flat_map<std::string, std::vector<uint8_t>>&
+                           drag_data) override {
     NOTIMPLEMENTED();
   }
 
@@ -403,30 +432,30 @@ class TestWindowTreeClient : public mojom::WindowTreeClient,
     tracker_.OnWindowSurfaceChanged(window_id, surface_info);
   }
 
-  void OnDragEnter(uint32_t window,
+  void OnDragEnter(Id window,
                    uint32_t key_state,
                    const gfx::Point& position,
                    uint32_t effect_bitmask,
-                   const OnDragEnterCallback& callback) override {
+                   OnDragEnterCallback callback) override {
     NOTIMPLEMENTED();
   }
-  void OnDragOver(uint32_t window,
+  void OnDragOver(Id window,
                   uint32_t key_state,
                   const gfx::Point& position,
                   uint32_t effect_bitmask,
-                  const OnDragOverCallback& callback) override {
+                  OnDragOverCallback callback) override {
     NOTIMPLEMENTED();
   }
-  void OnDragLeave(uint32_t window) override { NOTIMPLEMENTED(); }
-  void OnCompleteDrop(uint32_t window,
+  void OnDragLeave(Id window) override { NOTIMPLEMENTED(); }
+  void OnCompleteDrop(Id window,
                       uint32_t key_state,
                       const gfx::Point& position,
                       uint32_t effect_bitmask,
-                      const OnCompleteDropCallback& callback) override {
+                      OnCompleteDropCallback callback) override {
     NOTIMPLEMENTED();
   }
 
-  void OnPerformDragDropCompleted(uint32_t window,
+  void OnPerformDragDropCompleted(uint32_t change_id,
                                   bool success,
                                   uint32_t action_taken) override {
     NOTIMPLEMENTED();
@@ -440,17 +469,25 @@ class TestWindowTreeClient : public mojom::WindowTreeClient,
       change_completed_run_loop_->Quit();
     }
   }
-  void RequestClose(uint32_t window_id) override {}
+  void RequestClose(Id window_id) override {}
   void GetWindowManager(mojo::AssociatedInterfaceRequest<mojom::WindowManager>
                             internal) override {
     window_manager_binding_ =
-        base::MakeUnique<mojo::AssociatedBinding<mojom::WindowManager>>(
+        std::make_unique<mojo::AssociatedBinding<mojom::WindowManager>>(
             this, std::move(internal));
     tree_->GetWindowManagerClient(MakeRequest(&window_manager_client_));
   }
+  void GetScreenProviderObserver(
+      mojom::ScreenProviderObserverAssociatedRequest observer) override {
+    // GetScreenProviderObserver() is only called in ws2.
+    NOTREACHED();
+  }
 
   // mojom::WindowManager:
-  void OnConnect(uint16_t client_id) override {}
+  void OnConnect() override {}
+  void WmOnAcceleratedWidgetForDisplay(
+      int64_t display,
+      gpu::SurfaceHandle surface_handle) override {}
   void WmNewDisplayAdded(
       const display::Display& display,
       mojom::WindowDataPtr root_data,
@@ -463,23 +500,23 @@ class TestWindowTreeClient : public mojom::WindowTreeClient,
     NOTIMPLEMENTED();
   }
   void WmSetBounds(uint32_t change_id,
-                   uint32_t window_id,
+                   Id window_id,
                    const gfx::Rect& bounds) override {
     window_manager_client_->WmResponse(change_id, false);
   }
   void WmSetProperty(
       uint32_t change_id,
-      uint32_t window_id,
+      Id window_id,
       const std::string& name,
       const base::Optional<std::vector<uint8_t>>& value) override {
     window_manager_client_->WmResponse(change_id, false);
   }
-  void WmSetModalType(uint32_t window_id, ui::ModalType type) override {}
-  void WmSetCanFocus(uint32_t window_id, bool can_focus) override {}
+  void WmSetModalType(Id window_id, ui::ModalType type) override {}
+  void WmSetCanFocus(Id window_id, bool can_focus) override {}
   void WmCreateTopLevelWindow(
       uint32_t change_id,
-      ClientSpecificId requesting_client_id,
-      const std::unordered_map<std::string, std::vector<uint8_t>>& properties)
+      const viz::FrameSinkId& frame_sink_id,
+      const base::flat_map<std::string, std::vector<uint8_t>>& properties)
       override {
     NOTIMPLEMENTED();
   }
@@ -488,27 +525,29 @@ class TestWindowTreeClient : public mojom::WindowTreeClient,
     NOTIMPLEMENTED();
   }
   void WmBuildDragImage(const gfx::Point& screen_location,
-                        const SkBitmap& drag_image,
+                        const gfx::ImageSkia& drag_image,
                         const gfx::Vector2d& drag_image_offset,
                         ui::mojom::PointerKind source) override {}
   void WmMoveDragImage(const gfx::Point& screen_location,
-                       const WmMoveDragImageCallback& callback) override {
-    callback.Run();
+                       WmMoveDragImageCallback callback) override {
+    std::move(callback).Run();
   }
   void WmDestroyDragImage() override {}
   void WmPerformMoveLoop(uint32_t change_id,
-                         uint32_t window_id,
+                         Id window_id,
                          mojom::MoveLoopSource source,
                          const gfx::Point& cursor_location) override {
     NOTIMPLEMENTED();
   }
-  void WmCancelMoveLoop(uint32_t window_id) override { NOTIMPLEMENTED(); }
-  void WmDeactivateWindow(uint32_t window_id) override { NOTIMPLEMENTED(); }
-  void WmStackAbove(uint32_t change_id, uint32_t above_id,
-                    uint32_t below_id) override {
+  void WmCancelMoveLoop(uint32_t change_id) override { NOTIMPLEMENTED(); }
+  void WmDeactivateWindow(Id window_id) override { NOTIMPLEMENTED(); }
+  void WmStackAbove(uint32_t change_id, Id above_id, Id below_id) override {
     NOTIMPLEMENTED();
   }
-  void WmStackAtTop(uint32_t change_id, uint32_t window_id) override {
+  void WmStackAtTop(uint32_t change_id, Id window_id) override {
+    NOTIMPLEMENTED();
+  }
+  void WmPerformWmAction(Id window_id, const std::string& action) override {
     NOTIMPLEMENTED();
   }
   void OnAccelerator(uint32_t ack_id,
@@ -516,6 +555,8 @@ class TestWindowTreeClient : public mojom::WindowTreeClient,
                      std::unique_ptr<ui::Event> event) override {
     NOTIMPLEMENTED();
   }
+  void OnCursorTouchVisibleChanged(bool enabled) override { NOTIMPLEMENTED(); }
+  void OnEventBlockedByModalWindow(Id window_id) override { NOTIMPLEMENTED(); }
 
   TestChangeTracker tracker_;
 
@@ -529,7 +570,6 @@ class TestWindowTreeClient : public mojom::WindowTreeClient,
   std::unique_ptr<WaitState> wait_state_;
 
   mojo::Binding<WindowTreeClient> binding_;
-  Id client_id_;
   Id root_window_id_;
   uint32_t next_change_id_;
   uint32_t waiting_change_id_;
@@ -556,7 +596,7 @@ class WindowTreeClientFactory {
   std::unique_ptr<TestWindowTreeClient> WaitForInstance() {
     if (!client_impl_.get()) {
       DCHECK(!run_loop_);
-      run_loop_ = base::MakeUnique<base::RunLoop>();
+      run_loop_ = std::make_unique<base::RunLoop>();
       run_loop_->Run();
       run_loop_.reset();
     }
@@ -565,7 +605,7 @@ class WindowTreeClientFactory {
 
   void BindWindowTreeClientRequest(
       mojom::WindowTreeClientRequest request) {
-    client_impl_ = base::MakeUnique<TestWindowTreeClient>();
+    client_impl_ = std::make_unique<TestWindowTreeClient>();
     client_impl_->Bind(std::move(request));
     if (run_loop_.get())
       run_loop_->Quit();
@@ -582,8 +622,7 @@ class WindowTreeClientFactory {
 
 class WindowTreeClientTest : public WindowServerServiceTestBase {
  public:
-  WindowTreeClientTest()
-      : client_id_1_(0), client_id_2_(0), root_window_id_(0) {}
+  WindowTreeClientTest() : root_window_id_(0) {}
 
   ~WindowTreeClientTest() override {}
 
@@ -607,11 +646,11 @@ class WindowTreeClientTest : public WindowServerServiceTestBase {
 
   int client_id_1() const { return client_id_1_; }
   int client_id_2() const { return client_id_2_; }
+  int client_id_3() const { return client_id_3_; }
 
   void EstablishSecondClientWithRoot(Id root_id) {
     ASSERT_TRUE(wt_client2_.get() == nullptr);
-    wt_client2_ =
-        EstablishClientViaEmbed(wt1(), root_id, &client_id_2_);
+    wt_client2_ = EstablishClientViaEmbed(wt1(), root_id);
     ASSERT_GT(client_id_2_, 0);
     ASSERT_TRUE(wt_client2_.get() != nullptr);
   }
@@ -626,14 +665,22 @@ class WindowTreeClientTest : public WindowServerServiceTestBase {
         EstablishSecondClientWithRoot(BuildWindowId(client_id_1(), 1)));
 
     if (create_initial_window) {
-      EXPECT_EQ("[" + WindowParentToString(window_1_1, kNullParentId) + "]",
-                ChangeWindowDescription(*changes2()));
+      // window_1_1 is created by wt_client1() so its client_id part should be
+      // client_id_1() in wt_client2.
+      EXPECT_EQ(
+          "[" +
+              WindowParentToString(
+                  BuildWindowId(client_id_1(),
+                                ClientWindowIdFromTransportId(window_1_1)),
+                  kNullParentId) +
+              "]",
+          ChangeWindowDescription(*changes2()));
     }
   }
 
   void EstablishThirdClient(WindowTree* owner, Id root_id) {
     ASSERT_TRUE(wt_client3_.get() == nullptr);
-    wt_client3_ = EstablishClientViaEmbed(owner, root_id, nullptr);
+    wt_client3_ = EstablishClientViaEmbed(owner, root_id);
     ASSERT_TRUE(wt_client3_.get() != nullptr);
   }
 
@@ -644,15 +691,12 @@ class WindowTreeClientTest : public WindowServerServiceTestBase {
   // Establishes a new client by way of Embed() on the specified WindowTree.
   std::unique_ptr<TestWindowTreeClient> EstablishClientViaEmbed(
       WindowTree* owner,
-      Id root_id,
-      int* client_id) {
-    return EstablishClientViaEmbedWithPolicyBitmask(owner, root_id, client_id);
+      Id root_id) {
+    return EstablishClientViaEmbedWithPolicyBitmask(owner, root_id);
   }
 
   std::unique_ptr<TestWindowTreeClient>
-  EstablishClientViaEmbedWithPolicyBitmask(WindowTree* owner,
-                                           Id root_id,
-                                           int* client_id) {
+  EstablishClientViaEmbedWithPolicyBitmask(WindowTree* owner, Id root_id) {
     if (!EmbedUrl(connector(), owner, test_name(), root_id)) {
       ADD_FAILURE() << "Embed() failed";
       return nullptr;
@@ -670,8 +714,6 @@ class WindowTreeClientTest : public WindowServerServiceTestBase {
     // fixed.
     EXPECT_EQ("OnEmbed",
               SingleChangeToDescription(*client->tracker()->changes()));
-    if (client_id)
-      *client_id = (*client->tracker()->changes())[0].client_id;
     return client;
   }
 
@@ -683,7 +725,7 @@ class WindowTreeClientTest : public WindowServerServiceTestBase {
   }
 
   void SetUp() override {
-    client_factory_ = base::MakeUnique<WindowTreeClientFactory>();
+    client_factory_ = std::make_unique<WindowTreeClientFactory>();
     registry_.AddInterface(
         base::Bind(&WindowTreeClientFactory::BindWindowTreeClientRequest,
                    base::Unretained(client_factory_.get())));
@@ -694,7 +736,7 @@ class WindowTreeClientTest : public WindowServerServiceTestBase {
     connector()->BindInterface(ui::mojom::kServiceName, &factory);
 
     mojom::WindowTreeClientPtr tree_client_ptr;
-    wt_client1_ = base::MakeUnique<TestWindowTreeClient>();
+    wt_client1_ = std::make_unique<TestWindowTreeClient>();
     wt_client1_->Bind(MakeRequest(&tree_client_ptr));
 
     factory->CreateWindowTreeHost(MakeRequest(&host_),
@@ -705,11 +747,6 @@ class WindowTreeClientTest : public WindowServerServiceTestBase {
 
     ASSERT_EQ(1u, changes1()->size());
     EXPECT_EQ(CHANGE_TYPE_EMBED, (*changes1())[0].type);
-    // All these tests assume 1 for the client id. The only real assertion here
-    // is the client id is not zero, but adding this as rest of code here
-    // assumes 1.
-    ASSERT_GT((*changes1())[0].client_id, 0);
-    client_id_1_ = (*changes1())[0].client_id;
     ASSERT_FALSE((*changes1())[0].windows.empty());
     root_window_id_ = (*changes1())[0].windows[0].window_id;
     ASSERT_EQ(root_window_id_, wt_client1_->root_window_id());
@@ -734,8 +771,9 @@ class WindowTreeClientTest : public WindowServerServiceTestBase {
 
  private:
   std::unique_ptr<WindowTreeClientFactory> client_factory_;
-  int client_id_1_;
-  int client_id_2_;
+  int client_id_1_ = kWindowServerClientId + 1;
+  int client_id_2_ = client_id_1_ + 1;
+  int client_id_3_ = client_id_2_ + 1;
   Id root_window_id_;
   service_manager::BinderRegistry registry_;
 
@@ -764,7 +802,10 @@ TEST_F(WindowTreeClientTest, WindowsRemovedWhenEmbedding) {
   ASSERT_NO_FATAL_FAILURE(EstablishSecondClient(false));
   ASSERT_EQ(1u, changes2()->size());
   ASSERT_EQ(1u, (*changes2())[0].windows.size());
-  EXPECT_EQ("[" + WindowParentToString(window_1_1, kNullParentId) + "]",
+  // window_1_1 has a client_id part of client_id_1 in wt2.
+  Id window11_in_wt2 =
+      BuildWindowId(client_id_1(), ClientWindowIdFromTransportId(window_1_1));
+  EXPECT_EQ("[" + WindowParentToString(window11_in_wt2, kNullParentId) + "]",
             ChangeWindowDescription(*changes2()));
 
   // Embed() removed window 2.
@@ -778,8 +819,8 @@ TEST_F(WindowTreeClientTest, WindowsRemovedWhenEmbedding) {
   // ws2 should not see window 2.
   {
     std::vector<TestWindow> windows;
-    GetWindowTree(wt2(), window_1_1, &windows);
-    EXPECT_EQ(WindowParentToString(window_1_1, kNullParentId),
+    GetWindowTree(wt2(), window11_in_wt2, &windows);
+    EXPECT_EQ(WindowParentToString(window11_in_wt2, kNullParentId),
               SingleWindowDescription(windows));
   }
   {
@@ -857,15 +898,20 @@ TEST_F(WindowTreeClientTest, CantAccessChildrenOfEmbeddedWindow) {
     std::vector<TestWindow> windows;
     GetWindowTree(wt1(), window_1_1, &windows);
     ASSERT_EQ(3u, windows.size());
-    EXPECT_EQ(WindowParentToString(window_1_1, kNullParentId),
+    // window_1_1 is created by wt1() so client_id part would be 0 in wt1().
+    EXPECT_EQ(WindowParentToString(ClientWindowIdFromTransportId(window_1_1),
+                                   kNullParentId),
               windows[0].ToString());
     // NOTE: we expect a match of WindowParentToString(window_2_2, window_1_1),
     // but the ids are in the id space of client2, which is not the same as
     // the id space of wt1().
-    EXPECT_EQ("window=2,1 parent=1,1", windows[1].ToString());
+    EXPECT_EQ("window=" + std::to_string(client_id_2()) + ",2 parent=0,1",
+              windows[1].ToString());
     // Same thing here, we really want to test for
     // WindowParentToString(window_3_3, window_2_2).
-    EXPECT_EQ("window=3,1 parent=2,1", windows[2].ToString());
+    EXPECT_EQ("window=" + std::to_string(client_id_3()) +
+                  ",3 parent=" + std::to_string(client_id_2()) + ",2",
+              windows[2].ToString());
   }
 }
 
@@ -888,10 +934,14 @@ TEST_F(WindowTreeClientTest, CantModifyChildrenOfEmbeddedWindow) {
   // Create window 3 in client 3 and add it to window 3.
   Id window_3_1 = wt_client3()->NewWindow(1);
   ASSERT_TRUE(window_3_1);
-  ASSERT_TRUE(wt_client3()->AddWindow(window_2_1, window_3_1));
+  // window_2_1 should have a client_id of client_id_2 in wt_client3.
+  ASSERT_TRUE(wt_client3()->AddWindow(
+      BuildWindowId(client_id_2(), ClientWindowIdFromTransportId(window_2_1)),
+      window_3_1));
 
   // Client 2 shouldn't be able to remove window 3.
-  ASSERT_FALSE(wt_client2()->RemoveWindowFromParent(window_3_1));
+  ASSERT_FALSE(wt_client2()->RemoveWindowFromParent(
+      BuildWindowId(client_id_3(), ClientWindowIdFromTransportId(window_3_1))));
 }
 
 // Verifies client gets a valid id.
@@ -914,36 +964,36 @@ TEST_F(WindowTreeClientTest, NewWindow) {
 TEST_F(WindowTreeClientTest, AddWindowWithNoChange) {
   // Create the embed point now so that the ids line up.
   ASSERT_TRUE(wt_client1()->NewWindow(1));
-  Id window_1_2 = wt_client1()->NewWindow(2);
-  Id window_1_3 = wt_client1()->NewWindow(3);
-  ASSERT_TRUE(window_1_2);
-  ASSERT_TRUE(window_1_3);
+  Id window_1_21 = wt_client1()->NewWindow(21);
+  Id window_1_31 = wt_client1()->NewWindow(31);
+  ASSERT_TRUE(window_1_21);
+  ASSERT_TRUE(window_1_31);
 
   ASSERT_NO_FATAL_FAILURE(EstablishSecondClient(false));
 
   // Make 3 a child of 2.
-  ASSERT_TRUE(wt_client1()->AddWindow(window_1_2, window_1_3));
+  ASSERT_TRUE(wt_client1()->AddWindow(window_1_21, window_1_31));
 
   // Try again, this should fail.
-  EXPECT_FALSE(wt_client1()->AddWindow(window_1_2, window_1_3));
+  EXPECT_FALSE(wt_client1()->AddWindow(window_1_21, window_1_31));
 }
 
 // Verifies AddWindow fails when window is already in position.
 TEST_F(WindowTreeClientTest, AddAncestorFails) {
   // Create the embed point now so that the ids line up.
   ASSERT_TRUE(wt_client1()->NewWindow(1));
-  Id window_1_2 = wt_client1()->NewWindow(2);
-  Id window_1_3 = wt_client1()->NewWindow(3);
-  ASSERT_TRUE(window_1_2);
-  ASSERT_TRUE(window_1_3);
+  Id window_1_21 = wt_client1()->NewWindow(21);
+  Id window_1_31 = wt_client1()->NewWindow(31);
+  ASSERT_TRUE(window_1_21);
+  ASSERT_TRUE(window_1_31);
 
   ASSERT_NO_FATAL_FAILURE(EstablishSecondClient(false));
 
   // Make 3 a child of 2.
-  ASSERT_TRUE(wt_client1()->AddWindow(window_1_2, window_1_3));
+  ASSERT_TRUE(wt_client1()->AddWindow(window_1_21, window_1_31));
 
   // Try to make 2 a child of 3, this should fail since 2 is an ancestor of 3.
-  EXPECT_FALSE(wt_client1()->AddWindow(window_1_3, window_1_2));
+  EXPECT_FALSE(wt_client1()->AddWindow(window_1_31, window_1_21));
 }
 
 // Verifies adding to root sends right notifications.
@@ -952,15 +1002,15 @@ TEST_F(WindowTreeClientTest, AddToRoot) {
   Id window_1_1 = wt_client1()->NewWindow(1);
   ASSERT_TRUE(window_1_1);
   Id window_1_21 = wt_client1()->NewWindow(21);
-  Id window_1_3 = wt_client1()->NewWindow(3);
+  Id window_1_31 = wt_client1()->NewWindow(31);
   ASSERT_TRUE(window_1_21);
-  ASSERT_TRUE(window_1_3);
+  ASSERT_TRUE(window_1_31);
 
   ASSERT_NO_FATAL_FAILURE(EstablishSecondClient(false));
   changes2()->clear();
 
   // Make 3 a child of 21.
-  ASSERT_TRUE(wt_client1()->AddWindow(window_1_21, window_1_3));
+  ASSERT_TRUE(wt_client1()->AddWindow(window_1_21, window_1_31));
 
   // Make 21 a child of 1.
   ASSERT_TRUE(wt_client1()->AddWindow(window_1_1, window_1_21));
@@ -976,7 +1026,7 @@ TEST_F(WindowTreeClientTest, AddToRoot) {
 TEST_F(WindowTreeClientTest, WindowHierarchyChangedWindows) {
   // Create the embed point now so that the ids line up.
   Id window_1_1 = wt_client1()->NewWindow(1);
-  // 1,2->1,11.
+  // client_id_1(),2->client_id_1(),11.
   Id window_1_2 = wt_client1()->NewWindow(2);
   ASSERT_TRUE(window_1_2);
   ASSERT_TRUE(wt_client1()->SetWindowVisibility(window_1_2, true));
@@ -991,38 +1041,43 @@ TEST_F(WindowTreeClientTest, WindowHierarchyChangedWindows) {
   ASSERT_TRUE(wt_client2()->WaitForAllMessages());
   changes2()->clear();
 
-  // 1,1->1,2->1,11
+  // window_1_1 has a client_id part of client_id_1 in wt2.
+  Id window11_in_wt2 =
+      BuildWindowId(client_id_1(), ClientWindowIdFromTransportId(window_1_1));
+
+  // client_id_1(),1->client_id_1(),2->client_id_1(),11
   {
-    // Client 2 should not get anything (1,2 is from another client).
+    // Client 2 should not get anything (client_id_1(),2 is from another
+    // client).
     ASSERT_TRUE(wt_client1()->AddWindow(window_1_1, window_1_2));
     ASSERT_TRUE(wt_client2()->WaitForAllMessages());
     EXPECT_TRUE(changes2()->empty());
   }
 
-  // 0,1->1,1->1,2->1,11.
+  // 0,1->client_id_1(),1->client_id_1(),2->client_id_1(),11.
   {
     // Client 2 is now connected to the root, so it should have gotten a drawn
     // notification.
     ASSERT_TRUE(wt_client1()->AddWindow(root_window_id(), window_1_1));
     wt_client2_->WaitForChangeCount(1u);
-    EXPECT_EQ(
-        "DrawnStateChanged window=" + IdToString(window_1_1) + " drawn=true",
-        SingleChangeToDescription(*changes2()));
+    EXPECT_EQ("DrawnStateChanged window=" + IdToString(window11_in_wt2) +
+                  " drawn=true",
+              SingleChangeToDescription(*changes2()));
   }
 
-  // 1,1->1,2->1,11.
+  // client_id_1(),1->client_id_1(),2->client_id_1(),11.
   {
     // Client 2 is no longer connected to the root, should get drawn state
     // changed.
     changes2()->clear();
     ASSERT_TRUE(wt_client1()->RemoveWindowFromParent(window_1_1));
     wt_client2_->WaitForChangeCount(1);
-    EXPECT_EQ(
-        "DrawnStateChanged window=" + IdToString(window_1_1) + " drawn=false",
-        SingleChangeToDescription(*changes2()));
+    EXPECT_EQ("DrawnStateChanged window=" + IdToString(window11_in_wt2) +
+                  " drawn=false",
+              SingleChangeToDescription(*changes2()));
   }
 
-  // 1,1->1,2->1,11->1,111.
+  // client_id_1(),1->client_id_1(),2->client_id_1(),11->client_id_1(),111.
   Id window_1_111 = wt_client1()->NewWindow(111);
   ASSERT_TRUE(window_1_111);
   ASSERT_TRUE(wt_client1()->SetWindowVisibility(window_1_111, true));
@@ -1033,14 +1088,14 @@ TEST_F(WindowTreeClientTest, WindowHierarchyChangedWindows) {
     EXPECT_TRUE(changes2()->empty());
   }
 
-  // 0,1->1,1->1,2->1,11->1,111
+  // 0,1->client_id_1(),1->client_id_1(),2->client_id_1(),11->client_id_1(),111
   {
     changes2()->clear();
     ASSERT_TRUE(wt_client1()->AddWindow(root_window_id(), window_1_1));
     wt_client2_->WaitForChangeCount(1);
-    EXPECT_EQ(
-        "DrawnStateChanged window=" + IdToString(window_1_1) + " drawn=true",
-        SingleChangeToDescription(*changes2()));
+    EXPECT_EQ("DrawnStateChanged window=" + IdToString(window11_in_wt2) +
+                  " drawn=true",
+              SingleChangeToDescription(*changes2()));
   }
 }
 
@@ -1056,6 +1111,11 @@ TEST_F(WindowTreeClientTest, WindowHierarchyChangedAddingKnownToUnknown) {
   ASSERT_TRUE(window_2_11);
   ASSERT_TRUE(window_2_2);
   ASSERT_TRUE(window_2_21);
+  // window_1_1 has a client_id part of 0 in wt1, while window_2_2 has that of
+  // client_id_2.
+  Id window11_in_wt1 = ClientWindowIdFromTransportId(window_1_1);
+  Id window22_in_wt1 =
+      BuildWindowId(client_id_2(), ClientWindowIdFromTransportId(window_2_2));
 
   // Set up the hierarchy.
   ASSERT_TRUE(wt_client1()->AddWindow(root_window_id(), window_1_1));
@@ -1068,10 +1128,11 @@ TEST_F(WindowTreeClientTest, WindowHierarchyChangedAddingKnownToUnknown) {
     ASSERT_TRUE(wt_client2()->RemoveWindowFromParent(window_2_11));
 
     wt_client1_->WaitForChangeCount(1);
-    // 2,1 should be IdToString(window_2_11), but window_2_11 is in the id
-    // space of client2, not client1.
-    EXPECT_EQ("HierarchyChanged window=2,1 old_parent=" +
-                  IdToString(window_1_1) + " new_parent=null",
+    // client_id_2(),1 should be IdToString(window_2_11), but window_2_11 is in
+    // the id space of client2, not client1.
+    EXPECT_EQ("HierarchyChanged window=" + std::to_string(client_id_2()) +
+                  ",11 old_parent=" + IdToString(window11_in_wt1) +
+                  " new_parent=null",
               SingleChangeToDescription(*changes1()));
   }
 
@@ -1080,14 +1141,15 @@ TEST_F(WindowTreeClientTest, WindowHierarchyChangedAddingKnownToUnknown) {
     changes1()->clear();
     ASSERT_TRUE(wt_client2()->AddWindow(window_1_1, window_2_2));
     wt_client1_->WaitForChangeCount(1);
-    EXPECT_EQ("HierarchyChanged window=" + IdToString(window_2_2) +
-                  " old_parent=null new_parent=" + IdToString(window_1_1),
+    EXPECT_EQ("HierarchyChanged window=" + IdToString(window22_in_wt1) +
+                  " old_parent=null new_parent=" + IdToString(window11_in_wt1),
               SingleChangeToDescription(*changes1()));
-    // "window=2,3 parent=2,2]" should be,
+    // "window=client_id_2(),3 parent=client_id_2(),2]" should be,
     // WindowParentToString(window_2_21, window_2_2), but isn't because of
     // differing id spaces.
-    EXPECT_EQ("[" + WindowParentToString(window_2_2, window_1_1) +
-                  "],[window=2,3 parent=2,2]",
+    EXPECT_EQ("[" + WindowParentToString(window22_in_wt1, window11_in_wt1) +
+                  "],[window=" + std::to_string(client_id_2()) +
+                  ",21 parent=" + std::to_string(client_id_2()) + ",2]",
               ChangeWindowDescription(*changes1()));
   }
 }
@@ -1098,9 +1160,9 @@ TEST_F(WindowTreeClientTest, ReorderWindow) {
   Id window_2_1 = wt_client2()->NewWindow(1);
   Id window_2_2 = wt_client2()->NewWindow(2);
   Id window_2_3 = wt_client2()->NewWindow(3);
-  Id window_1_4 = wt_client1()->NewWindow(4);  // Peer to 1,1
-  Id window_1_5 = wt_client1()->NewWindow(5);  // Peer to 1,1
-  Id window_2_6 = wt_client2()->NewWindow(6);  // Child of 1,2.
+  Id window_1_4 = wt_client1()->NewWindow(4);  // Peer to client_id_1(),1
+  Id window_1_5 = wt_client1()->NewWindow(5);  // Peer to client_id_1(),1
+  Id window_2_6 = wt_client2()->NewWindow(6);  // Child of client_id_1(),2.
   Id window_2_7 = wt_client2()->NewWindow(7);  // Unparented.
   Id window_2_8 = wt_client2()->NewWindow(8);  // Unparented.
   ASSERT_TRUE(window_2_1);
@@ -1120,14 +1182,26 @@ TEST_F(WindowTreeClientTest, ReorderWindow) {
   ASSERT_TRUE(
       wt_client2()->AddWindow(BuildWindowId(client_id_1(), 1), window_2_1));
 
+  // window_2_* has client_id part of client_id_2 in wt1.
+  Id window22_in_wt1 =
+      BuildWindowId(client_id_2(), ClientWindowIdFromTransportId(window_2_2));
+  Id window23_in_wt1 =
+      BuildWindowId(client_id_2(), ClientWindowIdFromTransportId(window_2_3));
+  Id window26_in_wt1 =
+      BuildWindowId(client_id_2(), ClientWindowIdFromTransportId(window_2_6));
+  Id window27_in_wt1 =
+      BuildWindowId(client_id_2(), ClientWindowIdFromTransportId(window_2_7));
+  Id window28_in_wt1 =
+      BuildWindowId(client_id_2(), ClientWindowIdFromTransportId(window_2_8));
+
   {
     changes1()->clear();
     ASSERT_TRUE(wt_client2()->ReorderWindow(window_2_2, window_2_3,
                                             mojom::OrderDirection::ABOVE));
 
     wt_client1_->WaitForChangeCount(1);
-    EXPECT_EQ("Reordered window=" + IdToString(window_2_2) + " relative=" +
-                  IdToString(window_2_3) + " direction=above",
+    EXPECT_EQ("Reordered window=" + IdToString(window22_in_wt1) + " relative=" +
+                  IdToString(window23_in_wt1) + " direction=above",
               SingleChangeToDescription(*changes1()));
   }
 
@@ -1137,8 +1211,8 @@ TEST_F(WindowTreeClientTest, ReorderWindow) {
                                             mojom::OrderDirection::BELOW));
 
     wt_client1_->WaitForChangeCount(1);
-    EXPECT_EQ("Reordered window=" + IdToString(window_2_2) + " relative=" +
-                  IdToString(window_2_3) + " direction=below",
+    EXPECT_EQ("Reordered window=" + IdToString(window22_in_wt1) + " relative=" +
+                  IdToString(window23_in_wt1) + " direction=below",
               SingleChangeToDescription(*changes1()));
   }
 
@@ -1151,7 +1225,7 @@ TEST_F(WindowTreeClientTest, ReorderWindow) {
                                            mojom::OrderDirection::ABOVE));
 
   // view6 & view3 have different parents.
-  EXPECT_FALSE(wt_client1()->ReorderWindow(window_2_3, window_2_6,
+  EXPECT_FALSE(wt_client1()->ReorderWindow(window23_in_wt1, window26_in_wt1,
                                            mojom::OrderDirection::ABOVE));
 
   // Non-existent window-ids
@@ -1160,7 +1234,7 @@ TEST_F(WindowTreeClientTest, ReorderWindow) {
                                            mojom::OrderDirection::ABOVE));
 
   // view7 & view8 are un-parented.
-  EXPECT_FALSE(wt_client1()->ReorderWindow(window_2_7, window_2_8,
+  EXPECT_FALSE(wt_client1()->ReorderWindow(window27_in_wt1, window28_in_wt1,
                                            mojom::OrderDirection::ABOVE));
 }
 
@@ -1170,14 +1244,19 @@ TEST_F(WindowTreeClientTest, DeleteWindow) {
   Id window_1_1 = BuildWindowId(client_id_1(), 1);
   Id window_2_1 = wt_client2()->NewWindow(1);
   ASSERT_TRUE(window_2_1);
+  // window_2_1 is not created by wt1 so its client_id part is client_id_2,
+  // while window_1_1 would have 0 for the client_id part.
+  Id window21_in_wt1 =
+      BuildWindowId(client_id_2(), ClientWindowIdFromTransportId(window_2_1));
 
   // Make 2 a child of 1.
   {
     changes1()->clear();
     ASSERT_TRUE(wt_client2()->AddWindow(window_1_1, window_2_1));
     wt_client1_->WaitForChangeCount(1);
-    EXPECT_EQ("HierarchyChanged window=" + IdToString(window_2_1) +
-                  " old_parent=null new_parent=" + IdToString(window_1_1),
+    EXPECT_EQ("HierarchyChanged window=" + IdToString(window21_in_wt1) +
+                  " old_parent=null new_parent=" +
+                  IdToString(ClientWindowIdFromTransportId(window_1_1)),
               SingleChangeToDescription(*changes1()));
   }
 
@@ -1189,7 +1268,7 @@ TEST_F(WindowTreeClientTest, DeleteWindow) {
     EXPECT_TRUE(changes2()->empty());
 
     wt_client1_->WaitForChangeCount(1);
-    EXPECT_EQ("WindowDeleted window=" + IdToString(window_2_1),
+    EXPECT_EQ("WindowDeleted window=" + IdToString(window21_in_wt1),
               SingleChangeToDescription(*changes1()));
   }
 }
@@ -1201,7 +1280,10 @@ TEST_F(WindowTreeClientTest, DeleteRoot) {
   EXPECT_TRUE(wt_client2()->DeleteWindow(window_1_1));
   // Client1 should get OnEmbeddedAppDisconnected().
   wt_client1_->WaitForChangeCount(1);
-  EXPECT_EQ("OnEmbeddedAppDisconnected window=" + IdToString(window_1_1),
+  // window_1_1 should have client_id of 0 in wt_client1 because it's created
+  // by wt_client1.
+  EXPECT_EQ("OnEmbeddedAppDisconnected window=" +
+                IdToString(ClientWindowIdFromTransportId(window_1_1)),
             SingleChangeToDescription(*changes1()));
 
   // Create a new window and try adding to |window_1_1| from client 2, should
@@ -1244,16 +1326,22 @@ TEST_F(WindowTreeClientTest, ReuseDeletedWindowId) {
   Id window_2_1 = wt_client2()->NewWindow(1);
   ASSERT_TRUE(window_2_1);
 
+  // wt1 created window_1_1 but not window_2_1.
+  Id window11_in_wt1 = ClientWindowIdFromTransportId(window_1_1);
+  Id window21_in_wt1 =
+      BuildWindowId(client_id_2(), ClientWindowIdFromTransportId(window_2_1));
+
   // Add 2 to 1.
   {
     changes1()->clear();
     ASSERT_TRUE(wt_client2()->AddWindow(window_1_1, window_2_1));
     wt_client1_->WaitForChangeCount(1);
-    EXPECT_EQ("HierarchyChanged window=" + IdToString(window_2_1) +
-                  " old_parent=null new_parent=" + IdToString(window_1_1),
+    EXPECT_EQ("HierarchyChanged window=" + IdToString(window21_in_wt1) +
+                  " old_parent=null new_parent=" + IdToString(window11_in_wt1),
               SingleChangeToDescription(*changes1()));
-    EXPECT_EQ("[" + WindowParentToString(window_2_1, window_1_1) + "]",
-              ChangeWindowDescription(*changes1()));
+    EXPECT_EQ(
+        "[" + WindowParentToString(window21_in_wt1, window11_in_wt1) + "]",
+        ChangeWindowDescription(*changes1()));
   }
 
   // Delete 2.
@@ -1262,23 +1350,26 @@ TEST_F(WindowTreeClientTest, ReuseDeletedWindowId) {
     ASSERT_TRUE(wt_client2()->DeleteWindow(window_2_1));
 
     wt_client1_->WaitForChangeCount(1);
-    EXPECT_EQ("WindowDeleted window=" + IdToString(window_2_1),
+    EXPECT_EQ("WindowDeleted window=" + IdToString(window21_in_wt1),
               SingleChangeToDescription(*changes1()));
   }
 
   // Create 2 again, and add it back to 1. Should get the same notification.
   window_2_1 = wt_client2()->NewWindow(2);
+  window21_in_wt1 = BuildWindowId(ClientIdFromTransportId(window21_in_wt1),
+                                  ClientWindowIdFromTransportId(window_2_1));
   ASSERT_TRUE(window_2_1);
   {
     changes1()->clear();
     ASSERT_TRUE(wt_client2()->AddWindow(window_1_1, window_2_1));
 
     wt_client1_->WaitForChangeCount(1);
-    EXPECT_EQ("HierarchyChanged window=" + IdToString(window_2_1) +
-                  " old_parent=null new_parent=" + IdToString(window_1_1),
+    EXPECT_EQ("HierarchyChanged window=" + IdToString(window21_in_wt1) +
+                  " old_parent=null new_parent=" + IdToString(window11_in_wt1),
               SingleChangeToDescription(*changes1()));
-    EXPECT_EQ("[" + WindowParentToString(window_2_1, window_1_1) + "]",
-              ChangeWindowDescription(*changes1()));
+    EXPECT_EQ(
+        "[" + WindowParentToString(window21_in_wt1, window11_in_wt1) + "]",
+        ChangeWindowDescription(*changes1()));
   }
 }
 
@@ -1301,6 +1392,14 @@ TEST_F(WindowTreeClientTest, GetWindowTree) {
   ASSERT_TRUE(wt_client2()->AddWindow(window_1_1, window_2_1));
   ASSERT_TRUE(wt_client2()->AddWindow(window_1_1, window_2_2));
 
+  // wt1 created window_1_1 and window_1_11, but not window_2_1 and window_2_2.
+  Id window11_in_wt1 = ClientWindowIdFromTransportId(window_1_1);
+  Id window111_in_wt1 = ClientWindowIdFromTransportId(window_1_11);
+  Id window21_in_wt1 =
+      BuildWindowId(client_id_2(), ClientWindowIdFromTransportId(window_2_1));
+  Id window22_in_wt1 =
+      BuildWindowId(client_id_2(), ClientWindowIdFromTransportId(window_2_2));
+
   // Verifies GetWindowTree() on the root. The root client sees all.
   {
     std::vector<TestWindow> windows;
@@ -1308,19 +1407,19 @@ TEST_F(WindowTreeClientTest, GetWindowTree) {
     ASSERT_EQ(5u, windows.size());
     EXPECT_EQ(WindowParentToString(root_window_id(), kNullParentId),
               windows[0].ToString());
-    EXPECT_EQ(WindowParentToString(window_1_1, root_window_id()),
+    EXPECT_EQ(WindowParentToString(window11_in_wt1, root_window_id()),
               windows[1].ToString());
-    EXPECT_EQ(WindowParentToString(window_1_11, window_1_1),
+    EXPECT_EQ(WindowParentToString(window111_in_wt1, window11_in_wt1),
               windows[2].ToString());
-    EXPECT_EQ(WindowParentToString(window_2_1, window_1_1),
+    EXPECT_EQ(WindowParentToString(window21_in_wt1, window11_in_wt1),
               windows[3].ToString());
-    EXPECT_EQ(WindowParentToString(window_2_2, window_1_1),
+    EXPECT_EQ(WindowParentToString(window22_in_wt1, window11_in_wt1),
               windows[4].ToString());
   }
 
-  // Verifies GetWindowTree() on the window 1,1 from wt2(). wt2() sees 1,1 as
-  // 1,1
-  // is wt2()'s root and wt2() sees all the windows it created.
+  // Verifies GetWindowTree() on the window client_id_1(),1 from wt2(). wt2()
+  // sees client_id_1(),1 as client_id_1(),1 is wt2()'s root and wt2() sees all
+  // the windows it created.
   {
     std::vector<TestWindow> windows;
     GetWindowTree(wt2(), window_1_1, &windows);
@@ -1352,21 +1451,25 @@ TEST_F(WindowTreeClientTest, SetWindowBounds) {
 
   wt_client2_->set_track_root_bounds_changes(true);
 
-  viz::LocalSurfaceIdAllocator allocator;
+  viz::ParentLocalSurfaceIdAllocator allocator;
   viz::LocalSurfaceId local_surface_id = allocator.GenerateId();
   wt1()->SetWindowBounds(10, window_1_1, gfx::Rect(0, 0, 100, 100),
                          local_surface_id);
   ASSERT_TRUE(wt_client1()->WaitForChangeCompleted(10));
 
   wt_client2_->WaitForChangeCount(1);
-  EXPECT_EQ("BoundsChanged window=" + IdToString(window_1_1) +
+  // window_1_1 has a client_id part of client_id_1 in wt2.
+  Id window11_in_wt2 =
+      BuildWindowId(client_id_1(), ClientWindowIdFromTransportId(window_1_1));
+  EXPECT_EQ("BoundsChanged window=" + IdToString(window11_in_wt2) +
                 " old_bounds=0,0 0x0 new_bounds=0,0 100x100 local_surface_id=" +
                 local_surface_id.ToString(),
             SingleChangeToDescription(*changes2()));
 
   // Should not be possible to change the bounds of a window created by another
   // client.
-  wt2()->SetWindowBounds(11, window_1_1, gfx::Rect(0, 0, 0, 0), base::nullopt);
+  wt2()->SetWindowBounds(11, window11_in_wt2, gfx::Rect(0, 0, 0, 0),
+                         base::nullopt);
   ASSERT_FALSE(wt_client2()->WaitForChangeCompleted(11));
 }
 
@@ -1457,9 +1560,11 @@ TEST_F(WindowTreeClientTest, CantGetWindowTreeOfOtherRoots) {
   ASSERT_TRUE(windows.empty());
 
   // Should get window 1 if asked for.
-  GetWindowTree(wt2(), window_1_1, &windows);
+  Id window11_in_wt2 =
+      BuildWindowId(client_id_1(), ClientWindowIdFromTransportId(window_1_1));
+  GetWindowTree(wt2(), window11_in_wt2, &windows);
   ASSERT_EQ(1u, windows.size());
-  EXPECT_EQ(WindowParentToString(window_1_1, kNullParentId),
+  EXPECT_EQ(WindowParentToString(window11_in_wt2, kNullParentId),
             windows[0].ToString());
 }
 
@@ -1479,7 +1584,7 @@ TEST_F(WindowTreeClientTest, EmbedWithSameWindowId) {
               ChangesToDescription1(*changes2())[1]);
   }
 
-  // Client 2 has no root. Verify it can't see window 1,1 anymore.
+  // Client 2 has no root. Verify it can't see window client_id_1(),1 anymore.
   {
     std::vector<TestWindow> windows;
     GetWindowTree(wt2(), window_1_1, &windows);
@@ -1501,53 +1606,64 @@ TEST_F(WindowTreeClientTest, EmbedWithSameWindowId2) {
   // Create a window in the third client and parent it to the root.
   Id window_3_1 = wt_client3()->NewWindow(1);
   ASSERT_TRUE(window_3_1);
-  ASSERT_TRUE(wt_client3()->AddWindow(window_1_1, window_3_1));
+  // After EstablishThirdClient, window_1_1 should have a ClientWindowId of
+  // (client_id_2, 0).
+  Id embedded_window_1_1_wt3 = BuildWindowId(client_id_2(), 0);
+  ASSERT_TRUE(wt_client3()->AddWindow(embedded_window_1_1_wt3, window_3_1));
+
+  // wt1 created window_1_1 but not window_3_1.
+  Id window11_in_wt1 = ClientWindowIdFromTransportId(window_1_1);
+  Id window31_in_wt1 =
+      BuildWindowId(client_id_3(), ClientWindowIdFromTransportId(window_3_1));
 
   // Client 1 should have been told about the add (it owns the window).
   {
     wt_client1_->WaitForChangeCount(1);
-    EXPECT_EQ("HierarchyChanged window=" + IdToString(window_3_1) +
-                  " old_parent=null new_parent=" + IdToString(window_1_1),
+    EXPECT_EQ("HierarchyChanged window=" + IdToString(window31_in_wt1) +
+                  " old_parent=null new_parent=" + IdToString(window11_in_wt1),
               SingleChangeToDescription(*changes1()));
   }
 
-  // Embed 1,1 again.
+  // Embed client_id_1(),1 again.
   {
     changes3()->clear();
 
     // We should get a new client for the new embedding.
     std::unique_ptr<TestWindowTreeClient> client4(
-        EstablishClientViaEmbed(wt1(), window_1_1, nullptr));
+        EstablishClientViaEmbed(wt1(), window_1_1));
+    Id embedded_window_1_1_wt4 = BuildWindowId(client_id_3(), 0);
     ASSERT_TRUE(client4.get());
-    EXPECT_EQ("[" + WindowParentToString(window_1_1, kNullParentId) + "]",
+    EXPECT_EQ("[" +
+                  WindowParentToString(embedded_window_1_1_wt4, kNullParentId) +
+                  "]",
               ChangeWindowDescription(*client4->tracker()->changes()));
 
     // And 3 should get an unembed and delete.
     wt_client3_->WaitForChangeCount(2);
-    EXPECT_EQ("OnUnembed window=" + IdToString(window_1_1),
+    EXPECT_EQ("OnUnembed window=" + IdToString(embedded_window_1_1_wt3),
               ChangesToDescription1(*changes3())[0]);
-    EXPECT_EQ("WindowDeleted window=" + IdToString(window_1_1),
+    EXPECT_EQ("WindowDeleted window=" + IdToString(embedded_window_1_1_wt3),
               ChangesToDescription1(*changes3())[1]);
   }
 
-  // wt3() has no root. Verify it can't see window 1,1 anymore.
+  // wt3() has no root. Verify it can't see window client_id_1(),1 anymore.
   {
     std::vector<TestWindow> windows;
     GetWindowTree(wt3(), window_1_1, &windows);
     EXPECT_TRUE(windows.empty());
   }
 
-  // Verify 3,1 is no longer parented to 1,1. We have to do this from 1,1 as
-  // wt3() can no longer see 1,1.
+  // Verify client_id_3(),1 is no longer parented to client_id_1(),1. We have to
+  // do this from client_id_1(),1 as wt3() can no longer see client_id_1(),1.
   {
     std::vector<TestWindow> windows;
     GetWindowTree(wt1(), window_1_1, &windows);
     ASSERT_EQ(1u, windows.size());
-    EXPECT_EQ(WindowParentToString(window_1_1, kNullParentId),
+    EXPECT_EQ(WindowParentToString(window11_in_wt1, kNullParentId),
               windows[0].ToString());
   }
 
-  // Verify wt3() can still see the window it created 3,1.
+  // Verify wt3() can still see the window it created client_id_3(),1.
   {
     std::vector<TestWindow> windows;
     GetWindowTree(wt3(), window_3_1, &windows);
@@ -1648,7 +1764,8 @@ TEST_F(WindowTreeClientTest, SetCursor) {
 
 // Assertions for SetWindowVisibility sending notifications.
 TEST_F(WindowTreeClientTest, SetWindowVisibilityNotifications) {
-  // Create 1,1 and 1,2. 1,2 is made a child of 1,1 and 1,1 a child of the root.
+  // Create client_id_1(),1 and client_id_1(),2. client_id_1(),2 is made a child
+  // of client_id_1(),1 and client_id_1(),1 a child of the root.
   Id window_1_1 = wt_client1()->NewWindow(1);
   ASSERT_TRUE(window_1_1);
   ASSERT_TRUE(wt_client1()->SetWindowVisibility(window_1_1, true));
@@ -1661,29 +1778,32 @@ TEST_F(WindowTreeClientTest, SetWindowVisibilityNotifications) {
   ASSERT_TRUE(wt_client1()->AddWindow(root_window_id(), window_1_1));
   ASSERT_TRUE(wt_client1()->AddWindow(window_1_1, window_1_2));
 
-  // Establish the second client at 1,2.
+  // Establish the second client at client_id_1(),2.
   ASSERT_NO_FATAL_FAILURE(EstablishSecondClientWithRoot(window_1_2));
 
-  // Add 2,3 as a child of 1,2.
+  // Add client_id_2(),3 as a child of client_id_1(),2.
   Id window_2_1 = wt_client2()->NewWindow(1);
   ASSERT_TRUE(window_2_1);
   ASSERT_TRUE(wt_client2()->SetWindowVisibility(window_2_1, true));
-  ASSERT_TRUE(wt_client2()->AddWindow(window_1_2, window_2_1));
+  // window_1_2 has a client_id part of client_id_1 in wt2.
+  Id window12_in_wt2 =
+      BuildWindowId(client_id_1(), ClientWindowIdFromTransportId(window_1_2));
+  ASSERT_TRUE(wt_client2()->AddWindow(window12_in_wt2, window_2_1));
   ASSERT_TRUE(wt_client1()->WaitForAllMessages());
 
   changes2()->clear();
-  // Hide 1,2 from client 1. Client 2 should see this.
+  // Hide client_id_1(),2 from client 1. Client 2 should see this.
   ASSERT_TRUE(wt_client1()->SetWindowVisibility(window_1_2, false));
   {
     wt_client2_->WaitForChangeCount(1);
-    EXPECT_EQ(
-        "VisibilityChanged window=" + IdToString(window_1_2) + " visible=false",
-        SingleChangeToDescription(*changes2()));
+    EXPECT_EQ("VisibilityChanged window=" + IdToString(window12_in_wt2) +
+                  " visible=false",
+              SingleChangeToDescription(*changes2()));
   }
 
   changes1()->clear();
-  // Show 1,2 from client 2, client 1 should be notified.
-  ASSERT_TRUE(wt_client2()->SetWindowVisibility(window_1_2, true));
+  // Show client_id_1(),2 from client 2, client 1 should be notified.
+  ASSERT_TRUE(wt_client2()->SetWindowVisibility(window12_in_wt2, true));
   {
     wt_client1_->WaitForChangeCount(1);
     EXPECT_EQ(
@@ -1692,59 +1812,65 @@ TEST_F(WindowTreeClientTest, SetWindowVisibilityNotifications) {
   }
 
   changes2()->clear();
-  // Hide 1,1, client 2 should be told the draw state changed.
+  // Hide client_id_1(),1, client 2 should be told the draw state changed.
   ASSERT_TRUE(wt_client1()->SetWindowVisibility(window_1_1, false));
   {
     wt_client2_->WaitForChangeCount(1);
-    EXPECT_EQ(
-        "DrawnStateChanged window=" + IdToString(window_1_2) + " drawn=false",
-        SingleChangeToDescription(*changes2()));
+    EXPECT_EQ("DrawnStateChanged window=" + IdToString(window12_in_wt2) +
+                  " drawn=false",
+              SingleChangeToDescription(*changes2()));
   }
 
   changes2()->clear();
-  // Show 1,1 from client 1. Client 2 should see this.
+  // Show client_id_1(),1 from client 1. Client 2 should see this.
   ASSERT_TRUE(wt_client1()->SetWindowVisibility(window_1_1, true));
   {
     wt_client2_->WaitForChangeCount(1);
-    EXPECT_EQ(
-        "DrawnStateChanged window=" + IdToString(window_1_2) + " drawn=true",
-        SingleChangeToDescription(*changes2()));
+    EXPECT_EQ("DrawnStateChanged window=" + IdToString(window12_in_wt2) +
+                  " drawn=true",
+              SingleChangeToDescription(*changes2()));
   }
 
-  // Change visibility of 2,3, client 1 should see this.
+  // Change visibility of client_id_2(),3, client 1 should see this.
   changes1()->clear();
   ASSERT_TRUE(wt_client2()->SetWindowVisibility(window_2_1, false));
   {
     wt_client1_->WaitForChangeCount(1);
     EXPECT_EQ(
-        "VisibilityChanged window=" + IdToString(window_2_1) + " visible=false",
+        "VisibilityChanged window=" +
+            IdToString(BuildWindowId(
+                client_id_2(), ClientWindowIdFromTransportId(window_2_1))) +
+            " visible=false",
         SingleChangeToDescription(*changes1()));
   }
 
   changes2()->clear();
-  // Remove 1,1 from the root, client 2 should see drawn state changed.
+  // Remove client_id_1(),1 from the root, client 2 should see drawn state
+  // changed.
   ASSERT_TRUE(wt_client1()->RemoveWindowFromParent(window_1_1));
   {
     wt_client2_->WaitForChangeCount(1);
-    EXPECT_EQ(
-        "DrawnStateChanged window=" + IdToString(window_1_2) + " drawn=false",
-        SingleChangeToDescription(*changes2()));
+    EXPECT_EQ("DrawnStateChanged window=" + IdToString(window12_in_wt2) +
+                  " drawn=false",
+              SingleChangeToDescription(*changes2()));
   }
 
   changes2()->clear();
-  // Add 1,1 back to the root, client 2 should see drawn state changed.
+  // Add client_id_1(),1 back to the root, client 2 should see drawn state
+  // changed.
   ASSERT_TRUE(wt_client1()->AddWindow(root_window_id(), window_1_1));
   {
     wt_client2_->WaitForChangeCount(1);
-    EXPECT_EQ(
-        "DrawnStateChanged window=" + IdToString(window_1_2) + " drawn=true",
-        SingleChangeToDescription(*changes2()));
+    EXPECT_EQ("DrawnStateChanged window=" + IdToString(window12_in_wt2) +
+                  " drawn=true",
+              SingleChangeToDescription(*changes2()));
   }
 }
 
 // Assertions for SetWindowVisibility sending notifications.
 TEST_F(WindowTreeClientTest, SetWindowVisibilityNotifications2) {
-  // Create 1,1 and 1,2. 1,2 is made a child of 1,1 and 1,1 a child of the root.
+  // Create client_id_1(),1 and client_id_1(),2. client_id_1(),2 is made a child
+  // of client_id_1(),1 and client_id_1(),1 a child of the root.
   Id window_1_1 = wt_client1()->NewWindow(1);
   ASSERT_TRUE(window_1_1);
   ASSERT_TRUE(wt_client1()->SetWindowVisibility(window_1_1, true));
@@ -1753,24 +1879,28 @@ TEST_F(WindowTreeClientTest, SetWindowVisibilityNotifications2) {
   ASSERT_TRUE(wt_client1()->AddWindow(root_window_id(), window_1_1));
   ASSERT_TRUE(wt_client1()->AddWindow(window_1_1, window_1_2));
 
-  // Establish the second client at 1,2.
+  // Establish the second client at client_id_1(),2.
   ASSERT_NO_FATAL_FAILURE(EstablishSecondClientWithRoot(window_1_2));
+  // window_1_2 has a client_id part of client_id_1 in wt2.
+  Id window12_in_wt2 =
+      BuildWindowId(client_id_1(), ClientWindowIdFromTransportId(window_1_2));
   EXPECT_EQ("OnEmbed drawn=true", SingleChangeToDescription2(*changes2()));
   changes2()->clear();
 
-  // Show 1,2 from client 1. Client 2 should see this.
+  // Show client_id_1(),2 from client 1. Client 2 should see this.
   ASSERT_TRUE(wt_client1()->SetWindowVisibility(window_1_2, true));
   {
     wt_client2_->WaitForChangeCount(1);
-    EXPECT_EQ(
-        "VisibilityChanged window=" + IdToString(window_1_2) + " visible=true",
-        SingleChangeToDescription(*changes2()));
+    EXPECT_EQ("VisibilityChanged window=" + IdToString(window12_in_wt2) +
+                  " visible=true",
+              SingleChangeToDescription(*changes2()));
   }
 }
 
 // Assertions for SetWindowVisibility sending notifications.
 TEST_F(WindowTreeClientTest, SetWindowVisibilityNotifications3) {
-  // Create 1,1 and 1,2. 1,2 is made a child of 1,1 and 1,1 a child of the root.
+  // Create client_id_1(),1 and client_id_1(),2. client_id_1(),2 is made a child
+  // of client_id_1(),1 and client_id_1(),1 a child of the root.
   Id window_1_1 = wt_client1()->NewWindow(1);
   ASSERT_TRUE(window_1_1);
   Id window_1_2 = wt_client1()->NewWindow(2);
@@ -1778,37 +1908,41 @@ TEST_F(WindowTreeClientTest, SetWindowVisibilityNotifications3) {
   ASSERT_TRUE(wt_client1()->AddWindow(root_window_id(), window_1_1));
   ASSERT_TRUE(wt_client1()->AddWindow(window_1_1, window_1_2));
 
-  // Establish the second client at 1,2.
+  // Establish the second client at client_id_1(),2.
   // TODO(fsamuel): Currently the FrameSinkId maps directly to the server's
   // window ID. This is likely bad from a security perspective and should be
   // fixed.
   ASSERT_NO_FATAL_FAILURE(EstablishSecondClientWithRoot(window_1_2));
+  // window_1_2 has a client_id part of client_id_1 in wt2.
+  Id window12_in_wt2 =
+      BuildWindowId(client_id_1(), ClientWindowIdFromTransportId(window_1_2));
   EXPECT_EQ("OnEmbed drawn=false", SingleChangeToDescription2(*changes2()));
   changes2()->clear();
 
-  // Show 1,1, drawn should be true for 1,2 (as that is all the child sees).
+  // Show client_id_1(),1, drawn should be true for client_id_1(),2 (as that is
+  // all the child sees).
   ASSERT_TRUE(wt_client1()->SetWindowVisibility(window_1_1, true));
   {
     wt_client2_->WaitForChangeCount(1);
-    EXPECT_EQ(
-        "DrawnStateChanged window=" + IdToString(window_1_2) + " drawn=true",
-        SingleChangeToDescription(*changes2()));
+    EXPECT_EQ("DrawnStateChanged window=" + IdToString(window12_in_wt2) +
+                  " drawn=true",
+              SingleChangeToDescription(*changes2()));
   }
   changes2()->clear();
 
-  // Show 1,2, visible should be true.
+  // Show client_id_1(),2, visible should be true.
   ASSERT_TRUE(wt_client1()->SetWindowVisibility(window_1_2, true));
   {
     wt_client2_->WaitForChangeCount(1);
-    EXPECT_EQ(
-        "VisibilityChanged window=" + IdToString(window_1_2) + " visible=true",
-        SingleChangeToDescription(*changes2()));
+    EXPECT_EQ("VisibilityChanged window=" + IdToString(window12_in_wt2) +
+                  " visible=true",
+              SingleChangeToDescription(*changes2()));
   }
 }
 
 // Tests that when opacity is set on a window, that the calling client is not
 // notified, however children are. Also that setting the same opacity is
-// rejected and no on eis notifiyed.
+// rejected and no one is notified.
 TEST_F(WindowTreeClientTest, SetOpacityNotifications) {
   Id window_1_1 = wt_client1()->NewWindow(1);
   ASSERT_TRUE(window_1_1);
@@ -1816,7 +1950,10 @@ TEST_F(WindowTreeClientTest, SetOpacityNotifications) {
   ASSERT_NO_FATAL_FAILURE(EstablishSecondClientWithRoot(window_1_1));
   Id window_2_1 = wt_client2()->NewWindow(1);
   ASSERT_TRUE(window_2_1);
-  ASSERT_TRUE(wt_client2()->AddWindow(window_1_1, window_2_1));
+  // window_1_1 has a client_id part of client_id_1 in wt2.
+  Id window11_in_wt2 =
+      BuildWindowId(client_id_1(), ClientWindowIdFromTransportId(window_1_1));
+  ASSERT_TRUE(wt_client2()->AddWindow(window11_in_wt2, window_2_1));
   ASSERT_TRUE(wt_client1()->WaitForAllMessages());
 
   changes1()->clear();
@@ -1825,9 +1962,9 @@ TEST_F(WindowTreeClientTest, SetOpacityNotifications) {
   ASSERT_TRUE(wt_client1()->SetWindowOpacity(window_1_1, 0.5f));
   EXPECT_TRUE(changes1()->empty());
   wt_client2()->WaitForChangeCount(1);
-  EXPECT_EQ(
-      "OpacityChanged window_id=" + IdToString(window_1_1) + " opacity=0.50",
-      SingleChangeToDescription(*changes2()));
+  EXPECT_EQ("OpacityChanged window_id=" + IdToString(window11_in_wt2) +
+                " opacity=0.50",
+            SingleChangeToDescription(*changes2()));
 
   changes2()->clear();
   // Attempting to set the same opacity should succeed, but no notification as
@@ -1859,11 +1996,14 @@ TEST_F(WindowTreeClientTest, SetWindowProperty) {
   changes2()->clear();
   std::vector<uint8_t> one(1, '1');
   ASSERT_TRUE(wt_client1()->SetWindowProperty(window_1_1, "one", &one));
+  // window_1_1 has a client_id part of client_id_1 in wt2.
+  Id window11_in_wt2 =
+      BuildWindowId(client_id_1(), ClientWindowIdFromTransportId(window_1_1));
   {
     wt_client2_->WaitForChangeCount(1);
-    EXPECT_EQ(
-        "PropertyChanged window=" + IdToString(window_1_1) + " key=one value=1",
-        SingleChangeToDescription(*changes2()));
+    EXPECT_EQ("PropertyChanged window=" + IdToString(window11_in_wt2) +
+                  " key=one value=1",
+              SingleChangeToDescription(*changes2()));
   }
 
   // Test that our properties exist in the window tree
@@ -1880,7 +2020,7 @@ TEST_F(WindowTreeClientTest, SetWindowProperty) {
   ASSERT_TRUE(wt_client1()->SetWindowProperty(window_1_1, "one", NULL));
   {
     wt_client2_->WaitForChangeCount(1);
-    EXPECT_EQ("PropertyChanged window=" + IdToString(window_1_1) +
+    EXPECT_EQ("PropertyChanged window=" + IdToString(window11_in_wt2) +
                   " key=one value=NULL",
               SingleChangeToDescription(*changes2()));
   }
@@ -1933,7 +2073,10 @@ TEST_F(WindowTreeClientTest, OnParentOfEmbedDisconnects) {
   // Close client 2. Client 3 should get a delete (for its root).
   wt_client2_.reset();
   wt_client3_->WaitForChangeCount(1);
-  EXPECT_EQ("WindowDeleted window=" + IdToString(window_2_2),
+  // window_2_2 has a client_id part of client_id_2 in wt3.
+  EXPECT_EQ("WindowDeleted window=" +
+                IdToString(BuildWindowId(
+                    client_id_2(), ClientWindowIdFromTransportId(window_2_2))),
             SingleChangeToDescription(*changes3()));
 }
 
@@ -1946,7 +2089,9 @@ TEST_F(WindowTreeClientTest, DontCleanMapOnDestroy) {
   changes1()->clear();
   wt_client2_.reset();
   wt_client1_->WaitForChangeCount(1);
-  EXPECT_EQ("OnEmbeddedAppDisconnected window=" + IdToString(window_1_1),
+  // window_1_1 is created by wt1 so client_id part would be 0.
+  EXPECT_EQ("OnEmbeddedAppDisconnected window=" +
+                IdToString(ClientWindowIdFromTransportId(window_1_1)),
             SingleChangeToDescription(*changes1()));
   std::vector<TestWindow> windows;
   GetWindowTree(wt1(), window_1_1, &windows);
@@ -1968,6 +2113,72 @@ TEST_F(WindowTreeClientTest, EmbedSupplyingWindowTreeClient) {
             SingleChangeToDescription(*client2.tracker()->changes()));
 }
 
+TEST_F(WindowTreeClientTest, EmbedUsingToken) {
+  // Embed client2.
+  ASSERT_TRUE(wt_client1()->NewWindow(1));
+  TestWindowTreeClient client2;
+  mojom::WindowTreeClientPtr client2_ptr;
+  mojo::Binding<WindowTreeClient> client2_binding(
+      &client2, mojo::MakeRequest(&client2_ptr));
+  ASSERT_TRUE(
+      Embed(wt1(), BuildWindowId(client_id_1(), 1), std::move(client2_ptr)));
+  client2.WaitForOnEmbed();
+  EXPECT_EQ("OnEmbed",
+            SingleChangeToDescription(*client2.tracker()->changes()));
+
+  // Schedule an embed of |client3| from wt1().
+  TestWindowTreeClient client3;
+  mojom::WindowTreeClientPtr client3_ptr;
+  mojo::Binding<WindowTreeClient> client3_binding(
+      &client3, mojo::MakeRequest(&client3_ptr));
+  base::UnguessableToken token;
+  ScheduleEmbed(wt1(), std::move(client3_ptr), &token);
+
+  // Have |client2| embed using the token scheduled above.
+  const Id window_id = client2.NewWindow(121);
+  ASSERT_TRUE(window_id);
+  ASSERT_TRUE(EmbedUsingToken(client2.tree(), BuildWindowId(client_id_2(), 121),
+                              token));
+  client3.WaitForOnEmbed();
+  EXPECT_EQ("OnEmbed",
+            SingleChangeToDescription(*client3.tracker()->changes()));
+
+  // EmbedUsingToken() should fail when passed a token that was already used.
+  EXPECT_FALSE(EmbedUsingToken(client2.tree(),
+                               BuildWindowId(client_id_2(), 121), token));
+
+  // EmbedUsingToken() should fail when passed a locally generated token.
+  EXPECT_FALSE(EmbedUsingToken(client2.tree(),
+                               BuildWindowId(client_id_2(), 121),
+                               base::UnguessableToken::Create()));
+}
+
+TEST_F(WindowTreeClientTest, EmbedUsingTokenFailsWithInvalidWindow) {
+  // Embed client2.
+  ASSERT_TRUE(wt_client1()->NewWindow(1));
+  TestWindowTreeClient client2;
+  mojom::WindowTreeClientPtr client2_ptr;
+  mojo::Binding<WindowTreeClient> client2_binding(
+      &client2, mojo::MakeRequest(&client2_ptr));
+  ASSERT_TRUE(
+      Embed(wt1(), BuildWindowId(client_id_1(), 1), std::move(client2_ptr)));
+  client2.WaitForOnEmbed();
+  EXPECT_EQ("OnEmbed",
+            SingleChangeToDescription(*client2.tracker()->changes()));
+
+  // Schedule an embed of |client3| from wt1().
+  TestWindowTreeClient client3;
+  mojom::WindowTreeClientPtr client3_ptr;
+  mojo::Binding<WindowTreeClient> client3_binding(
+      &client3, mojo::MakeRequest(&client3_ptr));
+  base::UnguessableToken token;
+  ScheduleEmbed(wt1(), std::move(client3_ptr), &token);
+
+  // This should fail as the window id does not identify a valid window.
+  EXPECT_FALSE(EmbedUsingToken(client2.tree(),
+                               BuildWindowId(client_id_2(), 121), token));
+}
+
 TEST_F(WindowTreeClientTest, EmbedFailsFromOtherClient) {
   ASSERT_NO_FATAL_FAILURE(EstablishSecondClient(true));
 
@@ -1979,7 +2190,10 @@ TEST_F(WindowTreeClientTest, EmbedFailsFromOtherClient) {
 
   Id window_3_3 = wt_client3()->NewWindow(3);
   ASSERT_TRUE(window_3_3);
-  ASSERT_TRUE(wt_client3()->AddWindow(window_2_1, window_3_3));
+  // window_2_1 should have client_id of client_id_2 in wt_client3.
+  ASSERT_TRUE(wt_client3()->AddWindow(
+      BuildWindowId(client_id_2(), ClientWindowIdFromTransportId(window_2_1)),
+      window_3_3));
 
   // 2 should not be able to embed in window_3_3 as window_3_3 was not created
   // by
@@ -1998,8 +2212,11 @@ TEST_F(WindowTreeClientTest, EmbedFromOtherClient) {
 
   changes2()->clear();
 
-  // Establish a third client in window_2_1.
-  ASSERT_NO_FATAL_FAILURE(EstablishThirdClient(wt1(), window_2_1));
+  // Establish a third client in window_2_1. window_2_1 has a client_id of
+  // client_id_2 for other clients.
+  ASSERT_NO_FATAL_FAILURE(EstablishThirdClient(
+      wt1(),
+      BuildWindowId(client_id_2(), ClientWindowIdFromTransportId(window_2_1))));
 
   ASSERT_TRUE(wt_client2()->WaitForAllMessages());
   EXPECT_EQ(std::string(), SingleChangeToDescription(*changes2()));
@@ -2027,8 +2244,7 @@ TEST_F(WindowTreeClientTest, CantEmbedFromClientRoot) {
   ASSERT_TRUE(
       wt_client1()->AddWindow(BuildWindowId(client_id_1(), 1), window_1_2));
   ASSERT_TRUE(wt_client3_.get() == nullptr);
-  wt_client3_ =
-      EstablishClientViaEmbedWithPolicyBitmask(wt1(), window_1_2, nullptr);
+  wt_client3_ = EstablishClientViaEmbedWithPolicyBitmask(wt1(), window_1_2);
   ASSERT_TRUE(wt_client3_.get() != nullptr);
 
   // window_1_2 is ws3's root, so even though v3 is an embed root it should not
@@ -2045,6 +2261,13 @@ TEST_F(WindowTreeClientTest, TransientWindowTracksTransientParentLifetime) {
   Id window_2_2 = wt_client2()->NewWindow(2);
   Id window_2_3 = wt_client2()->NewWindow(3);
   ASSERT_TRUE(window_2_1);
+  // window_2_* has a client_id part of client_id_2 in wt1.
+  Id window21_in_wt1 =
+      BuildWindowId(client_id_2(), ClientWindowIdFromTransportId(window_2_1));
+  Id window22_in_wt1 =
+      BuildWindowId(client_id_2(), ClientWindowIdFromTransportId(window_2_2));
+  Id window23_in_wt1 =
+      BuildWindowId(client_id_2(), ClientWindowIdFromTransportId(window_2_3));
 
   // root -> window_1_1 -> window_2_1
   // root -> window_1_1 -> window_2_2
@@ -2059,26 +2282,27 @@ TEST_F(WindowTreeClientTest, TransientWindowTracksTransientParentLifetime) {
   wt2()->AddTransientWindow(10, window_2_1, window_2_2);
   wt2()->AddTransientWindow(11, window_2_1, window_2_3);
   wt_client1()->WaitForChangeCount(2);
-  EXPECT_EQ("AddTransientWindow parent = " + IdToString(window_2_1) +
-                " child = " + IdToString(window_2_2),
+  EXPECT_EQ("AddTransientWindow parent = " + IdToString(window21_in_wt1) +
+                " child = " + IdToString(window22_in_wt1),
             ChangesToDescription1(*changes1())[0]);
-  EXPECT_EQ("AddTransientWindow parent = " + IdToString(window_2_1) +
-                " child = " + IdToString(window_2_3),
+  EXPECT_EQ("AddTransientWindow parent = " + IdToString(window21_in_wt1) +
+                " child = " + IdToString(window23_in_wt1),
             ChangesToDescription1(*changes1())[1]);
 
   changes1()->clear();
   wt2()->RemoveTransientWindowFromParent(12, window_2_3);
   wt_client1()->WaitForChangeCount(1);
   EXPECT_EQ("RemoveTransientWindowFromParent parent = " +
-                IdToString(window_2_1) + " child = " + IdToString(window_2_3),
+                IdToString(window21_in_wt1) +
+                " child = " + IdToString(window23_in_wt1),
             SingleChangeToDescription(*changes1()));
 
   changes1()->clear();
   ASSERT_TRUE(wt_client2()->DeleteWindow(window_2_1));
   wt_client1()->WaitForChangeCount(2);
-  EXPECT_EQ("WindowDeleted window=" + IdToString(window_2_2),
+  EXPECT_EQ("WindowDeleted window=" + IdToString(window22_in_wt1),
             ChangesToDescription1(*changes1())[0]);
-  EXPECT_EQ("WindowDeleted window=" + IdToString(window_2_1),
+  EXPECT_EQ("WindowDeleted window=" + IdToString(window21_in_wt1),
             ChangesToDescription1(*changes1())[1]);
 }
 
@@ -2087,19 +2311,19 @@ TEST_F(WindowTreeClientTest, Ids) {
   ASSERT_TRUE(window_1_100);
   ASSERT_TRUE(wt_client1()->AddWindow(root_window_id(), window_1_100));
 
-  // Establish the second client at 1,100.
+  // Establish the second client at client_id_1(),100.
   ASSERT_NO_FATAL_FAILURE(EstablishSecondClientWithRoot(window_1_100));
 
-  // 1,100 is the id in the wt_client1's id space. The new client should see
-  // 2,1 (the server id).
-  const Id window_1_100_in_ws2 = BuildWindowId(client_id_1(), 1);
+  // client_id_1(),100 is the id in the wt_client1's id space. The new client
+  // should see client_id_2(),1 (the server id).
+  const Id window_1_100_in_ws2 = BuildWindowId(client_id_1(), 100);
   EXPECT_EQ(window_1_100_in_ws2, wt_client2()->root_window_id());
 
-  // The first window created in the second client gets a server id of 2,1
-  // regardless of the id the client uses.
+  // The first window created in the second client gets a server id of
+  // client_id_2(),1 regardless of the id the client uses.
   const Id window_2_101 = wt_client2()->NewWindow(101);
   ASSERT_TRUE(wt_client2()->AddWindow(window_1_100_in_ws2, window_2_101));
-  const Id window_2_101_in_ws1 = BuildWindowId(client_id_2(), 1);
+  const Id window_2_101_in_ws1 = BuildWindowId(client_id_2(), 101);
   wt_client1()->WaitForChangeCount(1);
   EXPECT_EQ("HierarchyChanged window=" + IdToString(window_2_101_in_ws1) +
                 " old_parent=null new_parent=" + IdToString(window_1_100),
@@ -2183,48 +2407,51 @@ TEST_F(WindowTreeClientTest, SurfaceIdPropagation) {
   ASSERT_TRUE(window_1_100);
   ASSERT_TRUE(wt_client1()->AddWindow(root_window_id(), window_1_100));
 
-  // Establish the second client at 1,100.
+  // Establish the second client at client_id_1(),100.
   ASSERT_NO_FATAL_FAILURE(EstablishSecondClientWithRoot(window_1_100));
   changes2()->clear();
 
-  // 1,100 is the id in the wt_client1's id space. The new client should see
-  // 2,1 (the server id).
-  const Id window_1_100_in_ws2 = BuildWindowId(client_id_1(), 1);
+  // client_id_1(),100 is the id in the wt_client1's id space. The new client
+  // should see client_id_2(),1 (the server id).
+  const Id window_1_100_in_ws2 = BuildWindowId(client_id_1(), 100);
   EXPECT_EQ(window_1_100_in_ws2, wt_client2()->root_window_id());
 
   // Submit a CompositorFrame to window_1_100_in_ws2 (the embedded window in
   // wt2) and make sure the server gets it.
   {
-    cc::mojom::CompositorFrameSinkPtr surface_ptr;
-    cc::mojom::CompositorFrameSinkClientRequest client_request;
-    cc::mojom::CompositorFrameSinkClientPtr surface_client_ptr;
+    viz::mojom::CompositorFrameSinkPtr surface_ptr;
+    viz::mojom::CompositorFrameSinkClientRequest client_request;
+    viz::mojom::CompositorFrameSinkClientPtr surface_client_ptr;
     client_request = mojo::MakeRequest(&surface_client_ptr);
     wt2()->AttachCompositorFrameSink(window_1_100_in_ws2,
                                      mojo::MakeRequest(&surface_ptr),
                                      std::move(surface_client_ptr));
-    cc::CompositorFrame compositor_frame;
-    std::unique_ptr<cc::RenderPass> render_pass = cc::RenderPass::Create();
+    viz::CompositorFrame compositor_frame;
+    std::unique_ptr<viz::RenderPass> render_pass = viz::RenderPass::Create();
     gfx::Rect frame_rect(0, 0, 100, 100);
     render_pass->SetNew(1, frame_rect, frame_rect, gfx::Transform());
     compositor_frame.render_pass_list.push_back(std::move(render_pass));
     compositor_frame.metadata.device_scale_factor = 1.f;
-    compositor_frame.metadata.begin_frame_ack = cc::BeginFrameAck(0, 1, true);
+    compositor_frame.metadata.begin_frame_ack = viz::BeginFrameAck(0, 1, true);
     viz::LocalSurfaceId local_surface_id(1, base::UnguessableToken::Create());
-    surface_ptr->SubmitCompositorFrame(local_surface_id,
-                                       std::move(compositor_frame));
+    surface_ptr->SubmitCompositorFrame(
+        local_surface_id, std::move(compositor_frame), base::nullopt, 0);
   }
   // Make sure the parent connection gets the surface ID.
   wt_client1()->WaitForChangeCount(1);
   // Verify that the submitted frame is for |window_2_101|.
-  EXPECT_EQ(window_1_100_in_ws2,
-            changes1()->back().surface_id.frame_sink_id().client_id());
+  viz::FrameSinkId frame_sink_id =
+      changes1()->back().surface_id.frame_sink_id();
+  // FrameSinkId is based on window's ClientWindowId.
+  EXPECT_EQ(static_cast<size_t>(client_id_2()), frame_sink_id.client_id());
+  EXPECT_EQ(0u, frame_sink_id.sink_id());
   changes1()->clear();
 
-  // The first window created in the second client gets a server id of 2,1
-  // regardless of the id the client uses.
+  // The first window created in the second client gets a server id of
+  // client_id_2(),1 regardless of the id the client uses.
   const Id window_2_101 = wt_client2()->NewWindow(101);
   ASSERT_TRUE(wt_client2()->AddWindow(window_1_100_in_ws2, window_2_101));
-  const Id window_2_101_in_ws2 = BuildWindowId(client_id_2(), 1);
+  const Id window_2_101_in_ws2 = BuildWindowId(client_id_2(), 101);
   wt_client1()->WaitForChangeCount(1);
   EXPECT_EQ("HierarchyChanged window=" + IdToString(window_2_101_in_ws2) +
                 " old_parent=null new_parent=" + IdToString(window_1_100),
@@ -2232,29 +2459,33 @@ TEST_F(WindowTreeClientTest, SurfaceIdPropagation) {
   // Submit a CompositorFrame to window_2_101_in_ws2 (a regular window in
   // wt2) and make sure client gets it.
   {
-    cc::mojom::CompositorFrameSinkPtr surface_ptr;
-    cc::mojom::CompositorFrameSinkClientRequest client_request;
-    cc::mojom::CompositorFrameSinkClientPtr surface_client_ptr;
+    viz::mojom::CompositorFrameSinkPtr surface_ptr;
+    viz::mojom::CompositorFrameSinkClientRequest client_request;
+    viz::mojom::CompositorFrameSinkClientPtr surface_client_ptr;
     client_request = mojo::MakeRequest(&surface_client_ptr);
     wt2()->AttachCompositorFrameSink(window_2_101,
                                      mojo::MakeRequest(&surface_ptr),
                                      std::move(surface_client_ptr));
-    cc::CompositorFrame compositor_frame;
-    std::unique_ptr<cc::RenderPass> render_pass = cc::RenderPass::Create();
+    viz::CompositorFrame compositor_frame;
+    std::unique_ptr<viz::RenderPass> render_pass = viz::RenderPass::Create();
     gfx::Rect frame_rect(0, 0, 100, 100);
     render_pass->SetNew(1, frame_rect, frame_rect, gfx::Transform());
     compositor_frame.render_pass_list.push_back(std::move(render_pass));
     compositor_frame.metadata.device_scale_factor = 1.f;
-    compositor_frame.metadata.begin_frame_ack = cc::BeginFrameAck(0, 1, true);
+    compositor_frame.metadata.begin_frame_ack = viz::BeginFrameAck(0, 1, true);
     viz::LocalSurfaceId local_surface_id(2, base::UnguessableToken::Create());
-    surface_ptr->SubmitCompositorFrame(local_surface_id,
-                                       std::move(compositor_frame));
+    surface_ptr->SubmitCompositorFrame(
+        local_surface_id, std::move(compositor_frame), base::nullopt, 0);
   }
   // Make sure the parent connection gets the surface ID.
   wt_client2()->WaitForChangeCount(1);
   // Verify that the submitted frame is for |window_2_101|.
-  EXPECT_EQ(window_2_101_in_ws2,
-            changes2()->back().surface_id.frame_sink_id().client_id());
+  viz::FrameSinkId frame_sink_id2 =
+      changes2()->back().surface_id.frame_sink_id();
+  // FrameSinkId is based on window's ClientWindowId.
+  EXPECT_NE(0u, frame_sink_id2.client_id());
+  EXPECT_EQ(ClientWindowIdFromTransportId(window_2_101),
+            frame_sink_id2.sink_id());
 }
 
 // Verifies when an unknown window with a known child is added to a hierarchy
@@ -2264,7 +2495,7 @@ TEST_F(WindowTreeClientTest, AddUnknownWindowKnownParent) {
   ASSERT_TRUE(window_1_100);
   ASSERT_TRUE(wt_client1()->AddWindow(root_window_id(), window_1_100));
 
-  // Establish the second client at 1,100.
+  // Establish the second client at client_id_1(),100.
   ASSERT_NO_FATAL_FAILURE(EstablishSecondClientWithRoot(window_1_100));
   const Id window_2_1 = wt_client2()->NewWindow(1000);
   const Id window_2_2 = wt_client2()->NewWindow(2000);
@@ -2278,8 +2509,8 @@ TEST_F(WindowTreeClientTest, AddUnknownWindowKnownParent) {
   ASSERT_TRUE(
       wt_client2()->AddWindow(wt_client2()->root_window_id(), window_2_2));
   wt_client1()->WaitForChangeCount(1);
-  const Id window_2_1_in_wm = BuildWindowId(client_id_2(), 1);
-  const Id window_2_2_in_wm = BuildWindowId(client_id_2(), 2);
+  const Id window_2_1_in_wm = BuildWindowId(client_id_2(), 1000);
+  const Id window_2_2_in_wm = BuildWindowId(client_id_2(), 2000);
   EXPECT_EQ("HierarchyChanged window=" + IdToString(window_2_2_in_wm) +
                 " old_parent=null new_parent=" + IdToString(window_1_100),
             SingleChangeToDescription(*changes1()));
@@ -2298,12 +2529,12 @@ TEST_F(WindowTreeClientTest, Transform) {
   // Establish the second client at |window1|.
   ASSERT_NO_FATAL_FAILURE(EstablishSecondClientWithRoot(window1));
 
-  // The first window created in the second client gets a server id of 2,1
-  // regardless of the id the client uses.
-  const Id window1_in_client2 = BuildWindowId(client_id_1(), 1);
+  // The first window created in the second client gets a server id of
+  // client_id_2(),1 regardless of the id the client uses.
+  const Id window1_in_client2 = BuildWindowId(client_id_1(), 100);
   const Id window2 = wt_client2()->NewWindow(11);
   ASSERT_TRUE(wt_client2()->AddWindow(window1_in_client2, window2));
-  const Id window2_in_client1 = BuildWindowId(client_id_2(), 1);
+  const Id window2_in_client1 = BuildWindowId(client_id_2(), 11);
   wt_client1()->WaitForChangeCount(1);
   changes1()->clear();
 

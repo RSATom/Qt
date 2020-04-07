@@ -38,15 +38,13 @@ class CodeAssemblerState;
     Node* Parameter(Descriptor::ParameterIndices index) {                \
       return CodeAssembler::Parameter(static_cast<int>(index));          \
     }                                                                    \
-    /* TODO(ishell): Remove this way of accessing parameters once the */ \
-    /* JSFunction linkage arguments are reordered. */                    \
-    Node* Parameter(BuiltinDescriptor::ParameterIndices index) {         \
-      return CodeAssembler::Parameter(static_cast<int>(index));          \
-    }                                                                    \
   };                                                                     \
   void Builtins::Generate_##Name(compiler::CodeAssemblerState* state) {  \
     Name##Assembler assembler(state);                                    \
     state->SetInitialDebugInformation(#Name, __FILE__, __LINE__);        \
+    if (Builtins::KindOf(Builtins::k##Name) == Builtins::TFJ) {          \
+      assembler.PerformStackCheck(assembler.GetJSContextParameter());    \
+    }                                                                    \
     assembler.Generate##Name##Impl();                                    \
   }                                                                      \
   void Name##Assembler::Generate##Name##Impl()

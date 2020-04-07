@@ -16,6 +16,7 @@
 #define sw_Math_hpp
 
 #include "Types.hpp"
+#include "Half.hpp"
 
 #include <cmath>
 #if defined(_MSC_VER)
@@ -71,6 +72,18 @@ namespace sw
 		T t = a;
 		a = b;
 		b = t;
+	}
+
+	template <typename destType, typename sourceType>
+	destType bitCast(const sourceType &source)
+	{
+		union
+		{
+			sourceType s;
+			destType d;
+		} sd;
+		sd.s = source;
+		return sd.d;
 	}
 
 	inline int iround(float x)
@@ -295,6 +308,7 @@ namespace sw
 		static const unsigned int min = 0x80000000 >> (32 - n);
 		static const unsigned int max = 0xFFFFFFFF >> (32 - n + 1);
 		static const float maxf = static_cast<float>(max);
+		static const float minf = static_cast<float>(min);
 		static const unsigned int range = 0xFFFFFFFF >> (32 - n);
 
 		if(x > 0.0f)
@@ -305,18 +319,18 @@ namespace sw
 			}
 			else
 			{
-				return static_cast<int>(maxf * x + 0.5f);
+				return static_cast<int>(x + 0.5f);
 			}
 		}
 		else
 		{
-			if(x <= -1.0f)
+			if(x <= -minf)
 			{
 				return min;
 			}
 			else
 			{
-				return static_cast<int>(maxf * x - 0.5f) & range;
+				return static_cast<int>(x - 0.5f) & range;
 			}
 		}
 	}
@@ -350,7 +364,14 @@ namespace sw
 	uint64_t FNV_1a(const unsigned char *data, int size);   // Fowler-Noll-Vo hash function
 
 	// Round up to the next multiple of alignment
-	inline unsigned int align(unsigned int value, unsigned int alignment)
+	template<typename T>
+	inline T align(T value, unsigned int alignment)
+	{
+		return ((value + alignment - 1) / alignment) * alignment;
+	}
+
+	template<unsigned int alignment, typename T>
+	inline T align(T value)
 	{
 		return ((value + alignment - 1) / alignment) * alignment;
 	}
@@ -359,122 +380,6 @@ namespace sw
 	{
 		return static_cast<int>(min(x, 0x7FFFFFFFu));
 	}
-
-	class RGB9E5Data
-	{
-		unsigned int R : 9;
-		unsigned int G : 9;
-		unsigned int B : 9;
-		unsigned int E : 5;
-
-	public:
-		void toRGBFloats(float* rgb) const
-		{
-			static const float Offset = -24.0f; // Exponent Bias (15) + Number of mantissa bits per component (9) = 24
-
-			const float factor = powf(2.0f, static_cast<float>(E) + Offset);
-			rgb[0] = static_cast<float>(R) * factor;
-			rgb[1] = static_cast<float>(G) * factor;
-			rgb[2] = static_cast<float>(B) * factor;
-		}
-	};
-
-	class R11G11B10FData
-	{
-		unsigned int R : 11;
-		unsigned int G : 11;
-		unsigned int B : 10;
-
-		static inline float float11ToFloat32(unsigned short fp11)
-		{
-			unsigned short exponent = (fp11 >> 6) & 0x1F;
-			unsigned short mantissa = fp11 & 0x3F;
-
-			unsigned int output;
-			if(exponent == 0x1F)
-			{
-				// INF or NAN
-				output = 0x7f800000 | (mantissa << 17);
-			}
-			else
-			{
-				if(exponent != 0)
-				{
-					// normalized
-				}
-				else if(mantissa != 0)
-				{
-					// The value is denormalized
-					exponent = 1;
-
-					do
-					{
-						exponent--;
-						mantissa <<= 1;
-					} while((mantissa & 0x40) == 0);
-
-					mantissa = mantissa & 0x3F;
-				}
-				else // The value is zero
-				{
-					exponent = static_cast<unsigned short>(-112);
-				}
-
-				output = ((exponent + 112) << 23) | (mantissa << 17);
-			}
-
-			return *(float*)(&output);
-		}
-
-		static inline float float10ToFloat32(unsigned short fp10)
-		{
-			unsigned short exponent = (fp10 >> 5) & 0x1F;
-			unsigned short mantissa = fp10 & 0x1F;
-
-			unsigned int output;
-			if(exponent == 0x1F)
-			{
-				// INF or NAN
-				output = 0x7f800000 | (mantissa << 17);
-			}
-			else
-			{
-				if(exponent != 0)
-				{
-					// normalized
-				}
-				else if(mantissa != 0)
-				{
-					// The value is denormalized
-					exponent = 1;
-
-					do
-					{
-						exponent--;
-						mantissa <<= 1;
-					} while((mantissa & 0x20) == 0);
-
-					mantissa = mantissa & 0x1F;
-				}
-				else // The value is zero
-				{
-					exponent = static_cast<unsigned short>(-112);
-				}
-
-				output = ((exponent + 112) << 23) | (mantissa << 18);
-			}
-
-			return *(float*)(&output);
-		}
-
-	public:
-		void toRGBFloats(float* rgb) const
-		{
-			rgb[0] = float11ToFloat32(R);
-			rgb[1] = float11ToFloat32(G);
-			rgb[2] = float10ToFloat32(B);
-		}
-	};
 }
 
 #endif   // sw_Math_hpp

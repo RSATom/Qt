@@ -80,6 +80,7 @@ static int query_formats(AVFilterContext *ctx)
 {
     static const enum AVPixelFormat pixel_fmts[] = {
         AV_PIX_FMT_GRAY8,
+        AV_PIX_FMT_GRAY9,
         AV_PIX_FMT_GRAY10,
         AV_PIX_FMT_GRAY12,
         AV_PIX_FMT_GRAY16,
@@ -111,8 +112,8 @@ static av_cold int init(AVFilterContext *ctx)
     ATADenoiseContext *s = ctx->priv;
 
     if (!(s->size & 1)) {
-        av_log(ctx, AV_LOG_ERROR, "size %d is invalid. Must be an odd value.\n", s->size);
-        return AVERROR(EINVAL);
+        av_log(ctx, AV_LOG_WARNING, "size %d is invalid. Must be an odd value, setting it to %d.\n", s->size, s->size|1);
+        s->size |= 1;
     }
     s->mid = s->size / 2 + 1;
 

@@ -13,6 +13,9 @@
 #include "compiler/preprocessor/Lexer.h"
 #include "compiler/preprocessor/Macro.h"
 
+namespace angle
+{
+
 namespace pp
 {
 
@@ -52,6 +55,7 @@ class MacroExpander : public Lexer
     struct MacroContext
     {
         MacroContext();
+        ~MacroContext();
         bool empty() const;
         const Token &get();
         void unget();
@@ -78,5 +82,7 @@ class MacroExpander : public Lexer
 };
 
 }  // namespace pp
+
+}  // namespace angle
 
 #endif  // COMPILER_PREPROCESSOR_MACROEXPANDER_H_

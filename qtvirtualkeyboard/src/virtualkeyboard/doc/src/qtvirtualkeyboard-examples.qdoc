@@ -3,9 +3,9 @@
 ** Copyright (C) 2016 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
-** This file is part of the Qt Virtual Keyboard module of the Qt Toolkit.
+** This file is part of the documentation of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:GPL$
+** $QT_BEGIN_LICENSE:FDL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
@@ -14,15 +14,13 @@
 ** and conditions see https://www.qt.io/terms-conditions. For further
 ** information use the contact form at https://www.qt.io/contact-us.
 **
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 3 or (at your option) any later version
-** approved by the KDE Free Qt Foundation. The licenses are as published by
-** the Free Software Foundation and appearing in the file LICENSE.GPL3
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-3.0.html.
-**
+** GNU Free Documentation License Usage
+** Alternatively, this file may be used under the terms of the GNU Free
+** Documentation License version 1.3 as published by the Free Software
+** Foundation and appearing in the file included in the packaging of
+** this file. Please review the following information to ensure
+** the GNU Free Documentation License version 1.3 requirements
+** will be met: https://www.gnu.org/licenses/fdl-1.3.html.
 ** $QT_END_LICENSE$
 **
 ****************************************************************************/
@@ -40,8 +38,8 @@
     \ingroup qtvirtualkeyboard-examples
     \image basic-example.png
 
-    The example has two implementations: one for the desktop
-    platforms and another for the embedded platforms. The former version
+    The example has two implementations: one for desktop
+    platforms and another for embedded platforms. The former version
     enables text input into several text fields using the virtual keyboard,
     whereas the latter version uses the same UI but with a custom virtual
     keyboard InputPanel. The following snippet from
@@ -74,10 +72,10 @@
     \skipto /^\}$/
     \printuntil }
 
-    The TextField and TextArea are inherited from the TextBase custom type,
-    which has \c enterKeyEnabled, \c enterKeyText, and \c enterKeyAction
-    properties. The TextField and TextArea instances in the snippet can
-    set these properties to change the default behavior.
+    The TextField and TextArea controls extend the respective
+    \l {Qt Quick Controls 2} types with \c enterKeyEnabled and
+    \c enterKeyAction properties. The TextField and TextArea instances in the
+    snippet can set these properties to change the default behavior.
 
     \include examples-run.qdocinc
 */

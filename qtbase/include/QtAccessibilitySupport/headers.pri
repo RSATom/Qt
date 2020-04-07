@@ -1,8 +1,6 @@
-SYNCQT.HEADER_FILES = ../../../include/QtAccessibilitySupport/qtaccessibilitysupportversion.h ../../../include/QtAccessibilitySupport/QtAccessibilitySupport 
-SYNCQT.INJECTED_HEADER_FILES = 
-SYNCQT.HEADER_CLASSES = ../../../include/QtAccessibilitySupport/QtAccessibilitySupportVersion 
+SYNCQT.HEADER_FILES = 
+SYNCQT.GENERATED_HEADER_FILES = qtaccessibilitysupportversion.h QtAccessibilitySupportVersion QtAccessibilitySupport 
 SYNCQT.PRIVATE_HEADER_FILES = qaccessiblebridgeutils_p.h 
-SYNCQT.INJECTED_PRIVATE_HEADER_FILES = 
 SYNCQT.QPA_HEADER_FILES = 
 SYNCQT.CLEAN_HEADER_FILES = 
 SYNCQT.INJECTIONS = 

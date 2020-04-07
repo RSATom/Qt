@@ -10,6 +10,8 @@ static_library("common") {
     "autofill_constants.h",
     "autofill_data_validation.cc",
     "autofill_data_validation.h",
+    "autofill_features.cc",
+    "autofill_features.h",
     "autofill_l10n_util.cc",
     "autofill_l10n_util.h",
     "autofill_pref_names.cc",
@@ -22,6 +24,7 @@ static_library("common") {
     "autofill_switches.h",
     "autofill_util.cc",
     "autofill_util.h",
+    "filling_status.h",
     "form_data.cc",
     "form_data.h",
     "form_data_predictions.cc",
@@ -43,13 +46,15 @@ static_library("common") {
     "save_password_progress_logger.h",
     "signatures_util.cc",
     "signatures_util.h",
+    "submission_source.h",
   ]
 
   deps = [
     "//base",
     "//base:i18n",
     "//components/variations",
-    "//third_party/re2",
+    "//ui/base",
+    "//ui/gfx/geometry",
     "//url",
   ]
 

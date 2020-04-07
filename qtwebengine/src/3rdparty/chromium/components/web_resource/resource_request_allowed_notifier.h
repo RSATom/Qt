@@ -37,12 +37,13 @@ namespace web_resource {
 // global instance.
 class ResourceRequestAllowedNotifier
     : public EulaAcceptedNotifier::Observer,
-      public net::NetworkChangeNotifier::ConnectionTypeObserver {
+      public net::NetworkChangeNotifier::NetworkChangeObserver {
  public:
   // Observes resource request allowed state changes.
   class Observer {
    public:
     virtual void OnResourceRequestsAllowed() = 0;
+    virtual ~Observer() = default;
   };
 
   // Specifies the resource request allowed state.
@@ -79,7 +80,6 @@ class ResourceRequestAllowedNotifier
   //   GetResourceRequestsAllowedState() == ALLOWED.
   bool ResourceRequestsAllowed();
 
-  void SetWaitingForNetworkForTesting(bool waiting);
   void SetWaitingForEulaForTesting(bool waiting);
   void SetObserverRequestedForTesting(bool requested);
 
@@ -96,8 +96,8 @@ class ResourceRequestAllowedNotifier
   // EulaAcceptedNotifier::Observer overrides:
   void OnEulaAccepted() override;
 
-  // net::NetworkChangeNotifier::ConnectionTypeObserver overrides:
-  void OnConnectionTypeChanged(
+  // net::NetworkChangeNotifier::NetworkChangeObserver overrides:
+  void OnNetworkChanged(
       net::NetworkChangeNotifier::ConnectionType type) override;
 
   // Name of the command line switch to disable the network activity.
@@ -110,9 +110,6 @@ class ResourceRequestAllowedNotifier
   // requested permission to make a request or not. If it did not, then this
   // class should not notify it even if the criteria is met.
   bool observer_requested_permission_;
-
-  // Tracks network connectivity criteria.
-  bool waiting_for_network_;
 
   // Tracks EULA acceptance criteria.
   bool waiting_for_user_to_accept_eula_;

@@ -51,7 +51,7 @@ QT_BEGIN_NAMESPACE
     Private class implementations
 */
 
-QGeoRouteParserPrivate::QGeoRouteParserPrivate() : QObjectPrivate()
+QGeoRouteParserPrivate::QGeoRouteParserPrivate() : QObjectPrivate(), trafficSide(QGeoRouteParser::RightHandTraffic)
 {
 }
 
@@ -83,6 +83,20 @@ QUrl QGeoRouteParser::requestUrl(const QGeoRouteRequest &request, const QString 
 {
     Q_D(const QGeoRouteParser);
     return d->requestUrl(request, prefix);
+}
+
+QGeoRouteParser::TrafficSide QGeoRouteParser::trafficSide() const
+{
+    Q_D(const QGeoRouteParser);
+    return d->trafficSide;
+}
+
+void QGeoRouteParser::setTrafficSide(QGeoRouteParser::TrafficSide trafficSide)
+{
+    Q_D(QGeoRouteParser);
+    if (d->trafficSide == trafficSide) return;
+    d->trafficSide = trafficSide;
+    Q_EMIT trafficSideChanged(trafficSide);
 }
 
 QT_END_NAMESPACE

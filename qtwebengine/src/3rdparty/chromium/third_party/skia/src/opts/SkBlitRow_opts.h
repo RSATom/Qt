@@ -9,11 +9,12 @@
 #define SkBlitRow_opts_DEFINED
 
 #include "Sk4px.h"
-#include "SkColorPriv.h"
+#include "SkColorData.h"
 #include "SkMSAN.h"
 
 #if SK_CPU_SSE_LEVEL >= SK_CPU_SSE_LEVEL_SSE2
     #include "SkColor_opts_SSE2.h"
+    #include <immintrin.h>
 #endif
 
 namespace SK_OPTS_NS {
@@ -76,7 +77,7 @@ static inline uint8x8_t SkPMSrcOver_neon2(uint8x8_t dst, uint8x8_t src) {
 
 #endif
 
-static inline
+/*not static*/ inline
 void blit_row_s32a_opaque(SkPMColor* dst, const SkPMColor* src, int len, U8CPU alpha) {
     SkASSERT(alpha == 0xFF);
     sk_msan_assert_initialized(src, src+len);

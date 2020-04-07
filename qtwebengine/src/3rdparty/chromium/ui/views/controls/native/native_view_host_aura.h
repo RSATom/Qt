@@ -9,6 +9,8 @@
 #include "base/macros.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_observer.h"
+#include "ui/compositor/layer_owner.h"
+#include "ui/gfx/transform.h"
 #include "ui/views/controls/native/native_view_host_wrapper.h"
 #include "ui/views/views_export.h"
 
@@ -17,8 +19,8 @@ namespace views {
 class NativeViewHost;
 
 // Aura implementation of NativeViewHostWrapper.
-class VIEWS_EXPORT NativeViewHostAura : public NativeViewHostWrapper,
-                                        public aura::WindowObserver {
+class NativeViewHostAura : public NativeViewHostWrapper,
+                           public aura::WindowObserver {
  public:
   explicit NativeViewHostAura(NativeViewHost* host);
   ~NativeViewHostAura() override;
@@ -28,10 +30,12 @@ class VIEWS_EXPORT NativeViewHostAura : public NativeViewHostWrapper,
   void NativeViewDetaching(bool destroyed) override;
   void AddedToWidget() override;
   void RemovedFromWidget() override;
+  bool SetCustomMask(std::unique_ptr<ui::LayerOwner> mask) override;
   void InstallClip(int x, int y, int w, int h) override;
   bool HasInstalledClip() override;
   void UninstallClip() override;
-  void ShowWidget(int x, int y, int w, int h) override;
+  void ShowWidget(int x, int y, int w, int h, int native_w, int native_h)
+      override;
   void HideWidget() override;
   void SetFocus() override;
   gfx::NativeViewAccessible GetNativeViewAccessible() override;
@@ -39,12 +43,15 @@ class VIEWS_EXPORT NativeViewHostAura : public NativeViewHostWrapper,
 
  private:
   friend class NativeViewHostAuraTest;
-
   class ClippingWindowDelegate;
 
   // Overridden from aura::WindowObserver:
   void OnWindowDestroying(aura::Window* window) override;
   void OnWindowDestroyed(aura::Window* window) override;
+  void OnWindowBoundsChanged(aura::Window* window,
+                             const gfx::Rect& old_bounds,
+                             const gfx::Rect& new_bounds,
+                             ui::PropertyChangeReason reason) override;
 
   // Reparents the native view with the clipping window existing between it and
   // its old parent, so that the fast resize path works.
@@ -53,6 +60,12 @@ class VIEWS_EXPORT NativeViewHostAura : public NativeViewHostWrapper,
   // If the native view has been reparented via AddClippingWindow, this call
   // undoes it.
   void RemoveClippingWindow();
+
+  // Sets or updates the mask layer on the native view's layer.
+  void InstallMask();
+
+  // Unsets the mask layer on the native view's layer.
+  void UninstallMask();
 
   // Our associated NativeViewHost.
   NativeViewHost* host_;
@@ -64,6 +77,19 @@ class VIEWS_EXPORT NativeViewHostAura : public NativeViewHostWrapper,
   // host_->GetWidget().
   aura::Window clipping_window_;
   std::unique_ptr<gfx::Rect> clip_rect_;
+
+  // This mask exists for the sake of SetCornerRadius().
+  std::unique_ptr<ui::LayerOwner> mask_;
+
+  // Set when AttachNativeView() is called. This is the original transform of
+  // the NativeView's layer. The NativeView's layer may be modified to scale
+  // when ShowWidget() is called with a native view size not equal to the
+  // region's size. When NativeViewDetaching() is called, the NativeView's
+  // transform is restored to this.
+  gfx::Transform original_transform_;
+
+  // True if a transform different from the original was set.
+  bool original_transform_changed_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(NativeViewHostAura);
 };

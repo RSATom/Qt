@@ -35,30 +35,9 @@ void DeserializeHistogramAndAddSamples(PickleIterator* iter) {
 
 HistogramDeltaSerialization::HistogramDeltaSerialization(
     const std::string& caller_name)
-    : histogram_snapshot_manager_(this),
-      serialized_deltas_(NULL) {
-  inconsistencies_histogram_ =
-      LinearHistogram::FactoryGet(
-          "Histogram.Inconsistencies" + caller_name, 1,
-          HistogramBase::NEVER_EXCEEDED_VALUE,
-          HistogramBase::NEVER_EXCEEDED_VALUE + 1,
-          HistogramBase::kUmaTargetedHistogramFlag);
+    : histogram_snapshot_manager_(this), serialized_deltas_(nullptr) {}
 
-  inconsistencies_unique_histogram_ =
-      LinearHistogram::FactoryGet(
-          "Histogram.Inconsistencies" + caller_name + "Unique", 1,
-          HistogramBase::NEVER_EXCEEDED_VALUE,
-          HistogramBase::NEVER_EXCEEDED_VALUE + 1,
-          HistogramBase::kUmaTargetedHistogramFlag);
-
-  inconsistent_snapshot_histogram_ =
-      Histogram::FactoryGet(
-          "Histogram.InconsistentSnapshot" + caller_name, 1, 1000000, 50,
-          HistogramBase::kUmaTargetedHistogramFlag);
-}
-
-HistogramDeltaSerialization::~HistogramDeltaSerialization() {
-}
+HistogramDeltaSerialization::~HistogramDeltaSerialization() = default;
 
 void HistogramDeltaSerialization::PrepareAndSerializeDeltas(
     std::vector<std::string>* serialized_deltas,
@@ -69,10 +48,10 @@ void HistogramDeltaSerialization::PrepareAndSerializeDeltas(
   // Note: Before serializing, we set the kIPCSerializationSourceFlag for all
   // the histograms, so that the receiving process can distinguish them from the
   // local histograms.
-  histogram_snapshot_manager_.PrepareDeltas(
-      StatisticsRecorder::begin(include_persistent), StatisticsRecorder::end(),
-      Histogram::kIPCSerializationSourceFlag, Histogram::kNoFlags);
-  serialized_deltas_ = NULL;
+  StatisticsRecorder::PrepareDeltas(
+      include_persistent, Histogram::kIPCSerializationSourceFlag,
+      Histogram::kNoFlags, &histogram_snapshot_manager_);
+  serialized_deltas_ = nullptr;
 }
 
 // static
@@ -97,27 +76,6 @@ void HistogramDeltaSerialization::RecordDelta(
   snapshot.Serialize(&pickle);
   serialized_deltas_->push_back(
       std::string(static_cast<const char*>(pickle.data()), pickle.size()));
-}
-
-void HistogramDeltaSerialization::InconsistencyDetected(
-    HistogramBase::Inconsistency problem) {
-  DCHECK(thread_checker_.CalledOnValidThread());
-
-  inconsistencies_histogram_->Add(problem);
-}
-
-void HistogramDeltaSerialization::UniqueInconsistencyDetected(
-    HistogramBase::Inconsistency problem) {
-  DCHECK(thread_checker_.CalledOnValidThread());
-
-  inconsistencies_unique_histogram_->Add(problem);
-}
-
-void HistogramDeltaSerialization::InconsistencyDetectedInLoggedCount(
-    int amount) {
-  DCHECK(thread_checker_.CalledOnValidThread());
-
-  inconsistent_snapshot_histogram_->Add(std::abs(amount));
 }
 
 }  // namespace base

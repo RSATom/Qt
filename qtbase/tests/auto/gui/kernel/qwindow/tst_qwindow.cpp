@@ -29,6 +29,7 @@
 #include <qrasterwindow.h>
 #include <qpa/qwindowsysteminterface.h>
 #include <qpa/qplatformintegration.h>
+#include <qpa/qplatformwindow.h>
 #include <private/qguiapplication_p.h>
 #include <private/qhighdpiscaling_p.h>
 #include <QtGui/QPainter>
@@ -47,6 +48,12 @@
 // For QSignalSpy slot connections.
 Q_DECLARE_METATYPE(Qt::ScreenOrientation)
 Q_DECLARE_METATYPE(QWindow::Visibility)
+
+static bool isPlatformWinRT()
+{
+    static const bool isWinRT = !QGuiApplication::platformName().compare(QLatin1String("winrt"), Qt::CaseInsensitive);
+    return isWinRT;
+}
 
 class tst_QWindow: public QObject
 {
@@ -97,6 +104,7 @@ private slots:
     void modalWindowPosition();
 #ifndef QT_NO_CURSOR
     void modalWindowEnterEventOnHide_QTBUG35109();
+    void spuriousMouseMove();
 #endif
     void windowsTransientChildren();
     void requestUpdate();
@@ -106,6 +114,8 @@ private slots:
     void flags();
     void cleanup();
     void testBlockingWindowShownAfterModalDialog();
+    void generatedMouseMove();
+    void keepPendingUpdateRequests();
 
 private:
     QPoint m_availableTopLeft;
@@ -233,6 +243,8 @@ void tst_QWindow::setVisible()
     QVERIFY(h.handle());
     i.setParent(&h);
     QVERIFY2(i.handle(), "Making a visible but not created child window child of a created window should create it");
+    if (isPlatformWinRT())
+        QEXPECT_FAIL("", "Child windows are unsupported on winrt", Continue);
     QVERIFY(QTest::qWaitForWindowExposed(&i));
 }
 
@@ -352,7 +364,7 @@ private:
 class ColoredWindow : public QRasterWindow {
 public:
     explicit ColoredWindow(const QColor &color, QWindow *parent = 0) : QRasterWindow(parent), m_color(color) {}
-    void paintEvent(QPaintEvent *) Q_DECL_OVERRIDE
+    void paintEvent(QPaintEvent *) override
     {
         QPainter p(this);
         p.fillRect(QRect(QPoint(0, 0), size()), m_color);
@@ -397,11 +409,15 @@ void tst_QWindow::resizeEventAfterResize()
     // Make sure we get a resizeEvent after calling resize
     window.resize(m_testWindowSize);
 
+    if (isPlatformWinRT())
+        QEXPECT_FAIL("", "Winrt windows are fullscreen by default.", Continue);
     QTRY_COMPARE(window.received(QEvent::Resize), 2);
 }
 
 void tst_QWindow::exposeEventOnShrink_QTBUG54040()
 {
+    if (isPlatformWinRT())
+        QSKIP("", "WinRT does not support non-maximized/non-fullscreen top level windows. QTBUG-54528", Continue);
     Window window;
     window.setGeometry(QRect(m_availableTopLeft + QPoint(80, 80), m_testWindowSize));
     window.setTitle(QTest::currentTestFunction());
@@ -465,6 +481,11 @@ static QString msgRectMismatch(const QRect &r1, const QRect &r2)
     return result;
 }
 
+static bool isPlatformWayland()
+{
+    return !QGuiApplication::platformName().compare(QLatin1String("wayland"), Qt::CaseInsensitive);
+}
+
 void tst_QWindow::positioning()
 {
     if (!QGuiApplicationPrivate::platformIntegration()->hasCapability(
@@ -472,8 +493,8 @@ void tst_QWindow::positioning()
         QSKIP("This platform does not support non-fullscreen windows");
     }
 
-    if (!QGuiApplication::platformName().compare(QLatin1String("wayland"), Qt::CaseInsensitive))
-        QSKIP("Wayland: This fails. Figure out why.");
+    if (isPlatformWayland())
+        QSKIP("Wayland: This fails. See QTBUG-68660.");
 
     // Some platforms enforce minimum widths for windows, which can cause extra resize
     // events, so set the width to suitably large value to avoid those.
@@ -582,6 +603,11 @@ void tst_QWindow::childWindowPositioning_data()
 
 void tst_QWindow::childWindowPositioning()
 {
+    if (isPlatformWayland())
+        QSKIP("Wayland: This is flaky (protocol errors for xdg-shell v6). See QTBUG-67648.");
+    else if (isPlatformWinRT())
+        QSKIP("WinRT does not support child windows.");
+
     const QPoint topLeftOrigin(0, 0);
 
     ColoredWindow topLevelWindowFirst(Qt::green);
@@ -702,7 +728,7 @@ class PlatformWindowFilter : public QObject
 public:
     PlatformWindowFilter(QObject *parent = 0)
         : QObject(parent)
-        , m_window(Q_NULLPTR)
+        , m_window(nullptr)
         , m_alwaysExisted(true)
     {}
 
@@ -714,7 +740,7 @@ public:
         // If they are, the native platform surface should always exist when we
         // receive a QPlatformSurfaceEvent
         if (e->type() == QEvent::PlatformSurface && o == m_window) {
-            m_alwaysExisted &= (m_window->handle() != Q_NULLPTR);
+            m_alwaysExisted &= (m_window->handle() != nullptr);
         }
         return false;
     }
@@ -741,7 +767,7 @@ void tst_QWindow::platformSurface()
 
     QTRY_COMPARE(window.received(QEvent::PlatformSurface), 1);
     QTRY_COMPARE(window.surfaceEventType(), QPlatformSurfaceEvent::SurfaceCreated);
-    QTRY_VERIFY(window.handle() != Q_NULLPTR);
+    QTRY_VERIFY(window.handle() != nullptr);
 
     window.destroy();
     QTRY_COMPARE(window.received(QEvent::PlatformSurface), 2);
@@ -778,19 +804,18 @@ void tst_QWindow::isExposed()
 
     window.hide();
 
-    if (!QGuiApplication::platformName().compare(QLatin1String("wayland"), Qt::CaseInsensitive))
-        QSKIP("Wayland: This is flaky. Figure out why.");
-
     QCoreApplication::processEvents();
     QTRY_VERIFY(window.received(QEvent::Expose) > 1);
+    if (isPlatformWinRT())
+        QEXPECT_FAIL("", "WinRT does not destroy the window. Figure out why. QTBUG-68297", Continue);
     QTRY_VERIFY(!window.isExposed());
 }
 
 
 void tst_QWindow::isActive()
 {
-    if (!QGuiApplication::platformName().compare(QLatin1String("wayland"), Qt::CaseInsensitive))
-        QSKIP("Wayland: This fails. Figure out why.");
+    if (!QGuiApplicationPrivate::platformIntegration()->hasCapability(QPlatformIntegration::WindowActivation))
+        QSKIP("QWindow::requestActivate() is not supported.");
 
     Window window;
     // Some platforms enforce minimum widths for windows, which can cause extra resize
@@ -816,6 +841,8 @@ void tst_QWindow::isActive()
     child.setGeometry(10, 10, 20, 20);
     child.show();
 
+    if (isPlatformWinRT())
+        QEXPECT_FAIL("", "WinRT does not support native child windows.", Abort);
     QTRY_VERIFY(child.isExposed());
 
     child.requestActivate();
@@ -886,7 +913,7 @@ void tst_QWindow::isActive()
     QVERIFY(child.isActive());
 }
 
-class InputTestWindow : public QWindow
+class InputTestWindow : public ColoredWindow
 {
 public:
     void keyPressEvent(QKeyEvent *event) {
@@ -918,6 +945,7 @@ public:
         }
     }
     void mouseMoveEvent(QMouseEvent *event) {
+        buttonStateInGeneratedMove = event->buttons();
         if (ignoreMouse) {
             event->ignore();
         } else {
@@ -979,7 +1007,9 @@ public:
         enterEventCount = leaveEventCount = 0;
     }
 
-    InputTestWindow() {
+    explicit InputTestWindow(const QColor &color = Qt::white, QWindow *parent = nullptr)
+        : ColoredWindow(color, parent)
+    {
         keyPressCode = keyReleaseCode = 0;
         mousePressButton = mouseReleaseButton = mouseMoveButton = 0;
         ignoreMouse = ignoreTouch = false;
@@ -999,6 +1029,7 @@ public:
     bool ignoreMouse, ignoreTouch;
 
     bool spinLoopWhenPressed;
+    Qt::MouseButtons buttonStateInGeneratedMove;
 };
 
 void tst_QWindow::testInputEvents()
@@ -1334,6 +1365,9 @@ void tst_QWindow::touchCancelWithTouchToMouse()
 
 void tst_QWindow::touchInterruptedByPopup()
 {
+    if (isPlatformWayland())
+        QSKIP("Wayland: This test crashes with xdg-shell unstable v6");
+
     InputTestWindow window;
     window.setGeometry(QRect(m_availableTopLeft + QPoint(80, 80), m_testWindowSize));
     window.show();
@@ -1469,8 +1503,8 @@ void tst_QWindow::close()
 
 void tst_QWindow::activateAndClose()
 {
-    if (!QGuiApplication::platformName().compare(QLatin1String("wayland"), Qt::CaseInsensitive))
-        QSKIP("Wayland: This fails. Figure out why.");
+    if (!QGuiApplicationPrivate::platformIntegration()->hasCapability(QPlatformIntegration::WindowActivation))
+        QSKIP("QWindow::requestActivate() is not supported.");
 
     for (int i = 0; i < 10; ++i)  {
        QWindow window;
@@ -1723,9 +1757,6 @@ void tst_QWindow::tabletEvents()
 
 void tst_QWindow::windowModality_QTBUG27039()
 {
-    if (!QGuiApplication::platformName().compare(QLatin1String("wayland"), Qt::CaseInsensitive))
-        QSKIP("Wayland: This fails. Figure out why.");
-
     QWindow parent;
     parent.setGeometry(QRect(m_availableTopLeft + QPoint(10, 10), m_testWindowSize));
     parent.show();
@@ -1831,8 +1862,8 @@ void tst_QWindow::mask()
 
 void tst_QWindow::initialSize()
 {
-    if (!QGuiApplication::platformName().compare(QLatin1String("wayland"), Qt::CaseInsensitive))
-        QSKIP("Wayland: This fails. Figure out why.");
+    if (isPlatformWayland())
+        QSKIP("Wayland: This fails. See QTBUG-66818.");
 
     QSize defaultSize(0,0);
     {
@@ -1846,6 +1877,8 @@ void tst_QWindow::initialSize()
     Window w;
     w.setWidth(m_testWindowSize.width());
     w.showNormal();
+    if (isPlatformWinRT())
+        QEXPECT_FAIL("", "WinRT shows windows as fullscreen by default.", Continue);
     QTRY_COMPARE(w.width(), m_testWindowSize.width());
     QTRY_VERIFY(w.height() > 0);
     }
@@ -1856,6 +1889,8 @@ void tst_QWindow::initialSize()
     w.showNormal();
 
     const QSize expectedSize = testSize;
+    if (isPlatformWinRT())
+        QEXPECT_FAIL("", "WinRT shows windows as fullscreen by default.", Continue);
     QTRY_COMPARE(w.size(), expectedSize);
     }
 }
@@ -1868,8 +1903,8 @@ static bool isPlatformOffscreenOrMinimal()
 
 void tst_QWindow::modalDialog()
 {
-    if (!QGuiApplication::platformName().compare(QLatin1String("wayland"), Qt::CaseInsensitive))
-        QSKIP("Wayland: This fails. Figure out why.");
+    if (!QGuiApplicationPrivate::platformIntegration()->hasCapability(QPlatformIntegration::WindowActivation))
+        QSKIP("QWindow::requestActivate() is not supported.");
 
     if (QGuiApplication::platformName() == QLatin1String("cocoa"))
         QSKIP("Test fails due to QTBUG-61965, and is slow due to QTBUG-61964");
@@ -1899,13 +1934,15 @@ void tst_QWindow::modalDialog()
         return;
     }
 
+    if (isPlatformWinRT())
+        QEXPECT_FAIL("", "WinRT only support one native window.", Continue);
     QTRY_COMPARE(QGuiApplication::focusWindow(), &dialog);
 }
 
 void tst_QWindow::modalDialogClosingOneOfTwoModal()
 {
-    if (!QGuiApplication::platformName().compare(QLatin1String("wayland"), Qt::CaseInsensitive))
-        QSKIP("Wayland: This fails. Figure out why.");
+    if (!QGuiApplicationPrivate::platformIntegration()->hasCapability(QPlatformIntegration::WindowActivation))
+        QSKIP("QWindow::requestActivate() is not supported.");
 
     QWindow normalWindow;
     normalWindow.setFramePosition(m_availableTopLeft + QPoint(80, 80));
@@ -1944,13 +1981,15 @@ void tst_QWindow::modalDialogClosingOneOfTwoModal()
         return;
     }
 
+    if (isPlatformWinRT())
+        QEXPECT_FAIL("", "WinRT only support one native window.", Continue);
     QTRY_COMPARE(QGuiApplication::focusWindow(), &first_dialog);
 }
 
 void tst_QWindow::modalWithChildWindow()
 {
-    if (!QGuiApplication::platformName().compare(QLatin1String("wayland"), Qt::CaseInsensitive))
-        QSKIP("Wayland: This fails. Figure out why.");
+    if (!QGuiApplicationPrivate::platformIntegration()->hasCapability(QPlatformIntegration::WindowActivation))
+        QSKIP("QWindow::requestActivate() is not supported.");
 
     QWindow normalWindow;
     normalWindow.setFramePosition(m_availableTopLeft + QPoint(80, 80));
@@ -1971,6 +2010,8 @@ void tst_QWindow::modalWithChildWindow()
 
     tlw_dialog.show();
     QVERIFY(QTest::qWaitForWindowExposed(&tlw_dialog));
+    if (isPlatformWinRT())
+        QEXPECT_FAIL("", "WinRT only support one native window.", Abort);
     QVERIFY(QTest::qWaitForWindowExposed(&sub_window));
 
     QTRY_COMPARE(QGuiApplication::focusWindow(), &tlw_dialog);
@@ -1983,8 +2024,8 @@ void tst_QWindow::modalWithChildWindow()
 
 void tst_QWindow::modalWindowModallity()
 {
-    if (!QGuiApplication::platformName().compare(QLatin1String("wayland"), Qt::CaseInsensitive))
-        QSKIP("Wayland: This fails. Figure out why.");
+    if (!QGuiApplicationPrivate::platformIntegration()->hasCapability(QPlatformIntegration::WindowActivation))
+        QSKIP("QWindow::requestActivate() is not supported.");
 
     QWindow normal_window;
     normal_window.setFramePosition(m_availableTopLeft + QPoint(80, 80));
@@ -2023,12 +2064,17 @@ void tst_QWindow::modalWindowPosition()
     window.setModality(Qt::WindowModal);
     window.show();
     QVERIFY(QTest::qWaitForWindowExposed(&window));
+    if (isPlatformWinRT())
+        QEXPECT_FAIL("", "WinRT windows are fullscreen by default.", Continue);
     QCOMPARE(window.geometry(), origGeo);
 }
 
 #ifndef QT_NO_CURSOR
 void tst_QWindow::modalWindowEnterEventOnHide_QTBUG35109()
 {
+    if (!QGuiApplicationPrivate::platformIntegration()->hasCapability(QPlatformIntegration::WindowActivation))
+        QSKIP("QWindow::requestActivate() is not supported.");
+
     if (isPlatformOffscreenOrMinimal())
         QSKIP("Can't test window focusing on offscreen/minimal");
 
@@ -2080,6 +2126,9 @@ void tst_QWindow::modalWindowEnterEventOnHide_QTBUG35109()
         root.resetCounters();
         modal.close();
 
+        if (isPlatformWinRT())
+            QEXPECT_FAIL("", "WinRT does not trigger the enter event correctly"
+                         "- QTBUG-68297.", Abort);
         // Check for the enter event
         QTRY_COMPARE(root.enterEventCount, 1);
     }
@@ -2199,7 +2248,53 @@ void tst_QWindow::modalWindowEnterEventOnHide_QTBUG35109()
         QTRY_COMPARE(root.enterEventCount, 1);
     }
 }
-#endif
+
+// Verify that no spurious mouse move events are received. On Windows, there is
+// no enter event, the OS sends mouse move events instead. Test that the QPA
+// plugin properly suppresses those since they can interfere with tests.
+// Simulate a main window setup with a modal dialog on top, keep the cursor
+// in the center and check that no mouse events are recorded.
+void tst_QWindow::spuriousMouseMove()
+{
+    const QString &platformName = QGuiApplication::platformName();
+    if (platformName == QLatin1String("offscreen") || platformName == QLatin1String("cocoa"))
+        QSKIP("No enter events sent");
+    if (isPlatformWayland() || isPlatformWinRT())
+        QSKIP("QCursor::setPos() is not supported on this platform");
+    const QRect screenGeometry = QGuiApplication::primaryScreen()->geometry();
+    const QPoint center = screenGeometry.center();
+    QCursor::setPos(center);
+    QRect windowGeometry(QPoint(), 2 * m_testWindowSize);
+    windowGeometry.moveCenter(center);
+    QTRY_COMPARE(QCursor::pos(), center);
+    InputTestWindow topLevel;
+    topLevel.setTitle(QTest::currentTestFunction());
+    topLevel.setGeometry(windowGeometry);
+    topLevel.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&topLevel));
+    QTRY_VERIFY(topLevel.enterEventCount > 0);
+    InputTestWindow dialog(Qt::yellow);
+    dialog.setTransientParent(&topLevel);
+    dialog.setTitle("Dialog " + topLevel.title());
+    dialog.setModality(Qt::ApplicationModal);
+    windowGeometry.setSize(m_testWindowSize);
+    windowGeometry.moveCenter(center);
+    dialog.setGeometry(windowGeometry);
+    dialog.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&dialog));
+    QTRY_VERIFY(dialog.enterEventCount > 0);
+    dialog.setVisible(false);
+    QCOMPARE(dialog.mousePressedCount, 0);
+    QCOMPARE(dialog.mouseReleasedCount, 0);
+    QCOMPARE(dialog.mouseMovedCount, 0);
+    QCOMPARE(dialog.mouseDoubleClickedCount, 0);
+    topLevel.setVisible(false);
+    QCOMPARE(topLevel.mousePressedCount, 0);
+    QCOMPARE(topLevel.mouseReleasedCount, 0);
+    QCOMPARE(topLevel.mouseMovedCount, 0);
+    QCOMPARE(topLevel.mouseDoubleClickedCount, 0);
+}
+#endif // !QT_NO_CURSOR
 
 static bool isNativeWindowVisible(const QWindow *window)
 {
@@ -2311,6 +2406,72 @@ void tst_QWindow::testBlockingWindowShownAfterModalDialog()
     normalWindowAfter.show();
     QVERIFY(QTest::qWaitForWindowExposed(&normalWindowAfter));
     QVERIFY(normalWindowAfter.gotBlocked);
+}
+
+void tst_QWindow::generatedMouseMove()
+{
+    InputTestWindow w;
+    w.setGeometry(QRect(m_availableTopLeft + QPoint(100, 100), m_testWindowSize));
+    w.setFlags(w.flags() | Qt::FramelessWindowHint); // ### FIXME: QTBUG-63542
+    w.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&w));
+    QPoint point(10, 10);
+    QPoint step(2, 2);
+
+    QVERIFY(w.mouseMovedCount == 0);
+    QTest::mouseMove(&w, point);
+    QVERIFY(w.mouseMovedCount == 1);
+    // A press event that does not change position should not generate mouse move
+    QTest::mousePress(&w, Qt::LeftButton, 0, point);
+    QTest::mousePress(&w, Qt::RightButton, 0, point);
+
+    QVERIFY(w.mouseMovedCount == 1);
+
+    // Verify that a move event is generated for a mouse release event that changes position
+    point += step;
+    QTest::mouseRelease(&w, Qt::LeftButton, 0, point);
+    QVERIFY(w.mouseMovedCount == 2);
+    QVERIFY(w.buttonStateInGeneratedMove == (Qt::LeftButton | Qt::RightButton));
+    point += step;
+    QTest::mouseRelease(&w, Qt::RightButton, 0, point);
+    QVERIFY(w.mouseMovedCount == 3);
+    QVERIFY(w.buttonStateInGeneratedMove == Qt::RightButton);
+
+    // Verify that a move event is generated for a mouse press event that changes position
+    point += step;
+    QTest::mousePress(&w, Qt::LeftButton, 0, point);
+    QVERIFY(w.mouseMovedCount == 4);
+    QVERIFY(w.buttonStateInGeneratedMove == Qt::NoButton);
+    point += step;
+    QTest::mousePress(&w, Qt::RightButton, 0, point);
+    QVERIFY(w.mouseMovedCount == 5);
+    QVERIFY(w.buttonStateInGeneratedMove == Qt::LeftButton);
+
+    // A release event that does not change position should not generate mouse move
+    QTest::mouseRelease(&w, Qt::RightButton, 0, point);
+    QTest::mouseRelease(&w, Qt::LeftButton, 0, point);
+    QVERIFY(w.mouseMovedCount == 5);
+}
+
+void tst_QWindow::keepPendingUpdateRequests()
+{
+    QRect geometry(m_availableTopLeft + QPoint(80, 80), m_testWindowSize);
+
+    Window window;
+    window.setGeometry(geometry);
+    window.show();
+    QCoreApplication::processEvents();
+    QTRY_VERIFY(window.isExposed());
+
+    window.requestUpdate();
+    window.close();
+    window.setVisible(true);
+
+    QPlatformWindow *platformWindow = window.handle();
+    QVERIFY(platformWindow);
+
+    QVERIFY(platformWindow->hasPendingUpdateRequest());
+    QTRY_VERIFY(!platformWindow->hasPendingUpdateRequest());
 }
 
 #include <tst_qwindow.moc>

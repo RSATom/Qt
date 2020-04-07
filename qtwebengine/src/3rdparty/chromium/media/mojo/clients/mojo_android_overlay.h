@@ -30,11 +30,12 @@ class MojoAndroidOverlay : public AndroidOverlay,
   // mojom::AndroidOverlayClient
   void OnSurfaceReady(uint64_t surface_key) override;
   void OnDestroyed() override;
+  void OnPowerEfficientState(bool is_power_efficient) override;
 
  private:
   AndroidOverlayConfig config_;
   mojom::AndroidOverlayPtr overlay_ptr_;
-  std::unique_ptr<mojo::Binding<mojom::AndroidOverlayClient>> binding_;
+  mojo::Binding<mojom::AndroidOverlayClient> binding_;
   gl::ScopedJavaSurface surface_;
 
   // Have we received OnSurfaceReady yet?

@@ -9,6 +9,7 @@
 #include "base/bind.h"
 #include "base/files/file_path.h"
 #include "base/location.h"
+#include "base/metrics/field_trial_params.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/sequenced_task_runner.h"
 #include "base/single_thread_task_runner.h"
@@ -21,6 +22,7 @@
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_settings.h"
 #include "components/data_reduction_proxy/core/browser/data_store.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_event_store.h"
+#include "components/data_reduction_proxy/core/common/data_reduction_proxy_features.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_params.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_pref_names.h"
 #include "components/data_reduction_proxy/proto/data_store.pb.h"
@@ -33,13 +35,13 @@ DataReductionProxyService::DataReductionProxyService(
     PrefService* prefs,
     net::URLRequestContextGetter* request_context_getter,
     std::unique_ptr<DataStore> store,
+    std::unique_ptr<DataReductionProxyPingbackClient> pingback_client,
     const scoped_refptr<base::SequencedTaskRunner>& ui_task_runner,
     const scoped_refptr<base::SingleThreadTaskRunner>& io_task_runner,
     const scoped_refptr<base::SequencedTaskRunner>& db_task_runner,
     const base::TimeDelta& commit_delay)
     : url_request_context_getter_(request_context_getter),
-      pingback_client_(
-          new DataReductionProxyPingbackClient(request_context_getter)),
+      pingback_client_(std::move(pingback_client)),
       settings_(settings),
       prefs_(prefs),
       db_data_owner_(new DBDataOwner(std::move(store))),
@@ -72,18 +74,42 @@ void DataReductionProxyService::SetIOData(
   for (DataReductionProxyServiceObserver& observer : observer_list_)
     observer.OnServiceInitialized();
 
-  // Load the Data Reduction Proxy configuration from |prefs_| and apply it.
-  if (prefs_) {
-    std::string config_value =
-        prefs_->GetString(prefs::kDataReductionProxyConfig);
-    if (!config_value.empty()) {
-      io_task_runner_->PostTask(
-          FROM_HERE,
-          base::Bind(
-              &DataReductionProxyIOData::SetDataReductionProxyConfiguration,
-              io_data_, config_value));
-    }
-  }
+  ReadPersistedClientConfig();
+}
+
+void DataReductionProxyService::ReadPersistedClientConfig() {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+
+  if (!prefs_)
+    return;
+
+  base::Time last_config_retrieval_time =
+      base::Time() + base::TimeDelta::FromMicroseconds(prefs_->GetInt64(
+                         prefs::kDataReductionProxyLastConfigRetrievalTime));
+  base::TimeDelta time_since_last_config_retrieval =
+      base::Time::Now() - last_config_retrieval_time;
+
+  // A config older than 24 hours should not be used.
+  bool persisted_config_is_expired =
+      GetFieldTrialParamByFeatureAsBool(
+          features::kDataReductionProxyRobustConnection,
+          "use_24h_config_expiration_time", true) &&
+      !last_config_retrieval_time.is_null() &&
+      time_since_last_config_retrieval > base::TimeDelta::FromHours(24);
+
+  if (persisted_config_is_expired)
+    return;
+
+  const std::string config_value =
+      prefs_->GetString(prefs::kDataReductionProxyConfig);
+
+  if (config_value.empty())
+    return;
+
+  io_task_runner_->PostTask(
+      FROM_HERE,
+      base::Bind(&DataReductionProxyIOData::SetDataReductionProxyConfiguration,
+                 io_data_, config_value));
 }
 
 void DataReductionProxyService::Shutdown() {
@@ -106,12 +132,15 @@ void DataReductionProxyService::UpdateContentLengths(
     int64_t original_size,
     bool data_reduction_proxy_enabled,
     DataReductionProxyRequestType request_type,
-    const std::string& mime_type) {
+    const std::string& mime_type,
+    bool is_user_traffic,
+    data_use_measurement::DataUseUserData::DataUseContentType content_type,
+    int32_t service_hash_code) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if (compression_stats_) {
-    compression_stats_->RecordDataUseWithMimeType(data_used, original_size,
-                                                  data_reduction_proxy_enabled,
-                                                  request_type, mime_type);
+    compression_stats_->RecordDataUseWithMimeType(
+        data_used, original_size, data_reduction_proxy_enabled, request_type,
+        mime_type, is_user_traffic, content_type, service_hash_code);
   }
 }
 
@@ -146,99 +175,6 @@ void DataReductionProxyService::SetUnreachable(bool unreachable) {
   settings_->SetUnreachable(unreachable);
 }
 
-void DataReductionProxyService::SetLoFiModeActiveOnMainFrame(
-    bool lo_fi_mode_active) {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  settings_->SetLoFiModeActiveOnMainFrame(lo_fi_mode_active);
-}
-
-void DataReductionProxyService::SetLoFiModeOff() {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  if (io_task_runner_->BelongsToCurrentThread()) {
-    io_task_runner_->PostTask(
-        FROM_HERE,
-        base::Bind(&DataReductionProxyIOData::SetLoFiModeOff, io_data_));
-    return;
-  }
-  io_task_runner_->PostTask(
-      FROM_HERE,
-      base::Bind(&DataReductionProxyIOData::SetLoFiModeOff, io_data_));
-}
-
-void DataReductionProxyService::InitializeLoFiPrefs() {
-  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  if (!prefs_)
-    return;
-
-  int lo_fi_user_requests_for_images_per_session =
-      params::GetFieldTrialParameterAsInteger(
-          params::GetLoFiFieldTrialName(), "load_images_requests_per_session",
-          3, 0);
-
-  int lo_fi_implicit_opt_out_epoch = params::GetFieldTrialParameterAsInteger(
-      params::GetLoFiFieldTrialName(), "implicit_opt_out_epoch", 0, 0);
-
-  int lo_fi_consecutive_session_disables =
-      params::GetFieldTrialParameterAsInteger(params::GetLoFiFieldTrialName(),
-                                              "consecutive_session_disables", 3,
-                                              0);
-
-  // Record if Lo-Fi was used during the last session. Do not record if the
-  // Data Reduction Proxy is disabled.
-  if (!settings_->IsDataReductionProxyEnabled()) {
-    // Don't record the session state.
-  } else if (prefs_->GetInteger(prefs::kLoFiConsecutiveSessionDisables) >=
-             lo_fi_consecutive_session_disables) {
-    RecordLoFiSessionState(LO_FI_SESSION_STATE_OPTED_OUT);
-  } else if (prefs_->GetInteger(prefs::kLoFiLoadImagesPerSession) >=
-             lo_fi_user_requests_for_images_per_session) {
-    DCHECK(prefs_->GetBoolean(prefs::kLoFiWasUsedThisSession));
-    DCHECK_GT(prefs_->GetInteger(prefs::kLoFiConsecutiveSessionDisables), 0);
-    // Consider the session as temporary opt out only if the number of
-    // requests for images were more than the threshold.
-    RecordLoFiSessionState(LO_FI_SESSION_STATE_TEMPORARILY_OPTED_OUT);
-  } else if (prefs_->GetBoolean(prefs::kLoFiWasUsedThisSession)) {
-    RecordLoFiSessionState(LO_FI_SESSION_STATE_USED);
-  } else {
-    DCHECK(!prefs_->GetBoolean(prefs::kLoFiWasUsedThisSession));
-    RecordLoFiSessionState(LO_FI_SESSION_STATE_NOT_USED);
-  }
-
-  if (prefs_->GetInteger(prefs::kLoFiImplicitOptOutEpoch) <
-      lo_fi_implicit_opt_out_epoch) {
-    // We have a new implicit opt out epoch, reset the consecutive session
-    // disables count so that Lo-Fi can be enabled again.
-    prefs_->SetInteger(prefs::kLoFiConsecutiveSessionDisables, 0);
-    prefs_->SetInteger(prefs::kLoFiImplicitOptOutEpoch,
-                       lo_fi_implicit_opt_out_epoch);
-    settings_->RecordLoFiImplicitOptOutAction(LO_FI_OPT_OUT_ACTION_NEXT_EPOCH);
-  } else if (!params::IsLoFiOnViaFlags() &&
-             (prefs_->GetInteger(prefs::kLoFiConsecutiveSessionDisables) >=
-              lo_fi_consecutive_session_disables)) {
-    // If Lo-Fi isn't always on and and the number of
-    // |consecutive_session_disables| has been met, turn Lo-Fi off for this
-    // session.
-    SetLoFiModeOff();
-  } else if (prefs_->GetInteger(prefs::kLoFiLoadImagesPerSession) <
-                 lo_fi_user_requests_for_images_per_session &&
-             prefs_->GetInteger(prefs::kLoFiUIShownPerSession) >=
-                 lo_fi_user_requests_for_images_per_session) {
-    // If the last session didn't have
-    // |lo_fi_user_requests_for_images_per_session|, but the user saw at least
-    // that many "Load image" UI notifications, reset the consecutive sessions
-    // count.
-    prefs_->SetInteger(prefs::kLoFiConsecutiveSessionDisables, 0);
-  }
-  prefs_->SetInteger(prefs::kLoFiLoadImagesPerSession, 0);
-  prefs_->SetInteger(prefs::kLoFiUIShownPerSession, 0);
-  prefs_->SetBoolean(prefs::kLoFiWasUsedThisSession, false);
-}
-
-void DataReductionProxyService::RecordLoFiSessionState(LoFiSessionState state) {
-  UMA_HISTOGRAM_ENUMERATION("DataReductionProxy.LoFi.SessionState", state,
-                            LO_FI_SESSION_STATE_INDEX_BOUNDARY);
-}
-
 void DataReductionProxyService::SetInt64Pref(const std::string& pref_path,
                                              int64_t value) {
   if (prefs_)
@@ -268,16 +204,25 @@ void DataReductionProxyService::SetPingbackReportingFraction(
   pingback_client_->SetPingbackReportingFraction(pingback_reporting_fraction);
 }
 
+void DataReductionProxyService::OnCacheCleared(const base::Time start,
+                                               const base::Time end) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  io_task_runner_->PostTask(
+      FROM_HERE, base::BindOnce(&DataReductionProxyIOData::OnCacheCleared,
+                                io_data_, start, end));
+}
+
 void DataReductionProxyService::LoadHistoricalDataUsage(
     const HistoricalDataUsageCallback& load_data_usage_callback) {
   std::unique_ptr<std::vector<DataUsageBucket>> data_usage(
       new std::vector<DataUsageBucket>());
   std::vector<DataUsageBucket>* data_usage_ptr = data_usage.get();
   db_task_runner_->PostTaskAndReply(
-      FROM_HERE, base::Bind(&DBDataOwner::LoadHistoricalDataUsage,
-                            db_data_owner_->GetWeakPtr(),
-                            base::Unretained(data_usage_ptr)),
-      base::Bind(load_data_usage_callback, base::Passed(&data_usage)));
+      FROM_HERE,
+      base::BindOnce(&DBDataOwner::LoadHistoricalDataUsage,
+                     db_data_owner_->GetWeakPtr(),
+                     base::Unretained(data_usage_ptr)),
+      base::BindOnce(load_data_usage_callback, std::move(data_usage)));
 }
 
 void DataReductionProxyService::LoadCurrentDataUsageBucket(
@@ -286,17 +231,18 @@ void DataReductionProxyService::LoadCurrentDataUsageBucket(
   DataUsageBucket* bucket_ptr = bucket.get();
   db_task_runner_->PostTaskAndReply(
       FROM_HERE,
-      base::Bind(&DBDataOwner::LoadCurrentDataUsageBucket,
-                 db_data_owner_->GetWeakPtr(), base::Unretained(bucket_ptr)),
-      base::Bind(load_current_data_usage_callback, base::Passed(&bucket)));
+      base::BindOnce(&DBDataOwner::LoadCurrentDataUsageBucket,
+                     db_data_owner_->GetWeakPtr(),
+                     base::Unretained(bucket_ptr)),
+      base::BindOnce(load_current_data_usage_callback, std::move(bucket)));
 }
 
 void DataReductionProxyService::StoreCurrentDataUsageBucket(
     std::unique_ptr<DataUsageBucket> current) {
   db_task_runner_->PostTask(
       FROM_HERE,
-      base::Bind(&DBDataOwner::StoreCurrentDataUsageBucket,
-                 db_data_owner_->GetWeakPtr(), base::Passed(&current)));
+      base::BindOnce(&DBDataOwner::StoreCurrentDataUsageBucket,
+                     db_data_owner_->GetWeakPtr(), std::move(current)));
 }
 
 void DataReductionProxyService::DeleteHistoricalDataUsage() {
@@ -311,6 +257,10 @@ void DataReductionProxyService::DeleteBrowsingHistory(const base::Time& start,
   db_task_runner_->PostTask(
       FROM_HERE, base::Bind(&DBDataOwner::DeleteBrowsingHistory,
                             db_data_owner_->GetWeakPtr(), start, end));
+
+  io_task_runner_->PostTask(
+      FROM_HERE, base::Bind(&DataReductionProxyIOData::DeleteBrowsingHistory,
+                            io_data_, start, end));
 }
 
 void DataReductionProxyService::AddObserver(

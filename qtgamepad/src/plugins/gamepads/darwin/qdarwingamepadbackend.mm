@@ -40,23 +40,21 @@
 #import <GameController/GameController.h>
 
 @interface QT_MANGLE_NAMESPACE(DarwinGamepadManager) : NSObject
+
+@property (nonatomic, strong) id connectObserver;
+@property (nonatomic, strong) id disconnectObserver;
+
+@end
+
+@implementation QT_MANGLE_NAMESPACE(DarwinGamepadManager)
 {
     QDarwinGamepadBackend *backend;
     NSMutableArray *connectedControllers;
 }
 
-@property (nonatomic, strong) id connectObserver;
-@property (nonatomic, strong) id disconnectObserver;
-
--(void)addMonitoredController:(GCController *)controller;
--(void)removeMonitoredController:(GCController *)controller;
-
-@end
-
-@implementation QT_MANGLE_NAMESPACE(DarwinGamepadManager)
-
--(id)initWithBackend:(QDarwinGamepadBackend *)gamepadBackend {
-    if (self = [super init]) {
+-(instancetype)initWithBackend:(QDarwinGamepadBackend *)gamepadBackend
+{
+    if ((self = [self init])) {
         backend = gamepadBackend;
         connectedControllers = [[NSMutableArray alloc] init];
         //Setup observers for monitoring controller connections/disconnections
@@ -105,11 +103,8 @@
             break;
         }
     }
-#if QT_OSX_PLATFORM_SDK_EQUAL_OR_ABOVE(__MAC_10_11) || QT_IOS_PLATFORM_SDK_EQUAL_OR_ABOVE(__IPHONE_9_0) || defined(Q_OS_TVOS)
+
     controller.playerIndex = GCControllerPlayerIndex(index);
-#else
-    controller.playerIndex = index;
-#endif
 
     QMetaObject::invokeMethod(backend, "darwinGamepadAdded", Qt::AutoConnection, Q_ARG(int, index));
 
@@ -503,7 +498,7 @@ QT_BEGIN_NAMESPACE
 
 QDarwinGamepadBackend::QDarwinGamepadBackend(QObject *parent)
     : QGamepadBackend(parent)
-    , m_darwinGamepadManager(Q_NULLPTR)
+    , m_darwinGamepadManager(nullptr)
     , m_isMonitoringActive(false)
 {
     m_darwinGamepadManager = [[QT_MANGLE_NAMESPACE(DarwinGamepadManager) alloc] initWithBackend:this];

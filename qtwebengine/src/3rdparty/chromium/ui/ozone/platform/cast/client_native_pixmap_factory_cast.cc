@@ -5,7 +5,6 @@
 #include "ui/ozone/platform/cast/client_native_pixmap_factory_cast.h"
 
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "ui/gfx/buffer_types.h"
 #include "ui/gfx/client_native_pixmap.h"
 #include "ui/gfx/client_native_pixmap_factory.h"
@@ -39,7 +38,7 @@ class ClientNativePixmapFactoryCast : public gfx::ClientNativePixmapFactory {
   // ClientNativePixmapFactoryCast implementation:
   bool IsConfigurationSupported(gfx::BufferFormat format,
                                 gfx::BufferUsage usage) const override {
-    return format == gfx::BufferFormat::RGBA_8888 &&
+    return format == gfx::BufferFormat::BGRA_8888 &&
            usage == gfx::BufferUsage::SCANOUT;
   }
 
@@ -47,7 +46,7 @@ class ClientNativePixmapFactoryCast : public gfx::ClientNativePixmapFactory {
       const gfx::NativePixmapHandle& handle,
       const gfx::Size& size,
       gfx::BufferUsage usage) override {
-    return base::MakeUnique<ClientNativePixmapCast>();
+    return std::make_unique<ClientNativePixmapCast>();
   }
 };
 

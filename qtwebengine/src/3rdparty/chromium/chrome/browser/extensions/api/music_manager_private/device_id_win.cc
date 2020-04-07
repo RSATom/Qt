@@ -22,10 +22,11 @@
 #include "base/scoped_native_library.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
+#include "base/task_scheduler/post_task.h"
 #include "base/threading/thread_restrictions.h"
 #include "base/win/windows_version.h"
 #include "content/public/browser/browser_thread.h"
-#include "rlz/features/features.h"
+#include "rlz/buildflags/buildflags.h"
 
 #if BUILDFLAG(ENABLE_RLZ)
 #include "rlz/lib/machine_id.h"
@@ -90,7 +91,7 @@ class MacAddressProcessor {
 
 std::string GetMacAddressFromGetAdaptersAddresses(
     const IsValidMacAddressCallback& is_valid_mac_address) {
-  base::ThreadRestrictions::AssertIOAllowed();
+  base::AssertBlockingAllowed();
 
   // MS recommends a default size of 15k.
   ULONG bufferSize = 15 * 1024;
@@ -126,7 +127,7 @@ std::string GetMacAddressFromGetAdaptersAddresses(
 
 std::string GetMacAddressFromGetIfTable2(
     const IsValidMacAddressCallback& is_valid_mac_address) {
-  base::ThreadRestrictions::AssertIOAllowed();
+  base::AssertBlockingAllowed();
 
   // This is available on Vista+ only.
   base::ScopedNativeLibrary library(base::FilePath(L"Iphlpapi.dll"));
@@ -164,7 +165,7 @@ std::string GetMacAddressFromGetIfTable2(
 
 void GetMacAddress(const IsValidMacAddressCallback& is_valid_mac_address,
                    const DeviceId::IdCallback& callback) {
-  base::ThreadRestrictions::AssertIOAllowed();
+  base::AssertBlockingAllowed();
 
   std::string mac_address =
       GetMacAddressFromGetAdaptersAddresses(is_valid_mac_address);
@@ -215,12 +216,10 @@ namespace api {
 void DeviceId::GetRawDeviceId(const IdCallback& callback) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
-  content::BrowserThread::PostTask(
-      content::BrowserThread::FILE,
-      FROM_HERE,
-      base::Bind(GetMacAddress,
-        base::Bind(DeviceId::IsValidMacAddress),
-        base::Bind(GetMacAddressCallback, callback)));
+  base::PostTaskWithTraits(
+      FROM_HERE, traits(),
+      base::Bind(&GetMacAddress, base::Bind(&DeviceId::IsValidMacAddress),
+                 base::Bind(&GetMacAddressCallback, callback)));
 }
 
 }  // namespace api

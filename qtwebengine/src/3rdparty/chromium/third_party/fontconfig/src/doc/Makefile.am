@@ -81,9 +81,11 @@ DOC_FUNCS_FNCS =		\
 	fcobjectset.fncs	\
 	fcobjecttype.fncs	\
 	fcpattern.fncs		\
+	fcrange.fncs		\
 	fcstring.fncs		\
 	fcstrset.fncs		\
 	fcvalue.fncs		\
+	fcweight.fncs		\
 	$(NULL)
 SGML_FILES =			\
 	fontconfig-user.sgml	\
@@ -121,7 +123,10 @@ noinst_PROGRAMS =	\
 edit_sgml_SOURCES =	\
 	edit-sgml.c	\
 	$(NULL)
-edit_sgml_CC = $(CC_FOR_BUILD)
+$(edit_sgml_OBJECTS) : CC:=$(CC_FOR_BUILD)
+$(edit_sgml_OBJECTS) : CFLAGS:=$(CFLAGS_FOR_BUILD)
+$(edit_sgml_OBJECTS) : CPPFLAGS:=$(CPPFLAGS_FOR_BUILD)
+edit_sgml_LINK = $(CC_FOR_BUILD) -o $@
 #
 check_SCRIPTS =			\
 	check-missing-doc	\

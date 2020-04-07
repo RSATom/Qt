@@ -5,19 +5,18 @@
 #ifndef CONTENT_PUBLIC_COMMON_SANDBOXED_PROCESS_LAUNCHER_DELEGATE_H_
 #define CONTENT_PUBLIC_COMMON_SANDBOXED_PROCESS_LAUNCHER_DELEGATE_H_
 
-#include <cstddef>
-
 #include "base/environment.h"
 #include "base/files/scoped_file.h"
 #include "base/process/process.h"
 #include "build/build_config.h"
 #include "content/common/content_export.h"
-#include "content/public/common/sandbox_type.h"
-#include "content/public/common/zygote_handle.h"
+#include "services/service_manager/sandbox/sandbox_delegate.h"
+#include "services/service_manager/sandbox/sandbox_type.h"
+#include "services/service_manager/zygote/common/zygote_buildflags.h"
 
-namespace sandbox {
-class TargetPolicy;
-}
+#if BUILDFLAG(USE_ZYGOTE_HANDLE)
+#include "services/service_manager/zygote/common/zygote_handle.h"  // nogncheck
+#endif  // BUILDFLAG(USE_ZYGOTE_HANDLE)
 
 namespace content {
 
@@ -25,46 +24,34 @@ namespace content {
 // BrowserChildProcessHost/ChildProcessLauncher to control the sandbox policy,
 // i.e. to loosen it if needed.
 // The methods below will be called on the PROCESS_LAUNCHER thread.
-class CONTENT_EXPORT SandboxedProcessLauncherDelegate {
+class CONTENT_EXPORT SandboxedProcessLauncherDelegate
+    : public service_manager::SandboxDelegate {
  public:
-  virtual ~SandboxedProcessLauncherDelegate() {}
+  ~SandboxedProcessLauncherDelegate() override {}
 
 #if defined(OS_WIN)
+  // SandboxDelegate:
+  bool DisableDefaultPolicy() override;
+  bool GetAppContainerId(std::string* appcontainer_id) override;
+  bool PreSpawnTarget(sandbox::TargetPolicy* policy) override;
+  void PostSpawnTarget(base::ProcessHandle process) override;
+
   // Override to return true if the process should be launched as an elevated
   // process (which implies no sandbox).
   virtual bool ShouldLaunchElevated();
+#endif  // defined(OS_WIN)
 
-  // By default, the process is launched sandboxed. Override this method to
-  // return false if the process should be launched without a sandbox
-  // (i.e. through base::LaunchProcess directly).
-  virtual bool ShouldSandbox();
-
-  // Whether to disable the default policy specified in
-  // AddPolicyForSandboxedProcess.
-  virtual bool DisableDefaultPolicy();
-
-  // Called right before spawning the process. Returns false on failure.
-  virtual bool PreSpawnTarget(sandbox::TargetPolicy* policy);
-
-  // Called right after the process is launched, but before its thread is run.
-  virtual void PostSpawnTarget(base::ProcessHandle process) {}
-
-#elif defined(OS_POSIX)
-
-#if !defined(OS_MACOSX) && !defined(OS_ANDROID)
+#if BUILDFLAG(USE_ZYGOTE_HANDLE)
   // Returns the zygote used to launch the process.
   // NOTE: For now Chrome always uses the same zygote for performance reasons.
   // http://crbug.com/569191
-  virtual ZygoteHandle GetZygote();
-#endif  // !defined(OS_MACOSX) && !defined(OS_ANDROID)
+  virtual service_manager::ZygoteHandle GetZygote();
+#endif  // BUILDFLAG(USE_ZYGOTE_HANDLE)
 
+#if defined(OS_POSIX)
   // Override this if the process needs a non-empty environment map.
   virtual base::EnvironmentMap GetEnvironment();
-#endif
-
-  // Returns the SandboxType to enforce on the process, or SANDBOX_TYPE_INVALID
-  // for no sandbox policy.
-  virtual SandboxType GetSandboxType();
+#endif  // defined(OS_POSIX)
 };
 
 }  // namespace content

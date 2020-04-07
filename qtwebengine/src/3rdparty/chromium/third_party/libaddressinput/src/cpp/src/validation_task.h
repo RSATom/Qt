@@ -19,9 +19,8 @@
 #include <libaddressinput/address_problem.h>
 #include <libaddressinput/address_validator.h>
 #include <libaddressinput/supplier.h>
-#include <libaddressinput/util/basictypes.h>
-#include <libaddressinput/util/scoped_ptr.h>
 
+#include <memory>
 #include <string>
 
 namespace i18n {
@@ -36,6 +35,9 @@ struct AddressData;
 // validation, call the callback and delete the ValidationTask object itself.
 class ValidationTask {
  public:
+  ValidationTask(const ValidationTask&) = delete;
+  ValidationTask& operator=(const ValidationTask&) = delete;
+
   ValidationTask(const AddressData& address,
                  bool allow_postal,
                  bool require_name,
@@ -89,10 +91,8 @@ class ValidationTask {
   const FieldProblemMap* filter_;
   FieldProblemMap* const problems_;
   const AddressValidator::Callback& validated_;
-  const scoped_ptr<const Supplier::Callback> supplied_;
-  const scoped_ptr<LookupKey> lookup_key_;
-
-  DISALLOW_COPY_AND_ASSIGN(ValidationTask);
+  const std::unique_ptr<const Supplier::Callback> supplied_;
+  const std::unique_ptr<LookupKey> lookup_key_;
 };
 
 }  // namespace addressinput

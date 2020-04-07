@@ -8,17 +8,19 @@
 
 #include "base/bind.h"
 #include "extensions/renderer/script_context.h"
-#include "third_party/WebKit/public/web/WebDocument.h"
-#include "third_party/WebKit/public/web/WebLocalFrame.h"
+#include "third_party/blink/public/web/web_document.h"
+#include "third_party/blink/public/web/web_local_frame.h"
 #include "v8/include/v8.h"
 
 namespace extensions {
 
 DocumentCustomBindings::DocumentCustomBindings(ScriptContext* context)
-    : ObjectBackedNativeHandler(context) {
-  RouteFunction("RegisterElement",
-                base::Bind(&DocumentCustomBindings::RegisterElement,
-                           base::Unretained(this)));
+    : ObjectBackedNativeHandler(context) {}
+
+void DocumentCustomBindings::AddRoutes() {
+  RouteHandlerFunction("RegisterElement",
+                       base::Bind(&DocumentCustomBindings::RegisterElement,
+                                  base::Unretained(this)));
 }
 
 // Attach an event name to an object.
@@ -29,13 +31,12 @@ void DocumentCustomBindings::RegisterElement(
     return;
   }
 
-  std::string element_name(*v8::String::Utf8Value(args[0]));
+  std::string element_name(*v8::String::Utf8Value(args.GetIsolate(), args[0]));
   v8::Local<v8::Object> options = v8::Local<v8::Object>::Cast(args[1]);
 
-  blink::WebExceptionCode ec = 0;
   blink::WebDocument document = context()->web_frame()->GetDocument();
   v8::Local<v8::Value> constructor = document.RegisterEmbedderCustomElement(
-      blink::WebString::FromUTF8(element_name), options, ec);
+      blink::WebString::FromUTF8(element_name), options);
   args.GetReturnValue().Set(constructor);
 }
 

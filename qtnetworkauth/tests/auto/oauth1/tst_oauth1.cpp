@@ -160,6 +160,8 @@ private Q_SLOTS:
 
     void authenticatedCalls_data();
     void authenticatedCalls();
+
+    void secondTemporaryToken();
 };
 
 bool hostReachable(const QLatin1String &host)
@@ -218,7 +220,7 @@ void tst_OAuth1::gotError()
 {
     if (loop)
         loop->exit(returnCode = Failure);
-    disconnect(QObject::sender(), SIGNAL(finished()), this, 0);
+    disconnect(QObject::sender(), SIGNAL(finished()), this, nullptr);
 }
 
 void tst_OAuth1::clientIdentifierSignal()
@@ -448,7 +450,6 @@ void tst_OAuth1::getToken()
     });
     QVERIFY(waitForFinish(reply) == Success);
     QCOMPARE(tokenReceived, expectedToken);
-    QCOMPARE(oauthHeaders["oauth_callback"], "oob");
     QCOMPARE(oauthHeaders["oauth_consumer_key"], clientCredentials.first);
     QCOMPARE(oauthHeaders["oauth_version"], "1.0");
     QString expectedSignature;
@@ -710,6 +711,61 @@ void tst_OAuth1::authenticatedCalls()
     QVERIFY(waitForFinish(reply) == Success);
     QCOMPARE(receivedData, parametersString);
     reply.clear();
+}
+
+void tst_OAuth1::secondTemporaryToken()
+{
+    QNetworkAccessManager networkAccessManager;
+
+    const StringPair expectedToken(qMakePair(QStringLiteral("temporaryKey"), QStringLiteral("temporaryToken")));
+    WebServer webServer([&](const WebServer::HttpRequest &request, QTcpSocket *socket) {
+        Q_UNUSED(request);
+        const QString format = "oauth_token=%1&oauth_token_secret=%2&oauth_callback_confirmed=true";
+        const QByteArray text = format.arg(expectedToken.first, expectedToken.second).toUtf8();
+        const QByteArray replyMessage {
+            "HTTP/1.0 200 OK\r\n"
+            "Content-Type: application/x-www-form-urlencoded; charset=\"utf-8\"\r\n"
+            "Content-Length: " + QByteArray::number(text.size()) + "\r\n\r\n"
+            + text
+        };
+        socket->write(replyMessage);
+    });
+
+    QOAuth1 o1(&networkAccessManager);
+
+    StringPair clientCredentials = qMakePair(QStringLiteral("user"), QStringLiteral("passwd"));
+    o1.setClientCredentials(clientCredentials);
+    o1.setTemporaryCredentialsUrl(webServer.url(QStringLiteral("temporary")));
+    o1.setAuthorizationUrl(webServer.url(QStringLiteral("authorization")));
+    o1.setTokenCredentialsUrl(webServer.url(QStringLiteral("token")));
+
+    StringPair tokenReceived;
+    connect(&o1, &QOAuth1::tokenChanged, [&tokenReceived](const QString &token) {
+        tokenReceived.first = token;
+    });
+    bool replyReceived = false;
+    connect(&o1, &QOAuth1::tokenSecretChanged, [&tokenReceived, &replyReceived](const QString &tokenSecret) {
+        tokenReceived.second = tokenSecret;
+        replyReceived = true;
+    });
+
+    o1.grant();
+    QTRY_VERIFY(replyReceived);
+
+    QVERIFY(!tokenReceived.first.isEmpty());
+    QVERIFY(!tokenReceived.second.isEmpty());
+    QCOMPARE(o1.status(), QAbstractOAuth::Status::TemporaryCredentialsReceived);
+    QCOMPARE(tokenReceived, expectedToken);
+
+    replyReceived = false; // reset this so we can 'synchronize' on it again
+    // Do the same request again, should end up in the same state!!
+    o1.grant();
+    QTRY_VERIFY(replyReceived);
+
+    QVERIFY(!tokenReceived.first.isEmpty());
+    QVERIFY(!tokenReceived.second.isEmpty());
+    QCOMPARE(o1.status(), QAbstractOAuth::Status::TemporaryCredentialsReceived);
+    QCOMPARE(tokenReceived, expectedToken);
 }
 
 QTEST_MAIN(tst_OAuth1)

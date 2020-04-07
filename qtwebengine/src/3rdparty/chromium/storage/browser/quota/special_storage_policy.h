@@ -7,8 +7,10 @@
 
 #include <string>
 
+#include "base/callback_forward.h"
 #include "base/memory/ref_counted.h"
 #include "base/observer_list.h"
+#include "services/network/session_cleanup_cookie_store.h"
 #include "storage/browser/storage_browser_export.h"
 
 class GURL;
@@ -24,7 +26,7 @@ namespace storage {
 class STORAGE_EXPORT SpecialStoragePolicy
     : public base::RefCountedThreadSafe<SpecialStoragePolicy> {
  public:
-  typedef int StoragePolicy;
+  using StoragePolicy = int;
   enum ChangeFlags {
     STORAGE_PROTECTED = 1 << 0,
     STORAGE_UNLIMITED = 1 << 1,
@@ -60,6 +62,16 @@ class STORAGE_EXPORT SpecialStoragePolicy
 
   // Returns true if some origins are only allowed session-only storage.
   virtual bool HasSessionOnlyOrigins() = 0;
+
+  // Returns a predicate that takes the domain of a cookie and a bool whether
+  // the cookie is secure and returns true if the cookie should be deleted on
+  // exit.
+  // If |HasSessionOnlyOrigins()| is true a non-null callback is returned.
+  // It uses domain matching as described in section 5.1.3 of RFC 6265 to
+  // identify content setting rules that could have influenced the cookie
+  // when it was created.
+  virtual network::SessionCleanupCookieStore::DeleteCookiePredicate
+  CreateDeleteCookieOnExitPredicate() = 0;
 
   // Adds/removes an observer, the policy does not take
   // ownership of the observer. Should only be called on the IO thread.

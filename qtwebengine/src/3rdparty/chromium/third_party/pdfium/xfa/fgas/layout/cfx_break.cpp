@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "third_party/base/stl_util.h"
+#include "xfa/fgas/font/cfgas_gefont.h"
 
 namespace {
 
@@ -18,29 +19,11 @@ const int kMinimumTabWidth = 160000;
 }  // namespace
 
 CFX_Break::CFX_Break(uint32_t dwLayoutStyles)
-    : m_eCharType(FX_CHARTYPE_Unknown),
-      m_bSingleLine(false),
-      m_bCombText(false),
-      m_dwIdentity(0),
-      m_dwLayoutStyles(dwLayoutStyles),
-      m_iLineStart(0),
-      m_iLineWidth(2000000),
-      m_wParagraphBreakChar(L'\n'),
-      m_iFontSize(240),
-      m_iTabWidth(720000),
-      m_iHorizontalScale(100),
-      m_iVerticalScale(100),
-      m_iTolerance(0),
-      m_iCharSpace(0),
-      m_iDefChar(0),
-      m_wDefChar(0xFEFF),
-      m_pFont(nullptr),
-      m_pCurLine(nullptr),
-      m_iReadyLineIndex(-1) {
+    : m_dwLayoutStyles(dwLayoutStyles) {
   m_pCurLine = &m_Line[0];
 }
 
-CFX_Break::~CFX_Break() {}
+CFX_Break::~CFX_Break() = default;
 
 void CFX_Break::Reset() {
   m_eCharType = FX_CHARTYPE_Unknown;
@@ -73,7 +56,7 @@ void CFX_Break::SetVerticalScale(int32_t iScale) {
   m_iVerticalScale = iScale;
 }
 
-void CFX_Break::SetFont(const CFX_RetainPtr<CFGAS_GEFont>& pFont) {
+void CFX_Break::SetFont(const RetainPtr<CFGAS_GEFont>& pFont) {
   if (!pFont || pFont == m_pFont)
     return;
 
@@ -94,11 +77,10 @@ void CFX_Break::SetFontSize(float fFontSize) {
 
 void CFX_Break::SetBreakStatus() {
   ++m_dwIdentity;
-  int32_t iCount = m_pCurLine->CountChars();
-  if (iCount < 1)
+  if (m_pCurLine->m_LineChars.empty())
     return;
 
-  CFX_Char* tc = m_pCurLine->GetChar(iCount - 1);
+  CFX_Char* tc = m_pCurLine->GetChar(m_pCurLine->m_LineChars.size() - 1);
   if (tc->m_dwStatus == CFX_BreakType::None)
     tc->m_dwStatus = CFX_BreakType::Piece;
 }
@@ -112,7 +94,7 @@ void CFX_Break::FontChanged() {
   if (!m_pFont || m_wDefChar == 0xFEFF)
     return;
 
-  m_pFont->GetCharWidth(m_wDefChar, m_iDefChar, false);
+  m_pFont->GetCharWidth(m_wDefChar, &m_iDefChar);
   m_iDefChar *= m_iFontSize;
 }
 
@@ -129,7 +111,7 @@ void CFX_Break::SetDefaultChar(wchar_t wch) {
   if (m_wDefChar == 0xFEFF || !m_pFont)
     return;
 
-  m_pFont->GetCharWidth(m_wDefChar, m_iDefChar, false);
+  m_pFont->GetCharWidth(m_wDefChar, &m_iDefChar);
   if (m_iDefChar < 0)
     m_iDefChar = 0;
   else

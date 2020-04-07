@@ -37,6 +37,14 @@ pass the path of that sub-directory to this script as its single
 command-line argument.  Save its standard output (but not error) to a
 file for later processing by ``./qlocalexml2cpp.py``
 
+When you update the CLDR data, be sure to also update
+src/corelib/tools/qt_attribution.json's entry for unicode-cldr.  Check
+this script's output for unknown language, country or script messages;
+if any can be resolved, use their entry in common/main/en.xml to
+append new entries to enumdata.py's lists and update documentation in
+src/corelib/tools/qlocale.qdoc, adding the new entries in alphabetic
+order.
+
 .. _CLDR: ftp://unicode.org/Public/cldr/
 """
 
@@ -142,6 +150,28 @@ def generateLocaleInfo(path):
     return _generateLocaleInfo(path, code('language'), code('script'),
                                code('territory'), code('variant'))
 
+def getNumberSystems(cache={}):
+    """Cached look-up of number system information.
+
+    Pass no arguments.  Returns a mapping from number system names to,
+    for each system, a mapping with keys u'digits', u'type' and
+    u'id'\n"""
+    if not cache:
+        for ns in findTagsInFile(os.path.join(cldr_dir, '..', 'supplemental',
+                                              'numberingSystems.xml'),
+                                 'numberingSystems'):
+            # ns has form: [u'numberingSystem', [(u'digits', u'0123456789'), (u'type', u'numeric'), (u'id', u'latn')]]
+            entry = dict(ns[1])
+            name = entry[u'id']
+            if u'digits' in entry and ord(entry[u'digits'][0]) > 0xffff:
+                # FIXME: make this redundant:
+                # omit number system if zero doesn't fit in single-char16 UTF-16 :-(
+                sys.stderr.write('skipping number system "%s" [can\'t represent its zero, U+%X, QTBUG-69324]\n'
+                                 % (name, ord(entry[u'digits'][0])))
+            else:
+                cache[name] = entry
+    return cache
+
 def _generateLocaleInfo(path, language_code, script_code, country_code, variant_code=""):
     if not path.endswith(".xml"):
         return {}
@@ -239,20 +269,9 @@ def _generateLocaleInfo(path, language_code, script_code, country_code, variant_
     result['list'] = get_number_in_system(path, "numbers/symbols/list", numbering_system)
     result['percent'] = get_number_in_system(path, "numbers/symbols/percentSign", numbering_system)
     try:
-        numbering_systems = {}
-        for ns in findTagsInFile(os.path.join(cldr_dir, '..', 'supplemental',
-                                              'numberingSystems.xml'),
-                                 'numberingSystems'):
-            tmp = {}
-            id = ""
-            for data in ns[1:][0]: # ns looks like this: [u'numberingSystem', [(u'digits', u'0123456789'), (u'type', u'numeric'), (u'id', u'latn')]]
-                tmp[data[0]] = data[1]
-                if data[0] == u"id":
-                    id = data[1]
-            numbering_systems[id] = tmp
-        result['zero'] = numbering_systems[numbering_system][u"digits"][0]
-    except e:
-        sys.stderr.write("Native zero detection problem:\n" + str(e) + "\n")
+        result['zero'] = getNumberSystems()[numbering_system][u"digits"][0]
+    except Exception as e:
+        sys.stderr.write("Native zero detection problem: %s\n" % repr(e))
         result['zero'] = get_number_in_system(path, "numbers/symbols/nativeZeroDigit", numbering_system)
     result['minus'] = get_number_in_system(path, "numbers/symbols/minusSign", numbering_system)
     result['plus'] = get_number_in_system(path, "numbers/symbols/plusSign", numbering_system)

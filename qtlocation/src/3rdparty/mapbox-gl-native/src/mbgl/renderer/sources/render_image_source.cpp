@@ -41,7 +41,7 @@ void RenderImageSource::startRender(PaintParameters& parameters) {
         mat4 matrix;
         matrix::identity(matrix);
         parameters.state.matrixFor(matrix, tileIds[i]);
-        matrix::multiply(matrix, parameters.projMatrix, matrix);
+        matrix::multiply(matrix, parameters.alignedProjMatrix, matrix);
         matrices.push_back(matrix);
     }
 
@@ -56,26 +56,34 @@ void RenderImageSource::finishRender(PaintParameters& parameters) {
     }
 
     static const style::Properties<>::PossiblyEvaluated properties {};
-    static const DebugProgram::PaintPropertyBinders paintAttibuteData(properties, 0);
+    static const DebugProgram::PaintPropertyBinders paintAttributeData(properties, 0);
+
+    auto& programInstance = parameters.programs.debug;
 
     for (auto matrix : matrices) {
-        parameters.programs.debug.draw(
+        programInstance.draw(
             parameters.context,
             gl::LineStrip { 4.0f * parameters.pixelRatio },
             gl::DepthMode::disabled(),
             gl::StencilMode::disabled(),
             gl::ColorMode::unblended(),
-            DebugProgram::UniformValues {
-             uniforms::u_matrix::Value{ matrix },
-             uniforms::u_color::Value{ Color::red() }
-            },
-            parameters.staticData.tileVertexBuffer,
             parameters.staticData.tileBorderIndexBuffer,
             parameters.staticData.tileBorderSegments,
-            paintAttibuteData,
-            properties,
-            parameters.state.getZoom(),
-            "debug"
+            programInstance.computeAllUniformValues(
+                DebugProgram::UniformValues {
+                    uniforms::u_matrix::Value{ matrix },
+                    uniforms::u_color::Value{ Color::red() }
+                },
+                paintAttributeData,
+                properties,
+                parameters.state.getZoom()
+            ),
+            programInstance.computeAllAttributeBindings(
+                parameters.staticData.tileVertexBuffer,
+                paintAttributeData,
+                properties
+            ),
+            "image"
         );
     }
 }
@@ -85,7 +93,7 @@ RenderImageSource::queryRenderedFeatures(const ScreenLineString&,
                                          const TransformState&,
                                          const std::vector<const RenderLayer*>&,
                                          const RenderedQueryOptions&,
-                                         const CollisionIndex&) const {
+                                         const mat4&) const {
     return std::unordered_map<std::string, std::vector<Feature>> {};
 }
 
@@ -114,44 +122,43 @@ void RenderImageSource::update(Immutable<style::Source::Impl> baseImpl_,
         return;
     }
 
-    auto size = transformState.getSize();
-    const double viewportHeight = size.height;
-
-    // Compute the screen coordinates at wrap=0 for the given LatLng
-    ScreenCoordinate nePixel = { -INFINITY, -INFINITY };
-    ScreenCoordinate swPixel = { INFINITY, INFINITY };
-
+    // Compute the z0 tile coordinates for the given LatLngs
+    TileCoordinatePoint nePoint = { -INFINITY, -INFINITY };
+    TileCoordinatePoint swPoint = { INFINITY, INFINITY };
+    std::vector<TileCoordinatePoint> tileCoordinates;
     for (LatLng latLng : coords) {
-        ScreenCoordinate pixel = transformState.latLngToScreenCoordinate(latLng);
-        swPixel.x = std::min(swPixel.x, pixel.x);
-        nePixel.x = std::max(nePixel.x, pixel.x);
-        swPixel.y = std::min(swPixel.y, viewportHeight - pixel.y);
-        nePixel.y = std::max(nePixel.y, viewportHeight - pixel.y);
-    }
-    const double width = nePixel.x - swPixel.x;
-    const double height = nePixel.y - swPixel.y;
+        auto point = TileCoordinate::fromLatLng(0, latLng).p;
+        tileCoordinates.push_back(point);
+        swPoint.x = std::min(swPoint.x, point.x);
+        nePoint.x = std::max(nePoint.x, point.x);
+        swPoint.y = std::min(swPoint.y, point.y);
+        nePoint.y = std::max(nePoint.y, point.y);
+   }
 
-    // Don't bother drawing the ImageSource unless it occupies >4 screen pixels
-    enabled = (width * height > 4);
+    // Calculate the optimum zoom level to determine the tile ids to use for transforms
+    auto dx = nePoint.x - swPoint.x;
+    auto dy = nePoint.y - swPoint.y;
+    auto dMax = std::max(dx, dy);
+    double zoom = std::max(0.0, std::floor(-::log2(dMax)));
+
+    // Only enable if the long side of the image is > 2 pixels. Resulting in a
+    // display of at least 2 x 1 px image
+    // A tile coordinate unit represents the length of one tile (tileSize) at a given zoom.
+    // To convert a tile coordinate to pixels, multiply by tileSize.
+    // Here dMax is in z0 tile units, so we also scale by 2^z to match current zoom.
+    enabled = dMax * std::pow(2.0, transformState.getZoom()) * util::tileSize > 2.0;
     if (!enabled) {
         return;
     }
 
-    // Calculate the optimum zoom level to determine the tile ids to use for transforms
-    double minScale = INFINITY;
-    double scaleX = double(size.width) / width;
-    double scaleY = double(size.height) / height;
-    minScale = util::min(scaleX, scaleY);
-    double zoom = transformState.getZoom() + util::log2(minScale);
-    zoom = std::floor(util::clamp(zoom, transformState.getMinZoom(), transformState.getMaxZoom()));
     auto imageBounds = LatLngBounds::hull(coords[0], coords[1]);
     imageBounds.extend(coords[2]);
     imageBounds.extend(coords[3]);
     auto tileCover = util::tileCover(imageBounds, zoom);
     tileIds.clear();
     tileIds.push_back(tileCover[0]);
-    bool hasVisibleTile = false;
 
+    bool hasVisibleTile = false;
     // Add additional wrapped tile ids if neccessary
     auto idealTiles = util::tileCover(transformState, transformState.getZoom());
     for (auto tile : idealTiles) {
@@ -177,9 +184,8 @@ void RenderImageSource::update(Immutable<style::Source::Impl> baseImpl_,
 
     // Calculate Geometry Coordinates based on tile cover at ideal zoom
     GeometryCoordinates geomCoords;
-    for (auto latLng : coords) {
-        auto tc = TileCoordinate::fromLatLng(0, latLng);
-        auto gc = TileCoordinate::toGeometryCoordinate(tileIds[0], tc.p);
+    for (auto tileCoords : tileCoordinates) {
+        auto gc = TileCoordinate::toGeometryCoordinate(tileIds[0], tileCoords);
         geomCoords.push_back(gc);
     }
     if (!bucket) {

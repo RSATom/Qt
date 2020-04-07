@@ -21,7 +21,7 @@ namespace about_ui {
 std::string GetCredits(bool include_scripts) {
   std::string response;
   base::StringPiece raw_response =
-      ResourceBundle::GetSharedInstance().GetRawDataResource(
+      ui::ResourceBundle::GetSharedInstance().GetRawDataResource(
           IDR_ABOUT_UI_CREDITS_HTML);
   const uint8_t* next_encoded_byte =
       reinterpret_cast<const uint8_t*>(raw_response.data());
@@ -52,7 +52,8 @@ std::string GetCredits(bool include_scripts) {
 }
 
 #if defined(OS_ANDROID)
-static base::android::ScopedJavaLocalRef<jbyteArray> GetJavaWrapperCredits(
+static base::android::ScopedJavaLocalRef<jbyteArray>
+JNI_CreditUtils_GetJavaWrapperCredits(
     JNIEnv* env,
     const base::android::JavaParamRef<jclass>& clazz) {
   std::string html_content = GetCredits(false);
@@ -60,11 +61,6 @@ static base::android::ScopedJavaLocalRef<jbyteArray> GetJavaWrapperCredits(
   return base::android::ToJavaByteArray(
       env, reinterpret_cast<const uint8_t*>(html_content_arr),
       html_content.size());
-}
-
-// The RegisterNativesImpl is a static function, so has to be called somewhere.
-bool RegisterAboutUIUtils(JNIEnv* env) {
-  return RegisterNativesImpl(env);
 }
 #endif
 

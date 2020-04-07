@@ -42,7 +42,7 @@ class MyTestServer : public MyInterfaceSimpleSource
 
 public:
     MyTestServer(QObject *parent = nullptr);
-    ~MyTestServer();
+    ~MyTestServer() override;
 
 public Q_SLOTS:
     bool start() override;

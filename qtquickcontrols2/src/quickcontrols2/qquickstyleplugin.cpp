@@ -35,14 +35,20 @@
 ****************************************************************************/
 
 #include "qquickstyleplugin_p.h"
-#include "qquickproxytheme_p.h"
 #include "qquickstyle.h"
-
-#include <QtGui/private/qguiapplication_p.h>
+#include "qquickstyle_p.h"
+#include "qquickstyleselector_p.h"
 
 QT_BEGIN_NAMESPACE
 
-QQuickStylePlugin::QQuickStylePlugin(QObject *parent) : QQmlExtensionPlugin(parent)
+class QQuickStylePluginPrivate
+{
+public:
+    mutable QScopedPointer<QQuickStyleSelector> selector;
+};
+
+QQuickStylePlugin::QQuickStylePlugin(QObject *parent)
+    : QQmlExtensionPlugin(parent), d_ptr(new QQuickStylePluginPrivate)
 {
 }
 
@@ -50,62 +56,36 @@ QQuickStylePlugin::~QQuickStylePlugin()
 {
 }
 
-void QQuickStylePlugin::registerTypes(const char *uri)
-{
-    Q_UNUSED(uri);
-}
-
-void QQuickStylePlugin::initializeEngine(QQmlEngine *engine, const char *uri)
-{
-    Q_UNUSED(engine);
-    Q_UNUSED(uri);
-
-    // make sure not to re-create the proxy theme if initializeEngine()
-    // is called multiple times, like in case of qml2puppet (QTBUG-54995)
-    if (!m_theme.isNull())
-        return;
-
-    if (isCurrent()) {
-        m_theme.reset(createTheme());
-        if (m_theme)
-            QGuiApplicationPrivate::platform_theme = m_theme.data();
-    }
-}
-
-bool QQuickStylePlugin::isCurrent() const
-{
-    QString style = QQuickStyle::name();
-    if (style.isEmpty())
-        style = QStringLiteral("Default");
-
-    const QString theme = name();
-    return theme.compare(style, Qt::CaseInsensitive) == 0;
-}
-
 QString QQuickStylePlugin::name() const
 {
     return QString();
 }
 
-QQuickProxyTheme *QQuickStylePlugin::createTheme() const
+void QQuickStylePlugin::initializeTheme(QQuickTheme *theme)
 {
-    return nullptr;
+    Q_UNUSED(theme);
 }
 
-/*
-    Returns either a file system path if Qt was built as shared libraries,
-    or a QRC path if Qt was built statically.
-*/
-QUrl QQuickStylePlugin::typeUrl(const QString &name) const
+QUrl QQuickStylePlugin::resolvedUrl(const QString &fileName) const
 {
-#ifdef QT_STATIC
-    QString url = QLatin1String("qrc") + baseUrl().path();
-#else
-    QString url = baseUrl().toString();
-#endif
-    if (!name.isEmpty())
-        url += QLatin1Char('/') + name;
-    return QUrl(url);
+    Q_D(const QQuickStylePlugin);
+    if (!d->selector) {
+        d->selector.reset(new QQuickStyleSelector);
+        const QString style = QQuickStyle::name();
+        if (!style.isEmpty())
+            d->selector->addSelector(style);
+
+        const QString fallback = QQuickStylePrivate::fallbackStyle();
+        if (!fallback.isEmpty() && fallback != style)
+            d->selector->addSelector(fallback);
+
+        const QString theme = name();
+        if (!theme.isEmpty() && theme != style)
+            d->selector->addSelector(theme);
+
+        d->selector->setPaths(QQuickStylePrivate::stylePaths(true));
+    }
+    return d->selector->select(fileName);
 }
 
 QT_END_NAMESPACE

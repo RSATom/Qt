@@ -674,7 +674,7 @@ static unsigned int read_partition_size(VP8D_COMP *pbi,
 
 static int read_is_valid(const unsigned char *start, size_t len,
                          const unsigned char *end) {
-  return (start + len > start && start + len <= end);
+  return len != 0 && end > start && len <= (size_t)(end - start);
 }
 
 static unsigned int read_available_partition_size(
@@ -686,6 +686,12 @@ static unsigned int read_available_partition_size(
   const unsigned char *partition_size_ptr = token_part_sizes + i * 3;
   unsigned int partition_size = 0;
   ptrdiff_t bytes_left = fragment_end - fragment_start;
+  if (bytes_left < 0) {
+    vpx_internal_error(
+        &pc->error, VPX_CODEC_CORRUPT_FRAME,
+        "Truncated packet or corrupt partition. No bytes left %d.",
+        (int)bytes_left);
+  }
   /* Calculate the length of this partition. The last partition
    * size is implicit. If the partition size can't be read, then
    * either use the remaining data in the buffer (for EC mode)
@@ -1205,7 +1211,8 @@ int vp8_decode_frame(VP8D_COMP *pbi) {
   pbi->frame_corrupt_residual = 0;
 
 #if CONFIG_MULTITHREAD
-  if (pbi->b_multithreaded_rd && pc->multi_token_partition != ONE_PARTITION) {
+  if (vpx_atomic_load_acquire(&pbi->b_multithreaded_rd) &&
+      pc->multi_token_partition != ONE_PARTITION) {
     unsigned int thread;
     vp8mt_decode_mb_rows(pbi, xd);
     vp8_yv12_extend_frame_borders(yv12_fb_new);

@@ -7,6 +7,7 @@
 #include <stddef.h>
 
 #include <list>
+#include <memory>
 
 #include "base/bind.h"
 #include "base/single_thread_task_runner.h"
@@ -37,8 +38,10 @@ std::list<uint32_t> VideoCaptureDeviceLinux::GetListOfUsableFourCCs(
 }
 
 VideoCaptureDeviceLinux::VideoCaptureDeviceLinux(
+    scoped_refptr<V4L2CaptureDevice> v4l2,
     const VideoCaptureDeviceDescriptor& device_descriptor)
     : device_descriptor_(device_descriptor),
+      v4l2_(std::move(v4l2)),
       v4l2_thread_("V4L2CaptureThread") {}
 
 VideoCaptureDeviceLinux::~VideoCaptureDeviceLinux() {
@@ -58,8 +61,9 @@ void VideoCaptureDeviceLinux::AllocateAndStart(
 
   const int line_frequency =
       TranslatePowerLineFrequencyToV4L2(GetPowerLineFrequency(params));
-  capture_impl_ = base::MakeUnique<V4L2CaptureDelegate>(
-      device_descriptor_, v4l2_thread_.task_runner(), line_frequency);
+  capture_impl_ = std::make_unique<V4L2CaptureDelegate>(
+      v4l2_.get(), device_descriptor_, v4l2_thread_.task_runner(),
+      line_frequency);
   if (!capture_impl_) {
     client->OnError(FROM_HERE, "Failed to create VideoCaptureDelegate");
     return;
@@ -140,9 +144,9 @@ void VideoCaptureDeviceLinux::SetRotation(int rotation) {
 int VideoCaptureDeviceLinux::TranslatePowerLineFrequencyToV4L2(
     PowerLineFrequency frequency) {
   switch (frequency) {
-    case media::PowerLineFrequency::FREQUENCY_50HZ:
+    case PowerLineFrequency::FREQUENCY_50HZ:
       return V4L2_CID_POWER_LINE_FREQUENCY_50HZ;
-    case media::PowerLineFrequency::FREQUENCY_60HZ:
+    case PowerLineFrequency::FREQUENCY_60HZ:
       return V4L2_CID_POWER_LINE_FREQUENCY_60HZ;
     default:
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3,2,0)

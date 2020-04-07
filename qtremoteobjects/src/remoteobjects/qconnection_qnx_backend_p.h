@@ -51,7 +51,7 @@
 // We mean it.
 //
 
-#include <QtRemoteObjects/qconnectionfactories.h>
+#include "qconnectionfactories_p.h"
 #include "qconnection_qnx_qiodevices.h"
 #include "qconnection_qnx_server.h"
 
@@ -93,17 +93,17 @@ QT_BEGIN_NAMESPACE
     QLocalServer/QLocalSocket QPA for QNX.
 */
 
-class QnxClientIo : public ClientIoDevice
+class QnxClientIo final : public ClientIoDevice
 {
     Q_OBJECT
 
 public:
     explicit QnxClientIo(QObject *parent = nullptr);
-    ~QnxClientIo();
+    ~QnxClientIo() override;
 
-    QIODevice *connection() override;
+    QIODevice *connection() const override;
     void connectToServer() override;
-    bool isOpen() override;
+    bool isOpen() const override;
 
 public Q_SLOTS:
     void onError(QAbstractSocket::SocketError error);
@@ -111,14 +111,15 @@ public Q_SLOTS:
 
 protected:
     void doClose() override;
+    void doDisconnectFromServer() override;
 private:
-    QQnxNativeIo m_socket;
+    QQnxNativeIo *m_socket;
 };
 
-class QnxServerIo : public ServerIoDevice
+class QnxServerIo final : public ServerIoDevice
 {
 public:
-    explicit QnxServerIo(QIOQnxSource *conn, QObject *parent = nullptr);
+    explicit QnxServerIo(QSharedPointer<QIOQnxSource> conn, QObject *parent = nullptr);
 
     QIODevice *connection() const override;
 protected:
@@ -126,16 +127,16 @@ protected:
 
 private:
     //TODO Source or Replica
-    QIOQnxSource *m_connection;
+    QSharedPointer<QIOQnxSource> m_connection;
 };
 
-class QnxServerImpl : public QConnectionAbstractServer
+class QnxServerImpl final : public QConnectionAbstractServer
 {
     Q_OBJECT
 
 public:
     explicit QnxServerImpl(QObject *parent);
-    ~QnxServerImpl();
+    ~QnxServerImpl() override;
 
     bool hasPendingConnections() const override;
     ServerIoDevice *configureNewConnection() override;

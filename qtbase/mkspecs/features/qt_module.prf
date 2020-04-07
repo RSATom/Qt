@@ -13,8 +13,9 @@ isEmpty(MODULE):MODULE = $$section($$list($$basename(_PRO_FILE_)), ., 0, 0)
 isEmpty(VERSION): VERSION = $$MODULE_VERSION
 isEmpty(VERSION): error("Module does not define version.")
 
-exists($$OUT_PWD/qt$${MODULE}-config.pri) {
-    include($$OUT_PWD/qt$${MODULE}-config.pri)
+isEmpty(MODULE_CFG_FILE): MODULE_CFG_FILE = qt$${MODULE}-config
+exists($$OUT_PWD/$${MODULE_CFG_FILE}.pri) {
+    include($$OUT_PWD/$${MODULE_CFG_FILE}.pri)
     CONFIG += generated_privates
 }
 
@@ -28,8 +29,6 @@ host_build|staticlib: CONFIG += static
 
 host_build {
     QT -= gui   # no host module will ever use gui
-    QMAKE_CFLAGS += $$QMAKE_CFLAGS_SPLIT_SECTIONS
-    QMAKE_CXXFLAGS += $$QMAKE_CXXFLAGS_SPLIT_SECTIONS
     force_bootstrap {
         !build_pass:qtConfig(release_tools): CONFIG += release
         contains(QT, core(-private)?|xml) {
@@ -136,7 +135,7 @@ lib_bundle {
            if(if(!debug_and_release|CONFIG(release, debug|release))) {
         FRAMEWORK_HEADERS.version = Versions
         FRAMEWORK_HEADERS.files = \
-            $$SYNCQT.HEADER_FILES $$SYNCQT.HEADER_CLASSES $$SYNCQT.INJECTED_HEADER_FILES
+            $$SYNCQT.HEADER_FILES $$SYNCQT.GENERATED_HEADER_FILES $$SYNCQT.INJECTED_HEADER_FILES
         FRAMEWORK_HEADERS.path = Headers
         FRAMEWORK_PRIVATE_HEADERS.version = Versions
         FRAMEWORK_PRIVATE_HEADERS.files = \
@@ -224,7 +223,7 @@ android: CONFIG += qt_android_deps no_linker_version_script
         private_api_headers = $$SYNCQT.PRIVATE_HEADER_FILES $$SYNCQT.QPA_HEADER_FILES
 
         for(header, private_api_headers): \
-            verscript_content += "    @FILE:$${_PRO_FILE_PWD_}/$$header@"
+            verscript_content += "    @FILE:$$header@"
         verscript_content += "};"
 
         current = Qt_$$QT_MAJOR_VERSION
@@ -244,8 +243,7 @@ android: CONFIG += qt_android_deps no_linker_version_script
         verscriptprocess.name = linker version script ${QMAKE_FILE_BASE}
         verscriptprocess.input = verscript_in
         verscriptprocess.CONFIG += no_link target_predeps
-        for(header, private_api_headers): \
-            verscriptprocess.depends += $${_PRO_FILE_PWD_}/$$header
+        verscriptprocess.depends = $$private_api_headers
         verscriptprocess.output = $$verscript
         verscriptprocess.commands = perl $${PWD}/data/unix/findclasslist.pl < ${QMAKE_FILE_IN} > $@
         silent:verscriptprocess.commands = @echo creating linker version script ${QMAKE_FILE_BASE} && $$verscriptprocess.commands
@@ -266,15 +264,20 @@ load(qt_installs)
 load(qt_targets)
 
 # this builds on top of qt_common
-!internal_module:!lib_bundle:if(unix|mingw) {
+!internal_module:if(unix|mingw) {
     CONFIG += create_pc
     QMAKE_PKGCONFIG_DESTDIR = pkgconfig
     host_build: \
         QMAKE_PKGCONFIG_LIBDIR = $$[QT_HOST_LIBS]
     else: \
         QMAKE_PKGCONFIG_LIBDIR = $$[QT_INSTALL_LIBS/raw]
-    QMAKE_PKGCONFIG_INCDIR = $$[QT_INSTALL_HEADERS/raw]
-    QMAKE_PKGCONFIG_CFLAGS = -D$$MODULE_DEFINE -I${includedir}/$$MODULE_INCNAME
+    lib_bundle {
+        QMAKE_PKGCONFIG_INCDIR = $$[QT_INSTALL_LIBS/raw]/$${MODULE_INCNAME}.framework/Headers
+        QMAKE_PKGCONFIG_CFLAGS = -D$$MODULE_DEFINE
+    } else {
+        QMAKE_PKGCONFIG_INCDIR = $$[QT_INSTALL_HEADERS/raw]
+        QMAKE_PKGCONFIG_CFLAGS = -D$$MODULE_DEFINE -I${includedir}/$$MODULE_INCNAME
+    }
     QMAKE_PKGCONFIG_NAME = $$replace(TARGET, ^Qt, "Qt$$QT_MAJOR_VERSION ")
     QMAKE_PKGCONFIG_FILE = $$replace(TARGET, ^Qt, Qt$$QT_MAJOR_VERSION)
     for(i, MODULE_DEPENDS): \

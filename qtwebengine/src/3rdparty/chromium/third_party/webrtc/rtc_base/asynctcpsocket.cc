@@ -8,16 +8,16 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/rtc_base/asynctcpsocket.h"
+#include "rtc_base/asynctcpsocket.h"
 
 #include <string.h>
 
 #include <algorithm>
 #include <memory>
 
-#include "webrtc/rtc_base/byteorder.h"
-#include "webrtc/rtc_base/checks.h"
-#include "webrtc/rtc_base/logging.h"
+#include "rtc_base/byteorder.h"
+#include "rtc_base/checks.h"
+#include "rtc_base/logging.h"
 
 #if defined(WEBRTC_POSIX)
 #include <errno.h>
@@ -46,17 +46,18 @@ AsyncSocket* AsyncTCPSocketBase::ConnectSocket(
     const rtc::SocketAddress& remote_address) {
   std::unique_ptr<rtc::AsyncSocket> owned_socket(socket);
   if (socket->Bind(bind_address) < 0) {
-    LOG(LS_ERROR) << "Bind() failed with error " << socket->GetError();
+    RTC_LOG(LS_ERROR) << "Bind() failed with error " << socket->GetError();
     return nullptr;
   }
   if (socket->Connect(remote_address) < 0) {
-    LOG(LS_ERROR) << "Connect() failed with error " << socket->GetError();
+    RTC_LOG(LS_ERROR) << "Connect() failed with error " << socket->GetError();
     return nullptr;
   }
   return owned_socket.release();
 }
 
-AsyncTCPSocketBase::AsyncTCPSocketBase(AsyncSocket* socket, bool listen,
+AsyncTCPSocketBase::AsyncTCPSocketBase(AsyncSocket* socket,
+                                       bool listen,
                                        size_t max_packet_size)
     : socket_(socket),
       listen_(listen),
@@ -68,15 +69,15 @@ AsyncTCPSocketBase::AsyncTCPSocketBase(AsyncSocket* socket, bool listen,
   }
 
   RTC_DCHECK(socket_.get() != nullptr);
-  socket_->SignalConnectEvent.connect(
-      this, &AsyncTCPSocketBase::OnConnectEvent);
+  socket_->SignalConnectEvent.connect(this,
+                                      &AsyncTCPSocketBase::OnConnectEvent);
   socket_->SignalReadEvent.connect(this, &AsyncTCPSocketBase::OnReadEvent);
   socket_->SignalWriteEvent.connect(this, &AsyncTCPSocketBase::OnWriteEvent);
   socket_->SignalCloseEvent.connect(this, &AsyncTCPSocketBase::OnCloseEvent);
 
   if (listen_) {
     if (socket_->Listen(kListenBacklog) < 0) {
-      LOG(LS_ERROR) << "Listen() failed with error " << socket_->GetError();
+      RTC_LOG(LS_ERROR) << "Listen() failed with error " << socket_->GetError();
     }
   }
 }
@@ -129,7 +130,8 @@ void AsyncTCPSocketBase::SetError(int error) {
   return socket_->SetError(error);
 }
 
-int AsyncTCPSocketBase::SendTo(const void *pv, size_t cb,
+int AsyncTCPSocketBase::SendTo(const void* pv,
+                               size_t cb,
                                const SocketAddress& addr,
                                const rtc::PacketOptions& options) {
   const SocketAddress& remote_address = GetRemoteAddress();
@@ -141,7 +143,7 @@ int AsyncTCPSocketBase::SendTo(const void *pv, size_t cb,
   return -1;
 }
 
-int AsyncTCPSocketBase::SendRaw(const void * pv, size_t cb) {
+int AsyncTCPSocketBase::SendRaw(const void* pv, size_t cb) {
   if (outbuf_.size() + cb > max_outsize_) {
     socket_->SetError(EMSGSIZE);
     return -1;
@@ -190,7 +192,8 @@ void AsyncTCPSocketBase::OnReadEvent(AsyncSocket* socket) {
     if (!new_socket) {
       // TODO(stefan): Do something better like forwarding the error
       // to the user.
-      LOG(LS_ERROR) << "TCP accept failed with error " << socket_->GetError();
+      RTC_LOG(LS_ERROR) << "TCP accept failed with error "
+                        << socket_->GetError();
       return;
     }
 
@@ -213,7 +216,7 @@ void AsyncTCPSocketBase::OnReadEvent(AsyncSocket* socket) {
         // TODO(stefan): Do something better like forwarding the error to the
         // user.
         if (!socket_->IsBlocking()) {
-          LOG(LS_ERROR) << "Recv() returned error: " << socket_->GetError();
+          RTC_LOG(LS_ERROR) << "Recv() returned error: " << socket_->GetError();
         }
         break;
       }
@@ -233,7 +236,7 @@ void AsyncTCPSocketBase::OnReadEvent(AsyncSocket* socket) {
     ProcessInput(inbuf_.data<char>(), &size);
 
     if (size > inbuf_.size()) {
-      LOG(LS_ERROR) << "input buffer overflow";
+      RTC_LOG(LS_ERROR) << "input buffer overflow";
       RTC_NOTREACHED();
       inbuf_.Clear();
     } else {
@@ -262,19 +265,19 @@ void AsyncTCPSocketBase::OnCloseEvent(AsyncSocket* socket, int error) {
 // Binds and connects |socket| and creates AsyncTCPSocket for
 // it. Takes ownership of |socket|. Returns null if bind() or
 // connect() fail (|socket| is destroyed in that case).
-AsyncTCPSocket* AsyncTCPSocket::Create(
-    AsyncSocket* socket,
-    const SocketAddress& bind_address,
-    const SocketAddress& remote_address) {
-  return new AsyncTCPSocket(AsyncTCPSocketBase::ConnectSocket(
-      socket, bind_address, remote_address), false);
+AsyncTCPSocket* AsyncTCPSocket::Create(AsyncSocket* socket,
+                                       const SocketAddress& bind_address,
+                                       const SocketAddress& remote_address) {
+  return new AsyncTCPSocket(
+      AsyncTCPSocketBase::ConnectSocket(socket, bind_address, remote_address),
+      false);
 }
 
 AsyncTCPSocket::AsyncTCPSocket(AsyncSocket* socket, bool listen)
-    : AsyncTCPSocketBase(socket, listen, kBufSize) {
-}
+    : AsyncTCPSocketBase(socket, listen, kBufSize) {}
 
-int AsyncTCPSocket::Send(const void *pv, size_t cb,
+int AsyncTCPSocket::Send(const void* pv,
+                         size_t cb,
                          const rtc::PacketOptions& options) {
   if (cb > kBufSize) {
     SetError(EMSGSIZE);
@@ -296,14 +299,16 @@ int AsyncTCPSocket::Send(const void *pv, size_t cb,
     return res;
   }
 
-  rtc::SentPacket sent_packet(options.packet_id, rtc::TimeMillis());
+  rtc::SentPacket sent_packet(options.packet_id, rtc::TimeMillis(),
+                              options.info_signaled_after_sent);
+  CopySocketInformationToPacketInfo(cb, *this, false, &sent_packet.info);
   SignalSentPacket(this, sent_packet);
 
   // We claim to have sent the whole thing, even if we only sent partial
   return static_cast<int>(cb);
 }
 
-void AsyncTCPSocket::ProcessInput(char * data, size_t* len) {
+void AsyncTCPSocket::ProcessInput(char* data, size_t* len) {
   SocketAddress remote_addr(GetRemoteAddress());
 
   while (true) {

@@ -51,11 +51,10 @@
 #ifndef CHATSERVER_H
 #define CHATSERVER_H
 
-#include <qbluetoothserviceinfo.h>
-#include <qbluetoothaddress.h>
+#include <QtCore/qobject.h>
 
-#include <QtCore/QObject>
-#include <QtCore/QList>
+#include <QtBluetooth/qbluetoothaddress.h>
+#include <QtBluetooth/qbluetoothserviceinfo.h>
 
 QT_FORWARD_DECLARE_CLASS(QBluetoothServer)
 QT_FORWARD_DECLARE_CLASS(QBluetoothSocket)
@@ -68,7 +67,7 @@ class ChatServer : public QObject
     Q_OBJECT
 
 public:
-    explicit ChatServer(QObject *parent = 0);
+    explicit ChatServer(QObject *parent = nullptr);
     ~ChatServer();
 
     void startServer(const QBluetoothAddress &localAdapter = QBluetoothAddress());
@@ -88,7 +87,7 @@ private slots:
     void readSocket();
 
 private:
-    QBluetoothServer *rfcommServer;
+    QBluetoothServer *rfcommServer = nullptr;
     QBluetoothServiceInfo serviceInfo;
     QList<QBluetoothSocket *> clientSockets;
 };

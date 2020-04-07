@@ -1,19 +1,19 @@
-/***************************************************************************/
-/*                                                                         */
-/*  ftstroke.h                                                             */
-/*                                                                         */
-/*    FreeType path stroker (specification).                               */
-/*                                                                         */
-/*  Copyright 2002-2017 by                                                 */
-/*  David Turner, Robert Wilhelm, and Werner Lemberg.                      */
-/*                                                                         */
-/*  This file is part of the FreeType project, and may only be used,       */
-/*  modified, and distributed under the terms of the FreeType project      */
-/*  license, LICENSE.TXT.  By continuing to use, modify, or distribute     */
-/*  this file you indicate that you have read the license and              */
-/*  understand and accept it fully.                                        */
-/*                                                                         */
-/***************************************************************************/
+/****************************************************************************
+ *
+ * ftstroke.h
+ *
+ *   FreeType path stroker (specification).
+ *
+ * Copyright 2002-2018 by
+ * David Turner, Robert Wilhelm, and Werner Lemberg.
+ *
+ * This file is part of the FreeType project, and may only be used,
+ * modified, and distributed under the terms of the FreeType project
+ * license, LICENSE.TXT.  By continuing to use, modify, or distribute
+ * this file you indicate that you have read the license and
+ * understand and accept it fully.
+ *
+ */
 
 
 #ifndef FTSTROKE_H_
@@ -27,68 +27,68 @@
 FT_BEGIN_HEADER
 
 
- /************************************************************************
-  *
-  * @section:
-  *    glyph_stroker
-  *
-  * @title:
-  *    Glyph Stroker
-  *
-  * @abstract:
-  *    Generating bordered and stroked glyphs.
-  *
-  * @description:
-  *    This component generates stroked outlines of a given vectorial
-  *    glyph.  It also allows you to retrieve the `outside' and/or the
-  *    `inside' borders of the stroke.
-  *
-  *    This can be useful to generate `bordered' glyph, i.e., glyphs
-  *    displayed with a coloured (and anti-aliased) border around their
-  *    shape.
-  *
-  * @order:
-  *    FT_Stroker
-  *
-  *    FT_Stroker_LineJoin
-  *    FT_Stroker_LineCap
-  *    FT_StrokerBorder
-  *
-  *    FT_Outline_GetInsideBorder
-  *    FT_Outline_GetOutsideBorder
-  *
-  *    FT_Glyph_Stroke
-  *    FT_Glyph_StrokeBorder
-  *
-  *    FT_Stroker_New
-  *    FT_Stroker_Set
-  *    FT_Stroker_Rewind
-  *    FT_Stroker_ParseOutline
-  *    FT_Stroker_Done
-  *
-  *    FT_Stroker_BeginSubPath
-  *    FT_Stroker_EndSubPath
-  *
-  *    FT_Stroker_LineTo
-  *    FT_Stroker_ConicTo
-  *    FT_Stroker_CubicTo
-  *
-  *    FT_Stroker_GetBorderCounts
-  *    FT_Stroker_ExportBorder
-  *    FT_Stroker_GetCounts
-  *    FT_Stroker_Export
-  *
-  */
+  /************************************************************************
+   *
+   * @section:
+   *    glyph_stroker
+   *
+   * @title:
+   *    Glyph Stroker
+   *
+   * @abstract:
+   *    Generating bordered and stroked glyphs.
+   *
+   * @description:
+   *    This component generates stroked outlines of a given vectorial
+   *    glyph.  It also allows you to retrieve the `outside' and/or the
+   *    `inside' borders of the stroke.
+   *
+   *    This can be useful to generate `bordered' glyph, i.e., glyphs
+   *    displayed with a coloured (and anti-aliased) border around their
+   *    shape.
+   *
+   * @order:
+   *    FT_Stroker
+   *
+   *    FT_Stroker_LineJoin
+   *    FT_Stroker_LineCap
+   *    FT_StrokerBorder
+   *
+   *    FT_Outline_GetInsideBorder
+   *    FT_Outline_GetOutsideBorder
+   *
+   *    FT_Glyph_Stroke
+   *    FT_Glyph_StrokeBorder
+   *
+   *    FT_Stroker_New
+   *    FT_Stroker_Set
+   *    FT_Stroker_Rewind
+   *    FT_Stroker_ParseOutline
+   *    FT_Stroker_Done
+   *
+   *    FT_Stroker_BeginSubPath
+   *    FT_Stroker_EndSubPath
+   *
+   *    FT_Stroker_LineTo
+   *    FT_Stroker_ConicTo
+   *    FT_Stroker_CubicTo
+   *
+   *    FT_Stroker_GetBorderCounts
+   *    FT_Stroker_ExportBorder
+   *    FT_Stroker_GetCounts
+   *    FT_Stroker_Export
+   *
+   */
 
 
- /**************************************************************
-  *
-  * @type:
-  *   FT_Stroker
-  *
-  * @description:
-  *   Opaque handle to a path stroker object.
-  */
+  /**************************************************************
+   *
+   * @type:
+   *   FT_Stroker
+   *
+   * @description:
+   *   Opaque handle to a path stroker object.
+   */
   typedef struct FT_StrokerRec_*  FT_Stroker;
 
 
@@ -466,7 +466,7 @@ FT_BEGIN_HEADER
    *   FT_Stroker_ConicTo
    *
    * @description:
-   *   `Draw' a single quadratic Bézier in the stroker's current sub-path,
+   *   `Draw' a single quadratic Bezier in the stroker's current sub-path,
    *   from the last position.
    *
    * @input:
@@ -474,7 +474,7 @@ FT_BEGIN_HEADER
    *     The target stroker handle.
    *
    *   control ::
-   *     A pointer to a Bézier control point.
+   *     A pointer to a Bezier control point.
    *
    *   to ::
    *     A pointer to the destination point.
@@ -498,7 +498,7 @@ FT_BEGIN_HEADER
    *   FT_Stroker_CubicTo
    *
    * @description:
-   *   `Draw' a single cubic Bézier in the stroker's current sub-path,
+   *   `Draw' a single cubic Bezier in the stroker's current sub-path,
    *   from the last position.
    *
    * @input:
@@ -506,10 +506,10 @@ FT_BEGIN_HEADER
    *     The target stroker handle.
    *
    *   control1 ::
-   *     A pointer to the first Bézier control point.
+   *     A pointer to the first Bezier control point.
    *
    *   control2 ::
-   *     A pointer to second Bézier control point.
+   *     A pointer to second Bezier control point.
    *
    *   to ::
    *     A pointer to the destination point.

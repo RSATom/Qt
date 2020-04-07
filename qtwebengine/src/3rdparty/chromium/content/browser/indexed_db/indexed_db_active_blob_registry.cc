@@ -116,7 +116,7 @@ void IndexedDBActiveBlobRegistry::ReleaseBlobRefThreadSafe(
                                 weak_ptr, database_id, blob_key));
 }
 
-storage::ShareableFileReference::FinalReleaseCallback
+IndexedDBBlobInfo::ReleaseCallback
 IndexedDBActiveBlobRegistry::GetFinalReleaseCallback(int64_t database_id,
                                                      int64_t blob_key) {
   return base::Bind(
@@ -135,7 +135,7 @@ base::Closure IndexedDBActiveBlobRegistry::GetAddBlobRefCallback(
 void IndexedDBActiveBlobRegistry::ForceShutdown() {
   weak_factory_.InvalidateWeakPtrs();
   use_tracker_.clear();
-  backing_store_ = NULL;
+  backing_store_ = nullptr;
 }
 
 }  // namespace content

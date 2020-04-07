@@ -9,7 +9,6 @@
 #include "base/bind.h"
 #include "base/location.h"
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -28,7 +27,7 @@ void CacheStorageScheduler::ScheduleOperation(base::OnceClosure closure) {
   CACHE_STORAGE_SCHEDULER_UMA(COUNTS_10000, "QueueLength", client_type_,
                               pending_operations_.size());
 
-  pending_operations_.push_back(base::MakeUnique<CacheStorageOperation>(
+  pending_operations_.push_back(std::make_unique<CacheStorageOperation>(
       std::move(closure), client_type_, base::ThreadTaskRunnerHandle::Get()));
   RunOperationIfIdle();
 }

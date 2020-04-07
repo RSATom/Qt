@@ -961,6 +961,14 @@
         <source>Grid</source>
         <translation>Raster</translation>
     </message>
+    <message>
+        <source>Translations</source>
+        <translation>Übersetzungen</translation>
+    </message>
+    <message>
+        <source>ID-based</source>
+        <translation>ID-basiert</translation>
+    </message>
 </context>
 <context>
     <name>IconSelector</name>
@@ -1104,20 +1112,20 @@
         <translation>Lesefehler</translation>
     </message>
     <message>
+        <source>A temporary form file could not be created in %1: %2</source>
+        <translation>Es konnte keine temporäre Formular-Datei in %1 erzeugt werden: %2</translation>
+    </message>
+    <message>
+        <source>The temporary form file %1 could not be written: %2</source>
+        <translation>Die temporäre Formulardatei %1 konnte nicht geschrieben werden: %2</translation>
+    </message>
+    <message>
         <source>New Form</source>
         <translation>Neues Formular</translation>
     </message>
     <message>
         <source>Show this Dialog on Startup</source>
         <translation>Diesen Dialog zu Beginn anzeigen</translation>
-    </message>
-    <message>
-        <source>A temporary form file could not be created in %1.</source>
-        <translation>In dem Verzeichnis %1 konnte keine temporäre Formulardatei angelegt werden.</translation>
-    </message>
-    <message>
-        <source>The temporary form file %1 could not be written.</source>
-        <translation>Die temporäre Formulardatei %1 konnte nicht geschrieben werden.</translation>
     </message>
 </context>
 <context>
@@ -3628,6 +3636,10 @@ Möchten Sie sie überschreiben?</translation>
 </context>
 <context>
     <name>qdesigner_internal::DesignerPropertyManager</name>
+    <message>
+        <source>id</source>
+        <translation>id</translation>
+    </message>
     <message>
         <source>AlignLeft</source>
         <translation>Linksbündig ausrichten</translation>

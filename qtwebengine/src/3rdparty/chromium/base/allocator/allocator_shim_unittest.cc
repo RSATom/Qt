@@ -11,7 +11,8 @@
 #include <new>
 #include <vector>
 
-#include "base/allocator/features.h"
+#include "base/allocator/buildflags.h"
+#include "base/allocator/partition_allocator/partition_alloc.h"
 #include "base/atomicops.h"
 #include "base/process/process_metrics.h"
 #include "base/synchronization/waitable_event.h"
@@ -54,7 +55,7 @@ using testing::_;
 
 class AllocatorShimTest : public testing::Test {
  public:
-  static const size_t kMaxSizeTracked = 8192;
+  static const size_t kMaxSizeTracked = 2 * base::kSystemPageSize;
   AllocatorShimTest() : testing::Test() {}
 
   static size_t Hash(const void* ptr) {

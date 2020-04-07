@@ -4,6 +4,7 @@
 
 #include "chrome/browser/extensions/api/developer_private/extension_info_generator.h"
 
+#include <iterator>
 #include <string>
 #include <utility>
 #include <vector>
@@ -39,7 +40,6 @@
 #include "extensions/browser/path_util.h"
 #include "extensions/browser/warning_service.h"
 #include "extensions/common/extension_set.h"
-#include "extensions/common/feature_switch.h"
 #include "extensions/common/install_warning.h"
 #include "extensions/common/manifest.h"
 #include "extensions/common/manifest_handlers/background_info.h"
@@ -47,6 +47,8 @@
 #include "extensions/common/manifest_handlers/offline_enabled_info.h"
 #include "extensions/common/manifest_handlers/options_page_info.h"
 #include "extensions/common/manifest_url_handlers.h"
+#include "extensions/common/permissions/permission_message_provider.h"
+#include "extensions/common/permissions/permission_message_util.h"
 #include "extensions/common/permissions/permissions_data.h"
 #include "extensions/grit/extensions_browser_resources.h"
 #include "third_party/skia/include/core/SkBitmap.h"
@@ -138,6 +140,7 @@ developer::RuntimeError ConstructRuntimeError(const RuntimeError& error) {
     default:
       NOTREACHED();
   }
+  result.context_url = error.context_url().spec();
   result.occurrences = error.occurrences();
   // NOTE(devlin): This is called "render_view_id" in the api for legacy
   // reasons, but it's not a high priority to change.
@@ -219,6 +222,79 @@ void ConstructCommands(CommandService* command_service,
   }
 }
 
+// Populates the |permissions| data for the given |extension|.
+void AddPermissionsInfo(content::BrowserContext* browser_context,
+                        const Extension& extension,
+                        developer::Permissions* permissions) {
+  auto get_permission_messages = [](const PermissionMessages& messages) {
+    std::vector<developer::Permission> permissions;
+    permissions.reserve(messages.size());
+    for (const PermissionMessage& message : messages) {
+      permissions.push_back(developer::Permission());
+      developer::Permission& permission_message = permissions.back();
+      permission_message.message = base::UTF16ToUTF8(message.message());
+      permission_message.submessages.reserve(message.submessages().size());
+      for (const auto& submessage : message.submessages())
+        permission_message.submessages.push_back(base::UTF16ToUTF8(submessage));
+    }
+    return permissions;
+  };
+
+  ScriptingPermissionsModifier permissions_modifier(
+      browser_context, base::WrapRefCounted(&extension));
+  bool enable_runtime_host_permissions =
+      permissions_modifier.CanAffectExtension();
+
+  if (!enable_runtime_host_permissions) {
+    // Without runtime host permissions, everything goes into
+    // simple_permissions.
+    permissions->simple_permissions = get_permission_messages(
+        extension.permissions_data()->GetPermissionMessages());
+    return;
+  }
+
+  // With runtime host permissions, we separate out API permission messages
+  // from host permissions.
+  const PermissionSet& active_permissions =
+      extension.permissions_data()->active_permissions();
+  PermissionSet non_host_permissions(active_permissions.apis(),
+                                     active_permissions.manifest_permissions(),
+                                     URLPatternSet(), URLPatternSet());
+  const PermissionMessageProvider* message_provider =
+      PermissionMessageProvider::Get();
+  // Generate the messages for just the API (and manifest) permissions.
+  PermissionMessages api_messages = message_provider->GetPermissionMessages(
+      message_provider->GetAllPermissionIDs(non_host_permissions,
+                                            extension.GetType()));
+  permissions->simple_permissions = get_permission_messages(api_messages);
+
+  // Add the host access data, including the mode and any runtime-granted
+  // hosts.
+  if (!permissions_modifier.HasWithheldHostPermissions()) {
+    permissions->host_access = developer::HOST_ACCESS_ON_ALL_SITES;
+  } else {
+    constexpr bool include_rcd = true;
+    constexpr bool exclude_file_scheme = true;
+    std::set<std::string> distinct_hosts =
+        permission_message_util::GetDistinctHosts(
+            active_permissions.effective_hosts(), include_rcd,
+            exclude_file_scheme);
+    // TODO(devlin): This isn't quite right - it's possible the user just
+    // selected "on specific sites" from the dropdown, and hasn't yet added
+    // any sites. We'll need to handle this.
+    // https://crbug.com/844128.
+    if (!distinct_hosts.empty()) {
+      permissions->host_access = developer::HOST_ACCESS_ON_SPECIFIC_SITES;
+      permissions->runtime_host_permissions =
+          std::make_unique<std::vector<std::string>>(
+              std::make_move_iterator(distinct_hosts.begin()),
+              std::make_move_iterator(distinct_hosts.end()));
+    } else {
+      permissions->host_access = developer::HOST_ACCESS_ON_CLICK;
+    }
+  }
+}
+
 }  // namespace
 
 ExtensionInfoGenerator::ExtensionInfoGenerator(
@@ -260,7 +336,7 @@ void ExtensionInfoGenerator::CreateExtensionInfo(
   if (pending_image_loads_ == 0) {
     // Don't call the callback re-entrantly.
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::BindOnce(callback, base::Passed(&list_)));
+        FROM_HERE, base::BindOnce(callback, std::move(list_)));
     list_.clear();
   } else {
     callback_ = callback;
@@ -298,7 +374,7 @@ void ExtensionInfoGenerator::CreateExtensionsInfo(
   if (pending_image_loads_ == 0) {
     // Don't call the callback re-entrantly.
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::BindOnce(callback, base::Passed(&list_)));
+        FROM_HERE, base::BindOnce(callback, std::move(list_)));
     list_.clear();
   } else {
     callback_ = callback;
@@ -315,16 +391,16 @@ void ExtensionInfoGenerator::CreateExtensionInfoHelper(
   int blacklist_text = -1;
   switch (extension_prefs_->GetExtensionBlacklistState(extension.id())) {
     case BLACKLISTED_MALWARE:
-      blacklist_text = IDS_OPTIONS_BLACKLISTED_MALWARE;
+      blacklist_text = IDS_EXTENSIONS_BLACKLISTED_MALWARE;
       break;
     case BLACKLISTED_SECURITY_VULNERABILITY:
-      blacklist_text = IDS_OPTIONS_BLACKLISTED_SECURITY_VULNERABILITY;
+      blacklist_text = IDS_EXTENSIONS_BLACKLISTED_SECURITY_VULNERABILITY;
       break;
     case BLACKLISTED_CWS_POLICY_VIOLATION:
-      blacklist_text = IDS_OPTIONS_BLACKLISTED_CWS_POLICY_VIOLATION;
+      blacklist_text = IDS_EXTENSIONS_BLACKLISTED_CWS_POLICY_VIOLATION;
       break;
     case BLACKLISTED_POTENTIALLY_UNWANTED:
-      blacklist_text = IDS_OPTIONS_BLACKLISTED_POTENTIALLY_UNWANTED;
+      blacklist_text = IDS_EXTENSIONS_BLACKLISTED_POTENTIALLY_UNWANTED;
       break;
     default:
       break;
@@ -343,7 +419,7 @@ void ExtensionInfoGenerator::CreateExtensionInfoHelper(
     if (is_policy_location) {
       info->controlled_info->type = developer::CONTROLLER_TYPE_POLICY;
       info->controlled_info->text =
-          l10n_util::GetStringUTF8(IDS_OPTIONS_INSTALL_LOCATION_ENTERPRISE);
+          l10n_util::GetStringUTF8(IDS_EXTENSIONS_INSTALL_LOCATION_ENTERPRISE);
     } else if (profile->IsChild()) {
       info->controlled_info->type = developer::CONTROLLER_TYPE_CHILD_CUSTODIAN;
       info->controlled_info->text = l10n_util::GetStringUTF8(
@@ -382,11 +458,12 @@ void ExtensionInfoGenerator::CreateExtensionInfoHelper(
   // Disable reasons.
   int disable_reasons = extension_prefs_->GetDisableReasons(extension.id());
   info->disable_reasons.suspicious_install =
-      (disable_reasons & Extension::DISABLE_NOT_VERIFIED) != 0;
+      (disable_reasons & disable_reason::DISABLE_NOT_VERIFIED) != 0;
   info->disable_reasons.corrupt_install =
-      (disable_reasons & Extension::DISABLE_CORRUPTED) != 0;
+      (disable_reasons & disable_reason::DISABLE_CORRUPTED) != 0;
   info->disable_reasons.update_required =
-      (disable_reasons & Extension::DISABLE_UPDATE_REQUIRED_BY_POLICY) != 0;
+      (disable_reasons & disable_reason::DISABLE_UPDATE_REQUIRED_BY_POLICY) !=
+      0;
 
   // Error collection.
   bool error_console_enabled =
@@ -399,7 +476,8 @@ void ExtensionInfoGenerator::CreateExtensionInfoHelper(
   // File access.
   ManagementPolicy* management_policy = extension_system_->management_policy();
   info->file_access.is_enabled =
-      extension.wants_file_access() &&
+      (extension.wants_file_access() ||
+       Manifest::ShouldAlwaysAllowFileAccess(extension.location())) &&
       management_policy->UserMayModifySettings(&extension, nullptr);
   info->file_access.is_active =
       util::AllowFileAccess(extension.id(), browser_context_);
@@ -407,6 +485,13 @@ void ExtensionInfoGenerator::CreateExtensionInfoHelper(
   // Home page.
   info->home_page.url = ManifestURL::GetHomepageURL(&extension).spec();
   info->home_page.specified = ManifestURL::SpecifiedHomepageURL(&extension);
+
+  // Developer and web store URLs.
+  // TODO(dschuyler) after MD extensions releases (expected in m64), look into
+  // removing the |home_page.url| and |home_page.specified| above.
+  info->manifest_home_page_url =
+      ManifestURL::GetManifestHomePageURL(&extension).spec();
+  info->web_store_url = ManifestURL::GetWebStoreURL(&extension).spec();
 
   info->id = extension.id();
 
@@ -449,11 +534,11 @@ void ExtensionInfoGenerator::CreateExtensionInfoHelper(
   // Location text.
   int location_text = -1;
   if (info->location == developer::LOCATION_UNKNOWN)
-    location_text = IDS_OPTIONS_INSTALL_LOCATION_UNKNOWN;
+    location_text = IDS_EXTENSIONS_INSTALL_LOCATION_UNKNOWN;
   else if (extension.location() == Manifest::EXTERNAL_REGISTRY)
-    location_text = IDS_OPTIONS_INSTALL_LOCATION_3RD_PARTY;
+    location_text = IDS_EXTENSIONS_INSTALL_LOCATION_3RD_PARTY;
   else if (extension.is_shared_module())
-    location_text = IDS_OPTIONS_INSTALL_LOCATION_SHARED_MODULE;
+    location_text = IDS_EXTENSIONS_INSTALL_LOCATION_SHARED_MODULE;
   if (location_text != -1) {
     info->location_text.reset(
         new std::string(l10n_util::GetStringUTF8(location_text)));
@@ -506,23 +591,7 @@ void ExtensionInfoGenerator::CreateExtensionInfoHelper(
       extensions::path_util::PrettifyPath(extension.path()).AsUTF8Unsafe()));
   }
 
-  // Permissions.
-  PermissionMessages messages =
-      extension.permissions_data()->GetPermissionMessages();
-  // TODO(devlin): We need to include retained device/file info. We also need
-  // to indicate which can be removed and which can't.
-  for (const PermissionMessage& message : messages)
-    info->permissions.push_back(base::UTF16ToUTF8(message.message()));
-
-  // Runs on all urls.
-  ScriptingPermissionsModifier permissions_modifier(
-      browser_context_, make_scoped_refptr(&extension));
-  info->run_on_all_urls.is_enabled =
-      (FeatureSwitch::scripts_require_action()->IsEnabled() &&
-       permissions_modifier.CanAffectExtension(
-           extension.permissions_data()->active_permissions())) ||
-      permissions_modifier.HasAffectedExtension();
-  info->run_on_all_urls.is_active = permissions_modifier.IsAllowedOnAllUrls();
+  AddPermissionsInfo(browser_context_, extension, &info->permissions);
 
   // Runtime warnings.
   std::vector<std::string> warnings =
@@ -582,30 +651,16 @@ const std::string& ExtensionInfoGenerator::GetDefaultIconUrl(
   if (str->empty()) {
     *str = GetIconUrlFromImage(
         ui::ResourceBundle::GetSharedInstance().GetImageNamed(
-            is_app ? IDR_APP_DEFAULT_ICON : IDR_EXTENSION_DEFAULT_ICON),
-        is_greyscale);
+            is_app ? IDR_APP_DEFAULT_ICON : IDR_EXTENSION_DEFAULT_ICON));
   }
 
   return *str;
 }
 
 std::string ExtensionInfoGenerator::GetIconUrlFromImage(
-    const gfx::Image& image,
-    bool should_greyscale) {
+    const gfx::Image& image) {
   scoped_refptr<base::RefCountedMemory> data;
-  if (should_greyscale) {
-    color_utils::HSL shift = {-1, 0, 0.6};
-    const SkBitmap* bitmap = image.ToSkBitmap();
-    DCHECK(bitmap);
-    SkBitmap grey = SkBitmapOperations::CreateHSLShiftedBitmap(*bitmap, shift);
-    scoped_refptr<base::RefCountedBytes> image_bytes(
-        new base::RefCountedBytes());
-    gfx::PNGCodec::EncodeBGRASkBitmap(grey, false, &image_bytes->data());
-    data = image_bytes;
-  } else {
-    data = image.As1xPNGBytes();
-  }
-
+  data = image.As1xPNGBytes();
   std::string base_64;
   base::Base64Encode(base::StringPiece(data->front_as<char>(), data->size()),
                      &base_64);
@@ -617,8 +672,7 @@ void ExtensionInfoGenerator::OnImageLoaded(
     std::unique_ptr<developer::ExtensionInfo> info,
     const gfx::Image& icon) {
   if (!icon.IsEmpty()) {
-    info->icon_url = GetIconUrlFromImage(
-        icon, info->state != developer::EXTENSION_STATE_ENABLED);
+    info->icon_url = GetIconUrlFromImage(icon);
   } else {
     bool is_app =
         info->type == developer::EXTENSION_TYPE_HOSTED_APP ||

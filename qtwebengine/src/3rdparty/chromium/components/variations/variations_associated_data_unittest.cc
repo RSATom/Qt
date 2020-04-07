@@ -37,8 +37,7 @@ scoped_refptr<base::FieldTrial> CreateFieldTrial(
 
 class VariationsAssociatedDataTest : public ::testing::Test {
  public:
-  VariationsAssociatedDataTest() : field_trial_list_(NULL) {
-  }
+  VariationsAssociatedDataTest() : field_trial_list_(nullptr) {}
 
   ~VariationsAssociatedDataTest() override {
     // Ensure that the maps are cleared between tests, since they are stored as
@@ -71,7 +70,7 @@ TEST_F(VariationsAssociatedDataTest, DisableAfterInitialization) {
   const std::string non_default_name = "non_default";
 
   scoped_refptr<base::FieldTrial> trial(
-      CreateFieldTrial("trial", 100, default_name, NULL));
+      CreateFieldTrial("trial", 100, default_name, nullptr));
 
   trial->AppendGroup(non_default_name, 100);
   AssociateGoogleVariationID(GOOGLE_WEB_PROPERTIES, trial->trial_name(),
@@ -87,7 +86,7 @@ TEST_F(VariationsAssociatedDataTest, DisableAfterInitialization) {
 TEST_F(VariationsAssociatedDataTest, AssociateGoogleVariationID) {
   const std::string default_name1 = "default";
   scoped_refptr<base::FieldTrial> trial_true(
-      CreateFieldTrial("d1", 10, default_name1, NULL));
+      CreateFieldTrial("d1", 10, default_name1, nullptr));
   const std::string winner = "TheWinner";
   int winner_group = trial_true->AppendGroup(winner, 10);
 
@@ -104,7 +103,7 @@ TEST_F(VariationsAssociatedDataTest, AssociateGoogleVariationID) {
 
   const std::string default_name2 = "default2";
   scoped_refptr<base::FieldTrial> trial_false(
-      CreateFieldTrial("d2", 10, default_name2, NULL));
+      CreateFieldTrial("d2", 10, default_name2, nullptr));
   const std::string loser = "ALoser";
   const int loser_group = trial_false->AppendGroup(loser, 0);
 
@@ -123,7 +122,7 @@ TEST_F(VariationsAssociatedDataTest, AssociateGoogleVariationID) {
 TEST_F(VariationsAssociatedDataTest, NoAssociation) {
   const std::string default_name = "default";
   scoped_refptr<base::FieldTrial> no_id_trial(
-      CreateFieldTrial("d3", 10, default_name, NULL));
+      CreateFieldTrial("d3", 10, default_name, nullptr));
 
   const std::string winner = "TheWinner";
   const int winner_group = no_id_trial->AppendGroup(winner, 10);
@@ -167,21 +166,21 @@ TEST_F(VariationsAssociatedDataTest, CollectionsCoexist) {
   EXPECT_EQ(EMPTY_ID,
             GetIDForTrial(GOOGLE_WEB_PROPERTIES_TRIGGER, trial_true.get()));
   EXPECT_EQ(EMPTY_ID,
-            GetIDForTrial(CHROME_SYNC_SERVICE, trial_true.get()));
+            GetIDForTrial(CHROME_SYNC_EVENT_LOGGER, trial_true.get()));
 
   AssociateGoogleVariationID(GOOGLE_WEB_PROPERTIES, trial_true->trial_name(),
       default_name, TEST_VALUE_A);
   EXPECT_EQ(TEST_VALUE_A,
             GetIDForTrial(GOOGLE_WEB_PROPERTIES, trial_true.get()));
   EXPECT_EQ(EMPTY_ID,
-            GetIDForTrial(CHROME_SYNC_SERVICE, trial_true.get()));
+            GetIDForTrial(CHROME_SYNC_EVENT_LOGGER, trial_true.get()));
 
-  AssociateGoogleVariationID(CHROME_SYNC_SERVICE, trial_true->trial_name(),
-      default_name, TEST_VALUE_A);
+  AssociateGoogleVariationID(CHROME_SYNC_EVENT_LOGGER, trial_true->trial_name(),
+                             default_name, TEST_VALUE_A);
   EXPECT_EQ(TEST_VALUE_A,
             GetIDForTrial(GOOGLE_WEB_PROPERTIES, trial_true.get()));
   EXPECT_EQ(TEST_VALUE_A,
-            GetIDForTrial(CHROME_SYNC_SERVICE, trial_true.get()));
+            GetIDForTrial(CHROME_SYNC_EVENT_LOGGER, trial_true.get()));
 
   trial_true = CreateFieldTrial("d2", 10, default_name, &default_group_number);
   ASSERT_EQ(default_group_number, trial_true->group());
@@ -193,14 +192,14 @@ TEST_F(VariationsAssociatedDataTest, CollectionsCoexist) {
   EXPECT_EQ(TEST_VALUE_A,
             GetIDForTrial(GOOGLE_WEB_PROPERTIES_TRIGGER, trial_true.get()));
   EXPECT_EQ(EMPTY_ID,
-            GetIDForTrial(CHROME_SYNC_SERVICE, trial_true.get()));
+            GetIDForTrial(CHROME_SYNC_EVENT_LOGGER, trial_true.get()));
 
-  AssociateGoogleVariationID(CHROME_SYNC_SERVICE, trial_true->trial_name(),
-      default_name, TEST_VALUE_A);
+  AssociateGoogleVariationID(CHROME_SYNC_EVENT_LOGGER, trial_true->trial_name(),
+                             default_name, TEST_VALUE_A);
   EXPECT_EQ(TEST_VALUE_A,
             GetIDForTrial(GOOGLE_WEB_PROPERTIES_TRIGGER, trial_true.get()));
   EXPECT_EQ(TEST_VALUE_A,
-            GetIDForTrial(CHROME_SYNC_SERVICE, trial_true.get()));
+            GetIDForTrial(CHROME_SYNC_EVENT_LOGGER, trial_true.get()));
 }
 
 }  // namespace variations

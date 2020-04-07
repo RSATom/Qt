@@ -36,7 +36,7 @@ class Speedometer : public SpeedometerSimpleSource
     Q_OBJECT
 public:
     Speedometer(QObject *parent = nullptr);
-    virtual ~Speedometer();
+    ~Speedometer() override;
 
 private:
     int speed;

@@ -5,6 +5,7 @@
 #ifndef COMPONENTS_PROXIMITY_AUTH_SECURE_MESSAGE_DELEGATE_H_
 #define COMPONENTS_PROXIMITY_AUTH_SECURE_MESSAGE_DELEGATE_H_
 
+#include <memory>
 #include <string>
 
 #include "base/callback_forward.h"

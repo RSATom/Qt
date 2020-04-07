@@ -123,6 +123,18 @@ class BindingSetBase {
     return true;
   }
 
+  // Swaps the interface implementation with a different one, to allow tests
+  // to modify behavior.
+  //
+  // Returns the existing interface implementation to the caller.
+  ImplPointerType SwapImplForTesting(BindingId id, ImplPointerType new_impl) {
+    auto it = bindings_.find(id);
+    if (it == bindings_.end())
+      return nullptr;
+
+    return it->second->SwapImplForTesting(new_impl);
+  }
+
   void CloseAllBindings() { bindings_.clear(); }
 
   bool empty() const { return bindings_.empty(); }
@@ -167,11 +179,11 @@ class BindingSetBase {
   // The returned callback must be called on the BindingSet's own sequence.
   ReportBadMessageCallback GetBadMessageCallback() {
     DCHECK(dispatch_context_);
-    return base::Bind(
-        [](const ReportBadMessageCallback& error_callback,
+    return base::BindOnce(
+        [](ReportBadMessageCallback error_callback,
            base::WeakPtr<BindingSetBase> binding_set, BindingId binding_id,
            const std::string& error) {
-          error_callback.Run(error);
+          std::move(error_callback).Run(error);
           if (binding_set)
             binding_set->RemoveBinding(binding_id);
         },
@@ -209,12 +221,16 @@ class BindingSetBase {
           binding_set_(binding_set),
           binding_id_(binding_id),
           context_(std::move(context)) {
-      binding_.AddFilter(base::MakeUnique<DispatchFilter>(this));
+      binding_.AddFilter(std::make_unique<DispatchFilter>(this));
       binding_.set_connection_error_with_reason_handler(
           base::BindOnce(&Entry::OnConnectionError, base::Unretained(this)));
     }
 
     void FlushForTesting() { binding_.FlushForTesting(); }
+
+    ImplPointerType SwapImplForTesting(ImplPointerType new_impl) {
+      return binding_.SwapImplForTesting(new_impl);
+    }
 
    private:
     class DispatchFilter : public MessageReceiver {
@@ -264,7 +280,7 @@ class BindingSetBase {
                            Context context) {
     BindingId id = next_binding_id_++;
     DCHECK_GE(next_binding_id_, 0u);
-    auto entry = base::MakeUnique<Entry>(std::move(impl), std::move(request),
+    auto entry = std::make_unique<Entry>(std::move(impl), std::move(request),
                                          this, id, std::move(context));
     bindings_.insert(std::make_pair(id, std::move(entry)));
     return id;

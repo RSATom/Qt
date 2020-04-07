@@ -20,6 +20,7 @@
 #include "xfa/fxfa/cxfa_ffwidget.h"
 #include "xfa/fxfa/cxfa_ffwidgethandler.h"
 #include "xfa/fxfa/fxfa_basic.h"
+#include "xfa/fxfa/parser/cxfa_node.h"
 #include "xfa/fxgraphics/cxfa_graphics.h"
 
 CPDFSDK_XFAWidgetHandler::CPDFSDK_XFAWidgetHandler(
@@ -60,7 +61,7 @@ void CPDFSDK_XFAWidgetHandler::OnDraw(CPDFSDK_PageView* pPageView,
   if (pPageView->GetFormFillEnv()->GetFocusAnnot() != pAnnot)
     bIsHighlight = true;
 
-  GetXFAWidgetHandler(pAnnot)->RenderWidget(pAnnot->GetXFAWidget(), &gs, &mt,
+  GetXFAWidgetHandler(pAnnot)->RenderWidget(pAnnot->GetXFAWidget(), &gs, mt,
                                             bIsHighlight);
 
   // to do highlight and shadow
@@ -69,7 +70,7 @@ void CPDFSDK_XFAWidgetHandler::OnDraw(CPDFSDK_PageView* pPageView,
 void CPDFSDK_XFAWidgetHandler::OnLoad(CPDFSDK_Annot* pAnnot) {}
 
 void CPDFSDK_XFAWidgetHandler::ReleaseAnnot(CPDFSDK_Annot* pAnnot) {
-  CPDFSDK_XFAWidget* pWidget = reinterpret_cast<CPDFSDK_XFAWidget*>(pAnnot);
+  CPDFSDK_XFAWidget* pWidget = static_cast<CPDFSDK_XFAWidget*>(pAnnot);
   CPDFSDK_InterForm* pInterForm = pWidget->GetInterForm();
   pInterForm->RemoveXFAMap(pWidget->GetXFAWidget());
 
@@ -80,9 +81,11 @@ CFX_FloatRect CPDFSDK_XFAWidgetHandler::GetViewBBox(CPDFSDK_PageView* pPageView,
                                                     CPDFSDK_Annot* pAnnot) {
   ASSERT(pAnnot);
 
+  CXFA_Node* node = pAnnot->GetXFAWidget()->GetNode();
+  ASSERT(node->IsWidgetReady());
+
   CFX_RectF rcBBox;
-  XFA_Element eType = pAnnot->GetXFAWidget()->GetDataAcc()->GetUIType();
-  if (eType == XFA_Element::Signature)
+  if (node->GetFFWidgetType() == XFA_FFWidgetType::kSignature)
     rcBBox = pAnnot->GetXFAWidget()->GetBBox(XFA_WidgetStatus_Visible, true);
   else
     rcBBox = pAnnot->GetXFAWidget()->GetBBox(XFA_WidgetStatus_None);
@@ -97,9 +100,57 @@ CFX_FloatRect CPDFSDK_XFAWidgetHandler::GetViewBBox(CPDFSDK_PageView* pPageView,
   return rcWidget;
 }
 
-CFX_WideString CPDFSDK_XFAWidgetHandler::GetSelectedText(
-    CPDFSDK_Annot* pAnnot) {
-  return CFX_WideString();
+WideString CPDFSDK_XFAWidgetHandler::GetText(CPDFSDK_Annot* pAnnot) {
+  if (!pAnnot)
+    return WideString();
+
+  CXFA_FFWidgetHandler* pWidgetHandler = GetXFAWidgetHandler(pAnnot);
+  return pWidgetHandler->GetText(pAnnot->GetXFAWidget());
+}
+
+WideString CPDFSDK_XFAWidgetHandler::GetSelectedText(CPDFSDK_Annot* pAnnot) {
+  if (!pAnnot)
+    return WideString();
+
+  CXFA_FFWidgetHandler* pWidgetHandler = GetXFAWidgetHandler(pAnnot);
+  return pWidgetHandler->GetSelectedText(pAnnot->GetXFAWidget());
+}
+
+void CPDFSDK_XFAWidgetHandler::ReplaceSelection(CPDFSDK_Annot* pAnnot,
+                                                const WideString& text) {
+  if (!pAnnot)
+    return;
+
+  CXFA_FFWidgetHandler* pWidgetHandler = GetXFAWidgetHandler(pAnnot);
+  return pWidgetHandler->PasteText(pAnnot->GetXFAWidget(), text);
+}
+
+bool CPDFSDK_XFAWidgetHandler::CanUndo(CPDFSDK_Annot* pAnnot) {
+  if (!pAnnot)
+    return false;
+  CXFA_FFWidgetHandler* pWidgetHandler = GetXFAWidgetHandler(pAnnot);
+  return pWidgetHandler->CanUndo(pAnnot->GetXFAWidget());
+}
+
+bool CPDFSDK_XFAWidgetHandler::CanRedo(CPDFSDK_Annot* pAnnot) {
+  if (!pAnnot)
+    return false;
+  CXFA_FFWidgetHandler* pWidgetHandler = GetXFAWidgetHandler(pAnnot);
+  return pWidgetHandler->CanRedo(pAnnot->GetXFAWidget());
+}
+
+bool CPDFSDK_XFAWidgetHandler::Undo(CPDFSDK_Annot* pAnnot) {
+  if (!pAnnot)
+    return false;
+  CXFA_FFWidgetHandler* pWidgetHandler = GetXFAWidgetHandler(pAnnot);
+  return pWidgetHandler->Undo(pAnnot->GetXFAWidget());
+}
+
+bool CPDFSDK_XFAWidgetHandler::Redo(CPDFSDK_Annot* pAnnot) {
+  if (!pAnnot)
+    return false;
+  CXFA_FFWidgetHandler* pWidgetHandler = GetXFAWidgetHandler(pAnnot);
+  return pWidgetHandler->Redo(pAnnot->GetXFAWidget());
 }
 
 bool CPDFSDK_XFAWidgetHandler::HitTest(CPDFSDK_PageView* pPageView,
@@ -287,6 +338,15 @@ bool CPDFSDK_XFAWidgetHandler::OnSetFocus(CPDFSDK_Annot::ObservedPtr* pAnnot,
 
 bool CPDFSDK_XFAWidgetHandler::OnKillFocus(CPDFSDK_Annot::ObservedPtr* pAnnot,
                                            uint32_t nFlag) {
+  CXFA_FFWidget* hWidget = *pAnnot ? (*pAnnot)->GetXFAWidget() : nullptr;
+  if (!hWidget)
+    return true;
+
+  CXFA_FFPageView* pXFAPageView = hWidget->GetPageView();
+  if (!pXFAPageView)
+    return true;
+
+  pXFAPageView->GetDocView()->SetFocus(nullptr);
   return true;
 }
 

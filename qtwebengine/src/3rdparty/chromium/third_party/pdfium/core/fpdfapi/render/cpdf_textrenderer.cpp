@@ -76,25 +76,25 @@ void CPDF_TextRenderer::DrawTextString(CFX_RenderDevice* pDevice,
                                        CPDF_Font* pFont,
                                        float font_size,
                                        const CFX_Matrix* pMatrix,
-                                       const CFX_ByteString& str,
+                                       const ByteString& str,
                                        FX_ARGB fill_argb,
                                        const CFX_GraphStateData* pGraphState,
                                        const CPDF_RenderOptions* pOptions) {
   if (pFont->IsType3Font())
     return;
 
-  int nChars = pFont->CountChar(str.c_str(), str.GetLength());
+  int nChars = pFont->CountChar(str.AsStringView());
   if (nChars <= 0)
     return;
 
-  int offset = 0;
+  size_t offset = 0;
   std::vector<uint32_t> codes;
   std::vector<float> positions;
   codes.resize(nChars);
   positions.resize(nChars - 1);
   float cur_pos = 0;
   for (int i = 0; i < nChars; i++) {
-    codes[i] = pFont->GetNextChar(str.c_str(), str.GetLength(), offset);
+    codes[i] = pFont->GetNextChar(str.AsStringView(), offset);
     if (i)
       positions[i - 1] = cur_pos;
     cur_pos += pFont->GetCharWidthF(codes[i]) * font_size / 1000;
@@ -125,19 +125,18 @@ bool CPDF_TextRenderer::DrawNormalText(CFX_RenderDevice* pDevice,
     return true;
   int FXGE_flags = 0;
   if (pOptions) {
-    uint32_t dwFlags = pOptions->m_Flags;
-    if (dwFlags & RENDER_CLEARTYPE) {
+    if (pOptions->HasFlag(RENDER_CLEARTYPE)) {
       FXGE_flags |= FXTEXT_CLEARTYPE;
-      if (dwFlags & RENDER_BGR_STRIPE)
+      if (pOptions->HasFlag(RENDER_BGR_STRIPE))
         FXGE_flags |= FXTEXT_BGR_STRIPE;
     }
-    if (dwFlags & RENDER_NOTEXTSMOOTH)
+    if (pOptions->HasFlag(RENDER_NOTEXTSMOOTH))
       FXGE_flags |= FXTEXT_NOSMOOTH;
-    if (dwFlags & RENDER_PRINTGRAPHICTEXT)
+    if (pOptions->HasFlag(RENDER_PRINTGRAPHICTEXT))
       FXGE_flags |= FXTEXT_PRINTGRAPHICTEXT;
-    if (dwFlags & RENDER_NO_NATIVETEXT)
+    if (pOptions->HasFlag(RENDER_NO_NATIVETEXT))
       FXGE_flags |= FXTEXT_NO_NATIVETEXT;
-    if (dwFlags & RENDER_PRINTIMAGETEXT)
+    if (pOptions->HasFlag(RENDER_PRINTIMAGETEXT))
       FXGE_flags |= FXTEXT_PRINTIMAGETEXT;
   } else {
     FXGE_flags = FXTEXT_CLEARTYPE;

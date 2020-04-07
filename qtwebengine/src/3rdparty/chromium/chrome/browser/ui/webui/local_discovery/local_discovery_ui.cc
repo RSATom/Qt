@@ -4,7 +4,8 @@
 
 #include "chrome/browser/ui/webui/local_discovery/local_discovery_ui.h"
 
-#include "base/memory/ptr_util.h"
+#include <memory>
+
 #include "build/build_config.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
@@ -19,7 +20,7 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui.h"
 #include "content/public/browser/web_ui_data_source.h"
-#include "printing/features/features.h"
+#include "printing/buildflags/buildflags.h"
 
 namespace {
 
@@ -35,10 +36,8 @@ content::WebUIDataSource* CreateLocalDiscoveryHTMLSource() {
                              IDS_LOCAL_DISCOVERY_SERVICE_REGISTER);
   source->AddLocalizedString("manageDevice", IDS_LOCAL_DISCOVERY_MANAGE_DEVICE);
 
-  source->AddLocalizedString("registerPrinterConfirmMessage",
-                             IDS_LOCAL_DISCOVERY_REGISTER_PRINTER_CONFIRMATION);
-  source->AddLocalizedString("registerDeviceConfirmMessage",
-                             IDS_LOCAL_DISCOVERY_REGISTER_DEVICE_CONFIRMATION);
+  source->AddLocalizedString("registerPrinterInformationMessage",
+                             IDS_CLOUD_PRINT_REGISTER_PRINTER_INFORMATION);
   source->AddLocalizedString("registerUser",
                              IDS_LOCAL_DISCOVERY_REGISTER_USER);
   source->AddLocalizedString("confirmRegistration",
@@ -76,6 +75,7 @@ content::WebUIDataSource* CreateLocalDiscoveryHTMLSource() {
   source->AddLocalizedString("printersOnNetworkMultiple",
                              IDS_LOCAL_DISCOVERY_PRINTERS_ON_NETWORK_MULTIPLE);
   source->AddLocalizedString("cancel", IDS_CANCEL);
+  source->AddLocalizedString("confirm", IDS_CONFIRM);
   source->AddLocalizedString("ok", IDS_OK);
   source->AddLocalizedString("loading", IDS_LOCAL_DISCOVERY_LOADING);
   source->AddLocalizedString("addPrinters", IDS_LOCAL_DISCOVERY_ADD_PRINTERS);
@@ -101,11 +101,11 @@ content::WebUIDataSource* CreateLocalDiscoveryHTMLSource() {
   // Cloud print connector-related strings.
 #if BUILDFLAG(ENABLE_PRINT_PREVIEW) && !defined(OS_CHROMEOS)
   source->AddLocalizedString("cloudPrintConnectorEnablingButton",
-                             IDS_OPTIONS_CLOUD_PRINT_CONNECTOR_ENABLING_BUTTON);
+                             IDS_CLOUD_PRINT_CONNECTOR_ENABLING_BUTTON);
   source->AddLocalizedString("cloudPrintConnectorDisabledButton",
-                             IDS_OPTIONS_CLOUD_PRINT_CONNECTOR_DISABLED_BUTTON);
+                             IDS_CLOUD_PRINT_CONNECTOR_DISABLED_BUTTON);
   source->AddLocalizedString("cloudPrintConnectorEnabledButton",
-                             IDS_OPTIONS_CLOUD_PRINT_CONNECTOR_ENABLED_BUTTON);
+                             IDS_CLOUD_PRINT_CONNECTOR_ENABLED_BUTTON);
   source->AddLocalizedString("cloudPrintName",
                              IDS_GOOGLE_CLOUD_PRINT);
   source->AddLocalizedString("titleConnector",
@@ -135,8 +135,8 @@ LocalDiscoveryUI::LocalDiscoveryUI(content::WebUI* web_ui)
   // TODO(gene): Use LocalDiscoveryUIHandler to send updated to the devices
   // page. For example
   web_ui->AddMessageHandler(
-      base::MakeUnique<local_discovery::LocalDiscoveryUIHandler>());
-  web_ui->AddMessageHandler(base::MakeUnique<MetricsHandler>());
+      std::make_unique<local_discovery::LocalDiscoveryUIHandler>());
+  web_ui->AddMessageHandler(std::make_unique<MetricsHandler>());
 }
 
 void LocalDiscoveryUI::RegisterProfilePrefs(

@@ -4,7 +4,7 @@
 
 #include "components/login/base_screen_handler_utils.h"
 
-#include "components/signin/core/account_id/account_id.h"
+#include "components/account_id/account_id.h"
 
 namespace login {
 
@@ -12,7 +12,7 @@ namespace {
 
 template <typename StringListType>
 bool ParseStringList(const base::Value* value, StringListType* out_value) {
-  const base::ListValue* list = NULL;
+  const base::ListValue* list = nullptr;
   if (!value->GetAsList(&list))
     return false;
   out_value->resize(list->GetSize());

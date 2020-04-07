@@ -4,16 +4,12 @@
 
 #include "components/cryptauth/mock_foreground_eid_generator.h"
 
-#include "base/memory/ptr_util.h"
+#include <memory>
 
 namespace cryptauth {
 
 MockForegroundEidGenerator::MockForegroundEidGenerator()
-    : background_scan_filter_(nullptr),
-      advertisement_(nullptr),
-      possible_advertisements_(nullptr),
-      identified_device_(nullptr),
-      num_identify_calls_(0) {}
+    : num_identify_calls_(0) {}
 
 MockForegroundEidGenerator::~MockForegroundEidGenerator() {}
 
@@ -26,13 +22,13 @@ MockForegroundEidGenerator::GenerateBackgroundScanFilter(
 
   std::unique_ptr<DataWithTimestamp> adjacent_data;
   if (background_scan_filter_->adjacent_data) {
-    adjacent_data = base::MakeUnique<DataWithTimestamp>(
+    adjacent_data = std::make_unique<DataWithTimestamp>(
         background_scan_filter_->adjacent_data->data,
         background_scan_filter_->adjacent_data->start_timestamp_ms,
         background_scan_filter_->adjacent_data->end_timestamp_ms);
   }
 
-  return base::MakeUnique<EidData>(background_scan_filter_->current_data,
+  return std::make_unique<EidData>(background_scan_filter_->current_data,
                                    std::move(adjacent_data));
 }
 
@@ -44,7 +40,7 @@ MockForegroundEidGenerator::GenerateAdvertisement(
     return nullptr;
   }
 
-  return base::MakeUnique<DataWithTimestamp>(advertisement_->data,
+  return std::make_unique<DataWithTimestamp>(advertisement_->data,
                                              advertisement_->start_timestamp_ms,
                                              advertisement_->end_timestamp_ms);
 }
@@ -60,17 +56,16 @@ MockForegroundEidGenerator::GeneratePossibleAdvertisements(
   return *possible_advertisements_;
 }
 
-RemoteDevice const*
-MockForegroundEidGenerator::IdentifyRemoteDeviceByAdvertisement(
+std::string MockForegroundEidGenerator::IdentifyRemoteDeviceByAdvertisement(
     const std::string& advertisement_service_data,
-    const std::vector<RemoteDevice>& device_list,
+    const std::vector<std::string>& device_id_list,
     const std::vector<BeaconSeed>& scanning_device_beacon_seeds) const {
   // Increment num_identify_calls_. Since this overrides a const method, some
   // hacking is needed to modify the num_identify_calls_ instance variable.
   int* num_identify_calls_ptr = const_cast<int*>(&num_identify_calls_);
   *num_identify_calls_ptr = *num_identify_calls_ptr + 1;
 
-  return identified_device_;
+  return identified_device_id_;
 }
 
 }  // namespace cryptauth

@@ -89,24 +89,37 @@ public:
 
     qreal opacity() const { return m_opacity; }
     void setOpacity(qreal value);
-#ifndef QT_NO_ANIMATION
-    void animateShow(bool visible) { startOpacityAnimation(visible ? 1.0 : 0.0); }
+#if QT_CONFIG(animation)
+    void animateShow(bool visible);
+
+    bool shouldHideWithText() const;
+    void setHideWithText(bool hide);
 #endif
 
 protected:
-    void actionEvent(QActionEvent *e) Q_DECL_OVERRIDE;
-    void paintEvent(QPaintEvent *event) Q_DECL_OVERRIDE;
+    void actionEvent(QActionEvent *e) override;
+    void paintEvent(QPaintEvent *event) override;
 
 private slots:
     void updateCursor();
 
+#if QT_CONFIG(animation)
+    void onAnimationFinished();
+#endif
+
 private:
-#ifndef QT_NO_ANIMATION
+#if QT_CONFIG(animation)
     void startOpacityAnimation(qreal endValue);
 #endif
     QLineEditPrivate *lineEditPrivate() const;
 
     qreal m_opacity;
+
+#if QT_CONFIG(animation)
+    bool m_hideWithText = false;
+    bool m_wasHidden = false;
+#endif
+
 };
 #endif // QT_CONFIG(toolbutton)
 
@@ -141,7 +154,7 @@ public:
         dragEnabled(0), clickCausedFocus(0), hscroll(0), vscroll(0),
         alignment(Qt::AlignLeading | Qt::AlignVCenter),
         leftTextMargin(0), topTextMargin(0), rightTextMargin(0), bottomTextMargin(0),
-        lastTextSize(0)
+        lastTextSize(0), mouseYThreshold(0)
     {
     }
 
@@ -155,6 +168,7 @@ public:
     QPointer<QAction> selectAllAction;
 #endif
     void init(const QString&);
+    void initMouseYThreshold();
 
     QRect adjustedControlRect(const QRect &) const;
 
@@ -210,7 +224,7 @@ public:
     void _q_completionHighlighted(const QString &);
 #endif
     QPoint mousePressPos;
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
     QBasicTimer dndTimer;
     void drag();
 #endif
@@ -253,6 +267,7 @@ private:
     SideWidgetEntryList leadingSideWidgets;
     SideWidgetEntryList trailingSideWidgets;
     int lastTextSize;
+    int mouseYThreshold;
 };
 Q_DECLARE_TYPEINFO(QLineEditPrivate::SideWidgetEntry, Q_PRIMITIVE_TYPE);
 Q_DECLARE_TYPEINFO(QLineEditPrivate::SideWidgetLocation, Q_PRIMITIVE_TYPE);

@@ -10,11 +10,8 @@
 cr.define('settings.animation', function() {
   'use strict';
 
-  /**
-   * Default timing constants.
-   * @const
-   */
-  var Timing = {
+  /** Default timing constants. */
+  const Timing = {
     DURATION: 250,
     EASING: 'cubic-bezier(0.4, 0, 0.2, 1)',  // Fast out, slow in.
   };
@@ -23,69 +20,67 @@ cr.define('settings.animation', function() {
    * Offers a small subset of the v1 Animation interface. The underlying
    * animation can be reversed, canceled or immediately finished.
    * @see https://www.w3.org/TR/web-animations-1/#animation
-   *
-   * @constructor
-   * @extends {cr.EventTarget}
-   * @param {!Element} el The element to animate.
-   * @param {!Array<!Object>|!Object<!Array>|!Object<string>} keyframes
-   *     Keyframes, as in Element.prototype.animate.
-   * @param {number|!KeyframeEffectOptions=} opt_options Duration or options
-   *     object, as in Element.prototype.animate.
    */
-  function Animation(el, keyframes, opt_options) {
-    // Disallow direct usage of the underlying animation.
-    this.animation_ = el.animate(keyframes, opt_options);
+  class Animation extends cr.EventTarget {
+    /**
+     * @param {!Element} el The element to animate.
+     * @param {!Array<!Object>|!Object<!Array>|!Object<string>} keyframes
+     *     Keyframes, as in Element.prototype.animate.
+     * @param {number|!KeyframeEffectOptions=} opt_options Duration or options
+     *     object, as in Element.prototype.animate.
+     */
+    constructor(el, keyframes, opt_options) {
+      super();
 
-    var self = this;
-    /** @type {!Promise} */
-    this.finished = new Promise(function(resolve, reject) {
-      // If we were implementing the full spec, we'd have to support
-      // removing or resetting these listeners.
-      self.animation_.addEventListener('finish', function(e) {
-        resolve();
-        // According to the spec, queue a task to fire the event after
-        // resolving the promise.
-        self.queueDispatch_(e);
+      // Disallow direct usage of the underlying animation.
+      this.animation_ = el.animate(keyframes, opt_options);
+
+      /** @type {!Promise} */
+      this.finished = new Promise((resolve, reject) => {
+        // If we were implementing the full spec, we'd have to support
+        // removing or resetting these listeners.
+        this.animation_.addEventListener('finish', e => {
+          resolve();
+          // According to the spec, queue a task to fire the event after
+          // resolving the promise.
+          this.queueDispatch_(e);
+        });
+        this.animation_.addEventListener('cancel', e => {
+          // clang-format off
+          reject(new
+              /**
+               * @see https://heycam.github.io/webidl/#es-DOMException-call
+               * @type {function (new:DOMException, string, string)}
+               */(
+                  DOMException
+              )('', 'AbortError'));
+          // clang-format on
+          this.queueDispatch_(e);
+        });
       });
-      self.animation_.addEventListener('cancel', function(e) {
-        // clang-format off
-        reject(new
-            /**
-             * @see https://heycam.github.io/webidl/#es-DOMException-call
-             * @type {function (new:DOMException, string, string)}
-             */(
-                DOMException
-            )('', 'AbortError'));
-        // clang-format on
-        self.queueDispatch_(e);
-      });
-    });
-  }
+    }
 
-  Animation.prototype = {
-    __proto__: cr.EventTarget.prototype,
-
-    finish: function() {
+    finish() {
       assert(this.animation_);
       this.animation_.finish();
-    },
+    }
 
-    cancel: function() {
+    cancel() {
       assert(this.animation_);
       this.animation_.cancel();
-    },
+    }
 
     /**
      * @param {!Event} e
      * @private
      */
-    queueDispatch_: function(e) {
-      setTimeout(function() {
+    queueDispatch_(e) {
+      setTimeout(() => {
         this.dispatchEvent(e);
         this.animation_ = undefined;
-      }.bind(this));
-    },
-  };
+      });
+    }
+  }
 
   return {
     Animation: Animation,

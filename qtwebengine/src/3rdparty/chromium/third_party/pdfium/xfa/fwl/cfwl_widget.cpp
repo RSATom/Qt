@@ -30,7 +30,6 @@
 #include "xfa/fwl/ifwl_themeprovider.h"
 #include "xfa/fxfa/cxfa_ffapp.h"
 
-#define FWL_STYLEEXT_MNU_Vert (1L << 0)
 #define FWL_WGT_CalcHeight 2048
 #define FWL_WGT_CalcWidth 2048
 #define FWL_WGT_CalcMultiLineDefWidth 120.0f
@@ -63,7 +62,7 @@ CFWL_Widget::~CFWL_Widget() {
   m_pWidgetMgr->RemoveWidget(this);
 }
 
-bool CFWL_Widget::IsInstance(const CFX_WideStringC& wsClass) const {
+bool CFWL_Widget::IsInstance(const WideStringView& wsClass) const {
   return false;
 }
 
@@ -161,44 +160,15 @@ FWL_WidgetHit CFWL_Widget::HitTest(const CFX_PointF& point) {
 
 CFX_PointF CFWL_Widget::TransformTo(CFWL_Widget* pWidget,
                                     const CFX_PointF& point) {
-  if (m_pWidgetMgr->IsFormDisabled()) {
-    CFX_SizeF szOffset;
-    if (IsParent(pWidget)) {
-      szOffset = GetOffsetFromParent(pWidget);
-    } else {
-      szOffset = pWidget->GetOffsetFromParent(this);
-      szOffset.width = -szOffset.width;
-      szOffset.height = -szOffset.height;
-    }
-    return point + CFX_PointF(szOffset.width, szOffset.height);
+  CFX_SizeF szOffset;
+  if (IsParent(pWidget)) {
+    szOffset = GetOffsetFromParent(pWidget);
+  } else {
+    szOffset = pWidget->GetOffsetFromParent(this);
+    szOffset.width = -szOffset.width;
+    szOffset.height = -szOffset.height;
   }
-
-  CFX_PointF ret = point;
-  CFWL_Widget* parent = GetParent();
-  if (parent)
-    ret = GetMatrix().Transform(ret + GetWidgetRect().TopLeft());
-
-  CFWL_Widget* form1 = m_pWidgetMgr->GetSystemFormWidget(this);
-  if (!form1)
-    return ret;
-
-  if (!pWidget)
-    return ret + form1->GetWidgetRect().TopLeft();
-
-  CFWL_Widget* form2 = m_pWidgetMgr->GetSystemFormWidget(pWidget);
-  if (!form2)
-    return ret;
-  if (form1 != form2) {
-    ret += form1->GetWidgetRect().TopLeft();
-    ret -= form2->GetWidgetRect().TopLeft();
-  }
-
-  parent = pWidget->GetParent();
-  if (!parent)
-    return ret;
-
-  return pWidget->GetMatrix().GetInverse().Transform(ret) -
-         pWidget->GetWidgetRect().TopLeft();
+  return point + CFX_PointF(szOffset.width, szOffset.height);
 }
 
 CFX_Matrix CFWL_Widget::GetMatrix() {
@@ -315,7 +285,7 @@ CFWL_Widget* CFWL_Widget::GetRootOuter() {
   return pRet;
 }
 
-CFX_SizeF CFWL_Widget::CalcTextSize(const CFX_WideString& wsText,
+CFX_SizeF CFWL_Widget::CalcTextSize(const WideString& wsText,
                                     IFWL_ThemeProvider* pTheme,
                                     bool bMultiLine) {
   if (!pTheme)
@@ -324,46 +294,29 @@ CFX_SizeF CFWL_Widget::CalcTextSize(const CFX_WideString& wsText,
   CFWL_ThemeText calPart;
   calPart.m_pWidget = this;
   calPart.m_wsText = wsText;
-  calPart.m_dwTTOStyles =
-      bMultiLine ? FDE_TTOSTYLE_LineWrap : FDE_TTOSTYLE_SingleLine;
-  calPart.m_iTTOAlign = FDE_TTOALIGNMENT_TopLeft;
+  if (bMultiLine)
+    calPart.m_dwTTOStyles.line_wrap_ = true;
+  else
+    calPart.m_dwTTOStyles.single_line_ = true;
+
+  calPart.m_iTTOAlign = FDE_TextAlignment::kTopLeft;
   float fWidth = bMultiLine ? FWL_WGT_CalcMultiLineDefWidth : FWL_WGT_CalcWidth;
   CFX_RectF rect(0, 0, fWidth, FWL_WGT_CalcHeight);
-  pTheme->CalcTextRect(&calPart, rect);
+  pTheme->CalcTextRect(&calPart, &rect);
   return CFX_SizeF(rect.width, rect.height);
 }
 
-void CFWL_Widget::CalcTextRect(const CFX_WideString& wsText,
+void CFWL_Widget::CalcTextRect(const WideString& wsText,
                                IFWL_ThemeProvider* pTheme,
-                               uint32_t dwTTOStyles,
-                               int32_t iTTOAlign,
-                               CFX_RectF& rect) {
+                               const FDE_TextStyle& dwTTOStyles,
+                               FDE_TextAlignment iTTOAlign,
+                               CFX_RectF* pRect) {
   CFWL_ThemeText calPart;
   calPart.m_pWidget = this;
   calPart.m_wsText = wsText;
   calPart.m_dwTTOStyles = dwTTOStyles;
   calPart.m_iTTOAlign = iTTOAlign;
-  pTheme->CalcTextRect(&calPart, rect);
-}
-
-void CFWL_Widget::SetFocus(bool bFocus) {
-  if (m_pWidgetMgr->IsFormDisabled())
-    return;
-
-  const CFWL_App* pApp = GetOwnerApp();
-  if (!pApp)
-    return;
-
-  CFWL_NoteDriver* pDriver =
-      static_cast<CFWL_NoteDriver*>(pApp->GetNoteDriver());
-  if (!pDriver)
-    return;
-
-  CFWL_Widget* curFocus = pDriver->GetFocus();
-  if (bFocus && curFocus != this)
-    pDriver->SetFocus(this);
-  else if (!bFocus && curFocus == this)
-    pDriver->SetFocus(nullptr);
+  pTheme->CalcTextRect(&calPart, pRect);
 }
 
 void CFWL_Widget::SetGrab(bool bSet) {
@@ -374,100 +327,6 @@ void CFWL_Widget::SetGrab(bool bSet) {
   CFWL_NoteDriver* pDriver =
       static_cast<CFWL_NoteDriver*>(pApp->GetNoteDriver());
   pDriver->SetGrab(this, bSet);
-}
-
-void CFWL_Widget::GetPopupPos(float fMinHeight,
-                              float fMaxHeight,
-                              const CFX_RectF& rtAnchor,
-                              CFX_RectF& rtPopup) {
-  if (GetClassID() == FWL_Type::ComboBox) {
-    if (m_pWidgetMgr->IsFormDisabled()) {
-      m_pWidgetMgr->GetAdapterPopupPos(this, fMinHeight, fMaxHeight, rtAnchor,
-                                       rtPopup);
-      return;
-    }
-    GetPopupPosComboBox(fMinHeight, fMaxHeight, rtAnchor, rtPopup);
-    return;
-  }
-  if (GetClassID() == FWL_Type::DateTimePicker &&
-      m_pWidgetMgr->IsFormDisabled()) {
-    m_pWidgetMgr->GetAdapterPopupPos(this, fMinHeight, fMaxHeight, rtAnchor,
-                                     rtPopup);
-    return;
-  }
-  GetPopupPosGeneral(fMinHeight, fMaxHeight, rtAnchor, rtPopup);
-}
-
-bool CFWL_Widget::GetPopupPosMenu(float fMinHeight,
-                                  float fMaxHeight,
-                                  const CFX_RectF& rtAnchor,
-                                  CFX_RectF& rtPopup) {
-  if (GetStylesEx() & FWL_STYLEEXT_MNU_Vert) {
-    bool bLeft = m_pProperties->m_rtWidget.left < 0;
-    float fRight = rtAnchor.right() + rtPopup.width;
-    CFX_PointF point = TransformTo(nullptr, CFX_PointF());
-    if (fRight + point.x > 0.0f || bLeft) {
-      rtPopup = CFX_RectF(rtAnchor.left - rtPopup.width, rtAnchor.top,
-                          rtPopup.width, rtPopup.height);
-    } else {
-      rtPopup = CFX_RectF(rtAnchor.right(), rtAnchor.top, rtPopup.width,
-                          rtPopup.height);
-    }
-    rtPopup.Offset(point.x, point.y);
-    return true;
-  }
-
-  float fBottom = rtAnchor.bottom() + rtPopup.height;
-  CFX_PointF point = TransformTo(nullptr, point);
-  if (fBottom + point.y > 0.0f) {
-    rtPopup = CFX_RectF(rtAnchor.left, rtAnchor.top - rtPopup.height,
-                        rtPopup.width, rtPopup.height);
-  } else {
-    rtPopup = CFX_RectF(rtAnchor.left, rtAnchor.bottom(), rtPopup.width,
-                        rtPopup.height);
-  }
-  rtPopup.Offset(point.x, point.y);
-  return true;
-}
-
-bool CFWL_Widget::GetPopupPosComboBox(float fMinHeight,
-                                      float fMaxHeight,
-                                      const CFX_RectF& rtAnchor,
-                                      CFX_RectF& rtPopup) {
-  float fPopHeight = rtPopup.height;
-  if (rtPopup.height > fMaxHeight)
-    fPopHeight = fMaxHeight;
-  else if (rtPopup.height < fMinHeight)
-    fPopHeight = fMinHeight;
-
-  float fWidth = std::max(rtAnchor.width, rtPopup.width);
-  float fBottom = rtAnchor.bottom() + fPopHeight;
-  CFX_PointF point = TransformTo(nullptr, CFX_PointF());
-  if (fBottom + point.y > 0.0f) {
-    rtPopup =
-        CFX_RectF(rtAnchor.left, rtAnchor.top - fPopHeight, fWidth, fPopHeight);
-  } else {
-    rtPopup = CFX_RectF(rtAnchor.left, rtAnchor.bottom(), fWidth, fPopHeight);
-  }
-
-  rtPopup.Offset(point.x, point.y);
-  return true;
-}
-
-bool CFWL_Widget::GetPopupPosGeneral(float fMinHeight,
-                                     float fMaxHeight,
-                                     const CFX_RectF& rtAnchor,
-                                     CFX_RectF& rtPopup) {
-  CFX_PointF point = TransformTo(nullptr, CFX_PointF());
-  if (rtAnchor.bottom() + point.y > 0.0f) {
-    rtPopup = CFX_RectF(rtAnchor.left, rtAnchor.top - rtPopup.height,
-                        rtPopup.width, rtPopup.height);
-  } else {
-    rtPopup = CFX_RectF(rtAnchor.left, rtAnchor.bottom(), rtPopup.width,
-                        rtPopup.height);
-  }
-  rtPopup.Offset(point.x, point.y);
-  return true;
 }
 
 void CFWL_Widget::RegisterEventTarget(CFWL_Widget* pEventSource) {
@@ -535,13 +394,12 @@ void CFWL_Widget::DrawBackground(CXFA_Graphics* pGraphics,
 void CFWL_Widget::DrawBorder(CXFA_Graphics* pGraphics,
                              CFWL_Part iPartBorder,
                              IFWL_ThemeProvider* pTheme,
-                             const CFX_Matrix* pMatrix) {
+                             const CFX_Matrix& matrix) {
   CFWL_ThemeBackground param;
   param.m_pWidget = this;
   param.m_iPart = iPartBorder;
   param.m_pGraphics = pGraphics;
-  if (pMatrix)
-    param.m_matrix.Concat(*pMatrix, true);
+  param.m_matrix.Concat(matrix, true);
   param.m_rtPart = GetRelativeRect();
   pTheme->DrawBackground(&param);
 }
@@ -590,14 +448,13 @@ bool CFWL_Widget::IsParent(CFWL_Widget* pParent) {
 }
 
 void CFWL_Widget::OnProcessMessage(CFWL_Message* pMessage) {
-  if (!pMessage->m_pDstTarget)
+  CFWL_Widget* pWidget = pMessage->GetDstTarget();
+  if (!pWidget)
     return;
 
-  CFWL_Widget* pWidget = pMessage->m_pDstTarget;
   switch (pMessage->GetType()) {
     case CFWL_Message::Type::Mouse: {
       CFWL_MessageMouse* pMsgMouse = static_cast<CFWL_MessageMouse*>(pMessage);
-
       CFWL_EventMouse evt(pWidget, pWidget);
       evt.m_dwCmd = pMsgMouse->m_dwCmd;
       pWidget->DispatchEvent(&evt);
@@ -611,4 +468,4 @@ void CFWL_Widget::OnProcessMessage(CFWL_Message* pMessage) {
 void CFWL_Widget::OnProcessEvent(CFWL_Event* pEvent) {}
 
 void CFWL_Widget::OnDrawWidget(CXFA_Graphics* pGraphics,
-                               const CFX_Matrix* pMatrix) {}
+                               const CFX_Matrix& matrix) {}

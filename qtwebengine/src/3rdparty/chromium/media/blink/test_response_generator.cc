@@ -8,9 +8,10 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "net/base/net_errors.h"
-#include "third_party/WebKit/public/platform/WebString.h"
+#include "third_party/blink/public/platform/web_string.h"
 
 using blink::WebString;
+using blink::WebURL;
 using blink::WebURLError;
 using blink::WebURLResponse;
 
@@ -21,10 +22,7 @@ TestResponseGenerator::TestResponseGenerator(const GURL& gurl,
     : gurl_(gurl), content_length_(content_length) {}
 
 WebURLError TestResponseGenerator::GenerateError() {
-  WebURLError error;
-  error.reason = net::ERR_ABORTED;
-  error.domain = WebString::FromUTF8(net::kErrorDomain);
-  return error;
+  return WebURLError(net::ERR_ABORTED, WebURL());
 }
 
 WebURLResponse TestResponseGenerator::Generate200() {

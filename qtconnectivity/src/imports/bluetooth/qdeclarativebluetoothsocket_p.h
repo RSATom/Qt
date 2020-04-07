@@ -98,11 +98,11 @@ public:
     };
     Q_ENUM(SocketState)
 
-    explicit QDeclarativeBluetoothSocket(QObject *parent = 0);
+    explicit QDeclarativeBluetoothSocket(QObject *parent = nullptr);
     explicit QDeclarativeBluetoothSocket(QDeclarativeBluetoothService *service,
-                                         QObject *parent = 0);
+                                         QObject *parent = nullptr);
     explicit QDeclarativeBluetoothSocket(QBluetoothSocket *socket, QDeclarativeBluetoothService *service,
-                                         QObject *paprent = 0);
+                                         QObject *paprent = nullptr);
     ~QDeclarativeBluetoothSocket();
 
     QDeclarativeBluetoothService *service();

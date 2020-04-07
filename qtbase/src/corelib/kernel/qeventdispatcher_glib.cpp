@@ -260,8 +260,8 @@ static gboolean postEventSourcePrepare(GSource *s, gint *timeout)
     *timeout = canWait ? -1 : 0;
 
     GPostEventSource *source = reinterpret_cast<GPostEventSource *>(s);
-    return (!canWait
-            || (source->serialNumber.load() != source->lastSerialNumber));
+    source->d->wakeUpCalled = source->serialNumber.load() != source->lastSerialNumber;
+    return !canWait || source->d->wakeUpCalled;
 }
 
 static gboolean postEventSourceCheck(GSource *source)
@@ -345,7 +345,6 @@ QEventDispatcherGlibPrivate::QEventDispatcherGlibPrivate(GMainContext *context)
                                                                         sizeof(GIdleTimerSource)));
     idleTimerSource->timerSource = timerSource;
     g_source_set_can_recurse(&idleTimerSource->source, true);
-    g_source_set_priority(&idleTimerSource->source, G_PRIORITY_DEFAULT_IDLE);
     g_source_attach(&idleTimerSource->source, mainContext);
 }
 

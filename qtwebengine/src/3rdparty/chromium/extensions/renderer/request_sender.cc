@@ -4,7 +4,6 @@
 
 #include "extensions/renderer/request_sender.h"
 
-#include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/timer/elapsed_timer.h"
 #include "base/values.h"
@@ -14,11 +13,11 @@
 #include "extensions/renderer/bindings/api_binding_types.h"
 #include "extensions/renderer/ipc_message_sender.h"
 #include "extensions/renderer/script_context.h"
-#include "third_party/WebKit/public/web/WebDocument.h"
-#include "third_party/WebKit/public/web/WebLocalFrame.h"
-#include "third_party/WebKit/public/web/WebScopedUserGesture.h"
-#include "third_party/WebKit/public/web/WebUserGestureIndicator.h"
-#include "third_party/WebKit/public/web/WebUserGestureToken.h"
+#include "third_party/blink/public/web/web_document.h"
+#include "third_party/blink/public/web/web_local_frame.h"
+#include "third_party/blink/public/web/web_scoped_user_gesture.h"
+#include "third_party/blink/public/web/web_user_gesture_indicator.h"
+#include "third_party/blink/public/web/web_user_gesture_token.h"
 
 namespace extensions {
 
@@ -89,23 +88,28 @@ bool RequestSender::StartRequest(Source* source,
     return false;
 
   GURL source_url;
-  if (blink::WebLocalFrame* webframe = context->web_frame())
+  blink::WebLocalFrame* webframe = context->web_frame();
+  if (webframe)
     source_url = webframe->GetDocument().Url();
 
   InsertRequest(request_id,
-                base::MakeUnique<PendingRequest>(
+                std::make_unique<PendingRequest>(
                     name, source,
                     blink::WebUserGestureIndicator::CurrentUserGestureToken()));
 
-  auto params = base::MakeUnique<ExtensionHostMsg_Request_Params>();
+  auto params = std::make_unique<ExtensionHostMsg_Request_Params>();
   params->name = name;
   params->arguments.Swap(value_args);
   params->extension_id = context->GetExtensionID();
   params->source_url = source_url;
   params->request_id = request_id;
   params->has_callback = has_callback;
+
+  // TODO(mustaq): What to do with extension service workers without
+  // RenderFrames? crbug/733679
   params->user_gesture =
-      blink::WebUserGestureIndicator::IsProcessingUserGestureThreadSafe();
+      blink::WebUserGestureIndicator::IsProcessingUserGestureThreadSafe(
+          webframe);
 
   // Set Service Worker specific params to default values.
   params->worker_thread_id = -1;

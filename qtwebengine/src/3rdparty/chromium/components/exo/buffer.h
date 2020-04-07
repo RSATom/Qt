@@ -11,7 +11,7 @@
 #include "base/cancelable_callback.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "cc/resources/transferable_resource.h"
+#include "components/viz/common/resources/transferable_resource.h"
 #include "ui/gfx/geometry/size.h"
 
 namespace base {
@@ -54,10 +54,8 @@ class Buffer : public base::SupportsWeakPtr<Buffer> {
   // |non_client_usage| is true.
   bool ProduceTransferableResource(
       LayerTreeFrameSinkHolder* layer_tree_frame_sink_holder,
-      cc::ResourceId resource_id,
       bool secure_output_only,
-      bool client_usage,
-      cc::TransferableResource* resource);
+      viz::TransferableResource* resource);
 
   // This should be called when the buffer is attached to a Surface.
   void OnAttach();
@@ -74,6 +72,12 @@ class Buffer : public base::SupportsWeakPtr<Buffer> {
   // Returns a trace value representing the state of the buffer.
   std::unique_ptr<base::trace_event::TracedValue> AsTracedValue() const;
 
+  // Set the amount of time to wait for buffer release.
+  void set_wait_for_release_delay_for_testing(
+      base::TimeDelta wait_for_release_delay) {
+    wait_for_release_delay_ = wait_for_release_delay;
+  }
+
  private:
   class Texture;
 
@@ -81,11 +85,11 @@ class Buffer : public base::SupportsWeakPtr<Buffer> {
   // client that buffer has been released.
   void Release();
 
-  // This is used by ProduceTextureMailbox() to produce a release callback
+  // This is used by ProduceTransferableResource() to produce a release callback
   // that releases a texture so it can be destroyed or reused.
   void ReleaseTexture(std::unique_ptr<Texture> texture);
 
-  // This is used by ProduceTextureMailbox() to produce a release callback
+  // This is used by ProduceTransferableResource() to produce a release callback
   // that releases the buffer contents referenced by a texture before the
   // texture is destroyed or reused.
   void ReleaseContentsTexture(std::unique_ptr<Texture> texture,
@@ -127,6 +131,9 @@ class Buffer : public base::SupportsWeakPtr<Buffer> {
   // Cancelable release contents callback. This is set when a release callback
   // is pending.
   base::CancelableClosure release_contents_callback_;
+
+  // The amount of time to wait for buffer release.
+  base::TimeDelta wait_for_release_delay_;
 
   DISALLOW_COPY_AND_ASSIGN(Buffer);
 };

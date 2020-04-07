@@ -1,4 +1,4 @@
-// Copyright 2017 The Chromium Authors. All rights reserved.
+// Copyright 2018 The Chromium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -11,6 +11,6 @@ class SkFontMgr;
 template <typename T>
 class sk_sp;
 
-SK_API void SetDefaultSkiaFactory(sk_sp<SkFontMgr> fontmgr);
+void SK_API SetDefaultSkiaFactory(sk_sp<SkFontMgr> fontmgr);
 
 #endif  // SKIA_EXT_FONTMGR_DEFAULT_FUCHSIA_H_

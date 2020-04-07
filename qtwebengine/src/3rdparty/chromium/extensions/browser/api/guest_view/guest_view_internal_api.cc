@@ -28,7 +28,7 @@ GuestViewInternalCreateGuestFunction::
     GuestViewInternalCreateGuestFunction() {
 }
 
-bool GuestViewInternalCreateGuestFunction::RunAsync() {
+ExtensionFunction::ResponseAction GuestViewInternalCreateGuestFunction::Run() {
   std::string view_type;
   EXTENSION_FUNCTION_VALIDATE(args_->GetString(0, &view_type));
 
@@ -45,25 +45,20 @@ bool GuestViewInternalCreateGuestFunction::RunAsync() {
         ExtensionsAPIClient::Get()->CreateGuestViewManagerDelegate(context_));
   }
 
-  GuestViewManager::WebContentsCreatedCallback callback =
-      base::Bind(&GuestViewInternalCreateGuestFunction::CreateGuestCallback,
-                 this);
-
   content::WebContents* sender_web_contents = GetSenderWebContents();
-  if (!sender_web_contents) {
-    error_ = "Guest views can only be embedded in web content";
-    return false;
-  }
+  if (!sender_web_contents)
+    return RespondNow(Error("Guest views can only be embedded in web content"));
+
+  GuestViewManager::WebContentsCreatedCallback callback = base::BindOnce(
+      &GuestViewInternalCreateGuestFunction::CreateGuestCallback, this);
 
   // Add flag to |create_params| to indicate that the element size is specified
   // in logical units.
   create_params->SetBoolean(guest_view::kElementSizeIsLogical, true);
 
-  guest_view_manager->CreateGuest(view_type,
-                                  sender_web_contents,
-                                  *create_params,
-                                  callback);
-  return true;
+  guest_view_manager->CreateGuest(view_type, sender_web_contents,
+                                  *create_params, std::move(callback));
+  return did_respond() ? AlreadyResponded() : RespondLater();
 }
 
 void GuestViewInternalCreateGuestFunction::CreateGuestCallback(
@@ -75,12 +70,11 @@ void GuestViewInternalCreateGuestFunction::CreateGuestCallback(
     guest_instance_id = guest->guest_instance_id();
     content_window_id = guest->proxy_routing_id();
   }
-  std::unique_ptr<base::DictionaryValue> return_params(
-      new base::DictionaryValue());
+  auto return_params = std::make_unique<base::DictionaryValue>();
   return_params->SetInteger(guest_view::kID, guest_instance_id);
   return_params->SetInteger(guest_view::kContentWindowID, content_window_id);
-  SetResult(std::move(return_params));
-  SendResponse(true);
+
+  Respond(OneArgument(std::move(return_params)));
 }
 
 GuestViewInternalDestroyGuestFunction::
@@ -91,17 +85,16 @@ GuestViewInternalDestroyGuestFunction::
     ~GuestViewInternalDestroyGuestFunction() {
 }
 
-bool GuestViewInternalDestroyGuestFunction::RunAsync() {
+ExtensionFunction::ResponseAction GuestViewInternalDestroyGuestFunction::Run() {
   std::unique_ptr<guest_view_internal::DestroyGuest::Params> params(
       guest_view_internal::DestroyGuest::Params::Create(*args_));
   EXTENSION_FUNCTION_VALIDATE(params.get());
   GuestViewBase* guest = GuestViewBase::From(
       render_frame_host()->GetProcess()->GetID(), params->instance_id);
   if (!guest)
-    return false;
+    return RespondNow(Error(kUnknownErrorDoNotUse));
   guest->Destroy(true);
-  SendResponse(true);
-  return true;
+  return RespondNow(NoArguments());
 }
 
 GuestViewInternalSetSizeFunction::GuestViewInternalSetSizeFunction() {
@@ -110,14 +103,14 @@ GuestViewInternalSetSizeFunction::GuestViewInternalSetSizeFunction() {
 GuestViewInternalSetSizeFunction::~GuestViewInternalSetSizeFunction() {
 }
 
-bool GuestViewInternalSetSizeFunction::RunAsync() {
+ExtensionFunction::ResponseAction GuestViewInternalSetSizeFunction::Run() {
   std::unique_ptr<guest_view_internal::SetSize::Params> params(
       guest_view_internal::SetSize::Params::Create(*args_));
   EXTENSION_FUNCTION_VALIDATE(params.get());
   GuestViewBase* guest = GuestViewBase::From(
       render_frame_host()->GetProcess()->GetID(), params->instance_id);
   if (!guest)
-    return false;
+    return RespondNow(Error(kUnknownErrorDoNotUse));
 
   guest_view::SetSizeParams set_size_params;
   if (params->params.enable_auto_size) {
@@ -138,8 +131,7 @@ bool GuestViewInternalSetSizeFunction::RunAsync() {
   }
 
   guest->SetSize(set_size_params);
-  SendResponse(true);
-  return true;
+  return RespondNow(NoArguments());
 }
 
 }  // namespace extensions

@@ -12,7 +12,6 @@
 
 #include "base/bind.h"
 #include "base/command_line.h"
-#include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
 #include "base/test/scoped_task_environment.h"
 #include "base/test/test_timeouts.h"
@@ -55,9 +54,10 @@ class StubBufferHandleProvider
   StubBufferHandleProvider(size_t mapped_size, uint8_t* data)
       : mapped_size_(mapped_size), data_(data) {}
 
-  ~StubBufferHandleProvider() override {}
+  ~StubBufferHandleProvider() override = default;
 
-  mojo::ScopedSharedBufferHandle GetHandleForInterProcessTransit() override {
+  mojo::ScopedSharedBufferHandle GetHandleForInterProcessTransit(
+      bool read_only) override {
     NOTREACHED();
     return mojo::ScopedSharedBufferHandle();
   }
@@ -70,7 +70,7 @@ class StubBufferHandleProvider
 
   std::unique_ptr<VideoCaptureBufferHandle> GetHandleForInProcessAccess()
       override {
-    return base::MakeUnique<StubBufferHandle>(mapped_size_, data_);
+    return std::make_unique<StubBufferHandle>(mapped_size_, data_);
   }
 
  private:
@@ -94,14 +94,14 @@ VideoCaptureDevice::Client::Buffer CreateStubBuffer(int buffer_id,
   const int arbitrary_frame_feedback_id = 0;
   return VideoCaptureDevice::Client::Buffer(
       buffer_id, arbitrary_frame_feedback_id,
-      base::MakeUnique<StubBufferHandleProvider>(mapped_size, buffer),
-      base::MakeUnique<StubReadWritePermission>(buffer));
+      std::make_unique<StubBufferHandleProvider>(mapped_size, buffer),
+      std::make_unique<StubReadWritePermission>(buffer));
 };
 
 class MockClient : public VideoCaptureDevice::Client {
  public:
   MOCK_METHOD2(OnError,
-               void(const tracked_objects::Location& from_here,
+               void(const base::Location& from_here,
                     const std::string& reason));
   MOCK_METHOD0(OnStarted, void(void));
 
@@ -118,12 +118,18 @@ class MockClient : public VideoCaptureDevice::Client {
                               int frame_feedback_id) override {
     frame_cb_.Run(format);
   }
+  void OnIncomingCapturedGfxBuffer(gfx::GpuMemoryBuffer* buffer,
+                                   const VideoCaptureFormat& frame_format,
+                                   int clockwise_rotation,
+                                   base::TimeTicks reference_time,
+                                   base::TimeDelta timestamp,
+                                   int frame_feedback_id = 0) override {
+    frame_cb_.Run(frame_format);
+  }
   // Virtual methods for capturing using Client's Buffers.
   Buffer ReserveOutputBuffer(const gfx::Size& dimensions,
-                             media::VideoPixelFormat format,
-                             media::VideoPixelStorage storage,
+                             VideoPixelFormat format,
                              int frame_feedback_id) override {
-    EXPECT_EQ(media::PIXEL_STORAGE_CPU, storage);
     EXPECT_GT(dimensions.GetArea(), 0);
     const VideoCaptureFormat frame_format(dimensions, 0.0, format);
     return CreateStubBuffer(0, frame_format.ImageAllocationSize());
@@ -144,8 +150,7 @@ class MockClient : public VideoCaptureDevice::Client {
     frame_cb_.Run(format);
   }
   Buffer ResurrectLastOutputBuffer(const gfx::Size& dimensions,
-                                   media::VideoPixelFormat format,
-                                   media::VideoPixelStorage storage,
+                                   VideoPixelFormat format,
                                    int frame_feedback_id) override {
     return Buffer();
   }
@@ -164,23 +169,9 @@ class ImageCaptureClient : public base::RefCounted<ImageCaptureClient> {
   }
   MOCK_METHOD0(OnCorrectGetPhotoState, void(void));
 
-  void OnGetPhotoStateFailure(
-      mojom::ImageCapture::GetPhotoStateCallback callback) {
-    OnGetPhotoStateFailureInternal(callback);
-  }
-  MOCK_METHOD1(OnGetPhotoStateFailureInternal,
-               void(mojom::ImageCapture::GetPhotoStateCallback&));
-
   const mojom::PhotoState* state() { return state_.get(); }
 
   MOCK_METHOD1(OnCorrectSetPhotoOptions, void(bool));
-
-  void OnSetPhotoOptionsFailure(
-      mojom::ImageCapture::SetOptionsCallback callback) {
-    OnSetPhotoOptionsFailureInternal(callback);
-  }
-  MOCK_METHOD1(OnSetPhotoOptionsFailureInternal,
-               void(mojom::ImageCapture::SetOptionsCallback&));
 
   // GMock doesn't support move-only arguments, so we use this forward method.
   void DoOnPhotoTaken(mojom::BlobPtr blob) {
@@ -196,15 +187,9 @@ class ImageCaptureClient : public base::RefCounted<ImageCaptureClient> {
   }
   MOCK_METHOD0(OnCorrectPhotoTaken, void(void));
 
-  void OnTakePhotoFailure(mojom::ImageCapture::TakePhotoCallback callback) {
-    OnTakePhotoFailureInternal(callback);
-  }
-  MOCK_METHOD1(OnTakePhotoFailureInternal,
-               void(mojom::ImageCapture::TakePhotoCallback&));
-
  private:
   friend class base::RefCounted<ImageCaptureClient>;
-  virtual ~ImageCaptureClient() {}
+  virtual ~ImageCaptureClient() = default;
 
   mojom::PhotoStatePtr state_;
 };
@@ -260,7 +245,7 @@ class FakeVideoCaptureDeviceTest
 TEST_P(FakeVideoCaptureDeviceTest, CaptureUsing) {
   if (testing::get<1>(GetParam()) ==
           FakeVideoCaptureDevice::DeliveryMode::USE_CLIENT_PROVIDED_BUFFERS &&
-      testing::get<0>(GetParam()) == media::PIXEL_FORMAT_MJPEG) {
+      testing::get<0>(GetParam()) == PIXEL_FORMAT_MJPEG) {
     // Unsupported case
     return;
   }
@@ -391,11 +376,9 @@ TEST_F(FakeVideoCaptureDeviceTest, GetAndSetCapabilities) {
   EXPECT_CALL(*client_, OnStarted());
   device->AllocateAndStart(capture_params, std::move(client_));
 
-  VideoCaptureDevice::GetPhotoStateCallback scoped_get_callback(
+  VideoCaptureDevice::GetPhotoStateCallback scoped_get_callback =
       base::BindOnce(&ImageCaptureClient::DoOnGetPhotoState,
-                     image_capture_client_),
-      base::BindOnce(&ImageCaptureClient::OnGetPhotoStateFailure,
-                     image_capture_client_));
+                     image_capture_client_);
 
   EXPECT_CALL(*image_capture_client_.get(), OnCorrectGetPhotoState()).Times(1);
   device->GetPhotoState(std::move(scoped_get_callback));
@@ -461,11 +444,9 @@ TEST_F(FakeVideoCaptureDeviceTest, GetAndSetCapabilities) {
 
   // Set options: zoom to the maximum value.
   const int max_zoom_value = state->zoom->max;
-  VideoCaptureDevice::SetPhotoOptionsCallback scoped_set_callback(
+  VideoCaptureDevice::SetPhotoOptionsCallback scoped_set_callback =
       base::BindOnce(&ImageCaptureClient::OnCorrectSetPhotoOptions,
-                     image_capture_client_),
-      base::BindOnce(&ImageCaptureClient::OnSetPhotoOptionsFailure,
-                     image_capture_client_));
+                     image_capture_client_);
 
   mojom::PhotoSettingsPtr settings = mojom::PhotoSettings::New();
   settings->zoom = max_zoom_value;
@@ -478,10 +459,9 @@ TEST_F(FakeVideoCaptureDeviceTest, GetAndSetCapabilities) {
   run_loop_->Run();
 
   // Retrieve Capabilities again and check against the set values.
-  VideoCaptureDevice::GetPhotoStateCallback scoped_get_callback2(
-      base::Bind(&ImageCaptureClient::DoOnGetPhotoState, image_capture_client_),
-      base::Bind(&ImageCaptureClient::OnGetPhotoStateFailure,
-                 image_capture_client_));
+  VideoCaptureDevice::GetPhotoStateCallback scoped_get_callback2 =
+      base::BindOnce(&ImageCaptureClient::DoOnGetPhotoState,
+                     image_capture_client_);
 
   EXPECT_CALL(*image_capture_client_.get(), OnCorrectGetPhotoState()).Times(1);
   device->GetPhotoState(std::move(scoped_get_callback2));
@@ -506,11 +486,8 @@ TEST_F(FakeVideoCaptureDeviceTest, TakePhoto) {
   EXPECT_CALL(*client_, OnStarted());
   device->AllocateAndStart(capture_params, std::move(client_));
 
-  VideoCaptureDevice::TakePhotoCallback scoped_callback(
-      base::BindOnce(&ImageCaptureClient::DoOnPhotoTaken,
-                     image_capture_client_),
-      base::BindOnce(&ImageCaptureClient::OnTakePhotoFailure,
-                     image_capture_client_));
+  VideoCaptureDevice::TakePhotoCallback scoped_callback = base::BindOnce(
+      &ImageCaptureClient::DoOnPhotoTaken, image_capture_client_);
 
   EXPECT_CALL(*image_capture_client_.get(), OnCorrectPhotoTaken()).Times(1);
   device->TakePhoto(std::move(scoped_callback));
@@ -539,7 +516,7 @@ TEST_F(FakeVideoCaptureDeviceFactoryTest, DeviceWithNoSupportedFormats) {
   video_capture_device_factory_->SetToCustomDevicesConfig(config);
   video_capture_device_factory_->GetDeviceDescriptors(descriptors_.get());
   EXPECT_EQ(1u, descriptors_->size());
-  media::VideoCaptureFormats supported_formats;
+  VideoCaptureFormats supported_formats;
   video_capture_device_factory_->GetSupportedFormats(descriptors_->at(0),
                                                      &supported_formats);
   EXPECT_EQ(0u, supported_formats.size());
@@ -566,7 +543,7 @@ TEST_P(FakeVideoCaptureDeviceFactoryTest, FrameRateAndDeviceCount) {
 
   int device_index = 0;
   for (const auto& descriptors_iterator : *descriptors_) {
-    media::VideoCaptureFormats supported_formats;
+    VideoCaptureFormats supported_formats;
     video_capture_device_factory_->GetSupportedFormats(descriptors_iterator,
                                                        &supported_formats);
     for (const auto& supported_formats_entry : supported_formats) {

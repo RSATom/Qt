@@ -13,12 +13,16 @@ namespace content {
 
 // Holds information about a child process.
 struct ChildProcessData {
-  // The type of the process.
+  // The type of the process. See the content::ProcessType enum for the
+  // well-known process types.
   int process_type;
 
   // The name of the process.  i.e. for plugins it might be Flash, while for
   // for workers it might be the domain that it's from.
   base::string16 name;
+
+  // The non-localized name of the process used for metrics reporting.
+  std::string metrics_name;
 
   // The unique identifier for this child process. This identifier is NOT a
   // process ID, and will be unique for all types of child process for

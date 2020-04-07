@@ -55,6 +55,7 @@
 
 QT_WARNING_PUSH
 QT_WARNING_DISABLE_GCC("-Woverloaded-virtual") // gcc complains about QObject::metaObject() being hidden.
+QT_WARNING_DISABLE_CLANG("-Woverloaded-virtual") // clang-cl complains about QObject::metaObject() being hidden.
 
 #include <QtCore/qhash.h>
 #include <QtCore/quuid.h>
@@ -73,9 +74,10 @@ class QSettings;
 
 class QAxFactory : public QObject
 {
+    Q_DISABLE_COPY(QAxFactory)
 public:
     QAxFactory(const QUuid &libId, const QUuid &appId);
-    virtual ~QAxFactory();
+    ~QAxFactory() override;
 
     virtual QStringList featureList() const = 0;
 
@@ -162,13 +164,13 @@ inline bool QAxFactory::stopServer()
         { \
             if (key == className) \
             return &Class::staticMetaObject; \
-            return Q_NULLPTR; \
+            return nullptr; \
         } \
         QObject *createObject(const QString &key) override \
         { \
             if (key == className) \
-                return new Class(Q_NULLPTR); \
-            return Q_NULLPTR; \
+                return new Class(nullptr); \
+            return nullptr; \
         } \
         QUuid classID(const QString &key) const override \
         { \
@@ -202,36 +204,36 @@ public:
     : QAxFactory(libId, appId)
     {}
 
-    const QMetaObject *metaObject(const QString &) const Q_DECL_OVERRIDE { return &T::staticMetaObject; }
-    QStringList featureList() const Q_DECL_OVERRIDE { return QStringList(QLatin1String(T::staticMetaObject.className())); }
-    QObject *createObject(const QString &key) Q_DECL_OVERRIDE
+    const QMetaObject *metaObject(const QString &) const override { return &T::staticMetaObject; }
+    QStringList featureList() const override { return QStringList(QLatin1String(T::staticMetaObject.className())); }
+    QObject *createObject(const QString &key) override
     {
         const QMetaObject &mo = T::staticMetaObject;
         if (key != QLatin1String(mo.className()))
-            return Q_NULLPTR;
+            return nullptr;
         if (!qstrcmp(mo.classInfo(mo.indexOfClassInfo("Creatable")).value(), "no"))
-            return Q_NULLPTR;
-        return new T(Q_NULLPTR);
+            return nullptr;
+        return new T(nullptr);
     }
 
-    void registerClass(const QString &key, QSettings *settings) const Q_DECL_OVERRIDE
+    void registerClass(const QString &key, QSettings *settings) const override
     {
         const QStringList categories = getImplementedCategories();
 
-        for (QStringList::const_iterator it = categories.begin(), end = categories.end(); it != end; ++it) {
+        for (const auto &cat : categories) {
             settings->setValue(QLatin1String("/CLSID/") + classID(key).toString()
-                             + QLatin1String("/Implemented Categories/") + *it + QLatin1String("/."),
+                               + QLatin1String("/Implemented Categories/") + cat + QLatin1String("/."),
                                QString());
         }
     }
 
-    void unregisterClass(const QString &key, QSettings *settings) const Q_DECL_OVERRIDE
+    void unregisterClass(const QString &key, QSettings *settings) const override
     {
         const QStringList categories = getImplementedCategories();
 
-        for (QStringList::const_iterator it = categories.begin(), end = categories.end(); it != end; ++it) {
+        for (const auto &cat : categories) {
             settings->remove(QLatin1String("/CLSID/") + classID(key).toString()
-                           + QLatin1String("/Implemented Categories/") + *it + QLatin1String("/."));
+                             + QLatin1String("/Implemented Categories/") + cat + QLatin1String("/."));
         }
     }
 
@@ -256,7 +258,7 @@ private:
         QAxFactoryList() \
         : QAxFactory(IDTypeLib, IDApp) \
         { \
-            QAxFactory *factory = Q_NULLPTR; \
+            QAxFactory *factory = nullptr; \
             QStringList keys; \
             QStringList::Iterator it; \
 
@@ -282,47 +284,47 @@ private:
 
 #define QAXFACTORY_END() \
         } \
-        ~QAxFactoryList() Q_DECL_OVERRIDE { qDeleteAll(factories); } \
-        QStringList featureList() const Q_DECL_OVERRIDE {  return factoryKeys; } \
-        const QMetaObject *metaObject(const QString&key) const Q_DECL_OVERRIDE { \
+        ~QAxFactoryList() override { qDeleteAll(factories); } \
+        QStringList featureList() const override {  return factoryKeys; } \
+        const QMetaObject *metaObject(const QString&key) const override { \
             QAxFactory *f = factories[key]; \
-            return f ? f->metaObject(key) : Q_NULLPTR; \
+            return f ? f->metaObject(key) : nullptr; \
         } \
-        QObject *createObject(const QString &key) Q_DECL_OVERRIDE { \
+        QObject *createObject(const QString &key) override { \
             if (!creatable.value(key)) \
-                return Q_NULLPTR; \
+                return nullptr; \
             QAxFactory *f = factories[key]; \
-            return f ? f->createObject(key) : Q_NULLPTR; \
+            return f ? f->createObject(key) : nullptr; \
         } \
-        QUuid classID(const QString &key) const Q_DECL_OVERRIDE { \
+        QUuid classID(const QString &key) const override { \
             QAxFactory *f = factories.value(key); \
             return f ? f->classID(key) : QUuid(); \
         } \
-        QUuid interfaceID(const QString &key) const Q_DECL_OVERRIDE { \
+        QUuid interfaceID(const QString &key) const override { \
             QAxFactory *f = factories.value(key); \
             return f ? f->interfaceID(key) : QUuid(); \
         } \
-        QUuid eventsID(const QString &key) const Q_DECL_OVERRIDE { \
+        QUuid eventsID(const QString &key) const override { \
             QAxFactory *f = factories.value(key); \
             return f ? f->eventsID(key) : QUuid(); \
         } \
-        void registerClass(const QString &key, QSettings *s) const Q_DECL_OVERRIDE { \
+        void registerClass(const QString &key, QSettings *s) const override { \
             QAxFactory *f = factories.value(key); \
             if (f) f->registerClass(key, s); \
         } \
-        void unregisterClass(const QString &key, QSettings *s) const Q_DECL_OVERRIDE { \
+        void unregisterClass(const QString &key, QSettings *s) const override { \
             QAxFactory *f = factories.value(key); \
             if (f) f->unregisterClass(key, s); \
         } \
-        QString exposeToSuperClass(const QString &key) const Q_DECL_OVERRIDE { \
+        QString exposeToSuperClass(const QString &key) const override { \
             QAxFactory *f = factories.value(key); \
             return f ? f->exposeToSuperClass(key) : QString(); \
         } \
-        bool stayTopLevel(const QString &key) const Q_DECL_OVERRIDE { \
+        bool stayTopLevel(const QString &key) const override { \
             QAxFactory *f = factories.value(key); \
             return f ? f->stayTopLevel(key) : false; \
         } \
-        bool hasStockEvents(const QString &key) const Q_DECL_OVERRIDE { \
+        bool hasStockEvents(const QString &key) const override { \
             QAxFactory *f = factories.value(key); \
             return f ? f->hasStockEvents(key) : false; \
         } \

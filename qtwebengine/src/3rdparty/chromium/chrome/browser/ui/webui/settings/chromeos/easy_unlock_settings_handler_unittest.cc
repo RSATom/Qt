@@ -6,9 +6,8 @@
 
 #include <memory>
 
-#include "base/memory/ptr_util.h"
-#include "chrome/browser/signin/easy_unlock_service.h"
-#include "chrome/browser/signin/easy_unlock_service_factory.h"
+#include "chrome/browser/chromeos/login/easy_unlock/easy_unlock_service.h"
+#include "chrome/browser/chromeos/login/easy_unlock/easy_unlock_service_factory.h"
 #include "chrome/test/base/testing_profile.h"
 #include "content/public/browser/web_ui_data_source.h"
 #include "content/public/test/test_browser_thread_bundle.h"
@@ -23,7 +22,7 @@ namespace {
 class FakeEasyUnlockService : public EasyUnlockService {
  public:
   explicit FakeEasyUnlockService(Profile* profile)
-      : EasyUnlockService(profile),
+      : EasyUnlockService(profile, nullptr /* secure_channel_client */),
         turn_off_status_(IDLE),
         is_allowed_(true),
         is_enabled_(false) {}
@@ -57,23 +56,16 @@ class FakeEasyUnlockService : public EasyUnlockService {
   Type GetType() const override { return TYPE_REGULAR; }
   AccountId GetAccountId() const override { return EmptyAccountId(); }
   void LaunchSetup() override {}
-  const base::DictionaryValue* GetPermitAccess() const override {
-    return nullptr;
-  }
-  void SetPermitAccess(const base::DictionaryValue& permit) override {}
   void ClearPermitAccess() override {}
 
   const base::ListValue* GetRemoteDevices() const override { return nullptr; }
   void SetRemoteDevices(const base::ListValue& devices) override {}
-  void SetRemoteBleDevices(const base::ListValue& devices) override {}
 
   std::string GetChallenge() const override { return std::string(); }
   std::string GetWrappedSecret() const override { return std::string(); }
   void RecordEasySignInOutcome(const AccountId& account_id,
                                bool success) const override {}
   void RecordPasswordLoginEvent(const AccountId& account_id) const override {}
-  void StartAutoPairing(const AutoPairingResultCallback& callback) override {}
-  void SetAutoPairingResult(bool success, const std::string& error) override {}
 
   void InitializeInternal() override {}
   void ShutdownInternal() override {}
@@ -96,8 +88,13 @@ class TestEasyUnlockSettingsHandler : public EasyUnlockSettingsHandler {
 
 std::unique_ptr<KeyedService> CreateEasyUnlockServiceForTest(
     content::BrowserContext* context) {
-  return base::MakeUnique<FakeEasyUnlockService>(
+  return std::make_unique<FakeEasyUnlockService>(
       Profile::FromBrowserContext(context));
+}
+
+std::unique_ptr<KeyedService> CreateNullEasyUnlockServiceForTest(
+    content::BrowserContext* context) {
+  return nullptr;
 }
 
 }  // namespace
@@ -118,6 +115,13 @@ class EasyUnlockSettingsHandlerTest : public testing::Test {
   FakeEasyUnlockService* fake_easy_unlock_service() {
     return static_cast<FakeEasyUnlockService*>(
         EasyUnlockService::Get(profile_.get()));
+  }
+
+  void MakeEasyUnlockServiceNull() {
+    TestingProfile::Builder builder;
+    builder.AddTestingFactory(EasyUnlockServiceFactory::GetInstance(),
+                              &CreateNullEasyUnlockServiceForTest);
+    profile_ = builder.Build();
   }
 
   void VerifyEnabledStatusCallback(size_t expected_total_calls,
@@ -187,6 +191,16 @@ TEST_F(EasyUnlockSettingsHandlerTest, OnlyCreatedWhenEasyUnlockAllowed) {
   EXPECT_TRUE(handler.get());
 
   fake_easy_unlock_service()->set_is_allowed(false);
+  handler.reset(EasyUnlockSettingsHandler::Create(data_source, profile()));
+  EXPECT_FALSE(handler.get());
+}
+
+TEST_F(EasyUnlockSettingsHandlerTest, NotCreatedWhenEasyUnlockServiceNull) {
+  MakeEasyUnlockServiceNull();
+  std::unique_ptr<EasyUnlockSettingsHandler> handler;
+  content::WebUIDataSource* data_source =
+      content::WebUIDataSource::Create("test-data-source");
+  content::WebUIDataSource::Add(profile(), data_source);
   handler.reset(EasyUnlockSettingsHandler::Create(data_source, profile()));
   EXPECT_FALSE(handler.get());
 }

@@ -100,7 +100,7 @@
 */
 
 /*!
-    \fn QMdiArea::subWindowActivated(QMdiSubWindow *window)
+    \fn void QMdiArea::subWindowActivated(QMdiSubWindow *window)
 
     QMdiArea emits this signal after \a window has been activated. When \a
     window is 0, QMdiArea has just deactivated its last active window, and
@@ -471,8 +471,8 @@ QVector<QRect> MinOverlapPlacer::getCandidatePlacements(const QSize &size, const
     ylist.erase(std::unique(ylist.begin(), ylist.end()), ylist.end());
 
     result.reserve(ylist.size() * xlist.size());
-    foreach (int y, ylist)
-        foreach (int x, xlist)
+    for (int y : qAsConst(ylist))
+        for (int x : qAsConst(xlist))
             result << QRect(QPoint(x, y), size);
     return result;
 }
@@ -570,9 +570,9 @@ public:
     QMdiAreaTabBar(QWidget *parent) : QTabBar(parent) {}
 
 protected:
-    void mousePressEvent(QMouseEvent *event) Q_DECL_OVERRIDE;
+    void mousePressEvent(QMouseEvent *event) override;
 #ifndef QT_NO_CONTEXTMENU
-    void contextMenuEvent(QContextMenuEvent *event) Q_DECL_OVERRIDE;
+    void contextMenuEvent(QContextMenuEvent *event) override;
 #endif
 
 private:
@@ -954,7 +954,7 @@ void QMdiAreaPrivate::rearrange(Rearranger *rearranger)
         }
     }
 
-    if (active && rearranger->type() == Rearranger::RegularTiler) {
+    if (active && rearranger->type() == Rearranger::RegularTiler && !tileCalledFromResizeEvent) {
         // Move active window in front if necessary. That's the case if we
         // have any windows with staysOnTopHint set.
         int indexToActive = widgets.indexOf((QWidget *)active);
@@ -2638,7 +2638,7 @@ bool QMdiArea::eventFilter(QObject *object, QEvent *event)
                 d->tabBar->setTabEnabled(tabIndex, true);
         }
 #endif // QT_CONFIG(tabbar)
-        // fall through
+        Q_FALLTHROUGH();
     case QEvent::Hide:
         d->isSubWindowsTiled = false;
         break;

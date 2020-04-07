@@ -10,9 +10,10 @@
 
 #include "GrColor.h"
 #include "GrTypes.h"
+#include "SkMacros.h"
+#include "ir/SkSLProgram.h"
 #include "vk/GrVkDefines.h"
 #include "vk/GrVkInterface.h"
-#include "ir/SkSLProgram.h"
 
 class GrVkGpu;
 
@@ -32,16 +33,12 @@ class GrVkGpu;
  */
 bool GrPixelConfigToVkFormat(GrPixelConfig config, VkFormat* format);
 
-/**
-* Returns the GrPixelConfig for the given vulkan texture format
-*/
-GrPixelConfig GrVkFormatToPixelConfig(VkFormat format);
+bool GrVkFormatIsSupported(VkFormat);
 
 /**
- * Returns true if the given vulkan texture format is sRGB encoded.
- * Also provides the non-sRGB version, if there is one.
+ * Returns true if the passed in VkFormat and GrPixelConfig are compatible with each other.
  */
-bool GrVkFormatIsSRGB(VkFormat format, VkFormat* linearFormat);
+bool GrVkFormatPixelConfigPairIsValid(VkFormat, GrPixelConfig);
 
 bool GrSampleCountToVkSampleCount(uint32_t samples, VkSampleCountFlagBits* vkSamples);
 

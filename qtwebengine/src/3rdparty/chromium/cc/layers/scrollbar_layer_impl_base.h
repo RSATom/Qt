@@ -60,11 +60,13 @@ class CC_EXPORT ScrollbarLayerImplBase : public LayerImpl {
 
   virtual int ThumbThickness() const = 0;
 
-  // TODO(crbug.com/702832): No need for this function once there is element id
-  // on overlay scrollbar layers.
   void SetOverlayScrollbarLayerOpacityAnimated(float opacity);
 
   virtual LayerTreeSettings::ScrollbarAnimator GetScrollbarAnimator() const;
+
+  // Only PaintedOverlayScrollbar(Aura Overlay Scrollbar) need to know
+  // tickmarks's state.
+  virtual bool HasFindInPageTickmarks() const;
 
  protected:
   ScrollbarLayerImplBase(LayerTreeImpl* tree_impl,
@@ -98,6 +100,9 @@ class CC_EXPORT ScrollbarLayerImplBase : public LayerImpl {
   // Difference between the clip layer's height and the visible viewport
   // height (which may differ in the presence of top-controls hiding).
   float vertical_adjust_;
+
+  FRIEND_TEST_ALL_PREFIXES(ScrollbarLayerTest,
+                           ScrollElementIdPushedAcrossCommit);
 
   DISALLOW_COPY_AND_ASSIGN(ScrollbarLayerImplBase);
 };

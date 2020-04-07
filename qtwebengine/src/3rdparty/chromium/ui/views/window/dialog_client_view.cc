@@ -12,8 +12,9 @@
 #include "ui/views/background.h"
 #include "ui/views/border.h"
 #include "ui/views/controls/button/blue_button.h"
+#include "ui/views/controls/button/button.h"
 #include "ui/views/controls/button/checkbox.h"
-#include "ui/views/controls/button/custom_button.h"
+#include "ui/views/controls/button/image_button.h"
 #include "ui/views/controls/button/label_button.h"
 #include "ui/views/controls/button/md_text_button.h"
 #include "ui/views/layout/grid_layout.h"
@@ -31,12 +32,6 @@ namespace {
 // The group used by the buttons.  This name is chosen voluntarily big not to
 // conflict with other groups that could be in the dialog content.
 const int kButtonGroup = 6666;
-
-#if defined(OS_WIN) || defined(OS_CHROMEOS)
-const bool kIsOkButtonOnLeftSide = true;
-#else
-const bool kIsOkButtonOnLeftSide = false;
-#endif
 
 // Returns true if the given view should be shown (i.e. exists and is
 // visible).
@@ -87,7 +82,11 @@ DialogClientView::DialogClientView(Widget* owner, View* contents_view)
   AddChildView(button_row_container_);
 }
 
-DialogClientView::~DialogClientView() {}
+DialogClientView::~DialogClientView() {
+  DialogDelegate* dialog = GetWidget() ? GetDialogDelegate() : nullptr;
+  if (dialog)
+    dialog->RemoveObserver(this);
+}
 
 void DialogClientView::AcceptWindow() {
   // Only notify the delegate once. See |delegate_allowed_close_|'s comment.
@@ -103,11 +102,6 @@ void DialogClientView::CancelWindow() {
     delegate_allowed_close_ = true;
     GetWidget()->Close();
   }
-}
-
-void DialogClientView::UpdateDialogButtons() {
-  SetupLayout();
-  InvalidateLayout();
 }
 
 void DialogClientView::SetButtonRowInsets(const gfx::Insets& insets) {
@@ -139,9 +133,11 @@ const DialogClientView* DialogClientView::AsDialogClientView() const {
 // DialogClientView, View overrides:
 
 gfx::Size DialogClientView::CalculatePreferredSize() const {
+  gfx::Size contents_size = ClientView::CalculatePreferredSize();
+  const gfx::Insets& content_margins = GetDialogDelegate()->margins();
+  contents_size.Enlarge(content_margins.width(), content_margins.height());
   return GetBoundingSizeForVerticalStack(
-      ClientView::CalculatePreferredSize(),
-      button_row_container_->GetPreferredSize());
+      contents_size, button_row_container_->GetPreferredSize());
 }
 
 gfx::Size DialogClientView::GetMinimumSize() const {
@@ -172,8 +168,11 @@ void DialogClientView::Layout() {
   button_row_container_->SetSize(
       gfx::Size(width(), button_row_container_->GetHeightForWidth(width())));
   button_row_container_->SetY(height() - button_row_container_->height());
-  if (contents_view())
-    contents_view()->SetSize(gfx::Size(width(), button_row_container_->y()));
+  if (contents_view()) {
+    gfx::Rect contents_bounds(width(), button_row_container_->y());
+    contents_bounds.Inset(GetDialogDelegate()->margins());
+    contents_view()->SetBoundsRect(contents_bounds);
+  }
 }
 
 bool DialogClientView::AcceleratorPressed(const ui::Accelerator& accelerator) {
@@ -190,8 +189,10 @@ void DialogClientView::ViewHierarchyChanged(
   ClientView::ViewHierarchyChanged(details);
 
   if (details.is_add) {
-    if (child == this)
+    if (child == this) {
       UpdateDialogButtons();
+      GetDialogDelegate()->AddObserver(this);
+    }
     return;
   }
 
@@ -260,6 +261,15 @@ void DialogClientView::ChildVisibilityChanged(View* child) {
   ChildPreferredSizeChanged(child);
 }
 
+void DialogClientView::OnDialogModelChanged() {
+  UpdateDialogButtons();
+}
+
+void DialogClientView::UpdateDialogButtons() {
+  SetupLayout();
+  InvalidateLayout();
+}
+
 void DialogClientView::UpdateDialogButton(LabelButton** member,
                                           ui::DialogButton type) {
   DialogDelegate* const delegate = GetDialogDelegate();
@@ -314,21 +324,22 @@ DialogClientView::GetButtonRowViews() {
   View* first = ShouldShow(extra_view_) ? extra_view_ : nullptr;
   View* second = cancel_button_;
   View* third = ok_button_;
-  if (kIsOkButtonOnLeftSide)
+  if (PlatformStyle::kIsOkButtonLeading)
     std::swap(second, third);
   return {{first, second, third}};
 }
 
 void DialogClientView::SetupLayout() {
   base::AutoReset<bool> auto_reset(&adding_or_removing_views_, true);
-  GridLayout* layout = new GridLayout(button_row_container_);
-  layout->set_minimum_size(minimum_size_);
   FocusManager* focus_manager = GetFocusManager();
   ViewTracker view_tracker(focus_manager->GetFocusedView());
 
   // Clobber any existing LayoutManager since it has weak references to child
   // Views which may be removed by SetupViews().
-  button_row_container_->SetLayoutManager(layout);
+  GridLayout* layout = button_row_container_->SetLayoutManager(
+      std::make_unique<views::GridLayout>(button_row_container_));
+  layout->set_minimum_size(minimum_size_);
+
   SetupViews();
   const std::array<View*, kNumButtons> views = GetButtonRowViews();
 
@@ -393,10 +404,12 @@ void DialogClientView::SetupLayout() {
 
   // If |views[0]| is non-null, it is a visible |extra_view_| and its column
   // will be in |link[0]|. Skip that if it is not a button, or if it is a
-  // Checkbox (which extends LabelButton). Otherwise, link everything.
+  // specific subclass of Button that should never be linked. Otherwise, link
+  // everything.
   bool skip_first_link =
-      views[0] && (!CustomButton::AsCustomButton(views[0]) ||
-                   views[0]->GetClassName() == Checkbox::kViewClassName);
+      views[0] && (!Button::AsButton(views[0]) ||
+                   views[0]->GetClassName() == Checkbox::kViewClassName ||
+                   views[0]->GetClassName() == ImageButton::kViewClassName);
   if (skip_first_link)
     column_set->LinkColumnSizes(link[1], link[2], -1);
   else
@@ -427,7 +440,7 @@ void DialogClientView::SetupViews() {
     return;
 
   extra_view_ = GetDialogDelegate()->CreateExtraView();
-  if (extra_view_)
+  if (extra_view_ && Button::AsButton(extra_view_))
     extra_view_->SetGroup(kButtonGroup);
 }
 

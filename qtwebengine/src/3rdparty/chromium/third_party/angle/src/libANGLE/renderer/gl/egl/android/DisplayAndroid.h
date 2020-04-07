@@ -11,12 +11,15 @@
 
 #include <map>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "libANGLE/renderer/gl/egl/DisplayEGL.h"
 
 namespace rx
 {
+
+class RendererEGL;
 
 class DisplayAndroid : public DisplayEGL
 {
@@ -44,6 +47,11 @@ class DisplayAndroid : public DisplayEGL
                            EGLenum target,
                            const egl::AttributeMap &attribs) override;
 
+    ContextImpl *createContext(const gl::ContextState &state,
+                               const egl::Config *configuration,
+                               const gl::Context *shareContext,
+                               const egl::AttributeMap &attribs) override;
+
     egl::ConfigSet generateConfigs() override;
 
     bool testDeviceLost() override;
@@ -51,12 +59,28 @@ class DisplayAndroid : public DisplayEGL
 
     bool isValidNativeWindow(EGLNativeWindowType window) const override;
 
-    egl::Error getDevice(DeviceImpl **device) override;
+    DeviceImpl *createDevice() override;
 
-    egl::Error waitClient(const gl::Context *context) const override;
-    egl::Error waitNative(const gl::Context *context, EGLint engine) const override;
+    egl::Error waitClient(const gl::Context *context) override;
+    egl::Error waitNative(const gl::Context *context, EGLint engine) override;
+
+    egl::Error makeCurrent(egl::Surface *drawSurface,
+                           egl::Surface *readSurface,
+                           gl::Context *context) override;
+
+    gl::Version getMaxSupportedESVersion() const override;
+
+    void destroyNativeContext(EGLContext context) override;
 
   private:
+    void generateExtensions(egl::DisplayExtensions *outExtensions) const override;
+
+    egl::Error createRenderer(EGLContext shareContext,
+                              bool makeNewContextCurrent,
+                              std::shared_ptr<RendererEGL> *outRenderer);
+
+    egl::Error makeCurrentSurfaceless(gl::Context *context) override;
+
     template <typename T>
     void getConfigAttrib(EGLConfig config, EGLint attribute, T *value) const;
 
@@ -67,9 +91,23 @@ class DisplayAndroid : public DisplayEGL
                                     const char *extension,
                                     const U &defaultValue) const;
 
+    bool mVirtualizedContexts;
+    std::shared_ptr<RendererEGL> mRenderer;
+
+    egl::AttributeMap mDisplayAttributes;
+
+    bool mSupportsSurfaceless;
+
     std::vector<EGLint> mConfigAttribList;
     std::map<EGLint, EGLint> mConfigIds;
     EGLSurface mDummyPbuffer;
+
+    struct CurrentNativeContext
+    {
+        EGLSurface surface = EGL_NO_SURFACE;
+        EGLContext context = EGL_NO_CONTEXT;
+    };
+    std::unordered_map<std::thread::id, CurrentNativeContext> mCurrentNativeContext;
 };
 
 }  // namespace rx

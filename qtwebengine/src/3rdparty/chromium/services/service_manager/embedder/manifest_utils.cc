@@ -4,7 +4,6 @@
 
 #include "services/service_manager/embedder/manifest_utils.h"
 
-#include "base/memory/ptr_util.h"
 
 namespace service_manager {
 
@@ -19,7 +18,7 @@ void MergeDictionary(base::DictionaryValue* target,
        it.Advance()) {
     const base::Value* merge_value = &it.value();
     // Check whether we have to merge dictionaries.
-    if (merge_value->IsType(base::Value::Type::DICTIONARY)) {
+    if (merge_value->is_dict()) {
       base::DictionaryValue* sub_dict;
       if (target->GetDictionaryWithoutPathExpansion(it.key(), &sub_dict)) {
         MergeDictionary(sub_dict,
@@ -27,7 +26,7 @@ void MergeDictionary(base::DictionaryValue* target,
         continue;
       }
     }
-    if (merge_value->IsType(base::Value::Type::LIST)) {
+    if (merge_value->is_list()) {
       const base::ListValue* merge_list = nullptr;
       if (merge_value->GetAsList(&merge_list)) {
         base::ListValue* target_list = nullptr;
@@ -42,8 +41,7 @@ void MergeDictionary(base::DictionaryValue* target,
       }
     }
     // All other cases: Make a copy and hook it up.
-    target->SetWithoutPathExpansion(
-        it.key(), base::MakeUnique<base::Value>(*merge_value));
+    target->SetKey(it.key(), merge_value->Clone());
   }
 }
 

@@ -18,8 +18,6 @@
 
 #include "base/compiler_specific.h"
 #include "base/format_macros.h"
-#include "base/macros.h"
-#include "base/strings/string16.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "gtest/gtest.h"
@@ -49,7 +47,7 @@ TEST(MinidumpStringWriter, MinidumpUTF16StringWriter) {
               base::string16());
   }
 
-  const struct {
+  static constexpr struct {
     size_t input_length;
     const char* input_string;
     size_t output_length;
@@ -86,12 +84,11 @@ TEST(MinidumpStringWriter, MinidumpUTF16StringWriter) {
 
     const size_t expected_utf16_units_with_nul =
         kTestData[index].output_length + 1;
-    MINIDUMP_STRING tmp = {0};
+    MINIDUMP_STRING* tmp;
     ALLOW_UNUSED_LOCAL(tmp);
     const size_t expected_utf16_bytes =
-        expected_utf16_units_with_nul * sizeof(tmp.Buffer[0]);
-    ASSERT_EQ(string_file.string().size(),
-              sizeof(MINIDUMP_STRING) + expected_utf16_bytes);
+        expected_utf16_units_with_nul * sizeof(tmp->Buffer[0]);
+    ASSERT_EQ(string_file.string().size(), sizeof(*tmp) + expected_utf16_bytes);
 
     const MINIDUMP_STRING* minidump_string =
         MinidumpStringAtRVA(string_file.string(), 0);
@@ -106,7 +103,7 @@ TEST(MinidumpStringWriter, MinidumpUTF16StringWriter) {
 TEST(MinidumpStringWriter, ConvertInvalidUTF8ToUTF16) {
   StringFile string_file;
 
-  const char* kTestData[] = {
+  static constexpr const char* kTestData[] = {
       "\200",  // continuation byte
       "\300",  // start byte followed by EOF
       "\310\177",  // start byte without continuation
@@ -131,11 +128,11 @@ TEST(MinidumpStringWriter, ConvertInvalidUTF8ToUTF16) {
     const MINIDUMP_STRING* minidump_string =
         MinidumpStringAtRVA(string_file.string(), 0);
     EXPECT_TRUE(minidump_string);
-    MINIDUMP_STRING tmp = {0};
+    MINIDUMP_STRING* tmp;
     ALLOW_UNUSED_LOCAL(tmp);
-    EXPECT_EQ(minidump_string->Length,
-              string_file.string().size() - sizeof(MINIDUMP_STRING) -
-                  sizeof(tmp.Buffer[0]));
+    EXPECT_EQ(
+        minidump_string->Length,
+        string_file.string().size() - sizeof(*tmp) - sizeof(tmp->Buffer[0]));
     base::string16 output_string =
         MinidumpStringAtRVAAsString(string_file.string(), 0);
     EXPECT_FALSE(output_string.empty());
@@ -160,7 +157,7 @@ TEST(MinidumpStringWriter, MinidumpUTF8StringWriter) {
               std::string());
   }
 
-  const struct {
+  static constexpr struct {
     size_t length;
     const char* string;
   } kTestData[] = {

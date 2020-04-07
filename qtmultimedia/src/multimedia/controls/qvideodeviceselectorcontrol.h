@@ -67,11 +67,11 @@ public Q_SLOTS:
 
 Q_SIGNALS:
     void selectedDeviceChanged(int index);
-    void selectedDeviceChanged(const QString &deviceName);
+    void selectedDeviceChanged(const QString &name);
     void devicesChanged();
 
 protected:
-    explicit QVideoDeviceSelectorControl(QObject *parent = Q_NULLPTR);
+    explicit QVideoDeviceSelectorControl(QObject *parent = nullptr);
 };
 
 #define QVideoDeviceSelectorControl_iid "org.qt-project.qt.videodeviceselectorcontrol/5.0"

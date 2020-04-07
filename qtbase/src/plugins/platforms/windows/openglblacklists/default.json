@@ -141,6 +141,17 @@
           "features": [
             "disable_desktopgl", "disable_d3d11", "disable_d3d9"
           ]
+        },
+        {
+           "id": 12,
+           "description": "Intel HD Graphics crash in conjunction with shader caches (QTBUG-64697) - disable for all Intel GPUs",
+           "vendor_id": "0x8086",
+           "os": {
+               "type": "win"
+           },
+           "features": [
+               "disable_program_cache"
+           ]
         }
     ]
 }

@@ -16,13 +16,12 @@ namespace rx
 {
 
 PbufferSurfaceGLX::PbufferSurfaceGLX(const egl::SurfaceState &state,
-                                     RendererGL *renderer,
                                      EGLint width,
                                      EGLint height,
                                      bool largest,
                                      const FunctionsGLX &glx,
                                      glx::FBConfig fbConfig)
-    : SurfaceGLX(state, renderer),
+    : SurfaceGLX(state),
       mWidth(width),
       mHeight(height),
       mLargest(largest),
@@ -96,13 +95,15 @@ egl::Error PbufferSurfaceGLX::querySurfacePointerANGLE(EGLint attribute, void **
     return egl::NoError();
 }
 
-egl::Error PbufferSurfaceGLX::bindTexImage(gl::Texture *texture, EGLint buffer)
+egl::Error PbufferSurfaceGLX::bindTexImage(const gl::Context *context,
+                                           gl::Texture *texture,
+                                           EGLint buffer)
 {
     UNIMPLEMENTED();
     return egl::NoError();
 }
 
-egl::Error PbufferSurfaceGLX::releaseTexImage(EGLint buffer)
+egl::Error PbufferSurfaceGLX::releaseTexImage(const gl::Context *context, EGLint buffer)
 {
     UNIMPLEMENTED();
     return egl::NoError();

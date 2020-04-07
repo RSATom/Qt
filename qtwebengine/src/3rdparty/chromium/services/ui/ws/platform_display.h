@@ -20,6 +20,8 @@
 namespace ui {
 
 enum class CursorSize;
+class PlatformWindow;
+class PlatformWindowDelegate;
 struct TextInputState;
 
 namespace ws {
@@ -56,12 +58,16 @@ class PlatformDisplay : public ui::EventSource {
 
   virtual void SetCursorSize(const ui::CursorSize& cursor_size) = 0;
 
+  virtual void ConfineCursorToBounds(const gfx::Rect& pixel_bounds) = 0;
+
   virtual void UpdateTextInputState(const ui::TextInputState& state) = 0;
   virtual void SetImeVisibility(bool visible) = 0;
 
   // Updates the viewport metrics for the display.
   virtual void UpdateViewportMetrics(
       const display::ViewportMetrics& metrics) = 0;
+
+  virtual const display::ViewportMetrics& GetViewportMetrics() = 0;
 
   // Returns the AcceleratedWidget associated with the Display. It can return
   // kNullAcceleratedWidget if the accelerated widget is not available yet.
@@ -77,6 +83,12 @@ class PlatformDisplay : public ui::EventSource {
   static void set_factory_for_testing(PlatformDisplayFactory* factory) {
     PlatformDisplay::factory_ = factory;
   }
+
+ protected:
+  // Create a platform window with the given delegate and bounds.
+  static std::unique_ptr<PlatformWindow> CreatePlatformWindow(
+      PlatformWindowDelegate* delegate,
+      const gfx::Rect& bounds);
 
  private:
   // Static factory instance (always NULL for non-test).

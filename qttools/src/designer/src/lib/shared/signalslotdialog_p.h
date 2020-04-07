@@ -41,9 +41,9 @@
 #define _SIGNALSLOTDIALOG_H
 
 #include "shared_global_p.h"
-#include <QtCore/QStringList>
-#include <QtWidgets/QDialog>
-#include <QtGui/QStandardItemModel>
+#include <QtCore/qstringlist.h>
+#include <QtWidgets/qdialog.h>
+#include <QtGui/qstandarditemmodel.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -75,7 +75,7 @@ class SignatureModel : public QStandardItemModel {
 
 public:
     SignatureModel(QObject *parent = 0);
-    bool setData (const QModelIndex &index, const QVariant &value, int role = Qt::EditRole) Q_DECL_OVERRIDE;
+    bool setData (const QModelIndex &index, const QVariant &value, int role = Qt::EditRole) override;
 
 signals:
     void checkSignature(const QString &signature, bool *ok);
@@ -128,7 +128,7 @@ public:
     enum FocusMode { FocusSlots, FocusSignals };
 
     explicit SignalSlotDialog(QDesignerDialogGuiInterface *dialogGui, QWidget *parent = 0, FocusMode m = FocusSlots);
-    virtual ~SignalSlotDialog();
+    ~SignalSlotDialog() override;
 
     DialogCode showDialog(SignalSlotDialogData &slotData, SignalSlotDialogData &signalData);
 

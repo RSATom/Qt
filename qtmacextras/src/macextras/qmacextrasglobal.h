@@ -50,23 +50,6 @@ QT_BEGIN_NAMESPACE
 #  define Q_MACEXTRAS_EXPORT Q_DECL_IMPORT
 #endif
 
-
-// ### remove when merged to QtCore
-/*!
- * \macro Q_FORWARD_DECLARE_OBJC_CLASS(classname)
- *
- * Forward-declares an Objective-C class name in a manner such that it can be
- * compiled as either Objective-C or C++.
- *
- * This is primarily intended for use in header files that may be included by
- * both Objective-C and C++ source files.
- */
-#ifdef __OBJC__
-#define Q_FORWARD_DECLARE_OBJC_CLASS(classname) @class classname
-#else
-#define Q_FORWARD_DECLARE_OBJC_CLASS(classname) typedef struct objc_object classname
-#endif
-
 QT_END_NAMESPACE
 
 #endif // QMACEXTRASGLOBAL_H

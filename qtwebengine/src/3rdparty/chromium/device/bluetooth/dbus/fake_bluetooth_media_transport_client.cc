@@ -70,7 +70,7 @@ FakeBluetoothMediaTransportClient::Properties::Properties(
           kBluetoothMediaTransportInterface,
           callback) {}
 
-FakeBluetoothMediaTransportClient::Properties::~Properties() {}
+FakeBluetoothMediaTransportClient::Properties::~Properties() = default;
 
 void FakeBluetoothMediaTransportClient::Properties::Get(
     dbus::PropertyBase* property,
@@ -95,14 +95,18 @@ FakeBluetoothMediaTransportClient::Transport::Transport(
     std::unique_ptr<Properties> transport_properties)
     : path(transport_path), properties(std::move(transport_properties)) {}
 
-FakeBluetoothMediaTransportClient::Transport::~Transport() {}
+FakeBluetoothMediaTransportClient::Transport::~Transport() = default;
 
-FakeBluetoothMediaTransportClient::FakeBluetoothMediaTransportClient() {}
+FakeBluetoothMediaTransportClient::FakeBluetoothMediaTransportClient() =
+    default;
 
-FakeBluetoothMediaTransportClient::~FakeBluetoothMediaTransportClient() {}
+FakeBluetoothMediaTransportClient::~FakeBluetoothMediaTransportClient() =
+    default;
 
 // DBusClient override.
-void FakeBluetoothMediaTransportClient::Init(dbus::Bus* bus) {}
+void FakeBluetoothMediaTransportClient::Init(
+    dbus::Bus* bus,
+    const std::string& bluetooth_service_name) {}
 
 void FakeBluetoothMediaTransportClient::AddObserver(
     BluetoothMediaTransportClient::Observer* observer) {
@@ -178,7 +182,7 @@ void FakeBluetoothMediaTransportClient::SetValid(
     properties->volume.ReplaceValue(kTransportVolume);
 
     endpoint_to_transport_map_[endpoint_path] =
-        base::MakeUnique<Transport>(transport_path, std::move(properties));
+        std::make_unique<Transport>(transport_path, std::move(properties));
     transport_to_endpoint_map_[transport_path] = endpoint_path;
     return;
   }

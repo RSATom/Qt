@@ -5,34 +5,25 @@
 #include "components/sessions/core/serialized_navigation_entry.h"
 
 #include <stddef.h>
+#include <utility>
 
 #include "base/macros.h"
 #include "base/pickle.h"
-#include "base/strings/utf_string_conversions.h"
 #include "base/trace_event/memory_usage_estimator.h"
 #include "components/sessions/core/serialized_navigation_driver.h"
-#include "components/sync/base/time.h"
-#include "components/sync/protocol/session_specifics.pb.h"
 
 namespace sessions {
-
-// TODO(treib): Remove, not needed anymore. crbug.com/627747
-const char kSearchTermsKey[] = "search_terms";
 
 // The previous referrer policy value corresponding to |Never|.
 const int kObsoleteReferrerPolicyNever = 2;
 
-SerializedNavigationEntry::SerializedNavigationEntry()
-    : index_(-1),
-      unique_id_(0),
-      transition_type_(ui::PAGE_TRANSITION_TYPED),
-      has_post_data_(false),
-      post_id_(-1),
-      is_overriding_user_agent_(false),
-      http_status_code_(0),
-      is_restored_(false),
-      blocked_state_(STATE_INVALID),
-      password_state_(PASSWORD_STATE_UNKNOWN) {
+size_t
+SerializedNavigationEntry::ReplacedNavigationEntryData::EstimateMemoryUsage()
+    const {
+  return base::trace_event::EstimateMemoryUsage(first_committed_url);
+}
+
+SerializedNavigationEntry::SerializedNavigationEntry() {
   referrer_policy_ =
       SerializedNavigationDriver::Get()->GetDefaultReferrerPolicy();
 }
@@ -40,108 +31,21 @@ SerializedNavigationEntry::SerializedNavigationEntry()
 SerializedNavigationEntry::SerializedNavigationEntry(
     const SerializedNavigationEntry& other) = default;
 
-SerializedNavigationEntry::~SerializedNavigationEntry() {}
-
-SerializedNavigationEntry SerializedNavigationEntry::FromSyncData(
-    int index,
-    const sync_pb::TabNavigation& sync_data) {
-  SerializedNavigationEntry navigation;
-  navigation.index_ = index;
-  navigation.unique_id_ = sync_data.unique_id();
-  if (sync_data.has_correct_referrer_policy()) {
-    navigation.referrer_url_ = GURL(sync_data.referrer());
-    navigation.referrer_policy_ = sync_data.correct_referrer_policy();
-  } else {
-    navigation.referrer_url_ = GURL();
-    navigation.referrer_policy_ = kObsoleteReferrerPolicyNever;
-  }
-  navigation.virtual_url_ = GURL(sync_data.virtual_url());
-  navigation.title_ = base::UTF8ToUTF16(sync_data.title());
-
-  uint32_t transition = 0;
-  if (sync_data.has_page_transition()) {
-    switch (sync_data.page_transition()) {
-      case sync_pb::SyncEnums_PageTransition_LINK:
-        transition = ui::PAGE_TRANSITION_LINK;
-        break;
-      case sync_pb::SyncEnums_PageTransition_TYPED:
-        transition = ui::PAGE_TRANSITION_TYPED;
-        break;
-      case sync_pb::SyncEnums_PageTransition_AUTO_BOOKMARK:
-        transition = ui::PAGE_TRANSITION_AUTO_BOOKMARK;
-        break;
-      case sync_pb::SyncEnums_PageTransition_AUTO_SUBFRAME:
-        transition = ui::PAGE_TRANSITION_AUTO_SUBFRAME;
-        break;
-      case sync_pb::SyncEnums_PageTransition_MANUAL_SUBFRAME:
-        transition = ui::PAGE_TRANSITION_MANUAL_SUBFRAME;
-        break;
-      case sync_pb::SyncEnums_PageTransition_GENERATED:
-        transition = ui::PAGE_TRANSITION_GENERATED;
-        break;
-      case sync_pb::SyncEnums_PageTransition_AUTO_TOPLEVEL:
-        transition = ui::PAGE_TRANSITION_AUTO_TOPLEVEL;
-        break;
-      case sync_pb::SyncEnums_PageTransition_FORM_SUBMIT:
-        transition = ui::PAGE_TRANSITION_FORM_SUBMIT;
-        break;
-      case sync_pb::SyncEnums_PageTransition_RELOAD:
-        transition = ui::PAGE_TRANSITION_RELOAD;
-        break;
-      case sync_pb::SyncEnums_PageTransition_KEYWORD:
-        transition = ui::PAGE_TRANSITION_KEYWORD;
-        break;
-      case sync_pb::SyncEnums_PageTransition_KEYWORD_GENERATED:
-        transition = ui::PAGE_TRANSITION_KEYWORD_GENERATED;
-        break;
-      default:
-        transition = ui::PAGE_TRANSITION_LINK;
-        break;
-    }
-  }
-
-  if  (sync_data.has_redirect_type()) {
-    switch (sync_data.redirect_type()) {
-      case sync_pb::SyncEnums_PageTransitionRedirectType_CLIENT_REDIRECT:
-        transition |= ui::PAGE_TRANSITION_CLIENT_REDIRECT;
-        break;
-      case sync_pb::SyncEnums_PageTransitionRedirectType_SERVER_REDIRECT:
-        transition |= ui::PAGE_TRANSITION_SERVER_REDIRECT;
-        break;
-    }
-  }
-  if (sync_data.navigation_forward_back())
-      transition |= ui::PAGE_TRANSITION_FORWARD_BACK;
-  if (sync_data.navigation_from_address_bar())
-      transition |= ui::PAGE_TRANSITION_FROM_ADDRESS_BAR;
-  if (sync_data.navigation_home_page())
-      transition |= ui::PAGE_TRANSITION_HOME_PAGE;
-  if (sync_data.navigation_chain_start())
-      transition |= ui::PAGE_TRANSITION_CHAIN_START;
-  if (sync_data.navigation_chain_end())
-      transition |= ui::PAGE_TRANSITION_CHAIN_END;
-
-  navigation.transition_type_ = static_cast<ui::PageTransition>(transition);
-
-  navigation.timestamp_ = base::Time();
-  navigation.search_terms_ = base::UTF8ToUTF16(sync_data.search_terms());
-  if (sync_data.has_favicon_url())
-    navigation.favicon_url_ = GURL(sync_data.favicon_url());
-
-  if (sync_data.has_password_state()) {
-    navigation.password_state_ =
-        static_cast<SerializedNavigationEntry::PasswordState>(
-            sync_data.password_state());
-  }
-
-  navigation.http_status_code_ = sync_data.http_status_code();
-
-  SerializedNavigationDriver::Get()->Sanitize(&navigation);
-
-  navigation.is_restored_ = true;
-
-  return navigation;
+SerializedNavigationEntry::SerializedNavigationEntry(
+    SerializedNavigationEntry&& other) noexcept {
+  // VC 2015 can't handle "noexcept = default" constructors. We want the
+  // noexcept to avoid copying in a vector, but don't want to copy everything,
+  // by hand, so fall on the default-generated move operator=.
+  operator=(std::move(other));
 }
+
+SerializedNavigationEntry::~SerializedNavigationEntry() = default;
+
+SerializedNavigationEntry& SerializedNavigationEntry::operator=(
+    const SerializedNavigationEntry& other) = default;
+
+SerializedNavigationEntry& SerializedNavigationEntry::operator=(
+    SerializedNavigationEntry&& other) = default;
 
 namespace {
 
@@ -209,7 +113,7 @@ enum TypeMask {
 // original_request_url_
 // is_overriding_user_agent_
 // timestamp_
-// search_terms_
+// search_terms_ (removed)
 // http_status_code_
 // referrer_policy_
 // extended_info_map_
@@ -248,7 +152,9 @@ void SerializedNavigationEntry::WriteToPickle(int max_size,
   pickle->WriteBool(is_overriding_user_agent_);
   pickle->WriteInt64(timestamp_.ToInternalValue());
 
-  WriteString16ToPickle(pickle, &bytes_written, max_size, search_terms_);
+  // The |search_terms_| field was removed. Write an empty string to keep
+  // backwards compatibility.
+  WriteString16ToPickle(pickle, &bytes_written, max_size, base::string16());
 
   pickle->WriteInt(http_status_code_);
 
@@ -311,9 +217,10 @@ bool SerializedNavigationEntry::ReadFromPickle(base::PickleIterator* iterator) {
       timestamp_ = base::Time();
     }
 
-    // If the search terms field can't be found, leave it empty.
-    if (!iterator->ReadString16(&search_terms_))
-      search_terms_.clear();
+    // The |search_terms_| field was removed, but it still exists in the binary
+    // format to keep backwards compatibility. Just get rid of it.
+    base::string16 search_terms;
+    ignore_result(iterator->ReadString16(&search_terms));
 
     if (!iterator->ReadInt(&http_status_code_))
       http_status_code_ = 0;
@@ -347,150 +254,18 @@ bool SerializedNavigationEntry::ReadFromPickle(base::PickleIterator* iterator) {
   return true;
 }
 
-// TODO(zea): perhaps sync state (scroll position, form entries, etc.) as well?
-// See http://crbug.com/67068.
-sync_pb::TabNavigation SerializedNavigationEntry::ToSyncData() const {
-  sync_pb::TabNavigation sync_data;
-  sync_data.set_virtual_url(virtual_url_.spec());
-  sync_data.set_referrer(referrer_url_.spec());
-  sync_data.set_correct_referrer_policy(referrer_policy_);
-  sync_data.set_title(base::UTF16ToUTF8(title_));
-
-  // Page transition core.
-  static_assert(static_cast<int32_t>(ui::PAGE_TRANSITION_LAST_CORE) ==
-                static_cast<int32_t>(ui::PAGE_TRANSITION_KEYWORD_GENERATED),
-                "PAGE_TRANSITION_LAST_CORE must equal "
-                "PAGE_TRANSITION_KEYWORD_GENERATED");
-  switch (ui::PageTransitionStripQualifier(transition_type_)) {
-    case ui::PAGE_TRANSITION_LINK:
-      sync_data.set_page_transition(
-          sync_pb::SyncEnums_PageTransition_LINK);
-      break;
-    case ui::PAGE_TRANSITION_TYPED:
-      sync_data.set_page_transition(
-          sync_pb::SyncEnums_PageTransition_TYPED);
-      break;
-    case ui::PAGE_TRANSITION_AUTO_BOOKMARK:
-      sync_data.set_page_transition(
-          sync_pb::SyncEnums_PageTransition_AUTO_BOOKMARK);
-      break;
-    case ui::PAGE_TRANSITION_AUTO_SUBFRAME:
-      sync_data.set_page_transition(
-        sync_pb::SyncEnums_PageTransition_AUTO_SUBFRAME);
-      break;
-    case ui::PAGE_TRANSITION_MANUAL_SUBFRAME:
-      sync_data.set_page_transition(
-        sync_pb::SyncEnums_PageTransition_MANUAL_SUBFRAME);
-      break;
-    case ui::PAGE_TRANSITION_GENERATED:
-      sync_data.set_page_transition(
-        sync_pb::SyncEnums_PageTransition_GENERATED);
-      break;
-    case ui::PAGE_TRANSITION_AUTO_TOPLEVEL:
-      sync_data.set_page_transition(
-        sync_pb::SyncEnums_PageTransition_AUTO_TOPLEVEL);
-      break;
-    case ui::PAGE_TRANSITION_FORM_SUBMIT:
-      sync_data.set_page_transition(
-        sync_pb::SyncEnums_PageTransition_FORM_SUBMIT);
-      break;
-    case ui::PAGE_TRANSITION_RELOAD:
-      sync_data.set_page_transition(
-        sync_pb::SyncEnums_PageTransition_RELOAD);
-      break;
-    case ui::PAGE_TRANSITION_KEYWORD:
-      sync_data.set_page_transition(
-        sync_pb::SyncEnums_PageTransition_KEYWORD);
-      break;
-    case ui::PAGE_TRANSITION_KEYWORD_GENERATED:
-      sync_data.set_page_transition(
-        sync_pb::SyncEnums_PageTransition_KEYWORD_GENERATED);
-      break;
-    default:
-      NOTREACHED();
-  }
-
-  // Page transition qualifiers.
-  if (ui::PageTransitionIsRedirect(transition_type_)) {
-    if (transition_type_ & ui::PAGE_TRANSITION_CLIENT_REDIRECT) {
-      sync_data.set_redirect_type(
-        sync_pb::SyncEnums_PageTransitionRedirectType_CLIENT_REDIRECT);
-    } else if (transition_type_ & ui::PAGE_TRANSITION_SERVER_REDIRECT) {
-      sync_data.set_redirect_type(
-        sync_pb::SyncEnums_PageTransitionRedirectType_SERVER_REDIRECT);
-    }
-  }
-  sync_data.set_navigation_forward_back(
-      (transition_type_ & ui::PAGE_TRANSITION_FORWARD_BACK) != 0);
-  sync_data.set_navigation_from_address_bar(
-      (transition_type_ & ui::PAGE_TRANSITION_FROM_ADDRESS_BAR) != 0);
-  sync_data.set_navigation_home_page(
-      (transition_type_ & ui::PAGE_TRANSITION_HOME_PAGE) != 0);
-  sync_data.set_navigation_chain_start(
-      (transition_type_ & ui::PAGE_TRANSITION_CHAIN_START) != 0);
-  sync_data.set_navigation_chain_end(
-      (transition_type_ & ui::PAGE_TRANSITION_CHAIN_END) != 0);
-
-  sync_data.set_unique_id(unique_id_);
-  sync_data.set_timestamp_msec(syncer::TimeToProtoTime(timestamp_));
-  // The full-resolution timestamp works as a global ID.
-  sync_data.set_global_id(timestamp_.ToInternalValue());
-
-  sync_data.set_search_terms(base::UTF16ToUTF8(search_terms_));
-
-  sync_data.set_http_status_code(http_status_code_);
-
-  if (favicon_url_.is_valid())
-    sync_data.set_favicon_url(favicon_url_.spec());
-
-  if (blocked_state_ != STATE_INVALID) {
-    sync_data.set_blocked_state(
-        static_cast<sync_pb::TabNavigation_BlockedState>(blocked_state_));
-  }
-
-  sync_data.set_password_state(
-      static_cast<sync_pb::TabNavigation_PasswordState>(password_state_));
-
-  for (std::set<std::string>::const_iterator it =
-           content_pack_categories_.begin();
-       it != content_pack_categories_.end(); ++it) {
-    sync_data.add_content_pack_categories(*it);
-  }
-
-  // Copy all redirect chain entries except the last URL (which should match
-  // the virtual_url).
-  if (redirect_chain_.size() > 1) {  // Single entry chains have no redirection.
-    size_t last_entry = redirect_chain_.size() - 1;
-    for (size_t i = 0; i < last_entry; i++) {
-      sync_pb::NavigationRedirect* navigation_redirect =
-          sync_data.add_navigation_redirect();
-      navigation_redirect->set_url(redirect_chain_[i].spec());
-    }
-    // If the last URL didn't match the virtual_url, record it separately.
-    if (sync_data.virtual_url() != redirect_chain_[last_entry].spec()) {
-      sync_data.set_last_navigation_redirect_url(
-          redirect_chain_[last_entry].spec());
-    }
-  }
-
-  sync_data.set_is_restored(is_restored_);
-
-  return sync_data;
-}
-
 size_t SerializedNavigationEntry::EstimateMemoryUsage() const {
   using base::trace_event::EstimateMemoryUsage;
-  return
-      EstimateMemoryUsage(referrer_url_) +
-      EstimateMemoryUsage(virtual_url_) +
-      EstimateMemoryUsage(title_) +
-      EstimateMemoryUsage(encoded_page_state_) +
-      EstimateMemoryUsage(original_request_url_) +
-      EstimateMemoryUsage(search_terms_) +
-      EstimateMemoryUsage(favicon_url_) +
-      EstimateMemoryUsage(redirect_chain_) +
-      EstimateMemoryUsage(content_pack_categories_) +
-      EstimateMemoryUsage(extended_info_map_);
+  return EstimateMemoryUsage(referrer_url_) +
+         EstimateMemoryUsage(virtual_url_) + EstimateMemoryUsage(title_) +
+         EstimateMemoryUsage(encoded_page_state_) +
+         EstimateMemoryUsage(original_request_url_) +
+         EstimateMemoryUsage(favicon_url_) +
+         EstimateMemoryUsage(redirect_chain_) +
+         EstimateMemoryUsage(
+             replaced_entry_data_.value_or(ReplacedNavigationEntryData())) +
+         EstimateMemoryUsage(content_pack_categories_) +
+         EstimateMemoryUsage(extended_info_map_);
 }
 
 }  // namespace sessions

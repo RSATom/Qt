@@ -19,8 +19,6 @@
 #ifndef I18N_ADDRESSINPUT_VALIDATING_UTIL_H_
 #define I18N_ADDRESSINPUT_VALIDATING_UTIL_H_
 
-#include <libaddressinput/util/basictypes.h>
-
 #include <ctime>
 #include <string>
 
@@ -29,11 +27,11 @@ namespace addressinput {
 
 // Wraps data with a checksum and a timestamp. Sample usage:
 //    std::string data = ...
-//    ValidatingUtil::Wrap(time(NULL), &data);
+//    ValidatingUtil::Wrap(time(nullptr), &data);
 //    Process(data);
 //
 //    std::string unwrapped = wrapped;
-//    if (ValidatingUtil::UnwrapTimestamp(&unwrapped, time(NULL)) &&
+//    if (ValidatingUtil::UnwrapTimestamp(&unwrapped, time(nullptr)) &&
 //        ValidatingUtil::UnwrapChecksum(&unwrapped)) {
 //      Process(unwrapped);
 //    }
@@ -50,8 +48,8 @@ class ValidatingUtil {
   // present, formatted correctly, and valid for this data.
   static bool UnwrapChecksum(std::string* data);
 
- private:
-  DISALLOW_COPY_AND_ASSIGN(ValidatingUtil);
+  ValidatingUtil(const ValidatingUtil&) = delete;
+  ValidatingUtil& operator=(const ValidatingUtil&) = delete;
 };
 
 }  // namespace addressinput

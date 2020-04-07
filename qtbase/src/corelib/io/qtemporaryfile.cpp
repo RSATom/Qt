@@ -207,7 +207,7 @@ QFileSystemEntry::NativePath QTemporaryFileName::generateNext()
     changed and contain the generated path name.
 */
 static bool createFileFromTemplate(NativeFileHandle &file, QTemporaryFileName &templ,
-                                   quint32 mode, QSystemError &error)
+                                   quint32 mode, int flags, QSystemError &error)
 {
     const int maxAttempts = 16;
     for (int attempt = 0; attempt < maxAttempts; ++attempt) {
@@ -216,16 +216,18 @@ static bool createFileFromTemplate(NativeFileHandle &file, QTemporaryFileName &t
 
 #if defined(Q_OS_WIN)
         Q_UNUSED(mode);
+        const DWORD shareMode = (flags & QTemporaryFileEngine::Win32NonShared)
+                                ? 0u : (FILE_SHARE_READ | FILE_SHARE_WRITE);
 
 #  ifndef Q_OS_WINRT
         file = CreateFile((const wchar_t *)path.constData(),
                 GENERIC_READ | GENERIC_WRITE,
-                FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, CREATE_NEW,
+                shareMode, NULL, CREATE_NEW,
                 FILE_ATTRIBUTE_NORMAL, NULL);
 #  else // !Q_OS_WINRT
         file = CreateFile2((const wchar_t *)path.constData(),
                 GENERIC_READ | GENERIC_WRITE,
-                FILE_SHARE_READ | FILE_SHARE_WRITE, CREATE_NEW,
+                shareMode, CREATE_NEW,
                 NULL);
 #  endif // Q_OS_WINRT
 
@@ -247,8 +249,9 @@ static bool createFileFromTemplate(NativeFileHandle &file, QTemporaryFileName &t
             return false;
         }
 #else // POSIX
+        Q_UNUSED(flags)
         file = QT_OPEN(path.constData(),
-                QT_OPEN_CREAT | O_EXCL | QT_OPEN_RDWR | QT_OPEN_LARGEFILE,
+                QT_OPEN_CREAT | QT_OPEN_EXCL | QT_OPEN_RDWR | QT_OPEN_LARGEFILE,
                 static_cast<mode_t>(mode));
 
         if (file != -1)
@@ -366,7 +369,7 @@ bool QTemporaryFileEngine::open(QIODevice::OpenMode openMode)
         unnamedFile = true;
         d->fileEntry.clear();
     } else if (st == CreateUnnamedFileStatus::NotSupported &&
-               createFileFromTemplate(file, tfn, fileMode, error)) {
+               createFileFromTemplate(file, tfn, fileMode, flags, error)) {
         filePathIsTemplate = false;
         unnamedFile = false;
         d->fileEntry = QFileSystemEntry(tfn.path, QFileSystemEntry::FromNativePath());
@@ -890,13 +893,7 @@ bool QTemporaryFile::rename(const QString &newName)
 
   For example:
 
-  \code
-  QFile f(":/resources/file.txt");
-  QTemporaryFile::createNativeFile(f); // Returns a pointer to a temporary file
-
-  QFile f("/users/qt/file.txt");
-  QTemporaryFile::createNativeFile(f); // Returns 0
-  \endcode
+  \snippet code/src_corelib_io_qtemporaryfile.cpp 1
 
   \sa QFileInfo::isNativePath()
 */
@@ -911,20 +908,24 @@ QTemporaryFile *QTemporaryFile::createNativeFile(QFile &file)
         qint64 old_off = 0;
         if(wasOpen)
             old_off = file.pos();
-        else
-            file.open(QIODevice::ReadOnly);
+        else if (!file.open(QIODevice::ReadOnly))
+            return nullptr;
         //dump data
         QTemporaryFile *ret = new QTemporaryFile;
-        ret->open();
-        file.seek(0);
-        char buffer[1024];
-        while(true) {
-            qint64 len = file.read(buffer, 1024);
-            if(len < 1)
-                break;
-            ret->write(buffer, len);
+        if (ret->open()) {
+            file.seek(0);
+            char buffer[1024];
+            while (true) {
+                qint64 len = file.read(buffer, 1024);
+                if (len < 1)
+                    break;
+                ret->write(buffer, len);
+            }
+            ret->seek(0);
+        } else {
+            delete ret;
+            ret = nullptr;
         }
-        ret->seek(0);
         //restore
         if(wasOpen)
             file.seek(old_off);

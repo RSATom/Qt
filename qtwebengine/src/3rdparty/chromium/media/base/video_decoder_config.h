@@ -17,6 +17,7 @@
 #include "media/base/media_export.h"
 #include "media/base/video_codecs.h"
 #include "media/base/video_color_space.h"
+#include "media/base/video_rotation.h"
 #include "media/base/video_types.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
@@ -38,6 +39,7 @@ class MEDIA_EXPORT VideoDecoderConfig {
                      VideoCodecProfile profile,
                      VideoPixelFormat format,
                      ColorSpace color_space,
+                     VideoRotation rotation,
                      const gfx::Size& coded_size,
                      const gfx::Rect& visible_rect,
                      const gfx::Size& natural_size,
@@ -53,6 +55,7 @@ class MEDIA_EXPORT VideoDecoderConfig {
                   VideoCodecProfile profile,
                   VideoPixelFormat format,
                   ColorSpace color_space,
+                  VideoRotation rotation,
                   const gfx::Size& coded_size,
                   const gfx::Rect& visible_rect,
                   const gfx::Size& natural_size,
@@ -67,8 +70,7 @@ class MEDIA_EXPORT VideoDecoderConfig {
   // Note: The contents of |extra_data_| are compared not the raw pointers.
   bool Matches(const VideoDecoderConfig& config) const;
 
-  // Returns a human-readable string describing |*this|.  For debugging & test
-  // output only.
+  // Returns a human-readable string describing |*this|.
   std::string AsHumanReadableString() const;
 
   std::string GetHumanReadableCodecName() const;
@@ -86,6 +88,9 @@ class MEDIA_EXPORT VideoDecoderConfig {
   // the bitstream.
   ColorSpace color_space() const { return color_space_; }
 
+  // Default is VIDEO_ROTATION_0.
+  VideoRotation video_rotation() const { return rotation_; }
+
   // Deprecated. TODO(wolenetz): Remove. See https://crbug.com/665539.
   // Width and height of video frame immediately post-decode. Not all pixels
   // in this region are valid.
@@ -97,6 +102,11 @@ class MEDIA_EXPORT VideoDecoderConfig {
   // Final visible width and height of a video frame with aspect ratio taken
   // into account.
   const gfx::Size& natural_size() const { return natural_size_; }
+
+  // TODO(crbug.com/837337): This should be explicitly set (replacing
+  // |natural_size|). It should also be possible to determine whether it was set
+  // at all, since in-stream information may override it if it was not.
+  double GetPixelAspectRatio() const;
 
   // Optional byte data required to initialize video decoders, such as H.264
   // AVCC data.
@@ -131,6 +141,8 @@ class MEDIA_EXPORT VideoDecoderConfig {
 
   // TODO(servolk): Deprecated, use color_space_info_ instead.
   ColorSpace color_space_;
+
+  VideoRotation rotation_;
 
   // Deprecated. TODO(wolenetz): Remove. See https://crbug.com/665539.
   gfx::Size coded_size_;

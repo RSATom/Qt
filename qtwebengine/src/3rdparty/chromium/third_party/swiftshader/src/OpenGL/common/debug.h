@@ -56,19 +56,19 @@ namespace es
 
 // A macro asserting a condition and outputting failures to the debug log
 #undef ASSERT
-#if !defined(NDEBUG)
+#if !defined(NDEBUG) || defined(DCHECK_ALWAYS_ON)
 #define ASSERT(expression) do { \
-	if(!(expression)) \
+	if(!(expression)) { \
 		ERR("\t! Assert failed in %s(%d): "#expression"\n", __FUNCTION__, __LINE__); \
 		assert(expression); \
-	} while(0)
+	} } while(0)
 #else
 #define ASSERT(expression) (void(0))
 #endif
 
 // A macro to indicate unimplemented functionality
 #undef UNIMPLEMENTED
-#if !defined(NDEBUG)
+#if !defined(NDEBUG) || defined(DCHECK_ALWAYS_ON)
 #define UNIMPLEMENTED() do { \
 	FIXME("\t! Unimplemented: %s(%d)\n", __FUNCTION__, __LINE__); \
 	assert(false); \
@@ -79,7 +79,7 @@ namespace es
 
 // A macro for code which is not expected to be reached under valid assumptions
 #undef UNREACHABLE
-#if !defined(NDEBUG)
+#if !defined(NDEBUG) || defined(DCHECK_ALWAYS_ON)
 #define UNREACHABLE(value) do { \
 	ERR("\t! Unreachable case reached: %s(%d). %s: %d\n", __FUNCTION__, __LINE__, #value, value); \
 	assert(false); \
@@ -88,6 +88,14 @@ namespace es
 	#define UNREACHABLE(value) ERR("\t! Unreachable reached: %s(%d). %s: %d\n", __FUNCTION__, __LINE__, #value, value)
 #endif
 
-#endif   // __ANDROID__
+#endif   // !__ANDROID__
+
+// A macro asserting a condition and outputting failures to the debug log, or return when in release mode.
+#undef ASSERT_OR_RETURN
+#define ASSERT_OR_RETURN(expression) do { \
+	if(!(expression)) { \
+		ASSERT(expression); \
+		return; \
+	} } while(0)
 
 #endif   // COMMON_DEBUG_H_

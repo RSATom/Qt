@@ -10,10 +10,10 @@
 #include "base/android/jni_android.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "components/payments/content/payment_manifest_downloader.h"
+#include "components/payments/core/payment_manifest_downloader.h"
 
-namespace net {
-class URLRequestContextGetter;
+namespace network {
+class SharedURLLoaderFactory;
 }
 
 namespace payments {
@@ -22,7 +22,7 @@ namespace payments {
 class PaymentManifestDownloaderAndroid {
  public:
   explicit PaymentManifestDownloaderAndroid(
-      const scoped_refptr<net::URLRequestContextGetter>& context);
+      scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory);
   ~PaymentManifestDownloaderAndroid();
 
   void DownloadPaymentMethodManifest(
@@ -40,10 +40,6 @@ class PaymentManifestDownloaderAndroid {
   // Deletes this object.
   void Destroy(JNIEnv* env,
                const base::android::JavaParamRef<jobject>& jcaller);
-
-  // Allows HTTP URLs. Should be used for testing only.
-  void AllowHttpForTest(JNIEnv* env,
-                        const base::android::JavaParamRef<jobject>& jcaller);
 
  private:
   PaymentManifestDownloader downloader_;

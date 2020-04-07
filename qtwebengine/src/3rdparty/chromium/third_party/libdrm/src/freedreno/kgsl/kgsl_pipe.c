@@ -52,6 +52,7 @@ static int kgsl_pipe_get_param(struct fd_pipe *pipe,
 		return 0;
 	case FD_MAX_FREQ:
 	case FD_TIMESTAMP:
+	case FD_NR_RINGS:
 		/* unsupported on kgsl */
 		return -1;
 	default:
@@ -210,7 +211,7 @@ static int getprop(int fd, enum kgsl_property_type type,
 
 
 drm_private struct fd_pipe * kgsl_pipe_new(struct fd_device *dev,
-		enum fd_pipe_id id)
+		enum fd_pipe_id id, uint32_t prio)
 {
 	static const char *paths[] = {
 			[FD_PIPE_3D] = "/dev/kgsl-3d0",
@@ -254,6 +255,11 @@ drm_private struct fd_pipe * kgsl_pipe_new(struct fd_device *dev,
 
 	GETPROP(fd, VERSION,     kgsl_pipe->version);
 	GETPROP(fd, DEVICE_INFO, kgsl_pipe->devinfo);
+
+	if (kgsl_pipe->devinfo.gpu_id >= 500) {
+		ERROR_MSG("64b unsupported with kgsl");
+		goto fail;
+	}
 
 	INFO_MSG("Pipe Info:");
 	INFO_MSG(" Device:          %s", paths[id]);

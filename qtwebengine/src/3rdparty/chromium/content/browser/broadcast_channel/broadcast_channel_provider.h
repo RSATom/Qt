@@ -9,7 +9,7 @@
 
 #include "base/memory/ref_counted.h"
 #include "mojo/public/cpp/bindings/binding_set.h"
-#include "third_party/WebKit/public/platform/modules/broadcastchannel/broadcast_channel.mojom.h"
+#include "third_party/blink/public/platform/modules/broadcastchannel/broadcast_channel.mojom.h"
 #include "url/origin.h"
 
 namespace content {
@@ -36,7 +36,7 @@ class BroadcastChannelProvider
 
   void UnregisterConnection(Connection*);
   void ReceivedMessageOnConnection(Connection*,
-                                   const std::vector<uint8_t>& message);
+                                   const blink::CloneableMessage& message);
 
   mojo::BindingSet<blink::mojom::BroadcastChannelProvider> bindings_;
   std::map<url::Origin, std::multimap<std::string, std::unique_ptr<Connection>>>

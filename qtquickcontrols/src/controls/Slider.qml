@@ -331,14 +331,14 @@ Control {
         onVerticalWheelMoved: {
             if (verticalDelta !== 0) {
                 var delta = Math.abs(verticalDelta)*step > stepSize ? verticalDelta*step : verticalDelta/Math.abs(verticalDelta)*stepSize
-                value -= delta * (inverted ? 1 : -1)
+                range.position = range.positionForValue(value - delta * (inverted ? 1 : -1))
             }
         }
 
         onHorizontalWheelMoved: {
             if (horizontalDelta !== 0) {
                 var delta = Math.abs(horizontalDelta)*step > stepSize ? horizontalDelta*step : horizontalDelta/Math.abs(horizontalDelta)*stepSize
-                value += delta * (inverted ? 1 : -1)
+                range.position = range.positionForValue(value + delta * (inverted ? 1 : -1))
             }
         }
     }

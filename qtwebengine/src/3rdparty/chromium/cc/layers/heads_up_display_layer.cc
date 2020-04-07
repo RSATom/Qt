@@ -14,21 +14,20 @@
 namespace cc {
 
 scoped_refptr<HeadsUpDisplayLayer> HeadsUpDisplayLayer::Create() {
-  return make_scoped_refptr(new HeadsUpDisplayLayer());
+  return base::WrapRefCounted(new HeadsUpDisplayLayer());
 }
 
 HeadsUpDisplayLayer::HeadsUpDisplayLayer()
     : typeface_(SkTypeface::MakeFromName("times new roman", SkFontStyle())) {
   if (!typeface_) {
-    typeface_ = SkTypeface::MakeFromName(
-        "monospace", SkFontStyle::FromOldStyle(SkTypeface::kBold));
+    typeface_ = SkTypeface::MakeFromName("monospace", SkFontStyle::Bold());
   }
   DCHECK(typeface_.get());
   SetIsDrawable(true);
   UpdateDrawsContent(HasDrawableContent());
 }
 
-HeadsUpDisplayLayer::~HeadsUpDisplayLayer() {}
+HeadsUpDisplayLayer::~HeadsUpDisplayLayer() = default;
 
 void HeadsUpDisplayLayer::PrepareForCalculateDrawProperties(
     const gfx::Size& device_viewport, float device_scale_factor) {

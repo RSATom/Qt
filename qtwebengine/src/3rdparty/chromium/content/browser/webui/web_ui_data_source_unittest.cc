@@ -35,7 +35,7 @@ class TestClient : public TestContentClient {
 
   base::RefCountedMemory* GetDataResourceBytes(
       int resource_id) const override {
-    base::RefCountedStaticMemory* bytes = NULL;
+    base::RefCountedStaticMemory* bytes = nullptr;
     if (resource_id == kDummyDefaultResourceId) {
       bytes = new base::RefCountedStaticMemory(
           kDummyDefaultResource, arraysize(kDummyDefaultResource));
@@ -84,7 +84,7 @@ class WebUIDataSourceTest : public testing::Test {
     WebUIDataSourceImpl* source_impl = static_cast<WebUIDataSourceImpl*>(
         source);
     source_impl->disable_load_time_data_defaults_for_testing();
-    source_ = make_scoped_refptr(source_impl);
+    source_ = base::WrapRefCounted(source_impl);
   }
 
   TestBrowserThreadBundle thread_bundle_;
@@ -210,6 +210,26 @@ TEST_F(WebUIDataSourceTest, MimeType) {
   EXPECT_EQ(GetMimeType("foo.html?abc?abc"), html);
   EXPECT_EQ(GetMimeType("foo.css?abc?abc"), css);
   EXPECT_EQ(GetMimeType("foo.js?abc?abc"), js);
+}
+
+TEST_F(WebUIDataSourceTest, IsGzipped) {
+  EXPECT_FALSE(source()->IsGzipped("foobar"));
+
+  source()->AddResourcePath("foobar", kDummyResourceId);
+  source()->SetDefaultResource(kDummyDefaultResourceId);
+  source()->SetJsonPath("strings.js");
+  source()->UseGzip({"json/special/path"});
+
+  EXPECT_TRUE(source()->IsGzipped("foobar"));
+  EXPECT_TRUE(source()->IsGzipped("foobar?query"));
+
+  EXPECT_TRUE(source()->IsGzipped("unknown_path"));
+  EXPECT_TRUE(source()->IsGzipped("unknown_path?query"));
+
+  EXPECT_FALSE(source()->IsGzipped("json/special/path"));
+  EXPECT_FALSE(source()->IsGzipped("json/special/path?query"));
+  EXPECT_FALSE(source()->IsGzipped("strings.js"));
+  EXPECT_FALSE(source()->IsGzipped("strings.js?query"));
 }
 
 }  // namespace content

@@ -2,7 +2,6 @@
 #define QT_QTREMOTEOBJECTS_MODULE_H
 #include <QtRemoteObjects/QtRemoteObjectsDepends>
 #include "qtremoteobjectglobal.h"
-#include "qconnectionfactories.h"
 #include "qremoteobjectabstractitemmodelreplica.h"
 #include "qremoteobjectabstractitemmodeltypes.h"
 #include "qremoteobjectdynamicreplica.h"
@@ -10,6 +9,7 @@
 #include "qremoteobjectpendingcall.h"
 #include "qremoteobjectregistry.h"
 #include "qremoteobjectreplica.h"
+#include "qremoteobjectsettingsstore.h"
 #include "qremoteobjectsource.h"
 #include "qtremoteobjectsversion.h"
 #endif

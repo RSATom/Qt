@@ -4,7 +4,6 @@
 
 #include "cc/trees/swap_promise_manager.h"
 
-#include "base/memory/ptr_util.h"
 #include "cc/trees/swap_promise_monitor.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -18,7 +17,7 @@ class MockSwapPromiseMonitor : public SwapPromiseMonitor {
  public:
   explicit MockSwapPromiseMonitor(SwapPromiseManager* manager)
       : SwapPromiseMonitor(manager, nullptr) {}
-  ~MockSwapPromiseMonitor() override {}
+  ~MockSwapPromiseMonitor() override = default;
 
   MOCK_METHOD0(OnSetNeedsCommitOnMain, void());
   void OnSetNeedsRedrawOnImpl() override {}
@@ -27,15 +26,13 @@ class MockSwapPromiseMonitor : public SwapPromiseMonitor {
 
 class MockSwapPromise : public SwapPromise {
  public:
-  MockSwapPromise() {}
-  ~MockSwapPromise() override {}
+  MockSwapPromise() = default;
+  ~MockSwapPromise() override = default;
 
   void DidActivate() override {}
-  void WillSwap(CompositorFrameMetadata* metadata) override {}
+  void WillSwap(viz::CompositorFrameMetadata* metadata) override {}
   void DidSwap() override {}
-  DidNotSwapAction DidNotSwap(DidNotSwapReason reason) override {
-    return DidNotSwapAction::BREAK_PROMISE;
-  }
+  void DidNotSwap(DidNotSwapReason reason) override {}
   MOCK_METHOD0(OnCommit, void());
   int64_t TraceId() const override { return 0; }
 };
@@ -53,7 +50,7 @@ TEST(SwapPromiseManagerTest, SwapPromiseMonitors) {
 TEST(SwapPromiseManagerTest, SwapPromises) {
   SwapPromiseManager manager;
   std::unique_ptr<StrictMock<MockSwapPromise>> swap_promise =
-      base::MakeUnique<StrictMock<MockSwapPromise>>();
+      std::make_unique<StrictMock<MockSwapPromise>>();
   MockSwapPromise* mock_promise = swap_promise.get();
 
   manager.QueueSwapPromise(std::move(swap_promise));

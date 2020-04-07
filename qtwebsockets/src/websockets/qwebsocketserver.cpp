@@ -241,7 +241,7 @@ QT_BEGIN_NAMESPACE
 /*!
     Constructs a new QWebSocketServer with the given \a serverName.
     The \a serverName will be used in the HTTP handshake phase to identify the server.
-    It can be empty, in which case an empty server name will be sent to the client.
+    It can be empty, in which case no server name will be sent to the client.
     The \a secureMode parameter indicates whether the server operates over wss (\l{SecureMode})
     or over ws (\l{NonSecureMode}).
 
@@ -253,11 +253,11 @@ QWebSocketServer::QWebSocketServer(const QString &serverName, SslMode secureMode
                                       #ifndef QT_NO_SSL
                                       (secureMode == SecureMode) ?
                                           QWebSocketServerPrivate::SecureMode :
-                                          QWebSocketServerPrivate::NonSecureMode,
+                                          QWebSocketServerPrivate::NonSecureMode
                                       #else
-                                      QWebSocketServerPrivate::NonSecureMode,
+                                      QWebSocketServerPrivate::NonSecureMode
                                       #endif
-                                      this)), parent)
+                                      )), parent)
 {
 #ifdef QT_NO_SSL
     Q_UNUSED(secureMode)
@@ -354,7 +354,7 @@ int QWebSocketServer::maxPendingConnections() const
     QWebSocketServer does not take ownership of the returned QWebSocket object.
     It is up to the caller to delete the object explicitly when it will no longer be used,
     otherwise a memory leak will occur.
-    Q_NULLPTR is returned if this function is called when there are no pending connections.
+    nullptr is returned if this function is called when there are no pending connections.
 
     Note: The returned QWebSocket object cannot be used from another thread.
 
@@ -574,6 +574,7 @@ void QWebSocketServer::setMaxPendingConnections(int numConnections)
     d->setMaxPendingConnections(numConnections);
 }
 
+#if (QT_VERSION >= QT_VERSION_CHECK(6, 0, 0))
 /*!
     Sets the socket descriptor this server should use when listening for incoming connections to
     \a socketDescriptor.
@@ -582,8 +583,9 @@ void QWebSocketServer::setMaxPendingConnections(int numConnections)
     The socket is assumed to be in listening state.
 
     \sa socketDescriptor(), isListening()
+    \since 5.3
  */
-bool QWebSocketServer::setSocketDescriptor(int socketDescriptor)
+bool QWebSocketServer::setSocketDescriptor(qintptr socketDescriptor)
 {
     Q_D(QWebSocketServer);
     return d->setSocketDescriptor(socketDescriptor);
@@ -596,12 +598,104 @@ bool QWebSocketServer::setSocketDescriptor(int socketDescriptor)
     native socket functions.
 
     \sa setSocketDescriptor(), isListening()
+    \since 5.3
  */
-int QWebSocketServer::socketDescriptor() const
+qintptr QWebSocketServer::socketDescriptor() const
 {
     Q_D(const QWebSocketServer);
     return d->socketDescriptor();
 }
+
+/*!
+    \fn QWebSocketServer::nativeDescriptor
+    \deprecated
+
+    Returns the native socket descriptor the server uses to listen for incoming instructions,
+    or -1 if the server is not listening.
+    If the server is using QNetworkProxy, the returned descriptor may not be usable with
+    native socket functions.
+
+    \sa socketDescriptor(), setSocketDescriptor(), setNativeDescriptor(), isListening()
+    \since 5.12
+ */
+/*!
+    \fn QWebSocketServer::setNativeDescriptor
+    \deprecated
+
+    Sets the socket descriptor this server should use when listening for incoming connections to
+    \a socketDescriptor.
+
+    Returns true if the socket is set successfully; otherwise returns false.
+    The socket is assumed to be in listening state.
+
+    \sa socketDescriptor(), setSocketDescriptor(), nativeDescriptor(), isListening()
+    \since 5.12
+ */
+#else // ### Qt 6: Remove leftovers
+/*!
+    \deprecated
+
+    Sets the socket descriptor this server should use when listening for incoming connections to
+    \a socketDescriptor.
+
+    Returns true if the socket is set successfully; otherwise returns false.
+    The socket is assumed to be in listening state.
+
+    \sa socketDescriptor(), setSocketDescriptor(), nativeDescriptor(), isListening()
+    \since 5.3
+ */
+bool QWebSocketServer::setSocketDescriptor(int socketDescriptor)
+{
+    return setNativeDescriptor(socketDescriptor);
+}
+
+/*!
+    \deprecated
+
+    Returns the native socket descriptor the server uses to listen for incoming instructions,
+    or -1 if the server is not listening.
+    If the server is using QNetworkProxy, the returned descriptor may not be usable with
+    native socket functions.
+
+    \sa nativeDescriptor(), setNativeDescriptor(), setSocketDescriptor(), isListening()
+    \since 5.3
+ */
+int QWebSocketServer::socketDescriptor() const
+{
+    return int(nativeDescriptor());
+}
+
+/*!
+    Sets the socket descriptor this server should use when listening for incoming connections to
+    \a socketDescriptor.
+
+    Returns true if the socket is set successfully; otherwise returns false.
+    The socket is assumed to be in listening state.
+
+    \sa nativeDescriptor(), isListening()
+    \since 5.12
+ */
+bool QWebSocketServer::setNativeDescriptor(qintptr socketDescriptor)
+{
+    Q_D(QWebSocketServer);
+    return d->setSocketDescriptor(socketDescriptor);
+}
+
+/*!
+    Returns the native socket descriptor the server uses to listen for incoming instructions,
+    or -1 if the server is not listening.
+    If the server is using QNetworkProxy, the returned descriptor may not be usable with
+    native socket functions.
+
+    \sa setNativeDescriptor(), isListening()
+    \since 5.12
+ */
+qintptr QWebSocketServer::nativeDescriptor() const
+{
+    Q_D(const QWebSocketServer);
+    return d->socketDescriptor();
+}
+#endif // (QT_VERSION >= QT_VERSION_CHECK(6, 0, 0))
 
 /*!
   Returns a list of WebSocket versions that this server is supporting.

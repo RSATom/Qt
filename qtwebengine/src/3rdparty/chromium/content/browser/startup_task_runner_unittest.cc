@@ -78,23 +78,22 @@ class StartupTaskRunnerTest : public testing::Test {
 
 class MockTaskRunner {
  public:
-  MOCK_METHOD2(PostDelayedTask,
-               bool(const tracked_objects::Location&, base::TimeDelta));
+  MOCK_METHOD2(PostDelayedTask, bool(const base::Location&, base::TimeDelta));
   MOCK_METHOD2(PostNonNestableDelayedTask,
-               bool(const tracked_objects::Location&, base::TimeDelta));
+               bool(const base::Location&, base::TimeDelta));
 };
 
 class TaskRunnerProxy : public base::SingleThreadTaskRunner {
  public:
   TaskRunnerProxy(MockTaskRunner* mock) : mock_(mock) {}
   bool RunsTasksInCurrentSequence() const override { return true; }
-  bool PostDelayedTask(const tracked_objects::Location& location,
+  bool PostDelayedTask(const base::Location& location,
                        base::OnceClosure closure,
                        base::TimeDelta delta) override {
     last_task_ = std::move(closure);
     return mock_->PostDelayedTask(location, delta);
   }
-  bool PostNonNestableDelayedTask(const tracked_objects::Location& location,
+  bool PostNonNestableDelayedTask(const base::Location& location,
                                   base::OnceClosure closure,
                                   base::TimeDelta delta) override {
     last_task_ = std::move(closure);
@@ -117,15 +116,15 @@ TEST_F(StartupTaskRunnerTest, SynchronousExecution) {
   EXPECT_CALL(mock_runner, PostDelayedTask(_, _)).Times(0);
   EXPECT_CALL(mock_runner, PostNonNestableDelayedTask(_, _)).Times(0);
 
-  StartupTaskRunner runner(base::Bind(&Observer), proxy);
+  StartupTaskRunner runner(base::BindOnce(&Observer), proxy);
 
   StartupTask task1 =
       base::Bind(&StartupTaskRunnerTest::Task1, base::Unretained(this));
-  runner.AddTask(task1);
+  runner.AddTask(std::move(task1));
   EXPECT_EQ(GetLastTask(), 0);
   StartupTask task2 =
       base::Bind(&StartupTaskRunnerTest::Task2, base::Unretained(this));
-  runner.AddTask(task2);
+  runner.AddTask(std::move(task2));
 
   // Nothing should run until we tell them to.
   EXPECT_EQ(GetLastTask(), 0);
@@ -155,15 +154,15 @@ TEST_F(StartupTaskRunnerTest, NullObserver) {
   EXPECT_CALL(mock_runner, PostDelayedTask(_, _)).Times(0);
   EXPECT_CALL(mock_runner, PostNonNestableDelayedTask(_, _)).Times(0);
 
-  StartupTaskRunner runner(base::Callback<void(int)>(), proxy);
+  StartupTaskRunner runner(base::OnceCallback<void(int)>(), proxy);
 
   StartupTask task1 =
       base::Bind(&StartupTaskRunnerTest::Task1, base::Unretained(this));
-  runner.AddTask(task1);
+  runner.AddTask(std::move(task1));
   EXPECT_EQ(GetLastTask(), 0);
   StartupTask task2 =
       base::Bind(&StartupTaskRunnerTest::Task2, base::Unretained(this));
-  runner.AddTask(task2);
+  runner.AddTask(std::move(task2));
 
   // Nothing should run until we tell them to.
   EXPECT_EQ(GetLastTask(), 0);
@@ -190,15 +189,15 @@ TEST_F(StartupTaskRunnerTest, SynchronousExecutionFailedTask) {
   EXPECT_CALL(mock_runner, PostDelayedTask(_, _)).Times(0);
   EXPECT_CALL(mock_runner, PostNonNestableDelayedTask(_, _)).Times(0);
 
-  StartupTaskRunner runner(base::Bind(&Observer), proxy);
+  StartupTaskRunner runner(base::BindOnce(&Observer), proxy);
 
   StartupTask task3 =
       base::Bind(&StartupTaskRunnerTest::FailingTask, base::Unretained(this));
-  runner.AddTask(task3);
+  runner.AddTask(std::move(task3));
   EXPECT_EQ(GetLastTask(), 0);
   StartupTask task2 =
       base::Bind(&StartupTaskRunnerTest::Task2, base::Unretained(this));
-  runner.AddTask(task2);
+  runner.AddTask(std::move(task2));
 
   // Nothing should run until we tell them to.
   EXPECT_EQ(GetLastTask(), 0);
@@ -231,14 +230,14 @@ TEST_F(StartupTaskRunnerTest, AsynchronousExecution) {
       .Times(testing::Between(2, 3))
       .WillRepeatedly(testing::Return(true));
 
-  StartupTaskRunner runner(base::Bind(&Observer), proxy);
+  StartupTaskRunner runner(base::BindOnce(&Observer), proxy);
 
   StartupTask task1 =
       base::Bind(&StartupTaskRunnerTest::Task1, base::Unretained(this));
-  runner.AddTask(task1);
+  runner.AddTask(std::move(task1));
   StartupTask task2 =
       base::Bind(&StartupTaskRunnerTest::Task2, base::Unretained(this));
-  runner.AddTask(task2);
+  runner.AddTask(std::move(task2));
 
   // Nothing should run until we tell them to.
   EXPECT_EQ(GetLastTask(), 0);
@@ -277,14 +276,14 @@ TEST_F(StartupTaskRunnerTest, AsynchronousExecutionFailedTask) {
       .Times(testing::Between(1, 2))
       .WillRepeatedly(testing::Return(true));
 
-  StartupTaskRunner runner(base::Bind(&Observer), proxy);
+  StartupTaskRunner runner(base::BindOnce(&Observer), proxy);
 
   StartupTask task3 =
       base::Bind(&StartupTaskRunnerTest::FailingTask, base::Unretained(this));
-  runner.AddTask(task3);
+  runner.AddTask(std::move(task3));
   StartupTask task2 =
       base::Bind(&StartupTaskRunnerTest::Task2, base::Unretained(this));
-  runner.AddTask(task2);
+  runner.AddTask(std::move(task2));
 
   // Nothing should run until we tell them to.
   EXPECT_EQ(GetLastTask(), 0);

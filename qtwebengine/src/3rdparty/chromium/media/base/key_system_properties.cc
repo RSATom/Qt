@@ -4,26 +4,14 @@
 
 #include "media/base/key_system_properties.h"
 
-#include "base/logging.h"
-#include "ppapi/features/features.h"
-
 namespace media {
 
-#if defined(OS_ANDROID)
-SupportedCodecs KeySystemProperties::GetSupportedSecureCodecs() const {
+SupportedCodecs KeySystemProperties::GetSupportedHwSecureCodecs() const {
   return EME_CODEC_NONE;
 }
-#endif
 
 bool KeySystemProperties::UseAesDecryptor() const {
   return false;
-}
-
-std::string KeySystemProperties::GetPepperType() const {
-#if !BUILDFLAG(ENABLE_PEPPER_CDMS)
-  NOTREACHED();
-#endif
-  return "";
 }
 
 }  // namespace media

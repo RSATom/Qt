@@ -32,8 +32,7 @@ class NavigationEntryScreenshotManager;
 class SiteInstance;
 struct LoadCommittedDetails;
 
-class CONTENT_EXPORT NavigationControllerImpl
-    : public NON_EXPORTED_BASE(NavigationController) {
+class CONTENT_EXPORT NavigationControllerImpl : public NavigationController {
  public:
   NavigationControllerImpl(
       NavigationControllerDelegate* delegate,
@@ -91,6 +90,33 @@ class CONTENT_EXPORT NavigationControllerImpl
                              bool replace_entry) override;
   bool CanPruneAllButLastCommitted() override;
   void PruneAllButLastCommitted() override;
+  void DeleteNavigationEntries(
+      const DeletionPredicate& deletionPredicate) override;
+
+  // Starts a navigation in a newly created subframe as part of a history
+  // navigation. Returns true if the history navigation could start, false
+  // otherwise.  If this returns false, the caller should do a regular
+  // navigation to |default_url| should be done instead.
+  bool StartHistoryNavigationInNewSubframe(
+      RenderFrameHostImpl* render_frame_host,
+      const GURL& default_url);
+
+  // Called when a document requests a navigation through a
+  // RenderFrameProxyHost.
+  void NavigateFromFrameProxy(
+      RenderFrameHostImpl* render_frame_host,
+      const GURL& url,
+      bool is_renderer_initiated,
+      SiteInstance* source_site_instance,
+      const Referrer& referrer,
+      ui::PageTransition page_transition,
+      bool should_replace_current_entry,
+      NavigationDownloadPolicy download_policy,
+      const std::string& method,
+      scoped_refptr<network::ResourceRequestBody> post_body,
+      const std::string& extra_headers,
+      scoped_refptr<network::SharedURLLoaderFactory> blob_url_loader_factory);
+
   void ClearAllScreenshots() override;
 
   // Whether this is the initial navigation in an unmodified new tab.  In this
@@ -136,34 +162,34 @@ class CONTENT_EXPORT NavigationControllerImpl
       RenderFrameHostImpl* rfh,
       const FrameHostMsg_DidCommitProvisionalLoad_Params& params,
       LoadCommittedDetails* details,
-      bool is_navigation_within_page,
+      bool is_same_document_navigation,
       NavigationHandleImpl* navigation_handle);
 
   // Notifies us that we just became active. This is used by the WebContentsImpl
   // so that we know to load URLs that were pending as "lazy" loads.
   void SetActive(bool is_active);
 
-  // Returns true if the given URL would be an in-page navigation (e.g., if the
-  // reference fragment is different, or after a pushState) from the last
+  // Returns true if the given URL would be a same-document navigation (e.g., if
+  // the reference fragment is different, or after a pushState) from the last
   // committed URL in the specified frame. If there is no last committed entry,
-  // then nothing will be in-page.
+  // then nothing will be same-document.
   //
   // Special note: if the URLs are the same, it does NOT automatically count as
-  // an in-page navigation. Neither does an input URL that has no ref, even if
-  // the rest is the same. This may seem weird, but when we're considering
+  // a same-document navigation. Neither does an input URL that has no ref, even
+  // if the rest is the same. This may seem weird, but when we're considering
   // whether a navigation happened without loading anything, the same URL could
   // be a reload, while only a different ref would be in-page (pages can't clear
   // refs without reload, only change to "#" which we don't count as empty).
   //
   // The situation is made murkier by history.replaceState(), which could
-  // provide the same URL as part of an in-page navigation, not a reload. So
-  // we need to let the (untrustworthy) renderer resolve the ambiguity, but
+  // provide the same URL as part of a same-document navigation, not a reload.
+  // So we need to let the (untrustworthy) renderer resolve the ambiguity, but
   // only when the URLs are on the same origin. We rely on |origin|, which
   // matters in cases like about:blank that otherwise look cross-origin.
-  bool IsURLInPageNavigation(const GURL& url,
-                             const url::Origin& origin,
-                             bool renderer_says_in_page,
-                             RenderFrameHost* rfh) const;
+  bool IsURLSameDocumentNavigation(const GURL& url,
+                                   const url::Origin& origin,
+                                   bool renderer_says_same_document,
+                                   RenderFrameHost* rfh) const;
 
   // Sets the SessionStorageNamespace for the given |partition_id|. This is
   // used during initialization of a new NavigationController to allow
@@ -206,6 +232,14 @@ class CONTENT_EXPORT NavigationControllerImpl
   // navigation failed due to an SSL error.
   void SetPendingNavigationSSLError(bool error);
 
+// Returns true if the string corresponds to a valid data URL, false
+// otherwise.
+#if defined(OS_ANDROID)
+  static bool ValidateDataURLAsString(
+      const scoped_refptr<const base::RefCountedString>& data_url_as_string);
+
+#endif
+
  private:
   friend class RestoreHelper;
 
@@ -215,10 +249,6 @@ class CONTENT_EXPORT NavigationControllerImpl
   FRIEND_TEST_ALL_PREFIXES(TimeSmoother, SingleDuplicate);
   FRIEND_TEST_ALL_PREFIXES(TimeSmoother, ManyDuplicates);
   FRIEND_TEST_ALL_PREFIXES(TimeSmoother, ClockBackwardsJump);
-
-  // Used for identifying which frames need to navigate.
-  using FrameLoadVector =
-      std::vector<std::pair<FrameTreeNode*, FrameNavigationEntry*>>;
 
   // Helper class to smooth out runs of duplicate timestamps while still
   // allowing time to jump backwards.
@@ -234,22 +264,71 @@ class CONTENT_EXPORT NavigationControllerImpl
     base::Time high_water_mark_;
   };
 
-  // Causes the controller to load the specified entry. The function assumes
-  // ownership of the pointer since it is put in the navigation list.
-  // NOTE: Do not pass an entry that the controller already owns!
-  void LoadEntry(std::unique_ptr<NavigationEntryImpl> entry);
+  // Starts a navigation to an already existing pending NavigationEntry.
+  void NavigateToExistingPendingEntry(ReloadType reload_type);
 
-  // Identifies which frames need to be navigated for the pending
-  // NavigationEntry and instructs their Navigator to navigate them.  Returns
-  // whether any frame successfully started a navigation.
-  bool NavigateToPendingEntryInternal(ReloadType reload_type);
+  // Recursively identifies which frames need to be navigated for a navigation
+  // to |pending_entry_|, starting at |frame| and exploring its children.
+  // |same_document_loads| and |different_document_loads| will be filled with
+  // the NavigationRequests needed to navigate to |pending_entry_|.
+  void FindFramesToNavigate(
+      FrameTreeNode* frame,
+      ReloadType reload_type,
+      std::vector<std::unique_ptr<NavigationRequest>>* same_document_loads,
+      std::vector<std::unique_ptr<NavigationRequest>>*
+          different_document_loads);
 
-  // Recursively identifies which frames need to be navigated for the pending
-  // NavigationEntry, starting at |frame| and exploring its children.  Only used
-  // in --site-per-process.
-  void FindFramesToNavigate(FrameTreeNode* frame,
-                            FrameLoadVector* sameDocumentLoads,
-                            FrameLoadVector* differentDocumentLoads);
+  // Starts a new navigation based on |load_params|, that doesn't correspond to
+  // an exisiting NavigationEntry.
+  void NavigateWithoutEntry(const LoadURLParams& load_params);
+
+  // Handles a navigation to a renderer-debug URL.
+  void HandleRendererDebugURL(FrameTreeNode* frame_tree_node, const GURL& url);
+
+  // Creates and returns a NavigationEntry based on |load_params| for a
+  // navigation in |node|.
+  // |override_user_agent|, |should_replace_current_entry| and
+  // |has_user_gesture| will override the values from |load_params|. The same
+  // values should be passed to CreateNavigationRequestFromLoadParams.
+  std::unique_ptr<NavigationEntryImpl> CreateNavigationEntryFromLoadParams(
+      FrameTreeNode* node,
+      const LoadURLParams& load_params,
+      bool override_user_agent,
+      bool should_replace_current_entry,
+      bool has_user_gesture);
+
+  // Creates and returns a NavigationRequest based on |load_params| for a
+  // new navigation in |node|.
+  // Will return nullptr if the parameters are invalid and the navigation cannot
+  // start.
+  // |override_user_agent|, |should_replace_current_entry| and
+  // |has_user_gesture| will override the values from |load_params|. The same
+  // values should be passed to CreateNavigationEntryFromLoadParams.
+  // TODO(clamy): Remove the dependency on NavigationEntry and
+  // FrameNavigationEntry.
+  std::unique_ptr<NavigationRequest> CreateNavigationRequestFromLoadParams(
+      FrameTreeNode* node,
+      const LoadURLParams& load_params,
+      bool override_user_agent,
+      bool should_replace_current_entry,
+      bool has_user_gesture,
+      NavigationDownloadPolicy download_policy,
+      ReloadType reload_type,
+      const NavigationEntryImpl& entry,
+      FrameNavigationEntry* frame_entry);
+
+  // Creates and returns a NavigationRequest for a navigation to |entry|. Will
+  // return nullptr if the parameters are invalid and the navigation cannot
+  // start.
+  // TODO(clamy): Ensure this is only called for navigations to existing
+  // NavigationEntries.
+  std::unique_ptr<NavigationRequest> CreateNavigationRequestFromEntry(
+      FrameTreeNode* frame_tree_node,
+      const NavigationEntryImpl& entry,
+      FrameNavigationEntry* frame_entry,
+      ReloadType reload_type,
+      bool is_same_document_history_load,
+      bool is_history_navigation_in_new_child);
 
   // Returns whether there is a pending NavigationEntry whose unique ID matches
   // the given NavigationHandle's pending_nav_entry_id.
@@ -298,9 +377,6 @@ class CONTENT_EXPORT NavigationControllerImpl
   bool RendererDidNavigateAutoSubframe(
       RenderFrameHostImpl* rfh,
       const FrameHostMsg_DidCommitProvisionalLoad_Params& params);
-
-  // Actually issues the navigation held in pending_entry.
-  void NavigateToPendingEntry(ReloadType reload_type);
 
   // Allows the derived class to issue notifications that a load has been
   // committed. This will fill in the active entry to the details structure.
@@ -368,10 +444,6 @@ class CONTENT_EXPORT NavigationControllerImpl
   // the memory management.
   NavigationEntryImpl* pending_entry_;
 
-  // Navigations could occur in succession. This field holds the last pending
-  // entry for which we haven't received a response yet.
-  NavigationEntryImpl* last_pending_entry_;
-
   // If a new entry fails loading, details about it are temporarily held here
   // until the error page is shown (or 0 otherwise).
   //
@@ -395,13 +467,6 @@ class CONTENT_EXPORT NavigationControllerImpl
   // temporarily (until the next navigation).  Any index pointing to an entry
   // after the transient entry will become invalid if you navigate forward.
   int transient_entry_index_;
-
-  // The index of the last pending entry if it is in entries, or -1 if it was
-  // created by LoadURL.
-  int last_pending_entry_index_;
-
-  // The index of the last transient entry. Defaults to -1.
-  int last_transient_entry_index_;
 
   // The delegate associated with the controller. Possibly NULL during
   // setup.

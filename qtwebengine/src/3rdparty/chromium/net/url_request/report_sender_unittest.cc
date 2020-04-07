@@ -16,6 +16,7 @@
 #include "net/base/upload_element_reader.h"
 #include "net/http/http_response_headers.h"
 #include "net/http/http_status_code.h"
+#include "net/test/test_with_scoped_task_environment.h"
 #include "net/test/url_request/url_request_failed_job.h"
 #include "net/test/url_request/url_request_mock_data_job.h"
 #include "net/test/url_request/url_request_mock_http_job.h"
@@ -82,7 +83,7 @@ class MockServerErrorJob : public URLRequestJob {
  public:
   MockServerErrorJob(URLRequest* request, NetworkDelegate* network_delegate)
       : URLRequestJob(request, network_delegate) {}
-  ~MockServerErrorJob() override {}
+  ~MockServerErrorJob() override = default;
 
  protected:
   void GetResponseInfo(HttpResponseInfo* info) override {
@@ -99,8 +100,8 @@ class MockServerErrorJob : public URLRequestJob {
 
 class MockServerErrorJobInterceptor : public URLRequestInterceptor {
  public:
-  MockServerErrorJobInterceptor() {}
-  ~MockServerErrorJobInterceptor() override {}
+  MockServerErrorJobInterceptor() = default;
+  ~MockServerErrorJobInterceptor() override = default;
 
   URLRequestJob* MaybeInterceptRequest(
       URLRequest* request,
@@ -119,8 +120,8 @@ class MockServerErrorJobInterceptor : public URLRequestInterceptor {
 class TestReportSenderNetworkDelegate : public NetworkDelegateImpl {
  public:
   TestReportSenderNetworkDelegate()
-      : url_request_destroyed_callback_(base::Bind(&base::DoNothing)),
-        all_url_requests_destroyed_callback_(base::Bind(&base::DoNothing)),
+      : url_request_destroyed_callback_(base::DoNothing()),
+        all_url_requests_destroyed_callback_(base::DoNothing()),
         num_requests_(0) {}
 
   void ExpectReport(const std::string& report) {
@@ -145,7 +146,7 @@ class TestReportSenderNetworkDelegate : public NetworkDelegateImpl {
 
   // NetworkDelegateImpl implementation.
   int OnBeforeURLRequest(URLRequest* request,
-                         const CompletionCallback& callback,
+                         CompletionOnceCallback callback,
                          GURL* new_url) override {
     num_requests_++;
     EXPECT_EQ(expect_url_, request->url());
@@ -183,7 +184,7 @@ class TestReportSenderNetworkDelegate : public NetworkDelegateImpl {
   DISALLOW_COPY_AND_ASSIGN(TestReportSenderNetworkDelegate);
 };
 
-class ReportSenderTest : public ::testing::Test {
+class ReportSenderTest : public TestWithScopedTaskEnvironment {
  public:
   ReportSenderTest() : context_(true) {
     context_.set_network_delegate(&network_delegate_);

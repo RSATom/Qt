@@ -52,15 +52,30 @@
 
 QT_BEGIN_NAMESPACE
 
+#ifndef QT_OSX_BLUETOOTH
+class QBluetoothSocketBasePrivate;
+#else
 class QBluetoothSocketPrivate;
+#endif
 
 class Q_BLUETOOTH_EXPORT QBluetoothSocket : public QIODevice
 {
     Q_OBJECT
+#ifndef QT_OSX_BLUETOOTH
+    Q_DECLARE_PRIVATE(QBluetoothSocketBase)
+#else
     Q_DECLARE_PRIVATE(QBluetoothSocket)
+#endif
+
 
     friend class QBluetoothServer;
     friend class QBluetoothServerPrivate;
+    friend class QBluetoothSocketPrivate;
+    friend class QBluetoothSocketPrivateAndroid;
+    friend class QBluetoothSocketPrivateBluez;
+    friend class QBluetoothSocketPrivateBluezDBus;
+    friend class QBluetoothSocketPrivateDummy;
+    friend class QBluetoothSocketPrivateWinRT;
 
 public:
 
@@ -89,8 +104,8 @@ public:
     };
     Q_ENUM(SocketError)
 
-    explicit QBluetoothSocket(QBluetoothServiceInfo::Protocol socketType, QObject *parent = Q_NULLPTR);   // create socket of type socketType
-    explicit QBluetoothSocket(QObject *parent = Q_NULLPTR);  // create a blank socket
+    explicit QBluetoothSocket(QBluetoothServiceInfo::Protocol socketType, QObject *parent = nullptr);   // create socket of type socketType
+    explicit QBluetoothSocket(QObject *parent = nullptr);  // create a blank socket
     virtual ~QBluetoothSocket();
 
     void abort();
@@ -106,6 +121,11 @@ public:
     void connectToService(const QBluetoothServiceInfo &service, OpenMode openMode = ReadWrite);
     void connectToService(const QBluetoothAddress &address, const QBluetoothUuid &uuid, OpenMode openMode = ReadWrite);
     void connectToService(const QBluetoothAddress &address, quint16 port, OpenMode openMode = ReadWrite);
+    inline void connectToService(const QBluetoothAddress &address, QBluetoothUuid::ServiceClassUuid uuid,
+                                 OpenMode mode = ReadWrite)
+    {
+        connectToService(address, QBluetoothUuid(uuid), mode);
+    }
     void disconnectFromService();
 
     //bool flush();
@@ -161,10 +181,20 @@ private Q_SLOTS:
 
 
 protected:
+#if QT_CONFIG(bluez)
+    //evil hack to enable QBluetoothServer on Bluez to set the desired d_ptr
+    explicit QBluetoothSocket(QBluetoothSocketBasePrivate *d,
+                              QBluetoothServiceInfo::Protocol socketType,
+                              QObject *parent = nullptr);
+#endif
+#ifndef QT_OSX_BLUETOOTH
+    QBluetoothSocketBasePrivate *d_ptr;
+#else
     QBluetoothSocketPrivate *d_ptr;
+#endif
 
 private:
-    friend class QLowEnergyControllerPrivate;
+    friend class QLowEnergyControllerPrivateBluez;
 };
 
 #ifndef QT_NO_DEBUG_STREAM

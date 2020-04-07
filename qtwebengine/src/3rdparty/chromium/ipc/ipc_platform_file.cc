@@ -5,8 +5,12 @@
 #include "build/build_config.h"
 #include "ipc/ipc_platform_file.h"
 
-#if defined(OS_POSIX)
+#if defined(OS_WIN)
+#include <windows.h>
+#elif defined(OS_POSIX) || defined(OS_FUCHSIA)
 #include <unistd.h>
+
+#include "base/posix/eintr_wrapper.h"
 #endif
 
 namespace IPC {
@@ -51,7 +55,7 @@ PlatformFileForTransit GetPlatformFileForTransit(base::PlatformFile handle,
   }
 
   return IPC::PlatformFileForTransit(raw_handle);
-#elif defined(OS_POSIX)
+#elif defined(OS_POSIX) || defined(OS_FUCHSIA)
   // If asked to close the source, we can simply re-use the source fd instead of
   // dup()ing and close()ing.
   // When we're not closing the source, we need to duplicate the handle and take
@@ -60,10 +64,8 @@ PlatformFileForTransit GetPlatformFileForTransit(base::PlatformFile handle,
   // the other process from the I/O thread. Without the dup, calling code might
   // close the source handle before the message is sent, creating a race
   // condition.
-  int fd = close_source_handle ? handle : ::dup(handle);
+  int fd = close_source_handle ? handle : HANDLE_EINTR(::dup(handle));
   return base::FileDescriptor(fd, true);
-#else
-  #error Not implemented.
 #endif
 }
 

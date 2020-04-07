@@ -5,10 +5,12 @@
 #ifndef EXTENSIONS_SHELL_BROWSER_SHELL_EXTENSION_SYSTEM_H_
 #define EXTENSIONS_SHELL_BROWSER_SHELL_EXTENSION_SYSTEM_H_
 
+#include <memory>
 #include <vector>
 
 #include "base/compiler_specific.h"
 #include "base/macros.h"
+#include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "extensions/browser/extension_system.h"
 #include "extensions/common/one_shot_event.h"
@@ -23,12 +25,14 @@ class BrowserContext;
 
 namespace extensions {
 
+class ShellExtensionLoader;
 class ValueStoreFactory;
 
 // A simplified version of ExtensionSystem for app_shell. Allows
 // app_shell to skip initialization of services it doesn't need.
 class ShellExtensionSystem : public ExtensionSystem {
  public:
+  using InstallUpdateCallback = ExtensionSystem::InstallUpdateCallback;
   explicit ShellExtensionSystem(content::BrowserContext* browser_context);
   ~ShellExtensionSystem() override;
 
@@ -42,17 +46,21 @@ class ShellExtensionSystem : public ExtensionSystem {
   // than other extensions. Use LaunchApp() to actually launch the loaded app.
   const Extension* LoadApp(const base::FilePath& app_dir);
 
-  // Initializes the extension system.
-  void Init();
+  // Finish initialization for the shell extension system.
+  void FinishInitialization();
 
   // Launch the app with id |extension_id|.
-  void LaunchApp(const std::string& extension_id);
+  void LaunchApp(const ExtensionId& extension_id);
+
+  // Reloads the extension with id |extension_id|.
+  void ReloadExtension(const ExtensionId& extension_id);
 
   // KeyedService implementation:
   void Shutdown() override;
 
   // ExtensionSystem implementation:
   void InitForRegularProfile(bool extensions_enabled) override;
+  void InitForIncognitoProfile() override;
   ExtensionService* extension_service() override;
   RuntimeData* runtime_data() override;
   ManagementPolicy* management_policy() override;
@@ -75,7 +83,12 @@ class ShellExtensionSystem : public ExtensionSystem {
   std::unique_ptr<ExtensionSet> GetDependentExtensions(
       const Extension* extension) override;
   void InstallUpdate(const std::string& extension_id,
-                     const base::FilePath& temp_dir) override;
+                     const std::string& public_key,
+                     const base::FilePath& temp_dir,
+                     bool install_immediately,
+                     InstallUpdateCallback install_update_callback) override;
+  bool FinishDelayedInstallationIfReady(const std::string& extension_id,
+                                        bool install_immediately) override;
 
  private:
   void OnExtensionRegisteredWithRequestContexts(
@@ -89,6 +102,8 @@ class ShellExtensionSystem : public ExtensionSystem {
   std::unique_ptr<RuntimeData> runtime_data_;
   std::unique_ptr<QuotaService> quota_service_;
   std::unique_ptr<AppSorting> app_sorting_;
+
+  std::unique_ptr<ShellExtensionLoader> extension_loader_;
 
   scoped_refptr<ValueStoreFactory> store_factory_;
 

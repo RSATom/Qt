@@ -35,6 +35,7 @@
 #ifndef QT_NO_SSL
 #include <QtNetwork/qsslcipher.h>
 #include <QtNetwork/qsslkey.h>
+#include <QtNetwork/qsslsocket.h>
 #endif
 #include <QtWebSockets/QWebSocketServer>
 #include <QtWebSockets/QWebSocket>
@@ -191,7 +192,11 @@ void tst_QWebSocketServer::tst_initialisation()
         QCOMPARE(server.maxPendingConnections(), 30);
         QCOMPARE(server.serverPort(), quint16(0));
         QCOMPARE(server.serverAddress(), QHostAddress());
+#if (QT_VERSION >= QT_VERSION_CHECK(6, 0, 0))
         QCOMPARE(server.socketDescriptor(), -1);
+#else // ### Qt 6: Remove leftovers
+        QCOMPARE(server.nativeDescriptor(), -1);
+#endif // (QT_VERSION >= QT_VERSION_CHECK(6, 0, 0))
         QVERIFY(!server.hasPendingConnections());
         QVERIFY(!server.nextPendingConnection());
         QCOMPARE(server.error(), QWebSocketProtocol::CloseCodeNormal);
@@ -216,7 +221,11 @@ void tst_QWebSocketServer::tst_initialisation()
         QCOMPARE(server.maxPendingConnections(), 30);
         QCOMPARE(server.serverPort(), quint16(0));
         QCOMPARE(server.serverAddress(), QHostAddress());
+#if (QT_VERSION >= QT_VERSION_CHECK(6, 0, 0))
         QCOMPARE(server.socketDescriptor(), -1);
+#else // ### Qt 6: Remove leftovers
+        QCOMPARE(server.nativeDescriptor(), -1);
+#endif // (QT_VERSION >= QT_VERSION_CHECK(6, 0, 0))
         QVERIFY(!server.hasPendingConnections());
         QVERIFY(!server.nextPendingConnection());
         QCOMPARE(server.error(), QWebSocketProtocol::CloseCodeNormal);
@@ -252,8 +261,13 @@ void tst_QWebSocketServer::tst_settersAndGetters()
     server.setMaxPendingConnections(INT_MAX);
     QCOMPARE(server.maxPendingConnections(), INT_MAX);
 
+#if (QT_VERSION >= QT_VERSION_CHECK(6, 0, 0))
     QVERIFY(!server.setSocketDescriptor(-2));
     QCOMPARE(server.socketDescriptor(), -1);
+#else // ### Qt 6: Remove leftovers
+    QVERIFY(!server.setNativeDescriptor(-2));
+    QCOMPARE(server.nativeDescriptor(), -1);
+#endif // (QT_VERSION >= QT_VERSION_CHECK(6, 0, 0))
 
     server.setServerName(QStringLiteral("Qt WebSocketServer"));
     QCOMPARE(server.serverName(), QStringLiteral("Qt WebSocketServer"));
@@ -389,6 +403,8 @@ void tst_QWebSocketServer::tst_preSharedKey()
     list << cipher;
 
     QSslConfiguration config = QSslConfiguration::defaultConfiguration();
+    if (QSslSocket::sslLibraryVersionNumber() >= 0x10101000L)
+        config.setProtocol(QSsl::TlsV1_2); // With TLS 1.3 there are some issues with PSK, force 1.2
     config.setCiphers(list);
     config.setPeerVerifyMode(QSslSocket::VerifyNone);
     config.setPreSharedKeyIdentityHint(PSK_SERVER_IDENTITY_HINT);
@@ -409,6 +425,8 @@ void tst_QWebSocketServer::tst_preSharedKey()
 
     QWebSocket socket;
     QSslConfiguration socketConfig = QSslConfiguration::defaultConfiguration();
+    if (QSslSocket::sslLibraryVersionNumber() >= 0x10101000L)
+        socketConfig.setProtocol(QSsl::TlsV1_2); // With TLS 1.3 there are some issues with PSK, force 1.2
     socketConfig.setPeerVerifyMode(QSslSocket::VerifyNone);
     socketConfig.setCiphers(list);
     socket.setSslConfiguration(socketConfig);
@@ -640,6 +658,14 @@ void tst_QWebSocketServer::tst_handleConnection()
     QTRY_COMPARE(wsMessageReceivedSpy.count(), 1);
     QList<QVariant> arguments = wsMessageReceivedSpy.takeFirst();
     QCOMPARE(arguments.first().toString(), QString("dummy"));
+
+    QSignalSpy clientMessageReceivedSpy(&webSocket, &QWebSocket::textMessageReceived);
+    webServerSocket->sendTextMessage("hello");
+    QVERIFY(webServerSocket->bytesToWrite() > 5); // 5 + a few extra bytes for header
+    QTRY_COMPARE(webServerSocket->bytesToWrite(), 0);
+    QTRY_COMPARE(clientMessageReceivedSpy.count(), 1);
+    arguments = clientMessageReceivedSpy.takeFirst();
+    QCOMPARE(arguments.first().toString(), QString("hello"));
 }
 
 QTEST_MAIN(tst_QWebSocketServer)

@@ -7,7 +7,7 @@
 #include "base/guid.h"
 #include "base/logging.h"
 #include "components/prefs/pref_service.h"
-#include "components/signin/core/common/signin_pref_names.h"
+#include "components/signin/core/browser/signin_pref_names.h"
 
 namespace {
 const char kEphemeralUserDeviceIDPrefix[] = "t_";
@@ -18,6 +18,13 @@ std::string SigninClient::GenerateSigninScopedDeviceID(bool for_ephemeral) {
   std::string guid = base::GenerateGUID();
   return for_ephemeral ? kEphemeralUserDeviceIDPrefix + guid : guid;
 }
+
+#if !defined(OS_CHROMEOS)
+void SigninClient::RecreateSigninScopedDeviceId() {
+  GetPrefs()->SetString(prefs::kGoogleServicesSigninScopedDeviceId,
+                        GenerateSigninScopedDeviceID(false));
+}
+#endif
 
 std::string SigninClient::GetOrCreateScopedDeviceIdPref(PrefService* prefs) {
   std::string signin_scoped_device_id =
@@ -38,7 +45,10 @@ void SigninClient::PreSignOut(
   sign_out.Run();
 }
 
+void SigninClient::PreGaiaLogout(base::OnceClosure callback) {
+  std::move(callback).Run();
+}
+
 void SigninClient::SignOut() {
-  GetPrefs()->ClearPref(prefs::kGoogleServicesSigninScopedDeviceId);
   OnSignedOut();
 }

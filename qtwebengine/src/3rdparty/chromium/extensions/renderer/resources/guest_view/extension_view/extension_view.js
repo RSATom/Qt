@@ -8,11 +8,13 @@ var GuestViewContainer = require('guestViewContainer').GuestViewContainer;
 var ExtensionViewConstants =
     require('extensionViewConstants').ExtensionViewConstants;
 var ExtensionViewEvents = require('extensionViewEvents').ExtensionViewEvents;
-var ExtensionViewInternal =
+var ExtensionViewInternal = getInternalApi ?
+    getInternalApi('extensionViewInternal') :
     require('extensionViewInternal').ExtensionViewInternal;
 
 function ExtensionViewImpl(extensionviewElement) {
-  GuestViewContainer.call(this, extensionviewElement, 'extensionview');
+  $Function.call(
+      GuestViewContainer, this, extensionviewElement, 'extensionview');
 
   // A queue of objects in the order they should be loaded.
   // Every load call will add the given src, as well as the resolve and reject
@@ -102,7 +104,7 @@ ExtensionViewImpl.prototype.loadNextSrc = function() {
       if (extensionId !=
           this.attributes[ExtensionViewConstants.ATTRIBUTE_EXTENSION]
             .getValue()) {
-        this.guest.destroy();
+        this.guest.destroy($Function.bind(this.prepareForReattach_, this));
 
         // Update the extension and src attributes.
         this.attributes[ExtensionViewConstants.ATTRIBUTE_EXTENSION]

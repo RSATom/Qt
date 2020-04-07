@@ -100,8 +100,7 @@ static QByteArray namedPrototype(const QList<QByteArray> &parameterTypes, const 
 {
     QByteArray prototype("(");
     for (int p = 0; p < parameterTypes.count(); ++p) {
-        QByteArray type(parameterTypes.at(p));
-        prototype += type;
+        prototype += parameterTypes.at(p);
 
         if (p < parameterNames.count())
             prototype += ' ' + parameterNames.at(p);
@@ -217,31 +216,27 @@ QString qax_generateDocumentation(QAxBase *that)
                       QString::fromLatin1(prototype.constData()) + QLatin1String("));");
             detail += QLatin1String("</pre>\n");
 
-            if (1) {
-                detail += QLatin1String("<p>Or call the function directly:<pre>\n");
+            detail += QLatin1String("<p>Or call the function directly:<pre>\n");
 
-                bool hasParams = slot.parameterTypes().count() != 0;
-                if (hasParams)
-                    detail += QLatin1String("\tQVariantList params = ...\n");
-                detail += QLatin1String("\t");
-                QByteArray functionToCall = "dynamicCall";
-                if (returntype == "IDispatch*" || returntype == "IUnknown*") {
-                    functionToCall = "querySubObject";
-                    returntype = "QAxObject *";
-                }
-                if (returntype != "void")
-                    detail += QLatin1String(returntype.constData()) + QLatin1String(" result = ");
-                detail += QLatin1String("object->") + QLatin1String(functionToCall.constData()) +
-                          QLatin1String("(\"" + name + prototype + '\"');
-                if (hasParams)
-                    detail += QLatin1String(", params");
-                detail += QLatin1Char(')');
-                if (returntype != "void" && returntype != "QAxObject *" && returntype != "QVariant")
-                    detail += QLatin1Char('.') + QLatin1String(toType(returntype));
-                detail += QLatin1String(";</pre>\n");
-            } else {
-                detail += QLatin1String("<p>This function has parameters of unsupported types and cannot be called directly.");
+            bool hasParams = slot.parameterTypes().count() != 0;
+            if (hasParams)
+                detail += QLatin1String("\tQVariantList params = ...\n");
+            detail += QLatin1String("\t");
+            QByteArray functionToCall = "dynamicCall";
+            if (returntype == "IDispatch*" || returntype == "IUnknown*") {
+                functionToCall = "querySubObject";
+                returntype = "QAxObject *";
             }
+            if (returntype != "void")
+                detail += QLatin1String(returntype.constData()) + QLatin1String(" result = ");
+            detail += QLatin1String("object->") + QLatin1String(functionToCall.constData()) +
+                      QLatin1String("(\"" + name + prototype + '\"');
+            if (hasParams)
+                detail += QLatin1String(", params");
+            detail += QLatin1Char(')');
+            if (returntype != "void" && returntype != "QAxObject *" && returntype != "QVariant")
+                detail += QLatin1Char('.') + QLatin1String(toType(returntype));
+            detail += QLatin1String(";</pre>\n");
 
             methodDetails << detail;
             defArgCount = 0;

@@ -17,13 +17,11 @@ namespace win {
 
   // UIA Text provider implementation for edit controls.
 class UI_BASE_EXPORT UIATextProvider
-    : public NON_EXPORTED_BASE(CComObjectRootEx<CComMultiThreadModel>),
-      public IValueProvider,
+    : public CComObjectRootEx<CComMultiThreadModel>,
       public ITextProvider {
  public:
   BEGIN_COM_MAP(UIATextProvider)
     COM_INTERFACE_ENTRY2(IUnknown, ITextProvider)
-    COM_INTERFACE_ENTRY(IValueProvider)
     COM_INTERFACE_ENTRY(ITextProvider)
   END_COM_MAP()
 
@@ -41,18 +39,6 @@ class UI_BASE_EXPORT UIATextProvider
   }
 
   void set_value(const string16& value) { value_ = value; }
-
-  //
-  // IValueProvider methods.
-  //
-  STDMETHOD(get_IsReadOnly)(BOOL* read_only) override;
-
-  //
-  // IValueProvider methods.
-  //
-  STDMETHOD(SetValue)(const wchar_t* val) override;
-
-  STDMETHOD(get_Value)(BSTR* value) override;
 
   //
   // ITextProvider methods.

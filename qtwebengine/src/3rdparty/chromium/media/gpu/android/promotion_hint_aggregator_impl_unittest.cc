@@ -10,7 +10,6 @@
 
 #include "base/bind.h"
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "base/test/simple_test_tick_clock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -31,7 +30,7 @@ class PromotionHintAggregatorImplTest : public testing::Test {
   void SetUp() override {
     // Advance the clock so that time 0 isn't recent.
     tick_clock_.Advance(TimeDelta::FromSeconds(10000));
-    impl_ = base::MakeUnique<PromotionHintAggregatorImpl>(&tick_clock_);
+    impl_ = std::make_unique<PromotionHintAggregatorImpl>(&tick_clock_);
   }
 
   void TearDown() override {}
@@ -40,8 +39,7 @@ class PromotionHintAggregatorImplTest : public testing::Test {
   // previous frame.  Returns whether the video is promotable.
   bool SendFrame(bool is_promotable, TimeDelta elapsed = FrameTime) {
     tick_clock_.Advance(elapsed);
-    PromotionHintAggregator::Hint hint;
-    hint.is_promotable = is_promotable;
+    PromotionHintAggregator::Hint hint(gfx::Rect(), is_promotable);
     impl_->NotifyPromotionHint(hint);
     return impl_->IsSafeToPromote();
   }

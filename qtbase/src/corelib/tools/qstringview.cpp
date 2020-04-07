@@ -74,19 +74,14 @@ QT_BEGIN_NAMESPACE
     string literal.
 
     QStringViews should be passed by value, not by reference-to-const:
-    \code
-    void myfun1(QStringView sv);        // preferred
-    void myfun2(const QStringView &sv); // compiles and works, but slower
-    \endcode
+    \snippet code/src_corelib_tools_qstringview.cpp 0
 
     If you want to give your users maximum freedom in what strings they can pass
     to your function, accompany the QStringView overload with overloads for
 
     \list
         \li \e QChar: this overload can delegate to the QStringView version:
-            \code
-            void fun(QChar ch) { fun(QStringView(&ch, 1)); }
-            \endcode
+            \snippet code/src_corelib_tools_qstringview.cpp 1
             even though, for technical reasons, QStringView cannot provide a
             QChar constructor by itself.
         \li \e QString: if you store an unmodified copy of the string and thus would
@@ -114,6 +109,13 @@ QT_BEGIN_NAMESPACE
     every element). Use QVector (or std::vector) to hold QStringViews instead.
 
     \sa QString, QStringRef
+*/
+
+/*!
+    \typedef QStringView::storage_type
+
+    Alias for \c{char16_t} for non-Windows or if Q_COMPILER_UNICODE_STRINGS
+    is defined. Otherwise, alias for \c{wchar_t}.
 */
 
 /*!
@@ -224,7 +226,7 @@ QT_BEGIN_NAMESPACE
 */
 
 /*!
-    \fn QStringView::QStringView(const Char *str, qsizetype len)
+    \fn  template <typename Char> QStringView::QStringView(const Char *str, qsizetype len)
 
     Constructs a string view on \a str with length \a len.
 
@@ -240,7 +242,7 @@ QT_BEGIN_NAMESPACE
 */
 
 /*!
-    \fn QStringView::QStringView(const Char *first, const Char *last)
+    \fn template <typename Char> QStringView::QStringView(const Char *first, const Char *last)
 
     Constructs a string view on \a first with length (\a last - \a first).
 
@@ -260,7 +262,7 @@ QT_BEGIN_NAMESPACE
 */
 
 /*!
-    \fn QStringView::QStringView(const Char *str)
+    \fn template <typename Char> QStringView::QStringView(const Char *str)
 
     Constructs a string view on \a str. The length is determined
     by scanning for the first \c{Char(0)}.
@@ -277,16 +279,14 @@ QT_BEGIN_NAMESPACE
 */
 
 /*!
-    \fn QStringView::QStringView(const Char (&string)[N])
+    \fn template <typename Char, size_t N> QStringView::QStringView(const Char (&string)[N])
 
     Constructs a string view on the character string literal \a string.
     The length is set to \c{N-1}, excluding the trailing \{Char(0)}.
     If you need the full array, use the constructor from pointer and
     size instead:
 
-    \code
-    auto sv = QStringView(array, std::size(array)); // using C++17 std::size()
-    \endcode
+    \snippet code/src_corelib_tools_qstringview.cpp 2
 
     \a string must remain valid for the lifetime of this string view
     object.
@@ -319,7 +319,7 @@ QT_BEGIN_NAMESPACE
 */
 
 /*!
-    \fn QStringView::QStringView(const StdBasicString &str)
+    \fn template <typename StdBasicString> QStringView::QStringView(const StdBasicString &str)
 
     Constructs a string view on \a str. The length is taken from \c{str.size()}.
 
@@ -364,8 +364,7 @@ QT_BEGIN_NAMESPACE
 
     Returns a const pointer to the first character in the string.
 
-    \c{storage_type} is \c{char16_t}, except on MSVC 2013 (which lacks \c char16_t support),
-    where it is \c{wchar_t} instead.
+    \c{storage_type} is \c{char16_t}.
 
     \note The character array represented by the return value is \e not null-terminated.
 
@@ -675,6 +674,20 @@ QT_BEGIN_NAMESPACE
 */
 
 /*!
+    \fn int QStringView::compare(QStringView other, Qt::CaseSensitivity cs) const
+    \since 5.12
+
+    Compares this string-view with the \a other string-view and returns an
+    integer less than, equal to, or greater than zero if this string-view
+    is less than, equal to, or greater than the other string-view.
+
+    If \a cs is Qt::CaseSensitive, the comparison is case sensitive;
+    otherwise the comparison is case insensitive.
+
+    \sa operator==(), operator<(), operator>()
+*/
+
+/*!
     \fn bool QStringView::startsWith(QStringView str, Qt::CaseSensitivity cs) const
     \fn bool QStringView::startsWith(QLatin1String l1, Qt::CaseSensitivity cs) const
     \fn bool QStringView::startsWith(QChar ch) const
@@ -713,7 +726,7 @@ QT_BEGIN_NAMESPACE
 
     The behavior is undefined if the string contains non-Latin1 characters.
 
-    \sa toUtf8(), toLocal8Bit(), QTextCodec, qConvertToLatin1()
+    \sa toUtf8(), toLocal8Bit(), QTextCodec
 */
 
 /*!
@@ -739,7 +752,7 @@ QT_BEGIN_NAMESPACE
     UTF-8 is a Unicode codec and can represent all characters in a Unicode
     string like QString.
 
-    \sa toLatin1(), toLocal8Bit(), QTextCodec, qConvertToUtf8()
+    \sa toLatin1(), toLocal8Bit(), QTextCodec
 */
 
 /*!
@@ -758,7 +771,7 @@ QT_BEGIN_NAMESPACE
 */
 
 /*!
-    \fn qToStringViewIgnoringNull(const QStringLike &s);
+    \fn template <typename QStringLike> qToStringViewIgnoringNull(const QStringLike &s);
     \since 5.10
     \internal
 
@@ -770,6 +783,15 @@ QT_BEGIN_NAMESPACE
     if null QStrings can legitimately be treated as empty ones.
 
     \sa QString::isNull(), QStringRef::isNull(), QStringView
+*/
+
+/*!
+    \fn bool QStringView::isRightToLeft() const
+    \since 5.11
+
+    Returns \c true if the string is read right to left.
+
+    \sa QString::isRightToLeft()
 */
 
 QT_END_NAMESPACE

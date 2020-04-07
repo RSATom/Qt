@@ -9,10 +9,13 @@
 #include <memory>
 #include <set>
 #include <string>
+#include <vector>
 
 #include "base/macros.h"
 #include "base/strings/string16.h"
 #include "base/values.h"
+#include "extensions/common/extension_id.h"
+#include "extensions/common/hashed_extension_id.h"
 
 namespace extensions {
 struct InstallWarning;
@@ -52,19 +55,19 @@ class Manifest {
     NUM_LOCATIONS
   };
 
-  // Do not change the order of entries or remove entries in this list
-  // as this is used in UMA_HISTOGRAM_ENUMERATIONs about extensions.
+  // Do not change the order of entries or remove entries in this list as this
+  // is used in ExtensionType enum in tools/metrics/histograms/enums.xml.
   enum Type {
     TYPE_UNKNOWN = 0,
-    TYPE_EXTENSION,
-    TYPE_THEME,
-    TYPE_USER_SCRIPT,
-    TYPE_HOSTED_APP,
+    TYPE_EXTENSION = 1,
+    TYPE_THEME = 2,
+    TYPE_USER_SCRIPT = 3,
+    TYPE_HOSTED_APP = 4,
     // This is marked legacy because platform apps are preferred. For
     // backwards compatibility, we can't remove support for packaged apps
-    TYPE_LEGACY_PACKAGED_APP,
-    TYPE_PLATFORM_APP,
-    TYPE_SHARED_MODULE,
+    TYPE_LEGACY_PACKAGED_APP = 5,
+    TYPE_PLATFORM_APP = 6,
+    TYPE_SHARED_MODULE = 7,
 
     // New enum values must go above here.
     NUM_LOAD_TYPES
@@ -120,11 +123,21 @@ class Manifest {
     return IsUnpackedLocation(location);
   }
 
+  // Returns the Manifest::Type for the given |value|.
+  static Type GetTypeFromManifestValue(const base::DictionaryValue& value);
+
+  // Returns true if an item with the given |location| should always be loaded,
+  // even if extensions are otherwise disabled.
+  static bool ShouldAlwaysLoadExtension(Manifest::Location location,
+                                        bool is_theme);
+
   Manifest(Location location, std::unique_ptr<base::DictionaryValue> value);
   virtual ~Manifest();
 
-  const std::string& extension_id() const { return extension_id_; }
-  void set_extension_id(const std::string& id) { extension_id_ = id; }
+  void SetExtensionId(const ExtensionId& id);
+
+  const ExtensionId& extension_id() const { return extension_id_; }
+  const HashedExtensionId& hashed_id() const { return hashed_id_; }
 
   Location location() const { return location_; }
 
@@ -190,6 +203,10 @@ class Manifest {
   // versions. It is generated as a SHA-256 hash of the extension's public
   // key, or as a hash of the path in the case of unpacked extensions.
   std::string extension_id_;
+
+  // The hex-encoding of the SHA1 of the extension id; used to determine feature
+  // availability.
+  HashedExtensionId hashed_id_;
 
   // The location the extension was loaded from.
   Location location_;

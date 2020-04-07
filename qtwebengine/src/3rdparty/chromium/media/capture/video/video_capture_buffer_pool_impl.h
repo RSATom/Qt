@@ -36,20 +36,21 @@ class CAPTURE_EXPORT VideoCaptureBufferPoolImpl
 
   // VideoCaptureBufferPool implementation.
   mojo::ScopedSharedBufferHandle GetHandleForInterProcessTransit(
-      int buffer_id) override;
+      int buffer_id,
+      bool read_only) override;
   base::SharedMemoryHandle GetNonOwnedSharedMemoryHandleForLegacyIPC(
       int buffer_id) override;
+  mojom::SharedMemoryViaRawFileDescriptorPtr
+  CreateSharedMemoryViaRawFileDescriptorStruct(int buffer_id) override;
   std::unique_ptr<VideoCaptureBufferHandle> GetHandleForInProcessAccess(
       int buffer_id) override;
   int ReserveForProducer(const gfx::Size& dimensions,
-                         media::VideoPixelFormat format,
-                         media::VideoPixelStorage storage,
+                         VideoPixelFormat format,
                          int frame_feedback_id,
                          int* buffer_id_to_drop) override;
   void RelinquishProducerReservation(int buffer_id) override;
   int ResurrectLastForProducer(const gfx::Size& dimensions,
-                               media::VideoPixelFormat format,
-                               media::VideoPixelStorage storage) override;
+                               VideoPixelFormat format) override;
   double GetBufferPoolUtilization() const override;
   void HoldForConsumers(int buffer_id, int num_clients) override;
   void RelinquishConsumerHold(int buffer_id, int num_clients) override;
@@ -59,8 +60,7 @@ class CAPTURE_EXPORT VideoCaptureBufferPoolImpl
   ~VideoCaptureBufferPoolImpl() override;
 
   int ReserveForProducerInternal(const gfx::Size& dimensions,
-                                 media::VideoPixelFormat format,
-                                 media::VideoPixelStorage storage,
+                                 VideoPixelFormat format,
                                  int frame_feedback_id,
                                  int* tracker_id_to_drop);
 

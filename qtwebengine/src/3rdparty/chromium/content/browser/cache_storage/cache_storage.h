@@ -14,11 +14,14 @@
 
 #include "base/callback.h"
 #include "base/files/file_path.h"
+#include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "content/browser/cache_storage/cache_storage_cache.h"
 #include "content/browser/cache_storage/cache_storage_cache_observer.h"
+#include "third_party/blink/public/platform/modules/cache_storage/cache_storage.mojom.h"
+#include "url/origin.h"
 
 namespace base {
 class SequencedTaskRunner;
@@ -35,7 +38,15 @@ class BlobStorageContext;
 namespace content {
 class CacheStorageCacheHandle;
 class CacheStorageIndex;
+class CacheStorageManager;
 class CacheStorageScheduler;
+enum class CacheStorageOwner;
+
+namespace cache_storage_manager_unittest {
+class CacheStorageManagerTest;
+FORWARD_DECLARE_TEST(CacheStorageManagerTest, PersistedCacheKeyUsed);
+FORWARD_DECLARE_TEST(CacheStorageManagerTest, TestErrorInitializingCache);
+}  // namespace cache_storage_manager_unittest
 
 // TODO(jkarlin): Constrain the total bytes used per origin.
 
@@ -47,10 +58,12 @@ class CONTENT_EXPORT CacheStorage : public CacheStorageCacheObserver {
   constexpr static int64_t kSizeUnknown = -1;
 
   using BoolAndErrorCallback =
-      base::OnceCallback<void(bool, CacheStorageError)>;
+      base::OnceCallback<void(bool, blink::mojom::CacheStorageError)>;
+  using ErrorCallback =
+      base::OnceCallback<void(blink::mojom::CacheStorageError)>;
   using CacheAndErrorCallback =
-      base::OnceCallback<void(std::unique_ptr<CacheStorageCacheHandle>,
-                              CacheStorageError)>;
+      base::OnceCallback<void(CacheStorageCacheHandle,
+                              blink::mojom::CacheStorageError)>;
   using IndexCallback = base::OnceCallback<void(const CacheStorageIndex&)>;
   using SizeCallback = base::OnceCallback<void(int64_t)>;
 
@@ -63,7 +76,9 @@ class CONTENT_EXPORT CacheStorage : public CacheStorageCacheObserver {
       scoped_refptr<net::URLRequestContextGetter> request_context_getter,
       scoped_refptr<storage::QuotaManagerProxy> quota_manager_proxy,
       base::WeakPtr<storage::BlobStorageContext> blob_context,
-      const GURL& origin);
+      CacheStorageManager* cache_storage_manager,
+      const url::Origin& origin,
+      CacheStorageOwner owner);
 
   // Any unfinished asynchronous operations may not complete or call their
   // callbacks.
@@ -80,13 +95,11 @@ class CONTENT_EXPORT CacheStorage : public CacheStorageCacheObserver {
   void HasCache(const std::string& cache_name, BoolAndErrorCallback callback);
 
   // Deletes the cache if it exists. If it doesn't exist,
-  // CACHE_STORAGE_ERROR_NOT_FOUND is returned. Any existing
-  // CacheStorageCacheHandle(s) to the cache will remain valid but future
-  // CacheStorage operations won't be able to access the cache. The cache
+  // blink::mojom::CacheStorageError::kErrorNotFound is returned. Any
+  // existing CacheStorageCacheHandle(s) to the cache will remain valid but
+  // future CacheStorage operations won't be able to access the cache. The cache
   // isn't actually erased from disk until the last handle is dropped.
-  // TODO(jkarlin): Rename to DoomCache.
-  void DeleteCache(const std::string& cache_name,
-                   BoolAndErrorCallback callback);
+  void DoomCache(const std::string& cache_name, ErrorCallback callback);
 
   // Calls the callback with the cache index.
   void EnumerateCaches(IndexCallback callback);
@@ -94,19 +107,26 @@ class CONTENT_EXPORT CacheStorage : public CacheStorageCacheObserver {
   // Calls match on the cache with the given |cache_name|.
   void MatchCache(const std::string& cache_name,
                   std::unique_ptr<ServiceWorkerFetchRequest> request,
-                  const CacheStorageCacheQueryParams& match_params,
+                  blink::mojom::QueryParamsPtr match_params,
                   CacheStorageCache::ResponseCallback callback);
 
   // Calls match on all of the caches in parallel, calling |callback| with the
   // response from the first cache (in order of cache creation) to have the
   // entry. If no response is found then |callback| is called with
-  // CACHE_STORAGE_ERROR_NOT_FOUND.
+  // blink::mojom::CacheStorageError::kErrorNotFound.
   void MatchAllCaches(std::unique_ptr<ServiceWorkerFetchRequest> request,
-                      const CacheStorageCacheQueryParams& match_params,
+                      blink::mojom::QueryParamsPtr match_params,
                       CacheStorageCache::ResponseCallback callback);
 
+  // Puts the request/response pair in the cache.
+  void WriteToCache(const std::string& cache_name,
+                    std::unique_ptr<ServiceWorkerFetchRequest> request,
+                    std::unique_ptr<ServiceWorkerResponse> response,
+                    CacheStorage::ErrorCallback callback);
+
   // Sums the sizes of each cache and closes them. Runs |callback| with the
-  // size.
+  // size. The sizes include any doomed caches and will also force close all
+  // caches even if there are existing handles to them.
   void GetSizeThenCloseAllCaches(SizeCallback callback);
 
   // The size of all of the origin's contents. This value should be used as an
@@ -118,13 +138,23 @@ class CONTENT_EXPORT CacheStorage : public CacheStorageCacheObserver {
   void StartAsyncOperationForTesting();
   void CompleteAsyncOperationForTesting();
 
+  // Removes the manager reference. Called before this storage is deleted by the
+  // manager, since it is removed from manager's storage map before deleting.
+  void ResetManager();
+
   // CacheStorageCacheObserver:
-  void CacheSizeUpdated(const CacheStorageCache* cache, int64_t size) override;
+  void CacheSizeUpdated(const CacheStorageCache* cache) override;
 
  private:
   friend class CacheStorageCacheHandle;
   friend class CacheStorageCache;
-  friend class CacheStorageManagerTest;
+  friend class cache_storage_manager_unittest::CacheStorageManagerTest;
+  FRIEND_TEST_ALL_PREFIXES(
+      cache_storage_manager_unittest::CacheStorageManagerTest,
+      PersistedCacheKeyUsed);
+  FRIEND_TEST_ALL_PREFIXES(
+      cache_storage_manager_unittest::CacheStorageManagerTest,
+      TestErrorInitializingCache);
   class CacheLoader;
   class MemoryLoader;
   class SimpleCacheLoader;
@@ -132,16 +162,17 @@ class CONTENT_EXPORT CacheStorage : public CacheStorageCacheObserver {
 
   typedef std::map<std::string, std::unique_ptr<CacheStorageCache>> CacheMap;
 
+  // Generate a new padding key. For testing only and *not thread safe*.
+  static void GenerateNewKeyForTesting();
+
   // Functions for exposing handles to CacheStorageCache to clients.
-  std::unique_ptr<CacheStorageCacheHandle> CreateCacheHandle(
-      CacheStorageCache* cache);
+  CacheStorageCacheHandle CreateCacheHandle(CacheStorageCache* cache);
   void AddCacheHandleRef(CacheStorageCache* cache);
   void DropCacheHandleRef(CacheStorageCache* cache);
 
   // Returns a CacheStorageCacheHandle for the given name if the name is known.
   // If the CacheStorageCache has been deleted, creates a new one.
-  std::unique_ptr<CacheStorageCacheHandle> GetLoadedCache(
-      const std::string& cache_name);
+  CacheStorageCacheHandle GetLoadedCache(const std::string& cache_name);
 
   // Initializer and its callback are below.
   void LazyInit();
@@ -154,22 +185,19 @@ class CONTENT_EXPORT CacheStorage : public CacheStorageCacheObserver {
   void CreateCacheDidCreateCache(const std::string& cache_name,
                                  CacheAndErrorCallback callback,
                                  std::unique_ptr<CacheStorageCache> cache);
-  void CreateCacheDidWriteIndex(
-      CacheAndErrorCallback callback,
-      std::unique_ptr<CacheStorageCacheHandle> cache_handle,
-      bool success);
+  void CreateCacheDidWriteIndex(CacheAndErrorCallback callback,
+                                CacheStorageCacheHandle cache_handle,
+                                bool success);
 
   // The HasCache callbacks are below.
   void HasCacheImpl(const std::string& cache_name,
                     BoolAndErrorCallback callback);
 
   // The DeleteCache callbacks are below.
-  void DeleteCacheImpl(const std::string& cache_name,
-                       BoolAndErrorCallback callback);
-  void DeleteCacheDidWriteIndex(
-      std::unique_ptr<CacheStorageCacheHandle> cache_handle,
-      BoolAndErrorCallback callback,
-      bool success);
+  void DoomCacheImpl(const std::string& cache_name, ErrorCallback callback);
+  void DeleteCacheDidWriteIndex(CacheStorageCacheHandle cache_handle,
+                                ErrorCallback callback,
+                                bool success);
   void DeleteCacheFinalize(CacheStorageCache* doomed_cache);
   void DeleteCacheDidGetSize(CacheStorageCache* doomed_cache,
                              int64_t cache_size);
@@ -181,37 +209,42 @@ class CONTENT_EXPORT CacheStorage : public CacheStorageCacheObserver {
   // The MatchCache callbacks are below.
   void MatchCacheImpl(const std::string& cache_name,
                       std::unique_ptr<ServiceWorkerFetchRequest> request,
-                      const CacheStorageCacheQueryParams& match_params,
+                      blink::mojom::QueryParamsPtr match_params,
                       CacheStorageCache::ResponseCallback callback);
-  void MatchCacheDidMatch(std::unique_ptr<CacheStorageCacheHandle> cache_handle,
+  void MatchCacheDidMatch(CacheStorageCacheHandle cache_handle,
                           CacheStorageCache::ResponseCallback callback,
-                          CacheStorageError error,
-                          std::unique_ptr<ServiceWorkerResponse> response,
-                          std::unique_ptr<storage::BlobDataHandle> handle);
+                          blink::mojom::CacheStorageError error,
+                          std::unique_ptr<ServiceWorkerResponse> response);
 
   // The MatchAllCaches callbacks are below.
   void MatchAllCachesImpl(std::unique_ptr<ServiceWorkerFetchRequest> request,
-                          const CacheStorageCacheQueryParams& match_params,
+                          blink::mojom::QueryParamsPtr match_params,
                           CacheStorageCache::ResponseCallback callback);
   void MatchAllCachesDidMatch(
-      std::unique_ptr<CacheStorageCacheHandle> cache_handle,
+      CacheStorageCacheHandle cache_handle,
       CacheMatchResponse* out_match_response,
       const base::RepeatingClosure& barrier_closure,
-      CacheStorageError error,
-      std::unique_ptr<ServiceWorkerResponse> service_worker_response,
-      std::unique_ptr<storage::BlobDataHandle> handle);
+      blink::mojom::CacheStorageError error,
+      std::unique_ptr<ServiceWorkerResponse> service_worker_response);
   void MatchAllCachesDidMatchAll(
       std::unique_ptr<std::vector<CacheMatchResponse>> match_responses,
       CacheStorageCache::ResponseCallback callback);
 
+  // WriteToCache callbacks.
+  void WriteToCacheImpl(const std::string& cache_name,
+                        std::unique_ptr<ServiceWorkerFetchRequest> request,
+                        std::unique_ptr<ServiceWorkerResponse> response,
+                        CacheStorage::ErrorCallback callback);
+
   void GetSizeThenCloseAllCachesImpl(SizeCallback callback);
 
   void SizeImpl(SizeCallback callback);
-  void SizeRetrievedFromCache(
-      std::unique_ptr<CacheStorageCacheHandle> cache_handle,
-      base::OnceClosure closure,
-      int64_t* accumulator,
-      int64_t size);
+  void SizeRetrievedFromCache(CacheStorageCacheHandle cache_handle,
+                              base::OnceClosure closure,
+                              int64_t* accumulator,
+                              int64_t size);
+
+  void NotifyCacheContentChanged(const std::string& cache_name);
 
   void ScheduleWriteIndex();
   void WriteIndex(base::OnceCallback<void(bool)> callback);
@@ -259,9 +292,16 @@ class CONTENT_EXPORT CacheStorage : public CacheStorageCacheObserver {
   scoped_refptr<storage::QuotaManagerProxy> quota_manager_proxy_;
 
   // The origin that this CacheStorage is associated with.
-  GURL origin_;
+  url::Origin origin_;
 
-  base::CancelableClosure index_write_task_;
+  // The owner that this CacheStorage is associated with.
+  CacheStorageOwner owner_;
+
+  // The manager that owns this cache storage. Only set to null by
+  // RemoveManager() when this cache storage is being deleted.
+  CacheStorageManager* cache_storage_manager_;
+
+  base::CancelableOnceClosure index_write_task_;
 
   base::WeakPtrFactory<CacheStorage> weak_factory_;
 

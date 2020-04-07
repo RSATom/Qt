@@ -61,6 +61,8 @@ public:
     explicit QQuickPopupPositioner(QQuickPopup *popup);
     ~QQuickPopupPositioner();
 
+    QQuickPopup *popup() const;
+
     QQuickItem *parentItem() const;
     void setParentItem(QQuickItem *parent);
 
@@ -71,13 +73,12 @@ protected:
     void itemParentChanged(QQuickItem *, QQuickItem *parent) override;
     void itemChildRemoved(QQuickItem *, QQuickItem *child) override;
 
-private:
     void removeAncestorListeners(QQuickItem *item);
     void addAncestorListeners(QQuickItem *item);
 
-    bool m_positioning;
-    QQuickItem *m_parentItem;
-    QQuickPopup *m_popup;
+    bool m_positioning = false;
+    QQuickItem *m_parentItem = nullptr;
+    QQuickPopup *m_popup = nullptr;
 };
 
 QT_END_NAMESPACE

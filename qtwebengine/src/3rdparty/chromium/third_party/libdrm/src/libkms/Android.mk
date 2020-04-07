@@ -2,8 +2,6 @@ DRM_GPU_DRIVERS := $(strip $(filter-out swrast, $(BOARD_GPU_DRIVERS)))
 
 intel_drivers := i915 i965 i915g ilo
 radeon_drivers := r300g r600g radeonsi
-rockchip_drivers := rockchip
-mediatek_drivers := mediatek
 nouveau_drivers := nouveau
 virgl_drivers := virgl
 vmwgfx_drivers := vmwgfx
@@ -11,8 +9,6 @@ vmwgfx_drivers := vmwgfx
 valid_drivers := \
 	$(intel_drivers) \
 	$(radeon_drivers) \
-	$(rockchip_drivers) \
-	$(mediatek_drivers) \
 	$(nouveau_drivers) \
 	$(virgl_drivers) \
 	$(vmwgfx_drivers)
@@ -30,7 +26,7 @@ LOCAL_PATH := $(call my-dir)
 include $(CLEAR_VARS)
 include $(LOCAL_PATH)/Makefile.sources
 
-LOCAL_SRC_FILES := $(patsubst %.h, , $(LIBKMS_FILES))
+LOCAL_SRC_FILES := $(LIBKMS_FILES)
 
 ifneq ($(filter $(vmwgfx_drivers), $(DRM_GPU_DRIVERS)),)
 LOCAL_SRC_FILES += $(LIBKMS_VMWGFX_FILES)
@@ -49,9 +45,7 @@ LOCAL_SRC_FILES += $(LIBKMS_RADEON_FILES)
 endif
 
 LOCAL_MODULE := libkms
-LOCAL_MODULE_TAGS := optional
 LOCAL_SHARED_LIBRARIES := libdrm
 
-LOCAL_EXPORT_C_INCLUDE_DIRS := $(LOCAL_PATH)
-
+include $(LIBDRM_COMMON_MK)
 include $(BUILD_SHARED_LIBRARY)

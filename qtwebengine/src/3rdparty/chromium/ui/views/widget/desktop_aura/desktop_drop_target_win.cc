@@ -4,7 +4,6 @@
 
 #include "ui/views/widget/desktop_aura/desktop_drop_target_win.h"
 
-#include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/win/win_util.h"
 #include "ui/aura/client/drag_drop_client.h"
@@ -47,12 +46,8 @@ int ConvertKeyStateToAuraEventFlags(DWORD key_state)
 
 namespace views {
 
-DesktopDropTargetWin::DesktopDropTargetWin(aura::Window* root_window,
-                                           HWND window)
-    : ui::DropTargetWin(window),
-      root_window_(root_window),
-      target_window_(NULL) {
-}
+DesktopDropTargetWin::DesktopDropTargetWin(aura::Window* root_window)
+    : root_window_(root_window), target_window_(nullptr) {}
 
 DesktopDropTargetWin::~DesktopDropTargetWin() {
   if (target_window_)
@@ -109,14 +104,14 @@ DWORD DesktopDropTargetWin::OnDrop(IDataObject* data_object,
   }
   if (target_window_) {
     target_window_->RemoveObserver(this);
-    target_window_ = NULL;
+    target_window_ = nullptr;
   }
   return ui::DragDropTypes::DragOperationToDropEffect(drag_operation);
 }
 
 void DesktopDropTargetWin::OnWindowDestroyed(aura::Window* window) {
   DCHECK(window == target_window_);
-  target_window_ = NULL;
+  target_window_ = nullptr;
 }
 
 void DesktopDropTargetWin::Translate(
@@ -141,7 +136,7 @@ void DesktopDropTargetWin::Translate(
       target_window_->AddObserver(this);
     target_window_changed = true;
   }
-  *delegate = NULL;
+  *delegate = nullptr;
   if (!target_window_)
     return;
   *delegate = aura::client::GetDragDropDelegate(target_window_);
@@ -149,7 +144,7 @@ void DesktopDropTargetWin::Translate(
     return;
 
   data->reset(new OSExchangeData(
-      base::MakeUnique<OSExchangeDataProviderWin>(data_object)));
+      std::make_unique<OSExchangeDataProviderWin>(data_object)));
   location = root_location;
   aura::Window::ConvertPointToTarget(root_window_, target_window_, &location);
   event->reset(new ui::DropTargetEvent(
@@ -170,7 +165,7 @@ void DesktopDropTargetWin::NotifyDragLeave() {
   if (delegate)
     delegate->OnDragExited();
   target_window_->RemoveObserver(this);
-  target_window_ = NULL;
+  target_window_ = nullptr;
 }
 
 }  // namespace views

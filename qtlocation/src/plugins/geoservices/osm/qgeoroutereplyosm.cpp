@@ -75,6 +75,13 @@ void QGeoRouteReplyOsm::networkReplyFinished()
     QList<QGeoRoute> routes;
     QString errorString;
     QGeoRouteReply::Error error = parser->parseReply(routes, errorString, reply->readAll());
+    // Setting the request into the result
+    for (QGeoRoute &route : routes) {
+        route.setRequest(request());
+        for (QGeoRoute &leg: route.routeLegs()) {
+            leg.setRequest(request());
+        }
+    }
 
     if (error == QGeoRouteReply::NoError) {
         setRoutes(routes.mid(0, request().numberAlternativeRoutes() + 1));

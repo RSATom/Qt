@@ -13,6 +13,7 @@
 #include "core/fpdfapi/parser/cpdf_array.h"
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fxge/cfx_graphstatedata.h"
+#include "third_party/base/compiler_specific.h"
 #include "third_party/base/stl_util.h"
 
 CPDF_AllStates::CPDF_AllStates()
@@ -39,7 +40,7 @@ void CPDF_AllStates::SetLineDash(CPDF_Array* pArray, float phase, float scale) {
 void CPDF_AllStates::ProcessExtGS(CPDF_Dictionary* pGS,
                                   CPDF_StreamContentParser* pParser) {
   for (const auto& it : *pGS) {
-    const CFX_ByteString& key_str = it.first;
+    const ByteString& key_str = it.first;
     CPDF_Object* pElement = it.second.get();
     CPDF_Object* pObject = pElement ? pElement->GetDirect() : nullptr;
     if (!pObject)
@@ -89,6 +90,7 @@ void CPDF_AllStates::ProcessExtGS(CPDF_Dictionary* pGS,
         if (pGS->KeyExist("TR2")) {
           continue;
         }
+        FALLTHROUGH;
       case FXBSTR_ID('T', 'R', '2', 0):
         m_GeneralState.SetTR(pObject && !pObject->IsName() ? pObject : nullptr);
         break;
@@ -131,6 +133,7 @@ void CPDF_AllStates::ProcessExtGS(CPDF_Dictionary* pGS,
         if (pGS->KeyExist("BG2")) {
           continue;
         }
+        FALLTHROUGH;
       case FXBSTR_ID('B', 'G', '2', 0):
         m_GeneralState.SetBG(pObject);
         break;
@@ -138,6 +141,7 @@ void CPDF_AllStates::ProcessExtGS(CPDF_Dictionary* pGS,
         if (pGS->KeyExist("UCR2")) {
           continue;
         }
+        FALLTHROUGH;
       case FXBSTR_ID('U', 'C', 'R', '2'):
         m_GeneralState.SetUCR(pObject);
         break;

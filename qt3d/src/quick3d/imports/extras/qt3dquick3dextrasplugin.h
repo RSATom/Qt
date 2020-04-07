@@ -45,8 +45,7 @@
 static void initResources()
 {
 #ifdef QT_STATIC
-    Q_INIT_RESOURCE(qmake_Qt3D_Extras);
-    Q_INIT_RESOURCE(extras);
+    Q_INIT_RESOURCE(extras); // from the Qt3DQuickExtras module
 #endif
 }
 
@@ -58,7 +57,7 @@ class Qt3DQuick3DExtrasPlugin : public QQmlExtensionPlugin
     Q_PLUGIN_METADATA(IID QQmlExtensionInterface_iid)
 public:
     Qt3DQuick3DExtrasPlugin(QObject *parent = nullptr) : QQmlExtensionPlugin(parent) { initResources(); }
-    void registerTypes(const char *uri) Q_DECL_OVERRIDE;
+    void registerTypes(const char *uri) override;
 };
 
 QT_END_NAMESPACE

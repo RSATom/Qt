@@ -21,7 +21,7 @@ namespace content {
 class SandboxDirectoryDatabaseTest;
 }
 
-namespace tracked_objects {
+namespace base {
 class Location;
 }
 
@@ -45,7 +45,7 @@ namespace storage {
 // TODO(ericu): Add a method that will give a unique filename for a data file.
 class STORAGE_EXPORT SandboxDirectoryDatabase {
  public:
-  typedef int64_t FileId;
+  using FileId = int64_t;
 
   struct STORAGE_EXPORT FileInfo {
     FileInfo();
@@ -125,7 +125,7 @@ class STORAGE_EXPORT SandboxDirectoryDatabase {
   bool RemoveFileInfoHelper(FileId file_id, leveldb::WriteBatch* batch);
   // Close the database. Before this, all iterators associated with the database
   // must be deleted.
-  void HandleError(const tracked_objects::Location& from_here,
+  void HandleError(const base::Location& from_here,
                    const leveldb::Status& status);
 
   const base::FilePath filesystem_data_directory_;

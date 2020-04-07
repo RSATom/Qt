@@ -7,7 +7,9 @@
 #include <Security/Security.h>
 
 #include "base/logging.h"
+#include "net/cert/internal/cert_errors.h"
 #include "net/cert/x509_certificate.h"
+#include "net/cert/x509_util.h"
 
 #if defined(OS_IOS)
 #include "net/cert/x509_util_ios.h"
@@ -28,11 +30,22 @@ bool TestRootCerts::Add(X509Certificate* certificate) {
                            os_cert.get()))
     return true;
   CFArrayAppendValue(temporary_roots_, os_cert.get());
+
+  // Add the certificate to the parallel |test_trust_store_|.
+  CertErrors errors;
+  scoped_refptr<ParsedCertificate> parsed = ParsedCertificate::Create(
+      bssl::UpRef(certificate->cert_buffer()),
+      x509_util::DefaultParseCertificateOptions(), &errors);
+  if (!parsed)
+    return false;
+  test_trust_store_.AddTrustAnchor(parsed);
+
   return true;
 }
 
 void TestRootCerts::Clear() {
   CFArrayRemoveAllValues(temporary_roots_);
+  test_trust_store_.Clear();
 }
 
 bool TestRootCerts::IsEmpty() const {
@@ -46,11 +59,8 @@ OSStatus TestRootCerts::FixupSecTrustRef(SecTrustRef trust_ref) const {
   OSStatus status = SecTrustSetAnchorCertificates(trust_ref, temporary_roots_);
   if (status)
     return status;
-  return SecTrustSetAnchorCertificatesOnly(trust_ref, !allow_system_trust_);
-}
-
-void TestRootCerts::SetAllowSystemTrust(bool allow_system_trust) {
-  allow_system_trust_ = allow_system_trust;
+  // Trust system store in addition to trusting |temporary_roots_|.
+  return SecTrustSetAnchorCertificatesOnly(trust_ref, false);
 }
 
 TestRootCerts::~TestRootCerts() {}
@@ -58,7 +68,6 @@ TestRootCerts::~TestRootCerts() {}
 void TestRootCerts::Init() {
   temporary_roots_.reset(
       CFArrayCreateMutable(kCFAllocatorDefault, 0, &kCFTypeArrayCallBacks));
-  allow_system_trust_ = true;
 }
 
 }  // namespace net

@@ -41,7 +41,7 @@ class TestHelper: public QObject
 {
     Q_OBJECT
 public:
-    TestHelper(QObject *parent = Q_NULLPTR):QObject(parent){}
+    TestHelper(QObject *parent = nullptr):QObject(parent){}
     Q_INVOKABLE bool waitForPolished(QQuickItem *item, int timeout = 10000) const
     {
         QSignalSpy spy(item->window(), &QQuickWindow::afterAnimating);

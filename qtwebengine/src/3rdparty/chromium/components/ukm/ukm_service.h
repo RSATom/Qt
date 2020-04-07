@@ -11,8 +11,9 @@
 
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/threading/thread_checker.h"
+#include "base/sequence_checker.h"
 #include "build/build_config.h"
+#include "components/metrics/delegating_provider.h"
 #include "components/metrics/metrics_provider.h"
 #include "components/metrics/metrics_rotation_scheduler.h"
 #include "components/ukm/ukm_recorder_impl.h"
@@ -23,13 +24,14 @@ class PrefService;
 
 namespace metrics {
 class MetricsServiceClient;
-class UkmBrowserTest;
+class UkmBrowserTestBase;
+class UkmEGTestHelper;
 }
 
 namespace ukm {
 
 namespace debug {
-class DebugPage;
+class UkmDebugDataExtractor;
 }
 
 // The URL-Keyed Metrics (UKM) service is responsible for gathering and
@@ -40,7 +42,9 @@ class UkmService : public UkmRecorderImpl {
   // Constructs a UkmService.
   // Calling code is responsible for ensuring that the lifetime of
   // |pref_service| is longer than the lifetime of UkmService.
-  UkmService(PrefService* pref_service, metrics::MetricsServiceClient* client);
+  UkmService(PrefService* pref_service,
+             metrics::MetricsServiceClient* client,
+             bool restrict_to_whitelist_entries);
   ~UkmService() override;
 
   // Initializes the UKM service.
@@ -74,17 +78,13 @@ class UkmService : public UkmRecorderImpl {
   // the provided PrefRegistry.
   static void RegisterPrefs(PrefRegistrySimple* registry);
 
- private:
-  friend ::ukm::debug::DebugPage;
-  friend ::metrics::UkmBrowserTest;
+  int32_t report_count() const { return report_count_; }
 
-  FRIEND_TEST_ALL_PREFIXES(UkmServiceTest, AddEntryWithEmptyMetrics);
-  FRIEND_TEST_ALL_PREFIXES(UkmServiceTest, EntryBuilderAndSerialization);
-  FRIEND_TEST_ALL_PREFIXES(UkmServiceTest,
-                           LogsUploadedOnlyWhenHavingSourcesOrEntries);
-  FRIEND_TEST_ALL_PREFIXES(UkmServiceTest, MetricsProviderTest);
-  FRIEND_TEST_ALL_PREFIXES(UkmServiceTest, PersistAndPurge);
-  FRIEND_TEST_ALL_PREFIXES(UkmServiceTest, WhitelistEntryTest);
+ private:
+  friend ::metrics::UkmBrowserTestBase;
+  friend ::metrics::UkmEGTestHelper;
+  friend ::ukm::debug::UkmDebugDataExtractor;
+  friend ::ukm::UkmUtilsForTest;
 
   // Starts metrics client initialization.
   void StartInitTask();
@@ -106,8 +106,14 @@ class UkmService : public UkmRecorderImpl {
   // Called by log_uploader_ when the an upload is completed.
   void OnLogUploadComplete(int response_code);
 
+  // ukm::UkmRecorderImpl:
+  bool ShouldRestrictToWhitelistedEntries() const override;
+
   // A weak pointer to the PrefService used to read and write preferences.
   PrefService* pref_service_;
+
+  // If true, only whitelisted Entries should be recorded.
+  bool restrict_to_whitelist_entries_;
 
   // The UKM client id stored in prefs.
   uint64_t client_id_;
@@ -115,12 +121,15 @@ class UkmService : public UkmRecorderImpl {
   // The UKM session id stored in prefs.
   int32_t session_id_;
 
+  // The number of reports generated this session.
+  int32_t report_count_;
+
   // Used to interact with the embedder. Weak pointer; must outlive |this|
   // instance.
   metrics::MetricsServiceClient* const client_;
 
   // Registered metrics providers.
-  std::vector<std::unique_ptr<metrics::MetricsProvider>> metrics_providers_;
+  metrics::DelegatingProvider metrics_providers_;
 
   // Log reporting service.
   ukm::UkmReportingService reporting_service_;
@@ -128,7 +137,7 @@ class UkmService : public UkmRecorderImpl {
   // The scheduler for determining when uploads should happen.
   std::unique_ptr<metrics::MetricsRotationScheduler> scheduler_;
 
-  base::ThreadChecker thread_checker_;
+  SEQUENCE_CHECKER(sequence_checker_);
 
   bool initialize_started_;
   bool initialize_complete_;

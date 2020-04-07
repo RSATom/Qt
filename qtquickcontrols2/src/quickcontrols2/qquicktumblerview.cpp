@@ -46,12 +46,7 @@
 QT_BEGIN_NAMESPACE
 
 QQuickTumblerView::QQuickTumblerView(QQuickItem *parent) :
-    QQuickItem(parent),
-    m_tumbler(nullptr),
-    m_delegate(nullptr),
-    m_pathView(nullptr),
-    m_listView(nullptr),
-    m_path(nullptr)
+    QQuickItem(parent)
 {
     // We don't call createView() here because we don't know what the wrap flag is set to
     // yet, and we don't want to create a view that might never get used.
@@ -226,9 +221,9 @@ void QQuickTumblerView::updateModel()
         // Since QQuickTumbler can't know about QQuickTumblerView, we use its private API to
         // inform it that it should delay setting wrap.
         QQuickTumblerPrivate *tumblerPrivate = QQuickTumblerPrivate::get(m_tumbler);
-        tumblerPrivate->lockWrap();
+        tumblerPrivate->beginSetModel();
         m_pathView->setModel(m_model);
-        tumblerPrivate->unlockWrap();
+        tumblerPrivate->endSetModel();
 
         // The count-depends-on-wrap behavior could cause wrap to change after
         // the call above, so we must check that we're still using a PathView.
@@ -239,7 +234,7 @@ void QQuickTumblerView::updateModel()
         QQuickTumblerPrivate *tumblerPrivate = QQuickTumblerPrivate::get(m_tumbler);
 
         // setModel() causes QQuickTumblerPrivate::_q_onViewCountChanged() to
-        // be called called, which calls QQuickTumbler::setCurrentIndex(),
+        // be called, which calls QQuickTumbler::setCurrentIndex(),
         // which results in QQuickItemViewPrivate::createHighlightItem() being
         // called. When the highlight item is created,
         // QQuickTumblerPrivate::itemChildAdded() is notified and

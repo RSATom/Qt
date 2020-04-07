@@ -4,6 +4,9 @@
 
 #include "content/browser/background_fetch/background_fetch_cross_origin_filter.h"
 
+#include <map>
+#include <string>
+
 #include "base/macros.h"
 #include "content/browser/background_fetch/background_fetch_request_info.h"
 #include "content/common/service_worker/service_worker_types.h"
@@ -22,7 +25,7 @@ class BackgroundFetchCrossOriginFilterTest : public ::testing::Test {
  public:
   BackgroundFetchCrossOriginFilterTest()
       : thread_bundle_(TestBrowserThreadBundle::REAL_IO_THREAD),
-        source_(url::Origin(GURL(kFirstOrigin))) {}
+        source_(url::Origin::Create(GURL(kFirstOrigin))) {}
   ~BackgroundFetchCrossOriginFilterTest() override = default;
 
   // Creates a BackgroundFetchRequestInfo instance filled with the information
@@ -34,13 +37,10 @@ class BackgroundFetchCrossOriginFilterTest : public ::testing::Test {
           typename std::map<std::string, std::string>::value_type>
           response_headers) {
     scoped_refptr<BackgroundFetchRequestInfo> request_info =
-        make_scoped_refptr(new BackgroundFetchRequestInfo(
-            0 /* request_info */, ServiceWorkerFetchRequest()));
+        base::MakeRefCounted<BackgroundFetchRequestInfo>(
+            0 /* request_info */, ServiceWorkerFetchRequest());
 
-    request_info->download_state_populated_ = true;
     request_info->response_headers_ = response_headers;
-
-    request_info->response_data_populated_ = true;
     request_info->url_chain_ = {GURL(response_url)};
 
     return request_info;

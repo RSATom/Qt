@@ -26,8 +26,10 @@
 ****************************************************************************/
 
 /*!
-    \qmlmodule QtQuick.Controls 2.3
-    \title Qt Quick Controls 2 QML Types
+    \qmlmodule QtQuick.Controls 2.5
+    \keyword Qt Quick Controls QML Types
+    \title Qt Quick Controls QML Types
+    \keyword Qt Quick Controls 2 QML Types
     \ingroup qmlmodules
     \brief Provides QML types for user interfaces (Qt Quick Controls 2).
 
@@ -38,8 +40,8 @@
     Qt Quick Controls 2 QML types can be imported into your application
     using the following import statement in your .qml file:
 
-    \badcode
-    import QtQuick.Controls 2.3
+    \badcode \QtMinorVersion
+    import QtQuick.Controls 2.\1
     \endcode
 
     \section1 QML Types

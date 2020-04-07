@@ -9,9 +9,9 @@
 
 #include "base/location.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/memory/weak_ptr.h"
 #include "base/message_loop/message_loop.h"
+#include "base/run_loop.h"
 #include "base/sequence_checker.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
@@ -29,6 +29,7 @@
 #include "net/log/net_log_source.h"
 #include "net/socket/stream_socket.h"
 #include "net/socket/tcp_server_socket.h"
+#include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
 
 using content::BrowserThread;
 
@@ -343,9 +344,9 @@ void SimpleHttpServer::Connection::WriteData() {
            output_buffer_->offset() + bytes_to_write_) << "Overflow";
 
   int write_result = socket_->Write(
-      output_buffer_.get(),
-      bytes_to_write_,
-      base::Bind(&Connection::OnDataWritten, base::Unretained(this)));
+      output_buffer_.get(), bytes_to_write_,
+      base::Bind(&Connection::OnDataWritten, base::Unretained(this)),
+      TRAFFIC_ANNOTATION_FOR_TESTS);
 
   if (write_result != net::ERR_IO_PENDING)
     OnDataWritten(write_result);
@@ -444,7 +445,7 @@ class AdbParser : public SimpleHttpServer::Parser,
       Send("FAIL", "device offline (x)");
     } else {
       mock_connection_ =
-          base::MakeUnique<MockAndroidConnection>(this, serial_, command);
+          std::make_unique<MockAndroidConnection>(this, serial_, command);
     }
   }
 
@@ -527,12 +528,15 @@ void MockAndroidConnection::Receive(const std::string& data) {
     return;
 
   std::string request(request_.substr(0, request_end_pos));
-  std::vector<std::string> tokens =
-      base::SplitString(request, " ", base::KEEP_WHITESPACE,
-                        base::SPLIT_WANT_NONEMPTY);
+  std::vector<base::StringPiece> lines = base::SplitStringPieceUsingSubstr(
+      request, "\r\n", base::KEEP_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
+  CHECK_GE(2U, lines.size());
+  std::vector<std::string> tokens = base::SplitString(
+      lines[0], " ", base::KEEP_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
   CHECK_EQ(3U, tokens.size());
   CHECK_EQ("GET", tokens[0]);
   CHECK_EQ("HTTP/1.1", tokens[2]);
+  CHECK_EQ("Host: 0.0.0.0:0", lines[1]);
 
   std::string path(tokens[1]);
   if (path == kJsonPath)
@@ -622,13 +626,14 @@ void StartMockAdbServer(FlushMode flush_mode) {
   BrowserThread::PostTaskAndReply(
       BrowserThread::IO, FROM_HERE,
       base::BindOnce(&StartMockAdbServerOnIOThread, flush_mode),
-      base::MessageLoop::QuitWhenIdleClosure());
+      base::RunLoop::QuitCurrentWhenIdleClosureDeprecated());
   content::RunMessageLoop();
 }
 
 void StopMockAdbServer() {
-  BrowserThread::PostTaskAndReply(BrowserThread::IO, FROM_HERE,
-                                  base::BindOnce(&StopMockAdbServerOnIOThread),
-                                  base::MessageLoop::QuitWhenIdleClosure());
+  BrowserThread::PostTaskAndReply(
+      BrowserThread::IO, FROM_HERE,
+      base::BindOnce(&StopMockAdbServerOnIOThread),
+      base::RunLoop::QuitCurrentWhenIdleClosureDeprecated());
   content::RunMessageLoop();
 }

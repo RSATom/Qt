@@ -530,7 +530,7 @@ void CodeGenerator::writePublicClassDeclaration(const QString &baseFileName,
     stream << QStringLiteral("public:") << endl;
     stream << QString(QStringLiteral("    %1();")).arg(className) << endl;
     stream << QString(QStringLiteral("    ~%1();")).arg(className) << endl << endl;
-    stream << QStringLiteral("    bool initializeOpenGLFunctions() Q_DECL_OVERRIDE;") << endl << endl;
+    stream << QStringLiteral("    bool initializeOpenGLFunctions() override;") << endl << endl;
 
     // Get the functions needed for this class and declare them
     FunctionCollection functionSet = functionCollection(versionProfile);
@@ -989,7 +989,7 @@ void CodeGenerator::writeExtensionClassDeclaration(QTextStream &stream, const QS
         stream << QStringLiteral("    ") << className << QStringLiteral("();") << endl << endl;
 
         // Base class virtual function(s)
-        QString resolveFunction = QStringLiteral("    bool initializeOpenGLFunctions() Q_DECL_FINAL;");
+        QString resolveFunction = QStringLiteral("    bool initializeOpenGLFunctions() final;");
         stream << resolveFunction << endl << endl;
     }
 

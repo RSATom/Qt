@@ -18,6 +18,7 @@
 #include "base/format_macros.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
+#include "base/memory/ref_counted_memory.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
@@ -76,7 +77,7 @@ void OnRecordingEnabledAck(const WebUIDataSource::GotDataCallback& callback) {
 void OnTraceBufferUsageResult(const WebUIDataSource::GotDataCallback& callback,
                               float percent_full,
                               size_t approximate_event_count) {
-  std::string str = base::DoubleToString(percent_full);
+  std::string str = base::NumberToString(percent_full);
   callback.Run(base::RefCountedString::TakeString(&str));
 }
 
@@ -128,11 +129,12 @@ bool OnBeginJSONRequest(const std::string& path,
   if (path == "json/end_recording_compressed") {
     if (!TracingController::GetInstance()->IsTracing())
       return false;
-    scoped_refptr<TracingControllerImpl::TraceDataSink> data_sink =
-        TracingControllerImpl::CreateCompressedStringSink(
+    scoped_refptr<TracingController::TraceDataEndpoint> data_endpoint =
+        TracingControllerImpl::CreateCompressedStringEndpoint(
             TracingControllerImpl::CreateCallbackEndpoint(
-                base::Bind(TracingCallbackWrapperBase64, callback)));
-    return TracingController::GetInstance()->StopTracing(data_sink);
+                base::Bind(TracingCallbackWrapperBase64, callback)),
+            false /* compress_with_background_priority */);
+    return TracingController::GetInstance()->StopTracing(data_endpoint);
   }
 
   LOG(ERROR) << "Unhandled request to " << path;
@@ -166,23 +168,19 @@ TracingUI::TracingUI(WebUI* web_ui)
       weak_factory_(this) {
   web_ui->RegisterMessageCallback(
       "doUpload",
-      base::Bind(&TracingUI::DoUpload, base::Unretained(this)));
+      base::BindRepeating(&TracingUI::DoUpload, base::Unretained(this)));
   web_ui->RegisterMessageCallback(
-      "doUploadBase64",
-      base::Bind(&TracingUI::DoUploadBase64Encoded, base::Unretained(this)));
+      "doUploadBase64", base::BindRepeating(&TracingUI::DoUploadBase64Encoded,
+                                            base::Unretained(this)));
 
   // Set up the chrome://tracing/ source.
   BrowserContext* browser_context =
       web_ui->GetWebContents()->GetBrowserContext();
 
   WebUIDataSource* source = WebUIDataSource::Create(kChromeUITracingHost);
-  std::unordered_set<std::string> exclusions;
-  exclusions.insert("json/begin_recording");
-  exclusions.insert("json/categories");
-  exclusions.insert("json/end_recording_compressed");
-  exclusions.insert("json/get_buffer_percent_full");
-  exclusions.insert("json/get_buffer_status");
-  source->UseGzip(exclusions);
+  source->UseGzip({"json/begin_recording", "json/categories",
+                   "json/end_recording_compressed",
+                   "json/get_buffer_percent_full", "json/get_buffer_status"});
   source->SetJsonPath("strings.js");
   source->SetDefaultResource(IDR_TRACING_HTML);
   source->AddResourcePath("tracing.js", IDR_TRACING_JS);
@@ -249,7 +247,8 @@ void TracingUI::DoUploadInternal(const std::string& file_contents,
               GetURLRequestContext());
   DCHECK(trace_uploader_);
   trace_uploader_->DoUpload(file_contents, upload_mode, nullptr,
-                            progress_callback, done_callback);
+                            std::move(progress_callback),
+                            std::move(done_callback));
   // TODO(mmandlis): Add support for stopping the upload in progress.
 }
 

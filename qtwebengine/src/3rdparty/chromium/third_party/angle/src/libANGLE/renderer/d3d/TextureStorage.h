@@ -9,10 +9,8 @@
 #ifndef LIBANGLE_RENDERER_D3D_TEXTURESTORAGE_H_
 #define LIBANGLE_RENDERER_D3D_TEXTURESTORAGE_H_
 
-#include "libANGLE/Error.h"
-
 #include "common/debug.h"
-#include "libANGLE/Error.h"
+#include "libANGLE/angletypes.h"
 
 #include <GLES2/gl2.h>
 #include <stdint.h>
@@ -20,10 +18,15 @@
 namespace gl
 {
 class Context;
-struct ImageIndex;
+class ImageIndex;
 struct Box;
 struct PixelUnpackState;
 }  // namespace gl
+
+namespace angle
+{
+class Subject;
+}  // namespace angle
 
 namespace rx
 {
@@ -34,13 +37,10 @@ class ImageD3D;
 class TextureStorage : angle::NonCopyable
 {
   public:
-    TextureStorage() {}
+    TextureStorage() : mSubject(nullptr) {}
+    virtual ~TextureStorage() {}
 
-    virtual gl::Error onDestroy(const gl::Context *context)
-    {
-        delete this;
-        return gl::NoError();
-    }
+    virtual gl::Error onDestroy(const gl::Context *context);
 
     virtual int getTopLevel() const = 0;
     virtual bool isRenderTarget() const = 0;
@@ -65,14 +65,31 @@ class TextureStorage : angle::NonCopyable
                               const uint8_t *pixelData) = 0;
 
     // This is a no-op for most implementations of TextureStorage. Some (e.g. TextureStorage11_2D) might override it.
-    virtual gl::Error useLevelZeroWorkaroundTexture(bool useLevelZeroTexture)
-    {
-        return gl::NoError();
-    }
+    virtual gl::Error useLevelZeroWorkaroundTexture(const gl::Context *context,
+                                                    bool useLevelZeroTexture);
+
+    // Only used for D3D11.
+    void setSubject(const angle::Subject *subject);
 
   protected:
-    virtual ~TextureStorage() {}
+    const angle::Subject *mSubject;
 };
+
+inline gl::Error TextureStorage::onDestroy(const gl::Context *context)
+{
+    return gl::NoError();
+}
+
+inline gl::Error TextureStorage::useLevelZeroWorkaroundTexture(const gl::Context *context,
+                                                               bool useLevelZeroTexture)
+{
+    return gl::NoError();
+}
+
+inline void TextureStorage::setSubject(const angle::Subject *subject)
+{
+    mSubject = subject;
+}
 
 using TexStoragePointer = angle::UniqueObjectPointer<TextureStorage, gl::Context>;
 

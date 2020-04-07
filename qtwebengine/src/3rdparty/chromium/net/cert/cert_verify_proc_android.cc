@@ -7,8 +7,8 @@
 #include <string>
 #include <vector>
 
-#include "base/lazy_instance.h"
 #include "base/logging.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/sha1.h"
 #include "base/strings/string_piece.h"
@@ -22,6 +22,7 @@
 #include "net/cert/cert_verify_result.h"
 #include "net/cert/internal/cert_errors.h"
 #include "net/cert/internal/parsed_certificate.h"
+#include "net/cert/known_roots.h"
 #include "net/cert/x509_certificate.h"
 #include "net/cert/x509_util.h"
 #include "url/gurl.h"
@@ -29,10 +30,6 @@
 namespace net {
 
 namespace {
-
-// Used to fetch intermediates via AIA if necessary.
-base::LazyInstance<scoped_refptr<CertNetFetcher>>::Leaky g_cert_net_fetcher =
-    LAZY_INSTANCE_INITIALIZER;
 
 // Android ignores the authType parameter to
 // X509TrustManager.checkServerTrusted, so pass in a dummy value. See
@@ -108,15 +105,15 @@ bool PerformAIAFetchAndAddResultToVector(scoped_refptr<CertNetFetcher> fetcher,
   Error error;
   std::vector<uint8_t> aia_fetch_bytes;
   request->WaitForResult(&error, &aia_fetch_bytes);
-  UMA_HISTOGRAM_SPARSE_SLOWLY("Net.Certificate.AndroidAIAFetchError",
-                              std::abs(error));
+  base::UmaHistogramSparse("Net.Certificate.AndroidAIAFetchError",
+                           std::abs(error));
   if (error != OK)
     return false;
   CertErrors errors;
   return ParsedCertificate::CreateAndAddToVector(
       x509_util::CreateCryptoBuffer(aia_fetch_bytes.data(),
                                     aia_fetch_bytes.size()),
-      {}, cert_list, &errors);
+      x509_util::DefaultParseCertificateOptions(), cert_list, &errors);
 }
 
 // Uses android::VerifyX509CertChain() to verify the certificates in |certs| for
@@ -177,7 +174,8 @@ android::CertVerifyStatusAndroid TryVerifyWithAIAFetching(
   ParsedCertificateList certs;
   for (const auto& cert : cert_bytes) {
     if (!ParsedCertificate::CreateAndAddToVector(
-            x509_util::CreateCryptoBuffer(cert), {}, &certs, &errors)) {
+            x509_util::CreateCryptoBuffer(cert),
+            x509_util::DefaultParseCertificateOptions(), &certs, &errors)) {
       return android::CERT_VERIFY_STATUS_ANDROID_NO_TRUSTED_ROOT;
     }
   }
@@ -303,10 +301,12 @@ bool VerifyFromAndroidTrustManager(
       verify_result->cert_status |= CERT_STATUS_INVALID;
   }
 
-  // Extract the public key hashes.
-  for (size_t i = 0; i < verified_chain.size(); i++) {
+  // Extract the public key hashes and check whether or not any are known
+  // roots. Walk from the end of the chain (root) to leaf, to optimize for
+  // known root checks.
+  for (auto it = verified_chain.rbegin(); it != verified_chain.rend(); ++it) {
     base::StringPiece spki_bytes;
-    if (!asn1::ExtractSPKIFromDERCert(verified_chain[i], &spki_bytes)) {
+    if (!asn1::ExtractSPKIFromDERCert(*it, &spki_bytes)) {
       verify_result->cert_status |= CERT_STATUS_INVALID;
       continue;
     }
@@ -314,31 +314,29 @@ bool VerifyFromAndroidTrustManager(
     HashValue sha256(HASH_VALUE_SHA256);
     crypto::SHA256HashString(spki_bytes, sha256.data(), crypto::kSHA256Length);
     verify_result->public_key_hashes.push_back(sha256);
+
+    if (!verify_result->is_issued_by_known_root) {
+      verify_result->is_issued_by_known_root =
+          GetNetTrustAnchorHistogramIdForSPKI(sha256) != 0;
+    }
   }
+
+  // Reverse the hash list, to maintain the leaf->root ordering.
+  std::reverse(verify_result->public_key_hashes.begin(),
+               verify_result->public_key_hashes.end());
 
   return true;
 }
 
-bool GetChainDEREncodedBytes(X509Certificate* cert,
+void GetChainDEREncodedBytes(X509Certificate* cert,
                              std::vector<std::string>* chain_bytes) {
-  X509Certificate::OSCertHandle cert_handle = cert->os_cert_handle();
-  X509Certificate::OSCertHandles cert_handles =
-      cert->GetIntermediateCertificates();
-
-  // Make sure the peer's own cert is the first in the chain, if it's not
-  // already there.
-  if (cert_handles.empty() || cert_handles[0] != cert_handle)
-    cert_handles.insert(cert_handles.begin(), cert_handle);
-
-  chain_bytes->reserve(cert_handles.size());
-  for (X509Certificate::OSCertHandles::const_iterator it =
-       cert_handles.begin(); it != cert_handles.end(); ++it) {
-    std::string cert_bytes;
-    if(!X509Certificate::GetDEREncoded(*it, &cert_bytes))
-      return false;
-    chain_bytes->push_back(cert_bytes);
+  chain_bytes->reserve(1 + cert->intermediate_buffers().size());
+  chain_bytes->emplace_back(
+      net::x509_util::CryptoBufferAsStringPiece(cert->cert_buffer()));
+  for (const auto& handle : cert->intermediate_buffers()) {
+    chain_bytes->emplace_back(
+        net::x509_util::CryptoBufferAsStringPiece(handle.get()));
   }
-  return true;
 }
 
 }  // namespace
@@ -347,31 +345,7 @@ CertVerifyProcAndroid::CertVerifyProcAndroid() {}
 
 CertVerifyProcAndroid::~CertVerifyProcAndroid() {}
 
-// static
-void CertVerifyProcAndroid::SetCertNetFetcher(
-    scoped_refptr<CertNetFetcher> cert_net_fetcher) {
-  DCHECK(!g_cert_net_fetcher.Get());
-  g_cert_net_fetcher.Get() = std::move(cert_net_fetcher);
-}
-
-// static
-void CertVerifyProcAndroid::SetCertNetFetcherForTesting(
-    scoped_refptr<CertNetFetcher> cert_net_fetcher) {
-  if (g_cert_net_fetcher.Get())
-    g_cert_net_fetcher.Get()->Shutdown();
-  g_cert_net_fetcher.Get() = std::move(cert_net_fetcher);
-}
-
-// static
-void CertVerifyProcAndroid::ShutdownCertNetFetcher() {
-  g_cert_net_fetcher.Get()->Shutdown();
-}
-
 bool CertVerifyProcAndroid::SupportsAdditionalTrustAnchors() const {
-  return false;
-}
-
-bool CertVerifyProcAndroid::SupportsOCSPStapling() const {
   return false;
 }
 
@@ -384,10 +358,9 @@ int CertVerifyProcAndroid::VerifyInternal(
     const CertificateList& additional_trust_anchors,
     CertVerifyResult* verify_result) {
   std::vector<std::string> cert_bytes;
-  if (!GetChainDEREncodedBytes(cert, &cert_bytes))
-    return ERR_CERT_INVALID;
-  if (!VerifyFromAndroidTrustManager(cert_bytes, hostname,
-                                     g_cert_net_fetcher.Get(), verify_result)) {
+  GetChainDEREncodedBytes(cert, &cert_bytes);
+  if (!VerifyFromAndroidTrustManager(
+          cert_bytes, hostname, GetGlobalCertNetFetcher(), verify_result)) {
     NOTREACHED();
     return ERR_FAILED;
   }

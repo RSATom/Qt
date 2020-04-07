@@ -5,7 +5,7 @@
 #include "content/common/indexed_db/indexed_db_struct_traits.h"
 
 #include "base/stl_util.h"
-#include "mojo/common/common_custom_types_struct_traits.h"
+#include "mojo/public/cpp/base/string16_mojom_traits.h"
 
 using content::IndexedDBKey;
 using content::IndexedDBKeyPath;

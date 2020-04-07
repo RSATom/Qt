@@ -8,6 +8,7 @@ win32:!winrt:!wince {
     # fake project for creating the documentation
     message("ActiveQt is a Windows Desktop-only module. Will just generate a docs target.")
     TEMPLATE = aux
+    CONFIG += force_qt
     QMAKE_DOCS = $$PWD/doc/activeqt.qdocconf
 }
 

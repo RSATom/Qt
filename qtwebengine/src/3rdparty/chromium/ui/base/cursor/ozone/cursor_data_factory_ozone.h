@@ -35,7 +35,7 @@ class UI_BASE_EXPORT CursorDataOzone
   // level CursorFactoryOzone interface. Even worse, there can be multiple
   // subclasses that map to this void* type. This asserts that a magic cookie
   // that we put at the start of valid CursorDataOzone objects is correct.
-  void AssertIsACusrorDataOzone();
+  void AssertIsACursorDataOzone();
 
  private:
   friend class base::RefCounted<CursorDataOzone>;
@@ -80,8 +80,7 @@ class UI_BASE_EXPORT CursorDataFactoryOzone : public CursorFactoryOzone {
   scoped_refptr<CursorDataOzone> GetDefaultCursorInternal(CursorType type);
 
   // Default cursors are cached & owned by the factory.
-  typedef std::map<CursorType, scoped_refptr<CursorDataOzone>> DefaultCursorMap;
-  DefaultCursorMap default_cursors_;
+  std::map<CursorType, scoped_refptr<CursorDataOzone>> default_cursors_;
 
   DISALLOW_COPY_AND_ASSIGN(CursorDataFactoryOzone);
 };

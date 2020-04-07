@@ -143,10 +143,10 @@ MainWindow::MainWindow(QWidget *parent)
 
     //! [QNearFieldManager init]
     m_manager = new QNearFieldManager(this);
-    connect(m_manager, SIGNAL(targetDetected(QNearFieldTarget*)),
-            this, SLOT(targetDetected(QNearFieldTarget*)));
-    connect(m_manager, SIGNAL(targetLost(QNearFieldTarget*)),
-            this, SLOT(targetLost(QNearFieldTarget*)));
+    connect(m_manager, &QNearFieldManager::targetDetected,
+            this, &MainWindow::targetDetected);
+    connect(m_manager, &QNearFieldManager::targetLost,
+            this, &MainWindow::targetLost);
     //! [QNearFieldManager init]
 }
 
@@ -266,7 +266,7 @@ void MainWindow::ndefMessageRead(const QNdefMessage &message)
 {
     clearMessage();
 
-    foreach (const QNdefRecord &record, message) {
+    for (const QNdefRecord &record : message) {
         if (record.isRecordType<QNdefNfcTextRecord>()) {
             addRecord<TextRecordEditor>(ui, record);
         } else if (record.isRecordType<QNdefNfcUriRecord>()) {

@@ -70,10 +70,10 @@
 # ifdef Q_OS_ANDROID
 #  include <android/api-level.h>
 # else
-#  define __ANDROID_API__ 21
+#  define __ANDROID_API__ 16
 # endif
 
-# if !defined(Q_OS_ANDROID) || (!defined(Q_PROCESSOR_X86) && __ANDROID_API__ < 21)
+# if !defined(Q_OS_ANDROID) || (!defined(Q_PROCESSOR_X86) && __ANDROID_API__ < 16)
 struct termios2 {
     tcflag_t c_iflag;       /* input mode flags */
     tcflag_t c_oflag;       /* output mode flags */
@@ -156,7 +156,7 @@ public:
     }
 
 protected:
-    bool event(QEvent *e) Q_DECL_OVERRIDE
+    bool event(QEvent *e) override
     {
         if (e->type() == QEvent::SockAct) {
             dptr->readNotification();
@@ -179,7 +179,7 @@ public:
     }
 
 protected:
-    bool event(QEvent *e) Q_DECL_OVERRIDE
+    bool event(QEvent *e) override
     {
         if (e->type() == QEvent::SockAct) {
             dptr->completeAsyncWrite();
@@ -526,7 +526,8 @@ bool QSerialPortPrivate::waitForBytesWritten(int msecs)
     for (;;) {
         bool readyToRead = false;
         bool readyToWrite = false;
-        if (!waitForReadOrWrite(&readyToRead, &readyToWrite, true, !writeBuffer.isEmpty(),
+        const bool checkRead = q_func()->isReadable();
+        if (!waitForReadOrWrite(&readyToRead, &readyToWrite, checkRead, !writeBuffer.isEmpty(),
                                 qt_subtract_from_timeout(msecs, stopWatch.elapsed()))) {
             return false;
         }

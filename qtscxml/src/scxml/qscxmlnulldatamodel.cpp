@@ -115,7 +115,7 @@ private:
 /*!
  * \class QScxmlNullDataModel
  * \brief The QScxmlNullDataModel class is the null data model for a Qt SCXML
- * stateMachine
+ * stateMachine.
  * \since 5.7
  * \inmodule QtScxml
  *

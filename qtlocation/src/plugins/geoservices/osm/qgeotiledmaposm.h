@@ -43,11 +43,17 @@
 #include "qgeotileproviderosm.h"
 
 #include <QtLocation/private/qgeotiledmap_p.h>
+#ifdef LOCATIONLABS
+#include <QtLocation/private/qgeotiledmaplabs_p.h>
+typedef QGeoTiledMapLabs Map;
+#else
+typedef QGeoTiledMap Map;
+#endif
 
 QT_BEGIN_NAMESPACE
 
 class QGeoTiledMappingManagerEngineOsm;
-class QGeoTiledMapOsm: public QGeoTiledMap
+class QGeoTiledMapOsm: public Map
 {
     Q_OBJECT
 
@@ -56,7 +62,7 @@ public:
     ~QGeoTiledMapOsm();
 
 protected:
-    void evaluateCopyrights(const QSet<QGeoTileSpec> &visibleTiles) Q_DECL_OVERRIDE;
+    void evaluateCopyrights(const QSet<QGeoTileSpec> &visibleTiles) override;
 
 protected Q_SLOTS:
     void onProviderDataUpdated(const QGeoTileProviderOsm *provider);

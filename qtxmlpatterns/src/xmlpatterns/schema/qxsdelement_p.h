@@ -125,16 +125,16 @@ namespace QPatternist
                     /**
                      * Sets the @p parent complex type or model group definition of the element scope.
                      */
-                    void setParent(const NamedSchemaComponent::Ptr &parent);
+                    void setParent(const NamedSchemaComponent *parent);
 
                     /**
                      * Returns the parent complex type or model group definition of the element scope.
                      */
-                    NamedSchemaComponent::Ptr parent() const;
+                    const NamedSchemaComponent *parent() const;
 
                 private:
                     Variety                   m_variety;
-                    NamedSchemaComponent::Ptr m_parent;
+                    const NamedSchemaComponent *m_parent = nullptr;
             };
 
             /**

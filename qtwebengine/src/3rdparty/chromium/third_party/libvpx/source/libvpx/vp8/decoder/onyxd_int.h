@@ -31,7 +31,9 @@ typedef struct {
   void *ptr2;
 } DECODETHREAD_DATA;
 
-typedef struct { MACROBLOCKD mbd; } MB_ROW_DEC;
+typedef struct {
+  MACROBLOCKD mbd;
+} MB_ROW_DEC;
 
 typedef struct {
   int enabled;
@@ -68,7 +70,7 @@ typedef struct VP8D_COMP {
 #if CONFIG_MULTITHREAD
   /* variable for threading */
 
-  int b_multithreaded_rd;
+  vpx_atomic_int b_multithreaded_rd;
   int max_threads;
   int current_mb_col_main;
   unsigned int decoding_thread_count;
@@ -76,9 +78,8 @@ typedef struct VP8D_COMP {
 
   int mt_baseline_filter_level[MAX_MB_SEGMENTS];
   int sync_range;
-  int *mt_current_mb_col; /* Each row remembers its already decoded column. */
-  pthread_mutex_t *pmutex;
-  pthread_mutex_t mt_mutex; /* mutex for b_multithreaded_rd */
+  /* Each row remembers its already decoded column. */
+  vpx_atomic_int *mt_current_mb_col;
 
   unsigned char **mt_yabove_row; /* mb_rows x width */
   unsigned char **mt_uabove_row;

@@ -29,8 +29,8 @@
 #ifndef FORMEDITOR_OPTIONSPAGE_H
 #define FORMEDITOR_OPTIONSPAGE_H
 
-#include <QtDesigner/QDesignerOptionsPageInterface>
-#include <QtCore/QPointer>
+#include <QtDesigner/abstractoptionspage.h>
+#include <QtCore/qpointer.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -48,10 +48,10 @@ class FormEditorOptionsPage : public QDesignerOptionsPageInterface
 public:
     explicit FormEditorOptionsPage(QDesignerFormEditorInterface *core);
 
-    QString name() const;
-    QWidget *createPage(QWidget *parent);
-    virtual void apply();
-    virtual void finish();
+    QString name() const override;
+    QWidget *createPage(QWidget *parent) override;
+    void apply() override;
+    void finish() override;
 
 private:
     QDesignerFormEditorInterface *m_core;

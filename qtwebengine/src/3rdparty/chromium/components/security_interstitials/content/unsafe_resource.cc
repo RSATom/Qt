@@ -18,7 +18,7 @@ content::WebContents* GetWebContentsByFrameID(int render_process_id,
   content::RenderFrameHost* render_frame_host =
       content::RenderFrameHost::FromID(render_process_id, render_frame_id);
   if (!render_frame_host)
-    return NULL;
+    return nullptr;
   return content::WebContents::FromRenderFrameHost(render_frame_host);
 }
 
@@ -40,14 +40,25 @@ bool UnsafeResource::IsMainPageLoadBlocked() const {
   if (is_subresource)
     return false;
 
-  // Client-side phishing/malware detection and password protection phishing
-  // interstitials never block the main frame load, since they happen after the
-  // page is finished loading.
-  if (threat_type == safe_browsing::SB_THREAT_TYPE_URL_CLIENT_SIDE_PHISHING ||
-      threat_type == safe_browsing::SB_THREAT_TYPE_URL_CLIENT_SIDE_MALWARE ||
-      threat_type ==
-          safe_browsing::SB_THREAT_TYPE_URL_PASSWORD_PROTECTION_PHISHING) {
-    return false;
+  switch (threat_type) {
+    // Client-side phishing/malware detection interstitials never block the main
+    // frame load, since they happen after the page is finished loading.
+    case safe_browsing::SB_THREAT_TYPE_URL_CLIENT_SIDE_PHISHING:
+    case safe_browsing::SB_THREAT_TYPE_URL_CLIENT_SIDE_MALWARE:
+    // Ad sampling happens in the background.
+    case safe_browsing::SB_THREAT_TYPE_AD_SAMPLE:
+    // Sign-in password reuse warning happens after the page is finished
+    // loading.
+    case safe_browsing::SB_THREAT_TYPE_SIGN_IN_PASSWORD_REUSE:
+    // Enterprise password reuse warning happens after the page is finished
+    // loading.
+    case safe_browsing::SB_THREAT_TYPE_ENTERPRISE_PASSWORD_REUSE:
+    // Suspicious site collection happens in the background
+    case safe_browsing::SB_THREAT_TYPE_SUSPICIOUS_SITE:
+      return false;
+
+    default:
+      break;
   }
 
   return true;

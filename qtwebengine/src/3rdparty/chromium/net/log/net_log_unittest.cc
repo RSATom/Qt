@@ -4,11 +4,12 @@
 
 #include "net/log/net_log.h"
 
+#include <memory>
 #include <utility>
 
 #include "base/bind.h"
+#include "base/callback.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/threading/simple_thread.h"
 #include "base/values.h"
@@ -43,7 +44,7 @@ int CaptureModeToInt(NetLogCaptureMode capture_mode) {
 
 std::unique_ptr<base::Value> CaptureModeToValue(
     NetLogCaptureMode capture_mode) {
-  return base::MakeUnique<base::Value>(CaptureModeToInt(capture_mode));
+  return std::make_unique<base::Value>(CaptureModeToInt(capture_mode));
 }
 
 std::unique_ptr<base::Value> NetCaptureModeCallback(
@@ -126,7 +127,7 @@ class CountingObserver : public NetLog::ThreadSafeObserver {
 
 class LoggingObserver : public NetLog::ThreadSafeObserver {
  public:
-  LoggingObserver() {}
+  LoggingObserver() = default;
 
   ~LoggingObserver() override {
     if (net_log())
@@ -191,8 +192,8 @@ class NetLogTestThread : public base::SimpleThread {
 // A thread that adds a bunch of events to the NetLog.
 class AddEventsTestThread : public NetLogTestThread {
  public:
-  AddEventsTestThread() {}
-  ~AddEventsTestThread() override {}
+  AddEventsTestThread() = default;
+  ~AddEventsTestThread() override = default;
 
  private:
   void RunTestThread() override {
@@ -206,7 +207,7 @@ class AddEventsTestThread : public NetLogTestThread {
 // A thread that adds and removes an observer from the NetLog repeatedly.
 class AddRemoveObserverTestThread : public NetLogTestThread {
  public:
-  AddRemoveObserverTestThread() {}
+  AddRemoveObserverTestThread() = default;
 
   ~AddRemoveObserverTestThread() override { EXPECT_TRUE(!observer_.net_log()); }
 

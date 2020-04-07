@@ -60,8 +60,6 @@
 
 #include "qnetworkcookiejar.h"
 
-#ifndef QT_NO_HTTP
-
 #include <string.h>             // for strchr
 
 QT_BEGIN_NAMESPACE
@@ -71,7 +69,7 @@ class QNetworkProxy;
 static inline bool isSeparator(char c)
 {
     static const char separators[] = "()<>@,;:\\\"/[]?={}";
-    return isLWS(c) || strchr(separators, c) != 0;
+    return isLWS(c) || strchr(separators, c) != nullptr;
 }
 
 // ### merge with nextField in cookiejar.cpp
@@ -440,18 +438,18 @@ void QNetworkReplyHttpImpl::sslConfigurationImplementation(QSslConfiguration &co
 
 QNetworkReplyHttpImplPrivate::QNetworkReplyHttpImplPrivate()
     : QNetworkReplyPrivate()
-    , manager(0)
-    , managerPrivate(0)
+    , manager(nullptr)
+    , managerPrivate(nullptr)
     , synchronous(false)
     , state(Idle)
     , statusCode(0)
     , uploadByteDevicePosition(false)
     , uploadDeviceChoking(false)
-    , outgoingData(0)
+    , outgoingData(nullptr)
     , bytesUploaded(-1)
-    , cacheLoadDevice(0)
+    , cacheLoadDevice(nullptr)
     , loadingFromCache(false)
-    , cacheSaveDevice(0)
+    , cacheSaveDevice(nullptr)
     , cacheEnabled(false)
     , resumeOffset(0)
     , preMigrationDownloaded(-1)
@@ -459,7 +457,7 @@ QNetworkReplyHttpImplPrivate::QNetworkReplyHttpImplPrivate()
     , bytesBuffered(0)
     , downloadBufferReadPosition(0)
     , downloadBufferCurrentSize(0)
-    , downloadZerocopyBuffer(0)
+    , downloadZerocopyBuffer(nullptr)
     , pendingDownloadDataEmissions(QSharedPointer<QAtomicInt>::create())
     , pendingDownloadProgressEmissions(QSharedPointer<QAtomicInt>::create())
     #ifndef QT_NO_SSL
@@ -525,6 +523,8 @@ bool QNetworkReplyHttpImplPrivate::loadFromCacheIfAllowed(QHttpNetworkRequest &h
     if (it != cacheHeaders.rawHeaders.constEnd()) {
         QHash<QByteArray, QByteArray> cacheControl = parseHttpOptionHeader(it->second);
         if (cacheControl.contains("must-revalidate"))
+            return false;
+        if (cacheControl.contains("no-cache"))
             return false;
     }
 
@@ -620,7 +620,7 @@ void QNetworkReplyHttpImplPrivate::postRequest(const QNetworkRequest &newHttpReq
 {
     Q_Q(QNetworkReplyHttpImpl);
 
-    QThread *thread = 0;
+    QThread *thread = nullptr;
     if (synchronous) {
         // A synchronous HTTP request uses its own thread
         thread = new QThread();
@@ -773,6 +773,12 @@ void QNetworkReplyHttpImplPrivate::postRequest(const QNetworkRequest &newHttpReq
     if (request.attribute(QNetworkRequest::HTTP2AllowedAttribute).toBool())
         httpRequest.setHTTP2Allowed(true);
 
+    if (request.attribute(QNetworkRequest::Http2DirectAttribute).toBool()) {
+        // Intentionally mutually exclusive - cannot be both direct and 'allowed'
+        httpRequest.setHTTP2Direct(true);
+        httpRequest.setHTTP2Allowed(false);
+    }
+
     if (static_cast<QNetworkRequest::LoadControl>
         (newHttpRequest.attribute(QNetworkRequest::AuthenticationReuseAttribute,
                              QNetworkRequest::Automatic).toInt()) == QNetworkRequest::Manual)
@@ -913,7 +919,7 @@ void QNetworkReplyHttpImplPrivate::postRequest(const QNetworkRequest &newHttpReq
             // From http thread to user thread:
             QObject::connect(forwardUploadDevice, SIGNAL(wantData(qint64)),
                              q, SLOT(wantUploadDataSlot(qint64)));
-            QObject::connect(forwardUploadDevice,SIGNAL(processedData(qint64, qint64)),
+            QObject::connect(forwardUploadDevice,SIGNAL(processedData(qint64,qint64)),
                              q, SLOT(sentUploadDataSlot(qint64,qint64)));
             QObject::connect(forwardUploadDevice, SIGNAL(resetData(bool*)),
                     q, SLOT(resetUploadDataSlot(bool*)),
@@ -1027,7 +1033,7 @@ void QNetworkReplyHttpImplPrivate::initCacheSaveDevice()
                   managerPrivate->networkCache->metaObject()->className());
 
         managerPrivate->networkCache->remove(url);
-        cacheSaveDevice = 0;
+        cacheSaveDevice = nullptr;
         cacheEnabled = false;
     }
 }
@@ -1288,7 +1294,9 @@ void QNetworkReplyHttpImplPrivate::replyDownloadMetaData(const QList<QPair<QByte
 
     q->setAttribute(QNetworkRequest::HttpPipeliningWasUsedAttribute, pu);
     const QVariant http2Allowed = request.attribute(QNetworkRequest::HTTP2AllowedAttribute);
-    if (http2Allowed.isValid() && http2Allowed.toBool()) {
+    const QVariant http2Direct = request.attribute(QNetworkRequest::Http2DirectAttribute);
+    if ((http2Allowed.isValid() && http2Allowed.toBool())
+        || (http2Direct.isValid() && http2Direct.toBool())) {
         q->setAttribute(QNetworkRequest::HTTP2WasUsedAttribute, spdyWasUsed);
         q->setAttribute(QNetworkRequest::SpdyWasUsedAttribute, false);
     } else {
@@ -1312,7 +1320,7 @@ void QNetworkReplyHttpImplPrivate::replyDownloadMetaData(const QList<QPair<QByte
         if (!value.isEmpty()) {
             // Why are we appending values for headers which are already
             // present?
-            if (qstricmp(it->first.constData(), "set-cookie") == 0)
+            if (it->first.compare("set-cookie", Qt::CaseInsensitive) == 0)
                 value += '\n';
             else
                 value += ", ";
@@ -1578,7 +1586,7 @@ bool QNetworkReplyHttpImplPrivate::sendCacheContents(const QNetworkCacheMetaData
     QUrl redirectUrl;
     for ( ; it != end; ++it) {
         if (httpRequest.isFollowRedirects() &&
-            !qstricmp(it->first.toLower().constData(), "location"))
+            !it->first.compare("location", Qt::CaseInsensitive))
             redirectUrl = QUrl::fromEncoded(it->second);
         setRawHeader(it->first, it->second);
     }
@@ -1670,12 +1678,12 @@ QNetworkCacheMetaData QNetworkReplyHttpImplPrivate::fetchCacheMetaData(const QNe
                 || header == "content-range"
                 || header == "content-type")
                 continue;
-
-            // For MS servers that send "Content-Length: 0" on 304 responses
-            // ignore this too
-            if (header == "content-length")
-                continue;
         }
+
+        // IIS has been known to send "Content-Length: 0" on 304 responses, so
+        // ignore this too
+        if (header == "content-length" && statusCode == 304)
+            continue;
 
 #if defined(QNETWORKACCESSHTTPBACKEND_DEBUG)
         QByteArray n = q->rawHeader(header);
@@ -1724,18 +1732,8 @@ QNetworkCacheMetaData QNetworkReplyHttpImplPrivate::fetchCacheMetaData(const QNe
     if (httpRequest.operation() == QHttpNetworkRequest::Get) {
 
         canDiskCache = true;
-        // 14.32
-        // HTTP/1.1 caches SHOULD treat "Pragma: no-cache" as if the client
-        // had sent "Cache-Control: no-cache".
-        it = cacheHeaders.findRawHeader("pragma");
-        if (it != cacheHeaders.rawHeaders.constEnd()
-            && it->second == "no-cache")
-            canDiskCache = false;
-
         // HTTP/1.1. Check the Cache-Control header
-        if (cacheControl.contains("no-cache"))
-            canDiskCache = false;
-        else if (cacheControl.contains("no-store"))
+        if (cacheControl.contains("no-store"))
             canDiskCache = false;
 
     // responses to POST might be cacheable
@@ -1873,11 +1871,9 @@ void QNetworkReplyHttpImplPrivate::_q_startOperation()
 {
     Q_Q(QNetworkReplyHttpImpl);
 
-    // ensure this function is only being called once
-    if (state == Working) {
-        qDebug() << "QNetworkReplyHttpImplPrivate::_q_startOperation was called more than once" << url;
+    if (state == Working) // ensure this function is only being called once
         return;
-    }
+
     state = Working;
 
 #ifndef QT_NO_BEARERMANAGEMENT
@@ -1967,7 +1963,7 @@ void QNetworkReplyHttpImplPrivate::_q_cacheLoadReadyRead()
         qint64 actualCount = cacheLoadDevice->read(&c, 1);
         if (actualCount < 0) {
             cacheLoadDevice->deleteLater();
-            cacheLoadDevice = 0;
+            cacheLoadDevice = nullptr;
             QMetaObject::invokeMethod(q, "_q_finished", Qt::QueuedConnection);
         } else if (actualCount == 1) {
             // This is most probably not happening since most QIODevice returned something proper for bytesAvailable()
@@ -1977,7 +1973,7 @@ void QNetworkReplyHttpImplPrivate::_q_cacheLoadReadyRead()
     } else if ((!cacheLoadDevice->isSequential() && cacheLoadDevice->atEnd())) {
         // This codepath is in case the cache device is a QBuffer, e.g. from QNetworkDiskCache.
         cacheLoadDevice->deleteLater();
-        cacheLoadDevice = 0;
+        cacheLoadDevice = nullptr;
         QMetaObject::invokeMethod(q, "_q_finished", Qt::QueuedConnection);
     }
 }
@@ -2004,7 +2000,7 @@ void QNetworkReplyHttpImplPrivate::_q_cacheSaveDeviceAboutToClose()
 {
     // do not keep a dangling pointer to the device around (device
     // is closing because e.g. QAbstractNetworkCache::remove() was called).
-    cacheSaveDevice = 0;
+    cacheSaveDevice = nullptr;
 }
 
 void QNetworkReplyHttpImplPrivate::_q_bufferOutgoingData()
@@ -2156,7 +2152,7 @@ QNonContiguousByteDevice* QNetworkReplyHttpImplPrivate::createUploadByteDevice()
     else if (outgoingData) {
         uploadByteDevice = QNonContiguousByteDeviceFactory::createShared(outgoingData);
     } else {
-        return 0;
+        return nullptr;
     }
 
     // We want signal emissions only for normal asynchronous uploads
@@ -2329,7 +2325,7 @@ void QNetworkReplyHttpImplPrivate::createCache()
 
 bool QNetworkReplyHttpImplPrivate::isCachingEnabled() const
 {
-    return (cacheEnabled && managerPrivate->networkCache != 0);
+    return (cacheEnabled && managerPrivate->networkCache != nullptr);
 }
 
 void QNetworkReplyHttpImplPrivate::setCachingEnabled(bool enable)
@@ -2353,7 +2349,7 @@ void QNetworkReplyHttpImplPrivate::setCachingEnabled(bool enable)
         // ok... but you should make up your mind
         qDebug("QNetworkReplyImpl: setCachingEnabled(true) called after setCachingEnabled(false)");
         managerPrivate->networkCache->remove(url);
-        cacheSaveDevice = 0;
+        cacheSaveDevice = nullptr;
         cacheEnabled = false;
     }
 }
@@ -2370,10 +2366,8 @@ void QNetworkReplyHttpImplPrivate::completeCacheSave()
     } else if (cacheEnabled && cacheSaveDevice) {
         managerPrivate->networkCache->insert(cacheSaveDevice);
     }
-    cacheSaveDevice = 0;
+    cacheSaveDevice = nullptr;
     cacheEnabled = false;
 }
 
 QT_END_NAMESPACE
-
-#endif // QT_NO_HTTP

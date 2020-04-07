@@ -6,7 +6,7 @@
  */
 
 #include "SkCoreBlitters.h"
-#include "SkColorPriv.h"
+#include "SkColorData.h"
 #include "SkShader.h"
 #include "SkUtils.h"
 #include "SkXfermodePriv.h"
@@ -182,7 +182,7 @@ void SkARGB32_Blitter::blitMask(const SkMask& mask, const SkIRect& clip) {
             SkARGB32_Blit32(fDevice, mask, clip, fPMColor);
             break;
         default:
-            SkFAIL("Mask format not handled.");
+            SK_ABORT("Mask format not handled.");
     }
 }
 
@@ -202,7 +202,7 @@ void SkARGB32_Opaque_Blitter::blitMask(const SkMask& mask,
             SkARGB32_Blit32(fDevice, mask, clip, fPMColor);
             break;
         default:
-            SkFAIL("Mask format not handled.");
+            SK_ABORT("Mask format not handled.");
     }
 }
 
@@ -423,21 +423,11 @@ void SkARGB32_Shader_Blitter::blitRect(int x, int y, int width, int height) {
     }
 
     if (fShadeDirectlyIntoDevice) {
-        void* ctx;
-        auto shadeProc = shaderContext->asAShadeProc(&ctx);
-        if (shadeProc) {
-            do {
-                shadeProc(ctx, x, y, device, width);
-                y += 1;
-                device = (uint32_t*)((char*)device + deviceRB);
-            } while (--height > 0);
-        } else {
-            do {
-                shaderContext->shadeSpan(x, y, device, width);
-                y += 1;
-                device = (uint32_t*)((char*)device + deviceRB);
-            } while (--height > 0);
-        }
+        do {
+            shaderContext->shadeSpan(x, y, device, width);
+            y += 1;
+            device = (uint32_t*)((char*)device + deviceRB);
+        } while (--height > 0);
     } else {
         SkXfermode* xfer = fXfermode;
         if (xfer) {
@@ -633,39 +623,20 @@ void SkARGB32_Shader_Blitter::blitV(int x, int y, int height, SkAlpha alpha) {
     }
 
     if (fShadeDirectlyIntoDevice) {
-        void* ctx;
-        auto shadeProc = shaderContext->asAShadeProc(&ctx);
         if (255 == alpha) {
-            if (shadeProc) {
-                do {
-                    shadeProc(ctx, x, y, device, 1);
-                    y += 1;
-                    device = (uint32_t*)((char*)device + deviceRB);
-                } while (--height > 0);
-            } else {
-                do {
-                    shaderContext->shadeSpan(x, y, device, 1);
-                    y += 1;
-                    device = (uint32_t*)((char*)device + deviceRB);
-                } while (--height > 0);
-            }
-        } else {    // alpha < 255
-            SkPMColor c;
-            if (shadeProc) {
-                do {
-                    shadeProc(ctx, x, y, &c, 1);
-                    *device = SkFourByteInterp(c, *device, alpha);
-                    y += 1;
-                    device = (uint32_t*)((char*)device + deviceRB);
-                } while (--height > 0);
-            } else {
-                do {
-                    shaderContext->shadeSpan(x, y, &c, 1);
-                    *device = SkFourByteInterp(c, *device, alpha);
-                    y += 1;
-                    device = (uint32_t*)((char*)device + deviceRB);
-                } while (--height > 0);
-            }
+            do {
+                shaderContext->shadeSpan(x, y, device, 1);
+                y += 1;
+                device = (uint32_t*)((char*)device + deviceRB);
+            } while (--height > 0);
+        } else {
+            do {
+                SkPMColor c;
+                shaderContext->shadeSpan(x, y, &c, 1);
+                *device = SkFourByteInterp(c, *device, alpha);
+                y += 1;
+                device = (uint32_t*)((char*)device + deviceRB);
+            } while (--height > 0);
         }
     } else {
         SkPMColor* span = fBuffer;

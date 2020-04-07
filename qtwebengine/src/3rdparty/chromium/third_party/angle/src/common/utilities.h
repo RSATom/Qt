@@ -12,11 +12,18 @@
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 
-#include "angle_gl.h"
-#include <string>
 #include <math.h>
+#include <string>
+#include <vector>
+#include "angle_gl.h"
 
+#include "common/PackedEnums.h"
 #include "common/mathutil.h"
+
+namespace sh
+{
+struct ShaderVariable;
+}
 
 namespace gl
 {
@@ -26,33 +33,33 @@ GLenum VariableComponentType(GLenum type);
 size_t VariableComponentSize(GLenum type);
 size_t VariableInternalSize(GLenum type);
 size_t VariableExternalSize(GLenum type);
-GLenum VariableBoolVectorType(GLenum type);
 int VariableRowCount(GLenum type);
 int VariableColumnCount(GLenum type);
 bool IsSamplerType(GLenum type);
 bool IsImageType(GLenum type);
 bool IsAtomicCounterType(GLenum type);
 bool IsOpaqueType(GLenum type);
-GLenum SamplerTypeToTextureType(GLenum samplerType);
 bool IsMatrixType(GLenum type);
 GLenum TransposeMatrixType(GLenum type);
 int VariableRegisterCount(GLenum type);
 int MatrixRegisterCount(GLenum type, bool isRowMajorMatrix);
 int MatrixComponentCount(GLenum type, bool isRowMajorMatrix);
 int VariableSortOrder(GLenum type);
+GLenum VariableBoolVectorType(GLenum type);
 
 int AllocateFirstFreeBits(unsigned int *bits, unsigned int allocationSize, unsigned int bitsSize);
 
-static const GLenum FirstCubeMapTextureTarget = GL_TEXTURE_CUBE_MAP_POSITIVE_X;
-static const GLenum LastCubeMapTextureTarget = GL_TEXTURE_CUBE_MAP_NEGATIVE_Z;
-bool IsCubeMapTextureTarget(GLenum target);
-size_t CubeMapTextureTargetToLayerIndex(GLenum target);
-GLenum LayerIndexToCubeMapTextureTarget(size_t index);
+// Parse the base resource name and array indices. Returns the base name of the resource.
+// If the provided name doesn't index an array, the outSubscripts vector will be empty.
+// If the provided name indexes an array, the outSubscripts vector will contain indices with
+// outermost array indices in the back. If an array index is invalid, GL_INVALID_INDEX is added to
+// outSubscripts.
+std::string ParseResourceName(const std::string &name, std::vector<unsigned int> *outSubscripts);
 
-// Parse the base resource name and array index.  Returns the base name of the resource.
-// outSubscript is set to GL_INVALID_INDEX if the provided name is not an array or the array index
-// is invalid.
-std::string ParseResourceName(const std::string &name, size_t *outSubscript);
+// Find the child field which matches 'fullName' == var.name + "." + field.name.
+// Return nullptr if not found.
+const sh::ShaderVariable *FindShaderVarField(const sh::ShaderVariable &var,
+                                             const std::string &fullName);
 
 // Find the range of index values in the provided indices pointer.  Primitive restart indices are
 // only counted in the range if primitive restart is disabled.
@@ -64,104 +71,90 @@ IndexRange ComputeIndexRange(GLenum indexType,
 // Get the primitive restart index value for the given index type.
 GLuint GetPrimitiveRestartIndex(GLenum indexType);
 
-bool IsTriangleMode(GLenum drawMode);
+bool IsTriangleMode(PrimitiveMode drawMode);
 bool IsIntegerFormat(GLenum unsizedFormat);
 
-// [OpenGL ES 3.0.2] Section 2.3.1 page 14
-// Data Conversion For State-Setting Commands
-// Floating-point values are rounded to the nearest integer, instead of truncated, as done by static_cast.
-template <typename outT> outT iround(GLfloat value) { return static_cast<outT>(value > 0.0f ? floor(value + 0.5f) : ceil(value - 0.5f)); }
-template <typename outT> outT uiround(GLfloat value) { return static_cast<outT>(value + 0.5f); }
+// Returns the product of the sizes in the vector, or 1 if the vector is empty. Doesn't currently
+// perform overflow checks.
+unsigned int ArraySizeProduct(const std::vector<unsigned int> &arraySizes);
 
-// Helper for converting arbitrary GL types to other GL types used in queries and state setting
-template <typename ParamType>
-GLuint ConvertToGLuint(ParamType param)
+// Return the array index at the end of name, and write the length of name before the final array
+// index into nameLengthWithoutArrayIndexOut. In case name doesn't include an array index, return
+// GL_INVALID_INDEX and write the length of the original string.
+unsigned int ParseArrayIndex(const std::string &name, size_t *nameLengthWithoutArrayIndexOut);
+
+struct UniformTypeInfo final : angle::NonCopyable
 {
-    return static_cast<GLuint>(param);
-}
-template <>
-GLuint ConvertToGLuint(GLfloat param);
+    constexpr UniformTypeInfo(GLenum type,
+                              GLenum componentType,
+                              GLenum textureType,
+                              GLenum transposedMatrixType,
+                              GLenum boolVectorType,
+                              int rowCount,
+                              int columnCount,
+                              int componentCount,
+                              size_t componentSize,
+                              size_t internalSize,
+                              size_t externalSize,
+                              bool isSampler,
+                              bool isMatrixType,
+                              bool isImageType)
+        : type(type),
+          componentType(componentType),
+          textureType(textureType),
+          transposedMatrixType(transposedMatrixType),
+          boolVectorType(boolVectorType),
+          rowCount(rowCount),
+          columnCount(columnCount),
+          componentCount(componentCount),
+          componentSize(componentSize),
+          internalSize(internalSize),
+          externalSize(externalSize),
+          isSampler(isSampler),
+          isMatrixType(isMatrixType),
+          isImageType(isImageType)
+    {
+    }
 
-template <typename ParamType>
-GLint ConvertToGLint(ParamType param)
-{
-    return static_cast<GLint>(param);
-}
-template <>
-GLint ConvertToGLint(GLfloat param);
+    GLenum type;
+    GLenum componentType;
+    GLenum textureType;
+    GLenum transposedMatrixType;
+    GLenum boolVectorType;
+    int rowCount;
+    int columnCount;
+    int componentCount;
+    size_t componentSize;
+    size_t internalSize;
+    size_t externalSize;
+    bool isSampler;
+    bool isMatrixType;
+    bool isImageType;
+};
 
-// Same conversion as uint
-template <typename ParamType>
-GLenum ConvertToGLenum(ParamType param)
-{
-    return static_cast<GLenum>(ConvertToGLuint(param));
-}
+const UniformTypeInfo &GetUniformTypeInfo(GLenum uniformType);
 
-template <typename ParamType>
-GLfloat ConvertToGLfloat(ParamType param)
-{
-    return static_cast<GLfloat>(param);
-}
+const char *GetGenericErrorMessage(GLenum error);
 
-template <typename ParamType>
-ParamType ConvertFromGLfloat(GLfloat param)
-{
-    return static_cast<ParamType>(param);
-}
-template <>
-GLint ConvertFromGLfloat(GLfloat param);
-template <>
-GLuint ConvertFromGLfloat(GLfloat param);
-
-template <typename ParamType>
-ParamType ConvertFromGLenum(GLenum param)
-{
-    return static_cast<ParamType>(param);
-}
-
-template <typename ParamType>
-ParamType ConvertFromGLuint(GLuint param)
-{
-    return static_cast<ParamType>(param);
-}
-
-template <typename ParamType>
-ParamType ConvertFromGLint(GLint param)
-{
-    return static_cast<ParamType>(param);
-}
-
-template <typename ParamType>
-ParamType ConvertFromGLboolean(GLboolean param)
-{
-    return static_cast<ParamType>(param ? GL_TRUE : GL_FALSE);
-}
-
-template <typename ParamType>
-ParamType ConvertFromGLint64(GLint64 param)
-{
-    return clampCast<ParamType>(param);
-}
-
-unsigned int ParseAndStripArrayIndex(std::string *name);
+unsigned int ElementTypeSize(GLenum elementType);
 
 }  // namespace gl
 
 namespace egl
 {
 static const EGLenum FirstCubeMapTextureTarget = EGL_GL_TEXTURE_CUBE_MAP_POSITIVE_X_KHR;
-static const EGLenum LastCubeMapTextureTarget = EGL_GL_TEXTURE_CUBE_MAP_NEGATIVE_Z_KHR;
+static const EGLenum LastCubeMapTextureTarget  = EGL_GL_TEXTURE_CUBE_MAP_NEGATIVE_Z_KHR;
 bool IsCubeMapTextureTarget(EGLenum target);
 size_t CubeMapTextureTargetToLayerIndex(EGLenum target);
 EGLenum LayerIndexToCubeMapTextureTarget(size_t index);
 bool IsTextureTarget(EGLenum target);
 bool IsRenderbufferTarget(EGLenum target);
-}
+
+const char *GetGenericErrorMessage(EGLint error);
+}  // namespace egl
 
 namespace egl_gl
 {
-GLenum EGLCubeMapTargetToGLCubeMapTarget(EGLenum eglTarget);
-GLenum EGLImageTargetToGLTextureTarget(EGLenum eglTarget);
 GLuint EGLClientBufferToGLObjectHandle(EGLClientBuffer buffer);
 }
 
@@ -172,10 +165,10 @@ EGLenum GLComponentTypeToEGLColorComponentType(GLenum glComponentType);
 
 #if !defined(ANGLE_ENABLE_WINDOWS_STORE)
 std::string getTempPath();
-void writeFile(const char* path, const void* data, size_t size);
+void writeFile(const char *path, const void *data, size_t size);
 #endif
 
-#if defined (ANGLE_PLATFORM_WINDOWS)
+#if defined(ANGLE_PLATFORM_WINDOWS)
 void ScheduleYield();
 #endif
 

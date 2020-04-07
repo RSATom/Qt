@@ -10,9 +10,9 @@
 
 #include "base/logging.h"
 #include "media/base/decrypt_config.h"
-#include "media/filters/h264_parser.h"
 #include "media/formats/mp4/box_definitions.h"
 #include "media/formats/mp4/box_reader.h"
+#include "media/video/h264_parser.h"
 
 namespace media {
 namespace mp4 {
@@ -21,9 +21,9 @@ static const uint8_t kAnnexBStartCode[] = {0, 0, 0, 1};
 static const int kAnnexBStartCodeSize = 4;
 
 static bool ConvertAVCToAnnexBInPlaceForLengthSize4(std::vector<uint8_t>* buf) {
-  const int kLengthSize = 4;
+  const size_t kLengthSize = 4;
   size_t pos = 0;
-  while (pos + kLengthSize < buf->size()) {
+  while (buf->size() > kLengthSize && buf->size() - kLengthSize > pos) {
     uint32_t nal_length = (*buf)[pos];
     nal_length = (nal_length << 8) + (*buf)[pos+1];
     nal_length = (nal_length << 8) + (*buf)[pos+2];
@@ -61,7 +61,7 @@ int AVC::FindSubsampleIndex(const std::vector<uint8_t>& buffer,
 }
 
 // static
-bool AVC::ConvertFrameToAnnexB(int length_size,
+bool AVC::ConvertFrameToAnnexB(size_t length_size,
                                std::vector<uint8_t>* buffer,
                                std::vector<SubsampleEntry>* subsamples) {
   RCHECK(length_size == 1 || length_size == 2 || length_size == 4);
@@ -77,8 +77,8 @@ bool AVC::ConvertFrameToAnnexB(int length_size,
   buffer->reserve(temp.size() + 32);
 
   size_t pos = 0;
-  while (pos + length_size < temp.size()) {
-    int nal_length = temp[pos];
+  while (temp.size() > length_size && temp.size() - length_size > pos) {
+    size_t nal_length = temp[pos];
     if (length_size == 2) nal_length = (nal_length << 8) + temp[pos+1];
     pos += length_size;
 
@@ -87,7 +87,7 @@ bool AVC::ConvertFrameToAnnexB(int length_size,
       return false;
     }
 
-    RCHECK(pos + nal_length <= temp.size());
+    RCHECK(temp.size() >= nal_length && temp.size() - nal_length >= pos);
     buffer->insert(buffer->end(), kAnnexBStartCode,
                    kAnnexBStartCode + kAnnexBStartCodeSize);
     if (subsamples && !subsamples->empty()) {
@@ -107,11 +107,7 @@ bool AVC::ConvertFrameToAnnexB(int length_size,
 // static
 bool AVC::InsertParamSetsAnnexB(const AVCDecoderConfigurationRecord& avc_config,
                                 std::vector<uint8_t>* buffer,
-                                std::vector<SubsampleEntry>* subsamples,
-                                bool annexb_validation) {
-  if (annexb_validation)
-    DCHECK(AVC::IsValidAnnexB(*buffer, *subsamples));
-
+                                std::vector<SubsampleEntry>* subsamples) {
   std::unique_ptr<H264Parser> parser(new H264Parser());
   const uint8_t* start = &(*buffer)[0];
   parser->SetEncryptedStream(start, buffer->size(), *subsamples);
@@ -144,9 +140,6 @@ bool AVC::InsertParamSetsAnnexB(const AVCDecoderConfigurationRecord& avc_config,
 
   buffer->insert(config_insert_point,
                  param_sets.begin(), param_sets.end());
-
-  if (annexb_validation)
-    DCHECK(AVC::IsValidAnnexB(*buffer, *subsamples));
   return true;
 }
 
@@ -179,11 +172,6 @@ bool AVC::ConvertConfigToAnnexB(const AVCDecoderConfigurationRecord& avc_config,
 }
 
 // Verifies AnnexB NALU order according to ISO/IEC 14496-10 Section 7.4.1.2.3
-bool AVC::IsValidAnnexB(const std::vector<uint8_t>& buffer,
-                        const std::vector<SubsampleEntry>& subsamples) {
-  return IsValidAnnexB(&buffer[0], buffer.size(), subsamples);
-}
-
 bool AVC::IsValidAnnexB(const uint8_t* buffer,
                         size_t size,
                         const std::vector<SubsampleEntry>& subsamples) {
@@ -319,12 +307,14 @@ bool AVC::IsValidAnnexB(const uint8_t* buffer,
 
 AVCBitstreamConverter::AVCBitstreamConverter(
     std::unique_ptr<AVCDecoderConfigurationRecord> avc_config)
-    : avc_config_(std::move(avc_config)), post_annexb_validation_(true) {
+    : avc_config_(std::move(avc_config)) {
   DCHECK(avc_config_);
+#if BUILDFLAG(ENABLE_DOLBY_VISION_DEMUXING)
+  disable_validation_ = false;
+#endif  // BUILDFLAG(ENABLE_DOLBY_VISION_DEMUXING)
 }
 
-AVCBitstreamConverter::~AVCBitstreamConverter() {
-}
+AVCBitstreamConverter::~AVCBitstreamConverter() = default;
 
 bool AVCBitstreamConverter::ConvertFrame(
     std::vector<uint8_t>* frame_buf,
@@ -342,12 +332,20 @@ bool AVCBitstreamConverter::ConvertFrame(
     // If this is a keyframe, we (re-)inject SPS and PPS headers at the start of
     // a frame. If subsample info is present, we also update the clear byte
     // count for that first subsample.
-    RCHECK(AVC::InsertParamSetsAnnexB(*avc_config_, frame_buf, subsamples,
-                                      post_annexb_validation_));
+    RCHECK(AVC::InsertParamSetsAnnexB(*avc_config_, frame_buf, subsamples));
   }
 
-  DCHECK(AVC::IsValidAnnexB(*frame_buf, *subsamples));
   return true;
+}
+
+bool AVCBitstreamConverter::IsValid(
+    std::vector<uint8_t>* frame_buf,
+    std::vector<SubsampleEntry>* subsamples) const {
+#if BUILDFLAG(ENABLE_DOLBY_VISION_DEMUXING)
+  if (disable_validation_)
+    return true;
+#endif  // BUILDFLAG(ENABLE_DOLBY_VISION_DEMUXING)
+  return AVC::IsValidAnnexB(frame_buf->data(), frame_buf->size(), *subsamples);
 }
 
 }  // namespace mp4

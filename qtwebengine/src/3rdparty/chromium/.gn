@@ -3,6 +3,7 @@
 # file, run "gn help dotfile" at the command line.
 
 import("//build/dotfile_settings.gni")
+import("//third_party/angle/dotfile_settings.gni")
 
 # The location of the build configuration file.
 buildconfig = "//build/config/BUILDCONFIG.gn"
@@ -36,14 +37,16 @@ default_args = {
   v8_extra_library_files = [
     # Dependencies used by the extra libraries. Putting them here causes them
     # to be executed first during snapshot creation.
-    "//third_party/WebKit/Source/core/streams/CommonStrings.js",
-    "//third_party/WebKit/Source/core/streams/SimpleQueue.js",
+    "//third_party/blink/renderer/core/streams/CommonOperations.js",
+    "//third_party/blink/renderer/core/streams/CommonStrings.js",
+    "//third_party/blink/renderer/core/streams/SimpleQueue.js",
 
     # Extra libraries.
-    "//third_party/WebKit/Source/core/streams/ByteLengthQueuingStrategy.js",
-    "//third_party/WebKit/Source/core/streams/CountQueuingStrategy.js",
-    "//third_party/WebKit/Source/core/streams/ReadableStream.js",
-    "//third_party/WebKit/Source/core/streams/WritableStream.js",
+    "//third_party/blink/renderer/core/streams/ByteLengthQueuingStrategy.js",
+    "//third_party/blink/renderer/core/streams/CountQueuingStrategy.js",
+    "//third_party/blink/renderer/core/streams/ReadableStream.js",
+    "//third_party/blink/renderer/core/streams/WritableStream.js",
+    "//third_party/blink/renderer/core/streams/TransformStream.js",
   ]
   v8_experimental_extra_library_files = []
   v8_enable_gdbjit = false
@@ -52,6 +55,18 @@ default_args = {
   # TODO(jochen): Remove this. http://crbug.com/v8/5830,
   # http://crbug.com/728583.
   v8_check_microtasks_scopes_consistency = false
+
+  # Don't include webrtc's builtin task queue implementation.
+  rtc_link_task_queue_impl = false
+
+  # Don't include the iLBC audio codec.
+  # TODO(bugs.webrtc.org/8396): Once WebRTC gets rid of its internal
+  # deps on codecs, we can remove this.
+  rtc_include_ilbc = false
+
+  # Changes some setup for the Crashpad build to set them to build against
+  # Chromium's zlib, base, etc.
+  crashpad_dependencies = "chromium"
 }
 
 # These are the targets to check headers for by default. The files in targets
@@ -63,17 +78,20 @@ check_targets = [
   "//ash/*",
   "//base/*",
   "//blink/*",
-  "//breakpad/*",
   "//build/*",
   "//cc/*",
 
   #"//chrome/*",  # Epic number of errors.
   "//chrome/app/*",
+  "//chrome/app_shim/*",
   "//chrome/browser/chromeos/*",
   "//chrome/browser/extensions/*",
+  "//chrome/browser/resource_coordinator/*",
   "//chrome/browser/ui/*",
+  "//chrome/chrome_cleaner/*",
   "//chrome/common/*",
   "//chrome/installer/*",
+  "//chrome/profiling",
   "//chrome/third_party/mozilla_security_manager/*",
   "//chrome/tools/*",
   "//chrome/utility/*",
@@ -93,11 +111,11 @@ check_targets = [
   "//extensions:extensions_unittests",
   "//extensions/browser:browser_tests",
   "//extensions/browser:unit_tests",
+  "//extensions/browser/install:*",
+  "//extensions/common:common",
   "//extensions/common:unit_tests",
   "//extensions/renderer:unit_tests",
-  "//extensions/shell:browser_tests",
-  "//extensions/shell:unit_tests",
-  "//extensions/utility:unit_tests",
+  "//extensions/shell/*",
   "//gin/*",
   "//google_apis/*",
   "//google_update/*",
@@ -110,26 +128,8 @@ check_targets = [
   #"//jingle/*",
   "//mash/*",
 
-  #"//media/*",  # Lots of errors.
-  #"//media/base/*",
-  #"//media/capture/*",
-  "//media/cast/*",
-  "//media:media",
-  "//media:shared_memory_support",
-  "//media:media_unittests",
-  "//media:audio_unittests",
-  "//media:media_perftests",
-  "//media/audio/*",
-  "//media/blink/*",
-  "//media/cdm/*",
-  "//media/ffmpeg/*",
-  "//media/gpu/*",
-  "//media/midi/*",
-  "//media/mojo/*",
-  "//media/remoting/*",
-  "//media/test/*",
-
-  "mojo/*",
+  "//media/*",
+  "//mojo/*",
 
   #"//native_client/*",
   "//net/*",
@@ -137,13 +137,13 @@ check_targets = [
   #"//pdf/*",  # Medium-hard.
   #"//ppapi/*",  # Lots of errors.
   "//ppapi/examples/*",
+  "//ppapi/tests/*",
   "//printing/*",
 
   #"//remoting/*",  # Medium-hard.
   "//rlz/*",
 
   #"//sandbox/*",  # Medium-hard.
-  "//sdch/*",
   "//services/*",
   "//skia/*",
   "//sql/*",
@@ -151,54 +151,29 @@ check_targets = [
   "//testing/*",
 
   #"//third_party/*",  # May not ever want this.
+  #"//third_party/breakpad/*",  # Small errors.
+  "//third_party/boringssl/*",
   "//third_party/brotli/*",
+  "//third_party/fuchsia-sdk/*",
   "//third_party/hunspell/*",
   "//third_party/leveldatabase/*",
-  "//third_party/libaddressinput/*",
+
+  #"//third_party/libaddressinput/*",  # Small errors.
   "//third_party/libphonenumber/*",
-  "//third_party/libwebp/*",
+
+  #"//third_party/libwebp/*",  # Errors: https://crbug.com/800762
   "//third_party/snappy/*",
-  "//third_party/WebKit/*",
+
+  #"//third_party/WebKit/*",  # Errors: https://crbug.com/800764
+  #"//third_party/webrtc/*",  # Errors: https://crbug.com/824831
+  "//third_party/webrtc_overrides/*",
   "//tools/*",
 
-  #"//ui/*",  # Work left on Chromeos w/ use_ozone. Some parts of UI that work:
-  "//ui/accessibility/*",
-  "//ui/android/*",
-  "//ui/app_list/*",
-  "//ui/arc/*",
-  "//ui/aura/*",
-  "//ui/aura_extra/*",
-  "//ui/base/*",
-  "//ui/chromeos/*",
-  "//ui/compositor/*",
-  "//ui/content_accelerators/*",
-  "//ui/display/*",
-  "//ui/events/*",
-  "//ui/file_manager/*",
-  "//ui/gfx/*",
-  "//ui/gl/*",
-  "//ui/keyboard/*",
-  "//ui/latency_info/*",
-  "//ui/login/*",
-  "//ui/message_center/*",
-  "//ui/mojo/*",
-  "//ui/native_theme/*",
-  "//ui/ozone/*",
-  "//ui/platform_window/*",
-  "//ui/resources/*",
-  "//ui/shell_dialogs/*",
-  "//ui/snapshot/*",
-  "//ui/strings/*",
-  "//ui/surface/*",
-  "//ui/touch_selection/*",
-  "//ui/views/*",
-  "//ui/views_content_client/*",
-  "//ui/web_dialogs/*",
-  "//ui/webui/*",
-  "//ui/wm/*",
+  "//ui/*",
   "//url/*",
-  "//v8/*",
-  "//win8/*",
+
+  #"//v8/*",  # Errors: https://bugs.chromium.org/p/v8/issues/detail?id=7330
+  "//webrunner/*",
 ]
 
 # These are the list of GN files that run exec_script. This whitelist exists

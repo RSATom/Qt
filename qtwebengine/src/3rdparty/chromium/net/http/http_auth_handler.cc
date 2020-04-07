@@ -20,8 +20,7 @@ HttpAuthHandler::HttpAuthHandler()
       properties_(-1) {
 }
 
-HttpAuthHandler::~HttpAuthHandler() {
-}
+HttpAuthHandler::~HttpAuthHandler() = default;
 
 bool HttpAuthHandler::InitFromChallenge(HttpAuthChallengeTokenizer* challenge,
                                         HttpAuth::Target target,
@@ -102,7 +101,7 @@ void HttpAuthHandler::OnGenerateAuthTokenComplete(int rv) {
 }
 
 void HttpAuthHandler::FinishGenerateAuthToken() {
-  // TOOD(cbentzel): Should this be done in OK case only?
+  // TODO(cbentzel): Should this be done in OK case only?
   net_log_.EndEvent(EventTypeFromAuthTarget(target_));
   callback_.Reset();
 }

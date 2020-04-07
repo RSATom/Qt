@@ -71,7 +71,7 @@
 
 #include <private/qhttpnetworkconnectionchannel_p.h>
 
-#ifndef QT_NO_HTTP
+QT_REQUIRE_CONFIG(http);
 
 QT_BEGIN_NAMESPACE
 
@@ -94,7 +94,8 @@ public:
     enum ConnectionType {
         ConnectionTypeHTTP,
         ConnectionTypeSPDY,
-        ConnectionTypeHTTP2
+        ConnectionTypeHTTP2,
+        ConnectionTypeHTTP2Direct
     };
 
 #ifndef QT_NO_BEARERMANAGEMENT
@@ -294,7 +295,5 @@ public:
 
 
 QT_END_NAMESPACE
-
-#endif // QT_NO_HTTP
 
 #endif

@@ -57,13 +57,12 @@ MDnsAPI* MDnsAPI::Get(content::BrowserContext* context) {
   return BrowserContextKeyedAPIFactory<MDnsAPI>::Get(context);
 }
 
-static base::LazyInstance<
-    BrowserContextKeyedAPIFactory<MDnsAPI>>::DestructorAtExit g_factory =
-    LAZY_INSTANCE_INITIALIZER;
+static base::LazyInstance<BrowserContextKeyedAPIFactory<MDnsAPI>>::
+    DestructorAtExit g_mdns_api_factory = LAZY_INSTANCE_INITIALIZER;
 
 // static
 BrowserContextKeyedAPIFactory<MDnsAPI>* MDnsAPI::GetFactoryInstance() {
-  return g_factory.Pointer();
+  return g_mdns_api_factory.Pointer();
 }
 
 void MDnsAPI::SetDnsSdRegistryForTesting(DnsSdRegistry* dns_sd_registry) {
@@ -167,14 +166,14 @@ void MDnsAPI::OnDnsSdEvent(const std::string& service_type,
     }
     mdns::MDnsService mdns_service;
     mdns_service.service_name = service.service_name;
-    mdns_service.service_host_port = service.service_host_port;
+    mdns_service.service_host_port = service.service_host_port.ToString();
     mdns_service.ip_address = service.ip_address;
     mdns_service.service_data = service.service_data;
     args.push_back(std::move(mdns_service));
   }
 
   std::unique_ptr<base::ListValue> results = mdns::OnServiceList::Create(args);
-  auto event = base::MakeUnique<Event>(events::MDNS_ON_SERVICE_LIST,
+  auto event = std::make_unique<Event>(events::MDNS_ON_SERVICE_LIST,
                                        mdns::OnServiceList::kEventName,
                                        std::move(results), browser_context_);
   event->filter_info.service_type = service_type;

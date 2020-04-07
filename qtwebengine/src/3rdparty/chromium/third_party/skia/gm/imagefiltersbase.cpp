@@ -10,6 +10,8 @@
 #include "SkCanvas.h"
 #include "SkColorFilter.h"
 #include "SkColorPriv.h"
+#include "SkFlattenablePriv.h"
+#include "SkImageFilterPriv.h"
 #include "SkShader.h"
 
 #include "SkBlurImageFilter.h"
@@ -31,7 +33,6 @@ public:
         return sk_sp<SkImageFilter>(new FailImageFilter);
     }
 
-    SK_TO_STRING_OVERRIDE()
     SK_DECLARE_PUBLIC_FLATTENABLE_DESERIALIZATION_PROCS(FailImageFilter)
 
 protected:
@@ -56,13 +57,6 @@ sk_sp<SkFlattenable> FailImageFilter::CreateProc(SkReadBuffer& buffer) {
     return FailImageFilter::Make();
 }
 
-#ifndef SK_IGNORE_TO_STRING
-void FailImageFilter::toString(SkString* str) const {
-    str->appendf("FailImageFilter: (");
-    str->append(")");
-}
-#endif
-
 class IdentityImageFilter : public SkImageFilter {
 public:
     class Registrar {
@@ -77,7 +71,6 @@ public:
         return sk_sp<SkImageFilter>(new IdentityImageFilter(std::move(input)));
     }
 
-    SK_TO_STRING_OVERRIDE()
     SK_DECLARE_PUBLIC_FLATTENABLE_DESERIALIZATION_PROCS(IdentityImageFilter)
 
 protected:
@@ -102,13 +95,6 @@ sk_sp<SkFlattenable> IdentityImageFilter::CreateProc(SkReadBuffer& buffer) {
     SK_IMAGEFILTER_UNFLATTEN_COMMON(common, 1);
     return IdentityImageFilter::Make(common.getInput(0));
 }
-
-#ifndef SK_IGNORE_TO_STRING
-void IdentityImageFilter::toString(SkString* str) const {
-    str->appendf("IdentityImageFilter: (");
-    str->append(")");
-}
-#endif
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -207,7 +193,10 @@ protected:
             IdentityImageFilter::Make(nullptr),
             FailImageFilter::Make(),
             SkColorFilterImageFilter::Make(std::move(cf), nullptr),
-            SkBlurImageFilter::Make(12.0f, 0.0f, nullptr),
+            // The strage 0.29 value tickles an edge case where crop rect calculates
+            // a small border, but the blur really needs no border. This tickels
+            // an msan uninitialized value bug.
+            SkBlurImageFilter::Make(12.0f, 0.29f, nullptr),
             SkDropShadowImageFilter::Make(
                                     10.0f, 5.0f, 3.0f, 3.0f, SK_ColorBLUE,
                                     SkDropShadowImageFilter::kDrawShadowAndForeground_ShadowMode,

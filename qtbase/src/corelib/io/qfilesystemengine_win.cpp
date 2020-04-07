@@ -204,10 +204,12 @@ GlobalSid::GlobalSid()
                 ::GetTokenInformation(token, TokenUser, 0, 0, &retsize);
                 if (retsize) {
                     void *tokenBuffer = malloc(retsize);
+                    Q_CHECK_PTR(tokenBuffer);
                     if (::GetTokenInformation(token, TokenUser, tokenBuffer, retsize, &retsize)) {
                         PSID tokenSid = reinterpret_cast<PTOKEN_USER>(tokenBuffer)->User.Sid;
                         DWORD sidLen = ::GetLengthSid(tokenSid);
                         currentUserSID = reinterpret_cast<PSID>(malloc(sidLen));
+                        Q_CHECK_PTR(currentUserSID);
                         if (::CopySid(sidLen, currentUserSID, tokenSid))
                             BuildTrusteeWithSid(&currentUserTrusteeW, currentUserSID);
                     }
@@ -294,6 +296,7 @@ static QString readSymLink(const QFileSystemEntry &link)
     if (handle != INVALID_HANDLE_VALUE) {
         DWORD bufsize = MAXIMUM_REPARSE_DATA_BUFFER_SIZE;
         REPARSE_DATA_BUFFER *rdb = (REPARSE_DATA_BUFFER*)malloc(bufsize);
+        Q_CHECK_PTR(rdb);
         DWORD retsize = 0;
         if (::DeviceIoControl(handle, FSCTL_GET_REPARSE_POINT, 0, 0, rdb, bufsize, &retsize, 0)) {
             if (rdb->ReparseTag == IO_REPARSE_TAG_MOUNT_POINT) {
@@ -935,7 +938,7 @@ static bool tryFindFallback(const QFileSystemEntry &fname, QFileSystemMetaData &
 bool QFileSystemEngine::fillMetaData(int fd, QFileSystemMetaData &data,
                                      QFileSystemMetaData::MetaDataFlags what)
 {
-    HANDLE fHandle = (HANDLE)_get_osfhandle(fd);
+    auto fHandle = reinterpret_cast<HANDLE>(_get_osfhandle(fd));
     if (fHandle  != INVALID_HANDLE_VALUE) {
         return fillMetaData(fHandle, data, what);
     }
@@ -1014,7 +1017,8 @@ bool QFileSystemEngine::fillMetaData(const QFileSystemEntry &entry, QFileSystemM
         WIN32_FIND_DATA findData;
         // The memory structure for WIN32_FIND_DATA is same as WIN32_FILE_ATTRIBUTE_DATA
         // for all members used by fillFindData().
-        bool ok = ::GetFileAttributesEx((wchar_t*)fname.nativeFilePath().utf16(), GetFileExInfoStandard,
+        bool ok = ::GetFileAttributesEx(reinterpret_cast<const wchar_t*>(fname.nativeFilePath().utf16()),
+                                        GetFileExInfoStandard,
                                         reinterpret_cast<WIN32_FILE_ATTRIBUTE_DATA *>(&findData));
         if (ok) {
             data.fillFromFindData(findData, false, fname.isDriveRoot());
@@ -1034,8 +1038,7 @@ bool QFileSystemEngine::fillMetaData(const QFileSystemEntry &entry, QFileSystemM
 
     if (what & QFileSystemMetaData::Permissions)
         fillPermissions(fname, data, what);
-    if ((what & QFileSystemMetaData::LinkType)
-        && data.missingFlags(QFileSystemMetaData::LinkType)) {
+    if (what & QFileSystemMetaData::LinkType) {
         data.knownFlagsMask |= QFileSystemMetaData::LinkType;
         if (data.fileAttribute_ & FILE_ATTRIBUTE_REPARSE_POINT) {
             WIN32_FIND_DATA findData;
@@ -1069,19 +1072,22 @@ static bool isDirPath(const QString &dirPath, bool *existed)
     if (path.length() == 2 && path.at(1) == QLatin1Char(':'))
         path += QLatin1Char('\\');
 
+    const QString longPath = QFSFileEnginePrivate::longFileName(path);
 #ifndef Q_OS_WINRT
-    DWORD fileAttrib = ::GetFileAttributes((wchar_t*)QFSFileEnginePrivate::longFileName(path).utf16());
+    DWORD fileAttrib = ::GetFileAttributes(reinterpret_cast<const wchar_t*>(longPath.utf16()));
 #else // Q_OS_WINRT
     DWORD fileAttrib = INVALID_FILE_ATTRIBUTES;
     WIN32_FILE_ATTRIBUTE_DATA data;
-    if (::GetFileAttributesEx((const wchar_t*)QFSFileEnginePrivate::longFileName(path).utf16(), GetFileExInfoStandard, &data))
+    if (::GetFileAttributesEx(reinterpret_cast<const wchar_t*>(longPath.utf16()),
+                              GetFileExInfoStandard, &data)) {
         fileAttrib = data.dwFileAttributes;
+    }
 #endif // Q_OS_WINRT
     if (fileAttrib == INVALID_FILE_ATTRIBUTES) {
         int errorCode = GetLastError();
         if (errorCode == ERROR_ACCESS_DENIED || errorCode == ERROR_SHARING_VIOLATION) {
             WIN32_FIND_DATA findData;
-            if (getFindData(QFSFileEnginePrivate::longFileName(path), findData))
+            if (getFindData(longPath, findData))
                 fileAttrib = findData.dwFileAttributes;
         }
     }
@@ -1411,7 +1417,7 @@ bool QFileSystemEngine::setPermissions(const QFileSystemEntry &entry, QFile::Per
     if (mode == 0) // not supported
         return false;
 
-    bool ret = (::_wchmod((wchar_t*)entry.nativeFilePath().utf16(), mode) == 0);
+    bool ret = ::_wchmod(reinterpret_cast<const wchar_t*>(entry.nativeFilePath().utf16()), mode) == 0;
     if(!ret)
         error = QSystemError(errno, QSystemError::StandardLibraryError);
     return ret;

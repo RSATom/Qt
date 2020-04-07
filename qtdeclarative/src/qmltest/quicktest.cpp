@@ -57,11 +57,13 @@
 #include <QtCore/qdebug.h>
 #include <QtCore/qeventloop.h>
 #include <QtCore/qtextstream.h>
+#include <QtCore/qtimer.h>
 #include <QtGui/qtextdocument.h>
 #include <stdio.h>
 #include <QtGui/QGuiApplication>
 #include <QtCore/QTranslator>
 #include <QtTest/QSignalSpy>
+#include <QtQml/QQmlFileSelector>
 
 #include <private/qqmlcomponent_p.h>
 
@@ -78,7 +80,7 @@ class QTestRootObject : public QObject
     Q_PROPERTY(bool hasTestCase READ hasTestCase WRITE setHasTestCase NOTIFY hasTestCaseChanged)
     Q_PROPERTY(QObject *defined READ defined)
 public:
-    QTestRootObject(QObject *parent = 0)
+    QTestRootObject(QObject *parent = nullptr)
         : QObject(parent), hasQuit(false), m_windowShown(false), m_hasTestCase(false)  {
         m_defined = new QQmlPropertyMap(this);
 #if defined(QT_OPENGL_ES_2_ANGLE)
@@ -190,11 +192,26 @@ bool qWaitForSignal(QObject *obj, const char* signal, int timeout = 5000)
         if (remaining <= 0)
             break;
         QCoreApplication::processEvents(QEventLoop::AllEvents, remaining);
-        QCoreApplication::sendPostedEvents(0, QEvent::DeferredDelete);
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
         QTest::qSleep(10);
     }
 
     return spy.size();
+}
+
+void maybeInvokeSetupMethod(QObject *setupObject, const char *member, QGenericArgument val0 = QGenericArgument(nullptr))
+{
+    // It's OK if it doesn't exist: since we have more than one callback that
+    // can be called, it makes sense if the user only implements one of them.
+    // We do this the long way rather than just calling the static
+    // QMetaObject::invokeMethod(), because that will issue a warning if the
+    // function doesn't exist, which we don't want.
+    const QMetaObject *setupMetaObject = setupObject->metaObject();
+    const int methodIndex = setupMetaObject->indexOfMethod(member);
+    if (methodIndex != -1) {
+        const QMetaMethod method = setupMetaObject->method(methodIndex);
+        method.invoke(setupObject, val0);
+    }
 }
 
 using namespace QV4::CompiledData;
@@ -206,12 +223,16 @@ public:
 
     TestCaseCollector(const QFileInfo &fileInfo, QQmlEngine *engine)
     {
-        QQmlComponent component(engine, fileInfo.absoluteFilePath());
+        QString path = fileInfo.absoluteFilePath();
+        if (path.startsWith(QLatin1String(":/")))
+            path.prepend(QLatin1String("qrc"));
+
+        QQmlComponent component(engine, path);
         m_errors += component.errors();
 
         if (component.isReady()) {
-            CompilationUnit *rootCompilationUnit = QQmlComponentPrivate::get(&component)->compilationUnit;
-            TestCaseEnumerationResult result = enumerateTestCases(rootCompilationUnit);
+            QQmlRefPointer<CompilationUnit> rootCompilationUnit = QQmlComponentPrivate::get(&component)->compilationUnit;
+            TestCaseEnumerationResult result = enumerateTestCases(rootCompilationUnit.data());
             m_testCases = result.testCases + result.finalizedPartialTestCases();
             m_errors += result.errors;
         }
@@ -253,8 +274,8 @@ private:
     TestCaseEnumerationResult enumerateTestCases(CompilationUnit *compilationUnit, const Object *object = nullptr)
     {
         QQmlType testCaseType;
-        for (quint32 i = 0; i < compilationUnit->data->nImports; ++i) {
-            const Import *import = compilationUnit->data->importAt(i);
+        for (quint32 i = 0, count = compilationUnit->importCount(); i < count; ++i) {
+            const Import *import = compilationUnit->importAt(i);
             if (compilationUnit->stringAt(import->uriIndex) != QLatin1Literal("QtTest"))
                 continue;
 
@@ -273,7 +294,7 @@ private:
         if (!object) // Start at root of compilation unit if not enumerating a specific child
             object = compilationUnit->objectAt(0);
 
-        if (CompilationUnit *superTypeUnit = compilationUnit->resolvedTypes.value(object->inheritedTypeNameIndex)->compilationUnit) {
+        if (CompilationUnit *superTypeUnit = compilationUnit->resolvedTypes.value(object->inheritedTypeNameIndex)->compilationUnit.data()) {
             // We have a non-C++ super type, which could indicate we're a subtype of a TestCase
             if (testCaseType.isValid() && superTypeUnit->url() == testCaseType.sourceUrl())
                 result.isTestCase = true;
@@ -326,6 +347,11 @@ private:
 
 int quick_test_main(int argc, char **argv, const char *name, const char *sourceDir)
 {
+    return quick_test_main_with_setup(argc, argv, name, sourceDir, nullptr);
+}
+
+int quick_test_main_with_setup(int argc, char **argv, const char *name, const char *sourceDir, QObject *setup)
+{
     // Peek at arguments to check for '-widgets' argument
 #ifdef QT_QMLTEST_WITH_WIDGETS
     bool withWidgets = false;
@@ -337,7 +363,7 @@ int quick_test_main(int argc, char **argv, const char *name, const char *sourceD
     }
 #endif
 
-    QCoreApplication *app = 0;
+    QCoreApplication *app = nullptr;
     if (!QCoreApplication::instance()) {
 #ifdef QT_QMLTEST_WITH_WIDGETS
         if (withWidgets)
@@ -349,15 +375,20 @@ int quick_test_main(int argc, char **argv, const char *name, const char *sourceD
         }
     }
 
+    if (setup)
+        maybeInvokeSetupMethod(setup, "applicationAvailable()");
+
     // Look for QML-specific command-line options.
     //      -import dir         Specify an import directory.
     //      -plugins dir        Specify a directory where to search for plugins.
     //      -input dir          Specify the input directory for test cases.
     //      -translation file   Specify the translation file.
+    //      -file-selector      Specify a file selector
     QStringList imports;
     QStringList pluginPaths;
     QString testPath;
     QString translationFile;
+    QStringList fileSelectors;
     int index = 1;
     QScopedArrayPointer<char *> testArgV(new char *[argc + 1]);
     testArgV[0] = argv[0];
@@ -381,6 +412,9 @@ int quick_test_main(int argc, char **argv, const char *name, const char *sourceD
 #endif
         } else if (strcmp(argv[index], "-translation") == 0 && (index + 1) < argc) {
             translationFile = stripQuotes(QString::fromLocal8Bit(argv[index + 1]));
+            index += 2;
+        } else if (strcmp(argv[index], "-file-selector") == 0 && (index + 1) < argc) {
+            fileSelectors += stripQuotes(QString::fromLocal8Bit(argv[index + 1]));
             index += 2;
         } else {
             testArgV[testArgC++] = argv[index++];
@@ -406,7 +440,7 @@ int quick_test_main(int argc, char **argv, const char *name, const char *sourceD
     }
 #endif
 
-#ifdef Q_OS_ANDROID
+#if defined(Q_OS_ANDROID) || defined(Q_OS_WINRT)
     if (testPath.isEmpty())
         testPath = QLatin1String(":/");
 #endif
@@ -461,6 +495,9 @@ int quick_test_main(int argc, char **argv, const char *name, const char *sourceD
     // Register the test object
     qmlRegisterSingletonType<QTestRootObject>("Qt.test.qtestroot", 1, 0, "QTestRootObject", testRootObject);
 
+    QSet<QString> commandLineTestFunctions = QTest::testFunctions.toSet();
+    const bool filteringTestFunctions = !commandLineTestFunctions.isEmpty();
+
     // Scan through all of the "tst_*.qml" files and run each of them
     // in turn with a separate QQuickView (for test isolation).
     for (const QString &file : qAsConst(files)) {
@@ -473,6 +510,18 @@ int quick_test_main(int argc, char **argv, const char *name, const char *sourceD
             engine.addImportPath(path);
         for (const QString &path : qAsConst(pluginPaths))
             engine.addPluginPath(path);
+
+        if (!fileSelectors.isEmpty()) {
+            QQmlFileSelector* const qmlFileSelector = new QQmlFileSelector(&engine, &engine);
+            qmlFileSelector->setExtraSelectors(fileSelectors);
+        }
+
+        // Do this down here so that import paths, plugin paths, file selectors, etc. are available
+        // in case the user needs access to them. Do it _before_ the TestCaseCollector parses the
+        // QML files though, because it attempts to import modules, which might not be available
+        // if qmlRegisterType()/QQmlEngine::addImportPath() are called in qmlEngineAvailable().
+        if (setup)
+            maybeInvokeSetupMethod(setup, "qmlEngineAvailable(QQmlEngine*)", Q_ARG(QQmlEngine*, &engine));
 
         TestCaseCollector testCaseCollector(fi, &engine);
         if (!testCaseCollector.errors().isEmpty()) {
@@ -488,10 +537,10 @@ int quick_test_main(int argc, char **argv, const char *name, const char *sourceD
             continue;
         }
 
-        static const QSet<QString> commandLineTestFunctions = QTest::testFunctions.toSet();
-        if (!commandLineTestFunctions.isEmpty() &&
-            !availableTestFunctions.toSet().intersects(commandLineTestFunctions))
+        const QSet<QString> availableTestSet = availableTestFunctions.toSet();
+        if (filteringTestFunctions && !availableTestSet.intersects(commandLineTestFunctions))
             continue;
+        commandLineTestFunctions.subtract(availableTestSet);
 
         QQuickView view(&engine, nullptr);
         view.setFlags(Qt::Window | Qt::WindowSystemMenuHint
@@ -510,7 +559,7 @@ int quick_test_main(int argc, char **argv, const char *name, const char *sourceD
         QTestRootObject::instance()->init();
         QString path = fi.absoluteFilePath();
         if (path.startsWith(QLatin1String(":/")))
-            view.setSource(QUrl(QLatin1String("qrc:") + path.midRef(2)));
+            view.setSource(QUrl(QLatin1String("qrc:") + path.midRef(1)));
         else
             view.setSource(QUrl::fromLocalFile(path));
 
@@ -541,7 +590,10 @@ int quick_test_main(int argc, char **argv, const char *name, const char *sourceD
                     << "Test '" << QDir::toNativeSeparators(path) << "' window not active after requestActivate().";
             }
             if (view.isExposed()) {
-                QTestRootObject::instance()->setWindowShown(true);
+                // Defer property update until event loop has started
+                QTimer::singleShot(0, []() {
+                    QTestRootObject::instance()->setWindowShown(true);
+                });
             } else {
                 qWarning().nospace()
                     << "Test '" << QDir::toNativeSeparators(path) << "' window was never exposed! "
@@ -552,9 +604,20 @@ int quick_test_main(int argc, char **argv, const char *name, const char *sourceD
         }
     }
 
+    if (setup)
+        maybeInvokeSetupMethod(setup, "cleanupTestCase()");
+
     // Flush the current logging stream.
-    QuickTestResult::setProgramName(0);
+    QuickTestResult::setProgramName(nullptr);
     delete app;
+
+    // Check that all test functions passed on the command line were found
+    if (!commandLineTestFunctions.isEmpty()) {
+        qWarning() << "Could not find the following test functions:";
+        for (const QString &functionName : qAsConst(commandLineTestFunctions))
+            qWarning("    %s()", qUtf8Printable(functionName));
+        return commandLineTestFunctions.count();
+    }
 
     // Return the number of failures as the exit code.
     return QuickTestResult::exitCode();

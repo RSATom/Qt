@@ -8,6 +8,7 @@
 #ifndef SkPictureRecorder_DEFINED
 #define SkPictureRecorder_DEFINED
 
+#include "../private/SkNoncopyable.h"
 #include "SkBBHFactory.h"
 #include "SkPicture.h"
 #include "SkRefCnt.h"
@@ -48,11 +49,11 @@ public:
         @return the canvas.
     */
     SkCanvas* beginRecording(const SkRect& bounds,
-                             SkBBHFactory* bbhFactory = NULL,
+                             SkBBHFactory* bbhFactory = nullptr,
                              uint32_t recordFlags = 0);
 
     SkCanvas* beginRecording(SkScalar width, SkScalar height,
-                             SkBBHFactory* bbhFactory = NULL,
+                             SkBBHFactory* bbhFactory = nullptr,
                              uint32_t recordFlags = 0) {
         return this->beginRecording(SkRect::MakeWH(width, height), bbhFactory, recordFlags);
     }

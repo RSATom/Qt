@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2017 The Qt Company Ltd.
+** Copyright (C) 2019 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtQuick module of the Qt Toolkit.
@@ -55,8 +55,8 @@ int QQuickTapHandler::m_touchMultiTapDistanceSquared(-1);
     \qmltype TapHandler
     \instantiates QQuickTapHandler
     \inherits SinglePointHandler
-    \inqmlmodule Qt.labs.handlers
-    \ingroup qtquick-handlers
+    \inqmlmodule QtQuick
+    \ingroup qtquick-input-handlers
     \brief Handler for taps and clicks.
 
     TapHandler is a handler for taps on a touchscreen or clicks on a mouse.
@@ -65,7 +65,7 @@ int QQuickTapHandler::m_touchMultiTapDistanceSquared(-1);
     value is DragThreshold, which requires the press and release to be close
     together in both space and time.  In this case, DragHandler is able to
     function using only a passive grab, and therefore does not interfere with
-    event delivery to any other Items or Pointer Handlers.  So the default
+    event delivery to any other Items or Input Handlers.  So the default
     gesturePolicy is useful when you want to modify behavior of an existing
     control or Item by adding a TapHandler with bindings and/or JavaScript
     callbacks.
@@ -84,13 +84,8 @@ int QQuickTapHandler::m_touchMultiTapDistanceSquared(-1);
     \sa MouseArea
 */
 
-QQuickTapHandler::QQuickTapHandler(QObject *parent)
+QQuickTapHandler::QQuickTapHandler(QQuickItem *parent)
     : QQuickSinglePointHandler(parent)
-    , m_pressed(false)
-    , m_gesturePolicy(DragThreshold)
-    , m_tapCount(0)
-    , m_longPressThreshold(-1)
-    , m_lastTapTimestamp(0.0)
 {
     if (m_mouseMultiClickDistanceSquared < 0) {
         m_multiTapInterval = qApp->styleHints()->mouseDoubleClickInterval() / 1000.0;
@@ -103,11 +98,7 @@ QQuickTapHandler::QQuickTapHandler(QObject *parent)
     }
 }
 
-QQuickTapHandler::~QQuickTapHandler()
-{
-}
-
-static bool dragOverThreshold(QQuickEventPoint *point)
+static bool dragOverThreshold(const QQuickEventPoint *point)
 {
     QPointF delta = point->scenePosition() - point->scenePressPosition();
     return (QQuickWindowPrivate::dragOverThreshold(delta.x(), Qt::XAxis, point) ||
@@ -116,11 +107,20 @@ static bool dragOverThreshold(QQuickEventPoint *point)
 
 bool QQuickTapHandler::wantsEventPoint(QQuickEventPoint *point)
 {
+    if (!point->pointerEvent()->asPointerMouseEvent() &&
+            !point->pointerEvent()->asPointerTouchEvent() &&
+            !point->pointerEvent()->asPointerTabletEvent() )
+        return false;
     // If the user has not violated any constraint, it could be a tap.
     // Otherwise we want to give up the grab so that a competing handler
     // (e.g. DragHandler) gets a chance to take over.
     // Don't forget to emit released in case of a cancel.
     bool ret = false;
+    bool overThreshold = dragOverThreshold(point);
+    if (overThreshold) {
+        m_longPressTimer.stop();
+        m_holdTimer.invalidate();
+    }
     switch (point->state()) {
     case QQuickEventPoint::Pressed:
     case QQuickEventPoint::Released:
@@ -129,7 +129,7 @@ bool QQuickTapHandler::wantsEventPoint(QQuickEventPoint *point)
     case QQuickEventPoint::Updated:
         switch (m_gesturePolicy) {
         case DragThreshold:
-            ret = !dragOverThreshold(point);
+            ret = !overThreshold && parentContains(point);
             break;
         case WithinBounds:
             ret = parentContains(point);
@@ -171,7 +171,7 @@ void QQuickTapHandler::handleEventPoint(QQuickEventPoint *point)
 }
 
 /*!
-    \qmlproperty real TapHandler::longPressThreshold
+    \qmlproperty real QtQuick::TapHandler::longPressThreshold
 
     The time in seconds that an event point must be pressed in order to
     trigger a long press gesture and emit the \l longPressed() signal.
@@ -209,39 +209,40 @@ void QQuickTapHandler::timerEvent(QTimerEvent *event)
 }
 
 /*!
-    \qmlproperty enumeration TapHandler::gesturePolicy
+    \qmlproperty enumeration QtQuick::TapHandler::gesturePolicy
 
     The spatial constraint for a tap or long press gesture to be recognized,
     in addition to the constraint that the release must occur before
     \l longPressThreshold has elapsed. If these constraints are not satisfied,
     the \l tapped signal is not emitted, and \l tapCount is not incremented.
-    If the spatial constraint is violated, \l isPressed transitions immediately
+    If the spatial constraint is violated, \l pressed transitions immediately
     from true to false, regardless of the time held.
 
     \value TapHandler.DragThreshold
-           The event point must not move significantly. If the mouse, finger
-           or stylus moves past the system-wide drag threshold
-           (QStyleHints::startDragDistance), the tap gesture is canceled, even
-           if the button or finger is still pressed. This policy can be useful
-           whenever TapHandler needs to cooperate with other pointer handlers
-           (for example \l DragHandler), because in this case TapHandler will
-           never grab.
+           (the default value) The event point must not move significantly.
+           If the mouse, finger or stylus moves past the system-wide drag
+           threshold (QStyleHints::startDragDistance), the tap gesture is
+           canceled, even if the button or finger is still pressed. This policy
+           can be useful whenever TapHandler needs to cooperate with other
+           input handlers (for example \l DragHandler) or event-handling Items
+           (for example QtQuick Controls), because in this case TapHandler
+           will not take the exclusive grab, but merely a passive grab.
 
     \value TapHandler.WithinBounds
-           If the event point leaves the bounds of the \l target item, the tap
-           gesture is canceled. The TapHandler will grab on press, but release
-           the grab as soon as the boundary constraint is no longer satisfied.
+           If the event point leaves the bounds of the \c parent Item, the tap
+           gesture is canceled. The TapHandler will take the exclusive grab on
+           press, but will release the grab as soon as the boundary constraint
+           is no longer satisfied.
 
     \value TapHandler.ReleaseWithinBounds
-           (the default value) At the time of release (the mouse button is
-           released or the finger is lifted), if the event point is outside
-           the bounds of the \l target item, a tap gesture is not recognized.
-           This is the default value, because it corresponds to typical button
-           behavior: you can cancel a click by dragging outside the button,
-           and you can also change your mind by dragging back inside the button
-           before release. Note that it's necessary for TapHandler to grab on
-           press and retain it until release (greedy grab) in order to detect
-           this gesture.
+           At the time of release (the mouse button is released or the finger
+           is lifted), if the event point is outside the bounds of the
+           \c parent Item, a tap gesture is not recognized. This corresponds to
+           typical behavior for button widgets: you can cancel a click by
+           dragging outside the button, and you can also change your mind by
+           dragging back inside the button before release. Note that it's
+           necessary for TapHandler take the exclusive grab on press and retain
+           it until release in order to detect this gesture.
 */
 void QQuickTapHandler::setGesturePolicy(QQuickTapHandler::GesturePolicy gesturePolicy)
 {
@@ -253,7 +254,7 @@ void QQuickTapHandler::setGesturePolicy(QQuickTapHandler::GesturePolicy gestureP
 }
 
 /*!
-    \qmlproperty bool TapHandler::pressed
+    \qmlproperty bool QtQuick::TapHandler::pressed
     \readonly
 
     Holds true whenever the mouse or touch point is pressed,
@@ -294,8 +295,12 @@ void QQuickTapHandler::setPressed(bool press, bool cancel, QQuickEventPoint *poi
                 else
                     m_tapCount = 1;
                 qCDebug(lcTapHandler) << objectName() << "tapped" << m_tapCount << "times";
-                emit tapped();
+                emit tapped(point);
                 emit tapCountChanged();
+                if (m_tapCount == 1)
+                    emit singleTapped(point);
+                else if (m_tapCount == 2)
+                    emit doubleTapped(point);
                 m_lastTapTimestamp = ts;
                 m_lastTapPos = point->scenePosition();
             } else {
@@ -307,15 +312,21 @@ void QQuickTapHandler::setPressed(bool press, bool cancel, QQuickEventPoint *poi
             // on release, ungrab after emitting changed signals
             setExclusiveGrab(point, press);
         }
-        if (cancel)
+        if (cancel) {
             emit canceled(point);
+            setExclusiveGrab(point, false);
+            // In case there is a filtering parent (Flickable), we should not give up the passive grab,
+            // so that it can continue to filter future events.
+            reset();
+            emit pointChanged();
+        }
     }
 }
 
-void QQuickTapHandler::onGrabChanged(QQuickPointerHandler *grabber, QQuickEventPoint::GrabState stateChange, QQuickEventPoint *point)
+void QQuickTapHandler::onGrabChanged(QQuickPointerHandler *grabber, QQuickEventPoint::GrabTransition transition, QQuickEventPoint *point)
 {
-    QQuickSinglePointHandler::onGrabChanged(grabber, stateChange, point);
-    bool isCanceled = stateChange == QQuickEventPoint::CancelGrabExclusive || stateChange == QQuickEventPoint::CancelGrabPassive;
+    QQuickSinglePointHandler::onGrabChanged(grabber, transition, point);
+    bool isCanceled = transition == QQuickEventPoint::CancelGrabExclusive || transition == QQuickEventPoint::CancelGrabPassive;
     if (grabber == this && (isCanceled || point->state() == QQuickEventPoint::Released))
         setPressed(false, isCanceled, point);
 }
@@ -334,27 +345,27 @@ void QQuickTapHandler::updateTimeHeld()
 }
 
 /*!
-    \qmlproperty int TapHandler::tapCount
+    \qmlproperty int QtQuick::TapHandler::tapCount
     \readonly
 
     The number of taps which have occurred within the time and space
     constraints to be considered a single gesture.  For example, to detect
-    a double-tap, you can write:
+    a triple-tap, you can write:
 
     \qml
     Rectangle {
         width: 100; height: 30
-        signal doubleTap
+        signal tripleTap
         TapHandler {
             acceptedButtons: Qt.AllButtons
-            onTapped: if (tapCount == 2) doubleTap()
+            onTapped: if (tapCount == 3) tripleTap()
         }
     }
     \endqml
 */
 
 /*!
-    \qmlproperty real TapHandler::timeHeld
+    \qmlproperty real QtQuick::TapHandler::timeHeld
     \readonly
 
     The amount of time in seconds that a pressed point has been held, without
@@ -368,4 +379,53 @@ void QQuickTapHandler::updateTimeHeld()
     handler's \l [QML] Item.
 */
 
+/*!
+    \qmlsignal QtQuick::TapHandler::tapped
+
+    This signal is emitted each time the \c parent Item is tapped.
+
+    That is, if you press and release a touchpoint or button within a time
+    period less than \l longPressThreshold, while any movement does not exceed
+    the drag threshold, then the \c tapped signal will be emitted at the time
+    of release.
+*/
+
+/*!
+    \qmlsignal QtQuick::TapHandler::singleTapped
+    \since 5.11
+
+    This signal is emitted when the \c parent Item is tapped once.
+    After an amount of time greater than QStyleHints::mouseDoubleClickInterval,
+    it can be tapped again; but if the time until the next tap is less,
+    \l tapCount will increase.
+*/
+
+/*!
+    \qmlsignal QtQuick::TapHandler::doubleTapped
+    \since 5.11
+
+    This signal is emitted when the \c parent Item is tapped twice within a
+    short span of time (QStyleHints::mouseDoubleClickInterval) and distance
+    (QPlatformTheme::MouseDoubleClickDistance or
+    QPlatformTheme::TouchDoubleTapDistance). This signal always occurs after
+    \l singleTapped, \l tapped, and \l tapCountChanged.
+*/
+
+/*!
+    \qmlsignal QtQuick::TapHandler::longPressed
+
+    This signal is emitted when the \c parent Item is pressed and held for a
+    time period greater than \l longPressThreshold. That is, if you press and
+    hold a touchpoint or button, while any movement does not exceed the drag
+    threshold, then the \c longPressed signal will be emitted at the time that
+    \l timeHeld exceeds \l longPressThreshold.
+*/
+
+/*!
+    \qmlsignal QtQuick::TapHandler::tapCountChanged
+
+    This signal is emitted when the \c parent Item is tapped once or more (within
+    a specified time and distance span) and when the present \c tapCount differs
+    from the previous \c tapCount.
+*/
 QT_END_NAMESPACE

@@ -22,15 +22,20 @@ in freetype or fonts.  In this case, you can create a Lucid 64 chroot using
 
 ## Fonts
 
-Make sure you have all the necessary fonts installed.
+1.  Make sure you have all the dependencies installed by running
 
 ```shell
-sudo apt-get install apache2 wdiff php5-cgi ttf-indic-fonts \
-   msttcorefonts ttf-dejavu-core ttf-kochi-gothic ttf-kochi-mincho \
-   ttf-thai-tlwg
+build/install-build-deps.sh
 ```
 
-You can also just run `build/install-build-deps.sh` again.
+2.  Double check that
+
+```shell
+ls third_party/test_fonts/test_fonts/
+```
+
+is not empty and lists the fonts downloaded through the `test_fonts`
+hook in the top level `DEPS` file.
 
 ## Plugins
 

@@ -43,6 +43,7 @@
 #include <QtCore/qelapsedtimer.h>
 #include <QtCore/qmetatype.h>
 #include <QtCore/qnamespace.h>
+#include <QtCore/qpair.h>
 
 #ifdef max
 // un-pollute the namespace. We need std::numeric_limits::max() and std::chrono::duration::max()
@@ -120,7 +121,7 @@ public:
     QDeadlineTimer &operator-=(qint64 msecs)
     { *this = *this + (-msecs); return *this; }
 
-#if QT_HAS_INCLUDE(<chrono>) || defined(Q_QDOC)
+#if QT_HAS_INCLUDE(<chrono>) || defined(Q_CLANG_QDOC)
     template <class Clock, class Duration>
     QDeadlineTimer(std::chrono::time_point<Clock, Duration> deadline_,
                    Qt::TimerType type_ = Qt::CoarseTimer) : t2(0)
@@ -186,6 +187,10 @@ private:
     unsigned type;
 
     qint64 rawRemainingTimeNSecs() const Q_DECL_NOTHROW;
+
+public:
+    // This is not a public function, it's here only for Qt's internal convenience...
+    QPair<qint64, unsigned> _q_data() const { return qMakePair(t1, t2); }
 };
 
 Q_DECLARE_SHARED(QDeadlineTimer)

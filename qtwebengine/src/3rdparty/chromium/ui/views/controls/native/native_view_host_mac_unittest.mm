@@ -12,10 +12,18 @@
 #import "base/mac/scoped_nsobject.h"
 #include "base/macros.h"
 #import "testing/gtest_mac.h"
+#import "ui/base/cocoa/accessibility_hostable.h"
 #include "ui/views/controls/native/native_view_host.h"
 #include "ui/views/controls/native/native_view_host_test_base.h"
 #include "ui/views/view.h"
 #include "ui/views/widget/widget.h"
+
+@interface TestAccessibilityHostableView : NSView<AccessibilityHostable>
+@property(nonatomic, assign) id accessibilityParentElement;
+@end
+@implementation TestAccessibilityHostableView
+@synthesize accessibilityParentElement = accessibilityParentElement_;
+@end
 
 namespace views {
 
@@ -96,6 +104,41 @@ TEST_F(NativeViewHostMacTest, Attach) {
   // Expect the top-left to be 10 pixels below the titlebar.
   int bottom = toplevel()->GetClientAreaBoundsInScreen().height() - 10 - 60;
   EXPECT_NSEQ(NSMakeRect(10, bottom, 80, 60), [native_view_ frame]);
+
+  DestroyHost();
+}
+
+// Ensure the native view is integrated into the views accessibility
+// hierarchy if the native view conforms to the AccessibilityParent
+// protocol.
+TEST_F(NativeViewHostMacTest, AccessibilityParent) {
+  CreateHost();
+  host()->Detach();
+
+  base::scoped_nsobject<TestAccessibilityHostableView> view(
+      [[TestAccessibilityHostableView alloc] init]);
+  host()->Attach(view);
+  EXPECT_NSEQ([view accessibilityParentElement],
+              toplevel()->GetRootView()->GetNativeViewAccessible());
+
+  host()->Detach();
+  DestroyHost();
+  EXPECT_FALSE([view accessibilityParentElement]);
+}
+
+// Test that the content windows' bounds are set to the correct values while the
+// native size is equal or not equal to the View size.
+TEST_F(NativeViewHostMacTest, ContentViewPositionAndSize) {
+  CreateHost();
+  toplevel()->SetBounds(gfx::Rect(0, 0, 100, 100));
+
+  // TODO(amp): Update expect rect after Mac native size is implemented.
+  // For now the native size is ignored on mac.
+  native_host()->ShowWidget(5, 10, 100, 100, 200, 200);
+  EXPECT_NSEQ(NSMakeRect(5, -32, 100, 100), [native_view_ frame]);
+
+  native_host()->ShowWidget(10, 25, 50, 50, 50, 50);
+  EXPECT_NSEQ(NSMakeRect(10, 3, 50, 50), [native_view_ frame]);
 
   DestroyHost();
 }

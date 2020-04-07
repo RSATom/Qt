@@ -42,7 +42,6 @@
 #include "qplatformdefs.h"
 #include "qreadwritelock.h"
 
-#ifndef QT_NO_THREAD
 #include "qmutex.h"
 #include "qthread.h"
 #include "qwaitcondition.h"
@@ -623,14 +622,14 @@ QReadWriteLockPrivate *QReadWriteLockPrivate::allocate()
     QReadWriteLockPrivate *d = &(*freelist)[i];
     d->id = i;
     Q_ASSERT(!d->recursive);
-    Q_ASSERT(!d->waitingReaders && !d->waitingReaders && !d->readerCount && !d->writerCount);
+    Q_ASSERT(!d->waitingReaders && !d->waitingWriters && !d->readerCount && !d->writerCount);
     return d;
 }
 
 void QReadWriteLockPrivate::release()
 {
     Q_ASSERT(!recursive);
-    Q_ASSERT(!waitingReaders && !waitingReaders && !readerCount && !writerCount);
+    Q_ASSERT(!waitingReaders && !waitingWriters && !readerCount && !writerCount);
     freelist->release(id);
 }
 
@@ -781,5 +780,3 @@ void QReadWriteLockPrivate::release()
 */
 
 QT_END_NAMESPACE
-
-#endif // QT_NO_THREAD

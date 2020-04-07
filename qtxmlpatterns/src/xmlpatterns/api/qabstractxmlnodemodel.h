@@ -104,7 +104,7 @@ namespace QPatternist
         {
             data = 0;
             additionalData = 0;
-            model = Q_NULLPTR;
+            model = nullptr;
         }
     };
 }

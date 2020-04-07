@@ -86,45 +86,49 @@ Item {
         }
 
         function test_constructionPropertyOrder() {
+            // Minimum date needs to be at least 1921-05-01 due to date problems in < JS7 which
+            // causes problems with the Finnish timezone in CI. So use 1922 to avoid those
+            // causing an invalid failure
+
             // All values are valid; fine.
             rangedDate = Qt.createQmlObject(importsStr + " RangedDate { "
-                + "date: new Date(1900, 0, 2); "
-                + "minimumDate: new Date(1900, 0, 1); "
-                + "maximumDate: new Date(1900, 0, 3); "
+                + "date: new Date(1922, 0, 2); "
+                + "minimumDate: new Date(1922, 0, 1); "
+                + "maximumDate: new Date(1922, 0, 3); "
                 + " }", container, "");
-            compare(rangedDate.date.getTime(), new Date(1900, 0, 2).getTime());
-            compare(rangedDate.minimumDate.getTime(), new Date(1900, 0, 1).getTime());
-            compare(rangedDate.maximumDate.getTime(), new Date(1900, 0, 3).getTime());
+            compare(rangedDate.date.getTime(), new Date(1922, 0, 2).getTime());
+            compare(rangedDate.minimumDate.getTime(), new Date(1922, 0, 1).getTime());
+            compare(rangedDate.maximumDate.getTime(), new Date(1922, 0, 3, 23, 59, 59, 999).getTime());
 
             // All values are the same; doesn't make sense, but is fine [1].
             rangedDate = Qt.createQmlObject(importsStr + " RangedDate { "
-                + "date: new Date(1900, 0, 1);"
-                + "minimumDate: new Date(1900, 0, 1);"
-                + "maximumDate: new Date(1900, 0, 1);"
+                + "date: new Date(1922, 0, 1);"
+                + "minimumDate: new Date(1922, 0, 1);"
+                + "maximumDate: new Date(1922, 0, 1);"
                 + " }", container, "");
-            compare(rangedDate.date.getTime(), new Date(1900, 0, 1).getTime());
-            compare(rangedDate.minimumDate.getTime(), new Date(1900, 0, 1).getTime());
-            compare(rangedDate.maximumDate.getTime(), new Date(1900, 0, 1).getTime());
+            compare(rangedDate.date.getTime(), new Date(1922, 0, 1).getTime());
+            compare(rangedDate.minimumDate.getTime(), new Date(1922, 0, 1).getTime());
+            compare(rangedDate.maximumDate.getTime(), new Date(1922, 0, 1, 23, 59, 59, 999).getTime());
 
             // date is lower than min - should be clamped to min.
             rangedDate = Qt.createQmlObject(importsStr + " RangedDate { "
                 + "date: new Date(1899, 0, 1);"
-                + "minimumDate: new Date(1900, 0, 1);"
-                + "maximumDate: new Date(1900, 0, 1);"
+                + "minimumDate: new Date(1922, 0, 1);"
+                + "maximumDate: new Date(1922, 0, 1);"
                 + " }", container, "");
-            compare(rangedDate.date.getTime(), new Date(1900, 0, 1).getTime());
-            compare(rangedDate.minimumDate.getTime(), new Date(1900, 0, 1).getTime());
-            compare(rangedDate.maximumDate.getTime(), new Date(1900, 0, 1).getTime());
+            compare(rangedDate.date.getTime(), new Date(1922, 0, 1).getTime());
+            compare(rangedDate.minimumDate.getTime(), new Date(1922, 0, 1).getTime());
+            compare(rangedDate.maximumDate.getTime(), new Date(1922, 0, 1, 23, 59, 59, 999).getTime());
 
             // date is higher than max - should be clamped to max.
             rangedDate = Qt.createQmlObject(importsStr + " RangedDate { "
-                + "date: new Date(1900, 0, 2);"
-                + "minimumDate: new Date(1900, 0, 1);"
-                + "maximumDate: new Date(1900, 0, 1);"
+                + "date: new Date(1922, 0, 2);"
+                + "minimumDate: new Date(1922, 0, 1);"
+                + "maximumDate: new Date(1922, 0, 1);"
                 + " }", container, "");
-            compare(rangedDate.date.getTime(), new Date(1900, 0, 1).getTime());
-            compare(rangedDate.minimumDate.getTime(), new Date(1900, 0, 1).getTime());
-            compare(rangedDate.maximumDate.getTime(), new Date(1900, 0, 1).getTime());
+            compare(rangedDate.date.getTime(), new Date(1922, 0, 1, 23, 59, 59, 999).getTime());
+            compare(rangedDate.minimumDate.getTime(), new Date(1922, 0, 1).getTime());
+            compare(rangedDate.maximumDate.getTime(), new Date(1922, 0, 1, 23, 59, 59, 999).getTime());
 
             // If the order of property construction is undefined (as it should be if it's declarative),
             // then is min considered higher than max or max lower than min? Which should be changed?
@@ -132,13 +136,13 @@ Item {
             // For now, max will always be the one that's changed. It will be set to min,
             // as min may already be the largest possible date (See [1]).
             rangedDate = Qt.createQmlObject(importsStr + " RangedDate { "
-                + "date: new Date(1900, 0, 1);"
-                + "minimumDate: new Date(1900, 0, 2);"
-                + "maximumDate: new Date(1900, 0, 1);"
+                + "date: new Date(1922, 0, 1);"
+                + "minimumDate: new Date(1922, 0, 2);"
+                + "maximumDate: new Date(1922, 0, 1);"
                 + " }", container, "");
-            compare(rangedDate.date.getTime(), new Date(1900, 0, 2).getTime());
-            compare(rangedDate.minimumDate.getTime(), new Date(1900, 0, 2).getTime());
-            compare(rangedDate.maximumDate.getTime(), new Date(1900, 0, 2).getTime());
+            compare(rangedDate.date.getTime(), new Date(1922, 0, 2).getTime());
+            compare(rangedDate.minimumDate.getTime(), new Date(1922, 0, 2).getTime());
+            compare(rangedDate.maximumDate.getTime(), new Date(1922, 0, 2, 23, 59, 59, 999).getTime());
 
             // [1] Do we want to enforce min and max being different? E.g. if min
             // is (1900, 0, 1) and max is (1900, 0, 1), max should be set (1900, 0, 2).
@@ -159,7 +163,7 @@ Item {
             rangedDate.minimumDate = new Date(1990, 0, 1);
             compare(rangedDate.minimumDate.getTime(), new Date(1990, 0, 1).getTime());
             rangedDate.maximumDate = new Date(1999, 0, 1);
-            compare(rangedDate.maximumDate.getTime(), new Date(1999, 0, 1).getTime());
+            compare(rangedDate.maximumDate.getTime(), new Date(1999, 0, 1, 23, 59, 59, 999).getTime());
 
             //    MIN   DATE    MAX
             // [ 1996 | 1996 | 1999 ]

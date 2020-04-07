@@ -5,6 +5,7 @@
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
 #include "core/fpdfapi/parser/cpdf_boolean.h"
+#include "core/fxcrt/fx_stream.h"
 #include "third_party/base/ptr_util.h"
 
 CPDF_Boolean::CPDF_Boolean() : m_bValue(false) {}
@@ -21,7 +22,7 @@ std::unique_ptr<CPDF_Object> CPDF_Boolean::Clone() const {
   return pdfium::MakeUnique<CPDF_Boolean>(m_bValue);
 }
 
-CFX_ByteString CPDF_Boolean::GetString() const {
+ByteString CPDF_Boolean::GetString() const {
   return m_bValue ? "true" : "false";
 }
 
@@ -29,7 +30,7 @@ int CPDF_Boolean::GetInteger() const {
   return m_bValue;
 }
 
-void CPDF_Boolean::SetString(const CFX_ByteString& str) {
+void CPDF_Boolean::SetString(const ByteString& str) {
   m_bValue = (str == "true");
 }
 
@@ -47,5 +48,5 @@ const CPDF_Boolean* CPDF_Boolean::AsBoolean() const {
 
 bool CPDF_Boolean::WriteTo(IFX_ArchiveStream* archive) const {
   return archive->WriteString(" ") &&
-         archive->WriteString(GetString().AsStringC());
+         archive->WriteString(GetString().AsStringView());
 }

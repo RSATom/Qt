@@ -73,6 +73,34 @@ Notepad::Notepad(QWidget *parent) :
 {
     ui->setupUi(this);
     this->setCentralWidget(ui->textEdit);
+
+    connect(ui->actionNew, &QAction::triggered, this, &Notepad::newDocument);
+    connect(ui->actionOpen, &QAction::triggered, this, &Notepad::open);
+    connect(ui->actionSave, &QAction::triggered, this, &Notepad::save);
+    connect(ui->actionSave_as, &QAction::triggered, this, &Notepad::saveAs);
+    connect(ui->actionPrint, &QAction::triggered, this, &Notepad::print);
+    connect(ui->actionExit, &QAction::triggered, this, &Notepad::exit);
+    connect(ui->actionCopy, &QAction::triggered, this, &Notepad::copy);
+    connect(ui->actionCut, &QAction::triggered, this, &Notepad::cut);
+    connect(ui->actionPaste, &QAction::triggered, this, &Notepad::paste);
+    connect(ui->actionUndo, &QAction::triggered, this, &Notepad::undo);
+    connect(ui->actionRedo, &QAction::triggered, this, &Notepad::redo);
+    connect(ui->actionFont, &QAction::triggered, this, &Notepad::selectFont);
+    connect(ui->actionBold, &QAction::triggered, this, &Notepad::setFontBold);
+    connect(ui->actionUnderline, &QAction::triggered, this, &Notepad::setFontUnderline);
+    connect(ui->actionItalic, &QAction::triggered, this, &Notepad::setFontItalic);
+    connect(ui->actionAbout, &QAction::triggered, this, &Notepad::about);
+
+// Disable menu actions for unavailable features
+#if !QT_CONFIG(printer)
+    ui->actionPrint->setEnabled(false);
+#endif
+
+#if !QT_CONFIG(clipboard)
+    ui->actionCut->setEnabled(false);
+    ui->actionCopy->setEnabled(false);
+    ui->actionPaste->setEnabled(false);
+#endif
 }
 
 Notepad::~Notepad()
@@ -80,13 +108,13 @@ Notepad::~Notepad()
     delete ui;
 }
 
-void Notepad::on_actionNew_triggered()
+void Notepad::newDocument()
 {
     currentFile.clear();
     ui->textEdit->setText(QString());
 }
 
-void Notepad::on_actionOpen_triggered()
+void Notepad::open()
 {
     QString fileName = QFileDialog::getOpenFileName(this, "Open the file");
     QFile file(fileName);
@@ -102,7 +130,7 @@ void Notepad::on_actionOpen_triggered()
     file.close();
 }
 
-void Notepad::on_actionSave_triggered()
+void Notepad::save()
 {
     QString fileName;
     // If we don't have a filename from before, get one.
@@ -124,7 +152,7 @@ void Notepad::on_actionSave_triggered()
     file.close();
 }
 
-void Notepad::on_actionSave_as_triggered()
+void Notepad::saveAs()
 {
     QString fileName = QFileDialog::getSaveFileName(this, "Save as");
     QFile file(fileName);
@@ -141,7 +169,7 @@ void Notepad::on_actionSave_as_triggered()
     file.close();
 }
 
-void Notepad::on_actionPrint_triggered()
+void Notepad::print()
 {
 #if QT_CONFIG(printer)
     QPrinter printDev;
@@ -154,40 +182,70 @@ void Notepad::on_actionPrint_triggered()
 #endif // QT_CONFIG(printer)
 }
 
-void Notepad::on_actionExit_triggered()
+void Notepad::exit()
 {
     QCoreApplication::quit();
 }
 
-void Notepad::on_actionCopy_triggered()
+void Notepad::copy()
 {
+#if QT_CONFIG(clipboard)
     ui->textEdit->copy();
+#endif
 }
 
-void Notepad::on_actionCut_triggered()
+void Notepad::cut()
 {
+#if QT_CONFIG(clipboard)
     ui->textEdit->cut();
+#endif
 }
 
-void Notepad::on_actionPaste_triggered()
+void Notepad::paste()
 {
+#if QT_CONFIG(clipboard)
     ui->textEdit->paste();
+#endif
 }
 
-void Notepad::on_actionUndo_triggered()
+void Notepad::undo()
 {
      ui->textEdit->undo();
 }
 
-void Notepad::on_actionRedo_triggered()
+void Notepad::redo()
 {
     ui->textEdit->redo();
 }
 
-void Notepad::on_actionFont_triggered()
+void Notepad::selectFont()
 {
     bool fontSelected;
     QFont font = QFontDialog::getFont(&fontSelected, this);
     if (fontSelected)
         ui->textEdit->setFont(font);
+}
+
+void Notepad::setFontUnderline(bool underline)
+{
+    ui->textEdit->setFontUnderline(underline);
+}
+
+void Notepad::setFontItalic(bool italic)
+{
+    ui->textEdit->setFontItalic(italic);
+}
+
+void Notepad::setFontBold(bool bold)
+{
+    bold ? ui->textEdit->setFontWeight(QFont::Bold) :
+           ui->textEdit->setFontWeight(QFont::Normal);
+}
+
+void Notepad::about()
+{
+   QMessageBox::about(this, tr("About MDI"),
+                tr("The <b>Notepad</b> example demonstrates how to code a basic "
+                   "text editor using QtWidgets"));
+
 }

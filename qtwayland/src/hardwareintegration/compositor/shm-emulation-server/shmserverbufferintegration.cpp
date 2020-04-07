@@ -70,7 +70,7 @@ ShmServerBuffer::ShmServerBuffer(ShmServerBufferIntegration *integration, const 
 
     QString key = "qt_shm_emulation_" + QString::number(qimage.cacheKey());
     m_shm = new QSharedMemory(key);
-    int shm_size = qimage.byteCount();
+    qsizetype shm_size = qimage.sizeInBytes();
     bool ok = m_shm->create(shm_size) && m_shm->lock();
     if (ok) {
         memcpy(m_shm->data(), qimage.constBits(), shm_size);
@@ -102,6 +102,10 @@ struct ::wl_resource *ShmServerBuffer::resourceForClient(struct ::wl_client *cli
     return bufferResource->handle;
 }
 
+bool ShmServerBuffer::bufferInUse()
+{
+    return resourceMap().count() > 0;
+}
 
 QOpenGLTexture *ShmServerBuffer::toOpenGlTexture()
 {

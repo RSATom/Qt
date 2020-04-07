@@ -12,6 +12,12 @@ cr.define('settings', function() {
     registerChromeCleanerObserver() {}
 
     /**
+     * Starts scanning the user's computer.
+     * @param {boolean} logsUploadEnabled
+     */
+    startScanning(logsUploadEnabled) {}
+
+    /**
      * Starts a cleanup on the user's computer.
      * @param {boolean} logsUploadEnabled
      */
@@ -23,15 +29,37 @@ cr.define('settings', function() {
     restartComputer() {}
 
     /**
-     * Hides the Cleanup page from the settings menu.
-     */
-    dismissCleanupPage() {}
-
-    /**
      * Updates the cleanup logs upload permission status.
      * @param {boolean} enabled
      */
     setLogsUploadPermission(enabled) {}
+
+    /**
+     * Notifies Chrome that the state of the details section changed.
+     * @param {boolean} enabled
+     */
+    notifyShowDetails(enabled) {}
+
+    /**
+     * Notifies Chrome that the "learn more" link was clicked.
+     */
+    notifyLearnMoreClicked() {}
+
+    /**
+     * Requests the plural string for the "show more" link in the detailed
+     * view for either files to delete or registry keys.
+     * @param {number} numHiddenItems
+     * @return {!Promise<string>}
+     */
+    getMoreItemsPluralString(numHiddenItems) {}
+
+    /**
+     * Requests the plural string for the "items to remove" link in the detailed
+     * view.
+     * @param {number} numItems
+     * @return {!Promise<string>}
+     */
+    getItemsToRemovePluralString(numItems) {}
   }
 
   /**
@@ -41,6 +69,11 @@ cr.define('settings', function() {
     /** @override */
     registerChromeCleanerObserver() {
       chrome.send('registerChromeCleanerObserver');
+    }
+
+    /** @override */
+    startScanning(logsUploadEnabled) {
+      chrome.send('startScanning', [logsUploadEnabled]);
     }
 
     /** @override */
@@ -54,13 +87,28 @@ cr.define('settings', function() {
     }
 
     /** @override */
-    dismissCleanupPage() {
-      chrome.send('dismissCleanupPage');
+    setLogsUploadPermission(enabled) {
+      chrome.send('setLogsUploadPermission', [enabled]);
     }
 
     /** @override */
-    setLogsUploadPermission(enabled) {
-      chrome.send('setLogsUploadPermission', [enabled]);
+    notifyShowDetails(enabled) {
+      chrome.send('notifyShowDetails', [enabled]);
+    }
+
+    /** @override */
+    notifyLearnMoreClicked() {
+      chrome.send('notifyChromeCleanupLearnMoreClicked');
+    }
+
+    /** @override */
+    getMoreItemsPluralString(numHiddenItems) {
+      return cr.sendWithPromise('getMoreItemsPluralString', numHiddenItems);
+    }
+
+    /** @override */
+    getItemsToRemovePluralString(numItems) {
+      return cr.sendWithPromise('getItemsToRemovePluralString', numItems);
     }
   }
 

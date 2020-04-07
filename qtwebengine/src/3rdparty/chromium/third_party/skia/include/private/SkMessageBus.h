@@ -8,21 +8,28 @@
 #ifndef SkMessageBus_DEFINED
 #define SkMessageBus_DEFINED
 
+#include "../private/SkNoncopyable.h"
 #include "SkMutex.h"
 #include "SkOnce.h"
 #include "SkTArray.h"
 #include "SkTDArray.h"
 #include "SkTypes.h"
 
+/**
+ * Message must implement bool Message::shouldSend(uint32_t inboxID) const. Perhaps someday we
+ * can use std::experimental::is_detected to avoid this requirement by sending to all inboxes when
+ * the method is not detected on Message.
+ */
 template <typename Message>
 class SkMessageBus : SkNoncopyable {
 public:
-    // Post a message to be received by all Inboxes for this Message type.  Threadsafe.
+    // Post a message to be received by Inboxes for this Message type. Checks
+    // Message::shouldSend() for each inbox. Threadsafe.
     static void Post(const Message& m);
 
     class Inbox {
     public:
-        Inbox();
+        Inbox(uint32_t uniqueID = SK_InvalidUniqueID);
         ~Inbox();
 
         // Overwrite out with all the messages we've received since the last call.  Threadsafe.
@@ -31,6 +38,7 @@ public:
     private:
         SkTArray<Message>  fMessages;
         SkMutex            fMessagesMutex;
+        uint32_t           fUniqueID;
 
         friend class SkMessageBus;
         void receive(const Message& m);  // SkMessageBus is a friend only to call this.
@@ -58,7 +66,7 @@ private:
 //   ----------------------- Implementation of SkMessageBus::Inbox -----------------------
 
 template<typename Message>
-SkMessageBus<Message>::Inbox::Inbox() {
+SkMessageBus<Message>::Inbox::Inbox(uint32_t uniqueID) : fUniqueID(uniqueID) {
     // Register ourselves with the corresponding message bus.
     SkMessageBus<Message>* bus = SkMessageBus<Message>::Get();
     SkAutoMutexAcquire lock(bus->fInboxesMutex);
@@ -90,7 +98,7 @@ void SkMessageBus<Message>::Inbox::poll(SkTArray<Message>* messages) {
     SkASSERT(messages);
     messages->reset();
     SkAutoMutexAcquire lock(fMessagesMutex);
-    fMessages.swap(messages);
+    fMessages.swap(*messages);
 }
 
 //   ----------------------- Implementation of SkMessageBus -----------------------
@@ -103,7 +111,9 @@ template <typename Message>
     SkMessageBus<Message>* bus = SkMessageBus<Message>::Get();
     SkAutoMutexAcquire lock(bus->fInboxesMutex);
     for (int i = 0; i < bus->fInboxes.count(); i++) {
-        bus->fInboxes[i]->receive(m);
+        if (m.shouldSend(bus->fInboxes[i]->fUniqueID)) {
+            bus->fInboxes[i]->receive(m);
+        }
     }
 }
 

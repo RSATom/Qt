@@ -11,6 +11,7 @@
 #include "base/rand_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task_runner.h"
+#include "base/task_scheduler/post_task.h"
 #include "content/public/common/content_switches.h"
 #include "content/renderer/pepper/pepper_plugin_instance_impl.h"
 #include "content/renderer/pepper/plugin_module.h"
@@ -18,11 +19,11 @@
 #include "ppapi/shared_impl/api_id.h"
 #include "ppapi/shared_impl/id_assignment.h"
 #include "ppapi/shared_impl/proxy_lock.h"
-#include "third_party/WebKit/public/platform/WebString.h"
-#include "third_party/WebKit/public/web/WebConsoleMessage.h"
-#include "third_party/WebKit/public/web/WebDocument.h"
-#include "third_party/WebKit/public/web/WebLocalFrame.h"
-#include "third_party/WebKit/public/web/WebPluginContainer.h"
+#include "third_party/blink/public/platform/web_string.h"
+#include "third_party/blink/public/web/web_console_message.h"
+#include "third_party/blink/public/web/web_document.h"
+#include "third_party/blink/public/web/web_local_frame.h"
+#include "third_party/blink/public/web/web_plugin_container.h"
 
 using ppapi::CheckIdType;
 using ppapi::MakeTypedId;
@@ -81,7 +82,7 @@ WebConsoleMessage MakeLogMessage(PP_LogLevel level,
 
 }  // namespace
 
-HostGlobals* HostGlobals::host_globals_ = NULL;
+HostGlobals* HostGlobals::host_globals_ = nullptr;
 
 HostGlobals::HostGlobals()
     : ppapi::PpapiGlobals(),
@@ -95,7 +96,7 @@ HostGlobals::HostGlobals()
 
 HostGlobals::~HostGlobals() {
   DCHECK(host_globals_ == this || !host_globals_);
-  host_globals_ = NULL;
+  host_globals_ = nullptr;
 }
 
 ppapi::ResourceTracker* HostGlobals::GetResourceTracker() {
@@ -108,7 +109,7 @@ ppapi::CallbackTracker* HostGlobals::GetCallbackTrackerForInstance(
     PP_Instance instance) {
   InstanceMap::iterator found = instance_map_.find(instance);
   if (found == instance_map_.end())
-    return NULL;
+    return nullptr;
   return found->second->module()->GetCallbackTracker().get();
 }
 
@@ -122,7 +123,7 @@ ppapi::thunk::ResourceCreationAPI* HostGlobals::GetResourceCreationAPI(
     PP_Instance pp_instance) {
   PepperPluginInstanceImpl* instance = GetInstance(pp_instance);
   if (!instance)
-    return NULL;
+    return nullptr;
   return &instance->resource_creation();
 }
 
@@ -190,10 +191,14 @@ void HostGlobals::BroadcastLogWithSource(PP_Module pp_module,
 }
 
 base::TaskRunner* HostGlobals::GetFileTaskRunner() {
-  return RenderThreadImpl::current()->GetFileThreadTaskRunner().get();
+  if (!file_task_runner_)
+    file_task_runner_ = base::CreateTaskRunnerWithTraits({base::MayBlock()});
+  return file_task_runner_.get();
 }
 
-ppapi::MessageLoopShared* HostGlobals::GetCurrentMessageLoop() { return NULL; }
+ppapi::MessageLoopShared* HostGlobals::GetCurrentMessageLoop() {
+  return nullptr;
+}
 
 PP_Module HostGlobals::AddModule(PluginModule* module) {
 #ifndef NDEBUG
@@ -230,7 +235,7 @@ PluginModule* HostGlobals::GetModule(PP_Module module) {
       << module << " is not a PP_Module.";
   ModuleMap::iterator found = module_map_.find(module);
   if (found == module_map_.end())
-    return NULL;
+    return nullptr;
   return found->second;
 }
 
@@ -271,7 +276,7 @@ PepperPluginInstanceImpl* HostGlobals::GetInstance(PP_Instance instance) {
       << instance << " is not a PP_Instance.";
   InstanceMap::iterator found = instance_map_.find(instance);
   if (found == instance_map_.end())
-    return NULL;
+    return nullptr;
   return found->second;
 }
 

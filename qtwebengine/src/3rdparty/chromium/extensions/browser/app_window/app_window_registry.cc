@@ -32,8 +32,7 @@ void AppWindowRegistry::Observer::OnAppWindowHidden(AppWindow* app_window) {
 }
 
 void AppWindowRegistry::Observer::OnAppWindowShown(AppWindow* app_window,
-                                                   bool was_shown) {
-}
+                                                   bool was_hidden) {}
 
 void AppWindowRegistry::Observer::OnAppWindowActivated(AppWindow* app_window) {
 }
@@ -88,6 +87,10 @@ void AppWindowRegistry::RemoveAppWindow(AppWindow* app_window) {
 
 void AppWindowRegistry::AddObserver(Observer* observer) {
   observers_.AddObserver(observer);
+}
+
+bool AppWindowRegistry::HasObserver(const Observer* observer) const {
+  return observers_.HasObserver(observer);
 }
 
 void AppWindowRegistry::RemoveObserver(Observer* observer) {

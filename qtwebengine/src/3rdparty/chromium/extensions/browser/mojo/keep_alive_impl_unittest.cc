@@ -8,7 +8,6 @@
 
 #include "base/macros.h"
 #include "base/run_loop.h"
-#include "content/public/test/test_browser_thread_bundle.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extensions_test.h"
 #include "extensions/browser/process_manager.h"
@@ -18,8 +17,7 @@ namespace extensions {
 
 class KeepAliveTest : public ExtensionsTest {
  public:
-  KeepAliveTest()
-      : ExtensionsTest(base::MakeUnique<content::TestBrowserThreadBundle>()) {}
+  KeepAliveTest() {}
   ~KeepAliveTest() override {}
 
   void SetUp() override {
@@ -52,9 +50,9 @@ class KeepAliveTest : public ExtensionsTest {
     }
   }
 
-  void CreateKeepAlive(mojo::InterfaceRequest<KeepAlive> request) {
+  void CreateKeepAlive(KeepAliveRequest request) {
     KeepAliveImpl::Create(browser_context(), extension_.get(),
-                          std::move(request));
+                          std::move(request), nullptr);
   }
 
   const Extension* extension() { return extension_.get(); }

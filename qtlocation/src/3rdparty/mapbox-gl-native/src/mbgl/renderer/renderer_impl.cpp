@@ -14,6 +14,8 @@
 #include <mbgl/renderer/layers/render_background_layer.hpp>
 #include <mbgl/renderer/layers/render_custom_layer.hpp>
 #include <mbgl/renderer/layers/render_fill_extrusion_layer.hpp>
+#include <mbgl/renderer/layers/render_heatmap_layer.hpp>
+#include <mbgl/renderer/layers/render_hillshade_layer.hpp>
 #include <mbgl/renderer/style_diff.hpp>
 #include <mbgl/renderer/query.hpp>
 #include <mbgl/renderer/backend_scope.hpp>
@@ -42,7 +44,8 @@ Renderer::Impl::Impl(RendererBackend& backend_,
                      FileSource& fileSource_,
                      Scheduler& scheduler_,
                      GLContextMode contextMode_,
-                     const optional<std::string> programCacheDir_)
+                     const optional<std::string> programCacheDir_,
+                     const optional<std::string> localFontFamily_)
     : backend(backend_)
     , scheduler(scheduler_)
     , fileSource(fileSource_)
@@ -50,7 +53,7 @@ Renderer::Impl::Impl(RendererBackend& backend_,
     , contextMode(contextMode_)
     , pixelRatio(pixelRatio_)
     , programCacheDir(programCacheDir_)
-    , glyphManager(std::make_unique<GlyphManager>(fileSource))
+    , glyphManager(std::make_unique<GlyphManager>(fileSource, std::make_unique<LocalGlyphRasterizer>(localFontFamily_)))
     , imageManager(std::make_unique<ImageManager>())
     , lineAtlas(std::make_unique<LineAtlas>(Size{ 256, 512 }))
     , imageImpls(makeMutable<std::vector<Immutable<style::Image::Impl>>>())
@@ -82,11 +85,6 @@ void Renderer::Impl::setObserver(RendererObserver* observer_) {
 
 void Renderer::Impl::render(const UpdateParameters& updateParameters) {
     if (updateParameters.mode != MapMode::Continuous) {
-        // Don't load/render anyting in still mode until explicitly requested.
-        if (!updateParameters.stillImageRequest) {
-            return;
-        }
-
         // Reset zoom history state.
         zoomHistory.first = true;
     }
@@ -183,6 +181,10 @@ void Renderer::Impl::render(const UpdateParameters& updateParameters) {
 
         if (layerAdded || layerChanged) {
             layer.transition(transitionParameters);
+
+            if (layer.is<RenderHeatmapLayer>()) {
+                layer.as<RenderHeatmapLayer>()->updateColorRamp();
+            }
         }
 
         if (layerAdded || layerChanged || zoomChanged || layer.hasTransition()) {
@@ -288,7 +290,11 @@ void Renderer::Impl::render(const UpdateParameters& updateParameters) {
         RenderLayer* layer = getRenderLayer(layerImpl->id);
         assert(layer);
 
-        if (!parameters.staticData.has3D && layer->is<RenderFillExtrusionLayer>()) {
+        if (!parameters.staticData.has3D && (
+                layer->is<RenderFillExtrusionLayer>() ||
+                layer->is<RenderHillshadeLayer>() ||
+                layer->is<RenderHeatmapLayer>())) {
+
             parameters.staticData.has3D = true;
         }
 
@@ -374,25 +380,27 @@ void Renderer::Impl::render(const UpdateParameters& updateParameters) {
     }
     for (auto it = order.rbegin(); it != order.rend(); ++it) {
         if (it->layer.is<RenderSymbolLayer>()) {
-            if (crossTileSymbolIndex.addLayer(*it->layer.as<RenderSymbolLayer>())) symbolBucketsChanged = true;
+            const float lng = parameters.state.getLatLng().longitude();
+            if (crossTileSymbolIndex.addLayer(*it->layer.as<RenderSymbolLayer>(), lng)) symbolBucketsChanged = true;
         }
     }
 
     bool placementChanged = false;
     if (!placement->stillRecent(parameters.timePoint)) {
+        placementChanged = true;
+
         auto newPlacement = std::make_unique<Placement>(parameters.state, parameters.mapMode);
+        std::set<std::string> usedSymbolLayers;
         for (auto it = order.rbegin(); it != order.rend(); ++it) {
             if (it->layer.is<RenderSymbolLayer>()) {
+                usedSymbolLayers.insert(it->layer.getID());
                 newPlacement->placeLayer(*it->layer.as<RenderSymbolLayer>(), parameters.projMatrix, parameters.debugOptions & MapDebugOptions::Collision);
             }
         }
 
-        placementChanged = newPlacement->commit(*placement, parameters.timePoint);
-        if (placementChanged || symbolBucketsChanged) {
-            placement = std::move(newPlacement);
-        }
-
-        placement->setRecent(parameters.timePoint);
+        newPlacement->commit(*placement, parameters.timePoint);
+        crossTileSymbolIndex.pruneUnusedLayers(usedSymbolLayers);
+        placement = std::move(newPlacement);
         
         updateFadingTiles();
     } else {
@@ -473,11 +481,13 @@ void Renderer::Impl::render(const UpdateParameters& updateParameters) {
     {
         MBGL_DEBUG_GROUP(parameters.context, "clipping masks");
 
-        static const style::FillPaintProperties::PossiblyEvaluated properties {};
-        static const FillProgram::PaintPropertyBinders paintAttibuteData(properties, 0);
+        static const Properties<>::PossiblyEvaluated properties {};
+        static const ClippingMaskProgram::PaintPropertyBinders paintAttributeData(properties, 0);
 
         for (const auto& clipID : parameters.clipIDGenerator.getClipIDs()) {
-            parameters.staticData.programs.fill.get(properties).draw(
+            auto& program = parameters.staticData.programs.clippingMask;
+
+            program.draw(
                 parameters.context,
                 gl::Triangles(),
                 gl::DepthMode::disabled(),
@@ -490,16 +500,21 @@ void Renderer::Impl::render(const UpdateParameters& updateParameters) {
                     gl::StencilMode::Replace
                 },
                 gl::ColorMode::disabled(),
-                FillProgram::UniformValues {
-                    uniforms::u_matrix::Value{ parameters.matrixForTile(clipID.first) },
-                    uniforms::u_world::Value{ parameters.context.viewport.getCurrentValue().size },
-                },
-                parameters.staticData.tileVertexBuffer,
                 parameters.staticData.quadTriangleIndexBuffer,
                 parameters.staticData.tileTriangleSegments,
-                paintAttibuteData,
-                properties,
-                parameters.state.getZoom(),
+                program.computeAllUniformValues(
+                    ClippingMaskProgram::UniformValues {
+                        uniforms::u_matrix::Value{ parameters.matrixForTile(clipID.first) },
+                    },
+                    paintAttributeData,
+                    properties,
+                    parameters.state.getZoom()
+                ),
+                program.computeAllAttributeBindings(
+                    parameters.staticData.tileVertexBuffer,
+                    paintAttributeData,
+                    properties
+                ),
                 "clipping"
             );
         }
@@ -656,6 +671,39 @@ std::vector<Feature> Renderer::Impl::queryRenderedFeatures(const ScreenLineStrin
 
     return queryRenderedFeatures(geometry, options, layers);
 }
+    
+void Renderer::Impl::queryRenderedSymbols(std::unordered_map<std::string, std::vector<Feature>>& resultsByLayer,
+                                          const ScreenLineString& geometry,
+                                          const std::vector<const RenderLayer*>& layers,
+                                          const RenderedQueryOptions& options) const {
+    
+    auto renderedSymbols = placement->getCollisionIndex().queryRenderedSymbols(geometry);
+    std::vector<std::reference_wrapper<const RetainedQueryData>> bucketQueryData;
+    for (auto entry : renderedSymbols) {
+        bucketQueryData.push_back(placement->getQueryData(entry.first));
+    }
+    // Although symbol query is global, symbol results are only sortable within a bucket
+    // For a predictable global sort order, we sort the buckets based on their corresponding tile position
+    std::sort(bucketQueryData.begin(), bucketQueryData.end(), [](const RetainedQueryData& a, const RetainedQueryData& b) {
+        return
+            std::tie(a.tileID.canonical.z, a.tileID.canonical.y, a.tileID.wrap, a.tileID.canonical.x) <
+            std::tie(b.tileID.canonical.z, b.tileID.canonical.y, b.tileID.wrap, b.tileID.canonical.x);
+    });
+    
+    for (auto wrappedQueryData : bucketQueryData) {
+        auto& queryData = wrappedQueryData.get();
+        auto bucketSymbols = queryData.featureIndex->lookupSymbolFeatures(renderedSymbols[queryData.bucketInstanceId],
+                                                                          options,
+                                                                          layers,
+                                                                          queryData.tileID,
+                                                                          queryData.featureSortOrder);
+        
+        for (auto layer : bucketSymbols) {
+            auto& resultFeatures = resultsByLayer[layer.first];
+            std::move(layer.second.begin(), layer.second.end(), std::inserter(resultFeatures, resultFeatures.end()));
+        }
+    }
+}
 
 std::vector<Feature> Renderer::Impl::queryRenderedFeatures(const ScreenLineString& geometry, const RenderedQueryOptions& options, const std::vector<const RenderLayer*>& layers) const {
     std::unordered_set<std::string> sourceIDs;
@@ -663,13 +711,18 @@ std::vector<Feature> Renderer::Impl::queryRenderedFeatures(const ScreenLineStrin
         sourceIDs.emplace(layer->baseImpl->source);
     }
 
+    mat4 projMatrix;
+    transformState.getProjMatrix(projMatrix);
+
     std::unordered_map<std::string, std::vector<Feature>> resultsByLayer;
     for (const auto& sourceID : sourceIDs) {
         if (RenderSource* renderSource = getRenderSource(sourceID)) {
-            auto sourceResults = renderSource->queryRenderedFeatures(geometry, transformState, layers, options, placement->getCollisionIndex());
+            auto sourceResults = renderSource->queryRenderedFeatures(geometry, transformState, layers, options, projMatrix);
             std::move(sourceResults.begin(), sourceResults.end(), std::inserter(resultsByLayer, resultsByLayer.begin()));
         }
     }
+    
+    queryRenderedSymbols(resultsByLayer, geometry, layers, options);
 
     std::vector<Feature> result;
 
@@ -714,12 +767,12 @@ std::vector<Feature> Renderer::Impl::querySourceFeatures(const std::string& sour
     return source->querySourceFeatures(options);
 }
 
-void Renderer::Impl::onLowMemory() {
+void Renderer::Impl::reduceMemoryUse() {
     assert(BackendScope::exists());
-    backend.getContext().performCleanup();
     for (const auto& entry : renderSources) {
-        entry.second->onLowMemory();
+        entry.second->reduceMemoryUse();
     }
+    backend.getContext().performCleanup();
     observer->onInvalidate();
 }
 

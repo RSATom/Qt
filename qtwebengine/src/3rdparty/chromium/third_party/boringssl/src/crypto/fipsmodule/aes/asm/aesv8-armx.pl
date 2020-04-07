@@ -58,11 +58,7 @@ $code=<<___;
 #if __ARM_MAX_ARCH__>=7
 .text
 ___
-$code.=<<___ if ($flavour =~ /64/);
-#if !defined(__clang__) || defined(BORINGSSL_CLANG_SUPPORTS_DOT_ARCH)
-.arch  armv8-a+crypto
-#endif
-___
+$code.=".arch	armv8-a+crypto\n"			if ($flavour =~ /64/);
 $code.=<<___						if ($flavour !~ /64/);
 .arch	armv7-a	// don't confuse not-so-latest binutils with argv8 :-)
 .fpu	neon
@@ -933,7 +929,7 @@ if ($flavour =~ /64/) {			######## 64-bit code
 	s/^(\s+)v/$1/o		or	# strip off v prefix
 	s/\bbx\s+lr\b/ret/o;
 
-	# fix up remainig legacy suffixes
+	# fix up remaining legacy suffixes
 	s/\.[ui]?8//o;
 	m/\],#8/o and s/\.16b/\.8b/go;
 	s/\.[ui]?32//o and s/\.16b/\.4s/go;
@@ -992,7 +988,7 @@ if ($flavour =~ /64/) {			######## 64-bit code
 	s/\bv([0-9])\.[12468]+[bsd]\b/q$1/go;	# new->old registers
 	s/\/\/\s?/@ /o;				# new->old style commentary
 
-	# fix up remainig new-style suffixes
+	# fix up remaining new-style suffixes
 	s/\{q([0-9]+)\},\s*\[(.+)\],#8/sprintf "{d%d},[$2]!",2*$1/eo	or
 	s/\],#[0-9]+/]!/o;
 

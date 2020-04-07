@@ -16,12 +16,16 @@
 #include "components/rappor/rappor_service_impl.h"
 #include "components/ukm/ukm_service.h"
 #include "components/variations/service/variations_service.h"
+#include "services/network/public/cpp/shared_url_loader_factory.h"
 
 namespace metrics_services_manager {
 
 MetricsServicesManager::MetricsServicesManager(
     std::unique_ptr<MetricsServicesManagerClient> client)
-    : client_(std::move(client)), may_upload_(false), may_record_(false) {
+    : client_(std::move(client)),
+      may_upload_(false),
+      may_record_(false),
+      consent_given_(false) {
   DCHECK(client_);
 }
 
@@ -41,7 +45,7 @@ rappor::RapporServiceImpl* MetricsServicesManager::GetRapporServiceImpl() {
   DCHECK(thread_checker_.CalledOnValidThread());
   if (!rappor_service_) {
     rappor_service_ = client_->CreateRapporServiceImpl();
-    rappor_service_->Initialize(client_->GetURLRequestContext());
+    rappor_service_->Initialize(client_->GetURLLoaderFactory());
   }
   return rappor_service_.get();
 }
@@ -81,10 +85,12 @@ MetricsServicesManager::GetMetricsServiceClient() {
 }
 
 void MetricsServicesManager::UpdatePermissions(bool current_may_record,
+                                               bool current_consent_given,
                                                bool current_may_upload) {
   DCHECK(thread_checker_.CalledOnValidThread());
-  // If the user has opted out of metrics, delete local UKM state.
-  if (may_record_ && !current_may_record) {
+  // If the user has opted out of metrics, delete local UKM state. We Only check
+  // consent for UKM.
+  if (consent_given_ && !current_consent_given) {
     ukm::UkmService* ukm = GetUkmService();
     if (ukm) {
       ukm->Purge();
@@ -93,10 +99,9 @@ void MetricsServicesManager::UpdatePermissions(bool current_may_record,
   }
 
   // Stash the current permissions so that we can update the RapporServiceImpl
-  // correctly when the Rappor preference changes.  The metrics recording
-  // preference partially determines the initial rappor setting, and also
-  // controls whether FINE metrics are sent.
+  // correctly when the Rappor preference changes.
   may_record_ = current_may_record;
+  consent_given_ = current_consent_given;
   may_upload_ = current_may_upload;
   UpdateRunningServices();
 }
@@ -134,12 +139,17 @@ void MetricsServicesManager::UpdateUkmService() {
   ukm::UkmService* ukm = GetUkmService();
   if (!ukm)
     return;
-  bool sync_enabled =
-      client_->IsMetricsReportingForceEnabled() ||
-      metrics_service_client_->IsHistorySyncEnabledOnAllProfiles();
+
+  bool listeners_active =
+      GetMetricsServiceClient()->AreNotificationListenersEnabledOnAllProfiles();
+  bool sync_enabled = client_->IsMetricsReportingForceEnabled() ||
+                      metrics_service_client_->SyncStateAllowsUkm();
   bool is_incognito = client_->IsIncognitoSessionActive();
-  if (may_record_ && sync_enabled & !is_incognito) {
-    ukm->EnableRecording();
+
+  if (consent_given_ && listeners_active && sync_enabled && !is_incognito) {
+    // TODO(skare): revise this - merged in a big change
+    ukm->EnableRecording(
+        metrics_service_client_->SyncStateAllowsExtensionUkm());
     if (may_upload_)
       ukm->EnableReporting();
     else
@@ -151,9 +161,17 @@ void MetricsServicesManager::UpdateUkmService() {
 }
 
 void MetricsServicesManager::UpdateUploadPermissions(bool may_upload) {
-  UpdatePermissions((client_->IsMetricsReportingForceEnabled() ||
-                     client_->IsMetricsReportingEnabled()),
-                    client_->IsMetricsReportingForceEnabled() || may_upload);
+  if (client_->IsMetricsReportingForceEnabled()) {
+    UpdatePermissions(true, true, true);
+    return;
+  }
+
+  UpdatePermissions(client_->IsMetricsReportingEnabled(),
+                    client_->IsMetricsConsentGiven(), may_upload);
+}
+
+bool MetricsServicesManager::IsMetricsReportingEnabled() const {
+  return client_->IsMetricsReportingEnabled();
 }
 
 }  // namespace metrics_services_manager

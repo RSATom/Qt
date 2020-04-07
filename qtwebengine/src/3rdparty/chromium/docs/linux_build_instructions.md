@@ -1,6 +1,6 @@
 # Checking out and building Chromium on Linux
 
-There are instructions for other platforms linked from the 
+There are instructions for other platforms linked from the
 [get the code](get_the_code.md) page.
 
 ## Instructions for Google Employees
@@ -34,6 +34,14 @@ in your `~/.bashrc` or `~/.zshrc`). Assuming you cloned `depot_tools` to
 
 ```shell
 $ export PATH="$PATH:/path/to/depot_tools"
+```
+
+When cloning `depot_tools` to your home directory **do not** use `~` on PATH,
+otherwise `gclient runhooks` will fail to run. Rather, you should use either
+`$HOME` or the absolute path:
+
+```shell
+$ export PATH="$PATH:${HOME}/depot_tools"
 ```
 
 ## Get the code
@@ -122,11 +130,20 @@ $ gn gen out/Default
 This section contains some things you can change to speed up your builds,
 sorted so that the things that make the biggest difference are first.
 
+#### Jumbo/Unity builds
+
+Jumbo builds merge many translation units ("source files") and compile them
+together. Since a large portion of Chromium's code is in shared header files,
+this dramatically reduces the total amount of work needed. Check out the
+[Jumbo / Unity builds](jumbo.md) for more information.
+
+Enable jumbo builds by setting the GN arg `use_jumbo_build=true`.
+
 #### Disable NaCl
 
 By default, the build includes support for
 [Native Client (NaCl)](https://developer.chrome.com/native-client), but
-most of the time you won't need it. You can set the GN argument 
+most of the time you won't need it. You can set the GN argument
 `enable_nacl=false` and it won't be built.
 
 #### Include fewer debug symbols
@@ -157,7 +174,7 @@ use_debug_fission=false
 is_clang=false
 ```
 
-See these links for more on the 
+See these links for more on the
 [bundled_binutils limitation](https://github.com/icecc/icecream/commit/b2ce5b9cc4bd1900f55c3684214e409fa81e7a92),
 the [debug fission limitation](http://gcc.gnu.org/wiki/DebugFission).
 
@@ -167,7 +184,7 @@ See [related bug](https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=808181).
 #### ccache
 
 You can use [ccache](https://ccache.samba.org) to speed up local builds (again,
-this is not useful if you're using a Googler using Goma).
+this is not useful if you're a Googler using Goma).
 
 Increase your ccache hit rate by setting `CCACHE_BASEDIR` to a parent directory
 that the working directories all have in common (e.g.,
@@ -320,8 +337,7 @@ Instead of running `install-build-deps.sh` to install build dependencies, run:
 
 ```shell
 $ sudo pacman -S --needed python perl gcc gcc-libs bison flex gperf pkgconfig \
-nss alsa-lib gconf glib2 gtk2 nspr ttf-ms-fonts freetype2 cairo dbus \
-libgnome-keyring
+nss alsa-lib glib2 gtk2 nspr ttf-ms-fonts freetype2 cairo dbus libgnome-keyring
 ```
 
 For the optional packages on Arch Linux:
@@ -370,41 +386,25 @@ Instead of running `build/install-build-deps.sh`, run:
 su -c 'yum install git python bzip2 tar pkgconfig atk-devel alsa-lib-devel \
 bison binutils brlapi-devel bluez-libs-devel bzip2-devel cairo-devel \
 cups-devel dbus-devel dbus-glib-devel expat-devel fontconfig-devel \
-freetype-devel gcc-c++ GConf2-devel glib2-devel glibc.i686 gperf \
-glib2-devel gtk2-devel gtk3-devel java-1.*.0-openjdk-devel libatomic \
-libcap-devel libffi-devel libgcc.i686 libgnome-keyring-devel libjpeg-devel \
-libstdc++.i686 libX11-devel libXScrnSaver-devel libXtst-devel \
-libxkbcommon-x11-devel ncurses-compat-libs nspr-devel nss-devel pam-devel \
-pango-devel pciutils-devel pulseaudio-libs-devel zlib.i686 httpd mod_ssl \
-php php-cli python-psutil wdiff'
+freetype-devel gcc-c++ glib2-devel glibc.i686 gperf glib2-devel gtk2-devel \
+gtk3-devel java-1.*.0-openjdk-devel libatomic libcap-devel libffi-devel \
+libgcc.i686 libgnome-keyring-devel libjpeg-devel libstdc++.i686 libX11-devel \
+libXScrnSaver-devel libXtst-devel libxkbcommon-x11-devel ncurses-compat-libs \
+nspr-devel nss-devel pam-devel pango-devel pciutils-devel \
+pulseaudio-libs-devel zlib.i686 httpd mod_ssl php php-cli python-psutil wdiff \
+xorg-x11-server-Xvfb'
 ```
 
-The `msttcorefonts` packages can be obtained by following [these
-instructions](http://www.fedorafaq.org/#installfonts). For the optional
-packages:
+The fonts needed by Blink's LayoutTests can be obtained by following [these
+instructions](https://gist.github.com/pwnall/32a3b11c2b10f6ae5c6a6de66c1e12ae).
+For the optional packages:
 
 * `php-cgi` is provided by the `php-cli` package.
-* `sun-java6-fonts` doesn't exist in Fedora repositories, needs investigating.
+* `sun-java6-fonts` is covered by the instructions linked above.
 
 ### Gentoo
 
 You can just run `emerge www-client/chromium`.
-
-### Mandriva
-
-Instead of running `build/install-build-deps.sh`, run:
-
-```shell
-urpmi lib64fontconfig-devel lib64alsa2-devel lib64dbus-1-devel \
-lib64GConf2-devel lib64freetype6-devel lib64atk1.0-devel lib64gtk+2.0_0-devel \
-lib64pango1.0-devel lib64cairo-devel lib64nss-devel lib64nspr-devel g++ python \
-perl bison flex subversion gperf
-```
-
-* `msttcorefonts` are not available, you will need to build your own (see
-  instructions, not hard to do, see
-  [mandriva_msttcorefonts.md](mandriva_msttcorefonts.md)) or use `drakfont` to
-  import the fonts from a Windows installation.
 
 ### OpenSUSE
 
@@ -413,10 +413,9 @@ Use `zypper` command to install dependencies:
 (openSUSE 11.1 and higher)
 
 ```shell
-sudo zypper in subversion pkg-config python perl \
-     bison flex gperf mozilla-nss-devel glib2-devel gtk-devel \
-     wdiff lighttpd gcc gcc-c++ gconf2-devel mozilla-nspr \
-     mozilla-nspr-devel php5-fastcgi alsa-devel libexpat-devel \
+sudo zypper in subversion pkg-config python perl bison flex gperf \
+     mozilla-nss-devel glib2-devel gtk-devel wdiff lighttpd gcc gcc-c++ \
+     mozilla-nspr mozilla-nspr-devel php5-fastcgi alsa-devel libexpat-devel \
      libjpeg-devel libbz2-devel
 ```
 
@@ -430,7 +429,7 @@ For 11.0, use `libnspr4-0d` and `libnspr4-dev` instead of `mozilla-nspr` and
 sudo zypper in subversion pkg-config python perl \
      bison flex gperf mozilla-nss-devel glib2-devel gtk-devel \
      libnspr4-0d libnspr4-dev wdiff lighttpd gcc gcc-c++ libexpat-devel \
-     php5-cgi gconf2-devel alsa-devel gtk2-devel jpeg-devel
+     php5-cgi alsa-devel gtk2-devel jpeg-devel
 ```
 
 The Ubuntu package `sun-java6-fonts` contains a subset of Java of the fonts used.

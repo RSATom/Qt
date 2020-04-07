@@ -2,10 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-/** @fileoverview Handles interprocess communcation for the privacy page. */
+/** @fileoverview Handles interprocess communication for the privacy page. */
 
 /** @typedef {{enabled: boolean, managed: boolean}} */
-var MetricsReporting;
+let MetricsReporting;
+
+/** @typedef {{enabled: boolean, managed: boolean}} */
+let SberPrefState;
 
 cr.define('settings', function() {
   /** @interface */
@@ -25,7 +28,7 @@ cr.define('settings', function() {
 
     // </if>
 
-    /** @return {!Promise<boolean>} */
+    /** @return {!Promise<!SberPrefState>} */
     getSafeBrowsingExtendedReporting() {}
 
     /** @param {boolean} enabled */

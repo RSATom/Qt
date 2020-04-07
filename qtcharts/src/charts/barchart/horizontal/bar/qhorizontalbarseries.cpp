@@ -40,7 +40,7 @@ QT_CHARTS_BEGIN_NAMESPACE
 
 /*!
     \class QHorizontalBarSeries
-    \inmodule Qt Charts
+    \inmodule QtCharts
     \brief The QHorizontalBarSeries class presents a series of data as horizontal bars grouped by
     category.
 
@@ -130,6 +130,6 @@ void QHorizontalBarSeriesPrivate::initializeGraphics(QGraphicsItem* parent)
     QAbstractSeriesPrivate::initializeGraphics(parent);
 }
 
-#include "moc_qhorizontalbarseries.cpp"
-
 QT_CHARTS_END_NAMESPACE
+
+#include "moc_qhorizontalbarseries.cpp"

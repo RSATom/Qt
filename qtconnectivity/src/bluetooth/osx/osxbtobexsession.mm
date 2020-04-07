@@ -418,6 +418,27 @@ QT_USE_NAMESPACE
 @end
 
 @implementation QT_MANGLE_NAMESPACE(OSXBTOBEXSession)
+{
+    QT_PREPEND_NAMESPACE(OSXBluetooth)::OBEXSessionDelegate *delegate;
+    IOBluetoothDevice *device;
+    quint16 channelID;
+    IOBluetoothOBEXSession *session;
+
+    QT_PREPEND_NAMESPACE(OSXBluetooth)::OBEXRequest currentRequest;
+
+    bool connected;
+    bool connectionIDFound;
+    quint32 connectionID;
+
+    QT_PREPEND_NAMESPACE(QIODevice) *inputStream;
+
+    // TODO: switch to scoped pointers or strong reference objects instead.
+    NSMutableData *headersData;
+    NSMutableData *bodyData;
+
+    quint32 bytesSent;
+    bool pendingAbort;
+}
 
 + (OBEXMaxPacketLength) maxPacketLength
 {
@@ -489,11 +510,11 @@ QT_USE_NAMESPACE
 
     const OBEXError status = [session OBEXConnect:kOBEXConnectFlagNone
                                       maxPacketLength:[QT_MANGLE_NAMESPACE(OSXBTOBEXSession) maxPacketLength]
-                                      optionalHeaders:Q_NULLPTR
+                                      optionalHeaders:nullptr
                                       optionalHeadersLength:0
                                       eventSelector:@selector(OBEXConnectHandler:)
                                       selectorTarget:self
-                                      refCon:Q_NULLPTR];
+                                      refCon:nullptr];
 
     if (status != kOBEXSuccess) {
         currentRequest = OSXBluetooth::OBEXNoop;
@@ -537,14 +558,14 @@ QT_USE_NAMESPACE
     const OBEXConnectCommandResponseData *const response = &event->u.connectCommandResponseData;
     if (response->headerDataPtr && response->headerDataLength >= 2) {
         // 2 == 1 byte headerID + at least 1 byte headerValue ...
-        QList<OBEXHeader> headers(qt_bluetooth_headers(static_cast<const uint8_t *>(response->headerDataPtr),
+        const QList<OBEXHeader> headers(qt_bluetooth_headers(static_cast<const uint8_t *>(response->headerDataPtr),
                                   response->headerDataLength));
         // ConnectionID is used when multiplexing OBEX connections
         // to identify which particular connection this object is
         // being sent on. When used, this _must_ be the first
         // header sent.
 
-        foreach (const OBEXHeader &header, headers) {
+        for (const OBEXHeader &header : headers) {
             if (header.headerID == kOBEXHeaderIDConnectionID) {
                 connectionID = header.value.value<quint32>();
                 connectionIDFound = true;
@@ -572,11 +593,11 @@ QT_USE_NAMESPACE
             return kOBEXSessionNotConnectedError;
 
         currentRequest = OBEXAbort;
-        const OBEXError status = [session OBEXAbort:Q_NULLPTR
+        const OBEXError status = [session OBEXAbort:nullptr
                                           optionalHeadersLength:0
                                           eventSelector:@selector(OBEXAbortHandler:)
                                           selectorTarget:self
-                                          refCon:Q_NULLPTR];
+                                          refCon:nullptr];
         if (status != kOBEXSuccess)
             currentRequest = OBEXNoop;
 
@@ -677,7 +698,7 @@ QT_USE_NAMESPACE
                                       bodyDataLength:[chunk length]
                                       eventSelector:@selector(OBEXPutHandler:)
                                       selectorTarget:self
-                                      refCon:Q_NULLPTR];
+                                      refCon:nullptr];
 
     if (status == kOBEXSuccess) {
         if (delegate && fileSize && !input->isSequential())
@@ -737,16 +758,16 @@ QT_USE_NAMESPACE
             return;
         }
 
-        void *dataPtr = chunk ? [chunk mutableBytes] : Q_NULLPTR;
+        void *dataPtr = chunk ? [chunk mutableBytes] : nullptr;
         const NSUInteger dataSize = chunk ? [chunk length] : 0;
         const OBEXError status = [session OBEXPut:lastChunk
-                                          headersData:Q_NULLPTR
+                                          headersData:nullptr
                                           headersDataLength:0
                                           bodyData:dataPtr
                                           bodyDataLength:dataSize
                                           eventSelector:@selector(OBEXPutHandler:)
                                           selectorTarget:self
-                                          refCon:Q_NULLPTR];
+                                          refCon:nullptr];
 
         if (status != kOBEXSuccess) {
             qCWarning(QT_BT_OSX) << "failed to send the next memory chunk";
@@ -778,11 +799,11 @@ QT_USE_NAMESPACE
 
     currentRequest = OSXBluetooth::OBEXDisconnect;
 
-    [session OBEXDisconnect:Q_NULLPTR
+    [session OBEXDisconnect:nullptr
              optionalHeadersLength:0
              eventSelector:@selector(OBEXDisconnectHandler:)
              selectorTarget:self
-             refCon:Q_NULLPTR];
+             refCon:nullptr];
 }
 
 - (void)OBEXDisconnectHandler:(const OBEXSessionEvent*)event
@@ -806,7 +827,7 @@ QT_USE_NAMESPACE
     // Clear the delegate and reset the request,
     // do not try any of OBEX commands - the session will be deleted
     // immediately.
-    delegate = Q_NULLPTR;
+    delegate = nullptr;
     // This will stop any handler (callback) preventing
     // any read/write to potentially deleted objects.
     currentRequest = OSXBluetooth::OBEXNoop;

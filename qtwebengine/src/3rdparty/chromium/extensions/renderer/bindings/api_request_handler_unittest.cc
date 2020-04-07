@@ -5,20 +5,21 @@
 #include "extensions/renderer/bindings/api_request_handler.h"
 
 #include "base/bind.h"
-#include "base/memory/ptr_util.h"
+#include "base/bind_helpers.h"
 #include "base/optional.h"
 #include "base/strings/stringprintf.h"
 #include "base/values.h"
 #include "extensions/renderer/bindings/api_binding_test.h"
 #include "extensions/renderer/bindings/api_binding_test_util.h"
 #include "extensions/renderer/bindings/exception_handler.h"
+#include "extensions/renderer/bindings/test_js_runner.h"
 #include "gin/converter.h"
 #include "gin/function_template.h"
 #include "gin/public/context_holder.h"
 #include "gin/public/isolate_holder.h"
 #include "testing/gmock/include/gmock/gmock.h"
-#include "third_party/WebKit/public/web/WebScopedUserGesture.h"
-#include "third_party/WebKit/public/web/WebUserGestureIndicator.h"
+#include "third_party/blink/public/web/web_scoped_user_gesture.h"
+#include "third_party/blink/public/web/web_user_gesture_indicator.h"
 
 namespace extensions {
 
@@ -33,26 +34,14 @@ const char kMethod[] = "method";
 using ArgumentList = std::vector<v8::Local<v8::Value>>;
 
 // TODO(devlin): Should we move some parts of api_binding_unittest.cc to here?
-void DoNothingWithRequest(std::unique_ptr<APIRequestHandler::Request> request,
-                          v8::Local<v8::Context> context) {}
 
 }  // namespace
 
 class APIRequestHandlerTest : public APIBindingTest {
  public:
-  // Runs the given |function|.
-  void RunJS(v8::Local<v8::Function> function,
-             v8::Local<v8::Context> context,
-             int argc,
-             v8::Local<v8::Value> argv[]) {
-    RunFunctionOnGlobal(function, context, argc, argv);
-    did_run_js_ = true;
-  }
-
   std::unique_ptr<APIRequestHandler> CreateRequestHandler() {
-    return base::MakeUnique<APIRequestHandler>(
-        base::Bind(&DoNothingWithRequest),
-        base::Bind(&APIRequestHandlerTest::RunJS, base::Unretained(this)),
+    return std::make_unique<APIRequestHandler>(
+        base::DoNothing(),
         APILastError(APILastError::GetParent(), binding::AddConsoleError()),
         nullptr);
   }
@@ -61,9 +50,17 @@ class APIRequestHandlerTest : public APIBindingTest {
   APIRequestHandlerTest() {}
   ~APIRequestHandlerTest() override {}
 
+  std::unique_ptr<TestJSRunner::Scope> CreateTestJSRunner() override {
+    return std::make_unique<TestJSRunner::Scope>(
+        std::make_unique<TestJSRunner>(base::Bind(
+            &APIRequestHandlerTest::SetDidRunJS, base::Unretained(this))));
+  }
+
   bool did_run_js() const { return did_run_js_; }
 
  private:
+  void SetDidRunJS() { did_run_js_ = true; }
+
   bool did_run_js_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(APIRequestHandlerTest);
@@ -83,7 +80,7 @@ TEST_F(APIRequestHandlerTest, AddRequestAndCompleteRequestTest) {
   ASSERT_FALSE(function.IsEmpty());
 
   int request_id = request_handler->StartRequest(
-      context, kMethod, base::MakeUnique<base::ListValue>(), function,
+      context, kMethod, std::make_unique<base::ListValue>(), function,
       v8::Local<v8::Function>(), binding::RequestThread::UI);
   EXPECT_THAT(request_handler->GetPendingRequestIdsForTesting(),
               testing::UnorderedElementsAre(request_id));
@@ -102,7 +99,7 @@ TEST_F(APIRequestHandlerTest, AddRequestAndCompleteRequestTest) {
   EXPECT_TRUE(request_handler->GetPendingRequestIdsForTesting().empty());
 
   request_id = request_handler->StartRequest(
-      context, kMethod, base::MakeUnique<base::ListValue>(),
+      context, kMethod, std::make_unique<base::ListValue>(),
       v8::Local<v8::Function>(), v8::Local<v8::Function>(),
       binding::RequestThread::UI);
   EXPECT_NE(-1, request_id);
@@ -121,7 +118,7 @@ TEST_F(APIRequestHandlerTest, InvalidRequestsTest) {
   ASSERT_FALSE(function.IsEmpty());
 
   int request_id = request_handler->StartRequest(
-      context, kMethod, base::MakeUnique<base::ListValue>(), function,
+      context, kMethod, std::make_unique<base::ListValue>(), function,
       v8::Local<v8::Function>(), binding::RequestThread::UI);
   EXPECT_THAT(request_handler->GetPendingRequestIdsForTesting(),
               testing::UnorderedElementsAre(request_id));
@@ -159,10 +156,10 @@ TEST_F(APIRequestHandlerTest, MultipleRequestsAndContexts) {
       context_b, "(function(res) { this.result = res + 'beta'; })");
 
   int request_a = request_handler->StartRequest(
-      context_a, kMethod, base::MakeUnique<base::ListValue>(), function_a,
+      context_a, kMethod, std::make_unique<base::ListValue>(), function_a,
       v8::Local<v8::Function>(), binding::RequestThread::UI);
   int request_b = request_handler->StartRequest(
-      context_b, kMethod, base::MakeUnique<base::ListValue>(), function_b,
+      context_b, kMethod, std::make_unique<base::ListValue>(), function_b,
       v8::Local<v8::Function>(), binding::RequestThread::UI);
 
   EXPECT_THAT(request_handler->GetPendingRequestIdsForTesting(),
@@ -207,7 +204,7 @@ TEST_F(APIRequestHandlerTest, CustomCallbackArguments) {
   ASSERT_FALSE(custom_callback.IsEmpty());
 
   int request_id = request_handler->StartRequest(
-      context, "method", base::MakeUnique<base::ListValue>(), callback,
+      context, "method", std::make_unique<base::ListValue>(), callback,
       custom_callback, binding::RequestThread::UI);
   EXPECT_THAT(request_handler->GetPendingRequestIdsForTesting(),
               testing::UnorderedElementsAre(request_id));
@@ -250,7 +247,7 @@ TEST_F(APIRequestHandlerTest, CustomCallbackArgumentsWithEmptyCallback) {
 
   v8::Local<v8::Function> empty_callback;
   int request_id = request_handler->StartRequest(
-      context, "method", base::MakeUnique<base::ListValue>(), empty_callback,
+      context, "method", std::make_unique<base::ListValue>(), empty_callback,
       custom_callback, binding::RequestThread::UI);
   EXPECT_THAT(request_handler->GetPendingRequestIdsForTesting(),
               testing::UnorderedElementsAre(request_id));
@@ -297,7 +294,7 @@ TEST_F(APIRequestHandlerTest, UserGestureTest) {
 
   // Try first without a user gesture.
   int request_id = request_handler->StartRequest(
-      context, kMethod, base::MakeUnique<base::ListValue>(), v8_callback,
+      context, kMethod, std::make_unique<base::ListValue>(), v8_callback,
       v8::Local<v8::Function>(), binding::RequestThread::UI);
   request_handler->CompleteRequest(request_id, *ListValueFromString("[]"),
                                    std::string());
@@ -313,7 +310,7 @@ TEST_F(APIRequestHandlerTest, UserGestureTest) {
     EXPECT_TRUE(
         blink::WebUserGestureIndicator::IsProcessingUserGestureThreadSafe());
     request_id = request_handler->StartRequest(
-        context, kMethod, base::MakeUnique<base::ListValue>(), v8_callback,
+        context, kMethod, std::make_unique<base::ListValue>(), v8_callback,
         v8::Local<v8::Function>(), binding::RequestThread::UI);
   }
   EXPECT_FALSE(
@@ -342,12 +339,11 @@ TEST_F(APIRequestHandlerTest, RequestThread) {
 
   APIRequestHandler request_handler(
       base::Bind(on_request, &thread),
-      base::Bind(&APIRequestHandlerTest::RunJS, base::Unretained(this)),
       APILastError(APILastError::GetParent(), binding::AddConsoleError()),
       nullptr);
 
   request_handler.StartRequest(
-      context, kMethod, base::MakeUnique<base::ListValue>(),
+      context, kMethod, std::make_unique<base::ListValue>(),
       v8::Local<v8::Function>(), v8::Local<v8::Function>(),
       binding::RequestThread::UI);
   ASSERT_TRUE(thread);
@@ -355,7 +351,7 @@ TEST_F(APIRequestHandlerTest, RequestThread) {
   thread.reset();
 
   request_handler.StartRequest(
-      context, kMethod, base::MakeUnique<base::ListValue>(),
+      context, kMethod, std::make_unique<base::ListValue>(),
       v8::Local<v8::Function>(), v8::Local<v8::Function>(),
       binding::RequestThread::IO);
   ASSERT_TRUE(thread);
@@ -378,8 +374,7 @@ TEST_F(APIRequestHandlerTest, SettingLastError) {
                       const std::string& error) { *logged_error = error; };
 
   APIRequestHandler request_handler(
-      base::Bind(&DoNothingWithRequest),
-      base::Bind(&APIRequestHandlerTest::RunJS, base::Unretained(this)),
+      base::DoNothing(),
       APILastError(base::Bind(get_parent),
                    base::Bind(log_error, &logged_error)),
       nullptr);
@@ -400,7 +395,7 @@ TEST_F(APIRequestHandlerTest, SettingLastError) {
     v8::Local<v8::Function> callback =
         FunctionFromString(context, kReportExposedLastError);
     int request_id = request_handler.StartRequest(
-        context, kMethod, base::MakeUnique<base::ListValue>(), callback,
+        context, kMethod, std::make_unique<base::ListValue>(), callback,
         v8::Local<v8::Function>(), binding::RequestThread::UI);
     request_handler.CompleteRequest(request_id, base::ListValue(),
                                     std::string());
@@ -416,7 +411,7 @@ TEST_F(APIRequestHandlerTest, SettingLastError) {
     v8::Local<v8::Function> callback =
         FunctionFromString(context, kReportExposedLastError);
     int request_id = request_handler.StartRequest(
-        context, kMethod, base::MakeUnique<base::ListValue>(), callback,
+        context, kMethod, std::make_unique<base::ListValue>(), callback,
         v8::Local<v8::Function>(), binding::RequestThread::UI);
     request_handler.CompleteRequest(request_id, base::ListValue(),
                                     "some error");
@@ -431,8 +426,37 @@ TEST_F(APIRequestHandlerTest, SettingLastError) {
     v8::Local<v8::Function> callback =
         FunctionFromString(context, "(function() {})");
     int request_id = request_handler.StartRequest(
-        context, kMethod, base::MakeUnique<base::ListValue>(), callback,
+        context, kMethod, std::make_unique<base::ListValue>(), callback,
         v8::Local<v8::Function>(), binding::RequestThread::UI);
+    request_handler.CompleteRequest(request_id, base::ListValue(),
+                                    "some error");
+    ASSERT_TRUE(logged_error);
+    EXPECT_EQ("Unchecked runtime.lastError: some error", *logged_error);
+    logged_error.reset();
+  }
+
+  {
+    // Test a function call resulting in an error with only a custom callback,
+    // and no author-script-provided callback. The error should be logged.
+    v8::Local<v8::Function> custom_callback =
+        FunctionFromString(context, "(function() {})");
+    int request_id = request_handler.StartRequest(
+        context, kMethod, std::make_unique<base::ListValue>(),
+        v8::Local<v8::Function>(), custom_callback, binding::RequestThread::UI);
+    request_handler.CompleteRequest(request_id, base::ListValue(),
+                                    "some error");
+    ASSERT_TRUE(logged_error);
+    EXPECT_EQ("Unchecked runtime.lastError: some error", *logged_error);
+    logged_error.reset();
+  }
+
+  {
+    // Test a function call resulting in an error that does not have an
+    // associated callback callback. The error should be logged.
+    int request_id = request_handler.StartRequest(
+        context, kMethod, std::make_unique<base::ListValue>(),
+        v8::Local<v8::Function>(), v8::Local<v8::Function>(),
+        binding::RequestThread::UI);
     request_handler.CompleteRequest(request_id, base::ListValue(),
                                     "some error");
     ASSERT_TRUE(logged_error);
@@ -454,7 +478,6 @@ TEST_F(APIRequestHandlerTest, AddPendingRequest) {
 
   APIRequestHandler request_handler(
       base::Bind(handle_request, &dispatched_request),
-      base::Bind(&APIRequestHandlerTest::RunJS, base::Unretained(this)),
       APILastError(APILastError::GetParent(), binding::AddConsoleError()),
       nullptr);
 
@@ -492,22 +515,12 @@ TEST_F(APIRequestHandlerTest, ThrowExceptionInCallback) {
                               v8::Local<v8::Context> context,
                               const std::string& error) { *error_out = error; };
 
-  // RunFunction* from the test util assert no errors; provide a version that
-  // allows them.
-  auto run_function_and_allow_errors =
-      [](v8::Local<v8::Function> function, v8::Local<v8::Context> context,
-         int argc, v8::Local<v8::Value> argv[]) {
-        ignore_result(function->Call(context, context->Global(), argc, argv));
-      };
-
   base::Optional<std::string> logged_error;
   ExceptionHandler exception_handler(
-      base::Bind(add_console_error, &logged_error),
-      base::Bind(&RunFunctionOnGlobalAndIgnoreResult));
+      base::Bind(add_console_error, &logged_error));
 
   APIRequestHandler request_handler(
-      base::Bind(&DoNothingWithRequest),
-      base::Bind(run_function_and_allow_errors),
+      base::DoNothing(),
       APILastError(APILastError::GetParent(), binding::AddConsoleError()),
       &exception_handler);
 
@@ -516,14 +529,20 @@ TEST_F(APIRequestHandlerTest, ThrowExceptionInCallback) {
       FunctionFromString(context, "(function() { throw new Error('hello'); })");
   int request_id =
       request_handler.AddPendingRequest(context, callback_throwing_error);
-  request_handler.CompleteRequest(request_id, base::ListValue(), std::string());
+
+  {
+    TestJSRunner::AllowErrors allow_errors;
+    request_handler.CompleteRequest(request_id, base::ListValue(),
+                                    std::string());
+  }
   // |outer_try_catch| should not have caught an error. This is important to not
   // disrupt our bindings code (or other running JS) when asynchronously
   // returning from an API call. Instead, the error should be caught and handled
   // by the exception handler.
   EXPECT_FALSE(outer_try_catch.HasCaught());
   ASSERT_TRUE(logged_error);
-  EXPECT_EQ("Error handling response: Uncaught Error: hello", *logged_error);
+  EXPECT_THAT(*logged_error,
+              testing::StartsWith("Error handling response: Error: hello"));
 }
 
 }  // namespace extensions

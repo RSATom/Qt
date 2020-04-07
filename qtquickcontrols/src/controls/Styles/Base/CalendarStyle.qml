@@ -46,7 +46,7 @@ import QtQuick.Controls.Private 1.0
     \inqmlmodule QtQuick.Controls.Styles
     \since 5.3
     \ingroup controlsstyling
-    \brief Provides custom styling for \l Calendar
+    \brief Provides custom styling for \l Calendar.
 
     \section2 Component Map
 
@@ -369,6 +369,7 @@ Style {
         property int hoveredCellIndex: -1
         property int pressedCellIndex: -1
         property int pressCellIndex: -1
+        property var pressDate: null
 
         Rectangle {
             anchors.fill: parent
@@ -409,6 +410,7 @@ Style {
                 anchors.leftMargin: (control.weekNumbersVisible ? weekNumbersItem.width : 0)
                 anchors.right: parent.right
                 spacing: gridVisible ? __gridLineWidth : 0
+                property alias __repeater: repeater
 
                 Repeater {
                     id: repeater
@@ -581,9 +583,11 @@ Style {
 
                         onPressed: {
                             pressCellIndex = cellIndexAt(mouse.x, mouse.y);
+                            pressDate = null;
                             if (pressCellIndex !== -1) {
                                 var date = view.model.dateAt(pressCellIndex);
                                 pressedCellIndex = pressCellIndex;
+                                pressDate = date;
                                 if (__isValidDate(date)) {
                                     control.selectedDate = date;
                                     control.pressed(date);
@@ -608,9 +612,8 @@ Style {
                         onClicked: {
                             var indexOfCell = cellIndexAt(mouse.x, mouse.y);
                             if (indexOfCell !== -1 && indexOfCell === pressCellIndex) {
-                                var date = view.model.dateAt(indexOfCell);
-                                if (__isValidDate(date))
-                                    control.clicked(date);
+                                if (__isValidDate(pressDate))
+                                    control.clicked(pressDate);
                             }
                         }
 

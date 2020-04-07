@@ -41,6 +41,7 @@
 #include "qcameraviewfindersettings.h"
 #include "qcameraviewfindersettingscontrol.h"
 #include "qcamerazoomcontrol.h"
+#include "qcustomaudiorolecontrol.h"
 #include "qimageencodercontrol.h"
 #include "qmediaaudioprobecontrol.h"
 #include "qmediaavailabilitycontrol.h"

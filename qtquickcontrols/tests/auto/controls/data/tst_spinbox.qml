@@ -49,6 +49,7 @@
 ****************************************************************************/
 
 import QtQuick 2.2
+import QtQuick.Controls 1.2
 import QtQuick.Controls.Private 1.0
 import QtTest 1.0
 
@@ -701,6 +702,43 @@ Item {
             verify(control1.value === 7)
 
             test.destroy()
+        }
+
+        Component {
+            id: moveMouseFlickable
+            Flickable {
+                property alias spinbox: _spinbox
+                width: 100
+                height: 200
+                contentHeight: 500
+                contentWidth: 200
+                SpinBox {
+                    id: _spinbox
+                    x: 20
+                    y: 100
+                    minimumValue: 0
+                    maximumValue: 12500
+                }
+            }
+        }
+
+        function test_moveMouseInFlickable() {
+            var control = createTemporaryObject(moveMouseFlickable, container)
+            var spinbox = control.spinbox
+            spinbox.forceActiveFocus()
+            setCoordinates(spinbox)
+            mousePress(spinbox, upCoord.x, upCoord.y, Qt.LeftButton)
+            mouseMove(spinbox.parent, mainCoord.x, mainCoord.y - 50, 500)
+            compare(spinbox.hovered, false)
+            compare(spinbox.__styleData.upHovered, false)
+            compare(spinbox.__styleData.downHovered, false)
+            mouseRelease(spinbox.parent, mainCoord.x, mainCoord.y - 50, Qt.LeftButton)
+            var currentVal = spinbox.value
+            mouseMove(spinbox.parent, upCoord.x, upCoord.y)
+            compare(spinbox.hovered, true)
+            compare(spinbox.__styleData.upHovered, true)
+            compare(spinbox.__styleData.downHovered, false)
+            compare(spinbox.value, currentVal)
         }
     }
 }

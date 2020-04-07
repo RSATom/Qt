@@ -23,11 +23,24 @@ extern const base::Feature kPopularSitesBakedInContentFeature;
 // Likely tiles on the New Tab Page.
 extern const base::Feature kNtpMostLikelyFaviconsFromServerFeature;
 
-// Use this to find out whether the kNtpMostLikelyFaviconsFromServerFeature is
-// enabled. This helper function abstracts iOS special way to override the
-// feature (via command-line params).
-// TODO(jkrcal): Remove once crbug.com/718926 is fixed.
-bool AreNtpMostLikelyFaviconsFromServerEnabled();
+// Feature to provide site exploration tiles in addition to personal tiles.
+extern const base::Feature kSiteExplorationUiFeature;
+
+// If this feature is enabled, we enable popular sites in the suggestions UI.
+extern const base::Feature kUsePopularSitesSuggestions;
+
+// Feature that enables the GM2 design for Most Visited. Desktop only.
+extern const base::Feature kNtpIcons;
+
+// Feature that enables custom links and replaces Most Visited. Implicitly
+// enables |kNtpIcons|. Desktop only.
+extern const base::Feature kNtpCustomLinks;
+
+// Returns whether the GM2 design for Most Visited is enabled.
+bool IsMDIconsEnabled();
+
+// Returns whether the custom links is enabled.
+bool IsCustomLinksEnabled();
 
 }  // namespace ntp_tiles
 

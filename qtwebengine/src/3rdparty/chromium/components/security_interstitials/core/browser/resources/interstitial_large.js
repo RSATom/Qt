@@ -13,7 +13,10 @@ var keyPressState = 0;
  * @param {string} e The key that was just pressed.
  */
 function handleKeypress(e) {
-  var BYPASS_SEQUENCE = 'badidea';
+  // HTTPS errors are serious and should not be ignored. For testing purposes,
+  // other approaches are both safer and have fewer side-effects.
+  // See https://goo.gl/ZcZixP for more details.
+  var BYPASS_SEQUENCE = window.atob('dGhpc2lzdW5zYWZl');
   if (BYPASS_SEQUENCE.charCodeAt(keyPressState) == e.keyCode) {
     keyPressState++;
     if (keyPressState == BYPASS_SEQUENCE.length) {
@@ -66,6 +69,8 @@ function setupEvents() {
   var captivePortal = interstitialType == 'CAPTIVE_PORTAL';
   var badClock = ssl && loadTimeData.getBoolean('bad_clock');
   var hidePrimaryButton = loadTimeData.getBoolean('hide_primary_button');
+  var showRecurrentErrorParagraph = loadTimeData.getBoolean(
+    'show_recurrent_error_paragraph');
 
   if (ssl) {
     $('body').classList.add(badClock ? 'bad-clock' : 'ssl');
@@ -75,6 +80,9 @@ function setupEvents() {
     $('body').classList.add('captive-portal');
   } else {
     $('body').classList.add('safe-browsing');
+    // Override the default theme color.
+    document.querySelector('meta[name=theme-color]').setAttribute('content',
+      'rgb(206, 52, 38)');
   }
 
   $('icon').classList.add('icon');
@@ -118,6 +126,12 @@ function setupEvents() {
 
   if (ssl && overridable) {
     $('proceed-link').classList.add('small-link');
+  }
+
+  if (!ssl || !showRecurrentErrorParagraph) {
+    $('recurrent-error-message').classList.add(HIDDEN_CLASS);
+  } else {
+    $('body').classList.add('showing-recurrent-error-message');
   }
 
   if ($('diagnostic-link')) {

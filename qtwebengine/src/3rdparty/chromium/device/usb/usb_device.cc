@@ -10,7 +10,7 @@
 
 namespace device {
 
-UsbDevice::Observer::~Observer() {}
+UsbDevice::Observer::~Observer() = default;
 
 void UsbDevice::Observer::OnDeviceRemoved(scoped_refptr<UsbDevice> device) {}
 
@@ -49,18 +49,18 @@ UsbDevice::UsbDevice(uint16_t usb_version,
   descriptor_.device_version = device_version;
 }
 
-UsbDevice::~UsbDevice() {}
+UsbDevice::~UsbDevice() = default;
 
-void UsbDevice::CheckUsbAccess(const ResultCallback& callback) {
+void UsbDevice::CheckUsbAccess(ResultCallback callback) {
   // By default assume that access to the device is allowed. This is implemented
   // on Chrome OS by checking with permission_broker.
-  callback.Run(true);
+  std::move(callback).Run(true);
 }
 
-void UsbDevice::RequestPermission(const ResultCallback& callback) {
+void UsbDevice::RequestPermission(ResultCallback callback) {
   // By default assume that access to the device is allowed. This is implemented
   // on Android by calling android.hardware.usb.UsbManger.requestPermission.
-  callback.Run(true);
+  std::move(callback).Run(true);
 }
 
 bool UsbDevice::permission_granted() const {

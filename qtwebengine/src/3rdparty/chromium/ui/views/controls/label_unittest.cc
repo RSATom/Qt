@@ -8,20 +8,22 @@
 
 #include "base/command_line.h"
 #include "base/i18n/rtl.h"
-#include "base/memory/ptr_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/test/scoped_feature_list.h"
 #include "build/build_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/accessibility/ax_node_data.h"
 #include "ui/base/clipboard/clipboard.h"
 #include "ui/base/l10n/l10n_util.h"
-#include "ui/base/test/material_design_controller_test_api.h"
+#include "ui/base/ui_base_features.h"
+#include "ui/base/ui_base_switches.h"
 #include "ui/compositor/canvas_painter.h"
 #include "ui/events/base_event_utils.h"
 #include "ui/events/test/event_generator.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/render_text.h"
 #include "ui/gfx/switches.h"
+#include "ui/gfx/text_elider.h"
 #include "ui/strings/grit/ui_strings.h"
 #include "ui/views/border.h"
 #include "ui/views/controls/link.h"
@@ -56,7 +58,10 @@ class TestLabel : public Label {
   void SimulatePaint() {
     SkBitmap bitmap;
     SkColor color = SK_ColorTRANSPARENT;
-    Paint(ui::CanvasPainter(&bitmap, bounds().size(), 1.f, color).context());
+    Paint(PaintInfo::CreateRootPaintInfo(
+        ui::CanvasPainter(&bitmap, bounds().size(), 1.f, color, false)
+            .context(),
+        bounds().size()));
   }
 
   // View:
@@ -117,15 +122,9 @@ class LabelTest : public ViewsTestBase {
  public:
   LabelTest() {}
 
-  // Called after ViewsTestBase is set up. ViewsTestBase initializes the
-  // MaterialDesignController, so this allows a subclass to influence settings
-  // used for the remainder of SetUp().
-  virtual void OnBaseSetUp() {}
-
   // ViewsTestBase:
   void SetUp() override {
     ViewsTestBase::SetUp();
-    OnBaseSetUp();
 
     Widget::InitParams params =
         CreateParams(Widget::InitParams::TYPE_WINDOW_FRAMELESS);
@@ -183,7 +182,7 @@ class LabelSelectionTest : public LabelTest {
 #endif
     LabelTest::SetUp();
     event_generator_ =
-        base::MakeUnique<ui::test::EventGenerator>(widget()->GetNativeWindow());
+        std::make_unique<ui::test::EventGenerator>(widget()->GetNativeWindow());
   }
 
  protected:
@@ -191,10 +190,10 @@ class LabelSelectionTest : public LabelTest {
     return widget()->GetFocusManager()->GetFocusedView();
   }
 
-  void PerformMousePress(const gfx::Point& point, int extra_flags = 0) {
+  void PerformMousePress(const gfx::Point& point) {
     ui::MouseEvent pressed_event = ui::MouseEvent(
         ui::ET_MOUSE_PRESSED, point, point, ui::EventTimeForNow(),
-        ui::EF_LEFT_MOUSE_BUTTON, ui::EF_LEFT_MOUSE_BUTTON | extra_flags);
+        ui::EF_LEFT_MOUSE_BUTTON, ui::EF_LEFT_MOUSE_BUTTON);
     label()->OnMousePressed(pressed_event);
   }
 
@@ -205,8 +204,8 @@ class LabelSelectionTest : public LabelTest {
     label()->OnMouseReleased(released_event);
   }
 
-  void PerformClick(const gfx::Point& point, int extra_flags = 0) {
-    PerformMousePress(point, extra_flags);
+  void PerformClick(const gfx::Point& point) {
+    PerformMousePress(point);
     PerformMouseRelease(point);
   }
 
@@ -226,19 +225,20 @@ class LabelSelectionTest : public LabelTest {
     SimulatePaint();
     gfx::RenderText* render_text =
         label()->GetRenderTextForSelectionController();
+    const gfx::Range range(index, index + 1);
     const std::vector<gfx::Rect> bounds =
-        render_text->GetSubstringBoundsForTesting(gfx::Range(index, index + 1));
+        render_text->GetSubstringBounds(range);
     DCHECK_EQ(1u, bounds.size());
     const int mid_y = bounds[0].y() + bounds[0].height() / 2;
 
-    // For single-line text, use the glyph bounds since it's a better
+    // For single-line text, use the glyph bounds since it gives a better
     // representation of the midpoint between glyphs when considering selection.
-    // TODO(tapted): When GetGlyphBounds() supports returning a vertical range
+    // TODO(tapted): When GetCursorSpan() supports returning a vertical range
     // as well as a horizontal range, just use that here.
     if (!render_text->multiline())
-      return gfx::Point(render_text->GetGlyphBounds(index).start(), mid_y);
+      return gfx::Point(render_text->GetCursorSpan(range).start(), mid_y);
 
-    // Otherwise, GetGlyphBounds() will give incorrect results. Multiline
+    // Otherwise, GetCursorSpan() will give incorrect results. Multiline
     // editing is not supported (http://crbug.com/248597) so there hasn't been
     // a need to draw a cursor. Instead, derive a point from the selection
     // bounds, which always rounds up to an integer after the end of a glyph.
@@ -273,16 +273,23 @@ class LabelSelectionTest : public LabelTest {
 class MDLabelTest : public LabelTest,
                     public ::testing::WithParamInterface<SecondaryUiMode> {
  public:
-  MDLabelTest()
-      : md_test_api_(ui::MaterialDesignController::Mode::MATERIAL_NORMAL) {}
+  MDLabelTest() {}
 
   // LabelTest:
-  void OnBaseSetUp() override {
-    md_test_api_.SetSecondaryUiMaterial(GetParam() == SecondaryUiMode::MD);
+  void SetUp() override {
+    if (GetParam() == SecondaryUiMode::MD) {
+      scoped_feature_list_.InitAndEnableFeature(features::kSecondaryUiMd);
+    } else {
+      // Force Refresh UI to be off, since that mode implies MD secondary UI.
+      base::CommandLine::ForCurrentProcess()->AppendSwitchASCII(
+          switches::kTopChromeMD, switches::kTopChromeMDMaterial);
+      scoped_feature_list_.InitAndDisableFeature(features::kSecondaryUiMd);
+    }
+    LabelTest::SetUp();
   }
 
  private:
-  ui::test::MaterialDesignControllerTestAPI md_test_api_;
+  base::test::ScopedFeatureList scoped_feature_list_;
 
   DISALLOW_COPY_AND_ASSIGN(MDLabelTest);
 };
@@ -366,6 +373,41 @@ TEST_F(LabelTest, ElideBehavior) {
   EXPECT_GT(text.size(), label()->GetDisplayTextForTesting().size());
 
   label()->SetElideBehavior(gfx::NO_ELIDE);
+  EXPECT_EQ(text, label()->GetDisplayTextForTesting());
+}
+
+// Test the minimum width of a Label is correct depending on its ElideBehavior,
+// including |gfx::NO_ELIDE|.
+TEST_F(LabelTest, ElideBehaviorMinimumWidth) {
+  base::string16 text(ASCIIToUTF16("This is example text."));
+  label()->SetText(text);
+
+  // Default should be |gfx::ELIDE_TAIL|.
+  EXPECT_EQ(gfx::ELIDE_TAIL, label()->elide_behavior());
+  gfx::Size size = label()->GetMinimumSize();
+  // Elidable labels have a minimum width that fits |gfx::kEllipsisUTF16|.
+  EXPECT_EQ(gfx::Canvas::GetStringWidth(base::string16(gfx::kEllipsisUTF16),
+                                        label()->font_list()),
+            size.width());
+  label()->SetSize(label()->GetMinimumSize());
+  EXPECT_GT(text.length(), label()->GetDisplayTextForTesting().length());
+
+  // Truncated labels can take up the size they are given, but not exceed that
+  // if the text can't fit.
+  label()->SetElideBehavior(gfx::TRUNCATE);
+  label()->SetSize(gfx::Size(10, 10));
+  size = label()->GetMinimumSize();
+  EXPECT_LT(size.width(), label()->size().width());
+  EXPECT_GT(text.length(), label()->GetDisplayTextForTesting().length());
+
+  // Non-elidable single-line labels should take up their full text size, since
+  // this behavior implies the text should not be cut off.
+  EXPECT_FALSE(label()->multi_line());
+  label()->SetElideBehavior(gfx::NO_ELIDE);
+  size = label()->GetMinimumSize();
+  EXPECT_EQ(text.length(), label()->GetDisplayTextForTesting().length());
+
+  label()->SetSize(label()->GetMinimumSize());
   EXPECT_EQ(text, label()->GetDisplayTextForTesting());
 }
 
@@ -529,9 +571,11 @@ TEST_F(LabelTest, Accessibility) {
 
   ui::AXNodeData node_data;
   label()->GetAccessibleNodeData(&node_data);
-  EXPECT_EQ(ui::AX_ROLE_STATIC_TEXT, node_data.role);
-  EXPECT_EQ(label()->text(), node_data.GetString16Attribute(ui::AX_ATTR_NAME));
-  EXPECT_FALSE(node_data.HasIntAttribute(ui::AX_ATTR_RESTRICTION));
+  EXPECT_EQ(ax::mojom::Role::kStaticText, node_data.role);
+  EXPECT_EQ(label()->text(),
+            node_data.GetString16Attribute(ax::mojom::StringAttribute::kName));
+  EXPECT_FALSE(
+      node_data.HasIntAttribute(ax::mojom::IntAttribute::kRestriction));
 }
 
 TEST_F(LabelTest, TextChangeWithoutLayout) {
@@ -540,15 +584,15 @@ TEST_F(LabelTest, TextChangeWithoutLayout) {
 
   gfx::Canvas canvas(gfx::Size(200, 200), 1.0f, true);
   label()->OnPaint(&canvas);
-  EXPECT_EQ(1u, label()->lines_.size());
-  EXPECT_EQ(ASCIIToUTF16("Example"), label()->lines_[0]->GetDisplayText());
+  EXPECT_TRUE(label()->display_text_);
+  EXPECT_EQ(ASCIIToUTF16("Example"), label()->display_text_->GetDisplayText());
 
   label()->SetText(ASCIIToUTF16("Altered"));
   // The altered text should be painted even though Layout() or SetBounds() are
   // not called.
   label()->OnPaint(&canvas);
-  EXPECT_EQ(1u, label()->lines_.size());
-  EXPECT_EQ(ASCIIToUTF16("Altered"), label()->lines_[0]->GetDisplayText());
+  EXPECT_TRUE(label()->display_text_);
+  EXPECT_EQ(ASCIIToUTF16("Altered"), label()->display_text_->GetDisplayText());
 }
 
 TEST_F(LabelTest, EmptyLabelSizing) {
@@ -569,8 +613,7 @@ TEST_F(LabelTest, SingleLineSizing) {
   EXPECT_EQ(size, label()->GetPreferredSize());
 
   const gfx::Insets border(10, 20, 30, 40);
-  label()->SetBorder(CreateEmptyBorder(border.top(), border.left(),
-                                       border.bottom(), border.right()));
+  label()->SetBorder(CreateEmptyBorder(border));
   const gfx::Size size_with_border = label()->GetPreferredSize();
   EXPECT_EQ(size_with_border.height(), size.height() + border.height());
   EXPECT_EQ(size_with_border.width(), size.width() + border.width());
@@ -649,8 +692,7 @@ TEST_F(LabelTest, MultiLineSizing) {
 
   // Test everything with borders.
   gfx::Insets border(10, 20, 30, 40);
-  label()->SetBorder(CreateEmptyBorder(border.top(), border.left(),
-                                       border.bottom(), border.right()));
+  label()->SetBorder(CreateEmptyBorder(border));
 
   // SizeToFit and borders.
   label()->SizeToFit(0);
@@ -682,6 +724,52 @@ TEST_F(LabelTest, MultiLineSizing) {
             required_size.width() + border.width());
 }
 
+#if !defined(OS_MACOSX)
+// TODO(warx): Remove !defined(OS_MACOSX) once SetMaxLines() is applied to MAC
+// (crbug.com/758720).
+TEST_F(LabelTest, MultiLineSetMaxLines) {
+  // Ensure SetMaxLines clamps the line count of a string with returns.
+  label()->SetText(ASCIIToUTF16("first line\nsecond line\nthird line"));
+  label()->SetMultiLine(true);
+  gfx::Size string_size = label()->GetPreferredSize();
+  label()->SetMaxLines(2);
+  gfx::Size two_line_size = label()->GetPreferredSize();
+  EXPECT_EQ(string_size.width(), two_line_size.width());
+  EXPECT_GT(string_size.height(), two_line_size.height());
+
+  // Ensure GetHeightForWidth also respects SetMaxLines.
+  int height = label()->GetHeightForWidth(string_size.width() / 2);
+  EXPECT_EQ(height, two_line_size.height());
+
+  // Ensure SetMaxLines also works with line wrapping for SizeToFit.
+  label()->SetText(ASCIIToUTF16("A long string that will be wrapped"));
+  label()->SetMaxLines(0);  // Used to get the uncapped height.
+  label()->SizeToFit(0);    // Used to get the uncapped width.
+  label()->SizeToFit(label()->GetPreferredSize().width() / 4);
+  string_size = label()->GetPreferredSize();
+  label()->SetMaxLines(2);
+  two_line_size = label()->GetPreferredSize();
+  EXPECT_EQ(string_size.width(), two_line_size.width());
+  EXPECT_GT(string_size.height(), two_line_size.height());
+
+  // Ensure SetMaxLines also works with line wrapping for SetMaximumWidth.
+  label()->SetMaxLines(0);  // Used to get the uncapped height.
+  label()->SizeToFit(0);    // Used to get the uncapped width.
+  label()->SetMaximumWidth(label()->GetPreferredSize().width() / 4);
+  string_size = label()->GetPreferredSize();
+  label()->SetMaxLines(2);
+  two_line_size = label()->GetPreferredSize();
+  EXPECT_EQ(string_size.width(), two_line_size.width());
+  EXPECT_GT(string_size.height(), two_line_size.height());
+
+  // Ensure SetMaxLines respects the requested inset height.
+  const gfx::Insets border(1, 2, 3, 4);
+  label()->SetBorder(CreateEmptyBorder(border));
+  EXPECT_EQ(two_line_size.height() + border.height(),
+            label()->GetPreferredSize().height());
+}
+#endif
+
 // Verifies if the combination of text eliding and multiline doesn't cause
 // any side effects of size / layout calculation.
 TEST_F(LabelTest, MultiLineSizingWithElide) {
@@ -696,7 +784,7 @@ TEST_F(LabelTest, MultiLineSizingWithElide) {
   label()->SetBoundsRect(gfx::Rect(required_size));
 
   label()->SetElideBehavior(gfx::ELIDE_TAIL);
-  EXPECT_EQ(required_size.ToString(), label()->GetPreferredSize().ToString());
+  EXPECT_EQ(required_size, label()->GetPreferredSize());
   EXPECT_EQ(text, label()->GetDisplayTextForTesting());
 
   label()->SizeToFit(required_size.width() - 1);
@@ -706,12 +794,12 @@ TEST_F(LabelTest, MultiLineSizingWithElide) {
 
   // SetBounds() doesn't change the preferred size.
   label()->SetBounds(0, 0, narrow_size.width() - 1, narrow_size.height());
-  EXPECT_EQ(narrow_size.ToString(), label()->GetPreferredSize().ToString());
+  EXPECT_EQ(narrow_size, label()->GetPreferredSize());
 
   // Paint() doesn't change the preferred size.
   gfx::Canvas canvas;
   label()->OnPaint(&canvas);
-  EXPECT_EQ(narrow_size.ToString(), label()->GetPreferredSize().ToString());
+  EXPECT_EQ(narrow_size, label()->GetPreferredSize());
 }
 
 // Check that labels support GetTooltipHandlerForPoint.
@@ -766,47 +854,43 @@ TEST_F(LabelTest, ResetRenderTextData) {
   label()->SizeToPreferredSize();
   gfx::Size preferred_size = label()->GetPreferredSize();
 
-  EXPECT_NE(gfx::Size().ToString(), preferred_size.ToString());
-  EXPECT_EQ(0u, label()->lines_.size());
+  EXPECT_NE(gfx::Size(), preferred_size);
+  EXPECT_FALSE(label()->display_text_);
 
   gfx::Canvas canvas(preferred_size, 1.0f, true);
   label()->OnPaint(&canvas);
-  EXPECT_EQ(1u, label()->lines_.size());
+  EXPECT_TRUE(label()->display_text_);
 
   // Label should recreate its RenderText object when it's invisible, to release
   // the layout structures and data.
   label()->SetVisible(false);
-  EXPECT_EQ(0u, label()->lines_.size());
+  EXPECT_FALSE(label()->display_text_);
 
   // Querying fields or size information should not recompute the layout
   // unnecessarily.
   EXPECT_EQ(ASCIIToUTF16("Example"), label()->text());
-  EXPECT_EQ(0u, label()->lines_.size());
+  EXPECT_FALSE(label()->display_text_);
 
-  EXPECT_EQ(preferred_size.ToString(), label()->GetPreferredSize().ToString());
-  EXPECT_EQ(0u, label()->lines_.size());
+  EXPECT_EQ(preferred_size, label()->GetPreferredSize());
+  EXPECT_FALSE(label()->display_text_);
 
   // RenderText data should be back when it's necessary.
   label()->SetVisible(true);
-  EXPECT_EQ(0u, label()->lines_.size());
+  EXPECT_FALSE(label()->display_text_);
 
   label()->OnPaint(&canvas);
-  EXPECT_EQ(1u, label()->lines_.size());
+  EXPECT_TRUE(label()->display_text_);
 
-  // Changing layout just resets |lines_|. It'll recover next time it's drawn.
+  // Changing layout just resets |display_text_|. It'll recover next time it's
+  // drawn.
   label()->SetBounds(0, 0, 10, 10);
-  EXPECT_EQ(0u, label()->lines_.size());
+  EXPECT_FALSE(label()->display_text_);
 
   label()->OnPaint(&canvas);
-  EXPECT_EQ(1u, label()->lines_.size());
+  EXPECT_TRUE(label()->display_text_);
 }
 
-#if !defined(OS_MACOSX)
 TEST_F(LabelTest, MultilineSupportedRenderText) {
-  std::unique_ptr<gfx::RenderText> render_text(
-      gfx::RenderText::CreateInstance());
-  ASSERT_TRUE(render_text->MultilineSupported());
-
   label()->SetText(ASCIIToUTF16("Example of\nmultilined label"));
   label()->SetMultiLine(true);
   label()->SizeToPreferredSize();
@@ -814,10 +898,10 @@ TEST_F(LabelTest, MultilineSupportedRenderText) {
   gfx::Canvas canvas(label()->GetPreferredSize(), 1.0f, true);
   label()->OnPaint(&canvas);
 
-  // There's only one 'line', RenderText itself supports multiple lines.
-  EXPECT_EQ(1u, label()->lines_.size());
+  // There's only RenderText instance, which should have multiple lines.
+  ASSERT_TRUE(label()->display_text_);
+  EXPECT_EQ(2u, label()->display_text_->GetNumLines());
 }
-#endif
 
 // Ensures SchedulePaint() calls are not made in OnPaint().
 TEST_F(LabelTest, NoSchedulePaintInOnPaint) {
@@ -893,7 +977,7 @@ TEST_P(MDLabelTest, FocusBounds) {
 
   label()->SizeToPreferredSize();
   gfx::Rect focus_bounds = label()->GetFocusRingBounds();
-  EXPECT_EQ(label()->GetLocalBounds().ToString(), focus_bounds.ToString());
+  EXPECT_EQ(label()->GetLocalBounds(), focus_bounds);
 
   gfx::Size focusable_size = normal_label_size;
   label()->SetBounds(
@@ -903,7 +987,7 @@ TEST_P(MDLabelTest, FocusBounds) {
   EXPECT_EQ(0, focus_bounds.x());
   EXPECT_LT(0, focus_bounds.y());
   EXPECT_GT(label()->bounds().bottom(), focus_bounds.bottom());
-  EXPECT_EQ(focusable_size.ToString(), focus_bounds.size().ToString());
+  EXPECT_EQ(focusable_size, focus_bounds.size());
 
   label()->SetHorizontalAlignment(gfx::ALIGN_RIGHT);
   focus_bounds = label()->GetFocusRingBounds();
@@ -911,7 +995,7 @@ TEST_P(MDLabelTest, FocusBounds) {
   EXPECT_EQ(label()->bounds().right(), focus_bounds.right());
   EXPECT_LT(0, focus_bounds.y());
   EXPECT_GT(label()->bounds().bottom(), focus_bounds.bottom());
-  EXPECT_EQ(focusable_size.ToString(), focus_bounds.size().ToString());
+  EXPECT_EQ(focusable_size, focus_bounds.size());
 
   label()->SetHorizontalAlignment(gfx::ALIGN_LEFT);
   label()->SetElideBehavior(gfx::FADE_TAIL);
@@ -1008,7 +1092,7 @@ TEST_F(LabelSelectionTest, DoubleTripleClick) {
   EXPECT_TRUE(GetSelectedText().empty());
 
   // Double clicking should select the word under cursor.
-  PerformClick(GetCursorPoint(0), ui::EF_IS_DOUBLE_CLICK);
+  PerformClick(GetCursorPoint(0));
   EXPECT_STR_EQ("Label", GetSelectedText());
 
   // Triple clicking should select all the text.
@@ -1022,7 +1106,7 @@ TEST_F(LabelSelectionTest, DoubleTripleClick) {
   // Clicking at another location should clear the selection.
   PerformClick(GetCursorPoint(8));
   EXPECT_TRUE(GetSelectedText().empty());
-  PerformClick(GetCursorPoint(8), ui::EF_IS_DOUBLE_CLICK);
+  PerformClick(GetCursorPoint(8));
   EXPECT_STR_EQ("double", GetSelectedText());
 }
 
@@ -1218,7 +1302,7 @@ TEST_F(LabelSelectionTest, MouseDragWord) {
   ASSERT_TRUE(label()->SetSelectable(true));
 
   PerformClick(GetCursorPoint(8));
-  PerformMousePress(GetCursorPoint(8), ui::EF_IS_DOUBLE_CLICK);
+  PerformMousePress(GetCursorPoint(8));
   EXPECT_STR_EQ("drag", GetSelectedText());
 
   PerformMouseDragTo(GetCursorPoint(0));

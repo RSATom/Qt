@@ -62,7 +62,6 @@ LegendMarkerItem::LegendMarkerItem(QLegendMarkerPrivate *marker, QGraphicsObject
     m_hovering(false),
     m_itemType(TypeRect)
 {
-    updateMarkerShapeAndSize();
     m_textItem->document()->setDocumentMargin(ChartPresenter::textMargin());
     setAcceptHoverEvents(true);
 }
@@ -147,6 +146,9 @@ QBrush LegendMarkerItem::labelBrush() const
 
 void LegendMarkerItem::setGeometry(const QRectF &rect)
 {
+    if (!m_markerItem)
+        updateMarkerShapeAndSize();
+
     const qreal width = rect.width();
     const qreal markerWidth = effectiveMarkerWidth();
     const qreal x = m_margin + markerWidth + m_space + m_margin;
@@ -368,6 +370,6 @@ bool LegendMarkerItem::useMaxWidth() const
             || m_marker->m_legend->alignment() == Qt::AlignRight);
 }
 
-#include "moc_legendmarkeritem_p.cpp"
-
 QT_CHARTS_END_NAMESPACE
+
+#include "moc_legendmarkeritem_p.cpp"

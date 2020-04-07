@@ -2,15 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include <oleacc.h>
 #include <windows.h>
+#include <oleacc.h>
+#include <wrl/client.h>
 
 #include "base/macros.h"
 #include "base/path_service.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/win/scoped_comptr.h"
 #include "base/win/scoped_variant.h"
-#include "mojo/edk/embedder/embedder.h"
+#include "mojo/core/embedder/embedder.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_tree_host.h"
@@ -36,11 +36,11 @@ class AXSystemCaretWinTest : public test::WidgetTest {
   ~AXSystemCaretWinTest() override {}
 
   void SetUp() override {
-    mojo::edk::Init();
+    mojo::core::Init();
     gl::GLSurfaceTestSupport::InitializeOneOff();
     ui::RegisterPathProvider();
     base::FilePath ui_test_pak_path;
-    ASSERT_TRUE(PathService::Get(ui::UI_TEST_PAK, &ui_test_pak_path));
+    ASSERT_TRUE(base::PathService::Get(ui::UI_TEST_PAK, &ui_test_pak_path));
     ui::ResourceBundle::InitSharedInstanceWithPakPath(ui_test_pak_path);
     test::WidgetTest::SetUp();
 
@@ -78,7 +78,7 @@ class AXSystemCaretWinTest : public test::WidgetTest {
 
 TEST_F(AXSystemCaretWinTest, DISABLED_TestOnCaretBoundsChangeInTextField) {
   TextfieldTestApi textfield_test_api(textfield_);
-  base::win::ScopedComPtr<IAccessible> caret_accessible;
+  Microsoft::WRL::ComPtr<IAccessible> caret_accessible;
   gfx::NativeWindow native_window = widget_->GetNativeWindow();
   ASSERT_NE(nullptr, native_window);
   HWND hwnd = native_window->GetHost()->GetAcceleratedWidget();
@@ -88,7 +88,7 @@ TEST_F(AXSystemCaretWinTest, DISABLED_TestOnCaretBoundsChangeInTextField) {
 
   textfield_test_api.ExecuteTextEditCommand(
       ui::TextEditCommand::MOVE_TO_BEGINNING_OF_DOCUMENT);
-  gfx::Point caret_position = textfield_test_api.GetCursorViewOrigin();
+  gfx::Point caret_position = textfield_test_api.GetCursorViewRect().origin();
   LONG x, y, width, height;
   EXPECT_EQ(S_OK,
             caret_accessible->accLocation(&x, &y, &width, &height, self_));
@@ -98,7 +98,7 @@ TEST_F(AXSystemCaretWinTest, DISABLED_TestOnCaretBoundsChangeInTextField) {
 
   textfield_test_api.ExecuteTextEditCommand(
       ui::TextEditCommand::MOVE_TO_END_OF_DOCUMENT);
-  gfx::Point caret_position2 = textfield_test_api.GetCursorViewOrigin();
+  gfx::Point caret_position2 = textfield_test_api.GetCursorViewRect().origin();
   EXPECT_NE(caret_position, caret_position2);
   EXPECT_EQ(S_OK,
             caret_accessible->accLocation(&x, &y, &width, &height, self_));
@@ -108,7 +108,7 @@ TEST_F(AXSystemCaretWinTest, DISABLED_TestOnCaretBoundsChangeInTextField) {
 }
 
 TEST_F(AXSystemCaretWinTest, DISABLED_TestOnInputTypeChangeInTextField) {
-  base::win::ScopedComPtr<IAccessible> caret_accessible;
+  Microsoft::WRL::ComPtr<IAccessible> caret_accessible;
   gfx::NativeWindow native_window = widget_->GetNativeWindow();
   ASSERT_NE(nullptr, native_window);
   HWND hwnd = native_window->GetHost()->GetAcceleratedWidget();
@@ -139,7 +139,7 @@ TEST_F(AXSystemCaretWinTest, DISABLED_TestOnInputTypeChangeInTextField) {
 }
 
 TEST_F(AXSystemCaretWinTest, DISABLED_TestMovingWindow) {
-  base::win::ScopedComPtr<IAccessible> caret_accessible;
+  Microsoft::WRL::ComPtr<IAccessible> caret_accessible;
   gfx::NativeWindow native_window = widget_->GetNativeWindow();
   ASSERT_NE(nullptr, native_window);
   HWND hwnd = native_window->GetHost()->GetAcceleratedWidget();

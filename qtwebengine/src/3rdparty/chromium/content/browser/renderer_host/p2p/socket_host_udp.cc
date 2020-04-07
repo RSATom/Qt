@@ -6,10 +6,8 @@
 
 #include "base/bind.h"
 #include "base/memory/ptr_util.h"
-#include "base/metrics/field_trial.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/stl_util.h"
-#include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
@@ -26,9 +24,11 @@
 namespace {
 
 // UDP packets cannot be bigger than 64k.
-const int kReadBufferSize = 65536;
+const int kUdpReadBufferSize = 65536;
 // Socket receive buffer size.
-const int kRecvSocketBufferSize = 65536;  // 64K
+const int kUdpRecvSocketBufferSize = 65536;  // 64K
+// Socket send buffer size.
+const int kUdpSendSocketBufferSize = 65536;
 
 // Defines set of transient errors. These errors are ignored when we get them
 // from sendto() or recvfrom() calls.
@@ -78,12 +78,14 @@ P2PSocketHostUdp::PendingPacket::PendingPacket(
     const net::IPEndPoint& to,
     const std::vector<char>& content,
     const rtc::PacketOptions& options,
-    uint64_t id)
+    uint64_t id,
+    const net::NetworkTrafficAnnotationTag traffic_annotation)
     : to(to),
       data(new net::IOBuffer(content.size())),
       size(content.size()),
       packet_options(options),
-      id(id) {
+      id(id),
+      traffic_annotation(traffic_annotation) {
   memcpy(data->data(), &content[0], size);
 }
 
@@ -97,44 +99,30 @@ P2PSocketHostUdp::P2PSocketHostUdp(
     IPC::Sender* message_sender,
     int socket_id,
     P2PMessageThrottler* throttler,
+    net::NetLog* net_log,
     const DatagramServerSocketFactory& socket_factory)
     : P2PSocketHost(message_sender, socket_id, P2PSocketHost::UDP),
-      socket_(socket_factory.Run()),
+      socket_(socket_factory.Run(net_log)),
       send_pending_(false),
       last_dscp_(net::DSCP_CS0),
       throttler_(throttler),
-      send_buffer_size_(0),
+      net_log_(net_log),
       socket_factory_(socket_factory) {}
 
 P2PSocketHostUdp::P2PSocketHostUdp(IPC::Sender* message_sender,
                                    int socket_id,
-                                   P2PMessageThrottler* throttler)
+                                   P2PMessageThrottler* throttler,
+                                   net::NetLog* net_log)
     : P2PSocketHostUdp(message_sender,
                        socket_id,
                        throttler,
+                       net_log,
                        base::Bind(&P2PSocketHostUdp::DefaultSocketFactory)) {}
 
 P2PSocketHostUdp::~P2PSocketHostUdp() {
   if (state_ == STATE_OPEN) {
     DCHECK(socket_.get());
     socket_.reset();
-  }
-}
-
-void P2PSocketHostUdp::SetSendBufferSize() {
-  unsigned int send_buffer_size = 0;
-
-  base::StringToUint(
-      base::FieldTrialList::FindFullName("WebRTC-SystemUDPSendSocketSize"),
-      &send_buffer_size);
-
-  if (send_buffer_size > 0) {
-    if (!SetOption(P2P_SOCKET_OPT_SNDBUF, send_buffer_size)) {
-      LOG(WARNING) << "Failed to set socket send buffer size to "
-                   << send_buffer_size;
-    } else {
-      send_buffer_size_ = send_buffer_size;
-    }
   }
 }
 
@@ -153,7 +141,7 @@ bool P2PSocketHostUdp::Init(const net::IPEndPoint& local_address,
     for (unsigned port = min_port; port <= max_port && result < 0; ++port) {
       result = socket_->Listen(net::IPEndPoint(local_address.address(), port));
       if (result < 0 && port != max_port)
-        socket_ = socket_factory_.Run();
+        socket_ = socket_factory_.Run(net_log_);
     }
   } else if (local_address.port() >= min_port &&
              local_address.port() <= max_port) {
@@ -171,9 +159,15 @@ bool P2PSocketHostUdp::Init(const net::IPEndPoint& local_address,
   }
 
   // Setting recv socket buffer size.
-  if (socket_->SetReceiveBufferSize(kRecvSocketBufferSize) != net::OK) {
+  if (socket_->SetReceiveBufferSize(kUdpRecvSocketBufferSize) != net::OK) {
     LOG(WARNING) << "Failed to set socket receive buffer size to "
-                 << kRecvSocketBufferSize;
+                 << kUdpRecvSocketBufferSize;
+  }
+
+  // Setting socket send buffer size.
+  if (socket_->SetSendBufferSize(kUdpSendSocketBufferSize) != net::OK) {
+    LOG(WARNING) << "Failed to set socket send buffer size to "
+                 << kUdpSendSocketBufferSize;
   }
 
   net::IPEndPoint address;
@@ -188,13 +182,11 @@ bool P2PSocketHostUdp::Init(const net::IPEndPoint& local_address,
 
   state_ = STATE_OPEN;
 
-  SetSendBufferSize();
-
   // NOTE: Remote address will be same as what renderer provided.
   message_sender_->Send(new P2PMsg_OnSocketCreated(
       id_, address, remote_address.ip_address));
 
-  recv_buffer_ = new net::IOBuffer(kReadBufferSize);
+  recv_buffer_ = new net::IOBuffer(kUdpReadBufferSize);
   DoRead();
 
   return true;
@@ -214,9 +206,7 @@ void P2PSocketHostUdp::DoRead() {
   int result;
   do {
     result = socket_->RecvFrom(
-        recv_buffer_.get(),
-        kReadBufferSize,
-        &recv_address_,
+        recv_buffer_.get(), kUdpReadBufferSize, &recv_address_,
         base::Bind(&P2PSocketHostUdp::OnRecv, base::Unretained(this)));
     if (result == net::ERR_IO_PENDING)
       return;
@@ -261,10 +251,12 @@ void P2PSocketHostUdp::HandleReadResult(int result) {
   }
 }
 
-void P2PSocketHostUdp::Send(const net::IPEndPoint& to,
-                            const std::vector<char>& data,
-                            const rtc::PacketOptions& options,
-                            uint64_t packet_id) {
+void P2PSocketHostUdp::Send(
+    const net::IPEndPoint& to,
+    const std::vector<char>& data,
+    const rtc::PacketOptions& options,
+    uint64_t packet_id,
+    const net::NetworkTrafficAnnotationTag traffic_annotation) {
   if (!socket_) {
     // The Send message may be sent after the an OnError message was
     // sent by hasn't been processed the renderer.
@@ -274,11 +266,12 @@ void P2PSocketHostUdp::Send(const net::IPEndPoint& to,
   IncrementTotalSentPackets();
 
   if (send_pending_) {
-    send_queue_.push_back(PendingPacket(to, data, options, packet_id));
+    send_queue_.push_back(
+        PendingPacket(to, data, options, packet_id, traffic_annotation));
     IncrementDelayedBytes(data.size());
     IncrementDelayedPackets();
   } else {
-    PendingPacket packet(to, data, options, packet_id);
+    PendingPacket packet(to, data, options, packet_id, traffic_annotation);
     DoSend(packet);
   }
 }
@@ -324,7 +317,7 @@ void P2PSocketHostUdp::DoSend(const PendingPacket& packet) {
       static_cast<net::DiffServCodePoint>(packet.packet_options.dscp);
   if (dscp != net::DSCP_NO_CHANGE && last_dscp_ != dscp &&
       last_dscp_ != net::DSCP_NO_CHANGE) {
-    int result = socket_->SetDiffServCodePoint(dscp);
+    int result = SetSocketDiffServCodePointInternal(dscp);
     if (result == net::OK) {
       last_dscp_ = dscp;
     } else if (!IsTransientError(result) && last_dscp_ != net::DSCP_CS0) {
@@ -342,6 +335,9 @@ void P2PSocketHostUdp::DoSend(const PendingPacket& packet) {
   auto callback_binding =
       base::Bind(&P2PSocketHostUdp::OnSend, base::Unretained(this), packet.id,
                  packet.packet_options.packet_id, send_time);
+
+  // TODO(crbug.com/656607): Pass traffic annotation after DatagramSocketServer
+  // is updated.
   int result = socket_->SendTo(packet.data.get(), packet.size, packet.to,
                                callback_binding);
 
@@ -350,7 +346,7 @@ void P2PSocketHostUdp::DoSend(const PendingPacket& packet) {
   // and just drop it if it fails again.
   if (IsTransientError(result)) {
     result = socket_->SendTo(packet.data.get(), packet.size, packet.to,
-                             callback_binding);
+                             std::move(callback_binding));
   }
 
   if (result == net::ERR_IO_PENDING) {
@@ -426,31 +422,36 @@ bool P2PSocketHostUdp::SetOption(P2PSocketOption option, int value) {
     DCHECK_EQ(state_, STATE_ERROR);
     return false;
   }
-
   switch (option) {
     case P2P_SOCKET_OPT_RCVBUF:
       return socket_->SetReceiveBufferSize(value) == net::OK;
     case P2P_SOCKET_OPT_SNDBUF:
-      // Ignore any following call to set the send buffer size if we're under
-      // experiment.
-      if (send_buffer_size_ > 0) {
-        return true;
-      }
       return socket_->SetSendBufferSize(value) == net::OK;
     case P2P_SOCKET_OPT_DSCP:
-      return (net::OK == socket_->SetDiffServCodePoint(
-          static_cast<net::DiffServCodePoint>(value))) ? true : false;
+      return net::OK == SetSocketDiffServCodePointInternal(
+                            static_cast<net::DiffServCodePoint>(value));
     default:
       NOTREACHED();
       return false;
   }
 }
 
+// TODO(crbug.com/812137): We don't call SetDiffServCodePoint for the Windows
+// UDP socket, because this is known to cause a hanging thread.
+int P2PSocketHostUdp::SetSocketDiffServCodePointInternal(
+    net::DiffServCodePoint dscp) {
+#if defined(OS_WIN)
+  return net::OK;
+#else
+  return socket_->SetDiffServCodePoint(dscp);
+#endif
+}
+
 // static
 std::unique_ptr<net::DatagramServerSocket>
-P2PSocketHostUdp::DefaultSocketFactory() {
-  net::UDPServerSocket* socket = new net::UDPServerSocket(
-      GetContentClient()->browser()->GetNetLog(), net::NetLogSource());
+P2PSocketHostUdp::DefaultSocketFactory(net::NetLog* net_log) {
+  net::UDPServerSocket* socket =
+      new net::UDPServerSocket(net_log, net::NetLogSource());
 #if defined(OS_WIN)
   socket->UseNonBlockingIO();
 #endif

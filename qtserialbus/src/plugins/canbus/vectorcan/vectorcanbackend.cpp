@@ -42,12 +42,15 @@
 
 #include <QtCore/qtimer.h>
 #include <QtCore/qcoreevent.h>
+#include <QtCore/qloggingcategory.h>
 #include <QtCore/qwineventnotifier.h>
 #include <QtCore/qcoreapplication.h>
 
 #include <algorithm>
 
 QT_BEGIN_NAMESPACE
+
+Q_DECLARE_LOGGING_CATEGORY(QT_CANBUS_PLUGINS_VECTORCAN)
 
 #ifndef LINK_LIBVECTORCAN
 Q_GLOBAL_STATIC(QLibrary, vectorcanLibrary)
@@ -86,7 +89,12 @@ QList<QCanBusDeviceInfo> VectorCanBackend::interfaces()
 
         const bool isVirtual = config.channel[i].hwType == XL_HWTYPE_VIRTUAL;
         const bool isFd = config.channel[i].channelCapabilities & XL_CHANNEL_FLAG_CANFD_SUPPORT;
-        result.append(createDeviceInfo(QStringLiteral("can") + QString::number(i), isVirtual, isFd));
+        const int channel = config.channel[i].hwChannel;
+        const QString name = QStringLiteral("can") + QString::number(i);
+        const QString serial = QString::number(config.channel[i].serialNumber);
+        const QString description = QLatin1String(config.channel[i].name);
+        result.append(std::move(createDeviceInfo(name, serial, description, channel,
+                                                 isVirtual, isFd)));
     }
 
     VectorCanBackendPrivate::cleanupDriver();
@@ -117,7 +125,7 @@ protected:
     }
 
 private:
-    VectorCanBackendPrivate *dptr;
+    VectorCanBackendPrivate * const dptr;
 };
 
 class WriteNotifier : public QTimer
@@ -142,7 +150,7 @@ protected:
     }
 
 private:
-    VectorCanBackendPrivate *dptr;
+    VectorCanBackendPrivate * const dptr;
 };
 
 
@@ -347,7 +355,7 @@ void VectorCanBackendPrivate::startRead()
             break;
         }
 
-        if (event.tag != XL_RECEIVE_MSG || event.portHandle != portHandle)
+        if (event.tag != XL_RECEIVE_MSG)
             continue;
 
         const s_xl_can_msg &msg = event.tagData.msg;
@@ -459,8 +467,8 @@ bool VectorCanBackend::open()
         const QVariant param = configurationParameter(key);
         const bool success = d->setConfigurationParameter(key, param);
         if (!success) {
-            qWarning("Cannot apply parameter: %d with value: %ls",
-                     key, qUtf16Printable(param.toString()));
+            qCWarning(QT_CANBUS_PLUGINS_VECTORCAN, "Cannot apply parameter: %d with value: %ls.",
+                      key, qUtf16Printable(param.toString()));
         }
     }
 
@@ -507,7 +515,7 @@ bool VectorCanBackend::writeFrame(const QCanBusFrame &newData)
     }
 
     // CAN FD frame format not implemented at this stage
-    if (Q_UNLIKELY(newData.payload().size() > MAX_MSG_LEN)) {
+    if (Q_UNLIKELY(newData.hasFlexibleDataRateFormat())) {
         setError(tr("CAN FD frame format not supported."),
                  QCanBusDevice::WriteError);
         return false;

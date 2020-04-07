@@ -5,21 +5,17 @@
 #ifndef COMPONENTS_CRYPTAUTH_SECURE_CHANNEL_H_
 #define COMPONENTS_CRYPTAUTH_SECURE_CHANNEL_H_
 
-#include <queue>
-
+#include "base/containers/queue.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "components/cryptauth/authenticator.h"
 #include "components/cryptauth/connection.h"
 #include "components/cryptauth/connection_observer.h"
 #include "components/cryptauth/device_to_device_authenticator.h"
-#include "components/cryptauth/remote_device.h"
+#include "components/cryptauth/remote_device_ref.h"
 #include "components/cryptauth/secure_context.h"
-#include "components/cryptauth/secure_message_delegate.h"
 
 namespace cryptauth {
-
-class CryptAuthService;
 
 // An authenticated bi-directional channel for exchanging messages with remote
 // devices. |SecureChannel| manages a |Connection| by initializing it and
@@ -38,27 +34,28 @@ class SecureChannel : public ConnectionObserver {
   //       process of authenticating via a 3-message authentication handshake.
   //   AUTHENTICATED: The connection has been authenticated, and arbitrary
   //       messages can be sent/received to/from the device.
+  //   DISCONNECTING: The connection has started disconnecting but has not yet
+  //       finished.
   enum class Status {
     DISCONNECTED,
     CONNECTING,
     CONNECTED,
     AUTHENTICATING,
     AUTHENTICATED,
+    DISCONNECTING
   };
 
   static std::string StatusToString(const Status& status);
 
   class Observer {
    public:
-    virtual void OnSecureChannelStatusChanged(
-        SecureChannel* secure_channel,
-        const Status& old_status,
-        const Status& new_status) = 0;
+    virtual void OnSecureChannelStatusChanged(SecureChannel* secure_channel,
+                                              const Status& old_status,
+                                              const Status& new_status) {}
 
-    virtual void OnMessageReceived(
-        SecureChannel* secure_channel,
-        const std::string& feature,
-        const std::string& payload) = 0;
+    virtual void OnMessageReceived(SecureChannel* secure_channel,
+                                   const std::string& feature,
+                                   const std::string& payload) {}
 
     // Called when a message has been sent successfully; |sequence_number|
     // corresponds to the value returned by an earlier call to SendMessage().
@@ -69,15 +66,13 @@ class SecureChannel : public ConnectionObserver {
   class Factory {
    public:
     static std::unique_ptr<SecureChannel> NewInstance(
-        std::unique_ptr<Connection> connection,
-        CryptAuthService* cryptauth_service);
+        std::unique_ptr<Connection> connection);
 
     static void SetInstanceForTesting(Factory* factory);
 
    protected:
     virtual std::unique_ptr<SecureChannel> BuildInstance(
-        std::unique_ptr<Connection> connection,
-        CryptAuthService* cryptauth_service);
+        std::unique_ptr<Connection> connection);
 
    private:
     static Factory* factory_instance_;
@@ -98,6 +93,15 @@ class SecureChannel : public ConnectionObserver {
   virtual void AddObserver(Observer* observer);
   virtual void RemoveObserver(Observer* observer);
 
+  // Returns the RSSI of the connection; if no derived class overrides this
+  // function, base::nullopt is returned.
+  virtual void GetConnectionRssi(
+      base::OnceCallback<void(base::Optional<int32_t>)> callback);
+
+  // The |responder_auth| message. Returns null if |secure_context_| is null or
+  // status() != AUTHENTICATED.
+  virtual base::Optional<std::string> GetChannelBindingData();
+
   Status status() const {
     return status_;
   }
@@ -113,8 +117,7 @@ class SecureChannel : public ConnectionObserver {
                        bool success) override;
 
  protected:
-  SecureChannel(std::unique_ptr<Connection> connection,
-                CryptAuthService* cryptauth_service);
+  SecureChannel(std::unique_ptr<Connection> connection);
 
   Status status_;
 
@@ -148,10 +151,9 @@ class SecureChannel : public ConnectionObserver {
       std::unique_ptr<SecureContext> secure_context);
 
   std::unique_ptr<Connection> connection_;
-  CryptAuthService* cryptauth_service_;  // Outlives this instance.
   std::unique_ptr<Authenticator> authenticator_;
   std::unique_ptr<SecureContext> secure_context_;
-  std::queue<std::unique_ptr<PendingMessage>> queued_messages_;
+  base::queue<std::unique_ptr<PendingMessage>> queued_messages_;
   std::unique_ptr<PendingMessage> pending_message_;
   int next_sequence_number_ = 0;
   base::ObserverList<Observer> observer_list_;

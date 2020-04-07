@@ -39,7 +39,7 @@
 class SkXPSDevice : public SkClipStackDevice {
 public:
     SK_API SkXPSDevice(SkISize);
-    SK_API virtual ~SkXPSDevice();
+    SK_API ~SkXPSDevice() override;
 
     bool beginPortfolio(SkWStream* outputStream, IXpsOMObjectFactory*);
     /**
@@ -97,12 +97,11 @@ protected:
                         const SkRect* srcOrNull, const SkRect& dst,
                         const SkPaint& paint,
                         SkCanvas::SrcRectConstraint) override;
-    void drawText(const void* text, size_t len,
-                  SkScalar x, SkScalar y, const SkPaint& paint) override;
     void drawPosText(const void* text, size_t len,
                      const SkScalar pos[], int scalarsPerPos,
                      const SkPoint& offset, const SkPaint& paint) override;
-    void drawVertices(const SkVertices*, SkBlendMode, const SkPaint&) override;
+    void drawVertices(const SkVertices*, const SkMatrix* bones, int boneCount, SkBlendMode,
+                      const SkPaint&) override;
     void drawDevice(SkBaseDevice*, int x, int y,
                     const SkPaint&) override;
 

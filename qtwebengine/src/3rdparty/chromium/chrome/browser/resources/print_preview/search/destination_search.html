@@ -9,8 +9,7 @@
     <div class="search-box-container"></div>
     <div class="lists">
       <div class="recent-list"></div>
-      <div class="local-list"></div>
-      <div class="cloud-list" hidden></div>
+      <div class="print-list"></div>
     </div>
     <div class="action-area">
       <div class="button-strip">
@@ -23,6 +22,9 @@
         <button class="invitation-accept-button"></button>
         <button class="invitation-reject-button">$i18n{reject}</button>
         <div id="invitation-process-throbber" class="throbber" hidden></div>
+      </div>
+      <div class="invitation-cloud-print-information">
+        $i18nRaw{registerPrinterInformationMessage}
       </div>
     </div>
     <div class="cloudprint-promo gray-bottom-bar" hidden>

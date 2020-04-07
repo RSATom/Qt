@@ -6,4 +6,4 @@ TARGET=tst_qgeoroute
 HEADERS += tst_qgeoroute.h
 SOURCES += tst_qgeoroute.cpp
 
-QT += location testlib
+QT += location-private testlib

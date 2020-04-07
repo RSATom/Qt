@@ -26,8 +26,7 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.8
-import Qt.labs.handlers 1.0
+import QtQuick 2.12
 
 Rectangle {
     id: root
@@ -35,6 +34,7 @@ Rectangle {
     property alias pressed: tap.pressed
     property bool checked: false
     property alias gesturePolicy: tap.gesturePolicy
+    property alias margin: tap.margin
     signal tapped
 
     width: label.implicitWidth * 1.5; height: label.implicitHeight * 2.0

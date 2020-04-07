@@ -52,12 +52,12 @@ class MySensorGestureRecognizer : public QSensorGestureRecognizer
     MySensorGestureRecognizer(QObject *parent = 0);
     ~MySensorGestureRecognizer();
 
-    void create();
+    void create() override;
 
-    QString id() const;
-    bool start();
-    bool stop();
-    bool isActive();
+    QString id() const override;
+    bool start() override;
+    bool stop() override;
+    bool isActive() override;
 
 Q_SIGNALS:
 // all signals will get exported to QSensorGesture
@@ -74,9 +74,9 @@ public:
     explicit MySensorGesturePlugin();
     ~MySensorGesturePlugin();
 
-    QList <QSensorGestureRecognizer *>  createRecognizers();
-    QStringList supportedIds() const;
-    QString name() const { return "MyGestures"; }
+    QList<QSensorGestureRecognizer *> createRecognizers() override;
+    QStringList supportedIds() const override;
+    QString name() const override { return "MyGestures"; }
 };
 
 #endif

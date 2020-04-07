@@ -6,11 +6,16 @@
  */
 
 #include "SkDashPathEffect.h"
+
 #include "SkDashImpl.h"
 #include "SkDashPathPriv.h"
+#include "SkFlattenablePriv.h"
 #include "SkReadBuffer.h"
-#include "SkWriteBuffer.h"
 #include "SkStrokeRec.h"
+#include "SkTo.h"
+#include "SkWriteBuffer.h"
+
+#include <utility>
 
 SkDashImpl::SkDashImpl(const SkScalar intervals[], int count, SkScalar phase)
         : fPhase(0)
@@ -90,7 +95,8 @@ static bool cull_line(SkPoint* pts, const SkStrokeRec& rec,
         SkScalar maxX = pts[1].fX;
 
         if (dx < 0) {
-            SkTSwap(minX, maxX);
+            using std::swap;
+            swap(minX, maxX);
         }
 
         SkASSERT(minX < maxX);
@@ -111,7 +117,8 @@ static bool cull_line(SkPoint* pts, const SkStrokeRec& rec,
 
         SkASSERT(maxX > minX);
         if (dx < 0) {
-            SkTSwap(minX, maxX);
+            using std::swap;
+            swap(minX, maxX);
         }
         pts[0].fX = minX;
         pts[1].fX = maxX;
@@ -121,7 +128,8 @@ static bool cull_line(SkPoint* pts, const SkStrokeRec& rec,
         SkScalar maxY = pts[1].fY;
 
         if (dy < 0) {
-            SkTSwap(minY, maxY);
+            using std::swap;
+            swap(minY, maxY);
         }
 
         SkASSERT(minY < maxY);
@@ -142,7 +150,8 @@ static bool cull_line(SkPoint* pts, const SkStrokeRec& rec,
 
         SkASSERT(maxY > minY);
         if (dy < 0) {
-            SkTSwap(minY, maxY);
+            using std::swap;
+            swap(minY, maxY);
         }
         pts[0].fY = minY;
         pts[1].fY = maxY;
@@ -367,26 +376,18 @@ void SkDashImpl::flatten(SkWriteBuffer& buffer) const {
 sk_sp<SkFlattenable> SkDashImpl::CreateProc(SkReadBuffer& buffer) {
     const SkScalar phase = buffer.readScalar();
     uint32_t count = buffer.getArrayCount();
+
+    // Don't allocate gigantic buffers if there's not data for them.
+    if (!buffer.validateCanReadN<SkScalar>(count)) {
+        return nullptr;
+    }
+
     SkAutoSTArray<32, SkScalar> intervals(count);
     if (buffer.readScalarArray(intervals.get(), count)) {
         return SkDashPathEffect::Make(intervals.get(), SkToInt(count), phase);
     }
     return nullptr;
 }
-
-#ifndef SK_IGNORE_TO_STRING
-void SkDashImpl::toString(SkString* str) const {
-    str->appendf("SkDashPathEffect: (");
-    str->appendf("count: %d phase %.2f intervals: (", fCount, fPhase);
-    for (int i = 0; i < fCount; ++i) {
-        str->appendf("%.2f", fIntervals[i]);
-        if (i < fCount-1) {
-            str->appendf(", ");
-        }
-    }
-    str->appendf("))");
-}
-#endif
 
 //////////////////////////////////////////////////////////////////////////////////////////////////
 

@@ -63,6 +63,7 @@
     These are links to the API reference materials.
     \list
     \li \l{Qt XML Patterns C++ Classes}{C++ Classes}
+    \li \l{Qt XML Patterns QML Types}{QML Types}
     \endlist
 
     \section1 Licenses and Attributions

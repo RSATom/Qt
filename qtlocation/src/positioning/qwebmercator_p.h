@@ -64,7 +64,6 @@ class Q_POSITIONING_PRIVATE_EXPORT QWebMercator
 public:
     static QDoubleVector2D coordToMercator(const QGeoCoordinate &coord);
     static QGeoCoordinate mercatorToCoord(const QDoubleVector2D &mercator);
-    static QGeoCoordinate mercatorToCoordClamped(const QDoubleVector2D &mercator);
     static QGeoCoordinate coordinateInterpolation(const QGeoCoordinate &from, const QGeoCoordinate &to, qreal progress);
 
 private:

@@ -4,24 +4,24 @@
 
 #include "net/url_request/url_request_ftp_job.h"
 
-#include <memory>
 #include <utility>
 #include <vector>
 
-#include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/run_loop.h"
+#include "net/base/completion_once_callback.h"
 #include "net/base/host_port_pair.h"
 #include "net/base/load_states.h"
+#include "net/base/proxy_server.h"
 #include "net/base/request_priority.h"
 #include "net/ftp/ftp_auth_cache.h"
 #include "net/http/http_transaction_test_util.h"
-#include "net/proxy/mock_proxy_resolver.h"
-#include "net/proxy/proxy_config_service.h"
-#include "net/proxy/proxy_config_service_fixed.h"
-#include "net/proxy/proxy_server.h"
+#include "net/proxy_resolution/mock_proxy_resolver.h"
+#include "net/proxy_resolution/proxy_config_service.h"
+#include "net/proxy_resolution/proxy_config_service_fixed.h"
 #include "net/socket/socket_test_util.h"
 #include "net/test/gtest_util.h"
+#include "net/test/test_with_scoped_task_environment.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
 #include "net/url_request/ftp_protocol_handler.h"
 #include "net/url_request/url_request.h"
@@ -46,11 +46,10 @@ class MockProxyResolverFactory : public ProxyResolverFactory {
   MockProxyResolverFactory()
       : ProxyResolverFactory(false), resolver_(nullptr) {}
 
-  int CreateProxyResolver(
-      const scoped_refptr<ProxyResolverScriptData>& pac_script,
-      std::unique_ptr<ProxyResolver>* resolver,
-      const CompletionCallback& callback,
-      std::unique_ptr<Request>* request) override {
+  int CreateProxyResolver(const scoped_refptr<PacFileData>& pac_script,
+                          std::unique_ptr<ProxyResolver>* resolver,
+                          CompletionOnceCallback callback,
+                          std::unique_ptr<Request>* request) override {
     EXPECT_FALSE(resolver_);
     std::unique_ptr<MockAsyncProxyResolver> owned_resolver(
         new MockAsyncProxyResolver());
@@ -78,19 +77,20 @@ class MockFtpTransactionFactory : public FtpTransactionFactory {
 
 class FtpTestURLRequestContext : public TestURLRequestContext {
  public:
-  FtpTestURLRequestContext(ClientSocketFactory* socket_factory,
-                           std::unique_ptr<ProxyService> proxy_service,
-                           NetworkDelegate* network_delegate)
+  FtpTestURLRequestContext(
+      ClientSocketFactory* socket_factory,
+      std::unique_ptr<ProxyResolutionService> proxy_resolution_service,
+      NetworkDelegate* network_delegate)
       : TestURLRequestContext(true) {
     set_client_socket_factory(socket_factory);
-    context_storage_.set_proxy_service(std::move(proxy_service));
+    context_storage_.set_proxy_resolution_service(
+        std::move(proxy_resolution_service));
     set_network_delegate(network_delegate);
     std::unique_ptr<FtpProtocolHandler> ftp_protocol_handler(
         FtpProtocolHandler::CreateForTesting(
-            base::MakeUnique<MockFtpTransactionFactory>()));
+            std::make_unique<MockFtpTransactionFactory>()));
     auth_cache_ = ftp_protocol_handler->ftp_auth_cache_.get();
-    std::unique_ptr<URLRequestJobFactoryImpl> job_factory =
-        base::WrapUnique(new URLRequestJobFactoryImpl);
+    auto job_factory = std::make_unique<URLRequestJobFactoryImpl>();
     job_factory->SetProtocolHandler("ftp", std::move(ftp_protocol_handler));
     context_storage_.set_job_factory(std::move(job_factory));
     Init();
@@ -98,8 +98,10 @@ class FtpTestURLRequestContext : public TestURLRequestContext {
 
   FtpAuthCache* GetFtpAuthCache() { return auth_cache_; }
 
-  void set_proxy_service(std::unique_ptr<ProxyService> proxy_service) {
-    context_storage_.set_proxy_service(std::move(proxy_service));
+  void set_proxy_resolution_service(
+      std::unique_ptr<ProxyResolutionService> proxy_resolution_service) {
+    context_storage_.set_proxy_resolution_service(
+        std::move(proxy_resolution_service));
   }
 
  private:
@@ -113,7 +115,10 @@ class SimpleProxyConfigService : public ProxyConfigService {
  public:
   SimpleProxyConfigService() {
     // Any FTP requests that ever go through HTTP paths are proxied requests.
-    config_.proxy_rules().ParseFromString("ftp=localhost");
+    ProxyConfig proxy_config = config_.value();
+    proxy_config.proxy_rules().ParseFromString("ftp=localhost");
+    config_ =
+        ProxyConfigWithAnnotation(proxy_config, TRAFFIC_ANNOTATION_FOR_TESTS);
   }
 
   void AddObserver(Observer* observer) override { observer_ = observer; }
@@ -124,18 +129,14 @@ class SimpleProxyConfigService : public ProxyConfigService {
     }
   }
 
-  ConfigAvailability GetLatestProxyConfig(ProxyConfig* config) override {
+  ConfigAvailability GetLatestProxyConfig(
+      ProxyConfigWithAnnotation* config) override {
     *config = config_;
     return CONFIG_VALID;
   }
 
-  void IncrementConfigId() {
-    config_.set_id(config_.id() + 1);
-    observer_->OnProxyConfigChanged(config_, ProxyConfigService::CONFIG_VALID);
-  }
-
  private:
-  ProxyConfig config_;
+  ProxyConfigWithAnnotation config_;
   Observer* observer_;
 };
 
@@ -147,7 +148,7 @@ class TestURLRequestFtpJob : public URLRequestFtpJob {
                        FtpTransactionFactory* ftp_factory,
                        FtpAuthCache* ftp_auth_cache)
       : URLRequestFtpJob(request, NULL, ftp_factory, ftp_auth_cache) {}
-  ~TestURLRequestFtpJob() override {}
+  ~TestURLRequestFtpJob() override = default;
 
   using URLRequestFtpJob::SetPriority;
   using URLRequestFtpJob::Start;
@@ -159,21 +160,21 @@ class TestURLRequestFtpJob : public URLRequestFtpJob {
 
 // Fixture for priority-related tests. Priority matters when there is
 // an HTTP proxy.
-class URLRequestFtpJobPriorityTest : public testing::Test {
+class URLRequestFtpJobPriorityTest : public TestWithScopedTaskEnvironment {
  protected:
   URLRequestFtpJobPriorityTest()
-      : proxy_service_(base::WrapUnique(new SimpleProxyConfigService),
-                       NULL,
-                       NULL),
+      : proxy_resolution_service_(std::make_unique<SimpleProxyConfigService>(),
+                                  NULL,
+                                  NULL),
         req_(context_.CreateRequest(GURL("ftp://ftp.example.com"),
                                     DEFAULT_PRIORITY,
                                     &delegate_,
                                     TRAFFIC_ANNOTATION_FOR_TESTS)) {
-    context_.set_proxy_service(&proxy_service_);
+    context_.set_proxy_resolution_service(&proxy_resolution_service_);
     context_.set_http_transaction_factory(&network_layer_);
   }
 
-  ProxyService proxy_service_;
+  ProxyResolutionService proxy_resolution_service_;
   MockNetworkLayer network_layer_;
   MockFtpTransactionFactory ftp_factory_;
   FtpAuthCache ftp_auth_cache_;
@@ -251,12 +252,12 @@ TEST_F(URLRequestFtpJobPriorityTest, SetSubsequentTransactionPriority) {
   EXPECT_EQ(LOW, network_layer_.last_transaction()->priority());
 }
 
-class URLRequestFtpJobTest : public testing::Test {
+class URLRequestFtpJobTest : public TestWithScopedTaskEnvironment {
  public:
   URLRequestFtpJobTest()
       : request_context_(&socket_factory_,
-                         base::MakeUnique<ProxyService>(
-                             base::WrapUnique(new SimpleProxyConfigService),
+                         std::make_unique<ProxyResolutionService>(
+                             std::make_unique<SimpleProxyConfigService>(),
                              nullptr,
                              nullptr),
                          &network_delegate_) {}
@@ -266,11 +267,10 @@ class URLRequestFtpJobTest : public testing::Test {
     base::RunLoop().RunUntilIdle();
   }
 
-  void AddSocket(MockRead* reads, size_t reads_size,
-                 MockWrite* writes, size_t writes_size) {
+  void AddSocket(base::span<const MockRead> reads,
+                 base::span<const MockWrite> writes) {
     std::unique_ptr<SequencedSocketData> socket_data(
-        base::MakeUnique<SequencedSocketData>(reads, reads_size, writes,
-                                              writes_size));
+        std::make_unique<SequencedSocketData>(reads, writes));
     socket_data->set_connect_data(MockConnect(SYNCHRONOUS, OK));
     socket_factory_.AddSocketDataProvider(socket_data.get());
 
@@ -300,7 +300,7 @@ TEST_F(URLRequestFtpJobTest, FtpProxyRequest) {
     MockRead(ASYNC, 3, "test.html"),
   };
 
-  AddSocket(reads, arraysize(reads), writes, arraysize(writes));
+  AddSocket(reads, writes);
 
   TestDelegate request_delegate;
   std::unique_ptr<URLRequest> url_request(request_context()->CreateRequest(
@@ -329,10 +329,12 @@ TEST_F(URLRequestFtpJobTest, FtpProxyRequestOrphanJob) {
   MockProxyResolverFactory* resolver_factory = owned_resolver_factory.get();
 
   // Use a PAC URL so that URLRequestFtpJob's |pac_request_| field is non-NULL.
-  request_context()->set_proxy_service(base::WrapUnique(new ProxyService(
-      base::WrapUnique(new ProxyConfigServiceFixed(
-          ProxyConfig::CreateFromCustomPacURL(GURL("http://foo")))),
-      std::move(owned_resolver_factory), nullptr)));
+  request_context()->set_proxy_resolution_service(
+      std::make_unique<ProxyResolutionService>(
+          std::make_unique<ProxyConfigServiceFixed>(ProxyConfigWithAnnotation(
+              ProxyConfig::CreateFromCustomPacURL(GURL("http://foo")),
+              TRAFFIC_ANNOTATION_FOR_TESTS)),
+          std::move(owned_resolver_factory), nullptr));
 
   TestDelegate request_delegate;
   std::unique_ptr<URLRequest> url_request(request_context()->CreateRequest(
@@ -361,10 +363,12 @@ TEST_F(URLRequestFtpJobTest, FtpProxyRequestCancelRequest) {
   MockProxyResolverFactory* resolver_factory = owned_resolver_factory.get();
 
   // Use a PAC URL so that URLRequestFtpJob's |pac_request_| field is non-NULL.
-  request_context()->set_proxy_service(base::WrapUnique(new ProxyService(
-      base::WrapUnique(new ProxyConfigServiceFixed(
-          ProxyConfig::CreateFromCustomPacURL(GURL("http://foo")))),
-      std::move(owned_resolver_factory), nullptr)));
+  request_context()->set_proxy_resolution_service(
+      std::make_unique<ProxyResolutionService>(
+          std::make_unique<ProxyConfigServiceFixed>(ProxyConfigWithAnnotation(
+              ProxyConfig::CreateFromCustomPacURL(GURL("http://foo")),
+              TRAFFIC_ANNOTATION_FOR_TESTS)),
+          std::move(owned_resolver_factory), nullptr));
 
   TestDelegate request_delegate;
   std::unique_ptr<URLRequest> url_request(request_context()->CreateRequest(
@@ -400,7 +404,7 @@ TEST_F(URLRequestFtpJobTest, FtpProxyRequestNeedProxyAuthNoCredentials) {
     MockRead(ASYNC, 4, "test.html"),
   };
 
-  AddSocket(reads, arraysize(reads), writes, arraysize(writes));
+  AddSocket(reads, writes);
 
   TestDelegate request_delegate;
   std::unique_ptr<URLRequest> url_request(request_context()->CreateRequest(
@@ -446,7 +450,7 @@ TEST_F(URLRequestFtpJobTest, FtpProxyRequestNeedProxyAuthWithCredentials) {
     MockRead(ASYNC, 8, "test2.html"),
   };
 
-  AddSocket(reads, arraysize(reads), writes, arraysize(writes));
+  AddSocket(reads, writes);
 
   TestDelegate request_delegate;
   request_delegate.set_credentials(
@@ -482,7 +486,7 @@ TEST_F(URLRequestFtpJobTest, FtpProxyRequestNeedServerAuthNoCredentials) {
     MockRead(ASYNC, 4, "test.html"),
   };
 
-  AddSocket(reads, arraysize(reads), writes, arraysize(writes));
+  AddSocket(reads, writes);
 
   TestDelegate request_delegate;
   std::unique_ptr<URLRequest> url_request(request_context()->CreateRequest(
@@ -525,7 +529,7 @@ TEST_F(URLRequestFtpJobTest, FtpProxyRequestNeedServerAuthWithCredentials) {
     MockRead(ASYNC, 8, "test2.html"),
   };
 
-  AddSocket(reads, arraysize(reads), writes, arraysize(writes));
+  AddSocket(reads, writes);
 
   TestDelegate request_delegate;
   request_delegate.set_credentials(
@@ -584,7 +588,7 @@ TEST_F(URLRequestFtpJobTest, FtpProxyRequestNeedProxyAndServerAuth) {
     MockRead(ASYNC, 13, "test2.html"),
   };
 
-  AddSocket(reads, arraysize(reads), writes, arraysize(writes));
+  AddSocket(reads, writes);
 
   GURL url("ftp://ftp.example.com");
 
@@ -595,14 +599,12 @@ TEST_F(URLRequestFtpJobTest, FtpProxyRequestNeedProxyAndServerAuth) {
                       ASCIIToUTF16("passworddonotuse")));
 
   TestDelegate request_delegate;
-  request_delegate.set_quit_on_auth_required(true);
   std::unique_ptr<URLRequest> url_request(request_context()->CreateRequest(
       url, DEFAULT_PRIORITY, &request_delegate, TRAFFIC_ANNOTATION_FOR_TESTS));
   url_request->Start();
   ASSERT_TRUE(url_request->is_pending());
 
-  // Run until proxy auth is requested.
-  base::RunLoop().Run();
+  request_delegate.RunUntilAuthRequired();
 
   ASSERT_TRUE(request_delegate.auth_required_called());
   EXPECT_EQ(0, network_delegate()->completed_requests());
@@ -611,15 +613,14 @@ TEST_F(URLRequestFtpJobTest, FtpProxyRequestNeedProxyAndServerAuth) {
       AuthCredentials(ASCIIToUTF16("proxyuser"), ASCIIToUTF16("proxypass")));
 
   // Run until server auth is requested.
-  base::RunLoop().Run();
+  request_delegate.RunUntilAuthRequired();
 
   EXPECT_EQ(0, network_delegate()->completed_requests());
   EXPECT_EQ(0, network_delegate()->error_count());
   url_request->SetAuth(
       AuthCredentials(ASCIIToUTF16("myuser"), ASCIIToUTF16("mypass")));
 
-  // The TestDelegate will by default quit the message loop on completion.
-  base::RunLoop().Run();
+  request_delegate.RunUntilComplete();
 
   EXPECT_THAT(request_delegate.request_status(), IsOk());
   EXPECT_EQ(1, network_delegate()->completed_requests());
@@ -641,7 +642,7 @@ TEST_F(URLRequestFtpJobTest, FtpProxyRequestDoNotSaveCookies) {
     MockRead(ASYNC, 4, "test.html"),
   };
 
-  AddSocket(reads, arraysize(reads), writes, arraysize(writes));
+  AddSocket(reads, writes);
 
   TestDelegate request_delegate;
   std::unique_ptr<URLRequest> url_request(request_context()->CreateRequest(
@@ -675,7 +676,7 @@ TEST_F(URLRequestFtpJobTest, FtpProxyRequestDoNotFollowRedirects) {
     MockRead(ASYNC, 2, "Location: http://other.example.com/\r\n\r\n"),
   };
 
-  AddSocket(reads, arraysize(reads), writes, arraysize(writes));
+  AddSocket(reads, writes);
 
   TestDelegate request_delegate;
   std::unique_ptr<URLRequest> url_request(request_context()->CreateRequest(
@@ -712,7 +713,7 @@ TEST_F(URLRequestFtpJobTest, FtpProxyRequestReuseSocket) {
     MockRead(ASYNC, 7, "test2.html"),
   };
 
-  AddSocket(reads, arraysize(reads), writes, arraysize(writes));
+  AddSocket(reads, writes);
 
   TestDelegate request_delegate1;
 
@@ -778,8 +779,8 @@ TEST_F(URLRequestFtpJobTest, FtpProxyRequestDoNotReuseSocket) {
     MockRead(ASYNC, 3, "test2.html"),
   };
 
-  AddSocket(reads1, arraysize(reads1), writes1, arraysize(writes1));
-  AddSocket(reads2, arraysize(reads2), writes2, arraysize(writes2));
+  AddSocket(reads1, writes1);
+  AddSocket(reads2, writes2);
 
   TestDelegate request_delegate1;
   std::unique_ptr<URLRequest> url_request1(request_context()->CreateRequest(

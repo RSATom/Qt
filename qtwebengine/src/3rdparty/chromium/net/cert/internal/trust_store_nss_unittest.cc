@@ -7,13 +7,14 @@
 #include <cert.h>
 #include <certdb.h>
 
-#include "base/memory/ptr_util.h"
+#include <memory>
+
 #include "base/strings/string_number_conversions.h"
 #include "crypto/scoped_test_nss_db.h"
 #include "net/cert/internal/cert_issuer_source_sync_unittest.h"
 #include "net/cert/internal/test_helpers.h"
 #include "net/cert/scoped_nss_types.h"
-#include "net/cert/x509_certificate.h"
+#include "net/cert/x509_util_nss.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace net {
@@ -58,15 +59,12 @@ class TrustStoreNSSTest : public testing::Test {
   }
 
   void AddCertToNSS(const ParsedCertificate* cert) {
-    std::string nickname = GetUniqueNickname();
-    ScopedCERTCertificate nss_cert(
-        X509Certificate::CreateOSCertHandleFromBytesWithNickname(
-            cert->der_cert().AsStringPiece().data(), cert->der_cert().Length(),
-            nickname.c_str()));
+    ScopedCERTCertificate nss_cert(x509_util::CreateCERTCertificateFromBytes(
+        cert->der_cert().UnsafeData(), cert->der_cert().Length()));
     ASSERT_TRUE(nss_cert);
-    SECStatus srv =
-        PK11_ImportCert(test_nssdb_.slot(), nss_cert.get(), CK_INVALID_HANDLE,
-                        nickname.c_str(), PR_FALSE /* includeTrust (unused) */);
+    SECStatus srv = PK11_ImportCert(
+        test_nssdb_.slot(), nss_cert.get(), CK_INVALID_HANDLE,
+        GetUniqueNickname().c_str(), PR_FALSE /* includeTrust (unused) */);
     ASSERT_EQ(SECSuccess, srv);
   }
 
@@ -96,6 +94,21 @@ class TrustStoreNSSTest : public testing::Test {
 
   // Trusts |cert|. Assumes the cert was already imported into NSS.
   void TrustCert(const ParsedCertificate* cert) {
+    ChangeCertTrust(cert, CERTDB_TRUSTED_CA | CERTDB_VALID_CA);
+  }
+
+  // Trusts |cert| as a server, but not as a CA. Assumes the cert was already
+  // imported into NSS.
+  void TrustServerCert(const ParsedCertificate* cert) {
+    ChangeCertTrust(cert, CERTDB_TERMINAL_RECORD | CERTDB_TRUSTED);
+  }
+
+  // Distrusts |cert|. Assumes the cert was already imported into NSS.
+  void DistrustCert(const ParsedCertificate* cert) {
+    ChangeCertTrust(cert, CERTDB_TERMINAL_RECORD);
+  }
+
+  void ChangeCertTrust(const ParsedCertificate* cert, int flags) {
     SECItem der_cert;
     der_cert.data = const_cast<uint8_t*>(cert->der_cert().UnsafeData());
     der_cert.len = base::checked_cast<unsigned>(cert->der_cert().Length());
@@ -106,8 +119,7 @@ class TrustStoreNSSTest : public testing::Test {
     ASSERT_TRUE(nss_cert);
 
     CERTCertTrust trust = {0};
-    trust.sslFlags =
-        CERTDB_TRUSTED_CA | CERTDB_TRUSTED_CLIENT_CA | CERTDB_VALID_CA;
+    trust.sslFlags = flags;
     SECStatus srv =
         CERT_ChangeCertTrust(CERT_GetDefaultCertDB(), nss_cert.get(), &trust);
     ASSERT_EQ(SECSuccess, srv);
@@ -215,6 +227,19 @@ TEST_F(TrustStoreNSSTest, TrustedCA) {
   EXPECT_TRUE(HasTrust({newroot_}, CertificateTrustType::TRUSTED_ANCHOR));
 }
 
+// Distrust a single self-signed CA certificate.
+TEST_F(TrustStoreNSSTest, DistrustedCA) {
+  AddCertsToNSS();
+  DistrustCert(newroot_.get());
+
+  // Only one of the certificates are trusted.
+  EXPECT_TRUE(HasTrust(
+      {oldroot_, target_, oldintermediate_, newintermediate_, newrootrollover_},
+      CertificateTrustType::UNSPECIFIED));
+
+  EXPECT_TRUE(HasTrust({newroot_}, CertificateTrustType::DISTRUSTED));
+}
+
 // Trust a single intermediate certificate.
 TEST_F(TrustStoreNSSTest, TrustedIntermediate) {
   AddCertsToNSS();
@@ -225,6 +250,30 @@ TEST_F(TrustStoreNSSTest, TrustedIntermediate) {
       CertificateTrustType::UNSPECIFIED));
   EXPECT_TRUE(
       HasTrust({newintermediate_}, CertificateTrustType::TRUSTED_ANCHOR));
+}
+
+// Distrust a single intermediate certificate.
+TEST_F(TrustStoreNSSTest, DistrustedIntermediate) {
+  AddCertsToNSS();
+  DistrustCert(newintermediate_.get());
+
+  EXPECT_TRUE(HasTrust(
+      {oldroot_, newroot_, target_, oldintermediate_, newrootrollover_},
+      CertificateTrustType::UNSPECIFIED));
+  EXPECT_TRUE(HasTrust({newintermediate_}, CertificateTrustType::DISTRUSTED));
+}
+
+// Trust a single server certificate.
+TEST_F(TrustStoreNSSTest, TrustedServer) {
+  AddCertsToNSS();
+  TrustServerCert(target_.get());
+
+  // Server-trusted certificates are handled as UNSPECIFIED since we don't
+  // support the notion of explictly trusted server certs. See
+  // https://crbug.com/814994.
+  EXPECT_TRUE(HasTrust({oldroot_, newroot_, target_, oldintermediate_,
+                        newintermediate_, newrootrollover_},
+                       CertificateTrustType::UNSPECIFIED));
 }
 
 // Trust multiple self-signed CA certificates with the same name.
@@ -240,21 +289,32 @@ TEST_F(TrustStoreNSSTest, MultipleTrustedCAWithSameSubject) {
       HasTrust({oldroot_, newroot_}, CertificateTrustType::TRUSTED_ANCHOR));
 }
 
+// Different trust settings for multiple self-signed CA certificates with the
+// same name.
+TEST_F(TrustStoreNSSTest, DifferingTrustCAWithSameSubject) {
+  AddCertsToNSS();
+  DistrustCert(oldroot_.get());
+  TrustCert(newroot_.get());
+
+  EXPECT_TRUE(
+      HasTrust({target_, oldintermediate_, newintermediate_, newrootrollover_},
+               CertificateTrustType::UNSPECIFIED));
+  EXPECT_TRUE(HasTrust({oldroot_}, CertificateTrustType::DISTRUSTED));
+  EXPECT_TRUE(HasTrust({newroot_}, CertificateTrustType::TRUSTED_ANCHOR));
+}
+
 class TrustStoreNSSTestDelegate {
  public:
   TrustStoreNSSTestDelegate() : trust_store_nss_(trustSSL) {}
 
   void AddCert(scoped_refptr<ParsedCertificate> cert) {
     ASSERT_TRUE(test_nssdb_.is_open());
-    std::string nickname = GetUniqueNickname();
-    ScopedCERTCertificate nss_cert(
-        X509Certificate::CreateOSCertHandleFromBytesWithNickname(
-            cert->der_cert().AsStringPiece().data(), cert->der_cert().Length(),
-            nickname.c_str()));
+    ScopedCERTCertificate nss_cert(x509_util::CreateCERTCertificateFromBytes(
+        cert->der_cert().UnsafeData(), cert->der_cert().Length()));
     ASSERT_TRUE(nss_cert);
-    SECStatus srv =
-        PK11_ImportCert(test_nssdb_.slot(), nss_cert.get(), CK_INVALID_HANDLE,
-                        nickname.c_str(), PR_FALSE /* includeTrust (unused) */);
+    SECStatus srv = PK11_ImportCert(
+        test_nssdb_.slot(), nss_cert.get(), CK_INVALID_HANDLE,
+        GetUniqueNickname().c_str(), PR_FALSE /* includeTrust (unused) */);
     ASSERT_EQ(SECSuccess, srv);
   }
 

@@ -4,18 +4,32 @@
 
 #include "base/sys_info.h"
 
-#include <magenta/syscalls.h>
+#include <zircon/syscalls.h>
+
+#include "base/logging.h"
 
 namespace base {
 
 // static
-int64_t SysInfo::AmountOfPhysicalMemory() {
-  return mx_system_get_physmem();
+int64_t SysInfo::AmountOfPhysicalMemoryImpl() {
+  return zx_system_get_physmem();
+}
+
+// static
+int64_t SysInfo::AmountOfAvailablePhysicalMemoryImpl() {
+  // TODO(fuchsia): https://crbug.com/706592 This is not exposed.
+  NOTREACHED();
+  return 0;
 }
 
 // static
 int SysInfo::NumberOfProcessors() {
-  return mx_system_get_num_cpus();
+  return zx_system_get_num_cpus();
+}
+
+// static
+int64_t SysInfo::AmountOfVirtualMemory() {
+  return 0;
 }
 
 }  // namespace base

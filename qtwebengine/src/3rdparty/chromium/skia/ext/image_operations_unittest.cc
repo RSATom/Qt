@@ -13,6 +13,7 @@
 #include "base/compiler_specific.h"
 #include "base/files/file_util.h"
 #include "base/macros.h"
+#include "base/numerics/math_constants.h"
 #include "base/strings/string_util.h"
 #include "skia/ext/image_operations.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -497,15 +498,9 @@ TEST(ImageOperations, ResizeShouldAverageColors) {
   }
 }
 
-
-#ifndef M_PI
-// No M_PI in math.h on windows? No problem.
-#define M_PI 3.14159265358979323846
-#endif
-
 static double sinc(double x) {
   if (x == 0.0) return 1.0;
-  x *= M_PI;
+  x *= base::kPiDouble;
   return sin(x) / x;
 }
 
@@ -524,10 +519,8 @@ TEST(ImageOperations, ScaleUp) {
 
   for (int src_y = 0; src_y < src_h; ++src_y) {
     for (int src_x = 0; src_x < src_w; ++src_x) {
-      *src.getAddr32(src_x, src_y) = SkColorSetARGBInline(255,
-                                                          10 + src_x * 100,
-                                                          10 + src_y * 100,
-                                                          0);
+      *src.getAddr32(src_x, src_y) =
+          SkColorSetARGB(255, 10 + src_x * 100, 10 + src_y * 100, 0);
     }
   }
 

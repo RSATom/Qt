@@ -69,15 +69,14 @@ namespace {
 
     class GeometrySink: public IDWriteGeometrySink
     {
+        Q_DISABLE_COPY(GeometrySink)
     public:
         GeometrySink(QPainterPath *path)
             : m_refCount(0), m_path(path)
         {
             Q_ASSERT(m_path != 0);
         }
-        virtual ~GeometrySink()
-        {
-        }
+        virtual ~GeometrySink() = default;
 
         IFACEMETHOD_(void, AddBeziers)(const D2D1_BEZIER_SEGMENT *beziers, UINT bezierCount);
         IFACEMETHOD_(void, AddLines)(const D2D1_POINT_2F *points, UINT pointCount);
@@ -282,7 +281,7 @@ static UUID uuidIdWriteLocalFontFileLoader()
 
 QString QWindowsFontEngineDirectWrite::filenameFromFontFile(IDWriteFontFile *fontFile)
 {
-    IDWriteFontFileLoader *loader = Q_NULLPTR;
+    IDWriteFontFileLoader *loader = nullptr;
 
     HRESULT hr = fontFile->GetLoader(&loader);
     if (FAILED(hr)) {
@@ -290,11 +289,11 @@ QString QWindowsFontEngineDirectWrite::filenameFromFontFile(IDWriteFontFile *fon
         return QString();
     }
 
-    QIdWriteLocalFontFileLoader *localLoader = Q_NULLPTR;
+    QIdWriteLocalFontFileLoader *localLoader = nullptr;
     hr = loader->QueryInterface(uuidIdWriteLocalFontFileLoader(),
                                 reinterpret_cast<void **>(&localLoader));
 
-    const void *fontFileReferenceKey = Q_NULLPTR;
+    const void *fontFileReferenceKey = nullptr;
     UINT32 fontFileReferenceKeySize = 0;
     if (SUCCEEDED(hr)) {
         hr = fontFile->GetReferenceKey(&fontFileReferenceKey,
@@ -326,10 +325,10 @@ QString QWindowsFontEngineDirectWrite::filenameFromFontFile(IDWriteFontFile *fon
             ret = QString::fromWCharArray(filePath.data());
     }
 
-    if (localLoader != Q_NULLPTR)
+    if (localLoader != nullptr)
         localLoader->Release();
 
-    if (loader != Q_NULLPTR)
+    if (loader != nullptr)
         loader->Release();
     return ret;
 }
@@ -349,7 +348,7 @@ void QWindowsFontEngineDirectWrite::collectMetrics()
     m_lineGap = DESIGN_TO_LOGICAL(metrics.lineGap);
     m_underlinePosition = DESIGN_TO_LOGICAL(metrics.underlinePosition);
 
-    IDWriteFontFile *fontFile = Q_NULLPTR;
+    IDWriteFontFile *fontFile = nullptr;
     UINT32 numberOfFiles = 1;
     if (SUCCEEDED(m_directWriteFontFace->GetFiles(&numberOfFiles, &fontFile))) {
         m_faceId.filename = QFile::encodeName(filenameFromFontFile(fontFile));
@@ -713,7 +712,7 @@ QImage QWindowsFontEngineDirectWrite::imageForGlyph(glyph_t t,
 #if defined(QT_USE_DIRECTWRITE2)
         HRESULT hr = DWRITE_E_NOCOLOR;
         IDWriteColorGlyphRunEnumerator *enumerator = 0;
-        IDWriteFactory2 *factory2 = Q_NULLPTR;
+        IDWriteFactory2 *factory2 = nullptr;
         if (glyphFormat == QFontEngine::Format_ARGB
                 && SUCCEEDED(m_fontEngineData->directWriteFactory->QueryInterface(__uuidof(IDWriteFactory2),
                                                                                   reinterpret_cast<void **>(&factory2)))) {

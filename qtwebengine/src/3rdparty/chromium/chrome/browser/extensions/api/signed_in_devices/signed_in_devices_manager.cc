@@ -10,7 +10,6 @@
 #include <vector>
 
 #include "base/lazy_instance.h"
-#include "base/memory/ptr_util.h"
 #include "base/values.h"
 #include "chrome/browser/extensions/api/signed_in_devices/signed_in_devices_api.h"
 #include "chrome/browser/extensions/extension_service.h"
@@ -75,7 +74,7 @@ void SignedInDevicesChangeObserver::OnDeviceInfoChange() {
 
   std::unique_ptr<base::ListValue> result =
       api::signed_in_devices::OnDeviceInfoChange::Create(args);
-  auto event = base::MakeUnique<Event>(
+  auto event = std::make_unique<Event>(
       events::SIGNED_IN_DEVICES_ON_DEVICE_INFO_CHANGE,
       api::signed_in_devices::OnDeviceInfoChange::kEventName, std::move(result),
       profile_);
@@ -86,12 +85,12 @@ void SignedInDevicesChangeObserver::OnDeviceInfoChange() {
 
 static base::LazyInstance<
     BrowserContextKeyedAPIFactory<SignedInDevicesManager>>::DestructorAtExit
-    g_factory = LAZY_INSTANCE_INITIALIZER;
+    g_signed_in_devices_manager_factory = LAZY_INSTANCE_INITIALIZER;
 
 // static
 BrowserContextKeyedAPIFactory<SignedInDevicesManager>*
 SignedInDevicesManager::GetFactoryInstance() {
-  return g_factory.Pointer();
+  return g_signed_in_devices_manager_factory.Pointer();
 }
 
 SignedInDevicesManager::SignedInDevicesManager()
@@ -132,7 +131,7 @@ void SignedInDevicesManager::OnListenerAdded(
     }
   }
 
-  change_observers_.push_back(base::MakeUnique<SignedInDevicesChangeObserver>(
+  change_observers_.push_back(std::make_unique<SignedInDevicesChangeObserver>(
       details.extension_id, profile_));
 }
 

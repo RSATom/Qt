@@ -56,7 +56,7 @@ DEFINE_BOOL_CONFIG_OPTION(qmlVisualTouchDebugging, QML_VISUAL_TOUCH_DEBUGGING)
     \instantiates QQuickTouchPoint
     \inqmlmodule QtQuick
     \ingroup qtquick-input-events
-    \brief Describes a touch point in a MultiPointTouchArea
+    \brief Describes a touch point in a MultiPointTouchArea.
 
     The TouchPoint type contains information about a touch point, such as the current
     position, pressure, and area.
@@ -291,7 +291,7 @@ void QQuickTouchPoint::setUniqueId(const QPointingDeviceUniqueId &id)
     \instantiates QQuickGrabGestureEvent
     \inqmlmodule QtQuick
     \ingroup qtquick-input-events
-    \brief The parameter given with the gestureStarted signal
+    \brief The parameter given with the gestureStarted signal.
 
     The GestureEvent object has the current touch points, which you may choose
     to interpret as a gesture, and an invokable method to grab the involved
@@ -328,7 +328,7 @@ void QQuickTouchPoint::setUniqueId(const QPointingDeviceUniqueId &id)
     \inqmlmodule QtQuick
     \inherits Item
     \ingroup qtquick-input
-    \brief Enables handling of multiple touch points
+    \brief Enables handling of multiple touch points.
 
 
     A MultiPointTouchArea is an invisible item that is used to track multiple touch points.
@@ -528,7 +528,7 @@ void QQuickMultiPointTouchArea::setMouseEnabled(bool arg)
     if (_mouseEnabled != arg) {
         _mouseEnabled = arg;
         if (_mouseTouchPoint && !arg)
-            _mouseTouchPoint = Q_NULLPTR;
+            _mouseTouchPoint = nullptr;
         emit mouseEnabledChanged();
     }
 }
@@ -541,7 +541,7 @@ void QQuickMultiPointTouchArea::touchEvent(QTouchEvent *event)
     case QEvent::TouchEnd: {
         //if e.g. a parent Flickable has the mouse grab, don't process the touch events
         QQuickWindow *c = window();
-        QQuickItem *grabber = c ? c->mouseGrabberItem() : 0;
+        QQuickItem *grabber = c ? c->mouseGrabberItem() : nullptr;
         if (grabber && grabber != this && grabber->keepMouseGrab() && grabber->isEnabled()) {
             QQuickItem *item = this;
             while ((item = item->parentItem())) {
@@ -610,6 +610,9 @@ void QQuickMultiPointTouchArea::updateTouchData(QEvent *event)
         else { // QEvent::MouseButtonPress
             addTouchPoint(me);
             started = true;
+            _mouseQpaTouchPoint.setStartPos(me->localPos());
+            _mouseQpaTouchPoint.setStartScenePos(me->windowPos());
+            _mouseQpaTouchPoint.setStartScreenPos(me->screenPos());
             _mouseQpaTouchPoint.setState(Qt::TouchPointPressed);
         }
         touchPoints << _mouseQpaTouchPoint;
@@ -719,7 +722,7 @@ void QQuickMultiPointTouchArea::clearTouchLists()
 
 void QQuickMultiPointTouchArea::addTouchPoint(const QTouchEvent::TouchPoint *p)
 {
-    QQuickTouchPoint *dtp = 0;
+    QQuickTouchPoint *dtp = nullptr;
     for (QQuickTouchPoint* tp : qAsConst(_touchPrototypes)) {
         if (!tp->inUse()) {
             tp->setInUse(true);
@@ -728,7 +731,7 @@ void QQuickMultiPointTouchArea::addTouchPoint(const QTouchEvent::TouchPoint *p)
         }
     }
 
-    if (dtp == 0)
+    if (dtp == nullptr)
         dtp = new QQuickTouchPoint(false);
     dtp->setPointId(p->id());
     updateTouchPoint(dtp,p);
@@ -739,7 +742,7 @@ void QQuickMultiPointTouchArea::addTouchPoint(const QTouchEvent::TouchPoint *p)
 
 void QQuickMultiPointTouchArea::addTouchPoint(const QMouseEvent *e)
 {
-    QQuickTouchPoint *dtp = 0;
+    QQuickTouchPoint *dtp = nullptr;
     for (QQuickTouchPoint *tp : qAsConst(_touchPrototypes))
         if (!tp->inUse()) {
             tp->setInUse(true);
@@ -747,7 +750,7 @@ void QQuickMultiPointTouchArea::addTouchPoint(const QMouseEvent *e)
             break;
         }
 
-    if (dtp == 0)
+    if (dtp == nullptr)
         dtp = new QQuickTouchPoint(false);
     updateTouchPoint(dtp, e);
     dtp->setPressed(true);
@@ -872,7 +875,7 @@ void QQuickMultiPointTouchArea::mouseReleaseEvent(QMouseEvent *event)
         updateTouchData(event);
         _mouseTouchPoint->setInUse(false);
         _releasedTouchPoints.removeAll(_mouseTouchPoint);
-        _mouseTouchPoint = Q_NULLPTR;
+        _mouseTouchPoint = nullptr;
     }
 
     QQuickWindow *c = window();
@@ -920,7 +923,7 @@ bool QQuickMultiPointTouchArea::sendMouseEvent(QMouseEvent *event)
     QPointF localPos = mapFromScene(event->windowPos());
 
     QQuickWindow *c = window();
-    QQuickItem *grabber = c ? c->mouseGrabberItem() : 0;
+    QQuickItem *grabber = c ? c->mouseGrabberItem() : nullptr;
     bool stealThisEvent = _stealMouse;
     if ((stealThisEvent || contains(localPos)) && (!grabber || !grabber->keepMouseGrab())) {
         QMouseEvent mouseEvent(event->type(), localPos, event->windowPos(), event->screenPos(),
@@ -944,7 +947,7 @@ bool QQuickMultiPointTouchArea::sendMouseEvent(QMouseEvent *event)
         default:
             break;
         }
-        grabber = c ? c->mouseGrabberItem() : 0;
+        grabber = c ? c->mouseGrabberItem() : nullptr;
         if (grabber && stealThisEvent && !grabber->keepMouseGrab() && grabber != this)
             grabMouse();
 
@@ -991,7 +994,7 @@ bool QQuickMultiPointTouchArea::childMouseEventFilter(QQuickItem *receiver, QEve
 bool QQuickMultiPointTouchArea::shouldFilter(QEvent *event)
 {
     QQuickWindow *c = window();
-    QQuickItem *grabber = c ? c->mouseGrabberItem() : 0;
+    QQuickItem *grabber = c ? c->mouseGrabberItem() : nullptr;
     bool disabledItem = grabber && !grabber->isEnabled();
     bool stealThisEvent = _stealMouse;
     bool containsPoint = false;
@@ -1032,7 +1035,7 @@ QSGNode *QQuickMultiPointTouchArea::updatePaintNode(QSGNode *oldNode, UpdatePain
     Q_UNUSED(data);
 
     if (!qmlVisualTouchDebugging())
-        return 0;
+        return nullptr;
 
     QSGInternalRectangleNode *rectangle = static_cast<QSGInternalRectangleNode *>(oldNode);
     if (!rectangle) rectangle = QQuickItemPrivate::get(this)->sceneGraphContext()->createInternalRectangleNode();

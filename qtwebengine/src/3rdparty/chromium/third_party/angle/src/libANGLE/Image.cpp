@@ -10,10 +10,10 @@
 
 #include "common/debug.h"
 #include "common/utilities.h"
+#include "libANGLE/Renderbuffer.h"
+#include "libANGLE/Texture.h"
 #include "libANGLE/angletypes.h"
 #include "libANGLE/formatutils.h"
-#include "libANGLE/Texture.h"
-#include "libANGLE/Renderbuffer.h"
 #include "libANGLE/renderer/EGLImplFactory.h"
 #include "libANGLE/renderer/ImageImpl.h"
 
@@ -26,26 +26,27 @@ gl::ImageIndex GetImageIndex(EGLenum eglTarget, const egl::AttributeMap &attribs
 {
     if (eglTarget == EGL_GL_RENDERBUFFER)
     {
-        return gl::ImageIndex::MakeInvalid();
+        return gl::ImageIndex();
     }
 
-    GLenum target = egl_gl::EGLImageTargetToGLTextureTarget(eglTarget);
-    GLint mip     = static_cast<GLint>(attribs.get(EGL_GL_TEXTURE_LEVEL_KHR, 0));
-    GLint layer   = static_cast<GLint>(attribs.get(EGL_GL_TEXTURE_ZOFFSET_KHR, 0));
+    gl::TextureTarget target = egl_gl::EGLImageTargetToTextureTarget(eglTarget);
+    GLint mip                = static_cast<GLint>(attribs.get(EGL_GL_TEXTURE_LEVEL_KHR, 0));
+    GLint layer              = static_cast<GLint>(attribs.get(EGL_GL_TEXTURE_ZOFFSET_KHR, 0));
 
-    if (target == GL_TEXTURE_3D)
+    if (target == gl::TextureTarget::_3D)
     {
         return gl::ImageIndex::Make3D(mip, layer);
     }
     else
     {
         ASSERT(layer == 0);
-        return gl::ImageIndex::MakeGeneric(target, mip);
+        return gl::ImageIndex::MakeFromTarget(target, mip);
     }
 }
 }  // anonymous namespace
 
-ImageSibling::ImageSibling(GLuint id) : RefCountObject(id), mSourcesOf(), mTargetOf()
+ImageSibling::ImageSibling(GLuint id)
+    : RefCountObject(id), FramebufferAttachmentObject(), mSourcesOf(), mTargetOf()
 {
 }
 
@@ -77,7 +78,7 @@ gl::Error ImageSibling::orphanImages(const gl::Context *context)
     }
     else
     {
-        for (auto &sourceImage : mSourcesOf)
+        for (egl::Image *sourceImage : mSourcesOf)
         {
             ANGLE_TRY(sourceImage->orphanSibling(context, this));
         }
@@ -99,8 +100,29 @@ void ImageSibling::removeImageSource(egl::Image *imageSource)
     mSourcesOf.erase(imageSource);
 }
 
+bool ImageSibling::isEGLImageTarget() const
+{
+    return (mTargetOf.get() != nullptr);
+}
+
+gl::InitState ImageSibling::sourceEGLImageInitState() const
+{
+    ASSERT(isEGLImageTarget());
+    return mTargetOf->sourceInitState();
+}
+
+void ImageSibling::setSourceEGLImageInitState(gl::InitState initState) const
+{
+    ASSERT(isEGLImageTarget());
+    mTargetOf->setInitState(initState);
+}
+
 ImageState::ImageState(EGLenum target, ImageSibling *buffer, const AttributeMap &attribs)
-    : imageIndex(GetImageIndex(target, attribs)), source(buffer), targets()
+    : label(nullptr), imageIndex(GetImageIndex(target, attribs)), source(buffer), targets()
+{
+}
+
+ImageState::~ImageState()
 {
 }
 
@@ -110,7 +132,8 @@ Image::Image(rx::EGLImplFactory *factory,
              const AttributeMap &attribs)
     : RefCountObject(0),
       mState(target, buffer, attribs),
-      mImplementation(factory->createImage(mState, target, attribs))
+      mImplementation(factory->createImage(mState, target, attribs)),
+      mOrphanedAndNeedsInit(false)
 {
     ASSERT(mImplementation != nullptr);
     ASSERT(buffer != nullptr);
@@ -118,10 +141,8 @@ Image::Image(rx::EGLImplFactory *factory,
     mState.source->addImageSource(this);
 }
 
-void Image::onDestroy(const gl::Context *context)
+gl::Error Image::onDestroy(const gl::Context *context)
 {
-    SafeDelete(mImplementation);
-
     // All targets should hold a ref to the egl image and it should not be deleted until there are
     // no siblings left.
     ASSERT(mState.targets.empty());
@@ -132,11 +153,22 @@ void Image::onDestroy(const gl::Context *context)
         mState.source->removeImageSource(this);
         mState.source.set(context, nullptr);
     }
+    return gl::NoError();
 }
 
 Image::~Image()
 {
-    ASSERT(!mImplementation);
+    SafeDelete(mImplementation);
+}
+
+void Image::setLabel(EGLLabelKHR label)
+{
+    mState.label = label;
+}
+
+EGLLabelKHR Image::getLabel() const
+{
+    return mState.label;
 }
 
 void Image::addTargetSibling(ImageSibling *sibling)
@@ -154,6 +186,8 @@ gl::Error Image::orphanSibling(const gl::Context *context, ImageSibling *sibling
         // If the sibling is the source, it cannot be a target.
         ASSERT(mState.targets.find(sibling) == mState.targets.end());
         mState.source.set(context, nullptr);
+        mOrphanedAndNeedsInit =
+            (sibling->initState(mState.imageIndex) == gl::InitState::MayNeedInit);
     }
     else
     {
@@ -163,7 +197,7 @@ gl::Error Image::orphanSibling(const gl::Context *context, ImageSibling *sibling
     return gl::NoError();
 }
 
-const gl::Format &Image::getFormat() const
+gl::Format Image::getFormat() const
 {
     return mState.source->getAttachmentFormat(GL_NONE, mState.imageIndex);
 }
@@ -191,6 +225,31 @@ rx::ImageImpl *Image::getImplementation() const
 Error Image::initialize()
 {
     return mImplementation->initialize();
+}
+
+bool Image::orphaned() const
+{
+    return (mState.source.get() == nullptr);
+}
+
+gl::InitState Image::sourceInitState() const
+{
+    if (orphaned())
+    {
+        return mOrphanedAndNeedsInit ? gl::InitState::MayNeedInit : gl::InitState::Initialized;
+    }
+
+    return mState.source->initState(mState.imageIndex);
+}
+
+void Image::setInitState(gl::InitState initState)
+{
+    if (orphaned())
+    {
+        mOrphanedAndNeedsInit = false;
+    }
+
+    return mState.source->setInitState(mState.imageIndex, initState);
 }
 
 }  // namespace egl

@@ -14,11 +14,11 @@
 
 #include "QuadRasterizer.hpp"
 
-#include "Math.hpp"
 #include "Primitive.hpp"
 #include "Renderer.hpp"
-#include "Constants.hpp"
-#include "Debug.hpp"
+#include "Shader/Constants.hpp"
+#include "Common/Math.hpp"
+#include "Common/Debug.hpp"
 
 namespace sw
 {
@@ -49,6 +49,7 @@ namespace sw
 
 		constants = *Pointer<Pointer<Byte>>(data + OFFSET(DrawData,constants));
 		occlusion = 0;
+		int clusterCount = Renderer::getClusterCount();
 
 		Do
 		{
@@ -158,7 +159,7 @@ namespace sw
 				}
 			}
 
-			if(veryEarlyDepthTest && state.multiSample == 1)
+			if(veryEarlyDepthTest && state.multiSample == 1 && !state.depthOverride)
 			{
 				if(!state.stencilActive && state.depthTestActive && (state.depthCompareMode == DEPTH_LESSEQUAL || state.depthCompareMode == DEPTH_LESS))   // FIXME: Both modes ok?
 				{
@@ -179,7 +180,7 @@ namespace sw
 
 					For(Int x = x0, x < x1, x += 2)
 					{
-						Float4 z = interpolate(xxxx, Dz[0], z, primitive + OFFSET(Primitive,z), false, false);
+						Float4 z = interpolate(xxxx, Dz[0], z, primitive + OFFSET(Primitive,z), false, false, state.depthClamp);
 
 						Float4 zValue;
 
@@ -283,12 +284,14 @@ namespace sw
 					for(unsigned int q = 0; q < state.multiSample; q++)
 					{
 						Short4 mask = CmpGT(xxxx, xLeft[q]) & CmpGT(xRight[q], xxxx);
-						cMask[q] = SignMask(Pack(mask, mask)) & 0x0000000F;
+						cMask[q] = SignMask(PackSigned(mask, mask)) & 0x0000000F;
 					}
 
 					quad(cBuffer, zBuffer, sBuffer, cMask, x, y);
 				}
 			}
+
+			int clusterCount = Renderer::getClusterCount();
 
 			for(int index = 0; index < RENDERTARGETS; index++)
 			{
@@ -313,7 +316,7 @@ namespace sw
 		Until(y >= yMax)
 	}
 
-	Float4 QuadRasterizer::interpolate(Float4 &x, Float4 &D, Float4 &rhw, Pointer<Byte> planeEquation, bool flat, bool perspective)
+	Float4 QuadRasterizer::interpolate(Float4 &x, Float4 &D, Float4 &rhw, Pointer<Byte> planeEquation, bool flat, bool perspective, bool clamp)
 	{
 		Float4 interpolant = D;
 
@@ -325,6 +328,11 @@ namespace sw
 			{
 				interpolant *= rhw;
 			}
+		}
+
+		if(clamp)
+		{
+			interpolant = Min(Max(interpolant, Float4(0.0f)), Float4(1.0f));
 		}
 
 		return interpolant;

@@ -26,12 +26,13 @@
 //    needs to increment twice (which the compiler should be able to detect and
 //    optimize).
 
-#ifndef BASE_ATOMICOPS_INTERNALS_PORTABLE_H_
-#define BASE_ATOMICOPS_INTERNALS_PORTABLE_H_
+#ifndef V8_BASE_ATOMICOPS_INTERNALS_PORTABLE_H_
+#define V8_BASE_ATOMICOPS_INTERNALS_PORTABLE_H_
 
 #include <atomic>
 
 #include "src/base/build_config.h"
+#include "src/base/macros.h"
 
 namespace v8 {
 namespace base {
@@ -39,7 +40,7 @@ namespace base {
 // This implementation is transitional and maintains the original API for
 // atomicops.h.
 
-inline void MemoryFence() {
+inline void SeqCst_MemoryFence() {
 #if defined(__GLIBCXX__)
   // Work around libstdc++ bug 51038 where atomic_thread_fence was declared but
   // not defined, leading to the linker complaining about undefined references.
@@ -75,6 +76,14 @@ inline Atomic32 Acquire_CompareAndSwap(volatile Atomic32* ptr,
                                        Atomic32 old_value, Atomic32 new_value) {
   __atomic_compare_exchange_n(ptr, &old_value, new_value, false,
                               __ATOMIC_ACQUIRE, __ATOMIC_ACQUIRE);
+  return old_value;
+}
+
+inline Atomic8 Release_CompareAndSwap(volatile Atomic8* ptr, Atomic8 old_value,
+                                      Atomic8 new_value) {
+  bool result = __atomic_compare_exchange_n(ptr, &old_value, new_value, false,
+                                            __ATOMIC_RELEASE, __ATOMIC_RELAXED);
+  USE(result);  // Make gcc compiler happy.
   return old_value;
 }
 

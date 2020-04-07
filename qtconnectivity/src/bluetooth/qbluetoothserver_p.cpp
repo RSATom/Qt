@@ -89,7 +89,7 @@ bool QBluetoothServer::hasPendingConnections() const
 
 QBluetoothSocket *QBluetoothServer::nextPendingConnection()
 {
-    return 0;
+    return nullptr;
 }
 
 QBluetoothAddress QBluetoothServer::serverAddress() const

@@ -26,7 +26,7 @@ class CPDF_Type3Font : public CPDF_SimpleFont {
   bool IsType3Font() const override;
   const CPDF_Type3Font* AsType3Font() const override;
   CPDF_Type3Font* AsType3Font() override;
-  int GetCharWidthF(uint32_t charcode) override;
+  uint32_t GetCharWidthF(uint32_t charcode) override;
   FX_RECT GetCharBBox(uint32_t charcode) override;
 
   void SetPageResources(CPDF_Dictionary* pResources) {
@@ -45,15 +45,15 @@ class CPDF_Type3Font : public CPDF_SimpleFont {
   bool Load() override;
 
   // CPDF_SimpleFont:
-  void LoadGlyphMap() override {}
+  void LoadGlyphMap() override;
 
-  int m_CharWidthL[256];
-  CFX_UnownedPtr<CPDF_Dictionary> m_pCharProcs;
-  CFX_UnownedPtr<CPDF_Dictionary> m_pPageResources;
-  CFX_UnownedPtr<CPDF_Dictionary> m_pFontResources;
+  uint32_t m_CharWidthL[256];
+  UnownedPtr<CPDF_Dictionary> m_pCharProcs;
+  UnownedPtr<CPDF_Dictionary> m_pPageResources;
+  UnownedPtr<CPDF_Dictionary> m_pFontResources;
   std::map<uint32_t, std::unique_ptr<CPDF_Type3Char>> m_CacheMap;
   // The depth char loading is in, to avoid recurive calling LoadChar().
-  int m_CharLoadingDepth;
+  int m_CharLoadingDepth = 0;
 };
 
 #endif  // CORE_FPDFAPI_FONT_CPDF_TYPE3FONT_H_

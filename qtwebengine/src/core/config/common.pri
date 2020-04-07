@@ -1,13 +1,19 @@
 # Shared configuration for all our supported platforms
+include($$QTWEBENGINE_OUT_ROOT/src/core/qtwebenginecore-config.pri)
+QT_FOR_CONFIG += webenginecore
 
 gn_args += \
     use_qt=true \
     is_component_build=false \
     is_shared=true \
+    enable_message_center=false \
+    enable_mus=false \
     enable_nacl=false \
     enable_remoting=false \
     enable_reporting=false \
     enable_web_speech=false \
+    enable_widevine=true \
+    has_native_accessibility=false \
     use_allocator_shim=false \
     use_allocator=\"none\" \
     v8_use_external_startup_data=false \
@@ -17,7 +23,8 @@ gn_args += \
 
 !win32: gn_args += \
     use_jumbo_build=true \
-    jumbo_file_merge_limit=50
+    jumbo_file_merge_limit=8 \
+    jumbo_build_excluded="[\"browser\"]"
 
 qtConfig(webengine-printing-and-pdf) {
     gn_args += enable_basic_printing=true enable_print_preview=true
@@ -28,9 +35,9 @@ qtConfig(webengine-printing-and-pdf) {
 }
 
 qtConfig(webengine-pepper-plugins) {
-    gn_args += enable_plugins=true enable_widevine=true
+    gn_args += enable_plugins=true
 } else {
-    gn_args += enable_plugins=false enable_widevine=false
+    gn_args += enable_plugins=false
 }
 
 qtConfig(webengine-spellchecker) {
@@ -53,7 +60,15 @@ precompile_header {
     gn_args += enable_precompiled_headers=false
 }
 
+CONFIG(release, debug|release):!isDeveloperBuild() {
+    gn_args += is_official_build=true
+} else {
+    gn_args += is_official_build=false
+    !isDeveloperBuild(): gn_args += is_unsafe_developer_build=false
+}
+
 CONFIG(release, debug|release) {
+    gn_args += is_debug=false
     force_debug_info {
         # Level 1 is not enough to generate all Chromium debug symbols on Windows
         msvc: gn_args += symbol_level=2
@@ -64,6 +79,7 @@ CONFIG(release, debug|release) {
 }
 
 CONFIG(debug, debug|release) {
+    gn_args += is_debug=true
     gn_args += use_debug_fission=false
 }
 
@@ -91,3 +107,10 @@ qtConfig(webengine-v8-snapshot) {
     gn_args += v8_use_snapshot=false
 }
 
+qtConfig(webengine-kerberos) {
+    gn_args += use_kerberos=true
+} else {
+    gn_args += use_kerberos=false
+}
+
+!msvc: gn_args += enable_iterator_debugging=false

@@ -5,14 +5,17 @@
  * found in the LICENSE file.
  */
 
+#include "SkOTUtils.h"
+
+#include "SkAdvancedTypefaceMetrics.h"
 #include "SkData.h"
 #include "SkEndian.h"
-#include "SkSFNTHeader.h"
-#include "SkStream.h"
+#include "SkOTTableTypes.h"
 #include "SkOTTable_head.h"
 #include "SkOTTable_name.h"
-#include "SkOTTableTypes.h"
-#include "SkOTUtils.h"
+#include "SkSFNTHeader.h"
+#include "SkStream.h"
+#include "SkTo.h"
 
 extern const uint8_t SK_OT_GlyphData_NoOutline[] = {
     0x0,0x0, //SkOTTableGlyphData::numberOfContours
@@ -201,3 +204,17 @@ SkOTUtils::LocalizedStrings_NameTable::familyNameTypes[3] = {
     SkOTTableName::Record::NameID::Predefined::PreferredFamily,
     SkOTTableName::Record::NameID::Predefined::WWSFamilyName,
 };
+
+void SkOTUtils::SetAdvancedTypefaceFlags(SkOTTableOS2_V4::Type fsType,
+                                         SkAdvancedTypefaceMetrics* info) {
+    SkASSERT(info);
+    // The logic should be identical to SkTypeface_FreeType::onGetAdvancedMetrics().
+    if (fsType.raw.value != 0) {
+        if (SkToBool(fsType.field.Restricted) || SkToBool(fsType.field.Bitmap)) {
+            info->fFlags |= SkAdvancedTypefaceMetrics::kNotEmbeddable_FontFlag;
+        }
+        if (SkToBool(fsType.field.NoSubsetting)) {
+            info->fFlags |= SkAdvancedTypefaceMetrics::kNotSubsettable_FontFlag;
+        }
+    }
+}

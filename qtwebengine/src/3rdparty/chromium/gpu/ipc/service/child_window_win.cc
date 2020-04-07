@@ -7,7 +7,7 @@
 #include <memory>
 
 #include "base/compiler_specific.h"
-#include "base/memory/ptr_util.h"
+#include "base/memory/weak_ptr.h"
 #include "base/message_loop/message_loop.h"
 #include "base/threading/thread.h"
 #include "base/win/scoped_hdc.h"
@@ -115,6 +115,8 @@ class HiddenPopupWindow : public gfx::WindowImpl {
   CR_BEGIN_MSG_MAP_EX(HiddenPopupWindow)
     CR_MSG_WM_CLOSE(OnClose)
   CR_END_MSG_MAP()
+
+  CR_MSG_MAP_CLASS_DECLARATIONS(HiddenPopupWindow)
 };
 
 // This runs on the window owner thread.
@@ -162,7 +164,7 @@ bool ChildWindowWin::Initialize() {
   if (window_)
     return true;
 
-  shared_data_ = base::MakeUnique<SharedData>();
+  shared_data_ = std::make_unique<SharedData>();
 
   base::Thread::Options options(base::MessageLoop::TYPE_UI, 0);
   shared_data_->thread.StartWithOptions(options);

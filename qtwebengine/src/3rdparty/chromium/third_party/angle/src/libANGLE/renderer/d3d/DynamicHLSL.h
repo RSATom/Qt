@@ -16,6 +16,7 @@
 #include "common/angleutils.h"
 #include "libANGLE/Constants.h"
 #include "libANGLE/Program.h"
+#include "libANGLE/angletypes.h"
 #include "libANGLE/formatutils.h"
 #include "libANGLE/renderer/d3d/RendererD3D.h"
 
@@ -71,11 +72,17 @@ struct BuiltinVarying final : private angle::NonCopyable
 
 struct BuiltinInfo
 {
+    BuiltinInfo();
+    ~BuiltinInfo();
+
     BuiltinVarying dxPosition;
     BuiltinVarying glPosition;
     BuiltinVarying glFragCoord;
     BuiltinVarying glPointCoord;
     BuiltinVarying glPointSize;
+    BuiltinVarying glViewIDOVR;
+    BuiltinVarying glViewportIndex;
+    BuiltinVarying glLayer;
 };
 
 inline std::string GetVaryingSemantic(int majorShaderModel, bool programUsesPointSize)
@@ -89,18 +96,22 @@ class BuiltinVaryingsD3D
 {
   public:
     BuiltinVaryingsD3D(const ProgramD3DMetadata &metadata, const gl::VaryingPacking &packing);
+    ~BuiltinVaryingsD3D();
 
-    bool usesPointSize() const { return mBuiltinInfo[SHADER_VERTEX].glPointSize.enabled; }
+    bool usesPointSize() const { return mBuiltinInfo[gl::ShaderType::Vertex].glPointSize.enabled; }
 
-    const BuiltinInfo &operator[](ShaderType shaderType) const { return mBuiltinInfo[shaderType]; }
-    BuiltinInfo &operator[](ShaderType shaderType) { return mBuiltinInfo[shaderType]; }
+    const BuiltinInfo &operator[](gl::ShaderType shaderType) const
+    {
+        return mBuiltinInfo[shaderType];
+    }
+    BuiltinInfo &operator[](gl::ShaderType shaderType) { return mBuiltinInfo[shaderType]; }
 
   private:
-    void updateBuiltins(ShaderType shaderType,
+    void updateBuiltins(gl::ShaderType shaderType,
                         const ProgramD3DMetadata &metadata,
                         const gl::VaryingPacking &packing);
 
-    std::array<BuiltinInfo, SHADER_TYPE_MAX> mBuiltinInfo;
+    gl::ShaderMap<BuiltinInfo> mBuiltinInfo;
 };
 
 class DynamicHLSL : angle::NonCopyable
@@ -122,18 +133,22 @@ class DynamicHLSL : angle::NonCopyable
                                 const ProgramD3DMetadata &programMetadata,
                                 const gl::VaryingPacking &varyingPacking,
                                 const BuiltinVaryingsD3D &builtinsD3D,
-                                std::string *pixelHLSL,
-                                std::string *vertexHLSL) const;
+                                gl::ShaderMap<std::string> *shaderHLSL) const;
     std::string generateComputeShaderLinkHLSL(const gl::Context *context,
                                               const gl::ProgramState &programData) const;
 
     std::string generateGeometryShaderPreamble(const gl::VaryingPacking &varyingPacking,
-                                               const BuiltinVaryingsD3D &builtinsD3D) const;
+                                               const BuiltinVaryingsD3D &builtinsD3D,
+                                               const bool hasANGLEMultiviewEnabled,
+                                               const bool selectViewInVS) const;
 
-    std::string generateGeometryShaderHLSL(gl::PrimitiveType primitiveType,
-                                           const gl::ContextState &data,
+    std::string generateGeometryShaderHLSL(const gl::Context *context,
+                                           gl::PrimitiveMode primitiveType,
                                            const gl::ProgramState &programData,
                                            const bool useViewScale,
+                                           const bool hasANGLEMultiviewEnabled,
+                                           const bool selectViewInVS,
+                                           const bool pointSpriteEmulation,
                                            const std::string &preambleString) const;
 
     void getPixelShaderOutputKey(const gl::ContextState &data,

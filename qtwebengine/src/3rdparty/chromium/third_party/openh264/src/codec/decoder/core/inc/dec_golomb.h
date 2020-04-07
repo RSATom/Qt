@@ -336,6 +336,9 @@ if (val > upper_bound) {\
 
 // From Level 5.2
 #define MAX_MB_SIZE 36864
+// for aspect_ratio_idc
+#define EXTENDED_SAR 255
+
 } // namespace WelsDec
 
 #endif//WELS_EXPONENTIAL_GOLOMB_ENTROPY_CODING_H__

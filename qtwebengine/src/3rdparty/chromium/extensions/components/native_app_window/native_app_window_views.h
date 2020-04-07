@@ -76,6 +76,7 @@ class NativeAppWindowViews : public extensions::NativeAppWindow,
   void Show() override;
   void ShowInactive() override;
   void Hide() override;
+  bool IsVisible() const override;
   void Close() override;
   void Activate() override;
   void Deactivate() override;
@@ -130,7 +131,7 @@ class NativeAppWindowViews : public extensions::NativeAppWindow,
   void UpdateDraggableRegions(
       const std::vector<extensions::DraggableRegion>& regions) override;
   SkRegion* GetDraggableRegion() override;
-  void UpdateShape(std::unique_ptr<SkRegion> region) override;
+  void UpdateShape(std::unique_ptr<ShapeRects> rects) override;
   void HandleKeyboardEvent(
       const content::NativeWebKeyboardEvent& event) override;
   bool IsFrameless() const override;

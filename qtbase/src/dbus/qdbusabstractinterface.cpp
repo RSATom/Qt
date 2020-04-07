@@ -70,10 +70,10 @@ class DisconnectRelayEvent : public QMetaCallEvent
 {
 public:
     DisconnectRelayEvent(QObject *sender, const QMetaMethod &m)
-        : QMetaCallEvent(0, 0, Q_NULLPTR, sender, m.methodIndex())
+        : QMetaCallEvent(0, 0, nullptr, sender, m.methodIndex())
     {}
 
-    void placeMetaCall(QObject *object) Q_DECL_OVERRIDE
+    void placeMetaCall(QObject *object) override
     {
         QDBusAbstractInterface *iface = static_cast<QDBusAbstractInterface *>(object);
         QDBusAbstractInterfacePrivate::finishDisconnectNotify(iface, signalId());
@@ -305,7 +305,7 @@ int QDBusAbstractInterfaceBase::qt_metacall(QMetaObject::Call _c, int _id, void 
     \inmodule QtDBus
     \since 4.2
 
-    \brief The QDBusAbstractInterface class is the base class for all D-Bus interfaces in the Qt D-Bus binding, allowing access to remote interfaces
+    \brief The QDBusAbstractInterface class is the base class for all D-Bus interfaces in the Qt D-Bus binding, allowing access to remote interfaces.
 
     Generated-code classes also derive from QDBusAbstractInterface,
     all methods described here are also valid for generated-code
@@ -761,27 +761,28 @@ QDBusMessage QDBusAbstractInterface::call(QDBus::CallMode mode, const QString &m
     switch (count) {
     case 8:
         argList.prepend(arg8);
-        // fall through
+        Q_FALLTHROUGH();
     case 7:
         argList.prepend(arg7);
-        // fall through
+        Q_FALLTHROUGH();
     case 6:
         argList.prepend(arg6);
-        // fall through
+        Q_FALLTHROUGH();
     case 5:
         argList.prepend(arg5);
-        // fall through
+        Q_FALLTHROUGH();
     case 4:
         argList.prepend(arg4);
-        // fall through
+        Q_FALLTHROUGH();
     case 3:
         argList.prepend(arg3);
-        // fall through
+        Q_FALLTHROUGH();
     case 2:
         argList.prepend(arg2);
-        // fall through
+        Q_FALLTHROUGH();
     case 1:
         argList.prepend(arg1);
+        break;
     }
 
     return callWithArgumentList(mode, method, argList);
@@ -826,27 +827,28 @@ QDBusPendingCall QDBusAbstractInterface::asyncCall(const QString &method, const 
     switch (count) {
     case 8:
         argList.prepend(arg8);
-        // fall through
+        Q_FALLTHROUGH();
     case 7:
         argList.prepend(arg7);
-        // fall through
+        Q_FALLTHROUGH();
     case 6:
         argList.prepend(arg6);
-        // fall through
+        Q_FALLTHROUGH();
     case 5:
         argList.prepend(arg5);
-        // fall through
+        Q_FALLTHROUGH();
     case 4:
         argList.prepend(arg4);
-        // fall through
+        Q_FALLTHROUGH();
     case 3:
         argList.prepend(arg3);
-        // fall through
+        Q_FALLTHROUGH();
     case 2:
         argList.prepend(arg2);
-        // fall through
+        Q_FALLTHROUGH();
     case 1:
         argList.prepend(arg1);
+        break;
     }
 
     return asyncCallWithArgumentList(method, argList);

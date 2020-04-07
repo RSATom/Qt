@@ -18,11 +18,11 @@ source_set("service_manager") {
     ":interfaces",
     "//base",
     "//base/test:test_config",
-    "//mojo/common:common_base",
-    "//mojo/edk/system",
+    "//mojo/public/cpp/platform",
+    "//mojo/public/cpp/system",
     "//services/service_manager/public/cpp",
     "//services/service_manager/public/cpp:service_test_support",
-    "//services/service_manager/public/interfaces",
+    "//services/service_manager/public/mojom",
     "//services/service_manager/runner/common",
   ]
 
@@ -38,7 +38,7 @@ mojom("interfaces") {
   ]
 
   deps = [
-    "//services/service_manager/public/interfaces",
+    "//services/service_manager/public/mojom",
   ]
 }
 
@@ -57,7 +57,6 @@ executable("service_manager_unittest_target") {
   deps = [
     ":interfaces",
     "//base",
-    "//build/config:exe_and_shlib_deps",
     "//build/win:default_exe_manifest",
     "//services/service_manager/public/cpp",
     "//services/service_manager/public/cpp/standalone_service:main",
@@ -72,12 +71,26 @@ service_manifest("target_manifest") {
 service_manifest("embedder_manifest") {
   name = "service_manager_unittest_embedder"
   source = "embedder_manifest.json"
-  packaged_services = [ ":singleton_manifest" ]
+  packaged_services = [
+    ":all_users_manifest",
+    ":regular_manifest",
+    ":singleton_manifest",
+  ]
+}
+
+service_manifest("all_users_manifest") {
+  name = "service_manager_unittest_all_users"
+  source = "all_users_manifest.json"
 }
 
 service_manifest("singleton_manifest") {
   name = "service_manager_unittest_singleton"
   source = "singleton_manifest.json"
+}
+
+service_manifest("regular_manifest") {
+  name = "service_manager_unittest_regular"
+  source = "regular_manifest.json"
 }
 
 service("service_manager_unittest_embedder") {
@@ -91,10 +104,9 @@ service("service_manager_unittest_embedder") {
     ":interfaces",
     "//base",
     "//build/win:default_exe_manifest",
-    "//mojo/edk/system",
     "//services/service_manager/public/cpp",
     "//services/service_manager/public/cpp/standalone_service:main",
-    "//services/service_manager/public/interfaces",
+    "//services/service_manager/public/mojom",
     "//services/service_manager/runner:init",
     "//services/service_manager/runner/common",
   ]

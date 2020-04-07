@@ -48,14 +48,14 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.2
+import QtQuick 2.12
 import QtTest 1.0
-import QtQuick.Controls 2.2
+import QtQuick.Controls 2.12
 
 TestCase {
     id: testCase
-    width: 200
-    height: 200
+    width: 600
+    height: 400
     visible: true
     when: windowShown
     name: "DialogButtonBox"
@@ -194,5 +194,254 @@ TestCase {
         compare(clickedSpy.count, 1)
         compare(clickedSpy.signalArguments[0][0], button)
         compare(roleSpy.count, 1)
+    }
+
+    function test_buttonLayout_data() {
+        return [
+            { tag: "WinLayout", buttonLayout: DialogButtonBox.WinLayout, button1Role: DialogButtonBox.AcceptRole, button2Role: DialogButtonBox.RejectRole },
+            { tag: "MacLayout", buttonLayout: DialogButtonBox.MacLayout, button1Role: DialogButtonBox.RejectRole, button2Role: DialogButtonBox.AcceptRole },
+            { tag: "KdeLayout", buttonLayout: DialogButtonBox.KdeLayout, button1Role: DialogButtonBox.AcceptRole, button2Role: DialogButtonBox.RejectRole },
+            { tag: "GnomeLayout", buttonLayout: DialogButtonBox.GnomeLayout, button1Role: DialogButtonBox.RejectRole, button2Role: DialogButtonBox.AcceptRole },
+            { tag: "AndroidLayout", buttonLayout: DialogButtonBox.AndroidLayout, button1Role: DialogButtonBox.RejectRole, button2Role: DialogButtonBox.AcceptRole }
+        ]
+    }
+
+    function test_buttonLayout(data) {
+        var control = createTemporaryObject(buttonBox, testCase, {buttonLayout: data.buttonLayout, standardButtons: DialogButtonBox.Ok|DialogButtonBox.Cancel})
+        verify(control)
+
+        compare(control.count, 2)
+
+        var button1 = control.itemAt(0)
+        verify(button1)
+        compare(button1.DialogButtonBox.buttonRole, data.button1Role)
+
+        var button2 = control.itemAt(1)
+        verify(button2)
+        compare(button2.DialogButtonBox.buttonRole, data.button2Role)
+    }
+
+    function test_implicitSize_data() {
+        return [
+            { tag: "Ok", standardButtons: DialogButtonBox.Ok },
+            { tag: "Yes|No", standardButtons: DialogButtonBox.Yes | DialogButtonBox.No }
+        ]
+    }
+
+    // QTBUG-59719
+    function test_implicitSize(data) {
+        var control = createTemporaryObject(buttonBox, testCase, {standardButtons: data.standardButtons})
+        verify(control)
+
+        var listView = control.contentItem
+        verify(listView && listView.hasOwnProperty("contentWidth"))
+        waitForRendering(listView)
+
+        var implicitContentWidth = control.leftPadding + control.rightPadding
+        for (var i = 0; i < listView.contentItem.children.length; ++i) {
+            var button = listView.contentItem.children[i]
+            if (!button.hasOwnProperty("text"))
+                continue
+            implicitContentWidth += button.implicitWidth
+        }
+
+        verify(implicitContentWidth > control.leftPadding + control.rightPadding)
+        verify(control.implicitWidth >= implicitContentWidth, qsTr("implicit width (%1) is less than content width (%2)").arg(control.implicitWidth).arg(implicitContentWidth))
+    }
+
+    Component {
+        id: okCancelBox
+        DialogButtonBox {
+            Button {
+                text: qsTr("OK")
+            }
+            Button {
+                text: qsTr("Cancel")
+            }
+        }
+    }
+
+    function test_buttonSize() {
+        var control = createTemporaryObject(okCancelBox, testCase)
+        verify(control)
+
+        var okButton = control.itemAt(0)
+        verify(okButton)
+        verify(okButton.width > 0)
+
+        var cancelButton = control.itemAt(1)
+        verify(cancelButton)
+        verify(cancelButton.width > 0)
+
+        compare(okButton.width + cancelButton.width, control.availableWidth - control.spacing)
+    }
+
+    function test_oneButtonInFixedWidthBox() {
+        var control = createTemporaryObject(buttonBox, testCase,
+            { width: 400, standardButtons: Dialog.Close })
+        verify(control)
+
+        var listView = control.contentItem
+        waitForRendering(listView)
+
+        var button = control.itemAt(0)
+        verify(button)
+
+        // The button should never go outside of the box.
+        tryVerify(function() { return button.mapToItem(control, 0, 0).x >= 0 },
+            1000, "Expected left edge of button to be within left edge of DialogButtonBox (i.e. greater than or equal to 0)" +
+                ", but it's " + button.mapToItem(control, 0, 0).x)
+        tryVerify(function() { return button.mapToItem(control, 0, 0).x + button.width <= control.width },
+            1000, "Expected right edge of button to be within right edge of DialogButtonBox (i.e. less than or equal to " +
+                control.width + "), but it's " + (button.mapToItem(control, 0, 0).x + button.width))
+    }
+
+    Component {
+        id: dialogComponent
+        // Based on the Default style, where a single button fills
+        // half the dialog's width and is aligned to the right.
+        Dialog {
+            id: control
+            standardButtons: Dialog.Ok
+            visible: true
+
+            footer: DialogButtonBox {
+                id: box
+                visible: count > 0
+                alignment: count === 1 ? Qt.AlignRight : undefined
+
+                implicitWidth: Math.max(implicitBackgroundWidth + leftInset + rightInset,
+                    (count === 1 ? implicitContentWidth * 2 : implicitContentWidth) + leftPadding + rightPadding)
+                implicitHeight: Math.max(implicitBackgroundHeight + topInset + bottomInset,
+                    implicitContentHeight + topPadding + bottomPadding)
+                contentWidth: contentItem.contentWidth
+
+                delegate: Button {
+                    width: box.count === 1 ? box.availableWidth / 2 : undefined
+                }
+            }
+        }
+    }
+
+    // QTBUG-73860
+    function test_oneButtonAlignedRightInImplicitWidthBox() {
+        var dialog = createTemporaryObject(dialogComponent, testCase)
+        verify(dialog)
+
+        var box = dialog.footer
+        var listView = box.contentItem
+        waitForRendering(listView)
+
+        var button = box.itemAt(0)
+        verify(button)
+
+        // The button should never go outside of the box.
+        tryVerify(function() { return button.mapToItem(box, 0, 0).x >= 0 },
+            1000, "Expected left edge of button to be within left edge of DialogButtonBox (i.e. greater than or equal to 0)" +
+                ", but it's " + button.mapToItem(box, 0, 0).x)
+        tryVerify(function() { return button.mapToItem(box, 0, 0).x + button.width <= box.width },
+            1000, "Expected right edge of button to be within right edge of DialogButtonBox (i.e. less than or equal to " +
+                box.width + "), but it's " + (button.mapToItem(box, 0, 0).x + button.width))
+        compare(box.width, dialog.width)
+        // There's a single button and we align it to the right.
+        compare(box.contentItem.width, button.width)
+        compare(box.contentItem.x, box.width - box.rightPadding - box.contentItem.width)
+    }
+
+    Component {
+        id: customButtonBox
+
+        DialogButtonBox {
+            objectName: "customButtonBox"
+            alignment: Qt.AlignRight
+
+            property alias okButton: okButton
+
+            Button {
+                id: okButton
+                text: "OK"
+
+                DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
+            }
+        }
+    }
+
+    Component {
+        id: customButtonBoxTwoButtons
+
+        DialogButtonBox {
+            objectName: "customButtonBoxTwoButtons"
+            alignment: Qt.AlignRight
+
+            property alias okButton: okButton
+
+            Button {
+                id: okButton
+                text: "OK"
+
+                DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
+            }
+            Button {
+                text: "Cancel"
+
+                DialogButtonBox.buttonRole: DialogButtonBox.RejectRole
+            }
+        }
+    }
+
+    function test_changeCustomButtonText_data() {
+        return [
+            { tag: "oneButton", component: customButtonBox },
+            { tag: "twoButtons", component: customButtonBoxTwoButtons },
+        ]
+    }
+
+    // QTBUG-72886
+    function test_changeCustomButtonText(data) {
+        var control = createTemporaryObject(customButtonBox, testCase, {})
+        verify(control)
+
+        var listView = control.contentItem
+        waitForRendering(listView)
+
+        var button = control.okButton
+        verify(button)
+        button.text = "some longer text";
+
+        // The button should never go outside of the box.
+        tryVerify(function() { return button.mapToItem(control, 0, 0).x >= 0 },
+            1000, "Expected left edge of button to be within left edge of DialogButtonBox (i.e. greater than or equal to 0)" +
+                ", but it's " + button.mapToItem(control, 0, 0).x)
+        tryVerify(function() { return button.mapToItem(control, 0, 0).x + button.width <= control.width },
+            1000, "Expected right edge of button to be within right edge of DialogButtonBox (i.e. less than or equal to " +
+                control.width + "), but it's " + (button.mapToItem(control, 0, 0).x + button.width))
+    }
+
+    Component {
+        id: noRolesDialog
+
+        Dialog {
+            footer: DialogButtonBox {
+                Button { text: "A" }
+                Button { text: "B" }
+                Button { text: "C" }
+            }
+        }
+    }
+
+    function test_orderWithNoRoles() {
+        for (var i = 0; i < 10; ++i) {
+            var control = createTemporaryObject(noRolesDialog, testCase)
+            verify(control)
+
+            control.open()
+            tryCompare(control, "opened", true)
+            var footer = control.footer
+            verify(footer)
+            waitForRendering(footer)
+            compare(footer.itemAt(0).text, "A")
+            compare(footer.itemAt(1).text, "B")
+            compare(footer.itemAt(2).text, "C")
+        }
     }
 }

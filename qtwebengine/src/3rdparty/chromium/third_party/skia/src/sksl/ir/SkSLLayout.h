@@ -19,6 +19,28 @@ namespace SkSL {
  * layout (location = 0) int x;
  */
 struct Layout {
+    enum Flag {
+        kOriginUpperLeft_Flag            = 1 <<  0,
+        kOverrideCoverage_Flag           = 1 <<  1,
+        kPushConstant_Flag               = 1 <<  2,
+        kBlendSupportAllEquations_Flag   = 1 <<  3,
+        kBlendSupportMultiply_Flag       = 1 <<  4,
+        kBlendSupportScreen_Flag         = 1 <<  5,
+        kBlendSupportOverlay_Flag        = 1 <<  6,
+        kBlendSupportDarken_Flag         = 1 <<  7,
+        kBlendSupportLighten_Flag        = 1 <<  8,
+        kBlendSupportColorDodge_Flag     = 1 <<  9,
+        kBlendSupportColorBurn_Flag      = 1 << 10,
+        kBlendSupportHardLight_Flag      = 1 << 11,
+        kBlendSupportSoftLight_Flag      = 1 << 12,
+        kBlendSupportDifference_Flag     = 1 << 13,
+        kBlendSupportExclusion_Flag      = 1 << 14,
+        kBlendSupportHSLHue_Flag         = 1 << 15,
+        kBlendSupportHSLSaturation_Flag  = 1 << 16,
+        kBlendSupportHSLColor_Flag       = 1 << 17,
+        kBlendSupportHSLLuminosity_Flag  = 1 << 18
+    };
+
     enum Primitive {
         kUnspecified_Primitive = -1,
         kPoints_Primitive,
@@ -97,41 +119,35 @@ struct Layout {
         return false;
     }
 
-    Layout(int location, int offset, int binding, int index, int set, int builtin,
-           int inputAttachmentIndex, bool originUpperLeft, bool overrideCoverage,
-           bool blendSupportAllEquations, Format format, bool pushconstant, Primitive primitive,
-           int maxVertices, int invocations, String when, Key key)
-    : fLocation(location)
+    Layout(int flags, int location, int offset, int binding, int index, int set, int builtin,
+           int inputAttachmentIndex, Format format, Primitive primitive, int maxVertices,
+           int invocations, String when, Key key, StringFragment ctype)
+    : fFlags(flags)
+    , fLocation(location)
     , fOffset(offset)
     , fBinding(binding)
     , fIndex(index)
     , fSet(set)
     , fBuiltin(builtin)
     , fInputAttachmentIndex(inputAttachmentIndex)
-    , fOriginUpperLeft(originUpperLeft)
-    , fOverrideCoverage(overrideCoverage)
-    , fBlendSupportAllEquations(blendSupportAllEquations)
     , fFormat(format)
-    , fPushConstant(pushconstant)
     , fPrimitive(primitive)
     , fMaxVertices(maxVertices)
     , fInvocations(invocations)
     , fWhen(when)
-    , fKey(key) {}
+    , fKey(key)
+    , fCType(ctype) {}
 
     Layout()
-    : fLocation(-1)
+    : fFlags(0)
+    , fLocation(-1)
     , fOffset(-1)
     , fBinding(-1)
     , fIndex(-1)
     , fSet(-1)
     , fBuiltin(-1)
     , fInputAttachmentIndex(-1)
-    , fOriginUpperLeft(false)
-    , fOverrideCoverage(false)
-    , fBlendSupportAllEquations(false)
     , fFormat(Format::kUnspecified)
-    , fPushConstant(false)
     , fPrimitive(kUnspecified_Primitive)
     , fMaxVertices(-1)
     , fInvocations(-1)
@@ -168,23 +184,83 @@ struct Layout {
             result += separator + "input_attachment_index = " + to_string(fBuiltin);
             separator = ", ";
         }
-        if (fOriginUpperLeft) {
-            result += separator + "origin_upper_left";
-            separator = ", ";
-        }
-        if (fOverrideCoverage) {
-            result += separator + "override_coverage";
-            separator = ", ";
-        }
-        if (fBlendSupportAllEquations) {
-            result += separator + "blend_support_all_equations";
-            separator = ", ";
-        }
         if (Format::kUnspecified != fFormat) {
             result += separator + FormatToStr(fFormat);
             separator = ", ";
         }
-        if (fPushConstant) {
+        if (fFlags & kOriginUpperLeft_Flag) {
+            result += separator + "origin_upper_left";
+            separator = ", ";
+        }
+        if (fFlags & kOverrideCoverage_Flag) {
+            result += separator + "override_coverage";
+            separator = ", ";
+        }
+        if (fFlags & kBlendSupportAllEquations_Flag) {
+            result += separator + "blend_support_all_equations";
+            separator = ", ";
+        }
+        if (fFlags & kBlendSupportMultiply_Flag) {
+            result += separator + "blend_support_multiply";
+            separator = ", ";
+        }
+        if (fFlags & kBlendSupportScreen_Flag) {
+            result += separator + "blend_support_screen";
+            separator = ", ";
+        }
+        if (fFlags & kBlendSupportOverlay_Flag) {
+            result += separator + "blend_support_overlay";
+            separator = ", ";
+        }
+        if (fFlags & kBlendSupportDarken_Flag) {
+            result += separator + "blend_support_darken";
+            separator = ", ";
+        }
+        if (fFlags & kBlendSupportLighten_Flag) {
+            result += separator + "blend_support_lighten";
+            separator = ", ";
+        }
+        if (fFlags & kBlendSupportColorDodge_Flag) {
+            result += separator + "blend_support_colordodge";
+            separator = ", ";
+        }
+        if (fFlags & kBlendSupportColorBurn_Flag) {
+            result += separator + "blend_support_colorburn";
+            separator = ", ";
+        }
+        if (fFlags & kBlendSupportHardLight_Flag) {
+            result += separator + "blend_support_hardlight";
+            separator = ", ";
+        }
+        if (fFlags & kBlendSupportSoftLight_Flag) {
+            result += separator + "blend_support_softlight";
+            separator = ", ";
+        }
+        if (fFlags & kBlendSupportDifference_Flag) {
+            result += separator + "blend_support_difference";
+            separator = ", ";
+        }
+        if (fFlags & kBlendSupportExclusion_Flag) {
+            result += separator + "blend_support_exclusion";
+            separator = ", ";
+        }
+        if (fFlags & kBlendSupportHSLHue_Flag) {
+            result += separator + "blend_support_hsl_hue";
+            separator = ", ";
+        }
+        if (fFlags & kBlendSupportHSLSaturation_Flag) {
+            result += separator + "blend_support_hsl_saturation";
+            separator = ", ";
+        }
+        if (fFlags & kBlendSupportHSLColor_Flag) {
+            result += separator + "blend_support_hsl_color";
+            separator = ", ";
+        }
+        if (fFlags & kBlendSupportHSLLuminosity_Flag) {
+            result += separator + "blend_support_hsl_luminosity";
+            separator = ", ";
+        }
+        if (fFlags & kPushConstant_Flag) {
             result += separator + "push_constant";
             separator = ", ";
         }
@@ -232,18 +308,6 @@ struct Layout {
             result += separator + "when = " + fWhen;
             separator = ", ";
         }
-        switch (fKey) {
-            case kNo_Key:
-                break;
-            case kKey_Key:
-                result += separator + "key";
-                separator = ", ";
-                break;
-            case kIdentity_Key:
-                result += separator + "key=identity";
-                separator = ", ";
-                break;
-        }
         if (result.size() > 0) {
             result = "layout (" + result + ")";
         }
@@ -251,26 +315,25 @@ struct Layout {
     }
 
     bool operator==(const Layout& other) const {
-        return fLocation                 == other.fLocation &&
-               fOffset                   == other.fOffset &&
-               fBinding                  == other.fBinding &&
-               fIndex                    == other.fIndex &&
-               fSet                      == other.fSet &&
-               fBuiltin                  == other.fBuiltin &&
-               fInputAttachmentIndex     == other.fInputAttachmentIndex &&
-               fOriginUpperLeft          == other.fOriginUpperLeft &&
-               fOverrideCoverage         == other.fOverrideCoverage &&
-               fBlendSupportAllEquations == other.fBlendSupportAllEquations &&
-               fFormat                   == other.fFormat &&
-               fPrimitive                == other.fPrimitive &&
-               fMaxVertices              == other.fMaxVertices &&
-               fInvocations              == other.fInvocations;
+        return fFlags                == other.fFlags &&
+               fLocation             == other.fLocation &&
+               fOffset               == other.fOffset &&
+               fBinding              == other.fBinding &&
+               fIndex                == other.fIndex &&
+               fSet                  == other.fSet &&
+               fBuiltin              == other.fBuiltin &&
+               fInputAttachmentIndex == other.fInputAttachmentIndex &&
+               fFormat               == other.fFormat &&
+               fPrimitive            == other.fPrimitive &&
+               fMaxVertices          == other.fMaxVertices &&
+               fInvocations          == other.fInvocations;
     }
 
     bool operator!=(const Layout& other) const {
         return !(*this == other);
     }
 
+    int fFlags;
     int fLocation;
     int fOffset;
     int fBinding;
@@ -282,16 +345,13 @@ struct Layout {
     // input_attachment_index comes from Vulkan/SPIR-V to connect a shader variable to the a
     // corresponding attachment on the subpass in which the shader is being used.
     int fInputAttachmentIndex;
-    bool fOriginUpperLeft;
-    bool fOverrideCoverage;
-    bool fBlendSupportAllEquations;
     Format fFormat;
-    bool fPushConstant;
     Primitive fPrimitive;
     int fMaxVertices;
     int fInvocations;
     String fWhen;
     Key fKey;
+    StringFragment fCType;
 };
 
 } // namespace

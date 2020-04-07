@@ -39,6 +39,8 @@ class tst_OAuth2 : public QObject
 
 private Q_SLOTS:
     void getToken();
+    void refreshToken();
+    void getAndRefreshToken();
 };
 
 struct ReplyHandler : QAbstractOAuthReplyHandler
@@ -80,11 +82,11 @@ void tst_OAuth2::getToken()
     QOAuth2AuthorizationCodeFlow oauth2;
     oauth2.setAuthorizationUrl(webServer.url(QLatin1String("authorization")));
     oauth2.setAccessTokenUrl(webServer.url(QLatin1String("accessToken")));
-    auto replyHandler = new ReplyHandler;
-    oauth2.setReplyHandler(replyHandler);
+    ReplyHandler replyHandler;
+    oauth2.setReplyHandler(&replyHandler);
     connect(&oauth2, &QOAuth2AuthorizationCodeFlow::authorizeWithBrowser, [&](const QUrl &url) {
         const QUrlQuery query(url.query());
-        replyHandler->emitCallbackReceived(QVariantMap {
+        replyHandler.emitCallbackReceived(QVariantMap {
                                                { QLatin1String("code"), QLatin1String("test") },
                                                { QLatin1String("state"),
                                                  query.queryItemValue(QLatin1String("state")) }
@@ -94,6 +96,73 @@ void tst_OAuth2::getToken()
     oauth2.grant();
     QTRY_COMPARE(grantedSpy.count(), 1);
     QCOMPARE(oauth2.token(), QLatin1String("token"));
+}
+
+void tst_OAuth2::refreshToken()
+{
+    WebServer webServer([](const WebServer::HttpRequest &request, QTcpSocket *socket) {
+        if (request.url.path() == QLatin1String("/accessToken")) {
+            const QString text = "access_token=token&token_type=bearer";
+            const QByteArray replyMessage {
+                "HTTP/1.0 200 OK\r\n"
+                "Content-Type: application/x-www-form-urlencoded; charset=\"utf-8\"\r\n"
+                "Content-Length: " + QByteArray::number(text.size()) + "\r\n\r\n"
+                + text.toUtf8()
+            };
+            socket->write(replyMessage);
+        }
+    });
+    QOAuth2AuthorizationCodeFlow oauth2;
+    oauth2.setAccessTokenUrl(webServer.url(QLatin1String("accessToken")));
+    ReplyHandler replyHandler;
+    oauth2.setReplyHandler(&replyHandler);
+    oauth2.setRefreshToken(QLatin1String("refresh_token"));
+    QSignalSpy grantedSpy(&oauth2, &QOAuth2AuthorizationCodeFlow::granted);
+    oauth2.refreshAccessToken();
+    QTRY_COMPARE(grantedSpy.count(), 1);
+    QCOMPARE(oauth2.token(), QLatin1String("token"));
+}
+
+void tst_OAuth2::getAndRefreshToken()
+{
+    // In this test we use the grant_type as a token to be able to
+    // identify the token request from the token refresh.
+    WebServer webServer([](const WebServer::HttpRequest &request, QTcpSocket *socket) {
+        if (request.url.path() == QLatin1String("/accessToken")) {
+            const QUrlQuery query(request.body);
+            const QString format = QStringLiteral("access_token=%1&token_type=bearer&expires_in=1&"
+                                                  "refresh_token=refresh_token");
+            const auto text = format.arg(query.queryItemValue(QLatin1String("grant_type")));
+            const QByteArray replyMessage {
+                "HTTP/1.0 200 OK\r\n"
+                "Content-Type: application/x-www-form-urlencoded; charset=\"utf-8\"\r\n"
+                "Content-Length: " + QByteArray::number(text.size()) + "\r\n\r\n"
+                + text.toUtf8()
+            };
+            socket->write(replyMessage);
+        }
+    });
+    QOAuth2AuthorizationCodeFlow oauth2;
+    oauth2.setAuthorizationUrl(webServer.url(QLatin1String("authorization")));
+    oauth2.setAccessTokenUrl(webServer.url(QLatin1String("accessToken")));
+    ReplyHandler replyHandler;
+    oauth2.setReplyHandler(&replyHandler);
+    connect(&oauth2, &QOAuth2AuthorizationCodeFlow::authorizeWithBrowser, [&](const QUrl &url) {
+        const QUrlQuery query(url.query());
+        replyHandler.emitCallbackReceived(QVariantMap {
+                                              { QLatin1String("code"), QLatin1String("test") },
+                                              { QLatin1String("state"),
+                                                query.queryItemValue(QLatin1String("state")) }
+                                          });
+    });
+    QSignalSpy grantedSpy(&oauth2, &QOAuth2AuthorizationCodeFlow::granted);
+    oauth2.grant();
+    QTRY_COMPARE(grantedSpy.count(), 1);
+    QCOMPARE(oauth2.token(), QLatin1String("authorization_code"));
+    grantedSpy.clear();
+    oauth2.refreshAccessToken();
+    QTRY_COMPARE(grantedSpy.count(), 1);
+    QCOMPARE(oauth2.token(), QLatin1String("refresh_token"));
 }
 
 QTEST_MAIN(tst_OAuth2)

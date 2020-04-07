@@ -41,7 +41,17 @@ HistogramSnapshotManager::HistogramSnapshotManager(
   is_active_.store(false, std::memory_order_relaxed);
 }
 
-HistogramSnapshotManager::~HistogramSnapshotManager() {
+HistogramSnapshotManager::~HistogramSnapshotManager() = default;
+
+void HistogramSnapshotManager::PrepareDeltas(
+    const std::vector<HistogramBase*>& histograms,
+    HistogramBase::Flags flags_to_set,
+    HistogramBase::Flags required_flags) {
+  for (HistogramBase* const histogram : histograms) {
+    histogram->SetFlags(flags_to_set);
+    if ((histogram->flags() & required_flags) == required_flags)
+      PrepareDelta(histogram);
+  }
 }
 
 void HistogramSnapshotManager::PrepareDelta(HistogramBase* histogram) {
@@ -77,23 +87,16 @@ void HistogramSnapshotManager::PrepareSamples(
     // Extract fields useful during debug.
     const BucketRanges* ranges =
         static_cast<const Histogram*>(histogram)->bucket_ranges();
-    std::vector<HistogramBase::Sample> ranges_copy;
-    for (size_t i = 0; i < ranges->size(); ++i)
-      ranges_copy.push_back(ranges->range(i));
-    HistogramBase::Sample* ranges_ptr = &ranges_copy[0];
     uint32_t ranges_checksum = ranges->checksum();
     uint32_t ranges_calc_checksum = ranges->CalculateChecksum();
-    const char* histogram_name = histogram->histogram_name().c_str();
     int32_t flags = histogram->flags();
     // The checksum should have caught this, so crash separately if it didn't.
     CHECK_NE(0U, HistogramBase::RANGE_CHECKSUM_ERROR & corruption);
     CHECK(false);  // Crash for the bucket order corruption.
     // Ensure that compiler keeps around pointers to |histogram| and its
     // internal |bucket_ranges_| for any minidumps.
-    base::debug::Alias(&ranges_ptr);
     base::debug::Alias(&ranges_checksum);
     base::debug::Alias(&ranges_calc_checksum);
-    base::debug::Alias(&histogram_name);
     base::debug::Alias(&flags);
   }
   // Checksum corruption might not have caused order corruption.
@@ -105,15 +108,11 @@ void HistogramSnapshotManager::PrepareSamples(
   if (corruption) {
     DLOG(ERROR) << "Histogram: \"" << histogram->histogram_name()
                 << "\" has data corruption: " << corruption;
-    histogram_flattener_->InconsistencyDetected(
-        static_cast<HistogramBase::Inconsistency>(corruption));
     // Don't record corrupt data to metrics services.
     const uint32_t old_corruption = sample_info->inconsistencies;
     if (old_corruption == (corruption | old_corruption))
       return;  // We've already seen this corruption for this histogram.
     sample_info->inconsistencies |= corruption;
-    histogram_flattener_->UniqueInconsistencyDetected(
-        static_cast<HistogramBase::Inconsistency>(corruption));
     return;
   }
 

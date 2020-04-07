@@ -7,7 +7,6 @@
 #include <string>
 
 #include "base/logging.h"
-#include "base/message_loop/message_loop.h"
 #include "base/metrics/histogram_macros.h"
 #include "content/renderer/pepper/host_globals.h"
 #include "content/renderer/pepper/pepper_plugin_instance_impl.h"
@@ -94,8 +93,7 @@ PP_VideoDecodeError_Dev MediaToPPError(
 namespace content {
 
 PPB_VideoDecoder_Impl::PPB_VideoDecoder_Impl(PP_Instance instance)
-    : PPB_VideoDecoder_Shared(instance), ppp_videodecoder_(NULL) {
-}
+    : PPB_VideoDecoder_Shared(instance), ppp_videodecoder_(nullptr) {}
 
 PPB_VideoDecoder_Impl::~PPB_VideoDecoder_Impl() { Destroy(); }
 
@@ -235,7 +233,7 @@ void PPB_VideoDecoder_Impl::Destroy() {
   FlushCommandBuffer();
 
   decoder_.reset();
-  ppp_videodecoder_ = NULL;
+  ppp_videodecoder_ = nullptr;
 
   ::ppapi::PPB_VideoDecoder_Shared::Destroy();
 }

@@ -80,7 +80,8 @@ QTextCursorPrivate::QTextCursorPrivate(const QTextCursorPrivate &rhs)
     visualNavigation = rhs.visualNavigation;
     keepPositionOnInsert = rhs.keepPositionOnInsert;
     changed = rhs.changed;
-    priv->addCursor(this);
+    if (priv != nullptr)
+        priv->addCursor(this);
 }
 
 QTextCursorPrivate::~QTextCursorPrivate()
@@ -2115,7 +2116,7 @@ QTextList *QTextCursor::createList(QTextListFormat::Style style)
 
 /*!
     Returns the current list if the cursor position() is inside a
-    block that is part of a list; otherwise returns 0.
+    block that is part of a list; otherwise returns \nullptr.
 
     \sa insertList(), createList()
  */
@@ -2175,7 +2176,7 @@ QTextTable *QTextCursor::insertTable(int rows, int cols, const QTextTableFormat 
 
 /*!
     Returns a pointer to the current table if the cursor position()
-    is inside a block that is part of a table; otherwise returns 0.
+    is inside a block that is part of a table; otherwise returns \nullptr.
 
     \sa insertTable()
 */
@@ -2212,7 +2213,7 @@ QTextFrame *QTextCursor::insertFrame(const QTextFrameFormat &format)
 }
 
 /*!
-    Returns a pointer to the current frame. Returns 0 if the cursor is invalid.
+    Returns a pointer to the current frame. Returns \nullptr if the cursor is invalid.
 
     \sa insertFrame()
 */

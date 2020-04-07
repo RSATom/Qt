@@ -44,14 +44,14 @@ QT_BEGIN_NAMESPACE
 namespace Qt3DRender {
 
 /*!
-    \class Qt3DCore::Scene3DSGMaterial
+    \class Qt3DRender::Scene3DSGMaterial
     \internal
-    \inherit QSGMaterial
+    \inherits QSGMaterial
 
-    \brief The Qt3DRender::Scene3DSGMaterial class is a custom QSGMaterial subclass used to
-    render a Qt3DRender::Scene3DSGNode
+    \brief The Scene3DSGMaterial class is a custom QSGMaterial subclass used to
+    render a Scene3DSGNode
 
-    The Qt3DRender::Scene3DSGMaterial class renders a texture using premultiplied
+    The Scene3DSGMaterial class renders a texture using premultiplied
     alpha unlike the QSGSimpleTextureMaterial.
 
     This is needed to properly integrate alpha blending from a Qt3D scene

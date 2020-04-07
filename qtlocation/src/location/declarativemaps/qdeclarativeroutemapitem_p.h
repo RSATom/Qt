@@ -79,7 +79,7 @@ private slots:
     void updateRoutePath();
 
 protected:
-    void setPath(const QJSValue &value) Q_DECL_OVERRIDE;
+    void setPath(const QJSValue &value) override;
 
 private:
     QDeclarativeGeoRoute *route_;

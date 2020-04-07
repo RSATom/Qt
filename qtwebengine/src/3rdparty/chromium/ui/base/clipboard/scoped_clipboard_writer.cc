@@ -24,11 +24,12 @@ ScopedClipboardWriter::~ScopedClipboardWriter() {
 }
 
 void ScopedClipboardWriter::WriteText(const base::string16& text) {
-  WriteTextOrURL(text, false);
-}
+  std::string utf8_text = base::UTF16ToUTF8(text);
 
-void ScopedClipboardWriter::WriteURL(const base::string16& text) {
-  WriteTextOrURL(text, true);
+  Clipboard::ObjectMapParams parameters;
+  parameters.push_back(
+      Clipboard::ObjectMapParam(utf8_text.begin(), utf8_text.end()));
+  objects_[Clipboard::CBF_TEXT] = parameters;
 }
 
 void ScopedClipboardWriter::WriteHTML(const base::string16& markup,
@@ -120,26 +121,19 @@ void ScopedClipboardWriter::WritePickledData(
   objects_[Clipboard::CBF_DATA] = parameters;
 }
 
-void ScopedClipboardWriter::Reset() {
-  url_text_.clear();
-  objects_.clear();
-  bitmap_.reset();
+void ScopedClipboardWriter::WriteData(const std::string& type,
+                                      const std::string& data) {
+  Clipboard::ObjectMapParam type_parameter(type.begin(), type.end());
+  Clipboard::ObjectMapParam data_parameter(data.begin(), data.end());
+  Clipboard::ObjectMapParams parameters;
+  parameters.push_back(type_parameter);
+  parameters.push_back(data_parameter);
+  objects_[Clipboard::CBF_DATA] = parameters;
 }
 
-void ScopedClipboardWriter::WriteTextOrURL(const base::string16& text,
-                                           bool is_url) {
-  std::string utf8_text = base::UTF16ToUTF8(text);
-
-  Clipboard::ObjectMapParams parameters;
-  parameters.push_back(Clipboard::ObjectMapParam(utf8_text.begin(),
-                                                 utf8_text.end()));
-  objects_[Clipboard::CBF_TEXT] = parameters;
-
-  if (is_url) {
-    url_text_ = utf8_text;
-  } else {
-    url_text_.clear();
-  }
+void ScopedClipboardWriter::Reset() {
+  objects_.clear();
+  bitmap_.reset();
 }
 
 }  // namespace ui

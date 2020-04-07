@@ -48,6 +48,8 @@
 
 #include <fcntl.h>
 #include <unistd.h>
+#include <vector>
+
 #include "src/assembler.h"
 #include "src/s390/constants-s390.h"
 
@@ -96,72 +98,156 @@ namespace internal {
 #define ALLOCATABLE_DOUBLE_REGISTERS(V)                   \
   V(d1)  V(d2)  V(d3)  V(d4)  V(d5)  V(d6)  V(d7)         \
   V(d8)  V(d9)  V(d10) V(d11) V(d12) V(d15) V(d0)
+
+#define C_REGISTERS(V)                                            \
+  V(cr0)  V(cr1)  V(cr2)  V(cr3)  V(cr4)  V(cr5)  V(cr6)  V(cr7)  \
+  V(cr8)  V(cr9)  V(cr10) V(cr11) V(cr12) V(cr15)
 // clang-format on
 
-// CPU Registers.
-//
-// 1) We would prefer to use an enum, but enum values are assignment-
-// compatible with int, which has caused code-generation bugs.
-//
-// 2) We would prefer to use a class instead of a struct but we don't like
-// the register initialization to depend on the particular initialization
-// order (which appears to be different on OS X, Linux, and Windows for the
-// installed versions of C++ we tried). Using a struct permits C-style
-// "initialization". Also, the Register objects cannot be const as this
-// forces initialization stubs in MSVC, making us dependent on initialization
-// order.
-//
-// 3) By not using an enum, we are possibly preventing the compiler from
-// doing certain constant folds, which may significantly reduce the
-// code generated for some assembly instructions (because they boil down
-// to a few constants). If this is a problem, we could change the code
-// such that we use an enum in optimized mode, and the struct in debug
-// mode. This way we get the compile-time error checking in debug mode
-// and best performance in optimized code.
+// Register list in load/store instructions
+// Note that the bit values must match those used in actual instruction encoding
+const int kNumRegs = 16;
 
-struct Register {
-  enum Code {
-#define REGISTER_CODE(R) kCode_##R,
-    GENERAL_REGISTERS(REGISTER_CODE)
+// Caller-saved/arguments registers
+const RegList kJSCallerSaved = 1 << 1 | 1 << 2 |  // r2  a1
+                               1 << 3 |           // r3  a2
+                               1 << 4 |           // r4  a3
+                               1 << 5;            // r5  a4
+
+const int kNumJSCallerSaved = 5;
+
+// Callee-saved registers preserved when switching from C to JavaScript
+const RegList kCalleeSaved =
+    1 << 6 |   // r6 (argument passing in CEntryStub)
+               //    (HandleScope logic in MacroAssembler)
+    1 << 7 |   // r7 (argument passing in CEntryStub)
+               //    (HandleScope logic in MacroAssembler)
+    1 << 8 |   // r8 (argument passing in CEntryStub)
+               //    (HandleScope logic in MacroAssembler)
+    1 << 9 |   // r9 (HandleScope logic in MacroAssembler)
+    1 << 10 |  // r10 (Roots register in Javascript)
+    1 << 11 |  // r11 (fp in Javascript)
+    1 << 12 |  // r12 (ip in Javascript)
+    1 << 13;   // r13 (cp in Javascript)
+// 1 << 15;   // r15 (sp in Javascript)
+
+const int kNumCalleeSaved = 8;
+
+#ifdef V8_TARGET_ARCH_S390X
+
+const RegList kCallerSavedDoubles = 1 << 0 |  // d0
+                                    1 << 1 |  // d1
+                                    1 << 2 |  // d2
+                                    1 << 3 |  // d3
+                                    1 << 4 |  // d4
+                                    1 << 5 |  // d5
+                                    1 << 6 |  // d6
+                                    1 << 7;   // d7
+
+const int kNumCallerSavedDoubles = 8;
+
+const RegList kCalleeSavedDoubles = 1 << 8 |   // d8
+                                    1 << 9 |   // d9
+                                    1 << 10 |  // d10
+                                    1 << 11 |  // d11
+                                    1 << 12 |  // d12
+                                    1 << 13 |  // d12
+                                    1 << 14 |  // d12
+                                    1 << 15;   // d13
+
+const int kNumCalleeSavedDoubles = 8;
+
+#else
+
+const RegList kCallerSavedDoubles = 1 << 14 |  // d14
+                                    1 << 15 |  // d15
+                                    1 << 0 |   // d0
+                                    1 << 1 |   // d1
+                                    1 << 2 |   // d2
+                                    1 << 3 |   // d3
+                                    1 << 5 |   // d5
+                                    1 << 7 |   // d7
+                                    1 << 8 |   // d8
+                                    1 << 9 |   // d9
+                                    1 << 10 |  // d10
+                                    1 << 11 |  // d10
+                                    1 << 12 |  // d10
+                                    1 << 13;   // d11
+
+const int kNumCallerSavedDoubles = 14;
+
+const RegList kCalleeSavedDoubles = 1 << 4 |  // d4
+                                    1 << 6;   // d6
+
+const int kNumCalleeSavedDoubles = 2;
+
+#endif
+
+// Number of registers for which space is reserved in safepoints. Must be a
+// multiple of 8.
+// TODO(regis): Only 8 registers may actually be sufficient. Revisit.
+const int kNumSafepointRegisters = 16;
+
+// Define the list of registers actually saved at safepoints.
+// Note that the number of saved registers may be smaller than the reserved
+// space, i.e. kNumSafepointSavedRegisters <= kNumSafepointRegisters.
+const RegList kSafepointSavedRegisters = kJSCallerSaved | kCalleeSaved;
+const int kNumSafepointSavedRegisters = kNumJSCallerSaved + kNumCalleeSaved;
+
+// The following constants describe the stack frame linkage area as
+// defined by the ABI.
+
+#if V8_TARGET_ARCH_S390X
+// [0] Back Chain
+// [1] Reserved for compiler use
+// [2] GPR 2
+// [3] GPR 3
+// ...
+// [15] GPR 15
+// [16] FPR 0
+// [17] FPR 2
+// [18] FPR 4
+// [19] FPR 6
+const int kNumRequiredStackFrameSlots = 20;
+const int kStackFrameRASlot = 14;
+const int kStackFrameSPSlot = 15;
+const int kStackFrameExtraParamSlot = 20;
+#else
+// [0] Back Chain
+// [1] Reserved for compiler use
+// [2] GPR 2
+// [3] GPR 3
+// ...
+// [15] GPR 15
+// [16..17] FPR 0
+// [18..19] FPR 2
+// [20..21] FPR 4
+// [22..23] FPR 6
+const int kNumRequiredStackFrameSlots = 24;
+const int kStackFrameRASlot = 14;
+const int kStackFrameSPSlot = 15;
+const int kStackFrameExtraParamSlot = 24;
+#endif
+
+// zLinux ABI requires caller frames to include sufficient space for
+// callee preserved register save area.
+#if V8_TARGET_ARCH_S390X
+const int kCalleeRegisterSaveAreaSize = 160;
+#elif V8_TARGET_ARCH_S390
+const int kCalleeRegisterSaveAreaSize = 96;
+#else
+const int kCalleeRegisterSaveAreaSize = 0;
+#endif
+
+enum RegisterCode {
+#define REGISTER_CODE(R) kRegCode_##R,
+  GENERAL_REGISTERS(REGISTER_CODE)
 #undef REGISTER_CODE
-        kAfterLast,
-    kCode_no_reg = -1
-  };
-  static constexpr int kNumRegisters = Code::kAfterLast;
+      kRegAfterLast
+};
 
-#define REGISTER_COUNT(R) 1 +
-  static constexpr int kNumAllocatable =
-      ALLOCATABLE_GENERAL_REGISTERS(REGISTER_COUNT) 0;
-#undef REGISTER_COUNT
-
-#define REGISTER_BIT(R) 1 << kCode_##R |
-  static constexpr RegList kAllocatable =
-      ALLOCATABLE_GENERAL_REGISTERS(REGISTER_BIT) 0;
-#undef REGISTER_BIT
-
-  static Register from_code(int code) {
-    DCHECK(code >= 0);
-    DCHECK(code < kNumRegisters);
-    Register r = {code};
-    return r;
-  }
-
-  bool is_valid() const { return 0 <= reg_code && reg_code < kNumRegisters; }
-  bool is(Register reg) const { return reg_code == reg.reg_code; }
-  int code() const {
-    DCHECK(is_valid());
-    return reg_code;
-  }
-  int bit() const {
-    DCHECK(is_valid());
-    return 1 << reg_code;
-  }
-
-  void set_code(int code) {
-    reg_code = code;
-    DCHECK(is_valid());
-  }
-
+class Register : public RegisterBase<Register, kRegAfterLast> {
+ public:
 #if V8_TARGET_LITTLE_ENDIAN
   static constexpr int kMantissaOffset = 0;
   static constexpr int kExponentOffset = 4;
@@ -170,58 +256,56 @@ struct Register {
   static constexpr int kExponentOffset = 0;
 #endif
 
-  // Unfortunately we can't make this private in a struct.
-  int reg_code;
+ private:
+  friend class RegisterBase;
+  explicit constexpr Register(int code) : RegisterBase(code) {}
 };
 
-typedef struct Register Register;
+ASSERT_TRIVIALLY_COPYABLE(Register);
+static_assert(sizeof(Register) == sizeof(int),
+              "Register can efficiently be passed by value");
 
-#define DEFINE_REGISTER(R) constexpr Register R = {Register::kCode_##R};
+#define DEFINE_REGISTER(R) \
+  constexpr Register R = Register::from_code<kRegCode_##R>();
 GENERAL_REGISTERS(DEFINE_REGISTER)
 #undef DEFINE_REGISTER
-constexpr Register no_reg = {Register::kCode_no_reg};
+constexpr Register no_reg = Register::no_reg();
 
 // Register aliases
 constexpr Register kLithiumScratch = r1;  // lithium scratch.
 constexpr Register kRootRegister = r10;   // Roots array pointer.
 constexpr Register cp = r13;              // JavaScript context pointer.
 
+constexpr bool kPadArguments = false;
 constexpr bool kSimpleFPAliasing = true;
 constexpr bool kSimdMaskRegisters = false;
 
-// Double word FP register.
-struct DoubleRegister {
-  enum Code {
-#define REGISTER_CODE(R) kCode_##R,
-    DOUBLE_REGISTERS(REGISTER_CODE)
+enum DoubleRegisterCode {
+#define REGISTER_CODE(R) kDoubleCode_##R,
+  DOUBLE_REGISTERS(REGISTER_CODE)
 #undef REGISTER_CODE
-        kAfterLast,
-    kCode_no_reg = -1
-  };
-
-  static constexpr int kNumRegisters = Code::kAfterLast;
-  static constexpr int kMaxNumRegisters = kNumRegisters;
-
-  bool is_valid() const { return 0 <= reg_code && reg_code < kNumRegisters; }
-  bool is(DoubleRegister reg) const { return reg_code == reg.reg_code; }
-
-  int code() const {
-    DCHECK(is_valid());
-    return reg_code;
-  }
-
-  int bit() const {
-    DCHECK(is_valid());
-    return 1 << reg_code;
-  }
-
-  static DoubleRegister from_code(int code) {
-    DoubleRegister r = {code};
-    return r;
-  }
-
-  int reg_code;
+      kDoubleAfterLast
 };
+
+// Double word VFP register.
+class DoubleRegister : public RegisterBase<DoubleRegister, kDoubleAfterLast> {
+ public:
+  // A few double registers are reserved: one as a scratch register and one to
+  // hold 0.0, that does not fit in the immediate field of vmov instructions.
+  // d14: 0.0
+  // d15: scratch register.
+  static constexpr int kSizeInBytes = 8;
+  inline static int NumRegisters();
+
+ private:
+  friend class RegisterBase;
+
+  explicit constexpr DoubleRegister(int code) : RegisterBase(code) {}
+};
+
+ASSERT_TRIVIALLY_COPYABLE(DoubleRegister);
+static_assert(sizeof(DoubleRegister) == sizeof(int),
+              "DoubleRegister can efficiently be passed by value");
 
 typedef DoubleRegister FloatRegister;
 
@@ -229,84 +313,65 @@ typedef DoubleRegister FloatRegister;
 typedef DoubleRegister Simd128Register;
 
 #define DEFINE_REGISTER(R) \
-  constexpr DoubleRegister R = {DoubleRegister::kCode_##R};
+  constexpr DoubleRegister R = DoubleRegister::from_code<kDoubleCode_##R>();
 DOUBLE_REGISTERS(DEFINE_REGISTER)
 #undef DEFINE_REGISTER
-constexpr Register no_dreg = {Register::kCode_no_reg};
+constexpr DoubleRegister no_dreg = DoubleRegister::no_reg();
 
 constexpr DoubleRegister kDoubleRegZero = d14;
 constexpr DoubleRegister kScratchDoubleReg = d13;
 
 Register ToRegister(int num);
 
-// Coprocessor register
-struct CRegister {
-  bool is_valid() const { return 0 <= reg_code && reg_code < 8; }
-  bool is(CRegister creg) const { return reg_code == creg.reg_code; }
-  int code() const {
-    DCHECK(is_valid());
-    return reg_code;
-  }
-  int bit() const {
-    DCHECK(is_valid());
-    return 1 << reg_code;
-  }
-
-  // Unfortunately we can't make this private in a struct.
-  int reg_code;
+enum CRegisterCode {
+#define REGISTER_CODE(R) kCCode_##R,
+  C_REGISTERS(REGISTER_CODE)
+#undef REGISTER_CODE
+      kCAfterLast
 };
 
-constexpr CRegister no_creg = {-1};
+// Coprocessor register
+class CRegister : public RegisterBase<CRegister, kCAfterLast> {
+  friend class RegisterBase;
+  explicit constexpr CRegister(int code) : RegisterBase(code) {}
+};
 
-constexpr CRegister cr0 = {0};
-constexpr CRegister cr1 = {1};
-constexpr CRegister cr2 = {2};
-constexpr CRegister cr3 = {3};
-constexpr CRegister cr4 = {4};
-constexpr CRegister cr5 = {5};
-constexpr CRegister cr6 = {6};
-constexpr CRegister cr7 = {7};
+constexpr CRegister no_creg = CRegister::no_reg();
+#define DECLARE_C_REGISTER(R) \
+  constexpr CRegister R = CRegister::from_code<kCCode_##R>();
+C_REGISTERS(DECLARE_C_REGISTER)
+#undef DECLARE_C_REGISTER
 
 // -----------------------------------------------------------------------------
 // Machine instruction Operands
 
-#if V8_TARGET_ARCH_S390X
-constexpr RelocInfo::Mode kRelocInfo_NONEPTR = RelocInfo::NONE64;
-#else
-constexpr RelocInfo::Mode kRelocInfo_NONEPTR = RelocInfo::NONE32;
-#endif
-
 // Class Operand represents a shifter operand in data processing instructions
 // defining immediate numbers and masks
-typedef uint8_t Length;
-
-struct Mask {
-  uint8_t mask;
-  uint8_t value() { return mask; }
-  static Mask from_value(uint8_t input) {
-    DCHECK(input <= 0x0F);
-    Mask m = {input};
-    return m;
-  }
-};
-
 class Operand BASE_EMBEDDED {
  public:
   // immediate
-  INLINE(explicit Operand(intptr_t immediate,
-                          RelocInfo::Mode rmode = kRelocInfo_NONEPTR));
-  INLINE(static Operand Zero()) { return Operand(static_cast<intptr_t>(0)); }
-  INLINE(explicit Operand(const ExternalReference& f));
+  V8_INLINE explicit Operand(intptr_t immediate,
+                             RelocInfo::Mode rmode = RelocInfo::NONE)
+      : rmode_(rmode) {
+    value_.immediate = immediate;
+  }
+  V8_INLINE static Operand Zero() { return Operand(static_cast<intptr_t>(0)); }
+  V8_INLINE explicit Operand(const ExternalReference& f)
+      : rmode_(RelocInfo::EXTERNAL_REFERENCE) {
+    value_.immediate = static_cast<intptr_t>(f.address());
+  }
   explicit Operand(Handle<HeapObject> handle);
-  INLINE(explicit Operand(Smi* value));
+  V8_INLINE explicit Operand(Smi* value) : rmode_(RelocInfo::NONE) {
+    value_.immediate = reinterpret_cast<intptr_t>(value);
+  }
 
   // rm
-  INLINE(explicit Operand(Register rm));
+  V8_INLINE explicit Operand(Register rm);
 
   static Operand EmbeddedNumber(double value);  // Smi or HeapNumber
 
   // Return true if this is a register operand.
-  INLINE(bool is_reg() const);
+  V8_INLINE bool is_reg() const { return rm_.is_valid(); }
 
   bool must_output_reloc_info(const Assembler* assembler) const;
 
@@ -339,7 +404,7 @@ class Operand BASE_EMBEDDED {
   RelocInfo::Mode rmode() const { return rmode_; }
 
  private:
-  Register rm_;
+  Register rm_ = no_reg;
   union Value {
     Value() {}
     HeapObjectRequest heap_object_request;  // if is_heap_object_request_
@@ -370,7 +435,7 @@ class MemOperand BASE_EMBEDDED {
 
   // Base register
   Register rb() const {
-    DCHECK(!baseRegister.is(no_reg));
+    DCHECK(baseRegister != no_reg);
     return baseRegister;
   }
 
@@ -378,7 +443,7 @@ class MemOperand BASE_EMBEDDED {
 
   // Index Register
   Register rx() const {
-    DCHECK(!indexRegister.is(no_reg));
+    DCHECK(indexRegister != no_reg);
     return indexRegister;
   }
   Register getIndexRegister() const { return rx(); }
@@ -414,17 +479,16 @@ class Assembler : public AssemblerBase {
   // relocation information starting from the end of the buffer. See CodeDesc
   // for a detailed comment on the layout (globals.h).
   //
-  // If the provided buffer is NULL, the assembler allocates and grows its own
-  // buffer, and buffer_size determines the initial buffer size. The buffer is
-  // owned by the assembler and deallocated upon destruction of the assembler.
+  // If the provided buffer is nullptr, the assembler allocates and grows its
+  // own buffer, and buffer_size determines the initial buffer size. The buffer
+  // is owned by the assembler and deallocated upon destruction of the
+  // assembler.
   //
-  // If the provided buffer is not NULL, the assembler uses the provided buffer
-  // for code generation and assumes its size to be buffer_size. If the buffer
-  // is too small, a fatal error occurs. No deallocation of the buffer is done
-  // upon destruction of the assembler.
-  Assembler(Isolate* isolate, void* buffer, int buffer_size)
-      : Assembler(IsolateData(isolate), buffer, buffer_size) {}
-  Assembler(IsolateData isolate_data, void* buffer, int buffer_size);
+  // If the provided buffer is not nullptr, the assembler uses the provided
+  // buffer for code generation and assumes its size to be buffer_size. If the
+  // buffer is too small, a fatal error occurs. No deallocation of the buffer is
+  // done upon destruction of the assembler.
+  Assembler(const AssemblerOptions& options, void* buffer, int buffer_size);
   virtual ~Assembler() {}
 
   // GetCode emits any pending (non-emitted) code and fills the descriptor
@@ -469,14 +533,10 @@ class Assembler : public AssemblerBase {
 
   // Read/Modify the code target address in the branch/call instruction at pc.
   // The isolate argument is unused (and may be nullptr) when skipping flushing.
-  INLINE(static Address target_address_at(Address pc, Address constant_pool));
-  INLINE(static void set_target_address_at(
-      Isolate* isolate, Address pc, Address constant_pool, Address target,
-      ICacheFlushMode icache_flush_mode = FLUSH_ICACHE_IF_NEEDED));
-  INLINE(static Address target_address_at(Address pc, Code* code));
-  INLINE(static void set_target_address_at(
-      Isolate* isolate, Address pc, Code* code, Address target,
-      ICacheFlushMode icache_flush_mode = FLUSH_ICACHE_IF_NEEDED));
+  V8_INLINE static Address target_address_at(Address pc, Address constant_pool);
+  V8_INLINE static void set_target_address_at(
+      Address pc, Address constant_pool, Address target,
+      ICacheFlushMode icache_flush_mode = FLUSH_ICACHE_IF_NEEDED);
 
   // Return the code target address at a call site from the return address
   // of that call in the instruction stream.
@@ -484,18 +544,21 @@ class Assembler : public AssemblerBase {
 
   // Given the address of the beginning of a call, return the address
   // in the instruction stream that the call will return to.
-  INLINE(static Address return_address_from_call_start(Address pc));
+  V8_INLINE static Address return_address_from_call_start(Address pc);
 
   inline Handle<Object> code_target_object_handle_at(Address pc);
   // This sets the branch destination.
   // This is for calls and branches within generated code.
   inline static void deserialization_set_special_target_at(
-      Isolate* isolate, Address instruction_payload, Code* code,
-      Address target);
+      Address instruction_payload, Code* code, Address target);
+
+  // Get the size of the special target encoded at 'instruction_payload'.
+  inline static int deserialization_special_target_size(
+      Address instruction_payload);
 
   // This sets the internal reference at the pc.
   inline static void deserialization_set_target_internal_reference_at(
-      Isolate* isolate, Address pc, Address target,
+      Address pc, Address target,
       RelocInfo::Mode mode = RelocInfo::INTERNAL_REFERENCE);
 
   // Here we are patching the address in the IIHF/IILF instruction pair.
@@ -531,106 +594,17 @@ class Assembler : public AssemblerBase {
   static constexpr int kCallSequenceLength = 8;
 #endif
 
-  // This is the length of the BreakLocationIterator::SetDebugBreakAtReturn()
-  // code patch FIXED_SEQUENCE in bytes!
-  // JS Return Sequence = Call Sequence + BKPT
-  // static constexpr int kJSReturnSequenceLength = kCallSequenceLength + 2;
-
-  // This is the length of the code sequence from SetDebugBreakAtSlot()
-  // FIXED_SEQUENCE in bytes!
-  static constexpr int kDebugBreakSlotLength = kCallSequenceLength;
-  static constexpr int kPatchDebugBreakSlotReturnOffset =
-      kCallTargetAddressOffset;
-
-  // Length to patch between the start of the JS return sequence
-  // from SetDebugBreakAtReturn and the address from
-  // break_address_from_return_address.
-  //
-  // frame->pc() in Debug::SetAfterBreakTarget will point to BKPT in
-  // JS return sequence, so the length to patch will not include BKPT
-  // instruction length.
-  // static constexpr int kPatchReturnSequenceAddressOffset =
-  //     kCallSequenceLength - kPatchDebugBreakSlotReturnOffset;
-
-  // Length to patch between the start of the FIXED call sequence from
-  // SetDebugBreakAtSlot() and the the address from
-  // break_address_from_return_address.
-  static constexpr int kPatchDebugBreakSlotAddressOffset =
-      kDebugBreakSlotLength - kPatchDebugBreakSlotReturnOffset;
-
-  static inline int encode_crbit(const CRegister& cr, enum CRBit crbit) {
-    return ((cr.code() * CRWIDTH) + crbit);
-  }
-
   // ---------------------------------------------------------------------------
   // Code generation
 
   template <class T, int size, int lo, int hi>
   inline T getfield(T value) {
     DCHECK(lo < hi);
-    DCHECK(size > 0);
+    DCHECK_GT(size, 0);
     int mask = hi - lo;
     int shift = size * 8 - hi;
     uint32_t mask_value = (mask == 32) ? 0xffffffff : (1 << mask) - 1;
     return (value & mask_value) << shift;
-  }
-
-  // Declare generic instruction formats by fields
-  inline void e_format(Opcode opcode) {
-    emit2bytes(getfield<uint16_t, 2, 0, 16>(opcode));
-  }
-
-  inline void i_format(Opcode opcode, int f1) {
-    emit2bytes(getfield<uint16_t, 2, 0, 8>(opcode) |
-               getfield<uint16_t, 2, 8, 16>(f1));
-  }
-
-  inline void ie_format(Opcode opcode, int f1, int f2) {
-    emit4bytes(getfield<uint32_t, 4, 0, 16>(opcode) |
-               getfield<uint32_t, 4, 24, 28>(f1) |
-               getfield<uint32_t, 4, 28, 32>(f2));
-  }
-  inline void mii_format(Opcode opcode, int f1, int f2, int f3) {
-    emit6bytes(
-        getfield<uint64_t, 6, 0, 8>(opcode) | getfield<uint64_t, 6, 8, 12>(f1) |
-        getfield<uint64_t, 6, 12, 24>(f2) | getfield<uint64_t, 6, 24, 48>(f3));
-  }
-
-  inline void ri_format(Opcode opcode, int f1, int f2) {
-    uint32_t op1 = opcode >> 4;
-    uint32_t op2 = opcode & 0xf;
-    emit4bytes(
-        getfield<uint32_t, 4, 0, 8>(op1) | getfield<uint32_t, 4, 8, 12>(f1) |
-        getfield<uint32_t, 4, 12, 16>(op2) | getfield<uint32_t, 4, 16, 32>(f2));
-  }
-
-  inline void rie_1_format(Opcode opcode, int f1, int f2, int f3, int f4) {
-    uint32_t op1 = opcode >> 8;
-    uint32_t op2 = opcode & 0xff;
-    emit6bytes(
-        getfield<uint64_t, 6, 0, 8>(op1) | getfield<uint64_t, 6, 8, 12>(f1) |
-        getfield<uint64_t, 6, 12, 16>(f2) | getfield<uint64_t, 6, 16, 32>(f3) |
-        getfield<uint64_t, 6, 32, 36>(f4) | getfield<uint64_t, 6, 40, 48>(op2));
-  }
-
-  inline void rie_2_format(Opcode opcode, int f1, int f2, int f3, int f4) {
-    uint32_t op1 = opcode >> 8;
-    uint32_t op2 = opcode & 0xff;
-    emit6bytes(
-        getfield<uint64_t, 6, 0, 8>(op1) | getfield<uint64_t, 6, 8, 12>(f1) |
-        getfield<uint64_t, 6, 12, 16>(f2) | getfield<uint64_t, 6, 16, 32>(f3) |
-        getfield<uint64_t, 6, 32, 40>(f4) | getfield<uint64_t, 6, 40, 48>(op2));
-  }
-
-  inline void rie_3_format(Opcode opcode, int f1, int f2, int f3, int f4,
-                           int f5) {
-    uint32_t op1 = opcode >> 8;
-    uint32_t op2 = opcode & 0xff;
-    emit6bytes(
-        getfield<uint64_t, 6, 0, 8>(op1) | getfield<uint64_t, 6, 8, 12>(f1) |
-        getfield<uint64_t, 6, 12, 16>(f2) | getfield<uint64_t, 6, 16, 24>(f3) |
-        getfield<uint64_t, 6, 24, 32>(f4) | getfield<uint64_t, 6, 32, 40>(f5) |
-        getfield<uint64_t, 6, 40, 48>(op2));
   }
 
 #define DECLARE_S390_RIL_AB_INSTRUCTIONS(name, op_name, op_value) \
@@ -655,17 +629,6 @@ class Assembler : public AssemblerBase {
   S390_RIL_C_OPCODE_LIST(DECLARE_S390_RIL_C_INSTRUCTIONS)
 #undef DECLARE_S390_RIL_AB_INSTRUCTIONS
 #undef DECLARE_S390_RIL_C_INSTRUCTIONS
-
-  inline void ris_format(Opcode opcode, int f1, int f2, int f3, int f4,
-                         int f5) {
-    uint32_t op1 = opcode >> 8;
-    uint32_t op2 = opcode & 0xff;
-    emit6bytes(
-        getfield<uint64_t, 6, 0, 8>(op1) | getfield<uint64_t, 6, 8, 12>(f1) |
-        getfield<uint64_t, 6, 12, 16>(f2) | getfield<uint64_t, 6, 16, 20>(f3) |
-        getfield<uint64_t, 6, 20, 32>(f4) | getfield<uint64_t, 6, 32, 40>(f5) |
-        getfield<uint64_t, 6, 40, 48>(op2));
-  }
 
 #define DECLARE_S390_RR_INSTRUCTIONS(name, op_name, op_value) \
   inline void name(Register r1, Register r2) {                \
@@ -715,22 +678,16 @@ class Assembler : public AssemblerBase {
   void lzdr(DoubleRegister r1) { rre_format(LZDR, r1.code(), 0); }
 #undef DECLARE_S390_RRE_INSTRUCTIONS
 
-  inline void rrf_format(Opcode opcode, int f1, int f2, int f3, int f4) {
-    emit4bytes(
-        getfield<uint32_t, 4, 0, 16>(opcode) |
-        getfield<uint32_t, 4, 16, 20>(f1) | getfield<uint32_t, 4, 20, 24>(f2) |
-        getfield<uint32_t, 4, 24, 28>(f3) | getfield<uint32_t, 4, 28, 32>(f4));
-  }
-
-#define DECLARE_S390_RX_INSTRUCTIONS(name, op_name, op_value)        \
-  template <class R1>                                                \
-  inline void name(R1 r1, Register x2, Register b2, Disp d2) {       \
-    rx_format(op_name, r1.code(), x2.code(), b2.code(), d2);         \
-  }                                                                  \
-  template <class R1>                                                \
-  inline void name(R1 r1, const MemOperand& opnd) {                  \
-    name(r1, opnd.getIndexRegister(),                                \
-         opnd.getBaseRegister(), opnd.getDisplacement());            \
+#define DECLARE_S390_RX_INSTRUCTIONS(name, op_name, op_value)            \
+  template <class R1>                                                    \
+  inline void name(R1 r1, Register x2, Register b2, const Operand& d2) { \
+    rx_format(op_name, r1.code(), x2.code(), b2.code(),                  \
+              d2.immediate());                                           \
+  }                                                                      \
+  template <class R1>                                                    \
+  inline void name(R1 r1, const MemOperand& opnd) {                      \
+    name(r1, opnd.getIndexRegister(), opnd.getBaseRegister(),            \
+         Operand(opnd.getDisplacement()));                               \
   }
 
   inline void rx_format(Opcode opcode, int f1, int f2, int f3, int f4) {
@@ -746,22 +703,22 @@ class Assembler : public AssemblerBase {
 
   void bc(Condition cond, const MemOperand& opnd) {
     bc(cond, opnd.getIndexRegister(),
-       opnd.getBaseRegister(), opnd.getDisplacement());
+       opnd.getBaseRegister(), Operand(opnd.getDisplacement()));
   }
-  void bc(Condition cond, Register x2, Register b2, Disp d2) {
-    rx_format(BC, cond, x2.code(), b2.code(), d2);
+  void bc(Condition cond, Register x2, Register b2, const Operand& d2) {
+    rx_format(BC, cond, x2.code(), b2.code(), d2.immediate());
   }
 #undef DECLARE_S390_RX_INSTRUCTIONS
 
-#define DECLARE_S390_RXY_INSTRUCTIONS(name, op_name, op_value)       \
-  template <class R1, class R2>                                      \
-  inline void name(R1 r1, R2 r2, Register b2, Disp d2) {             \
-    rxy_format(op_name, r1.code(), r2.code(), b2.code(), d2);        \
-  }                                                                  \
-  template <class R1>                                                \
-  inline void name(R1 r1, const MemOperand& opnd) {                  \
-    name(r1, opnd.getIndexRegister(),                                \
-         opnd.getBaseRegister(), opnd.getDisplacement());            \
+#define DECLARE_S390_RXY_INSTRUCTIONS(name, op_name, op_value)            \
+  template <class R1, class R2>                                           \
+  inline void name(R1 r1, R2 r2, Register b2, const Operand& d2) {        \
+    rxy_format(op_name, r1.code(), r2.code(), b2.code(), d2.immediate()); \
+  }                                                                       \
+  template <class R1>                                                     \
+  inline void name(R1 r1, const MemOperand& opnd) {                       \
+    name(r1, opnd.getIndexRegister(), opnd.getBaseRegister(),             \
+         Operand(opnd.getDisplacement()));                                \
   }
 
   inline void rxy_format(Opcode opcode, int f1, int f2, int f3, int f4) {
@@ -779,12 +736,540 @@ class Assembler : public AssemblerBase {
 
   void pfd(Condition cond, const MemOperand& opnd) {
     pfd(cond, opnd.getIndexRegister(),
-        opnd.getBaseRegister(), opnd.getDisplacement());
+        opnd.getBaseRegister(), Operand(opnd.getDisplacement()));
   }
-  void pfd(Condition cond, Register x2, Register b2, Disp d2) {
-    rxy_format(PFD, cond, x2.code(), b2.code(), d2);
+  void pfd(Condition cond, Register x2, Register b2, const Operand& d2) {
+    rxy_format(PFD, cond, x2.code(), b2.code(), d2.immediate());
   }
 #undef DECLARE_S390_RXY_INSTRUCTIONS
+
+
+inline void rsy_format(Opcode op, int f1, int f2, int f3, int f4) {
+  DCHECK(is_int20(f4));
+  DCHECK(is_uint16(op));
+  uint64_t code = (getfield<uint64_t, 6, 0, 8>(op >> 8) |
+                   getfield<uint64_t, 6, 8, 12>(f1) |
+                   getfield<uint64_t, 6, 12, 16>(f2) |
+                   getfield<uint64_t, 6, 16, 20>(f3) |
+                   getfield<uint64_t, 6, 20, 32>(f4 & 0x0fff) |
+                   getfield<uint64_t, 6, 32, 40>(f4 >> 12) |
+                   getfield<uint64_t, 6, 40, 48>(op & 0xff));
+  emit6bytes(code);
+}
+
+#define DECLARE_S390_RSY_A_INSTRUCTIONS(name, op_name, op_value)           \
+  void name(Register r1, Register r3, Register b2,                         \
+            const Operand& d2 = Operand::Zero()) {                         \
+    rsy_format(op_name, r1.code(), r3.code(), b2.code(), d2.immediate());  \
+  }                                                                        \
+  void name(Register r1, Register r3, Operand d2) {                        \
+    name(r1, r3, r0, d2);                                                  \
+  }                                                                        \
+  void name(Register r1, Register r3, const MemOperand& opnd) {            \
+    name(r1, r3, opnd.getBaseRegister(), Operand(opnd.getDisplacement())); \
+  }
+  S390_RSY_A_OPCODE_LIST(DECLARE_S390_RSY_A_INSTRUCTIONS);
+#undef DECLARE_S390_RSY_A_INSTRUCTIONS
+
+#define DECLARE_S390_RSY_B_INSTRUCTIONS(name, op_name, op_value)            \
+  void name(Register r1, Condition m3, Register b2, const Operand& d2) {    \
+    rsy_format(op_name, r1.code(), m3, b2.code(), d2.immediate());          \
+  }                                                                         \
+  void name(Register r1, Condition m3, const MemOperand& opnd) {            \
+    name(r1, m3, opnd.getBaseRegister(), Operand(opnd.getDisplacement()));  \
+  }
+  S390_RSY_B_OPCODE_LIST(DECLARE_S390_RSY_B_INSTRUCTIONS);
+#undef DECLARE_S390_RSY_B_INSTRUCTIONS
+
+
+inline void rs_format(Opcode op, int f1, int f2, int f3, const int f4) {
+  uint32_t code = getfield<uint32_t, 4, 0, 8>(op) |
+                  getfield<uint32_t, 4, 8, 12>(f1) |
+                  getfield<uint32_t, 4, 12, 16>(f2) |
+                  getfield<uint32_t, 4, 16, 20>(f3) |
+                  getfield<uint32_t, 4, 20, 32>(f4);
+  emit4bytes(code);
+}
+
+#define DECLARE_S390_RS_A_INSTRUCTIONS(name, op_name, op_value)             \
+  void name(Register r1, Register r3, Register b2, const Operand& d2) {     \
+    rs_format(op_name, r1.code(), r3.code(), b2.code(), d2.immediate());    \
+  }                                                                         \
+  void name(Register r1, Register r3, const MemOperand& opnd) {             \
+    name(r1, r3, opnd.getBaseRegister(), Operand(opnd.getDisplacement()));  \
+  }
+  S390_RS_A_OPCODE_LIST(DECLARE_S390_RS_A_INSTRUCTIONS);
+#undef DECLARE_S390_RS_A_INSTRUCTIONS
+
+#define DECLARE_S390_RS_B_INSTRUCTIONS(name, op_name, op_value)             \
+  void name(Register r1, Condition m3, Register b2, const Operand& d2) {    \
+    rs_format(op_name, r1.code(), m3, b2.code(), d2.immediate());           \
+  }                                                                         \
+  void name(Register r1, Condition m3, const MemOperand& opnd) {            \
+    name(r1, m3, opnd.getBaseRegister(), Operand(opnd.getDisplacement()));  \
+  }
+  S390_RS_B_OPCODE_LIST(DECLARE_S390_RS_B_INSTRUCTIONS);
+#undef DECLARE_S390_RS_B_INSTRUCTIONS
+
+#define DECLARE_S390_RS_SHIFT_FORMAT(name, opcode)                          \
+  void name(Register r1, Register r2, const Operand& opnd =                 \
+            Operand::Zero()) {                                              \
+    DCHECK(r2 != r0);                                                       \
+    rs_format(opcode, r1.code(), r0.code(), r2.code(), opnd.immediate());   \
+  }                                                                         \
+  void name(Register r1, const Operand& opnd) {                             \
+    rs_format(opcode, r1.code(), r0.code(), r0.code(), opnd.immediate());   \
+  }
+  DECLARE_S390_RS_SHIFT_FORMAT(sll, SLL)
+  DECLARE_S390_RS_SHIFT_FORMAT(srl, SRL)
+  DECLARE_S390_RS_SHIFT_FORMAT(sla, SLA)
+  DECLARE_S390_RS_SHIFT_FORMAT(sra, SRA)
+  DECLARE_S390_RS_SHIFT_FORMAT(sldl, SLDL)
+  DECLARE_S390_RS_SHIFT_FORMAT(srda, SRDA)
+  DECLARE_S390_RS_SHIFT_FORMAT(srdl, SRDL)
+#undef DECLARE_S390_RS_SHIFT_FORMAT
+
+
+inline void rxe_format(Opcode op, int f1, int f2, int f3, int f4, int f5 = 0) {
+  DCHECK(is_uint12(f4));
+  DCHECK(is_uint16(op));
+  uint64_t code = (getfield<uint64_t, 6, 0, 8>(op >> 8) |
+                   getfield<uint64_t, 6, 8, 12>(f1) |
+                   getfield<uint64_t, 6, 12, 16>(f2) |
+                   getfield<uint64_t, 6, 16, 20>(f3) |
+                   getfield<uint64_t, 6, 20, 32>(f4 & 0x0fff) |
+                   getfield<uint64_t, 6, 32, 36>(f5) |
+                   getfield<uint64_t, 6, 40, 48>(op & 0xff));
+  emit6bytes(code);
+}
+
+#define DECLARE_S390_RXE_INSTRUCTIONS(name, op_name, op_value)             \
+  void name(Register r1, Register x2, Register b2, const Operand& d2,      \
+            Condition m3 = static_cast<Condition>(0)) {                    \
+    rxe_format(op_name, r1.code(), x2.code(), b2.code(), d2.immediate(),   \
+               m3);                                                        \
+  }                                                                        \
+  template<class _R1Type>                                                  \
+  void name(_R1Type r1, const MemOperand& opnd) {                          \
+    name(Register::from_code(r1.code()), opnd.rx(), opnd.rb(),             \
+         Operand(opnd.offset()));                                          \
+  }
+  S390_RXE_OPCODE_LIST(DECLARE_S390_RXE_INSTRUCTIONS);
+#undef DECLARE_S390_RXE_INSTRUCTIONS
+
+
+inline void ri_format(Opcode opcode, int f1, int f2) {
+  uint32_t op1 = opcode >> 4;
+  uint32_t op2 = opcode & 0xf;
+  emit4bytes(getfield<uint32_t, 4, 0, 8>(op1) |
+             getfield<uint32_t, 4, 8, 12>(f1) |
+             getfield<uint32_t, 4, 12, 16>(op2) |
+             getfield<uint32_t, 4, 16, 32>(f2));
+}
+
+#define DECLARE_S390_RI_A_INSTRUCTIONS(name, op_name, op_value)            \
+  void name(Register r, const Operand& i2) {                               \
+    DCHECK(is_uint12(op_name));                                            \
+    DCHECK(is_uint16(i2.immediate()) || is_int16(i2.immediate()));         \
+    ri_format(op_name, r.code(), i2.immediate());                          \
+  }
+  S390_RI_A_OPCODE_LIST(DECLARE_S390_RI_A_INSTRUCTIONS);
+#undef DECLARE_S390_RI_A_INSTRUCTIONS
+
+#define DECLARE_S390_RI_B_INSTRUCTIONS(name, op_name, op_value)            \
+  void name(Register r1, const Operand& imm) {                             \
+    /* 2nd argument encodes # of halfwords, so divide by 2. */             \
+    int16_t numHalfwords = static_cast<int16_t>(imm.immediate()) / 2;      \
+    Operand halfwordOp = Operand(numHalfwords);                            \
+    halfwordOp.setBits(16);                                                \
+    ri_format(op_name, r1.code(), halfwordOp.immediate());                 \
+  }
+  S390_RI_B_OPCODE_LIST(DECLARE_S390_RI_B_INSTRUCTIONS);
+#undef DECLARE_S390_RI_B_INSTRUCTIONS
+
+#define DECLARE_S390_RI_C_INSTRUCTIONS(name, op_name, op_value)            \
+  void name(Condition m, const Operand& i2) {                              \
+    DCHECK(is_uint12(op_name));                                            \
+    DCHECK(is_uint4(m));                                                   \
+    DCHECK(op_name == BRC ?                                                \
+           is_int16(i2.immediate()) : is_uint16(i2.immediate()));          \
+    ri_format(op_name, m, i2.immediate());                                 \
+  }
+  S390_RI_C_OPCODE_LIST(DECLARE_S390_RI_C_INSTRUCTIONS);
+#undef DECLARE_S390_RI_C_INSTRUCTIONS
+
+
+inline void rrf_format(Opcode op, int f1, int f2, int f3, int f4) {
+  uint32_t code = getfield<uint32_t, 4, 0, 16>(op) |
+                  getfield<uint32_t, 4, 16, 20>(f1) |
+                  getfield<uint32_t, 4, 20, 24>(f2) |
+                  getfield<uint32_t, 4, 24, 28>(f3) |
+                  getfield<uint32_t, 4, 28, 32>(f4);
+  emit4bytes(code);
+}
+
+#define DECLARE_S390_RRF_A_INSTRUCTIONS(name, op_name, op_value)           \
+  void name(Register r1, Condition m4, Register r2, Register r3) {         \
+    rrf_format(op_name, r3.code(), m4, r1.code(), r2.code());              \
+  }                                                                        \
+  void name(Register r1, Register r2, Register r3) {                       \
+    name(r1, Condition(0), r2, r3);                                        \
+  }
+  S390_RRF_A_OPCODE_LIST(DECLARE_S390_RRF_A_INSTRUCTIONS);
+#undef DECLARE_S390_RRF_A_INSTRUCTIONS
+
+
+#define DECLARE_S390_RRF_B_INSTRUCTIONS(name, op_name, op_value)           \
+  void name(Register r1, Condition m4, Register r2, Register r3) {         \
+    rrf_format(op_name, r3.code(), m4, r1.code(), r2.code());              \
+  }                                                                        \
+  void name(Register r1, Register r2, Register r3) {                       \
+    name(r1, Condition(0), r2, r3);                                        \
+  }
+  S390_RRF_B_OPCODE_LIST(DECLARE_S390_RRF_B_INSTRUCTIONS);
+#undef DECLARE_S390_RRF_B_INSTRUCTIONS
+
+
+#define DECLARE_S390_RRF_C_INSTRUCTIONS(name, op_name, op_value)           \
+  template <class R1, class R2>                                            \
+  void name(Condition m3, Condition m4, R1 r1, R2 r2) {                    \
+    rrf_format(op_name, m3, m4, r1.code(), r2.code());                     \
+  }                                                                        \
+  template <class R1, class R2>                                            \
+  void name(Condition m3, R1 r1, R2 r2) {                                  \
+    name(m3, Condition(0), r1, r2);                                        \
+  }
+  S390_RRF_C_OPCODE_LIST(DECLARE_S390_RRF_C_INSTRUCTIONS);
+#undef DECLARE_S390_RRF_C_INSTRUCTIONS
+
+
+#define DECLARE_S390_RRF_D_INSTRUCTIONS(name, op_name, op_value)           \
+  template <class R1, class R2>                                            \
+  void name(Condition m3, Condition m4, R1 r1, R2 r2) {                    \
+    rrf_format(op_name, m3, m4, r1.code(), r2.code());                     \
+  }                                                                        \
+  template <class R1, class R2>                                            \
+  void name(Condition m3, R1 r1, R2 r2) {                                  \
+    name(m3, Condition(0), r1, r2);                                        \
+  }
+  S390_RRF_D_OPCODE_LIST(DECLARE_S390_RRF_D_INSTRUCTIONS);
+#undef DECLARE_S390_RRF_D_INSTRUCTIONS
+
+
+#define DECLARE_S390_RRF_E_INSTRUCTIONS(name, op_name, op_value)           \
+  template <class M3, class M4, class R1, class R2>                        \
+  void name(M3 m3, M4 m4, R1 r1, R2 r2) {                                  \
+    rrf_format(op_name, m3, m4, r1.code(), r2.code());                     \
+  }                                                                        \
+  template <class M3, class R1, class R2>                                  \
+  void name(M3 m3, R1 r1, R2 r2) {                                         \
+    name(m3, Condition(0), r1, r2);                                        \
+  }
+  S390_RRF_E_OPCODE_LIST(DECLARE_S390_RRF_E_INSTRUCTIONS);
+#undef DECLARE_S390_RRF_E_INSTRUCTIONS
+
+enum FIDBRA_FLAGS {
+  FIDBRA_CURRENT_ROUNDING_MODE = 0,
+  FIDBRA_ROUND_TO_NEAREST_AWAY_FROM_0 = 1,
+  // ...
+  FIDBRA_ROUND_TOWARD_0 = 5,
+  FIDBRA_ROUND_TOWARD_POS_INF = 6,
+  FIDBRA_ROUND_TOWARD_NEG_INF = 7
+};
+
+
+inline void rsi_format(Opcode op, int f1, int f2, int f3) {
+  DCHECK(is_uint8(op));
+  DCHECK(is_uint16(f3) || is_int16(f3));
+  uint32_t code = getfield<uint32_t, 4, 0, 8>(op) |
+                  getfield<uint32_t, 4, 8, 12>(f1) |
+                  getfield<uint32_t, 4, 12, 16>(f2) |
+                  getfield<uint32_t, 4, 16, 32>(f3);
+  emit4bytes(code);
+}
+
+#define DECLARE_S390_RSI_INSTRUCTIONS(name, op_name, op_value)           \
+  void name(Register r1, Register r3, const Operand& i2) {               \
+    rsi_format(op_name, r1.code(), r3.code(), i2.immediate());           \
+  }
+  S390_RSI_OPCODE_LIST(DECLARE_S390_RSI_INSTRUCTIONS);
+#undef DECLARE_S390_RSI_INSTRUCTIONS
+
+
+inline void rsl_format(Opcode op, uint16_t f1, int f2, int f3, int f4,
+                       int f5) {
+  DCHECK(is_uint16(op));
+  uint64_t code = getfield<uint64_t, 6, 0, 8>(op >> 8) |
+                  getfield<uint64_t, 6, 8, 16>(f1) |
+                  getfield<uint64_t, 6, 16, 20>(f2) |
+                  getfield<uint64_t, 6, 20, 32>(f3) |
+                  getfield<uint64_t, 6, 32, 36>(f4) |
+                  getfield<uint64_t, 6, 36, 40>(f5) |
+                  getfield<uint64_t, 6, 40, 48>(op & 0x00FF);
+  emit6bytes(code);
+}
+
+#define DECLARE_S390_RSL_A_INSTRUCTIONS(name, op_name, op_value)         \
+  void name(const Operand& l1, Register b1, const Operand& d1) {         \
+    uint16_t L = static_cast<uint16_t>(l1.immediate() << 8);             \
+    rsl_format(op_name, L, b1.code(), d1.immediate(), 0, 0);             \
+  }
+  S390_RSL_A_OPCODE_LIST(DECLARE_S390_RSL_A_INSTRUCTIONS);
+#undef DECLARE_S390_RSL_A_INSTRUCTIONS
+
+#define DECLARE_S390_RSL_B_INSTRUCTIONS(name, op_name, op_value)         \
+  void name(const Operand& l2, Register b2, const Operand& d2,           \
+            Register r1, Condition m3) {                                 \
+    uint16_t L = static_cast<uint16_t>(l2.immediate());                  \
+    rsl_format(op_name, L, b2.code(), d2.immediate(), r1.code(), m3);    \
+  }
+  S390_RSL_B_OPCODE_LIST(DECLARE_S390_RSL_B_INSTRUCTIONS);
+#undef DECLARE_S390_RSL_B_INSTRUCTIONS
+
+
+inline void s_format(Opcode op, int f1, int f2) {
+  DCHECK_NE(op & 0xff00, 0);
+  DCHECK(is_uint12(f2));
+  uint32_t code = getfield<uint32_t, 4, 0, 16>(op) |
+                  getfield<uint32_t, 4, 16, 20>(f1) |
+                  getfield<uint32_t, 4, 20, 32>(f2);
+  emit4bytes(code);
+}
+
+#define DECLARE_S390_S_INSTRUCTIONS(name, op_name, op_value)             \
+  void name(Register b1, const Operand& d2) {                            \
+    Opcode op = op_name;                                                 \
+    if ((op & 0xFF00) == 0) {                                            \
+      op = (Opcode)(op << 8);                                            \
+    }                                                                    \
+    s_format(op, b1.code(), d2.immediate());                             \
+  }                                                                      \
+  void name(const MemOperand& opnd) {                                    \
+    Operand d2 = Operand(opnd.getDisplacement());                        \
+    name(opnd.getBaseRegister(), d2);                                    \
+  }
+  S390_S_OPCODE_LIST(DECLARE_S390_S_INSTRUCTIONS);
+#undef DECLARE_S390_S_INSTRUCTIONS
+
+
+inline void si_format(Opcode op, int f1, int f2, int f3) {
+  uint32_t code = getfield<uint32_t, 4, 0, 8>(op) |
+                  getfield<uint32_t, 4, 8, 16>(f1) |
+                  getfield<uint32_t, 4, 16, 20>(f2) |
+                  getfield<uint32_t, 4, 20, 32>(f3);
+  emit4bytes(code);
+}
+
+#define DECLARE_S390_SI_INSTRUCTIONS(name, op_name, op_value)            \
+  void name(const Operand& i2, Register b1, const Operand& d1) {         \
+    si_format(op_name, i2.immediate(), b1.code(), d1.immediate());       \
+  }                                                                      \
+  void name(const MemOperand& opnd, const Operand& i2) {                 \
+    name(i2, opnd.getBaseRegister(), Operand(opnd.getDisplacement()));   \
+  }
+  S390_SI_OPCODE_LIST(DECLARE_S390_SI_INSTRUCTIONS);
+#undef DECLARE_S390_SI_INSTRUCTIONS
+
+
+inline void siy_format(Opcode op, int f1, int f2, int f3) {
+  DCHECK(is_uint20(f3) || is_int20(f3));
+  DCHECK(is_uint16(op));
+  DCHECK(is_uint8(f1) || is_int8(f1));
+  uint64_t code = getfield<uint64_t, 6, 0, 8>(op >> 8) |
+                  getfield<uint64_t, 6, 8, 16>(f1) |
+                  getfield<uint64_t, 6, 16, 20>(f2) |
+                  getfield<uint64_t, 6, 20, 32>(f3) |
+                  getfield<uint64_t, 6, 32, 40>(f3 >> 12) |
+                  getfield<uint64_t, 6, 40, 48>(op & 0x00FF);
+  emit6bytes(code);
+}
+
+#define DECLARE_S390_SIY_INSTRUCTIONS(name, op_name, op_value)           \
+  void name(const Operand& i2, Register b1, const Operand& d1) {         \
+    siy_format(op_name, i2.immediate(), b1.code(), d1.immediate());      \
+  }                                                                      \
+  void name(const MemOperand& opnd, const Operand& i2) {                 \
+    name(i2, opnd.getBaseRegister(), Operand(opnd.getDisplacement()));   \
+  }
+  S390_SIY_OPCODE_LIST(DECLARE_S390_SIY_INSTRUCTIONS);
+#undef DECLARE_S390_SIY_INSTRUCTIONS
+
+
+inline void rrs_format(Opcode op, int f1, int f2, int f3, int f4, int f5) {
+  DCHECK(is_uint12(f4));
+  DCHECK(is_uint16(op));
+  uint64_t code = getfield<uint64_t, 6, 0, 8>(op >> 8) |
+                  getfield<uint64_t, 6, 8, 12>(f1) |
+                  getfield<uint64_t, 6, 12, 16>(f2) |
+                  getfield<uint64_t, 6, 16, 20>(f3) |
+                  getfield<uint64_t, 6, 20, 32>(f4) |
+                  getfield<uint64_t, 6, 32, 36>(f5) |
+                  getfield<uint64_t, 6, 40, 48>(op & 0x00FF);
+  emit6bytes(code);
+}
+
+#define DECLARE_S390_RRS_INSTRUCTIONS(name, op_name, op_value)           \
+  void name(Register r1, Register r2, Register b4, const Operand& d4,    \
+            Condition m3) {                                              \
+    rrs_format(op_name, r1.code(), r2.code(), b4.code(), d4.immediate(), \
+               m3);                                                      \
+  }                                                                      \
+  void name(Register r1, Register r2, Condition m3,                      \
+            const MemOperand& opnd) {                                    \
+    name(r1, r2, opnd.getBaseRegister(),                                 \
+         Operand(opnd.getDisplacement()), m3);                           \
+  }
+  S390_RRS_OPCODE_LIST(DECLARE_S390_RRS_INSTRUCTIONS);
+#undef DECLARE_S390_RRS_INSTRUCTIONS
+
+
+inline void ris_format(Opcode op, int f1, int f2, int f3, int f4, int f5) {
+  DCHECK(is_uint12(f3));
+  DCHECK(is_uint16(op));
+  DCHECK(is_uint8(f5));
+  uint64_t code = getfield<uint64_t, 6, 0, 8>(op >> 8) |
+                  getfield<uint64_t, 6, 8, 12>(f1) |
+                  getfield<uint64_t, 6, 12, 16>(f2) |
+                  getfield<uint64_t, 6, 16, 20>(f3) |
+                  getfield<uint64_t, 6, 20, 32>(f4) |
+                  getfield<uint64_t, 6, 32, 40>(f5) |
+                  getfield<uint64_t, 6, 40, 48>(op & 0x00FF);
+  emit6bytes(code);
+}
+
+#define DECLARE_S390_RIS_INSTRUCTIONS(name, op_name, op_value)           \
+  void name(Register r1, Condition m3, Register b4, const Operand& d4,   \
+                       const Operand& i2) {                              \
+    ris_format(op_name, r1.code(), m3, b4.code(), d4.immediate(),        \
+               i2.immediate());                                          \
+  }                                                                      \
+  void name(Register r1, const Operand& i2, Condition m3,                \
+                       const MemOperand& opnd) {                         \
+    name(r1, m3, opnd.getBaseRegister(),                                 \
+         Operand(opnd.getDisplacement()), i2);                           \
+  }
+  S390_RIS_OPCODE_LIST(DECLARE_S390_RIS_INSTRUCTIONS);
+#undef DECLARE_S390_RIS_INSTRUCTIONS
+
+
+inline void sil_format(Opcode op, int f1, int f2, int f3) {
+  DCHECK(is_uint12(f2));
+  DCHECK(is_uint16(op));
+  DCHECK(is_uint16(f3));
+  uint64_t code = getfield<uint64_t, 6, 0, 16>(op) |
+                  getfield<uint64_t, 6, 16, 20>(f1) |
+                  getfield<uint64_t, 6, 20, 32>(f2) |
+                  getfield<uint64_t, 6, 32, 48>(f3);
+  emit6bytes(code);
+}
+
+#define DECLARE_S390_SIL_INSTRUCTIONS(name, op_name, op_value)           \
+  void name(Register b1, const Operand& d1, const Operand& i2) {         \
+    sil_format(op_name, b1.code(), d1.immediate(), i2.immediate());      \
+  }                                                                      \
+  void name(const MemOperand& opnd, const Operand& i2) {                 \
+    name(opnd.getBaseRegister(), Operand(opnd.getDisplacement()), i2);   \
+  }
+  S390_SIL_OPCODE_LIST(DECLARE_S390_SIL_INSTRUCTIONS);
+#undef DECLARE_S390_SIL_INSTRUCTIONS
+
+
+inline void rie_d_format(Opcode opcode, int f1, int f2, int f3, int f4) {
+  uint32_t op1 = opcode >> 8;
+  uint32_t op2 = opcode & 0xff;
+  uint64_t code = getfield<uint64_t, 6, 0, 8>(op1) |
+                  getfield<uint64_t, 6, 8, 12>(f1) |
+                  getfield<uint64_t, 6, 12, 16>(f2) |
+                  getfield<uint64_t, 6, 16, 32>(f3) |
+                  getfield<uint64_t, 6, 32, 40>(f4) |
+                  getfield<uint64_t, 6, 40, 48>(op2);
+  emit6bytes(code);
+}
+
+#define DECLARE_S390_RIE_D_INSTRUCTIONS(name, op_name, op_value)         \
+  void name(Register r1, Register r3, const Operand& i2) {               \
+    rie_d_format(op_name, r1.code(), r3.code(), i2.immediate(), 0);      \
+  }
+  S390_RIE_D_OPCODE_LIST(DECLARE_S390_RIE_D_INSTRUCTIONS)
+#undef DECLARE_S390_RIE_D_INSTRUCTIONS
+
+
+inline void rie_e_format(Opcode opcode, int f1, int f2, int f3) {
+  uint32_t op1 = opcode >> 8;
+  uint32_t op2 = opcode & 0xff;
+  uint64_t code = getfield<uint64_t, 6, 0, 8>(op1) |
+                  getfield<uint64_t, 6, 8, 12>(f1) |
+                  getfield<uint64_t, 6, 12, 16>(f2) |
+                  getfield<uint64_t, 6, 16, 32>(f3) |
+                  getfield<uint64_t, 6, 40, 48>(op2);
+  emit6bytes(code);
+}
+
+#define DECLARE_S390_RIE_E_INSTRUCTIONS(name, op_name, op_value)         \
+  void name(Register r1, Register r3, const Operand& i2) {               \
+    rie_e_format(op_name, r1.code(), r3.code(), i2.immediate());         \
+  }
+  S390_RIE_E_OPCODE_LIST(DECLARE_S390_RIE_E_INSTRUCTIONS)
+#undef DECLARE_S390_RIE_E_INSTRUCTIONS
+
+
+inline void rie_f_format(Opcode opcode, int f1, int f2, int f3, int f4,
+                         int f5) {
+  uint32_t op1 = opcode >> 8;
+  uint32_t op2 = opcode & 0xff;
+  uint64_t code = getfield<uint64_t, 6, 0, 8>(op1) |
+                  getfield<uint64_t, 6, 8, 12>(f1) |
+                  getfield<uint64_t, 6, 12, 16>(f2) |
+                  getfield<uint64_t, 6, 16, 24>(f3) |
+                  getfield<uint64_t, 6, 24, 32>(f4) |
+                  getfield<uint64_t, 6, 32, 40>(f5) |
+                  getfield<uint64_t, 6, 40, 48>(op2);
+  emit6bytes(code);
+}
+
+#define DECLARE_S390_RIE_F_INSTRUCTIONS(name, op_name, op_value)         \
+  void name(Register dst, Register src, const Operand& startBit,         \
+            const Operand& endBit, const Operand& shiftAmt) {            \
+    DCHECK(is_uint8(startBit.immediate()));                              \
+    DCHECK(is_uint8(endBit.immediate()));                                \
+    DCHECK(is_uint8(shiftAmt.immediate()));                              \
+    rie_f_format(op_name, dst.code(), src.code(), startBit.immediate(),  \
+                 endBit.immediate(), shiftAmt.immediate());              \
+  }
+  S390_RIE_F_OPCODE_LIST(DECLARE_S390_RIE_F_INSTRUCTIONS)
+#undef DECLARE_S390_RIE_F_INSTRUCTIONS
+
+
+inline void ss_a_format(Opcode op, int f1, int f2, int f3, int f4, int f5) {
+  DCHECK(is_uint12(f5));
+  DCHECK(is_uint12(f3));
+  DCHECK(is_uint8(f1));
+  DCHECK(is_uint8(op));
+  uint64_t code = getfield<uint64_t, 6, 0, 8>(op) |
+                  getfield<uint64_t, 6, 8, 16>(f1) |
+                  getfield<uint64_t, 6, 16, 20>(f2) |
+                  getfield<uint64_t, 6, 20, 32>(f3) |
+                  getfield<uint64_t, 6, 32, 36>(f4) |
+                  getfield<uint64_t, 6, 36, 48>(f5);
+  emit6bytes(code);
+}
+
+#define DECLARE_S390_SS_A_INSTRUCTIONS(name, op_name, op_value)          \
+  void name(Register b1, const Operand& d1, Register b2,                 \
+            const Operand& d2, const Operand& length) {                  \
+    ss_a_format(op_name, length.immediate(), b1.code(), d1.immediate(),  \
+                b2.code(), d2.immediate());                              \
+  }                                                                      \
+  void name(const MemOperand& opnd1, const MemOperand& opnd2,            \
+            const Operand& length) {                                     \
+    ss_a_format(op_name, length.immediate(),                             \
+                opnd1.getBaseRegister().code(),                          \
+                opnd1.getDisplacement(), opnd2.getBaseRegister().code(), \
+                opnd2.getDisplacement());                                \
+  }
+  S390_SS_A_OPCODE_LIST(DECLARE_S390_SS_A_INSTRUCTIONS)
+#undef DECLARE_S390_SS_A_INSTRUCTIONS
+
 
   // Helper for unconditional branch to Label with update to save register
   void b(Register r, Label* l) {
@@ -833,6 +1318,59 @@ class Assembler : public AssemblerBase {
   void bunordered(Register r) { b(unordered, r); }
   void bordered(Register r) { b(ordered, r); }
 
+  // wrappers around asm instr
+  void brxh(Register dst, Register inc, Label* L) {
+    int offset_halfwords = branch_offset(L) / 2;
+    CHECK(is_int16(offset_halfwords));
+    brxh(dst, inc, Operand(offset_halfwords));
+  }
+
+  void brxhg(Register dst, Register inc, Label* L) {
+    int offset_halfwords = branch_offset(L) / 2;
+    CHECK(is_int16(offset_halfwords));
+    brxhg(dst, inc, Operand(offset_halfwords));
+  }
+
+  template <class R1, class R2>
+  void ledbr(R1 r1, R2 r2) {
+    ledbra(Condition(0), Condition(0), r1, r2);
+  }
+
+  template <class R1, class R2>
+  void cdfbr(R1 r1, R2 r2) {
+    cdfbra(Condition(0), Condition(0), r1, r2);
+  }
+
+  template <class R1, class R2>
+  void cdgbr(R1 r1, R2 r2) {
+    cdgbra(Condition(0), Condition(0), r1, r2);
+  }
+
+  template <class R1, class R2>
+  void cegbr(R1 r1, R2 r2) {
+    cegbra(Condition(0), Condition(0), r1, r2);
+  }
+
+  template <class R1, class R2>
+  void cgebr(Condition m3, R1 r1, R2 r2) {
+    cgebra(m3, Condition(0), r1, r2);
+  }
+
+  template <class R1, class R2>
+  void cgdbr(Condition m3, R1 r1, R2 r2) {
+    cgdbra(m3, Condition(0), r1, r2);
+  }
+
+  template <class R1, class R2>
+  void cfdbr(Condition m3, R1 r1, R2 r2) {
+    cfdbra(m3, Condition(0), r1, r2);
+  }
+
+  template <class R1, class R2>
+  void cfebr(Condition m3, R1 r1, R2 r2) {
+    cfebra(m3, Condition(0), r1, r2);
+  }
+
   // ---------------------------------------------------------------------------
   // Code generation
 
@@ -868,121 +1406,6 @@ class Assembler : public AssemblerBase {
   void jump(Handle<Code> target, RelocInfo::Mode rmode, Condition cond);
 
 // S390 instruction generation
-#define I_FORM(name) void name(const Operand& i)
-
-#define RR_FORM(name) void name(Register r1, Register r2)
-
-#define RR2_FORM(name) void name(Condition m1, Register r2)
-
-#define RI1_FORM(name) void name(Register r, const Operand& i)
-
-#define RI2_FORM(name) void name(Condition m, const Operand& i)
-
-#define RIE_FORM(name) void name(Register r1, Register R3, const Operand& i)
-
-#define RIE_F_FORM(name)                                                    \
-  void name(Register r1, Register r2, const Operand& i3, const Operand& i4, \
-            const Operand& i5)
-
-#define RXE_FORM(name)                            \
-  void name(Register r1, const MemOperand& opnd); \
-  void name(Register r1, Register b2, Register x2, Disp d2)
-
-#define RXF_FORM(name)                                         \
-  void name(Register r1, Register r3, const MemOperand& opnd); \
-  void name(Register r1, Register r3, Register b2, Register x2, Disp d2)
-
-#define RSI_FORM(name) void name(Register r1, Register r3, const Operand& i)
-
-#define RIS_FORM(name)                                       \
-  void name(Register r1, Condition m3, Register b4, Disp d4, \
-            const Operand& i2);                              \
-  void name(Register r1, const Operand& i2, Condition m3,    \
-            const MemOperand& opnd)
-
-#define SI_FORM(name)                                  \
-  void name(const MemOperand& opnd, const Operand& i); \
-  void name(const Operand& i2, Register b1, Disp d1)
-
-#define SIL_FORM(name)                                \
-  void name(Register b1, Disp d1, const Operand& i2); \
-  void name(const MemOperand& opnd, const Operand& i2)
-
-#define RRF1_FORM(name) void name(Register r1, Register r2, Register r3)
-
-#define RRF2_FORM(name) void name(Condition m1, Register r1, Register r2)
-
-#define RRF3_FORM(name) \
-  void name(Register r3, Condition m4, Register r1, Register r2)
-
-#define RS1_FORM(name)                                         \
-  void name(Register r1, Register r3, const MemOperand& opnd); \
-  void name(Register r1, Register r3, Register b2, Disp d2)
-
-#define RS2_FORM(name)                                          \
-  void name(Register r1, Condition m3, const MemOperand& opnd); \
-  void name(Register r1, Condition m3, Register b2, Disp d2)
-
-#define RSE_FORM(name)                                         \
-  void name(Register r1, Register r3, const MemOperand& opnd); \
-  void name(Register r1, Register r3, Register b2, Disp d2)
-
-#define RSL_FORM(name)                       \
-  void name(Length l, Register b2, Disp d2); \
-  void name(const MemOperand& opnd)
-
-#define RSY1_FORM(name)                                      \
-  void name(Register r1, Register r3, Register b2, Disp d2); \
-  void name(Register r1, Register r3, const MemOperand& opnd)
-
-#define RSY2_FORM(name)                                       \
-  void name(Register r1, Condition m3, Register b2, Disp d2); \
-  void name(Register r1, Condition m3, const MemOperand& opnd)
-
-#define RRS_FORM(name)                                                     \
-  void name(Register r1, Register r2, Register b4, Disp d4, Condition m3); \
-  void name(Register r1, Register r2, Condition m3, const MemOperand& opnd)
-
-#define S_FORM(name)               \
-  void name(Register b2, Disp d2); \
-  void name(const MemOperand& opnd)
-
-#define SIY_FORM(name)                                \
-  void name(const Operand& i2, Register b1, Disp d1); \
-  void name(const MemOperand& opnd, const Operand& i)
-
-#define SS1_FORM(name)                                                  \
-  void name(Register b1, Disp d1, Register b3, Disp d2, Length length); \
-  void name(const MemOperand& opnd1, const MemOperand& opnd2, Length length)
-
-#define SS2_FORM(name)                                                        \
-  void name(const MemOperand& opnd1, const MemOperand& opnd2, Length length1, \
-            Length length2);                                                  \
-  void name(Register b1, Disp d1, Register b2, Disp d2, Length l1, Length l2)
-
-#define SS3_FORM(name)                                                        \
-  void name(const MemOperand& opnd1, const MemOperand& opnd2, Length length); \
-  void name(const Operand& i3, Register b1, Disp d1, Register b2, Disp d2,    \
-            Length l1)
-
-#define SS4_FORM(name)                                                   \
-  void name(const MemOperand& opnd1, const MemOperand& opnd2);           \
-  void name(Register r1, Register r3, Register b1, Disp d1, Register b2, \
-            Disp d2)
-
-#define SS5_FORM(name)                                                   \
-  void name(const MemOperand& opnd1, const MemOperand& opnd2);           \
-  void name(Register r1, Register r3, Register b3, Disp d2, Register b4, \
-            Disp d4)
-
-#define SSE_FORM(name)                                   \
-  void name(Register b1, Disp d1, Register b2, Disp d2); \
-  void name(const MemOperand& opnd1, const MemOperand& opnd2)
-
-#define SSF_FORM(name)                                                \
-  void name(Register r3, Register b1, Disp d1, Register b2, Disp d2); \
-  void name(Register r3, const MemOperand& opnd1, const MemOperand& opnd2)
-
 #define DECLARE_VRR_A_INSTRUCTIONS(name, opcode_name, opcode_value)           \
   void name(DoubleRegister v1, DoubleRegister v2, Condition m5, Condition m4, \
             Condition m3) {                                                   \
@@ -1032,232 +1455,8 @@ class Assembler : public AssemblerBase {
         static_cast<Condition>(3));
   }
 
-  // S390 instruction sets
-  RXE_FORM(ddb);
-  SS1_FORM(ed);
-  RRF2_FORM(fidbr);
-  RI1_FORM(iihh);
-  RI1_FORM(iihl);
-  RI1_FORM(iilh);
-  RI1_FORM(iill);
-  RSY1_FORM(loc);
-  RXE_FORM(mdb);
-  SS4_FORM(mvck);
-  SSF_FORM(mvcos);
-  SS4_FORM(mvcs);
-  SS1_FORM(mvn);
-  SS1_FORM(nc);
-  SI_FORM(ni);
-  RI1_FORM(nilh);
-  RI1_FORM(nill);
-  RI1_FORM(oill);
-  RXE_FORM(sdb);
-  RS1_FORM(srdl);
-  RI1_FORM(tmll);
-  SS1_FORM(tr);
-  S_FORM(ts);
-
   // Load Address Instructions
   void larl(Register r, Label* l);
-
-  // Load Instructions
-  void lhi(Register r, const Operand& imm);
-  void lghi(Register r, const Operand& imm);
-
-  // Load Multiple Instructions
-  void lm(Register r1, Register r2, const MemOperand& src);
-  void lmy(Register r1, Register r2, const MemOperand& src);
-  void lmg(Register r1, Register r2, const MemOperand& src);
-
-  // Load On Condition Instructions
-  void locr(Condition m3, Register r1, Register r2);
-  void locgr(Condition m3, Register r1, Register r2);
-  void loc(Condition m3, Register r1, const MemOperand& src);
-  void locg(Condition m3, Register r1, const MemOperand& src);
-
-  // Store Instructions
-
-  // Store Multiple Instructions
-  void stm(Register r1, Register r2, const MemOperand& src);
-  void stmy(Register r1, Register r2, const MemOperand& src);
-  void stmg(Register r1, Register r2, const MemOperand& src);
-
-  // Compare Instructions
-  void chi(Register r, const Operand& opnd);
-  void cghi(Register r, const Operand& opnd);
-
-  // Compare Logical Instructions
-  void cli(const MemOperand& mem, const Operand& imm);
-  void cliy(const MemOperand& mem, const Operand& imm);
-  void clc(const MemOperand& opnd1, const MemOperand& opnd2, Length length);
-
-  // Compare and Swap Instructions
-  void cs(Register r1, Register r2, const MemOperand& src);
-  void csy(Register r1, Register r2, const MemOperand& src);
-  void csg(Register r1, Register r2, const MemOperand& src);
-
-  // Test Under Mask Instructions
-  void tm(const MemOperand& mem, const Operand& imm);
-  void tmy(const MemOperand& mem, const Operand& imm);
-
-  // Rotate Instructions
-  void rll(Register r1, Register r3, Register opnd);
-  void rll(Register r1, Register r3, const Operand& opnd);
-  void rll(Register r1, Register r3, Register r2, const Operand& opnd);
-  void rllg(Register r1, Register r3, const Operand& opnd);
-  void rllg(Register r1, Register r3, const Register opnd);
-  void rllg(Register r1, Register r3, Register r2, const Operand& opnd);
-
-  // Shift Instructions (32)
-  void sll(Register r1, Register opnd);
-  void sll(Register r1, const Operand& opnd);
-  void sllk(Register r1, Register r3, Register opnd);
-  void sllk(Register r1, Register r3, const Operand& opnd);
-  void srl(Register r1, Register opnd);
-  void srl(Register r1, const Operand& opnd);
-  void srlk(Register r1, Register r3, Register opnd);
-  void srlk(Register r1, Register r3, const Operand& opnd);
-  void sra(Register r1, Register opnd);
-  void sra(Register r1, const Operand& opnd);
-  void srak(Register r1, Register r3, Register opnd);
-  void srak(Register r1, Register r3, const Operand& opnd);
-  void sla(Register r1, Register opnd);
-  void sla(Register r1, const Operand& opnd);
-  void slak(Register r1, Register r3, Register opnd);
-  void slak(Register r1, Register r3, const Operand& opnd);
-
-  // Shift Instructions (64)
-  void sllg(Register r1, Register r3, const Operand& opnd);
-  void sllg(Register r1, Register r3, const Register opnd);
-  void srlg(Register r1, Register r3, const Operand& opnd);
-  void srlg(Register r1, Register r3, const Register opnd);
-  void srag(Register r1, Register r3, const Operand& opnd);
-  void srag(Register r1, Register r3, const Register opnd);
-  void srda(Register r1, const Operand& opnd);
-  void srdl(Register r1, const Operand& opnd);
-  void slag(Register r1, Register r3, const Operand& opnd);
-  void slag(Register r1, Register r3, const Register opnd);
-  void sldl(Register r1, Register b2, const Operand& opnd);
-  void srdl(Register r1, Register b2, const Operand& opnd);
-  void srda(Register r1, Register b2, const Operand& opnd);
-
-  // Rotate and Insert Selected Bits
-  void risbg(Register dst, Register src, const Operand& startBit,
-             const Operand& endBit, const Operand& shiftAmt,
-             bool zeroBits = true);
-  void risbgn(Register dst, Register src, const Operand& startBit,
-              const Operand& endBit, const Operand& shiftAmt,
-              bool zeroBits = true);
-
-  // Move Character (Mem to Mem)
-  void mvc(const MemOperand& opnd1, const MemOperand& opnd2, uint32_t length);
-
-  // Branch Instructions
-  void bras(Register r, const Operand& opnd);
-  void brc(Condition c, const Operand& opnd);
-  void brct(Register r1, const Operand& opnd);
-  void brctg(Register r1, const Operand& opnd);
-
-  // 32-bit Add Instructions
-  void ahi(Register r1, const Operand& opnd);
-  void ahik(Register r1, Register r3, const Operand& opnd);
-  void ark(Register r1, Register r2, Register r3);
-  void asi(const MemOperand&, const Operand&);
-
-  // 64-bit Add Instructions
-  void aghi(Register r1, const Operand& opnd);
-  void aghik(Register r1, Register r3, const Operand& opnd);
-  void agrk(Register r1, Register r2, Register r3);
-  void agsi(const MemOperand&, const Operand&);
-
-  // 32-bit Add Logical Instructions
-  void alrk(Register r1, Register r2, Register r3);
-
-  // 64-bit Add Logical Instructions
-  void algrk(Register r1, Register r2, Register r3);
-
-  // 32-bit Subtract Instructions
-  void srk(Register r1, Register r2, Register r3);
-
-  // 64-bit Subtract Instructions
-  void sgrk(Register r1, Register r2, Register r3);
-
-  // 32-bit Subtract Logical Instructions
-  void slrk(Register r1, Register r2, Register r3);
-
-  // 64-bit Subtract Logical Instructions
-  void slgrk(Register r1, Register r2, Register r3);
-
-  // 32-bit Multiply Instructions
-  void mhi(Register r1, const Operand& opnd);
-  void msrkc(Register r1, Register r2, Register r3);
-  void msgrkc(Register r1, Register r2, Register r3);
-
-  // 64-bit Multiply Instructions
-  void mghi(Register r1, const Operand& opnd);
-
-  // Bitwise Instructions (AND / OR / XOR)
-  void nrk(Register r1, Register r2, Register r3);
-  void ngrk(Register r1, Register r2, Register r3);
-  void ork(Register r1, Register r2, Register r3);
-  void ogrk(Register r1, Register r2, Register r3);
-  void xrk(Register r1, Register r2, Register r3);
-  void xgrk(Register r1, Register r2, Register r3);
-  void xc(const MemOperand& opnd1, const MemOperand& opnd2, Length length);
-
-  // Floating <-> Fixed Point Conversion Instructions
-  void cdlfbr(Condition m3, Condition m4, DoubleRegister fltReg,
-              Register fixReg);
-  void cdlgbr(Condition m3, Condition m4, DoubleRegister fltReg,
-              Register fixReg);
-  void celgbr(Condition m3, Condition m4, DoubleRegister fltReg,
-              Register fixReg);
-  void celfbr(Condition m3, Condition m4, DoubleRegister fltReg,
-              Register fixReg);
-  void clfdbr(Condition m3, Condition m4, Register fixReg,
-              DoubleRegister fltReg);
-  void clfebr(Condition m3, Condition m4, Register fixReg,
-              DoubleRegister fltReg);
-  void clgdbr(Condition m3, Condition m4, Register fixReg,
-              DoubleRegister fltReg);
-  void clgebr(Condition m3, Condition m4, Register fixReg,
-              DoubleRegister fltReg);
-  void cfdbr(Condition m, Register fixReg, DoubleRegister fltReg);
-  void cgebr(Condition m, Register fixReg, DoubleRegister fltReg);
-  void cgdbr(Condition m, Register fixReg, DoubleRegister fltReg);
-  void cfebr(Condition m3, Register fixReg, DoubleRegister fltReg);
-  void cefbr(Condition m3, DoubleRegister fltReg, Register fixReg);
-
-  // Floating Point Compare Instructions
-  void cdb(DoubleRegister r1, const MemOperand& opnd);
-  void ceb(DoubleRegister r1, const MemOperand& opnd);
-
-  // Floating Point Arithmetic Instructions
-  void adb(DoubleRegister r1, const MemOperand& opnd);
-  void aeb(DoubleRegister r1, const MemOperand& opnd);
-  void sdb(DoubleRegister r1, const MemOperand& opnd);
-  void seb(DoubleRegister r1, const MemOperand& opnd);
-  void mdb(DoubleRegister r1, const MemOperand& opnd);
-  void meeb(DoubleRegister r1, const MemOperand& opnd);
-  void ddb(DoubleRegister r1, const MemOperand& opnd);
-  void deb(DoubleRegister r1, const MemOperand& opnd);
-  void sqdb(DoubleRegister r1, const MemOperand& opnd);
-  void ldeb(DoubleRegister r1, const MemOperand& opnd);
-
-  enum FIDBRA_MASK3 {
-    FIDBRA_CURRENT_ROUNDING_MODE = 0,
-    FIDBRA_ROUND_TO_NEAREST_AWAY_FROM_0 = 1,
-    // ...
-    FIDBRA_ROUND_TOWARD_0 = 5,
-    FIDBRA_ROUND_TOWARD_POS_INF = 6,
-    FIDBRA_ROUND_TOWARD_NEG_INF = 7
-  };
-  void fiebra(DoubleRegister d1, DoubleRegister d2, FIDBRA_MASK3 m3);
-  void fidbra(DoubleRegister d1, DoubleRegister d2, FIDBRA_MASK3 m3);
-
-  // Move integer
-  void mvhi(const MemOperand& opnd1, const Operand& i2);
-  void mvghi(const MemOperand& opnd1, const Operand& i2);
 
   // Exception-generating instructions and debugging support
   void stop(const char* msg, Condition cond = al,
@@ -1288,11 +1487,6 @@ class Assembler : public AssemblerBase {
   int SizeOfCodeGeneratedSince(Label* label) {
     return pc_offset() - label->pos();
   }
-
-  // Debugging
-
-  // Mark address of a debug break slot.
-  void RecordDebugBreakSlot(RelocInfo::Mode mode);
 
   // Record a comment relocation entry that can be used by a disassembler.
   // Use --code-comments to enable.
@@ -1360,7 +1554,6 @@ class Assembler : public AssemblerBase {
 
  public:
   byte* buffer_pos() const { return buffer_; }
-  void RequestHeapObject(HeapObjectRequest request);
 
  protected:
   int buffer_space() const { return reloc_info_writer.pos() - pc_; }
@@ -1396,80 +1589,67 @@ class Assembler : public AssemblerBase {
   int last_bound_pos_;
 
   // Code emission
-  inline void CheckBuffer();
+  void CheckBuffer() {
+    if (buffer_space() <= kGap) {
+      GrowBuffer();
+    }
+  }
   void GrowBuffer(int needed = 0);
   inline void TrackBranch();
   inline void UntrackBranch();
 
-  inline int32_t emit_code_target(
-      Handle<Code> target, RelocInfo::Mode rmode);
+  // Helper to emit the binary encoding of a 2 byte instruction
+  void emit2bytes(uint16_t x) {
+    CheckBuffer();
+#if V8_TARGET_LITTLE_ENDIAN
+    // We need to emit instructions in big endian format as disassembler /
+    // simulator require the first byte of the instruction in order to decode
+    // the instruction length.  Swap the bytes.
+    x = ((x & 0x00FF) << 8) | ((x & 0xFF00) >> 8);
+#endif
+    *reinterpret_cast<uint16_t*>(pc_) = x;
+    pc_ += 2;
+  }
 
-  // Helpers to emit binary encoding of 2/4/6 byte instructions.
-  inline void emit2bytes(uint16_t x);
-  inline void emit4bytes(uint32_t x);
-  inline void emit6bytes(uint64_t x);
+  // Helper to emit the binary encoding of a 4 byte instruction
+  void emit4bytes(uint32_t x) {
+    CheckBuffer();
+#if V8_TARGET_LITTLE_ENDIAN
+    // We need to emit instructions in big endian format as disassembler /
+    // simulator require the first byte of the instruction in order to decode
+    // the instruction length.  Swap the bytes.
+    x = ((x & 0x000000FF) << 24) | ((x & 0x0000FF00) << 8) |
+        ((x & 0x00FF0000) >> 8) | ((x & 0xFF000000) >> 24);
+#endif
+    *reinterpret_cast<uint32_t*>(pc_) = x;
+    pc_ += 4;
+  }
 
-  // Helpers to emit binary encoding for various instruction formats.
-
-  inline void rr2_form(uint8_t op, Condition m1, Register r2);
-
-  inline void ri_form(Opcode op, Register r1, const Operand& i2);
-  inline void ri_form(Opcode op, Condition m1, const Operand& i2);
-
-  inline void rie_form(Opcode op, Register r1, Register r3, const Operand& i2);
-  inline void rie_f_form(Opcode op, Register r1, Register r2, const Operand& i3,
-                         const Operand& i4, const Operand& i5);
-
-  inline void ris_form(Opcode op, Register r1, Condition m3, Register b4,
-                       Disp d4, const Operand& i2);
-
-  inline void rrf1_form(Opcode op, Register r1, Register r2, Register r3);
-  inline void rrf1_form(uint32_t x);
-  inline void rrf2_form(uint32_t x);
-  inline void rrf3_form(uint32_t x);
-  inline void rrfe_form(Opcode op, Condition m3, Condition m4, Register r1,
-                        Register r2);
-
-  inline void rrs_form(Opcode op, Register r1, Register r2, Register b4,
-                       Disp d4, Condition m3);
-
-  inline void rs_form(Opcode op, Register r1, Condition m3, Register b2,
-                      const Disp d2);
-  inline void rs_form(Opcode op, Register r1, Register r3, Register b2,
-                      const Disp d2);
-
-  inline void rsi_form(Opcode op, Register r1, Register r3, const Operand& i2);
-  inline void rsl_form(Opcode op, Length l1, Register b2, Disp d2);
-
-  inline void rsy_form(Opcode op, Register r1, Register r3, Register b2,
-                       const Disp d2);
-  inline void rsy_form(Opcode op, Register r1, Condition m3, Register b2,
-                       const Disp d2);
-
-  inline void rxe_form(Opcode op, Register r1, Register x2, Register b2,
-                       Disp d2);
-
-  inline void rxf_form(Opcode op, Register r1, Register r3, Register b2,
-                       Register x2, Disp d2);
-
-  inline void s_form(Opcode op, Register b1, Disp d2);
-
-  inline void si_form(Opcode op, const Operand& i2, Register b1, Disp d1);
-  inline void siy_form(Opcode op, const Operand& i2, Register b1, Disp d1);
-
-  inline void sil_form(Opcode op, Register b1, Disp d1, const Operand& i2);
-
-  inline void ss_form(Opcode op, Length l, Register b1, Disp d1, Register b2,
-                      Disp d2);
-  inline void ss_form(Opcode op, Length l1, Length l2, Register b1, Disp d1,
-                      Register b2, Disp d2);
-  inline void ss_form(Opcode op, Length l1, const Operand& i3, Register b1,
-                      Disp d1, Register b2, Disp d2);
-  inline void ss_form(Opcode op, Register r1, Register r2, Register b1, Disp d1,
-                      Register b2, Disp d2);
-  inline void sse_form(Opcode op, Register b1, Disp d1, Register b2, Disp d2);
-  inline void ssf_form(Opcode op, Register r3, Register b1, Disp d1,
-                       Register b2, Disp d2);
+  // Helper to emit the binary encoding of a 6 byte instruction
+  void emit6bytes(uint64_t x) {
+    CheckBuffer();
+#if V8_TARGET_LITTLE_ENDIAN
+    // We need to emit instructions in big endian format as disassembler /
+    // simulator require the first byte of the instruction in order to decode
+    // the instruction length.  Swap the bytes.
+    x = (static_cast<uint64_t>(x & 0xFF) << 40) |
+        (static_cast<uint64_t>((x >> 8) & 0xFF) << 32) |
+        (static_cast<uint64_t>((x >> 16) & 0xFF) << 24) |
+        (static_cast<uint64_t>((x >> 24) & 0xFF) << 16) |
+        (static_cast<uint64_t>((x >> 32) & 0xFF) << 8) |
+        (static_cast<uint64_t>((x >> 40) & 0xFF));
+    x |= (*reinterpret_cast<uint64_t*>(pc_) >> 48) << 48;
+#else
+    // We need to pad two bytes of zeros in order to get the 6-bytes
+    // stored from low address.
+    x = x << 16;
+    x |= *reinterpret_cast<uint64_t*>(pc_) & 0xFFFF;
+#endif
+    // It is safe to store 8-bytes, as CheckBuffer() guarantees we have kGap
+    // space left over.
+    *reinterpret_cast<uint64_t*>(pc_) = x;
+    pc_ += 6;
+  }
 
   // Labels
   void print(Label* L);
@@ -1477,22 +1657,10 @@ class Assembler : public AssemblerBase {
   void bind_to(Label* L, int pos);
   void next(Label* L);
 
-  // The following functions help with avoiding allocations of embedded heap
-  // objects during the code assembly phase. {RequestHeapObject} records the
-  // need for a future heap number allocation or code stub generation. After
-  // code assembly, {AllocateAndInstallRequestedHeapObjects} will allocate these
-  // objects and place them where they are expected (determined by the pc offset
-  // associated with each request). That is, for each request, it will patch the
-  // dummy heap object handle that we emitted during code assembly with the
-  // actual heap object handle.
   void AllocateAndInstallRequestedHeapObjects(Isolate* isolate);
-  std::forward_list<HeapObjectRequest> heap_object_requests_;
 
   friend class RegExpMacroAssemblerS390;
   friend class RelocInfo;
-  friend class CodePatcher;
-
-  List<Handle<Code> > code_targets_;
   friend class EnsureSpace;
 };
 

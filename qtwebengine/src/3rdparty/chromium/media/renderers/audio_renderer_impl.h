@@ -21,7 +21,6 @@
 
 #include <stdint.h>
 
-#include <deque>
 #include <memory>
 
 #include "base/macros.h"
@@ -54,8 +53,10 @@ class MEDIA_EXPORT AudioRendererImpl
     : public AudioRenderer,
       public TimeSource,
       public base::PowerObserver,
-      NON_EXPORTED_BASE(public AudioRendererSink::RenderCallback) {
+      public AudioRendererSink::RenderCallback {
  public:
+  using PlayDelayCBForTesting = base::RepeatingCallback<void(base::TimeDelta)>;
+
   // |task_runner| is the thread on which AudioRendererImpl will execute.
   //
   // |sink| is used as the destination for the rendered audio.
@@ -91,6 +92,8 @@ class MEDIA_EXPORT AudioRendererImpl
   // base::PowerObserver implementation.
   void OnSuspend() override;
   void OnResume() override;
+
+  void SetPlayDelayCBForTesting(PlayDelayCBForTesting cb);
 
  private:
   friend class AudioRendererImplTest;
@@ -239,7 +242,7 @@ class MEDIA_EXPORT AudioRendererImpl
   base::Closure flush_cb_;
 
   // Overridable tick clock for testing.
-  std::unique_ptr<base::TickClock> tick_clock_;
+  const base::TickClock* tick_clock_;
 
   // Memory usage of |algorithm_| recorded during the last
   // HandleDecodedBuffer_Locked() call.
@@ -315,6 +318,13 @@ class MEDIA_EXPORT AudioRendererImpl
   // Set by OnSuspend() and OnResume() to indicate when the system is about to
   // suspend/is suspended and when it resumes.
   bool is_suspending_;
+
+  // Whether to pass compressed audio bitstream to audio sink directly.
+  bool is_passthrough_;
+
+  // Set and used only in tests to report positive play_delay values in
+  // Render().
+  PlayDelayCBForTesting play_delay_cb_for_testing_;
 
   // End variables which must be accessed under |lock_|. ----------------------
 

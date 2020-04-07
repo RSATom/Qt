@@ -42,8 +42,8 @@
 
 #include <QtCore/qt_windows.h>
 
-#include <QtCore/QLocale>
-#include <QtCore/QPointer>
+#include <QtCore/qlocale.h>
+#include <QtCore/qpointer.h>
 #include <qpa/qplatforminputcontext.h>
 
 QT_BEGIN_NAMESPACE
@@ -53,21 +53,20 @@ class QWindowsWindow;
 
 class QWindowsInputContext : public QPlatformInputContext
 {
+    Q_DISABLE_COPY(QWindowsInputContext)
     Q_OBJECT
 
     struct CompositionContext
     {
         HWND hwnd = 0;
-        bool haveCaret = false;
         QString composition;
         int position = 0;
         bool isComposing = false;
         QPointer<QObject> focusObject;
-        qreal factor = 1;
     };
 public:
     explicit QWindowsInputContext();
-    ~QWindowsInputContext();
+    ~QWindowsInputContext() override;
 
     static void setWindowsImeEnabled(QWindowsWindow *platformWindow, bool enabled);
 
@@ -78,6 +77,11 @@ public:
     void update(Qt::InputMethodQueries) override;
     void invokeAction(QInputMethod::Action, int cursorPosition) override;
     void setFocusObject(QObject *object) override;
+
+    QRectF keyboardRect() const override;
+    bool isInputPanelVisible() const override;
+    void showInputPanel() override;
+    void hideInputPanel() override;
 
     bool startComposition(HWND hwnd);
     bool composition(HWND hwnd, LPARAM lParam);
@@ -93,14 +97,16 @@ private slots:
     void cursorRectChanged();
 
 private:
-    void initContext(HWND hwnd, qreal factor, QObject *focusObject);
+    void initContext(HWND hwnd, QObject *focusObject);
     void doneContext();
     void startContextComposition();
     void endContextComposition();
     void updateEnabled();
+    HWND getVirtualKeyboardWindowHandle() const;
 
     const DWORD m_WM_MSIME_MOUSE;
-    static HIMC m_defaultContext;
+    bool m_caretCreated = false;
+    HBITMAP m_transparentBitmap;
     CompositionContext m_compositionContext;
     bool m_endCompositionRecursionGuard = false;
     LCID m_languageId;

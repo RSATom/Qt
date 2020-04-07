@@ -123,6 +123,12 @@ void Http2Server::emulateGOAWAY(int timeout)
     goawayTimeout = timeout;
 }
 
+void Http2Server::redirectOpenStream(quint16 port)
+{
+    redirectWhileReading = true;
+    targetPort = port;
+}
+
 void Http2Server::startServer()
 {
 #ifdef QT_NO_SSL
@@ -206,13 +212,30 @@ void Http2Server::sendDATA(quint32 streamID, quint32 windowSize)
     const quint32 offset = it->second;
     Q_ASSERT(offset < quint32(responseBody.size()));
 
-    const quint32 bytes = std::min<quint32>(windowSize, responseBody.size() - offset);
+    quint32 bytesToSend = std::min<quint32>(windowSize, responseBody.size() - offset);
+    quint32 bytesSent = 0;
     const quint32 frameSizeLimit(clientSetting(Settings::MAX_FRAME_SIZE_ID, Http2::maxFrameSize));
     const uchar *src = reinterpret_cast<const uchar *>(responseBody.constData() + offset);
-    const bool last = offset + bytes == quint32(responseBody.size());
+    const bool last = offset + bytesToSend == quint32(responseBody.size());
 
-    writer.start(FrameType::DATA, FrameFlag::EMPTY, streamID);
-    writer.writeDATA(*socket, frameSizeLimit, src, bytes);
+    // The payload can significantly exceed frameSizeLimit. Internally, writer
+    // will do needed fragmentation, but if some test failed, there is no need
+    // to wait for writer to send all DATA frames, we check 'interrupted' and
+    // stop early instead.
+    const quint32 framesInChunk = 10;
+    while (bytesToSend) {
+        if (interrupted.loadAcquire())
+            return;
+        const quint32 chunkSize = std::min<quint32>(framesInChunk * frameSizeLimit, bytesToSend);
+        writer.start(FrameType::DATA, FrameFlag::EMPTY, streamID);
+        writer.writeDATA(*socket, frameSizeLimit, src, chunkSize);
+        src += chunkSize;
+        bytesToSend -= chunkSize;
+        bytesSent += chunkSize;
+    }
+
+    if (interrupted.loadAcquire())
+        return;
 
     if (last) {
         writer.start(FrameType::DATA, FrameFlag::END_STREAM, streamID);
@@ -224,7 +247,7 @@ void Http2Server::sendDATA(quint32 streamID, quint32 windowSize)
         Q_ASSERT(closedStreams.find(streamID) == closedStreams.end());
         closedStreams.insert(streamID);
     } else {
-        it->second += bytes;
+        it->second += bytesSent;
     }
 }
 
@@ -407,6 +430,13 @@ void Http2Server::readReady()
 {
     if (connectionError)
         return;
+
+    if (redirectSent) {
+        // We are a "single shot" server, working in 'h2' mode,
+        // responding with a redirect code. Don't bother to handle
+        // anything else now.
+        return;
+    }
 
     if (upgradeProtocol) {
         handleProtocolUpgrade();
@@ -775,7 +805,26 @@ void Http2Server::sendResponse(quint32 streamID, bool emptyBody)
     if (emptyBody)
         writer.addFlag(FrameFlag::END_STREAM);
 
-    HttpHeader header = {{":status", "200"}};
+    HttpHeader header;
+    if (redirectWhileReading) {
+        if (redirectSent) {
+            // This is a "single-shot" server responding with a redirect code.
+            return;
+        }
+
+        redirectSent = true;
+
+        qDebug("server received HEADERS frame (followed by DATA frames), redirecting ...");
+        Q_ASSERT(targetPort);
+        header.push_back({":status", "308"});
+        const QString url("%1://localhost:%2/");
+        header.push_back({"location", url.arg(clearTextHTTP2 ? QStringLiteral("http") : QStringLiteral("https"),
+                                              QString::number(targetPort)).toLatin1()});
+
+    } else {
+        header.push_back({":status", "200"});
+    }
+
     if (!emptyBody) {
         header.push_back(HPack::HeaderField("content-length",
                          QString("%1").arg(responseBody.size()).toLatin1()));
@@ -799,6 +848,11 @@ void Http2Server::sendResponse(quint32 streamID, bool emptyBody)
         activeRequests.erase(streamID);
         closedStreams.insert(streamID);
     }
+}
+
+void Http2Server::stopSendingDATAFrames()
+{
+    interrupted.storeRelease(1);
 }
 
 void Http2Server::processRequest()
@@ -871,7 +925,13 @@ void Http2Server::processRequest()
     activeRequests[streamID] = decoder.decodedHeader();
     if (headersFrame.flags().testFlag(FrameFlag::END_STREAM))
         emit receivedRequest(streamID);
-    // else - we're waiting for incoming DATA frames ...
+
+    if (redirectWhileReading) {
+        sendResponse(streamID, true);
+        // Don't try to read any DATA frames ...
+        socket->disconnect();
+    } // else - we're waiting for incoming DATA frames ...
+
     continuedRequest.clear();
 }
 

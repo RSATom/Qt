@@ -71,8 +71,8 @@ public:
     };
     Q_ENUM(RestorePolicy)
 
-    QState(QState *parent = Q_NULLPTR);
-    QState(ChildMode childMode, QState *parent = Q_NULLPTR);
+    QState(QState *parent = nullptr);
+    QState(ChildMode childMode, QState *parent = nullptr);
     ~QState();
 
     QAbstractState *errorState() const;
@@ -116,10 +116,10 @@ Q_SIGNALS:
     void errorStateChanged(QPrivateSignal);
 
 protected:
-    void onEntry(QEvent *event) Q_DECL_OVERRIDE;
-    void onExit(QEvent *event) Q_DECL_OVERRIDE;
+    void onEntry(QEvent *event) override;
+    void onExit(QEvent *event) override;
 
-    bool event(QEvent *e) Q_DECL_OVERRIDE;
+    bool event(QEvent *e) override;
 
 protected:
     QState(QStatePrivate &dd, QState *parent);

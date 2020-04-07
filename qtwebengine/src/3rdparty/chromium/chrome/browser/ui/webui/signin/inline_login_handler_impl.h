@@ -11,11 +11,17 @@
 #include "base/files/file_path.h"
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
+#include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/ui/sync/one_click_signin_sync_starter.h"
 #include "chrome/browser/ui/webui/signin/inline_login_handler.h"
 #include "chrome/browser/ui/webui/signin/signin_email_confirmation_dialog.h"
+#include "content/public/browser/web_contents_observer.h"
 #include "google_apis/gaia/gaia_auth_consumer.h"
+
+namespace network {
+class SharedURLLoaderFactory;
+}
 
 // Implementation for the inline login WebUI handler on desktop Chrome. Once
 // CrOS migrates to the same webview approach as desktop Chrome, much of the
@@ -42,27 +48,6 @@ class InlineLoginHandlerImpl : public InlineLoginHandler,
                         const base::string16& email);
 
  private:
-  friend class InlineLoginUIBrowserTest;
-  FRIEND_TEST_ALL_PREFIXES(InlineLoginUIBrowserTest, CanOfferNoProfile);
-  FRIEND_TEST_ALL_PREFIXES(InlineLoginUIBrowserTest, CanOffer);
-  FRIEND_TEST_ALL_PREFIXES(InlineLoginUIBrowserTest, CanOfferProfileConnected);
-  FRIEND_TEST_ALL_PREFIXES(InlineLoginUIBrowserTest,
-                           CanOfferUsernameNotAllowed);
-  FRIEND_TEST_ALL_PREFIXES(InlineLoginUIBrowserTest, CanOfferWithRejectedEmail);
-  FRIEND_TEST_ALL_PREFIXES(InlineLoginUIBrowserTest, CanOfferNoSigninCookies);
-
-  // Argument to CanOffer().
-  enum CanOfferFor {
-    CAN_OFFER_FOR_ALL,
-    CAN_OFFER_FOR_SECONDARY_ACCOUNT
-  };
-
-  static bool CanOffer(Profile* profile,
-                       CanOfferFor can_offer_for,
-                       const std::string& gaia_id,
-                       const std::string& email,
-                       std::string* error_message);
-
   // InlineLoginHandler overrides:
   void SetExtraInitParams(base::DictionaryValue& params) override;
   void CompleteLogin(const base::ListValue* args) override;
@@ -142,21 +127,25 @@ class InlineLoginHandlerImpl : public InlineLoginHandler,
 // InlineLoginHandlerImpl is destryed once the UI is closed.
 class InlineSigninHelper : public GaiaAuthConsumer {
  public:
-  InlineSigninHelper(base::WeakPtr<InlineLoginHandlerImpl> handler,
-                     net::URLRequestContextGetter* getter,
-                     Profile* profile,
-                     Profile::CreateStatus create_status,
-                     const GURL& current_url,
-                     const std::string& email,
-                     const std::string& gaia_id,
-                     const std::string& password,
-                     const std::string& session_index,
-                     const std::string& auth_code,
-                     const std::string& signin_scoped_device_id,
-                     bool choose_what_to_sync,
-                     bool confirm_untrusted_signin,
-                     bool is_force_sign_in_with_usermanager);
+  InlineSigninHelper(
+      base::WeakPtr<InlineLoginHandlerImpl> handler,
+      scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
+      Profile* profile,
+      Profile::CreateStatus create_status,
+      const GURL& current_url,
+      const std::string& email,
+      const std::string& gaia_id,
+      const std::string& password,
+      const std::string& session_index,
+      const std::string& auth_code,
+      const std::string& signin_scoped_device_id,
+      bool choose_what_to_sync,
+      bool confirm_untrusted_signin,
+      bool is_force_sign_in_with_usermanager);
   ~InlineSigninHelper() override;
+
+ protected:
+  GaiaAuthFetcher* GetGaiaAuthFetcherForTest() { return &gaia_auth_fetcher_; }
 
  private:
   // Handles cross account sign in error. If the supplied |email| does not match
@@ -189,9 +178,7 @@ class InlineSigninHelper : public GaiaAuthConsumer {
   // for tokens.
   virtual void CreateSyncStarter(
       Browser* browser,
-      content::WebContents* contents,
       const GURL& current_url,
-      const GURL& continue_url,
       const std::string& refresh_token,
       OneClickSigninSyncStarter::ProfileMode profile_mode,
       OneClickSigninSyncStarter::StartSyncMode start_mode,

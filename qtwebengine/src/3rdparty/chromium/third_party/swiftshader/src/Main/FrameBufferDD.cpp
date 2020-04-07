@@ -14,7 +14,7 @@
 
 #include "FrameBufferDD.hpp"
 
-#include "Debug.hpp"
+#include "Common/Debug.hpp"
 
 namespace sw
 {
@@ -38,7 +38,7 @@ namespace sw
 		frontBuffer = 0;
 		backBuffer = 0;
 
-		locked = 0;
+		framebuffer = nullptr;
 
 		ddraw = LoadLibrary("ddraw.dll");
 		DirectDrawCreate = (DIRECTDRAWCREATE)GetProcAddress(ddraw, "DirectDrawCreate");
@@ -106,13 +106,13 @@ namespace sw
 
 			switch(ddsd.ddpfPixelFormat.dwRGBBitCount)
 			{
-			case 32: destFormat = FORMAT_X8R8G8B8; break;
-			case 24: destFormat = FORMAT_R8G8B8;   break;
-			case 16: destFormat = FORMAT_R5G6B5;   break;
-			default: destFormat = FORMAT_NULL;     break;
+			case 32: format = FORMAT_X8R8G8B8; break;
+			case 24: format = FORMAT_R8G8B8;   break;
+			case 16: format = FORMAT_R5G6B5;   break;
+			default: format = FORMAT_NULL;     break;
 			}
 
-			if((result != DD_OK && result != DDERR_PRIMARYSURFACEALREADYEXISTS) || (destFormat == FORMAT_NULL))
+			if((result != DD_OK && result != DDERR_PRIMARYSURFACEALREADYEXISTS) || (format == FORMAT_NULL))
 			{
 				assert(!"Failed to initialize graphics: Incompatible display mode.");
 			}
@@ -206,17 +206,17 @@ namespace sw
 
 		do
 		{
-			destFormat = FORMAT_X8R8G8B8;
+			format = FORMAT_X8R8G8B8;
 			result = directDraw->SetDisplayMode(width, height, 32);
 
 			if(result == DDERR_INVALIDMODE)
 			{
-				destFormat = FORMAT_R8G8B8;
+				format = FORMAT_R8G8B8;
 				result = directDraw->SetDisplayMode(width, height, 24);
 
 				if(result == DDERR_INVALIDMODE)
 				{
-					destFormat = FORMAT_R5G6B5;
+					format = FORMAT_R5G6B5;
 					result = directDraw->SetDisplayMode(width, height, 16);
 
 					if(result == DDERR_INVALIDMODE)
@@ -250,9 +250,9 @@ namespace sw
 		updateBounds(windowHandle);
 	}
 
-	void FrameBufferDD::flip(void *source, Format sourceFormat, size_t sourceStride)
+	void FrameBufferDD::flip(sw::Surface *source)
 	{
-		copy(source, sourceFormat, sourceStride);
+		copy(source);
 
 		if(!readySurfaces())
 		{
@@ -281,9 +281,9 @@ namespace sw
 		}
 	}
 
-	void FrameBufferDD::blit(void *source, const Rect *sourceRect, const Rect *destRect, Format sourceFormat, size_t sourceStride)
+	void FrameBufferDD::blit(sw::Surface *source, const Rect *sourceRect, const Rect *destRect)
 	{
-		copy(source, sourceFormat, sourceStride);
+		copy(source);
 
 		if(!readySurfaces())
 		{
@@ -320,20 +320,20 @@ namespace sw
 		}
 	}
 
-	void FrameBufferDD::flip(HWND windowOverride, void *source, Format sourceFormat, size_t sourceStride)
+	void FrameBufferDD::flip(HWND windowOverride, sw::Surface *source)
 	{
 		updateClipper(windowOverride);
 		updateBounds(windowOverride);
 
-		flip(source, sourceFormat, sourceStride);
+		flip(source);
 	}
 
-	void FrameBufferDD::blit(HWND windowOverride, void *source, const Rect *sourceRect, const Rect *destRect, Format sourceFormat, size_t sourceStride)
+	void FrameBufferDD::blit(HWND windowOverride, sw::Surface *source, const Rect *sourceRect, const Rect *destRect)
 	{
 		updateClipper(windowOverride);
 		updateBounds(windowOverride);
 
-		blit(source, sourceRect, destRect, sourceFormat, sourceStride);
+		blit(source, sourceRect, destRect);
 	}
 
 	void FrameBufferDD::screenshot(void *destBuffer)
@@ -404,14 +404,14 @@ namespace sw
 
 	void *FrameBufferDD::lock()
 	{
-		if(locked)
+		if(framebuffer)
 		{
-			return locked;
+			return framebuffer;
 		}
 
 		if(!readySurfaces())
 		{
-			return 0;
+			return nullptr;
 		}
 
 		DDSURFACEDESC DDSD;
@@ -425,21 +425,21 @@ namespace sw
 			height = DDSD.dwHeight;
 			stride = DDSD.lPitch;
 
-			locked = DDSD.lpSurface;
+			framebuffer = DDSD.lpSurface;
 
-			return locked;
+			return framebuffer;
 		}
 
-		return 0;
+		return nullptr;
 	}
 
 	void FrameBufferDD::unlock()
 	{
-		if(!locked || !backBuffer) return;
+		if(!framebuffer || !backBuffer) return;
 
 		backBuffer->Unlock(0);
 
-		locked = 0;
+		framebuffer = nullptr;
 	}
 
 	void FrameBufferDD::drawText(int x, int y, const char *string, ...)

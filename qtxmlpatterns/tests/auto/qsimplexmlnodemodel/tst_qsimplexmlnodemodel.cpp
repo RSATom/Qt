@@ -124,7 +124,7 @@ void tst_QSimpleXmlNodeModel::stringValue() const
             return QVariant();
         }
 
-        QXmlNodeModelIndex root() const
+        QXmlNodeModelIndex rootIndex() const
         {
             return createIndex(qint64(1));
         }
@@ -134,7 +134,7 @@ void tst_QSimpleXmlNodeModel::stringValue() const
     TypedModel model(np);
 
     QXmlQuery query(np);
-    query.bindVariable(QLatin1String("node"), model.root());
+    query.bindVariable(QLatin1String("node"), model.rootIndex());
     query.setQuery(QLatin1String("declare variable $node external;"
                                  "string($node), data($node)"));
 

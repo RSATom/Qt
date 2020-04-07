@@ -42,6 +42,8 @@ sourcedirs += .. \
               ../../../tools/qscxmlc/doc \
               ../../../examples/scxml
 
+excludefiles += "../qscxmlexecutablecontent_p.h"
+
 tagfile = qtscxml.tags
 
 manifestmeta.highlighted.names = "QtScxml/Qt SCXML Calculator QML Example" \

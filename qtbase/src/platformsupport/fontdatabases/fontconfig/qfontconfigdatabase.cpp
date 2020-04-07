@@ -250,7 +250,17 @@ static const char specialLanguages[][6] = {
     "", // Hatran
     "", // Multani
     "", // OldHungarian
-    ""  // SignWriting
+    "", // SignWriting
+    "", // Adlam
+    "", // Bhaiksuki
+    "", // Marchen
+    "", // Newa
+    "", // Osage
+    "", // Tangut
+    "", // MasaramGondi
+    "", // Nushu
+    "", // Soyombo
+    "" // ZanabazarSquare
 };
 Q_STATIC_ASSERT(sizeof specialLanguages / sizeof *specialLanguages == QChar::ScriptCount);
 
@@ -428,7 +438,7 @@ static void populateFromPattern(FcPattern *pattern)
     if (res == FcResultMatch) {
         bool hasLang = false;
 #if FC_VERSION >= 20297
-        FcChar8 *cap = Q_NULLPTR;
+        FcChar8 *cap = nullptr;
         FcResult capRes = FcResultNoMatch;
 #endif
         for (int j = 1; j < QFontDatabase::WritingSystemsCount; ++j) {
@@ -438,7 +448,7 @@ static void populateFromPattern(FcPattern *pattern)
                 if (langRes != FcLangDifferentLang) {
 #if FC_VERSION >= 20297
                     if (*capabilityForWritingSystem[j] && requiresOpenType(j)) {
-                        if (cap == Q_NULLPTR)
+                        if (cap == nullptr)
                             capRes = FcPatternGetString(pattern, FC_CAPABILITY, 0, &cap);
                         if (capRes == FcResultMatch && strstr(reinterpret_cast<const char *>(cap), capabilityForWritingSystem[j]) == 0)
                             continue;
@@ -898,14 +908,14 @@ QFont QFontconfigDatabase::defaultFont() const
 void QFontconfigDatabase::setupFontEngine(QFontEngineFT *engine, const QFontDef &fontDef) const
 {
     bool antialias = !(fontDef.styleStrategy & QFont::NoAntialias);
-    bool forcedAntialiasSetting = !antialias;
+    bool forcedAntialiasSetting = !antialias || QHighDpiScaling::isActive();
 
     const QPlatformServices *services = QGuiApplicationPrivate::platformIntegration()->services();
     bool useXftConf = false;
 
     if (services) {
         const QList<QByteArray> desktopEnv = services->desktopEnvironment().split(':');
-        useXftConf = desktopEnv.contains("GNOME") || desktopEnv.contains("UNITY");
+        useXftConf = desktopEnv.contains("GNOME") || desktopEnv.contains("UNITY") || desktopEnv.contains("XFCE");
     }
 
     if (useXftConf && !forcedAntialiasSetting) {

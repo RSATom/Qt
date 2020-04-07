@@ -10,7 +10,7 @@
 #include <memory>
 #include <vector>
 
-#include "core/fxcrt/fx_basic.h"
+#include "core/fxcrt/fx_string.h"
 #include "fxbarcode/pdf417/BC_PDF417Compaction.h"
 
 class CBC_BarcodeRow;
@@ -23,7 +23,7 @@ class CBC_PDF417 {
   virtual ~CBC_PDF417();
 
   CBC_BarcodeMatrix* getBarcodeMatrix();
-  bool generateBarcodeLogic(CFX_WideString msg, int32_t errorCorrectionLevel);
+  bool generateBarcodeLogic(WideString msg, int32_t errorCorrectionLevel);
   void setDimensions(int32_t maxCols,
                      int32_t minCols,
                      int32_t maxRows,
@@ -45,7 +45,7 @@ class CBC_PDF417 {
                                          int32_t c,
                                          int32_t r);
   static void encodeChar(int32_t pattern, int32_t len, CBC_BarcodeRow* logic);
-  void encodeLowLevel(CFX_WideString fullCodewords,
+  void encodeLowLevel(WideString fullCodewords,
                       int32_t c,
                       int32_t r,
                       int32_t errorCorrectionLevel,

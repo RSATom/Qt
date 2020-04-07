@@ -26,17 +26,28 @@ class Image9 : public ImageD3D
 {
   public:
     Image9(Renderer9 *renderer);
-    ~Image9();
+    ~Image9() override;
 
     static gl::Error generateMipmap(Image9 *dest, Image9 *source);
     static gl::Error generateMip(IDirect3DSurface9 *destSurface, IDirect3DSurface9 *sourceSurface);
     static gl::Error copyLockableSurfaces(IDirect3DSurface9 *dest, IDirect3DSurface9 *source);
+    static gl::Error CopyImage(const gl::Context *context,
+                               Image9 *dest,
+                               Image9 *source,
+                               const gl::Rectangle &sourceRect,
+                               const gl::Offset &destOffset,
+                               bool unpackFlipY,
+                               bool unpackPremultiplyAlpha,
+                               bool unpackUnmultiplyAlpha);
 
-    bool redefine(GLenum target, GLenum internalformat, const gl::Extents &size, bool forceRelease) override;
+    bool redefine(gl::TextureType type,
+                  GLenum internalformat,
+                  const gl::Extents &size,
+                  bool forceRelease) override;
 
     D3DFORMAT getD3DFormat() const;
 
-    virtual bool isDirty() const;
+    bool isDirty() const override;
 
     gl::Error setManagedSurface2D(const gl::Context *context,
                                   TextureStorage *storage,

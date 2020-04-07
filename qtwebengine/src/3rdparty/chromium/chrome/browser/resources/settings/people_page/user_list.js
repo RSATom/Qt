@@ -47,23 +47,23 @@ Polymer({
 
   /** @override */
   ready: function() {
-    chrome.settingsPrivate.onPrefsChanged.addListener(function(prefs) {
+    chrome.settingsPrivate.onPrefsChanged.addListener(prefs => {
       prefs.forEach(function(pref) {
         if (pref.key == 'cros.accounts.users') {
-          chrome.usersPrivate.getWhitelistedUsers(function(users) {
+          chrome.usersPrivate.getWhitelistedUsers(users => {
             this.setUsers_(users);
-          }.bind(this));
+          });
         }
       }, this);
-    }.bind(this));
+    });
   },
 
   /** @protected */
   currentRouteChanged: function() {
     if (settings.getCurrentRoute() == settings.routes.ACCOUNTS) {
-      chrome.usersPrivate.getWhitelistedUsers(function(users) {
+      chrome.usersPrivate.getWhitelistedUsers(users => {
         this.setUsers_(users);
-      }.bind(this));
+      });
     }
   },
 
@@ -110,7 +110,8 @@ Polymer({
    * @private
    */
   getProfilePictureUrl_: function(user) {
-    return 'chrome://userimage/' + user.email + '?id=' + Date.now();
+    return 'chrome://userimage/' + user.email + '?id=' + Date.now() +
+        '&frame=0';
   },
 
   /**

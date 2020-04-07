@@ -14,6 +14,8 @@
 #include "ui/gfx/gfx_export.h"
 #include "ui/gfx/platform_font.h"
 
+#include <windows.h>
+
 struct IDWriteFactory;
 struct IDWriteFont;
 
@@ -70,6 +72,8 @@ class GFX_EXPORT PlatformFontWin : public PlatformFont {
   // Called once during initialization if we should be retrieving font metrics
   // from skia and DirectWrite.
   static void SetDirectWriteFactory(IDWriteFactory* factory);
+
+  static bool IsDirectWriteEnabled();
 
   // Returns the GDI metrics for the font passed in.
   static void GetTextMetricsForFont(HDC hdc,

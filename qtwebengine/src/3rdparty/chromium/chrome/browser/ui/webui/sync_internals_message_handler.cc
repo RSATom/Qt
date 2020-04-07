@@ -11,13 +11,14 @@
 
 #include "base/feature_list.h"
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sync/profile_sync_service_factory.h"
 #include "chrome/browser/sync/user_event_service_factory.h"
 #include "chrome/common/channel_info.h"
 #include "components/browser_sync/profile_sync_service.h"
+#include "components/sync/base/enum_set.h"
+#include "components/sync/base/model_type.h"
 #include "components/sync/base/weak_handle.h"
 #include "components/sync/driver/about_sync_util.h"
 #include "components/sync/driver/sync_driver_switches.h"
@@ -54,12 +55,20 @@ int64_t StringAtIndexToInt64(const base::ListValue* list, int index) {
   return 0;
 }
 
+// Returns whether the there is any value at the given |index|.
+bool HasSomethingAtIndex(const base::ListValue* list, int index) {
+  std::string str;
+  if (list->GetString(index, &str)) {
+    return !str.empty();
+  }
+  return false;
+}
+
 }  //  namespace
 
 SyncInternalsMessageHandler::SyncInternalsMessageHandler()
-    : SyncInternalsMessageHandler(
-          base::BindRepeating(
-              &syncer::sync_ui_util::ConstructAboutInformation)) {}
+    : SyncInternalsMessageHandler(base::BindRepeating(
+          &syncer::sync_ui_util::ConstructAboutInformation)) {}
 
 SyncInternalsMessageHandler::SyncInternalsMessageHandler(
     AboutSyncDataDelegate about_sync_data_delegate)
@@ -84,44 +93,63 @@ void SyncInternalsMessageHandler::RegisterMessages() {
 
   web_ui()->RegisterMessageCallback(
       syncer::sync_ui_util::kRegisterForEvents,
-      base::Bind(&SyncInternalsMessageHandler::HandleRegisterForEvents,
-                 base::Unretained(this)));
+      base::BindRepeating(&SyncInternalsMessageHandler::HandleRegisterForEvents,
+                          base::Unretained(this)));
 
   web_ui()->RegisterMessageCallback(
       syncer::sync_ui_util::kRegisterForPerTypeCounters,
-      base::Bind(&SyncInternalsMessageHandler::HandleRegisterForPerTypeCounters,
-                 base::Unretained(this)));
+      base::BindRepeating(
+          &SyncInternalsMessageHandler::HandleRegisterForPerTypeCounters,
+          base::Unretained(this)));
 
   web_ui()->RegisterMessageCallback(
       syncer::sync_ui_util::kRequestUpdatedAboutInfo,
-      base::Bind(&SyncInternalsMessageHandler::HandleRequestUpdatedAboutInfo,
-                 base::Unretained(this)));
+      base::BindRepeating(
+          &SyncInternalsMessageHandler::HandleRequestUpdatedAboutInfo,
+          base::Unretained(this)));
 
   web_ui()->RegisterMessageCallback(
       syncer::sync_ui_util::kRequestListOfTypes,
-      base::Bind(&SyncInternalsMessageHandler::HandleRequestListOfTypes,
-                 base::Unretained(this)));
+      base::BindRepeating(
+          &SyncInternalsMessageHandler::HandleRequestListOfTypes,
+          base::Unretained(this)));
 
   web_ui()->RegisterMessageCallback(
       syncer::sync_ui_util::kRequestUserEventsVisibility,
-      base::Bind(
+      base::BindRepeating(
           &SyncInternalsMessageHandler::HandleRequestUserEventsVisibility,
           base::Unretained(this)));
 
   web_ui()->RegisterMessageCallback(
       syncer::sync_ui_util::kSetIncludeSpecifics,
-      base::Bind(&SyncInternalsMessageHandler::HandleSetIncludeSpecifics,
-                 base::Unretained(this)));
+      base::BindRepeating(
+          &SyncInternalsMessageHandler::HandleSetIncludeSpecifics,
+          base::Unretained(this)));
 
   web_ui()->RegisterMessageCallback(
       syncer::sync_ui_util::kWriteUserEvent,
-      base::Bind(&SyncInternalsMessageHandler::HandleWriteUserEvent,
-                 base::Unretained(this)));
+      base::BindRepeating(&SyncInternalsMessageHandler::HandleWriteUserEvent,
+                          base::Unretained(this)));
+
+  web_ui()->RegisterMessageCallback(
+      syncer::sync_ui_util::kRequestStart,
+      base::BindRepeating(&SyncInternalsMessageHandler::HandleRequestStart,
+                          base::Unretained(this)));
+
+  web_ui()->RegisterMessageCallback(
+      syncer::sync_ui_util::kRequestStop,
+      base::BindRepeating(&SyncInternalsMessageHandler::HandleRequestStop,
+                          base::Unretained(this)));
+
+  web_ui()->RegisterMessageCallback(
+      syncer::sync_ui_util::kTriggerRefresh,
+      base::BindRepeating(&SyncInternalsMessageHandler::HandleTriggerRefresh,
+                          base::Unretained(this)));
 
   web_ui()->RegisterMessageCallback(
       syncer::sync_ui_util::kGetAllNodes,
-      base::Bind(&SyncInternalsMessageHandler::HandleGetAllNodes,
-                 base::Unretained(this)));
+      base::BindRepeating(&SyncInternalsMessageHandler::HandleGetAllNodes,
+                          base::Unretained(this)));
 }
 
 void SyncInternalsMessageHandler::HandleRegisterForEvents(
@@ -174,7 +202,7 @@ void SyncInternalsMessageHandler::HandleRequestListOfTypes(
   AllowJavascript();
 
   DictionaryValue event_details;
-  auto type_list = base::MakeUnique<ListValue>();
+  auto type_list = std::make_unique<ListValue>();
   ModelTypeSet protocol_types = syncer::ProtocolTypes();
   for (ModelTypeSet::Iterator it = protocol_types.First(); it.Good();
        it.Inc()) {
@@ -230,9 +258,53 @@ void SyncInternalsMessageHandler::HandleWriteUserEvent(
       browser_sync::UserEventServiceFactory::GetForProfile(profile);
 
   sync_pb::UserEventSpecifics event_specifics;
+  // Even though there's nothing to set inside the test event object, it needs
+  // to be created so that later logic can discern our event type.
+  event_specifics.mutable_test_event();
+
+  // |event_time_usec| is required.
   event_specifics.set_event_time_usec(StringAtIndexToInt64(args, 0));
-  event_specifics.set_navigation_id(StringAtIndexToInt64(args, 1));
+
+  // |navigation_id| is optional, treat empty string and 0 differently.
+  if (HasSomethingAtIndex(args, 1)) {
+    event_specifics.set_navigation_id(StringAtIndexToInt64(args, 1));
+  }
+
   user_event_service->RecordUserEvent(event_specifics);
+}
+
+void SyncInternalsMessageHandler::HandleRequestStart(
+    const base::ListValue* args) {
+  DCHECK_EQ(0U, args->GetSize());
+
+  SyncService* service = GetSyncService();
+  if (!service)
+    return;
+
+  service->RequestStart();
+}
+
+void SyncInternalsMessageHandler::HandleRequestStop(
+    const base::ListValue* args) {
+  DCHECK_EQ(0U, args->GetSize());
+
+  SyncService* service = GetSyncService();
+  if (!service)
+    return;
+
+  service->RequestStop(SyncService::KEEP_DATA);
+}
+
+void SyncInternalsMessageHandler::HandleTriggerRefresh(
+    const base::ListValue* args) {
+  SyncService* service = GetSyncService();
+  if (!service)
+    return;
+
+  // Only allowed to trigger refresh/schedule nudges for protocol types, things
+  // like PROXY_TABS are not allowed.
+  service->TriggerRefresh(syncer::Intersection(service->GetActiveDataTypes(),
+                                               syncer::ProtocolTypes()));
 }
 
 void SyncInternalsMessageHandler::OnReceivedAllNodes(
@@ -275,7 +347,7 @@ void SyncInternalsMessageHandler::EmitCounterUpdate(
     syncer::ModelType type,
     const std::string& counter_type,
     std::unique_ptr<DictionaryValue> value) {
-  auto details = base::MakeUnique<DictionaryValue>();
+  auto details = std::make_unique<DictionaryValue>();
   details->SetString(syncer::sync_ui_util::kModelType, ModelTypeToString(type));
   details->SetString(syncer::sync_ui_util::kCounterType, counter_type);
   details->Set(syncer::sync_ui_util::kCounters, std::move(value));

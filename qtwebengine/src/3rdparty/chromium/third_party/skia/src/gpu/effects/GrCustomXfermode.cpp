@@ -72,16 +72,14 @@ static bool can_use_hw_blend_equation(GrBlendEquation equation,
 class CustomXP : public GrXferProcessor {
 public:
     CustomXP(SkBlendMode mode, GrBlendEquation hwBlendEquation)
-        : fMode(mode)
-        , fHWBlendEquation(hwBlendEquation) {
-        this->initClassID<CustomXP>();
-    }
+        : INHERITED(kCustomXP_ClassID)
+        , fMode(mode)
+        , fHWBlendEquation(hwBlendEquation) {}
 
     CustomXP(bool hasMixedSamples, SkBlendMode mode, GrProcessorAnalysisCoverage coverage)
-            : INHERITED(true, hasMixedSamples, coverage)
+            : INHERITED(kCustomXP_ClassID, true, hasMixedSamples, coverage)
             , fMode(mode)
             , fHWBlendEquation(static_cast<GrBlendEquation>(-1)) {
-        this->initClassID<CustomXP>();
     }
 
     const char* name() const override { return "Custom Xfermode"; }
@@ -202,9 +200,13 @@ void CustomXP::onGetBlendInfo(BlendInfo* blendInfo) const {
 ///////////////////////////////////////////////////////////////////////////////
 
 // See the comment above GrXPFactory's definition about this warning suppression.
-#if defined(__GNUC__) || defined(__clang)
+#if defined(__GNUC__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wnon-virtual-dtor"
+#endif
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wnon-virtual-dtor"
 #endif
 class CustomXPFactory : public GrXPFactory {
 public:
@@ -228,8 +230,11 @@ private:
 
     typedef GrXPFactory INHERITED;
 };
-#if defined(__GNUC__) || defined(__clang)
+#if defined(__GNUC__)
 #pragma GCC diagnostic pop
+#endif
+#if defined(__clang__)
+#pragma clang diagnostic pop
 #endif
 
 sk_sp<const GrXferProcessor> CustomXPFactory::makeXferProcessor(

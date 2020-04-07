@@ -10,14 +10,10 @@
 #include "base/callback_helpers.h"
 #include "base/compiler_specific.h"
 #include "base/location.h"
-#include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/power_monitor/power_monitor.h"
-#include "base/profiler/scoped_tracker.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
-#include "base/strings/string_split.h"
-#include "base/strings/string_util.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "net/base/auth.h"
@@ -27,13 +23,12 @@
 #include "net/base/load_states.h"
 #include "net/base/net_errors.h"
 #include "net/base/network_delegate.h"
-#include "net/http/http_response_headers.h"
+#include "net/base/proxy_server.h"
 #include "net/log/net_log.h"
 #include "net/log/net_log_capture_mode.h"
 #include "net/log/net_log_event_type.h"
 #include "net/log/net_log_with_source.h"
 #include "net/nqe/network_quality_estimator.h"
-#include "net/proxy/proxy_server.h"
 #include "net/url_request/url_request_context.h"
 
 namespace net {
@@ -50,95 +45,6 @@ std::unique_ptr<base::Value> SourceStreamSetCallback(
   return std::move(event_params);
 }
 
-std::string ComputeMethodForRedirect(const std::string& method,
-                                     int http_status_code) {
-  // For 303 redirects, all request methods except HEAD are converted to GET,
-  // as per the latest httpbis draft.  The draft also allows POST requests to
-  // be converted to GETs when following 301/302 redirects, for historical
-  // reasons. Most major browsers do this and so shall we.  Both RFC 2616 and
-  // the httpbis draft say to prompt the user to confirm the generation of new
-  // requests, other than GET and HEAD requests, but IE omits these prompts and
-  // so shall we.
-  // See:
-  // https://tools.ietf.org/html/draft-ietf-httpbis-p2-semantics-17#section-7.3
-  if ((http_status_code == 303 && method != "HEAD") ||
-      ((http_status_code == 301 || http_status_code == 302) &&
-       method == "POST")) {
-    return "GET";
-  }
-  return method;
-}
-
-// A redirect response can contain a Referrer-Policy header
-// (https://w3c.github.io/webappsec-referrer-policy/). This function
-// checks for a Referrer-Policy header, and parses it if
-// present. Returns the referrer policy that should be used for the
-// request.
-URLRequest::ReferrerPolicy ProcessReferrerPolicyHeaderOnRedirect(
-    URLRequest* request) {
-  URLRequest::ReferrerPolicy new_policy = request->referrer_policy();
-
-  std::string referrer_policy_header;
-  request->GetResponseHeaderByName("Referrer-Policy", &referrer_policy_header);
-  std::vector<std::string> policy_tokens =
-      base::SplitString(referrer_policy_header, ",", base::TRIM_WHITESPACE,
-                        base::SPLIT_WANT_NONEMPTY);
-
-  UMA_HISTOGRAM_BOOLEAN("Net.URLRequest.ReferrerPolicyHeaderPresentOnRedirect",
-                        !policy_tokens.empty());
-
-  // Per https://w3c.github.io/webappsec-referrer-policy/#unknown-policy-values,
-  // use the last recognized policy value, and ignore unknown policies.
-  for (const auto& token : policy_tokens) {
-    if (base::CompareCaseInsensitiveASCII(token, "no-referrer") == 0) {
-      new_policy = URLRequest::NO_REFERRER;
-      continue;
-    }
-
-    if (base::CompareCaseInsensitiveASCII(token,
-                                          "no-referrer-when-downgrade") == 0) {
-      new_policy =
-          URLRequest::CLEAR_REFERRER_ON_TRANSITION_FROM_SECURE_TO_INSECURE;
-      continue;
-    }
-
-    if (base::CompareCaseInsensitiveASCII(token, "origin") == 0) {
-      new_policy = URLRequest::ORIGIN;
-      continue;
-    }
-
-    if (base::CompareCaseInsensitiveASCII(token, "origin-when-cross-origin") ==
-        0) {
-      new_policy = URLRequest::ORIGIN_ONLY_ON_TRANSITION_CROSS_ORIGIN;
-      continue;
-    }
-
-    if (base::CompareCaseInsensitiveASCII(token, "unsafe-url") == 0) {
-      new_policy = URLRequest::NEVER_CLEAR_REFERRER;
-      continue;
-    }
-
-    if (base::CompareCaseInsensitiveASCII(token, "same-origin") == 0) {
-      new_policy = URLRequest::CLEAR_REFERRER_ON_TRANSITION_CROSS_ORIGIN;
-      continue;
-    }
-
-    if (base::CompareCaseInsensitiveASCII(token, "strict-origin") == 0) {
-      new_policy =
-          URLRequest::ORIGIN_CLEAR_ON_TRANSITION_FROM_SECURE_TO_INSECURE;
-      continue;
-    }
-
-    if (base::CompareCaseInsensitiveASCII(
-            token, "strict-origin-when-cross-origin") == 0) {
-      new_policy =
-          URLRequest::REDUCE_REFERRER_GRANULARITY_ON_TRANSITION_CROSS_ORIGIN;
-      continue;
-    }
-  }
-  return new_policy;
-}
-
 }  // namespace
 
 // Each SourceStreams own the previous SourceStream in the chain, but the
@@ -152,14 +58,15 @@ class URLRequestJob::URLRequestJobSourceStream : public SourceStream {
     DCHECK(job_);
   }
 
-  ~URLRequestJobSourceStream() override {}
+  ~URLRequestJobSourceStream() override = default;
 
   // SourceStream implementation:
   int Read(IOBuffer* dest_buffer,
            int buffer_size,
-           const CompletionCallback& callback) override {
+           CompletionOnceCallback callback) override {
     DCHECK(job_);
-    return job_->ReadRawDataHelper(dest_buffer, buffer_size, callback);
+    return job_->ReadRawDataHelper(dest_buffer, buffer_size,
+                                   std::move(callback));
   }
 
   std::string Description() const override { return std::string(); }
@@ -185,6 +92,9 @@ URLRequestJob::URLRequestJob(URLRequest* request,
       last_notified_total_received_bytes_(0),
       last_notified_total_sent_bytes_(0),
       weak_factory_(this) {
+  // Socket tagging only supported for HTTP/HTTPS.
+  DCHECK(request == nullptr || SocketTag() == request->socket_tag() ||
+         request->url().SchemeIsHTTPOrHTTPS());
   base::PowerMonitor* power_monitor = base::PowerMonitor::Get();
   if (power_monitor)
     power_monitor->AddObserver(this);
@@ -274,7 +184,8 @@ void URLRequestJob::PopulateNetErrorDetails(NetErrorDetails* details) const {
 }
 
 bool URLRequestJob::IsRedirectResponse(GURL* location,
-                                       int* http_status_code) {
+                                       int* http_status_code,
+                                       bool* insecure_scheme_was_upgraded) {
   // For non-HTTP jobs, headers will be null.
   HttpResponseHeaders* headers = request_->response_headers();
   if (!headers)
@@ -283,8 +194,18 @@ bool URLRequestJob::IsRedirectResponse(GURL* location,
   std::string value;
   if (!headers->IsRedirect(&value))
     return false;
-
+  *insecure_scheme_was_upgraded = false;
   *location = request_->url().Resolve(value);
+  // If this a redirect to HTTP of a request that had the
+  // 'upgrade-insecure-requests' policy set, upgrade it to HTTPS.
+  if (request_->upgrade_if_insecure()) {
+    if (location->SchemeIs("http")) {
+      *insecure_scheme_was_upgraded = true;
+      GURL::Replacements replacements;
+      replacements.SetSchemeStr("https");
+      *location = location->ReplaceComponents(replacements);
+    }
+  }
   *http_status_code = headers->response_code();
   return true;
 }
@@ -334,15 +255,20 @@ void URLRequestJob::ContinueDespiteLastError() {
   NOTREACHED();
 }
 
-void URLRequestJob::FollowDeferredRedirect() {
+void URLRequestJob::FollowDeferredRedirect(
+    const base::Optional<net::HttpRequestHeaders>& modified_request_headers) {
   // OnReceivedRedirect must have been called.
-  DCHECK_NE(-1, deferred_redirect_info_.status_code);
+  DCHECK(deferred_redirect_info_);
 
   // It is possible that FollowRedirect will delete |this|, so it is not safe to
   // pass along a reference to |deferred_redirect_info_|.
-  RedirectInfo redirect_info = deferred_redirect_info_;
-  deferred_redirect_info_ = RedirectInfo();
-  FollowRedirect(redirect_info);
+  base::Optional<RedirectInfo> redirect_info =
+      std::move(deferred_redirect_info_);
+  FollowRedirect(*redirect_info, modified_request_headers);
+}
+
+int64_t URLRequestJob::prefilter_bytes_read() const {
+  return prefilter_bytes_read_;
 }
 
 bool URLRequestJob::GetMimeType(std::string* mime_type) const {
@@ -389,8 +315,9 @@ GURL URLRequestJob::ComputeReferrerForPolicy(URLRequest::ReferrerPolicy policy,
   bool secure_referrer_but_insecure_destination =
       original_referrer.SchemeIsCryptographic() &&
       !destination.SchemeIsCryptographic();
-  url::Origin referrer_origin(original_referrer);
-  bool same_origin = referrer_origin.IsSameOriginWith(url::Origin(destination));
+  url::Origin referrer_origin = url::Origin::Create(original_referrer);
+  bool same_origin =
+      referrer_origin.IsSameOriginWith(url::Origin::Create(destination));
   switch (policy) {
     case URLRequest::CLEAR_REFERRER_ON_TRANSITION_FROM_SECURE_TO_INSECURE:
       return secure_referrer_but_insecure_destination ? GURL()
@@ -445,9 +372,9 @@ bool URLRequestJob::CanGetCookies(const CookieList& cookie_list) const {
   return request_->CanGetCookies(cookie_list);
 }
 
-bool URLRequestJob::CanSetCookie(const std::string& cookie_line,
+bool URLRequestJob::CanSetCookie(const net::CanonicalCookie& cookie,
                                  CookieOptions* options) const {
-  return request_->CanSetCookie(cookie_line, options);
+  return request_->CanSetCookie(cookie, options);
 }
 
 bool URLRequestJob::CanEnablePrivacyMode() const {
@@ -474,8 +401,10 @@ void URLRequestJob::NotifyHeadersComplete() {
 
   GURL new_location;
   int http_status_code;
+  bool insecure_scheme_was_upgraded;
 
-  if (IsRedirectResponse(&new_location, &http_status_code)) {
+  if (IsRedirectResponse(&new_location, &http_status_code,
+                         &insecure_scheme_was_upgraded)) {
     // Redirect response bodies are not read. Notify the transaction
     // so it does not treat being stopped as an error.
     DoneReadingRedirectResponse();
@@ -496,8 +425,13 @@ void URLRequestJob::NotifyHeadersComplete() {
     // code must return immediately.
     base::WeakPtr<URLRequestJob> weak_this(weak_factory_.GetWeakPtr());
 
-    RedirectInfo redirect_info =
-        ComputeRedirectInfo(new_location, http_status_code);
+    RedirectInfo redirect_info = RedirectInfo::ComputeRedirectInfo(
+        request_->method(), request_->url(), request_->site_for_cookies(),
+        request_->first_party_url_policy(), request_->referrer_policy(),
+        request_->referrer(), request_->response_headers(), http_status_code,
+        new_location, insecure_scheme_was_upgraded,
+        request_->ssl_info().token_binding_negotiated,
+        CopyFragmentOnRedirect(new_location));
     bool defer_redirect = false;
     request_->NotifyReceivedRedirect(redirect_info, &defer_redirect);
 
@@ -507,9 +441,10 @@ void URLRequestJob::NotifyHeadersComplete() {
       return;
 
     if (defer_redirect) {
-      deferred_redirect_info_ = redirect_info;
+      deferred_redirect_info_ = std::move(redirect_info);
     } else {
-      FollowRedirect(redirect_info);
+      FollowRedirect(redirect_info,
+                     base::nullopt /* modified_request_headers */);
     }
     return;
   }
@@ -570,11 +505,6 @@ void URLRequestJob::ReadRawDataComplete(int result) {
   DCHECK(request_->status().is_io_pending());
   DCHECK_NE(ERR_IO_PENDING, result);
 
-  // TODO(cbentzel): Remove ScopedTracker below once crbug.com/475755 is fixed.
-  tracked_objects::ScopedTracker tracking_profile(
-      FROM_HERE_WITH_EXPLICIT_FUNCTION(
-          "475755 URLRequestJob::RawReadCompleted"));
-
   // The headers should be complete before reads complete
   DCHECK(has_handled_response_);
 
@@ -583,7 +513,7 @@ void URLRequestJob::ReadRawDataComplete(int result) {
   // Notify SourceStream.
   DCHECK(!read_raw_callback_.is_null());
 
-  base::ResetAndReturn(&read_raw_callback_).Run(result);
+  std::move(read_raw_callback_).Run(result);
   // |this| may be destroyed at this point.
 }
 
@@ -665,8 +595,8 @@ void URLRequestJob::NotifyRestartRequired() {
     request_->Restart();
 }
 
-void URLRequestJob::OnCallToDelegate() {
-  request_->OnCallToDelegate();
+void URLRequestJob::OnCallToDelegate(NetLogEventType type) {
+  request_->OnCallToDelegate(type);
 }
 
 void URLRequestJob::OnCallToDelegateComplete() {
@@ -685,11 +615,7 @@ void URLRequestJob::DoneReadingRedirectResponse() {
 }
 
 std::unique_ptr<SourceStream> URLRequestJob::SetUpSourceStream() {
-  return base::MakeUnique<URLRequestJobSourceStream>(this);
-}
-
-void URLRequestJob::DestroySourceStream() {
-  source_stream_.reset();
+  return std::make_unique<URLRequestJobSourceStream>(this);
 }
 
 const URLRequestStatus URLRequestJob::GetStatus() {
@@ -732,7 +658,7 @@ void URLRequestJob::SourceStreamReadComplete(bool synchronous, int result) {
 
 int URLRequestJob::ReadRawDataHelper(IOBuffer* buf,
                                      int buf_size,
-                                     const CompletionCallback& callback) {
+                                     CompletionOnceCallback callback) {
   DCHECK(!raw_read_buffer_);
 
   // Keep a pointer to the read buffer, so URLRequestJob::GatherRawReadStats()
@@ -748,7 +674,7 @@ int URLRequestJob::ReadRawDataHelper(IOBuffer* buf,
     // GatherRawReadStats so we can account for the completed read.
     GatherRawReadStats(result);
   } else {
-    read_raw_callback_ = callback;
+    read_raw_callback_ = std::move(callback);
   }
   return result;
 }
@@ -770,8 +696,10 @@ int URLRequestJob::CanFollowRedirect(const GURL& new_url) {
   return OK;
 }
 
-void URLRequestJob::FollowRedirect(const RedirectInfo& redirect_info) {
-  request_->Redirect(redirect_info);
+void URLRequestJob::FollowRedirect(
+    const RedirectInfo& redirect_info,
+    const base::Optional<net::HttpRequestHeaders>& modified_request_headers) {
+  request_->Redirect(redirect_info, modified_request_headers);
 }
 
 void URLRequestJob::GatherRawReadStats(int bytes_read) {
@@ -802,10 +730,14 @@ void URLRequestJob::RecordBytesRead(int bytes_read) {
   // If prefilter_bytes_read_ is equal to bytes_read, it indicates this is the
   // first raw read of the response body. This is used as the signal that
   // response headers have been received.
-  if (request_->context()->network_quality_estimator() &&
-      prefilter_bytes_read() == bytes_read) {
-    request_->context()->network_quality_estimator()->NotifyHeadersReceived(
-        *request_);
+  if (request_->context()->network_quality_estimator()) {
+    if (prefilter_bytes_read() == bytes_read) {
+      request_->context()->network_quality_estimator()->NotifyHeadersReceived(
+          *request_);
+    } else {
+      request_->context()->network_quality_estimator()->NotifyBytesRead(
+          *request_);
+    }
   }
 
   DVLOG(2) << __FUNCTION__ << "() "
@@ -824,63 +756,6 @@ void URLRequestJob::RecordBytesRead(int bytes_read) {
 }
 
 void URLRequestJob::UpdatePacketReadTimes() {
-}
-
-RedirectInfo URLRequestJob::ComputeRedirectInfo(const GURL& location,
-                                                int http_status_code) {
-  const GURL& url = request_->url();
-
-  RedirectInfo redirect_info;
-
-  redirect_info.status_code = http_status_code;
-
-  // The request method may change, depending on the status code.
-  redirect_info.new_method =
-      ComputeMethodForRedirect(request_->method(), http_status_code);
-
-  // Move the reference fragment of the old location to the new one if the
-  // new one has none. This duplicates mozilla's behavior.
-  if (url.is_valid() && url.has_ref() && !location.has_ref() &&
-      CopyFragmentOnRedirect(location)) {
-    GURL::Replacements replacements;
-    // Reference the |ref| directly out of the original URL to avoid a
-    // malloc.
-    replacements.SetRef(url.spec().data(),
-                        url.parsed_for_possibly_invalid_spec().ref);
-    redirect_info.new_url = location.ReplaceComponents(replacements);
-  } else {
-    redirect_info.new_url = location;
-  }
-
-  // Update the first-party URL if appropriate.
-  if (request_->first_party_url_policy() ==
-          URLRequest::UPDATE_FIRST_PARTY_URL_ON_REDIRECT) {
-    redirect_info.new_first_party_for_cookies = redirect_info.new_url;
-  } else {
-    redirect_info.new_first_party_for_cookies =
-        request_->first_party_for_cookies();
-  }
-
-  redirect_info.new_referrer_policy =
-      ProcessReferrerPolicyHeaderOnRedirect(request_);
-
-  // Alter the referrer if redirecting cross-origin (especially HTTP->HTTPS).
-  redirect_info.new_referrer =
-      ComputeReferrerForPolicy(redirect_info.new_referrer_policy,
-                               GURL(request_->referrer()),
-                               redirect_info.new_url)
-          .spec();
-
-  std::string include_referer;
-  request_->GetResponseHeaderByName("include-referred-token-binding-id",
-                                    &include_referer);
-  include_referer = base::ToLowerASCII(include_referer);
-  if (include_referer == "true" &&
-      request_->ssl_info().token_binding_negotiated) {
-    redirect_info.referred_token_binding_host = url.host();
-  }
-
-  return redirect_info;
 }
 
 void URLRequestJob::MaybeNotifyNetworkBytes() {

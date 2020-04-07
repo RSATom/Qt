@@ -8,17 +8,16 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/rtc_base/proxyinfo.h"
+#include "rtc_base/proxyinfo.h"
 
 namespace rtc {
 
-const char * ProxyToString(ProxyType proxy) {
-  const char * const PROXY_NAMES[] = { "none", "https", "socks5", "unknown" };
+const char* ProxyToString(ProxyType proxy) {
+  const char* const PROXY_NAMES[] = {"none", "https", "socks5", "unknown"};
   return PROXY_NAMES[proxy];
 }
 
-ProxyInfo::ProxyInfo() : type(PROXY_NONE), autodetect(false) {
-}
+ProxyInfo::ProxyInfo() : type(PROXY_NONE), autodetect(false) {}
 ProxyInfo::~ProxyInfo() = default;
 
-} // namespace rtc
+}  // namespace rtc

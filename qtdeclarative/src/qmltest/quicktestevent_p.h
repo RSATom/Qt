@@ -81,8 +81,8 @@ class Q_QUICK_TEST_EXPORT QuickTestEvent : public QObject
     Q_OBJECT
     Q_PROPERTY(int defaultMouseDelay READ defaultMouseDelay FINAL)
 public:
-    QuickTestEvent(QObject *parent = 0);
-    ~QuickTestEvent();
+    QuickTestEvent(QObject *parent = nullptr);
+    ~QuickTestEvent() override;
     int defaultMouseDelay() const;
 
 public Q_SLOTS:
@@ -115,9 +115,11 @@ public Q_SLOTS:
 
     QQuickTouchEventSequence *touchEvent(QObject *item = nullptr);
 private:
-    QWindow *eventWindow(QObject *item = 0);
+    QWindow *eventWindow(QObject *item = nullptr);
     QWindow *activeWindow();
     QTouchDevice *touchDevice();
+
+    Qt::MouseButtons m_pressedButtons;
 
     friend class QQuickTouchEventSequence;
 };

@@ -84,7 +84,7 @@ public:
     JointManager *jointManager() const { return m_jointManager; }
 
     void cleanup();
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) Q_DECL_OVERRIDE;
+    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) override;
     void setStatus(Qt3DCore::QSkeletonLoader::Status status);
     Qt3DCore::QSkeletonLoader::Status status() const { return m_status; }
 
@@ -120,7 +120,7 @@ public:
 #endif
 
 private:
-    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) Q_DECL_FINAL;
+    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) final;
     void loadSkeletonFromUrl();
     void loadSkeletonFromData();
     Qt3DCore::QJoint *createFrontendJoints(const SkeletonData &skeletonData) const;

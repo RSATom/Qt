@@ -42,8 +42,8 @@
 
 #include "shared_global_p.h"
 
-#include <QtWidgets/QDialog>
-#include <QtCore/QMap>
+#include <QtWidgets/qdialog.h>
+#include <QtCore/qmap.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -60,7 +60,7 @@ class QDESIGNER_SHARED_EXPORT OrderDialog: public QDialog
     Q_OBJECT
 public:
     OrderDialog(QWidget *parent);
-    virtual ~OrderDialog();
+    ~OrderDialog() override;
 
     static QWidgetList pagesOfContainer(const QDesignerFormEditorInterface *core, QWidget *container);
 

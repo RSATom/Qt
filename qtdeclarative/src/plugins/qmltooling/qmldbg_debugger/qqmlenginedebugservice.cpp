@@ -39,7 +39,6 @@
 
 #include "qqmlenginedebugservice.h"
 #include "qqmlwatcher.h"
-#include "qqmldebugpacket.h"
 
 #include <private/qqmldebugstatesdelegate_p.h>
 #include <private/qqmlboundsignal_p.h>
@@ -56,12 +55,52 @@
 #include <QtCore/qdebug.h>
 #include <QtCore/qmetaobject.h>
 #include <QtCore/qfileinfo.h>
+#include <QtCore/qjsonvalue.h>
+#include <QtCore/qjsonobject.h>
+#include <QtCore/qjsonarray.h>
+#include <QtCore/qjsondocument.h>
+
 #include <private/qmetaobject_p.h>
+#include <private/qqmldebugconnector_p.h>
+#include <private/qversionedpacket_p.h>
 
 QT_BEGIN_NAMESPACE
 
+using QQmlDebugPacket = QVersionedPacket<QQmlDebugConnector>;
+
+class NullDevice : public QIODevice
+{
+public:
+    NullDevice() { open(QIODevice::ReadWrite); }
+
+protected:
+    qint64 readData(char *data, qint64 maxlen) final;
+    qint64 writeData(const char *data, qint64 len) final;
+};
+
+qint64 NullDevice::readData(char *data, qint64 maxlen)
+{
+    Q_UNUSED(data);
+    return maxlen;
+}
+
+qint64 NullDevice::writeData(const char *data, qint64 len)
+{
+    Q_UNUSED(data);
+    return len;
+}
+
+// check whether the data can be saved
+// (otherwise we assert in QVariant::operator<< when actually saving it)
+static bool isSaveable(const QVariant &value)
+{
+    NullDevice nullDevice;
+    QDataStream fakeStream(&nullDevice);
+    return QMetaType::save(fakeStream, static_cast<int>(value.type()), value.constData());
+}
+
 QQmlEngineDebugServiceImpl::QQmlEngineDebugServiceImpl(QObject *parent) :
-    QQmlEngineDebugService(2, parent), m_watch(new QQmlWatcher(this)), m_statesDelegate(0)
+    QQmlEngineDebugService(2, parent), m_watch(new QQmlWatcher(this)), m_statesDelegate(nullptr)
 {
     connect(m_watch, &QQmlWatcher::propertyChanged,
             this, &QQmlEngineDebugServiceImpl::propertyChanged);
@@ -98,13 +137,7 @@ QDataStream &operator<<(QDataStream &ds,
                         const QQmlEngineDebugServiceImpl::QQmlObjectProperty &data)
 {
     ds << (int)data.type << data.name;
-    // check first whether the data can be saved
-    // (otherwise we assert in QVariant::operator<<)
-    QQmlDebugPacket fakeStream;
-    if (QMetaType::save(fakeStream, data.value.type(), data.value.constData()))
-        ds << data.value;
-    else
-        ds << QVariant();
+    ds << (isSaveable(data.value) ? data.value : QVariant());
     ds << data.valueTypeName << data.binding << data.hasNotifySignal;
     return ds;
 }
@@ -208,34 +241,40 @@ QVariant QQmlEngineDebugServiceImpl::valueContents(QVariant value) const
         return contents;
     }
 
-    if (QQmlValueTypeFactory::isValueType(userType)) {
-        switch (userType) {
-        case QMetaType::QRect:
-        case QMetaType::QRectF:
-        case QMetaType::QPoint:
-        case QMetaType::QPointF:
-        case QMetaType::QSize:
-        case QMetaType::QSizeF:
-        case QMetaType::QFont:
-            // Don't call the toString() method on those. The stream operators are better.
-            return value;
-        default:
-            break;
-        }
-
-        const QMetaObject *mo = QQmlValueTypeFactory::metaObjectForMetaType(userType);
-        if (mo) {
-            int toStringIndex = mo->indexOfMethod("toString()");
-            if (toStringIndex != -1) {
-                QMetaMethod mm = mo->method(toStringIndex);
-                QString s;
-                if (mm.invokeOnGadget(value.data(), Q_RETURN_ARG(QString, s)))
-                    return s;
-            }
-        }
-
-        // We expect all QML value types to either have a toString() method or stream operators
+    switch (userType) {
+    case QMetaType::QRect:
+    case QMetaType::QRectF:
+    case QMetaType::QPoint:
+    case QMetaType::QPointF:
+    case QMetaType::QSize:
+    case QMetaType::QSizeF:
+    case QMetaType::QFont:
+        // Don't call the toString() method on those. The stream operators are better.
         return value;
+    case QMetaType::QJsonValue:
+        return value.toJsonValue().toVariant();
+    case QMetaType::QJsonObject:
+        return value.toJsonObject().toVariantMap();
+    case QMetaType::QJsonArray:
+        return value.toJsonArray().toVariantList();
+    case QMetaType::QJsonDocument:
+        return value.toJsonDocument().toVariant();
+    default:
+        if (QQmlValueTypeFactory::isValueType(userType)) {
+            const QMetaObject *mo = QQmlValueTypeFactory::metaObjectForMetaType(userType);
+            if (mo) {
+                int toStringIndex = mo->indexOfMethod("toString()");
+                if (toStringIndex != -1) {
+                    QMetaMethod mm = mo->method(toStringIndex);
+                    QString s;
+                    if (mm.invokeOnGadget(value.data(), Q_RETURN_ARG(QString, s)))
+                        return s;
+                }
+            }
+
+            if (isSaveable(value))
+                return value;
+        }
     }
 
     if (QQmlMetaType::isQObject(userType)) {
@@ -726,7 +765,7 @@ bool QQmlEngineDebugServiceImpl::resetBinding(int objectId, const QString &prope
 
         if (hasValidSignal(object, propertyName)) {
             QQmlProperty property(object, propertyName, context);
-            QQmlPropertyPrivate::setSignalExpression(property, 0);
+            QQmlPropertyPrivate::setSignalExpression(property, nullptr);
             return true;
         }
 
@@ -771,7 +810,7 @@ bool QQmlEngineDebugServiceImpl::setMethodBody(int objectId, const QString &meth
     QQmlVMEMetaObject *vmeMetaObject = QQmlVMEMetaObject::get(object);
     Q_ASSERT(vmeMetaObject); // the fact we found the property above should guarentee this
 
-    QV4::ExecutionEngine *v4 = QV8Engine::getV4(qmlEngine(object)->handle());
+    QV4::ExecutionEngine *v4 = qmlEngine(object)->handle();
     QV4::Scope scope(v4);
 
     int lineNumber = 0;
@@ -812,7 +851,8 @@ void QQmlEngineDebugServiceImpl::engineAboutToBeRemoved(QJSEngine *engine)
 void QQmlEngineDebugServiceImpl::objectCreated(QJSEngine *engine, QObject *object)
 {
     Q_ASSERT(engine);
-    Q_ASSERT(m_engines.contains(engine));
+    if (!m_engines.contains(engine))
+        return;
 
     int engineId = QQmlDebugService::idForObject(engine);
     int objectId = QQmlDebugService::idForObject(object);

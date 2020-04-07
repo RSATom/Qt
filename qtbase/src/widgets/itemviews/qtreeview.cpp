@@ -131,11 +131,12 @@ QT_BEGIN_NAMESPACE
          of the sibling that follows the parent.
     \row \li Left  \li Hides the children of the current item (if present)
          by collapsing a branch.
-    \row \li Minus  \li Same as LeftArrow.
+    \row \li Minus \li Same as Left.
     \row \li Right \li Reveals the children of the current item (if present)
          by expanding a branch.
-    \row \li Plus  \li Same as RightArrow.
-    \row \li Asterisk  \li Expands all children of the current item (if present).
+    \row \li Plus  \li Same as Right.
+    \row \li Asterisk  \li Expands the current item and all its children
+         (if present).
     \row \li PageUp   \li Moves the cursor up one page.
     \row \li PageDown \li Moves the cursor down one page.
     \row \li Home \li Moves the cursor to an item in the same column of the first
@@ -311,7 +312,7 @@ void QTreeView::setHeader(QHeaderView *header)
         delete d->header;
     d->header = header;
     d->header->setParent(this);
-    d->header->d_func()->setAllowUserMoveOfSection0(false);
+    d->header->setFirstSectionMovable(false);
 
     if (!d->header->model()) {
         d->header->setModel(d->model);
@@ -632,11 +633,8 @@ bool QTreeView::isFirstColumnSpanned(int row, const QModelIndex &parent) const
     Q_D(const QTreeView);
     if (d->spanningIndexes.isEmpty() || !d->model)
         return false;
-    QModelIndex index = d->model->index(row, 0, parent);
-    for (int i = 0; i < d->spanningIndexes.count(); ++i)
-        if (d->spanningIndexes.at(i) == index)
-            return true;
-    return false;
+    const QModelIndex index = d->model->index(row, 0, parent);
+    return d->spanningIndexes.contains(index);
 }
 
 /*!
@@ -653,20 +651,14 @@ void QTreeView::setFirstColumnSpanned(int row, const QModelIndex &parent, bool s
     Q_D(QTreeView);
     if (!d->model)
         return;
-    QModelIndex index = d->model->index(row, 0, parent);
+    const QModelIndex index = d->model->index(row, 0, parent);
     if (!index.isValid())
         return;
 
-    if (span) {
-        QPersistentModelIndex persistent(index);
-        if (!d->spanningIndexes.contains(persistent))
-            d->spanningIndexes.append(persistent);
-    } else {
-        QPersistentModelIndex persistent(index);
-        int i = d->spanningIndexes.indexOf(persistent);
-        if (i >= 0)
-            d->spanningIndexes.remove(i);
-    }
+    if (span)
+        d->spanningIndexes.insert(index);
+    else
+        d->spanningIndexes.remove(index);
 
     d->executePostedLayout();
     int i = d->viewIndex(index);
@@ -1287,7 +1279,7 @@ void QTreeView::timerEvent(QTimerEvent *event)
 /*!
   \reimp
 */
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
 void QTreeView::dragMoveEvent(QDragMoveEvent *event)
 {
     Q_D(QTreeView);
@@ -1334,15 +1326,15 @@ void QTreeView::paintEvent(QPaintEvent *event)
     Q_D(QTreeView);
     d->executePostedLayout();
     QPainter painter(viewport());
-#ifndef QT_NO_ANIMATION
+#if QT_CONFIG(animation)
     if (d->isAnimating()) {
         drawTree(&painter, event->region() - d->animatedOperation.rect());
         d->drawAnimatedOperation(&painter);
     } else
-#endif //QT_NO_ANIMATION
+#endif // animation
     {
         drawTree(&painter, event->region());
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
         d->paintDropIndicator(&painter);
 #endif
     }
@@ -1420,7 +1412,7 @@ QItemViewPaintPairs QTreeViewPrivate::draggablePaintPairs(const QModelIndexList 
     if (spanningIndexes.isEmpty())
         return QAbstractItemViewPrivate::draggablePaintPairs(indexes, r);
     QModelIndexList list;
-    foreach (const QModelIndex &idx, indexes) {
+    for (const QModelIndex &idx : indexes) {
         if (idx.column() > 0 && q->isFirstColumnSpanned(idx.row(), idx.parent()))
             continue;
         list << idx;
@@ -2000,19 +1992,21 @@ void QTreeView::keyPressEvent(QKeyEvent *event)
     if (d->isIndexValid(current) && d->model && d->itemsExpandable) {
         switch (event->key()) {
         case Qt::Key_Asterisk: {
+            // do layouting only once after expanding is done
+            d->doDelayedItemsLayout();
             QStack<QModelIndex> parents;
             parents.push(current);
-                while (!parents.isEmpty()) {
-                    QModelIndex parent = parents.pop();
-                    for (int row = 0; row < d->model->rowCount(parent); ++row) {
-                        QModelIndex child = d->model->index(row, 0, parent);
-                        if (!d->isIndexValid(child))
-                            break;
-                        parents.push(child);
-                        expand(child);
-                    }
+            while (!parents.isEmpty()) {
+                QModelIndex parent = parents.pop();
+                for (int row = 0; row < d->model->rowCount(parent); ++row) {
+                    QModelIndex child = d->model->index(row, 0, parent);
+                    if (!d->isIndexValid(child))
+                        break;
+                    parents.push(child);
+                    expand(child);
                 }
-                expand(current);
+            }
+            expand(current);
             break; }
         case Qt::Key_Plus:
             expand(current);
@@ -2495,7 +2489,6 @@ void QTreeView::scrollContentsBy(int dx, int dy)
         int previousScrollbarValue = currentScrollbarValue + dy; // -(-dy)
         int currentViewIndex = currentScrollbarValue; // the first visible item
         int previousViewIndex = previousScrollbarValue;
-        const QVector<QTreeViewItem> viewItems = d->viewItems;
         dy = 0;
         if (previousViewIndex < currentViewIndex) { // scrolling down
             for (int i = previousViewIndex; i < currentViewIndex; ++i) {
@@ -3056,10 +3049,10 @@ void QTreeViewPrivate::initialize()
     header->setStretchLastSection(true);
     header->setDefaultAlignment(Qt::AlignLeft|Qt::AlignVCenter);
     q->setHeader(header);
-#ifndef QT_NO_ANIMATION
+#if QT_CONFIG(animation)
     animationsEnabled = q->style()->styleHint(QStyle::SH_Widget_Animation_Duration, 0, q) > 0;
     QObject::connect(&animatedOperation, SIGNAL(finished()), q, SLOT(_q_endAnimatedOperation()));
-#endif //QT_NO_ANIMATION
+#endif // animation
 }
 
 void QTreeViewPrivate::expand(int item, bool emitSignal)
@@ -3072,10 +3065,10 @@ void QTreeViewPrivate::expand(int item, bool emitSignal)
     if (index.flags() & Qt::ItemNeverHasChildren)
         return;
 
-#ifndef QT_NO_ANIMATION
+#if QT_CONFIG(animation)
     if (emitSignal && animationsEnabled)
         prepareAnimatedOperation(item, QVariantAnimation::Forward);
-#endif //QT_NO_ANIMATION
+#endif // animation
      //if already animating, stateBeforeAnimation is set to the correct value
     if (state != QAbstractItemView::AnimatingState)
         stateBeforeAnimation = state;
@@ -3089,10 +3082,10 @@ void QTreeViewPrivate::expand(int item, bool emitSignal)
         model->fetchMore(index);
     if (emitSignal) {
         emit q->expanded(index);
-#ifndef QT_NO_ANIMATION
+#if QT_CONFIG(animation)
         if (animationsEnabled)
             beginAnimatedOperation();
-#endif //QT_NO_ANIMATION
+#endif // animation
     }
 }
 
@@ -3147,10 +3140,10 @@ void QTreeViewPrivate::collapse(int item, bool emitSignal)
     if (it == expandedIndexes.end() || viewItems.at(item).expanded == false)
         return; // nothing to do
 
-#ifndef QT_NO_ANIMATION
+#if QT_CONFIG(animation)
     if (emitSignal && animationsEnabled)
         prepareAnimatedOperation(item, QVariantAnimation::Backward);
-#endif //QT_NO_ANIMATION
+#endif // animation
 
     //if already animating, stateBeforeAnimation is set to the correct value
     if (state != QAbstractItemView::AnimatingState)
@@ -3168,14 +3161,14 @@ void QTreeViewPrivate::collapse(int item, bool emitSignal)
 
     if (emitSignal) {
         emit q->collapsed(modelIndex);
-#ifndef QT_NO_ANIMATION
+#if QT_CONFIG(animation)
         if (animationsEnabled)
             beginAnimatedOperation();
-#endif //QT_NO_ANIMATION
+#endif // animation
     }
 }
 
-#ifndef QT_NO_ANIMATION
+#if QT_CONFIG(animation)
 void QTreeViewPrivate::prepareAnimatedOperation(int item, QVariantAnimation::Direction direction)
 {
     animatedOperation.item = item;
@@ -3280,7 +3273,7 @@ void QTreeViewPrivate::_q_endAnimatedOperation()
     q->updateGeometries();
     viewport->update();
 }
-#endif //QT_NO_ANIMATION
+#endif // animation
 
 void QTreeViewPrivate::_q_modelAboutToBeReset()
 {
@@ -3732,9 +3725,14 @@ void QTreeViewPrivate::updateScrollBars()
 
 int QTreeViewPrivate::itemDecorationAt(const QPoint &pos) const
 {
+    Q_Q(const QTreeView);
     executePostedLayout();
-    int x = pos.x();
-    int column = header->logicalIndexAt(x);
+    bool spanned = false;
+    if (!spanningIndexes.isEmpty()) {
+        const QModelIndex index = q->indexAt(pos);
+        spanned = q->isFirstColumnSpanned(index.row(), index.parent());
+    }
+    const int column = spanned ? 0 : header->logicalIndexAt(pos.x());
     if (!isTreePosition(column))
         return -1; // no logical index at x
 
@@ -4004,6 +4002,27 @@ int QTreeView::visualIndex(const QModelIndex &index) const
     Q_D(const QTreeView);
     d->executePostedLayout();
     return d->viewIndex(index);
+}
+
+/*!
+   \internal
+*/
+
+void QTreeView::verticalScrollbarValueChanged(int value)
+{
+    Q_D(QTreeView);
+    if (!d->viewItems.isEmpty() && value == verticalScrollBar()->maximum()) {
+        QModelIndex ret = d->viewItems.last().index;
+        // Root index will be handled by base class implementation
+        while (ret.isValid()) {
+            if (isExpanded(ret) && d->model->canFetchMore(ret)) {
+                d->model->fetchMore(ret);
+                break;
+            }
+            ret = ret.parent();
+        }
+    }
+    QAbstractItemView::verticalScrollbarValueChanged(value);
 }
 
 QT_END_NAMESPACE

@@ -51,7 +51,7 @@ class DependentIterator {
       : graph_(graph),
         task_(task),
         current_index_(static_cast<size_t>(-1)),
-        current_node_(NULL) {
+        current_node_(nullptr) {
     ++(*this);
   }
 
@@ -101,15 +101,15 @@ class DependentIterator {
 
 }  // namespace
 
-TaskGraphWorkQueue::TaskNamespace::TaskNamespace() {}
+TaskGraphWorkQueue::TaskNamespace::TaskNamespace() = default;
 
 TaskGraphWorkQueue::TaskNamespace::TaskNamespace(TaskNamespace&& other) =
     default;
 
-TaskGraphWorkQueue::TaskNamespace::~TaskNamespace() {}
+TaskGraphWorkQueue::TaskNamespace::~TaskNamespace() = default;
 
 TaskGraphWorkQueue::TaskGraphWorkQueue() : next_namespace_id_(1) {}
-TaskGraphWorkQueue::~TaskGraphWorkQueue() {}
+TaskGraphWorkQueue::~TaskGraphWorkQueue() = default;
 
 TaskGraphWorkQueue::PrioritizedTask::PrioritizedTask(
     scoped_refptr<Task> task,

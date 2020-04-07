@@ -15,141 +15,170 @@
 #include "base/memory/weak_ptr.h"
 #include "base/strings/string16.h"
 #include "base/time/time.h"
-#include "content/browser/shared_worker/worker_document_set.h"
+#include "base/unguessable_token.h"
+#include "content/common/service_worker/service_worker_provider.mojom.h"
+#include "content/common/shared_worker/shared_worker.mojom.h"
+#include "content/common/shared_worker/shared_worker_client.mojom.h"
+#include "content/common/shared_worker/shared_worker_factory.mojom.h"
+#include "content/common/shared_worker/shared_worker_host.mojom.h"
+#include "mojo/public/cpp/bindings/binding.h"
+#include "services/network/public/mojom/url_loader_factory.mojom.h"
+#include "services/service_manager/public/mojom/interface_provider.mojom.h"
+#include "third_party/blink/public/web/devtools_agent.mojom.h"
 
 class GURL;
 
-namespace IPC {
-class Message;
+namespace blink {
+class MessagePortChannel;
 }
 
 namespace content {
-
-class MessagePort;
-class SharedWorkerMessageFilter;
+class SharedWorkerContentSettingsProxyImpl;
 class SharedWorkerInstance;
+class SharedWorkerServiceImpl;
+class URLLoaderFactoryBundleInfo;
 
 // The SharedWorkerHost is the interface that represents the browser side of
 // the browser <-> worker communication channel. This is owned by
 // SharedWorkerServiceImpl and destructed when a worker context or worker's
 // message filter is closed.
-class SharedWorkerHost {
+class CONTENT_EXPORT SharedWorkerHost
+    : public mojom::SharedWorkerHost,
+      public service_manager::mojom::InterfaceProvider {
  public:
-  SharedWorkerHost(SharedWorkerInstance* instance,
-                   SharedWorkerMessageFilter* filter,
-                   int worker_route_id);
-  ~SharedWorkerHost();
+  SharedWorkerHost(SharedWorkerServiceImpl* service,
+                   std::unique_ptr<SharedWorkerInstance> instance,
+                   int process_id);
+  ~SharedWorkerHost() override;
 
-  // Starts the SharedWorker in the renderer process which is associated with
-  // |filter_|.
-  void Start(bool pause_on_start);
+  // Starts the SharedWorker in the renderer process.
+  //
+  // S13nServiceWorker:
+  // |service_worker_provider_info| is sent to the renderer process and contains
+  // information about its ServiceWorkerProviderHost, the browser-side host for
+  // supporting the shared worker as a service worker client.
+  //
+  // S13nServiceWorker:
+  // |script_loader_factory| is sent to the renderer process and is to be used
+  // to request the shared worker's script. Currently it's only non-null when
+  // S13nServiceWorker is enabled, to allow service worker machinery to observe
+  // the request, but other web platform features may also use it someday.
+  void Start(
+      mojom::SharedWorkerFactoryPtr factory,
+      mojom::ServiceWorkerProviderInfoForSharedWorkerPtr
+          service_worker_provider_info,
+      network::mojom::URLLoaderFactoryAssociatedPtrInfo script_loader_factory,
+      std::unique_ptr<URLLoaderFactoryBundleInfo> factory_bundle);
 
-  // Returns true iff the given message from a renderer process was forwarded to
-  // the worker.
-  bool SendConnectToWorker(int worker_route_id,
-                           const MessagePort& port,
-                           SharedWorkerMessageFilter* filter);
-
-  // Handles the shutdown of the filter. If the worker has no other client,
-  // sends TerminateWorkerContext message to shut it down.
-  void FilterShutdown(SharedWorkerMessageFilter* filter);
-
-  // Shuts down any shared workers that are no longer referenced by active
-  // documents.
-  void DocumentDetached(SharedWorkerMessageFilter* filter,
-                        unsigned long long document_id);
-
-  // Removes the references to shared workers from the all documents in the
-  // renderer frame. And shuts down any shared workers that are no longer
-  // referenced by active documents.
-  void RenderFrameDetached(int render_process_id, int render_frame_id);
-
-  void CountFeature(uint32_t feature);
-  void WorkerContextClosed();
-  void WorkerContextDestroyed();
-  void WorkerReadyForInspection();
-  void WorkerScriptLoaded();
-  void WorkerScriptLoadFailed();
-  void WorkerConnected(int connection_request_id);
   void AllowFileSystem(const GURL& url,
-                       std::unique_ptr<IPC::Message> reply_msg);
+                       base::OnceCallback<void(bool)> callback);
   void AllowIndexedDB(const GURL& url,
                       const base::string16& name,
-                      bool* result);
+                      base::OnceCallback<void(bool)> callback);
 
   // Terminates the given worker, i.e. based on a UI action.
   void TerminateWorker();
 
-  void AddFilter(SharedWorkerMessageFilter* filter, int route_id);
+  void AddClient(mojom::SharedWorkerClientPtr client,
+                 int process_id,
+                 int frame_id,
+                 const blink::MessagePortChannel& port);
+
+  void BindDevToolsAgent(blink::mojom::DevToolsAgentAssociatedRequest request);
 
   SharedWorkerInstance* instance() { return instance_.get(); }
-  WorkerDocumentSet* worker_document_set() const {
-    return worker_document_set_.get();
-  }
-  SharedWorkerMessageFilter* worker_render_filter() const {
-    return worker_render_filter_;
-  }
-  int process_id() const { return worker_process_id_; }
-  int worker_route_id() const { return worker_route_id_; }
+  int process_id() const { return process_id_; }
   bool IsAvailable() const;
 
- private:
-  // Unique identifier for a worker client.
-  class FilterInfo {
-   public:
-    FilterInfo(SharedWorkerMessageFilter* filter, int route_id)
-        : filter_(filter), route_id_(route_id), connection_request_id_(0) {}
-    SharedWorkerMessageFilter* filter() const { return filter_; }
-    int route_id() const { return route_id_; }
-    int connection_request_id() const { return connection_request_id_; }
-    void set_connection_request_id(int id) { connection_request_id_ = id; }
+  base::WeakPtr<SharedWorkerHost> AsWeakPtr();
 
-   private:
-    SharedWorkerMessageFilter* filter_;
-    const int route_id_;
-    int connection_request_id_;
+ private:
+  friend class SharedWorkerHostTest;
+
+  enum class Phase {
+    kInitial,
+    kStarted,
+    kClosed,
+    kTerminationSent,
+    kTerminationSentAndClosed
   };
 
-  using FilterList = std::list<FilterInfo>;
+  class ScopedDevToolsHandle;
+
+  struct ClientInfo {
+    ClientInfo(mojom::SharedWorkerClientPtr client,
+               int connection_request_id,
+               int process_id,
+               int frame_id);
+    ~ClientInfo();
+    mojom::SharedWorkerClientPtr client;
+    const int connection_request_id;
+    const int process_id;
+    const int frame_id;
+  };
+
+  using ClientList = std::list<ClientInfo>;
+
+  // mojom::SharedWorkerHost methods:
+  void OnConnected(int connection_request_id) override;
+  void OnContextClosed() override;
+  void OnReadyForInspection() override;
+  void OnScriptLoaded() override;
+  void OnScriptLoadFailed() override;
+  void OnFeatureUsed(blink::mojom::WebFeature feature) override;
 
   // Return a vector of all the render process/render frame IDs.
-  std::vector<std::pair<int, int> > GetRenderFrameIDsForWorker();
+  std::vector<std::pair<int, int>> GetRenderFrameIDsForWorker();
 
-  void RemoveFilters(SharedWorkerMessageFilter* filter);
-  bool HasFilter(SharedWorkerMessageFilter* filter, int route_id) const;
-  void SetConnectionRequestID(SharedWorkerMessageFilter* filter,
-                              int route_id,
-                              int connection_request_id);
-  void AllowFileSystemResponse(std::unique_ptr<IPC::Message> reply_msg,
+  void AllowFileSystemResponse(base::OnceCallback<void(bool)> callback,
                                bool allowed);
+  void OnClientConnectionLost();
+  void OnWorkerConnectionLost();
 
-  // Sends |message| to the SharedWorker.
-  bool Send(IPC::Message* message);
+  // service_manager::mojom::InterfaceProvider:
+  void GetInterface(const std::string& interface_name,
+                    mojo::ScopedMessagePipeHandle interface_pipe) override;
 
+  void CreateNetworkFactory(network::mojom::URLLoaderFactoryRequest request);
+
+  void AdvanceTo(Phase phase);
+
+  mojo::Binding<mojom::SharedWorkerHost> binding_;
+
+  // |service_| owns |this|.
+  SharedWorkerServiceImpl* service_;
   std::unique_ptr<SharedWorkerInstance> instance_;
-  scoped_refptr<WorkerDocumentSet> worker_document_set_;
-  FilterList filters_;
+  ClientList clients_;
 
-  // A message filter for a renderer process that hosts a worker. This is always
-  // valid because this host is destructed immediately after the filter is
-  // closed (see SharedWorkerServiceImpl::OnSharedWorkerMessageFilterClosing).
-  SharedWorkerMessageFilter* worker_render_filter_;
+  mojom::SharedWorkerRequest worker_request_;
+  mojom::SharedWorkerPtr worker_;
 
-  const int worker_process_id_;
-  const int worker_route_id_;
+  const int process_id_;
   int next_connection_request_id_;
-  bool termination_message_sent_ = false;
-  bool closed_ = false;
   const base::TimeTicks creation_time_;
+  std::unique_ptr<ScopedDevToolsHandle> devtools_handle_;
 
-  // This is the set of features that this worker has used. The values must be
-  // from blink::UseCounter::Feature enum.
-  std::set<uint32_t> used_features_;
+  // This is the set of features that this worker has used.
+  std::set<blink::mojom::WebFeature> used_features_;
+
+  std::unique_ptr<SharedWorkerContentSettingsProxyImpl> content_settings_;
+
+  // This is kept alive during the lifetime of the shared worker, since it's
+  // associated with Mojo interfaces (ServiceWorkerContainer and
+  // URLLoaderFactory) that are needed to stay alive while the worker is
+  // starting or running.
+  mojom::SharedWorkerFactoryPtr factory_;
+
+  mojo::Binding<service_manager::mojom::InterfaceProvider>
+      interface_provider_binding_;
+
+  Phase phase_ = Phase::kInitial;
 
   base::WeakPtrFactory<SharedWorkerHost> weak_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(SharedWorkerHost);
 };
+
 }  // namespace content
 
 #endif  // CONTENT_BROWSER_SHARED_WORKER_SHARED_WORKER_HOST_H_

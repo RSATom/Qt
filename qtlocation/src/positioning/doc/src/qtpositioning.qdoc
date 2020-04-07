@@ -40,12 +40,15 @@
     For C++ projects include the header appropriate for the current use case,
     for example applications using routes may use
 
-    \code #include <QGeoCoordinate> \endcode
+    \code
+    #include <QGeoCoordinate>
+    \endcode
 
     The .pro file should have the \e positioning keyword added
 
-    \code QT += positioning \endcode
-
+    \badcode
+    QT += positioning
+    \endcode
 
     See more in the \l{Qt Positioning}{Qt Positioning Overview}.
 
@@ -87,11 +90,24 @@ To load the Qt Positioning module, add the following statement to your .qml file
 For C++ projects include the header appropriate for the current use case,
 for example applications using routes may use
 
-\code #include <QGeoCoordinate> \endcode
+\code
+#include <QGeoCoordinate>
+\endcode
 
 The .pro file should have the \e positioning keyword added
 
-\code QT += positioning \endcode
+\badcode
+QT += positioning
+\endcode
+
+\section1 Licenses
+
+Qt Positioning is available under commercial licenses from \l{The Qt Company}.
+In addition, it is available under free software licenses. Since Qt 5.4,
+these free software licenses are
+\l{GNU Lesser General Public License, version 3}, or
+the \l{GNU General Public License, version 2}.
+See \l{Qt Licensing} for further details.
 
 \section1 Related Information
 \section2 Overview

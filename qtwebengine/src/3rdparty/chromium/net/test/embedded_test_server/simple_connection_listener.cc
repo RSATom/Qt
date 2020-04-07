@@ -19,7 +19,7 @@ SimpleConnectionListener::SimpleConnectionListener(
       allow_additional_connections_(allow_additional_connections),
       run_loop_task_runner_(base::ThreadTaskRunnerHandle::Get()) {}
 
-SimpleConnectionListener::~SimpleConnectionListener() {}
+SimpleConnectionListener::~SimpleConnectionListener() = default;
 
 void SimpleConnectionListener::AcceptedSocket(const StreamSocket& socket) {
   ++seen_connections_;
@@ -33,7 +33,7 @@ void SimpleConnectionListener::ReadFromSocket(const StreamSocket& socket,
                                               int rv) {}
 
 void SimpleConnectionListener::WaitForConnections() {
-  EXPECT_TRUE(run_loop_task_runner_->RunsTasksOnCurrentThread());
+  EXPECT_TRUE(run_loop_task_runner_->RunsTasksInCurrentSequence());
   run_loop_.Run();
 }
 

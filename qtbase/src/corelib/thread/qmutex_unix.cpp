@@ -42,8 +42,6 @@
 #include "qmutex.h"
 #include "qstring.h"
 #include "qelapsedtimer.h"
-
-#ifndef QT_NO_THREAD
 #include "qatomic.h"
 #include "qmutex_p.h"
 #include <errno.h>
@@ -130,7 +128,7 @@ bool QMutexPrivate::wait(int timeout)
             errorCode = pthread_cond_wait(&cond, &mutex);
         } else {
             timespec ti;
-            qt_abstime_for_timeout(&ti, timeout);
+            qt_abstime_for_timeout(&ti, QDeadlineTimer(timeout));
             errorCode = pthread_cond_timedwait(&cond, &mutex, &ti);
         }
         if (errorCode) {
@@ -159,5 +157,3 @@ void QMutexPrivate::wakeUp() Q_DECL_NOTHROW
 #endif
 
 QT_END_NAMESPACE
-
-#endif // QT_NO_THREAD

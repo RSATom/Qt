@@ -7,10 +7,13 @@
 
 #include <string>
 
+#include "base/files/file_path.h"
 #include "base/optional.h"
 #include "base/time/time.h"
+#include "components/offline_items_collection/core/fail_state.h"
 #include "components/offline_items_collection/core/offline_item_filter.h"
 #include "components/offline_items_collection/core/offline_item_state.h"
+#include "components/offline_items_collection/core/pending_state.h"
 #include "ui/gfx/image/image.h"
 #include "url/gurl.h"
 
@@ -83,6 +86,9 @@ struct OfflineItem {
 
   bool operator==(const OfflineItem& offline_item) const;
 
+  // Note: please update test_support/offline_item_test_support.cc
+  // when adding members here.
+
   // The id of this OfflineItem.  Used to identify this item across all relevant
   // systems.
   ContentId id;
@@ -104,6 +110,12 @@ struct OfflineItem {
   // persistent UI spaces and will only show up as notifications.
   bool is_transient;
 
+  // Whether this item should show up as a suggested item for the user.
+  bool is_suggested;
+
+  // Whether this item is going through accelerated download.
+  bool is_accelerated;
+
   // TODO(dtrainor): Build out custom per-item icon support.
 
   // Content Metadata.
@@ -123,6 +135,12 @@ struct OfflineItem {
   // Whether or not this item can be opened after it is done being downloaded.
   bool is_openable;
 
+  // The target file path for this offline item.
+  base::FilePath file_path;
+
+  // The mime type for this offline item.
+  std::string mime_type;
+
   // Request Metadata.
   // ---------------------------------------------------------------------------
   // The URL of the top level frame at the time the content was offlined.
@@ -138,6 +156,12 @@ struct OfflineItem {
   // ---------------------------------------------------------------------------
   // The current state of the OfflineItem.
   OfflineItemState state;
+
+  // Reason OfflineItem failed to download.
+  FailState fail_state;
+
+  // Reason OfflineItem is pending.
+  PendingState pending_state;
 
   // Whether or not the offlining of this content can be resumed if it was
   // paused or interrupted.
@@ -159,7 +183,14 @@ struct OfflineItem {
   // represents an unknown time remaining.  This field is not used if |state| is
   // COMPLETE.
   int64_t time_remaining_ms;
+
+  // Whether the download might be dangerous and will require additional
+  // validation from user.
+  bool is_dangerous;
 };
+
+// Implemented for test-only. See test_support/offline_item_test_support.cc.
+std::ostream& operator<<(std::ostream& os, const OfflineItem& item);
 
 // This struct holds any potentially expensive visuals for an OfflineItem.  If
 // the front end requires the visuals it will ask for them through the

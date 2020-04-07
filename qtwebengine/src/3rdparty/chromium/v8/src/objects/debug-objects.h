@@ -6,6 +6,7 @@
 #define V8_OBJECTS_DEBUG_OBJECTS_H_
 
 #include "src/objects.h"
+#include "src/objects/fixed-array.h"
 
 // Has to be the last include (doesn't have include guards):
 #include "src/objects/object-macros.h"
@@ -13,15 +14,26 @@
 namespace v8 {
 namespace internal {
 
+class BreakPoint;
+class BytecodeArray;
+
 // The DebugInfo class holds additional information for a function being
 // debugged.
-class DebugInfo : public Struct {
+class DebugInfo : public Struct, public NeverReadOnlySpaceObject {
  public:
+  using NeverReadOnlySpaceObject::GetHeap;
+  using NeverReadOnlySpaceObject::GetIsolate;
+
   enum Flag {
     kNone = 0,
     kHasBreakInfo = 1 << 0,
-    kHasCoverageInfo = 1 << 1,
+    kPreparedForDebugExecution = 1 << 1,
+    kHasCoverageInfo = 1 << 2,
+    kBreakAtEntry = 1 << 3,
+    kCanBreakAtEntry = 1 << 4,
+    kDebugExecutionMode = 1 << 5
   };
+
   typedef base::Flags<Flag> Flags;
 
   // A bitfield that lists uses of the current instance.
@@ -33,55 +45,118 @@ class DebugInfo : public Struct {
   // Bit field containing various information collected for debugging.
   DECL_INT_ACCESSORS(debugger_hints)
 
+  // Function identifier field from shared function info.
+  DECL_ACCESSORS(function_identifier, Object)
+
   // DebugInfo can be detached from the SharedFunctionInfo iff it is empty.
   bool IsEmpty() const;
+
+  // --- Debug execution ---
+  // -----------------------
+
+  enum ExecutionMode { kBreakpoints = 0, kSideEffects = kDebugExecutionMode };
+
+  // Returns current debug execution mode. Debug execution mode defines by
+  // applied to bytecode patching. False for breakpoints, true for side effect
+  // checks.
+  ExecutionMode DebugExecutionMode() const;
+  void SetDebugExecutionMode(ExecutionMode value);
+
+  // Specifies whether the associated function has an instrumented bytecode
+  // array. If so, OriginalBytecodeArray returns the non-instrumented bytecode,
+  // and DebugBytecodeArray returns the instrumented bytecode.
+  inline bool HasInstrumentedBytecodeArray();
+
+  inline BytecodeArray* OriginalBytecodeArray();
+  inline BytecodeArray* DebugBytecodeArray();
 
   // --- Break points ---
   // --------------------
 
   bool HasBreakInfo() const;
 
-  // Clears all fields related to break points. Returns true iff the
-  // DebugInfo is now empty.
-  bool ClearBreakInfo();
+  // Clears all fields related to break points.
+  void ClearBreakInfo(Isolate* isolate);
 
-  // The instrumented bytecode array for functions with break points.
-  DECL_ACCESSORS(debug_bytecode_array, Object)
+  // Accessors to flag whether to break before entering the function.
+  // This is used to break for functions with no source, e.g. builtins.
+  void SetBreakAtEntry();
+  void ClearBreakAtEntry();
+  bool BreakAtEntry() const;
+
+  // The original uninstrumented bytecode array for functions with break
+  // points - the instrumented bytecode is held in the shared function info.
+  DECL_ACCESSORS(original_bytecode_array, Object)
 
   // Fixed array holding status information for each active break point.
   DECL_ACCESSORS(break_points, FixedArray)
 
   // Check if there is a break point at a source position.
-  bool HasBreakPoint(int source_position);
+  bool HasBreakPoint(Isolate* isolate, int source_position);
   // Attempt to clear a break point. Return true if successful.
-  static bool ClearBreakPoint(Handle<DebugInfo> debug_info,
-                              Handle<Object> break_point_object);
+  static bool ClearBreakPoint(Isolate* isolate, Handle<DebugInfo> debug_info,
+                              Handle<BreakPoint> break_point);
   // Set a break point.
-  static void SetBreakPoint(Handle<DebugInfo> debug_info, int source_position,
-                            Handle<Object> break_point_object);
+  static void SetBreakPoint(Isolate* isolate, Handle<DebugInfo> debug_info,
+                            int source_position,
+                            Handle<BreakPoint> break_point);
   // Get the break point objects for a source position.
-  Handle<Object> GetBreakPointObjects(int source_position);
+  Handle<Object> GetBreakPoints(Isolate* isolate, int source_position);
   // Find the break point info holding this break point object.
-  static Handle<Object> FindBreakPointInfo(Handle<DebugInfo> debug_info,
-                                           Handle<Object> break_point_object);
+  static Handle<Object> FindBreakPointInfo(Isolate* isolate,
+                                           Handle<DebugInfo> debug_info,
+                                           Handle<BreakPoint> break_point);
   // Get the number of break points for this function.
-  int GetBreakPointCount();
+  int GetBreakPointCount(Isolate* isolate);
 
-  inline bool HasDebugBytecodeArray();
-  inline bool HasDebugCode();
+  // Returns whether we should be able to break before entering the function.
+  // This is true for functions with no source, e.g. builtins.
+  bool CanBreakAtEntry() const;
 
-  inline BytecodeArray* OriginalBytecodeArray();
-  inline BytecodeArray* DebugBytecodeArray();
-  inline Code* DebugCode();
+  // --- Debugger hint flags ---
+  // ---------------------------
+
+  // Indicates that the function should be skipped during stepping.
+  DECL_BOOLEAN_ACCESSORS(debug_is_blackboxed)
+
+  // Indicates that |debug_is_blackboxed| has been computed and set.
+  DECL_BOOLEAN_ACCESSORS(computed_debug_is_blackboxed)
+
+  // Indicates the side effect state.
+  DECL_INT_ACCESSORS(side_effect_state)
+
+  enum SideEffectState {
+    kNotComputed = 0,
+    kHasSideEffects = 1,
+    kRequiresRuntimeChecks = 2,
+    kHasNoSideEffect = 3,
+  };
+
+  SideEffectState GetSideEffectState(Isolate* isolate);
+
+  // Id assigned to the function for debugging.
+  // This could also be implemented as a weak hash table.
+  DECL_INT_ACCESSORS(debugging_id);
+
+// Bit positions in |debugger_hints|.
+#define DEBUGGER_HINTS_BIT_FIELDS(V, _)       \
+  V(SideEffectStateBits, int, 2, _)           \
+  V(DebugIsBlackboxedBit, bool, 1, _)         \
+  V(ComputedDebugIsBlackboxedBit, bool, 1, _) \
+  V(DebuggingIdBits, int, 20, _)
+
+  DEFINE_BIT_FIELDS(DEBUGGER_HINTS_BIT_FIELDS)
+#undef DEBUGGER_HINTS_BIT_FIELDS
+
+  static const int kNoDebuggingId = 0;
 
   // --- Block Coverage ---
   // ----------------------
 
   bool HasCoverageInfo() const;
 
-  // Clears all fields related to block coverage. Returns true iff the
-  // DebugInfo is now empty.
-  bool ClearCoverageInfo();
+  // Clears all fields related to block coverage.
+  void ClearCoverageInfo(Isolate* isolate);
   DECL_ACCESSORS(coverage_info, Object)
 
   DECL_CAST(DebugInfo)
@@ -93,10 +168,12 @@ class DebugInfo : public Struct {
   static const int kSharedFunctionInfoOffset = Struct::kHeaderSize;
   static const int kDebuggerHintsOffset =
       kSharedFunctionInfoOffset + kPointerSize;
-  static const int kDebugBytecodeArrayOffset =
+  static const int kFunctionIdentifierOffset =
       kDebuggerHintsOffset + kPointerSize;
+  static const int kOriginalBytecodeArrayOffset =
+      kFunctionIdentifierOffset + kPointerSize;
   static const int kBreakPointsStateOffset =
-      kDebugBytecodeArrayOffset + kPointerSize;
+      kOriginalBytecodeArrayOffset + kPointerSize;
   static const int kFlagsOffset = kBreakPointsStateOffset + kPointerSize;
   static const int kCoverageInfoOffset = kFlagsOffset + kPointerSize;
   static const int kSize = kCoverageInfoOffset + kPointerSize;
@@ -105,7 +182,7 @@ class DebugInfo : public Struct {
 
  private:
   // Get the break point info object for a source position.
-  Object* GetBreakPointInfo(int source_position);
+  Object* GetBreakPointInfo(Isolate* isolate, int source_position);
 
   DISALLOW_IMPLICIT_CONSTRUCTORS(DebugInfo);
 };
@@ -118,26 +195,26 @@ class BreakPointInfo : public Tuple2 {
   // The position in the source for the break position.
   DECL_INT_ACCESSORS(source_position)
   // List of related JavaScript break points.
-  DECL_ACCESSORS(break_point_objects, Object)
+  DECL_ACCESSORS(break_points, Object)
 
   // Removes a break point.
-  static void ClearBreakPoint(Handle<BreakPointInfo> info,
-                              Handle<Object> break_point_object);
+  static void ClearBreakPoint(Isolate* isolate, Handle<BreakPointInfo> info,
+                              Handle<BreakPoint> break_point);
   // Set a break point.
-  static void SetBreakPoint(Handle<BreakPointInfo> info,
-                            Handle<Object> break_point_object);
-  // Check if break point info has this break point object.
-  static bool HasBreakPointObject(Handle<BreakPointInfo> info,
-                                  Handle<Object> break_point_object);
+  static void SetBreakPoint(Isolate* isolate, Handle<BreakPointInfo> info,
+                            Handle<BreakPoint> break_point);
+  // Check if break point info has this break point.
+  static bool HasBreakPoint(Isolate* isolate, Handle<BreakPointInfo> info,
+                            Handle<BreakPoint> break_point);
   // Get the number of break points for this code offset.
-  int GetBreakPointCount();
+  int GetBreakPointCount(Isolate* isolate);
 
   int GetStatementPosition(Handle<DebugInfo> debug_info);
 
   DECL_CAST(BreakPointInfo)
 
   static const int kSourcePositionOffset = kValue1Offset;
-  static const int kBreakPointObjectsOffset = kValue2Offset;
+  static const int kBreakPointsOffset = kValue2Offset;
 
  private:
   DISALLOW_IMPLICIT_CONSTRUCTORS(BreakPointInfo);
@@ -162,6 +239,9 @@ class CoverageInfo : public FixedArray {
 
   DECL_CAST(CoverageInfo)
 
+  // Print debug info.
+  void Print(std::unique_ptr<char[]> function_name);
+
  private:
   static int FirstIndexForSlot(int slot_index) {
     return kFirstSlotIndex + slot_index * kSlotIndexCount;
@@ -177,6 +257,21 @@ class CoverageInfo : public FixedArray {
   static const int kSlotIndexCount = 3;
 
   DISALLOW_IMPLICIT_CONSTRUCTORS(CoverageInfo);
+};
+
+// Holds breakpoint related information. This object is used by inspector.
+class BreakPoint : public Tuple2 {
+ public:
+  DECL_INT_ACCESSORS(id)
+  DECL_ACCESSORS(condition, String)
+
+  DECL_CAST(BreakPoint)
+
+  static const int kIdOffset = kValue1Offset;
+  static const int kConditionOffset = kValue2Offset;
+
+ private:
+  DISALLOW_IMPLICIT_CONSTRUCTORS(BreakPoint);
 };
 
 }  // namespace internal

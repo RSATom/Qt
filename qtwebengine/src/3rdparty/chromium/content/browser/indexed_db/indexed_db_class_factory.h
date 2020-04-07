@@ -15,7 +15,7 @@
 #include "content/browser/indexed_db/indexed_db_backing_store.h"
 #include "content/browser/indexed_db/indexed_db_database.h"
 #include "content/common/content_export.h"
-#include "third_party/WebKit/public/platform/modules/indexeddb/WebIDBTypes.h"
+#include "third_party/blink/public/platform/modules/indexeddb/web_idb_types.h"
 
 namespace leveldb {
 class Iterator;
@@ -46,6 +46,7 @@ class CONTENT_EXPORT IndexedDBClassFactory {
       const base::string16& name,
       scoped_refptr<IndexedDBBackingStore> backing_store,
       scoped_refptr<IndexedDBFactory> factory,
+      std::unique_ptr<IndexedDBMetadataCoding> metadata_coding,
       const IndexedDBDatabase::Identifier& unique_identifier);
 
   virtual std::unique_ptr<IndexedDBTransaction> CreateIndexedDBTransaction(

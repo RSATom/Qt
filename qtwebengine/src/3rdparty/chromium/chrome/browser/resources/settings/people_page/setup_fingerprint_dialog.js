@@ -19,25 +19,16 @@ settings.FingerprintSetupStep = {
 /**
  * The duration in ms of a fingerprint icon flash when a user touches the
  * fingerprint sensor during an enroll session.
- * @const {number}
+ * @type {number}
  */
-var FLASH_DURATION_MS = 300;
+const FLASH_DURATION_MS = 300;
 
 /**
- * The amount of millseconds after a successful but not completed scan before a
+ * The amount of milliseconds after a successful but not completed scan before a
  * message shows up telling the user to scan their finger again.
- * @const {number}
+ * @type {number}
  */
-var SHOW_TAP_SENSOR_MESSAGE_DELAY_MS = 2000;
-
-/**
- * The estimated amount of complete scans needed to enroll a fingerprint. Used
- * to help us estimate the progress of an enroll session.
- * TODO(xiaoyinh@): This will be replaced by percentage of completion in the
- * future.
- * @const {number}
- */
-var SUCCESSFUL_SCANS_TO_COMPLETE = 15;
+const SHOW_TAP_SENSOR_MESSAGE_DELAY_MS = 2000;
 
 Polymer({
   is: 'settings-setup-fingerprint-dialog',
@@ -63,14 +54,6 @@ Polymer({
   },
 
   /**
-   * The number of scans that have been received during setup. This is used to
-   * approximate the progress of the setup.
-   * @type {number}
-   * @private
-   */
-  receivedScanCount_: 0,
-
-  /**
    * A message shows after the user has not scanned a finger during setup. This
    * is the set timeout id.
    * @type {number}
@@ -80,6 +63,15 @@ Polymer({
 
   /** @private {?settings.FingerprintBrowserProxy}*/
   browserProxy_: null,
+
+  /**
+   * The percentage of completion that has been received during setup.
+   * This is used to approximate the progress of the setup.
+   * The value within [0, 100] represents the percent of enrollment completion.
+   * @type {number}
+   * @private
+   */
+  percentComplete_: 0,
 
   /** @override */
   attached: function() {
@@ -126,7 +118,7 @@ Polymer({
    */
   reset_: function() {
     this.step_ = settings.FingerprintSetupStep.LOCATE_SCANNER;
-    this.receivedScanCount_ = 0;
+    this.percentComplete_ = 0;
     this.$.arc.clearCanvas();
     this.clearSensorMessageTimeout_();
   },
@@ -156,13 +148,14 @@ Polymer({
           this.$.arc.drawBackgroundCircle();
 
           this.step_ = settings.FingerprintSetupStep.MOVE_FINGER;
-          this.receivedScanCount_ = 0;
+          this.percentComplete_ = 0;
         }
-        var slice = 2 * Math.PI / SUCCESSFUL_SCANS_TO_COMPLETE;
+        const slice = 2 * Math.PI / 100;
         if (scan.isComplete) {
           this.problemMessage_ = '';
           this.step_ = settings.FingerprintSetupStep.READY;
-          this.$.arc.animate(this.receivedScanCount_ * slice, 2 * Math.PI);
+          this.$.arc.animateProgress(
+              this.percentComplete_ * slice, 2 * Math.PI);
           this.clearSensorMessageTimeout_();
         } else {
           this.setProblem_(scan.result);
@@ -176,10 +169,11 @@ Polymer({
                   opacity: [0.7, 1.0],
                 },
                 FLASH_DURATION_MS);
-            this.$.arc.animate(
-                this.receivedScanCount_ * slice,
-                (this.receivedScanCount_ + 1) * slice);
-            this.receivedScanCount_++;
+            if (scan.percentComplete > this.percentComplete_) {
+              this.$.arc.animateProgress(
+                  this.percentComplete_ * slice, scan.percentComplete * slice);
+              this.percentComplete_ = scan.percentComplete;
+            }
           }
         }
         break;
@@ -221,9 +215,9 @@ Polymer({
     switch (scanResult) {
       case settings.FingerprintResultType.SUCCESS:
         this.problemMessage_ = '';
-        this.tapSensorMessageTimeoutId_ = setTimeout(function() {
+        this.tapSensorMessageTimeoutId_ = setTimeout(() => {
           this.problemMessage_ = this.i18n('configureFingerprintLiftFinger');
-        }.bind(this), SHOW_TAP_SENSOR_MESSAGE_DELAY_MS);
+        }, SHOW_TAP_SENSOR_MESSAGE_DELAY_MS);
         break;
       case settings.FingerprintResultType.PARTIAL:
         this.problemMessage_ = this.i18n('configureFingerprintPartialData');
@@ -259,9 +253,9 @@ Polymer({
    */
   getCloseButtonText_: function(step) {
     if (step == settings.FingerprintSetupStep.READY)
-      return this.i18n('configureFingerprintDoneButton');
+      return this.i18n('done');
 
-    return this.i18n('configureFingerprintCancelButton');
+    return this.i18n('cancel');
   },
 
   /**

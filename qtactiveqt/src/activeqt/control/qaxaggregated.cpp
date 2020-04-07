@@ -51,7 +51,7 @@
 #include "qaxaggregated.h"
 
 #ifdef QT_WIDGETS_LIB
-#  include <QtWidgets/QWidget>
+#  include <QtWidgets/qwidget.h>
 #endif
 
 QT_BEGIN_NAMESPACE

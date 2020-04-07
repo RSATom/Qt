@@ -7,6 +7,7 @@ requires(!integrity)
 requires(!vxworks)
 requires(!winrt)
 requires(!uikit)
+requires(!emscripten)
 
 load(configure)
 qtCompileTest(ntddmodm)

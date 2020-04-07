@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2018 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the plugins of the Qt Toolkit.
@@ -54,42 +54,20 @@
 #import <AppKit/AppKit.h>
 #include <QtCore/private/qcore_mac_p.h>
 
-@interface QT_MANGLE_NAMESPACE(QCocoaMenuLoader) : NSResponder
-{
-    IBOutlet NSMenu *theMenu;
-    IBOutlet NSMenu *appMenu;
-    IBOutlet NSMenuItem *quitItem;
-    IBOutlet NSMenuItem *preferencesItem;
-    IBOutlet NSMenuItem *aboutItem;
-    IBOutlet NSMenuItem *aboutQtItem;
-    IBOutlet NSMenuItem *hideItem;
-    NSMenuItem *lastAppSpecificItem;
-    NSMenuItem *servicesItem;
-    NSMenuItem *hideAllOthersItem;
-    NSMenuItem *showAllItem;
-}
+QT_FORWARD_DECLARE_CLASS(QCocoaMenuItem);
+
+@interface QT_MANGLE_NAMESPACE(QCocoaMenuLoader) : NSObject
 + (instancetype)sharedMenuLoader;
-- (instancetype)init;
-- (void)ensureAppMenuInMenu:(NSMenu *)menu;
-- (void)removeActionsFromAppMenu;
-- (NSMenu *)applicationMenu;
 - (NSMenu *)menu;
+- (void)ensureAppMenuInMenu:(NSMenu *)menu;
 - (NSMenuItem *)quitMenuItem;
 - (NSMenuItem *)preferencesMenuItem;
 - (NSMenuItem *)aboutMenuItem;
 - (NSMenuItem *)aboutQtMenuItem;
 - (NSMenuItem *)hideMenuItem;
-- (NSMenuItem *)appSpecificMenuItem:(NSInteger)tag;
-- (IBAction)terminate:(id)sender;
-- (IBAction)orderFrontStandardAboutPanel:(id)sender;
-- (IBAction)hideOtherApplications:(id)sender;
-- (IBAction)unhideAllApplications:(id)sender;
-- (IBAction)hide:(id)sender;
-- (IBAction)qtDispatcherToQPAMenuItem:(id)sender;
-- (void)orderFrontCharacterPalette:(id)sender;
-- (BOOL)validateMenuItem:(NSMenuItem*)menuItem;
+- (NSMenuItem *)appSpecificMenuItem:(QCocoaMenuItem *)platformItem;
 - (void)qtTranslateApplicationMenu;
-- (NSArray *)mergeable;
+- (NSArray<NSMenuItem *> *)mergeable;
 @end
 
 QT_NAMESPACE_ALIAS_OBJC_CLASS(QCocoaMenuLoader);

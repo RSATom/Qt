@@ -42,12 +42,12 @@
 
 #include "shared_global_p.h"
 
-#include <QtDesigner/QDesignerLayoutDecorationExtension>
+#include <QtDesigner/layoutdecoration.h>
 
-#include <QtCore/QPointer>
-#include <QtCore/QVariant>
-#include <QtWidgets/QWidget>
-#include <QtWidgets/QLayout>
+#include <QtCore/qpointer.h>
+#include <QtCore/qvariant.h>
+#include <QtWidgets/qwidget.h>
+#include <QtWidgets/qlayout.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -168,7 +168,7 @@ protected:
     QLayoutSupport(QDesignerFormWindowInterface *formWindow, QWidget *widget, LayoutHelper *helper, QObject *parent = 0);
 
 public:
-    virtual ~QLayoutSupport();
+    ~QLayoutSupport() override;
 
     inline QDesignerFormWindowInterface *formWindow() const   { return m_formWindow; }
 
@@ -176,19 +176,19 @@ public:
     LayoutHelper* helper() const                              { return m_helper; }
 
     // DecorationExtension
-    int currentIndex() const Q_DECL_OVERRIDE                  { return m_currentIndex; }
+    int currentIndex() const override                  { return m_currentIndex; }
 
-    InsertMode currentInsertMode() const Q_DECL_OVERRIDE      { return m_currentInsertMode; }
+    InsertMode currentInsertMode() const override      { return m_currentInsertMode; }
 
-    QPair<int, int> currentCell() const  Q_DECL_OVERRIDE      { return m_currentCell; }
+    QPair<int, int> currentCell() const  override      { return m_currentCell; }
 
-    int findItemAt(const QPoint &pos) const Q_DECL_OVERRIDE;
-    int indexOf(QWidget *widget) const Q_DECL_OVERRIDE;
-    int indexOf(QLayoutItem *item) const Q_DECL_OVERRIDE;
+    int findItemAt(const QPoint &pos) const override;
+    int indexOf(QWidget *widget) const override;
+    int indexOf(QLayoutItem *item) const override;
 
-    void adjustIndicator(const QPoint &pos, int index) Q_DECL_OVERRIDE;
+    void adjustIndicator(const QPoint &pos, int index) override;
 
-    QWidgetList widgets(QLayout *layout) const Q_DECL_OVERRIDE;
+    QWidgetList widgets(QLayout *layout) const override;
 
     // Pad empty cells with dummy spacers. Called by layouting commands.
     static void createEmptyCells(QGridLayout *gridLayout);
@@ -216,7 +216,7 @@ protected:
     virtual QRect extendedGeometry(int index) const = 0;
     virtual bool supportsIndicatorOrientation(Qt::Orientation indicatorOrientation) const = 0;
 
-    QRect itemInfo(int index) const Q_DECL_OVERRIDE;
+    QRect itemInfo(int index) const override;
     QLayout *layout() const;
     QGridLayout *gridLayout() const;
     QWidget *widget() const              { return m_widget; }
@@ -263,8 +263,8 @@ public:
     inline QDesignerFormWindowInterface *formWindow() const    { return m_formWindow; }
 
 protected:
-    bool event(QEvent *e) Q_DECL_OVERRIDE;
-    void paintEvent(QPaintEvent *e) Q_DECL_OVERRIDE;
+    bool event(QEvent *e) override;
+    void paintEvent(QPaintEvent *e) override;
 
 private:
     QDesignerFormWindowInterface *m_formWindow;

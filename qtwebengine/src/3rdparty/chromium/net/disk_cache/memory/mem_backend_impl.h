@@ -12,6 +12,7 @@
 #include <string>
 #include <unordered_map>
 
+#include "base/callback_forward.h"
 #include "base/compiler_specific.h"
 #include "base/containers/linked_list.h"
 #include "base/macros.h"
@@ -40,8 +41,8 @@ class NET_EXPORT_PRIVATE MemBackendImpl final : public Backend {
   // size the cache can grow to. If zero is passed in as max_bytes, the cache
   // will determine the value to use based on the available memory. The returned
   // pointer can be NULL if a fatal error is found.
-  static std::unique_ptr<Backend> CreateBackend(int max_bytes,
-                                                net::NetLog* net_log);
+  static std::unique_ptr<MemBackendImpl> CreateBackend(int max_bytes,
+                                                       net::NetLog* net_log);
 
   // Performs general initialization for this current instance of the cache.
   bool Init();
@@ -77,28 +78,34 @@ class NET_EXPORT_PRIVATE MemBackendImpl final : public Backend {
   // size.
   bool HasExceededStorageSize() const;
 
+  // Sets a callback to be posted after we are destroyed. Should be called at
+  // most once.
+  void SetPostCleanupCallback(base::OnceClosure cb);
+
   // Backend interface.
   net::CacheType GetCacheType() const override;
   int32_t GetEntryCount() const override;
   int OpenEntry(const std::string& key,
+                net::RequestPriority request_priority,
                 Entry** entry,
-                const CompletionCallback& callback) override;
+                CompletionOnceCallback callback) override;
   int CreateEntry(const std::string& key,
+                  net::RequestPriority request_priority,
                   Entry** entry,
-                  const CompletionCallback& callback) override;
+                  CompletionOnceCallback callback) override;
   int DoomEntry(const std::string& key,
-                const CompletionCallback& callback) override;
-  int DoomAllEntries(const CompletionCallback& callback) override;
+                net::RequestPriority priority,
+                CompletionOnceCallback callback) override;
+  int DoomAllEntries(CompletionOnceCallback callback) override;
   int DoomEntriesBetween(base::Time initial_time,
                          base::Time end_time,
-                         const CompletionCallback& callback) override;
+                         CompletionOnceCallback callback) override;
   int DoomEntriesSince(base::Time initial_time,
-                       const CompletionCallback& callback) override;
-  int CalculateSizeOfAllEntries(const CompletionCallback& callback) override;
-  int CalculateSizeOfEntriesBetween(
-      base::Time initial_time,
-      base::Time end_time,
-      const CompletionCallback& callback) override;
+                       CompletionOnceCallback callback) override;
+  int CalculateSizeOfAllEntries(CompletionOnceCallback callback) override;
+  int CalculateSizeOfEntriesBetween(base::Time initial_time,
+                                    base::Time end_time,
+                                    CompletionOnceCallback callback) override;
   std::unique_ptr<Iterator> CreateIterator() override;
   void GetStats(base::StringPairs* stats) override {}
   void OnExternalCacheHit(const std::string& key) override;
@@ -125,6 +132,7 @@ class NET_EXPORT_PRIVATE MemBackendImpl final : public Backend {
   int32_t current_size_;
 
   net::NetLog* net_log_;
+  base::OnceClosure post_cleanup_callback_;
 
   base::WeakPtrFactory<MemBackendImpl> weak_factory_;
 

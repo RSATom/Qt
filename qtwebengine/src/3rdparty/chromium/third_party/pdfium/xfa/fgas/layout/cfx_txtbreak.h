@@ -14,9 +14,9 @@
 #include "core/fxcrt/cfx_char.h"
 #include "core/fxge/cfx_renderdevice.h"
 #include "third_party/base/stl_util.h"
-#include "xfa/fde/cfde_txtedtpage.h"
 #include "xfa/fgas/layout/cfx_break.h"
 
+class CFDE_TextEditEngine;
 class CFGAS_GEFont;
 struct FDE_TEXTEDITPIECE;
 
@@ -39,19 +39,18 @@ struct FX_TXTRUN {
   FX_TXTRUN(const FX_TXTRUN& other);
   ~FX_TXTRUN();
 
-  CFDE_TxtEdtPage* pAccess;
-  const FDE_TEXTEDITPIECE* pIdentity;
-  CFX_WideString wsStr;
+  CFDE_TextEditEngine* pEdtEngine;
+  WideString wsStr;
   int32_t* pWidths;
+  int32_t iStart;
   int32_t iLength;
-  CFX_RetainPtr<CFGAS_GEFont> pFont;
+  RetainPtr<CFGAS_GEFont> pFont;
   float fFontSize;
   uint32_t dwStyles;
   int32_t iHorizontalScale;
   int32_t iVerticalScale;
   uint32_t dwCharStyles;
   const CFX_RectF* pRect;
-  wchar_t wLineBreakChar;
   bool bSkipSpace;
 };
 
@@ -66,17 +65,14 @@ class CFX_TxtBreak : public CFX_Break {
   CFX_BreakType EndBreak(CFX_BreakType dwStatus);
 
   int32_t GetDisplayPos(const FX_TXTRUN* pTxtRun,
-                        FXTEXT_CHARPOS* pCharPos,
-                        bool bCharCode = false,
-                        CFX_WideString* pWSForms = nullptr) const;
+                        FXTEXT_CHARPOS* pCharPos) const;
   std::vector<CFX_RectF> GetCharRects(const FX_TXTRUN* pTxtRun,
-                                      bool bCharBBox = false) const;
+                                      bool bCharBBox) const;
   CFX_BreakType AppendChar(wchar_t wch);
 
  private:
   void AppendChar_Combination(CFX_Char* pCurChar);
   void AppendChar_Tab(CFX_Char* pCurChar);
-  void AppendChar_PageLoad(CFX_Char* pCurChar, uint32_t dwProps);
   CFX_BreakType AppendChar_Control(CFX_Char* pCurChar);
   CFX_BreakType AppendChar_Arabic(CFX_Char* pCurChar);
   CFX_BreakType AppendChar_Others(CFX_Char* pCurChar);
@@ -88,12 +84,12 @@ class CFX_TxtBreak : public CFX_Break {
                           bool bAllChars,
                           CFX_BreakType dwStatus);
   int32_t GetBreakPos(std::vector<CFX_Char>& ca,
-                      int32_t& iEndPos,
-                      bool bAllChars = false,
-                      bool bOnlyBrk = false);
+                      bool bAllChars,
+                      bool bOnlyBrk,
+                      int32_t* pEndPos);
   void SplitTextLine(CFX_BreakLine* pCurLine,
                      CFX_BreakLine* pNextLine,
-                     bool bAllChars = false);
+                     bool bAllChars);
 
   int32_t m_iAlignment;
   int32_t m_iCombWidth;

@@ -5,21 +5,18 @@
 #include "ui/message_center/views/message_view_context_menu_controller.h"
 
 #include "ui/base/models/menu_model.h"
-#include "ui/message_center/views/message_center_controller.h"
+#include "ui/message_center/message_center.h"
 #include "ui/message_center/views/message_view.h"
+#include "ui/message_center/views/notification_menu_model.h"
 #include "ui/views/controls/menu/menu_model_adapter.h"
 #include "ui/views/controls/menu/menu_runner.h"
 #include "ui/views/widget/widget.h"
 
 namespace message_center {
 
-MessageViewContextMenuController::MessageViewContextMenuController(
-    MessageCenterController* controller)
-    : controller_(controller) {
-}
+MessageViewContextMenuController::MessageViewContextMenuController() = default;
 
-MessageViewContextMenuController::~MessageViewContextMenuController() {
-}
+MessageViewContextMenuController::~MessageViewContextMenuController() = default;
 
 void MessageViewContextMenuController::ShowContextMenuForView(
     views::View* source,
@@ -27,19 +24,24 @@ void MessageViewContextMenuController::ShowContextMenuForView(
     ui::MenuSourceType source_type) {
   // Assumes that the target view has to be MessageView.
   MessageView* message_view = static_cast<MessageView*>(source);
-  menu_model_ = controller_->CreateMenuModel(message_view->notifier_id(),
-                                             message_view->display_source());
+  Notification* notification =
+      MessageCenter::Get()->FindVisibleNotificationById(
+          message_view->notification_id());
+
+  // Notification is null if the notification view is being removed or some
+  // invalid status. In this case, just returns.
+  if (!notification)
+    return;
+
+  menu_model_ = std::make_unique<NotificationMenuModel>(*notification);
 
   if (!menu_model_ || menu_model_->GetItemCount() == 0)
     return;
 
-  menu_model_adapter_.reset(new views::MenuModelAdapter(
-      menu_model_.get(),
+  menu_runner_ = std::make_unique<views::MenuRunner>(
+      menu_model_.get(), views::MenuRunner::HAS_MNEMONICS,
       base::Bind(&MessageViewContextMenuController::OnMenuClosed,
-                 base::Unretained(this))));
-
-  menu_runner_.reset(new views::MenuRunner(menu_model_adapter_->CreateMenu(),
-                                           views::MenuRunner::HAS_MNEMONICS));
+                 base::Unretained(this)));
 
   menu_runner_->RunMenuAt(source->GetWidget()->GetTopLevelWidget(), NULL,
                           gfx::Rect(point, gfx::Size()),
@@ -48,7 +50,6 @@ void MessageViewContextMenuController::ShowContextMenuForView(
 
 void MessageViewContextMenuController::OnMenuClosed() {
   menu_runner_.reset();
-  menu_model_adapter_.reset();
   menu_model_.reset();
 }
 

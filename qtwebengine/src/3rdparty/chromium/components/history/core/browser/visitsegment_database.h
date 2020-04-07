@@ -6,6 +6,7 @@
 #define COMPONENTS_HISTORY_CORE_BROWSER_VISITSEGMENT_DATABASE_H_
 
 #include <memory>
+#include <string>
 
 #include "base/callback_forward.h"
 #include "base/macros.h"
@@ -40,10 +41,6 @@ class VisitSegmentDatabase {
   bool UpdateSegmentRepresentationURL(SegmentID segment_id,
                                       URLID url_id);
 
-  // Return the ID of the URL currently used to represent this segment or 0 if
-  // an error occured.
-  URLID GetSegmentRepresentationURL(SegmentID segment_id);
-
   // Create a segment for the provided URL ID with the given name. Returns the
   // ID of the newly created segment, or 0 on failure.
   SegmentID CreateSegment(URLID url_id, const std::string& segment_name);
@@ -60,13 +57,6 @@ class VisitSegmentDatabase {
       base::Time from_time,
       int max_result_count,
       const base::Callback<bool(const GURL&)>& url_filter);
-
-  // Delete all the segment usage data which is older than the provided time
-  // stamp.
-  bool DeleteSegmentData(base::Time older_than);
-
-  // Change the presentation id for the segment identified by |segment_id|
-  bool SetSegmentPresentationIndex(SegmentID segment_id, int index);
 
   // Delete the segment currently using the provided url for representation.
   // This will also delete any associated segment usage data.
@@ -87,7 +77,21 @@ class VisitSegmentDatabase {
   // presentation table is removed entirely.
   bool MigratePresentationIndex();
 
+  // Runs ComputeSegmentName() to recompute 'name'. If multiple segments have
+  // the same name, they are merged by:
+  // 1. Choosing one arbitrary |segment_id| and updating all references.
+  // 2. Merging duplicate |segment_usage| entries (add up visit counts).
+  // 3. Deleting old data for the absorbed segment.
+  bool MigrateVisitSegmentNames();
+
  private:
+  // Updates the |name| column for a single segment. Returns true on success.
+  bool RenameSegment(SegmentID segment_id, const std::string& new_name);
+  // Merges two segments such that data is aggregated, all former references to
+  // |from_segment_id| are updated to |to_segment_id| and |from_segment_id| is
+  // deleted. Returns true on success.
+  bool MergeSegments(SegmentID from_segment_id, SegmentID to_segment_id);
+
   DISALLOW_COPY_AND_ASSIGN(VisitSegmentDatabase);
 };
 

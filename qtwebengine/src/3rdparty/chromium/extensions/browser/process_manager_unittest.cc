@@ -5,7 +5,6 @@
 #include "extensions/browser/process_manager.h"
 
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "content/public/browser/content_browser_client.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/site_instance.h"
@@ -63,7 +62,7 @@ class ProcessManagerTest : public ExtensionsTest {
   void SetUp() override {
     ExtensionsTest::SetUp();
     extension_registry_ =
-        base::MakeUnique<ExtensionRegistry>(browser_context());
+        std::make_unique<ExtensionRegistry>(browser_context());
     extensions_browser_client()->set_process_manager_delegate(
         &process_manager_delegate_);
   }

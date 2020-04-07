@@ -46,6 +46,7 @@
 
 #include <QtWaylandCompositor/private/qwaylandsurface_p.h>
 #include <QtWaylandCompositor/private/qwaylandcompositor_p.h>
+#include <QtWaylandCompositor/private/qwaylandview_p.h>
 
 #include <QtCore/QCoreApplication>
 #include <QtCore/QtMath>
@@ -103,16 +104,6 @@ static QtWaylandServer::wl_output::transform toWlTransform(const QWaylandOutput:
 }
 
 QWaylandOutputPrivate::QWaylandOutputPrivate()
-    : QtWaylandServer::wl_output()
-    , compositor(Q_NULLPTR)
-    , window(Q_NULLPTR)
-    , currentMode(-1)
-    , preferredMode(-1)
-    , subpixel(QWaylandOutput::SubpixelUnknown)
-    , transform(QWaylandOutput::TransformNormal)
-    , scaleFactor(1)
-    , sizeFollowsWindow(false)
-    , initialized(false)
 {
 }
 
@@ -131,6 +122,27 @@ void QWaylandOutputPrivate::output_bind_resource(Resource *resource)
         send_scale(resource->handle, scaleFactor);
         send_done(resource->handle);
     }
+}
+
+void QWaylandOutputPrivate::_q_handleMaybeWindowPixelSizeChanged()
+{
+    if (!window)
+        return;
+
+    const QSize pixelSize = window->size() * window->devicePixelRatio();
+
+    if (pixelSize != windowPixelSize) {
+        windowPixelSize = pixelSize;
+        handleWindowPixelSizeChanged();
+    }
+}
+
+void QWaylandOutputPrivate::_q_handleWindowDestroyed()
+{
+    Q_Q(QWaylandOutput);
+    window = nullptr;
+    emit q->windowChanged();
+    emit q->windowDestroyed();
 }
 
 void QWaylandOutputPrivate::sendGeometry(const Resource *resource)
@@ -171,6 +183,33 @@ void QWaylandOutputPrivate::sendModesInfo()
             sendMode(resource, mode);
         if (resource->version() >= 2)
             send_done(resource->handle);
+    }
+}
+
+void QWaylandOutputPrivate::handleWindowPixelSizeChanged()
+{
+    Q_Q(QWaylandOutput);
+    Q_ASSERT(window);
+    if (sizeFollowsWindow && currentMode <= modes.size() - 1) {
+        if (currentMode >= 0) {
+            QWaylandOutputMode mode = modes.at(currentMode);
+            mode.setSize(windowPixelSize);
+            modes.replace(currentMode, mode);
+            emit q->geometryChanged();
+            if (!availableGeometry.isValid())
+                emit q->availableGeometryChanged();
+            sendModesInfo();
+        } else {
+            // We didn't add a mode during the initialization because the window
+            // size was invalid, let's add it now
+            int mHzRefreshRate = qFloor(window->screen()->refreshRate() * 1000);
+            QWaylandOutputMode mode(windowPixelSize, mHzRefreshRate);
+            if (mode.isValid()) {
+                modes.clear();
+                q->addMode(mode, true);
+                q->setCurrentMode(mode);
+            }
+        }
     }
 }
 
@@ -276,6 +315,10 @@ void QWaylandOutput::initialize()
     Q_ASSERT(d->compositor);
     Q_ASSERT(d->compositor->isCreated());
 
+    if (!d->window && d->sizeFollowsWindow) {
+        qWarning("Setting QWaylandOutput::sizeFollowsWindow without a window has no effect");
+    }
+
     // Replace modes with one that follows the window size and refresh rate,
     // but only if window size is valid
     if (d->window && d->sizeFollowsWindow) {
@@ -291,9 +334,10 @@ void QWaylandOutput::initialize()
     QWaylandCompositorPrivate::get(d->compositor)->addOutput(this);
 
     if (d->window) {
-        QObject::connect(d->window, &QWindow::widthChanged, this, &QWaylandOutput::handleSetWidth);
-        QObject::connect(d->window, &QWindow::heightChanged, this, &QWaylandOutput::handleSetHeight);
-        QObject::connect(d->window, &QObject::destroyed, this, &QWaylandOutput::handleWindowDestroyed);
+        QObjectPrivate::connect(d->window, &QWindow::widthChanged, d, &QWaylandOutputPrivate::_q_handleMaybeWindowPixelSizeChanged);
+        QObjectPrivate::connect(d->window, &QWindow::heightChanged, d, &QWaylandOutputPrivate::_q_handleMaybeWindowPixelSizeChanged);
+        QObjectPrivate::connect(d->window, &QWindow::screenChanged, d, &QWaylandOutputPrivate::_q_handleMaybeWindowPixelSizeChanged);
+        QObjectPrivate::connect(d->window, &QObject::destroyed, d, &QWaylandOutputPrivate::_q_handleWindowDestroyed);
     }
 
     d->init(d->compositor->display(), 2);
@@ -306,7 +350,9 @@ void QWaylandOutput::initialize()
  */
 QWaylandOutput *QWaylandOutput::fromResource(wl_resource *resource)
 {
-    return static_cast<QWaylandOutputPrivate *>(QWaylandOutputPrivate::Resource::fromResource(resource)->output_object)->q_func();
+    if (auto *r = QWaylandOutputPrivate::Resource::fromResource(resource))
+        return static_cast<QWaylandOutputPrivate *>(r->output_object)->q_func();
+    return nullptr;
 }
 
 /*!
@@ -319,7 +365,7 @@ struct ::wl_resource *QWaylandOutput::resourceForClient(QWaylandClient *client) 
     if (r)
         return r->handle;
 
-    return Q_NULLPTR;
+    return nullptr;
 }
 
 /*!
@@ -826,11 +872,6 @@ void QWaylandOutput::setSizeFollowsWindow(bool follow)
 {
     Q_D(QWaylandOutput);
 
-    if (!d->window) {
-        qWarning("Setting QWaylandOutput::sizeFollowsWindow without a window has no effect");
-        return;
-    }
-
     if (follow != d->sizeFollowsWindow) {
         d->sizeFollowsWindow = follow;
         Q_EMIT sizeFollowsWindowChanged();
@@ -895,8 +936,10 @@ void QWaylandOutput::sendFrameCallbacks()
                 surfaceEnter(surfacemapper.surface);
                 d->surfaceViews[i].has_entered = true;
             }
-            if (surfacemapper.maybePrimaryView())
-                surfacemapper.surface->sendFrameCallbacks();
+            if (auto primaryView = surfacemapper.maybePrimaryView()) {
+                if (!QWaylandViewPrivate::get(primaryView)->independentFrameCallback)
+                    surfacemapper.surface->sendFrameCallbacks();
+            }
         }
     }
     wl_display_flush_clients(d->compositor->display());
@@ -922,84 +965,10 @@ void QWaylandOutput::surfaceLeave(QWaylandSurface *surface)
 {
     if (!surface || !surface->client())
         return;
-    QWaylandSurfacePrivate::get(surface)->send_leave(resourceForClient(surface->client()));
-}
 
-/*!
- * \internal
- */
-void QWaylandOutput::handleSetWidth(int newWidth)
-{
-    Q_D(QWaylandOutput);
-
-    if (!d->window || !d->sizeFollowsWindow)
-        return;
-
-    if (d->currentMode <= d->modes.size() - 1) {
-        if (d->currentMode >= 0) {
-            QWaylandOutputMode mode = d->modes.at(d->currentMode);
-            mode.setWidth(newWidth * d->window->devicePixelRatio());
-            d->modes.replace(d->currentMode, mode);
-            emit geometryChanged();
-            if (!d->availableGeometry.isValid())
-                emit availableGeometryChanged();
-            d->sendModesInfo();
-        } else {
-            // We didn't add a mode during the initialization because the window
-            // size was invalid, let's add it now
-            QWaylandOutputMode mode(d->window->size() * d->window->devicePixelRatio(),
-                                    qFloor(d->window->screen()->refreshRate() * 1000));
-            if (mode.isValid()) {
-                d->modes.clear();
-                addMode(mode, true);
-                setCurrentMode(mode);
-            }
-        }
-    }
-}
-
-/*!
- * \internal
- */
-void QWaylandOutput::handleSetHeight(int newHeight)
-{
-    Q_D(QWaylandOutput);
-
-    if (!d->window || !d->sizeFollowsWindow)
-        return;
-
-    if (d->currentMode <= d->modes.size() - 1) {
-        if (d->currentMode >= 0) {
-            QWaylandOutputMode mode = d->modes.at(d->currentMode);
-            mode.setHeight(newHeight * d->window->devicePixelRatio());
-            d->modes.replace(d->currentMode, mode);
-            emit geometryChanged();
-            if (!d->availableGeometry.isValid())
-                emit availableGeometryChanged();
-            d->sendModesInfo();
-        } else {
-            // We didn't add a mode during the initialization because the window
-            // size was invalid, let's add it now
-            QWaylandOutputMode mode(d->window->size() * d->window->devicePixelRatio(),
-                                    qFloor(d->window->screen()->refreshRate() * 1000));
-            if (mode.isValid()) {
-                d->modes.clear();
-                addMode(mode, true);
-                setCurrentMode(mode);
-            }
-        }
-    }
-}
-
-/*!
- * \internal
- */
-void QWaylandOutput::handleWindowDestroyed()
-{
-    Q_D(QWaylandOutput);
-    d->window = Q_NULLPTR;
-    emit windowChanged();
-    emit windowDestroyed();
+    auto *clientResource = resourceForClient(surface->client());
+    if (clientResource)
+        QWaylandSurfacePrivate::get(surface)->send_leave(clientResource);
 }
 
 /*!
@@ -1013,3 +982,5 @@ bool QWaylandOutput::event(QEvent *event)
 }
 
 QT_END_NAMESPACE
+
+#include "moc_qwaylandoutput.cpp"

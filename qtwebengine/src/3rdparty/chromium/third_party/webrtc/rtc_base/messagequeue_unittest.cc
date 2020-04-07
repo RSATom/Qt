@@ -8,24 +8,24 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/rtc_base/messagequeue.h"
+#include "rtc_base/messagequeue.h"
 
 #include <functional>
 
-#include "webrtc/rtc_base/atomicops.h"
-#include "webrtc/rtc_base/bind.h"
-#include "webrtc/rtc_base/event.h"
-#include "webrtc/rtc_base/gunit.h"
-#include "webrtc/rtc_base/logging.h"
-#include "webrtc/rtc_base/nullsocketserver.h"
-#include "webrtc/rtc_base/refcount.h"
-#include "webrtc/rtc_base/refcountedobject.h"
-#include "webrtc/rtc_base/thread.h"
-#include "webrtc/rtc_base/timeutils.h"
+#include "rtc_base/atomicops.h"
+#include "rtc_base/bind.h"
+#include "rtc_base/event.h"
+#include "rtc_base/gunit.h"
+#include "rtc_base/logging.h"
+#include "rtc_base/nullsocketserver.h"
+#include "rtc_base/refcount.h"
+#include "rtc_base/refcountedobject.h"
+#include "rtc_base/thread.h"
+#include "rtc_base/timeutils.h"
 
 using namespace rtc;
 
-class MessageQueueTest: public testing::Test, public MessageQueue {
+class MessageQueueTest : public testing::Test, public MessageQueue {
  public:
   MessageQueueTest() : MessageQueue(SocketServer::CreateDefault(), true) {}
   bool IsLocked_Worker() {
@@ -47,7 +47,7 @@ class MessageQueueTest: public testing::Test, public MessageQueue {
 
 struct DeletedLockChecker {
   DeletedLockChecker(MessageQueueTest* test, bool* was_locked, bool* deleted)
-      : test(test), was_locked(was_locked), deleted(deleted) { }
+      : test(test), was_locked(was_locked), deleted(deleted) {}
   ~DeletedLockChecker() {
     *deleted = true;
     *was_locked = test->IsLocked();
@@ -68,7 +68,7 @@ static void DelayedPostsWithIdenticalTimesAreProcessedInFifoOrder(
   q->PostAt(RTC_FROM_HERE, now - 1, nullptr, 2);
 
   Message msg;
-  for (size_t i=0; i<5; ++i) {
+  for (size_t i = 0; i < 5; ++i) {
     memset(&msg, 0, sizeof(msg));
     EXPECT_TRUE(q->Get(&msg, 0));
     EXPECT_EQ(i, msg.message_id);
@@ -100,18 +100,17 @@ TEST_F(MessageQueueTest, DisposeNotLocked) {
 
 class DeletedMessageHandler : public MessageHandler {
  public:
-  explicit DeletedMessageHandler(bool* deleted) : deleted_(deleted) { }
-  ~DeletedMessageHandler() {
-    *deleted_ = true;
-  }
-  void OnMessage(Message* msg) { }
+  explicit DeletedMessageHandler(bool* deleted) : deleted_(deleted) {}
+  ~DeletedMessageHandler() override { *deleted_ = true; }
+  void OnMessage(Message* msg) override {}
+
  private:
   bool* deleted_;
 };
 
 TEST_F(MessageQueueTest, DiposeHandlerWithPostedMessagePending) {
   bool deleted = false;
-  DeletedMessageHandler *handler = new DeletedMessageHandler(&deleted);
+  DeletedMessageHandler* handler = new DeletedMessageHandler(&deleted);
   // First, post a dispose.
   Dispose(handler);
   // Now, post a message, which should *not* be returned by Get().
@@ -123,11 +122,14 @@ TEST_F(MessageQueueTest, DiposeHandlerWithPostedMessagePending) {
 
 struct UnwrapMainThreadScope {
   UnwrapMainThreadScope() : rewrap_(Thread::Current() != nullptr) {
-    if (rewrap_) ThreadManager::Instance()->UnwrapCurrentThread();
+    if (rewrap_)
+      ThreadManager::Instance()->UnwrapCurrentThread();
   }
   ~UnwrapMainThreadScope() {
-    if (rewrap_) ThreadManager::Instance()->WrapCurrentThread();
+    if (rewrap_)
+      ThreadManager::Instance()->WrapCurrentThread();
   }
+
  private:
   bool rewrap_;
 };
@@ -135,9 +137,10 @@ struct UnwrapMainThreadScope {
 TEST(MessageQueueManager, Clear) {
   UnwrapMainThreadScope s;
   if (MessageQueueManager::IsInitialized()) {
-    LOG(LS_INFO) << "Unable to run MessageQueueManager::Clear test, since the "
-                 << "MessageQueueManager was already initialized by some "
-                 << "other test in this run.";
+    RTC_LOG(LS_INFO)
+        << "Unable to run MessageQueueManager::Clear test, since the "
+        << "MessageQueueManager was already initialized by some "
+        << "other test in this run.";
     return;
   }
   bool deleted = false;
@@ -218,9 +221,7 @@ TEST(MessageQueueManager, ProcessAllMessageQueuesWithClearedQueue) {
   MessageQueueManager::ProcessAllMessageQueues();
 }
 
-class RefCountedHandler
-  : public MessageHandler,
-    public rtc::RefCountInterface {
+class RefCountedHandler : public MessageHandler, public rtc::RefCountInterface {
  public:
   void OnMessage(Message* msg) override {}
 };

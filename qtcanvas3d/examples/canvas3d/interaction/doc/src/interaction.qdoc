@@ -53,7 +53,7 @@
     \since QtCanvas3D 1.0
     \title Interaction Example
     \ingroup qtcanvas3d-examples
-    \brief Interact with an object in canvas using Qt Quick Controls
+    \brief Interact with an object in canvas using Qt Quick Controls.
 
     The Interaction Example concentrates on the interaction between
     \l {Qt Quick Controls} and the objects displayed in Canvas3D. This

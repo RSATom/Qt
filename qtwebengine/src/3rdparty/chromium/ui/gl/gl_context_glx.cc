@@ -4,15 +4,13 @@
 
 #include "ui/gl/gl_context_glx.h"
 
-extern "C" {
-#include <X11/Xlib.h>
-}
 #include <memory>
 
 #include "base/command_line.h"
 #include "base/logging.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/trace_event/trace_event.h"
+#include "ui/gfx/x/x11.h"
 #include "ui/gl/GL/glextchromium.h"
 #include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_implementation.h"
@@ -59,10 +57,10 @@ GLXContext CreateContextAttribs(Display* display,
   // errors can be generated. To prevent these errors from crashing our process,
   // we simply ignore them and only look if the GLXContext was created.
   // Sync to ensure any errors generated are processed.
-  XSync(display, False);
+  XSync(display, x11::False);
   auto old_error_handler = XSetErrorHandler(IgnoreX11Errors);
-  GLXContext context =
-      glXCreateContextAttribsARB(display, config, share, True, attribs.data());
+  GLXContext context = glXCreateContextAttribsARB(display, config, share,
+                                                  x11::True, attribs.data());
   XSetErrorHandler(old_error_handler);
 
   return context;
@@ -172,15 +170,13 @@ bool GLContextGLX::Initialize(GLSurface* compatible_surface,
 
   if (GLSurfaceGLX::IsCreateContextSupported()) {
     DVLOG(1) << "GLX_ARB_create_context supported.";
-    if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-            switches::kCreateDefaultGLContext)) {
-      context_ = CreateContextAttribs(
-          display_, static_cast<GLXFBConfig>(compatible_surface->GetConfig()),
-          share_handle, GLVersion(0, 0), 0);
+    if (base::CommandLine::ForCurrentProcess()->HasSwitch(switches::kCreateDefaultGLContext)) {
+        context_ = CreateContextAttribs(display_, static_cast<GLXFBConfig>(compatible_surface->GetConfig()),
+                                        share_handle, GLVersion(0, 0), 0);
     } else {
-      context_ = CreateHighestVersionContext(
-          display_, static_cast<GLXFBConfig>(compatible_surface->GetConfig()),
-          share_handle);
+        context_ = CreateHighestVersionContext(
+                    display_, static_cast<GLXFBConfig>(compatible_surface->GetConfig()),
+                    share_handle);
     }
     if (!context_) {
       LOG(ERROR) << "Failed to create GL context with "
@@ -190,11 +186,8 @@ bool GLContextGLX::Initialize(GLSurface* compatible_surface,
   } else {
     DVLOG(1) << "GLX_ARB_create_context not supported.";
     context_ = glXCreateNewContext(
-       display_,
-       static_cast<GLXFBConfig>(compatible_surface->GetConfig()),
-       GLX_RGBA_TYPE,
-       share_handle,
-       True);
+        display_, static_cast<GLXFBConfig>(compatible_surface->GetConfig()),
+        GLX_RGBA_TYPE, share_handle, x11::True);
     if (!context_) {
       LOG(ERROR) << "Failed to create GL context with glXCreateNewContext.";
       return false;
@@ -237,7 +230,6 @@ bool GLContextGLX::MakeCurrent(GLSurface* surface) {
       reinterpret_cast<GLXDrawable>(surface->GetHandle()),
       static_cast<GLXContext>(context_))) {
     LOG(ERROR) << "Couldn't make context current with X drawable.";
-    Destroy();
     return false;
   }
 
@@ -249,7 +241,6 @@ bool GLContextGLX::MakeCurrent(GLSurface* surface) {
 
   if (!surface->OnMakeCurrent(this)) {
     LOG(ERROR) << "Could not make current.";
-    Destroy();
     return false;
   }
 
@@ -290,28 +281,6 @@ bool GLContextGLX::IsCurrent(GLSurface* surface) {
 
 void* GLContextGLX::GetHandle() {
   return context_;
-}
-
-void GLContextGLX::OnSetSwapInterval(int interval) {
-  DCHECK(IsCurrent(nullptr));
-  if (GLSurfaceGLX::IsEXTSwapControlSupported()) {
-    glXSwapIntervalEXT(display_, glXGetCurrentDrawable(), interval);
-  } else if (GLSurfaceGLX::IsMESASwapControlSupported()) {
-    glXSwapIntervalMESA(interval);
-  } else if (interval == 0) {
-    LOG(WARNING)
-        << "Could not disable vsync: driver does not support swap control";
-  }
-}
-
-std::string GLContextGLX::GetExtensions() {
-  DCHECK(IsCurrent(nullptr));
-  const char* extensions = GLSurfaceGLX::GetGLXExtensions();
-  if (extensions) {
-    return GLContext::GetExtensions() + " " + extensions;
-  }
-
-  return GLContext::GetExtensions();
 }
 
 bool GLContextGLX::WasAllocatedUsingRobustnessExtension() {

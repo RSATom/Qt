@@ -29,6 +29,7 @@
 #include <qdir.h>
 #include <QtQml/qqmlengine.h>
 #include <QtQml/qqmlcomponent.h>
+#include <QtQml/qqmlcontext.h>
 #include <QtQml/qqmlextensionplugin.h>
 #include <QtCore/qjsondocument.h>
 #include <QtCore/qjsonarray.h>
@@ -217,7 +218,7 @@ void tst_qqmlmoduleplugin::importsPlugin()
         qWarning() << err;
     VERIFY_ERRORS(0);
     QObject *object = component.create();
-    QVERIFY(object != 0);
+    QVERIFY(object != nullptr);
     QCOMPARE(object->property("value").toInt(),123);
     delete object;
 }
@@ -285,7 +286,7 @@ void tst_qqmlmoduleplugin::importPluginWithQmlFile()
         qWarning() << err;
     VERIFY_ERRORS(0);
     QObject *object = component.create();
-    QVERIFY(object != 0);
+    QVERIFY(object != nullptr);
     delete object;
 }
 
@@ -301,7 +302,7 @@ void tst_qqmlmoduleplugin::remoteImportWithQuotedUrl()
     QTRY_COMPARE(component.status(), QQmlComponent::Ready);
     QObject *object = component.create();
     QCOMPARE(object->property("width").toInt(), 300);
-    QVERIFY(object != 0);
+    QVERIFY(object != nullptr);
     delete object;
 
     foreach (QQmlError err, component.errors())
@@ -323,13 +324,36 @@ void tst_qqmlmoduleplugin::remoteImportWithUnquotedUri()
 
     QTRY_COMPARE(component.status(), QQmlComponent::Ready);
     QObject *object = component.create();
-    QVERIFY(object != 0);
+    QVERIFY(object != nullptr);
     QCOMPARE(object->property("width").toInt(), 300);
     delete object;
 
     foreach (QQmlError err, component.errors())
         qWarning() << err;
     VERIFY_ERRORS(0);
+}
+
+static QByteArray msgComponentError(const QQmlComponent &c, const QQmlEngine *engine /* = 0 */)
+{
+    QString result;
+    const QList<QQmlError> errors = c.errors();
+    QTextStream str(&result);
+    str << "Component '" << c.url().toString() << "' has " << errors.size() << " errors: '";
+    for (int i = 0; i < errors.size(); ++i) {
+        if (i)
+            str << ", '";
+        str << errors.at(i).toString() << '\'';
+    }
+    if (!engine) {
+        if (QQmlContext *context = c.creationContext())
+            engine = context->engine();
+    }
+    if (engine) {
+        str << " Import paths: (" << engine->importPathList().join(QStringLiteral(", "))
+            << ") Plugin paths: (" << engine->pluginPathList().join(QStringLiteral(", "))
+            << ')';
+    }
+    return result.toLocal8Bit();
 }
 
 // QTBUG-17324
@@ -345,7 +369,7 @@ void tst_qqmlmoduleplugin::importsMixedQmlCppPlugin()
     QQmlComponent component(&engine, testFileUrl(QStringLiteral("importsMixedQmlCppPlugin.qml")));
 
     QObject *o = component.create();
-    QVERIFY2(o != 0, QQmlDataTest::msgComponentError(component, &engine));
+    QVERIFY2(o != nullptr, msgComponentError(component, &engine));
     QCOMPARE(o->property("test").toBool(), true);
     delete o;
     }
@@ -354,7 +378,7 @@ void tst_qqmlmoduleplugin::importsMixedQmlCppPlugin()
     QQmlComponent component(&engine, testFileUrl(QStringLiteral("importsMixedQmlCppPlugin.2.qml")));
 
     QObject *o = component.create();
-    QVERIFY2(o != 0, QQmlDataTest::msgComponentError(component, &engine));
+    QVERIFY2(o != nullptr, msgComponentError(component, &engine));
     QCOMPARE(o->property("test").toBool(), true);
     QCOMPARE(o->property("test2").toBool(), true);
     delete o;
@@ -482,7 +506,7 @@ void tst_qqmlmoduleplugin::importLocalModule()
     component.setData(qml.toUtf8(), testFileUrl("empty.qml"));
 
     QScopedPointer<QObject> object(component.create());
-    QVERIFY(object != 0);
+    QVERIFY(object != nullptr);
     QCOMPARE(object->property("majorVersion").value<int>(), majorVersion);
     QCOMPARE(object->property("minorVersion").value<int>(), minorVersion);
 }
@@ -539,7 +563,7 @@ void tst_qqmlmoduleplugin::importStrictModule()
 
     if (error.isEmpty()) {
         QScopedPointer<QObject> object(component.create());
-        QVERIFY(object != 0);
+        QVERIFY(object != nullptr);
     } else {
         QVERIFY(!component.isReady());
         QCOMPARE(component.errors().count(), 1);
@@ -579,12 +603,6 @@ void tst_qqmlmoduleplugin::importStrictModule_data()
            "New.MyPluginType {}"
         << QString()
         << QString();
-
-    QTest::newRow("wrong target")
-        << "import org.qtproject.InvalidStrictModule 1.0\n"
-           "MyPluginType {}"
-        << QString()
-        << ":1:1: plugin cannot be loaded for module \"org.qtproject.InvalidStrictModule\": Cannot install element 'MyPluginType' into unregistered namespace 'org.qtproject.SomeOtherModule'";
 
     QTest::newRow("non-strict clash")
         << "import org.qtproject.NonstrictModule 1.0\n"
@@ -629,7 +647,7 @@ void tst_qqmlmoduleplugin::importProtectedModule()
     //If plugin is loaded due to import, should assert
     QScopedPointer<QObject> object(component.create());
     //qDebug() << component.errorString();
-    QVERIFY(object != 0);
+    QVERIFY(object != nullptr);
 }
 
 void tst_qqmlmoduleplugin::importVersionedModule()
@@ -670,7 +688,7 @@ void tst_qqmlmoduleplugin::importsChildPlugin()
         qWarning() << err;
     VERIFY_ERRORS(0);
     QObject *object = component.create();
-    QVERIFY(object != 0);
+    QVERIFY(object != nullptr);
     QCOMPARE(object->property("value").toInt(),123);
     delete object;
 }
@@ -687,7 +705,7 @@ void tst_qqmlmoduleplugin::importsChildPlugin2()
         qWarning() << err;
     VERIFY_ERRORS(0);
     QObject *object = component.create();
-    QVERIFY(object != 0);
+    QVERIFY(object != nullptr);
     QCOMPARE(object->property("value").toInt(),123);
     delete object;
 }
@@ -704,7 +722,7 @@ void tst_qqmlmoduleplugin::importsChildPlugin21()
         qWarning() << err;
     VERIFY_ERRORS(0);
     QObject *object = component.create();
-    QVERIFY(object != 0);
+    QVERIFY(object != nullptr);
     QCOMPARE(object->property("value").toInt(),123);
     delete object;
 }

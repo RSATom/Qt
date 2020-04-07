@@ -15,17 +15,19 @@
 #include "content/browser/renderer_host/render_widget_host_view_base.h"
 #include "content/browser/renderer_host/text_input_manager.h"
 #include "content/common/content_switches_internal.h"
-#include "content/common/site_isolation_policy.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/render_widget_host.h"
+#include "content/public/common/content_features.h"
 #include "ui/aura/client/cursor_client.h"
 #include "ui/aura/client/focus_client.h"
 #include "ui/aura/client/screen_position_client.h"
+#include "ui/aura/scoped_keyboard_hook.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_delegate.h"
 #include "ui/base/ime/text_input_client.h"
 #include "ui/events/blink/blink_event_util.h"
 #include "ui/events/blink/web_input_event.h"
+#include "ui/events/keycodes/dom/dom_code.h"
 #include "ui/touch_selection/touch_selection_controller.h"
 
 #if defined(OS_WIN)
@@ -55,7 +57,7 @@ BOOL CALLBACK DismissOwnedPopups(HWND window, LPARAM arg) {
   if (::IsWindowVisible(window)) {
     const HWND owner = ::GetWindow(window, GW_OWNER);
     if (toplevel_hwnd == owner) {
-      ::PostMessage(window, WM_CANCELMODE, 0, 0);
+      ::PostMessageW(window, WM_CANCELMODE, 0, 0);
     }
   }
 
@@ -63,15 +65,15 @@ BOOL CALLBACK DismissOwnedPopups(HWND window, LPARAM arg) {
 }
 #endif  // defined(OS_WIN)
 
-gfx::Point GetScreenLocationFromEvent(const ui::LocatedEvent& event) {
+gfx::PointF GetScreenLocationFromEvent(const ui::LocatedEvent& event) {
   aura::Window* root =
       static_cast<aura::Window*>(event.target())->GetRootWindow();
   aura::client::ScreenPositionClient* spc =
       aura::client::GetScreenPositionClient(root);
   if (!spc)
-    return event.root_location();
+    return event.root_location_f();
 
-  gfx::Point screen_location(event.root_location());
+  gfx::PointF screen_location(event.root_location_f());
   spc->ConvertPointToScreen(root, &screen_location);
   return screen_location;
 }
@@ -82,10 +84,11 @@ bool IsFractionalScaleFactor(float scale_factor) {
 
 // We don't mark these as handled so that they're sent back to the
 // DefWindowProc so it can generate WM_APPCOMMAND as necessary.
-bool IsXButtonUpEvent(const ui::MouseEvent* event) {
+bool ShouldGenerateAppCommand(const ui::MouseEvent* event) {
 #if defined(OS_WIN)
   switch (event->native_event().message) {
     case WM_XBUTTONUP:
+      return !base::FeatureList::IsEnabled(features::kExtendedMouseButtons);
     case WM_NCXBUTTONUP:
       return true;
   }
@@ -133,13 +136,13 @@ RenderWidgetHostViewEventHandler::RenderWidgetHostViewEventHandler(
       pinch_zoom_enabled_(content::IsPinchToZoomEnabled()),
       set_focus_on_mouse_down_or_key_event_(false),
       synthetic_move_sent_(false),
-      host_(RenderWidgetHostImpl::From(host)),
+      host_(host),
       host_view_(host_view),
       popup_child_host_view_(nullptr),
       popup_child_event_handler_(nullptr),
       delegate_(delegate),
       window_(nullptr),
-      mouse_wheel_phase_handler_(host, host_view) {}
+      mouse_wheel_phase_handler_(host_view) {}
 
 RenderWidgetHostViewEventHandler::~RenderWidgetHostViewEventHandler() {}
 
@@ -160,15 +163,6 @@ void RenderWidgetHostViewEventHandler::TrackHost(
 }
 
 #if defined(OS_WIN)
-void RenderWidgetHostViewEventHandler::SetContextMenuParams(
-    const ContextMenuParams& params) {
-  last_context_menu_params_.reset();
-  if (params.source_type == ui::MENU_SOURCE_LONG_PRESS) {
-    last_context_menu_params_.reset(new ContextMenuParams);
-    *last_context_menu_params_ = params;
-  }
-}
-
 void RenderWidgetHostViewEventHandler::UpdateMouseLockRegion() {
   RECT window_rect =
       display::Screen::GetScreen()
@@ -200,8 +194,7 @@ bool RenderWidgetHostViewEventHandler::LockMouse() {
   }
 
   if (ShouldMoveToCenter()) {
-    synthetic_move_sent_ = true;
-    window_->MoveCursorTo(gfx::Rect(window_->bounds().size()).CenterPoint());
+    MoveCursorToCenter();
   }
   delegate_->SetTooltipsEnabled(false);
   return true;
@@ -229,7 +222,7 @@ void RenderWidgetHostViewEventHandler::UnlockMouse() {
   // not what sites expect. The delta is computed in the
   // ModifyEventMovementAndCoords function.
   global_mouse_position_ = unlocked_global_mouse_position_;
-  window_->MoveCursorTo(unlocked_mouse_position_);
+  window_->MoveCursorTo(gfx::ToFlooredPoint(unlocked_mouse_position_));
 
   aura::client::CursorClient* cursor_client =
       aura::client::GetCursorClient(root_window);
@@ -238,6 +231,27 @@ void RenderWidgetHostViewEventHandler::UnlockMouse() {
     cursor_client->ShowCursor();
   }
   host_->LostMouseLock();
+}
+
+bool RenderWidgetHostViewEventHandler::LockKeyboard(
+    base::Optional<base::flat_set<ui::DomCode>> codes) {
+  aura::Window* root_window = window_->GetRootWindow();
+  if (!root_window)
+    return false;
+
+  // Remove existing hook, if registered.
+  UnlockKeyboard();
+  scoped_keyboard_hook_ = root_window->CaptureSystemKeyEvents(std::move(codes));
+
+  return IsKeyboardLocked();
+}
+
+void RenderWidgetHostViewEventHandler::UnlockKeyboard() {
+  scoped_keyboard_hook_.reset();
+}
+
+bool RenderWidgetHostViewEventHandler::IsKeyboardLocked() const {
+  return scoped_keyboard_hook_ != nullptr;
 }
 
 void RenderWidgetHostViewEventHandler::OnKeyEvent(ui::KeyEvent* event) {
@@ -285,6 +299,12 @@ void RenderWidgetHostViewEventHandler::OnKeyEvent(ui::KeyEvent* event) {
     SetKeyboardFocus();
     // We don't have to communicate with an input method here.
     NativeWebKeyboardEvent webkit_event(*event);
+
+    // If the key has been reserved as part of the active KeyboardLock request,
+    // then we want to mark it as such so it is not intercepted by the browser.
+    if (IsKeyLocked(*event))
+      webkit_event.skip_in_browser = true;
+
     delegate_->ForwardKeyboardEventWithLatencyInfo(
         webkit_event, *event->latency(), &mark_event_as_handled);
   }
@@ -348,9 +368,12 @@ void RenderWidgetHostViewEventHandler::OnMouseEvent(ui::MouseEvent* event) {
 
     if (mouse_wheel_event.delta_x != 0 || mouse_wheel_event.delta_y != 0) {
       bool should_route_event = ShouldRouteEvent(event);
-      if (host_view_->wheel_scroll_latching_enabled())
-        mouse_wheel_phase_handler_.AddPhaseIfNeededAndScheduleEndEvent(
-            mouse_wheel_event, should_route_event);
+      // End the touchpad scrolling sequence (if such exists) before handling
+      // a ui::ET_MOUSEWHEEL event.
+      mouse_wheel_phase_handler_.SendWheelEndForTouchpadScrollingIfNeeded();
+
+      mouse_wheel_phase_handler_.AddPhaseIfNeededAndScheduleEndEvent(
+          mouse_wheel_event, should_route_event);
       if (should_route_event) {
         host_->delegate()->GetInputEventRouter()->RouteMouseWheelEvent(
             host_view_, &mouse_wheel_event, *event->latency());
@@ -396,7 +419,7 @@ void RenderWidgetHostViewEventHandler::OnMouseEvent(ui::MouseEvent* event) {
       break;
   }
 
-  if (!IsXButtonUpEvent(event))
+  if (!ShouldGenerateAppCommand(event))
     event->SetHandled();
 }
 
@@ -410,25 +433,29 @@ void RenderWidgetHostViewEventHandler::OnScrollEvent(ui::ScrollEvent* event) {
     if (event->finger_count() != 2)
       return;
 #endif
-    blink::WebGestureEvent gesture_event = ui::MakeWebGestureEventFlingCancel();
-    // Coordinates need to be transferred to the fling cancel gesture only
-    // for Surface-targeting to ensure that it is targeted to the correct
-    // RenderWidgetHost.
-    gesture_event.x = event->x();
-    gesture_event.y = event->y();
     blink::WebMouseWheelEvent mouse_wheel_event = ui::MakeWebMouseWheelEvent(
         *event, base::Bind(&GetScreenLocationFromEvent));
-    if (host_view_->wheel_scroll_latching_enabled())
-      mouse_wheel_phase_handler_.AddPhaseIfNeededAndScheduleEndEvent(
-          mouse_wheel_event, should_route_event);
+    mouse_wheel_phase_handler_.AddPhaseIfNeededAndScheduleEndEvent(
+        mouse_wheel_event, should_route_event);
+
+    base::Optional<blink::WebGestureEvent> maybe_synthetic_fling_cancel;
+    if (mouse_wheel_event.phase == blink::WebMouseWheelEvent::kPhaseBegan) {
+      maybe_synthetic_fling_cancel =
+          ui::MakeWebGestureEventFlingCancel(mouse_wheel_event);
+    }
+
     if (should_route_event) {
-      host_->delegate()->GetInputEventRouter()->RouteGestureEvent(
-          host_view_, &gesture_event,
-          ui::LatencyInfo(ui::SourceEventType::WHEEL));
+      if (maybe_synthetic_fling_cancel) {
+        host_->delegate()->GetInputEventRouter()->RouteGestureEvent(
+            host_view_, &*maybe_synthetic_fling_cancel,
+            ui::LatencyInfo(ui::SourceEventType::WHEEL));
+      }
       host_->delegate()->GetInputEventRouter()->RouteMouseWheelEvent(
           host_view_, &mouse_wheel_event, *event->latency());
     } else {
-      host_->ForwardGestureEvent(gesture_event);
+      if (maybe_synthetic_fling_cancel) {
+        host_->ForwardGestureEvent(*maybe_synthetic_fling_cancel);
+      }
       host_->ForwardWheelEventWithLatencyInfo(mouse_wheel_event,
                                               *event->latency());
     }
@@ -445,9 +472,12 @@ void RenderWidgetHostViewEventHandler::OnScrollEvent(ui::ScrollEvent* event) {
     }
     if (event->type() == ui::ET_SCROLL_FLING_START) {
       RecordAction(base::UserMetricsAction("TrackpadScrollFling"));
-      // Ignore the pending wheel end event to avoid sending a wheel event with
-      // kPhaseEnded before a GFS.
-      mouse_wheel_phase_handler_.IgnorePendingWheelEndEvent();
+      // The user has lifted their fingers.
+      mouse_wheel_phase_handler_.ResetTouchpadScrollSequence();
+    } else if (event->type() == ui::ET_SCROLL_FLING_CANCEL) {
+      // The user has put their fingers down.
+      DCHECK_EQ(blink::kWebGestureDeviceTouchpad, gesture_event.SourceDevice());
+      mouse_wheel_phase_handler_.TouchpadScrollingMayBegin();
     }
   }
 
@@ -472,7 +502,7 @@ void RenderWidgetHostViewEventHandler::OnTouchEvent(ui::TouchEvent* event) {
     event->SetHandled();
   } else {
     touch_event = ui::CreateWebTouchEventFromMotionEvent(
-        pointer_state_, event->may_cause_scrolling());
+        pointer_state_, event->may_cause_scrolling(), event->hovering());
   }
   pointer_state_.CleanupRemovedTouchPoints(*event);
 
@@ -529,7 +559,7 @@ void RenderWidgetHostViewEventHandler::OnGestureEvent(ui::GestureEvent* event) {
     // event to stop any in-progress flings.
     blink::WebGestureEvent fling_cancel = gesture;
     fling_cancel.SetType(blink::WebInputEvent::kGestureFlingCancel);
-    fling_cancel.source_device = blink::kWebGestureDeviceTouchscreen;
+    fling_cancel.SetSourceDevice(blink::kWebGestureDeviceTouchscreen);
     if (ShouldRouteEvent(event)) {
       host_->delegate()->GetInputEventRouter()->RouteGestureEvent(
           host_view_, &fling_cancel,
@@ -541,18 +571,23 @@ void RenderWidgetHostViewEventHandler::OnGestureEvent(ui::GestureEvent* event) {
 
   if (gesture.GetType() != blink::WebInputEvent::kUndefined) {
     if (event->type() == ui::ET_GESTURE_SCROLL_BEGIN) {
-      RecordAction(base::UserMetricsAction("TouchscreenScroll"));
       // If there is a current scroll going on and a new scroll that isn't
       // wheel based send a synthetic wheel event with kPhaseEnded to cancel
       // the current scroll.
       mouse_wheel_phase_handler_.DispatchPendingWheelEndEvent();
-    } else if (event->type() == ui::ET_GESTURE_SCROLL_END) {
-      // Make sure that the next wheel event will have phase = |kPhaseBegan|.
-      // This is for maintaining the correct phase info when some of the wheel
-      // events get ignored while a touchscreen scroll is going on.
-      mouse_wheel_phase_handler_.IgnorePendingWheelEndEvent();
+      mouse_wheel_phase_handler_.SendWheelEndForTouchpadScrollingIfNeeded();
     } else if (event->type() == ui::ET_SCROLL_FLING_START) {
       RecordAction(base::UserMetricsAction("TouchscreenScrollFling"));
+    }
+
+    if (event->type() == ui::ET_GESTURE_SCROLL_END ||
+        event->type() == ui::ET_SCROLL_FLING_START) {
+      // Scrolling with touchscreen has finished. Make sure that the next wheel
+      // event will have phase = |kPhaseBegan|. This is for maintaining the
+      // correct phase info when some of the wheel events get ignored while a
+      // touchscreen scroll is going on.
+      mouse_wheel_phase_handler_.IgnorePendingWheelEndEvent();
+      mouse_wheel_phase_handler_.ResetTouchpadScrollSequence();
     }
 
     if (ShouldRouteEvent(event)) {
@@ -566,6 +601,12 @@ void RenderWidgetHostViewEventHandler::OnGestureEvent(ui::GestureEvent* event) {
   // If a gesture is not processed by the webpage, then WebKit processes it
   // (e.g. generates synthetic mouse events).
   event->SetHandled();
+}
+
+void RenderWidgetHostViewEventHandler::GestureEventAck(
+    const blink::WebGestureEvent& event,
+    InputEventAckState ack_result) {
+  mouse_wheel_phase_handler_.GestureEventAck(event, ack_result);
 }
 
 bool RenderWidgetHostViewEventHandler::CanRendererHandleEvent(
@@ -594,6 +635,7 @@ bool RenderWidgetHostViewEventHandler::CanRendererHandleEvent(
     case WM_XBUTTONDOWN:
     case WM_XBUTTONUP:
     case WM_XBUTTONDBLCLK:
+      return base::FeatureList::IsEnabled(features::kExtendedMouseButtons);
     case WM_NCMOUSELEAVE:
     case WM_NCMOUSEMOVE:
     case WM_NCLBUTTONDOWN:
@@ -613,18 +655,20 @@ bool RenderWidgetHostViewEventHandler::CanRendererHandleEvent(
       break;
   }
 #elif defined(USE_X11)
-  // Renderer only supports standard mouse buttons, so ignore programmable
-  // buttons.
-  switch (event->type()) {
-    case ui::ET_MOUSE_PRESSED:
-    case ui::ET_MOUSE_RELEASED: {
-      const int kAllowedButtons = ui::EF_LEFT_MOUSE_BUTTON |
-                                  ui::EF_MIDDLE_MOUSE_BUTTON |
-                                  ui::EF_RIGHT_MOUSE_BUTTON;
-      return (event->flags() & kAllowedButtons) != 0;
+  if (!base::FeatureList::IsEnabled(features::kExtendedMouseButtons)) {
+    // Renderer only supports standard mouse buttons, so ignore programmable
+    // buttons.
+    switch (event->type()) {
+      case ui::ET_MOUSE_PRESSED:
+      case ui::ET_MOUSE_RELEASED: {
+        const int kAllowedButtons = ui::EF_LEFT_MOUSE_BUTTON |
+                                    ui::EF_MIDDLE_MOUSE_BUTTON |
+                                    ui::EF_RIGHT_MOUSE_BUTTON;
+        return (event->flags() & kAllowedButtons) != 0;
+      }
+      default:
+        break;
     }
-    default:
-      break;
   }
 #endif
   return true;
@@ -683,29 +727,6 @@ void RenderWidgetHostViewEventHandler::HandleGestureForTouchSelection(
     case ui::ET_GESTURE_SCROLL_END:
       delegate_->selection_controller_client()->OnScrollCompleted();
       break;
-#if defined(OS_WIN)
-    case ui::ET_GESTURE_LONG_TAP: {
-      if (!last_context_menu_params_)
-        break;
-
-      std::unique_ptr<ContextMenuParams> context_menu_params =
-          std::move(last_context_menu_params_);
-
-      // On Windows we want to display the context menu when the long press
-      // gesture is released. To achieve that, we switch the saved context
-      // menu params source type to MENU_SOURCE_TOUCH. This is to ensure that
-      // the RenderWidgetHostViewBase::OnShowContextMenu function which is
-      // called from the ShowContextMenu call below, does not treat it as
-      // a context menu request coming in from the long press gesture.
-      DCHECK(context_menu_params->source_type == ui::MENU_SOURCE_LONG_PRESS);
-      context_menu_params->source_type = ui::MENU_SOURCE_TOUCH;
-
-      delegate_->ShowContextMenu(*context_menu_params);
-      event->SetHandled();
-      // WARNING: we may have been deleted during the call to ShowContextMenu().
-      break;
-    }
-#endif
     default:
       break;
   }
@@ -730,76 +751,75 @@ void RenderWidgetHostViewEventHandler::HandleMouseEventWhileLocked(
         ProcessMouseWheelEvent(mouse_wheel_event, *event->latency());
       }
     }
-    return;
-  }
-
-  gfx::Point center(gfx::Rect(window_->bounds().size()).CenterPoint());
-
-  // If we receive non client mouse messages while we are in the locked state
-  // it probably means that the mouse left the borders of our window and
-  // needs to be moved back to the center.
-  if (event->flags() & ui::EF_IS_NON_CLIENT) {
-    // TODO(jonross): ideally this would not be done for mus (crbug.com/621412)
-    synthetic_move_sent_ = true;
-    window_->MoveCursorTo(center);
-    return;
-  }
-
-  blink::WebMouseEvent mouse_event =
-      ui::MakeWebMouseEvent(*event, base::Bind(&GetScreenLocationFromEvent));
-
-  bool is_move_to_center_event =
-      (event->type() == ui::ET_MOUSE_MOVED ||
-       event->type() == ui::ET_MOUSE_DRAGGED) &&
-      mouse_event.PositionInWidget().x == center.x() &&
-      mouse_event.PositionInWidget().y == center.y();
-
-  // For fractional scale factors, the conversion from pixels to dip and
-  // vice versa could result in off by 1 or 2 errors which hurts us because
-  // we want to avoid sending the artificial move to center event to the
-  // renderer. Sending the move to center to the renderer cause the cursor
-  // to bounce around the center of the screen leading to the lock operation
-  // not working correctly.
-  // Workaround is to treat a mouse move or drag event off by at most 2 px
-  // from the center as a move to center event.
-  if (synthetic_move_sent_ &&
-      IsFractionalScaleFactor(host_view_->current_device_scale_factor())) {
-    if (event->type() == ui::ET_MOUSE_MOVED ||
-        event->type() == ui::ET_MOUSE_DRAGGED) {
-      if ((std::abs(mouse_event.PositionInWidget().x - center.x()) <= 2) &&
-          (std::abs(mouse_event.PositionInWidget().y - center.y()) <= 2)) {
-        is_move_to_center_event = true;
-      }
-    }
-  }
-
-  ModifyEventMovementAndCoords(*event, &mouse_event);
-
-  bool should_not_forward = is_move_to_center_event && synthetic_move_sent_;
-  if (should_not_forward) {
-    synthetic_move_sent_ = false;
   } else {
-    // Check if the mouse has reached the border and needs to be centered.
-    if (ShouldMoveToCenter()) {
-      synthetic_move_sent_ = true;
-      window_->MoveCursorTo(center);
+    gfx::Point center(gfx::Rect(window_->bounds().size()).CenterPoint());
+
+    // If we receive non client mouse messages while we are in the locked state
+    // it probably means that the mouse left the borders of our window and
+    // needs to be moved back to the center.
+    if (event->flags() & ui::EF_IS_NON_CLIENT) {
+      // TODO(jonross): ideally this would not be done for mus
+      // (crbug.com/621412)
+      MoveCursorToCenter();
+      return;
     }
-    bool is_selection_popup = NeedsInputGrab(popup_child_host_view_);
-    // Forward event to renderer.
-    if (CanRendererHandleEvent(event, mouse_locked_, is_selection_popup) &&
-        !(event->flags() & ui::EF_FROM_TOUCH)) {
-      if (ShouldRouteEvent(event)) {
-        host_->delegate()->GetInputEventRouter()->RouteMouseEvent(
-            host_view_, &mouse_event, *event->latency());
-      } else {
-        ProcessMouseEvent(mouse_event, *event->latency());
+
+    blink::WebMouseEvent mouse_event =
+        ui::MakeWebMouseEvent(*event, base::Bind(&GetScreenLocationFromEvent));
+
+    bool is_move_to_center_event =
+        (event->type() == ui::ET_MOUSE_MOVED ||
+         event->type() == ui::ET_MOUSE_DRAGGED) &&
+        mouse_event.PositionInWidget().x == center.x() &&
+        mouse_event.PositionInWidget().y == center.y();
+
+    // For fractional scale factors, the conversion from pixels to dip and
+    // vice versa could result in off by 1 or 2 errors which hurts us because
+    // we want to avoid sending the artificial move to center event to the
+    // renderer. Sending the move to center to the renderer cause the cursor
+    // to bounce around the center of the screen leading to the lock operation
+    // not working correctly.
+    // Workaround is to treat a mouse move or drag event off by at most 2 px
+    // from the center as a move to center event.
+    if (synthetic_move_sent_ &&
+        IsFractionalScaleFactor(host_view_->current_device_scale_factor())) {
+      if (event->type() == ui::ET_MOUSE_MOVED ||
+          event->type() == ui::ET_MOUSE_DRAGGED) {
+        if ((std::abs(mouse_event.PositionInWidget().x - center.x()) <= 2) &&
+            (std::abs(mouse_event.PositionInWidget().y - center.y()) <= 2)) {
+          is_move_to_center_event = true;
+        }
       }
-      // Ensure that we get keyboard focus on mouse down as a plugin window
-      // may have grabbed keyboard focus.
-      if (event->type() == ui::ET_MOUSE_PRESSED)
-        SetKeyboardFocus();
+    }
+
+    ModifyEventMovementAndCoords(*event, &mouse_event);
+
+    bool should_not_forward = is_move_to_center_event && synthetic_move_sent_;
+    if (should_not_forward) {
+      synthetic_move_sent_ = false;
+    } else {
+      // Check if the mouse has reached the border and needs to be centered.
+      if (ShouldMoveToCenter())
+        MoveCursorToCenter();
+      bool is_selection_popup = NeedsInputGrab(popup_child_host_view_);
+      // Forward event to renderer.
+      if (CanRendererHandleEvent(event, mouse_locked_, is_selection_popup) &&
+          !(event->flags() & ui::EF_FROM_TOUCH)) {
+        if (ShouldRouteEvent(event)) {
+          host_->delegate()->GetInputEventRouter()->RouteMouseEvent(
+              host_view_, &mouse_event, *event->latency());
+        } else {
+          ProcessMouseEvent(mouse_event, *event->latency());
+        }
+        // Ensure that we get keyboard focus on mouse down as a plugin window
+        // may have grabbed keyboard focus.
+        if (event->type() == ui::ET_MOUSE_PRESSED)
+          SetKeyboardFocus();
+      }
     }
   }
+  if (!ShouldGenerateAppCommand(event))
+    event->SetHandled();
 }
 
 void RenderWidgetHostViewEventHandler::ModifyEventMovementAndCoords(
@@ -819,8 +839,14 @@ void RenderWidgetHostViewEventHandler::ModifyEventMovementAndCoords(
   // We do not measure movement as the delta from cursor to center because
   // we may receive more mouse movement events before our warp has taken
   // effect.
-  event->movement_x = event->PositionInScreen().x - global_mouse_position_.x();
-  event->movement_y = event->PositionInScreen().y - global_mouse_position_.y();
+  // TODO(crbug.com/802067): We store event coordinates as pointF but
+  // movement_x/y are integer. In order not to lose fractional part, we need
+  // to keep the movement calculation as "floor(cur_pos) - floor(last_pos)".
+  // Remove the floor here when movement_x/y is changed to double.
+  event->movement_x = gfx::ToFlooredInt(event->PositionInScreen().x) -
+                      gfx::ToFlooredInt(global_mouse_position_.x());
+  event->movement_y = gfx::ToFlooredInt(event->PositionInScreen().y) -
+                      gfx::ToFlooredInt(global_mouse_position_.y());
 
   global_mouse_position_.SetPoint(event->PositionInScreen().x,
                                   event->PositionInScreen().y);
@@ -838,6 +864,21 @@ void RenderWidgetHostViewEventHandler::ModifyEventMovementAndCoords(
     unlocked_global_mouse_position_.SetPoint(event->PositionInScreen().x,
                                              event->PositionInScreen().y);
   }
+}
+
+void RenderWidgetHostViewEventHandler::MoveCursorToCenter() {
+#if defined(OS_WIN)
+  // TODO(crbug.com/781182): Set the global position when move cursor to center.
+  // This is a workaround for a bug from Windows update 16299, and should be remove
+  // once the bug is fixed in OS.
+  gfx::PointF center_in_screen(window_->GetBoundsInScreen().CenterPoint());
+  global_mouse_position_ = center_in_screen;
+#else
+  synthetic_move_sent_ = true;
+#endif
+
+  gfx::Point center(gfx::Rect(window_->bounds().size()).CenterPoint());
+  window_->MoveCursorTo(center);
 }
 
 void RenderWidgetHostViewEventHandler::SetKeyboardFocus() {
@@ -861,8 +902,8 @@ void RenderWidgetHostViewEventHandler::SetKeyboardFocus() {
 bool RenderWidgetHostViewEventHandler::ShouldMoveToCenter() {
   gfx::Rect rect = window_->bounds();
   rect = delegate_->ConvertRectToScreen(rect);
-  int border_x = rect.width() * kMouseLockBorderPercentage / 100;
-  int border_y = rect.height() * kMouseLockBorderPercentage / 100;
+  float border_x = rect.width() * kMouseLockBorderPercentage / 100.0;
+  float border_y = rect.height() * kMouseLockBorderPercentage / 100.0;
 
   return global_mouse_position_.x() < rect.x() + border_x ||
          global_mouse_position_.x() > rect.right() - border_x ||
@@ -891,10 +932,6 @@ bool RenderWidgetHostViewEventHandler::ShouldRouteEvent(
   if (host_->delegate() && !host_->delegate()->IsWidgetForMainFrame(host_))
     return false;
 
-  // ScrollEvents get transformed into MouseWheel events, and so are treated
-  // the same as mouse events for routing purposes.
-  if (event->IsMouseEvent() || event->type() == ui::ET_SCROLL)
-    result = result && SiteIsolationPolicy::AreCrossProcessFramesPossible();
   return result;
 }
 
@@ -914,6 +951,16 @@ void RenderWidgetHostViewEventHandler::ProcessTouchEvent(
     const blink::WebTouchEvent& event,
     const ui::LatencyInfo& latency) {
   host_->ForwardTouchEventWithLatencyInfo(event, latency);
+}
+
+bool RenderWidgetHostViewEventHandler::IsKeyLocked(const ui::KeyEvent& event) {
+  // Note: We never consider 'ESC' to be locked as we don't want to prevent it
+  // from being handled by the browser.  Doing so would have adverse effects
+  // such as the user being unable to exit fullscreen mode.
+  if (!IsKeyboardLocked() || event.code() == ui::DomCode::ESCAPE)
+    return false;
+
+  return scoped_keyboard_hook_->IsKeyLocked(event.code());
 }
 
 }  // namespace content

@@ -4,7 +4,6 @@
 
 #include "content/browser/appcache/appcache_backend_impl.h"
 
-#include "base/memory/ptr_util.h"
 #include "content/browser/appcache/appcache.h"
 #include "content/browser/appcache/appcache_group.h"
 #include "content/browser/appcache/appcache_service_impl.h"
@@ -14,10 +13,7 @@
 namespace content {
 
 AppCacheBackendImpl::AppCacheBackendImpl()
-    : service_(NULL),
-      frontend_(NULL),
-      process_id_(0) {
-}
+    : service_(nullptr), frontend_(nullptr), process_id_(0) {}
 
 AppCacheBackendImpl::~AppCacheBackendImpl() {
   hosts_.clear();
@@ -39,7 +35,7 @@ bool AppCacheBackendImpl::RegisterHost(int id) {
   if (GetHost(id))
     return false;
 
-  hosts_[id] = base::MakeUnique<AppCacheHost>(id, frontend_, service_);
+  hosts_[id] = std::make_unique<AppCacheHost>(id, frontend_, service_);
   return true;
 }
 
@@ -70,15 +66,6 @@ bool AppCacheBackendImpl::SelectCache(
                     manifest_url);
 }
 
-bool AppCacheBackendImpl::SelectCacheForWorker(
-    int host_id, int parent_process_id, int parent_host_id) {
-  AppCacheHost* host = GetHost(host_id);
-  if (!host)
-    return false;
-
-  return host->SelectCacheForWorker(parent_process_id, parent_host_id);
-}
-
 bool AppCacheBackendImpl::SelectCacheForSharedWorker(int host_id,
                                                      int64_t appcache_id) {
   AppCacheHost* host = GetHost(host_id);
@@ -99,33 +86,34 @@ bool AppCacheBackendImpl::MarkAsForeignEntry(
   return host->MarkAsForeignEntry(document_url, cache_document_was_loaded_from);
 }
 
-bool AppCacheBackendImpl::GetStatusWithCallback(
-    int host_id, const GetStatusCallback& callback, void* callback_param) {
+bool AppCacheBackendImpl::GetStatusWithCallback(int host_id,
+                                                GetStatusCallback* callback) {
   AppCacheHost* host = GetHost(host_id);
   if (!host)
     return false;
 
-  host->GetStatusWithCallback(callback, callback_param);
+  host->GetStatusWithCallback(std::move(*callback));
   return true;
 }
 
 bool AppCacheBackendImpl::StartUpdateWithCallback(
-    int host_id, const StartUpdateCallback& callback, void* callback_param) {
+    int host_id,
+    StartUpdateCallback* callback) {
   AppCacheHost* host = GetHost(host_id);
   if (!host)
     return false;
 
-  host->StartUpdateWithCallback(callback, callback_param);
+  host->StartUpdateWithCallback(std::move(*callback));
   return true;
 }
 
-bool AppCacheBackendImpl::SwapCacheWithCallback(
-    int host_id, const SwapCacheCallback& callback, void* callback_param) {
+bool AppCacheBackendImpl::SwapCacheWithCallback(int host_id,
+                                                SwapCacheCallback* callback) {
   AppCacheHost* host = GetHost(host_id);
   if (!host)
     return false;
 
-  host->SwapCacheWithCallback(callback, callback_param);
+  host->SwapCacheWithCallback(std::move(*callback));
   return true;
 }
 
@@ -138,39 +126,8 @@ void AppCacheBackendImpl::GetResourceList(
   host->GetResourceList(resource_infos);
 }
 
-std::unique_ptr<AppCacheHost> AppCacheBackendImpl::TransferHostOut(
-    int host_id) {
-  auto found = hosts_.find(host_id);
-  if (found == hosts_.end()) {
-    NOTREACHED();
-    return std::unique_ptr<AppCacheHost>();
-  }
-
-  std::unique_ptr<AppCacheHost> transferree = std::move(found->second);
-
-  // Put a new empty host in its place.
-  found->second = base::MakeUnique<AppCacheHost>(host_id, frontend_, service_);
-
-  // We give up ownership.
-  transferree->PrepareForTransfer();
-  return transferree;
-}
-
-void AppCacheBackendImpl::TransferHostIn(int new_host_id,
-                                         std::unique_ptr<AppCacheHost> host) {
-  auto found = hosts_.find(new_host_id);
-  if (found == hosts_.end()) {
-    NOTREACHED();
-    return;
-  }
-
-  host->CompleteTransfer(new_host_id, frontend_);
-  found->second = std::move(host);
-}
-
 void AppCacheBackendImpl::RegisterPrecreatedHost(
     std::unique_ptr<AppCacheHost> host) {
-  DCHECK(IsBrowserSideNavigationEnabled());
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
   DCHECK(host.get());

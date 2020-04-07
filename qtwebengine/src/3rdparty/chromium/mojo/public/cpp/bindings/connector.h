@@ -5,6 +5,7 @@
 #ifndef MOJO_PUBLIC_CPP_BINDINGS_CONNECTOR_H_
 #define MOJO_PUBLIC_CPP_BINDINGS_CONNECTOR_H_
 
+#include <atomic>
 #include <memory>
 #include <utility>
 
@@ -38,8 +39,7 @@ namespace mojo {
 //   - Sending messages can be configured to be thread safe (please see comments
 //     of the constructor). Other than that, the object should only be accessed
 //     on the creating sequence.
-class MOJO_CPP_BINDINGS_EXPORT Connector
-    : NON_EXPORTED_BASE(public MessageReceiver) {
+class MOJO_CPP_BINDINGS_EXPORT Connector : public MessageReceiver {
  public:
   enum ConnectorConfig {
     // Connector::Accept() is only called from a single sequence.
@@ -235,7 +235,7 @@ class MOJO_CPP_BINDINGS_EXPORT Connector
   std::unique_ptr<SimpleWatcher> handle_watcher_;
   base::Optional<HandleSignalTracker> peer_remoteness_tracker_;
 
-  bool error_ = false;
+  std::atomic<bool> error_;
   bool drop_writes_ = false;
   bool enforce_errors_from_incoming_receiver_ = true;
 
@@ -270,6 +270,10 @@ class MOJO_CPP_BINDINGS_EXPORT Connector
   // |true| iff the Connector is currently dispatching a message. Used to detect
   // nested dispatch operations.
   bool is_dispatching_ = false;
+
+#if defined(ENABLE_IPC_FUZZER)
+  std::unique_ptr<MessageReceiver> message_dumper_;
+#endif
 
   // Create a single weak ptr and use it everywhere, to avoid the malloc/free
   // cost of creating a new weak ptr whenever it is needed.

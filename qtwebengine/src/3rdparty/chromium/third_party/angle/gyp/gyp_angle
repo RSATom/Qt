@@ -13,7 +13,7 @@ import sys
 script_dir = os.path.dirname(__file__)
 angle_dir = os.path.normpath(os.path.join(script_dir, os.pardir))
 
-sys.path.insert(0, os.path.join(angle_dir, 'third_party', 'gyp', 'pylib'))
+sys.path.insert(0, os.path.join(angle_dir, 'tools', 'gyp', 'pylib'))
 import gyp
 
 def appendCommonArgs(args):
@@ -65,6 +65,10 @@ def generateWinRTProjects(generate_args, generation_dir, msvs_version, app_type_
     gyp.main(args)
 
 if __name__ == '__main__':
+    print
+    print '* * * WARNING: GYP IS DEPRECATED * * *'
+    print 'See https://chromium.googlesource.com/angle/angle/+/master/doc/DevSetup.md for new build instructions.'
+    print
     print 'Updating projects from gyp files...'
     sys.stdout.flush()
 

@@ -6,6 +6,7 @@
 #define CHROME_BROWSER_EXTENSIONS_API_TERMINAL_TERMINAL_PRIVATE_API_H_
 
 #include <string>
+#include <vector>
 
 #include "extensions/browser/extension_function.h"
 
@@ -32,11 +33,11 @@ class TerminalPrivateOpenTerminalProcessFunction
                           const std::string& output)>;
   using OpenProcessCallback = base::Callback<void(int terminal_id)>;
 
-  void OpenOnFileThread(const ProcessOutputCallback& output_callback,
-                        const OpenProcessCallback& callback);
+  void OpenOnRegistryTaskRunner(const ProcessOutputCallback& output_callback,
+                                const OpenProcessCallback& callback,
+                                const std::vector<std::string>& arguments,
+                                const std::string& user_id_hash);
   void RespondOnUIThread(int terminal_id);
-
-  std::string command_;
 };
 
 // Send input to the terminal process specified by the terminal ID, which is set
@@ -52,7 +53,7 @@ class TerminalPrivateSendInputFunction : public UIThreadExtensionFunction {
   ExtensionFunction::ResponseAction Run() override;
 
  private:
-  void SendInputOnFileThread(int terminal_id, const std::string& input);
+  void SendInputOnRegistryTaskRunner(int terminal_id, const std::string& input);
   void RespondOnUIThread(bool success);
 };
 
@@ -69,7 +70,7 @@ class TerminalPrivateCloseTerminalProcessFunction
   ExtensionFunction::ResponseAction Run() override;
 
  private:
-  void CloseOnFileThread(int terminal_id);
+  void CloseOnRegistryTaskRunner(int terminal_id);
   void RespondOnUIThread(bool success);
 };
 
@@ -86,7 +87,7 @@ class TerminalPrivateOnTerminalResizeFunction
   ExtensionFunction::ResponseAction Run() override;
 
  private:
-  void OnResizeOnFileThread(int terminal_id, int width, int height);
+  void OnResizeOnRegistryTaskRunner(int terminal_id, int width, int height);
   void RespondOnUIThread(bool success);
 };
 
@@ -101,7 +102,7 @@ class TerminalPrivateAckOutputFunction : public UIThreadExtensionFunction {
   ExtensionFunction::ResponseAction Run() override;
 
  private:
-  void AckOutputOnFileThread(int terminal_id);
+  void AckOutputOnRegistryTaskRunner(int terminal_id);
 };
 
 }  // namespace extensions

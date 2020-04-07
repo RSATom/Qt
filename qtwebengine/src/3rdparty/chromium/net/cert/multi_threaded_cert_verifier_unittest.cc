@@ -19,6 +19,7 @@
 #include "net/test/cert_test_util.h"
 #include "net/test/gtest_util.h"
 #include "net/test/test_data_directory.h"
+#include "net/test/test_with_scoped_task_environment.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -35,14 +36,13 @@ void FailTest(int /* result */) {
 
 class MockCertVerifyProc : public CertVerifyProc {
  public:
-  MockCertVerifyProc() {}
+  MockCertVerifyProc() = default;
 
  private:
-  ~MockCertVerifyProc() override {}
+  ~MockCertVerifyProc() override = default;
 
   // CertVerifyProc implementation
   bool SupportsAdditionalTrustAnchors() const override { return false; }
-  bool SupportsOCSPStapling() const override { return false; }
 
   int VerifyInternal(X509Certificate* cert,
                      const std::string& hostname,
@@ -60,10 +60,10 @@ class MockCertVerifyProc : public CertVerifyProc {
 
 }  // namespace
 
-class MultiThreadedCertVerifierTest : public ::testing::Test {
+class MultiThreadedCertVerifierTest : public TestWithScopedTaskEnvironment {
  public:
   MultiThreadedCertVerifierTest() : verifier_(new MockCertVerifyProc()) {}
-  ~MultiThreadedCertVerifierTest() override {}
+  ~MultiThreadedCertVerifierTest() override = default;
 
  protected:
   MultiThreadedCertVerifier verifier_;

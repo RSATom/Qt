@@ -5,8 +5,7 @@
 #ifndef UI_AURA_MUS_INPUT_METHOD_MUS_H_
 #define UI_AURA_MUS_INPUT_METHOD_MUS_H_
 
-#include <deque>
-
+#include "base/containers/circular_deque.h"
 #include "base/macros.h"
 #include "mojo/public/cpp/bindings/strong_binding.h"
 #include "services/service_manager/public/cpp/connector.h"
@@ -22,27 +21,26 @@ enum class EventResult;
 
 namespace aura {
 
+class InputMethodMusDelegate;
 class InputMethodMusTestApi;
 class TextInputClientImpl;
-class Window;
 
 class AURA_EXPORT InputMethodMus : public ui::InputMethodBase {
  public:
-  using EventResultCallback = base::Callback<void(ui::mojom::EventResult)>;
+  using EventResultCallback = base::OnceCallback<void(ui::mojom::EventResult)>;
 
-  InputMethodMus(ui::internal::InputMethodDelegate* delegate, Window* window);
+  InputMethodMus(ui::internal::InputMethodDelegate* delegate,
+                 InputMethodMusDelegate* input_method_mus_delegate);
   ~InputMethodMus() override;
 
   void Init(service_manager::Connector* connector);
-  ui::EventDispatchDetails DispatchKeyEvent(
-      ui::KeyEvent* event,
-      std::unique_ptr<EventResultCallback> ack_callback) WARN_UNUSED_RESULT;
+  ui::EventDispatchDetails DispatchKeyEvent(ui::KeyEvent* event,
+                                            EventResultCallback ack_callback)
+      WARN_UNUSED_RESULT;
 
   // Overridden from ui::InputMethod:
   void OnFocus() override;
   void OnBlur() override;
-  bool OnUntranslatedIMEMessage(const base::NativeEvent& event,
-                                NativeEventResult* result) override;
   ui::EventDispatchDetails DispatchKeyEvent(ui::KeyEvent* event) override;
   void OnTextInputTypeChanged(const ui::TextInputClient* client) override;
   void OnCaretBoundsChanged(const ui::TextInputClient* client) override;
@@ -57,7 +55,7 @@ class AURA_EXPORT InputMethodMus : public ui::InputMethodBase {
   // Called from DispatchKeyEvent() to call to the InputMethod.
   ui::EventDispatchDetails SendKeyEventToInputMethod(
       const ui::KeyEvent& event,
-      std::unique_ptr<EventResultCallback> ack_callback) WARN_UNUSED_RESULT;
+      EventResultCallback ack_callback) WARN_UNUSED_RESULT;
 
   // Overridden from ui::InputMethodBase:
   void OnDidChangeFocusedClient(ui::TextInputClient* focused_before,
@@ -75,9 +73,9 @@ class AURA_EXPORT InputMethodMus : public ui::InputMethodBase {
       const ui::KeyEvent& event,
       bool handled);
 
-  // The toplevel window which is not owned by this class. This may be null
-  // for tests.
-  Window* window_;
+  // Delegate used to update window related ime state. This may be null in
+  // tests.
+  InputMethodMusDelegate* input_method_mus_delegate_;
 
   // May be null in tests.
   ui::mojom::IMEDriverPtr ime_driver_;
@@ -90,7 +88,7 @@ class AURA_EXPORT InputMethodMus : public ui::InputMethodBase {
   // Callbacks supplied to DispatchKeyEvent() are added here while awaiting
   // the response from the server. These are removed when the response is
   // received (ProcessKeyEventCallback()).
-  std::deque<std::unique_ptr<EventResultCallback>> pending_callbacks_;
+  base::circular_deque<EventResultCallback> pending_callbacks_;
 
   DISALLOW_COPY_AND_ASSIGN(InputMethodMus);
 };

@@ -53,21 +53,21 @@ public:
     explicit QScxmlNullDataModel(QObject *parent = nullptr);
     ~QScxmlNullDataModel();
 
-    Q_INVOKABLE bool setup(const QVariantMap &initialDataValues) Q_DECL_OVERRIDE;
+    Q_INVOKABLE bool setup(const QVariantMap &initialDataValues) override;
 
-    QString evaluateToString(QScxmlExecutableContent::EvaluatorId id, bool *ok) Q_DECL_OVERRIDE Q_DECL_FINAL;
-    bool evaluateToBool(QScxmlExecutableContent::EvaluatorId id, bool *ok) Q_DECL_OVERRIDE Q_DECL_FINAL;
-    QVariant evaluateToVariant(QScxmlExecutableContent::EvaluatorId id, bool *ok) Q_DECL_OVERRIDE Q_DECL_FINAL;
-    void evaluateToVoid(QScxmlExecutableContent::EvaluatorId id, bool *ok) Q_DECL_OVERRIDE Q_DECL_FINAL;
-    void evaluateAssignment(QScxmlExecutableContent::EvaluatorId id, bool *ok) Q_DECL_OVERRIDE Q_DECL_FINAL;
-    void evaluateInitialization(QScxmlExecutableContent::EvaluatorId id, bool *ok) Q_DECL_OVERRIDE Q_DECL_FINAL;
-    void evaluateForeach(QScxmlExecutableContent::EvaluatorId id, bool *ok, ForeachLoopBody *body) Q_DECL_OVERRIDE Q_DECL_FINAL;
+    QString evaluateToString(QScxmlExecutableContent::EvaluatorId id, bool *ok) override final;
+    bool evaluateToBool(QScxmlExecutableContent::EvaluatorId id, bool *ok) override final;
+    QVariant evaluateToVariant(QScxmlExecutableContent::EvaluatorId id, bool *ok) override final;
+    void evaluateToVoid(QScxmlExecutableContent::EvaluatorId id, bool *ok) override final;
+    void evaluateAssignment(QScxmlExecutableContent::EvaluatorId id, bool *ok) override final;
+    void evaluateInitialization(QScxmlExecutableContent::EvaluatorId id, bool *ok) override final;
+    void evaluateForeach(QScxmlExecutableContent::EvaluatorId id, bool *ok, ForeachLoopBody *body) override final;
 
-    void setScxmlEvent(const QScxmlEvent &event) Q_DECL_OVERRIDE;
+    void setScxmlEvent(const QScxmlEvent &event) override;
 
-    QVariant scxmlProperty(const QString &name) const Q_DECL_OVERRIDE;
-    bool hasScxmlProperty(const QString &name) const Q_DECL_OVERRIDE;
-    bool setScxmlProperty(const QString &name, const QVariant &value, const QString &context) Q_DECL_OVERRIDE;
+    QVariant scxmlProperty(const QString &name) const override;
+    bool hasScxmlProperty(const QString &name) const override;
+    bool setScxmlProperty(const QString &name, const QVariant &value, const QString &context) override;
 };
 
 QT_END_NAMESPACE

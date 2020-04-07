@@ -14,20 +14,19 @@
 #include <memory>
 #include <vector>
 
-#include "webrtc/common_types.h"
-#include "webrtc/modules/rtp_rtcp/include/rtp_payload_registry.h"
-#include "webrtc/modules/rtp_rtcp/include/rtp_rtcp.h"
-#include "webrtc/modules/rtp_rtcp/include/rtp_rtcp_defines.h"
-#include "webrtc/modules/rtp_rtcp/source/byte_io.h"
-#include "webrtc/modules/rtp_rtcp/source/rtp_receiver_video.h"
-#include "webrtc/modules/rtp_rtcp/test/testAPI/test_api.h"
-#include "webrtc/rtc_base/rate_limiter.h"
-#include "webrtc/test/gtest.h"
+#include "api/video_codecs/video_codec.h"
+#include "modules/rtp_rtcp/include/rtp_payload_registry.h"
+#include "modules/rtp_rtcp/include/rtp_rtcp.h"
+#include "modules/rtp_rtcp/include/rtp_rtcp_defines.h"
+#include "modules/rtp_rtcp/source/byte_io.h"
+#include "modules/rtp_rtcp/source/rtp_receiver_video.h"
+#include "modules/rtp_rtcp/test/testAPI/test_api.h"
+#include "rtc_base/rate_limiter.h"
+#include "test/gtest.h"
 
 namespace {
 
 const unsigned char kPayloadType = 100;
-
 };
 
 namespace webrtc {
@@ -40,9 +39,9 @@ class RtpRtcpVideoTest : public ::testing::Test {
         test_sequence_number_(2345),
         fake_clock(123456),
         retransmission_rate_limiter_(&fake_clock, 1000) {}
-  ~RtpRtcpVideoTest() {}
+  ~RtpRtcpVideoTest() override = default;
 
-  virtual void SetUp() {
+  void SetUp() override {
     transport_ = new LoopBackTransport();
     receiver_ = new TestRtpReceiver();
     receive_statistics_.reset(ReceiveStatistics::Create(&fake_clock));
@@ -54,7 +53,7 @@ class RtpRtcpVideoTest : public ::testing::Test {
 
     video_module_ = RtpRtcp::CreateRtpRtcp(configuration);
     rtp_receiver_.reset(RtpReceiver::CreateVideoReceiver(
-        &fake_clock, receiver_, NULL, &rtp_payload_registry_));
+        &fake_clock, receiver_, &rtp_payload_registry_));
 
     video_module_->SetRTCPStatus(RtcpMode::kCompound);
     video_module_->SetSSRC(test_ssrc_);
@@ -67,21 +66,21 @@ class RtpRtcpVideoTest : public ::testing::Test {
     VideoCodec video_codec;
     memset(&video_codec, 0, sizeof(video_codec));
     video_codec.plType = 123;
-    memcpy(video_codec.plName, "I420", 5);
+    video_codec.codecType = kVideoCodecI420;
 
-    EXPECT_EQ(0, video_module_->RegisterSendPayload(video_codec));
+    video_module_->RegisterVideoSendPayload(123, "I420");
     EXPECT_EQ(0, rtp_payload_registry_.RegisterReceivePayload(video_codec));
 
     payload_data_length_ = sizeof(video_frame_);
 
     for (size_t n = 0; n < payload_data_length_; n++) {
-      video_frame_[n] = n%10;
+      video_frame_[n] = n % 10;
     }
   }
 
   size_t BuildRTPheader(uint8_t* dataBuffer,
-                         uint32_t timestamp,
-                         uint32_t sequence_number) {
+                        uint32_t timestamp,
+                        uint32_t sequence_number) {
     dataBuffer[0] = static_cast<uint8_t>(0x80);  // version 2
     dataBuffer[1] = static_cast<uint8_t>(kPayloadType);
     ByteWriter<uint16_t>::WriteBigEndian(dataBuffer + 2, sequence_number);
@@ -105,8 +104,7 @@ class RtpRtcpVideoTest : public ::testing::Test {
     // Correct seq num, timestamp and payload type.
     size_t header_length = BuildRTPheader(buffer, timestamp, sequence_number);
     buffer[0] |= 0x20;  // Set padding bit.
-    int32_t* data =
-        reinterpret_cast<int32_t*>(&(buffer[header_length]));
+    int32_t* data = reinterpret_cast<int32_t*>(&(buffer[header_length]));
 
     // Fill data buffer with random data.
     for (size_t j = 0; j < (padding_bytes_in_packet >> 2); j++) {
@@ -118,7 +116,7 @@ class RtpRtcpVideoTest : public ::testing::Test {
     return padding_bytes_in_packet + header_length;
   }
 
-  virtual void TearDown() {
+  void TearDown() override {
     delete video_module_;
     delete transport_;
     delete receiver_;
@@ -134,7 +132,7 @@ class RtpRtcpVideoTest : public ::testing::Test {
   uint32_t test_ssrc_;
   uint32_t test_timestamp_;
   uint16_t test_sequence_number_;
-  uint8_t  video_frame_[65000];
+  uint8_t video_frame_[65000];
   size_t payload_data_length_;
   SimulatedClock fake_clock;
   RateLimiter retransmission_rate_limiter_;
@@ -155,24 +153,22 @@ TEST_F(RtpRtcpVideoTest, PaddingOnlyFrames) {
   VideoCodec codec;
   codec.codecType = kVideoCodecVP8;
   codec.plType = kPayloadType;
-  strncpy(codec.plName, "VP8", 4);
   EXPECT_EQ(0, rtp_payload_registry_.RegisterReceivePayload(codec));
   for (int frame_idx = 0; frame_idx < 10; ++frame_idx) {
     for (int packet_idx = 0; packet_idx < 5; ++packet_idx) {
-      size_t packet_size = PaddingPacket(padding_packet, timestamp, seq_num,
-                                         kPadSize);
+      size_t packet_size =
+          PaddingPacket(padding_packet, timestamp, seq_num, kPadSize);
       ++seq_num;
       RTPHeader header;
       std::unique_ptr<RtpHeaderParser> parser(RtpHeaderParser::Create());
       EXPECT_TRUE(parser->Parse(padding_packet, packet_size, &header));
-      PayloadUnion payload_specific;
-      EXPECT_TRUE(rtp_payload_registry_.GetPayloadSpecifics(header.payloadType,
-                                                            &payload_specific));
+      const auto pl =
+          rtp_payload_registry_.PayloadTypeToPayload(header.payloadType);
+      EXPECT_TRUE(pl);
       const uint8_t* payload = padding_packet + header.headerLength;
       const size_t payload_length = packet_size - header.headerLength;
-      EXPECT_TRUE(rtp_receiver_->IncomingRtpPacket(header, payload,
-                                                   payload_length,
-                                                   payload_specific, true));
+      EXPECT_TRUE(rtp_receiver_->IncomingRtpPacket(
+          header, payload, payload_length, pl->typeSpecific));
       EXPECT_EQ(0u, receiver_->payload_size());
       EXPECT_EQ(payload_length, receiver_->rtp_header().header.paddingLength);
     }

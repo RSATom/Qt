@@ -20,8 +20,7 @@ namespace media {
 
 // Wrapper for MultiBuffer that offers a simple byte-reading
 // interface with prefetch.
-class MEDIA_BLINK_EXPORT MultiBufferReader
-    : NON_EXPORTED_BASE(public MultiBuffer::Reader) {
+class MEDIA_BLINK_EXPORT MultiBufferReader : public MultiBuffer::Reader {
  public:
   // Note that |progress_callback| is guaranteed to be called if
   // a redirect happens and the url_data is updated. Otherwise
@@ -43,10 +42,14 @@ class MEDIA_BLINK_EXPORT MultiBufferReader
 
   ~MultiBufferReader() override;
 
-  // Returns number of bytes available for reading. When the rest of the file
-  // is available, the number returned will be greater than the number
-  // or readable bytes. If an error occurs, -1 is returned.
-  int64_t Available() const;
+  // Returns number of bytes available for reading. At position |pos|
+  // When the rest of the file is available, the number returned will
+  // be greater than the number or readable bytes. If an error occurs,
+  // -1 is returned.
+  int64_t AvailableAt(int64_t pos) const;
+
+  // Returns number of bytes available for reading at the current position.
+  int64_t Available() const { return AvailableAt(pos_); }
 
   // Seek to a different position.
   // If there is a pending Wait(), it will be cancelled.
@@ -55,9 +58,13 @@ class MEDIA_BLINK_EXPORT MultiBufferReader
   // Returns the current position.
   int64_t Tell() const { return pos_; }
 
-  // Tries to read |len| bytes and advance position.
+  // Tries to read |len| bytes from position |pos|.
   // Returns number of bytes read.
-  // If there is a pending Wait(), it will be cancelled.
+  // Safe to call from any thread.
+  int64_t TryReadAt(int64_t pos, uint8_t* data, int64_t len);
+
+  // Tries to read |len| bytes and update current position.
+  // Returns number of bytes read.
   int64_t TryRead(uint8_t* data, int64_t len);
 
   // Wait until |len| bytes are available for reading.
@@ -94,6 +101,11 @@ class MEDIA_BLINK_EXPORT MultiBufferReader
   // Getters
   int64_t preload_high() const { return preload_high_; }
   int64_t preload_low() const { return preload_low_; }
+
+  // Setters
+  void SetIsClientAudioElement(bool is_client_audio_element) {
+    is_client_audio_element_ = is_client_audio_element;
+  }
 
  private:
   friend class MultibufferDataSourceTest;
@@ -151,6 +163,9 @@ class MEDIA_BLINK_EXPORT MultiBufferReader
 
   // Current position in bytes.
   int64_t pos_;
+
+  // Is the client an audio element?
+  bool is_client_audio_element_ = false;
 
   // [block(pos_)..preload_pos_) are known to be in the cache.
   // preload_pos_ is only allowed to point to a filled

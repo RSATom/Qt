@@ -21,15 +21,20 @@
             '<(angle_path)/src/tests/perf_tests/BindingPerf.cpp',
             '<(angle_path)/src/tests/perf_tests/BitSetIteratorPerf.cpp',
             '<(angle_path)/src/tests/perf_tests/BufferSubData.cpp',
+            '<(angle_path)/src/tests/perf_tests/CompilerPerf.cpp',
+            '<(angle_path)/src/tests/perf_tests/DispatchComputePerf.cpp',
             '<(angle_path)/src/tests/perf_tests/DrawCallPerf.cpp',
             '<(angle_path)/src/tests/perf_tests/DrawCallPerfParams.cpp',
             '<(angle_path)/src/tests/perf_tests/DrawCallPerfParams.h',
+            '<(angle_path)/src/tests/perf_tests/DrawElementsPerf.cpp',
             '<(angle_path)/src/tests/perf_tests/DynamicPromotionPerfTest.cpp',
             '<(angle_path)/src/tests/perf_tests/EGLInitializePerf.cpp',
+            '<(angle_path)/src/tests/perf_tests/ResultPerf.cpp',
             '<(angle_path)/src/tests/perf_tests/IndexConversionPerf.cpp',
             '<(angle_path)/src/tests/perf_tests/InstancingPerf.cpp',
             '<(angle_path)/src/tests/perf_tests/InterleavedAttributeData.cpp',
             '<(angle_path)/src/tests/perf_tests/LinkProgramPerfTest.cpp',
+            '<(angle_path)/src/tests/perf_tests/MultiviewPerf.cpp',
             '<(angle_path)/src/tests/perf_tests/PointSprites.cpp',
             '<(angle_path)/src/tests/perf_tests/TexSubImage.cpp',
             '<(angle_path)/src/tests/perf_tests/TextureSampling.cpp',
@@ -47,7 +52,12 @@
         'angle_perf_tests_win_sources':
         [
             '<(angle_path)/src/tests/perf_tests/IndexDataManagerTest.cpp',
-        ]
+        ],
+        # Only enabled with angle_enable_vulkan. Not exposed in the gyp.
+        'angle_perf_tests_vulkan_sources':
+        [
+            '<(angle_path)/src/tests/perf_tests/VulkanPipelineCachePerf.cpp',
+        ],
     },
     # Everything below (except WinRT-related config) must be also maintained for GN.
     # If you change anything below, also update angle/src/tests/BUILD.gn.

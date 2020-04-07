@@ -78,12 +78,12 @@ public:
     float velocity() const Q_DECL_NOTHROW { return  m_velocity; }
     void setVelocity(float velocity);
 
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) Q_DECL_OVERRIDE;
+    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) override;
 
     void stepIntegration(AxisManager *axisManager, float dt);
 
 private:
-    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) Q_DECL_FINAL;
+    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) final;
 
     Qt3DCore::QNodeId m_sourceAxisId;
     QAxisAccumulator::SourceAxisType m_sourceAxisType;

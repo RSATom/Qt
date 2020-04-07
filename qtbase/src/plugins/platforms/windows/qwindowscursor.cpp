@@ -43,16 +43,16 @@
 #include "qwindowswindow.h"
 #include "qwindowsscreen.h"
 
-#include <QtGui/QBitmap>
-#include <QtGui/QImage>
-#include <QtGui/QBitmap>
-#include <QtGui/QGuiApplication>
-#include <QtGui/QScreen>
+#include <QtGui/qbitmap.h>
+#include <QtGui/qimage.h>
+#include <QtGui/qbitmap.h>
+#include <QtGui/qguiapplication.h>
+#include <QtGui/qscreen.h>
 #include <QtGui/private/qguiapplication_p.h> // getPixmapCursor()
 #include <QtGui/private/qhighdpiscaling_p.h>
 
-#include <QtCore/QDebug>
-#include <QtCore/QScopedArrayPointer>
+#include <QtCore/qdebug.h>
+#include <QtCore/qscopedpointer.h>
 
 static bool initResources()
 {
@@ -102,7 +102,7 @@ QWindowsPixmapCursorCacheKey::QWindowsPixmapCursorCacheKey(const QCursor &c)
 
 HCURSOR QWindowsCursor::createPixmapCursor(QPixmap pixmap, const QPoint &hotSpot, qreal scaleFactor)
 {
-    HCURSOR cur = 0;
+    HCURSOR cur = nullptr;
     const qreal pixmapScaleFactor = scaleFactor / pixmap.devicePixelRatioF();
     if (!qFuzzyCompare(pixmapScaleFactor, 1)) {
         pixmap = pixmap.scaled((pixmapScaleFactor * QSizeF(pixmap.size())).toSize(),
@@ -161,7 +161,7 @@ static HCURSOR createBitmapCursor(const QImage &bbits, const QImage &mbits,
             ++x;
         }
     }
-    return CreateCursor(GetModuleHandle(0), hotSpot.x(), hotSpot.y(), width, height,
+    return CreateCursor(GetModuleHandle(nullptr), hotSpot.x(), hotSpot.y(), width, height,
                         xBits.data(), xMask.data());
 }
 
@@ -184,7 +184,7 @@ static HCURSOR createBitmapCursor(const QCursor &cursor, qreal scaleFactor = 1)
     return createBitmapCursor(bbits, mbits, cursor.hotSpot(), invb, invm);
 }
 
-static QSize systemCursorSize(const QPlatformScreen *screen = Q_NULLPTR)
+static QSize systemCursorSize(const QPlatformScreen *screen = nullptr)
 {
     const QSize primaryScreenCursorSize(GetSystemMetrics(SM_CXCURSOR), GetSystemMetrics(SM_CYCURSOR));
     if (screen) {
@@ -456,7 +456,7 @@ QWindowsCursor::PixmapCursor QWindowsCursor::customCursor(Qt::CursorShape cursor
 
     const QSize cursorSize = systemCursorSize(screen);
     const QWindowsCustomPngCursor *sEnd = pngCursors + sizeof(pngCursors) / sizeof(pngCursors[0]);
-    const QWindowsCustomPngCursor *bestFit = 0;
+    const QWindowsCustomPngCursor *bestFit = nullptr;
     int sizeDelta = INT_MAX;
     for (const QWindowsCustomPngCursor *s = pngCursors; s < sEnd; ++s) {
         if (s->shape != cursorShape)
@@ -524,14 +524,15 @@ HCURSOR QWindowsCursor::createCursorFromShape(Qt::CursorShape cursorShape, const
     }
 
     // Load available standard cursors from resources
-    const QWindowsStandardCursorMapping *sEnd = standardCursors + sizeof(standardCursors) / sizeof(standardCursors[0]);
-    for (const QWindowsStandardCursorMapping *s = standardCursors; s < sEnd; ++s) {
-        if (s->shape == cursorShape)
-            return static_cast<HCURSOR>(LoadImage(0, s->resource, IMAGE_CURSOR, 0, 0, LR_DEFAULTSIZE | LR_SHARED));
+    for (const QWindowsStandardCursorMapping &s : standardCursors) {
+        if (s.shape == cursorShape) {
+            return static_cast<HCURSOR>(LoadImage(nullptr, s.resource, IMAGE_CURSOR,
+                                                  0, 0, LR_DEFAULTSIZE | LR_SHARED));
+        }
     }
 
     qWarning("%s: Invalid cursor shape %d", __FUNCTION__, cursorShape);
-    return 0;
+    return nullptr;
 }
 
 /*!
@@ -549,6 +550,7 @@ CursorHandlePtr QWindowsCursor::standardWindowCursor(Qt::CursorShape shape)
 }
 
 HCURSOR QWindowsCursor::m_overriddenCursor = nullptr;
+HCURSOR QWindowsCursor::m_overrideCursor = nullptr;
 
 /*!
     \brief Return cached pixmap cursor or create new one.
@@ -621,11 +623,20 @@ void QWindowsCursor::changeCursor(QCursor *cursorIn, QWindow *window)
     }
 }
 
+// QTBUG-69637: Override cursors can get reset externally when moving across
+// window borders. Enforce the cursor again (to be called from enter event).
+void QWindowsCursor::enforceOverrideCursor()
+{
+    if (hasOverrideCursor() && m_overrideCursor != GetCursor())
+        SetCursor(m_overrideCursor);
+}
+
 void QWindowsCursor::setOverrideCursor(const QCursor &cursor)
 {
     const CursorHandlePtr wcursor = cursorHandle(cursor);
-    if (wcursor->handle()) {
-        const HCURSOR previousCursor = SetCursor(wcursor->handle());
+    if (const auto overrideCursor = wcursor->handle()) {
+        m_overrideCursor = overrideCursor;
+        const HCURSOR previousCursor = SetCursor(overrideCursor);
         if (m_overriddenCursor == nullptr)
             m_overriddenCursor = previousCursor;
     } else {
@@ -638,7 +649,7 @@ void QWindowsCursor::clearOverrideCursor()
 {
     if (m_overriddenCursor) {
         SetCursor(m_overriddenCursor);
-        m_overriddenCursor = nullptr;
+        m_overriddenCursor = m_overrideCursor = nullptr;
     }
 }
 
@@ -649,18 +660,18 @@ QPoint QWindowsCursor::mousePosition()
     return QPoint(p.x, p.y);
 }
 
-QWindowsCursor::CursorState QWindowsCursor::cursorState()
+QWindowsCursor::State QWindowsCursor::cursorState()
 {
     enum { cursorShowing = 0x1, cursorSuppressed = 0x2 }; // Windows 8: CURSOR_SUPPRESSED
     CURSORINFO cursorInfo;
     cursorInfo.cbSize = sizeof(CURSORINFO);
     if (GetCursorInfo(&cursorInfo)) {
-        if (cursorInfo.flags & CursorShowing)
-            return CursorShowing;
+        if (cursorInfo.flags & cursorShowing)
+            return State::Showing;
         if (cursorInfo.flags & cursorSuppressed)
-            return CursorSuppressed;
+            return State::Suppressed;
     }
-    return CursorHidden;
+    return State::Hidden;
 }
 
 QPoint QWindowsCursor::pos() const
@@ -730,10 +741,10 @@ QPixmap QWindowsCursor::dragDefaultCursor(Qt::DropAction action) const
     "...............XXXX....."};
 
     if (m_ignoreDragCursor.isNull()) {
-        HCURSOR cursor = LoadCursor(NULL, IDC_NO);
-        ICONINFO iconInfo = {0, 0, 0, 0, 0};
+        HCURSOR cursor = LoadCursor(nullptr, IDC_NO);
+        ICONINFO iconInfo = {0, 0, 0, nullptr, nullptr};
         GetIconInfo(cursor, &iconInfo);
-        BITMAP bmColor = {0, 0, 0, 0, 0, 0, 0};
+        BITMAP bmColor = {0, 0, 0, 0, 0, 0, nullptr};
 
         if (iconInfo.hbmColor
             && GetObject(iconInfo.hbmColor, sizeof(BITMAP), &bmColor)
@@ -769,7 +780,7 @@ HCURSOR QWindowsCursor::hCursor(const QCursor &c) const
         if (sit != m_standardCursorCache.constEnd())
             return sit.value()->handle();
     }
-    return HCURSOR(0);
+    return HCURSOR(nullptr);
 }
 
 /*!

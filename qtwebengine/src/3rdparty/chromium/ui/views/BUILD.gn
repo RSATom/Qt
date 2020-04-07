@@ -2,12 +2,15 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/buildflag_header.gni")
 import("//build/config/features.gni")
+import("//build/config/jumbo.gni")
 import("//build/config/ui.gni")
+import("//components/vector_icons/vector_icons.gni")
 import("//testing/test.gni")
 import("//ui/base/ui_features.gni")
 import("//ui/ozone/ozone.gni")
-import("//components/vector_icons/vector_icons.gni")
+import("//ui/views/features.gni")
 
 config("flags") {
   defines = [ "TOOLKIT_VIEWS=1" ]
@@ -19,22 +22,38 @@ aggregate_vector_icons("views_vector_icons") {
   icons = [
     "checkbox_active.icon",
     "checkbox_normal.icon",
-    "menu_check.1x.icon",
+    "close.icon",
+    "ic_close.icon",
+    "info.icon",
+    "launch.icon",
     "menu_check.icon",
     "menu_radio_empty.icon",
     "menu_radio_selected.icon",
+    "new_incognito_window.icon",
+    "new_tab.icon",
+    "new_window.icon",
+    "open.icon",
+    "options.icon",
+    "pin.icon",
     "radio_button_active.icon",
     "radio_button_normal.icon",
-    "submenu_arrow.1x.icon",
     "submenu_arrow.icon",
+    "uninstall.icon",
+    "unpin.icon",
   ]
 }
 
-component("views") {
+buildflag_header("features") {
+  header = "features.h"
+  flags =
+      [ "ENABLE_NATIVE_WINDOW_NAV_BUTTONS=$enable_native_window_nav_buttons" ]
+}
+
+jumbo_component("views") {
   all_dependent_configs = [ ":flags" ]
 
   public = [
-    "accessibility/native_view_accessibility.h",
+    "accessibility/view_accessibility.h",
     "accessible_pane_view.h",
     "animation/bounds_animator.h",
     "animation/bounds_animator_observer.h",
@@ -53,6 +72,7 @@ component("views") {
     "animation/ink_drop_ripple_observer.h",
     "animation/ink_drop_state.h",
     "animation/ink_drop_stub.h",
+    "animation/ink_drop_util.h",
     "animation/scroll_animator.h",
     "animation/square_ink_drop_ripple.h",
     "background.h",
@@ -75,6 +95,7 @@ component("views") {
     "cocoa/views_nswindow_delegate.h",
     "cocoa/views_scrollbar_bridge.h",
     "cocoa/widget_owner_nswindow_adapter.h",
+    "cocoa/window_touch_bar_delegate.h",
     "color_chooser/color_chooser_listener.h",
     "color_chooser/color_chooser_view.h",
     "context_menu_controller.h",
@@ -82,7 +103,6 @@ component("views") {
     "controls/button/blue_button.h",
     "controls/button/button.h",
     "controls/button/checkbox.h",
-    "controls/button/custom_button.h",
     "controls/button/image_button.h",
     "controls/button/image_button_factory.h",
     "controls/button/label_button.h",
@@ -96,11 +116,11 @@ component("views") {
     "controls/combobox/combobox_listener.h",
     "controls/focus_ring.h",
     "controls/focusable_border.h",
-    "controls/glow_hover_controller.h",
     "controls/image_view.h",
     "controls/label.h",
     "controls/link.h",
     "controls/link_listener.h",
+    "controls/menu/menu_closure_animation_mac.h",
     "controls/menu/menu_config.h",
     "controls/menu/menu_controller.h",
     "controls/menu/menu_controller_delegate.h",
@@ -157,6 +177,8 @@ component("views") {
     "controls/throbber.h",
     "controls/tree/tree_view.h",
     "controls/tree/tree_view_controller.h",
+    "controls/tree/tree_view_drawing_provider.h",
+    "controls/views_text_services_context_menu.h",
     "debug_utils.h",
     "drag_controller.h",
     "drag_utils.h",
@@ -184,6 +206,7 @@ component("views") {
     "mouse_watcher_view_host.h",
     "native_cursor.h",
     "native_theme_delegate.h",
+    "paint_info.h",
     "painter.h",
     "pointer_watcher.h",
     "rect_based_targeting_utils.h",
@@ -222,10 +245,12 @@ component("views") {
     "widget/widget_deletion_observer.h",
     "widget/widget_observer.h",
     "widget/widget_removals_observer.h",
+    "widget/widget_utils_mac.h",
     "window/client_view.h",
     "window/custom_frame_view.h",
     "window/dialog_client_view.h",
     "window/dialog_delegate.h",
+    "window/dialog_observer.h",
     "window/frame_background.h",
     "window/frame_buttons.h",
     "window/native_frame_view.h",
@@ -233,10 +258,12 @@ component("views") {
     "window/window_button_order_provider.h",
     "window/window_resources.h",
     "window/window_shape.h",
+    "window/window_resize_utils.h",
     "word_lookup_client.h",
   ]
 
   sources = [
+    "accessibility/view_accessibility.cc",
     "accessible_pane_view.cc",
     "animation/bounds_animator.cc",
     "animation/flood_fill_ink_drop_ripple.cc",
@@ -250,6 +277,7 @@ component("views") {
     "animation/ink_drop_ripple.cc",
     "animation/ink_drop_state.cc",
     "animation/ink_drop_stub.cc",
+    "animation/ink_drop_util.cc",
     "animation/scroll_animator.cc",
     "animation/square_ink_drop_ripple.cc",
     "background.cc",
@@ -276,7 +304,6 @@ component("views") {
     "controls/button/blue_button.cc",
     "controls/button/button.cc",
     "controls/button/checkbox.cc",
-    "controls/button/custom_button.cc",
     "controls/button/image_button.cc",
     "controls/button/image_button_factory.cc",
     "controls/button/label_button.cc",
@@ -288,11 +315,11 @@ component("views") {
     "controls/combobox/combobox.cc",
     "controls/focus_ring.cc",
     "controls/focusable_border.cc",
-    "controls/glow_hover_controller.cc",
     "controls/image_view.cc",
     "controls/label.cc",
     "controls/link.cc",
     "controls/menu/display_change_listener_mac.cc",
+    "controls/menu/menu_closure_animation_mac.mm",
     "controls/menu/menu_config.cc",
     "controls/menu/menu_config_chromeos.cc",
     "controls/menu/menu_config_linux.cc",
@@ -341,6 +368,11 @@ component("views") {
     "controls/throbber.cc",
     "controls/tree/tree_view.cc",
     "controls/tree/tree_view_controller.cc",
+    "controls/tree/tree_view_drawing_provider.cc",
+    "controls/views_text_services_context_menu.cc",
+    "controls/views_text_services_context_menu_base.cc",
+    "controls/views_text_services_context_menu_base.h",
+    "controls/views_text_services_context_menu_mac.mm",
     "debug_utils.cc",
     "drag_utils.cc",
     "drag_utils_mac.mm",
@@ -364,6 +396,7 @@ component("views") {
     "mouse_watcher.cc",
     "mouse_watcher_view_host.cc",
     "native_cursor_mac.mm",
+    "paint_info.cc",
     "painter.cc",
     "rect_based_targeting_utils.cc",
     "repeat_controller.cc",
@@ -388,6 +421,7 @@ component("views") {
     "views_touch_selection_controller_factory_mac.cc",
     "widget/drop_helper.cc",
     "widget/native_widget_mac.mm",
+    "widget/native_widget_private.cc",
     "widget/root_view.cc",
     "widget/root_view_targeter.cc",
     "widget/tooltip_manager.cc",
@@ -395,6 +429,7 @@ component("views") {
     "widget/widget_aura_utils.cc",
     "widget/widget_delegate.cc",
     "widget/widget_deletion_observer.cc",
+    "widget/widget_utils_mac.mm",
     "window/client_view.cc",
     "window/custom_frame_view.cc",
     "window/dialog_client_view.cc",
@@ -403,6 +438,7 @@ component("views") {
     "window/native_frame_view.cc",
     "window/non_client_view.cc",
     "window/window_button_order_provider.cc",
+    "window/window_resize_utils.cc",
     "window/window_shape.cc",
   ]
 
@@ -428,6 +464,7 @@ component("views") {
   defines = [ "VIEWS_IMPLEMENTATION" ]
 
   deps = [
+    ":features",
     "//base:i18n",
     "//base/third_party/dynamic_annotations",
     "//cc/paint",
@@ -448,7 +485,7 @@ component("views") {
     ":views_vector_icons",
     "//base",
     "//components/vector_icons",
-    "//ui/accessibility:ax_gen",
+    "//ui/accessibility:ax_enums_mojo",
     "//ui/base",
     "//ui/base/ime",
     "//ui/compositor",
@@ -462,7 +499,7 @@ component("views") {
     "//ui/views/resources",
   ]
 
-  if (use_x11 && !is_chromeos) {
+  if (use_x11) {
     deps += [ "//ui/display/util" ]
   }
   if (is_linux && !is_chromeos) {
@@ -495,6 +532,7 @@ component("views") {
       "win/hwnd_message_handler.h",
       "win/hwnd_message_handler_delegate.h",
       "win/hwnd_util.h",
+      "win/pen_event_processor.h",
       "win/scoped_fullscreen_visibility.h",
       "win/windows_session_change_observer.h",
     ]
@@ -503,6 +541,7 @@ component("views") {
       "win/fullscreen_handler.cc",
       "win/hwnd_message_handler.cc",
       "win/hwnd_util_aurawin.cc",
+      "win/pen_event_processor.cc",
       "win/scoped_fullscreen_visibility.cc",
       "win/windows_session_change_observer.cc",
     ]
@@ -539,10 +578,10 @@ component("views") {
     public += [
       "accessibility/ax_aura_obj_cache.h",
       "accessibility/ax_aura_obj_wrapper.h",
+      "accessibility/ax_tree_source_views.h",
       "accessibility/ax_view_obj_wrapper.h",
       "accessibility/ax_widget_obj_wrapper.h",
       "accessibility/ax_window_obj_wrapper.h",
-      "bubble/bubble_window_targeter.h",
       "bubble/tray_bubble_view.h",
       "controls/menu/menu_pre_target_handler.h",
       "controls/native/native_view_host_aura.h",
@@ -572,10 +611,10 @@ component("views") {
     sources += [
       "accessibility/ax_aura_obj_cache.cc",
       "accessibility/ax_aura_obj_wrapper.cc",
+      "accessibility/ax_tree_source_views.cc",
       "accessibility/ax_view_obj_wrapper.cc",
       "accessibility/ax_widget_obj_wrapper.cc",
       "accessibility/ax_window_obj_wrapper.cc",
-      "bubble/bubble_window_targeter.cc",
       "bubble/tray_bubble_view.cc",
       "controls/menu/display_change_listener_aura.cc",
       "controls/menu/menu_pre_target_handler.cc",
@@ -598,6 +637,7 @@ component("views") {
       "widget/desktop_aura/desktop_focus_rules.cc",
       "widget/desktop_aura/desktop_native_cursor_manager.cc",
       "widget/desktop_aura/desktop_native_widget_aura.cc",
+      "widget/desktop_aura/desktop_screen.cc",
       "widget/desktop_aura/desktop_screen_position_client.cc",
       "widget/focus_manager_event_handler.cc",
       "widget/native_widget_aura.cc",
@@ -607,6 +647,7 @@ component("views") {
     deps += [
       "//services/ui/public/interfaces",
       "//ui/aura",
+      "//ui/platform_window",
       "//ui/touch_selection",
       "//ui/wm",
       "//ui/wm/public",
@@ -623,7 +664,6 @@ component("views") {
           "widget/desktop_aura/x11_desktop_window_move_client.h",
           "widget/desktop_aura/x11_move_loop.h",
           "widget/desktop_aura/x11_move_loop_delegate.h",
-          "widget/desktop_aura/x11_pointer_grab.h",
           "widget/desktop_aura/x11_topmost_window_finder.h",
           "widget/desktop_aura/x11_whole_screen_move_loop.h",
           "widget/desktop_aura/x11_window_event_filter.h",
@@ -634,29 +674,30 @@ component("views") {
           "widget/desktop_aura/desktop_window_tree_host_x11.cc",
           "widget/desktop_aura/x11_desktop_handler.cc",
           "widget/desktop_aura/x11_desktop_window_move_client.cc",
-          "widget/desktop_aura/x11_pointer_grab.cc",
           "widget/desktop_aura/x11_topmost_window_finder.cc",
           "widget/desktop_aura/x11_whole_screen_move_loop.cc",
           "widget/desktop_aura/x11_window_event_filter.cc",
         ]
         if (use_atk) {
           sources += [
-            "accessibility/native_view_accessibility_auralinux.cc",
-            "accessibility/native_view_accessibility_auralinux.h",
+            "accessibility/view_ax_platform_node_delegate_auralinux.cc",
+            "accessibility/view_ax_platform_node_delegate_auralinux.h",
           ]
           configs += [ "//build/config/linux/atk" ]
         }
       } else if (is_win) {
+        public += [ "widget/desktop_aura/desktop_window_tree_host_win.h" ]
         sources += [
           "widget/desktop_aura/desktop_drag_drop_client_win.cc",
           "widget/desktop_aura/desktop_drag_drop_client_win.h",
           "widget/desktop_aura/desktop_screen_win.cc",
           "widget/desktop_aura/desktop_screen_win.h",
           "widget/desktop_aura/desktop_window_tree_host_win.cc",
-          "widget/desktop_aura/desktop_window_tree_host_win.h",
         ]
+        deps += [ "//ui/events:dom_keyboard_layout" ]
       } else if (use_ozone) {
-        sources += [ "widget/desktop_aura/desktop_window_tree_host_ozone.cc" ]
+        public += [ "widget/desktop_aura/desktop_screen_ozone.h" ]
+        sources += [ "widget/desktop_aura/desktop_screen_ozone.cc" ]
       }
       if (is_linux) {
         sources += [
@@ -664,12 +705,20 @@ component("views") {
           "widget/desktop_aura/window_event_filter.cc",
           "widget/desktop_aura/window_event_filter.h",
         ]
+        if (!use_x11) {
+          public +=
+              [ "widget/desktop_aura/desktop_window_tree_host_platform.h" ]
+          sources +=
+              [ "widget/desktop_aura/desktop_window_tree_host_platform.cc" ]
+        }
       }
     }
   }
 
   if (is_mac) {
+    sources -= [ "controls/views_text_services_context_menu.cc" ]
     deps += [
+      "//components/crash/core/common",
       "//ui/accelerated_widget_mac",
       "//ui/events:dom_keycode_converter",
     ]
@@ -683,19 +732,21 @@ component("views") {
 
   if (has_native_accessibility) {
     sources += [
-      "accessibility/native_view_accessibility_base.cc",
-      "accessibility/native_view_accessibility_base.h",
-      "accessibility/native_view_accessibility_mac.h",
-      "accessibility/native_view_accessibility_mac.mm",
-      "accessibility/native_view_accessibility_win.cc",
-      "accessibility/native_view_accessibility_win.h",
+      "accessibility/view_ax_platform_node_delegate.cc",
+      "accessibility/view_ax_platform_node_delegate.h",
+      "accessibility/view_ax_platform_node_delegate_mac.h",
+      "accessibility/view_ax_platform_node_delegate_mac.mm",
+      "accessibility/view_ax_platform_node_delegate_win.cc",
+      "accessibility/view_ax_platform_node_delegate_win.h",
     ]
-  } else {
-    sources += [ "accessibility/native_view_accessibility_stub.cc" ]
+  }
+
+  if (is_fuchsia) {
+    sources += [ "controls/menu/menu_config_fuchsia.cc" ]
   }
 }
 
-static_library("test_support_internal") {
+jumbo_source_set("test_support_internal") {
   testonly = true
   sources = [
     "animation/test/flood_fill_ink_drop_ripple_test_api.cc",
@@ -722,8 +773,6 @@ static_library("test_support_internal") {
     "animation/test/test_ink_drop_ripple_observer.h",
     "controls/textfield/textfield_test_api.cc",
     "controls/textfield/textfield_test_api.h",
-    "corewm/test/tooltip_aura_test_api.cc",
-    "corewm/test/tooltip_aura_test_api.h",
     "test/capture_tracking_view.cc",
     "test/capture_tracking_view.h",
     "test/combobox_test_api.cc",
@@ -764,6 +813,8 @@ static_library("test_support_internal") {
     "test/views_test_helper_mac.mm",
     "test/widget_test.cc",
     "test/widget_test.h",
+    "test/widget_test_api.cc",
+    "test/widget_test_api.h",
     "test/widget_test_mac.mm",
     "test/x11_property_change_waiter.cc",
     "test/x11_property_change_waiter.h",
@@ -784,7 +835,7 @@ static_library("test_support_internal") {
     "//base/test:test_support",
     "//gpu/ipc/service",
     "//ipc:test_support",
-    "//mojo/edk/system",
+    "//mojo/core/embedder",
     "//skia",
     "//testing/gtest",
     "//ui/base",
@@ -809,6 +860,8 @@ static_library("test_support_internal") {
 
   if (use_aura) {
     sources += [
+      "corewm/test/tooltip_aura_test_api.cc",
+      "corewm/test/tooltip_aura_test_api.h",
       "corewm/tooltip_controller_test_helper.cc",
       "corewm/tooltip_controller_test_helper.h",
       "test/desktop_test_views_delegate_aura.cc",
@@ -824,7 +877,10 @@ static_library("test_support_internal") {
       "//ui/wm",
       "//ui/wm/public",
     ]
-    if (use_x11 && !is_chromeos) {
+    if (use_qt) {
+      deps -= [ "//ui/views/mus" ]
+    }
+    if (use_x11) {
       sources += [
         "test/desktop_screen_x11_test_api.cc",
         "test/desktop_screen_x11_test_api.h",
@@ -849,7 +905,7 @@ static_library("test_support_internal") {
   }
 }
 
-static_library("test_support") {
+jumbo_static_library("test_support") {
   testonly = true
   public_deps = [
     ":test_support_internal",
@@ -871,11 +927,10 @@ source_set("views_unittests_sources") {
     "controls/button/label_button_label.h",
   ]
   if (has_native_accessibility) {
-    public += [ "accessibility/native_view_accessibility_base.h" ]
+    public += [ "accessibility/view_ax_platform_node_delegate.h" ]
   }
 
   sources = [
-    "accessibility/native_view_accessibility_win_unittest.cc",
     "accessible_pane_view_unittest.cc",
     "animation/bounds_animator_unittest.cc",
     "animation/flood_fill_ink_drop_ripple_unittest.cc",
@@ -889,19 +944,21 @@ source_set("views_unittests_sources") {
     "bubble/bubble_border_unittest.cc",
     "bubble/bubble_dialog_delegate_unittest.cc",
     "bubble/bubble_frame_view_unittest.cc",
-    "bubble/bubble_window_targeter_unittest.cc",
     "cocoa/bridged_native_widget_unittest.mm",
     "cocoa/cocoa_mouse_capture_unittest.mm",
     "cocoa/drag_drop_client_mac_unittest.mm",
     "controls/button/blue_button_unittest.cc",
-    "controls/button/custom_button_unittest.cc",
+    "controls/button/button_unittest.cc",
+    "controls/button/checkbox_unittest.cc",
     "controls/button/image_button_factory_unittest.cc",
     "controls/button/image_button_unittest.cc",
     "controls/button/label_button_label_unittest.cc",
     "controls/button/label_button_unittest.cc",
     "controls/button/menu_button_unittest.cc",
+    "controls/button/radio_button_unittest.cc",
     "controls/button/toggle_button_unittest.cc",
     "controls/combobox/combobox_unittest.cc",
+    "controls/image_view_unittest.cc",
     "controls/label_unittest.cc",
     "controls/menu/menu_controller_unittest.cc",
     "controls/menu/menu_item_view_unittest.cc",
@@ -933,6 +990,7 @@ source_set("views_unittests_sources") {
     "layout/box_layout_unittest.cc",
     "layout/fill_layout_unittest.cc",
     "layout/grid_layout_unittest.cc",
+    "paint_info_unittest.cc",
     "rect_based_targeting_utils_unittest.cc",
     "test/widget_test_unittest.cc",
     "view_model_unittest.cc",
@@ -941,7 +999,7 @@ source_set("views_unittests_sources") {
     "view_tracker_unittest.cc",
     "view_unittest.cc",
     "view_unittest_mac.mm",
-    "widget/native_widget_mac_accessibility_unittest.mm",
+    "widget/ax_native_widget_mac_unittest.mm",
     "widget/native_widget_mac_unittest.mm",
     "widget/native_widget_unittest.cc",
     "widget/root_view_unittest.cc",
@@ -949,6 +1007,8 @@ source_set("views_unittests_sources") {
     "window/custom_frame_view_unittest.cc",
     "window/dialog_client_view_unittest.cc",
     "window/dialog_delegate_unittest.cc",
+    "window/non_client_view_unittest.cc",
+    "window/window_resize_utils_unittest.cc",
   ]
 
   configs += [ "//build/config:precompiled_headers" ]
@@ -992,20 +1052,28 @@ source_set("views_unittests_sources") {
   ]
 
   if (is_win) {
+    public += [ "accessibility/view_ax_platform_node_delegate_win.h" ]
+
     public_deps += [
       "//build/win:default_exe_manifest",
       "//third_party/iaccessible2",
       "//third_party/wtl",
     ]
+
     libs = [
       "imm32.lib",
       "oleacc.lib",
       "comctl32.lib",
     ]
+
+    sources += [
+      "accessibility/view_ax_platform_node_delegate_win_unittest.cc",
+      "win/pen_event_processor_unittest.cc",
+    ]
   }
 
   if (has_native_accessibility) {
-    sources += [ "accessibility/native_view_accessibility_unittest.cc" ]
+    sources += [ "accessibility/view_ax_platform_node_delegate_unittest.cc" ]
   }
 
   if (use_x11) {
@@ -1023,6 +1091,7 @@ source_set("views_unittests_sources") {
   if (use_aura) {
     sources += [
       "accessibility/ax_aura_obj_cache_unittest.cc",
+      "accessibility/ax_tree_source_views_unittest.cc",
       "controls/native/native_view_host_aura_unittest.cc",
       "touchui/touch_selection_menu_runner_views_unittest.cc",
       "view_unittest_aura.cc",
@@ -1038,10 +1107,7 @@ source_set("views_unittests_sources") {
 
   if (is_mac) {
     # views_unittests not yet compiling on Mac. http://crbug.com/378134
-    sources -= [
-      "bubble/bubble_window_targeter_unittest.cc",
-      "controls/native/native_view_host_unittest.cc",
-    ]
+    sources -= [ "controls/native/native_view_host_unittest.cc" ]
     public_deps += [ "//ui/accelerated_widget_mac" ]
   }
 }
@@ -1096,32 +1162,90 @@ test("views_unittests") {
 
   deps = [
     ":views_unittests_sources",
-    "//mojo/edk/system",
+    "//mojo/core/embedder",
   ]
 }
 
-if (is_mac) {
-  test("macviews_interactive_ui_tests") {
-    sources = [
+# This target is added as a dependency of browser interactive_ui_tests. It must
+# be source_set, otherwise the linker will drop the tests as dead code.
+source_set("views_interactive_ui_tests") {
+  testonly = true
+
+  sources = [
+    "widget/widget_interactive_uitest.cc",
+  ]
+
+  deps = [
+    ":test_support",
+    ":views",
+    "//base",
+    "//base/test:test_support",
+    "//mojo/core/embedder",
+    "//skia",
+    "//testing/gtest",
+    "//ui/base:test_support",
+    "//ui/compositor",
+    "//ui/events:test_support",
+    "//ui/gl:test_support",
+    "//ui/resources",
+    "//ui/resources:ui_test_pak",
+    "//ui/strings",
+  ]
+
+  if (is_win) {
+    sources += [ "accessibility/ax_system_caret_win_interactive_uitest.cc" ]
+  }
+
+  if (is_mac) {
+    sources += [
       "cocoa/bridged_native_widget_interactive_uitest.mm",
-      "run_all_unittests_main.cc",
       "widget/native_widget_mac_interactive_uitest.mm",
     ]
-    deps = [
-      ":test_support",
-      ":views",
-      "//base",
-      "//base/test:test_support",
-      "//mojo/edk/system",
-      "//skia",
-      "//testing/gtest",
-      "//ui/base:test_support",
-      "//ui/compositor",
-      "//ui/events:test_support",
-      "//ui/gl:test_support",
-      "//ui/resources",
-      "//ui/resources:ui_test_pak",
-      "//ui/strings",
+  }
+
+  if (use_aura) {
+    sources += [
+      "corewm/desktop_capture_controller_unittest.cc",
+      "widget/native_widget_aura_interactive_uitest.cc",
+    ]
+    deps += [
+      "//ui/aura",
+      "//ui/aura:test_support",
+      "//ui/wm",
+      "//ui/wm/public",
     ]
   }
+
+  if (use_x11) {
+    sources += [
+      "widget/desktop_aura/desktop_window_tree_host_x11_interactive_uitest.cc",
+      "widget/desktop_aura/x11_topmost_window_finder_interactive_uitest.cc",
+    ]
+    deps += [ "//ui/events/platform/x11:x11" ]
+  }
+
+  if (is_chromeos) {
+    sources -= [ "corewm/desktop_capture_controller_unittest.cc" ]
+  }
+}
+
+test("views_perftests") {
+  sources = [
+    "controls/label_perftest.cc",
+    "views_perftests.cc",
+  ]
+
+  deps = [
+    ":test_support",
+    "//base/test:test_support",
+    "//cc/base:base",
+    "//mojo/core/embedder",
+    "//testing/perf",
+    "//ui/resources:ui_test_pak",
+  ]
+
+  data_deps = [
+    "//ui/resources:ui_test_pak_data",
+    "//testing:run_perf_test",
+  ]
 }

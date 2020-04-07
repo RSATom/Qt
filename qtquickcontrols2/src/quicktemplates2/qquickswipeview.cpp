@@ -49,6 +49,7 @@ QT_BEGIN_NAMESPACE
     \since 5.7
     \ingroup qtquickcontrols2-navigation
     \ingroup qtquickcontrols2-containers
+    \ingroup qtquickcontrols2-focusscopes
     \brief Enables the user to navigate pages by swiping sideways.
 
     SwipeView provides a swipe-based navigation model.
@@ -71,10 +72,10 @@ QT_BEGIN_NAMESPACE
 
     It is generally not advisable to add excessive amounts of pages to a
     SwipeView. However, when the amount of pages grows larger, or individual
-    pages are relatively complex, it may be desired free up resources by
-    unloading pages that are outside the reach. The following example presents
-    how to use \l Loader to keep a maximum of three pages simultaneously
-    instantiated.
+    pages are relatively complex, it may be desirable to free up resources by
+    unloading pages that are outside the immediate reach of the user.
+    The following example presents how to use \l Loader to keep a maximum of
+    three pages simultaneously instantiated.
 
     \code
     SwipeView {
@@ -98,7 +99,8 @@ QT_BEGIN_NAMESPACE
           this only applies to the root of the item. Specifying width and height,
           or using anchors for its children works as expected.
 
-    \sa TabBar, PageIndicator, {Customizing SwipeView}, {Navigation Controls}, {Container Controls}
+    \sa TabBar, PageIndicator, {Customizing SwipeView}, {Navigation Controls}, {Container Controls},
+        {Focus Management in Qt Quick Controls 2}
 */
 
 class QQuickSwipeViewPrivate : public QQuickContainerPrivate
@@ -106,19 +108,19 @@ class QQuickSwipeViewPrivate : public QQuickContainerPrivate
     Q_DECLARE_PUBLIC(QQuickSwipeView)
 
 public:
-    QQuickSwipeViewPrivate()
-        : interactive(true),
-          orientation(Qt::Horizontal)
-    {
-    }
-
     void resizeItem(QQuickItem *item);
     void resizeItems();
 
     static QQuickSwipeViewPrivate *get(QQuickSwipeView *view);
 
-    bool interactive;
-    Qt::Orientation orientation;
+    void itemImplicitWidthChanged(QQuickItem *item) override;
+    void itemImplicitHeightChanged(QQuickItem *item) override;
+
+    qreal getContentWidth() const override;
+    qreal getContentHeight() const override;
+
+    bool interactive = true;
+    Qt::Orientation orientation = Qt::Horizontal;
 };
 
 class QQuickSwipeViewAttachedPrivate : public QObjectPrivate
@@ -126,13 +128,6 @@ class QQuickSwipeViewAttachedPrivate : public QObjectPrivate
     Q_DECLARE_PUBLIC(QQuickSwipeViewAttached)
 
 public:
-    QQuickSwipeViewAttachedPrivate()
-        : swipeView(nullptr),
-          index(-1),
-          currentIndex(-1)
-    {
-    }
-
     static QQuickSwipeViewAttachedPrivate *get(QQuickSwipeViewAttached *attached)
     {
         return attached->d_func();
@@ -142,9 +137,9 @@ public:
     void updateCurrentIndex();
     void setCurrentIndex(int i);
 
-    QQuickSwipeView *swipeView;
-    int index;
-    int currentIndex;
+    QQuickSwipeView *swipeView = nullptr;
+    int index = -1;
+    int currentIndex = -1;
 };
 
 void QQuickSwipeViewPrivate::resizeItems()
@@ -175,11 +170,44 @@ QQuickSwipeViewPrivate *QQuickSwipeViewPrivate::get(QQuickSwipeView *view)
     return view->d_func();
 }
 
+void QQuickSwipeViewPrivate::itemImplicitWidthChanged(QQuickItem *item)
+{
+    Q_Q(QQuickSwipeView);
+    QQuickContainerPrivate::itemImplicitWidthChanged(item);
+    if (item == q->currentItem())
+        updateImplicitContentWidth();
+}
+
+void QQuickSwipeViewPrivate::itemImplicitHeightChanged(QQuickItem *item)
+{
+    Q_Q(QQuickSwipeView);
+    QQuickContainerPrivate::itemImplicitHeightChanged(item);
+    if (item == q->currentItem())
+        updateImplicitContentHeight();
+}
+
+qreal QQuickSwipeViewPrivate::getContentWidth() const
+{
+    Q_Q(const QQuickSwipeView);
+    QQuickItem *currentItem = q->currentItem();
+    return currentItem ? currentItem->implicitWidth() : 0;
+}
+
+qreal QQuickSwipeViewPrivate::getContentHeight() const
+{
+    Q_Q(const QQuickSwipeView);
+    QQuickItem *currentItem = q->currentItem();
+    return currentItem ? currentItem->implicitHeight() : 0;
+}
+
 QQuickSwipeView::QQuickSwipeView(QQuickItem *parent)
     : QQuickContainer(*(new QQuickSwipeViewPrivate), parent)
 {
+    Q_D(QQuickSwipeView);
+    d->changeTypes |= QQuickItemPrivate::ImplicitWidth | QQuickItemPrivate::ImplicitHeight;
     setFlag(ItemIsFocusScope);
     setActiveFocusOnTab(true);
+    QObjectPrivate::connect(this, &QQuickContainer::currentItemChanged, d, &QQuickControlPrivate::updateImplicitContentSize);
 }
 
 /*!

@@ -34,29 +34,34 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.10
-import QtQuick.Window 2.3
-import QtQuick.Templates 2.3 as T
-import QtQuick.Controls 2.3
-import QtQuick.Controls.Imagine 2.3
-import QtQuick.Controls.Imagine.impl 2.3
+import QtQuick 2.12
+import QtQuick.Window 2.12
+import QtQuick.Templates 2.12 as T
+import QtQuick.Controls 2.12
+import QtQuick.Controls.Imagine 2.12
+import QtQuick.Controls.Imagine.impl 2.12
 
 T.ComboBox {
     id: control
 
-    implicitWidth: Math.max(background ? background.implicitWidth : 0,
+    implicitWidth: Math.max(implicitBackgroundWidth + leftInset + rightInset,
                             contentItem.implicitWidth + background ? (background.leftPadding + background.rightPadding) : 0)
-    implicitHeight: Math.max(background ? background.implicitHeight : 0,
-                             Math.max(contentItem.implicitHeight,
-                                      indicator ? indicator.implicitHeight : 0) + background ? (background.topPadding + background.bottomPadding) : 0)
-    baselineOffset: contentItem.y + contentItem.baselineOffset
+    implicitHeight: Math.max(implicitBackgroundHeight + topInset + bottomInset,
+                             Math.max(implicitContentHeight,
+                                      implicitIndicatorHeight) + background ? (background.topPadding + background.bottomPadding) : 0)
 
     leftPadding: padding + (!control.mirrored || !indicator || !indicator.visible ? 0 : indicator.width + spacing)
     rightPadding: padding + (control.mirrored || !indicator || !indicator.visible ? 0 : indicator.width + spacing)
 
+    topInset: background ? -background.topInset || 0 : 0
+    leftInset: background ? -background.leftInset || 0 : 0
+    rightInset: background ? -background.rightInset || 0 : 0
+    bottomInset: background ? -background.bottomInset || 0 : 0
+
     delegate: ItemDelegate {
         width: parent.width
         text: control.textRole ? (Array.isArray(control.model) ? modelData[control.textRole] : model[control.textRole]) : modelData
+        font.weight: control.currentIndex === index ? Font.DemiBold : Font.Normal
         highlighted: control.highlightedIndex === index
         hoverEnabled: control.hoverEnabled
     }
@@ -102,10 +107,6 @@ T.ComboBox {
     }
 
     background: NinePatchImage {
-        x: -leftInset; y: -topInset
-        width: control.width + leftInset + rightInset
-        height: control.height + topInset + bottomInset
-
         source: Imagine.url + "combobox-background"
         NinePatchImageSelector on source {
             states: [
@@ -133,6 +134,11 @@ T.ComboBox {
         rightPadding: background.rightPadding
         bottomPadding: background.bottomPadding
 
+        topInset: background ? -background.topInset || 0 : 0
+        leftInset: background ? -background.leftInset || 0 : 0
+        rightInset: background ? -background.rightInset || 0 : 0
+        bottomInset: background ? -background.bottomInset || 0 : 0
+
         palette.text: control.palette.text
         palette.highlight: control.palette.highlight
         palette.highlightedText: control.palette.highlightedText
@@ -150,10 +156,6 @@ T.ComboBox {
         }
 
         background: NinePatchImage {
-            x: -leftInset; y: -topInset
-            width: control.popup.width + leftInset + rightInset
-            height: control.popup.height + topInset + bottomInset
-
             source: Imagine.url + "combobox-popup"
             NinePatchImageSelector on source {
                 states: [

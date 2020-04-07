@@ -96,7 +96,7 @@ void QGeoSatelliteInfoSourceGeoclueMaster::startUpdates()
     if (!m_master->hasMasterClient())
         configureSatelliteSource();
 
-    m_requestTimer.start(updateInterval());
+    m_requestTimer.start(qMax(updateInterval(), minimumUpdateInterval()));
 }
 
 void QGeoSatelliteInfoSourceGeoclueMaster::stopUpdates()
@@ -173,7 +173,7 @@ void QGeoSatelliteInfoSourceGeoclueMaster::updateSatelliteInfo(int timestamp, in
     m_inUse = inUse;
     emit satellitesInUseUpdated(m_inUse);
 
-    m_requestTimer.start(updateInterval());
+    m_requestTimer.start(qMax(updateInterval(), minimumUpdateInterval()));
 }
 
 void QGeoSatelliteInfoSourceGeoclueMaster::requestUpdateTimeout()

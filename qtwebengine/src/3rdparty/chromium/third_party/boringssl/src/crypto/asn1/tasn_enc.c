@@ -256,12 +256,6 @@ int ASN1_item_ex_i2d(ASN1_VALUE **pval, unsigned char **out,
     return 0;
 }
 
-int ASN1_template_i2d(ASN1_VALUE **pval, unsigned char **out,
-                      const ASN1_TEMPLATE *tt)
-{
-    return asn1_template_ex_i2d(pval, out, tt, -1, 0);
-}
-
 static int asn1_template_ex_i2d(ASN1_VALUE **pval, unsigned char **out,
                                 const ASN1_TEMPLATE *tt, int tag, int iclass)
 {
@@ -589,6 +583,8 @@ int asn1_ex_i2c(ASN1_VALUE **pval, unsigned char *cout, int *putype,
         otmp = (ASN1_OBJECT *)*pval;
         cont = otmp->data;
         len = otmp->length;
+        if (cont == NULL || len == 0)
+            return -1;
         break;
 
     case V_ASN1_NULL:

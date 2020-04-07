@@ -27,13 +27,18 @@ defineTest(runConfigure) {
         return(false)
     }
 
-    include($$QTWEBENGINE_OUT_ROOT/qtwebengine-config.pri)
-    QT_FOR_CONFIG += webengine-private
+    include($$QTWEBENGINE_OUT_ROOT/src/core/qtwebenginecore-config.pri)
+    QT_FOR_CONFIG += webenginecore-private
 
     !qtConfig(webengine-v8-snapshot-support):qtConfig(webengine-v8-snapshot) {
         skipBuild("V8 snapshot cannot be built. Most likely, the 32-bit host compiler does not work."\
                   "Please make sure you have 32-bit devel environment installed, or "\
                   "configure webengine with '-no-webengine-v8-snapshot'")
+        return(false)
+    }
+
+    win32:!qtConfig(webengine-win-compiler64) {
+        skipBuild("Required 64-bit cross-building or native toolchain could not be found.")
         return(false)
     }
 
@@ -86,7 +91,7 @@ defineTest(runConfigure) {
          }
 
         !qtConfig(webengine-embedded-build): qtConfig(xcb) {
-             for(package, $$list("libdrm xcomposite xcursor xi xrandr xtst")) {
+             for(package, $$list("libdrm xcomposite xcursor xi xtst")) {
                  !qtConfig(webengine-system-$$package) {
                      skipBuild("A suitable version of $$package could not be found.")
                      return(false)

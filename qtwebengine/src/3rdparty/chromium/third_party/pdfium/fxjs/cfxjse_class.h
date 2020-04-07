@@ -7,7 +7,7 @@
 #ifndef FXJS_CFXJSE_CLASS_H_
 #define FXJS_CFXJSE_CLASS_H_
 
-#include "core/fxcrt/cfx_unowned_ptr.h"
+#include "core/fxcrt/unowned_ptr.h"
 #include "fxjs/fxjse.h"
 #include "v8/include/v8.h"
 
@@ -32,9 +32,9 @@ class CFXJSE_Class {
   v8::Global<v8::FunctionTemplate>& GetTemplate() { return m_hTemplate; }
 
  protected:
-  CFX_ByteString m_szClassName;
-  CFX_UnownedPtr<const FXJSE_CLASS_DESCRIPTOR> m_lpClassDefinition;
-  CFX_UnownedPtr<CFXJSE_Context> m_pContext;
+  ByteString m_szClassName;
+  UnownedPtr<const FXJSE_CLASS_DESCRIPTOR> m_lpClassDefinition;
+  UnownedPtr<CFXJSE_Context> m_pContext;
   v8::Global<v8::FunctionTemplate> m_hTemplate;
   friend class CFXJSE_Context;
   friend class CFXJSE_Value;

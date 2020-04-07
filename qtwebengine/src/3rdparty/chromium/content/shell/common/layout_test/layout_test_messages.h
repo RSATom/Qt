@@ -2,14 +2,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// Multiply-included file, no traditional include guard.
+// no-include-guard-because-multiply-included
 #include <string>
 #include <vector>
 
+#include "base/optional.h"
+#include "base/strings/string16.h"
 #include "content/public/common/common_param_traits_macros.h"
 #include "ipc/ipc_message_macros.h"
 #include "ipc/ipc_platform_file.h"
-#include "third_party/WebKit/public/platform/modules/permissions/permission_status.mojom.h"
+#include "third_party/blink/public/platform/modules/permissions/permission_status.mojom.h"
 #include "url/gurl.h"
 #include "url/ipc/url_param_traits.h"
 
@@ -26,20 +28,25 @@ IPC_MESSAGE_ROUTED1(LayoutTestHostMsg_SetDatabaseQuota,
                     int /* quota */)
 IPC_MESSAGE_ROUTED3(LayoutTestHostMsg_SimulateWebNotificationClick,
                     std::string /* title */,
-                    int /* action_index */,
-                    base::NullableString16 /* reply */)
+                    base::Optional<int> /* action_index */,
+                    base::Optional<base::string16> /* reply */)
 IPC_MESSAGE_ROUTED2(LayoutTestHostMsg_SimulateWebNotificationClose,
                     std::string /* title */,
                     bool /* by_user */)
 IPC_MESSAGE_ROUTED1(LayoutTestHostMsg_BlockThirdPartyCookies,
                     bool /* block */)
 IPC_MESSAGE_ROUTED0(LayoutTestHostMsg_DeleteAllCookies)
+IPC_MESSAGE_ROUTED0(LayoutTestHostMsg_DeleteAllCookiesForNetworkService)
 IPC_MESSAGE_ROUTED4(LayoutTestHostMsg_SetPermission,
                     std::string /* name */,
                     blink::mojom::PermissionStatus /* status */,
                     GURL /* origin */,
                     GURL /* embedding_origin */)
 IPC_MESSAGE_ROUTED0(LayoutTestHostMsg_ResetPermissions)
+IPC_MESSAGE_ROUTED0(LayoutTestHostMsg_InspectSecondaryWindow)
+IPC_MESSAGE_ROUTED2(LayoutTestHostMsg_InitiateCaptureDump,
+                    bool /* should dump navigation history */,
+                    bool /* should dump pixels */)
 
 // Notifies the browser that one of renderers has changed layout test runtime
 // flags (i.e. has set dump_as_text).

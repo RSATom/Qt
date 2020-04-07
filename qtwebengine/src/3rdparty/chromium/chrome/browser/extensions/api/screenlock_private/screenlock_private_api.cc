@@ -8,14 +8,13 @@
 #include <utility>
 
 #include "base/lazy_instance.h"
-#include "base/memory/ptr_util.h"
 #include "base/values.h"
+#include "chrome/browser/chromeos/login/easy_unlock/chrome_proximity_auth_client.h"
+#include "chrome/browser/chromeos/login/easy_unlock/easy_unlock_service.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/signin/chrome_proximity_auth_client.h"
-#include "chrome/browser/signin/easy_unlock_service.h"
 #include "chrome/common/extensions/api/screenlock_private.h"
 #include "chrome/common/extensions/extension_constants.h"
-#include "components/proximity_auth/screenlock_bridge.h"
+#include "chromeos/components/proximity_auth/screenlock_bridge.h"
 #include "extensions/browser/app_window/app_window_registry.h"
 #include "extensions/browser/event_router.h"
 
@@ -56,7 +55,7 @@ ScreenlockPrivateGetLockedFunction::ScreenlockPrivateGetLockedFunction() {}
 ScreenlockPrivateGetLockedFunction::~ScreenlockPrivateGetLockedFunction() {}
 
 bool ScreenlockPrivateGetLockedFunction::RunAsync() {
-  SetResult(base::MakeUnique<base::Value>(
+  SetResult(std::make_unique<base::Value>(
       proximity_auth::ScreenlockBridge::Get()->IsLocked()));
   SendResponse(error_.empty());
   return true;
@@ -70,7 +69,8 @@ bool ScreenlockPrivateSetLockedFunction::RunAsync() {
   std::unique_ptr<screenlock::SetLocked::Params> params(
       screenlock::SetLocked::Params::Create(*args_));
   EXTENSION_FUNCTION_VALIDATE(params.get());
-  EasyUnlockService* service = EasyUnlockService::Get(GetProfile());
+  chromeos::EasyUnlockService* service =
+      chromeos::EasyUnlockService::Get(GetProfile());
   if (params->locked) {
     if (extension()->id() == extension_misc::kEasyUnlockAppId &&
         AppWindowRegistry::Get(browser_context())
@@ -103,7 +103,8 @@ ScreenlockPrivateAcceptAuthAttemptFunction::Run() {
   EXTENSION_FUNCTION_VALIDATE(params.get());
 
   Profile* profile = Profile::FromBrowserContext(browser_context());
-  EasyUnlockService* service = EasyUnlockService::Get(profile);
+  chromeos::EasyUnlockService* service =
+      chromeos::EasyUnlockService::Get(profile);
   if (service)
     service->FinalizeUnlock(params->accept);
   return RespondNow(NoArguments());
@@ -121,14 +122,14 @@ void ScreenlockPrivateEventRouter::OnScreenDidLock(
     proximity_auth::ScreenlockBridge::LockHandler::ScreenType screen_type) {
   DispatchEvent(events::SCREENLOCK_PRIVATE_ON_CHANGED,
                 screenlock::OnChanged::kEventName,
-                base::MakeUnique<base::Value>(true));
+                std::make_unique<base::Value>(true));
 }
 
 void ScreenlockPrivateEventRouter::OnScreenDidUnlock(
     proximity_auth::ScreenlockBridge::LockHandler::ScreenType screen_type) {
   DispatchEvent(events::SCREENLOCK_PRIVATE_ON_CHANGED,
                 screenlock::OnChanged::kEventName,
-                base::MakeUnique<base::Value>(false));
+                std::make_unique<base::Value>(false));
 }
 
 void ScreenlockPrivateEventRouter::OnFocusedUserChanged(
@@ -147,13 +148,13 @@ void ScreenlockPrivateEventRouter::DispatchEvent(
 }
 
 static base::LazyInstance<BrowserContextKeyedAPIFactory<
-    ScreenlockPrivateEventRouter>>::DestructorAtExit g_factory =
-    LAZY_INSTANCE_INITIALIZER;
+    ScreenlockPrivateEventRouter>>::DestructorAtExit
+    g_screenlock_private_api_factory = LAZY_INSTANCE_INITIALIZER;
 
 // static
 BrowserContextKeyedAPIFactory<ScreenlockPrivateEventRouter>*
 ScreenlockPrivateEventRouter::GetFactoryInstance() {
-  return g_factory.Pointer();
+  return g_screenlock_private_api_factory.Pointer();
 }
 
 void ScreenlockPrivateEventRouter::Shutdown() {

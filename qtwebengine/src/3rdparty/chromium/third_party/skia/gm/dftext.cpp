@@ -4,13 +4,15 @@
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
  */
-#include "gm.h"
-#include "sk_tool_utils.h"
+
 #include "Resources.h"
 #include "SkCanvas.h"
 #include "SkStream.h"
 #include "SkSurface.h"
+#include "SkTo.h"
 #include "SkTypeface.h"
+#include "gm.h"
+#include "sk_tool_utils.h"
 
 class DFTextGM : public skiagm::GM {
 public:
@@ -26,7 +28,7 @@ protected:
 
     SkString onShortName() override {
         SkString name("dftext");
-        name.append(sk_tool_utils::platform_os_emoji());
+        name.append(sk_tool_utils::platform_font_manager());
         return name;
     }
 
@@ -39,7 +41,6 @@ protected:
         SkScalar scales[] = { 2.0f*5.0f, 5.0f, 2.0f, 1.0f };
 
         // set up offscreen rendering with distance field text
-#if SK_SUPPORT_GPU
         GrContext* ctx = inputCanvas->getGrContext();
         SkISize size = onISize();
         SkImageInfo info = SkImageInfo::MakeN32(size.width(), size.height(), kPremul_SkAlphaType,
@@ -50,9 +51,6 @@ protected:
         SkCanvas* canvas = surface ? surface->getCanvas() : inputCanvas;
         // init our new canvas with the old canvas's matrix
         canvas->setMatrix(inputCanvas->getTotalMatrix());
-#else
-        SkCanvas* canvas = inputCanvas;
-#endif
         // apply global scale to test glyph positioning
         canvas->scale(1.05f, 1.05f);
         canvas->clear(0xffffffff);
@@ -183,13 +181,44 @@ protected:
             canvas->drawText(text, textLen, 580, 125, paint);
         }
 
+        // check perspective
+        {
+            paint.setLCDRenderText(false);
+            SkAutoCanvasRestore acr(canvas, true);
+            SkMatrix persp;
+            persp.setAll(0.9839f, 0, 0,
+                         0.2246f, 0.6829f, 0,
+                         0.0002352f, -0.0003844f, 1);
+            canvas->concat(persp);
+            canvas->translate(1100, -295);
+            paint.setTextSize(37.5f);
+            canvas->drawText(text, textLen, 0, 0, paint);
+        }
+        {
+            paint.setSubpixelText(false);
+            paint.setAntiAlias(false);
+            SkAutoCanvasRestore acr(canvas, true);
+            SkMatrix persp;
+            persp.setAll(0.9839f, 0, 0,
+                         0.2246f, 0.6829f, 0,
+                         0.0002352f, -0.0003844f, 1);
+            canvas->concat(persp);
+            canvas->translate(1075, -245);
+            canvas->scale(375, 375);
+            paint.setTextSize(0.1f);
+            canvas->drawText(text, textLen, 0, 0, paint);
+        }
+
         // check color emoji
         if (fEmojiTypeface) {
-            paint.setTypeface(fEmojiTypeface);
-            paint.setTextSize(SkIntToScalar(19));
-            canvas->drawString(fEmojiText, 670, 90, paint);
+            SkPaint emojiPaint;
+            emojiPaint.setSubpixelText(true);
+            emojiPaint.setAntiAlias(true);
+            emojiPaint.setTypeface(fEmojiTypeface);
+            emojiPaint.setTextSize(SkIntToScalar(19));
+            canvas->drawString(fEmojiText, 670, 90, emojiPaint);
         }
-#if SK_SUPPORT_GPU
+
         // render offscreen buffer
         if (surface) {
             SkAutoCanvasRestore acr(inputCanvas, true);
@@ -197,7 +226,6 @@ protected:
             inputCanvas->resetMatrix();
             inputCanvas->drawImage(surface->makeImageSnapshot().get(), 0, 0, nullptr);
         }
-#endif
     }
 
 private:

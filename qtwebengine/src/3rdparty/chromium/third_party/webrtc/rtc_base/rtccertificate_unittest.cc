@@ -11,15 +11,15 @@
 #include <memory>
 #include <utility>
 
-#include "webrtc/rtc_base/checks.h"
-#include "webrtc/rtc_base/fakesslidentity.h"
-#include "webrtc/rtc_base/gunit.h"
-#include "webrtc/rtc_base/logging.h"
-#include "webrtc/rtc_base/rtccertificate.h"
-#include "webrtc/rtc_base/safe_conversions.h"
-#include "webrtc/rtc_base/sslidentity.h"
-#include "webrtc/rtc_base/thread.h"
-#include "webrtc/rtc_base/timeutils.h"
+#include "rtc_base/checks.h"
+#include "rtc_base/fakesslidentity.h"
+#include "rtc_base/gunit.h"
+#include "rtc_base/logging.h"
+#include "rtc_base/numerics/safe_conversions.h"
+#include "rtc_base/rtccertificate.h"
+#include "rtc_base/sslidentity.h"
+#include "rtc_base/thread.h"
+#include "rtc_base/timeutils.h"
 
 namespace rtc {
 
@@ -30,10 +30,6 @@ static const char* kTestCertCommonName = "RTCCertificateTest's certificate";
 }  // namespace
 
 class RTCCertificateTest : public testing::Test {
- public:
-  RTCCertificateTest() {}
-  ~RTCCertificateTest() {}
-
  protected:
   scoped_refptr<RTCCertificate> GenerateECDSA() {
     std::unique_ptr<SSLIdentity> identity(
@@ -51,9 +47,7 @@ class RTCCertificateTest : public testing::Test {
   //   As a result, ExpiresSeconds and HasExpiredSeconds are used instead of
   // RTCCertificate::Expires and ::HasExpired for ms -> s conversion.
 
-  uint64_t NowSeconds() const {
-    return TimeNanos() / kNumNanosecsPerSec;
-  }
+  uint64_t NowSeconds() const { return TimeNanos() / kNumNanosecsPerSec; }
 
   uint64_t ExpiresSeconds(const scoped_refptr<RTCCertificate>& cert) const {
     uint64_t exp_ms = cert->Expires();
@@ -98,7 +92,7 @@ TEST_F(RTCCertificateTest, NewCertificateNotExpired) {
   EXPECT_FALSE(HasExpiredSeconds(certificate, now));
   // Even without specifying the expiration time we would expect it to be valid
   // for at least half an hour.
-  EXPECT_FALSE(HasExpiredSeconds(certificate, now + 30*60));
+  EXPECT_FALSE(HasExpiredSeconds(certificate, now + 30 * 60));
 }
 
 TEST_F(RTCCertificateTest, UsesExpiresAskedFor) {

@@ -88,12 +88,14 @@ bool FakeBluetoothGattManagerClient::VerifyProviderHierarchy(
   return true;
 }
 
-FakeBluetoothGattManagerClient::FakeBluetoothGattManagerClient() {}
+FakeBluetoothGattManagerClient::FakeBluetoothGattManagerClient() = default;
 
-FakeBluetoothGattManagerClient::~FakeBluetoothGattManagerClient() {}
+FakeBluetoothGattManagerClient::~FakeBluetoothGattManagerClient() = default;
 
 // DBusClient override.
-void FakeBluetoothGattManagerClient::Init(dbus::Bus* bus) {}
+void FakeBluetoothGattManagerClient::Init(
+    dbus::Bus* bus,
+    const std::string& bluetooth_service_name) {}
 
 // BluetoothGattManagerClient overrides.
 void FakeBluetoothGattManagerClient::RegisterApplication(

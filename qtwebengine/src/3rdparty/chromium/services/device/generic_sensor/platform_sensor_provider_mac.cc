@@ -5,8 +5,11 @@
 #include "services/device/generic_sensor/platform_sensor_provider_mac.h"
 
 #include "base/memory/singleton.h"
+#include "services/device/generic_sensor/orientation_quaternion_fusion_algorithm_using_euler_angles.h"
 #include "services/device/generic_sensor/platform_sensor_accelerometer_mac.h"
 #include "services/device/generic_sensor/platform_sensor_ambient_light_mac.h"
+#include "services/device/generic_sensor/platform_sensor_fusion.h"
+#include "services/device/generic_sensor/relative_orientation_euler_angles_fusion_algorithm_using_accelerometer.h"
 
 namespace device {
 
@@ -23,23 +26,44 @@ PlatformSensorProviderMac::~PlatformSensorProviderMac() = default;
 
 void PlatformSensorProviderMac::CreateSensorInternal(
     mojom::SensorType type,
-    mojo::ScopedSharedBufferMapping mapping,
+    SensorReadingSharedBuffer* reading_buffer,
     const CreateSensorCallback& callback) {
   // Create Sensors here.
   switch (type) {
     case mojom::SensorType::AMBIENT_LIGHT: {
       scoped_refptr<PlatformSensor> sensor =
-          new PlatformSensorAmbientLightMac(std::move(mapping), this);
+          new PlatformSensorAmbientLightMac(reading_buffer, this);
       callback.Run(std::move(sensor));
       break;
     }
     case mojom::SensorType::ACCELEROMETER: {
       callback.Run(base::MakeRefCounted<PlatformSensorAccelerometerMac>(
-          std::move(mapping), this));
+          reading_buffer, this));
+      break;
+    }
+    case mojom::SensorType::RELATIVE_ORIENTATION_EULER_ANGLES: {
+      auto fusion_algorithm = std::make_unique<
+          RelativeOrientationEulerAnglesFusionAlgorithmUsingAccelerometer>();
+      // If this PlatformSensorFusion object is successfully initialized,
+      // |callback| will be run with a reference to this object.
+      PlatformSensorFusion::Create(reading_buffer, this,
+                                   std::move(fusion_algorithm), callback);
+      break;
+    }
+    case mojom::SensorType::RELATIVE_ORIENTATION_QUATERNION: {
+      auto orientation_quaternion_fusion_algorithm_using_euler_angles =
+          std::make_unique<
+              OrientationQuaternionFusionAlgorithmUsingEulerAngles>(
+              false /* absolute */);
+      // If this PlatformSensorFusion object is successfully initialized,
+      // |callback| will be run with a reference to this object.
+      PlatformSensorFusion::Create(
+          reading_buffer, this,
+          std::move(orientation_quaternion_fusion_algorithm_using_euler_angles),
+          callback);
       break;
     }
     default:
-      NOTIMPLEMENTED();
       callback.Run(nullptr);
   }
 }

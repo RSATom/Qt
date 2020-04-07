@@ -119,10 +119,12 @@ static const uint16_t kClassIN = 1;
 // https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml#dns-parameters-4
 static const uint16_t kTypeA = 1;
 static const uint16_t kTypeCNAME = 5;
+static const uint16_t kTypeSOA = 6;
 static const uint16_t kTypePTR = 12;
 static const uint16_t kTypeTXT = 16;
 static const uint16_t kTypeAAAA = 28;
 static const uint16_t kTypeSRV = 33;
+static const uint16_t kTypeOPT = 41;
 static const uint16_t kTypeNSEC = 47;
 
 // DNS reply codes (RCODEs).

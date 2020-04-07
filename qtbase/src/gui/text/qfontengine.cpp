@@ -992,13 +992,12 @@ void QFontEngine::removeGlyphFromCache(glyph_t)
 QFontEngine::Properties QFontEngine::properties() const
 {
     Properties p;
-    QByteArray psname = QFontEngine::convertToPostscriptFontFamilyName(fontDef.family.toUtf8());
-    psname += '-';
-    psname += QByteArray::number(fontDef.style);
-    psname += '-';
-    psname += QByteArray::number(fontDef.weight);
-
-    p.postscriptName = psname;
+    p.postscriptName
+            = QFontEngine::convertToPostscriptFontFamilyName(fontDef.family.toUtf8())
+            + '-'
+            + QByteArray::number(fontDef.style)
+            + '-'
+            + QByteArray::number(fontDef.weight);
     p.ascent = ascent();
     p.descent = descent();
     p.leading = leading();
@@ -1080,7 +1079,7 @@ QFontEngineGlyphCache *QFontEngine::glyphCache(const void *context, GlyphFormat 
 {
     const QHash<const void*, GlyphCaches>::const_iterator caches = m_glyphCaches.constFind(context);
     if (caches == m_glyphCaches.cend())
-        return Q_NULLPTR;
+        return nullptr;
 
     for (GlyphCaches::const_iterator it = caches->begin(), end = caches->end(); it != end; ++it) {
         QFontEngineGlyphCache *cache = it->cache.data();
@@ -1088,7 +1087,7 @@ QFontEngineGlyphCache *QFontEngine::glyphCache(const void *context, GlyphFormat 
             return cache;
     }
 
-    return Q_NULLPTR;
+    return nullptr;
 }
 
 static inline QFixed kerning(int left, int right, const QFontEngine::KernPair *pairs, int numPairs)
@@ -1234,7 +1233,7 @@ int QFontEngine::glyphCount() const
 
 Qt::HANDLE QFontEngine::handle() const
 {
-    return Q_NULLPTR;
+    return nullptr;
 }
 
 const uchar *QFontEngine::getCMap(const uchar *table, uint tableSize, bool *isSymbolFont, int *cmapSize)
@@ -1328,7 +1327,7 @@ const uchar *QFontEngine::getCMap(const uchar *table, uint tableSize, bool *isSy
 resolveTable:
     *isSymbolFont = (symbolTable > -1);
 
-    quint32 unicode_table;
+    quint32 unicode_table = 0;
     if (!qSafeFromBigEndian(maps + 8 * tableToUse + 4, endPtr, &unicode_table))
         return 0;
 
@@ -1756,7 +1755,7 @@ QImage QFontEngineBox::alphaMapForGlyph(glyph_t)
 // Multi engine
 // ------------------------------------------------------------------
 
-static inline uchar highByte(glyph_t glyph)
+uchar QFontEngineMulti::highByte(glyph_t glyph)
 { return glyph >> 24; }
 
 // strip high byte from glyph
@@ -1850,7 +1849,7 @@ QFontEngine *QFontEngineMulti::loadEngine(int at)
     // info about the actual script of the characters may have been discarded,
     // so we do not check for writing system support, but instead just load
     // the family indiscriminately.
-    if (QFontEngine *engine = QFontDatabase::findFont(request, QFontDatabase::Any)) {
+    if (QFontEngine *engine = QFontDatabase::findFont(request, QChar::Script_Common)) {
         engine->fontDef.weight = request.weight;
         if (request.style > QFont::StyleNormal)
             engine->fontDef.style = request.style;

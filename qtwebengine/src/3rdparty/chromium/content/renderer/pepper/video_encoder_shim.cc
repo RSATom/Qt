@@ -6,10 +6,9 @@
 
 #include <inttypes.h>
 
-#include <deque>
-
 #include "base/bind.h"
 #include "base/bind_helpers.h"
+#include "base/containers/circular_deque.h"
 #include "base/location.h"
 #include "base/single_thread_task_runner.h"
 #include "base/sys_info.h"
@@ -143,8 +142,8 @@ class VideoEncoderShim::EncoderImpl {
 
   uint32_t framerate_;
 
-  std::deque<PendingEncode> frames_;
-  std::deque<BitstreamBuffer> buffers_;
+  base::circular_deque<PendingEncode> frames_;
+  base::circular_deque<BitstreamBuffer> buffers_;
 };
 
 VideoEncoderShim::EncoderImpl::EncoderImpl(
@@ -241,8 +240,8 @@ void VideoEncoderShim::EncoderImpl::Initialize(
 
   renderer_task_runner_->PostTask(
       FROM_HERE,
-      base::Bind(&VideoEncoderShim::OnRequireBitstreamBuffers, shim_,
-                 kInputFrameCount, coded_size, kBitstreamBufferSize));
+      base::BindOnce(&VideoEncoderShim::OnRequireBitstreamBuffers, shim_,
+                     kInputFrameCount, coded_size, kBitstreamBufferSize));
 }
 
 void VideoEncoderShim::EncoderImpl::Encode(
@@ -343,10 +342,10 @@ void VideoEncoderShim::EncoderImpl::DoEncode() {
       // freed on the right thread.
       renderer_task_runner_->PostTask(
           FROM_HERE,
-          base::Bind(&VideoEncoderShim::OnBitstreamBufferReady, shim_,
-                     frame.frame, buffer.buffer.id(),
-                     base::checked_cast<size_t>(packet->data.frame.sz),
-                     (packet->data.frame.flags & VPX_FRAME_IS_KEY) != 0));
+          base::BindOnce(&VideoEncoderShim::OnBitstreamBufferReady, shim_,
+                         frame.frame, buffer.buffer.id(),
+                         base::checked_cast<size_t>(packet->data.frame.sz),
+                         (packet->data.frame.flags & VPX_FRAME_IS_KEY) != 0));
       break;  // Done, since all data is provided in one CX_FRAME_PKT packet.
     }
   }
@@ -355,7 +354,8 @@ void VideoEncoderShim::EncoderImpl::DoEncode() {
 void VideoEncoderShim::EncoderImpl::NotifyError(
     media::VideoEncodeAccelerator::Error error) {
   renderer_task_runner_->PostTask(
-      FROM_HERE, base::Bind(&VideoEncoderShim::OnNotifyError, shim_, error));
+      FROM_HERE,
+      base::BindOnce(&VideoEncoderShim::OnNotifyError, shim_, error));
   Stop();
 }
 
@@ -371,8 +371,8 @@ VideoEncoderShim::~VideoEncoderShim() {
   DCHECK(RenderThreadImpl::current());
 
   media_task_runner_->PostTask(
-      FROM_HERE, base::Bind(&VideoEncoderShim::EncoderImpl::Stop,
-                            base::Owned(encoder_impl_.release())));
+      FROM_HERE, base::BindOnce(&VideoEncoderShim::EncoderImpl::Stop,
+                                base::Owned(encoder_impl_.release())));
 }
 
 media::VideoEncodeAccelerator::SupportedProfiles
@@ -425,9 +425,9 @@ bool VideoEncoderShim::Initialize(
 
   media_task_runner_->PostTask(
       FROM_HERE,
-      base::Bind(&VideoEncoderShim::EncoderImpl::Initialize,
-                 base::Unretained(encoder_impl_.get()), input_format,
-                 input_visible_size, output_profile, initial_bitrate));
+      base::BindOnce(&VideoEncoderShim::EncoderImpl::Initialize,
+                     base::Unretained(encoder_impl_.get()), input_format,
+                     input_visible_size, output_profile, initial_bitrate));
 
   return true;
 }
@@ -437,9 +437,9 @@ void VideoEncoderShim::Encode(const scoped_refptr<media::VideoFrame>& frame,
   DCHECK(RenderThreadImpl::current());
 
   media_task_runner_->PostTask(
-      FROM_HERE,
-      base::Bind(&VideoEncoderShim::EncoderImpl::Encode,
-                 base::Unretained(encoder_impl_.get()), frame, force_keyframe));
+      FROM_HERE, base::BindOnce(&VideoEncoderShim::EncoderImpl::Encode,
+                                base::Unretained(encoder_impl_.get()), frame,
+                                force_keyframe));
 }
 
 void VideoEncoderShim::UseOutputBitstreamBuffer(
@@ -448,9 +448,9 @@ void VideoEncoderShim::UseOutputBitstreamBuffer(
 
   media_task_runner_->PostTask(
       FROM_HERE,
-      base::Bind(&VideoEncoderShim::EncoderImpl::UseOutputBitstreamBuffer,
-                 base::Unretained(encoder_impl_.get()), buffer,
-                 host_->ShmHandleToAddress(buffer.id())));
+      base::BindOnce(&VideoEncoderShim::EncoderImpl::UseOutputBitstreamBuffer,
+                     base::Unretained(encoder_impl_.get()), buffer,
+                     host_->ShmHandleToAddress(buffer.id())));
 }
 
 void VideoEncoderShim::RequestEncodingParametersChange(uint32_t bitrate,
@@ -459,7 +459,7 @@ void VideoEncoderShim::RequestEncodingParametersChange(uint32_t bitrate,
 
   media_task_runner_->PostTask(
       FROM_HERE,
-      base::Bind(
+      base::BindOnce(
           &VideoEncoderShim::EncoderImpl::RequestEncodingParametersChange,
           base::Unretained(encoder_impl_.get()), bitrate, framerate));
 }
@@ -487,8 +487,9 @@ void VideoEncoderShim::OnBitstreamBufferReady(
     bool key_frame) {
   DCHECK(RenderThreadImpl::current());
 
-  host_->BitstreamBufferReady(bitstream_buffer_id, payload_size, key_frame,
-                              frame->timestamp());
+  host_->BitstreamBufferReady(bitstream_buffer_id,
+                              media::BitstreamBufferMetadata(
+                                  payload_size, key_frame, frame->timestamp()));
 }
 
 void VideoEncoderShim::OnNotifyError(

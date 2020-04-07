@@ -42,8 +42,6 @@
 #include "qplatformdefs.h"
 #include "qmutex.h"
 #include <qdebug.h>
-
-#ifndef QT_NO_THREAD
 #include "qatomic.h"
 #include "qelapsedtimer.h"
 #include "qthread.h"
@@ -276,7 +274,7 @@ bool QMutex::tryLock(int timeout) QT_MUTEX_LOCK_NOEXCEPT
     returns \c false
 */
 
-/*! \fn bool QMutex::try_lock_for(std::chrono::duration<Rep, Period> duration)
+/*! \fn template <class Rep, class Period> bool QMutex::try_lock_for(std::chrono::duration<Rep, Period> duration)
     \since 5.8
 
     Attempts to lock the mutex. This function returns \c true if the lock
@@ -300,7 +298,7 @@ bool QMutex::tryLock(int timeout) QT_MUTEX_LOCK_NOEXCEPT
     \sa lock(), unlock()
 */
 
-/*! \fn bool QMutex::try_lock_until(std::chrono::time_point<Clock, Duration> timePoint)
+/*! \fn template<class Clock, class Duration> bool QMutex::try_lock_until(std::chrono::time_point<Clock, Duration> timePoint)
     \since 5.8
 
     Attempts to lock the mutex. This function returns \c true if the lock
@@ -739,5 +737,3 @@ QT_END_NAMESPACE
 #else
 #  include "qmutex_unix.cpp"
 #endif
-
-#endif // QT_NO_THREAD

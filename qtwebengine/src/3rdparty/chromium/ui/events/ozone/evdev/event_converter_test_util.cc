@@ -6,7 +6,6 @@
 
 #include <stdint.h>
 
-#include "base/memory/ptr_util.h"
 #include "ui/events/ozone/device/device_manager.h"
 #include "ui/events/ozone/evdev/device_event_dispatcher_evdev.h"
 #include "ui/events/ozone/evdev/event_factory_evdev.h"
@@ -110,8 +109,7 @@ class TestEventFactoryEvdev : public EventFactoryEvdev {
   ~TestEventFactoryEvdev() override {}
 
  private:
-  uint32_t DispatchEvent(PlatformEvent platform_event) override {
-    Event* event = static_cast<Event*>(platform_event);
+  uint32_t DispatchEvent(PlatformEvent event) override {
     callback_.Run(event);
     return POST_DISPATCH_NONE;
   }
@@ -123,11 +121,11 @@ class TestEventFactoryEvdev : public EventFactoryEvdev {
 
 std::unique_ptr<DeviceEventDispatcherEvdev>
 CreateDeviceEventDispatcherEvdevForTest(EventFactoryEvdev* event_factory) {
-  return base::MakeUnique<TestDeviceEventDispatcherEvdev>(event_factory);
+  return std::make_unique<TestDeviceEventDispatcherEvdev>(event_factory);
 }
 
 std::unique_ptr<DeviceManager> CreateDeviceManagerForTest() {
-  return base::MakeUnique<TestDeviceManager>();
+  return std::make_unique<TestDeviceManager>();
 }
 
 std::unique_ptr<EventFactoryEvdev> CreateEventFactoryEvdevForTest(
@@ -135,7 +133,7 @@ std::unique_ptr<EventFactoryEvdev> CreateEventFactoryEvdevForTest(
     DeviceManager* device_manager,
     KeyboardLayoutEngine* keyboard_layout_engine,
     const EventDispatchCallback& callback) {
-  return base::MakeUnique<TestEventFactoryEvdev>(
+  return std::make_unique<TestEventFactoryEvdev>(
       cursor, device_manager, keyboard_layout_engine, callback);
 }
 

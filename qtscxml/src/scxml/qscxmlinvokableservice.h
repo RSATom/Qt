@@ -108,7 +108,7 @@ public:
             const QVector<QScxmlExecutableContent::ParameterInfo> &parameters,
             QObject *parent = nullptr);
 
-    QScxmlInvokableService *invoke(QScxmlStateMachine *parentStateMachine) Q_DECL_OVERRIDE;
+    QScxmlInvokableService *invoke(QScxmlStateMachine *parentStateMachine) override;
 };
 
 class Q_SCXML_EXPORT QScxmlDynamicScxmlServiceFactory: public QScxmlInvokableServiceFactory
@@ -121,7 +121,7 @@ public:
             const QVector<QScxmlExecutableContent::ParameterInfo> &parameters,
             QObject *parent = nullptr);
 
-    QScxmlInvokableService *invoke(QScxmlStateMachine *parentStateMachine) Q_DECL_OVERRIDE;
+    QScxmlInvokableService *invoke(QScxmlStateMachine *parentStateMachine) override;
 };
 
 QT_END_NAMESPACE

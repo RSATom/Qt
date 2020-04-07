@@ -1,4 +1,4 @@
-// Copyright 2016 PDFium Authors. All rights reserved.
+// Copyright 2018 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
@@ -6,37 +6,18 @@
 
 #include "fxjs/cfxjse_isolatetracker.h"
 
-#include <algorithm>
-#include <utility>
+CFXJSE_ScopeUtil_IsolateHandle::CFXJSE_ScopeUtil_IsolateHandle(
+    v8::Isolate* pIsolate)
+    : m_iscope(pIsolate), m_hscope(pIsolate) {}
 
-CFXJSE_IsolateTracker::CFXJSE_IsolateTracker() {}
+CFXJSE_ScopeUtil_IsolateHandle::~CFXJSE_ScopeUtil_IsolateHandle() = default;
 
-CFXJSE_IsolateTracker::~CFXJSE_IsolateTracker() {}
+CFXJSE_ScopeUtil_IsolateHandleRootContext::
+    CFXJSE_ScopeUtil_IsolateHandleRootContext(v8::Isolate* pIsolate)
+    : CFXJSE_ScopeUtil_IsolateHandle(pIsolate),
+      m_cscope(v8::Local<v8::Context>::New(
+          pIsolate,
+          CFXJSE_RuntimeData::Get(pIsolate)->m_hRootContext)) {}
 
-void CFXJSE_IsolateTracker::Append(
-    v8::Isolate* pIsolate,
-    std::unique_ptr<v8::ArrayBuffer::Allocator> alloc) {
-  m_OwnedIsolates.push_back(pIsolate);
-  m_AllocatorMap[pIsolate] = std::move(alloc);
-}
-
-void CFXJSE_IsolateTracker::Remove(
-    v8::Isolate* pIsolate,
-    CFXJSE_IsolateTracker::DisposeCallback lpfnDisposeCallback) {
-  auto it = std::find(m_OwnedIsolates.begin(), m_OwnedIsolates.end(), pIsolate);
-  bool bFound = it != m_OwnedIsolates.end();
-  if (bFound)
-    m_OwnedIsolates.erase(it);
-  lpfnDisposeCallback(pIsolate, bFound);
-
-  m_AllocatorMap.erase(pIsolate);
-}
-
-void CFXJSE_IsolateTracker::RemoveAll(
-    CFXJSE_IsolateTracker::DisposeCallback lpfnDisposeCallback) {
-  for (v8::Isolate* pIsolate : m_OwnedIsolates)
-    lpfnDisposeCallback(pIsolate, true);
-
-  m_OwnedIsolates.clear();
-  m_AllocatorMap.clear();
-}
+CFXJSE_ScopeUtil_IsolateHandleRootContext::
+    ~CFXJSE_ScopeUtil_IsolateHandleRootContext() = default;

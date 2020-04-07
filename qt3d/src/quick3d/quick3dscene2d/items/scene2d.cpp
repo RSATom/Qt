@@ -262,6 +262,15 @@ void Scene2D::initializeRender()
 
         m_context->makeCurrent(m_sharedObject->m_surface);
         m_sharedObject->m_renderControl->initialize(m_context);
+#ifdef QT_OPENGL_ES_2_ANGLE
+        m_usingAngle = false;
+        if (m_context->isOpenGLES()) {
+            const char *versionStr = reinterpret_cast<const char *>(
+                                                m_context->functions()->glGetString(GL_VERSION));
+            if (strstr(versionStr, "ANGLE"))
+                m_usingAngle = true;
+        }
+#endif
         m_context->doneCurrent();
 
         QCoreApplication::postEvent(m_sharedObject->m_renderManager,
@@ -319,13 +328,15 @@ void Scene2D::render()
         QMutex *textureLock = nullptr;
 
 #ifdef QT_OPENGL_ES_2_ANGLE
-        SurfaceLocker surfaceLocker(m_sharedObject->m_surface);
+        QScopedPointer<SurfaceLocker> surfaceLocker;
+        if (m_usingAngle)
+            surfaceLocker.reset(new SurfaceLocker(m_sharedObject->m_surface));
 #endif
         m_context->makeCurrent(m_sharedObject->m_surface);
 
         if (resourceAccessor()->accessResource(RenderBackendResourceAccessor::OutputAttachment,
                                                m_outputId, (void**)&attachmentData, nullptr)) {
-            if (!resourceAccessor()->accessResource(RenderBackendResourceAccessor::OGLTexture,
+            if (!resourceAccessor()->accessResource(RenderBackendResourceAccessor::OGLTextureWrite,
                                                     attachmentData->m_textureUuid,
                                                        (void**)&texture, &textureLock)) {
                 // Need to call sync even if the texture is not in use
@@ -336,7 +347,12 @@ void Scene2D::render()
                                             new Scene2DEvent(Scene2DEvent::Render));
                 return;
             }
+#ifdef QT_OPENGL_ES_2_ANGLE
+            if (m_usingAngle == false)
+                textureLock->lock();
+#else
             textureLock->lock();
+#endif
             const QSize textureSize = QSize(texture->width(), texture->height());
             if (m_attachmentData.m_textureUuid != attachmentData->m_textureUuid
                 || m_attachmentData.m_point != attachmentData->m_point
@@ -384,7 +400,12 @@ void Scene2D::render()
         m_context->functions()->glFlush();
         if (texture->isAutoMipMapGenerationEnabled())
             texture->generateMipMaps();
+#ifdef QT_OPENGL_ES_2_ANGLE
+        if (m_usingAngle == false)
+            textureLock->unlock();
+#else
         textureLock->unlock();
+#endif
         m_context->doneCurrent();
 
         // gui thread can now continue
@@ -469,10 +490,10 @@ void Scene2D::handlePickEvent(int type, const Qt3DRender::QPickEventPtr &ev)
         CoordinateReader reader(renderer()->nodeManagers());
         if (reader.setGeometry(entity->renderComponent<GeometryRenderer>(),
                                QAttribute::defaultTextureCoordinateAttributeName())) {
-            QVector4D c0 = reader.getCoordinate(pickTriangle->vertex1Index());
-            QVector4D c1 = reader.getCoordinate(pickTriangle->vertex2Index());
-            QVector4D c2 = reader.getCoordinate(pickTriangle->vertex3Index());
-            QVector4D ci = c0 * pickTriangle->uvw().x()
+            Vector4D c0 = reader.getCoordinate(pickTriangle->vertex1Index());
+            Vector4D c1 = reader.getCoordinate(pickTriangle->vertex2Index());
+            Vector4D c2 = reader.getCoordinate(pickTriangle->vertex3Index());
+            Vector4D ci = c0 * pickTriangle->uvw().x()
                            + c1 * pickTriangle->uvw().y() + c2 * pickTriangle->uvw().z();
             ci.setW(1.0f);
 

@@ -12,10 +12,8 @@
 #include "base/compiler_specific.h"
 #include "base/logging.h"
 #include "base/macros.h"
-#include "base/metrics/field_trial.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/sequence_checker.h"
-#include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "base/threading/thread_checker.h"
 #include "base/trace_event/trace_event.h"
@@ -67,8 +65,6 @@ bool JingleSocketOptionToP2PSocketOption(rtc::Socket::Option option,
   return true;
 }
 
-// TODO(miu): This needs tuning.  http://crbug.com/237960
-// http://crbug.com/427555
 const size_t kMaximumInFlightBytes = 64 * 1024;  // 64 KB
 
 // IpcPacketSocket implements rtc::AsyncPacketSocket interface
@@ -152,10 +148,6 @@ class IpcPacketSocket : public rtc::AsyncPacketSocket,
                        const rtc::SocketAddress& remote_address);
 
   int DoSetOption(P2PSocketOption option, int value);
-
-  // Allow a finch experiment to control the initial value of
-  // send_bytes_available_;
-  void AdjustUdpSendBufferSize();
 
   P2PSocketType type_;
 
@@ -281,19 +273,6 @@ void IpcPacketSocket::IncrementDiscardCounters(size_t bytes_discarded) {
   }
 }
 
-void IpcPacketSocket::AdjustUdpSendBufferSize() {
-  DCHECK_EQ(type_, P2P_SOCKET_UDP);
-  unsigned int send_buffer_size = 0;
-
-  base::StringToUint(
-      base::FieldTrialList::FindFullName("WebRTC-ApplicationUDPSendSocketSize"),
-      &send_buffer_size);
-
-  if (send_buffer_size > 0) {
-    send_bytes_available_ = send_buffer_size;
-  }
-}
-
 bool IpcPacketSocket::Init(P2PSocketType type,
                            P2PSocketClientImpl* client,
                            const rtc::SocketAddress& local_address,
@@ -313,10 +292,6 @@ bool IpcPacketSocket::Init(P2PSocketType type,
   if (!jingle_glue::SocketAddressToIPEndPoint(
           local_address, &local_endpoint)) {
     return false;
-  }
-
-  if (type_ == P2P_SOCKET_UDP) {
-    AdjustUdpSendBufferSize();
   }
 
   net::IPEndPoint remote_endpoint;
@@ -740,9 +715,10 @@ void AsyncAddressResolverImpl::OnAddressResolved(
 }  // namespace
 
 IpcPacketSocketFactory::IpcPacketSocketFactory(
-    P2PSocketDispatcher* socket_dispatcher)
-    : socket_dispatcher_(socket_dispatcher) {
-}
+    P2PSocketDispatcher* socket_dispatcher,
+    const net::NetworkTrafficAnnotationTag& traffic_annotation)
+    : socket_dispatcher_(socket_dispatcher),
+      traffic_annotation_(traffic_annotation) {}
 
 IpcPacketSocketFactory::~IpcPacketSocketFactory() {
 }
@@ -752,7 +728,7 @@ rtc::AsyncPacketSocket* IpcPacketSocketFactory::CreateUdpSocket(
     uint16_t min_port,
     uint16_t max_port) {
   P2PSocketClientImpl* socket_client =
-      new P2PSocketClientImpl(socket_dispatcher_);
+      new P2PSocketClientImpl(socket_dispatcher_, traffic_annotation_);
   std::unique_ptr<IpcPacketSocket> socket(new IpcPacketSocket());
   if (!socket->Init(P2P_SOCKET_UDP, socket_client, local_address, min_port,
                     max_port, rtc::SocketAddress())) {
@@ -768,16 +744,16 @@ rtc::AsyncPacketSocket* IpcPacketSocketFactory::CreateServerTcpSocket(
     int opts) {
   // TODO(sergeyu): Implement SSL support.
   if (opts & rtc::PacketSocketFactory::OPT_SSLTCP)
-    return NULL;
+    return nullptr;
 
   P2PSocketType type = (opts & rtc::PacketSocketFactory::OPT_STUN) ?
       P2P_SOCKET_STUN_TCP_SERVER : P2P_SOCKET_TCP_SERVER;
   P2PSocketClientImpl* socket_client =
-      new P2PSocketClientImpl(socket_dispatcher_);
+      new P2PSocketClientImpl(socket_dispatcher_, traffic_annotation_);
   std::unique_ptr<IpcPacketSocket> socket(new IpcPacketSocket());
   if (!socket->Init(type, socket_client, local_address, min_port, max_port,
                     rtc::SocketAddress())) {
-    return NULL;
+    return nullptr;
   }
   return socket.release();
 }
@@ -799,10 +775,10 @@ rtc::AsyncPacketSocket* IpcPacketSocketFactory::CreateClientTcpSocket(
         P2P_SOCKET_STUN_TCP_CLIENT : P2P_SOCKET_TCP_CLIENT;
   }
   P2PSocketClientImpl* socket_client =
-      new P2PSocketClientImpl(socket_dispatcher_);
+      new P2PSocketClientImpl(socket_dispatcher_, traffic_annotation_);
   std::unique_ptr<IpcPacketSocket> socket(new IpcPacketSocket());
   if (!socket->Init(type, socket_client, local_address, 0, 0, remote_address))
-    return NULL;
+    return nullptr;
   return socket.release();
 }
 

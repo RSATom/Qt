@@ -88,11 +88,6 @@ QList<QBluetoothUuid> extract_services_uuids(IOBluetoothDevice *device);
 QT_END_NAMESPACE
 
 @interface QT_MANGLE_NAMESPACE(OSXBTSDPInquiry) : NSObject
-{
-    QT_PREPEND_NAMESPACE(OSXBluetooth::SDPInquiryDelegate) *delegate;
-    IOBluetoothDevice *device;
-    bool isActive;
-}
 
 - (id)initWithDelegate:(QT_PREPEND_NAMESPACE(OSXBluetooth::SDPInquiryDelegate) *)aDelegate;
 - (void)dealloc;

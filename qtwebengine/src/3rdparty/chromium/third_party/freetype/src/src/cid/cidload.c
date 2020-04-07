@@ -1,19 +1,19 @@
-/***************************************************************************/
-/*                                                                         */
-/*  cidload.c                                                              */
-/*                                                                         */
-/*    CID-keyed Type1 font loader (body).                                  */
-/*                                                                         */
-/*  Copyright 1996-2017 by                                                 */
-/*  David Turner, Robert Wilhelm, and Werner Lemberg.                      */
-/*                                                                         */
-/*  This file is part of the FreeType project, and may only be used,       */
-/*  modified, and distributed under the terms of the FreeType project      */
-/*  license, LICENSE.TXT.  By continuing to use, modify, or distribute     */
-/*  this file you indicate that you have read the license and              */
-/*  understand and accept it fully.                                        */
-/*                                                                         */
-/***************************************************************************/
+/****************************************************************************
+ *
+ * cidload.c
+ *
+ *   CID-keyed Type1 font loader (body).
+ *
+ * Copyright 1996-2018 by
+ * David Turner, Robert Wilhelm, and Werner Lemberg.
+ *
+ * This file is part of the FreeType project, and may only be used,
+ * modified, and distributed under the terms of the FreeType project
+ * license, LICENSE.TXT.  By continuing to use, modify, or distribute
+ * this file you indicate that you have read the license and
+ * understand and accept it fully.
+ *
+ */
 
 
 #include <ft2build.h>
@@ -27,12 +27,12 @@
 #include "ciderrs.h"
 
 
-  /*************************************************************************/
-  /*                                                                       */
-  /* The macro FT_COMPONENT is used in trace mode.  It is an implicit      */
-  /* parameter of the FT_TRACE() and FT_ERROR() macros, used to print/log  */
-  /* messages during execution.                                            */
-  /*                                                                       */
+  /**************************************************************************
+   *
+   * The macro FT_COMPONENT is used in trace mode.  It is an implicit
+   * parameter of the FT_TRACE() and FT_ERROR() macros, used to print/log
+   * messages during execution.
+   */
 #undef  FT_COMPONENT
 #define FT_COMPONENT  trace_cidload
 
@@ -199,6 +199,13 @@
       matrix->yx = temp[1];
       matrix->xy = temp[2];
       matrix->yy = temp[3];
+
+      if ( !FT_Matrix_Check( matrix ) )
+      {
+        FT_ERROR(( "t1_parse_font_matrix: invalid font matrix\n" ));
+        parser->root.error = FT_THROW( Invalid_File_Format );
+        return FT_THROW( Invalid_File_Format );
+      }
 
       /* note that the font offsets are expressed in integer font units */
       offset->x  = temp[4] >> 16;

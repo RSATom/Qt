@@ -68,7 +68,8 @@ class MainWindow : public QWidget
     Q_OBJECT
 
 public:
-    explicit MainWindow(QScxmlStateMachine *stateMachine, QWidget *parent = nullptr);
+    explicit MainWindow(QScxmlStateMachine *stateMachine,
+                        QWidget *parent = nullptr);
     ~MainWindow();
 
 private slots:

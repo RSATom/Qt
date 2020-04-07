@@ -4,11 +4,10 @@
 
 #include "ui/views/accessibility/ax_view_obj_wrapper.h"
 
-#include "base/strings/utf_string_conversions.h"
 #include "ui/accessibility/ax_action_data.h"
 #include "ui/accessibility/ax_node_data.h"
-#include "ui/events/event_utils.h"
 #include "ui/views/accessibility/ax_aura_obj_cache.h"
+#include "ui/views/accessibility/view_accessibility.h"
 #include "ui/views/view.h"
 #include "ui/views/widget/widget.h"
 
@@ -21,6 +20,10 @@ AXViewObjWrapper::AXViewObjWrapper(View* view)  : view_(view) {
 
 AXViewObjWrapper::~AXViewObjWrapper() {}
 
+bool AXViewObjWrapper::IsIgnored() {
+  return view_->GetViewAccessibility().is_ignored();
+}
+
 AXAuraObjWrapper* AXViewObjWrapper::GetParent() {
   AXAuraObjCache* cache = AXAuraObjCache::GetInstance();
   if (view_->parent())
@@ -29,11 +32,14 @@ AXAuraObjWrapper* AXViewObjWrapper::GetParent() {
   if (view_->GetWidget())
     return cache->GetOrCreate(view_->GetWidget());
 
-  return NULL;
+  return nullptr;
 }
 
 void AXViewObjWrapper::GetChildren(
     std::vector<AXAuraObjWrapper*>* out_children) {
+  if (view_->GetViewAccessibility().IsLeaf())
+    return;
+
   // TODO(dtseng): Need to handle |Widget| child of |View|.
   for (int i = 0; i < view_->child_count(); ++i) {
     if (!view_->child_at(i)->visible())
@@ -46,20 +52,12 @@ void AXViewObjWrapper::GetChildren(
 }
 
 void AXViewObjWrapper::Serialize(ui::AXNodeData* out_node_data) {
-  view_->GetAccessibleNodeData(out_node_data);
-
-  out_node_data->id = GetID();
-
-  if (view_->IsAccessibilityFocusable())
-    out_node_data->AddState(ui::AX_STATE_FOCUSABLE);
-  if (!view_->visible())
-    out_node_data->AddState(ui::AX_STATE_INVISIBLE);
-
-  out_node_data->location = gfx::RectF(view_->GetBoundsInScreen());
+  view_->GetViewAccessibility().GetAccessibleNodeData(out_node_data);
+  out_node_data->id = GetUniqueId().Get();
 }
 
-int32_t AXViewObjWrapper::GetID() {
-  return AXAuraObjCache::GetInstance()->GetID(view_);
+const ui::AXUniqueId& AXViewObjWrapper::GetUniqueId() const {
+  return view_->GetViewAccessibility().GetUniqueId();
 }
 
 bool AXViewObjWrapper::HandleAccessibleAction(const ui::AXActionData& action) {

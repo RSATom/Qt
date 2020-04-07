@@ -5,23 +5,29 @@
 #ifndef UI_AURA_WINDOW_TREE_HOST_H_
 #define UI_AURA_WINDOW_TREE_HOST_H_
 
-#include <memory>
-#include <vector>
+#include <stdint.h>
 
-#include "base/event_types.h"
+#include <memory>
+#include <string>
+
+#include "base/containers/flat_map.h"
+#include "base/containers/flat_set.h"
 #include "base/macros.h"
-#include "base/message_loop/message_loop.h"
+#include "base/memory/weak_ptr.h"
+#include "base/observer_list.h"
+#include "base/optional.h"
 #include "components/viz/common/surfaces/frame_sink_id.h"
+#include "components/viz/common/surfaces/local_surface_id.h"
 #include "ui/aura/aura_export.h"
 #include "ui/base/cursor/cursor.h"
 #include "ui/base/ime/input_method_delegate.h"
+#include "ui/compositor/compositor_observer.h"
 #include "ui/display/display_observer.h"
 #include "ui/events/event_source.h"
-#include "ui/gfx/geometry/insets.h"
+#include "ui/events/platform_event.h"
 #include "ui/gfx/native_widget_types.h"
 
 namespace gfx {
-class Insets;
 class Point;
 class Rect;
 class Size;
@@ -30,12 +36,16 @@ class Transform;
 
 namespace ui {
 class Compositor;
+enum class DomCode;
 class EventSink;
 class InputMethod;
 class ViewProp;
+struct PlatformWindowInitProperties;
 }
 
 namespace aura {
+class ScopedKeyboardHook;
+
 namespace test {
 class WindowTreeHostTestApi;
 }
@@ -49,12 +59,14 @@ class WindowTreeHostObserver;
 // aura.
 class AURA_EXPORT WindowTreeHost : public ui::internal::InputMethodDelegate,
                                    public ui::EventSource,
-                                   public display::DisplayObserver {
+                                   public display::DisplayObserver,
+                                   public ui::CompositorObserver {
  public:
   ~WindowTreeHost() override;
 
-  // Creates a new WindowTreeHost. The caller owns the returned value.
-  static WindowTreeHost* Create(const gfx::Rect& bounds_in_pixels);
+  // Creates a new WindowTreeHost with the specified |properties|.
+  static std::unique_ptr<WindowTreeHost> Create(
+      ui::PlatformWindowInitProperties properties);
 
   // Returns the WindowTreeHost for the specified accelerated widget, or NULL
   // if there is none associated.
@@ -83,21 +95,19 @@ class AURA_EXPORT WindowTreeHost : public ui::internal::InputMethodDelegate,
   virtual void SetRootTransform(const gfx::Transform& transform);
   virtual gfx::Transform GetInverseRootTransform() const;
 
-  // Sets padding applied to the output surface. The output surface is sized to
-  // to the size of the host plus output surface padding. |window()| is offset
-  // by |padding_in_pixels|, that is, |window|'s origin is set to
-  // padding_in_pixels.left(), padding_in_pixels.top().
-  // This does not impact the bounds as returned from GetBounds(), only the
-  // output surface size and location of window(). Additionally window() is
-  // sized to the size set by bounds (more specifically the size passed to
-  // OnHostResizedInPixels()), but the location of window() is set to that of
-  // |padding_in_pixels|.
-  void SetOutputSurfacePaddingInPixels(const gfx::Insets& padding_in_pixels);
+  // These functions are used in event translation for translating the local
+  // coordinates of LocatedEvents. Default implementation calls to non-local
+  // ones (e.g. GetRootTransform()).
+  virtual gfx::Transform GetRootTransformForLocalEventCoordinates() const;
+  virtual gfx::Transform GetInverseRootTransformForLocalEventCoordinates()
+      const;
 
   // Updates the root window's size using |host_size_in_pixels|, current
   // transform and outsets.
-  virtual void UpdateRootWindowSizeInPixels(
-      const gfx::Size& host_size_in_pixels);
+  // TODO(ccameron): Make this function no longer public. The interaction
+  // between this call, GetBounds, and OnHostResizedInPixels is ambiguous and
+  // allows for inconsistencies.
+  void UpdateRootWindowSizeInPixels();
 
   // Converts |point| from the root window's coordinate system to native
   // screen's.
@@ -108,11 +118,11 @@ class AURA_EXPORT WindowTreeHost : public ui::internal::InputMethodDelegate,
 
   // Converts |point| from the root window's coordinate system to the
   // host window's.
-  void ConvertDIPToPixels(gfx::Point* point) const;
+  virtual void ConvertDIPToPixels(gfx::Point* point) const;
 
   // Converts |point| from the host window's coordinate system to the
   // root window's.
-  void ConvertPixelsToDIP(gfx::Point* point) const;
+  virtual void ConvertPixelsToDIP(gfx::Point* point) const;
 
   // Cursor.
   // Sets the currently-displayed cursor. If the cursor was previously hidden
@@ -140,17 +150,17 @@ class AURA_EXPORT WindowTreeHost : public ui::internal::InputMethodDelegate,
   // InputMethod shared between multiple WindowTreeHost instances.
   //
   // This is used for Ash only. There are 2 reasons:
-  // 1) ChromeOS virtual keyboard needs to receive ShowImeIfNeeded notification
-  // from InputMethod. Multiple InputMethod instances makes it hard to
-  // register/unregister the observer for that notification.
-  // 2) For Ozone, there is no native focus state for the root window and
-  // WindowTreeHost. See DrmWindowHost::CanDispatchEvent, the key events always
-  // goes to the primary WindowTreeHost. And after InputMethod processed the key
-  // event and continue dispatching it, WindowTargeter::FindTargetForEvent may
-  // re-dispatch it to a different WindowTreeHost. So the singleton InputMethod
-  // can make sure the correct InputMethod instance processes the key event no
-  // matter which WindowTreeHost is the target for event. Please refer to the
-  // test: ExtendedDesktopTest.KeyEventsOnLockScreen.
+  // 1) ChromeOS virtual keyboard needs to receive ShowVirtualKeyboardIfEnabled
+  // notification from InputMethod. Multiple InputMethod instances makes it hard
+  // to register/unregister the observer for that notification. 2) For Ozone,
+  // there is no native focus state for the root window and WindowTreeHost. See
+  // DrmWindowHost::CanDispatchEvent, the key events always goes to the primary
+  // WindowTreeHost. And after InputMethod processed the key event and continue
+  // dispatching it, WindowTargeter::FindTargetForEvent may re-dispatch it to a
+  // different WindowTreeHost. So the singleton InputMethod can make sure the
+  // correct InputMethod instance processes the key event no matter which
+  // WindowTreeHost is the target for event. Please refer to the test:
+  // ExtendedDesktopTest.KeyEventsOnLockScreen.
   //
   // TODO(shuchen): remove this method after above reasons become invalid.
   // A possible solution is to make sure DrmWindowHost can find the correct
@@ -159,6 +169,9 @@ class AURA_EXPORT WindowTreeHost : public ui::internal::InputMethodDelegate,
 
   // Overridden from ui::internal::InputMethodDelegate:
   ui::EventDispatchDetails DispatchKeyEventPostIME(ui::KeyEvent* event) final;
+
+  // Returns the id of the display. Default implementation queries Screen.
+  virtual int64_t GetDisplayId();
 
   // Returns the EventSource responsible for dispatching events to the window
   // tree.
@@ -173,9 +186,17 @@ class AURA_EXPORT WindowTreeHost : public ui::internal::InputMethodDelegate,
   // Hides the WindowTreeHost.
   void Hide();
 
-  // Gets/Sets the size of the WindowTreeHost (in pixels).
+  // Sets/Gets the bounds of the WindowTreeHost (in pixels). Note that a call to
+  // GetBoundsInPixels() immediately following a SetBoundsInPixels() can return
+  // the old bounds, because SetBoundsInPixels() can take effect asynchronously,
+  // depending on the platform. The |local_surface_id| takes effect when (and
+  // if) the new size is confirmed (potentially asynchronously) by the platform.
+  // If |local_surface_id| is invalid, then a new LocalSurfaceId is allocated
+  // when the size change takes effect.
+  virtual void SetBoundsInPixels(
+      const gfx::Rect& bounds_in_pixels,
+      const viz::LocalSurfaceId& local_surface_id = viz::LocalSurfaceId()) = 0;
   virtual gfx::Rect GetBoundsInPixels() const = 0;
-  virtual void SetBoundsInPixels(const gfx::Rect& bounds_in_pixels) = 0;
 
   // Sets the OS capture to the root window.
   virtual void SetCapture() = 0;
@@ -183,7 +204,22 @@ class AURA_EXPORT WindowTreeHost : public ui::internal::InputMethodDelegate,
   // Releases OS capture of the root window.
   virtual void ReleaseCapture() = 0;
 
+  // Returns the device scale assumed by the WindowTreeHost (set during the
+  // most recent call to OnHostResizedInPixels).
+  float device_scale_factor() const { return device_scale_factor_; }
+
+  // Requests that |keys| be intercepted at the platform level and routed
+  // directly to the web content.  If |codes| is empty, all keys will be
+  // intercepted.  Returns a ScopedKeyboardHook instance which stops capturing
+  // system key events when destroyed.
+  std::unique_ptr<ScopedKeyboardHook> CaptureSystemKeyEvents(
+      base::Optional<base::flat_set<ui::DomCode>> codes);
+
+  // Returns a map of KeyboardEvent code to KeyboardEvent key values.
+  virtual base::flat_map<std::string, std::string> GetKeyboardLayoutMap() = 0;
+
  protected:
+  friend class ScopedKeyboardHook;
   friend class TestScreen;  // TODO(beng): see if we can remove/consolidate.
 
   WindowTreeHost();
@@ -193,9 +229,14 @@ class AURA_EXPORT WindowTreeHost : public ui::internal::InputMethodDelegate,
   void DestroyDispatcher();
 
   // If frame_sink_id is not passed in, one will be grabbed from
-  // ContextFactoryPrivate.
+  // ContextFactoryPrivate. |are_events_in_pixels| indicates if events are
+  // received in pixels. If |are_events_in_pixels| is false, events are
+  // received in DIPs.
   void CreateCompositor(
-      const viz::FrameSinkId& frame_sink_id = viz::FrameSinkId());
+      const viz::FrameSinkId& frame_sink_id = viz::FrameSinkId(),
+      bool force_software_compositor = false,
+      bool external_begin_frames_enabled = false,
+      bool are_events_in_pixels = true);
 
   void InitCompositor();
   void OnAcceleratedWidgetAvailable();
@@ -204,8 +245,11 @@ class AURA_EXPORT WindowTreeHost : public ui::internal::InputMethodDelegate,
   virtual gfx::Point GetLocationOnScreenInPixels() const = 0;
 
   void OnHostMovedInPixels(const gfx::Point& new_location_in_pixels);
-  void OnHostResizedInPixels(const gfx::Size& new_size_in_pixels);
+  void OnHostResizedInPixels(
+      const gfx::Size& new_size_in_pixels,
+      const viz::LocalSurfaceId& local_surface_id = viz::LocalSurfaceId());
   void OnHostWorkspaceChanged();
+  void OnHostDisplayChanged();
   void OnHostCloseRequested();
   void OnHostActivated();
   void OnHostLostWindowCapture();
@@ -235,6 +279,23 @@ class AURA_EXPORT WindowTreeHost : public ui::internal::InputMethodDelegate,
   void OnDisplayMetricsChanged(const display::Display& display,
                                uint32_t metrics) override;
 
+  // Begins capturing system key events.  Returns true if successful.
+  virtual bool CaptureSystemKeyEventsImpl(
+      base::Optional<base::flat_set<ui::DomCode>> dom_codes) = 0;
+
+  // Stops capturing system keyboard events.
+  virtual void ReleaseSystemKeyEventCapture() = 0;
+
+  // True if |dom_code| is reserved for an active KeyboardLock request.
+  virtual bool IsKeyLocked(ui::DomCode dom_code) = 0;
+
+  virtual gfx::Rect GetTransformedRootWindowBoundsInPixels(
+      const gfx::Size& size_in_pixels) const;
+
+  const base::ObserverList<WindowTreeHostObserver>& observers() const {
+    return observers_;
+  }
+
  private:
   friend class test::WindowTreeHostTestApi;
 
@@ -242,6 +303,15 @@ class AURA_EXPORT WindowTreeHost : public ui::internal::InputMethodDelegate,
   // by MoveCursorToLocationInDIP() and MoveCursorToLocationInPixels().
   void MoveCursorToInternal(const gfx::Point& root_location,
                             const gfx::Point& host_location);
+
+  // Overrided from CompositorObserver:
+  void OnCompositingDidCommit(ui::Compositor* compositor) override;
+  void OnCompositingStarted(ui::Compositor* compositor,
+                            base::TimeTicks start_time) override;
+  void OnCompositingEnded(ui::Compositor* compositor) override;
+  void OnCompositingLockStateChanged(ui::Compositor* compositor) override;
+  void OnCompositingChildResizing(ui::Compositor* compositor) override;
+  void OnCompositingShuttingDown(ui::Compositor* compositor) override;
 
   // We don't use a std::unique_ptr for |window_| since we need this ptr to be
   // valid during its deletion. (Window's dtor notifies observers that may
@@ -254,6 +324,11 @@ class AURA_EXPORT WindowTreeHost : public ui::internal::InputMethodDelegate,
   std::unique_ptr<WindowEventDispatcher> dispatcher_;
 
   std::unique_ptr<ui::Compositor> compositor_;
+
+  // The device scale factor is snapshotted in OnHostResizedInPixels.
+  // TODO(ccameron): The size and location from OnHostResizedInPixels and
+  // OnHostMovedInPixels should be snapshotted here as well.
+  float device_scale_factor_ = 1.f;
 
   // Last cursor set.  Used for testing.
   gfx::NativeCursor last_cursor_;
@@ -269,7 +344,13 @@ class AURA_EXPORT WindowTreeHost : public ui::internal::InputMethodDelegate,
   // Whether the InputMethod instance is owned by this WindowTreeHost.
   bool owned_input_method_;
 
-  gfx::Insets output_surface_padding_in_pixels_;
+  // Set to the time the synchronization event began.
+  base::TimeTicks synchronization_start_time_;
+
+  // Set to true if this WindowTreeHost is currently holding pointer moves.
+  bool holding_pointer_moves_ = false;
+
+  base::WeakPtrFactory<WindowTreeHost> weak_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(WindowTreeHost);
 };

@@ -5,7 +5,7 @@
 #ifndef BASE_WIN_SCOPED_HANDLE_H_
 #define BASE_WIN_SCOPED_HANDLE_H_
 
-#include <windows.h>
+#include "base/win/windows_types.h"
 
 #include "base/base_export.h"
 #include "base/gtest_prod_util.h"
@@ -73,7 +73,7 @@ class GenericScopedHandle {
       if (Traits::IsHandleValid(handle)) {
         handle_ = handle;
         Verifier::StartTracking(handle, this, BASE_WIN_GET_CALLER,
-                                tracked_objects::GetProgramCounter());
+                                GetProgramCounter());
       }
       ::SetLastError(last_error);
     }
@@ -89,7 +89,7 @@ class GenericScopedHandle {
     handle_ = Traits::NullHandle();
     if (Traits::IsHandleValid(temp)) {
       Verifier::StopTracking(temp, this, BASE_WIN_GET_CALLER,
-                             tracked_objects::GetProgramCounter());
+                             GetProgramCounter());
     }
     return temp;
   }
@@ -98,7 +98,7 @@ class GenericScopedHandle {
   void Close() {
     if (Traits::IsHandleValid(handle_)) {
       Verifier::StopTracking(handle_, this, BASE_WIN_GET_CALLER,
-                             tracked_objects::GetProgramCounter());
+                             GetProgramCounter());
 
       Traits::CloseHandle(handle_);
       handle_ = Traits::NullHandle();
@@ -177,11 +177,6 @@ BASE_EXPORT void DisableHandleVerifier();
 // tracked by the handle verifier and ScopedHandle is not the one closing it,
 // a CHECK is generated.
 BASE_EXPORT void OnHandleBeingClosed(HANDLE handle);
-
-// This testing function returns the module that the ActiveVerifier concrete
-// implementation was instantiated in.
-BASE_EXPORT HMODULE GetHandleVerifierModuleForTesting();
-
 }  // namespace win
 }  // namespace base
 

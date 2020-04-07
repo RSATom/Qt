@@ -12,13 +12,13 @@
 #include "base/files/file_path.h"
 #include "base/native_library.h"
 #include "build/build_config.h"
+#include "ui/gfx/extension_set.h"
 #include "ui/gl/gl_export.h"
 #include "ui/gl/gl_switches.h"
 
 namespace gl {
 
 class GLApi;
-struct GLVersionInfo;
 
 // The GL implementation currently in use.
 enum GLImplementation {
@@ -31,6 +31,7 @@ enum GLImplementation {
   kGLImplementationEGLGLES2,
   kGLImplementationMockGL,
   kGLImplementationStubGL,
+  kGLImplementationDisabled,
 };
 
 struct GL_EXPORT GLWindowSystemBindingInfo {
@@ -96,7 +97,7 @@ GL_EXPORT const char* GetGLImplementationName(GLImplementation implementation);
 GL_EXPORT void AddGLNativeLibrary(base::NativeLibrary library);
 
 // Unloads all native libraries.
-GL_EXPORT void UnloadGLNativeLibraries();
+GL_EXPORT void UnloadGLNativeLibraries(bool due_to_fallback);
 
 // Set an additional function that will be called to find GL entry points.
 // Exported so that tests may set the function used in the mock implementation.
@@ -120,13 +121,15 @@ GL_EXPORT GLFunctionPointerType GetGLProcAddress(const char* name);
 GL_EXPORT std::string GetGLExtensionsFromCurrentContext();
 GL_EXPORT std::string GetGLExtensionsFromCurrentContext(GLApi* api);
 
+GL_EXPORT gfx::ExtensionSet GetRequestableGLExtensionsFromCurrentContext();
+GL_EXPORT gfx::ExtensionSet GetRequestableGLExtensionsFromCurrentContext(
+    GLApi* api);
+
 // Helper for the GL bindings implementation to understand whether
 // glGetString(GL_EXTENSIONS) or glGetStringi(GL_EXTENSIONS, i) will
 // be used in the function above.
 GL_EXPORT bool WillUseGLGetStringForExtensions();
 GL_EXPORT bool WillUseGLGetStringForExtensions(GLApi* api);
-
-GL_EXPORT std::unique_ptr<GLVersionInfo> GetVersionInfoFromContext(GLApi* api);
 
 // Helpers to load a library and log error on failure.
 GL_EXPORT base::NativeLibrary LoadLibraryAndPrintError(

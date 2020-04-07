@@ -4,7 +4,7 @@
 
 /**
  * @fileoverview A helper object used from the "CUPS printing" section to
- * interact with the browser.
+ * interact with the browser. Used only on Chrome OS.
  */
 
 /**
@@ -25,14 +25,14 @@
  *   printerStatus: string,
  * }}
  */
-var CupsPrinterInfo;
+let CupsPrinterInfo;
 
 /**
  * @typedef {{
  *   printerList: !Array<!CupsPrinterInfo>,
  * }}
  */
-var CupsPrintersList;
+let CupsPrintersList;
 
 /**
  * @typedef {{
@@ -40,7 +40,7 @@ var CupsPrintersList;
  *   manufacturers: Array<string>
  * }}
  */
-var ManufacturersInfo;
+let ManufacturersInfo;
 
 /**
  * @typedef {{
@@ -48,7 +48,7 @@ var ManufacturersInfo;
  *   models: Array<string>
  * }}
  */
-var ModelsInfo;
+let ModelsInfo;
 
 /**
  * @typedef {{
@@ -58,7 +58,7 @@ var ModelsInfo;
  *   autoconf: boolean
  * }}
  */
-var PrinterMakeModel;
+let PrinterMakeModel;
 
 /**
  * @typedef {{
@@ -66,14 +66,32 @@ var PrinterMakeModel;
  *   ppdModel: string
  * }}
  */
-var PrinterPpdMakeModel;
+let PrinterPpdMakeModel;
+
+/**
+ *  @enum {number}
+ *  These values must be kept in sync with the PrinterSetupResult enum in
+ *  chrome/browser/chromeos/printing/printer_configurer.h.
+ */
+const PrinterSetupResult = {
+  FATAL_ERROR: 0,
+  SUCCESS: 1,
+  PRINTER_UNREACHABLE: 2,
+  DBUS_ERROR: 3,
+  NATIVE_PRINTERS_NOT_ALLOWED: 4,
+  INVALID_PRINTER_UPDATE: 5,
+  PPD_TOO_LARGE: 10,
+  INVALID_PPD: 11,
+  PPD_NOT_FOUND: 12,
+  PPD_UNRETRIEVABLE: 13,
+};
 
 /**
  * @typedef {{
  *   message: string
  * }}
  */
-var QueryFailure;
+let QueryFailure;
 
 cr.define('settings', function() {
   /** @interface */
@@ -135,6 +153,12 @@ cr.define('settings', function() {
      * @param{string} printerId
      */
     addDiscoveredPrinter(printerId) {}
+
+    /**
+     * Report to the handler that setup was cancelled.
+     * @param {!CupsPrinterInfo} newPrinter
+     */
+    cancelPrinterSetUp(newPrinter) {}
   }
 
   /**
@@ -199,6 +223,11 @@ cr.define('settings', function() {
     /** @override */
     addDiscoveredPrinter(printerId) {
       chrome.send('addDiscoveredPrinter', [printerId]);
+    }
+
+    /** @override */
+    cancelPrinterSetUp(newPrinter) {
+      chrome.send('cancelPrinterSetUp', [newPrinter]);
     }
   }
 

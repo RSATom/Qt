@@ -52,7 +52,12 @@
 #include "qwaylandwindowmanagerintegration_p.h"
 #include "qwaylandscreen_p.h"
 
-#include <QtFontDatabaseSupport/private/qgenericunixfontdatabase_p.h>
+#if defined(Q_OS_MACOS)
+#  include <QtFontDatabaseSupport/private/qcoretextfontdatabase_p.h>
+#  include <QtFontDatabaseSupport/private/qfontengine_coretext_p.h>
+#else
+#  include <QtFontDatabaseSupport/private/qgenericunixfontdatabase_p.h>
+#endif
 #include <QtEventDispatcherSupport/private/qgenericunixeventdispatcher_p.h>
 #include <QtThemeSupport/private/qgenericunixthemes_p.h>
 
@@ -77,9 +82,6 @@
 
 #include "qwaylandshellintegration_p.h"
 #include "qwaylandshellintegrationfactory_p.h"
-#include "qwaylandxdgshellintegration_p.h"
-#include "qwaylandwlshellintegration_p.h"
-#include "qwaylandxdgshellv6integration_p.h"
 
 #include "qwaylandinputdeviceintegration_p.h"
 #include "qwaylandinputdeviceintegrationfactory_p.h"
@@ -121,19 +123,22 @@ public:
 };
 
 QWaylandIntegration::QWaylandIntegration()
-    : mClientBufferIntegration(0)
-    , mInputDeviceIntegration(Q_NULLPTR)
-    , mFontDb(new QGenericUnixFontDatabase())
+#if defined(Q_OS_MACOS)
+    : mFontDb(new QCoreTextFontDatabaseEngineFactory<QCoreTextFontEngine>)
+#else
+    : mFontDb(new QGenericUnixFontDatabase())
+#endif
     , mNativeInterface(new QWaylandNativeInterface(this))
 #if QT_CONFIG(accessibility)
     , mAccessibility(new QPlatformAccessibility())
 #endif
-    , mClientBufferIntegrationInitialized(false)
-    , mServerBufferIntegrationInitialized(false)
-    , mShellIntegrationInitialized(false)
 {
     initializeInputDeviceIntegration();
     mDisplay.reset(new QWaylandDisplay(this));
+    if (!mDisplay->isInitialized()) {
+        mFailed = true;
+        return;
+    }
 #if QT_CONFIG(clipboard)
     mClipboard.reset(new QWaylandClipboard(mDisplay.data()));
 #endif
@@ -180,6 +185,8 @@ bool QWaylandIntegration::hasCapability(QPlatformIntegration::Capability cap) co
         return true;
     case RasterGLSurface:
         return true;
+    case WindowActivation:
+        return false;
     default: return QPlatformIntegration::hasCapability(cap);
     }
 }
@@ -198,7 +205,7 @@ QPlatformOpenGLContext *QWaylandIntegration::createPlatformOpenGLContext(QOpenGL
 {
     if (mDisplay->clientBufferIntegration())
         return mDisplay->clientBufferIntegration()->createPlatformOpenGLContext(context->format(), context->shareHandle());
-    return 0;
+    return nullptr;
 }
 #endif  // opengl
 
@@ -332,6 +339,8 @@ void QWaylandIntegration::initializeClientBufferIntegration()
         targetKey = QString::fromLocal8Bit(clientBufferIntegrationName);
     } else {
         targetKey = mDisplay->hardwareIntegration()->clientBufferIntegration();
+        if (targetKey == QLatin1String("wayland-eglstream-controller"))
+            targetKey = QLatin1String("wayland-egl");
     }
 
     if (targetKey.isEmpty()) {
@@ -383,13 +392,14 @@ void QWaylandIntegration::initializeShellIntegration()
 {
     mShellIntegrationInitialized = true;
 
-    QByteArray integrationName = qgetenv("QT_WAYLAND_SHELL_INTEGRATION");
-    QString targetKey = QString::fromLocal8Bit(integrationName);
+    QByteArray integrationNames = qgetenv("QT_WAYLAND_SHELL_INTEGRATION");
+    QString targetKeys = QString::fromLocal8Bit(integrationNames);
 
     QStringList preferredShells;
-    if (!targetKey.isEmpty()) {
-        preferredShells << targetKey;
+    if (!targetKeys.isEmpty()) {
+        preferredShells = targetKeys.split(QLatin1Char(';'));
     } else {
+        preferredShells << QLatin1String("xdg-shell");
         preferredShells << QLatin1String("xdg-shell-v6");
         QString useXdgShell = QString::fromLocal8Bit(qgetenv("QT_WAYLAND_USE_XDG_SHELL"));
         if (!useXdgShell.isEmpty() && useXdgShell != QLatin1String("0")) {
@@ -397,7 +407,7 @@ void QWaylandIntegration::initializeShellIntegration()
                           "please specify the shell using QT_WAYLAND_SHELL_INTEGRATION instead";
             preferredShells << QLatin1String("xdg-shell-v5");
         }
-        preferredShells << QLatin1String("wl-shell");
+        preferredShells << QLatin1String("wl-shell") << QLatin1String("ivi-shell");
     }
 
     Q_FOREACH (QString preferredShell, preferredShells) {
@@ -408,9 +418,9 @@ void QWaylandIntegration::initializeShellIntegration()
         }
     }
 
-    if (!mShellIntegration || !mShellIntegration->initialize(mDisplay.data())) {
-        mShellIntegration.reset();
-        qWarning("Failed to load shell integration %s", qPrintable(targetKey));
+    if (!mShellIntegration) {
+        qCWarning(lcQpaWayland) << "Loading shell integration failed.";
+        qCWarning(lcQpaWayland) << "Attempted to load the following shells" << preferredShells;
     }
 }
 
@@ -442,15 +452,10 @@ void QWaylandIntegration::initializeInputDeviceIntegration()
 
 QWaylandShellIntegration *QWaylandIntegration::createShellIntegration(const QString &integrationName)
 {
-    if (integrationName == QLatin1Literal("wl-shell")) {
-        return QWaylandWlShellIntegration::create(mDisplay.data());
-    } else if (integrationName == QLatin1Literal("xdg-shell-v5")) {
-        return QWaylandXdgShellIntegration::create(mDisplay.data());
-    } else if (integrationName == QLatin1Literal("xdg-shell-v6")) {
-        return QWaylandXdgShellV6Integration::create(mDisplay.data());
-    } else if (QWaylandShellIntegrationFactory::keys().contains(integrationName)) {
-        return QWaylandShellIntegrationFactory::create(integrationName, QStringList());
+    if (QWaylandShellIntegrationFactory::keys().contains(integrationName)) {
+        return QWaylandShellIntegrationFactory::create(integrationName, mDisplay.data());
     } else {
+        qCWarning(lcQpaWayland) << "No shell integration named" << integrationName << "found";
         return nullptr;
     }
 }

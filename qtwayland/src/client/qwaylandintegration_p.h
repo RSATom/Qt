@@ -71,7 +71,9 @@ class Q_WAYLAND_CLIENT_EXPORT QWaylandIntegration : public QPlatformIntegration
 {
 public:
     QWaylandIntegration();
-    ~QWaylandIntegration();
+    ~QWaylandIntegration() override;
+
+    bool hasFailed() { return mFailed; }
 
     bool hasCapability(QPlatformIntegration::Capability cap) const override;
     QPlatformWindow *createPlatformWindow(QWindow *window) const override;
@@ -115,7 +117,8 @@ public:
     virtual QWaylandShellIntegration *shellIntegration() const;
 
 private:
-    // NOTE: mDisplay *must* be destructed after mDrag and mClientBufferIntegration.
+    // NOTE: mDisplay *must* be destructed after mDrag and mClientBufferIntegration
+    // and mShellIntegration.
     // Do not move this definition into the private section at the bottom.
     QScopedPointer<QWaylandDisplay> mDisplay;
 
@@ -144,9 +147,10 @@ private:
 #if QT_CONFIG(accessibility)
     QScopedPointer<QPlatformAccessibility> mAccessibility;
 #endif
-    bool mClientBufferIntegrationInitialized;
-    bool mServerBufferIntegrationInitialized;
-    bool mShellIntegrationInitialized;
+    bool mFailed = false;
+    bool mClientBufferIntegrationInitialized = false;
+    bool mServerBufferIntegrationInitialized = false;
+    bool mShellIntegrationInitialized = false;
 
     friend class QWaylandDisplay;
 };

@@ -44,8 +44,9 @@
 #include "qsslkey_p.h"
 #include "qsslcertificateextension_p.h"
 
+#if QT_CONFIG(thread)
 #include <QtCore/private/qmutexpool_p.h>
-
+#endif
 QT_BEGIN_NAMESPACE
 
 // forward declaration
@@ -90,7 +91,9 @@ bool QSslCertificate::isSelfSigned() const
 
 QByteArray QSslCertificate::version() const
 {
+#if QT_CONFIG(thread)
     QMutexLocker lock(QMutexPool::globalInstanceGet(d.data()));
+#endif
     if (d->versionString.isEmpty() && d->x509)
         d->versionString = QByteArray::number(qlonglong(q_X509_get_version(d->x509)) + 1);
 
@@ -99,7 +102,9 @@ QByteArray QSslCertificate::version() const
 
 QByteArray QSslCertificate::serialNumber() const
 {
+#if QT_CONFIG(thread)
     QMutexLocker lock(QMutexPool::globalInstanceGet(d.data()));
+#endif
     if (d->serialNumberString.isEmpty() && d->x509) {
         ASN1_INTEGER *serialNumber = q_X509_get_serialNumber(d->x509);
         QByteArray hexString;
@@ -116,7 +121,9 @@ QByteArray QSslCertificate::serialNumber() const
 
 QStringList QSslCertificate::issuerInfo(SubjectInfo info) const
 {
+#if QT_CONFIG(thread)
     QMutexLocker lock(QMutexPool::globalInstanceGet(d.data()));
+#endif
     // lazy init
     if (d->issuerInfo.isEmpty() && d->x509)
         d->issuerInfo =
@@ -127,7 +134,9 @@ QStringList QSslCertificate::issuerInfo(SubjectInfo info) const
 
 QStringList QSslCertificate::issuerInfo(const QByteArray &attribute) const
 {
+#if QT_CONFIG(thread)
     QMutexLocker lock(QMutexPool::globalInstanceGet(d.data()));
+#endif
     // lazy init
     if (d->issuerInfo.isEmpty() && d->x509)
         d->issuerInfo =
@@ -138,7 +147,9 @@ QStringList QSslCertificate::issuerInfo(const QByteArray &attribute) const
 
 QStringList QSslCertificate::subjectInfo(SubjectInfo info) const
 {
+#if QT_CONFIG(thread)
     QMutexLocker lock(QMutexPool::globalInstanceGet(d.data()));
+#endif
     // lazy init
     if (d->subjectInfo.isEmpty() && d->x509)
         d->subjectInfo =
@@ -149,7 +160,9 @@ QStringList QSslCertificate::subjectInfo(SubjectInfo info) const
 
 QStringList QSslCertificate::subjectInfo(const QByteArray &attribute) const
 {
+#if QT_CONFIG(thread)
     QMutexLocker lock(QMutexPool::globalInstanceGet(d.data()));
+#endif
     // lazy init
     if (d->subjectInfo.isEmpty() && d->x509)
         d->subjectInfo =
@@ -160,7 +173,9 @@ QStringList QSslCertificate::subjectInfo(const QByteArray &attribute) const
 
 QList<QByteArray> QSslCertificate::subjectInfoAttributes() const
 {
+#if QT_CONFIG(thread)
     QMutexLocker lock(QMutexPool::globalInstanceGet(d.data()));
+#endif
     // lazy init
     if (d->subjectInfo.isEmpty() && d->x509)
         d->subjectInfo =
@@ -171,7 +186,9 @@ QList<QByteArray> QSslCertificate::subjectInfoAttributes() const
 
 QList<QByteArray> QSslCertificate::issuerInfoAttributes() const
 {
+#if QT_CONFIG(thread)
     QMutexLocker lock(QMutexPool::globalInstanceGet(d.data()));
+#endif
     // lazy init
     if (d->issuerInfo.isEmpty() && d->x509)
         d->issuerInfo =
@@ -187,7 +204,8 @@ QMultiMap<QSsl::AlternativeNameEntryType, QString> QSslCertificate::subjectAlter
     if (!d->x509)
         return result;
 
-    STACK_OF(GENERAL_NAME) *altNames = (STACK_OF(GENERAL_NAME)*)q_X509_get_ext_d2i(d->x509, NID_subject_alt_name, 0, 0);
+    STACK_OF(GENERAL_NAME) *altNames = (STACK_OF(GENERAL_NAME) *)q_X509_get_ext_d2i(
+        d->x509, NID_subject_alt_name, nullptr, nullptr);
 
     if (altNames) {
         for (int i = 0; i < q_sk_GENERAL_NAME_num(altNames); ++i) {
@@ -209,7 +227,7 @@ QMultiMap<QSsl::AlternativeNameEntryType, QString> QSslCertificate::subjectAlter
                 result.insert(QSsl::EmailEntry, altName);
         }
 
-        q_OPENSSL_sk_pop_free((OPENSSL_STACK*)altNames, reinterpret_cast<void(*)(void*)>(q_OPENSSL_sk_free));
+        q_OPENSSL_sk_pop_free((OPENSSL_STACK*)altNames, reinterpret_cast<void(*)(void*)>(q_GENERAL_NAME_free));
     }
 
     return result;
@@ -289,7 +307,7 @@ static QVariant x509UnknownExtensionToValue(X509_EXTENSION *ext)
 
     // If this extension can be converted
     if (meth->i2v && ext_internal) {
-        STACK_OF(CONF_VALUE) *val = meth->i2v(meth, ext_internal, 0);
+        STACK_OF(CONF_VALUE) *val = meth->i2v(meth, ext_internal, nullptr);
 
         QVariantMap map;
         QVariantList list;
@@ -527,7 +545,7 @@ QByteArray QSslCertificatePrivate::QByteArray_from_X509(X509 *x509, QSsl::Encodi
     }
 
     // Use i2d_X509 to convert the X509 to an array.
-    int length = q_i2d_X509(x509, 0);
+    int length = q_i2d_X509(x509, nullptr);
     QByteArray array;
     array.resize(length);
     char *data = array.data();
@@ -604,11 +622,11 @@ static QMap<QByteArray, QString> _q_mapFromX509Name(X509_NAME *name)
         X509_NAME_ENTRY *e = q_X509_NAME_get_entry(name, i);
 
         QByteArray name = QSslCertificatePrivate::asn1ObjectName(q_X509_NAME_ENTRY_get_object(e));
-        unsigned char *data = 0;
+        unsigned char *data = nullptr;
         int size = q_ASN1_STRING_to_UTF8(&data, q_X509_NAME_ENTRY_get_data(e));
         info.insertMulti(name, QString::fromUtf8((char*)data, size));
 #if QT_CONFIG(opensslv11)
-        q_CRYPTO_free(data, 0, 0);
+        q_CRYPTO_free(data, nullptr, 0);
 #else
         q_CRYPTO_free(data);
 #endif
@@ -679,7 +697,7 @@ QList<QSslCertificate> QSslCertificatePrivate::certificatesFromPem(const QByteAr
             QByteArray::fromRawData(pem.data() + startPos, endPos - startPos));
         const unsigned char *data = (const unsigned char *)decoded.data();
 
-        if (X509 *x509 = q_d2i_X509(0, &data, decoded.size())) {
+        if (X509 *x509 = q_d2i_X509(nullptr, &data, decoded.size())) {
             certificates << QSslCertificate_from_X509(x509);
             q_X509_free(x509);
         }
@@ -697,7 +715,7 @@ QList<QSslCertificate> QSslCertificatePrivate::certificatesFromDer(const QByteAr
     int size = der.size();
 
     while (size > 0 && (count == -1 || certificates.size() < count)) {
-        if (X509 *x509 = q_d2i_X509(0, &data, size)) {
+        if (X509 *x509 = q_d2i_X509(nullptr, &data, size)) {
             certificates << QSslCertificate_from_X509(x509);
             q_X509_free(x509);
         } else {

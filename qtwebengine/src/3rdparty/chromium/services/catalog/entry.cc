@@ -5,12 +5,12 @@
 #include "services/catalog/entry.h"
 
 #include "base/files/file_path.h"
-#include "base/memory/ptr_util.h"
 #include "base/path_service.h"
 #include "base/values.h"
+#include "build/build_config.h"
 #include "services/catalog/public/cpp/manifest_parsing_util.h"
 #include "services/catalog/store.h"
-#include "services/service_manager/public/interfaces/interface_provider_spec.mojom.h"
+#include "services/service_manager/public/mojom/interface_provider_spec.mojom.h"
 
 namespace catalog {
 namespace {
@@ -126,7 +126,7 @@ std::unique_ptr<Entry> Entry::Deserialize(const base::Value& manifest_root) {
     return nullptr;
   const base::DictionaryValue& value = *dictionary_value;
 
-  auto entry = base::MakeUnique<Entry>();
+  auto entry = std::make_unique<Entry>();
 
   // Name.
   std::string name;
@@ -144,10 +144,10 @@ std::unique_ptr<Entry> Entry::Deserialize(const base::Value& manifest_root) {
   // By default we assume a standalone service executable. The catalog may
   // override this layer based on configuration external to the service's own
   // manifest.
-  base::FilePath module_path;
-  base::PathService::Get(base::DIR_MODULE, &module_path);
-  entry->set_path(
-      module_path.AppendASCII(entry->name() + kServiceExecutableExtension));
+  base::FilePath service_exe_root;
+  CHECK(base::PathService::Get(base::DIR_ASSETS, &service_exe_root));
+  entry->set_path(service_exe_root.AppendASCII(entry->name() +
+                                               kServiceExecutableExtension));
 
   // Human-readable name.
   std::string display_name;
@@ -157,6 +157,11 @@ std::unique_ptr<Entry> Entry::Deserialize(const base::Value& manifest_root) {
     return nullptr;
   }
   entry->set_display_name(std::move(display_name));
+
+  // Sandbox type, optional.
+  std::string sandbox_type;
+  if (value.GetString(Store::kSandboxTypeKey, &sandbox_type))
+    entry->set_sandbox_type(std::move(sandbox_type));
 
   // InterfaceProvider specs.
   const base::DictionaryValue* interface_provider_specs = nullptr;
@@ -221,8 +226,8 @@ bool Entry::ProvidesCapability(const std::string& capability) const {
 }
 
 bool Entry::operator==(const Entry& other) const {
-  return other.name_ == name_ &&
-         other.display_name_ == display_name_ &&
+  return other.name_ == name_ && other.display_name_ == display_name_ &&
+         other.sandbox_type_ == sandbox_type_ &&
          other.interface_provider_specs_ == interface_provider_specs_;
 }
 

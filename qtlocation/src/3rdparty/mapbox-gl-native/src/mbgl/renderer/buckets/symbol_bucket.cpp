@@ -18,11 +18,14 @@ SymbolBucket::SymbolBucket(style::SymbolLayoutProperties::PossiblyEvaluated layo
                            bool sdfIcons_,
                            bool iconsNeedLinear_,
                            bool sortFeaturesByY_,
+                           const std::string bucketName_,
                            const std::vector<SymbolInstance>&& symbolInstances_)
-    : layout(std::move(layout_)),
+    : Bucket(LayerType::Symbol),
+      layout(std::move(layout_)),
       sdfIcons(sdfIcons_),
       iconsNeedLinear(iconsNeedLinear_ || iconSize.isDataDriven() || !iconSize.isZoomConstant()),
       sortFeaturesByY(sortFeaturesByY_),
+      bucketLeaderID(std::move(bucketName_)),
       symbolInstances(std::move(symbolInstances_)),
       textSizeBinder(SymbolSizeBinder::create(zoom, textSize, TextSize::defaultValue())),
       iconSizeBinder(SymbolSizeBinder::create(zoom, iconSize, IconSize::defaultValue())) {
@@ -190,18 +193,22 @@ void SymbolBucket::sortFeatures(const float angle) {
     std::sort(symbolInstanceIndexes.begin(), symbolInstanceIndexes.end(), [sin, cos, this](size_t &aIndex, size_t &bIndex) {
         const SymbolInstance& a = symbolInstances[aIndex];
         const SymbolInstance& b = symbolInstances[bIndex];
-        const int32_t aRotated = sin * a.anchor.point.x + cos * a.anchor.point.y;
-        const int32_t bRotated = sin * b.anchor.point.x + cos * b.anchor.point.y;
+        const int32_t aRotated = static_cast<int32_t>(::lround(sin * a.anchor.point.x + cos * a.anchor.point.y));
+        const int32_t bRotated = static_cast<int32_t>(::lround(sin * b.anchor.point.x + cos * b.anchor.point.y));
         return aRotated != bRotated ?
             aRotated < bRotated :
-            a.index > b.index;
+            a.dataFeatureIndex > b.dataFeatureIndex;
     });
 
     text.triangles.clear();
     icon.triangles.clear();
 
+    featureSortOrder = std::make_unique<std::vector<size_t>>();
+    featureSortOrder->reserve(symbolInstanceIndexes.size());
+    
     for (auto i : symbolInstanceIndexes) {
         const SymbolInstance& symbolInstance = symbolInstances[i];
+        featureSortOrder->push_back(symbolInstance.dataFeatureIndex);
 
         if (symbolInstance.placedTextIndex) {
             addPlacedSymbol(text.triangles, text.placedSymbols[*symbolInstance.placedTextIndex]);

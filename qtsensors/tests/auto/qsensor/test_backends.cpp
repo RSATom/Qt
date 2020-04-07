@@ -54,7 +54,7 @@ static bool registerTestBackend(const char *className, CreateFunc func)
 
 class BackendFactory : public QSensorBackendFactory
 {
-    QSensorBackend *createBackend(QSensor *sensor)
+    QSensorBackend *createBackend(QSensor *sensor) override
     {
         foreach (const Record &record, records) {
             if (sensor->identifier() == record.type) {

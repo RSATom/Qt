@@ -41,7 +41,7 @@
 #define QDESIGNER_DOCKWIDGET_H
 
 #include "shared_global_p.h"
-#include <QtWidgets/QDockWidget>
+#include <QtWidgets/qdockwidget.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -54,7 +54,7 @@ class QDESIGNER_SHARED_EXPORT QDesignerDockWidget: public QDockWidget
     Q_PROPERTY(bool docked READ docked WRITE setDocked DESIGNABLE inMainWindow STORED false)
 public:
     QDesignerDockWidget(QWidget *parent = 0);
-    virtual ~QDesignerDockWidget();
+    ~QDesignerDockWidget() override;
 
     bool docked() const;
     void setDocked(bool b);

@@ -73,7 +73,7 @@ void QComponentPrivate::addEntity(QEntity *entity)
         m_scene->addEntityForComponent(m_id, entity->id());
     }
 
-    const auto componentAddedChange = QComponentAddedChangePtr::create(entity, q);
+    const auto componentAddedChange = QComponentAddedChangePtr::create(q, entity);
     notifyObservers(componentAddedChange);
     Q_EMIT q->addedToEntity(entity);
 }
@@ -86,7 +86,7 @@ void QComponentPrivate::removeEntity(QEntity *entity)
 
     m_entities.removeAll(entity);
 
-    const auto componentRemovedChange = QComponentRemovedChangePtr::create(entity, q);
+    const auto componentRemovedChange = QComponentRemovedChangePtr::create(q, entity);
     notifyObservers(componentRemovedChange);
     Q_EMIT q->removedFromEntity(entity);
 }
@@ -111,6 +111,17 @@ void QComponentPrivate::removeEntity(QEntity *entity)
     \sa Qt3DCore::QEntity
 */
 
+/*!
+    \fn Qt3DCore::QComponent::addedToEntity(Qt3DCore::QEntity *entity)
+
+    Indicates that a reference has been added to \a entity.
+*/
+/*!
+    \fn Qt3DCore::QComponent::removedFromEntity(Qt3DCore::QEntity *entity)
+
+    Indicates that a reference has been removed from \a entity.
+
+*/
 /*!
     Constructs a new QComponent instance with \a parent as the parent.
     \note a QComponent should never be instanced directly,

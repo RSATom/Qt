@@ -143,7 +143,7 @@ class RangeCheck {
  public:
   constexpr RangeCheck(bool is_in_lower_bound, bool is_in_upper_bound)
       : is_underflow_(!is_in_lower_bound), is_overflow_(!is_in_upper_bound) {}
-  constexpr RangeCheck() : is_underflow_(0), is_overflow_(0) {}
+  constexpr RangeCheck() : is_underflow_(false), is_overflow_(false) {}
   constexpr bool IsValid() const { return !is_overflow_ && !is_underflow_; }
   constexpr bool IsInvalid() const { return is_overflow_ && is_underflow_; }
   constexpr bool IsOverflow() const { return is_overflow_ && !is_underflow_; }
@@ -725,7 +725,7 @@ constexpr bool SafeCompare(const L lhs, const R rhs) {
                    static_cast<BigType>(static_cast<R>(rhs)))
              // Let the template functions figure it out for mixed types.
              : C<L, R>::Test(lhs, rhs);
-};
+}
 
 }  // namespace internal
 }  // namespace base

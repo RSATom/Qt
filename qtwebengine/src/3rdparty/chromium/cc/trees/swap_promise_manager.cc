@@ -4,12 +4,12 @@
 
 #include "cc/trees/swap_promise_manager.h"
 
-#include "cc/output/swap_promise.h"
+#include "cc/trees/swap_promise.h"
 #include "cc/trees/swap_promise_monitor.h"
 
 namespace cc {
 
-SwapPromiseManager::SwapPromiseManager() {}
+SwapPromiseManager::SwapPromiseManager() = default;
 
 SwapPromiseManager::~SwapPromiseManager() {
   DCHECK(swap_promise_monitors_.empty());

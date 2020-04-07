@@ -6,6 +6,7 @@
 #define CHROME_BROWSER_UI_WEBUI_SIGNIN_LOGIN_UI_SERVICE_H_
 
 #include <list>
+#include <memory>
 
 #include "base/macros.h"
 #include "base/observer_list.h"
@@ -14,6 +15,7 @@
 
 class Browser;
 class Profile;
+class ConsentBumpActivator;
 
 // The LoginUIService helps track per-profile information for the login related
 // UIs - for example, whether there is login UI currently on-screen.
@@ -82,9 +84,16 @@ class LoginUIService : public KeyedService {
   // Displays login results. This is either the Modal Signin Error dialog if
   // |error_message| is a non-empty string, or the User Menu with a blue header
   // toast otherwise.
-  void DisplayLoginResult(Browser* browser,
-                          const base::string16& error_message,
-                          const base::string16& email);
+  virtual void DisplayLoginResult(Browser* browser,
+                                  const base::string16& error_message,
+                                  const base::string16& email);
+
+  // Set the profile blocking modal error dialog message.
+  virtual void SetProfileBlockingErrorMessage();
+
+  // Gets whether the Modal Signin Error dialog should display profile blocking
+  // error message.
+  bool IsDisplayingProfileBlockedErrorMessage() const;
 
   // Gets the last login result set through |DisplayLoginResult|.
   const base::string16& GetLastLoginResult() const;
@@ -98,6 +107,7 @@ class LoginUIService : public KeyedService {
   std::list<LoginUI*> ui_list_;
 #if !defined(OS_CHROMEOS)
   Profile* profile_;
+  std::unique_ptr<ConsentBumpActivator> consent_bump_activator_;
 #endif
 
   // List of observers.
@@ -105,6 +115,7 @@ class LoginUIService : public KeyedService {
 
   base::string16 last_login_result_;
   base::string16 last_login_error_email_;
+  bool is_displaying_profile_blocking_error_message_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(LoginUIService);
 };

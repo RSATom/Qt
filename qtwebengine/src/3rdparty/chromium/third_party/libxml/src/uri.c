@@ -1961,8 +1961,9 @@ xmlBuildURI(const xmlChar *URI, const xmlChar *base) {
 	    res->scheme = xmlMemStrdup(bas->scheme);
 	if (bas->authority != NULL)
 	    res->authority = xmlMemStrdup(bas->authority);
-	else if (bas->server != NULL) {
-	    res->server = xmlMemStrdup(bas->server);
+	else if ((bas->server != NULL) || (bas->port == -1)) {
+	    if (bas->server != NULL)
+		res->server = xmlMemStrdup(bas->server);
 	    if (bas->user != NULL)
 		res->user = xmlMemStrdup(bas->user);
 	    res->port = bas->port;
@@ -2024,8 +2025,9 @@ xmlBuildURI(const xmlChar *URI, const xmlChar *base) {
     }
     if (bas->authority != NULL)
 	res->authority = xmlMemStrdup(bas->authority);
-    else if (bas->server != NULL) {
-	res->server = xmlMemStrdup(bas->server);
+    else if ((bas->server != NULL) || (bas->port == -1)) {
+	if (bas->server != NULL)
+	    res->server = xmlMemStrdup(bas->server);
 	if (bas->user != NULL)
 	    res->user = xmlMemStrdup(bas->user);
 	res->port = bas->port;
@@ -2392,8 +2394,7 @@ xmlCanonicPath(const xmlChar *path)
  */
 #if defined(_WIN32) && !defined(__CYGWIN__)
     int len = 0;
-    int i = 0;
-    xmlChar *p = NULL;
+    char *p = NULL;
 #endif
     xmlURIPtr uri;
     xmlChar *ret;
@@ -2475,7 +2476,7 @@ path_processing:
     len = xmlStrlen(path);
     if ((len > 2) && IS_WINDOWS_PATH(path)) {
         /* make the scheme 'file' */
-	uri->scheme = xmlStrdup(BAD_CAST "file");
+	uri->scheme = (char *) xmlStrdup(BAD_CAST "file");
 	/* allocate space for leading '/' + path + string terminator */
 	uri->path = xmlMallocAtomic(len + 2);
 	if (uri->path == NULL) {
@@ -2485,9 +2486,9 @@ path_processing:
 	/* Put in leading '/' plus path */
 	uri->path[0] = '/';
 	p = uri->path + 1;
-	strncpy(p, path, len + 1);
+	strncpy(p, (char *) path, len + 1);
     } else {
-	uri->path = xmlStrdup(path);
+	uri->path = (char *) xmlStrdup(path);
 	if (uri->path == NULL) {
 	    xmlFreeURI(uri);
 	    return(NULL);

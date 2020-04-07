@@ -12,6 +12,7 @@
 #include <utility>
 
 #include "base/command_line.h"
+#include "base/mac/mac_util.h"
 #include "base/mac/sdk_forward_declarations.h"
 #include "base/trace_event/trace_event.h"
 #include "third_party/skia/include/core/SkColor.h"
@@ -21,33 +22,6 @@
 #include "ui/gfx/geometry/dip_util.h"
 #include "ui/gl/ca_renderer_layer_params.h"
 #include "ui/gl/gl_image_io_surface.h"
-
-#if !defined(MAC_OS_X_VERSION_10_8) || \
-    MAC_OS_X_VERSION_MIN_REQUIRED < MAC_OS_X_VERSION_10_8
-extern NSString* const AVLayerVideoGravityResize;
-extern "C" void NSAccessibilityPostNotificationWithUserInfo(
-    id object,
-    NSString* notification,
-    NSDictionary* user_info);
-extern "C" OSStatus CMSampleBufferCreateForImageBuffer(
-    CFAllocatorRef,
-    CVImageBufferRef,
-    Boolean dataReady,
-    CMSampleBufferMakeDataReadyCallback,
-    void*,
-    CMVideoFormatDescriptionRef,
-    const CMSampleTimingInfo*,
-    CMSampleBufferRef*);
-extern "C" CFArrayRef CMSampleBufferGetSampleAttachmentsArray(CMSampleBufferRef,
-                                                              Boolean);
-extern "C" OSStatus CMVideoFormatDescriptionCreateForImageBuffer(
-    CFAllocatorRef,
-    CVImageBufferRef,
-    CMVideoFormatDescriptionRef*);
-extern "C" CMTime CMTimeMake(int64_t, int32_t);
-extern CFStringRef const kCMSampleAttachmentKey_DisplayImmediately;
-extern const CMTime kCMTimeInvalid;
-#endif  // MAC_OS_X_VERSION_10_8
 
 namespace ui {
 
@@ -107,6 +81,25 @@ bool AVSampleBufferDisplayLayerEnqueueCVPixelBuffer(
                        kCFBooleanTrue);
 
   [av_layer enqueueSampleBuffer:sample_buffer];
+
+  if (base::mac::IsAtLeastOS10_10()) {
+    AVQueuedSampleBufferRenderingStatus status = [av_layer status];
+    switch (status) {
+      case AVQueuedSampleBufferRenderingStatusUnknown:
+        LOG(ERROR)
+            << "AVSampleBufferDisplayLayer has status unknown, but should "
+               "be rendering.";
+        return false;
+      case AVQueuedSampleBufferRenderingStatusFailed:
+        LOG(ERROR) << "AVSampleBufferDisplayLayer has status failed, error: "
+                   << [[[av_layer error] description]
+                          cStringUsingEncoding:NSUTF8StringEncoding];
+        return false;
+      case AVQueuedSampleBufferRenderingStatusRendering:
+        break;
+    }
+  }
+
   return true;
 }
 
@@ -245,28 +238,25 @@ void CARendererLayerTree::CommitScheduledCALayers(
   scale_factor_ = scale_factor;
 }
 
-bool CARendererLayerTree::CommitFullscreenLowPowerLayer(
-    AVSampleBufferDisplayLayer109* fullscreen_low_power_layer) {
-  DCHECK(has_committed_);
-  const ContentLayer* video_layer = nullptr;
-  gfx::RectF video_layer_frame_dip;
-  for (const auto& clip_layer : root_layer_.clip_and_sorting_layers) {
-    for (const auto& transform_layer : clip_layer.transform_layers) {
-      for (const auto& content_layer : transform_layer.content_layers) {
+bool CARendererLayerTree::RootLayer::WantsFullcreenLowPowerBackdrop(
+    float scale_factor,
+    gfx::RectF* background_rect) {
+  bool found_video_layer = false;
+  for (auto& clip_layer : clip_and_sorting_layers) {
+    for (auto& transform_layer : clip_layer.transform_layers) {
+      for (auto& content_layer : transform_layer.content_layers) {
         // Detached mode requires that no layers be on top of the video layer.
-        if (video_layer)
+        if (found_video_layer)
           return false;
 
         // See if this is the video layer.
         if (content_layer.use_av_layer) {
-          video_layer = &content_layer;
-          video_layer_frame_dip = gfx::RectF(video_layer->rect);
+          background_rect->Union(gfx::RectF(content_layer.rect));
+          found_video_layer = true;
           if (!transform_layer.transform.IsPositiveScaleOrTranslation())
             return false;
           if (content_layer.opacity != 1)
             return false;
-          transform_layer.transform.TransformRect(&video_layer_frame_dip);
-          video_layer_frame_dip.Scale(1 / scale_factor_);
           continue;
         }
 
@@ -274,26 +264,16 @@ bool CARendererLayerTree::CommitFullscreenLowPowerLayer(
         // solid black or transparent
         if (content_layer.io_surface)
           return false;
-        if (content_layer.background_color != SK_ColorBLACK &&
-            content_layer.background_color != SK_ColorTRANSPARENT) {
+        if (content_layer.background_color == SK_ColorBLACK) {
+          background_rect->Union(gfx::RectF(content_layer.rect));
+        } else if (content_layer.background_color != SK_ColorTRANSPARENT) {
           return false;
         }
       }
     }
   }
-  if (!video_layer)
-    return false;
-
-  if (video_layer->cv_pixel_buffer) {
-    AVSampleBufferDisplayLayerEnqueueCVPixelBuffer(
-        fullscreen_low_power_layer, video_layer->cv_pixel_buffer);
-  } else {
-    AVSampleBufferDisplayLayerEnqueueIOSurface(fullscreen_low_power_layer,
-                                               video_layer->io_surface);
-  }
-  [fullscreen_low_power_layer setVideoGravity:AVLayerVideoGravityResize];
-  [fullscreen_low_power_layer setFrame:video_layer_frame_dip.ToCGRect()];
-  return true;
+  background_rect->Scale(1 / scale_factor);
+  return found_video_layer;
 }
 
 id CARendererLayerTree::ContentsForSolidColorForTesting(SkColor color) {
@@ -383,7 +363,7 @@ CARendererLayerTree::ContentLayer::ContentLayer(
     base::ScopedCFTypeRef<IOSurfaceRef> io_surface,
     base::ScopedCFTypeRef<CVPixelBufferRef> cv_pixel_buffer,
     const gfx::RectF& contents_rect,
-    const gfx::Rect& rect,
+    const gfx::Rect& rect_in,
     unsigned background_color,
     unsigned edge_aa_mask,
     float opacity,
@@ -391,7 +371,7 @@ CARendererLayerTree::ContentLayer::ContentLayer(
     : io_surface(io_surface),
       cv_pixel_buffer(cv_pixel_buffer),
       contents_rect(contents_rect),
-      rect(rect),
+      rect(rect_in),
       background_color(background_color),
       ca_edge_aa_mask(0),
       opacity(opacity),
@@ -402,9 +382,13 @@ CARendererLayerTree::ContentLayer::ContentLayer(
   // output monitor color space, but IOSurface-backed layers are color
   // corrected. Note that this is only the case when the CALayers are shared
   // across processes. To make colors consistent across both solid color and
-  // IOSurface-backed layers, use a cache of solid-color IOSurfaces as contents.
+  // IOSurface-backed layers, use a cache of solid-color IOSurfaces as
+  // contents. Black and transparent layers must use real colors to be eligible
+  // for low power detachment in fullscreen.
   // https://crbug.com/633805
-  if (!io_surface && !tree->allow_solid_color_layers_) {
+  if (!io_surface && !tree->allow_solid_color_layers_ &&
+      background_color != SK_ColorBLACK &&
+      background_color != SK_ColorTRANSPARENT) {
     solid_color_contents = SolidColorContents::Get(background_color);
     ContentLayer::contents_rect = gfx::RectF(0, 0, 1, 1);
   }
@@ -440,6 +424,31 @@ CARendererLayerTree::ContentLayer::ContentLayer(
           kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange &&
       contents_rect == gfx::RectF(0, 0, 1, 1)) {
     use_av_layer = true;
+
+    // If the layer's aspect ratio could be made to match the video's aspect
+    // ratio by expanding either dimension by a fractional pixel, do so. The
+    // mismatch probably resulted from rounding the dimensions to integers.
+    // This works around a macOS 10.13 bug which breaks detached fullscreen
+    // playback of slightly distorted videos (https://crbug.com/792632).
+    const auto av_rect(cv_pixel_buffer
+                           ? gfx::RectF(CVPixelBufferGetWidth(cv_pixel_buffer),
+                                        CVPixelBufferGetHeight(cv_pixel_buffer))
+                           : gfx::RectF(IOSurfaceGetWidth(io_surface),
+                                        IOSurfaceGetHeight(io_surface)));
+    const CGFloat av_ratio = av_rect.width() / av_rect.height();
+    const CGFloat layer_ratio = rect.width() / rect.height();
+    const CGFloat ratio_error = av_ratio / layer_ratio;
+
+    if (ratio_error > 1) {
+      const float width_correction = rect.width() * ratio_error - rect.width();
+      if (width_correction < 1)
+        rect.Inset(-width_correction / 2, 0);
+    } else if (ratio_error < 1) {
+      const float height_correction =
+          rect.height() / ratio_error - rect.height();
+      if (height_correction < 1)
+        rect.Inset(0, -height_correction / 2);
+    }
   }
 }
 
@@ -528,7 +537,14 @@ void CARendererLayerTree::TransformLayer::AddContentLayer(
         gl::GLImageIOSurface::FromGLImage(params.image);
     DCHECK(io_surface_image);
     io_surface = io_surface_image->io_surface();
-    cv_pixel_buffer = io_surface_image->cv_pixel_buffer();
+    // Temporary investagtive fix for https://crbug.com/702369. It appears upon
+    // investigation that not using the original CVPixelBufferRef which came
+    // from the VTDecompressionSession prevents or minimizes flashing of
+    // incorrect content. Disable the CVPixelBufferRef path for the moment to
+    // determine if this fixes the bug for users.
+    // TODO(ccameron): If this indeed causes the bug to disappear, then
+    // extirpate the CVPixelBufferRef path.
+    // cv_pixel_buffer = io_surface_image->cv_pixel_buffer();
   }
 
   content_layers.push_back(
@@ -552,6 +568,19 @@ void CARendererLayerTree::RootLayer::CommitToCA(CALayer* superlayer,
   }
   if ([ca_layer superlayer] != superlayer) {
     DLOG(ERROR) << "CARendererLayerTree root layer not attached to tree.";
+  }
+
+  gfx::RectF bg_rect;
+  if (WantsFullcreenLowPowerBackdrop(scale_factor, &bg_rect)) {
+    if (gfx::RectF([ca_layer frame]) != bg_rect)
+      [ca_layer setFrame:bg_rect.ToCGRect()];
+    if (![ca_layer backgroundColor])
+      [ca_layer setBackgroundColor:CGColorGetConstantColor(kCGColorBlack)];
+  } else {
+    if (gfx::RectF([ca_layer frame]) != gfx::RectF())
+      [ca_layer setFrame:CGRectZero];
+    if ([ca_layer backgroundColor])
+      [ca_layer setBackgroundColor:nil];
   }
 
   for (size_t i = 0; i < clip_and_sorting_layers.size(); ++i) {
@@ -692,12 +721,24 @@ void CARendererLayerTree::ContentLayer::CommitToCA(CALayer* superlayer,
                          update_ca_filter;
   if (use_av_layer) {
     if (update_contents) {
+      bool result = false;
       if (cv_pixel_buffer) {
-        AVSampleBufferDisplayLayerEnqueueCVPixelBuffer(av_layer,
-                                                       cv_pixel_buffer);
+        result = AVSampleBufferDisplayLayerEnqueueCVPixelBuffer(
+            av_layer, cv_pixel_buffer);
+        if (!result) {
+          LOG(ERROR) << "AVSampleBufferDisplayLayerEnqueueCVPixelBuffer failed";
+        }
       } else {
-        AVSampleBufferDisplayLayerEnqueueIOSurface(av_layer, io_surface);
+        result =
+            AVSampleBufferDisplayLayerEnqueueIOSurface(av_layer, io_surface);
+        if (!result) {
+          LOG(ERROR) << "AVSampleBufferDisplayLayerEnqueueIOSurface failed";
+        }
       }
+      // TODO(ccameron): Recreate the AVSampleBufferDisplayLayer on failure.
+      // This is not being done yet, to determine if this happens concurrently
+      // with video flickering.
+      // https://crbug.com/702369
     }
   } else {
     if (update_contents) {

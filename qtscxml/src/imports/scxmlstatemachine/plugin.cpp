@@ -46,13 +46,6 @@
 #include <qqmlextensionplugin.h>
 #include <qqml.h>
 
-static void initResources()
-{
-#ifdef QT_STATIC
-    Q_INIT_RESOURCE(qmake_QtScxml);
-#endif
-}
-
 QT_BEGIN_NAMESPACE
 
 class QScxmlStateMachinePlugin : public QQmlExtensionPlugin
@@ -61,7 +54,7 @@ class QScxmlStateMachinePlugin : public QQmlExtensionPlugin
     Q_PLUGIN_METADATA(IID QQmlExtensionInterface_iid)
 
 public:
-    QScxmlStateMachinePlugin(QObject *parent = 0) : QQmlExtensionPlugin(parent) { initResources(); }
+    QScxmlStateMachinePlugin(QObject *parent = nullptr) : QQmlExtensionPlugin(parent) { }
     void registerTypes(const char *uri)
     {
         // @uri QtScxml

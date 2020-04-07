@@ -12,6 +12,7 @@
 #include "net/test/cert_test_util.h"
 #include "net/test/gtest_util.h"
 #include "net/test/test_data_directory.h"
+#include "net/test/test_with_scoped_task_environment.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
 #include "net/url_request/url_request.h"
 #include "net/url_request/url_request_test_util.h"
@@ -245,7 +246,9 @@ const MockTransaction kBrotli_Slow_Transaction = {
 
 }  // namespace
 
-TEST(URLRequestJob, TransactionNoFilter) {
+using URLRequestJobTest = TestWithScopedTaskEnvironment;
+
+TEST_F(URLRequestJobTest, TransactionNoFilter) {
   MockNetworkLayer network_layer;
   TestURLRequestContext context;
   context.set_http_transaction_factory(&network_layer);
@@ -259,7 +262,7 @@ TEST(URLRequestJob, TransactionNoFilter) {
   req->set_method("GET");
   req->Start();
 
-  base::RunLoop().Run();
+  d.RunUntilComplete();
 
   EXPECT_FALSE(d.request_failed());
   EXPECT_EQ(200, req->GetResponseCode());
@@ -269,7 +272,7 @@ TEST(URLRequestJob, TransactionNoFilter) {
   RemoveMockTransaction(&kNoFilter_Transaction);
 }
 
-TEST(URLRequestJob, TransactionNotifiedWhenDone) {
+TEST_F(URLRequestJobTest, TransactionNotifiedWhenDone) {
   MockNetworkLayer network_layer;
   TestURLRequestContext context;
   context.set_http_transaction_factory(&network_layer);
@@ -283,7 +286,7 @@ TEST(URLRequestJob, TransactionNotifiedWhenDone) {
   req->set_method("GET");
   req->Start();
 
-  base::RunLoop().Run();
+  d.RunUntilComplete();
 
   EXPECT_TRUE(d.response_completed());
   EXPECT_EQ(OK, d.request_status());
@@ -294,7 +297,7 @@ TEST(URLRequestJob, TransactionNotifiedWhenDone) {
   RemoveMockTransaction(&kGZip_Transaction);
 }
 
-TEST(URLRequestJob, SyncTransactionNotifiedWhenDone) {
+TEST_F(URLRequestJobTest, SyncTransactionNotifiedWhenDone) {
   MockNetworkLayer network_layer;
   TestURLRequestContext context;
   context.set_http_transaction_factory(&network_layer);
@@ -310,7 +313,7 @@ TEST(URLRequestJob, SyncTransactionNotifiedWhenDone) {
   req->set_method("GET");
   req->Start();
 
-  base::RunLoop().Run();
+  d.RunUntilComplete();
 
   EXPECT_TRUE(d.response_completed());
   EXPECT_EQ(OK, d.request_status());
@@ -322,7 +325,7 @@ TEST(URLRequestJob, SyncTransactionNotifiedWhenDone) {
 }
 
 // Tests processing a large gzip header one byte at a time.
-TEST(URLRequestJob, SyncSlowTransaction) {
+TEST_F(URLRequestJobTest, SyncSlowTransaction) {
   MockNetworkLayer network_layer;
   TestURLRequestContext context;
   context.set_http_transaction_factory(&network_layer);
@@ -339,7 +342,7 @@ TEST(URLRequestJob, SyncSlowTransaction) {
   req->set_method("GET");
   req->Start();
 
-  base::RunLoop().Run();
+  d.RunUntilComplete();
 
   EXPECT_TRUE(d.response_completed());
   EXPECT_EQ(OK, d.request_status());
@@ -350,7 +353,7 @@ TEST(URLRequestJob, SyncSlowTransaction) {
   RemoveMockTransaction(&transaction);
 }
 
-TEST(URLRequestJob, RedirectTransactionNotifiedWhenDone) {
+TEST_F(URLRequestJobTest, RedirectTransactionNotifiedWhenDone) {
   MockNetworkLayer network_layer;
   TestURLRequestContext context;
   context.set_http_transaction_factory(&network_layer);
@@ -364,14 +367,14 @@ TEST(URLRequestJob, RedirectTransactionNotifiedWhenDone) {
   req->set_method("GET");
   req->Start();
 
-  base::RunLoop().Run();
+  d.RunUntilComplete();
 
   EXPECT_TRUE(network_layer.done_reading_called());
 
   RemoveMockTransaction(&kRedirect_Transaction);
 }
 
-TEST(URLRequestJob, RedirectTransactionWithReferrerPolicyHeader) {
+TEST_F(URLRequestJobTest, RedirectTransactionWithReferrerPolicyHeader) {
   struct TestCase {
     const char* original_url;
     const char* original_referrer;
@@ -381,6 +384,7 @@ TEST(URLRequestJob, RedirectTransactionWithReferrerPolicyHeader) {
     const char* expected_final_referrer;
   };
 
+  // Note: There are more thorough test cases in RedirectInfoTest.
   const TestCase kTests[] = {
       // If a redirect serves 'Referrer-Policy: no-referrer', then the referrer
       // should be cleared.
@@ -393,234 +397,16 @@ TEST(URLRequestJob, RedirectTransactionWithReferrerPolicyHeader) {
        URLRequest::NO_REFERRER /* expected final policy */,
        "" /* expected final referrer */},
 
-      // Same as above but for the legacy keyword 'never', which should
-      // not be supported.
+      // A redirect response without Referrer-Policy header should not affect
+      // the policy and the referrer.
       {"http://foo.test/one" /* original url */,
        "http://foo.test/one" /* original referrer */,
-       "Location: http://foo.test/test\nReferrer-Policy: never\n",
+       "Location: http://foo.test/test\n",
        // original policy
        URLRequest::CLEAR_REFERRER_ON_TRANSITION_FROM_SECURE_TO_INSECURE,
        // expected final policy
        URLRequest::CLEAR_REFERRER_ON_TRANSITION_FROM_SECURE_TO_INSECURE,
        "http://foo.test/one" /* expected final referrer */},
-
-      // If a redirect serves 'Referrer-Policy:
-      // no-referrer-when-downgrade', then the referrer should be cleared
-      // on downgrade, even if the original request's policy specified
-      // that the referrer should never be cleared.
-      {"https://foo.test/one" /* original url */,
-       "https://foo.test/one" /* original referrer */,
-       "Location: http://foo.test\n"
-       "Referrer-Policy: no-referrer-when-downgrade\n",
-       URLRequest::NEVER_CLEAR_REFERRER /* original policy */,
-       // expected final policy
-       URLRequest::CLEAR_REFERRER_ON_TRANSITION_FROM_SECURE_TO_INSECURE,
-       "" /* expected final referrer */},
-
-      // Same as above but for the legacy keyword 'default', which
-      // should not be supported.
-      {"https://foo.test/one" /* original url */,
-       "https://foo.test/one" /* original referrer */,
-       "Location: http://foo.test\n"
-       "Referrer-Policy: default\n",
-       URLRequest::NEVER_CLEAR_REFERRER /* original policy */,
-       // expected final policy
-       URLRequest::NEVER_CLEAR_REFERRER,
-       "https://foo.test/one" /* expected final referrer */},
-
-      // If a redirect serves 'Referrer-Policy: origin', then the referrer
-      // should be stripped to its origin, even if the original request's
-      // policy specified that the referrer should never be cleared.
-      {"https://foo.test/one" /* original url */,
-       "https://foo.test/one" /* original referrer */,
-       "Location: https://foo.test/two\n"
-       "Referrer-Policy: origin\n",
-       URLRequest::NEVER_CLEAR_REFERRER /* original policy */,
-       URLRequest::ORIGIN /* expected final policy */,
-       "https://foo.test/" /* expected final referrer */},
-
-      // If a redirect serves 'Referrer-Policy: origin-when-cross-origin',
-      // then the referrer should be untouched for a same-origin redirect...
-      {"https://foo.test/one" /* original url */,
-       "https://foo.test/referrer" /* original referrer */,
-       "Location: https://foo.test/two\n"
-       "Referrer-Policy: origin-when-cross-origin\n",
-       URLRequest::NEVER_CLEAR_REFERRER /* original policy */,
-       URLRequest::
-           ORIGIN_ONLY_ON_TRANSITION_CROSS_ORIGIN /* expected final policy */,
-       "https://foo.test/referrer" /* expected final referrer */},
-
-      // ... but should be stripped to the origin for a cross-origin redirect.
-      {"https://foo.test/one" /* original url */,
-       "https://foo.test/one" /* original referrer */,
-       "Location: https://bar.test/two\n"
-       "Referrer-Policy: origin-when-cross-origin\n",
-       URLRequest::NEVER_CLEAR_REFERRER /* original policy */,
-       URLRequest::
-           ORIGIN_ONLY_ON_TRANSITION_CROSS_ORIGIN /* expected final policy */,
-       "https://foo.test/" /* expected final referrer */},
-
-      // If a redirect serves 'Referrer-Policy: same-origin', then the referrer
-      // should be untouched for a same-origin redirect,
-      {"https://foo.test/one" /* original url */,
-       "https://foo.test/referrer" /* original referrer */,
-       "Location: https://foo.test/two\n"
-       "Referrer-Policy: same-origin\n",
-       URLRequest::NEVER_CLEAR_REFERRER /* original policy */,
-       URLRequest::CLEAR_REFERRER_ON_TRANSITION_CROSS_ORIGIN /* final policy */
-       ,
-       "https://foo.test/referrer" /* expected final referrer */},
-
-      // ... but should be cleared for a cross-origin redirect.
-      {"https://foo.test/one" /* original url */,
-       "https://foo.test/referrer" /* original referrer */,
-       "Location: https://bar.test/two\n"
-       "Referrer-Policy: same-origin\n",
-       URLRequest::NEVER_CLEAR_REFERRER /* original policy */,
-       URLRequest::CLEAR_REFERRER_ON_TRANSITION_CROSS_ORIGIN,
-       "" /* expected final referrer */},
-
-      // If a redirect serves 'Referrer-Policy: strict-origin', then the
-      // referrer should be the origin only for a cross-origin non-downgrading
-      // redirect,
-      {"https://foo.test/one" /* original url */,
-       "https://foo.test/referrer" /* original referrer */,
-       "Location: https://bar.test/two\n"
-       "Referrer-Policy: strict-origin\n",
-       URLRequest::NEVER_CLEAR_REFERRER /* original policy */,
-       URLRequest::ORIGIN_CLEAR_ON_TRANSITION_FROM_SECURE_TO_INSECURE,
-       "https://foo.test/" /* expected final referrer */},
-      {"http://foo.test/one" /* original url */,
-       "http://foo.test/referrer" /* original referrer */,
-       "Location: http://bar.test/two\n"
-       "Referrer-Policy: strict-origin\n",
-       URLRequest::NEVER_CLEAR_REFERRER /* original policy */,
-       URLRequest::ORIGIN_CLEAR_ON_TRANSITION_FROM_SECURE_TO_INSECURE,
-       "http://foo.test/" /* expected final referrer */},
-
-      // ... but should be cleared for a downgrading redirect.
-      {"https://foo.test/one" /* original url */,
-       "https://foo.test/referrer" /* original referrer */,
-       "Location: http://foo.test/two\n"
-       "Referrer-Policy: strict-origin\n",
-       URLRequest::NEVER_CLEAR_REFERRER /* original policy */,
-       URLRequest::ORIGIN_CLEAR_ON_TRANSITION_FROM_SECURE_TO_INSECURE,
-       "" /* expected final referrer */},
-
-      // If a redirect serves 'Referrer-Policy:
-      // strict-origin-when-cross-origin', then the referrer should be preserved
-      // for a same-origin redirect,
-      {"https://foo.test/one" /* original url */,
-       "https://foo.test/referrer" /* original referrer */,
-       "Location: https://foo.test/two\n"
-       "Referrer-Policy: strict-origin-when-cross-origin\n",
-       URLRequest::NEVER_CLEAR_REFERRER /* original policy */,
-       URLRequest::REDUCE_REFERRER_GRANULARITY_ON_TRANSITION_CROSS_ORIGIN,
-       "https://foo.test/referrer" /* expected final referrer */},
-      {"http://foo.test/one" /* original url */,
-       "http://foo.test/referrer" /* original referrer */,
-       "Location: http://foo.test/two\n"
-       "Referrer-Policy: strict-origin-when-cross-origin\n",
-       URLRequest::NEVER_CLEAR_REFERRER /* original policy */,
-       URLRequest::REDUCE_REFERRER_GRANULARITY_ON_TRANSITION_CROSS_ORIGIN,
-       "http://foo.test/referrer" /* expected final referrer */},
-
-      // ... but should be stripped to the origin for a cross-origin
-      // non-downgrading redirect,
-      {"https://foo.test/one" /* original url */,
-       "https://foo.test/referrer" /* original referrer */,
-       "Location: https://bar.test/two\n"
-       "Referrer-Policy: strict-origin-when-cross-origin\n",
-       URLRequest::NEVER_CLEAR_REFERRER /* original policy */,
-       URLRequest::REDUCE_REFERRER_GRANULARITY_ON_TRANSITION_CROSS_ORIGIN,
-       "https://foo.test/" /* expected final referrer */},
-      {"http://foo.test/one" /* original url */,
-       "http://foo.test/referrer" /* original referrer */,
-       "Location: http://bar.test/two\n"
-       "Referrer-Policy: strict-origin-when-cross-origin\n",
-       URLRequest::NEVER_CLEAR_REFERRER /* original policy */,
-       URLRequest::REDUCE_REFERRER_GRANULARITY_ON_TRANSITION_CROSS_ORIGIN,
-       "http://foo.test/" /* expected final referrer */},
-
-      // ... and should be cleared for a downgrading redirect.
-      {"https://foo.test/one" /* original url */,
-       "https://foo.test/referrer" /* original referrer */,
-       "Location: http://foo.test/two\n"
-       "Referrer-Policy: strict-origin-when-cross-origin\n",
-       URLRequest::NEVER_CLEAR_REFERRER /* original policy */,
-       URLRequest::REDUCE_REFERRER_GRANULARITY_ON_TRANSITION_CROSS_ORIGIN,
-       "" /* expected final referrer */},
-
-      // If a redirect serves 'Referrer-Policy: unsafe-url', then the
-      // referrer should remain, even if originally set to clear on
-      // downgrade.
-      {"https://foo.test/one" /* original url */,
-       "https://foo.test/one" /* original referrer */,
-       "Location: https://bar.test/two\n"
-       "Referrer-Policy: unsafe-url\n",
-       URLRequest::ORIGIN_ONLY_ON_TRANSITION_CROSS_ORIGIN /* original policy */,
-       URLRequest::NEVER_CLEAR_REFERRER /* expected final policy */,
-       "https://foo.test/one" /* expected final referrer */},
-
-      // Same as above but for the legacy keyword 'always', which should
-      // not be supported.
-      {"https://foo.test/one" /* original url */,
-       "https://foo.test/one" /* original referrer */,
-       "Location: https://bar.test/two\n"
-       "Referrer-Policy: always\n",
-       URLRequest::ORIGIN_ONLY_ON_TRANSITION_CROSS_ORIGIN /* original policy */,
-       URLRequest::
-           ORIGIN_ONLY_ON_TRANSITION_CROSS_ORIGIN /* expected final policy */,
-       "https://foo.test/" /* expected final referrer */},
-
-      // An invalid keyword should leave the policy untouched.
-      {"https://foo.test/one" /* original url */,
-       "https://foo.test/one" /* original referrer */,
-       "Location: https://bar.test/two\n"
-       "Referrer-Policy: not-a-valid-policy\n",
-       URLRequest::ORIGIN_ONLY_ON_TRANSITION_CROSS_ORIGIN /* original policy */,
-       URLRequest::
-           ORIGIN_ONLY_ON_TRANSITION_CROSS_ORIGIN /* expected final policy */,
-       "https://foo.test/" /* expected final referrer */},
-
-      {"https://foo.test/one" /* original url */,
-       "https://foo.test/one" /* original referrer */,
-       "Location: http://bar.test/two\n"
-       "Referrer-Policy: not-a-valid-policy\n",
-       // original policy
-       URLRequest::CLEAR_REFERRER_ON_TRANSITION_FROM_SECURE_TO_INSECURE,
-       // expected final policy
-       URLRequest::CLEAR_REFERRER_ON_TRANSITION_FROM_SECURE_TO_INSECURE,
-       "" /* expected final referrer */},
-
-      // The last valid keyword should take precedence.
-      {"https://foo.test/one" /* original url */,
-       "https://foo.test/one" /* original referrer */,
-       "Location: https://bar.test/two\n"
-       "Referrer-Policy: unsafe-url\n"
-       "Referrer-Policy: not-a-valid-policy\n",
-       URLRequest::ORIGIN_ONLY_ON_TRANSITION_CROSS_ORIGIN /* original policy */,
-       URLRequest::NEVER_CLEAR_REFERRER /* expected final policy */,
-       "https://foo.test/one" /* expected final referrer */},
-
-      {"https://foo.test/one" /* original url */,
-       "https://foo.test/one" /* original referrer */,
-       "Location: https://bar.test/two\n"
-       "Referrer-Policy: unsafe-url\n"
-       "Referrer-Policy: origin\n",
-       URLRequest::ORIGIN_ONLY_ON_TRANSITION_CROSS_ORIGIN /* original policy */,
-       URLRequest::ORIGIN /* expected final policy */,
-       "https://foo.test/" /* expected final referrer */},
-
-      // An empty header should not affect the request.
-      {"https://foo.test/one" /* original url */,
-       "https://foo.test/one" /* original referrer */,
-       "Location: https://bar.test/two\n"
-       "Referrer-Policy: \n",
-       URLRequest::ORIGIN_ONLY_ON_TRANSITION_CROSS_ORIGIN /* original policy */,
-       URLRequest::
-           ORIGIN_ONLY_ON_TRANSITION_CROSS_ORIGIN /* expected final policy */,
-       "https://foo.test/" /* expected final referrer */},
   };
 
   for (const auto& test : kTests) {
@@ -647,7 +433,7 @@ TEST(URLRequestJob, RedirectTransactionWithReferrerPolicyHeader) {
     req->set_method("GET");
     req->Start();
 
-    base::RunLoop().Run();
+    d.RunUntilComplete();
 
     EXPECT_TRUE(network_layer.done_reading_called());
 
@@ -660,7 +446,7 @@ TEST(URLRequestJob, RedirectTransactionWithReferrerPolicyHeader) {
   }
 }
 
-TEST(URLRequestJob, TransactionNotCachedWhenNetworkDelegateRedirects) {
+TEST_F(URLRequestJobTest, TransactionNotCachedWhenNetworkDelegateRedirects) {
   MockNetworkLayer network_layer;
   TestNetworkDelegate network_delegate;
   network_delegate.set_redirect_on_headers_received_url(GURL("http://foo"));
@@ -677,7 +463,7 @@ TEST(URLRequestJob, TransactionNotCachedWhenNetworkDelegateRedirects) {
   req->set_method("GET");
   req->Start();
 
-  base::RunLoop().Run();
+  d.RunUntilComplete();
 
   EXPECT_TRUE(network_layer.stop_caching_called());
 
@@ -687,7 +473,7 @@ TEST(URLRequestJob, TransactionNotCachedWhenNetworkDelegateRedirects) {
 // Makes sure that ReadRawDataComplete correctly updates request status before
 // calling ReadFilteredData.
 // Regression test for crbug.com/553300.
-TEST(URLRequestJob, EmptyBodySkipFilter) {
+TEST_F(URLRequestJobTest, EmptyBodySkipFilter) {
   MockNetworkLayer network_layer;
   TestURLRequestContext context;
   context.set_http_transaction_factory(&network_layer);
@@ -701,7 +487,7 @@ TEST(URLRequestJob, EmptyBodySkipFilter) {
   req->set_method("GET");
   req->Start();
 
-  base::RunLoop().Run();
+  d.RunUntilComplete();
 
   EXPECT_FALSE(d.request_failed());
   EXPECT_EQ(200, req->GetResponseCode());
@@ -712,7 +498,7 @@ TEST(URLRequestJob, EmptyBodySkipFilter) {
 }
 
 // Regression test for crbug.com/575213.
-TEST(URLRequestJob, InvalidContentGZipTransaction) {
+TEST_F(URLRequestJobTest, InvalidContentGZipTransaction) {
   MockNetworkLayer network_layer;
   TestURLRequestContext context;
   context.set_http_transaction_factory(&network_layer);
@@ -726,7 +512,7 @@ TEST(URLRequestJob, InvalidContentGZipTransaction) {
   req->set_method("GET");
   req->Start();
 
-  base::RunLoop().Run();
+  d.RunUntilComplete();
 
   // Request failed indicates the request failed before headers were received,
   // so should be false.
@@ -741,7 +527,7 @@ TEST(URLRequestJob, InvalidContentGZipTransaction) {
 }
 
 // Regression test for crbug.com/553300.
-TEST(URLRequestJob, SlowFilterRead) {
+TEST_F(URLRequestJobTest, SlowFilterRead) {
   MockNetworkLayer network_layer;
   TestURLRequestContext context;
   context.set_http_transaction_factory(&network_layer);
@@ -755,7 +541,7 @@ TEST(URLRequestJob, SlowFilterRead) {
   req->set_method("GET");
   req->Start();
 
-  base::RunLoop().Run();
+  d.RunUntilComplete();
 
   EXPECT_FALSE(d.request_failed());
   EXPECT_EQ(200, req->GetResponseCode());
@@ -765,7 +551,7 @@ TEST(URLRequestJob, SlowFilterRead) {
   RemoveMockTransaction(&kGzip_Slow_Transaction);
 }
 
-TEST(URLRequestJob, SlowBrotliRead) {
+TEST_F(URLRequestJobTest, SlowBrotliRead) {
   MockNetworkLayer network_layer;
   TestURLRequestContext context;
   context.set_http_transaction_factory(&network_layer);

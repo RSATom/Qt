@@ -20,7 +20,6 @@
 #include "extensions/common/permissions/api_permission_set.h"
 #include "extensions/common/url_pattern.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
-#include "net/base/url_util.h"
 #include "url/gurl.h"
 
 namespace rcd = net::registry_controlled_domains;
@@ -41,7 +40,6 @@ const char kErrorWildcardHostsNotAllowed[] =
 }  // namespace externally_connectable_errors
 
 namespace keys = extensions::manifest_keys;
-namespace errors = externally_connectable_errors;
 using api::extensions_manifest_types::ExternallyConnectable;
 
 namespace {
@@ -86,8 +84,9 @@ bool ExternallyConnectableHandler::Parse(Extension* extension,
   return true;
 }
 
-const std::vector<std::string> ExternallyConnectableHandler::Keys() const {
-  return SingleKey(keys::kExternallyConnectable);
+base::span<const char* const> ExternallyConnectableHandler::Keys() const {
+  static constexpr const char* kKeys[] = {keys::kExternallyConnectable};
+  return kKeys;
 }
 
 // static
@@ -120,11 +119,16 @@ std::unique_ptr<ExternallyConnectableInfo> ExternallyConnectableInfo::FromValue(
       URLPattern pattern(URLPattern::SCHEME_ALL);
       if (pattern.Parse(*it) != URLPattern::PARSE_SUCCESS) {
         *error = ErrorUtils::FormatErrorMessageUTF16(
-            errors::kErrorInvalidMatchPattern, *it);
+            externally_connectable_errors::kErrorInvalidMatchPattern, *it);
         return std::unique_ptr<ExternallyConnectableInfo>();
       }
 
-      if (allow_all_urls && pattern.match_all_urls()) {
+      bool matches_all_hosts =
+          pattern.match_all_urls() ||  // <all_urls>
+          (pattern.host().empty() &&
+           pattern.match_subdomains());  // e.g., https://*/*
+
+      if (allow_all_urls && matches_all_hosts) {
         matches.AddPattern(pattern);
         continue;
       }
@@ -132,46 +136,24 @@ std::unique_ptr<ExternallyConnectableInfo> ExternallyConnectableInfo::FromValue(
       // Wildcard hosts are not allowed.
       if (pattern.host().empty()) {
         // Warning not error for forwards compatibility.
-        install_warnings->push_back(
-            InstallWarning(ErrorUtils::FormatErrorMessage(
-                               errors::kErrorWildcardHostsNotAllowed, *it),
-                           keys::kExternallyConnectable,
-                           *it));
+        install_warnings->push_back(InstallWarning(
+            ErrorUtils::FormatErrorMessage(
+                externally_connectable_errors::kErrorWildcardHostsNotAllowed,
+                *it),
+            keys::kExternallyConnectable, *it));
         continue;
       }
 
-      url::CanonHostInfo host_info;
-      std::string canonical_host =
-          net::CanonicalizeHost(pattern.host(), &host_info);
-      if (canonical_host.empty()) {
-        // CanonicalizeHost returns empty string on error. The URL parsing
-        // combined with host().empty() should have caught this above.
-        *error = ErrorUtils::FormatErrorMessageUTF16(
-            errors::kErrorInvalidMatchPattern, *it);
-        return std::unique_ptr<ExternallyConnectableInfo>();
-      }
-
-      // Wildcards on subdomains of a TLD are not allowed.
-      bool has_registry = rcd::HostHasRegistryControlledDomain(
-          canonical_host,
-          // This means that things that look like TLDs - the foobar in
-          // http://google.foobar - count as TLDs.
-          rcd::INCLUDE_UNKNOWN_REGISTRIES,
-          // This means that effective TLDs like appspot.com count as TLDs;
-          // codereview.appspot.com and evil.appspot.com are different.
-          rcd::INCLUDE_PRIVATE_REGISTRIES);
-
       // Broad match patterns like "*.com", "*.co.uk", and even "*.appspot.com"
       // are not allowed. However just "appspot.com" is ok.
-      if (!has_registry && pattern.match_subdomains()) {
+      if (pattern.MatchesEffectiveTld(rcd::INCLUDE_PRIVATE_REGISTRIES,
+                                      rcd::INCLUDE_UNKNOWN_REGISTRIES)) {
         // Warning not error for forwards compatibility.
-        install_warnings->push_back(
-            InstallWarning(ErrorUtils::FormatErrorMessage(
-                               errors::kErrorTopLevelDomainsNotAllowed,
-                               pattern.host().c_str(),
-                               *it),
-                           keys::kExternallyConnectable,
-                           *it));
+        install_warnings->push_back(InstallWarning(
+            ErrorUtils::FormatErrorMessage(
+                externally_connectable_errors::kErrorTopLevelDomainsNotAllowed,
+                pattern.host().c_str(), *it),
+            keys::kExternallyConnectable, *it));
         continue;
       }
 
@@ -192,34 +174,35 @@ std::unique_ptr<ExternallyConnectableInfo> ExternallyConnectableInfo::FromValue(
       } else if (crx_file::id_util::IdIsValid(*it)) {
         ids.push_back(*it);
       } else {
-        *error =
-            ErrorUtils::FormatErrorMessageUTF16(errors::kErrorInvalidId, *it);
+        *error = ErrorUtils::FormatErrorMessageUTF16(
+            externally_connectable_errors::kErrorInvalidId, *it);
         return std::unique_ptr<ExternallyConnectableInfo>();
       }
     }
   }
 
   if (!externally_connectable->matches && !externally_connectable->ids) {
-    install_warnings->push_back(InstallWarning(errors::kErrorNothingSpecified,
-                                               keys::kExternallyConnectable));
+    install_warnings->push_back(
+        InstallWarning(externally_connectable_errors::kErrorNothingSpecified,
+                       keys::kExternallyConnectable));
   }
 
   bool accepts_tls_channel_id =
       externally_connectable->accepts_tls_channel_id.get() &&
       *externally_connectable->accepts_tls_channel_id;
   return base::WrapUnique(new ExternallyConnectableInfo(
-      matches, ids, all_ids, accepts_tls_channel_id));
+      std::move(matches), ids, all_ids, accepts_tls_channel_id));
 }
 
 ExternallyConnectableInfo::~ExternallyConnectableInfo() {
 }
 
 ExternallyConnectableInfo::ExternallyConnectableInfo(
-    const URLPatternSet& matches,
+    URLPatternSet matches,
     const std::vector<std::string>& ids,
     bool all_ids,
     bool accepts_tls_channel_id)
-    : matches(matches),
+    : matches(std::move(matches)),
       ids(Sorted(ids)),
       all_ids(all_ids),
       accepts_tls_channel_id(accepts_tls_channel_id) {

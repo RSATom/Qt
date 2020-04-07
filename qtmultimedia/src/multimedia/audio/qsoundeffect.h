@@ -80,7 +80,7 @@ public:
         Error
     };
 
-    explicit QSoundEffect(QObject *parent = Q_NULLPTR);
+    explicit QSoundEffect(QObject *parent = nullptr);
     ~QSoundEffect();
 
     static QStringList supportedMimeTypes();
@@ -123,7 +123,7 @@ public Q_SLOTS:
 
 private:
     Q_DISABLE_COPY(QSoundEffect)
-    QSoundEffectPrivate* d;
+    QSoundEffectPrivate *d = nullptr;
 };
 
 QT_END_NAMESPACE

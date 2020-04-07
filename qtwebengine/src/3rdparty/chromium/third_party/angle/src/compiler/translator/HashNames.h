@@ -12,16 +12,21 @@
 #include "GLSLANG/ShaderLang.h"
 #include "compiler/translator/Common.h"
 
-#define HASHED_NAME_PREFIX "webgl_"
-
 namespace sh
 {
 
 typedef std::map<TPersistString, TPersistString> NameMap;
 
-// Return the original name if hash function pointer is NULL;
-// otherwise return the hashed name.
-TString HashName(const TString &name, ShHashFunction64 hashFunction);
+class ImmutableString;
+class TSymbol;
+
+ImmutableString HashName(const ImmutableString &name,
+                         ShHashFunction64 hashFunction,
+                         NameMap *nameMap);
+
+// Hash user-defined name for GLSL output, with special handling for internal names.
+// The nameMap parameter is optional and is used to cache hashed names if set.
+ImmutableString HashName(const TSymbol *symbol, ShHashFunction64 hashFunction, NameMap *nameMap);
 
 }  // namespace sh
 

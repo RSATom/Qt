@@ -7,10 +7,10 @@
 #include <utility>
 
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "base/metrics/field_trial.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/time/default_tick_clock.h"
 #include "base/trace_event/trace_event.h"
 #include "base/values.h"
 #include "net/base/net_errors.h"
@@ -85,17 +85,21 @@ enum HostCache::EraseReason : int {
 
 HostCache::Entry::Entry(int error,
                         const AddressList& addresses,
+                        Source source,
                         base::TimeDelta ttl)
-    : error_(error), addresses_(addresses), ttl_(ttl) {
+    : error_(error), addresses_(addresses), source_(source), ttl_(ttl) {
   DCHECK(ttl >= base::TimeDelta());
 }
 
-HostCache::Entry::Entry(int error, const AddressList& addresses)
+HostCache::Entry::Entry(int error, const AddressList& addresses, Source source)
     : error_(error),
       addresses_(addresses),
+      source_(source),
       ttl_(base::TimeDelta::FromSeconds(-1)) {}
 
-HostCache::Entry::~Entry() {}
+HostCache::Entry::~Entry() = default;
+
+HostCache::Entry::Entry(HostCache::Entry&& entry) = default;
 
 HostCache::Entry::Entry(const HostCache::Entry& entry,
                         base::TimeTicks now,
@@ -103,6 +107,7 @@ HostCache::Entry::Entry(const HostCache::Entry& entry,
                         int network_changes)
     : error_(entry.error()),
       addresses_(entry.addresses()),
+      source_(entry.source()),
       ttl_(entry.ttl()),
       expires_(now + ttl),
       network_changes_(network_changes),
@@ -111,10 +116,12 @@ HostCache::Entry::Entry(const HostCache::Entry& entry,
 
 HostCache::Entry::Entry(int error,
                         const AddressList& addresses,
+                        Source source,
                         base::TimeTicks expires,
                         int network_changes)
     : error_(error),
       addresses_(addresses),
+      source_(source),
       ttl_(base::TimeDelta::FromSeconds(-1)),
       expires_(expires),
       network_changes_(network_changes),
@@ -145,11 +152,15 @@ void HostCache::Entry::GetStaleness(base::TimeTicks now,
 }
 
 HostCache::HostCache(size_t max_entries)
-    : max_entries_(max_entries), network_changes_(0), delegate_(nullptr) {}
+    : max_entries_(max_entries),
+      network_changes_(0),
+      restore_size_(0),
+      delegate_(nullptr),
+      tick_clock_(base::DefaultTickClock::GetInstance()) {}
 
 HostCache::~HostCache() {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
-  RecordEraseAll(ERASE_DESTRUCT, base::TimeTicks::Now());
+  RecordEraseAll(ERASE_DESTRUCT, tick_clock_->NowTicks());
 }
 
 const HostCache::Entry* HostCache::Lookup(const Key& key,
@@ -237,10 +248,10 @@ void HostCache::Set(const Key& key,
     delegate_->ScheduleWrite();
 }
 
-void HostCache::AddEntry(const Key& key, const Entry& entry) {
+void HostCache::AddEntry(const Key& key, Entry&& entry) {
   DCHECK_GT(max_entries_, size());
   DCHECK_EQ(0u, entries_.count(key));
-  entries_.insert(std::make_pair(key, entry));
+  entries_.emplace(key, std::move(entry));
   DCHECK_GE(max_entries_, size());
 }
 
@@ -257,7 +268,7 @@ void HostCache::set_persistence_delegate(PersistenceDelegate* delegate) {
 
 void HostCache::clear() {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
-  RecordEraseAll(ERASE_CLEAR, base::TimeTicks::Now());
+  RecordEraseAll(ERASE_CLEAR, tick_clock_->NowTicks());
 
   // Don't bother scheduling a write if there's nothing to clear.
   if (size() == 0)
@@ -278,7 +289,7 @@ void HostCache::ClearForHosts(
   }
 
   bool changed = false;
-  base::TimeTicks now = base::TimeTicks::Now();
+  base::TimeTicks now = tick_clock_->NowTicks();
   for (EntryMap::iterator it = entries_.begin(); it != entries_.end();) {
     EntryMap::iterator next_it = std::next(it);
 
@@ -313,6 +324,9 @@ void HostCache::GetAsListValue(base::ListValue* entry_list,
     entry_dict->SetInteger(kFlagsKey, key.host_resolver_flags);
 
     if (include_staleness) {
+      // The kExpirationKey value is using TimeTicks instead of Time used if
+      // |include_staleness| is false, so it cannot be used to deserialize.
+      // This is ok as it is used only for netlog.
       entry_dict->SetString(kExpirationKey,
                             NetLog::TickCountToString(entry.expires()));
       entry_dict->SetInteger(kTtlKey, entry.ttl().InMilliseconds());
@@ -321,7 +335,7 @@ void HostCache::GetAsListValue(base::ListValue* entry_list,
       // Convert expiration time in TimeTicks to Time for serialization, using a
       // string because base::Value doesn't handle 64-bit integers.
       base::Time expiration_time =
-          base::Time::Now() - (base::TimeTicks::Now() - entry.expires());
+          base::Time::Now() - (tick_clock_->NowTicks() - entry.expires());
       entry_dict->SetString(
           kExpirationKey,
           base::Int64ToString(expiration_time.ToInternalValue()));
@@ -332,7 +346,7 @@ void HostCache::GetAsListValue(base::ListValue* entry_list,
     } else {
       const AddressList& addresses = entry.addresses();
       // Append all of the resolved addresses.
-      auto addresses_value = base::MakeUnique<base::ListValue>();
+      auto addresses_value = std::make_unique<base::ListValue>();
       for (size_t i = 0; i < addresses.size(); ++i)
         addresses_value->AppendString(addresses[i].ToStringWithoutPort());
       entry_dict->SetList(kAddressesKey, std::move(addresses_value));
@@ -375,7 +389,7 @@ bool HostCache::RestoreFromListValue(const base::ListValue& old_cache) {
       return false;
 
     base::TimeTicks expiration_time =
-        base::TimeTicks::Now() -
+        tick_clock_->NowTicks() -
         (base::Time::Now() - base::Time::FromInternalValue(time_internal));
 
     Key key(hostname, static_cast<AddressFamily>(address_family), flags);
@@ -389,10 +403,11 @@ bool HostCache::RestoreFromListValue(const base::ListValue& old_cache) {
     // prioritizing what to evict, just stop restoring.
     auto found = entries_.find(key);
     if (found == entries_.end() && size() < max_entries_) {
-      AddEntry(key, Entry(error, address_list, expiration_time,
-                          network_changes_ - 1));
+      AddEntry(key, Entry(error, address_list, Entry::SOURCE_UNKNOWN,
+                          expiration_time, network_changes_ - 1));
     }
   }
+  restore_size_ = old_cache.GetSize();
   return true;
 }
 
@@ -408,19 +423,12 @@ size_t HostCache::max_entries() const {
 
 // static
 std::unique_ptr<HostCache> HostCache::CreateDefaultCache() {
-// Cache capacity is determined by the field trial.
 #if defined(ENABLE_BUILT_IN_DNS)
   const size_t kDefaultMaxEntries = 1000;
 #else
   const size_t kDefaultMaxEntries = 100;
 #endif
-  const size_t kSaneMaxEntries = 1 << 20;
-  size_t max_entries = 0;
-  base::StringToSizeT(base::FieldTrialList::FindFullName("HostCacheSize"),
-                      &max_entries);
-  if ((max_entries == 0) || (max_entries > kSaneMaxEntries))
-    max_entries = kDefaultMaxEntries;
-  return base::WrapUnique(new HostCache(max_entries));
+  return std::make_unique<HostCache>(kDefaultMaxEntries);
 }
 
 void HostCache::EvictOneEntry(base::TimeTicks now) {
@@ -435,8 +443,6 @@ void HostCache::EvictOneEntry(base::TimeTicks now) {
     }
   }
 
-  if (!eviction_callback_.is_null())
-    eviction_callback_.Run(oldest_it->first, oldest_it->second);
   RecordErase(ERASE_EVICT, now, oldest_it->second);
   entries_.erase(oldest_it);
 }
@@ -539,6 +545,33 @@ void HostCache::RecordErase(EraseReason reason,
 void HostCache::RecordEraseAll(EraseReason reason, base::TimeTicks now) {
   for (const auto& it : entries_)
     RecordErase(reason, now, it.second);
+}
+
+bool HostCache::HasEntry(base::StringPiece hostname,
+                         HostCache::Entry::Source* source_out,
+                         HostCache::EntryStaleness* stale_out) {
+  net::HostCache::Key cache_key;
+  hostname.CopyToString(&cache_key.hostname);
+
+  const HostCache::Entry* entry =
+      LookupStale(cache_key, tick_clock_->NowTicks(), stale_out);
+  if (!entry) {
+    // Might not have found the cache entry because the address_family or
+    // host_resolver_flags in cache_key do not match those used for the
+    // original DNS lookup. Try another common combination of address_family
+    // and host_resolver_flags in an attempt to find a matching cache entry.
+    cache_key.address_family = net::ADDRESS_FAMILY_IPV4;
+    cache_key.host_resolver_flags =
+        net::HOST_RESOLVER_DEFAULT_FAMILY_SET_DUE_TO_NO_IPV6;
+    entry = LookupStale(cache_key, tick_clock_->NowTicks(), stale_out);
+    if (!entry)
+      return false;
+  }
+
+  if (source_out != nullptr)
+    *source_out = entry->source();
+
+  return true;
 }
 
 }  // namespace net

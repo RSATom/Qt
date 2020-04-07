@@ -173,7 +173,7 @@ void QNearFieldManagerPrivateVirtualBase::ndefReceived(const QNdefMessage &messa
             filterRecords.append(vr);
         }
 
-        foreach (const QNdefRecord &record, message) {
+        for (const QNdefRecord &record : message) {
             for (int j = 0; matched && (j < filterRecords.count()); ++j) {
                 VerifyRecord &vr = filterRecords[j];
 

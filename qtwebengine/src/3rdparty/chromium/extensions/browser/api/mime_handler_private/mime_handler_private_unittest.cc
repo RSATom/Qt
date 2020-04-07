@@ -7,6 +7,7 @@
 #include <memory>
 #include <utility>
 
+#include "base/containers/queue.h"
 #include "base/memory/ptr_util.h"
 #include "base/message_loop/message_loop.h"
 #include "content/public/browser/stream_handle.h"
@@ -36,7 +37,7 @@ class TestStreamHandle : public content::StreamHandle {
 
  private:
   GURL url_;
-  std::queue<base::Closure> close_callbacks_;
+  base::queue<base::Closure> close_callbacks_;
 };
 
 class MimeHandlerServiceImplTest : public testing::Test {
@@ -46,10 +47,10 @@ class MimeHandlerServiceImplTest : public testing::Test {
     stream_info->handle = base::WrapUnique(new TestStreamHandle);
     stream_info->mime_type = "test/unit";
     stream_info->original_url = GURL("test://extensions_unittests");
-    stream_container_.reset(
-        new StreamContainer(std::move(stream_info), 1, true, GURL(), ""));
+    stream_container_ = std::make_unique<StreamContainer>(
+        std::move(stream_info), 1, true, GURL(), "", nullptr, GURL());
     service_binding_ =
-        mojo::MakeStrongBinding(base::MakeUnique<MimeHandlerServiceImpl>(
+        mojo::MakeStrongBinding(std::make_unique<MimeHandlerServiceImpl>(
                                     stream_container_->GetWeakPtr()),
                                 mojo::MakeRequest(&service_ptr_));
   }

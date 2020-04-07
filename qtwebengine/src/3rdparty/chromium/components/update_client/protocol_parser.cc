@@ -9,7 +9,6 @@
 #include <algorithm>
 #include <memory>
 
-#include "base/memory/ptr_util.h"
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
@@ -64,7 +63,7 @@ static bool TagNameEquals(const xmlNode* node, const char* expected_name) {
 // Returns child nodes of |root| with name |name|.
 static std::vector<xmlNode*> GetChildren(xmlNode* root, const char* name) {
   std::vector<xmlNode*> result;
-  for (xmlNode* child = root->children; child != NULL; child = child->next) {
+  for (xmlNode* child = root->children; child != nullptr; child = child->next) {
     if (!TagNameEquals(child, name)) {
       continue;
     }
@@ -76,7 +75,7 @@ static std::vector<xmlNode*> GetChildren(xmlNode* root, const char* name) {
 // Returns the value of a named attribute, or the empty string.
 static std::string GetAttribute(xmlNode* node, const char* attribute_name) {
   const xmlChar* name = reinterpret_cast<const xmlChar*>(attribute_name);
-  for (xmlAttr* attr = node->properties; attr != NULL; attr = attr->next) {
+  for (xmlAttr* attr = node->properties; attr != nullptr; attr = attr->next) {
     if (!xmlStrcmp(attr->name, name) && attr->children &&
         attr->children->content) {
       return std::string(
@@ -91,10 +90,10 @@ static std::unique_ptr<std::string> GetAttributePtr(
     xmlNode* node,
     const char* attribute_name) {
   const xmlChar* name = reinterpret_cast<const xmlChar*>(attribute_name);
-  for (xmlAttr* attr = node->properties; attr != NULL; attr = attr->next) {
+  for (xmlAttr* attr = node->properties; attr != nullptr; attr = attr->next) {
     if (!xmlStrcmp(attr->name, name) && attr->children &&
         attr->children->content) {
-      return base::MakeUnique<std::string>(
+      return std::make_unique<std::string>(
           reinterpret_cast<const char*>(attr->children->content));
     }
   }
@@ -322,7 +321,25 @@ bool ParseAppTag(xmlNode* app,
     return false;
   }
 
-  // Get the <updatecheck> tag.
+  // Read the |status| attribute for the app.
+  // If the status is one of the defined app status error literals, then return
+  // it in the result as if it were an updatecheck status, then stop parsing,
+  // and return success.
+  result->status = GetAttribute(app, "status");
+  if (result->status == "restricted" ||
+      result->status == "error-unknownApplication" ||
+      result->status == "error-invalidAppId")
+    return true;
+
+  // If the status was not handled above and the status is not "ok", then
+  // this must be a status literal that that the parser does not know about.
+  if (!result->status.empty() && result->status != "ok") {
+    *error = "Unknown app status";
+    return false;
+  }
+
+  // Get the <updatecheck> tag if the status is missing or the status is "ok".
+  DCHECK(result->status.empty() || result->status == "ok");
   std::vector<xmlNode*> updates = GetChildren(app, "updatecheck");
   if (updates.empty()) {
     *error = "Missing updatecheck on app.";

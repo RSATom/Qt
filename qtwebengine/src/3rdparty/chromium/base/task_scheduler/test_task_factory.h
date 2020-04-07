@@ -25,8 +25,8 @@ namespace test {
 
 // A TestTaskFactory posts tasks to a TaskRunner and verifies that they run as
 // expected. Generates a test failure when:
-// - The RunsTasksOnCurrentThread() method of the TaskRunner returns false on a
-//   thread on which a Task is run.
+// - The RunsTasksInCurrentSequence() method of the TaskRunner returns false on
+//   a thread on which a Task is run.
 // - The TaskRunnerHandles set in the context of the task don't match what's
 //   expected for the tested ExecutionMode.
 // - The ExecutionMode of the TaskRunner is SEQUENCED or SINGLE_THREADED and
@@ -54,7 +54,7 @@ class TestTaskFactory {
   // - Verify conditions in which the task runs (see potential failures above).
   // - Run |after_task_closure| if it is not null.
   bool PostTask(PostNestedTask post_nested_task,
-                const Closure& after_task_closure);
+                OnceClosure after_task_closure);
 
   // Waits for all tasks posted by PostTask() to start running. It is not
   // guaranteed that the tasks have completed their execution when this returns.
@@ -65,7 +65,7 @@ class TestTaskFactory {
  private:
   void RunTaskCallback(size_t task_index,
                        PostNestedTask post_nested_task,
-                       const Closure& after_task_closure);
+                       OnceClosure after_task_closure);
 
   // Synchronizes access to all members.
   mutable Lock lock_;

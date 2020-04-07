@@ -16,11 +16,12 @@
 #include "base/files/file_util.h"
 #include "base/logging.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted_memory.h"
 #include "base/path_service.h"
 #include "base/stl_util.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
+#include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/synchronization/lock.h"
 #include "build/build_config.h"
@@ -72,28 +73,9 @@ const char kPakFileExtension[] = ".pak";
 
 ResourceBundle* g_shared_instance_ = NULL;
 
-#if defined(OS_ANDROID)
-// Returns the scale factor closest to |scale| from the full list of factors.
-// Note that it does NOT rely on the list of supported scale factors.
-// Finding the closest match is inefficient and shouldn't be done frequently.
-ScaleFactor FindClosestScaleFactorUnsafe(float scale) {
-  float smallest_diff =  std::numeric_limits<float>::max();
-  ScaleFactor closest_match = SCALE_FACTOR_100P;
-  for (int i = SCALE_FACTOR_100P; i < NUM_SCALE_FACTORS; ++i) {
-    const ScaleFactor scale_factor = static_cast<ScaleFactor>(i);
-    float diff = std::abs(GetScaleForScaleFactor(scale_factor) - scale);
-    if (diff < smallest_diff) {
-      closest_match = scale_factor;
-      smallest_diff = diff;
-    }
-  }
-  return closest_match;
-}
-#endif  // OS_ANDROID
-
 base::FilePath GetResourcesPakFilePath(const std::string& pak_name) {
   base::FilePath path;
-  if (PathService::Get(base::DIR_MODULE, &path))
+  if (base::PathService::Get(base::DIR_MODULE, &path))
     return path.AppendASCII(pak_name.c_str());
 
   // Return just the name of the pak file.
@@ -211,7 +193,7 @@ void ResourceBundle::InitSharedInstanceWithPakFileRegion(
     base::File pak_file,
     const base::MemoryMappedFile::Region& region) {
   InitSharedInstance(NULL);
-  auto data_pack = base::MakeUnique<DataPack>(SCALE_FACTOR_100P);
+  auto data_pack = std::make_unique<DataPack>(SCALE_FACTOR_100P);
   if (!data_pack->LoadFromFileRegion(std::move(pak_file), region)) {
     LOG(WARNING) << "failed to load pak file";
     NOTREACHED();
@@ -231,10 +213,8 @@ void ResourceBundle::InitSharedInstanceWithPakPath(const base::FilePath& path) {
 
 // static
 void ResourceBundle::CleanupSharedInstance() {
-  if (g_shared_instance_) {
-    delete g_shared_instance_;
-    g_shared_instance_ = NULL;
-  }
+  delete g_shared_instance_;
+  g_shared_instance_ = NULL;
 }
 
 // static
@@ -252,7 +232,7 @@ ResourceBundle& ResourceBundle::GetSharedInstance() {
 void ResourceBundle::LoadSecondaryLocaleDataWithPakFileRegion(
     base::File pak_file,
     const base::MemoryMappedFile::Region& region) {
-  auto data_pack = base::MakeUnique<DataPack>(SCALE_FACTOR_100P);
+  auto data_pack = std::make_unique<DataPack>(SCALE_FACTOR_100P);
   if (!data_pack->LoadFromFileRegion(std::move(pak_file), region)) {
     LOG(WARNING) << "failed to load secondary pak file";
     NOTREACHED();
@@ -266,6 +246,18 @@ bool ResourceBundle::LocaleDataPakExists(const std::string& locale) {
   return !GetLocaleFilePath(locale, true).empty();
 }
 #endif  // !defined(OS_ANDROID)
+
+void ResourceBundle::AddDataPack(std::unique_ptr<DataPack> data_pack) {
+#if DCHECK_IS_ON()
+  data_pack->CheckForDuplicateResources(data_packs_);
+#endif
+
+  if (GetScaleForScaleFactor(data_pack->GetScaleFactor()) >
+      GetScaleForScaleFactor(max_scale_factor_))
+    max_scale_factor_ = data_pack->GetScaleFactor();
+
+  data_packs_.push_back(std::move(data_pack));
+}
 
 void ResourceBundle::AddDataPackFromPath(const base::FilePath& path,
                                          ScaleFactor scale_factor) {
@@ -315,7 +307,7 @@ base::FilePath ResourceBundle::GetLocaleFilePath(const std::string& app_locale,
 
   base::FilePath locale_file_path;
 
-  PathService::Get(ui::DIR_LOCALES, &locale_file_path);
+  base::PathService::Get(ui::DIR_LOCALES, &locale_file_path);
 
   if (!locale_file_path.empty()) {
 #if defined(OS_ANDROID)
@@ -419,6 +411,28 @@ const base::FilePath& ResourceBundle::GetOverriddenPakPath() {
   return overridden_pak_path_;
 }
 
+base::string16 ResourceBundle::MaybeMangleLocalizedString(
+    const base::string16& str) {
+  if (!mangle_localized_strings_)
+    return str;
+
+  // IDS_DEFAULT_FONT_SIZE and friends are localization "strings" that are
+  // actually integral constants. These should not be mangled or they become
+  // impossible to parse.
+  int ignored;
+  if (base::StringToInt(str, &ignored))
+    return str;
+
+  // For a string S, produce [[ --- S --- ]], where the number of dashes is 1/4
+  // of the number of characters in S. This makes S something around 50-75%
+  // longer, except for extremely short strings, which get > 100% longer.
+  base::string16 start_marker = base::UTF8ToUTF16("[[");
+  base::string16 end_marker = base::UTF8ToUTF16("]]");
+  base::string16 dashes = base::string16(str.size() / 4, '-');
+  return base::JoinString({start_marker, dashes, str, dashes, end_marker},
+                          base::UTF8ToUTF16(" "));
+}
+
 std::string ResourceBundle::ReloadLocaleResources(
     const std::string& pref_locale) {
   base::AutoLock lock_scope(*locale_resources_data_lock_);
@@ -431,14 +445,14 @@ std::string ResourceBundle::ReloadLocaleResources(
 }
 
 gfx::ImageSkia* ResourceBundle::GetImageSkiaNamed(int resource_id) {
-  DCHECK(sequence_checker_.CalledOnValidSequence());
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   const gfx::ImageSkia* image = GetImageNamed(resource_id).ToImageSkia();
   return const_cast<gfx::ImageSkia*>(image);
 }
 
 gfx::Image& ResourceBundle::GetImageNamed(int resource_id) {
-  DCHECK(sequence_checker_.CalledOnValidSequence());
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   // Check to see if the image is already in the cache.
   auto found = images_.find(resource_id);
@@ -450,8 +464,7 @@ gfx::Image& ResourceBundle::GetImageNamed(int resource_id) {
     image = delegate_->GetImageNamed(resource_id);
 
   if (image.IsEmpty()) {
-    DCHECK(!data_packs_.empty()) <<
-        "Missing call to SetResourcesDataDLL?";
+    DCHECK(!data_packs_.empty()) << "Missing call to SetResourcesDataDLL?";
 
 #if defined(OS_CHROMEOS)
     ui::ScaleFactor scale_factor_to_load = GetMaxScaleFactor();
@@ -469,7 +482,7 @@ gfx::Image& ResourceBundle::GetImageNamed(int resource_id) {
     // BrowserMainLoop has finished running. |image_skia| is guaranteed to be
     // destroyed before the resource bundle is destroyed.
     gfx::ImageSkia image_skia(
-        base::MakeUnique<ResourceBundleImageSource>(this, resource_id),
+        std::make_unique<ResourceBundleImageSource>(this, resource_id),
         GetScaleForScaleFactor(scale_factor_to_load));
     if (image_skia.isNull()) {
       LOG(WARNING) << "Unable to load image with id " << resource_id;
@@ -546,7 +559,7 @@ base::StringPiece ResourceBundle::GetRawDataResourceForScale(
 base::string16 ResourceBundle::GetLocalizedString(int message_id) {
   base::string16 string;
   if (delegate_ && delegate_->GetLocalizedString(message_id, &string))
-    return string;
+    return MaybeMangleLocalizedString(string);
 
   // Ensure that ReloadLocaleResources() doesn't drop the resources while
   // we're using them.
@@ -555,7 +568,7 @@ base::string16 ResourceBundle::GetLocalizedString(int message_id) {
   IdToStringMap::const_iterator it =
       overridden_locale_strings_.find(message_id);
   if (it != overridden_locale_strings_.end())
-    return it->second;
+    return MaybeMangleLocalizedString(it->second);
 
   // If for some reason we were unable to load the resources , return an empty
   // string (better than crashing).
@@ -598,7 +611,7 @@ base::string16 ResourceBundle::GetLocalizedString(int message_id) {
   } else if (encoding == ResourceHandle::UTF8) {
     msg = base::UTF8ToUTF16(data);
   }
-  return msg;
+  return MaybeMangleLocalizedString(msg);
 }
 
 base::RefCountedMemory* ResourceBundle::LoadLocalizedResourceBytes(
@@ -629,7 +642,7 @@ const gfx::FontList& ResourceBundle::GetFontListWithDelta(
     int size_delta,
     gfx::Font::FontStyle style,
     gfx::Font::Weight weight) {
-  DCHECK(sequence_checker_.CalledOnValidSequence());
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   const FontKey styled_key(size_delta, style, weight);
 
@@ -665,12 +678,12 @@ const gfx::FontList& ResourceBundle::GetFontListWithDelta(
 const gfx::Font& ResourceBundle::GetFontWithDelta(int size_delta,
                                                   gfx::Font::FontStyle style,
                                                   gfx::Font::Weight weight) {
-  DCHECK(sequence_checker_.CalledOnValidSequence());
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   return GetFontListWithDelta(size_delta, style, weight).GetPrimaryFont();
 }
 
 const gfx::FontList& ResourceBundle::GetFontList(FontStyle legacy_style) {
-  DCHECK(sequence_checker_.CalledOnValidSequence());
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   gfx::Font::Weight font_weight = gfx::Font::Weight::NORMAL;
   if (legacy_style == BoldFont || legacy_style == MediumBoldFont)
     font_weight = gfx::Font::Weight::BOLD;
@@ -696,18 +709,18 @@ const gfx::FontList& ResourceBundle::GetFontList(FontStyle legacy_style) {
 }
 
 const gfx::Font& ResourceBundle::GetFont(FontStyle style) {
-  DCHECK(sequence_checker_.CalledOnValidSequence());
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   return GetFontList(style).GetPrimaryFont();
 }
 
 void ResourceBundle::ReloadFonts() {
-  DCHECK(sequence_checker_.CalledOnValidSequence());
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   InitDefaultFontList();
   font_cache_.clear();
 }
 
 ScaleFactor ResourceBundle::GetMaxScaleFactor() const {
-#if defined(OS_CHROMEOS) || defined(OS_WIN) || defined(OS_LINUX)
+#if defined(OS_WIN) || defined(OS_LINUX)
   return max_scale_factor_;
 #else
   return GetSupportedScaleFactors().back();
@@ -724,6 +737,8 @@ ResourceBundle::ResourceBundle(Delegate* delegate)
     : delegate_(delegate),
       locale_resources_data_lock_(new base::Lock),
       max_scale_factor_(SCALE_FACTOR_100P) {
+  mangle_localized_strings_ = base::CommandLine::ForCurrentProcess()->HasSwitch(
+      switches::kMangleLocalizedStrings);
 }
 
 ResourceBundle::~ResourceBundle() {
@@ -736,22 +751,7 @@ void ResourceBundle::InitSharedInstance(Delegate* delegate) {
   DCHECK(g_shared_instance_ == NULL) << "ResourceBundle initialized twice";
   g_shared_instance_ = new ResourceBundle(delegate);
   static std::vector<ScaleFactor> supported_scale_factors;
-#if !defined(OS_IOS)
-  // On platforms other than iOS, 100P is always a supported scale factor.
-  // For Windows we have a separate case in this function.
-  supported_scale_factors.push_back(SCALE_FACTOR_100P);
-#endif
-#if defined(OS_ANDROID)
-  float display_density;
-  if (display::Display::HasForceDeviceScaleFactor()) {
-    display_density = display::Display::GetForcedDeviceScaleFactor();
-  } else {
-    display_density = GetPrimaryDisplayScale();
-  }
-  const ScaleFactor closest = FindClosestScaleFactorUnsafe(display_density);
-  if (closest != SCALE_FACTOR_100P)
-    supported_scale_factors.push_back(closest);
-#elif defined(OS_IOS)
+#if defined(OS_IOS)
   display::Display display = display::Screen::GetScreen()->GetPrimaryDisplay();
   if (display.device_scale_factor() > 2.0) {
     DCHECK_EQ(3.0, display.device_scale_factor());
@@ -762,9 +762,13 @@ void ResourceBundle::InitSharedInstance(Delegate* delegate) {
   } else {
     supported_scale_factors.push_back(SCALE_FACTOR_100P);
   }
-#elif defined(OS_MACOSX) || defined(OS_CHROMEOS) || defined(OS_LINUX) || \
-    defined(OS_WIN)
+#else
+  // On platforms other than iOS, 100P is always a supported scale factor.
+  // For Windows we have a separate case in this function.
+  supported_scale_factors.push_back(SCALE_FACTOR_100P);
+#if defined(OS_MACOSX) || defined(OS_LINUX) || defined(OS_WIN)
   supported_scale_factors.push_back(SCALE_FACTOR_200P);
+#endif
 #endif
   ui::SetSupportedScaleFactors(supported_scale_factors);
 }
@@ -811,18 +815,6 @@ void ResourceBundle::AddDataPackFromPathInternal(
     LOG(ERROR) << "Failed to load " << pack_path.value()
                << "\nSome features may not be available.";
   }
-}
-
-void ResourceBundle::AddDataPack(std::unique_ptr<DataPack> data_pack) {
-#if DCHECK_IS_ON()
-  data_pack->CheckForDuplicateResources(data_packs_);
-#endif
-
-  if (GetScaleForScaleFactor(data_pack->GetScaleFactor()) >
-      GetScaleForScaleFactor(max_scale_factor_))
-    max_scale_factor_ = data_pack->GetScaleFactor();
-
-  data_packs_.push_back(std::move(data_pack));
 }
 
 void ResourceBundle::InitDefaultFontList() {
@@ -905,7 +897,7 @@ bool ResourceBundle::LoadBitmap(int resource_id,
 }
 
 gfx::Image& ResourceBundle::GetEmptyImage() {
-  DCHECK(sequence_checker_.CalledOnValidSequence());
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   if (empty_image_.IsEmpty()) {
     // The placeholder bitmap is bright red so people notice the problem.

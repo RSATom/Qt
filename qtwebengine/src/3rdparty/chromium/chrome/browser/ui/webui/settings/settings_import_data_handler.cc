@@ -60,14 +60,15 @@ void ImportDataHandler::RegisterMessages() {
 
   web_ui()->RegisterMessageCallback(
       "initializeImportDialog",
-      base::Bind(&ImportDataHandler::InitializeDialog, base::Unretained(this)));
+      base::BindRepeating(&ImportDataHandler::InitializeDialog,
+                          base::Unretained(this)));
   web_ui()->RegisterMessageCallback(
-      "importData",
-      base::Bind(&ImportDataHandler::ImportData, base::Unretained(this)));
+      "importData", base::BindRepeating(&ImportDataHandler::ImportData,
+                                        base::Unretained(this)));
   web_ui()->RegisterMessageCallback(
       "importFromBookmarksFile",
-      base::Bind(&ImportDataHandler::HandleChooseBookmarksFile,
-                 base::Unretained(this)));
+      base::BindRepeating(&ImportDataHandler::HandleChooseBookmarksFile,
+                          base::Unretained(this)));
 }
 
 void ImportDataHandler::OnJavascriptDisallowed() {
@@ -231,7 +232,8 @@ void ImportDataHandler::HandleChooseBookmarksFile(const base::ListValue* args) {
 
   DCHECK(args && args->empty());
   select_file_dialog_ = ui::SelectFileDialog::Create(
-      this, new ChromeSelectFilePolicy(web_ui()->GetWebContents()));
+      this,
+      std::make_unique<ChromeSelectFilePolicy>(web_ui()->GetWebContents()));
 
   ui::SelectFileDialog::FileTypeInfo file_type_info;
   file_type_info.extensions.resize(1);

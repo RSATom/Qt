@@ -53,7 +53,7 @@ public:
     };
 
 protected:
-    explicit QAbstractDataProxy(QAbstractDataProxyPrivate *d, QObject *parent = Q_NULLPTR);
+    explicit QAbstractDataProxy(QAbstractDataProxyPrivate *d, QObject *parent = nullptr);
 
 public:
     virtual ~QAbstractDataProxy();

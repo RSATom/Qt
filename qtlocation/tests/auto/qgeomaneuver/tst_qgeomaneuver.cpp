@@ -27,7 +27,30 @@
 ****************************************************************************/
 
 #include "tst_qgeomaneuver.h"
+#include <QtLocation/private/qgeomaneuver_p.h>
 
+class QGeoManeuverPrivateDefaultAlt : public QGeoManeuverPrivateDefault
+{
+public:
+    QGeoManeuverPrivateDefaultAlt() {}
+    QGeoManeuverPrivateDefaultAlt(const QGeoManeuverPrivateDefaultAlt &other)
+        : QGeoManeuverPrivateDefault(other) {}
+    ~QGeoManeuverPrivateDefaultAlt() {}
+
+    QString text() const override
+    {
+        return QStringLiteral("QGeoManeuverPrivateDefaultAlt"); // To identify this is actually a QGeoManeuverPrivateDefaultAlt
+    }
+};
+
+class QGeoManeuverAlt : public QGeoManeuver
+{
+public:
+    QGeoManeuverAlt()
+    : QGeoManeuver(QSharedDataPointer<QGeoManeuverPrivate>(new QGeoManeuverPrivateDefaultAlt()))
+    {
+    }
+};
 
 tst_QGeoManeuver::tst_QGeoManeuver()
 {
@@ -241,9 +264,7 @@ void tst_QGeoManeuver::operators(){
     qgeomaneuvercopy->setTimeToNextInstruction(70);
     qgeomaneuvercopy->setDistanceToNextInstruction(56065.45);
 
-// Not passing
    QVERIFY(!(qgeomaneuver->operator ==(*qgeomaneuvercopy)));
-// Not passing
    QVERIFY(qgeomaneuver->operator !=(*qgeomaneuvercopy));
 
     *qgeomaneuvercopy = qgeomaneuvercopy->operator =(*qgeomaneuver);
@@ -251,6 +272,29 @@ void tst_QGeoManeuver::operators(){
     QVERIFY(!qgeomaneuver->operator !=(*qgeomaneuvercopy));
 
     delete qgeomaneuvercopy;
+}
+
+void tst_QGeoManeuver::alternateImplementation()
+{
+    QGeoManeuver qgeomaneuvercopy = *qgeomaneuver;
+
+    QVERIFY(qgeomaneuvercopy == (*qgeomaneuver));
+
+    qgeomaneuvercopy.setDirection(QGeoManeuver::DirectionForward);
+    qgeomaneuvercopy.setInstructionText("Turn left in 80m");
+    qgeomaneuvercopy.setTimeToNextInstruction(70);
+    qgeomaneuvercopy.setDistanceToNextInstruction(56065.45);
+
+    QVERIFY(qgeomaneuvercopy != (*qgeomaneuver));
+
+    QGeoManeuverAlt mAlt;
+    QGeoManeuver m = mAlt;
+
+    QCOMPARE(m.instructionText(), "QGeoManeuverPrivateDefaultAlt");
+    m = qgeomaneuvercopy;
+    QCOMPARE(m.instructionText(), "Turn left in 80m");
+    m = mAlt;
+    QCOMPARE(m.instructionText(), "QGeoManeuverPrivateDefaultAlt");
 }
 
 

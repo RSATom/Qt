@@ -29,8 +29,6 @@ extern void WhitelistSerializeTypeface(const SkTypeface*, SkWStream* );
 #define SK_TYPEFACE_DELEGATE nullptr
 #endif
 
-sk_sp<SkTypeface> (*gCreateTypefaceDelegate)(const char[], SkFontStyle) = nullptr;
-
 void (*gSerializeTypefaceDelegate)(const SkTypeface*, SkWStream* ) = SK_TYPEFACE_DELEGATE;
 sk_sp<SkTypeface> (*gDeserializeTypefaceDelegate)(SkStream* ) = nullptr;
 
@@ -40,11 +38,14 @@ namespace {
 
 class SkEmptyTypeface : public SkTypeface {
 public:
-    static SkEmptyTypeface* Create() { return new SkEmptyTypeface; }
+    static sk_sp<SkTypeface> Make() { return sk_sp<SkTypeface>(new SkEmptyTypeface); }
 protected:
     SkEmptyTypeface() : SkTypeface(SkFontStyle(), true) { }
 
     SkStreamAsset* onOpenStream(int* ttcIndex) const override { return nullptr; }
+    sk_sp<SkTypeface> onMakeClone(const SkFontArguments& args) const override {
+        return sk_ref_sp(this);
+    }
     SkScalerContext* onCreateScalerContext(const SkScalerContextEffects&,
                                            const SkDescriptor*) const override {
         return nullptr;
@@ -78,29 +79,42 @@ protected:
     {
         return 0;
     }
+    int onGetVariationDesignParameters(SkFontParameters::Variation::Axis parameters[],
+                                       int parameterCount) const override
+    {
+        return 0;
+    }
     int onGetTableTags(SkFontTableTag tags[]) const override { return 0; }
     size_t onGetTableData(SkFontTableTag, size_t, size_t, void*) const override {
         return 0;
     }
 };
 
+}  // namespace
+
+SkFontStyle SkTypeface::FromOldStyle(Style oldStyle) {
+    return SkFontStyle((oldStyle & SkTypeface::kBold) ? SkFontStyle::kBold_Weight
+                                                      : SkFontStyle::kNormal_Weight,
+                       SkFontStyle::kNormal_Width,
+                       (oldStyle & SkTypeface::kItalic) ? SkFontStyle::kItalic_Slant
+                                                        : SkFontStyle::kUpright_Slant);
 }
 
 SkTypeface* SkTypeface::GetDefaultTypeface(Style style) {
     static SkOnce once[4];
-    static SkTypeface* defaults[4];
+    static sk_sp<SkTypeface> defaults[4];
 
     SkASSERT((int)style < 4);
     once[style]([style] {
         sk_sp<SkFontMgr> fm(SkFontMgr::RefDefault());
-        SkTypeface* t = fm->legacyCreateTypeface(nullptr, SkFontStyle::FromOldStyle(style));
-        defaults[style] = t ? t : SkEmptyTypeface::Create();
+        auto t = fm->legacyMakeTypeface(nullptr, FromOldStyle(style));
+        defaults[style] = t ? t : SkEmptyTypeface::Make();
     });
-    return defaults[style];
+    return defaults[style].get();
 }
 
-sk_sp<SkTypeface> SkTypeface::MakeDefault(Style style) {
-    return sk_ref_sp(GetDefaultTypeface(style));
+sk_sp<SkTypeface> SkTypeface::MakeDefault() {
+    return sk_ref_sp(GetDefaultTypeface());
 }
 
 uint32_t SkTypeface::UniqueID(const SkTypeface* face) {
@@ -118,52 +132,37 @@ bool SkTypeface::Equal(const SkTypeface* facea, const SkTypeface* faceb) {
 
 sk_sp<SkTypeface> SkTypeface::MakeFromName(const char name[],
                                            SkFontStyle fontStyle) {
-    if (gCreateTypefaceDelegate) {
-        sk_sp<SkTypeface> result = (*gCreateTypefaceDelegate)(name, fontStyle);
-        if (result) {
-            return result;
-        }
-    }
     if (nullptr == name && (fontStyle.slant() == SkFontStyle::kItalic_Slant ||
                             fontStyle.slant() == SkFontStyle::kUpright_Slant) &&
                            (fontStyle.weight() == SkFontStyle::kBold_Weight ||
                             fontStyle.weight() == SkFontStyle::kNormal_Weight)) {
-        return MakeDefault(static_cast<SkTypeface::Style>(
+        return sk_ref_sp(GetDefaultTypeface(static_cast<SkTypeface::Style>(
             (fontStyle.slant() == SkFontStyle::kItalic_Slant ? SkTypeface::kItalic :
                                                                SkTypeface::kNormal) |
             (fontStyle.weight() == SkFontStyle::kBold_Weight ? SkTypeface::kBold :
-                                                               SkTypeface::kNormal)));
+                                                               SkTypeface::kNormal))));
     }
     sk_sp<SkFontMgr> fm(SkFontMgr::RefDefault());
-    return sk_sp<SkTypeface>(fm->legacyCreateTypeface(name, fontStyle));
-}
-
-sk_sp<SkTypeface> SkTypeface::MakeFromTypeface(SkTypeface* family, Style s) {
-    if (!family) {
-        return SkTypeface::MakeDefault(s);
-    }
-
-    if (family->style() == s) {
-        return sk_ref_sp(family);
-    }
-
-    sk_sp<SkFontMgr> fm(SkFontMgr::RefDefault());
-    return sk_sp<SkTypeface>(fm->matchFaceStyle(family, SkFontStyle::FromOldStyle(s)));
+    return fm->legacyMakeTypeface(name, fontStyle);
 }
 
 sk_sp<SkTypeface> SkTypeface::MakeFromStream(SkStreamAsset* stream, int index) {
     sk_sp<SkFontMgr> fm(SkFontMgr::RefDefault());
-    return sk_sp<SkTypeface>(fm->createFromStream(stream, index));
+    return fm->makeFromStream(std::unique_ptr<SkStreamAsset>(stream), index);
 }
 
 sk_sp<SkTypeface> SkTypeface::MakeFromFontData(std::unique_ptr<SkFontData> data) {
     sk_sp<SkFontMgr> fm(SkFontMgr::RefDefault());
-    return sk_sp<SkTypeface>(fm->createFromFontData(std::move(data)));
+    return fm->makeFromFontData(std::move(data));
 }
 
 sk_sp<SkTypeface> SkTypeface::MakeFromFile(const char path[], int index) {
     sk_sp<SkFontMgr> fm(SkFontMgr::RefDefault());
-    return sk_sp<SkTypeface>(fm->createFromFile(path, index));
+    return fm->makeFromFile(path, index);
+}
+
+sk_sp<SkTypeface> SkTypeface::makeClone(const SkFontArguments& args) const {
+    return this->onMakeClone(args);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -211,6 +210,12 @@ int SkTypeface::getVariationDesignPosition(
         SkFontArguments::VariationPosition::Coordinate coordinates[], int coordinateCount) const
 {
     return this->onGetVariationDesignPosition(coordinates, coordinateCount);
+}
+
+int SkTypeface::getVariationDesignParameters(
+        SkFontParameters::Variation::Axis parameters[], int parameterCount) const
+{
+    return this->onGetVariationDesignParameters(parameters, parameterCount);
 }
 
 int SkTypeface::countTables() const {
@@ -296,8 +301,15 @@ void SkTypeface::getFamilyName(SkString* name) const {
     this->onGetFamilyName(name);
 }
 
+void SkTypeface::getGlyphToUnicodeMap(SkUnichar* dst) const {
+    sk_bzero(dst, sizeof(SkUnichar) * this->countGlyphs());
+}
+
 std::unique_ptr<SkAdvancedTypefaceMetrics> SkTypeface::getAdvancedMetrics() const {
     std::unique_ptr<SkAdvancedTypefaceMetrics> result = this->onGetAdvancedMetrics();
+    if (result && result->fPostScriptName.isEmpty()) {
+        result->fPostScriptName = result->fFontName;
+    }
     if (result && result->fType == SkAdvancedTypefaceMetrics::kTrueType_Font) {
         SkOTTableOS2::Version::V2::Type::Field fsType;
         constexpr SkFontTableTag os2Tag = SkTEndian_SwapBE32(SkOTTableOS2::TAG);
@@ -317,6 +329,15 @@ std::unique_ptr<SkAdvancedTypefaceMetrics> SkTypeface::getAdvancedMetrics() cons
 bool SkTypeface::onGetKerningPairAdjustments(const uint16_t glyphs[], int count,
                                              int32_t adjustments[]) const {
     return false;
+}
+
+sk_sp<SkTypeface> SkTypeface::onMakeClone(const SkFontArguments& args) const {
+    return sk_ref_sp(this);
+}
+
+int SkTypeface::onGetVariationDesignParameters(
+        SkFontParameters::Variation::Axis parameters[], int parameterCount) const {
+    return -1;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -344,16 +365,17 @@ bool SkTypeface::onComputeBounds(SkRect* bounds) const {
     paint.setTextSize(textSize);
     paint.setLinearText(true);
 
-    SkScalerContext::Rec rec;
-    SkScalerContext::MakeRec(paint, nullptr, nullptr, &rec);
+    SkScalerContextRec rec;
+    SkScalerContextEffects effects;
 
-    SkAutoDescriptor ad(sizeof(rec) + SkDescriptor::ComputeOverhead(1));
-    SkDescriptor*    desc = ad.getDesc();
-    desc->init();
-    desc->addEntry(kRec_SkDescriptorTag, sizeof(rec), &rec);
+    SkScalerContext::MakeRecAndEffects(
+        paint, nullptr, nullptr, SkScalerContextFlags::kNone, &rec, &effects);
 
+    SkAutoDescriptor ad;
     SkScalerContextEffects noeffects;
-    std::unique_ptr<SkScalerContext> ctx = this->createScalerContext(noeffects, desc, true);
+    SkScalerContext::AutoDescriptorGivenRecAndEffects(rec, noeffects, &ad);
+
+    std::unique_ptr<SkScalerContext> ctx = this->createScalerContext(noeffects, ad.getDesc(), true);
     if (!ctx) {
         return false;
     }

@@ -19,8 +19,8 @@ struct FakeBindState;
 
 namespace internal {
 
-template <CopyMode copy_mode>
 class CallbackBase;
+class CallbackBaseCopyable;
 
 class BindStateBase;
 
@@ -30,6 +30,22 @@ struct BindState;
 struct BindStateBaseRefCountTraits {
   static void Destruct(const BindStateBase*);
 };
+
+template <typename T, bool IsScalar = std::is_scalar<T>::value>
+struct PassingTraits;
+
+template <typename T>
+struct PassingTraits<T, false> {
+  using Type = T&&;
+};
+
+template <typename T>
+struct PassingTraits<T, true> {
+  using Type = T;
+};
+
+template <typename T>
+using PassingTraitsType = typename PassingTraits<T>::Type;
 
 // BindStateBase is used to provide an opaque handle that the Callback
 // class can use to represent a function object with bound arguments.  It
@@ -61,8 +77,8 @@ class BASE_EXPORT BindStateBase
   friend struct BindStateBaseRefCountTraits;
   friend class RefCountedThreadSafe<BindStateBase, BindStateBaseRefCountTraits>;
 
-  template <CopyMode copy_mode>
   friend class CallbackBase;
+  friend class CallbackBaseCopyable;
 
   // Whitelist subclasses that access the destructor of BindStateBase.
   template <typename Functor, typename... BoundArgs>
@@ -90,17 +106,16 @@ class BASE_EXPORT BindStateBase
 // template bloat.
 // CallbackBase<MoveOnly> is a direct base class of MoveOnly callbacks, and
 // CallbackBase<Copyable> uses CallbackBase<MoveOnly> for its implementation.
-template <>
-class BASE_EXPORT CallbackBase<CopyMode::MoveOnly> {
+class BASE_EXPORT CallbackBase {
  public:
-  CallbackBase(CallbackBase&& c);
-  CallbackBase& operator=(CallbackBase&& c);
+  inline CallbackBase(CallbackBase&& c) noexcept;
+  CallbackBase& operator=(CallbackBase&& c) noexcept;
 
-  explicit CallbackBase(const CallbackBase<CopyMode::Copyable>& c);
-  CallbackBase& operator=(const CallbackBase<CopyMode::Copyable>& c);
+  explicit CallbackBase(const CallbackBaseCopyable& c);
+  CallbackBase& operator=(const CallbackBaseCopyable& c);
 
-  explicit CallbackBase(CallbackBase<CopyMode::Copyable>&& c);
-  CallbackBase& operator=(CallbackBase<CopyMode::Copyable>&& c);
+  explicit CallbackBase(CallbackBaseCopyable&& c) noexcept;
+  CallbackBase& operator=(CallbackBaseCopyable&& c) noexcept;
 
   // Returns true if Callback is null (doesn't refer to anything).
   bool is_null() const { return !bind_state_; }
@@ -119,9 +134,11 @@ class BASE_EXPORT CallbackBase<CopyMode::MoveOnly> {
   // Returns true if this callback equals |other|. |other| may be null.
   bool EqualsInternal(const CallbackBase& other) const;
 
+  constexpr inline CallbackBase();
+
   // Allow initializing of |bind_state_| via the constructor to avoid default
   // initialization of the scoped_refptr.
-  explicit CallbackBase(BindStateBase* bind_state);
+  explicit inline CallbackBase(BindStateBase* bind_state);
 
   InvokeFuncStorage polymorphic_invoke() const {
     return bind_state_->polymorphic_invoke_;
@@ -135,23 +152,25 @@ class BASE_EXPORT CallbackBase<CopyMode::MoveOnly> {
   scoped_refptr<BindStateBase> bind_state_;
 };
 
-// CallbackBase<Copyable> is a direct base class of Copyable Callbacks.
-template <>
-class BASE_EXPORT CallbackBase<CopyMode::Copyable>
-    : public CallbackBase<CopyMode::MoveOnly> {
- public:
-  CallbackBase(const CallbackBase& c);
-  CallbackBase(CallbackBase&& c);
-  CallbackBase& operator=(const CallbackBase& c);
-  CallbackBase& operator=(CallbackBase&& c);
- protected:
-  explicit CallbackBase(BindStateBase* bind_state)
-      : CallbackBase<CopyMode::MoveOnly>(bind_state) {}
-  ~CallbackBase() {}
-};
+constexpr CallbackBase::CallbackBase() = default;
+CallbackBase::CallbackBase(CallbackBase&&) noexcept = default;
+CallbackBase::CallbackBase(BindStateBase* bind_state)
+    : bind_state_(AdoptRef(bind_state)) {}
 
-extern template class CallbackBase<CopyMode::MoveOnly>;
-extern template class CallbackBase<CopyMode::Copyable>;
+// CallbackBase<Copyable> is a direct base class of Copyable Callbacks.
+class BASE_EXPORT CallbackBaseCopyable : public CallbackBase {
+ public:
+  CallbackBaseCopyable(const CallbackBaseCopyable& c);
+  CallbackBaseCopyable(CallbackBaseCopyable&& c) noexcept = default;
+  CallbackBaseCopyable& operator=(const CallbackBaseCopyable& c);
+  CallbackBaseCopyable& operator=(CallbackBaseCopyable&& c) noexcept;
+
+ protected:
+  constexpr CallbackBaseCopyable() = default;
+  explicit CallbackBaseCopyable(BindStateBase* bind_state)
+      : CallbackBase(bind_state) {}
+  ~CallbackBaseCopyable() = default;
+};
 
 }  // namespace internal
 }  // namespace base

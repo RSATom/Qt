@@ -52,11 +52,14 @@ public:
     PureDocParser();
     virtual ~PureDocParser();
 
-    virtual QStringList sourceFileNameFilter() Q_DECL_OVERRIDE;
-    virtual void parseSourceFile(const Location& location, const QString& filePath) Q_DECL_OVERRIDE;
+    QStringList sourceFileNameFilter() override;
+    void parseSourceFile(const Location& location, const QString& filePath) override;
+
+    static PureDocParser *pureDocParser() { return pureParser_; }
 
  private:
     bool processQdocComments();
+    static PureDocParser *pureParser_;
 };
 
 QT_END_NAMESPACE

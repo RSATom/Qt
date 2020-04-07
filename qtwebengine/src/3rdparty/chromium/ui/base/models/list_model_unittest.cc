@@ -10,7 +10,6 @@
 
 #include "base/compiler_specific.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace ui {
@@ -78,15 +77,15 @@ TEST_F(ListModelTest, Add) {
   model.AddObserver(this);
 
   // Append FooItem(0)
-  model.Add(base::MakeUnique<FooItem>(0));
+  model.Add(std::make_unique<FooItem>(0));
   ExpectCountsEqual(1, 0, 0, 0);
 
   // Append FooItem(1)
-  model.Add(base::MakeUnique<FooItem>(1));
+  model.Add(std::make_unique<FooItem>(1));
   ExpectCountsEqual(2, 0, 0, 0);
 
   // Insert FooItem(2) at position 0
-  model.AddAt(0, base::MakeUnique<FooItem>(2));
+  model.AddAt(0, std::make_unique<FooItem>(2));
   ExpectCountsEqual(3, 0, 0, 0);
 
   // Total 3 items in model.
@@ -102,9 +101,9 @@ TEST_F(ListModelTest, Remove) {
   ListModel<FooItem> model;
   model.AddObserver(this);
 
-  model.Add(base::MakeUnique<FooItem>(0));
-  model.Add(base::MakeUnique<FooItem>(1));
-  model.Add(base::MakeUnique<FooItem>(2));
+  model.Add(std::make_unique<FooItem>(0));
+  model.Add(std::make_unique<FooItem>(1));
+  model.Add(std::make_unique<FooItem>(2));
 
   ClearCounts();
 
@@ -125,9 +124,9 @@ TEST_F(ListModelTest, DeleteAll) {
   ListModel<FooItem> model;
   model.AddObserver(this);
 
-  model.Add(base::MakeUnique<FooItem>(0));
-  model.Add(base::MakeUnique<FooItem>(1));
-  model.Add(base::MakeUnique<FooItem>(2));
+  model.Add(std::make_unique<FooItem>(0));
+  model.Add(std::make_unique<FooItem>(1));
+  model.Add(std::make_unique<FooItem>(2));
 
   ClearCounts();
 
@@ -140,9 +139,9 @@ TEST_F(ListModelTest, Move) {
   ListModel<FooItem> model;
   model.AddObserver(this);
 
-  model.Add(base::MakeUnique<FooItem>(0));
-  model.Add(base::MakeUnique<FooItem>(1));
-  model.Add(base::MakeUnique<FooItem>(2));
+  model.Add(std::make_unique<FooItem>(0));
+  model.Add(std::make_unique<FooItem>(1));
+  model.Add(std::make_unique<FooItem>(2));
 
   ClearCounts();
 
@@ -158,9 +157,9 @@ TEST_F(ListModelTest, FakeUpdate) {
   ListModel<FooItem> model;
   model.AddObserver(this);
 
-  model.Add(base::MakeUnique<FooItem>(0));
-  model.Add(base::MakeUnique<FooItem>(1));
-  model.Add(base::MakeUnique<FooItem>(2));
+  model.Add(std::make_unique<FooItem>(0));
+  model.Add(std::make_unique<FooItem>(1));
+  model.Add(std::make_unique<FooItem>(2));
 
   ClearCounts();
 

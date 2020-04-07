@@ -136,8 +136,8 @@ const void* GetSecurityDescriptorForNamedPipeInstance(size_t* size) {
   // would in turn cause deadlock.
 
 #pragma pack(push, 1)
-  static const struct SecurityDescriptorBlob {
-    // See https://msdn.microsoft.com/en-us/library/cc230366.aspx.
+  static constexpr struct SecurityDescriptorBlob {
+    // See https://msdn.microsoft.com/library/cc230366.aspx.
     SECURITY_DESCRIPTOR_RELATIVE sd_rel;
     struct {
       ACL acl;

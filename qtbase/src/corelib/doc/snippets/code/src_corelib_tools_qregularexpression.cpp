@@ -350,4 +350,22 @@ while (i.hasNext()) {
 //! [30]
 }
 
+{
+//! [31]
+QString wildcard = QRegularExpression::wildcardToRegularExpression("*.jpeg");
+// Will match files with names like:
+//    foo.jpeg
+//    f_o_o.jpeg
+//    föö.jpeg
+//! [31]
+}
+
+//! [32]
+    (?<day>\d\d)-(?<month>\d\d)-(?<year>\d\d\d\d) (\w+) (?<name>\w+)
+//! [32]
+
+//! [33]
+    ("", "day", "month", "year", "", "name")
+//! [33]
+
 }

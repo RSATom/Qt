@@ -10,11 +10,16 @@
 #include <map>
 #include <memory>
 #include <set>
-#include <string>
 
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
+#include "base/time/clock.h"
+#include "base/time/time.h"
 #include "content/browser/indexed_db/indexed_db_factory.h"
+
+namespace base {
+struct Feature;
+}
 
 namespace url {
 class Origin;
@@ -24,9 +29,25 @@ namespace content {
 
 class IndexedDBContextImpl;
 
+CONTENT_EXPORT extern const base::Feature kIDBTombstoneStatistics;
+CONTENT_EXPORT extern const base::Feature kIDBTombstoneDeletion;
+
+constexpr const char kIDBCloseImmediatelySwitch[] = "idb-close-immediately";
+
 class CONTENT_EXPORT IndexedDBFactoryImpl : public IndexedDBFactory {
  public:
-  explicit IndexedDBFactoryImpl(IndexedDBContextImpl* context);
+  // Maximum time interval between runs of the IndexedDBSweeper. Sweeping only
+  // occurs after backing store close.
+  // Visible for testing.
+  static constexpr const base::TimeDelta kMaxEarliestGlobalSweepFromNow =
+      base::TimeDelta::FromHours(2);
+  // Maximum time interval between runs of the IndexedDBSweeper for a given
+  // origin. Sweeping only occurs after backing store close.
+  // Visible for testing.
+  static constexpr const base::TimeDelta kMaxEarliestOriginSweepFromNow =
+      base::TimeDelta::FromDays(7);
+
+  IndexedDBFactoryImpl(IndexedDBContextImpl* context, base::Clock* clock);
 
   // content::IndexedDBFactory overrides:
   void ReleaseDatabase(const IndexedDBDatabase::Identifier& identifier,
@@ -78,7 +99,19 @@ class CONTENT_EXPORT IndexedDBFactoryImpl : public IndexedDBFactory {
   void DatabaseDeleted(
       const IndexedDBDatabase::Identifier& identifier) override;
 
+  // Called by IndexedDBBackingStore when blob files have been cleaned.
+  void BlobFilesCleaned(const url::Origin& origin) override;
+
   size_t GetConnectionCount(const url::Origin& origin) const override;
+
+  void NotifyIndexedDBContentChanged(
+      const url::Origin& origin,
+      const base::string16& database_name,
+      const base::string16& object_store_name) override;
+
+  int64_t GetInMemoryDBSize(const url::Origin& origin) const override;
+
+  base::Time GetLastModified(const url::Origin& origin) const override;
 
  protected:
   ~IndexedDBFactoryImpl() override;
@@ -109,6 +142,10 @@ class CONTENT_EXPORT IndexedDBFactoryImpl : public IndexedDBFactory {
                            BackingStoreReleasedOnForcedClose);
   FRIEND_TEST_ALL_PREFIXES(IndexedDBFactoryTest,
                            BackingStoreReleaseDelayedOnClose);
+  FRIEND_TEST_ALL_PREFIXES(IndexedDBFactoryTest, BackingStoreRunPreCloseTasks);
+  FRIEND_TEST_ALL_PREFIXES(IndexedDBFactoryTest,
+                           BackingStoreCloseImmediatelySwitch);
+  FRIEND_TEST_ALL_PREFIXES(IndexedDBFactoryTest, BackingStoreNoSweeping);
   FRIEND_TEST_ALL_PREFIXES(IndexedDBFactoryTest, DatabaseFailedOpen);
   FRIEND_TEST_ALL_PREFIXES(IndexedDBFactoryTest,
                            DeleteDatabaseClosesBackingStore);
@@ -122,7 +159,10 @@ class CONTENT_EXPORT IndexedDBFactoryImpl : public IndexedDBFactory {
   leveldb::Status AbortTransactions(const url::Origin& origin);
 
   // Called internally after a database is closed, with some delay. If this
-  // factory has the last reference, it will be released.
+  // factory has the last reference it will start running pre-close tasks.
+  void MaybeStartPreCloseTasks(const url::Origin& origin);
+  // Called internally after pre-close tasks. If this factory has the last
+  // reference it will be released.
   void MaybeCloseBackingStore(const url::Origin& origin);
   bool HasLastBackingStoreReference(const url::Origin& origin) const;
 
@@ -144,6 +184,9 @@ class CONTENT_EXPORT IndexedDBFactoryImpl : public IndexedDBFactory {
   std::map<url::Origin, scoped_refptr<IndexedDBBackingStore>>
       backing_stores_with_active_blobs_;
   std::set<url::Origin> backends_opened_since_boot_;
+
+  base::Clock* clock_;
+  base::Time earliest_sweep_;
 
   DISALLOW_COPY_AND_ASSIGN(IndexedDBFactoryImpl);
 };

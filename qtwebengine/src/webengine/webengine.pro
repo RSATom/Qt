@@ -1,5 +1,5 @@
-include($$QTWEBENGINE_OUT_ROOT/qtwebengine-config.pri)
-QT_FOR_CONFIG += webengine webengine-private
+include($$QTWEBENGINE_OUT_ROOT/src/core/qtwebenginecore-config.pri) # workaround for QTBUG-68093
+QT_FOR_CONFIG += webenginecore-private
 
 TARGET = QtWebEngine
 
@@ -7,13 +7,14 @@ TARGET = QtWebEngine
 DEFINES += QT_BUILD_WEBENGINE_LIB
 
 QT += qml quick webenginecore
-QT_PRIVATE += quick-private gui-private core-private
+QT_PRIVATE += quick-private gui-private core-private webenginecore-private
 
 QMAKE_DOCS = $$PWD/doc/qtwebengine.qdocconf
 
 INCLUDEPATH += $$PWD api ../core ../core/api
 
 SOURCES = \
+        api/qquickwebengineaction.cpp \
         api/qquickwebenginecertificateerror.cpp \
         api/qquickwebenginecontextmenurequest.cpp \
         api/qquickwebenginedialogrequests.cpp \
@@ -36,6 +37,8 @@ SOURCES = \
 HEADERS = \
         api/qtwebengineglobal.h \
         api/qtwebengineglobal_p.h \
+        api/qquickwebengineaction_p.h \
+        api/qquickwebengineaction_p_p.h \
         api/qquickwebenginecertificateerror_p.h \
         api/qquickwebenginecontextmenurequest_p.h \
         api/qquickwebenginedialogrequests_p.h \
@@ -60,19 +63,8 @@ HEADERS = \
 
 qtConfig(webengine-testsupport) {
     QT_PRIVATE += testlib
-
     SOURCES += api/qquickwebenginetestsupport.cpp
     HEADERS += api/qquickwebenginetestsupport_p.h
-
-    DEFINES += ENABLE_QML_TESTSUPPORT_API
-}
-
-qtConfig(webengine-spellchecker) {
-    DEFINES += ENABLE_SPELLCHECK
-}
-
-qtConfig(webengine-printing-and-pdf) {
-    DEFINES += ENABLE_PDF
 }
 
 !build_pass {

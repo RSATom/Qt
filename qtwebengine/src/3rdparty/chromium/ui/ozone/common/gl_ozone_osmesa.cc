@@ -4,6 +4,7 @@
 
 #include "ui/ozone/common/gl_ozone_osmesa.h"
 
+#include "build/build_config.h"
 #include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_context.h"
 #include "ui/gl/gl_context_osmesa.h"
@@ -33,6 +34,13 @@ bool GLOzoneOSMesa::InitializeStaticGLBindings(
 void GLOzoneOSMesa::InitializeDebugGLBindings() {
   gl::InitializeDebugGLBindingsGL();
   gl::InitializeDebugGLBindingsOSMESA();
+}
+
+void GLOzoneOSMesa::SetDisabledExtensionsPlatform(
+    const std::string& disabled_extensions) {}
+
+bool GLOzoneOSMesa::InitializeExtensionSettingsOneOffPlatform() {
+  return true;
 }
 
 void GLOzoneOSMesa::ShutdownGL() {

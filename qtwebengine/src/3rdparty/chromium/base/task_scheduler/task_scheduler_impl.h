@@ -17,13 +17,13 @@
 #include "base/strings/string_piece.h"
 #include "base/synchronization/atomic_flag.h"
 #include "base/task_scheduler/delayed_task_manager.h"
+#include "base/task_scheduler/environment_config.h"
 #include "base/task_scheduler/scheduler_single_thread_task_runner_manager.h"
 #include "base/task_scheduler/scheduler_worker_pool_impl.h"
 #include "base/task_scheduler/single_thread_task_runner_thread_mode.h"
 #include "base/task_scheduler/task_scheduler.h"
 #include "base/task_scheduler/task_tracker.h"
 #include "base/task_scheduler/task_traits.h"
-#include "base/threading/thread.h"
 #include "build/build_config.h"
 
 #if defined(OS_POSIX) && !defined(OS_NACL_SFI)
@@ -37,6 +37,7 @@
 namespace base {
 
 class HistogramBase;
+class Thread;
 
 namespace internal {
 
@@ -50,17 +51,20 @@ class BASE_EXPORT TaskSchedulerImpl : public TaskScheduler {
       TaskTracker;
 #endif
 
-  // |name| is used to label threads and histograms. |task_tracker| can be used
-  // for tests that need more execution control. By default, the production
-  // TaskTracker is used.
-  explicit TaskSchedulerImpl(StringPiece name,
-                             std::unique_ptr<TaskTrackerImpl> task_tracker =
-                                 MakeUnique<TaskTrackerImpl>());
+  // Creates a TaskSchedulerImpl with a production TaskTracker.
+  //|histogram_label| is used to label histograms, it must not be empty.
+  explicit TaskSchedulerImpl(StringPiece histogram_label);
+
+  // For testing only. Creates a TaskSchedulerImpl with a custom TaskTracker.
+  TaskSchedulerImpl(StringPiece histogram_label,
+                    std::unique_ptr<TaskTrackerImpl> task_tracker);
+
   ~TaskSchedulerImpl() override;
 
   // TaskScheduler:
-  void Start(const TaskScheduler::InitParams& init_params) override;
-  void PostDelayedTaskWithTraits(const tracked_objects::Location& from_here,
+  void Start(const TaskScheduler::InitParams& init_params,
+             SchedulerWorkerObserver* scheduler_worker_observer) override;
+  void PostDelayedTaskWithTraits(const Location& from_here,
                                  const TaskTraits& traits,
                                  OnceClosure task,
                                  TimeDelta delay) override;
@@ -77,10 +81,11 @@ class BASE_EXPORT TaskSchedulerImpl : public TaskScheduler {
       SingleThreadTaskRunnerThreadMode thread_mode) override;
 #endif  // defined(OS_WIN)
   std::vector<const HistogramBase*> GetHistograms() const override;
-  int GetMaxConcurrentTasksWithTraitsDeprecated(
+  int GetMaxConcurrentNonBlockedTasksWithTraitsDeprecated(
       const TaskTraits& traits) const override;
   void Shutdown() override;
   void FlushForTesting() override;
+  void FlushAsyncForTesting(OnceClosure flush_callback) override;
   void JoinForTesting() override;
 
  private:
@@ -88,15 +93,29 @@ class BASE_EXPORT TaskSchedulerImpl : public TaskScheduler {
   SchedulerWorkerPoolImpl* GetWorkerPoolForTraits(
       const TaskTraits& traits) const;
 
-  const std::string name_;
-  Thread service_thread_;
+  // Returns |traits|, with priority set to TaskPriority::USER_BLOCKING if
+  // |all_tasks_user_blocking_| is set.
+  TaskTraits SetUserBlockingPriorityIfNeeded(const TaskTraits& traits) const;
+
   const std::unique_ptr<TaskTrackerImpl> task_tracker_;
+  std::unique_ptr<Thread> service_thread_;
   DelayedTaskManager delayed_task_manager_;
   SchedulerSingleThreadTaskRunnerManager single_thread_task_runner_manager_;
 
-  // There are 4 SchedulerWorkerPoolImpl in this array to match the 4
-  // SchedulerWorkerPoolParams in TaskScheduler::InitParams.
-  std::unique_ptr<SchedulerWorkerPoolImpl> worker_pools_[4];
+  // Indicates that all tasks are handled as if they had been posted with
+  // TaskPriority::USER_BLOCKING. Since this is set in Start(), it doesn't apply
+  // to tasks posted before Start() or to tasks posted to TaskRunners created
+  // before Start().
+  //
+  // TODO(fdoray): Remove after experiment. https://crbug.com/757022
+  AtomicFlag all_tasks_user_blocking_;
+
+  // Owns all the pools managed by this TaskScheduler.
+  std::vector<std::unique_ptr<SchedulerWorkerPoolImpl>> worker_pools_;
+
+  // Maps an environment from EnvironmentType to a pool in |worker_pools_|.
+  SchedulerWorkerPoolImpl* environment_to_worker_pool_[static_cast<int>(
+      EnvironmentType::ENVIRONMENT_COUNT)];
 
 #if DCHECK_IS_ON()
   // Set once JoinForTesting() has returned.

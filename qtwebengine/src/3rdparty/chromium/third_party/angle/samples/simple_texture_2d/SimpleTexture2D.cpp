@@ -20,35 +20,30 @@
 class SimpleTexture2DSample : public SampleApplication
 {
   public:
-    SimpleTexture2DSample()
-        : SampleApplication("SimpleTexture2D", 1280, 720)
+    SimpleTexture2DSample(int argc, char **argv) : SampleApplication("SimpleTexture2D", argc, argv)
     {
     }
 
     virtual bool initialize()
     {
-        const std::string vs = SHADER_SOURCE
-        (
-            attribute vec4 a_position;
+        const std::string vs =
+            R"(attribute vec4 a_position;
             attribute vec2 a_texCoord;
             varying vec2 v_texCoord;
             void main()
             {
                 gl_Position = a_position;
                 v_texCoord = a_texCoord;
-            }
-        );
+            })";
 
-        const std::string fs = SHADER_SOURCE
-        (
-            precision mediump float;
+        const std::string fs =
+            R"(precision mediump float;
             varying vec2 v_texCoord;
             uniform sampler2D s_texture;
             void main()
             {
                 gl_FragColor = texture2D(s_texture, v_texCoord);
-            }
-        );
+            })";
 
         mProgram = CompileProgram(vs, fs);
         if (!mProgram)
@@ -136,6 +131,6 @@ class SimpleTexture2DSample : public SampleApplication
 
 int main(int argc, char **argv)
 {
-    SimpleTexture2DSample app;
+    SimpleTexture2DSample app(argc, argv);
     return app.run();
 }

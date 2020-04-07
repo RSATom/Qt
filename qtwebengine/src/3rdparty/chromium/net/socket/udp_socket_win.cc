@@ -10,9 +10,8 @@
 #include "base/lazy_instance.h"
 #include "base/logging.h"
 #include "base/macros.h"
-#include "base/message_loop/message_loop.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/metrics/sparse_histogram.h"
 #include "base/rand_util.h"
 #include "net/base/io_buffer.h"
 #include "net/base/ip_address.h"
@@ -29,7 +28,9 @@
 #include "net/log/net_log_source_type.h"
 #include "net/socket/socket_descriptor.h"
 #include "net/socket/socket_options.h"
+#include "net/socket/socket_tag.h"
 #include "net/socket/udp_net_log_parameters.h"
+#include "net/traffic_annotation/network_traffic_annotation.h"
 
 namespace {
 
@@ -244,7 +245,6 @@ BOOL QwaveAPI::SetFlow(HANDLE handle,
 //-----------------------------------------------------------------------------
 
 UDPSocketWin::UDPSocketWin(DatagramSocket::BindType bind_type,
-                           const RandIntCallback& rand_int_cb,
                            net::NetLog* net_log,
                            const net::NetLogSource& source)
     : socket_(INVALID_SOCKET),
@@ -254,19 +254,17 @@ UDPSocketWin::UDPSocketWin(DatagramSocket::BindType bind_type,
       multicast_interface_(0),
       multicast_time_to_live_(1),
       bind_type_(bind_type),
-      rand_int_cb_(rand_int_cb),
       use_non_blocking_io_(false),
       read_iobuffer_len_(0),
       write_iobuffer_len_(0),
-      recv_from_address_(NULL),
+      recv_from_address_(nullptr),
       net_log_(NetLogWithSource::Make(net_log, NetLogSourceType::UDP_SOCKET)),
-      qos_handle_(NULL),
-      qos_flow_id_(0) {
+      qos_handle_(nullptr),
+      qos_flow_id_(0),
+      event_pending_(this) {
   EnsureWinsockInit();
   net_log_.BeginEvent(NetLogEventType::SOCKET_ALIVE,
                       source.ToEventParametersCallback());
-  if (bind_type == DatagramSocket::RANDOM_BIND)
-    DCHECK(!rand_int_cb.is_null());
 }
 
 UDPSocketWin::~UDPSocketWin() {
@@ -298,9 +296,8 @@ void UDPSocketWin::Close() {
   if (socket_ == INVALID_SOCKET)
     return;
 
-  if (qos_handle_) {
+  if (qos_handle_)
     QwaveAPI::Get().CloseHandle(qos_handle_);
-  }
 
   // Zero out any pending read/write callback state.
   read_callback_.Reset();
@@ -315,8 +312,16 @@ void UDPSocketWin::Close() {
   addr_family_ = 0;
   is_connected_ = false;
 
+  // Release buffers to free up memory.
+  read_iobuffer_ = nullptr;
+  read_iobuffer_len_ = 0;
+  write_iobuffer_ = nullptr;
+  write_iobuffer_len_ = 0;
+
   read_write_watcher_.StopWatching();
   read_write_event_.Close();
+
+  event_pending_.InvalidateWeakPtrs();
 
   if (core_) {
     core_->Detach();
@@ -372,14 +377,14 @@ int UDPSocketWin::GetLocalAddress(IPEndPoint* address) const {
 
 int UDPSocketWin::Read(IOBuffer* buf,
                        int buf_len,
-                       const CompletionCallback& callback) {
-  return RecvFrom(buf, buf_len, NULL, callback);
+                       CompletionOnceCallback callback) {
+  return RecvFrom(buf, buf_len, NULL, std::move(callback));
 }
 
 int UDPSocketWin::RecvFrom(IOBuffer* buf,
                            int buf_len,
                            IPEndPoint* address,
-                           const CompletionCallback& callback) {
+                           CompletionOnceCallback callback) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   DCHECK_NE(INVALID_SOCKET, socket_);
   CHECK(read_callback_.is_null());
@@ -392,28 +397,31 @@ int UDPSocketWin::RecvFrom(IOBuffer* buf,
   if (nread != ERR_IO_PENDING)
     return nread;
 
-  read_callback_ = callback;
+  read_callback_ = std::move(callback);
   recv_from_address_ = address;
   return ERR_IO_PENDING;
 }
 
-int UDPSocketWin::Write(IOBuffer* buf,
-                        int buf_len,
-                        const CompletionCallback& callback) {
-  return SendToOrWrite(buf, buf_len, remote_address_.get(), callback);
+int UDPSocketWin::Write(
+    IOBuffer* buf,
+    int buf_len,
+    CompletionOnceCallback callback,
+    const NetworkTrafficAnnotationTag& /* traffic_annotation */) {
+  return SendToOrWrite(buf, buf_len, remote_address_.get(),
+                       std::move(callback));
 }
 
 int UDPSocketWin::SendTo(IOBuffer* buf,
                          int buf_len,
                          const IPEndPoint& address,
-                         const CompletionCallback& callback) {
-  return SendToOrWrite(buf, buf_len, &address, callback);
+                         CompletionOnceCallback callback) {
+  return SendToOrWrite(buf, buf_len, &address, std::move(callback));
 }
 
 int UDPSocketWin::SendToOrWrite(IOBuffer* buf,
                                 int buf_len,
                                 const IPEndPoint* address,
-                                const CompletionCallback& callback) {
+                                CompletionOnceCallback callback) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
   DCHECK_NE(INVALID_SOCKET, socket_);
   CHECK(write_callback_.is_null());
@@ -428,7 +436,7 @@ int UDPSocketWin::SendToOrWrite(IOBuffer* buf,
 
   if (address)
     send_to_address_.reset(new IPEndPoint(*address));
-  write_callback_ = callback;
+  write_callback_ = std::move(callback);
   return ERR_IO_PENDING;
 }
 
@@ -460,7 +468,7 @@ int UDPSocketWin::InternalConnect(const IPEndPoint& address) {
   // else connect() does the DatagramSocket::DEFAULT_BIND
 
   if (rv < 0) {
-    UMA_HISTOGRAM_SPARSE_SLOWLY("Net.UdpSocketRandomBindErrorCode", -rv);
+    base::UmaHistogramSparse("Net.UdpSocketRandomBindErrorCode", -rv);
     return rv;
   }
 
@@ -555,6 +563,8 @@ int UDPSocketWin::SetDoNotFragment() {
   return rv == 0 ? OK : MapSystemError(WSAGetLastError());
 }
 
+void UDPSocketWin::SetMsgConfirm(bool confirm) {}
+
 int UDPSocketWin::AllowAddressReuse() {
   DCHECK_NE(socket_, INVALID_SOCKET);
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
@@ -582,9 +592,7 @@ void UDPSocketWin::DoReadCallback(int rv) {
   DCHECK(!read_callback_.is_null());
 
   // since Run may result in Read being called, clear read_callback_ up front.
-  CompletionCallback c = read_callback_;
-  read_callback_.Reset();
-  c.Run(rv);
+  std::move(read_callback_).Run(rv);
 }
 
 void UDPSocketWin::DoWriteCallback(int rv) {
@@ -592,9 +600,7 @@ void UDPSocketWin::DoWriteCallback(int rv) {
   DCHECK(!write_callback_.is_null());
 
   // since Run may result in Write being called, clear write_callback_ up front.
-  CompletionCallback c = write_callback_;
-  write_callback_.Reset();
-  c.Run(rv);
+  std::move(write_callback_).Run(rv);
 }
 
 void UDPSocketWin::DidCompleteRead() {
@@ -641,34 +647,43 @@ void UDPSocketWin::OnObjectSignaled(HANDLE object) {
   int os_error = 0;
   int rv =
       WSAEnumNetworkEvents(socket_, read_write_event_.Get(), &network_events);
+  // Protects against trying to call the write callback if the read callback
+  // either closes or destroys |this|.
+  base::WeakPtr<UDPSocketWin> event_pending = event_pending_.GetWeakPtr();
   if (rv == SOCKET_ERROR) {
     os_error = WSAGetLastError();
     rv = MapSystemError(os_error);
+
     if (read_iobuffer_) {
-      read_iobuffer_ = NULL;
+      read_iobuffer_ = nullptr;
       read_iobuffer_len_ = 0;
-      recv_from_address_ = NULL;
+      recv_from_address_ = nullptr;
       DoReadCallback(rv);
     }
-    if (write_iobuffer_) {
-      write_iobuffer_ = NULL;
+
+    // Socket may have been closed or destroyed here.
+    if (event_pending && write_iobuffer_) {
+      write_iobuffer_ = nullptr;
       write_iobuffer_len_ = 0;
       send_to_address_.reset();
       DoWriteCallback(rv);
     }
     return;
   }
-  if ((network_events.lNetworkEvents & FD_READ) && read_iobuffer_) {
+
+  if ((network_events.lNetworkEvents & FD_READ) && read_iobuffer_)
     OnReadSignaled();
-  }
-  if ((network_events.lNetworkEvents & FD_WRITE) && write_iobuffer_) {
+  if (!event_pending)
+    return;
+
+  if ((network_events.lNetworkEvents & FD_WRITE) && write_iobuffer_)
     OnWriteSignaled();
-  }
+  if (!event_pending)
+    return;
 
   // There's still pending read / write. Watch for further events.
-  if (read_iobuffer_ || write_iobuffer_) {
+  if (read_iobuffer_ || write_iobuffer_)
     WatchForReadWrite();
-  }
 }
 
 void UDPSocketWin::OnReadSignaled() {
@@ -964,7 +979,6 @@ int UDPSocketWin::DoBind(const IPEndPoint& address) {
   if (rv == 0)
     return OK;
   int last_error = WSAGetLastError();
-  UMA_HISTOGRAM_SPARSE_SLOWLY("Net.UdpSocketBindErrorFromWinOS", last_error);
   // Map some codes that are special to bind() separately.
   // * WSAEACCES: If a port is already bound to a socket, WSAEACCES may be
   //   returned instead of WSAEADDRINUSE, depending on whether the socket
@@ -977,11 +991,11 @@ int UDPSocketWin::DoBind(const IPEndPoint& address) {
 }
 
 int UDPSocketWin::RandomBind(const IPAddress& address) {
-  DCHECK(bind_type_ == DatagramSocket::RANDOM_BIND && !rand_int_cb_.is_null());
+  DCHECK_EQ(bind_type_, DatagramSocket::RANDOM_BIND);
 
   for (int i = 0; i < kBindRetries; ++i) {
-    int rv = DoBind(IPEndPoint(address, static_cast<uint16_t>(rand_int_cb_.Run(
-                                            kPortStart, kPortEnd))));
+    int rv = DoBind(IPEndPoint(
+        address, static_cast<uint16_t>(base::RandInt(kPortStart, kPortEnd))));
     if (rv != ERR_ADDRESS_IN_USE)
       return rv;
   }
@@ -1197,6 +1211,44 @@ void UDPSocketWin::DetachFromThread() {
 void UDPSocketWin::UseNonBlockingIO() {
   DCHECK(!core_);
   use_non_blocking_io_ = true;
+}
+
+void UDPSocketWin::ApplySocketTag(const SocketTag& tag) {
+  // Windows does not support any specific SocketTags so fail if any non-default
+  // tag is applied.
+  CHECK(tag == SocketTag());
+}
+
+void UDPSocketWin::SetWriteAsyncEnabled(bool enabled) {}
+bool UDPSocketWin::WriteAsyncEnabled() {
+  return false;
+}
+void UDPSocketWin::SetMaxPacketSize(size_t max_packet_size) {}
+void UDPSocketWin::SetWriteMultiCoreEnabled(bool enabled) {}
+void UDPSocketWin::SetSendmmsgEnabled(bool enabled) {}
+void UDPSocketWin::SetWriteBatchingActive(bool active) {}
+
+int UDPSocketWin::WriteAsync(
+    DatagramBuffers buffers,
+    CompletionOnceCallback callback,
+    const NetworkTrafficAnnotationTag& traffic_annotation) {
+  NOTIMPLEMENTED();
+  return ERR_NOT_IMPLEMENTED;
+}
+
+int UDPSocketWin::WriteAsync(
+    const char* buffer,
+    size_t buf_len,
+    CompletionOnceCallback callback,
+    const NetworkTrafficAnnotationTag& traffic_annotation) {
+  NOTIMPLEMENTED();
+  return ERR_NOT_IMPLEMENTED;
+}
+
+DatagramBuffers UDPSocketWin::GetUnwrittenBuffers() {
+  DatagramBuffers result;
+  NOTIMPLEMENTED();
+  return result;
 }
 
 }  // namespace net

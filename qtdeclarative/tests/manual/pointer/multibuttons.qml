@@ -26,10 +26,9 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.0
+import QtQuick 2.12
 import QtQuick.Particles 2.0
 import QtQuick.Layouts 1.0
-import Qt.labs.handlers 1.0
 import "content"
 
 Item {
@@ -44,6 +43,7 @@ Item {
             label: "Launch Balloons"
             Layout.fillWidth: true
             gesturePolicy: TapHandler.WithinBounds
+            margin: 10
         }
         Text { text: "the goons"; font.pointSize: 12 }
         MultiButton {
@@ -51,6 +51,7 @@ Item {
             label: "Launch Missile"
             Layout.fillWidth: true
             gesturePolicy: TapHandler.ReleaseWithinBounds
+            margin: 10
             onTapped: missileEmitter.burst(1)
         }
         MultiButton {
@@ -58,6 +59,7 @@ Item {
             label: "Launch Fighters"
             Layout.fillWidth: true
             gesturePolicy: TapHandler.DragThreshold
+            margin: 10
         }
     }
     ParticleSystem {

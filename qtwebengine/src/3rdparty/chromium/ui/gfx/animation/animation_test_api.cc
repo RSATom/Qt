@@ -4,7 +4,6 @@
 
 #include "ui/gfx/animation/animation_test_api.h"
 
-#include "base/memory/ptr_util.h"
 #include "base/time/time.h"
 #include "ui/gfx/animation/animation.h"
 
@@ -16,7 +15,7 @@ AnimationTestApi::SetRichAnimationRenderMode(
     Animation::RichAnimationRenderMode mode) {
   DCHECK(Animation::rich_animation_rendering_mode_ ==
          Animation::RichAnimationRenderMode::PLATFORM);
-  return base::MakeUnique<base::AutoReset<Animation::RichAnimationRenderMode>>(
+  return std::make_unique<base::AutoReset<Animation::RichAnimationRenderMode>>(
       &Animation::rich_animation_rendering_mode_, mode);
 }
 

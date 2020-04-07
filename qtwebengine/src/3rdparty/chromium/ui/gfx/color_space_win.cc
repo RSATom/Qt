@@ -80,7 +80,6 @@ DXVA2_ExtendedFormat ColorSpaceWin::GetExtendedFormat(
     case gfx::ColorSpace::PrimaryID::ADOBE_RGB:
     case gfx::ColorSpace::PrimaryID::APPLE_GENERIC_RGB:
     case gfx::ColorSpace::PrimaryID::WIDE_GAMUT_COLOR_SPIN:
-    case gfx::ColorSpace::PrimaryID::ICC_BASED:
     case gfx::ColorSpace::PrimaryID::CUSTOM:
     case gfx::ColorSpace::PrimaryID::INVALID:
       // Not handled
@@ -119,10 +118,10 @@ DXVA2_ExtendedFormat ColorSpaceWin::GetExtendedFormat(
     case gfx::ColorSpace::TransferID::SMPTEST2084:
     case gfx::ColorSpace::TransferID::SMPTEST428_1:
     case gfx::ColorSpace::TransferID::ARIB_STD_B67:
+    case gfx::ColorSpace::TransferID::BT709_APPLE:
     case gfx::ColorSpace::TransferID::GAMMA18:
     case gfx::ColorSpace::TransferID::GAMMA24:
     case gfx::ColorSpace::TransferID::SMPTEST2084_NON_HDR:
-    case gfx::ColorSpace::TransferID::ICC_BASED:
     case gfx::ColorSpace::TransferID::CUSTOM:
     case gfx::ColorSpace::TransferID::INVALID:
       // Not handled

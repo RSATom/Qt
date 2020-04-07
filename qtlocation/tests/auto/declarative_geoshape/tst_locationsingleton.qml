@@ -215,6 +215,28 @@ Item {
             verify(path !== QtPositioning.shapeToPath(QtPositioning.path(trace1, 1)))
             compare(path, QtPositioning.shapeToPath(QtPositioning.path(trace2, 2)))
         }
+
+        function test_shape_polygon_conversions() {
+            var polygon = QtPositioning.shapeToPolygon(QtPositioning.shape())
+            verify(!polygon.isValid)
+            polygon = QtPositioning.shapeToPolygon(QtPositioning.circle())
+            verify(!polygon.isValid)
+            polygon = QtPositioning.shapeToPolygon(QtPositioning.circle(tl, 10000))
+            verify(!polygon.isValid)
+            polygon = QtPositioning.shapeToPolygon(QtPositioning.rectangle())
+            verify(!polygon.isValid)
+            polygon = QtPositioning.shapeToPolygon(QtPositioning.rectangle(tl, br))
+            verify(!polygon.isValid)
+
+            polygon = QtPositioning.shapeToPolygon(QtPositioning.polygon())
+            verify(!polygon.isValid)
+            polygon = QtPositioning.shapeToPolygon(QtPositioning.polygon(trace1))
+            verify(!polygon.isValid) // polygon needs 3 coords at least
+            polygon = QtPositioning.shapeToPolygon(QtPositioning.polygon(trace2))
+            verify(polygon.isValid)
+            verify(polygon !== QtPositioning.shapeToPolygon(QtPositioning.polygon(trace1)))
+            compare(polygon, QtPositioning.shapeToPolygon(QtPositioning.polygon(trace2)))
+        }
     }
 
 
@@ -226,6 +248,10 @@ Item {
                 { latitude: -28, longitude: 153.5 },
                 { latitude: -29, longitude: 153.5 }
             ]
+    }
+
+    MapPolyline {
+        id: mapPolylineGeopath
     }
 
     TestCase {
@@ -272,6 +298,50 @@ Item {
             compare(mapPolyline.coordinateAt(2).longitude, 153.1)
             compare(mapPolyline.containsCoordinate(QtPositioning.coordinate(35, 153.1)), true)
             compare(mapPolyline.path.length, mapPolyline.pathLength())
+        }
+    }
+
+    TestCase {
+        name: "GeoPath path"
+        function test_qgeopath_path_operations() {
+            var geopath = QtPositioning.path()
+
+            geopath.path = trace2
+            compare(geopath.path.length, trace2.length)
+
+            geopath.path = mapPolyline.path
+            compare(geopath.path.length, mapPolyline.pathLength())
+            compare(geopath.boundingGeoRectangle(), mapPolyline.geoShape.boundingGeoRectangle())
+
+            mapPolylineGeopath.geoShape = geopath
+            compare(mapPolylineGeopath.pathLength(), mapPolyline.pathLength())
+            compare(mapPolylineGeopath.geoShape.boundingGeoRectangle(), mapPolyline.geoShape.boundingGeoRectangle())
+
+            geopath.path = trace2
+            geopath.path[0].longitude = 11.0
+            compare(geopath.path.length, trace2.length)
+            compare(geopath.coordinateAt(0).latitude, trace2[0].latitude)
+            expectFail("", "Longitude comparison fails")
+            compare(geopath.coordinateAt(0).longitude, 11)
+        }
+    }
+
+    TestCase {
+        name: "GeoPolygon path"
+        function test_qgeopolygon_path_operations() {
+            var geopolygon = QtPositioning.polygon()
+
+            geopolygon.perimeter = trace2
+            compare(geopolygon.perimeter.length, trace2.length)
+
+            geopolygon.perimeter = mapPolyline.path
+            compare(geopolygon.perimeter.length, mapPolyline.pathLength())
+            compare(geopolygon.boundingGeoRectangle(), mapPolyline.geoShape.boundingGeoRectangle())
+
+            geopolygon.perimeter = trace2
+            compare(geopolygon.perimeter.length, trace2.length)
+            compare(geopolygon.coordinateAt(0).latitude, trace2[0].latitude)
+            compare(geopolygon.coordinateAt(0).longitude, trace2[0].longitude)
         }
     }
 }

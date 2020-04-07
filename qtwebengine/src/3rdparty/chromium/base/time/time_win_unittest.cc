@@ -277,9 +277,9 @@ TEST(TimeTicks, FromQPCValue) {
 
   // Test that the conversions using FromQPCValue() match those computed here
   // using simple floating-point arithmetic.  The floating-point math provides
-  // enough precision to confirm the implementation is correct to the
-  // microsecond for all |test_cases| (though it would be insufficient to
-  // confirm many "very large" tick values which are not being tested here).
+  // enough precision for all reasonable values to confirm that the
+  // implementation is correct to the microsecond, and for "very large" values
+  // it confirms that the answer is very close to correct.
   for (int64_t ticks : test_cases) {
     const double expected_microseconds_since_origin =
         (static_cast<double>(ticks) * Time::kMicrosecondsPerSecond) /
@@ -287,9 +287,24 @@ TEST(TimeTicks, FromQPCValue) {
     const TimeTicks converted_value = TimeTicks::FromQPCValue(ticks);
     const double converted_microseconds_since_origin =
         static_cast<double>((converted_value - TimeTicks()).InMicroseconds());
+    // When we test with very large numbers we end up in a range where adjacent
+    // double values are far apart - 512.0 apart in one test failure. In that
+    // situation it makes no sense for our epsilon to be 1.0 - it should be
+    // the difference between adjacent doubles.
+    double epsilon = nextafter(expected_microseconds_since_origin, INFINITY) -
+                     expected_microseconds_since_origin;
+    // Epsilon must be at least 1.0 because converted_microseconds_since_origin
+    // comes from an integral value, and expected_microseconds_since_origin is
+    // a double that is expected to be up to 0.999 larger. In addition, due to
+    // multiple roundings in the double calculation the actual error can be
+    // slightly larger than 1.0, even when the converted value is perfect. This
+    // epsilon value was chosen because it is slightly larger than the error
+    // seen in a test failure caused by the double rounding.
+    const double min_epsilon = 1.002;
+    if (epsilon < min_epsilon)
+      epsilon = min_epsilon;
     EXPECT_NEAR(expected_microseconds_since_origin,
-                converted_microseconds_since_origin,
-                1.0)
+                converted_microseconds_since_origin, epsilon)
         << "ticks=" << ticks << ", to be converted via logic path: "
         << (ticks < Time::kQPCOverflowThreshold ? "FAST" : "SAFE");
   }
@@ -298,6 +313,22 @@ TEST(TimeTicks, FromQPCValue) {
 TEST(TimeDelta, ConstexprInitialization) {
   // Make sure that TimeDelta works around crbug.com/635974
   EXPECT_EQ(kExpectedDeltaInMilliseconds, kConstexprTimeDelta.InMilliseconds());
+}
+
+TEST(TimeDelta, FromFileTime) {
+  FILETIME ft;
+  ft.dwLowDateTime = 1001;
+  ft.dwHighDateTime = 0;
+
+  // 100100 ns ~= 100 us.
+  EXPECT_EQ(TimeDelta::FromMicroseconds(100), TimeDelta::FromFileTime(ft));
+
+  ft.dwLowDateTime = 0;
+  ft.dwHighDateTime = 1;
+
+  // 2^32 * 100 ns ~= 2^32 * 10 us.
+  EXPECT_EQ(TimeDelta::FromMicroseconds((1ull << 32) / 10),
+            TimeDelta::FromFileTime(ft));
 }
 
 TEST(HighResolutionTimer, GetUsage) {

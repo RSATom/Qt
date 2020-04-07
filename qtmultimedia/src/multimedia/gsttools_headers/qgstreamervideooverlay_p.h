@@ -58,6 +58,7 @@
 
 QT_BEGIN_NAMESPACE
 
+class QGstreamerSinkProperties;
 class QGstreamerVideoOverlay
         : public QObject
         , public QGstreamerSyncMessageFilter
@@ -71,6 +72,7 @@ public:
     virtual ~QGstreamerVideoOverlay();
 
     GstElement *videoSink() const;
+    void setVideoSink(GstElement *);
     QSize nativeVideoSize() const;
 
     void setWindowHandle(WId id);
@@ -106,29 +108,17 @@ Q_SIGNALS:
     void saturationChanged(int saturation);
 
 private:
-    GstElement *findBestVideoSink() const;
     void setWindowHandle_helper(WId id);
     void updateIsActive();
     void probeCaps(GstCaps *caps) override;
     static void showPrerollFrameChanged(GObject *, GParamSpec *, QGstreamerVideoOverlay *);
 
-    GstElement *m_videoSink;
+    GstElement *m_videoSink = nullptr;
     QSize m_nativeVideoSize;
-    bool m_isActive;
+    bool m_isActive = false;
 
-    bool m_hasForceAspectRatio;
-    bool m_hasBrightness;
-    bool m_hasContrast;
-    bool m_hasHue;
-    bool m_hasSaturation;
-    bool m_hasShowPrerollFrame;
-
-    WId m_windowId;
-    Qt::AspectRatioMode m_aspectRatioMode;
-    int m_brightness;
-    int m_contrast;
-    int m_hue;
-    int m_saturation;
+    QGstreamerSinkProperties *m_sinkProperties = nullptr;
+    WId m_windowId = 0;
 };
 
 QT_END_NAMESPACE

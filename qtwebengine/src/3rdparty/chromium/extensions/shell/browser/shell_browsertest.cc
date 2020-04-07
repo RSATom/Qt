@@ -2,10 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/logging.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/web_contents.h"
-#include "content/public/test/test_utils.h"
 #include "extensions/browser/app_window/app_window.h"
 #include "extensions/browser/app_window/app_window_registry.h"
 #include "extensions/browser/notification_types.h"
@@ -31,7 +29,7 @@ IN_PROC_BROWSER_TEST_F(ShellApiTest, LoadApp) {
       AppWindowRegistry::Get(browser_context())->app_windows().front();
   ASSERT_TRUE(app_window);
 
-  // TOOD(yoz): Test for focus on Cocoa.
+  // TODO(yoz): Test for focus on Cocoa.
   // app_window->GetBaseWindow()->IsActive() is possible, although on Mac,
   // focus changes are asynchronous, so interactive_ui_tests are required.
 #if defined(USE_AURA)

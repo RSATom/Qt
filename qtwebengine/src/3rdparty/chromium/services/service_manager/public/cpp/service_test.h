@@ -18,7 +18,7 @@ class Thread;
 }
 
 namespace mojo {
-namespace edk {
+namespace core {
 class ScopedIPCSupport;
 }
 }
@@ -60,14 +60,16 @@ class ServiceTest : public testing::Test {
   // Once set via this constructor, it cannot be changed later by calling
   // InitTestName(). The test executable must provide a manifest in the
   // appropriate location that specifies this name also.
-  explicit ServiceTest(const std::string& test_name, bool init_edk = false);
+  ServiceTest(const std::string& test_name,
+              base::test::ScopedTaskEnvironment::MainThreadType type =
+                  base::test::ScopedTaskEnvironment::MainThreadType::UI);
   ~ServiceTest() override;
 
  protected:
   // See constructor. Can only be called once.
   void InitTestName(const std::string& test_name);
 
-  Connector* connector() { return connector_; }
+  Connector* connector() const { return connector_; }
 
   // Instance information received from the Service Manager during OnStart().
   const std::string& test_name() const { return initialize_name_; }
@@ -79,6 +81,10 @@ class ServiceTest : public testing::Test {
   // call OnStartCalled() to forward the metadata so test_name() etc all
   // work.
   virtual std::unique_ptr<Service> CreateService();
+
+  // By default returns null, which means the global default is used. Override
+  // to customize.
+  virtual std::unique_ptr<base::Value> CreateCustomTestCatalog();
 
   // Call to set OnStart() metadata when GetService() is overridden.
   void OnStartCalled(Connector* connector,
@@ -98,9 +104,8 @@ class ServiceTest : public testing::Test {
 
   // See constructor.
   std::string test_name_;
-  bool init_edk_;
   std::unique_ptr<base::Thread> ipc_thread_;
-  std::unique_ptr<mojo::edk::ScopedIPCSupport> ipc_support_;
+  std::unique_ptr<mojo::core::ScopedIPCSupport> ipc_support_;
 
   Connector* connector_ = nullptr;
   std::string initialize_name_;

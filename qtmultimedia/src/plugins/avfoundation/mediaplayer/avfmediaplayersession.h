@@ -106,12 +106,15 @@ public Q_SLOTS:
     void processLoadStateChange();
     void processLoadStateFailure();
 
+    void processBufferStateChange(int bufferStatus);
+
     void processDurationChange(qint64 duration);
 
 Q_SIGNALS:
     void positionChanged(qint64 position);
     void durationChanged(qint64 duration);
     void stateChanged(QMediaPlayer::State newState);
+    void bufferStatusChanged(int bufferStatus);
     void mediaStatusChanged(QMediaPlayer::MediaStatus status);
     void volumeChanged(int volume);
     void mutedChanged(bool muted);
@@ -179,6 +182,7 @@ private:
     qint64 m_requestedPosition;
 
     qint64 m_duration;
+    int m_bufferStatus;
     bool m_videoAvailable;
     bool m_audioAvailable;
     bool m_seekable;

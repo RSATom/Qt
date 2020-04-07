@@ -140,6 +140,12 @@ void QWebGLHttpServer::setCustomRequestDevice(const QString &name, QIODevice *de
     d->customRequestDevices.insert(name, device);
 }
 
+QString QWebGLHttpServer::errorString() const
+{
+    Q_D(const QWebGLHttpServer);
+    return d->server.errorString();
+}
+
 void QWebGLHttpServer::clientConnected()
 {
     Q_D(QWebGLHttpServer);

@@ -162,7 +162,7 @@ function disableSetters(object, objectName, propertyNames, opt_messageSuffix) {
 
 // Disable benign Document methods.
 disableMethods(Document.prototype, 'document', ['open', 'close']);
-disableMethods(HTMLDocument.prototype, 'document', ['clear']);
+disableMethods(Document.prototype, 'document', ['clear']);
 
 // Replace evil Document methods with exception-throwing stubs.
 disableMethods(Document.prototype, 'document', ['write', 'writeln'], true);
@@ -196,25 +196,26 @@ try {
       'Use chrome.storage.local instead.');
 } catch (e) {}
 
-// Document instance properties that we wish to disable need to be set when
-// the document begins loading, since only then will the "document" reference
-// point to the page's document (it will be reset between now and then).
-// We can't listen for the "readystatechange" event on the document (because
-// the object that it's dispatched on doesn't exist yet), but we can instead
-// do it at the window level in the capturing phase.
-window.addEventListener('readystatechange', function(event) {
-  if (document.readyState != 'loading')
-    return;
-
+function disableDeprectatedDocumentFunction() {
   // Deprecated document properties from
   // https://developer.mozilla.org/en/DOM/document.
-  // To deprecate document.all, simply changing its getter and setter would
-  // activate its cache mechanism, and degrade the performance. Here we assign
-  // it first to 'undefined' to avoid this.
-  document.all = undefined;
+  // Disable document.all so that platform apps can not access.
+  delete Document.prototype.all
   disableGetters(document, 'document',
       ['alinkColor', 'all', 'bgColor', 'fgColor', 'linkColor', 'vlinkColor'],
       null, true);
+}
+
+// The new document may or may not already have been created when this script is
+// executed. In the second case, the current document is still the initial empty
+// document. There are no way to know whether 'document' refers to the old one
+// or the new one. That's why, the deprecated document properties needs to be
+// disabled on the current document and potentially on the new one, if it gets
+// created.
+disableDeprectatedDocumentFunction();
+window.addEventListener('readystatechange', function(event) {
+  if (document.readyState == 'loading')
+    disableDeprectatedDocumentFunction();
 }, true);
 
 // Disable onunload, onbeforeunload.

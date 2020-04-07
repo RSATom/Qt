@@ -356,8 +356,8 @@ bool QGeoCirclePrivate::crossSouthPole() const
     return false;
 }
 
-/*!
-  Extends the circle to include \a coordinate
+/*
+  Extends the circle to include \a coordinate.
 */
 void QGeoCirclePrivate::extendShape(const QGeoCoordinate &coordinate)
 {

@@ -5,23 +5,33 @@
 #ifndef CONTENT_RENDERER_SHARED_WORKER_SHARED_WORKER_REPOSITORY_H_
 #define CONTENT_RENDERER_SHARED_WORKER_SHARED_WORKER_REPOSITORY_H_
 
+#include <list>
+#include <map>
 #include <memory>
-#include <set>
 
 #include "base/macros.h"
-#include "third_party/WebKit/public/platform/WebAddressSpace.h"
-#include "third_party/WebKit/public/platform/WebContentSecurityPolicy.h"
-#include "third_party/WebKit/public/web/WebSharedWorkerCreationContextType.h"
-#include "third_party/WebKit/public/web/WebSharedWorkerRepositoryClient.h"
+#include "content/common/shared_worker/shared_worker_connector.mojom.h"
+#include "content/renderer/shared_worker/shared_worker_client_impl.h"
+#include "mojo/public/cpp/bindings/strong_binding.h"
+#include "mojo/public/cpp/bindings/strong_binding_set.h"
+#include "third_party/blink/public/platform/web_content_security_policy.h"
+#include "third_party/blink/public/web/web_shared_worker_repository_client.h"
+
+namespace blink {
+class MessagePortChannel;
+}
+
+namespace service_manager {
+class InterfaceProvider;
+}
 
 namespace content {
-
-class RenderFrameImpl;
 
 class SharedWorkerRepository final
     : public blink::WebSharedWorkerRepositoryClient {
  public:
-  explicit SharedWorkerRepository(RenderFrameImpl* render_frame);
+  explicit SharedWorkerRepository(
+      service_manager::InterfaceProvider* interface_provider);
   ~SharedWorkerRepository();
 
   // WebSharedWorkerRepositoryClient overrides.
@@ -31,16 +41,25 @@ class SharedWorkerRepository final
       DocumentID document_id,
       const blink::WebString& content_security_policy,
       blink::WebContentSecurityPolicyType,
-      blink::WebAddressSpace,
-      blink::WebSharedWorkerCreationContextType,
-      bool data_saver_enabled,
-      std::unique_ptr<blink::WebMessagePortChannel> channel,
+      blink::mojom::IPAddressSpace,
+      blink::mojom::SharedWorkerCreationContextType,
+      blink::MessagePortChannel channel,
+      mojo::ScopedMessagePipeHandle blob_url_token,
       std::unique_ptr<blink::WebSharedWorkerConnectListener> listener) override;
   void DocumentDetached(DocumentID document_id) override;
 
  private:
-  RenderFrameImpl* render_frame_;
-  std::set<DocumentID> documents_with_workers_;
+  void AddWorker(DocumentID document_id,
+                 std::unique_ptr<mojom::SharedWorkerClient> impl,
+                 mojom::SharedWorkerClientRequest request);
+
+  service_manager::InterfaceProvider* interface_provider_;
+
+  mojom::SharedWorkerConnectorPtr connector_;
+
+  using ClientSet = mojo::StrongBindingSet<mojom::SharedWorkerClient>;
+  using ClientMap = std::map<DocumentID, std::unique_ptr<ClientSet>>;
+  ClientMap client_map_;
 
   DISALLOW_COPY_AND_ASSIGN(SharedWorkerRepository);
 };

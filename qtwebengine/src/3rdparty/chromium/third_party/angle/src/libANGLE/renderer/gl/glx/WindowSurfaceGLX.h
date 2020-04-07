@@ -25,7 +25,6 @@ class WindowSurfaceGLX : public SurfaceGLX
     WindowSurfaceGLX(const egl::SurfaceState &state,
                      const FunctionsGLX &glx,
                      DisplayGLX *glxDisplay,
-                     RendererGL *renderer,
                      Window window,
                      Display *display,
                      glx::FBConfig fbConfig);
@@ -41,8 +40,10 @@ class WindowSurfaceGLX : public SurfaceGLX
                              EGLint width,
                              EGLint height) override;
     egl::Error querySurfacePointerANGLE(EGLint attribute, void **value) override;
-    egl::Error bindTexImage(gl::Texture *texture, EGLint buffer) override;
-    egl::Error releaseTexImage(EGLint buffer) override;
+    egl::Error bindTexImage(const gl::Context *context,
+                            gl::Texture *texture,
+                            EGLint buffer) override;
+    egl::Error releaseTexImage(const gl::Context *context, EGLint buffer) override;
     void setSwapInterval(EGLint interval) override;
 
     EGLint getWidth() const override;

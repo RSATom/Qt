@@ -1,34 +1,34 @@
-/***************************************************************************/
-/*                                                                         */
-/*  ftrfork.c                                                              */
-/*                                                                         */
-/*    Embedded resource forks accessor (body).                             */
-/*                                                                         */
-/*  Copyright 2004-2017 by                                                 */
-/*  Masatake YAMATO and Redhat K.K.                                        */
-/*                                                                         */
-/*  FT_Raccess_Get_HeaderInfo() and raccess_guess_darwin_hfsplus() are     */
-/*  derived from ftobjs.c.                                                 */
-/*                                                                         */
-/*  This file is part of the FreeType project, and may only be used,       */
-/*  modified, and distributed under the terms of the FreeType project      */
-/*  license, LICENSE.TXT.  By continuing to use, modify, or distribute     */
-/*  this file you indicate that you have read the license and              */
-/*  understand and accept it fully.                                        */
-/*                                                                         */
-/***************************************************************************/
+/****************************************************************************
+ *
+ * ftrfork.c
+ *
+ *   Embedded resource forks accessor (body).
+ *
+ * Copyright 2004-2018 by
+ * Masatake YAMATO and Redhat K.K.
+ *
+ * FT_Raccess_Get_HeaderInfo() and raccess_guess_darwin_hfsplus() are
+ * derived from ftobjs.c.
+ *
+ * This file is part of the FreeType project, and may only be used,
+ * modified, and distributed under the terms of the FreeType project
+ * license, LICENSE.TXT.  By continuing to use, modify, or distribute
+ * this file you indicate that you have read the license and
+ * understand and accept it fully.
+ *
+ */
 
-/***************************************************************************/
-/* Development of the code in this file is support of                      */
-/* Information-technology Promotion Agency, Japan.                         */
-/***************************************************************************/
+/****************************************************************************
+ * Development of the code in this file is support of
+ * Information-technology Promotion Agency, Japan.
+ */
 
 
 #include <ft2build.h>
 #include FT_INTERNAL_DEBUG_H
 #include FT_INTERNAL_STREAM_H
 #include FT_INTERNAL_RFORK_H
-#include "basepic.h"
+
 #include "ftbase.h"
 
 #undef  FT_COMPONENT
@@ -271,7 +271,13 @@
           if ( FT_STREAM_SKIP( 4 ) )  /* mbz */
             goto Exit;
 
-          if ( ref[j].res_id < 0 || temp < 0 )
+          /*
+           * According to Inside Macintosh: More Macintosh Toolbox,
+           * "Resource IDs" (1-46), there are some reserved IDs.
+           * However, FreeType2 is not a font synthesizer, no need
+           * to check the acceptable resource ID.
+           */
+          if ( temp < 0 )
           {
             error = FT_THROW( Invalid_Table );
             goto Exit;
@@ -281,7 +287,7 @@
 
           FT_TRACE3(( "             [%d]:"
                       " resource_id=0x%04x, offset=0x%08x\n",
-                      j, ref[j].res_id, ref[j].offset ));
+                      j, (FT_UShort)ref[j].res_id, ref[j].offset ));
         }
 
         if ( sort_by_res_id )
@@ -432,7 +438,7 @@
 
   static FT_Error
   raccess_guess_linux_double_from_file_name( FT_Library  library,
-                                             char *      file_name,
+                                             char*       file_name,
                                              FT_Long    *result_offset );
 
   static char *
@@ -462,17 +468,17 @@
       if ( errors[i] )
         continue;
 
-      errors[i] = (FT_RACCESS_GUESS_TABLE_GET[i].func)( library,
-                                                 stream, base_name,
-                                                 &(new_names[i]),
-                                                 &(offsets[i]) );
+      errors[i] = ft_raccess_guess_table[i].func( library,
+                                                  stream, base_name,
+                                                  &(new_names[i]),
+                                                  &(offsets[i]) );
     }
 
     return;
   }
 
 
-#ifndef FT_MACINTOSH
+#if defined( FT_CONFIG_OPTION_MAC_FONTS ) && !defined( FT_MACINTOSH )
   static FT_RFork_Rule
   raccess_get_rule_type_from_rule_index( FT_Library  library,
                                          FT_UInt     rule_index )
@@ -482,7 +488,7 @@
     if ( rule_index >= FT_RACCESS_N_RULES )
       return FT_RFork_Rule_invalid;
 
-    return FT_RACCESS_GUESS_TABLE_GET[rule_index].type;
+    return ft_raccess_guess_table[rule_index].type;
   }
 
 
@@ -841,7 +847,7 @@
   {
     FT_Open_Args  args2;
     FT_Stream     stream2;
-    char *        nouse = NULL;
+    char*         nouse = NULL;
     FT_Error      error;
 
 
@@ -903,9 +909,9 @@
 #else   /* !FT_CONFIG_OPTION_GUESSING_EMBEDDED_RFORK */
 
 
-  /*************************************************************************/
-  /*                  Dummy function; just sets errors                     */
-  /*************************************************************************/
+  /**************************************************************************
+   *                 Dummy function; just sets errors
+   */
 
   FT_BASE_DEF( void )
   FT_Raccess_Guess( FT_Library  library,

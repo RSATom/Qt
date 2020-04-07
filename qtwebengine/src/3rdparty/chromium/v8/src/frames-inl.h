@@ -5,34 +5,14 @@
 #ifndef V8_FRAMES_INL_H_
 #define V8_FRAMES_INL_H_
 
+#include "src/frame-constants.h"
 #include "src/frames.h"
 #include "src/isolate.h"
 #include "src/objects-inl.h"
 #include "src/v8memory.h"
 
-#if V8_TARGET_ARCH_IA32
-#include "src/ia32/frames-ia32.h"  // NOLINT
-#elif V8_TARGET_ARCH_X64
-#include "src/x64/frames-x64.h"  // NOLINT
-#elif V8_TARGET_ARCH_ARM64
-#include "src/arm64/frames-arm64.h"  // NOLINT
-#elif V8_TARGET_ARCH_ARM
-#include "src/arm/frames-arm.h"  // NOLINT
-#elif V8_TARGET_ARCH_PPC
-#include "src/ppc/frames-ppc.h"  // NOLINT
-#elif V8_TARGET_ARCH_MIPS
-#include "src/mips/frames-mips.h"  // NOLINT
-#elif V8_TARGET_ARCH_MIPS64
-#include "src/mips64/frames-mips64.h"  // NOLINT
-#elif V8_TARGET_ARCH_S390
-#include "src/s390/frames-s390.h"  // NOLINT
-#else
-#error Unsupported target architecture.
-#endif
-
 namespace v8 {
 namespace internal {
-
 
 inline Address StackHandler::address() const {
   return reinterpret_cast<Address>(const_cast<StackHandler*>(this));
@@ -60,20 +40,8 @@ inline StackHandler* StackFrame::top_handler() const {
 }
 
 
-inline Code* StackFrame::LookupCode() const {
-  // TODO(jgruber): This should really check that pc is within the returned
-  // code's instruction range [instruction_start(), instruction_end()[.
-  return GetContainingCode(isolate(), pc());
-}
-
-
-inline Code* StackFrame::GetContainingCode(Isolate* isolate, Address pc) {
-  return isolate->inner_pointer_to_code_cache()->GetCacheEntry(pc)->code;
-}
-
-
 inline Address* StackFrame::ResolveReturnAddressLocation(Address* pc_address) {
-  if (return_address_location_resolver_ == NULL) {
+  if (return_address_location_resolver_ == nullptr) {
     return pc_address;
   } else {
     return reinterpret_cast<Address*>(
@@ -82,21 +50,22 @@ inline Address* StackFrame::ResolveReturnAddressLocation(Address* pc_address) {
   }
 }
 
+inline NativeFrame::NativeFrame(StackFrameIteratorBase* iterator)
+    : StackFrame(iterator) {}
+
+inline Address NativeFrame::GetCallerStackPointer() const {
+  return fp() + CommonFrameConstants::kCallerSPOffset;
+}
 
 inline EntryFrame::EntryFrame(StackFrameIteratorBase* iterator)
-    : StackFrame(iterator) {
-}
+    : StackFrame(iterator) {}
 
-
-inline EntryConstructFrame::EntryConstructFrame(
+inline ConstructEntryFrame::ConstructEntryFrame(
     StackFrameIteratorBase* iterator)
-    : EntryFrame(iterator) {
-}
-
+    : EntryFrame(iterator) {}
 
 inline ExitFrame::ExitFrame(StackFrameIteratorBase* iterator)
-    : StackFrame(iterator) {
-}
+    : StackFrame(iterator) {}
 
 inline BuiltinExitFrame::BuiltinExitFrame(StackFrameIteratorBase* iterator)
     : ExitFrame(iterator) {}
@@ -188,34 +157,6 @@ Address JavaScriptFrame::GetParameterSlot(int index) const {
   return caller_sp() + parameter_offset;
 }
 
-inline Address JavaScriptFrame::GetOperandSlot(int index) const {
-  Address base = fp() + JavaScriptFrameConstants::kLocal0Offset;
-  DCHECK(IsAddressAligned(base, kPointerSize));
-  DCHECK_EQ(type(), JAVA_SCRIPT);
-  DCHECK_LT(index, ComputeOperandsCount());
-  DCHECK_LE(0, index);
-  // Operand stack grows down.
-  return base - index * kPointerSize;
-}
-
-
-inline Object* JavaScriptFrame::GetOperand(int index) const {
-  return Memory::Object_at(GetOperandSlot(index));
-}
-
-
-inline int JavaScriptFrame::ComputeOperandsCount() const {
-  Address base = fp() + JavaScriptFrameConstants::kLocal0Offset;
-  // Base points to low address of first operand and stack grows down, so add
-  // kPointerSize to get the actual stack size.
-  intptr_t stack_size_in_bytes = (base + kPointerSize) - sp();
-  DCHECK(IsAligned(stack_size_in_bytes, kPointerSize));
-  DCHECK(type() == JAVA_SCRIPT);
-  DCHECK(stack_size_in_bytes >= 0);
-  return static_cast<int>(stack_size_in_bytes >> kPointerSizeLog2);
-}
-
-
 inline void JavaScriptFrame::set_receiver(Object* value) {
   Memory::Object_at(GetParameterSlot(-1)) = value;
 }
@@ -265,6 +206,13 @@ inline WasmToJsFrame::WasmToJsFrame(StackFrameIteratorBase* iterator)
 inline JsToWasmFrame::JsToWasmFrame(StackFrameIteratorBase* iterator)
     : StubFrame(iterator) {}
 
+inline CWasmEntryFrame::CWasmEntryFrame(StackFrameIteratorBase* iterator)
+    : StubFrame(iterator) {}
+
+inline WasmCompileLazyFrame::WasmCompileLazyFrame(
+    StackFrameIteratorBase* iterator)
+    : StandardFrame(iterator) {}
+
 inline InternalFrame::InternalFrame(StackFrameIteratorBase* iterator)
     : StandardFrame(iterator) {
 }
@@ -280,6 +228,11 @@ inline BuiltinContinuationFrame::BuiltinContinuationFrame(
 inline JavaScriptBuiltinContinuationFrame::JavaScriptBuiltinContinuationFrame(
     StackFrameIteratorBase* iterator)
     : JavaScriptFrame(iterator) {}
+
+inline JavaScriptBuiltinContinuationWithCatchFrame::
+    JavaScriptBuiltinContinuationWithCatchFrame(
+        StackFrameIteratorBase* iterator)
+    : JavaScriptBuiltinContinuationFrame(iterator) {}
 
 inline JavaScriptFrameIterator::JavaScriptFrameIterator(
     Isolate* isolate)
@@ -323,7 +276,7 @@ JavaScriptFrame* StackTraceFrameIterator::javascript_frame() const {
 inline StackFrame* SafeStackFrameIterator::frame() const {
   DCHECK(!done());
   DCHECK(frame_->is_java_script() || frame_->is_exit() ||
-         frame_->is_builtin_exit());
+         frame_->is_builtin_exit() || frame_->is_wasm());
   return frame_;
 }
 

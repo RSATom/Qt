@@ -60,7 +60,7 @@ QT_BEGIN_NAMESPACE
     \inqmlmodule QtLocation
     \ingroup qml-QtLocation5-places
     \ingroup qml-QtLocation5-places-data
-    \since Qt Location 5.5
+    \since QtLocation 5.5
 
     \brief The Place type represents a location that is a position of interest.
 
@@ -385,7 +385,7 @@ void QDeclarativePlace::setPlace(const QPlace &src)
                                                m_src.content(QPlaceContent::EditorialType));
     }
 
-    synchronizeExtendedAttributes();
+    pullExtendedAttributes();
     synchronizeContacts();
 }
 
@@ -1076,7 +1076,7 @@ void QDeclarativePlace::initializeFavorite(QDeclarativeGeoServiceProvider *plugi
 /*!
     \internal
 */
-void QDeclarativePlace::synchronizeExtendedAttributes()
+void QDeclarativePlace::pullExtendedAttributes()
 {
     QStringList keys = m_extendedAttributes->keys();
     foreach (const QString &key, keys)

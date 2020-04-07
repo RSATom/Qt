@@ -12,7 +12,6 @@ class Display;
 namespace ui {
 
 class EventSink;
-class OzonePlatform;
 
 namespace ws {
 
@@ -38,9 +37,7 @@ class PlatformDisplayDelegate {
   // Called when the Display loses capture.
   virtual void OnNativeCaptureLost() = 0;
 
-  // Allows the OzonePlatform to be overridden, e.g. for tests. Returns null
-  // for non-Ozone platforms.
-  virtual OzonePlatform* GetOzonePlatform() = 0;
+  virtual bool IsHostingViz() const = 0;
 
  protected:
   virtual ~PlatformDisplayDelegate() {}

@@ -38,9 +38,10 @@ const char kServerPathForTestOperation[] = "/v1/operations/test-operation-1234";
 class GetOperationRequestTest : public PrefetchRequestTestBase {
  public:
   std::unique_ptr<GetOperationRequest> CreateRequest(
-      const PrefetchRequestFinishedCallback& callback) {
-    return std::unique_ptr<GetOperationRequest>(new GetOperationRequest(
-        kTestOperationName, kTestChannel, request_context(), callback));
+      PrefetchRequestFinishedCallback callback) {
+    return std::unique_ptr<GetOperationRequest>(
+        new GetOperationRequest(kTestOperationName, kTestChannel,
+                                request_context(), std::move(callback)));
   }
 };
 
@@ -62,8 +63,24 @@ TEST_F(GetOperationRequestTest, RequestData) {
                     &content_type_header);
   EXPECT_EQ("application/x-protobuf", content_type_header);
 
+  // Experiment header should not be set.
+  EXPECT_EQ("", GetExperiementHeaderValue(fetcher));
+
   EXPECT_TRUE(fetcher->upload_content_type().empty());
   EXPECT_TRUE(fetcher->upload_data().empty());
+}
+
+TEST_F(GetOperationRequestTest, ExperimentHeaderInRequestData) {
+  // Add the experiment option in the field trial.
+  SetUpExperimentOption();
+
+  base::MockCallback<PrefetchRequestFinishedCallback> callback;
+  std::unique_ptr<GetOperationRequest> request(CreateRequest(callback.Get()));
+  net::TestURLFetcher* fetcher = GetRunningFetcher();
+
+  // Experiment header should be set.
+  EXPECT_EQ(kExperimentValueSetInFieldTrial,
+            GetExperiementHeaderValue(fetcher));
 }
 
 TEST_F(GetOperationRequestTest, EmptyResponse) {
@@ -79,7 +96,7 @@ TEST_F(GetOperationRequestTest, EmptyResponse) {
   RespondWithData("");
 
   EXPECT_EQ(PrefetchRequestStatus::SHOULD_RETRY_WITH_BACKOFF, status);
-  EXPECT_TRUE(operation_name.empty());
+  EXPECT_EQ(std::string(kTestOperationName), operation_name);
   EXPECT_TRUE(pages.empty());
 }
 
@@ -96,7 +113,7 @@ TEST_F(GetOperationRequestTest, InvalidResponse) {
   RespondWithData("Some invalid data");
 
   EXPECT_EQ(PrefetchRequestStatus::SHOULD_RETRY_WITH_BACKOFF, status);
-  EXPECT_TRUE(operation_name.empty());
+  EXPECT_EQ(std::string(kTestOperationName), operation_name);
   EXPECT_TRUE(pages.empty());
 }
 

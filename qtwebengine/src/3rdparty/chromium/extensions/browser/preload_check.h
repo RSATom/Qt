@@ -27,13 +27,12 @@ class PreloadCheck {
     BLACKLISTED_ID,
     BLACKLISTED_UNKNOWN,
     DISALLOWED_BY_POLICY,
-    NPAPI_NOT_SUPPORTED,
     WEBGL_NOT_SUPPORTED,
     WINDOW_SHAPE_NOT_SUPPORTED,
   };
 
   using Errors = std::set<Error>;
-  using ResultCallback = base::OnceCallback<void(Errors)>;
+  using ResultCallback = base::OnceCallback<void(const Errors&)>;
 
   explicit PreloadCheck(scoped_refptr<const Extension> extension);
   virtual ~PreloadCheck();

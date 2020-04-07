@@ -7,11 +7,12 @@
 #include <utility>
 
 #include "base/bind.h"
+#include "base/callback.h"
 #include "base/logging.h"
-#include "net/base/parse_number.h"
 #include "base/strings/string_piece.h"
 #include "base/values.h"
 #include "net/base/net_errors.h"
+#include "net/base/parse_number.h"
 #include "net/log/net_log_event_type.h"
 
 namespace net {
@@ -23,12 +24,12 @@ FtpCtrlResponse::FtpCtrlResponse() : status_code(kInvalidStatusCode) {}
 
 FtpCtrlResponse::FtpCtrlResponse(const FtpCtrlResponse& other) = default;
 
-FtpCtrlResponse::~FtpCtrlResponse() {}
+FtpCtrlResponse::~FtpCtrlResponse() = default;
 
 FtpCtrlResponseBuffer::FtpCtrlResponseBuffer(const NetLogWithSource& net_log)
     : multiline_(false), net_log_(net_log) {}
 
-FtpCtrlResponseBuffer::~FtpCtrlResponseBuffer() {}
+FtpCtrlResponseBuffer::~FtpCtrlResponseBuffer() = default;
 
 int FtpCtrlResponseBuffer::ConsumeData(const char* data, int data_length) {
   buffer_.append(data, data_length);

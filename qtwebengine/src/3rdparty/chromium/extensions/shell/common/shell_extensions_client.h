@@ -21,6 +21,7 @@ class ShellExtensionsClient : public ExtensionsClient {
 
   // ExtensionsClient overrides:
   void Initialize() override;
+  void InitializeWebStoreUrls(base::CommandLine* command_line) override;
   const PermissionMessageProvider& GetPermissionMessageProvider()
       const override;
   const std::string GetProductName() override;
@@ -44,6 +45,7 @@ class ShellExtensionsClient : public ExtensionsClient {
   const GURL& GetWebstoreBaseURL() const override;
   const GURL& GetWebstoreUpdateURL() const override;
   bool IsBlacklistUpdateURL(const GURL& url) const override;
+  std::string GetUserAgent() const override;
 
  private:
   const ExtensionsAPIPermissions extensions_api_permissions_;

@@ -12,17 +12,13 @@
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
-#include "base/test/histogram_tester.h"
 #include "base/test/test_message_loop.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "build/build_config.h"
-#include "components/ukm/test_ukm_recorder.h"
 #include "content/public/test/test_browser_thread_bundle.h"
 #include "media/base/audio_parameters.h"
 #include "media/base/channel_layout.h"
 #include "media/base/media_log.h"
-#include "media/base/watch_time_keys.h"
-#include "media/blink/watch_time_reporter.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/gfx/geometry/size.h"
@@ -30,7 +26,6 @@
 namespace {
 const int kTestComponentID = 0;
 const char kTestDeviceID[] = "test-device-id";
-const char kTestOrigin[] = "https://test.google.com/";
 
 // This class encapsulates a MediaInternals reference. It also has some useful
 // methods to receive a callback, deserialize its associated data and expect
@@ -56,7 +51,7 @@ class MediaInternalsTestBase {
         utf8_update.substr(first_brace, last_brace - first_brace + 1));
     CHECK(output_value);
 
-    base::DictionaryValue* output_dict = NULL;
+    base::DictionaryValue* output_dict = nullptr;
     CHECK(output_value->GetAsDictionary(&output_dict));
     update_data_.MergeDictionary(output_dict);
   }
@@ -120,37 +115,6 @@ class MediaInternalsVideoCaptureDeviceTest : public testing::Test,
   MediaInternals::UpdateCallback update_cb_;
 };
 
-// TODO(chfremer): Consider removing this. This test seem be
-// a duplicate implementation of the functionality under test.
-// https://crbug.com/630694
-#if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_LINUX) || \
-    defined(OS_ANDROID)
-TEST_F(MediaInternalsVideoCaptureDeviceTest,
-       AllCaptureApiTypesHaveProperStringRepresentation) {
-  using VideoCaptureApi = media::VideoCaptureApi;
-  std::map<VideoCaptureApi, std::string> api_to_string_map;
-  api_to_string_map[VideoCaptureApi::LINUX_V4L2_SINGLE_PLANE] = "V4L2 SPLANE";
-  api_to_string_map[VideoCaptureApi::WIN_MEDIA_FOUNDATION] = "Media Foundation";
-  api_to_string_map[VideoCaptureApi::WIN_DIRECT_SHOW] = "Direct Show";
-  api_to_string_map[VideoCaptureApi::MACOSX_AVFOUNDATION] = "AV Foundation";
-  api_to_string_map[VideoCaptureApi::MACOSX_DECKLINK] = "DeckLink";
-  api_to_string_map[VideoCaptureApi::ANDROID_API1] = "Camera API1";
-  api_to_string_map[VideoCaptureApi::ANDROID_API2_LEGACY] =
-      "Camera API2 Legacy";
-  api_to_string_map[VideoCaptureApi::ANDROID_API2_FULL] = "Camera API2 Full";
-  api_to_string_map[VideoCaptureApi::ANDROID_API2_LIMITED] =
-      "Camera API2 Limited";
-  api_to_string_map[VideoCaptureApi::ANDROID_TANGO] = "Tango API";
-  EXPECT_EQ(static_cast<size_t>(VideoCaptureApi::UNKNOWN),
-            api_to_string_map.size());
-  for (const auto& map_entry : api_to_string_map) {
-    media::VideoCaptureDeviceDescriptor descriptor;
-    descriptor.capture_api = map_entry.first;
-    EXPECT_EQ(map_entry.second, descriptor.GetCaptureApiTypeString());
-  }
-}
-#endif
-
 TEST_F(MediaInternalsVideoCaptureDeviceTest,
        VideoCaptureFormatStringIsInExpectedFormat) {
   // Since media internals will send video capture capabilities to JavaScript in
@@ -161,14 +125,11 @@ TEST_F(MediaInternalsVideoCaptureDeviceTest,
   const float kFrameRate = 30.0f;
   const gfx::Size kFrameSize(1280, 720);
   const media::VideoPixelFormat kPixelFormat = media::PIXEL_FORMAT_I420;
-  const media::VideoPixelStorage kPixelStorage = media::PIXEL_STORAGE_CPU;
   const media::VideoCaptureFormat capture_format(kFrameSize, kFrameRate,
-                                                 kPixelFormat, kPixelStorage);
+                                                 kPixelFormat);
   const std::string expected_string = base::StringPrintf(
-      "(%s)@%.3ffps, pixel format: %s, storage: %s",
-      kFrameSize.ToString().c_str(), kFrameRate,
-      media::VideoPixelFormatToString(kPixelFormat).c_str(),
-      media::VideoCaptureFormat::PixelStorageToString(kPixelStorage).c_str());
+      "(%s)@%.3ffps, pixel format: %s", kFrameSize.ToString().c_str(),
+      kFrameRate, media::VideoPixelFormatToString(kPixelFormat).c_str());
   EXPECT_EQ(expected_string,
             media::VideoCaptureFormat::ToString(capture_format));
 }
@@ -185,7 +146,7 @@ TEST_F(MediaInternalsVideoCaptureDeviceTest,
   formats.push_back(format_hd);
   media::VideoCaptureDeviceDescriptor descriptor;
   descriptor.device_id = "dummy";
-  descriptor.display_name = "dummy";
+  descriptor.set_display_name("dummy");
 #if defined(OS_MACOSX)
   descriptor.capture_api = media::VideoCaptureApi::MACOSX_AVFOUNDATION;
 #elif defined(OS_WIN)
@@ -237,7 +198,8 @@ class MediaInternalsAudioLogTest
                               base::Unretained(this))),
         test_params_(MakeAudioParams()),
         test_component_(GetParam()),
-        audio_log_(media_internals_->CreateAudioLog(test_component_)) {
+        audio_log_(media_internals_->CreateAudioLog(test_component_,
+                                                    kTestComponentID)) {
     media_internals_->AddUpdateCallback(update_cb_);
   }
 
@@ -254,7 +216,7 @@ class MediaInternalsAudioLogTest
  private:
   static media::AudioParameters MakeAudioParams() {
     media::AudioParameters params(media::AudioParameters::AUDIO_PCM_LINEAR,
-                                  media::CHANNEL_LAYOUT_MONO, 48000, 16, 128);
+                                  media::CHANNEL_LAYOUT_MONO, 48000, 128);
     params.set_effects(media::AudioParameters::ECHO_CANCELLER |
                        media::AudioParameters::DUCKING);
     return params;
@@ -262,7 +224,7 @@ class MediaInternalsAudioLogTest
 };
 
 TEST_P(MediaInternalsAudioLogTest, AudioLogCreateStartStopErrorClose) {
-  audio_log_->OnCreated(kTestComponentID, test_params_, kTestDeviceID);
+  audio_log_->OnCreated(test_params_, kTestDeviceID);
   base::RunLoop().RunUntilIdle();
 
   ExpectString("channel_layout",
@@ -277,12 +239,12 @@ TEST_P(MediaInternalsAudioLogTest, AudioLogCreateStartStopErrorClose) {
   ExpectStatus("created");
 
   // Verify OnStarted().
-  audio_log_->OnStarted(kTestComponentID);
+  audio_log_->OnStarted();
   base::RunLoop().RunUntilIdle();
   ExpectStatus("started");
 
   // Verify OnStopped().
-  audio_log_->OnStopped(kTestComponentID);
+  audio_log_->OnStopped();
   base::RunLoop().RunUntilIdle();
   ExpectStatus("stopped");
 
@@ -290,22 +252,22 @@ TEST_P(MediaInternalsAudioLogTest, AudioLogCreateStartStopErrorClose) {
   const char kErrorKey[] = "error_occurred";
   std::string no_value;
   ASSERT_FALSE(update_data_.GetString(kErrorKey, &no_value));
-  audio_log_->OnError(kTestComponentID);
+  audio_log_->OnError();
   base::RunLoop().RunUntilIdle();
   ExpectString(kErrorKey, "true");
 
   // Verify OnClosed().
-  audio_log_->OnClosed(kTestComponentID);
+  audio_log_->OnClosed();
   base::RunLoop().RunUntilIdle();
   ExpectStatus("closed");
 }
 
 TEST_P(MediaInternalsAudioLogTest, AudioLogCreateClose) {
-  audio_log_->OnCreated(kTestComponentID, test_params_, kTestDeviceID);
+  audio_log_->OnCreated(test_params_, kTestDeviceID);
   base::RunLoop().RunUntilIdle();
   ExpectStatus("created");
 
-  audio_log_->OnClosed(kTestComponentID);
+  audio_log_->OnClosed();
   base::RunLoop().RunUntilIdle();
   ExpectStatus("closed");
 }
@@ -316,652 +278,5 @@ INSTANTIATE_TEST_CASE_P(
     testing::Values(media::AudioLogFactory::AUDIO_INPUT_CONTROLLER,
                     media::AudioLogFactory::AUDIO_OUTPUT_CONTROLLER,
                     media::AudioLogFactory::AUDIO_OUTPUT_STREAM));
-
-class DirectMediaLog : public media::MediaLog {
- public:
-  explicit DirectMediaLog(int render_process_id)
-      : render_process_id_(render_process_id),
-        internals_(content::MediaInternals::GetInstance()) {}
-  ~DirectMediaLog() override {}
-
-  void AddEvent(std::unique_ptr<media::MediaLogEvent> event) override {
-    std::vector<media::MediaLogEvent> events(1, *event);
-    internals_->OnMediaEvents(render_process_id_, events);
-  }
-
- private:
-  const int render_process_id_;
-  MediaInternals* const internals_;
-
-  DISALLOW_COPY_AND_ASSIGN(DirectMediaLog);
-};
-
-class MediaInternalsWatchTimeTest : public testing::Test,
-                                    public MediaInternalsTestBase {
- public:
-  MediaInternalsWatchTimeTest()
-      : render_process_id_(0),
-        internals_(content::MediaInternals::GetInstance()),
-        media_log_(new DirectMediaLog(render_process_id_)),
-        histogram_tester_(new base::HistogramTester()),
-        test_recorder_(new ukm::TestAutoSetUkmRecorder()),
-        watch_time_keys_(media::GetWatchTimeKeys()),
-        watch_time_power_keys_(media::GetWatchTimePowerKeys()),
-        mtbr_keys_({media::kMeanTimeBetweenRebuffersAudioSrc,
-                    media::kMeanTimeBetweenRebuffersAudioMse,
-                    media::kMeanTimeBetweenRebuffersAudioEme,
-                    media::kMeanTimeBetweenRebuffersAudioVideoSrc,
-                    media::kMeanTimeBetweenRebuffersAudioVideoMse,
-                    media::kMeanTimeBetweenRebuffersAudioVideoEme}),
-        smooth_keys_({media::kRebuffersCountAudioSrc,
-                      media::kRebuffersCountAudioMse,
-                      media::kRebuffersCountAudioEme,
-                      media::kRebuffersCountAudioVideoSrc,
-                      media::kRebuffersCountAudioVideoMse,
-                      media::kRebuffersCountAudioVideoEme}) {
-    media_log_->AddEvent(media_log_->CreateCreatedEvent(kTestOrigin));
-  }
-
-  void Initialize(bool has_audio,
-                  bool has_video,
-                  bool is_mse,
-                  bool is_encrypted) {
-    wtr_.reset(new media::WatchTimeReporter(
-        has_audio, has_video, is_mse, is_encrypted, true, media_log_.get(),
-        gfx::Size(800, 600),
-        base::Bind(&MediaInternalsWatchTimeTest::GetCurrentMediaTime,
-                   base::Unretained(this))));
-    wtr_->set_reporting_interval_for_testing();
-  }
-
-  void CycleWatchTimeReporter() {
-    base::RunLoop run_loop;
-    base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE,
-                                                  run_loop.QuitClosure());
-    run_loop.Run();
-  }
-
-  void ExpectWatchTime(const std::vector<base::StringPiece>& keys,
-                       base::TimeDelta value) {
-    for (auto key : watch_time_keys_) {
-      auto it = std::find(keys.begin(), keys.end(), key);
-      if (it == keys.end()) {
-        histogram_tester_->ExpectTotalCount(key.as_string(), 0);
-      } else {
-        histogram_tester_->ExpectUniqueSample(key.as_string(),
-                                              value.InMilliseconds(), 1);
-      }
-    }
-  }
-
-  void ExpectHelper(const std::vector<base::StringPiece>& full_key_list,
-                    const std::vector<base::StringPiece>& keys,
-                    int64_t value) {
-    for (auto key : full_key_list) {
-      auto it = std::find(keys.begin(), keys.end(), key);
-      if (it == keys.end())
-        histogram_tester_->ExpectTotalCount(key.as_string(), 0);
-      else
-        histogram_tester_->ExpectUniqueSample(key.as_string(), value, 1);
-    }
-  }
-
-  void ExpectMtbrTime(const std::vector<base::StringPiece>& keys,
-                      base::TimeDelta value) {
-    ExpectHelper(mtbr_keys_, keys, value.InMilliseconds());
-  }
-
-  void ExpectZeroRebuffers(const std::vector<base::StringPiece>& keys) {
-    ExpectHelper(smooth_keys_, keys, 0);
-  }
-
-  void ExpectRebuffers(const std::vector<base::StringPiece>& keys, int count) {
-    ExpectHelper(smooth_keys_, keys, count);
-  }
-
-  void ExpectUkmWatchTime(size_t entry, size_t size, base::TimeDelta value) {
-    ASSERT_LT(entry, test_recorder_->entries_count());
-
-    const auto& metrics_vector = test_recorder_->GetEntry(entry)->metrics;
-    ASSERT_EQ(size, metrics_vector.size());
-
-    for (auto& sample : metrics_vector)
-      EXPECT_EQ(value.InMilliseconds(), sample->value);
-  }
-
-  void ResetHistogramTester() {
-    histogram_tester_.reset(new base::HistogramTester());
-  }
-
-  MOCK_METHOD0(GetCurrentMediaTime, base::TimeDelta());
-
- protected:
-  const int render_process_id_;
-  MediaInternals* const internals_;
-  std::unique_ptr<DirectMediaLog> media_log_;
-  std::unique_ptr<base::HistogramTester> histogram_tester_;
-  std::unique_ptr<ukm::TestUkmRecorder> test_recorder_;
-  std::unique_ptr<media::WatchTimeReporter> wtr_;
-  const base::flat_set<base::StringPiece> watch_time_keys_;
-  const base::flat_set<base::StringPiece> watch_time_power_keys_;
-  const std::vector<base::StringPiece> mtbr_keys_;
-  const std::vector<base::StringPiece> smooth_keys_;
-
-  DISALLOW_COPY_AND_ASSIGN(MediaInternalsWatchTimeTest);
-};
-
-TEST_F(MediaInternalsWatchTimeTest, BasicAudio) {
-  constexpr base::TimeDelta kWatchTimeEarly = base::TimeDelta::FromSeconds(5);
-  constexpr base::TimeDelta kWatchTimeLate = base::TimeDelta::FromSeconds(10);
-  EXPECT_CALL(*this, GetCurrentMediaTime())
-      .WillOnce(testing::Return(base::TimeDelta()))
-      .WillOnce(testing::Return(kWatchTimeEarly))
-      .WillRepeatedly(testing::Return(kWatchTimeLate));
-  Initialize(true, false, true, true);
-  wtr_->OnPlaying();
-
-  // No log should have been generated yet since the message loop has not had
-  // any chance to pump.
-  CycleWatchTimeReporter();
-  ExpectWatchTime(std::vector<base::StringPiece>(), base::TimeDelta());
-
-  wtr_->OnUnderflow();
-  wtr_->OnUnderflow();
-  CycleWatchTimeReporter();
-  wtr_.reset();
-
-  ExpectWatchTime({media::kWatchTimeAudioAll, media::kWatchTimeAudioMse,
-                   media::kWatchTimeAudioEme, media::kWatchTimeAudioAc,
-                   media::kWatchTimeAudioNativeControlsOff,
-                   media::kWatchTimeAudioEmbeddedExperience},
-                  kWatchTimeLate);
-  ExpectMtbrTime({media::kMeanTimeBetweenRebuffersAudioMse,
-                  media::kMeanTimeBetweenRebuffersAudioEme},
-                 kWatchTimeLate / 2);
-  ExpectRebuffers(
-      {media::kRebuffersCountAudioMse, media::kRebuffersCountAudioEme}, 2);
-
-  ASSERT_EQ(1U, test_recorder_->sources_count());
-  ExpectUkmWatchTime(0, 5, kWatchTimeLate);
-  EXPECT_TRUE(test_recorder_->GetSourceForUrl(kTestOrigin));
-}
-
-TEST_F(MediaInternalsWatchTimeTest, BasicVideo) {
-  constexpr base::TimeDelta kWatchTimeEarly = base::TimeDelta::FromSeconds(5);
-  constexpr base::TimeDelta kWatchTimeLate = base::TimeDelta::FromSeconds(10);
-  EXPECT_CALL(*this, GetCurrentMediaTime())
-      .WillOnce(testing::Return(base::TimeDelta()))
-      .WillOnce(testing::Return(kWatchTimeEarly))
-      .WillRepeatedly(testing::Return(kWatchTimeLate));
-  Initialize(true, true, false, true);
-  wtr_->OnPlaying();
-
-  // No log should have been generated yet since the message loop has not had
-  // any chance to pump.
-  CycleWatchTimeReporter();
-  ExpectWatchTime(std::vector<base::StringPiece>(), base::TimeDelta());
-
-  wtr_->OnUnderflow();
-  wtr_->OnUnderflow();
-  CycleWatchTimeReporter();
-  wtr_.reset();
-
-  ExpectWatchTime(
-      {media::kWatchTimeAudioVideoAll, media::kWatchTimeAudioVideoSrc,
-       media::kWatchTimeAudioVideoEme, media::kWatchTimeAudioVideoAc,
-       media::kWatchTimeAudioVideoNativeControlsOff,
-       media::kWatchTimeAudioVideoDisplayInline,
-       media::kWatchTimeAudioVideoEmbeddedExperience},
-      kWatchTimeLate);
-  ExpectMtbrTime({media::kMeanTimeBetweenRebuffersAudioVideoSrc,
-                  media::kMeanTimeBetweenRebuffersAudioVideoEme},
-                 kWatchTimeLate / 2);
-  ExpectRebuffers({media::kRebuffersCountAudioVideoSrc,
-                   media::kRebuffersCountAudioVideoEme},
-                  2);
-
-  ASSERT_EQ(1U, test_recorder_->sources_count());
-  ExpectUkmWatchTime(0, 6, kWatchTimeLate);
-  EXPECT_TRUE(test_recorder_->GetSourceForUrl(kTestOrigin));
-}
-
-TEST_F(MediaInternalsWatchTimeTest, BasicPower) {
-  constexpr base::TimeDelta kWatchTime1 = base::TimeDelta::FromSeconds(5);
-  constexpr base::TimeDelta kWatchTime2 = base::TimeDelta::FromSeconds(10);
-  constexpr base::TimeDelta kWatchTime3 = base::TimeDelta::FromSeconds(30);
-  EXPECT_CALL(*this, GetCurrentMediaTime())
-      .WillOnce(testing::Return(base::TimeDelta()))
-      .WillOnce(testing::Return(kWatchTime1))
-      .WillOnce(testing::Return(kWatchTime2))
-      .WillOnce(testing::Return(kWatchTime2))
-      .WillRepeatedly(testing::Return(kWatchTime3));
-
-  Initialize(true, true, false, true);
-  wtr_->OnPlaying();
-  wtr_->set_is_on_battery_power_for_testing(true);
-
-  // No log should have been generated yet since the message loop has not had
-  // any chance to pump.
-  CycleWatchTimeReporter();
-  ExpectWatchTime(std::vector<base::StringPiece>(), base::TimeDelta());
-
-  CycleWatchTimeReporter();
-
-  // Transition back to AC power, this should generate AC watch time as well.
-  wtr_->OnPowerStateChangeForTesting(false);
-  CycleWatchTimeReporter();
-
-  // This should finalize the power watch time on battery.
-  ExpectWatchTime({media::kWatchTimeAudioVideoBattery}, kWatchTime2);
-  ResetHistogramTester();
-  wtr_.reset();
-
-  std::vector<base::StringPiece> normal_keys = {
-      media::kWatchTimeAudioVideoAll,
-      media::kWatchTimeAudioVideoSrc,
-      media::kWatchTimeAudioVideoEme,
-      media::kWatchTimeAudioVideoNativeControlsOff,
-      media::kWatchTimeAudioVideoDisplayInline,
-      media::kWatchTimeAudioVideoEmbeddedExperience};
-
-  for (auto key : watch_time_keys_) {
-    if (key == media::kWatchTimeAudioVideoAc) {
-      histogram_tester_->ExpectUniqueSample(
-          key.as_string(), (kWatchTime3 - kWatchTime2).InMilliseconds(), 1);
-      continue;
-    }
-
-    auto it = std::find(normal_keys.begin(), normal_keys.end(), key);
-    if (it == normal_keys.end()) {
-      histogram_tester_->ExpectTotalCount(key.as_string(), 0);
-    } else {
-      histogram_tester_->ExpectUniqueSample(key.as_string(),
-                                            kWatchTime3.InMilliseconds(), 1);
-    }
-  }
-
-  // Each finalize creates a new source and entry. We don't check the URL here
-  // since the TestUkmService() helpers DCHECK() a unique URL per source.
-  ASSERT_EQ(2U, test_recorder_->sources_count());
-  ASSERT_EQ(2U, test_recorder_->entries_count());
-  ExpectUkmWatchTime(0, 1, kWatchTime2);
-  ExpectZeroRebuffers({media::kRebuffersCountAudioVideoSrc,
-                       media::kRebuffersCountAudioVideoEme});
-
-  // Verify Media.WatchTime keys are properly stripped for UKM reporting.
-  EXPECT_TRUE(test_recorder_->FindMetric(test_recorder_->GetEntry(0),
-                                         "AudioVideo.Battery"));
-
-  // Spot check one of the non-AC keys; this relies on the assumption that the
-  // AC metric is not last.
-  const auto& metrics_vector = test_recorder_->GetEntry(1)->metrics;
-  ASSERT_EQ(6U, metrics_vector.size());
-}
-
-TEST_F(MediaInternalsWatchTimeTest, BasicControls) {
-  constexpr base::TimeDelta kWatchTime1 = base::TimeDelta::FromSeconds(5);
-  constexpr base::TimeDelta kWatchTime2 = base::TimeDelta::FromSeconds(10);
-  constexpr base::TimeDelta kWatchTime3 = base::TimeDelta::FromSeconds(30);
-  EXPECT_CALL(*this, GetCurrentMediaTime())
-      .WillOnce(testing::Return(base::TimeDelta()))
-      .WillOnce(testing::Return(kWatchTime1))
-      .WillOnce(testing::Return(kWatchTime2))
-      .WillOnce(testing::Return(kWatchTime2))
-      .WillRepeatedly(testing::Return(kWatchTime3));
-
-  Initialize(true, true, false, true);
-  wtr_->OnNativeControlsEnabled();
-  wtr_->OnPlaying();
-
-  // No log should have been generated yet since the message loop has not had
-  // any chance to pump.
-  CycleWatchTimeReporter();
-  ExpectWatchTime(std::vector<base::StringPiece>(), base::TimeDelta());
-
-  CycleWatchTimeReporter();
-
-  // Transition back to non-native controls, this should generate controls watch
-  // time as well.
-  wtr_->OnNativeControlsDisabled();
-  CycleWatchTimeReporter();
-
-  // This should finalize the power watch time on native controls.
-  ExpectWatchTime({media::kWatchTimeAudioVideoNativeControlsOn}, kWatchTime2);
-  ResetHistogramTester();
-  wtr_.reset();
-
-  std::vector<base::StringPiece> normal_keys = {
-      media::kWatchTimeAudioVideoAll,
-      media::kWatchTimeAudioVideoSrc,
-      media::kWatchTimeAudioVideoEme,
-      media::kWatchTimeAudioVideoAc,
-      media::kWatchTimeAudioVideoDisplayInline,
-      media::kWatchTimeAudioVideoEmbeddedExperience};
-
-  for (auto key : watch_time_keys_) {
-    if (key == media::kWatchTimeAudioVideoNativeControlsOff) {
-      histogram_tester_->ExpectUniqueSample(
-          key.as_string(), (kWatchTime3 - kWatchTime2).InMilliseconds(), 1);
-      continue;
-    }
-
-    auto it = std::find(normal_keys.begin(), normal_keys.end(), key);
-    if (it == normal_keys.end()) {
-      histogram_tester_->ExpectTotalCount(key.as_string(), 0);
-    } else {
-      histogram_tester_->ExpectUniqueSample(key.as_string(),
-                                            kWatchTime3.InMilliseconds(), 1);
-    }
-  }
-
-  // Each finalize creates a new source and entry. We don't check the URL here
-  // since the TestUkmService() helpers DCHECK() a unique URL per source.
-  ASSERT_EQ(2U, test_recorder_->sources_count());
-  ASSERT_EQ(2U, test_recorder_->entries_count());
-  ExpectUkmWatchTime(0, 1, kWatchTime2);
-
-  // Verify Media.WatchTime keys are properly stripped for UKM reporting.
-  EXPECT_TRUE(test_recorder_->FindMetric(test_recorder_->GetEntry(0),
-                                         "AudioVideo.NativeControlsOn"));
-
-  // Spot check one of the non-AC keys; this relies on the assumption that the
-  // AC metric is not last.
-  const auto& metrics_vector = test_recorder_->GetEntry(1)->metrics;
-  ASSERT_EQ(6U, metrics_vector.size());
-  EXPECT_EQ(kWatchTime3.InMilliseconds(), metrics_vector.back()->value);
-}
-
-TEST_F(MediaInternalsWatchTimeTest, BasicDisplay) {
-  constexpr base::TimeDelta kWatchTime1 = base::TimeDelta::FromSeconds(5);
-  constexpr base::TimeDelta kWatchTime2 = base::TimeDelta::FromSeconds(10);
-  constexpr base::TimeDelta kWatchTime3 = base::TimeDelta::FromSeconds(30);
-  EXPECT_CALL(*this, GetCurrentMediaTime())
-      .WillOnce(testing::Return(base::TimeDelta()))
-      .WillOnce(testing::Return(kWatchTime1))
-      .WillOnce(testing::Return(kWatchTime2))
-      .WillOnce(testing::Return(kWatchTime2))
-      .WillRepeatedly(testing::Return(kWatchTime3));
-
-  Initialize(true, true, false, true);
-  wtr_->OnDisplayTypeFullscreen();
-  wtr_->OnPlaying();
-
-  // No log should have been generated yet since the message loop has not had
-  // any chance to pump.
-  CycleWatchTimeReporter();
-  ExpectWatchTime(std::vector<base::StringPiece>(), base::TimeDelta());
-
-  CycleWatchTimeReporter();
-
-  // Transition back to display inline, this should generate controls watch time
-  // as well.
-  wtr_->OnDisplayTypeInline();
-  CycleWatchTimeReporter();
-
-  // This should finalize the power watch time on display type.
-  ExpectWatchTime({media::kWatchTimeAudioVideoDisplayFullscreen}, kWatchTime2);
-  ResetHistogramTester();
-  wtr_.reset();
-
-  std::vector<base::StringPiece> normal_keys = {
-      media::kWatchTimeAudioVideoAll,
-      media::kWatchTimeAudioVideoSrc,
-      media::kWatchTimeAudioVideoEme,
-      media::kWatchTimeAudioVideoAc,
-      media::kWatchTimeAudioVideoNativeControlsOff,
-      media::kWatchTimeAudioVideoEmbeddedExperience};
-
-  for (auto key : watch_time_keys_) {
-    if (key == media::kWatchTimeAudioVideoDisplayInline) {
-      histogram_tester_->ExpectUniqueSample(
-          key.as_string(), (kWatchTime3 - kWatchTime2).InMilliseconds(), 1);
-      continue;
-    }
-
-    auto it = std::find(normal_keys.begin(), normal_keys.end(), key);
-    if (it == normal_keys.end()) {
-      histogram_tester_->ExpectTotalCount(key.as_string(), 0);
-    } else {
-      histogram_tester_->ExpectUniqueSample(key.as_string(),
-                                            kWatchTime3.InMilliseconds(), 1);
-    }
-  }
-
-  // Each finalize creates a new source and entry. We don't check the URL here
-  // since the TestUkmService() helpers DCHECK() a unique URL per source.
-  ASSERT_EQ(2U, test_recorder_->sources_count());
-  ASSERT_EQ(2U, test_recorder_->entries_count());
-  ExpectUkmWatchTime(0, 1, kWatchTime2);
-
-  // Verify Media.WatchTime keys are properly stripped for UKM reporting.
-  EXPECT_TRUE(test_recorder_->FindMetric(test_recorder_->GetEntry(0),
-                                         "AudioVideo.DisplayFullscreen"));
-
-  // Spot check one of the non-AC keys; this relies on the assumption that the
-  // AC metric is not last.
-  const auto& metrics_vector = test_recorder_->GetEntry(1)->metrics;
-  ASSERT_EQ(6U, metrics_vector.size());
-  EXPECT_EQ(kWatchTime3.InMilliseconds(), metrics_vector.back()->value);
-}
-
-TEST_F(MediaInternalsWatchTimeTest, PowerControlsFinalize) {
-  constexpr base::TimeDelta kWatchTime1 = base::TimeDelta::FromSeconds(5);
-  constexpr base::TimeDelta kWatchTime2 = base::TimeDelta::FromSeconds(10);
-  constexpr base::TimeDelta kWatchTime3 = base::TimeDelta::FromSeconds(30);
-  EXPECT_CALL(*this, GetCurrentMediaTime())
-      .WillOnce(testing::Return(base::TimeDelta()))
-      .WillOnce(testing::Return(kWatchTime1))
-      .WillOnce(testing::Return(kWatchTime1))
-      .WillOnce(testing::Return(kWatchTime2))
-      .WillOnce(testing::Return(kWatchTime2))
-      .WillRepeatedly(testing::Return(kWatchTime3));
-
-  Initialize(true, true, false, true);
-  wtr_->OnPlaying();
-
-  // No log should have been generated yet since the message loop has not had
-  // any chance to pump.
-  CycleWatchTimeReporter();
-  ExpectWatchTime(std::vector<base::StringPiece>(), base::TimeDelta());
-
-  CycleWatchTimeReporter();
-
-  // Transition controls and power.
-  wtr_->OnNativeControlsEnabled();
-  wtr_->OnPowerStateChangeForTesting(true);
-  CycleWatchTimeReporter();
-
-  // This should finalize the power and controls watch times.
-  ExpectWatchTime({media::kWatchTimeAudioVideoNativeControlsOff,
-                   media::kWatchTimeAudioVideoAc},
-                  kWatchTime2);
-  ResetHistogramTester();
-  wtr_.reset();
-}
-
-TEST_F(MediaInternalsWatchTimeTest, PowerDisplayFinalize) {
-  constexpr base::TimeDelta kWatchTime1 = base::TimeDelta::FromSeconds(5);
-  constexpr base::TimeDelta kWatchTime2 = base::TimeDelta::FromSeconds(10);
-  constexpr base::TimeDelta kWatchTime3 = base::TimeDelta::FromSeconds(30);
-  EXPECT_CALL(*this, GetCurrentMediaTime())
-      .WillOnce(testing::Return(base::TimeDelta()))
-      .WillOnce(testing::Return(kWatchTime1))
-      .WillOnce(testing::Return(kWatchTime1))
-      .WillOnce(testing::Return(kWatchTime2))
-      .WillOnce(testing::Return(kWatchTime2))
-      .WillRepeatedly(testing::Return(kWatchTime3));
-
-  Initialize(true, true, false, true);
-  wtr_->OnPlaying();
-
-  // No log should have been generated yet since the message loop has not had
-  // any chance to pump.
-  CycleWatchTimeReporter();
-  ExpectWatchTime(std::vector<base::StringPiece>(), base::TimeDelta());
-
-  CycleWatchTimeReporter();
-
-  // Transition display and power.
-  wtr_->OnDisplayTypePictureInPicture();
-  wtr_->OnPowerStateChangeForTesting(true);
-  CycleWatchTimeReporter();
-
-  // This should finalize the power and controls watch times.
-  ExpectWatchTime(
-      {media::kWatchTimeAudioVideoDisplayInline, media::kWatchTimeAudioVideoAc},
-      kWatchTime2);
-  ResetHistogramTester();
-  wtr_.reset();
-}
-
-TEST_F(MediaInternalsWatchTimeTest, PowerDisplayControlsFinalize) {
-  constexpr base::TimeDelta kWatchTime1 = base::TimeDelta::FromSeconds(5);
-  constexpr base::TimeDelta kWatchTime2 = base::TimeDelta::FromSeconds(10);
-  constexpr base::TimeDelta kWatchTime3 = base::TimeDelta::FromSeconds(30);
-  EXPECT_CALL(*this, GetCurrentMediaTime())
-      .WillOnce(testing::Return(base::TimeDelta()))
-      .WillOnce(testing::Return(kWatchTime1))
-      .WillOnce(testing::Return(kWatchTime1))
-      .WillOnce(testing::Return(kWatchTime2))
-      .WillOnce(testing::Return(kWatchTime2))
-      .WillOnce(testing::Return(kWatchTime2))
-      .WillRepeatedly(testing::Return(kWatchTime3));
-
-  Initialize(true, true, false, true);
-  wtr_->OnPlaying();
-
-  // No log should have been generated yet since the message loop has not had
-  // any chance to pump.
-  CycleWatchTimeReporter();
-  ExpectWatchTime(std::vector<base::StringPiece>(), base::TimeDelta());
-
-  CycleWatchTimeReporter();
-
-  // Transition display and power.
-  wtr_->OnNativeControlsEnabled();
-  wtr_->OnDisplayTypeFullscreen();
-  wtr_->OnPowerStateChangeForTesting(true);
-  CycleWatchTimeReporter();
-
-  // This should finalize the power and controls watch times.
-  ExpectWatchTime({media::kWatchTimeAudioVideoDisplayInline,
-                   media::kWatchTimeAudioVideoNativeControlsOff,
-                   media::kWatchTimeAudioVideoAc},
-                  kWatchTime2);
-  ResetHistogramTester();
-  wtr_.reset();
-}
-
-TEST_F(MediaInternalsWatchTimeTest, BasicHidden) {
-  constexpr base::TimeDelta kWatchTimeEarly = base::TimeDelta::FromSeconds(5);
-  constexpr base::TimeDelta kWatchTimeLate = base::TimeDelta::FromSeconds(10);
-  EXPECT_CALL(*this, GetCurrentMediaTime())
-      .WillOnce(testing::Return(base::TimeDelta()))
-      .WillOnce(testing::Return(kWatchTimeEarly))
-      .WillRepeatedly(testing::Return(kWatchTimeLate));
-  Initialize(true, true, false, true);
-  wtr_->OnHidden();
-  wtr_->OnPlaying();
-
-  // No log should have been generated yet since the message loop has not had
-  // any chance to pump.
-  CycleWatchTimeReporter();
-  ExpectWatchTime(std::vector<base::StringPiece>(), base::TimeDelta());
-
-  CycleWatchTimeReporter();
-  wtr_.reset();
-
-  ExpectWatchTime({media::kWatchTimeAudioVideoBackgroundAll,
-                   media::kWatchTimeAudioVideoBackgroundSrc,
-                   media::kWatchTimeAudioVideoBackgroundEme,
-                   media::kWatchTimeAudioVideoBackgroundAc,
-                   media::kWatchTimeAudioVideoBackgroundEmbeddedExperience},
-                  kWatchTimeLate);
-
-  ASSERT_EQ(1U, test_recorder_->sources_count());
-  ExpectUkmWatchTime(0, 4, kWatchTimeLate);
-  EXPECT_TRUE(test_recorder_->GetSourceForUrl(kTestOrigin));
-}
-
-TEST_F(MediaInternalsWatchTimeTest, FinalizeWithoutWatchTime) {
-  EXPECT_CALL(*this, GetCurrentMediaTime())
-      .WillRepeatedly(testing::Return(base::TimeDelta()));
-  Initialize(true, true, false, true);
-  wtr_->OnPlaying();
-  wtr_.reset();
-
-  // No watch time should have been recorded even though a finalize event will
-  // be sent.
-  ExpectWatchTime(std::vector<base::StringPiece>(), base::TimeDelta());
-  ExpectMtbrTime(std::vector<base::StringPiece>(), base::TimeDelta());
-  ExpectZeroRebuffers(std::vector<base::StringPiece>());
-  ASSERT_EQ(0U, test_recorder_->sources_count());
-}
-
-TEST_F(MediaInternalsWatchTimeTest, PlayerDestructionFinalizes) {
-  constexpr base::TimeDelta kWatchTimeEarly = base::TimeDelta::FromSeconds(5);
-  constexpr base::TimeDelta kWatchTimeLate = base::TimeDelta::FromSeconds(10);
-  EXPECT_CALL(*this, GetCurrentMediaTime())
-      .WillOnce(testing::Return(base::TimeDelta()))
-      .WillOnce(testing::Return(kWatchTimeEarly))
-      .WillRepeatedly(testing::Return(kWatchTimeLate));
-  Initialize(true, true, true, true);
-  wtr_->OnPlaying();
-
-  // No log should have been generated yet since the message loop has not had
-  // any chance to pump.
-  CycleWatchTimeReporter();
-  ExpectWatchTime(std::vector<base::StringPiece>(), base::TimeDelta());
-
-  CycleWatchTimeReporter();
-
-  media_log_->AddEvent(
-      media_log_->CreateEvent(media::MediaLogEvent::WEBMEDIAPLAYER_DESTROYED));
-
-  ExpectWatchTime(
-      {media::kWatchTimeAudioVideoAll, media::kWatchTimeAudioVideoMse,
-       media::kWatchTimeAudioVideoEme, media::kWatchTimeAudioVideoAc,
-       media::kWatchTimeAudioVideoNativeControlsOff,
-       media::kWatchTimeAudioVideoDisplayInline,
-       media::kWatchTimeAudioVideoEmbeddedExperience},
-      kWatchTimeLate);
-  ExpectZeroRebuffers({media::kRebuffersCountAudioVideoMse,
-                       media::kRebuffersCountAudioVideoEme});
-
-  ASSERT_EQ(1U, test_recorder_->sources_count());
-  ExpectUkmWatchTime(0, 6, kWatchTimeLate);
-  EXPECT_TRUE(test_recorder_->GetSourceForUrl(kTestOrigin));
-}
-
-TEST_F(MediaInternalsWatchTimeTest, ProcessDestructionFinalizes) {
-  constexpr base::TimeDelta kWatchTimeEarly = base::TimeDelta::FromSeconds(5);
-  constexpr base::TimeDelta kWatchTimeLate = base::TimeDelta::FromSeconds(10);
-  EXPECT_CALL(*this, GetCurrentMediaTime())
-      .WillOnce(testing::Return(base::TimeDelta()))
-      .WillOnce(testing::Return(kWatchTimeEarly))
-      .WillRepeatedly(testing::Return(kWatchTimeLate));
-  Initialize(true, true, false, true);
-  wtr_->OnPlaying();
-
-  // No log should have been generated yet since the message loop has not had
-  // any chance to pump.
-  CycleWatchTimeReporter();
-  ExpectWatchTime(std::vector<base::StringPiece>(), base::TimeDelta());
-
-  CycleWatchTimeReporter();
-
-  // Also verify that if UKM has already been destructed, we don't crash.
-  test_recorder_.reset();
-  internals_->OnProcessTerminatedForTesting(render_process_id_);
-  ExpectWatchTime(
-      {media::kWatchTimeAudioVideoAll, media::kWatchTimeAudioVideoSrc,
-       media::kWatchTimeAudioVideoEme, media::kWatchTimeAudioVideoAc,
-       media::kWatchTimeAudioVideoNativeControlsOff,
-       media::kWatchTimeAudioVideoDisplayInline,
-       media::kWatchTimeAudioVideoEmbeddedExperience},
-      kWatchTimeLate);
-  ExpectZeroRebuffers({media::kRebuffersCountAudioVideoSrc,
-                       media::kRebuffersCountAudioVideoEme});
-}
 
 }  // namespace content

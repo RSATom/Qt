@@ -41,9 +41,7 @@ Driver::Driver()
     m_output = &m_stdout;
 }
 
-Driver::~Driver()
-{
-}
+Driver::~Driver() = default;
 
 QString Driver::findOrInsertWidget(DomWidget *ui_widget)
 {
@@ -251,24 +249,18 @@ bool Driver::printDependencies(const QString &fileName)
 bool Driver::uic(const QString &fileName, DomUI *ui, QTextStream *out)
 {
     m_option.inputFile = fileName;
+    setUseIdBasedTranslations(ui->attributeIdbasedtr());
 
     QTextStream *oldOutput = m_output;
 
     m_output = out != 0 ? out : &m_stdout;
 
     Uic tool(this);
-    bool rtn = false;
-#ifdef QT_UIC_CPP_GENERATOR
-    rtn = tool.write(ui);
-#else
-    Q_UNUSED(ui);
-    fprintf(stderr, "uic: option to generate cpp code not compiled in [%s:%d]\n",
-            __FILE__, __LINE__);
-#endif
+    const bool result = tool.write(ui);
 
     m_output = oldOutput;
 
-    return rtn;
+    return result;
 }
 
 bool Driver::uic(const QString &fileName, QTextStream *out)

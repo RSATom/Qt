@@ -21,6 +21,7 @@
 
 #if defined(USE_AURA)
 #include "ui/aura/client/drag_drop_client.h"
+#include "ui/aura/client/drag_drop_client_observer.h"
 #include "ui/events/event.h"
 #include "ui/events/event_handler.h"
 #endif
@@ -85,7 +86,6 @@ class MenuButtonTest : public ViewsTestBase {
     return gfx::Point(button_->x() - 1, button_->y() - 1);
   }
 
- private:
   void CreateMenuButton(MenuButtonListener* menu_button_listener) {
     CreateWidget();
     generator_.reset(new ui::test::EventGenerator(widget_->GetNativeWindow()));
@@ -134,9 +134,9 @@ class TestButtonListener : public ButtonListener {
 
   void ButtonPressed(Button* sender, const ui::Event& event) override {
     last_sender_ = sender;
-    CustomButton* custom_button = CustomButton::AsCustomButton(sender);
-    DCHECK(custom_button);
-    last_sender_state_ = custom_button->state();
+    Button* button = Button::AsButton(sender);
+    DCHECK(button);
+    last_sender_state_ = button->state();
     last_event_type_ = event.type();
   }
 
@@ -162,9 +162,9 @@ class TestMenuButtonListener : public MenuButtonListener {
                            const gfx::Point& point,
                            const ui::Event* event) override {
     last_source_ = source;
-    CustomButton* custom_button = CustomButton::AsCustomButton(source);
-    DCHECK(custom_button);
-    last_source_state_ = custom_button->state();
+    Button* button = Button::AsButton(source);
+    DCHECK(button);
+    last_source_state_ = button->state();
   }
 
   View* last_source() { return last_source_; }
@@ -253,6 +253,9 @@ class TestDragDropClient : public aura::client::DragDropClient,
                        ui::DragDropTypes::DragEventSource source) override;
   void DragCancel() override;
   bool IsDragDropInProgress() override;
+  void AddObserver(aura::client::DragDropClientObserver* observer) override {}
+  void RemoveObserver(aura::client::DragDropClientObserver* observer) override {
+  }
 
   // ui::EventHandler:
   void OnMouseEvent(ui::MouseEvent* event) override;
@@ -261,7 +264,7 @@ class TestDragDropClient : public aura::client::DragDropClient,
   // True while receiving ui::LocatedEvents for drag operations.
   bool drag_in_progress_;
 
-  // Target window where drag operations are occuring.
+  // Target window where drag operations are occurring.
   aura::Window* target_;
 
   DISALLOW_COPY_AND_ASSIGN(TestDragDropClient);
@@ -408,7 +411,7 @@ TEST_F(MenuButtonTest, ButtonStateForMenuButtonsWithPressedLocks) {
   pressed_lock1.reset();
   EXPECT_EQ(Button::STATE_PRESSED, button()->state());
 
-  // Reseting the final lock should return the button's state to normal...
+  // Resetting the final lock should return the button's state to normal...
   pressed_lock2.reset();
   EXPECT_EQ(Button::STATE_NORMAL, button()->state());
 
@@ -565,8 +568,8 @@ TEST_F(MenuButtonTest,
 // Tests that the MenuButton does not become pressed if it can be dragged, and a
 // DragDropClient is processing the events.
 TEST_F(MenuButtonTest, DraggableMenuButtonDoesNotActivateOnDrag) {
-  // TODO: test uses GetContext(), which is not applicable to aura-mus.
-  // http://crbug.com/663809.
+  // TODO(https://crbug.com/663809): test uses GetContext(), which is not
+  // applicable to aura-mus.
   if (IsMus())
     return;
   TestMenuButtonListener menu_button_listener;
@@ -576,7 +579,8 @@ TEST_F(MenuButtonTest, DraggableMenuButtonDoesNotActivateOnDrag) {
 
   TestDragDropClient drag_client;
   SetDragDropClient(GetContext(), &drag_client);
-  button()->PrependPreTargetHandler(&drag_client);
+  button()->AddPreTargetHandler(&drag_client,
+                                ui::EventTarget::Priority::kSystem);
 
   generator()->DragMouseBy(10, 0);
   EXPECT_EQ(nullptr, menu_button_listener.last_source());
@@ -683,6 +687,40 @@ TEST_F(MenuButtonTest,
   menu_button_listener.ReleasePressedLock();
 
   EXPECT_FALSE(ink_drop()->is_hovered());
+}
+
+class DestroyButtonInGestureListener : public MenuButtonListener {
+ public:
+  DestroyButtonInGestureListener() {
+    menu_button_ = std::make_unique<MenuButton>(base::string16(), this, true);
+  }
+
+  ~DestroyButtonInGestureListener() override = default;
+
+  MenuButton* menu_button() { return menu_button_.get(); }
+
+ private:
+  // MenuButtonListener:
+  void OnMenuButtonClicked(MenuButton* source,
+                           const gfx::Point& point,
+                           const ui::Event* event) override {
+    menu_button_.reset();
+  }
+
+  std::unique_ptr<MenuButton> menu_button_;
+
+  DISALLOW_COPY_AND_ASSIGN(DestroyButtonInGestureListener);
+};
+
+// This test ensures there isn't a UAF in MenuButton::OnGestureEvent() if
+// the MenuButtonListener::OnMenuButtonClicked() deletes the MenuButton.
+TEST_F(MenuButtonTest, DestroyButtonInGesture) {
+  DestroyButtonInGestureListener listener;
+  ui::GestureEvent gesture_event(0, 0, 0, base::TimeTicks::Now(),
+                                 ui::GestureEventDetails(ui::ET_GESTURE_TAP));
+  CreateWidget();
+  widget_->SetContentsView(listener.menu_button());
+  listener.menu_button()->OnGestureEvent(&gesture_event);
 }
 
 }  // namespace views

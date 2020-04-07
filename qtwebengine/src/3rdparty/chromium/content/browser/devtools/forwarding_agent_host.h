@@ -7,36 +7,31 @@
 
 #include <memory>
 
+#include "base/containers/flat_map.h"
 #include "base/memory/ref_counted.h"
 #include "content/browser/devtools/devtools_agent_host_impl.h"
-#include "content/public/browser/devtools_external_agent_proxy.h"
-#include "content/public/browser/devtools_external_agent_proxy_delegate.h"
 
 namespace content {
 
-class ForwardingAgentHost
-    : public DevToolsAgentHostImpl,
-      public DevToolsExternalAgentProxy {
+class DevToolsExternalAgentProxyDelegate;
+
+class ForwardingAgentHost : public DevToolsAgentHostImpl {
  public:
   ForwardingAgentHost(
       const std::string& id,
       std::unique_ptr<DevToolsExternalAgentProxyDelegate> delegate);
 
  private:
+  class SessionProxy;
+
   ~ForwardingAgentHost() override;
 
-  // DevToolsExternalAgentProxy implementation.
-  void DispatchOnClientHost(const std::string& message) override;
-  void ConnectionClosed() override;
-
-  // DevToolsAgentHostImpl implementation.
-  void AttachSession(DevToolsSession* session) override;
-  void DetachSession(int session_id) override;
-  bool DispatchProtocolMessage(
-      DevToolsSession* session,
-      const std::string& message) override;
-
   // DevToolsAgentHost implementation
+  void AttachClient(DevToolsAgentHostClient* client) override;
+  bool DetachClient(DevToolsAgentHostClient* client) override;
+  bool DispatchProtocolMessage(DevToolsAgentHostClient* client,
+                               const std::string& message) override;
+  bool IsAttached() override;
   std::string GetType() override;
   std::string GetTitle() override;
   GURL GetURL() override;
@@ -48,9 +43,10 @@ class ForwardingAgentHost
   base::TimeTicks GetLastActivityTime() override;
 
   std::unique_ptr<DevToolsExternalAgentProxyDelegate> delegate_;
-  std::string type_;
-  std::string title_;
-  GURL url_;
+  base::flat_map<DevToolsAgentHostClient*, std::unique_ptr<SessionProxy>>
+      session_proxies_;
+
+  DISALLOW_COPY_AND_ASSIGN(ForwardingAgentHost);
 };
 
 }  // namespace content

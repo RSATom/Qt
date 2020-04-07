@@ -3,41 +3,120 @@
 // found in the LICENSE file.
 
 #include "ui/ozone/platform/wayland/fake_server.h"
-
 #include <sys/socket.h>
 #include <wayland-server.h>
 #include <xdg-shell-unstable-v5-server-protocol.h>
+#include <xdg-shell-unstable-v6-server-protocol.h>
 
 #include "base/bind.h"
+#include "base/files/file_util.h"
 #include "base/files/scoped_file.h"
 #include "base/memory/ptr_util.h"
+#include "base/message_loop/message_loop.h"
+#include "base/posix/eintr_wrapper.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/task_runner_util.h"
 
 namespace wl {
 namespace {
 
 const uint32_t kCompositorVersion = 4;
 const uint32_t kOutputVersion = 2;
+const uint32_t kDataDeviceManagerVersion = 3;
 const uint32_t kSeatVersion = 4;
 const uint32_t kXdgShellVersion = 1;
+
+bool ResourceHasImplementation(wl_resource* resource,
+                               const wl_interface* interface,
+                               const void* impl) {
+  return wl_resource_instance_of(resource, interface, impl);
+}
+
+template <class T>
+T* GetUserDataAs(wl_resource* resource) {
+  return static_cast<T*>(wl_resource_get_user_data(resource));
+}
+
+template <class T>
+std::unique_ptr<T> TakeUserDataAs(wl_resource* resource) {
+  std::unique_ptr<T> user_data = base::WrapUnique(GetUserDataAs<T>(resource));
+  // Make sure ServerObject doesn't try to destroy the resource twice.
+  ServerObject::OnResourceDestroyed(resource);
+  wl_resource_set_user_data(resource, nullptr);
+  return user_data;
+}
+
+template <class T>
+void DestroyUserData(wl_resource* resource) {
+  TakeUserDataAs<T>(resource);
+}
+
+// TODO(msisov): Move all the callers to use this template implementation set
+// helper with automatic user data destruction.
+template <class T>
+void SetImplementation(wl_resource* resource,
+                       const void* implementation,
+                       std::unique_ptr<T> user_data) {
+  wl_resource_set_implementation(resource, implementation, user_data.release(),
+                                 DestroyUserData<T>);
+}
+
+// Deprecated. Going to be removed.
+template <class T>
+void SetImplementation(wl_resource* resource,
+                       const void* implementation,
+                       T* user_data) {
+  wl_resource_set_implementation(resource, implementation, user_data,
+                                 &ServerObject::OnResourceDestroyed);
+}
 
 void DestroyResource(wl_client* client, wl_resource* resource) {
   wl_resource_destroy(resource);
 }
 
+void WriteDataOnWorkerThread(base::ScopedFD fd, const std::string& utf8_text) {
+  if (!base::WriteFileDescriptor(fd.get(), utf8_text.data(), utf8_text.size()))
+    LOG(ERROR) << "Failed to write selection data to clipboard.";
+}
+
+std::vector<uint8_t> ReadDataOnWorkerThread(base::ScopedFD fd) {
+  constexpr size_t kChunkSize = 1024;
+  std::vector<uint8_t> bytes;
+  while (true) {
+    uint8_t chunk[kChunkSize];
+    ssize_t bytes_read = HANDLE_EINTR(read(fd.get(), chunk, kChunkSize));
+    if (bytes_read > 0) {
+      bytes.insert(bytes.end(), chunk, chunk + bytes_read);
+      continue;
+    }
+    if (!bytes_read)
+      return bytes;
+    if (bytes_read < 0) {
+      LOG(ERROR) << "Failed to read selection data from clipboard.";
+      return std::vector<uint8_t>();
+    }
+  }
+}
+
+void CreatePipe(base::ScopedFD* read_pipe, base::ScopedFD* write_pipe) {
+  int raw_pipe[2];
+  PCHECK(0 == pipe(raw_pipe));
+  read_pipe->reset(raw_pipe[0]);
+  write_pipe->reset(raw_pipe[1]);
+}
+
 // wl_compositor
 
 void CreateSurface(wl_client* client, wl_resource* resource, uint32_t id) {
-  auto* compositor =
-      static_cast<MockCompositor*>(wl_resource_get_user_data(resource));
+  auto* compositor = GetUserDataAs<MockCompositor>(resource);
   wl_resource* surface_resource = wl_resource_create(
       client, &wl_surface_interface, wl_resource_get_version(resource), id);
   if (!surface_resource) {
     wl_client_post_no_memory(client);
     return;
   }
-  compositor->AddSurface(base::MakeUnique<MockSurface>(surface_resource));
+  compositor->AddSurface(std::make_unique<MockSurface>(surface_resource));
 }
 
 const struct wl_compositor_interface compositor_impl = {
@@ -52,8 +131,7 @@ void Attach(wl_client* client,
             wl_resource* buffer_resource,
             int32_t x,
             int32_t y) {
-  static_cast<MockSurface*>(wl_resource_get_user_data(resource))
-      ->Attach(buffer_resource, x, y);
+  GetUserDataAs<MockSurface>(resource)->Attach(buffer_resource, x, y);
 }
 
 void Damage(wl_client* client,
@@ -62,12 +140,11 @@ void Damage(wl_client* client,
             int32_t y,
             int32_t width,
             int32_t height) {
-  static_cast<MockSurface*>(wl_resource_get_user_data(resource))
-      ->Damage(x, y, width, height);
+  GetUserDataAs<MockSurface>(resource)->Damage(x, y, width, height);
 }
 
 void Commit(wl_client* client, wl_resource* resource) {
-  static_cast<MockSurface*>(wl_resource_get_user_data(resource))->Commit();
+  GetUserDataAs<MockSurface>(resource)->Commit();
 }
 
 const struct wl_surface_interface surface_impl = {
@@ -88,70 +165,259 @@ const struct wl_surface_interface surface_impl = {
 void UseUnstableVersion(wl_client* client,
                         wl_resource* resource,
                         int32_t version) {
-  static_cast<MockXdgShell*>(wl_resource_get_user_data(resource))
-      ->UseUnstableVersion(version);
+  GetUserDataAs<MockXdgShell>(resource)->UseUnstableVersion(version);
 }
 
-void GetXdgSurface(wl_client* client,
-                   wl_resource* resource,
-                   uint32_t id,
-                   wl_resource* surface_resource) {
-  auto* surface =
-      static_cast<MockSurface*>(wl_resource_get_user_data(surface_resource));
-  if (surface->xdg_surface) {
-    wl_resource_post_error(resource, XDG_SHELL_ERROR_ROLE,
-                           "surface already has a role");
-    return;
-  }
-  wl_resource* xdg_surface_resource = wl_resource_create(
-      client, &xdg_surface_interface, wl_resource_get_version(resource), id);
-  if (!xdg_surface_resource) {
-    wl_client_post_no_memory(client);
-    return;
-  }
-  surface->xdg_surface.reset(new MockXdgSurface(xdg_surface_resource));
-}
+// xdg_shell and zxdg_shell_v6
 
 void Pong(wl_client* client, wl_resource* resource, uint32_t serial) {
-  static_cast<MockXdgShell*>(wl_resource_get_user_data(resource))->Pong(serial);
+  GetUserDataAs<MockXdgShell>(resource)->Pong(serial);
 }
+
+// xdg_shell
+
+void GetXdgSurfaceV5(wl_client* client,
+                     wl_resource* resource,
+                     uint32_t id,
+                     wl_resource* surface_resource);
+
+void GetXdgPopupV5(struct wl_client* client,
+                   struct wl_resource* resource,
+                   uint32_t id,
+                   struct wl_resource* surface,
+                   struct wl_resource* parent,
+                   struct wl_resource* seat,
+                   uint32_t serial,
+                   int32_t x,
+                   int32_t y);
 
 const struct xdg_shell_interface xdg_shell_impl = {
     &DestroyResource,     // destroy
     &UseUnstableVersion,  // use_unstable_version
-    &GetXdgSurface,       // get_xdg_surface
-    nullptr,              // get_xdg_popup
+    &GetXdgSurfaceV5,     // get_xdg_surface
+    &GetXdgPopupV5,       // get_xdg_popup
     &Pong,                // pong
 };
+
+// zxdg_shell_v6
+
+void GetXdgSurfaceV6(wl_client* client,
+                     wl_resource* resource,
+                     uint32_t id,
+                     wl_resource* surface_resource);
+
+void CreatePositioner(wl_client* client,
+                      struct wl_resource* resource,
+                      uint32_t id);
+
+const struct zxdg_shell_v6_interface zxdg_shell_v6_impl = {
+    &DestroyResource,   // destroy
+    &CreatePositioner,  // create_positioner
+    &GetXdgSurfaceV6,   // get_xdg_surface
+    &Pong,              // pong
+};
+
+// zxdg_positioner_v6
+
+void SetSize(struct wl_client* wl_client,
+             struct wl_resource* resource,
+             int32_t width,
+             int32_t height) {
+  if (width < 1 || height < 1) {
+    wl_resource_post_error(resource, ZXDG_POSITIONER_V6_ERROR_INVALID_INPUT,
+                           "width and height must be positive and non-zero");
+    return;
+  }
+
+  GetUserDataAs<MockPositioner>(resource)->set_size(gfx::Size(width, height));
+}
+
+void SetAnchorRect(struct wl_client* client,
+                   struct wl_resource* resource,
+                   int32_t x,
+                   int32_t y,
+                   int32_t width,
+                   int32_t height) {
+  if (width < 1 || height < 1) {
+    wl_resource_post_error(resource, ZXDG_POSITIONER_V6_ERROR_INVALID_INPUT,
+                           "width and height must be positive and non-zero");
+    return;
+  }
+
+  GetUserDataAs<MockPositioner>(resource)->set_anchor_rect(
+      gfx::Rect(x, y, width, height));
+}
+
+void SetAnchor(struct wl_client* wl_client,
+               struct wl_resource* resource,
+               uint32_t anchor) {
+  if (((anchor & ZXDG_POSITIONER_V6_ANCHOR_LEFT) &&
+       (anchor & ZXDG_POSITIONER_V6_ANCHOR_RIGHT)) ||
+      ((anchor & ZXDG_POSITIONER_V6_ANCHOR_TOP) &&
+       (anchor & ZXDG_POSITIONER_V6_ANCHOR_BOTTOM))) {
+    wl_resource_post_error(resource, ZXDG_POSITIONER_V6_ERROR_INVALID_INPUT,
+                           "same-axis values are not allowed");
+    return;
+  }
+
+  GetUserDataAs<MockPositioner>(resource)->set_anchor(anchor);
+}
+
+void SetGravity(struct wl_client* client,
+                struct wl_resource* resource,
+                uint32_t gravity) {
+  if (((gravity & ZXDG_POSITIONER_V6_GRAVITY_LEFT) &&
+       (gravity & ZXDG_POSITIONER_V6_GRAVITY_RIGHT)) ||
+      ((gravity & ZXDG_POSITIONER_V6_GRAVITY_TOP) &&
+       (gravity & ZXDG_POSITIONER_V6_GRAVITY_BOTTOM))) {
+    wl_resource_post_error(resource, ZXDG_POSITIONER_V6_ERROR_INVALID_INPUT,
+                           "same-axis values are not allowed");
+    return;
+  }
+
+  GetUserDataAs<MockPositioner>(resource)->set_gravity(gravity);
+}
+
+const struct zxdg_positioner_v6_interface zxdg_positioner_v6_impl = {
+    &DestroyResource,  // destroy
+    &SetSize,          // set_size
+    &SetAnchorRect,    // set_anchor_rect
+    &SetAnchor,        // set_anchor
+    &SetGravity,       // set_gravity
+    nullptr,           // set_constraint_adjustment
+    nullptr,           // set_offset
+};
+
+// wl_data_device
+
+void DataDeviceSetSelection(wl_client* client,
+                            wl_resource* resource,
+                            wl_resource* data_source,
+                            uint32_t serial) {
+  GetUserDataAs<MockDataDevice>(resource)->SetSelection(
+      data_source ? GetUserDataAs<MockDataSource>(data_source) : nullptr,
+      serial);
+}
+
+void DataDeviceRelease(wl_client* client, wl_resource* resource) {
+  wl_resource_destroy(resource);
+}
+
+const struct wl_data_device_interface data_device_impl = {
+    nullptr /*data_device_start_drag*/, &DataDeviceSetSelection,
+    &DataDeviceRelease};
+
+// wl_data_device_manager
+
+void CreateDataSource(wl_client* client, wl_resource* resource, uint32_t id) {
+  wl_resource* data_source_resource = wl_resource_create(
+      client, &wl_data_source_interface, wl_resource_get_version(resource), id);
+  if (!data_source_resource) {
+    wl_client_post_no_memory(client);
+    return;
+  }
+
+  std::unique_ptr<MockDataSource> data_source(
+      new MockDataSource(data_source_resource));
+
+  auto* data_device_manager = GetUserDataAs<MockDataDeviceManager>(resource);
+  data_device_manager->set_data_source(std::move(data_source));
+}
+
+void GetDataDevice(wl_client* client,
+                   wl_resource* resource,
+                   uint32_t id,
+                   wl_resource* seat_resource) {
+  wl_resource* data_device_resource = wl_resource_create(
+      client, &wl_data_device_interface, wl_resource_get_version(resource), id);
+  if (!data_device_resource) {
+    wl_client_post_no_memory(client);
+    return;
+  }
+
+  std::unique_ptr<MockDataDevice> data_device(
+      new MockDataDevice(client, data_device_resource));
+
+  auto* data_device_manager = GetUserDataAs<MockDataDeviceManager>(resource);
+  data_device_manager->set_data_device(std::move(data_device));
+}
+
+const struct wl_data_device_manager_interface data_device_manager_impl = {
+    &CreateDataSource, &GetDataDevice};
+
+// wl_data_offer
+
+void DataOfferReceive(wl_client* client,
+                      wl_resource* resource,
+                      const char* mime_type,
+                      int fd) {
+  GetUserDataAs<MockDataOffer>(resource)->Receive(mime_type,
+                                                  base::ScopedFD(fd));
+}
+
+void DataOfferDestroy(wl_client* client, wl_resource* resource) {
+  wl_resource_destroy(resource);
+}
+
+const struct wl_data_offer_interface data_offer_impl = {
+    nullptr /* data_offer_accept*/, DataOfferReceive,
+    nullptr /*data_offer_finish*/, DataOfferDestroy,
+    nullptr /*data_offer_set_actions*/};
+
+// wl_data_source
+
+void DataSourceOffer(wl_client* client,
+                     wl_resource* resource,
+                     const char* mime_type) {
+  GetUserDataAs<MockDataSource>(resource)->Offer(mime_type);
+}
+
+void DataSourceDestroy(wl_client* client, wl_resource* resource) {
+  wl_resource_destroy(resource);
+}
+
+const struct wl_data_source_interface data_source_impl = {
+    DataSourceOffer, DataSourceDestroy, nullptr /*data_source_set_actions*/};
 
 // wl_seat
 
 void GetPointer(wl_client* client, wl_resource* resource, uint32_t id) {
-  auto* seat = static_cast<MockSeat*>(wl_resource_get_user_data(resource));
   wl_resource* pointer_resource = wl_resource_create(
       client, &wl_pointer_interface, wl_resource_get_version(resource), id);
   if (!pointer_resource) {
     wl_client_post_no_memory(client);
     return;
   }
-  seat->pointer.reset(new MockPointer(pointer_resource));
+  auto* seat = GetUserDataAs<MockSeat>(resource);
+  seat->set_pointer(std::make_unique<MockPointer>(pointer_resource));
 }
 
 void GetKeyboard(wl_client* client, wl_resource* resource, uint32_t id) {
-  auto* seat = static_cast<MockSeat*>(wl_resource_get_user_data(resource));
   wl_resource* keyboard_resource = wl_resource_create(
       client, &wl_keyboard_interface, wl_resource_get_version(resource), id);
   if (!keyboard_resource) {
     wl_client_post_no_memory(client);
     return;
   }
-  seat->keyboard.reset(new MockKeyboard(keyboard_resource));
+  auto* seat = GetUserDataAs<MockSeat>(resource);
+  seat->set_keyboard(std::make_unique<MockKeyboard>(keyboard_resource));
+}
+
+void GetTouch(wl_client* client, wl_resource* resource, uint32_t id) {
+  wl_resource* touch_resource = wl_resource_create(
+      client, &wl_touch_interface, wl_resource_get_version(resource), id);
+  if (!touch_resource) {
+    wl_client_post_no_memory(client);
+    return;
+  }
+  auto* seat = GetUserDataAs<MockSeat>(resource);
+  seat->set_touch(std::make_unique<MockTouch>(touch_resource));
 }
 
 const struct wl_seat_interface seat_impl = {
     &GetPointer,       // get_pointer
     &GetKeyboard,      // get_keyboard
-    nullptr,           // get_touch,
+    &GetTouch,         // get_touch,
     &DestroyResource,  // release
 };
 
@@ -168,39 +434,162 @@ const struct wl_pointer_interface pointer_impl = {
     &DestroyResource,  // release
 };
 
-// xdg_surface
+// wl_touch
+
+const struct wl_touch_interface touch_impl = {
+    &DestroyResource,  // release
+};
+
+// xdg_surface, zxdg_surface_v6 and zxdg_toplevel shared methods.
 
 void SetTitle(wl_client* client, wl_resource* resource, const char* title) {
-  static_cast<MockXdgSurface*>(wl_resource_get_user_data(resource))
-      ->SetTitle(title);
+  GetUserDataAs<MockXdgSurface>(resource)->SetTitle(title);
 }
 
 void SetAppId(wl_client* client, wl_resource* resource, const char* app_id) {
-  static_cast<MockXdgSurface*>(wl_resource_get_user_data(resource))
-      ->SetAppId(app_id);
+  GetUserDataAs<MockXdgSurface>(resource)->SetAppId(app_id);
 }
 
 void AckConfigure(wl_client* client, wl_resource* resource, uint32_t serial) {
-  static_cast<MockXdgSurface*>(wl_resource_get_user_data(resource))
-      ->AckConfigure(serial);
+  GetUserDataAs<MockXdgSurface>(resource)->AckConfigure(serial);
+}
+
+void SetWindowGeometry(wl_client* client,
+                       wl_resource* resource,
+                       int32_t x,
+                       int32_t y,
+                       int32_t width,
+                       int32_t height) {
+  GetUserDataAs<MockXdgSurface>(resource)->SetWindowGeometry(x, y, width,
+                                                             height);
 }
 
 void SetMaximized(wl_client* client, wl_resource* resource) {
-  static_cast<MockXdgSurface*>(wl_resource_get_user_data(resource))
-      ->SetMaximized();
+  GetUserDataAs<MockXdgSurface>(resource)->SetMaximized();
 }
 
 void UnsetMaximized(wl_client* client, wl_resource* resource) {
-  static_cast<MockXdgSurface*>(wl_resource_get_user_data(resource))
-      ->UnsetMaximized();
+  GetUserDataAs<MockXdgSurface>(resource)->UnsetMaximized();
+}
+
+void SetFullscreen(wl_client* client,
+                   wl_resource* resource,
+                   wl_resource* output) {
+  GetUserDataAs<MockXdgSurface>(resource)->SetFullscreen();
+}
+
+void UnsetFullscreen(wl_client* client, wl_resource* resource) {
+  GetUserDataAs<MockXdgSurface>(resource)->UnsetFullscreen();
 }
 
 void SetMinimized(wl_client* client, wl_resource* resource) {
-  static_cast<MockXdgSurface*>(wl_resource_get_user_data(resource))
-      ->SetMinimized();
+  GetUserDataAs<MockXdgSurface>(resource)->SetMinimized();
 }
 
 const struct xdg_surface_interface xdg_surface_impl = {
+    &DestroyResource,    // destroy
+    nullptr,             // set_parent
+    &SetTitle,           // set_title
+    &SetAppId,           // set_app_id
+    nullptr,             // show_window_menu
+    nullptr,             // move
+    nullptr,             // resize
+    &AckConfigure,       // ack_configure
+    &SetWindowGeometry,  // set_window_geometry
+    &SetMaximized,       // set_maximized
+    &UnsetMaximized,     // set_unmaximized
+    &SetFullscreen,      // set_fullscreen
+    &UnsetFullscreen,    // unset_fullscreen
+    &SetMinimized,       // set_minimized
+};
+
+// xdg_popup_v5
+
+const struct xdg_popup_interface xdg_popup_impl = {
+    &DestroyResource,  // destroy
+};
+
+// zxdg_popup_v6
+
+void Grab(struct wl_client* client,
+          struct wl_resource* resource,
+          struct wl_resource* seat,
+          uint32_t serial) {
+  GetUserDataAs<MockXdgPopup>(resource)->Grab(serial);
+}
+
+const struct zxdg_popup_v6_interface zxdg_popup_v6_impl = {
+    &DestroyResource,  // destroy
+    &Grab,             // grab
+};
+
+// zxdg_surface specific interface
+
+void GetTopLevel(wl_client* client, wl_resource* resource, uint32_t id) {
+  auto* surface = GetUserDataAs<MockXdgSurface>(resource);
+  if (surface->xdg_toplevel()) {
+    wl_resource_post_error(resource, ZXDG_SURFACE_V6_ERROR_ALREADY_CONSTRUCTED,
+                           "surface has already been constructed");
+    return;
+  }
+  wl_resource* xdg_toplevel_resource =
+      wl_resource_create(client, &zxdg_toplevel_v6_interface, 1, id);
+  if (!xdg_toplevel_resource) {
+    wl_client_post_no_memory(client);
+    return;
+  }
+  surface->set_xdg_toplevel(
+      std::make_unique<MockXdgTopLevel>(xdg_toplevel_resource));
+}
+
+void GetZXdgPopupV6(struct wl_client* client,
+                    struct wl_resource* resource,
+                    uint32_t id,
+                    struct wl_resource* parent,
+                    struct wl_resource* positioner) {
+  auto* mock_xdg_surface = GetUserDataAs<MockXdgSurface>(resource);
+  wl_resource* current_resource = mock_xdg_surface->resource();
+  if (current_resource &&
+      (ResourceHasImplementation(current_resource, &zxdg_popup_v6_interface,
+                                 &zxdg_popup_v6_impl) ||
+       ResourceHasImplementation(current_resource,
+                                 &zxdg_positioner_v6_interface,
+                                 &zxdg_positioner_v6_impl))) {
+    wl_resource_post_error(resource, ZXDG_SURFACE_V6_ERROR_ALREADY_CONSTRUCTED,
+                           "surface has already been constructed");
+    return;
+  }
+
+  auto* mock_positioner = GetUserDataAs<MockPositioner>(positioner);
+  if (mock_positioner->size().width() == 0 ||
+      mock_positioner->anchor_rect().width() == 0) {
+    wl_resource_post_error(resource, ZXDG_SHELL_V6_ERROR_INVALID_POSITIONER,
+                           "Positioner object is not complete");
+    return;
+  }
+
+  wl_resource* popup_resource = wl_resource_create(
+      client, &zxdg_popup_v6_interface, wl_resource_get_version(resource), id);
+  if (!popup_resource) {
+    wl_client_post_no_memory(client);
+    return;
+  }
+
+  SetImplementation(
+      popup_resource, &zxdg_popup_v6_impl,
+      std::make_unique<MockXdgPopup>(popup_resource, &zxdg_popup_v6_impl));
+}
+
+const struct zxdg_surface_v6_interface zxdg_surface_v6_impl = {
+    &DestroyResource,  // destroy
+    &GetTopLevel,      // get_toplevel
+    &GetZXdgPopupV6,   // get_popup
+
+    &SetWindowGeometry,  // set_window_geometry
+    &AckConfigure,       // ack_configure
+};
+
+const struct zxdg_toplevel_v6_interface zxdg_toplevel_v6_impl = {
     &DestroyResource,  // destroy
     nullptr,           // set_parent
     &SetTitle,         // set_title
@@ -208,14 +597,104 @@ const struct xdg_surface_interface xdg_surface_impl = {
     nullptr,           // show_window_menu
     nullptr,           // move
     nullptr,           // resize
-    &AckConfigure,     // ack_configure
-    nullptr,           // set_window_geometry
+    nullptr,           // set_max_size
+    nullptr,           // set_min_size
     &SetMaximized,     // set_maximized
     &UnsetMaximized,   // set_unmaximized
-    nullptr,           // set_fullscreen
-    nullptr,           // unset_fullscreen
+    &SetFullscreen,    // set_fullscreen
+    &UnsetFullscreen,  // unset_fullscreen
     &SetMinimized,     // set_minimized
 };
+
+void GetXdgSurfaceImpl(wl_client* client,
+                       wl_resource* resource,
+                       uint32_t id,
+                       wl_resource* surface_resource,
+                       const struct wl_interface* interface,
+                       const void* implementation) {
+  auto* surface = GetUserDataAs<MockSurface>(surface_resource);
+  if (surface->xdg_surface()) {
+    uint32_t xdg_error = implementation == &xdg_surface_impl
+                             ? XDG_SHELL_ERROR_ROLE
+                             : ZXDG_SHELL_V6_ERROR_ROLE;
+    wl_resource_post_error(resource, xdg_error, "surface already has a role");
+    return;
+  }
+  wl_resource* xdg_surface_resource = wl_resource_create(
+      client, interface, wl_resource_get_version(resource), id);
+
+  if (!xdg_surface_resource) {
+    wl_client_post_no_memory(client);
+    return;
+  }
+  surface->set_xdg_surface(
+      std::make_unique<MockXdgSurface>(xdg_surface_resource, implementation));
+}
+
+// xdg_shell
+
+void GetXdgSurfaceV5(wl_client* client,
+                     wl_resource* resource,
+                     uint32_t id,
+                     wl_resource* surface_resource) {
+  GetXdgSurfaceImpl(client, resource, id, surface_resource,
+                    &xdg_surface_interface, &xdg_surface_impl);
+}
+
+void GetXdgPopupV5(struct wl_client* client,
+                   struct wl_resource* resource,
+                   uint32_t id,
+                   struct wl_resource* surface,
+                   struct wl_resource* parent,
+                   struct wl_resource* seat,
+                   uint32_t serial,
+                   int32_t x,
+                   int32_t y) {
+  auto* mock_surface = GetUserDataAs<MockSurface>(surface);
+  if (mock_surface->resource() &&
+      ResourceHasImplementation(mock_surface->resource(), &xdg_popup_interface,
+                                &xdg_popup_impl)) {
+    wl_resource_post_error(resource, XDG_SHELL_ERROR_ROLE,
+                           "surface has already assigned a role");
+    return;
+  }
+
+  wl_resource* popup_resource = wl_resource_create(
+      client, &xdg_popup_interface, wl_resource_get_version(resource), id);
+  if (!popup_resource) {
+    wl_client_post_no_memory(client);
+    return;
+  }
+
+  SetImplementation(
+      popup_resource, &xdg_popup_impl,
+      std::make_unique<MockXdgPopup>(popup_resource, &xdg_popup_impl));
+}
+
+// zxdg_shell_v6
+
+void GetXdgSurfaceV6(wl_client* client,
+                     wl_resource* resource,
+                     uint32_t id,
+                     wl_resource* surface_resource) {
+  GetXdgSurfaceImpl(client, resource, id, surface_resource,
+                    &zxdg_surface_v6_interface, &zxdg_surface_v6_impl);
+}
+
+void CreatePositioner(wl_client* client,
+                      struct wl_resource* resource,
+                      uint32_t id) {
+  wl_resource* positioner_resource =
+      wl_resource_create(client, &zxdg_positioner_v6_interface,
+                         wl_resource_get_version(resource), id);
+  if (!positioner_resource) {
+    wl_client_post_no_memory(client);
+    return;
+  }
+
+  SetImplementation(positioner_resource, &zxdg_positioner_v6_impl,
+                    std::make_unique<MockPositioner>(positioner_resource));
+}
 
 }  // namespace
 
@@ -228,46 +707,159 @@ ServerObject::~ServerObject() {
 
 // static
 void ServerObject::OnResourceDestroyed(wl_resource* resource) {
-  auto* obj = static_cast<ServerObject*>(wl_resource_get_user_data(resource));
+  auto* obj = GetUserDataAs<ServerObject>(resource);
   obj->resource_ = nullptr;
 }
 
-MockXdgSurface::MockXdgSurface(wl_resource* resource) : ServerObject(resource) {
-  wl_resource_set_implementation(resource, &xdg_surface_impl, this,
-                                 &ServerObject::OnResourceDestroyed);
+MockXdgSurface::MockXdgSurface(wl_resource* resource,
+                               const void* implementation)
+    : ServerObject(resource) {
+  SetImplementation(resource, implementation, this);
 }
 
 MockXdgSurface::~MockXdgSurface() {}
 
+MockXdgTopLevel::MockXdgTopLevel(wl_resource* resource)
+    : MockXdgSurface(resource, &zxdg_surface_v6_impl) {
+  SetImplementation(resource, &zxdg_toplevel_v6_impl, this);
+}
+
+MockXdgTopLevel::~MockXdgTopLevel() {}
+
+MockPositioner::MockPositioner(wl_resource* resource)
+    : ServerObject(resource) {}
+
+MockPositioner::~MockPositioner() {}
+
+MockXdgPopup::MockXdgPopup(wl_resource* resource, const void* implementation)
+    : ServerObject(resource) {}
+
+MockXdgPopup::~MockXdgPopup() {}
+
 MockSurface::MockSurface(wl_resource* resource) : ServerObject(resource) {
-  wl_resource_set_implementation(resource, &surface_impl, this,
-                                 &ServerObject::OnResourceDestroyed);
+  SetImplementation(resource, &surface_impl, this);
 }
 
 MockSurface::~MockSurface() {
-  if (xdg_surface && xdg_surface->resource())
-    wl_resource_destroy(xdg_surface->resource());
+  if (xdg_surface_ && xdg_surface_->resource())
+    wl_resource_destroy(xdg_surface_->resource());
 }
 
 MockSurface* MockSurface::FromResource(wl_resource* resource) {
   if (!wl_resource_instance_of(resource, &wl_surface_interface, &surface_impl))
     return nullptr;
-  return static_cast<MockSurface*>(wl_resource_get_user_data(resource));
+  return GetUserDataAs<MockSurface>(resource);
 }
 
 MockPointer::MockPointer(wl_resource* resource) : ServerObject(resource) {
-  wl_resource_set_implementation(resource, &pointer_impl, this,
-                                 &ServerObject::OnResourceDestroyed);
+  SetImplementation(resource, &pointer_impl, this);
 }
 
 MockPointer::~MockPointer() {}
 
 MockKeyboard::MockKeyboard(wl_resource* resource) : ServerObject(resource) {
-  wl_resource_set_implementation(resource, &keyboard_impl, this,
-                                 &ServerObject::OnResourceDestroyed);
+  SetImplementation(resource, &keyboard_impl, this);
 }
 
 MockKeyboard::~MockKeyboard() {}
+
+MockTouch::MockTouch(wl_resource* resource) : ServerObject(resource) {
+  SetImplementation(resource, &touch_impl, this);
+}
+
+MockTouch::~MockTouch() {}
+
+MockDataOffer::MockDataOffer(wl_resource* resource)
+    : ServerObject(resource),
+      io_thread_("Worker thread"),
+      write_data_weak_ptr_factory_(this) {
+  SetImplementation(resource, &data_offer_impl, this);
+
+  base::Thread::Options options;
+  options.message_loop_type = base::MessageLoop::TYPE_IO;
+  io_thread_.StartWithOptions(options);
+}
+
+MockDataOffer::~MockDataOffer() {}
+
+void MockDataOffer::Receive(const std::string& mime_type, base::ScopedFD fd) {
+  DCHECK(fd.is_valid());
+  std::string text_utf8(kSampleClipboardText);
+  io_thread_.task_runner()->PostTask(
+      FROM_HERE,
+      base::BindOnce(&WriteDataOnWorkerThread, std::move(fd), text_utf8));
+}
+
+void MockDataOffer::OnOffer(const std::string& mime_type) {
+  wl_data_offer_send_offer(resource(), mime_type.c_str());
+}
+
+MockDataDevice::MockDataDevice(wl_client* client, wl_resource* resource)
+    : ServerObject(resource), client_(client) {
+  SetImplementation(resource, &data_device_impl, this);
+}
+
+MockDataDevice::~MockDataDevice() {}
+
+void MockDataDevice::SetSelection(MockDataSource* data_source,
+                                  uint32_t serial) {
+  NOTIMPLEMENTED();
+}
+
+MockDataOffer* MockDataDevice::OnDataOffer() {
+  wl_resource* data_offer_resource =
+      wl_resource_create(client_, &wl_data_offer_interface,
+                         wl_resource_get_version(resource()), 0);
+  data_offer_.reset(new MockDataOffer(data_offer_resource));
+  wl_data_device_send_data_offer(resource(), data_offer_resource);
+
+  return GetUserDataAs<MockDataOffer>(data_offer_resource);
+}
+
+void MockDataDevice::OnSelection(MockDataOffer& data_offer) {
+  wl_data_device_send_selection(resource(), data_offer.resource());
+}
+
+MockDataSource::MockDataSource(wl_resource* resource)
+    : ServerObject(resource),
+      io_thread_("Worker thread"),
+      read_data_weak_ptr_factory_(this) {
+  SetImplementation(resource, &data_source_impl, this);
+
+  base::Thread::Options options;
+  options.message_loop_type = base::MessageLoop::TYPE_IO;
+  io_thread_.StartWithOptions(options);
+}
+
+MockDataSource::~MockDataSource() {}
+
+void MockDataSource::Offer(const std::string& mime_type) {
+  NOTIMPLEMENTED();
+}
+
+void MockDataSource::ReadData(ReadDataCallback callback) {
+  base::ScopedFD read_fd;
+  base::ScopedFD write_fd;
+  CreatePipe(&read_fd, &write_fd);
+
+  wl_data_source_send_send(resource(), kTextMimeTypeUtf8, write_fd.get());
+
+  base::PostTaskAndReplyWithResult(
+      io_thread_.task_runner().get(), FROM_HERE,
+      base::BindOnce(&ReadDataOnWorkerThread, std::move(read_fd)),
+      base::BindOnce(&MockDataSource::DataReadCb,
+                     read_data_weak_ptr_factory_.GetWeakPtr(),
+                     std::move(callback)));
+}
+
+void MockDataSource::DataReadCb(ReadDataCallback callback,
+                                const std::vector<uint8_t>& data) {
+  std::move(callback).Run(data);
+}
+
+void MockDataSource::OnCancelled() {
+  wl_data_source_send_cancelled(resource());
+}
 
 void GlobalDeleter::operator()(wl_global* global) {
   wl_global_destroy(global);
@@ -301,14 +893,13 @@ void Global::Bind(wl_client* client,
   }
   if (!global->resource_)
     global->resource_ = resource;
-  wl_resource_set_implementation(resource, global->implementation_, global,
-                                 &Global::OnResourceDestroyed);
+  SetImplementation(resource, global->implementation_, global);
   global->OnBind();
 }
 
 // static
 void Global::OnResourceDestroyed(wl_resource* resource) {
-  auto* global = static_cast<Global*>(wl_resource_get_user_data(resource));
+  auto* global = GetUserDataAs<Global>(resource);
   if (global->resource_ == resource)
     global->resource_ = nullptr;
 }
@@ -321,6 +912,13 @@ MockCompositor::~MockCompositor() {}
 void MockCompositor::AddSurface(std::unique_ptr<MockSurface> surface) {
   surfaces_.push_back(std::move(surface));
 }
+
+MockDataDeviceManager::MockDataDeviceManager()
+    : Global(&wl_data_device_manager_interface,
+             &data_device_manager_impl,
+             kDataDeviceManagerVersion) {}
+
+MockDataDeviceManager::~MockDataDeviceManager() {}
 
 MockOutput::MockOutput()
     : Global(&wl_output_interface, nullptr, kOutputVersion) {}
@@ -346,6 +944,11 @@ MockXdgShell::MockXdgShell()
 
 MockXdgShell::~MockXdgShell() {}
 
+MockXdgShellV6::MockXdgShellV6()
+    : Global(&zxdg_shell_v6_interface, &zxdg_shell_v6_impl, kXdgShellVersion) {}
+
+MockXdgShellV6::~MockXdgShellV6() {}
+
 void DisplayDeleter::operator()(wl_display* display) {
   wl_display_destroy(display);
 }
@@ -363,7 +966,7 @@ FakeServer::~FakeServer() {
   Stop();
 }
 
-bool FakeServer::Start() {
+bool FakeServer::Start(uint32_t shell_version) {
   display_.reset(wl_display_create());
   if (!display_)
     return false;
@@ -381,10 +984,17 @@ bool FakeServer::Start() {
     return false;
   if (!output_.Initialize(display_.get()))
     return false;
+  if (!data_device_manager_.Initialize(display_.get()))
+    return false;
   if (!seat_.Initialize(display_.get()))
     return false;
-  if (!xdg_shell_.Initialize(display_.get()))
-    return false;
+  if (shell_version == 5) {
+    if (!xdg_shell_.Initialize(display_.get()))
+      return false;
+  } else {
+    if (!zxdg_shell_v6_.Initialize(display_.get()))
+      return false;
+  }
 
   client_ = wl_client_create(display_.get(), server_fd.get());
   if (!client_)
@@ -392,8 +1002,8 @@ bool FakeServer::Start() {
   (void)server_fd.release();
 
   base::Thread::Options options;
-  options.message_pump_factory =
-      base::Bind(&FakeServer::CreateMessagePump, base::Unretained(this));
+  options.message_pump_factory = base::BindRepeating(
+      &FakeServer::CreateMessagePump, base::Unretained(this));
   if (!base::Thread::StartWithOptions(options))
     return false;
 
@@ -404,7 +1014,7 @@ bool FakeServer::Start() {
 
 void FakeServer::Pause() {
   task_runner()->PostTask(
-      FROM_HERE, base::Bind(&FakeServer::DoPause, base::Unretained(this)));
+      FROM_HERE, base::BindOnce(&FakeServer::DoPause, base::Unretained(this)));
   pause_event_.Wait();
 }
 

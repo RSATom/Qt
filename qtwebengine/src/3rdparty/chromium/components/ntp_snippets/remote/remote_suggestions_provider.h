@@ -20,9 +20,7 @@ class RemoteSuggestionsFetcher;
 class RemoteSuggestionsProvider : public ContentSuggestionsProvider {
  public:
   // Callback to notify with the result of a fetch.
-  // TODO(jkrcal): Change to OnceCallback? A OnceCallback does only have a
-  // move-constructor which seems problematic for google mock.
-  using FetchStatusCallback = base::Callback<void(Status status_code)>;
+  using FetchStatusCallback = base::OnceCallback<void(Status status_code)>;
 
   ~RemoteSuggestionsProvider() override;
 
@@ -31,8 +29,15 @@ class RemoteSuggestionsProvider : public ContentSuggestionsProvider {
   // an background request. Background requests are used for actions not
   // triggered by the user and have lower priority on the server. After the
   // fetch finished, the provided |callback| will be triggered with the status
-  // of the fetch (unless nullptr).
-  virtual void RefetchInTheBackground(const FetchStatusCallback& callback) = 0;
+  // of the fetch (unless nullptr). If the provider is not ready(), the fetch
+  // fails and the callback gets immediately called with an error message.
+  virtual void RefetchInTheBackground(FetchStatusCallback callback) = 0;
+
+  // Refetches the suggestions in a state ready for display. Similar to
+  // |RefetchInTheBackground| above, but observers will be notified about the
+  // ongoing refetch and may be notified with old suggestions if the fetch fails
+  // or does not finish before timeout.
+  virtual void RefetchWhileDisplaying(FetchStatusCallback callback) = 0;
 
   virtual const RemoteSuggestionsFetcher* suggestions_fetcher_for_debugging()
       const = 0;
@@ -41,8 +46,12 @@ class RemoteSuggestionsProvider : public ContentSuggestionsProvider {
   virtual GURL GetUrlWithFavicon(
       const ContentSuggestion::ID& suggestion_id) const = 0;
 
-  // Whether the service is explicity disabled.
+  // Whether the provider is explicity disabled.
   virtual bool IsDisabled() const = 0;
+
+  // Whether the provider is ready to fetch suggestions. While the provider is
+  // not ready, all operations on it will fail or get ignored.
+  virtual bool ready() const = 0;
 
  protected:
   RemoteSuggestionsProvider(Observer* observer);

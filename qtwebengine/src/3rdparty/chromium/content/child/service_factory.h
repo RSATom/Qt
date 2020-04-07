@@ -10,8 +10,8 @@
 
 #include "base/macros.h"
 #include "services/service_manager/embedder/embedded_service_info.h"
-#include "services/service_manager/public/interfaces/service.mojom.h"
-#include "services/service_manager/public/interfaces/service_factory.mojom.h"
+#include "services/service_manager/public/mojom/service.mojom.h"
+#include "services/service_manager/public/mojom/service_factory.mojom.h"
 
 namespace service_manager {
 class EmbeddedServiceRunner;
@@ -33,8 +33,10 @@ class ServiceFactory : public service_manager::mojom::ServiceFactory {
   virtual void OnServiceQuit() {}
 
   // service_manager::mojom::ServiceFactory:
-  void CreateService(service_manager::mojom::ServiceRequest request,
-                     const std::string& name) override;
+  void CreateService(
+      service_manager::mojom::ServiceRequest request,
+      const std::string& name,
+      service_manager::mojom::PIDReceiverPtr pid_receiver) override;
 
  private:
   // Called if CreateService fails to find a registered service.

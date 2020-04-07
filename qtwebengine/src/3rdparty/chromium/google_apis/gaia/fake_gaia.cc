@@ -125,19 +125,16 @@ void SetCookies(BasicHttpResponse* http_response,
 
 }  // namespace
 
-FakeGaia::AccessTokenInfo::AccessTokenInfo()
-  : expires_in(3600) {}
+FakeGaia::AccessTokenInfo::AccessTokenInfo() = default;
 
 FakeGaia::AccessTokenInfo::AccessTokenInfo(const AccessTokenInfo& other) =
     default;
 
-FakeGaia::AccessTokenInfo::~AccessTokenInfo() {}
+FakeGaia::AccessTokenInfo::~AccessTokenInfo() = default;
 
-FakeGaia::MergeSessionParams::MergeSessionParams() {
-}
+FakeGaia::MergeSessionParams::MergeSessionParams() = default;
 
-FakeGaia::MergeSessionParams::~MergeSessionParams() {
-}
+FakeGaia::MergeSessionParams::~MergeSessionParams() = default;
 
 void FakeGaia::MergeSessionParams::Update(const MergeSessionParams& update) {
   // This lambda uses a pointer to data member to merge attributes.
@@ -152,6 +149,7 @@ void FakeGaia::MergeSessionParams::Update(const MergeSessionParams& update) {
   maybe_update_field(&MergeSessionParams::auth_code);
   maybe_update_field(&MergeSessionParams::refresh_token);
   maybe_update_field(&MergeSessionParams::access_token);
+  maybe_update_field(&MergeSessionParams::id_token);
   maybe_update_field(&MergeSessionParams::gaia_uber_token);
   maybe_update_field(&MergeSessionParams::session_sid_cookie);
   maybe_update_field(&MergeSessionParams::session_lsid_cookie);
@@ -160,7 +158,7 @@ void FakeGaia::MergeSessionParams::Update(const MergeSessionParams& update) {
 
 FakeGaia::FakeGaia() : issue_oauth_code_cookie_(false) {
   base::FilePath source_root_dir;
-  PathService::Get(base::DIR_SOURCE_ROOT, &source_root_dir);
+  base::PathService::Get(base::DIR_SOURCE_ROOT, &source_root_dir);
   CHECK(base::ReadFileToString(
       source_root_dir.Append(base::FilePath(kServiceLogin)),
       &service_login_response_));
@@ -237,8 +235,8 @@ void FakeGaia::Initialize() {
       gaia_urls->merge_session_url(), HandleMergeSession);
 
   // Handles /o/oauth2/programmatic_auth GAIA call.
-  REGISTER_RESPONSE_HANDLER(
-      gaia_urls->client_login_to_oauth2_url(), HandleProgramaticAuth);
+  REGISTER_RESPONSE_HANDLER(gaia_urls->deprecated_client_login_to_oauth2_url(),
+                            HandleProgramaticAuth);
 
   // Handles /ServiceLogin GAIA call.
   REGISTER_RESPONSE_HANDLER(
@@ -476,7 +474,8 @@ const FakeGaia::AccessTokenInfo* FakeGaia::FindAccessTokenInfo(
        entry != access_token_info_map_.upper_bound(auth_token);
        ++entry) {
     if (entry->second.audience == client_id &&
-        (scope_string.empty() || entry->second.scopes == scopes)) {
+        (scope_string.empty() || entry->second.any_scope ||
+         entry->second.scopes == scopes)) {
       return &(entry->second);
     }
   }
@@ -711,6 +710,8 @@ void FakeGaia::HandleAuthToken(const HttpRequest& request,
           device_id;
     response_dict.SetString("access_token",
                             merge_session_params_.access_token);
+    if (!merge_session_params_.id_token.empty())
+      response_dict.SetString("id_token", merge_session_params_.id_token);
     response_dict.SetInteger("expires_in", 3600);
     FormatJSONResponse(response_dict, http_response);
     return;

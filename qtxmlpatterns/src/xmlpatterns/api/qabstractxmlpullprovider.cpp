@@ -112,14 +112,14 @@ AbstractXmlPullProvider::~AbstractXmlPullProvider()
 }
 
 /*!
-  \fn Event AbstractXmlPullProvider::next() = 0;
+  \fn QPatternist::AbstractXmlPullProvider::Event QPatternist::AbstractXmlPullProvider::next() = 0
   Advances this AbstractXmlPullProvider, and returns the new event.
 
   \sa current()
  */
 
 /*!
-  \fn Event AbstractXmlPullProvider::current() const = 0;
+  \fn QPatternist::AbstractXmlPullProvider::Event QPatternist::AbstractXmlPullProvider::current() const = 0
   Returns the event that next() returned the last time it was called. It doesn't
   alter this AbstractXmlPullProvider.
 
@@ -130,7 +130,7 @@ AbstractXmlPullProvider::~AbstractXmlPullProvider()
  */
 
 /*!
-  \fn QName AbstractXmlPullProvider::name() const = 0;
+  \fn QPatternist::AbstractXmlPullProvider::QName QPatternist::AbstractXmlPullProvider::name() const = 0
   If the current event is StartElement,
   EndElement, ProcessingInstruction, Attribute, or Namespace, the node's name is returned.
 
@@ -144,14 +144,14 @@ AbstractXmlPullProvider::~AbstractXmlPullProvider()
  */
 
 /*!
-  \fn QVariant AbstractXmlPullProvider::atomicValue() const = 0;
+  \fn QVariant QPatternist::AbstractXmlPullProvider::atomicValue() const = 0
 
   If current() event is AtomicValue, the atomic value is returned as a QVariant.
   In all other cases, this function returns a null QVariant.
  */
 
 /*!
- \fn QString AbstractXmlPullProvider::stringValue() const = 0;
+ \fn QString QPatternist::AbstractXmlPullProvider::stringValue() const = 0
 
   If current() is Text, the text node's value is returned.
 
@@ -165,7 +165,7 @@ AbstractXmlPullProvider::~AbstractXmlPullProvider()
   */
 
 /*!
- \fn QHash<QXmlName, QString> AbstractXmlPullProvider::attributes() = 0;
+ \fn QHash<QXmlName, QString> QPatternist::AbstractXmlPullProvider::attributes() = 0
 
   If the current() is Element, the attributes of the element are returned,
   an empty list of attributes otherwise.

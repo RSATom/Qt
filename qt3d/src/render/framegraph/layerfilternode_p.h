@@ -68,14 +68,14 @@ class LayerFilterNode : public FrameGraphNode
 public:
     LayerFilterNode();
 
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) Q_DECL_OVERRIDE;
+    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) override;
     Qt3DCore::QNodeIdVector layerIds() const;
     void setLayerIds(const Qt3DCore::QNodeIdVector &list);
 
     QLayerFilter::FilterMode filterMode() const;
 
 private:
-    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) Q_DECL_FINAL;
+    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) final;
 
     Qt3DCore::QNodeIdVector m_layerIds;
     QLayerFilter::FilterMode m_filterMode;

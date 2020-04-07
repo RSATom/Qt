@@ -16,5 +16,5 @@ uikit: SUBDIRS += ios
 android: SUBDIRS += android
 
 config_flite | config_flite_alsa {
-    SUBDIRS += flite
+    qtHaveModule(multimedia): SUBDIRS += flite
 }

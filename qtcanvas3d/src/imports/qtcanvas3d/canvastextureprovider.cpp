@@ -50,7 +50,9 @@ QT_CANVAS3D_BEGIN_NAMESPACE
    \since QtCanvas3D 1.1
    \inqmlmodule QtCanvas3D
    \brief Provides means to get QQuickItem as Canvas3DTexture.
+   \deprecated
 
+   \b{Deprecated in Qt 5.12.}
    An uncreatable QML type that provides an extension API that can be used to get QQuickItem as
    Canvas3DTexture. Only QQuickItems that implement QQuickItem::textureProvider() method can be
    used as a texture source, which in most cases means the \c{layer.enabled} property of the
@@ -110,6 +112,7 @@ CanvasTextureProvider::~CanvasTextureProvider()
 /*!
  * \qmlmethod QJSValue Canvas3DTextureProvider::createTextureFromSource(Item *source)
  *
+ * \b{Deprecated in Qt 5.12.}
  * Creates and returns a Canvas3DTexture object for the supplied \a source item.
  *
  * The \a source item must be of a type that implements a texture provider, which in most

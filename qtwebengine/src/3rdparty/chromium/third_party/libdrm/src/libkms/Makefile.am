@@ -10,10 +10,6 @@ libkms_ladir = $(libdir)
 libkms_la_LDFLAGS = -version-number 1:0:0 -no-undefined
 libkms_la_LIBADD = ../libdrm.la
 
-#if HAVE_LIBUDEV
-#libkms_la_LIBADD += $(LIBUDEV_LIBS)
-#endif
-
 libkms_la_SOURCES = $(LIBKMS_FILES)
 
 if HAVE_VMWGFX
@@ -35,11 +31,6 @@ endif
 if HAVE_EXYNOS
 libkms_la_SOURCES += $(LIBKMS_EXYNOS_FILES)
 AM_CFLAGS += -I$(top_srcdir)/exynos
-endif
-
-if HAVE_MEDIATEK
-libkms_la_SOURCES += $(LIBKMS_MEDIATEK_FILES)
-AM_CFLAGS += -I$(top_srcdir)/mediatek
 endif
 
 libkmsincludedir = ${includedir}/libkms

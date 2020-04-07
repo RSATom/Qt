@@ -15,6 +15,7 @@
 #include "chromeos/network/network_handler_callbacks.h"
 #include "chromeos/network/network_state.h"
 #include "chromeos/network/network_state_handler.h"
+#include "chromeos/network/network_type_pattern.h"
 #include "third_party/cros_system_api/dbus/service_constants.h"
 
 namespace extensions {
@@ -139,7 +140,8 @@ void ShellNetworkController::SetScanningEnabled(bool enabled) {
 
 void ShellNetworkController::RequestScan() {
   VLOG(1) << "Requesting scan";
-  chromeos::NetworkHandler::Get()->network_state_handler()->RequestScan();
+  chromeos::NetworkHandler::Get()->network_state_handler()->RequestScan(
+      chromeos::NetworkTypePattern::Default());
 }
 
 void ShellNetworkController::ConnectIfUnconnected() {
@@ -197,7 +199,8 @@ void ShellNetworkController::ConnectIfUnconnected() {
                  weak_ptr_factory_.GetWeakPtr()),
       base::Bind(&ShellNetworkController::HandleConnectionError,
                  weak_ptr_factory_.GetWeakPtr()),
-      false /* check_error_state */);
+      false /* check_error_state */,
+      chromeos::ConnectCallbackMode::ON_COMPLETED);
 }
 
 void ShellNetworkController::HandleConnectionSuccess() {

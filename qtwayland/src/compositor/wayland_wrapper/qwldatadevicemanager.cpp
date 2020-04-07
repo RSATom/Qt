@@ -59,12 +59,8 @@ QT_BEGIN_NAMESPACE
 namespace QtWayland {
 
 DataDeviceManager::DataDeviceManager(QWaylandCompositor *compositor)
-    : QObject(0)
-    , wl_data_device_manager(compositor->display(), 1)
+    : wl_data_device_manager(compositor->display(), 1)
     , m_compositor(compositor)
-    , m_current_selection_source(0)
-    , m_retainedReadNotifier(0)
-    , m_compositorOwnsSelection(false)
 {
 }
 
@@ -137,7 +133,7 @@ void DataDeviceManager::finishReadFromClient(bool exhausted)
             // or else clients may SIGPIPE.
             m_obsoleteRetainedReadNotifiers.append(m_retainedReadNotifier);
         }
-        m_retainedReadNotifier = 0;
+        m_retainedReadNotifier = nullptr;
     }
 }
 
@@ -214,12 +210,12 @@ bool DataDeviceManager::offerFromCompositorToClient(wl_resource *clientDataDevic
     if (!m_compositorOwnsSelection)
         return false;
 
-    wl_client *client = clientDataDeviceResource->client;
+    wl_client *client = wl_resource_get_client(clientDataDeviceResource);
     //qDebug("compositor offers %d types to %p", m_retainedData.formats().count(), client);
 
     struct wl_resource *selectionOffer =
              wl_resource_create(client, &wl_data_offer_interface, -1, 0);
-    wl_resource_set_implementation(selectionOffer, &compositor_offer_interface, this, 0);
+    wl_resource_set_implementation(selectionOffer, &compositor_offer_interface, this, nullptr);
     wl_data_device_send_data_offer(clientDataDeviceResource, selectionOffer);
     foreach (const QString &format, m_retainedData.formats()) {
         QByteArray ba = format.toLatin1();
@@ -257,7 +253,7 @@ void DataDeviceManager::comp_accept(wl_client *, wl_resource *, uint32_t, const 
 void DataDeviceManager::comp_receive(wl_client *client, wl_resource *resource, const char *mime_type, int32_t fd)
 {
     Q_UNUSED(client);
-    DataDeviceManager *self = static_cast<DataDeviceManager *>(resource->data);
+    DataDeviceManager *self = static_cast<DataDeviceManager *>(wl_resource_get_user_data(resource));
     //qDebug("client %p wants data for type %s from compositor", client, mime_type);
     QByteArray content = QWaylandMimeHelper::getByteArray(&self->m_retainedData, QString::fromLatin1(mime_type));
     if (!content.isEmpty()) {
@@ -273,6 +269,7 @@ void DataDeviceManager::comp_destroy(wl_client *, wl_resource *)
 }
 
 QT_WARNING_DISABLE_GCC("-Wmissing-field-initializers")
+QT_WARNING_DISABLE_CLANG("-Wmissing-field-initializers")
 
 const struct wl_data_offer_interface DataDeviceManager::compositor_offer_interface = {
     DataDeviceManager::comp_accept,

@@ -40,9 +40,7 @@ class TestDialog : public DialogDelegateView {
   }
 
   // WidgetDelegate overrides:
-  bool ShouldShowWindowTitle() const override {
-    return !title_.empty();
-  }
+  bool ShouldShowWindowTitle() const override { return !title_.empty(); }
   bool ShouldShowCloseButton() const override { return show_close_button_; }
 
   // DialogDelegateView overrides:
@@ -309,6 +307,16 @@ TEST_F(DialogTest, BoundsAccommodateTitle) {
   dialog2->set_title(base::ASCIIToUTF16("Title"));
   DialogDelegate::CreateDialogWidget(dialog2, GetContext(), nullptr);
 
+  // Remove the close button so it doesn't influence the bounds if it's taller
+  // than the title.
+  dialog()->set_show_close_button(false);
+  dialog2->set_show_close_button(false);
+  dialog()->GetWidget()->non_client_view()->ResetWindowControls();
+  dialog2->GetWidget()->non_client_view()->ResetWindowControls();
+
+  EXPECT_FALSE(dialog()->ShouldShowWindowTitle());
+  EXPECT_TRUE(dialog2->ShouldShowWindowTitle());
+
   // Titled dialogs have taller initial frame bounds than untitled dialogs.
   View* frame1 = dialog()->GetWidget()->non_client_view()->frame_view();
   View* frame2 = dialog2->GetWidget()->non_client_view()->frame_view();
@@ -317,6 +325,8 @@ TEST_F(DialogTest, BoundsAccommodateTitle) {
 
   // Giving the default test dialog a title will yield the same bounds.
   dialog()->set_title(base::ASCIIToUTF16("Title"));
+  EXPECT_TRUE(dialog()->ShouldShowWindowTitle());
+
   dialog()->GetWidget()->UpdateWindowTitle();
   EXPECT_EQ(frame1->GetPreferredSize().height(),
             frame2->GetPreferredSize().height());

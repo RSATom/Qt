@@ -59,24 +59,27 @@ class CppCodeParser : public CodeParser
 public:
     CppCodeParser();
     ~CppCodeParser();
-    static CppCodeParser* cppParser() { return cppParser_; }
 
-    virtual void initializeParser(const Config& config) Q_DECL_OVERRIDE;
-    virtual void terminateParser() Q_DECL_OVERRIDE;
-    virtual QString language() Q_DECL_OVERRIDE;
-    virtual QStringList headerFileNameFilter() Q_DECL_OVERRIDE;
-    virtual QStringList sourceFileNameFilter() Q_DECL_OVERRIDE;
-    virtual void parseHeaderFile(const Location& location, const QString& filePath) Q_DECL_OVERRIDE;
-    virtual void parseSourceFile(const Location& location, const QString& filePath) Q_DECL_OVERRIDE;
-    virtual void doneParsingHeaderFiles() Q_DECL_OVERRIDE;
-    virtual void doneParsingSourceFiles() Q_DECL_OVERRIDE;
+    void initializeParser(const Config& config) override;
+    void terminateParser() override;
+    QString language() override;
+    QStringList headerFileNameFilter() override;
+    QStringList sourceFileNameFilter() override;
     bool parseParameters(const QString& parameters, QVector<Parameter>& pvect, bool& isQPrivateSignal);
+    Node *parseMacroArg(const Location &location, const QString &macroArg) override;
+    Node *parseOtherFuncArg(const QString &topic,
+                            const Location &location,
+                            const QString &funcArg) override;
     const Location& declLoc() const { return declLoc_; }
     void setDeclLoc() { declLoc_ = location(); }
+    static bool isJSMethodTopic(const QString &t);
+    static bool isQMLMethodTopic(const QString &t);
+    static bool isJSPropertyTopic(const QString &t);
+    static bool isQMLPropertyTopic(const QString &t);
 
 protected:
-    const QSet<QString>& topicCommands();
-    const QSet<QString>& otherMetaCommands();
+    static const QSet<QString>& topicCommands();
+    static const QSet<QString>& otherMetaCommands();
     virtual Node* processTopicCommand(const Doc& doc,
                                       const QString& command,
                                       const ArgLocPair& arg);
@@ -84,21 +87,22 @@ protected:
     bool splitQmlPropertyGroupArg(const QString& arg,
                                   QString& module,
                                   QString& element,
-                                  QString& name);
+                                  QString& name,
+                                  const Location& location);
     bool splitQmlPropertyArg(const QString& arg,
                              QString& type,
                              QString& module,
                              QString& element,
-                             QString& name);
-    bool splitQmlMethodArg(const QString& arg,
-                           QString& type,
-                           QString& module,
-                           QString& element);
+                             QString& name,
+                             const Location& location);
     virtual void processOtherMetaCommand(const Doc& doc,
                                          const QString& command,
                                          const ArgLocPair& argLocPair,
                                          Node *node);
     void processOtherMetaCommands(const Doc& doc, Node *node);
+    void processOtherMetaCommands(NodeList &nodes, DocList& docs);
+    void processTopicArgs(const Doc &doc, const QString &topic, NodeList &nodes, DocList &docs);
+    bool hasTooManyTopics(const Doc &doc) const;
 
  protected:
     void reset();
@@ -110,45 +114,12 @@ protected:
  private:
     bool match(int target);
     bool skipTo(int target);
-    bool matchCompat();
     bool matchModuleQualifier(QString& name);
     bool matchTemplateAngles(CodeChunk *type = 0);
-    bool matchTemplateHeader();
     bool matchDataType(CodeChunk *type, QString *var = 0, bool qProp = false);
     bool matchParameter(QVector<Parameter>& pvect, bool& isQPrivateSignal);
-    bool matchFunctionDecl(Aggregate *parent,
-                           QStringList *parentPathPtr,
-                           FunctionNode **funcPtr,
-                           const QString &templateStuff,
-                           ExtraFuncData& extra);
-    bool matchBaseSpecifier(ClassNode *classe, bool isClass);
-    bool matchBaseList(ClassNode *classe, bool isClass);
-    bool matchClassDecl(Aggregate *parent,
-                        const QString &templateStuff = QString());
-    bool matchNamespaceDecl(Aggregate *parent);
     bool matchUsingDecl(Aggregate* parent);
-    bool matchEnumItem(Aggregate *parent, EnumNode *enume);
-    bool matchEnumDecl(Aggregate *parent);
-    bool matchTypedefDecl(Aggregate *parent);
-    bool matchProperty(Aggregate *parent);
-    bool matchDeclList(Aggregate *parent);
-    bool matchDocsAndStuff();
-    bool makeFunctionNode(const QString &synopsis,
-                          QStringList *parentPathPtr,
-                          FunctionNode **funcPtr,
-                          ExtraFuncData& params);
-    FunctionNode* makeFunctionNode(const Doc& doc,
-                                   const QString& sig,
-                                   Aggregate* parent,
-                                   Node::NodeType type,
-                                   bool attached,
-                                   QString qdoctag);
-    void parseQiteratorDotH(const Location &location, const QString &filePath);
-    void instantiateIteratorMacro(const QString &container,
-                                  const QString &includeFile,
-                                  const QString &macroDef);
     void createExampleFileNodes(DocumentNode *dn);
-    int matchFunctionModifier();
 
  protected:
     QMap<QString, Node::NodeType> nodeTypeMap;
@@ -163,20 +134,11 @@ protected:
     Location declLoc_;
 
  private:
-    QString sequentialIteratorDefinition;
-    QString mutableSequentialIteratorDefinition;
-    QString associativeIteratorDefinition;
-    QString mutableAssociativeIteratorDefinition;
-    QMap<QString, QString> sequentialIteratorClasses;
-    QMap<QString, QString> mutableSequentialIteratorClasses;
-    QMap<QString, QString> associativeIteratorClasses;
-    QMap<QString, QString> mutableAssociativeIteratorClasses;
 
     static QStringList exampleFiles;
     static QStringList exampleDirs;
     static QSet<QString> excludeDirs;
     static QSet<QString> excludeFiles;
-    static CppCodeParser* cppParser_;
     QString exampleNameFilter;
     QString exampleImageFilter;
 };
@@ -205,6 +167,7 @@ protected:
 #define COMMAND_REIMP                   Doc::alias("reimp")
 #define COMMAND_RELATES                 Doc::alias("relates")
 #define COMMAND_STARTPAGE               Doc::alias("startpage")
+#define COMMAND_TYPEALIAS               Doc::alias("typealias")
 #define COMMAND_TYPEDEF                 Doc::alias("typedef")
 #define COMMAND_VARIABLE                Doc::alias("variable")
 #define COMMAND_QMLABSTRACT             Doc::alias("qmlabstract")

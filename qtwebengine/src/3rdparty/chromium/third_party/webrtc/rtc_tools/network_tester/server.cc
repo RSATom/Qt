@@ -8,12 +8,13 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/rtc_tools/network_tester/test_controller.h"
+#include "rtc_tools/network_tester/test_controller.h"
 
-int main() {
+int main(int /*argn*/, char* /*argv*/ []) {
   webrtc::TestController server(9090, 9090, "server_config.dat",
                                 "server_packet_log.dat");
   while (!server.IsTestDone()) {
     server.Run();
   }
+  return 0;
 }

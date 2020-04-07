@@ -13,6 +13,7 @@
 #include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
+#include "base/test/bind_test_util.h"
 #include "base/test/gtest_util.h"
 #include "build/build_config.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -31,7 +32,7 @@ class IncompleteType;
 
 class NoRef {
  public:
-  NoRef() {}
+  NoRef() = default;
 
   MOCK_METHOD0(VoidMethod0, void());
   MOCK_CONST_METHOD0(VoidConstMethod0, void());
@@ -49,7 +50,7 @@ class NoRef {
 
 class HasRef : public NoRef {
  public:
-  HasRef() {}
+  HasRef() = default;
 
   MOCK_CONST_METHOD0(AddRef, void());
   MOCK_CONST_METHOD0(Release, bool());
@@ -61,7 +62,7 @@ class HasRef : public NoRef {
 
 class HasRefPrivateDtor : public HasRef {
  private:
-  ~HasRefPrivateDtor() {}
+  ~HasRefPrivateDtor() = default;
 };
 
 static const int kParentValue = 1;
@@ -196,11 +197,8 @@ class CopyCounter {
  public:
   CopyCounter(int* copies, int* assigns)
       : counter_(copies, assigns, nullptr, nullptr) {}
-  CopyCounter(const CopyCounter& other) : counter_(other.counter_) {}
-  CopyCounter& operator=(const CopyCounter& other) {
-    counter_ = other.counter_;
-    return *this;
-  }
+  CopyCounter(const CopyCounter& other) = default;
+  CopyCounter& operator=(const CopyCounter& other) = default;
 
   explicit CopyCounter(const DerivedCopyMoveCounter& other) : counter_(other) {}
 
@@ -313,6 +311,10 @@ void TakesACallback(const Closure& callback) {
   callback.Run();
 }
 
+int Noexcept() noexcept {
+  return 42;
+}
+
 class BindTest : public ::testing::Test {
  public:
   BindTest() {
@@ -321,14 +323,15 @@ class BindTest : public ::testing::Test {
     static_func_mock_ptr = &static_func_mock_;
   }
 
-  virtual ~BindTest() {
-  }
+  ~BindTest() override = default;
 
   static void VoidFunc0() {
     static_func_mock_ptr->VoidMethod0();
   }
 
   static int IntFunc0() { return static_func_mock_ptr->IntMethod0(); }
+  int NoexceptMethod() noexcept { return 42; }
+  int ConstNoexceptMethod() const noexcept { return 42; }
 
  protected:
   StrictMock<NoRef> no_ref_;
@@ -803,8 +806,8 @@ TYPED_TEST(BindVariantsTest, FunctionTypeSupport) {
   EXPECT_EQ(&no_ref, std::move(normal_non_refcounted_cb).Run());
 
   ClosureType method_cb = TypeParam::Bind(&HasRef::VoidMethod0, &has_ref);
-  ClosureType method_refptr_cb = TypeParam::Bind(&HasRef::VoidMethod0,
-                                                 make_scoped_refptr(&has_ref));
+  ClosureType method_refptr_cb =
+      TypeParam::Bind(&HasRef::VoidMethod0, WrapRefCounted(&has_ref));
   ClosureType const_method_nonconst_obj_cb =
       TypeParam::Bind(&HasRef::VoidConstMethod0, &has_ref);
   ClosureType const_method_const_obj_cb =
@@ -846,7 +849,7 @@ TYPED_TEST(BindVariantsTest, ReturnValues) {
       .WillOnce(Return(41337))
       .WillOnce(Return(51337));
   EXPECT_CALL(has_ref, UniquePtrMethod0())
-      .WillOnce(Return(ByMove(MakeUnique<int>(42))));
+      .WillOnce(Return(ByMove(std::make_unique<int>(42))));
 
   CallbackType<TypeParam, int()> normal_cb = TypeParam::Bind(&IntFunc0);
   CallbackType<TypeParam, int()> method_cb =
@@ -1232,17 +1235,17 @@ TEST_F(BindTest, ArgumentCopiesAndMoves) {
 }
 
 TEST_F(BindTest, CapturelessLambda) {
-  EXPECT_FALSE(internal::IsConvertibleToRunType<void>::value);
-  EXPECT_FALSE(internal::IsConvertibleToRunType<int>::value);
-  EXPECT_FALSE(internal::IsConvertibleToRunType<void(*)()>::value);
-  EXPECT_FALSE(internal::IsConvertibleToRunType<void(NoRef::*)()>::value);
+  EXPECT_FALSE(internal::IsCallableObject<void>::value);
+  EXPECT_FALSE(internal::IsCallableObject<int>::value);
+  EXPECT_FALSE(internal::IsCallableObject<void (*)()>::value);
+  EXPECT_FALSE(internal::IsCallableObject<void (NoRef::*)()>::value);
 
   auto f = []() {};
-  EXPECT_TRUE(internal::IsConvertibleToRunType<decltype(f)>::value);
+  EXPECT_TRUE(internal::IsCallableObject<decltype(f)>::value);
 
   int i = 0;
   auto g = [i]() { (void)i; };
-  EXPECT_FALSE(internal::IsConvertibleToRunType<decltype(g)>::value);
+  EXPECT_TRUE(internal::IsCallableObject<decltype(g)>::value);
 
   auto h = [](int, double) { return 'k'; };
   EXPECT_TRUE((std::is_same<
@@ -1259,6 +1262,36 @@ TEST_F(BindTest, CapturelessLambda) {
   EXPECT_EQ(6, x);
   cb.Run(7);
   EXPECT_EQ(42, x);
+}
+
+TEST_F(BindTest, EmptyFunctor) {
+  struct NonEmptyFunctor {
+    int operator()() const { return x; }
+    int x = 42;
+  };
+
+  struct EmptyFunctor {
+    int operator()() { return 42; }
+  };
+
+  struct EmptyFunctorConst {
+    int operator()() const { return 42; }
+  };
+
+  EXPECT_TRUE(internal::IsCallableObject<NonEmptyFunctor>::value);
+  EXPECT_TRUE(internal::IsCallableObject<EmptyFunctor>::value);
+  EXPECT_TRUE(internal::IsCallableObject<EmptyFunctorConst>::value);
+  EXPECT_EQ(42, BindOnce(EmptyFunctor()).Run());
+  EXPECT_EQ(42, BindOnce(EmptyFunctorConst()).Run());
+  EXPECT_EQ(42, BindRepeating(EmptyFunctorConst()).Run());
+}
+
+TEST_F(BindTest, CapturingLambdaForTesting) {
+  int x = 6;
+  EXPECT_EQ(42, BindLambdaForTesting([=](int y) { return x * y; }).Run(7));
+
+  auto f = [x](std::unique_ptr<int> y) { return x * *y; };
+  EXPECT_EQ(42, BindLambdaForTesting(f).Run(std::make_unique<int>(7)));
 }
 
 TEST_F(BindTest, Cancellation) {
@@ -1370,8 +1403,9 @@ TEST_F(BindTest, OnceCallback) {
 
   cb = std::move(cb2);
 
-  OnceCallback<void(int)> cb4 = BindOnce(
-      &VoidPolymorphic<std::unique_ptr<int>, int>::Run, MakeUnique<int>(0));
+  OnceCallback<void(int)> cb4 =
+      BindOnce(&VoidPolymorphic<std::unique_ptr<int>, int>::Run,
+               std::make_unique<int>(0));
   BindOnce(std::move(cb4), 1).Run();
 }
 
@@ -1401,6 +1435,55 @@ TEST_F(BindTest, WindowsCallingConventions) {
   EXPECT_EQ(2, stdcall_cb.Run());
 }
 #endif
+
+// Test unwrapping the various wrapping functions.
+
+TEST_F(BindTest, UnwrapUnretained) {
+  int i = 0;
+  auto unretained = Unretained(&i);
+  EXPECT_EQ(&i, internal::Unwrap(unretained));
+  EXPECT_EQ(&i, internal::Unwrap(std::move(unretained)));
+}
+
+TEST_F(BindTest, UnwrapConstRef) {
+  int p = 0;
+  auto const_ref = ConstRef(p);
+  EXPECT_EQ(&p, &internal::Unwrap(const_ref));
+  EXPECT_EQ(&p, &internal::Unwrap(std::move(const_ref)));
+}
+
+TEST_F(BindTest, UnwrapRetainedRef) {
+  auto p = MakeRefCounted<RefCountedData<int>>();
+  auto retained_ref = RetainedRef(p);
+  EXPECT_EQ(p.get(), internal::Unwrap(retained_ref));
+  EXPECT_EQ(p.get(), internal::Unwrap(std::move(retained_ref)));
+}
+
+TEST_F(BindTest, UnwrapOwned) {
+  int* p = new int;
+  auto owned = Owned(p);
+  EXPECT_EQ(p, internal::Unwrap(owned));
+  EXPECT_EQ(p, internal::Unwrap(std::move(owned)));
+}
+
+TEST_F(BindTest, UnwrapPassed) {
+  int* p = new int;
+  auto passed = Passed(WrapUnique(p));
+  EXPECT_EQ(p, internal::Unwrap(passed).get());
+
+  p = new int;
+  EXPECT_EQ(p, internal::Unwrap(Passed(WrapUnique(p))).get());
+}
+
+TEST_F(BindTest, BindNoexcept) {
+  EXPECT_EQ(42, base::BindOnce(&Noexcept).Run());
+  EXPECT_EQ(
+      42,
+      base::BindOnce(&BindTest::NoexceptMethod, base::Unretained(this)).Run());
+  EXPECT_EQ(
+      42, base::BindOnce(&BindTest::ConstNoexceptMethod, base::Unretained(this))
+              .Run());
+}
 
 // Test null callbacks cause a DCHECK.
 TEST(BindDeathTest, NullCallback) {

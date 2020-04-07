@@ -30,6 +30,8 @@ bool DataReductionProxyServer::SupportsResourceType(
           return true;
         case ResourceTypeProvider::CONTENT_TYPE_MEDIA:
           return false;
+        case ResourceTypeProvider::CONTENT_TYPE_MAIN_FRAME:
+          return true;
         case ResourceTypeProvider::CONTENT_TYPE_MAX:
           NOTREACHED();
           return true;
@@ -50,8 +52,12 @@ DataReductionProxyServer::ConvertToNetProxyServers(
   return net_proxy_servers;
 }
 
-ProxyServer_ProxyType DataReductionProxyServer::GetProxyTypeForTesting() const {
-  return proxy_type_;
+bool DataReductionProxyServer::IsCoreProxy() const {
+  return proxy_type_ == ProxyServer_ProxyType_CORE;
+}
+
+bool DataReductionProxyServer::IsSecureProxy() const {
+  return proxy_server_.is_https() || proxy_server_.is_quic();
 }
 
 }  // namespace data_reduction_proxy

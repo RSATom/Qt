@@ -31,8 +31,8 @@ class ClientCertificateDelegateImpl : public ClientCertificateDelegate {
     if (!continue_called_) {
       BrowserThread::PostTask(
           BrowserThread::IO, FROM_HERE,
-          base::Bind(&SSLClientAuthHandler::CancelCertificateSelection,
-                     handler_));
+          base::BindOnce(&SSLClientAuthHandler::CancelCertificateSelection,
+                         handler_));
     }
   }
 
@@ -43,8 +43,8 @@ class ClientCertificateDelegateImpl : public ClientCertificateDelegate {
     continue_called_ = true;
     BrowserThread::PostTask(
         BrowserThread::IO, FROM_HERE,
-        base::Bind(&SSLClientAuthHandler::ContinueWithCertificate, handler_,
-                   std::move(cert), std::move(key)));
+        base::BindOnce(&SSLClientAuthHandler::ContinueWithCertificate, handler_,
+                       std::move(cert), std::move(key)));
   }
 
  private:
@@ -120,10 +120,10 @@ class SSLClientAuthHandler::Core : public base::RefCountedThreadSafe<Core> {
 
 SSLClientAuthHandler::SSLClientAuthHandler(
     std::unique_ptr<net::ClientCertStore> client_cert_store,
-    net::URLRequest* request,
+    ResourceRequestInfo::WebContentsGetter web_contents_getter,
     net::SSLCertRequestInfo* cert_request_info,
-    SSLClientAuthHandler::Delegate* delegate)
-    : request_(request),
+    Delegate* delegate)
+    : web_contents_getter_(web_contents_getter),
       cert_request_info_(cert_request_info),
       delegate_(delegate),
       weak_factory_(this) {
@@ -177,16 +177,14 @@ void SSLClientAuthHandler::DidGetClientCerts(
     // this doesn't work on Android (https://crbug.com/345641).
     BrowserThread::PostTask(
         BrowserThread::IO, FROM_HERE,
-        base::Bind(&SSLClientAuthHandler::ContinueWithCertificate,
-                   weak_factory_.GetWeakPtr(), nullptr, nullptr));
+        base::BindOnce(&SSLClientAuthHandler::ContinueWithCertificate,
+                       weak_factory_.GetWeakPtr(), nullptr, nullptr));
     return;
   }
 
   BrowserThread::PostTask(
       BrowserThread::UI, FROM_HERE,
-      base::BindOnce(&SelectCertificateOnUIThread,
-                     ResourceRequestInfo::ForRequest(request_)
-                         ->GetWebContentsGetterForRequest(),
+      base::BindOnce(&SelectCertificateOnUIThread, web_contents_getter_,
                      base::RetainedRef(cert_request_info_),
                      std::move(client_certs), weak_factory_.GetWeakPtr()));
 }

@@ -39,7 +39,9 @@
 
 #include "qxml.h"
 #include "qxml_p.h"
+#if QT_CONFIG(textcodec)
 #include "qtextcodec.h"
+#endif
 #include "qbuffer.h"
 #include "qregexp.h"
 #include "qmap.h"
@@ -237,7 +239,7 @@ public:
     int pos;
     int length;
     bool nextReturnedEndOfData;
-#ifndef QT_NO_TEXTCODEC
+#if QT_CONFIG(textcodec)
     QTextDecoder *encMapper;
 #endif
 
@@ -448,11 +450,11 @@ public:
     {
     }
 
-    int columnNumber() const Q_DECL_OVERRIDE
+    int columnNumber() const override
     {
         return (reader->d_ptr->columnNr == -1 ? -1 : reader->d_ptr->columnNr + 1);
     }
-    int lineNumber() const Q_DECL_OVERRIDE
+    int lineNumber() const override
     {
         return (reader->d_ptr->lineNr == -1 ? -1 : reader->d_ptr->lineNr + 1);
     }
@@ -776,6 +778,11 @@ QXmlAttributes::~QXmlAttributes()
 {
 }
 
+/*!
+  \fn void QXmlAttributes::swap(QXmlAttributes &other)
+
+  Swaps \c this with \a other.
+ */
 
 /*!
     Looks up the index of an attribute by the qualified name \a qName.
@@ -1070,7 +1077,7 @@ void QXmlInputSource::init()
         d->inputStream = 0;
 
         setData(QString());
-#ifndef QT_NO_TEXTCODEC
+#if QT_CONFIG(textcodec)
         d->encMapper = 0;
 #endif
         d->nextReturnedEndOfData = true; // first call to next() will call fetchData()
@@ -1116,7 +1123,7 @@ QXmlInputSource::QXmlInputSource(QIODevice *dev)
 QXmlInputSource::~QXmlInputSource()
 {
     // ### close the input device.
-#ifndef QT_NO_TEXTCODEC
+#if QT_CONFIG(textcodec)
     delete d->encMapper;
 #endif
     delete d;
@@ -1279,7 +1286,7 @@ void QXmlInputSource::fetchData()
     }
 }
 
-#ifndef QT_NO_TEXTCODEC
+#if QT_CONFIG(textcodec)
 static QString extractEncodingDecl(const QString &text, bool *needMoreText)
 {
     *needMoreText = false;
@@ -1321,7 +1328,7 @@ static QString extractEncodingDecl(const QString &text, bool *needMoreText)
 
     return encoding;
 }
-#endif // QT_NO_TEXTCODEC
+#endif // textcodec
 
 /*!
     This function reads the XML file from \a data and tries to
@@ -1336,7 +1343,7 @@ static QString extractEncodingDecl(const QString &text, bool *needMoreText)
 */
 QString QXmlInputSource::fromRawData(const QByteArray &data, bool beginning)
 {
-#ifdef QT_NO_TEXTCODEC
+#if !QT_CONFIG(textcodec)
     Q_UNUSED(beginning);
     return QString::fromLatin1(data.constData(), data.size());
 #else

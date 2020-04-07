@@ -50,15 +50,15 @@ QPlatformIntegration* QWebGLIntegrationPlugin::create(const QString& system,
     if (!paramList.isEmpty()) {
         for (const QString &parameter : qAsConst(paramList)) {
             const QStringList parts = parameter.split('=');
-            if (parts.first() == QStringLiteral("port") && parts.size() == 2) {
+            if (parts.first() == QStringLiteral("port")) {
                 if (parts.size() != 2) {
-                    qCCritical(lcWebGL, "QWebGLIntegrationPlugin::create: No port specified");
+                    qCCritical(lcWebGL, "Port parameter specified with no value");
                     return nullptr;
                 }
                 bool ok;
-                port = parts.last().toUInt(&ok);
+                port = parts.last().toUShort(&ok);
                 if (!ok) {
-                    qCCritical(lcWebGL, "QWebGLIntegrationPlugin::create: Invalid port number");
+                    qCCritical(lcWebGL, "Invalid port number");
                     return nullptr;
                 }
             }

@@ -15,10 +15,6 @@
 #include "base/strings/stringprintf.h"
 #include "build/build_config.h"
 
-#if defined(OS_CHROMEOS)
-#include "base/sys_info.h"
-#endif
-
 namespace metrics {
 
 namespace {
@@ -33,17 +29,6 @@ const char kRotationalFormat[] = "/sys/block/sd%c/queue/rotational";
 // static
 bool DriveMetricsProvider::HasSeekPenalty(const base::FilePath& path,
                                           bool* has_seek_penalty) {
-#if defined(OS_CHROMEOS)
-  std::string board = base::SysInfo::GetStrippedReleaseBoard();
-  // There are "parrot", "parrot_ivb" and "parrot_freon" boards that have
-  // devices with rotating disks. All other ChromeOS devices have SSDs.
-  if (board != "unknown" &&
-      !base::StartsWith(board, "parrot", base::CompareCase::SENSITIVE)) {
-    *has_seek_penalty = false;
-    return true;
-  }
-#endif
-
   base::File file(path, base::File::FLAG_OPEN | base::File::FLAG_READ);
   if (!file.IsValid())
     return false;

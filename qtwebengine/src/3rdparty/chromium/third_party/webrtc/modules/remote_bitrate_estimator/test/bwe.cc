@@ -8,16 +8,17 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/modules/remote_bitrate_estimator/test/bwe.h"
+#include "modules/remote_bitrate_estimator/test/bwe.h"
 
 #include <limits>
 
-#include "webrtc/modules/remote_bitrate_estimator/test/estimators/bbr.h"
-#include "webrtc/modules/remote_bitrate_estimator/test/estimators/nada.h"
-#include "webrtc/modules/remote_bitrate_estimator/test/estimators/remb.h"
-#include "webrtc/modules/remote_bitrate_estimator/test/estimators/send_side.h"
-#include "webrtc/modules/remote_bitrate_estimator/test/estimators/tcp.h"
-#include "webrtc/rtc_base/constructormagic.h"
+#include "modules/remote_bitrate_estimator/test/estimators/bbr.h"
+#include "modules/remote_bitrate_estimator/test/estimators/nada.h"
+#include "modules/remote_bitrate_estimator/test/estimators/remb.h"
+#include "modules/remote_bitrate_estimator/test/estimators/send_side.h"
+#include "modules/remote_bitrate_estimator/test/estimators/tcp.h"
+#include "rtc_base/constructormagic.h"
+#include "rtc_base/system/fallthrough.h"
 
 namespace webrtc {
 namespace testing {
@@ -33,15 +34,13 @@ BweReceiver::BweReceiver(int flow_id)
     : flow_id_(flow_id),
       received_packets_(kSetCapacity),
       rate_counter_(),
-      loss_account_() {
-}
+      loss_account_() {}
 
 BweReceiver::BweReceiver(int flow_id, int64_t window_size_ms)
     : flow_id_(flow_id),
       received_packets_(kSetCapacity),
       rate_counter_(window_size_ms),
-      loss_account_() {
-}
+      loss_account_() {}
 
 void BweReceiver::ReceivePacket(int64_t arrival_time_ms,
                                 const MediaPacket& media_packet) {
@@ -95,9 +94,9 @@ BweSender* CreateBweSender(BandwidthEstimatorType estimator,
     case kNadaEstimator:
       return new NadaBweSender(kbps, observer, clock);
     case kBbrEstimator:
-      return new BbrBweSender(clock);
+      return new BbrBweSender(observer, clock);
     case kTcpEstimator:
-      FALLTHROUGH();
+      RTC_FALLTHROUGH();
     case kNullEstimator:
       return new NullBweSender();
   }

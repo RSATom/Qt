@@ -17,8 +17,8 @@
 #include "content/public/browser/browser_associated_interface.h"
 #include "content/public/browser/browser_message_filter.h"
 #include "content/public/common/resource_type.h"
-#include "content/public/common/url_loader_factory.mojom.h"
 #include "net/traffic_annotation/network_traffic_annotation.h"
+#include "services/network/public/mojom/url_loader_factory.mojom.h"
 
 namespace storage {
 class FileSystemContext;
@@ -32,6 +32,7 @@ class URLRequestContext;
 namespace content {
 class ChromeAppCacheService;
 class ChromeBlobStorageContext;
+class PrefetchURLLoaderService;
 class ResourceContext;
 class ResourceRequesterInfo;
 class ServiceWorkerContextWrapper;
@@ -43,8 +44,8 @@ class ServiceWorkerContextWrapper;
 // will not interfere with browser UI.
 class CONTENT_EXPORT ResourceMessageFilter
     : public BrowserMessageFilter,
-      public BrowserAssociatedInterface<mojom::URLLoaderFactory>,
-      public mojom::URLLoaderFactory {
+      public BrowserAssociatedInterface<network::mojom::URLLoaderFactory>,
+      public network::mojom::URLLoaderFactory {
  public:
   typedef base::Callback<void(ResourceType resource_type,
                               ResourceContext**,
@@ -60,6 +61,7 @@ class CONTENT_EXPORT ResourceMessageFilter
       ChromeBlobStorageContext* blob_storage_context,
       storage::FileSystemContext* file_system_context,
       ServiceWorkerContextWrapper* service_worker_context,
+      PrefetchURLLoaderService* prefetch_url_loader_service,
       const GetContextsCallback& get_contexts_callback,
       const scoped_refptr<base::SingleThreadTaskRunner>& io_thread_runner);
 
@@ -71,25 +73,35 @@ class CONTENT_EXPORT ResourceMessageFilter
 
   base::WeakPtr<ResourceMessageFilter> GetWeakPtr();
 
-  void CreateLoaderAndStart(mojom::URLLoaderAssociatedRequest request,
+  void CreateLoaderAndStart(network::mojom::URLLoaderRequest request,
                             int32_t routing_id,
                             int32_t request_id,
                             uint32_t options,
-                            const ResourceRequest& url_request,
-                            mojom::URLLoaderClientPtr client,
+                            const network::ResourceRequest& url_request,
+                            network::mojom::URLLoaderClientPtr client,
                             const net::MutableNetworkTrafficAnnotationTag&
                                 traffic_annotation) override;
+  // |request| could be queued when the channel has not been connected yet.
+  void Clone(network::mojom::URLLoaderFactoryRequest request) override;
 
-  void SyncLoad(int32_t routing_id,
-                int32_t request_id,
-                const ResourceRequest& request,
-                SyncLoadCallback callback) override;
   int child_id() const;
 
   ResourceRequesterInfo* requester_info_for_test() {
     return requester_info_.get();
   }
   void InitializeForTest();
+
+  // Overrides the network URLLoaderFactory for subsequent requests. Passing a
+  // null pointer will restore the default behavior.
+  // When the testing pointer's CreateLoaderAndStart() is being called,
+  // |GetCurrentForTesting()| will return the filter that's calling the testing
+  // pointer. Also, the testing pointer won't be used for nested
+  // CreateLoaderAndStart's.
+  // This method must be called either on the IO thread or before threads start.
+  // This callback is run on the IO thread.
+  static void SetNetworkFactoryForTesting(
+      network::mojom::URLLoaderFactory* test_factory);
+  static ResourceMessageFilter* GetCurrentForTesting();
 
  protected:
   // Protected destructor so that we can be overriden in tests.
@@ -103,6 +115,11 @@ class CONTENT_EXPORT ResourceMessageFilter
 
   bool is_channel_closed_;
   scoped_refptr<ResourceRequesterInfo> requester_info_;
+
+  std::unique_ptr<network::mojom::URLLoaderFactory> url_loader_factory_;
+  std::vector<network::mojom::URLLoaderFactoryRequest> queued_clone_requests_;
+
+  scoped_refptr<PrefetchURLLoaderService> prefetch_url_loader_service_;
 
   // Task runner for the IO thead.
   scoped_refptr<base::SingleThreadTaskRunner> io_thread_task_runner_;

@@ -22,18 +22,18 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "base/macros.h"
 #include "snapshot/mac/process_types.h"
 #include "util/misc/initialization_state_dcheck.h"
 #include "util/misc/uuid.h"
-#include "util/stdlib/pointer_container.h"
 
 namespace crashpad {
 
 class MachOImageSegmentReader;
 class MachOImageSymbolTableReader;
-class ProcessReader;
+class ProcessReaderMac;
 
 //! \brief A reader for Mach-O images mapped into another process.
 //!
@@ -64,7 +64,7 @@ class MachOImageReader {
   //!
   //! \return `true` if the image was read successfully, including all load
   //!     commands. `false` otherwise, with an appropriate message logged.
-  bool Initialize(ProcessReader* process_reader,
+  bool Initialize(ProcessReaderMac* process_reader,
                   mach_vm_address_t address,
                   const std::string& name);
 
@@ -317,7 +317,7 @@ class MachOImageReader {
   // will be set to the valid state, but symbol_table_ will be nullptr.
   void InitializeSymbolTable() const;
 
-  PointerVector<MachOImageSegmentReader> segments_;
+  std::vector<std::unique_ptr<MachOImageSegmentReader>> segments_;
   std::map<std::string, size_t> segment_map_;
   std::string module_name_;
   std::string module_info_;
@@ -337,7 +337,7 @@ class MachOImageReader {
   mutable std::unique_ptr<MachOImageSymbolTableReader> symbol_table_;
 
   std::unique_ptr<process_types::dylib_command> id_dylib_command_;
-  ProcessReader* process_reader_;  // weak
+  ProcessReaderMac* process_reader_;  // weak
   uint32_t file_type_;
   InitializationStateDcheck initialized_;
 

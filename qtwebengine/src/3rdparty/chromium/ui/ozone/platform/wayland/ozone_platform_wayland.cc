@@ -4,19 +4,20 @@
 
 #include "ui/ozone/platform/wayland/ozone_platform_wayland.h"
 
-#include "base/memory/ptr_util.h"
+#include "ui/base/cursor/ozone/bitmap_cursor_factory_ozone.h"
 #include "ui/base/ui_features.h"
-#include "ui/display/fake_display_delegate.h"
+#include "ui/display/manager/fake_display_delegate.h"
 #include "ui/events/ozone/layout/keyboard_layout_engine_manager.h"
+#include "ui/events/system_input_injector.h"
 #include "ui/ozone/common/stub_overlay_manager.h"
 #include "ui/ozone/platform/wayland/wayland_connection.h"
+#include "ui/ozone/platform/wayland/wayland_native_display_delegate.h"
 #include "ui/ozone/platform/wayland/wayland_surface_factory.h"
 #include "ui/ozone/platform/wayland/wayland_window.h"
-#include "ui/ozone/public/cursor_factory_ozone.h"
 #include "ui/ozone/public/gpu_platform_support_host.h"
 #include "ui/ozone/public/input_controller.h"
 #include "ui/ozone/public/ozone_platform.h"
-#include "ui/ozone/public/system_input_injector.h"
+#include "ui/platform_window/platform_window_init_properties.h"
 
 #if BUILDFLAG(USE_XKBCOMMON)
 #include "ui/events/ozone/layout/xkb/xkb_evdev_codes.h"
@@ -61,34 +62,32 @@ class OzonePlatformWayland : public OzonePlatform {
 
   std::unique_ptr<PlatformWindow> CreatePlatformWindow(
       PlatformWindowDelegate* delegate,
-      const gfx::Rect& bounds) override {
-    auto window =
-        base::MakeUnique<WaylandWindow>(delegate, connection_.get(), bounds);
-    if (!window->Initialize())
+      PlatformWindowInitProperties properties) override {
+    auto window = std::make_unique<WaylandWindow>(delegate, connection_.get());
+    if (!window->Initialize(std::move(properties)))
       return nullptr;
     return std::move(window);
   }
 
   std::unique_ptr<display::NativeDisplayDelegate> CreateNativeDisplayDelegate()
       override {
-    return base::MakeUnique<display::FakeDisplayDelegate>();
+    return std::make_unique<WaylandNativeDisplayDelegate>(connection_.get());
   }
 
   void InitializeUI(const InitParams& args) override {
+#if BUILDFLAG(USE_XKBCOMMON)
+    KeyboardLayoutEngineManager::SetKeyboardLayoutEngine(
+        std::make_unique<WaylandXkbKeyboardLayoutEngine>(
+            xkb_evdev_code_converter_));
+#else
+    KeyboardLayoutEngineManager::SetKeyboardLayoutEngine(
+        std::make_unique<StubKeyboardLayoutEngine>());
+#endif
     connection_.reset(new WaylandConnection);
     if (!connection_->Initialize())
       LOG(FATAL) << "Failed to initialize Wayland platform";
 
-#if BUILDFLAG(USE_XKBCOMMON)
-    KeyboardLayoutEngineManager::SetKeyboardLayoutEngine(
-        base::MakeUnique<WaylandXkbKeyboardLayoutEngine>(
-            xkb_evdev_code_converter_));
-#else
-    KeyboardLayoutEngineManager::SetKeyboardLayoutEngine(
-        base::MakeUnique<StubKeyboardLayoutEngine>());
-#endif
-
-    cursor_factory_.reset(new CursorFactoryOzone);
+    cursor_factory_.reset(new BitmapCursorFactoryOzone);
     overlay_manager_.reset(new StubOverlayManager);
     input_controller_ = CreateStubInputController();
     surface_factory_.reset(new WaylandSurfaceFactory(connection_.get()));
@@ -114,7 +113,7 @@ class OzonePlatformWayland : public OzonePlatform {
  private:
   std::unique_ptr<WaylandConnection> connection_;
   std::unique_ptr<WaylandSurfaceFactory> surface_factory_;
-  std::unique_ptr<CursorFactoryOzone> cursor_factory_;
+  std::unique_ptr<BitmapCursorFactoryOzone> cursor_factory_;
   std::unique_ptr<StubOverlayManager> overlay_manager_;
   std::unique_ptr<InputController> input_controller_;
   std::unique_ptr<GpuPlatformSupportHost> gpu_platform_support_host_;

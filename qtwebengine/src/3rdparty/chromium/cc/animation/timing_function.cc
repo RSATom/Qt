@@ -4,17 +4,17 @@
 
 #include "cc/animation/timing_function.h"
 
+#include <cmath>
 #include <memory>
 
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
-#include "cc/base/math_util.h"
 
 namespace cc {
 
-TimingFunction::TimingFunction() {}
+TimingFunction::TimingFunction() = default;
 
-TimingFunction::~TimingFunction() {}
+TimingFunction::~TimingFunction() = default;
 
 std::unique_ptr<CubicBezierTimingFunction>
 CubicBezierTimingFunction::CreatePreset(EaseType ease_type) {
@@ -33,6 +33,9 @@ CubicBezierTimingFunction::CreatePreset(EaseType ease_type) {
     case EaseType::EASE_IN_OUT:
       return base::WrapUnique(
           new CubicBezierTimingFunction(ease_type, 0.42, 0.0, 0.58, 1));
+    case EaseType::EASE_OUT_NATURAL:
+      return base::WrapUnique(
+          new CubicBezierTimingFunction(ease_type, 0.26, 0.46, 0.45, 0.94));
     default:
       NOTREACHED();
       return nullptr;
@@ -51,7 +54,7 @@ CubicBezierTimingFunction::CubicBezierTimingFunction(EaseType ease_type,
                                                      double y2)
     : bezier_(x1, y1, x2, y2), ease_type_(ease_type) {}
 
-CubicBezierTimingFunction::~CubicBezierTimingFunction() {}
+CubicBezierTimingFunction::~CubicBezierTimingFunction() = default;
 
 TimingFunction::Type CubicBezierTimingFunction::GetType() const {
   return Type::CUBIC_BEZIER;
@@ -63,11 +66,6 @@ float CubicBezierTimingFunction::GetValue(double x) const {
 
 float CubicBezierTimingFunction::Velocity(double x) const {
   return static_cast<float>(bezier_.Slope(x));
-}
-
-void CubicBezierTimingFunction::Range(float* min, float* max) const {
-  *min = static_cast<float>(bezier_.range_min());
-  *max = static_cast<float>(bezier_.range_max());
 }
 
 std::unique_ptr<TimingFunction> CubicBezierTimingFunction::Clone() const {
@@ -83,8 +81,7 @@ std::unique_ptr<StepsTimingFunction> StepsTimingFunction::Create(
 StepsTimingFunction::StepsTimingFunction(int steps, StepPosition step_position)
     : steps_(steps), step_position_(step_position) {}
 
-StepsTimingFunction::~StepsTimingFunction() {
-}
+StepsTimingFunction::~StepsTimingFunction() = default;
 
 TimingFunction::Type StepsTimingFunction::GetType() const {
   return Type::STEPS;
@@ -96,11 +93,6 @@ float StepsTimingFunction::GetValue(double t) const {
 
 std::unique_ptr<TimingFunction> StepsTimingFunction::Clone() const {
   return base::WrapUnique(new StepsTimingFunction(*this));
-}
-
-void StepsTimingFunction::Range(float* min, float* max) const {
-  *min = 0.0f;
-  *max = 1.0f;
 }
 
 float StepsTimingFunction::Velocity(double x) const {
@@ -137,7 +129,7 @@ std::unique_ptr<FramesTimingFunction> FramesTimingFunction::Create(int frames) {
 
 FramesTimingFunction::FramesTimingFunction(int frames) : frames_(frames) {}
 
-FramesTimingFunction::~FramesTimingFunction() {}
+FramesTimingFunction::~FramesTimingFunction() = default;
 
 TimingFunction::Type FramesTimingFunction::GetType() const {
   return Type::FRAMES;
@@ -149,11 +141,6 @@ float FramesTimingFunction::GetValue(double t) const {
 
 std::unique_ptr<TimingFunction> FramesTimingFunction::Clone() const {
   return base::WrapUnique(new FramesTimingFunction(*this));
-}
-
-void FramesTimingFunction::Range(float* min, float* max) const {
-  *min = 0.0f;
-  *max = 1.0f;
 }
 
 float FramesTimingFunction::Velocity(double x) const {

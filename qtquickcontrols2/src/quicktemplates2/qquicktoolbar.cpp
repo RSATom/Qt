@@ -99,9 +99,7 @@ QT_BEGIN_NAMESPACE
 class QQuickToolBarPrivate : public QQuickPanePrivate
 {
 public:
-    QQuickToolBarPrivate() : position(QQuickToolBar::Header) { }
-
-    QQuickToolBar::Position position;
+    QQuickToolBar::Position position = QQuickToolBar::Header;
 };
 
 QQuickToolBar::QQuickToolBar(QQuickItem *parent)
@@ -141,9 +139,14 @@ void QQuickToolBar::setPosition(Position position)
     emit positionChanged();
 }
 
+QFont QQuickToolBar::defaultFont() const
+{
+    return QQuickTheme::font(QQuickTheme::ToolBar);
+}
+
 QPalette QQuickToolBar::defaultPalette() const
 {
-    return QQuickControlPrivate::themePalette(QPlatformTheme::ToolButtonPalette);
+    return QQuickTheme::palette(QQuickTheme::ToolBar);
 }
 
 #if QT_CONFIG(accessibility)

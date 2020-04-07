@@ -37,9 +37,9 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.0
-import QtGraphicalEffects.private 1.0
-import QtGraphicalEffects 1.0
+import QtQuick 2.12
+import QtGraphicalEffects.private 1.12
+import QtGraphicalEffects 1.12
 
 Item {
     id: root

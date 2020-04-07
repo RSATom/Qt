@@ -480,7 +480,6 @@ QBluetoothServiceDiscoveryAgentPrivate::QBluetoothServiceDiscoveryAgentPrivate(
     QBluetoothServiceDiscoveryAgent *qp, const QBluetoothAddress &deviceAdapter)
     : error(QBluetoothServiceDiscoveryAgent::NoError),
       state(Inactive),
-      deviceDiscoveryAgent(0),
       mode(QBluetoothServiceDiscoveryAgent::MinimalDiscovery),
       singleDevice(false),
       q_ptr(qp)
@@ -537,7 +536,9 @@ void QBluetoothServiceDiscoveryAgentPrivate::processFoundService(quint64 deviceA
     if (!uuidFilter.isEmpty()) {
         bool serviceNameMatched = uuidFilter.contains(info.serviceUuid());
         bool serviceClassMatched = false;
-        for (const QBluetoothUuid &id : info.serviceClassUuids()) {
+        const QList<QBluetoothUuid> serviceClassUuids
+                 = info.serviceClassUuids();
+        for (const QBluetoothUuid &id : serviceClassUuids) {
             if (uuidFilter.contains(id)) {
                 serviceClassMatched = true;
                 break;
@@ -553,7 +554,7 @@ void QBluetoothServiceDiscoveryAgentPrivate::processFoundService(quint64 deviceA
 
     QBluetoothServiceInfo returnInfo(info);
     bool deviceFound;
-    for (const QBluetoothDeviceInfo &deviceInfo : discoveredDevices) {
+    for (const QBluetoothDeviceInfo &deviceInfo : qAsConst(discoveredDevices)) {
         if (deviceInfo.address().toUInt64() == deviceAddress) {
             deviceFound = true;
             returnInfo.setDevice(deviceInfo);
@@ -576,7 +577,7 @@ void QBluetoothServiceDiscoveryAgentPrivate::onScanFinished(quint64 deviceAddres
 {
     Q_Q(QBluetoothServiceDiscoveryAgent);
     bool deviceFound;
-    for (const QBluetoothDeviceInfo &deviceInfo : discoveredDevices) {
+    for (const QBluetoothDeviceInfo &deviceInfo : qAsConst(discoveredDevices)) {
         if (deviceInfo.address().toUInt64() == deviceAddress) {
             deviceFound = true;
             discoveredDevices.removeOne(deviceInfo);

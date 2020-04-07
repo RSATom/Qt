@@ -5,12 +5,11 @@
 #include "net/cert/cert_verifier.h"
 
 #include <algorithm>
-#include <memory>
 
-#include "base/memory/ptr_util.h"
 #include "base/strings/string_util.h"
 #include "build/build_config.h"
 #include "net/cert/cert_verify_proc.h"
+#include "third_party/boringssl/src/include/openssl/pool.h"
 #include "third_party/boringssl/src/include/openssl/sha.h"
 
 #if defined(OS_NACL)
@@ -39,19 +38,18 @@ CertVerifier::RequestParams::RequestParams(
   // sake.
   SHA256_CTX ctx;
   SHA256_Init(&ctx);
-  std::string cert_der;
-  X509Certificate::GetDEREncoded(certificate_->os_cert_handle(), &cert_der);
-  SHA256_Update(&ctx, cert_der.data(), cert_der.size());
-  for (auto* cert_handle : certificate_->GetIntermediateCertificates()) {
-    X509Certificate::GetDEREncoded(cert_handle, &cert_der);
-    SHA256_Update(&ctx, cert_der.data(), cert_der.size());
+  SHA256_Update(&ctx, CRYPTO_BUFFER_data(certificate_->cert_buffer()),
+                CRYPTO_BUFFER_len(certificate_->cert_buffer()));
+  for (const auto& cert_handle : certificate_->intermediate_buffers()) {
+    SHA256_Update(&ctx, CRYPTO_BUFFER_data(cert_handle.get()),
+                  CRYPTO_BUFFER_len(cert_handle.get()));
   }
   SHA256_Update(&ctx, hostname_.data(), hostname.size());
   SHA256_Update(&ctx, &flags, sizeof(flags));
   SHA256_Update(&ctx, ocsp_response.data(), ocsp_response.size());
   for (const auto& trust_anchor : additional_trust_anchors_) {
-    X509Certificate::GetDEREncoded(trust_anchor->os_cert_handle(), &cert_der);
-    SHA256_Update(&ctx, cert_der.data(), cert_der.size());
+    SHA256_Update(&ctx, CRYPTO_BUFFER_data(trust_anchor->cert_buffer()),
+                  CRYPTO_BUFFER_len(trust_anchor->cert_buffer()));
   }
   SHA256_Final(reinterpret_cast<uint8_t*>(
                    base::WriteInto(&key_, SHA256_DIGEST_LENGTH + 1)),
@@ -60,7 +58,7 @@ CertVerifier::RequestParams::RequestParams(
 
 CertVerifier::RequestParams::RequestParams(const RequestParams& other) =
     default;
-CertVerifier::RequestParams::~RequestParams() {}
+CertVerifier::RequestParams::~RequestParams() = default;
 
 bool CertVerifier::RequestParams::operator==(
     const CertVerifier::RequestParams& other) const {
@@ -72,17 +70,13 @@ bool CertVerifier::RequestParams::operator<(
   return key_ < other.key_;
 }
 
-bool CertVerifier::SupportsOCSPStapling() {
-  return false;
-}
-
 std::unique_ptr<CertVerifier> CertVerifier::CreateDefault() {
 #if defined(OS_NACL)
   NOTIMPLEMENTED();
   return std::unique_ptr<CertVerifier>();
 #else
-  return base::MakeUnique<CachingCertVerifier>(
-      base::MakeUnique<MultiThreadedCertVerifier>(
+  return std::make_unique<CachingCertVerifier>(
+      std::make_unique<MultiThreadedCertVerifier>(
           CertVerifyProc::CreateDefault()));
 #endif
 }

@@ -41,6 +41,7 @@
 #define QQUICKWAYLANDSURFACE_H
 
 #include <QtWaylandCompositor/qwaylandsurface.h>
+#include <QtWaylandCompositor/qwaylandquickchildren.h>
 
 struct wl_client;
 
@@ -53,22 +54,23 @@ class Q_WAYLAND_COMPOSITOR_EXPORT QWaylandQuickSurface : public QWaylandSurface
 {
     Q_OBJECT
     Q_DECLARE_PRIVATE(QWaylandQuickSurface)
+    Q_WAYLAND_COMPOSITOR_DECLARE_QUICK_CHILDREN(QWaylandQuickSurface)
     Q_PROPERTY(bool useTextureAlpha READ useTextureAlpha WRITE setUseTextureAlpha NOTIFY useTextureAlphaChanged)
     Q_PROPERTY(bool clientRenderingEnabled READ clientRenderingEnabled WRITE setClientRenderingEnabled NOTIFY clientRenderingEnabledChanged)
 public:
     QWaylandQuickSurface();
     QWaylandQuickSurface(QWaylandCompositor *compositor, QWaylandClient *client, quint32 id, int version);
-    ~QWaylandQuickSurface();
+    ~QWaylandQuickSurface() override;
 
     bool useTextureAlpha() const;
     void setUseTextureAlpha(bool useTextureAlpha);
 
-    bool clientRenderingEnabled() const;
-    void setClientRenderingEnabled(bool enabled);
+    Q_DECL_DEPRECATED bool clientRenderingEnabled() const;
+    Q_DECL_DEPRECATED void setClientRenderingEnabled(bool enabled);
 
 Q_SIGNALS:
     void useTextureAlphaChanged();
-    void clientRenderingEnabledChanged();
+    void clientRenderingEnabledChanged(); //deprecated
 };
 
 QT_END_NAMESPACE

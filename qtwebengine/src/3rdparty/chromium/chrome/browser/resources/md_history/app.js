@@ -3,7 +3,7 @@
 // found in the LICENSE file.
 
 cr.define('md_history', function() {
-  var lazyLoadPromise = null;
+  let lazyLoadPromise = null;
   function ensureLazyLoaded() {
     if (!lazyLoadPromise) {
       lazyLoadPromise = new Promise(function(resolve, reject) {
@@ -76,8 +76,6 @@ Polymer({
 
     // Used to display notices for profile sign-in status.
     showSidebarFooter: Boolean,
-
-    hasSyncedResults: Boolean,
   },
 
   listeners: {
@@ -122,7 +120,7 @@ Polymer({
 
     // Focus the search field on load. Done here to ensure the history page
     // is rendered before we try to take focus.
-    var searchField =
+    const searchField =
         /** @type {HistoryToolbarElement} */ (this.$.toolbar).searchField;
     if (!searchField.narrow) {
       searchField.getSearchInput().focus();
@@ -154,8 +152,7 @@ Polymer({
 
   /** @private */
   onCrToolbarMenuTap_: function() {
-    var drawer = /** @type {!CrDrawerElement} */ (this.$.drawer.get());
-    drawer.align = document.documentElement.dir == 'ltr' ? 'left' : 'right';
+    const drawer = /** @type {!CrDrawerElement} */ (this.$.drawer.get());
     drawer.toggle();
     this.showMenuPromo_ = false;
   },
@@ -166,9 +163,16 @@ Polymer({
    * @param {{detail: {countAddition: number}}} e
    */
   checkboxSelected: function(e) {
-    var toolbar = /** @type {HistoryToolbarElement} */ (this.$.toolbar);
+    const toolbar = /** @type {HistoryToolbarElement} */ (this.$.toolbar);
     toolbar.count = /** @type {HistoryListElement} */ (this.$.history)
                         .getSelectedItemCount();
+  },
+
+  selectOrUnselectAll: function() {
+    const list = /** @type {HistoryListElement} */ (this.$.history);
+    const toolbar = /** @type {HistoryToolbarElement} */ (this.$.toolbar);
+    list.selectOrUnselectAll();
+    toolbar.count = list.getSelectedItemCount();
   },
 
   /**
@@ -177,8 +181,8 @@ Polymer({
    * @private
    */
   unselectAll: function() {
-    var list = /** @type {HistoryListElement} */ (this.$.history);
-    var toolbar = /** @type {HistoryToolbarElement} */ (this.$.toolbar);
+    const list = /** @type {HistoryListElement} */ (this.$.history);
+    const toolbar = /** @type {HistoryToolbarElement} */ (this.$.toolbar);
     list.unselectAllItems();
     toolbar.count = 0;
   },
@@ -196,7 +200,7 @@ Polymer({
     this.set('queryState_.querying', false);
     this.set('queryResult_.info', info);
     this.set('queryResult_.results', results);
-    var list = /** @type {HistoryListElement} */ (this.$['history']);
+    const list = /** @type {HistoryListElement} */ (this.$['history']);
     list.historyResult(info, results);
   },
 
@@ -221,6 +225,10 @@ Polymer({
       case 'delete-command':
         e.canExecute = this.$.toolbar.count > 0;
         break;
+      case 'select-all-command':
+        e.canExecute = !this.$.toolbar.searchField.isSearchFocused() &&
+            !this.syncedTabsSelected_(this.selectedPage_);
+        break;
     }
   },
 
@@ -233,6 +241,8 @@ Polymer({
       this.focusToolbarSearchField();
     else if (e.command.id == 'delete-command')
       this.deleteSelected();
+    else if (e.command.id == 'select-all-command')
+      this.selectOrUnselectAll();
   },
 
   /**
@@ -279,16 +289,6 @@ Polymer({
     return querying && !incremental && searchTerm != '';
   },
 
-  /**
-   * @param {boolean} hasSyncedResults
-   * @param {string} selectedPage
-   * @return {boolean} Whether the (i) synced results notice should be shown.
-   * @private
-   */
-  showSyncNotice_: function(hasSyncedResults, selectedPage) {
-    return hasSyncedResults && selectedPage != 'syncedTabs';
-  },
-
   /** @private */
   selectedPageChanged_: function() {
     this.unselectAll();
@@ -299,15 +299,16 @@ Polymer({
   historyViewChanged_: function() {
     // This allows the synced-device-manager to render so that it can be set as
     // the scroll target.
-    requestAnimationFrame(function() {
+    requestAnimationFrame(() => {
       this._scrollHandler();
-    }.bind(this));
+    });
     this.recordHistoryPageView_();
   },
 
   /** @private */
   hasDrawerChanged_: function() {
-    var drawer = /** @type {?CrDrawerElement} */ (this.$.drawer.getIfExists());
+    const drawer =
+        /** @type {?CrDrawerElement} */ (this.$.drawer.getIfExists());
     if (!this.hasDrawer_ && drawer && drawer.open)
       drawer.closeDrawer();
   },
@@ -328,14 +329,14 @@ Polymer({
 
   /** @private */
   closeDrawer_: function() {
-    var drawer = this.$.drawer.get();
+    const drawer = this.$.drawer.get();
     if (drawer && drawer.open)
       drawer.closeDrawer();
   },
 
   /** @private */
   recordHistoryPageView_: function() {
-    var histogramValue = HistoryPageViewHistogram.END;
+    let histogramValue = HistoryPageViewHistogram.END;
     switch (this.selectedPage_) {
       case 'syncedTabs':
         histogramValue = this.isUserSignedIn_ ?

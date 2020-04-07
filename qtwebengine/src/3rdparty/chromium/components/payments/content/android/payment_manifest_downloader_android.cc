@@ -4,14 +4,15 @@
 
 #include "components/payments/content/android/payment_manifest_downloader_android.h"
 
+#include <memory>
+
 #include "base/android/jni_string.h"
 #include "base/android/scoped_java_ref.h"
-#include "base/memory/ptr_util.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/browser/web_contents.h"
 #include "jni/PaymentManifestDownloader_jni.h"
-#include "net/url_request/url_request_context_getter.h"
+#include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "url/gurl.h"
 
 namespace payments {
@@ -19,7 +20,8 @@ namespace {
 
 class DownloadCallback {
  public:
-  DownloadCallback(const base::android::JavaParamRef<jobject>& jcallback)
+  explicit DownloadCallback(
+      const base::android::JavaParamRef<jobject>& jcallback)
       : jcallback_(jcallback) {}
 
   ~DownloadCallback() {}
@@ -57,8 +59,8 @@ class DownloadCallback {
 }  // namespace
 
 PaymentManifestDownloaderAndroid::PaymentManifestDownloaderAndroid(
-    const scoped_refptr<net::URLRequestContextGetter>& context)
-    : downloader_(context) {}
+    scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory)
+    : downloader_(std::move(url_loader_factory)) {}
 
 PaymentManifestDownloaderAndroid::~PaymentManifestDownloaderAndroid() {}
 
@@ -71,7 +73,7 @@ void PaymentManifestDownloaderAndroid::DownloadPaymentMethodManifest(
       GURL(base::android::ConvertJavaStringToUTF8(
           env, Java_PaymentManifestDownloader_getUriString(env, juri))),
       base::BindOnce(&DownloadCallback::OnPaymentMethodManifestDownload,
-                     base::MakeUnique<DownloadCallback>(jcallback)));
+                     std::make_unique<DownloadCallback>(jcallback)));
 }
 
 void PaymentManifestDownloaderAndroid::DownloadWebAppManifest(
@@ -83,7 +85,7 @@ void PaymentManifestDownloaderAndroid::DownloadWebAppManifest(
       GURL(base::android::ConvertJavaStringToUTF8(
           env, Java_PaymentManifestDownloader_getUriString(env, juri))),
       base::BindOnce(&DownloadCallback::OnWebAppManifestDownload,
-                     base::MakeUnique<DownloadCallback>(jcallback)));
+                     std::make_unique<DownloadCallback>(jcallback)));
 }
 
 void PaymentManifestDownloaderAndroid::Destroy(
@@ -92,17 +94,12 @@ void PaymentManifestDownloaderAndroid::Destroy(
   delete this;
 }
 
-void PaymentManifestDownloaderAndroid::AllowHttpForTest(
-    JNIEnv* env,
-    const base::android::JavaParamRef<jobject>& jcaller) {
-  downloader_.AllowHttpForTest();
-}
-
 // Static free function declared and called directly from java.
 // Caller owns the result. Returns 0 on error.
-static jlong Init(JNIEnv* env,
-                  const base::android::JavaParamRef<jclass>& jcaller,
-                  const base::android::JavaParamRef<jobject>& jweb_contents) {
+static jlong JNI_PaymentManifestDownloader_Init(
+    JNIEnv* env,
+    const base::android::JavaParamRef<jclass>& jcaller,
+    const base::android::JavaParamRef<jobject>& jweb_contents) {
   content::WebContents* web_contents =
       content::WebContents::FromJavaWebContents(jweb_contents);
   if (!web_contents)
@@ -111,7 +108,7 @@ static jlong Init(JNIEnv* env,
   return reinterpret_cast<jlong>(new PaymentManifestDownloaderAndroid(
       content::BrowserContext::GetDefaultStoragePartition(
           web_contents->GetBrowserContext())
-          ->GetURLRequestContext()));
+          ->GetURLLoaderFactoryForBrowserProcess()));
 }
 
 }  // namespace payments

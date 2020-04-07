@@ -27,14 +27,18 @@ struct SourceRange {
   int32_t start, end;
 };
 
-// The list of ast node kinds that have associated source ranges.
+// The list of ast node kinds that have associated source ranges. Note that this
+// macro is not undefined at the end of this file.
 #define AST_SOURCE_RANGE_LIST(V) \
+  V(BinaryOperation)             \
   V(Block)                       \
   V(CaseClause)                  \
   V(Conditional)                 \
   V(IfStatement)                 \
   V(IterationStatement)          \
   V(JumpStatement)               \
+  V(NaryOperation)               \
+  V(Suspend)                     \
   V(SwitchStatement)             \
   V(Throw)                       \
   V(TryCatchStatement)           \
@@ -46,6 +50,7 @@ enum class SourceRangeKind {
   kContinuation,
   kElse,
   kFinally,
+  kRight,
   kThen,
 };
 
@@ -55,13 +60,27 @@ class AstNodeSourceRanges : public ZoneObject {
   virtual SourceRange GetRange(SourceRangeKind kind) = 0;
 };
 
+class BinaryOperationSourceRanges final : public AstNodeSourceRanges {
+ public:
+  explicit BinaryOperationSourceRanges(const SourceRange& right_range)
+      : right_range_(right_range) {}
+
+  SourceRange GetRange(SourceRangeKind kind) {
+    DCHECK_EQ(kind, SourceRangeKind::kRight);
+    return right_range_;
+  }
+
+ private:
+  SourceRange right_range_;
+};
+
 class ContinuationSourceRanges : public AstNodeSourceRanges {
  public:
   explicit ContinuationSourceRanges(int32_t continuation_position)
       : continuation_position_(continuation_position) {}
 
   SourceRange GetRange(SourceRangeKind kind) {
-    DCHECK(kind == SourceRangeKind::kContinuation);
+    DCHECK_EQ(kind, SourceRangeKind::kContinuation);
     return SourceRange::OpenEnded(continuation_position_);
   }
 
@@ -81,7 +100,7 @@ class CaseClauseSourceRanges final : public AstNodeSourceRanges {
       : body_range_(body_range) {}
 
   SourceRange GetRange(SourceRangeKind kind) {
-    DCHECK(kind == SourceRangeKind::kBody);
+    DCHECK_EQ(kind, SourceRangeKind::kBody);
     return body_range_;
   }
 
@@ -164,6 +183,33 @@ class JumpStatementSourceRanges final : public ContinuationSourceRanges {
       : ContinuationSourceRanges(continuation_position) {}
 };
 
+class NaryOperationSourceRanges final : public AstNodeSourceRanges {
+ public:
+  NaryOperationSourceRanges(Zone* zone, const SourceRange& range)
+      : ranges_(zone) {
+    AddRange(range);
+  }
+
+  SourceRange GetRangeAtIndex(size_t index) {
+    DCHECK(index < ranges_.size());
+    return ranges_[index];
+  }
+
+  void AddRange(const SourceRange& range) { ranges_.push_back(range); }
+  size_t RangeCount() const { return ranges_.size(); }
+
+  SourceRange GetRange(SourceRangeKind kind) { UNREACHABLE(); }
+
+ private:
+  ZoneVector<SourceRange> ranges_;
+};
+
+class SuspendSourceRanges final : public ContinuationSourceRanges {
+ public:
+  explicit SuspendSourceRanges(int32_t continuation_position)
+      : ContinuationSourceRanges(continuation_position) {}
+};
+
 class SwitchStatementSourceRanges final : public ContinuationSourceRanges {
  public:
   explicit SwitchStatementSourceRanges(int32_t continuation_position)
@@ -182,8 +228,14 @@ class TryCatchStatementSourceRanges final : public AstNodeSourceRanges {
       : catch_range_(catch_range) {}
 
   SourceRange GetRange(SourceRangeKind kind) {
-    DCHECK(kind == SourceRangeKind::kCatch);
-    return catch_range_;
+    switch (kind) {
+      case SourceRangeKind::kCatch:
+        return catch_range_;
+      case SourceRangeKind::kContinuation:
+        return SourceRange::ContinuationOf(catch_range_);
+      default:
+        UNREACHABLE();
+    }
   }
 
  private:
@@ -196,8 +248,14 @@ class TryFinallyStatementSourceRanges final : public AstNodeSourceRanges {
       : finally_range_(finally_range) {}
 
   SourceRange GetRange(SourceRangeKind kind) {
-    DCHECK(kind == SourceRangeKind::kFinally);
-    return finally_range_;
+    switch (kind) {
+      case SourceRangeKind::kFinally:
+        return finally_range_;
+      case SourceRangeKind::kContinuation:
+        return SourceRange::ContinuationOf(finally_range_);
+      default:
+        UNREACHABLE();
+    }
   }
 
  private:
@@ -210,7 +268,7 @@ class SourceRangeMap final : public ZoneObject {
  public:
   explicit SourceRangeMap(Zone* zone) : map_(zone) {}
 
-  AstNodeSourceRanges* Find(AstNode* node) {
+  AstNodeSourceRanges* Find(ZoneObject* node) {
     auto it = map_.find(node);
     if (it == map_.end()) return nullptr;
     return it->second;
@@ -219,16 +277,15 @@ class SourceRangeMap final : public ZoneObject {
 // Type-checked insertion.
 #define DEFINE_MAP_INSERT(type)                         \
   void Insert(type* node, type##SourceRanges* ranges) { \
+    DCHECK_NOT_NULL(node);                              \
     map_.emplace(node, ranges);                         \
   }
   AST_SOURCE_RANGE_LIST(DEFINE_MAP_INSERT)
 #undef DEFINE_MAP_INSERT
 
  private:
-  ZoneMap<AstNode*, AstNodeSourceRanges*> map_;
+  ZoneMap<ZoneObject*, AstNodeSourceRanges*> map_;
 };
-
-#undef AST_SOURCE_RANGE_LIST
 
 }  // namespace internal
 }  // namespace v8

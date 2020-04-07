@@ -1,7 +1,7 @@
 # Using breakpad with content shell
 
 When running layout tests, it is possible to use
-[breakpad](../../breakpad/) to capture stack traces on crashes while
+[breakpad](../../third_party/breakpad/) to capture stack traces on crashes while
 running without a debugger attached and with the sandbox enabled.
 
 ## Setup
@@ -32,7 +32,6 @@ Then, create a directory where the crash dumps will be stored:
 * Windows:
   ```bash
   mkdir %TEMP%\crashes
-  out\Default\content_shell_crash_service.exe --dumps-dir=%TEMP%\crashes
   ```
 
 ## Running content shell with breakpad

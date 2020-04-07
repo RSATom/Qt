@@ -6,7 +6,7 @@
 
 #include <windows.h>
 
-#include "third_party/WebKit/public/platform/WebCursorInfo.h"
+#include "third_party/blink/public/platform/web_cursor_info.h"
 #include "ui/gfx/icon_util.h"
 
 namespace content {
@@ -38,14 +38,6 @@ ui::PlatformCursor WebCursor::GetPlatformCursor() {
 void WebCursor::InitPlatformData() {
   custom_cursor_ = NULL;
   device_scale_factor_ = 1.f;
-}
-
-bool WebCursor::SerializePlatformData(base::Pickle* pickle) const {
-  return true;
-}
-
-bool WebCursor::DeserializePlatformData(base::PickleIterator* iter) {
-  return true;
 }
 
 bool WebCursor::IsPlatformDataEqual(const WebCursor& other) const {

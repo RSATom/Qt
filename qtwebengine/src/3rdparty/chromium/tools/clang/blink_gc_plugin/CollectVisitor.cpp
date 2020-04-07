@@ -26,7 +26,10 @@ bool CollectVisitor::VisitCXXRecordDecl(CXXRecordDecl* record) {
 }
 
 bool CollectVisitor::VisitCXXMethodDecl(CXXMethodDecl* method) {
-  if (method->isThisDeclarationADefinition() && Config::IsTraceMethod(method))
-    trace_decls_.push_back(method);
+  if (method->isThisDeclarationADefinition()) {
+    if (Config::IsTraceMethod(method)) {
+      trace_decls_.push_back(method);
+    }
+  }
   return true;
 }

@@ -51,17 +51,19 @@
 // We mean it.
 //
 
+#include "private/qglobal_p.h"
+
 #ifndef __IMAGECAPTURE__
 #  define __IMAGECAPTURE__
 #endif
+
+// --------------------------------------------------------------------------
 
 #if defined(QT_BOOTSTRAPPED)
 #include <ApplicationServices/ApplicationServices.h>
 #else
 #include <CoreFoundation/CoreFoundation.h>
 #endif
-
-#include "private/qglobal_p.h"
 
 #ifdef __OBJC__
 #include <Foundation/Foundation.h>
@@ -76,6 +78,8 @@
 #define QT_NAMESPACE_ALIAS_OBJC_CLASS(__KLASS__)
 #endif
 
+#define QT_MAC_WEAK_IMPORT(symbol) extern "C" decltype(symbol) symbol __attribute__((weak_import));
+
 QT_BEGIN_NAMESPACE
 template <typename T, typename U, U (*RetainFunction)(U), void (*ReleaseFunction)(U)>
 class QAppleRefCounted
@@ -85,7 +89,7 @@ public:
     QAppleRefCounted(QAppleRefCounted &&other) : value(other.value) { other.value = T(); }
     QAppleRefCounted(const QAppleRefCounted &other) : value(other.value) { if (value) RetainFunction(value); }
     ~QAppleRefCounted() { if (value) ReleaseFunction(value); }
-    operator T() { return value; }
+    operator T() const { return value; }
     void swap(QAppleRefCounted &other) Q_DECL_NOEXCEPT_EXPR(noexcept(qSwap(value, other.value)))
     { qSwap(value, other.value); }
     QAppleRefCounted &operator=(const QAppleRefCounted &other)
@@ -148,16 +152,191 @@ private:
     QString string;
 };
 
-#ifdef Q_OS_OSX
+#ifdef Q_OS_MACOS
 Q_CORE_EXPORT QChar qt_mac_qtKey2CocoaKey(Qt::Key key);
 Q_CORE_EXPORT Qt::Key qt_mac_cocoaKey2QtKey(QChar keyCode);
+Q_CORE_EXPORT bool qt_mac_applicationIsInDarkMode();
 #endif
 
 #ifndef QT_NO_DEBUG_STREAM
 QDebug operator<<(QDebug debug, const QMacAutoReleasePool *pool);
 #endif
 
-Q_CORE_EXPORT void qt_apple_check_os_version();
+Q_CORE_EXPORT bool qt_apple_isApplicationExtension();
+
+#if defined(Q_OS_MACOS) && !defined(QT_BOOTSTRAPPED)
+Q_CORE_EXPORT bool qt_apple_isSandboxed();
+# ifdef __OBJC__
+QT_END_NAMESPACE
+@interface NSObject (QtSandboxHelpers)
+- (id)qt_valueForPrivateKey:(NSString *)key;
+@end
+QT_BEGIN_NAMESPACE
+# endif
+#endif
+
+#if !defined(QT_BOOTSTRAPPED) && !defined(Q_OS_WATCHOS)
+QT_END_NAMESPACE
+# if defined(Q_OS_MACOS)
+Q_FORWARD_DECLARE_OBJC_CLASS(NSApplication);
+using AppleApplication = NSApplication;
+# else
+Q_FORWARD_DECLARE_OBJC_CLASS(UIApplication);
+using AppleApplication = UIApplication;
+# endif
+QT_BEGIN_NAMESPACE
+Q_CORE_EXPORT AppleApplication *qt_apple_sharedApplication();
+#endif
+
+// --------------------------------------------------------------------------
+
+#if !defined(QT_BOOTSTRAPPED)
+#define QT_USE_APPLE_UNIFIED_LOGGING
+
+QT_END_NAMESPACE
+#include <os/log.h>
+QT_BEGIN_NAMESPACE
+
+class Q_CORE_EXPORT AppleUnifiedLogger
+{
+public:
+    static bool messageHandler(QtMsgType msgType, const QMessageLogContext &context, const QString &message,
+        const QString &subsystem = QString());
+    static bool willMirrorToStderr();
+private:
+    static os_log_type_t logTypeForMessageType(QtMsgType msgType);
+    static os_log_t cachedLog(const QString &subsystem, const QString &category);
+};
+
+#endif
+
+// --------------------------------------------------------------------------
+
+#if !defined(QT_BOOTSTRAPPED)
+
+QT_END_NAMESPACE
+#include <os/activity.h>
+QT_BEGIN_NAMESPACE
+
+template <typename T> using QAppleOsType = QAppleRefCounted<T, void *, os_retain, os_release>;
+
+class Q_CORE_EXPORT QAppleLogActivity
+{
+public:
+    QAppleLogActivity() : activity(nullptr) {}
+    QAppleLogActivity(os_activity_t activity) : activity(activity) {}
+    ~QAppleLogActivity() { if (activity) leave(); }
+
+    QAppleLogActivity(const QAppleLogActivity &) = delete;
+    QAppleLogActivity& operator=(const QAppleLogActivity &) = delete;
+
+    QAppleLogActivity(QAppleLogActivity&& other)
+        : activity(other.activity), state(other.state) { other.activity = nullptr; }
+
+    QAppleLogActivity& operator=(QAppleLogActivity &&other)
+    {
+        if (this != &other) {
+            activity = other.activity;
+            state = other.state;
+            other.activity = nullptr;
+        }
+        return *this;
+    }
+
+    QAppleLogActivity&& enter()
+    {
+        if (activity)
+            os_activity_scope_enter(static_cast<os_activity_t>(*this), &state);
+        return std::move(*this);
+    }
+
+    void leave() {
+        if (activity)
+            os_activity_scope_leave(&state);
+    }
+
+    operator os_activity_t()
+    {
+        return reinterpret_cast<os_activity_t>(static_cast<void *>(activity));
+    }
+
+private:
+    // Work around API_AVAILABLE not working for templates by using void*
+    QAppleOsType<void *> activity;
+    os_activity_scope_state_s state;
+};
+
+#define QT_APPLE_LOG_ACTIVITY_CREATE(condition, description, parent) []() { \
+        if (!(condition)) \
+            return QAppleLogActivity(); \
+        return QAppleLogActivity(os_activity_create(description, parent, OS_ACTIVITY_FLAG_DEFAULT)); \
+    }()
+
+#define QT_VA_ARGS_CHOOSE(_1, _2, _3, _4, _5, _6, _7, _8, _9, N, ...) N
+#define QT_VA_ARGS_COUNT(...) QT_VA_ARGS_CHOOSE(__VA_ARGS__, 9, 8, 7, 6, 5, 4, 3, 2, 1)
+
+#define QT_OVERLOADED_MACRO(MACRO, ...) _QT_OVERLOADED_MACRO(MACRO, QT_VA_ARGS_COUNT(__VA_ARGS__))(__VA_ARGS__)
+#define _QT_OVERLOADED_MACRO(MACRO, ARGC) _QT_OVERLOADED_MACRO_EXPAND(MACRO, ARGC)
+#define _QT_OVERLOADED_MACRO_EXPAND(MACRO, ARGC) MACRO##ARGC
+
+#define QT_APPLE_LOG_ACTIVITY_WITH_PARENT3(condition, description, parent) QT_APPLE_LOG_ACTIVITY_CREATE(condition, description, parent)
+#define QT_APPLE_LOG_ACTIVITY_WITH_PARENT2(description, parent) QT_APPLE_LOG_ACTIVITY_WITH_PARENT3(true, description, parent)
+#define QT_APPLE_LOG_ACTIVITY_WITH_PARENT(...) QT_OVERLOADED_MACRO(QT_APPLE_LOG_ACTIVITY_WITH_PARENT, __VA_ARGS__)
+
+QT_MAC_WEAK_IMPORT(_os_activity_current);
+#define QT_APPLE_LOG_ACTIVITY2(condition, description) QT_APPLE_LOG_ACTIVITY_CREATE(condition, description, OS_ACTIVITY_CURRENT)
+#define QT_APPLE_LOG_ACTIVITY1(description) QT_APPLE_LOG_ACTIVITY2(true, description)
+#define QT_APPLE_LOG_ACTIVITY(...) QT_OVERLOADED_MACRO(QT_APPLE_LOG_ACTIVITY, __VA_ARGS__)
+
+#define QT_APPLE_SCOPED_LOG_ACTIVITY(...) QAppleLogActivity scopedLogActivity = QT_APPLE_LOG_ACTIVITY(__VA_ARGS__).enter();
+
+#endif // !defined(QT_BOOTSTRAPPED)
+
+// -------------------------------------------------------------------------
+
+#if defined( __OBJC__)
+class QMacScopedObserver
+{
+public:
+    QMacScopedObserver() {}
+
+    template<typename Functor>
+    QMacScopedObserver(id object, NSNotificationName name, Functor callback) {
+        observer = [[NSNotificationCenter defaultCenter] addObserverForName:name
+            object:object queue:nil usingBlock:^(NSNotification *) {
+                callback();
+            }
+        ];
+    }
+
+    QMacScopedObserver(const QMacScopedObserver& other) = delete;
+    QMacScopedObserver(QMacScopedObserver&& other) : observer(other.observer) {
+        other.observer = nil;
+    }
+
+    QMacScopedObserver &operator=(const QMacScopedObserver& other) = delete;
+    QMacScopedObserver &operator=(QMacScopedObserver&& other) {
+        if (this != &other) {
+            remove();
+            observer = other.observer;
+            other.observer = nil;
+        }
+        return *this;
+    }
+
+    void remove() {
+        if (observer)
+            [[NSNotificationCenter defaultCenter] removeObserver:observer];
+        observer = nil;
+    }
+    ~QMacScopedObserver() { remove(); }
+
+private:
+    id observer = nil;
+};
+#endif
+
+// -------------------------------------------------------------------------
 
 QT_END_NAMESPACE
 

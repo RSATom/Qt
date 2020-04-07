@@ -48,10 +48,12 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.7
+import QtQuick 2.12
+import QtQuick.Controls 2.3 as QQC2
+import ".."
 import "../Style"
 
-Item {
+SwipeViewPage {
     id: clock
 
     property int hours
@@ -178,7 +180,7 @@ Item {
             anchors.horizontalCenter: parent.horizontalCenter
 
             text: cityName
-            color: UIStyle.colorQtGray1
+            color: UIStyle.themeColorQtGray1
             font.pixelSize: UIStyle.fontSizeXS
             font.letterSpacing: 2
         }

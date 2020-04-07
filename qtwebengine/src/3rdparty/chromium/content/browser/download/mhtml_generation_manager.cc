@@ -5,10 +5,10 @@
 #include "content/browser/download/mhtml_generation_manager.h"
 
 #include <map>
-#include <queue>
 #include <utility>
 
 #include "base/bind.h"
+#include "base/containers/queue.h"
 #include "base/files/file.h"
 #include "base/guid.h"
 #include "base/macros.h"
@@ -18,8 +18,10 @@
 #include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
+#include "base/task_runner_util.h"
 #include "base/time/time.h"
 #include "base/trace_event/trace_event.h"
+#include "components/download/public/common/download_task_runner.h"
 #include "content/browser/bad_message.h"
 #include "content/browser/download/mhtml_extra_parts_impl.h"
 #include "content/browser/frame_host/frame_tree_node.h"
@@ -49,14 +51,14 @@ class MHTMLGenerationManager::Job : public RenderProcessHostObserver {
   Job(int job_id,
       WebContents* web_contents,
       const MHTMLGenerationParams& params,
-      const GenerateMHTMLCallback& callback);
+      GenerateMHTMLCallback callback);
   ~Job() override;
 
   int id() const { return job_id_; }
   void set_browser_file(base::File file) { browser_file_ = std::move(file); }
   base::TimeTicks creation_time() const { return creation_time_; }
 
-  const GenerateMHTMLCallback& callback() const { return callback_; }
+  GenerateMHTMLCallback callback() { return std::move(callback_); }
 
   // Indicates whether we expect a message from the |sender| at this time.
   // We expect only one message per frame - therefore calling this method
@@ -86,14 +88,13 @@ class MHTMLGenerationManager::Job : public RenderProcessHostObserver {
   // back on the UI thread with the updated status and file size (which will be
   // negative in case of errors).
   void CloseFile(
-      base::Callback<void(const std::tuple<MhtmlSaveStatus, int64_t>&)>
+      base::OnceCallback<void(const std::tuple<MhtmlSaveStatus, int64_t>&)>
           callback,
       MhtmlSaveStatus save_status);
 
   // RenderProcessHostObserver:
   void RenderProcessExited(RenderProcessHost* host,
-                           base::TerminationStatus status,
-                           int exit_code) override;
+                           const ChildProcessTerminationInfo& info) override;
   void RenderProcessHostDestroyed(RenderProcessHost* host) override;
 
   void MarkAsFinished();
@@ -110,15 +111,16 @@ class MHTMLGenerationManager::Job : public RenderProcessHostObserver {
       MhtmlSaveStatus save_status,
       const std::string& boundary,
       base::File file,
-      const MHTMLExtraPartsImpl* extra_parts);
+      const std::vector<MHTMLExtraDataPart>& extra_data_parts);
   void AddFrame(RenderFrameHost* render_frame_host);
 
   // If we have any extra MHTML parts to write out, write them into the file
   // while on the file thread.  Returns true for success, or if there is no data
   // to write.
-  static bool WriteExtraDataParts(const std::string& boundary,
-                                  base::File& file,
-                                  const MHTMLExtraPartsImpl* extra_parts);
+  static bool WriteExtraDataParts(
+      const std::string& boundary,
+      base::File& file,
+      const std::vector<MHTMLExtraDataPart>& extra_data_parts);
 
   // Writes the footer into the MHTML file.  Returns false for faiulre.
   static bool WriteFooter(const std::string& boundary, base::File& file);
@@ -126,12 +128,6 @@ class MHTMLGenerationManager::Job : public RenderProcessHostObserver {
   // Close the MHTML file if it looks good, setting the size param.  Returns
   // false for failure.
   static bool CloseFileIfValid(base::File& file, int64_t* file_size);
-
-  // Creates a new map with values (content ids) the same as in
-  // |frame_tree_node_to_content_id_| map, but with the keys translated from
-  // frame_tree_node_id into a |site_instance|-specific routing_id.
-  std::map<int, std::string> CreateFrameRoutingIdToContentId(
-      SiteInstance* site_instance);
 
   // Id used to map renderer responses to jobs.
   // See also MHTMLGenerationManager::id_to_job_ map.
@@ -150,7 +146,7 @@ class MHTMLGenerationManager::Job : public RenderProcessHostObserver {
   MHTMLGenerationParams params_;
 
   // The IDs of frames that still need to be processed.
-  std::queue<int> pending_frame_tree_node_ids_;
+  base::queue<int> pending_frame_tree_node_ids_;
 
   // Identifies a frame to which we've sent FrameMsg_SerializeAsMHTML but for
   // which we didn't yet process FrameHostMsg_SerializeAsMHTMLResponse via
@@ -160,10 +156,6 @@ class MHTMLGenerationManager::Job : public RenderProcessHostObserver {
   // The handle to the file the MHTML is saved to for the browser process.
   base::File browser_file_;
 
-  // Map from frames to content ids (see WebFrameSerializer::generateMHTMLParts
-  // for more details about what "content ids" are and how they are used).
-  std::map<int, std::string> frame_tree_node_to_content_id_;
-
   // MIME multipart boundary to use in the MHTML doc.
   const std::string mhtml_boundary_marker_;
 
@@ -172,7 +164,7 @@ class MHTMLGenerationManager::Job : public RenderProcessHostObserver {
   std::string salt_;
 
   // The callback to call once generation is complete.
-  const GenerateMHTMLCallback callback_;
+  GenerateMHTMLCallback callback_;
 
   // Whether the job is finished (set to true only for the short duration of
   // time between MHTMLGenerationManager::JobFinished is called and the job is
@@ -180,7 +172,7 @@ class MHTMLGenerationManager::Job : public RenderProcessHostObserver {
   bool is_finished_;
 
   // Any extra data parts that should be emitted into the output MHTML.
-  MHTMLExtraPartsImpl* extra_parts_;
+  std::vector<MHTMLExtraDataPart> extra_data_parts_;
 
   // RAII helper for registering this Job as a RenderProcessHost observer.
   ScopedObserver<RenderProcessHost, MHTMLGenerationManager::Job>
@@ -192,20 +184,20 @@ class MHTMLGenerationManager::Job : public RenderProcessHostObserver {
 MHTMLGenerationManager::Job::Job(int job_id,
                                  WebContents* web_contents,
                                  const MHTMLGenerationParams& params,
-                                 const GenerateMHTMLCallback& callback)
+                                 GenerateMHTMLCallback callback)
     : job_id_(job_id),
       creation_time_(base::TimeTicks::Now()),
       params_(params),
       frame_tree_node_id_of_busy_frame_(FrameTreeNode::kFrameTreeNodeInvalidId),
       mhtml_boundary_marker_(net::GenerateMimeMultipartBoundary()),
       salt_(base::GenerateGUID()),
-      callback_(callback),
+      callback_(std::move(callback)),
       is_finished_(false),
       observed_renderer_process_host_(this) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  web_contents->ForEachFrame(base::Bind(
+  web_contents->ForEachFrame(base::BindRepeating(
       &MHTMLGenerationManager::Job::AddFrame,
-      base::Unretained(this)));  // Safe because ForEachFrame is synchronous.
+      base::Unretained(this)));  // Safe because ForEachFrame() is synchronous.
 
   // Main frame needs to be processed first.
   DCHECK(!pending_frame_tree_node_ids_.empty());
@@ -213,34 +205,14 @@ MHTMLGenerationManager::Job::Job(int job_id,
              ->parent() == nullptr);
 
   // Save off any extra data.
-  extra_parts_ = static_cast<MHTMLExtraPartsImpl*>(
+  auto* extra_parts = static_cast<MHTMLExtraPartsImpl*>(
       MHTMLExtraParts::FromWebContents(web_contents));
+  if (extra_parts)
+    extra_data_parts_ = extra_parts->parts();
 }
 
 MHTMLGenerationManager::Job::~Job() {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-}
-
-std::map<int, std::string>
-MHTMLGenerationManager::Job::CreateFrameRoutingIdToContentId(
-    SiteInstance* site_instance) {
-  std::map<int, std::string> result;
-  for (const auto& it : frame_tree_node_to_content_id_) {
-    int ftn_id = it.first;
-    const std::string& content_id = it.second;
-
-    FrameTreeNode* ftn = FrameTreeNode::GloballyFindByID(ftn_id);
-    if (!ftn)
-      continue;
-
-    int routing_id =
-        ftn->render_manager()->GetRoutingIdForSiteInstance(site_instance);
-    if (routing_id == MSG_ROUTING_NONE)
-      continue;
-
-    result[routing_id] = content_id;
-  }
-  return result;
 }
 
 MhtmlSaveStatus MHTMLGenerationManager::Job::SendToNextRenderFrame() {
@@ -273,8 +245,6 @@ MhtmlSaveStatus MHTMLGenerationManager::Job::SendToNextRenderFrame() {
 
   ipc_params.destination_file = IPC::GetPlatformFileForTransit(
       browser_file_.GetPlatformFile(), false);  // |close_source_handle|.
-  ipc_params.frame_routing_id_to_content_id =
-      CreateFrameRoutingIdToContentId(rfh->GetSiteInstance());
 
   // Send the IPC asking the renderer to serialize the frame.
   DCHECK_EQ(FrameTreeNode::kFrameTreeNodeInvalidId,
@@ -291,8 +261,7 @@ MhtmlSaveStatus MHTMLGenerationManager::Job::SendToNextRenderFrame() {
 
 void MHTMLGenerationManager::Job::RenderProcessExited(
     RenderProcessHost* host,
-    base::TerminationStatus status,
-    int exit_code) {
+    const ChildProcessTerminationInfo& info) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   MHTMLGenerationManager::GetInstance()->RenderProcessExited(this);
 }
@@ -352,11 +321,6 @@ void MHTMLGenerationManager::Job::AddFrame(RenderFrameHost* render_frame_host) {
   auto* rfhi = static_cast<RenderFrameHostImpl*>(render_frame_host);
   int frame_tree_node_id = rfhi->frame_tree_node()->frame_tree_node_id();
   pending_frame_tree_node_ids_.push(frame_tree_node_id);
-
-  std::string guid = base::GenerateGUID();
-  std::string content_id = base::StringPrintf("<frame-%d-%s@mhtml.blink>",
-                                              frame_tree_node_id, guid.c_str());
-  frame_tree_node_to_content_id_[frame_tree_node_id] = content_id;
 }
 
 void MHTMLGenerationManager::Job::RenderProcessHostDestroyed(
@@ -366,7 +330,8 @@ void MHTMLGenerationManager::Job::RenderProcessHostDestroyed(
 }
 
 void MHTMLGenerationManager::Job::CloseFile(
-    base::Callback<void(const std::tuple<MhtmlSaveStatus, int64_t>&)> callback,
+    base::OnceCallback<void(const std::tuple<MhtmlSaveStatus, int64_t>&)>
+        callback,
     MhtmlSaveStatus save_status) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   DCHECK(!mhtml_boundary_marker_.empty());
@@ -375,20 +340,20 @@ void MHTMLGenerationManager::Job::CloseFile(
     // Only update the status if that won't hide an earlier error.
     if (save_status == MhtmlSaveStatus::SUCCESS)
       save_status = MhtmlSaveStatus::FILE_WRITTING_ERROR;
-    callback.Run(std::make_tuple(save_status, -1));
+    std::move(callback).Run(std::make_tuple(save_status, -1));
     return;
   }
 
   // If no previous error occurred the boundary should be sent.
-  BrowserThread::PostTaskAndReplyWithResult(
-      BrowserThread::FILE, FROM_HERE,
-      base::Bind(
+  base::PostTaskAndReplyWithResult(
+      download::GetDownloadTaskRunner().get(), FROM_HERE,
+      base::BindOnce(
           &MHTMLGenerationManager::Job::FinalizeAndCloseFileOnFileThread,
           save_status,
           (save_status == MhtmlSaveStatus::SUCCESS ? mhtml_boundary_marker_
                                                    : std::string()),
-          base::Passed(&browser_file_), extra_parts_),
-      callback);
+          std::move(browser_file_), std::move(extra_data_parts_)),
+      std::move(callback));
 }
 
 bool MHTMLGenerationManager::Job::IsMessageFromFrameExpected(
@@ -437,8 +402,8 @@ MHTMLGenerationManager::Job::FinalizeAndCloseFileOnFileThread(
     MhtmlSaveStatus save_status,
     const std::string& boundary,
     base::File file,
-    const MHTMLExtraPartsImpl* extra_parts) {
-  DCHECK_CURRENTLY_ON(BrowserThread::FILE);
+    const std::vector<MHTMLExtraDataPart>& extra_data_parts) {
+  DCHECK(download::GetDownloadTaskRunner()->RunsTasksInCurrentSequence());
 
   // If no previous error occurred the boundary should have been provided.
   if (save_status == MhtmlSaveStatus::SUCCESS) {
@@ -447,7 +412,7 @@ MHTMLGenerationManager::Job::FinalizeAndCloseFileOnFileThread(
     DCHECK(!boundary.empty());
 
     // Write the extra data into a part of its own, if we have any.
-    if (!WriteExtraDataParts(boundary, file, extra_parts)) {
+    if (!WriteExtraDataParts(boundary, file, extra_data_parts)) {
       save_status = MhtmlSaveStatus::FILE_WRITTING_ERROR;
     }
 
@@ -473,13 +438,9 @@ MHTMLGenerationManager::Job::FinalizeAndCloseFileOnFileThread(
 bool MHTMLGenerationManager::Job::WriteExtraDataParts(
     const std::string& boundary,
     base::File& file,
-    const MHTMLExtraPartsImpl* extra_parts) {
-  DCHECK_CURRENTLY_ON(BrowserThread::FILE);
+    const std::vector<MHTMLExtraDataPart>& extra_data_parts) {
+  DCHECK(download::GetDownloadTaskRunner()->RunsTasksInCurrentSequence());
   // Don't write an extra data part if there is none.
-  if (extra_parts == nullptr)
-    return true;
-
-  const std::vector<MHTMLExtraDataPart>& extra_data_parts(extra_parts->parts());
   if (extra_data_parts.empty())
     return true;
 
@@ -487,12 +448,12 @@ bool MHTMLGenerationManager::Job::WriteExtraDataParts(
 
   // For each extra part, serialize that part and add to our accumulator
   // string.
-  for (auto part : extra_data_parts) {
+  for (const auto& part : extra_data_parts) {
     // Write a newline, then a boundary, a newline, then the content
     // location, a newline, the content type, a newline, extra_headers,
     // two newlines, the body, and end with a newline.
     std::string serialized_extra_data_part = base::StringPrintf(
-        "--%s\r\n%s%s\r\n%s%s\r\n%s\r\n\r\n%s\r\n", boundary.c_str(),
+        "\r\n--%s\r\n%s%s\r\n%s%s\r\n%s\r\n\r\n%s\r\n", boundary.c_str(),
         kContentLocation, part.content_location.c_str(), kContentType,
         part.content_type.c_str(), part.extra_headers.c_str(),
         part.body.c_str());
@@ -509,8 +470,9 @@ bool MHTMLGenerationManager::Job::WriteExtraDataParts(
 // static
 bool MHTMLGenerationManager::Job::WriteFooter(const std::string& boundary,
                                               base::File& file) {
-  DCHECK_CURRENTLY_ON(BrowserThread::FILE);
-  std::string footer = base::StringPrintf("--%s--\r\n", boundary.c_str());
+  DCHECK(download::GetDownloadTaskRunner()->RunsTasksInCurrentSequence());
+  // Per the spec, the boundary must occur at the beginning of a line.
+  std::string footer = base::StringPrintf("\r\n--%s--\r\n", boundary.c_str());
   DCHECK(base::IsStringASCII(footer));
   return (file.WriteAtCurrentPos(footer.data(), footer.size()) >= 0);
 }
@@ -518,7 +480,7 @@ bool MHTMLGenerationManager::Job::WriteFooter(const std::string& boundary,
 // static
 bool MHTMLGenerationManager::Job::CloseFileIfValid(base::File& file,
                                                    int64_t* file_size) {
-  DCHECK_CURRENTLY_ON(BrowserThread::FILE);
+  DCHECK(download::GetDownloadTaskRunner()->RunsTasksInCurrentSequence());
   DCHECK(file_size);
   if (file.IsValid()) {
     *file_size = file.GetLength();
@@ -540,17 +502,17 @@ MHTMLGenerationManager::~MHTMLGenerationManager() {
 
 void MHTMLGenerationManager::SaveMHTML(WebContents* web_contents,
                                        const MHTMLGenerationParams& params,
-                                       const GenerateMHTMLCallback& callback) {
+                                       GenerateMHTMLCallback callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
-  Job* job = NewJob(web_contents, params, callback);
+  Job* job = NewJob(web_contents, params, std::move(callback));
   TRACE_EVENT_NESTABLE_ASYNC_BEGIN2(
       "page-serialization", "SavingMhtmlJob", job, "url",
       web_contents->GetLastCommittedURL().possibly_invalid_spec(),
       "file", params.file_path.AsUTF8Unsafe());
 
-  BrowserThread::PostTaskAndReplyWithResult(
-      BrowserThread::FILE, FROM_HERE,
+  base::PostTaskAndReplyWithResult(
+      download::GetDownloadTaskRunner().get(), FROM_HERE,
       base::Bind(&MHTMLGenerationManager::CreateFile, params.file_path),
       base::Bind(&MHTMLGenerationManager::OnFileAvailable,
                  base::Unretained(this),  // Safe b/c |this| is a singleton.
@@ -597,7 +559,7 @@ void MHTMLGenerationManager::OnSerializeAsMHTMLResponse(
 
 // static
 base::File MHTMLGenerationManager::CreateFile(const base::FilePath& file_path) {
-  DCHECK_CURRENTLY_ON(BrowserThread::FILE);
+  DCHECK(download::GetDownloadTaskRunner()->RunsTasksInCurrentSequence());
 
   // SECURITY NOTE: A file descriptor to the file created below will be passed
   // to multiple renderer processes which (in out-of-process iframes mode) can
@@ -642,9 +604,9 @@ void MHTMLGenerationManager::JobFinished(Job* job,
   DCHECK(job);
   job->MarkAsFinished();
   job->CloseFile(
-      base::Bind(&MHTMLGenerationManager::OnFileClosed,
-                 base::Unretained(this),  // Safe b/c |this| is a singleton.
-                 job->id()),
+      base::BindOnce(&MHTMLGenerationManager::OnFileClosed,
+                     base::Unretained(this),  // Safe b/c |this| is a singleton.
+                     job->id()),
       save_status);
 }
 
@@ -665,17 +627,18 @@ void MHTMLGenerationManager::OnFileClosed(
   UMA_HISTOGRAM_ENUMERATION("PageSerialization.MhtmlGeneration.FinalSaveStatus",
                             static_cast<int>(save_status),
                             static_cast<int>(MhtmlSaveStatus::LAST));
-  job->callback().Run(save_status == MhtmlSaveStatus::SUCCESS ? file_size : -1);
+  std::move(job->callback())
+      .Run(save_status == MhtmlSaveStatus::SUCCESS ? file_size : -1);
   id_to_job_.erase(job_id);
 }
 
 MHTMLGenerationManager::Job* MHTMLGenerationManager::NewJob(
     WebContents* web_contents,
     const MHTMLGenerationParams& params,
-    const GenerateMHTMLCallback& callback) {
+    GenerateMHTMLCallback callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
-  Job* job = new Job(++next_job_id_, web_contents, params, callback);
+  Job* job = new Job(++next_job_id_, web_contents, params, std::move(callback));
   id_to_job_[job->id()] = base::WrapUnique(job);
   return job;
 }

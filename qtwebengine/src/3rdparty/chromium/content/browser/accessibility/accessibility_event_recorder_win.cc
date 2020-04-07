@@ -6,6 +6,7 @@
 
 #include <oleacc.h>
 #include <stdint.h>
+#include <wrl/client.h>
 
 #include <string>
 
@@ -15,13 +16,14 @@
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/win/scoped_bstr.h"
-#include "base/win/scoped_comptr.h"
+#include "base/win/scoped_com_initializer.h"
 #include "base/win/scoped_variant.h"
 #include "content/browser/accessibility/accessibility_tree_formatter_utils_win.h"
 #include "content/browser/accessibility/browser_accessibility_manager.h"
 #include "content/browser/accessibility/browser_accessibility_win.h"
 #include "third_party/iaccessible2/ia2_api_all.h"
 #include "ui/base/win/atl_module.h"
+#include "ui/gfx/win/hwnd_util.h"
 
 namespace content {
 
@@ -38,7 +40,7 @@ std::string RoleVariantToString(const base::win::ScopedVariant& role) {
 }
 
 HRESULT QueryIAccessible2(IAccessible* accessible, IAccessible2** accessible2) {
-  base::win::ScopedComPtr<IServiceProvider> service_provider;
+  Microsoft::WRL::ComPtr<IServiceProvider> service_provider;
   HRESULT hr = accessible->QueryInterface(service_provider.GetAddressOf());
   return SUCCEEDED(hr) ?
       service_provider->QueryService(IID_IAccessible2, accessible2) : hr;
@@ -46,7 +48,7 @@ HRESULT QueryIAccessible2(IAccessible* accessible, IAccessible2** accessible2) {
 
 HRESULT QueryIAccessibleText(IAccessible* accessible,
                              IAccessibleText** accessible_text) {
-  base::win::ScopedComPtr<IServiceProvider> service_provider;
+  Microsoft::WRL::ComPtr<IServiceProvider> service_provider;
   HRESULT hr = accessible->QueryInterface(service_provider.GetAddressOf());
   return SUCCEEDED(hr) ?
       service_provider->QueryService(IID_IAccessibleText, accessible_text) : hr;
@@ -74,7 +76,9 @@ std::string AccessibilityEventToStringUTF8(int32_t event_id) {
 
 class AccessibilityEventRecorderWin : public AccessibilityEventRecorder {
  public:
-  explicit AccessibilityEventRecorderWin(BrowserAccessibilityManager* manager);
+  explicit AccessibilityEventRecorderWin(BrowserAccessibilityManager* manager,
+                                         base::ProcessId pid);
+
   ~AccessibilityEventRecorderWin() override;
 
   // Callback registered by SetWinEventHook. Just calls OnWinEventHook.
@@ -106,6 +110,9 @@ class AccessibilityEventRecorderWin : public AccessibilityEventRecorder {
 
   HWINEVENTHOOK win_event_hook_handle_;
   static AccessibilityEventRecorderWin* instance_;
+
+  // Initializes COM services when standalone dump events tool is used.
+  base::win::ScopedCOMInitializer com_initializer;
 };
 
 // static
@@ -114,8 +121,9 @@ AccessibilityEventRecorderWin::instance_ = nullptr;
 
 // static
 AccessibilityEventRecorder* AccessibilityEventRecorder::Create(
-    BrowserAccessibilityManager* manager) {
-  return new AccessibilityEventRecorderWin(manager);
+    BrowserAccessibilityManager* manager,
+    base::ProcessId pid) {
+  return new AccessibilityEventRecorderWin(manager, pid);
 }
 
 // static
@@ -134,19 +142,24 @@ void CALLBACK AccessibilityEventRecorderWin::WinEventHookThunk(
 }
 
 AccessibilityEventRecorderWin::AccessibilityEventRecorderWin(
-    BrowserAccessibilityManager* manager)
-    : AccessibilityEventRecorder(manager) {
+    BrowserAccessibilityManager* manager,
+    base::ProcessId pid)
+    : AccessibilityEventRecorder(manager, pid) {
   CHECK(!instance_) << "There can be only one instance of"
                     << " WinAccessibilityEventMonitor at a time.";
   instance_ = this;
-  win_event_hook_handle_ = SetWinEventHook(
-      EVENT_MIN,
-      EVENT_MAX,
-      GetModuleHandle(NULL),
-      &AccessibilityEventRecorderWin::WinEventHookThunk,
-      GetCurrentProcessId(),
-      0,  // Hook all threads
-      WINEVENT_INCONTEXT);
+
+  // For now, just use out of context events when running as a utility to watch
+  // events (no BrowserAccessibilityManager), because otherwise Chrome events
+  // are not getting reported. Being in context is better so that for
+  // TEXT_REMOVED and TEXT_INSERTED events, we can query the text that was
+  // inserted or removed and include that in the log.
+  int context = manager ? WINEVENT_INCONTEXT : WINEVENT_OUTOFCONTEXT;
+  win_event_hook_handle_ =
+      SetWinEventHook(EVENT_MIN, EVENT_MAX, GetModuleHandle(NULL),
+                      &AccessibilityEventRecorderWin::WinEventHookThunk, pid,
+                      0,  // Hook all threads
+                      context);
   CHECK(win_event_hook_handle_);
 }
 
@@ -163,7 +176,7 @@ void AccessibilityEventRecorderWin::OnWinEventHook(
     LONG child_id,
     DWORD event_thread,
     DWORD event_time) {
-  base::win::ScopedComPtr<IAccessible> browser_accessible;
+  Microsoft::WRL::ComPtr<IAccessible> browser_accessible;
   HRESULT hr = AccessibleObjectFromWindowWrapper(
       hwnd, obj_id, IID_IAccessible,
       reinterpret_cast<void**>(browser_accessible.GetAddressOf()));
@@ -176,20 +189,37 @@ void AccessibilityEventRecorderWin::OnWinEventHook(
   }
 
   base::win::ScopedVariant childid_variant(child_id);
-  base::win::ScopedComPtr<IDispatch> dispatch;
+  Microsoft::WRL::ComPtr<IDispatch> dispatch;
   hr = browser_accessible->get_accChild(childid_variant,
                                         dispatch.GetAddressOf());
   if (!SUCCEEDED(hr) || !dispatch) {
-    VLOG(1) << "Ignoring result " << hr << " and result " << dispatch
+    VLOG(1) << "Ignoring result " << hr << " and result " << dispatch.Get()
             << " from get_accChild";
     return;
   }
 
-  base::win::ScopedComPtr<IAccessible> iaccessible;
+  Microsoft::WRL::ComPtr<IAccessible> iaccessible;
   hr = dispatch.CopyTo(iaccessible.GetAddressOf());
   if (!SUCCEEDED(hr)) {
     VLOG(1) << "Ignoring result " << hr << " from QueryInterface";
     return;
+  }
+
+  if (only_web_events_) {
+    std::string hwnd_class_name = base::UTF16ToUTF8(gfx::GetClassName(hwnd));
+    if (hwnd_class_name != "Chrome_RenderWidgetHostHWND")
+      return;
+
+    Microsoft::WRL::ComPtr<IServiceProvider> service_provider;
+    hr = iaccessible->QueryInterface(service_provider.GetAddressOf());
+    if (!SUCCEEDED(hr))
+      return;
+
+    Microsoft::WRL::ComPtr<IAccessible> content_document;
+    hr = service_provider->QueryService(GUID_IAccessibleContentDocument,
+                                        content_document.GetAddressOf());
+    if (!SUCCEEDED(hr))
+      return;
   }
 
   std::string event_str = AccessibilityEventToStringUTF8(event);
@@ -226,13 +256,49 @@ void AccessibilityEventRecorderWin::OnWinEventHook(
   ia_state &= ~STATE_SYSTEM_READONLY;
 
   AccessibleStates ia2_state = 0;
-  base::win::ScopedComPtr<IAccessible2> iaccessible2;
+  Microsoft::WRL::ComPtr<IAccessible2> iaccessible2;
   hr = QueryIAccessible2(iaccessible.Get(), iaccessible2.GetAddressOf());
-  if (SUCCEEDED(hr))
-    iaccessible2->get_states(&ia2_state);
+  bool has_ia2 = SUCCEEDED(hr) && iaccessible2;
 
-  std::string log = base::StringPrintf(
-      "%s on role=%s", event_str.c_str(), RoleVariantToString(role).c_str());
+  base::string16 html_tag;
+  base::string16 obj_class;
+  base::string16 html_id;
+
+  if (has_ia2) {
+    iaccessible2->get_states(&ia2_state);
+    base::win::ScopedBstr attributes_bstr;
+    if (S_OK == iaccessible2->get_attributes(attributes_bstr.Receive())) {
+      std::vector<base::string16> ia2_attributes = base::SplitString(
+          base::string16(attributes_bstr, attributes_bstr.Length()),
+          base::string16(1, ';'), base::KEEP_WHITESPACE, base::SPLIT_WANT_ALL);
+      for (base::string16& attr : ia2_attributes) {
+        if (base::StringPiece16(attr).starts_with(L"class:"))
+          obj_class = attr.substr(6);  // HTML or view class
+        if (base::StringPiece16(attr).starts_with(L"id:")) {
+          html_id = base::string16(L"#");
+          html_id += attr.substr(3);
+        }
+        if (base::StringPiece16(attr).starts_with(L"tag:")) {
+          html_tag = attr.substr(4);
+        }
+      }
+    }
+  }
+
+  std::string log = base::StringPrintf("%s on", event_str.c_str());
+  if (!html_tag.empty()) {
+    // HTML node with tag
+    log += base::StringPrintf(
+        " <%s%s%s%s>", base::UTF16ToUTF8(html_tag).c_str(),
+        base::UTF16ToUTF8(html_id).c_str(), obj_class.empty() ? "" : ".",
+        base::UTF16ToUTF8(obj_class).c_str());
+  } else if (!obj_class.empty()) {
+    // Non-HTML node with class
+    log +=
+        base::StringPrintf(" class=%s", base::UTF16ToUTF8(obj_class).c_str());
+  }
+
+  log += base::StringPrintf(" role=%s", RoleVariantToString(role).c_str());
   if (name_bstr.Length() > 0)
     log += base::StringPrintf(" name=\"%s\"", BstrToUTF8(name_bstr).c_str());
   if (value_bstr.Length() > 0)
@@ -242,34 +308,45 @@ void AccessibilityEventRecorderWin::OnWinEventHook(
   log += " ";
   log += base::UTF16ToUTF8(IAccessible2StateToString(ia2_state));
 
+  // Group position, e.g. L3, 5 of 7
+  LONG group_level, similar_items_in_group, position_in_group;
+  if (has_ia2 &&
+      iaccessible2->get_groupPosition(&group_level, &similar_items_in_group,
+                                      &position_in_group) == S_OK) {
+    if (group_level)
+      log += base::StringPrintf(" level=%ld", group_level);
+    if (similar_items_in_group) {
+      log += base::StringPrintf(" %ld of %ld", position_in_group,
+                                similar_items_in_group);
+    }
+  }
+
   // For TEXT_REMOVED and TEXT_INSERTED events, query the text that was
   // inserted or removed and include that in the log.
-  base::win::ScopedComPtr<IAccessibleText> accessible_text;
+  Microsoft::WRL::ComPtr<IAccessibleText> accessible_text;
   hr = QueryIAccessibleText(iaccessible.Get(), accessible_text.GetAddressOf());
   if (SUCCEEDED(hr)) {
     if (event == IA2_EVENT_TEXT_REMOVED) {
       IA2TextSegment old_text;
       if (SUCCEEDED(accessible_text->get_oldText(&old_text))) {
-        log += base::StringPrintf(" old_text={'%s' start=%d end=%d}",
+        log += base::StringPrintf(" old_text={'%s' start=%ld end=%ld}",
                                   BstrToUTF8(old_text.text).c_str(),
-                                  old_text.start,
-                                  old_text.end);
+                                  old_text.start, old_text.end);
       }
     }
     if (event == IA2_EVENT_TEXT_INSERTED) {
       IA2TextSegment new_text;
       if (SUCCEEDED(accessible_text->get_newText(&new_text))) {
-        log += base::StringPrintf(" new_text={'%s' start=%d end=%d}",
+        log += base::StringPrintf(" new_text={'%s' start=%ld end=%ld}",
                                   BstrToUTF8(new_text.text).c_str(),
-                                  new_text.start,
-                                  new_text.end);
+                                  new_text.start, new_text.end);
       }
     }
   }
 
   log = base::UTF16ToUTF8(
       base::CollapseWhitespace(base::UTF8ToUTF16(log), true));
-  event_logs_.push_back(log);
+  OnEvent(log);
 }
 
 HRESULT AccessibilityEventRecorderWin::AccessibleObjectFromWindowWrapper(
@@ -277,6 +354,9 @@ HRESULT AccessibilityEventRecorderWin::AccessibleObjectFromWindowWrapper(
   HRESULT hr = ::AccessibleObjectFromWindow(hwnd, dw_id, riid, ppv_object);
   if (SUCCEEDED(hr))
     return hr;
+
+  if (!manager_)  // No manager when outside of Chrome tests.
+    return E_FAIL;
 
   // The above call to ::AccessibleObjectFromWindow fails for unknown
   // reasons every once in a while on the bots.  Work around it by grabbing

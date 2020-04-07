@@ -42,8 +42,8 @@
 
 #include <QtCore/qcompilerdetection.h>
 
-#include "device/geolocation/geoposition.h"
-#include "device/geolocation/location_provider.h"
+#include "services/device/public/cpp/geolocation/geoposition.h"
+#include "services/device/public/cpp/geolocation/location_provider.h"
 
 QT_FORWARD_DECLARE_CLASS(QThread)
 
@@ -61,23 +61,21 @@ public:
     virtual ~LocationProviderQt();
 
     // LocationProvider
-    bool StartProvider(bool high_accuracy) override;
+    void StartProvider(bool high_accuracy) override;
     void StopProvider() override;
-    const device::Geoposition& GetPosition() override { return m_lastKnownPosition; }
+    const device::mojom::Geoposition& GetPosition() override { return m_lastKnownPosition; }
     void OnPermissionGranted() override;
     void SetUpdateCallback(const LocationProviderUpdateCallback& callback) override;
 
 private:
     friend class QtPositioningHelper;
 
-    void updatePosition(const device::Geoposition &);
+    void updatePosition(const device::mojom::Geoposition &);
 
-    device::Geoposition m_lastKnownPosition;
+    device::mojom::Geoposition m_lastKnownPosition;
     LocationProviderUpdateCallback m_callback;
     QtPositioningHelper *m_positioningHelper;
 };
-//#define QT_USE_POSITIONING 1
-
 } // namespace QtWebEngineCore
 
 #endif // LOCATION_PROVIDER_QT_H

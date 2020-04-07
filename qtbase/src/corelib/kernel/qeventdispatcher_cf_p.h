@@ -85,18 +85,21 @@
 // We mean it.
 //
 
-#define DEBUG_EVENT_DISPATCHER 0
-
 #include <QtCore/qabstracteventdispatcher.h>
 #include <QtCore/private/qtimerinfo_unix_p.h>
 #include <QtCore/private/qcfsocketnotifier_p.h>
 #include <QtCore/private/qcore_mac_p.h>
 #include <QtCore/qdebug.h>
+#include <QtCore/qloggingcategory.h>
+
 #include <CoreFoundation/CoreFoundation.h>
 
 Q_FORWARD_DECLARE_OBJC_CLASS(QT_MANGLE_NAMESPACE(RunLoopModeTracker));
 
 QT_BEGIN_NAMESPACE
+
+Q_DECLARE_LOGGING_CATEGORY(lcEventDispatcher);
+Q_DECLARE_LOGGING_CATEGORY(lcEventDispatcherTimers)
 
 class QEventDispatcherCoreFoundation;
 
@@ -205,24 +208,25 @@ class Q_CORE_EXPORT QEventDispatcherCoreFoundation : public QAbstractEventDispat
 
 public:
     explicit QEventDispatcherCoreFoundation(QObject *parent = 0);
+    void startingUp() override;
     ~QEventDispatcherCoreFoundation();
 
-    bool processEvents(QEventLoop::ProcessEventsFlags flags);
-    bool hasPendingEvents();
+    bool processEvents(QEventLoop::ProcessEventsFlags flags) override;
+    bool hasPendingEvents() override;
 
-    void registerSocketNotifier(QSocketNotifier *notifier);
-    void unregisterSocketNotifier(QSocketNotifier *notifier);
+    void registerSocketNotifier(QSocketNotifier *notifier) override;
+    void unregisterSocketNotifier(QSocketNotifier *notifier) override;
 
-    void registerTimer(int timerId, int interval, Qt::TimerType timerType, QObject *object);
-    bool unregisterTimer(int timerId);
-    bool unregisterTimers(QObject *object);
-    QList<QAbstractEventDispatcher::TimerInfo> registeredTimers(QObject *object) const;
+    void registerTimer(int timerId, int interval, Qt::TimerType timerType, QObject *object) override;
+    bool unregisterTimer(int timerId) override;
+    bool unregisterTimers(QObject *object) override;
+    QList<QAbstractEventDispatcher::TimerInfo> registeredTimers(QObject *object) const override;
 
-    int remainingTime(int timerId);
+    int remainingTime(int timerId) override;
 
-    void wakeUp();
-    void interrupt();
-    void flush();
+    void wakeUp() override;
+    void interrupt() override;
+    void flush() override;
 
 protected:
     QEventLoop *currentEventLoop() const;
@@ -236,11 +240,11 @@ protected:
          , processedPostedEvents(false), processedTimers(false)
          , deferredWakeUp(false), deferredUpdateTimers(false) {}
 
-        QEventLoop::ProcessEventsFlags flags;
-        bool wasInterrupted;
-        bool processedPostedEvents;
-        bool processedTimers;
-        bool deferredWakeUp;
+        QAtomicInt flags;
+        QAtomicInteger<char> wasInterrupted;
+        QAtomicInteger<char> processedPostedEvents;
+        QAtomicInteger<char> processedTimers;
+        QAtomicInteger<char> deferredWakeUp;
         bool deferredUpdateTimers;
     };
 
@@ -255,6 +259,7 @@ private:
     QTimerInfoList m_timerInfoList;
     CFRunLoopTimerRef m_runLoopTimer;
     CFRunLoopTimerRef m_blockedRunLoopTimer;
+    QCFType<CFRunLoopRef> m_runLoop;
     bool m_overdueTimerScheduled;
 
     QCFSocketNotifier m_cfSocketNotifier;
@@ -268,18 +273,5 @@ private:
 };
 
 QT_END_NAMESPACE
-
-#if DEBUG_EVENT_DISPATCHER
-extern uint g_eventDispatcherIndentationLevel;
-#define qEventDispatcherDebug() qDebug().nospace() \
-            << qPrintable(QString(QLatin1String("| ")).repeated(g_eventDispatcherIndentationLevel)) \
-            << __FUNCTION__ << "(): "
-#define qIndent() ++g_eventDispatcherIndentationLevel
-#define qUnIndent() --g_eventDispatcherIndentationLevel
-#else
-#define qEventDispatcherDebug() QT_NO_QDEBUG_MACRO()
-#define qIndent()
-#define qUnIndent()
-#endif
 
 #endif // QEVENTDISPATCHER_CF_P_H

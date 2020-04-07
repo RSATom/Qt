@@ -56,6 +56,7 @@
 
 #include <QtCore/qbitarray.h>
 #include <QtCore/qdebug.h>
+#include <qmath.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -112,11 +113,13 @@ struct AnimatorEvaluationData
     int loopCount;
     int currentLoop;
     double playbackRate;
+    float normalizedLocalTime;
 };
 
 struct ClipEvaluationData
 {
     int currentLoop;
+    float normalizedLocalTime;
     double localTime;
     bool isFinalFrame;
 };
@@ -246,16 +249,27 @@ struct AnimationCallbackAndValue
     QVariant value;
 };
 
+inline constexpr double toSecs(qint64 nsecs) { return nsecs / 1.0e9; }
+inline qint64 toNsecs(double seconds) { return qRound64(seconds * 1.0e9); }
+
 template<typename Animator>
-AnimatorEvaluationData evaluationDataForAnimator(Animator animator, Clock* clock, qint64 nsSincePreviousFrame)
+AnimatorEvaluationData evaluationDataForAnimator(Animator animator,
+                                                 Clock* clock,
+                                                 qint64 nsSincePreviousFrame)
 {
+    const bool seeking = animator->isSeeking();
     AnimatorEvaluationData data;
     data.loopCount = animator->loops();
     data.currentLoop = animator->currentLoop();
-    data.playbackRate = clock != nullptr ? clock->playbackRate() : 1.0;
+    // The playback-rate is always 1.0 when seeking
+    data.playbackRate = ((clock != nullptr) && !seeking) ? clock->playbackRate() : 1.0;
     // Convert global time from nsec to sec
-    data.elapsedTime = double(nsSincePreviousFrame) / 1.0e9;
-    data.currentTime = animator->lastLocalTime();
+    data.elapsedTime = toSecs(nsSincePreviousFrame);
+    // When seeking we base it on the current time being at the start of the clip
+    data.currentTime = seeking ? 0.0 : animator->lastLocalTime();
+    // If we're not seeking the local normalized time will be calculate in
+    // evaluationDataForClip().
+    data.normalizedLocalTime = seeking ? animator->normalizedLocalTime() : -1.0;
     return data;
 }
 
@@ -267,6 +281,11 @@ inline bool isFinalFrame(double localTime,
     return (localTime >= duration &&
             loopCount != 0 &&
             currentLoop >= loopCount - 1);
+}
+
+inline bool isValidNormalizedTime(float t)
+{
+    return !(t < 0.0f) && !(t > 1.0f);
 }
 
 Q_AUTOTEST_EXPORT
@@ -299,7 +318,7 @@ Q_AUTOTEST_EXPORT
 QVector<Qt3DCore::QSceneChangePtr> preparePropertyChanges(Qt3DCore::QNodeId animatorId,
                                                           const QVector<MappingData> &mappingDataVec,
                                                           const QVector<float> &channelResults,
-                                                          bool finalFrame);
+                                                          bool finalFrame, float normalizedLocalTime);
 
 Q_AUTOTEST_EXPORT
 QVector<AnimationCallbackAndValue> prepareCallbacks(const QVector<MappingData> &mappingDataVec,

@@ -22,6 +22,7 @@
 #include "client/crash_report_database.h"
 #include "util/misc/uuid.h"
 #include "util/stdlib/thread_safe_vector.h"
+#include "util/thread/stoppable.h"
 #include "util/thread/worker_thread.h"
 
 namespace crashpad {
@@ -39,32 +40,54 @@ namespace crashpad {
 //! It also catches reports that are added without a ReportPending() signal
 //! being caught. This may happen if crash reports are added to the database by
 //! other processes.
-class CrashReportUploadThread : public WorkerThread::Delegate {
+class CrashReportUploadThread : public WorkerThread::Delegate,
+                                public Stoppable {
  public:
+   //! \brief Options to be passed to the CrashReportUploadThread constructor.
+   struct Options {
+    //! Whether client identifying parameters like product name or version
+    //! should be added to the URL.
+    bool identify_client_via_url;
+
+    //! Whether uploads should be throttled to a (currently hardcoded) rate.
+    bool rate_limit;
+
+    //! Whether uploads should use `gzip` compression.
+    bool upload_gzip;
+
+    //! Whether to periodically check for new pending reports not already known
+    //! to exist. When `false`, only an initial upload attempt will be made for
+    //! reports known to exist by having been added by the ReportPending()
+    //! method. No scans for new pending reports will be conducted.
+    bool watch_pending_reports;
+  };
+
   //! \brief Constructs a new object.
   //!
   //! \param[in] database The database to upload crash reports from.
   //! \param[in] url The URL of the server to upload crash reports to.
-  //! \param[in] watch_pending_reports Whether to periodically check for new
-  //!     pending reports not already known to exist. When `false`, only an
-  //!     initial upload attempt will be made for reports known to exist by
-  //!     having been added by the ReportPending() method. No scans for new
-  //!     pending reports will be conducted.
-  //! \param[in] rate_limit Whether uploads should be throttled to a (currently
-  //!     hardcoded) rate.
-  //! \param[in] upload_gzip Whether uploads should use `gzip` compression.
+  //! \param[in] options Options for the report uploads.
   CrashReportUploadThread(CrashReportDatabase* database,
                           const std::string& url,
-                          bool watch_pending_reports,
-                          bool rate_limit,
-                          bool upload_gzip);
+                          const Options& options);
   ~CrashReportUploadThread();
+
+  //! \brief Informs the upload thread that a new pending report has been added
+  //!     to the database.
+  //!
+  //! \param[in] report_uuid The unique identifier of the newly added pending
+  //!     report.
+  //!
+  //! This method may be called from any thread.
+  void ReportPending(const UUID& report_uuid);
+
+  // Stoppable:
 
   //! \brief Starts a dedicated upload thread, which executes ThreadMain().
   //!
   //! This method may only be be called on a newly-constructed object or after
   //! a call to Stop().
-  void Start();
+  void Start() override;
 
   //! \brief Stops the upload thread.
   //!
@@ -78,16 +101,7 @@ class CrashReportUploadThread : public WorkerThread::Delegate {
   //!
   //! This method may be called from any thread other than the upload thread.
   //! It is expected to only be called from the same thread that called Start().
-  void Stop();
-
-  //! \brief Informs the upload thread that a new pending report has been added
-  //!     to the database.
-  //!
-  //! \param[in] report_uuid The unique identifier of the newly added pending
-  //!     report.
-  //!
-  //! This method may be called from any thread.
-  void ReportPending(const UUID& report_uuid);
+  void Stop() override;
 
  private:
   //! \brief The result code from UploadReport().
@@ -138,14 +152,14 @@ class CrashReportUploadThread : public WorkerThread::Delegate {
   //! \param[in] report The report to upload. The caller is responsible for
   //!     calling CrashReportDatabase::GetReportForUploading() before calling
   //!     this method, and for calling
-  //!     CrashReportDatabase::RecordUploadAttempt() after calling this method.
+  //!     CrashReportDatabase::RecordUploadComplete() after calling this method.
   //! \param[out] response_body If the upload attempt is successful, this will
   //!     be set to the response body sent by the server. Breakpad-type servers
   //!     provide the crash ID assigned by the server in the response body.
   //!
   //! \return A member of UploadResult indicating the result of the upload
   //!    attempt.
-  UploadResult UploadReport(const CrashReportDatabase::Report* report,
+  UploadResult UploadReport(const CrashReportDatabase::UploadReport* report,
                             std::string* response_body);
 
   // WorkerThread::Delegate:
@@ -153,13 +167,11 @@ class CrashReportUploadThread : public WorkerThread::Delegate {
   //!     been called on any thread, as well as periodically on a timer.
   void DoWork(const WorkerThread* thread) override;
 
+  const Options options_;
   const std::string url_;
   WorkerThread thread_;
   ThreadSafeVector<UUID> known_pending_report_uuids_;
   CrashReportDatabase* database_;  // weak
-  const bool watch_pending_reports_;
-  const bool rate_limit_;
-  const bool upload_gzip_;
 
   DISALLOW_COPY_AND_ASSIGN(CrashReportUploadThread);
 };

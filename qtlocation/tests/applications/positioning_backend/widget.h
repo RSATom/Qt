@@ -28,6 +28,8 @@
 #ifndef WIDGET_H
 #define WIDGET_H
 
+#include "logwidget.h"
+
 #include <QWidget>
 #include <QGeoPositionInfoSource>
 
@@ -40,7 +42,7 @@ class Widget : public QWidget
     Q_OBJECT
 
 public:
-    explicit Widget(QWidget *parent = 0);
+    explicit Widget(LogWidget *log, QWidget *parent = nullptr);
     ~Widget();
 
 public slots:
@@ -57,8 +59,10 @@ private slots:
     void on_radioButton_4_clicked();
 
     void on_buttonUpdateSupported_clicked();
+    void on_buttonResetError_clicked();
 
 private:
+    LogWidget *log = nullptr;
     Ui::Widget *ui;
     QGeoPositionInfoSource *m_posSource;
 };

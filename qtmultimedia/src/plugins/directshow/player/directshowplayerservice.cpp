@@ -61,6 +61,8 @@
 
 #if QT_CONFIG(evr)
 #include "directshowevrvideowindowcontrol.h"
+#else
+#include <mmreg.h>
 #endif
 
 #include "qmediacontent.h"
@@ -113,7 +115,7 @@ public:
     }
 
 protected:
-    void run() { m_service->run(); }
+    void run() override { m_service->run(); }
 
 private:
     DirectShowPlayerService *m_service;
@@ -214,14 +216,16 @@ QMediaControl *DirectShowPlayerService::requestControl(const char *name)
         }
     } else if (qstrcmp(name, QVideoWindowControl_iid) == 0) {
         if (!m_videoRendererControl && !m_videoWindowControl) {
-            IBaseFilter *filter;
+            IBaseFilter *filter{};
 
 #if QT_CONFIG(evr)
-            DirectShowEvrVideoWindowControl *evrControl = new DirectShowEvrVideoWindowControl;
-            if ((filter = evrControl->filter()))
-                m_videoWindowControl = evrControl;
-            else
-                delete evrControl;
+            if (!qgetenv("QT_DIRECTSHOW_NO_EVR").toInt()) {
+                DirectShowEvrVideoWindowControl *evrControl = new DirectShowEvrVideoWindowControl;
+                if ((filter = evrControl->filter()))
+                    m_videoWindowControl = evrControl;
+                else
+                    delete evrControl;
+            }
 #endif
             // Fall back to the VMR9 if the EVR is not available
             if (!m_videoWindowControl) {
@@ -521,9 +525,9 @@ void DirectShowPlayerService::doRender(QMutexLocker *locker)
                         peer->Release();
                     } else {
                         locker->unlock();
-                        HRESULT hr;
-                        if (SUCCEEDED(hr = graph->RenderEx(
-                                pin, /*AM_RENDEREX_RENDERTOEXISTINGRENDERERS*/ 1, 0))) {
+                        HRESULT hr = graph->RenderEx(pin, /*AM_RENDEREX_RENDERTOEXISTINGRENDERERS*/ 1, 0);
+                        // Do not return an error if no video output is set yet.
+                        if (SUCCEEDED(hr) || !(m_executedTasks & SetVideoOutput)) {
                             rendered = true;
                         } else if (renderHr == S_OK || renderHr == VFW_E_NO_DECOMPRESSOR){
                             renderHr = hr;
@@ -723,7 +727,7 @@ void DirectShowPlayerService::doSetVideoProbe(QMutexLocker *locker)
     for (int i = 0; i != items; ++i) {
         mediaType->subtype = subtypes[i];
         m_videoSampleGrabber->setMediaType(&mediaType);
-        if (SUCCEEDED(DirectShowUtils::connectFilters(m_graph, m_source, m_videoSampleGrabber->filter(), true))) {
+        if (DirectShowUtils::connectFilters(m_graph, m_source, m_videoSampleGrabber->filter(), true)) {
             connected = true;
             break;
         }
@@ -760,7 +764,7 @@ void DirectShowPlayerService::doSetAudioProbe(QMutexLocker *locker)
         return;
     }
 
-    if (FAILED(DirectShowUtils::connectFilters(m_graph, m_source, m_audioSampleGrabber->filter(), true))) {
+    if (!DirectShowUtils::connectFilters(m_graph, m_source, m_audioSampleGrabber->filter(), true)) {
         qCWarning(qtDirectShowPlugin, "Failed to connect the audio sample grabber");
         return;
     }
@@ -1071,8 +1075,11 @@ void DirectShowPlayerService::doSetRate(QMutexLocker *locker)
         locker->relock();
 
         if (!SUCCEEDED(hr)) {
+            qWarning("%s: Audio device or filter does not support rate: %.2f. " \
+                     "Falling back to previous value.", __FUNCTION__, m_rate);
+
             double rate = 0.0;
-            m_rate = seeking->GetRate(&rate)
+            m_rate = SUCCEEDED(seeking->GetRate(&rate))
                     ? rate
                     : 1.0;
         }
@@ -1089,9 +1096,9 @@ qint64 DirectShowPlayerService::position() const
     QMutexLocker locker(const_cast<QMutex *>(&m_mutex));
 
     if (m_graphStatus == Loaded) {
-        if (m_executingTask == Seek || m_executingTask == SetRate || (m_pendingTasks & Seek)) {
+        if (m_executingTask == Seek || m_executingTask == SetRate || (m_pendingTasks & Seek))
             return m_position;
-        } else if (IMediaSeeking *seeking = com_cast<IMediaSeeking>(m_graph, IID_IMediaSeeking)) {
+        if (IMediaSeeking *seeking = com_cast<IMediaSeeking>(m_graph, IID_IMediaSeeking)) {
             LONGLONG position = 0;
 
             seeking->GetCurrentPosition(&position);
@@ -1110,9 +1117,9 @@ QMediaTimeRange DirectShowPlayerService::availablePlaybackRanges() const
     QMutexLocker locker(const_cast<QMutex *>(&m_mutex));
 
     if (m_graphStatus == Loaded) {
-        if (m_executingTask == Seek || m_executingTask == SetRate || (m_pendingTasks & Seek)) {
+        if (m_executingTask == Seek || m_executingTask == SetRate || (m_pendingTasks & Seek))
             return m_playbackRange;
-        } else if (IMediaSeeking *seeking = com_cast<IMediaSeeking>(m_graph, IID_IMediaSeeking)) {
+        if (IMediaSeeking *seeking = com_cast<IMediaSeeking>(m_graph, IID_IMediaSeeking)) {
             LONGLONG minimum = 0;
             LONGLONG maximum = 0;
 
@@ -1193,9 +1200,8 @@ int DirectShowPlayerService::bufferStatus() const
         reader->Release();
 
         return percentage;
-    } else {
-        return 0;
     }
+    return 0;
 #else
     return 0;
 #endif

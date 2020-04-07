@@ -6,11 +6,14 @@
 
 #include "ui/gl/gl_utils.h"
 
-#include "ui/gl/gl_switches.h"
+#include "ui/gfx/color_space.h"
+#include "ui/gl/gl_bindings.h"
 
 namespace gl {
 
-bool UsePassthroughCommandDecoder(const base::CommandLine* command_line) {
-  return command_line->HasSwitch(switches::kUsePassthroughCmdDecoder);
+int GetGLColorSpace(const gfx::ColorSpace& color_space) {
+  if (color_space.IsHDR())
+    return GL_COLOR_SPACE_SCRGB_LINEAR_CHROMIUM;
+  return GL_COLOR_SPACE_UNSPECIFIED_CHROMIUM;
 }
 }

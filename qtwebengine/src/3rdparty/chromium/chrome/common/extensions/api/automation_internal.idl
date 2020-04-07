@@ -25,21 +25,15 @@ namespace automationInternal {
     // The mouse coordinates when this event fired.
     double mouseX;
     double mouseY;
+
+
+    // ID of an action request resulting in this event.
+    long actionRequestID;
   };
 
-  // All possible actions that can be performed on automation nodes.
-  enum ActionType {
-    customAction,
-    doDefault,
-    focus,
-    getImageData,
-    hitTest,
-    makeVisible,
+  // Actions internally used by automation.
+  enum ActionTypePrivate {
     resumeMedia,
-    setAccessibilityFocus,
-    setSequentialFocusNavigationStartingPoint,
-    setSelection,
-    showContextMenu,
     startDuckingMedia,
     stopDuckingMedia,
     suspendMedia
@@ -49,7 +43,12 @@ namespace automationInternal {
   dictionary PerformActionRequiredParams {
     long treeID;
     long automationNodeID;
-    ActionType actionType;
+
+    // This can be either automation::ActionType or
+    // automation_internal::ActionTypePrivate.
+    DOMString actionType;
+
+    long? requestID;
   };
 
   // Arguments for the customAction action. Those args are passed to
@@ -67,6 +66,16 @@ namespace automationInternal {
     long focusOffset;
   };
 
+  // Arguments for the replaceSelectedText action supplied to performAction.
+  dictionary ReplaceSelectedTextParams {
+    DOMString value;
+  };
+
+  // Arguments for the setValue action supplied to performAction.
+  dictionary SetValueParams {
+    DOMString value;
+  };
+
   // Arguments for the querySelector function.
   dictionary QuerySelectorRequiredParams {
     long treeID;
@@ -76,7 +85,6 @@ namespace automationInternal {
 
   // Arguments for the enableTab function.
   dictionary EnableTabParams {
-    long routingID;
     long? tabID;
   };
 
@@ -114,8 +122,7 @@ namespace automationInternal {
     static void enableFrame(long tree_id);
 
     // Enables desktop automation.
-    static void enableDesktop(long routingID,
-                              EnableDesktopCallback callback);
+    static void enableDesktop(EnableDesktopCallback callback);
 
     // Performs an action on an automation node.
     static void performAction(PerformActionRequiredParams args,
@@ -137,10 +144,12 @@ namespace automationInternal {
                              long nodeID,
                              DOMString changeType);
 
-    static void onChildTreeID(long treeID, long nodeID);
+    static void onChildTreeID(long treeID);
 
     static void onNodesRemoved(long treeID, long[] nodeIDs);
 
     static void onAccessibilityTreeSerializationError(long treeID);
+
+    static void onActionResult(long treeID, long requestID, boolean result);
   };
 };

@@ -110,6 +110,12 @@ public:
 
     ~QWidgetLineControl()
     {
+        // If this control is used for password input, we don't want the
+        // password data to stay in the process memory, therefore we need
+        // to zero it out
+        if (m_echoMode != QLineEdit::Normal)
+            m_text.fill('\0');
+
         delete [] m_maskData;
     }
 
@@ -274,6 +280,13 @@ public:
         cancelPasswordEchoTimer();
         m_echoMode = mode;
         m_passwordEchoEditing = false;
+
+        // If this control is used for password input, we want to minimize
+        // the possibility of string reallocation not to leak (parts of)
+        // the password.
+        if (m_echoMode != QLineEdit::Normal)
+            m_text.reserve(30);
+
         updateDisplayText();
     }
 
@@ -500,8 +513,8 @@ private:
     void parseInputMask(const QString &maskFields);
     bool isValidInput(QChar key, QChar mask) const;
     bool hasAcceptableInput(const QString &text) const;
-    QString maskString(uint pos, const QString &str, bool clear = false) const;
-    QString clearString(uint pos, uint len) const;
+    QString maskString(int pos, const QString &str, bool clear = false) const;
+    QString clearString(int pos, int len) const;
     QString stripString(const QString &str) const;
     int findInMask(int pos, bool forward, bool findSeparator, QChar searchChar = QChar()) const;
 
@@ -545,12 +558,13 @@ Q_SIGNALS:
     void accepted();
     void editingFinished();
     void updateNeeded(const QRect &);
+    void inputRejected();
 
 #ifdef QT_KEYPAD_NAVIGATION
     void editFocusChange(bool);
 #endif
 protected:
-    virtual void timerEvent(QTimerEvent *event) Q_DECL_OVERRIDE;
+    virtual void timerEvent(QTimerEvent *event) override;
 
 private Q_SLOTS:
     void _q_deleteSelected();

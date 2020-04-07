@@ -38,8 +38,8 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.0
-import QtGraphicalEffects.private 1.0
+import QtQuick 2.12
+import QtGraphicalEffects.private 1.12
 
 /*!
     \qmltype Glow
@@ -105,7 +105,7 @@ Item {
         Depending on the radius value, value of the \l{Glow::samples}{samples}
         should be set to sufficiently large to ensure the visual quality.
 
-        The ideal blur is acheived by selecting \c samples and \c radius such
+        The ideal blur is achieved by selecting \c samples and \c radius such
         that \c {samples = 1 + radius * 2}, such as:
 
         \table

@@ -49,7 +49,7 @@ IndexedPropertyInterceptor* IndexedInterceptorFromV8(
   return PerIsolateData::From(isolate)->GetIndexedPropertyInterceptor(base);
 }
 
-void NamedPropertyGetter(v8::Local<v8::String> property,
+void NamedPropertyGetter(v8::Local<v8::Name> property,
                          const v8::PropertyCallbackInfo<v8::Value>& info) {
   v8::Isolate* isolate = info.GetIsolate();
   NamedPropertyInterceptor* interceptor =
@@ -61,7 +61,7 @@ void NamedPropertyGetter(v8::Local<v8::String> property,
   info.GetReturnValue().Set(interceptor->GetNamedProperty(isolate, name));
 }
 
-void NamedPropertySetter(v8::Local<v8::String> property,
+void NamedPropertySetter(v8::Local<v8::Name> property,
                          v8::Local<v8::Value> value,
                          const v8::PropertyCallbackInfo<v8::Value>& info) {
   v8::Isolate* isolate = info.GetIsolate();
@@ -75,7 +75,7 @@ void NamedPropertySetter(v8::Local<v8::String> property,
     info.GetReturnValue().Set(value);
 }
 
-void NamedPropertyQuery(v8::Local<v8::String> property,
+void NamedPropertyQuery(v8::Local<v8::Name> property,
                         const v8::PropertyCallbackInfo<v8::Integer>& info) {
   v8::Isolate* isolate = info.GetIsolate();
   NamedPropertyInterceptor* interceptor =
@@ -141,22 +141,26 @@ void IndexedPropertyEnumerator(
 }  // namespace
 
 ObjectTemplateBuilder::ObjectTemplateBuilder(v8::Isolate* isolate)
-    : isolate_(isolate), template_(v8::ObjectTemplate::New(isolate)) {
+    : ObjectTemplateBuilder(isolate, nullptr) {}
+
+ObjectTemplateBuilder::ObjectTemplateBuilder(v8::Isolate* isolate,
+                                             const char* type_name)
+    : isolate_(isolate),
+      type_name_(type_name),
+      template_(v8::ObjectTemplate::New(isolate)) {
   template_->SetInternalFieldCount(kNumberOfInternalFields);
 }
 
 ObjectTemplateBuilder::ObjectTemplateBuilder(
     const ObjectTemplateBuilder& other) = default;
 
-ObjectTemplateBuilder::~ObjectTemplateBuilder() {
-}
+ObjectTemplateBuilder::~ObjectTemplateBuilder() = default;
 
 ObjectTemplateBuilder& ObjectTemplateBuilder::AddNamedPropertyInterceptor() {
-  template_->SetNamedPropertyHandler(&NamedPropertyGetter,
-                                     &NamedPropertySetter,
-                                     &NamedPropertyQuery,
-                                     NULL,
-                                     &NamedPropertyEnumerator);
+  template_->SetHandler(v8::NamedPropertyHandlerConfiguration(
+      &NamedPropertyGetter, &NamedPropertySetter, &NamedPropertyQuery, nullptr,
+      &NamedPropertyEnumerator, v8::Local<v8::Value>(),
+      v8::PropertyHandlerFlags::kOnlyInterceptStrings));
   return *this;
 }
 

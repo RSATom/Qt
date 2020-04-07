@@ -3,9 +3,9 @@
 ** Copyright (C) 2018 Ford Motor Company
 ** Contact: https://www.qt.io/licensing/
 **
-** This file is part of the QtRemoteObjects module of the Qt Toolkit.
+** This file is part of the documentation of the Qt Toolkit.
 **
-** $QT_BEGIN_LICENSE:LGPL$
+** $QT_BEGIN_LICENSE:FDL$
 ** Commercial License Usage
 ** Licensees holding valid commercial Qt licenses may use this file in
 ** accordance with the commercial license agreement provided with the
@@ -14,25 +14,13 @@
 ** and conditions see https://www.qt.io/terms-conditions. For further
 ** information use the contact form at https://www.qt.io/contact-us.
 **
-** GNU Lesser General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU Lesser
-** General Public License version 3 as published by the Free Software
-** Foundation and appearing in the file LICENSE.LGPL3 included in the
-** packaging of this file. Please review the following information to
-** ensure the GNU Lesser General Public License version 3 requirements
-** will be met: https://www.gnu.org/licenses/lgpl-3.0.html.
-**
-** GNU General Public License Usage
-** Alternatively, this file may be used under the terms of the GNU
-** General Public License version 2.0 or (at your option) the GNU General
-** Public license version 3 or any later version approved by the KDE Free
-** Qt Foundation. The licenses are as published by the Free Software
-** Foundation and appearing in the file LICENSE.GPL2 and LICENSE.GPL3
-** included in the packaging of this file. Please review the following
-** information to ensure the GNU General Public License requirements will
-** be met: https://www.gnu.org/licenses/gpl-2.0.html and
-** https://www.gnu.org/licenses/gpl-3.0.html.
-**
+** GNU Free Documentation License Usage
+** Alternatively, this file may be used under the terms of the GNU Free
+** Documentation License version 1.3 as published by the Free Software
+** Foundation and appearing in the file included in the packaging of
+** this file. Please review the following information to ensure
+** the GNU Free Documentation License version 1.3 requirements
+** will be met: https://www.gnu.org/licenses/fdl-1.3.html.
 ** $QT_END_LICENSE$
 **
 ****************************************************************************/
@@ -42,18 +30,18 @@
 \brief Describes how Qt Remote Objects Nodes pass data between nodes.
 \section1 Nodes
 
-QRemoteObjectNodes (let's shorten the name to Node for now) are what enables
-the passing of information between processes. All of the QtRO functionality is
+QRemoteObjectNodes (Nodes) are what enable
+the passing of information between processes. All QtRO functionality is
 enabled by a small number of distinct packets passing the necessary data
 between nodes.
 
 Each process that participates in QtRO's IPC will instantiate a Node-based type
 (QRemoteObjectNode, QRemoteObjectHost, or QRemoteObjectRegistryHost). The
-latter types of Nodes provide additional functionality. Both QRemoteObjectHost
+host types of Nodes provide additional functionality. Both QRemoteObjectHost
 and QRemoteObjectRegistryHost support the \l {QRemoteObjectHostBase::}{enableRemoting()}
 (and the corresponding \l {QRemoteObjectHostBase::}{disableRemoting()}) methods,
 which are the key methods to expose \l Source objects to the network. In order
-to use the \l Registry functionality, there should be one QRemoteObjectRegistryHost
+to use the \l Registry functionality, there should be a QRemoteObjectRegistryHost
 on the network.
 All other nodes can then pass the RegistryHost's URL to the Node's \e registryAddress
 constructor parameter, or pass the URL to the \l {QRemoteObjectNode::}{setRegistryUrl()}
@@ -61,7 +49,7 @@ method.
 
 QtRO works as a peer-to-peer network. That is, in order to \l
 {QRemoteObjectNode::acquire()}{acquire()} a valid \l {Replica}, the \l
-{Replica} node needs a connection to the node that hosts its \l {Source}. A
+{Replica}'s node needs a connection to the node that hosts its \l {Source}. A
 host node is a node that allows other nodes to connect to it, which is
 accomplished by giving hosts unique addresses (the address is provided to the
 QRemoteObjectHost constructor or set by the setHostUrl method). The node that a
@@ -73,9 +61,9 @@ in order to initialize the \l {Replica} and keep it up to date.
 Host Nodes use custom URLs to simplify connections. While the list will likely
 be extended, QtRO currently supports two types of connections. A "tcp"
 connection (using the standard tcp/ip protocol) supports connections between
-devices as well as between processes on the same device. The 2nd option is a
-"local" connection - which can have less overhead, depending on the underlying
-OS features - but does not support connectivity between devices.
+devices as well as between processes on the same device. A "local" connection
+(which can have less overhead, depending on the underlying OS features) only supports
+connections between processes on the same device.
 
 When using a local connection, a unique name must be used. For tcp connections,
 a unique address and port number combination much be used.
@@ -88,7 +76,7 @@ simplify the connection process for a network with multiple Host Nodes.
 Connection types are summarized in the following table.
     \table 90%
     \header \li URL  \li Host Node           \li Connecting Node
-    \row    \li \l {QUrl}("local:replica")   \li \l {QLocalServer}("replica") \li \l {QLocalSocket}("replica")
+    \row    \li \l {QUrl}("local:service")   \li \l {QLocalServer}("service") \li \l {QLocalSocket}("service")
     \row    \li \l {QUrl}("tcp://192.168.1.1:9999")   \li \l {QTcpServer}("192.168.1.1",9999) \li \l {QTcpSocket}("192.168.1.1",9999)
     \endtable
 

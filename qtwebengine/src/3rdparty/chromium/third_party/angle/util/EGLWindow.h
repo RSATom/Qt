@@ -24,12 +24,6 @@
 
 class OSWindow;
 
-// A hidden define used in some renderers (currently D3D-only)
-// to init a no-op renderer. Useful for performance testing.
-#ifndef EGL_PLATFORM_ANGLE_DEVICE_TYPE_NULL_ANGLE
-#define EGL_PLATFORM_ANGLE_DEVICE_TYPE_NULL_ANGLE 0x6AC0
-#endif
-
 namespace angle
 {
 struct PlatformMethods;
@@ -80,12 +74,14 @@ class ANGLE_EXPORT EGLWindow : angle::NonCopyable
     {
         mWebGLCompatibility = webglCompatibility;
     }
+    void setExtensionsEnabled(bool extensionsEnabled) { mExtensionsEnabled = extensionsEnabled; }
     void setBindGeneratesResource(bool bindGeneratesResource)
     {
         mBindGeneratesResource = bindGeneratesResource;
     }
     void setDebugLayersEnabled(bool enabled) { mDebugLayersEnabled = enabled; }
     void setClientArraysEnabled(bool enabled) { mClientArraysEnabled = enabled; }
+    void setRobustAccess(bool enabled) { mRobustAccess = enabled; }
     void setRobustResourceInit(bool enabled) { mRobustResourceInit = enabled; }
     void setSwapInterval(EGLint swapInterval) { mSwapInterval = swapInterval; }
     void setPlatformMethods(angle::PlatformMethods *platformMethods)
@@ -93,6 +89,7 @@ class ANGLE_EXPORT EGLWindow : angle::NonCopyable
         mPlatformMethods = platformMethods;
     }
     void setContextProgramCacheEnabled(bool enabled) { mContextProgramCacheEnabled = enabled; }
+    void setContextVirtualization(bool enabled) { mContextVirtualization = enabled; }
 
     static EGLBoolean FindEGLConfig(EGLDisplay dpy, const EGLint *attrib_list, EGLConfig *config);
 
@@ -121,6 +118,9 @@ class ANGLE_EXPORT EGLWindow : angle::NonCopyable
 
     // Only initializes the Display and Surface.
     bool initializeDisplayAndSurface(OSWindow *osWindow);
+
+    // Create an EGL context with this window's configuration
+    EGLContext createContext(EGLContext share) const;
 
     // Only initializes the Context.
     bool initializeContext();
@@ -154,13 +154,16 @@ class ANGLE_EXPORT EGLWindow : angle::NonCopyable
     bool mDebug;
     bool mNoError;
     bool mWebGLCompatibility;
+    Optional<bool> mExtensionsEnabled;
     bool mBindGeneratesResource;
     bool mClientArraysEnabled;
+    bool mRobustAccess;
     Optional<bool> mRobustResourceInit;
     EGLint mSwapInterval;
     EGLint mSamples;
     Optional<bool> mDebugLayersEnabled;
     Optional<bool> mContextProgramCacheEnabled;
+    Optional<bool> mContextVirtualization;
     angle::PlatformMethods *mPlatformMethods;
 };
 

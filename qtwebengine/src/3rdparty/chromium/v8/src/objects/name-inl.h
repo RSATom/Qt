@@ -7,6 +7,8 @@
 
 #include "src/objects/name.h"
 
+#include "src/heap/heap-inl.h"
+
 // Has to be the last include (doesn't have include guards):
 #include "src/objects/object-macros.h"
 
@@ -21,8 +23,21 @@ SMI_ACCESSORS(Symbol, flags, kFlagsOffset)
 BOOL_ACCESSORS(Symbol, flags, is_private, kPrivateBit)
 BOOL_ACCESSORS(Symbol, flags, is_well_known_symbol, kWellKnownSymbolBit)
 BOOL_ACCESSORS(Symbol, flags, is_public, kPublicBit)
+BOOL_ACCESSORS(Symbol, flags, is_interesting_symbol, kInterestingSymbolBit)
 
-TYPE_CHECKER(Symbol, SYMBOL_TYPE)
+bool Symbol::is_private_field() const {
+  bool value = BooleanBit::get(flags(), kPrivateFieldBit);
+  DCHECK_IMPLIES(value, is_private());
+  return value;
+}
+
+void Symbol::set_is_private_field() {
+  int old_value = flags();
+  // TODO(gsathya): Re-order the bits to have these next to each other
+  // and just do the bit shifts once.
+  set_flags(BooleanBit::set(old_value, kPrivateBit, true) |
+            BooleanBit::set(old_value, kPrivateFieldBit, true));
+}
 
 bool Name::IsUniqueName() const {
   uint32_t type = map()->instance_type();
@@ -38,7 +53,7 @@ void Name::set_hash_field(uint32_t value) {
   WRITE_UINT32_FIELD(this, kHashFieldOffset, value);
 #if V8_HOST_ARCH_64_BIT
 #if V8_TARGET_LITTLE_ENDIAN
-  WRITE_UINT32_FIELD(this, kHashFieldSlot + kIntSize, 0);
+  WRITE_UINT32_FIELD(this, kHashFieldSlot + kInt32Size, 0);
 #else
   WRITE_UINT32_FIELD(this, kHashFieldSlot, 0);
 #endif
@@ -54,13 +69,13 @@ bool Name::Equals(Name* other) {
   return String::cast(this)->SlowEquals(String::cast(other));
 }
 
-bool Name::Equals(Handle<Name> one, Handle<Name> two) {
+bool Name::Equals(Isolate* isolate, Handle<Name> one, Handle<Name> two) {
   if (one.is_identical_to(two)) return true;
   if ((one->IsInternalizedString() && two->IsInternalizedString()) ||
       one->IsSymbol() || two->IsSymbol()) {
     return false;
   }
-  return String::SlowEquals(Handle<String>::cast(one),
+  return String::SlowEquals(isolate, Handle<String>::cast(one),
                             Handle<String>::cast(two));
 }
 
@@ -75,11 +90,25 @@ uint32_t Name::Hash() {
   uint32_t field = hash_field();
   if (IsHashFieldComputed(field)) return field >> kHashShift;
   // Slow case: compute hash code and set it. Has to be a string.
-  return String::cast(this)->ComputeAndSetHash();
+  // Also the string must be writable, because read-only strings will have their
+  // hash values precomputed.
+  return String::cast(this)->ComputeAndSetHash(
+      Heap::FromWritableHeapObject(this)->isolate());
+}
+
+bool Name::IsInterestingSymbol() const {
+  return IsSymbol() && Symbol::cast(this)->is_interesting_symbol();
 }
 
 bool Name::IsPrivate() {
   return this->IsSymbol() && Symbol::cast(this)->is_private();
+}
+
+bool Name::IsPrivateField() {
+  bool is_private_field =
+      this->IsSymbol() && Symbol::cast(this)->is_private_field();
+  DCHECK_IMPLIES(is_private_field, IsPrivate());
+  return is_private_field;
 }
 
 bool Name::AsArrayIndex(uint32_t* index) {

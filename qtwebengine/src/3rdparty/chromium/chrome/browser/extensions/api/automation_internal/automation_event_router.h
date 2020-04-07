@@ -22,7 +22,11 @@ namespace content {
 class BrowserContext;
 }  // namespace content
 
-struct ExtensionMsg_AccessibilityEventParams;
+namespace ui {
+struct AXActionData;
+}  // namespace ui
+
+struct ExtensionMsg_AccessibilityEventBundleParams;
 struct ExtensionMsg_AccessibilityLocationChangeParams;
 
 namespace extensions {
@@ -32,24 +36,22 @@ class AutomationEventRouter : public content::NotificationObserver {
  public:
   static AutomationEventRouter* GetInstance();
 
-  // Indicates that the listener at |listener_process_id|, |listener_routing_id|
-  // wants to receive automation events from the accessibility tree indicated
-  // by |source_ax_tree_id|. Automation events are forwarded from now on
-  // until the listener process dies.
+  // Indicates that the listener at |listener_process_id| wants to receive
+  // automation events from the accessibility tree indicated by
+  // |source_ax_tree_id|. Automation events are forwarded from now on until the
+  // listener process dies.
   void RegisterListenerForOneTree(const ExtensionId& extension_id,
                                   int listener_process_id,
-                                  int listener_routing_id,
                                   int source_ax_tree_id);
 
-  // Indicates that the listener at |listener_process_id|, |listener_routing_id|
-  // wants to receive automation events from all accessibility trees because
-  // it has Desktop permission.
+  // Indicates that the listener at |listener_process_id| wants to receive
+  // automation events from all accessibility trees because it has Desktop
+  // permission.
   void RegisterListenerWithDesktopPermission(const ExtensionId& extension_id,
-                                             int listener_process_id,
-                                             int listener_routing_id);
+                                             int listener_process_id);
 
-  void DispatchAccessibilityEvent(
-      const ExtensionMsg_AccessibilityEventParams& params);
+  void DispatchAccessibilityEvents(
+      const ExtensionMsg_AccessibilityEventBundleParams& events);
 
   void DispatchAccessibilityLocationChange(
       const ExtensionMsg_AccessibilityLocationChangeParams& params);
@@ -60,6 +62,9 @@ class AutomationEventRouter : public content::NotificationObserver {
       int tree_id,
       content::BrowserContext* browser_context);
 
+  // Notify the source extension of the action of an action result.
+  void DispatchActionResult(const ui::AXActionData& data, bool result);
+
  private:
   struct AutomationListener {
     AutomationListener();
@@ -67,7 +72,6 @@ class AutomationEventRouter : public content::NotificationObserver {
     ~AutomationListener();
 
     ExtensionId extension_id;
-    int routing_id;
     int process_id;
     bool desktop;
     std::set<int> tree_ids;
@@ -80,7 +84,6 @@ class AutomationEventRouter : public content::NotificationObserver {
   void Register(
       const ExtensionId& extension_id,
       int listener_process_id,
-      int listener_routing_id,
       int source_ax_tree_id,
       bool desktop);
 

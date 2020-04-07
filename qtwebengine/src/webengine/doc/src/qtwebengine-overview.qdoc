@@ -89,7 +89,7 @@
     \l{https://chromium.googlesource.com/chromium/src/+/master/docs/chromium_browser_vs_google_chrome.md}{overview}
     that is part of the documentation in the \l {Chromium Project} upstream source tree.
 
-    This version of Qt WebEngine is based on Chromium version 61.0.3163.99, with
+    This version of Qt WebEngine is based on Chromium version 69.0.3497.128, with
     additional security fixes from newer versions.
 
     \section2 Qt WebEngine Process
@@ -149,9 +149,19 @@
     engine must be initialized by using \l QtWebEngine::initialize in the application main source
     file, as illustrated by the following code snippet:
 
-    \quotefromfile webengine/minimal/main.cpp
-    \skipto main
-    \printuntil }
+    \code
+    int main(int argc, char *argv[])
+    {
+        QGuiApplication app(argc, argv);
+
+        QtWebEngine::initialize();
+
+        QQmlApplicationEngine engine;
+        engine.load(QUrl("qrc:/main.qml"));
+
+        return app.exec();
+    }
+    \endcode
 
     An application can load pages into the WebEngineView, using either an URL or HTML string, and
     navigate within session history. By default, links to different pages load within the same
@@ -204,6 +214,10 @@
 
     window.alert("Page is from qt.io, but not wiki.qt.io");
     \endcode
+
+    If your WebEngine application is built using the Qt Quick Compiler, and the application ships
+    JavaScript files inside .qrc resources, consider reading the section
+    \l{JavaScript Files in Qt Resource Files}.
 
     \section1 Managing Certificates
 

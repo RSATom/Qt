@@ -9,6 +9,7 @@
 #include "base/bind.h"
 #include "base/macros.h"
 #include "base/message_loop/message_loop.h"
+#include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
@@ -21,8 +22,8 @@ namespace {
 class SpellcheckPlatformMacTest: public testing::Test {
  public:
   SpellcheckPlatformMacTest()
-      : callback_(base::Bind(&SpellcheckPlatformMacTest::CompletionCallback,
-                             base::Unretained(this))),
+      : callback_(base::BindOnce(&SpellcheckPlatformMacTest::CompletionCallback,
+                                 base::Unretained(this))),
         callback_finished_(false) {}
 
   void WaitForCallback() {
@@ -36,15 +37,15 @@ class SpellcheckPlatformMacTest: public testing::Test {
  private:
   void QuitMessageLoop() {
     CHECK(base::MessageLoop::current() == &message_loop_);
-    base::MessageLoop::current()->QuitWhenIdle();
+    base::RunLoop::QuitCurrentWhenIdleDeprecated();
   }
 
   void CompletionCallback(const std::vector<SpellCheckResult>& results) {
     results_ = results;
     callback_finished_ = true;
     message_loop_.task_runner()->PostTask(
-        FROM_HERE, base::Bind(&SpellcheckPlatformMacTest::QuitMessageLoop,
-                              base::Unretained(this)));
+        FROM_HERE, base::BindOnce(&SpellcheckPlatformMacTest::QuitMessageLoop,
+                                  base::Unretained(this)));
   }
 
   base::MessageLoopForUI message_loop_;
@@ -387,7 +388,7 @@ TEST_F(SpellcheckPlatformMacTest, SpellCheckSuggestions_EN_US) {
 // RequestTextCheck results.
 TEST_F(SpellcheckPlatformMacTest, SpellCheckIgnoresOrthography)  {
   base::string16 test_string(base::ASCIIToUTF16("Icland is awesome."));
-  spellcheck_platform::RequestTextCheck(0, test_string, callback_);
+  spellcheck_platform::RequestTextCheck(0, test_string, std::move(callback_));
   WaitForCallback();
   EXPECT_TRUE(callback_finished_);
   EXPECT_EQ(1U, results_.size());

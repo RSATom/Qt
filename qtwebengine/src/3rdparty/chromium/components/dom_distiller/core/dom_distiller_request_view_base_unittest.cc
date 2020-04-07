@@ -194,7 +194,7 @@ TEST_F(DomDistillerRequestViewTest, TestContentNeverEmpty) {
     std::unique_ptr<ArticleDistillationUpdate> article_update(
         new ArticleDistillationUpdate(pages, false, false));
 
-    handle.OnArticleUpdated(*article_update.get());
+    handle.OnArticleUpdated(*article_update);
 
     EXPECT_THAT(handle.GetJavaScriptBuffer(), HasSubstr(no_content));
     EXPECT_THAT(handle.GetJavaScriptBuffer(), Not(HasSubstr(valid_content)));
@@ -209,7 +209,7 @@ TEST_F(DomDistillerRequestViewTest, TestLoadingIndicator) {
   const std::string show_loader = "showLoadingIndicator(false);";
 
   TestRequestViewHandle handle(distilled_page_prefs_.get());
-  handle.TakeViewerHandle(NULL);
+  handle.TakeViewerHandle(nullptr);
 
   std::vector<scoped_refptr<ArticleDistillationUpdate::RefCountedPageProto>>
       pages;
@@ -220,7 +220,7 @@ TEST_F(DomDistillerRequestViewTest, TestLoadingIndicator) {
   std::unique_ptr<ArticleDistillationUpdate> article_update(
       new ArticleDistillationUpdate(pages, true, false));
 
-  handle.OnArticleUpdated(*article_update.get());
+  handle.OnArticleUpdated(*article_update);
 
   EXPECT_THAT(handle.GetJavaScriptBuffer(), HasSubstr(show_loader));
 }

@@ -1,5 +1,9 @@
 TEMPLATE = subdirs
 
+QT_FOR_CONFIG += location-private
+include($$OUT_PWD/location/qtlocation-config.pri)
+include($$OUT_PWD/positioning/qtpositioning-config.pri)
+
 clip2tri.subdir = 3rdparty/clip2tri
 poly2tri.subdir = 3rdparty/poly2tri
 clipper.subdir = 3rdparty/clipper
@@ -11,15 +15,15 @@ SUBDIRS += positioning
 positioning.depends = clip2tri
 
 qtHaveModule(quick) {
-    SUBDIRS += location
-    location.depends += positioning clip2tri
+    SUBDIRS += positioningquick location
+    positioningquick.depends += positioning
+    location.depends += positioningquick clip2tri
 
     plugins.depends += location
 
     SUBDIRS += imports
-    imports.depends += positioning location
+    imports.depends += positioningquick positioning location
 }
-
 plugins.depends += positioning
 SUBDIRS += plugins
 

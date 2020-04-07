@@ -5,7 +5,8 @@
 // This module implements the public-facing API functions for the
 // <extensionview> tag.
 
-var ExtensionViewInternal =
+var ExtensionViewInternal = getInternalApi ?
+    getInternalApi('extensionViewInternal') :
     require('extensionViewInternal').ExtensionViewInternal;
 var ExtensionViewImpl = require('extensionView').ExtensionViewImpl;
 var ExtensionViewConstants =
@@ -31,10 +32,10 @@ ExtensionViewImpl.prototype.load = function(src) {
   .then($Function.bind(function onLoadResolved() {
     this.pendingLoad = null;
     this.loadNextSrc();
-  }, this), $Function.bind(function onLoadRejected() {
-    this.pendingLoad.reject('Failed to load.');
+  }, this), $Function.bind(function onLoadRejected(reason) {
     this.pendingLoad = null;
     this.loadNextSrc();
+    return Promise.reject(reason);
   }, this));
 };
 

@@ -19,7 +19,7 @@
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui.h"
 #include "content/public/browser/web_ui_message_handler.h"
-#include "extensions/features/features.h"
+#include "extensions/buildflags/buildflags.h"
 #include "ui/web_dialogs/web_dialog_delegate.h"
 #include "ui/web_dialogs/web_dialog_ui.h"
 
@@ -67,9 +67,10 @@ ConstrainedWebDialogUI::~ConstrainedWebDialogUI() {
 void ConstrainedWebDialogUI::RenderFrameCreated(
     RenderFrameHost* render_frame_host) {
   // Add a "dialogClose" callback which matches WebDialogUI behavior.
-  web_ui()->RegisterMessageCallback("dialogClose",
-      base::Bind(&ConstrainedWebDialogUI::OnDialogCloseMessage,
-                 base::Unretained(this)));
+  web_ui()->RegisterMessageCallback(
+      "dialogClose",
+      base::BindRepeating(&ConstrainedWebDialogUI::OnDialogCloseMessage,
+                          base::Unretained(this)));
 
   ConstrainedWebDialogDelegate* delegate = GetConstrainedDelegate();
   if (!delegate)
@@ -106,7 +107,7 @@ void ConstrainedWebDialogUI::SetConstrainedDelegate(
     ConstrainedWebDialogDelegate* delegate) {
   web_contents->SetUserData(
       &kConstrainedWebDialogDelegateUserDataKey,
-      base::MakeUnique<ConstrainedWebDialogDelegateUserData>(delegate));
+      std::make_unique<ConstrainedWebDialogDelegateUserData>(delegate));
 }
 
 // static

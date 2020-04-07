@@ -73,53 +73,35 @@ ArcMetricsService* ArcMetricsService::GetForBrowserContext(
   return ArcMetricsServiceFactory::GetForBrowserContext(context);
 }
 
+// static
+ArcMetricsService* ArcMetricsService::GetForBrowserContextForTesting(
+    content::BrowserContext* context) {
+  return ArcMetricsServiceFactory::GetForBrowserContextForTesting(context);
+}
+
 ArcMetricsService::ArcMetricsService(content::BrowserContext* context,
                                      ArcBridgeService* bridge_service)
     : arc_bridge_service_(bridge_service),
-      binding_(this),
       process_observer_(this),
+      native_bridge_type_(NativeBridgeType::UNKNOWN),
       weak_ptr_factory_(this) {
-  arc_bridge_service_->metrics()->AddObserver(this);
+  arc_bridge_service_->metrics()->SetHost(this);
   arc_bridge_service_->process()->AddObserver(&process_observer_);
 }
 
 ArcMetricsService::~ArcMetricsService() {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
-
-  // TODO(hidehiko): Currently, the lifetime of ArcBridgeService and
-  // BrowserContextKeyedService is not nested.
-  // If ArcServiceManager::Get() returns nullptr, it is already destructed,
-  // so do not touch it.
-  if (ArcServiceManager::Get()) {
-    arc_bridge_service_->process()->RemoveObserver(&process_observer_);
-    arc_bridge_service_->metrics()->RemoveObserver(this);
-  }
+  arc_bridge_service_->process()->RemoveObserver(&process_observer_);
+  arc_bridge_service_->metrics()->SetHost(nullptr);
 }
 
-void ArcMetricsService::OnInstanceReady() {
-  VLOG(2) << "Start metrics service.";
-  // Retrieve ARC start time from session manager.
-  chromeos::SessionManagerClient* session_manager_client =
-      chromeos::DBusThreadManager::Get()->GetSessionManagerClient();
-  session_manager_client->GetArcStartTime(
-      base::Bind(&ArcMetricsService::OnArcStartTimeRetrieved,
-                 weak_ptr_factory_.GetWeakPtr()));
-}
-
-void ArcMetricsService::OnInstanceClosed() {
-  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
-  VLOG(2) << "Close metrics service.";
-  if (binding_.is_bound())
-    binding_.Unbind();
-}
-
-void ArcMetricsService::OnProcessInstanceReady() {
+void ArcMetricsService::OnProcessConnectionReady() {
   VLOG(2) << "Start updating process list.";
   timer_.Start(FROM_HERE, kRequestProcessListPeriod, this,
                &ArcMetricsService::RequestProcessList);
 }
 
-void ArcMetricsService::OnProcessInstanceClosed() {
+void ArcMetricsService::OnProcessConnectionClosed() {
   VLOG(2) << "Stop updating process list.";
   timer_.Stop();
 }
@@ -130,7 +112,7 @@ void ArcMetricsService::RequestProcessList() {
   if (!process_instance)
     return;
   VLOG(2) << "RequestProcessList";
-  process_instance->RequestProcessList(base::Bind(
+  process_instance->RequestProcessList(base::BindOnce(
       &ArcMetricsService::ParseProcessList, weak_ptr_factory_.GetWeakPtr()));
 }
 
@@ -161,47 +143,26 @@ void ArcMetricsService::ParseProcessList(
 }
 
 void ArcMetricsService::OnArcStartTimeRetrieved(
-    bool success,
-    base::TimeTicks arc_start_time) {
+    std::vector<mojom::BootProgressEventPtr> events,
+    mojom::BootType boot_type,
+    base::Optional<base::TimeTicks> arc_start_time) {
   DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
-  if (!success) {
+  if (!arc_start_time.has_value()) {
     LOG(ERROR) << "Failed to retrieve ARC start timeticks.";
     return;
   }
-  auto* instance =
-      ARC_GET_INSTANCE_FOR_METHOD(arc_bridge_service_->metrics(), Init);
-  if (!instance)
-    return;
+  VLOG(2) << "ARC start @" << arc_start_time.value();
 
-  // The binding of host interface is deferred until the ARC start time is
-  // retrieved here because it prevents race condition of the ARC start
-  // time availability in ReportBootProgress().
-  if (!binding_.is_bound()) {
-    mojom::MetricsHostPtr host_ptr;
-    binding_.Bind(mojo::MakeRequest(&host_ptr));
-    instance->Init(std::move(host_ptr));
-  }
-  arc_start_time_ = arc_start_time;
-  VLOG(2) << "ARC start @" << arc_start_time_;
-}
-
-void ArcMetricsService::ReportBootProgress(
-    std::vector<mojom::BootProgressEventPtr> events,
-    mojom::BootType boot_type) {
-  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
-  if (boot_type == mojom::BootType::UNKNOWN) {
-    LOG(WARNING) << "boot_type is unknown. Skip recording UMA.";
-    return;
-  }
-  int64_t arc_start_time_in_ms =
-      (arc_start_time_ - base::TimeTicks()).InMilliseconds();
+  DCHECK_NE(mojom::BootType::UNKNOWN, boot_type);
   const std::string suffix = BootTypeToString(boot_type);
   for (const auto& event : events) {
     VLOG(2) << "Report boot progress event:" << event->event << "@"
             << event->uptimeMillis;
     const std::string name = "Arc." + event->event + suffix;
-    const base::TimeDelta elapsed_time = base::TimeDelta::FromMilliseconds(
-        event->uptimeMillis - arc_start_time_in_ms);
+    const base::TimeTicks uptime =
+        base::TimeDelta::FromMilliseconds(event->uptimeMillis) +
+        base::TimeTicks();
+    const base::TimeDelta elapsed_time = uptime - arc_start_time.value();
     base::UmaHistogramCustomTimes(name, elapsed_time, kUmaMinTime, kUmaMaxTime,
                                   kUmaNumBuckets);
     if (event->event.compare(kBootProgressEnableScreen) == 0) {
@@ -212,18 +173,62 @@ void ArcMetricsService::ReportBootProgress(
   }
 }
 
+void ArcMetricsService::ReportBootProgress(
+    std::vector<mojom::BootProgressEventPtr> events,
+    mojom::BootType boot_type) {
+  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
+  if (boot_type == mojom::BootType::UNKNOWN) {
+    LOG(WARNING) << "boot_type is unknown. Skip recording UMA.";
+    return;
+  }
+
+  // Retrieve ARC start time from session manager.
+  chromeos::SessionManagerClient* session_manager_client =
+      chromeos::DBusThreadManager::Get()->GetSessionManagerClient();
+  session_manager_client->GetArcStartTime(base::BindOnce(
+      &ArcMetricsService::OnArcStartTimeRetrieved,
+      weak_ptr_factory_.GetWeakPtr(), std::move(events), boot_type));
+}
+
+void ArcMetricsService::ReportNativeBridge(
+    mojom::NativeBridgeType native_bridge_type) {
+  DCHECK_CALLED_ON_VALID_THREAD(thread_checker_);
+  VLOG(2) << "Mojo native bridge type is " << native_bridge_type;
+
+  // Save value for RecordNativeBridgeUMA instead of recording
+  // immediately since it must appear in every metrics interval
+  // uploaded to UMA.
+  switch (native_bridge_type) {
+    case mojom::NativeBridgeType::NONE:
+      native_bridge_type_ = NativeBridgeType::NONE;
+      return;
+    case mojom::NativeBridgeType::HOUDINI:
+      native_bridge_type_ = NativeBridgeType::HOUDINI;
+      return;
+    case mojom::NativeBridgeType::NDK_TRANSLATION:
+      native_bridge_type_ = NativeBridgeType::NDK_TRANSLATION;
+      return;
+  }
+  NOTREACHED() << native_bridge_type;
+}
+
+void ArcMetricsService::RecordNativeBridgeUMA() {
+  UMA_HISTOGRAM_ENUMERATION("Arc.NativeBridge", native_bridge_type_,
+                            NativeBridgeType::COUNT);
+}
+
 ArcMetricsService::ProcessObserver::ProcessObserver(
     ArcMetricsService* arc_metrics_service)
     : arc_metrics_service_(arc_metrics_service) {}
 
 ArcMetricsService::ProcessObserver::~ProcessObserver() = default;
 
-void ArcMetricsService::ProcessObserver::OnInstanceReady() {
-  arc_metrics_service_->OnProcessInstanceReady();
+void ArcMetricsService::ProcessObserver::OnConnectionReady() {
+  arc_metrics_service_->OnProcessConnectionReady();
 }
 
-void ArcMetricsService::ProcessObserver::OnInstanceClosed() {
-  arc_metrics_service_->OnProcessInstanceClosed();
+void ArcMetricsService::ProcessObserver::OnConnectionClosed() {
+  arc_metrics_service_->OnProcessConnectionClosed();
 }
 
 }  // namespace arc

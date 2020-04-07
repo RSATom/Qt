@@ -5,29 +5,40 @@
     "service_manager:connector": {
       "provides": {
         "browser": [
-          "content::mojom::Child",
-          "content::mojom::EmbeddedWorkerInstanceClient",
-          "content::mojom::EmbeddedWorkerSetup",
-          "content::mojom::FrameFactory",
-          "content::mojom::RenderWidgetWindowTreeClientFactory",
-          "IPC::mojom::ChannelBootstrap",
-          "spellcheck::mojom::SpellChecker",
-          "visitedlink::mojom::VisitedLinkNotificationSink",
-          "web_cache::mojom::WebCache"
+          "blink.mojom.LeakDetector",
+          "blink.mojom.OomIntervention",
+          "blink.mojom.WebDatabase",
+          "content.mojom.AppCacheFrontend",
+          "content.mojom.Child",
+          "content.mojom.ChildControl",
+          "content.mojom.ChildHistogramFetcher",
+          "content.mojom.ChildHistogramFetcherFactory",
+          "content.mojom.FrameFactory",
+          "content.mojom.RenderWidgetWindowTreeClientFactory",
+          "content.mojom.ResourceUsageReporter",
+          "content.mojom.SharedWorkerFactory",
+          "IPC.mojom.ChannelBootstrap",
+          "visitedlink.mojom.VisitedLinkNotificationSink",
+          "web_cache.mojom.WebCache"
         ],
         "service_manager:service_factory": [
-          "service_manager::mojom::ServiceFactory"
+          "service_manager.mojom.ServiceFactory"
         ]
       },
       "requires": {
-        "content_browser": [ "memory_instrumentation", "renderer" ],
+        "*": [ "app" ],
+        "content_browser": [
+          "dwrite_font_proxy",
+          "field_trials",
+          "font_loader",
+          "renderer"
+        ],
+        "font_service": [ "font_service" ],
+        "metrics": [ "url_keyed_metrics" ],
         "device": [
-          "device:battery_monitor",
           "device:power_monitor",
           "device:screen_orientation",
-          "device:sensors",
-          "device:time_zone_monitor",
-          "device:vibration"
+          "device:time_zone_monitor"
         ],
         "ui": [
           "discardable_memory",
@@ -38,18 +49,37 @@
     "navigation:frame": {
       "provides": {
         "browser": [
-          "blink::mojom::AppBannerController",
-          "blink::mojom::EngagementClient",
-          "blink::mojom::InstallationService",
-          "blink::mojom::ManifestManager",
-          "content::mojom::ImageDownloader",
-          "content::mojom::FrameInputHandler",
-          "content::mojom::Widget",
-          "mojom::MediaDevicesListener"
+          "blink.mojom.AppBannerController",
+          "blink.mojom.EngagementClient",
+          "blink.mojom.InstallationService",
+          "blink.mojom.ManifestManager",
+          "blink.mojom.MediaDevicesListener",
+          "blink.mojom.TextSuggestionBackend",
+          "content.mojom.ImageDownloader",
+          "content.mojom.FrameInputHandler",
+          "content.mojom.FullscreenVideoElementHandler",
+          "content.mojom.MediaStreamDeviceObserver",
+          "content.mojom.Widget",
+          "viz.mojom.InputTargetClient"
         ]
       },
       "requires": {
-        "content_browser": [ "memory_instrumentation", "renderer" ]
+        "content_browser": [ "renderer" ]
+      }
+    },
+    "navigation:dedicated_worker": {
+      "requires": {
+        "content_browser": [ "renderer" ]
+      }
+    },
+    "navigation:service_worker": {
+      "requires": {
+        "content_browser": [ "renderer" ]
+      }
+    },
+    "navigation:shared_worker": {
+      "requires": {
+        "content_browser": [ "renderer" ]
       }
     }
   },
@@ -63,18 +93,6 @@
         "path": "assets/natives_blob.bin",
         "platform": "android"
       }
-    ],
-    "v8_snapshot_data" : [{
-      "path": "snapshot_blob.bin",
-      "platform": "linux"
-    }],
-    "v8_snapshot_32_data" : [{
-      "path": "assets/snapshot_blob_32.bin",
-      "platform": "android"
-    }],
-    "v8_snapshot_64_data" : [{
-      "path": "assets/snapshot_blob_64.bin",
-      "platform": "android"
-    }]
+    ]
   }
 }

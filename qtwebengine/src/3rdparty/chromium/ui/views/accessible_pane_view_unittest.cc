@@ -57,7 +57,7 @@ void TestBarView::ButtonPressed(Button* sender, const ui::Event& event) {
 }
 
 void TestBarView::Init() {
-  SetLayoutManager(new FillLayout());
+  SetLayoutManager(std::make_unique<FillLayout>());
   base::string16 label;
   child_button_.reset(new LabelButton(this, label));
   AddChildView(child_button_.get());
@@ -143,7 +143,7 @@ TEST_F(AccessiblePaneViewTest, SetPaneFocusAndRestore) {
     // predictable. On Mac, Deactivate() is not implemented. Note that
     // TestBarView calls set_allow_deactivate_on_esc(true), which is only
     // otherwise used in Ash.
-#if !defined(OS_MACOSX) || defined(USE_ASH)
+#if !defined(OS_MACOSX) || defined(OS_CHROMEOS)
     // Esc should deactivate the widget.
     test_view_bar->AcceleratorPressed(test_view_bar->escape_key());
     EXPECT_TRUE(widget_main->IsActive());

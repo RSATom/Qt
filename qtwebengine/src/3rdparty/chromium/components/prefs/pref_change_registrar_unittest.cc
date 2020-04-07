@@ -4,9 +4,10 @@
 
 #include "components/prefs/pref_change_registrar.h"
 
+#include <memory>
+
 #include "base/bind.h"
 #include "base/bind_helpers.h"
-#include "base/memory/ptr_util.h"
 #include "components/prefs/pref_observer.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/testing_pref_service.h"
@@ -27,7 +28,7 @@ const char kApplicationLocale[] = "intl.app_locale";
 class MockPrefService : public TestingPrefServiceSimple {
  public:
   MockPrefService() {}
-  virtual ~MockPrefService() {}
+  ~MockPrefService() override {}
 
   MOCK_METHOD2(AddPrefObserver, void(const std::string&, PrefObserver*));
   MOCK_METHOD2(RemovePrefObserver, void(const std::string&, PrefObserver*));
@@ -43,9 +44,7 @@ class PrefChangeRegistrarTest : public testing::Test {
  protected:
   void SetUp() override;
 
-  base::Closure observer() const {
-    return base::Bind(&base::DoNothing);
-  }
+  base::Closure observer() const { return base::DoNothing(); }
 
   MockPrefService* service() const { return service_.get(); }
 
@@ -127,7 +126,7 @@ TEST_F(PrefChangeRegistrarTest, RemoveAll) {
 
 class ObserveSetOfPreferencesTest : public testing::Test {
  public:
-  virtual void SetUp() {
+  void SetUp() override {
     pref_service_.reset(new TestingPrefServiceSimple);
     PrefRegistrySimple* registry = pref_service_->registry();
     registry->RegisterStringPref(kHomePage, "http://google.com");
@@ -137,7 +136,7 @@ class ObserveSetOfPreferencesTest : public testing::Test {
 
   PrefChangeRegistrar* CreatePrefChangeRegistrar() {
     PrefChangeRegistrar* pref_set = new PrefChangeRegistrar();
-    base::Closure callback = base::Bind(&base::DoNothing);
+    base::Closure callback = base::DoNothing();
     pref_set->Init(pref_service_.get());
     pref_set->Add(kHomePage, callback);
     pref_set->Add(kHomePageIsNewTabPage, callback);
@@ -160,10 +159,10 @@ TEST_F(ObserveSetOfPreferencesTest, IsManaged) {
   std::unique_ptr<PrefChangeRegistrar> pref_set(CreatePrefChangeRegistrar());
   EXPECT_FALSE(pref_set->IsManaged());
   pref_service_->SetManagedPref(kHomePage,
-                                base::MakeUnique<Value>("http://crbug.com"));
+                                std::make_unique<Value>("http://crbug.com"));
   EXPECT_TRUE(pref_set->IsManaged());
   pref_service_->SetManagedPref(kHomePageIsNewTabPage,
-                                base::MakeUnique<Value>(true));
+                                std::make_unique<Value>(true));
   EXPECT_TRUE(pref_set->IsManaged());
   pref_service_->RemoveManagedPref(kHomePage);
   EXPECT_TRUE(pref_set->IsManaged());
@@ -185,17 +184,17 @@ TEST_F(ObserveSetOfPreferencesTest, Observe) {
 
   EXPECT_CALL(*this, OnPreferenceChanged(kHomePage));
   pref_service_->SetUserPref(kHomePage,
-                             base::MakeUnique<Value>("http://crbug.com"));
+                             std::make_unique<Value>("http://crbug.com"));
   Mock::VerifyAndClearExpectations(this);
 
   EXPECT_CALL(*this, OnPreferenceChanged(kHomePageIsNewTabPage));
   pref_service_->SetUserPref(kHomePageIsNewTabPage,
-                             base::MakeUnique<Value>(true));
+                             std::make_unique<Value>(true));
   Mock::VerifyAndClearExpectations(this);
 
   EXPECT_CALL(*this, OnPreferenceChanged(_)).Times(0);
   pref_service_->SetUserPref(kApplicationLocale,
-                             base::MakeUnique<Value>("en_US.utf8"));
+                             std::make_unique<Value>("en_US.utf8"));
   Mock::VerifyAndClearExpectations(this);
 }
 

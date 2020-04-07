@@ -182,7 +182,7 @@ bool QQuickMenuPopupWindow1::shouldForwardEventAfterDismiss(QMouseEvent *e) cons
 {
     // If the event falls inside this item the event should not be forwarded.
     // For example for comboboxes or top menus of the menubar
-    QQuickMenuBar1 *mb = m_menu ? m_menu->menuBar() : Q_NULLPTR;
+    QQuickMenuBar1 *mb = m_menu ? m_menu->menuBar() : nullptr;
     QQuickItem *item = mb && !mb->isNative() ? mb->contentItem() : menu()->visualItem();
     QWindow *window = transientParent();
     if (item && window && item->window() == window) {

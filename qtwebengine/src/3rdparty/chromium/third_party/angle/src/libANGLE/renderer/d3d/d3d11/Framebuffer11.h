@@ -9,19 +9,20 @@
 #ifndef LIBANGLE_RENDERER_D3D_D3D11_FRAMBUFFER11_H_
 #define LIBANGLE_RENDERER_D3D_D3D11_FRAMBUFFER11_H_
 
+#include "libANGLE/Observer.h"
+#include "libANGLE/renderer/RenderTargetCache.h"
 #include "libANGLE/renderer/d3d/FramebufferD3D.h"
 #include "libANGLE/renderer/d3d/d3d11/renderer11_utils.h"
-#include "libANGLE/signal_utils.h"
 
 namespace rx
 {
 class Renderer11;
 
-class Framebuffer11 : public FramebufferD3D, public OnRenderTargetDirtyReceiver
+class Framebuffer11 : public FramebufferD3D
 {
   public:
     Framebuffer11(const gl::FramebufferState &data, Renderer11 *renderer);
-    virtual ~Framebuffer11();
+    ~Framebuffer11() override;
 
     gl::Error discard(const gl::Context *context, size_t count, const GLenum *attachments) override;
     gl::Error invalidate(const gl::Context *context,
@@ -35,26 +36,23 @@ class Framebuffer11 : public FramebufferD3D, public OnRenderTargetDirtyReceiver
     // Invalidate the cached swizzles of all bound texture attachments.
     gl::Error markAttachmentsDirty(const gl::Context *context) const;
 
-    void syncState(const gl::Context *context,
-                   const gl::Framebuffer::DirtyBits &dirtyBits) override;
+    gl::Error syncState(const gl::Context *context,
+                        const gl::Framebuffer::DirtyBits &dirtyBits) override;
 
-    const RenderTargetArray &getCachedColorRenderTargets() const
+    const gl::AttachmentArray<RenderTarget11 *> &getCachedColorRenderTargets() const
     {
-        return mCachedColorRenderTargets;
+        return mRenderTargetCache.getColors();
     }
     const RenderTarget11 *getCachedDepthStencilRenderTarget() const
     {
-        return mCachedDepthStencilRenderTarget;
+        return mRenderTargetCache.getDepthStencil();
     }
 
     RenderTarget11 *getFirstRenderTarget() const;
 
-    bool hasAnyInternalDirtyBit() const;
-    void syncInternalState(const gl::Context *context);
-
-    void signal(size_t channelID) override;
-
-    gl::Error getSamplePosition(size_t index, GLfloat *xy) const override;
+    gl::Error getSamplePosition(const gl::Context *context,
+                                size_t index,
+                                GLfloat *xy) const override;
 
   private:
     gl::Error clearImpl(const gl::Context *context, const ClearParameters &clearParams) override;
@@ -65,7 +63,7 @@ class Framebuffer11 : public FramebufferD3D, public OnRenderTargetDirtyReceiver
                              GLenum type,
                              size_t outputPitch,
                              const gl::PixelPackState &pack,
-                             uint8_t *pixels) const override;
+                             uint8_t *pixels) override;
 
     gl::Error blitImpl(const gl::Context *context,
                        const gl::Rectangle &sourceArea,
@@ -86,19 +84,10 @@ class Framebuffer11 : public FramebufferD3D, public OnRenderTargetDirtyReceiver
 
     GLenum getRenderTargetImplementationFormat(RenderTargetD3D *renderTarget) const override;
 
-    void updateColorRenderTarget(const gl::Context *context, size_t colorIndex);
-    void updateDepthStencilRenderTarget(const gl::Context *context);
-
     Renderer11 *const mRenderer;
-    RenderTargetArray mCachedColorRenderTargets;
-    RenderTarget11 *mCachedDepthStencilRenderTarget;
-
-    std::vector<OnRenderTargetDirtyBinding> mColorRenderTargetsDirty;
-    OnRenderTargetDirtyBinding mDepthStencilRenderTargetDirty;
-
-    gl::Framebuffer::DirtyBits mInternalDirtyBits;
+    RenderTargetCache<RenderTarget11> mRenderTargetCache;
 };
 
-}
+}  // namespace rx
 
 #endif // LIBANGLE_RENDERER_D3D_D3D11_FRAMBUFFER11_H_

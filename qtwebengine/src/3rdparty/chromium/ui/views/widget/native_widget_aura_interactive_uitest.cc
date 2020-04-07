@@ -4,7 +4,6 @@
 
 #include "ui/views/widget/native_widget_aura.h"
 
-#include "base/memory/ptr_util.h"
 #include "ui/aura/window.h"
 #include "ui/views/controls/textfield/textfield.h"
 #include "ui/views/test/native_widget_factory.h"
@@ -57,7 +56,7 @@ TEST_F(NativeWidgetAuraTest, NonActiveWindowRequestImeFocus) {
 
   TestFocusRules* test_focus_rules = new TestFocusRules;
   std::unique_ptr<wm::FocusController> focus_controller =
-      base::MakeUnique<wm::FocusController>(test_focus_rules);
+      std::make_unique<wm::FocusController>(test_focus_rules);
   wm::SetActivationClient(GetContext(), focus_controller.get());
 
   Widget* widget1 = new Widget;

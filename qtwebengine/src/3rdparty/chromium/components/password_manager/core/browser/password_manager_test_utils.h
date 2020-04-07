@@ -6,15 +6,12 @@
 #define COMPONENTS_PASSWORD_MANAGER_CORE_BROWSER_PASSWORD_MANAGER_TEST_UTILS_H_
 
 #include <iosfwd>
-#include <string>
 #include <vector>
 
 #include "base/feature_list.h"
-#include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "components/autofill/core/common/password_form.h"
 #include "components/password_manager/core/browser/password_store.h"
-#include "net/http/transport_security_state.h"
 #include "testing/gmock/include/gmock/gmock.h"
 
 namespace password_manager {
@@ -32,16 +29,6 @@ scoped_refptr<RefcountedKeyedService> BuildPasswordStore(Context* context) {
   return store;
 }
 
-// These constants are used by CreatePasswordFormFromDataForTesting to supply
-// values not covered by PasswordFormData.
-extern const char kTestingIconUrlSpec[];
-extern const char kTestingFederationUrlSpec[];
-extern const int kTestingDaysAfterPasswordsAreSynced;
-
-// Magic value for PasswordFormData::password_value to indicate a federated
-// login.
-extern const wchar_t kTestingFederatedLoginMarker[];
-
 // Struct used for creation of PasswordForms from static arrays of data.
 // Note: This is only meant to be used in unit test.
 struct PasswordFormData {
@@ -58,14 +45,17 @@ struct PasswordFormData {
   const double creation_time;
 };
 
-// Creates and returns a new PasswordForm built from form_data.
-std::unique_ptr<autofill::PasswordForm> CreatePasswordFormFromDataForTesting(
+// Creates and returns a new PasswordForm built from |form_data|.
+std::unique_ptr<autofill::PasswordForm> PasswordFormFromData(
     const PasswordFormData& form_data);
 
-// Convenience method that wraps the passed in forms in unique ptrs and returns
-// the result.
-std::vector<std::unique_ptr<autofill::PasswordForm>> WrapForms(
-    std::vector<autofill::PasswordForm> forms);
+// Like PasswordFormFromData(), but also fills arbitrary values into fields not
+// specified by |form_data|.  This may be useful e.g. for tests looking to
+// verify the handling of these fields.  If |use_federated_login| is true, this
+// function will set the form's |federation_origin|.
+std::unique_ptr<autofill::PasswordForm> FillPasswordFormWithData(
+    const PasswordFormData& form_data,
+    bool use_federated_login = false);
 
 // Checks whether the PasswordForms pointed to in |actual_values| are in some
 // permutation pairwise equal to those in |expectations|. Returns true in case
@@ -99,26 +89,34 @@ class MockPasswordReuseDetectorConsumer : public PasswordReuseDetectorConsumer {
   ~MockPasswordReuseDetectorConsumer() override;
 
   MOCK_METHOD4(OnReuseFound,
-               void(const base::string16&, const std::string&, int, int));
+               void(size_t,
+                    base::Optional<PasswordHashData>,
+                    const std::vector<std::string>&,
+                    int));
 };
-#endif
 
-// Auxiliary class to automatically set and reset the HSTS state for a given
-// host.
-class HSTSStateManager {
+// Matcher class used to compare PasswordHashData in tests.
+class PasswordHashDataMatcher
+    : public ::testing::MatcherInterface<base::Optional<PasswordHashData>> {
  public:
-  HSTSStateManager(net::TransportSecurityState* state,
-                   bool is_hsts,
-                   const std::string& host);
-  ~HSTSStateManager();
+  explicit PasswordHashDataMatcher(base::Optional<PasswordHashData> expected);
+  virtual ~PasswordHashDataMatcher() {}
+
+  // ::testing::MatcherInterface overrides
+  virtual bool MatchAndExplain(base::Optional<PasswordHashData> hash_data,
+                               ::testing::MatchResultListener* listener) const;
+  virtual void DescribeTo(::std::ostream* os) const;
+  virtual void DescribeNegationTo(::std::ostream* os) const;
 
  private:
-  net::TransportSecurityState* state_;
-  const bool is_hsts_;
-  const std::string host_;
+  const base::Optional<PasswordHashData> expected_;
 
-  DISALLOW_COPY_AND_ASSIGN(HSTSStateManager);
+  DISALLOW_COPY_AND_ASSIGN(PasswordHashDataMatcher);
 };
+
+::testing::Matcher<base::Optional<PasswordHashData>> Matches(
+    base::Optional<PasswordHashData> expected);
+#endif
 
 }  // namespace password_manager
 

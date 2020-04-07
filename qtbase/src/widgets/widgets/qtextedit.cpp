@@ -49,7 +49,9 @@
 #include <qpainter.h>
 #include <qevent.h>
 #include <qdebug.h>
+#if QT_CONFIG(draganddrop)
 #include <qdrag.h>
+#endif
 #include <qclipboard.h>
 #if QT_CONFIG(menu)
 #include <qmenu.h>
@@ -84,19 +86,19 @@ class QTextEditControl : public QWidgetTextControl
 public:
     inline QTextEditControl(QObject *parent) : QWidgetTextControl(parent) {}
 
-    virtual QMimeData *createMimeDataFromSelection() const Q_DECL_OVERRIDE {
+    virtual QMimeData *createMimeDataFromSelection() const override {
         QTextEdit *ed = qobject_cast<QTextEdit *>(parent());
         if (!ed)
             return QWidgetTextControl::createMimeDataFromSelection();
         return ed->createMimeDataFromSelection();
     }
-    virtual bool canInsertFromMimeData(const QMimeData *source) const Q_DECL_OVERRIDE {
+    virtual bool canInsertFromMimeData(const QMimeData *source) const override {
         QTextEdit *ed = qobject_cast<QTextEdit *>(parent());
         if (!ed)
             return QWidgetTextControl::canInsertFromMimeData(source);
         return ed->canInsertFromMimeData(source);
     }
-    virtual void insertFromMimeData(const QMimeData *source) Q_DECL_OVERRIDE {
+    virtual void insertFromMimeData(const QMimeData *source) override {
         QTextEdit *ed = qobject_cast<QTextEdit *>(parent());
         if (!ed)
             QWidgetTextControl::insertFromMimeData(source);
@@ -1516,8 +1518,7 @@ void QTextEditPrivate::paint(QPainter *p, QPaintEvent *e)
         layout->setViewport(QRect());
 
     if (!placeholderText.isEmpty() && doc->isEmpty() && !control->isPreediting()) {
-        QColor col = control->palette().text().color();
-        col.setAlpha(128);
+        const QColor col = control->palette().placeholderText().color();
         p->setPen(col);
         const int margin = int(doc->documentMargin());
         p->drawText(viewport->rect().adjusted(margin, margin, -margin, -margin), Qt::AlignTop | Qt::TextWordWrap, placeholderText);
@@ -1648,7 +1649,7 @@ void QTextEdit::contextMenuEvent(QContextMenuEvent *e)
 }
 #endif // QT_NO_CONTEXTMENU
 
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
 /*! \reimp
 */
 void QTextEdit::dragEnterEvent(QDragEnterEvent *e)
@@ -1689,7 +1690,7 @@ void QTextEdit::dropEvent(QDropEvent *e)
     d->sendControlEvent(e);
 }
 
-#endif // QT_NO_DRAGANDDROP
+#endif // QT_CONFIG(draganddrop)
 
 /*! \reimp
  */
@@ -2047,7 +2048,7 @@ void QTextEdit::setAcceptRichText(bool accept)
     \inmodule QtWidgets
 
     \brief The QTextEdit::ExtraSelection structure provides a way of specifying a
-           character format for a given selection in a document
+           character format for a given selection in a document.
 */
 
 /*!
@@ -2309,8 +2310,6 @@ void QTextEdit::scrollToAnchor(const QString &name)
 }
 
 /*!
-    \fn QTextEdit::zoomIn(int range)
-
     Zooms in on the text by making the base font size \a range
     points larger and recalculating all font sizes to be the new size.
     This does not change the size of any images.
@@ -2323,10 +2322,6 @@ void QTextEdit::zoomIn(int range)
 }
 
 /*!
-    \fn QTextEdit::zoomOut(int range)
-
-    \overload
-
     Zooms out on the text by making the base font size \a range points
     smaller and recalculating all font sizes to be the new size. This
     does not change the size of any images.

@@ -8,8 +8,10 @@
 #include <memory>
 #include <vector>
 
+#include "core/fxcodec/codec/ccodec_faxmodule.h"
+#include "core/fxcodec/codec/ccodec_scanlinedecoder.h"
 #include "core/fxcodec/codec/codec_int.h"
-#include "core/fxcodec/fx_codec.h"
+#include "core/fxcrt/cfx_binarybuf.h"
 #include "core/fxcrt/fx_memory.h"
 #include "third_party/base/ptr_util.h"
 #include "third_party/base/stl_util.h"
@@ -29,54 +31,51 @@ const uint8_t OneLeadPos[256] = {
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 };
-const uint8_t ZeroLeadPos[256] = {
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-    2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
-    2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
-    4, 4, 4, 4, 4, 4, 4, 4, 5, 5, 5, 5, 6, 6, 7, 8,
-};
 
-// Limit of image dimension, an arbitrary large number.
-const int kMaxImageDimension = 0x01FFFF;
+// Limit of image dimension. Use the same limit as the JBIG2 codecs.
+const int kMaxImageDimension = 65535;
 
-int FindBit(const uint8_t* data_buf, int max_pos, int start_pos, int bit) {
+int FindBit(const uint8_t* data_buf, int max_pos, int start_pos, bool bit) {
   ASSERT(start_pos >= 0);
   if (start_pos >= max_pos)
     return max_pos;
 
-  const uint8_t* leading_pos = bit ? OneLeadPos : ZeroLeadPos;
-  if (start_pos % 8) {
-    uint8_t data = data_buf[start_pos / 8];
-    if (bit)
-      data &= 0xff >> (start_pos % 8);
-    else
-      data |= 0xff << (8 - start_pos % 8);
-
-    if (leading_pos[data] < 8)
-      return start_pos / 8 * 8 + leading_pos[data];
+  const uint8_t bit_xor = bit ? 0x00 : 0xff;
+  int bit_offset = start_pos % 8;
+  if (bit_offset) {
+    const int byte_pos = start_pos / 8;
+    uint8_t data = (data_buf[byte_pos] ^ bit_xor) & (0xff >> bit_offset);
+    if (data)
+      return byte_pos * 8 + OneLeadPos[data];
 
     start_pos += 7;
   }
-  uint8_t skip = bit ? 0x00 : 0xff;
+
+  const int max_byte = (max_pos + 7) / 8;
   int byte_pos = start_pos / 8;
-  int max_byte = (max_pos + 7) / 8;
+
+  // Try reading in bigger chunks in case there are long runs to be skipped.
+  static constexpr int kBulkReadSize = 8;
+  if (max_byte >= kBulkReadSize && byte_pos < max_byte - kBulkReadSize) {
+    static constexpr uint8_t skip_block_0[kBulkReadSize] = {
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+    static constexpr uint8_t skip_block_1[kBulkReadSize] = {
+        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+    const uint8_t* skip_block = bit ? skip_block_0 : skip_block_1;
+    while (byte_pos < max_byte - kBulkReadSize &&
+           memcmp(data_buf + byte_pos, skip_block, kBulkReadSize) == 0) {
+      byte_pos += kBulkReadSize;
+    }
+  }
+
   while (byte_pos < max_byte) {
-    if (data_buf[byte_pos] != skip)
-      break;
+    uint8_t data = data_buf[byte_pos] ^ bit_xor;
+    if (data)
+      return std::min(byte_pos * 8 + OneLeadPos[data], max_pos);
 
     ++byte_pos;
   }
-  if (byte_pos == max_byte)
-    return max_pos;
-
-  return std::min(leading_pos[data_buf[byte_pos]] + byte_pos * 8, max_pos);
+  return max_pos;
 }
 
 void FaxG4FindB1B2(const std::vector<uint8_t>& ref_buf,
@@ -85,8 +84,7 @@ void FaxG4FindB1B2(const std::vector<uint8_t>& ref_buf,
                    bool a0color,
                    int* b1,
                    int* b2) {
-  uint8_t first_bit =
-      (a0 < 0) ? 1 : ((ref_buf[a0 / 8] & (1 << (7 - a0 % 8))) != 0);
+  bool first_bit = a0 < 0 || (ref_buf[a0 / 8] & (1 << (7 - a0 % 8))) != 0;
   *b1 = FindBit(ref_buf.data(), columns, a0 + 1, !first_bit);
   if (*b1 >= columns) {
     *b1 = *b2 = columns;
@@ -546,8 +544,11 @@ uint8_t* CCodec_FaxDecoder::v_GetNextLine() {
       m_bitpos = bitpos1;
   }
   if (m_bBlack) {
-    for (uint32_t i = 0; i < m_Pitch; ++i)
-      m_ScanlineBuf[i] = ~m_ScanlineBuf[i];
+    ASSERT(m_Pitch == m_ScanlineBuf.size());
+    ASSERT(m_Pitch % 4 == 0);
+    uint32_t* data = reinterpret_cast<uint32_t*>(m_ScanlineBuf.data());
+    for (size_t i = 0; i < m_ScanlineBuf.size() / 4; ++i)
+      data[i] = ~data[i];
   }
   return m_ScanlineBuf.data();
 }
@@ -605,7 +606,7 @@ std::unique_ptr<CCodec_ScanlineDecoder> CCodec_FaxModule::CreateDecoder(
       EncodedByteAlign, BlackIs1);
 }
 
-#if _FX_OS_ == _FX_WIN32_DESKTOP_ || _FX_OS_ == _FX_WIN64_DESKTOP_
+#if _FX_PLATFORM_ == _FX_PLATFORM_WINDOWS_
 namespace {
 const uint8_t BlackRunTerminator[128] = {
     0x37, 10, 0x02, 3,  0x03, 2,  0x02, 2,  0x03, 3,  0x03, 4,  0x02, 4,
@@ -799,4 +800,4 @@ void CCodec_FaxModule::FaxEncode(
   encoder.Encode(dest_buf, dest_size);
 }
 
-#endif
+#endif  // _FX_PLATFORM_ == _FX_PLATFORM_WINDOWS_

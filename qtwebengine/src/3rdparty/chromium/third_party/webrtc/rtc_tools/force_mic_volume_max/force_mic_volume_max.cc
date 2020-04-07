@@ -12,7 +12,7 @@
 
 #include <stdio.h>
 
-#include "webrtc/modules/audio_device/include/audio_device.h"
+#include "modules/audio_device/include/audio_device.h"
 
 using webrtc::AudioDeviceModule;
 
@@ -22,10 +22,10 @@ using webrtc::AudioDeviceModule;
 #define DEFAULT_INPUT_DEVICE (0)
 #endif
 
-int main(int /*argc*/, char** /*argv*/) {
+int main(int /*argc*/, char* /*argv*/ []) {
   // Create and initialize the ADM.
   rtc::scoped_refptr<AudioDeviceModule> adm(
-      AudioDeviceModule::Create(1, AudioDeviceModule::kPlatformDefaultAudio));
+      AudioDeviceModule::Create(AudioDeviceModule::kPlatformDefaultAudio));
   if (!adm.get()) {
     fprintf(stderr, "Failed to create Audio Device Module.\n");
     return 1;

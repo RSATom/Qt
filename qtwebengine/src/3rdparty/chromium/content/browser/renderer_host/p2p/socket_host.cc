@@ -12,6 +12,9 @@
 #include "content/browser/renderer_host/render_process_host_impl.h"
 #include "content/public/browser/browser_thread.h"
 #include "net/base/net_errors.h"
+#include "net/url_request/url_request_context.h"
+#include "net/url_request/url_request_context_getter.h"
+#include "services/network/proxy_resolving_client_socket_factory.h"
 #include "third_party/webrtc/media/base/rtputils.h"
 #include "third_party/webrtc/media/base/turnutils.h"
 
@@ -175,14 +178,18 @@ void P2PSocketHost::ReportSocketError(int result, const char* histogram_name) {
 }
 
 // static
-P2PSocketHost* P2PSocketHost::Create(IPC::Sender* message_sender,
-                                     int socket_id,
-                                     P2PSocketType type,
-                                     net::URLRequestContextGetter* url_context,
-                                     P2PMessageThrottler* throttler) {
+P2PSocketHost* P2PSocketHost::Create(
+    IPC::Sender* message_sender,
+    int socket_id,
+    P2PSocketType type,
+    net::URLRequestContextGetter* url_context,
+    network::ProxyResolvingClientSocketFactory* proxy_resolving_socket_factory,
+    P2PMessageThrottler* throttler) {
   switch (type) {
     case P2P_SOCKET_UDP:
-      return new P2PSocketHostUdp(message_sender, socket_id, throttler);
+      return new P2PSocketHostUdp(
+          message_sender, socket_id, throttler,
+          url_context->GetURLRequestContext()->net_log());
     case P2P_SOCKET_TCP_SERVER:
       return new P2PSocketHostTcpServer(
           message_sender, socket_id, P2P_SOCKET_TCP_CLIENT);
@@ -194,13 +201,15 @@ P2PSocketHost* P2PSocketHost::Create(IPC::Sender* message_sender,
     case P2P_SOCKET_TCP_CLIENT:
     case P2P_SOCKET_SSLTCP_CLIENT:
     case P2P_SOCKET_TLS_CLIENT:
-      return new P2PSocketHostTcp(message_sender, socket_id, type, url_context);
+      return new P2PSocketHostTcp(message_sender, socket_id, type, url_context,
+                                  proxy_resolving_socket_factory);
 
     case P2P_SOCKET_STUN_TCP_CLIENT:
     case P2P_SOCKET_STUN_SSLTCP_CLIENT:
     case P2P_SOCKET_STUN_TLS_CLIENT:
-      return new P2PSocketHostStunTcp(
-          message_sender, socket_id, type, url_context);
+      return new P2PSocketHostStunTcp(message_sender, socket_id, type,
+                                      url_context,
+                                      proxy_resolving_socket_factory);
   }
 
   NOTREACHED();
@@ -275,9 +284,9 @@ void P2PSocketHost::DumpRtpPacket(const char* packet,
   // thread only.
   BrowserThread::PostTask(
       BrowserThread::IO, FROM_HERE,
-      base::Bind(&P2PSocketHost::DumpRtpPacketOnIOThread,
-                 weak_ptr_factory_.GetWeakPtr(), base::Passed(&header_buffer),
-                 header_length, rtp_packet_length, incoming));
+      base::BindOnce(&P2PSocketHost::DumpRtpPacketOnIOThread,
+                     weak_ptr_factory_.GetWeakPtr(), std::move(header_buffer),
+                     header_length, rtp_packet_length, incoming));
 }
 
 void P2PSocketHost::DumpRtpPacketOnIOThread(
@@ -296,8 +305,8 @@ void P2PSocketHost::DumpRtpPacketOnIOThread(
   // |packet_dump_callback_| must be called on the UI thread.
   BrowserThread::PostTask(
       BrowserThread::UI, FROM_HERE,
-      base::Bind(packet_dump_callback_, base::Passed(&packet_header),
-                 header_length, packet_length, incoming));
+      base::BindOnce(packet_dump_callback_, std::move(packet_header),
+                     header_length, packet_length, incoming));
 }
 
 void P2PSocketHost::IncrementDelayedPackets() {

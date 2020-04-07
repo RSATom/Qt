@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2013-2016 Esri <contracts@esri.com>
+** Copyright (C) 2013-2018 Esri <contracts@esri.com>
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtLocation module of the Qt Toolkit.
@@ -51,7 +51,7 @@ class GeoTiledMapReplyEsri : public QGeoTiledMapReply
     Q_OBJECT
 
 public:
-    GeoTiledMapReplyEsri(QNetworkReply *reply, const QGeoTileSpec &spec, QObject *parent = Q_NULLPTR);
+    GeoTiledMapReplyEsri(QNetworkReply *reply, const QGeoTileSpec &spec, QObject *parent = nullptr);
     ~GeoTiledMapReplyEsri();
 
 private Q_SLOTS:

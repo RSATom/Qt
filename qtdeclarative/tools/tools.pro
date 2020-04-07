@@ -1,17 +1,21 @@
 TEMPLATE = subdirs
 QT_FOR_CONFIG += qml-private
-SUBDIRS += \
-    qmlmin \
-    qmlimportscanner
 
-qtConfig(commandlineparser): SUBDIRS += qmlcachegen
-
-!android|android_app {
+qtConfig(qml-devtools) {
     SUBDIRS += \
-        qml \
-        qmllint
+        qmllint \
+        qmlmin \
+        qmlimportscanner
+
+    qtConfig(commandlineparser):qtConfig(xmlstreamwriter): SUBDIRS += qmlcachegen
+}
+
+qtConfig(thread):!android|android_app {
+    SUBDIRS += \
+        qml
 
     qtConfig(qml-profiler): SUBDIRS += qmlprofiler
+    qtConfig(qml-preview): SUBDIRS += qmlpreview
 
     qtHaveModule(quick) {
         !static: {
@@ -30,8 +34,10 @@ qtConfig(commandlineparser): SUBDIRS += qmlcachegen
     qtConfig(private_tests): SUBDIRS += qmljs
 }
 
-qml.depends = qmlimportscanner
-qmleasing.depends = qmlimportscanner
+qtConfig(qml-devtools) {
+    qml.depends = qmlimportscanner
+    qmleasing.depends = qmlimportscanner
+}
 
 # qmlmin, qmlimportscanner & qmlcachegen are build tools.
 # qmlscene is needed by the autotests.

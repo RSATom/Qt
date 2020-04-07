@@ -96,7 +96,9 @@
 
 QT_BEGIN_NAMESPACE
 
-Q_LOGGING_CATEGORY(qLcCompositorInputMethods, "qt.compositor.input.methods")
+Q_LOGGING_CATEGORY(qLcWaylandCompositor, "qt.waylandcompositor")
+Q_LOGGING_CATEGORY(qLcWaylandCompositorHardwareIntegration, "qt.waylandcompositor.hardwareintegration")
+Q_LOGGING_CATEGORY(qLcWaylandCompositorInputMethods, "qt.waylandcompositor.inputmethods")
 
 namespace QtWayland {
 
@@ -107,56 +109,56 @@ public:
     bool sendEvent(QWindowSystemInterfacePrivate::WindowSystemEvent *e) override
     {
         if (e->type == QWindowSystemInterfacePrivate::Key) {
-            QWindowSystemInterfacePrivate::KeyEvent *ke = static_cast<QWindowSystemInterfacePrivate::KeyEvent *>(e);
-            QWaylandKeyboardPrivate *keyb = QWaylandKeyboardPrivate::get(compositor->defaultSeat()->keyboard());
-
-            uint32_t code = ke->nativeScanCode;
-            bool isDown = ke->keyType == QEvent::KeyPress;
-
-#if QT_CONFIG(xkbcommon_evdev)
-            QString text;
-            Qt::KeyboardModifiers modifiers = QWaylandXkb::modifiers(keyb->xkbState());
-
-            const xkb_keysym_t sym = xkb_state_key_get_one_sym(keyb->xkbState(), code);
-            int qtkey;
-            std::tie(qtkey, text) = QWaylandXkb::keysymToQtKey(sym, modifiers);
-
-            ke->key = qtkey;
-            ke->modifiers = modifiers;
-            ke->nativeVirtualKey = sym;
-            ke->nativeModifiers = keyb->xkbModsMask();
-            ke->unicode = text;
-#endif
-            if (!ke->repeat)
-                keyb->keyEvent(code, isDown ? WL_KEYBOARD_KEY_STATE_PRESSED : WL_KEYBOARD_KEY_STATE_RELEASED);
-
-            QWindowSystemEventHandler::sendEvent(e);
-
-            if (!ke->repeat) {
-                keyb->maybeUpdateKeymap();
-                keyb->updateModifierState(code, isDown ? WL_KEYBOARD_KEY_STATE_PRESSED : WL_KEYBOARD_KEY_STATE_RELEASED);
-            }
+            QWindowSystemInterfacePrivate::KeyEvent *keyEvent = static_cast<QWindowSystemInterfacePrivate::KeyEvent *>(e);
+            handleKeyEvent(keyEvent);
         } else {
             QWindowSystemEventHandler::sendEvent(e);
         }
         return true;
     }
 
-    QWaylandCompositor *compositor;
+    void handleKeyEvent(QWindowSystemInterfacePrivate::KeyEvent *ke)
+    {
+        auto *seat = compositor->defaultSeat();
+        if (!seat)
+            return;
+
+        QWaylandKeyboardPrivate *keyb = QWaylandKeyboardPrivate::get(seat->keyboard());
+
+        uint32_t code = ke->nativeScanCode;
+        bool isDown = ke->keyType == QEvent::KeyPress;
+
+#if QT_CONFIG(xkbcommon)
+        QString text;
+        Qt::KeyboardModifiers modifiers = QWaylandXkb::modifiers(keyb->xkbState());
+
+        const xkb_keysym_t sym = xkb_state_key_get_one_sym(keyb->xkbState(), code);
+        int qtkey;
+        std::tie(qtkey, text) = QWaylandXkb::keysymToQtKey(sym, modifiers);
+
+        ke->key = qtkey;
+        ke->modifiers = modifiers;
+        ke->nativeVirtualKey = sym;
+        ke->nativeModifiers = keyb->xkbModsMask();
+        ke->unicode = text;
+#endif
+        if (!ke->repeat)
+            keyb->keyEvent(code, isDown ? WL_KEYBOARD_KEY_STATE_PRESSED : WL_KEYBOARD_KEY_STATE_RELEASED);
+
+        QWindowSystemEventHandler::sendEvent(ke);
+
+        if (!ke->repeat) {
+            keyb->maybeUpdateKeymap();
+            keyb->updateModifierState(code, isDown ? WL_KEYBOARD_KEY_STATE_PRESSED : WL_KEYBOARD_KEY_STATE_RELEASED);
+        }
+    }
+
+    QWaylandCompositor *compositor = nullptr;
 };
 
 } // namespace
 
 QWaylandCompositorPrivate::QWaylandCompositorPrivate(QWaylandCompositor *compositor)
-    : display(0)
-#if QT_CONFIG(opengl)
-    , use_hw_integration_extension(true)
-    , client_buffer_integration(0)
-    , server_buffer_integration(0)
-#endif
-    , retainSelection(false)
-    , preInitialized(false)
-    , initialized(false)
 {
     if (QGuiApplication::platformNativeInterface())
         display = static_cast<wl_display*>(QGuiApplication::platformNativeInterface()->nativeResourceForIntegration("server_wl_display"));
@@ -202,6 +204,10 @@ void QWaylandCompositorPrivate::init()
         emit q->socketNameChanged(socket_name);
     }
 
+#if WAYLAND_VERSION_MAJOR >= 1 && (WAYLAND_VERSION_MAJOR != 1 || WAYLAND_VERSION_MINOR >= 10)
+    connectToExternalSockets();
+#endif
+
     loop = wl_display_get_event_loop(display);
 
     int fd = wl_event_loop_get_fd(loop);
@@ -236,6 +242,9 @@ QWaylandCompositorPrivate::~QWaylandCompositorPrivate()
 #if QT_CONFIG(wayland_datadevice)
     delete data_device_manager;
 #endif
+
+    // Some client buffer integrations need to clean up before the destroying the wl_display
+    client_buffer_integration.reset();
 
     wl_display_destroy(display);
 }
@@ -283,6 +292,18 @@ void QWaylandCompositorPrivate::addPolishObject(QObject *object)
     }
 }
 
+#if WAYLAND_VERSION_MAJOR >= 1 && (WAYLAND_VERSION_MAJOR != 1 || WAYLAND_VERSION_MINOR >= 10)
+void QWaylandCompositorPrivate::connectToExternalSockets()
+{
+    // Clear out any backlog of user-supplied external socket descriptors
+    for (int fd : qAsConst(externally_added_socket_fds)) {
+        if (wl_display_add_socket_fd(display, fd) != 0)
+            qWarning() << "Failed to integrate user-supplied socket fd into the Wayland event loop";
+    }
+    externally_added_socket_fds.clear();
+}
+#endif
+
 void QWaylandCompositorPrivate::compositor_create_surface(wl_compositor::Resource *resource, uint32_t id)
 {
     Q_Q(QWaylandCompositor);
@@ -293,7 +314,7 @@ void QWaylandCompositorPrivate::compositor_create_surface(wl_compositor::Resourc
 #endif
     struct wl_resource *surfResource = wl_client_get_object(client->client(), id);
 
-    QWaylandSurface *surface;
+    QWaylandSurface *surface = nullptr;
     if (surfResource) {
         surface = QWaylandSurface::fromResource(surfResource);
     } else {
@@ -316,6 +337,7 @@ void QWaylandCompositorPrivate::subcompositor_get_subsurface(wl_subcompositor::R
     QWaylandSurface *childSurface = QWaylandSurface::fromResource(surface);
     QWaylandSurface *parentSurface = QWaylandSurface::fromResource(parent);
     QWaylandSurfacePrivate::get(childSurface)->initSubsurface(parentSurface, resource->client(), id, 1);
+    QWaylandSurfacePrivate::get(parentSurface)->subsurfaceChildren.append(childSurface);
     emit q->subsurfaceChanged(childSurface, parentSurface);
 }
 
@@ -561,6 +583,47 @@ QByteArray QWaylandCompositor::socketName() const
 }
 
 /*!
+ * \qmlmethod QtWaylandCompositor::WaylandCompositor::addSocketDescriptor(fd)
+ * \since 5.12
+ *
+ * Listen for client connections on a file descriptor referring to a
+ * server socket already bound and listening.
+ *
+ * Does not take ownership of the file descriptor; it must be closed
+ * explicitly if needed.
+ *
+ * \note This method is only available with libwayland 1.10.0 or
+ * newer. If built against an earlier libwayland runtime, this
+ * method is a noop.
+ */
+
+/*!
+ * Listen for client connections on a file descriptor referring to a
+ * server socket already bound and listening.
+ *
+ * Does not take ownership of the file descriptor; it must be closed
+ * explicitly if needed.
+ *
+ * \note This method is only available with libwayland 1.10.0 or
+ * newer. If built against an earlier libwayland runtime, this
+ * method is a noop.
+ *
+ * \since 5.12
+ */
+void QWaylandCompositor::addSocketDescriptor(int fd)
+{
+#if WAYLAND_VERSION_MAJOR >= 1 && (WAYLAND_VERSION_MAJOR != 1 || WAYLAND_VERSION_MINOR >= 10)
+    Q_D(QWaylandCompositor);
+    d->externally_added_socket_fds.append(fd);
+    if (isCreated())
+        d->connectToExternalSockets();
+#else
+    Q_UNUSED(fd);
+    qWarning() << "QWaylandCompositor::addSocketDescriptor() does nothing on libwayland versions prior to 1.10.0";
+#endif
+}
+
+/*!
  * \internal
  */
 struct wl_display *QWaylandCompositor::display() const
@@ -656,7 +719,7 @@ QWaylandOutput *QWaylandCompositor::outputFor(QWindow *window) const
             return output;
     }
 
-    return Q_NULLPTR;
+    return nullptr;
 }
 
 /*!
@@ -691,9 +754,11 @@ void QWaylandCompositor::setDefaultOutput(QWaylandOutput *output)
     Q_D(QWaylandCompositor);
     if (d->outputs.size() && d->outputs.first() == output)
         return;
-    d->outputs.removeOne(output);
+    bool alreadyAdded = d->outputs.removeOne(output);
     d->outputs.prepend(output);
-    defaultOutputChanged();
+    emit defaultOutputChanged();
+    if (!alreadyAdded)
+        emit outputAdded(output);
 }
 
 /*!
@@ -822,7 +887,7 @@ QWaylandSeat *QWaylandCompositor::defaultSeat() const
     Q_D(const QWaylandCompositor);
     if (d->seats.size())
         return d->seats.first();
-    return Q_NULLPTR;
+    return nullptr;
 }
 
 /*!
@@ -834,7 +899,7 @@ QWaylandSeat *QWaylandCompositor::defaultSeat() const
 QWaylandSeat *QWaylandCompositor::seatFor(QInputEvent *inputEvent)
 {
     Q_D(QWaylandCompositor);
-    QWaylandSeat *dev = NULL;
+    QWaylandSeat *dev = nullptr;
     for (int i = 0; i < d->seats.size(); i++) {
         QWaylandSeat *candidate = d->seats.at(i);
         if (candidate->isOwner(inputEvent)) {

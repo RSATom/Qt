@@ -9,21 +9,21 @@
 
 #include <vector>
 
-#include "core/fxcrt/cfx_retain_ptr.h"
-#include "core/fxcrt/cfx_unowned_ptr.h"
 #include "core/fxcrt/fx_coordinates.h"
+#include "core/fxcrt/retain_ptr.h"
+#include "core/fxcrt/unowned_ptr.h"
 #include "core/fxge/dib/cfx_scanlinecompositor.h"
-#include "core/fxge/dib/ifx_scanlinecomposer.h"
+#include "core/fxge/dib/scanlinecomposer_iface.h"
 
 class CFX_ClipRgn;
 class CFX_DIBitmap;
 
-class CFX_BitmapComposer : public IFX_ScanlineComposer {
+class CFX_BitmapComposer : public ScanlineComposerIface {
  public:
   CFX_BitmapComposer();
   ~CFX_BitmapComposer() override;
 
-  void Compose(const CFX_RetainPtr<CFX_DIBitmap>& pDest,
+  void Compose(const RetainPtr<CFX_DIBitmap>& pDest,
                const CFX_ClipRgn* pClipRgn,
                int bitmap_alpha,
                uint32_t mask_color,
@@ -35,7 +35,7 @@ class CFX_BitmapComposer : public IFX_ScanlineComposer {
                int alpha_flag,
                int blend_type);
 
-  // IFX_ScanlineComposer
+  // ScanlineComposerIface
   bool SetInfo(int width,
                int height,
                FXDIB_Format src_format,
@@ -56,8 +56,8 @@ class CFX_BitmapComposer : public IFX_ScanlineComposer {
                         const uint8_t* scanline,
                         const uint8_t* scan_extra_alpha);
 
-  CFX_RetainPtr<CFX_DIBitmap> m_pBitmap;
-  CFX_UnownedPtr<const CFX_ClipRgn> m_pClipRgn;
+  RetainPtr<CFX_DIBitmap> m_pBitmap;
+  UnownedPtr<const CFX_ClipRgn> m_pClipRgn;
   FXDIB_Format m_SrcFormat;
   int m_DestLeft;
   int m_DestTop;
@@ -65,7 +65,7 @@ class CFX_BitmapComposer : public IFX_ScanlineComposer {
   int m_DestHeight;
   int m_BitmapAlpha;
   uint32_t m_MaskColor;
-  CFX_RetainPtr<CFX_DIBitmap> m_pClipMask;
+  RetainPtr<CFX_DIBitmap> m_pClipMask;
   CFX_ScanlineCompositor m_Compositor;
   bool m_bVertical;
   bool m_bFlipX;

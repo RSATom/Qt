@@ -10,33 +10,38 @@
 #include <memory>
 
 #include "base/callback_forward.h"
+#include "base/single_thread_task_runner.h"
 #include "base/strings/string16.h"
 #include "content/common/content_export.h"
 #include "content/public/common/console_message_level.h"
 #include "content/public/common/previews_state.h"
 #include "ipc/ipc_listener.h"
 #include "ipc/ipc_sender.h"
-#include "ppapi/features/features.h"
+#include "ppapi/buildflags/buildflags.h"
+#include "services/network/public/mojom/url_loader_factory.mojom.h"
 #include "services/service_manager/public/cpp/binder_registry.h"
-#include "third_party/WebKit/public/platform/WebPageVisibilityState.h"
-#include "third_party/WebKit/public/web/WebNavigationPolicy.h"
-#include "third_party/WebKit/public/web/WebTriggeringEventInfo.h"
-
-namespace base {
-class SingleThreadTaskRunner;
-}
+#include "third_party/blink/public/mojom/page/page_visibility_state.mojom.h"
+#include "third_party/blink/public/platform/task_type.h"
+#include "third_party/blink/public/web/web_navigation_policy.h"
+#include "third_party/blink/public/web/web_triggering_event_info.h"
+#include "ui/accessibility/ax_modes.h"
 
 namespace blink {
+class AssociatedInterfaceProvider;
+class AssociatedInterfaceRegistry;
 class WebFrame;
 class WebLocalFrame;
 class WebPlugin;
-class WebURLRequest;
 struct WebPluginParams;
 }
 
 namespace gfx {
 class Range;
 class Size;
+}
+
+namespace network {
+class SharedURLLoaderFactory;
 }
 
 namespace service_manager {
@@ -47,15 +52,7 @@ namespace url {
 class Origin;
 }
 
-namespace v8 {
-template <typename T> class Local;
-class Context;
-class Isolate;
-}
-
 namespace content {
-class AssociatedInterfaceProvider;
-class AssociatedInterfaceRegistry;
 class ContextMenuClient;
 class PluginInstanceThrottler;
 class RenderAccessibility;
@@ -148,12 +145,6 @@ class CONTENT_EXPORT RenderFrame : public IPC::Listener,
       const blink::WebPluginParams& params,
       std::unique_ptr<PluginInstanceThrottler> throttler) = 0;
 
-  // The client should handle the navigation externally.
-  virtual void LoadURLExternally(
-      const blink::WebURLRequest& request,
-      blink::WebNavigationPolicy policy,
-      blink::WebTriggeringEventInfo triggering_event_info) = 0;
-
   // Execute a string of JavaScript in this frame's context.
   virtual void ExecuteJavaScript(const base::string16& javascript) = 0;
 
@@ -163,9 +154,11 @@ class CONTENT_EXPORT RenderFrame : public IPC::Listener,
   // Return true if this frame is hidden.
   virtual bool IsHidden() = 0;
 
-  // Returns the BinderRegistry that this process uses to expose interfaces
-  // to the application running in this frame.
-  virtual service_manager::BinderRegistry* GetInterfaceRegistry() = 0;
+  // Ask the RenderFrame (or its observers) to bind a request for
+  // |interface_name| to |interface_pipe|.
+  virtual void BindLocalInterface(
+      const std::string& interface_name,
+      mojo::ScopedMessagePipeHandle interface_pipe) = 0;
 
   // Returns the InterfaceProvider that this process can use to bind
   // interfaces exposed to it by the application running in this frame.
@@ -173,12 +166,14 @@ class CONTENT_EXPORT RenderFrame : public IPC::Listener,
 
   // Returns the AssociatedInterfaceRegistry this frame can use to expose
   // frame-specific Channel-associated interfaces to the remote RenderFrameHost.
-  virtual AssociatedInterfaceRegistry* GetAssociatedInterfaceRegistry() = 0;
+  virtual blink::AssociatedInterfaceRegistry*
+  GetAssociatedInterfaceRegistry() = 0;
 
   // Returns the AssociatedInterfaceProvider this frame can use to access
-  // frame-specific Channel-assocaited interfaces from the remote
+  // frame-specific Channel-associated interfaces from the remote
   // RenderFrameHost.
-  virtual AssociatedInterfaceProvider* GetRemoteAssociatedInterfaces() = 0;
+  virtual blink::AssociatedInterfaceProvider*
+  GetRemoteAssociatedInterfaces() = 0;
 
 #if BUILDFLAG(ENABLE_PLUGINS)
   // Registers a plugin that has been marked peripheral. If the origin
@@ -237,16 +232,19 @@ class CONTENT_EXPORT RenderFrame : public IPC::Listener,
                                const gfx::Range& range,
                                bool user_initiated) = 0;
 
-  // Ensures that builtin mojo bindings modules are available in |context|.
-  virtual void EnsureMojoBuiltinsAreAvailable(
-      v8::Isolate* isolate,
-      v8::Local<v8::Context> context) = 0;
+  // Notifies the frame's RenderView that the zoom has changed.
+  virtual void SetZoomLevel(double zoom_level) = 0;
+
+  // Returns the page's zoom level from the frame's RenderView.
+  virtual double GetZoomLevel() const = 0;
 
   // Adds |message| to the DevTools console.
   virtual void AddMessageToConsole(ConsoleMessageLevel level,
                                    const std::string& message) = 0;
-  // Forcefully detaches all connected DevTools clients.
-  virtual void DetachDevToolsForTest() = 0;
+
+  // Sets the PreviewsState of this frame, a bitmask of potentially several
+  // Previews optimizations.
+  virtual void SetPreviewsState(PreviewsState previews_state) = 0;
 
   // Returns the PreviewsState of this frame, a bitmask of potentially several
   // Previews optimizations.
@@ -256,7 +254,7 @@ class CONTENT_EXPORT RenderFrame : public IPC::Listener,
   virtual bool IsPasting() const = 0;
 
   // Returns the current visibility of the frame.
-  virtual blink::WebPageVisibilityState GetVisibilityState() const = 0;
+  virtual blink::mojom::PageVisibilityState GetVisibilityState() const = 0;
 
   // If PlzNavigate is enabled, returns true in between teh time that Blink
   // requests navigation until the browser responds with the result.
@@ -264,13 +262,18 @@ class CONTENT_EXPORT RenderFrame : public IPC::Listener,
 
   // Renderer scheduler frame-specific task queues handles.
   // See third_party/WebKit/Source/platform/WebFrameScheduler.h for details.
-  virtual base::SingleThreadTaskRunner* GetTimerTaskRunner() = 0;
-  virtual base::SingleThreadTaskRunner* GetLoadingTaskRunner() = 0;
-  virtual base::SingleThreadTaskRunner* GetUnthrottledTaskRunner() = 0;
+  virtual scoped_refptr<base::SingleThreadTaskRunner> GetTaskRunner(
+      blink::TaskType task_type) = 0;
 
   // Bitwise-ORed set of extra bindings that have been enabled.  See
   // BindingsPolicy for details.
   virtual int GetEnabledBindings() const = 0;
+
+  // Set the accessibility mode to force creation of RenderAccessibility.
+  virtual void SetAccessibilityModeForTest(ui::AXMode new_mode) = 0;
+
+  virtual scoped_refptr<network::SharedURLLoaderFactory>
+  GetURLLoaderFactory() = 0;
 
  protected:
   ~RenderFrame() override {}

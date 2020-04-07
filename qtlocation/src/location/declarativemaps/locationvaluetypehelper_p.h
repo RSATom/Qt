@@ -48,13 +48,17 @@
 // We mean it.
 //
 
+#include <QtLocation/private/qlocationglobal_p.h>
 #include <QJSValue>
+#include <QVariant>
 #include <QGeoCoordinate>
 #include <QGeoRectangle>
 #include <QGeoCircle>
 
-QGeoCoordinate parseCoordinate(const QJSValue &value, bool *ok);
-QGeoRectangle parseRectangle(const QJSValue &value, bool *ok);
-QGeoCircle parseCircle(const QJSValue &value, bool *ok);
-
+QGeoCoordinate Q_LOCATION_PRIVATE_EXPORT parseCoordinate(const QJSValue &value, bool *ok = nullptr);
+QGeoCoordinate Q_LOCATION_PRIVATE_EXPORT parseCoordinate(const QVariant &value, bool *ok = nullptr);
+QGeoRectangle Q_LOCATION_PRIVATE_EXPORT parseRectangle(const QJSValue &value, bool *ok);
+QGeoCircle Q_LOCATION_PRIVATE_EXPORT parseCircle(const QJSValue &value, bool *ok);
+QJSValue Q_LOCATION_PRIVATE_EXPORT fromList(const QObject *object, const QList<QGeoCoordinate> &list);
+QList<QGeoCoordinate> Q_LOCATION_PRIVATE_EXPORT toList(const QObject *object, const QJSValue &value);
 #endif

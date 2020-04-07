@@ -617,7 +617,7 @@ QString QSqlDriver::formatValue(const QSqlField &field, bool trimStrings) const
             else
                 r = field.value().toString();
             break;
-#ifndef QT_NO_DATESTRING
+#if QT_CONFIG(datestring)
         case QVariant::Date:
             if (field.value().toDate().isValid())
                 r = QLatin1Char('\'') + field.value().toDate().toString(Qt::ISODate)
@@ -672,7 +672,7 @@ QString QSqlDriver::formatValue(const QSqlField &field, bool trimStrings) const
                 break;
             }
         }
-            // fall through
+            Q_FALLTHROUGH();
         default:
             r = field.value().toString();
             break;

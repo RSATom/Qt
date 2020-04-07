@@ -10,13 +10,14 @@
 
 #include "core/fpdfapi/parser/cpdf_dictionary.h"
 #include "core/fpdfapi/render/cpdf_transferfunc.h"
+#include "third_party/base/compiler_specific.h"
 
 CPDF_DIBTransferFunc::CPDF_DIBTransferFunc(
-    const CFX_RetainPtr<CPDF_TransferFunc>& pTransferFunc)
+    const RetainPtr<CPDF_TransferFunc>& pTransferFunc)
     : m_pTransferFunc(pTransferFunc) {
-  m_RampR = pTransferFunc->m_Samples;
-  m_RampG = &pTransferFunc->m_Samples[256];
-  m_RampB = &pTransferFunc->m_Samples[512];
+  m_RampR = pTransferFunc->GetSamples();
+  m_RampG = &pTransferFunc->GetSamples()[256];
+  m_RampB = &pTransferFunc->GetSamples()[512];
 }
 
 CPDF_DIBTransferFunc::~CPDF_DIBTransferFunc() {}
@@ -25,7 +26,7 @@ FXDIB_Format CPDF_DIBTransferFunc::GetDestFormat() {
   if (m_pSrc->IsAlphaMask())
     return FXDIB_8bppMask;
 
-#if _FXM_PLATFORM_ == _FXM_PLATFORM_APPLE_
+#if _FX_PLATFORM_ == _FX_PLATFORM_APPLE_
   return (m_pSrc->HasAlpha()) ? FXDIB_Argb : FXDIB_Rgb32;
 #else
   return (m_pSrc->HasAlpha()) ? FXDIB_Argb : FXDIB_Rgb;
@@ -59,7 +60,7 @@ void CPDF_DIBTransferFunc::TranslateScanline(
           (*dest_buf)[index++] = g0;
           (*dest_buf)[index++] = r0;
         }
-#if _FXM_PLATFORM_ == _FXM_PLATFORM_APPLE_
+#if _FX_PLATFORM_ == _FX_PLATFORM_APPLE_
         index++;
 #endif
       }
@@ -93,7 +94,7 @@ void CPDF_DIBTransferFunc::TranslateScanline(
           (*dest_buf)[index++] = m_RampR[src_byte];
         }
         src_buf++;
-#if _FXM_PLATFORM_ == _FXM_PLATFORM_APPLE_
+#if _FX_PLATFORM_ == _FX_PLATFORM_APPLE_
         index++;
 #endif
       }
@@ -111,7 +112,7 @@ void CPDF_DIBTransferFunc::TranslateScanline(
         (*dest_buf)[index++] = m_RampB[*(src_buf++)];
         (*dest_buf)[index++] = m_RampG[*(src_buf++)];
         (*dest_buf)[index++] = m_RampR[*(src_buf++)];
-#if _FXM_PLATFORM_ == _FXM_PLATFORM_APPLE_
+#if _FX_PLATFORM_ == _FX_PLATFORM_APPLE_
         index++;
 #endif
       }
@@ -119,6 +120,7 @@ void CPDF_DIBTransferFunc::TranslateScanline(
     }
     case FXDIB_Rgb32:
       bSkip = true;
+      FALLTHROUGH;
     case FXDIB_Argb: {
       int index = 0;
       for (int i = 0; i < m_Width; i++) {
@@ -127,7 +129,7 @@ void CPDF_DIBTransferFunc::TranslateScanline(
         (*dest_buf)[index++] = m_RampR[*(src_buf++)];
         if (!bSkip) {
           (*dest_buf)[index++] = *src_buf;
-#if _FXM_PLATFORM_ == _FXM_PLATFORM_APPLE_
+#if _FX_PLATFORM_ == _FX_PLATFORM_APPLE_
         } else {
           index++;
 #endif
@@ -155,7 +157,7 @@ void CPDF_DIBTransferFunc::TranslateDownSamples(uint8_t* dest_buf,
       *dest_buf++ = m_RampR[*(src_buf++)];
     }
   } else {
-#if _FXM_PLATFORM_ == _FXM_PLATFORM_APPLE_
+#if _FX_PLATFORM_ == _FX_PLATFORM_APPLE_
     if (!m_pSrc->HasAlpha()) {
       for (int i = 0; i < pixels; i++) {
         *dest_buf++ = m_RampB[*(src_buf++)];
@@ -172,7 +174,7 @@ void CPDF_DIBTransferFunc::TranslateDownSamples(uint8_t* dest_buf,
         *dest_buf++ = m_RampR[*(src_buf++)];
         *dest_buf++ = *(src_buf++);
       }
-#if _FXM_PLATFORM_ == _FXM_PLATFORM_APPLE_
+#if _FX_PLATFORM_ == _FX_PLATFORM_APPLE_
     }
 #endif
   }

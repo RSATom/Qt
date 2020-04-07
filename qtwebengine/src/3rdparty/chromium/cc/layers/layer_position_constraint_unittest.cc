@@ -20,20 +20,6 @@
 namespace cc {
 namespace {
 
-class LayerWithForcedDrawsContent : public Layer {
- public:
-  LayerWithForcedDrawsContent() {}
-
-  bool DrawsContent() const override;
-
- private:
-  ~LayerWithForcedDrawsContent() override {}
-};
-
-bool LayerWithForcedDrawsContent::DrawsContent() const {
-  return true;
-}
-
 void SetLayerPropertiesForTesting(Layer* layer,
                                   const gfx::Transform& transform,
                                   const gfx::Point3F& transform_origin,
@@ -94,8 +80,10 @@ class LayerPositionConstraintTest : public testing::Test {
     outer_viewport_container_layer_ = Layer::Create();
     child_transform_layer_ = Layer::Create();
     child_ = Layer::Create();
-    grand_child_ = make_scoped_refptr(new LayerWithForcedDrawsContent());
-    great_grand_child_ = make_scoped_refptr(new LayerWithForcedDrawsContent());
+    grand_child_ = Layer::Create();
+    grand_child_->SetIsDrawable(true);
+    great_grand_child_ = Layer::Create();
+    great_grand_child_->SetIsDrawable(true);
 
     gfx::Transform IdentityMatrix;
     gfx::Point3F transform_origin;
@@ -133,6 +121,7 @@ class LayerPositionConstraintTest : public testing::Test {
     grand_child_->SetElementId(
         LayerIdToElementIdForTesting(grand_child_->id()));
     grand_child_->SetScrollable(clip_bounds);
+    child_->SetIsContainerForFixedPositionLayers(true);
 
     grand_child_->AddChild(great_grand_child_);
     child_->AddChild(grand_child_);
@@ -142,6 +131,8 @@ class LayerPositionConstraintTest : public testing::Test {
     page_scale_layer_->AddChild(scroll_layer_);
     inner_viewport_container_layer_->AddChild(page_scale_layer_);
     root_->AddChild(inner_viewport_container_layer_);
+
+    child_->SetIsResizedByBrowserControls(true);
 
     layer_tree_host_->SetRootLayer(root_);
     LayerTreeHost::ViewportLayers viewport_layers;
@@ -565,8 +556,8 @@ TEST_F(LayerPositionConstraintTest,
   // transform.
 
   // Add one more layer to the test tree for this scenario.
-  scoped_refptr<Layer> fixed_position_child =
-      make_scoped_refptr(new LayerWithForcedDrawsContent());
+  scoped_refptr<Layer> fixed_position_child = Layer::Create();
+  fixed_position_child->SetIsDrawable(true);
   SetLayerPropertiesForTesting(fixed_position_child.get(), gfx::Transform(),
                                gfx::Point3F(), gfx::PointF(),
                                gfx::Size(100, 100), true);
@@ -725,8 +716,8 @@ TEST_F(
   // surfaces is accumulated properly in the final matrix transform.
 
   // Add one more layer to the test tree for this scenario.
-  scoped_refptr<Layer> fixed_position_child =
-      make_scoped_refptr(new LayerWithForcedDrawsContent());
+  scoped_refptr<Layer> fixed_position_child = Layer::Create();
+  fixed_position_child->SetIsDrawable(true);
   SetLayerPropertiesForTesting(fixed_position_child.get(), gfx::Transform(),
                                gfx::Point3F(), gfx::PointF(),
                                gfx::Size(100, 100), true);
@@ -1062,8 +1053,8 @@ TEST_F(LayerPositionConstraintTest,
   // would still have to compensate with respect to its container.
 
   // Add one more layer to the hierarchy for this test.
-  scoped_refptr<Layer> great_great_grand_child =
-      make_scoped_refptr(new LayerWithForcedDrawsContent());
+  scoped_refptr<Layer> great_great_grand_child = Layer::Create();
+  great_great_grand_child->SetIsDrawable(true);
   great_grand_child_->AddChild(great_great_grand_child);
 
   child_->SetIsContainerForFixedPositionLayers(true);
@@ -1115,13 +1106,13 @@ TEST_F(LayerPositionConstraintTest,
 }
 
 TEST_F(LayerPositionConstraintTest,
-       ScrollCompensationForInnerViewportBoundsDelta) {
+       ScrollCompensationForOuterViewportBoundsDelta) {
   // This test checks for correct scroll compensation when the fixed-position
-  // container is the inner viewport scroll layer and has non-zero bounds delta.
-  scoped_refptr<Layer> fixed_child =
-      make_scoped_refptr(new LayerWithForcedDrawsContent());
+  // container is the outer viewport scroll layer and has non-zero bounds delta.
+  scoped_refptr<Layer> fixed_child = Layer::Create();
+  fixed_child->SetIsDrawable(true);
   fixed_child->SetBounds(gfx::Size(300, 300));
-  scroll_layer_->AddChild(fixed_child);
+  child_->AddChild(fixed_child);
   fixed_child->SetPositionConstraint(fixed_to_top_left_);
 
   CommitAndUpdateImplPointers();
@@ -1130,9 +1121,9 @@ TEST_F(LayerPositionConstraintTest,
       root_impl_->layer_tree_impl()->FindActiveTreeLayerById(fixed_child->id());
 
   // Case 1: fixed-container size delta of 20, 20
-  SetScrollOffsetDelta(scroll_layer_impl_, gfx::Vector2d(10, 10));
-  scroll_layer_impl_->SetDrawsContent(true);
-  inner_viewport_container_layer_impl_->SetViewportBoundsDelta(
+  SetScrollOffsetDelta(child_impl_, gfx::Vector2d(10, 10));
+  child_impl_->SetDrawsContent(true);
+  outer_viewport_container_layer_impl_->SetViewportBoundsDelta(
       gfx::Vector2d(20, 20));
   gfx::Transform expected_scroll_layer_transform;
   expected_scroll_layer_transform.Translate(-10.0, -10.0);
@@ -1142,7 +1133,7 @@ TEST_F(LayerPositionConstraintTest,
 
   // Top-left fixed-position layer should not be affected by container size.
   EXPECT_TRANSFORMATION_MATRIX_EQ(expected_scroll_layer_transform,
-                                  scroll_layer_impl_->DrawTransform());
+                                  child_impl_->DrawTransform());
   EXPECT_TRANSFORMATION_MATRIX_EQ(expected_fixed_child_transform,
                                   fixed_child_impl->DrawTransform());
 
@@ -1152,8 +1143,8 @@ TEST_F(LayerPositionConstraintTest,
   fixed_child_impl =
       root_impl_->layer_tree_impl()->FindActiveTreeLayerById(fixed_child->id());
 
-  SetScrollOffsetDelta(scroll_layer_impl_, gfx::Vector2d(10, 10));
-  inner_viewport_container_layer_impl_->SetViewportBoundsDelta(
+  SetScrollOffsetDelta(child_impl_, gfx::Vector2d(10, 10));
+  outer_viewport_container_layer_impl_->SetViewportBoundsDelta(
       gfx::Vector2d(20, 20));
   ExecuteCalculateDrawProperties(root_impl_);
 
@@ -1163,7 +1154,7 @@ TEST_F(LayerPositionConstraintTest,
   expected_fixed_child_transform.Translate(20.0, 20.0);
 
   EXPECT_TRANSFORMATION_MATRIX_EQ(expected_scroll_layer_transform,
-                                  scroll_layer_impl_->DrawTransform());
+                                  child_impl_->DrawTransform());
   EXPECT_TRANSFORMATION_MATRIX_EQ(expected_fixed_child_transform,
                                   fixed_child_impl->DrawTransform());
 }

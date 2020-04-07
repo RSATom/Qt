@@ -76,6 +76,8 @@ enum {
   MAX_SCREEN_QP         = 35,
   DELTA_QP              = 2,
   DELTA_QP_BGD_THD      = 3,
+  QP_MIN_VALUE          = 0,
+  QP_MAX_VALUE          = 51,
 
 //frame skip constants
   SKIP_QP_90P           = 24,
@@ -148,7 +150,7 @@ int32_t   iGopBitsDq;
 //P frame level R-Q Model
 int64_t   iLinearCmplx; // *INT_MULTIPLY
 int32_t   iPFrameNum;
-int32_t   iFrameCmplxMean;
+int64_t   iFrameCmplxMean;
 int32_t   iMaxQp;
 int32_t   iMinQp;
 } SRCTemporal;
@@ -168,6 +170,7 @@ double    dPreviousFps;
 
 // bits allocation and status
 int32_t   iRemainingBits;
+int32_t   iBitsPerMb;
 int32_t   iTargetBits;
 int32_t   iCurrentBitsLevel;//0:normal; 1:limited; 2:exceeded.
 
@@ -180,6 +183,7 @@ int8_t    iTlOfFrames[VGOP_SIZE];
 int32_t   iRemainingWeights;
 int32_t   iFrameDqBits;
 
+bool       bGomRC;
 double*    pGomComplexity;
 int32_t*   pGomForegroundBlockNum;
 int32_t*   pCurrentFrameGomSad;
@@ -191,7 +195,6 @@ int32_t   iMinFrameQp;
 int32_t   iMaxFrameQp;
 int32_t   iNumberMbFrame;
 int32_t   iNumberMbGom;
-int32_t   iSliceNum;
 int32_t   iGomSize;
 
 int32_t   iSkipFrameNum;
@@ -261,13 +264,14 @@ PWelsUpdateMaxBrCheckWindowStatusFunc pfWelsUpdateMaxBrWindowStatus;
 PWelsRCPostFrameSkippingFunc    pfWelsRcPostFrameSkipping;
 } SWelsRcFunc;
 
+void GomRCInitForOneSlice(SSlice* pSlice, const int32_t kiBitsPerMb);
 void CheckFrameSkipBasedMaxbr (sWelsEncCtx* pCtx,const long long uiTimeStamp, int32_t iDidIdx);
 void UpdateBufferWhenFrameSkipped(sWelsEncCtx* pCtx, int32_t iSpatialNum);
 void UpdateMaxBrCheckWindowStatus(sWelsEncCtx* pCtx, int32_t iSpatialNum, const long long uiTimeStamp);
 bool WelsRcPostFrameSkipping(sWelsEncCtx* pCtx, const int32_t iDid, const long long uiTimeStamp);
 void WelsRcPostFrameSkippedUpdate (sWelsEncCtx* pCtx, const int32_t iDid);
 
-void RcTraceFrameBits (sWelsEncCtx* pEncCtx, long long uiTimeStamp);
+void RcTraceFrameBits (sWelsEncCtx* pEncCtx, long long uiTimeStamp, int32_t iFrameSize);
 void WelsRcInitModule (sWelsEncCtx* pCtx, RC_MODES iRcMode);
 void WelsRcInitFuncPointers (sWelsEncCtx* pEncCtx, RC_MODES iRcMode);
 void WelsRcFreeMemory (sWelsEncCtx* pCtx);

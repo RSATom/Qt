@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2013-2016 Esri <contracts@esri.com>
+** Copyright (C) 2013-2018 Esri <contracts@esri.com>
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtLocation module of the Qt Toolkit.
@@ -41,21 +41,27 @@
 #define GEOTILEDMAPESRI_H
 
 #include <QtLocation/private/qgeotiledmap_p.h>
+#ifdef LOCATIONLABS
+#include <QtLocation/private/qgeotiledmaplabs_p.h>
+typedef QGeoTiledMapLabs Map;
+#else
+typedef QGeoTiledMap Map;
+#endif
 
 QT_BEGIN_NAMESPACE
 
 class GeoTiledMappingManagerEngineEsri;
 
-class GeoTiledMapEsri: public QGeoTiledMap
+class GeoTiledMapEsri: public Map
 {
     Q_OBJECT
 
 public:
-    explicit GeoTiledMapEsri(GeoTiledMappingManagerEngineEsri *engine, QObject *parent = Q_NULLPTR);
+    explicit GeoTiledMapEsri(GeoTiledMappingManagerEngineEsri *engine, QObject *parent = nullptr);
     virtual ~GeoTiledMapEsri();
 
 protected:
-    void evaluateCopyrights(const QSet<QGeoTileSpec> &visibleTiles) Q_DECL_OVERRIDE;
+    void evaluateCopyrights(const QSet<QGeoTileSpec> &visibleTiles) override;
 
     inline GeoTiledMappingManagerEngineEsri *engine() const;
 

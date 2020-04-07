@@ -14,15 +14,19 @@
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/observer_list.h"
-#include "cc/ipc/compositor_frame_sink.mojom.h"
-#include "cc/ipc/frame_sink_manager.mojom.h"
+#include "components/viz/common/surfaces/frame_sink_id.h"
+#include "components/viz/host/host_frame_sink_client.h"
 #include "mojo/public/cpp/bindings/binding.h"
-#include "services/ui/public/interfaces/window_manager_constants.mojom.h"
 #include "services/ui/public/interfaces/window_tree.mojom.h"
+#include "services/ui/public/interfaces/window_tree_constants.mojom.h"
 #include "services/ui/ws/ids.h"
+#include "services/viz/privileged/interfaces/compositing/display_private.mojom.h"
+#include "services/viz/public/interfaces/compositing/compositor_frame_sink.mojom.h"
+#include "ui/base/window_tracker_template.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/vector2d.h"
+#include "ui/gfx/native_widget_types.h"
 #include "ui/gfx/transform.h"
 #include "ui/platform_window/text_input_state.h"
 
@@ -31,7 +35,6 @@ namespace ws {
 
 class ServerWindowDelegate;
 class ServerWindowObserver;
-class ServerWindowCompositorFrameSinkManager;
 
 // Server side representation of a window. Delegate is informed of interesting
 // events.
@@ -44,16 +47,17 @@ class ServerWindowCompositorFrameSinkManager;
 // children the children are implicitly removed. Similarly if a window has a
 // parent and the window is deleted the deleted window is implicitly removed
 // from the parent.
-class ServerWindow {
+class ServerWindow : public viz::HostFrameSinkClient {
  public:
   using Properties = std::map<std::string, std::vector<uint8_t>>;
   using Windows = std::vector<ServerWindow*>;
 
-  ServerWindow(ServerWindowDelegate* delegate, const WindowId& id);
+  // |frame_sink_id| needs to be an input here as we are creating frame_sink_id_
+  // based on the ClientWindowId clients provided.
   ServerWindow(ServerWindowDelegate* delegate,
-               const WindowId& id,
-               const Properties& properties);
-  ~ServerWindow();
+               const viz::FrameSinkId& frame_sink_id,
+               const Properties& properties = Properties());
+  ~ServerWindow() override;
 
   void AddObserver(ServerWindowObserver* observer);
   void RemoveObserver(ServerWindowObserver* observer);
@@ -63,24 +67,34 @@ class ServerWindow {
   // existing.
   void CreateRootCompositorFrameSink(
       gfx::AcceleratedWidget widget,
-      cc::mojom::CompositorFrameSinkAssociatedRequest sink_request,
-      cc::mojom::CompositorFrameSinkClientPtr client,
-      cc::mojom::DisplayPrivateAssociatedRequest display_request);
+      viz::mojom::CompositorFrameSinkAssociatedRequest sink_request,
+      viz::mojom::CompositorFrameSinkClientPtr client,
+      viz::mojom::DisplayPrivateAssociatedRequest display_request,
+      viz::mojom::DisplayClientPtr display_client);
 
   void CreateCompositorFrameSink(
-      cc::mojom::CompositorFrameSinkRequest request,
-      cc::mojom::CompositorFrameSinkClientPtr client);
+      viz::mojom::CompositorFrameSinkRequest request,
+      viz::mojom::CompositorFrameSinkClientPtr client);
 
-  const WindowId& id() const { return id_; }
+  // Id of the tree that owns and created this window.
+  ClientSpecificId owning_tree_id() const { return owning_tree_id_; }
 
   const viz::FrameSinkId& frame_sink_id() const { return frame_sink_id_; }
+  void UpdateFrameSinkId(const viz::FrameSinkId& frame_sink_id);
 
   const base::Optional<viz::LocalSurfaceId>& current_local_surface_id() const {
     return current_local_surface_id_;
   }
 
+  // Add the child to this window.
   void Add(ServerWindow* child);
+
+  // Removes the child window, but does not delete it.
   void Remove(ServerWindow* child);
+
+  // Removes all child windows from this window, but does not delete them.
+  void RemoveAllChildren();
+
   void Reorder(ServerWindow* relative, mojom::OrderDirection diretion);
   void StackChildAtBottom(ServerWindow* child);
   void StackChildAtTop(ServerWindow* child);
@@ -112,19 +126,17 @@ class ServerWindow {
   const ServerWindow* parent() const { return parent_; }
   ServerWindow* parent() { return parent_; }
 
+  // Returns the root window used in checking drawn status. This is not
+  // necessarily the same as the root window used in event dispatch.
   // NOTE: this returns null if the window does not have an ancestor associated
   // with a display.
-  const ServerWindow* GetRoot() const;
-  ServerWindow* GetRoot() {
+  const ServerWindow* GetRootForDrawn() const;
+  ServerWindow* GetRootForDrawn() {
     return const_cast<ServerWindow*>(
-        const_cast<const ServerWindow*>(this)->GetRoot());
+        const_cast<const ServerWindow*>(this)->GetRootForDrawn());
   }
 
   const Windows& children() const { return children_; }
-
-  // Returns the ServerWindow object with the provided |id| if it lies in a
-  // subtree of |this|.
-  ServerWindow* GetChildWindow(const WindowId& id);
 
   // Transient window management.
   // Adding transient child fails if the child window is modal to system.
@@ -136,8 +148,18 @@ class ServerWindow {
 
   const Windows& transient_children() const { return transient_children_; }
 
+  // Returns true if |this| is a transient descendant of |window|.
+  bool HasTransientAncestor(const ServerWindow* window) const;
+
   ModalType modal_type() const { return modal_type_; }
   void SetModalType(ModalType modal_type);
+
+  void SetChildModalParent(ServerWindow* modal_parent);
+  const ServerWindow* GetChildModalParent() const;
+  ServerWindow* GetChildModalParent() {
+    return const_cast<ServerWindow*>(
+        const_cast<const ServerWindow*>(this)->GetChildModalParent());
+  }
 
   // Returns true if this contains |window| or is |window|.
   bool Contains(const ServerWindow* window) const;
@@ -171,6 +193,13 @@ class ServerWindow {
   void set_can_focus(bool can_focus) { can_focus_ = can_focus; }
   bool can_focus() const { return can_focus_; }
 
+  void set_is_activation_parent(bool value) { is_activation_parent_ = value; }
+  bool is_activation_parent() const { return is_activation_parent_; }
+
+  bool has_created_compositor_frame_sink() const {
+    return has_created_compositor_frame_sink_;
+  }
+
   void set_event_targeting_policy(mojom::EventTargetingPolicy policy) {
     event_targeting_policy_ = policy;
   }
@@ -197,16 +226,6 @@ class ServerWindow {
     extended_touch_hit_test_region_ = touch_insets;
   }
 
-  ServerWindowCompositorFrameSinkManager*
-  GetOrCreateCompositorFrameSinkManager();
-  ServerWindowCompositorFrameSinkManager* compositor_frame_sink_manager() {
-    return compositor_frame_sink_manager_.get();
-  }
-  const ServerWindowCompositorFrameSinkManager* compositor_frame_sink_manager()
-      const {
-    return compositor_frame_sink_manager_.get();
-  }
-
   // Offset of the underlay from the the window bounds (used for shadows).
   const gfx::Vector2d& underlay_offset() const { return underlay_offset_; }
   void SetUnderlayOffset(const gfx::Vector2d& offset);
@@ -223,46 +242,43 @@ class ServerWindow {
 #endif
 
  private:
+  // viz::HostFrameSinkClient implementation.
+  void OnFirstSurfaceActivation(const viz::SurfaceInfo& surface_info) override;
+  void OnFrameTokenChanged(uint32_t frame_token) override;
+
   // Implementation of removing a window. Doesn't send any notification.
   void RemoveImpl(ServerWindow* window);
 
   // Called when this window's stacking order among its siblings is changed.
   void OnStackingChanged();
 
-  static void ReorderImpl(ServerWindow* window,
-                          ServerWindow* relative,
-                          mojom::OrderDirection diretion);
-
-  // Returns a pointer to the stacking target that can be used by
-  // RestackTransientDescendants.
-  static ServerWindow** GetStackingTarget(ServerWindow* window);
-
-  ServerWindowDelegate* delegate_;
-  const WindowId id_;
+  ServerWindowDelegate* const delegate_;
+  // This is the client id of the WindowTree that owns this window. This is
+  // cached as the |frame_sink_id_| may change.
+  const ClientSpecificId owning_tree_id_;
+  // This may change for embed windows.
   viz::FrameSinkId frame_sink_id_;
   base::Optional<viz::LocalSurfaceId> current_local_surface_id_;
 
-  ServerWindow* parent_;
+  ServerWindow* parent_ = nullptr;
   Windows children_;
 
   // Transient window management.
   // If non-null we're actively restacking transient as the result of a
   // transient ancestor changing.
-  ServerWindow* stacking_target_;
-  ServerWindow* transient_parent_;
+  ServerWindow* stacking_target_ = nullptr;
+  ServerWindow* transient_parent_ = nullptr;
   Windows transient_children_;
 
-  ModalType modal_type_;
-  bool visible_;
+  ModalType modal_type_ = MODAL_TYPE_NONE;
+  bool visible_ = false;
   gfx::Rect bounds_;
   gfx::Insets client_area_;
   std::vector<gfx::Rect> additional_client_areas_;
-  std::unique_ptr<ServerWindowCompositorFrameSinkManager>
-      compositor_frame_sink_manager_;
   ui::CursorData cursor_;
   ui::CursorData non_client_cursor_;
-  float opacity_;
-  bool can_focus_;
+  float opacity_ = 1.0f;
+  bool can_focus_ = true;
   mojom::EventTargetingPolicy event_targeting_policy_ =
       mojom::EventTargetingPolicy::TARGET_AND_DESCENDANTS;
   gfx::Transform transform_;
@@ -286,6 +302,18 @@ class ServerWindow {
   bool accepts_drops_ = false;
 
   base::ObserverList<ServerWindowObserver> observers_;
+
+  // Used to track the modal parent of a child modal window.
+  std::unique_ptr<WindowTrackerTemplate<ServerWindow, ServerWindowObserver>>
+      child_modal_parent_tracker_;
+
+  // Whether the children of this window can be active. Also used to determine
+  // when a window is considered top level. That is, if true the children of
+  // this window are considered top level windows.
+  bool is_activation_parent_ = false;
+
+  // Used by tests to know whether clients have already drawn this window.
+  bool has_created_compositor_frame_sink_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(ServerWindow);
 };

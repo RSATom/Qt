@@ -18,7 +18,7 @@
  *   reset:(boolean|undefined),
  * }}
  */
-var GuestModePageVisibility;
+let GuestModePageVisibility;
 
 /**
  * @typedef {{
@@ -29,21 +29,21 @@ var GuestModePageVisibility;
  *   setWallpaper: boolean,
  * }}
  */
-var AppearancePageVisibility;
+let AppearancePageVisibility;
 
 /**
  * @typedef {{
  *   timeZoneSelector: boolean,
  * }}
  */
-var DateTimePageVisibility;
+let DateTimePageVisibility;
 
 /**
  * @typedef {{
  *   googleDrive: boolean
  * }}
  */
-var DownloadsPageVisibility;
+let DownloadsPageVisibility;
 
 /**
  * @typedef {{
@@ -51,16 +51,14 @@ var DownloadsPageVisibility;
  *   searchPrediction: boolean,
  * }}
  */
-var PrivacyPageVisibility;
+let PrivacyPageVisibility;
 
 cr.define('settings', function() {
   /**
    * Dictionary defining page visibility.
-   * This is only set when in guest mode. All pages are visible when not set
-   * because polymer only notifies after a property is set.
    * @type {!GuestModePageVisibility}
    */
-  var pageVisibility;
+  let pageVisibility;
 
   if (loadTimeData.getBoolean('isGuest')) {
     // "if not chromeos" and "if chromeos" in two completely separate blocks
@@ -98,6 +96,33 @@ cr.define('settings', function() {
         googleDrive: false,
       },
       multidevice: false,
+    };
+    // </if>
+  } else {
+    // All pages are visible when not in chromeos. Since polymer only notifies
+    // after a property is set.
+    // <if expr="chromeos">
+    pageVisibility = {
+      passwordsAndForms: true,
+      people: true,
+      onStartup: true,
+      reset: true,
+      appearance: {
+        setWallpaper: true,
+        setTheme: true,
+        homeButton: true,
+        bookmarksBar: true,
+        pageZoom: true,
+      },
+      advancedSettings: true,
+      privacy: {
+        searchPrediction: true,
+        networkPrediction: true,
+      },
+      downloads: {
+        googleDrive: true,
+      },
+      multidevice: true,
     };
     // </if>
   }

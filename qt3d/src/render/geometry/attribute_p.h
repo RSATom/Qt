@@ -68,7 +68,7 @@ public:
 
     void cleanup();
 
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) Q_DECL_OVERRIDE;
+    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) override;
 
     inline Qt3DCore::QNodeId bufferId() const { return m_bufferId; }
     inline QString name() const { return m_name; }
@@ -84,7 +84,7 @@ public:
     void unsetDirty();
 
 private:
-    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) Q_DECL_FINAL;
+    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) final;
 
     Qt3DCore::QNodeId m_bufferId;
     QString m_name;

@@ -6,7 +6,7 @@ CONFIG += static internal_module
 
 DEFINES += QT_NO_CAST_FROM_ASCII
 
-unix:!darwin: \
+if(unix:!uikit)|qtConfig(xcb): \
     include($$PWD/genericunix/genericunix.pri)
 
 HEADERS += \

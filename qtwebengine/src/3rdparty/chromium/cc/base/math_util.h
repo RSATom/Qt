@@ -5,8 +5,7 @@
 #ifndef CC_BASE_MATH_UTIL_H_
 #define CC_BASE_MATH_UTIL_H_
 
-#include <algorithm>
-#include <cmath>
+#include <limits>
 #include <memory>
 #include <vector>
 
@@ -82,22 +81,6 @@ struct HomogeneousCoordinate {
 
 class CC_BASE_EXPORT MathUtil {
  public:
-  static const double kPiDouble;
-  static const float kPiFloat;
-
-  static double Deg2Rad(double deg) { return deg * kPiDouble / 180.0; }
-  static double Rad2Deg(double rad) { return rad * 180.0 / kPiDouble; }
-
-  static float Deg2Rad(float deg) { return deg * kPiFloat / 180.0f; }
-  static float Rad2Deg(float rad) { return rad * 180.0f / kPiFloat; }
-
-  static float Round(float f) {
-    return (f > 0.f) ? std::floor(f + 0.5f) : std::ceil(f - 0.5f);
-  }
-  static double Round(double d) {
-    return (d > 0.0) ? std::floor(d + 0.5) : std::ceil(d - 0.5);
-  }
-
   // Returns true if rounded up value does not overflow, false otherwise.
   template <typename T>
   static bool VerifyRoundup(T n, T mul) {
@@ -113,7 +96,6 @@ class CC_BASE_EXPORT MathUtil {
   static T UncheckedRoundUp(T n, T mul) {
     static_assert(std::numeric_limits<T>::is_integer,
                   "T must be an integer type");
-    DCHECK(VerifyRoundup(n, mul));
     return RoundUpInternal(n, mul);
   }
 
@@ -142,7 +124,6 @@ class CC_BASE_EXPORT MathUtil {
   static T UncheckedRoundDown(T n, T mul) {
     static_assert(std::numeric_limits<T>::is_integer,
                   "T must be an integer type");
-    DCHECK(VerifyRoundDown(n, mul));
     return RoundDownInternal(n, mul);
   }
 
@@ -154,10 +135,6 @@ class CC_BASE_EXPORT MathUtil {
                   "T must be an integer type");
     CHECK(VerifyRoundDown(n, mul));
     return RoundDownInternal(n, mul);
-  }
-
-  template <typename T> static T ClampToRange(T value, T min, T max) {
-    return std::min(std::max(value, min), max);
   }
 
   template <typename T>
@@ -181,6 +158,13 @@ class CC_BASE_EXPORT MathUtil {
                                                const gfx::Rect& rect);
   static gfx::RectF ProjectClippedRect(const gfx::Transform& transform,
                                        const gfx::RectF& rect);
+
+  // Map device space quad to local space. Device_transform has no 3d
+  // component since it was flattened, so we don't need to project.  We should
+  // have already checked that the transform was invertible before this call.
+  static gfx::QuadF InverseMapQuadToLocalSpace(
+      const gfx::Transform& device_transform,
+      const gfx::QuadF& device_quad);
 
   // This function is only valid when the transform preserves 2d axis
   // alignment and the resulting rect will not be clipped.

@@ -49,7 +49,7 @@ QT_BEGIN_NAMESPACE
     \instantiates QDeclarativeRouteMapItem
     \inqmlmodule QtLocation
     \ingroup qml-QtLocation5-maps
-    \since Qt Location 5.0
+    \since QtLocation 5.0
 
     \brief The MapRoute type displays a Route on a Map.
 

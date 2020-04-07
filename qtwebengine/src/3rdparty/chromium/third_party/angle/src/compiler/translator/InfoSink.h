@@ -15,12 +15,17 @@
 namespace sh
 {
 
+class ImmutableString;
+class TType;
+
 // Returns the fractional part of the given floating-point number.
 inline float fractionalPart(float f)
 {
     float intPart = 0.0f;
     return modff(f, &intPart);
 }
+
+class ImmutableString;
 
 //
 // Encapsulate info logs for all objects that have them.
@@ -63,6 +68,10 @@ class TInfoSinkBase
         sink.append(str.c_str());
         return *this;
     }
+    TInfoSinkBase &operator<<(const ImmutableString &str);
+
+    TInfoSinkBase &operator<<(const TType &type);
+
     // Make sure floats are written with correct precision.
     TInfoSinkBase &operator<<(float f)
     {

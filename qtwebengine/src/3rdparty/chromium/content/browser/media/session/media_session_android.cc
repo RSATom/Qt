@@ -5,6 +5,7 @@
 #include "content/browser/media/session/media_session_android.h"
 
 #include "base/android/jni_array.h"
+#include "base/time/time.h"
 #include "content/browser/media/session/media_session_impl.h"
 #include "content/browser/web_contents/web_contents_android.h"
 #include "content/browser/web_contents/web_contents_impl.h"
@@ -39,12 +40,7 @@ MediaSessionAndroid::MediaSessionAndroid(MediaSessionImpl* session)
 MediaSessionAndroid::~MediaSessionAndroid() = default;
 
 // static
-bool MediaSessionAndroid::Register(JNIEnv* env) {
-  return RegisterNativesImpl(env);
-}
-
-// static
-ScopedJavaLocalRef<jobject> GetMediaSessionFromWebContents(
+ScopedJavaLocalRef<jobject> JNI_MediaSessionImpl_GetMediaSessionFromWebContents(
     JNIEnv* env,
     const JavaParamRef<jclass>& clazz,
     const JavaParamRef<jobject>& j_contents_android) {
@@ -139,11 +135,39 @@ void MediaSessionAndroid::Stop(
   media_session()->Stop(MediaSession::SuspendType::UI);
 }
 
+void MediaSessionAndroid::SeekForward(
+    JNIEnv* env,
+    const base::android::JavaParamRef<jobject>& j_obj,
+    const jlong millis) {
+  DCHECK(media_session());
+  DCHECK_GE(millis, 0)
+      << "Attempted to seek by a negative number of milliseconds";
+  media_session()->SeekForward(base::TimeDelta::FromMilliseconds(millis));
+}
+
+void MediaSessionAndroid::SeekBackward(
+    JNIEnv* env,
+    const base::android::JavaParamRef<jobject>& j_obj,
+    const jlong millis) {
+  DCHECK(media_session());
+  DCHECK_GE(millis, 0)
+      << "Attempted to seek by a negative number of milliseconds";
+  media_session()->SeekBackward(base::TimeDelta::FromMilliseconds(millis));
+}
+
 void MediaSessionAndroid::DidReceiveAction(JNIEnv* env,
                                            const JavaParamRef<jobject>& obj,
                                            int action) {
   media_session()->DidReceiveAction(
       static_cast<blink::mojom::MediaSessionAction>(action));
+}
+
+void MediaSessionAndroid::RequestSystemAudioFocus(
+    JNIEnv* env,
+    const base::android::JavaParamRef<jobject>& j_obj) {
+  DCHECK(media_session());
+  static_cast<MediaSessionImpl*>(media_session())
+      ->RequestSystemAudioFocus(AudioFocusManager::AudioFocusType::Gain);
 }
 
 WebContentsAndroid* MediaSessionAndroid::GetWebContentsAndroid() {

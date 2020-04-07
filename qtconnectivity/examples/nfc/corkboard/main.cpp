@@ -53,6 +53,7 @@
 #include <QtQml/QQmlEngine>
 #include <QtQuick/QQuickView>
 
+//! [0]
 int main(int argc, char *argv[])
 {
     QGuiApplication application(argc, argv);
@@ -62,3 +63,4 @@ int main(int argc, char *argv[])
     view.show();
     return application.exec();
 }
+//! [0]

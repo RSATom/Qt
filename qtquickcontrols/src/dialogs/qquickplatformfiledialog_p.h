@@ -55,25 +55,25 @@
 
 QT_BEGIN_NAMESPACE
 
-class QQuickPlatformFileDialog : public QQuickFileDialog
+class QQuickPlatformFileDialog1 : public QQuickFileDialog
 {
     Q_OBJECT
 
 public:
-    QQuickPlatformFileDialog(QObject *parent = 0);
-    virtual ~QQuickPlatformFileDialog();
-    virtual void setModality(Qt::WindowModality m) Q_DECL_OVERRIDE;
-    virtual QList<QUrl> fileUrls() const Q_DECL_OVERRIDE;
+    QQuickPlatformFileDialog1(QObject *parent = 0);
+    virtual ~QQuickPlatformFileDialog1();
+    void setModality(Qt::WindowModality m) override;
+    QList<QUrl> fileUrls() const override;
 
 protected:
-    QPlatformFileDialogHelper *helper() Q_DECL_OVERRIDE;
-    virtual void accept() override;
+    QPlatformFileDialogHelper *helper() override;
+    void accept() override;
 
-    Q_DISABLE_COPY(QQuickPlatformFileDialog)
+    Q_DISABLE_COPY(QQuickPlatformFileDialog1)
 };
 
 QT_END_NAMESPACE
 
-QML_DECLARE_TYPE(QQuickPlatformFileDialog *)
+QML_DECLARE_TYPE(QQuickPlatformFileDialog1 *)
 
 #endif // QQUICKPLATFORMFILEDIALOG_P_H

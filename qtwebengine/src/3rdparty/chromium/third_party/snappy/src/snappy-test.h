@@ -110,16 +110,6 @@
 #include "lzo/lzo1x.h"
 #endif
 
-#ifdef HAVE_LIBLZF
-extern "C" {
-#include "lzf.h"
-}
-#endif
-
-#ifdef HAVE_LIBQUICKLZ
-#include "quicklz.h"
-#endif
-
 namespace {
 
 namespace file {
@@ -534,7 +524,7 @@ class LogMessage {
 // and ones that are always active.
 
 #define CRASH_UNLESS(condition) \
-    PREDICT_TRUE(condition) ? (void)0 : \
+    SNAPPY_PREDICT_TRUE(condition) ? (void)0 : \
     snappy::LogMessageVoidify() & snappy::LogMessageCrash()
 
 #ifdef _MSC_VER

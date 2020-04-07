@@ -610,7 +610,7 @@ void tst_QCompleter::directoryModel_data()
         QTest::newRow("(/et)") << "/et" << "" << "etc" << "/etc";
 #else
         QTest::newRow("()") << "" << "" << "/" << "/";
-#if !defined(Q_OS_IRIX) && !defined(Q_OS_AIX) && !defined(Q_OS_HPUX) && !defined(Q_OS_QNX)
+#if !defined(Q_OS_AIX) && !defined(Q_OS_HPUX) && !defined(Q_OS_QNX)
         QTest::newRow("(/h)") << "/h" << "" << "home" << "/home";
 #endif
         QTest::newRow("(/et)") << "/et" << "" << "etc" << "/etc";
@@ -621,6 +621,9 @@ void tst_QCompleter::directoryModel_data()
 
 void tst_QCompleter::directoryModel()
 {
+#ifdef Q_OS_WINRT
+    QSKIP("WinRT cannot access directories outside of the application's sandbox");
+#endif
     filter();
 }
 
@@ -656,7 +659,7 @@ void tst_QCompleter::fileSystemModel_data()
         QTest::newRow("(/et)") << "/et" << "" << "etc" << "/etc";
 #else
         QTest::newRow("()") << "" << "" << "/" << "/";
-#if !defined(Q_OS_IRIX) && !defined(Q_OS_AIX) && !defined(Q_OS_HPUX) && !defined(Q_OS_QNX)
+#if !defined(Q_OS_AIX) && !defined(Q_OS_HPUX) && !defined(Q_OS_QNX)
         QTest::newRow("(/h)") << "/h" << "" << "home" << "/home";
 #endif
         QTest::newRow("(/et)") << "/et" << "" << "etc" << "/etc";
@@ -667,6 +670,9 @@ void tst_QCompleter::fileSystemModel_data()
 
 void tst_QCompleter::fileSystemModel()
 {
+#ifdef Q_OS_WINRT
+    QSKIP("WinRT cannot access directories outside of the application's sandbox");
+#endif
     //QFileSystemModel is assync.
     filter(true);
 }
@@ -1099,8 +1105,8 @@ void tst_QCompleter::multipleWidgets()
     comboBox->show();
     window.activateWindow();
     QApplication::setActiveWindow(&window);
-    QTest::qWait(50);
-    QTRY_COMPARE(QApplication::focusWidget(), comboBox);
+    QVERIFY(QTest::qWaitForWindowActive(&window));
+    QCOMPARE(QApplication::focusWidget(), comboBox);
     comboBox->lineEdit()->setText("it");
     QCOMPARE(comboBox->currentText(), QString("it")); // should not complete with setText
     QTest::keyPress(comboBox, 'e');
@@ -1112,7 +1118,6 @@ void tst_QCompleter::multipleWidgets()
     lineEdit->setCompleter(&completer);
     lineEdit->show();
     lineEdit->setFocus();
-    QTest::qWait(50);
     QTRY_COMPARE(QApplication::focusWidget(), lineEdit);
     lineEdit->setText("it");
     QCOMPARE(lineEdit->text(), QString("it")); // should not completer with setText
@@ -1697,6 +1702,9 @@ void tst_QCompleter::QTBUG_14292_filesystem()
 
     // Wait for all file system model slots/timers to trigger
     // until the model sees the subdirectories.
+#ifdef Q_OS_WINRT
+    QEXPECT_FAIL("", "Fails on WinRT - QTBUG-68297", Abort);
+#endif
     QTRY_VERIFY(testFileSystemReady(model));
     // But this should not cause the combo to pop up.
     QVERIFY(!comp.popup()->isVisible());

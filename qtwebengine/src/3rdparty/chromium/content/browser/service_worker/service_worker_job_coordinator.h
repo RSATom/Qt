@@ -5,19 +5,19 @@
 #ifndef CONTENT_BROWSER_SERVICE_WORKER_SERVICE_WORKER_JOB_COORDINATOR_H_
 #define CONTENT_BROWSER_SERVICE_WORKER_SERVICE_WORKER_JOB_COORDINATOR_H_
 
-#include <deque>
 #include <map>
 #include <memory>
 
+#include "base/containers/circular_deque.h"
 #include "base/macros.h"
 #include "content/browser/service_worker/service_worker_register_job.h"
 #include "content/browser/service_worker/service_worker_unregister_job.h"
 #include "content/common/content_export.h"
+#include "third_party/blink/public/mojom/service_worker/service_worker_registration.mojom.h"
 #include "url/gurl.h"
 
 namespace content {
 
-class ServiceWorkerProviderHost;
 class ServiceWorkerRegistration;
 
 // This class manages all in-flight registration or unregistration jobs.
@@ -28,21 +28,18 @@ class CONTENT_EXPORT ServiceWorkerJobCoordinator {
   ~ServiceWorkerJobCoordinator();
 
   void Register(const GURL& script_url,
-                const ServiceWorkerRegistrationOptions& options,
-                ServiceWorkerProviderHost* provider_host,
-                const ServiceWorkerRegisterJob::RegistrationCallback& callback);
+                const blink::mojom::ServiceWorkerRegistrationOptions& options,
+                ServiceWorkerRegisterJob::RegistrationCallback callback);
 
-  void Unregister(
-      const GURL& pattern,
-      const ServiceWorkerUnregisterJob::UnregistrationCallback& callback);
+  void Unregister(const GURL& pattern,
+                  ServiceWorkerUnregisterJob::UnregistrationCallback callback);
 
   void Update(ServiceWorkerRegistration* registration, bool force_bypass_cache);
 
   void Update(ServiceWorkerRegistration* registration,
               bool force_bypass_cache,
               bool skip_script_comparison,
-              ServiceWorkerProviderHost* provider_host,
-              const ServiceWorkerRegisterJob::RegistrationCallback& callback);
+              ServiceWorkerRegisterJob::RegistrationCallback callback);
 
   // Calls ServiceWorkerRegisterJobBase::Abort() on all jobs and removes them.
   void AbortAll();
@@ -86,7 +83,7 @@ class CONTENT_EXPORT ServiceWorkerJobCoordinator {
     void ClearForShutdown();
 
    private:
-    std::deque<std::unique_ptr<ServiceWorkerRegisterJobBase>> jobs_;
+    base::circular_deque<std::unique_ptr<ServiceWorkerRegisterJobBase>> jobs_;
 
     DISALLOW_COPY_AND_ASSIGN(JobQueue);
   };

@@ -8,14 +8,13 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-
 #ifdef WEBRTC_NETWORK_TESTER_TEST_ENABLED
 
-#include "webrtc/rtc_tools/network_tester/test_controller.h"
+#include "rtc_tools/network_tester/test_controller.h"
 
-#include "webrtc/rtc_base/gunit.h"
-#include "webrtc/test/gtest.h"
-#include "webrtc/test/testsupport/fileutils.h"
+#include "rtc_base/gunit.h"
+#include "test/gtest.h"
+#include "test/testsupport/fileutils.h"
 
 namespace webrtc {
 

@@ -88,7 +88,7 @@ void AboutLabel::setSource(const QUrl &url)
     || !HelpViewer::canOpenPage(url.path()))) {
         if (!QDesktopServices::openUrl(url)) {
             QMessageBox::warning(this, tr("Warning"),
-                tr("Unable to launch external application.\n"), tr("OK"));
+                tr("Unable to launch external application."), tr("OK"));
         }
     }
 }
@@ -98,7 +98,7 @@ AboutDialog::AboutDialog(QWidget *parent)
         Qt::WindowTitleHint|Qt::WindowSystemMenuHint)
 {
     TRACE_OBJ
-    m_pixmapLabel = 0;
+    m_pixmapLabel = nullptr;
     m_aboutLabel = new AboutLabel();
 
     m_closeButton = new QPushButton();

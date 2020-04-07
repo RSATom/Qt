@@ -5,7 +5,7 @@
 #include "services/service_manager/public/cpp/identity.h"
 
 #include "base/guid.h"
-#include "services/service_manager/public/interfaces/constants.mojom.h"
+#include "services/service_manager/public/mojom/constants.mojom.h"
 
 namespace service_manager {
 
@@ -28,6 +28,13 @@ Identity::Identity(const std::string& name,
 Identity::Identity(const Identity& other) = default;
 
 Identity::~Identity() {}
+
+Identity& Identity::operator=(const Identity& other) {
+  name_ = other.name_;
+  user_id_ = other.user_id_;
+  instance_ = other.instance_;
+  return *this;
+}
 
 bool Identity::operator<(const Identity& other) const {
   if (name_ != other.name_)

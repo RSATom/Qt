@@ -61,7 +61,7 @@ class Q_WIDGETS_EXPORT QFrame : public QWidget
     Q_PROPERTY(QRect frameRect READ frameRect WRITE setFrameRect DESIGNABLE false)
 
 public:
-    explicit QFrame(QWidget* parent = Q_NULLPTR, Qt::WindowFlags f = Qt::WindowFlags());
+    explicit QFrame(QWidget* parent = nullptr, Qt::WindowFlags f = Qt::WindowFlags());
     ~QFrame();
 
     int frameStyle() const;
@@ -69,7 +69,7 @@ public:
 
     int frameWidth() const;
 
-    QSize sizeHint() const Q_DECL_OVERRIDE;
+    QSize sizeHint() const override;
 
     enum Shape {
         NoFrame  = 0, // no frame
@@ -108,14 +108,14 @@ public:
     void setFrameRect(const QRect &);
 
 protected:
-    bool event(QEvent *e) Q_DECL_OVERRIDE;
-    void paintEvent(QPaintEvent *) Q_DECL_OVERRIDE;
-    void changeEvent(QEvent *) Q_DECL_OVERRIDE;
+    bool event(QEvent *e) override;
+    void paintEvent(QPaintEvent *) override;
+    void changeEvent(QEvent *) override;
     void drawFrame(QPainter *);
 
 
 protected:
-    QFrame(QFramePrivate &dd, QWidget* parent = Q_NULLPTR, Qt::WindowFlags f = Qt::WindowFlags());
+    QFrame(QFramePrivate &dd, QWidget* parent = nullptr, Qt::WindowFlags f = Qt::WindowFlags());
     void initStyleOption(QStyleOptionFrame *option) const;
 
 private:

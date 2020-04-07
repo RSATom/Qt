@@ -60,8 +60,11 @@ void IpcNetworkManager::StartUpdating() {
   if (network_list_received_) {
     // Post a task to avoid reentrancy.
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::Bind(&IpcNetworkManager::SendNetworksChangedSignal,
-                              weak_factory_.GetWeakPtr()));
+        FROM_HERE, base::BindOnce(&IpcNetworkManager::SendNetworksChangedSignal,
+                                  weak_factory_.GetWeakPtr()));
+  } else {
+    VLOG(1) << "IpcNetworkManager::StartUpdating called; still waiting for "
+               "network list from browser process.";
   }
   ++start_count_;
 }
@@ -76,8 +79,11 @@ void IpcNetworkManager::OnNetworkListChanged(
     const net::IPAddress& default_ipv4_local_address,
     const net::IPAddress& default_ipv6_local_address) {
   // Update flag if network list received for the first time.
-  if (!network_list_received_)
+  if (!network_list_received_) {
+    VLOG(1) << "IpcNetworkManager received network list from browser process "
+               "for the first time.";
     network_list_received_ = true;
+  }
 
   // Default addresses should be set only when they are in the filtered list of
   // network addresses.
@@ -94,9 +100,15 @@ void IpcNetworkManager::OnNetworkListChanged(
     DCHECK(!ip_address.IsNil());
 
     rtc::IPAddress prefix = rtc::TruncateIP(ip_address, it->prefix_length);
-    std::unique_ptr<rtc::Network> network(
-        new rtc::Network(it->name, it->name, prefix, it->prefix_length,
-                         ConvertConnectionTypeToAdapterType(it->type)));
+    rtc::AdapterType adapter_type =
+        ConvertConnectionTypeToAdapterType(it->type);
+    // If the adapter type is unknown, try to guess it using WebRTC's string
+    // matching rules.
+    if (adapter_type == rtc::ADAPTER_TYPE_UNKNOWN) {
+      adapter_type = rtc::GetAdapterTypeFromName(it->name.c_str());
+    }
+    std::unique_ptr<rtc::Network> network(new rtc::Network(
+        it->name, it->name, prefix, it->prefix_length, adapter_type));
     network->set_default_local_address_provider(this);
 
     rtc::InterfaceAddress iface_addr;

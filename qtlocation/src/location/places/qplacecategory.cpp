@@ -139,7 +139,9 @@ bool QPlaceCategory::operator==(const QPlaceCategory &other) const
 {
     return d->categoryId == other.d->categoryId &&
            d->name == other.d->name &&
-           d->visibility == other.d->visibility &&
+           (d->visibility == QLocation::UnspecifiedVisibility ||
+            other.d->visibility == QLocation::UnspecifiedVisibility ||
+            d->visibility == other.d->visibility) &&
            d->icon == other.d->icon;
 }
 

@@ -8,8 +8,8 @@
 #include <vector>
 
 #include "content/common/content_export.h"
-#include "third_party/WebKit/public/platform/WebFeaturePolicy.h"
-#include "third_party/WebKit/public/web/WebFrameOwnerProperties.h"
+#include "third_party/blink/public/common/feature_policy/feature_policy.h"
+#include "third_party/blink/public/web/web_frame_owner_properties.h"
 
 namespace content {
 
@@ -40,8 +40,6 @@ struct CONTENT_EXPORT FrameOwnerProperties {
   // for a frame. See https://crbug.com/647588 and
   // https://www.w3.org/TR/csp-embedded-enforcement/#required-csp
   std::string required_csp;
-
-  std::vector<blink::WebFeaturePolicyFeature> allowed_features;
 };
 
 }  // namespace content

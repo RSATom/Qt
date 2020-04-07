@@ -66,11 +66,11 @@ class Q_WAYLAND_COMPOSITOR_EXPORT Region : public QtWaylandServer::wl_region
 {
 public:
     Region(struct wl_client *client, uint32_t id);
-    ~Region();
+    ~Region() override;
 
     static Region *fromResource(struct ::wl_resource *resource);
 
-    uint id() const { return resource()->handle->object.id; }
+    uint id() const { return wl_resource_get_id(resource()->handle); }
 
     QRegion region() const { return m_region; }
 

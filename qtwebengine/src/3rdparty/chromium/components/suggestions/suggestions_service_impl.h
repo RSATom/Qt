@@ -13,23 +13,28 @@
 #include "base/callback.h"
 #include "base/callback_list.h"
 #include "base/compiler_specific.h"
-#include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "base/optional.h"
 #include "base/scoped_observer.h"
 #include "base/threading/thread_checker.h"
+#include "base/time/tick_clock.h"
 #include "base/time/time.h"
-#include "components/signin/core/browser/access_token_fetcher.h"
+#include "base/timer/timer.h"
 #include "components/suggestions/proto/suggestions.pb.h"
 #include "components/suggestions/suggestions_service.h"
 #include "components/sync/driver/sync_service_observer.h"
+#include "components/sync/driver/sync_service_utils.h"
 #include "google_apis/gaia/google_service_auth_error.h"
+#include "net/base/backoff_entry.h"
 #include "net/url_request/url_fetcher_delegate.h"
+#include "services/identity/public/cpp/access_token_info.h"
 #include "url/gurl.h"
 
-class OAuth2TokenService;
-class SigninManagerBase;
+namespace identity {
+class IdentityManager;
+class PrimaryAccountAccessTokenFetcher;
+}  // namespace identity
 
 namespace net {
 class URLRequestContextGetter;
@@ -54,13 +59,13 @@ class SuggestionsServiceImpl : public SuggestionsService,
                                public net::URLFetcherDelegate,
                                public syncer::SyncServiceObserver {
  public:
-  SuggestionsServiceImpl(SigninManagerBase* signin_manager,
-                         OAuth2TokenService* token_service,
+  SuggestionsServiceImpl(identity::IdentityManager* identity_manager,
                          syncer::SyncService* sync_service,
                          net::URLRequestContextGetter* url_request_context,
                          std::unique_ptr<SuggestionsStore> suggestions_store,
                          std::unique_ptr<ImageManager> thumbnail_manager,
-                         std::unique_ptr<BlacklistStore> blacklist_store);
+                         std::unique_ptr<BlacklistStore> blacklist_store,
+                         const base::TickClock* tick_clock);
   ~SuggestionsServiceImpl() override;
 
   // SuggestionsService implementation.
@@ -78,15 +83,8 @@ class SuggestionsServiceImpl : public SuggestionsService,
   bool UndoBlacklistURL(const GURL& url) override;
   void ClearBlacklist() override;
 
-  base::TimeDelta blacklist_delay_for_testing() const {
-    return scheduling_delay_;
-  }
-  void set_blacklist_delay_for_testing(base::TimeDelta delay) {
-    scheduling_delay_ = delay;
-  }
-  bool has_pending_request_for_testing() const {
-    return !!pending_request_.get();
-  }
+  base::TimeDelta BlacklistDelayForTesting() const;
+  bool HasPendingRequestForTesting() const;
 
   // Determines which URL a blacklist request was for, irrespective of the
   // request's status. Returns false if |request| is not a blacklist request.
@@ -115,7 +113,8 @@ class SuggestionsServiceImpl : public SuggestionsService,
     SYNC_OR_HISTORY_SYNC_DISABLED,
   };
 
-  // The action that should be taken as the result of a RefreshSyncState call.
+  // The action that should be taken as the result of a RefreshHistorySyncState
+  // call.
   enum RefreshAction { NO_ACTION, FETCH_SUGGESTIONS, CLEAR_SUGGESTIONS };
 
   // Helpers to build the various suggestions URLs. These are static members
@@ -126,12 +125,9 @@ class SuggestionsServiceImpl : public SuggestionsService,
   static GURL BuildSuggestionsBlacklistURL(const GURL& candidate_url);
   static GURL BuildSuggestionsBlacklistClearURL();
 
-  // Computes the appropriate SyncState from |sync_service_|.
-  SyncState ComputeSyncState() const;
-
-  // Re-computes |sync_state_| from the sync service. Returns the action that
-  // should be taken in response.
-  RefreshAction RefreshSyncState() WARN_UNUSED_RESULT;
+  // Re-computes |history_sync_state_| from the sync service. Returns the action
+  // that should be taken in response.
+  RefreshAction RefreshHistorySyncState() WARN_UNUSED_RESULT;
 
   // syncer::SyncServiceObserver implementation.
   void OnStateChanged(syncer::SyncService* sync) override;
@@ -145,8 +141,8 @@ class SuggestionsServiceImpl : public SuggestionsService,
 
   // Called when an access token request completes (successfully or not).
   void AccessTokenAvailable(const GURL& url,
-                            const GoogleServiceAuthError& error,
-                            const std::string& access_token);
+                            GoogleServiceAuthError error,
+                            identity::AccessTokenInfo access_token_info);
 
   // Issues a network request for suggestions (fetch, blacklist, or clear
   // blacklist, depending on |url|).
@@ -175,22 +171,19 @@ class SuggestionsServiceImpl : public SuggestionsService,
   // blacklist request for it.
   void UploadOneFromBlacklist();
 
-  // Updates |scheduling_delay_| based on the success of the last request.
-  void UpdateBlacklistDelay(bool last_request_successful);
-
   // Adds extra data to suggestions profile.
   void PopulateExtraData(SuggestionsProfile* suggestions);
 
   base::ThreadChecker thread_checker_;
 
-  SigninManagerBase* signin_manager_;
-  OAuth2TokenService* token_service_;
+  identity::IdentityManager* identity_manager_;
 
   syncer::SyncService* sync_service_;
   ScopedObserver<syncer::SyncService, syncer::SyncServiceObserver>
       sync_service_observer_;
 
-  SyncState sync_state_;
+  // The state of history sync, i.e. are we uploading history data to Google?
+  syncer::UploadState history_sync_state_;
 
   net::URLRequestContextGetter* url_request_context_;
 
@@ -203,12 +196,16 @@ class SuggestionsServiceImpl : public SuggestionsService,
   // The local cache for temporary blacklist, until uploaded to the server.
   std::unique_ptr<BlacklistStore> blacklist_store_;
 
-  // Delay used when scheduling a blacklisting task.
-  base::TimeDelta scheduling_delay_;
+  const base::TickClock* tick_clock_;
+
+  // Backoff for scheduling blacklist upload tasks.
+  net::BackoffEntry blacklist_upload_backoff_;
+
+  base::OneShotTimer blacklist_upload_timer_;
 
   // Helper for fetching OAuth2 access tokens. This is non-null iff an access
   // token request is currently in progress.
-  std::unique_ptr<AccessTokenFetcher> token_fetcher_;
+  std::unique_ptr<identity::PrimaryAccountAccessTokenFetcher> token_fetcher_;
 
   // Contains the current suggestions fetch request. Will only have a value
   // while a request is pending, and will be reset by |OnURLFetchComplete| or

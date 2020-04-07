@@ -13,10 +13,14 @@
 
 #include <GL/wglext.h>
 
+#include <thread>
+#include <unordered_map>
+
 namespace rx
 {
 
 class FunctionsWGL;
+class RendererWGL;
 
 class DisplayWGL : public DisplayGL
 {
@@ -41,6 +45,11 @@ class DisplayWGL : public DisplayGL
                                      NativePixmapType nativePixmap,
                                      const egl::AttributeMap &attribs) override;
 
+    ContextImpl *createContext(const gl::ContextState &state,
+                               const egl::Config *configuration,
+                               const gl::Context *shareContext,
+                               const egl::AttributeMap &attribs) override;
+
     egl::ConfigSet generateConfigs() override;
 
     bool testDeviceLost() override;
@@ -52,12 +61,12 @@ class DisplayWGL : public DisplayGL
                                     EGLClientBuffer clientBuffer,
                                     const egl::AttributeMap &attribs) const override;
 
-    egl::Error getDevice(DeviceImpl **device) override;
+    DeviceImpl *createDevice() override;
 
     std::string getVendorString() const override;
 
-    egl::Error waitClient(const gl::Context *context) const override;
-    egl::Error waitNative(const gl::Context *context, EGLint engine) const override;
+    egl::Error waitClient(const gl::Context *context) override;
+    egl::Error waitNative(const gl::Context *context, EGLint engine) override;
 
     egl::Error makeCurrent(egl::Surface *drawSurface,
                            egl::Surface *readSurface,
@@ -66,8 +75,13 @@ class DisplayWGL : public DisplayGL
     egl::Error registerD3DDevice(IUnknown *device, HANDLE *outHandle);
     void releaseD3DDevice(HANDLE handle);
 
+    gl::Version getMaxSupportedESVersion() const override;
+
+    void destroyNativeContext(HGLRC context);
+
   private:
-    const FunctionsGL *getFunctionsGL() const override;
+    egl::Error initializeImpl(egl::Display *display);
+    void destroy();
 
     egl::Error initializeD3DDevice();
 
@@ -79,21 +93,30 @@ class DisplayWGL : public DisplayGL
     HGLRC initializeContextAttribs(const egl::AttributeMap &eglAttributes) const;
     HGLRC createContextAttribs(const gl::Version &version, int profileMask) const;
 
-    HDC mCurrentDC;
+    egl::Error createRenderer(std::shared_ptr<RendererWGL> *outRenderer);
+
+    std::shared_ptr<RendererWGL> mRenderer;
+
+    struct CurrentNativeContext
+    {
+        HDC dc     = nullptr;
+        HGLRC glrc = nullptr;
+    };
+    std::unordered_map<std::thread::id, CurrentNativeContext> mCurrentData;
 
     HMODULE mOpenGLModule;
 
     FunctionsWGL *mFunctionsWGL;
-    FunctionsGL *mFunctionsGL;
 
     bool mHasWGLCreateContextRobustness;
     bool mHasRobustness;
+
+    egl::AttributeMap mDisplayAttributes;
 
     ATOM mWindowClass;
     HWND mWindow;
     HDC mDeviceContext;
     int mPixelFormat;
-    HGLRC mWGLContext;
 
     bool mUseDXGISwapChains;
     bool mHasDXInterop;
@@ -108,8 +131,6 @@ class DisplayWGL : public DisplayGL
         size_t refCount;
     };
     std::map<IUnknown *, D3DObjectHandle> mRegisteredD3DDevices;
-
-    egl::Display *mDisplay;
 };
 
 }

@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "base/strings/string16.h"
+#include "ui/accessibility/ax_enum_util.h"
 #include "ui/accessibility/ax_export.h"
 #include "ui/accessibility/ax_node.h"
 #include "ui/accessibility/ax_position.h"
@@ -38,7 +39,7 @@ class AX_EXPORT AXNodePosition : public AXPosition<AXNodePosition, AXNode> {
   void AnchorParent(int* tree_id, int32_t* parent_id) const override;
   AXNode* GetNodeInTree(int tree_id, int32_t node_id) const override;
   int MaxTextOffset() const override;
-  bool IsInLineBreak() const override;
+  bool IsInWhiteSpace() const override;
   std::vector<int32_t> GetWordStartOffsets() const override;
   std::vector<int32_t> GetWordEndOffsets() const override;
   int32_t GetNextOnLineID(int32_t node_id) const override;

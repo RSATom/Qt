@@ -226,6 +226,20 @@ static void convertToLevelAndOption(QNativeSocketEngine::SocketOption opt,
 #endif
         }
         break;
+
+    case QNativeSocketEngine::PathMtuInformation:
+        if (socketProtocol == QAbstractSocket::IPv6Protocol || socketProtocol == QAbstractSocket::AnyIPProtocol) {
+#ifdef IPV6_MTU
+            level = IPPROTO_IPV6;
+            n = IPV6_MTU;
+#endif
+        } else {
+#ifdef IP_MTU
+            level = IPPROTO_IP;
+            n = IP_MTU;
+#endif
+        }
+        break;
     }
 }
 
@@ -331,6 +345,20 @@ int QNativeSocketEnginePrivate::option(QNativeSocketEngine::SocketOption opt) co
         return -1;
     }
 
+    case QNativeSocketEngine::PathMtuInformation:
+#if defined(IPV6_PATHMTU) && !defined(IPV6_MTU)
+        // Prefer IPV6_MTU (handled by convertToLevelAndOption), if available
+        // (Linux); fall back to IPV6_PATHMTU otherwise (FreeBSD):
+        if (socketProtocol == QAbstractSocket::IPv6Protocol) {
+            ip6_mtuinfo mtuinfo;
+            QT_SOCKOPTLEN_T len = sizeof(mtuinfo);
+            if (::getsockopt(socketDescriptor, IPPROTO_IPV6, IPV6_PATHMTU, &mtuinfo, &len) == 0)
+                return int(mtuinfo.ip6m_mtu);
+            return -1;
+        }
+#endif
+        break;
+
     default:
         break;
     }
@@ -420,6 +448,8 @@ bool QNativeSocketEnginePrivate::setOption(QNativeSocketEngine::SocketOption opt
     }
 #endif
 
+    if (n == -1)
+        return false;
     return ::setsockopt(socketDescriptor, level, n, (char *) &v, sizeof(v)) == 0;
 }
 
@@ -1353,19 +1383,23 @@ qint64 QNativeSocketEnginePrivate::nativeRead(char *data, qint64 maxSize)
             // No data was available for reading
             r = -2;
             break;
-        case EBADF:
-        case EINVAL:
-        case EIO:
-            //error string is now set in read(), not here in nativeRead()
-            break;
         case ECONNRESET:
 #if defined(Q_OS_VXWORKS)
         case ESHUTDOWN:
 #endif
             r = 0;
             break;
-        default:
+        case ETIMEDOUT:
+            socketError = QAbstractSocket::SocketTimeoutError;
             break;
+        default:
+            socketError = QAbstractSocket::NetworkError;
+            break;
+        }
+
+        if (r == -1) {
+            hasSetSocketError = true;
+            socketErrorString = qt_error_string();
         }
     }
 

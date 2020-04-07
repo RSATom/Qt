@@ -6,7 +6,6 @@
 
 #include <memory>
 
-#include "base/memory/ptr_util.h"
 #include "base/values.h"
 #include "extensions/browser/api/api_resource_manager.h"
 #include "extensions/browser/api/socket/socket.h"
@@ -20,7 +19,7 @@ namespace api {
 
 static std::unique_ptr<KeyedService> ApiResourceManagerTestFactory(
     content::BrowserContext* context) {
-  return base::MakeUnique<ApiResourceManager<ResumableUDPSocket>>(context);
+  return std::make_unique<ApiResourceManager<ResumableUDPSocket>>(context);
 }
 
 class SocketsUdpUnitTest : public ApiUnitTest {

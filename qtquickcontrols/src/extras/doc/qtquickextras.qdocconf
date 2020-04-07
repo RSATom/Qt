@@ -27,7 +27,7 @@ qhp.QtQuickExtras.subprojects.qtquickextrasexamples.indexTitle = Qt Quick Extras
 qhp.QtQuickExtras.subprojects.qtquickextrasexamples.selectors  = fake:example
 qhp.QtQuickExtras.subprojects.qtquickextrasexamples.sortPages  = true
 
-depends = qtqml qtquick qtdoc qtquickcontrols qtgui
+depends = qtqml qtquick qtdoc qtquickcontrols1 qtgui
 
 exampledirs += ../../../examples/quickcontrols/extras
 examplesinstallpath = quickcontrols/extras

@@ -46,8 +46,6 @@
 
 QT_BEGIN_NAMESPACE
 
-#if !(defined(QT_NO_DRAGANDDROP) && defined(QT_NO_CLIPBOARD))
-
 QXcbMime::QXcbMime()
     : QInternalMimeData()
 { }
@@ -160,16 +158,17 @@ QVector<xcb_atom_t> QXcbMime::mimeAtomsForFormat(QXcbConnection *connection, con
     return atoms;
 }
 
-QVariant QXcbMime::mimeConvertToFormat(QXcbConnection *connection, xcb_atom_t a, const QByteArray &data, const QString &format,
+QVariant QXcbMime::mimeConvertToFormat(QXcbConnection *connection, xcb_atom_t a, const QByteArray &d, const QString &format,
                                        QVariant::Type requestedType, const QByteArray &encoding)
 {
+    QByteArray data = d;
     QString atomName = mimeAtomToString(connection, a);
 //    qDebug() << "mimeConvertDataToFormat" << format << atomName << data;
 
     if (!encoding.isEmpty()
         && atomName == format + QLatin1String(";charset=") + QLatin1String(encoding)) {
 
-#ifndef QT_NO_TEXTCODEC
+#if QT_CONFIG(textcodec)
         if (requestedType == QVariant::String) {
             QTextCodec *codec = QTextCodec::codecForName(encoding);
             if (codec)
@@ -182,8 +181,11 @@ QVariant QXcbMime::mimeConvertToFormat(QXcbConnection *connection, xcb_atom_t a,
 
     // special cases for string types
     if (format == QLatin1String("text/plain")) {
-        if (a == connection->atom(QXcbAtom::UTF8_STRING))
+        if (data.endsWith('\0'))
+            data.chop(1);
+        if (a == connection->atom(QXcbAtom::UTF8_STRING)) {
             return QString::fromUtf8(data);
+        }
         if (a == XCB_ATOM_STRING ||
             a == connection->atom(QXcbAtom::TEXT))
             return QString::fromLatin1(data);
@@ -221,6 +223,9 @@ QVariant QXcbMime::mimeConvertToFormat(QXcbConnection *connection, xcb_atom_t a,
                 }
             }
         }
+        // 8 byte encoding, remove a possible 0 at the end
+        if (data.endsWith('\0'))
+            data.chop(1);
     }
 
     if (atomName == format)
@@ -312,7 +317,5 @@ xcb_atom_t QXcbMime::mimeAtomForFormat(QXcbConnection *connection, const QString
 
     return 0;
 }
-
-#endif // !(defined(QT_NO_DRAGANDDROP) && defined(QT_NO_CLIPBOARD))
 
 QT_END_NAMESPACE

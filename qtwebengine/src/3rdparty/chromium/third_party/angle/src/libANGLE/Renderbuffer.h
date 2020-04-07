@@ -20,6 +20,11 @@
 #include "libANGLE/formatutils.h"
 #include "libANGLE/renderer/RenderbufferImpl.h"
 
+namespace rx
+{
+class GLImplFactory;
+}  // namespace rx
+
 namespace gl
 {
 // A GL renderbuffer object is usually used as a depth or stencil buffer attachment
@@ -27,14 +32,43 @@ namespace gl
 // FramebufferAttachment and Framebuffer for how they are applied to an FBO via an
 // attachment point.
 
+class RenderbufferState final : angle::NonCopyable
+{
+  public:
+    RenderbufferState();
+    ~RenderbufferState();
+
+    GLsizei getWidth() const;
+    GLsizei getHeight() const;
+    const Format &getFormat() const;
+    GLsizei getSamples() const;
+
+  private:
+    friend class Renderbuffer;
+
+    void update(GLsizei width,
+                GLsizei height,
+                const Format &format,
+                GLsizei samples,
+                InitState initState);
+
+    GLsizei mWidth;
+    GLsizei mHeight;
+    Format mFormat;
+    GLsizei mSamples;
+
+    // For robust resource init.
+    InitState mInitState;
+};
+
 class Renderbuffer final : public egl::ImageSibling,
                            public LabeledObject
 {
   public:
-    Renderbuffer(rx::RenderbufferImpl *impl, GLuint id);
-    virtual ~Renderbuffer();
+    Renderbuffer(rx::GLImplFactory *implFactory, GLuint id);
+    ~Renderbuffer() override;
 
-    void onDestroy(const Context *context) override;
+    Error onDestroy(const Context *context) override;
 
     void setLabel(const std::string &label) override;
     const std::string &getLabel() const override;
@@ -62,33 +96,25 @@ class Renderbuffer final : public egl::ImageSibling,
 
     // FramebufferAttachmentObject Impl
     Extents getAttachmentSize(const ImageIndex &imageIndex) const override;
-    const Format &getAttachmentFormat(GLenum /*binding*/,
-                                      const ImageIndex & /*imageIndex*/) const override
-    {
-        return getFormat();
-    }
-    GLsizei getAttachmentSamples(const ImageIndex & /*imageIndex*/) const override
-    {
-        return getSamples();
-    }
+    Format getAttachmentFormat(GLenum binding, const ImageIndex &imageIndex) const override;
+    GLsizei getAttachmentSamples(const ImageIndex &imageIndex) const override;
 
     void onAttach(const Context *context) override;
     void onDetach(const Context *context) override;
     GLuint getId() const override;
 
-  private:
-    rx::FramebufferAttachmentObjectImpl *getAttachmentImpl() const override { return mRenderbuffer; }
+    InitState initState(const ImageIndex &imageIndex) const override;
+    void setInitState(const ImageIndex &imageIndex, InitState initState) override;
 
-    rx::RenderbufferImpl *mRenderbuffer;
+  private:
+    rx::FramebufferAttachmentObjectImpl *getAttachmentImpl() const override;
+
+    RenderbufferState mState;
+    std::unique_ptr<rx::RenderbufferImpl> mImplementation;
 
     std::string mLabel;
-
-    GLsizei mWidth;
-    GLsizei mHeight;
-    Format mFormat;
-    GLsizei mSamples;
 };
 
-}
+}  // namespace gl
 
 #endif   // LIBANGLE_RENDERBUFFER_H_

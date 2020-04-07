@@ -17,6 +17,9 @@ void DevToolsAgentHostObserver::DevToolsAgentHostCreated(
     DevToolsAgentHost* agent_host) {
 }
 
+void DevToolsAgentHostObserver::DevToolsAgentHostNavigated(
+    DevToolsAgentHost* agent_host) {}
+
 void DevToolsAgentHostObserver::DevToolsAgentHostAttached(
     DevToolsAgentHost* agent_host) {
 }
@@ -28,5 +31,9 @@ void DevToolsAgentHostObserver::DevToolsAgentHostDetached(
 void DevToolsAgentHostObserver::DevToolsAgentHostDestroyed(
     DevToolsAgentHost* agent_host) {
 }
+
+void DevToolsAgentHostObserver::DevToolsAgentHostCrashed(
+    DevToolsAgentHost* agent_host,
+    base::TerminationStatus status) {}
 
 }  // namespace content

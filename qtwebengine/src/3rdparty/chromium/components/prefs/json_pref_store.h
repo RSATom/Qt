@@ -21,9 +21,9 @@
 #include "base/observer_list.h"
 #include "base/sequence_checker.h"
 #include "base/task_scheduler/post_task.h"
-#include "components/prefs/base_prefs_export.h"
 #include "components/prefs/persistent_pref_store.h"
 #include "components/prefs/pref_filter.h"
+#include "components/prefs/prefs_export.h"
 
 class PrefFilter;
 
@@ -35,7 +35,6 @@ class HistogramBase;
 class JsonPrefStoreCallbackTest;
 class JsonPrefStoreLossyWriteTest;
 class SequencedTaskRunner;
-class SequencedWorkerPool;
 class WriteCallbacksObserver;
 class Value;
 FORWARD_DECLARE_TEST(JsonPrefStoreTest, WriteCountHistogramTestBasic);
@@ -56,12 +55,6 @@ class COMPONENTS_PREFS_EXPORT JsonPrefStore
   // to disk.
   using OnWriteCallbackPair =
       std::pair<base::Closure, base::Callback<void(bool success)>>;
-
-  // Returns instance of SequencedTaskRunner which guarantees that file
-  // operations on the same file will be executed in sequenced order.
-  static scoped_refptr<base::SequencedTaskRunner> GetTaskRunnerForFile(
-      const base::FilePath& pref_filename,
-      base::SequencedWorkerPool* worker_pool);
 
   // |pref_filename| is the path to the file to read prefs from. It is incorrect
   // to create multiple JsonPrefStore with the same |pref_filename|.
@@ -117,6 +110,8 @@ class COMPONENTS_PREFS_EXPORT JsonPrefStore
       const base::Closure& on_next_successful_write_reply);
 
   void ClearMutableValues() override;
+
+  void OnStoreDeletionFromDisk() override;
 
  private:
   // Represents a histogram for recording the number of writes to the pref file

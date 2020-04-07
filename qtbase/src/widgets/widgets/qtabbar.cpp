@@ -74,6 +74,23 @@
 
 QT_BEGIN_NAMESPACE
 
+namespace {
+class CloseButton : public QAbstractButton
+{
+    Q_OBJECT
+
+public:
+    explicit CloseButton(QWidget *parent = 0);
+
+    QSize sizeHint() const override;
+    QSize minimumSizeHint() const override
+        { return sizeHint(); }
+    void enterEvent(QEvent *event) override;
+    void leaveEvent(QEvent *event) override;
+    void paintEvent(QPaintEvent *event) override;
+};
+}
+
 QMovableTabWidget::QMovableTabWidget(QWidget *parent)
     : QWidget(parent)
 {
@@ -1034,7 +1051,7 @@ void QTabBar::removeTab(int index)
                         newIndex--;
                     if (d->validIndex(newIndex))
                         break;
-                    // else fallthrough
+                    Q_FALLTHROUGH();
                 case SelectRightTab:
                     newIndex = index;
                     if (newIndex >= d->tabList.size())
@@ -1668,7 +1685,7 @@ bool QTabBar::event(QEvent *event)
         d->updateMacBorderMetrics();
         return QWidget::event(event);
 
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
     } else if (event->type() == QEvent::DragEnter) {
         if (d->changeCurrentOnDrag)
             event->accept();
@@ -2109,13 +2126,13 @@ void QTabBarPrivate::moveTabFinished(int index)
     Q_Q(QTabBar);
     bool cleanup = (pressedIndex == index) || (pressedIndex == -1) || !validIndex(index);
     bool allAnimationsFinished = true;
-#ifndef QT_NO_ANIMATION
+#if QT_CONFIG(animation)
     for(int i = 0; allAnimationsFinished && i < tabList.count(); ++i) {
         const Tab &t = tabList.at(i);
         if (t.animation && t.animation->state() == QAbstractAnimation::Running)
             allAnimationsFinished = false;
     }
-#endif //QT_NO_ANIMATION
+#endif // animation
     if (allAnimationsFinished && cleanup) {
         if(movingTab)
             movingTab->setVisible(false); // We might not get a mouse release
@@ -2166,8 +2183,12 @@ void QTabBar::mouseReleaseEvent(QMouseEvent *event)
     QStyleOptionTabBarBase optTabBase;
     optTabBase.initFrom(this);
     optTabBase.documentMode = d->documentMode;
-    if (style()->styleHint(QStyle::SH_TabBar_SelectMouseType, &optTabBase, this) == QEvent::MouseButtonRelease)
+    const bool selectOnRelease =
+            (style()->styleHint(QStyle::SH_TabBar_SelectMouseType, &optTabBase, this) == QEvent::MouseButtonRelease);
+    if (selectOnRelease)
         setCurrentIndex(i);
+    if (!selectOnRelease || !d->validIndex(i) || d->currentIndex == i)
+        repaint(tabRect(i));
 }
 
 /*!\reimp
@@ -2221,7 +2242,7 @@ void QTabBar::changeEvent(QEvent *event)
             d->elideMode = Qt::TextElideMode(style()->styleHint(QStyle::SH_TabBar_ElideMode, 0, this));
         if (!d->useScrollButtonsSetByUser)
             d->useScrollButtons = !style()->styleHint(QStyle::SH_TabBar_PreferNoArrows, 0, this);
-        // fallthrough
+        Q_FALLTHROUGH();
     case QEvent::FontChange:
         d->textSizes.clear();
         d->refresh();
@@ -2676,13 +2697,13 @@ void CloseButton::paintEvent(QPaintEvent *)
     style()->drawPrimitive(QStyle::PE_IndicatorTabClose, &opt, &p, this);
 }
 
-#ifndef QT_NO_ANIMATION
+#if QT_CONFIG(animation)
 void QTabBarPrivate::Tab::TabBarAnimation::updateCurrentValue(const QVariant &current)
 {
     priv->moveTab(priv->tabList.indexOf(*tab), current.toInt());
 }
 
-void QTabBarPrivate::Tab::TabBarAnimation::updateState(QAbstractAnimation::State, QAbstractAnimation::State newState)
+void QTabBarPrivate::Tab::TabBarAnimation::updateState(QAbstractAnimation::State newState, QAbstractAnimation::State)
 {
     if (newState == Stopped) priv->moveTabFinished(priv->tabList.indexOf(*tab));
 }
@@ -2691,5 +2712,4 @@ void QTabBarPrivate::Tab::TabBarAnimation::updateState(QAbstractAnimation::State
 QT_END_NAMESPACE
 
 #include "moc_qtabbar.cpp"
-
-#include "moc_qtabbar_p.cpp"
+#include "qtabbar.moc"

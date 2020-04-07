@@ -8,6 +8,7 @@
 
 #include "base/logging.h"
 #include "base/numerics/safe_math.h"
+#include "base/threading/thread_task_runner_handle.h"
 #include "third_party/mesa/src/include/GL/osmesa.h"
 #include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_context.h"
@@ -26,7 +27,7 @@ GLSurfaceOSMesa::GLSurfaceOSMesa(GLSurfaceFormat format,
 }
 
 bool GLSurfaceOSMesa::Initialize(GLSurfaceFormat format) {
-  return Resize(size_, 1.f, true);
+  return Resize(size_, 1.f, ColorSpace::UNSPECIFIED, true);
 }
 
 void GLSurfaceOSMesa::Destroy() {
@@ -35,6 +36,7 @@ void GLSurfaceOSMesa::Destroy() {
 
 bool GLSurfaceOSMesa::Resize(const gfx::Size& new_size,
                              float scale_factor,
+                             ColorSpace color_space,
                              bool has_alpha) {
   std::unique_ptr<ui::ScopedMakeCurrent> scoped_make_current;
   GLContext* current_context = GLContext::GetCurrent();
@@ -82,7 +84,8 @@ bool GLSurfaceOSMesa::IsOffscreen() {
   return true;
 }
 
-gfx::SwapResult GLSurfaceOSMesa::SwapBuffers() {
+gfx::SwapResult GLSurfaceOSMesa::SwapBuffers(
+    const PresentationCallback& callback) {
   NOTREACHED() << "Should not call SwapBuffers on an GLSurfaceOSMesa.";
   return gfx::SwapResult::SWAP_FAILED;
 }
@@ -105,8 +108,17 @@ GLSurfaceOSMesa::~GLSurfaceOSMesa() {
 
 bool GLSurfaceOSMesaHeadless::IsOffscreen() { return false; }
 
-gfx::SwapResult GLSurfaceOSMesaHeadless::SwapBuffers() {
+gfx::SwapResult GLSurfaceOSMesaHeadless::SwapBuffers(
+    const PresentationCallback& callback) {
+  gfx::PresentationFeedback feedback(base::TimeTicks::Now(), base::TimeDelta(),
+                                     0 /* flags */);
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE, base::BindOnce(callback, feedback));
   return gfx::SwapResult::SWAP_ACK;
+}
+
+bool GLSurfaceOSMesaHeadless::SupportsPresentationCallback() {
+  return true;
 }
 
 GLSurfaceOSMesaHeadless::GLSurfaceOSMesaHeadless()

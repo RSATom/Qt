@@ -4,7 +4,7 @@
 
 #include "content/common/cursors/webcursor.h"
 
-#include "third_party/WebKit/public/platform/WebCursorInfo.h"
+#include "third_party/blink/public/platform/web_cursor_info.h"
 #include "ui/base/cursor/cursor.h"
 #include "ui/base/cursor/cursor_util.h"
 #include "ui/ozone/public/cursor_factory_ozone.h"
@@ -67,14 +67,6 @@ void WebCursor::InitPlatformData() {
   rotation_ = display::Display::ROTATE_0;
   maximum_cursor_size_ =
       gfx::Size(kDefaultMaxCursorWidth, kDefaultMaxCursorHeight);
-}
-
-bool WebCursor::SerializePlatformData(base::Pickle* pickle) const {
-  return true;
-}
-
-bool WebCursor::DeserializePlatformData(base::PickleIterator* iter) {
-  return true;
 }
 
 bool WebCursor::IsPlatformDataEqual(const WebCursor& other) const {

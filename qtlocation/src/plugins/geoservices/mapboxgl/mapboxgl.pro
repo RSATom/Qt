@@ -22,6 +22,11 @@ SOURCES += \
     qmapboxglstylechange.cpp \
     qsgmapboxglnode.cpp
 
+# Mapbox GL Native is always a static
+# library linked to this plugin
+QMAKE_CXXFLAGS += \
+    -DQT_MAPBOXGL_STATIC
+
 RESOURCES += mapboxgl.qrc
 
 OTHER_FILES += \

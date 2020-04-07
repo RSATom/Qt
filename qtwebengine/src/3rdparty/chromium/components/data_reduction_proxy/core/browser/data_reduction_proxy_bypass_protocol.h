@@ -6,6 +6,7 @@
 #define COMPONENTS_DATA_REDUCTION_PROXY_CORE_BROWSER_DATA_REDUCTION_PROXY_BYPASS_PROTOCOL_H_
 
 #include "base/macros.h"
+#include "base/optional.h"
 #include "base/threading/thread_checker.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_headers.h"
 
@@ -16,6 +17,7 @@ class URLRequest;
 namespace data_reduction_proxy {
 
 class DataReductionProxyConfig;
+struct DataReductionProxyTypeInfo;
 
 // Class responsible for determining when a response should or should not cause
 // the data reduction proxy to be bypassed, and to what degree. Owned by the
@@ -41,16 +43,39 @@ class DataReductionProxyBypassProtocol {
   ~DataReductionProxyBypassProtocol();
 
   // Decides whether to mark the data reduction proxy as temporarily bad and
-  // put it on the proxy retry map, which is maintained by the ProxyService of
-  // the URLRequestContext. Returns true if the request should be retried.
-  // Updates the load flags in |request| for some bypass types, e.g.,
-  // "block-once". Returns the DataReductionProxyBypassType (if not NULL).
+  // put it on the proxy retry map, which is maintained by the
+  // ProxyResolutionService of the URLRequestContext. Returns true if the
+  // request should be retried. Updates the load flags in |request| for some
+  // bypass types, e.g., "block-once". Returns the DataReductionProxyBypassType
+  // (if not NULL).
   bool MaybeBypassProxyAndPrepareToRetry(
       net::URLRequest* request,
       DataReductionProxyBypassType* proxy_bypass_type,
       DataReductionProxyInfo* data_reduction_proxy_info);
 
  private:
+  // Decides whether to mark the data reduction proxy as temporarily bad and
+  // put it on the proxy retry map. Returns true if the request should be
+  // retried. Should be called only when the response of the |request| had null
+  // response headers.
+  bool HandleInvalidResponseHeadersCase(
+      const net::URLRequest& request,
+      const base::Optional<DataReductionProxyTypeInfo>&
+          data_reduction_proxy_type_info,
+      DataReductionProxyInfo* data_reduction_proxy_info,
+      DataReductionProxyBypassType* bypass_type) const;
+
+  // Decides whether to mark the data reduction proxy as temporarily bad and
+  // put it on the proxy retry map. Returns true if the request should be
+  // retried. Should be called only when the response of the |request| had
+  // non-null response headers.
+  bool HandleValidResponseHeadersCase(
+      const net::URLRequest& request,
+      const DataReductionProxyTypeInfo& data_reduction_proxy_type_info,
+      DataReductionProxyBypassType* proxy_bypass_type,
+      DataReductionProxyInfo* data_reduction_proxy_info,
+      DataReductionProxyBypassType* bypass_type) const;
+
   // Must outlive |this|.
   DataReductionProxyConfig* config_;
 

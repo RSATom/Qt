@@ -25,7 +25,7 @@ namespace vttdemux {
 
 typedef long long mkvtime_t;  // NOLINT
 typedef long long mkvpos_t;  // NOLINT
-typedef std::auto_ptr<mkvparser::Segment> segment_ptr_t;
+typedef std::unique_ptr<mkvparser::Segment> segment_ptr_t;
 
 // WebVTT metadata tracks have a type (encoded in the CodecID for the track).
 // We use |type| to synthesize a filename for the out-of-band WebVTT |file|.
@@ -262,6 +262,8 @@ ChapterAtomParser::ChapterAtomParser(
     const mkvparser::Chapters::Display* display)
     : display_(display) {
   str_ = display->GetString();
+  if (str_ == NULL)
+    return;
   const size_t len = strlen(str_);
   str_end_ = str_ + len;
 }
@@ -269,7 +271,7 @@ ChapterAtomParser::ChapterAtomParser(
 ChapterAtomParser::~ChapterAtomParser() {}
 
 int ChapterAtomParser::GetChar(char* c) {
-  if (str_ >= str_end_)  // end-of-stream
+  if (str_ == NULL || str_ >= str_end_)  // end-of-stream
     return 1;  // per the semantics of libwebvtt::Reader::GetChar
 
   *c = *str_++;  // consume this character in the stream
@@ -521,8 +523,10 @@ void vttdemux::CloseFiles(metadata_map_t* metadata_map) {
     metadata_map_t::value_type& v = *i++;
     MetadataInfo& info = v.second;
 
-    fclose(info.file);
-    info.file = NULL;
+    if (info.file != NULL) {
+      fclose(info.file);
+      info.file = NULL;
+    }
   }
 }
 

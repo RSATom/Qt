@@ -34,10 +34,13 @@
 **
 ****************************************************************************/
 
+#include "qquickoverlay_p.h"
 #include "qquickpopuppositioner_p_p.h"
+#include "qquickpopupanchors_p.h"
 #include "qquickpopupitem_p_p.h"
 #include "qquickpopup_p_p.h"
 
+#include <QtQml/qqmlinfo.h>
 #include <QtQuick/private/qquickitem_p.h>
 
 QT_BEGIN_NAMESPACE
@@ -50,9 +53,7 @@ static const QQuickItemPrivate::ChangeTypes ItemChangeTypes = QQuickItemPrivate:
                                                              | QQuickItemPrivate::Parent;
 
 QQuickPopupPositioner::QQuickPopupPositioner(QQuickPopup *popup)
-    : m_positioning(false),
-      m_parentItem(nullptr),
-      m_popup(popup)
+    : m_popup(popup)
 {
 }
 
@@ -62,6 +63,11 @@ QQuickPopupPositioner::~QQuickPopupPositioner()
         QQuickItemPrivate::get(m_parentItem)->removeItemChangeListener(this, ItemChangeTypes);
         removeAncestorListeners(m_parentItem->parentItem());
     }
+}
+
+QQuickPopup *QQuickPopupPositioner::popup() const
+{
+    return m_popup;
 }
 
 QQuickItem *QQuickPopupPositioner::parentItem() const
@@ -111,12 +117,31 @@ void QQuickPopupPositioner::reposition()
     bool heightAdjusted = false;
     QQuickPopupPrivate *p = QQuickPopupPrivate::get(m_popup);
 
-    QRectF rect(p->allowHorizontalMove ? p->x : popupItem->x(),
-                p->allowVerticalMove ? p->y : popupItem->y(),
+    const QQuickItem *centerInParent = p->anchors ? p->getAnchors()->centerIn() : nullptr;
+    const QQuickOverlay *centerInOverlay = qobject_cast<const QQuickOverlay*>(centerInParent);
+    QRectF rect(!centerInParent ? p->allowHorizontalMove ? p->x : popupItem->x() : 0,
+                !centerInParent ? p->allowVerticalMove ? p->y : popupItem->y() : 0,
                 !p->hasWidth && iw > 0 ? iw : w,
                 !p->hasHeight && ih > 0 ? ih : h);
     if (m_parentItem) {
-        rect.moveTopLeft(m_parentItem->mapToItem(popupItem->parentItem(), rect.topLeft()));
+        // m_parentItem is the parent that the popup should open in,
+        // and popupItem()->parentItem() is the overlay, so the mapToItem() calls below
+        // effectively map the rect to scene coordinates.
+        if (centerInParent) {
+            if (centerInParent != parentItem() && !centerInOverlay) {
+                qmlWarning(m_popup) << "Popup can only be centered within its immediate parent or Overlay.overlay";
+                return;
+            }
+
+            if (centerInOverlay) {
+                rect.moveCenter(QPointF(qRound(centerInOverlay->width() / 2.0), qRound(centerInOverlay->height() / 2.0)));
+            } else {
+                const QPointF parentItemCenter = QPointF(qRound(m_parentItem->width() / 2), qRound(m_parentItem->height() / 2));
+                rect.moveCenter(m_parentItem->mapToItem(popupItem->parentItem(), parentItemCenter));
+            }
+        } else {
+            rect.moveTopLeft(m_parentItem->mapToItem(popupItem->parentItem(), rect.topLeft()));
+        }
 
         if (p->window) {
             const QMarginsF margins = p->getMargins();
@@ -217,7 +242,11 @@ void QQuickPopupPositioner::reposition()
 
     popupItem->setPosition(rect.topLeft());
 
-    const QPointF effectivePos = m_parentItem ? m_parentItem->mapFromScene(rect.topLeft()) : rect.topLeft();
+    // If the popup was assigned a parent, rect will be in scene coordinates,
+    // so we need to map its top left back to item coordinates.
+    // However, if centering within the overlay, the coordinates will be relative
+    // to the window, so we don't need to do anything.
+    const QPointF effectivePos = m_parentItem && !centerInOverlay ? m_parentItem->mapFromScene(rect.topLeft()) : rect.topLeft();
     if (!qFuzzyCompare(p->effectiveX, effectivePos.x())) {
         p->effectiveX = effectivePos.x();
         emit m_popup->xChanged();
@@ -248,7 +277,7 @@ void QQuickPopupPositioner::itemParentChanged(QQuickItem *, QQuickItem *parent)
 
 void QQuickPopupPositioner::itemChildRemoved(QQuickItem *item, QQuickItem *child)
 {
-    if (child->isAncestorOf(m_parentItem))
+    if (child == m_parentItem || child->isAncestorOf(m_parentItem))
         removeAncestorListeners(item);
 }
 
@@ -271,7 +300,7 @@ void QQuickPopupPositioner::addAncestorListeners(QQuickItem *item)
 
     QQuickItem *p = item;
     while (p) {
-        QQuickItemPrivate::get(p)->addItemChangeListener(this, AncestorChangeTypes);
+        QQuickItemPrivate::get(p)->updateOrAddItemChangeListener(this, AncestorChangeTypes);
         p = p->parentItem();
     }
 }

@@ -2,12 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "base/macros.h"
 #include "cc/layers/video_frame_provider_client_impl.h"
+#include "base/macros.h"
 #include "cc/layers/video_layer_impl.h"
-#include "cc/output/begin_frame_args.h"
 #include "cc/test/fake_video_frame_provider.h"
 #include "cc/test/layer_test_common.h"
+#include "components/viz/common/frame_sinks/begin_frame_args.h"
 #include "media/base/video_frame.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -33,7 +33,7 @@ class VideoFrameProviderClientImplTest : public testing::Test,
   VideoFrameProviderClientImplTest()
       : client_impl_(VideoFrameProviderClientImpl::Create(&provider_, this)),
         video_layer_impl_(nullptr),
-        test_frame_(media::VideoFrame::CreateFrame(media::PIXEL_FORMAT_YV12,
+        test_frame_(media::VideoFrame::CreateFrame(media::PIXEL_FORMAT_I420,
                                                    gfx::Size(10, 10),
                                                    gfx::Rect(10, 10),
                                                    gfx::Size(10, 10),
@@ -41,7 +41,7 @@ class VideoFrameProviderClientImplTest : public testing::Test,
     DebugSetImplThreadAndMainThreadBlocked(impl_.task_runner_provider());
   }
 
-  ~VideoFrameProviderClientImplTest() {
+  ~VideoFrameProviderClientImplTest() override {
     if (!client_impl_->Stopped()) {
       client_impl_->Stop();
       DCHECK(client_impl_->Stopped());
@@ -69,7 +69,7 @@ class VideoFrameProviderClientImplTest : public testing::Test,
     // Start rendering and verify SetNeedsRedraw() was called for the new frame.
     StartRendering();
     EXPECT_EQ(gfx::Rect(), video_layer_impl_->update_rect());
-    client_impl_->OnBeginFrame(BeginFrameArgs());
+    client_impl_->OnBeginFrame(viz::BeginFrameArgs());
     EXPECT_NE(gfx::Rect(), video_layer_impl_->update_rect());
   }
 

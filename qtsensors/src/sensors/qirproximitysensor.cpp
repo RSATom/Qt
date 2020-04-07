@@ -40,6 +40,8 @@
 #include <qirproximitysensor.h>
 #include "qirproximitysensor_p.h"
 
+QT_BEGIN_NAMESPACE
+
 IMPLEMENT_READING(QIRProximityReading)
 
 /*!
@@ -166,4 +168,5 @@ QIRProximityReading *QIRProximitySensor::reading() const
     return static_cast<QIRProximityReading*>(QSensor::reading());
 }
 
+QT_END_NAMESPACE
 #include "moc_qirproximitysensor.cpp"

@@ -36,6 +36,11 @@ class MEDIA_EXPORT WebMParserClient {
   virtual bool OnUInt(int id, int64_t val);
   virtual bool OnFloat(int id, double val);
   virtual bool OnBinary(int id, const uint8_t* data, int size);
+
+  // Note that |str| is not necessarily a valid WebM string-value; various EBML
+  // "s" or "8" string elements are specified as either ASCII-printable (0x20 -
+  // 0x7F) or UTF-8, respectively.  It is left to the overrides of this method
+  // to do string format validation, if any.
   virtual bool OnString(int id, const std::string& str);
 
  protected:
@@ -125,6 +130,10 @@ class MEDIA_EXPORT WebMListParser {
   bool OnListEnd();
 
   // Checks to see if |id_b| is a sibling or ancestor of |id_a|.
+  // This method is used to determine whether or not a new element |id_b| is a
+  // valid continuation or valid terminator of an unknown-sized list element
+  // |id_a|.  This parser doesn't allow other element types than kWebMIdCluster
+  // or kWebMIdSegment to have unknown size.
   bool IsSiblingOrAncestor(int id_a, int id_b) const;
 
   State state_;

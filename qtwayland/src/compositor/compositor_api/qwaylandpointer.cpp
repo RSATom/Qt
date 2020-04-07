@@ -47,12 +47,7 @@ QT_BEGIN_NAMESPACE
 QWaylandSurfaceRole QWaylandPointerPrivate::s_role("wl_pointer");
 
 QWaylandPointerPrivate::QWaylandPointerPrivate(QWaylandPointer *pointer, QWaylandSeat *seat)
-    : QObjectPrivate()
-    , wl_pointer()
-    , seat(seat)
-    , output()
-    , enterSerial(0)
-    , buttonCount()
+    : seat(seat)
 {
     Q_UNUSED(pointer);
 }
@@ -133,7 +128,7 @@ void QWaylandPointerPrivate::pointer_set_cursor(wl_pointer::Resource *resource, 
     Q_UNUSED(serial);
 
     if (!surface) {
-        seat->cursorSurfaceRequest(Q_NULLPTR, 0, 0);
+        seat->cursorSurfaceRequest(nullptr, 0, 0);
         return;
     }
 
@@ -250,7 +245,7 @@ void QWaylandPointer::sendMouseMoveEvent(QWaylandView *view, const QPointF &loca
 {
     Q_D(QWaylandPointer);
     if (view && (!view->surface() || view->surface()->isCursorSurface()))
-        view = Q_NULLPTR;
+        view = nullptr;
     d->seat->setMouseFocus(view);
     d->localPosition = localPos;
     d->spacePosition = outputSpacePos;

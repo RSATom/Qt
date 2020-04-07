@@ -117,13 +117,13 @@ typedef uint32_t UNSIGNED_TYPE;
 namespace {
 struct Context
 {
-    pp::Diagnostics* diagnostics;
-    pp::Lexer* lexer;
-    pp::Token* token;
+    angle::pp::Diagnostics *diagnostics;
+    angle::pp::Lexer *lexer;
+    angle::pp::Token *token;
     int* result;
     bool parsePresetToken;
 
-    pp::ExpressionParser::ErrorSettings errorSettings;
+    angle::pp::ExpressionParser::ErrorSettings errorSettings;
     bool *valid;
 
     void startIgnoreErrors() { ++ignoreErrors; }
@@ -496,12 +496,9 @@ static const yytype_uint8 yytranslate[] =
 
 #if YYDEBUG
   /* YYRLINE[YYN] -- Source line where rule number YYN was defined.  */
-static const yytype_uint16 yyrline[] =
-{
-       0,   108,   108,   115,   116,   127,   127,   148,   148,   169,
-     172,   175,   178,   181,   184,   187,   190,   193,   196,   221,
-     246,   249,   252,   278,   305,   308,   311,   314,   326,   329
-};
+static const yytype_uint16 yyrline[] = {0,   108, 108, 115, 116, 127, 127, 148, 148, 169,
+                                        172, 175, 178, 181, 184, 187, 190, 193, 196, 221,
+                                        243, 246, 249, 275, 302, 305, 308, 311, 323, 326};
 #endif
 
 #if YYDEBUG || YYERROR_VERBOSE || 0
@@ -1500,9 +1497,8 @@ yyreduce:
                 std::ostringstream stream;
                 stream << (yyvsp[-2]) << " >> " << (yyvsp[0]);
                 std::string text = stream.str();
-                context->diagnostics->report(pp::Diagnostics::PP_UNDEFINED_SHIFT,
-                                             context->token->location,
-                                             text.c_str());
+                context->diagnostics->report(angle::pp::Diagnostics::PP_UNDEFINED_SHIFT,
+                                             context->token->location, text.c_str());
                 *(context->valid) = false;
             }
             (yyval) = static_cast<YYSTYPE>(0);
@@ -1530,21 +1526,17 @@ yyreduce:
                 std::ostringstream stream;
                 stream << (yyvsp[-2]) << " << " << (yyvsp[0]);
                 std::string text = stream.str();
-                context->diagnostics->report(pp::Diagnostics::PP_UNDEFINED_SHIFT,
-                                             context->token->location,
-                                             text.c_str());
+                context->diagnostics->report(angle::pp::Diagnostics::PP_UNDEFINED_SHIFT,
+                                             context->token->location, text.c_str());
                 *(context->valid) = false;
             }
             (yyval) = static_cast<YYSTYPE>(0);
         }
-        else if ((yyvsp[-2]) < 0)
-        {
-            // Logical shift left.
-            (yyval) = static_cast<YYSTYPE>(static_cast<UNSIGNED_TYPE>((yyvsp[-2])) << (yyvsp[0]));
-        }
         else
         {
-            (yyval) = (yyvsp[-2]) << (yyvsp[0]);
+            // Logical shift left. Casting to unsigned is needed to ensure there's no signed integer
+            // overflow, which some tools treat as an error.
+            (yyval) = static_cast<YYSTYPE>(static_cast<UNSIGNED_TYPE>((yyvsp[-2])) << (yyvsp[0]));
         }
     }
 
@@ -1576,9 +1568,8 @@ yyreduce:
                 std::ostringstream stream;
                 stream << (yyvsp[-2]) << " % " << (yyvsp[0]);
                 std::string text = stream.str();
-                context->diagnostics->report(pp::Diagnostics::PP_DIVISION_BY_ZERO,
-                                             context->token->location,
-                                             text.c_str());
+                context->diagnostics->report(angle::pp::Diagnostics::PP_DIVISION_BY_ZERO,
+                                             context->token->location, text.c_str());
                 *(context->valid) = false;
             }
             (yyval) = static_cast<YYSTYPE>(0);
@@ -1607,9 +1598,8 @@ yyreduce:
                 std::ostringstream stream;
                 stream << (yyvsp[-2]) << " / " << (yyvsp[0]);
                 std::string text = stream.str();
-                context->diagnostics->report(pp::Diagnostics::PP_DIVISION_BY_ZERO,
-                                            context->token->location,
-                                            text.c_str());
+                context->diagnostics->report(angle::pp::Diagnostics::PP_DIVISION_BY_ZERO,
+                                             context->token->location, text.c_str());
                 *(context->valid) = false;
             }
             (yyval) = static_cast<YYSTYPE>(0);
@@ -1920,7 +1910,7 @@ yyreturn:
 
 int yylex(YYSTYPE *lvalp, Context *context)
 {
-    pp::Token *token = context->token;
+    angle::pp::Token *token = context->token;
     if (!context->parsePresetToken)
     {
         context->lexer->lex(token);
@@ -1931,48 +1921,50 @@ int yylex(YYSTYPE *lvalp, Context *context)
 
     switch (token->type)
     {
-      case pp::Token::CONST_INT: {
-        unsigned int val = 0;
-        int testVal = 0;
-        if (!token->uValue(&val) || (!token->iValue(&testVal) &&
-                                     context->errorSettings.integerLiteralsMustFit32BitSignedRange))
+        case angle::pp::Token::CONST_INT:
         {
-            context->diagnostics->report(pp::Diagnostics::PP_INTEGER_OVERFLOW,
-                                         token->location, token->text);
-            *(context->valid) = false;
-        }
-        *lvalp = static_cast<YYSTYPE>(val);
-        type = TOK_CONST_INT;
-        break;
+            unsigned int val = 0;
+            int testVal      = 0;
+            if (!token->uValue(&val) ||
+                (!token->iValue(&testVal) &&
+                 context->errorSettings.integerLiteralsMustFit32BitSignedRange))
+            {
+                context->diagnostics->report(angle::pp::Diagnostics::PP_INTEGER_OVERFLOW,
+                                             token->location, token->text);
+                *(context->valid) = false;
+            }
+            *lvalp = static_cast<YYSTYPE>(val);
+            type   = TOK_CONST_INT;
+            break;
       }
-      case pp::Token::IDENTIFIER:
-        *lvalp = static_cast<YYSTYPE>(-1);
-        type = TOK_IDENTIFIER;
-        break;
-      case pp::Token::OP_OR:
-        type = TOK_OP_OR;
-        break;
-      case pp::Token::OP_AND:
-        type = TOK_OP_AND;
-        break;
-      case pp::Token::OP_NE:
-        type = TOK_OP_NE;
-        break;
-      case pp::Token::OP_EQ:
-        type = TOK_OP_EQ;
-        break;
-      case pp::Token::OP_GE:
-        type = TOK_OP_GE;
-        break;
-      case pp::Token::OP_LE:
-        type = TOK_OP_LE;
-        break;
-      case pp::Token::OP_RIGHT:
-        type = TOK_OP_RIGHT;
-        break;
-      case pp::Token::OP_LEFT:
-        type = TOK_OP_LEFT;
-        break;
+      case angle::pp::Token::IDENTIFIER:
+          *lvalp = static_cast<YYSTYPE>(-1);
+          type   = TOK_IDENTIFIER;
+          break;
+      case angle::pp::Token::OP_OR:
+          type = TOK_OP_OR;
+          break;
+      case angle::pp::Token::OP_AND:
+          type = TOK_OP_AND;
+          break;
+      case angle::pp::Token::OP_NE:
+          type = TOK_OP_NE;
+          break;
+      case angle::pp::Token::OP_EQ:
+          type = TOK_OP_EQ;
+          break;
+      case angle::pp::Token::OP_GE:
+          type = TOK_OP_GE;
+          break;
+      case angle::pp::Token::OP_LE:
+          type = TOK_OP_LE;
+          break;
+      case angle::pp::Token::OP_RIGHT:
+          type = TOK_OP_RIGHT;
+          break;
+      case angle::pp::Token::OP_LEFT:
+          type = TOK_OP_LEFT;
+          break;
       case '|':
       case '^':
       case '&':
@@ -1999,10 +1991,12 @@ int yylex(YYSTYPE *lvalp, Context *context)
 
 void yyerror(Context *context, const char *reason)
 {
-    context->diagnostics->report(pp::Diagnostics::PP_INVALID_EXPRESSION,
-                                 context->token->location,
-                                 reason);
+    context->diagnostics->report(angle::pp::Diagnostics::PP_INVALID_EXPRESSION,
+                                 context->token->location, reason);
 }
+
+namespace angle
+{
 
 namespace pp {
 
@@ -2048,3 +2042,5 @@ bool ExpressionParser::parse(Token *token,
 }
 
 }  // namespace pp
+
+}  // namespace angle

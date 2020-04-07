@@ -19,25 +19,25 @@
 #include "gpu/command_buffer/common/gles2_cmd_utils.h"
 #include "gpu/command_buffer/service/feature_info.h"
 #include "gpu/command_buffer/service/framebuffer_completeness_cache.h"
-#include "gpu/command_buffer/service/gpu_preferences.h"
 #include "gpu/command_buffer/service/shader_translator_cache.h"
 #include "gpu/config/gpu_feature_info.h"
-#include "gpu/gpu_export.h"
+#include "gpu/config/gpu_preferences.h"
+#include "gpu/gpu_gles2_export.h"
 
 namespace gpu {
 
 class ImageFactory;
 struct GpuPreferences;
+class MailboxManager;
 class TransferBufferManager;
 class ServiceDiscardableManager;
+class DecoderContext;
 
 namespace gles2 {
 
 class ProgramCache;
 class BufferManager;
-class GLES2Decoder;
 class ImageManager;
-class MailboxManager;
 class RenderbufferManager;
 class PathManager;
 class ProgramManager;
@@ -53,13 +53,14 @@ DisallowedFeatures AdjustDisallowedFeatures(
     ContextType context_type,
     const DisallowedFeatures& disallowed_features);
 
-// A Context Group helps manage multiple GLES2Decoders that share
+// A Context Group helps manage multiple DecoderContexts that share
 // resources.
-class GPU_EXPORT ContextGroup : public base::RefCounted<ContextGroup> {
+class GPU_GLES2_EXPORT ContextGroup : public base::RefCounted<ContextGroup> {
  public:
   ContextGroup(const GpuPreferences& gpu_preferences,
+               bool supports_passthrough_command_decoders,
                MailboxManager* mailbox_manager,
-               const scoped_refptr<MemoryTracker>& memory_tracker,
+               std::unique_ptr<MemoryTracker> memory_tracker,
                ShaderTranslatorCache* shader_translator_cache,
                FramebufferCompletenessCache* framebuffer_completeness_cache,
                const scoped_refptr<FeatureInfo>& feature_info,
@@ -70,16 +71,15 @@ class GPU_EXPORT ContextGroup : public base::RefCounted<ContextGroup> {
                const GpuFeatureInfo& gpu_feature_info,
                ServiceDiscardableManager* discardable_manager);
 
-  // This should only be called by GLES2Decoder. This must be paired with a
+  // This should only be called by a DecoderContext. This must be paired with a
   // call to destroy if it succeeds.
-  bool Initialize(
-      GLES2Decoder* decoder,
-      ContextType context_type,
-      const DisallowedFeatures& disallowed_features);
+  gpu::ContextResult Initialize(DecoderContext* decoder,
+                                ContextType context_type,
+                                const DisallowedFeatures& disallowed_features);
 
   // Destroys all the resources when called for the last context in the group.
-  // It should only be called by GLES2Decoder.
-  void Destroy(GLES2Decoder* decoder, bool have_context);
+  // It should only be called by DecoderContext.
+  void Destroy(DecoderContext* decoder, bool have_context);
 
   MailboxManager* mailbox_manager() const { return mailbox_manager_; }
 
@@ -228,6 +228,10 @@ class GPU_EXPORT ContextGroup : public base::RefCounted<ContextGroup> {
     syncs_id_map_.erase(client_id);
   }
 
+  bool use_passthrough_cmd_decoder() const {
+    return use_passthrough_cmd_decoder_;
+  }
+
   PassthroughResources* passthrough_resources() const {
     return passthrough_resources_.get();
   }
@@ -249,7 +253,7 @@ class GPU_EXPORT ContextGroup : public base::RefCounted<ContextGroup> {
   // than refer to the one passed in to the constructor.
   const GpuPreferences gpu_preferences_;
   MailboxManager* mailbox_manager_;
-  scoped_refptr<MemoryTracker> memory_tracker_;
+  std::unique_ptr<MemoryTracker> memory_tracker_;
   ShaderTranslatorCache* shader_translator_cache_;
   FramebufferCompletenessCache* framebuffer_completeness_cache_;
   std::unique_ptr<TransferBufferManager> transfer_buffer_manager_;
@@ -299,11 +303,12 @@ class GPU_EXPORT ContextGroup : public base::RefCounted<ContextGroup> {
 
   gpu::ImageFactory* image_factory_;
 
-  std::vector<base::WeakPtr<gles2::GLES2Decoder>> decoders_;
+  std::vector<base::WeakPtr<DecoderContext>> decoders_;
 
   // Mappings from client side IDs to service side IDs.
   base::hash_map<GLuint, GLsync> syncs_id_map_;
 
+  bool use_passthrough_cmd_decoder_;
   std::unique_ptr<PassthroughResources> passthrough_resources_;
 
   // Used to notify the watchdog thread of progress during destruction,

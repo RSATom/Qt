@@ -64,14 +64,14 @@ class QQuickFileDialog : public QQuickAbstractFileDialog
 public:
     explicit QQuickFileDialog(QObject *parent = 0);
     ~QQuickFileDialog();
-    virtual QList<QUrl> fileUrls() const Q_DECL_OVERRIDE;
+    QList<QUrl> fileUrls() const override;
 
 public Q_SLOTS:
     void clearSelection();
     bool addSelection(const QUrl &path);
 
 protected:
-    virtual QPlatformFileDialogHelper *helper() Q_DECL_OVERRIDE { return 0; }
+    QPlatformFileDialogHelper *helper() override { return 0; }
     Q_INVOKABLE QString urlToPath(const QUrl &url) { return url.toLocalFile(); }
     Q_INVOKABLE QUrl pathToUrl(const QString &path) { return QUrl::fromLocalFile(path); }
     Q_INVOKABLE QUrl pathFolder(const QString &path);

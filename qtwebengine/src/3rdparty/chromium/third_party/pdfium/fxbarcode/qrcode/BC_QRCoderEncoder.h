@@ -10,7 +10,6 @@
 #include <utility>
 #include <vector>
 
-#include "core/fxcrt/fx_basic.h"
 #include "core/fxcrt/fx_string.h"
 
 class CBC_QRCoder;
@@ -21,7 +20,7 @@ class CBC_QRCoderEncoder {
   CBC_QRCoderEncoder();
   ~CBC_QRCoderEncoder();
 
-  static bool Encode(const CFX_WideString& content,
+  static bool Encode(const WideString& content,
                      const CBC_QRCoderErrorCorrectionLevel* ecLevel,
                      CBC_QRCoder* qrCode);
 };

@@ -51,15 +51,15 @@
 // We mean it.
 //
 
-#include "browser_context_adapter_client.h"
+#include "profile_adapter_client.h"
 #include "qquickwebenginedownloaditem_p.h"
 #include "qquickwebengineprofile.h"
-#include <private/qtwebengineglobal_p.h>
 #include <QString>
 #include <QPointer>
 
 QT_BEGIN_NAMESPACE
 class QQuickWebEngineProfilePrivate;
+class QQuickWebEngineView;
 
 class QQuickWebEngineDownloadItemPrivate {
     QQuickWebEngineDownloadItem *q_ptr;
@@ -81,9 +81,11 @@ public:
     QString downloadPath;
     bool downloadFinished;
     bool downloadPaused;
+    QQuickWebEngineView *view;
 
-    void update(const QtWebEngineCore::BrowserContextAdapterClient::DownloadItemInfo &info);
+    void update(const QtWebEngineCore::ProfileAdapterClient::DownloadItemInfo &info);
     void updateState(QQuickWebEngineDownloadItem::DownloadState newState);
+    void setFinished();
 };
 
 QT_END_NAMESPACE

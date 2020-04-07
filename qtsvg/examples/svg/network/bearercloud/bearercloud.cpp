@@ -131,7 +131,7 @@ void BearerCloud::timerEvent(QTimerEvent *)
 
     bool cloudsMoved = false;
     for (Cloud *cloud : clouds)
-        cloudsMoved |= cloud->advance();
+        cloudsMoved |= cloud->advanceAnimation();
 
     if (!cloudsMoved) {
         killTimer(timerId);

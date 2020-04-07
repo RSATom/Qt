@@ -13,13 +13,13 @@
 #include "core/fxge/cfx_pathdata.h"
 #include "core/fxge/cfx_renderdevice.h"
 #include "core/fxge/fx_dib.h"
-#include "core/fxge/ifx_renderdevicedriver.h"
+#include "core/fxge/renderdevicedriver_iface.h"
 
 #include <Carbon/Carbon.h>
 
 class CQuartz2D {
  public:
-  void* createGraphics(const CFX_RetainPtr<CFX_DIBitmap>& bitmap);
+  void* createGraphics(const RetainPtr<CFX_DIBitmap>& bitmap);
   void destroyGraphics(void* graphics);
 
   void* CreateFont(const uint8_t* pFontData, uint32_t dwFontSize);

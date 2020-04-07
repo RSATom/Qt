@@ -27,11 +27,11 @@ Polymer({
     focusConfig_: {
       type: Object,
       value: function() {
-        var map = new Map();
+        const map = new Map();
         if (settings.routes.ANDROID_APPS_DETAILS) {
           map.set(
               settings.routes.ANDROID_APPS_DETAILS.path,
-              '#android-apps .subpage-arrow');
+              '#android-apps .subpage-arrow button');
         }
         return map;
       },
@@ -53,7 +53,11 @@ Polymer({
   },
 
   /** @private */
-  onSubpageTap_: function() {
+  onSubpageTap_: function(event) {
+    if (event.target && event.target.tagName == 'A') {
+      // Filter out events coming from 'Learn more' link
+      return;
+    }
     if (this.androidAppsInfo.playStoreEnabled)
       settings.navigateTo(settings.routes.ANDROID_APPS_DETAILS);
   },

@@ -157,6 +157,12 @@ static int rscc_decode_frame(AVCodecContext *avctx, void *data,
 
     /* Read number of tiles, and allocate the array */
     tiles_nb = bytestream2_get_le16(gbc);
+
+    if (tiles_nb == 0) {
+        av_log(avctx, AV_LOG_DEBUG, "no tiles\n");
+        return avpkt->size;
+    }
+
     av_fast_malloc(&ctx->tiles, &ctx->tiles_size,
                    tiles_nb * sizeof(*ctx->tiles));
     if (!ctx->tiles) {
@@ -210,6 +216,12 @@ static int rscc_decode_frame(AVCodecContext *avctx, void *data,
         ctx->tiles[i].w = bytestream2_get_le16(gbc);
         ctx->tiles[i].y = bytestream2_get_le16(gbc);
         ctx->tiles[i].h = bytestream2_get_le16(gbc);
+
+        if (pixel_size + ctx->tiles[i].w * (int64_t)ctx->tiles[i].h * ctx->component_size > INT_MAX) {
+            av_log(avctx, AV_LOG_ERROR, "Invalid tile dimensions\n");
+            ret = AVERROR_INVALIDDATA;
+            goto end;
+        }
 
         pixel_size += ctx->tiles[i].w * ctx->tiles[i].h * ctx->component_size;
 

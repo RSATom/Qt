@@ -8,6 +8,7 @@
 #include <GLES2/gl2extchromium.h>
 
 #include "base/logging.h"
+#include "build/build_config.h"
 #include "gpu/command_buffer/common/capabilities.h"
 
 namespace gpu {
@@ -74,6 +75,9 @@ bool IsImageFormatCompatibleWithGpuMemoryBufferFormat(
     case gfx::BufferFormat::BGR_565:
     case gfx::BufferFormat::RGBX_8888:
       return internalformat == GL_RGB;
+    case gfx::BufferFormat::BGRX_1010102:
+    case gfx::BufferFormat::RGBX_1010102:
+      return internalformat == GL_RGB10_A2_EXT;
     case gfx::BufferFormat::RGBA_4444:
     case gfx::BufferFormat::RGBA_F16:
       return internalformat == GL_RGBA;
@@ -106,6 +110,10 @@ bool IsImageFromGpuMemoryBufferFormatSupported(
       return capabilities.texture_rg;
     case gfx::BufferFormat::UYVY_422:
       return capabilities.image_ycbcr_422;
+    case gfx::BufferFormat::BGRX_1010102:
+      return capabilities.image_xr30;
+    case gfx::BufferFormat::RGBX_1010102:
+      return capabilities.image_xb30;
     case gfx::BufferFormat::BGR_565:
     case gfx::BufferFormat::RGBA_4444:
     case gfx::BufferFormat::RGBA_8888:
@@ -115,13 +123,7 @@ bool IsImageFromGpuMemoryBufferFormatSupported(
     case gfx::BufferFormat::RGBA_F16:
       return capabilities.texture_half_float_linear;
     case gfx::BufferFormat::YUV_420_BIPLANAR:
-#if defined(OS_CHROMEOS) && defined(ARCH_CPU_ARM_FAMILY)
-      // TODO(dcastagna): Determine ycbcr_420v_image on CrOS at runtime
-      // querying minigbm. crbug.com/646148
-      return true;
-#else
       return capabilities.image_ycbcr_420v;
-#endif
   }
 
   NOTREACHED();
@@ -148,6 +150,8 @@ bool IsImageSizeValidForGpuMemoryBufferFormat(const gfx::Size& size,
     case gfx::BufferFormat::RGBX_8888:
     case gfx::BufferFormat::BGRA_8888:
     case gfx::BufferFormat::BGRX_8888:
+    case gfx::BufferFormat::BGRX_1010102:
+    case gfx::BufferFormat::RGBX_1010102:
     case gfx::BufferFormat::RGBA_F16:
       return true;
     case gfx::BufferFormat::YVU_420:
@@ -160,6 +164,26 @@ bool IsImageSizeValidForGpuMemoryBufferFormat(const gfx::Size& size,
 
   NOTREACHED();
   return false;
+}
+
+uint32_t GetPlatformSpecificTextureTarget() {
+#if defined(OS_MACOSX)
+  return GL_TEXTURE_RECTANGLE_ARB;
+#elif defined(OS_ANDROID) || defined(OS_LINUX)
+  return GL_TEXTURE_EXTERNAL_OES;
+#elif defined(OS_WIN)
+  return GL_TEXTURE_2D;
+#else
+  return 0;
+#endif
+}
+
+GPU_EXPORT uint32_t GetBufferTextureTarget(gfx::BufferUsage usage,
+                                           gfx::BufferFormat format,
+                                           const Capabilities& capabilities) {
+  bool found = base::ContainsValue(capabilities.texture_target_exception_list,
+                                   gfx::BufferUsageAndFormat(usage, format));
+  return found ? gpu::GetPlatformSpecificTextureTarget() : GL_TEXTURE_2D;
 }
 
 }  // namespace gpu

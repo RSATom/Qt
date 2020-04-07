@@ -147,16 +147,6 @@ defineTest(qtConfTest_embedded) {
     return(false)
 }
 
-defineTest(qtConfTest_detectIcuuc) {
-   pkgConfig = $$qtConfPkgConfig()
-   !isEmpty(pkgConfig) {
-       qtRunLoggedCommand("$$pkgConfig --libs --static libxml-2.0", xmllibs)
-       contains(xmllibs,".*-licuuc.*"):return(true)
-       qtLog("System libxml2 is not configured with ICU")
-   }
-   return(false)
-}
-
 defineTest(qtConfTest_detectHostPkgConfig) {
    PKG_CONFIG = $$qtConfPkgConfig(true)
    isEmpty(PKG_CONFIG) {
@@ -269,4 +259,56 @@ defineTest(isSanitizerLinuxClangVersionSupported) {
 defineReplace(qtConfFunc_isTestsInBuildParts) {
     contains(QT_BUILD_PARTS, tests): return(true)
     return(false)
+}
+
+defineReplace(webEngineGetMacOSVersion) {
+    value = $$system("sw_vers -productVersion 2>/dev/null")
+    return($$value)
+}
+
+defineReplace(webEngineGetMacOSSDKVersion) {
+    value = $$system("/usr/bin/xcodebuild -sdk $$QMAKE_MAC_SDK -version ProductVersion 2>/dev/null")
+    return($$value)
+}
+
+defineReplace(webEngineGetMacOSClangVerboseVersion) {
+    output = $$system("$$QMAKE_CXX --version 2>/dev/null", lines)
+    value = $$first(output)
+    return($$value)
+}
+
+defineTest(qtConfReport_macosToolchainVersion) {
+    arg = $$2
+    contains(arg, "macosVersion"): report_message = $$webEngineGetMacOSVersion()
+    contains(arg, "xcodeVersion"): report_message = "$$QMAKE_XCODE_VERSION"
+    contains(arg, "clangVersion"): report_message = $$webEngineGetMacOSClangVerboseVersion()
+    contains(arg, "sdkVersion"): report_message = $$webEngineGetMacOSSDKVersion()
+    contains(arg, "deploymentTarget"): report_message = "$$QMAKE_MACOSX_DEPLOYMENT_TARGET"
+    !isEmpty(report_message): qtConfReportPadded($$1, $$report_message)
+}
+
+defineTest(qtConfTest_isWindowsHostCompiler64) {
+    win_host_arch = $$(VSCMD_ARG_HOST_ARCH)
+    isEmpty(win_host_arch): return(true)
+    contains(win_host_arch,"x64"): return(true)
+    qtLog("Required 64-bit cross-building or native toolchain was not detected.")
+    return(false)
+}
+
+# Fixme QTBUG-71772
+defineTest(qtConfTest_hasThumbFlag) {
+    FLAG = $$extractCFlag("-mthumb")
+    !isEmpty(FLAG): return(true)
+    FLAG = $$extractCFlag("-marm")
+    !isEmpty(FLAG): return(false)
+
+    MARCH = $$extractCFlag("-march=.*")
+    MARMV = $$replace(MARCH, "armv",)
+    !isEmpty(MARMV) {
+        MARMV = $$split(MARMV,)
+        MARMV = $$member(MARMV, 0)
+    }
+    if (isEmpty(MARMV) | lessThan(MARMV, 7)): return(false)
+    # no flag assume mthumb
+    return(true)
 }

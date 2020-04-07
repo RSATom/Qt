@@ -9,11 +9,11 @@
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
-#include "cc/resources/resource_util.h"
-#include "cc/resources/scoped_resource.h"
-#include "cc/test/fake_resource_provider.h"
-#include "cc/test/test_context_provider.h"
-#include "cc/test/test_shared_bitmap_manager.h"
+#include "components/viz/client/client_resource_provider.h"
+#include "components/viz/common/resources/resource_sizes.h"
+#include "components/viz/common/resources/returned_resource.h"
+#include "components/viz/test/test_context_provider.h"
+#include "components/viz/test/test_shared_bitmap_manager.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace cc {
@@ -21,28 +21,44 @@ namespace cc {
 class ResourcePoolTest : public testing::Test {
  public:
   void SetUp() override {
-    context_provider_ = TestContextProvider::Create();
+    context_provider_ = viz::TestContextProvider::Create();
     context_provider_->BindToCurrentThread();
-    shared_bitmap_manager_.reset(new TestSharedBitmapManager);
-    resource_provider_ = FakeResourceProvider::Create(
-        context_provider_.get(), shared_bitmap_manager_.get());
+    resource_provider_ = std::make_unique<viz::ClientResourceProvider>(true);
     task_runner_ = base::ThreadTaskRunnerHandle::Get();
-    resource_pool_ =
-        ResourcePool::Create(resource_provider_.get(), task_runner_.get(),
-                             ResourceProvider::TEXTURE_HINT_IMMUTABLE,
-                             ResourcePool::kDefaultExpirationDelay, false);
+    resource_pool_ = std::make_unique<ResourcePool>(
+        resource_provider_.get(), context_provider_.get(), task_runner_,
+        ResourcePool::kDefaultExpirationDelay, false);
+  }
+
+  void TearDown() override {
+    resource_provider_->ShutdownAndReleaseAllResources();
   }
 
  protected:
-  void CheckAndReturnResource(Resource* resource) {
-    EXPECT_NE(nullptr, resource);
-    resource_pool_->ReleaseResource(resource);
-    resource_pool_->CheckBusyResources();
+  class StubGpuBacking : public ResourcePool::GpuBacking {
+   public:
+    base::trace_event::MemoryAllocatorDumpGuid MemoryDumpGuid(
+        uint64_t tracing_process_id) override {
+      return {};
+    }
+    base::UnguessableToken SharedMemoryGuid() override { return {}; }
+  };
+
+  void SetBackingOnResource(const ResourcePool::InUsePoolResource& resource) {
+    auto backing = std::make_unique<StubGpuBacking>();
+    backing->mailbox_sync_token.Set(
+        gpu::GPU_IO, gpu::CommandBufferId::FromUnsafeValue(1), 1);
+    resource.set_gpu_backing(std::move(backing));
   }
 
-  scoped_refptr<TestContextProvider> context_provider_;
-  std::unique_ptr<viz::SharedBitmapManager> shared_bitmap_manager_;
-  std::unique_ptr<ResourceProvider> resource_provider_;
+  void CheckAndReturnResource(ResourcePool::InUsePoolResource resource) {
+    EXPECT_TRUE(!!resource);
+    resource_pool_->ReleaseResource(std::move(resource));
+  }
+
+  viz::TestSharedBitmapManager shared_bitmap_manager_;
+  scoped_refptr<viz::TestContextProvider> context_provider_;
+  std::unique_ptr<viz::ClientResourceProvider> resource_provider_;
   scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
   std::unique_ptr<ResourcePool> resource_pool_;
 };
@@ -51,13 +67,13 @@ TEST_F(ResourcePoolTest, AcquireRelease) {
   gfx::Size size(100, 100);
   viz::ResourceFormat format = viz::RGBA_8888;
   gfx::ColorSpace color_space = gfx::ColorSpace::CreateSRGB();
-  Resource* resource =
+  ResourcePool::InUsePoolResource resource =
       resource_pool_->AcquireResource(size, format, color_space);
-  EXPECT_EQ(size, resource->size());
-  EXPECT_EQ(format, resource->format());
-  EXPECT_TRUE(resource_provider_->CanLockForWrite(resource->id()));
+  EXPECT_EQ(size, resource.size());
+  EXPECT_EQ(format, resource.format());
+  EXPECT_EQ(color_space, resource.color_space());
 
-  resource_pool_->ReleaseResource(resource);
+  resource_pool_->ReleaseResource(std::move(resource));
 }
 
 TEST_F(ResourcePoolTest, AccountingSingleResource) {
@@ -70,8 +86,8 @@ TEST_F(ResourcePoolTest, AccountingSingleResource) {
   viz::ResourceFormat format = viz::RGBA_8888;
   gfx::ColorSpace color_space = gfx::ColorSpace::CreateSRGB();
   size_t resource_bytes =
-      ResourceUtil::UncheckedSizeInBytes<size_t>(size, format);
-  Resource* resource =
+      viz::ResourceSizes::UncheckedSizeInBytes<size_t>(size, format);
+  ResourcePool::InUsePoolResource resource =
       resource_pool_->AcquireResource(size, format, color_space);
 
   EXPECT_EQ(resource_bytes, resource_pool_->GetTotalMemoryUsageForTesting());
@@ -80,12 +96,7 @@ TEST_F(ResourcePoolTest, AccountingSingleResource) {
   EXPECT_EQ(1u, resource_pool_->resource_count());
   EXPECT_EQ(0u, resource_pool_->GetBusyResourceCountForTesting());
 
-  resource_pool_->ReleaseResource(resource);
-  EXPECT_EQ(resource_bytes, resource_pool_->GetTotalMemoryUsageForTesting());
-  EXPECT_EQ(1u, resource_pool_->GetTotalResourceCountForTesting());
-  EXPECT_EQ(1u, resource_pool_->GetBusyResourceCountForTesting());
-
-  resource_pool_->CheckBusyResources();
+  resource_pool_->ReleaseResource(std::move(resource));
   EXPECT_EQ(resource_bytes, resource_pool_->GetTotalMemoryUsageForTesting());
   EXPECT_EQ(0u, resource_pool_->memory_usage_bytes());
   EXPECT_EQ(1u, resource_pool_->GetTotalResourceCountForTesting());
@@ -114,27 +125,30 @@ TEST_F(ResourcePoolTest, SimpleResourceReuse) {
 
   CheckAndReturnResource(
       resource_pool_->AcquireResource(size, format, color_space1));
-  EXPECT_EQ(1u, resource_provider_->num_resources());
+  EXPECT_EQ(1u, resource_pool_->GetTotalResourceCountForTesting());
 
   // Same size/format should re-use resource.
-  Resource* resource =
+  ResourcePool::InUsePoolResource resource =
       resource_pool_->AcquireResource(size, format, color_space1);
-  EXPECT_EQ(1u, resource_provider_->num_resources());
-  CheckAndReturnResource(resource);
-  EXPECT_EQ(1u, resource_provider_->num_resources());
+  EXPECT_EQ(1u, resource_pool_->GetTotalResourceCountForTesting());
+  CheckAndReturnResource(std::move(resource));
+  EXPECT_EQ(1u, resource_pool_->GetTotalResourceCountForTesting());
+  EXPECT_EQ(0u, resource_pool_->GetBusyResourceCountForTesting());
 
   // Different size/format should allocate new resource.
   resource = resource_pool_->AcquireResource(gfx::Size(50, 50),
                                              viz::LUMINANCE_8, color_space1);
-  EXPECT_EQ(2u, resource_provider_->num_resources());
-  CheckAndReturnResource(resource);
-  EXPECT_EQ(2u, resource_provider_->num_resources());
+  EXPECT_EQ(2u, resource_pool_->GetTotalResourceCountForTesting());
+  CheckAndReturnResource(std::move(resource));
+  EXPECT_EQ(2u, resource_pool_->GetTotalResourceCountForTesting());
+  EXPECT_EQ(0u, resource_pool_->GetBusyResourceCountForTesting());
 
   // Different color space should allocate new resource.
   resource = resource_pool_->AcquireResource(size, format, color_space2);
-  EXPECT_EQ(3u, resource_provider_->num_resources());
-  CheckAndReturnResource(resource);
-  EXPECT_EQ(3u, resource_provider_->num_resources());
+  EXPECT_EQ(3u, resource_pool_->GetTotalResourceCountForTesting());
+  CheckAndReturnResource(std::move(resource));
+  EXPECT_EQ(3u, resource_pool_->GetTotalResourceCountForTesting());
+  EXPECT_EQ(0u, resource_pool_->GetBusyResourceCountForTesting());
 }
 
 TEST_F(ResourcePoolTest, LostResource) {
@@ -147,23 +161,33 @@ TEST_F(ResourcePoolTest, LostResource) {
   viz::ResourceFormat format = viz::RGBA_8888;
   gfx::ColorSpace color_space = gfx::ColorSpace::CreateSRGB();
 
-  Resource* resource =
+  ResourcePool::InUsePoolResource resource =
       resource_pool_->AcquireResource(size, format, color_space);
-  EXPECT_EQ(1u, resource_provider_->num_resources());
 
-  resource_provider_->LoseResourceForTesting(resource->id());
-  resource_pool_->ReleaseResource(resource);
-  resource_pool_->CheckBusyResources();
-  EXPECT_EQ(0u, resource_provider_->num_resources());
+  SetBackingOnResource(resource);
+  resource_pool_->PrepareForExport(resource);
+
+  std::vector<viz::ResourceId> export_ids = {resource.resource_id_for_export()};
+  std::vector<viz::TransferableResource> transferable_resources;
+  resource_provider_->PrepareSendToParent(export_ids, &transferable_resources,
+                                          context_provider_.get());
+  auto returned_resources =
+      viz::TransferableResource::ReturnResources(transferable_resources);
+  ASSERT_EQ(1u, returned_resources.size());
+  returned_resources[0].lost = true;
+  resource_provider_->ReceiveReturnsFromParent(returned_resources);
+
+  EXPECT_EQ(1u, resource_pool_->GetTotalResourceCountForTesting());
+  resource_pool_->ReleaseResource(std::move(resource));
+  EXPECT_EQ(0u, resource_pool_->GetTotalResourceCountForTesting());
 }
 
-TEST_F(ResourcePoolTest, BusyResourcesEventuallyFreed) {
+TEST_F(ResourcePoolTest, BusyResourcesNotFreed) {
   // Set a quick resource expiration delay so that this test doesn't take long
   // to run.
-  resource_pool_ =
-      ResourcePool::Create(resource_provider_.get(), task_runner_.get(),
-                           ResourceProvider::TEXTURE_HINT_IMMUTABLE,
-                           base::TimeDelta::FromMilliseconds(10), false);
+  resource_pool_ = std::make_unique<ResourcePool>(
+      resource_provider_.get(), context_provider_.get(), task_runner_,
+      base::TimeDelta::FromMilliseconds(10), false);
 
   // Limits high enough to not be hit by this test.
   size_t bytes_limit = 10 * 1024 * 1024;
@@ -174,14 +198,19 @@ TEST_F(ResourcePoolTest, BusyResourcesEventuallyFreed) {
   viz::ResourceFormat format = viz::RGBA_8888;
   gfx::ColorSpace color_space;
 
-  Resource* resource =
+  ResourcePool::InUsePoolResource resource =
       resource_pool_->AcquireResource(size, format, color_space);
-  EXPECT_EQ(1u, resource_provider_->num_resources());
   EXPECT_EQ(40000u, resource_pool_->GetTotalMemoryUsageForTesting());
   EXPECT_EQ(1u, resource_pool_->resource_count());
 
-  resource_pool_->ReleaseResource(resource);
-  EXPECT_EQ(1u, resource_provider_->num_resources());
+  SetBackingOnResource(resource);
+  resource_pool_->PrepareForExport(resource);
+
+  std::vector<viz::TransferableResource> transfers;
+  resource_provider_->PrepareSendToParent({resource.resource_id_for_export()},
+                                          &transfers, context_provider_.get());
+
+  resource_pool_->ReleaseResource(std::move(resource));
   EXPECT_EQ(40000u, resource_pool_->GetTotalMemoryUsageForTesting());
   EXPECT_EQ(0u, resource_pool_->memory_usage_bytes());
   EXPECT_EQ(1u, resource_pool_->GetBusyResourceCountForTesting());
@@ -193,18 +222,19 @@ TEST_F(ResourcePoolTest, BusyResourcesEventuallyFreed) {
                                 base::TimeDelta::FromMillisecondsD(200));
   run_loop.Run();
 
-  EXPECT_EQ(0u, resource_provider_->num_resources());
-  EXPECT_EQ(0u, resource_pool_->GetTotalMemoryUsageForTesting());
+  // Busy resources are still held, since they may be in flight to the display
+  // compositor and should not be freed.
+  EXPECT_EQ(40000u, resource_pool_->GetTotalMemoryUsageForTesting());
   EXPECT_EQ(0u, resource_pool_->memory_usage_bytes());
+  EXPECT_EQ(1u, resource_pool_->GetBusyResourceCountForTesting());
 }
 
 TEST_F(ResourcePoolTest, UnusedResourcesEventuallyFreed) {
   // Set a quick resource expiration delay so that this test doesn't take long
   // to run.
-  resource_pool_ =
-      ResourcePool::Create(resource_provider_.get(), task_runner_.get(),
-                           ResourceProvider::TEXTURE_HINT_IMMUTABLE,
-                           base::TimeDelta::FromMilliseconds(100), false);
+  resource_pool_ = std::make_unique<ResourcePool>(
+      resource_provider_.get(), context_provider_.get(), task_runner_,
+      base::TimeDelta::FromMilliseconds(100), false);
 
   // Limits high enough to not be hit by this test.
   size_t bytes_limit = 10 * 1024 * 1024;
@@ -215,22 +245,29 @@ TEST_F(ResourcePoolTest, UnusedResourcesEventuallyFreed) {
   viz::ResourceFormat format = viz::RGBA_8888;
   gfx::ColorSpace color_space;
 
-  Resource* resource =
+  ResourcePool::InUsePoolResource resource =
       resource_pool_->AcquireResource(size, format, color_space);
-  EXPECT_EQ(1u, resource_provider_->num_resources());
   EXPECT_EQ(40000u, resource_pool_->GetTotalMemoryUsageForTesting());
   EXPECT_EQ(1u, resource_pool_->GetTotalResourceCountForTesting());
   EXPECT_EQ(1u, resource_pool_->resource_count());
+  EXPECT_EQ(0u, resource_pool_->GetBusyResourceCountForTesting());
 
-  resource_pool_->ReleaseResource(resource);
-  EXPECT_EQ(1u, resource_provider_->num_resources());
+  // Export the resource to the display compositor.
+  SetBackingOnResource(resource);
+  resource_pool_->PrepareForExport(resource);
+  std::vector<viz::TransferableResource> transfers;
+  resource_provider_->PrepareSendToParent({resource.resource_id_for_export()},
+                                          &transfers, context_provider_.get());
+
+  resource_pool_->ReleaseResource(std::move(resource));
   EXPECT_EQ(40000u, resource_pool_->GetTotalMemoryUsageForTesting());
   EXPECT_EQ(1u, resource_pool_->GetTotalResourceCountForTesting());
+  EXPECT_EQ(0u, resource_pool_->resource_count());
   EXPECT_EQ(1u, resource_pool_->GetBusyResourceCountForTesting());
 
   // Transfer the resource from the busy pool to the unused pool.
-  resource_pool_->CheckBusyResources();
-  EXPECT_EQ(1u, resource_provider_->num_resources());
+  resource_provider_->ReceiveReturnsFromParent(
+      viz::TransferableResource::ReturnResources(transfers));
   EXPECT_EQ(40000u, resource_pool_->GetTotalMemoryUsageForTesting());
   EXPECT_EQ(1u, resource_pool_->GetTotalResourceCountForTesting());
   EXPECT_EQ(0u, resource_pool_->resource_count());
@@ -243,7 +280,6 @@ TEST_F(ResourcePoolTest, UnusedResourcesEventuallyFreed) {
                                 base::TimeDelta::FromMillisecondsD(200));
   run_loop.Run();
 
-  EXPECT_EQ(0u, resource_provider_->num_resources());
   EXPECT_EQ(0u, resource_pool_->GetTotalMemoryUsageForTesting());
 }
 
@@ -255,20 +291,20 @@ TEST_F(ResourcePoolTest, UpdateContentId) {
   uint64_t new_content_id = 43;
   gfx::Rect new_invalidated_rect(20, 20, 10, 10);
 
-  Resource* resource =
+  ResourcePool::InUsePoolResource resource =
       resource_pool_->AcquireResource(size, format, color_space);
-  resource_pool_->OnContentReplaced(resource->id(), content_id);
-  resource_pool_->ReleaseResource(resource);
-  resource_pool_->CheckBusyResources();
+  resource_pool_->OnContentReplaced(resource, content_id);
+  auto original_id = resource.unique_id_for_testing();
+  resource_pool_->ReleaseResource(std::move(resource));
 
   // Ensure that we can retrieve the resource based on |content_id|.
   gfx::Rect invalidated_rect;
-  Resource* reacquired_resource =
+  ResourcePool::InUsePoolResource reacquired_resource =
       resource_pool_->TryAcquireResourceForPartialRaster(
           new_content_id, new_invalidated_rect, content_id, &invalidated_rect);
-  EXPECT_EQ(resource, reacquired_resource);
+  EXPECT_EQ(original_id, reacquired_resource.unique_id_for_testing());
   EXPECT_EQ(new_invalidated_rect, invalidated_rect);
-  resource_pool_->ReleaseResource(reacquired_resource);
+  resource_pool_->ReleaseResource(std::move(reacquired_resource));
 }
 
 TEST_F(ResourcePoolTest, UpdateContentIdAndInvalidatedRect) {
@@ -281,28 +317,28 @@ TEST_F(ResourcePoolTest, UpdateContentIdAndInvalidatedRect) {
   gfx::Rect expected_total_invalidated_rect(20, 20, 15, 15);
 
   // Acquire a new resource with the first content id.
-  Resource* resource =
+  ResourcePool::InUsePoolResource resource =
       resource_pool_->AcquireResource(size, format, color_space);
-  resource_pool_->OnContentReplaced(resource->id(), content_ids[0]);
+  resource_pool_->OnContentReplaced(resource, content_ids[0]);
+  auto original_id = resource.unique_id_for_testing();
 
   // Attempt to acquire this resource. It is in use, so its ID and invalidated
   // rect should be updated, but a new resource will be returned.
   gfx::Rect new_invalidated_rect;
-  Resource* reacquired_resource =
+  ResourcePool::InUsePoolResource reacquired_resource =
       resource_pool_->TryAcquireResourceForPartialRaster(
           content_ids[1], invalidated_rect, content_ids[0],
           &new_invalidated_rect);
-  EXPECT_EQ(nullptr, reacquired_resource);
+  EXPECT_FALSE(!!reacquired_resource);
   EXPECT_EQ(gfx::Rect(), new_invalidated_rect);
 
   // Release the original resource, returning it to the unused pool.
-  resource_pool_->ReleaseResource(resource);
-  resource_pool_->CheckBusyResources();
+  resource_pool_->ReleaseResource(std::move(resource));
 
   // Ensure that we cannot retrieve a resource based on the original content id.
   reacquired_resource = resource_pool_->TryAcquireResourceForPartialRaster(
       content_ids[1], invalidated_rect, content_ids[0], &new_invalidated_rect);
-  EXPECT_EQ(nullptr, reacquired_resource);
+  EXPECT_FALSE(!!reacquired_resource);
   EXPECT_EQ(gfx::Rect(), new_invalidated_rect);
 
   // Ensure that we can retrieve the resource based on the second (updated)
@@ -311,9 +347,43 @@ TEST_F(ResourcePoolTest, UpdateContentIdAndInvalidatedRect) {
   reacquired_resource = resource_pool_->TryAcquireResourceForPartialRaster(
       content_ids[2], second_invalidated_rect, content_ids[1],
       &total_invalidated_rect);
-  EXPECT_EQ(resource, reacquired_resource);
+  EXPECT_EQ(original_id, reacquired_resource.unique_id_for_testing());
   EXPECT_EQ(expected_total_invalidated_rect, total_invalidated_rect);
-  resource_pool_->ReleaseResource(reacquired_resource);
+  resource_pool_->ReleaseResource(std::move(reacquired_resource));
+}
+
+TEST_F(ResourcePoolTest, LargeInvalidatedRect) {
+  gfx::Size size(100, 100);
+  viz::ResourceFormat format = viz::RGBA_8888;
+  gfx::ColorSpace color_space;
+  uint64_t content_ids[] = {42, 43, 44};
+  // This rect is too large to take the area of it.
+  gfx::Rect large_invalidated_rect(0, 0, std::numeric_limits<int>::max() / 2,
+                                   std::numeric_limits<int>::max() / 2);
+
+  // Acquire a resource with the first content id.
+  ResourcePool::InUsePoolResource resource =
+      resource_pool_->AcquireResource(size, format, color_space);
+  resource_pool_->OnContentReplaced(resource, content_ids[0]);
+
+  // Set an invalidated rect on the resource.
+  gfx::Rect new_invalidated_rect;
+  ResourcePool::InUsePoolResource reacquired_resource =
+      resource_pool_->TryAcquireResourceForPartialRaster(
+          content_ids[1], large_invalidated_rect, content_ids[0],
+          &new_invalidated_rect);
+  EXPECT_FALSE(!!reacquired_resource);
+
+  // Release the original resource, returning it to the unused pool.
+  resource_pool_->ReleaseResource(std::move(resource));
+
+  // Try to get the resource again, this should work even though the area was
+  // too large to compute the area for.
+  resource = resource_pool_->TryAcquireResourceForPartialRaster(
+      content_ids[2], large_invalidated_rect, content_ids[1],
+      &new_invalidated_rect);
+  EXPECT_TRUE(!!resource);
+  resource_pool_->ReleaseResource(std::move(resource));
 }
 
 TEST_F(ResourcePoolTest, ReuseResource) {
@@ -321,8 +391,10 @@ TEST_F(ResourcePoolTest, ReuseResource) {
   gfx::ColorSpace color_space = gfx::ColorSpace::CreateSRGB();
 
   // Create unused resource with size 100x100.
-  CheckAndReturnResource(
-      resource_pool_->CreateResource(gfx::Size(100, 100), format, color_space));
+  ResourcePool::InUsePoolResource original =
+      resource_pool_->AcquireResource(gfx::Size(100, 100), format, color_space);
+  auto original_id = original.unique_id_for_testing();
+  CheckAndReturnResource(std::move(original));
 
   // Try some cases that are too large, none should succeed.
   EXPECT_EQ(nullptr, resource_pool_->ReuseResource(gfx::Size(101, 100), format,
@@ -349,12 +421,18 @@ TEST_F(ResourcePoolTest, ReuseResource) {
   // should succeed if non-exact requests are supported. Some platforms never
   // support these.
   if (resource_pool_->AllowsNonExactReUseForTesting()) {
-    CheckAndReturnResource(
-        resource_pool_->ReuseResource(gfx::Size(50, 100), format, color_space));
-    CheckAndReturnResource(
-        resource_pool_->ReuseResource(gfx::Size(100, 50), format, color_space));
-    CheckAndReturnResource(
-        resource_pool_->ReuseResource(gfx::Size(71, 71), format, color_space));
+    ResourcePool::InUsePoolResource reused = resource_pool_->AcquireResource(
+        gfx::Size(50, 100), format, color_space);
+    EXPECT_EQ(original_id, reused.unique_id_for_testing());
+    CheckAndReturnResource(std::move(reused));
+    reused = resource_pool_->AcquireResource(gfx::Size(100, 50), format,
+                                             color_space);
+    EXPECT_EQ(original_id, reused.unique_id_for_testing());
+    CheckAndReturnResource(std::move(reused));
+    reused =
+        resource_pool_->AcquireResource(gfx::Size(71, 71), format, color_space);
+    EXPECT_EQ(original_id, reused.unique_id_for_testing());
+    CheckAndReturnResource(std::move(reused));
   } else {
     EXPECT_EQ(nullptr, resource_pool_->ReuseResource(gfx::Size(50, 100), format,
                                                      color_space));
@@ -366,14 +444,14 @@ TEST_F(ResourcePoolTest, ReuseResource) {
 
   // 100x100 is an exact match and should succeed. A subsequent request for
   // the same size should fail (the resource is already in use).
-  Resource* resource =
-      resource_pool_->ReuseResource(gfx::Size(100, 100), format, color_space);
+  ResourcePool::InUsePoolResource resource =
+      resource_pool_->AcquireResource(gfx::Size(100, 100), format, color_space);
   EXPECT_EQ(nullptr, resource_pool_->ReuseResource(gfx::Size(100, 100), format,
                                                    color_space));
-  CheckAndReturnResource(resource);
+  CheckAndReturnResource(std::move(resource));
 }
 
-TEST_F(ResourcePoolTest, MemoryStateSuspended) {
+TEST_F(ResourcePoolTest, PurgedMemory) {
   // Limits high enough to not be hit by this test.
   size_t bytes_limit = 10 * 1024 * 1024;
   size_t count_limit = 100;
@@ -382,8 +460,10 @@ TEST_F(ResourcePoolTest, MemoryStateSuspended) {
   gfx::Size size(100, 100);
   viz::ResourceFormat format = viz::RGBA_8888;
   gfx::ColorSpace color_space = gfx::ColorSpace::CreateSRGB();
-  Resource* resource =
+  ResourcePool::InUsePoolResource resource =
       resource_pool_->AcquireResource(size, format, color_space);
+  SetBackingOnResource(resource);
+  resource_pool_->PrepareForExport(resource);
 
   EXPECT_EQ(1u, resource_pool_->GetTotalResourceCountForTesting());
   EXPECT_EQ(0u, resource_pool_->GetBusyResourceCountForTesting());
@@ -395,53 +475,172 @@ TEST_F(ResourcePoolTest, MemoryStateSuspended) {
   EXPECT_EQ(0u, resource_pool_->GetBusyResourceCountForTesting());
   resource_pool_->OnMemoryStateChange(base::MemoryState::NORMAL);
 
+  // Export the resource to the display compositor, so it will be busy once
+  // released.
+  std::vector<viz::TransferableResource> transfers;
+  resource_provider_->PrepareSendToParent({resource.resource_id_for_export()},
+                                          &transfers, context_provider_.get());
+
   // Release the resource making it busy.
-  resource_pool_->ReleaseResource(resource);
+  resource_pool_->OnMemoryStateChange(base::MemoryState::NORMAL);
+  resource_pool_->ReleaseResource(std::move(resource));
   EXPECT_EQ(1u, resource_pool_->GetTotalResourceCountForTesting());
   EXPECT_EQ(1u, resource_pool_->GetBusyResourceCountForTesting());
 
-  // Purging and suspending should now free the busy resource.
+  // Purging and suspending should not impact a busy resource either.
+  resource_pool_->OnPurgeMemory();
+  resource_pool_->OnMemoryStateChange(base::MemoryState::SUSPENDED);
+  EXPECT_EQ(1u, resource_pool_->GetTotalResourceCountForTesting());
+  EXPECT_EQ(1u, resource_pool_->GetBusyResourceCountForTesting());
+
+  // The resource moves from busy to available.
+  resource_pool_->OnMemoryStateChange(base::MemoryState::NORMAL);
+  resource_provider_->ReceiveReturnsFromParent(
+      viz::TransferableResource::ReturnResources(transfers));
+  EXPECT_EQ(1u, resource_pool_->GetTotalResourceCountForTesting());
+  EXPECT_EQ(0u, resource_pool_->GetBusyResourceCountForTesting());
+
+  // Purging and suspending should drop unused resources.
   resource_pool_->OnPurgeMemory();
   resource_pool_->OnMemoryStateChange(base::MemoryState::SUSPENDED);
   EXPECT_EQ(0u, resource_pool_->GetTotalResourceCountForTesting());
   EXPECT_EQ(0u, resource_pool_->GetBusyResourceCountForTesting());
 }
 
-TEST_F(ResourcePoolTest, TextureHintRespected) {
+TEST_F(ResourcePoolTest, MemoryStateSuspended) {
+  // Limits high enough to not be hit by this test.
+  size_t bytes_limit = 10 * 1024 * 1024;
+  size_t count_limit = 100;
+  resource_pool_->SetResourceUsageLimits(bytes_limit, count_limit);
+
   gfx::Size size(100, 100);
   viz::ResourceFormat format = viz::RGBA_8888;
-  gfx::ColorSpace color_space;
-
-  resource_pool_ =
-      ResourcePool::Create(resource_provider_.get(), task_runner_.get(),
-                           ResourceProvider::TEXTURE_HINT_IMMUTABLE,
-                           base::TimeDelta::FromMilliseconds(100), false);
-  Resource* resource =
+  gfx::ColorSpace color_space = gfx::ColorSpace::CreateSRGB();
+  ResourcePool::InUsePoolResource resource =
       resource_pool_->AcquireResource(size, format, color_space);
-  EXPECT_TRUE(resource_provider_->IsImmutable(resource->id()));
-  resource_pool_->ReleaseResource(resource);
+  SetBackingOnResource(resource);
+  resource_pool_->PrepareForExport(resource);
 
-  resource_pool_ =
-      ResourcePool::Create(resource_provider_.get(), task_runner_.get(),
-                           ResourceProvider::TEXTURE_HINT_DEFAULT,
-                           base::TimeDelta::FromMilliseconds(100), false);
-  resource = resource_pool_->AcquireResource(size, format, color_space);
-  EXPECT_FALSE(resource_provider_->IsImmutable(resource->id()));
-  resource_pool_->ReleaseResource(resource);
+  EXPECT_EQ(1u, resource_pool_->GetTotalResourceCountForTesting());
+  EXPECT_EQ(0u, resource_pool_->GetBusyResourceCountForTesting());
+
+  // Purging and suspending should not impact an in-use resource.
+  resource_pool_->OnPurgeMemory();
+  resource_pool_->OnMemoryStateChange(base::MemoryState::SUSPENDED);
+  EXPECT_EQ(1u, resource_pool_->GetTotalResourceCountForTesting());
+  EXPECT_EQ(0u, resource_pool_->GetBusyResourceCountForTesting());
+  resource_pool_->OnMemoryStateChange(base::MemoryState::NORMAL);
+
+  // Export the resource to the display compositor, so it will be busy once
+  // released.
+  std::vector<viz::TransferableResource> transfers;
+  resource_provider_->PrepareSendToParent({resource.resource_id_for_export()},
+                                          &transfers, context_provider_.get());
+
+  // Release the resource making it busy.
+  resource_pool_->OnMemoryStateChange(base::MemoryState::NORMAL);
+  resource_pool_->ReleaseResource(std::move(resource));
+  EXPECT_EQ(1u, resource_pool_->GetTotalResourceCountForTesting());
+  EXPECT_EQ(1u, resource_pool_->GetBusyResourceCountForTesting());
+
+  // Purging and suspending should not impact a busy resource either.
+  resource_pool_->OnPurgeMemory();
+  resource_pool_->OnMemoryStateChange(base::MemoryState::SUSPENDED);
+  EXPECT_EQ(1u, resource_pool_->GetTotalResourceCountForTesting());
+  EXPECT_EQ(1u, resource_pool_->GetBusyResourceCountForTesting());
+
+  // The resource moves from busy to available, but since we are SUSPENDED
+  // it is not kept.
+  resource_provider_->ReceiveReturnsFromParent(
+      viz::TransferableResource::ReturnResources(transfers));
+  EXPECT_EQ(0u, resource_pool_->GetTotalResourceCountForTesting());
+  EXPECT_EQ(0u, resource_pool_->GetBusyResourceCountForTesting());
+}
+
+TEST_F(ResourcePoolTest, InvalidateResources) {
+  // Limits high enough to not be hit by this test.
+  size_t bytes_limit = 10 * 1024 * 1024;
+  size_t count_limit = 100;
+  resource_pool_->SetResourceUsageLimits(bytes_limit, count_limit);
+
+  gfx::Size size(100, 100);
+  viz::ResourceFormat format = viz::RGBA_8888;
+  gfx::ColorSpace color_space = gfx::ColorSpace::CreateSRGB();
+  ResourcePool::InUsePoolResource busy_resource =
+      resource_pool_->AcquireResource(size, format, color_space);
+  SetBackingOnResource(busy_resource);
+  resource_pool_->PrepareForExport(busy_resource);
+  EXPECT_EQ(1u, resource_pool_->GetTotalResourceCountForTesting());
+  EXPECT_EQ(0u, resource_pool_->GetBusyResourceCountForTesting());
+  EXPECT_EQ(1u, resource_pool_->resource_count());
+
+  // Make a 2nd resource which will be left available in the pool.
+  ResourcePool::InUsePoolResource avail_resource =
+      resource_pool_->AcquireResource(size, format, color_space);
+  EXPECT_EQ(2u, resource_pool_->GetTotalResourceCountForTesting());
+  EXPECT_EQ(0u, resource_pool_->GetBusyResourceCountForTesting());
+  EXPECT_EQ(2u, resource_pool_->resource_count());
+
+  // Make a 3nd resource which will be kept in use.
+  ResourcePool::InUsePoolResource in_use_resource =
+      resource_pool_->AcquireResource(size, format, color_space);
+  EXPECT_EQ(3u, resource_pool_->GetTotalResourceCountForTesting());
+  EXPECT_EQ(0u, resource_pool_->GetBusyResourceCountForTesting());
+  EXPECT_EQ(3u, resource_pool_->resource_count());
+
+  // Mark this one as available.
+  resource_pool_->ReleaseResource(std::move(avail_resource));
+  EXPECT_EQ(3u, resource_pool_->GetTotalResourceCountForTesting());
+  EXPECT_EQ(0u, resource_pool_->GetBusyResourceCountForTesting());
+  EXPECT_EQ(2u, resource_pool_->resource_count());
+
+  // Export the first resource to the display compositor, so it will be busy
+  // once released.
+  std::vector<viz::TransferableResource> transfers;
+  resource_provider_->PrepareSendToParent(
+      {busy_resource.resource_id_for_export()}, &transfers,
+      context_provider_.get());
+
+  // Release the resource making it busy.
+  resource_pool_->ReleaseResource(std::move(busy_resource));
+  EXPECT_EQ(3u, resource_pool_->GetTotalResourceCountForTesting());
+  EXPECT_EQ(1u, resource_pool_->GetBusyResourceCountForTesting());
+  EXPECT_EQ(1u, resource_pool_->resource_count());
+
+  // Invalidating resources should prevent reuse of any resource.
+  resource_pool_->InvalidateResources();
+
+  // The available resource is just dropped immediately.
+  EXPECT_EQ(2u, resource_pool_->GetTotalResourceCountForTesting());
+  EXPECT_EQ(1u, resource_pool_->GetBusyResourceCountForTesting());
+  EXPECT_EQ(1u, resource_pool_->resource_count());
+
+  // The resource moves from busy to available, but since we invalidated,
+  // it is not kept.
+  resource_provider_->ReceiveReturnsFromParent(
+      viz::TransferableResource::ReturnResources(transfers));
+  EXPECT_EQ(1u, resource_pool_->GetTotalResourceCountForTesting());
+  EXPECT_EQ(0u, resource_pool_->GetBusyResourceCountForTesting());
+  EXPECT_EQ(1u, resource_pool_->resource_count());
+
+  // The last resource was in use, when it is released it will not become able
+  // to be reused.
+  resource_pool_->ReleaseResource(std::move(in_use_resource));
+  EXPECT_EQ(0u, resource_pool_->GetTotalResourceCountForTesting());
+  EXPECT_EQ(0u, resource_pool_->GetBusyResourceCountForTesting());
 }
 
 TEST_F(ResourcePoolTest, ExactRequestsRespected) {
   viz::ResourceFormat format = viz::RGBA_8888;
   gfx::ColorSpace color_space = gfx::ColorSpace::CreateSRGB();
 
-  resource_pool_ =
-      ResourcePool::Create(resource_provider_.get(), task_runner_.get(),
-                           ResourceProvider::TEXTURE_HINT_DEFAULT,
-                           base::TimeDelta::FromMilliseconds(100), true);
+  resource_pool_ = std::make_unique<ResourcePool>(
+      resource_provider_.get(), context_provider_.get(), task_runner_,
+      base::TimeDelta::FromMilliseconds(100), true);
 
   // Create unused resource with size 100x100.
-  CheckAndReturnResource(
-      resource_pool_->CreateResource(gfx::Size(100, 100), format, color_space));
+  CheckAndReturnResource(resource_pool_->AcquireResource(gfx::Size(100, 100),
+                                                         format, color_space));
 
   // Try some cases that are smaller than 100x100, but within 2x area which
   // would typically allow reuse. Reuse should fail.
@@ -454,11 +653,61 @@ TEST_F(ResourcePoolTest, ExactRequestsRespected) {
 
   // 100x100 is an exact match and should succeed. A subsequent request for
   // the same size should fail (the resource is already in use).
-  Resource* resource =
-      resource_pool_->ReuseResource(gfx::Size(100, 100), format, color_space);
+  ResourcePool::InUsePoolResource resource =
+      resource_pool_->AcquireResource(gfx::Size(100, 100), format, color_space);
   EXPECT_EQ(nullptr, resource_pool_->ReuseResource(gfx::Size(100, 100), format,
                                                    color_space));
-  CheckAndReturnResource(resource);
+  CheckAndReturnResource(std::move(resource));
+}
+
+TEST_F(ResourcePoolTest, MetadataSentToDisplayCompositor) {
+  // Limits high enough to not be hit by this test.
+  size_t bytes_limit = 10 * 1024 * 1024;
+  size_t count_limit = 100;
+  resource_pool_->SetResourceUsageLimits(bytes_limit, count_limit);
+
+  // These values are all non-default values so we can tell they are propagated.
+  gfx::Size size(100, 101);
+  viz::ResourceFormat format = viz::ETC1;
+  EXPECT_NE(gfx::BufferFormat::RGBA_8888, viz::BufferFormat(format));
+  gfx::ColorSpace color_space = gfx::ColorSpace::CreateSRGB();
+  uint32_t target = 5;
+  gpu::Mailbox mailbox;
+  mailbox.name[0] = 'a';
+  gpu::SyncToken sync_token(gpu::CommandBufferNamespace::GPU_IO,
+                            gpu::CommandBufferId::FromUnsafeValue(0x123), 7);
+
+  ResourcePool::InUsePoolResource resource =
+      resource_pool_->AcquireResource(size, format, color_space);
+  SetBackingOnResource(resource);
+
+  // More non-default values.
+  resource.gpu_backing()->mailbox = mailbox;
+  resource.gpu_backing()->mailbox_sync_token = sync_token;
+  resource.gpu_backing()->texture_target = target;
+  resource.gpu_backing()->wait_on_fence_required = true;
+  resource.gpu_backing()->overlay_candidate = true;
+
+  resource_pool_->PrepareForExport(resource);
+
+  std::vector<viz::TransferableResource> transfer;
+  resource_provider_->PrepareSendToParent({resource.resource_id_for_export()},
+                                          &transfer, context_provider_.get());
+
+  // The verified_flush flag will be set by the ResourceProvider when it exports
+  // the resource.
+  sync_token.SetVerifyFlush();
+
+  ASSERT_EQ(transfer.size(), 1u);
+  EXPECT_EQ(transfer[0].id, resource.resource_id_for_export());
+  EXPECT_EQ(transfer[0].mailbox_holder.mailbox, mailbox);
+  EXPECT_EQ(transfer[0].mailbox_holder.sync_token, sync_token);
+  EXPECT_EQ(transfer[0].mailbox_holder.texture_target, target);
+  EXPECT_EQ(transfer[0].format, format);
+  EXPECT_TRUE(transfer[0].read_lock_fences_enabled);
+  EXPECT_TRUE(transfer[0].is_overlay_candidate);
+
+  resource_pool_->ReleaseResource(std::move(resource));
 }
 
 }  // namespace cc

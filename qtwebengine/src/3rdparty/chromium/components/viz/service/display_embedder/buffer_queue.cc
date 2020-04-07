@@ -5,7 +5,6 @@
 #include "components/viz/service/display_embedder/buffer_queue.h"
 
 #include "base/containers/adapters.h"
-#include "base/memory/ptr_util.h"
 #include "build/build_config.h"
 #include "components/viz/common/gl_helper.h"
 #include "gpu/GLES2/gl2extchromium.h"
@@ -266,12 +265,12 @@ std::unique_ptr<BufferQueue::AllocatedSurface> BufferQueue::GetNextSurface() {
   std::unique_ptr<gfx::GpuMemoryBuffer> buffer(
       gpu_memory_buffer_manager_->CreateGpuMemoryBuffer(
           size_, format_, gfx::BufferUsage::SCANOUT, surface_handle_));
-  if (!buffer.get()) {
+  if (!buffer) {
     gl_->DeleteTextures(1, &texture);
     DLOG(ERROR) << "Failed to allocate GPU memory buffer";
     return nullptr;
   }
-  buffer->SetColorSpaceForScanout(color_space_);
+  buffer->SetColorSpace(color_space_);
 
   uint32_t id =
       gl_->CreateImageCHROMIUM(buffer->AsClientBuffer(), size_.width(),
@@ -285,7 +284,7 @@ std::unique_ptr<BufferQueue::AllocatedSurface> BufferQueue::GetNextSurface() {
   allocated_count_++;
   gl_->BindTexture(texture_target_, texture);
   gl_->BindTexImage2DCHROMIUM(texture_target_, id);
-  return base::MakeUnique<AllocatedSurface>(this, std::move(buffer), texture,
+  return std::make_unique<AllocatedSurface>(this, std::move(buffer), texture,
                                             id, stencil, gfx::Rect(size_));
 }
 

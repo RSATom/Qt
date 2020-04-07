@@ -56,7 +56,6 @@ static bool encode_webp_lossy(SkWStream* dst, const SkPixmap& src) {
     SkWebpEncoder::Options opts;
     opts.fCompression = SkWebpEncoder::Compression::kLossy;
     opts.fQuality = 90;
-    opts.fUnpremulBehavior = SkTransferFunctionBehavior::kIgnore;
     return SkWebpEncoder::Encode(dst, src, opts);
 }
 
@@ -64,7 +63,6 @@ static bool encode_webp_lossless(SkWStream* dst, const SkPixmap& src) {
     SkWebpEncoder::Options opts;
     opts.fCompression = SkWebpEncoder::Compression::kLossless;
     opts.fQuality = 90;
-    opts.fUnpremulBehavior = SkTransferFunctionBehavior::kIgnore;
     return SkWebpEncoder::Encode(dst, src, opts);
 }
 
@@ -74,7 +72,6 @@ static bool encode_png(SkWStream* dst,
                        int zlibLevel) {
     SkPngEncoder::Options opts;
     opts.fFilterFlags = filters;
-    opts.fUnpremulBehavior = SkTransferFunctionBehavior::kIgnore;
     opts.fZLibLevel = zlibLevel;
     return SkPngEncoder::Encode(dst, src, opts);
 }
@@ -82,7 +79,7 @@ static bool encode_png(SkWStream* dst,
 #define PNG(FLAG, ZLIBLEVEL) [](SkWStream* d, const SkPixmap& s) { \
            return encode_png(d, s, SkPngEncoder::FilterFlag::FLAG, ZLIBLEVEL); }
 
-static const char* srcs[2] = {"mandrill_512.png", "color_wheel.jpg"};
+static const char* srcs[2] = {"images/mandrill_512.png", "images/color_wheel.jpg"};
 
 // The Android Photos app uses a quality of 90 on JPEG encodes
 DEF_BENCH(return new EncodeBench(srcs[0], &encode_jpeg, "JPEG"));

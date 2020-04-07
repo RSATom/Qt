@@ -45,6 +45,7 @@
 #include <qdrawutil.h>
 #include <qevent.h>
 #include <qfontmetrics.h>
+#include <qproxystyle.h>
 #include <qwindow.h>
 #include <qscreen.h>
 #include <qmainwindow.h>
@@ -53,6 +54,7 @@
 #include <qdebug.h>
 
 #include <private/qwidgetresizehandler_p.h>
+#include <private/qstylesheetstyle_p.h>
 
 #include "qdockwidget_p.h"
 #include "qmainwindowlayout_p.h"
@@ -73,7 +75,7 @@ static inline QMainWindowLayout *qt_mainwindow_layout_from_dock(const QDockWidge
             return qt_mainwindow_layout(window);
         p = p->parentWidget();
     }
-    return Q_NULLPTR;
+    return nullptr;
 }
 
 static inline bool hasFeature(const QDockWidgetPrivate *priv, QDockWidget::DockWidgetFeature feature)
@@ -120,20 +122,71 @@ class QDockWidgetTitleButton : public QAbstractButton
 public:
     QDockWidgetTitleButton(QDockWidget *dockWidget);
 
-    QSize sizeHint() const Q_DECL_OVERRIDE;
-    QSize minimumSizeHint() const Q_DECL_OVERRIDE
+    QSize sizeHint() const override;
+    QSize minimumSizeHint() const override
     { return sizeHint(); }
 
-    void enterEvent(QEvent *event) Q_DECL_OVERRIDE;
-    void leaveEvent(QEvent *event) Q_DECL_OVERRIDE;
-    void paintEvent(QPaintEvent *event) Q_DECL_OVERRIDE;
-};
+    void enterEvent(QEvent *event) override;
+    void leaveEvent(QEvent *event) override;
+    void paintEvent(QPaintEvent *event) override;
 
+protected:
+    bool event(QEvent *event) override;
+
+private:
+    QSize dockButtonIconSize() const;
+
+    mutable int m_iconSize = -1;
+};
 
 QDockWidgetTitleButton::QDockWidgetTitleButton(QDockWidget *dockWidget)
     : QAbstractButton(dockWidget)
 {
     setFocusPolicy(Qt::NoFocus);
+}
+
+bool QDockWidgetTitleButton::event(QEvent *event)
+{
+    switch (event->type()) {
+    case QEvent::StyleChange:
+    case QEvent::ScreenChangeInternal:
+        m_iconSize = -1;
+        break;
+    default:
+        break;
+    }
+    return QAbstractButton::event(event);
+}
+
+static inline bool isWindowsStyle(const QStyle *style)
+{
+    // Note: QStyleSheetStyle inherits QWindowsStyle
+    const QStyle *effectiveStyle = style;
+
+#if QT_CONFIG(style_stylesheet)
+    if (style->inherits("QStyleSheetStyle"))
+      effectiveStyle = static_cast<const QStyleSheetStyle *>(style)->baseStyle();
+#endif
+#if !defined(QT_NO_STYLE_PROXY)
+    if (style->inherits("QProxyStyle"))
+      effectiveStyle = static_cast<const QProxyStyle *>(style)->baseStyle();
+#endif
+
+    return effectiveStyle->inherits("QWindowsStyle");
+}
+
+QSize QDockWidgetTitleButton::dockButtonIconSize() const
+{
+    if (m_iconSize < 0) {
+        m_iconSize = style()->pixelMetric(QStyle::PM_SmallIconSize, nullptr, this);
+        // Dock Widget title buttons on Windows where historically limited to size 10
+        // (from small icon size 16) since only a 10x10 XPM was provided.
+        // Adding larger pixmaps to the icons thus caused the icons to grow; limit
+        // this to qpiScaled(10) here.
+        if (isWindowsStyle(style()))
+            m_iconSize = qMin((10 * logicalDpiX()) / 96, m_iconSize);
+    }
+    return QSize(m_iconSize, m_iconSize);
 }
 
 QSize QDockWidgetTitleButton::sizeHint() const
@@ -142,8 +195,7 @@ QSize QDockWidgetTitleButton::sizeHint() const
 
     int size = 2*style()->pixelMetric(QStyle::PM_DockWidgetTitleBarButtonMargin, 0, this);
     if (!icon().isNull()) {
-        int iconSize = style()->pixelMetric(QStyle::PM_SmallIconSize, 0, this);
-        QSize sz = icon().actualSize(QSize(iconSize, iconSize));
+        const QSize sz = icon().actualSize(dockButtonIconSize());
         size += qMax(sz.width(), sz.height());
     }
 
@@ -186,8 +238,7 @@ void QDockWidgetTitleButton::paintEvent(QPaintEvent *)
     opt.activeSubControls = 0;
     opt.features = QStyleOptionToolButton::None;
     opt.arrowType = Qt::NoArrow;
-    int size = style()->pixelMetric(QStyle::PM_SmallIconSize, 0, this);
-    opt.iconSize = QSize(size, size);
+    opt.iconSize = dockButtonIconSize();
     style()->drawComplexControl(QStyle::CC_ToolButton, &opt, &p, this);
 }
 
@@ -610,6 +661,8 @@ void QDockWidgetPrivate::init()
     button->setObjectName(QLatin1String("qt_dockwidget_closebutton"));
     QObject::connect(button, SIGNAL(clicked()), q, SLOT(close()));
     layout->setWidgetForRole(QDockWidgetLayout::CloseButton, button);
+
+    font = QApplication::font("QDockWidgetTitle");
 
 #ifndef QT_NO_ACTION
     toggleViewAction = new QAction(q);
@@ -1419,6 +1472,7 @@ void QDockWidget::closeEvent(QCloseEvent *event)
 void QDockWidget::paintEvent(QPaintEvent *event)
 {
     Q_UNUSED(event)
+    Q_D(QDockWidget);
 
     QDockWidgetLayout *layout
         = qobject_cast<QDockWidgetLayout*>(this->layout());
@@ -1439,6 +1493,11 @@ void QDockWidget::paintEvent(QPaintEvent *event)
         // the title may wish to extend out to all sides (eg. Vista style)
         QStyleOptionDockWidget titleOpt;
         initStyleOption(&titleOpt);
+        if (font() == QApplication::font("QDockWidget")) {
+            titleOpt.fontMetrics = QFontMetrics(d->font);
+            p.setFont(d->font);
+        }
+
         p.drawControl(QStyle::CE_DockWidgetTitle, titleOpt);
     }
 }

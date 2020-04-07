@@ -10,8 +10,6 @@
 #include "gm.h"
 #include "sk_tool_utils.h"
 
-#if SK_SUPPORT_GPU
-
 #include "GrContext.h"
 #include "GrRenderTargetContextPriv.h"
 #include "SkGr.h"
@@ -101,16 +99,16 @@ protected:
                     } else {
                         skPaint.setColor(kPaintColors[paintType]);
                     }
-                    SkAssertResult(SkPaintToGrPaint(context, renderTargetContext, skPaint,
-                                                    viewMatrix, &grPaint));
+                    SkAssertResult(SkPaintToGrPaint(context, renderTargetContext->colorSpaceInfo(),
+                                                    skPaint, viewMatrix, &grPaint));
 
                     GrConstColorProcessor::InputMode mode = (GrConstColorProcessor::InputMode) m;
                     GrColor4f color = GrColor4f::FromGrColor(kColors[procColor]);
-                    sk_sp<GrFragmentProcessor> fp(GrConstColorProcessor::Make(color, mode));
+                    auto fp = GrConstColorProcessor::Make(color, mode);
 
                     grPaint.addColorFragmentProcessor(std::move(fp));
                     renderTargetContext->priv().testingOnly_addDrawOp(
-                            GrRectOpFactory::MakeNonAAFill(std::move(grPaint), viewMatrix,
+                            GrRectOpFactory::MakeNonAAFill(context, std::move(grPaint), viewMatrix,
                                                            renderRect, GrAAType::kNone));
 
                     // Draw labels for the input to the processor and the processor to the right of
@@ -184,5 +182,3 @@ private:
 
 DEF_GM(return new ConstColorProcessor;)
 }
-
-#endif

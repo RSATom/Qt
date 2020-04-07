@@ -22,16 +22,20 @@
 #include "url/gurl.h"
 
 namespace content {
+
+namespace appcache_update_job_unittest {
+class AppCacheUpdateJobTest;
+FORWARD_DECLARE_TEST(AppCacheUpdateJobTest, AlreadyChecking);
+FORWARD_DECLARE_TEST(AppCacheUpdateJobTest, AlreadyDownloading);
+}  // namespace appcache_update_job_unittest
+
 FORWARD_DECLARE_TEST(AppCacheGroupTest, StartUpdate);
 FORWARD_DECLARE_TEST(AppCacheGroupTest, CancelUpdate);
 FORWARD_DECLARE_TEST(AppCacheGroupTest, QueueUpdate);
-FORWARD_DECLARE_TEST(AppCacheUpdateJobTest, AlreadyChecking);
-FORWARD_DECLARE_TEST(AppCacheUpdateJobTest, AlreadyDownloading);
 class AppCache;
 class AppCacheHost;
 class AppCacheStorage;
 class AppCacheUpdateJob;
-class AppCacheUpdateJobTest;
 class HostObserver;
 class MockAppCacheStorage;
 
@@ -117,15 +121,15 @@ class CONTENT_EXPORT AppCacheGroup
   class HostObserver;
 
   friend class base::RefCounted<AppCacheGroup>;
-  friend class content::AppCacheUpdateJobTest;
+  friend class content::appcache_update_job_unittest::AppCacheUpdateJobTest;
   friend class content::MockAppCacheStorage;  // for old_caches()
   friend class AppCacheUpdateJob;
 
   ~AppCacheGroup();
 
-  typedef std::vector<AppCache*> Caches;
-  typedef std::map<UpdateObserver*, std::pair<AppCacheHost*, GURL>>
-      QueuedUpdates;
+  using Caches = std::vector<AppCache*>;
+  using QueuedUpdates =
+      std::map<UpdateObserver*, std::pair<AppCacheHost*, GURL>>;
 
   static const int kUpdateRestartDelayMs = 1000;
 
@@ -189,8 +193,12 @@ class CONTENT_EXPORT AppCacheGroup
   FRIEND_TEST_ALL_PREFIXES(content::AppCacheGroupTest, StartUpdate);
   FRIEND_TEST_ALL_PREFIXES(content::AppCacheGroupTest, CancelUpdate);
   FRIEND_TEST_ALL_PREFIXES(content::AppCacheGroupTest, QueueUpdate);
-  FRIEND_TEST_ALL_PREFIXES(content::AppCacheUpdateJobTest, AlreadyChecking);
-  FRIEND_TEST_ALL_PREFIXES(content::AppCacheUpdateJobTest, AlreadyDownloading);
+  FRIEND_TEST_ALL_PREFIXES(
+      content::appcache_update_job_unittest::AppCacheUpdateJobTest,
+      AlreadyChecking);
+  FRIEND_TEST_ALL_PREFIXES(
+      content::appcache_update_job_unittest::AppCacheUpdateJobTest,
+      AlreadyDownloading);
 
   DISALLOW_COPY_AND_ASSIGN(AppCacheGroup);
 };

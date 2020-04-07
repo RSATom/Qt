@@ -29,10 +29,6 @@ InfoBarDelegate::InfoBarAutomationType
   return UNKNOWN_INFOBAR;
 }
 
-InfoBarDelegate::Type InfoBarDelegate::GetInfoBarType() const {
-  return WARNING_TYPE;
-}
-
 int InfoBarDelegate::GetIconId() const {
   return kNoIconID;
 }
@@ -46,16 +42,16 @@ gfx::Image InfoBarDelegate::GetIcon() const {
 #if !defined(OS_IOS) && !defined(OS_ANDROID)
   const gfx::VectorIcon& vector_icon = GetVectorIcon();
   if (!vector_icon.is_empty()) {
-    return gfx::Image(gfx::CreateVectorIcon(vector_icon, 16,
-                                            GetInfoBarType() == WARNING_TYPE
-                                                ? SkColorSetRGB(0xFF, 0x67, 0)
-                                                : gfx::kGoogleBlue500));
+    return gfx::Image(
+        gfx::CreateVectorIcon(vector_icon, 20, gfx::kGoogleBlue500));
   }
 #endif
 
   int icon_id = GetIconId();
-  return icon_id == kNoIconID ? gfx::Image() :
-      ResourceBundle::GetSharedInstance().GetNativeImageNamed(icon_id);
+  return icon_id == kNoIconID
+             ? gfx::Image()
+             : ui::ResourceBundle::GetSharedInstance().GetNativeImageNamed(
+                   icon_id);
 }
 
 bool InfoBarDelegate::EqualsDelegate(InfoBarDelegate* delegate) const {
@@ -93,10 +89,6 @@ NativeAppInfoBarDelegate* InfoBarDelegate::AsNativeAppInfoBarDelegate() {
   return nullptr;
 }
 
-PermissionInfoBarDelegate* InfoBarDelegate::AsPermissionInfoBarDelegate() {
-  return nullptr;
-}
-
 PopupBlockedInfoBarDelegate* InfoBarDelegate::AsPopupBlockedInfoBarDelegate() {
   return nullptr;
 }
@@ -126,11 +118,6 @@ translate::TranslateInfoBarDelegate*
 }
 
 #if defined(OS_ANDROID)
-MediaStreamInfoBarDelegateAndroid*
-InfoBarDelegate::AsMediaStreamInfoBarDelegateAndroid() {
-  return nullptr;
-}
-
 offline_pages::OfflinePageInfoBarDelegate*
 InfoBarDelegate::AsOfflinePageInfoBarDelegate() {
   return nullptr;

@@ -10,7 +10,6 @@
 #include <utility>
 
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/message_loop/message_loop.h"
 #include "base/strings/utf_string_conversions.h"
@@ -186,6 +185,11 @@ class AffiliatedMatchHelperTest : public testing::Test {
         AffiliatedMatchHelper::kInitializationDelayOnStartup);
   }
 
+  void ExpectNoDeferredTasks() {
+    mock_time_task_runner_->RunUntilIdle();
+    ASSERT_FALSE(mock_time_task_runner_->HasPendingTask());
+  }
+
   void RunUntilIdle() {
     // TODO(gab): Add support for base::RunLoop().RunUntilIdle() in scope of
     // ScopedMockTimeMessageLoopTaskRunner and use it instead of this helper
@@ -329,6 +333,7 @@ class AffiliatedMatchHelperTest : public testing::Test {
     mock_affiliation_service_ = service.get();
 
     password_store_ = new TestPasswordStore;
+    password_store_->Init(syncer::SyncableService::StartSyncFlare(), nullptr);
 
     match_helper_.reset(
         new AffiliatedMatchHelper(password_store_.get(), std::move(service)));
@@ -338,6 +343,8 @@ class AffiliatedMatchHelperTest : public testing::Test {
     match_helper_.reset();
     password_store_->ShutdownOnUIThread();
     password_store_ = nullptr;
+    // Clean up on the background thread.
+    RunUntilIdle();
   }
 
   base::MessageLoop message_loop_;
@@ -464,28 +471,28 @@ TEST_F(AffiliatedMatchHelperTest,
 TEST_F(AffiliatedMatchHelperTest, InjectAffiliationAndBrandingInformation) {
   std::vector<std::unique_ptr<autofill::PasswordForm>> forms;
 
-  forms.push_back(base::MakeUnique<autofill::PasswordForm>(
+  forms.push_back(std::make_unique<autofill::PasswordForm>(
       GetTestAndroidCredentials(kTestAndroidRealmAlpha3)));
   mock_affiliation_service()
       ->ExpectCallToGetAffiliationsAndBrandingAndSucceedWithResult(
           FacetURI::FromCanonicalSpec(kTestAndroidFacetURIAlpha3),
           StrategyOnCacheMiss::FAIL, GetTestEquivalenceClassAlpha());
 
-  forms.push_back(base::MakeUnique<autofill::PasswordForm>(
+  forms.push_back(std::make_unique<autofill::PasswordForm>(
       GetTestAndroidCredentials(kTestAndroidRealmBeta2)));
   mock_affiliation_service()
       ->ExpectCallToGetAffiliationsAndBrandingAndSucceedWithResult(
           FacetURI::FromCanonicalSpec(kTestAndroidFacetURIBeta2),
           StrategyOnCacheMiss::FAIL, GetTestEquivalenceClassBeta());
 
-  forms.push_back(base::MakeUnique<autofill::PasswordForm>(
+  forms.push_back(std::make_unique<autofill::PasswordForm>(
       GetTestAndroidCredentials(kTestAndroidRealmBeta3)));
   mock_affiliation_service()
       ->ExpectCallToGetAffiliationsAndBrandingAndSucceedWithResult(
           FacetURI::FromCanonicalSpec(kTestAndroidFacetURIBeta3),
           StrategyOnCacheMiss::FAIL, GetTestEquivalenceClassBeta());
 
-  forms.push_back(base::MakeUnique<autofill::PasswordForm>(
+  forms.push_back(std::make_unique<autofill::PasswordForm>(
       GetTestAndroidCredentials(kTestAndroidRealmGamma)));
   mock_affiliation_service()
       ->ExpectCallToGetAffiliationsAndBrandingAndEmulateFailure(
@@ -498,7 +505,7 @@ TEST_F(AffiliatedMatchHelperTest, InjectAffiliationAndBrandingInformation) {
   web_form.scheme = digest.scheme;
   web_form.signon_realm = digest.signon_realm;
   web_form.origin = digest.origin;
-  forms.push_back(base::MakeUnique<autofill::PasswordForm>(web_form));
+  forms.push_back(std::make_unique<autofill::PasswordForm>(web_form));
 
   size_t expected_form_count = forms.size();
   std::vector<std::unique_ptr<autofill::PasswordForm>> results(
@@ -664,7 +671,7 @@ TEST_F(AffiliatedMatchHelperTest, DestroyBeforeDeferredInitialization) {
   match_helper()->Initialize();
   RunUntilIdle();
   DestroyMatchHelper();
-  ASSERT_NO_FATAL_FAILURE(RunDeferredInitialization());
+  ASSERT_NO_FATAL_FAILURE(ExpectNoDeferredTasks());
 }
 
 }  // namespace password_manager

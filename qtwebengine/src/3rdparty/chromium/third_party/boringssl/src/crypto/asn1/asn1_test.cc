@@ -12,12 +12,18 @@
  * OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE. */
 
+#include <limits.h>
 #include <stdio.h>
+
+#include <vector>
 
 #include <gtest/gtest.h>
 
 #include <openssl/asn1.h>
+#include <openssl/asn1t.h>
+#include <openssl/bytestring.h>
 #include <openssl/err.h>
+#include <openssl/mem.h>
 
 #include "../test/test_util.h"
 
@@ -59,4 +65,86 @@ TEST(ASN1Test, LargeTags) {
   const uint8_t kZero = 0;
   EXPECT_EQ(Bytes(&kZero, 1), Bytes(obj->value.asn1_string->data,
                                     obj->value.asn1_string->length));
+}
+
+TEST(ASN1Test, IntegerSetting) {
+  bssl::UniquePtr<ASN1_INTEGER> by_bn(M_ASN1_INTEGER_new());
+  bssl::UniquePtr<ASN1_INTEGER> by_long(M_ASN1_INTEGER_new());
+  bssl::UniquePtr<ASN1_INTEGER> by_uint64(M_ASN1_INTEGER_new());
+  bssl::UniquePtr<BIGNUM> bn(BN_new());
+
+  const std::vector<int64_t> kValues = {
+      LONG_MIN, -2, -1, 0, 1, 2, 0xff, 0x100, 0xffff, 0x10000, LONG_MAX,
+  };
+  for (const auto &i : kValues) {
+    SCOPED_TRACE(i);
+
+    ASSERT_EQ(1, ASN1_INTEGER_set(by_long.get(), i));
+    const uint64_t abs = i < 0 ? (0 - (uint64_t) i) : i;
+    ASSERT_TRUE(BN_set_u64(bn.get(), abs));
+    BN_set_negative(bn.get(), i < 0);
+    ASSERT_TRUE(BN_to_ASN1_INTEGER(bn.get(), by_bn.get()));
+
+    EXPECT_EQ(0, ASN1_INTEGER_cmp(by_bn.get(), by_long.get()));
+
+    if (i >= 0) {
+      ASSERT_EQ(1, ASN1_INTEGER_set_uint64(by_uint64.get(), i));
+      EXPECT_EQ(0, ASN1_INTEGER_cmp(by_bn.get(), by_uint64.get()));
+    }
+  }
+}
+
+typedef struct asn1_linked_list_st {
+  struct asn1_linked_list_st *next;
+} ASN1_LINKED_LIST;
+
+DECLARE_ASN1_ITEM(ASN1_LINKED_LIST)
+DECLARE_ASN1_FUNCTIONS(ASN1_LINKED_LIST)
+
+ASN1_SEQUENCE(ASN1_LINKED_LIST) = {
+  ASN1_OPT(ASN1_LINKED_LIST, next, ASN1_LINKED_LIST),
+} ASN1_SEQUENCE_END(ASN1_LINKED_LIST)
+
+IMPLEMENT_ASN1_FUNCTIONS(ASN1_LINKED_LIST)
+
+static bool MakeLinkedList(bssl::UniquePtr<uint8_t> *out, size_t *out_len,
+                           size_t count) {
+  bssl::ScopedCBB cbb;
+  std::vector<CBB> cbbs(count);
+  if (!CBB_init(cbb.get(), 2 * count) ||
+      !CBB_add_asn1(cbb.get(), &cbbs[0], CBS_ASN1_SEQUENCE)) {
+    return false;
+  }
+  for (size_t i = 1; i < count; i++) {
+    if (!CBB_add_asn1(&cbbs[i - 1], &cbbs[i], CBS_ASN1_SEQUENCE)) {
+      return false;
+    }
+  }
+  uint8_t *ptr;
+  if (!CBB_finish(cbb.get(), &ptr, out_len)) {
+    return false;
+  }
+  out->reset(ptr);
+  return true;
+}
+
+TEST(ASN1Test, Recursive) {
+  bssl::UniquePtr<uint8_t> data;
+  size_t len;
+
+  // Sanity-check that MakeLinkedList can be parsed.
+  ASSERT_TRUE(MakeLinkedList(&data, &len, 5));
+  const uint8_t *ptr = data.get();
+  ASN1_LINKED_LIST *list = d2i_ASN1_LINKED_LIST(nullptr, &ptr, len);
+  EXPECT_TRUE(list);
+  ASN1_LINKED_LIST_free(list);
+
+  // Excessively deep structures are rejected.
+  ASSERT_TRUE(MakeLinkedList(&data, &len, 100));
+  ptr = data.get();
+  list = d2i_ASN1_LINKED_LIST(nullptr, &ptr, len);
+  EXPECT_FALSE(list);
+  // Note checking the error queue here does not work. The error "stack trace"
+  // is too deep, so the |ASN1_R_NESTED_TOO_DEEP| entry drops off the queue.
+  ASN1_LINKED_LIST_free(list);
 }

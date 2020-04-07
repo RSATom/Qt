@@ -2,7 +2,7 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-"""Logic for parsing a C/C++ function signature."""
+"""Logic for parsing a function signatures."""
 
 
 def _FindParameterListParen(name):
@@ -77,9 +77,11 @@ def _FindReturnValueSpace(name, paren_idx):
     space_idx = paren_idx - 6
   while True:
     space_idx = _FindLastCharOutsideOfBrackets(name, ' ', space_idx)
-    # Special case: "operator new", and "operator<< <template>".
+    # Special cases: "operator new", "operator< <templ>", "operator<< <tmpl>".
+    # No space is added for operator>><tmpl>.
     if -1 == space_idx or (
         -1 == name.find('operator', space_idx - 8, space_idx) and
+        -1 == name.find('operator<', space_idx - 9, space_idx) and
         -1 == name.find('operator<<', space_idx - 10, space_idx)):
       break
     space_idx -= 8
@@ -93,13 +95,10 @@ def _StripTemplateArgs(name):
     if last_right_idx == -1:
       return name
     left_idx = _FindLastCharOutsideOfBrackets(name, '<', last_right_idx + 1)
-    if left_idx == -1:
-      return name
-    # Special case: std::operator<< <
-    if left_idx > 0 and name[left_idx - 1] == ' ':
-      left_idx -= 1
-    name = name[:left_idx] + name[last_right_idx + 1:]
-    last_right_idx = left_idx
+    if left_idx != -1:
+      # Leave in empty <>s to denote that it's a template.
+      name = name[:left_idx + 1] + name[last_right_idx:]
+      last_right_idx = left_idx
 
 
 def _NormalizeTopLevelGccLambda(name, left_paren_idx):
@@ -119,6 +118,34 @@ def _NormalizeTopLevelClangLambda(name, left_paren_idx):
   number = name[dollar_idx + 2:colon_idx]
   return '{}$lambda#{}{}'.format(
       name[:dollar_idx], number, name[left_paren_idx:])
+
+
+def ParseJava(name):
+  """Breaks java method signature into parts.
+
+  See unit tests for example signatures.
+
+  Returns:
+    A tuple of:
+    * name, including package, return type, and params (symbol.full_name),
+    * name, including package, no return type or params (symbol.template_name),
+    * name, no package, return type, or params (symbol.name)
+  """
+  full_name = name
+  if '(' in name:
+    package, method_sig = name.split(' ', 1)
+    class_name = package.split('.')[-1]
+    # E.g. <init>()  <-- no return type
+    if method_sig.startswith('<'):
+      method_name = method_sig
+    else:
+      method_name = method_sig.split(' ', 1)[1]
+    name = '{}#{}'.format(class_name, method_name[:method_name.index('(')])
+    template_name = name
+  else:
+    template_name = full_name
+
+  return full_name, template_name, name
 
 
 def Parse(name):

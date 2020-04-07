@@ -226,7 +226,6 @@ bool shouldBeIgnored(QAccessibleInterface *interface)
     const QAccessible::Role role = interface->role();
     if (role == QAccessible::Border ||      // QFrame
         role == QAccessible::Application || // We use the system-provided application element.
-        role == QAccessible::MenuItem ||    // The system also provides the menu items.
         role == QAccessible::ToolBar ||     // Access the tool buttons directly.
         role == QAccessible::Pane ||        // Scroll areas.
         role == QAccessible::Client)        // The default for QWidget.
@@ -257,12 +256,12 @@ bool shouldBeIgnored(QAccessibleInterface *interface)
     return false;
 }
 
-NSArray *unignoredChildren(QAccessibleInterface *interface)
+NSArray<QMacAccessibilityElement *> *unignoredChildren(QAccessibleInterface *interface)
 {
     int numKids = interface->childCount();
     // qDebug() << "Children for: " << axid << iface << " are: " << numKids;
 
-    NSMutableArray *kids = [NSMutableArray arrayWithCapacity:numKids];
+    NSMutableArray<QMacAccessibilityElement *> *kids = [NSMutableArray<QMacAccessibilityElement *> arrayWithCapacity:numKids];
     for (int i = 0; i < numKids; ++i) {
         QAccessibleInterface *child = interface->child(i);
         if (!child || !child->isValid() || child->state().invalid || child->state().invisible)
@@ -311,7 +310,7 @@ NSString *getTranslatedAction(const QString &qtAction)
     //      NSAccessibilityCancelAction;
     //      NSAccessibilityDeleteAction;
 
-    return 0;
+    return nil;
 }
 
 
@@ -387,7 +386,7 @@ id getValueAttribute(QAccessibleInterface *interface)
     }
 
     if (interface->state().checkable) {
-        return [NSNumber numberWithInt: (interface->state().checked ? 1 : 0)];
+        return interface->state().checked ? @(1) : @(0);
     }
 
     return nil;

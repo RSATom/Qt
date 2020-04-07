@@ -12,13 +12,14 @@
 #include <set>
 #include <vector>
 
-#include "webrtc/rtc_base/arraysize.h"
-#include "webrtc/rtc_base/checks.h"
-#include "webrtc/rtc_base/criticalsection.h"
-#include "webrtc/rtc_base/event.h"
-#include "webrtc/rtc_base/gunit.h"
-#include "webrtc/rtc_base/platform_thread.h"
-#include "webrtc/rtc_base/thread.h"
+#include "rtc_base/arraysize.h"
+#include "rtc_base/atomicops.h"
+#include "rtc_base/checks.h"
+#include "rtc_base/criticalsection.h"
+#include "rtc_base/event.h"
+#include "rtc_base/gunit.h"
+#include "rtc_base/platform_thread.h"
+#include "rtc_base/thread.h"
 
 namespace rtc {
 
@@ -62,9 +63,8 @@ class CompareAndSwapVerifier {
     }
   }
 
-  void Finalize() {
-    EXPECT_EQ(1, zero_count_);
-  }
+  void Finalize() { EXPECT_EQ(1, zero_count_); }
+
  private:
   int zero_count_;
 };
@@ -85,18 +85,14 @@ class RunnerBase : public MessageHandler {
     return done_event_.Wait(kLongTime);
   }
 
-  void SetExpectedThreadCount(int count) {
-    threads_active_ = count;
-  }
+  void SetExpectedThreadCount(int count) { threads_active_ = count; }
 
   int shared_value() const { return shared_value_; }
 
  protected:
   // Derived classes must override OnMessage, and call BeforeStart and AfterEnd
   // at the beginning and the end of OnMessage respectively.
-  void BeforeStart() {
-    ASSERT_TRUE(start_event_.Wait(kLongTime));
-  }
+  void BeforeStart() { ASSERT_TRUE(start_event_.Wait(kLongTime)); }
 
   // Returns true if all threads have finished.
   bool AfterEnd() {
@@ -113,14 +109,10 @@ class RunnerBase : public MessageHandler {
   int shared_value_;
 };
 
-class LOCKABLE CriticalSectionLock {
+class RTC_LOCKABLE CriticalSectionLock {
  public:
-  void Lock() EXCLUSIVE_LOCK_FUNCTION() {
-    cs_.Enter();
-  }
-  void Unlock() UNLOCK_FUNCTION() {
-    cs_.Leave();
-  }
+  void Lock() RTC_EXCLUSIVE_LOCK_FUNCTION() { cs_.Enter(); }
+  void Unlock() RTC_UNLOCK_FUNCTION() { cs_.Leave(); }
 
  private:
   CriticalSection cs_;
@@ -171,7 +163,7 @@ class AtomicOpRunner : public RunnerBase {
       values.push_back(Op::AtomicOp(&shared_value_));
     }
 
-    { // Add them all to the set.
+    {  // Add them all to the set.
       CritScope cs(&all_values_crit_);
       verifier_.Verify(values);
     }
@@ -258,8 +250,8 @@ TEST(AtomicOpsTest, Increment) {
 
 TEST(AtomicOpsTest, Decrement) {
   // Create and start lots of threads.
-  AtomicOpRunner<DecrementOp, UniqueValueVerifier> runner(
-      kOperationsToRun * kNumThreads);
+  AtomicOpRunner<DecrementOp, UniqueValueVerifier> runner(kOperationsToRun *
+                                                          kNumThreads);
   std::vector<std::unique_ptr<Thread>> threads;
   StartThreads(&threads, &runner);
   runner.SetExpectedThreadCount(kNumThreads);
@@ -308,8 +300,10 @@ TEST(CriticalSectionTest, Basic) {
 class PerfTestData {
  public:
   PerfTestData(int expected_count, Event* event)
-      : cache_line_barrier_1_(), cache_line_barrier_2_(),
-        expected_count_(expected_count), event_(event) {
+      : cache_line_barrier_1_(),
+        cache_line_barrier_2_(),
+        expected_count_(expected_count),
+        event_(event) {
     cache_line_barrier_1_[0]++;  // Avoid 'is not used'.
     cache_line_barrier_2_[0]++;  // Avoid 'is not used'.
   }

@@ -52,13 +52,13 @@
 
 #include "ui_qaxselect.h"
 
-#include <QtCore/QFileInfo>
-#include <QtCore/QSortFilterProxyModel>
-#include <QtCore/QItemSelectionModel>
-#include <QtCore/QSysInfo>
-#include <QtCore/QTextStream>
-#include <QtWidgets/QDesktopWidget>
-#include <QtWidgets/QPushButton>
+#include <QtCore/qfileinfo.h>
+#include <QtCore/qsortfilterproxymodel.h>
+#include <QtCore/qitemselectionmodel.h>
+#include <QtCore/qsysinfo.h>
+#include <QtCore/qtextstream.h>
+#include <QtWidgets/qdesktopwidget.h>
+#include <QtWidgets/qpushbutton.h>
 
 #include <qt_windows.h>
 
@@ -71,17 +71,16 @@ enum ControlType { InProcessControl, OutOfProcessControl };
 
 struct Control
 {
-    inline Control() : type(InProcessControl), wordSize(0) {}
     int compare(const Control &rhs) const;
     QString toolTip() const;
 
-    ControlType type;
+    ControlType type = InProcessControl;
     QString clsid;
     QString name;
     QString dll;
     QString version;
     QString rootKey;
-    unsigned wordSize;
+    unsigned wordSize = 0;
 };
 
 inline int Control::compare(const Control &rhs) const
@@ -379,9 +378,7 @@ QAxSelect::QAxSelect(QWidget *parent, Qt::WindowFlags flags)
 /*!
     Destroys the QAxSelect object.
 */
-QAxSelect::~QAxSelect()
-{
-}
+QAxSelect::~QAxSelect() = default;
 
 /*!
     \fn QString QAxSelect::clsid() const

@@ -14,8 +14,8 @@
 #include "core/fxge/cfx_graphstatedata.h"
 #include "core/fxge/cfx_pathdata.h"
 #include "core/fxge/cfx_renderdevice.h"
+#include "core/fxge/dib/cfx_dibitmap.h"
 #include "core/fxge/fx_freetype.h"
-#include "core/fxge/fx_text_int.h"
 #include "third_party/base/ptr_util.h"
 
 #include "core/fxge/apple/apple_int.h"
@@ -23,7 +23,7 @@
 #error Expected CGFLOAT_IS_DOUBLE to be defined by CoreGraphics headers
 #endif
 
-void* CQuartz2D::createGraphics(const CFX_RetainPtr<CFX_DIBitmap>& pBitmap) {
+void* CQuartz2D::createGraphics(const RetainPtr<CFX_DIBitmap>& pBitmap) {
   if (!pBitmap)
     return nullptr;
   CGBitmapInfo bmpInfo = kCGBitmapByteOrder32Little;
@@ -50,7 +50,7 @@ void CQuartz2D::destroyGraphics(void* graphics) {
 
 void* CQuartz2D::CreateFont(const uint8_t* pFontData, uint32_t dwFontSize) {
   CGDataProviderRef pDataProvider = CGDataProviderCreateWithData(
-      nullptr, pFontData, (size_t)dwFontSize, nullptr);
+      nullptr, pFontData, static_cast<size_t>(dwFontSize), nullptr);
   if (!pDataProvider)
     return nullptr;
 

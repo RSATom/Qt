@@ -7,12 +7,12 @@
 #include <stdint.h>
 
 #include "base/bind.h"
-#include "content/public/child/v8_value_converter.h"
+#include "content/public/renderer/v8_value_converter.h"
 #include "extensions/renderer/extension_bindings_system.h"
 #include "extensions/renderer/script_context.h"
-#include "third_party/WebKit/public/platform/WebMediaStream.h"
-#include "third_party/WebKit/public/platform/WebMediaStreamTrack.h"
-#include "third_party/WebKit/public/web/WebDOMMediaStreamTrack.h"
+#include "third_party/blink/public/platform/web_media_stream.h"
+#include "third_party/blink/public/platform/web_media_stream_track.h"
+#include "third_party/blink/public/web/web_dom_media_stream_track.h"
 #include "v8/include/v8.h"
 
 namespace extensions {
@@ -30,16 +30,18 @@ DisplaySourceCustomBindings::DisplaySourceCustomBindings(
     ExtensionBindingsSystem* bindings_system)
     : ObjectBackedNativeHandler(context),
       bindings_system_(bindings_system),
-      weak_factory_(this) {
-  RouteFunction("StartSession", "displaySource",
-                base::Bind(&DisplaySourceCustomBindings::StartSession,
-                           weak_factory_.GetWeakPtr()));
-  RouteFunction("TerminateSession", "displaySource",
-                base::Bind(&DisplaySourceCustomBindings::TerminateSession,
-                           weak_factory_.GetWeakPtr()));
-}
+      weak_factory_(this) {}
 
-DisplaySourceCustomBindings::~DisplaySourceCustomBindings() {
+DisplaySourceCustomBindings::~DisplaySourceCustomBindings() {}
+
+void DisplaySourceCustomBindings::AddRoutes() {
+  RouteHandlerFunction("StartSession", "displaySource",
+                       base::Bind(&DisplaySourceCustomBindings::StartSession,
+                                  weak_factory_.GetWeakPtr()));
+  RouteHandlerFunction(
+      "TerminateSession", "displaySource",
+      base::Bind(&DisplaySourceCustomBindings::TerminateSession,
+                 weak_factory_.GetWeakPtr()));
 }
 
 void DisplaySourceCustomBindings::Invalidate() {
@@ -56,7 +58,7 @@ v8::Local<v8::Value> GetChildValue(v8::Local<v8::Object> value,
   v8::Local<v8::Array> property_names(value->GetOwnPropertyNames());
   for (uint32_t i = 0; i < property_names->Length(); ++i) {
     v8::Local<v8::Value> key(property_names->Get(i));
-    if (key_name == *v8::String::Utf8Value(key)) {
+    if (key_name == *v8::String::Utf8Value(isolate, key)) {
       v8::TryCatch try_catch(isolate);
       v8::Local<v8::Value> child_v8 = value->Get(key);
       if (try_catch.HasCaught()) {

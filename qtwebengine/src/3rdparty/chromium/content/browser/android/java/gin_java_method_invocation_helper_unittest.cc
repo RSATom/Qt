@@ -10,9 +10,7 @@
 
 #include "base/android/jni_android.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/values.h"
-#include "content/browser/android/java/jni_helper.h"
 #include "content/common/android/gin_java_bridge_value.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -129,21 +127,21 @@ TEST_F(GinJavaMethodInvocationHelperTest, RetrievalOfObjectsHaveObjects) {
   base::ListValue objects;
   objects.AppendInteger(100);
   objects.Append(GinJavaBridgeValue::CreateObjectIDValue(1));
-  auto sub_list = base::MakeUnique<base::ListValue>();
+  auto sub_list = std::make_unique<base::ListValue>();
   sub_list->AppendInteger(200);
   sub_list->Append(GinJavaBridgeValue::CreateObjectIDValue(2));
   objects.Append(std::move(sub_list));
-  auto sub_dict = base::MakeUnique<base::DictionaryValue>();
+  auto sub_dict = std::make_unique<base::DictionaryValue>();
   sub_dict->SetInteger("1", 300);
   sub_dict->Set("2", GinJavaBridgeValue::CreateObjectIDValue(3));
   objects.Append(std::move(sub_dict));
-  auto sub_list_with_dict = base::MakeUnique<base::ListValue>();
-  auto sub_sub_dict = base::MakeUnique<base::DictionaryValue>();
+  auto sub_list_with_dict = std::make_unique<base::ListValue>();
+  auto sub_sub_dict = std::make_unique<base::DictionaryValue>();
   sub_sub_dict->Set("1", GinJavaBridgeValue::CreateObjectIDValue(4));
   sub_list_with_dict->Append(std::move(sub_sub_dict));
   objects.Append(std::move(sub_list_with_dict));
-  auto sub_dict_with_list = base::MakeUnique<base::DictionaryValue>();
-  auto sub_sub_list = base::MakeUnique<base::ListValue>();
+  auto sub_dict_with_list = std::make_unique<base::DictionaryValue>();
+  auto sub_sub_list = std::make_unique<base::ListValue>();
   sub_sub_list->Append(GinJavaBridgeValue::CreateObjectIDValue(5));
   sub_dict_with_list->Set("1", std::move(sub_sub_list));
   objects.Append(std::move(sub_dict_with_list));
@@ -166,15 +164,14 @@ class ObjectIsGoneObjectDelegate : public NullObjectDelegate {
       get_local_ref_called_(false) {
     // We need a Java Method object to create a valid JavaMethod instance.
     JNIEnv* env = base::android::AttachCurrentThread();
+    base::android::ScopedJavaLocalRef<jclass> clazz(
+        base::android::GetClass(env, "java/lang/Object"));
     jmethodID method_id =
-        GetMethodIDFromClassName(env, "java/lang/Object", "hashCode", "()I");
+        base::android::MethodID::Get<base::android::MethodID::TYPE_INSTANCE>(
+            env, clazz.obj(), "hashCode", "()I");
     EXPECT_TRUE(method_id);
     base::android::ScopedJavaLocalRef<jobject> method_obj(
-        env,
-        env->ToReflectedMethod(
-            base::android::GetClass(env, "java/lang/Object").obj(),
-            method_id,
-            false));
+        env, env->ToReflectedMethod(clazz.obj(), method_id, false));
     EXPECT_TRUE(method_obj.obj());
     method_.reset(new JavaMethod(method_obj));
   }

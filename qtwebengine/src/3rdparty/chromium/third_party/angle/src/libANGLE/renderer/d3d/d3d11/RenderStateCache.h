@@ -18,11 +18,6 @@
 
 #include <unordered_map>
 
-namespace gl
-{
-class Framebuffer;
-}
-
 namespace std
 {
 template <>
@@ -61,6 +56,7 @@ struct hash<gl::SamplerState>
 
 namespace rx
 {
+class Framebuffer11;
 class Renderer11;
 
 class RenderStateCache : angle::NonCopyable
@@ -72,18 +68,18 @@ class RenderStateCache : angle::NonCopyable
     void clear();
 
     static d3d11::BlendStateKey GetBlendStateKey(const gl::Context *context,
-                                                 const gl::Framebuffer *framebuffer,
+                                                 Framebuffer11 *framebuffer11,
                                                  const gl::BlendState &blendState);
     gl::Error getBlendState(Renderer11 *renderer,
                             const d3d11::BlendStateKey &key,
-                            ID3D11BlendState **outBlendState);
+                            const d3d11::BlendState **outBlendState);
     gl::Error getRasterizerState(Renderer11 *renderer,
                                  const gl::RasterizerState &rasterState,
                                  bool scissorEnabled,
                                  ID3D11RasterizerState **outRasterizerState);
     gl::Error getDepthStencilState(Renderer11 *renderer,
                                    const gl::DepthStencilState &dsState,
-                                   ID3D11DepthStencilState **outDSState);
+                                   const d3d11::DepthStencilState **outDSState);
     gl::Error getSamplerState(Renderer11 *renderer,
                               const gl::SamplerState &samplerState,
                               ID3D11SamplerState **outSamplerState);

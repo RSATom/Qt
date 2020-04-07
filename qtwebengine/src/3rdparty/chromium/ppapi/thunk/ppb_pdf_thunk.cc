@@ -49,7 +49,7 @@ void SearchString(PP_Instance instance,
                   const unsigned short* term,
                   bool case_sensitive,
                   PP_PrivateFindResult** results,
-                  int* count) {
+                  uint32_t* count) {
   EnterInstanceAPI<PPB_PDF_API> enter(instance);
   if (enter.failed())
     return;
@@ -84,6 +84,28 @@ void HasUnsupportedFeature(PP_Instance instance) {
   EnterInstanceAPI<PPB_PDF_API> enter(instance);
   if (enter.succeeded())
     enter.functions()->HasUnsupportedFeature();
+}
+
+void ShowAlertDialog(PP_Instance instance, const char* message) {
+  EnterInstanceAPI<PPB_PDF_API> enter(instance);
+  if (enter.succeeded())
+    enter.functions()->ShowAlertDialog(message);
+}
+
+bool ShowConfirmDialog(PP_Instance instance, const char* message) {
+  EnterInstanceAPI<PPB_PDF_API> enter(instance);
+  if (enter.succeeded())
+    return enter.functions()->ShowConfirmDialog(message);
+  return false;
+}
+
+PP_Var ShowPromptDialog(PP_Instance instance,
+                        const char* message,
+                        const char* default_answer) {
+  EnterInstanceAPI<PPB_PDF_API> enter(instance);
+  if (enter.succeeded())
+    return enter.functions()->ShowPromptDialog(message, default_answer);
+  return PP_MakeUndefined();
 }
 
 void SaveAs(PP_Instance instance) {
@@ -169,6 +191,17 @@ void SetCrashData(PP_Instance instance,
   enter.functions()->SetCrashData(pdf_url, top_level_url);
 }
 
+void SelectionChanged(PP_Instance instance,
+                      const PP_FloatPoint* left,
+                      int32_t left_height,
+                      const PP_FloatPoint* right,
+                      int32_t right_height) {
+  EnterInstanceAPI<PPB_PDF_API> enter(instance);
+  if (enter.failed())
+    return;
+  enter.functions()->SelectionChanged(*left, left_height, *right, right_height);
+}
+
 const PPB_PDF g_ppb_pdf_thunk = {
     &GetFontFileWithFallback,
     &GetFontTableForPrivateFontFile,
@@ -188,6 +221,10 @@ const PPB_PDF g_ppb_pdf_thunk = {
     &SetAccessibilityDocInfo,
     &SetAccessibilityPageInfo,
     &SetCrashData,
+    &SelectionChanged,
+    &ShowAlertDialog,
+    &ShowConfirmDialog,
+    &ShowPromptDialog,
 };
 
 }  // namespace

@@ -16,7 +16,7 @@
 #include "extensions/renderer/request_sender.h"
 #include "extensions/renderer/script_context.h"
 #include "ipc/ipc_message_utils.h"
-#include "third_party/WebKit/public/web/WebArrayBufferConverter.h"
+#include "third_party/blink/public/web/web_array_buffer_converter.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 
 namespace {
@@ -30,8 +30,10 @@ const char kNoMemory[] = "Chrome was unable to initialize icon.";
 namespace extensions {
 
 SetIconNatives::SetIconNatives(ScriptContext* context)
-    : ObjectBackedNativeHandler(context) {
-  RouteFunction(
+    : ObjectBackedNativeHandler(context) {}
+
+void SetIconNatives::AddRoutes() {
+  RouteHandlerFunction(
       "SetIconCommon",
       base::Bind(&SetIconNatives::SetIconCommon, base::Unretained(this)));
 }
@@ -118,7 +120,7 @@ bool SetIconNatives::ConvertImageDataSetToBitmapValueSet(
   v8::Local<v8::Array> property_names(image_data_set->GetOwnPropertyNames());
   for (size_t i = 0; i < property_names->Length(); ++i) {
     v8::Local<v8::Value> key(property_names->Get(i));
-    v8::String::Utf8Value utf8_key(key);
+    v8::String::Utf8Value utf8_key(isolate, key);
     int size;
     if (!base::StringToInt(std::string(*utf8_key), &size))
       continue;

@@ -29,7 +29,7 @@
     \example hello_speak
     \title Hello Speak Example
 
-    \brief The Hello Speak example reads out a small piece of text
+    \brief The Hello Speak example reads out a small piece of text.
 
     \e{Hello Speak} example demonstrates how QTextToSpeech can be used to read
     out text, as well as control the pitch, volume, and rate of the speech.

@@ -15,6 +15,7 @@ class GrCaps;
 class GrRenderTargetOpList;
 class GrRenderTargetPriv;
 class GrStencilAttachment;
+class GrBackendRenderTarget;
 
 /**
  * GrRenderTarget represents a 2D buffer of pixels that can be rendered to.
@@ -25,32 +26,34 @@ class GrStencilAttachment;
  */
 class GrRenderTarget : virtual public GrSurface {
 public:
+    virtual bool alwaysClearStencil() const { return false; }
+
     // GrSurface overrides
     GrRenderTarget* asRenderTarget() override { return this; }
     const GrRenderTarget* asRenderTarget() const  override { return this; }
 
     // GrRenderTarget
-    bool isStencilBufferMultisampled() const { return fSampleCnt > 0; }
+    bool isStencilBufferMultisampled() const { return fSampleCnt > 1; }
 
     GrFSAAType fsaaType() const {
-        if (!fSampleCnt) {
-            SkASSERT(!(fFlags & GrRenderTargetFlags::kMixedSampled));
+        SkASSERT(fSampleCnt >= 1);
+        if (fSampleCnt <= 1) {
+            SkASSERT(!this->hasMixedSamples());
             return GrFSAAType::kNone;
         }
-        return (fFlags & GrRenderTargetFlags::kMixedSampled) ? GrFSAAType::kMixedSamples
-                                                             : GrFSAAType::kUnifiedMSAA;
+        return this->hasMixedSamples() ? GrFSAAType::kMixedSamples : GrFSAAType::kUnifiedMSAA;
     }
 
     /**
-     * Returns the number of samples/pixel in the stencil buffer (Zero if non-MSAA).
+     * Returns the number of samples/pixel in the stencil buffer (One if non-MSAA).
      */
     int numStencilSamples() const { return fSampleCnt; }
 
     /**
-     * Returns the number of samples/pixel in the color buffer (Zero if non-MSAA or mixed sampled).
+     * Returns the number of samples/pixel in the color buffer (One if non-MSAA or mixed sampled).
      */
     int numColorSamples() const {
-        return GrFSAAType::kMixedSamples == this->fsaaType() ? 0 : fSampleCnt;
+        return GrFSAAType::kMixedSamples == this->fsaaType() ? 1 : fSampleCnt;
     }
 
     /**
@@ -63,7 +66,7 @@ public:
      * @param rect  a rect bounding the area needing resolve. NULL indicates
      *              the whole RT needs resolving.
      */
-    void flagAsNeedingResolve(const SkIRect* rect = NULL);
+    void flagAsNeedingResolve(const SkIRect* rect = nullptr);
 
     /**
      * Call to override the region that needs to be resolved.
@@ -74,7 +77,7 @@ public:
      * Call to indicate that GrRenderTarget was externally resolved. This may
      * allow Gr to skip a redundant resolve step.
      */
-    void flagAsResolved() { fResolveRect.setLargestInverted(); }
+    void flagAsResolved();
 
     /**
      * @return true if the GrRenderTarget requires MSAA resolving
@@ -96,11 +99,7 @@ public:
     };
     virtual ResolveType getResolveType() const = 0;
 
-    /**
-     *  Return the native ID or handle to the rendertarget, depending on the
-     *  platform. e.g. on OpenGL, return the FBO ID.
-     */
-    virtual GrBackendObject getRenderTargetHandle() const = 0;
+    virtual GrBackendRenderTarget getBackendRenderTarget() const = 0;
 
     // Checked when this object is asked to attach a stencil buffer.
     virtual bool canAttemptStencilAttachment() const = 0;
@@ -110,9 +109,8 @@ public:
     const GrRenderTargetPriv renderTargetPriv() const;
 
 protected:
-    GrRenderTarget(GrGpu*, const GrSurfaceDesc&,
-                   GrRenderTargetFlags = GrRenderTargetFlags::kNone,
-                   GrStencilAttachment* = nullptr);
+    GrRenderTarget(GrGpu*, const GrSurfaceDesc&, GrStencilAttachment* = nullptr);
+    ~GrRenderTarget() override;
 
     // override of GrResource
     void onAbandon() override;
@@ -128,9 +126,7 @@ private:
     friend class GrRenderTargetPriv;
 
     int                  fSampleCnt;
-    GrStencilAttachment* fStencilAttachment;
-    uint8_t              fMultisampleSpecsID;
-    GrRenderTargetFlags  fFlags;
+    sk_sp<GrStencilAttachment> fStencilAttachment;
 
     SkIRect              fResolveRect;
 

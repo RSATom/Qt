@@ -18,7 +18,7 @@
 #include "device/usb/mojo/permission_provider.h"
 #include "device/usb/mojo/type_converters.h"
 #include "device/usb/public/cpp/filter_utils.h"
-#include "device/usb/public/interfaces/device.mojom.h"
+#include "device/usb/public/mojom/device.mojom.h"
 #include "device/usb/usb_device.h"
 #include "device/usb/usb_service.h"
 
@@ -53,14 +53,13 @@ DeviceManagerImpl::DeviceManagerImpl(
   observer_.Add(usb_service_);
 }
 
-DeviceManagerImpl::~DeviceManagerImpl() {
-}
+DeviceManagerImpl::~DeviceManagerImpl() = default;
 
 void DeviceManagerImpl::GetDevices(mojom::UsbEnumerationOptionsPtr options,
-                                   const GetDevicesCallback& callback) {
-  usb_service_->GetDevices(base::Bind(&DeviceManagerImpl::OnGetDevices,
-                                      weak_factory_.GetWeakPtr(),
-                                      base::Passed(&options), callback));
+                                   GetDevicesCallback callback) {
+  usb_service_->GetDevices(
+      base::Bind(&DeviceManagerImpl::OnGetDevices, weak_factory_.GetWeakPtr(),
+                 base::Passed(&options), base::Passed(&callback)));
 }
 
 void DeviceManagerImpl::GetDevice(const std::string& guid,
@@ -82,7 +81,7 @@ void DeviceManagerImpl::SetClient(mojom::UsbDeviceManagerClientPtr client) {
 
 void DeviceManagerImpl::OnGetDevices(
     mojom::UsbEnumerationOptionsPtr options,
-    const GetDevicesCallback& callback,
+    GetDevicesCallback callback,
     const std::vector<scoped_refptr<UsbDevice>>& devices) {
   std::vector<mojom::UsbDeviceFilterPtr> filters;
   if (options)
@@ -98,7 +97,7 @@ void DeviceManagerImpl::OnGetDevices(
     }
   }
 
-  callback.Run(std::move(device_infos));
+  std::move(callback).Run(std::move(device_infos));
 }
 
 void DeviceManagerImpl::OnDeviceAdded(scoped_refptr<UsbDevice> device) {

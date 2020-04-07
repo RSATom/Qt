@@ -3,7 +3,7 @@
 ** Copyright (C) 2011 Klarälvdalens Datakonsult AB, a KDAB Group company, info@kdab.com, author Stephen Kelly <stephen.kelly@kdab.com>
 ** Contact: https://www.qt.io/licensing/
 **
-** This file is part of the QtGui module of the Qt Toolkit.
+** This file is part of the QtCore module of the Qt Toolkit.
 **
 ** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
@@ -38,9 +38,6 @@
 ****************************************************************************/
 
 #include "qidentityproxymodel.h"
-
-#ifndef QT_NO_IDENTITYPROXYMODEL
-
 #include "qitemselectionmodel.h"
 #include <private/qabstractproxymodel_p.h>
 
@@ -86,7 +83,7 @@ class QIdentityProxyModelPrivate : public QAbstractProxyModelPrivate
     \since 4.8
     \class QIdentityProxyModel
     \inmodule QtCore
-    \brief The QIdentityProxyModel class proxies its source model unmodified
+    \brief The QIdentityProxyModel class proxies its source model unmodified.
 
     \ingroup model-view
 
@@ -616,5 +613,3 @@ void QIdentityProxyModelPrivate::_q_sourceRowsRemoved(const QModelIndex &parent,
 QT_END_NAMESPACE
 
 #include "moc_qidentityproxymodel.cpp"
-
-#endif // QT_NO_IDENTITYPROXYMODEL

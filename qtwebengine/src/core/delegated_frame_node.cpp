@@ -49,7 +49,7 @@
 #include "delegated_frame_node.h"
 
 #include "chromium_gpu_helper.h"
-#include "gl_surface_qt.h"
+#include "ozone/gl_surface_qt.h"
 #include "stream_video_node.h"
 #include "type_conversion.h"
 #include "yuv_video_node.h"
@@ -58,20 +58,21 @@
 #include "base/message_loop/message_loop.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "cc/base/math_util.h"
-#include "cc/output/bsp_tree.h"
-#include "cc/output/compositor_frame.h"
-#include "cc/output/compositor_frame_metadata.h"
-#include "cc/quads/debug_border_draw_quad.h"
-#include "cc/quads/draw_quad.h"
-#include "cc/quads/render_pass_draw_quad.h"
-#include "cc/quads/solid_color_draw_quad.h"
-#include "cc/quads/stream_video_draw_quad.h"
-#include "cc/quads/texture_draw_quad.h"
-#include "cc/quads/tile_draw_quad.h"
-#include "cc/quads/yuv_video_draw_quad.h"
-#include "cc/resources/returned_resource.h"
-#include "cc/resources/transferable_resource.h"
+#include "components/viz/common/quads/compositor_frame.h"
+#include "components/viz/common/quads/compositor_frame_metadata.h"
+#include "components/viz/common/quads/debug_border_draw_quad.h"
+#include "components/viz/common/quads/draw_quad.h"
+#include "components/viz/common/quads/render_pass_draw_quad.h"
+#include "components/viz/common/quads/solid_color_draw_quad.h"
+#include "components/viz/common/quads/stream_video_draw_quad.h"
+#include "components/viz/common/quads/texture_draw_quad.h"
+#include "components/viz/common/quads/tile_draw_quad.h"
+#include "components/viz/common/quads/yuv_video_draw_quad.h"
+#include "components/viz/common/resources/returned_resource.h"
+#include "components/viz/common/resources/transferable_resource.h"
+#include "components/viz/service/display/bsp_tree.h"
 #include "components/viz/service/display_embedder/server_shared_bitmap_manager.h"
+#include "content/browser/browser_main_loop.h"
 #include "gpu/command_buffer/service/mailbox_manager.h"
 #include "ui/gl/gl_context.h"
 #include "ui/gl/gl_fence.h"
@@ -100,6 +101,10 @@
 #define GL_TEXTURE_RECTANGLE              0x84F5
 #endif
 
+#ifndef GL_NEAREST
+#define GL_NEAREST                        0x2600
+#endif
+
 #ifndef GL_LINEAR
 #define GL_LINEAR                         0x2601
 #endif
@@ -114,6 +119,12 @@
 
 #ifndef GL_LINE_LOOP
 #define GL_LINE_LOOP                      0x0002
+#endif
+
+#ifndef QT_NO_OPENGL
+QT_BEGIN_NAMESPACE
+Q_GUI_EXPORT QOpenGLContext *qt_gl_global_share_context();
+QT_END_NAMESPACE
 #endif
 
 namespace QtWebEngineCore {
@@ -131,7 +142,7 @@ public:
 
     void setHasAlphaChannel(bool hasAlpha) { m_hasAlpha = hasAlpha; }
     gpu::MailboxHolder &mailboxHolder() { return m_mailboxHolder; }
-    void fetchTexture(gpu::gles2::MailboxManager *mailboxManager);
+    void fetchTexture(gpu::MailboxManager *mailboxManager);
     void setTarget(GLenum target);
 
 private:
@@ -140,7 +151,7 @@ private:
     QSize m_textureSize;
     bool m_hasAlpha;
     GLenum m_target;
-#if defined(USE_X11)
+#if defined(USE_OZONE)
     bool m_ownsTexture;
 #endif
 #ifdef Q_OS_QNX
@@ -151,17 +162,16 @@ private:
 #endif // QT_NO_OPENGL
 class ResourceHolder {
 public:
-    ResourceHolder(const cc::TransferableResource &resource);
+    ResourceHolder(const viz::TransferableResource &resource);
     QSharedPointer<QSGTexture> initTexture(bool quadIsAllOpaque, RenderWidgetHostViewQtDelegate *apiDelegate = 0);
     QSGTexture *texture() const { return m_texture.data(); }
-    cc::TransferableResource &transferableResource() { return m_resource; }
-    cc::ReturnedResource returnResource();
+    viz::ReturnedResource returnResource();
     void incImportCount() { ++m_importCount; }
     bool needsToFetch() const { return !m_resource.is_software && m_texture && !m_texture.data()->textureId(); }
 
 private:
     QWeakPointer<QSGTexture> m_texture;
-    cc::TransferableResource m_resource;
+    viz::TransferableResource m_resource;
     int m_importCount;
 };
 
@@ -183,20 +193,17 @@ public:
 
     virtual ~DelegatedNodeTreeHandler(){}
 
-    virtual void setupRenderPassNode(QSGTexture *, const QRect &, QSGNode *) = 0;
+    virtual void setupRenderPassNode(QSGTexture *, const QRect &, const QRectF &, QSGNode *) = 0;
     virtual void setupTextureContentNode(QSGTexture *, const QRect &, const QRectF &,
-                                         QSGTexture::Filtering,
-                                         QSGTextureNode::TextureCoordinatesTransformMode,
+                                         QSGImageNode::TextureCoordinatesTransformMode,
                                          QSGNode *) = 0;
-    virtual void setupTiledContentNode(QSGTexture *, const QRect &, const QRectF &,
-                                       QSGTexture::Filtering, QSGNode *) = 0;
     virtual void setupSolidColorNode(const QRect &, const QColor &, QSGNode *) = 0;
 
 #ifndef QT_NO_OPENGL
     virtual void setupDebugBorderNode(QSGGeometry *, QSGFlatColorMaterial *, QSGNode *) = 0;
     virtual void setupYUVVideoNode(QSGTexture *, QSGTexture *, QSGTexture *, QSGTexture *,
                            const QRectF &, const QRectF &, const QSizeF &, const QSizeF &,
-                           YUVVideoMaterial::ColorSpace, float, float, const QRectF &,
+                           gfx::ColorSpace, float, float, const QRectF &,
                                    QSGNode *) = 0;
 #ifdef GL_OES_EGL_image_external
     virtual void setupStreamVideoNode(MailboxTexture *, const QRectF &,
@@ -216,26 +223,31 @@ public:
     {
     }
 
-    void setupRenderPassNode(QSGTexture *layer, const QRect &rect, QSGNode *) override
+    void setupRenderPassNode(QSGTexture *layer, const QRect &rect, const QRectF &sourceRect, QSGNode *) override
     {
         Q_ASSERT(layer);
+        Q_ASSERT(m_nodeIterator != m_sceneGraphNodes->end());
         QSGInternalImageNode *imageNode = static_cast<QSGInternalImageNode*>(*m_nodeIterator++);
         imageNode->setTargetRect(rect);
         imageNode->setInnerTargetRect(rect);
+        imageNode->setSubSourceRect(layer->convertToNormalizedSourceRect(sourceRect));
         imageNode->setTexture(layer);
         imageNode->update();
     }
 
     void setupTextureContentNode(QSGTexture *texture, const QRect &rect, const QRectF &sourceRect,
-                                 QSGTexture::Filtering filtering,
-                                 QSGTextureNode::TextureCoordinatesTransformMode texCoordTransForm,
+                                 QSGImageNode::TextureCoordinatesTransformMode texCoordTransForm,
                                  QSGNode *) override
     {
-        QSGTextureNode *textureNode = static_cast<QSGTextureNode*>(*m_nodeIterator++);
+        Q_ASSERT(m_nodeIterator != m_sceneGraphNodes->end());
+        QSGImageNode *textureNode = static_cast<QSGImageNode*>(*m_nodeIterator++);
         if (textureNode->texture() != texture) {
+            // Chromium sometimes uses textures that doesn't completely fit
+            // in which case the geometry needs to be recalculated even if
+            // rect and src-rect matches.
+            if (textureNode->texture()->textureSize() != texture->textureSize())
+                textureNode->markDirty(QSGImageNode::DirtyGeometry);
             textureNode->setTexture(texture);
-            // @TODO: This is a workaround for funky rendering, figure out why this is needed.
-            textureNode->markDirty(QSGTextureNode::DirtyGeometry);
         }
         if (textureNode->textureCoordinatesTransform() != texCoordTransForm)
             textureNode->setTextureCoordinatesTransform(texCoordTransForm);
@@ -243,27 +255,12 @@ public:
             textureNode->setRect(rect);
         if (textureNode->sourceRect() != sourceRect)
             textureNode->setSourceRect(sourceRect);
-        if (textureNode->filtering() != filtering)
-            textureNode->setFiltering(filtering);
-    }
-    void setupTiledContentNode(QSGTexture *texture, const QRect &rect, const QRectF &sourceRect,
-                               QSGTexture::Filtering filtering, QSGNode *) override
-    {
-        QSGTextureNode *textureNode = static_cast<QSGTextureNode*>(*m_nodeIterator++);
-        if (textureNode->texture() != texture) {
-            textureNode->setTexture(texture);
-            // @TODO: This is a workaround for funky rendering, figure out why this is needed.
-            textureNode->markDirty(QSGTextureNode::DirtyGeometry);
-        }
-        if (textureNode->rect() != rect)
-            textureNode->setRect(rect);
-        if (textureNode->sourceRect() != sourceRect)
-            textureNode->setSourceRect(sourceRect);
-        if (textureNode->filtering() != filtering)
-            textureNode->setFiltering(filtering);
+        if (textureNode->filtering() != texture->filtering())
+            textureNode->setFiltering(texture->filtering());
     }
     void setupSolidColorNode(const QRect &rect, const QColor &color, QSGNode *) override
     {
+        Q_ASSERT(m_nodeIterator != m_sceneGraphNodes->end());
          QSGRectangleNode *rectangleNode = static_cast<QSGRectangleNode*>(*m_nodeIterator++);
 
          if (rectangleNode->rect() != rect)
@@ -275,6 +272,7 @@ public:
     void setupDebugBorderNode(QSGGeometry *geometry, QSGFlatColorMaterial *material,
                               QSGNode *) override
     {
+        Q_ASSERT(m_nodeIterator != m_sceneGraphNodes->end());
         QSGGeometryNode *geometryNode = static_cast<QSGGeometryNode*>(*m_nodeIterator++);
 
         geometryNode->setGeometry(geometry);
@@ -283,7 +281,7 @@ public:
 
     void setupYUVVideoNode(QSGTexture *, QSGTexture *, QSGTexture *, QSGTexture *,
                            const QRectF &, const QRectF &, const QSizeF &, const QSizeF &,
-                           YUVVideoMaterial::ColorSpace, float, float, const QRectF &,
+                           gfx::ColorSpace, float, float, const QRectF &,
                            QSGNode *) override
     {
         Q_UNREACHABLE();
@@ -311,14 +309,15 @@ public:
     {
     }
 
-    void setupRenderPassNode(QSGTexture *layer, const QRect &rect,
+    void setupRenderPassNode(QSGTexture *layer, const QRect &rect, const QRectF &sourceRect,
                              QSGNode *layerChain) override
     {
         Q_ASSERT(layer);
         // Only QSGInternalImageNode currently supports QSGLayer textures.
-        QSGInternalImageNode *imageNode = m_apiDelegate->createImageNode();
+        QSGInternalImageNode *imageNode = m_apiDelegate->createInternalImageNode();
         imageNode->setTargetRect(rect);
         imageNode->setInnerTargetRect(rect);
+        imageNode->setSubSourceRect(layer->convertToNormalizedSourceRect(sourceRect));
         imageNode->setTexture(layer);
         imageNode->update();
 
@@ -327,30 +326,15 @@ public:
     }
 
     void setupTextureContentNode(QSGTexture *texture, const QRect &rect, const QRectF &sourceRect,
-                                 QSGTexture::Filtering filtering,
-                                 QSGTextureNode::TextureCoordinatesTransformMode texCoordTransForm,
+                                 QSGImageNode::TextureCoordinatesTransformMode texCoordTransForm,
                                  QSGNode *layerChain) override
     {
-        QSGTextureNode *textureNode = m_apiDelegate->createTextureNode();
+        QSGImageNode *textureNode = m_apiDelegate->createImageNode();
         textureNode->setTextureCoordinatesTransform(texCoordTransForm);
         textureNode->setRect(rect);
         textureNode->setSourceRect(sourceRect);
         textureNode->setTexture(texture);
-        textureNode->setFiltering(filtering);
-
-        layerChain->appendChildNode(textureNode);
-        m_sceneGraphNodes->append(textureNode);
-    }
-
-    void setupTiledContentNode(QSGTexture *texture, const QRect &rect, const QRectF &sourceRect,
-                               QSGTexture::Filtering filtering,
-                               QSGNode *layerChain) override
-    {
-        QSGTextureNode *textureNode = m_apiDelegate->createTextureNode();
-        textureNode->setRect(rect);
-        textureNode->setSourceRect(sourceRect);
-        textureNode->setFiltering(filtering);
-        textureNode->setTexture(texture);
+        textureNode->setFiltering(texture->filtering());
 
         layerChain->appendChildNode(textureNode);
         m_sceneGraphNodes->append(textureNode);
@@ -384,7 +368,7 @@ public:
     void setupYUVVideoNode(QSGTexture *yTexture, QSGTexture *uTexture, QSGTexture *vTexture,
                            QSGTexture *aTexture, const QRectF &yaTexCoordRect,
                            const QRectF &uvTexCoordRect, const QSizeF &yaTexSize,
-                           const QSizeF &uvTexSize, YUVVideoMaterial::ColorSpace colorspace,
+                           const QSizeF &uvTexSize, gfx::ColorSpace colorspace,
                            float rMul, float rOff, const QRectF &rect,
                            QSGNode *layerChain) override
     {
@@ -426,7 +410,7 @@ private:
 static inline QSharedPointer<QSGLayer> findRenderPassLayer(const int &id, const QVector<QPair<int, QSharedPointer<QSGLayer> > > &list)
 {
     typedef QPair<int, QSharedPointer<QSGLayer> > Pair;
-    Q_FOREACH (const Pair &pair, list)
+    for (const Pair &pair : list)
         if (pair.first == id)
             return pair.second;
     return QSharedPointer<QSGLayer>();
@@ -449,7 +433,7 @@ static QSGNode *buildRenderPassChain(QSGNode *chainParent)
     return zCompressNode;
 }
 
-static QSGNode *buildLayerChain(QSGNode *chainParent, const cc::SharedQuadState *layerState)
+static QSGNode *buildLayerChain(QSGNode *chainParent, const viz::SharedQuadState *layerState)
 {
     QSGNode *layerChain = chainParent;
     if (layerState->is_clipped) {
@@ -566,7 +550,7 @@ MailboxTexture::MailboxTexture(const gpu::MailboxHolder &mailboxHolder, const QS
     , m_textureSize(textureSize)
     , m_hasAlpha(false)
     , m_target(GL_TEXTURE_2D)
-#if defined(USE_X11)
+#if defined(USE_OZONE)
     , m_ownsTexture(false)
 #endif
 {
@@ -581,7 +565,7 @@ MailboxTexture::MailboxTexture(const gpu::MailboxHolder &mailboxHolder, const QS
 
 MailboxTexture::~MailboxTexture()
 {
-#if defined(USE_X11)
+#if defined(USE_OZONE)
    // This is rare case, where context is not shared
    // we created extra texture in current context, so
    // delete it now
@@ -618,9 +602,9 @@ void MailboxTexture::setTarget(GLenum target)
     m_target = target;
 }
 
-void MailboxTexture::fetchTexture(gpu::gles2::MailboxManager *mailboxManager)
+void MailboxTexture::fetchTexture(gpu::MailboxManager *mailboxManager)
 {
-    gpu::gles2::TextureBase *tex = ConsumeTexture(mailboxManager, m_target, m_mailboxHolder.mailbox);
+    gpu::TextureBase *tex = ConsumeTexture(mailboxManager, m_target, m_mailboxHolder.mailbox);
 
     // The texture might already have been deleted (e.g. when navigating away from a page).
     if (tex) {
@@ -634,7 +618,7 @@ void MailboxTexture::fetchTexture(gpu::gles2::MailboxManager *mailboxManager)
 }
 #endif //QT_NO_OPENGL
 
-ResourceHolder::ResourceHolder(const cc::TransferableResource &resource)
+ResourceHolder::ResourceHolder(const viz::TransferableResource &resource)
     : m_resource(resource)
     , m_importCount(1)
 {
@@ -646,7 +630,9 @@ QSharedPointer<QSGTexture> ResourceHolder::initTexture(bool quadNeedsBlending, R
     if (!texture) {
         if (m_resource.is_software) {
             Q_ASSERT(apiDelegate);
-            std::unique_ptr<viz::SharedBitmap> sharedBitmap = viz::ServerSharedBitmapManager::current()->GetSharedBitmapFromId(m_resource.size, m_resource.mailbox_holder.mailbox);
+            std::unique_ptr<viz::SharedBitmap> sharedBitmap =
+                    content::BrowserMainLoop::GetInstance()->GetServerSharedBitmapManager()->GetSharedBitmapFromId(
+                        m_resource.size, viz::BGRA_8888, m_resource.mailbox_holder.mailbox);
             // QSG interprets QImage::hasAlphaChannel meaning that a node should enable blending
             // to draw it but Chromium keeps this information in the quads.
             // The input format is currently always Format_ARGB32_Premultiplied, so assume that all
@@ -654,7 +640,9 @@ QSharedPointer<QSGTexture> ResourceHolder::initTexture(bool quadNeedsBlending, R
             // from Format_ARGB32_Premultiplied to Format_RGB32 just to get hasAlphaChannel to
             // return false.
             QImage::Format format = quadNeedsBlending ? QImage::Format_ARGB32_Premultiplied : QImage::Format_RGB32;
-            QImage image(sharedBitmap->pixels(), m_resource.size.width(), m_resource.size.height(), format);
+            QImage image = sharedBitmap
+                         ? QImage(sharedBitmap->pixels(), m_resource.size.width(), m_resource.size.height(), format)
+                         : QImage(m_resource.size.width(), m_resource.size.height(), format);
             texture.reset(apiDelegate->createTextureFromImage(image.copy()));
         } else {
 #ifndef QT_NO_OPENGL
@@ -664,6 +652,18 @@ QSharedPointer<QSGTexture> ResourceHolder::initTexture(bool quadNeedsBlending, R
             Q_UNREACHABLE();
 #endif
         }
+        if (m_resource.filter == GL_NEAREST)
+            texture->setFiltering(QSGTexture::Nearest);
+        else if (m_resource.filter == GL_LINEAR)
+            texture->setFiltering(QSGTexture::Linear);
+        else {
+            // Depends on qtdeclarative fix, see QTBUG-71322
+#if QT_VERSION >= QT_VERSION_CHECK(5, 12, 1)
+            texture->setFiltering(QSGTexture::Linear);
+#else
+            texture->setFiltering(QSGTexture::Nearest);
+#endif
+        }
         m_texture = texture;
     }
     // All quads using a resource should request the same blending state.
@@ -671,9 +671,9 @@ QSharedPointer<QSGTexture> ResourceHolder::initTexture(bool quadNeedsBlending, R
     return texture;
 }
 
-cc::ReturnedResource ResourceHolder::returnResource()
+viz::ReturnedResource ResourceHolder::returnResource()
 {
-    cc::ReturnedResource returned;
+    viz::ReturnedResource returned;
     // The ResourceProvider ensures that the resource isn't used by the parent compositor's GL
     // context in the GPU process by inserting a sync point to be waited for by the child
     // compositor's GL context. We don't need this since we are triggering the delegated frame
@@ -698,12 +698,12 @@ RectClipNode::RectClipNode(const QRectF &rect)
 
 DelegatedFrameNode::DelegatedFrameNode()
     : m_numPendingSyncPoints(0)
-#if defined(USE_X11) && !defined(QT_NO_OPENGL)
+#if defined(USE_OZONE) && !defined(QT_NO_OPENGL)
     , m_contextShared(true)
 #endif
 {
     setFlag(UsePreprocess);
-#if defined(USE_X11) && !defined(QT_NO_OPENGL)
+#if defined(USE_OZONE) && !defined(QT_NO_OPENGL)
     QOpenGLContext *currentContext = QOpenGLContext::currentContext() ;
     QOpenGLContext *sharedContext = qt_gl_global_share_context();
     if (currentContext && sharedContext && !QOpenGLContext::areSharing(currentContext, sharedContext)) {
@@ -743,7 +743,7 @@ void DelegatedFrameNode::preprocess()
 
     // Then render any intermediate RenderPass in order.
     typedef QPair<int, QSharedPointer<QSGLayer> > Pair;
-    Q_FOREACH (const Pair &pair, m_sgObjects.renderPassLayers) {
+    for (const Pair &pair : qAsConst(m_sgObjects.renderPassLayers)) {
         // The layer is non-live, request a one-time update here.
         pair.second->scheduleUpdate();
         // Proceed with the actual update.
@@ -751,23 +751,11 @@ void DelegatedFrameNode::preprocess()
     }
 }
 
-static YUVVideoMaterial::ColorSpace toQt(cc::YUVVideoDrawQuad::ColorSpace color_space)
+static bool areSharedQuadStatesEqual(const viz::SharedQuadState *layerState,
+                                     const viz::SharedQuadState *prevLayerState)
 {
-    switch (color_space) {
-    case cc::YUVVideoDrawQuad::REC_601:
-        return YUVVideoMaterial::REC_601;
-    case cc::YUVVideoDrawQuad::REC_709:
-        return YUVVideoMaterial::REC_709;
-    case cc::YUVVideoDrawQuad::JPEG:
-        return YUVVideoMaterial::JPEG;
-    }
-    Q_UNREACHABLE();
-    return YUVVideoMaterial::REC_601;
-}
-
-static bool areSharedQuadStatesEqual(const cc::SharedQuadState *layerState,
-                                     const cc::SharedQuadState *prevLayerState)
-{
+    if (layerState->sorting_context_id != 0 || prevLayerState->sorting_context_id != 0)
+        return false;
     if (layerState->is_clipped != prevLayerState->is_clipped
         || layerState->clip_rect != prevLayerState->clip_rect)
         return false;
@@ -779,8 +767,8 @@ static bool areSharedQuadStatesEqual(const cc::SharedQuadState *layerState,
 // Compares if the frame data that we got from the Chromium Compositor is
 // *structurally* equivalent to the one of the previous frame.
 // If it is, we will just reuse and update the old nodes where necessary.
-static bool areRenderPassStructuresEqual(cc::CompositorFrame *frameData,
-                                         cc::CompositorFrame *previousFrameData)
+static bool areRenderPassStructuresEqual(viz::CompositorFrame *frameData,
+                                         viz::CompositorFrame *previousFrameData)
 {
     if (!previousFrameData)
         return false;
@@ -789,8 +777,8 @@ static bool areRenderPassStructuresEqual(cc::CompositorFrame *frameData,
         return false;
 
     for (unsigned i = 0; i < frameData->render_pass_list.size(); ++i) {
-        cc::RenderPass *newPass = frameData->render_pass_list.at(i).get();
-        cc::RenderPass *prevPass = previousFrameData->render_pass_list.at(i).get();
+        viz::RenderPass *newPass = frameData->render_pass_list.at(i).get();
+        viz::RenderPass *prevPass = previousFrameData->render_pass_list.at(i).get();
 
         if (newPass->id != prevPass->id)
             return false;
@@ -798,37 +786,46 @@ static bool areRenderPassStructuresEqual(cc::CompositorFrame *frameData,
         if (newPass->quad_list.size() != prevPass->quad_list.size())
             return false;
 
-        cc::QuadList::ConstBackToFrontIterator it = newPass->quad_list.BackToFrontBegin();
-        cc::QuadList::ConstBackToFrontIterator end = newPass->quad_list.BackToFrontEnd();
-        cc::QuadList::ConstBackToFrontIterator prevIt = prevPass->quad_list.BackToFrontBegin();
-        cc::QuadList::ConstBackToFrontIterator prevEnd = prevPass->quad_list.BackToFrontEnd();
+        viz::QuadList::ConstBackToFrontIterator it = newPass->quad_list.BackToFrontBegin();
+        viz::QuadList::ConstBackToFrontIterator end = newPass->quad_list.BackToFrontEnd();
+        viz::QuadList::ConstBackToFrontIterator prevIt = prevPass->quad_list.BackToFrontBegin();
+        viz::QuadList::ConstBackToFrontIterator prevEnd = prevPass->quad_list.BackToFrontEnd();
         for (; it != end && prevIt != prevEnd; ++it, ++prevIt) {
-            const cc::DrawQuad *quad = *it;
-            const cc::DrawQuad *prevQuad = *prevIt;
-            if (!areSharedQuadStatesEqual(quad->shared_quad_state, prevQuad->shared_quad_state))
-                return false;
+            const viz::DrawQuad *quad = *it;
+            const viz::DrawQuad *prevQuad = *prevIt;
             if (quad->material != prevQuad->material)
                 return false;
 #ifndef QT_NO_OPENGL
-            if (quad->material == cc::DrawQuad::YUV_VIDEO_CONTENT)
+            if (quad->material == viz::DrawQuad::YUV_VIDEO_CONTENT)
                 return false;
 #ifdef GL_OES_EGL_image_external
-            if (quad->material == cc::DrawQuad::STREAM_VIDEO_CONTENT)
+            if (quad->material == viz::DrawQuad::STREAM_VIDEO_CONTENT)
                 return false;
 #endif // GL_OES_EGL_image_external
 #endif // QT_NO_OPENGL
-
+            if (!areSharedQuadStatesEqual(quad->shared_quad_state, prevQuad->shared_quad_state))
+                return false;
+            if (quad->shared_quad_state->is_clipped && quad->visible_rect != prevQuad->visible_rect) {
+                gfx::Rect targetRect1 =
+                        cc::MathUtil::MapEnclosingClippedRect(quad->shared_quad_state->quad_to_target_transform, quad->visible_rect);
+                gfx::Rect targetRect2 =
+                        cc::MathUtil::MapEnclosingClippedRect(quad->shared_quad_state->quad_to_target_transform, prevQuad->visible_rect);
+                targetRect1.Intersect(quad->shared_quad_state->clip_rect);
+                targetRect2.Intersect(quad->shared_quad_state->clip_rect);
+                if (targetRect1.IsEmpty() != targetRect2.IsEmpty())
+                    return false;
+            }
         }
     }
     return true;
 }
 
 void DelegatedFrameNode::commit(ChromiumCompositorData *chromiumCompositorData,
-                                std::vector<cc::ReturnedResource> *resourcesToRelease,
+                                std::vector<viz::ReturnedResource> *resourcesToRelease,
                                 RenderWidgetHostViewQtDelegate *apiDelegate)
 {
     m_chromiumCompositorData = chromiumCompositorData;
-    cc::CompositorFrame* frameData = &m_chromiumCompositorData->frameData;
+    viz::CompositorFrame* frameData = &m_chromiumCompositorData->frameData;
     if (frameData->render_pass_list.empty())
         return;
 
@@ -849,7 +846,7 @@ void DelegatedFrameNode::commit(ChromiumCompositorData *chromiumCompositorData,
     // candidates to be picked up by quads, it's then our responsibility to return unused resources
     // to the producing child compositor.
     for (unsigned i = 0; i < frameData->resource_list.size(); ++i) {
-        const cc::TransferableResource &res = frameData->resource_list.at(i);
+        const viz::TransferableResource &res = frameData->resource_list.at(i);
         if (QSharedPointer<ResourceHolder> resource = resourceCandidates.value(res.id))
             resource->incImportCount();
         else
@@ -860,7 +857,8 @@ void DelegatedFrameNode::commit(ChromiumCompositorData *chromiumCompositorData,
     QScopedPointer<DelegatedNodeTreeHandler> nodeHandler;
 
     const QSizeF viewportSizeInPt = apiDelegate->screenRect().size();
-    const QSize viewportSize = (viewportSizeInPt * devicePixelRatio).toSize();
+    const QSizeF viewportSizeF = viewportSizeInPt * devicePixelRatio;
+    const QSize viewportSize(std::ceil(viewportSizeF.width()), std::ceil(viewportSizeF.height()));
 
     // We first compare if the render passes from the previous frame data are structurally
     // equivalent to the render passes in the current frame data. If they are, we are going
@@ -873,7 +871,7 @@ void DelegatedFrameNode::commit(ChromiumCompositorData *chromiumCompositorData,
         m_sceneGraphNodes.empty() ||
         viewportSize != m_previousViewportSize;
 
-    m_chromiumCompositorData->previousFrameData = cc::CompositorFrame();
+    m_chromiumCompositorData->previousFrameData = viz::CompositorFrame();
     SGObjects previousSGObjects;
     QVector<QSharedPointer<QSGTexture> > textureStrongRefs;
     if (buildNewTree) {
@@ -897,11 +895,11 @@ void DelegatedFrameNode::commit(ChromiumCompositorData *chromiumCompositorData,
     // parent, with the last one in the list being the root RenderPass, the one
     // that we displayed to the user.
     // All RenderPasses except the last one are rendered to an FBO.
-    cc::RenderPass *rootRenderPass = frameData->render_pass_list.back().get();
+    viz::RenderPass *rootRenderPass = frameData->render_pass_list.back().get();
 
     gfx::Rect viewportRect(toGfx(viewportSize));
     for (unsigned i = 0; i < frameData->render_pass_list.size(); ++i) {
-        cc::RenderPass *pass = frameData->render_pass_list.at(i).get();
+        viz::RenderPass *pass = frameData->render_pass_list.at(i).get();
 
         QSGNode *renderPassParent = 0;
         gfx::Rect scissorRect;
@@ -927,6 +925,7 @@ void DelegatedFrameNode::commit(ChromiumCompositorData *chromiumCompositorData,
             rpLayer->setRect(toQt(pass->output_rect));
             rpLayer->setSize(toQt(pass->output_rect.size()));
             rpLayer->setFormat(pass->has_transparent_background ? GL_RGBA : GL_RGB);
+            rpLayer->setHasMipmaps(pass->generate_mipmap);
             rpLayer->setMirrorVertical(true);
             scissorRect = pass->output_rect;
         } else {
@@ -944,16 +943,16 @@ void DelegatedFrameNode::commit(ChromiumCompositorData *chromiumCompositorData,
         if (buildNewTree)
             renderPassChain = buildRenderPassChain(renderPassParent);
 
-        std::deque<std::unique_ptr<cc::DrawPolygon>> polygonQueue;
+        base::circular_deque<std::unique_ptr<viz::DrawPolygon>> polygonQueue;
         int nextPolygonId = 0;
         int currentSortingContextId = 0;
-        const cc::SharedQuadState *currentLayerState = nullptr;
+        const viz::SharedQuadState *currentLayerState = nullptr;
         QSGNode *currentLayerChain = nullptr;
         const auto quadListBegin = pass->quad_list.BackToFrontBegin();
         const auto quadListEnd = pass->quad_list.BackToFrontEnd();
         for (auto it = quadListBegin; it != quadListEnd; ++it) {
-            const cc::DrawQuad *quad = *it;
-            const cc::SharedQuadState *quadState = quad->shared_quad_state;
+            const viz::DrawQuad *quad = *it;
+            const viz::SharedQuadState *quadState = quad->shared_quad_state;
 
             gfx::Rect targetRect =
                 cc::MathUtil::MapEnclosingClippedRect(quadState->quad_to_target_transform,
@@ -973,8 +972,8 @@ void DelegatedFrameNode::commit(ChromiumCompositorData *chromiumCompositorData,
             }
 
             if (currentSortingContextId != 0) {
-                std::unique_ptr<cc::DrawPolygon> polygon(
-                    new cc::DrawPolygon(
+                std::unique_ptr<viz::DrawPolygon> polygon(
+                    new viz::DrawPolygon(
                         quad,
                         gfx::RectF(quad->visible_rect),
                         quadState->quad_to_target_transform,
@@ -1008,7 +1007,7 @@ void DelegatedFrameNode::commit(ChromiumCompositorData *chromiumCompositorData,
 }
 
 void DelegatedFrameNode::flushPolygons(
-    std::deque<std::unique_ptr<cc::DrawPolygon>> *polygonQueue,
+    base::circular_deque<std::unique_ptr<viz::DrawPolygon>> *polygonQueue,
     QSGNode *renderPassChain,
     DelegatedNodeTreeHandler *nodeHandler,
     QHash<unsigned, QSharedPointer<ResourceHolder> > &resourceCandidates,
@@ -1017,9 +1016,9 @@ void DelegatedFrameNode::flushPolygons(
     if (polygonQueue->empty())
         return;
 
-    const auto actionHandler = [&](cc::DrawPolygon *polygon) {
-        const cc::DrawQuad *quad = polygon->original_ref();
-        const cc::SharedQuadState *quadState = quad->shared_quad_state;
+    const auto actionHandler = [&](viz::DrawPolygon *polygon) {
+        const viz::DrawQuad *quad = polygon->original_ref();
+        const viz::SharedQuadState *quadState = quad->shared_quad_state;
 
         QSGNode *currentLayerChain = nullptr;
         if (renderPassChain)
@@ -1034,17 +1033,17 @@ void DelegatedFrameNode::flushPolygons(
                       nodeHandler, resourceCandidates, apiDelegate);
     };
 
-    cc::BspTree(polygonQueue).TraverseWithActionHandler(&actionHandler);
+    viz::BspTree(polygonQueue).TraverseWithActionHandler(&actionHandler);
 }
 
 void DelegatedFrameNode::handlePolygon(
-    const cc::DrawPolygon *polygon,
+    const viz::DrawPolygon *polygon,
     QSGNode *currentLayerChain,
     DelegatedNodeTreeHandler *nodeHandler,
     QHash<unsigned, QSharedPointer<ResourceHolder> > &resourceCandidates,
     RenderWidgetHostViewQtDelegate *apiDelegate)
 {
-    const cc::DrawQuad *quad = polygon->original_ref();
+    const viz::DrawQuad *quad = polygon->original_ref();
 
     if (!polygon->is_split()) {
         handleQuad(quad, currentLayerChain,
@@ -1059,7 +1058,7 @@ void DelegatedFrameNode::handlePolygon(
 }
 
 void DelegatedFrameNode::handleClippedQuad(
-    const cc::DrawQuad *quad,
+    const viz::DrawQuad *quad,
     const gfx::QuadF &clipRegion,
     QSGNode *currentLayerChain,
     DelegatedNodeTreeHandler *nodeHandler,
@@ -1085,24 +1084,29 @@ void DelegatedFrameNode::handleClippedQuad(
 }
 
 void DelegatedFrameNode::handleQuad(
-    const cc::DrawQuad *quad,
+    const viz::DrawQuad *quad,
     QSGNode *currentLayerChain,
     DelegatedNodeTreeHandler *nodeHandler,
     QHash<unsigned, QSharedPointer<ResourceHolder> > &resourceCandidates,
     RenderWidgetHostViewQtDelegate *apiDelegate)
 {
     switch (quad->material) {
-    case cc::DrawQuad::RENDER_PASS: {
-        const cc::RenderPassDrawQuad *renderPassQuad = cc::RenderPassDrawQuad::MaterialCast(quad);
-        QSGTexture *layer =
+    case viz::DrawQuad::RENDER_PASS: {
+        const viz::RenderPassDrawQuad *renderPassQuad = viz::RenderPassDrawQuad::MaterialCast(quad);
+        if (!renderPassQuad->mask_texture_size.IsEmpty()) {
+            ResourceHolder *resource = findAndHoldResource(renderPassQuad->mask_resource_id(), resourceCandidates);
+            Q_UNUSED(resource); // FIXME: QTBUG-67652
+        }
+        QSGLayer *layer =
             findRenderPassLayer(renderPassQuad->render_pass_id, m_sgObjects.renderPassLayers).data();
 
         if (layer)
-            nodeHandler->setupRenderPassNode(layer, toQt(quad->rect), currentLayerChain);
+            nodeHandler->setupRenderPassNode(layer, toQt(quad->rect), toQt(renderPassQuad->tex_coord_rect), currentLayerChain);
+
         break;
     }
-    case cc::DrawQuad::TEXTURE_CONTENT: {
-        const cc::TextureDrawQuad *tquad = cc::TextureDrawQuad::MaterialCast(quad);
+    case viz::DrawQuad::TEXTURE_CONTENT: {
+        const viz::TextureDrawQuad *tquad = viz::TextureDrawQuad::MaterialCast(quad);
         ResourceHolder *resource = findAndHoldResource(tquad->resource_id(), resourceCandidates);
         QSGTexture *texture =
             initAndHoldTexture(resource, quad->ShouldDrawWithBlending(), apiDelegate);
@@ -1115,14 +1119,12 @@ void DelegatedFrameNode::handleQuad(
 
         nodeHandler->setupTextureContentNode(
             texture, toQt(quad->rect), toQt(uv_rect),
-            resource->transferableResource().filter == GL_LINEAR ? QSGTexture::Linear
-                                                                 : QSGTexture::Nearest,
-            tquad->y_flipped ? QSGTextureNode::MirrorVertically : QSGTextureNode::NoTransform,
+            tquad->y_flipped ? QSGImageNode::MirrorVertically : QSGImageNode::NoTransform,
             currentLayerChain);
         break;
     }
-    case cc::DrawQuad::SOLID_COLOR: {
-        const cc::SolidColorDrawQuad *scquad = cc::SolidColorDrawQuad::MaterialCast(quad);
+    case viz::DrawQuad::SOLID_COLOR: {
+        const viz::SolidColorDrawQuad *scquad = viz::SolidColorDrawQuad::MaterialCast(quad);
         // Qt only supports MSAA and this flag shouldn't be needed.
         // If we ever want to use QSGRectangleNode::setAntialiasing for this we should
         // try to see if we can do something similar for tile quads first.
@@ -1131,8 +1133,8 @@ void DelegatedFrameNode::handleQuad(
         break;
 #ifndef QT_NO_OPENGL
     }
-    case cc::DrawQuad::DEBUG_BORDER: {
-        const cc::DebugBorderDrawQuad *dbquad = cc::DebugBorderDrawQuad::MaterialCast(quad);
+    case viz::DrawQuad::DEBUG_BORDER: {
+        const viz::DebugBorderDrawQuad *dbquad = viz::DebugBorderDrawQuad::MaterialCast(quad);
 
         QSGGeometry *geometry = new QSGGeometry(QSGGeometry::defaultAttributes_Point2D(), 4);
         geometry->setDrawingMode(GL_LINE_LOOP);
@@ -1154,20 +1156,18 @@ void DelegatedFrameNode::handleQuad(
         break;
 #endif
     }
-    case cc::DrawQuad::TILED_CONTENT: {
-        const cc::TileDrawQuad *tquad = cc::TileDrawQuad::MaterialCast(quad);
+    case viz::DrawQuad::TILED_CONTENT: {
+        const viz::TileDrawQuad *tquad = viz::TileDrawQuad::MaterialCast(quad);
         ResourceHolder *resource = findAndHoldResource(tquad->resource_id(), resourceCandidates);
-        nodeHandler->setupTiledContentNode(
+        nodeHandler->setupTextureContentNode(
             initAndHoldTexture(resource, quad->ShouldDrawWithBlending(), apiDelegate),
             toQt(quad->rect), toQt(tquad->tex_coord_rect),
-            resource->transferableResource().filter == GL_LINEAR ? QSGTexture::Linear
-                                                                 : QSGTexture::Nearest,
-            currentLayerChain);
+            QSGImageNode::NoTransform, currentLayerChain);
         break;
 #ifndef QT_NO_OPENGL
     }
-    case cc::DrawQuad::YUV_VIDEO_CONTENT: {
-        const cc::YUVVideoDrawQuad *vquad = cc::YUVVideoDrawQuad::MaterialCast(quad);
+    case viz::DrawQuad::YUV_VIDEO_CONTENT: {
+        const viz::YUVVideoDrawQuad *vquad = viz::YUVVideoDrawQuad::MaterialCast(quad);
         ResourceHolder *yResource =
             findAndHoldResource(vquad->y_plane_resource_id(), resourceCandidates);
         ResourceHolder *uResource =
@@ -1186,14 +1186,14 @@ void DelegatedFrameNode::handleQuad(
             initAndHoldTexture(vResource, quad->ShouldDrawWithBlending()),
             aResource ? initAndHoldTexture(aResource, quad->ShouldDrawWithBlending()) : 0,
             toQt(vquad->ya_tex_coord_rect), toQt(vquad->uv_tex_coord_rect),
-            toQt(vquad->ya_tex_size), toQt(vquad->uv_tex_size), toQt(vquad->color_space),
+            toQt(vquad->ya_tex_size), toQt(vquad->uv_tex_size), vquad->video_color_space,
             vquad->resource_multiplier, vquad->resource_offset, toQt(quad->rect),
             currentLayerChain);
         break;
 #ifdef GL_OES_EGL_image_external
     }
-    case cc::DrawQuad::STREAM_VIDEO_CONTENT: {
-        const cc::StreamVideoDrawQuad *squad = cc::StreamVideoDrawQuad::MaterialCast(quad);
+    case viz::DrawQuad::STREAM_VIDEO_CONTENT: {
+        const viz::StreamVideoDrawQuad *squad = viz::StreamVideoDrawQuad::MaterialCast(quad);
         ResourceHolder *resource = findAndHoldResource(squad->resource_id(), resourceCandidates);
         MailboxTexture *texture = static_cast<MailboxTexture *>(
             initAndHoldTexture(resource, quad->ShouldDrawWithBlending()));
@@ -1206,7 +1206,7 @@ void DelegatedFrameNode::handleQuad(
 #endif // GL_OES_EGL_image_external
 #endif // QT_NO_OPENGL
     }
-    case cc::DrawQuad::SURFACE_CONTENT:
+    case viz::DrawQuad::SURFACE_CONTENT:
         Q_UNREACHABLE();
     default:
         qWarning("Unimplemented quad material: %d", quad->material);
@@ -1223,13 +1223,13 @@ ResourceHolder *DelegatedFrameNode::findAndHoldResource(unsigned resourceId, QHa
     return resource.data();
 }
 
-void DelegatedFrameNode::holdResources(const cc::DrawQuad *quad, QHash<unsigned, QSharedPointer<ResourceHolder> > &candidates)
+void DelegatedFrameNode::holdResources(const viz::DrawQuad *quad, QHash<unsigned, QSharedPointer<ResourceHolder> > &candidates)
 {
     for (auto resource : quad->resources)
         findAndHoldResource(resource, candidates);
 }
 
-void DelegatedFrameNode::holdResources(const cc::RenderPass *pass, QHash<unsigned, QSharedPointer<ResourceHolder> > &candidates)
+void DelegatedFrameNode::holdResources(const viz::RenderPass *pass, QHash<unsigned, QSharedPointer<ResourceHolder> > &candidates)
 {
     for (const auto &quad : pass->quad_list)
         holdResources(quad, candidates);
@@ -1255,25 +1255,25 @@ void DelegatedFrameNode::fetchAndSyncMailboxes(QList<MailboxTexture *> &mailboxe
         mailboxesToPull.reserve(mailboxesToFetch.size());
 
         gpu::SyncPointManager *syncPointManager = sync_point_manager();
-        base::MessageLoop *gpuMessageLoop = gpu_message_loop();
+        scoped_refptr<base::SingleThreadTaskRunner> gpuTaskRunner = gpu_task_runner();
         Q_ASSERT(m_numPendingSyncPoints == 0);
         m_numPendingSyncPoints = mailboxesToFetch.count();
         for (MailboxTexture *mailboxTexture : qAsConst(mailboxesToFetch)) {
             gpu::SyncToken &syncToken = mailboxTexture->mailboxHolder().sync_token;
             const auto task = base::Bind(&DelegatedFrameNode::pullTexture, this, mailboxTexture);
-            if (!syncPointManager->WaitOutOfOrderNonThreadSafe(syncToken, gpuMessageLoop->task_runner(), std::move(task)))
+            if (!syncPointManager->WaitOutOfOrder(syncToken, std::move(task)))
                 mailboxesToPull.append(mailboxTexture);
         }
         if (!mailboxesToPull.isEmpty()) {
             auto task = base::BindOnce(&DelegatedFrameNode::pullTextures, this, std::move(mailboxesToPull));
-            gpuMessageLoop->task_runner()->PostTask(FROM_HERE, std::move(task));
+            gpuTaskRunner->PostTask(FROM_HERE, std::move(task));
         }
 
         m_mailboxesFetchedWaitCond.wait(&m_mutex);
         m_textureFences.swap(transferredFences);
     }
 
-    Q_FOREACH (gl::TransferableFence sync, transferredFences) {
+    for (gl::TransferableFence sync : qAsConst(transferredFences)) {
         // We need to wait on the fences on the Qt current context, and
         // can therefore not use GLFence routines that uses a different
         // concept of current context.
@@ -1281,7 +1281,7 @@ void DelegatedFrameNode::fetchAndSyncMailboxes(QList<MailboxTexture *> &mailboxe
         deleteChromiumSync(&sync);
     }
 
-#if defined(USE_X11)
+#if defined(USE_OZONE) && !defined(QT_NO_OPENGL)
     // Workaround when context is not shared QTBUG-48969
     // Make slow copy between two contexts.
     if (!m_contextShared) {
@@ -1296,7 +1296,7 @@ void DelegatedFrameNode::fetchAndSyncMailboxes(QList<MailboxTexture *> &mailboxe
         GLuint fbo = 0;
         funcs->glGenFramebuffers(1, &fbo);
 
-        Q_FOREACH (MailboxTexture *mailboxTexture, mailboxesToFetch) {
+        for (MailboxTexture *mailboxTexture : qAsConst(mailboxesToFetch)) {
             // Read texture into QImage from shared context.
             // Switch to shared context.
             sharedContext->makeCurrent(m_offsurface.data());
@@ -1345,7 +1345,7 @@ void DelegatedFrameNode::fetchAndSyncMailboxes(QList<MailboxTexture *> &mailboxe
 void DelegatedFrameNode::pullTextures(DelegatedFrameNode *frameNode, const QVector<MailboxTexture *> textures)
 {
 #ifndef QT_NO_OPENGL
-    gpu::gles2::MailboxManager *mailboxManager = mailbox_manager();
+    gpu::MailboxManager *mailboxManager = mailbox_manager();
     for (MailboxTexture *texture : textures) {
         gpu::SyncToken &syncToken = texture->mailboxHolder().sync_token;
         if (syncToken.HasData())
@@ -1364,7 +1364,7 @@ void DelegatedFrameNode::pullTextures(DelegatedFrameNode *frameNode, const QVect
 void DelegatedFrameNode::pullTexture(DelegatedFrameNode *frameNode, MailboxTexture *texture)
 {
 #ifndef QT_NO_OPENGL
-    gpu::gles2::MailboxManager *mailboxManager = mailbox_manager();
+    gpu::MailboxManager *mailboxManager = mailbox_manager();
     gpu::SyncToken &syncToken = texture->mailboxHolder().sync_token;
     if (syncToken.HasData())
         mailboxManager->PullTextureUpdates(syncToken);
@@ -1383,10 +1383,9 @@ void DelegatedFrameNode::fenceAndUnlockQt(DelegatedFrameNode *frameNode)
 #ifndef QT_NO_OPENGL
     if (!!gl::GLContext::GetCurrent() && gl::GLFence::IsSupported()) {
         // Create a fence on the Chromium GPU-thread and context
-        gl::GLFence *fence = gl::GLFence::Create();
+        std::unique_ptr<gl::GLFence> fence = gl::GLFence::Create();
         // But transfer it to something generic since we need to read it using Qt's OpenGL.
         frameNode->m_textureFences.append(fence->Transfer());
-        delete fence;
     }
     if (frameNode->m_numPendingSyncPoints == 0)
         base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE, base::Bind(&DelegatedFrameNode::unlockQt, frameNode));

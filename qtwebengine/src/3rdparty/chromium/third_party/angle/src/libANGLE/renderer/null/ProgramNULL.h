@@ -29,7 +29,7 @@ class ProgramNULL : public ProgramImpl
     void setSeparable(bool separable) override;
 
     gl::LinkResult link(const gl::Context *context,
-                        const gl::VaryingPacking &packing,
+                        const gl::ProgramLinkedResources &resources,
                         gl::InfoLog &infoLog) override;
     GLboolean validate(const gl::Caps &caps, gl::InfoLog *infoLog) override;
 
@@ -82,17 +82,13 @@ class ProgramNULL : public ProgramImpl
                                GLboolean transpose,
                                const GLfloat *value) override;
 
+    void getUniformfv(const gl::Context *context, GLint location, GLfloat *params) const override;
+    void getUniformiv(const gl::Context *context, GLint location, GLint *params) const override;
+    void getUniformuiv(const gl::Context *context, GLint location, GLuint *params) const override;
+
     // TODO: synchronize in syncState when dirty bits exist.
     void setUniformBlockBinding(GLuint uniformBlockIndex, GLuint uniformBlockBinding) override;
 
-    // May only be called after a successful link operation.
-    // Return false for inactive blocks.
-    bool getUniformBlockSize(const std::string &blockName, size_t *sizeOut) const override;
-
-    // May only be called after a successful link operation.
-    // Returns false for inactive members.
-    bool getUniformBlockMemberInfo(const std::string &memberUniformName,
-                                   sh::BlockMemberInfo *memberInfoOut) const override;
     // CHROMIUM_path_rendering
     // Set parameters to control fragment shader input variable interpolation
     void setPathFragmentInputGen(const std::string &inputName,

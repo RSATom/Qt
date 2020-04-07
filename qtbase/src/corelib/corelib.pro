@@ -4,24 +4,25 @@ CONFIG    += exceptions
 
 MODULE = core     # not corelib, as per project file
 MODULE_CONFIG = moc resources
+qtConfig(gc_binaries): MODULE_CONFIG += gc_binaries
 !isEmpty(QT_NAMESPACE): MODULE_DEFINES = QT_NAMESPACE=$$QT_NAMESPACE
+
+TRACEPOINT_PROVIDER = $$PWD/qtcore.tracepoints
+CONFIG += qt_tracepoints
 
 CONFIG += $$MODULE_CONFIG
 DEFINES += $$MODULE_DEFINES
 DEFINES += QT_NO_USING_NAMESPACE QT_NO_FOREACH
 msvc:equals(QT_ARCH, i386): QMAKE_LFLAGS += /BASE:0x67000000
-irix-cc*:QMAKE_CXXFLAGS += -no_prelink -ptused
 
-CONFIG += optimize_full
+CONFIG += simd optimize_full
 
 QMAKE_DOCS = $$PWD/doc/qtcore.qdocconf
 
-ANDROID_JAR_DEPENDENCIES = \
-    jar/QtAndroid.jar
 ANDROID_LIB_DEPENDENCIES = \
     plugins/platforms/android/libqtforandroid.so
 ANDROID_BUNDLED_JAR_DEPENDENCIES = \
-    jar/QtAndroid-bundled.jar
+    jar/QtAndroid.jar
 ANDROID_PERMISSIONS = \
     android.permission.INTERNET \
     android.permission.WRITE_EXTERNAL_STORAGE
@@ -31,26 +32,20 @@ ANDROID_PERMISSIONS = \
 # OpenBSD 6.0 will include environ in libc.
 freebsd|openbsd: QMAKE_LFLAGS_NOUNDEF =
 
-include(animation/animation.pri)
-include(arch/arch.pri)
+qtConfig(animation): include(animation/animation.pri)
 include(global/global.pri)
 include(thread/thread.pri)
 include(tools/tools.pri)
 include(io/io.pri)
 include(itemmodels/itemmodels.pri)
-include(json/json.pri)
 include(plugin/plugin.pri)
 include(kernel/kernel.pri)
 include(codecs/codecs.pri)
+include(serialization/serialization.pri)
 include(statemachine/statemachine.pri)
 include(mimetypes/mimetypes.pri)
-include(xml/xml.pri)
 
 win32 {
-    mingw {
-        # otherwise mingw headers do not declare common functions like putenv
-        CONFIG -= strict_c++
-    }
     LIBS_PRIVATE += -lws2_32
     !winrt {
         LIBS_PRIVATE += -lkernel32 -luser32 -lshell32 -luuid -lole32 -ladvapi32 -lwinmm

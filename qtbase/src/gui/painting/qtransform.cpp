@@ -265,7 +265,7 @@ QTransform::QTransform()
     , m_13(0), m_23(0), m_33(1)
     , m_type(TxNone)
     , m_dirty(TxNone)
-    , d(Q_NULLPTR)
+    , d(nullptr)
 {
 }
 
@@ -284,7 +284,7 @@ QTransform::QTransform(qreal h11, qreal h12, qreal h13,
     , m_13(h13), m_23(h23), m_33(h33)
     , m_type(TxNone)
     , m_dirty(TxProject)
-    , d(Q_NULLPTR)
+    , d(nullptr)
 {
 }
 
@@ -301,7 +301,7 @@ QTransform::QTransform(qreal h11, qreal h12, qreal h21,
     , m_13(0), m_23(0), m_33(1)
     , m_type(TxNone)
     , m_dirty(TxShear)
-    , d(Q_NULLPTR)
+    , d(nullptr)
 {
 }
 
@@ -317,7 +317,7 @@ QTransform::QTransform(const QMatrix &mtx)
       m_13(0), m_23(0), m_33(1)
     , m_type(TxNone)
     , m_dirty(TxShear)
-    , d(Q_NULLPTR)
+    , d(nullptr)
 {
 }
 
@@ -352,8 +352,6 @@ QTransform QTransform::transposed() const
     QTransform t(affine._m11, affine._m21, affine._dx,
                  affine._m12, affine._m22, affine._dy,
                  m_13, m_23, m_33, true);
-    t.m_type = m_type;
-    t.m_dirty = m_dirty;
     return t;
 }
 
@@ -800,15 +798,15 @@ bool QTransform::operator==(const QTransform &o) const
 uint qHash(const QTransform &key, uint seed) Q_DECL_NOTHROW
 {
     QtPrivate::QHashCombine hash;
-    seed = hash(key.m11(), seed);
-    seed = hash(key.m12(), seed);
-    seed = hash(key.m21(), seed);
-    seed = hash(key.m22(), seed);
-    seed = hash(key.dx(),  seed);
-    seed = hash(key.dy(),  seed);
-    seed = hash(key.m13(), seed);
-    seed = hash(key.m23(), seed);
-    seed = hash(key.m33(), seed);
+    seed = hash(seed, key.m11());
+    seed = hash(seed, key.m12());
+    seed = hash(seed, key.m21());
+    seed = hash(seed, key.m22());
+    seed = hash(seed, key.dx());
+    seed = hash(seed, key.dy());
+    seed = hash(seed, key.m13());
+    seed = hash(seed, key.m23());
+    seed = hash(seed, key.m33());
     return seed;
 }
 

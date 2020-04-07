@@ -39,8 +39,8 @@
 
 #include "qwebengineurlrequestjob.h"
 
-#include "url_request_custom_job_proxy.h"
-#include "url_request_custom_job_delegate.h"
+#include "net/url_request_custom_job_proxy.h"
+#include "net/url_request_custom_job_delegate.h"
 
 using QtWebEngineCore::URLRequestCustomJobDelegate;
 
@@ -114,6 +114,32 @@ QByteArray QWebEngineUrlRequestJob::requestMethod() const
 }
 
 /*!
+    \since 5.11
+    Returns the serialized origin of the content that initiated the request.
+
+    Generally, the origin consists of a scheme, hostname, and port. For example,
+    \c "http://localhost:8080" would be a valid origin. The port is omitted if
+    it is the scheme's default port (80 for \c http, 443 for \c https). The
+    hostname is omitted for non-network schemes such as \c file and \c qrc.
+
+    However, there is also the special value \c "null" representing a unique
+    origin. It is, for example, the origin of a sandboxed iframe. The purpose of
+    this special origin is to be always different from all other origins in the
+    same-origin check. In other words, content with a unique origin should never
+    have privileged access to any other content.
+
+    Finally, if the request was not initiated by web content, the function will
+    return an empty QUrl. This happens, for example, when you call \l
+    QWebEnginePage::setUrl().
+
+    This value can be used for implementing secure cross-origin checks.
+*/
+QUrl QWebEngineUrlRequestJob::initiator() const
+{
+    return d_ptr->initiator();
+}
+
+/*!
     Replies to the request with \a device and the MIME type \a contentType.
 
     The user has to be aware that \a device will be used on another thread
@@ -125,9 +151,10 @@ QByteArray QWebEngineUrlRequestJob::requestMethod() const
 
     The device should remain available at least as long as the job exists.
     When calling this method with a newly constructed device, one solution is to
-    make the device delete itself when closed, like this:
+    make the device as a child of the job or delete itself when job is deleted,
+    like this:
     \code
-    connect(device, &QIODevice::aboutToClose, device, &QObject::deleteLater);
+    connect(job, &QObject::destroyed, device, &QObject::deleteLater);
     \endcode
  */
 void QWebEngineUrlRequestJob::reply(const QByteArray &contentType, QIODevice *device)

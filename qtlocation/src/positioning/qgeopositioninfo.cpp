@@ -369,7 +369,7 @@ bool QGeoPositionInfoPrivate::operator==(const QGeoPositionInfoPrivate &other) c
             && doubleAttribs == other.doubleAttribs;
 }
 
-QGeoPositionInfoPrivate *QGeoPositionInfoPrivate::getPimpl(const QGeoPositionInfo &info)
+QGeoPositionInfoPrivate *QGeoPositionInfoPrivate::get(const QGeoPositionInfo &info)
 {
     return info.d;
 }

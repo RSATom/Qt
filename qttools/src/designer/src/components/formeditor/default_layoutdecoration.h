@@ -30,7 +30,7 @@
 #define DEFAULT_LAYOUTDECORATION_H
 
 #include "formeditor_global.h"
-#include <QtDesigner/QDesignerLayoutDecorationExtension>
+#include <QtDesigner/layoutdecoration.h>
 #include <QtDesigner/default_extensionfactory.h>
 
 QT_BEGIN_NAMESPACE
@@ -46,7 +46,7 @@ public:
     explicit QDesignerLayoutDecorationFactory(QExtensionManager *parent = 0);
 
 protected:
-    QObject *createExtension(QObject *object, const QString &iid, QObject *parent) const Q_DECL_OVERRIDE;
+    QObject *createExtension(QObject *object, const QString &iid, QObject *parent) const override;
 };
 
 }  // namespace qdesigner_internal

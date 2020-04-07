@@ -54,29 +54,29 @@ public:
     QOffscreenIntegration();
     ~QOffscreenIntegration();
 
-    void initialize() Q_DECL_OVERRIDE;
-    bool hasCapability(QPlatformIntegration::Capability cap) const Q_DECL_OVERRIDE;
+    void initialize() override;
+    bool hasCapability(QPlatformIntegration::Capability cap) const override;
 
-    QPlatformWindow *createPlatformWindow(QWindow *window) const Q_DECL_OVERRIDE;
-    QPlatformBackingStore *createPlatformBackingStore(QWindow *window) const Q_DECL_OVERRIDE;
-#ifndef QT_NO_DRAGANDDROP
-    QPlatformDrag *drag() const Q_DECL_OVERRIDE;
+    QPlatformWindow *createPlatformWindow(QWindow *window) const override;
+    QPlatformBackingStore *createPlatformBackingStore(QWindow *window) const override;
+#if QT_CONFIG(draganddrop)
+    QPlatformDrag *drag() const override;
 #endif
 
-    QPlatformInputContext *inputContext() const Q_DECL_OVERRIDE;
-    QPlatformServices *services() const Q_DECL_OVERRIDE;
+    QPlatformInputContext *inputContext() const override;
+    QPlatformServices *services() const override;
 
-    QPlatformFontDatabase *fontDatabase() const Q_DECL_OVERRIDE;
-    QAbstractEventDispatcher *createEventDispatcher() const Q_DECL_OVERRIDE;
+    QPlatformFontDatabase *fontDatabase() const override;
+    QAbstractEventDispatcher *createEventDispatcher() const override;
 
-    QStringList themeNames() const Q_DECL_OVERRIDE;
-    QPlatformTheme *createPlatformTheme(const QString &name) const Q_DECL_OVERRIDE;
+    QStringList themeNames() const override;
+    QPlatformTheme *createPlatformTheme(const QString &name) const override;
 
     static QOffscreenIntegration *createOffscreenIntegration();
 
 private:
     QScopedPointer<QPlatformFontDatabase> m_fontDatabase;
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
     QScopedPointer<QPlatformDrag> m_drag;
 #endif
     QScopedPointer<QPlatformInputContext> m_inputContext;

@@ -7,58 +7,66 @@
 #ifndef CORE_FPDFAPI_PAGE_CPDF_CONTENTMARK_H_
 #define CORE_FPDFAPI_PAGE_CPDF_CONTENTMARK_H_
 
+#include <memory>
 #include <vector>
 
 #include "core/fpdfapi/page/cpdf_contentmarkitem.h"
-#include "core/fxcrt/cfx_shared_copy_on_write.h"
-#include "core/fxcrt/fx_basic.h"
 #include "core/fxcrt/fx_system.h"
+#include "core/fxcrt/retain_ptr.h"
 
 class CPDF_Dictionary;
 
 class CPDF_ContentMark {
  public:
   CPDF_ContentMark();
-  CPDF_ContentMark(const CPDF_ContentMark& that);
   ~CPDF_ContentMark();
 
-  void SetNull();
+  std::unique_ptr<CPDF_ContentMark> Clone();
+  int GetMarkedContentID() const;
+  size_t CountItems() const;
+  bool ContainsItem(const CPDF_ContentMarkItem* pItem) const;
 
-  int GetMCID() const;
-  int CountItems() const;
-  const CPDF_ContentMarkItem& GetItem(int i) const;
+  // The returned pointer is never null.
+  CPDF_ContentMarkItem* GetItem(size_t index);
+  const CPDF_ContentMarkItem* GetItem(size_t index) const;
 
-  bool HasMark(const CFX_ByteStringC& mark) const;
-  bool LookupMark(const CFX_ByteStringC& mark, CPDF_Dictionary*& pDict) const;
-  void AddMark(const CFX_ByteString& name,
-               CPDF_Dictionary* pDict,
-               bool bDirect);
+  void AddMark(ByteString name);
+  void AddMarkWithDirectDict(ByteString name, CPDF_Dictionary* pDict);
+  void AddMarkWithPropertiesHolder(const ByteString& name,
+                                   CPDF_Dictionary* pHolder,
+                                   const ByteString& property_name);
+  bool RemoveMark(CPDF_ContentMarkItem* pMarkItem);
   void DeleteLastMark();
-
-  bool HasRef() const { return !!m_Ref; }
+  size_t FindFirstDifference(const CPDF_ContentMark* other) const;
 
  private:
-  class MarkData {
+  class MarkData : public Retainable {
    public:
     MarkData();
     MarkData(const MarkData& src);
-    ~MarkData();
+    ~MarkData() override;
 
-    int CountItems() const;
-    CPDF_ContentMarkItem& GetItem(int index);
-    const CPDF_ContentMarkItem& GetItem(int index) const;
+    size_t CountItems() const;
+    bool ContainsItem(const CPDF_ContentMarkItem* pItem) const;
+    CPDF_ContentMarkItem* GetItem(size_t index);
+    const CPDF_ContentMarkItem* GetItem(size_t index) const;
 
-    int GetMCID() const;
-    void AddMark(const CFX_ByteString& name,
-                 CPDF_Dictionary* pDict,
-                 bool bDictNeedClone);
+    int GetMarkedContentID() const;
+    void AddMark(ByteString name);
+    void AddMarkWithDirectDict(ByteString name, CPDF_Dictionary* pDict);
+    void AddMarkWithPropertiesHolder(const ByteString& name,
+                                     CPDF_Dictionary* pHolder,
+                                     const ByteString& property_name);
+    bool RemoveMark(CPDF_ContentMarkItem* pMarkItem);
     void DeleteLastMark();
 
    private:
-    std::vector<CPDF_ContentMarkItem> m_Marks;
+    std::vector<RetainPtr<CPDF_ContentMarkItem>> m_Marks;
   };
 
-  CFX_SharedCopyOnWrite<MarkData> m_Ref;
+  void EnsureMarkDataExists();
+
+  RetainPtr<MarkData> m_pMarkData;
 };
 
 #endif  // CORE_FPDFAPI_PAGE_CPDF_CONTENTMARK_H_

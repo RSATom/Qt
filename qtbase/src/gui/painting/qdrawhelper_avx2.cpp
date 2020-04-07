@@ -39,12 +39,11 @@
 
 #include "qdrawhelper_p.h"
 #include "qdrawingprimitive_sse2_p.h"
+#include "qrgba64_p.h"
 
 #if defined(QT_COMPILER_SUPPORTS_AVX2)
 
 QT_BEGIN_NAMESPACE
-
-static Q_CONSTEXPR int BufferSize = 2048;
 
 enum {
     FixedScale = 1 << 16,
@@ -73,6 +72,25 @@ inline static void BYTE_MUL_AVX2(__m256i &pixelVector, const __m256i &alphaChann
     pixelVector = _mm256_or_si256(pixelVectorAG, pixelVectorRB);
 }
 
+inline static void BYTE_MUL_RGB64_AVX2(__m256i &pixelVector, const __m256i &alphaChannel, const __m256i &colorMask, const __m256i &half)
+{
+    __m256i pixelVectorAG = _mm256_srli_epi32(pixelVector, 16);
+    __m256i pixelVectorRB = _mm256_and_si256(pixelVector, colorMask);
+
+    pixelVectorAG = _mm256_mullo_epi32(pixelVectorAG, alphaChannel);
+    pixelVectorRB = _mm256_mullo_epi32(pixelVectorRB, alphaChannel);
+
+    pixelVectorRB = _mm256_add_epi32(pixelVectorRB, _mm256_srli_epi32(pixelVectorRB, 16));
+    pixelVectorAG = _mm256_add_epi32(pixelVectorAG, _mm256_srli_epi32(pixelVectorAG, 16));
+    pixelVectorRB = _mm256_add_epi32(pixelVectorRB, half);
+    pixelVectorAG = _mm256_add_epi32(pixelVectorAG, half);
+
+    pixelVectorRB = _mm256_srli_epi32(pixelVectorRB, 16);
+    pixelVectorAG = _mm256_andnot_si256(colorMask, pixelVectorAG);
+
+    pixelVector = _mm256_or_si256(pixelVectorAG, pixelVectorRB);
+}
+
 // See INTERPOLATE_PIXEL_255_SSE2 for details.
 inline static void INTERPOLATE_PIXEL_255_AVX2(const __m256i &srcVector, __m256i &dstVector, const __m256i &alphaChannel, const __m256i &oneMinusAlphaChannel, const __m256i &colorMask, const __m256i &half)
 {
@@ -95,6 +113,29 @@ inline static void INTERPOLATE_PIXEL_255_AVX2(const __m256i &srcVector, __m256i 
 
     dstVector = _mm256_or_si256(finalAG, finalRB);
 }
+
+inline static void INTERPOLATE_PIXEL_RGB64_AVX2(const __m256i &srcVector, __m256i &dstVector, const __m256i &alphaChannel, const __m256i &oneMinusAlphaChannel, const __m256i &colorMask, const __m256i &half)
+{
+    const __m256i srcVectorAG = _mm256_srli_epi32(srcVector, 16);
+    const __m256i dstVectorAG = _mm256_srli_epi32(dstVector, 16);
+    const __m256i srcVectorRB = _mm256_and_si256(srcVector, colorMask);
+    const __m256i dstVectorRB = _mm256_and_si256(dstVector, colorMask);
+    const __m256i srcVectorAGalpha = _mm256_mullo_epi32(srcVectorAG, alphaChannel);
+    const __m256i srcVectorRBalpha = _mm256_mullo_epi32(srcVectorRB, alphaChannel);
+    const __m256i dstVectorAGoneMinusAlpha = _mm256_mullo_epi32(dstVectorAG, oneMinusAlphaChannel);
+    const __m256i dstVectorRBoneMinusAlpha = _mm256_mullo_epi32(dstVectorRB, oneMinusAlphaChannel);
+    __m256i finalAG = _mm256_add_epi32(srcVectorAGalpha, dstVectorAGoneMinusAlpha);
+    __m256i finalRB = _mm256_add_epi32(srcVectorRBalpha, dstVectorRBoneMinusAlpha);
+    finalAG = _mm256_add_epi32(finalAG, _mm256_srli_epi32(finalAG, 16));
+    finalRB = _mm256_add_epi32(finalRB, _mm256_srli_epi32(finalRB, 16));
+    finalAG = _mm256_add_epi32(finalAG, half);
+    finalRB = _mm256_add_epi32(finalRB, half);
+    finalAG = _mm256_andnot_si256(colorMask, finalAG);
+    finalRB = _mm256_srli_epi32(finalRB, 16);
+
+    dstVector = _mm256_or_si256(finalAG, finalRB);
+}
+
 
 // See BLEND_SOURCE_OVER_ARGB32_SSE2 for details.
 inline static void BLEND_SOURCE_OVER_ARGB32_AVX2(quint32 *dst, const quint32 *src, const int length)
@@ -288,6 +329,64 @@ void QT_FASTCALL comp_func_SourceOver_avx2(uint *destPixels, const uint *srcPixe
         BLEND_SOURCE_OVER_ARGB32_WITH_CONST_ALPHA_AVX2(dst, src, length, const_alpha);
 }
 
+void QT_FASTCALL comp_func_SourceOver_rgb64_avx2(QRgba64 *dst, const QRgba64 *src, int length, uint const_alpha)
+{
+    Q_ASSERT(const_alpha < 256); // const_alpha is in [0-255]
+    const __m256i half = _mm256_set1_epi32(0x8000);
+    const __m256i one  = _mm256_set1_epi32(0xffff);
+    const __m256i colorMask = _mm256_set1_epi32(0x0000ffff);
+    __m256i alphaMask = _mm256_set1_epi32(0xff000000);
+    alphaMask = _mm256_unpacklo_epi8(alphaMask, alphaMask);
+    const __m256i alphaShuffleMask = _mm256_set_epi8(char(0xff),char(0xff),15,14,char(0xff),char(0xff),15,14,char(0xff),char(0xff),7,6,char(0xff),char(0xff),7,6,
+                                                     char(0xff),char(0xff),15,14,char(0xff),char(0xff),15,14,char(0xff),char(0xff),7,6,char(0xff),char(0xff),7,6);
+
+    if (const_alpha == 255) {
+        int x = 0;
+        for (; x < length && (quintptr(dst + x) & 31); ++x)
+            blend_pixel(dst[x], src[x]);
+        for (; x < length - 3; x += 4) {
+            const __m256i srcVector = _mm256_lddqu_si256((const __m256i *)&src[x]);
+            if (!_mm256_testz_si256(srcVector, alphaMask)) {
+                // Not all transparent
+                if (_mm256_testc_si256(srcVector, alphaMask)) {
+                    // All opaque
+                    _mm256_store_si256((__m256i *)&dst[x], srcVector);
+                } else {
+                    __m256i alphaChannel = _mm256_shuffle_epi8(srcVector, alphaShuffleMask);
+                    alphaChannel = _mm256_sub_epi32(one, alphaChannel);
+                    __m256i dstVector = _mm256_load_si256((__m256i *)&dst[x]);
+                    BYTE_MUL_RGB64_AVX2(dstVector, alphaChannel, colorMask, half);
+                    dstVector = _mm256_add_epi16(dstVector, srcVector);
+                    _mm256_store_si256((__m256i *)&dst[x], dstVector);
+                }
+            }
+        }
+        SIMD_EPILOGUE(x, length, 3)
+            blend_pixel(dst[x], src[x]);
+    } else {
+        const __m256i constAlphaVector = _mm256_set1_epi32(const_alpha | (const_alpha << 8));
+        int x = 0;
+        for (; x < length && (quintptr(dst + x) & 31); ++x)
+            blend_pixel(dst[x], src[x], const_alpha);
+        for (; x < length - 3; x += 4) {
+            __m256i srcVector = _mm256_lddqu_si256((const __m256i *)&src[x]);
+            if (!_mm256_testz_si256(srcVector, alphaMask)) {
+                // Not all transparent
+                BYTE_MUL_RGB64_AVX2(srcVector, constAlphaVector, colorMask, half);
+
+                __m256i alphaChannel = _mm256_shuffle_epi8(srcVector, alphaShuffleMask);
+                alphaChannel = _mm256_sub_epi32(one, alphaChannel);
+                __m256i dstVector = _mm256_load_si256((__m256i *)&dst[x]);
+                BYTE_MUL_RGB64_AVX2(dstVector, alphaChannel, colorMask, half);
+                dstVector = _mm256_add_epi16(dstVector, srcVector);
+                _mm256_store_si256((__m256i *)&dst[x], dstVector);
+            }
+        }
+        SIMD_EPILOGUE(x, length, 3)
+            blend_pixel(dst[x], src[x], const_alpha);
+    }
+}
+
 void QT_FASTCALL comp_func_Source_avx2(uint *dst, const uint *src, int length, uint const_alpha)
 {
     if (const_alpha == 255) {
@@ -319,6 +418,39 @@ void QT_FASTCALL comp_func_Source_avx2(uint *dst, const uint *src, int length, u
     }
 }
 
+void QT_FASTCALL comp_func_Source_rgb64_avx2(QRgba64 *dst, const QRgba64 *src, int length, uint const_alpha)
+{
+    Q_ASSERT(const_alpha < 256); // const_alpha is in [0-255]
+    if (const_alpha == 255) {
+        ::memcpy(dst, src, length * sizeof(QRgba64));
+    } else {
+        const uint ca = const_alpha | (const_alpha << 8); // adjust to [0-65535]
+        const uint cia = 65535 - ca;
+
+        int x = 0;
+
+        // 1) prologue, align on 32 bytes
+        for (; x < length && (quintptr(dst + x) & 31); ++x)
+            dst[x] = interpolate65535(src[x], ca, dst[x], cia);
+
+        // 2) interpolate pixels with AVX2
+        const __m256i half = _mm256_set1_epi32(0x8000);
+        const __m256i colorMask = _mm256_set1_epi32(0x0000ffff);
+        const __m256i constAlphaVector = _mm256_set1_epi32(ca);
+        const __m256i oneMinusConstAlpha =  _mm256_set1_epi32(cia);
+        for (; x < length - 3; x += 4) {
+            const __m256i srcVector = _mm256_lddqu_si256((const __m256i *)&src[x]);
+            __m256i dstVector = _mm256_load_si256((__m256i *)&dst[x]);
+            INTERPOLATE_PIXEL_RGB64_AVX2(srcVector, dstVector, constAlphaVector, oneMinusConstAlpha, colorMask, half);
+            _mm256_store_si256((__m256i *)&dst[x], dstVector);
+        }
+
+        // 3) Epilogue
+        SIMD_EPILOGUE(x, length, 3)
+            dst[x] = interpolate65535(src[x], ca, dst[x], cia);
+    }
+}
+
 void QT_FASTCALL comp_func_solid_SourceOver_avx2(uint *destPixels, int length, uint color, uint const_alpha)
 {
     if ((const_alpha & qAlpha(color)) == 255) {
@@ -347,6 +479,37 @@ void QT_FASTCALL comp_func_solid_SourceOver_avx2(uint *destPixels, int length, u
         }
         SIMD_EPILOGUE(x, length, 7)
             destPixels[x] = color + BYTE_MUL(destPixels[x], minusAlphaOfColor);
+    }
+}
+
+void QT_FASTCALL comp_func_solid_SourceOver_rgb64_avx2(QRgba64 *destPixels, int length, QRgba64 color, uint const_alpha)
+{
+    Q_ASSERT(const_alpha < 256); // const_alpha is in [0-255]
+    if (const_alpha == 255 && color.isOpaque()) {
+        qt_memfill64((quint64*)destPixels, color, length);
+    } else {
+        if (const_alpha != 255)
+            color = multiplyAlpha255(color, const_alpha);
+
+        const uint minusAlphaOfColor = 65535 - color.alpha();
+        int x = 0;
+        quint64 *dst = (quint64 *) destPixels;
+        const __m256i colorVector = _mm256_set1_epi64x(color);
+        const __m256i colorMask = _mm256_set1_epi32(0x0000ffff);
+        const __m256i half = _mm256_set1_epi32(0x8000);
+        const __m256i minusAlphaOfColorVector = _mm256_set1_epi32(minusAlphaOfColor);
+
+        for (; x < length && (quintptr(dst + x) & 31); ++x)
+            destPixels[x] = color + multiplyAlpha65535(destPixels[x], minusAlphaOfColor);
+
+        for (; x < length - 3; x += 4) {
+            __m256i dstVector = _mm256_load_si256((__m256i *)&dst[x]);
+            BYTE_MUL_RGB64_AVX2(dstVector, minusAlphaOfColorVector, colorMask, half);
+            dstVector = _mm256_add_epi16(colorVector, dstVector);
+            _mm256_store_si256((__m256i *)&dst[x], dstVector);
+        }
+        SIMD_EPILOGUE(x, length, 3)
+            destPixels[x] = color + multiplyAlpha65535(destPixels[x], minusAlphaOfColor);
     }
 }
 
@@ -411,8 +574,10 @@ inline void fetchTransformedBilinear_pixelBounds(int, int l1, int l2, int &v1, i
     Q_ASSERT(v2 >= l1 && v2 <= l2);
 }
 
-void QT_FASTCALL fetchTransformedBilinearARGB32PM_simple_upscale_helper_avx2(uint *b, uint *end, const QTextureData &image,
-                                                                             int &fx, int &fy, int fdx, int /*fdy*/)
+void QT_FASTCALL intermediate_adder_avx2(uint *b, uint *end, const IntermediateBuffer &intermediate, int offset, int &fx, int fdx);
+
+void QT_FASTCALL fetchTransformedBilinearARGB32PM_simple_scale_helper_avx2(uint *b, uint *end, const QTextureData &image,
+                                                                           int &fx, int &fy, int fdx, int /*fdy*/)
 {
     int y1 = (fy >> 16);
     int y2;
@@ -429,16 +594,12 @@ void QT_FASTCALL fetchTransformedBilinearARGB32PM_simple_upscale_helper_avx2(uin
     const int offset = (fx + adjust) >> 16;
     int x = offset;
 
-    // The idea is first to do the interpolation between the row s1 and the row s2
-    // into an intermediate buffer, then we interpolate between two pixel of this buffer.
-
-    // intermediate_buffer[0] is a buffer of red-blue component of the pixel, in the form 0x00RR00BB
-    // intermediate_buffer[1] is the alpha-green component of the pixel, in the form 0x00AA00GG
-    // +1 for the last pixel to interpolate with, and +1 for rounding errors.
-    quint32 intermediate_buffer[2][BufferSize + 2];
+    IntermediateBuffer intermediate;
     // count is the size used in the intermediate_buffer.
     int count = (qint64(length) * qAbs(fdx) + FixedScale - 1) / FixedScale + 2;
-    Q_ASSERT(count <= BufferSize + 2); //length is supposed to be <= buffer_size and data->m11 < 1 in this case
+    // length is supposed to be <= BufferSize either because data->m11 < 1 or
+    // data->m11 < 2, and any larger buffers split
+    Q_ASSERT(count <= BufferSize + 2);
     int f = 0;
     int lim = qMin(count, image.x2 - x);
     if (x < image.x1) {
@@ -448,8 +609,8 @@ void QT_FASTCALL fetchTransformedBilinearARGB32PM_simple_upscale_helper_avx2(uin
         quint32 rb = (((t & 0xff00ff) * idisty + (b & 0xff00ff) * disty) >> 8) & 0xff00ff;
         quint32 ag = ((((t>>8) & 0xff00ff) * idisty + ((b>>8) & 0xff00ff) * disty) >> 8) & 0xff00ff;
         do {
-            intermediate_buffer[0][f] = rb;
-            intermediate_buffer[1][f] = ag;
+            intermediate.buffer_rb[f] = rb;
+            intermediate.buffer_ag[f] = ag;
             f++;
             x++;
         } while (x < image.x1 && f < lim);
@@ -479,10 +640,10 @@ void QT_FASTCALL fetchTransformedBilinearARGB32PM_simple_upscale_helper_avx2(uin
         // Add the values, and shift to only keep 8 significant bits per colors
         __m256i rAG =_mm256_add_epi16(topAG, bottomAG);
         rAG = _mm256_srli_epi16(rAG, 8);
-        _mm256_storeu_si256((__m256i*)(&intermediate_buffer[1][f]), rAG);
+        _mm256_storeu_si256((__m256i*)(&intermediate.buffer_ag[f]), rAG);
         __m256i rRB =_mm256_add_epi16(topRB, bottomRB);
         rRB = _mm256_srli_epi16(rRB, 8);
-        _mm256_storeu_si256((__m256i*)(&intermediate_buffer[0][f]), rRB);
+        _mm256_storeu_si256((__m256i*)(&intermediate.buffer_rb[f]), rRB);
     }
 
     for (; f < count; f++) { // Same as above but without simd
@@ -491,30 +652,37 @@ void QT_FASTCALL fetchTransformedBilinearARGB32PM_simple_upscale_helper_avx2(uin
         uint t = s1[x];
         uint b = s2[x];
 
-        intermediate_buffer[0][f] = (((t & 0xff00ff) * idisty + (b & 0xff00ff) * disty) >> 8) & 0xff00ff;
-        intermediate_buffer[1][f] = ((((t>>8) & 0xff00ff) * idisty + ((b>>8) & 0xff00ff) * disty) >> 8) & 0xff00ff;
+        intermediate.buffer_rb[f] = (((t & 0xff00ff) * idisty + (b & 0xff00ff) * disty) >> 8) & 0xff00ff;
+        intermediate.buffer_ag[f] = ((((t>>8) & 0xff00ff) * idisty + ((b>>8) & 0xff00ff) * disty) >> 8) & 0xff00ff;
         x++;
     }
+
     // Now interpolate the values from the intermediate_buffer to get the final result.
+    intermediate_adder_avx2(b, end, intermediate, offset, fx, fdx);
+}
+
+void QT_FASTCALL intermediate_adder_avx2(uint *b, uint *end, const IntermediateBuffer &intermediate, int offset, int &fx, int fdx)
+{
     fx -= offset * FixedScale;
 
     const __m128i v_fdx = _mm_set1_epi32(fdx * 4);
     const __m128i v_blend = _mm_set1_epi32(0x00800080);
+    const __m128i vdx_shuffle = _mm_set_epi8(char(0x80), 13, char(0x80), 13, char(0x80), 9, char(0x80), 9,
+                                             char(0x80),  5, char(0x80),  5, char(0x80), 1, char(0x80), 1);
     __m128i v_fx = _mm_setr_epi32(fx, fx + fdx, fx + fdx + fdx, fx + fdx + fdx + fdx);
 
     while (b < end - 3) {
         const __m128i offset = _mm_srli_epi32(v_fx, 16);
-        __m256i vrb = _mm256_i32gather_epi64((const long long *)intermediate_buffer[0], offset, 4);
-        __m256i vag = _mm256_i32gather_epi64((const long long *)intermediate_buffer[1], offset, 4);
+        __m256i vrb = _mm256_i32gather_epi64((const long long *)intermediate.buffer_rb, offset, 4);
+        __m256i vag = _mm256_i32gather_epi64((const long long *)intermediate.buffer_ag, offset, 4);
 
-        __m128i vdx = _mm_and_si128(v_fx, _mm_set1_epi32(0x0000ffff));
-        vdx = _mm_srli_epi16(vdx, 8);
-        __m128i vidx = _mm_sub_epi32(_mm_set1_epi32(256), vdx);
+        __m128i vdx = _mm_shuffle_epi8(v_fx, vdx_shuffle);
+        __m128i vidx = _mm_sub_epi16(_mm_set1_epi16(256), vdx);
         __m256i vmulx = _mm256_castsi128_si256(_mm_unpacklo_epi32(vidx, vdx));
         vmulx = _mm256_inserti128_si256(vmulx, _mm_unpackhi_epi32(vidx, vdx), 1);
 
-        vrb = _mm256_mullo_epi32(vrb, vmulx);
-        vag = _mm256_mullo_epi32(vag, vmulx);
+        vrb = _mm256_mullo_epi16(vrb, vmulx);
+        vag = _mm256_mullo_epi16(vag, vmulx);
 
         __m256i vrbag = _mm256_hadd_epi32(vrb, vag);
         vrbag = _mm256_permute4x64_epi64(vrbag, _MM_SHUFFLE(3, 1, 2, 0));
@@ -526,21 +694,21 @@ void QT_FASTCALL fetchTransformedBilinearARGB32PM_simple_upscale_helper_avx2(uin
         _mm_storeu_si128((__m128i*)b, _mm_blendv_epi8(ag, rb, v_blend));
 
         b += 4;
-        fx += 4 * fdx;
         v_fx = _mm_add_epi32(v_fx, v_fdx);
     }
+    fx = _mm_cvtsi128_si32(v_fx);
     while (b < end) {
-        int x = (fx >> 16);
+        const int x = (fx >> 16);
 
-        uint distx = (fx & 0x0000ffff) >> 8;
-        uint idistx = 256 - distx;
-
-        uint rb = ((intermediate_buffer[0][x] * idistx + intermediate_buffer[0][x + 1] * distx) >> 8) & 0xff00ff;
-        uint ag = (intermediate_buffer[1][x] * idistx + intermediate_buffer[1][x + 1] * distx) & 0xff00ff00;
-        *b = rb | ag;
+        const uint distx = (fx & 0x0000ffff) >> 8;
+        const uint idistx = 256 - distx;
+        const uint rb = (intermediate.buffer_rb[x] * idistx + intermediate.buffer_rb[x + 1] * distx) & 0xff00ff00;
+        const uint ag = (intermediate.buffer_ag[x] * idistx + intermediate.buffer_ag[x + 1] * distx) & 0xff00ff00;
+        *b = (rb >> 8) | ag;
         b++;
         fx += fdx;
     }
+    fx += offset * FixedScale;
 }
 
 void QT_FASTCALL fetchTransformedBilinearARGB32PM_downscale_helper_avx2(uint *b, uint *end, const QTextureData &image,

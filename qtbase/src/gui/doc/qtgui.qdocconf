@@ -54,9 +54,15 @@ exampledirs += ../../../examples/gui \
 
 imagedirs   += images \
                ../../../examples/gui/doc/images \
-               ../../../doc/src/images \
+               ../../../doc/src/images
+
+# Included in qttestlib.qdocconf instead
+excludefiles += ../kernel/qtestsupport_gui.cpp
 
 manifestmeta.highlighted.names      = "QtGui/Analog Clock Window Example"
 
 navigation.landingpage = "Qt GUI"
 navigation.cppclassespage = "Qt GUI C++ Classes"
+
+# Ignore warnings about undocumented enum values for the QGradient presets
+spurious += "Undocumented enum item '.*' in QGradient::Preset"

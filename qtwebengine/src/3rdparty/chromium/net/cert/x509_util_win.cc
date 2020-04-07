@@ -7,7 +7,7 @@
 #include "crypto/scoped_capi_types.h"
 #include "crypto/sha2.h"
 #include "net/cert/x509_certificate.h"
-#include "net/net_features.h"
+#include "net/net_buildflags.h"
 #include "third_party/boringssl/src/include/openssl/pool.h"
 
 namespace net {
@@ -25,39 +25,47 @@ using ScopedHCERTSTORE = crypto::ScopedCAPIHandle<
 scoped_refptr<X509Certificate> CreateX509CertificateFromCertContexts(
     PCCERT_CONTEXT os_cert,
     const std::vector<PCCERT_CONTEXT>& os_chain) {
-#if BUILDFLAG(USE_BYTE_CERTS)
+  return CreateX509CertificateFromCertContexts(os_cert, os_chain, {});
+}
+
+scoped_refptr<X509Certificate> CreateX509CertificateFromCertContexts(
+    PCCERT_CONTEXT os_cert,
+    const std::vector<PCCERT_CONTEXT>& os_chain,
+    X509Certificate::UnsafeCreateOptions options) {
   if (!os_cert || !os_cert->pbCertEncoded || !os_cert->cbCertEncoded)
     return nullptr;
   bssl::UniquePtr<CRYPTO_BUFFER> cert_handle(
-      X509Certificate::CreateOSCertHandleFromBytes(
+      X509Certificate::CreateCertBufferFromBytes(
           reinterpret_cast<const char*>(os_cert->pbCertEncoded),
           os_cert->cbCertEncoded));
   if (!cert_handle)
     return nullptr;
   std::vector<bssl::UniquePtr<CRYPTO_BUFFER>> intermediates;
-  X509Certificate::OSCertHandles intermediates_raw;
   for (PCCERT_CONTEXT os_intermediate : os_chain) {
     if (!os_intermediate || !os_intermediate->pbCertEncoded ||
         !os_intermediate->cbCertEncoded)
       return nullptr;
     bssl::UniquePtr<CRYPTO_BUFFER> intermediate_cert_handle(
-        X509Certificate::CreateOSCertHandleFromBytes(
+        X509Certificate::CreateCertBufferFromBytes(
             reinterpret_cast<const char*>(os_intermediate->pbCertEncoded),
             os_intermediate->cbCertEncoded));
     if (!intermediate_cert_handle)
       return nullptr;
-    intermediates_raw.push_back(intermediate_cert_handle.get());
     intermediates.push_back(std::move(intermediate_cert_handle));
   }
   scoped_refptr<X509Certificate> result(
-      X509Certificate::CreateFromHandle(cert_handle.get(), intermediates_raw));
+      X509Certificate::CreateFromBufferUnsafeOptions(
+          std::move(cert_handle), std::move(intermediates), options));
   return result;
-#else
-  return X509Certificate::CreateFromHandle(os_cert, os_chain);
-#endif
 }
 
 ScopedPCCERT_CONTEXT CreateCertContextWithChain(const X509Certificate* cert) {
+  return CreateCertContextWithChain(cert, InvalidIntermediateBehavior::kFail);
+}
+
+ScopedPCCERT_CONTEXT CreateCertContextWithChain(
+    const X509Certificate* cert,
+    InvalidIntermediateBehavior invalid_intermediate_behavior) {
   // Create an in-memory certificate store to hold the certificate and its
   // intermediate certificates. The store will be referenced in the returned
   // PCCERT_CONTEXT, and will not be freed until the PCCERT_CONTEXT is freed.
@@ -69,46 +77,25 @@ ScopedPCCERT_CONTEXT CreateCertContextWithChain(const X509Certificate* cert) {
 
   PCCERT_CONTEXT primary_cert = nullptr;
 
-#if BUILDFLAG(USE_BYTE_CERTS)
   BOOL ok = CertAddEncodedCertificateToStore(
-      store.get(), X509_ASN_ENCODING,
-      CRYPTO_BUFFER_data(cert->os_cert_handle()),
-      base::checked_cast<DWORD>(CRYPTO_BUFFER_len(cert->os_cert_handle())),
+      store.get(), X509_ASN_ENCODING, CRYPTO_BUFFER_data(cert->cert_buffer()),
+      base::checked_cast<DWORD>(CRYPTO_BUFFER_len(cert->cert_buffer())),
       CERT_STORE_ADD_ALWAYS, &primary_cert);
   if (!ok || !primary_cert)
     return nullptr;
   ScopedPCCERT_CONTEXT scoped_primary_cert(primary_cert);
 
-  for (X509Certificate::OSCertHandle intermediate :
-       cert->GetIntermediateCertificates()) {
+  for (const auto& intermediate : cert->intermediate_buffers()) {
     ok = CertAddEncodedCertificateToStore(
-        store.get(), X509_ASN_ENCODING, CRYPTO_BUFFER_data(intermediate),
-        base::checked_cast<DWORD>(CRYPTO_BUFFER_len(intermediate)),
+        store.get(), X509_ASN_ENCODING, CRYPTO_BUFFER_data(intermediate.get()),
+        base::checked_cast<DWORD>(CRYPTO_BUFFER_len(intermediate.get())),
         CERT_STORE_ADD_ALWAYS, NULL);
-    if (!ok)
-      return nullptr;
+    if (!ok) {
+      if (invalid_intermediate_behavior == InvalidIntermediateBehavior::kFail)
+        return nullptr;
+      LOG(WARNING) << "error parsing intermediate";
+    }
   }
-#else
-  PCCERT_CONTEXT os_cert_handle = cert->os_cert_handle();
-  const std::vector<PCCERT_CONTEXT>& intermediate_ca_certs =
-      cert->GetIntermediateCertificates();
-
-  // NOTE: This preserves all of the properties of |os_cert_handle| except
-  // for CERT_KEY_PROV_HANDLE_PROP_ID and CERT_KEY_CONTEXT_PROP_ID - the two
-  // properties that hold access to already-opened private keys. If a handle
-  // has already been unlocked (eg: PIN prompt), then the first time that the
-  // identity is used for client auth, it may prompt the user again.
-  BOOL ok = CertAddCertificateContextToStore(
-      store.get(), os_cert_handle, CERT_STORE_ADD_ALWAYS, &primary_cert);
-  if (!ok || !primary_cert)
-    return nullptr;
-  ScopedPCCERT_CONTEXT scoped_primary_cert(primary_cert);
-
-  for (PCCERT_CONTEXT intermediate : intermediate_ca_certs) {
-    CertAddCertificateContextToStore(store.get(), intermediate,
-                                     CERT_STORE_ADD_ALWAYS, NULL);
-  }
-#endif
 
   // Note: |primary_cert| retains a reference to |store|, so the store will
   // actually be freed when |primary_cert| is freed.

@@ -7,6 +7,8 @@
 #ifndef CORE_FPDFAPI_PAGE_CPDF_PSFUNC_H_
 #define CORE_FPDFAPI_PAGE_CPDF_PSFUNC_H_
 
+#include <set>
+
 #include "core/fpdfapi/page/cpdf_function.h"
 #include "core/fpdfapi/page/cpdf_psengine.h"
 
@@ -18,8 +20,9 @@ class CPDF_PSFunc : public CPDF_Function {
   ~CPDF_PSFunc() override;
 
   // CPDF_Function
-  bool v_Init(CPDF_Object* pObj) override;
-  bool v_Call(float* inputs, float* results) const override;
+  bool v_Init(const CPDF_Object* pObj,
+              std::set<const CPDF_Object*>* pVisited) override;
+  bool v_Call(const float* inputs, float* results) const override;
 
  private:
   CPDF_PSEngine m_PS;

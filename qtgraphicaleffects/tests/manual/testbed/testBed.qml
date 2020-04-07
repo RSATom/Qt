@@ -26,13 +26,13 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.0
+import QtQuick 2.12
 
 Rectangle {
     id: main
 
     width: 950
-    height: 620
+    height: 800
     color: '#171717'
 
     ListView {

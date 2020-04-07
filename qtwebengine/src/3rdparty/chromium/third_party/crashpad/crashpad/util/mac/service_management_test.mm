@@ -38,7 +38,7 @@ namespace {
 // requiring that its argv[argc - 1] compare equal to last_arg.
 void ExpectProcessIsRunning(pid_t pid, std::string& last_arg) {
   ProcessInfo process_info;
-  ASSERT_TRUE(process_info.Initialize(pid));
+  ASSERT_TRUE(process_info.InitializeWithPid(pid));
 
   // The process may not have called exec yet, so loop with a small delay while
   // looking for the cookie.
@@ -85,7 +85,8 @@ void ExpectProcessIsNotRunning(pid_t pid, std::string& last_arg) {
   std::vector<std::string> job_argv;
   while (tries--) {
     ProcessInfo process_info;
-    if (!process_info.Initialize(pid) || !process_info.Arguments(&job_argv)) {
+    if (!process_info.InitializeWithPid(pid) ||
+        !process_info.Arguments(&job_argv)) {
       // The PID was not found.
       return;
     }
@@ -114,7 +115,8 @@ TEST(ServiceManagement, SubmitRemoveJob) {
         base::StringPrintf("sleep 10; echo %s", cookie.c_str());
     NSString* shell_script_ns = base::SysUTF8ToNSString(shell_script);
 
-    const char kJobLabel[] = "org.chromium.crashpad.test.service_management";
+    static constexpr char kJobLabel[] =
+        "org.chromium.crashpad.test.service_management";
     NSDictionary* job_dictionary_ns = @{
       @LAUNCH_JOBKEY_LABEL : @"org.chromium.crashpad.test.service_management",
       @LAUNCH_JOBKEY_RUNATLOAD : @YES,

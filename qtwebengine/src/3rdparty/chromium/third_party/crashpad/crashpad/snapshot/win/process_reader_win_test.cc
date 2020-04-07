@@ -41,14 +41,14 @@ TEST(ProcessReaderWin, SelfBasic) {
 
   EXPECT_EQ(process_reader.GetProcessInfo().ProcessID(), GetCurrentProcessId());
 
-  const char kTestMemory[] = "Some test memory";
+  static constexpr char kTestMemory[] = "Some test memory";
   char buffer[arraysize(kTestMemory)];
   ASSERT_TRUE(process_reader.ReadMemory(
       reinterpret_cast<uintptr_t>(kTestMemory), sizeof(kTestMemory), &buffer));
   EXPECT_STREQ(kTestMemory, buffer);
 }
 
-const char kTestMemory[] = "Read me from another process";
+constexpr char kTestMemory[] = "Read me from another process";
 
 class ProcessReaderChild final : public WinMultiprocess {
  public:
@@ -107,12 +107,12 @@ TEST(ProcessReaderWin, SelfOneThread) {
 
   EXPECT_EQ(threads[0].id, GetCurrentThreadId());
 #if defined(ARCH_CPU_64_BITS)
-  EXPECT_NE(threads[0].context.native.Rip, 0);
+  EXPECT_NE(threads[0].context.native.Rip, 0u);
 #else
   EXPECT_NE(threads[0].context.native.Eip, 0u);
 #endif
 
-  EXPECT_EQ(threads[0].suspend_count, 0);
+  EXPECT_EQ(threads[0].suspend_count, 0u);
 }
 
 class ProcessReaderChildThreadSuspendCount final : public WinMultiprocess {
@@ -188,7 +188,7 @@ class ProcessReaderChildThreadSuspendCount final : public WinMultiprocess {
     // the pipe.
     CheckedReadFileAtEOF(ReadPipeHandle());
 
-    for (int i = 0; i < arraysize(threads); ++i)
+    for (size_t i = 0; i < arraysize(threads); ++i)
       done.Signal();
     for (auto& thread : threads)
       thread.Join();

@@ -10,7 +10,7 @@
 #include "base/strings/string16.h"
 #include "build/build_config.h"
 #include "media/base/media_export.h"
-#include "media/media_features.h"
+#include "media/media_buildflags.h"
 
 namespace media {
 
@@ -23,10 +23,6 @@ enum MessageId {
   DEFAULT_AUDIO_DEVICE_NAME,
 #if defined(OS_WIN)
   COMMUNICATIONS_AUDIO_DEVICE_NAME,
-#endif
-#if defined(OS_CHROMEOS)
-  BEAMFORMING_ON_DEFAULT_AUDIO_INPUT_DEVICE_NAME,
-  BEAMFORMING_OFF_DEFAULT_AUDIO_INPUT_DEVICE_NAME,
 #endif
 };
 

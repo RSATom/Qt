@@ -9,10 +9,9 @@
 #ifndef LIBANGLE_RENDERER_D3D_D3D9_BLIT9_H_
 #define LIBANGLE_RENDERER_D3D_D3D9_BLIT9_H_
 
+#include "common/PackedEnums.h"
 #include "common/angleutils.h"
 #include "libANGLE/Error.h"
-
-#include <GLES2/gl2.h>
 
 namespace gl
 {
@@ -51,7 +50,7 @@ class Blit9 : angle::NonCopyable
                        GLenum destFormat,
                        const gl::Offset &destOffset,
                        TextureStorage *storage,
-                       GLenum target,
+                       gl::TextureTarget target,
                        GLint level);
     gl::Error copyTexture(const gl::Context *context,
                           const gl::Texture *source,
@@ -60,7 +59,7 @@ class Blit9 : angle::NonCopyable
                           GLenum destFormat,
                           const gl::Offset &destOffset,
                           TextureStorage *storage,
-                          GLenum destTarget,
+                          gl::TextureTarget destTarget,
                           GLint destLevel,
                           bool flipY,
                           bool premultiplyAlpha,
@@ -133,9 +132,12 @@ class Blit9 : angle::NonCopyable
     IUnknown *mCompiledShaders[SHADER_COUNT];
 
     template <class D3DShaderType>
-    gl::Error setShader(ShaderId source, const char *profile,
-                        gl::Error (Renderer9::*createShader)(const DWORD *, size_t length, D3DShaderType **outShader),
-                        HRESULT (WINAPI IDirect3DDevice9::*setShader)(D3DShaderType*));
+    gl::Error setShader(ShaderId source,
+                        const char *profile,
+                        gl::Error (Renderer9::*createShader)(const DWORD *,
+                                                             size_t length,
+                                                             D3DShaderType **outShader),
+                        HRESULT (WINAPI IDirect3DDevice9::*setShader)(D3DShaderType *));
 
     gl::Error setVertexShader(ShaderId shader);
     gl::Error setPixelShader(ShaderId shader);
@@ -147,7 +149,6 @@ class Blit9 : angle::NonCopyable
     IDirect3DSurface9 *mSavedRenderTarget;
     IDirect3DSurface9 *mSavedDepthStencil;
 };
-
 }
 
-#endif   // LIBANGLE_RENDERER_D3D_D3D9_BLIT9_H_
+#endif  // LIBANGLE_RENDERER_D3D_D3D9_BLIT9_H_

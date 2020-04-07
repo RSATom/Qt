@@ -32,9 +32,7 @@ void AddWidgetHelper(int render_process_id,
 }  // namespace
 
 RenderWidgetHelper::RenderWidgetHelper()
-    : render_process_id_(-1),
-      resource_dispatcher_host_(NULL) {
-}
+    : render_process_id_(-1), resource_dispatcher_host_(nullptr) {}
 
 RenderWidgetHelper::~RenderWidgetHelper() {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
@@ -52,10 +50,9 @@ void RenderWidgetHelper::Init(
   render_process_id_ = render_process_id;
   resource_dispatcher_host_ = resource_dispatcher_host;
 
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
-      base::Bind(&AddWidgetHelper,
-                 render_process_id_, make_scoped_refptr(this)));
+  BrowserThread::PostTask(BrowserThread::IO, FROM_HERE,
+                          base::BindOnce(&AddWidgetHelper, render_process_id_,
+                                         base::WrapRefCounted(this)));
 }
 
 int RenderWidgetHelper::GetNextRoutingID() {
@@ -69,20 +66,6 @@ RenderWidgetHelper* RenderWidgetHelper::FromProcessHostID(
   WidgetHelperMap::const_iterator ci = g_widget_helpers.Get().find(
       render_process_host_id);
   return (ci == g_widget_helpers.Get().end())? NULL : ci->second;
-}
-
-void RenderWidgetHelper::ResumeDeferredNavigation(
-    const GlobalRequestID& request_id) {
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE,
-      base::Bind(&RenderWidgetHelper::OnResumeDeferredNavigation,
-                 this,
-                 request_id));
-}
-
-void RenderWidgetHelper::OnResumeDeferredNavigation(
-    const GlobalRequestID& request_id) {
-  resource_dispatcher_host_->ResumeDeferredNavigation(request_id);
 }
 
 void RenderWidgetHelper::CreateNewWidget(int opener_id,

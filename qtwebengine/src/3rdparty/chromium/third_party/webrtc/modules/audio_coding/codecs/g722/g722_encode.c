@@ -34,8 +34,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include "g722_enc_dec.h"
-#include "webrtc/typedefs.h"
+#include "modules/audio_coding/codecs/g722/g722_enc_dec.h"
 
 #if !defined(FALSE)
 #define FALSE 0

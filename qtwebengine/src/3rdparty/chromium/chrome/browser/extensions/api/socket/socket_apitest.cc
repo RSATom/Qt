@@ -25,7 +25,7 @@ namespace {
 const char kHostname[] = "127.0.0.1";
 const int kPort = 8888;
 
-class SocketApiTest : public ExtensionApiTest {
+class SocketApiTest : public extensions::ExtensionApiTest {
  public:
   SocketApiTest()
       : resolver_event_(base::WaitableEvent::ResetPolicy::MANUAL,
@@ -33,7 +33,7 @@ class SocketApiTest : public ExtensionApiTest {
         resolver_creator_(new extensions::MockHostResolverCreator()) {}
 
   void SetUpOnMainThread() override {
-    ExtensionApiTest::SetUpOnMainThread();
+    extensions::ExtensionApiTest::SetUpOnMainThread();
     extensions::HostResolverWrapper::GetInstance()->SetHostResolverForTesting(
         resolver_creator_->CreateMockHostResolver());
   }
@@ -59,7 +59,6 @@ IN_PROC_BROWSER_TEST_F(SocketApiTest, SocketUDPExtension) {
   std::unique_ptr<net::SpawnedTestServer> test_server(
       new net::SpawnedTestServer(
           net::SpawnedTestServer::TYPE_UDP_ECHO,
-          net::SpawnedTestServer::kLocalhost,
           base::FilePath(FILE_PATH_LITERAL("net/data"))));
   EXPECT_TRUE(test_server->Start());
 
@@ -87,7 +86,6 @@ IN_PROC_BROWSER_TEST_F(SocketApiTest, SocketTCPExtension) {
   std::unique_ptr<net::SpawnedTestServer> test_server(
       new net::SpawnedTestServer(
           net::SpawnedTestServer::TYPE_TCP_ECHO,
-          net::SpawnedTestServer::kLocalhost,
           base::FilePath(FILE_PATH_LITERAL("net/data"))));
   EXPECT_TRUE(test_server->Start());
 

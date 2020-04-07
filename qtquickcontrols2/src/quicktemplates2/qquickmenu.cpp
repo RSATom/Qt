@@ -40,6 +40,7 @@
 #include "qquickmenubaritem_p.h"
 #include "qquickmenubar_p.h"
 #include "qquickpopupitem_p_p.h"
+#include "qquickpopuppositioner_p_p.h"
 #include "qquickaction_p.h"
 
 #include <QtGui/qevent.h>
@@ -183,16 +184,18 @@ static bool shouldCascade()
 #endif
 }
 
+class QQuickMenuPositioner : public QQuickPopupPositioner
+{
+public:
+    QQuickMenuPositioner(QQuickMenu *menu) : QQuickPopupPositioner(menu) { }
+
+    void reposition() override;
+};
+
 QQuickMenuPrivate::QQuickMenuPrivate()
-    : cascade(shouldCascade()),
-      hoverTimer(0),
-      currentIndex(-1),
-      overlap(0),
-      contentItem(nullptr),
-      contentModel(nullptr),
-      delegate(nullptr)
 {
     Q_Q(QQuickMenu);
+    cascade = shouldCascade();
     contentModel = new QQmlObjectModel(q);
 }
 
@@ -361,21 +364,30 @@ void QQuickMenuPrivate::itemGeometryChanged(QQuickItem *, QQuickGeometryChange, 
         resizeItems();
 }
 
-void QQuickMenuPrivate::reposition()
+QQuickPopupPositioner *QQuickMenuPrivate::getPositioner()
 {
     Q_Q(QQuickMenu);
-    if (parentMenu) {
-        if (cascade) {
-            if (popupItem->isMirrored())
-                q->setPosition(QPointF(-q->width() - parentMenu->leftPadding() + q->overlap(), -q->topPadding()));
-            else if (parentItem)
-                q->setPosition(QPointF(parentItem->width() + parentMenu->rightPadding() - q->overlap(), -q->topPadding()));
+    if (!positioner)
+        positioner = new QQuickMenuPositioner(q);
+    return positioner;
+}
+
+void QQuickMenuPositioner::reposition()
+{
+    QQuickMenu *menu = static_cast<QQuickMenu *>(popup());
+    QQuickMenuPrivate *p = QQuickMenuPrivate::get(menu);
+    if (p->parentMenu) {
+        if (p->cascade) {
+            if (p->popupItem->isMirrored())
+                menu->setPosition(QPointF(-menu->width() - p->parentMenu->leftPadding() + menu->overlap(), -menu->topPadding()));
+            else if (p->parentItem)
+                menu->setPosition(QPointF(p->parentItem->width() + p->parentMenu->rightPadding() - menu->overlap(), -menu->topPadding()));
         } else {
-            q->setPosition(QPointF(parentMenu->x() + (parentMenu->width() - q->width()) / 2,
-                                   parentMenu->y() + (parentMenu->height() - q->height()) / 2));
+            menu->setPosition(QPointF(p->parentMenu->x() + (p->parentMenu->width() - menu->width()) / 2,
+                                      p->parentMenu->y() + (p->parentMenu->height() - menu->height()) / 2));
         }
     }
-    QQuickPopupPrivate::reposition();
+    QQuickPopupPositioner::reposition();
 }
 
 bool QQuickMenuPrivate::prepareEnterTransition()
@@ -456,10 +468,12 @@ void QQuickMenuPrivate::onItemTriggered()
     if (!item)
         return;
 
-    if (QQuickMenu *subMenu = item->subMenu())
-        subMenu->popup(subMenu->itemAt(0));
-    else
+    if (QQuickMenu *subMenu = item->subMenu()) {
+        auto subMenuPrivate = QQuickMenuPrivate::get(subMenu);
+        subMenu->popup(subMenuPrivate->firstEnabledMenuItem());
+    } else {
         q->dismiss();
+    }
 }
 
 void QQuickMenuPrivate::onItemActiveFocusChanged()
@@ -588,7 +602,7 @@ bool QQuickMenuPrivate::activateNextItem()
     int count = contentModel->count();
     while (++index < count) {
         QQuickItem *item = itemAt(index);
-        if (!item || !item->activeFocusOnTab())
+        if (!item || !item->activeFocusOnTab() || !item->isEnabled())
             continue;
         setCurrentIndex(index, Qt::TabFocusReason);
         return true;
@@ -601,12 +615,28 @@ bool QQuickMenuPrivate::activatePreviousItem()
     int index = currentIndex;
     while (--index >= 0) {
         QQuickItem *item = itemAt(index);
-        if (!item || !item->activeFocusOnTab())
+        if (!item || !item->activeFocusOnTab() || !item->isEnabled())
             continue;
         setCurrentIndex(index, Qt::BacktabFocusReason);
         return true;
     }
     return false;
+}
+
+QQuickMenuItem *QQuickMenuPrivate::firstEnabledMenuItem() const
+{
+    for (int i = 0; i < contentModel->count(); ++i) {
+        QQuickItem *item = itemAt(i);
+        if (!item || !item->isEnabled())
+            continue;
+
+        QQuickMenuItem *menuItem = qobject_cast<QQuickMenuItem *>(item);
+        if (!menuItem)
+            continue;
+
+        return menuItem;
+    }
+    return nullptr;
 }
 
 void QQuickMenuPrivate::contentData_append(QQmlListProperty<QObject> *prop, QObject *obj)
@@ -1407,7 +1437,8 @@ void QQuickMenu::keyPressEvent(QKeyEvent *event)
             }
         } else {
             if (QQuickMenu *subMenu = d->currentSubMenu()) {
-                subMenu->popup(subMenu->itemAt(0));
+                auto subMenuPrivate = QQuickMenuPrivate::get(subMenu);
+                subMenu->popup(subMenuPrivate->firstEnabledMenuItem());
                 event->accept();
             }
         }
@@ -1432,12 +1463,12 @@ void QQuickMenu::timerEvent(QTimerEvent *event)
 
 QFont QQuickMenu::defaultFont() const
 {
-    return QQuickControlPrivate::themeFont(QPlatformTheme::MenuFont);
+    return QQuickTheme::font(QQuickTheme::Menu);
 }
 
 QPalette QQuickMenu::defaultPalette() const
 {
-    return QQuickControlPrivate::themePalette(QPlatformTheme::MenuPalette);
+    return QQuickTheme::palette(QQuickTheme::Menu);
 }
 
 #if QT_CONFIG(accessibility)

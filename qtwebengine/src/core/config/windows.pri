@@ -3,11 +3,11 @@ include(common.pri)
 gn_args += \
     is_clang=false \
     use_sysroot=false \
-    use_kerberos=true \
     enable_session_service=false \
     ninja_use_custom_environment_files=false \
     is_multi_dll_chrome=false \
-    win_linker_timing=true
+    win_linker_timing=true \
+    com_init_check_hook_disabled=true
 
 isDeveloperBuild() {
     gn_args += \
@@ -54,12 +54,10 @@ msvc:contains(QT_ARCH, "i386"):!usingMSVC32BitCrossCompiler() {
 }
 
 msvc {
-    equals(MSVC_VER, 14.0) {
-        MSVS_VERSION = 2015
-    } else:equals(MSVC_VER, 15.0) {
+    equals(MSVC_VER, 15.0) {
         MSVS_VERSION = 2017
     } else {
-        fatal("Visual Studio compiler version \"$$MSVC_VER\" is not supported by Qt WebEngine")
+        error("Visual Studio compiler version \"$$MSVC_VER\" is not supported by Qt WebEngine")
     }
 
     gn_args += visual_studio_version=$$MSVS_VERSION
@@ -73,5 +71,5 @@ msvc {
     gn_args += target_cpu=\"$$GN_TARGET_CPU\"
 
 } else {
-    fatal("Qt WebEngine for Windows can only be built with the Microsoft Visual Studio C++ compiler")
+    error("Qt WebEngine for Windows can only be built with the Microsoft Visual Studio C++ compiler")
 }

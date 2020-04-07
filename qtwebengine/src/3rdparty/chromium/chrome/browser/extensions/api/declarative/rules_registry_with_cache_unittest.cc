@@ -8,8 +8,9 @@
 // implementation of RulesRegistryWithCache as a proxy for
 // RulesRegistryWithCache.
 
+#include <memory>
+
 #include "base/command_line.h"
-#include "base/memory/ptr_util.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/test_extension_environment.h"
 #include "chrome/browser/extensions/test_extension_system.h"
@@ -43,7 +44,8 @@ const int kRulesRegistryID = RulesRegistryService::kDefaultRulesRegistryID;
 class RulesRegistryWithCacheTest : public testing::Test {
  public:
   RulesRegistryWithCacheTest()
-      : cache_delegate_(/*log_storage_init_delay=*/false),
+      : cache_delegate_(RulesCacheDelegate::Type::kPersistent,
+                        /*log_storage_init_delay=*/false),
         registry_(new TestRulesRegistry(profile(),
                                         /*event_name=*/"",
                                         content::BrowserThread::UI,
@@ -232,8 +234,8 @@ TEST_F(RulesRegistryWithCacheTest, DeclarativeRulesStored) {
   const std::string rules_stored_key(
       RulesCacheDelegate::GetRulesStoredKey(
           event_name, profile()->IsOffTheRecord()));
-  std::unique_ptr<RulesCacheDelegate> cache_delegate(
-      new RulesCacheDelegate(false));
+  auto cache_delegate = std::make_unique<RulesCacheDelegate>(
+      RulesCacheDelegate::Type::kPersistent, false);
   scoped_refptr<RulesRegistry> registry(
       new TestRulesRegistry(profile(), event_name, content::BrowserThread::UI,
                             cache_delegate.get(), kRulesRegistryID));
@@ -243,36 +245,42 @@ TEST_F(RulesRegistryWithCacheTest, DeclarativeRulesStored) {
   EXPECT_TRUE(cache_delegate->GetDeclarativeRulesStored(extension1_->id()));
 
   extension_prefs->UpdateExtensionPref(extension1_->id(), rules_stored_key,
-                                       base::MakeUnique<base::Value>(false));
+                                       std::make_unique<base::Value>(false));
   EXPECT_FALSE(cache_delegate->GetDeclarativeRulesStored(extension1_->id()));
 
   extension_prefs->UpdateExtensionPref(extension1_->id(), rules_stored_key,
-                                       base::MakeUnique<base::Value>(true));
+                                       std::make_unique<base::Value>(true));
   EXPECT_TRUE(cache_delegate->GetDeclarativeRulesStored(extension1_->id()));
 
   // 2. Test writing behavior.
-  std::unique_ptr<base::ListValue> value(new base::ListValue);
-  value->AppendBoolean(true);
-  cache_delegate->WriteToStorage(extension1_->id(), std::move(value));
+  {
+    base::Value value(base::Value::Type::LIST);
+    value.GetList().push_back(base::Value(true));
+    cache_delegate->UpdateRules(extension1_->id(), std::move(value));
+  }
   EXPECT_TRUE(cache_delegate->GetDeclarativeRulesStored(extension1_->id()));
-  content::RunAllBlockingPoolTasksUntilIdle();
+  content::RunAllTasksUntilIdle();
   TestingValueStore* store = env_.GetExtensionSystem()->value_store();
   ASSERT_TRUE(store);
   EXPECT_EQ(1, store->write_count());
   int write_count = store->write_count();
 
-  value.reset(new base::ListValue);
-  cache_delegate->WriteToStorage(extension1_->id(), std::move(value));
-  EXPECT_FALSE(cache_delegate->GetDeclarativeRulesStored(extension1_->id()));
-  content::RunAllBlockingPoolTasksUntilIdle();
+  {
+    base::Value value = base::Value(base::Value::Type::LIST);
+    cache_delegate->UpdateRules(extension1_->id(), std::move(value));
+    EXPECT_FALSE(cache_delegate->GetDeclarativeRulesStored(extension1_->id()));
+  }
+  content::RunAllTasksUntilIdle();
   // No rules currently, but previously there were, so we expect a write.
   EXPECT_EQ(write_count + 1, store->write_count());
   write_count = store->write_count();
 
-  value.reset(new base::ListValue);
-  cache_delegate->WriteToStorage(extension1_->id(), std::move(value));
-  EXPECT_FALSE(cache_delegate->GetDeclarativeRulesStored(extension1_->id()));
-  content::RunAllBlockingPoolTasksUntilIdle();
+  {
+    base::Value value = base::Value(base::Value::Type::LIST);
+    cache_delegate->UpdateRules(extension1_->id(), std::move(value));
+    EXPECT_FALSE(cache_delegate->GetDeclarativeRulesStored(extension1_->id()));
+  }
+  content::RunAllTasksUntilIdle();
   EXPECT_EQ(write_count, store->write_count());
 
   // 3. Test reading behavior.
@@ -280,14 +288,26 @@ TEST_F(RulesRegistryWithCacheTest, DeclarativeRulesStored) {
 
   cache_delegate->SetDeclarativeRulesStored(extension1_->id(), false);
   cache_delegate->ReadFromStorage(extension1_->id());
-  content::RunAllBlockingPoolTasksUntilIdle();
+  content::RunAllTasksUntilIdle();
   EXPECT_EQ(read_count, store->read_count());
   read_count = store->read_count();
 
   cache_delegate->SetDeclarativeRulesStored(extension1_->id(), true);
   cache_delegate->ReadFromStorage(extension1_->id());
-  content::RunAllBlockingPoolTasksUntilIdle();
+  content::RunAllTasksUntilIdle();
   EXPECT_EQ(read_count + 1, store->read_count());
+}
+
+TEST_F(RulesRegistryWithCacheTest, EphemeralCacheIsEphemeral) {
+  auto cache_delegate = std::make_unique<RulesCacheDelegate>(
+      RulesCacheDelegate::Type::kEphemeral, false);
+  base::Value value(base::Value::Type::LIST);
+  value.GetList().push_back(base::Value(true));
+  cache_delegate->UpdateRules(extension1_->id(), std::move(value));
+  content::RunAllTasksUntilIdle();
+  TestingValueStore* store = env_.GetExtensionSystem()->value_store();
+  ASSERT_TRUE(store);
+  EXPECT_EQ(0, store->write_count());
 }
 
 // Test that each registry has its own "are some rules stored" flag.
@@ -302,14 +322,14 @@ TEST_F(RulesRegistryWithCacheTest, RulesStoredFlagMultipleRegistries) {
   const std::string rules_stored_key2(
       RulesCacheDelegate::GetRulesStoredKey(
           event_name2, profile()->IsOffTheRecord()));
-  std::unique_ptr<RulesCacheDelegate> cache_delegate1(
-      new RulesCacheDelegate(false));
+  auto cache_delegate1 = std::make_unique<RulesCacheDelegate>(
+      RulesCacheDelegate::Type::kPersistent, false);
   scoped_refptr<RulesRegistry> registry1(
       new TestRulesRegistry(profile(), event_name1, content::BrowserThread::UI,
                             cache_delegate1.get(), kRulesRegistryID));
 
-  std::unique_ptr<RulesCacheDelegate> cache_delegate2(
-      new RulesCacheDelegate(false));
+  auto cache_delegate2 = std::make_unique<RulesCacheDelegate>(
+      RulesCacheDelegate::Type::kPersistent, false);
   scoped_refptr<RulesRegistry> registry2(
       new TestRulesRegistry(profile(), event_name2, content::BrowserThread::UI,
                             cache_delegate2.get(), kRulesRegistryID));
@@ -320,7 +340,7 @@ TEST_F(RulesRegistryWithCacheTest, RulesStoredFlagMultipleRegistries) {
 
   // Update the flag for the first registry.
   extension_prefs->UpdateExtensionPref(extension1_->id(), rules_stored_key1,
-                                       base::MakeUnique<base::Value>(false));
+                                       std::make_unique<base::Value>(false));
   EXPECT_FALSE(cache_delegate1->GetDeclarativeRulesStored(extension1_->id()));
   EXPECT_TRUE(cache_delegate2->GetDeclarativeRulesStored(extension1_->id()));
 }
@@ -350,8 +370,8 @@ TEST_F(RulesRegistryWithCacheTest, RulesPreservedAcrossRestart) {
   env_.GetExtensionSystem()->SetReady();
 
   // 2. First run, adding a rule for the extension.
-  std::unique_ptr<RulesCacheDelegate> cache_delegate(
-      new RulesCacheDelegate(false));
+  auto cache_delegate = std::make_unique<RulesCacheDelegate>(
+      RulesCacheDelegate::Type::kPersistent, false);
   scoped_refptr<TestRulesRegistry> registry(
       new TestRulesRegistry(profile(), "testEvent", content::BrowserThread::UI,
                             cache_delegate.get(), kRulesRegistryID));
@@ -359,17 +379,18 @@ TEST_F(RulesRegistryWithCacheTest, RulesPreservedAcrossRestart) {
   AddRule(extension1_->id(), kRuleId, registry.get());
 
   // Posted tasks store the added rule.
-  content::RunAllBlockingPoolTasksUntilIdle();
+  content::RunAllTasksUntilIdle();
   EXPECT_EQ(1, GetNumberOfRules(extension1_->id(), registry.get()));
 
   // 3. Restart the TestRulesRegistry and see the rule still there.
-  cache_delegate.reset(new RulesCacheDelegate(false));
+  cache_delegate = std::make_unique<RulesCacheDelegate>(
+      RulesCacheDelegate::Type::kPersistent, false);
   registry =
       new TestRulesRegistry(profile(), "testEvent", content::BrowserThread::UI,
                             cache_delegate.get(), kRulesRegistryID);
 
   // Posted tasks retrieve the stored rule.
-  content::RunAllBlockingPoolTasksUntilIdle();
+  content::RunAllTasksUntilIdle();
   EXPECT_EQ(1, GetNumberOfRules(extension1_->id(), registry.get()));
 }
 
@@ -385,7 +406,7 @@ TEST_F(RulesRegistryWithCacheTest, ConcurrentStoringOfRules) {
   EXPECT_EQ("", AddRule(extension1_->id(), kRuleId));
   EXPECT_EQ("", AddRule(extension2_->id(), kRule2Id));
   env_.GetExtensionSystem()->SetReady();
-  content::RunAllBlockingPoolTasksUntilIdle();
+  content::RunAllTasksUntilIdle();
   EXPECT_EQ(write_count + 2, system->value_store()->write_count());
 }
 

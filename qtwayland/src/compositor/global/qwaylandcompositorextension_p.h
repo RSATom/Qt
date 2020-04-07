@@ -63,16 +63,13 @@ class Q_WAYLAND_COMPOSITOR_EXPORT QWaylandCompositorExtensionPrivate : public QO
 
 public:
     QWaylandCompositorExtensionPrivate()
-        : QObjectPrivate()
-        , extension_container(Q_NULLPTR)
-        , initialized(false)
     {
     }
 
     static QWaylandCompositorExtensionPrivate *get(QWaylandCompositorExtension *extension) { return extension->d_func(); }
 
-    QWaylandObject *extension_container;
-    bool initialized;
+    QWaylandObject *extension_container = nullptr;
+    bool initialized = false;
 };
 
 QT_END_NAMESPACE

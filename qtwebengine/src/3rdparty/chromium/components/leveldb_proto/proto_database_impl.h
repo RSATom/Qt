@@ -14,11 +14,9 @@
 #include "base/files/file_path.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
-#include "base/message_loop/message_loop.h"
 #include "base/sequenced_task_runner.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
-#include "base/threading/sequenced_worker_pool.h"
 #include "base/threading/thread_checker.h"
 #include "components/leveldb_proto/leveldb_database.h"
 #include "components/leveldb_proto/proto_database.h"
@@ -43,16 +41,24 @@ class ProtoDatabaseImpl : public ProtoDatabase<T> {
   // ProtoDatabase implementation.
   // TODO(cjhopman): Perhaps Init() shouldn't be exposed to users and not just
   //     part of the constructor
-  void InitWithOptions(
-      const char* client_name,
-      const Options& options,
-      typename ProtoDatabase<T>::InitCallback callback) override;
+  void Init(const char* client_name,
+            const base::FilePath& database_dir,
+            const leveldb_env::Options& options,
+            typename ProtoDatabase<T>::InitCallback callback) override;
   void UpdateEntries(
       std::unique_ptr<typename ProtoDatabase<T>::KeyEntryVector>
           entries_to_save,
       std::unique_ptr<KeyVector> keys_to_remove,
       typename ProtoDatabase<T>::UpdateCallback callback) override;
+  void UpdateEntriesWithRemoveFilter(
+      std::unique_ptr<typename ProtoDatabase<T>::KeyEntryVector>
+          entries_to_save,
+      const LevelDB::KeyFilter& delete_key_filter,
+      typename ProtoDatabase<T>::UpdateCallback callback) override;
   void LoadEntries(typename ProtoDatabase<T>::LoadCallback callback) override;
+  void LoadEntriesWithFilter(
+      const LevelDB::KeyFilter& key_filter,
+      typename ProtoDatabase<T>::LoadCallback callback) override;
   void LoadKeys(typename ProtoDatabase<T>::LoadKeysCallback callback) override;
   void GetEntry(const std::string& key,
                 typename ProtoDatabase<T>::GetCallback callback) override;
@@ -60,7 +66,8 @@ class ProtoDatabaseImpl : public ProtoDatabase<T> {
 
   // Allow callers to provide their own Database implementation.
   void InitWithDatabase(std::unique_ptr<LevelDB> database,
-                        const Options& options,
+                        const base::FilePath& database_dir,
+                        const leveldb_env::Options& options,
                         typename ProtoDatabase<T>::InitCallback callback);
 
  private:
@@ -70,7 +77,6 @@ class ProtoDatabaseImpl : public ProtoDatabase<T> {
   scoped_refptr<base::SequencedTaskRunner> task_runner_;
 
   std::unique_ptr<LevelDB> db_;
-  base::FilePath database_dir_;
 
   DISALLOW_COPY_AND_ASSIGN(ProtoDatabaseImpl);
 };
@@ -118,19 +124,20 @@ void RunDestroyCallback(typename ProtoDatabase<T>::DestroyCallback callback,
 }
 
 inline void InitFromTaskRunner(LevelDB* database,
-                               const Options& options,
+                               const base::FilePath& database_dir,
+                               const leveldb_env::Options& options,
                                bool* success) {
   DCHECK(success);
 
   // TODO(cjhopman): Histogram for database size.
-  *success = database->Init(options);
+  *success = database->Init(database_dir, options);
 }
 
-inline void DestroyFromTaskRunner(const base::FilePath& database_dir,
+inline void DestroyFromTaskRunner(std::unique_ptr<LevelDB> leveldb,
                                   bool* success) {
   CHECK(success);
 
-  *success = LevelDB::Destroy(database_dir);
+  *success = leveldb->Destroy();
 }
 
 template <typename T>
@@ -152,7 +159,26 @@ void UpdateEntriesFromTaskRunner(
 }
 
 template <typename T>
+void UpdateEntriesWithRemoveFilterFromTaskRunner(
+    LevelDB* database,
+    std::unique_ptr<typename ProtoDatabase<T>::KeyEntryVector> entries_to_save,
+    const LevelDB::KeyFilter& delete_key_filter,
+    bool* success) {
+  DCHECK(success);
+
+  // Serialize the values from Proto to string before passing on to database.
+  KeyValueVector pairs_to_save;
+  for (const auto& pair : *entries_to_save) {
+    pairs_to_save.push_back(
+        std::make_pair(pair.first, pair.second.SerializeAsString()));
+  }
+
+  *success = database->UpdateWithRemoveFilter(pairs_to_save, delete_key_filter);
+}
+
+template <typename T>
 void LoadEntriesFromTaskRunner(LevelDB* database,
+                               const LevelDB::KeyFilter& filter,
                                std::vector<T>* entries,
                                bool* success) {
   DCHECK(success);
@@ -161,7 +187,7 @@ void LoadEntriesFromTaskRunner(LevelDB* database,
   entries->clear();
 
   std::vector<std::string> loaded_entries;
-  *success = database->Load(&loaded_entries);
+  *success = database->LoadWithFilter(filter, &loaded_entries);
 
   for (const auto& serialized_entry : loaded_entries) {
     T entry;
@@ -196,7 +222,15 @@ void GetEntryFromTaskRunner(LevelDB* database,
   std::string serialized_entry;
   *success = database->Get(key, found, &serialized_entry);
 
-  if (success && !entry->ParseFromString(serialized_entry)) {
+  if (!*success) {
+    *found = false;
+    return;
+  }
+
+  if (!*found)
+    return;
+
+  if (!entry->ParseFromString(serialized_entry)) {
     *found = false;
     DLOG(WARNING) << "Unable to parse leveldb_proto entry";
     // TODO(cjhopman): Decide what to do about un-parseable entries.
@@ -218,14 +252,14 @@ ProtoDatabaseImpl<T>::~ProtoDatabaseImpl() {
 }
 
 template <typename T>
-void ProtoDatabaseImpl<T>::InitWithOptions(
+void ProtoDatabaseImpl<T>::Init(
     const char* client_name,
-    const Options& options,
+    const base::FilePath& database_dir,
+    const leveldb_env::Options& options,
     typename ProtoDatabase<T>::InitCallback callback) {
   DCHECK(thread_checker_.CalledOnValidThread());
-  database_dir_ = options.database_dir;
-  InitWithDatabase(base::WrapUnique(new LevelDB(client_name)), options,
-                   std::move(callback));
+  InitWithDatabase(base::WrapUnique(new LevelDB(client_name)), database_dir,
+                   options, std::move(callback));
 }
 
 template <typename T>
@@ -233,19 +267,10 @@ void ProtoDatabaseImpl<T>::Destroy(
     typename ProtoDatabase<T>::DestroyCallback callback) {
   DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(db_);
-  DCHECK(!database_dir_.empty());
 
-  // Note that |db_| should be released from task runner.
-  if (!task_runner_->DeleteSoon(FROM_HERE, db_.release())) {
-    DLOG(WARNING) << "Proto database will not be deleted.";
-    std::move(callback).Run(false);
-    return;
-  }
-
-  // After |db_| is released, we can now wipe out the database directory.
   bool* success = new bool(false);
   task_runner_->PostTaskAndReply(
-      FROM_HERE, base::Bind(DestroyFromTaskRunner, database_dir_, success),
+      FROM_HERE, base::BindOnce(DestroyFromTaskRunner, std::move(db_), success),
       base::BindOnce(RunDestroyCallback<T>, std::move(callback),
                      base::Owned(success)));
 }
@@ -253,7 +278,8 @@ void ProtoDatabaseImpl<T>::Destroy(
 template <typename T>
 void ProtoDatabaseImpl<T>::InitWithDatabase(
     std::unique_ptr<LevelDB> database,
-    const Options& options,
+    const base::FilePath& database_dir,
+    const leveldb_env::Options& options,
     typename ProtoDatabase<T>::InitCallback callback) {
   DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(!db_);
@@ -262,8 +288,8 @@ void ProtoDatabaseImpl<T>::InitWithDatabase(
   bool* success = new bool(false);
   task_runner_->PostTaskAndReply(
       FROM_HERE,
-      base::Bind(InitFromTaskRunner, base::Unretained(db_.get()), options,
-                 success),
+      base::Bind(InitFromTaskRunner, base::Unretained(db_.get()), database_dir,
+                 options, success),
       base::BindOnce(RunInitCallback<T>, std::move(callback),
                      base::Owned(success)));
 }
@@ -277,9 +303,26 @@ void ProtoDatabaseImpl<T>::UpdateEntries(
   bool* success = new bool(false);
   task_runner_->PostTaskAndReply(
       FROM_HERE,
-      base::Bind(UpdateEntriesFromTaskRunner<T>, base::Unretained(db_.get()),
-                 base::Passed(&entries_to_save), base::Passed(&keys_to_remove),
-                 success),
+      base::BindOnce(UpdateEntriesFromTaskRunner<T>,
+                     base::Unretained(db_.get()), std::move(entries_to_save),
+                     std::move(keys_to_remove), success),
+      base::BindOnce(RunUpdateCallback<T>, std::move(callback),
+                     base::Owned(success)));
+}
+
+template <typename T>
+void ProtoDatabaseImpl<T>::UpdateEntriesWithRemoveFilter(
+    std::unique_ptr<typename ProtoDatabase<T>::KeyEntryVector> entries_to_save,
+    const LevelDB::KeyFilter& delete_key_filter,
+    typename ProtoDatabase<T>::UpdateCallback callback) {
+  DCHECK(thread_checker_.CalledOnValidThread());
+  bool* success = new bool(false);
+
+  task_runner_->PostTaskAndReply(
+      FROM_HERE,
+      base::BindOnce(UpdateEntriesWithRemoveFilterFromTaskRunner<T>,
+                     base::Unretained(db_.get()), std::move(entries_to_save),
+                     delete_key_filter, success),
       base::BindOnce(RunUpdateCallback<T>, std::move(callback),
                      base::Owned(success)));
 }
@@ -287,34 +330,41 @@ void ProtoDatabaseImpl<T>::UpdateEntries(
 template <typename T>
 void ProtoDatabaseImpl<T>::LoadEntries(
     typename ProtoDatabase<T>::LoadCallback callback) {
+  LoadEntriesWithFilter(LevelDB::KeyFilter(), std::move(callback));
+}
+
+template <typename T>
+void ProtoDatabaseImpl<T>::LoadEntriesWithFilter(
+    const LevelDB::KeyFilter& key_filter,
+    typename ProtoDatabase<T>::LoadCallback callback) {
   DCHECK(thread_checker_.CalledOnValidThread());
   bool* success = new bool(false);
 
   std::unique_ptr<std::vector<T>> entries(new std::vector<T>());
-  // Get this pointer before entries is base::Passed() so we can use it below.
+  // Get this pointer before entries is std::move()'d so we can use it below.
   std::vector<T>* entries_ptr = entries.get();
 
   task_runner_->PostTaskAndReply(
       FROM_HERE,
-      base::Bind(LoadEntriesFromTaskRunner<T>, base::Unretained(db_.get()),
-                 entries_ptr, success),
+      base::BindOnce(LoadEntriesFromTaskRunner<T>, base::Unretained(db_.get()),
+                     key_filter, entries_ptr, success),
       base::BindOnce(RunLoadCallback<T>, std::move(callback),
-                     base::Owned(success), base::Passed(&entries)));
+                     base::Owned(success), std::move(entries)));
 }
 
 template <typename T>
 void ProtoDatabaseImpl<T>::LoadKeys(
     typename ProtoDatabase<T>::LoadKeysCallback callback) {
   DCHECK(thread_checker_.CalledOnValidThread());
-  auto success = base::MakeUnique<bool>(false);
-  auto keys = base::MakeUnique<std::vector<std::string>>();
+  auto success = std::make_unique<bool>(false);
+  auto keys = std::make_unique<std::vector<std::string>>();
   auto load_task =
       base::Bind(LoadKeysFromTaskRunner, base::Unretained(db_.get()),
                  keys.get(), success.get());
   task_runner_->PostTaskAndReply(
       FROM_HERE, load_task,
       base::BindOnce(RunLoadKeysCallback<T>, std::move(callback),
-                     base::Passed(&success), base::Passed(&keys)));
+                     std::move(success), std::move(keys)));
 }
 
 template <typename T>
@@ -326,16 +376,16 @@ void ProtoDatabaseImpl<T>::GetEntry(
   bool* found = new bool(false);
 
   std::unique_ptr<T> entry(new T());
-  // Get this pointer before entry is base::Passed() so we can use it below.
+  // Get this pointer before entry is std::move()'d so we can use it below.
   T* entry_ptr = entry.get();
 
   task_runner_->PostTaskAndReply(
       FROM_HERE,
-      base::Bind(GetEntryFromTaskRunner<T>, base::Unretained(db_.get()), key,
-                 entry_ptr, found, success),
+      base::BindOnce(GetEntryFromTaskRunner<T>, base::Unretained(db_.get()),
+                     key, entry_ptr, found, success),
       base::BindOnce(RunGetCallback<T>, std::move(callback),
                      base::Owned(success), base::Owned(found),
-                     base::Passed(&entry)));
+                     std::move(entry)));
 }
 
 }  // namespace leveldb_proto

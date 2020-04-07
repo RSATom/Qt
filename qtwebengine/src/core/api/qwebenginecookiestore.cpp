@@ -40,17 +40,30 @@
 #include "qwebenginecookiestore.h"
 #include "qwebenginecookiestore_p.h"
 
-#include <cookie_monster_delegate_qt.h>
+#include "net/base/registry_controlled_domains/registry_controlled_domain.h"
+
+#include "net/cookie_monster_delegate_qt.h"
 
 #include <QByteArray>
 #include <QUrl>
+
+
+namespace {
+
+inline GURL toGurl(const QUrl& url)
+{
+    return GURL(url.toString().toStdString());
+}
+
+}
 
 QT_BEGIN_NAMESPACE
 
 using namespace QtWebEngineCore;
 
-QWebEngineCookieStorePrivate::QWebEngineCookieStorePrivate()
-    : m_nextCallbackId(CallbackDirectory::ReservedCallbackIdsEnd)
+QWebEngineCookieStorePrivate::QWebEngineCookieStorePrivate(QWebEngineCookieStore *q)
+    : q_ptr(q)
+    , m_nextCallbackId(CallbackDirectory::ReservedCallbackIdsEnd)
     , m_deleteSessionCookiesPending(false)
     , m_deleteAllCookiesPending(false)
     , m_getAllCookiesPending(false)
@@ -81,7 +94,7 @@ void QWebEngineCookieStorePrivate::processPendingUserCookies()
     if (m_pendingUserCookies.isEmpty())
         return;
 
-    Q_FOREACH (const auto &cookieData, m_pendingUserCookies) {
+    for (const CookieData &cookieData : qAsConst(m_pendingUserCookies)) {
         if (cookieData.callbackId == CallbackDirectory::DeleteCookieCallbackId)
             delegate->deleteCookie(cookieData.cookie, cookieData.origin);
         else
@@ -171,11 +184,25 @@ void QWebEngineCookieStorePrivate::onDeleteCallbackResult(qint64 callbackId, int
 
 void QWebEngineCookieStorePrivate::onCookieChanged(const QNetworkCookie &cookie, bool removed)
 {
-    Q_Q(QWebEngineCookieStore);
     if (removed)
-        Q_EMIT q->cookieRemoved(cookie);
+        Q_EMIT q_ptr->cookieRemoved(cookie);
     else
-        Q_EMIT q->cookieAdded(cookie);
+        Q_EMIT q_ptr->cookieAdded(cookie);
+}
+
+bool QWebEngineCookieStorePrivate::canAccessCookies(const QUrl &firstPartyUrl, const QUrl &url) const
+{
+    if (!filterCallback)
+        return true;
+
+    // Empty first-party URL indicates a first-party request (see net/base/static_cookie_policy.cc)
+    bool thirdParty = !firstPartyUrl.isEmpty() &&
+            !net::registry_controlled_domains::SameDomainOrHost(toGurl(url),
+                                                                toGurl(firstPartyUrl),
+                                                                net::registry_controlled_domains::INCLUDE_PRIVATE_REGISTRIES);
+
+    QWebEngineCookieStore::FilterRequest request = { firstPartyUrl, url, thirdParty, false, 0};
+    return filterCallback(request);
 }
 
 /*!
@@ -213,9 +240,9 @@ void QWebEngineCookieStorePrivate::onCookieChanged(const QNetworkCookie &cookie,
 */
 
 QWebEngineCookieStore::QWebEngineCookieStore(QObject *parent)
-    : QObject(*new QWebEngineCookieStorePrivate, parent)
+    : QObject(parent)
+    , d_ptr(new QWebEngineCookieStorePrivate(this))
 {
-
 }
 
 /*!
@@ -241,8 +268,7 @@ QWebEngineCookieStore::~QWebEngineCookieStore()
 void QWebEngineCookieStore::setCookie(const QNetworkCookie &cookie, const QUrl &origin)
 {
     //TODO: use callbacks or delete dummy ones
-    Q_D(QWebEngineCookieStore);
-    d->setCookie(QWebEngineCallback<bool>(), cookie, origin);
+    d_ptr->setCookie(QWebEngineCallback<bool>(), cookie, origin);
 }
 
 /*!
@@ -255,8 +281,7 @@ void QWebEngineCookieStore::setCookie(const QNetworkCookie &cookie, const QUrl &
 
 void QWebEngineCookieStore::deleteCookie(const QNetworkCookie &cookie, const QUrl &origin)
 {
-    Q_D(QWebEngineCookieStore);
-    d->deleteCookie(cookie, origin);
+    d_ptr->deleteCookie(cookie, origin);
 }
 
 /*!
@@ -271,12 +296,11 @@ void QWebEngineCookieStore::deleteCookie(const QNetworkCookie &cookie, const QUr
 void QWebEngineCookieStore::loadAllCookies()
 {
     //TODO: use callbacks or delete dummy ones
-    Q_D(QWebEngineCookieStore);
-    if (d->m_getAllCookiesPending)
+    if (d_ptr->m_getAllCookiesPending)
         return;
-    d->callbackDirectory.registerCallback(CallbackDirectory::GetAllCookiesCallbackId, QWebEngineCallback<const QByteArray&>());
+    d_ptr->callbackDirectory.registerCallback(CallbackDirectory::GetAllCookiesCallbackId, QWebEngineCallback<const QByteArray&>());
     //this will trigger cookieAdded signal
-    d->getAllCookies();
+    d_ptr->getAllCookies();
 }
 
 /*!
@@ -290,11 +314,10 @@ void QWebEngineCookieStore::loadAllCookies()
 void QWebEngineCookieStore::deleteSessionCookies()
 {
     //TODO: use callbacks or delete dummy ones
-    Q_D(QWebEngineCookieStore);
-    if (d->m_deleteAllCookiesPending || d->m_deleteSessionCookiesPending)
+    if (d_ptr->m_deleteAllCookiesPending || d_ptr->m_deleteSessionCookiesPending)
         return;
-    d->callbackDirectory.registerCallback(CallbackDirectory::DeleteSessionCookiesCallbackId, QWebEngineCallback<int>());
-    d->deleteSessionCookies();
+    d_ptr->callbackDirectory.registerCallback(CallbackDirectory::DeleteSessionCookiesCallbackId, QWebEngineCallback<int>());
+    d_ptr->deleteSessionCookies();
 }
 
 /*!
@@ -306,11 +329,106 @@ void QWebEngineCookieStore::deleteSessionCookies()
 void QWebEngineCookieStore::deleteAllCookies()
 {
     //TODO: use callbacks or delete dummy ones
-    Q_D(QWebEngineCookieStore);
-    if (d->m_deleteAllCookiesPending)
+    if (d_ptr->m_deleteAllCookiesPending)
         return;
-    d->callbackDirectory.registerCallback(CallbackDirectory::DeleteAllCookiesCallbackId, QWebEngineCallback<int>());
-    d->deleteAllCookies();
+    d_ptr->callbackDirectory.registerCallback(CallbackDirectory::DeleteAllCookiesCallbackId, QWebEngineCallback<int>());
+    d_ptr->deleteAllCookies();
 }
+
+/*!
+    \since 5.11
+
+    Installs a cookie filter that can prevent sites and resources from using cookies.
+    The \a filterCallback must be a lambda or functor taking a FilterRequest structure. If the
+    cookie access is to be accepted, the filter function should return \c true; otherwise
+    it should return \c false.
+
+    The following code snippet illustrates how to set a cookie filter:
+
+    \code
+    profile->cookieStore()->setCookieFilter(
+        [&allowThirdPartyCookies](const QWebEngineCookieStore::FilterRequest &request)
+        { return !request.thirdParty || allowThirdPartyCookies; }
+    );
+    \endcode
+
+    You can unset the filter with a \c nullptr argument.
+
+    The callback should not be used to execute heavy tasks since it is running on the
+    IO thread and therefore blocks the Chromium networking.
+
+    \note The cookie filter also controls other features with tracking capabilities similar to
+    those of cookies; including IndexedDB, DOM storage, filesystem API, service workers,
+    and AppCache.
+
+    \sa deleteAllCookies(), loadAllCookies()
+*/
+void QWebEngineCookieStore::setCookieFilter(const std::function<bool(const FilterRequest &)> &filterCallback)
+{
+    d_ptr->filterCallback = filterCallback;
+}
+
+/*!
+    \since 5.11
+    \overload
+*/
+void QWebEngineCookieStore::setCookieFilter(std::function<bool(const FilterRequest &)> &&filterCallback)
+{
+    d_ptr->filterCallback = std::move(filterCallback);
+}
+
+/*!
+    \class QWebEngineCookieStore::FilterRequest
+    \inmodule QtWebEngineCore
+    \since 5.11
+
+    \brief The QWebEngineCookieStore::FilterRequest struct is used in conjunction with QWebEngineCookieStore::setCookieFilter() and is
+    the type \a filterCallback operates on.
+
+    \sa QWebEngineCookieStore::setCookieFilter()
+*/
+
+/*!
+    \variable QWebEngineCookieStore::FilterRequest::firstPartyUrl
+    \brief The URL that was navigated to.
+
+    The site that would be showing in the location bar if the application has one.
+
+    Can be used to white-list or black-list cookie access or third-party cookie access
+    for specific sites visited.
+
+    \sa origin, thirdParty
+*/
+
+/*!
+    \variable QWebEngineCookieStore::FilterRequest::_reservedFlag
+    \internal
+*/
+
+/*!
+    \variable QWebEngineCookieStore::FilterRequest::_reservedType
+    \internal
+*/
+
+/*!
+    \variable QWebEngineCookieStore::FilterRequest::origin
+    \brief The URL of the script or content accessing a cookie.
+
+    Can be used to white-list or black-list third-party cookie access
+    for specific services.
+
+    \sa firstPartyUrl, thirdParty
+*/
+
+/*!
+    \variable QWebEngineCookieStore::FilterRequest::thirdParty
+    \brief Whether this is considered a third-party access.
+
+    This is calculated by comparing FilterRequest::origin and FilterRequest::firstPartyUrl and
+    checking if they share a common origin that is not a top-domain (like .com or .co.uk),
+    or a known hosting site with independently owned subdomains.
+
+    \sa firstPartyUrl, origin
+*/
 
 QT_END_NAMESPACE

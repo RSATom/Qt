@@ -34,27 +34,25 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.10
-import QtQuick.Templates 2.3 as T
-import QtQuick.Controls 2.3
-import QtQuick.Controls.impl 2.3
-import QtQuick.Controls.Fusion 2.3
-import QtQuick.Controls.Fusion.impl 2.3
+import QtQuick 2.12
+import QtQuick.Templates 2.12 as T
+import QtQuick.Controls 2.12
+import QtQuick.Controls.impl 2.12
+import QtQuick.Controls.Fusion 2.12
+import QtQuick.Controls.Fusion.impl 2.12
 
 T.GroupBox {
     id: control
 
-    implicitWidth: Math.max(background ? background.implicitWidth : 0,
-                            label ? label.implicitWidth + leftPadding + rightPadding : 0,
-                            contentWidth + leftPadding + rightPadding)
-    implicitHeight: Math.max(background ? background.implicitHeight : 0, contentHeight + topPadding + bottomPadding)
-
-    contentWidth: contentItem.implicitWidth || (contentChildren.length === 1 ? contentChildren[0].implicitWidth : 0)
-    contentHeight: contentItem.implicitHeight || (contentChildren.length === 1 ? contentChildren[0].implicitHeight : 0)
+    implicitWidth: Math.max(implicitBackgroundWidth + leftInset + rightInset,
+                            contentWidth + leftPadding + rightPadding,
+                            implicitLabelWidth + leftPadding + rightPadding)
+    implicitHeight: Math.max(implicitBackgroundHeight + topInset + bottomInset,
+                             contentHeight + topPadding + bottomPadding)
 
     spacing: 6
     padding: 9
-    topPadding: padding + (label && label.implicitWidth > 0 ? label.implicitHeight + spacing : 0)
+    topPadding: padding + (implicitLabelWidth > 0 ? implicitLabelHeight + spacing : 0)
 
     label: Text {
         x: control.leftPadding
@@ -68,9 +66,9 @@ T.GroupBox {
     }
 
     background: Rectangle {
-        y: control.topPadding - control.padding
+        y: control.topPadding - control.bottomPadding
         width: parent.width
-        height: parent.height - control.topPadding + control.padding
+        height: parent.height - control.topPadding + control.bottomPadding
 
         radius: 2
         color: Color.transparent("black", 3 / 255)

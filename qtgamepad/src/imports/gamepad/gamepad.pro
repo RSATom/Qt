@@ -1,7 +1,7 @@
 CXX_MODULE = gamepad
 TARGET  = declarative_gamepad
 TARGETPATH = QtGamepad
-IMPORT_VERSION = 1.0
+IMPORT_VERSION = 1.$$QT_MINOR_VERSION
 
 QT += qml quick gamepad
 

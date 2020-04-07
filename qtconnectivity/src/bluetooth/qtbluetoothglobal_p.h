@@ -56,4 +56,10 @@
 #include <QtBluetooth/qtbluetoothglobal.h>
 #include <QtBluetooth/private/qtbluetooth-config_p.h>
 
+QT_BEGIN_NAMESPACE
+
+#define Q_BLUETOOTH_PRIVATE_EXPORT Q_BLUETOOTH_EXPORT
+
+QT_END_NAMESPACE
+
 #endif // QTBLUETOOTHGLOBAL_P_H

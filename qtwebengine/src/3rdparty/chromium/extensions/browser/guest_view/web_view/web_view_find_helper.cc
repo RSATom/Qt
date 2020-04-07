@@ -6,7 +6,6 @@
 
 #include <utility>
 
-#include "base/memory/ptr_util.h"
 #include "components/guest_view/browser/guest_view_event.h"
 #include "extensions/browser/api/guest_view/web_view/web_view_internal_api.h"
 #include "extensions/browser/guest_view/web_view/web_view_constants.h"
@@ -41,7 +40,7 @@ void WebViewFindHelper::DispatchFindUpdateEvent(bool canceled,
   args->SetBoolean(webview::kFindCanceled, canceled);
   args->SetBoolean(webview::kFindFinalUpdate, final_update);
   DCHECK(webview_guest_);
-  webview_guest_->DispatchEventToView(base::MakeUnique<GuestViewEvent>(
+  webview_guest_->DispatchEventToView(std::make_unique<GuestViewEvent>(
       webview::kEventFindReply, std::move(args)));
 }
 
@@ -101,8 +100,8 @@ void WebViewFindHelper::Find(
   std::pair<FindInfoMap::iterator, bool> insert_result =
       find_info_map_.insert(std::make_pair(
           current_find_request_id_,
-          make_scoped_refptr(new FindInfo(current_find_request_id_, search_text,
-                                          options, find_function))));
+          base::WrapRefCounted(new FindInfo(
+              current_find_request_id_, search_text, options, find_function))));
   // No duplicate insertions.
   DCHECK(insert_result.second);
 
@@ -214,15 +213,16 @@ void WebViewFindHelper::FindResults::AggregateResults(
 
 void WebViewFindHelper::FindResults::PrepareResults(
     base::DictionaryValue* results) {
-  results->SetInteger(webview::kFindNumberOfMatches, number_of_matches_);
-  results->SetInteger(webview::kFindActiveMatchOrdinal, active_match_ordinal_);
-  base::DictionaryValue rect;
-  rect.SetInteger(webview::kFindRectLeft, selection_rect_.x());
-  rect.SetInteger(webview::kFindRectTop, selection_rect_.y());
-  rect.SetInteger(webview::kFindRectWidth, selection_rect_.width());
-  rect.SetInteger(webview::kFindRectHeight, selection_rect_.height());
-  results->Set(webview::kFindSelectionRect,
-               base::MakeUnique<base::Value>(std::move(rect)));
+  results->SetKey(webview::kFindNumberOfMatches,
+                  base::Value(number_of_matches_));
+  results->SetKey(webview::kFindActiveMatchOrdinal,
+                  base::Value(active_match_ordinal_));
+  base::Value rect(base::Value::Type::DICTIONARY);
+  rect.SetKey(webview::kFindRectLeft, base::Value(selection_rect_.x()));
+  rect.SetKey(webview::kFindRectTop, base::Value(selection_rect_.y()));
+  rect.SetKey(webview::kFindRectWidth, base::Value(selection_rect_.width()));
+  rect.SetKey(webview::kFindRectHeight, base::Value(selection_rect_.height()));
+  results->SetKey(webview::kFindSelectionRect, std::move(rect));
 }
 
 WebViewFindHelper::FindUpdateEvent::FindUpdateEvent(
@@ -283,8 +283,7 @@ void WebViewFindHelper::FindInfo::SendResponse(bool canceled) {
   results.SetBoolean(webview::kFindCanceled, canceled);
 
   // Call the callback.
-  find_function_->SetResult(results.CreateDeepCopy());
-  find_function_->SendResponse(true);
+  find_function_->ForwardResponse(results);
 }
 
 WebViewFindHelper::FindInfo::~FindInfo() {}

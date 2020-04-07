@@ -70,7 +70,7 @@ public:
     };
     Q_ENUM(Error)
 
-    explicit QBluetoothServer(QBluetoothServiceInfo::Protocol serverType, QObject *parent = Q_NULLPTR);
+    explicit QBluetoothServer(QBluetoothServiceInfo::Protocol serverType, QObject *parent = nullptr);
     ~QBluetoothServer();
 
     void close();
@@ -104,10 +104,6 @@ protected:
 
 private:
     Q_DECLARE_PRIVATE(QBluetoothServer)
-
-#if QT_CONFIG(bluez)
-    Q_PRIVATE_SLOT(d_func(), void _q_newConnection())
-#endif
 };
 
 QT_END_NAMESPACE

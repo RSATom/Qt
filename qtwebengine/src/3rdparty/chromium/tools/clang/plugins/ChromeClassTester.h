@@ -30,15 +30,6 @@ class ChromeClassTester {
   clang::CompilerInstance& instance() { return instance_; }
   clang::DiagnosticsEngine& diagnostic() { return diagnostic_; }
 
-  // Emits a simple warning; this shouldn't be used if you require printf-style
-  // printing.
-  // TODO(dcheng): This will be removed. Do not add new usage.
-  void emitWarning(clang::SourceLocation loc, const char* error);
-
-  // Utility method for subclasses to check if this class is in a banned
-  // namespace.
-  bool InBannedNamespace(const clang::Decl* record);
-
   // Utility method for subclasses to check how a certain SourceLocation should
   // be handled. The main criteria for classification is the SourceLocation's
   // path (e.g. whether it's in //third_party).
@@ -52,13 +43,7 @@ class ChromeClassTester {
     // it doesn't make sense to enforce Chrome's custom diagnostics.
     kThirdParty,
   };
-  LocationType ClassifyLocation(clang::SourceLocation loc,
-                                const clang::Decl* record);
-
-  // Utility method for subclasses to determine the namespace of the
-  // specified record, if any. Unnamed namespaces will be identified as
-  // "<anonymous namespace>".
-  std::string GetNamespace(const clang::Decl* record);
+  LocationType ClassifyLocation(clang::SourceLocation loc);
 
   // Utility method to check whether the given record has any of the ignored
   // base classes.
@@ -80,16 +65,8 @@ class ChromeClassTester {
                                 clang::SourceLocation record_location,
                                 clang::CXXRecordDecl* record) = 0;
 
-  // Filtered versions of enum type that are only called with things defined
-  // in chrome header files.
-  virtual void CheckChromeEnum(LocationType location_type,
-                               clang::SourceLocation enum_location,
-                               clang::EnumDecl* enum_decl) = 0;
-
   // Utility methods used for filtering out non-chrome classes (and ones we
   // deliberately ignore) in HandleTagDeclDefinition().
-  std::string GetNamespaceImpl(const clang::DeclContext* context,
-                               const std::string& candidate);
   bool IsIgnoredType(const std::string& base_name);
 
   // Attempts to determine the filename for the given SourceLocation.
@@ -98,9 +75,6 @@ class ChromeClassTester {
 
   clang::CompilerInstance& instance_;
   clang::DiagnosticsEngine& diagnostic_;
-
-  // List of banned namespaces.
-  std::set<std::string> banned_namespaces_;
 
   // List of banned directories.
   std::set<std::string> banned_directories_;

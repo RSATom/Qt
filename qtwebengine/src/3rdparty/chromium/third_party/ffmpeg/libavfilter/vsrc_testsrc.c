@@ -66,6 +66,9 @@ typedef struct TestSourceContext {
     /* only used by testsrc */
     int nb_decimals;
 
+    /* only used by testsrc2 */
+    int alpha;
+
     /* only used by color */
     FFDrawContext draw;
     FFDrawColor color;
@@ -685,6 +688,7 @@ AVFilter ff_vsrc_testsrc = {
 
 static const AVOption testsrc2_options[] = {
     COMMON_OPTIONS
+    { "alpha", "set global alpha (opacity)", OFFSET(alpha), AV_OPT_TYPE_INT, {.i64 = 255}, 0, 255, FLAGS },
     { NULL }
 };
 
@@ -735,6 +739,7 @@ static void test2_fill_picture(AVFilterContext *ctx, AVFrame *frame)
 {
     TestSourceContext *s = ctx->priv;
     FFDrawColor color;
+    unsigned alpha = (uint32_t)s->alpha << 24;
 
     /* colored background */
     {
@@ -746,7 +751,8 @@ static void test2_fill_picture(AVFilterContext *ctx, AVFrame *frame)
             x2 = ff_draw_round_to_sub(&s->draw, 0, 0, x2);
             set_color(s, &color, ((i & 1) ? 0xFF0000 : 0) |
                                  ((i & 2) ? 0x00FF00 : 0) |
-                                 ((i & 4) ? 0x0000FF : 0));
+                                 ((i & 4) ? 0x0000FF : 0) |
+                                 alpha);
             ff_fill_rectangle(&s->draw, &color, frame->data, frame->linesize,
                               x, 0, x2 - x, frame->height);
             x = x2;
@@ -763,7 +769,7 @@ static void test2_fill_picture(AVFilterContext *ctx, AVFrame *frame)
         g0 = av_rescale_q(s->pts, s->time_base, av_make_q(1, 128));
         for (x = 0; x < s->w; x += dx) {
             g = (av_rescale(x, 6 * 256, s->w) + g0) % (6 * 256);
-            set_color(s, &color, color_gradient(g));
+            set_color(s, &color, color_gradient(g) | alpha);
             y = y0 + av_rescale(x, s->h / 2, s->w);
             y %= 2 * (s->h - 16);
             if (y > s->h - 16)
@@ -785,7 +791,7 @@ static void test2_fill_picture(AVFilterContext *ctx, AVFrame *frame)
         int c, i;
 
         for (c = 0; c < 3; c++) {
-            set_color(s, &color, 0xBBBBBB ^ (0xFF << (c << 3)));
+            set_color(s, &color, (0xBBBBBB ^ (0xFF << (c << 3))) | alpha);
             pos = av_rescale_q(s->pts, s->time_base, av_make_q(64 >> (c << 1), cycle)) % cycle;
             xh = pos < 1 * l ? pos :
                  pos < 2 * l ? l :
@@ -851,8 +857,8 @@ static void test2_fill_picture(AVFilterContext *ctx, AVFrame *frame)
         uint8_t alpha[256];
 
         r = s->pts;
-        for (y = ymin; y < ymax - 15; y += 16) {
-            for (x = xmin; x < xmax - 15; x += 16) {
+        for (y = ymin; y + 15 < ymax; y += 16) {
+            for (x = xmin; x + 15 < xmax; x += 16) {
                 if ((x ^ y) & 16)
                     continue;
                 for (i = 0; i < 256; i++) {
@@ -1246,7 +1252,7 @@ AVFilter ff_vsrc_yuvtestsrc = {
 
 #endif /* CONFIG_YUVTESTSRC_FILTER */
 
-#if CONFIG_SMPTEBARS_FILTER || CONFIG_SMPTEHDBARS_FILTER
+#if CONFIG_PAL75BARS_FILTER || CONFIG_PAL100BARS_FILTER || CONFIG_SMPTEBARS_FILTER || CONFIG_SMPTEHDBARS_FILTER
 
 static const uint8_t rainbow[7][4] = {
     { 180, 128, 128, 255 },     /* 75% white */
@@ -1256,6 +1262,16 @@ static const uint8_t rainbow[7][4] = {
     {  84, 184, 198, 255 },     /* 75% magenta */
     {  65, 100, 212, 255 },     /* 75% red */
     {  35, 212, 114, 255 },     /* 75% blue */
+};
+
+static const uint8_t rainbow100[7][4] = {
+    { 235, 128, 128, 255 },     /* 100% white */
+    { 210,  16, 146, 255 },     /* 100% yellow */
+    { 170, 166,  16, 255 },     /* 100% cyan */
+    { 145,  54,  34, 255 },     /* 100% green */
+    { 106, 202, 222, 255 },     /* 100% magenta */
+    {  81,  90, 240, 255 },     /* 100% red */
+    {  41, 240, 110, 255 },     /* 100% blue */
 };
 
 static const uint8_t rainbowhd[7][4] = {
@@ -1364,6 +1380,100 @@ static const AVFilterPad smptebars_outputs[] = {
     },
     { NULL }
 };
+
+#if CONFIG_PAL75BARS_FILTER
+
+#define pal75bars_options options
+AVFILTER_DEFINE_CLASS(pal75bars);
+
+static void pal75bars_fill_picture(AVFilterContext *ctx, AVFrame *picref)
+{
+    TestSourceContext *test = ctx->priv;
+    int r_w, i, x = 0;
+    const AVPixFmtDescriptor *pixdesc = av_pix_fmt_desc_get(picref->format);
+
+    picref->color_range = AVCOL_RANGE_MPEG;
+    picref->colorspace = AVCOL_SPC_BT470BG;
+
+    r_w = FFALIGN((test->w + 7) / 8, 1 << pixdesc->log2_chroma_w);
+
+    draw_bar(test, white, x, 0, r_w, test->h, picref);
+    x += r_w;
+    for (i = 1; i < 7; i++) {
+        draw_bar(test, rainbow[i], x, 0, r_w, test->h, picref);
+        x += r_w;
+    }
+    draw_bar(test, black0, x, 0, r_w, test->h, picref);
+}
+
+static av_cold int pal75bars_init(AVFilterContext *ctx)
+{
+    TestSourceContext *test = ctx->priv;
+
+    test->fill_picture_fn = pal75bars_fill_picture;
+    test->draw_once = 1;
+    return init(ctx);
+}
+
+AVFilter ff_vsrc_pal75bars = {
+    .name          = "pal75bars",
+    .description   = NULL_IF_CONFIG_SMALL("Generate PAL 75% color bars."),
+    .priv_size     = sizeof(TestSourceContext),
+    .priv_class    = &pal75bars_class,
+    .init          = pal75bars_init,
+    .uninit        = uninit,
+    .query_formats = smptebars_query_formats,
+    .inputs        = NULL,
+    .outputs       = smptebars_outputs,
+};
+
+#endif  /* CONFIG_PAL75BARS_FILTER */
+
+#if CONFIG_PAL100BARS_FILTER
+
+#define pal100bars_options options
+AVFILTER_DEFINE_CLASS(pal100bars);
+
+static void pal100bars_fill_picture(AVFilterContext *ctx, AVFrame *picref)
+{
+    TestSourceContext *test = ctx->priv;
+    int r_w, i, x = 0;
+    const AVPixFmtDescriptor *pixdesc = av_pix_fmt_desc_get(picref->format);
+
+    picref->color_range = AVCOL_RANGE_MPEG;
+    picref->colorspace = AVCOL_SPC_BT470BG;
+
+    r_w = FFALIGN((test->w + 7) / 8, 1 << pixdesc->log2_chroma_w);
+
+    for (i = 0; i < 7; i++) {
+        draw_bar(test, rainbow100[i], x, 0, r_w, test->h, picref);
+        x += r_w;
+    }
+    draw_bar(test, black0, x, 0, r_w, test->h, picref);
+}
+
+static av_cold int pal100bars_init(AVFilterContext *ctx)
+{
+    TestSourceContext *test = ctx->priv;
+
+    test->fill_picture_fn = pal100bars_fill_picture;
+    test->draw_once = 1;
+    return init(ctx);
+}
+
+AVFilter ff_vsrc_pal100bars = {
+    .name          = "pal100bars",
+    .description   = NULL_IF_CONFIG_SMALL("Generate PAL 100% color bars."),
+    .priv_size     = sizeof(TestSourceContext),
+    .priv_class    = &pal100bars_class,
+    .init          = pal100bars_init,
+    .uninit        = uninit,
+    .query_formats = smptebars_query_formats,
+    .inputs        = NULL,
+    .outputs       = smptebars_outputs,
+};
+
+#endif  /* CONFIG_PAL100BARS_FILTER */
 
 #if CONFIG_SMPTEBARS_FILTER
 

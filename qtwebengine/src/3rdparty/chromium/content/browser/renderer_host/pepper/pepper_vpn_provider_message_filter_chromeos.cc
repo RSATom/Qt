@@ -4,7 +4,6 @@
 
 #include "content/browser/renderer_host/pepper/pepper_vpn_provider_message_filter_chromeos.h"
 
-#include "base/memory/ptr_util.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/content_browser_client.h"
 #include "content/public/browser/pepper_vpn_provider_resource_host_proxy.h"
@@ -210,16 +209,16 @@ int32_t PepperVpnProviderMessageFilter::DoBind(
         !recv_buffer->CreateAndMapAnonymous(kBufferSize))
       return PP_ERROR_NOMEMORY;
 
-    send_packet_buffer_ = base::MakeUnique<ppapi::VpnProviderSharedBuffer>(
+    send_packet_buffer_ = std::make_unique<ppapi::VpnProviderSharedBuffer>(
         kMaxBufferedPackets, kMaxPacketSize, std::move(send_buffer));
-    recv_packet_buffer_ = base::MakeUnique<ppapi::VpnProviderSharedBuffer>(
+    recv_packet_buffer_ = std::make_unique<ppapi::VpnProviderSharedBuffer>(
         kMaxBufferedPackets, kMaxPacketSize, std::move(recv_buffer));
   }
 
   vpn_service_proxy_->Bind(
       document_url_.host(), configuration_id_, configuration_name_,
       success_callback, failure_callback,
-      base::MakeUnique<PepperVpnProviderResourceHostProxyImpl>(
+      std::make_unique<PepperVpnProviderResourceHostProxyImpl>(
           weak_factory_.GetWeakPtr()));
 
   return PP_OK_COMPLETIONPENDING;

@@ -6,12 +6,15 @@
 
 #include <stdint.h>
 
+#include <utility>
+
 #include "base/bind.h"
 #include "base/compiler_specific.h"
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "net/base/completion_once_callback.h"
 #include "net/base/load_timing_info.h"
 #include "net/base/net_error_details.h"
 #include "net/http/http_response_info.h"
@@ -38,18 +41,18 @@ class FailingHttpTransaction : public HttpTransaction {
 
   // HttpTransaction
   int Start(const HttpRequestInfo* request_info,
-            const CompletionCallback& callback,
+            CompletionOnceCallback callback,
             const NetLogWithSource& net_log) override;
-  int RestartIgnoringLastError(const CompletionCallback& callback) override;
+  int RestartIgnoringLastError(CompletionOnceCallback callback) override;
   int RestartWithCertificate(scoped_refptr<X509Certificate> client_cert,
                              scoped_refptr<SSLPrivateKey> client_private_key,
-                             const CompletionCallback& callback) override;
+                             CompletionOnceCallback callback) override;
   int RestartWithAuth(const AuthCredentials& credentials,
-                      const CompletionCallback& callback) override;
+                      CompletionOnceCallback callback) override;
   bool IsReadyToRestartForAuth() override;
   int Read(IOBuffer* buf,
            int buf_len,
-           const CompletionCallback& callback) override;
+           CompletionOnceCallback callback) override;
   void StopCaching() override;
   bool GetFullRequestHeaders(HttpRequestHeaders* headers) const override;
   int64_t GetTotalReceivedBytes() const override;
@@ -70,6 +73,8 @@ class FailingHttpTransaction : public HttpTransaction {
       const BeforeHeadersSentCallback& callback) override;
   int ResumeNetworkStart() override;
   void GetConnectionAttempts(ConnectionAttempts* out) const override;
+  void SetRequestHeadersCallback(RequestHeadersCallback) override {}
+  void SetResponseHeadersCallback(ResponseHeadersCallback) override {}
 
  private:
   Error error_;
@@ -80,31 +85,30 @@ FailingHttpTransaction::FailingHttpTransaction(Error error) : error_(error) {
   DCHECK_LT(error, OK);
 }
 
-FailingHttpTransaction::~FailingHttpTransaction() {}
+FailingHttpTransaction::~FailingHttpTransaction() = default;
 
 int FailingHttpTransaction::Start(const HttpRequestInfo* request_info,
-                                  const CompletionCallback& callback,
+                                  CompletionOnceCallback callback,
                                   const NetLogWithSource& net_log) {
-  base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE,
-                                                base::Bind(callback, error_));
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE, base::BindOnce(std::move(callback), error_));
   return ERR_IO_PENDING;
 }
 
 int FailingHttpTransaction::RestartIgnoringLastError(
-    const CompletionCallback& callback)  {
+    CompletionOnceCallback callback) {
   return ERR_FAILED;
 }
 
 int FailingHttpTransaction::RestartWithCertificate(
     scoped_refptr<X509Certificate> client_cert,
     scoped_refptr<SSLPrivateKey> client_private_key,
-    const CompletionCallback& callback) {
+    CompletionOnceCallback callback) {
   return ERR_FAILED;
 }
 
-int FailingHttpTransaction::RestartWithAuth(
-    const AuthCredentials& credentials,
-    const CompletionCallback& callback)  {
+int FailingHttpTransaction::RestartWithAuth(const AuthCredentials& credentials,
+                                            CompletionOnceCallback callback) {
   return ERR_FAILED;
 }
 
@@ -112,8 +116,9 @@ bool FailingHttpTransaction::IsReadyToRestartForAuth()  {
   return false;
 }
 
-int FailingHttpTransaction::Read(IOBuffer* buf, int buf_len,
-                                 const CompletionCallback& callback)  {
+int FailingHttpTransaction::Read(IOBuffer* buf,
+                                 int buf_len,
+                                 CompletionOnceCallback callback) {
   NOTREACHED();
   return ERR_FAILED;
 }
@@ -195,7 +200,7 @@ FailingHttpTransactionFactory::FailingHttpTransactionFactory(
   DCHECK_LT(error, OK);
 }
 
-FailingHttpTransactionFactory::~FailingHttpTransactionFactory() {}
+FailingHttpTransactionFactory::~FailingHttpTransactionFactory() = default;
 
 // HttpTransactionFactory:
 int FailingHttpTransactionFactory::CreateTransaction(

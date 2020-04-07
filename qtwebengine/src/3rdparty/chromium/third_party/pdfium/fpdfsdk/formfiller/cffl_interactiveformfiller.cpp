@@ -8,6 +8,7 @@
 
 #include "core/fpdfapi/page/cpdf_page.h"
 #include "core/fpdfapi/parser/cpdf_document.h"
+#include "core/fxcrt/autorestorer.h"
 #include "core/fxge/cfx_graphstatedata.h"
 #include "core/fxge/cfx_pathdata.h"
 #include "core/fxge/cfx_renderdevice.h"
@@ -63,7 +64,7 @@ void CFFL_InteractiveFormFiller::OnDraw(CPDFSDK_PageView* pPageView,
 
   CFFL_FormFiller* pFormFiller = GetFormFiller(pAnnot, false);
   if (pFormFiller && pFormFiller->IsValid()) {
-    pFormFiller->OnDraw(pPageView, pAnnot, pDevice, pUser2Device);
+    pFormFiller->OnDraw(pPageView, pAnnot, pDevice, *pUser2Device);
     pAnnot->GetPDFPage();
 
     if (m_pFormFillEnv->GetFocusAnnot() != pAnnot)
@@ -96,10 +97,12 @@ void CFFL_InteractiveFormFiller::OnDraw(CPDFSDK_PageView* pPageView,
   }
 
   pFormFiller = GetFormFiller(pAnnot, false);
-  if (pFormFiller)
-    pFormFiller->OnDrawDeactive(pPageView, pAnnot, pDevice, pUser2Device);
-  else
-    pWidget->DrawAppearance(pDevice, pUser2Device, CPDF_Annot::Normal, nullptr);
+  if (pFormFiller) {
+    pFormFiller->OnDrawDeactive(pPageView, pAnnot, pDevice, *pUser2Device);
+  } else {
+    pWidget->DrawAppearance(pDevice, *pUser2Device, CPDF_Annot::Normal,
+                            nullptr);
+  }
 
   if (!IsReadOnly(pWidget) && IsFillingAllowed(pWidget))
     pWidget->DrawShadow(pDevice, pPageView);
@@ -119,14 +122,14 @@ void CFFL_InteractiveFormFiller::OnMouseEnter(
     if (pWidget->GetAAction(CPDF_AAction::CursorEnter).GetDict()) {
       m_bNotifying = true;
 
-      int nValueAge = pWidget->GetValueAge();
+      uint32_t nValueAge = pWidget->GetValueAge();
       pWidget->ClearAppModified();
       ASSERT(pPageView);
 
-      PDFSDK_FieldAction fa;
-      fa.bModifier = m_pFormFillEnv->IsCTRLKeyDown(nFlag);
-      fa.bShift = m_pFormFillEnv->IsSHIFTKeyDown(nFlag);
-      pWidget->OnAAction(CPDF_AAction::CursorEnter, fa, pPageView);
+      CPDFSDK_FieldAction fa;
+      fa.bModifier = CPDFSDK_FormFillEnvironment::IsCTRLKeyDown(nFlag);
+      fa.bShift = CPDFSDK_FormFillEnvironment::IsSHIFTKeyDown(nFlag);
+      pWidget->OnAAction(CPDF_AAction::CursorEnter, &fa, pPageView);
       m_bNotifying = false;
       if (!(*pAnnot))
         return;
@@ -151,16 +154,15 @@ void CFFL_InteractiveFormFiller::OnMouseExit(CPDFSDK_PageView* pPageView,
     CPDFSDK_Widget* pWidget = static_cast<CPDFSDK_Widget*>(pAnnot->Get());
     if (pWidget->GetAAction(CPDF_AAction::CursorExit).GetDict()) {
       m_bNotifying = true;
-      pWidget->GetAppearanceAge();
 
-      int nValueAge = pWidget->GetValueAge();
+      uint32_t nValueAge = pWidget->GetValueAge();
       pWidget->ClearAppModified();
       ASSERT(pPageView);
 
-      PDFSDK_FieldAction fa;
-      fa.bModifier = m_pFormFillEnv->IsCTRLKeyDown(nFlag);
-      fa.bShift = m_pFormFillEnv->IsSHIFTKeyDown(nFlag);
-      pWidget->OnAAction(CPDF_AAction::CursorExit, fa, pPageView);
+      CPDFSDK_FieldAction fa;
+      fa.bModifier = CPDFSDK_FormFillEnvironment::IsCTRLKeyDown(nFlag);
+      fa.bShift = CPDFSDK_FormFillEnvironment::IsSHIFTKeyDown(nFlag);
+      pWidget->OnAAction(CPDF_AAction::CursorExit, &fa, pPageView);
       m_bNotifying = false;
       if (!(*pAnnot))
         return;
@@ -188,16 +190,15 @@ bool CFFL_InteractiveFormFiller::OnLButtonDown(
     if (Annot_HitTest(pPageView, pAnnot->Get(), point) &&
         pWidget->GetAAction(CPDF_AAction::ButtonDown).GetDict()) {
       m_bNotifying = true;
-      pWidget->GetAppearanceAge();
 
-      int nValueAge = pWidget->GetValueAge();
+      uint32_t nValueAge = pWidget->GetValueAge();
       pWidget->ClearAppModified();
       ASSERT(pPageView);
 
-      PDFSDK_FieldAction fa;
-      fa.bModifier = m_pFormFillEnv->IsCTRLKeyDown(nFlags);
-      fa.bShift = m_pFormFillEnv->IsSHIFTKeyDown(nFlags);
-      pWidget->OnAAction(CPDF_AAction::ButtonDown, fa, pPageView);
+      CPDFSDK_FieldAction fa;
+      fa.bModifier = CPDFSDK_FormFillEnvironment::IsCTRLKeyDown(nFlags);
+      fa.bShift = CPDFSDK_FormFillEnvironment::IsSHIFTKeyDown(nFlags);
+      pWidget->OnAAction(CPDF_AAction::ButtonDown, &fa, pPageView);
       m_bNotifying = false;
       if (!(*pAnnot))
         return true;
@@ -227,9 +228,9 @@ bool CFFL_InteractiveFormFiller::OnLButtonUp(CPDFSDK_PageView* pPageView,
 
   bool bSetFocus;
   switch (pWidget->GetFieldType()) {
-    case FIELDTYPE_PUSHBUTTON:
-    case FIELDTYPE_CHECKBOX:
-    case FIELDTYPE_RADIOBUTTON: {
+    case FormFieldType::kPushButton:
+    case FormFieldType::kCheckBox:
+    case FormFieldType::kRadioButton: {
       FX_RECT bbox = GetViewBBox(pPageView, pAnnot->Get());
       bSetFocus =
           bbox.Contains(static_cast<int>(point.x), static_cast<int>(point.y));
@@ -268,14 +269,14 @@ bool CFFL_InteractiveFormFiller::OnButtonUp(CPDFSDK_Annot::ObservedPtr* pAnnot,
 
   m_bNotifying = true;
 
-  int nAge = pWidget->GetAppearanceAge();
-  int nValueAge = pWidget->GetValueAge();
+  uint32_t nAge = pWidget->GetAppearanceAge();
+  uint32_t nValueAge = pWidget->GetValueAge();
   ASSERT(pPageView);
 
-  PDFSDK_FieldAction fa;
-  fa.bModifier = m_pFormFillEnv->IsCTRLKeyDown(nFlag);
-  fa.bShift = m_pFormFillEnv->IsSHIFTKeyDown(nFlag);
-  pWidget->OnAAction(CPDF_AAction::ButtonUp, fa, pPageView);
+  CPDFSDK_FieldAction fa;
+  fa.bModifier = CPDFSDK_FormFillEnvironment::IsCTRLKeyDown(nFlag);
+  fa.bShift = CPDFSDK_FormFillEnvironment::IsSHIFTKeyDown(nFlag);
+  pWidget->OnAAction(CPDF_AAction::ButtonUp, &fa, pPageView);
   m_bNotifying = false;
   if (!(*pAnnot) || !IsValidAnnot(pPageView, pWidget))
     return true;
@@ -373,9 +374,8 @@ bool CFFL_InteractiveFormFiller::OnSetFocus(CPDFSDK_Annot::ObservedPtr* pAnnot,
     CPDFSDK_Widget* pWidget = static_cast<CPDFSDK_Widget*>(pAnnot->Get());
     if (pWidget->GetAAction(CPDF_AAction::GetFocus).GetDict()) {
       m_bNotifying = true;
-      pWidget->GetAppearanceAge();
 
-      int nValueAge = pWidget->GetValueAge();
+      uint32_t nValueAge = pWidget->GetValueAge();
       pWidget->ClearAppModified();
 
       CFFL_FormFiller* pFormFiller = GetFormFiller(pWidget, true);
@@ -385,11 +385,11 @@ bool CFFL_InteractiveFormFiller::OnSetFocus(CPDFSDK_Annot::ObservedPtr* pAnnot,
       CPDFSDK_PageView* pPageView = (*pAnnot)->GetPageView();
       ASSERT(pPageView);
 
-      PDFSDK_FieldAction fa;
-      fa.bModifier = m_pFormFillEnv->IsCTRLKeyDown(nFlag);
-      fa.bShift = m_pFormFillEnv->IsSHIFTKeyDown(nFlag);
+      CPDFSDK_FieldAction fa;
+      fa.bModifier = CPDFSDK_FormFillEnvironment::IsCTRLKeyDown(nFlag);
+      fa.bShift = CPDFSDK_FormFillEnvironment::IsSHIFTKeyDown(nFlag);
       pFormFiller->GetActionData(pPageView, CPDF_AAction::GetFocus, fa);
-      pWidget->OnAAction(CPDF_AAction::GetFocus, fa, pPageView);
+      pWidget->OnAAction(CPDF_AAction::GetFocus, &fa, pPageView);
       m_bNotifying = false;
       if (!(*pAnnot))
         return false;
@@ -436,11 +436,11 @@ bool CFFL_InteractiveFormFiller::OnKillFocus(CPDFSDK_Annot::ObservedPtr* pAnnot,
   CPDFSDK_PageView* pPageView = pWidget->GetPageView();
   ASSERT(pPageView);
 
-  PDFSDK_FieldAction fa;
-  fa.bModifier = m_pFormFillEnv->IsCTRLKeyDown(nFlag);
-  fa.bShift = m_pFormFillEnv->IsSHIFTKeyDown(nFlag);
+  CPDFSDK_FieldAction fa;
+  fa.bModifier = CPDFSDK_FormFillEnvironment::IsCTRLKeyDown(nFlag);
+  fa.bShift = CPDFSDK_FormFillEnvironment::IsSHIFTKeyDown(nFlag);
   pFormFiller->GetActionData(pPageView, CPDF_AAction::LoseFocus, fa);
-  pWidget->OnAAction(CPDF_AAction::LoseFocus, fa, pPageView);
+  pWidget->OnAAction(CPDF_AAction::LoseFocus, &fa, pPageView);
   m_bNotifying = false;
   return !!(*pAnnot);
 }
@@ -455,11 +455,11 @@ bool CFFL_InteractiveFormFiller::IsReadOnly(CPDFSDK_Widget* pWidget) {
 }
 
 bool CFFL_InteractiveFormFiller::IsFillingAllowed(CPDFSDK_Widget* pWidget) {
-  if (pWidget->GetFieldType() == FIELDTYPE_PUSHBUTTON)
+  if (pWidget->GetFieldType() == FormFieldType::kPushButton)
     return false;
 
   CPDF_Page* pPage = pWidget->GetPDFPage();
-  uint32_t dwPermissions = pPage->m_pDocument->GetUserPermissions();
+  uint32_t dwPermissions = pPage->GetDocument()->GetUserPermissions();
   return (dwPermissions & FPDFPERM_FILL_FORM) ||
          (dwPermissions & FPDFPERM_ANNOT_FORM) ||
          (dwPermissions & FPDFPERM_MODIFY);
@@ -477,28 +477,28 @@ CFFL_FormFiller* CFFL_InteractiveFormFiller::GetFormFiller(
 
   // TODO(thestig): How do we know |pAnnot| is a CPDFSDK_Widget?
   CPDFSDK_Widget* pWidget = static_cast<CPDFSDK_Widget*>(pAnnot);
-  int nFieldType = pWidget->GetFieldType();
+  FormFieldType fieldType = pWidget->GetFieldType();
   CFFL_FormFiller* pFormFiller;
-  switch (nFieldType) {
-    case FIELDTYPE_PUSHBUTTON:
+  switch (fieldType) {
+    case FormFieldType::kPushButton:
       pFormFiller = new CFFL_PushButton(m_pFormFillEnv.Get(), pWidget);
       break;
-    case FIELDTYPE_CHECKBOX:
+    case FormFieldType::kCheckBox:
       pFormFiller = new CFFL_CheckBox(m_pFormFillEnv.Get(), pWidget);
       break;
-    case FIELDTYPE_RADIOBUTTON:
+    case FormFieldType::kRadioButton:
       pFormFiller = new CFFL_RadioButton(m_pFormFillEnv.Get(), pWidget);
       break;
-    case FIELDTYPE_TEXTFIELD:
+    case FormFieldType::kTextField:
       pFormFiller = new CFFL_TextField(m_pFormFillEnv.Get(), pWidget);
       break;
-    case FIELDTYPE_LISTBOX:
+    case FormFieldType::kListBox:
       pFormFiller = new CFFL_ListBox(m_pFormFillEnv.Get(), pWidget);
       break;
-    case FIELDTYPE_COMBOBOX:
+    case FormFieldType::kComboBox:
       pFormFiller = new CFFL_ComboBox(m_pFormFillEnv.Get(), pWidget);
       break;
-    case FIELDTYPE_UNKNOWN:
+    case FormFieldType::kUnknown:
     default:
       pFormFiller = nullptr;
       break;
@@ -511,16 +511,50 @@ CFFL_FormFiller* CFFL_InteractiveFormFiller::GetFormFiller(
   return pFormFiller;
 }
 
-void CFFL_InteractiveFormFiller::RemoveFormFiller(CPDFSDK_Annot* pAnnot) {
-  if (pAnnot)
-    UnRegisterFormFiller(pAnnot);
-}
-
-CFX_WideString CFFL_InteractiveFormFiller::GetSelectedText(
-    CPDFSDK_Annot* pAnnot) {
+WideString CFFL_InteractiveFormFiller::GetText(CPDFSDK_Annot* pAnnot) {
   ASSERT(pAnnot->GetPDFAnnot()->GetSubtype() == CPDF_Annot::Subtype::WIDGET);
   CFFL_FormFiller* pFormFiller = GetFormFiller(pAnnot, false);
-  return pFormFiller ? pFormFiller->GetSelectedText(pAnnot) : CFX_WideString();
+  return pFormFiller ? pFormFiller->GetText(pAnnot) : WideString();
+}
+
+WideString CFFL_InteractiveFormFiller::GetSelectedText(CPDFSDK_Annot* pAnnot) {
+  ASSERT(pAnnot->GetPDFAnnot()->GetSubtype() == CPDF_Annot::Subtype::WIDGET);
+  CFFL_FormFiller* pFormFiller = GetFormFiller(pAnnot, false);
+  return pFormFiller ? pFormFiller->GetSelectedText(pAnnot) : WideString();
+}
+
+void CFFL_InteractiveFormFiller::ReplaceSelection(CPDFSDK_Annot* pAnnot,
+                                                  const WideString& text) {
+  ASSERT(pAnnot->GetPDFAnnot()->GetSubtype() == CPDF_Annot::Subtype::WIDGET);
+  CFFL_FormFiller* pFormFiller = GetFormFiller(pAnnot, false);
+  if (!pFormFiller)
+    return;
+
+  pFormFiller->ReplaceSelection(pAnnot, text);
+}
+
+bool CFFL_InteractiveFormFiller::CanUndo(CPDFSDK_Annot* pAnnot) {
+  ASSERT(pAnnot->GetPDFAnnot()->GetSubtype() == CPDF_Annot::Subtype::WIDGET);
+  CFFL_FormFiller* pFormFiller = GetFormFiller(pAnnot, false);
+  return pFormFiller && pFormFiller->CanUndo(pAnnot);
+}
+
+bool CFFL_InteractiveFormFiller::CanRedo(CPDFSDK_Annot* pAnnot) {
+  ASSERT(pAnnot->GetPDFAnnot()->GetSubtype() == CPDF_Annot::Subtype::WIDGET);
+  CFFL_FormFiller* pFormFiller = GetFormFiller(pAnnot, false);
+  return pFormFiller && pFormFiller->CanRedo(pAnnot);
+}
+
+bool CFFL_InteractiveFormFiller::Undo(CPDFSDK_Annot* pAnnot) {
+  ASSERT(pAnnot->GetPDFAnnot()->GetSubtype() == CPDF_Annot::Subtype::WIDGET);
+  CFFL_FormFiller* pFormFiller = GetFormFiller(pAnnot, false);
+  return pFormFiller && pFormFiller->Undo(pAnnot);
+}
+
+bool CFFL_InteractiveFormFiller::Redo(CPDFSDK_Annot* pAnnot) {
+  ASSERT(pAnnot->GetPDFAnnot()->GetSubtype() == CPDF_Annot::Subtype::WIDGET);
+  CFFL_FormFiller* pFormFiller = GetFormFiller(pAnnot, false);
+  return pFormFiller && pFormFiller->Redo(pAnnot);
 }
 
 void CFFL_InteractiveFormFiller::UnRegisterFormFiller(CPDFSDK_Annot* pAnnot) {
@@ -531,14 +565,15 @@ void CFFL_InteractiveFormFiller::UnRegisterFormFiller(CPDFSDK_Annot* pAnnot) {
   m_Maps.erase(it);
 }
 
-void CFFL_InteractiveFormFiller::QueryWherePopup(void* pPrivateData,
-                                                 float fPopupMin,
-                                                 float fPopupMax,
-                                                 bool* bBottom,
-                                                 float* fPopupRet) {
-  CFFL_PrivateData* pData = reinterpret_cast<CFFL_PrivateData*>(pPrivateData);
+void CFFL_InteractiveFormFiller::QueryWherePopup(
+    CPWL_Wnd::PrivateData* pAttached,
+    float fPopupMin,
+    float fPopupMax,
+    bool* bBottom,
+    float* fPopupRet) {
+  auto* pData = static_cast<CFFL_PrivateData*>(pAttached);
   CPDFSDK_Widget* pWidget = pData->pWidget;
-  auto* pPage = pWidget->GetPDFPage();
+  CPDF_Page* pPage = pWidget->GetPDFPage();
 
   CFX_FloatRect rcPageView(0, pPage->GetPageHeight(), pPage->GetPageWidth(), 0);
   rcPageView.Normalize();
@@ -606,9 +641,9 @@ bool CFFL_InteractiveFormFiller::OnKeyStrokeCommit(
   m_bNotifying = true;
   pWidget->ClearAppModified();
 
-  PDFSDK_FieldAction fa;
-  fa.bModifier = m_pFormFillEnv->IsCTRLKeyDown(nFlag);
-  fa.bShift = m_pFormFillEnv->IsSHIFTKeyDown(nFlag);
+  CPDFSDK_FieldAction fa;
+  fa.bModifier = CPDFSDK_FormFillEnvironment::IsCTRLKeyDown(nFlag);
+  fa.bShift = CPDFSDK_FormFillEnvironment::IsSHIFTKeyDown(nFlag);
   fa.bWillCommit = true;
   fa.bKeyDown = true;
   fa.bRC = true;
@@ -616,7 +651,7 @@ bool CFFL_InteractiveFormFiller::OnKeyStrokeCommit(
   CFFL_FormFiller* pFormFiller = GetFormFiller(pWidget, false);
   pFormFiller->GetActionData(pPageView, CPDF_AAction::KeyStroke, fa);
   pFormFiller->SaveState(pPageView);
-  pWidget->OnAAction(CPDF_AAction::KeyStroke, fa, pPageView);
+  pWidget->OnAAction(CPDF_AAction::KeyStroke, &fa, pPageView);
   if (!(*pAnnot))
     return true;
 
@@ -638,16 +673,16 @@ bool CFFL_InteractiveFormFiller::OnValidate(CPDFSDK_Annot::ObservedPtr* pAnnot,
   m_bNotifying = true;
   pWidget->ClearAppModified();
 
-  PDFSDK_FieldAction fa;
-  fa.bModifier = m_pFormFillEnv->IsCTRLKeyDown(nFlag);
-  fa.bShift = m_pFormFillEnv->IsSHIFTKeyDown(nFlag);
+  CPDFSDK_FieldAction fa;
+  fa.bModifier = CPDFSDK_FormFillEnvironment::IsCTRLKeyDown(nFlag);
+  fa.bShift = CPDFSDK_FormFillEnvironment::IsSHIFTKeyDown(nFlag);
   fa.bKeyDown = true;
   fa.bRC = true;
 
   CFFL_FormFiller* pFormFiller = GetFormFiller(pWidget, false);
   pFormFiller->GetActionData(pPageView, CPDF_AAction::Validate, fa);
   pFormFiller->SaveState(pPageView);
-  pWidget->OnAAction(CPDF_AAction::Validate, fa, pPageView);
+  pWidget->OnAAction(CPDF_AAction::Validate, &fa, pPageView);
   if (!(*pAnnot))
     return true;
 
@@ -662,9 +697,10 @@ void CFFL_InteractiveFormFiller::OnCalculate(CPDFSDK_Annot::ObservedPtr* pAnnot,
     return;
 
   CPDFSDK_Widget* pWidget = static_cast<CPDFSDK_Widget*>(pAnnot->Get());
-  ASSERT(pWidget);
-  CPDFSDK_InterForm* pInterForm = pPageView->GetFormFillEnv()->GetInterForm();
-  pInterForm->OnCalculate(pWidget->GetFormField());
+  if (pWidget) {
+    CPDFSDK_InterForm* pInterForm = pPageView->GetFormFillEnv()->GetInterForm();
+    pInterForm->OnCalculate(pWidget->GetFormField());
+  }
   m_bNotifying = false;
 }
 
@@ -679,8 +715,7 @@ void CFFL_InteractiveFormFiller::OnFormat(CPDFSDK_Annot::ObservedPtr* pAnnot,
   CPDFSDK_InterForm* pInterForm = pPageView->GetFormFillEnv()->GetInterForm();
 
   bool bFormatted = false;
-  CFX_WideString sValue =
-      pInterForm->OnFormat(pWidget->GetFormField(), bFormatted);
+  WideString sValue = pInterForm->OnFormat(pWidget->GetFormField(), bFormatted);
   if (!(*pAnnot))
     return;
 
@@ -704,14 +739,14 @@ bool CFFL_InteractiveFormFiller::OnClick(CPDFSDK_Annot::ObservedPtr* pAnnot,
     return false;
 
   m_bNotifying = true;
-  int nAge = pWidget->GetAppearanceAge();
-  int nValueAge = pWidget->GetValueAge();
+  uint32_t nAge = pWidget->GetAppearanceAge();
+  uint32_t nValueAge = pWidget->GetValueAge();
 
-  PDFSDK_FieldAction fa;
-  fa.bModifier = m_pFormFillEnv->IsCTRLKeyDown(nFlag);
-  fa.bShift = m_pFormFillEnv->IsSHIFTKeyDown(nFlag);
+  CPDFSDK_FieldAction fa;
+  fa.bModifier = CPDFSDK_FormFillEnvironment::IsCTRLKeyDown(nFlag);
+  fa.bShift = CPDFSDK_FormFillEnvironment::IsSHIFTKeyDown(nFlag);
 
-  pWidget->OnXFAAAction(PDFSDK_XFA_Click, fa, pPageView);
+  pWidget->OnXFAAAction(PDFSDK_XFA_Click, &fa, pPageView);
   m_bNotifying = false;
   if (!(*pAnnot) || !IsValidAnnot(pPageView, pWidget))
     return true;
@@ -734,14 +769,14 @@ bool CFFL_InteractiveFormFiller::OnFull(CPDFSDK_Annot::ObservedPtr* pAnnot,
     return false;
 
   m_bNotifying = true;
-  int nAge = pWidget->GetAppearanceAge();
-  int nValueAge = pWidget->GetValueAge();
+  uint32_t nAge = pWidget->GetAppearanceAge();
+  uint32_t nValueAge = pWidget->GetValueAge();
 
-  PDFSDK_FieldAction fa;
-  fa.bModifier = m_pFormFillEnv->IsCTRLKeyDown(nFlag);
-  fa.bShift = m_pFormFillEnv->IsSHIFTKeyDown(nFlag);
+  CPDFSDK_FieldAction fa;
+  fa.bModifier = CPDFSDK_FormFillEnvironment::IsCTRLKeyDown(nFlag);
+  fa.bShift = CPDFSDK_FormFillEnvironment::IsSHIFTKeyDown(nFlag);
 
-  pWidget->OnXFAAAction(PDFSDK_XFA_Full, fa, pPageView);
+  pWidget->OnXFAAAction(PDFSDK_XFA_Full, &fa, pPageView);
   m_bNotifying = false;
   if (!(*pAnnot) || !IsValidAnnot(pPageView, pWidget))
     return true;
@@ -754,9 +789,10 @@ bool CFFL_InteractiveFormFiller::OnFull(CPDFSDK_Annot::ObservedPtr* pAnnot,
   return true;
 }
 
-bool CFFL_InteractiveFormFiller::OnPopupPreOpen(void* pPrivateData,
-                                                uint32_t nFlag) {
-  CFFL_PrivateData* pData = reinterpret_cast<CFFL_PrivateData*>(pPrivateData);
+bool CFFL_InteractiveFormFiller::OnPopupPreOpen(
+    CPWL_Wnd::PrivateData* pAttached,
+    uint32_t nFlag) {
+  auto* pData = static_cast<CFFL_PrivateData*>(pAttached);
   ASSERT(pData);
   ASSERT(pData->pWidget);
 
@@ -764,9 +800,10 @@ bool CFFL_InteractiveFormFiller::OnPopupPreOpen(void* pPrivateData,
   return OnPreOpen(&pObserved, pData->pPageView, nFlag) || !pObserved;
 }
 
-bool CFFL_InteractiveFormFiller::OnPopupPostOpen(void* pPrivateData,
-                                                 uint32_t nFlag) {
-  CFFL_PrivateData* pData = reinterpret_cast<CFFL_PrivateData*>(pPrivateData);
+bool CFFL_InteractiveFormFiller::OnPopupPostOpen(
+    CPWL_Wnd::PrivateData* pAttached,
+    uint32_t nFlag) {
+  auto* pData = static_cast<CFFL_PrivateData*>(pAttached);
   ASSERT(pData);
   ASSERT(pData->pWidget);
 
@@ -785,14 +822,14 @@ bool CFFL_InteractiveFormFiller::OnPreOpen(CPDFSDK_Annot::ObservedPtr* pAnnot,
     return false;
 
   m_bNotifying = true;
-  int nAge = pWidget->GetAppearanceAge();
-  int nValueAge = pWidget->GetValueAge();
+  uint32_t nAge = pWidget->GetAppearanceAge();
+  uint32_t nValueAge = pWidget->GetValueAge();
 
-  PDFSDK_FieldAction fa;
-  fa.bModifier = m_pFormFillEnv->IsCTRLKeyDown(nFlag);
-  fa.bShift = m_pFormFillEnv->IsSHIFTKeyDown(nFlag);
+  CPDFSDK_FieldAction fa;
+  fa.bModifier = CPDFSDK_FormFillEnvironment::IsCTRLKeyDown(nFlag);
+  fa.bShift = CPDFSDK_FormFillEnvironment::IsSHIFTKeyDown(nFlag);
 
-  pWidget->OnXFAAAction(PDFSDK_XFA_PreOpen, fa, pPageView);
+  pWidget->OnXFAAAction(PDFSDK_XFA_PreOpen, &fa, pPageView);
   m_bNotifying = false;
   if (!(*pAnnot) || !IsValidAnnot(pPageView, pWidget))
     return true;
@@ -816,14 +853,14 @@ bool CFFL_InteractiveFormFiller::OnPostOpen(CPDFSDK_Annot::ObservedPtr* pAnnot,
     return false;
 
   m_bNotifying = true;
-  int nAge = pWidget->GetAppearanceAge();
-  int nValueAge = pWidget->GetValueAge();
+  uint32_t nAge = pWidget->GetAppearanceAge();
+  uint32_t nValueAge = pWidget->GetValueAge();
 
-  PDFSDK_FieldAction fa;
-  fa.bModifier = m_pFormFillEnv->IsCTRLKeyDown(nFlag);
-  fa.bShift = m_pFormFillEnv->IsSHIFTKeyDown(nFlag);
+  CPDFSDK_FieldAction fa;
+  fa.bModifier = CPDFSDK_FormFillEnvironment::IsCTRLKeyDown(nFlag);
+  fa.bShift = CPDFSDK_FormFillEnvironment::IsSHIFTKeyDown(nFlag);
 
-  pWidget->OnXFAAAction(PDFSDK_XFA_PostOpen, fa, pPageView);
+  pWidget->OnXFAAAction(PDFSDK_XFA_PostOpen, &fa, pPageView);
   m_bNotifying = false;
   if (!(*pAnnot) || !IsValidAnnot(pPageView, pWidget))
     return true;
@@ -843,16 +880,15 @@ bool CFFL_InteractiveFormFiller::IsValidAnnot(CPDFSDK_PageView* pPageView,
 }
 
 std::pair<bool, bool> CFFL_InteractiveFormFiller::OnBeforeKeyStroke(
-    void* pPrivateData,
-    CFX_WideString& strChange,
-    const CFX_WideString& strChangeEx,
+    CPWL_Wnd::PrivateData* pAttached,
+    WideString& strChange,
+    const WideString& strChangeEx,
     int nSelStart,
     int nSelEnd,
     bool bKeyDown,
     uint32_t nFlag) {
   // Copy the private data since the window owning it may not survive.
-  CFFL_PrivateData privateData =
-      *reinterpret_cast<CFFL_PrivateData*>(pPrivateData);
+  CFFL_PrivateData privateData = *static_cast<CFFL_PrivateData*>(pAttached);
   ASSERT(privateData.pWidget);
 
   CFFL_FormFiller* pFormFiller = GetFormFiller(privateData.pWidget, false);
@@ -870,17 +906,17 @@ std::pair<bool, bool> CFFL_InteractiveFormFiller::OnBeforeKeyStroke(
     return {true, false};
   }
 
-  CFX_AutoRestorer<bool> restorer(&m_bNotifying);
+  AutoRestorer<bool> restorer(&m_bNotifying);
   m_bNotifying = true;
 
-  int nAge = privateData.pWidget->GetAppearanceAge();
-  int nValueAge = privateData.pWidget->GetValueAge();
+  uint32_t nAge = privateData.pWidget->GetAppearanceAge();
+  uint32_t nValueAge = privateData.pWidget->GetValueAge();
   CPDFSDK_FormFillEnvironment* pFormFillEnv =
       privateData.pPageView->GetFormFillEnv();
 
-  PDFSDK_FieldAction fa;
-  fa.bModifier = m_pFormFillEnv->IsCTRLKeyDown(nFlag);
-  fa.bShift = m_pFormFillEnv->IsSHIFTKeyDown(nFlag);
+  CPDFSDK_FieldAction fa;
+  fa.bModifier = CPDFSDK_FormFillEnvironment::IsCTRLKeyDown(nFlag);
+  fa.bShift = CPDFSDK_FormFillEnvironment::IsSHIFTKeyDown(nFlag);
   fa.sChange = strChange;
   fa.sChangeEx = strChangeEx;
   fa.bKeyDown = bKeyDown;
@@ -894,7 +930,7 @@ std::pair<bool, bool> CFFL_InteractiveFormFiller::OnBeforeKeyStroke(
 
   CPDFSDK_Annot::ObservedPtr pObserved(privateData.pWidget);
   bool action_status = privateData.pWidget->OnAAction(
-      CPDF_AAction::KeyStroke, fa, privateData.pPageView);
+      CPDF_AAction::KeyStroke, &fa, privateData.pPageView);
 
   if (!pObserved || !IsValidAnnot(privateData.pPageView, privateData.pWidget))
     return {true, true};
@@ -908,7 +944,7 @@ std::pair<bool, bool> CFFL_InteractiveFormFiller::OnBeforeKeyStroke(
         privateData.pPageView, nValueAge == privateData.pWidget->GetValueAge());
     if (!pWnd)
       return {true, true};
-    privateData = *reinterpret_cast<CFFL_PrivateData*>(pWnd->GetAttachedData());
+    privateData = *static_cast<CFFL_PrivateData*>(pWnd->GetAttachedData());
     bExit = true;
   }
   if (fa.bRC) {

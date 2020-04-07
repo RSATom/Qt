@@ -16,8 +16,9 @@
 #include "libANGLE/angletypes.h"
 #include "libANGLE/formatutils.h"
 #include "libANGLE/renderer/Format.h"
-#include "libANGLE/renderer/renderer_utils.h"
+#include "libANGLE/renderer/copyvertex.h"
 #include "libANGLE/renderer/d3d/formatutilsD3D.h"
+#include "libANGLE/renderer/renderer_utils.h"
 
 namespace rx
 {
@@ -29,18 +30,18 @@ namespace d3d9
 
 struct D3DFormat
 {
-    constexpr D3DFormat();
-    constexpr D3DFormat(GLuint pixelBytes,
-                        GLuint blockWidth,
-                        GLuint blockHeight,
-                        GLuint redBits,
-                        GLuint greenBits,
-                        GLuint blueBits,
-                        GLuint alphaBits,
-                        GLuint luminanceBits,
-                        GLuint depthBits,
-                        GLuint stencilBits,
-                        angle::Format::ID formatID);
+    D3DFormat();
+    D3DFormat(GLuint pixelBytes,
+              GLuint blockWidth,
+              GLuint blockHeight,
+              GLuint redBits,
+              GLuint greenBits,
+              GLuint blueBits,
+              GLuint alphaBits,
+              GLuint luminanceBits,
+              GLuint depthBits,
+              GLuint stencilBits,
+              angle::Format::ID formatID);
 
     const angle::Format &info() const { return angle::Format::Get(formatID); }
 

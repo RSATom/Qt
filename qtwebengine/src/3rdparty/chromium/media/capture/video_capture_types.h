@@ -20,35 +20,27 @@ namespace media {
 // shared with device manager.
 typedef int VideoCaptureSessionId;
 
-// Storage type for the pixels.
-// TODO(mcasas): http://crbug.com/504160 Consider making this an enum class.
-// TODO(chfremer): Extend or remove this enum.
-enum VideoPixelStorage {
-  PIXEL_STORAGE_CPU,
-  PIXEL_STORAGE_MAX = PIXEL_STORAGE_CPU,
-};
-
 // Policies for capture devices that have source content that varies in size.
 // It is up to the implementation how the captured content will be transformed
 // (e.g., scaling and/or letterboxing) in order to produce video frames that
 // strictly adheree to one of these policies.
-enum ResolutionChangePolicy {
+enum class ResolutionChangePolicy {
   // Capture device outputs a fixed resolution all the time. The resolution of
   // the first frame is the resolution for all frames.
-  RESOLUTION_POLICY_FIXED_RESOLUTION,
+  FIXED_RESOLUTION,
 
   // Capture device is allowed to output frames of varying resolutions. The
   // width and height will not exceed the maximum dimensions specified. The
   // aspect ratio of the frames will match the aspect ratio of the maximum
   // dimensions as closely as possible.
-  RESOLUTION_POLICY_FIXED_ASPECT_RATIO,
+  FIXED_ASPECT_RATIO,
 
   // Capture device is allowed to output frames of varying resolutions not
   // exceeding the maximum dimensions specified.
-  RESOLUTION_POLICY_ANY_WITHIN_LIMIT,
+  ANY_WITHIN_LIMIT,
 
   // Must always be equal to largest entry in the enum.
-  RESOLUTION_POLICY_LAST = RESOLUTION_POLICY_ANY_WITHIN_LIMIT,
+  LAST = ANY_WITHIN_LIMIT,
 };
 
 // Potential values of the googPowerLineFrequency optional constraint passed to
@@ -60,6 +52,12 @@ enum class PowerLineFrequency {
   FREQUENCY_50HZ = 50,
   FREQUENCY_60HZ = 60,
   FREQUENCY_MAX = FREQUENCY_60HZ
+};
+
+enum class VideoCaptureBufferType {
+  kSharedMemory,
+  kSharedMemoryViaRawFileDescriptor,
+  kMailboxHolder
 };
 
 // Assert that the int:frequency mapping is correct.
@@ -83,13 +81,8 @@ struct CAPTURE_EXPORT VideoCaptureFormat {
   VideoCaptureFormat(const gfx::Size& frame_size,
                      float frame_rate,
                      VideoPixelFormat pixel_format);
-  VideoCaptureFormat(const gfx::Size& frame_size,
-                     float frame_rate,
-                     VideoPixelFormat pixel_format,
-                     VideoPixelStorage pixel_storage);
 
   static std::string ToString(const VideoCaptureFormat& format);
-  static std::string PixelStorageToString(VideoPixelStorage storage);
 
   // Compares the priority of the pixel formats. Returns true if |lhs| is the
   // preferred pixel format in comparison with |rhs|. Returns false otherwise.
@@ -112,7 +105,6 @@ struct CAPTURE_EXPORT VideoCaptureFormat {
   gfx::Size frame_size;
   float frame_rate;
   VideoPixelFormat pixel_format;
-  VideoPixelStorage pixel_storage;
 };
 
 typedef std::vector<VideoCaptureFormat> VideoCaptureFormats;
@@ -122,11 +114,23 @@ typedef std::vector<VideoCaptureFormat> VideoCaptureFormats;
 // format of frames in which the client would like to have captured frames
 // returned.
 struct CAPTURE_EXPORT VideoCaptureParams {
+  // Result struct for SuggestContraints() method.
+  struct SuggestedConstraints {
+    gfx::Size min_frame_size;
+    gfx::Size max_frame_size;
+    bool fixed_aspect_ratio;
+  };
+
   VideoCaptureParams();
 
   // Returns true if requested_format.IsValid() and all other values are within
   // their expected ranges.
   bool IsValid() const;
+
+  // Computes and returns suggested capture constraints based on the requested
+  // format and resolution change policy: minimum resolution, maximum
+  // resolution, and whether a fixed aspect ratio is required.
+  SuggestedConstraints SuggestConstraints() const;
 
   bool operator==(const VideoCaptureParams& other) const {
     return requested_format == other.requested_format &&
@@ -136,6 +140,8 @@ struct CAPTURE_EXPORT VideoCaptureParams {
 
   // Requests a resolution and format at which the capture will occur.
   VideoCaptureFormat requested_format;
+
+  VideoCaptureBufferType buffer_type;
 
   // Policy for resolution change.
   ResolutionChangePolicy resolution_change_policy;

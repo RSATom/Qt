@@ -18,7 +18,7 @@
 
 #include <vector>
 
-DEFINE_string(animatedGif, "test640x479.gif", "Animated gif in resources folder");
+DEFINE_string(animatedGif, "images/test640x479.gif", "Animated gif in resources folder");
 
 namespace {
     void error(SkCanvas* canvas, const SkString& errorText) {
@@ -123,7 +123,7 @@ private:
             return false;
         }
 
-        fCodec.reset(SkCodec::NewFromStream(stream.release()));
+        fCodec = SkCodec::MakeFromStream(std::move(stream));
         if (!fCodec) {
             SkDebugf("Could create codec from %s", FLAGS_animatedGif[0]);
             return false;

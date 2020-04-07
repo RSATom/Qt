@@ -16,11 +16,17 @@ several forms. The test may produce one or more of:
 * A screen capture of the rendered page as a PNG file.
 * WAV files of the audio output, for WebAudio tests.
 
-For any of these types of tests, there are files checked into the LayoutTests
-directory named `-expected.{txt,png,wav}`. Lastly, we also support the concept
-of "reference tests", which check that two pages are rendered identically
-(pixel-by-pixel). As long as the two tests' output match, the tests pass. For
-more on reference tests, see
+For any of these types of tests, baselines are checked into the LayoutTests
+directory. The filename of a baseline is the same as that of the corresponding
+test, but the extension is replaced with `-expected.{txt,png,wav}` (depending on
+the type of test output). Baselines usually live alongside tests, with the
+exception when baselines vary by platforms; read
+[Layout Test Baseline Fallback](layout_test_baseline_fallback.md) for more
+details.
+
+Lastly, we also support the concept of "reference tests", which check that two
+pages are rendered identically (pixel-by-pixel). As long as the two tests'
+output match, the tests pass. For more on reference tests, see
 [Writing ref tests](https://trac.webkit.org/wiki/Writing%20Reftests).
 
 ## Failing tests
@@ -91,19 +97,17 @@ platforms.
 
 The recommended way to rebaseline for a currently-in-progress CL is to use
 results from try jobs, by using the command-tool
-`third_party/WebKit/Tools/Scripts/webkit-patch rebaseline-cl`:
+`third_party/blink/tools/blink_tool.py rebaseline-cl`:
 
 1. First, upload a CL.
-   There is no need to add `[ NeedsRebaseline ]` lines in TestExpectations for
-   tests that are rebaselined by this method.
-2. Trigger try jobs by running `webkit-patch rebaseline-cl`. This should
+2. Trigger try jobs by running `blink_tool.py rebaseline-cl`. This should
    trigger jobs on
    [tryserver.blink](https://build.chromium.org/p/tryserver.blink/builders).
 3. Wait for all try jobs to finish.
-4. Run `webkit-patch rebaseline-cl` again to fetch new baselines.
+4. Run `blink_tool.py rebaseline-cl` again to fetch new baselines.
    By default, this will download new baselines for any failing tests
    in the try jobs.
-   (Run `webkit-patch rebaseline-cl --help` for more specific options.)
+   (Run `blink_tool.py rebaseline-cl --help` for more specific options.)
 5. Commit the new baselines and upload a new patch.
 
 This way, the new baselines can be reviewed along with the changes, which helps
@@ -112,7 +116,9 @@ is no period of time when the layout test results are ignored.
 
 #### Options
 
-The tests which `webkit-patch rebaseline-cl` tries to download new baselines for
+### Rebaselining with try jobs
+
+The tests which `blink_tool.py rebaseline-cl` tries to download new baselines for
 depends on its arguments.
 
 * By default, it tries to download all baselines for tests that failed in the
@@ -125,33 +131,11 @@ depends on its arguments.
   assuming that there are no platform-specific results for those platforms,
   you can add the flag `--fill-missing`.
 
-### Rebaselining with rebaseline-o-matic
-
-If the test is not already listed in
-[TestExpectations](../../third_party/WebKit/LayoutTests/TestExpectations), you
-can mark it as `[ NeedsRebaseline ]`. The
-[rebaseline-o-matic bot](https://build.chromium.org/p/chromium.infra.cron/builders/rebaseline-o-matic)
-will automatically detect when the bots have cycled (by looking at the blame on
-the file) and do the rebaseline for you. As long as the test doesn't timeout or
-crash, it won't turn the bots red if it has a `NeedsRebaseline` expectation.
-When  all of the continuous builders on the waterfall have cycled, the
-rebaseline-o-matic bot will commit a patch which includes the new baselines and
-removes the `[ NeedsRebaseline ]` entry from TestExpectations.
-
-### Rebaselining manually
-
-1. If the tests is already listed in TestExpectations as flaky, mark the test
-   `NeedsManualRebaseline` and comment out the flaky line so that your patch can
-   land without turning the tree red. If the test is not in TestExpectations,
-   you can add a `[ Rebaseline ]` line to TestExpectations.
-2. Run `third_party/WebKit/Tools/Scripts/webkit-patch rebaseline-expectations`
-3. Post the patch created in step 2 for review.
-
 ## Kinds of expectations files
 
 * [TestExpectations](../../third_party/WebKit/LayoutTests/TestExpectations): The
-  main test failure suppression file. In theory, this should be used for flaky
-  lines and `NeedsRebaseline`/`NeedsManualRebaseline` lines.
+  main test failure suppression file. In theory, this should be used for
+  temporarily marking tests as flaky.
 * [ASANExpectations](../../third_party/WebKit/LayoutTests/ASANExpectations):
   Tests that fail under ASAN.
 * [LeakExpectations](../../third_party/WebKit/LayoutTests/LeakExpectations):
@@ -216,12 +200,12 @@ The syntax of a line is roughly:
   `Android`, `Release`, `Debug`.
 * Some modifiers are meta keywords, e.g. `Win` represents both `Win7` and
   `Win10`. See the `CONFIGURATION_SPECIFIER_MACROS` dictionary in
-  [third_party/WebKit/Tools/Scripts/webkitpy/layout_tests/port/base.py](../../third_party/WebKit/Tools/Scripts/webkitpy/layout_tests/port/base.py)
+  [third_party/blink/tools/blinkpy/web_tests/port/base.py](../../third_party/blink/tools/blinkpy/web_tests/port/base.py)
   for the meta keywords and which modifiers they represent.
 * Expectations can be one or more of `Crash`, `Failure`, `Pass`, `Rebaseline`,
-  `Slow`, `Skip`, `Timeout`, `WontFix`, `Missing`, `NeedsRebaseline`,
-  `NeedsManualRebaseline`. If multiple expectations are listed, the test is
-  considered "flaky" and any of those results will be considered as expected.
+  `Slow`, `Skip`, `Timeout`, `WontFix`, `Missing`.
+  If multiple expectations are listed, the test is considered "flaky" and any
+  of those results will be considered as expected.
 
 For example:
 
@@ -249,7 +233,7 @@ Bug(darin) [ Mac10.9 Debug ] fast/html/keygen.html [ Skip ]
 * `WontFix` implies `Skip` and also indicates that we don't have any plans to
   make the test pass.
 * `WontFix` lines always go in the
-  [NeverFixTests file]((../../third_party/WebKit/LayoutTests/NeverFixTests) as
+  [NeverFixTests file](../../third_party/WebKit/LayoutTests/NeverFixTests) as
   we never intend to fix them. These are just for tests that only apply to some
   subset of the platforms we support.
 * `WontFix` and `Skip` must be used by themselves and cannot be specified
@@ -296,7 +280,7 @@ You can verify that any changes you've made to an expectations file are correct
 by running:
 
 ```bash
-third_party/WebKit/Tools/Scripts/lint-test-expectations
+third_party/blink/tools/lint_test_expectations.py
 ```
 
 which will cycle through all of the possible combinations of configurations

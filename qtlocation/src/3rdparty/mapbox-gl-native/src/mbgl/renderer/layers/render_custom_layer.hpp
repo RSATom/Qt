@@ -24,8 +24,8 @@ public:
     };
 
 private:
-    bool initialized = false;
     bool contextDestroyed = false;
+    std::shared_ptr<style::CustomLayerHost> host;
 };
 
 template <>

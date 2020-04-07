@@ -39,7 +39,7 @@ namespace crashpad {
 
 namespace {
 
-const wchar_t kWinHttpDll[] = L"winhttp.dll";
+constexpr wchar_t kWinHttpDll[] = L"winhttp.dll";
 
 std::string UserAgent() {
   std::string user_agent =
@@ -47,7 +47,7 @@ std::string UserAgent() {
 
   VS_FIXEDFILEINFO version;
   if (GetModuleVersionAndType(base::FilePath(kWinHttpDll), &version)) {
-    user_agent.append(base::StringPrintf("/%u.%u.%u.%u",
+    user_agent.append(base::StringPrintf("/%lu.%lu.%lu.%lu",
                                          version.dwFileVersionMS >> 16,
                                          version.dwFileVersionMS & 0xffff,
                                          version.dwFileVersionLS >> 16,
@@ -56,7 +56,7 @@ std::string UserAgent() {
 
   if (GetModuleVersionAndType(base::FilePath(L"kernel32.dll"), &version) &&
       (version.dwFileOS & VOS_NT_WINDOWS32) == VOS_NT_WINDOWS32) {
-    user_agent.append(base::StringPrintf(" Windows_NT/%u.%u.%u.%u (",
+    user_agent.append(base::StringPrintf(" Windows_NT/%lu.%lu.%lu.%lu (",
                                          version.dwFileVersionMS >> 16,
                                          version.dwFileVersionMS & 0xffff,
                                          version.dwFileVersionLS >> 16,
@@ -96,12 +96,18 @@ std::string WinHttpMessage(const char* extra) {
                              arraysize(msgbuf),
                              NULL);
   if (!len) {
-    return base::StringPrintf("%s: error 0x%x while retrieving error 0x%x",
+    return base::StringPrintf("%s: error 0x%lx while retrieving error 0x%lx",
                               extra,
                               GetLastError(),
                               error_code);
   }
-  return base::StringPrintf("%s: %s (0x%x)", extra, msgbuf, error_code);
+
+  // Most system messages end in a space. Remove the space if it’s there,
+  // because the StringPrintf() below includes one.
+  if (len >= 1 && msgbuf[len - 1] == ' ') {
+    msgbuf[len - 1] = '\0';
+  }
+  return base::StringPrintf("%s: %s (0x%lx)", extra, msgbuf, error_code);
 }
 
 struct ScopedHINTERNETTraits {
@@ -163,8 +169,7 @@ bool HTTPTransportWin::ExecuteSynchronously(std::string* response_body) {
   url_components.dwUrlPathLength = 1;
   url_components.dwExtraInfoLength = 1;
   std::wstring url_wide(base::UTF8ToUTF16(url()));
-  // dwFlags = ICU_REJECT_USERPWD fails on XP. See "Community Additions" at:
-  // https://msdn.microsoft.com/en-us/library/aa384092.aspx
+  // dwFlags = ICU_REJECT_USERPWD fails on XP.
   if (!WinHttpCrackUrl(
           url_wide.c_str(), 0, 0, &url_components)) {
     LOG(ERROR) << WinHttpMessage("WinHttpCrackUrl");
@@ -242,7 +247,8 @@ bool HTTPTransportWin::ExecuteSynchronously(std::string* response_body) {
 
   DWORD content_length_dword;
   if (chunked) {
-    const wchar_t kTransferEncodingHeader[] = L"Transfer-Encoding: chunked\r\n";
+    static constexpr wchar_t kTransferEncodingHeader[] =
+        L"Transfer-Encoding: chunked\r\n";
     if (!WinHttpAddRequestHeaders(
             request.get(),
             kTransferEncodingHeader,
@@ -370,7 +376,7 @@ bool HTTPTransportWin::ExecuteSynchronously(std::string* response_body) {
   }
 
   if (status_code != 200) {
-    LOG(ERROR) << base::StringPrintf("HTTP status %d", status_code);
+    LOG(ERROR) << base::StringPrintf("HTTP status %lu", status_code);
     return false;
   }
 

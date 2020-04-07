@@ -33,7 +33,6 @@ extern const base::FilePath::CharType kFrameworkExecutableName[];
 #endif  // OS_MACOSX
 #if defined(OS_WIN)
 extern const base::FilePath::CharType kBrowserResourcesDll[];
-extern const base::FilePath::CharType kChromeElfDllName[];
 extern const base::FilePath::CharType kStatusTrayWindowClass[];
 #endif  // defined(OS_WIN)
 
@@ -55,12 +54,13 @@ extern const base::FilePath::CharType kFeatureEngagementTrackerStorageDirname[];
 extern const base::FilePath::CharType kFirstRunSentinel[];
 extern const base::FilePath::CharType kGCMStoreDirname[];
 extern const base::FilePath::CharType kLocalStateFilename[];
-extern const base::FilePath::CharType kLocalStorePoolName[];
 extern const base::FilePath::CharType kMediaCacheDirname[];
+extern const base::FilePath::CharType kNetworkPersistentStateFilename[];
 extern const base::FilePath::CharType kOfflinePageArchivesDirname[];
 extern const base::FilePath::CharType kOfflinePageMetadataDirname[];
 extern const base::FilePath::CharType kOfflinePagePrefetchStoreDirname[];
 extern const base::FilePath::CharType kOfflinePageRequestQueueDirname[];
+extern const base::FilePath::CharType kPageLoadCappingOptOutDBFilename[];
 extern const base::FilePath::CharType kPreferencesFilename[];
 extern const base::FilePath::CharType kPreviewsOptOutDBFilename[];
 extern const base::FilePath::CharType kReadmeFilename[];

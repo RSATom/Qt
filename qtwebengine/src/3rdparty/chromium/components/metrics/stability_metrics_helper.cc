@@ -9,14 +9,17 @@
 #include <vector>
 
 #include "base/logging.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/metrics/sparse_histogram.h"
 #include "base/metrics/user_metrics.h"
 #include "build/build_config.h"
+#include "build/buildflag.h"
 #include "components/metrics/metrics_pref_names.h"
-#include "components/metrics/proto/system_profile.pb.h"
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
+#include "components/variations/hashing.h"
+#include "extensions/buildflags/buildflags.h"
+#include "third_party/metrics_proto/system_profile.pb.h"
 
 #if defined(OS_WIN)
 #include <windows.h>  // Needed for STATUS_* codes
@@ -53,10 +56,28 @@ int MapCrashExitCodeForHistogram(int exit_code) {
   return std::abs(exit_code);
 }
 
-void RecordChildKills(int histogram_type) {
+void RecordChildKills(RendererType histogram_type) {
   UMA_HISTOGRAM_ENUMERATION("BrowserRenderProcessHost.ChildKills",
                             histogram_type, RENDERER_TYPE_COUNT);
 }
+
+// Macro for logging the age of a crashed process.
+//
+// Notes:
+// - IMPORTANT: When changing the constants below, please change the names of
+//   the histograms logged via UMA_HISTOGRAM_CRASHED_PROCESS_AGE.
+// - 99th percentile of Memory.Experimental.Renderer.Uptime hovers around 17h.
+// - |kCrashedProcessAgeMin| is as low as possible, so that we may with
+//   high-confidence categorize crashes that occur during early startup (e.g.
+//   crashes that end up with STATUS_DLL_INIT_FAILED or STATUS_DLL_NOT_FOUND).
+// - Note that even with just 50 buckets, we still get narrow and accurate
+//   buckets at the lower end: 0ms, 1ms, 2ms, 3ms, 4-5ms, 6-8ms, 9-12ms, ...
+constexpr auto kCrashedProcessAgeMin = base::TimeDelta::FromMilliseconds(1);
+constexpr auto kCrashedProcessAgeMax = base::TimeDelta::FromHours(48);
+constexpr uint32_t kCrashedProcessAgeCount = 50;
+#define UMA_HISTOGRAM_CRASHED_PROCESS_AGE(histogram_name, uptime)           \
+  UMA_HISTOGRAM_CUSTOM_TIMES(histogram_name, uptime, kCrashedProcessAgeMin, \
+                             kCrashedProcessAgeMax, kCrashedProcessAgeCount)
 
 }  // namespace
 
@@ -164,22 +185,47 @@ void StabilityMetricsHelper::RegisterPrefs(PrefRegistrySimple* registry) {
   registry->RegisterInt64Pref(prefs::kUninstallMetricsPageLoadCount, 0);
 }
 
+void StabilityMetricsHelper::IncreaseRendererCrashCount() {
+  IncrementPrefValue(prefs::kStabilityRendererCrashCount);
+}
+
+void StabilityMetricsHelper::BrowserUtilityProcessLaunched(
+    const std::string& metrics_name) {
+  uint32_t hash = variations::HashName(metrics_name);
+  base::UmaHistogramSparse("ChildProcess.Launched.UtilityProcessHash", hash);
+}
+
+void StabilityMetricsHelper::BrowserUtilityProcessCrashed(
+    const std::string& metrics_name,
+    int exit_code) {
+  // TODO(wfh): there doesn't appear to be a good way to log these exit_codes
+  // without adding something into the stability proto, so for now only log the
+  // crash and if the numbers are high enough, logging exit codes can be added
+  // later.
+  uint32_t hash = variations::HashName(metrics_name);
+  base::UmaHistogramSparse("ChildProcess.Crashed.UtilityProcessHash", hash);
+}
+
 void StabilityMetricsHelper::BrowserChildProcessCrashed() {
   IncrementPrefValue(prefs::kStabilityChildProcessCrashCount);
 }
 
-void StabilityMetricsHelper::LogLoadStarted() {
+void StabilityMetricsHelper::LogLoadStarted(bool is_incognito) {
   base::RecordAction(base::UserMetricsAction("PageLoad"));
+  if (is_incognito)
+    base::RecordAction(base::UserMetricsAction("PageLoadInIncognito"));
   IncrementPrefValue(prefs::kStabilityPageLoadCount);
   IncrementLongPrefsValue(prefs::kUninstallMetricsPageLoadCount);
   // We need to save the prefs, as page load count is a critical stat, and it
   // might be lost due to a crash :-(.
 }
 
-void StabilityMetricsHelper::LogRendererCrash(bool was_extension_process,
-                                              base::TerminationStatus status,
-                                              int exit_code) {
-  int histogram_type =
+void StabilityMetricsHelper::LogRendererCrash(
+    bool was_extension_process,
+    base::TerminationStatus status,
+    int exit_code,
+    base::Optional<base::TimeDelta> uptime) {
+  RendererType histogram_type =
       was_extension_process ? RENDERER_TYPE_EXTENSION : RENDERER_TYPE_RENDERER;
 
   switch (status) {
@@ -189,15 +235,26 @@ void StabilityMetricsHelper::LogRendererCrash(bool was_extension_process,
     case base::TERMINATION_STATUS_ABNORMAL_TERMINATION:
     case base::TERMINATION_STATUS_OOM:
       if (was_extension_process) {
+#if !BUILDFLAG(ENABLE_EXTENSIONS)
+        NOTREACHED();
+#endif
         IncrementPrefValue(prefs::kStabilityExtensionRendererCrashCount);
 
-        UMA_HISTOGRAM_SPARSE_SLOWLY("CrashExitCodes.Extension",
-                                    MapCrashExitCodeForHistogram(exit_code));
+        base::UmaHistogramSparse("CrashExitCodes.Extension",
+                                 MapCrashExitCodeForHistogram(exit_code));
+        if (uptime.has_value()) {
+          UMA_HISTOGRAM_CRASHED_PROCESS_AGE(
+              "Stability.CrashedProcessAge.Extension", uptime.value());
+        }
       } else {
         IncrementPrefValue(prefs::kStabilityRendererCrashCount);
 
-        UMA_HISTOGRAM_SPARSE_SLOWLY("CrashExitCodes.Renderer",
-                                    MapCrashExitCodeForHistogram(exit_code));
+        base::UmaHistogramSparse("CrashExitCodes.Renderer",
+                                 MapCrashExitCodeForHistogram(exit_code));
+        if (uptime.has_value()) {
+          UMA_HISTOGRAM_CRASHED_PROCESS_AGE(
+              "Stability.CrashedProcessAge.Renderer", uptime.value());
+        }
       }
 
       UMA_HISTOGRAM_ENUMERATION("BrowserRenderProcessHost.ChildCrashes",
@@ -228,7 +285,7 @@ void StabilityMetricsHelper::LogRendererCrash(bool was_extension_process,
     case base::TERMINATION_STATUS_LAUNCH_FAILED:
       UMA_HISTOGRAM_ENUMERATION("BrowserRenderProcessHost.ChildLaunchFailures",
                                 histogram_type, RENDERER_TYPE_COUNT);
-      UMA_HISTOGRAM_SPARSE_SLOWLY(
+      base::UmaHistogramSparse(
           "BrowserRenderProcessHost.ChildLaunchFailureCodes", exit_code);
       if (was_extension_process)
         IncrementPrefValue(prefs::kStabilityExtensionRendererFailedLaunchCount);

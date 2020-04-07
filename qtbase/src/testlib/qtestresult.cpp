@@ -110,6 +110,8 @@ void QTestResult::setCurrentTestData(QTestData *data)
 {
     QTest::currentTestData = data;
     QTest::failed = false;
+    if (data)
+        QTestLog::enterTestData(data);
 }
 
 void QTestResult::setCurrentTestFunction(const char *func)
@@ -216,17 +218,24 @@ static bool checkStatement(bool statement, const char *msg, const char *file, in
 {
     if (statement) {
         if (QTest::expectFailMode) {
-            QTestLog::addXPass(msg, file, line);
+            if (QTest::blacklistCurrentTest)
+                QTestLog::addBXPass(msg, file, line);
+            else
+                QTestLog::addXPass(msg, file, line);
+
+            QTest::failed = true;
             bool doContinue = (QTest::expectFailMode == QTest::Continue);
             clearExpectFail();
-            QTest::failed = true;
             return doContinue;
         }
         return true;
     }
 
     if (QTest::expectFailMode) {
-        QTestLog::addXFail(QTest::expectFailComment, file, line);
+        if (QTest::blacklistCurrentTest)
+            QTestLog::addBXFail(QTest::expectFailComment, file, line);
+        else
+            QTestLog::addXFail(QTest::expectFailComment, file, line);
         bool doContinue = (QTest::expectFailMode == QTest::Continue);
         clearExpectFail();
         return doContinue;

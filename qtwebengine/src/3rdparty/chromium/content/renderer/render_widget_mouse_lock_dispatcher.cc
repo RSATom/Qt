@@ -7,12 +7,10 @@
 #include "content/common/view_messages.h"
 #include "content/renderer/render_view_impl.h"
 #include "ipc/ipc_message.h"
-#include "third_party/WebKit/public/web/WebFrame.h"
-#include "third_party/WebKit/public/web/WebUserGestureIndicator.h"
-#include "third_party/WebKit/public/web/WebView.h"
-#include "third_party/WebKit/public/web/WebWidget.h"
-
-using blink::WebUserGestureIndicator;
+#include "third_party/blink/public/web/web_frame.h"
+#include "third_party/blink/public/web/web_user_gesture_indicator.h"
+#include "third_party/blink/public/web/web_view.h"
+#include "third_party/blink/public/web/web_widget.h"
 
 namespace content {
 
@@ -23,8 +21,14 @@ RenderWidgetMouseLockDispatcher::RenderWidgetMouseLockDispatcher(
 RenderWidgetMouseLockDispatcher::~RenderWidgetMouseLockDispatcher() {}
 
 void RenderWidgetMouseLockDispatcher::SendLockMouseRequest() {
-  bool user_gesture = WebUserGestureIndicator::IsProcessingUserGesture();
+  blink::WebWidget* web_widget = render_widget_->GetWebWidget();
+  blink::WebLocalFrame* web_local_frame =
+      (web_widget && web_widget->IsWebFrameWidget())
+          ? static_cast<blink::WebFrameWidget*>(web_widget)->LocalRoot()
+          : nullptr;
 
+  bool user_gesture =
+      blink::WebUserGestureIndicator::IsProcessingUserGesture(web_local_frame);
   render_widget_->Send(new ViewHostMsg_LockMouse(render_widget_->routing_id(),
                                                  user_gesture, false));
 }

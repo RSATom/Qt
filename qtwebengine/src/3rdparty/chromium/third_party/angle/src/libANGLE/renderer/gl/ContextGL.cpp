@@ -12,17 +12,18 @@
 #include "libANGLE/renderer/gl/BufferGL.h"
 #include "libANGLE/renderer/gl/CompilerGL.h"
 #include "libANGLE/renderer/gl/FenceNVGL.h"
-#include "libANGLE/renderer/gl/FenceSyncGL.h"
 #include "libANGLE/renderer/gl/FramebufferGL.h"
 #include "libANGLE/renderer/gl/FunctionsGL.h"
 #include "libANGLE/renderer/gl/PathGL.h"
 #include "libANGLE/renderer/gl/ProgramGL.h"
+#include "libANGLE/renderer/gl/ProgramPipelineGL.h"
 #include "libANGLE/renderer/gl/QueryGL.h"
 #include "libANGLE/renderer/gl/RenderbufferGL.h"
 #include "libANGLE/renderer/gl/RendererGL.h"
 #include "libANGLE/renderer/gl/SamplerGL.h"
 #include "libANGLE/renderer/gl/ShaderGL.h"
 #include "libANGLE/renderer/gl/StateManagerGL.h"
+#include "libANGLE/renderer/gl/SyncGL.h"
 #include "libANGLE/renderer/gl/TextureGL.h"
 #include "libANGLE/renderer/gl/TransformFeedbackGL.h"
 #include "libANGLE/renderer/gl/VertexArrayGL.h"
@@ -30,7 +31,7 @@
 namespace rx
 {
 
-ContextGL::ContextGL(const gl::ContextState &state, RendererGL *renderer)
+ContextGL::ContextGL(const gl::ContextState &state, const std::shared_ptr<RendererGL> &renderer)
     : ContextImpl(state), mRenderer(renderer)
 {
 }
@@ -51,9 +52,10 @@ CompilerImpl *ContextGL::createCompiler()
 
 ShaderImpl *ContextGL::createShader(const gl::ShaderState &data)
 {
-    return new ShaderGL(data, getFunctions(), getWorkaroundsGL(),
-                        getExtensions().webglCompatibility,
-                        mRenderer->getMultiviewImplementationType());
+    const FunctionsGL *functions = getFunctions();
+    GLuint shader                = functions->createShader(ToGLenum(data.getShaderType()));
+
+    return new ShaderGL(data, shader, mRenderer->getMultiviewImplementationType());
 }
 
 ProgramImpl *ContextGL::createProgram(const gl::ProgramState &data)
@@ -64,20 +66,30 @@ ProgramImpl *ContextGL::createProgram(const gl::ProgramState &data)
 
 FramebufferImpl *ContextGL::createFramebuffer(const gl::FramebufferState &data)
 {
-    return new FramebufferGL(data, getFunctions(), getStateManager(), getWorkaroundsGL(),
-                             mRenderer->getBlitter(), false);
+    const FunctionsGL *funcs = getFunctions();
+
+    GLuint fbo = 0;
+    funcs->genFramebuffers(1, &fbo);
+
+    return new FramebufferGL(data, fbo, false);
 }
 
 TextureImpl *ContextGL::createTexture(const gl::TextureState &state)
 {
-    return new TextureGL(state, getFunctions(), getWorkaroundsGL(), getStateManager(),
-                         mRenderer->getBlitter());
+    const FunctionsGL *functions = getFunctions();
+    StateManagerGL *stateManager = getStateManager();
+
+    GLuint texture = 0;
+    functions->genTextures(1, &texture);
+    stateManager->bindTexture(state.getType(), texture);
+
+    return new TextureGL(state, texture);
 }
 
-RenderbufferImpl *ContextGL::createRenderbuffer()
+RenderbufferImpl *ContextGL::createRenderbuffer(const gl::RenderbufferState &state)
 {
-    return new RenderbufferGL(getFunctions(), getWorkaroundsGL(), getStateManager(),
-                              getNativeTextureCaps());
+    return new RenderbufferGL(state, getFunctions(), getWorkaroundsGL(), getStateManager(),
+                              mRenderer->getBlitter(), getNativeTextureCaps());
 }
 
 BufferImpl *ContextGL::createBuffer(const gl::BufferState &state)
@@ -90,11 +102,11 @@ VertexArrayImpl *ContextGL::createVertexArray(const gl::VertexArrayState &data)
     return new VertexArrayGL(data, getFunctions(), getStateManager());
 }
 
-QueryImpl *ContextGL::createQuery(GLenum type)
+QueryImpl *ContextGL::createQuery(gl::QueryType type)
 {
     switch (type)
     {
-        case GL_COMMANDS_COMPLETED_CHROMIUM:
+        case gl::QueryType::CommandsCompleted:
             return new SyncQueryGL(type, getFunctions(), getStateManager());
 
         default:
@@ -107,9 +119,9 @@ FenceNVImpl *ContextGL::createFenceNV()
     return new FenceNVGL(getFunctions());
 }
 
-FenceSyncImpl *ContextGL::createFenceSync()
+SyncImpl *ContextGL::createSync()
 {
-    return new FenceSyncGL(getFunctions());
+    return new SyncGL(getFunctions());
 }
 
 TransformFeedbackImpl *ContextGL::createTransformFeedback(const gl::TransformFeedbackState &state)
@@ -117,9 +129,14 @@ TransformFeedbackImpl *ContextGL::createTransformFeedback(const gl::TransformFee
     return new TransformFeedbackGL(state, getFunctions(), getStateManager());
 }
 
-SamplerImpl *ContextGL::createSampler()
+SamplerImpl *ContextGL::createSampler(const gl::SamplerState &state)
 {
-    return new SamplerGL(getFunctions(), getStateManager());
+    return new SamplerGL(state, getFunctions(), getStateManager());
+}
+
+ProgramPipelineImpl *ContextGL::createProgramPipeline(const gl::ProgramPipelineState &data)
+{
+    return new ProgramPipelineGL(data, getFunctions());
 }
 
 std::vector<PathImpl *> ContextGL::createPaths(GLsizei range)
@@ -142,23 +159,26 @@ std::vector<PathImpl *> ContextGL::createPaths(GLsizei range)
     return ret;
 }
 
-gl::Error ContextGL::flush()
+gl::Error ContextGL::flush(const gl::Context *context)
 {
     return mRenderer->flush();
 }
 
-gl::Error ContextGL::finish()
+gl::Error ContextGL::finish(const gl::Context *context)
 {
     return mRenderer->finish();
 }
 
-gl::Error ContextGL::drawArrays(const gl::Context *context, GLenum mode, GLint first, GLsizei count)
+gl::Error ContextGL::drawArrays(const gl::Context *context,
+                                gl::PrimitiveMode mode,
+                                GLint first,
+                                GLsizei count)
 {
     return mRenderer->drawArrays(context, mode, first, count);
 }
 
 gl::Error ContextGL::drawArraysInstanced(const gl::Context *context,
-                                         GLenum mode,
+                                         gl::PrimitiveMode mode,
                                          GLint first,
                                          GLsizei count,
                                          GLsizei instanceCount)
@@ -167,49 +187,44 @@ gl::Error ContextGL::drawArraysInstanced(const gl::Context *context,
 }
 
 gl::Error ContextGL::drawElements(const gl::Context *context,
-                                  GLenum mode,
+                                  gl::PrimitiveMode mode,
                                   GLsizei count,
                                   GLenum type,
-                                  const void *indices,
-                                  const gl::IndexRange &indexRange)
+                                  const void *indices)
 {
-    return mRenderer->drawElements(context, mode, count, type, indices, indexRange);
+    return mRenderer->drawElements(context, mode, count, type, indices);
 }
 
 gl::Error ContextGL::drawElementsInstanced(const gl::Context *context,
-                                           GLenum mode,
+                                           gl::PrimitiveMode mode,
                                            GLsizei count,
                                            GLenum type,
                                            const void *indices,
-                                           GLsizei instances,
-                                           const gl::IndexRange &indexRange)
+                                           GLsizei instances)
 {
-    return mRenderer->drawElementsInstanced(context, mode, count, type, indices, instances,
-                                            indexRange);
+    return mRenderer->drawElementsInstanced(context, mode, count, type, indices, instances);
 }
 
 gl::Error ContextGL::drawRangeElements(const gl::Context *context,
-                                       GLenum mode,
+                                       gl::PrimitiveMode mode,
                                        GLuint start,
                                        GLuint end,
                                        GLsizei count,
                                        GLenum type,
-                                       const void *indices,
-                                       const gl::IndexRange &indexRange)
+                                       const void *indices)
 {
-    return mRenderer->drawRangeElements(context, mode, start, end, count, type, indices,
-                                        indexRange);
+    return mRenderer->drawRangeElements(context, mode, start, end, count, type, indices);
 }
 
 gl::Error ContextGL::drawArraysIndirect(const gl::Context *context,
-                                        GLenum mode,
+                                        gl::PrimitiveMode mode,
                                         const void *indirect)
 {
     return mRenderer->drawArraysIndirect(context, mode, indirect);
 }
 
 gl::Error ContextGL::drawElementsIndirect(const gl::Context *context,
-                                          GLenum mode,
+                                          gl::PrimitiveMode mode,
                                           GLenum type,
                                           const void *indirect)
 {
@@ -340,9 +355,20 @@ void ContextGL::popGroupMarker()
     mRenderer->popGroupMarker();
 }
 
-void ContextGL::syncState(const gl::Context *context, const gl::State::DirtyBits &dirtyBits)
+void ContextGL::pushDebugGroup(GLenum source, GLuint id, GLsizei length, const char *message)
+{
+    mRenderer->pushDebugGroup(source, id, length, message);
+}
+
+void ContextGL::popDebugGroup()
+{
+    mRenderer->popDebugGroup();
+}
+
+gl::Error ContextGL::syncState(const gl::Context *context, const gl::State::DirtyBits &dirtyBits)
 {
     mRenderer->getStateManager()->syncState(context, dirtyBits);
+    return gl::NoError();
 }
 
 GLint ContextGL::getGPUDisjoint()
@@ -355,13 +381,14 @@ GLint64 ContextGL::getTimestamp()
     return mRenderer->getTimestamp();
 }
 
-void ContextGL::onMakeCurrent(const gl::Context *context)
+gl::Error ContextGL::onMakeCurrent(const gl::Context *context)
 {
     // Queries need to be paused/resumed on context switches
-    mRenderer->getStateManager()->onMakeCurrent(context);
+    ANGLE_TRY(mRenderer->getStateManager()->onMakeCurrent(context));
+    return gl::NoError();
 }
 
-const gl::Caps &ContextGL::getNativeCaps() const
+gl::Caps ContextGL::getNativeCaps() const
 {
     return mRenderer->getNativeCaps();
 }
@@ -401,12 +428,36 @@ const WorkaroundsGL &ContextGL::getWorkaroundsGL() const
     return mRenderer->getWorkarounds();
 }
 
+BlitGL *ContextGL::getBlitter() const
+{
+    return mRenderer->getBlitter();
+}
+
+ClearMultiviewGL *ContextGL::getMultiviewClearer() const
+{
+    return mRenderer->getMultiviewClearer();
+}
+
 gl::Error ContextGL::dispatchCompute(const gl::Context *context,
                                      GLuint numGroupsX,
                                      GLuint numGroupsY,
                                      GLuint numGroupsZ)
 {
     return mRenderer->dispatchCompute(context, numGroupsX, numGroupsY, numGroupsZ);
+}
+
+gl::Error ContextGL::dispatchComputeIndirect(const gl::Context *context, GLintptr indirect)
+{
+    return mRenderer->dispatchComputeIndirect(context, indirect);
+}
+
+gl::Error ContextGL::memoryBarrier(const gl::Context *context, GLbitfield barriers)
+{
+    return mRenderer->memoryBarrier(barriers);
+}
+gl::Error ContextGL::memoryBarrierByRegion(const gl::Context *context, GLbitfield barriers)
+{
+    return mRenderer->memoryBarrierByRegion(barriers);
 }
 
 }  // namespace rx

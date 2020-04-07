@@ -4,17 +4,20 @@
 
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#include "core/fxcodec/codec/codec_int.h"
+#include "core/fxcodec/fx_codec.h"
 
 #include <algorithm>
+#include <limits>
 #include <memory>
 #include <utility>
 #include <vector>
 
-#include "core/fxcodec/fx_codec.h"
+#include "core/fxcodec/codec/ccodec_flatemodule.h"
+#include "core/fxcodec/codec/ccodec_scanlinedecoder.h"
 #include "core/fxcrt/fx_extension.h"
 #include "third_party/base/numerics/safe_conversions.h"
 #include "third_party/base/ptr_util.h"
+#include "third_party/base/span.h"
 
 #if defined(USE_SYSTEM_ZLIB)
 #include <zlib.h>
@@ -38,14 +41,15 @@ static void my_free_func(void* opaque, void* address) {
 
 namespace {
 
-uint32_t FlateGetPossiblyTruncatedTotalOut(void* context) {
-  return pdfium::base::saturated_cast<uint32_t>(
-      static_cast<z_stream*>(context)->total_out);
+static constexpr uint32_t kMaxTotalOutSize = 1024 * 1024 * 1024;  // 1 GiB
+
+uint32_t FlateGetPossiblyTruncatedTotalOut(z_stream* context) {
+  return std::min(pdfium::base::saturated_cast<uint32_t>(context->total_out),
+                  kMaxTotalOutSize);
 }
 
-uint32_t FlateGetPossiblyTruncatedTotalIn(void* context) {
-  return pdfium::base::saturated_cast<uint32_t>(
-      static_cast<z_stream*>(context)->total_in);
+uint32_t FlateGetPossiblyTruncatedTotalIn(z_stream* context) {
+  return pdfium::base::saturated_cast<uint32_t>(context->total_in);
 }
 
 bool FlateCompress(unsigned char* dest_buf,
@@ -55,28 +59,24 @@ bool FlateCompress(unsigned char* dest_buf,
   return compress(dest_buf, dest_size, src_buf, src_size) == Z_OK;
 }
 
-void* FlateInit() {
+z_stream* FlateInit() {
   z_stream* p = FX_Alloc(z_stream, 1);
-  memset(p, 0, sizeof(z_stream));
   p->zalloc = my_alloc_func;
   p->zfree = my_free_func;
   inflateInit(p);
   return p;
 }
 
-void FlateInput(void* context,
-                const unsigned char* src_buf,
-                uint32_t src_size) {
-  static_cast<z_stream*>(context)->next_in =
-      const_cast<unsigned char*>(src_buf);
-  static_cast<z_stream*>(context)->avail_in = src_size;
+void FlateInput(z_stream* context, pdfium::span<const uint8_t> src_buf) {
+  context->next_in = const_cast<unsigned char*>(src_buf.data());
+  context->avail_in = static_cast<uint32_t>(src_buf.size());
 }
 
-uint32_t FlateOutput(void* context,
+uint32_t FlateOutput(z_stream* context,
                      unsigned char* dest_buf,
                      uint32_t dest_size) {
-  static_cast<z_stream*>(context)->next_out = dest_buf;
-  static_cast<z_stream*>(context)->avail_out = dest_size;
+  context->next_out = dest_buf;
+  context->avail_out = dest_size;
   uint32_t pre_pos = FlateGetPossiblyTruncatedTotalOut(context);
   int ret = inflate(static_cast<z_stream*>(context), Z_SYNC_FLUSH);
 
@@ -90,14 +90,19 @@ uint32_t FlateOutput(void* context,
   return ret;
 }
 
-uint32_t FlateGetAvailOut(void* context) {
-  return static_cast<z_stream*>(context)->avail_out;
+uint32_t FlateGetAvailOut(z_stream* context) {
+  return context->avail_out;
 }
 
-void FlateEnd(void* context) {
-  inflateEnd(static_cast<z_stream*>(context));
-  static_cast<z_stream*>(context)->zfree(0, context);
+void FlateEnd(z_stream* context) {
+  inflateEnd(context);
+  FX_Free(context);
 }
+
+// For use with std::unique_ptr<z_stream>.
+struct FlateDeleter {
+  inline void operator()(z_stream* context) { FlateEnd(context); }
+};
 
 class CLZWDecoder {
  public:
@@ -116,11 +121,11 @@ class CLZWDecoder {
   uint8_t* m_pOutput;
   const uint8_t* m_pInput;
   bool m_Early;
-  uint32_t m_CodeArray[5021];
   uint32_t m_nCodes;
-  uint8_t m_DecodeStack[4000];
   uint32_t m_StackLen;
   int m_CodeLen;
+  uint32_t m_CodeArray[5021];
+  uint8_t m_DecodeStack[4000];
 };
 
 void CLZWDecoder::AddCode(uint32_t prefix_code, uint8_t append_char) {
@@ -136,6 +141,7 @@ void CLZWDecoder::AddCode(uint32_t prefix_code, uint8_t append_char) {
     m_CodeLen = 12;
   }
 }
+
 void CLZWDecoder::DecodeString(uint32_t code) {
   while (1) {
     int index = code - 258;
@@ -154,6 +160,7 @@ void CLZWDecoder::DecodeString(uint32_t code) {
   }
   m_DecodeStack[m_StackLen++] = (uint8_t)code;
 }
+
 int CLZWDecoder::Decode(uint8_t* dest_buf,
                         uint32_t& dest_size,
                         const uint8_t* src_buf,
@@ -189,6 +196,8 @@ int CLZWDecoder::Decode(uint8_t* dest_buf,
       }
     }
     m_InPos += m_CodeLen;
+    if (code == 257)
+      break;
     if (code < 256) {
       if (m_OutPos == dest_size) {
         return -5;
@@ -205,9 +214,8 @@ int CLZWDecoder::Decode(uint8_t* dest_buf,
       m_CodeLen = 9;
       m_nCodes = 0;
       old_code = 0xFFFFFFFF;
-    } else if (code == 257) {
-      break;
     } else {
+      // Else 257 or greater.
       if (old_code == 0xFFFFFFFF)
         return 2;
 
@@ -259,46 +267,20 @@ uint8_t PathPredictor(int a, int b, int c) {
   return (uint8_t)c;
 }
 
-void PNG_PredictorEncode(uint8_t** data_buf, uint32_t* data_size) {
-  const int row_size = 7;
-  const int row_count = (*data_size + row_size - 1) / row_size;
-  const int last_row_size = *data_size % row_size;
-  uint8_t* dest_buf = FX_Alloc2D(uint8_t, row_size + 1, row_count);
-  int byte_cnt = 0;
-  uint8_t* pSrcData = *data_buf;
-  uint8_t* pDestData = dest_buf;
-  for (int row = 0; row < row_count; row++) {
-    for (int byte = 0; byte < row_size && byte_cnt < (int)*data_size; byte++) {
-      pDestData[0] = 2;
-      uint8_t up = 0;
-      if (row)
-        up = pSrcData[byte - row_size];
-      pDestData[byte + 1] = pSrcData[byte] - up;
-      ++byte_cnt;
-    }
-    pDestData += (row_size + 1);
-    pSrcData += row_size;
-  }
-  FX_Free(*data_buf);
-  *data_buf = dest_buf;
-  *data_size = (row_size + 1) * row_count -
-               (last_row_size > 0 ? (row_size - last_row_size) : 0);
-}
-
 void PNG_PredictLine(uint8_t* pDestData,
                      const uint8_t* pSrcData,
                      const uint8_t* pLastLine,
                      int bpc,
                      int nColors,
                      int nPixels) {
-  int row_size = (nPixels * bpc * nColors + 7) / 8;
-  int BytesPerPixel = (bpc * nColors + 7) / 8;
+  const uint32_t row_size = CalculatePitch8(bpc, nColors, nPixels).ValueOrDie();
+  const uint32_t BytesPerPixel = (bpc * nColors + 7) / 8;
   uint8_t tag = pSrcData[0];
   if (tag == 0) {
     memmove(pDestData, pSrcData + 1, row_size);
     return;
   }
-  for (int byte = 0; byte < row_size; byte++) {
+  for (uint32_t byte = 0; byte < row_size; ++byte) {
     uint8_t raw_byte = pSrcData[byte + 1];
     switch (tag) {
       case 1: {
@@ -357,6 +339,7 @@ bool PNG_Predictor(uint8_t*& data_buf,
                    int Colors,
                    int BitsPerComponent,
                    int Columns) {
+  // TODO(thestig): Look into using CalculatePitch8() here.
   const int BytesPerPixel = (Colors * BitsPerComponent + 7) / 8;
   const int row_size = (Colors * BitsPerComponent * Columns + 7) / 8;
   if (row_size <= 0)
@@ -366,7 +349,7 @@ bool PNG_Predictor(uint8_t*& data_buf,
     return false;
   const int last_row_size = data_size % (row_size + 1);
   uint8_t* dest_buf = FX_Alloc2D(uint8_t, row_size, row_count);
-  int byte_cnt = 0;
+  uint32_t byte_cnt = 0;
   uint8_t* pSrcData = data_buf;
   uint8_t* pDestData = dest_buf;
   for (int row = 0; row < row_count; row++) {
@@ -383,7 +366,8 @@ bool PNG_Predictor(uint8_t*& data_buf,
       byte_cnt += move_size;
       continue;
     }
-    for (int byte = 0; byte < row_size && byte_cnt < (int)data_size; byte++) {
+    for (int byte = 0; byte < row_size && byte_cnt < data_size;
+         ++byte, ++byte_cnt) {
       uint8_t raw_byte = pSrcData[byte + 1];
       switch (tag) {
         case 1: {
@@ -434,7 +418,6 @@ bool PNG_Predictor(uint8_t*& data_buf,
           pDestData[byte] = raw_byte;
           break;
       }
-      byte_cnt++;
     }
     pSrcData += row_size + 1;
     pDestData += row_size;
@@ -506,22 +489,22 @@ bool TIFF_Predictor(uint8_t*& data_buf,
   return true;
 }
 
-void FlateUncompress(const uint8_t* src_buf,
-                     uint32_t src_size,
+void FlateUncompress(pdfium::span<const uint8_t> src_buf,
                      uint32_t orig_size,
                      uint8_t*& dest_buf,
                      uint32_t& dest_size,
                      uint32_t& offset) {
   dest_buf = nullptr;
   dest_size = 0;
-  void* context = FlateInit();
+
+  std::unique_ptr<z_stream, FlateDeleter> context(FlateInit());
   if (!context)
     return;
 
-  FlateInput(context, src_buf, src_size);
+  FlateInput(context.get(), src_buf);
 
   const uint32_t kMaxInitialAllocSize = 10000000;
-  uint32_t guess_size = orig_size ? orig_size : src_size * 2;
+  uint32_t guess_size = orig_size ? orig_size : src_buf.size() * 2;
   guess_size = std::min(guess_size, kMaxInitialAllocSize);
 
   uint32_t buf_size = guess_size;
@@ -533,8 +516,8 @@ void FlateUncompress(const uint8_t* src_buf,
   std::vector<uint8_t*> result_tmp_bufs;
   uint8_t* cur_buf = guess_buf.release();
   while (1) {
-    uint32_t ret = FlateOutput(context, cur_buf, buf_size);
-    uint32_t avail_buf_size = FlateGetAvailOut(context);
+    uint32_t ret = FlateOutput(context.get(), cur_buf, buf_size);
+    uint32_t avail_buf_size = FlateGetAvailOut(context.get());
     if (ret != Z_OK || avail_buf_size != 0) {
       last_buf_size = buf_size - avail_buf_size;
       result_tmp_bufs.push_back(cur_buf);
@@ -548,197 +531,228 @@ void FlateUncompress(const uint8_t* src_buf,
   // The TotalOut size returned from the library may not be big enough to
   // handle the content the library returns. We can only handle items
   // up to 4GB in size.
-  dest_size = FlateGetPossiblyTruncatedTotalOut(context);
-  offset = FlateGetPossiblyTruncatedTotalIn(context);
+  dest_size = FlateGetPossiblyTruncatedTotalOut(context.get());
+  offset = FlateGetPossiblyTruncatedTotalIn(context.get());
   if (result_tmp_bufs.size() == 1) {
     dest_buf = result_tmp_bufs[0];
-  } else {
-    uint8_t* result_buf = FX_Alloc(uint8_t, dest_size);
-    uint32_t result_pos = 0;
-    uint32_t remaining = dest_size;
-    for (size_t i = 0; i < result_tmp_bufs.size(); i++) {
-      uint8_t* tmp_buf = result_tmp_bufs[i];
-      uint32_t tmp_buf_size = buf_size;
-      if (i == result_tmp_bufs.size() - 1)
-        tmp_buf_size = last_buf_size;
-
-      uint32_t cp_size = std::min(tmp_buf_size, remaining);
-      memcpy(result_buf + result_pos, tmp_buf, cp_size);
-      result_pos += cp_size;
-      remaining -= cp_size;
-
-      FX_Free(result_tmp_bufs[i]);
-    }
-    dest_buf = result_buf;
+    return;
   }
-  FlateEnd(context);
+
+  uint8_t* result_buf = FX_Alloc(uint8_t, dest_size);
+  uint32_t result_pos = 0;
+  uint32_t remaining = dest_size;
+  for (size_t i = 0; i < result_tmp_bufs.size(); i++) {
+    uint8_t* tmp_buf = result_tmp_bufs[i];
+    uint32_t tmp_buf_size = buf_size;
+    if (i == result_tmp_bufs.size() - 1)
+      tmp_buf_size = last_buf_size;
+
+    uint32_t cp_size = std::min(tmp_buf_size, remaining);
+    memcpy(result_buf + result_pos, tmp_buf, cp_size);
+    result_pos += cp_size;
+    remaining -= cp_size;
+
+    FX_Free(result_tmp_bufs[i]);
+  }
+  dest_buf = result_buf;
 }
 
-}  // namespace
+enum class PredictorType : uint8_t { kNone, kFlate, kPng };
+static PredictorType GetPredictor(int predictor) {
+  if (predictor >= 10)
+    return PredictorType::kPng;
+  if (predictor == 2)
+    return PredictorType::kFlate;
+  return PredictorType::kNone;
+}
 
 class CCodec_FlateScanlineDecoder : public CCodec_ScanlineDecoder {
  public:
-  CCodec_FlateScanlineDecoder();
+  CCodec_FlateScanlineDecoder(const uint8_t* src_buf,
+                              uint32_t src_size,
+                              int width,
+                              int height,
+                              int nComps,
+                              int bpc);
   ~CCodec_FlateScanlineDecoder() override;
 
-  void Create(const uint8_t* src_buf,
-              uint32_t src_size,
-              int width,
-              int height,
-              int nComps,
-              int bpc,
-              int predictor,
-              int Colors,
-              int BitsPerComponent,
-              int Columns);
-
-  // CCodec_ScanlineDecoder
+  // CCodec_ScanlineDecoder:
   bool v_Rewind() override;
   uint8_t* v_GetNextLine() override;
   uint32_t GetSrcOffset() override;
 
-  void* m_pFlate;
-  const uint8_t* m_SrcBuf;
-  uint32_t m_SrcSize;
-  uint8_t* m_pScanline;
-  uint8_t* m_pLastLine;
-  uint8_t* m_pPredictBuffer;
-  uint8_t* m_pPredictRaw;
-  int m_Predictor;
-  int m_Colors;
-  int m_BitsPerComponent;
-  int m_Columns;
-  uint32_t m_PredictPitch;
-  size_t m_LeftOver;
+ protected:
+  std::unique_ptr<z_stream, FlateDeleter> m_pFlate;
+  pdfium::span<const uint8_t> const m_SrcBuf;
+  std::unique_ptr<uint8_t, FxFreeDeleter> const m_pScanline;
 };
 
-CCodec_FlateScanlineDecoder::CCodec_FlateScanlineDecoder() {
-  m_pFlate = nullptr;
-  m_pScanline = nullptr;
-  m_pLastLine = nullptr;
-  m_pPredictBuffer = nullptr;
-  m_pPredictRaw = nullptr;
-  m_LeftOver = 0;
-}
+CCodec_FlateScanlineDecoder::CCodec_FlateScanlineDecoder(const uint8_t* src_buf,
+                                                         uint32_t src_size,
+                                                         int width,
+                                                         int height,
+                                                         int nComps,
+                                                         int bpc)
+    : CCodec_ScanlineDecoder(width,
+                             height,
+                             width,
+                             height,
+                             nComps,
+                             bpc,
+                             CalculatePitch8(bpc, nComps, width).ValueOrDie()),
+      m_SrcBuf(src_buf, src_size),
+      m_pScanline(FX_Alloc(uint8_t, m_Pitch)) {}
 
-CCodec_FlateScanlineDecoder::~CCodec_FlateScanlineDecoder() {
-  FX_Free(m_pScanline);
-  FX_Free(m_pLastLine);
-  FX_Free(m_pPredictBuffer);
-  FX_Free(m_pPredictRaw);
-  if (m_pFlate)
-    FlateEnd(m_pFlate);
-}
-
-void CCodec_FlateScanlineDecoder::Create(const uint8_t* src_buf,
-                                         uint32_t src_size,
-                                         int width,
-                                         int height,
-                                         int nComps,
-                                         int bpc,
-                                         int predictor,
-                                         int Colors,
-                                         int BitsPerComponent,
-                                         int Columns) {
-  m_SrcBuf = src_buf;
-  m_SrcSize = src_size;
-  m_OutputWidth = m_OrigWidth = width;
-  m_OutputHeight = m_OrigHeight = height;
-  m_nComps = nComps;
-  m_bpc = bpc;
-  m_Pitch = (static_cast<uint32_t>(width) * nComps * bpc + 7) / 8;
-  m_pScanline = FX_Alloc(uint8_t, m_Pitch);
-  m_Predictor = 0;
-  if (predictor) {
-    if (predictor >= 10) {
-      m_Predictor = 2;
-    } else if (predictor == 2) {
-      m_Predictor = 1;
-    }
-    if (m_Predictor) {
-      if (BitsPerComponent * Colors * Columns == 0) {
-        BitsPerComponent = m_bpc;
-        Colors = m_nComps;
-        Columns = m_OrigWidth;
-      }
-      m_Colors = Colors;
-      m_BitsPerComponent = BitsPerComponent;
-      m_Columns = Columns;
-      m_PredictPitch =
-          (static_cast<uint32_t>(m_BitsPerComponent) * m_Colors * m_Columns +
-           7) /
-          8;
-      m_pLastLine = FX_Alloc(uint8_t, m_PredictPitch);
-      m_pPredictRaw = FX_Alloc(uint8_t, m_PredictPitch + 1);
-      m_pPredictBuffer = FX_Alloc(uint8_t, m_PredictPitch);
-    }
-  }
-}
+CCodec_FlateScanlineDecoder::~CCodec_FlateScanlineDecoder() = default;
 
 bool CCodec_FlateScanlineDecoder::v_Rewind() {
-  if (m_pFlate)
-    FlateEnd(m_pFlate);
-
-  m_pFlate = FlateInit();
+  m_pFlate.reset(FlateInit());
   if (!m_pFlate)
     return false;
 
-  FlateInput(m_pFlate, m_SrcBuf, m_SrcSize);
-  m_LeftOver = 0;
+  FlateInput(m_pFlate.get(), m_SrcBuf);
   return true;
 }
 
 uint8_t* CCodec_FlateScanlineDecoder::v_GetNextLine() {
-  if (m_Predictor) {
-    if (m_Pitch == m_PredictPitch) {
-      if (m_Predictor == 2) {
-        FlateOutput(m_pFlate, m_pPredictRaw, m_PredictPitch + 1);
-        PNG_PredictLine(m_pScanline, m_pPredictRaw, m_pLastLine,
-                        m_BitsPerComponent, m_Colors, m_Columns);
-        memcpy(m_pLastLine, m_pScanline, m_PredictPitch);
-      } else {
-        FlateOutput(m_pFlate, m_pScanline, m_Pitch);
-        TIFF_PredictLine(m_pScanline, m_PredictPitch, m_bpc, m_nComps,
-                         m_OutputWidth);
-      }
-    } else {
-      size_t bytes_to_go = m_Pitch;
-      size_t read_leftover =
-          m_LeftOver > bytes_to_go ? bytes_to_go : m_LeftOver;
-      if (read_leftover) {
-        memcpy(m_pScanline, m_pPredictBuffer + m_PredictPitch - m_LeftOver,
-               read_leftover);
-        m_LeftOver -= read_leftover;
-        bytes_to_go -= read_leftover;
-      }
-      while (bytes_to_go) {
-        if (m_Predictor == 2) {
-          FlateOutput(m_pFlate, m_pPredictRaw, m_PredictPitch + 1);
-          PNG_PredictLine(m_pPredictBuffer, m_pPredictRaw, m_pLastLine,
-                          m_BitsPerComponent, m_Colors, m_Columns);
-          memcpy(m_pLastLine, m_pPredictBuffer, m_PredictPitch);
-        } else {
-          FlateOutput(m_pFlate, m_pPredictBuffer, m_PredictPitch);
-          TIFF_PredictLine(m_pPredictBuffer, m_PredictPitch, m_BitsPerComponent,
-                           m_Colors, m_Columns);
-        }
-        size_t read_bytes =
-            m_PredictPitch > bytes_to_go ? bytes_to_go : m_PredictPitch;
-        memcpy(m_pScanline + m_Pitch - bytes_to_go, m_pPredictBuffer,
-               read_bytes);
-        m_LeftOver += m_PredictPitch - read_bytes;
-        bytes_to_go -= read_bytes;
-      }
-    }
-  } else {
-    FlateOutput(m_pFlate, m_pScanline, m_Pitch);
-  }
-  return m_pScanline;
+  FlateOutput(m_pFlate.get(), m_pScanline.get(), m_Pitch);
+  return m_pScanline.get();
 }
 
 uint32_t CCodec_FlateScanlineDecoder::GetSrcOffset() {
-  return FlateGetPossiblyTruncatedTotalIn(m_pFlate);
+  return FlateGetPossiblyTruncatedTotalIn(m_pFlate.get());
 }
+
+class CCodec_FlatePredictorScanlineDecoder
+    : public CCodec_FlateScanlineDecoder {
+ public:
+  CCodec_FlatePredictorScanlineDecoder(const uint8_t* src_buf,
+                                       uint32_t src_size,
+                                       int width,
+                                       int height,
+                                       int comps,
+                                       int bpc,
+                                       PredictorType predictor,
+                                       int Colors,
+                                       int BitsPerComponent,
+                                       int Columns);
+  ~CCodec_FlatePredictorScanlineDecoder() override;
+
+  // CCodec_ScanlineDecoder:
+  bool v_Rewind() override;
+  uint8_t* v_GetNextLine() override;
+
+ protected:
+  void GetNextLineWithPredictedPitch();
+  void GetNextLineWithoutPredictedPitch();
+
+  const PredictorType m_Predictor;
+  int m_Colors = 0;
+  int m_BitsPerComponent = 0;
+  int m_Columns = 0;
+  uint32_t m_PredictPitch = 0;
+  size_t m_LeftOver = 0;
+  uint8_t* m_pLastLine = nullptr;
+  uint8_t* m_pPredictBuffer = nullptr;
+  uint8_t* m_pPredictRaw = nullptr;
+};
+
+CCodec_FlatePredictorScanlineDecoder::CCodec_FlatePredictorScanlineDecoder(
+    const uint8_t* src_buf,
+    uint32_t src_size,
+    int width,
+    int height,
+    int comps,
+    int bpc,
+    PredictorType predictor,
+    int Colors,
+    int BitsPerComponent,
+    int Columns)
+    : CCodec_FlateScanlineDecoder(src_buf, src_size, width, height, comps, bpc),
+      m_Predictor(predictor) {
+  ASSERT(m_Predictor != PredictorType::kNone);
+  if (BitsPerComponent * Colors * Columns == 0) {
+    BitsPerComponent = m_bpc;
+    Colors = m_nComps;
+    Columns = m_OrigWidth;
+  }
+  m_Colors = Colors;
+  m_BitsPerComponent = BitsPerComponent;
+  m_Columns = Columns;
+  m_PredictPitch =
+      CalculatePitch8(m_BitsPerComponent, m_Colors, m_Columns).ValueOrDie();
+  m_pLastLine = FX_Alloc(uint8_t, m_PredictPitch);
+  m_pPredictBuffer = FX_Alloc(uint8_t, m_PredictPitch);
+  m_pPredictRaw = FX_Alloc(uint8_t, m_PredictPitch + 1);
+}
+
+CCodec_FlatePredictorScanlineDecoder::~CCodec_FlatePredictorScanlineDecoder() {
+  FX_Free(m_pLastLine);
+  FX_Free(m_pPredictBuffer);
+  FX_Free(m_pPredictRaw);
+}
+
+bool CCodec_FlatePredictorScanlineDecoder::v_Rewind() {
+  if (!CCodec_FlateScanlineDecoder::v_Rewind())
+    return false;
+
+  m_LeftOver = 0;
+  return true;
+}
+
+uint8_t* CCodec_FlatePredictorScanlineDecoder::v_GetNextLine() {
+  if (m_Pitch == m_PredictPitch)
+    GetNextLineWithPredictedPitch();
+  else
+    GetNextLineWithoutPredictedPitch();
+  return m_pScanline.get();
+}
+
+void CCodec_FlatePredictorScanlineDecoder::GetNextLineWithPredictedPitch() {
+  if (m_Predictor == PredictorType::kPng) {
+    FlateOutput(m_pFlate.get(), m_pPredictRaw, m_PredictPitch + 1);
+    PNG_PredictLine(m_pScanline.get(), m_pPredictRaw, m_pLastLine,
+                    m_BitsPerComponent, m_Colors, m_Columns);
+    memcpy(m_pLastLine, m_pScanline.get(), m_PredictPitch);
+  } else {
+    ASSERT(m_Predictor == PredictorType::kFlate);
+    FlateOutput(m_pFlate.get(), m_pScanline.get(), m_Pitch);
+    TIFF_PredictLine(m_pScanline.get(), m_PredictPitch, m_bpc, m_nComps,
+                     m_OutputWidth);
+  }
+}
+
+void CCodec_FlatePredictorScanlineDecoder::GetNextLineWithoutPredictedPitch() {
+  size_t bytes_to_go = m_Pitch;
+  size_t read_leftover = m_LeftOver > bytes_to_go ? bytes_to_go : m_LeftOver;
+  if (read_leftover) {
+    memcpy(m_pScanline.get(), m_pPredictBuffer + m_PredictPitch - m_LeftOver,
+           read_leftover);
+    m_LeftOver -= read_leftover;
+    bytes_to_go -= read_leftover;
+  }
+  while (bytes_to_go) {
+    if (m_Predictor == PredictorType::kPng) {
+      FlateOutput(m_pFlate.get(), m_pPredictRaw, m_PredictPitch + 1);
+      PNG_PredictLine(m_pPredictBuffer, m_pPredictRaw, m_pLastLine,
+                      m_BitsPerComponent, m_Colors, m_Columns);
+      memcpy(m_pLastLine, m_pPredictBuffer, m_PredictPitch);
+    } else {
+      ASSERT(m_Predictor == PredictorType::kFlate);
+      FlateOutput(m_pFlate.get(), m_pPredictBuffer, m_PredictPitch);
+      TIFF_PredictLine(m_pPredictBuffer, m_PredictPitch, m_BitsPerComponent,
+                       m_Colors, m_Columns);
+    }
+    size_t read_bytes =
+        m_PredictPitch > bytes_to_go ? bytes_to_go : m_PredictPitch;
+    memcpy(m_pScanline.get() + m_Pitch - bytes_to_go, m_pPredictBuffer,
+           read_bytes);
+    m_LeftOver += m_PredictPitch - read_bytes;
+    bytes_to_go -= read_bytes;
+  }
+}
+
+}  // namespace
 
 std::unique_ptr<CCodec_ScanlineDecoder> CCodec_FlateModule::CreateDecoder(
     const uint8_t* src_buf,
@@ -751,10 +765,14 @@ std::unique_ptr<CCodec_ScanlineDecoder> CCodec_FlateModule::CreateDecoder(
     int Colors,
     int BitsPerComponent,
     int Columns) {
-  auto pDecoder = pdfium::MakeUnique<CCodec_FlateScanlineDecoder>();
-  pDecoder->Create(src_buf, src_size, width, height, nComps, bpc, predictor,
-                   Colors, BitsPerComponent, Columns);
-  return std::move(pDecoder);
+  PredictorType predictor_type = GetPredictor(predictor);
+  if (predictor_type == PredictorType::kNone) {
+    return pdfium::MakeUnique<CCodec_FlateScanlineDecoder>(
+        src_buf, src_size, width, height, nComps, bpc);
+  }
+  return pdfium::MakeUnique<CCodec_FlatePredictorScanlineDecoder>(
+      src_buf, src_size, width, height, nComps, bpc, predictor_type, Colors,
+      BitsPerComponent, Columns);
 }
 
 uint32_t CCodec_FlateModule::FlateOrLZWDecode(bool bLZW,
@@ -770,13 +788,8 @@ uint32_t CCodec_FlateModule::FlateOrLZWDecode(bool bLZW,
                                               uint32_t* dest_size) {
   *dest_buf = nullptr;
   uint32_t offset = 0;
-  int predictor_type = 0;
-  if (predictor) {
-    if (predictor >= 10)
-      predictor_type = 2;
-    else if (predictor == 2)
-      predictor_type = 1;
-  }
+  PredictorType predictor_type = GetPredictor(predictor);
+
   if (bLZW) {
     auto decoder = pdfium::MakeUnique<CLZWDecoder>();
     *dest_size = 0xFFFFFFFF;
@@ -791,17 +804,18 @@ uint32_t CCodec_FlateModule::FlateOrLZWDecode(bool bLZW,
     (*dest_buf)[*dest_size] = '\0';
     decoder->Decode(*dest_buf, *dest_size, src_buf, offset, bEarlyChange);
   } else {
-    FlateUncompress(src_buf, src_size, estimated_size, *dest_buf, *dest_size,
-                    offset);
+    FlateUncompress(pdfium::make_span(src_buf, src_size), estimated_size,
+                    *dest_buf, *dest_size, offset);
   }
-  if (predictor_type == 0)
+  if (predictor_type == PredictorType::kNone)
     return offset;
 
-  bool ret = true;
-  if (predictor_type == 2) {
+  bool ret;
+  if (predictor_type == PredictorType::kPng) {
     ret =
         PNG_Predictor(*dest_buf, *dest_size, Colors, BitsPerComponent, Columns);
-  } else if (predictor_type == 1) {
+  } else {
+    ASSERT(predictor_type == PredictorType::kFlate);
     ret = TIFF_Predictor(*dest_buf, *dest_size, Colors, BitsPerComponent,
                          Columns);
   }
@@ -820,16 +834,4 @@ bool CCodec_FlateModule::Encode(const uint8_t* src_buf,
 
   *dest_size = (uint32_t)temp_size;
   return true;
-}
-
-bool CCodec_FlateModule::PngEncode(const uint8_t* src_buf,
-                                   uint32_t src_size,
-                                   uint8_t** dest_buf,
-                                   uint32_t* dest_size) {
-  uint8_t* pSrcBuf = FX_Alloc(uint8_t, src_size);
-  memcpy(pSrcBuf, src_buf, src_size);
-  PNG_PredictorEncode(&pSrcBuf, &src_size);
-  bool ret = Encode(pSrcBuf, src_size, dest_buf, dest_size);
-  FX_Free(pSrcBuf);
-  return ret;
 }

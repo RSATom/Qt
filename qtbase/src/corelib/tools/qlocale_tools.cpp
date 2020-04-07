@@ -75,8 +75,8 @@ QT_BEGIN_NAMESPACE
 
 QT_CLOCALE_HOLDER
 
-void doubleToAscii(double d, QLocaleData::DoubleForm form, int precision, char *buf, int bufSize,
-                   bool &sign, int &length, int &decpt)
+void qt_doubleToAscii(double d, QLocaleData::DoubleForm form, int precision, char *buf, int bufSize,
+                      bool &sign, int &length, int &decpt)
 {
     if (bufSize == 0) {
         decpt = 0;
@@ -277,8 +277,8 @@ void doubleToAscii(double d, QLocaleData::DoubleForm form, int precision, char *
         --length;
 }
 
-double asciiToDouble(const char *num, int numLen, bool &ok, int &processed,
-                     TrailingJunkMode trailingJunkMode)
+double qt_asciiToDouble(const char *num, int numLen, bool &ok, int &processed,
+                        StrayCharacterMode strayCharMode)
 {
     if (*num == '\0') {
         ok = false;
@@ -315,9 +315,13 @@ double asciiToDouble(const char *num, int numLen, bool &ok, int &processed,
 
     double d = 0.0;
 #if !defined(QT_NO_DOUBLECONVERSION) && !defined(QT_BOOTSTRAPPED)
-    int conv_flags = (trailingJunkMode == TrailingJunkAllowed) ?
-                double_conversion::StringToDoubleConverter::ALLOW_TRAILING_JUNK :
-                double_conversion::StringToDoubleConverter::NO_FLAGS;
+    int conv_flags = double_conversion::StringToDoubleConverter::NO_FLAGS;
+    if (strayCharMode == TrailingJunkAllowed) {
+        conv_flags = double_conversion::StringToDoubleConverter::ALLOW_TRAILING_JUNK;
+    } else if (strayCharMode == WhitespacesAllowed) {
+        conv_flags = double_conversion::StringToDoubleConverter::ALLOW_LEADING_SPACES
+                | double_conversion::StringToDoubleConverter::ALLOW_TRAILING_SPACES;
+    }
     double_conversion::StringToDoubleConverter conv(conv_flags, 0.0, qt_snan(), 0, 0);
     d = conv.StringToDouble(num, numLen, &processed);
 
@@ -336,7 +340,7 @@ double asciiToDouble(const char *num, int numLen, bool &ok, int &processed,
     if (qDoubleSscanf(num, QT_CLOCALE, "%lf%n", &d, &processed) < 1)
         processed = 0;
 
-    if ((trailingJunkMode == TrailingJunkProhibited && processed != numLen) || qIsNaN(d)) {
+    if ((strayCharMode == TrailingJunkProhibited && processed != numLen) || qIsNaN(d)) {
         // Implementation defined nan symbol or garbage found. We don't accept it.
         processed = 0;
         ok = false;
@@ -350,7 +354,7 @@ double asciiToDouble(const char *num, int numLen, bool &ok, int &processed,
         ok = false;
         for (int i = 0; i < processed; ++i) {
             char c = num[i];
-            if ((c < '0' || c > '9') && c != '.' && c != '-' && c != '+' && c != 'e') {
+            if ((c < '0' || c > '9') && c != '.' && c != '-' && c != '+' && c != 'e' && c != 'E') {
                 // Garbage found
                 processed = 0;
                 return 0.0;
@@ -361,7 +365,7 @@ double asciiToDouble(const char *num, int numLen, bool &ok, int &processed,
 #endif // !defined(QT_NO_DOUBLECONVERSION) && !defined(QT_BOOTSTRAPPED)
 
     // Otherwise we would have gotten NaN or sorted it out above.
-    Q_ASSERT(trailingJunkMode == TrailingJunkAllowed || processed == numLen);
+    Q_ASSERT(strayCharMode == TrailingJunkAllowed || processed == numLen);
 
     // Check if underflow has occurred.
     if (isZero(d)) {
@@ -456,11 +460,6 @@ QString qulltoa(qulonglong l, int base, const QChar _zero)
     return QString(reinterpret_cast<QChar *>(p), 65 - (p - buff));
 }
 
-QString qlltoa(qlonglong l, int base, const QChar zero)
-{
-    return qulltoa(l < 0 ? -l : l, base, zero);
-}
-
 QString &decimalForm(QChar zero, QChar decimal, QChar group,
                      QString &digits, int decpt, int precision,
                      PrecisionMode pm,
@@ -549,7 +548,7 @@ double qstrntod(const char *s00, int len, const char **se, bool *ok)
 {
     int processed = 0;
     bool nonNullOk = false;
-    double d = asciiToDouble(s00, len, nonNullOk, processed, TrailingJunkAllowed);
+    double d = qt_asciiToDouble(s00, len, nonNullOk, processed, TrailingJunkAllowed);
     if (se)
         *se = s00 + processed;
     if (ok)
@@ -565,8 +564,8 @@ QString qdtoa(qreal d, int *decpt, int *sign)
 
     // Some versions of libdouble-conversion like an extra digit, probably for '\0'
     char result[QLocaleData::DoubleMaxSignificant + 1];
-    doubleToAscii(d, QLocaleData::DFSignificantDigits, QLocale::FloatingPointShortest, result,
-                  QLocaleData::DoubleMaxSignificant + 1, nonNullSign, length, nonNullDecpt);
+    qt_doubleToAscii(d, QLocaleData::DFSignificantDigits, QLocale::FloatingPointShortest, result,
+                     QLocaleData::DoubleMaxSignificant + 1, nonNullSign, length, nonNullDecpt);
 
     if (sign)
         *sign = nonNullSign ? 1 : 0;

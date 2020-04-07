@@ -6,6 +6,7 @@
 #include "content/browser/child_process_launcher.h"
 #include "content/browser/renderer_host/render_process_host_impl.h"
 #include "content/public/browser/navigation_entry.h"
+#include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/test/content_browser_test.h"
@@ -36,22 +37,11 @@ class MockChildProcessLauncherClient
   bool simulate_failure_;
 };
 
-}
+}  // namespace
 
 namespace content {
 
 class ChildProcessLauncherBrowserTest : public ContentBrowserTest {};
-
-class StatsTableBrowserTest : public ChildProcessLauncherBrowserTest {
- public:
-  void SetUpCommandLine(base::CommandLine* command_line) override {
-    command_line->AppendSwitch(switches::kEnableStatsTable);
-  }
-};
-
-IN_PROC_BROWSER_TEST_F(StatsTableBrowserTest, StartWithStatTable) {
-  NavigateToURL(shell(), GURL("about:blank"));
-}
 
 IN_PROC_BROWSER_TEST_F(ChildProcessLauncherBrowserTest, ChildSpawnFail) {
   GURL url("about:blank");
@@ -63,8 +53,8 @@ IN_PROC_BROWSER_TEST_F(ChildProcessLauncherBrowserTest, ChildSpawnFail) {
   client = new MockChildProcessLauncherClient;
   window->LoadURL(url);
   client->client_ = static_cast<RenderProcessHostImpl*>(
-      window->web_contents()->GetRenderProcessHost())
-      ->child_process_launcher_->ReplaceClientForTest(client);
+                        window->web_contents()->GetMainFrame()->GetProcess())
+                        ->child_process_launcher_->ReplaceClientForTest(client);
   client->simulate_failure_ = true;
   nav_observer1.Wait();
   delete client;

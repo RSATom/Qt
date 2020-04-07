@@ -40,11 +40,10 @@ not provide a \c window object or \c{DOM API} as commonly found in a browser env
 Like a browser or server-side JavaScript environment, the QML runtime implements the
 \l{ECMA-262}{ECMAScript Language Specification} standard. This provides access to
 all of the built-in types and functions defined by the standard, such as Object, Array, and Math.
-The QML runtime implements the 5th edition of the standard, which is the same edition commonly
-implemented by browsers.
+The QML runtime implements the 7th edition of the standard.
 
 The standard ECMAScript built-ins are not explicitly documented in the QML documentation. For more
-information on their use, please refer to the ECMA-262 5th edition standard or one of the many online
+information on their use, please refer to the ECMA-262 7th edition standard or one of the many online
 JavaScript reference and tutorial sites, such as the \l{W3Schools JavaScript Reference} (JavaScript Objects
 Reference section). Many sites focus on JavaScript in the browser, so in some cases you may need to double
 check the specification to determine whether a given function or object is part of standard ECMAScript or
@@ -154,10 +153,11 @@ This restriction exists as the QML environment is not yet fully established.
 To run code after the environment setup has completed, see
 \l {JavaScript in Application Startup Code}.
 
-\li The value of \c this is currently undefined in QML in the majority of contexts.
+\li The value of \c this is undefined in QML in the majority of contexts.
 
 The \c this keyword is supported when binding properties from JavaScript.
-In all other situations, the value of
+In QML binding expressions, QML signal handlers, and QML declared functions,
+\c this refers to the scope object. In all other situations, the value of
 \c this is undefined in QML.
 
 To refer to a specific object, provide an \c id.  For example:
@@ -168,19 +168,16 @@ Item {
     function mouseAreaClicked(area) {
         console.log("Clicked in area at: " + area.x + ", " + area.y);
     }
-    // This will not work because this is undefined
+    // This will pass area to the function
     MouseArea {
-        height: 50; width: 200
-        onClicked: mouseAreaClicked(this)
-    }
-    // This will pass area2 to the function
-    MouseArea {
-        id: area2
+        id: area
         y: 50; height: 50; width: 200
-        onClicked: mouseAreaClicked(area2)
+        onClicked: mouseAreaClicked(area)
     }
 }
 \endqml
+
+\sa {Scope and Naming Resolution}
 
 \endlist
 

@@ -59,9 +59,11 @@ CFX_Barcode::CFX_Barcode() {}
 
 CFX_Barcode::~CFX_Barcode() {}
 
-bool CFX_Barcode::Create(BC_TYPE type) {
-  m_pBCEngine = CreateBarCodeEngineObject(type);
-  return !!m_pBCEngine;
+std::unique_ptr<CFX_Barcode> CFX_Barcode::Create(BC_TYPE type) {
+  auto barcodeEngine = CreateBarCodeEngineObject(type);
+  std::unique_ptr<CFX_Barcode> barcode(new CFX_Barcode());
+  barcode->m_pBCEngine.swap(barcodeEngine);
+  return barcode;
 }
 
 BC_TYPE CFX_Barcode::GetType() {
@@ -294,8 +296,8 @@ bool CFX_Barcode::SetTruncated(bool truncated) {
                                : false;
 }
 
-bool CFX_Barcode::Encode(const CFX_WideStringC& contents, bool isDevice) {
-  return m_pBCEngine && m_pBCEngine->Encode(contents, isDevice);
+bool CFX_Barcode::Encode(const WideStringView& contents) {
+  return m_pBCEngine && m_pBCEngine->Encode(contents);
 }
 
 bool CFX_Barcode::RenderDevice(CFX_RenderDevice* device,

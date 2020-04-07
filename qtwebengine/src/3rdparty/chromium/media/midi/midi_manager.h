@@ -14,6 +14,7 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/synchronization/lock.h"
+#include "base/thread_annotations.h"
 #include "base/time/time.h"
 #include "media/midi/midi_export.h"
 #include "media/midi/midi_port_info.h"
@@ -61,7 +62,7 @@ class MIDI_EXPORT MidiManagerClient {
   virtual void ReceiveMidiData(uint32_t port_index,
                                const uint8_t* data,
                                size_t length,
-                               double timestamp) = 0;
+                               base::TimeTicks timestamp) = 0;
 
   // AccumulateMidiBytesSent() is called to acknowledge when bytes have
   // successfully been sent to the hardware.
@@ -74,9 +75,12 @@ class MIDI_EXPORT MidiManagerClient {
   virtual void Detach() = 0;
 };
 
-// Manages access to all MIDI hardware.
-// *** Note ***: If dynamic instantiation feature is enabled, all MidiManager
-// methods will be called on Chrome_IOThread. See comments on Shutdown() too.
+// Manages access to all MIDI hardware. MidiManager runs on the I/O thread.
+//
+// Note: We will eventually remove utility functions that are shared among
+// platform dependent MidiManager inheritances such as MidiManagerClient
+// management. MidiService should provide such shareable utility functions as
+// it does TaskService.
 class MIDI_EXPORT MidiManager {
  public:
   static const size_t kMaxPendingClientCount = 128;
@@ -84,15 +88,10 @@ class MIDI_EXPORT MidiManager {
   explicit MidiManager(MidiService* service);
   virtual ~MidiManager();
 
-  // The constructor and the destructor will be called on the CrBrowserMain
-  // thread.
   static MidiManager* Create(MidiService* service);
 
-  // Called on the CrBrowserMain thread to notify the Chrome_IOThread will stop
-  // and the instance will be destructed on the CrBrowserMain thread soon.
-  // *** Note ***: If dynamic instantiation feature is enabled, MidiService
-  // calls this on Chrome_IOThread and ShutdownOnSessionThread() will be called
-  // synchronously so that MidiService can destruct MidiManager synchronously.
+  // Shuts down this manager. This function is split from the destructor
+  // because it calls a virtual function.
   void Shutdown();
 
   // A client calls StartSession() to receive and send MIDI data.
@@ -101,16 +100,14 @@ class MIDI_EXPORT MidiManager {
   // CompleteStartSession() is called with mojom::Result::OK if the session is
   // started. Otherwise CompleteStartSession() is called with a proper
   // mojom::Result code.
-  // StartSession() and EndSession() can be called on the Chrome_IOThread.
-  // CompleteStartSession() will be invoked on the same Chrome_IOThread.
   void StartSession(MidiManagerClient* client);
 
   // A client calls EndSession() to stop receiving MIDI data.
-  void EndSession(MidiManagerClient* client);
+  // Returns false if |client| did not start a session.
+  bool EndSession(MidiManagerClient* client);
 
-  // Invoke AccumulateMidiBytesSent() for |client| safely. If the session was
-  // already closed, do nothing.
-  void AccumulateMidiBytesSent(MidiManagerClient* client, size_t n);
+  // Returns true if there is at least one client that keep a session open.
+  bool HasOpenSession();
 
   // DispatchSendMidiData() is called when MIDI data should be sent to the MIDI
   // system.
@@ -118,22 +115,21 @@ class MIDI_EXPORT MidiManager {
   // |port_index| represents the specific output port from output_ports().
   // |data| represents a series of bytes encoding one or more MIDI messages.
   // |length| is the number of bytes in |data|.
-  // |timestamp| is the time to send the data, in seconds. A value of 0
-  // means send "now" or as soon as possible.
-  // The default implementation is for unsupported platforms.
+  // |timestamp| is the time to send the data. A value of 0 means send "now" or
+  // as soon as possible. The default implementation is for unsupported
+  // platforms.
   virtual void DispatchSendMidiData(MidiManagerClient* client,
                                     uint32_t port_index,
                                     const std::vector<uint8_t>& data,
-                                    double timestamp);
+                                    base::TimeTicks timestamp);
 
  protected:
   friend class MidiManagerUsb;
 
   // Initializes the platform dependent MIDI system. MidiManager class has a
   // default implementation that synchronously calls CompleteInitialization()
-  // with mojom::Result::NOT_SUPPORTED on the caller thread. A derived class for
-  // a specific platform should override this method correctly.
-  // This method is called on Chrome_IOThread thread inside StartSession().
+  // with mojom::Result::NOT_SUPPORTED. A derived class for a specific platform
+  // should override this method correctly.
   // Platform dependent initialization can be processed synchronously or
   // asynchronously. When the initialization is completed,
   // CompleteInitialization() should be called with |result|.
@@ -141,46 +137,39 @@ class MIDI_EXPORT MidiManager {
   // mojom::Result.
   virtual void StartInitialization();
 
-  // Finalizes the platform dependent MIDI system. Called on Chrome_IOThread
-  // thread and the thread will stop immediately after this call.
-  // Platform dependent resources that were allocated on the Chrome_IOThread
-  // should be disposed inside this method.
+  // Finalizes the platform dependent MIDI system. After this method call,
+  // destructor will be called immediately and the I/O thread may stop.
   virtual void Finalize() {}
 
   // Called from a platform dependent implementation of StartInitialization().
-  // It invokes CompleteInitializationInternal() on the thread that calls
-  // StartSession() and distributes |result| to MIDIManagerClient objects in
+  // The method distributes |result| to MIDIManagerClient objects in
   // |pending_clients_|.
   void CompleteInitialization(mojom::Result result);
 
+  // The following five methods can be called on any thread to notify clients of
+  // status changes on ports, or to obtain port status.
   void AddInputPort(const MidiPortInfo& info);
   void AddOutputPort(const MidiPortInfo& info);
   void SetInputPortState(uint32_t port_index, mojom::PortState state);
   void SetOutputPortState(uint32_t port_index, mojom::PortState state);
+  mojom::PortState GetOutputPortState(uint32_t port_index);
 
-  // Dispatches to all clients.
-  // TODO(toyoshim): Fix the mac implementation to use
-  // |ReceiveMidiData(..., base::TimeTicks)|.
+  // Invoke AccumulateMidiBytesSent() for |client| safely. If the session was
+  // already closed, do nothing. Can be called on any thread.
+  void AccumulateMidiBytesSent(MidiManagerClient* client, size_t n);
+
+  // Dispatches to all clients. Can be called on any thread.
   void ReceiveMidiData(uint32_t port_index,
                        const uint8_t* data,
                        size_t length,
-                       double timestamp);
+                       base::TimeTicks time);
 
-  void ReceiveMidiData(uint32_t port_index,
-                       const uint8_t* data,
-                       size_t length,
-                       base::TimeTicks time) {
-    ReceiveMidiData(port_index, data, length,
-                    (time - base::TimeTicks()).InSecondsF());
-  }
-
+  // Only for testing.
   size_t clients_size_for_testing() const { return clients_.size(); }
   size_t pending_clients_size_for_testing() const {
     return pending_clients_.size();
   }
 
-  const MidiPortInfoList& input_ports() const { return input_ports_; }
-  const MidiPortInfoList& output_ports() const { return output_ports_; }
   MidiService* service() { return service_; }
 
  private:
@@ -190,16 +179,12 @@ class MIDI_EXPORT MidiManager {
     COMPLETED,
   };
 
-  void CompleteInitializationInternal(mojom::Result result);
-  void AddInitialPorts(MidiManagerClient* client);
-  void ShutdownOnSessionThread();
-
   // Keeps track of all clients who wish to receive MIDI data.
-  typedef std::set<MidiManagerClient*> ClientSet;
-  ClientSet clients_;
+  // TODO(toyoshim): Enable GUARDED_BY once a testing function is fixed.
+  std::set<MidiManagerClient*> clients_;  // GUARDED_BY(lock_);
 
   // Keeps track of all clients who are waiting for CompleteStartSession().
-  ClientSet pending_clients_;
+  std::set<MidiManagerClient*> pending_clients_;
 
   // Keeps a SingleThreadTaskRunner of the thread that calls StartSession in
   // order to invoke CompleteStartSession() on the thread.
@@ -216,16 +201,14 @@ class MIDI_EXPORT MidiManager {
   mojom::Result result_;
 
   // Keeps all MidiPortInfo.
-  MidiPortInfoList input_ports_;
-  MidiPortInfoList output_ports_;
+  MidiPortInfoList input_ports_ GUARDED_BY(lock_);
+  MidiPortInfoList output_ports_ GUARDED_BY(lock_);
 
   // Tracks if actual data transmission happens.
-  bool data_sent_;
-  bool data_received_;
+  bool data_sent_ GUARDED_BY(lock_);
+  bool data_received_ GUARDED_BY(lock_);
 
-  // Protects access to |clients_|, |pending_clients_|,
-  // |session_thread_runner_|, |initialization_state_|, |finalize_|, |result_|,
-  // |input_ports_|, |output_ports_|, |data_sent_| and |data_received_|.
+  // Protects members above.
   base::Lock lock_;
 
   // MidiService outlives MidiManager.

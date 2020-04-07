@@ -61,6 +61,7 @@ public:
     bool operator !=(const QGeoRouteSegment &other) const;
 
     bool isValid() const;
+    bool isLegLastSegment() const;
 
     void setNextRouteSegment(const QGeoRouteSegment &routeSegment);
     QGeoRouteSegment nextRouteSegment() const;
@@ -78,10 +79,13 @@ public:
     QGeoManeuver maneuver() const;
 
 protected:
-    QGeoRouteSegment(QExplicitlySharedDataPointer<QGeoRouteSegmentPrivate> &d_ptr);
+    QGeoRouteSegment(const QExplicitlySharedDataPointer<QGeoRouteSegmentPrivate> &dd);
+    QExplicitlySharedDataPointer<QGeoRouteSegmentPrivate> &d();
 
 private:
     QExplicitlySharedDataPointer<QGeoRouteSegmentPrivate> d_ptr;
+
+    friend class QGeoRouteSegmentPrivate;
 };
 
 QT_END_NAMESPACE

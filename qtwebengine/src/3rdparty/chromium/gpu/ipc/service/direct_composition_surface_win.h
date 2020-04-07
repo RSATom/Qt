@@ -5,25 +5,31 @@
 #ifndef GPU_IPC_SERVICE_DIRECT_COMPOSITION_SURFACE_WIN_H_
 #define GPU_IPC_SERVICE_DIRECT_COMPOSITION_SURFACE_WIN_H_
 
+#include <windows.h>
 #include <d3d11.h>
 #include <dcomp.h>
-#include <windows.h>
+#include <wrl/client.h>
 
 #include "base/memory/weak_ptr.h"
-#include "base/win/scoped_comptr.h"
 #include "gpu/config/gpu_driver_bug_workarounds.h"
-#include "gpu/gpu_export.h"
+#include "gpu/config/gpu_info.h"
 #include "gpu/ipc/service/child_window_win.h"
+#include "gpu/ipc/service/gpu_ipc_service_export.h"
 #include "gpu/ipc/service/image_transport_surface_delegate.h"
 #include "ui/gl/gl_image.h"
 #include "ui/gl/gl_surface_egl.h"
+
+namespace gl {
+class GLSurfacePresentationHelper;
+}
 
 namespace gpu {
 
 class DCLayerTree;
 class DirectCompositionChildSurfaceWin;
 
-class GPU_EXPORT DirectCompositionSurfaceWin : public gl::GLSurfaceEGL {
+class GPU_IPC_SERVICE_EXPORT DirectCompositionSurfaceWin
+    : public gl::GLSurfaceEGL {
  public:
   DirectCompositionSurfaceWin(
       std::unique_ptr<gfx::VSyncProvider> vsync_provider,
@@ -34,8 +40,17 @@ class GPU_EXPORT DirectCompositionSurfaceWin : public gl::GLSurfaceEGL {
   // use overlays.
   static bool AreOverlaysSupported();
 
+  // Returns a list of supported overlay formats for GPUInfo.
+  static OverlayCapabilities GetOverlayCapabilities();
+
   // Returns true if there is an HDR capable display connected.
   static bool IsHDRSupported();
+
+  // Returns true if swap chain tearing is supported for variable refresh rate
+  // displays.  Tearing is only used if vsync is also disabled via command line.
+  static bool IsSwapChainTearingSupported();
+
+  static void EnableScaledOverlaysForTesting();
 
   bool InitializeNativeWindow();
 
@@ -48,18 +63,26 @@ class GPU_EXPORT DirectCompositionSurfaceWin : public gl::GLSurfaceEGL {
   void* GetHandle() override;
   bool Resize(const gfx::Size& size,
               float scale_factor,
+              ColorSpace color_space,
               bool has_alpha) override;
-  gfx::SwapResult SwapBuffers() override;
-  gfx::SwapResult PostSubBuffer(int x, int y, int width, int height) override;
+  gfx::SwapResult SwapBuffers(const PresentationCallback& callback) override;
+  gfx::SwapResult PostSubBuffer(int x,
+                                int y,
+                                int width,
+                                int height,
+                                const PresentationCallback& callback) override;
   gfx::VSyncProvider* GetVSyncProvider() override;
+  void SetVSyncEnabled(bool enabled) override;
   bool SetEnableDCLayers(bool enable) override;
   bool FlipsVertically() const override;
+  bool SupportsPresentationCallback() override;
   bool SupportsPostSubBuffer() override;
   bool OnMakeCurrent(gl::GLContext* context) override;
   bool SupportsDCLayers() const override;
+  bool UseOverlaysForVideo() const override;
+  bool SupportsProtectedVideo() const override;
   bool SetDrawRectangle(const gfx::Rect& rect) override;
   gfx::Vector2d GetDrawOffset() const override;
-  void WaitForSnapshotRendering() override;
 
   // This schedules an overlay plane to be displayed on the next SwapBuffers
   // or PostSubBuffer call. Overlay planes must be scheduled before every swap
@@ -68,12 +91,14 @@ class GPU_EXPORT DirectCompositionSurfaceWin : public gl::GLSurfaceEGL {
   // tree at z-order 0.
   bool ScheduleDCLayer(const ui::DCRendererLayerParams& params) override;
 
-  const base::win::ScopedComPtr<IDCompositionSurface> dcomp_surface() const;
-  const base::win::ScopedComPtr<IDXGISwapChain1> swap_chain() const;
+  const Microsoft::WRL::ComPtr<IDCompositionSurface> dcomp_surface() const;
+  const Microsoft::WRL::ComPtr<IDXGISwapChain1> swap_chain() const;
+
+  uint64_t GetDCompSurfaceSerial() const;
 
   scoped_refptr<base::TaskRunner> GetWindowTaskRunnerForTesting();
 
-  base::win::ScopedComPtr<IDXGISwapChain1> GetLayerSwapChainForTesting(
+  Microsoft::WRL::ComPtr<IDXGISwapChain1> GetLayerSwapChainForTesting(
       size_t index) const;
 
   const GpuDriverBugWorkarounds& workarounds() const { return workarounds_; }
@@ -95,13 +120,16 @@ class GPU_EXPORT DirectCompositionSurfaceWin : public gl::GLSurfaceEGL {
 
   gfx::Size size_ = gfx::Size(1, 1);
   bool enable_dc_layers_ = false;
+  bool is_hdr_ = false;
   bool has_alpha_ = true;
+  bool vsync_enabled_ = true;
   std::unique_ptr<gfx::VSyncProvider> vsync_provider_;
+  std::unique_ptr<gl::GLSurfacePresentationHelper> presentation_helper_;
   scoped_refptr<DirectCompositionChildSurfaceWin> root_surface_;
   std::unique_ptr<DCLayerTree> layer_tree_;
 
-  base::win::ScopedComPtr<ID3D11Device> d3d11_device_;
-  base::win::ScopedComPtr<IDCompositionDevice2> dcomp_device_;
+  Microsoft::WRL::ComPtr<ID3D11Device> d3d11_device_;
+  Microsoft::WRL::ComPtr<IDCompositionDevice2> dcomp_device_;
 
   DISALLOW_COPY_AND_ASSIGN(DirectCompositionSurfaceWin);
 };

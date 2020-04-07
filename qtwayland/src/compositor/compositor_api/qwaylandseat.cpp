@@ -60,21 +60,11 @@
 
 QT_BEGIN_NAMESPACE
 
-QWaylandSeatPrivate::QWaylandSeatPrivate(QWaylandSeat *seat)
-    : QObjectPrivate()
-    , QtWaylandServer::wl_seat()
-    , isInitialized(false)
-    , compositor(nullptr)
-    , mouseFocus(Q_NULLPTR)
-    , keyboardFocus(nullptr)
-    , capabilities()
+QWaylandSeatPrivate::QWaylandSeatPrivate(QWaylandSeat *seat) :
 #if QT_CONFIG(wayland_datadevice)
-    , data_device()
+    drag_handle(new QWaylandDrag(seat)),
 #endif
-#if QT_CONFIG(draganddrop)
-    , drag_handle(new QWaylandDrag(seat))
-#endif
-    , keymap(new QWaylandKeymap())
+    keymap(new QWaylandKeymap())
 {
 }
 
@@ -89,15 +79,15 @@ void QWaylandSeatPrivate::setCapabilities(QWaylandSeat::CapabilityFlags caps)
         QWaylandSeat::CapabilityFlags changed = caps ^ capabilities;
 
         if (changed & QWaylandSeat::Pointer) {
-            pointer.reset(pointer.isNull() ? QWaylandCompositorPrivate::get(compositor)->callCreatePointerDevice(q) : 0);
+            pointer.reset(pointer.isNull() ? QWaylandCompositorPrivate::get(compositor)->callCreatePointerDevice(q) : nullptr);
         }
 
         if (changed & QWaylandSeat::Keyboard) {
-            keyboard.reset(keyboard.isNull() ? QWaylandCompositorPrivate::get(compositor)->callCreateKeyboardDevice(q) : 0);
+            keyboard.reset(keyboard.isNull() ? QWaylandCompositorPrivate::get(compositor)->callCreateKeyboardDevice(q) : nullptr);
         }
 
         if (changed & QWaylandSeat::Touch) {
-            touch.reset(touch.isNull() ? QWaylandCompositorPrivate::get(compositor)->callCreateTouchDevice(q) : 0);
+            touch.reset(touch.isNull() ? QWaylandCompositorPrivate::get(compositor)->callCreateTouchDevice(q) : nullptr);
         }
 
         capabilities = caps;
@@ -298,7 +288,93 @@ uint QWaylandSeat::sendTouchPointEvent(QWaylandSurface *surface, int id, const Q
 }
 
 /*!
- * Sends a frame event to the touch device of a \a client.
+ * \qmlmethod uint QtWaylandCompositor::WaylandSeat::sendTouchPointPressed(WaylandSurface surface, int id, point position)
+ *
+ * Sends a touch pressed event for the touch point \a id on \a surface with
+ * position \a position.
+ *
+ * \note You need to send a touch frame event when you are done sending touch
+ * events.
+ *
+ * Returns the serial for the touch down event.
+ */
+
+/*!
+ * Sends a touch pressed event for the touch point \a id on \a surface with
+ * position \a position.
+ *
+ * \note You need to send a touch frame event when you are done sending touch
+ * events.
+ *
+ * Returns the serial for the touch down event.
+ */
+uint QWaylandSeat::sendTouchPointPressed(QWaylandSurface *surface, int id, const QPointF &position)
+{
+    return sendTouchPointEvent(surface, id, position, Qt::TouchPointPressed);
+}
+
+/*!
+ * \qmlmethod void QtWaylandCompositor::WaylandSeat::sendTouchPointReleased(WaylandSurface surface, int id, point position)
+ *
+ * Sends a touch released event for the touch point \a id on \a surface with
+ * position \a position.
+ *
+ * \note You need to send a touch frame event when you are done sending touch
+ * events.
+ *
+ * Returns the serial for the touch up event.
+ */
+
+/*!
+ * Sends a touch released event for the touch point \a id on \a surface with
+ * position \a position.
+ *
+ * \note You need to send a touch frame event when you are done sending touch
+ * events.
+ *
+ * Returns the serial for the touch up event.
+ */
+uint QWaylandSeat::sendTouchPointReleased(QWaylandSurface *surface, int id, const QPointF &position)
+{
+    return sendTouchPointEvent(surface, id, position, Qt::TouchPointReleased);
+}
+
+/*!
+ * \qmlmethod void QtWaylandCompositor::WaylandSeat::sendTouchPointMoved(WaylandSurface surface, int id, point position)
+ *
+ * Sends a touch moved event for the touch point \a id on \a surface with
+ * position \a position.
+ *
+ * \note You need to send a touch frame event when you are done sending touch
+ * events.
+ *
+ * Returns the serial for the touch motion event.
+ */
+
+/*!
+ * Sends a touch moved event for the touch point \a id on \a surface with
+ * position \a position.
+ *
+ * \note You need to send a touch frame event when you are done sending touch
+ * events.
+ *
+ * Returns the serial for the touch motion event.
+ */
+uint QWaylandSeat::sendTouchPointMoved(QWaylandSurface *surface, int id, const QPointF &position)
+{
+    return sendTouchPointEvent(surface, id, position, Qt::TouchPointMoved);
+}
+
+/*!
+ * \qmlmethod void QtWaylandCompositor::WaylandSeat::sendTouchFrameEvent(WaylandClient client)
+ *
+ * Sends a frame event to the touch device of a \a client to indicate the end
+ * of a series of touch up, down, and motion events.
+ */
+
+/*!
+ * Sends a frame event to the touch device of a \a client to indicate the end
+ * of a series of touch up, down, and motion events.
  */
 void QWaylandSeat::sendTouchFrameEvent(QWaylandClient *client)
 {
@@ -306,6 +382,12 @@ void QWaylandSeat::sendTouchFrameEvent(QWaylandClient *client)
     if (!d->touch.isNull())
         d->touch->sendFrameEvent(client);
 }
+
+/*!
+ * \qmlmethod void QtWaylandCompositor::WaylandSeat::sendTouchCancelEvent(WaylandClient client)
+ *
+ * Sends a cancel event to the touch device of a \a client.
+ */
 
 /*!
  * Sends a cancel event to the touch device of a \a client.
@@ -358,10 +440,50 @@ void QWaylandSeat::sendFullKeyEvent(QKeyEvent *event)
         return;
 
     if (!d->keyboard.isNull() && !event->isAutoRepeat()) {
+
+        uint scanCode = event->nativeScanCode();
+        if (scanCode == 0)
+            scanCode = d->keyboard->keyToScanCode(event->key());
+
+        if (scanCode == 0) {
+            qWarning() << "Can't send Wayland key event: Unable to get a valid scan code";
+            return;
+        }
+
         if (event->type() == QEvent::KeyPress)
-            d->keyboard->sendKeyPressEvent(event->nativeScanCode());
+            d->keyboard->sendKeyPressEvent(scanCode);
         else if (event->type() == QEvent::KeyRelease)
-            d->keyboard->sendKeyReleaseEvent(event->nativeScanCode());
+            d->keyboard->sendKeyReleaseEvent(scanCode);
+    }
+}
+
+/*!
+ * \qmlmethod void QtWaylandCompositor::WaylandSeat::sendKeyEvent(int qtKey, bool pressed)
+ * \since 5.12
+ *
+ * Sends a key press or release to the keyboard device.
+ */
+
+/*!
+ * Sends a key press or release to the keyboard device.
+ *
+ * \since 5.12
+ */
+void QWaylandSeat::sendKeyEvent(int qtKey, bool pressed)
+{
+    Q_D(QWaylandSeat);
+    if (!keyboardFocus()) {
+        qWarning("Cannot send Wayland key event, no keyboard focus, fix the compositor");
+        return;
+    }
+
+    if (auto scanCode = d->keyboard->keyToScanCode(qtKey)) {
+        if (pressed)
+            d->keyboard->sendKeyPressEvent(scanCode);
+        else
+            d->keyboard->sendKeyReleaseEvent(scanCode);
+    } else {
+        qWarning() << "Can't send Wayland key event: Unable to get scan code for" << Qt::Key(qtKey);
     }
 }
 
@@ -381,7 +503,7 @@ QWaylandSurface *QWaylandSeat::keyboardFocus() const
 {
     Q_D(const QWaylandSeat);
     if (d->keyboard.isNull() || !d->keyboard->focus())
-        return Q_NULLPTR;
+        return nullptr;
 
     return d->keyboard->focus();
 }
@@ -509,7 +631,9 @@ bool QWaylandSeat::isOwner(QInputEvent *inputEvent) const
  */
 QWaylandSeat *QWaylandSeat::fromSeatResource(struct ::wl_resource *resource)
 {
-    return static_cast<QWaylandSeatPrivate *>(QWaylandSeatPrivate::Resource::fromResource(resource)->seat_object)->q_func();
+    if (auto *r = QWaylandSeatPrivate::Resource::fromResource(resource))
+        return static_cast<QWaylandSeatPrivate *>(r->seat_object)->q_func();
+    return nullptr;
 }
 
 /*!

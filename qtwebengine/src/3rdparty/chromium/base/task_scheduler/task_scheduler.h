@@ -32,13 +32,11 @@ namespace content {
 class BrowserMainLoopTest_CreateThreadsInSingleProcess_Test;
 }  // namespace content
 
-namespace tracked_objects {
-class Location;
-}
-
 namespace base {
 
 class HistogramBase;
+class Location;
+class SchedulerWorkerObserver;
 
 // Interface for a task scheduler and static methods to manage the instance used
 // by the post_task.h API.
@@ -54,19 +52,31 @@ class HistogramBase;
 class BASE_EXPORT TaskScheduler {
  public:
   struct BASE_EXPORT InitParams {
+    enum class SharedWorkerPoolEnvironment {
+      // Use the default environment (no environment).
+      DEFAULT,
+#if defined(OS_WIN)
+      // Place the worker in a COM MTA.
+      COM_MTA,
+#endif  // defined(OS_WIN)
+    };
+
     InitParams(
         const SchedulerWorkerPoolParams& background_worker_pool_params_in,
         const SchedulerWorkerPoolParams&
             background_blocking_worker_pool_params_in,
         const SchedulerWorkerPoolParams& foreground_worker_pool_params_in,
         const SchedulerWorkerPoolParams&
-            foreground_blocking_worker_pool_params_in);
+            foreground_blocking_worker_pool_params_in,
+        SharedWorkerPoolEnvironment shared_worker_pool_environment_in =
+            SharedWorkerPoolEnvironment::DEFAULT);
     ~InitParams();
 
     SchedulerWorkerPoolParams background_worker_pool_params;
     SchedulerWorkerPoolParams background_blocking_worker_pool_params;
     SchedulerWorkerPoolParams foreground_worker_pool_params;
     SchedulerWorkerPoolParams foreground_blocking_worker_pool_params;
+    SharedWorkerPoolEnvironment shared_worker_pool_environment;
   };
 
   // Destroying a TaskScheduler is not allowed in production; it is always
@@ -75,16 +85,23 @@ class BASE_EXPORT TaskScheduler {
   virtual ~TaskScheduler() = default;
 
   // Allows the task scheduler to create threads and run tasks following the
-  // |init_params| specification. CHECKs on failure.
-  virtual void Start(const InitParams& init_params) = 0;
+  // |init_params| specification.
+  //
+  // If specified, |scheduler_worker_observer| will be notified when a worker
+  // enters and exits its main function. It must not be destroyed before
+  // JoinForTesting() has returned (must never be destroyed in production).
+  //
+  // CHECKs on failure.
+  virtual void Start(
+      const InitParams& init_params,
+      SchedulerWorkerObserver* scheduler_worker_observer = nullptr) = 0;
 
   // Posts |task| with a |delay| and specific |traits|. |delay| can be zero.
   // For one off tasks that don't require a TaskRunner.
-  virtual void PostDelayedTaskWithTraits(
-      const tracked_objects::Location& from_here,
-      const TaskTraits& traits,
-      OnceClosure task,
-      TimeDelta delay) = 0;
+  virtual void PostDelayedTaskWithTraits(const Location& from_here,
+                                         const TaskTraits& traits,
+                                         OnceClosure task,
+                                         TimeDelta delay) = 0;
 
   // Returns a TaskRunner whose PostTask invocations result in scheduling tasks
   // using |traits|. Tasks may run in any order and in parallel.
@@ -140,6 +157,13 @@ class BASE_EXPORT TaskScheduler {
   // other threads during the call. Returns immediately when shutdown completes.
   virtual void FlushForTesting() = 0;
 
+  // Returns and calls |flush_callback| when there are no incomplete undelayed
+  // tasks. |flush_callback| may be called back on any thread and should not
+  // perform a lot of work. May be used when additional work on the current
+  // thread needs to be performed during a flush. Only one
+  // FlushAsyncForTesting() may be pending at any given time.
+  virtual void FlushAsyncForTesting(OnceClosure flush_callback) = 0;
+
   // Joins all threads. Tasks that are already running are allowed to complete
   // their execution. This can only be called once. Using this task scheduler
   // instance to create task runners or post tasks is not permitted during or
@@ -164,23 +188,27 @@ class BASE_EXPORT TaskScheduler {
 
 #if !defined(OS_NACL)
   // Creates and starts a task scheduler using default params. |name| is used to
-  // label threads and histograms. It should identify the component that calls
-  // this. Start() is called by this method; it is invalid to call it again
-  // afterwards. CHECKs on failure. For tests, prefer
+  // label histograms, it must not be empty. It should identify the component
+  // that calls this. Start() is called by this method; it is invalid to call it
+  // again afterwards. CHECKs on failure. For tests, prefer
   // base::test::ScopedTaskEnvironment (ensures isolation).
   static void CreateAndStartWithDefaultParams(StringPiece name);
+
+  // Same as CreateAndStartWithDefaultParams() but allows callers to split the
+  // Create() and StartWithDefaultParams() calls.
+  void StartWithDefaultParams();
 #endif  // !defined(OS_NACL)
 
-  // Creates a ready to start task scheduler. |name| is used to label threads
-  // and histograms. It should identify the component that creates the
-  // TaskScheduler. The task scheduler doesn't create threads until Start() is
-  // called. Tasks can be posted at any time but will not run until after
-  // Start() is called. For tests, prefer base::test::ScopedTaskEnvironment
-  // (ensures isolation).
+  // Creates a ready to start task scheduler. |name| is used to label
+  // histograms, it must not be empty. It should identify the component that
+  // creates the TaskScheduler. The task scheduler doesn't create threads until
+  // Start() is called. Tasks can be posted at any time but will not run until
+  // after Start() is called. For tests, prefer
+  // base::test::ScopedTaskEnvironment (ensures isolation).
   static void Create(StringPiece name);
 
   // Registers |task_scheduler| to handle tasks posted through the post_task.h
-  // API for this process. For tests, prefer base::test::ScopedTaskScheduler
+  // API for this process. For tests, prefer base::test::ScopedTaskEnvironment
   // (ensures isolation).
   static void SetInstance(std::unique_ptr<TaskScheduler> task_scheduler);
 
@@ -201,15 +229,17 @@ class BASE_EXPORT TaskScheduler {
   friend class gin::V8Platform;
   friend class content::BrowserMainLoopTest_CreateThreadsInSingleProcess_Test;
 
-  // Returns the maximum number of non-single-threaded tasks posted with
-  // |traits| that can run concurrently in this TaskScheduler.
+  // Returns the maximum number of non-single-threaded non-blocked tasks posted
+  // with |traits| that can run concurrently in this TaskScheduler. |traits|
+  // can't contain TaskPriority::BACKGROUND.
   //
   // Do not use this method. To process n items, post n tasks that each process
-  // 1 item rather than GetMaxConcurrentTasksWithTraitsDeprecated() tasks that
-  // each process n/GetMaxConcurrentTasksWithTraitsDeprecated() items.
+  // 1 item rather than GetMaxConcurrentNonBlockedTasksWithTraitsDeprecated()
+  // tasks that each process
+  // n/GetMaxConcurrentNonBlockedTasksWithTraitsDeprecated() items.
   //
   // TODO(fdoray): Remove this method. https://crbug.com/687264
-  virtual int GetMaxConcurrentTasksWithTraitsDeprecated(
+  virtual int GetMaxConcurrentNonBlockedTasksWithTraitsDeprecated(
       const TaskTraits& traits) const = 0;
 };
 

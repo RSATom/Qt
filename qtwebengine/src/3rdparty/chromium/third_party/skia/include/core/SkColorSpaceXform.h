@@ -8,6 +8,7 @@
 #ifndef SkColorSpaceXform_DEFINED
 #define SkColorSpaceXform_DEFINED
 
+#include "../private/SkNoncopyable.h"
 #include "SkImageInfo.h"
 
 class SkColorSpace;
@@ -55,8 +56,8 @@ public:
      *                        kOpaque   optimization hint, |dst| alphas set to 1
      *
      */
-    bool apply(ColorFormat dstFormat, void* dst, ColorFormat srcFormat, const void* src, int count,
-               SkAlphaType alphaType) const;
+    virtual bool apply(ColorFormat dstFormat, void* dst, ColorFormat srcFormat, const void* src,
+                       int count, SkAlphaType alphaType) const = 0;
 
     virtual ~SkColorSpaceXform() {}
 

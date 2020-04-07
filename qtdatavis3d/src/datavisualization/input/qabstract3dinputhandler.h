@@ -58,7 +58,7 @@ public:
     };
 
 protected:
-    explicit QAbstract3DInputHandler(QObject *parent = Q_NULLPTR);
+    explicit QAbstract3DInputHandler(QObject *parent = nullptr);
 public:
     virtual ~QAbstract3DInputHandler();
 

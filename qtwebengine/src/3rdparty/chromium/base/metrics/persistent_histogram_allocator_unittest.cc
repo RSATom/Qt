@@ -34,7 +34,6 @@ class PersistentHistogramAllocatorTest : public testing::Test {
 
     GlobalHistogramAllocator::ReleaseForTesting();
     memset(allocator_memory_.get(), 0, kAllocatorMemorySize);
-    GlobalHistogramAllocator::GetCreateHistogramResultHistogram();
     GlobalHistogramAllocator::CreateWithPersistentMemory(
         allocator_memory_.get(), kAllocatorMemorySize, 0, 0,
         "PersistentHistogramAllocatorTest");
@@ -104,8 +103,9 @@ TEST_F(PersistentHistogramAllocatorTest, CreateAndIterate) {
 
   // Create a second allocator and have it access the memory of the first.
   std::unique_ptr<HistogramBase> recovered;
-  PersistentHistogramAllocator recovery(MakeUnique<PersistentMemoryAllocator>(
-      allocator_memory_.get(), kAllocatorMemorySize, 0, 0, "", false));
+  PersistentHistogramAllocator recovery(
+      std::make_unique<PersistentMemoryAllocator>(
+          allocator_memory_.get(), kAllocatorMemorySize, 0, 0, "", false));
   PersistentHistogramAllocator::Iterator histogram_iter(&recovery);
 
   recovered = histogram_iter.GetNext();
@@ -126,6 +126,34 @@ TEST_F(PersistentHistogramAllocatorTest, CreateAndIterate) {
 
   recovered = histogram_iter.GetNext();
   EXPECT_FALSE(recovered);
+}
+
+TEST_F(PersistentHistogramAllocatorTest, ConstructPaths) {
+  const FilePath dir_path(FILE_PATH_LITERAL("foo/"));
+  const std::string dir_string =
+      dir_path.NormalizePathSeparators().AsUTF8Unsafe();
+
+  FilePath path = GlobalHistogramAllocator::ConstructFilePath(dir_path, "bar");
+  EXPECT_EQ(dir_string + "bar.pma", path.AsUTF8Unsafe());
+
+  std::string name;
+  Time stamp;
+  ProcessId pid;
+  EXPECT_FALSE(
+      GlobalHistogramAllocator::ParseFilePath(path, &name, nullptr, nullptr));
+  EXPECT_FALSE(
+      GlobalHistogramAllocator::ParseFilePath(path, nullptr, &stamp, nullptr));
+  EXPECT_FALSE(
+      GlobalHistogramAllocator::ParseFilePath(path, nullptr, nullptr, &pid));
+
+  path = GlobalHistogramAllocator::ConstructFilePathForUploadDir(
+      dir_path, "bar", Time::FromTimeT(12345), 6789);
+  EXPECT_EQ(dir_string + "bar-3039-1A85.pma", path.AsUTF8Unsafe());
+  ASSERT_TRUE(
+      GlobalHistogramAllocator::ParseFilePath(path, &name, &stamp, &pid));
+  EXPECT_EQ(name, "bar");
+  EXPECT_EQ(Time::FromTimeT(12345), stamp);
+  EXPECT_EQ(static_cast<ProcessId>(6789), pid);
 }
 
 TEST_F(PersistentHistogramAllocatorTest, CreateWithFile) {
@@ -228,9 +256,10 @@ TEST_F(PersistentHistogramAllocatorTest, StatisticsRecorderMerge) {
   GlobalHistogramAllocator::Set(std::move(old_allocator));
 
   // Create a "recovery" allocator using the same memory as the local one.
-  PersistentHistogramAllocator recovery1(MakeUnique<PersistentMemoryAllocator>(
-      const_cast<void*>(new_allocator->memory_allocator()->data()),
-      new_allocator->memory_allocator()->size(), 0, 0, "", false));
+  PersistentHistogramAllocator recovery1(
+      std::make_unique<PersistentMemoryAllocator>(
+          const_cast<void*>(new_allocator->memory_allocator()->data()),
+          new_allocator->memory_allocator()->size(), 0, 0, "", false));
   PersistentHistogramAllocator::Iterator histogram_iter1(&recovery1);
 
   // Get the histograms that were created locally (and forgotten) and merge
@@ -274,9 +303,10 @@ TEST_F(PersistentHistogramAllocatorTest, StatisticsRecorderMerge) {
   histogram2->Add(7);
 
   // Do another merge.
-  PersistentHistogramAllocator recovery2(MakeUnique<PersistentMemoryAllocator>(
-      const_cast<void*>(new_allocator->memory_allocator()->data()),
-      new_allocator->memory_allocator()->size(), 0, 0, "", false));
+  PersistentHistogramAllocator recovery2(
+      std::make_unique<PersistentMemoryAllocator>(
+          const_cast<void*>(new_allocator->memory_allocator()->data()),
+          new_allocator->memory_allocator()->size(), 0, 0, "", false));
   PersistentHistogramAllocator::Iterator histogram_iter2(&recovery2);
   while (true) {
     recovered = histogram_iter2.GetNext();

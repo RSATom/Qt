@@ -34,8 +34,8 @@
 **
 ****************************************************************************/
 
-#ifndef QGAMEPADBACKEND_H
-#define QGAMEPADBACKEND_H
+#ifndef QGAMEPADBACKEND_P_H
+#define QGAMEPADBACKEND_P_H
 
 //
 //  W A R N I N G
@@ -102,6 +102,7 @@ Q_SIGNALS:
     void axisConfigured(int deviceId, QGamepadManager::GamepadAxis axis);
     void configurationCanceled(int deviceId);
     void gamepadAdded(int deviceId);
+    void gamepadNamed(int deviceId, const QString &name);
     void gamepadRemoved(int deviceId);
     void gamepadAxisMoved(int deviceId, QGamepadManager::GamepadAxis axis, double value);
     void gamepadButtonPressed(int deviceId, QGamepadManager::GamepadButton button, double value);
@@ -113,4 +114,4 @@ protected:
 
 QT_END_NAMESPACE
 
-#endif // QGAMEPADBACKEND_H
+#endif // QGAMEPADBACKEND_P_H

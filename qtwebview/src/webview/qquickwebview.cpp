@@ -76,7 +76,7 @@ Q_GLOBAL_STATIC(CallbackStorage, callbacks)
     \qmltype WebView
     \inqmlmodule QtWebView
     \ingroup qtwebview
-    \brief A component for displaying web content
+    \brief A component for displaying web content.
 
     WebView is a component for displaying web content which is implemented using native
     APIs on the platforms where this is available, thus it does not necessarily require

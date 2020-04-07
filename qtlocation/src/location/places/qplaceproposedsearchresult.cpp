@@ -63,7 +63,7 @@ bool QPlaceProposedSearchResultPrivate::compare(const QPlaceSearchResultPrivate 
     \inmodule QtLocation
     \ingroup QtLocation-places
     \ingroup QtLocation-places-data
-    \since Qt Location 5.2
+    \since QtLocation 5.2
 
     \brief The QPlaceProposedSearchResult class represents a search result containing a proposed search.
 

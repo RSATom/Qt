@@ -25,13 +25,6 @@ enabled decoders.
 A description of some of the currently available video decoders
 follows.
 
-@section hevc
-
-HEVC / H.265 decoder.
-
-Note: the @option{skip_loop_filter} option has effect only at level
-@code{all}.
-
 @section rawvideo
 
 Raw video decoder.
@@ -109,7 +102,7 @@ correctly by using lavc's old buggy lpc logic for decoding.
 
 @section ffwavesynth
 
-Internal wave synthetizer.
+Internal wave synthesizer.
 
 This decoder generates wave patterns according to predefined sequences. Its
 use is purely internal and the format of the data it accepts is not publicly
@@ -255,8 +248,9 @@ configuration. You need to explicitly configure the build with
 
 @table @option
 @item txt_page
-List of teletext page numbers to decode. You may use the special * string to
-match all pages. Pages that do not match the specified list are dropped.
+List of teletext page numbers to decode. Pages that do not match the specified
+list are dropped. You may use the special @code{*} string to match all pages,
+or @code{subtitle} to match all subtitle pages.
 Default value is *.
 @item txt_chop_top
 Discards the top teletext line. Default value is 1.
@@ -275,11 +269,12 @@ Y offset of generated bitmaps, default is 0.
 Chops leading and trailing spaces and removes empty lines from the generated
 text. This option is useful for teletext based subtitles where empty spaces may
 be present at the start or at the end of the lines or empty lines may be
-present between the subtitle lines because of double-sized teletext charactes.
+present between the subtitle lines because of double-sized teletext characters.
 Default value is 1.
 @item txt_duration
 Sets the display duration of the decoded teletext pages or subtitles in
-milliseconds. Default value is 30000 which is 30 seconds.
+milliseconds. Default value is -1 which means infinity or until the next
+subtitle event comes.
 @item txt_transparent
 Force transparent background of the generated teletext bitmaps. Default value
 is 0 which means an opaque background.

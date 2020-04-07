@@ -45,7 +45,7 @@
 #include <QtQuickTemplates2/private/qquickapplicationwindow_p.h>
 #include <QtQuickTemplates2/private/qquickcontrol_p.h>
 #include <QtQuickTemplates2/private/qquickpopup_p.h>
-#include <QtQuickControls2/private/qquickproxytheme_p.h>
+#include <QtQuickTemplates2/private/qquicktheme_p_p.h>
 
 using namespace QQuickVisualTestUtil;
 
@@ -54,6 +54,8 @@ class tst_font : public QQmlDataTest
     Q_OBJECT
 
 private slots:
+    void systemFont();
+
     void font_data();
     void font();
 
@@ -66,6 +68,42 @@ private slots:
     void listView_data();
     void listView();
 };
+
+static QFont testFont()
+{
+    QQmlEngine engine;
+    QQmlComponent component(&engine);
+    component.setData("import QtQuick 2.0; import QtQuick.Controls 2.0; Text { }", QUrl());
+
+    QScopedPointer<QObject> object(component.create());
+    Q_ASSERT_X(!object.isNull(), "testFont", qPrintable(component.errorString()));
+
+    QVariant var = object->property("font");
+    Q_ASSERT_X(var.isValid(), "testFont", var.typeName());
+    return var.value<QFont>();
+}
+
+void tst_font::systemFont()
+{
+    QSKIP("QTBUG-70063: qmlClearTypeRegistrations() call causes crash");
+
+    const QFont *originalSystemFont = QGuiApplicationPrivate::platformTheme()->font(QPlatformTheme::SystemFont);
+    if (!originalSystemFont)
+        QSKIP("Cannot test the system font on a minimal platform");
+
+    const QFont fontBefore = testFont();
+    QCOMPARE(fontBefore, *originalSystemFont);
+
+    qmlClearTypeRegistrations();
+    delete QGuiApplicationPrivate::app_font;
+    QGuiApplicationPrivate::app_font = nullptr;
+
+    const QFont appFont = QGuiApplication::font();
+    QCOMPARE(appFont, *originalSystemFont);
+
+    const QFont fontAfter = testFont();
+    QCOMPARE(fontAfter, *originalSystemFont);
+}
 
 void tst_font::font_data()
 {
@@ -94,6 +132,11 @@ void tst_font::font()
 {
     QFETCH(QString, testFile);
     QFETCH(QFont, expectedFont);
+
+    if (QSysInfo::productType().compare(QLatin1String("osx"), Qt::CaseInsensitive) == 0
+            && qgetenv("QTEST_ENVIRONMENT").split(' ').contains("CI")) {
+        QSKIP("This test crashes on macOS: QTBUG-70063");
+    }
 
     QQmlEngine engine;
     QQmlComponent component(&engine);
@@ -181,95 +224,85 @@ void tst_font::inheritance()
     QCOMPARE(grandChild->property("font").value<QFont>(), windowFont);
 }
 
-class TestFontTheme : public QQuickProxyTheme
+class TestFontTheme : public QQuickTheme
 {
 public:
-    TestFontTheme(QPlatformTheme *theme) : QQuickProxyTheme(theme)
-    {
-        std::fill(fonts, fonts + QPlatformTheme::NFonts, static_cast<QFont *>(0));
+    static const int NFonts = QQuickTheme::Tumbler + 1;
 
-        for (int i = QPlatformTheme::SystemFont; i < QPlatformTheme::NFonts; ++i) {
+    TestFontTheme()
+    {
+        for (int i = 0; i < NFonts; ++i) {
             QFont font = QFont();
             font.setPixelSize(i + 10);
-            fonts[i] = new QFont(font);
+            setFont(static_cast<Scope>(i), font);
         }
-
-        QGuiApplicationPrivate::platform_theme = this;
     }
-
-    const QFont *font(Font type = SystemFont) const override
-    {
-        return fonts[type];
-    }
-
-private:
-    QFont *fonts[QPlatformTheme::NFonts];
 };
 
-Q_DECLARE_METATYPE(QPlatformTheme::Font)
+Q_DECLARE_METATYPE(QQuickTheme::Scope)
 
 void tst_font::defaultFont_data()
 {
     QTest::addColumn<QString>("control");
-    QTest::addColumn<QPlatformTheme::Font>("fontType");
+    QTest::addColumn<QQuickTheme::Scope>("scope");
 
-    QTest::newRow("AbstractButton") << "AbstractButton" << QPlatformTheme::SystemFont;
-    QTest::newRow("ApplicationWindow") << "ApplicationWindow" << QPlatformTheme::SystemFont;
-    QTest::newRow("Button") << "Button" << QPlatformTheme::PushButtonFont;
-    QTest::newRow("CheckBox") << "CheckBox" << QPlatformTheme::CheckBoxFont;
-    QTest::newRow("CheckDelegate") << "CheckDelegate" << QPlatformTheme::ListViewFont;
-    QTest::newRow("ComboBox") << "ComboBox" << QPlatformTheme::ComboMenuItemFont;
-    QTest::newRow("Container") << "Container" << QPlatformTheme::SystemFont;
-    QTest::newRow("Control") << "Control" << QPlatformTheme::SystemFont;
-    QTest::newRow("Dial") << "Dial" << QPlatformTheme::SystemFont;
-    QTest::newRow("Dialog") << "Dialog" << QPlatformTheme::SystemFont;
-    QTest::newRow("DialogButtonBox") << "DialogButtonBox" << QPlatformTheme::SystemFont;
-    QTest::newRow("Drawer") << "Drawer" << QPlatformTheme::SystemFont;
-    QTest::newRow("Frame") << "Frame" << QPlatformTheme::SystemFont;
-    QTest::newRow("GroupBox") << "GroupBox" << QPlatformTheme::GroupBoxTitleFont;
-    QTest::newRow("ItemDelegate") << "ItemDelegate" << QPlatformTheme::ItemViewFont;
-    QTest::newRow("Label") << "Label" << QPlatformTheme::LabelFont;
-    QTest::newRow("Menu") << "Menu" << QPlatformTheme::MenuFont;
-    QTest::newRow("MenuItem") << "MenuItem" << QPlatformTheme::MenuItemFont;
-    QTest::newRow("MenuSeparator") << "MenuSeparator" << QPlatformTheme::SystemFont;
-    QTest::newRow("Page") << "Page" << QPlatformTheme::SystemFont;
-    QTest::newRow("Pane") << "Pane" << QPlatformTheme::SystemFont;
-    QTest::newRow("Popup") << "Popup" << QPlatformTheme::SystemFont;
-    QTest::newRow("ProgressBar") << "ProgressBar" << QPlatformTheme::SystemFont;
-    QTest::newRow("RadioButton") << "RadioButton" << QPlatformTheme::RadioButtonFont;
-    QTest::newRow("RadioDelegate") << "RadioDelegate" << QPlatformTheme::ListViewFont;
-    QTest::newRow("RangeSlider") << "RangeSlider" << QPlatformTheme::SystemFont;
-    QTest::newRow("RoundButton") << "RoundButton" << QPlatformTheme::PushButtonFont;
-    QTest::newRow("ScrollBar") << "ScrollBar" << QPlatformTheme::SystemFont;
-    QTest::newRow("ScrollIndicator") << "ScrollIndicator" << QPlatformTheme::SystemFont;
-    QTest::newRow("Slider") << "Slider" << QPlatformTheme::SystemFont;
-    QTest::newRow("SpinBox") << "SpinBox" << QPlatformTheme::EditorFont;
-    QTest::newRow("SwipeDelegate") << "SwipeDelegate" << QPlatformTheme::ListViewFont;
-    QTest::newRow("Switch") << "Switch" << QPlatformTheme::SystemFont; // ### TODO: add QPlatformTheme::SwitchFont
-    QTest::newRow("SwitchDelegate") << "SwitchDelegate" << QPlatformTheme::ListViewFont;
-    QTest::newRow("TabBar") << "TabBar" << QPlatformTheme::SystemFont;
-    QTest::newRow("TabButton") << "TabButton" << QPlatformTheme::TabButtonFont;
-    QTest::newRow("TextArea") << "TextArea" << QPlatformTheme::EditorFont;
-    QTest::newRow("TextField") << "TextField" << QPlatformTheme::EditorFont;
-    QTest::newRow("ToolBar") << "ToolBar" << QPlatformTheme::SystemFont;
-    QTest::newRow("ToolButton") << "ToolButton" << QPlatformTheme::ToolButtonFont;
-    QTest::newRow("ToolSeparator") << "ToolSeparator" << QPlatformTheme::SystemFont;
-    QTest::newRow("ToolTip") << "ToolTip" << QPlatformTheme::TipLabelFont;
-    QTest::newRow("Tumbler") << "Tumbler" << QPlatformTheme::ItemViewFont;
+    QTest::newRow("AbstractButton") << "AbstractButton" << QQuickTheme::System;
+    QTest::newRow("ApplicationWindow") << "ApplicationWindow" << QQuickTheme::System;
+    QTest::newRow("Button") << "Button" << QQuickTheme::Button;
+    QTest::newRow("CheckBox") << "CheckBox" << QQuickTheme::CheckBox;
+    QTest::newRow("CheckDelegate") << "CheckDelegate" << QQuickTheme::ListView;
+    QTest::newRow("ComboBox") << "ComboBox" << QQuickTheme::ComboBox;
+    QTest::newRow("Container") << "Container" << QQuickTheme::System;
+    QTest::newRow("Control") << "Control" << QQuickTheme::System;
+    QTest::newRow("Dial") << "Dial" << QQuickTheme::System;
+    QTest::newRow("Dialog") << "Dialog" << QQuickTheme::System;
+    QTest::newRow("DialogButtonBox") << "DialogButtonBox" << QQuickTheme::System;
+    QTest::newRow("Drawer") << "Drawer" << QQuickTheme::System;
+    QTest::newRow("Frame") << "Frame" << QQuickTheme::System;
+    QTest::newRow("GroupBox") << "GroupBox" << QQuickTheme::GroupBox;
+    QTest::newRow("ItemDelegate") << "ItemDelegate" << QQuickTheme::ItemView;
+    QTest::newRow("Label") << "Label" << QQuickTheme::Label;
+    QTest::newRow("Menu") << "Menu" << QQuickTheme::Menu;
+    QTest::newRow("MenuItem") << "MenuItem" << QQuickTheme::Menu;
+    QTest::newRow("MenuSeparator") << "MenuSeparator" << QQuickTheme::Menu;
+    QTest::newRow("Page") << "Page" << QQuickTheme::System;
+    QTest::newRow("Pane") << "Pane" << QQuickTheme::System;
+    QTest::newRow("Popup") << "Popup" << QQuickTheme::System;
+    QTest::newRow("ProgressBar") << "ProgressBar" << QQuickTheme::System;
+    QTest::newRow("RadioButton") << "RadioButton" << QQuickTheme::RadioButton;
+    QTest::newRow("RadioDelegate") << "RadioDelegate" << QQuickTheme::ListView;
+    QTest::newRow("RangeSlider") << "RangeSlider" << QQuickTheme::System;
+    QTest::newRow("RoundButton") << "RoundButton" << QQuickTheme::Button;
+    QTest::newRow("ScrollBar") << "ScrollBar" << QQuickTheme::System;
+    QTest::newRow("ScrollIndicator") << "ScrollIndicator" << QQuickTheme::System;
+    QTest::newRow("Slider") << "Slider" << QQuickTheme::System;
+    QTest::newRow("SpinBox") << "SpinBox" << QQuickTheme::SpinBox;
+    QTest::newRow("SwipeDelegate") << "SwipeDelegate" << QQuickTheme::ListView;
+    QTest::newRow("Switch") << "Switch" << QQuickTheme::Switch;
+    QTest::newRow("SwitchDelegate") << "SwitchDelegate" << QQuickTheme::ListView;
+    QTest::newRow("TabBar") << "TabBar" << QQuickTheme::TabBar;
+    QTest::newRow("TabButton") << "TabButton" << QQuickTheme::TabBar;
+    QTest::newRow("TextArea") << "TextArea" << QQuickTheme::TextArea;
+    QTest::newRow("TextField") << "TextField" << QQuickTheme::TextField;
+    QTest::newRow("ToolBar") << "ToolBar" << QQuickTheme::ToolBar;
+    QTest::newRow("ToolButton") << "ToolButton" << QQuickTheme::ToolBar;
+    QTest::newRow("ToolSeparator") << "ToolSeparator" << QQuickTheme::ToolBar;
+    QTest::newRow("ToolTip") << "ToolTip" << QQuickTheme::ToolTip;
+    QTest::newRow("Tumbler") << "Tumbler" << QQuickTheme::Tumbler;
 }
 
 void tst_font::defaultFont()
 {
     QFETCH(QString, control);
-    QFETCH(QPlatformTheme::Font, fontType);
+    QFETCH(QQuickTheme::Scope, scope);
 
     QQmlEngine engine;
     QQmlComponent component(&engine);
     component.setData(QString("import QtQuick.Controls 2.2; %1 { }").arg(control).toUtf8(), QUrl());
 
-    // The call to setData() above causes QQuickDefaultTheme to be set as the platform theme,
+    // The call to setData() above causes QQuickDefaultTheme to be set as the current theme,
     // so we must make sure we only set our theme afterwards.
-    TestFontTheme theme(QGuiApplicationPrivate::platform_theme);
+    QQuickThemePrivate::instance.reset(new TestFontTheme);
 
     QScopedPointer<QObject> object(component.create());
     QVERIFY2(!object.isNull(), qPrintable(component.errorString()));
@@ -277,16 +310,9 @@ void tst_font::defaultFont()
     QVariant var = object->property("font");
     QVERIFY(var.isValid());
 
-    const QFont *expectedFont = theme.font(fontType);
-    QVERIFY(expectedFont);
-
+    QFont expectedFont = QQuickTheme::font(scope);
     QFont actualFont = var.value<QFont>();
-
-    if (actualFont != *expectedFont) {
-        qDebug() << QTest::currentDataTag() << actualFont << *expectedFont;
-    }
-
-    QCOMPARE(actualFont, *expectedFont);
+    QCOMPARE(actualFont, expectedFont);
 }
 
 void tst_font::listView_data()

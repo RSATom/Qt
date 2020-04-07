@@ -8,6 +8,8 @@
 
 #include <limits>
 
+#include "net/third_party/quic/platform/api/quic_endian.h"
+#include "net/third_party/spdy/core/spdy_alt_svc_wire_format.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace net {
@@ -33,6 +35,42 @@ TEST(QuicHttpUtilsTest, ConvertQuicPriorityToRequestPriority) {
   for (int i = 5; i < std::numeric_limits<uint8_t>::max(); ++i) {
     EXPECT_EQ(IDLE, ConvertQuicPriorityToRequestPriority(i));
   }
+}
+
+TEST(QuicHttpUtilsTest, FilterSupportedAltSvcVersions) {
+  quic::QuicTransportVersionVector supported_versions = {
+      quic::QUIC_VERSION_35, quic::QUIC_VERSION_39, quic::QUIC_VERSION_41};
+
+  std::vector<uint32_t> alt_svc_versions_google = {quic::QUIC_VERSION_41,
+                                                   quic::QUIC_VERSION_42};
+  std::vector<uint32_t> alt_svc_versions_ietf = {
+      QuicVersionToQuicVersionLabel(quic::QUIC_VERSION_41),
+      QuicVersionToQuicVersionLabel(quic::QUIC_VERSION_42)};
+
+  quic::QuicTransportVersionVector supported_alt_svc_versions = {
+      quic::QUIC_VERSION_41};
+  spdy::SpdyAltSvcWireFormat::AlternativeService altsvc;
+
+  altsvc.protocol_id = "quic";
+  altsvc.version = alt_svc_versions_google;
+  EXPECT_EQ(supported_alt_svc_versions,
+            FilterSupportedAltSvcVersions(altsvc, supported_versions, true));
+  EXPECT_EQ(supported_alt_svc_versions,
+            FilterSupportedAltSvcVersions(altsvc, supported_versions, false));
+
+  altsvc.protocol_id = "hq";
+  altsvc.version = alt_svc_versions_ietf;
+  EXPECT_EQ(supported_alt_svc_versions,
+            FilterSupportedAltSvcVersions(altsvc, supported_versions, true));
+  EXPECT_EQ(quic::QuicTransportVersionVector(),
+            FilterSupportedAltSvcVersions(altsvc, supported_versions, false));
+
+  altsvc.protocol_id = "invalid_protocol";
+  altsvc.version = alt_svc_versions_ietf;
+  EXPECT_EQ(quic::QuicTransportVersionVector(),
+            FilterSupportedAltSvcVersions(altsvc, supported_versions, true));
+  EXPECT_EQ(quic::QuicTransportVersionVector(),
+            FilterSupportedAltSvcVersions(altsvc, supported_versions, false));
 }
 
 }  // namespace test

@@ -4,6 +4,7 @@
 
 #include "components/browsing_data/core/browsing_data_utils.h"
 
+#include "base/macros.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/metrics/user_metrics.h"
 #include "components/browsing_data/core/counters/autofill_counter.h"
@@ -33,6 +34,7 @@ base::Time CalculateBeginDeleteTime(TimePeriod time_period) {
       diff = base::TimeDelta::FromHours(4 * 7 * 24);
       break;
     case TimePeriod::ALL_TIME:
+    case TimePeriod::OLDER_THAN_30_DAYS:
       delete_begin_time = base::Time();
       break;
   }
@@ -40,7 +42,9 @@ base::Time CalculateBeginDeleteTime(TimePeriod time_period) {
 }
 
 base::Time CalculateEndDeleteTime(TimePeriod time_period) {
-  // No TimePeriod currently supports the second time bound.
+  if (time_period == TimePeriod::OLDER_THAN_30_DAYS) {
+    return base::Time::Now() - base::TimeDelta::FromDays(30);
+  }
   return base::Time::Max();
 }
 
@@ -62,6 +66,10 @@ void RecordDeletionForPeriod(TimePeriod period) {
     case TimePeriod::ALL_TIME:
       base::RecordAction(
           base::UserMetricsAction("ClearBrowsingData_Everything"));
+      break;
+    case TimePeriod::OLDER_THAN_30_DAYS:
+      base::RecordAction(
+          base::UserMetricsAction("ClearBrowsingData_OlderThan30Days"));
       break;
   }
 }
@@ -87,6 +95,10 @@ void RecordTimePeriodChange(TimePeriod period) {
     case TimePeriod::ALL_TIME:
       base::RecordAction(base::UserMetricsAction(
           "ClearBrowsingData_TimePeriodChanged_Everything"));
+      break;
+    case TimePeriod::OLDER_THAN_30_DAYS:
+      base::RecordAction(base::UserMetricsAction(
+          "ClearBrowsingData_TimePeriodChanged_OlderThan30Days"));
       break;
   }
 }
@@ -231,8 +243,16 @@ bool GetDeletionPreferenceFromDataType(
       case BrowsingDataType::COOKIES:
         *out_pref = prefs::kDeleteCookiesBasic;
         return true;
-      default:
-        // This is not a valid type for the basic tab.
+      case BrowsingDataType::PASSWORDS:
+      case BrowsingDataType::FORM_DATA:
+      case BrowsingDataType::BOOKMARKS:
+      case BrowsingDataType::SITE_SETTINGS:
+      case BrowsingDataType::DOWNLOADS:
+      case BrowsingDataType::MEDIA_LICENSES:
+      case BrowsingDataType::HOSTED_APPS_DATA:
+        return false;  // No corresponding preference on basic tab.
+      case BrowsingDataType::NUM_TYPES:
+        // This is not an actual type.
         NOTREACHED();
         return false;
     }
@@ -255,32 +275,54 @@ bool GetDeletionPreferenceFromDataType(
       return true;
     case BrowsingDataType::BOOKMARKS:
       // Bookmarks are deleted on the Android side. No corresponding deletion
-      // preference.
+      // preference. Not implemented on Desktop.
       return false;
     case BrowsingDataType::SITE_SETTINGS:
       *out_pref = prefs::kDeleteSiteSettings;
       return true;
+    case BrowsingDataType::DOWNLOADS:
+      *out_pref = prefs::kDeleteDownloadHistory;
+      return true;
+    case BrowsingDataType::MEDIA_LICENSES:
+      *out_pref = prefs::kDeleteMediaLicenses;
+      return true;
+    case BrowsingDataType::HOSTED_APPS_DATA:
+      *out_pref = prefs::kDeleteHostedAppsData;
+      return true;
     case BrowsingDataType::NUM_TYPES:
-      // This is not an actual type.
-      NOTREACHED();
+      NOTREACHED();  // This is not an actual type.
       return false;
   }
   NOTREACHED();
   return false;
 }
 
-void MigratePreferencesToBasic(PrefService* prefs) {
-  if (!prefs->GetBoolean(prefs::kPreferencesMigratedToBasic)) {
-    prefs->SetBoolean(prefs::kDeleteBrowsingHistoryBasic,
-                      prefs->GetBoolean(prefs::kDeleteBrowsingHistory));
-    prefs->SetBoolean(prefs::kDeleteCacheBasic,
-                      prefs->GetBoolean(prefs::kDeleteCache));
-    prefs->SetBoolean(prefs::kDeleteCookiesBasic,
-                      prefs->GetBoolean(prefs::kDeleteCookies));
-    prefs->SetInteger(prefs::kDeleteTimePeriodBasic,
-                      prefs->GetInteger(prefs::kDeleteTimePeriod));
-    prefs->SetBoolean(prefs::kPreferencesMigratedToBasic, true);
-  }
+BrowsingDataType GetDataTypeFromDeletionPreference(
+    const std::string& pref_name) {
+  using DataTypeMap = base::flat_map<std::string, BrowsingDataType>;
+  CR_DEFINE_STATIC_LOCAL(
+      DataTypeMap, preference_to_datatype,
+      (
+          {
+              {prefs::kDeleteBrowsingHistory, BrowsingDataType::HISTORY},
+              {prefs::kDeleteBrowsingHistoryBasic, BrowsingDataType::HISTORY},
+              {prefs::kDeleteCache, BrowsingDataType::CACHE},
+              {prefs::kDeleteCacheBasic, BrowsingDataType::CACHE},
+              {prefs::kDeleteCookies, BrowsingDataType::COOKIES},
+              {prefs::kDeleteCookiesBasic, BrowsingDataType::COOKIES},
+              {prefs::kDeletePasswords, BrowsingDataType::PASSWORDS},
+              {prefs::kDeleteFormData, BrowsingDataType::FORM_DATA},
+              {prefs::kDeleteSiteSettings, BrowsingDataType::SITE_SETTINGS},
+              {prefs::kDeleteDownloadHistory, BrowsingDataType::DOWNLOADS},
+              {prefs::kDeleteMediaLicenses, BrowsingDataType::MEDIA_LICENSES},
+              {prefs::kDeleteHostedAppsData,
+               BrowsingDataType::HOSTED_APPS_DATA},
+          },
+          base::KEEP_FIRST_OF_DUPES));
+
+  auto iter = preference_to_datatype.find(pref_name);
+  DCHECK(iter != preference_to_datatype.end());
+  return iter->second;
 }
 
 }  // namespace browsing_data

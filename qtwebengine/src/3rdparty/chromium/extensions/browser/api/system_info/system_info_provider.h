@@ -5,13 +5,15 @@
 #ifndef EXTENSIONS_BROWSER_API_SYSTEM_INFO_SYSTEM_INFO_PROVIDER_H_
 #define EXTENSIONS_BROWSER_API_SYSTEM_INFO_SYSTEM_INFO_PROVIDER_H_
 
-#include <queue>
-
 #include "base/bind.h"
 #include "base/callback.h"
+#include "base/containers/queue.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "base/threading/sequenced_worker_pool.h"
+
+namespace base {
+class SequencedTaskRunner;
+}
 
 namespace extensions {
 
@@ -36,8 +38,8 @@ class SystemInfoProvider
   // Callback type for completing to get information. The argument indicates
   // whether its contents are valid, for example, no error occurs in querying
   // the information.
-  typedef base::Callback<void(bool)> QueryInfoCompletionCallback;
-  typedef std::queue<QueryInfoCompletionCallback> CallbackQueue;
+  using QueryInfoCompletionCallback = base::Callback<void(bool)>;
+  using CallbackQueue = base::queue<QueryInfoCompletionCallback>;
 
   SystemInfoProvider();
 
@@ -87,9 +89,8 @@ class SystemInfoProvider
   // Indicates if it is waiting for the querying completion.
   bool is_waiting_for_completion_;
 
-  // Sequenced worker pool to make the operation of querying information get
-  // executed in order.
-  scoped_refptr<base::SequencedTaskRunner> worker_pool_;
+  // Sequenced task runner to safely query system information.
+  scoped_refptr<base::SequencedTaskRunner> task_runner_;
 
   DISALLOW_COPY_AND_ASSIGN(SystemInfoProvider);
 };

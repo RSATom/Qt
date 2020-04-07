@@ -71,12 +71,12 @@ Q_SIGNALS:
     void geometryChanged();
 
 protected:
-    void mousePressEvent(QMouseEvent *) Q_DECL_OVERRIDE;
-    void mouseReleaseEvent(QMouseEvent *) Q_DECL_OVERRIDE;
-    void mouseMoveEvent(QMouseEvent *) Q_DECL_OVERRIDE;
-    void exposeEvent(QExposeEvent *) Q_DECL_OVERRIDE;
-    void hideEvent(QHideEvent *) Q_DECL_OVERRIDE;
-    bool event(QEvent *) Q_DECL_OVERRIDE;
+    void mousePressEvent(QMouseEvent *) override;
+    void mouseReleaseEvent(QMouseEvent *) override;
+    void mouseMoveEvent(QMouseEvent *) override;
+    void exposeEvent(QExposeEvent *) override;
+    void hideEvent(QHideEvent *) override;
+    bool event(QEvent *) override;
     virtual bool shouldForwardEventAfterDismiss(QMouseEvent *) const;
 
 protected Q_SLOTS:

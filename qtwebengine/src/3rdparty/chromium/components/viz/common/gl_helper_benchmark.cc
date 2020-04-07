@@ -10,13 +10,13 @@
 
 #include <stddef.h>
 #include <stdio.h>
-#include <cmath>
-#include <string>
-#include <vector>
-
 #include <GLES2/gl2.h>
 #include <GLES2/gl2ext.h>
 #include <GLES2/gl2extchromium.h>
+
+#include <cmath>
+#include <string>
+#include <vector>
 
 #include "base/at_exit.h"
 #include "base/command_line.h"
@@ -54,7 +54,7 @@ const char* const kQualityNames[] = {
 class GLHelperBenchmark : public testing::Test {
  protected:
   void SetUp() override {
-    gpu::gles2::ContextCreationAttribHelper attributes;
+    gpu::ContextCreationAttribs attributes;
     attributes.alpha_size = 8;
     attributes.depth_size = 24;
     attributes.red_size = 8;
@@ -66,16 +66,18 @@ class GLHelperBenchmark : public testing::Test {
     attributes.bind_generates_resource = false;
     attributes.gpu_preference = gl::PreferDiscreteGpu;
 
-    context_.reset(
-        gpu::GLInProcessContext::Create(nullptr,                 /* service */
-                                        nullptr,                 /* surface */
-                                        true,                    /* offscreen */
-                                        gpu::kNullSurfaceHandle, /* window */
-                                        nullptr, /* share_context */
-                                        attributes, gpu::SharedMemoryLimits(),
-                                        nullptr, /* gpu_memory_buffer_manager */
-                                        nullptr, /* image_factory */
-                                        base::ThreadTaskRunnerHandle::Get()));
+    context_ = std::make_unique<gpu::GLInProcessContext>();
+    auto result =
+        context_->Initialize(nullptr,                 /* service */
+                             nullptr,                 /* surface */
+                             true,                    /* offscreen */
+                             gpu::kNullSurfaceHandle, /* window */
+                             attributes, gpu::SharedMemoryLimits(),
+                             nullptr, /* gpu_memory_buffer_manager */
+                             nullptr, /* image_factory */
+                             nullptr /* gpu_channel_manager_delegate */,
+                             base::ThreadTaskRunnerHandle::Get());
+    DCHECK_EQ(result, gpu::ContextResult::kSuccess);
     gl_ = context_->GetImplementation();
     gpu::ContextSupport* support = context_->GetImplementation();
 
@@ -84,9 +86,9 @@ class GLHelperBenchmark : public testing::Test {
   }
 
   void TearDown() override {
-    helper_scaling_.reset(NULL);
-    helper_.reset(NULL);
-    context_.reset(NULL);
+    helper_scaling_.reset(nullptr);
+    helper_.reset(nullptr);
+    context_.reset(nullptr);
   }
 
   void LoadPngFileToSkBitmap(const base::FilePath& filename, SkBitmap* bitmap) {
@@ -120,7 +122,7 @@ class GLHelperBenchmark : public testing::Test {
   gpu::gles2::GLES2Interface* gl_;
   std::unique_ptr<GLHelper> helper_;
   std::unique_ptr<GLHelperScaling> helper_scaling_;
-  std::deque<GLHelperScaling::ScaleOp> x_ops_, y_ops_;
+  base::circular_deque<GLHelperScaling::ScaleOp> x_ops_, y_ops_;
 };
 
 TEST_F(GLHelperBenchmark, ScaleBenchmark) {
@@ -150,17 +152,23 @@ TEST_F(GLHelperBenchmark, ScaleBenchmark) {
         gl_->BindFramebuffer(GL_FRAMEBUFFER, framebuffer);
         gl_->BindTexture(GL_TEXTURE_2D, dst_texture);
         gl_->TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, dst_size.width(),
-                        dst_size.height(), 0, GL_RGBA, GL_UNSIGNED_BYTE, 0);
+                        dst_size.height(), 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                        nullptr);
         gl_->BindTexture(GL_TEXTURE_2D, src_texture);
         gl_->TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, src_size.width(),
                         src_size.height(), 0, GL_RGBA, GL_UNSIGNED_BYTE,
                         input.getPixels());
 
-        gfx::Rect src_subrect(0, 0, src_size.width(), src_size.height());
-        std::unique_ptr<GLHelper::ScalerInterface> scaler(helper_->CreateScaler(
-            kQualities[q], src_size, src_subrect, dst_size, false, false));
+        std::unique_ptr<GLHelper::ScalerInterface> scaler =
+            helper_->CreateScaler(
+                kQualities[q],
+                gfx::Vector2d(src_size.width(), src_size.height()),
+                gfx::Vector2d(dst_size.width(), dst_size.height()), false,
+                false, false);
         // Scale once beforehand before we start measuring.
-        scaler->Scale(src_texture, dst_texture);
+        const gfx::Rect output_rect(dst_size);
+        scaler->Scale(src_texture, src_size, gfx::Vector2dF(), dst_texture,
+                      output_rect);
         gl_->Finish();
 
         base::TimeTicks start_time = base::TimeTicks::Now();
@@ -169,7 +177,8 @@ TEST_F(GLHelperBenchmark, ScaleBenchmark) {
         while (true) {
           for (int i = 0; i < 50; i++) {
             iterations++;
-            scaler->Scale(src_texture, dst_texture);
+            scaler->Scale(src_texture, src_size, gfx::Vector2dF(), dst_texture,
+                          output_rect);
             gl_->Flush();
           }
           gl_->Finish();

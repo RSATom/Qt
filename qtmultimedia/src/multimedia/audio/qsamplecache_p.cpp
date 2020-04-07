@@ -132,7 +132,7 @@ QSampleCache::~QSampleCache()
     for (QSample* sample : copyStaleSamples)
         delete sample;
 
-    m_networkAccessManager->deleteLater();
+    delete m_networkAccessManager;
 }
 
 void QSampleCache::loadingRelease()
@@ -141,8 +141,10 @@ void QSampleCache::loadingRelease()
     m_loadingRefCount--;
     if (m_loadingRefCount == 0) {
         if (m_loadingThread.isRunning()) {
-            m_networkAccessManager->deleteLater();
-            m_networkAccessManager = nullptr;
+            if (m_networkAccessManager) {
+                m_networkAccessManager->deleteLater();
+                m_networkAccessManager = nullptr;
+            }
             m_loadingThread.exit();
         }
     }

@@ -91,12 +91,9 @@ int main(int argc, char *argv[])
     parser.addVersionOption();
     parser.addPositionalArgument("url", "The initial URL to open.");
     QStringList arguments = app.arguments();
-#ifdef Q_OS_WINRT
-    arguments.removeAt(1); // The launcher always passes in the -ServerName parameter, breaking the command line parser
-#endif
     parser.process(arguments);
     const QString initialUrl = parser.positionalArguments().isEmpty() ?
-        QStringLiteral("qt.io") : parser.positionalArguments().first();
+        QStringLiteral("https://www.qt.io") : parser.positionalArguments().first();
 
     QQmlApplicationEngine engine;
     QQmlContext *context = engine.rootContext();

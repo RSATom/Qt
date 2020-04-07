@@ -51,6 +51,7 @@
 // We mean it.
 //
 
+#include <QtCore/QLibrary>
 #include <qpa/qplatformvulkaninstance.h>
 
 QT_BEGIN_NAMESPACE
@@ -72,17 +73,22 @@ public:
     QByteArrayList enabledExtensions() const override;
     PFN_vkVoidFunction getInstanceProcAddr(const char *name) override;
     bool supportsPresent(VkPhysicalDevice physicalDevice, uint32_t queueFamilyIndex, QWindow *window) override;
+    void destroySurface(VkSurfaceKHR surface) const;
 
 protected:
+    void loadVulkanLibrary(const QString &defaultLibraryName);
     void init(QLibrary *lib);
     void initInstance(QVulkanInstance *instance, const QByteArrayList &extraExts);
 
     VkInstance m_vkInst;
     PFN_vkGetInstanceProcAddr m_vkGetInstanceProcAddr;
     PFN_vkGetPhysicalDeviceSurfaceSupportKHR m_getPhysDevSurfaceSupport;
+    PFN_vkDestroySurfaceKHR m_destroySurface;
 
 private:
     void setupDebugOutput();
+
+    QLibrary m_vulkanLib;
 
     bool m_ownsVkInst;
     VkResult m_errorCode;

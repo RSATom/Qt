@@ -9,9 +9,12 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/sequenced_task_runner_helpers.h"
+#include "content/browser/appcache/appcache_backend_impl.h"
 #include "content/browser/appcache/appcache_policy.h"
 #include "content/browser/appcache/appcache_service_impl.h"
+#include "content/common/appcache.mojom.h"
 #include "content/common/content_export.h"
+#include "mojo/public/cpp/bindings/strong_binding_set.h"
 #include "storage/browser/quota/special_storage_policy.h"
 
 namespace base {
@@ -41,8 +44,8 @@ struct ChromeAppCacheServiceDeleter;
 class CONTENT_EXPORT ChromeAppCacheService
     : public base::RefCountedThreadSafe<ChromeAppCacheService,
                                         ChromeAppCacheServiceDeleter>,
-      NON_EXPORTED_BASE(public AppCacheServiceImpl),
-      NON_EXPORTED_BASE(public AppCachePolicy) {
+      public AppCacheServiceImpl,
+      public AppCachePolicy {
  public:
   explicit ChromeAppCacheService(storage::QuotaManagerProxy* proxy);
 
@@ -53,11 +56,26 @@ class CONTENT_EXPORT ChromeAppCacheService
       net::URLRequestContextGetter* request_context_getter,
       scoped_refptr<storage::SpecialStoragePolicy> special_storage_policy);
 
+  void Bind(std::unique_ptr<mojom::AppCacheBackend> backend,
+            mojom::AppCacheBackendRequest request,
+            int process_id);
+  // Unbinds the pipe corresponding to the given process_id. Unbinding
+  // unregisters and destroys the existing backend for that process_id.
+  // The function must be called before a new backend is created for the given
+  // process_id to ensure that there is at most one backend per process_id.
+  // The function does nothing if no pipe was bound.
+  void Unbind(int process_id);
+
+  void Shutdown();
+
   // AppCachePolicy overrides
   bool CanLoadAppCache(const GURL& manifest_url,
                        const GURL& first_party) override;
   bool CanCreateAppCache(const GURL& manifest_url,
                          const GURL& first_party) override;
+
+  // AppCacheServiceImpl override
+  void UnregisterBackend(AppCacheBackendImpl* backend_impl) override;
 
  protected:
   ~ChromeAppCacheService() override;
@@ -72,6 +90,10 @@ class CONTENT_EXPORT ChromeAppCacheService
 
   ResourceContext* resource_context_;
   base::FilePath cache_path_;
+  mojo::StrongBindingSet<mojom::AppCacheBackend> bindings_;
+
+  // A map from a process_id to a binding_id.
+  std::map<int, mojo::BindingId> process_bindings_;
 
   DISALLOW_COPY_AND_ASSIGN(ChromeAppCacheService);
 };

@@ -14,8 +14,13 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/win/registry.h"
 
-#if !defined(__clang__) && _MSC_FULL_VER < 190024213
-#error VS 2015 Update 3 with Cumulative Servicing Release or higher is required
+#if !defined(__clang__) && _MSC_FULL_VER < 191125507
+#error VS 2017 Update 3.2 or higher is required
+#endif
+
+#if !defined(NTDDI_WIN10_RS2)
+// Windows 10 April 2018 SDK is required to build Chrome.
+#error April 2018 SDK (10.0.17134.0) or higher required.
 #endif
 
 namespace {
@@ -54,8 +59,12 @@ Version MajorMinorBuildToVersion(int major, int minor, int build) {
       return VERSION_WIN10_TH2;
     } else if (build < 15063) {
       return VERSION_WIN10_RS1;
-    } else {
+    } else if (build < 16299) {
       return VERSION_WIN10_RS2;
+    } else if (build < 17134) {
+      return VERSION_WIN10_RS3;
+    } else {
+      return VERSION_WIN10_RS4;
     }
   } else if (major > 6) {
     NOTREACHED();
@@ -180,9 +189,24 @@ OSInfo::OSInfo()
         break;
       case PRODUCT_PROFESSIONAL:
       case PRODUCT_ULTIMATE:
-      case PRODUCT_ENTERPRISE:
-      case PRODUCT_BUSINESS:
         version_type_ = SUITE_PROFESSIONAL;
+        break;
+      case PRODUCT_ENTERPRISE:
+      case PRODUCT_ENTERPRISE_E:
+      case PRODUCT_ENTERPRISE_EVALUATION:
+      case PRODUCT_ENTERPRISE_N:
+      case PRODUCT_ENTERPRISE_N_EVALUATION:
+      case PRODUCT_ENTERPRISE_S:
+      case PRODUCT_ENTERPRISE_S_EVALUATION:
+      case PRODUCT_ENTERPRISE_S_N:
+      case PRODUCT_ENTERPRISE_S_N_EVALUATION:
+      case PRODUCT_BUSINESS:
+      case PRODUCT_BUSINESS_N:
+        version_type_ = SUITE_ENTERPRISE;
+        break;
+      case PRODUCT_EDUCATION:
+      case PRODUCT_EDUCATION_N:
+        version_type_ = SUITE_EDUCATION;
         break;
       case PRODUCT_HOME_BASIC:
       case PRODUCT_HOME_PREMIUM:

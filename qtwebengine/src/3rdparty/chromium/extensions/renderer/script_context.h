@@ -14,13 +14,13 @@
 #include "base/compiler_specific.h"
 #include "base/macros.h"
 #include "base/threading/thread_checker.h"
+#include "base/unguessable_token.h"
 #include "extensions/common/features/feature.h"
 #include "extensions/common/permissions/api_permission_set.h"
 #include "extensions/renderer/module_system.h"
 #include "extensions/renderer/request_sender.h"
 #include "extensions/renderer/safe_builtins.h"
 #include "extensions/renderer/script_injection_callback.h"
-#include "gin/runner.h"
 #include "url/gurl.h"
 #include "v8/include/v8.h"
 
@@ -61,6 +61,9 @@ class ScriptContext : public RequestSender::Source {
   // See comment in HasAccessOrThrowError.
   static bool IsSandboxedPage(const GURL& url);
 
+  // Initializes |module_system| and associates it with this context.
+  void SetModuleSystem(std::unique_ptr<ModuleSystem> module_system);
+
   // Clears the WebLocalFrame for this contexts and invalidates the associated
   // ModuleSystem.
   void Invalidate();
@@ -91,9 +94,7 @@ class ScriptContext : public RequestSender::Source {
     return effective_context_type_;
   }
 
-  void set_module_system(std::unique_ptr<ModuleSystem> module_system) {
-    module_system_ = std::move(module_system);
-  }
+  const base::UnguessableToken& context_id() const { return context_id_; }
 
   ModuleSystem* module_system() { return module_system_.get(); }
 
@@ -170,13 +171,13 @@ class ScriptContext : public RequestSender::Source {
   // Utility to get the URL we will match against for a frame. If the frame has
   // committed, this is the commited URL. Otherwise it is the provisional URL.
   // The returned URL may be invalid.
-  static GURL GetDataSourceURLForFrame(const blink::WebLocalFrame* frame);
+  static GURL GetDocumentLoaderURLForFrame(const blink::WebLocalFrame* frame);
 
-  // Similar to GetDataSourceURLForFrame, but only returns the data source URL
-  // if the frame's document url is empty and the frame has a security origin
-  // that allows access to the data source url.
+  // Similar to GetDocumentLoaderURLForFrame, but only returns the data source
+  // URL if the frame's document url is empty and the frame has a security
+  // origin that allows access to the data source url.
   // TODO(asargent/devlin) - there may be places that should switch to using
-  // this instead of GetDataSourceURLForFrame.
+  // this instead of GetDocumentLoaderURLForFrame.
   static GURL GetAccessCheckedFrameURL(const blink::WebLocalFrame* frame);
 
   // Returns the first non-about:-URL in the document hierarchy above and
@@ -222,15 +223,15 @@ class ScriptContext : public RequestSender::Source {
   v8::Local<v8::Value> RunScript(
       v8::Local<v8::String> name,
       v8::Local<v8::String> code,
-      const RunScriptExceptionHandler& exception_handler);
+      const RunScriptExceptionHandler& exception_handler,
+      v8::ScriptCompiler::NoCacheReason no_cache_reason =
+          v8::ScriptCompiler::NoCacheReason::kNoCacheNoReason);
 
  private:
   // DEPRECATED.
   v8::Local<v8::Value> CallFunction(const v8::Local<v8::Function>& function,
                                     int argc,
                                     v8::Local<v8::Value> argv[]) const;
-
-  class Runner;
 
   // Whether this context is valid.
   bool is_valid_;
@@ -257,6 +258,9 @@ class ScriptContext : public RequestSender::Source {
   // The type of context.
   Feature::Context effective_context_type_;
 
+  // A globally-unique ID for the script context.
+  base::UnguessableToken context_id_;
+
   // Owns and structures the JS that is injected to set up extension bindings.
   std::unique_ptr<ModuleSystem> module_system_;
 
@@ -275,8 +279,6 @@ class ScriptContext : public RequestSender::Source {
   GURL url_;
 
   GURL service_worker_scope_;
-
-  std::unique_ptr<Runner> runner_;
 
   base::ThreadChecker thread_checker_;
 

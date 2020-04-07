@@ -8,7 +8,6 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/memory/ptr_util.h"
 #include "base/values.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -45,10 +44,10 @@ void DeleteFilter(std::unique_ptr<TestInterceptablePrefFilter>* filter,
 }
 
 TEST(InterceptablePrefFilterTest, CallbackDeletes) {
-  auto filter = base::MakeUnique<TestInterceptablePrefFilter>();
+  auto filter = std::make_unique<TestInterceptablePrefFilter>();
   filter->InterceptNextFilterOnLoad(base::Bind(&NoOpIntercept));
   filter->FilterOnLoad(base::Bind(&DeleteFilter, &filter),
-                       base::MakeUnique<base::DictionaryValue>());
+                       std::make_unique<base::DictionaryValue>());
   EXPECT_FALSE(filter);
 }
 

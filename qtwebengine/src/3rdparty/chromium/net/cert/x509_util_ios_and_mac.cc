@@ -18,34 +18,37 @@ namespace x509_util {
 
 base::ScopedCFTypeRef<CFMutableArrayRef>
 CreateSecCertificateArrayForX509Certificate(X509Certificate* cert) {
+  return CreateSecCertificateArrayForX509Certificate(
+      cert, InvalidIntermediateBehavior::kFail);
+}
+
+base::ScopedCFTypeRef<CFMutableArrayRef>
+CreateSecCertificateArrayForX509Certificate(
+    X509Certificate* cert,
+    InvalidIntermediateBehavior invalid_intermediate_behavior) {
   base::ScopedCFTypeRef<CFMutableArrayRef> cert_list(
       CFArrayCreateMutable(kCFAllocatorDefault, 0, &kCFTypeArrayCallBacks));
   if (!cert_list)
     return base::ScopedCFTypeRef<CFMutableArrayRef>();
-#if BUILDFLAG(USE_BYTE_CERTS)
   std::string bytes;
   base::ScopedCFTypeRef<SecCertificateRef> sec_cert(
-      CreateSecCertificateFromBytes(CRYPTO_BUFFER_data(cert->os_cert_handle()),
-                                    CRYPTO_BUFFER_len(cert->os_cert_handle())));
+      CreateSecCertificateFromBytes(CRYPTO_BUFFER_data(cert->cert_buffer()),
+                                    CRYPTO_BUFFER_len(cert->cert_buffer())));
   if (!sec_cert)
     return base::ScopedCFTypeRef<CFMutableArrayRef>();
   CFArrayAppendValue(cert_list, sec_cert);
-  for (X509Certificate::OSCertHandle intermediate :
-       cert->GetIntermediateCertificates()) {
+  for (const auto& intermediate : cert->intermediate_buffers()) {
     base::ScopedCFTypeRef<SecCertificateRef> sec_cert(
-        CreateSecCertificateFromBytes(CRYPTO_BUFFER_data(intermediate),
-                                      CRYPTO_BUFFER_len(intermediate)));
-    if (!sec_cert)
-      return base::ScopedCFTypeRef<CFMutableArrayRef>();
+        CreateSecCertificateFromBytes(CRYPTO_BUFFER_data(intermediate.get()),
+                                      CRYPTO_BUFFER_len(intermediate.get())));
+    if (!sec_cert) {
+      if (invalid_intermediate_behavior == InvalidIntermediateBehavior::kFail)
+        return base::ScopedCFTypeRef<CFMutableArrayRef>();
+      LOG(WARNING) << "error parsing intermediate";
+      continue;
+    }
     CFArrayAppendValue(cert_list, sec_cert);
   }
-#else
-  X509Certificate::OSCertHandles intermediate_ca_certs =
-      cert->GetIntermediateCertificates();
-  CFArrayAppendValue(cert_list, cert->os_cert_handle());
-  for (size_t i = 0; i < intermediate_ca_certs.size(); ++i)
-    CFArrayAppendValue(cert_list, intermediate_ca_certs[i]);
-#endif
   return cert_list;
 }
 

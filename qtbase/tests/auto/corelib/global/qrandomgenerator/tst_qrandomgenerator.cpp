@@ -52,7 +52,7 @@
 // values chosen at random
 static const quint32 RandomValue32 = 0x4d1169f1U;
 static const quint64 RandomValue64 = Q_UINT64_C(0x3ce63161b998aa91);
-static const double RandomValueFP = double(0.3010463714599609f);
+static const double RandomValueFP = double(0.3010463714599609);
 
 static void setRNGControl(uint v)
 {
@@ -840,10 +840,6 @@ void tst_QRandomGenerator::stdUniformIntDistribution()
 
 void tst_QRandomGenerator::stdGenerateCanonical()
 {
-#if defined(Q_CC_MSVC) && Q_CC_MSVC < 1900
-    // see https://connect.microsoft.com/VisualStudio/feedback/details/811611
-    QSKIP("MSVC 2013's std::generate_canonical is broken");
-#else
     QFETCH(uint, control);
     RandomGenerator rng(control);
 
@@ -858,7 +854,6 @@ void tst_QRandomGenerator::stdGenerateCanonical()
     for (int i = 0; i < 4; ++i)
         QVERIFY_3TIMES(std::generate_canonical<qreal COMMA 32>(rng) !=
                 std::generate_canonical<qreal COMMA 32>(rng));
-#endif
 }
 
 void tst_QRandomGenerator::stdUniformRealDistribution_data()

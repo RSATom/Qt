@@ -19,6 +19,7 @@
 #include <dwrite.h>
 #include <dwrite_1.h>
 #include <dwrite_2.h>
+#include <dwrite_3.h>
 
 class SkFontDescriptor;
 struct SkScalerContextRec;
@@ -61,6 +62,9 @@ private:
         if (!SUCCEEDED(fDWriteFontFace->QueryInterface(&fDWriteFontFace2))) {
             SkASSERT_RELEASE(nullptr == fDWriteFontFace2.get());
         }
+        if (!SUCCEEDED(fDWriteFontFace->QueryInterface(&fDWriteFontFace4))) {
+            SkASSERT_RELEASE(nullptr == fDWriteFontFace4.get());
+        }
         if (!SUCCEEDED(fFactory->QueryInterface(&fFactory2))) {
             SkASSERT_RELEASE(nullptr == fFactory2.get());
         }
@@ -76,6 +80,7 @@ public:
     SkTScopedComPtr<IDWriteFontFace> fDWriteFontFace;
     SkTScopedComPtr<IDWriteFontFace1> fDWriteFontFace1;
     SkTScopedComPtr<IDWriteFontFace2> fDWriteFontFace2;
+    SkTScopedComPtr<IDWriteFontFace4> fDWriteFontFace4;
 
     static DWriteFontTypeface* Create(IDWriteFactory* factory,
                                       IDWriteFontFace* fontFace,
@@ -100,10 +105,12 @@ protected:
         INHERITED::weak_dispose();
     }
 
+    sk_sp<SkTypeface> onMakeClone(const SkFontArguments&) const override;
     SkStreamAsset* onOpenStream(int* ttcIndex) const override;
     SkScalerContext* onCreateScalerContext(const SkScalerContextEffects&,
                                            const SkDescriptor*) const override;
     void onFilterRec(SkScalerContextRec*) const override;
+    void getGlyphToUnicodeMap(SkUnichar* glyphToUnicode) const override;
     std::unique_ptr<SkAdvancedTypefaceMetrics> onGetAdvancedMetrics() const override;
     void onGetFontDescriptor(SkFontDescriptor*, bool*) const override;
     int onCharsToGlyphs(const void* chars, Encoding encoding,
@@ -113,10 +120,9 @@ protected:
     void onGetFamilyName(SkString* familyName) const override;
     SkTypeface::LocalizedStrings* onCreateFamilyNameIterator() const override;
     int onGetVariationDesignPosition(SkFontArguments::VariationPosition::Coordinate coordinates[],
-                                     int coordinateCount) const override
-    {
-        return -1;
-    }
+                                     int coordinateCount) const override;
+    int onGetVariationDesignParameters(SkFontParameters::Variation::Axis parameters[],
+                                       int parameterCount) const override;
     int onGetTableTags(SkFontTableTag tags[]) const override;
     size_t onGetTableData(SkFontTableTag, size_t offset, size_t length, void* data) const override;
 

@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2016 The Qt Company Ltd.
+** Copyright (C) 2018 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtWidgets module of the Qt Toolkit.
@@ -64,6 +64,7 @@
 #include <QtGui/qfont.h>
 #include <QtGui/qfontmetrics.h>
 #include <QtGui/qclipboard.h>
+#include "private/qabstractbutton_p.h"
 #include <private/qdesktopwidget_p.h>
 
 #ifdef Q_OS_WIN
@@ -98,7 +99,7 @@ public:
     public:
         TextEdit(QWidget *parent=0) : QTextEdit(parent) { }
 #ifndef QT_NO_CONTEXTMENU
-        void contextMenuEvent(QContextMenuEvent * e) Q_DECL_OVERRIDE
+        void contextMenuEvent(QContextMenuEvent * e) override
         {
             QMenu *menu = createStandardContextMenu();
             menu->setAttribute(Qt::WA_DeleteOnClose);
@@ -173,7 +174,7 @@ public:
     void setLabel(DetailButtonLabel lbl)
     { setText(label(lbl)); }
 
-    QSize sizeHint() const Q_DECL_OVERRIDE
+    QSize sizeHint() const override
     {
         ensurePolished();
         QStyleOptionButton opt;
@@ -208,12 +209,15 @@ public:
     void setupLayout();
     void _q_buttonClicked(QAbstractButton *);
     void _q_clicked(QPlatformDialogHelper::StandardButton button, QPlatformDialogHelper::ButtonRole role);
+    void setClickedButton(QAbstractButton *button);
 
     QAbstractButton *findButton(int button0, int button1, int button2, int flags);
     void addOldButtons(int button0, int button1, int button2);
 
     QAbstractButton *abstractButtonForId(int id) const;
     int execReturnCode(QAbstractButton *button);
+
+    int dialogCodeForButton(QAbstractButton *button) const;
 
     void detectEscapeButton();
     void updateSize();
@@ -259,9 +263,9 @@ public:
     QByteArray signalToDisconnectOnClose;
     QSharedPointer<QMessageDialogOptions> options;
 private:
-    void initHelper(QPlatformDialogHelper *) Q_DECL_OVERRIDE;
-    void helperPrepareShow(QPlatformDialogHelper *) Q_DECL_OVERRIDE;
-    void helperDone(QDialog::DialogCode, QPlatformDialogHelper *) Q_DECL_OVERRIDE;
+    void initHelper(QPlatformDialogHelper *) override;
+    void helperPrepareShow(QPlatformDialogHelper *) override;
+    void helperDone(QDialog::DialogCode, QPlatformDialogHelper *) override;
 };
 
 void QMessageBoxPrivate::init(const QString &title, const QString &text)
@@ -415,7 +419,7 @@ void QMessageBoxPrivate::updateSize()
     }
 
     QFontMetrics fm(QApplication::font("QMdiSubWindowTitleBar"));
-    int windowTitleWidth = qMin(fm.width(q->windowTitle()) + 50, hardLimit);
+    int windowTitleWidth = qMin(fm.horizontalAdvance(q->windowTitle()) + 50, hardLimit);
     if (windowTitleWidth > width)
         width = windowTitleWidth;
 
@@ -465,6 +469,27 @@ int QMessageBoxPrivate::execReturnCode(QAbstractButton *button)
     return ret;
 }
 
+/*!
+    \internal
+
+    Returns 0 for RejectedRole and NoRole, 1 for AcceptedRole and YesRole, -1 otherwise
+ */
+int QMessageBoxPrivate::dialogCodeForButton(QAbstractButton *button) const
+{
+    Q_Q(const QMessageBox);
+
+    switch (q->buttonRole(button)) {
+    case QMessageBox::AcceptRole:
+    case QMessageBox::YesRole:
+        return QDialog::Accepted;
+    case QMessageBox::RejectRole:
+    case QMessageBox::NoRole:
+        return QDialog::Rejected;
+    default:
+        return -1;
+    }
+}
+
 void QMessageBoxPrivate::_q_buttonClicked(QAbstractButton *button)
 {
     Q_Q(QMessageBox);
@@ -476,25 +501,43 @@ void QMessageBoxPrivate::_q_buttonClicked(QAbstractButton *button)
     } else
 #endif
     {
-        clickedButton = button;
-        q->done(execReturnCode(button)); // does not trigger closeEvent
-        emit q->buttonClicked(button);
+        setClickedButton(button);
 
         if (receiverToDisconnectOnClose) {
             QObject::disconnect(q, signalToDisconnectOnClose, receiverToDisconnectOnClose,
                                 memberToDisconnectOnClose);
-            receiverToDisconnectOnClose = 0;
+            receiverToDisconnectOnClose = nullptr;
         }
         signalToDisconnectOnClose.clear();
         memberToDisconnectOnClose.clear();
     }
 }
 
+void QMessageBoxPrivate::setClickedButton(QAbstractButton *button)
+{
+    Q_Q(QMessageBox);
+
+    clickedButton = button;
+    emit q->buttonClicked(clickedButton);
+
+    auto resultCode = execReturnCode(button);
+    hide(resultCode);
+    finalize(resultCode, dialogCodeForButton(button));
+}
+
 void QMessageBoxPrivate::_q_clicked(QPlatformDialogHelper::StandardButton button, QPlatformDialogHelper::ButtonRole role)
 {
-    Q_UNUSED(role);
     Q_Q(QMessageBox);
-    q->done(button);
+    if (button > QPlatformDialogHelper::LastButton) {
+        // It's a custom button, and the QPushButton in options is just a proxy
+        // for the button on the platform dialog.  Simulate the user clicking it.
+        clickedButton = static_cast<QAbstractButton *>(options->customButton(button)->button);
+        Q_ASSERT(clickedButton);
+        clickedButton->click();
+        q->done(role);
+    } else {
+        q->done(button);
+    }
 }
 
 /*!
@@ -831,6 +874,8 @@ void QMessageBox::addButton(QAbstractButton *button, ButtonRole role)
     if (!button)
         return;
     removeButton(button);
+    d->options->addButton(button->text(), static_cast<QPlatformDialogHelper::ButtonRole>(role),
+                          button);
     d->buttonBox->addButton(button, (QDialogButtonBox::ButtonRole)role);
     d->customButtonList.append(button);
     d->autoAddOkButton = false;
@@ -1022,6 +1067,16 @@ void QMessageBoxPrivate::detectEscapeButton()
         return;
     }
 
+    // If there are two buttons and one of them is the "Show Details..."
+    // button, then make the other one the escape button
+    if (buttons.count() == 2 && detailsButton) {
+        auto idx = buttons.indexOf(detailsButton);
+        if (idx != -1) {
+            detectedEscapeButton = buttons.at(1 - idx);
+            return;
+        }
+    }
+
     // if the message box has one RejectRole button, make it the escape button
     for (auto *button : buttons) {
         if (buttonBox->buttonRole(button) == QDialogButtonBox::RejectRole) {
@@ -1054,7 +1109,7 @@ void QMessageBoxPrivate::detectEscapeButton()
     or 0 if the user hit the \uicontrol Esc key and
     no \l{setEscapeButton()}{escape button} was set.
 
-    If exec() hasn't been called yet, returns 0.
+    If exec() hasn't been called yet, returns nullptr.
 
     Example:
 
@@ -1072,7 +1127,7 @@ QAbstractButton *QMessageBox::clickedButton() const
     \since 4.2
 
     Returns the button that should be the message box's
-    \l{QPushButton::setDefault()}{default button}. Returns 0
+    \l{QPushButton::setDefault()}{default button}. Returns nullptr
     if no default button was set.
 
     \sa addButton(), QPushButton::setDefault()
@@ -1479,8 +1534,6 @@ void QMessageBox::keyPressEvent(QKeyEvent *e)
 }
 
 /*!
-    \overload
-
     Opens the dialog and connects its finished() or buttonClicked() signal to
     the slot specified by \a receiver and \a member. If the slot in \a member
     has a pointer for its first parameter the connection is to buttonClicked(),
@@ -1813,22 +1866,23 @@ void QMessageBox::aboutQt(QWidget *parent, const QString &title)
         "<h3>About Qt</h3>"
         "<p>This program uses Qt version %1.</p>"
         ).arg(QLatin1String(QT_VERSION_STR));
-    QString translatedTextAboutQtText;
-    translatedTextAboutQtText = QMessageBox::tr(
+    //: Leave this text untranslated or include a verbatim copy of it below
+    //: and note that it is the authoritative version in case of doubt.
+    const QString translatedTextAboutQtText = QMessageBox::tr(
         "<p>Qt is a C++ toolkit for cross-platform application "
         "development.</p>"
         "<p>Qt provides single-source portability across all major desktop "
         "operating systems. It is also available for embedded Linux and other "
         "embedded and mobile operating systems.</p>"
-        "<p>Qt is available under three different licensing options designed "
+        "<p>Qt is available under multiple licensing options designed "
         "to accommodate the needs of our various users.</p>"
         "<p>Qt licensed under our commercial license agreement is appropriate "
         "for development of proprietary/commercial software where you do not "
         "want to share any source code with third parties or otherwise cannot "
-        "comply with the terms of the GNU LGPL version 3.</p>"
-        "<p>Qt licensed under the GNU LGPL version 3 is appropriate for the "
+        "comply with the terms of GNU (L)GPL.</p>"
+        "<p>Qt licensed under GNU (L)GPL is appropriate for the "
         "development of Qt&nbsp;applications provided you can comply with the terms "
-        "and conditions of the GNU LGPL version 3.</p>"
+        "and conditions of the respective licenses.</p>"
         "<p>Please see <a href=\"http://%2/\">%2</a> "
         "for an overview of Qt licensing.</p>"
         "<p>Copyright (C) %1 The Qt Company Ltd and other "
@@ -1836,7 +1890,7 @@ void QMessageBox::aboutQt(QWidget *parent, const QString &title)
         "<p>Qt and the Qt logo are trademarks of The Qt Company Ltd.</p>"
         "<p>Qt is The Qt Company Ltd product developed as an open source "
         "project. See <a href=\"http://%3/\">%3</a> for more information.</p>"
-        ).arg(QStringLiteral("2017"),
+        ).arg(QStringLiteral("2019"),
               QStringLiteral("qt.io/licensing"),
               QStringLiteral("qt.io"));
     QMessageBox *msgBox = new QMessageBox(parent);
@@ -2608,7 +2662,7 @@ QPixmap QMessageBoxPrivate::standardIcon(QMessageBox::Icon icon, QMessageBox *mb
         break;
     }
     if (!tmpIcon.isNull()) {
-        QWindow *window = Q_NULLPTR;
+        QWindow *window = nullptr;
         if (mb) {
             window = mb->windowHandle();
             if (!window) {
@@ -2668,7 +2722,11 @@ void QMessageBoxPrivate::helperPrepareShow(QPlatformDialogHelper *)
 void QMessageBoxPrivate::helperDone(QDialog::DialogCode code, QPlatformDialogHelper *)
 {
     Q_Q(QMessageBox);
-    clickedButton = q->button(QMessageBox::StandardButton(code));
+    QAbstractButton *button = q->button(QMessageBox::StandardButton(code));
+    // If it was a custom button, a custom ID was used, so we won't get a valid pointer here.
+    // In that case, clickedButton has already been set in _q_buttonClicked.
+    if (button)
+        clickedButton = button;
 }
 
 /*!
@@ -2720,7 +2778,7 @@ QPixmap QMessageBox::standardIcon(Icon icon)
   Shows the message box as a \l{QDialog#Modal Dialogs}{modal dialog},
   blocking until the user closes it.
 
-  When using a QMessageBox with standard buttons, this functions returns a
+  When using a QMessageBox with standard buttons, this function returns a
   \l StandardButton value indicating the standard button that was clicked.
   When using QMessageBox with custom buttons, this function returns an
   opaque value; use clickedButton() to determine which button was clicked.

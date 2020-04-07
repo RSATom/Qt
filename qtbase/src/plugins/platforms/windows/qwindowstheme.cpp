@@ -59,20 +59,20 @@
 #endif
 #include <shellapi.h>
 
-#include <QtCore/QVariant>
-#include <QtCore/QCoreApplication>
-#include <QtCore/QDebug>
-#include <QtCore/QTextStream>
-#include <QtCore/QSysInfo>
-#include <QtCore/QCache>
-#include <QtCore/QThread>
-#include <QtCore/QMutex>
-#include <QtCore/QWaitCondition>
-#include <QtGui/QColor>
-#include <QtGui/QPalette>
-#include <QtGui/QGuiApplication>
-#include <QtGui/QPainter>
-#include <QtGui/QPixmapCache>
+#include <QtCore/qvariant.h>
+#include <QtCore/qcoreapplication.h>
+#include <QtCore/qdebug.h>
+#include <QtCore/qtextstream.h>
+#include <QtCore/qsysinfo.h>
+#include <QtCore/qcache.h>
+#include <QtCore/qthread.h>
+#include <QtCore/qmutex.h>
+#include <QtCore/qwaitcondition.h>
+#include <QtGui/qcolor.h>
+#include <QtGui/qpalette.h>
+#include <QtGui/qguiapplication.h>
+#include <QtGui/qpainter.h>
+#include <QtGui/qpixmapcache.h>
 #include <qpa/qwindowsysteminterface.h>
 #include <QtThemeSupport/private/qabstractfileiconengine_p.h>
 #include <QtFontDatabaseSupport/private/qwindowsfontdatabase_p.h>
@@ -107,7 +107,7 @@ static inline bool booleanSystemParametersInfo(UINT what, bool defaultValue)
 {
     BOOL result;
     if (SystemParametersInfo(what, 0, &result, 0))
-        return result ? true : false;
+        return result != FALSE;
     return defaultValue;
 }
 
@@ -121,9 +121,9 @@ static inline DWORD dWordSystemParametersInfo(UINT what, DWORD defaultValue)
 
 static inline QColor mixColors(const QColor &c1, const QColor &c2)
 {
-    return QColor ((c1.red() + c2.red()) / 2,
-                   (c1.green() + c2.green()) / 2,
-                   (c1.blue() + c2.blue()) / 2);
+    return {(c1.red() + c2.red()) / 2,
+            (c1.green() + c2.green()) / 2,
+            (c1.blue() + c2.blue()) / 2};
 }
 
 static inline QColor getSysColor(int index)
@@ -159,7 +159,7 @@ public:
 
     void run() override
     {
-        m_init = CoInitializeEx(NULL, COINIT_MULTITHREADED);
+        m_init = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
 
         QMutexLocker readyLocker(&m_readyMutex);
         while (!m_cancelled.load()) {
@@ -381,7 +381,7 @@ static inline QPalette menuPalette(const QPalette &systemPalette)
 
 static inline QPalette *menuBarPalette(const QPalette &menuPalette)
 {
-    QPalette *result = 0;
+    QPalette *result = nullptr;
     if (booleanSystemParametersInfo(SPI_GETFLATMENU, false)) {
         result = new QPalette(menuPalette);
         const QColor menubar(getSysColor(COLOR_MENUBAR));
@@ -393,13 +393,13 @@ static inline QPalette *menuBarPalette(const QPalette &menuPalette)
 }
 
 const char *QWindowsTheme::name = "windows";
-QWindowsTheme *QWindowsTheme::m_instance = 0;
+QWindowsTheme *QWindowsTheme::m_instance = nullptr;
 
 QWindowsTheme::QWindowsTheme()
 {
     m_instance = this;
-    std::fill(m_fonts, m_fonts + NFonts, static_cast<QFont *>(0));
-    std::fill(m_palettes, m_palettes + NPalettes, static_cast<QPalette *>(0));
+    std::fill(m_fonts, m_fonts + NFonts, nullptr);
+    std::fill(m_palettes, m_palettes + NPalettes, nullptr);
     refresh();
     refreshIconPixmapSizes();
 }
@@ -408,7 +408,7 @@ QWindowsTheme::~QWindowsTheme()
 {
     clearPalettes();
     clearFonts();
-    m_instance = 0;
+    m_instance = nullptr;
 }
 
 static inline QStringList iconThemeSearchPaths()
@@ -481,7 +481,7 @@ QVariant QWindowsTheme::themeHint(ThemeHint hint) const
 void QWindowsTheme::clearPalettes()
 {
     qDeleteAll(m_palettes, m_palettes + NPalettes);
-    std::fill(m_palettes, m_palettes + NPalettes, static_cast<QPalette *>(0));
+    std::fill(m_palettes, m_palettes + NPalettes, nullptr);
 }
 
 void QWindowsTheme::refreshPalettes()
@@ -498,7 +498,7 @@ void QWindowsTheme::refreshPalettes()
 void QWindowsTheme::clearFonts()
 {
     qDeleteAll(m_fonts, m_fonts + NFonts);
-    std::fill(m_fonts, m_fonts + NFonts, static_cast<QFont *>(0));
+    std::fill(m_fonts, m_fonts + NFonts, nullptr);
 }
 
 void QWindowsTheme::refreshFonts()
@@ -507,9 +507,7 @@ void QWindowsTheme::refreshFonts()
     if (!QGuiApplication::desktopSettingsAware())
         return;
     NONCLIENTMETRICS ncm;
-    ncm.cbSize = FIELD_OFFSET(NONCLIENTMETRICS, lfMessageFont) + sizeof(LOGFONT);
-    SystemParametersInfo(SPI_GETNONCLIENTMETRICS, ncm.cbSize , &ncm, 0);
-
+    QWindowsContext::nonClientMetrics(&ncm);
     const QFont menuFont = QWindowsFontDatabase::LOGFONT_to_QFont(ncm.lfMenuFont);
     const QFont messageBoxFont = QWindowsFontDatabase::LOGFONT_to_QFont(ncm.lfMessageFont);
     const QFont statusFont = QWindowsFontDatabase::LOGFONT_to_QFont(ncm.lfStatusFont);
@@ -608,7 +606,7 @@ QPixmap QWindowsTheme::standardPixmap(StandardPixmap sp, const QSizeF &pixmapSiz
     int resourceId = -1;
     SHSTOCKICONID stockId = SIID_INVALID;
     UINT stockFlags = 0;
-    LPCTSTR iconName = 0;
+    LPCTSTR iconName = nullptr;
     switch (sp) {
     case DriveCDIcon:
         stockId = SIID_DRIVECD;
@@ -718,7 +716,7 @@ QPixmap QWindowsTheme::standardPixmap(StandardPixmap sp, const QSizeF &pixmapSiz
     }
 
     if (iconName) {
-        HICON iconHandle = LoadIcon(NULL, iconName);
+        HICON iconHandle = LoadIcon(nullptr, iconName);
         QPixmap pixmap = qt_pixmapFromWinHICON(iconHandle);
         DestroyIcon(iconHandle);
         if (!pixmap.isNull())
@@ -778,7 +776,7 @@ static QPixmap pixmapFromShellImageList(int iImageList, const SHFILEINFO &info)
     // For MinGW:
     static const IID iID_IImageList = {0x46eb5926, 0x582e, 0x4017, {0x9f, 0xdf, 0xe8, 0x99, 0x8d, 0xaa, 0x9, 0x50}};
 
-    IImageList *imageList = 0;
+    IImageList *imageList = nullptr;
     HRESULT hr = SHGetImageList(iImageList, iID_IImageList, reinterpret_cast<void **>(&imageList));
     if (hr != S_OK)
         return result;
@@ -834,7 +832,7 @@ QPixmap QWindowsFileIconEngine::filePixmap(const QSize &size, QIcon::Mode, QIcon
 {
     /* We don't use the variable, but by storing it statically, we
      * ensure CoInitialize is only called once. */
-    static HRESULT comInit = CoInitialize(NULL);
+    static HRESULT comInit = CoInitialize(nullptr);
     Q_UNUSED(comInit);
 
     static QCache<QString, FakePointer<int> > dirIconEntryCache(1000);

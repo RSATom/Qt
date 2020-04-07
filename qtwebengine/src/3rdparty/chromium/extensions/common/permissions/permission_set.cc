@@ -185,14 +185,6 @@ bool PermissionSet::HasExplicitAccessToOrigin(
   return explicit_hosts().MatchesURL(origin);
 }
 
-bool PermissionSet::HasScriptableAccessToURL(
-    const GURL& origin) const {
-  // We only need to check our host list to verify access. The host list should
-  // already reflect any special rules (such as chrome://favicon, all hosts
-  // access, etc.).
-  return scriptable_hosts().MatchesURL(origin);
-}
-
 bool PermissionSet::HasEffectiveAccessToAllHosts() const {
   // There are two ways this set can have effective access to all hosts:
   //  1) it has an <all_urls> URL pattern.
@@ -216,15 +208,6 @@ bool PermissionSet::ShouldWarnAllHosts() const {
 
 bool PermissionSet::HasEffectiveAccessToURL(const GURL& url) const {
   return effective_hosts().MatchesURL(url);
-}
-
-bool PermissionSet::HasEffectiveFullAccess() const {
-  for (APIPermissionSet::const_iterator i = apis().begin();
-       i != apis().end(); ++i) {
-    if (i->info()->implies_full_access())
-      return true;
-  }
-  return false;
 }
 
 PermissionSet::PermissionSet(const PermissionSet& permissions)
@@ -259,7 +242,7 @@ void PermissionSet::InitShouldWarnAllHosts() const {
   for (URLPatternSet::const_iterator iter = effective_hosts_.begin();
        iter != effective_hosts_.end();
        ++iter) {
-    if (iter->ImpliesAllHosts()) {
+    if (iter->MatchesEffectiveTld()) {
       should_warn_all_hosts_ = WARN_ALL_HOSTS;
       return;
     }

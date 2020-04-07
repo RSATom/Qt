@@ -10,8 +10,7 @@
 
 namespace gin {
 
-WrappableBase::WrappableBase() {
-}
+WrappableBase::WrappableBase() = default;
 
 WrappableBase::~WrappableBase() {
   wrapper_.Reset();
@@ -19,7 +18,11 @@ WrappableBase::~WrappableBase() {
 
 ObjectTemplateBuilder WrappableBase::GetObjectTemplateBuilder(
     v8::Isolate* isolate) {
-  return ObjectTemplateBuilder(isolate);
+  return ObjectTemplateBuilder(isolate, GetTypeName());
+}
+
+const char* WrappableBase::GetTypeName() {
+  return nullptr;
 }
 
 void WrappableBase::FirstWeakCallback(

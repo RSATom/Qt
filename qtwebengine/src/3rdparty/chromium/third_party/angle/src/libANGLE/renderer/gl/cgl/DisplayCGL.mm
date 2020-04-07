@@ -13,6 +13,10 @@
 #include <EGL/eglext.h>
 
 #include "common/debug.h"
+#include "libANGLE/Display.h"
+#include "libANGLE/renderer/gl/ContextGL.h"
+#include "libANGLE/renderer/gl/RendererGL.h"
+#include "libANGLE/renderer/gl/cgl/IOSurfaceSurfaceCGL.h"
 #include "libANGLE/renderer/gl/cgl/PbufferSurfaceCGL.h"
 #include "libANGLE/renderer/gl/cgl/WindowSurfaceCGL.h"
 
@@ -36,7 +40,7 @@ class FunctionsGLCGL : public FunctionsGL
     ~FunctionsGLCGL() override { dlclose(mDylibHandle); }
 
   private:
-    void *loadProcAddress(const std::string &function) override
+    void *loadProcAddress(const std::string &function) const override
     {
         return dlsym(mDylibHandle, function.c_str());
     }
@@ -45,7 +49,7 @@ class FunctionsGLCGL : public FunctionsGL
 };
 
 DisplayCGL::DisplayCGL(const egl::DisplayState &state)
-    : DisplayGL(state), mEGLDisplay(nullptr), mFunctions(nullptr), mContext(nullptr)
+    : DisplayGL(state), mEGLDisplay(nullptr), mContext(nullptr)
 {
 }
 
@@ -90,8 +94,16 @@ egl::Error DisplayCGL::initialize(egl::Display *display)
         return egl::EglNotInitialized() << "Could not open the OpenGL Framework.";
     }
 
-    mFunctions = new FunctionsGLCGL(handle);
-    mFunctions->initialize();
+    std::unique_ptr<FunctionsGL> functionsGL(new FunctionsGLCGL(handle));
+    functionsGL->initialize(display->getAttributeMap());
+
+    mRenderer.reset(new RendererGL(std::move(functionsGL), display->getAttributeMap()));
+
+    const gl::Version &maxVersion = mRenderer->getMaxSupportedESVersion();
+    if (maxVersion < gl::Version(2, 0))
+    {
+        return egl::EglNotInitialized() << "OpenGL ES 2.0 is not supportable.";
+    }
 
     return DisplayGL::initialize(display);
 }
@@ -100,21 +112,21 @@ void DisplayCGL::terminate()
 {
     DisplayGL::terminate();
 
+    mRenderer.reset();
+
     if (mContext != nullptr)
     {
         CGLSetCurrentContext(nullptr);
         CGLReleaseContext(mContext);
         mContext = nullptr;
     }
-
-    SafeDelete(mFunctions);
 }
 
 SurfaceImpl *DisplayCGL::createWindowSurface(const egl::SurfaceState &state,
                                              EGLNativeWindowType window,
                                              const egl::AttributeMap &attribs)
 {
-    return new WindowSurfaceCGL(state, this->getRenderer(), window, mFunctions, mContext);
+    return new WindowSurfaceCGL(state, mRenderer.get(), window, mContext);
 }
 
 SurfaceImpl *DisplayCGL::createPbufferSurface(const egl::SurfaceState &state,
@@ -122,7 +134,7 @@ SurfaceImpl *DisplayCGL::createPbufferSurface(const egl::SurfaceState &state,
 {
     EGLint width  = static_cast<EGLint>(attribs.get(EGL_WIDTH, 0));
     EGLint height = static_cast<EGLint>(attribs.get(EGL_HEIGHT, 0));
-    return new PbufferSurfaceCGL(state, this->getRenderer(), width, height, mFunctions);
+    return new PbufferSurfaceCGL(state, mRenderer.get(), width, height);
 }
 
 SurfaceImpl *DisplayCGL::createPbufferFromClientBuffer(const egl::SurfaceState &state,
@@ -130,8 +142,9 @@ SurfaceImpl *DisplayCGL::createPbufferFromClientBuffer(const egl::SurfaceState &
                                                        EGLClientBuffer clientBuffer,
                                                        const egl::AttributeMap &attribs)
 {
-    UNIMPLEMENTED();
-    return nullptr;
+    ASSERT(buftype == EGL_IOSURFACE_ANGLE);
+
+    return new IOSurfaceSurfaceCGL(state, mContext, clientBuffer, attribs);
 }
 
 SurfaceImpl *DisplayCGL::createPixmapSurface(const egl::SurfaceState &state,
@@ -142,10 +155,18 @@ SurfaceImpl *DisplayCGL::createPixmapSurface(const egl::SurfaceState &state,
     return nullptr;
 }
 
-egl::Error DisplayCGL::getDevice(DeviceImpl **device)
+ContextImpl *DisplayCGL::createContext(const gl::ContextState &state,
+                                       const egl::Config *configuration,
+                                       const gl::Context *shareContext,
+                                       const egl::AttributeMap &attribs)
+{
+    return new ContextGL(state, mRenderer);
+}
+
+DeviceImpl *DisplayCGL::createDevice()
 {
     UNIMPLEMENTED();
-    return egl::EglBadDisplay();
+    return nullptr;
 }
 
 egl::ConfigSet DisplayCGL::generateConfigs()
@@ -232,23 +253,41 @@ bool DisplayCGL::isValidNativeWindow(EGLNativeWindowType window) const
     return [layer isKindOfClass:[CALayer class]];
 }
 
+egl::Error DisplayCGL::validateClientBuffer(const egl::Config *configuration,
+                                            EGLenum buftype,
+                                            EGLClientBuffer clientBuffer,
+                                            const egl::AttributeMap &attribs) const
+{
+    ASSERT(buftype == EGL_IOSURFACE_ANGLE);
+
+    if (!IOSurfaceSurfaceCGL::validateAttributes(clientBuffer, attribs))
+    {
+        return egl::EglBadAttribute();
+    }
+
+    return egl::NoError();
+}
+
 std::string DisplayCGL::getVendorString() const
 {
     // TODO(cwallez) find a useful vendor string
     return "";
 }
 
-const FunctionsGL *DisplayCGL::getFunctionsGL() const
+CGLContextObj DisplayCGL::getCGLContext() const
 {
-    return mFunctions;
+    return mContext;
 }
 
 void DisplayCGL::generateExtensions(egl::DisplayExtensions *outExtensions) const
 {
+    outExtensions->iosurfaceClientBuffer = true;
     outExtensions->surfacelessContext = true;
 
     // Contexts are virtualized so textures can be shared globally
     outExtensions->displayTextureShareGroup = true;
+
+    DisplayGL::generateExtensions(outExtensions);
 }
 
 void DisplayCGL::generateCaps(egl::Caps *outCaps) const
@@ -256,16 +295,21 @@ void DisplayCGL::generateCaps(egl::Caps *outCaps) const
     outCaps->textureNPOT = true;
 }
 
-egl::Error DisplayCGL::waitClient(const gl::Context *context) const
+egl::Error DisplayCGL::waitClient(const gl::Context *context)
 {
     // TODO(cwallez) UNIMPLEMENTED()
     return egl::NoError();
 }
 
-egl::Error DisplayCGL::waitNative(const gl::Context *context, EGLint engine) const
+egl::Error DisplayCGL::waitNative(const gl::Context *context, EGLint engine)
 {
     // TODO(cwallez) UNIMPLEMENTED()
     return egl::NoError();
+}
+
+gl::Version DisplayCGL::getMaxSupportedESVersion() const
+{
+    return mRenderer->getMaxSupportedESVersion();
 }
 
 egl::Error DisplayCGL::makeCurrentSurfaceless(gl::Context *context)

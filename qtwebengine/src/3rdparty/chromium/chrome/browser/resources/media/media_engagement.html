@@ -18,8 +18,13 @@
       font-size: 14px;
     }
 
+    button {
+      margin-bottom: 20px;
+    }
+
     table {
       border-collapse: collapse;
+      margin-bottom: 20px;
     }
 
     table td,
@@ -49,14 +54,16 @@
 
     .origin-cell {
       background-color: rgba(230, 230, 230, 0.5);
-      min-width: 500px;
     }
 
     .visits-count-cell,
     .media-playbacks-count-cell,
-    .last-playback-time-cell {
+    .last-playback-time-cell,
+    .audible-playbacks-count-cell,
+    .significant-playbacks-count-cell {
       background-color: rgba(230, 230, 230, 0.5);
       text-align: right;
+      white-space: nowrap;
     }
 
     .base-score-input {
@@ -70,6 +77,10 @@
       border: 1px solid rgb(143, 185, 252);
       box-shadow: 0 0 2px rgb(113, 158, 206);
       outline: none;
+    }
+
+    .name-cell {
+      background-color: rgba(230, 230, 230, 0.5);
     }
 
     table tr:hover {
@@ -89,6 +100,27 @@
 </head>
 <body>
   <h1>Media Engagement</h1>
+  <button id="copy-all-to-clipboard">Copy all to clipboard</button>
+  <table>
+    <thead>
+      <tr id="config-table-header">
+        <th>
+          Setting Name
+        </th>
+        <th>
+          Setting Value
+        </th>
+      </tr>
+    </thead>
+    <tbody id="config-table-body">
+    </tbody>
+  </table>
+  <p>
+    <label>
+      <input id="show-no-playbacks" type="checkbox">
+      Show sessions with no playbacks
+    </label>
+  </p>
   <table>
     <thead>
       <tr id="engagement-table-header">
@@ -96,13 +128,25 @@
           Origin
         </th>
         <th sort-key="visits" sort-reverse>
-          Visits
+          Sessions
         </th>
         <th sort-key="mediaPlaybacks" sort-reverse>
-          Number of Playbacks
+          Sessions with playback
+        </th>
+        <th sort-key="audiblePlaybacks" sort-reverse>
+          Audible Playbacks*
+        </th>
+        <th sort-key="significantPlaybacks" sort-reverse>
+          Significant Playbacks*
         </th>
         <th sort-key="lastMediaPlaybackTime" sort-reverse>
           Last Playback
+        </th>
+        <th sort-key="isHigh" sort-reverse>
+          Is High
+        </th>
+        <th sort-key="highScoreChanges" sort-reverse>
+          Is High Changes
         </th>
         <th sort-key="totalScore" class="sort-column" sort-reverse>
           Score
@@ -113,16 +157,30 @@
     </tbody>
   </table>
 
+  <p>
+    * These columns are experimental and do not currently affect the MEI score.
+  </p>
+
   <template id="datarow">
     <tr>
       <td class="origin-cell"></td>
       <td class="visits-count-cell"></td>
       <td class="media-playbacks-count-cell"></td>
+      <td class="audible-playbacks-count-cell"></td>
+      <td class="significant-playbacks-count-cell"></td>
       <td class="last-playback-time-cell"></td>
+      <td class="is-high-cell"></td>
+      <td class="is-high-changes-cell"></td>
       <td class="total-score-cell"></td>
       <td class="engagement-bar-cell">
         <div class="engagement-bar"></div>
       </td>
+    </tr>
+  </template>
+  <template id="configrow">
+    <tr>
+      <td class="name-cell"></td>
+      <td></td>
     </tr>
   </template>
 </body>

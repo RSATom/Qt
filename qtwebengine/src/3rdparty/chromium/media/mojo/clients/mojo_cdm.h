@@ -27,7 +27,15 @@ namespace base {
 class SingleThreadTaskRunner;
 }
 
+namespace url {
+class Origin;
+}
+
 namespace media {
+
+namespace mojom {
+class InterfaceFactory;
+}
 
 class MojoDecryptor;
 
@@ -42,9 +50,10 @@ class MojoCdm : public ContentDecryptionModule,
 
   static void Create(
       const std::string& key_system,
-      const GURL& security_origin,
+      const url::Origin& security_origin,
       const CdmConfig& cdm_config,
       mojom::ContentDecryptionModulePtr remote_cdm,
+      mojom::InterfaceFactory* interface_factory,
       const SessionMessageCB& session_message_cb,
       const SessionClosedCB& session_closed_cb,
       const SessionKeysChangeCB& session_keys_change_cb,
@@ -54,6 +63,8 @@ class MojoCdm : public ContentDecryptionModule,
   // ContentDecryptionModule implementation.
   void SetServerCertificate(const std::vector<uint8_t>& certificate,
                             std::unique_ptr<SimpleCdmPromise> promise) final;
+  void GetStatusForPolicy(HdcpVersion min_hdcp_version,
+                          std::unique_ptr<KeyStatusCdmPromise> promise) final;
   void CreateSessionAndGenerateRequest(
       CdmSessionType session_type,
       EmeInitDataType init_data_type,
@@ -78,6 +89,7 @@ class MojoCdm : public ContentDecryptionModule,
 
  private:
   MojoCdm(mojom::ContentDecryptionModulePtr remote_cdm,
+          mojom::InterfaceFactory* interface_factory,
           const SessionMessageCB& session_message_cb,
           const SessionClosedCB& session_closed_cb,
           const SessionKeysChangeCB& session_keys_change_cb,
@@ -86,7 +98,7 @@ class MojoCdm : public ContentDecryptionModule,
   ~MojoCdm() final;
 
   void InitializeCdm(const std::string& key_system,
-                     const GURL& security_origin,
+                     const url::Origin& security_origin,
                      const CdmConfig& cdm_config,
                      std::unique_ptr<CdmInitializedPromise> promise);
 
@@ -116,14 +128,19 @@ class MojoCdm : public ContentDecryptionModule,
   // Callbacks to handle CDM promises.
   void OnSimpleCdmPromiseResult(uint32_t promise_id,
                                 mojom::CdmPromiseResultPtr result);
+  void OnKeyStatusCdmPromiseResult(uint32_t promise_id,
+                                   mojom::CdmPromiseResultPtr result,
+                                   CdmKeyInformation::KeyStatus key_status);
   void OnNewSessionCdmPromiseResult(uint32_t promise_id,
                                     mojom::CdmPromiseResultPtr result,
                                     const std::string& session_id);
 
-  base::ThreadChecker thread_checker_;
+  THREAD_CHECKER(thread_checker_);
 
   mojom::ContentDecryptionModulePtr remote_cdm_;
-  mojo::Binding<ContentDecryptionModuleClient> binding_;
+  mojom::InterfaceFactory* interface_factory_;
+  mojo::Binding<ContentDecryptionModuleClient> client_binding_;
+  scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
 
   // Protects |cdm_id_|, |decryptor_ptr_|, |decryptor_| and
   // |decryptor_task_runner_| which could be accessed from other threads.

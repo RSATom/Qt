@@ -164,7 +164,7 @@ private slots:
 
 void tst_QFormLayout::cleanup()
 {
-    QVERIFY(QApplication::topLevelWidgets().isEmpty());
+    QTRY_VERIFY(QApplication::topLevelWidgets().isEmpty());
 }
 
 void tst_QFormLayout::rowCount()
@@ -273,6 +273,9 @@ void tst_QFormLayout::wrapping()
     w.setWindowTitle(QTest::currentTestFunction());
     w.show();
 
+#ifdef Q_OS_WINRT
+    QEXPECT_FAIL("", "setFixedWidth does not work on WinRT", Abort);
+#endif
     QCOMPARE(le->geometry().y() > lbl->geometry().y(), true);
 
     //TODO: additional tests covering different wrapping cases
@@ -1188,7 +1191,6 @@ void tst_QFormLayout::layoutAlone()
     w.setWindowTitle(QTest::currentTestFunction());
     w.show();
     layout.activate();
-    QTest::qWait(500);
 }
 
 void tst_QFormLayout::taskQTBUG_27420_takeAtShouldUnparentLayout()

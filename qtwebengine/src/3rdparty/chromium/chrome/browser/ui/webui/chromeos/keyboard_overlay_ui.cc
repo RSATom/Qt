@@ -6,12 +6,13 @@
 
 #include <stddef.h>
 
+#include <memory>
+
 #include "ash/shell.h"
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/command_line.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/memory/weak_ptr.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
@@ -23,20 +24,21 @@
 #include "chrome/grit/generated_resources.h"
 #include "chromeos/chromeos_switches.h"
 #include "components/prefs/pref_service.h"
+#include "components/strings/grit/components_strings.h"
 #include "content/public/browser/page_navigator.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_delegate.h"
 #include "content/public/browser/web_ui.h"
 #include "content/public/browser/web_ui_data_source.h"
 #include "content/public/browser/web_ui_message_handler.h"
-#include "ui/base/ime/chromeos/ime_keyboard.h"
 #include "ui/base/ime/chromeos/input_method_manager.h"
 #include "ui/chromeos/events/keyboard_layout_util.h"
+#include "ui/chromeos/events/modifier_key.h"
 #include "ui/chromeos/events/pref_names.h"
 #include "ui/display/manager/display_manager.h"
 
-using chromeos::input_method::ModifierKey;
 using content::WebUIMessageHandler;
+using ui::chromeos::ModifierKey;
 using ui::WebDialogUI;
 
 namespace {
@@ -53,13 +55,13 @@ struct ModifierToLabel {
   const ModifierKey modifier;
   const char* label;
 } kModifierToLabels[] = {
-  {chromeos::input_method::kSearchKey, "search"},
-  {chromeos::input_method::kControlKey, "ctrl"},
-  {chromeos::input_method::kAltKey, "alt"},
-  {chromeos::input_method::kVoidKey, "disabled"},
-  {chromeos::input_method::kCapsLockKey, "caps lock"},
-  {chromeos::input_method::kEscapeKey, "esc"},
-  {chromeos::input_method::kBackspaceKey, "backspace"},
+    {ModifierKey::kSearchKey, "search"},
+    {ModifierKey::kControlKey, "ctrl"},
+    {ModifierKey::kAltKey, "alt"},
+    {ModifierKey::kVoidKey, "disabled"},
+    {ModifierKey::kCapsLockKey, "caps lock"},
+    {ModifierKey::kEscapeKey, "esc"},
+    {ModifierKey::kBackspaceKey, "backspace"},
 };
 
 struct I18nContentToMessage {
@@ -74,7 +76,7 @@ struct I18nContentToMessage {
      IDS_KEYBOARD_OVERLAY_SYSTEM_MENU_KEY_LABEL},
     {"keyboardOverlayLauncherKeyLabel",
      IDS_KEYBOARD_OVERLAY_LAUNCHER_KEY_LABEL},
-    {"keyboardOverlayLearnMore", IDS_KEYBOARD_OVERLAY_LEARN_MORE},
+    {"keyboardOverlayLearnMore", IDS_LEARN_MORE},
     {"keyboardOverlayTitle", IDS_KEYBOARD_OVERLAY_TITLE},
     {"keyboardOverlayEscKeyLabel", IDS_KEYBOARD_OVERLAY_ESC_KEY_LABEL},
     {"keyboardOverlayBackKeyLabel", IDS_KEYBOARD_OVERLAY_BACK_KEY_LABEL},
@@ -208,6 +210,10 @@ struct I18nContentToMessage {
     {"keyboardOverlayMaximizeWindow", IDS_KEYBOARD_OVERLAY_MAXIMIZE_WINDOW},
     {"keyboardOverlayMinimizeWindow", IDS_KEYBOARD_OVERLAY_MINIMIZE_WINDOW},
     {"keyboardOverlayMirrorMonitors", IDS_KEYBOARD_OVERLAY_MIRROR_MONITORS},
+    // TODO(warx): keyboard overlay name for move window between displays
+    // shortcuts need to be updated when new keyboard shortcuts helper is there.
+    {"keyboardOverlayMoveActiveWindowBetweenDisplays",
+     IDS_KEYBOARD_OVERLAY_MOVE_ACTIVE_WINDOW_BETWEEN_DISPLAYS},
     {"keyboardOverlayNewIncognitoWindow",
      IDS_KEYBOARD_OVERLAY_NEW_INCOGNITO_WINDOW},
     {"keyboardOverlayNewTab", IDS_KEYBOARD_OVERLAY_NEW_TAB},
@@ -267,6 +273,11 @@ struct I18nContentToMessage {
     {"keyboardOverlayDisableCapsLock", IDS_KEYBOARD_OVERLAY_DISABLE_CAPS_LOCK},
     {"keyboardOverlayToggleChromevoxSpokenFeedback",
      IDS_KEYBOARD_OVERLAY_TOGGLE_CHROMEVOX_SPOKEN_FEEDBACK},
+    {"keyboardOverlayToggleDictation", IDS_KEYBOARD_OVERLAY_TOGGLE_DICTATION},
+    {"keyboardOverlayToggleDockedMagnifier",
+     IDS_KEYBOARD_OVERLAY_TOGGLE_DOCKED_MAGNIFIER},
+    {"keyboardOverlayToggleFullscreenMagnifier",
+     IDS_KEYBOARD_OVERLAY_TOGGLE_FULLSCREEN_MAGNIFIER},
     {"keyboardOverlayToggleHighContrastMode",
      IDS_KEYBOARD_OVERLAY_TOGGLE_HIGH_CONTRAST_MODE},
     {"keyboardOverlayToggleProjectionTouchHud",
@@ -384,15 +395,17 @@ KeyboardOverlayHandler::~KeyboardOverlayHandler() {
 }
 
 void KeyboardOverlayHandler::RegisterMessages() {
-  web_ui()->RegisterMessageCallback("getInputMethodId",
-      base::Bind(&KeyboardOverlayHandler::GetInputMethodId,
-                 base::Unretained(this)));
-  web_ui()->RegisterMessageCallback("getLabelMap",
-      base::Bind(&KeyboardOverlayHandler::GetLabelMap,
-                 base::Unretained(this)));
-  web_ui()->RegisterMessageCallback("openLearnMorePage",
-      base::Bind(&KeyboardOverlayHandler::OpenLearnMorePage,
-                 base::Unretained(this)));
+  web_ui()->RegisterMessageCallback(
+      "getInputMethodId",
+      base::BindRepeating(&KeyboardOverlayHandler::GetInputMethodId,
+                          base::Unretained(this)));
+  web_ui()->RegisterMessageCallback(
+      "getLabelMap", base::BindRepeating(&KeyboardOverlayHandler::GetLabelMap,
+                                         base::Unretained(this)));
+  web_ui()->RegisterMessageCallback(
+      "openLearnMorePage",
+      base::BindRepeating(&KeyboardOverlayHandler::OpenLearnMorePage,
+                          base::Unretained(this)));
 }
 
 void KeyboardOverlayHandler::GetInputMethodId(const base::ListValue* args) {
@@ -407,13 +420,13 @@ void KeyboardOverlayHandler::GetInputMethodId(const base::ListValue* args) {
 void KeyboardOverlayHandler::GetLabelMap(const base::ListValue* args) {
   DCHECK(profile_);
   PrefService* pref_service = profile_->GetPrefs();
-  typedef std::map<ModifierKey, ModifierKey> ModifierMap;
+  using ModifierMap = std::map<ModifierKey, ModifierKey>;
   ModifierMap modifier_map;
-  modifier_map[chromeos::input_method::kSearchKey] = static_cast<ModifierKey>(
+  modifier_map[ModifierKey::kSearchKey] = static_cast<ModifierKey>(
       pref_service->GetInteger(prefs::kLanguageRemapSearchKeyTo));
-  modifier_map[chromeos::input_method::kControlKey] = static_cast<ModifierKey>(
+  modifier_map[ModifierKey::kControlKey] = static_cast<ModifierKey>(
       pref_service->GetInteger(prefs::kLanguageRemapControlKeyTo));
-  modifier_map[chromeos::input_method::kAltKey] = static_cast<ModifierKey>(
+  modifier_map[ModifierKey::kAltKey] = static_cast<ModifierKey>(
       pref_service->GetInteger(prefs::kLanguageRemapAltKeyTo));
   // TODO(mazda): Support prefs::kLanguageRemapCapsLockKeyTo once Caps Lock is
   // added to the overlay UI.
@@ -444,7 +457,7 @@ void KeyboardOverlayHandler::OpenLearnMorePage(const base::ListValue* args) {
 KeyboardOverlayUI::KeyboardOverlayUI(content::WebUI* web_ui)
     : WebDialogUI(web_ui) {
   Profile* profile = Profile::FromWebUI(web_ui);
-  web_ui->AddMessageHandler(base::MakeUnique<KeyboardOverlayHandler>(profile));
+  web_ui->AddMessageHandler(std::make_unique<KeyboardOverlayHandler>(profile));
 
   // Set up the chrome://keyboardoverlay/ source.
   content::WebUIDataSource::Add(profile,

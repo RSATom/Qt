@@ -11,12 +11,7 @@
 
 #include <stdlib.h>
 
-#if defined(GOOGLE3) && defined(SK_BUILD_FOR_IOS)
-    // This is defined by //base only for iOS (I don't know why).
-    DECLARE_bool(undefok)
-#else
-    DEFINE_bool(undefok, false, "Silently ignore unknown flags instead of crashing.");
-#endif
+DEFINE_bool(undefok, false, "Silently ignore unknown flags instead of crashing.");
 
 template <typename T> static void ignore_result(const T&) {}
 
@@ -222,7 +217,7 @@ struct CompareFlagsByName {
 };
 }  // namespace
 
-void SkCommandLineFlags::Parse(int argc, char** argv) {
+void SkCommandLineFlags::Parse(int argc, const char* const * argv) {
     // Only allow calling this function once.
     static bool gOnce;
     if (gOnce) {
@@ -400,7 +395,7 @@ bool ShouldSkipImpl(const Strings& strings, const char* name) {
                 && strncmp(name, matchName, matchLen) == 0
                 : matchEnd ? matchLen <= testLen
                 && strncmp(name + testLen - matchLen, matchName, matchLen) == 0
-                : strstr(name, matchName) != 0) {
+                : strstr(name, matchName) != nullptr) {
             return matchExclude;
         }
     }

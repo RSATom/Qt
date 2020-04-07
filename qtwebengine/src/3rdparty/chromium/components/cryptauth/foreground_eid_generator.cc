@@ -5,16 +5,17 @@
 #include "components/cryptauth/foreground_eid_generator.h"
 
 #include <cstring>
+#include <memory>
 
 #include "base/memory/ptr_util.h"
 #include "base/strings/string_util.h"
 #include "base/time/default_clock.h"
 #include "base/time/time.h"
+#include "chromeos/components/proximity_auth/logging/logging.h"
 #include "components/cryptauth/proto/cryptauth_api.pb.h"
 #include "components/cryptauth/raw_eid_generator.h"
 #include "components/cryptauth/raw_eid_generator_impl.h"
-#include "components/cryptauth/remote_device.h"
-#include "components/proximity_auth/logging/logging.h"
+#include "components/cryptauth/remote_device_ref.h"
 
 namespace cryptauth {
 
@@ -58,14 +59,13 @@ std::string ForegroundEidGenerator::EidData::DataInHex() const {
 }
 
 ForegroundEidGenerator::ForegroundEidGenerator()
-    : ForegroundEidGenerator(base::MakeUnique<RawEidGeneratorImpl>(),
-                             base::MakeUnique<base::DefaultClock>()) {}
+    : ForegroundEidGenerator(std::make_unique<RawEidGeneratorImpl>(),
+                             base::DefaultClock::GetInstance()) {}
 
 ForegroundEidGenerator::ForegroundEidGenerator(
     std::unique_ptr<RawEidGenerator> raw_eid_generator,
-    std::unique_ptr<base::Clock> clock)
-    : clock_(std::move(clock)),
-      raw_eid_generator_(std::move(raw_eid_generator)) {}
+    base::Clock* clock)
+    : clock_(clock), raw_eid_generator_(std::move(raw_eid_generator)) {}
 
 ForegroundEidGenerator::~ForegroundEidGenerator() {}
 
@@ -113,9 +113,9 @@ ForegroundEidGenerator::GenerateAdvertisement(
                                timestamps->current_period_end_timestamp_ms);
 }
 
-RemoteDevice const* ForegroundEidGenerator::IdentifyRemoteDeviceByAdvertisement(
+std::string ForegroundEidGenerator::IdentifyRemoteDeviceByAdvertisement(
     const std::string& advertisement_service_data,
-    const std::vector<RemoteDevice>& device_list,
+    const std::vector<std::string>& device_ids,
     const std::vector<BeaconSeed>& scanning_device_beacon_seeds) const {
   // Resize the service data to analyze only the first |2 * kNumBytesInEidValue|
   // bytes. The bytes following these are flags, so they are not needed to
@@ -123,18 +123,19 @@ RemoteDevice const* ForegroundEidGenerator::IdentifyRemoteDeviceByAdvertisement(
   std::string service_data_without_flags = advertisement_service_data;
   service_data_without_flags.resize(2 * RawEidGenerator::kNumBytesInEidValue);
 
-  for (const auto& remote_device : device_list) {
+  for (const auto& device_id : device_ids) {
     std::vector<std::string> possible_advertisements =
-        GeneratePossibleAdvertisements(remote_device.public_key,
-                                       scanning_device_beacon_seeds);
+        GeneratePossibleAdvertisements(
+            RemoteDeviceRef::DerivePublicKey(device_id),
+            scanning_device_beacon_seeds);
     for (const auto& possible_advertisement : possible_advertisements) {
       if (service_data_without_flags == possible_advertisement) {
-        return const_cast<RemoteDevice*>(&remote_device);
+        return device_id;
       }
     }
   }
 
-  return nullptr;
+  return std::string();
 }
 
 std::vector<std::string> ForegroundEidGenerator::GeneratePossibleAdvertisements(

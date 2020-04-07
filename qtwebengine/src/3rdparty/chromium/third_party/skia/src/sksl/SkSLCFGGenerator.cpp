@@ -89,7 +89,7 @@ bool BasicBlock::tryRemoveExpressionBefore(std::vector<BasicBlock::Node>::iterat
     }
     bool result;
     if ((*iter)->fKind == BasicBlock::Node::kExpression_Kind) {
-        ASSERT((*iter)->expression()->get() != e);
+        SkASSERT((*iter)->expression()->get() != e);
         Expression* old = (*iter)->expression()->get();
         do {
             if ((*iter) == fNodes.begin()) {
@@ -101,7 +101,7 @@ bool BasicBlock::tryRemoveExpressionBefore(std::vector<BasicBlock::Node>::iterat
         result = this->tryRemoveExpression(iter);
         while ((*iter)->fKind != BasicBlock::Node::kExpression_Kind ||
                (*iter)->expression()->get() != old) {
-            ASSERT(*iter != fNodes.end());
+            SkASSERT(*iter != fNodes.end());
             ++(*iter);
         }
     } else {
@@ -116,7 +116,7 @@ bool BasicBlock::tryRemoveExpressionBefore(std::vector<BasicBlock::Node>::iterat
         result = this->tryRemoveExpression(iter);
         while ((*iter)->fKind != BasicBlock::Node::kStatement_Kind ||
                (*iter)->statement()->get() != old) {
-            ASSERT(*iter != fNodes.end());
+            SkASSERT(*iter != fNodes.end());
             ++(*iter);
         }
     }
@@ -137,6 +137,15 @@ bool BasicBlock::tryRemoveLValueBefore(std::vector<BasicBlock::Node>::iterator* 
                 return false;
             }
             return this->tryRemoveExpressionBefore(iter, ((IndexExpression*) lvalue)->fIndex.get());
+        case Expression::kTernary_Kind:
+            if (!this->tryRemoveExpressionBefore(iter,
+                                                 ((TernaryExpression*) lvalue)->fTest.get())) {
+                return false;
+            }
+            if (!this->tryRemoveLValueBefore(iter, ((TernaryExpression*) lvalue)->fIfTrue.get())) {
+                return false;
+            }
+            return this->tryRemoveLValueBefore(iter, ((TernaryExpression*) lvalue)->fIfFalse.get());
         default:
             ABORT("invalid lvalue: %s\n", lvalue->description().c_str());
     }
@@ -157,7 +166,7 @@ bool BasicBlock::tryRemoveExpression(std::vector<BasicBlock::Node>::iterator* it
             if (!this->tryRemoveExpressionBefore(iter, b->fRight.get())) {
                 return false;
             }
-            ASSERT((*iter)->expression()->get() == expr);
+            SkASSERT((*iter)->expression()->get() == expr);
             *iter = fNodes.erase(*iter);
             return true;
         }
@@ -198,7 +207,7 @@ bool BasicBlock::tryRemoveExpression(std::vector<BasicBlock::Node>::iterator* it
                 if (!this->tryRemoveExpressionBefore(iter, arg.get())) {
                     return false;
                 }
-                ASSERT((*iter)->expression()->get() == expr);
+                SkASSERT((*iter)->expression()->get() == expr);
             }
             *iter = fNodes.erase(*iter);
             return true;
@@ -209,7 +218,7 @@ bool BasicBlock::tryRemoveExpression(std::vector<BasicBlock::Node>::iterator* it
                 if (!this->tryRemoveExpressionBefore(iter, arg.get())) {
                     return false;
                 }
-                ASSERT((*iter)->expression()->get() == expr);
+                SkASSERT((*iter)->expression()->get() == expr);
             }
             *iter = fNodes.erase(*iter);
             return true;
@@ -283,7 +292,7 @@ bool BasicBlock::tryInsertExpression(std::vector<BasicBlock::Node>::iterator* it
 }
 
 void CFGGenerator::addExpression(CFG& cfg, std::unique_ptr<Expression>* e, bool constantPropagate) {
-    ASSERT(e);
+    SkASSERT(e);
     switch ((*e)->fKind) {
         case Expression::kBinary_Kind: {
             BinaryExpression* b = (BinaryExpression*) e->get();
@@ -319,7 +328,7 @@ void CFGGenerator::addExpression(CFG& cfg, std::unique_ptr<Expression>* e, bool 
                     break;
                 }
                 default:
-                    this->addExpression(cfg, &b->fLeft, !Token::IsAssignment(b->fOperator));
+                    this->addExpression(cfg, &b->fLeft, !Compiler::IsAssignment(b->fOperator));
                     this->addExpression(cfg, &b->fRight, constantPropagate);
                     cfg.fBlocks[cfg.fCurrent].fNodes.push_back({
                         BasicBlock::Node::kExpression_Kind,
@@ -378,6 +387,7 @@ void CFGGenerator::addExpression(CFG& cfg, std::unique_ptr<Expression>* e, bool 
             cfg.fBlocks[cfg.fCurrent].fNodes.push_back({ BasicBlock::Node::kExpression_Kind,
                                                          constantPropagate, e, nullptr });
             break;
+        case Expression::kAppendStage_Kind:  // fall through
         case Expression::kBoolLiteral_Kind:  // fall through
         case Expression::kFloatLiteral_Kind: // fall through
         case Expression::kIntLiteral_Kind:   // fall through
@@ -405,7 +415,7 @@ void CFGGenerator::addExpression(CFG& cfg, std::unique_ptr<Expression>* e, bool 
         case Expression::kFunctionReference_Kind: // fall through
         case Expression::kTypeReference_Kind:     // fall through
         case Expression::kDefined_Kind:
-            ASSERT(false);
+            SkASSERT(false);
             break;
     }
 }
@@ -425,9 +435,17 @@ void CFGGenerator::addLValue(CFG& cfg, std::unique_ptr<Expression>* e) {
             break;
         case Expression::kVariableReference_Kind:
             break;
+        case Expression::kTernary_Kind:
+            this->addExpression(cfg, &((TernaryExpression&) **e).fTest, true);
+            // Technically we will of course only evaluate one or the other, but if the test turns
+            // out to be constant, the ternary will get collapsed down to just one branch anyway. So
+            // it should be ok to pretend that we always evaluate both branches here.
+            this->addLValue(cfg, &((TernaryExpression&) **e).fIfTrue);
+            this->addLValue(cfg, &((TernaryExpression&) **e).fIfFalse);
+            break;
         default:
             // not an lvalue, can't happen
-            ASSERT(false);
+            SkASSERT(false);
             break;
     }
 }

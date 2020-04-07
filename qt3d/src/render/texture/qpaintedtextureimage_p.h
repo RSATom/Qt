@@ -72,6 +72,7 @@ public:
     Q_DECLARE_PUBLIC(QPaintedTextureImage)
 
     QSize m_imageSize;
+    qreal m_devicePixelRatio;
     QScopedPointer<QImage> m_image;
     QTextureImageDataGeneratorPtr m_currentGenerator;
 
@@ -89,8 +90,8 @@ public:
     ~QPaintedTextureImageDataGenerator();
 
     // Will be executed from within a QAspectJob
-    QTextureImageDataPtr operator ()() Q_DECL_FINAL;
-    bool operator ==(const QTextureImageDataGenerator &other) const Q_DECL_FINAL;
+    QTextureImageDataPtr operator ()() final;
+    bool operator ==(const QTextureImageDataGenerator &other) const final;
 
     QT3D_FUNCTOR(QPaintedTextureImageDataGenerator)
 

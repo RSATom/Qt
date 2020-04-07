@@ -7,7 +7,6 @@
 #include <string>
 #include <utility>
 
-#include "base/memory/ptr_util.h"
 #include "gpu/tools/compositor_model_bench/forward_render_model.h"
 
 const char* ModelToString(RenderModel m) {
@@ -32,7 +31,7 @@ std::unique_ptr<RenderModelSimulator> ConstructSimulationModel(
     int window_height) {
   switch (model) {
     case ForwardRenderModel:
-      return base::MakeUnique<ForwardRenderSimulator>(
+      return std::make_unique<ForwardRenderSimulator>(
           std::move(render_tree_root), window_width, window_height);
     default:
       LOG(ERROR) << "Unrecognized render model. "

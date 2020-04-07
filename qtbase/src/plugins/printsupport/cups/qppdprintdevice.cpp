@@ -39,21 +39,18 @@
 
 #include "qppdprintdevice.h"
 
+#include "qcupsprintersupport_p.h"
+
 #include <QtCore/QMimeDatabase>
 #include <qdebug.h>
+
+#include "private/qcups_p.h" // Only needed for PDPK_*
 
 #ifndef QT_LINUXBASE // LSB merges everything into cups.h
 #include <cups/language.h>
 #endif
 
 QT_BEGIN_NAMESPACE
-
-QPpdPrintDevice::QPpdPrintDevice()
-    : QPlatformPrintDevice(),
-      m_cupsDest(0),
-      m_ppd(0)
-{
-}
 
 QPpdPrintDevice::QPpdPrintDevice(const QString &id)
     : QPlatformPrintDevice(id),
@@ -67,9 +64,26 @@ QPpdPrintDevice::QPpdPrintDevice(const QString &id)
         m_cupsName = parts.at(0).toUtf8();
         if (parts.size() > 1)
             m_cupsInstance = parts.at(1).toUtf8();
-        loadPrinter();
 
-        if (m_cupsDest && m_ppd) {
+        // Get the print instance and PPD file
+        m_cupsDest = cupsGetNamedDest(CUPS_HTTP_DEFAULT, m_cupsName, m_cupsInstance.isNull() ? nullptr : m_cupsInstance.constData());
+        if (m_cupsDest) {
+            const char *ppdFile = cupsGetPPD(m_cupsName);
+            if (ppdFile) {
+                m_ppd = ppdOpenFile(ppdFile);
+                unlink(ppdFile);
+            }
+            if (m_ppd) {
+                ppdMarkDefaults(m_ppd);
+                cupsMarkOptions(m_ppd, m_cupsDest->num_options, m_cupsDest->options);
+                ppdLocalize(m_ppd);
+
+                m_minimumPhysicalPageSize = QSize(m_ppd->custom_min[0], m_ppd->custom_min[1]);
+                m_maximumPhysicalPageSize = QSize(m_ppd->custom_max[0], m_ppd->custom_max[1]);
+                m_customMargins = QMarginsF(m_ppd->custom_margins[0], m_ppd->custom_margins[3],
+                                            m_ppd->custom_margins[2], m_ppd->custom_margins[1]);
+            }
+
             m_name = printerOption("printer-info");
             m_location = printerOption("printer-location");
             m_makeAndModel = printerOption("printer-make-and-model");
@@ -85,10 +99,6 @@ QPpdPrintDevice::QPpdPrintDevice(const QString &id)
             // Cups ppd_file_t variable_sizes custom_min custom_max
             // PPD MaxMediaWidth MaxMediaHeight
             m_supportsCustomPageSizes = type & CUPS_PRINTER_VARIABLE;
-            m_minimumPhysicalPageSize = QSize(m_ppd->custom_min[0], m_ppd->custom_min[1]);
-            m_maximumPhysicalPageSize = QSize(m_ppd->custom_max[0], m_ppd->custom_max[1]);
-            m_customMargins = QMarginsF(m_ppd->custom_margins[0], m_ppd->custom_margins[3],
-                                        m_ppd->custom_margins[2], m_ppd->custom_margins[1]);
         }
     }
 }
@@ -105,12 +115,17 @@ QPpdPrintDevice::~QPpdPrintDevice()
 
 bool QPpdPrintDevice::isValid() const
 {
-    return m_cupsDest && m_ppd;
+    return m_cupsDest;
 }
 
 bool QPpdPrintDevice::isDefault() const
 {
-    return printerTypeFlags() & CUPS_PRINTER_DEFAULT;
+    // There seems to be a bug in cups in which printerTypeFlags
+    // returns CUPS_PRINTER_DEFAULT based only on system values, ignoring user lpoptions
+    // so we can't use that. And also there seems to be a bug in which dests returned
+    // by cupsGetNamedDest don't have is_default set at all so we can't use that either
+    // so go the long route and compare our id against the defaultPrintDeviceId
+    return id() == QCupsPrinterSupport::staticDefaultPrintDeviceId();
 }
 
 QPrint::DeviceState QPpdPrintDevice::state() const
@@ -150,8 +165,8 @@ void QPpdPrintDevice::loadPageSizes() const
                 }
             }
         }
-        m_havePageSizes = true;
     }
+    m_havePageSizes = true;
 }
 
 QPageSize QPpdPrintDevice::defaultPageSize() const
@@ -357,14 +372,18 @@ void QPpdPrintDevice::loadDuplexModes() const
         ppd_option_t *duplexModes = ppdFindOption(m_ppd, "Duplex");
         if (duplexModes) {
             m_duplexModes.reserve(duplexModes->num_choices);
-            for (int i = 0; i < duplexModes->num_choices; ++i)
-                m_duplexModes.append(QPrintUtils::ppdChoiceToDuplexMode(duplexModes->choices[i].choice));
+            for (int i = 0; i < duplexModes->num_choices; ++i) {
+                if (ppdInstallableConflict(m_ppd, duplexModes->keyword, duplexModes->choices[i].choice) == 0) {
+                    m_duplexModes.append(QPrintUtils::ppdChoiceToDuplexMode(duplexModes->choices[i].choice));
+                }
+            }
         }
         // If no result, try just the default
         if (m_duplexModes.size() == 0) {
             duplexModes = ppdFindOption(m_ppd, "DefaultDuplex");
-            if (duplexModes)
+            if (duplexModes && (ppdInstallableConflict(m_ppd, duplexModes->keyword, duplexModes->choices[0].choice) == 0)) {
                 m_duplexModes.append(QPrintUtils::ppdChoiceToDuplexMode(duplexModes->choices[0].choice));
+            }
         }
     }
     // If still no result, or not added in PPD, then add None
@@ -415,13 +434,53 @@ QPrint::ColorMode QPpdPrintDevice::defaultColorMode() const
         ppd_option_t *colorModel = ppdFindOption(m_ppd, "DefaultColorModel");
         if (!colorModel)
             colorModel = ppdFindOption(m_ppd, "ColorModel");
-        if (!colorModel || (colorModel && !qstrcmp(colorModel->defchoice, "Gray")))
+        if (!colorModel || qstrcmp(colorModel->defchoice, "Gray") != 0)
             return QPrint::Color;
     }
     return QPrint::GrayScale;
 }
 
-#ifndef QT_NO_MIMETYPE
+QVariant QPpdPrintDevice::property(QPrintDevice::PrintDevicePropertyKey key) const
+{
+    if (key == PDPK_PpdFile)
+        return QVariant::fromValue<ppd_file_t *>(m_ppd);
+    else if (key == PDPK_CupsJobPriority)
+        return printerOption(QStringLiteral("job-priority"));
+    else if (key == PDPK_CupsJobSheets)
+        return printerOption(QStringLiteral("job-sheets"));
+    else if (key == PDPK_CupsJobBilling)
+        return printerOption(QStringLiteral("job-billing"));
+    else if (key == PDPK_CupsJobHoldUntil)
+        return printerOption(QStringLiteral("job-hold-until"));
+
+    return QPlatformPrintDevice::property(key);
+}
+
+bool QPpdPrintDevice::setProperty(QPrintDevice::PrintDevicePropertyKey key, const QVariant &value)
+{
+    if (key == PDPK_PpdOption) {
+        const QStringList values = value.toStringList();
+        if (values.count() == 2) {
+            ppdMarkOption(m_ppd, values[0].toLatin1(), values[1].toLatin1());
+            return true;
+        }
+    }
+
+    return QPlatformPrintDevice::setProperty(key, value);
+}
+
+bool QPpdPrintDevice::isFeatureAvailable(QPrintDevice::PrintDevicePropertyKey key, const QVariant &params) const
+{
+    if (key == PDPK_PpdChoiceIsInstallableConflict) {
+        const QStringList values = params.toStringList();
+        if (values.count() == 2)
+            return ppdInstallableConflict(m_ppd, values[0].toLatin1(), values[1].toLatin1());
+    }
+
+    return QPlatformPrintDevice::isFeatureAvailable(key, params);
+}
+
+#if QT_CONFIG(mimetype)
 void QPpdPrintDevice::loadMimeTypes() const
 {
     // TODO No CUPS api? Need to manually load CUPS mime.types file?
@@ -438,36 +497,6 @@ void QPpdPrintDevice::loadMimeTypes() const
     m_haveMimeTypes = true;
 }
 #endif
-
-void QPpdPrintDevice::loadPrinter()
-{
-    // Just to be safe, check if existing printer needs closing
-    if (m_ppd) {
-        ppdClose(m_ppd);
-        m_ppd = 0;
-    }
-    if (m_cupsDest) {
-        cupsFreeDests(1, m_cupsDest);
-        m_cupsDest = 0;
-    }
-
-    // Get the print instance and PPD file
-    m_cupsDest = cupsGetNamedDest(CUPS_HTTP_DEFAULT, m_cupsName, m_cupsInstance);
-    if (m_cupsDest) {
-        const char *ppdFile = cupsGetPPD(m_cupsName);
-        if (ppdFile) {
-            m_ppd = ppdOpenFile(ppdFile);
-            unlink(ppdFile);
-        }
-        if (m_ppd) {
-            ppdMarkDefaults(m_ppd);
-        } else {
-            cupsFreeDests(1, m_cupsDest);
-            m_cupsDest = 0;
-            m_ppd = 0;
-        }
-    }
-}
 
 QString QPpdPrintDevice::printerOption(const QString &key) const
 {

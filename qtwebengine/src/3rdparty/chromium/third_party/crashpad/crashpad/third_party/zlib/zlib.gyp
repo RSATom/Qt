@@ -13,18 +13,28 @@
 # limitations under the License.
 
 {
-  'variables': {
-    'conditions': [
-      # Use the system zlib by default where available, as it is on most
-      # platforms. Windows does not have a system zlib, so use “embedded” which
-      # directs the build to use the source code in the zlib subdirectory.
-      ['OS!="win"', {
-        'zlib_source%': 'system',
-      }, {
-        'zlib_source%': 'embedded',
-      }],
-    ],
-  },
+  'includes': [
+    '../../build/crashpad_dependencies.gypi',
+  ],
+  'conditions': [
+    ['1==1', {  # Defer processing until crashpad_dependencies is set
+      'variables': {
+        'conditions': [
+          ['crashpad_dependencies=="external"', {
+            'zlib_source%': 'external',
+          }, 'OS!="win"', {
+            # Use the system zlib by default where available, as it is on most
+            # platforms. Windows does not have a system zlib, so use “embedded”
+            # which directs the build to use the source code in the zlib
+            # subdirectory.
+            'zlib_source%': 'system',
+          }, {
+            'zlib_source%': 'embedded',
+          }],
+        ],
+      },
+    }],
+  ],
   'targets': [
     {
       'target_name': 'zlib',
@@ -103,10 +113,20 @@
             'zlib_crashpad.h',
           ],
           'conditions': [
-            ['target_arch=="x86" or target_arch=="amd64"', {
+            ['target_arch=="ia32" or target_arch=="x64"', {
               'sources!': [
                 'zlib/simd_stub.c',
               ],
+              'cflags': [
+                '-msse4.2',
+                '-mpclmul',
+              ],
+              'xcode_settings': {
+                'OTHER_CFLAGS': [
+                  '-msse4.2',
+                  '-mpclmul',
+                ],
+              },
             }, {
               'sources!': [
                 'zlib/crc_folding.c',
@@ -129,6 +149,17 @@
                 4324,  # structure was padded due to alignment specifier
               ],
             }],
+          ],
+        }],
+        ['zlib_source=="external"', {
+          'type': 'none',
+          'direct_dependent_settings': {
+            'defines': [
+              'CRASHPAD_ZLIB_SOURCE_EXTERNAL',
+            ],
+          },
+          'dependencies': [
+            '../../../../zlib/zlib.gyp:zlib',
           ],
         }],
       ],

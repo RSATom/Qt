@@ -8,6 +8,9 @@
 
 #include "common/debug.h"
 
+namespace angle
+{
+
 namespace pp
 {
 
@@ -118,6 +121,8 @@ const char *Diagnostics::message(ID id)
             return "extension directive must occur before any non-preprocessor tokens in ESSL3";
         case PP_UNDEFINED_SHIFT:
             return "shift exponent is negative or undefined";
+        case PP_TOKENIZER_ERROR:
+            return "internal tokenizer error";
         // Errors end.
         // Warnings begin.
         case PP_EOF_IN_DIRECTIVE:
@@ -139,3 +144,5 @@ const char *Diagnostics::message(ID id)
 }
 
 }  // namespace pp
+
+}  // namespace angle

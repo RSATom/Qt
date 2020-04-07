@@ -377,7 +377,7 @@ void tst_QBluetoothSocket::tst_clientCommunication()
 
     {
         /* Send line by line with event loop */
-        foreach (const QString &line, data) {
+        for (const QString &line : qAsConst(data)) {
             QSignalSpy readyReadSpy(&socket, SIGNAL(readyRead()));
             QSignalSpy bytesWrittenSpy(&socket, SIGNAL(bytesWritten(qint64)));
 

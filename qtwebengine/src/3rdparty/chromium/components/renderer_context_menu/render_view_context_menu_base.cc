@@ -16,8 +16,8 @@
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/menu_item.h"
-#include "ppapi/features/features.h"
-#include "third_party/WebKit/public/web/WebContextMenuData.h"
+#include "ppapi/buildflags/buildflags.h"
+#include "third_party/blink/public/web/web_context_menu_data.h"
 
 using blink::WebContextMenuData;
 using blink::WebString;
@@ -239,6 +239,14 @@ void RenderViewContextMenuBase::UpdateMenuIcon(int command_id,
 #endif
 }
 
+void RenderViewContextMenuBase::AddSeparatorBelowMenuItem(int command_id) {
+#if defined(OS_CHROMEOS)
+  if (toolkit_delegate_)
+    toolkit_delegate_->AddSeparatorAt(
+        menu_model_.GetIndexOfCommandId(command_id) + 1);
+#endif
+}
+
 RenderViewHost* RenderViewContextMenuBase::GetRenderViewHost() const {
   return source_web_contents_->GetRenderViewHost();
 }
@@ -357,8 +365,9 @@ void RenderViewContextMenuBase::OpenURL(const GURL& url,
                                         const GURL& referring_url,
                                         WindowOpenDisposition disposition,
                                         ui::PageTransition transition) {
-  OpenURLWithExtraHeaders(url, referring_url, disposition, transition, "",
-                          false);
+  OpenURLWithExtraHeaders(url, referring_url, disposition, transition,
+                          "" /* extra_headers */,
+                          false /* started_from_context_menu */);
 }
 
 void RenderViewContextMenuBase::OpenURLWithExtraHeaders(

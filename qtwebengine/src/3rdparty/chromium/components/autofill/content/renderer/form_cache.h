@@ -11,6 +11,7 @@
 #include <set>
 #include <vector>
 
+#include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/strings/string16.h"
 #include "components/autofill/core/common/form_data.h"
@@ -29,7 +30,7 @@ struct FormDataPredictions;
 // Manages the forms in a single RenderFrame.
 class FormCache {
  public:
-  explicit FormCache(const blink::WebLocalFrame& frame);
+  explicit FormCache(blink::WebLocalFrame* frame);
   ~FormCache();
 
   // Scans the DOM in |frame_| extracting and storing forms that have not been
@@ -39,16 +40,24 @@ class FormCache {
   // Resets the forms.
   void Reset();
 
-  // Clears the values of all input elements in the form that contains
-  // |element|.  Returns false if the form is not found.
-  bool ClearFormWithElement(const blink::WebFormControlElement& element);
+  // Clears the values of all input elements in the section of the form that
+  // contains |element|.  Returns false if the form is not found.
+  bool ClearSectionWithElement(const blink::WebFormControlElement& element);
 
-  // For each field in the |form|, sets the title to include the field's
-  // heuristic type, server type, and signature; as well as the form's signature
-  // and the experiment id for the server predictions.
-  bool ShowPredictions(const FormDataPredictions& form);
+  // For each field in the |form|, if |attach_predictions_to_dom| is true, sets
+  // the title to include the field's heuristic type, server type, and
+  // signature; as well as the form's signature and the experiment id for the
+  // server predictions. In all cases, may emit console warnings regarding the
+  // use of autocomplete attributes.
+  bool ShowPredictions(const FormDataPredictions& form,
+                       bool attach_predictions_to_dom);
 
  private:
+  FRIEND_TEST_ALL_PREFIXES(FormCacheTest,
+                           ShouldShowAutocompleteConsoleWarnings_Enabled);
+  FRIEND_TEST_ALL_PREFIXES(FormCacheTest,
+                           ShouldShowAutocompleteConsoleWarnings_Disabled);
+
   // Scans |control_elements| and returns the number of editable elements.
   // Also remembers the initial <select> and <input> element states, and
   // logs warning messages for deprecated attribute if
@@ -61,8 +70,16 @@ class FormCache {
   void SaveInitialValues(
       const std::vector<blink::WebFormControlElement>& control_elements);
 
-  // The frame this FormCache is associated with.
-  const blink::WebLocalFrame& frame_;
+  // Returns whether we should show a console warning related to a wrong
+  // autocomplete attribute. We will show a warning if (1) there is no
+  // autocomplete attribute and we have a guess for one or (2) we recognize the
+  // autocomplete attribute but it appears to be the wrong one.
+  bool ShouldShowAutocompleteConsoleWarnings(
+      const std::string& predicted_autocomplete,
+      const std::string& actual_autocomplete);
+
+  // The frame this FormCache is associated with. Weak reference.
+  blink::WebLocalFrame* frame_;
 
   // The cached forms. Used to prevent re-extraction of forms.
   std::set<FormData> parsed_forms_;

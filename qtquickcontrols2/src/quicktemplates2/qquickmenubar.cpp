@@ -53,6 +53,7 @@ QT_BEGIN_NAMESPACE
     \inqmlmodule QtQuick.Controls
     \since 5.10
     \ingroup qtquickcontrols2-menus
+    \ingroup qtquickcontrols2-focusscopes
     \brief Provides a window menu bar.
 
     \image qtquickcontrols2-menubar.png
@@ -71,20 +72,9 @@ QT_BEGIN_NAMESPACE
     \l {removeMenu}{remove}, and \l {takeMenu}{take} menus dynamically. The
     menus in a menu bar can be accessed using \l menuAt().
 
-    \sa {Customizing MenuBar}, Menu, MenuBarItem, {Menu Controls}
+    \sa {Customizing MenuBar}, Menu, MenuBarItem, {Menu Controls},
+        {Focus Management in Qt Quick Controls 2}
 */
-
-QQuickMenuBarPrivate::QQuickMenuBarPrivate()
-    : popupMode(false),
-      triggering(false),
-      hasContentWidth(false),
-      hasContentHeight(false),
-      contentWidth(0),
-      contentHeight(0),
-      delegate(nullptr)
-{
-    changeTypes |= Geometry;
-}
 
 QQuickItem *QQuickMenuBarPrivate::beginCreateItem()
 {
@@ -221,49 +211,44 @@ void QQuickMenuBarPrivate::onMenuAboutToHide()
     activateItem(nullptr);
 }
 
-void QQuickMenuBarPrivate::updateContentSize()
+qreal QQuickMenuBarPrivate::getContentWidth() const
 {
-    Q_Q(QQuickMenuBar);
-    if (hasContentWidth && hasContentHeight)
-        return;
-
+    Q_Q(const QQuickMenuBar);
     const int count = contentModel->count();
-    if (count <= 0 || !contentItem)
-        return;
-
-    qreal maxHeight = 0;
     qreal totalWidth = qMax(0, count - 1) * spacing;
-
     for (int i = 0; i < count; ++i) {
         QQuickItem *item = q->itemAt(i);
-        if (item) {
-            totalWidth += item->width();
-            maxHeight = qMax(maxHeight, item->implicitHeight());
-        }
+        if (item)
+            totalWidth += item->implicitWidth();
     }
-
-    bool contentWidthChange = false;
-    if (!hasContentWidth && !qFuzzyCompare(contentWidth, totalWidth)) {
-        contentWidth = totalWidth;
-        contentWidthChange = true;
-    }
-
-    bool contentHeightChange = false;
-    if (!hasContentHeight && !qFuzzyCompare(contentHeight, maxHeight)) {
-        contentHeight = maxHeight;
-        contentHeightChange = true;
-    }
-
-    if (contentWidthChange)
-        emit q->contentWidthChanged();
-    if (contentHeightChange)
-        emit q->contentHeightChanged();
+    return totalWidth;
 }
 
-void QQuickMenuBarPrivate::itemGeometryChanged(QQuickItem *, QQuickGeometryChange change, const QRectF &)
+qreal QQuickMenuBarPrivate::getContentHeight() const
 {
-    if ((change.widthChange() && !hasContentWidth) || (change.heightChange() && !hasContentHeight))
-        updateContentSize();
+    Q_Q(const QQuickMenuBar);
+    const int count = contentModel->count();
+    qreal maxHeight = 0;
+    for (int i = 0; i < count; ++i) {
+        QQuickItem *item = q->itemAt(i);
+        if (item)
+            maxHeight = qMax(maxHeight, item->implicitHeight());
+    }
+    return maxHeight;
+}
+
+void QQuickMenuBarPrivate::itemImplicitWidthChanged(QQuickItem *item)
+{
+    QQuickContainerPrivate::itemImplicitWidthChanged(item);
+    if (item != contentItem)
+        updateImplicitContentWidth();
+}
+
+void QQuickMenuBarPrivate::itemImplicitHeightChanged(QQuickItem *item)
+{
+    QQuickContainerPrivate::itemImplicitHeightChanged(item);
+    if (item != contentItem)
+        updateImplicitContentHeight();
 }
 
 void QQuickMenuBarPrivate::contentData_append(QQmlListProperty<QObject> *prop, QObject *obj)
@@ -301,6 +286,8 @@ void QQuickMenuBarPrivate::menus_clear(QQmlListProperty<QQuickMenu> *prop)
 QQuickMenuBar::QQuickMenuBar(QQuickItem *parent)
     : QQuickContainer(*(new QQuickMenuBarPrivate), parent)
 {
+    Q_D(QQuickMenuBar);
+    d->changeTypes |= QQuickItemPrivate::Geometry;
     setFlag(ItemIsFocusScope);
     setFocusPolicy(Qt::ClickFocus);
 }
@@ -413,83 +400,30 @@ QQuickMenu *QQuickMenuBar::takeMenu(int index)
 }
 
 /*!
+    \since QtQuick.Controls 2.3 (Qt 5.10)
     \qmlproperty real QtQuick.Controls::MenuBar::contentWidth
 
     This property holds the content width. It is used for calculating the total
     implicit width of the menu bar.
 
-    Unless explicitly overridden, the content width is automatically calculated
-    based on the total implicit width of the items and the \l {Control::}{spacing}
-    of the menu bar.
+    \note This property is available in MenuBar since QtQuick.Controls 2.3 (Qt 5.10),
+    but it was promoted to the Container base type in QtQuick.Controls 2.5 (Qt 5.12).
 
-    \sa contentHeight
+    \sa Container::contentWidth
 */
-qreal QQuickMenuBar::contentWidth() const
-{
-    Q_D(const QQuickMenuBar);
-    return d->contentWidth;
-}
-
-void QQuickMenuBar::setContentWidth(qreal width)
-{
-    Q_D(QQuickMenuBar);
-    d->hasContentWidth = true;
-    if (qFuzzyCompare(d->contentWidth, width))
-        return;
-
-    d->contentWidth = width;
-    emit contentWidthChanged();
-}
-
-void QQuickMenuBar::resetContentWidth()
-{
-    Q_D(QQuickMenuBar);
-    if (!d->hasContentWidth)
-        return;
-
-    d->hasContentWidth = false;
-    if (isComponentComplete())
-        d->updateContentSize();
-}
 
 /*!
+    \since QtQuick.Controls 2.3 (Qt 5.10)
     \qmlproperty real QtQuick.Controls::MenuBar::contentHeight
 
     This property holds the content height. It is used for calculating the total
     implicit height of the menu bar.
 
-    Unless explicitly overridden, the content height is automatically calculated
-    based on the maximum implicit height of the items.
+    \note This property is available in MenuBar since QtQuick.Controls 2.3 (Qt 5.10),
+    but it was promoted to the Container base type in QtQuick.Controls 2.5 (Qt 5.12).
 
-    \sa contentWidth
+    \sa Container::contentHeight
 */
-qreal QQuickMenuBar::contentHeight() const
-{
-    Q_D(const QQuickMenuBar);
-    return d->contentHeight;
-}
-
-void QQuickMenuBar::setContentHeight(qreal height)
-{
-    Q_D(QQuickMenuBar);
-    d->hasContentHeight = true;
-    if (qFuzzyCompare(d->contentHeight, height))
-        return;
-
-    d->contentHeight = height;
-    emit contentHeightChanged();
-}
-
-void QQuickMenuBar::resetContentHeight()
-{
-    Q_D(QQuickMenuBar);
-    if (!d->hasContentHeight)
-        return;
-
-    d->hasContentHeight = false;
-    if (isComponentComplete())
-        d->updateContentSize();
-}
 
 /*!
     \qmlproperty list<Menu> QtQuick.Controls::MenuBar::menus
@@ -500,36 +434,24 @@ void QQuickMenuBar::resetContentHeight()
     of the menu bar, and also menus that have been dynamically added or
     inserted using the \l addMenu() and \l insertMenu() methods, respectively.
 */
-QQmlListProperty<QQuickMenu> QQuickMenuBar::menus()
+QQmlListProperty<QQuickMenu> QQuickMenuBarPrivate::menus()
 {
-    return QQmlListProperty<QQuickMenu>(this, nullptr,
+    Q_Q(QQuickMenuBar);
+    return QQmlListProperty<QQuickMenu>(q, nullptr,
                                         QQuickMenuBarPrivate::menus_append,
                                         QQuickMenuBarPrivate::menus_count,
                                         QQuickMenuBarPrivate::menus_at,
                                         QQuickMenuBarPrivate::menus_clear);
 }
 
-QQmlListProperty<QObject> QQuickMenuBar::contentData()
+QQmlListProperty<QObject> QQuickMenuBarPrivate::contentData()
 {
-    return QQmlListProperty<QObject>(this, nullptr,
+    Q_Q(QQuickMenuBar);
+    return QQmlListProperty<QObject>(q, nullptr,
                                      QQuickMenuBarPrivate::contentData_append,
                                      QQuickContainerPrivate::contentData_count,
                                      QQuickContainerPrivate::contentData_at,
                                      QQuickContainerPrivate::contentData_clear);
-}
-
-void QQuickMenuBar::updatePolish()
-{
-    Q_D(QQuickMenuBar);
-    QQuickContainer::updatePolish();
-    d->updateContentSize();
-}
-
-void QQuickMenuBar::componentComplete()
-{
-    Q_D(QQuickMenuBar);
-    QQuickContainer::componentComplete();
-    d->updateContentSize();
 }
 
 bool QQuickMenuBar::eventFilter(QObject *object, QEvent *event)
@@ -612,10 +534,7 @@ void QQuickMenuBar::itemAdded(int index, QQuickItem *item)
         if (QQuickMenu *menu = menuBarItem->menu())
             QObjectPrivate::connect(menu, &QQuickPopup::aboutToHide, d, &QQuickMenuBarPrivate::onMenuAboutToHide);
     }
-    if (isComponentComplete())
-        polish();
-    if (isComponentComplete())
-        polish();
+    d->updateImplicitContentSize();
     emit menusChanged();
 }
 
@@ -636,17 +555,18 @@ void QQuickMenuBar::itemRemoved(int index, QQuickItem *item)
         if (QQuickMenu *menu = menuBarItem->menu())
             QObjectPrivate::disconnect(menu, &QQuickPopup::aboutToHide, d, &QQuickMenuBarPrivate::onMenuAboutToHide);
     }
+    d->updateImplicitContentSize();
     emit menusChanged();
 }
 
 QFont QQuickMenuBar::defaultFont() const
 {
-    return QQuickControlPrivate::themeFont(QPlatformTheme::MenuBarFont);
+    return QQuickTheme::font(QQuickTheme::MenuBar);
 }
 
 QPalette QQuickMenuBar::defaultPalette() const
 {
-    return QQuickControlPrivate::themePalette(QPlatformTheme::MenuBarPalette);
+    return QQuickTheme::palette(QQuickTheme::MenuBar);
 }
 
 #if QT_CONFIG(accessibility)
@@ -657,3 +577,5 @@ QAccessible::Role QQuickMenuBar::accessibleRole() const
 #endif
 
 QT_END_NAMESPACE
+
+#include "moc_qquickmenubar_p.cpp"

@@ -2059,10 +2059,10 @@ void tst_QGraphicsWidget::task236127_bspTreeIndexFails()
 
     QTRY_VERIFY(scene.items(QPointF(25, 25)).isEmpty());
     widget->setGeometry(0, 112, 360, 528);
-    QTRY_COMPARE(scene.items(QPointF(15, 120)).value(0, Q_NULLPTR), (QGraphicsItem *)widget);
+    QTRY_COMPARE(scene.items(QPointF(15, 120)).value(0, nullptr), (QGraphicsItem *)widget);
     widget2->setGeometry(0, 573, 360, 67);
-    QTRY_COMPARE(scene.items(QPointF(15, 120)).value(0, Q_NULLPTR), (QGraphicsItem *)widget);
-    QTRY_COMPARE(scene.items(QPointF(50, 585)).value(0, Q_NULLPTR), (QGraphicsItem *)widget2);
+    QTRY_COMPARE(scene.items(QPointF(15, 120)).value(0, nullptr), (QGraphicsItem *)widget);
+    QTRY_COMPARE(scene.items(QPointF(50, 585)).value(0, nullptr), (QGraphicsItem *)widget2);
 }
 
 void tst_QGraphicsWidget::defaultSize()
@@ -3461,12 +3461,12 @@ void tst_QGraphicsWidget::QTBUG_45867_send_itemChildAddedChange_to_parent()
         {
         }
 
-        QRectF boundingRect() const Q_DECL_OVERRIDE { return QRectF(); }
+        QRectF boundingRect() const override { return QRectF(); }
 
-        void paint(QPainter *, const QStyleOptionGraphicsItem *, QWidget *) Q_DECL_OVERRIDE {}
+        void paint(QPainter *, const QStyleOptionGraphicsItem *, QWidget *) override {}
 
     protected:
-        QVariant itemChange(QGraphicsItem::GraphicsItemChange change, const QVariant &value) Q_DECL_OVERRIDE
+        QVariant itemChange(QGraphicsItem::GraphicsItemChange change, const QVariant &value) override
         {
             if (change == QGraphicsItem::ItemChildAddedChange)
                 ++m_itemChildAddedChangeNotificationsCount;

@@ -42,10 +42,10 @@
 
 #include "content/public/browser/native_web_keyboard_event.h"
 #ifndef QT_NO_GESTURES
-#include "third_party/WebKit/public/platform/WebGestureEvent.h"
+#include "third_party/blink/public/platform/web_gesture_event.h"
 #endif
-#include "third_party/WebKit/public/platform/WebMouseEvent.h"
-#include "third_party/WebKit/public/platform/WebMouseWheelEvent.h"
+#include "third_party/blink/public/platform/web_mouse_event.h"
+#include "third_party/blink/public/platform/web_mouse_wheel_event.h"
 
 #include <QtGlobal>
 
@@ -54,6 +54,9 @@ class QEvent;
 class QHoverEvent;
 class QKeyEvent;
 class QMouseEvent;
+#ifndef QT_NO_TABLETEVENT
+class QTabletEvent;
+#endif
 class QWheelEvent;
 #ifndef QT_NO_GESTURES
 class QNativeGestureEvent;
@@ -65,6 +68,9 @@ class WebEventFactory {
 public:
     static blink::WebMouseEvent toWebMouseEvent(QMouseEvent*, double dpiScale);
     static blink::WebMouseEvent toWebMouseEvent(QHoverEvent*, double dpiScale);
+#ifndef QT_NO_TABLETEVENT
+    static blink::WebMouseEvent toWebMouseEvent(QTabletEvent*, double dpiScale);
+#endif
     static blink::WebMouseEvent toWebMouseEvent(QEvent *);
 #ifndef QT_NO_GESTURES
     static blink::WebGestureEvent toWebGestureEvent(QNativeGestureEvent *, double dpiScale);

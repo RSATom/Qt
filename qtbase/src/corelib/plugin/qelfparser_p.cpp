@@ -63,7 +63,7 @@ const char *QElfParser::parseSectionHeader(const char *data, ElfSectionHeader *s
     return data;
 }
 
-int QElfParser::parse(const char *dataStart, ulong fdlen, const QString &library, QLibraryPrivate *lib, long *pos, ulong *sectionlen)
+int QElfParser::parse(const char *dataStart, ulong fdlen, const QString &library, QLibraryPrivate *lib, qsizetype *pos, qsizetype *sectionlen)
 {
 #if defined(QELFPARSER_DEBUG)
     qDebug() << "QElfParser::parse " << library;
@@ -168,11 +168,11 @@ int QElfParser::parse(const char *dataStart, ulong fdlen, const QString &library
     parseSectionHeader(dataStart + soff, &strtab);
     m_stringTableFileOffset = strtab.offset;
 
-    if ((quint32)(m_stringTableFileOffset + e_shentsize) >= fdlen || m_stringTableFileOffset == 0) {
+    if ((quint32)(strtab.offset + strtab.size) > fdlen || strtab.offset == 0) {
         if (lib)
             lib->errorString = QLibrary::tr("'%1' is an invalid ELF object (%2)")
                                .arg(library, QLibrary::tr("string table seems to be at %1")
-                                             .arg(QString::number(soff, 16)));
+                                             .arg(QString::number(strtab.offset, 16)));
         return Corrupt;
     }
 
@@ -224,7 +224,7 @@ int QElfParser::parse(const char *dataStart, ulong fdlen, const QString &library
                 return Corrupt;
             }
             *pos = sh.offset;
-            *sectionlen = sh.size - 1;
+            *sectionlen = sh.size;
             if (shnam[1] == 'q')
                 return QtMetaDataSection;
         }

@@ -15,6 +15,8 @@
 #include "components/os_crypt/os_crypt.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
+#include <windows.h>
+
 using base::win::RegKey;
 
 namespace autofill {
@@ -139,7 +141,7 @@ void AutofillIeToolbarImportTest::SetUp() {
 }
 
 void AutofillIeToolbarImportTest::TearDown() {
-  EXPECT_EQ(ERROR_SUCCESS, RegOverridePredefKey(HKEY_CURRENT_USER, NULL));
+  EXPECT_EQ(ERROR_SUCCESS, RegOverridePredefKey(HKEY_CURRENT_USER, nullptr));
   temp_hkcu_hive_key_.Close();
   RegKey key(HKEY_CURRENT_USER, kUnitTestRegistrySubKey, KEY_ALL_ACCESS);
   key.DeleteKey(L"");

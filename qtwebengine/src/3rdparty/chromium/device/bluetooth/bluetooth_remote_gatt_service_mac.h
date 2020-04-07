@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#include <unordered_map>
+#include <string>
 #include <vector>
 
 #include "base/mac/scoped_nsobject.h"
@@ -40,11 +40,7 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothRemoteGattServiceMac
   BluetoothUUID GetUUID() const override;
   bool IsPrimary() const override;
   BluetoothDevice* GetDevice() const override;
-  std::vector<BluetoothRemoteGattCharacteristic*> GetCharacteristics()
-      const override;
   std::vector<BluetoothRemoteGattService*> GetIncludedServices() const override;
-  BluetoothRemoteGattCharacteristic* GetCharacteristic(
-      const std::string& identifier) const override;
 
  private:
   friend class BluetoothLowEnergyDeviceMac;
@@ -62,8 +58,6 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothRemoteGattServiceMac
   // Sends notification if this service is ready with all characteristics
   // discovered.
   void SendNotificationIfComplete();
-  // Returns true if the characteristics has been discovered.
-  bool IsDiscoveryComplete() const;
 
   // Returns the mac adapter.
   BluetoothAdapterMac* GetMacAdapter() const;
@@ -82,18 +76,11 @@ class DEVICE_BLUETOOTH_EXPORT BluetoothRemoteGattServiceMac
   BluetoothLowEnergyDeviceMac* bluetooth_device_mac_;
   // A service from CBPeripheral.services.
   base::scoped_nsobject<CBService> service_;
-  // Map of characteristics, keyed by characteristic identifier.
-  std::unordered_map<std::string,
-                     std::unique_ptr<BluetoothRemoteGattCharacteristicMac>>
-      gatt_characteristic_macs_;
   bool is_primary_;
   // Service identifier.
   std::string identifier_;
   // Service UUID.
   BluetoothUUID uuid_;
-  // Is true if the characteristics has been discovered and
-  // discovery_pending_count_ is 0.
-  bool is_discovery_complete_;
   // Increased each time DiscoverCharacteristics() is called. And decreased when
   // DidDiscoverCharacteristics() is called.
   int discovery_pending_count_;

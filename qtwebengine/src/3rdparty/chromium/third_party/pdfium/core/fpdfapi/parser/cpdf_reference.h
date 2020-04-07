@@ -11,7 +11,7 @@
 #include <set>
 
 #include "core/fpdfapi/parser/cpdf_object.h"
-#include "core/fxcrt/cfx_unowned_ptr.h"
+#include "core/fxcrt/unowned_ptr.h"
 
 class CPDF_IndirectObjectHolder;
 
@@ -23,15 +23,19 @@ class CPDF_Reference : public CPDF_Object {
   // CPDF_Object:
   Type GetType() const override;
   std::unique_ptr<CPDF_Object> Clone() const override;
-  CPDF_Object* GetDirect() const override;
-  CFX_ByteString GetString() const override;
+  CPDF_Object* GetDirect() override;
+  const CPDF_Object* GetDirect() const override;
+  ByteString GetString() const override;
   float GetNumber() const override;
   int GetInteger() const override;
-  CPDF_Dictionary* GetDict() const override;
+  CPDF_Dictionary* GetDict() override;
+  const CPDF_Dictionary* GetDict() const override;
   bool IsReference() const override;
   CPDF_Reference* AsReference() override;
   const CPDF_Reference* AsReference() const override;
   bool WriteTo(IFX_ArchiveStream* archive) const override;
+  std::unique_ptr<CPDF_Object> MakeReference(
+      CPDF_IndirectObjectHolder* holder) const override;
 
   CPDF_IndirectObjectHolder* GetObjList() const { return m_pObjList.Get(); }
   uint32_t GetRefObjNum() const { return m_RefObjNum; }
@@ -41,9 +45,10 @@ class CPDF_Reference : public CPDF_Object {
   std::unique_ptr<CPDF_Object> CloneNonCyclic(
       bool bDirect,
       std::set<const CPDF_Object*>* pVisited) const override;
-  CPDF_Object* SafeGetDirect() const;
+  CPDF_Object* SafeGetDirect();
+  const CPDF_Object* SafeGetDirect() const;
 
-  CFX_UnownedPtr<CPDF_IndirectObjectHolder> m_pObjList;
+  UnownedPtr<CPDF_IndirectObjectHolder> m_pObjList;
   uint32_t m_RefObjNum;
 };
 

@@ -44,12 +44,14 @@
 #include <QTime>
 #include <QUrl>
 #include <QMutex>
-
+#include <QTimer>
 #include <qcamera.h>
 #include <QtMultimedia/qvideoframe.h>
 #include <QtMultimedia/qabstractvideosurface.h>
 #include <QtMultimedia/qvideosurfaceformat.h>
 #include <QtMultimedia/qcameraimageprocessingcontrol.h>
+#include <QtMultimedia/qcameraimagecapture.h>
+#include <QtMultimedia/qmediaencodersettings.h>
 #include <private/qmediastoragelocation_p.h>
 
 #include <tchar.h>
@@ -76,13 +78,14 @@ struct ICaptureGraphBuilder2;
 QT_BEGIN_NAMESPACE
 
 class DirectShowSampleGrabber;
+class DirectShowVideoProbeControl;
 
 class DSCameraSession : public QObject
 {
     Q_OBJECT
 public:
     DSCameraSession(QObject *parent = 0);
-    ~DSCameraSession();
+    ~DSCameraSession() override;
 
     QCamera::Status status() const { return m_status; }
 
@@ -120,44 +123,49 @@ public:
 
     bool getCameraControlInterface(IAMCameraControl **cameraControl) const;
 
+    bool isCaptureDestinationSupported(QCameraImageCapture::CaptureDestinations destination) const;
+    QCameraImageCapture::CaptureDestinations captureDestination() const;
+    void setCaptureDestination(QCameraImageCapture::CaptureDestinations destinations);
+
+    void addVideoProbe(DirectShowVideoProbeControl *probe);
+    void removeVideoProbe(DirectShowVideoProbeControl *probe);
+
+    QList<QSize> supportedResolutions(bool *continuous) const;
+    QImageEncoderSettings imageEncoderSettings() const { return m_imageEncoderSettings; }
+    void setImageEncoderSettings(const QImageEncoderSettings &settings)
+    { m_imageEncoderSettings = settings; }
+
 Q_SIGNALS:
     void statusChanged(QCamera::Status);
     void imageExposed(int id);
     void imageCaptured(int id, const QImage &preview);
     void imageSaved(int id, const QString &fileName);
+    void imageAvailable(int id, const QVideoFrame &buffer);
     void readyForCaptureChanged(bool);
     void captureError(int id, int error, const QString &errorString);
+    void captureDestinationChanged(QCameraImageCapture::CaptureDestinations);
+    void cameraError(int error, const QString &errorString);
 
 private Q_SLOTS:
     void presentFrame();
     void updateReadyForCapture();
 
 private:
-    struct ImageProcessingParameterInfo {
-        ImageProcessingParameterInfo()
-            : minimumValue(0)
-            , maximumValue(0)
-            , defaultValue(0)
-            , currentValue(0)
-            , capsFlags(0)
-            , hasBeenExplicitlySet(false)
-            , videoProcAmpProperty(VideoProcAmp_Brightness)
-        {
-        }
-
-        LONG minimumValue;
-        LONG maximumValue;
-        LONG defaultValue;
-        LONG currentValue;
-        LONG capsFlags;
-        bool hasBeenExplicitlySet;
-        VideoProcAmpProperty videoProcAmpProperty;
+    struct ImageProcessingParameterInfo
+    {
+        LONG minimumValue = 0;
+        LONG maximumValue = 0;
+        LONG defaultValue = 0;
+        LONG currentValue = 0;
+        LONG capsFlags = 0;
+        bool hasBeenExplicitlySet = false;
+        VideoProcAmpProperty videoProcAmpProperty = VideoProcAmp_Brightness;
     };
 
     void setStatus(QCamera::Status status);
 
     void onFrameAvailable(double time, const QByteArray &data);
-    void saveCapturedImage(int id, const QImage &image, const QString &path);
+    void processCapturedImage(int id, QCameraImageCapture::CaptureDestinations captureDestinations, const QImage &image, const QString &path);
 
     bool createFilterGraph();
     bool connectGraph();
@@ -165,6 +173,7 @@ private:
     void updateSourceCapabilities();
     bool configurePreviewFormat();
     void updateImageProcessingParametersInfos();
+    void setError(int error, const QString &errorString, HRESULT hr);
 
     // These static functions are used for scaling of adjustable parameters,
     // which have the ranges from -1.0 to +1.0 in the QCameraImageProcessing API.
@@ -198,6 +207,7 @@ private:
     QVideoSurfaceFormat m_previewSurfaceFormat;
     QVideoFrame::PixelFormat m_previewPixelFormat;
     QSize m_previewSize;
+    int m_stride;
     QCameraViewfinderSettings m_viewfinderSettings;
     QCameraViewfinderSettings m_actualViewfinderSettings;
 
@@ -208,9 +218,19 @@ private:
     int m_imageIdCounter;
     int m_currentImageId;
     QVideoFrame m_capturedFrame;
+    QCameraImageCapture::CaptureDestinations m_captureDestinations;
+
+    // Video probe
+    QMutex m_probeMutex;
+    DirectShowVideoProbeControl *m_videoProbeControl;
+
+    QImageEncoderSettings m_imageEncoderSettings;
 
     // Internal state
     QCamera::Status m_status;
+    QTimer m_deviceLostEventTimer;
+
+    QMap<QCameraImageProcessingControl::ProcessingParameter, QVariant> m_pendingImageProcessingParametrs;
 
     friend class SampleGrabberCallbackPrivate;
 };

@@ -19,13 +19,21 @@ OfflinePageModel::SavePageParams::SavePageParams(const SavePageParams& other) =
 
 OfflinePageModel::SavePageParams::~SavePageParams() = default;
 
+OfflinePageModel::DeletedPageInfo::DeletedPageInfo() = default;
+OfflinePageModel::DeletedPageInfo::DeletedPageInfo(
+    const DeletedPageInfo& other) = default;
+OfflinePageModel::DeletedPageInfo::~DeletedPageInfo() = default;
 OfflinePageModel::DeletedPageInfo::DeletedPageInfo(
     int64_t offline_id,
+    int64_t system_download_id,
     const ClientId& client_id,
-    const std::string& request_origin)
+    const std::string& request_origin,
+    const GURL& url)
     : offline_id(offline_id),
+      system_download_id(system_download_id),
       client_id(client_id),
-      request_origin(request_origin) {}
+      request_origin(request_origin),
+      url(url) {}
 
 // static
 bool OfflinePageModel::CanSaveURL(const GURL& url) {

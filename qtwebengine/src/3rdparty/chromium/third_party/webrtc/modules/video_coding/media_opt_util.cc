@@ -8,7 +8,7 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/modules/video_coding/media_opt_util.h"
+#include "modules/video_coding/media_opt_util.h"
 
 #include <float.h>
 #include <limits.h>
@@ -17,17 +17,31 @@
 #include <algorithm>
 #include <limits>
 
-#include "webrtc/modules/include/module_common_types.h"
-#include "webrtc/modules/video_coding/codecs/vp8/include/vp8_common_types.h"
-#include "webrtc/modules/video_coding/include/video_coding_defines.h"
-#include "webrtc/modules/video_coding/fec_rate_table.h"
-#include "webrtc/modules/video_coding/nack_fec_tables.h"
+#include "modules/include/module_common_types.h"
+#include "modules/video_coding/fec_rate_table.h"
+#include "modules/video_coding/include/video_coding_defines.h"
+#include "modules/video_coding/nack_fec_tables.h"
+#include "modules/video_coding/utility/simulcast_rate_allocator.h"
 
 namespace webrtc {
 // Max value of loss rates in off-line model
 static const int kPacketLossMax = 129;
 
 namespace media_optimization {
+
+VCMProtectionParameters::VCMProtectionParameters()
+    : rtt(0),
+      lossPr(0.0f),
+      bitRate(0.0f),
+      packetsPerFrame(0.0f),
+      packetsPerFrameKey(0.0f),
+      frameRate(0.0f),
+      keyFrameSize(0.0f),
+      fecRateDelta(0),
+      fecRateKey(0),
+      codecWidth(0),
+      codecHeight(0),
+      numLayers(1) {}
 
 VCMProtectionMethod::VCMProtectionMethod()
     : _effectivePacketLoss(0),
@@ -39,6 +53,34 @@ VCMProtectionMethod::VCMProtectionMethod()
       _type(kNone) {}
 
 VCMProtectionMethod::~VCMProtectionMethod() {}
+
+enum VCMProtectionMethodEnum VCMProtectionMethod::Type() const {
+  return _type;
+}
+
+uint8_t VCMProtectionMethod::RequiredPacketLossER() {
+  return _effectivePacketLoss;
+}
+
+uint8_t VCMProtectionMethod::RequiredProtectionFactorK() {
+  return _protectionFactorK;
+}
+
+uint8_t VCMProtectionMethod::RequiredProtectionFactorD() {
+  return _protectionFactorD;
+}
+
+bool VCMProtectionMethod::RequiredUepProtectionK() {
+  return _useUepProtectionK;
+}
+
+bool VCMProtectionMethod::RequiredUepProtectionD() {
+  return _useUepProtectionD;
+}
+
+int VCMProtectionMethod::MaxFramesFec() const {
+  return 1;
+}
 
 VCMNackFecMethod::VCMNackFecMethod(int64_t lowRttNackThresholdMs,
                                    int64_t highRttNackThresholdMs)
@@ -285,9 +327,8 @@ bool VCMFecMethod::ProtectionFactor(const VCMProtectionParameters* parameters) {
   // Average number of packets per frame (source and fec):
   const uint8_t avgTotPackets = static_cast<uint8_t>(
       std::min(static_cast<float>(std::numeric_limits<uint8_t>::max()),
-               1.5f +
-                   static_cast<float>(bitRatePerFrame) * 1000.0f /
-                       static_cast<float>(8.0 * _maxPayloadSize)));
+               1.5f + static_cast<float>(bitRatePerFrame) * 1000.0f /
+                          static_cast<float>(8.0 * _maxPayloadSize)));
 
   // FEC rate parameters: for P and I frame
   uint8_t codeRateDelta = 0;
@@ -402,7 +443,8 @@ int VCMFecMethod::BitsPerFrame(const VCMProtectionParameters* parameters) {
   // When temporal layers are available FEC will only be applied on the base
   // layer.
   const float bitRateRatio =
-      kVp8LayerRateAlloction[parameters->numLayers - 1][0];
+      webrtc::SimulcastRateAllocator::GetTemporalRateAllocation(
+          parameters->numLayers, 0);
   float frameRateRatio = powf(1 / 2.0, parameters->numLayers - 1);
   float bitRate = parameters->bitRate * bitRateRatio;
   float frameRate = parameters->frameRate * frameRateRatio;

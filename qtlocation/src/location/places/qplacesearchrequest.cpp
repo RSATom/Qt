@@ -35,36 +35,16 @@
 ****************************************************************************/
 
 #include "qplacesearchrequest.h"
+#include "qplacesearchrequest_p.h"
 #include "qgeocoordinate.h"
 #include "qgeoshape.h"
 
 #include <QtCore/QSharedData>
 #include <QtCore/QList>
 #include <QtCore/QVariant>
+#include <QDebug>
 
 QT_BEGIN_NAMESPACE
-
-class QPlaceSearchRequestPrivate : public QSharedData
-{
-public:
-    QPlaceSearchRequestPrivate();
-    QPlaceSearchRequestPrivate(const QPlaceSearchRequestPrivate &other);
-    ~QPlaceSearchRequestPrivate();
-
-    QPlaceSearchRequestPrivate &operator=(const QPlaceSearchRequestPrivate &other);
-    bool operator==(const QPlaceSearchRequestPrivate &other) const;
-
-    void clear();
-
-    QString searchTerm;
-    QList<QPlaceCategory> categories;
-    QGeoShape searchArea;
-    QString recommendationId;
-    QLocation::VisibilityScope visibilityScope;
-    QPlaceSearchRequest::RelevanceHint relevanceHint;
-    int limit;
-    QVariant searchContext;
-};
 
 QPlaceSearchRequestPrivate::QPlaceSearchRequestPrivate()
 :   QSharedData(),
@@ -83,7 +63,9 @@ QPlaceSearchRequestPrivate::QPlaceSearchRequestPrivate(const QPlaceSearchRequest
       visibilityScope(other.visibilityScope),
       relevanceHint(other.relevanceHint),
       limit(other.limit),
-      searchContext(other.searchContext)
+      searchContext(other.searchContext),
+      related(other.related),
+      page(other.page)
 {
 }
 
@@ -102,6 +84,8 @@ QPlaceSearchRequestPrivate &QPlaceSearchRequestPrivate::operator=(const QPlaceSe
         relevanceHint = other.relevanceHint;
         limit = other.limit;
         searchContext = other.searchContext;
+        related = other.related;
+        page = other.page;
     }
 
     return *this;
@@ -117,6 +101,8 @@ bool QPlaceSearchRequestPrivate::operator==(const QPlaceSearchRequestPrivate &ot
            relevanceHint == other.relevanceHint &&
            limit == other.limit &&
            searchContext == other.searchContext;
+
+    // deliberately not testing related and page. comparing only the content.
 }
 
 void QPlaceSearchRequestPrivate::clear()
@@ -129,6 +115,18 @@ void QPlaceSearchRequestPrivate::clear()
     visibilityScope = QLocation::UnspecifiedVisibility;
     relevanceHint = QPlaceSearchRequest::UnspecifiedHint;
     searchContext.clear();
+    related = false;
+    page = 0;
+}
+
+const QPlaceSearchRequestPrivate *QPlaceSearchRequestPrivate::get(const QPlaceSearchRequest &request)
+{
+    return request.d_ptr.constData();
+}
+
+QPlaceSearchRequestPrivate *QPlaceSearchRequestPrivate::get(QPlaceSearchRequest &request)
+{
+    return request.d_ptr.data();
 }
 
 /*!

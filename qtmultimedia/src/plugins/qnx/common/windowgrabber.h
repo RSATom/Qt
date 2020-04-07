@@ -100,7 +100,7 @@ public:
     void pause();
     void resume();
 
-    bool nativeEventFilter(const QByteArray &eventType, void *message, long *result) Q_DECL_OVERRIDE;
+    bool nativeEventFilter(const QByteArray &eventType, void *message, long *result) override;
 
     bool handleScreenEvent(screen_event_t event);
 
@@ -126,6 +126,7 @@ private:
 
     QByteArray m_windowId;
 
+    screen_window_t m_windowParent;
     screen_window_t m_window;
     screen_context_t m_screenContext;
 

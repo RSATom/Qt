@@ -413,7 +413,8 @@ static void cyclic_refresh_update_map(VP9_COMP *const cpi) {
   } while (cr->target_num_seg_blocks < block_count && i != cr->sb_index);
   cr->sb_index = i;
   cr->reduce_refresh = 0;
-  if (count_sel<(3 * count_tot)>> 2) cr->reduce_refresh = 1;
+  if (cpi->oxcf.content != VP9E_CONTENT_SCREEN)
+    if (count_sel<(3 * count_tot)>> 2) cr->reduce_refresh = 1;
 }
 
 // Set cyclic refresh parameters.
@@ -426,8 +427,13 @@ void vp9_cyclic_refresh_update_parameters(VP9_COMP *const cpi) {
   double weight_segment_target = 0;
   double weight_segment = 0;
   int thresh_low_motion = (cm->width < 720) ? 55 : 20;
+  int qp_thresh = VPXMIN(20, rc->best_quality << 1);
   cr->apply_cyclic_refresh = 1;
-  if (cm->frame_type == KEY_FRAME || cpi->svc.temporal_layer_id > 0 ||
+  if (frame_is_intra_only(cm) || cpi->svc.temporal_layer_id > 0 ||
+      is_lossless_requested(&cpi->oxcf) ||
+      rc->avg_frame_qindex[INTER_FRAME] < qp_thresh ||
+      (cpi->use_svc &&
+       cpi->svc.layer_context[cpi->svc.temporal_layer_id].is_key_frame) ||
       (!cpi->use_svc && rc->avg_frame_low_motion < thresh_low_motion &&
        rc->frames_since_key > 40)) {
     cr->apply_cyclic_refresh = 0;
@@ -454,6 +460,15 @@ void vp9_cyclic_refresh_update_parameters(VP9_COMP *const cpi) {
       cr->rate_boost_fac = 13;
     }
   }
+  // For screen-content: keep rate_ratio_qdelta to 2.0 (segment#1 boost) and
+  // percent_refresh (refresh rate) to 10. But reduce rate boost for segment#2
+  // (rate_boost_fac = 10 disables segment#2).
+  // TODO(marpan): Consider increasing refresh rate after slide change.
+  if (cpi->oxcf.content == VP9E_CONTENT_SCREEN) {
+    cr->percent_refresh = 10;
+    cr->rate_ratio_qdelta = 2.0;
+    cr->rate_boost_fac = 10;
+  }
   // Adjust some parameters for low resolutions.
   if (cm->width <= 352 && cm->height <= 288) {
     if (rc->avg_frame_bandwidth < 3000) {
@@ -463,10 +478,6 @@ void vp9_cyclic_refresh_update_parameters(VP9_COMP *const cpi) {
       cr->max_qdelta_perc = 70;
       cr->rate_ratio_qdelta = VPXMAX(cr->rate_ratio_qdelta, 2.5);
     }
-  }
-  if (cpi->svc.spatial_layer_id > 0) {
-    cr->motion_thresh = 4;
-    cr->rate_boost_fac = 12;
   }
   if (cpi->oxcf.rc_mode == VPX_VBR) {
     // To be adjusted for VBR mode, e.g., based on gf period and boost.
@@ -492,6 +503,14 @@ void vp9_cyclic_refresh_update_parameters(VP9_COMP *const cpi) {
                    num8x8bl;
   if (weight_segment_target < 7 * weight_segment / 8)
     weight_segment = weight_segment_target;
+  // For screen-content: don't include target for the weight segment, since
+  // all for all flat areas the segment is reset, so its more accurate to
+  // just use the previous actual number of seg blocks for the weight.
+  if (cpi->oxcf.content == VP9E_CONTENT_SCREEN)
+    weight_segment =
+        (double)((cr->actual_num_seg1_blocks + cr->actual_num_seg2_blocks) >>
+                 1) /
+        num8x8bl;
   cr->weight_segment = weight_segment;
 }
 
@@ -502,6 +521,8 @@ void vp9_cyclic_refresh_setup(VP9_COMP *const cpi) {
   CYCLIC_REFRESH *const cr = cpi->cyclic_refresh;
   struct segmentation *const seg = &cm->seg;
   if (cm->current_video_frame == 0) cr->low_content_avg = 0.0;
+  // Reset if resoluton change has occurred.
+  if (cpi->resize_pending != 0) vp9_cyclic_refresh_reset_resize(cpi);
   if (!cr->apply_cyclic_refresh || (cpi->force_update_segmentation)) {
     // Set segmentation map to 0 and disable.
     unsigned char *const seg_map = cpi->segmentation_map;
@@ -567,9 +588,6 @@ void vp9_cyclic_refresh_setup(VP9_COMP *const cpi) {
     cr->qindex_delta[2] = qindex_delta;
     vp9_set_segdata(seg, CR_SEGMENT_ID_BOOST2, SEG_LVL_ALT_Q, qindex_delta);
 
-    // Reset if resoluton change has occurred.
-    if (cpi->resize_pending != 0) vp9_cyclic_refresh_reset_resize(cpi);
-
     // Update the segmentation and refresh map.
     cyclic_refresh_update_map(cpi);
   }
@@ -583,8 +601,18 @@ void vp9_cyclic_refresh_reset_resize(VP9_COMP *const cpi) {
   const VP9_COMMON *const cm = &cpi->common;
   CYCLIC_REFRESH *const cr = cpi->cyclic_refresh;
   memset(cr->map, 0, cm->mi_rows * cm->mi_cols);
-  memset(cr->last_coded_q_map, MAXQ, cm->mi_rows * cm->mi_cols);
+  memset(cr->last_coded_q_map, MAXQ,
+         cm->mi_rows * cm->mi_cols * sizeof(*cr->last_coded_q_map));
   cr->sb_index = 0;
   cpi->refresh_golden_frame = 1;
   cpi->refresh_alt_ref_frame = 1;
+}
+
+void vp9_cyclic_refresh_limit_q(const VP9_COMP *cpi, int *q) {
+  CYCLIC_REFRESH *const cr = cpi->cyclic_refresh;
+  // For now apply hard limit to frame-level decrease in q, if the cyclic
+  // refresh is active (percent_refresh > 0).
+  if (cr->percent_refresh > 0 && cpi->rc.q_1_frame - *q > 8) {
+    *q = cpi->rc.q_1_frame - 8;
+  }
 }

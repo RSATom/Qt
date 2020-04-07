@@ -11,6 +11,7 @@
 #include "content/browser/renderer_host/media/audio_output_authorization_handler.h"
 #include "content/common/content_export.h"
 #include "media/audio/audio_output_delegate.h"
+#include "media/mojo/interfaces/audio_output_stream.mojom.h"
 
 namespace media {
 class AudioParameters;
@@ -20,6 +21,8 @@ namespace content {
 
 // RendererAudioOutputStreamFactoryContext provides functions common to all
 // AudioOutputFactory instances for a single renderer process.
+// Not needed after switching to serving audio streams with the audio service
+// (https://crbug.com/830493).
 class CONTENT_EXPORT RendererAudioOutputStreamFactoryContext {
  public:
   virtual ~RendererAudioOutputStreamFactoryContext() {}
@@ -39,7 +42,9 @@ class CONTENT_EXPORT RendererAudioOutputStreamFactoryContext {
   virtual std::unique_ptr<media::AudioOutputDelegate> CreateDelegate(
       const std::string& unique_device_id,
       int render_frame_id,
+      int stream_id,
       const media::AudioParameters& params,
+      media::mojom::AudioOutputStreamObserverPtr stream_observer,
       media::AudioOutputDelegate::EventHandler* handler) = 0;
 };
 

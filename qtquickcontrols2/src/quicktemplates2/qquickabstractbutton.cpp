@@ -51,10 +51,6 @@
 
 QT_BEGIN_NAMESPACE
 
-// copied from qabstractbutton.cpp
-static const int AUTO_REPEAT_DELAY = 300;
-static const int AUTO_REPEAT_INTERVAL = 100;
-
 /*!
     \qmltype AbstractButton
     \inherits Control
@@ -117,36 +113,29 @@ static const int AUTO_REPEAT_INTERVAL = 100;
     This signal is emitted when the button is interactively double clicked by the user via touch or mouse.
 */
 
-QQuickAbstractButtonPrivate::QQuickAbstractButtonPrivate()
-    : explicitText(false),
-      down(false),
-      explicitDown(false),
-      pressed(false),
-      keepPressed(false),
-      checked(false),
-      checkable(false),
-      autoExclusive(false),
-      autoRepeat(false),
-      wasHeld(false),
-      holdTimer(0),
-      delayTimer(0),
-      repeatTimer(0),
-#if QT_CONFIG(shortcut)
-      shortcutId(0),
-#endif
-      pressButtons(Qt::NoButton),
-      indicator(nullptr),
-      group(nullptr),
-      display(QQuickAbstractButton::TextBesideIcon),
-      action(nullptr)
+void QQuickAbstractButtonPrivate::setPressPoint(const QPointF &point)
 {
+    pressPoint = point;
+    setMovePoint(point);
+}
+
+void QQuickAbstractButtonPrivate::setMovePoint(const QPointF &point)
+{
+    Q_Q(QQuickAbstractButton);
+    bool xChange = !qFuzzyCompare(point.x(), movePoint.x());
+    bool yChange = !qFuzzyCompare(point.y(), movePoint.y());
+    movePoint = point;
+    if (xChange)
+        emit q->pressXChanged();
+    if (yChange)
+        emit q->pressYChanged();
 }
 
 void QQuickAbstractButtonPrivate::handlePress(const QPointF &point)
 {
     Q_Q(QQuickAbstractButton);
     QQuickControlPrivate::handlePress(point);
-    pressPoint = point;
+    setPressPoint(point);
     q->setPressed(true);
 
     emit q->pressed();
@@ -163,6 +152,7 @@ void QQuickAbstractButtonPrivate::handleMove(const QPointF &point)
 {
     Q_Q(QQuickAbstractButton);
     QQuickControlPrivate::handleMove(point);
+    setMovePoint(point);
     q->setPressed(keepPressed || q->contains(point));
 
     if (!pressed && autoRepeat)
@@ -176,6 +166,7 @@ void QQuickAbstractButtonPrivate::handleRelease(const QPointF &point)
     Q_Q(QQuickAbstractButton);
     QQuickControlPrivate::handleRelease(point);
     bool wasPressed = pressed;
+    setPressPoint(point);
     q->setPressed(false);
     pressButtons = Qt::NoButton;
 
@@ -210,10 +201,17 @@ void QQuickAbstractButtonPrivate::handleUngrab()
     emit q->canceled();
 }
 
+bool QQuickAbstractButtonPrivate::acceptKeyClick(Qt::Key key) const
+{
+    return key == Qt::Key_Space;
+}
+
 bool QQuickAbstractButtonPrivate::isPressAndHoldConnected()
 {
     Q_Q(QQuickAbstractButton);
-    IS_SIGNAL_CONNECTED(q, QQuickAbstractButton, pressAndHold, ());
+    const auto signal = &QQuickAbstractButton::pressAndHold;
+    const QMetaMethod method = QMetaMethod::fromSignal(signal);
+    return q->isSignalConnected(method);
 }
 
 void QQuickAbstractButtonPrivate::startPressAndHold()
@@ -238,14 +236,14 @@ void QQuickAbstractButtonPrivate::startRepeatDelay()
 {
     Q_Q(QQuickAbstractButton);
     stopPressRepeat();
-    delayTimer = q->startTimer(AUTO_REPEAT_DELAY);
+    delayTimer = q->startTimer(repeatDelay);
 }
 
 void QQuickAbstractButtonPrivate::startPressRepeat()
 {
     Q_Q(QQuickAbstractButton);
     stopPressRepeat();
-    repeatTimer = q->startTimer(AUTO_REPEAT_INTERVAL);
+    repeatTimer = q->startTimer(repeatInterval);
 }
 
 void QQuickAbstractButtonPrivate::stopPressRepeat()
@@ -306,6 +304,21 @@ void QQuickAbstractButtonPrivate::setText(const QString &newText, bool isExplici
     q->buttonChange(QQuickAbstractButton::ButtonTextChange);
 }
 
+void QQuickAbstractButtonPrivate::updateEffectiveIcon()
+{
+    Q_Q(QQuickAbstractButton);
+    // We store effectiveIcon because we need to be able to tell if the icon has actually changed.
+    // If we only stored our icon and the action's icon, and resolved in the getter, we'd have
+    // no way of knowing what the old value was here. As an added benefit, we only resolve when
+    // something has changed, as opposed to doing it unconditionally in the icon() getter.
+    const QQuickIcon newEffectiveIcon = action ? icon.resolve(action->icon()) : icon;
+    if (newEffectiveIcon == effectiveIcon)
+        return;
+
+    effectiveIcon = newEffectiveIcon;
+    emit q->iconChanged();
+}
+
 void QQuickAbstractButtonPrivate::click()
 {
     Q_Q(QQuickAbstractButton);
@@ -316,9 +329,10 @@ void QQuickAbstractButtonPrivate::click()
 void QQuickAbstractButtonPrivate::trigger()
 {
     Q_Q(QQuickAbstractButton);
+    const bool wasEnabled = effectiveEnable;
     if (action && action->isEnabled())
         QQuickActionPrivate::get(action)->trigger(q, false);
-    else if (effectiveEnable)
+    if (wasEnabled && (!action || !action->isEnabled()))
         emit q->clicked();
 }
 
@@ -349,6 +363,22 @@ void QQuickAbstractButtonPrivate::executeIndicator(bool complete)
         quickBeginDeferred(q, indicatorName(), indicator);
     if (complete)
         quickCompleteDeferred(q, indicatorName(), indicator);
+}
+
+void QQuickAbstractButtonPrivate::itemImplicitWidthChanged(QQuickItem *item)
+{
+    Q_Q(QQuickAbstractButton);
+    QQuickControlPrivate::itemImplicitWidthChanged(item);
+    if (item == indicator)
+        emit q->implicitIndicatorWidthChanged();
+}
+
+void QQuickAbstractButtonPrivate::itemImplicitHeightChanged(QQuickItem *item)
+{
+    Q_Q(QQuickAbstractButton);
+    QQuickControlPrivate::itemImplicitHeightChanged(item);
+    if (item == indicator)
+        emit q->implicitIndicatorHeightChanged();
 }
 
 QQuickAbstractButton *QQuickAbstractButtonPrivate::findCheckedButton() const
@@ -421,9 +451,12 @@ QQuickAbstractButton::QQuickAbstractButton(QQuickAbstractButtonPrivate &dd, QQui
 QQuickAbstractButton::~QQuickAbstractButton()
 {
     Q_D(QQuickAbstractButton);
+    d->removeImplicitSizeListener(d->indicator);
     if (d->group)
         d->group->removeButton(this);
+#if QT_CONFIG(shortcut)
     d->ungrabShortcut();
+#endif
 }
 
 /*!
@@ -619,6 +652,17 @@ void QQuickAbstractButton::setAutoExclusive(bool exclusive)
     emit autoExclusiveChanged();
 }
 
+/*!
+    \qmlproperty bool QtQuick.Controls::AbstractButton::autoRepeat
+
+    This property holds whether the button repeats \l pressed(), \l released()
+    and \l clicked() signals while the button is pressed and held down.
+
+    The default value is \c false.
+
+    The initial delay and the repetition interval are defined in milliseconds
+    by \l autoRepeatDelay and \l autoRepeatInterval.
+*/
 bool QQuickAbstractButton::autoRepeat() const
 {
     Q_D(const QQuickAbstractButton);
@@ -633,7 +677,7 @@ void QQuickAbstractButton::setAutoRepeat(bool repeat)
 
     d->stopPressRepeat();
     d->autoRepeat = repeat;
-    buttonChange(ButtonAutoRepeatChange);
+    emit autoRepeatChanged();
 }
 
 /*!
@@ -658,13 +702,24 @@ void QQuickAbstractButton::setIndicator(QQuickItem *indicator)
     if (!d->indicator.isExecuting())
         d->cancelIndicator();
 
+    const qreal oldImplicitIndicatorWidth = implicitIndicatorWidth();
+    const qreal oldImplicitIndicatorHeight = implicitIndicatorHeight();
+
+    d->removeImplicitSizeListener(d->indicator);
     delete d->indicator;
     d->indicator = indicator;
+
     if (indicator) {
         if (!indicator->parentItem())
             indicator->setParentItem(this);
         indicator->setAcceptedMouseButtons(Qt::LeftButton);
+        d->addImplicitSizeListener(indicator);
     }
+
+    if (!qFuzzyCompare(oldImplicitIndicatorWidth, implicitIndicatorWidth()))
+        emit implicitIndicatorWidthChanged();
+    if (!qFuzzyCompare(oldImplicitIndicatorHeight, implicitIndicatorHeight()))
+        emit implicitIndicatorHeightChanged();
     if (!d->indicator.isExecuting())
         emit indicatorChanged();
 }
@@ -687,17 +742,14 @@ void QQuickAbstractButton::setIndicator(QQuickItem *indicator)
 QQuickIcon QQuickAbstractButton::icon() const
 {
     Q_D(const QQuickAbstractButton);
-    return d->icon;
+    return d->effectiveIcon;
 }
 
 void QQuickAbstractButton::setIcon(const QQuickIcon &icon)
 {
     Q_D(QQuickAbstractButton);
-    if (d->icon == icon)
-        return;
-
     d->icon = icon;
-    emit iconChanged();
+    d->updateEffectiveIcon();
 }
 
 /*!
@@ -712,6 +764,7 @@ void QQuickAbstractButton::setIcon(const QQuickIcon &icon)
     \row \li \c AbstractButton.IconOnly \li \image qtquickcontrols2-button-icononly.png
     \row \li \c AbstractButton.TextOnly \li \image qtquickcontrols2-button-textonly.png
     \row \li \c AbstractButton.TextBesideIcon \li \image qtquickcontrols2-button-textbesideicon.png
+    \row \li \c AbstractButton.TextUnderIcon \li \image qtquickcontrols2-button-textundericon.png
     \endtable
 
     \sa {Control::}{spacing}, {Control::}{padding}
@@ -759,7 +812,7 @@ void QQuickAbstractButton::setAction(QQuickAction *action)
         QObjectPrivate::disconnect(oldAction, &QQuickAction::triggered, d, &QQuickAbstractButtonPrivate::click);
         QObjectPrivate::disconnect(oldAction, &QQuickAction::textChanged, d, &QQuickAbstractButtonPrivate::actionTextChange);
 
-        disconnect(oldAction, &QQuickAction::iconChanged, this, &QQuickAbstractButton::setIcon);
+        QObjectPrivate::disconnect(oldAction, &QQuickAction::iconChanged, d, &QQuickAbstractButtonPrivate::updateEffectiveIcon);
         disconnect(oldAction, &QQuickAction::checkedChanged, this, &QQuickAbstractButton::setChecked);
         disconnect(oldAction, &QQuickAction::checkableChanged, this, &QQuickAbstractButton::setCheckable);
         disconnect(oldAction, &QQuickAction::enabledChanged, this, &QQuickItem::setEnabled);
@@ -770,32 +823,10 @@ void QQuickAbstractButton::setAction(QQuickAction *action)
         QObjectPrivate::connect(action, &QQuickAction::triggered, d, &QQuickAbstractButtonPrivate::click);
         QObjectPrivate::connect(action, &QQuickAction::textChanged, d, &QQuickAbstractButtonPrivate::actionTextChange);
 
-        connect(action, &QQuickAction::iconChanged, this, &QQuickAbstractButton::setIcon);
+        QObjectPrivate::connect(action, &QQuickAction::iconChanged, d, &QQuickAbstractButtonPrivate::updateEffectiveIcon);
         connect(action, &QQuickAction::checkedChanged, this, &QQuickAbstractButton::setChecked);
         connect(action, &QQuickAction::checkableChanged, this, &QQuickAbstractButton::setCheckable);
         connect(action, &QQuickAction::enabledChanged, this, &QQuickItem::setEnabled);
-
-        QQuickIcon actionIcon = action->icon();
-
-        QString name = actionIcon.name();
-        if (!name.isEmpty())
-            d->icon.setName(name);
-
-        QUrl source = actionIcon.source();
-        if (!source.isEmpty())
-            d->icon.setSource(source);
-
-        int width = actionIcon.width();
-        if (width > 0)
-            d->icon.setWidth(width);
-
-        int height = actionIcon.height();
-        if (height)
-            d->icon.setHeight(height);
-
-        QColor color = actionIcon.color();
-        if (color != Qt::transparent)
-            d->icon.setColor(color);
 
         setChecked(action->isChecked());
         setCheckable(action->isCheckable());
@@ -807,7 +838,59 @@ void QQuickAbstractButton::setAction(QQuickAction *action)
     if (oldText != text())
         buttonChange(ButtonTextChange);
 
+    d->updateEffectiveIcon();
+
     emit actionChanged();
+}
+
+/*!
+    \since QtQuick.Controls 2.4 (Qt 5.11)
+    \qmlproperty int QtQuick.Controls::AbstractButton::autoRepeatDelay
+
+    This property holds the initial delay of auto-repetition in milliseconds.
+    The default value is \c 300 ms.
+
+    \sa autoRepeat, autoRepeatInterval
+*/
+int QQuickAbstractButton::autoRepeatDelay() const
+{
+    Q_D(const QQuickAbstractButton);
+    return d->repeatDelay;
+}
+
+void QQuickAbstractButton::setAutoRepeatDelay(int delay)
+{
+    Q_D(QQuickAbstractButton);
+    if (d->repeatDelay == delay)
+        return;
+
+    d->repeatDelay = delay;
+    emit autoRepeatDelayChanged();
+}
+
+/*!
+    \since QtQuick.Controls 2.4 (Qt 5.11)
+    \qmlproperty int QtQuick.Controls::AbstractButton::autoRepeatInterval
+
+    This property holds the interval of auto-repetition in milliseconds.
+    The default value is \c 100 ms.
+
+    \sa autoRepeat, autoRepeatDelay
+*/
+int QQuickAbstractButton::autoRepeatInterval() const
+{
+    Q_D(const QQuickAbstractButton);
+    return d->repeatInterval;
+}
+
+void QQuickAbstractButton::setAutoRepeatInterval(int interval)
+{
+    Q_D(QQuickAbstractButton);
+    if (d->repeatInterval == interval)
+        return;
+
+    d->repeatInterval = interval;
+    emit autoRepeatIntervalChanged();
 }
 
 #if QT_CONFIG(shortcut)
@@ -829,6 +912,84 @@ void QQuickAbstractButton::setShortcut(const QKeySequence &shortcut)
         d->grabShortcut();
 }
 #endif
+
+/*!
+    \readonly
+    \since QtQuick.Controls 2.4 (Qt 5.11)
+    \qmlproperty real QtQuick.Controls::AbstractButton::pressX
+
+    This property holds the x-coordinate of the last press.
+
+    \note The value is updated on touch moves, but left intact after touch release.
+
+    \sa pressY
+*/
+qreal QQuickAbstractButton::pressX() const
+{
+    Q_D(const QQuickAbstractButton);
+    return d->movePoint.x();
+}
+
+/*!
+    \readonly
+    \since QtQuick.Controls 2.4 (Qt 5.11)
+    \qmlproperty real QtQuick.Controls::AbstractButton::pressY
+
+    This property holds the y-coordinate of the last press.
+
+    \note The value is updated on touch moves, but left intact after touch release.
+
+    \sa pressX
+*/
+qreal QQuickAbstractButton::pressY() const
+{
+    Q_D(const QQuickAbstractButton);
+    return d->movePoint.y();
+}
+
+/*!
+    \since QtQuick.Controls 2.5 (Qt 5.12)
+    \qmlproperty real QtQuick.Controls::AbstractButton::implicitIndicatorWidth
+    \readonly
+
+    This property holds the implicit indicator width.
+
+    The value is equal to \c {indicator ? indicator.implicitWidth : 0}.
+
+    This is typically used, together with \l {Control::}{implicitContentWidth} and
+    \l {Control::}{implicitBackgroundWidth}, to calculate the \l {Item::}{implicitWidth}.
+
+    \sa implicitIndicatorHeight
+*/
+qreal QQuickAbstractButton::implicitIndicatorWidth() const
+{
+    Q_D(const QQuickAbstractButton);
+    if (!d->indicator)
+        return 0;
+    return d->indicator->implicitWidth();
+}
+
+/*!
+    \since QtQuick.Controls 2.5 (Qt 5.12)
+    \qmlproperty real QtQuick.Controls::AbstractButton::implicitIndicatorHeight
+    \readonly
+
+    This property holds the implicit indicator height.
+
+    The value is equal to \c {indicator ? indicator.implicitHeight : 0}.
+
+    This is typically used, together with \l {Control::}{implicitContentHeight} and
+    \l {Control::}{implicitBackgroundHeight}, to calculate the \l {Item::}{implicitHeight}.
+
+    \sa implicitIndicatorWidth
+*/
+qreal QQuickAbstractButton::implicitIndicatorHeight() const
+{
+    Q_D(const QQuickAbstractButton);
+    if (!d->indicator)
+        return 0;
+    return d->indicator->implicitHeight();
+}
 
 /*!
     \qmlmethod void QtQuick.Controls::AbstractButton::toggle()
@@ -875,8 +1036,8 @@ void QQuickAbstractButton::keyPressEvent(QKeyEvent *event)
 {
     Q_D(QQuickAbstractButton);
     QQuickControl::keyPressEvent(event);
-    if (event->key() == Qt::Key_Space) {
-        d->pressPoint = QPoint(qRound(width() / 2), qRound(height() / 2));
+    if (d->acceptKeyClick(static_cast<Qt::Key>(event->key()))) {
+        d->setPressPoint(QPoint(qRound(width() / 2), qRound(height() / 2)));
         setPressed(true);
 
         if (d->autoRepeat)
@@ -891,7 +1052,7 @@ void QQuickAbstractButton::keyReleaseEvent(QKeyEvent *event)
 {
     Q_D(QQuickAbstractButton);
     QQuickControl::keyReleaseEvent(event);
-    if (event->key() == Qt::Key_Space) {
+    if (d->acceptKeyClick(static_cast<Qt::Key>(event->key()))) {
         setPressed(false);
 
         nextCheckState();

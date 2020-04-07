@@ -32,16 +32,21 @@ OpenSLESInputStream::OpenSLESInputStream(AudioManagerAndroid* audio_manager,
       started_(false),
       audio_bus_(media::AudioBus::Create(params)) {
   DVLOG(2) << __PRETTY_FUNCTION__;
+
+  const SampleFormat kSampleFormat = kSampleFormatS16;
+
   format_.formatType = SL_DATAFORMAT_PCM;
   format_.numChannels = static_cast<SLuint32>(params.channels());
   // Provides sampling rate in milliHertz to OpenSLES.
   format_.samplesPerSec = static_cast<SLuint32>(params.sample_rate() * 1000);
-  format_.bitsPerSample = params.bits_per_sample();
-  format_.containerSize = params.bits_per_sample();
+  format_.bitsPerSample = format_.containerSize =
+      SampleFormatToBitsPerChannel(kSampleFormat);
   format_.endianness = SL_BYTEORDER_LITTLEENDIAN;
   format_.channelMask = ChannelCountToSLESChannelMask(params.channels());
 
-  buffer_size_bytes_ = params.GetBytesPerBuffer();
+  buffer_size_bytes_ = params.GetBytesPerBuffer(kSampleFormat);
+  hardware_delay_ = base::TimeDelta::FromSecondsD(
+      params.frames_per_buffer() / static_cast<double>(params.sample_rate()));
 
   memset(&audio_data_, 0, sizeof(audio_data_));
 }
@@ -187,6 +192,11 @@ bool OpenSLESInputStream::IsMuted() {
   return false;
 }
 
+void OpenSLESInputStream::SetOutputDeviceForAec(
+    const std::string& output_device_id) {
+  // Not supported. Do nothing.
+}
+
 bool OpenSLESInputStream::CreateRecorder() {
   DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(!engine_object_.Get());
@@ -300,13 +310,14 @@ void OpenSLESInputStream::ReadBufferQueue() {
   TRACE_EVENT0("audio", "OpenSLESOutputStream::ReadBufferQueue");
 
   // Convert from interleaved format to deinterleaved audio bus format.
-  audio_bus_->FromInterleaved(audio_data_[active_buffer_index_],
-                              audio_bus_->frames(),
-                              format_.bitsPerSample / 8);
+  audio_bus_->FromInterleaved<SignedInt16SampleTypeTraits>(
+      reinterpret_cast<int16_t*>(audio_data_[active_buffer_index_]),
+      audio_bus_->frames());
 
   // TODO(henrika): Investigate if it is possible to get an accurate
   // delay estimation.
-  callback_->OnData(this, audio_bus_.get(), buffer_size_bytes_, 0.0);
+  callback_->OnData(audio_bus_.get(), base::TimeTicks::Now() - hardware_delay_,
+                    0.0);
 
   // Done with this buffer. Send it to device for recording.
   SLresult err =
@@ -340,7 +351,7 @@ void OpenSLESInputStream::ReleaseAudioBuffer() {
 void OpenSLESInputStream::HandleError(SLresult error) {
   DLOG(ERROR) << "OpenSLES Input error " << error;
   if (callback_)
-    callback_->OnError(this);
+    callback_->OnError();
 }
 
 }  // namespace media

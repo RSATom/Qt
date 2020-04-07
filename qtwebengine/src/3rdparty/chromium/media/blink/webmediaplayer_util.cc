@@ -12,8 +12,8 @@
 #include "base/metrics/histogram_macros.h"
 #include "media/base/bind_to_current_loop.h"
 #include "media/base/media_log.h"
-#include "third_party/WebKit/public/platform/URLConversion.h"
-#include "third_party/WebKit/public/platform/WebMediaPlayerEncryptedMediaClient.h"
+#include "third_party/blink/public/platform/url_conversion.h"
+#include "third_party/blink/public/platform/web_media_player_encrypted_media_client.h"
 
 namespace media {
 
@@ -41,6 +41,7 @@ blink::WebMediaPlayer::NetworkState PipelineErrorToNetworkState(
     case DEMUXER_ERROR_COULD_NOT_OPEN:
     case DEMUXER_ERROR_COULD_NOT_PARSE:
     case DEMUXER_ERROR_NO_SUPPORTED_STREAMS:
+    case DEMUXER_ERROR_DETECTED_HLS:
     case DECODER_ERROR_NOT_SUPPORTED:
       return blink::WebMediaPlayer::kNetworkStateFormatError;
 
@@ -199,7 +200,7 @@ class SetSinkIdCallback {
       : web_callback_(web_callback) {}
   SetSinkIdCallback(const SetSinkIdCallback& other)
       : web_callback_(std::move(other.web_callback_)) {}
-  ~SetSinkIdCallback() {}
+  ~SetSinkIdCallback() = default;
   friend void RunSetSinkIdCallback(const SetSinkIdCallback& callback,
                                    OutputDeviceStatus result);
 

@@ -44,7 +44,14 @@ DecoderBuffer::DecoderBuffer(const uint8_t* data,
   memcpy(side_data_.get(), side_data, side_data_size_);
 }
 
-DecoderBuffer::~DecoderBuffer() {}
+DecoderBuffer::DecoderBuffer(std::unique_ptr<UnalignedSharedMemory> shm,
+                             size_t size)
+    : size_(size),
+      side_data_size_(0),
+      shm_(std::move(shm)),
+      is_key_frame_(false) {}
+
+DecoderBuffer::~DecoderBuffer() = default;
 
 void DecoderBuffer::Initialize() {
   data_.reset(AllocateFFmpegSafeBlock(size_));
@@ -57,7 +64,7 @@ scoped_refptr<DecoderBuffer> DecoderBuffer::CopyFrom(const uint8_t* data,
                                                      size_t data_size) {
   // If you hit this CHECK you likely have a bug in a demuxer. Go fix it.
   CHECK(data);
-  return make_scoped_refptr(new DecoderBuffer(data, data_size, NULL, 0));
+  return base::WrapRefCounted(new DecoderBuffer(data, data_size, NULL, 0));
 }
 
 // static
@@ -68,13 +75,24 @@ scoped_refptr<DecoderBuffer> DecoderBuffer::CopyFrom(const uint8_t* data,
   // If you hit this CHECK you likely have a bug in a demuxer. Go fix it.
   CHECK(data);
   CHECK(side_data);
-  return make_scoped_refptr(new DecoderBuffer(data, data_size,
-                                              side_data, side_data_size));
+  return base::WrapRefCounted(
+      new DecoderBuffer(data, data_size, side_data, side_data_size));
+}
+
+// static
+scoped_refptr<DecoderBuffer> DecoderBuffer::FromSharedMemoryHandle(
+    const base::SharedMemoryHandle& handle,
+    off_t offset,
+    size_t size) {
+  auto shm = std::make_unique<UnalignedSharedMemory>(handle, size, true);
+  if (size == 0 || !shm->MapAt(offset, size))
+    return nullptr;
+  return base::WrapRefCounted(new DecoderBuffer(std::move(shm), size));
 }
 
 // static
 scoped_refptr<DecoderBuffer> DecoderBuffer::CreateEOSBuffer() {
-  return make_scoped_refptr(new DecoderBuffer(NULL, 0, NULL, 0));
+  return base::WrapRefCounted(new DecoderBuffer(NULL, 0, NULL, 0));
 }
 
 bool DecoderBuffer::MatchesForTesting(const DecoderBuffer& buffer) const {
@@ -106,22 +124,20 @@ bool DecoderBuffer::MatchesForTesting(const DecoderBuffer& buffer) const {
 }
 
 std::string DecoderBuffer::AsHumanReadableString() const {
-  if (end_of_stream()) {
-    return "end of stream";
-  }
+  if (end_of_stream())
+    return "EOS";
 
   std::ostringstream s;
-  s << "timestamp: " << timestamp_.InMicroseconds()
-    << " duration: " << duration_.InMicroseconds()
-    << " size: " << size_
-    << " side_data_size: " << side_data_size_
-    << " is_key_frame: " << is_key_frame_
-    << " encrypted: " << (decrypt_config_ != NULL)
-    << " discard_padding (ms): (" << discard_padding_.first.InMilliseconds()
-    << ", " << discard_padding_.second.InMilliseconds() << ")";
+  s << "timestamp=" << timestamp_.InMicroseconds()
+    << " duration=" << duration_.InMicroseconds() << " size=" << size_
+    << " side_data_size=" << side_data_size_
+    << " is_key_frame=" << is_key_frame_
+    << " encrypted=" << (decrypt_config_ != NULL) << " discard_padding (ms)=("
+    << discard_padding_.first.InMilliseconds() << ", "
+    << discard_padding_.second.InMilliseconds() << ")";
 
   if (decrypt_config_)
-    s << " decrypt:" << (*decrypt_config_);
+    s << " decrypt=" << (*decrypt_config_);
 
   return s.str();
 }

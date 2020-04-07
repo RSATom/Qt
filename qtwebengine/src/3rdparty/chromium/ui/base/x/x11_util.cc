@@ -11,10 +11,6 @@
 #include <ctype.h>
 #include <sys/ipc.h>
 #include <sys/shm.h>
-#include <X11/cursorfont.h>
-#include <X11/extensions/shape.h>
-#include <X11/extensions/XInput2.h>
-#include <X11/Xcursor/Xcursor.h>
 
 #include <list>
 #include <map>
@@ -27,7 +23,7 @@
 #include "base/logging.h"
 #include "base/macros.h"
 #include "base/memory/singleton.h"
-#include "base/message_loop/message_loop.h"
+#include "base/message_loop/message_loop_current.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
@@ -36,6 +32,7 @@
 #include "base/strings/stringprintf.h"
 #include "base/sys_byteorder.h"
 #include "base/threading/thread.h"
+#include "base/threading/thread_local_storage.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
@@ -57,6 +54,7 @@
 #include "ui/gfx/image/image_skia.h"
 #include "ui/gfx/image/image_skia_rep.h"
 #include "ui/gfx/skia_util.h"
+#include "ui/gfx/x/x11.h"
 #include "ui/gfx/x/x11_atom_cache.h"
 #include "ui/gfx/x/x11_error_tracker.h"
 
@@ -67,12 +65,28 @@
 
 namespace ui {
 
+class TLSDestructionCheckerForX11 {
+ public:
+  static bool HasBeenDestroyed() {
+    return base::ThreadLocalStorage::HasBeenDestroyed();
+  }
+};
+
 namespace {
 
+// Constants that are part of EWMH.
+constexpr int kNetWMStateAdd = 1;
+constexpr int kNetWMStateRemove = 0;
+
 int DefaultX11ErrorHandler(XDisplay* d, XErrorEvent* e) {
-  if (base::MessageLoop::current()) {
+  // This callback can be invoked by drivers very late in thread destruction,
+  // when Chrome TLS is no longer usable. https://crbug.com/849225.
+  if (TLSDestructionCheckerForX11::HasBeenDestroyed())
+    return 0;
+
+  if (base::MessageLoopCurrent::Get()) {
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::Bind(&LogErrorEventDescription, d, *e));
+        FROM_HERE, base::BindOnce(&LogErrorEventDescription, d, *e));
   } else {
     LOG(ERROR)
         << "X error received: "
@@ -96,18 +110,12 @@ bool GetProperty(XID window, const std::string& property_name, long max_length,
                  unsigned char** property) {
   XAtom property_atom = gfx::GetAtom(property_name.c_str());
   unsigned long remaining_bytes = 0;
-  return XGetWindowProperty(gfx::GetXDisplay(),
-                            window,
-                            property_atom,
-                            0,          // offset into property data to read
-                            max_length, // max length to get
-                            False,      // deleted
-                            AnyPropertyType,
-                            type,
-                            format,
-                            num_items,
-                            &remaining_bytes,
-                            property);
+  return XGetWindowProperty(gfx::GetXDisplay(), window, property_atom,
+                            0,           // offset into property data to read
+                            max_length,  // max length to get
+                            x11::False,  // deleted
+                            AnyPropertyType, type, format, num_items,
+                            &remaining_bytes, property);
 }
 
 bool SupportsEWMH() {
@@ -164,6 +172,22 @@ bool GetWindowManagerName(std::string* wm_name) {
   bool result = GetStringProperty(
       static_cast<XID>(wm_window), "_NET_WM_NAME", wm_name);
   return !err_tracker.FoundNewError() && result;
+}
+
+unsigned int GetMaxCursorSize() {
+  // Although XQueryBestCursor() takes unsigned ints, the width and height will
+  // be sent over the wire as 16 bit integers.
+  constexpr unsigned int kQuerySize = std::numeric_limits<uint16_t>::max();
+  XDisplay* display = gfx::GetXDisplay();
+  unsigned int width = 0;
+  unsigned int height = 0;
+  XQueryBestCursor(display, DefaultRootWindow(display), kQuerySize, kQuerySize,
+                   &width, &height);
+  unsigned int min_dimension = std::min(width, height);
+  // libXcursor defines MAX_BITMAP_CURSOR_SIZE to 64 in src/xcursorint.h, so use
+  // this as a fallback in case the X server returns zero size, which can happen
+  // on some buggy implementations of XWayland/XMir.
+  return min_dimension > 0 ? min_dimension : 64;
 }
 
 struct XImageDeleter {
@@ -300,7 +324,7 @@ XcursorImage* SkBitmapToXcursorImage(const SkBitmap* cursor_image,
 
   // X11 seems to have issues with cursors when images get larger than 64
   // pixels. So rescale the image if necessary.
-  const float kMaxPixel = 64.f;
+  static const float kMaxPixel = GetMaxCursorSize();
   bool needs_scale = false;
   if (cursor_image->width() > kMaxPixel || cursor_image->height() > kMaxPixel) {
     float scale = 1.f;
@@ -394,12 +418,8 @@ int CoalescePendingMotionEvents(const XEvent* xev, XEvent* last_event) {
     break;
   }
 
-  if (event_type == XI_Motion && num_coalesced > 0) {
-    base::TimeDelta delta = ui::EventTimeFromNative(last_event) -
-        ui::EventTimeFromNative(const_cast<XEvent*>(xev));
+  if (event_type == XI_Motion && num_coalesced > 0)
     UMA_HISTOGRAM_COUNTS_10000("Event.CoalescedCount.Mouse", num_coalesced);
-    UMA_HISTOGRAM_TIMES("Event.CoalescedLatency.Mouse", delta);
-  }
   return num_coalesced;
 }
 
@@ -637,7 +657,7 @@ bool WindowContainsPoint(XID window, gfx::Point screen_loc) {
 
 
 bool PropertyExists(XID window, const std::string& property_name) {
-  XAtom type = None;
+  XAtom type = x11::None;
   int format = 0;  // size in bits of each item in 'property'
   unsigned long num_items = 0;
   unsigned char* property = NULL;
@@ -645,7 +665,7 @@ bool PropertyExists(XID window, const std::string& property_name) {
   int result = GetProperty(window, property_name, 1,
                            &type, &format, &num_items, &property);
   gfx::XScopedPtr<unsigned char> scoped_property(property);
-  if (result != Success)
+  if (result != x11::Success)
     return false;
 
   return num_items > 0;
@@ -659,18 +679,18 @@ bool GetRawBytesOfProperty(XID window,
   // Retrieve the data from our window.
   unsigned long nitems = 0;
   unsigned long nbytes = 0;
-  XAtom prop_type = None;
+  XAtom prop_type = x11::None;
   int prop_format = 0;
   unsigned char* property_data = NULL;
-  if (XGetWindowProperty(gfx::GetXDisplay(), window, property,
-                         0, 0x1FFFFFFF /* MAXINT32 / 4 */, False,
-                         AnyPropertyType, &prop_type, &prop_format,
-                         &nitems, &nbytes, &property_data) != Success) {
+  if (XGetWindowProperty(gfx::GetXDisplay(), window, property, 0,
+                         0x1FFFFFFF /* MAXINT32 / 4 */, x11::False,
+                         AnyPropertyType, &prop_type, &prop_format, &nitems,
+                         &nbytes, &property_data) != x11::Success) {
     return false;
   }
   gfx::XScopedPtr<unsigned char> scoped_property(property_data);
 
-  if (prop_type == None)
+  if (prop_type == x11::None)
     return false;
 
   size_t bytes = 0;
@@ -705,7 +725,7 @@ bool GetRawBytesOfProperty(XID window,
 }
 
 bool GetIntProperty(XID window, const std::string& property_name, int* value) {
-  XAtom type = None;
+  XAtom type = x11::None;
   int format = 0;  // size in bits of each item in 'property'
   unsigned long num_items = 0;
   unsigned char* property = NULL;
@@ -713,7 +733,7 @@ bool GetIntProperty(XID window, const std::string& property_name, int* value) {
   int result = GetProperty(window, property_name, 1,
                            &type, &format, &num_items, &property);
   gfx::XScopedPtr<unsigned char> scoped_property(property);
-  if (result != Success)
+  if (result != x11::Success)
     return false;
 
   if (format != 32 || num_items != 1)
@@ -724,7 +744,7 @@ bool GetIntProperty(XID window, const std::string& property_name, int* value) {
 }
 
 bool GetXIDProperty(XID window, const std::string& property_name, XID* value) {
-  XAtom type = None;
+  XAtom type = x11::None;
   int format = 0;  // size in bits of each item in 'property'
   unsigned long num_items = 0;
   unsigned char* property = NULL;
@@ -732,7 +752,7 @@ bool GetXIDProperty(XID window, const std::string& property_name, XID* value) {
   int result = GetProperty(window, property_name, 1,
                            &type, &format, &num_items, &property);
   gfx::XScopedPtr<unsigned char> scoped_property(property);
-  if (result != Success)
+  if (result != x11::Success)
     return false;
 
   if (format != 32 || num_items != 1)
@@ -745,7 +765,7 @@ bool GetXIDProperty(XID window, const std::string& property_name, XID* value) {
 bool GetIntArrayProperty(XID window,
                          const std::string& property_name,
                          std::vector<int>* value) {
-  XAtom type = None;
+  XAtom type = x11::None;
   int format = 0;  // size in bits of each item in 'property'
   unsigned long num_items = 0;
   unsigned char* properties = NULL;
@@ -754,7 +774,7 @@ bool GetIntArrayProperty(XID window,
                            (~0L), // (all of them)
                            &type, &format, &num_items, &properties);
   gfx::XScopedPtr<unsigned char> scoped_properties(properties);
-  if (result != Success)
+  if (result != x11::Success)
     return false;
 
   if (format != 32)
@@ -771,7 +791,7 @@ bool GetIntArrayProperty(XID window,
 bool GetAtomArrayProperty(XID window,
                           const std::string& property_name,
                           std::vector<XAtom>* value) {
-  XAtom type = None;
+  XAtom type = x11::None;
   int format = 0;  // size in bits of each item in 'property'
   unsigned long num_items = 0;
   unsigned char* properties = NULL;
@@ -780,7 +800,7 @@ bool GetAtomArrayProperty(XID window,
                            (~0L), // (all of them)
                            &type, &format, &num_items, &properties);
   gfx::XScopedPtr<unsigned char> scoped_properties(properties);
-  if (result != Success)
+  if (result != x11::Success)
     return false;
 
   if (type != XA_ATOM)
@@ -794,7 +814,7 @@ bool GetAtomArrayProperty(XID window,
 
 bool GetStringProperty(
     XID window, const std::string& property_name, std::string* value) {
-  XAtom type = None;
+  XAtom type = x11::None;
   int format = 0;  // size in bits of each item in 'property'
   unsigned long num_items = 0;
   unsigned char* property = NULL;
@@ -802,7 +822,7 @@ bool GetStringProperty(
   int result = GetProperty(window, property_name, 1024,
                            &type, &format, &num_items, &property);
   gfx::XScopedPtr<unsigned char> scoped_property(property);
-  if (result != Success)
+  if (result != x11::Success)
     return false;
 
   if (format != 8)
@@ -916,6 +936,29 @@ void SetWindowRole(XDisplay* display, XID window, const std::string& role) {
                     8, PropModeReplace,
                     reinterpret_cast<unsigned char*>(role_c), role.size());
   }
+}
+
+void SetWMSpecState(XID window, bool enabled, XAtom state1, XAtom state2) {
+  XEvent xclient;
+  memset(&xclient, 0, sizeof(xclient));
+  xclient.type = ClientMessage;
+  xclient.xclient.window = window;
+  xclient.xclient.message_type = gfx::GetAtom("_NET_WM_STATE");
+  // The data should be viewed as a list of longs, because XAtom is a typedef of
+  // long.
+  xclient.xclient.format = 32;
+  xclient.xclient.data.l[0] = enabled ? kNetWMStateAdd : kNetWMStateRemove;
+  xclient.xclient.data.l[1] = state1;
+  xclient.xclient.data.l[2] = state2;
+  xclient.xclient.data.l[3] = 1;
+  xclient.xclient.data.l[4] = 0;
+
+  XSendEvent(gfx::GetXDisplay(), GetX11RootWindow(), x11::False,
+             SubstructureRedirectMask | SubstructureNotifyMask, &xclient);
+}
+
+bool HasWMSpecProperty(const base::flat_set<XAtom>& properties, XAtom atom) {
+  return properties.find(atom) != properties.end();
 }
 
 bool GetCustomFramePrefDefault() {
@@ -1052,13 +1095,8 @@ bool GetXWindowStack(Window window, std::vector<XID>* windows) {
   int format;
   unsigned long count;
   unsigned char *data = NULL;
-  if (GetProperty(window,
-                  "_NET_CLIENT_LIST_STACKING",
-                  ~0L,
-                  &type,
-                  &format,
-                  &count,
-                  &data) != Success) {
+  if (GetProperty(window, "_NET_CLIENT_LIST_STACKING", ~0L, &type, &format,
+                  &count, &data) != x11::Success) {
     return false;
   }
   gfx::XScopedPtr<unsigned char> scoped_data(data);
@@ -1181,7 +1219,7 @@ std::string GuessWindowManagerName() {
 bool IsCompositingManagerPresent() {
   static bool is_compositing_manager_present =
       XGetSelectionOwner(gfx::GetXDisplay(), gfx::GetAtom("_NET_WM_CM_S0")) !=
-      None;
+      x11::None;
   return is_compositing_manager_present;
 }
 
@@ -1375,6 +1413,7 @@ XVisualManager::XVisualManager()
       transparent_visual_id_(0),
       using_software_rendering_(false),
       have_gpu_argb_visual_(false) {
+  base::AutoLock lock(lock_);
   int visuals_len = 0;
   XVisualInfo visual_template;
   visual_template.screen = DefaultScreen(display_);
@@ -1384,7 +1423,8 @@ XVisualManager::XVisualManager()
     visuals_[visual_list[i].visualid].reset(new XVisualData(visual_list[i]));
 
   XAtom NET_WM_CM_S0 = gfx::GetAtom("_NET_WM_CM_S0");
-  using_compositing_wm_ = XGetSelectionOwner(display_, NET_WM_CM_S0) != None;
+  using_compositing_wm_ =
+      XGetSelectionOwner(display_, NET_WM_CM_S0) != x11::None;
 
   // Choose the opaque visual.
   default_visual_id_ =
@@ -1417,7 +1457,9 @@ void XVisualManager::ChooseVisualForWindow(bool want_argb_visual,
                                            int* depth,
                                            Colormap* colormap,
                                            bool* using_argb_visual) {
-  bool use_argb = want_argb_visual && ArgbVisualAvailable();
+  base::AutoLock lock(lock_);
+  bool use_argb = want_argb_visual && using_compositing_wm_ &&
+                  (using_software_rendering_ || have_gpu_argb_visual_);
   VisualID visual_id = use_argb && transparent_visual_id_
                            ? transparent_visual_id_
                            : system_visual_id_;
@@ -1439,6 +1481,7 @@ void XVisualManager::ChooseVisualForWindow(bool want_argb_visual,
 bool XVisualManager::OnGPUInfoChanged(bool software_rendering,
                                       VisualID system_visual_id,
                                       VisualID transparent_visual_id) {
+  base::AutoLock lock(lock_);
   // TODO(thomasanderson): Cache these visual IDs as a property of the root
   // window so that newly created browser processes can get them immediately.
   if ((system_visual_id && !visuals_.count(system_visual_id)) ||
@@ -1454,6 +1497,7 @@ bool XVisualManager::OnGPUInfoChanged(bool software_rendering,
 }
 
 bool XVisualManager::ArgbVisualAvailable() const {
+  base::AutoLock lock(lock_);
   return using_compositing_wm_ &&
          (using_software_rendering_ || have_gpu_argb_visual_);
 }

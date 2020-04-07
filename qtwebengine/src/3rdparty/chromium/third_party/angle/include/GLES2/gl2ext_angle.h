@@ -21,15 +21,15 @@
 #define GL_ANGLE_request_extension 1
 #define GL_REQUESTABLE_EXTENSIONS_ANGLE   0x93A8
 #define GL_NUM_REQUESTABLE_EXTENSIONS_ANGLE 0x93A8
-typedef GLboolean(GL_APIENTRYP PFNGLREQUESTEXTENSIONANGLEPROC) (const GLchar *name);
+typedef void (GL_APIENTRYP PFNGLREQUESTEXTENSIONANGLEPROC) (const GLchar *name);
 #ifdef GL_GLEXT_PROTOTYPES
-GL_APICALL GLboolean GL_APIENTRY glRequestExtensionANGLE (const GLchar *name);
+GL_APICALL void GL_APIENTRY glRequestExtensionANGLE (const GLchar *name);
 #endif
 #endif /* GL_ANGLE_webgl_compatibility */
 
 #ifndef GL_ANGLE_robust_resource_initialization
 #define GL_ANGLE_robust_resource_initialization 1
-#define GL_CONTEXT_ROBUST_RESOURCE_INITIALIZATION_ANGLE 0x93AB
+#define GL_ROBUST_RESOURCE_INITIALIZATION_ANGLE 0x93AB
 #endif /* GL_ANGLE_robust_resource_initialization */
 
 #ifndef GL_CHROMIUM_framebuffer_mixed_samples
@@ -520,15 +520,16 @@ GL_APICALL void GL_APIENTRY glGetQueryObjectui64vRobustANGLE(GLuint id, GLenum p
 
 #ifndef GL_ANGLE_multiview
 #define GL_ANGLE_multiview 1
+// The next four enums coincide with the enums introduced by the GL_OVR_multiview extension and use the values reserved by that extension.
 #define GL_FRAMEBUFFER_ATTACHMENT_TEXTURE_NUM_VIEWS_ANGLE 0x9630
 #define GL_FRAMEBUFFER_ATTACHMENT_TEXTURE_BASE_VIEW_INDEX_ANGLE 0x9632
 #define GL_MAX_VIEWS_ANGLE 0x9631
 #define GL_FRAMEBUFFER_INCOMPLETE_VIEW_TARGETS_ANGLE 0x9633
-// TODO (mradev): change to the correct values once the tokens are allocated by Khronos.
-#define GL_FRAMEBUFFER_ATTACHMENT_TEXTURE_VIEWPORT_OFFSETS_ANGLE 0x9634
-#define GL_FRAMEBUFFER_ATTACHMENT_TEXTURE_MULTIVIEW_LAYOUT_ANGLE 0x9635
-#define GL_FRAMEBUFFER_MULTIVIEW_SIDE_BY_SIDE_ANGLE 0x9636
-#define GL_FRAMEBUFFER_MULTIVIEW_LAYERED_ANGLE 0x9637
+// The next four enums are reserved specifically for ANGLE.
+#define GL_FRAMEBUFFER_ATTACHMENT_TEXTURE_VIEWPORT_OFFSETS_ANGLE 0x969B
+#define GL_FRAMEBUFFER_ATTACHMENT_TEXTURE_MULTIVIEW_LAYOUT_ANGLE 0x969C
+#define GL_FRAMEBUFFER_MULTIVIEW_SIDE_BY_SIDE_ANGLE 0x969D
+#define GL_FRAMEBUFFER_MULTIVIEW_LAYERED_ANGLE 0x969E
 typedef void(GL_APIENTRYP PFNGLFRAMEBUFFERTEXTUREMULTIVIEWLAYEREDANGLE)(GLenum target, GLenum attachment, GLuint texture, GLint level, GLint baseViewIndex, GLsizei numViews);
 typedef void(GL_APIENTRYP PFNGLFRAMEBUFFERTEXTUREMULTIVIEWSIDEBYSIDEANGLE)(GLenum target, GLenum attachment, GLuint texture, GLint level, GLsizei numViews, const GLint *viewportOffsets);
 #ifdef GL_GLEXT_PROTOTYPES
@@ -536,6 +537,22 @@ GL_APICALL void GL_APIENTRY glFramebufferTextureMultiviewLayeredANGLE(GLenum tar
 GL_APICALL void GL_APIENTRY glFramebufferTextureMultiviewSideBySideANGLE(GLenum target, GLenum attachment, GLuint texture, GLint level, GLsizei numViews, const GLint *viewportOffsets);
 #endif
 #endif /* GL_ANGLE_multiview */
+
+#ifndef GL_ANGLE_texture_rectangle
+#define GL_ANGLE_texture_rectangle 1
+#define GL_MAX_RECTANGLE_TEXTURE_SIZE_ANGLE 0x84F8
+#define GL_TEXTURE_RECTANGLE_ANGLE 0x84F5
+#define GL_TEXTURE_BINDING_RECTANGLE_ANGLE 0x84F6
+#define GL_SAMPLER_2D_RECT_ANGLE 0x8B63
+#endif /* GL_ANGLE_texture_rectangle */
+
+#ifndef GL_ANGLE_explicit_context
+#define GL_ANGLE_explicit_context
+typedef void *GLeglContext;
+#include "gl2ext_explicit_context_autogen.inc"
+#include "../GLES3/gl3ext_explicit_context_autogen.inc"
+#include "../GLES3/gl31ext_explicit_context_autogen.inc"
+#endif /* GL_ANGLE_explicit_context */
 
 // clang-format on
 

@@ -75,6 +75,9 @@ Q_DECLARE_LOGGING_CATEGORY(QT_BT)
     the discovery process will limit the search to the type which is supported.
 
     \note Since Android 6.0 the ability to detect devices requires ACCESS_COARSE_LOCATION.
+
+    \note Due to API limitations it is only possible to find devices that have been paired using
+    Windows' settings on Windows.
 */
 
 /*!
@@ -138,10 +141,11 @@ Q_DECLARE_LOGGING_CATEGORY(QT_BT)
     The signal is emitted as soon as the most important device information
     has been collected. However, as long as the \l finished() signal has not
     been emitted the information collection continues even for already discovered
-    devices. This is particularly true for signal strength information (RSSI). If
-    signal strength information is required it is advisable to retrieve the device
-    information via \l discoveredDevices() once the discovery has finished. This
-    will yield the most recent RSSI information.
+    devices. This is particularly true for signal strength information (RSSI) and
+    manufacturer data updates. If the use case requires continuous manufacturer data
+    or RSSI updates it is advisable to retrieve the device information via
+    \l discoveredDevices() once the discovery has finished or listen to the
+    \l deviceUpdated() signal.
 
     If \l lowEnergyDiscoveryTimeout() is larger than 0 the signal is only ever
     emitted when at least one attribute of \a info changes. This reflects the desire to
@@ -153,6 +157,26 @@ Q_DECLARE_LOGGING_CATEGORY(QT_BT)
 
     \sa QBluetoothDeviceInfo::rssi(), lowEnergyDiscoveryTimeout()
 */
+
+/*!
+    \fn void QBluetoothDeviceDiscoveryAgent::deviceUpdated(const QBluetoothDeviceInfo &info, QBluetoothDeviceInfo::Fields updatedFields)
+
+    This signal is emitted when the agent receives additional information about
+    the Bluetooth device described by \a info. The \a updatedFields flags tell
+    which information has been updated.
+
+    During discovery, some information can change dynamically, such as
+    \l {QBluetoothDeviceInfo::rssi()}{signal strength} and
+    \l {QBluetoothDeviceInfo::manufacturerData()}{manufacturerData}.
+    This signal informs you that if your application is displaying this data, it
+    can be updated, rather than waiting until the discovery has finished.
+
+    \note This signal is only emitted on Android and BlueZ 5.x.
+
+    \sa QBluetoothDeviceInfo::rssi(), lowEnergyDiscoveryTimeout()
+*/
+
+// TODO deviceUpdated() signal not implemented on WinRT and Apple platforms
 
 /*!
     \fn void QBluetoothDeviceDiscoveryAgent::finished()
@@ -210,7 +234,7 @@ QBluetoothDeviceDiscoveryAgent::QBluetoothDeviceDiscoveryAgent(
 {
     if (!deviceAdapter.isNull()) {
         const QList<QBluetoothHostInfo> localDevices = QBluetoothLocalDevice::allDevices();
-        foreach (const QBluetoothHostInfo &hostInfo, localDevices) {
+        for (const QBluetoothHostInfo &hostInfo : localDevices) {
             if (hostInfo.address() == deviceAdapter)
                 return;
         }

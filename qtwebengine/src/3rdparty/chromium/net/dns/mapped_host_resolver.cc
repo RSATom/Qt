@@ -16,13 +16,12 @@ namespace net {
 MappedHostResolver::MappedHostResolver(std::unique_ptr<HostResolver> impl)
     : impl_(std::move(impl)) {}
 
-MappedHostResolver::~MappedHostResolver() {
-}
+MappedHostResolver::~MappedHostResolver() = default;
 
 int MappedHostResolver::Resolve(const RequestInfo& original_info,
                                 RequestPriority priority,
                                 AddressList* addresses,
-                                const CompletionCallback& callback,
+                                CompletionOnceCallback callback,
                                 std::unique_ptr<Request>* request,
                                 const NetLogWithSource& net_log) {
   RequestInfo info = original_info;
@@ -30,7 +29,8 @@ int MappedHostResolver::Resolve(const RequestInfo& original_info,
   if (rv != OK)
     return rv;
 
-  return impl_->Resolve(info, priority, addresses, callback, request, net_log);
+  return impl_->Resolve(info, priority, addresses, std::move(callback), request,
+                        net_log);
 }
 
 int MappedHostResolver::ResolveFromCache(const RequestInfo& original_info,
@@ -44,12 +44,31 @@ int MappedHostResolver::ResolveFromCache(const RequestInfo& original_info,
   return impl_->ResolveFromCache(info, addresses, net_log);
 }
 
+int MappedHostResolver::ResolveStaleFromCache(
+    const RequestInfo& original_info,
+    AddressList* addresses,
+    HostCache::EntryStaleness* stale_info,
+    const NetLogWithSource& net_log) {
+  RequestInfo info = original_info;
+  int rv = ApplyRules(&info);
+  if (rv != OK)
+    return rv;
+
+  return impl_->ResolveStaleFromCache(info, addresses, stale_info, net_log);
+}
+
 void MappedHostResolver::SetDnsClientEnabled(bool enabled) {
   impl_->SetDnsClientEnabled(enabled);
 }
 
 HostCache* MappedHostResolver::GetHostCache() {
   return impl_->GetHostCache();
+}
+
+bool MappedHostResolver::HasCached(base::StringPiece hostname,
+                                   HostCache::Entry::Source* source_out,
+                                   HostCache::EntryStaleness* stale_out) const {
+  return impl_->HasCached(hostname, source_out, stale_out);
 }
 
 std::unique_ptr<base::Value> MappedHostResolver::GetDnsConfigAsValue() const {

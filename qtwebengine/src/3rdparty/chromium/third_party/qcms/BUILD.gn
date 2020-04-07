@@ -38,7 +38,7 @@ static_library("qcms") {
       sources += [ "src/transform-sse2.c" ]
     }
 
-    if (use_libfuzzer) {
+    if (use_fuzzing_engine) {
       defines += [ "USE_LIBFUZZER" ]
     }
   }
@@ -89,7 +89,6 @@ if (!disable_qcms) {
     ]
 
     deps = [
-      "//build/config:exe_and_shlib_deps",
       "//build/win:default_exe_manifest",
       "//third_party/qcms",
     ]

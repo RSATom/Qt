@@ -258,6 +258,32 @@ static void qlocationutils_readZda(const char *data, int size, QGeoPositionInfo 
     info->setTimestamp(QDateTime(date, time, Qt::UTC));
 }
 
+QLocationUtils::NmeaSentence QLocationUtils::getNmeaSentenceType(const char *data, int size)
+{
+    if (size < 6 || data[0] != '$' || !hasValidNmeaChecksum(data, size))
+        return NmeaSentenceInvalid;
+
+    if (data[3] == 'G' && data[4] == 'G' && data[5] == 'A')
+        return NmeaSentenceGGA;
+
+    if (data[3] == 'G' && data[4] == 'S' && data[5] == 'A')
+        return NmeaSentenceGSA;
+
+    if (data[3] == 'G' && data[4] == 'L' && data[5] == 'L')
+        return NmeaSentenceGLL;
+
+    if (data[3] == 'R' && data[4] == 'M' && data[5] == 'C')
+        return NmeaSentenceRMC;
+
+    if (data[3] == 'V' && data[4] == 'T' && data[5] == 'G')
+        return NmeaSentenceVTG;
+
+    if (data[3] == 'Z' && data[4] == 'D' && data[5] == 'A')
+        return NmeaSentenceZDA;
+
+    return NmeaSentenceInvalid;
+}
+
 bool QLocationUtils::getPosInfoFromNmea(const char *data, int size, QGeoPositionInfo *info,
                                         double uere, bool *hasFix)
 {
@@ -266,7 +292,9 @@ bool QLocationUtils::getPosInfoFromNmea(const char *data, int size, QGeoPosition
 
     if (hasFix)
         *hasFix = false;
-    if (size < 6 || data[0] != '$' || !hasValidNmeaChecksum(data, size))
+
+    NmeaSentence nmeaType = getNmeaSentenceType(data, size);
+    if (nmeaType == NmeaSentenceInvalid)
         return false;
 
     // Adjust size so that * and following characters are not parsed by the following functions.
@@ -277,43 +305,28 @@ bool QLocationUtils::getPosInfoFromNmea(const char *data, int size, QGeoPosition
         }
     }
 
-    if (data[3] == 'G' && data[4] == 'G' && data[5] == 'A') {
-        // "$--GGA" sentence.
+    switch (nmeaType) {
+    case NmeaSentenceGGA:
         qlocationutils_readGga(data, size, info, uere, hasFix);
         return true;
-    }
-
-    if (data[3] == 'G' && data[4] == 'S' && data[5] == 'A') {
-        // "$--GSA" sentence.
+    case NmeaSentenceGSA:
         qlocationutils_readGsa(data, size, info, uere, hasFix);
         return true;
-    }
-
-    if (data[3] == 'G' && data[4] == 'L' && data[5] == 'L') {
-        // "$--GLL" sentence.
+    case NmeaSentenceGLL:
         qlocationutils_readGll(data, size, info, hasFix);
         return true;
-    }
-
-    if (data[3] == 'R' && data[4] == 'M' && data[5] == 'C') {
-        // "$--RMC" sentence.
+    case NmeaSentenceRMC:
         qlocationutils_readRmc(data, size, info, hasFix);
         return true;
-    }
-
-    if (data[3] == 'V' && data[4] == 'T' && data[5] == 'G') {
-        // "$--VTG" sentence.
+    case NmeaSentenceVTG:
         qlocationutils_readVtg(data, size, info, hasFix);
         return true;
-    }
-
-    if (data[3] == 'Z' && data[4] == 'D' && data[5] == 'A') {
-        // "$--ZDA" sentence.
+    case NmeaSentenceZDA:
         qlocationutils_readZda(data, size, info, hasFix);
         return true;
+    default:
+        return false;
     }
-
-    return false;
 }
 
 bool QLocationUtils::hasValidNmeaChecksum(const char *data, int size)

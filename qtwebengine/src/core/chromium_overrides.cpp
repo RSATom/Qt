@@ -39,29 +39,26 @@
 
 #include "chromium_overrides.h"
 
-#include "gl_context_qt.h"
+#include "ozone/gl_context_qt.h"
 #include "qtwebenginecoreglobal_p.h"
 #include "web_contents_view_qt.h"
 
 #include "base/values.h"
 #include "content/browser/renderer_host/pepper/pepper_truetype_font_list.h"
 #include "content/browser/renderer_host/render_widget_host_view_base.h"
+#include "content/browser/web_contents/web_contents_impl.h"
 #include "content/common/font_list.h"
 #include "ui/base/dragdrop/os_exchange_data.h"
 #include "ui/base/dragdrop/os_exchange_data_provider_factory.h"
 #include "ui/events/devices/device_data_manager.h"
 #include "ui/events/platform/platform_event_source.h"
-#include "ppapi/features/features.h"
+#include "ppapi/buildflags/buildflags.h"
 
 #include <QGuiApplication>
 #include <QScreen>
 #include <QWindow>
 #include <QFontDatabase>
 #include <QStringList>
-
-#if defined(USE_X11)
-#include "ui/gfx/x/x11_types.h"
-#endif
 
 #if defined(USE_AURA) && !defined(USE_OZONE)
 #include "ui/base/dragdrop/os_exchange_data.h"
@@ -78,7 +75,8 @@ namespace QtWebEngineCore {
 void GetScreenInfoFromNativeWindow(QWindow* window, content::ScreenInfo* results)
 {
     QScreen* screen = window->screen();
-
+    if (!screen)
+        return;
     content::ScreenInfo r;
     r.device_scale_factor = screen->devicePixelRatio();
     r.depth_per_component = 8;
@@ -94,26 +92,10 @@ void GetScreenInfoFromNativeWindow(QWindow* window, content::ScreenInfo* results
 
 } // namespace QtWebEngineCore
 
-#if defined(USE_X11)
-XDisplay* GetQtXDisplay()
+void *GetQtXDisplay()
 {
-    return static_cast<XDisplay*>(GLContextHelper::getXDisplay());
+    return GLContextHelper::getXDisplay();
 }
-
-namespace ui {
-class DummyPlatformEventSource : public PlatformEventSource
-{
-public:
-    DummyPlatformEventSource() {
-        DeviceDataManager::CreateInstance();
-    }
-};
-
-std::unique_ptr<PlatformEventSource> PlatformEventSource::CreateDefault() {
-  return base::MakeUnique<DummyPlatformEventSource>();
-}
-} // namespace ui
-#endif // defined(USE_X11)
 
 namespace content {
 class WebContentsImpl;
@@ -158,7 +140,7 @@ std::unique_ptr<base::ListValue> GetFontList_SlowBlocking()
     return std::move(font_list);
 }
 
-#if BUILDFLAG(ENABLE_PLUGINS)
+#if QT_CONFIG(webengine_pepper_plugins)
 // content/browser/renderer_host/pepper/pepper_truetype_font_list.h
 void GetFontFamilies_SlowBlocking(std::vector<std::string> *font_families)
 {
@@ -172,7 +154,7 @@ void GetFontsInFamily_SlowBlocking(const std::string &, std::vector<ppapi::proxy
 {
     QT_NOT_USED
 }
-#endif // BUILDFLAG(ENABLE_PLUGINS)
+#endif // QT_CONFIG(webengine_pepper_plugins)
 
 } // namespace content
 
@@ -195,15 +177,3 @@ std::unique_ptr<ui::OSExchangeData::Provider>
 ui::OSExchangeDataProviderFactory::CreateProvider() {
     return nullptr;
 }
-
-
-#if defined(USE_OPENSSL_CERTS)
-namespace net {
-
-scoped_refptr<SSLPrivateKey> FetchClientCertPrivateKey(const X509Certificate* certificate)
-{
-    return OpenSSLClientKeyStore::GetInstance()->FetchClientCertPrivateKey(certificate);
-}
-
-}  // namespace net
-#endif

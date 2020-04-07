@@ -8,33 +8,34 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_SDK_ANDROID_SRC_JNI_VIDEODECODERFACTORYWRAPPER_H_
-#define WEBRTC_SDK_ANDROID_SRC_JNI_VIDEODECODERFACTORYWRAPPER_H_
+#ifndef SDK_ANDROID_SRC_JNI_VIDEODECODERFACTORYWRAPPER_H_
+#define SDK_ANDROID_SRC_JNI_VIDEODECODERFACTORYWRAPPER_H_
 
 #include <jni.h>
 
-#include "webrtc/media/engine/webrtcvideodecoderfactory.h"
-#include "webrtc/sdk/android/src/jni/jni_helpers.h"
+#include "api/video_codecs/video_decoder_factory.h"
+#include "sdk/android/src/jni/jni_helpers.h"
 
-namespace webrtc_jni {
+namespace webrtc {
+namespace jni {
 
 // Wrapper for Java VideoDecoderFactory class. Delegates method calls through
 // JNI and wraps the decoder inside VideoDecoderWrapper.
-class VideoDecoderFactoryWrapper : public cricket::WebRtcVideoDecoderFactory {
+class VideoDecoderFactoryWrapper : public VideoDecoderFactory {
  public:
-  VideoDecoderFactoryWrapper(JNIEnv* jni, jobject decoder_factory);
+  VideoDecoderFactoryWrapper(JNIEnv* jni,
+                             const JavaRef<jobject>& decoder_factory);
+  ~VideoDecoderFactoryWrapper() override;
 
-  // Caller takes the ownership of the returned object and it should be released
-  // by calling DestroyVideoDecoder().
-  webrtc::VideoDecoder* CreateVideoDecoder(
-      webrtc::VideoCodecType type) override;
-  void DestroyVideoDecoder(webrtc::VideoDecoder* decoder) override;
+  std::vector<SdpVideoFormat> GetSupportedFormats() const override;
+  std::unique_ptr<VideoDecoder> CreateVideoDecoder(
+      const SdpVideoFormat& format) override;
 
  private:
-  const ScopedGlobalRef<jobject> decoder_factory_;
-  jmethodID create_decoder_method_;
+  const ScopedJavaGlobalRef<jobject> decoder_factory_;
 };
 
-}  // namespace webrtc_jni
+}  // namespace jni
+}  // namespace webrtc
 
-#endif  // WEBRTC_SDK_ANDROID_SRC_JNI_VIDEODECODERFACTORYWRAPPER_H_
+#endif  // SDK_ANDROID_SRC_JNI_VIDEODECODERFACTORYWRAPPER_H_

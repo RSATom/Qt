@@ -34,7 +34,11 @@
 ;***********************************************************************
 ; Local Data (Read Only)
 ;***********************************************************************
+%ifdef X86_32_PICASM
+SECTION .text align=16
+%else
 SECTION .rodata align=16
+%endif
 
 ALIGN 16
 mv_x_inc_x4     dw  0x10, 0x10, 0x10, 0x10
@@ -696,9 +700,12 @@ WELS_EXTERN FillQpelLocationByFeatureValue_sse2
     mov     ebx,    [height]
     mov     [i_height], ebx
 
-    movq    xmm7,   [mv_x_inc_x4]       ; x_qpel inc
-    movq    xmm6,   [mv_y_inc_x4]       ; y_qpel inc
-    movq    xmm5,   [mx_x_offset_x4]    ; x_qpel vector
+    %assign push_num 5
+    INIT_X86_32_PIC_NOPRESERVE ecx
+    movq    xmm7,   [pic(mv_x_inc_x4)]     ; x_qpel inc
+    movq    xmm6,   [pic(mv_y_inc_x4)]     ; y_qpel inc
+    movq    xmm5,   [pic(mx_x_offset_x4)]  ; x_qpel vector
+    DEINIT_X86_32_PIC
     pxor    xmm4,   xmm4
     pxor    xmm3,   xmm3                ; y_qpel vector
 HASH_HEIGHT_LOOP_SSE2:

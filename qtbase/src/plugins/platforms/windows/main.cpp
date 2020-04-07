@@ -39,7 +39,7 @@
 
 
 #include <qpa/qplatformintegrationplugin.h>
-#include <QtCore/QStringList>
+#include <QtCore/qstringlist.h>
 
 #include "qwindowsgdiintegration.h"
 
@@ -112,7 +112,7 @@ QPlatformIntegration *QWindowsIntegrationPlugin::create(const QString& system, c
 {
     if (system.compare(system, QLatin1String("windows"), Qt::CaseInsensitive) == 0)
         return new QWindowsGdiIntegration(paramList);
-    return 0;
+    return nullptr;
 }
 
 QT_END_NAMESPACE

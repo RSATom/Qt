@@ -4,10 +4,10 @@
 
 #include "net/dns/host_resolver_mojo.h"
 
+#include <memory>
 #include <utility>
 
 #include "base/callback_helpers.h"
-#include "base/memory/ptr_util.h"
 #include "mojo/public/cpp/bindings/binding.h"
 #include "net/base/address_list.h"
 #include "net/base/net_errors.h"
@@ -32,7 +32,7 @@ class HostResolverMojo::Job : public interfaces::HostResolverRequestClient {
  public:
   Job(const HostCache::Key& key,
       AddressList* addresses,
-      const CompletionCallback& callback,
+      CompletionOnceCallback callback,
       mojo::InterfaceRequest<interfaces::HostResolverRequestClient> request,
       base::WeakPtr<HostCache> host_cache);
 
@@ -45,7 +45,7 @@ class HostResolverMojo::Job : public interfaces::HostResolverRequestClient {
 
   const HostCache::Key key_;
   AddressList* addresses_;
-  CompletionCallback callback_;
+  CompletionOnceCallback callback_;
   mojo::Binding<interfaces::HostResolverRequestClient> binding_;
   base::WeakPtr<HostCache> host_cache_;
 };
@@ -54,7 +54,7 @@ class HostResolverMojo::RequestImpl : public HostResolver::Request {
  public:
   explicit RequestImpl(std::unique_ptr<Job> job) : job_(std::move(job)) {}
 
-  ~RequestImpl() override {}
+  ~RequestImpl() override = default;
 
   void ChangeRequestPriority(RequestPriority priority) override {}
 
@@ -73,7 +73,7 @@ HostResolverMojo::~HostResolverMojo() = default;
 int HostResolverMojo::Resolve(const RequestInfo& info,
                               RequestPriority priority,
                               AddressList* addresses,
-                              const CompletionCallback& callback,
+                              CompletionOnceCallback callback,
                               std::unique_ptr<Request>* request,
                               const NetLogWithSource& source_net_log) {
   DCHECK(thread_checker_.CalledOnValidThread());
@@ -89,12 +89,12 @@ int HostResolverMojo::Resolve(const RequestInfo& info,
   }
 
   interfaces::HostResolverRequestClientPtr handle;
-  std::unique_ptr<Job> job(new Job(key, addresses, callback,
+  std::unique_ptr<Job> job(new Job(key, addresses, std::move(callback),
                                    mojo::MakeRequest(&handle),
                                    host_cache_weak_factory_.GetWeakPtr()));
   request->reset(new RequestImpl(std::move(job)));
 
-  impl_->ResolveDns(base::MakeUnique<HostResolver::RequestInfo>(info),
+  impl_->ResolveDns(std::make_unique<HostResolver::RequestInfo>(info),
                     std::move(handle));
   return ERR_IO_PENDING;
 }
@@ -107,8 +107,26 @@ int HostResolverMojo::ResolveFromCache(const RequestInfo& info,
   return ResolveFromCacheInternal(info, CacheKeyForRequest(info), addresses);
 }
 
+int HostResolverMojo::ResolveStaleFromCache(
+    const RequestInfo& info,
+    AddressList* addresses,
+    HostCache::EntryStaleness* stale_info,
+    const NetLogWithSource& net_log) {
+  NOTREACHED();
+  return ERR_UNEXPECTED;
+}
+
 HostCache* HostResolverMojo::GetHostCache() {
   return host_cache_.get();
+}
+
+bool HostResolverMojo::HasCached(base::StringPiece hostname,
+                                 HostCache::Entry::Source* source_out,
+                                 HostCache::EntryStaleness* stale_out) const {
+  if (!host_cache_)
+    return false;
+
+  return host_cache_->HasEntry(hostname, source_out, stale_out);
 }
 
 int HostResolverMojo::ResolveFromCacheInternal(const RequestInfo& info,
@@ -129,12 +147,12 @@ int HostResolverMojo::ResolveFromCacheInternal(const RequestInfo& info,
 HostResolverMojo::Job::Job(
     const HostCache::Key& key,
     AddressList* addresses,
-    const CompletionCallback& callback,
+    CompletionOnceCallback callback,
     mojo::InterfaceRequest<interfaces::HostResolverRequestClient> request,
     base::WeakPtr<HostCache> host_cache)
     : key_(key),
       addresses_(addresses),
-      callback_(callback),
+      callback_(std::move(callback)),
       binding_(this, std::move(request)),
       host_cache_(host_cache) {
   binding_.set_connection_error_handler(base::Bind(
@@ -148,12 +166,13 @@ void HostResolverMojo::Job::ReportResult(int32_t error,
   if (host_cache_) {
     base::TimeDelta ttl = base::TimeDelta::FromSeconds(
         error == OK ? kCacheEntryTTLSeconds : kNegativeCacheEntryTTLSeconds);
-    HostCache::Entry entry(error, *addresses_, ttl);
+    HostCache::Entry entry(error, *addresses_, HostCache::Entry::SOURCE_UNKNOWN,
+                           ttl);
     host_cache_->Set(key_, entry, base::TimeTicks::Now(), ttl);
   }
   if (binding_.is_bound())
     binding_.Close();
-  base::ResetAndReturn(&callback_).Run(error);
+  std::move(callback_).Run(error);
 }
 
 void HostResolverMojo::Job::OnConnectionError() {

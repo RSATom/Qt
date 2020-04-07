@@ -25,7 +25,7 @@
 
 #if defined(OS_WIN)
 
-#include "third_party/crashpad/crashpad/util/win/time.h"
+#include "third_party/crashpad/crashpad/util/misc/time.h"
 
 namespace browser_watcher {
 
@@ -72,7 +72,8 @@ FilePath GetStabilityFileForProcess(base::ProcessId pid,
   int64_t creation_time_us =
       creation_time.tv_sec * kMicrosecondsPerSecond + creation_time.tv_usec;
 
-  std::string file_name = base::StringPrintf("%u-%lld", pid, creation_time_us);
+  std::string file_name =
+      base::StringPrintf("%" CrPRIdPid "-%lld", pid, creation_time_us);
   return stability_dir.AppendASCII(file_name).AddExtension(
       base::PersistentMemoryAllocator::kFileExtension);
 }

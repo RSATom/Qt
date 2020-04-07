@@ -14,10 +14,6 @@
 #include "ui/aura/aura_export.h"
 #include "ui/aura/mus/mus_types.h"
 
-namespace cc {
-class SurfaceInfo;
-}
-
 namespace gfx {
 class Rect;
 class Transform;
@@ -27,6 +23,12 @@ namespace ui {
 namespace mojom {
 enum class OrderDirection;
 }
+}
+
+namespace viz {
+class FrameSinkId;
+class LocalSurfaceId;
+class SurfaceInfo;
 }
 
 namespace aura {
@@ -60,9 +62,12 @@ class AURA_EXPORT WindowMus {
   virtual ~WindowMus() {}
 
   // Returns the WindowMus associated with |window|.
+  static const WindowMus* Get(const Window* window) {
+    return const_cast<const WindowMus*>(Get(const_cast<Window*>(window)));
+  }
   static WindowMus* Get(Window* window);
 
-  Id server_id() const { return server_id_; }
+  ui::Id server_id() const { return server_id_; }
 
   WindowMusType window_mus_type() const { return window_mus_type_; }
 
@@ -120,22 +125,19 @@ class AURA_EXPORT WindowMus {
   // window (as compared to DestroyFromServer()).
   virtual void PrepareForDestroy() = 0;
 
-  // See TransientWindowClientObserver::OnWillRestackTransientChildAbove() for
-  // details on this and OnTransientRestackDone().
-  virtual void PrepareForTransientRestack(WindowMus* window) = 0;
-  virtual void OnTransientRestackDone(WindowMus* window) = 0;
-
   virtual void NotifyEmbeddedAppDisconnected() = 0;
 
   virtual bool HasLocalLayerTreeFrameSink() = 0;
+
+  virtual float GetDeviceScaleFactor() = 0;
 
  private:
   // Just for set_server_id(), which other places should not call.
   friend class WindowTreeClient;
 
-  void set_server_id(Id id) { server_id_ = id; }
+  void set_server_id(ui::Id id) { server_id_ = id; }
 
-  Id server_id_ = kInvalidServerId;
+  ui::Id server_id_ = kInvalidServerId;
   const WindowMusType window_mus_type_;
 };
 

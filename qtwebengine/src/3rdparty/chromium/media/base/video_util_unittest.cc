@@ -6,6 +6,7 @@
 
 #include <stdint.h>
 
+#include <cmath>
 #include <memory>
 
 #include "base/macros.h"
@@ -151,7 +152,7 @@ class VideoUtilTest : public testing::Test {
         v_stride_(0) {
   }
 
-  ~VideoUtilTest() override {}
+  ~VideoUtilTest() override = default;
 
   void CreateSourceFrame(int width, int height,
                          int y_stride, int u_stride, int v_stride) {
@@ -172,7 +173,7 @@ class VideoUtilTest : public testing::Test {
   void CreateDestinationFrame(int width, int height) {
     gfx::Size size(width, height);
     destination_frame_ = VideoFrame::CreateFrame(
-        PIXEL_FORMAT_YV12, size, gfx::Rect(size), size, base::TimeDelta());
+        PIXEL_FORMAT_I420, size, gfx::Rect(size), size, base::TimeDelta());
   }
 
  private:
@@ -190,7 +191,56 @@ class VideoUtilTest : public testing::Test {
   DISALLOW_COPY_AND_ASSIGN(VideoUtilTest);
 };
 
-TEST_F(VideoUtilTest, GetNaturalSize) {
+TEST_F(VideoUtilTest, GetPixelAspectRatio) {
+  gfx::Rect visible_rect(320, 240);
+
+  // Test empty or invalid combinations.
+  EXPECT_TRUE(std::isnan(GetPixelAspectRatio(gfx::Rect(), gfx::Size())));
+  EXPECT_TRUE(std::isnan(GetPixelAspectRatio(gfx::Rect(1, 1), gfx::Size())));
+  EXPECT_TRUE(std::isnan(GetPixelAspectRatio(gfx::Rect(), gfx::Size(1, 1))));
+  EXPECT_TRUE(
+      std::isinf(GetPixelAspectRatio(gfx::Rect(1, 1), gfx::Size(1, 0))));
+  EXPECT_EQ(0.0, GetPixelAspectRatio(gfx::Rect(1, 1), gfx::Size(0, 1)));
+  EXPECT_EQ(0.0, GetPixelAspectRatio(gfx::Rect(1, 0), gfx::Size(1, 1)));
+  EXPECT_TRUE(
+      std::isinf(GetPixelAspectRatio(gfx::Rect(0, 1), gfx::Size(1, 1))));
+
+  // Some normal ratios.
+  EXPECT_DOUBLE_EQ(1.0, GetPixelAspectRatio(visible_rect, gfx::Size(320, 240)));
+  EXPECT_DOUBLE_EQ(2.0, GetPixelAspectRatio(visible_rect, gfx::Size(640, 240)));
+  EXPECT_DOUBLE_EQ(0.5, GetPixelAspectRatio(visible_rect, gfx::Size(320, 480)));
+}
+
+TEST_F(VideoUtilTest, GetNaturalSize_Double) {
+  gfx::Rect visible_rect(320, 240);
+
+  // Test 0 sizes.
+  EXPECT_EQ(gfx::Size(0, 0), GetNaturalSize(gfx::Rect(0, 0), 1.0));
+  EXPECT_EQ(gfx::Size(0, 1), GetNaturalSize(gfx::Rect(0, 1), 1.0));
+  EXPECT_EQ(gfx::Size(1, 0), GetNaturalSize(gfx::Rect(1, 0), 1.0));
+
+  // Test abnormal ratios.
+  EXPECT_EQ(gfx::Size(), GetNaturalSize(visible_rect, NAN));
+  EXPECT_EQ(gfx::Size(), GetNaturalSize(visible_rect, 0.0));
+  EXPECT_EQ(gfx::Size(), GetNaturalSize(visible_rect, INFINITY));
+  EXPECT_EQ(gfx::Size(), GetNaturalSize(visible_rect, -INFINITY));
+  EXPECT_EQ(gfx::Size(), GetNaturalSize(visible_rect, -1.0));
+
+  // Test normal sizes and ratios.
+  EXPECT_EQ(gfx::Size(320, 240), GetNaturalSize(visible_rect, 1.0 / 1.0));
+  EXPECT_EQ(gfx::Size(640, 240), GetNaturalSize(visible_rect, 2.0 / 1.0));
+  EXPECT_EQ(gfx::Size(320, 480), GetNaturalSize(visible_rect, 1.0 / 2.0));
+  EXPECT_EQ(gfx::Size(427, 240), GetNaturalSize(visible_rect, 4.0 / 3.0));
+  EXPECT_EQ(gfx::Size(320, 320), GetNaturalSize(visible_rect, 3.0 / 4.0));
+  EXPECT_EQ(gfx::Size(569, 240), GetNaturalSize(visible_rect, 16.0 / 9.0));
+  EXPECT_EQ(gfx::Size(320, 427), GetNaturalSize(visible_rect, 9.0 / 16.0));
+
+  // Test some random ratios.
+  EXPECT_EQ(gfx::Size(495, 240), GetNaturalSize(visible_rect, 17.0 / 11.0));
+  EXPECT_EQ(gfx::Size(320, 371), GetNaturalSize(visible_rect, 11.0 / 17.0));
+}
+
+TEST_F(VideoUtilTest, GetNaturalSize_Fraction) {
   gfx::Size visible_size(320, 240);
 
   // Test 0 sizes.
@@ -199,24 +249,24 @@ TEST_F(VideoUtilTest, GetNaturalSize) {
   EXPECT_EQ(gfx::Size(1, 0), GetNaturalSize(gfx::Size(1, 0), 1, 1));
 
   // Test abnormal ratios.
-  EXPECT_EQ(gfx::Size(0, 0), GetNaturalSize(visible_size, 0, 0));
-  EXPECT_EQ(gfx::Size(0, 0), GetNaturalSize(visible_size, 1, 0));
-  EXPECT_EQ(gfx::Size(0, 0), GetNaturalSize(visible_size, 1, -1));
-  EXPECT_EQ(gfx::Size(0, 0), GetNaturalSize(visible_size, -1, 1));
+  EXPECT_EQ(gfx::Size(), GetNaturalSize(visible_size, 0, 0));
+  EXPECT_EQ(gfx::Size(), GetNaturalSize(visible_size, 0, 1));
+  EXPECT_EQ(gfx::Size(), GetNaturalSize(visible_size, 1, 0));
+  EXPECT_EQ(gfx::Size(), GetNaturalSize(visible_size, 1, -1));
+  EXPECT_EQ(gfx::Size(), GetNaturalSize(visible_size, -1, 1));
 
   // Test normal sizes and ratios.
-  EXPECT_EQ(gfx::Size(0, 240), GetNaturalSize(visible_size, 0, 1));
   EXPECT_EQ(gfx::Size(320, 240), GetNaturalSize(visible_size, 1, 1));
   EXPECT_EQ(gfx::Size(640, 240), GetNaturalSize(visible_size, 2, 1));
-  EXPECT_EQ(gfx::Size(160, 240), GetNaturalSize(visible_size, 1, 2));
+  EXPECT_EQ(gfx::Size(320, 480), GetNaturalSize(visible_size, 1, 2));
   EXPECT_EQ(gfx::Size(427, 240), GetNaturalSize(visible_size, 4, 3));
-  EXPECT_EQ(gfx::Size(240, 240), GetNaturalSize(visible_size, 3, 4));
+  EXPECT_EQ(gfx::Size(320, 320), GetNaturalSize(visible_size, 3, 4));
   EXPECT_EQ(gfx::Size(569, 240), GetNaturalSize(visible_size, 16, 9));
-  EXPECT_EQ(gfx::Size(180, 240), GetNaturalSize(visible_size, 9, 16));
+  EXPECT_EQ(gfx::Size(320, 427), GetNaturalSize(visible_size, 9, 16));
 
   // Test some random ratios.
   EXPECT_EQ(gfx::Size(495, 240), GetNaturalSize(visible_size, 17, 11));
-  EXPECT_EQ(gfx::Size(207, 240), GetNaturalSize(visible_size, 11, 17));
+  EXPECT_EQ(gfx::Size(320, 371), GetNaturalSize(visible_size, 11, 17));
 }
 
 namespace {
@@ -359,7 +409,7 @@ class VideoUtilRotationTest
     dest_.reset(new uint8_t[GetParam().width * GetParam().height]);
   }
 
-  virtual ~VideoUtilRotationTest() {}
+  virtual ~VideoUtilRotationTest() = default;
 
   uint8_t* dest_plane() { return dest_.get(); }
 
@@ -409,6 +459,31 @@ TEST_F(VideoUtilTest, ComputeLetterboxRegion) {
                                      gfx::Size(0, 0)).IsEmpty());
 }
 
+// Tests the ComputeLetterboxRegionForI420 function.
+TEST_F(VideoUtilTest, ComputeLetterboxRegionForI420) {
+  // Note: These are the same trials as in VideoUtilTest.ComputeLetterboxRegion
+  // above, except that Rect coordinates are nudged into even-numbered values.
+  EXPECT_EQ(gfx::Rect(166, 0, 666, 500),
+            ComputeLetterboxRegionForI420(gfx::Rect(0, 0, 1000, 500),
+                                          gfx::Size(640, 480)));
+  EXPECT_EQ(gfx::Rect(0, 312, 500, 374),
+            ComputeLetterboxRegionForI420(gfx::Rect(0, 0, 500, 1000),
+                                          gfx::Size(640, 480)));
+  EXPECT_EQ(gfx::Rect(54, 0, 890, 500),
+            ComputeLetterboxRegionForI420(gfx::Rect(0, 0, 1000, 500),
+                                          gfx::Size(1920, 1080)));
+  EXPECT_EQ(gfx::Rect(0, 12, 100, 74),
+            ComputeLetterboxRegionForI420(gfx::Rect(0, 0, 100, 100),
+                                          gfx::Size(400, 300)));
+  EXPECT_EQ(
+      gfx::Rect(0, 250000000, 2000000000, 1500000000),
+      ComputeLetterboxRegionForI420(gfx::Rect(0, 0, 2000000000, 2000000000),
+                                    gfx::Size(40000, 30000)));
+  EXPECT_TRUE(ComputeLetterboxRegionForI420(
+                  gfx::Rect(0, 0, 2000000000, 2000000000), gfx::Size(0, 0))
+                  .IsEmpty());
+}
+
 TEST_F(VideoUtilTest, ScaleSizeToEncompassTarget) {
   EXPECT_EQ(gfx::Size(1000, 750),
             ScaleSizeToEncompassTarget(gfx::Size(640, 480),
@@ -451,12 +526,12 @@ TEST_F(VideoUtilTest, PadToMatchAspectRatio) {
       gfx::Size(40000, 30000), gfx::Size(0, 0)).IsEmpty());
 }
 
-TEST_F(VideoUtilTest, LetterboxYUV) {
+TEST_F(VideoUtilTest, LetterboxVideoFrame) {
   int width = 40;
   int height = 30;
   gfx::Size size(width, height);
   scoped_refptr<VideoFrame> frame(VideoFrame::CreateFrame(
-      PIXEL_FORMAT_YV12, size, gfx::Rect(size), size, base::TimeDelta()));
+      PIXEL_FORMAT_I420, size, gfx::Rect(size), size, base::TimeDelta()));
 
   for (int left_margin = 0; left_margin <= 10; left_margin += 10) {
     for (int right_margin = 0; right_margin <= 10; right_margin += 10) {
@@ -466,7 +541,7 @@ TEST_F(VideoUtilTest, LetterboxYUV) {
                               width - left_margin - right_margin,
                               height - top_margin - bottom_margin);
           FillYUV(frame.get(), 0x1, 0x2, 0x3);
-          LetterboxYUV(frame.get(), view_area);
+          LetterboxVideoFrame(frame.get(), view_area);
           for (int x = 0; x < width; x++) {
             for (int y = 0; y < height; y++) {
               bool inside = x >= view_area.x() &&

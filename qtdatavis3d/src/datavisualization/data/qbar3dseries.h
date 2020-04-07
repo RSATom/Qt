@@ -46,8 +46,8 @@ class QT_DATAVISUALIZATION_EXPORT QBar3DSeries : public QAbstract3DSeries
     Q_PROPERTY(float meshAngle READ meshAngle WRITE setMeshAngle NOTIFY meshAngleChanged)
 
 public:
-    explicit QBar3DSeries(QObject *parent = Q_NULLPTR);
-    explicit QBar3DSeries(QBarDataProxy *dataProxy, QObject *parent = Q_NULLPTR);
+    explicit QBar3DSeries(QObject *parent = nullptr);
+    explicit QBar3DSeries(QBarDataProxy *dataProxy, QObject *parent = nullptr);
     virtual ~QBar3DSeries();
 
     void setDataProxy(QBarDataProxy *proxy);

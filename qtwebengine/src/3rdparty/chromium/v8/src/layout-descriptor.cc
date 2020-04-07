@@ -10,14 +10,12 @@
 #include "src/handles-inl.h"
 #include "src/objects-inl.h"
 
-using v8::base::bits::CountTrailingZeros32;
-
 namespace v8 {
 namespace internal {
 
 Handle<LayoutDescriptor> LayoutDescriptor::New(
-    Handle<Map> map, Handle<DescriptorArray> descriptors, int num_descriptors) {
-  Isolate* isolate = descriptors->GetIsolate();
+    Isolate* isolate, Handle<Map> map, Handle<DescriptorArray> descriptors,
+    int num_descriptors) {
   if (!FLAG_unbox_double_fields) return handle(FastPointerLayout(), isolate);
 
   int layout_descriptor_length =
@@ -39,11 +37,9 @@ Handle<LayoutDescriptor> LayoutDescriptor::New(
   return handle(layout_descriptor, isolate);
 }
 
-
 Handle<LayoutDescriptor> LayoutDescriptor::ShareAppend(
-    Handle<Map> map, PropertyDetails details) {
+    Isolate* isolate, Handle<Map> map, PropertyDetails details) {
   DCHECK(map->owns_descriptors());
-  Isolate* isolate = map->GetIsolate();
   Handle<LayoutDescriptor> layout_descriptor(map->GetLayoutDescriptor(),
                                              isolate);
 
@@ -65,9 +61,8 @@ Handle<LayoutDescriptor> LayoutDescriptor::ShareAppend(
   return handle(layout_desc, isolate);
 }
 
-
 Handle<LayoutDescriptor> LayoutDescriptor::AppendIfFastOrUseFull(
-    Handle<Map> map, PropertyDetails details,
+    Isolate* isolate, Handle<Map> map, PropertyDetails details,
     Handle<LayoutDescriptor> full_layout_descriptor) {
   DisallowHeapAllocation no_allocation;
   LayoutDescriptor* layout_descriptor = map->layout_descriptor();
@@ -77,7 +72,7 @@ Handle<LayoutDescriptor> LayoutDescriptor::AppendIfFastOrUseFull(
   if (!InobjectUnboxedField(map->GetInObjectProperties(), details)) {
     DCHECK(details.location() != kField ||
            layout_descriptor->IsTagged(details.field_index()));
-    return handle(layout_descriptor, map->GetIsolate());
+    return handle(layout_descriptor, isolate);
   }
   int field_index = details.field_index();
   int new_capacity = field_index + details.field_width_in_words();
@@ -91,7 +86,7 @@ Handle<LayoutDescriptor> LayoutDescriptor::AppendIfFastOrUseFull(
   if (details.field_width_in_words() > 1) {
     layout_descriptor = layout_descriptor->SetRawData(field_index + 1);
   }
-  return handle(layout_descriptor, map->GetIsolate());
+  return handle(layout_descriptor, isolate);
 }
 
 
@@ -122,7 +117,7 @@ Handle<LayoutDescriptor> LayoutDescriptor::EnsureCapacity(
 
 bool LayoutDescriptor::IsTagged(int field_index, int max_sequence_length,
                                 int* out_sequence_length) {
-  DCHECK(max_sequence_length > 0);
+  DCHECK_GT(max_sequence_length, 0);
   if (IsFastPointerLayout()) {
     *out_sequence_length = max_sequence_length;
     return true;
@@ -144,12 +139,13 @@ bool LayoutDescriptor::IsTagged(int field_index, int max_sequence_length,
   bool is_tagged = (value & layout_mask) == 0;
   if (!is_tagged) value = ~value;  // Count set bits instead of cleared bits.
   value = value & ~(layout_mask - 1);  // Clear bits we are not interested in.
-  int sequence_length = CountTrailingZeros32(value) - layout_bit_index;
+  int sequence_length;
+  if (IsSlowLayout()) {
+    sequence_length = base::bits::CountTrailingZeros(value) - layout_bit_index;
 
-  if (layout_bit_index + sequence_length == kBitsPerLayoutWord) {
-    // This is a contiguous sequence till the end of current word, proceed
-    // counting in the subsequent words.
-    if (IsSlowLayout()) {
+    if (layout_bit_index + sequence_length == kBitsPerLayoutWord) {
+      // This is a contiguous sequence till the end of current word, proceed
+      // counting in the subsequent words.
       ++layout_word_index;
       int num_words = number_of_layout_words();
       for (; layout_word_index < num_words; layout_word_index++) {
@@ -157,12 +153,22 @@ bool LayoutDescriptor::IsTagged(int field_index, int max_sequence_length,
         bool cur_is_tagged = (value & 1) == 0;
         if (cur_is_tagged != is_tagged) break;
         if (!is_tagged) value = ~value;  // Count set bits instead.
-        int cur_sequence_length = CountTrailingZeros32(value);
+        int cur_sequence_length = base::bits::CountTrailingZeros(value);
         sequence_length += cur_sequence_length;
         if (sequence_length >= max_sequence_length) break;
         if (cur_sequence_length != kBitsPerLayoutWord) break;
       }
+      if (is_tagged && (field_index + sequence_length == capacity())) {
+        // The contiguous sequence of tagged fields lasts till the end of the
+        // layout descriptor which means that all the fields starting from
+        // field_index are tagged.
+        sequence_length = std::numeric_limits<int>::max();
+      }
     }
+  } else {  // Fast layout.
+    sequence_length = Min(base::bits::CountTrailingZeros(value),
+                          static_cast<unsigned>(kBitsInSmiLayout)) -
+                      layout_bit_index;
     if (is_tagged && (field_index + sequence_length == capacity())) {
       // The contiguous sequence of tagged fields lasts till the end of the
       // layout descriptor which means that all the fields starting from
@@ -203,7 +209,7 @@ bool LayoutDescriptorHelper::IsTagged(
   int sequence_length;
   bool tagged = layout_descriptor_->IsTagged(field_index, max_sequence_length,
                                              &sequence_length);
-  DCHECK(sequence_length > 0);
+  DCHECK_GT(sequence_length, 0);
   if (offset_in_bytes < header_size_) {
     // Object headers do not contain non-tagged fields. Check if the contiguous
     // region continues after the header.

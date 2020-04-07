@@ -8,11 +8,11 @@
 #include "base/macros.h"
 #include "content/public/common/screen_orientation_values.h"
 #include "media/base/mime_util.h"
-#include "third_party/WebKit/public/platform/WebMenuSourceType.h"
-#include "third_party/WebKit/public/platform/WebTextInputMode.h"
-#include "third_party/WebKit/public/platform/WebTextInputType.h"
-#include "third_party/WebKit/public/platform/modules/screen_orientation/WebScreenOrientationLockType.h"
-#include "third_party/WebKit/public/web/WebFrameSerializerCacheControlPolicy.h"
+#include "third_party/blink/public/common/screen_orientation/web_screen_orientation_lock_type.h"
+#include "third_party/blink/public/platform/web_menu_source_type.h"
+#include "third_party/blink/public/platform/web_text_input_mode.h"
+#include "third_party/blink/public/platform/web_text_input_type.h"
+#include "third_party/blink/public/web/web_frame_serializer_cache_control_policy.h"
 #include "ui/base/ime/text_input_mode.h"
 #include "ui/base/ime/text_input_type.h"
 #include "ui/base/ui_base_types.h"
@@ -46,23 +46,16 @@ STATIC_ASSERT_ENUM(blink::kWebScreenOrientationLockNatural,
 // WebTextInputMode
 STATIC_ASSERT_ENUM(blink::kWebTextInputModeDefault,
                    ui::TEXT_INPUT_MODE_DEFAULT);
-STATIC_ASSERT_ENUM(blink::kWebTextInputModeVerbatim,
-                   ui::TEXT_INPUT_MODE_VERBATIM);
-STATIC_ASSERT_ENUM(blink::kWebTextInputModeLatin, ui::TEXT_INPUT_MODE_LATIN);
-STATIC_ASSERT_ENUM(blink::kWebTextInputModeLatinName,
-                   ui::TEXT_INPUT_MODE_LATIN_NAME);
-STATIC_ASSERT_ENUM(blink::kWebTextInputModeLatinProse,
-                   ui::TEXT_INPUT_MODE_LATIN_PROSE);
-STATIC_ASSERT_ENUM(blink::kWebTextInputModeFullWidthLatin,
-                   ui::TEXT_INPUT_MODE_FULL_WIDTH_LATIN);
-STATIC_ASSERT_ENUM(blink::kWebTextInputModeKana, ui::TEXT_INPUT_MODE_KANA);
-STATIC_ASSERT_ENUM(blink::kWebTextInputModeKanaName,
-                   ui::TEXT_INPUT_MODE_KANA_NAME);
-STATIC_ASSERT_ENUM(blink::kWebTextInputModeKataKana,
-                   ui::TEXT_INPUT_MODE_KATAKANA);
+STATIC_ASSERT_ENUM(blink::kWebTextInputModeNone, ui::TEXT_INPUT_MODE_NONE);
+STATIC_ASSERT_ENUM(blink::kWebTextInputModeText, ui::TEXT_INPUT_MODE_TEXT);
 STATIC_ASSERT_ENUM(blink::kWebTextInputModeTel, ui::TEXT_INPUT_MODE_TEL);
-STATIC_ASSERT_ENUM(blink::kWebTextInputModeEmail, ui::TEXT_INPUT_MODE_EMAIL);
 STATIC_ASSERT_ENUM(blink::kWebTextInputModeUrl, ui::TEXT_INPUT_MODE_URL);
+STATIC_ASSERT_ENUM(blink::kWebTextInputModeEmail, ui::TEXT_INPUT_MODE_EMAIL);
+STATIC_ASSERT_ENUM(blink::kWebTextInputModeNumeric,
+                   ui::TEXT_INPUT_MODE_NUMERIC);
+STATIC_ASSERT_ENUM(blink::kWebTextInputModeDecimal,
+                   ui::TEXT_INPUT_MODE_DECIMAL);
+STATIC_ASSERT_ENUM(blink::kWebTextInputModeSearch, ui::TEXT_INPUT_MODE_SEARCH);
 
 // WebTextInputType
 STATIC_ASSERT_ENUM(blink::kWebTextInputTypeNone, ui::TEXT_INPUT_TYPE_NONE);
@@ -101,5 +94,9 @@ STATIC_ASSERT_ENUM(blink::kMenuSourceLongPress, ui::MENU_SOURCE_LONG_PRESS);
 STATIC_ASSERT_ENUM(blink::kMenuSourceLongTap, ui::MENU_SOURCE_LONG_TAP);
 STATIC_ASSERT_ENUM(blink::kMenuSourceTouchHandle, ui::MENU_SOURCE_TOUCH_HANDLE);
 STATIC_ASSERT_ENUM(blink::kMenuSourceStylus, ui::MENU_SOURCE_STYLUS);
+STATIC_ASSERT_ENUM(blink::kMenuSourceAdjustSelection,
+                   ui::MENU_SOURCE_ADJUST_SELECTION);
+STATIC_ASSERT_ENUM(blink::kMenuSourceAdjustSelectionReset,
+                   ui::MENU_SOURCE_ADJUST_SELECTION_RESET);
 
 } // namespace content

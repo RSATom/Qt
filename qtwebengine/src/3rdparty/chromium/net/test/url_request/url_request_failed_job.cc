@@ -37,8 +37,8 @@ static_assert(arraysize(kFailurePhase) ==
 
 class MockJobInterceptor : public URLRequestInterceptor {
  public:
-  MockJobInterceptor() {}
-  ~MockJobInterceptor() override {}
+  MockJobInterceptor() = default;
+  ~MockJobInterceptor() override = default;
 
   // URLRequestJobFactory::ProtocolHandler implementation:
   URLRequestJob* MaybeInterceptRequest(
@@ -121,7 +121,10 @@ void URLRequestFailedJob::GetResponseInfo(HttpResponseInfo* info) {
 void URLRequestFailedJob::PopulateNetErrorDetails(
     NetErrorDetails* details) const {
   if (net_error_ == ERR_QUIC_PROTOCOL_ERROR) {
-    details->quic_connection_error = QUIC_INTERNAL_ERROR;
+    details->quic_connection_error = quic::QUIC_INTERNAL_ERROR;
+  } else if (net_error_ == ERR_NETWORK_CHANGED) {
+    details->quic_connection_error =
+        quic::QUIC_CONNECTION_MIGRATION_NO_NEW_NETWORK;
   }
 }
 
@@ -177,8 +180,7 @@ GURL URLRequestFailedJob::GetMockHttpsUrlForHostname(
   return GetMockUrl("https", hostname, START, net_error);
 }
 
-URLRequestFailedJob::~URLRequestFailedJob() {
-}
+URLRequestFailedJob::~URLRequestFailedJob() = default;
 
 void URLRequestFailedJob::StartAsync() {
   if (phase_ == START) {

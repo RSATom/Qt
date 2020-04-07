@@ -1,7 +1,8 @@
 TEMPLATE = subdirs
-SUBDIRS = \
-    test
 
-!winrt: SUBDIRS += crashonexit
+!android:!winrt {
+    test.depends = crashonexit
+    SUBDIRS += crashonexit
+}
 
-CONFIG += ordered
+SUBDIRS += test

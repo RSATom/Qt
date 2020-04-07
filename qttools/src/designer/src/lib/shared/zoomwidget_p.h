@@ -42,9 +42,9 @@
 
 #include "shared_global_p.h"
 
-#include <QtWidgets/QGraphicsView>
-#include <QtWidgets/QGraphicsProxyWidget>
-#include <QtCore/QVector>
+#include <QtWidgets/qgraphicsview.h>
+#include <QtWidgets/qgraphicsproxywidget.h>
+#include <QtCore/qvector.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -144,7 +144,7 @@ public:
     explicit ZoomProxyWidget(QGraphicsItem *parent = 0, Qt::WindowFlags wFlags = 0);
 
 protected:
-    QVariant itemChange(GraphicsItemChange change, const QVariant &value) Q_DECL_OVERRIDE;
+    QVariant itemChange(GraphicsItemChange change, const QVariant &value) override;
 };
 
 /* Zoom widget: A QGraphicsView-based container for a widget that allows for
@@ -178,8 +178,8 @@ public:
     void setItemAcceptDrops(bool);
     bool itemAcceptDrops() const;
 
-    QSize minimumSizeHint() const Q_DECL_OVERRIDE;
-    QSize sizeHint() const Q_DECL_OVERRIDE;
+    QSize minimumSizeHint() const override;
+    QSize sizeHint() const override;
 
     bool zoomedEventFilter(QObject *watched, QEvent *event);
 
@@ -188,10 +188,10 @@ public slots:
     void dump() const;
 
 protected:
-    void resizeEvent(QResizeEvent * event) Q_DECL_OVERRIDE;
+    void resizeEvent(QResizeEvent * event) override;
 
     // Overwritten from ZoomView
-    void applyZoom() Q_DECL_OVERRIDE;
+    void applyZoom() override;
     // Overwrite to actually perform a resize. This is required if we are in a layout. Default does resize().
     virtual void doResize(const QSize &s);
 

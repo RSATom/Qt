@@ -8,8 +8,8 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_RTC_BASE_NETHELPERS_H_
-#define WEBRTC_RTC_BASE_NETHELPERS_H_
+#ifndef RTC_BASE_NETHELPERS_H_
+#define RTC_BASE_NETHELPERS_H_
 
 #if defined(WEBRTC_POSIX)
 #include <netdb.h>
@@ -20,14 +20,12 @@
 
 #include <list>
 
-#include "webrtc/rtc_base/asyncresolverinterface.h"
-#include "webrtc/rtc_base/signalthread.h"
-#include "webrtc/rtc_base/sigslot.h"
-#include "webrtc/rtc_base/socketaddress.h"
+#include "rtc_base/asyncresolverinterface.h"
+#include "rtc_base/signalthread.h"
+#include "rtc_base/sigslot.h"
+#include "rtc_base/socketaddress.h"
 
 namespace rtc {
-
-class AsyncResolverTest;
 
 // AsyncResolver will perform async DNS resolution, signaling the result on
 // the SignalDone from AsyncResolverInterface when the operation completes.
@@ -56,11 +54,11 @@ class AsyncResolver : public SignalThread, public AsyncResolverInterface {
 
 // rtc namespaced wrappers for inet_ntop and inet_pton so we can avoid
 // the windows-native versions of these.
-const char* inet_ntop(int af, const void *src, char* dst, socklen_t size);
-int inet_pton(int af, const char* src, void *dst);
+const char* inet_ntop(int af, const void* src, char* dst, socklen_t size);
+int inet_pton(int af, const char* src, void* dst);
 
 bool HasIPv4Enabled();
 bool HasIPv6Enabled();
 }  // namespace rtc
 
-#endif  // WEBRTC_RTC_BASE_NETHELPERS_H_
+#endif  // RTC_BASE_NETHELPERS_H_

@@ -24,7 +24,7 @@ class ShareableFileMap {
   typedef FileMap::key_type key_type;
   typedef FileMap::value_type value_type;
 
-  ShareableFileMap() {}
+  ShareableFileMap() = default;
 
   ~ShareableFileMap() = default;
 
@@ -95,6 +95,14 @@ scoped_refptr<ShareableFileReference> ShareableFileReference::GetOrCreate(
   typedef std::pair<ShareableFileMap::iterator, bool> InsertResult;
   InsertResult result = g_file_map.Get().Insert(
       ShareableFileMap::value_type(scoped_file.path(), nullptr));
+
+  DVLOG(1) << "ShareableFileReference::GetOrCreate("
+           << scoped_file.path().value() << ", "
+           << (scoped_file.policy() == ScopedFile::DELETE_ON_SCOPE_OUT
+                   ? "DELETE_ON_SCOPE_OUT"
+                   : "DONT_DELETE_ON_SCOPE_OUT")
+           << "): " << (result.second ? "Creation." : "New Reference.");
+
   if (result.second == false) {
     scoped_file.Release();
     return scoped_refptr<ShareableFileReference>(result.first->second);
@@ -108,11 +116,11 @@ scoped_refptr<ShareableFileReference> ShareableFileReference::GetOrCreate(
 }
 
 void ShareableFileReference::AddFinalReleaseCallback(
-    const FinalReleaseCallback& callback) {
+    FinalReleaseCallback callback) {
 #if DCHECK_IS_ON()
   g_file_map.Get().AssertCalledOnValidSequence();
 #endif  // DCHECK_IS_ON()
-  scoped_file_.AddScopeOutCallback(callback, NULL);
+  scoped_file_.AddScopeOutCallback(std::move(callback), NULL);
 }
 
 ShareableFileReference::ShareableFileReference(ScopedFile scoped_file)

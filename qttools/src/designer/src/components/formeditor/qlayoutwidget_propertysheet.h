@@ -43,12 +43,12 @@ class QLayoutWidgetPropertySheet: public QDesignerPropertySheet
     Q_INTERFACES(QDesignerPropertySheetExtension)
 public:
     explicit QLayoutWidgetPropertySheet(QLayoutWidget *object, QObject *parent = 0);
-    virtual ~QLayoutWidgetPropertySheet();
+    ~QLayoutWidgetPropertySheet() override;
 
-    void setProperty(int index, const QVariant &value) Q_DECL_OVERRIDE;
-    bool isVisible(int index) const Q_DECL_OVERRIDE;
+    void setProperty(int index, const QVariant &value) override;
+    bool isVisible(int index) const override;
 
-    bool dynamicPropertiesAllowed() const Q_DECL_OVERRIDE;
+    bool dynamicPropertiesAllowed() const override;
 };
 
 typedef QDesignerPropertySheetFactory<QLayoutWidget, QLayoutWidgetPropertySheet> QLayoutWidgetPropertySheetFactory;

@@ -17,7 +17,7 @@
 CPVT_FontMap::CPVT_FontMap(CPDF_Document* pDoc,
                            CPDF_Dictionary* pResDict,
                            CPDF_Font* pDefFont,
-                           const CFX_ByteString& sDefFontAlias)
+                           const ByteString& sDefFontAlias)
     : m_pDocument(pDoc),
       m_pResDict(pResDict),
       m_pDefFont(pDefFont),
@@ -25,9 +25,10 @@ CPVT_FontMap::CPVT_FontMap(CPDF_Document* pDoc,
 
 CPVT_FontMap::~CPVT_FontMap() {}
 
+// static
 CPDF_Font* CPVT_FontMap::GetAnnotSysPDFFont(CPDF_Document* pDoc,
-                                            const CPDF_Dictionary* pResDict,
-                                            CFX_ByteString* sSysFontAlias) {
+                                            CPDF_Dictionary* pResDict,
+                                            ByteString* sSysFontAlias) {
   if (!pDoc || !pResDict)
     return nullptr;
 
@@ -38,8 +39,8 @@ CPDF_Font* CPVT_FontMap::GetAnnotSysPDFFont(CPDF_Document* pDoc,
 
   CPDF_Dictionary* pFontList = pResDict->GetDictFor("Font");
   if (pFontList && !pFontList->KeyExist(*sSysFontAlias)) {
-    pFontList->SetNewFor<CPDF_Reference>(*sSysFontAlias, pDoc,
-                                         pPDFFont->GetFontDict()->GetObjNum());
+    pFontList->SetFor(*sSysFontAlias,
+                      pPDFFont->GetFontDict()->MakeReference(pDoc));
   }
   return pPDFFont;
 }
@@ -59,7 +60,7 @@ CPDF_Font* CPVT_FontMap::GetPDFFont(int32_t nFontIndex) {
   }
 }
 
-CFX_ByteString CPVT_FontMap::GetPDFFontAlias(int32_t nFontIndex) {
+ByteString CPVT_FontMap::GetPDFFontAlias(int32_t nFontIndex) {
   switch (nFontIndex) {
     case 0:
       return m_sDefFontAlias;
@@ -70,7 +71,7 @@ CFX_ByteString CPVT_FontMap::GetPDFFontAlias(int32_t nFontIndex) {
       }
       return m_sSysFontAlias;
     default:
-      return CFX_ByteString();
+      return ByteString();
   }
 }
 

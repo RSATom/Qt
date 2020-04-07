@@ -64,7 +64,6 @@ private slots:
     void formatLogMessage();
 
 private:
-    QString m_appDir;
     QStringList m_baseEnvironment;
 };
 
@@ -101,10 +100,6 @@ tst_qmessagehandler::tst_qmessagehandler()
 void tst_qmessagehandler::initTestCase()
 {
 #if QT_CONFIG(process)
-    m_appDir = QFINDTESTDATA("app");
-    QVERIFY2(!m_appDir.isEmpty(), qPrintable(
-        QString::fromLatin1("Couldn't find helper app dir starting from %1.").arg(QDir::currentPath())));
-
     m_baseEnvironment = QProcess::systemEnvironment();
     for (int i = 0; i < m_baseEnvironment.count(); ++i) {
         if (m_baseEnvironment.at(i).startsWith("QT_MESSAGE_PATTERN=")) {
@@ -802,7 +797,7 @@ void tst_qmessagehandler::qMessagePattern_data()
 #ifndef QT_NO_DEBUG
     QTest::newRow("backtrace") << "[%{backtrace}] %{message}" << true << (QList<QByteArray>()
             // MyClass::qt_static_metacall is explicitly marked as hidden in the Q_OBJECT macro
-            << "[MyClass::myFunction|MyClass::mySlot1|?app?|" QT_NAMESPACE_STR "QMetaMethod::invoke|" QT_NAMESPACE_STR "QMetaObject::invokeMethod] from_a_function 34");
+            << "[MyClass::myFunction|MyClass::mySlot1|?helper?|" QT_NAMESPACE_STR "QMetaMethod::invoke|" QT_NAMESPACE_STR "QMetaObject::invokeMethod] from_a_function 34");
 #endif
 
     QTest::newRow("backtrace depth,separator") << "[%{backtrace depth=2 separator=\"\n\"}] %{message}" << true << (QList<QByteArray>()
@@ -818,12 +813,19 @@ void tst_qmessagehandler::qMessagePattern()
 #if !QT_CONFIG(process)
     QSKIP("This test requires QProcess support");
 #else
+#ifdef Q_OS_ANDROID
+    QSKIP("This test crashes on Android");
+#endif
     QFETCH(QString, pattern);
     QFETCH(bool, valid);
     QFETCH(QList<QByteArray>, expected);
 
     QProcess process;
-    const QString appExe = m_appDir + "/app";
+#ifndef Q_OS_ANDROID
+    const QString appExe(QLatin1String("helper"));
+#else
+    const QString appExe(QCoreApplication::applicationDirPath() + QLatin1String("/libhelper.so"));
+#endif
 
     //
     // test QT_MESSAGE_PATTERN
@@ -860,13 +862,20 @@ void tst_qmessagehandler::setMessagePattern()
 #if !QT_CONFIG(process)
     QSKIP("This test requires QProcess support");
 #else
+#ifdef Q_OS_ANDROID
+    QSKIP("This test crashes on Android");
+#endif
 
     //
     // test qSetMessagePattern
     //
 
     QProcess process;
-    const QString appExe = m_appDir + "/app";
+#ifndef Q_OS_ANDROID
+    const QString appExe(QLatin1String("helper"));
+#else
+    const QString appExe(QCoreApplication::applicationDirPath() + QLatin1String("/libhelper.so"));
+#endif
 
     // make sure there is no QT_MESSAGE_PATTERN in the environment
     QStringList environment = m_baseEnvironment;

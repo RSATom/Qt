@@ -1,6 +1,7 @@
 /****************************************************************************
 **
 ** Copyright (C) 2014 John Layt <jlayt@kde.org>
+** Copyright (C) 2018 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtPrintSupport module of the Qt Toolkit.
@@ -53,10 +54,15 @@
 
 #include <QtPrintSupport/qtprintsupportglobal.h>
 #include <private/qprint_p.h>
+#include <private/qprintdevice_p.h>
 
+#include <QtCore/qvariant.h>
 #include <QtCore/qvector.h>
+#if QT_CONFIG(mimetype)
 #include <QtCore/qmimetype.h>
+#endif
 #include <QtGui/qpagelayout.h>
+
 
 QT_BEGIN_NAMESPACE
 
@@ -66,8 +72,7 @@ class Q_PRINTSUPPORT_EXPORT QPlatformPrintDevice
 {
     Q_DISABLE_COPY(QPlatformPrintDevice)
 public:
-    QPlatformPrintDevice();
-    explicit QPlatformPrintDevice(const QString &id);
+    explicit QPlatformPrintDevice(const QString &id = QString());
     virtual ~QPlatformPrintDevice();
 
     virtual QString id() const;
@@ -107,18 +112,22 @@ public:
     virtual QList<int> supportedResolutions() const;
 
     virtual QPrint::InputSlot defaultInputSlot() const;
-    virtual QList<QPrint::InputSlot> supportedInputSlots() const;
+    virtual QVector<QPrint::InputSlot> supportedInputSlots() const;
 
     virtual QPrint::OutputBin defaultOutputBin() const;
-    virtual QList<QPrint::OutputBin> supportedOutputBins() const;
+    virtual QVector<QPrint::OutputBin> supportedOutputBins() const;
 
     virtual QPrint::DuplexMode defaultDuplexMode() const;
-    virtual QList<QPrint::DuplexMode> supportedDuplexModes() const;
+    virtual QVector<QPrint::DuplexMode> supportedDuplexModes() const;
 
     virtual QPrint::ColorMode defaultColorMode() const;
-    virtual QList<QPrint::ColorMode> supportedColorModes() const;
+    virtual QVector<QPrint::ColorMode> supportedColorModes() const;
 
-#ifndef QT_NO_MIMETYPE
+    virtual QVariant property(QPrintDevice::PrintDevicePropertyKey key) const;
+    virtual bool setProperty(QPrintDevice::PrintDevicePropertyKey key, const QVariant &value);
+    virtual bool isFeatureAvailable(QPrintDevice::PrintDevicePropertyKey key, const QVariant &params) const;
+
+#if QT_CONFIG(mimetype)
     virtual QList<QMimeType> supportedMimeTypes() const;
 #endif
 
@@ -132,7 +141,7 @@ protected:
     virtual void loadOutputBins() const;
     virtual void loadDuplexModes() const;
     virtual void loadColorModes() const;
-#ifndef QT_NO_MIMETYPE
+#if QT_CONFIG(mimetype)
     virtual void loadMimeTypes() const;
 #endif
 
@@ -145,19 +154,19 @@ protected:
 
     bool m_isRemote;
 
-    bool m_supportsMultipleCopies;
-    bool m_supportsCollateCopies;
+    mutable bool m_supportsMultipleCopies;
+    mutable bool m_supportsCollateCopies;
 
     mutable bool m_havePageSizes;
-    mutable QVector<QPageSize> m_pageSizes;
+    mutable QList<QPageSize> m_pageSizes;
 
-    bool m_supportsCustomPageSizes;
+    mutable bool m_supportsCustomPageSizes;
 
-    QSize m_minimumPhysicalPageSize;
-    QSize m_maximumPhysicalPageSize;
+    mutable QSize m_minimumPhysicalPageSize;
+    mutable QSize m_maximumPhysicalPageSize;
 
     mutable bool m_haveResolutions;
-    mutable QVector<int> m_resolutions;
+    mutable QList<int> m_resolutions;
 
     mutable bool m_haveInputSlots;
     mutable QVector<QPrint::InputSlot> m_inputSlots;
@@ -171,9 +180,9 @@ protected:
     mutable bool m_haveColorModes;
     mutable QVector<QPrint::ColorMode> m_colorModes;
 
-#ifndef QT_NO_MIMETYPE
+#if QT_CONFIG(mimetype)
     mutable bool m_haveMimeTypes;
-    mutable QVector<QMimeType> m_mimeTypes;
+    mutable QList<QMimeType> m_mimeTypes;
 #endif
 };
 

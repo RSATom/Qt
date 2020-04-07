@@ -2,6 +2,7 @@
 **
 ** Copyright (C) 2016 The Qt Company Ltd.
 ** Copyright (C) 2013 Olivier Goffart <ogoffart@woboq.com>
+** Copyright (C) 2018 Intel Corporation.
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the tools applications of the Qt Toolkit.
@@ -28,6 +29,7 @@
 ****************************************************************************/
 
 #include "generator.h"
+#include "cbordevice.h"
 #include "outputrevision.h"
 #include "utils.h"
 #include <QtCore/qmetatype.h>
@@ -36,9 +38,13 @@
 #include <QtCore/qjsonvalue.h>
 #include <QtCore/qjsonarray.h>
 #include <QtCore/qplugin.h>
+#include <QtCore/qstringview.h>
+
+#include <math.h>
 #include <stdio.h>
 
 #include <private/qmetaobject_p.h> //for the flags.
+#include <private/qplugin_p.h> //for the flags.
 
 QT_BEGIN_NAMESPACE
 
@@ -74,7 +80,7 @@ QT_FOR_EACH_STATIC_TYPE(RETURN_METATYPENAME_STRING)
     return 0;
  }
 
-Generator::Generator(ClassDef *classDef, const QList<QByteArray> &metaTypes, const QHash<QByteArray, QByteArray> &knownQObjectClasses, const QHash<QByteArray, QByteArray> &knownGadgets, FILE *outfile)
+Generator::Generator(ClassDef *classDef, const QVector<QByteArray> &metaTypes, const QHash<QByteArray, QByteArray> &knownQObjectClasses, const QHash<QByteArray, QByteArray> &knownGadgets, FILE *outfile)
     : out(outfile), cdef(classDef), metaTypes(metaTypes), knownQObjectClasses(knownQObjectClasses)
     , knownGadgets(knownGadgets)
 {
@@ -200,6 +206,7 @@ void Generator::generateCode()
             if (cdef->enumDeclarations.contains(def.name)) {
                 enumList += def;
             }
+            def.enumName = def.name;
             QByteArray alias = cdef->flagAliases.value(def.name);
             if (cdef->enumDeclarations.contains(alias)) {
                 def.name = alias;
@@ -369,7 +376,7 @@ void Generator::generateCode()
 
     int enumsIndex = index;
     for (int i = 0; i < cdef->enumList.count(); ++i)
-        index += 4 + (cdef->enumList.at(i).values.count() * 2);
+        index += 5 + (cdef->enumList.at(i).values.count() * 2);
     fprintf(out, "    %4d, %4d, // constructors\n", isConstructible ? cdef->constructorList.count() : 0,
             isConstructible ? index : 0);
 
@@ -454,7 +461,7 @@ void Generator::generateCode()
 //
 // Build extra array
 //
-    QList<QByteArray> extraList;
+    QVector<QByteArray> extraList;
     QHash<QByteArray, QByteArray> knownExtraMetaObject = knownGadgets;
     knownExtraMetaObject.unite(knownQObjectClasses);
 
@@ -523,29 +530,29 @@ void Generator::generateCode()
 // Finally create and initialize the static meta object
 //
     if (isQt)
-        fprintf(out, "QT_INIT_METAOBJECT const QMetaObject QObject::staticQtMetaObject = {\n");
+        fprintf(out, "QT_INIT_METAOBJECT const QMetaObject QObject::staticQtMetaObject = { {\n");
     else
-        fprintf(out, "QT_INIT_METAOBJECT const QMetaObject %s::staticMetaObject = {\n", cdef->qualified.constData());
+        fprintf(out, "QT_INIT_METAOBJECT const QMetaObject %s::staticMetaObject = { {\n", cdef->qualified.constData());
 
     if (isQObject)
-        fprintf(out, "    { nullptr, ");
+        fprintf(out, "    nullptr,\n");
     else if (cdef->superclassList.size() && (!cdef->hasQGadget || knownGadgets.contains(purestSuperClass)))
-        fprintf(out, "    { &%s::staticMetaObject, ", purestSuperClass.constData());
+        fprintf(out, "    &%s::staticMetaObject,\n", purestSuperClass.constData());
     else
-        fprintf(out, "    { nullptr, ");
-    fprintf(out, "qt_meta_stringdata_%s.data,\n"
-            "      qt_meta_data_%s, ", qualifiedClassNameIdentifier.constData(),
+        fprintf(out, "    nullptr,\n");
+    fprintf(out, "    qt_meta_stringdata_%s.data,\n"
+            "    qt_meta_data_%s,\n", qualifiedClassNameIdentifier.constData(),
             qualifiedClassNameIdentifier.constData());
     if (hasStaticMetaCall)
-        fprintf(out, " qt_static_metacall, ");
+        fprintf(out, "    qt_static_metacall,\n");
     else
-        fprintf(out, " nullptr, ");
+        fprintf(out, "    nullptr,\n");
 
     if (extraList.isEmpty())
-        fprintf(out, "nullptr, ");
+        fprintf(out, "    nullptr,\n");
     else
-        fprintf(out, "qt_meta_extradata_%s, ", qualifiedClassNameIdentifier.constData());
-    fprintf(out, "nullptr}\n};\n\n");
+        fprintf(out, "    qt_meta_extradata_%s,\n", qualifiedClassNameIdentifier.constData());
+    fprintf(out, "    nullptr\n} };\n\n");
 
     if(isQt)
         return;
@@ -887,6 +894,8 @@ void Generator::registerEnumStrings()
     for (int i = 0; i < cdef->enumList.count(); ++i) {
         const EnumDef &e = cdef->enumList.at(i);
         strreg(e.name);
+        if (!e.enumName.isNull())
+            strreg(e.enumName);
         for (int j = 0; j < e.values.count(); ++j)
             strreg(e.values.at(j));
     }
@@ -897,8 +906,8 @@ void Generator::generateEnums(int index)
     if (cdef->enumDeclarations.isEmpty())
         return;
 
-    fprintf(out, "\n // enums: name, flags, count, data\n");
-    index += 4 * cdef->enumList.count();
+    fprintf(out, "\n // enums: name, alias, flags, count, data\n");
+    index += 5 * cdef->enumList.count();
     int i;
     for (i = 0; i < cdef->enumList.count(); ++i) {
         const EnumDef &e = cdef->enumList.at(i);
@@ -907,8 +916,9 @@ void Generator::generateEnums(int index)
             flags |= EnumIsFlag;
         if (e.isEnumClass)
             flags |= EnumIsScoped;
-        fprintf(out, "    %4d, 0x%.1x, %4d, %4d,\n",
+        fprintf(out, "    %4d, %4d, 0x%.1x, %4d, %4d,\n",
                  stridx(e.name),
+                 e.enumName.isNull() ? stridx(e.name) : stridx(e.enumName),
                  flags,
                  e.values.count(),
                  index);
@@ -922,7 +932,7 @@ void Generator::generateEnums(int index)
             const QByteArray &val = e.values.at(j);
             QByteArray code = cdef->qualified.constData();
             if (e.isEnumClass)
-                code += "::" + e.name;
+                code += "::" + (e.enumName.isNull() ? e.name : e.enumName);
             code += "::" + val;
             fprintf(out, "    %4d, uint(%s),\n",
                     stridx(val), code.constData());
@@ -1184,9 +1194,9 @@ void Generator::generateStaticMetacall()
 #ifndef QT_NO_DEBUG
             fprintf(out, "        Q_ASSERT(staticMetaObject.cast(_o));\n");
 #endif
-            fprintf(out, "        %s *_t = static_cast<%s *>(_o);\n", cdef->classname.constData(), cdef->classname.constData());
+            fprintf(out, "        auto *_t = static_cast<%s *>(_o);\n", cdef->classname.constData());
         } else {
-            fprintf(out, "        %s *_t = reinterpret_cast<%s *>(_o);\n", cdef->classname.constData(), cdef->classname.constData());
+            fprintf(out, "        auto *_t = reinterpret_cast<%s *>(_o);\n", cdef->classname.constData());
         }
         fprintf(out, "        Q_UNUSED(_t)\n");
         fprintf(out, "        switch (_id) {\n");
@@ -1269,7 +1279,7 @@ void Generator::generateStaticMetacall()
                 continue;
             anythingUsed = true;
             fprintf(out, "        {\n");
-            fprintf(out, "            typedef %s (%s::*_t)(",f.type.rawName.constData() , cdef->classname.constData());
+            fprintf(out, "            using _t = %s (%s::*)(",f.type.rawName.constData() , cdef->classname.constData());
 
             int argsCount = f.arguments.count();
             for (int j = 0; j < argsCount; ++j) {
@@ -1349,9 +1359,9 @@ void Generator::generateStaticMetacall()
 #ifndef QT_NO_DEBUG
                 fprintf(out, "        Q_ASSERT(staticMetaObject.cast(_o));\n");
 #endif
-                fprintf(out, "        %s *_t = static_cast<%s *>(_o);\n", cdef->classname.constData(), cdef->classname.constData());
+                fprintf(out, "        auto *_t = static_cast<%s *>(_o);\n", cdef->classname.constData());
             } else {
-                fprintf(out, "        %s *_t = reinterpret_cast<%s *>(_o);\n", cdef->classname.constData(), cdef->classname.constData());
+                fprintf(out, "        auto *_t = reinterpret_cast<%s *>(_o);\n", cdef->classname.constData());
             }
             fprintf(out, "        Q_UNUSED(_t)\n");
             if (needTempVarForGet)
@@ -1395,9 +1405,9 @@ void Generator::generateStaticMetacall()
 #ifndef QT_NO_DEBUG
                 fprintf(out, "        Q_ASSERT(staticMetaObject.cast(_o));\n");
 #endif
-                fprintf(out, "        %s *_t = static_cast<%s *>(_o);\n", cdef->classname.constData(), cdef->classname.constData());
+                fprintf(out, "        auto *_t = static_cast<%s *>(_o);\n", cdef->classname.constData());
             } else {
-                fprintf(out, "        %s *_t = reinterpret_cast<%s *>(_o);\n", cdef->classname.constData(), cdef->classname.constData());
+                fprintf(out, "        auto *_t = reinterpret_cast<%s *>(_o);\n", cdef->classname.constData());
             }
             fprintf(out, "        Q_UNUSED(_t)\n");
             fprintf(out, "        void *_v = _a[0];\n");
@@ -1556,31 +1566,56 @@ void Generator::generateSignal(FunctionDef *def,int index)
     fprintf(out, "}\n");
 }
 
-static void writePluginMetaData(FILE *out, const QJsonObject &data)
+static CborError jsonValueToCbor(CborEncoder *parent, const QJsonValue &v);
+static CborError jsonObjectToCbor(CborEncoder *parent, const QJsonObject &o)
 {
-    const QJsonDocument doc(data);
+    auto it = o.constBegin();
+    auto end = o.constEnd();
+    CborEncoder map;
+    cbor_encoder_create_map(parent, &map, o.size());
 
-    fputs("\nQT_PLUGIN_METADATA_SECTION\n"
-          "static const unsigned char qt_pluginMetaData[] = {\n"
-          "    'Q', 'T', 'M', 'E', 'T', 'A', 'D', 'A', 'T', 'A', ' ', ' ',\n   ", out);
-#if 0
-    fprintf(out, "\"%s\";\n", doc.toJson().constData());
-#else
-    const QByteArray binary = doc.toBinaryData();
-    const int last = binary.size() - 1;
-    for (int i = 0; i < last; ++i) {
-        uchar c = (uchar)binary.at(i);
-        if (c < 0x20 || c >= 0x7f)
-            fprintf(out, " 0x%02x,", c);
-        else if (c == '\'' || c == '\\')
-            fprintf(out, " '\\%c',", c);
-        else
-            fprintf(out, " '%c', ", c);
-        if (!((i + 1) % 8))
-            fputs("\n   ", out);
+    for ( ; it != end; ++it) {
+        QByteArray key = it.key().toUtf8();
+        cbor_encode_text_string(&map, key.constData(), key.size());
+        jsonValueToCbor(&map, it.value());
     }
-    fprintf(out, " 0x%02x\n};\n", (uchar)binary.at(last));
-#endif
+    return cbor_encoder_close_container(parent, &map);
+}
+
+static CborError jsonArrayToCbor(CborEncoder *parent, const QJsonArray &a)
+{
+    CborEncoder array;
+    cbor_encoder_create_array(parent, &array, a.size());
+    for (const QJsonValue &v : a)
+        jsonValueToCbor(&array, v);
+    return cbor_encoder_close_container(parent, &array);
+}
+
+static CborError jsonValueToCbor(CborEncoder *parent, const QJsonValue &v)
+{
+    switch (v.type()) {
+    case QJsonValue::Null:
+    case QJsonValue::Undefined:
+        return cbor_encode_null(parent);
+    case QJsonValue::Bool:
+        return cbor_encode_boolean(parent, v.toBool());
+    case QJsonValue::Array:
+        return jsonArrayToCbor(parent, v.toArray());
+    case QJsonValue::Object:
+        return jsonObjectToCbor(parent, v.toObject());
+    case QJsonValue::String: {
+        QByteArray s = v.toString().toUtf8();
+        return cbor_encode_text_string(parent, s.constData(), s.size());
+    }
+    case QJsonValue::Double: {
+        double d = v.toDouble();
+        if (d == floor(d) && fabs(d) <= (Q_INT64_C(1) << std::numeric_limits<double>::digits))
+            return cbor_encode_int(parent, qint64(d));
+        return cbor_encode_double(parent, d);
+    }
+    }
+    Q_UNREACHABLE();
+    return CborUnknownError;
 }
 
 void Generator::generatePluginMetaData()
@@ -1588,32 +1623,48 @@ void Generator::generatePluginMetaData()
     if (cdef->pluginData.iid.isEmpty())
         return;
 
-    // Write plugin meta data #ifdefed QT_NO_DEBUG with debug=false,
-    // true, respectively.
+    fputs("\nQT_PLUGIN_METADATA_SECTION\n"
+          "static constexpr unsigned char qt_pluginMetaData[] = {\n"
+          "    'Q', 'T', 'M', 'E', 'T', 'A', 'D', 'A', 'T', 'A', ' ', '!',\n"
+          "    // metadata version, Qt version, architectural requirements\n"
+          "    0, QT_VERSION_MAJOR, QT_VERSION_MINOR, qPluginArchRequirements(),", out);
 
-    QJsonObject data;
-    const QString debugKey = QStringLiteral("debug");
-    data.insert(QStringLiteral("IID"), QLatin1String(cdef->pluginData.iid.constData()));
-    data.insert(QStringLiteral("className"), QLatin1String(cdef->classname.constData()));
-    data.insert(QStringLiteral("version"), (int)QT_VERSION);
-    data.insert(debugKey, QJsonValue(false));
-    data.insert(QStringLiteral("MetaData"), cdef->pluginData.metaData.object());
+
+    CborDevice dev(out);
+    CborEncoder enc;
+    cbor_encoder_init_writer(&enc, CborDevice::callback, &dev);
+
+    CborEncoder map;
+    cbor_encoder_create_map(&enc, &map, CborIndefiniteLength);
+
+    dev.nextItem("\"IID\"");
+    cbor_encode_int(&map, int(QtPluginMetaDataKeys::IID));
+    cbor_encode_text_string(&map, cdef->pluginData.iid.constData(), cdef->pluginData.iid.size());
+
+    dev.nextItem("\"className\"");
+    cbor_encode_int(&map, int(QtPluginMetaDataKeys::ClassName));
+    cbor_encode_text_string(&map, cdef->classname.constData(), cdef->classname.size());
+
+    QJsonObject o = cdef->pluginData.metaData.object();
+    if (!o.isEmpty()) {
+        dev.nextItem("\"MetaData\"");
+        cbor_encode_int(&map, int(QtPluginMetaDataKeys::MetaData));
+        jsonObjectToCbor(&map, o);
+    }
 
     // Add -M args from the command line:
-    for (auto it = cdef->pluginData.metaArgs.cbegin(), end = cdef->pluginData.metaArgs.cend(); it != end; ++it)
-        data.insert(it.key(), it.value());
+    for (auto it = cdef->pluginData.metaArgs.cbegin(), end = cdef->pluginData.metaArgs.cend(); it != end; ++it) {
+        const QJsonArray &a = it.value();
+        QByteArray key = it.key().toUtf8();
+        dev.nextItem(QByteArray("command-line \"" + key + "\"").constData());
+        cbor_encode_text_string(&map, key.constData(), key.size());
+        jsonArrayToCbor(&map, a);
+    }
 
-    fputs("\nQT_PLUGIN_METADATA_SECTION const uint qt_section_alignment_dummy = 42;\n\n"
-          "#ifdef QT_NO_DEBUG\n", out);
-    writePluginMetaData(out, data);
-
-    fputs("\n#else // QT_NO_DEBUG\n", out);
-
-    data.remove(debugKey);
-    data.insert(debugKey, QJsonValue(true));
-    writePluginMetaData(out, data);
-
-    fputs("#endif // QT_NO_DEBUG\n\n", out);
+    // Close the CBOR map manually
+    dev.nextItem();
+    cbor_encoder_close_container(&enc, &map);
+    fputs("\n};\n", out);
 
     // 'Use' all namespaces.
     int pos = cdef->qualified.indexOf("::");
@@ -1623,4 +1674,14 @@ void Generator::generatePluginMetaData()
             cdef->qualified.constData(), cdef->classname.constData());
 }
 
+QT_WARNING_DISABLE_GCC("-Wunused-function")
+QT_WARNING_DISABLE_CLANG("-Wunused-function")
+QT_WARNING_DISABLE_CLANG("-Wundefined-internal")
+QT_WARNING_DISABLE_MSVC(4334) // '<<': result of 32-bit shift implicitly converted to 64 bits (was 64-bit shift intended?)
+
+#define CBOR_ENCODER_WRITER_CONTROL     1
+#define CBOR_ENCODER_WRITE_FUNCTION     CborDevice::callback
+
 QT_END_NAMESPACE
+
+#include "cborencoder.c"

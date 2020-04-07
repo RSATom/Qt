@@ -17,21 +17,19 @@ namespace i18n {
 const size_t npos = static_cast<size_t>(-1);
 
 BreakIterator::BreakIterator(const StringPiece16& str, BreakType break_type)
-    : iter_(NULL),
+    : iter_(nullptr),
       string_(str),
       break_type_(break_type),
       prev_(npos),
-      pos_(0) {
-}
+      pos_(0) {}
 
 BreakIterator::BreakIterator(const StringPiece16& str, const string16& rules)
-    : iter_(NULL),
+    : iter_(nullptr),
       string_(str),
       rules_(rules),
       break_type_(RULE_BASED),
       prev_(npos),
-      pos_(0) {
-}
+      pos_(0) {}
 
 BreakIterator::~BreakIterator() {
   if (iter_)
@@ -59,9 +57,9 @@ bool BreakIterator::Init() {
       return false;
   }
   if (break_type_ == RULE_BASED) {
-    iter_ = ubrk_openRules(rules_.c_str(),
+    iter_ = ubrk_openRules(reinterpret_cast<const UChar*>(rules_.c_str()),
                            static_cast<int32_t>(rules_.length()),
-                           string_.data(),
+                           reinterpret_cast<const UChar*>(string_.data()),
                            static_cast<int32_t>(string_.size()),
                            &parse_error,
                            &status);
@@ -70,11 +68,8 @@ bool BreakIterator::Init() {
           << parse_error.line << ", offset " << parse_error.offset;
     }
   } else {
-    iter_ = ubrk_open(break_type,
-                      NULL,
-                      string_.data(),
-                      static_cast<int32_t>(string_.size()),
-                      &status);
+    iter_ = ubrk_open(break_type, nullptr, reinterpret_cast<const UChar*>(string_.data()),
+                      static_cast<int32_t>(string_.size()), &status);
     if (U_FAILURE(status)) {
       NOTREACHED() << "ubrk_open failed for type " << break_type
           << " with error " << status;
@@ -128,7 +123,7 @@ bool BreakIterator::Advance() {
 bool BreakIterator::SetText(const base::char16* text, const size_t length) {
   UErrorCode status = U_ZERO_ERROR;
   ubrk_setText(static_cast<UBreakIterator*>(iter_),
-               text, length, &status);
+               reinterpret_cast<const UChar*>(text), length, &status);
   pos_ = 0;  // implicit when ubrk_setText is done
   prev_ = npos;
   if (U_FAILURE(status)) {
@@ -147,7 +142,11 @@ BreakIterator::WordBreakStatus BreakIterator::GetWordBreakStatus() const {
   int32_t status = ubrk_getRuleStatus(static_cast<UBreakIterator*>(iter_));
   if (break_type_ != BREAK_WORD && break_type_ != RULE_BASED)
     return IS_LINE_OR_CHAR_BREAK;
-  return status == UBRK_WORD_NONE ? IS_SKIPPABLE_WORD : IS_WORD_BREAK;
+  // In ICU 60, trying to advance past the end of the text does not change
+  // |status| so that |pos_| has to be checked as well as |status|.
+  // See http://bugs.icu-project.org/trac/ticket/13447 .
+  return (status == UBRK_WORD_NONE || pos_ == npos) ? IS_SKIPPABLE_WORD
+                                                    : IS_WORD_BREAK;
 }
 
 bool BreakIterator::IsEndOfWord(size_t position) const {

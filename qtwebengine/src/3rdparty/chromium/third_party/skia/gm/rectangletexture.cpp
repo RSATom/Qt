@@ -9,10 +9,9 @@
 
 #include "gm.h"
 
-#if SK_SUPPORT_GPU
-
 #include "GrBackendSurface.h"
 #include "GrContext.h"
+#include "GrContextPriv.h"
 #include "GrGpu.h"
 #include "GrTest.h"
 #include "gl/GrGLContext.h"
@@ -61,7 +60,10 @@ protected:
         if (!context) {
             return nullptr;
         }
-        GrGpu* gpu = context->getGpu();
+        if (context->abandoned()) {
+            return nullptr;
+        }
+        GrGpu* gpu = context->contextPriv().getGpu();
         if (!gpu) {
             return nullptr;
         }
@@ -71,7 +73,8 @@ protected:
         }
 
         if (!(kGL_GrGLStandard == glCtx->standard() && glCtx->version() >= GR_GL_VER(3, 1)) &&
-            !glCtx->hasExtension("GL_ARB_texture_rectangle")) {
+            !(glCtx->hasExtension("GL_ARB_texture_rectangle") ||
+              glCtx->hasExtension("GL_ANGLE_texture_rectangle"))) {
             return nullptr;
         }
 
@@ -108,11 +111,13 @@ protected:
         GrGLTextureInfo info;
         info.fID = id;
         info.fTarget = TARGET;
+        info.fFormat = GR_GL_RGBA8;
 
-        GrBackendTexture rectangleTex(width, height, kRGBA_8888_GrPixelConfig, info);
+        GrBackendTexture rectangleTex(width, height, GrMipMapped::kNo, info);
 
         if (sk_sp<SkImage> image = SkImage::MakeFromAdoptedTexture(context, rectangleTex,
-                                                                   kTopLeft_GrSurfaceOrigin)) {
+                                                                   kTopLeft_GrSurfaceOrigin,
+                                                                   kRGBA_8888_SkColorType)) {
             return image;
         }
         GR_GL_CALL(gl, DeleteTextures(1, &id));
@@ -185,5 +190,3 @@ private:
 
 DEF_GM(return new RectangleTexture;)
 }
-
-#endif

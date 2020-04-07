@@ -5,8 +5,6 @@
 #ifndef MEDIA_REMOTING_STREAM_PROVIDER_H_
 #define MEDIA_REMOTING_STREAM_PROVIDER_H_
 
-#include <deque>
-
 #include "base/memory/weak_ptr.h"
 #include "media/base/audio_decoder_config.h"
 #include "media/base/demuxer_stream.h"
@@ -28,7 +26,6 @@ class StreamProvider final : public MediaResource {
 
   // MediaResource implemenation.
   std::vector<DemuxerStream*> GetAllStreams() override;
-  void SetStreamStatusChangeCB(const StreamStatusChangeCB& cb) override {}
 
   void Initialize(int remote_audio_handle,
                   int remote_video_handle,

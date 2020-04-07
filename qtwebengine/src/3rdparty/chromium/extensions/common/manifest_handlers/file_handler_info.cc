@@ -125,7 +125,7 @@ bool LoadFileHandler(const std::string& handler_id,
       if (!mime_types->GetString(i, &type)) {
         *error = ErrorUtils::FormatErrorMessageUTF16(
             errors::kInvalidFileHandlerTypeElement, handler_id,
-            base::SizeTToString(i));
+            base::NumberToString(i));
         return false;
       }
       handler.types.insert(type);
@@ -138,7 +138,7 @@ bool LoadFileHandler(const std::string& handler_id,
       if (!file_extensions->GetString(i, &file_extension)) {
         *error = ErrorUtils::FormatErrorMessageUTF16(
             errors::kInvalidFileHandlerExtensionElement, handler_id,
-            base::SizeTToString(i));
+            base::NumberToString(i));
         return false;
       }
       handler.extensions.insert(file_extension);
@@ -210,8 +210,9 @@ bool FileHandlersParser::Parse(Extension* extension, base::string16* error) {
   return true;
 }
 
-const std::vector<std::string> FileHandlersParser::Keys() const {
-  return SingleKey(keys::kFileHandlers);
+base::span<const char* const> FileHandlersParser::Keys() const {
+  static constexpr const char* kKeys[] = {keys::kFileHandlers};
+  return kKeys;
 }
 
 }  // namespace extensions

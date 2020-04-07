@@ -71,6 +71,11 @@ static const bool do_compress = true;
 // Can't use it though, as gs generates completely wrong images if this is true.
 static const bool interpolateImages = false;
 
+static void initResources()
+{
+    Q_INIT_RESOURCE(qpdf);
+}
+
 QT_BEGIN_NAMESPACE
 
 inline QPaintEngine::PaintEngineFeatures qt_pdf_decide_features()
@@ -948,7 +953,18 @@ void QPdfEngine::drawPixmap (const QRectF &rectangle, const QPixmap &pixmap, con
     if (object < 0)
         return;
 
-    *d->currentPage << "q\n/GSa gs\n";
+    *d->currentPage << "q\n";
+
+    if ((d->pdfVersion != QPdfEngine::Version_A1b) && (d->opacity != 1.0)) {
+        int stateObject = d->addConstantAlphaObject(qRound(255 * d->opacity), qRound(255 * d->opacity));
+        if (stateObject)
+            *d->currentPage << "/GState" << stateObject << "gs\n";
+        else
+            *d->currentPage << "/GSa gs\n";
+    } else {
+        *d->currentPage << "/GSa gs\n";
+    }
+
     *d->currentPage
         << QPdf::generateMatrix(QTransform(rectangle.width() / sr.width(), 0, 0, rectangle.height() / sr.height(),
                                            rectangle.x(), rectangle.y()) * (d->simplePen ? QTransform() : d->stroker.matrix));
@@ -976,7 +992,18 @@ void QPdfEngine::drawImage(const QRectF &rectangle, const QImage &image, const Q
     if (object < 0)
         return;
 
-    *d->currentPage << "q\n/GSa gs\n";
+    *d->currentPage << "q\n";
+
+    if ((d->pdfVersion != QPdfEngine::Version_A1b) && (d->opacity != 1.0)) {
+        int stateObject = d->addConstantAlphaObject(qRound(255 * d->opacity), qRound(255 * d->opacity));
+        if (stateObject)
+            *d->currentPage << "/GState" << stateObject << "gs\n";
+        else
+            *d->currentPage << "/GSa gs\n";
+    } else {
+        *d->currentPage << "/GSa gs\n";
+    }
+
     *d->currentPage
         << QPdf::generateMatrix(QTransform(rectangle.width() / sr.width(), 0, 0, rectangle.height() / sr.height(),
                                            rectangle.x(), rectangle.y()) * (d->simplePen ? QTransform() : d->stroker.matrix));
@@ -1109,8 +1136,9 @@ void QPdfEngine::updateState(const QPaintEngineState &state)
         d->hasPen = d->pen.style() != Qt::NoPen;
         d->stroker.setPen(d->pen, state.renderHints());
         QBrush penBrush = d->pen.brush();
+        bool cosmeticPen = qt_pen_is_cosmetic(d->pen, state.renderHints());
         bool oldSimple = d->simplePen;
-        d->simplePen = (d->hasPen && (penBrush.style() == Qt::SolidPattern) && penBrush.isOpaque() && d->opacity == 1.0);
+        d->simplePen = (d->hasPen && !cosmeticPen && (penBrush.style() == Qt::SolidPattern) && penBrush.isOpaque() && d->opacity == 1.0);
         if (oldSimple != d->simplePen)
             flags |= DirtyTransform;
     } else if (flags & DirtyHints) {
@@ -1445,6 +1473,7 @@ QPdfEnginePrivate::QPdfEnginePrivate()
       grayscale(false),
       m_pageLayout(QPageSize(QPageSize::A4), QPageLayout::Portrait, QMarginsF(10, 10, 10, 10))
 {
+    initResources();
     resolution = 1200;
     currentObject = 1;
     currentPage = 0;
@@ -1540,7 +1569,14 @@ void QPdfEnginePrivate::writeHeader()
 {
     addXrefEntry(0,false);
 
-    xprintf("%%PDF-1.4\n");
+    static const QHash<QPdfEngine::PdfVersion, const char *> mapping {
+        {QPdfEngine::Version_1_4, "1.4"},
+        {QPdfEngine::Version_A1b, "1.4"},
+        {QPdfEngine::Version_1_6, "1.6"}
+    };
+    const char *verStr = mapping.value(pdfVersion, "1.4");
+
+    xprintf("%%PDF-%s\n", verStr);
     xprintf("%%\303\242\303\243\n");
 
     writeInfo();
@@ -1873,6 +1909,19 @@ void QPdfEnginePrivate::embedFont(QFontSubset *font)
     }
 }
 
+qreal QPdfEnginePrivate::calcUserUnit() const
+{
+    // PDF standards < 1.6 support max 200x200in pages (no UserUnit)
+    if (pdfVersion < QPdfEngine::Version_1_6)
+        return 1.0;
+
+    const int maxLen = qMax(currentPage->pageSize.width(), currentPage->pageSize.height());
+    if (maxLen <= 14400)
+        return 1.0; // for pages up to 200x200in (14400x14400 units) use default scaling
+
+    // for larger pages, rescale units so we can have up to 381x381km
+    return qMin(maxLen / 14400.0, 75000.0);
+}
 
 void QPdfEnginePrivate::writeFonts()
 {
@@ -1895,6 +1944,8 @@ void QPdfEnginePrivate::writePage()
     uint resources = requestObject();
     uint annots = requestObject();
 
+    qreal userUnit = calcUserUnit();
+
     addXrefEntry(pages.constLast());
     xprintf("<<\n"
             "/Type /Page\n"
@@ -1902,12 +1953,17 @@ void QPdfEnginePrivate::writePage()
             "/Contents %d 0 R\n"
             "/Resources %d 0 R\n"
             "/Annots %d 0 R\n"
-            "/MediaBox [0 0 %d %d]\n"
-            ">>\n"
-            "endobj\n",
+            "/MediaBox [0 0 %s %s]\n",
             pageRoot, pageStream, resources, annots,
             // make sure we use the pagesize from when we started the page, since the user may have changed it
-            currentPage->pageSize.width(), currentPage->pageSize.height());
+            QByteArray::number(currentPage->pageSize.width() / userUnit, 'f').constData(),
+            QByteArray::number(currentPage->pageSize.height() / userUnit, 'f').constData());
+
+    if (pdfVersion >= QPdfEngine::Version_1_6)
+        xprintf("/UserUnit %s\n", QByteArray::number(userUnit, 'f').constData());
+
+    xprintf(">>\n"
+            "endobj\n");
 
     addXrefEntry(resources);
     xprintf("<<\n"
@@ -2045,7 +2101,6 @@ void QPdfEnginePrivate::printString(const QString &string)
 }
 
 
-// For strings up to 10000 bytes only !
 void QPdfEnginePrivate::xprintf(const char* fmt, ...)
 {
     if (!stream)
@@ -2057,12 +2112,18 @@ void QPdfEnginePrivate::xprintf(const char* fmt, ...)
     va_list args;
     va_start(args, fmt);
     int bufsize = qvsnprintf(buf, msize, fmt, args);
-
-    Q_ASSERT(bufsize<msize);
-
     va_end(args);
 
-    stream->writeRawData(buf, bufsize);
+    if (Q_LIKELY(bufsize < msize)) {
+        stream->writeRawData(buf, bufsize);
+    } else {
+        // Fallback for abnormal cases
+        QScopedArrayPointer<char> tmpbuf(new char[bufsize + 1]);
+        va_start(args, fmt);
+        bufsize = qvsnprintf(tmpbuf.data(), bufsize + 1, fmt, args);
+        va_end(args);
+        stream->writeRawData(tmpbuf.data(), bufsize);
+    }
     streampos += bufsize;
 }
 
@@ -2971,8 +3032,9 @@ void QPdfEnginePrivate::drawTextItem(const QPointF &p, const QTextItemInt &ti)
 
 QTransform QPdfEnginePrivate::pageMatrix() const
 {
-    qreal scale = 72./resolution;
-    QTransform tmp(scale, 0.0, 0.0, -scale, 0.0, m_pageLayout.fullRectPoints().height());
+    qreal userUnit = calcUserUnit();
+    qreal scale = 72. / userUnit / resolution;
+    QTransform tmp(scale, 0.0, 0.0, -scale, 0.0, m_pageLayout.fullRectPoints().height() / userUnit);
     if (m_pageLayout.mode() != QPageLayout::FullPageMode) {
         QRect r = m_pageLayout.paintRectPixels(resolution);
         tmp.translate(r.left(), r.top());

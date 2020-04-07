@@ -5,6 +5,7 @@
 
 #include "base/android/jni_string.h"
 #include "base/base64.h"
+#include "base/stl_util.h"
 #include "net/test/jni/DummySpnegoAuthenticator_jni.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -16,8 +17,7 @@ namespace net {
 // From RFC 4178, which uses SNEGO not SPNEGO.
 static const unsigned char kSpnegoOid[] = {0x2b, 0x06, 0x01, 0x05, 0x05, 0x02};
 gss_OID_desc CHROME_GSS_SPNEGO_MECH_OID_DESC_VAL = {
-    arraysize(kSpnegoOid),
-    const_cast<unsigned char*>(kSpnegoOid)};
+    base::size(kSpnegoOid), const_cast<unsigned char*>(kSpnegoOid)};
 
 gss_OID CHROME_GSS_SPNEGO_MECH_OID_DESC = &CHROME_GSS_SPNEGO_MECH_OID_DESC_VAL;
 
@@ -188,10 +188,6 @@ void DummySpnegoAuthenticator::ExpectSecurityContext(
   expected_security_queries_.push_back(query);
   Java_DummySpnegoAuthenticator_setNativeAuthenticator(
       base::android::AttachCurrentThread(), reinterpret_cast<intptr_t>(this));
-}
-
-bool DummySpnegoAuthenticator::RegisterJni(JNIEnv* env) {
-  return RegisterNativesImpl(env);
 }
 
 long DummySpnegoAuthenticator::GetNextQuery(

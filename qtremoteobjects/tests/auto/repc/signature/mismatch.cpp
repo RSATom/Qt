@@ -41,6 +41,7 @@ private Q_SLOTS:
     {
         QRemoteObjectNode repNode;
         repNode.connectToNode(QUrl(QStringLiteral("tcp://127.0.0.1:65214")));
+        QTest::ignoreMessage(QtWarningMsg, " Signature mismatch for TestClassReplica \"TestClass\"");
         QSharedPointer<TestClassReplica> rep(repNode.acquire<TestClassReplica>());
         QTRY_COMPARE(rep->state(), QRemoteObjectReplica::SignatureMismatch);
     }

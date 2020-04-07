@@ -6,38 +6,12 @@
 
 #include <pthread.h>
 #include <sched.h>
+#include <zircon/syscalls.h>
 
 #include "base/threading/platform_thread_internal_posix.h"
 #include "base/threading/thread_id_name_manager.h"
 
 namespace base {
-
-namespace internal {
-
-const ThreadPriorityToNiceValuePair kThreadPriorityToNiceValueMap[4] = {
-    {ThreadPriority::BACKGROUND, 10},
-    {ThreadPriority::NORMAL, 0},
-    {ThreadPriority::DISPLAY, -8},
-    {ThreadPriority::REALTIME_AUDIO, -10},
-};
-
-bool SetCurrentThreadPriorityForPlatform(ThreadPriority priority) {
-  sched_param prio = {0};
-  prio.sched_priority = ThreadPriorityToNiceValue(priority);
-  return pthread_setschedparam(pthread_self(), SCHED_OTHER, &prio) == 0;
-}
-
-bool GetCurrentThreadPriorityForPlatform(ThreadPriority* priority) {
-  sched_param prio = {0};
-  int policy;
-  if (pthread_getschedparam(pthread_self(), &policy, &prio) != 0) {
-    return false;
-  }
-  *priority = NiceValueToThreadPriority(prio.sched_priority);
-  return true;
-}
-
-}  // namespace internal
 
 void InitThreading() {}
 
@@ -49,9 +23,28 @@ size_t GetDefaultThreadStackSize(const pthread_attr_t& attributes) {
 
 // static
 void PlatformThread::SetName(const std::string& name) {
-  // TODO(fuchsia): There's no system-level API to communicate a thread name
-  // (for the debugger, etc.), so for now only set to our internal mechanism.
-  ThreadIdNameManager::GetInstance()->SetName(pthread_self(), name);
+  zx_status_t status = zx_object_set_property(CurrentId(), ZX_PROP_NAME,
+                                              name.data(), name.size());
+  DCHECK_EQ(status, ZX_OK);
+
+  ThreadIdNameManager::GetInstance()->SetName(name);
+}
+
+// static
+bool PlatformThread::CanIncreaseCurrentThreadPriority() {
+  return false;
+}
+
+// static
+void PlatformThread::SetCurrentThreadPriority(ThreadPriority priority) {
+  if (priority != ThreadPriority::NORMAL) {
+    NOTIMPLEMENTED() << "setting ThreadPriority " << static_cast<int>(priority);
+  }
+}
+
+// static
+ThreadPriority PlatformThread::GetCurrentThreadPriority() {
+  return ThreadPriority::NORMAL;
 }
 
 }  // namespace base

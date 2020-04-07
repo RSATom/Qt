@@ -46,8 +46,8 @@
 class TexRedefBenchSample : public SampleApplication
 {
   public:
-    TexRedefBenchSample()
-        : SampleApplication("Microbench", 1280, 1280),
+    TexRedefBenchSample(int argc, char **argv)
+        : SampleApplication("Microbench", argc, argv, 2, 0, 1280, 1280),
           mPixelsResize(nullptr),
           mPixelsNewTex(nullptr),
           mTimeFrame(false),
@@ -88,28 +88,24 @@ class TexRedefBenchSample : public SampleApplication
 
     virtual bool initialize()
     {
-        const std::string vs = SHADER_SOURCE
-        (
-            attribute vec4 a_position;
+        const std::string vs =
+            R"(attribute vec4 a_position;
             attribute vec2 a_texCoord;
             varying vec2 v_texCoord;
             void main()
             {
                 gl_Position = a_position;
                 v_texCoord = a_texCoord;
-            }
-        );
+            })";
 
-        const std::string fs = SHADER_SOURCE
-        (
-            precision mediump float;
+        const std::string fs =
+            R"(precision mediump float;
             varying vec2 v_texCoord;
             uniform sampler2D s_texture;
             void main()
             {
                 gl_FragColor = texture2D(s_texture, v_texCoord);
-            }
-        );
+            })";
 
         mProgram = CompileProgram(vs, fs);
         if (!mProgram)
@@ -276,6 +272,6 @@ class TexRedefBenchSample : public SampleApplication
 
 int main(int argc, char **argv)
 {
-    TexRedefBenchSample app;
+    TexRedefBenchSample app(argc, argv);
     return app.run();
 }

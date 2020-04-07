@@ -10,6 +10,7 @@ SUBDIRS =   quick-accessibility \
             localstorage \
             models \
             views \
+            tableview \
             mousearea \
             positioners \
             righttoleft \
@@ -24,8 +25,8 @@ SUBDIRS =   quick-accessibility \
             imageresponseprovider \
             window \
             particles \
-            shapes \
-            demos
+            delegatechooser \
+            shapes
 
 #OpenGL Support Required
 qtConfig(opengl(es1|es2)?) {

@@ -70,15 +70,11 @@ QT_BEGIN_NAMESPACE
 struct QWaylandSurfaceViewMapper
 {
     QWaylandSurfaceViewMapper()
-        : surface(0)
-        , views()
-        , has_entered(false)
     {}
 
     QWaylandSurfaceViewMapper(QWaylandSurface *s, QWaylandView *v)
         : surface(s)
         , views(1, v)
-        , has_entered(false)
     {}
 
     QWaylandView *maybePrimaryView() const
@@ -87,12 +83,12 @@ struct QWaylandSurfaceViewMapper
             if (surface && surface->primaryView() == views.at(i))
                 return views.at(i);
         }
-        return Q_NULLPTR;
+        return nullptr;
     }
 
-    QWaylandSurface *surface;
+    QWaylandSurface *surface = nullptr;
     QVector<QWaylandView *> views;
-    bool has_entered;
+    bool has_entered = false;
 };
 
 class Q_WAYLAND_COMPOSITOR_EXPORT QWaylandOutputPrivate : public QObjectPrivate, public QtWaylandServer::wl_output
@@ -100,7 +96,7 @@ class Q_WAYLAND_COMPOSITOR_EXPORT QWaylandOutputPrivate : public QObjectPrivate,
 public:
     QWaylandOutputPrivate();
 
-    ~QWaylandOutputPrivate();
+    ~QWaylandOutputPrivate() override;
     static QWaylandOutputPrivate *get(QWaylandOutput *output) { return output->d_func(); }
 
     void addView(QWaylandView *view, QWaylandSurface *surface);
@@ -112,26 +108,32 @@ public:
     void sendMode(const Resource *resource, const QWaylandOutputMode &mode);
     void sendModesInfo();
 
+    void handleWindowPixelSizeChanged();
+
 protected:
     void output_bind_resource(Resource *resource) override;
 
 private:
-    QWaylandCompositor *compositor;
-    QWindow *window;
+    void _q_handleMaybeWindowPixelSizeChanged();
+    void _q_handleWindowDestroyed();
+
+    QWaylandCompositor *compositor = nullptr;
+    QWindow *window = nullptr;
     QString manufacturer;
     QString model;
     QPoint position;
     QVector<QWaylandOutputMode> modes;
-    int currentMode;
-    int preferredMode;
+    int currentMode = -1;
+    int preferredMode = -1;
     QRect availableGeometry;
     QVector<QWaylandSurfaceViewMapper> surfaceViews;
     QSize physicalSize;
-    QWaylandOutput::Subpixel subpixel;
-    QWaylandOutput::Transform transform;
-    int scaleFactor;
-    bool sizeFollowsWindow;
-    bool initialized;
+    QWaylandOutput::Subpixel subpixel = QWaylandOutput::SubpixelUnknown;
+    QWaylandOutput::Transform transform = QWaylandOutput::TransformNormal;
+    int scaleFactor = 1;
+    bool sizeFollowsWindow = false;
+    bool initialized = false;
+    QSize windowPixelSize;
 
     Q_DECLARE_PUBLIC(QWaylandOutput)
     Q_DISABLE_COPY(QWaylandOutputPrivate)

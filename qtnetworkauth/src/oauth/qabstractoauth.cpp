@@ -520,10 +520,10 @@ QAbstractOAuth::ModifyParametersFunction QAbstractOAuth::modifyParametersFunctio
 }
 
 /*!
-    Sets the parameter-modification function. This function is used
-    to customize the parameters sent to the server during a specified
-    authorization stage. The number of calls to this function
-    depends on the flow used during the authentication.
+    Sets the parameter-modification function \a modifyParametersFunction.
+    This function is used to customize the parameters sent to the server
+    during a specified authorization stage. The number of calls to this
+    function depends on the flow used during the authentication.
     \sa modifyParametersFunction(), ModifyParametersFunction, Stage
 */
 void QAbstractOAuth::setModifyParametersFunction(

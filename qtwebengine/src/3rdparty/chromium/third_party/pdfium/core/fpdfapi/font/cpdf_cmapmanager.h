@@ -11,25 +11,24 @@
 #include <memory>
 
 #include "core/fpdfapi/font/cpdf_cidfont.h"
-#include "core/fxcrt/cfx_bytestring.h"
-#include "core/fxcrt/cfx_retain_ptr.h"
+#include "core/fxcrt/bytestring.h"
+#include "core/fxcrt/retain_ptr.h"
 
 class CPDF_CMapManager {
  public:
   CPDF_CMapManager();
   ~CPDF_CMapManager();
 
-  CFX_RetainPtr<CPDF_CMap> GetPredefinedCMap(const CFX_ByteString& name,
-                                             bool bPromptCJK);
+  RetainPtr<CPDF_CMap> GetPredefinedCMap(const ByteString& name,
+                                         bool bPromptCJK);
   CPDF_CID2UnicodeMap* GetCID2UnicodeMap(CIDSet charset, bool bPromptCJK);
 
  private:
-  CFX_RetainPtr<CPDF_CMap> LoadPredefinedCMap(const CFX_ByteString& name,
-                                              bool bPromptCJK);
+  RetainPtr<CPDF_CMap> LoadPredefinedCMap(ByteString name, bool bPromptCJK);
   std::unique_ptr<CPDF_CID2UnicodeMap> LoadCID2UnicodeMap(CIDSet charset,
                                                           bool bPromptCJK);
 
-  std::map<CFX_ByteString, CFX_RetainPtr<CPDF_CMap>> m_CMaps;
+  std::map<ByteString, RetainPtr<CPDF_CMap>> m_CMaps;
   std::unique_ptr<CPDF_CID2UnicodeMap> m_CID2UnicodeMaps[6];
 };
 

@@ -8,6 +8,7 @@
 #include <stdint.h>
 
 #include "base/macros.h"
+#include "ui/accessibility/platform/ax_unique_id.h"
 #include "ui/aura/window_observer.h"
 #include "ui/views/accessibility/ax_aura_obj_wrapper.h"
 
@@ -31,10 +32,11 @@ class AXWindowObjWrapper : public AXAuraObjWrapper,
   void set_is_alert(bool is_alert) { is_alert_ = is_alert; }
 
   // AXAuraObjWrapper overrides.
+  bool IsIgnored() override;
   AXAuraObjWrapper* GetParent() override;
   void GetChildren(std::vector<AXAuraObjWrapper*>* out_children) override;
   void Serialize(ui::AXNodeData* out_node_data) override;
-  int32_t GetID() override;
+  const ui::AXUniqueId& GetUniqueId() const final;
 
   // WindowObserver overrides.
   void OnWindowDestroyed(aura::Window* window) override;
@@ -42,10 +44,12 @@ class AXWindowObjWrapper : public AXAuraObjWrapper,
   void OnWindowHierarchyChanged(const HierarchyChangeParams& params) override;
   void OnWindowBoundsChanged(aura::Window* window,
                              const gfx::Rect& old_bounds,
-                             const gfx::Rect& new_bounds) override;
+                             const gfx::Rect& new_bounds,
+                             ui::PropertyChangeReason reason) override;
   void OnWindowPropertyChanged(aura::Window* window,
                                const void* key,
                                intptr_t old) override;
+  void OnWindowVisibilityChanged(aura::Window* window, bool visible) override;
 
  private:
   aura::Window* window_;
@@ -53,6 +57,8 @@ class AXWindowObjWrapper : public AXAuraObjWrapper,
   bool is_alert_;
 
   bool is_root_window_;
+
+  const ui::AXUniqueId unique_id_;
 
   DISALLOW_COPY_AND_ASSIGN(AXWindowObjWrapper);
 };

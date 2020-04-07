@@ -7,8 +7,14 @@
 
 #include <CoreAudio/AudioHardware.h>
 
+#include <map>
+#include <memory>
+#include <utility>
+
 #include "base/callback.h"
+#include "base/containers/flat_map.h"
 #include "base/macros.h"
+#include "base/memory/weak_ptr.h"
 #include "base/threading/thread_checker.h"
 #include "media/base/media_export.h"
 
@@ -21,22 +27,46 @@ class MEDIA_EXPORT AudioDeviceListenerMac {
   // |listener_cb| will be called when a device change occurs; it's a permanent
   // callback and must outlive AudioDeviceListenerMac.  Note that |listener_cb|
   // might not be executed on the same thread as construction.
-  explicit AudioDeviceListenerMac(const base::Closure& listener_cb);
+  AudioDeviceListenerMac(base::RepeatingClosure listener_cb,
+                         bool monitor_default_input = false,
+                         bool monitor_addition_removal = false,
+                         bool monitor_sources = false);
   ~AudioDeviceListenerMac();
 
  private:
   friend class AudioDeviceListenerMacTest;
-  static const AudioObjectPropertyAddress kDeviceChangePropertyAddress;
+  class PropertyListener;
+  static const AudioObjectPropertyAddress
+      kDefaultOutputDeviceChangePropertyAddress;
+  static const AudioObjectPropertyAddress
+      kDefaultInputDeviceChangePropertyAddress;
+  static const AudioObjectPropertyAddress kDevicesPropertyAddress;
 
-  static OSStatus OnDefaultDeviceChanged(
-      AudioObjectID object, UInt32 num_addresses,
-      const AudioObjectPropertyAddress addresses[], void* context);
+  static OSStatus OnEvent(AudioObjectID object,
+                          UInt32 num_addresses,
+                          const AudioObjectPropertyAddress addresses[],
+                          void* context);
 
-  base::Closure listener_cb_;
+  bool AddPropertyListener(PropertyListener* property_listener);
+  void RemovePropertyListener(PropertyListener* property_listener);
+  void OnDevicesAddedOrRemoved();
+  void UpdateSourceListeners();
+
+  base::RepeatingClosure listener_cb_;
+  std::unique_ptr<PropertyListener> default_output_listener_;
+  std::unique_ptr<PropertyListener> default_input_listener_;
+  std::unique_ptr<PropertyListener> addition_removal_listener_;
+
+  using SourceListenerKey = std::pair<AudioObjectID, bool>;
+  using SourceListenerMap =
+      base::flat_map<SourceListenerKey, std::unique_ptr<PropertyListener>>;
+  SourceListenerMap source_listeners_;
 
   // AudioDeviceListenerMac must be constructed and destructed on the same
   // thread.
-  base::ThreadChecker thread_checker_;
+  THREAD_CHECKER(thread_checker_);
+
+  base::WeakPtrFactory<AudioDeviceListenerMac> weak_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(AudioDeviceListenerMac);
 };

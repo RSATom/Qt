@@ -57,6 +57,7 @@ QT_BEGIN_NAMESPACE
     \since 5.7
     \ingroup qtquickcontrols2-navigation
     \ingroup qtquickcontrols2-containers
+    \ingroup qtquickcontrols2-focusscopes
     \brief Provides a stack-based navigation model.
 
     \image qtquickcontrols2-stackview-wireframe.png
@@ -295,7 +296,55 @@ QT_BEGIN_NAMESPACE
           only applies to the root of the item. Using anchors for its children
           works as expected.
 
-    \sa {Customizing StackView}, {Navigation Controls}, {Container Controls}
+    \section1 Item Ownership
+
+    StackView only takes ownership of items that it creates itself. This means
+    that any item pushed onto a StackView will never be destroyed by the
+    StackView; only items that StackView creates from \l {Component}{Components}
+    or \l [QML] {url}{URLs} are destroyed by the StackView. To illustrate this,
+    the messages in the example below will only be printed when the StackView
+    is destroyed, not when the items are popped off the stack:
+
+    \qml
+    Component {
+        id: itemComponent
+
+        Item {
+            Component.onDestruction: print("Destroying second item")
+        }
+    }
+
+    StackView {
+        initialItem: Item {
+            Component.onDestruction: print("Destroying initial item")
+        }
+
+        Component.onCompleted: push(itemComponent.createObject(window))
+    }
+    \endqml
+
+    However, both of the items created from the URL and Component in the
+    following example will be destroyed by the StackView when they are popped
+    off of it:
+
+    \qml
+    Component {
+        id: itemComponent
+
+        Item {
+            Component.onDestruction: print("Destroying second item")
+        }
+    }
+
+    StackView {
+        initialItem: "Item1.qml"
+
+        Component.onCompleted: push(itemComponent)
+    }
+    \endqml
+
+    \sa {Customizing StackView}, {Navigation Controls}, {Container Controls},
+        {Focus Management in Qt Quick Controls 2}
 */
 
 QQuickStackView::QQuickStackView(QQuickItem *parent)
@@ -424,7 +473,10 @@ QQuickItem *QQuickStackView::find(const QJSValue &callback, LoadBehavior behavio
     current.
 
     StackView creates an instance automatically if the pushed item is a \l Component,
-    or a \l [QML] url. The optional \a properties argument specifies a map of initial
+    or a \l [QML] url, and the instance will be destroyed when it is popped
+    off the stack. See \l {Item Ownership} for more information.
+
+    The optional \a properties argument specifies a map of initial
     property values for the pushed item. For dynamically created items, these values
     are applied before the creation is finalized. This is more efficient than setting
     property values after creation, particularly where large sets of property values
@@ -544,6 +596,8 @@ void QQuickStackView::push(QQmlV4Function *args)
     items down to (but not including) the first item is popped.
     If not specified, only the current item is popped.
 
+    \include qquickstackview.qdocinc pop-ownership
+
     An \a operation can be optionally specified as the last argument. Supported
     operations:
 
@@ -636,6 +690,8 @@ void QQuickStackView::pop(QQmlV4Function *args)
     \a operation, and optionally applies a set of \a properties on the
     item. The item can be an \l Item, \l Component, or a \l [QML] url.
     Returns the item that became current.
+
+    \include qquickstackview.qdocinc pop-ownership
 
     If the \a target argument is specified, all items down to the \target
     item will be replaced. If \a target is \c null, all items in the stack
@@ -800,6 +856,8 @@ bool QQuickStackView::isEmpty() const
 
     Removes all items from the stack.
 
+    \include qquickstackview.qdocinc pop-ownership
+
     Since QtQuick.Controls 2.3, a \a transition can be optionally specified. Supported transitions:
 
     \value StackView.Immediate Clear the stack immediately without any transition (default).
@@ -840,13 +898,13 @@ void QQuickStackView::clear(Operation operation)
 
     \sa push()
 */
-QVariant QQuickStackView::initialItem() const
+QJSValue QQuickStackView::initialItem() const
 {
     Q_D(const QQuickStackView);
     return d->initialItem;
 }
 
-void QQuickStackView::setInitialItem(const QVariant &item)
+void QQuickStackView::setInitialItem(const QJSValue &item)
 {
     Q_D(QQuickStackView);
     d->initialItem = item;
@@ -1023,9 +1081,9 @@ void QQuickStackView::componentComplete()
     QQuickStackElement *element = nullptr;
     QString error;
     int oldDepth = d->elements.count();
-    if (QObject *o = d->initialItem.value<QObject *>())
+    if (QObject *o = d->initialItem.toQObject())
         element = QQuickStackElement::fromObject(o, this, &error);
-    else if (d->initialItem.canConvert<QString>())
+    else if (d->initialItem.isString())
         element = QQuickStackElement::fromString(d->initialItem.toString(), this, &error);
     if (!error.isEmpty()) {
         d->warn(error);

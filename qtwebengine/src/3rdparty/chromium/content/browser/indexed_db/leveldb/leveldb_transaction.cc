@@ -49,7 +49,7 @@ void LevelDBTransaction::Set(const StringPiece& key,
   DataType::iterator it = data_.find(key);
 
   if (it == data_.end()) {
-    std::unique_ptr<Record> record = base::MakeUnique<Record>();
+    std::unique_ptr<Record> record = std::make_unique<Record>();
     size_ += SizeOfRecordInMap(key.size()) + value->size();
     record->key.assign(key.begin(), key.end() - key.begin());
     record->value.swap(*value);
@@ -240,8 +240,8 @@ LevelDBTransaction::TransactionIterator::TransactionIterator(
     : transaction_(transaction),
       comparator_(transaction_->comparator_),
       data_iterator_(DataIterator::Create(transaction_.get())),
-      db_iterator_(
-          transaction_->db_->CreateIterator(&transaction_->snapshot_)) {
+      db_iterator_(transaction_->db_->CreateIterator(
+          transaction_->db_->DefaultReadOptions(&transaction_->snapshot_))) {
   transaction_->RegisterIterator(this);
 }
 
@@ -383,7 +383,7 @@ void LevelDBTransaction::TransactionIterator::Delete() {
     transaction_->size_ -= data_iterator_->Value().size();
     data_iterator_->Delete();
   } else {
-    std::unique_ptr<Record> record = base::MakeUnique<Record>();
+    std::unique_ptr<Record> record = std::make_unique<Record>();
     record->key = Key().as_string();
     record->deleted = true;
     transaction_->size_ +=

@@ -68,26 +68,6 @@ void glBlitFramebufferFn(GLint srcX0,
                          GLint dstY1,
                          GLbitfield mask,
                          GLenum filter) override {}
-void glBlitFramebufferANGLEFn(GLint srcX0,
-                              GLint srcY0,
-                              GLint srcX1,
-                              GLint srcY1,
-                              GLint dstX0,
-                              GLint dstY0,
-                              GLint dstX1,
-                              GLint dstY1,
-                              GLbitfield mask,
-                              GLenum filter) override {}
-void glBlitFramebufferEXTFn(GLint srcX0,
-                            GLint srcY0,
-                            GLint srcX1,
-                            GLint srcY1,
-                            GLint dstX0,
-                            GLint dstY0,
-                            GLint dstX1,
-                            GLint dstY1,
-                            GLbitfield mask,
-                            GLenum filter) override {}
 void glBufferDataFn(GLenum target,
                     GLsizeiptr size,
                     const void* data,
@@ -373,12 +353,6 @@ void glFramebufferTexture2DMultisampleEXTFn(GLenum target,
                                             GLuint texture,
                                             GLint level,
                                             GLsizei samples) override {}
-void glFramebufferTexture2DMultisampleIMGFn(GLenum target,
-                                            GLenum attachment,
-                                            GLenum textarget,
-                                            GLuint texture,
-                                            GLint level,
-                                            GLsizei samples) override {}
 void glFramebufferTextureLayerFn(GLenum target,
                                  GLenum attachment,
                                  GLuint texture,
@@ -464,14 +438,14 @@ void glGetBufferPointervRobustANGLEFn(GLenum target,
                                       GLsizei bufSize,
                                       GLsizei* length,
                                       void** params) override {}
-void glGetDebugMessageLogFn(GLuint count,
-                            GLsizei bufSize,
-                            GLenum* sources,
-                            GLenum* types,
-                            GLuint* ids,
-                            GLenum* severities,
-                            GLsizei* lengths,
-                            char* messageLog) override {}
+GLuint glGetDebugMessageLogFn(GLuint count,
+                              GLsizei bufSize,
+                              GLenum* sources,
+                              GLenum* types,
+                              GLuint* ids,
+                              GLenum* severities,
+                              GLsizei* lengths,
+                              char* messageLog) override;
 GLenum glGetErrorFn() override;
 void glGetFenceivNVFn(GLuint fence, GLenum pname, GLint* params) override {}
 void glGetFloatvFn(GLenum pname, GLfloat* params) override {}
@@ -531,6 +505,7 @@ void glGetInternalformativRobustANGLEFn(GLenum target,
                                         GLsizei bufSize,
                                         GLsizei* length,
                                         GLint* params) override {}
+void glGetMultisamplefvFn(GLenum pname, GLuint index, GLfloat* val) override {}
 void glGetMultisamplefvRobustANGLEFn(GLenum pname,
                                      GLuint index,
                                      GLsizei bufSize,
@@ -873,6 +848,7 @@ void glPathStencilFuncNVFn(GLenum func, GLint ref, GLuint mask) override {}
 void glPauseTransformFeedbackFn() override {}
 void glPixelStoreiFn(GLenum pname, GLint param) override {}
 void glPointParameteriFn(GLenum pname, GLint param) override {}
+void glPolygonModeFn(GLenum face, GLenum mode) override {}
 void glPolygonOffsetFn(GLfloat factor, GLfloat units) override {}
 void glPopDebugGroupFn() override {}
 void glPopGroupMarkerEXTFn() override {}
@@ -934,17 +910,7 @@ void glRenderbufferStorageMultisampleFn(GLenum target,
                                         GLenum internalformat,
                                         GLsizei width,
                                         GLsizei height) override {}
-void glRenderbufferStorageMultisampleANGLEFn(GLenum target,
-                                             GLsizei samples,
-                                             GLenum internalformat,
-                                             GLsizei width,
-                                             GLsizei height) override {}
 void glRenderbufferStorageMultisampleEXTFn(GLenum target,
-                                           GLsizei samples,
-                                           GLenum internalformat,
-                                           GLsizei width,
-                                           GLsizei height) override {}
-void glRenderbufferStorageMultisampleIMGFn(GLenum target,
                                            GLsizei samples,
                                            GLenum internalformat,
                                            GLsizei width,
@@ -1055,6 +1021,14 @@ void glStencilThenCoverStrokePathNVFn(GLuint path,
                                       GLenum coverMode) override {}
 GLboolean glTestFenceAPPLEFn(GLuint fence) override;
 GLboolean glTestFenceNVFn(GLuint fence) override;
+void glTexBufferFn(GLenum target,
+                   GLenum internalformat,
+                   GLuint buffer) override {}
+void glTexBufferRangeFn(GLenum target,
+                        GLenum internalformat,
+                        GLuint buffer,
+                        GLintptr offset,
+                        GLsizeiptr size) override {}
 void glTexImage2DFn(GLenum target,
                     GLint level,
                     GLint internalformat,
@@ -1292,4 +1266,7 @@ void glVertexAttribPointerFn(GLuint indx,
                              GLsizei stride,
                              const void* ptr) override {}
 void glViewportFn(GLint x, GLint y, GLsizei width, GLsizei height) override {}
-GLenum glWaitSyncFn(GLsync sync, GLbitfield flags, GLuint64 timeout) override;
+void glWaitSyncFn(GLsync sync, GLbitfield flags, GLuint64 timeout) override {}
+void glWindowRectanglesEXTFn(GLenum mode,
+                             GLsizei n,
+                             const GLint* box) override {}

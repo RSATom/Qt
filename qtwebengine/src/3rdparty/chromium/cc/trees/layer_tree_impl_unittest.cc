@@ -5,7 +5,6 @@
 #include "cc/trees/layer_tree_impl.h"
 
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "cc/layers/heads_up_display_layer_impl.h"
 #include "cc/test/fake_layer_tree_host_impl.h"
 #include "cc/test/geometry_test_utils.h"
@@ -14,7 +13,6 @@
 #include "cc/trees/draw_property_utils.h"
 #include "cc/trees/layer_tree_host_common.h"
 #include "cc/trees/layer_tree_host_impl.h"
-#include "cc/trees/mutable_properties.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -685,8 +683,6 @@ TEST_F(LayerTreeImplTest, HitTestingForMultiClippedRotatedLayer) {
 TEST_F(LayerTreeImplTest, HitTestingForNonClippingIntermediateLayer) {
   // This test checks that hit testing code does not accidentally clip to layer
   // bounds for a layer that actually does not clip.
-  gfx::Transform identity_matrix;
-  gfx::Point3F transform_origin;
 
   LayerImpl* root = root_layer();
   root->SetBounds(gfx::Size(100, 100));
@@ -1065,9 +1061,6 @@ TEST_F(LayerTreeImplTest, HitTestingRespectsScrollParents) {
     // This should cause scroll child and its descendants to be affected by
     // |child|'s clip.
     scroll_child->test_properties()->scroll_parent = child.get();
-    child->test_properties()->scroll_children =
-        base::MakeUnique<std::set<LayerImpl*>>();
-    child->test_properties()->scroll_children->insert(scroll_child.get());
 
     grand_child->SetBounds(gfx::Size(200, 200));
     grand_child->SetDrawsContent(true);
@@ -1424,8 +1417,6 @@ TEST_F(LayerTreeImplTest,
   {
     TouchActionRegion touch_action_region;
     touch_action_region.Union(kTouchActionNone, gfx::Rect(10, 10, 30, 30));
-    gfx::PointF position(25.f, 25.f);
-    gfx::Size bounds(50, 50);
     std::unique_ptr<LayerImpl> test_layer =
         LayerImpl::Create(host_impl().active_tree(), 12345);
     test_layer->SetPosition(gfx::PointF(25.f, 25.f));
@@ -1711,9 +1702,6 @@ TEST_F(LayerTreeImplTest,
 }
 
 TEST_F(LayerTreeImplTest, HitCheckingTouchHandlerOverlappingRegions) {
-  gfx::Transform identity_matrix;
-  gfx::Point3F transform_origin;
-
   LayerImpl* root = root_layer();
   root->SetBounds(gfx::Size(100, 100));
   {
@@ -1878,7 +1866,7 @@ TEST_F(LayerTreeImplTest, SelectionBoundsForSingleLayer) {
   input.end.edge_bottom = gfx::Point(50, 30);
   input.end.layer_id = root->id();
 
-  Selection<gfx::SelectionBound> output;
+  viz::Selection<gfx::SelectionBound> output;
 
   // Empty input bounds should produce empty output bounds.
   host_impl().active_tree()->GetViewportSelection(&output);
@@ -1959,7 +1947,7 @@ TEST_F(LayerTreeImplTest, SelectionBoundsForPartialOccludedLayers) {
   host_impl().active_tree()->RegisterSelection(input);
 
   // The left bound should be occluded by the clip layer.
-  Selection<gfx::SelectionBound> output;
+  viz::Selection<gfx::SelectionBound> output;
   host_impl().active_tree()->GetViewportSelection(&output);
   EXPECT_EQ(input.start.type, output.start.type());
   auto expected_output_start_top = gfx::PointF(input.start.edge_top);
@@ -1997,52 +1985,6 @@ TEST_F(LayerTreeImplTest, SelectionBoundsForPartialOccludedLayers) {
   host_impl().active_tree()->RegisterSelection(input);
   host_impl().active_tree()->GetViewportSelection(&output);
   EXPECT_TRUE(output.start.visible());
-}
-
-TEST_F(LayerTreeImplTest, NodesiesForProxies) {
-  LayerImpl* root = root_layer();
-  root->SetDrawsContent(true);
-  root->SetBounds(gfx::Size(100, 100));
-
-  uint32_t properties[] = {
-      MutableProperty::kOpacity, MutableProperty::kScrollLeft,
-      MutableProperty::kScrollTop, MutableProperty::kTransform,
-  };
-
-  for (size_t i = 0; i < arraysize(properties); ++i) {
-    int sub_layer_id = i + 2;
-    std::unique_ptr<LayerImpl> sub_layer =
-        LayerImpl::Create(host_impl().active_tree(), sub_layer_id);
-    sub_layer->SetBounds(gfx::Size(50, 50));
-    sub_layer->SetDrawsContent(true);
-    sub_layer->SetMutableProperties(properties[i]);
-    root->test_properties()->AddChild(std::move(sub_layer));
-  }
-
-  host_impl().active_tree()->BuildPropertyTreesForTesting();
-
-  for (size_t i = 0; i < arraysize(properties); ++i) {
-    LayerImpl* layer = host_impl().active_tree()->LayerById(i + 2);
-    switch (properties[i]) {
-      case MutableProperty::kOpacity:
-        DCHECK_EQ(root->transform_tree_index(), layer->transform_tree_index());
-        DCHECK_NE(root->effect_tree_index(), layer->effect_tree_index());
-        break;
-      case MutableProperty::kScrollLeft:
-      case MutableProperty::kScrollTop:
-      case MutableProperty::kTransform:
-        DCHECK_EQ(root->effect_tree_index(), layer->effect_tree_index());
-        DCHECK_NE(root->transform_tree_index(), layer->transform_tree_index());
-        for (size_t j = 0; j < arraysize(properties); ++j) {
-          if (j == i)
-            continue;
-          LayerImpl* other = host_impl().active_tree()->LayerById(j + 2);
-          DCHECK_NE(other->transform_tree_index(),
-                    layer->transform_tree_index());
-        }
-        break;
-    }
-  }
 }
 
 TEST_F(LayerTreeImplTest, SelectionBoundsForScaledLayers) {
@@ -2099,7 +2041,7 @@ TEST_F(LayerTreeImplTest, SelectionBoundsForScaledLayers) {
 
   // The viewport bounds should be properly scaled by the page scale, but should
   // remain in DIP coordinates.
-  Selection<gfx::SelectionBound> output;
+  viz::Selection<gfx::SelectionBound> output;
   host_impl().active_tree()->GetViewportSelection(&output);
   EXPECT_EQ(input.start.type, output.start.type());
   auto expected_output_start_top = gfx::PointF(input.start.edge_top);
@@ -2117,6 +2059,77 @@ TEST_F(LayerTreeImplTest, SelectionBoundsForScaledLayers) {
   expected_output_end_bottom.Offset(sub_layer_offset.x(), sub_layer_offset.y());
   expected_output_end_top.Scale(page_scale_factor);
   expected_output_end_bottom.Scale(page_scale_factor);
+  EXPECT_EQ(expected_output_end_top, output.end.edge_top());
+  EXPECT_EQ(expected_output_end_bottom, output.end.edge_bottom());
+  EXPECT_TRUE(output.end.visible());
+}
+
+TEST_F(LayerTreeImplTest, SelectionBoundsForDSFEnabled) {
+  LayerImpl* root = root_layer();
+  root->SetDrawsContent(true);
+  root->SetBounds(gfx::Size(100, 100));
+
+  int root_layer_id = root->id();
+  int sub_layer_id = 2;
+
+  gfx::Vector2dF sub_layer_offset(10, 0);
+  {
+    std::unique_ptr<LayerImpl> sub_layer =
+        LayerImpl::Create(host_impl().active_tree(), sub_layer_id);
+    sub_layer->SetPosition(gfx::PointF() + sub_layer_offset);
+    sub_layer->SetBounds(gfx::Size(50, 50));
+    sub_layer->SetDrawsContent(true);
+    root->test_properties()->AddChild(std::move(sub_layer));
+  }
+
+  host_impl().active_tree()->BuildPropertyTreesForTesting();
+
+  float device_scale_factor = 3.f;
+  float painted_device_scale_factor = 5.f;
+
+  LayerTreeImpl::ViewportLayerIds viewport_ids;
+  viewport_ids.page_scale = root->id();
+  host_impl().active_tree()->SetViewportLayersFromIds(viewport_ids);
+  host_impl().active_tree()->SetDeviceScaleFactor(device_scale_factor);
+  host_impl().active_tree()->set_painted_device_scale_factor(
+      painted_device_scale_factor);
+
+  LayerSelection input;
+  input.start.type = gfx::SelectionBound::LEFT;
+  input.start.edge_top = gfx::Point(10, 10);
+  input.start.edge_bottom = gfx::Point(10, 30);
+  input.start.layer_id = root_layer_id;
+
+  input.end.type = gfx::SelectionBound::RIGHT;
+  input.end.edge_top = gfx::Point(0, 0);
+  input.end.edge_bottom = gfx::Point(0, 20);
+  input.end.layer_id = sub_layer_id;
+  host_impl().active_tree()->RegisterSelection(input);
+
+  // The viewport bounds should be properly scaled by the page scale, but should
+  // remain in DIP coordinates.
+  viz::Selection<gfx::SelectionBound> output;
+  host_impl().active_tree()->GetViewportSelection(&output);
+  EXPECT_EQ(input.start.type, output.start.type());
+  auto expected_output_start_top = gfx::PointF(input.start.edge_top);
+  auto expected_output_edge_bottom = gfx::PointF(input.start.edge_bottom);
+  expected_output_start_top.Scale(
+      1.f / (device_scale_factor * painted_device_scale_factor));
+  expected_output_edge_bottom.Scale(
+      1.f / (device_scale_factor * painted_device_scale_factor));
+  EXPECT_EQ(expected_output_start_top, output.start.edge_top());
+  EXPECT_EQ(expected_output_edge_bottom, output.start.edge_bottom());
+  EXPECT_TRUE(output.start.visible());
+  EXPECT_EQ(input.end.type, output.end.type());
+
+  auto expected_output_end_top = gfx::PointF(input.end.edge_top);
+  auto expected_output_end_bottom = gfx::PointF(input.end.edge_bottom);
+  expected_output_end_top.Offset(sub_layer_offset.x(), sub_layer_offset.y());
+  expected_output_end_bottom.Offset(sub_layer_offset.x(), sub_layer_offset.y());
+  expected_output_end_top.Scale(
+      1.f / (device_scale_factor * painted_device_scale_factor));
+  expected_output_end_bottom.Scale(
+      1.f / (device_scale_factor * painted_device_scale_factor));
   EXPECT_EQ(expected_output_end_top, output.end.edge_top());
   EXPECT_EQ(expected_output_end_bottom, output.end.edge_bottom());
   EXPECT_TRUE(output.end.visible());
@@ -2166,7 +2179,7 @@ TEST_F(LayerTreeImplTest, SelectionBoundsWithLargeTransforms) {
 
   host_impl().active_tree()->RegisterSelection(input);
 
-  Selection<gfx::SelectionBound> output;
+  viz::Selection<gfx::SelectionBound> output;
   host_impl().active_tree()->GetViewportSelection(&output);
 
   // edge_bottom and edge_top aren't allowed to have NaNs, so the selection
@@ -2208,10 +2221,11 @@ TEST_F(LayerTreeImplTest, DeviceScaleFactorNeedsDrawPropertiesUpdate) {
 TEST_F(LayerTreeImplTest, RasterColorSpaceDoesNotNeedDrawPropertiesUpdate) {
   host_impl().active_tree()->BuildPropertyTreesForTesting();
   host_impl().active_tree()->SetRasterColorSpace(
-      gfx::ColorSpace::CreateXYZD50());
+      1, gfx::ColorSpace::CreateXYZD50());
   host_impl().active_tree()->UpdateDrawProperties();
   EXPECT_FALSE(host_impl().active_tree()->needs_update_draw_properties());
-  host_impl().active_tree()->SetRasterColorSpace(gfx::ColorSpace::CreateSRGB());
+  host_impl().active_tree()->SetRasterColorSpace(1,
+                                                 gfx::ColorSpace::CreateSRGB());
   EXPECT_FALSE(host_impl().active_tree()->needs_update_draw_properties());
 }
 
@@ -2263,39 +2277,16 @@ TEST_F(LayerTreeImplTest, HitTestingCorrectLayerWheelListener) {
 
 namespace {
 
-class PersistentSwapPromise
-    : public SwapPromise,
-      public base::SupportsWeakPtr<PersistentSwapPromise> {
+class StubSwapPromise : public SwapPromise,
+                        public base::SupportsWeakPtr<StubSwapPromise> {
  public:
-  PersistentSwapPromise() = default;
-  ~PersistentSwapPromise() override = default;
+  StubSwapPromise() = default;
+  ~StubSwapPromise() override = default;
 
   void DidActivate() override {}
-  MOCK_METHOD1(WillSwap, void(CompositorFrameMetadata* metadata));
-  MOCK_METHOD0(DidSwap, void());
-
-  DidNotSwapAction DidNotSwap(DidNotSwapReason reason) override {
-    return DidNotSwapAction::KEEP_ACTIVE;
-  }
-
-  void OnCommit() override {}
-  int64_t TraceId() const override { return 0; }
-};
-
-class NotPersistentSwapPromise
-    : public SwapPromise,
-      public base::SupportsWeakPtr<NotPersistentSwapPromise> {
- public:
-  NotPersistentSwapPromise() = default;
-  ~NotPersistentSwapPromise() override = default;
-
-  void DidActivate() override {}
-  void WillSwap(CompositorFrameMetadata* metadata) override {}
+  void WillSwap(viz::CompositorFrameMetadata* metadata) override {}
   void DidSwap() override {}
-
-  DidNotSwapAction DidNotSwap(DidNotSwapReason reason) override {
-    return DidNotSwapAction::BREAK_PROMISE;
-  }
+  void DidNotSwap(DidNotSwapReason reason) override {}
 
   void OnCommit() override {}
   int64_t TraceId() const override { return 0; }
@@ -2303,64 +2294,31 @@ class NotPersistentSwapPromise
 
 }  // namespace
 
-TEST_F(LayerTreeImplTest, PersistentSwapPromisesAreKeptAlive) {
+TEST_F(LayerTreeImplTest, StubSwapPromisesAreDroppedWhenSwapFails) {
   const size_t promises_count = 2;
 
-  std::vector<base::WeakPtr<PersistentSwapPromise>> persistent_promises;
-  std::vector<std::unique_ptr<PersistentSwapPromise>>
-      persistent_promises_to_pass;
+  std::vector<base::WeakPtr<StubSwapPromise>> weak_swap_promises;
+  std::vector<std::unique_ptr<StubSwapPromise>> swap_promises_to_pass;
   for (size_t i = 0; i < promises_count; ++i) {
-    persistent_promises_to_pass.push_back(
-        base::MakeUnique<PersistentSwapPromise>());
+    swap_promises_to_pass.push_back(std::make_unique<StubSwapPromise>());
   }
 
-  for (auto& promise : persistent_promises_to_pass) {
-    persistent_promises.push_back(promise->AsWeakPtr());
-    host_impl().active_tree()->QueueSwapPromise(std::move(promise));
-  }
-
-  std::vector<std::unique_ptr<SwapPromise>> promises;
-  host_impl().active_tree()->PassSwapPromises(std::move(promises));
-  host_impl().active_tree()->BreakSwapPromises(
-      SwapPromise::DidNotSwapReason::SWAP_FAILS);
-
-  ASSERT_EQ(promises_count, persistent_promises.size());
-  for (size_t i = 0; i < persistent_promises.size(); ++i) {
-    SCOPED_TRACE(testing::Message() << "While checking case #" << i);
-    ASSERT_TRUE(persistent_promises[i]);
-    EXPECT_CALL(*persistent_promises[i], WillSwap(testing::_));
-  }
-  host_impl().active_tree()->FinishSwapPromises(nullptr);
-}
-
-TEST_F(LayerTreeImplTest, NotPersistentSwapPromisesAreDroppedWhenSwapFails) {
-  const size_t promises_count = 2;
-
-  std::vector<base::WeakPtr<NotPersistentSwapPromise>> not_persistent_promises;
-  std::vector<std::unique_ptr<NotPersistentSwapPromise>>
-      not_persistent_promises_to_pass;
-  for (size_t i = 0; i < promises_count; ++i) {
-    not_persistent_promises_to_pass.push_back(
-        base::MakeUnique<NotPersistentSwapPromise>());
-  }
-
-  for (auto& promise : not_persistent_promises_to_pass) {
-    not_persistent_promises.push_back(promise->AsWeakPtr());
+  for (auto& promise : swap_promises_to_pass) {
+    weak_swap_promises.push_back(promise->AsWeakPtr());
     host_impl().active_tree()->QueueSwapPromise(std::move(promise));
   }
   std::vector<std::unique_ptr<SwapPromise>> promises;
   host_impl().active_tree()->PassSwapPromises(std::move(promises));
 
-  ASSERT_EQ(promises_count, not_persistent_promises.size());
-  for (size_t i = 0; i < not_persistent_promises.size(); ++i) {
-    EXPECT_FALSE(not_persistent_promises[i]) << "While checking case #" << i;
+  ASSERT_EQ(promises_count, weak_swap_promises.size());
+  for (size_t i = 0; i < weak_swap_promises.size(); ++i) {
+    EXPECT_FALSE(weak_swap_promises[i]) << "While checking case #" << i;
   }
 
-  // Finally, check that not persistent promise doesn't survive
+  // Finally, check that the promises do not survive
   // |LayerTreeImpl::BreakSwapPromises|.
   {
-    std::unique_ptr<NotPersistentSwapPromise> promise(
-        new NotPersistentSwapPromise());
+    std::unique_ptr<StubSwapPromise> promise(new StubSwapPromise());
     auto weak_promise = promise->AsWeakPtr();
     host_impl().active_tree()->QueueSwapPromise(std::move(promise));
     host_impl().active_tree()->BreakSwapPromises(

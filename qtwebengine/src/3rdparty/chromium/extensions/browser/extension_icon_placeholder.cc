@@ -81,8 +81,9 @@ ExtensionIconPlaceholder::~ExtensionIconPlaceholder() {
 gfx::Image ExtensionIconPlaceholder::CreateImage(
     extension_misc::ExtensionIcons size,
     const std::string& name) {
-  return gfx::Image(gfx::ImageSkia(new ExtensionIconPlaceholder(size, name),
-                                   gfx::Size(size, size)));
+  return gfx::Image(
+      gfx::ImageSkia(std::make_unique<ExtensionIconPlaceholder>(size, name),
+                     gfx::Size(size, size)));
 }
 
 void ExtensionIconPlaceholder::Draw(gfx::Canvas* canvas) {

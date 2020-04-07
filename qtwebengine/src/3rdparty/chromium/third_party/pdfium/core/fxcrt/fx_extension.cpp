@@ -6,53 +6,17 @@
 
 #include "core/fxcrt/fx_extension.h"
 
+#include <algorithm>
 #include <cwctype>
+#include <limits>
 
-#if _FXM_PLATFORM_ == _FXM_PLATFORM_WINDOWS_
-#include <wincrypt.h>
-#else
-#include <ctime>
-#endif
-
-#define MT_N 848
-#define MT_M 456
-#define MT_Matrix_A 0x9908b0df
-#define MT_Upper_Mask 0x80000000
-#define MT_Lower_Mask 0x7fffffff
-
-namespace {
-
-struct FX_MTRANDOMCONTEXT {
-  FX_MTRANDOMCONTEXT() {
-    mti = MT_N + 1;
-    bHaveSeed = false;
-  }
-
-  uint32_t mti;
-  bool bHaveSeed;
-  uint32_t mt[MT_N];
-};
-
-#if _FXM_PLATFORM_ == _FXM_PLATFORM_WINDOWS_
-bool GenerateCryptoRandom(uint32_t* pBuffer, int32_t iCount) {
-  HCRYPTPROV hCP = 0;
-  if (!::CryptAcquireContext(&hCP, nullptr, nullptr, PROV_RSA_FULL, 0) ||
-      !hCP) {
-    return false;
-  }
-  ::CryptGenRandom(hCP, iCount * sizeof(uint32_t),
-                   reinterpret_cast<uint8_t*>(pBuffer));
-  ::CryptReleaseContext(hCP, 0);
-  return true;
-}
-#endif
-
-}  // namespace
+#include "third_party/base/compiler_specific.h"
 
 float FXSYS_wcstof(const wchar_t* pwsStr, int32_t iLength, int32_t* pUsedLen) {
   ASSERT(pwsStr);
+
   if (iLength < 0)
-    iLength = static_cast<int32_t>(FXSYS_wcslen(pwsStr));
+    iLength = static_cast<int32_t>(wcslen(pwsStr));
   if (iLength == 0)
     return 0.0f;
 
@@ -61,6 +25,7 @@ float FXSYS_wcstof(const wchar_t* pwsStr, int32_t iLength, int32_t* pUsedLen) {
   switch (pwsStr[iUsedLen]) {
     case '-':
       bNegtive = true;
+      FALLTHROUGH;
     case '+':
       iUsedLen++;
       break;
@@ -87,6 +52,47 @@ float FXSYS_wcstof(const wchar_t* pwsStr, int32_t iLength, int32_t* pUsedLen) {
       fPrecise *= 0.1f;
     }
   }
+
+  if (iUsedLen < iLength &&
+      (pwsStr[iUsedLen] == 'e' || pwsStr[iUsedLen] == 'E')) {
+    ++iUsedLen;
+
+    bool negative_exponent = false;
+    if (iUsedLen < iLength &&
+        (pwsStr[iUsedLen] == '-' || pwsStr[iUsedLen] == '+')) {
+      negative_exponent = pwsStr[iUsedLen] == '-';
+      ++iUsedLen;
+    }
+
+    int32_t exp_value = 0;
+    while (iUsedLen < iLength) {
+      wchar_t wch = pwsStr[iUsedLen];
+      if (!std::iswdigit(wch))
+        break;
+
+      exp_value = exp_value * 10.0f + (wch - L'0');
+      // Exponent is outside the valid range, fail.
+      if ((negative_exponent &&
+           -exp_value < std::numeric_limits<float>::min_exponent10) ||
+          (!negative_exponent &&
+           exp_value > std::numeric_limits<float>::max_exponent10)) {
+        *pUsedLen = 0;
+        return 0.0f;
+      }
+
+      ++iUsedLen;
+    }
+
+    for (size_t i = exp_value; i > 0; --i) {
+      if (exp_value > 0) {
+        if (negative_exponent)
+          fValue /= 10;
+        else
+          fValue *= 10;
+      }
+    }
+  }
+
   if (pUsedLen)
     *pUsedLen = iUsedLen;
 
@@ -105,19 +111,19 @@ int32_t FXSYS_wcsnicmp(const wchar_t* s1, const wchar_t* s2, size_t count) {
   ASSERT(s1 && s2 && count > 0);
   wchar_t wch1 = 0, wch2 = 0;
   while (count-- > 0) {
-    wch1 = static_cast<wchar_t>(FXSYS_tolower(*s1++));
-    wch2 = static_cast<wchar_t>(FXSYS_tolower(*s2++));
+    wch1 = static_cast<wchar_t>(FXSYS_towlower(*s1++));
+    wch2 = static_cast<wchar_t>(FXSYS_towlower(*s2++));
     if (wch1 != wch2)
       break;
   }
   return wch1 - wch2;
 }
 
-uint32_t FX_HashCode_GetA(const CFX_ByteStringC& str, bool bIgnoreCase) {
+uint32_t FX_HashCode_GetA(const ByteStringView& str, bool bIgnoreCase) {
   uint32_t dwHashCode = 0;
   if (bIgnoreCase) {
     for (const auto& c : str)
-      dwHashCode = 31 * dwHashCode + FXSYS_tolower(c);
+      dwHashCode = 31 * dwHashCode + tolower(c);
   } else {
     for (const auto& c : str)
       dwHashCode = 31 * dwHashCode + c;
@@ -125,11 +131,11 @@ uint32_t FX_HashCode_GetA(const CFX_ByteStringC& str, bool bIgnoreCase) {
   return dwHashCode;
 }
 
-uint32_t FX_HashCode_GetW(const CFX_WideStringC& str, bool bIgnoreCase) {
+uint32_t FX_HashCode_GetW(const WideStringView& str, bool bIgnoreCase) {
   uint32_t dwHashCode = 0;
   if (bIgnoreCase) {
     for (const auto& c : str)
-      dwHashCode = 1313 * dwHashCode + FXSYS_tolower(c);
+      dwHashCode = 1313 * dwHashCode + FXSYS_towlower(c);
   } else {
     for (const auto& c : str)
       dwHashCode = 1313 * dwHashCode + c;
@@ -161,113 +167,3 @@ size_t FXSYS_ToUTF16BE(uint32_t unicode, char* buf) {
   FXSYS_IntToFourHexChars(0xDC00 + unicode % 0x400, buf + 4);
   return 8;
 }
-
-void* FX_Random_MT_Start(uint32_t dwSeed) {
-  FX_MTRANDOMCONTEXT* pContext = FX_Alloc(FX_MTRANDOMCONTEXT, 1);
-  pContext->mt[0] = dwSeed;
-  uint32_t& i = pContext->mti;
-  uint32_t* pBuf = pContext->mt;
-  for (i = 1; i < MT_N; i++)
-    pBuf[i] = (1812433253UL * (pBuf[i - 1] ^ (pBuf[i - 1] >> 30)) + i);
-
-  pContext->bHaveSeed = true;
-  return pContext;
-}
-
-uint32_t FX_Random_MT_Generate(void* pContext) {
-  ASSERT(pContext);
-  FX_MTRANDOMCONTEXT* pMTC = static_cast<FX_MTRANDOMCONTEXT*>(pContext);
-  uint32_t v;
-  static uint32_t mag[2] = {0, MT_Matrix_A};
-  uint32_t& mti = pMTC->mti;
-  uint32_t* pBuf = pMTC->mt;
-  if ((int)mti < 0 || mti >= MT_N) {
-    if (mti > MT_N && !pMTC->bHaveSeed)
-      return 0;
-
-    uint32_t kk;
-    for (kk = 0; kk < MT_N - MT_M; kk++) {
-      v = (pBuf[kk] & MT_Upper_Mask) | (pBuf[kk + 1] & MT_Lower_Mask);
-      pBuf[kk] = pBuf[kk + MT_M] ^ (v >> 1) ^ mag[v & 1];
-    }
-    for (; kk < MT_N - 1; kk++) {
-      v = (pBuf[kk] & MT_Upper_Mask) | (pBuf[kk + 1] & MT_Lower_Mask);
-      pBuf[kk] = pBuf[kk + (MT_M - MT_N)] ^ (v >> 1) ^ mag[v & 1];
-    }
-    v = (pBuf[MT_N - 1] & MT_Upper_Mask) | (pBuf[0] & MT_Lower_Mask);
-    pBuf[MT_N - 1] = pBuf[MT_M - 1] ^ (v >> 1) ^ mag[v & 1];
-    mti = 0;
-  }
-  v = pBuf[mti++];
-  v ^= (v >> 11);
-  v ^= (v << 7) & 0x9d2c5680UL;
-  v ^= (v << 15) & 0xefc60000UL;
-  v ^= (v >> 18);
-  return v;
-}
-
-void FX_Random_MT_Close(void* pContext) {
-  ASSERT(pContext);
-  FX_Free(pContext);
-}
-
-void FX_Random_GenerateMT(uint32_t* pBuffer, int32_t iCount) {
-  uint32_t dwSeed;
-#if _FXM_PLATFORM_ == _FXM_PLATFORM_WINDOWS_
-  if (!GenerateCryptoRandom(&dwSeed, 1))
-    FX_Random_GenerateBase(&dwSeed, 1);
-#else
-  FX_Random_GenerateBase(&dwSeed, 1);
-#endif
-  void* pContext = FX_Random_MT_Start(dwSeed);
-  while (iCount-- > 0)
-    *pBuffer++ = FX_Random_MT_Generate(pContext);
-
-  FX_Random_MT_Close(pContext);
-}
-
-void FX_Random_GenerateBase(uint32_t* pBuffer, int32_t iCount) {
-#if _FXM_PLATFORM_ == _FXM_PLATFORM_WINDOWS_
-  SYSTEMTIME st1, st2;
-  ::GetSystemTime(&st1);
-  do {
-    ::GetSystemTime(&st2);
-  } while (memcmp(&st1, &st2, sizeof(SYSTEMTIME)) == 0);
-  uint32_t dwHash1 =
-      FX_HashCode_GetA(CFX_ByteStringC((uint8_t*)&st1, sizeof(st1)), true);
-  uint32_t dwHash2 =
-      FX_HashCode_GetA(CFX_ByteStringC((uint8_t*)&st2, sizeof(st2)), true);
-  ::srand((dwHash1 << 16) | (uint32_t)dwHash2);
-#else
-  time_t tmLast = time(nullptr);
-  time_t tmCur;
-  while ((tmCur = time(nullptr)) == tmLast)
-    continue;
-
-  ::srand((tmCur << 16) | (tmLast & 0xFFFF));
-#endif
-  while (iCount-- > 0)
-    *pBuffer++ = static_cast<uint32_t>((::rand() << 16) | (::rand() & 0xFFFF));
-}
-
-#ifdef PDF_ENABLE_XFA
-void FX_GUID_CreateV4(FX_GUID* pGUID) {
-  FX_Random_GenerateMT((uint32_t*)pGUID, 4);
-  uint8_t& b = ((uint8_t*)pGUID)[6];
-  b = (b & 0x0F) | 0x40;
-}
-
-CFX_ByteString FX_GUID_ToString(const FX_GUID* pGUID, bool bSeparator) {
-  CFX_ByteString bsStr;
-  char* pBuf = bsStr.GetBuffer(40);
-  for (int32_t i = 0; i < 16; i++) {
-    uint8_t b = reinterpret_cast<const uint8_t*>(pGUID)[i];
-    FXSYS_IntToTwoHexChars(b, pBuf);
-    pBuf += 2;
-    if (bSeparator && (i == 3 || i == 5 || i == 7 || i == 9))
-      *pBuf++ = L'-';
-  }
-  bsStr.ReleaseBuffer(bSeparator ? 36 : 32);
-  return bsStr;
-}
-#endif  // PDF_ENABLE_XFA

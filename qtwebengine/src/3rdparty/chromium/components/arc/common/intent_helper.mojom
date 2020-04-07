@@ -2,11 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
-// Next MinVersion: 17
+// Next MinVersion: 22
 
 module arc.mojom;
 
-import "scale_factor.mojom";
+import "components/arc/common/scale_factor.mojom";
 
 // Describes the type of action to invoke.
 enum ActionType {
@@ -37,7 +37,8 @@ struct IntentInfo {
   array<string>? categories;
   string? data;  // URI
   string? type;  // explicit MIME type for data
-  [MinVersion=13] string? clip_data_uri;  // optional URI to provide as ClipData
+  [MinVersion=13] string? clip_data_uri;  // optional URI to provide as ClipData.
+  [MinVersion=20] bool ui_bypassed; // Whether or not the user saw the UI.
 };
 
 struct IntentFilter {
@@ -47,6 +48,7 @@ struct IntentFilter {
   [MinVersion=10] array<AuthorityEntry>? data_authorities;
   [MinVersion=10] array<PatternMatcher>? data_paths;
   [MinVersion=10] array<PatternMatcher>? deprecated_data_scheme_specific_parts;
+  [MinVersion=21] string? package_name; // Package which registered the filter.
 };
 
 // Describes a package that can handle an intent.
@@ -82,9 +84,65 @@ struct UrlWithMimeType {
   string mime_type;
 };
 
+// Describes a specific page in chrome://, about:blank, about:downloads and about:history.
+[Extensible]
+enum ChromePage {
+  MULTIDEVICE,
+  MAIN,
+  POWER,
+  BLUETOOTH,
+  DATETIME,
+  DISPLAY,
+  WIFI,
+  LANGUAGES,
+  PRIVACY,
+  HELP,
+  ACCOUNTS,
+  APPEARANCE,
+  AUTOFILL,
+  BLUETOOTHDEVICES,
+  CHANGEPICTURE,
+  CLEARBROWSERDATA,
+  CLOUDPRINTERS,
+  CUPSPRINTERS,
+  DOWNLOADS,
+  KEYBOARDOVERLAY,
+  LOCKSCREEN,
+  MANAGEACCESSIBILITY,
+  NETWORKSTYPEVPN,
+  ONSTARTUP,
+  PASSWORDS,
+  POINTEROVERLAY,
+  RESET,
+  SEARCH,
+  STORAGE,
+  SYNCSETUP,
+  ABOUTBLANK,
+  ABOUTDOWNLOADS,
+  ABOUTHISTORY,
+
+  LAST = ABOUTHISTORY,
+};
+
+// Describes an action given by the android text classifier (e.g. open maps).
+struct TextSelectionAction {
+  // The icon of the component that can handle the action intent.
+  ActivityIcon icon;
+
+  // The activity and package name of the component that handle the intent.
+  ActivityName activity;
+
+  // The title of the action that will be shown in the UI, e.g. "Map", "Call",
+  // "Open".
+  string title;
+
+  // The intent to launch when the action is clicked.
+  IntentInfo action_intent;
+};
+
 // Handles intents from ARC in Chrome.
 // Deprecated method ID: 4
-// Next method ID: 7
+// Next method ID: 8
 interface IntentHelperHost {
   // Called when icons associated with the package are no longer up to date.
   [MinVersion=3] OnIconInvalidated@1(string package_name);
@@ -97,6 +155,8 @@ interface IntentHelperHost {
   [MinVersion=5] OnOpenDownloads@2();
 
   // Opens the url with Chrome for Chrome OS.
+  // This function is intended to only open URLs that other web content in Chrome would be able to
+  // navigate to as well. No special URLs that allow access to privileged functions are allowed.
   OnOpenUrl@0(string url);
 
   // Opens the wallpaper picker dialog.
@@ -108,10 +168,13 @@ interface IntentHelperHost {
 
   // Opens the volume control.
   [MinVersion=16] OpenVolumeControl@6();
+
+  // Opens the specified Chrome page in the Chrome browser.
+  [MinVersion=17] OnOpenChromePage@7([MinVersion=18] ChromePage page);
 };
 
 // Sends intents to ARC on behalf of Chrome.
-// Next method ID: 13
+// Next method ID: 15
 interface IntentHelperInstance {
   // Sets the given package as a preferred package. The next time an ACTION_VIEW
   // intent is sent with a URL that requires disambiguation, instead of opening
@@ -134,8 +197,11 @@ interface IntentHelperInstance {
                                  ActivityName activity,
                                  ActionType action_type);
 
+  // DEPRECATED: Please use Init@13 instead.
+  InitDeprecated@0(IntentHelperHost host_ptr);
+
   // Establishes full-duplex communication with the host.
-  Init@0(IntentHelperHost host_ptr);
+  [MinVersion=19] Init@13(IntentHelperHost host_ptr) => ();
 
   // DEPRECATED. Use FileSystemInstance.OpenFileToRead() instead.
   [MinVersion=15] OpenFileToReadDeprecated@12(string url) => (handle? fd);
@@ -168,4 +234,9 @@ interface IntentHelperInstance {
                                  string package_name,
                                  string cls,
                                  string extras);
+
+  // Asks TextClassifier to generate an action that can handle the |text|.
+  // |scale_factor| is used to find a suitable icon to show in the context menu.
+  [MinVersion=21] ClassifySelection@14(string text, ScaleFactor scale_factor)
+      => (TextSelectionAction? action);
 };

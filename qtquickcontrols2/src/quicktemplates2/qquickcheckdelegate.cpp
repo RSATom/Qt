@@ -38,6 +38,7 @@
 #include "qquickitemdelegate_p_p.h"
 
 #include <QtGui/qpa/qplatformtheme.h>
+#include <QtQml/qjsvalue.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -88,15 +89,19 @@ class QQuickCheckDelegatePrivate : public QQuickItemDelegatePrivate
     Q_DECLARE_PUBLIC(QQuickCheckDelegate)
 
 public:
-    QQuickCheckDelegatePrivate()
-        : tristate(false),
-          checkState(Qt::Unchecked)
-    {
-    }
+    void setNextCheckState(const QJSValue &callback);
 
-    bool tristate;
-    Qt::CheckState checkState;
+    bool tristate = false;
+    Qt::CheckState checkState = Qt::Unchecked;
+    QJSValue nextCheckState;
 };
+
+void QQuickCheckDelegatePrivate::setNextCheckState(const QJSValue &callback)
+{
+    Q_Q(QQuickCheckDelegate);
+    nextCheckState = callback;
+    emit q->nextCheckStateChanged();
+}
 
 QQuickCheckDelegate::QQuickCheckDelegate(QQuickItem *parent)
     : QQuickItemDelegate(*(new QQuickCheckDelegatePrivate), parent)
@@ -155,11 +160,8 @@ void QQuickCheckDelegate::setCheckState(Qt::CheckState state)
     if (d->checkState == state)
         return;
 
-    if (!d->tristate && state == Qt::PartiallyChecked)
-        setTristate(true);
-
     bool wasChecked = isChecked();
-    d->checked = state != Qt::Unchecked;
+    d->checked = state == Qt::Checked;
     d->checkState = state;
     emit checkStateChanged();
     if (d->checked != wasChecked)
@@ -168,7 +170,12 @@ void QQuickCheckDelegate::setCheckState(Qt::CheckState state)
 
 QFont QQuickCheckDelegate::defaultFont() const
 {
-    return QQuickControlPrivate::themeFont(QPlatformTheme::ListViewFont);
+    return QQuickTheme::font(QQuickTheme::ListView);
+}
+
+QPalette QQuickCheckDelegate::defaultPalette() const
+{
+    return QQuickTheme::palette(QQuickTheme::ListView);
 }
 
 void QQuickCheckDelegate::buttonChange(ButtonChange change)
@@ -179,10 +186,45 @@ void QQuickCheckDelegate::buttonChange(ButtonChange change)
         QQuickAbstractButton::buttonChange(change);
 }
 
+/*!
+    \since QtQuick.Controls 2.4 (Qt 5.11)
+    \qmlproperty function QtQuick.Controls::CheckDelegate::nextCheckState
+
+    This property holds a callback function that is called to determine
+    the next check state whenever the check delegate is interactively toggled
+    by the user via touch, mouse, or keyboard.
+
+    By default, a normal check delegate cycles between \c Qt.Unchecked and
+    \c Qt.Checked states, and a tri-state check delegate cycles between
+    \c Qt.Unchecked, \c Qt.PartiallyChecked, and \c Qt.Checked states.
+
+    The \c nextCheckState callback function can override the default behavior.
+    The following example implements a tri-state check delegate that can present
+    a partially checked state depending on external conditions, but never
+    cycles to the partially checked state when interactively toggled by
+    the user.
+
+    \code
+    CheckDelegate {
+        tristate: true
+        checkState: allChildrenChecked ? Qt.Checked :
+                       anyChildChecked ? Qt.PartiallyChecked : Qt.Unchecked
+
+        nextCheckState: function() {
+            if (checkState === Qt.Checked)
+                return Qt.Unchecked
+            else
+                return Qt.Checked
+        }
+    }
+    \endcode
+*/
 void QQuickCheckDelegate::nextCheckState()
 {
     Q_D(QQuickCheckDelegate);
-    if (d->tristate)
+    if (d->nextCheckState.isCallable())
+        setCheckState(static_cast<Qt::CheckState>(d->nextCheckState.call().toInt()));
+    else if (d->tristate)
         setCheckState(static_cast<Qt::CheckState>((d->checkState + 1) % 3));
     else
         QQuickItemDelegate::nextCheckState();
@@ -196,3 +238,5 @@ QAccessible::Role QQuickCheckDelegate::accessibleRole() const
 #endif
 
 QT_END_NAMESPACE
+
+#include "moc_qquickcheckdelegate_p.cpp"

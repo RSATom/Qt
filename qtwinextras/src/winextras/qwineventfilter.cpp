@@ -40,8 +40,8 @@
 #include "qwineventfilter_p.h"
 #include "qwinfunctions.h"
 #include "qwinevent.h"
-#include <QGuiApplication>
-#include <QWindow>
+#include <QtGui/qguiapplication.h>
+#include <QtGui/qwindow.h>
 
 #ifndef WM_DWMCOLORIZATIONCOLORCHANGED
 #   define WM_DWMCOLORIZATIONCOLORCHANGED 0x0320
@@ -118,5 +118,5 @@ QWindow *QWinEventFilter::findWindow(HWND handle)
         if (topLevel->handle() && topLevel->winId() == wid)
             return topLevel;
     }
-    return Q_NULLPTR;
+    return nullptr;
 }

@@ -25,6 +25,8 @@ NavigationParams::NavigationParams(const GURL& url,
       is_main_frame_(is_main_frame),
       base_url_for_data_url_(base_url_for_data_url) {}
 
+NavigationParams::~NavigationParams() = default;
+
 NavigationParams::NavigationParams(const NavigationParams&) = default;
 
 }  // namespace navigation_interception

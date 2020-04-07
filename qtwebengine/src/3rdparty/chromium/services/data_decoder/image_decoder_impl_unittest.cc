@@ -11,9 +11,10 @@
 #include "gin/array_buffer.h"
 #include "gin/public/isolate_holder.h"
 #include "services/data_decoder/image_decoder_impl.h"
+#include "services/service_manager/public/cpp/binder_registry.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/WebKit/public/platform/scheduler/child/webthread_base.h"
-#include "third_party/WebKit/public/web/WebKit.h"
+#include "third_party/blink/public/platform/scheduler/child/webthread_base.h"
+#include "third_party/blink/public/web/blink.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/gfx/codec/jpeg_codec.h"
 
@@ -26,6 +27,16 @@ namespace data_decoder {
 namespace {
 
 const int64_t kTestMaxImageSize = 128 * 1024;
+
+#if defined(V8_USE_EXTERNAL_STARTUP_DATA)
+#if defined(USE_V8_CONTEXT_SNAPSHOT)
+constexpr gin::V8Initializer::V8SnapshotFileType kSnapshotType =
+    gin::V8Initializer::V8SnapshotFileType::kWithAdditionalContext;
+#else
+constexpr gin::V8Initializer::V8SnapshotFileType kSnapshotType =
+    gin::V8Initializer::V8SnapshotFileType::kDefault;
+#endif
+#endif
 
 bool CreateJPEGImage(int width,
                      int height,
@@ -71,11 +82,12 @@ class BlinkInitializer : public blink::Platform {
       : main_thread_(
             blink::scheduler::WebThreadBase::InitializeUtilityThread()) {
 #if defined(V8_USE_EXTERNAL_STARTUP_DATA)
-    gin::V8Initializer::LoadV8Snapshot();
+    gin::V8Initializer::LoadV8Snapshot(kSnapshotType);
     gin::V8Initializer::LoadV8Natives();
-#endif
+#endif  // V8_USE_EXTERNAL_STARTUP_DATA
 
-    blink::Initialize(this);
+    service_manager::BinderRegistry empty_registry;
+    blink::Initialize(this, &empty_registry);
   }
 
   ~BlinkInitializer() override {}
@@ -128,8 +140,8 @@ TEST_F(ImageDecoderImplTest, DecodeImageSizeLimit) {
     ASSERT_FALSE(request.bitmap().isNull());
 
     // Check that image has been shrunk appropriately
-    EXPECT_LT(request.bitmap().computeSize64() + base_msg_size,
-              kTestMaxImageSize);
+    EXPECT_LT(request.bitmap().computeByteSize() + base_msg_size,
+              static_cast<uint64_t>(kTestMaxImageSize));
 // Android does its own image shrinking for memory conservation deeper in
 // the decode, so more specific tests here won't work.
 #if !defined(OS_ANDROID)

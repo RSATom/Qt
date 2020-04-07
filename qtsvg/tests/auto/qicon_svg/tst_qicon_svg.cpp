@@ -44,6 +44,7 @@ private slots:
     void svg();
     void availableSizes();
     void isNull();
+    void sizeInPercent();
 
 
 private:
@@ -171,6 +172,17 @@ void tst_QIcon_Svg::isNull()
     }
 
 }
+
+void tst_QIcon_Svg::sizeInPercent()
+{
+    QIcon icon(prefix + "rect_size_100percent.svg");
+    QCOMPARE(icon.actualSize(QSize(16, 8)), QSize(16, 8));
+    QCOMPARE(icon.pixmap(QSize(16, 8)).size(), QSize(16, 8));
+
+    QCOMPARE(icon.actualSize(QSize(8, 8)), QSize(8, 4));
+    QCOMPARE(icon.pixmap(QSize(8, 8)).size(), QSize(8, 4));
+}
+
 
 QTEST_MAIN(tst_QIcon_Svg)
 #include "tst_qicon_svg.moc"

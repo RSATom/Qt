@@ -5,7 +5,6 @@
 #include "gin/shell_runner.h"
 
 #include "gin/converter.h"
-#include "gin/modules/module_registry.h"
 #include "gin/per_context_data.h"
 #include "gin/public/context_holder.h"
 #include "gin/try_catch.h"
@@ -19,11 +18,9 @@ using v8::Script;
 
 namespace gin {
 
-ShellRunnerDelegate::ShellRunnerDelegate() {
-}
+ShellRunnerDelegate::ShellRunnerDelegate() = default;
 
-ShellRunnerDelegate::~ShellRunnerDelegate() {
-}
+ShellRunnerDelegate::~ShellRunnerDelegate() = default;
 
 v8::Local<ObjectTemplate> ShellRunnerDelegate::GetGlobalTemplate(
     ShellRunner* runner,
@@ -60,8 +57,7 @@ ShellRunner::ShellRunner(ShellRunnerDelegate* delegate, Isolate* isolate)
   delegate_->DidCreateContext(this);
 }
 
-ShellRunner::~ShellRunner() {
-}
+ShellRunner::~ShellRunner() = default;
 
 void ShellRunner::Run(const std::string& source,
                       const std::string& resource_name) {
@@ -77,24 +73,6 @@ void ShellRunner::Run(const std::string& source,
   }
 
   Run(script);
-}
-
-v8::Local<v8::Value> ShellRunner::Call(v8::Local<v8::Function> function,
-                                        v8::Local<v8::Value> receiver,
-                                        int argc,
-                                        v8::Local<v8::Value> argv[]) {
-  TryCatch try_catch(GetContextHolder()->isolate());
-  delegate_->WillRunScript(this);
-
-  auto maybe_result =
-      function->Call(GetContextHolder()->context(), receiver, argc, argv);
-
-  delegate_->DidRunScript(this);
-  v8::Local<v8::Value> result;
-  if (!maybe_result.ToLocal(&result))
-    delegate_->UnhandledException(this, try_catch);
-
-  return result;
 }
 
 ContextHolder* ShellRunner::GetContextHolder() {

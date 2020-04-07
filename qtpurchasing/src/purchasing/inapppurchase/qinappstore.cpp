@@ -49,7 +49,7 @@ QT_BEGIN_NAMESPACE
 /*!
     \class QInAppStore
     \inmodule QtPurchasing
-    \brief The main entry point for managing in-app purchases
+    \brief The main entry point for managing in-app purchases.
 
     QInAppStore is used for managing in-app purchases in your application in a
     cross-platform way.

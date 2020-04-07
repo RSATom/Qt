@@ -28,7 +28,7 @@ namespace {
 
 void MaybeCaptureMemoryAround(CaptureMemory::Delegate* delegate,
                               uint64_t address) {
-  const uint64_t non_address_offset = 0x10000;
+  constexpr uint64_t non_address_offset = 0x10000;
   if (address < non_address_offset)
     return;
 
@@ -38,9 +38,9 @@ void MaybeCaptureMemoryAround(CaptureMemory::Delegate* delegate,
   if (address > max_address - non_address_offset)
     return;
 
-  const uint64_t kRegisterByteOffset = 128;
+  constexpr uint64_t kRegisterByteOffset = 128;
   const uint64_t target = address - kRegisterByteOffset;
-  const uint64_t size = 512;
+  constexpr uint64_t size = 512;
   static_assert(kRegisterByteOffset <= size / 2,
                 "negative offset too large");
   auto ranges =
@@ -94,8 +94,24 @@ void CaptureMemory::PointedToByContext(const CPUContext& context,
     MaybeCaptureMemoryAround(delegate, context.x86->ebp);
     MaybeCaptureMemoryAround(delegate, context.x86->eip);
   }
+#elif defined(ARCH_CPU_ARM_FAMILY)
+  if (context.architecture == kCPUArchitectureARM64) {
+    MaybeCaptureMemoryAround(delegate, context.arm64->pc);
+    for (size_t i = 0; i < arraysize(context.arm64->regs); ++i) {
+      MaybeCaptureMemoryAround(delegate, context.arm64->regs[i]);
+    }
+  } else {
+    MaybeCaptureMemoryAround(delegate, context.arm->pc);
+    for (size_t i = 0; i < arraysize(context.arm->regs); ++i) {
+      MaybeCaptureMemoryAround(delegate, context.arm->regs[i]);
+    }
+  }
+#elif defined(ARCH_CPU_MIPS_FAMILY)
+  for (size_t i = 0; i < arraysize(context.mipsel->regs); ++i) {
+    MaybeCaptureMemoryAround(delegate, context.mipsel->regs[i]);
+  }
 #else
-#error non-x86
+#error Port.
 #endif
 }
 

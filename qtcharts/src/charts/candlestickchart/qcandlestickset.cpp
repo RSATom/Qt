@@ -35,7 +35,7 @@ QT_CHARTS_BEGIN_NAMESPACE
 /*!
     \class QCandlestickSet
     \since 5.8
-    \inmodule Qt Charts
+    \inmodule QtCharts
     \brief The QCandlestickSet class represents a single candlestick item in a
     candlestick chart.
 
@@ -447,7 +447,7 @@ bool QCandlestickSetPrivate::setTimestamp(qreal timestamp)
     return true;
 }
 
+QT_CHARTS_END_NAMESPACE
+
 #include "moc_qcandlestickset.cpp"
 #include "moc_qcandlestickset_p.cpp"
-
-QT_CHARTS_END_NAMESPACE

@@ -151,30 +151,6 @@ void* GLContextWGL::GetHandle() {
   return context_;
 }
 
-void GLContextWGL::OnSetSwapInterval(int interval) {
-  DCHECK(IsCurrent(nullptr));
-  if (g_driver_wgl.ext.b_WGL_EXT_swap_control) {
-    wglSwapIntervalEXT(interval);
-  } else {
-      LOG(WARNING) <<
-          "Could not disable vsync: driver does not "
-          "support WGL_EXT_swap_control";
-  }
-}
-
-std::string GLContextWGL::GetExtensions() {
-  const char* extensions = nullptr;
-  if (g_driver_wgl.fn.wglGetExtensionsStringARBFn)
-    extensions = wglGetExtensionsStringARB(GLSurfaceWGL::GetDisplayDC());
-  else if (g_driver_wgl.fn.wglGetExtensionsStringEXTFn)
-    extensions = wglGetExtensionsStringEXT();
-
-  if (extensions)
-    return GLContext::GetExtensions() + " " + extensions;
-
-  return GLContext::GetExtensions();
-}
-
 GLContextWGL::~GLContextWGL() {
   Destroy();
 }

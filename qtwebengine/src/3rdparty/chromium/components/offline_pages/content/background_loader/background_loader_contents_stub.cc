@@ -12,10 +12,11 @@ namespace background_loader {
 
 BackgroundLoaderContentsStub::BackgroundLoaderContentsStub(
     content::BrowserContext* browser_context)
-    : BackgroundLoaderContents(), is_loading_(false) {
-  BackgroundLoaderContents::web_contents_.reset(
-      content::WebContentsTester::CreateTestWebContents(browser_context, NULL));
-  web_contents_.get()->SetDelegate(this);
+    : is_loading_(false) {
+  BackgroundLoaderContents::web_contents_ =
+      content::WebContentsTester::CreateTestWebContents(browser_context,
+                                                        nullptr);
+  web_contents_->SetDelegate(this);
 }
 
 BackgroundLoaderContentsStub::~BackgroundLoaderContentsStub() {}

@@ -103,7 +103,7 @@ QT_CHARTS_BEGIN_NAMESPACE
 
 /*!
  \class QChart
- \inmodule Qt Charts
+ \inmodule QtCharts
  \brief The QChart class manages the graphical representation of the chart's
  series, legends, and axes.
 
@@ -223,7 +223,9 @@ QT_CHARTS_BEGIN_NAMESPACE
   \property QChart::plotArea
   \brief The rectangle within which the chart is drawn.
 
-  The plot area does not include the area defined by margins.
+  The plot area does not include the area defined by margins. By default this will resize if inside
+  a QChartView. If an explicit size is set for the plot area then it will respect this, to revert
+  back to the default behavior, then calling \c{setPlotArea(QRectF());} will achieve this.
 */
 
 /*!
@@ -399,6 +401,8 @@ void QChart::zoomIn()
 /*!
  Zooms into the view to a maximum level at which the rectangle \a rect is still
  fully visible.
+ \note Applying a zoom may modify properties of attached axes, for instance QAbstractAxis::min
+       and QAbstractAxis::max.
  \note This is not supported for polar charts.
  */
 void QChart::zoomIn(const QRectF &rect)
@@ -461,6 +465,9 @@ bool QChart::isZoomed()
 }
 
 /*!
+ \deprecated
+ Use axes() instead.
+
  Returns a pointer to the horizontal axis attached to the specified \a series.
  If no series is specified, the first horizontal axis added to the chart is returned.
 
@@ -475,6 +482,9 @@ QAbstractAxis *QChart::axisX(QAbstractSeries *series) const
 }
 
 /*!
+ \deprecated
+ Use axes() instead.
+
  Returns a pointer to the vertical axis attached to the specified \a series.
  If no series is specified, the first vertical axis added to the chart is returned.
 
@@ -492,6 +502,7 @@ QAbstractAxis *QChart::axisY(QAbstractSeries *series) const
  Returns the axes attached to the series \a series with the orientation specified
  by \a orientation. If no series is specified, all axes added to the chart with
  the specified orientation are returned.
+
  \sa addAxis(), createDefaultAxes()
  */
 QList<QAbstractAxis *> QChart::axes(Qt::Orientations orientation, QAbstractSeries *series) const
@@ -525,8 +536,8 @@ QList<QAbstractAxis *> QChart::axes(Qt::Orientations orientation, QAbstractSerie
  \table
      \header
          \li Series type
-         \li X-axis
-         \li Y-axis
+         \li Horizontal axis (X)
+         \li Vertical axis (Y)
      \row
          \li QXYSeries
          \li QValueAxis
@@ -548,7 +559,7 @@ QList<QAbstractAxis *> QChart::axes(Qt::Orientations orientation, QAbstractSerie
  as the parameter for the axes() function call.
  QPieSeries does not create any axes.
 
- \sa axisX(), axisY(), axes(), setAxisX(), setAxisY(), QAbstractSeries::attachAxis()
+ \sa axes(), QAbstractSeries::attachAxis()
  */
 void QChart::createDefaultAxes()
 {
@@ -581,6 +592,11 @@ QChart::ChartType QChart::chartType() const
 QRectF QChart::plotArea() const
 {
     return d_ptr->m_presenter->geometry();
+}
+
+void QChart::setPlotArea(const QRectF &rect)
+{
+    d_ptr->m_presenter->setFixedGeometry(rect);
 }
 
 /*!
@@ -734,6 +750,9 @@ QList<QAbstractSeries *> QChart::series() const
 }
 
 /*!
+  \deprecated
+  Use addAxis() instead.
+
   Adds the axis \a axis to the chart and attaches it to the series \a series as a
   bottom-aligned horizontal axis.
   The chart takes ownership of both the axis and the  series.
@@ -756,6 +775,9 @@ void QChart::setAxisX(QAbstractAxis *axis ,QAbstractSeries *series)
 }
 
 /*!
+  \deprecated
+  Use addAxis() instead.
+
   Adds the axis \a axis to the chart and attaches it to the series \a series as a
   left-aligned vertical axis.
   The chart takes ownership of both the axis and the series.
@@ -942,6 +964,6 @@ void QChartPrivate::scroll(qreal dx, qreal dy)
     m_presenter->setState(ChartPresenter::ShowState,QPointF());
 }
 
-#include "moc_qchart.cpp"
-
 QT_CHARTS_END_NAMESPACE
+
+#include "moc_qchart.cpp"

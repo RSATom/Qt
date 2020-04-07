@@ -5,10 +5,17 @@
 #ifndef UI_ACCESSIBILITY_PLATFORM_AX_PLATFORM_NODE_DELEGATE_H_
 #define UI_ACCESSIBILITY_PLATFORM_AX_PLATFORM_NODE_DELEGATE_H_
 
-#include "ui/accessibility/ax_enums.h"
+#include <set>
+
+#include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/accessibility/ax_export.h"
+#include "ui/accessibility/platform/ax_unique_id.h"
 #include "ui/gfx/geometry/vector2d.h"
 #include "ui/gfx/native_widget_types.h"
+
+namespace gfx {
+class Rect;
+}
 
 namespace ui {
 
@@ -31,6 +38,8 @@ class AXPlatformNode;
 // otherwise.
 class AX_EXPORT AXPlatformNodeDelegate {
  public:
+  virtual ~AXPlatformNodeDelegate() {}
+
   // Get the accessibility data that should be exposed for this node.
   // Virtually all of the information is obtained from this structure
   // (role, state, name, cursor position, etc.) - the rest of this interface
@@ -38,7 +47,7 @@ class AX_EXPORT AXPlatformNodeDelegate {
   virtual const AXNodeData& GetData() const = 0;
 
   // Get the accessibility tree data for this node.
-  virtual const ui::AXTreeData& GetTreeData() const = 0;
+  virtual const AXTreeData& GetTreeData() const = 0;
 
   // Get the window the node is contained in.
   virtual gfx::NativeWindow GetTopLevelWidget() = 0;
@@ -47,14 +56,22 @@ class AX_EXPORT AXPlatformNodeDelegate {
   // be a native accessible object implemented by another class.
   virtual gfx::NativeViewAccessible GetParent() = 0;
 
+  // Get the index in parent. Typically this is the AXNode's index_in_parent_.
+  virtual int GetIndexInParent() const = 0;
+
   // Get the number of children of this node.
   virtual int GetChildCount() = 0;
 
   // Get the child of a node given a 0-based index.
   virtual gfx::NativeViewAccessible ChildAtIndex(int index) = 0;
 
-  // Get the bounds of this node in screen coordinates.
-  virtual gfx::Rect GetScreenBoundsRect() const = 0;
+  // Get the bounds of this node in screen coordinates, applying clipping
+  // to all bounding boxes so that the resulting rect is within the window.
+  virtual gfx::Rect GetClippedScreenBoundsRect() const = 0;
+
+  // Get the bounds of this node in screen coordinates without applying
+  // any clipping; it may be outside of the window or offscreen.
+  virtual gfx::Rect GetUnclippedScreenBoundsRect() const = 0;
 
   // Do a *synchronous* hit test of the given location in global screen
   // coordinates, and the node within this node's subtree (inclusive) that's
@@ -73,7 +90,41 @@ class AX_EXPORT AXPlatformNodeDelegate {
   // has focus.
   virtual gfx::NativeViewAccessible GetFocus() = 0;
 
-  virtual ui::AXPlatformNode* GetFromNodeID(int32_t id) = 0;
+  // Get whether this node is offscreen.
+  virtual bool IsOffscreen() const = 0;
+
+  virtual AXPlatformNode* GetFromNodeID(int32_t id) = 0;
+
+  // Given a node ID attribute (one where IsNodeIdIntAttribute is true),
+  // and a destination node ID, return a set of all source node IDs that
+  // have that relationship attribute between them and the destination.
+  virtual std::set<int32_t> GetReverseRelations(ax::mojom::IntAttribute attr,
+                                                int32_t dst_id) = 0;
+
+  // Given a node ID list attribute (one where
+  // IsNodeIdIntListAttribute is true), and a destination node ID,
+  // return a set of all source node IDs that have that relationship
+  // attribute between them and the destination.
+  virtual std::set<int32_t> GetReverseRelations(
+      ax::mojom::IntListAttribute attr,
+      int32_t dst_id) = 0;
+
+  virtual const AXUniqueId& GetUniqueId() const = 0;
+
+  //
+  // Tables. All of these should be called on a node that's a table-like
+  // role.
+  //
+
+  virtual int GetTableRowCount() const = 0;
+  virtual int GetTableColCount() const = 0;
+  virtual std::vector<int32_t> GetColHeaderNodeIds() const = 0;
+  virtual std::vector<int32_t> GetColHeaderNodeIds(int32_t col_index) const = 0;
+  virtual std::vector<int32_t> GetRowHeaderNodeIds() const = 0;
+  virtual std::vector<int32_t> GetRowHeaderNodeIds(int32_t row_index) const = 0;
+  virtual int32_t GetCellId(int32_t row_index, int32_t col_index) const = 0;
+  virtual int32_t CellIdToIndex(int32_t cell_id) const = 0;
+  virtual int32_t CellIndexToId(int32_t cell_index) const = 0;
 
   //
   // Events.
@@ -87,9 +138,9 @@ class AX_EXPORT AXPlatformNodeDelegate {
   // Actions.
   //
 
-  // Perform an accessibility action, switching on the ui::AXAction
+  // Perform an accessibility action, switching on the ax::mojom::Action
   // provided in |data|.
-  virtual bool AccessibilityPerformAction(const ui::AXActionData& data) = 0;
+  virtual bool AccessibilityPerformAction(const AXActionData& data) = 0;
 
   //
   // Testing.
@@ -100,6 +151,12 @@ class AX_EXPORT AXPlatformNodeDelegate {
   // the test behaves differently when the mouse happens to be over an
   // element. The default value should be falses if not in testing mode.
   virtual bool ShouldIgnoreHoveredStateForTesting() = 0;
+
+ protected:
+  AXPlatformNodeDelegate() {}
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(AXPlatformNodeDelegate);
 };
 
 }  // namespace ui

@@ -28,7 +28,7 @@ Polymer({
    * @private
    */
   computeIsProxyEnforcedByPolicy_: function() {
-    var pref = this.get('prefs.proxy');
+    const pref = this.get('prefs.proxy');
     // TODO(dbeam): do types of policy other than USER apply on ChromeOS?
     return pref.enforcement == chrome.settingsPrivate.Enforcement.ENFORCED &&
         pref.controlledBy == chrome.settingsPrivate.ControlledBy.USER_POLICY;
@@ -51,7 +51,9 @@ Polymer({
   },
 
   /** @private */
-  onRestartTap_: function() {
+  onRestartTap_: function(e) {
+    // Prevent event from bubbling up to the toggle button.
+    e.stopPropagation();
     // TODO(dbeam): we should prompt before restarting the browser.
     settings.LifetimeBrowserProxyImpl.getInstance().restart();
   },
@@ -62,7 +64,7 @@ Polymer({
    * @private
    */
   shouldShowRestart_: function(enabled) {
-    var proxy = settings.SystemPageBrowserProxyImpl.getInstance();
+    const proxy = settings.SystemPageBrowserProxyImpl.getInstance();
     return enabled != proxy.wasHardwareAccelerationEnabledAtStartup();
   },
 });

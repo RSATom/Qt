@@ -24,10 +24,11 @@
 #include "base/metrics/persistent_memory_allocator.h"
 #include "base/process/process_handle.h"
 #include "base/stl_util.h"
-#include "base/test/histogram_tester.h"
+#include "base/test/metrics/histogram_tester.h"
 #include "base/threading/platform_thread.h"
 #include "components/browser_watcher/stability_data_names.h"
 #include "components/browser_watcher/stability_report_extractor.h"
+#include "components/metrics/system_session_analyzer_win.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/crashpad/crashpad/client/crash_report_database.h"
@@ -55,105 +56,11 @@ using testing::SetArgPointee;
 
 namespace {
 
-TEST(PostmortemDeleterTest, BasicTest) {
-  base::HistogramTester histogram_tester;
-  base::ScopedTempDir temp_dir;
-  ASSERT_TRUE(temp_dir.CreateUniqueTempDir());
-
-  // Create three files.
-  FilePath path_one = temp_dir.GetPath().AppendASCII("a.pma");
-  FilePath path_two = temp_dir.GetPath().AppendASCII("b.pma");
-  FilePath path_three = temp_dir.GetPath().AppendASCII("c.pma");
-
-  std::vector<FilePath> stability_files = {path_one, path_two, path_three};
-
-  for (const FilePath& path : stability_files) {
-    {
-      base::ScopedFILE file(base::OpenFile(path, "w"));
-      ASSERT_NE(file.get(), nullptr);
-    }
-    ASSERT_TRUE(base::PathExists(path));
-  }
-
-  // Open one stability file to prevent its deletion.
-  base::ScopedFILE file(base::OpenFile(path_two, "w"));
-  ASSERT_NE(file.get(), nullptr);
-
-  // Validate deletion and metrics.
-  PostmortemDeleter deleter;
-  deleter.Process(stability_files);
-
-  ASSERT_FALSE(base::PathExists(path_one));
-  ASSERT_FALSE(base::PathExists(path_three));
-  histogram_tester.ExpectBucketCount("ActivityTracker.Collect.Status",
-                                     UNCLEAN_SHUTDOWN, 2);
-
-  ASSERT_TRUE(base::PathExists(path_two));
-  histogram_tester.ExpectBucketCount("ActivityTracker.Collect.Status",
-                                     DEBUG_FILE_DELETION_FAILED, 1);
-
-  std::vector<CollectionStatus> unexpected_statuses = {
-      NONE,
-      SUCCESS,
-      ANALYZER_CREATION_FAILED,
-      DEBUG_FILE_NO_DATA,
-      PREPARE_NEW_CRASH_REPORT_FAILED,
-      WRITE_TO_MINIDUMP_FAILED,
-      FINISHED_WRITING_CRASH_REPORT_FAILED,
-      COLLECTION_ATTEMPT};
-  for (CollectionStatus status : unexpected_statuses) {
-    histogram_tester.ExpectBucketCount("ActivityTracker.Collect.Status", status,
-                                       0);
-  }
-}
-
 const char kProductName[] = "TestProduct";
 const char kVersionNumber[] = "TestVersionNumber";
 const char kChannelName[] = "TestChannel";
 
-// Exposes a public constructor in order to create a dummy database.
-class MockCrashReportDatabase : public CrashReportDatabase {
- public:
-  MockCrashReportDatabase() {}
-  MOCK_METHOD0(GetSettings, Settings*());
-  MOCK_METHOD1(PrepareNewCrashReport,
-               CrashReportDatabase::CrashReportDatabase::OperationStatus(
-                   NewReport** report));
-  MOCK_METHOD2(FinishedWritingCrashReport,
-               CrashReportDatabase::CrashReportDatabase::OperationStatus(
-                   CrashReportDatabase::NewReport* report,
-                   crashpad::UUID* uuid));
-  MOCK_METHOD1(ErrorWritingCrashReport,
-               CrashReportDatabase::CrashReportDatabase::OperationStatus(
-                   NewReport* report));
-  MOCK_METHOD2(LookUpCrashReport,
-               CrashReportDatabase::CrashReportDatabase::OperationStatus(
-                   const UUID& uuid,
-                   Report* report));
-  MOCK_METHOD1(
-      GetPendingReports,
-      CrashReportDatabase::OperationStatus(std::vector<Report>* reports));
-  MOCK_METHOD1(
-      GetCompletedReports,
-      CrashReportDatabase::OperationStatus(std::vector<Report>* reports));
-  MOCK_METHOD2(GetReportForUploading,
-               CrashReportDatabase::OperationStatus(const UUID& uuid,
-                                                    const Report** report));
-  MOCK_METHOD3(RecordUploadAttempt,
-               CrashReportDatabase::OperationStatus(const Report* report,
-                                                    bool successful,
-                                                    const std::string& id));
-  MOCK_METHOD2(SkipReportUpload,
-               CrashReportDatabase::OperationStatus(
-                   const UUID& uuid,
-                   crashpad::Metrics::CrashSkippedReason reason));
-  MOCK_METHOD1(DeleteReport,
-               CrashReportDatabase::OperationStatus(const UUID& uuid));
-  MOCK_METHOD1(RequestUpload,
-               CrashReportDatabase::OperationStatus(const UUID& uuid));
-};
-
-class MockPostmortemReportCollector : public PostmortemReportCollector {
+class MockPostmortemReportCollector final : public PostmortemReportCollector {
  public:
   explicit MockPostmortemReportCollector(CrashReportDatabase* crash_database)
       : PostmortemReportCollector(kProductName,
@@ -168,10 +75,10 @@ class MockPostmortemReportCollector : public PostmortemReportCollector {
                bool(StabilityReport* report,
                     const crashpad::UUID& client_id,
                     const crashpad::UUID& report_id,
-                    base::PlatformFile minidump_file));
+                    crashpad::FileWriterInterface* minidump_file));
 };
 
-class MockSystemSessionAnalyzer : public SystemSessionAnalyzer {
+class MockSystemSessionAnalyzer : public metrics::SystemSessionAnalyzer {
  public:
   MockSystemSessionAnalyzer() : SystemSessionAnalyzer(10U) {}
   MOCK_METHOD1(IsSessionUnclean, Status(base::Time timestamp));
@@ -198,11 +105,12 @@ MATCHER_P(EqualsProto, message, "") {
 
 }  // namespace
 
-class PostmortemReportCollectorProcessTest : public testing::Test {
+class PostmortemReportCollectorProcessTest
+    : public ::testing::TestWithParam<bool> {
  public:
-  void SetUpTest(bool system_session_clean, bool expect_write_dump) {
-    collector_.reset(new MockPostmortemReportCollector(&database_));
-
+  void SetUpTest(bool system_session_clean,
+                 bool expect_write_dump,
+                 bool provide_crash_db) {
     // Create a dummy debug file.
     ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
     debug_file_ = temp_dir_.GetPath().AppendASCII("foo-1.pma");
@@ -212,7 +120,12 @@ class PostmortemReportCollectorProcessTest : public testing::Test {
     }
     ASSERT_TRUE(base::PathExists(debug_file_));
 
-    EXPECT_CALL(database_, GetSettings()).Times(1).WillOnce(Return(nullptr));
+    if (provide_crash_db) {
+      database_ = CrashReportDatabase::Initialize(
+          temp_dir_.GetPath().AppendASCII("db"));
+    }
+
+    collector_.reset(new MockPostmortemReportCollector(database_.get()));
 
     // Expect a single collection call.
     StabilityReport report;
@@ -222,28 +135,11 @@ class PostmortemReportCollectorProcessTest : public testing::Test {
         .Times(1)
         .WillOnce(DoAll(SetArgPointee<1>(report), Return(SUCCESS)));
 
-    if (!expect_write_dump)
-      return;
-
-    // Expect the call to write the proto to a minidump. This involves
-    // requesting a report from the crashpad database, writing the report, then
-    // finalizing it with the database.
-    FilePath minidump_path = temp_dir_.GetPath().AppendASCII("foo-1.dmp");
-    base::File minidump_file(
-        minidump_path, base::File::FLAG_CREATE | base::File::File::FLAG_WRITE);
-    crashpad::UUID new_report_uuid;
-    new_report_uuid.InitializeWithNew();
-    crashpad_report_ = {minidump_file.GetPlatformFile(), new_report_uuid,
-                        minidump_path};
-    EXPECT_CALL(database_, PrepareNewCrashReport(_))
-        .Times(1)
-        .WillOnce(DoAll(SetArgPointee<0>(&crashpad_report_),
-                        Return(CrashReportDatabase::kNoError)));
-
-    EXPECT_CALL(*collector_,
-                WriteReportToMinidump(_, _, _, minidump_file.GetPlatformFile()))
-        .Times(1)
-        .WillOnce(Return(true));
+    if (expect_write_dump) {
+      EXPECT_CALL(*collector_, WriteReportToMinidump(_, _, _, _))
+          .Times(1)
+          .WillOnce(Return(true));
+    }
   }
   void ValidateHistograms(int unclean_cnt, int unclean_system_cnt) {
     histogram_tester_.ExpectBucketCount("ActivityTracker.Collect.Status",
@@ -251,46 +147,51 @@ class PostmortemReportCollectorProcessTest : public testing::Test {
     histogram_tester_.ExpectBucketCount("ActivityTracker.Collect.Status",
                                         UNCLEAN_SESSION, unclean_system_cnt);
   }
-  void CollectReports(bool is_session_clean) {
-    SetUpTest(is_session_clean, true);
-
-    EXPECT_CALL(database_, FinishedWritingCrashReport(&crashpad_report_, _))
-        .Times(1)
-        .WillOnce(Return(CrashReportDatabase::kNoError));
+  void CollectReports(bool is_session_clean, bool provide_crash_db) {
+    SetUpTest(is_session_clean, provide_crash_db, provide_crash_db);
 
     // Run the test.
     std::vector<FilePath> debug_files{debug_file_};
     collector_->Process(debug_files);
     ASSERT_FALSE(base::PathExists(debug_file_));
+
+    if (provide_crash_db) {
+      std::vector<CrashReportDatabase::Report> reports;
+      ASSERT_EQ(CrashReportDatabase::kNoError,
+                database_->GetPendingReports(&reports));
+      EXPECT_EQ(1u, reports.size());
+    }
   }
 
  protected:
   base::HistogramTester histogram_tester_;
   base::ScopedTempDir temp_dir_;
   FilePath debug_file_;
-  MockCrashReportDatabase database_;
+  std::unique_ptr<CrashReportDatabase> database_;
   std::unique_ptr<MockPostmortemReportCollector> collector_;
-  CrashReportDatabase::NewReport crashpad_report_;
 };
 
-TEST_F(PostmortemReportCollectorProcessTest, ProcessCleanSession) {
-  CollectReports(true);
+TEST_P(PostmortemReportCollectorProcessTest, ProcessCleanSession) {
+  bool provide_crash_db = GetParam();
+  CollectReports(true, provide_crash_db);
   int expected_unclean = 1;
   int expected_system_unclean = 0;
   ValidateHistograms(expected_unclean, expected_system_unclean);
 }
 
-TEST_F(PostmortemReportCollectorProcessTest, ProcessUncleanSession) {
-  CollectReports(false);
+TEST_P(PostmortemReportCollectorProcessTest, ProcessUncleanSession) {
+  bool provide_crash_db = GetParam();
+  CollectReports(false, provide_crash_db);
   int expected_unclean = 1;
   int expected_system_unclean = 1;
   ValidateHistograms(expected_unclean, expected_system_unclean);
 }
 
-TEST_F(PostmortemReportCollectorProcessTest, ProcessStuckFile) {
+TEST_P(PostmortemReportCollectorProcessTest, ProcessStuckFile) {
+  bool provide_crash_db = GetParam();
   bool system_session_clean = true;
   bool expect_write_dump = false;
-  SetUpTest(system_session_clean, expect_write_dump);
+  SetUpTest(system_session_clean, expect_write_dump, provide_crash_db);
 
   // Open the stability debug file to prevent its deletion.
   base::ScopedFILE file(base::OpenFile(debug_file_, "w"));
@@ -308,6 +209,13 @@ TEST_F(PostmortemReportCollectorProcessTest, ProcessStuckFile) {
   ValidateHistograms(expected_unclean, expected_system_unclean);
 }
 
+INSTANTIATE_TEST_CASE_P(WithCrashDatabase,
+                        PostmortemReportCollectorProcessTest,
+                        ::testing::Values(true));
+INSTANTIATE_TEST_CASE_P(WithoutCrashDatabase,
+                        PostmortemReportCollectorProcessTest,
+                        ::testing::Values(true));
+
 TEST(PostmortemReportCollectorTest, CollectEmptyFile) {
   // Create an empty file.
   base::ScopedTempDir temp_dir;
@@ -320,9 +228,10 @@ TEST(PostmortemReportCollectorTest, CollectEmptyFile) {
   ASSERT_TRUE(PathExists(file_path));
 
   // Validate collection: an empty file cannot suppport an analyzer.
-  MockCrashReportDatabase crash_db;
+  std::unique_ptr<CrashReportDatabase> crash_db(
+      CrashReportDatabase::Initialize(temp_dir.GetPath().AppendASCII("db")));
   PostmortemReportCollector collector(kProductName, kVersionNumber,
-                                      kChannelName, &crash_db, nullptr);
+                                      kChannelName, crash_db.get(), nullptr);
   StabilityReport report;
   ASSERT_EQ(ANALYZER_CREATION_FAILED,
             collector.CollectOneReport(file_path, &report));
@@ -347,9 +256,10 @@ TEST(PostmortemReportCollectorTest, CollectRandomFile) {
 
   // Validate collection: random content appears as though there is not
   // stability data.
-  MockCrashReportDatabase crash_db;
+  std::unique_ptr<CrashReportDatabase> crash_db(
+      CrashReportDatabase::Initialize(temp_dir.GetPath().AppendASCII("db")));
   PostmortemReportCollector collector(kProductName, kVersionNumber,
-                                      kChannelName, &crash_db, nullptr);
+                                      kChannelName, crash_db.get(), nullptr);
   StabilityReport report;
   ASSERT_NE(SUCCESS, collector.CollectOneReport(file_path, &report));
 }
@@ -396,10 +306,11 @@ TEST_F(PostmortemReportCollectorCollectionFromGlobalTrackerTest,
   EXPECT_CALL(analyzer,
               IsSessionUnclean(base::Time::FromInternalValue(12345LL)))
       .Times(1)
-      .WillOnce(Return(SystemSessionAnalyzer::CLEAN));
-  MockCrashReportDatabase crash_db;
+      .WillOnce(Return(metrics::SystemSessionAnalyzer::CLEAN));
+  std::unique_ptr<CrashReportDatabase> crash_db(
+      CrashReportDatabase::Initialize(temp_dir_.GetPath().AppendASCII("db")));
   PostmortemReportCollector collector(kProductName, kVersionNumber,
-                                      kChannelName, &crash_db, &analyzer);
+                                      kChannelName, crash_db.get(), &analyzer);
   StabilityReport report;
   ASSERT_EQ(SUCCESS, collector.CollectOneReport(debug_file_path(), &report));
 

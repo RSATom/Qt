@@ -22,14 +22,6 @@ namespace google_util {
 // returned by GURL::query() or GURL::ref().
 bool HasGoogleSearchQueryParam(base::StringPiece str);
 
-// The query key that identifies a Google Extended API request for Instant.
-const char kInstantExtendedAPIParam[] = "espv";
-
-constexpr char kGoogleInstantExtendedEnabledKey[] =
-    "google:instantExtendedEnabledKey";
-constexpr char kGoogleInstantExtendedEnabledKeyFull[] =
-    "{google:instantExtendedEnabledKey}";
-
 GURL LinkDoctorBaseURL();
 void SetMockLinkDoctorBaseURLForTesting();
 
@@ -44,6 +36,7 @@ GURL AppendGoogleLocaleParam(const GURL& url,
                              const std::string& application_locale);
 
 // Returns the Google country code string for the given Google homepage URL.
+// Returns an empty string if |google_homepage_url| contains no country code.
 std::string GetGoogleCountryCode(const GURL& google_homepage_url);
 
 // Returns the Google search URL for the given Google homepage URL.

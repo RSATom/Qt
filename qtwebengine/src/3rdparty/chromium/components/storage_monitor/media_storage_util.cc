@@ -11,12 +11,13 @@
 #include "base/logging.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/task_scheduler/post_task.h"
+#include "base/task_scheduler/task_traits.h"
+#include "base/threading/thread_restrictions.h"
 #include "build/build_config.h"
 #include "components/storage_monitor/removable_device_constants.h"
 #include "components/storage_monitor/storage_monitor.h"
 #include "content/public/browser/browser_thread.h"
-
-using content::BrowserThread;
 
 namespace storage_monitor {
 
@@ -41,8 +42,9 @@ base::FilePath::StringType FindRemovableStorageLocationById(
   return base::FilePath::StringType();
 }
 
-void FilterAttachedDevicesOnFileThread(MediaStorageUtil::DeviceIdSet* devices) {
-  DCHECK_CURRENTLY_ON(BrowserThread::FILE);
+void FilterAttachedDevicesOnBackgroundSequence(
+    MediaStorageUtil::DeviceIdSet* devices) {
+  base::AssertBlockingAllowed();
   MediaStorageUtil::DeviceIdSet missing_devices;
 
   for (MediaStorageUtil::DeviceIdSet::const_iterator it = devices->begin();
@@ -55,9 +57,7 @@ void FilterAttachedDevicesOnFileThread(MediaStorageUtil::DeviceIdSet* devices) {
       continue;
     }
 
-    if (type == StorageInfo::FIXED_MASS_STORAGE ||
-        type == StorageInfo::ITUNES ||
-        type == StorageInfo::PICASA) {
+    if (type == StorageInfo::FIXED_MASS_STORAGE) {
       if (!base::PathExists(base::FilePath::FromUTF8Unsafe(unique_id)))
         missing_devices.insert(*it);
       continue;
@@ -79,8 +79,7 @@ void FilterAttachedDevicesOnFileThread(MediaStorageUtil::DeviceIdSet* devices) {
 
 // static
 bool MediaStorageUtil::HasDcim(const base::FilePath& mount_point) {
-  DCHECK(!content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
-
+  base::AssertBlockingAllowed();
   base::FilePath::StringType dcim_dir(kDCIMDirectoryName);
   if (!base::DirectoryExists(mount_point.Append(dcim_dir))) {
     // Check for lowercase 'dcim' as well.
@@ -96,7 +95,7 @@ bool MediaStorageUtil::HasDcim(const base::FilePath& mount_point) {
 bool MediaStorageUtil::CanCreateFileSystem(const std::string& device_id,
                                            const base::FilePath& path) {
   StorageInfo::Type type;
-  if (!StorageInfo::CrackDeviceId(device_id, &type, NULL))
+  if (!StorageInfo::CrackDeviceId(device_id, &type, nullptr))
     return false;
 
   if (type == StorageInfo::MAC_IMAGE_CAPTURE)
@@ -108,16 +107,12 @@ bool MediaStorageUtil::CanCreateFileSystem(const std::string& device_id,
 // static
 void MediaStorageUtil::FilterAttachedDevices(DeviceIdSet* devices,
                                              const base::Closure& done) {
-  if (BrowserThread::CurrentlyOn(BrowserThread::FILE)) {
-    FilterAttachedDevicesOnFileThread(devices);
-    done.Run();
-    return;
-  }
-  BrowserThread::PostTaskAndReply(BrowserThread::FILE,
-                                  FROM_HERE,
-                                  base::Bind(&FilterAttachedDevicesOnFileThread,
-                                             devices),
-                                  done);
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+  base::PostTaskWithTraitsAndReply(
+      FROM_HERE,
+      {base::TaskPriority::BACKGROUND, base::MayBlock(),
+       base::TaskShutdownBehavior::CONTINUE_ON_SHUTDOWN},
+      base::Bind(&FilterAttachedDevicesOnBackgroundSequence, devices), done);
 }
 
 // TODO(kmadhusu) Write unit tests for GetDeviceInfoFromPath().
@@ -177,9 +172,7 @@ base::FilePath MediaStorageUtil::FindDevicePathById(
   if (!StorageInfo::CrackDeviceId(device_id, &type, &unique_id))
     return base::FilePath();
 
-  if (type == StorageInfo::FIXED_MASS_STORAGE ||
-      type == StorageInfo::ITUNES ||
-      type == StorageInfo::PICASA) {
+  if (type == StorageInfo::FIXED_MASS_STORAGE) {
     // For this type, the unique_id is the path.
     return base::FilePath::FromUTF8Unsafe(unique_id);
   }

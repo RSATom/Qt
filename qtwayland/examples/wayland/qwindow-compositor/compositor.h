@@ -92,22 +92,22 @@ signals:
     void animationDone();
 
 protected:
-    void timerEvent(QTimerEvent *event);
+    void timerEvent(QTimerEvent *event) override;
 
 private:
     friend class Compositor;
-    Compositor *m_compositor;
-    GLenum m_textureTarget;
-    QOpenGLTexture *m_texture;
+    Compositor *m_compositor = nullptr;
+    GLenum m_textureTarget = GL_TEXTURE_2D;
+    QOpenGLTexture *m_texture = nullptr;
     QOpenGLTextureBlitter::Origin m_origin;
     QPointF m_position;
     QSize m_size;
-    QWaylandWlShellSurface *m_wlShellSurface;
-    QWaylandXdgSurfaceV5 *m_xdgSurface;
-    QWaylandXdgPopupV5 *m_xdgPopup;
-    View *m_parentView;
+    QWaylandWlShellSurface *m_wlShellSurface = nullptr;
+    QWaylandXdgSurfaceV5 *m_xdgSurface = nullptr;
+    QWaylandXdgPopupV5 *m_xdgPopup = nullptr;
+    View *m_parentView = nullptr;
     QPoint m_offset;
-    qreal m_animationFactor;
+    qreal m_animationFactor = 1.0;
     QBasicTimer m_animationTimer;
     bool m_animationCountUp;
 
@@ -127,7 +127,7 @@ class Compositor : public QWaylandCompositor
     Q_OBJECT
 public:
     Compositor(QWindow *window);
-    ~Compositor();
+    ~Compositor() override;
     void create() override;
 
     void startRender();
@@ -180,10 +180,10 @@ private slots:
     void viewAnimationDone();
 private:
     View *findView(const QWaylandSurface *s) const;
-    QWindow *m_window;
+    QWindow *m_window = nullptr;
     QList<View*> m_views;
-    QWaylandWlShell *m_wlShell;
-    QWaylandXdgShellV5 *m_xdgShell;
+    QWaylandWlShell *m_wlShell = nullptr;
+    QWaylandXdgShellV5 *m_xdgShell = nullptr;
     QWaylandView m_cursorView;
     int m_cursorHotspotX;
     int m_cursorHotspotY;

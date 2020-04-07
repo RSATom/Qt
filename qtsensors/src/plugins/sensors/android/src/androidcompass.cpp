@@ -49,7 +49,7 @@ class AndroidAccelerometerListener : public AndroidSensors::AndroidSensorsListen
 public:
 
     AndroidAccelerometerListener(AndroidCompass *parent)
-        : m_compass(parent)
+        : accuracy(0), m_compass(parent)
     {
         memset(reading, 0, sizeof(reading));
     }
@@ -64,9 +64,9 @@ public:
         AndroidSensors::unregisterListener(AndroidSensors::TYPE_ACCELEROMETER, this);
     }
 
-    void onAccuracyChanged(jint accuracy) override
+    void onAccuracyChanged(jint value) override
     {
-        Q_UNUSED(accuracy);
+        accuracy = value;
     }
 
     void onSensorChanged(jlong /*timestamp*/, const jfloat *values, uint size) override
@@ -80,6 +80,7 @@ public:
     }
 
     jfloat reading[3];
+    jint accuracy;
 
 private:
     AndroidCompass *m_compass;
@@ -89,7 +90,7 @@ class AndroidMagnetometerListener : public AndroidSensors::AndroidSensorsListene
 {
 public:
     AndroidMagnetometerListener(AndroidCompass *parent)
-        :m_compass(parent)
+        : accuracy(0), m_compass(parent)
     {
         memset(reading, 0, sizeof(reading));
     }
@@ -104,9 +105,9 @@ public:
         AndroidSensors::unregisterListener(AndroidSensors::TYPE_MAGNETIC_FIELD, this);
     }
 
-    void onAccuracyChanged(jint accuracy) override
+    void onAccuracyChanged(jint value) override
     {
-        Q_UNUSED(accuracy);
+        accuracy = value;
     }
 
     void onSensorChanged(jlong /*timestamp*/, const jfloat *values, uint size) override
@@ -120,6 +121,7 @@ public:
     }
 
     jfloat reading[3];
+    jint accuracy;
 private:
     AndroidCompass *m_compass;
 };
@@ -169,5 +171,7 @@ void AndroidCompass::testStuff()
     qreal azimuth = AndroidSensors::getCompassAzimuth(m_accelerometerListener->reading, m_magnetometerListener->reading);
 
     m_reading.setAzimuth(qRadiansToDegrees(azimuth));
+    const qreal accuracyValue = (m_accelerometerListener->accuracy + m_magnetometerListener->accuracy) / 6;
+    m_reading.setCalibrationLevel(accuracyValue);
     newReadingAvailable();
 }

@@ -451,6 +451,7 @@ static int unpack_superblocks(Vp3DecodeContext *s, GetBitContext *gb)
     int i, j;
     int current_fragment;
     int plane;
+    int plane0_num_coded_frags = 0;
 
     if (s->keyframe) {
         memset(s->superblock_coding, SB_FULLY_CODED, s->superblock_count);
@@ -544,6 +545,9 @@ static int unpack_superblocks(Vp3DecodeContext *s, GetBitContext *gb)
         int num_coded_frags = 0;
 
         for (i = sb_start; i < sb_end && get_bits_left(gb) > 0; i++) {
+            if (s->keyframe == 0 && get_bits_left(gb) < plane0_num_coded_frags >> 2) {
+                return AVERROR_INVALIDDATA;
+            }
             /* iterate through all 16 fragments in a superblock */
             for (j = 0; j < 16; j++) {
                 /* if the fragment is in bounds, check its coding status */
@@ -576,6 +580,8 @@ static int unpack_superblocks(Vp3DecodeContext *s, GetBitContext *gb)
                 }
             }
         }
+        if (!plane)
+            plane0_num_coded_frags = num_coded_frags;
         s->total_num_coded_frags += num_coded_frags;
         for (i = 0; i < 64; i++)
             s->num_coded_frags[plane][i] = num_coded_frags;
@@ -951,9 +957,11 @@ static int unpack_vlcs(Vp3DecodeContext *s, GetBitContext *gb,
     Vp3Fragment *all_fragments = s->all_fragments;
     VLC_TYPE(*vlc_table)[2] = table->table;
 
-    if (num_coeffs < 0)
+    if (num_coeffs < 0) {
         av_log(s->avctx, AV_LOG_ERROR,
                "Invalid number of coefficients at level %d\n", coeff_index);
+        return AVERROR_INVALIDDATA;
+    }
 
     if (eob_run > num_coeffs) {
         coeff_i      =
@@ -977,6 +985,9 @@ static int unpack_vlcs(Vp3DecodeContext *s, GetBitContext *gb,
             eob_run = eob_run_base[token];
             if (eob_run_get_bits[token])
                 eob_run += get_bits(gb, eob_run_get_bits[token]);
+
+            if (!eob_run)
+                eob_run = INT_MAX;
 
             // record only the number of blocks ended in this plane,
             // any spill will be recorded in the next plane.
@@ -1761,7 +1772,9 @@ static av_cold int vp3_decode_init(AVCodecContext *avctx)
     for (i = 0; i < 3; i++)
         s->qps[i] = -1;
 
-    avcodec_get_chroma_sub_sample(avctx->pix_fmt, &s->chroma_x_shift, &s->chroma_y_shift);
+    ret = av_pix_fmt_get_chroma_sub_sample(avctx->pix_fmt, &s->chroma_x_shift, &s->chroma_y_shift);
+    if (ret)
+        return ret;
 
     s->y_superblock_width  = (s->width  + 31) / 32;
     s->y_superblock_height = (s->height + 31) / 32;
@@ -2003,6 +2016,7 @@ static int vp3_decode_frame(AVCodecContext *avctx,
                             void *data, int *got_frame,
                             AVPacket *avpkt)
 {
+    AVFrame     *frame  = data;
     const uint8_t *buf  = avpkt->data;
     int buf_size        = avpkt->size;
     Vp3DecodeContext *s = avctx->priv_data;
@@ -2176,12 +2190,12 @@ static int vp3_decode_frame(AVCodecContext *avctx,
     /* output frame, offset as needed */
     if ((ret = av_frame_ref(data, s->current_frame.f)) < 0)
         return ret;
-    for (i = 0; i < 3; i++) {
-        AVFrame *dst = data;
-        int off = (s->offset_x >> (i && s->chroma_y_shift)) +
-                  (s->offset_y >> (i && s->chroma_y_shift)) * dst->linesize[i];
-        dst->data[i] += off;
-    }
+
+    frame->crop_left   = s->offset_x;
+    frame->crop_right  = avctx->coded_width - avctx->width - s->offset_x;
+    frame->crop_top    = s->offset_y;
+    frame->crop_bottom = avctx->coded_height - avctx->height - s->offset_y;
+
     *got_frame = 1;
 
     if (!HAVE_THREADS || !(s->avctx->active_thread_type & FF_THREAD_FRAME)) {
@@ -2351,16 +2365,6 @@ static int theora_decode_header(AVCodecContext *avctx, GetBitContext *gb)
         // to normal axis ([0,0] upper left)
         s->offset_x = offset_x;
         s->offset_y = s->height - visible_height - offset_y;
-
-        if ((s->offset_x & 0x1F) && !(avctx->flags & AV_CODEC_FLAG_UNALIGNED)) {
-            s->offset_x &= ~0x1F;
-            if (!s->offset_x_warned) {
-                s->offset_x_warned = 1;
-                av_log(avctx, AV_LOG_WARNING, "Reducing offset_x from %d to %d"
-                    "chroma samples to preserve alignment.\n",
-                    offset_x, s->offset_x);
-            }
-        }
     }
 
     if (colorspace == 1)
@@ -2573,7 +2577,8 @@ AVCodec ff_theora_decoder = {
                              AV_CODEC_CAP_FRAME_THREADS,
     .flush                 = vp3_decode_flush,
     .init_thread_copy      = ONLY_IF_THREADS_ENABLED(vp3_init_thread_copy),
-    .update_thread_context = ONLY_IF_THREADS_ENABLED(vp3_update_thread_context)
+    .update_thread_context = ONLY_IF_THREADS_ENABLED(vp3_update_thread_context),
+    .caps_internal         = FF_CODEC_CAP_EXPORTS_CROPPING,
 };
 #endif
 

@@ -7,12 +7,11 @@
 #include <AVFoundation/AVFoundation.h>
 #include <set>
 
+#include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/logging.h"
-#include "base/mac/bind_objc_block.h"
 #include "base/mac/scoped_nsobject.h"
 #include "base/macros.h"
-#include "base/profiler/scoped_tracker.h"
 #include "base/task_runner_util.h"
 #include "base/threading/thread_checker.h"
 
@@ -83,9 +82,7 @@ class DeviceMonitorMacImpl {
 void DeviceMonitorMacImpl::ConsolidateDevicesListAndNotify(
     const std::vector<DeviceInfo>& snapshot_devices) {
   bool video_device_added = false;
-  bool audio_device_added = false;
   bool video_device_removed = false;
-  bool audio_device_removed = false;
 
   // Compare the current system devices snapshot with the ones cached to detect
   // additions, present in the former but not in the latter. If we find a device
@@ -98,9 +95,7 @@ void DeviceMonitorMacImpl::ConsolidateDevicesListAndNotify(
     if (cached_devices_iterator == cached_devices_.end()) {
       video_device_added |= ((it->type() == DeviceInfo::kVideo) ||
                              (it->type() == DeviceInfo::kMuxed));
-      audio_device_added |= ((it->type() == DeviceInfo::kAudio) ||
-                             (it->type() == DeviceInfo::kMuxed));
-      DVLOG(1) << "Device has been added, id: " << it->unique_id();
+      DVLOG(1) << "Video device has been added, id: " << it->unique_id();
     } else {
       cached_devices_.erase(cached_devices_iterator);
     }
@@ -110,18 +105,13 @@ void DeviceMonitorMacImpl::ConsolidateDevicesListAndNotify(
     video_device_removed |= ((it->type() == DeviceInfo::kVideo) ||
                              (it->type() == DeviceInfo::kMuxed) ||
                              (it->type() == DeviceInfo::kInvalid));
-    audio_device_removed |= ((it->type() == DeviceInfo::kAudio) ||
-                             (it->type() == DeviceInfo::kMuxed) ||
-                             (it->type() == DeviceInfo::kInvalid));
-    DVLOG(1) << "Device has been removed, id: " << it->unique_id();
+    DVLOG(1) << "Video device has been removed, id: " << it->unique_id();
   }
   // Update the cached devices with the current system snapshot.
   cached_devices_ = snapshot_devices;
 
   if (video_device_added || video_device_removed)
     monitor_->NotifyDeviceChanged(base::SystemMonitor::DEVTYPE_VIDEO_CAPTURE);
-  if (audio_device_added || audio_device_removed)
-    monitor_->NotifyDeviceChanged(base::SystemMonitor::DEVTYPE_AUDIO);
 }
 
 // Forward declaration for use by CrAVFoundationDeviceObserver.
@@ -215,10 +205,10 @@ void SuspendObserverDelegate::StartObserver(
   // done on UI thread. The devices array is retained in |device_thread| and
   // released in DoStartObserver().
   base::PostTaskAndReplyWithResult(
-      device_thread.get(), FROM_HERE, base::BindBlock(^{
+      device_thread.get(), FROM_HERE, base::BindOnce(base::RetainBlock(^{
         return [[AVCaptureDevice devices] retain];
-      }),
-      base::Bind(&SuspendObserverDelegate::DoStartObserver, this));
+      })),
+      base::BindOnce(&SuspendObserverDelegate::DoStartObserver, this));
 }
 
 void SuspendObserverDelegate::OnDeviceChanged(
@@ -228,10 +218,10 @@ void SuspendObserverDelegate::OnDeviceChanged(
   // new devices and the old ones to be done on main thread. The devices array
   // is retained in |device_thread| and released in DoOnDeviceChanged().
   PostTaskAndReplyWithResult(
-      device_thread.get(), FROM_HERE, base::BindBlock(^{
+      device_thread.get(), FROM_HERE, base::BindOnce(base::RetainBlock(^{
         return [[AVCaptureDevice devices] retain];
-      }),
-      base::Bind(&SuspendObserverDelegate::DoOnDeviceChanged, this));
+      })),
+      base::BindOnce(&SuspendObserverDelegate::DoOnDeviceChanged, this));
 }
 
 void SuspendObserverDelegate::ResetDeviceMonitor() {
@@ -437,7 +427,9 @@ void AVFoundationMonitorImpl::OnDeviceChanged() {
 
 namespace media {
 
-DeviceMonitorMac::DeviceMonitorMac() {
+DeviceMonitorMac::DeviceMonitorMac(
+    scoped_refptr<base::SingleThreadTaskRunner> device_task_runner)
+    : device_task_runner_(std::move(device_task_runner)) {
   // AVFoundation do not need to be fired up until the user
   // exercises a GetUserMedia. Bringing up either library and enumerating the
   // devices in the system is an operation taking in the range of hundred of ms,
@@ -446,18 +438,11 @@ DeviceMonitorMac::DeviceMonitorMac() {
 
 DeviceMonitorMac::~DeviceMonitorMac() {}
 
-void DeviceMonitorMac::StartMonitoring(
-    const scoped_refptr<base::SingleThreadTaskRunner>& device_task_runner) {
+void DeviceMonitorMac::StartMonitoring() {
   DCHECK(thread_checker_.CalledOnValidThread());
-
-    // TODO(erikchen): Remove ScopedTracker below once http://crbug.com/458404
-    // is fixed.
-    tracked_objects::ScopedTracker tracking_profile(
-        FROM_HERE_WITH_EXPLICIT_FUNCTION(
-            "458404 DeviceMonitorMac::StartMonitoring::AVFoundation"));
-    DVLOG(1) << "Monitoring via AVFoundation";
-    device_monitor_impl_.reset(
-        new AVFoundationMonitorImpl(this, device_task_runner));
+  DVLOG(1) << "Monitoring via AVFoundation";
+  device_monitor_impl_ =
+      std::make_unique<AVFoundationMonitorImpl>(this, device_task_runner_);
 }
 
 void DeviceMonitorMac::NotifyDeviceChanged(

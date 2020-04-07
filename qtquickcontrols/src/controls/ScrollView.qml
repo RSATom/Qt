@@ -183,7 +183,7 @@ FocusScope {
     /*! \qmlproperty Component ScrollView::style
 
         The style Component for this control.
-        \sa {Qt Quick Controls Styles QML Types}
+        \sa {Qt Quick Controls 1 Styles QML Types}
 
     */
     property Component style: Settings.styleComponent(Settings.style, "ScrollViewStyle.qml", root)

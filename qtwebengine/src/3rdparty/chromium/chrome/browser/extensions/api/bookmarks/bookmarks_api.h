@@ -126,7 +126,7 @@ class BookmarksAPI : public BrowserContextKeyedAPI,
 class BookmarksFunction : public ChromeAsyncExtensionFunction,
                           public bookmarks::BaseBookmarkModelObserver {
  public:
-  // AsyncExtensionFunction:
+  // ChromeAsyncExtensionFunction:
   bool RunAsync() override;
 
  protected:
@@ -244,29 +244,36 @@ class BookmarksSearchFunction : public BookmarksFunction {
   bool RunOnReady() override;
 };
 
-class BookmarksRemoveFunction : public BookmarksFunction {
- public:
-  DECLARE_EXTENSION_FUNCTION("bookmarks.remove", BOOKMARKS_REMOVE)
-
-  // Returns true on successful parse and sets invalid_id to true if conversion
-  // from id string to int64_t failed.
-  static bool ExtractIds(const base::ListValue* args,
-                         std::list<int64_t>* ids,
-                         bool* invalid_id);
-
+class BookmarksRemoveFunctionBase : public BookmarksFunction {
  protected:
-  ~BookmarksRemoveFunction() override {}
+  ~BookmarksRemoveFunctionBase() override {}
+
+  virtual bool is_recursive() const = 0;
 
   // BookmarksFunction:
   bool RunOnReady() override;
 };
 
-class BookmarksRemoveTreeFunction : public BookmarksRemoveFunction {
+class BookmarksRemoveFunction : public BookmarksRemoveFunctionBase {
+ public:
+  DECLARE_EXTENSION_FUNCTION("bookmarks.remove", BOOKMARKS_REMOVE);
+
+ protected:
+  ~BookmarksRemoveFunction() override {}
+
+  // BookmarksRemoveFunctionBase:
+  bool is_recursive() const override;
+};
+
+class BookmarksRemoveTreeFunction : public BookmarksRemoveFunctionBase {
  public:
   DECLARE_EXTENSION_FUNCTION("bookmarks.removeTree", BOOKMARKS_REMOVETREE)
 
  protected:
   ~BookmarksRemoveTreeFunction() override {}
+
+  // BookmarksRemoveFunctionBase:
+  bool is_recursive() const override;
 };
 
 class BookmarksCreateFunction : public BookmarksFunction {
@@ -284,10 +291,6 @@ class BookmarksMoveFunction : public BookmarksFunction {
  public:
   DECLARE_EXTENSION_FUNCTION("bookmarks.move", BOOKMARKS_MOVE)
 
-  static bool ExtractIds(const base::ListValue* args,
-                         std::list<int64_t>* ids,
-                         bool* invalid_id);
-
  protected:
   ~BookmarksMoveFunction() override {}
 
@@ -298,10 +301,6 @@ class BookmarksMoveFunction : public BookmarksFunction {
 class BookmarksUpdateFunction : public BookmarksFunction {
  public:
   DECLARE_EXTENSION_FUNCTION("bookmarks.update", BOOKMARKS_UPDATE)
-
-  static bool ExtractIds(const base::ListValue* args,
-                         std::list<int64_t>* ids,
-                         bool* invalid_id);
 
  protected:
   ~BookmarksUpdateFunction() override {}

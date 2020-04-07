@@ -6,6 +6,7 @@
 
 #include <errno.h>
 #include <limits.h>
+#include <sched.h>
 #include <signal.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -23,7 +24,6 @@
 #include "base/macros.h"
 #include "base/posix/eintr_wrapper.h"
 #include "base/process/launch.h"
-#include "base/third_party/valgrind/valgrind.h"
 #include "build/build_config.h"
 #include "sandbox/linux/services/namespace_utils.h"
 #include "sandbox/linux/services/proc_util.h"
@@ -35,24 +35,6 @@
 namespace sandbox {
 
 namespace {
-
-bool IsRunningOnValgrind() { return RUNNING_ON_VALGRIND; }
-
-// Checks that the set of RES-uids and the set of RES-gids have
-// one element each and return that element in |resuid| and |resgid|
-// respectively. It's ok to pass NULL as one or both of the ids.
-bool GetRESIds(uid_t* resuid, gid_t* resgid) {
-  uid_t ruid, euid, suid;
-  gid_t rgid, egid, sgid;
-  PCHECK(sys_getresuid(&ruid, &euid, &suid) == 0);
-  PCHECK(sys_getresgid(&rgid, &egid, &sgid) == 0);
-  const bool uids_are_equal = (ruid == euid) && (ruid == suid);
-  const bool gids_are_equal = (rgid == egid) && (rgid == sgid);
-  if (!uids_are_equal || !gids_are_equal) return false;
-  if (resuid) *resuid = euid;
-  if (resgid) *resgid = egid;
-  return true;
-}
 
 const int kExitSuccess = 0;
 
@@ -132,10 +114,10 @@ bool ChrootToSafeEmptyDir() {
 void CheckCloneNewUserErrno(int error) {
   // EPERM can happen if already in a chroot. EUSERS if too many nested
   // namespaces are used. EINVAL for kernels that don't support the feature.
-  // Valgrind will ENOSYS unshare().  ENOSPC can occur when the system has
-  // reached its maximum configured number of user namespaces.
+  // ENOSPC can occur when the system has reached its maximum configured
+  // number of user namespaces.
   PCHECK(error == EPERM || error == EUSERS || error == EINVAL ||
-         error == ENOSYS || error == ENOSPC);
+         error == ENOSPC);
 }
 
 // Converts a Capability to the corresponding Linux CAP_XXX value.
@@ -151,11 +133,29 @@ int CapabilityToKernelValue(Credentials::Capability cap) {
   return 0;
 }
 
-bool SetGidAndUidMaps(gid_t gid, uid_t uid) {
+}  // namespace.
+
+// static
+bool Credentials::GetRESIds(uid_t* resuid, gid_t* resgid) {
+  uid_t ruid, euid, suid;
+  gid_t rgid, egid, sgid;
+  PCHECK(sys_getresuid(&ruid, &euid, &suid) == 0);
+  PCHECK(sys_getresgid(&rgid, &egid, &sgid) == 0);
+  const bool uids_are_equal = (ruid == euid) && (ruid == suid);
+  const bool gids_are_equal = (rgid == egid) && (rgid == sgid);
+  if (!uids_are_equal || !gids_are_equal) return false;
+  if (resuid) *resuid = euid;
+  if (resgid) *resgid = egid;
+  return true;
+}
+
+// static
+bool Credentials::SetGidAndUidMaps(gid_t gid, uid_t uid) {
   const char kGidMapFile[] = "/proc/self/gid_map";
   const char kUidMapFile[] = "/proc/self/uid_map";
-  if (NamespaceUtils::KernelSupportsDenySetgroups()) {
-    PCHECK(NamespaceUtils::DenySetgroups());
+  if (NamespaceUtils::KernelSupportsDenySetgroups() &&
+      !NamespaceUtils::DenySetgroups()) {
+    return false;
   }
   DCHECK(GetRESIds(NULL, NULL));
   if (!NamespaceUtils::WriteToIdMapFile(kGidMapFile, gid) ||
@@ -165,8 +165,6 @@ bool SetGidAndUidMaps(gid_t gid, uid_t uid) {
   DCHECK(GetRESIds(NULL, NULL));
   return true;
 }
-
-}  // namespace.
 
 // static
 bool Credentials::DropAllCapabilities(int proc_fd) {
@@ -257,12 +255,6 @@ bool Credentials::HasCapability(Capability cap) {
 
 // static
 bool Credentials::CanCreateProcessInNewUserNS() {
-  // Valgrind will let clone(2) pass-through, but doesn't support unshare(),
-  // so always consider UserNS unsupported there.
-  if (IsRunningOnValgrind()) {
-    return false;
-  }
-
 #if defined(THREAD_SANITIZER)
   // With TSAN, processes will always have threads running and can never
   // enter a new user namespace with MoveToNewUserNS().

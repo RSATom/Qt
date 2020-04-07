@@ -22,9 +22,8 @@ CryptohomeWebUIHandler::~CryptohomeWebUIHandler() {}
 
 void CryptohomeWebUIHandler::RegisterMessages() {
   web_ui()->RegisterMessageCallback(
-      "pageLoaded",
-      base::Bind(&CryptohomeWebUIHandler::OnPageLoaded,
-                 weak_ptr_factory_.GetWeakPtr()));
+      "pageLoaded", base::BindRepeating(&CryptohomeWebUIHandler::OnPageLoaded,
+                                        weak_ptr_factory_.GetWeakPtr()));
 }
 
 void CryptohomeWebUIHandler::OnPageLoaded(const base::ListValue* args) {
@@ -56,21 +55,16 @@ void CryptohomeWebUIHandler::DidGetNSSUtilInfoOnUIThread(
   SetCryptohomeProperty("is-tpm-token-ready", is_tpm_token_ready_value);
 }
 
-BoolDBusMethodCallback CryptohomeWebUIHandler::GetCryptohomeBoolCallback(
+DBusMethodCallback<bool> CryptohomeWebUIHandler::GetCryptohomeBoolCallback(
     const std::string& destination_id) {
-  return base::Bind(&CryptohomeWebUIHandler::OnCryptohomeBoolProperty,
-                    weak_ptr_factory_.GetWeakPtr(),
-                    destination_id);
+  return base::BindOnce(&CryptohomeWebUIHandler::OnCryptohomeBoolProperty,
+                        weak_ptr_factory_.GetWeakPtr(), destination_id);
 }
 
 void CryptohomeWebUIHandler::OnCryptohomeBoolProperty(
     const std::string& destination_id,
-    DBusMethodCallStatus call_status,
-    bool value) {
-  if (call_status != DBUS_METHOD_CALL_SUCCESS)
-    value = false;
-  base::Value fundamental_value(value);
-  SetCryptohomeProperty(destination_id, fundamental_value);
+    base::Optional<bool> result) {
+  SetCryptohomeProperty(destination_id, base::Value(result.value_or(false)));
 }
 
 void CryptohomeWebUIHandler::SetCryptohomeProperty(

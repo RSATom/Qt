@@ -55,9 +55,9 @@
 
 #include <QtCore/QDebug>
 
-QT_BEGIN_NAMESPACE
+QT_REQUIRE_CONFIG(draganddrop);
 
-#ifndef QT_NO_DRAGANDDROP
+QT_BEGIN_NAMESPACE
 
 class QWindow;
 class QPlatformWindow;
@@ -78,14 +78,15 @@ public:
 
     void startDrag() override;
     void cancel() override;
-    void move(const QPoint &globalPos) override;
-    void drop(const QPoint &globalPos) override;
+    void move(const QPoint &globalPos, Qt::MouseButtons b, Qt::KeyboardModifiers mods) override;
+    void drop(const QPoint &globalPos, Qt::MouseButtons b, Qt::KeyboardModifiers mods) override;
     void endDrag() override;
 
     void handleEnter(QPlatformWindow *window, const xcb_client_message_event_t *event, xcb_window_t proxy = 0);
     void handlePosition(QPlatformWindow *w, const xcb_client_message_event_t *event);
     void handleLeave(QPlatformWindow *w, const xcb_client_message_event_t *event);
-    void handleDrop(QPlatformWindow *, const xcb_client_message_event_t *event);
+    void handleDrop(QPlatformWindow *, const xcb_client_message_event_t *event,
+                    Qt::MouseButtons b = 0, Qt::KeyboardModifiers mods = 0);
 
     void handleStatus(const xcb_client_message_event_t *event);
     void handleSelectionRequest(const xcb_selection_request_event_t *event);
@@ -100,12 +101,15 @@ public:
 protected:
     void timerEvent(QTimerEvent* e) override;
 
+    bool findXdndAwareTarget(const QPoint &globalPos, xcb_window_t *target_out);
+
 private:
     friend class QXcbDropData;
 
     void init();
 
-    void handle_xdnd_position(QPlatformWindow *w, const xcb_client_message_event_t *event);
+    void handle_xdnd_position(QPlatformWindow *w, const xcb_client_message_event_t *event,
+                              Qt::MouseButtons b = 0, Qt::KeyboardModifiers mods = 0);
     void handle_xdnd_status(const xcb_client_message_event_t *event);
     void send_leave();
 
@@ -138,6 +142,9 @@ private:
     // helpers for setting executed drop action outside application
     bool dropped;
     bool canceled;
+
+    // A window from Unity DnD Manager, which does not respect the XDnD spec
+    xcb_window_t xdndCollectionWindow = XCB_NONE;
 
     // top-level window we sent position to last.
     xcb_window_t current_target;
@@ -172,8 +179,6 @@ private:
     xcb_window_t findRealWindow(const QPoint & pos, xcb_window_t w, int md, bool ignoreNonXdndAwareWindows);
 };
 Q_DECLARE_TYPEINFO(QXcbDrag::Transaction, Q_MOVABLE_TYPE);
-
-#endif // QT_NO_DRAGANDDROP
 
 QT_END_NAMESPACE
 

@@ -10,7 +10,7 @@
 #include <memory>
 #include <vector>
 
-#include "core/fxcrt/cfx_unowned_ptr.h"
+#include "core/fxcrt/unowned_ptr.h"
 #include "core/fxge/cfx_renderdevice.h"
 #include "fxbarcode/BC_Library.h"
 #include "fxbarcode/BC_Writer.h"
@@ -24,13 +24,12 @@ class CBC_OneDimWriter : public CBC_Writer {
   CBC_OneDimWriter();
   ~CBC_OneDimWriter() override;
 
-  virtual bool RenderResult(const CFX_WideStringC& contents,
+  virtual bool RenderResult(const WideStringView& contents,
                             uint8_t* code,
-                            int32_t codeLength,
-                            bool isDevice);
-  virtual bool CheckContentValidity(const CFX_WideStringC& contents) = 0;
-  virtual CFX_WideString FilterContents(const CFX_WideStringC& contents) = 0;
-  virtual CFX_WideString RenderTextContents(const CFX_WideStringC& contents);
+                            int32_t codeLength);
+  virtual bool CheckContentValidity(const WideStringView& contents) = 0;
+  virtual WideString FilterContents(const WideStringView& contents) = 0;
+  virtual WideString RenderTextContents(const WideStringView& contents);
   virtual void SetPrintChecksum(bool checksum);
   virtual void SetDataLength(int32_t length);
   virtual void SetCalcChecksum(bool state);
@@ -38,37 +37,37 @@ class CBC_OneDimWriter : public CBC_Writer {
   virtual void SetFontStyle(int32_t style);
   virtual void SetFontColor(FX_ARGB color);
 
-  uint8_t* Encode(const CFX_ByteString& contents,
+  uint8_t* Encode(const ByteString& contents,
                   BCFORMAT format,
                   int32_t& outWidth,
                   int32_t& outHeight);
   bool RenderDeviceResult(CFX_RenderDevice* device,
                           const CFX_Matrix* matrix,
-                          const CFX_WideStringC& contents);
+                          const WideStringView& contents);
   bool SetFont(CFX_Font* cFont);
 
  protected:
-  virtual uint8_t* EncodeWithHint(const CFX_ByteString& contents,
+  virtual uint8_t* EncodeWithHint(const ByteString& contents,
                                   BCFORMAT format,
                                   int32_t& outWidth,
                                   int32_t& outHeight,
                                   int32_t hints);
-  virtual uint8_t* EncodeImpl(const CFX_ByteString& contents,
+  virtual uint8_t* EncodeImpl(const ByteString& contents,
                               int32_t& outLength) = 0;
-  virtual void CalcTextInfo(const CFX_ByteString& text,
+  virtual void CalcTextInfo(const ByteString& text,
                             FXTEXT_CHARPOS* charPos,
                             CFX_Font* cFont,
                             float geWidth,
                             int32_t fontSize,
                             float& charsLen);
-  virtual bool ShowChars(const CFX_WideStringC& contents,
+  virtual bool ShowChars(const WideStringView& contents,
                          CFX_RenderDevice* device,
                          const CFX_Matrix* matrix,
                          int32_t barWidth,
                          int32_t multiple);
   virtual void ShowDeviceChars(CFX_RenderDevice* device,
                                const CFX_Matrix* matrix,
-                               const CFX_ByteString str,
+                               const ByteString str,
                                float geWidth,
                                FXTEXT_CHARPOS* pCharPos,
                                float locX,
@@ -87,12 +86,12 @@ class CBC_OneDimWriter : public CBC_Writer {
   bool m_bPrintChecksum;
   int32_t m_iDataLenth;
   bool m_bCalcChecksum;
-  CFX_UnownedPtr<CFX_Font> m_pFont;
+  UnownedPtr<CFX_Font> m_pFont;
   float m_fFontSize;
   int32_t m_iFontStyle;
   uint32_t m_fontColor;
   BC_TEXT_LOC m_locTextLoc;
-  int32_t m_iContentLen;
+  size_t m_iContentLen;
   bool m_bLeftPadding;
   bool m_bRightPadding;
   std::vector<CFX_PathData> m_output;

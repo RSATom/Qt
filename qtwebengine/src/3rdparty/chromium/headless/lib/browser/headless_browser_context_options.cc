@@ -14,11 +14,7 @@ namespace {
 template <class T>
 const T& ReturnOverriddenValue(const base::Optional<T>& value,
                                const T& default_value) {
-  if (value) {
-    return *value;
-  } else {
-    return default_value;
-  }
+  return value ? *value : default_value;
 }
 
 }  // namespace
@@ -41,8 +37,13 @@ const std::string& HeadlessBrowserContextOptions::product_name_and_version()
                                browser_options_->product_name_and_version);
 }
 
+const std::string& HeadlessBrowserContextOptions::accept_language() const {
+  return ReturnOverriddenValue(accept_language_,
+                               browser_options_->accept_language);
+}
+
 const std::string& HeadlessBrowserContextOptions::user_agent() const {
-  return browser_options_->user_agent;
+  return ReturnOverriddenValue(user_agent_, browser_options_->user_agent);
 }
 
 const net::ProxyConfig* HeadlessBrowserContextOptions::proxy_config() const {
@@ -69,7 +70,17 @@ bool HeadlessBrowserContextOptions::incognito_mode() const {
                                browser_options_->incognito_mode);
 }
 
-const base::Callback<void(WebPreferences*)>&
+bool HeadlessBrowserContextOptions::site_per_process() const {
+  return ReturnOverriddenValue(site_per_process_,
+                               browser_options_->site_per_process);
+}
+
+bool HeadlessBrowserContextOptions::block_new_web_contents() const {
+  return ReturnOverriddenValue(block_new_web_contents_,
+                               browser_options_->block_new_web_contents);
+}
+
+base::RepeatingCallback<void(WebPreferences*)>
 HeadlessBrowserContextOptions::override_web_preferences_callback() const {
   return ReturnOverriddenValue(
       override_web_preferences_callback_,
@@ -83,6 +94,12 @@ const ProtocolHandlerMap& HeadlessBrowserContextOptions::protocol_handlers()
 
 ProtocolHandlerMap HeadlessBrowserContextOptions::TakeProtocolHandlers() {
   return std::move(protocol_handlers_);
+}
+
+gfx::FontRenderParams::Hinting
+HeadlessBrowserContextOptions::font_render_hinting() const {
+  return ReturnOverriddenValue(font_render_hinting_,
+                               browser_options_->font_render_hinting);
 }
 
 }  // namespace headless

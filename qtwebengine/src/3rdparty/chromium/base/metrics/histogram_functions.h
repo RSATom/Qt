@@ -34,19 +34,43 @@ BASE_EXPORT void UmaHistogramExactLinear(const std::string& name,
                                          int sample,
                                          int value_max);
 
-// For adding sample to enum histogram.
+// For adding a sample to an enumerated histogram.
 // Sample usage:
-//   base::UmaHistogramEnumeration("My.Enumeration", VALUE, EVENT_MAX_VALUE);
-// Note that new Enum values can be added, but existing enums must never be
-// renumbered or deleted and reused.
+//   // These values are persisted to logs. Entries should not be renumbered and
+//   // numeric values should never be reused.
+//   enum class MyEnum {
+//     FIRST_VALUE = 0,
+//     SECOND_VALUE = 1,
+//     ...
+//     FINAL_VALUE = N,
+//     COUNT
+//   };
+//   base::UmaHistogramEnumeration("My.Enumeration",
+//                                 MyEnum::SOME_VALUE, MyEnum::COUNT);
+//
+// Note: The value in |sample| must be strictly less than |enum_size|.
 template <typename T>
-void UmaHistogramEnumeration(const std::string& name, T sample, T max) {
+void UmaHistogramEnumeration(const std::string& name, T sample, T enum_size) {
   static_assert(std::is_enum<T>::value,
                 "Non enum passed to UmaHistogramEnumeration");
-  DCHECK_LE(static_cast<uintmax_t>(max), static_cast<uintmax_t>(INT_MAX));
-  DCHECK_LE(static_cast<uintmax_t>(sample), static_cast<uintmax_t>(max));
+  DCHECK_LE(static_cast<uintmax_t>(enum_size), static_cast<uintmax_t>(INT_MAX));
+  DCHECK_LT(static_cast<uintmax_t>(sample), static_cast<uintmax_t>(enum_size));
   return UmaHistogramExactLinear(name, static_cast<int>(sample),
-                                 static_cast<int>(max));
+                                 static_cast<int>(enum_size));
+}
+
+// Same as above, but uses T::kMaxValue as the inclusive maximum value of the
+// enum.
+template <typename T>
+void UmaHistogramEnumeration(const std::string& name, T sample) {
+  static_assert(std::is_enum<T>::value,
+                "Non enum passed to UmaHistogramEnumeration");
+  DCHECK_LE(static_cast<uintmax_t>(T::kMaxValue),
+            static_cast<uintmax_t>(INT_MAX) - 1);
+  DCHECK_LE(static_cast<uintmax_t>(sample),
+            static_cast<uintmax_t>(T::kMaxValue));
+  return UmaHistogramExactLinear(name, static_cast<int>(sample),
+                                 static_cast<int>(T::kMaxValue) + 1);
 }
 
 // For adding boolean sample to histogram.
@@ -95,8 +119,39 @@ BASE_EXPORT void UmaHistogramLongTimes(const std::string& name,
 // For recording memory related histograms.
 // Used to measure common KB-granularity memory stats. Range is up to 500M.
 BASE_EXPORT void UmaHistogramMemoryKB(const std::string& name, int sample);
+// Used to measure common MB-granularity memory stats. Range is up to ~1G.
+BASE_EXPORT void UmaHistogramMemoryMB(const std::string& name, int sample);
 // Used to measure common MB-granularity memory stats. Range is up to ~64G.
 BASE_EXPORT void UmaHistogramMemoryLargeMB(const std::string& name, int sample);
+
+// For recording sparse histograms.
+// The |sample| can be a negative or non-negative number.
+//
+// Sparse histograms are well suited for recording counts of exact sample values
+// that are sparsely distributed over a relatively large range, in cases where
+// ultra-fast performance is not critical. For instance, Sqlite.Version.* are
+// sparse because for any given database, there's going to be exactly one
+// version logged.
+//
+// Performance:
+// ------------
+// Sparse histograms are typically more memory-efficient but less time-efficient
+// than other histograms. Essentially, they sparse histograms use a map rather
+// than a vector for their backing storage; they also require lock acquisition
+// to increment a sample, whereas other histogram do not. Hence, each increment
+// operation is a bit slower than for other histograms. But, if the data is
+// sparse, then they use less memory client-side, because they allocate buckets
+// on demand rather than preallocating.
+//
+// Data size:
+// ----------
+// Note that server-side, we still need to load all buckets, across all users,
+// at once. Thus, please avoid exploding such histograms, i.e. uploading many
+// many distinct values to the server (across all users). Concretely, keep the
+// number of distinct values <= 100 ideally, definitely <= 1000. If you have no
+// guarantees on the range of your data, use clamping, e.g.:
+//   UmaHistogramSparse("MyHistogram", ClampToRange(value, 0, 200));
+BASE_EXPORT void UmaHistogramSparse(const std::string& name, int sample);
 
 }  // namespace base
 

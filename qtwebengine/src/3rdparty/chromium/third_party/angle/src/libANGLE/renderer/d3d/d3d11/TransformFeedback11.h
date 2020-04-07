@@ -11,9 +11,10 @@
 
 #include "common/platform.h"
 
-#include "libANGLE/angletypes.h"
 #include "libANGLE/Error.h"
+#include "libANGLE/angletypes.h"
 #include "libANGLE/renderer/TransformFeedbackImpl.h"
+#include "libANGLE/renderer/renderer_utils.h"
 
 namespace rx
 {
@@ -26,7 +27,7 @@ class TransformFeedback11 : public TransformFeedbackImpl
     TransformFeedback11(const gl::TransformFeedbackState &state, Renderer11 *renderer);
     ~TransformFeedback11() override;
 
-    void begin(GLenum primitiveMode) override;
+    void begin(gl::PrimitiveMode primitiveMode) override;
     void end() override;
     void pause() override;
     void resume() override;
@@ -40,8 +41,10 @@ class TransformFeedback11 : public TransformFeedbackImpl
     bool isDirty() const;
 
     UINT getNumSOBuffers() const;
-    gl::ErrorOrResult<const std::vector<ID3D11Buffer *> *> getSOBuffers();
+    gl::ErrorOrResult<const std::vector<ID3D11Buffer *> *> getSOBuffers(const gl::Context *context);
     const std::vector<UINT> &getSOBufferOffsets() const;
+
+    Serial getSerial() const;
 
   private:
     Renderer11 *mRenderer;
@@ -49,6 +52,8 @@ class TransformFeedback11 : public TransformFeedbackImpl
     bool mIsDirty;
     std::vector<ID3D11Buffer *> mBuffers;
     std::vector<UINT> mBufferOffsets;
+
+    Serial mSerial;
 };
 }  // namespace rx
 

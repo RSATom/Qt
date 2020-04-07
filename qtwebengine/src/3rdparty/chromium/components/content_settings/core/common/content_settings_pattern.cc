@@ -10,7 +10,6 @@
 #include <vector>
 
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "components/content_settings/core/common/content_settings_pattern_parser.h"
@@ -19,18 +18,17 @@
 
 namespace {
 
-// The component supports only one scheme for simplicity.
-const char* non_port_non_domain_wildcard_scheme = NULL;
+// Array of non domain wildcard and non-port scheme names, and their count.
+const char* const* g_non_domain_wildcard_non_port_schemes = nullptr;
+size_t g_non_domain_wildcard_non_port_schemes_count = 0;
 
 // Keep it consistent with enum SchemeType in content_settings_pattern.h.
-const char* const kSchemeNames[] = {
-  "wildcard",
-  "other",
-  url::kHttpScheme,
-  url::kHttpsScheme,
-  url::kFileScheme,
-  "chrome-extension",
-};
+// TODO(msramek): Layering violation: assemble this array from hardcoded
+// schemes and those injected via |SetNonWildcardDomainNonPortSchemes()|.
+const char* const kSchemeNames[] = {"wildcard",       "other",
+                                    url::kHttpScheme, url::kHttpsScheme,
+                                    url::kFileScheme, "chrome-extension",
+                                    "chrome-search"};
 
 static_assert(arraysize(kSchemeNames) == ContentSettingsPattern::SCHEME_MAX,
               "kSchemeNames should have SCHEME_MAX elements");
@@ -101,7 +99,7 @@ typedef ContentSettingsPattern::BuilderInterface BuilderInterface;
 class ContentSettingsPattern::Builder :
     public ContentSettingsPattern::BuilderInterface {
  public:
-  explicit Builder();
+  Builder();
   ~Builder() override;
 
   // BuilderInterface:
@@ -264,7 +262,8 @@ bool ContentSettingsPattern::Builder::Validate(const PatternParts& parts) {
             parts.path.find("*") == std::string::npos);
   }
 
-  // If the pattern is for an extension URL test if it is valid.
+  // If the pattern is for a URL with a non-wildcard domain without a port,
+  // test if it is valid.
   if (IsNonWildcardDomainNonPortScheme(parts.scheme) &&
       parts.port.empty() &&
       !parts.is_port_wildcard) {
@@ -322,7 +321,7 @@ const int ContentSettingsPattern::kContentSettingsPatternVersion = 1;
 
 // static
 std::unique_ptr<BuilderInterface> ContentSettingsPattern::CreateBuilder() {
-  return base::MakeUnique<Builder>();
+  return std::make_unique<Builder>();
 }
 
 // static
@@ -402,71 +401,32 @@ ContentSettingsPattern ContentSettingsPattern::FromString(
 }
 
 // static
-bool ContentSettingsPattern::MigrateFromDomainToOrigin(
-    const ContentSettingsPattern& domain_pattern,
-    ContentSettingsPattern* origin_pattern) {
-  DCHECK(origin_pattern);
-
-  // Generated patterns with ::FromURL (which we want to migrate) must either
-  // have a scheme wildcard or be https.
-  if (domain_pattern.parts_.scheme != url::kHttpsScheme &&
-      !domain_pattern.parts_.is_scheme_wildcard) {
-    return false;
-  }
-
-  // Generated patterns using ::FromURL with the HTTPs scheme can not have a
-  // port wildcard.
-  if (domain_pattern.parts_.is_port_wildcard &&
-      domain_pattern.parts_.scheme == url::kHttpsScheme) {
-    return false;
-  }
-
-  // Patterns generated with ::FromURL will always have a domain wildcard. Those
-  // generated with ::FromURLNoWildcard don't.
-  if (!domain_pattern.parts_.has_domain_wildcard)
-    return false;
-
-  // Generated patterns with ::FromURL will always have a host.
-  if (domain_pattern.parts_.host.empty())
-    return false;
-
-  ContentSettingsPattern::Builder builder;
-  if (domain_pattern.parts_.is_scheme_wildcard)
-    builder.WithScheme(url::kHttpScheme);
-  else
-    builder.WithScheme(domain_pattern.parts_.scheme);
-
-  builder.WithHost(domain_pattern.parts_.host);
-
-  if (domain_pattern.parts_.is_port_wildcard) {
-    if (domain_pattern.parts_.scheme == url::kHttpsScheme) {
-      builder.WithPort(GetDefaultPort(url::kHttpsScheme));
-    } else {
-      builder.WithPort(GetDefaultPort(url::kHttpScheme));
+void ContentSettingsPattern::SetNonWildcardDomainNonPortSchemes(
+    const char* const* schemes,
+    size_t count) {
+  DCHECK(schemes || count == 0);
+  if (g_non_domain_wildcard_non_port_schemes) {
+    DCHECK_EQ(g_non_domain_wildcard_non_port_schemes_count, count);
+    for (size_t i = 0; i < count; ++i) {
+      DCHECK_EQ(g_non_domain_wildcard_non_port_schemes[i], schemes[i]);
     }
-  } else {
-    builder.WithPort(domain_pattern.parts_.port);
   }
 
-  *origin_pattern = builder.Build();
-
-  return true;
-}
-
-// static
-void ContentSettingsPattern::SetNonWildcardDomainNonPortScheme(
-    const char* scheme) {
-  DCHECK(scheme);
-  DCHECK(!non_port_non_domain_wildcard_scheme ||
-         non_port_non_domain_wildcard_scheme == scheme);
-  non_port_non_domain_wildcard_scheme = scheme;
+  g_non_domain_wildcard_non_port_schemes = schemes;
+  g_non_domain_wildcard_non_port_schemes_count = count;
 }
 
 // static
 bool ContentSettingsPattern::IsNonWildcardDomainNonPortScheme(
     const std::string& scheme) {
-  DCHECK(non_port_non_domain_wildcard_scheme);
-  return scheme == non_port_non_domain_wildcard_scheme;
+  DCHECK(g_non_domain_wildcard_non_port_schemes ||
+         g_non_domain_wildcard_non_port_schemes_count == 0);
+  for (size_t i = 0; i < g_non_domain_wildcard_non_port_schemes_count; ++i) {
+    if (g_non_domain_wildcard_non_port_schemes[i] == scheme) {
+      return true;
+    }
+  }
+  return false;
 }
 
 ContentSettingsPattern::ContentSettingsPattern()
@@ -547,8 +507,7 @@ bool ContentSettingsPattern::MatchesAllHosts() const {
 std::string ContentSettingsPattern::ToString() const {
   if (IsValid())
     return content_settings::PatternParser::ToString(parts_);
-  else
-    return std::string();
+  return std::string();
 }
 
 ContentSettingsPattern::SchemeType ContentSettingsPattern::GetScheme() const {
@@ -560,6 +519,10 @@ ContentSettingsPattern::SchemeType ContentSettingsPattern::GetScheme() const {
       return static_cast<SchemeType>(i);
   }
   return SCHEME_OTHER;
+}
+
+const std::string& ContentSettingsPattern::GetHost() const {
+  return parts_.host;
 }
 
 bool ContentSettingsPattern::HasPath() const {
@@ -660,7 +623,8 @@ ContentSettingsPattern::Relation ContentSettingsPattern::CompareHost(
     if (result < 0)
       return ContentSettingsPattern::DISJOINT_ORDER_PRE;
     return ContentSettingsPattern::DISJOINT_ORDER_POST;
-  } else if (parts.has_domain_wildcard && !other_parts.has_domain_wildcard) {
+  }
+  if (parts.has_domain_wildcard && !other_parts.has_domain_wildcard) {
     // Case 2: |host| starts with a domain wildcard and |other_host| does not
     // start with a domain wildcard.
     // Examples:
@@ -681,24 +645,22 @@ ContentSettingsPattern::Relation ContentSettingsPattern::CompareHost(
     //
     // *
     // google.de
-    if (IsSubDomainOrEqual(other_parts.host, parts.host)) {
+    if (IsSubDomainOrEqual(other_parts.host, parts.host))
       return ContentSettingsPattern::SUCCESSOR;
-    } else {
-       if (CompareDomainNames(parts.host, other_parts.host) < 0)
-         return ContentSettingsPattern::DISJOINT_ORDER_PRE;
-       return ContentSettingsPattern::DISJOINT_ORDER_POST;
-    }
-  } else if (!parts.has_domain_wildcard && other_parts.has_domain_wildcard) {
+    if (CompareDomainNames(parts.host, other_parts.host) < 0)
+      return ContentSettingsPattern::DISJOINT_ORDER_PRE;
+    return ContentSettingsPattern::DISJOINT_ORDER_POST;
+  }
+  if (!parts.has_domain_wildcard && other_parts.has_domain_wildcard) {
     // Case 3: |host| starts NOT with a domain wildcard and |other_host| starts
     // with a domain wildcard.
-    if (IsSubDomainOrEqual(parts.host, other_parts.host)) {
+    if (IsSubDomainOrEqual(parts.host, other_parts.host))
       return ContentSettingsPattern::PREDECESSOR;
-    } else {
-      if (CompareDomainNames(parts.host, other_parts.host) < 0)
-        return ContentSettingsPattern::DISJOINT_ORDER_PRE;
-      return ContentSettingsPattern::DISJOINT_ORDER_POST;
-    }
-  } else if (parts.has_domain_wildcard && other_parts.has_domain_wildcard) {
+    if (CompareDomainNames(parts.host, other_parts.host) < 0)
+      return ContentSettingsPattern::DISJOINT_ORDER_PRE;
+    return ContentSettingsPattern::DISJOINT_ORDER_POST;
+  }
+  if (parts.has_domain_wildcard && other_parts.has_domain_wildcard) {
     // Case 4: |host| and |other_host| both start with a domain wildcard.
     // Examples:
     // [*.]google.com
@@ -718,17 +680,15 @@ ContentSettingsPattern::Relation ContentSettingsPattern::CompareHost(
     //
     // *
     // [*.]youtube.com
-    if (parts.host == other_parts.host) {
+    if (parts.host == other_parts.host)
       return ContentSettingsPattern::IDENTITY;
-    } else if (IsSubDomainOrEqual(other_parts.host, parts.host)) {
+    if (IsSubDomainOrEqual(other_parts.host, parts.host))
       return ContentSettingsPattern::SUCCESSOR;
-    } else if (IsSubDomainOrEqual(parts.host, other_parts.host)) {
+    if (IsSubDomainOrEqual(parts.host, other_parts.host))
       return ContentSettingsPattern::PREDECESSOR;
-    } else {
-      if (CompareDomainNames(parts.host, other_parts.host) < 0)
-        return ContentSettingsPattern::DISJOINT_ORDER_PRE;
-      return ContentSettingsPattern::DISJOINT_ORDER_POST;
-    }
+    if (CompareDomainNames(parts.host, other_parts.host) < 0)
+      return ContentSettingsPattern::DISJOINT_ORDER_PRE;
+    return ContentSettingsPattern::DISJOINT_ORDER_POST;
   }
 
   NOTREACHED();

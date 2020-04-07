@@ -30,6 +30,7 @@ using base::android::JavaRef;
 using base::android::ScopedJavaLocalRef;
 using base::android::SDK_VERSION_JELLY_BEAN_MR2;
 using base::android::SDK_VERSION_KITKAT;
+using base::android::SDK_VERSION_LOLLIPOP;
 using base::android::SDK_VERSION_LOLLIPOP_MR1;
 
 namespace media {
@@ -50,7 +51,7 @@ const char kVp9MimeType[] = "video/x-vnd.on2.vp9";
 
 static CodecProfileLevel MediaCodecProfileLevelToChromiumProfileLevel(
     JNIEnv* env,
-    const jobject& j_codec_profile_level) {
+    const JavaRef<jobject>& j_codec_profile_level) {
   VideoCodec codec = static_cast<VideoCodec>(
       Java_CodecProfileLevelAdapter_getCodec(env, j_codec_profile_level));
   VideoCodecProfile profile = static_cast<VideoCodecProfile>(
@@ -184,6 +185,11 @@ bool MediaCodecUtil::IsMediaCodecAvailableFor(int sdk, const char* model) {
       {"GT-N5110", SDK_VERSION_JELLY_BEAN_MR2},
       {"e-tab4", SDK_VERSION_JELLY_BEAN_MR2},
       {"GT-I8200Q", SDK_VERSION_JELLY_BEAN_MR2},
+
+      // crbug.com/693216
+      {"GT-I8552B", SDK_VERSION_JELLY_BEAN_MR2},
+      {"GT-I8262", SDK_VERSION_JELLY_BEAN_MR2},
+      {"GT-I8262B", SDK_VERSION_JELLY_BEAN_MR2},
   };
 
   const auto iter =
@@ -193,8 +199,9 @@ bool MediaCodecUtil::IsMediaCodecAvailableFor(int sdk, const char* model) {
 
 // static
 bool MediaCodecUtil::SupportsSetParameters() {
-  // MediaCodec.setParameters() is only available starting with K.
-  return base::android::BuildInfo::GetInstance()->sdk_int() >= 19;
+  // MediaCodec.setParameters() is only available starting with KitKat.
+  return base::android::BuildInfo::GetInstance()->sdk_int() >=
+         SDK_VERSION_KITKAT;
 }
 
 // static
@@ -258,8 +265,8 @@ bool MediaCodecUtil::AddSupportedCodecProfileLevels(
       Java_MediaCodecUtil_getSupportedCodecProfileLevels(env));
   int java_array_length = env->GetArrayLength(j_codec_profile_levels.obj());
   for (int i = 0; i < java_array_length; ++i) {
-    const jobject& java_codec_profile_level =
-        env->GetObjectArrayElement(j_codec_profile_levels.obj(), i);
+    ScopedJavaLocalRef<jobject> java_codec_profile_level(
+        env, env->GetObjectArrayElement(j_codec_profile_levels.obj(), i));
     result->push_back(MediaCodecProfileLevelToChromiumProfileLevel(
         env, java_codec_profile_level));
   }
@@ -287,7 +294,8 @@ bool MediaCodecUtil::IsKnownUnaccelerated(VideoCodec codec,
       return true;
 
     if (codec == kCodecVP9)
-      return base::android::BuildInfo::GetInstance()->sdk_int() < 21;
+      return base::android::BuildInfo::GetInstance()->sdk_int() <
+             SDK_VERSION_LOLLIPOP;
 
     return false;
   }

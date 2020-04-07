@@ -40,36 +40,39 @@
 # In case of Linux, we expect to get the values as args
 set -e
 
+# shellcheck source=./check_and_set_proxy.sh
 source "${BASH_SOURCE%/*}/check_and_set_proxy.sh"
+# shellcheck source=./SetEnvVar.sh
+source "${BASH_SOURCE%/*}/SetEnvVar.sh"
+# shellcheck source=./DownloadURL.sh
+source "${BASH_SOURCE%/*}/DownloadURL.sh"
 
-BASEDIR=$(dirname "$0")
-. $BASEDIR/../shared/sw_versions.txt
-url=$1
-sha1=$2
-version=$3
-if [ $# -eq 0 ]
-  then
-    # The default values are for macOS package
-    echo "Using macOS defaults"
+libclang_version=6.0
+
+if uname -a |grep -q Darwin; then
     version=$libclang_version
-    url="https://download.qt.io/development_releases/prebuilt/libclang/libclang-release_${version//\./}-mac.7z"
-    sha1="4781d154b274b2aec99b878c364f0ea80ff00a80"
+    url="https://download.qt.io/development_releases/prebuilt/libclang/qt/libclang-release_${version//\./}-mac.7z"
+    url_cached="http://ci-files01-hki.intra.qt.io/input/libclang/qt/libclang-release_${version//\./}-mac.7z"
+    sha1="0af8ab8c1174faf4b721d079587190fc32ea8364"
+else
+    version=$libclang_version
+    url="https://download.qt.io/development_releases/prebuilt/libclang/qt/libclang-release_${version//\./}-linux-Rhel7.2-gcc5.3-x86_64.7z"
+    url_cached="http://ci-files01-hki.intra.qt.io/input/libclang/qt/libclang-release_${version//\./}-linux-Rhel7.2-gcc5.3-x86_64.7z"
+    sha1="ef59b699f4fcce2e45108b3ff04cc7471c1c4abe"
 fi
 
-zip="libclang.7z"
+zip="/tmp/libclang.7z"
 destination="/usr/local/libclang-$version"
 
-curl --fail -L --retry 5 --retry-delay 5 -o "$zip" "$url"
-_shasum=sha1sum
-if [[ "$OSTYPE" == "darwin"* ]]; then
-    echo "DARWIN"
-    _shasum=/usr/bin/shasum
-fi
-echo "$sha1  $zip" | $_shasum --check
+DownloadURL $url_cached $url $sha1 $zip
 7z x $zip -o/tmp/
 rm -rf $zip
 
-sudo mv /tmp/libclang $destination
+sudo mv /tmp/libclang "$destination"
 
 echo "export LLVM_INSTALL_DIR=$destination" >> ~/.bash_profile
 echo "libClang = $version" >> ~/versions.txt
+
+# This is a hacked static build of libclang which requires special
+# handling on the qdoc side.
+SetEnvVar "QDOC_USE_STATIC_LIBCLANG" "1"

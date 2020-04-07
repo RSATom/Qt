@@ -16,9 +16,15 @@
 #include "content/public/browser/host_zoom_map.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
+#include "ppapi/buildflags/buildflags.h"
+#include "third_party/blink/public/mojom/quota/quota_types.mojom.h"
 
 class HostContentSettingsMap;
 class Profile;
+
+#if defined(OS_CHROMEOS)
+class PrefChangeRegistrar;
+#endif
 
 namespace base {
 class ListValue;
@@ -41,13 +47,20 @@ class SiteSettingsHandler : public SettingsPageUIHandler,
 
   // Usage info.
   void OnGetUsageInfo(const storage::UsageInfoEntries& entries);
-  void OnUsageInfoCleared(storage::QuotaStatusCode code);
+  void OnStorageCleared(base::OnceClosure callback,
+                        blink::mojom::QuotaStatusCode code);
+  void OnUsageCleared();
+
+#if defined(OS_CHROMEOS)
+  // Alert the Javascript that the |kEnableDRM| pref has changed.
+  void OnPrefEnableDrmChanged();
+#endif
 
   // content_settings::Observer:
   void OnContentSettingChanged(const ContentSettingsPattern& primary_pattern,
                                const ContentSettingsPattern& secondary_pattern,
                                ContentSettingsType content_type,
-                               std::string resource_identifier) override;
+                               const std::string& resource_identifier) override;
 
   // content::NotificationObserver:
   void Observe(int type,
@@ -59,13 +72,25 @@ class SiteSettingsHandler : public SettingsPageUIHandler,
 
  private:
   friend class SiteSettingsHandlerTest;
+  friend class SiteSettingsHandlerInfobarTest;
+#if BUILDFLAG(ENABLE_PLUGINS)
+  FRIEND_TEST_ALL_PREFIXES(SiteSettingsHandlerTest,
+                           ChangingFlashSettingForSiteIsRemembered);
+#endif
   FRIEND_TEST_ALL_PREFIXES(SiteSettingsHandlerTest, DefaultSettingSource);
-  FRIEND_TEST_ALL_PREFIXES(SiteSettingsHandlerTest, GetAndSetDefault);
-  FRIEND_TEST_ALL_PREFIXES(SiteSettingsHandlerTest, Origins);
   FRIEND_TEST_ALL_PREFIXES(SiteSettingsHandlerTest, ExceptionHelpers);
-  FRIEND_TEST_ALL_PREFIXES(SiteSettingsHandlerTest, Patterns);
+  FRIEND_TEST_ALL_PREFIXES(SiteSettingsHandlerTest, ExtensionDisplayName);
+  FRIEND_TEST_ALL_PREFIXES(SiteSettingsHandlerTest, GetAndSetDefault);
+  FRIEND_TEST_ALL_PREFIXES(SiteSettingsHandlerTest, GetAndSetOriginPermissions);
+  FRIEND_TEST_ALL_PREFIXES(SiteSettingsHandlerTest, GetAndSetForInvalidURLs);
   FRIEND_TEST_ALL_PREFIXES(SiteSettingsHandlerTest, Incognito);
+  FRIEND_TEST_ALL_PREFIXES(SiteSettingsHandlerTest, GetAllSites);
+  FRIEND_TEST_ALL_PREFIXES(SiteSettingsHandlerTest, Origins);
+  FRIEND_TEST_ALL_PREFIXES(SiteSettingsHandlerTest, Patterns);
   FRIEND_TEST_ALL_PREFIXES(SiteSettingsHandlerTest, ZoomLevels);
+  FRIEND_TEST_ALL_PREFIXES(SiteSettingsHandlerInfobarTest,
+                           SettingPermissionsTriggersInfobar);
+  FRIEND_TEST_ALL_PREFIXES(SiteSettingsHandlerTest, SessionOnlyException);
 
   // Asynchronously fetches the usage for a given origin. Replies back with
   // OnGetUsageInfo above.
@@ -84,16 +109,29 @@ class SiteSettingsHandler : public SettingsPageUIHandler,
   void HandleSetDefaultValueForContentType(const base::ListValue* args);
   void HandleGetDefaultValueForContentType(const base::ListValue* args);
 
+  // Returns a list of sites, grouped by their effective top level domain plus
+  // 1, affected by any of the content settings specified in |args|.
+  void HandleGetAllSites(const base::ListValue* args);
+
   // Returns the list of site exceptions for a given content settings type.
   void HandleGetExceptionList(const base::ListValue* args);
 
-  // Handles setting and resetting an origin permission.
-  void HandleResetCategoryPermissionForOrigin(const base::ListValue* args);
-  void HandleSetCategoryPermissionForOrigin(const base::ListValue* args);
-
-  // Retrieves the content settings for a given list of ContentSettingTypes for
-  // an origin.
+  // Gets and sets a list of ContentSettingTypes for an origin.
+  // TODO(https://crbug.com/739241): Investigate replacing the
+  // '*CategoryPermissionForPattern' equivalents below with these methods.
   void HandleGetOriginPermissions(const base::ListValue* args);
+  void HandleSetOriginPermissions(const base::ListValue* args);
+
+  // Clears the Flash data setting used to remember if the user has changed the
+  // Flash permission for an origin.
+  void HandleClearFlashPref(const base::ListValue* args);
+
+  // Handles setting and resetting an origin permission.
+  void HandleResetCategoryPermissionForPattern(const base::ListValue* args);
+  void HandleSetCategoryPermissionForPattern(const base::ListValue* args);
+
+  // Returns whether a given string is a valid origin.
+  void HandleIsOriginValid(const base::ListValue* args);
 
   // Returns whether a given pattern is valid.
   void HandleIsPatternValid(const base::ListValue* args);
@@ -129,6 +167,11 @@ class SiteSettingsHandler : public SettingsPageUIHandler,
 
   // Change observer for content settings.
   ScopedObserver<HostContentSettingsMap, content_settings::Observer> observer_;
+
+#if defined(OS_CHROMEOS)
+  // Change observer for prefs.
+  std::unique_ptr<PrefChangeRegistrar> pref_change_registrar_;
+#endif
 
   DISALLOW_COPY_AND_ASSIGN(SiteSettingsHandler);
 };

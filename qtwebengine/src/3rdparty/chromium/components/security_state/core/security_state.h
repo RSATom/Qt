@@ -11,6 +11,8 @@
 #include "base/callback.h"
 #include "base/feature_list.h"
 #include "base/macros.h"
+#include "components/security_state/core/insecure_input_event_data.h"
+#include "net/base/url_util.h"
 #include "net/cert/cert_status_flags.h"
 #include "net/cert/sct_status_flags.h"
 #include "net/cert/x509_certificate.h"
@@ -25,21 +27,20 @@
 // the form of a VisibleSecurityState struct.
 namespace security_state {
 
-// A feature for showing a warning in autofill dropdowns for password
-// and credit cards fields when the top-level page is not HTTPS.
-extern const base::Feature kHttpFormWarningFeature;
-
 // Describes the overall security state of the page.
 //
-// If you reorder, add, or delete values from this enum, you must also
-// update the UI icons in ToolbarModelImpl::GetIconForSecurityLevel.
+// These values are persisted to logs. Entries should not be renumbered and
+// numeric values should never be reused.
+//
+// If you change this enum, you may need to update the UI icons in
+// ToolbarModelImpl::GetVectorIcon and GetIconForSecurityState.
 //
 // A Java counterpart will be generated for this enum.
 // GENERATED_JAVA_ENUM_PACKAGE: org.chromium.components.security_state
 // GENERATED_JAVA_CLASS_NAME_OVERRIDE: ConnectionSecurityLevel
 enum SecurityLevel {
   // HTTP/no URL/HTTPS but with insecure passive content on the page.
-  NONE,
+  NONE = 0,
 
   // HTTP, in a case where we want to show a visible warning about the page's
   // lack of security.
@@ -47,25 +48,27 @@ enum SecurityLevel {
   // The criteria used to classify pages as NONE vs. HTTP_SHOW_WARNING will
   // change over time. Eventually, NONE will be eliminated.
   // See https://crbug.com/647754.
-  HTTP_SHOW_WARNING,
+  HTTP_SHOW_WARNING = 1,
 
   // HTTPS with valid EV cert.
-  EV_SECURE,
+  EV_SECURE = 2,
 
   // HTTPS (non-EV) with valid cert.
-  SECURE,
+  SECURE = 3,
 
-  // HTTPS, but with an outdated protocol version.
-  SECURITY_WARNING,
-
-  // HTTPS, but the certificate verification chain is anchored on a
-  // certificate that was installed by the system administrator.
-  SECURE_WITH_POLICY_INSTALLED_CERT,
+  // HTTPS, but a certificate chain anchored to a root certificate installed
+  // by the system administrator has been observed in this profile, suggesting
+  // a MITM was present.
+  //
+  // Used only on ChromeOS, this status is unreached on other platforms.
+  SECURE_WITH_POLICY_INSTALLED_CERT = 4,
 
   // Attempted HTTPS and failed, page not authenticated, HTTPS with
   // insecure active content on the page, malware, phishing, or any other
   // serious security issue that could be dangerous.
-  DANGEROUS,
+  DANGEROUS = 5,
+
+  SECURITY_LEVEL_COUNT
 };
 
 // The ContentStatus enum is used to describe content on the page that
@@ -87,6 +90,8 @@ enum MaliciousContentStatus {
   MALICIOUS_CONTENT_STATUS_MALWARE,
   MALICIOUS_CONTENT_STATUS_UNWANTED_SOFTWARE,
   MALICIOUS_CONTENT_STATUS_SOCIAL_ENGINEERING,
+  MALICIOUS_CONTENT_STATUS_SIGN_IN_PASSWORD_REUSE,
+  MALICIOUS_CONTENT_STATUS_ENTERPRISE_PASSWORD_REUSE,
 };
 
 // Describes the security status of a page or request. This is the
@@ -132,10 +137,6 @@ struct SecurityInfo {
   int obsolete_ssl_status;
   // True if pinning was bypassed due to a local trust anchor.
   bool pkp_bypassed;
-  // True if the page displayed password field on an HTTP page.
-  bool displayed_password_field_on_http;
-  // True if the page displayed credit card field on an HTTP page.
-  bool displayed_credit_card_field_on_http;
   // True if the secure page contained a form with a nonsecure target.
   bool contained_mixed_form;
   // True if the server's certificate does not contain a
@@ -144,6 +145,12 @@ struct SecurityInfo {
   // True if the |security_level| was downgraded to HTTP_SHOW_WARNING because
   // the page was loaded while Incognito.
   bool incognito_downgraded_security_level;
+  // True if the |security_level| was downgraded to HTTP_SHOW_WARNING because
+  // of a field edit recorded in |insecure_input_events|.
+  bool field_edit_downgraded_security_level;
+  // Contains information about input events that may impact the security
+  // level of the page.
+  InsecureInputEventData insecure_input_events;
 };
 
 // Contains the security state relevant to computing the SecurityInfo
@@ -180,12 +187,16 @@ struct VisibleSecurityState {
   bool ran_content_with_cert_errors;
   // True if PKP was bypassed due to a local trust anchor.
   bool pkp_bypassed;
-  // True if the page was an HTTP page that displayed a password field.
-  bool displayed_password_field_on_http;
-  // True if the page was an HTTP page that displayed a credit card field.
-  bool displayed_credit_card_field_on_http;
   // True if the page was displayed in an Incognito context.
   bool is_incognito;
+  // True if the page was an error page.
+  // TODO(estark): this field is not populated on iOS. https://crbug.com/760647
+  bool is_error_page;
+  // True if the page is a view-source page.
+  bool is_view_source;
+  // Contains information about input events that may impact the security
+  // level of the page.
+  InsecureInputEventData insecure_input_events;
 };
 
 // These security levels describe the treatment given to pages that
@@ -214,9 +225,15 @@ void GetSecurityInfo(
 // |kHttpFormWarningFeature| feature.
 bool IsHttpWarningInFormEnabled();
 
-// Returns true if the MarkHttpAs setting indicates that a warning
-// should be shown for HTTP pages loaded while in Incognito mode.
-bool IsHttpWarningForIncognitoEnabled();
+// Returns true for a valid |url| with a cryptographic scheme, e.g., HTTPS, WSS.
+bool IsSchemeCryptographic(const GURL& url);
+
+// Returns true for a valid |url| with localhost or file:// scheme origin.
+bool IsOriginLocalhostOrFile(const GURL& url);
+
+// Returns true if the page has a valid SSL certificate. Only EV_SECURE,
+// SECURE, and SECURE_WITH_POLICY_INSTALLED_CERT are considered valid.
+bool IsSslCertificateValid(security_state::SecurityLevel security_level);
 
 }  // namespace security_state
 

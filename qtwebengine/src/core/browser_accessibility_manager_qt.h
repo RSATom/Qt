@@ -50,29 +50,24 @@ QT_END_NAMESPACE
 
 namespace content {
 
-class BrowserAccessibilityFactoryQt : public BrowserAccessibilityFactory
-{
-public:
-    BrowserAccessibility* Create() override;
-};
-
 class BrowserAccessibilityManagerQt : public BrowserAccessibilityManager
 {
 public:
     BrowserAccessibilityManagerQt(QObject* parentObject,
                                   const ui::AXTreeUpdate& initialTree,
                                   BrowserAccessibilityDelegate* delegate,
-                                  BrowserAccessibilityFactory* factory = new BrowserAccessibilityFactoryQt());
-
-    void NotifyAccessibilityEvent(BrowserAccessibilityEvent::Source source,
-                                  ui::AXEvent event_type,
-                                  BrowserAccessibility* node) override;
+                                  BrowserAccessibilityFactory* factory = new BrowserAccessibilityFactory());
+    ~BrowserAccessibilityManagerQt() override;
+    void FireBlinkEvent(ax::mojom::Event event_type,
+                        BrowserAccessibility* node) override;
 
     QAccessibleInterface *rootParentAccessible();
+    bool isValid() const { return m_valid; }
 
 private:
     Q_DISABLE_COPY(BrowserAccessibilityManagerQt)
     QObject *m_parentObject;
+    bool m_valid = false;
 };
 
 }

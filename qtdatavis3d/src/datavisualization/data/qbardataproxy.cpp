@@ -60,14 +60,14 @@ QT_BEGIN_NAMESPACE_DATAVISUALIZATION
  */
 
 /*!
- * \typedef QtDataVisualization::QBarDataRow
+ * \typedef QBarDataRow
  * \relates QBarDataProxy
  *
  * A vector of \l {QBarDataItem} objects.
  */
 
 /*!
- * \typedef QtDataVisualization::QBarDataArray
+ * \typedef QBarDataArray
  * \relates QBarDataProxy
  *
  * A list of pointers to \l {QBarDataRow} objects.

@@ -42,10 +42,10 @@
 #include <QtPositioning/private/qdeclarativegeolocation_p.h>
 #include <QtPositioning/private/qwebmercator_p.h>
 
-#include "qdeclarativepositionsource_p.h"
-#include "qdeclarativeposition_p.h"
+#include <QtPositioningQuick/private/qdeclarativepositionsource_p.h>
+#include <QtPositioningQuick/private/qdeclarativeposition_p.h>
 
-#include "qquickgeocoordinateanimation_p.h"
+#include <QtPositioningQuick/private/qquickgeocoordinateanimation_p.h>
 #include "locationsingleton.h"
 
 #include <QtCore/QVariantAnimation>
@@ -57,15 +57,10 @@
 #include <QtPositioning/QGeoCircle>
 #include <QtPositioning/QGeoPath>
 #include <QtPositioning/QGeoLocation>
+#include <QtPositioning/QGeoPositionInfo>
+#include <QtPositioning/private/qgeocoordinateobject_p.h>
 
 #include <QtCore/QDebug>
-
-static void initResources()
-{
-#ifdef QT_STATIC
-    Q_INIT_RESOURCE(qmake_QtPositioning);
-#endif
-}
 
 QT_BEGIN_NAMESPACE
 
@@ -307,9 +302,11 @@ QT_BEGIN_NAMESPACE
     Returns the current type of the shape.
 
     \list
-        \li GeoShape.UnknownType - The shape's type is not known.
-        \li GeoShape.RectangleType - The shape is a \l georectangle.
-        \li GeoShape.CircleType - The shape is a \l geocircle.
+        \li \c GeoShape.UnknownType - The shape's type is not known.
+        \li \c GeoShape.RectangleType - The shape is a \l georectangle.
+        \li \c GeoShape.CircleType - The shape is a \l geocircle.
+        \li \c GeoShape.PathType - The shape is a \l geopath. (Since Qt 5.9)
+        \li \c GeoShape.PolygonType - The shape is a \l geopolygon. (Since Qt 5.10)
     \endlist
 
     This QML property was introduced by Qt 5.5.
@@ -527,6 +524,31 @@ QT_BEGIN_NAMESPACE
     The default value for the width is 0.
 */
 
+/*!
+   \qmlbasictype geopolygon
+   \inqmlmodule QtPositioning
+   \ingroup qml-QtPositioning5-basictypes
+   \since 5.10
+
+   \brief The geopolygon type represents a geographic polygon.
+
+   The \c geopolygon type is a \l [QML] geoshape that represents a geographic
+   polygon. It is a direct representation of QGeoPolygon and is defined in
+   terms of a \l path which holds a list of geo coordinates in the polygon.
+
+   The polygon is considered invalid if its path holds less than three
+   coordinates.
+
+   When integrating with C++, note that any QGeoPolygon value passed into QML
+   is automatically converted into a \c geopolygon, and vice versa.
+
+   \section1 Properties
+
+   \section2 path
+
+   This property holds the list of coordinates defining the polygon.
+*/
+
 static QObject *singleton_type_factory(QQmlEngine *engine, QJSEngine *jsEngine)
 {
     Q_UNUSED(engine)
@@ -543,7 +565,7 @@ class QtPositioningDeclarativeModule: public QQmlExtensionPlugin
                       FILE "plugin.json")
 
 public:
-    QtPositioningDeclarativeModule(QObject *parent = 0) : QQmlExtensionPlugin(parent) { initResources(); }
+    QtPositioningDeclarativeModule(QObject *parent = 0) : QQmlExtensionPlugin(parent) { }
     virtual void registerTypes(const char *uri)
     {
         if (QLatin1String(uri) == QStringLiteral("QtPositioning")) {
@@ -562,9 +584,14 @@ public:
             QMetaType::registerEqualsComparator<QGeoCircle>();
             qRegisterMetaType<QGeoPath>();
             QMetaType::registerEqualsComparator<QGeoPath>();
+            qRegisterMetaType<QGeoPolygon>();
+            QMetaType::registerEqualsComparator<QGeoPolygon>();
             qRegisterMetaType<QGeoLocation>();
             qRegisterMetaType<QGeoShape>();
             QMetaType::registerEqualsComparator<QGeoShape>();
+            qRegisterMetaType<QGeoCoordinateObject *>();
+            qRegisterMetaType<QGeoPositionInfo>();
+            QMetaType::registerEqualsComparator<QGeoPositionInfo>();
 
             qRegisterAnimationInterpolator<QGeoCoordinate>(q_coordinateInterpolator);
 

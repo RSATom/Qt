@@ -40,16 +40,10 @@
 
 #include <QtGui/QOpenGLContext>
 
-static void initResources()
-{
-    Q_INIT_RESOURCE(mapboxgl);
-}
-
 QT_BEGIN_NAMESPACE
 
 QGeoServiceProviderFactoryMapboxGL::QGeoServiceProviderFactoryMapboxGL()
 {
-    initResources();
 }
 
 QGeoCodingManagerEngine *QGeoServiceProviderFactoryMapboxGL::createGeocodingManagerEngine(

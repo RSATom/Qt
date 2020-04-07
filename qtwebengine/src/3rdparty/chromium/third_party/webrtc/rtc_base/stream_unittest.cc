@@ -8,10 +8,8 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/rtc_base/stream.h"
-#include "webrtc/rtc_base/fileutils.h"
-#include "webrtc/rtc_base/gunit.h"
-#include "webrtc/rtc_base/pathutils.h"
+#include "rtc_base/stream.h"
+#include "rtc_base/gunit.h"
 
 namespace rtc {
 
@@ -21,11 +19,14 @@ namespace rtc {
 
 class TestStream : public StreamInterface {
  public:
-  TestStream() : pos_(0) { }
+  TestStream() : pos_(0) {}
 
-  virtual StreamState GetState() const { return SS_OPEN; }
-  virtual StreamResult Read(void* buffer, size_t buffer_len,
-                            size_t* read, int* error) {
+  StreamState GetState() const override { return SS_OPEN; }
+
+  StreamResult Read(void* buffer,
+                    size_t buffer_len,
+                    size_t* read,
+                    int* error) override {
     unsigned char* uc_buffer = static_cast<unsigned char*>(buffer);
     for (size_t i = 0; i < buffer_len; ++i) {
       uc_buffer[i] = static_cast<unsigned char>(pos_++);
@@ -34,34 +35,38 @@ class TestStream : public StreamInterface {
       *read = buffer_len;
     return SR_SUCCESS;
   }
-  virtual StreamResult Write(const void* data, size_t data_len,
-                             size_t* written, int* error) {
+
+  StreamResult Write(const void* data,
+                     size_t data_len,
+                     size_t* written,
+                     int* error) override {
     if (error)
       *error = -1;
     return SR_ERROR;
   }
-  virtual void Close() { }
-  virtual bool SetPosition(size_t position) {
+
+  void Close() override {}
+
+  bool SetPosition(size_t position) override {
     pos_ = position;
     return true;
   }
-  virtual bool GetPosition(size_t* position) const {
-    if (position) *position = pos_;
+
+  bool GetPosition(size_t* position) const override {
+    if (position)
+      *position = pos_;
     return true;
   }
-  virtual bool GetSize(size_t* size) const {
-    return false;
-  }
-  virtual bool GetAvailable(size_t* size) const {
-    return false;
-  }
+
+  bool GetSize(size_t* size) const override { return false; }
+
+  bool GetAvailable(size_t* size) const override { return false; }
 
  private:
   size_t pos_;
 };
 
-bool VerifyTestBuffer(unsigned char* buffer, size_t len,
-                      unsigned char value) {
+bool VerifyTestBuffer(unsigned char* buffer, size_t len, unsigned char value) {
   bool passed = true;
   for (size_t i = 0; i < len; ++i) {
     if (buffer[i] != value++) {
@@ -76,7 +81,7 @@ bool VerifyTestBuffer(unsigned char* buffer, size_t len,
 
 void SeekTest(StreamInterface* stream, const unsigned char value) {
   size_t bytes;
-  unsigned char buffer[13] = { 0 };
+  unsigned char buffer[13] = {0};
   const size_t kBufSize = sizeof(buffer);
 
   EXPECT_EQ(stream->Read(buffer, kBufSize, &bytes, nullptr), SR_SUCCESS);
@@ -171,15 +176,15 @@ TEST(FifoBufferTest, TestAll) {
   EXPECT_EQ(SR_SUCCESS, stream->Write(in, kSize / 2, &bytes, nullptr));
   EXPECT_EQ(kSize / 2, bytes);
   EXPECT_EQ(SR_SUCCESS, stream->Read(out, kSize / 4, &bytes, nullptr));
-  EXPECT_EQ(kSize / 4 , bytes);
+  EXPECT_EQ(kSize / 4, bytes);
   EXPECT_EQ(0, memcmp(in + kSize / 2, out, kSize / 4));
   EXPECT_EQ(SR_SUCCESS, stream->Write(in, kSize / 2, &bytes, nullptr));
   EXPECT_EQ(kSize / 2, bytes);
   EXPECT_EQ(SR_SUCCESS, stream->Read(out, kSize / 2, &bytes, nullptr));
-  EXPECT_EQ(kSize / 2 , bytes);
+  EXPECT_EQ(kSize / 2, bytes);
   EXPECT_EQ(0, memcmp(in, out, kSize / 2));
   EXPECT_EQ(SR_SUCCESS, stream->Read(out, kSize / 2, &bytes, nullptr));
-  EXPECT_EQ(kSize / 2 , bytes);
+  EXPECT_EQ(kSize / 2, bytes);
   EXPECT_EQ(0, memcmp(in, out, kSize / 2));
 
   // Use GetWriteBuffer to reset the read_position for the next tests

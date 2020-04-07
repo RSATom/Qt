@@ -29,6 +29,7 @@
 #define MOCKSEAT
 
 #include "mockpointer.h"
+#include "mockkeyboard.h"
 
 #include <QObject>
 #include <wayland-client.h>
@@ -39,14 +40,15 @@ class MockSeat : public QObject
 
 public:
     MockSeat(wl_seat *seat);
-    ~MockSeat();
+    ~MockSeat() override;
     MockPointer *pointer() const { return m_pointer.data(); }
+    MockKeyboard *keyboard() const { return m_keyboard.data(); }
 
-    wl_seat *m_seat;
-    wl_keyboard *m_keyboard;
+    wl_seat *m_seat = nullptr;
 
 private:
     QScopedPointer<MockPointer> m_pointer;
+    QScopedPointer<MockKeyboard> m_keyboard;
 };
 
 #endif

@@ -3,7 +3,7 @@
 ** Copyright (C) 2016 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
-** This file is part of the QtGui module of the Qt Toolkit.
+** This file is part of the QtCore module of the Qt Toolkit.
 **
 ** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
@@ -54,7 +54,7 @@
 
 #include "private/qabstractitemmodel_p.h"
 
-#ifndef QT_NO_PROXYMODEL
+QT_REQUIRE_CONFIG(proxymodel);
 
 QT_BEGIN_NAMESPACE
 
@@ -70,7 +70,5 @@ public:
 };
 
 QT_END_NAMESPACE
-
-#endif // QT_NO_PROXYMODEL
 
 #endif // QABSTRACTPROXYMODEL_P_H

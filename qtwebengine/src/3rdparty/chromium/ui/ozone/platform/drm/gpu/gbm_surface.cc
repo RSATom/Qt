@@ -8,6 +8,8 @@
 
 #include "base/logging.h"
 #include "ui/display/types/display_snapshot.h"
+#include "ui/gfx/gpu_fence.h"
+#include "ui/gfx/gpu_fence_handle.h"
 #include "ui/gfx/native_pixmap.h"
 #include "ui/gl/gl_image_native_pixmap.h"
 #include "ui/gl/gl_surface_egl.h"
@@ -46,26 +48,33 @@ bool GbmSurface::OnMakeCurrent(gl::GLContext* context) {
 
 bool GbmSurface::Resize(const gfx::Size& size,
                         float scale_factor,
+                        ColorSpace color_space,
                         bool has_alpha) {
   if (size == GetSize())
     return true;
   // Alpha value isn't actually used in allocating buffers yet, so always use
   // true instead.
-  return GbmSurfaceless::Resize(size, scale_factor, true) && CreatePixmaps();
+  return GbmSurfaceless::Resize(size, scale_factor, color_space, true) &&
+         CreatePixmaps();
 }
 
 bool GbmSurface::SupportsPostSubBuffer() {
   return false;
 }
 
-void GbmSurface::SwapBuffersAsync(const SwapCompletionCallback& callback) {
+void GbmSurface::SwapBuffersAsync(
+    const SwapCompletionCallback& completion_callback,
+    const PresentationCallback& presentation_callback) {
   if (!images_[current_surface_]->ScheduleOverlayPlane(
           widget(), 0, gfx::OverlayTransform::OVERLAY_TRANSFORM_NONE,
-          gfx::Rect(GetSize()), gfx::RectF(1, 1))) {
-    callback.Run(gfx::SwapResult::SWAP_FAILED);
+          gfx::Rect(GetSize()), gfx::RectF(1, 1), /* enable_blend */ false,
+          /* gpu_fence */ nullptr)) {
+    completion_callback.Run(gfx::SwapResult::SWAP_FAILED);
+    // Notify the caller, the buffer is never presented on a screen.
+    presentation_callback.Run(gfx::PresentationFeedback::Failure());
     return;
   }
-  GbmSurfaceless::SwapBuffersAsync(callback);
+  GbmSurfaceless::SwapBuffersAsync(completion_callback, presentation_callback);
   current_surface_ ^= 1;
   BindFramebuffer();
 }
@@ -130,7 +139,7 @@ bool GbmSurface::CreatePixmaps() {
     if (!pixmap)
       return false;
     scoped_refptr<gl::GLImageNativePixmap> image =
-        new gl::GLImageNativePixmap(GetSize(), GL_RGB);
+        new gl::GLImageNativePixmap(GetSize(), GL_BGRA_EXT);
     if (!image->Initialize(pixmap.get(),
                            display::DisplaySnapshot::PrimaryFormat()))
       return false;

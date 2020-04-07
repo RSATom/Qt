@@ -20,6 +20,7 @@
 #include "base/macros.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
+#include "base/task_scheduler/post_task.h"
 #include "base/threading/thread_restrictions.h"
 #include "content/public/browser/browser_thread.h"
 
@@ -46,7 +47,7 @@ const char* const kNetDeviceNamePrefixes[] = {
 typedef std::map<base::FilePath, base::FilePath> DiskEntries;
 
 std::string GetDiskUuid() {
-  base::ThreadRestrictions::AssertIOAllowed();
+  base::AssertBlockingAllowed();
 
   DiskEntries disk_uuids;
   base::FileEnumerator files(base::FilePath(kDiskByUuidDirectoryName),
@@ -150,7 +151,7 @@ class MacAddressProcessor {
 
 std::string GetMacAddress(
     const IsValidMacAddressCallback& is_valid_mac_address) {
-  base::ThreadRestrictions::AssertIOAllowed();
+  base::AssertBlockingAllowed();
 
   struct ifaddrs* ifaddrs;
   int rv = getifaddrs(&ifaddrs);
@@ -172,7 +173,7 @@ std::string GetMacAddress(
 
 void GetRawDeviceIdImpl(const IsValidMacAddressCallback& is_valid_mac_address,
                         const DeviceId::IdCallback& callback) {
-  base::ThreadRestrictions::AssertIOAllowed();
+  base::AssertBlockingAllowed();
 
   std::string disk_id = GetDiskUuid();
   std::string mac_address = GetMacAddress(is_valid_mac_address);
@@ -195,10 +196,10 @@ namespace api {
 void DeviceId::GetRawDeviceId(const IdCallback& callback) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
-  content::BrowserThread::PostTask(
-      content::BrowserThread::FILE, FROM_HERE,
-      base::BindOnce(GetRawDeviceIdImpl,
-                     base::Bind(DeviceId::IsValidMacAddress), callback));
+  base::PostTaskWithTraits(
+      FROM_HERE, traits(),
+      base::BindOnce(&GetRawDeviceIdImpl,
+                     base::Bind(&DeviceId::IsValidMacAddress), callback));
 }
 
 }  // namespace api

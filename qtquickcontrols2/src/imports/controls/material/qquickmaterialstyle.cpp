@@ -387,6 +387,10 @@ static bool globalPrimaryCustom = false;
 static bool globalAccentCustom = false;
 static bool globalForegroundCustom = true;
 static bool globalBackgroundCustom = true;
+// This is global because:
+// 1) The theme needs access to it to determine font sizes.
+// 2) There can only be one variant used for the whole application.
+static QQuickMaterialStyle::Variant globalVariant = QQuickMaterialStyle::Normal;
 
 static const QRgb backgroundColorLight = 0xFFFAFAFA;
 static const QRgb backgroundColorDark = 0xFF303030;
@@ -427,11 +431,6 @@ static QQuickMaterialStyle::Theme effectiveTheme(QQuickMaterialStyle::Theme them
 }
 
 QQuickMaterialStyle::QQuickMaterialStyle(QObject *parent) : QQuickAttachedObject(parent),
-    m_explicitTheme(false),
-    m_explicitPrimary(false),
-    m_explicitAccent(false),
-    m_explicitForeground(false),
-    m_explicitBackground(false),
     m_customPrimary(globalPrimaryCustom),
     m_customAccent(globalAccentCustom),
     m_customForeground(globalForegroundCustom),
@@ -442,10 +441,9 @@ QQuickMaterialStyle::QQuickMaterialStyle(QObject *parent) : QQuickAttachedObject
     m_primary(globalPrimary),
     m_accent(globalAccent),
     m_foreground(globalForeground),
-    m_background(globalBackground),
-    m_elevation(0)
+    m_background(globalBackground)
 {
-    init();
+    QQuickAttachedObject::init();
 }
 
 QQuickMaterialStyle *QQuickMaterialStyle::qmlAttachedProperties(QObject *object)
@@ -1135,17 +1133,61 @@ QColor QQuickMaterialStyle::shade(const QColor &color, Shade shade) const
     }
 }
 
-void QQuickMaterialStyle::attachedParentChange(QQuickAttachedObject *newParent, QQuickAttachedObject *oldParent)
+int QQuickMaterialStyle::touchTarget() const
 {
-    Q_UNUSED(oldParent);
-    QQuickMaterialStyle *material = qobject_cast<QQuickMaterialStyle *>(newParent);
-    if (material) {
-        inheritPrimary(material->m_primary, material->m_customPrimary);
-        inheritAccent(material->m_accent, material->m_customAccent);
-        inheritForeground(material->m_foreground, material->m_customForeground, material->m_hasForeground);
-        inheritBackground(material->m_background, material->m_customBackground, material->m_hasBackground);
-        inheritTheme(material->theme());
-    }
+    // https://material.io/guidelines/components/buttons.html#buttons-style
+    return globalVariant == Dense ? 44 : 48;
+}
+
+int QQuickMaterialStyle::buttonHeight() const
+{
+    // https://material.io/guidelines/components/buttons.html#buttons-style
+    return globalVariant == Dense ? 32 : 36;
+}
+
+int QQuickMaterialStyle::delegateHeight() const
+{
+    // https://material.io/guidelines/components/lists.html#lists-specs
+    return globalVariant == Dense ? 40 : 48;
+}
+
+int QQuickMaterialStyle::dialogButtonBoxHeight() const
+{
+    return globalVariant == Dense ? 48 : 52;
+}
+
+int QQuickMaterialStyle::frameVerticalPadding() const
+{
+    return globalVariant == Dense ? 8 : 12;
+}
+
+int QQuickMaterialStyle::menuItemHeight() const
+{
+    // https://material.io/guidelines/components/menus.html#menus-simple-menus
+    return globalVariant == Dense ? 32 : 48;
+}
+
+int QQuickMaterialStyle::menuItemVerticalPadding() const
+{
+    return globalVariant == Dense ? 8 : 12;
+}
+
+int QQuickMaterialStyle::switchDelegateVerticalPadding() const
+{
+    // SwitchDelegate's indicator is much larger than the others due to the shadow,
+    // so we must reduce its padding to ensure its implicitHeight is 40 when dense.
+    return globalVariant == Dense ? 4 : 8;
+}
+
+int QQuickMaterialStyle::tooltipHeight() const
+{
+    // https://material.io/guidelines/components/tooltips.html
+    return globalVariant == Dense ? 22 : 32;
+}
+
+QQuickMaterialStyle::Variant QQuickMaterialStyle::variant()
+{
+    return globalVariant;
 }
 
 template <typename Enum>
@@ -1165,88 +1207,101 @@ static QByteArray resolveSetting(const QByteArray &env, const QSharedPointer<QSe
     return value;
 }
 
-void QQuickMaterialStyle::init()
+void QQuickMaterialStyle::initGlobals()
 {
-    static bool globalsInitialized = false;
-    if (!globalsInitialized) {
-        QSharedPointer<QSettings> settings = QQuickStylePrivate::settings(QStringLiteral("Material"));
+    QSharedPointer<QSettings> settings = QQuickStylePrivate::settings(QStringLiteral("Material"));
 
-        bool ok = false;
-        QByteArray themeValue = resolveSetting("QT_QUICK_CONTROLS_MATERIAL_THEME", settings, QStringLiteral("Theme"));
-        Theme themeEnum = toEnumValue<Theme>(themeValue, &ok);
-        if (ok)
-            globalTheme = m_theme = effectiveTheme(themeEnum);
-        else if (!themeValue.isEmpty())
-            qWarning().nospace().noquote() << "Material: unknown theme value: " << themeValue;
+    bool ok = false;
+    QByteArray themeValue = resolveSetting("QT_QUICK_CONTROLS_MATERIAL_THEME", settings, QStringLiteral("Theme"));
+    Theme themeEnum = toEnumValue<Theme>(themeValue, &ok);
+    if (ok)
+        globalTheme = effectiveTheme(themeEnum);
+    else if (!themeValue.isEmpty())
+        qWarning().nospace().noquote() << "Material: unknown theme value: " << themeValue;
 
-        QByteArray primaryValue = resolveSetting("QT_QUICK_CONTROLS_MATERIAL_PRIMARY", settings, QStringLiteral("Primary"));
-        Color primaryEnum = toEnumValue<Color>(primaryValue, &ok);
-        if (ok) {
-            globalPrimaryCustom = m_customPrimary = false;
-            globalPrimary = m_primary = primaryEnum;
-        } else {
-            QColor color(primaryValue.constData());
-            if (color.isValid()) {
-                globalPrimaryCustom = m_customPrimary = true;
-                globalPrimary = m_primary = color.rgba();
-            } else if (!primaryValue.isEmpty()) {
-                qWarning().nospace().noquote() << "Material: unknown primary value: " << primaryValue;
-            }
+    QByteArray variantValue = resolveSetting("QT_QUICK_CONTROLS_MATERIAL_VARIANT", settings, QStringLiteral("Variant"));
+    Variant variantEnum = toEnumValue<Variant>(variantValue, &ok);
+    if (ok)
+        globalVariant = variantEnum;
+    else if (!variantValue.isEmpty())
+        qWarning().nospace().noquote() << "Material: unknown variant value: " << variantValue;
+
+    QByteArray primaryValue = resolveSetting("QT_QUICK_CONTROLS_MATERIAL_PRIMARY", settings, QStringLiteral("Primary"));
+    Color primaryEnum = toEnumValue<Color>(primaryValue, &ok);
+    if (ok) {
+        globalPrimaryCustom = false;
+        globalPrimary = primaryEnum;
+    } else {
+        QColor color(primaryValue.constData());
+        if (color.isValid()) {
+            globalPrimaryCustom = true;
+            globalPrimary = color.rgba();
+        } else if (!primaryValue.isEmpty()) {
+            qWarning().nospace().noquote() << "Material: unknown primary value: " << primaryValue;
         }
-
-        QByteArray accentValue = resolveSetting("QT_QUICK_CONTROLS_MATERIAL_ACCENT", settings, QStringLiteral("Accent"));
-        Color accentEnum = toEnumValue<Color>(accentValue, &ok);
-        if (ok) {
-            globalAccentCustom = m_customAccent = false;
-            globalAccent = m_accent = accentEnum;
-        } else if (!accentValue.isEmpty()) {
-            QColor color(accentValue.constData());
-            if (color.isValid()) {
-                globalAccentCustom = m_customAccent = true;
-                globalAccent = m_accent = color.rgba();
-            } else {
-                qWarning().nospace().noquote() << "Material: unknown accent value: " << accentValue;
-            }
-        }
-
-        QByteArray foregroundValue = resolveSetting("QT_QUICK_CONTROLS_MATERIAL_FOREGROUND", settings, QStringLiteral("Foreground"));
-        Color foregroundEnum = toEnumValue<Color>(foregroundValue, &ok);
-        if (ok) {
-            globalForegroundCustom = m_customForeground = false;
-            globalForeground = m_foreground = foregroundEnum;
-            hasGlobalForeground = m_hasForeground = true;
-        } else if (!foregroundValue.isEmpty()) {
-            QColor color(foregroundValue.constData());
-            if (color.isValid()) {
-                globalForegroundCustom = m_customForeground = true;
-                globalForeground = m_foreground = color.rgba();
-                hasGlobalForeground = m_hasForeground = true;
-            } else {
-                qWarning().nospace().noquote() << "Material: unknown foreground value: " << foregroundValue;
-            }
-        }
-
-        QByteArray backgroundValue = resolveSetting("QT_QUICK_CONTROLS_MATERIAL_BACKGROUND", settings, QStringLiteral("Background"));
-        Color backgroundEnum = toEnumValue<Color>(backgroundValue, &ok);
-        if (ok) {
-            globalBackgroundCustom = m_customBackground = false;
-            globalBackground = m_background = backgroundEnum;
-            hasGlobalBackground = m_hasBackground = true;
-        } else if (!backgroundValue.isEmpty()) {
-            QColor color(backgroundValue.constData());
-            if (color.isValid()) {
-                globalBackgroundCustom = m_customBackground = true;
-                globalBackground = m_background = color.rgba();
-                hasGlobalBackground = m_hasBackground = true;
-            } else {
-                qWarning().nospace().noquote() << "Material: unknown background value: " << backgroundValue;
-            }
-        }
-
-        globalsInitialized = true;
     }
 
-    QQuickAttachedObject::init(); // TODO: lazy init?
+    QByteArray accentValue = resolveSetting("QT_QUICK_CONTROLS_MATERIAL_ACCENT", settings, QStringLiteral("Accent"));
+    Color accentEnum = toEnumValue<Color>(accentValue, &ok);
+    if (ok) {
+        globalAccentCustom = false;
+        globalAccent = accentEnum;
+    } else if (!accentValue.isEmpty()) {
+        QColor color(accentValue.constData());
+        if (color.isValid()) {
+            globalAccentCustom = true;
+            globalAccent = color.rgba();
+        } else {
+            qWarning().nospace().noquote() << "Material: unknown accent value: " << accentValue;
+        }
+    }
+
+    QByteArray foregroundValue = resolveSetting("QT_QUICK_CONTROLS_MATERIAL_FOREGROUND", settings, QStringLiteral("Foreground"));
+    Color foregroundEnum = toEnumValue<Color>(foregroundValue, &ok);
+    if (ok) {
+        globalForegroundCustom = false;
+        globalForeground = foregroundEnum;
+        hasGlobalForeground = true;
+    } else if (!foregroundValue.isEmpty()) {
+        QColor color(foregroundValue.constData());
+        if (color.isValid()) {
+            globalForegroundCustom = true;
+            globalForeground = color.rgba();
+            hasGlobalForeground = true;
+        } else {
+            qWarning().nospace().noquote() << "Material: unknown foreground value: " << foregroundValue;
+        }
+    }
+
+    QByteArray backgroundValue = resolveSetting("QT_QUICK_CONTROLS_MATERIAL_BACKGROUND", settings, QStringLiteral("Background"));
+    Color backgroundEnum = toEnumValue<Color>(backgroundValue, &ok);
+    if (ok) {
+        globalBackgroundCustom = false;
+        globalBackground = backgroundEnum;
+        hasGlobalBackground = true;
+    } else if (!backgroundValue.isEmpty()) {
+        QColor color(backgroundValue.constData());
+        if (color.isValid()) {
+            globalBackgroundCustom = true;
+            globalBackground = color.rgba();
+            hasGlobalBackground = true;
+        } else {
+            qWarning().nospace().noquote() << "Material: unknown background value: " << backgroundValue;
+        }
+    }
+}
+
+void QQuickMaterialStyle::attachedParentChange(QQuickAttachedObject *newParent, QQuickAttachedObject *oldParent)
+{
+    Q_UNUSED(oldParent);
+    QQuickMaterialStyle *material = qobject_cast<QQuickMaterialStyle *>(newParent);
+    if (material) {
+        inheritPrimary(material->m_primary, material->m_customPrimary);
+        inheritAccent(material->m_accent, material->m_customAccent);
+        inheritForeground(material->m_foreground, material->m_customForeground, material->m_hasForeground);
+        inheritBackground(material->m_background, material->m_customBackground, material->m_hasBackground);
+        inheritTheme(material->theme());
+    }
 }
 
 bool QQuickMaterialStyle::variantToRgba(const QVariant &var, const char *name, QRgb *rgba, bool *custom) const

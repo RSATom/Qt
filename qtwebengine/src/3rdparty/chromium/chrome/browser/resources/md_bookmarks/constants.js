@@ -8,7 +8,7 @@
  * @enum {number}
  * @const
  */
-var DropPosition = {
+const DropPosition = {
   NONE: 0,
   ABOVE: 1,
   ON: 2,
@@ -16,36 +16,56 @@ var DropPosition = {
 };
 
 /**
- * @enum {string}
- * @const
- */
-var Command = {
-  EDIT: 'edit',
-  COPY_URL: 'copy-url',
-  SHOW_IN_FOLDER: 'show-in-folder',
-  DELETE: 'delete',
-  OPEN_NEW_TAB: 'open-new-tab',
-  OPEN_NEW_WINDOW: 'open-new-window',
-  OPEN_INCOGNITO: 'open-incognito',
-  UNDO: 'undo',
-  REDO: 'redo',
-  // OPEN triggers when you double-click an item.
-  OPEN: 'open',
-  SELECT_ALL: 'select-all',
-  DESELECT_ALL: 'deselect-all',
-  COPY: 'copy',
-  CUT: 'cut',
-  PASTE: 'paste',
-};
-
-/**
+ * Commands which can be handled by the CommandManager. This enum is also used
+ * for metrics and should be kept in sync with BookmarkManagerCommand in
+ * enums.xml. Values must never be renumbered or reused.
  * @enum {number}
  * @const
  */
-var MenuSource = {
+const Command = {
+  EDIT: 0,
+  COPY_URL: 1,
+  SHOW_IN_FOLDER: 2,
+  DELETE: 3,
+  OPEN_NEW_TAB: 4,
+  OPEN_NEW_WINDOW: 5,
+  OPEN_INCOGNITO: 6,
+  UNDO: 7,
+  REDO: 8,
+  // OPEN triggers when you double-click an item.
+  OPEN: 9,
+  SELECT_ALL: 10,
+  DESELECT_ALL: 11,
+  COPY: 12,
+  CUT: 13,
+  PASTE: 14,
+  SORT: 15,
+  ADD_BOOKMARK: 16,
+  ADD_FOLDER: 17,
+  IMPORT: 18,
+  EXPORT: 19,
+  HELP_CENTER: 20,
+
+  // Append new values to the end of the enum.
+  MAX_VALUE: 21,
+};
+
+/**
+ * Where the menu was opened from. This enum is also used for metrics and should
+ * be kept in sync with BookmarkManagerMenuSource in enums.xml. Values must
+ * never be renumbered or reused.
+ * @enum {number}
+ * @const
+ */
+const MenuSource = {
   NONE: 0,
-  LIST: 1,
+  ITEM: 1,
   TREE: 2,
+  TOOLBAR: 3,
+  LIST: 4,
+
+  // Append new values to the end of the enum.
+  NUM_VALUES: 5,
 };
 
 /**
@@ -53,23 +73,30 @@ var MenuSource = {
  * @enum {number}
  * @const
  */
-var IncognitoAvailability = {
+const IncognitoAvailability = {
   ENABLED: 0,
   DISABLED: 1,
   FORCED: 2,
 };
 
 /** @const */
-var LOCAL_STORAGE_CLOSED_FOLDERS_KEY = 'closedState';
+const LOCAL_STORAGE_FOLDER_STATE_KEY = 'folderOpenState';
 
 /** @const */
-var LOCAL_STORAGE_TREE_WIDTH_KEY = 'treeWidth';
+const LOCAL_STORAGE_TREE_WIDTH_KEY = 'treeWidth';
 
 /** @const */
-var ROOT_NODE_ID = '0';
+const ROOT_NODE_ID = '0';
 
 /** @const */
-var BOOKMARKS_BAR_ID = '1';
+const BOOKMARKS_BAR_ID = '1';
 
 /** @const {number} */
-var OPEN_CONFIRMATION_LIMIT = 15;
+const OPEN_CONFIRMATION_LIMIT = 15;
+
+/**
+ * Folders that are beneath this depth will be closed by default in the folder
+ * tree (where the Bookmarks Bar folder is at depth 0).
+ * @const {number}
+ */
+const FOLDER_OPEN_BY_DEFAULT_DEPTH = 1;

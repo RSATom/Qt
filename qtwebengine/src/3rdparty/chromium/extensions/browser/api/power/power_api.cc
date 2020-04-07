@@ -12,8 +12,8 @@
 #include "extensions/common/api/power.h"
 #include "extensions/common/extension.h"
 #include "mojo/public/cpp/bindings/interface_request.h"
-#include "services/device/public/interfaces/constants.mojom.h"
-#include "services/device/public/interfaces/wake_lock_provider.mojom.h"
+#include "services/device/public/mojom/constants.mojom.h"
+#include "services/device/public/mojom/wake_lock_provider.mojom.h"
 #include "services/service_manager/public/cpp/connector.h"
 
 namespace extensions {
@@ -25,19 +25,17 @@ const char kWakeLockDescription[] = "extension";
 device::mojom::WakeLockType LevelToWakeLockType(api::power::Level level) {
   switch (level) {
     case api::power::LEVEL_SYSTEM:
-      return device::mojom::WakeLockType::PreventAppSuspension;
+      return device::mojom::WakeLockType::kPreventAppSuspension;
     case api::power::LEVEL_DISPLAY:  // fallthrough
     case api::power::LEVEL_NONE:
-      return device::mojom::WakeLockType::PreventDisplaySleep;
+      return device::mojom::WakeLockType::kPreventDisplaySleep;
   }
   NOTREACHED() << "Unhandled level " << level;
-  return device::mojom::WakeLockType::PreventDisplaySleep;
+  return device::mojom::WakeLockType::kPreventDisplaySleep;
 }
 
 base::LazyInstance<BrowserContextKeyedAPIFactory<PowerAPI>>::DestructorAtExit
     g_factory = LAZY_INSTANCE_INITIALIZER;
-
-void DoNothing(bool b) {}
 
 }  // namespace
 
@@ -137,7 +135,7 @@ void PowerAPI::Shutdown() {
 }
 
 void PowerAPI::ActivateWakeLock(device::mojom::WakeLockType type) {
-  GetWakeLock()->ChangeType(type, base::Bind(&DoNothing));
+  GetWakeLock()->ChangeType(type, base::DoNothing());
   if (!is_wake_lock_active_) {
     GetWakeLock()->RequestWakeLock();
     is_wake_lock_active_ = true;
@@ -166,7 +164,7 @@ device::mojom::WakeLock* PowerAPI::GetWakeLock() {
                            mojo::MakeRequest(&wake_lock_provider));
   wake_lock_provider->GetWakeLockWithoutContext(
       LevelToWakeLockType(current_level_),
-      device::mojom::WakeLockReason::ReasonOther, kWakeLockDescription,
+      device::mojom::WakeLockReason::kOther, kWakeLockDescription,
       std::move(request));
   return wake_lock_.get();
 }

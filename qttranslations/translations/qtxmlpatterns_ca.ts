@@ -276,7 +276,7 @@
     </message>
     <message>
         <source>%1 is not a valid target name in a processing instruction. It must be a %2 value, e.g. %3.</source>
-        <translation>%1 no és un nom de destinació vàlid en una instrucció de processament. Ha de ser un valor de %2, p.ex. %3.</translation>
+        <translation>%1 no és un nom de destinació vàlid en una instrucció de processament. Ha de ser un valor de %2, p. ex. %3.</translation>
     </message>
     <message>
         <source>The last step in a path must contain either nodes or atomic values. It cannot be a mixture between the two.</source>
@@ -311,14 +311,12 @@
         <translation>
             <numerusform>%1 pren com a màxim %n argument. Per tant %2 no és vàlid.</numerusform>
             <numerusform>%1 pren com a màxim %n arguments. Per tant %2 no és vàlid.</numerusform>
-            <numerusform>%1 pren com a màxim %n arguments. Per tant %2 no és vàlid.</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <source>%1 requires at least %n argument(s). %2 is therefore invalid.</source>
         <translation>
             <numerusform>%1 almenys requereix %n argument. Per tant %2 no és vàlid.</numerusform>
-            <numerusform>%1 almenys requereix %n arguments. Per tant %2 no és vàlid.</numerusform>
             <numerusform>%1 almenys requereix %n arguments. Per tant %2 no és vàlid.</numerusform>
         </translation>
     </message>
@@ -408,7 +406,7 @@
     </message>
     <message>
         <source>The normalization form %1 is unsupported. The supported forms are %2, %3, %4, and %5, and none, i.e. the empty string (no normalization).</source>
-        <translation>La forma de normalització %1 no està implementada. Les formes implementades són %2, %3, %4, i %5, i cap, p.ex. la cadena buida (sense normalització).</translation>
+        <translation>La forma de normalització %1 no està implementada. Les formes implementades són %2, %3, %4, i %5, i cap, p. ex. la cadena buida (sense normalització).</translation>
     </message>
     <message>
         <source>A zone offset must be in the range %1..%2 inclusive. %3 is out of range.</source>
@@ -912,7 +910,7 @@
     </message>
     <message>
         <source>Simple type %1 cannot derive from %2 as the latter defines restriction as final.</source>
-        <translation>El tipus simple %1 no pot derivar des de %2, doncs el darrer defineix una restricció com a final.</translation>
+        <translation>El tipus simple %1 no pot derivar des de %2, ja que el darrer defineix una restricció com a final.</translation>
     </message>
     <message>
         <source>Variety of item type of %1 must be either atomic or union.</source>

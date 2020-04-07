@@ -206,7 +206,6 @@ void QBluetoothTransferReply::setRequest(const QBluetoothTransferRequest &reques
 */
 
 QBluetoothTransferReplyPrivate::QBluetoothTransferReplyPrivate()
-    : m_manager(0)
 {
 }
 

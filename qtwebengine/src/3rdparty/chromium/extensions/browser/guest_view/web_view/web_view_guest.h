@@ -7,14 +7,15 @@
 
 #include <stdint.h>
 
+#include <map>
+#include <memory>
+#include <string>
 #include <vector>
 
 #include "base/macros.h"
 #include "base/observer_list.h"
 #include "components/guest_view/browser/guest_view.h"
 #include "content/public/browser/javascript_dialog_manager.h"
-#include "content/public/browser/notification_observer.h"
-#include "content/public/browser/notification_registrar.h"
 #include "extensions/browser/guest_view/web_view/javascript_dialog_helper.h"
 #include "extensions/browser/guest_view/web_view/web_view_find_helper.h"
 #include "extensions/browser/guest_view/web_view/web_view_guest_delegate.h"
@@ -36,8 +37,7 @@ class WebViewInternalFindFunction;
 // a particular embedder WebContents. This happens on either initial navigation
 // or through the use of the New Window API, when a new window is attached to
 // a particular <webview>.
-class WebViewGuest : public guest_view::GuestView<WebViewGuest>,
-                     public content::NotificationObserver {
+class WebViewGuest : public guest_view::GuestView<WebViewGuest> {
  public:
   // Clean up state when this GuestView is being destroyed. See
   // GuestViewBase::CleanUp().
@@ -58,6 +58,14 @@ class WebViewGuest : public guest_view::GuestView<WebViewGuest>,
                                              std::string* partition_domain,
                                              std::string* partition_name,
                                              bool* in_memory);
+
+  // Opposite of GetGuestPartitionConfigForSite: Creates a specially formatted
+  // URL used by the SiteInstance associated with the WebViewGuest. See
+  // GetGuestPartitionConfigForSite for the URL format.
+  static GURL GetSiteForGuestPartitionConfig(
+      const std::string& partition_domain,
+      const std::string& partition_name,
+      bool in_memory);
 
   // Returns the WebView partition ID associated with the render process
   // represented by |render_process_host|, if any. Otherwise, an empty string is
@@ -167,7 +175,7 @@ class WebViewGuest : public guest_view::GuestView<WebViewGuest>,
 
   // GuestViewBase implementation.
   void CreateWebContents(const base::DictionaryValue& create_params,
-                         const WebContentsCreatedCallback& callback) final;
+                         WebContentsCreatedCallback callback) final;
   void DidAttachToEmbedder() final;
   void DidDropLink(const GURL& url) final;
   void DidInitialize(const base::DictionaryValue& create_params) final;
@@ -188,15 +196,9 @@ class WebViewGuest : public guest_view::GuestView<WebViewGuest>,
   void GuestViewDidStopLoading() final;
   void GuestZoomChanged(double old_zoom_level, double new_zoom_level) final;
   bool IsAutoSizeSupported() const final;
-  void SetContextMenuPosition(const gfx::Point& position) final;
   void SignalWhenReady(const base::Closure& callback) final;
   void WillAttachToEmbedder() final;
   void WillDestroy() final;
-
-  // NotificationObserver implementation.
-  void Observe(int type,
-               const content::NotificationSource& source,
-               const content::NotificationDetails& details) final;
 
   // WebContentsDelegate implementation.
   bool DidAddMessageToConsole(content::WebContents* source,
@@ -211,19 +213,21 @@ class WebViewGuest : public guest_view::GuestView<WebViewGuest>,
   void LoadProgressChanged(content::WebContents* source, double progress) final;
   bool PreHandleGestureEvent(content::WebContents* source,
                              const blink::WebGestureEvent& event) final;
-  void RendererResponsive(content::WebContents* source) final;
+  void RendererResponsive(content::WebContents* source,
+                          content::RenderWidgetHost* render_widget_host) final;
   void RendererUnresponsive(
       content::WebContents* source,
-      const content::WebContentsUnresponsiveState& unresponsive_state) final;
+      content::RenderWidgetHost* render_widget_host,
+      base::RepeatingClosure hang_monitor_restarter) final;
   void RequestMediaAccessPermission(
       content::WebContents* source,
       const content::MediaStreamRequest& request,
-      const content::MediaResponseCallback& callback) final;
+      content::MediaResponseCallback callback) final;
   void RequestPointerLockPermission(
       bool user_gesture,
       bool last_unlocked_by_target,
       const base::Callback<void(bool)>& callback) final;
-  bool CheckMediaAccessPermission(content::WebContents* source,
+  bool CheckMediaAccessPermission(content::RenderFrameHost* render_frame_host,
                                   const GURL& security_origin,
                                   content::MediaStreamType type) final;
   void CanDownload(const GURL& url,
@@ -232,7 +236,7 @@ class WebViewGuest : public guest_view::GuestView<WebViewGuest>,
   content::JavaScriptDialogManager* GetJavaScriptDialogManager(
       content::WebContents* source) final;
   void AddNewContents(content::WebContents* source,
-                      content::WebContents* new_contents,
+                      std::unique_ptr<content::WebContents> new_contents,
                       WindowOpenDisposition disposition,
                       const gfx::Rect& initial_rect,
                       bool user_gesture,
@@ -246,8 +250,10 @@ class WebViewGuest : public guest_view::GuestView<WebViewGuest>,
                           const std::string& frame_name,
                           const GURL& target_url,
                           content::WebContents* new_contents) final;
-  void EnterFullscreenModeForTab(content::WebContents* web_contents,
-                                 const GURL& origin) final;
+  void EnterFullscreenModeForTab(
+      content::WebContents* web_contents,
+      const GURL& origin,
+      const blink::WebFullscreenOptions& options) final;
   void ExitFullscreenModeForTab(content::WebContents* web_contents) final;
   bool IsFullscreenForTabOrPending(
       const content::WebContents* web_contents) const final;
@@ -257,22 +263,18 @@ class WebViewGuest : public guest_view::GuestView<WebViewGuest>,
 
   // WebContentsObserver implementation.
   void DidStartNavigation(content::NavigationHandle* navigation_handle) final;
+  void DidRedirectNavigation(
+      content::NavigationHandle* navigation_handle) final;
   void DidFinishNavigation(content::NavigationHandle* navigation_handle) final;
+  void DocumentOnLoadCompletedInMainFrame() final;
   void RenderProcessGone(base::TerminationStatus status) final;
   void UserAgentOverrideSet(const std::string& user_agent) final;
   void FrameNameChanged(content::RenderFrameHost* render_frame_host,
                         const std::string& name) final;
+  void OnAudioStateChanged(bool audible) final;
 
   // Informs the embedder of a frame name change.
   void ReportFrameNameChange(const std::string& name);
-
-  // Called after the load handler is called in the guest's main frame.
-  void LoadHandlerCalled();
-
-  // Called when a redirect notification occurs.
-  void LoadRedirect(const GURL& old_url,
-                    const GURL& new_url,
-                    bool is_top_level);
 
   void PushWebViewStateToIOThread();
   static void RemoveWebViewStateFromIOThread(
@@ -319,8 +321,6 @@ class WebViewGuest : public guest_view::GuestView<WebViewGuest>,
 
   base::ObserverList<ScriptExecutionObserver> script_observers_;
   std::unique_ptr<ScriptExecutor> script_executor_;
-
-  content::NotificationRegistrar notification_registrar_;
 
   // True if the user agent is overridden.
   bool is_overriding_user_agent_;

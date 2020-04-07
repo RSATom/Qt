@@ -51,7 +51,7 @@
 // We mean it.
 //
 
-#include <private/qtwebengineglobal_p.h>
+#include <QtWebEngine/private/qtwebengineglobal_p.h>
 #include <QObject>
 #include <QScopedPointer>
 
@@ -88,8 +88,21 @@ class Q_WEBENGINE_PRIVATE_EXPORT QQuickWebEngineSettings : public QObject {
     Q_PROPERTY(bool allowGeolocationOnInsecureOrigins READ allowGeolocationOnInsecureOrigins WRITE setAllowGeolocationOnInsecureOrigins NOTIFY allowGeolocationOnInsecureOriginsChanged REVISION 4 FINAL)
     Q_PROPERTY(bool allowWindowActivationFromJavaScript READ allowWindowActivationFromJavaScript WRITE setAllowWindowActivationFromJavaScript NOTIFY allowWindowActivationFromJavaScriptChanged REVISION 5 FINAL)
     Q_PROPERTY(bool showScrollBars READ showScrollBars WRITE setShowScrollBars NOTIFY showScrollBarsChanged REVISION 5 FINAL)
+    Q_PROPERTY(UnknownUrlSchemePolicy unknownUrlSchemePolicy READ unknownUrlSchemePolicy WRITE setUnknownUrlSchemePolicy NOTIFY unknownUrlSchemePolicyChanged REVISION 6 FINAL)
+    Q_PROPERTY(bool playbackRequiresUserGesture READ playbackRequiresUserGesture WRITE setPlaybackRequiresUserGesture NOTIFY playbackRequiresUserGestureChanged REVISION 6 FINAL)
+    Q_PROPERTY(bool webRTCPublicInterfacesOnly READ webRTCPublicInterfacesOnly WRITE setWebRTCPublicInterfacesOnly NOTIFY webRTCPublicInterfacesOnlyChanged REVISION 6 FINAL)
+    Q_PROPERTY(bool javascriptCanPaste READ javascriptCanPaste WRITE setJavascriptCanPaste NOTIFY javascriptCanPasteChanged REVISION 6 FINAL)
+    Q_PROPERTY(bool dnsPrefetchEnabled READ dnsPrefetchEnabled WRITE setDnsPrefetchEnabled NOTIFY dnsPrefetchEnabledChanged REVISION 7 FINAL)
 
 public:
+    enum UnknownUrlSchemePolicy {
+        DisallowUnknownUrlSchemes = 1,
+        AllowUnknownUrlSchemesFromUserInteraction,
+        AllowAllUnknownUrlSchemes
+    };
+
+    Q_ENUM(UnknownUrlSchemePolicy)
+
     ~QQuickWebEngineSettings();
 
     bool autoLoadImages() const;
@@ -117,6 +130,11 @@ public:
     bool allowGeolocationOnInsecureOrigins() const;
     bool allowWindowActivationFromJavaScript() const;
     bool showScrollBars() const;
+    UnknownUrlSchemePolicy unknownUrlSchemePolicy() const;
+    bool playbackRequiresUserGesture() const;
+    bool webRTCPublicInterfacesOnly() const;
+    bool javascriptCanPaste() const;
+    bool dnsPrefetchEnabled() const;
 
     void setAutoLoadImages(bool on);
     void setJavascriptEnabled(bool on);
@@ -143,6 +161,11 @@ public:
     void setAllowGeolocationOnInsecureOrigins(bool on);
     void setAllowWindowActivationFromJavaScript(bool on);
     void setShowScrollBars(bool on);
+    void setUnknownUrlSchemePolicy(UnknownUrlSchemePolicy policy);
+    void setPlaybackRequiresUserGesture(bool on);
+    void setWebRTCPublicInterfacesOnly(bool on);
+    void setJavascriptCanPaste(bool on);
+    void setDnsPrefetchEnabled(bool on);
 
 signals:
     void autoLoadImagesChanged();
@@ -170,13 +193,18 @@ signals:
     Q_REVISION(4) void allowGeolocationOnInsecureOriginsChanged();
     Q_REVISION(5) void allowWindowActivationFromJavaScriptChanged();
     Q_REVISION(5) void showScrollBarsChanged();
+    Q_REVISION(6) void unknownUrlSchemePolicyChanged();
+    Q_REVISION(6) void playbackRequiresUserGestureChanged();
+    Q_REVISION(6) void webRTCPublicInterfacesOnlyChanged();
+    Q_REVISION(6) void javascriptCanPasteChanged();
+    Q_REVISION(7) void dnsPrefetchEnabledChanged();
 
 private:
     explicit QQuickWebEngineSettings(QQuickWebEngineSettings *parentSettings = 0);
     Q_DISABLE_COPY(QQuickWebEngineSettings)
     friend class QQuickWebEngineProfilePrivate;
     friend class QQuickWebEngineViewPrivate;
-
+    friend class QQuickWebEngineView;
     void setParentSettings(QQuickWebEngineSettings *parentSettings);
 
     QScopedPointer<QtWebEngineCore::WebEngineSettings> d_ptr;

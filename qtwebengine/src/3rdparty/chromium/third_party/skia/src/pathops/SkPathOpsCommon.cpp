@@ -4,9 +4,11 @@
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
  */
+
 #include "SkAddIntersections.h"
 #include "SkOpCoincidence.h"
 #include "SkOpEdgeBuilder.h"
+#include "SkMacros.h"
 #include "SkPathOpsCommon.h"
 #include "SkPathWriter.h"
 #include "SkTSort.h"
@@ -326,7 +328,7 @@ bool HandleCoincidence(SkOpContourHead* contourList, SkOpCoincidence* coincidenc
         // adjust the winding value to account for coincident edges
         if (!pairs->apply(DEBUG_ITER_ONLY_PARAMS(SAFETY_COUNT - safetyHatch))) {
             return false;
-        } 
+        }
         // For each coincident pair that overlaps another, when the receivers (the 1st of the pair)
         // are different, construct a new pair to resolve their mutual span
         if (!pairs->findOverlaps(&overlaps  DEBUG_ITER_PARAMS(SAFETY_COUNT - safetyHatch))) {

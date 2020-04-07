@@ -29,7 +29,8 @@ egl::Error SurfaceNULL::initialize(const egl::Display *display)
     return egl::NoError();
 }
 
-FramebufferImpl *SurfaceNULL::createDefaultFramebuffer(const gl::FramebufferState &state)
+FramebufferImpl *SurfaceNULL::createDefaultFramebuffer(const gl::Context *context,
+                                                       const gl::FramebufferState &state)
 {
     return new FramebufferNULL(state);
 }
@@ -54,12 +55,14 @@ egl::Error SurfaceNULL::querySurfacePointerANGLE(EGLint attribute, void **value)
     return egl::NoError();
 }
 
-egl::Error SurfaceNULL::bindTexImage(gl::Texture *texture, EGLint buffer)
+egl::Error SurfaceNULL::bindTexImage(const gl::Context *context,
+                                     gl::Texture *texture,
+                                     EGLint buffer)
 {
     return egl::NoError();
 }
 
-egl::Error SurfaceNULL::releaseTexImage(EGLint buffer)
+egl::Error SurfaceNULL::releaseTexImage(const gl::Context *context, EGLint buffer)
 {
     return egl::NoError();
 }
@@ -94,6 +97,12 @@ EGLint SurfaceNULL::isPostSubBufferSupported() const
 EGLint SurfaceNULL::getSwapBehavior() const
 {
     return EGL_BUFFER_PRESERVED;
+}
+
+gl::Error SurfaceNULL::initializeContents(const gl::Context *context,
+                                          const gl::ImageIndex &imageIndex)
+{
+    return gl::NoError();
 }
 
 }  // namespace rx

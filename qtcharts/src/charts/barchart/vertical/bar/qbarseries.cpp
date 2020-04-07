@@ -39,7 +39,7 @@ QT_CHARTS_BEGIN_NAMESPACE
 
 /*!
     \class QBarSeries
-    \inmodule Qt Charts
+    \inmodule QtCharts
     \brief The QBarSeries class presents a series of data as vertical bars grouped by category.
 
     This class draws data as a series of vertical bars grouped by category, with one bar per
@@ -128,7 +128,6 @@ void QBarSeriesPrivate::initializeGraphics(QGraphicsItem* parent)
     QAbstractSeriesPrivate::initializeGraphics(parent);
 }
 
-#include "moc_qbarseries.cpp"
-
 QT_CHARTS_END_NAMESPACE
 
+#include "moc_qbarseries.cpp"

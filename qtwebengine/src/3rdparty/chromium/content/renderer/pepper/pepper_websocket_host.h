@@ -16,8 +16,8 @@
 #include "ppapi/host/host_message_context.h"
 #include "ppapi/host/resource_host.h"
 #include "ppapi/proxy/resource_message_params.h"
-#include "third_party/WebKit/public/web/WebPepperSocket.h"
-#include "third_party/WebKit/public/web/WebPepperSocketClient.h"
+#include "third_party/blink/public/web/web_pepper_socket.h"
+#include "third_party/blink/public/web/web_pepper_socket_client.h"
 
 namespace content {
 
@@ -25,7 +25,7 @@ class RendererPpapiHost;
 
 class CONTENT_EXPORT PepperWebSocketHost
     : public ppapi::host::ResourceHost,
-      public NON_EXPORTED_BASE(::blink::WebPepperSocketClient) {
+      public ::blink::WebPepperSocketClient {
  public:
   explicit PepperWebSocketHost(RendererPpapiHost* host,
                                PP_Instance instance,

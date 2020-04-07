@@ -7,7 +7,7 @@
 
 
 #include "SkTypes.h"
-#if defined(SK_BUILD_FOR_WIN32)
+#if defined(SK_BUILD_FOR_WIN)
 
 #include "SkXPSDocument.h"
 #include "SkStream.h"
@@ -16,7 +16,7 @@
 SkXPSDocument::SkXPSDocument(SkWStream* stream,
                    SkScalar dpi,
                    SkTScopedComPtr<IXpsOMObjectFactory> xpsFactory)
-        : SkDocument(stream, nullptr)
+        : SkDocument(stream)
         , fXpsFactory(std::move(xpsFactory))
         , fDevice(SkISize{10000, 10000})
 {
@@ -35,7 +35,7 @@ SkXPSDocument::~SkXPSDocument() {
 
 SkCanvas* SkXPSDocument::onBeginPage(SkScalar width, SkScalar height) {
     fDevice.beginSheet(fUnitsPerMeter, fPixelsPerMeter, {width, height});
-    fCanvas.reset(new SkCanvas(&fDevice));
+    fCanvas.reset(new SkCanvas(sk_ref_sp(&fDevice)));
     return fCanvas.get();
 }
 
@@ -64,4 +64,4 @@ sk_sp<SkDocument> SkDocument::MakeXPS(SkWStream* stream,
            : nullptr;
 }
 
-#endif//defined(SK_BUILD_FOR_WIN32)
+#endif//defined(SK_BUILD_FOR_WIN)

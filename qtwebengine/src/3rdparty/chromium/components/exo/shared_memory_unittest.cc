@@ -6,7 +6,6 @@
 
 #include <stddef.h>
 
-#include "base/memory/ptr_util.h"
 #include "components/exo/buffer.h"
 #include "components/exo/test/exo_test_base.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -24,7 +23,7 @@ std::unique_ptr<SharedMemory> CreateSharedMemory(size_t size) {
   base::SharedMemoryHandle handle =
       base::SharedMemory::DuplicateHandle(shared_memory->handle());
   DCHECK(base::SharedMemory::IsHandleValid(handle));
-  return base::MakeUnique<SharedMemory>(handle);
+  return std::make_unique<SharedMemory>(handle);
 }
 
 TEST_F(SharedMemoryTest, CreateBuffer) {

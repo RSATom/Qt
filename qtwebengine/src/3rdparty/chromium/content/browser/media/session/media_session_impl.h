@@ -11,7 +11,7 @@
 #include <set>
 
 #include "base/callback_list.h"
-#include "base/id_map.h"
+#include "base/containers/id_map.h"
 #include "base/macros.h"
 #include "base/observer_list.h"
 #include "base/optional.h"
@@ -127,6 +127,23 @@ class MediaSessionImpl : public MediaSession,
   // |type| represents the origin of the request.
   CONTENT_EXPORT void Stop(MediaSession::SuspendType suspend_type) override;
 
+  // Seek the media session forward.
+  CONTENT_EXPORT void SeekForward(base::TimeDelta seek_time) override;
+
+  // Seek the media session backward.
+  CONTENT_EXPORT void SeekBackward(base::TimeDelta seek_time) override;
+
+  // Returns if the session can be controlled by Resume() and Suspend() calls
+  // above.
+  CONTENT_EXPORT bool IsControllable() const override;
+
+  // Compute if the actual playback state is paused by combining the
+  // MediaSessionService declared state and guessed state (audio_focus_state_).
+  CONTENT_EXPORT bool IsActuallyPaused() const override;
+
+  // Set the volume multiplier applied during ducking.
+  CONTENT_EXPORT void SetDuckingVolumeMultiplier(double multiplier) override;
+
   // Let the media session start ducking such that the volume multiplier is
   // reduced.
   CONTENT_EXPORT void StartDucking() override;
@@ -137,10 +154,6 @@ class MediaSessionImpl : public MediaSession,
 
   void AddObserver(MediaSessionObserver* observer) override;
   void RemoveObserver(MediaSessionObserver* observer) override;
-
-  // Returns if the session can be controlled by Resume() and Suspend calls
-  // above.
-  CONTENT_EXPORT bool IsControllable() const;
 
   // Returns if the session is currently active.
   CONTENT_EXPORT bool IsActive() const;
@@ -186,6 +199,11 @@ class MediaSessionImpl : public MediaSession,
   // to blink::MediaSession corresponding to the current routed service.
   void DidReceiveAction(blink::mojom::MediaSessionAction action) override;
 
+  // Requests audio focus to the AudioFocusDelegate.
+  // Returns whether the request was granted.
+  CONTENT_EXPORT bool RequestSystemAudioFocus(
+      AudioFocusManager::AudioFocusType audio_focus_type);
+
  private:
   friend class content::WebContentsUserData<MediaSessionImpl>;
   friend class ::MediaSessionImplBrowserTest;
@@ -227,11 +245,6 @@ class MediaSessionImpl : public MediaSession,
                                         State new_state);
   CONTENT_EXPORT void OnResumeInternal(MediaSession::SuspendType suspend_type);
 
-  // Requests audio focus to the AudioFocusDelegate.
-  // Returns whether the request was granted.
-  CONTENT_EXPORT bool RequestSystemAudioFocus(
-      AudioFocusManager::AudioFocusType audio_focus_type);
-
   // To be called after a call to AbandonAudioFocus() in order request the
   // delegate to abandon the audio focus.
   CONTENT_EXPORT void AbandonSystemAudioFocusIfNeeded();
@@ -252,10 +265,6 @@ class MediaSessionImpl : public MediaSession,
   // Get the volume multiplier, which depends on whether the media session is
   // ducking.
   double GetVolumeMultiplier() const;
-
-  // Compute if the actual playback state is paused by combining the
-  // MediaSessionService declared state and guessed state (audio_focus_state_).
-  bool IsActuallyPaused() const;
 
   // Registers a MediaSessionImpl state change callback.
   CONTENT_EXPORT std::unique_ptr<base::CallbackList<void(State)>::Subscription>
@@ -295,6 +304,8 @@ class MediaSessionImpl : public MediaSession,
   // is set to |true| after StartDucking(), and will be set to |false| after
   // StopDucking().
   bool is_ducking_;
+
+  double ducking_volume_multiplier_;
 
   base::CallbackList<void(State)> media_session_state_listeners_;
 

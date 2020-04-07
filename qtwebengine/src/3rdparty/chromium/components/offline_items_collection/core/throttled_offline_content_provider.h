@@ -30,9 +30,6 @@ class ThrottledOfflineContentProvider
                                   OfflineContentProvider* provider);
   ~ThrottledOfflineContentProvider() override;
 
-  // OfflineContentProvider implementation.
-  bool AreItemsAvailable() override;
-
   // Taking actions on the OfflineContentProvider will flush any queued updates
   // immediately after performing the action. This is to make sure item updates
   // in response to the update are immediately reflected back to the caller.
@@ -40,13 +37,13 @@ class ThrottledOfflineContentProvider
   void RemoveItem(const ContentId& id) override;
   void CancelDownload(const ContentId& id) override;
   void PauseDownload(const ContentId& id) override;
-  void ResumeDownload(const ContentId& id) override;
+  void ResumeDownload(const ContentId& id, bool has_user_gesture) override;
 
   // Because this class queues updates, a call to Observer::OnItemUpdated might
   // get triggered with the same contents as returned by these getter methods in
   // the future.
-  const OfflineItem* GetItemById(const ContentId& id) override;
-  OfflineItemList GetAllItems() override;
+  void GetItemById(const ContentId& id, SingleItemCallback callback) override;
+  void GetAllItems(MultipleItemCallback callback) override;
   void GetVisualsForItem(const ContentId& id,
                          const VisualsCallback& callback) override;
   void AddObserver(OfflineContentProvider::Observer* observer) override;
@@ -58,14 +55,14 @@ class ThrottledOfflineContentProvider
 
  private:
   // OfflineContentProvider::Observer implementation.
-  void OnItemsAvailable(OfflineContentProvider* provider) override;
   void OnItemsAdded(const OfflineItemList& items) override;
   void OnItemRemoved(const ContentId& id) override;
   void OnItemUpdated(const OfflineItem& item) override;
 
-  // Used to notify |observer| that the underying OfflineContentProvider has
-  // called OfflineContentProvider::Observer::OnItemsAvailable().
-  void NotifyItemsAvailable(OfflineContentProvider::Observer* observer);
+  void OnGetAllItemsDone(MultipleItemCallback callback,
+                         const OfflineItemList& items);
+  void OnGetItemByIdDone(SingleItemCallback callback,
+                         const base::Optional<OfflineItem>& item);
 
   // Checks if |item| already has an update pending. If so, replaces the content
   // of the update with |item|.

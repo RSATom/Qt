@@ -10,22 +10,25 @@
 #include "base/cancelable_callback.h"
 #include "base/macros.h"
 #include "base/time/time.h"
-#include "cc/output/begin_frame_args.h"
 #include "cc/scheduler/scheduler.h"
-#include "cc/trees/blocking_task_runner.h"
 #include "cc/trees/layer_tree_host_impl.h"
 #include "cc/trees/proxy.h"
 #include "cc/trees/task_runner_provider.h"
+#include "components/viz/common/frame_sinks/begin_frame_args.h"
+
+namespace viz {
+class BeginFrameSource;
+}
 
 namespace cc {
 
 class MutatorEvents;
-class BeginFrameSource;
 class LayerTreeHost;
 class LayerTreeHostSingleThreadClient;
+class RenderFrameMetadataObserver;
 
 class CC_EXPORT SingleThreadProxy : public Proxy,
-                                    NON_EXPORTED_BASE(LayerTreeHostImplClient),
+                                    LayerTreeHostImplClient,
                                     public SchedulerClient {
  public:
   static std::unique_ptr<Proxy> Create(
@@ -46,39 +49,55 @@ class CC_EXPORT SingleThreadProxy : public Proxy,
   void SetNeedsCommit() override;
   void SetNeedsRedraw(const gfx::Rect& damage_rect) override;
   void SetNextCommitWaitsForActivation() override;
+  bool RequestedAnimatePending() override;
   void NotifyInputThrottledUntilCommit() override {}
   void SetDeferCommits(bool defer_commits) override;
   bool CommitRequested() const override;
-  void MainThreadHasStoppedFlinging() override {}
   void Start() override;
   void Stop() override;
   void SetMutator(std::unique_ptr<LayerTreeMutator> mutator) override;
   bool SupportsImplScrolling() const override;
   bool MainFrameWillHappenForTesting() override;
+  void SetURLForUkm(const GURL& url) override {
+    // Single-threaded mode is only for browser compositing and for renderers in
+    // layout tests. This will still get called in the latter case, but we don't
+    // need to record UKM in that case.
+  }
+  void ClearHistory() override;
+  void SetRenderFrameObserver(
+      std::unique_ptr<RenderFrameMetadataObserver> observer) override;
+
+  // Blink layout tests might call into this even though an unthreaded CC
+  // doesn't have BrowserControls itself.
   void UpdateBrowserControlsState(BrowserControlsState constraints,
                                   BrowserControlsState current,
-                                  bool animate) override;
+                                  bool animate) override {}
 
   // SchedulerClient implementation
-  void WillBeginImplFrame(const BeginFrameArgs& args) override;
+  bool WillBeginImplFrame(const viz::BeginFrameArgs& args) override;
   void DidFinishImplFrame() override;
-  void DidNotProduceFrame(const BeginFrameAck& ack) override;
-  void ScheduledActionSendBeginMainFrame(const BeginFrameArgs& args) override;
+  void DidNotProduceFrame(const viz::BeginFrameAck& ack) override;
+  void ScheduledActionSendBeginMainFrame(
+      const viz::BeginFrameArgs& args) override;
   DrawResult ScheduledActionDrawIfPossible() override;
   DrawResult ScheduledActionDrawForced() override;
   void ScheduledActionCommit() override;
   void ScheduledActionActivateSyncTree() override;
   void ScheduledActionBeginLayerTreeFrameSinkCreation() override;
   void ScheduledActionPrepareTiles() override;
-  void ScheduledActionInvalidateLayerTreeFrameSink() override;
+  void ScheduledActionInvalidateLayerTreeFrameSink(bool needs_redraw) override;
   void ScheduledActionPerformImplSideInvalidation() override;
   void SendBeginMainFrameNotExpectedSoon() override;
   void ScheduledActionBeginMainFrameNotExpectedUntil(
       base::TimeTicks time) override;
+  size_t CompositedAnimationsCount() const override;
+  size_t MainThreadAnimationsCount() const override;
+  bool CurrentFrameHadRAF() const override;
+  bool NextFrameHasPendingRAF() const override;
 
   // LayerTreeHostImplClient implementation
   void DidLoseLayerTreeFrameSinkOnImplThread() override;
-  void SetBeginFrameSource(BeginFrameSource* source) override;
+  void SetBeginFrameSource(viz::BeginFrameSource* source) override;
   void DidReceiveCompositorFrameAckOnImplThread() override;
   void OnCanDrawStateChanged(bool can_draw) override;
   void NotifyReadyToActivate() override;
@@ -98,15 +117,21 @@ class CC_EXPORT SingleThreadProxy : public Proxy,
   void WillPrepareTiles() override;
   void DidPrepareTiles() override;
   void DidCompletePageScaleAnimationOnImplThread() override;
-  void OnDrawForLayerTreeFrameSink(bool resourceless_software_draw) override;
-  void NeedsImplSideInvalidation() override;
+  void OnDrawForLayerTreeFrameSink(bool resourceless_software_draw,
+                                   bool skip_draw) override;
+  void NeedsImplSideInvalidation(bool needs_first_draw_on_activation) override;
   void RequestBeginMainFrameNotExpected(bool new_state) override;
   void NotifyImageDecodeRequestFinished() override;
+  void DidPresentCompositorFrameOnImplThread(
+      uint32_t frame_token,
+      std::vector<LayerTreeHost::PresentationTimeCallback> callbacks,
+      const gfx::PresentationFeedback& feedback) override;
 
   void RequestNewLayerTreeFrameSink();
 
   // Called by the legacy path where RenderWidget does the scheduling.
-  void CompositeImmediately(base::TimeTicks frame_begin_time);
+  // Rasterization of tiles is only performed when |raster| is true.
+  void CompositeImmediately(base::TimeTicks frame_begin_time, bool raster);
 
  protected:
   SingleThreadProxy(LayerTreeHost* layer_tree_host,
@@ -114,9 +139,9 @@ class CC_EXPORT SingleThreadProxy : public Proxy,
                     TaskRunnerProvider* task_runner_provider);
 
  private:
-  void BeginMainFrame(const BeginFrameArgs& begin_frame_args);
+  void BeginMainFrame(const viz::BeginFrameArgs& begin_frame_args);
   void BeginMainFrameAbortedOnImplThread(CommitEarlyOutReason reason);
-  void DoBeginMainFrame(const BeginFrameArgs& begin_frame_args);
+  void DoBeginMainFrame(const viz::BeginFrameArgs& begin_frame_args);
   void DoPainting();
   void DoCommit();
   DrawResult DoComposite(LayerTreeHostImpl::FrameData* frame);
@@ -138,13 +163,11 @@ class CC_EXPORT SingleThreadProxy : public Proxy,
 
   // Used on the Thread, but checked on main thread during
   // initialization/shutdown.
-  std::unique_ptr<LayerTreeHostImpl> layer_tree_host_impl_;
+  std::unique_ptr<LayerTreeHostImpl> host_impl_;
 
   // Accessed from both threads.
   std::unique_ptr<Scheduler> scheduler_on_impl_thread_;
 
-  std::unique_ptr<BlockingTaskRunner::CapturePostTasks>
-      commit_blocking_task_runner_;
   bool next_frame_is_newly_committed_frame_;
 
 #if DCHECK_IS_ON()

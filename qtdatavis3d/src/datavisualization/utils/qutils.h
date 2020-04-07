@@ -54,7 +54,7 @@ static inline QSurfaceFormat qDefaultSurfaceFormat(bool antialias)
     surfaceFormat.setRenderableType(QSurfaceFormat::DefaultRenderableType);
 
     QOpenGLContext *ctx = QOpenGLContext::currentContext();
-    QOffscreenSurface *dummySurface = Q_NULLPTR;
+    QOffscreenSurface *dummySurface = nullptr;
     if (!ctx) {
         dummySurface = new QOffscreenSurface();
         dummySurface->setFormat(surfaceFormat);

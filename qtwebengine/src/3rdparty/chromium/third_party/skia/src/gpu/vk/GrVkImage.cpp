@@ -12,6 +12,58 @@
 
 #define VK_CALL(GPU, X) GR_VK_CALL(GPU->vkInterface(), X)
 
+VkPipelineStageFlags GrVkImage::LayoutToPipelineStageFlags(const VkImageLayout layout) {
+    if (VK_IMAGE_LAYOUT_GENERAL == layout) {
+        return VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+    } else if (VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL == layout ||
+               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL == layout) {
+        return VK_PIPELINE_STAGE_TRANSFER_BIT;
+    } else if (VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL == layout ||
+               VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL == layout ||
+               VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL == layout ||
+               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL == layout) {
+        return VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT;
+    } else if (VK_IMAGE_LAYOUT_PREINITIALIZED == layout) {
+        return VK_PIPELINE_STAGE_HOST_BIT;
+    }
+
+    SkASSERT(VK_IMAGE_LAYOUT_UNDEFINED == layout);
+    return VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+}
+
+VkAccessFlags GrVkImage::LayoutToSrcAccessMask(const VkImageLayout layout) {
+    // Currently we assume we will never being doing any explict shader writes (this doesn't include
+    // color attachment or depth/stencil writes). So we will ignore the
+    // VK_MEMORY_OUTPUT_SHADER_WRITE_BIT.
+
+    // We can only directly access the host memory if we are in preinitialized or general layout,
+    // and the image is linear.
+    // TODO: Add check for linear here so we are not always adding host to general, and we should
+    //       only be in preinitialized if we are linear
+    VkAccessFlags flags = 0;;
+    if (VK_IMAGE_LAYOUT_GENERAL == layout) {
+        flags = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+                VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT |
+                VK_ACCESS_TRANSFER_WRITE_BIT |
+                VK_ACCESS_TRANSFER_READ_BIT |
+                VK_ACCESS_SHADER_READ_BIT |
+                VK_ACCESS_HOST_WRITE_BIT | VK_ACCESS_HOST_READ_BIT;
+    } else if (VK_IMAGE_LAYOUT_PREINITIALIZED == layout) {
+        flags = VK_ACCESS_HOST_WRITE_BIT;
+    } else if (VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL == layout) {
+        flags = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    } else if (VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL == layout) {
+        flags = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    } else if (VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL == layout) {
+        flags = VK_ACCESS_TRANSFER_WRITE_BIT;
+    } else if (VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL == layout) {
+        flags = VK_ACCESS_TRANSFER_READ_BIT;
+    } else if (VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL == layout) {
+        flags = VK_ACCESS_SHADER_READ_BIT;
+    }
+    return flags;
+}
+
 VkImageAspectFlags vk_format_to_aspect_flags(VkFormat format) {
     switch (format) {
         case VK_FORMAT_S8_UINT:
@@ -20,7 +72,7 @@ VkImageAspectFlags vk_format_to_aspect_flags(VkFormat format) {
         case VK_FORMAT_D32_SFLOAT_S8_UINT:
             return VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
         default:
-            SkASSERT(kUnknown_GrPixelConfig != GrVkFormatToPixelConfig(format));
+            SkASSERT(GrVkFormatIsSupported(format));
             return VK_IMAGE_ASPECT_COLOR_BIT;
     }
 }
@@ -42,8 +94,8 @@ void GrVkImage::setImageLayout(const GrVkGpu* gpu, VkImageLayout newLayout,
         return;
     }
 
-    VkAccessFlags srcAccessMask = GrVkMemory::LayoutToSrcAccessMask(currentLayout);
-    VkPipelineStageFlags srcStageMask = GrVkMemory::LayoutToPipelineStageFlags(currentLayout);
+    VkAccessFlags srcAccessMask = GrVkImage::LayoutToSrcAccessMask(currentLayout);
+    VkPipelineStageFlags srcStageMask = GrVkImage::LayoutToPipelineStageFlags(currentLayout);
 
     VkImageAspectFlags aspectFlags = vk_format_to_aspect_flags(fInfo.fFormat);
     VkImageMemoryBarrier imageMemoryBarrier = {
@@ -61,7 +113,7 @@ void GrVkImage::setImageLayout(const GrVkGpu* gpu, VkImageLayout newLayout,
 
     gpu->addImageMemoryBarrier(srcStageMask, dstStageMask, byRegion, &imageMemoryBarrier);
 
-    fInfo.fImageLayout = newLayout;
+    this->updateImageLayout(newLayout);
 }
 
 bool GrVkImage::InitImageInfo(const GrVkGpu* gpu, const ImageDesc& imageDesc, GrVkImageInfo* info) {
@@ -84,14 +136,10 @@ bool GrVkImage::InitImageInfo(const GrVkGpu* gpu, const ImageDesc& imageDesc, Gr
     SkASSERT(VK_IMAGE_TILING_OPTIMAL == imageDesc.fImageTiling ||
              VK_SAMPLE_COUNT_1_BIT == vkSamples);
 
-    // sRGB format images may need to be aliased to linear for various reasons (legacy mode):
-    VkImageCreateFlags createFlags = GrVkFormatIsSRGB(imageDesc.fFormat, nullptr)
-        ? VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT : 0;
-
     const VkImageCreateInfo imageCreateInfo = {
         VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,         // sType
-        NULL,                                        // pNext
-        createFlags,                                 // VkImageCreateFlags
+        nullptr,                                     // pNext
+        0,                                           // VkImageCreateFlags
         imageDesc.fImageType,                        // VkImageType
         imageDesc.fFormat,                           // VkFormat
         { imageDesc.fWidth, imageDesc.fHeight, 1 },  // VkExtent3D
@@ -152,13 +200,13 @@ void GrVkImage::abandonImage() {
     }
 }
 
-void GrVkImage::setResourceRelease(ReleaseProc proc, ReleaseCtx ctx) {
+void GrVkImage::setResourceRelease(sk_sp<GrReleaseProcHelper> releaseHelper) {
     // Forward the release proc on to GrVkImage::Resource
-    fResource->setRelease(proc, ctx);
+    fResource->setRelease(std::move(releaseHelper));
 }
 
 void GrVkImage::Resource::freeGPUData(const GrVkGpu* gpu) const {
-    SkASSERT(!fReleaseProc);
+    SkASSERT(!fReleaseHelper);
     VK_CALL(gpu, DestroyImage(gpu->device(), fImage, nullptr));
     bool isLinear = (VK_IMAGE_TILING_LINEAR == fImageTiling);
     GrVkMemory::FreeImageMemory(gpu, isLinear, fAlloc);

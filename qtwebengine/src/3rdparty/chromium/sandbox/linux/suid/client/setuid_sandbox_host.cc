@@ -120,7 +120,7 @@ bool SetuidSandboxHost::IsDisabledViaEnvironment() {
 base::FilePath SetuidSandboxHost::GetSandboxBinaryPath() {
   base::FilePath sandbox_binary;
   base::FilePath exe_dir;
-  if (PathService::Get(base::DIR_EXE, &exe_dir)) {
+  if (base::PathService::Get(base::DIR_EXE, &exe_dir)) {
     base::FilePath sandbox_candidate = exe_dir.AppendASCII("chrome-sandbox");
     if (base::PathExists(sandbox_candidate))
       sandbox_binary = sandbox_candidate;
@@ -165,10 +165,8 @@ void SetuidSandboxHost::PrependWrapper(base::CommandLine* cmd_line) {
 
 void SetuidSandboxHost::SetupLaunchOptions(
     base::LaunchOptions* options,
-    base::FileHandleMappingVector* fds_to_remap,
     base::ScopedFD* dummy_fd) {
   DCHECK(options);
-  DCHECK(fds_to_remap);
 
   // Launching a setuid binary requires PR_SET_NO_NEW_PRIVS to not be used.
   options->allow_new_privs = true;
@@ -183,7 +181,7 @@ void SetuidSandboxHost::SetupLaunchOptions(
   // We no longer need a dummy socket for discovering the child's PID,
   // but the sandbox is still hard-coded to expect a file descriptor at
   // kZygoteIdFd. Fixing this requires a sandbox API change. :(
-  fds_to_remap->push_back(std::make_pair(dummy_fd->get(), kZygoteIdFd));
+  options->fds_to_remap.push_back(std::make_pair(dummy_fd->get(), kZygoteIdFd));
 }
 
 void SetuidSandboxHost::SetupLaunchEnvironment() {

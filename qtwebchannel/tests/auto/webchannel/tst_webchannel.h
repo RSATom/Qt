@@ -1,6 +1,7 @@
 /****************************************************************************
 **
 ** Copyright (C) 2016 Klarälvdalens Datakonsult AB, a KDAB Group company, info@kdab.com, author Milian Wolff <milian.wolff@kdab.com>
+** Copyright (C) 2019 Menlo Systems GmbH, author Arno Rehn <a.rehn@menlosystems.com>
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtWebChannel module of the Qt Toolkit.
@@ -60,7 +61,7 @@ public:
     }
 
 public slots:
-    void sendMessage(const QJsonObject &message) Q_DECL_OVERRIDE
+    void sendMessage(const QJsonObject &message) override
     {
         mMessagesSent.push_back(message);
     }
@@ -91,6 +92,13 @@ public:
         Bar,
         Asdf
     };
+
+    enum TestFlag : quint16 {
+        FirstFlag = 0x1,
+        SecondFlag = 0x2
+    };
+    Q_DECLARE_FLAGS(TestFlags, TestFlag)
+    Q_FLAG(TestFlags)
 
     Foo foo() const {return Bar;}
     int asdf() const {return 42;}
@@ -159,6 +167,8 @@ public:
     TestObject *mReturnedObject;
     QString mProp;
 };
+
+Q_DECLARE_OPERATORS_FOR_FLAGS(TestObject::TestFlags)
 
 class BenchObject : public QObject
 {
@@ -301,8 +311,12 @@ private slots:
     void testSetPropertyConversion();
     void testDisconnect();
     void testWrapRegisteredObject();
+    void testUnwrapObject();
     void testRemoveUnusedTransports();
     void testPassWrappedObjectBack();
+    void testWrapValues();
+    void testWrapObjectWithMultipleTransports();
+    void testJsonToVariant();
     void testInfiniteRecursion();
     void testAsyncObject();
     void testDeletionDuringMethodInvocation_data();
@@ -329,5 +343,7 @@ private:
 };
 
 QT_END_NAMESPACE
+
+Q_DECLARE_METATYPE(TestObject::Foo)
 
 #endif // TST_WEBCHANNEL_H

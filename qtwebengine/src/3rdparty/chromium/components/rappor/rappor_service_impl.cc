@@ -4,10 +4,10 @@
 
 #include "components/rappor/rappor_service_impl.h"
 
+#include <memory>
 #include <utility>
 
 #include "base/memory/ptr_util.h"
-#include "base/metrics/field_trial.h"
 #include "base/metrics/metrics_hashes.h"
 #include "base/time/time.h"
 #include "components/rappor/log_uploader.h"
@@ -16,6 +16,7 @@
 #include "components/rappor/rappor_pref_names.h"
 #include "components/rappor/rappor_prefs.h"
 #include "components/variations/variations_associated_data.h"
+#include "services/network/public/cpp/shared_url_loader_factory.h"
 
 namespace rappor {
 
@@ -30,23 +31,8 @@ const char kMimeType[] = "application/vnd.chrome.rappor";
 
 const char kRapporDailyEventHistogram[] = "Rappor.DailyEvent.IntervalType";
 
-// Constants for the RAPPOR rollout field trial.
-const char kRapporRolloutFieldTrialName[] = "RapporRollout";
-
-// Constant for the finch parameter name for the server URL
-const char kRapporRolloutServerUrlParam[] = "ServerUrl";
-
 // The rappor server's URL.
 const char kDefaultServerUrl[] = "https://clients4.google.com/rappor";
-
-GURL GetServerUrl() {
-  std::string server_url = variations::GetVariationParamValue(
-      kRapporRolloutFieldTrialName, kRapporRolloutServerUrlParam);
-  if (!server_url.empty())
-    return GURL(server_url);
-  else
-    return GURL(kDefaultServerUrl);
-}
 
 }  // namespace
 
@@ -69,10 +55,10 @@ void RapporServiceImpl::AddDailyObserver(
 }
 
 void RapporServiceImpl::Initialize(
-    net::URLRequestContextGetter* request_context) {
+    scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory) {
   DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK(!IsInitialized());
-  const GURL server_url = GetServerUrl();
+  const GURL server_url = GURL(kDefaultServerUrl);
   if (!server_url.is_valid()) {
     DVLOG(1) << server_url.spec() << " is invalid. "
              << "RapporServiceImpl not started.";
@@ -80,7 +66,7 @@ void RapporServiceImpl::Initialize(
   }
   DVLOG(1) << "RapporServiceImpl reporting to " << server_url.spec();
   InitializeInternal(
-      base::MakeUnique<LogUploader>(server_url, kMimeType, request_context),
+      std::make_unique<LogUploader>(server_url, kMimeType, url_loader_factory),
       internal::LoadCohort(pref_service_), internal::LoadSecret(pref_service_));
 }
 

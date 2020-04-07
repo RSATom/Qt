@@ -16,38 +16,44 @@ namespace internal {
 
 namespace {
 
-class ScopeCallsEvalField : public BitField<bool, 0, 1> {};
+class ScopeCallsSloppyEvalField : public BitField<bool, 0, 1> {};
 class InnerScopeCallsEvalField
-    : public BitField<bool, ScopeCallsEvalField::kNext, 1> {};
+    : public BitField<bool, ScopeCallsSloppyEvalField::kNext, 1> {};
 
-class VariableIsUsedField : public BitField16<bool, 0, 1> {};
-class VariableMaybeAssignedField
-    : public BitField16<bool, VariableIsUsedField::kNext, 1> {};
+class VariableMaybeAssignedField : public BitField8<bool, 0, 1> {};
 class VariableContextAllocatedField
-    : public BitField16<bool, VariableMaybeAssignedField::kNext, 1> {};
+    : public BitField8<bool, VariableMaybeAssignedField::kNext, 1> {};
 
-const int kMagicValue = 0xc0de0de;
 
-enum SkippableFunctionDataOffsets {
-  kStartPosition,
-  kEndPosition,
-  kNumParameters,
-  kNumInnerFunctions,
-  kLanguageAndSuper,
-  kSize
-};
+#ifdef DEBUG
+const int kMagicValue = 0xC0DE0DE;
 
-STATIC_ASSERT(LANGUAGE_END == 2);
-class LanguageField : public BitField<int, 0, 1> {};
-class UsesSuperField : public BitField<bool, LanguageField::kNext, 1> {};
+const size_t kUint32Size = 5;
+const size_t kUint8Size = 2;
+const size_t kQuarterMarker = 0;
+const size_t kPlaceholderSize = kUint32Size;
+#else
+const size_t kUint32Size = 4;
+const size_t kUint8Size = 1;
+const size_t kPlaceholderSize = 0;
+#endif
+
+const size_t kSkippableFunctionDataSize = 4 * kUint32Size + 1 * kUint8Size;
+
+class LanguageField : public BitField8<LanguageMode, 0, 1> {};
+class UsesSuperField : public BitField8<bool, LanguageField::kNext, 1> {};
+STATIC_ASSERT(LanguageModeSize <= LanguageField::kNumValues);
 
 }  // namespace
 
 /*
 
-  Internal data format for the backing store of ProducedPreparsedScopeData:
+  Internal data format for the backing store of ProducedPreparsedScopeData and
+  PreParsedScopeData::scope_data (on the heap):
 
   (Skippable function data:)
+  ------------------------------------
+  | scope_data_start (debug only)    |
   ------------------------------------
   | data for inner function 1        |
   | ...                              |
@@ -55,11 +61,11 @@ class UsesSuperField : public BitField<bool, LanguageField::kNext, 1> {};
   | data for inner function n        |
   | ...                              |
   ------------------------------------
-  (Scope allocation data:)
+  (Scope allocation data:)             << scope_data_start points here in debug
   ------------------------------------
-  magic value
+  magic value (debug only)
   ------------------------------------
-  scope positions
+  scope positions (debug only)
   ------------------------------------
   | scope type << only in debug      |
   | eval                             |
@@ -78,166 +84,241 @@ class UsesSuperField : public BitField<bool, LanguageField::kNext, 1> {};
   | ...                              |
   ------------------------------------
 
-
-  Data format for PreParsedScopeData (on the heap):
-
-  PreParsedScopeData::scope_data:
-
-  ------------------------------------
-  | scope_data_start                 |
-  ------------------------------------
-  | Skippable function data          |
-  | (see above)                      |
-  | ...                              |
-  ------------------------------------
-  ------------------------------------
-  | Scope allocation data            | << scope_data_start points here
-  | (see above)                      |
-  | ...                              |
-  ------------------------------------
-
   PreParsedScopeData::child_data is an array of PreParsedScopeData objects, one
   for each skippable inner function.
-
 
   ConsumedPreParsedScopeData wraps a PreParsedScopeData and reads data from it.
 
  */
 
+void ProducedPreParsedScopeData::ByteData::WriteUint32(uint32_t data) {
+#ifdef DEBUG
+  // Save expected item size in debug mode.
+  backing_store_.push_back(kUint32Size);
+#endif
+  const uint8_t* d = reinterpret_cast<uint8_t*>(&data);
+  for (int i = 0; i < 4; ++i) {
+    backing_store_.push_back(*d++);
+  }
+  free_quarters_in_last_byte_ = 0;
+}
+
+#ifdef DEBUG
+void ProducedPreParsedScopeData::ByteData::OverwriteFirstUint32(uint32_t data) {
+  auto it = backing_store_.begin();
+  // Check that that position already holds an item of the expected size.
+  DCHECK_GE(backing_store_.size(), kUint32Size);
+  DCHECK_EQ(*it, kUint32Size);
+  ++it;
+  const uint8_t* d = reinterpret_cast<uint8_t*>(&data);
+  for (size_t i = 0; i < 4; ++i) {
+    *it++ = *d++;
+  }
+}
+#endif
+
+void ProducedPreParsedScopeData::ByteData::WriteUint8(uint8_t data) {
+#ifdef DEBUG
+  // Save expected item size in debug mode.
+  backing_store_.push_back(kUint8Size);
+#endif
+  backing_store_.push_back(data);
+  free_quarters_in_last_byte_ = 0;
+}
+
+void ProducedPreParsedScopeData::ByteData::WriteQuarter(uint8_t data) {
+  DCHECK_LE(data, 3);
+  if (free_quarters_in_last_byte_ == 0) {
+#ifdef DEBUG
+    // Save a marker in debug mode.
+    backing_store_.push_back(kQuarterMarker);
+#endif
+    backing_store_.push_back(0);
+    free_quarters_in_last_byte_ = 3;
+  } else {
+    --free_quarters_in_last_byte_;
+  }
+
+  uint8_t shift_amount = free_quarters_in_last_byte_ * 2;
+  DCHECK_EQ(backing_store_.back() & (3 << shift_amount), 0);
+  backing_store_.back() |= (data << shift_amount);
+}
+
+Handle<PodArray<uint8_t>> ProducedPreParsedScopeData::ByteData::Serialize(
+    Isolate* isolate) {
+  Handle<PodArray<uint8_t>> array = PodArray<uint8_t>::New(
+      isolate, static_cast<int>(backing_store_.size()), TENURED);
+
+  DisallowHeapAllocation no_gc;
+  PodArray<uint8_t>* raw_array = *array;
+
+  int i = 0;
+  for (uint8_t item : backing_store_) {
+    raw_array->set(i++, item);
+  }
+  return array;
+}
+
+ProducedPreParsedScopeData::ProducedPreParsedScopeData(
+    Zone* zone, ProducedPreParsedScopeData* parent)
+    : parent_(parent),
+      byte_data_(new (zone) ByteData(zone)),
+      data_for_inner_functions_(zone),
+      bailed_out_(false) {
+  if (parent != nullptr) {
+    parent->data_for_inner_functions_.push_back(this);
+  }
+#ifdef DEBUG
+  // Reserve space for scope_data_start, written later:
+  byte_data_->WriteUint32(0);
+#endif
+}
+
+// Create a ProducedPreParsedScopeData which is just a proxy for a previous
+// produced PreParsedScopeData.
+ProducedPreParsedScopeData::ProducedPreParsedScopeData(
+    Handle<PreParsedScopeData> data, Zone* zone)
+    : parent_(nullptr),
+      byte_data_(nullptr),
+      data_for_inner_functions_(zone),
+      bailed_out_(false),
+      previously_produced_preparsed_scope_data_(data) {}
+
 ProducedPreParsedScopeData::DataGatheringScope::DataGatheringScope(
     DeclarationScope* function_scope, PreParser* preparser)
     : function_scope_(function_scope),
       preparser_(preparser),
-      parent_data_(preparser->produced_preparsed_scope_data()) {
-  if (FLAG_experimental_preparser_scope_analysis) {
+      produced_preparsed_scope_data_(nullptr) {
+  if (FLAG_preparser_scope_analysis) {
+    ProducedPreParsedScopeData* parent =
+        preparser->produced_preparsed_scope_data();
     Zone* main_zone = preparser->main_zone();
-    auto* new_data = new (main_zone) ProducedPreParsedScopeData(main_zone);
-    if (parent_data_ != nullptr) {
-      parent_data_->data_for_inner_functions_.push_back(new_data);
-    }
-    preparser->set_produced_preparsed_scope_data(new_data);
-    function_scope->set_produced_preparsed_scope_data(new_data);
+    produced_preparsed_scope_data_ =
+        new (main_zone) ProducedPreParsedScopeData(main_zone, parent);
+    preparser->set_produced_preparsed_scope_data(
+        produced_preparsed_scope_data_);
+    function_scope->set_produced_preparsed_scope_data(
+        produced_preparsed_scope_data_);
   }
 }
 
 ProducedPreParsedScopeData::DataGatheringScope::~DataGatheringScope() {
-  if (FLAG_experimental_preparser_scope_analysis) {
-    preparser_->set_produced_preparsed_scope_data(parent_data_);
+  if (FLAG_preparser_scope_analysis) {
+    preparser_->set_produced_preparsed_scope_data(
+        produced_preparsed_scope_data_->parent_);
   }
 }
 
 void ProducedPreParsedScopeData::DataGatheringScope::MarkFunctionAsSkippable(
     int end_position, int num_inner_functions) {
-  DCHECK(FLAG_experimental_preparser_scope_analysis);
-  DCHECK_NOT_NULL(parent_data_);
-  parent_data_->AddSkippableFunction(
+  DCHECK(FLAG_preparser_scope_analysis);
+  DCHECK_NOT_NULL(produced_preparsed_scope_data_);
+  DCHECK_NOT_NULL(produced_preparsed_scope_data_->parent_);
+  produced_preparsed_scope_data_->parent_->AddSkippableFunction(
       function_scope_->start_position(), end_position,
       function_scope_->num_parameters(), num_inner_functions,
-      function_scope_->language_mode(), function_scope_->uses_super_property());
+      function_scope_->language_mode(), function_scope_->NeedsHomeObject());
 }
 
 void ProducedPreParsedScopeData::AddSkippableFunction(
     int start_position, int end_position, int num_parameters,
     int num_inner_functions, LanguageMode language_mode,
     bool uses_super_property) {
-  DCHECK(FLAG_experimental_preparser_scope_analysis);
-  DCHECK_EQ(scope_data_start_, -1);
+  DCHECK(FLAG_preparser_scope_analysis);
   DCHECK(previously_produced_preparsed_scope_data_.is_null());
 
-  size_t current_size = backing_store_.size();
-  backing_store_.resize(current_size + SkippableFunctionDataOffsets::kSize);
-  backing_store_[current_size + SkippableFunctionDataOffsets::kStartPosition] =
-      start_position;
-  backing_store_[current_size + SkippableFunctionDataOffsets::kEndPosition] =
-      end_position;
-  backing_store_[current_size + SkippableFunctionDataOffsets::kNumParameters] =
-      num_parameters;
-  backing_store_[current_size +
-                 SkippableFunctionDataOffsets::kNumInnerFunctions] =
-      num_inner_functions;
+  if (bailed_out_) {
+    return;
+  }
 
-  uint32_t language_and_super = LanguageField::encode(language_mode) |
-                                UsesSuperField::encode(uses_super_property);
+  // Start position is used for a sanity check when consuming the data, we could
+  // remove it in the future if we're very pressed for space but it's been good
+  // at catching bugs in the wild so far.
+  byte_data_->WriteUint32(start_position);
+  byte_data_->WriteUint32(end_position);
+  byte_data_->WriteUint32(num_parameters);
+  byte_data_->WriteUint32(num_inner_functions);
 
-  backing_store_[current_size +
-                 SkippableFunctionDataOffsets::kLanguageAndSuper] =
-      language_and_super;
+  uint8_t language_and_super = LanguageField::encode(language_mode) |
+                               UsesSuperField::encode(uses_super_property);
+
+  byte_data_->WriteQuarter(language_and_super);
 }
 
 void ProducedPreParsedScopeData::SaveScopeAllocationData(
     DeclarationScope* scope) {
-  DCHECK(FLAG_experimental_preparser_scope_analysis);
+  DCHECK(FLAG_preparser_scope_analysis);
   DCHECK(previously_produced_preparsed_scope_data_.is_null());
-  DCHECK_EQ(scope_data_start_, -1);
-  DCHECK_EQ(backing_store_.size() % SkippableFunctionDataOffsets::kSize, 0);
+  // The data contains a uint32 (reserved space for scope_data_start) and
+  // function data items, kSkippableFunctionDataSize each.
+  DCHECK_GE(byte_data_->size(), kPlaceholderSize);
+  DCHECK_LE(byte_data_->size(), std::numeric_limits<uint32_t>::max());
+  DCHECK_EQ(byte_data_->size() % kSkippableFunctionDataSize, kPlaceholderSize);
 
-  scope_data_start_ = static_cast<int>(backing_store_.size());
-
-  // If there are no skippable inner functions, we don't need to save anything.
-  if (backing_store_.size() == 0) {
+  if (bailed_out_) {
     return;
   }
 
-  // For sanity checks.
-  backing_store_.push_back(kMagicValue);
-  backing_store_.push_back(scope->start_position());
-  backing_store_.push_back(scope->end_position());
+  uint32_t scope_data_start = static_cast<uint32_t>(byte_data_->size());
+
+  // If there are no skippable inner functions, we don't need to save anything.
+  if (scope_data_start == kPlaceholderSize) {
+    return;
+  }
+
+#ifdef DEBUG
+  byte_data_->OverwriteFirstUint32(scope_data_start);
 
   // For a data integrity check, write a value between data about skipped inner
   // funcs and data about variables.
+  byte_data_->WriteUint32(kMagicValue);
+  byte_data_->WriteUint32(scope->start_position());
+  byte_data_->WriteUint32(scope->end_position());
+#endif
+
   SaveDataForScope(scope);
 }
 
+bool ProducedPreParsedScopeData::ContainsInnerFunctions() const {
+  return byte_data_->size() > kPlaceholderSize;
+}
+
 MaybeHandle<PreParsedScopeData> ProducedPreParsedScopeData::Serialize(
-    Isolate* isolate) const {
+    Isolate* isolate) {
   if (!previously_produced_preparsed_scope_data_.is_null()) {
-    DCHECK_EQ(backing_store_.size(), 0);
+    DCHECK(!bailed_out_);
     DCHECK_EQ(data_for_inner_functions_.size(), 0);
     return previously_produced_preparsed_scope_data_;
   }
-  // FIXME(marja): save space by using a byte array and converting
-  // function data to bytes.
-  size_t length = backing_store_.size();
-  if (length == 0) {
+  if (bailed_out_) {
     return MaybeHandle<PreParsedScopeData>();
   }
 
-  Handle<PodArray<uint32_t>> data_array =
-      PodArray<uint32_t>::New(isolate, static_cast<int>(length + 1), TENURED);
+  DCHECK(!ThisOrParentBailedOut());
 
-  DCHECK_GE(scope_data_start_, 0);
-  data_array->set(0, scope_data_start_);
-  {
-    int i = 1;
-    for (const auto& item : backing_store_) {
-      data_array->set(i++, item);
-    }
+  if (byte_data_->size() <= kPlaceholderSize) {
+    // The data contains only the placeholder.
+    return MaybeHandle<PreParsedScopeData>();
   }
-
-  Handle<PreParsedScopeData> data = isolate->factory()->NewPreParsedScopeData();
 
   int child_data_length = static_cast<int>(data_for_inner_functions_.size());
-  if (child_data_length == 0) {
-    data->set_child_data(*(isolate->factory()->empty_fixed_array()));
-  } else {
-    Handle<FixedArray> child_array =
-        isolate->factory()->NewFixedArray(child_data_length, TENURED);
-    int i = 0;
-    for (const auto& item : data_for_inner_functions_) {
-      MaybeHandle<PreParsedScopeData> maybe_child_data =
-          item->Serialize(isolate);
-      if (maybe_child_data.is_null()) {
-        child_array->set(i++, *(isolate->factory()->null_value()));
-      } else {
-        Handle<PreParsedScopeData> child_data =
-            maybe_child_data.ToHandleChecked();
-        child_array->set(i++, *child_data);
-      }
+  Handle<PreParsedScopeData> data =
+      isolate->factory()->NewPreParsedScopeData(child_data_length);
+
+  Handle<PodArray<uint8_t>> scope_data_array = byte_data_->Serialize(isolate);
+  data->set_scope_data(*scope_data_array);
+
+  int i = 0;
+  for (const auto& item : data_for_inner_functions_) {
+    Handle<PreParsedScopeData> child_data;
+    if (item->Serialize(isolate).ToHandle(&child_data)) {
+      data->set_child_data(i, *child_data);
+    } else {
+      DCHECK(data->child_data(i)->IsNull());
     }
-    data->set_child_data(*child_array);
+    i++;
   }
 
-  data->set_scope_data(*data_array);
   return data;
 }
 
@@ -280,24 +361,20 @@ bool ProducedPreParsedScopeData::ScopeIsSkippableFunctionScope(Scope* scope) {
 void ProducedPreParsedScopeData::SaveDataForScope(Scope* scope) {
   DCHECK_NE(scope->end_position(), kNoSourcePosition);
 
-  // We're not trying to save data for default constructors because the
-  // PreParser doesn't construct them.
-  DCHECK_IMPLIES(scope->scope_type() == ScopeType::FUNCTION_SCOPE,
-                 (scope->AsDeclarationScope()->function_kind() &
-                  kDefaultConstructor) == 0);
-
   if (!ScopeNeedsData(scope)) {
     return;
   }
 
 #ifdef DEBUG
-  backing_store_.push_back(scope->scope_type());
+  byte_data_->WriteUint8(scope->scope_type());
 #endif
 
-  uint32_t eval =
-      ScopeCallsEvalField::encode(scope->calls_eval()) |
+  uint8_t eval =
+      ScopeCallsSloppyEvalField::encode(
+          scope->is_declaration_scope() &&
+          scope->AsDeclarationScope()->calls_sloppy_eval()) |
       InnerScopeCallsEvalField::encode(scope->inner_scope_calls_eval());
-  backing_store_.push_back(eval);
+  byte_data_->WriteUint8(eval);
 
   if (scope->scope_type() == ScopeType::FUNCTION_SCOPE) {
     Variable* function = scope->AsDeclarationScope()->function_var();
@@ -320,19 +397,17 @@ void ProducedPreParsedScopeData::SaveDataForVariable(Variable* var) {
   // Store the variable name in debug mode; this way we can check that we
   // restore data to the correct variable.
   const AstRawString* name = var->raw_name();
-  backing_store_.push_back(name->length());
+  byte_data_->WriteUint8(name->is_one_byte());
+  byte_data_->WriteUint32(name->length());
   for (int i = 0; i < name->length(); ++i) {
-    backing_store_.push_back(name->raw_data()[i]);
+    byte_data_->WriteUint8(name->raw_data()[i]);
   }
 #endif
-  // FIXME(marja): Only 3 bits needed, not a full byte.
-  byte variable_data = VariableIsUsedField::encode(var->is_used()) |
-                       VariableMaybeAssignedField::encode(
+  byte variable_data = VariableMaybeAssignedField::encode(
                            var->maybe_assigned() == kMaybeAssigned) |
                        VariableContextAllocatedField::encode(
                            var->has_forced_context_allocation());
-
-  backing_store_.push_back(variable_data);
+  byte_data_->WriteQuarter(variable_data);
 }
 
 void ProducedPreParsedScopeData::SaveDataForInnerScopes(Scope* scope) {
@@ -345,8 +420,8 @@ void ProducedPreParsedScopeData::SaveDataForInnerScopes(Scope* scope) {
     if (ScopeIsSkippableFunctionScope(inner)) {
       // Don't save data about function scopes, since they'll have their own
       // ProducedPreParsedScopeData where their data is saved.
-      DCHECK(inner->AsDeclarationScope()->produced_preparsed_scope_data() !=
-             nullptr);
+      DCHECK_NOT_NULL(
+          inner->AsDeclarationScope()->produced_preparsed_scope_data());
       continue;
     }
     scopes.push_back(inner);
@@ -356,14 +431,74 @@ void ProducedPreParsedScopeData::SaveDataForInnerScopes(Scope* scope) {
   }
 }
 
-void ConsumedPreParsedScopeData::SetData(Handle<PreParsedScopeData> data) {
+ConsumedPreParsedScopeData::ByteData::ReadingScope::ReadingScope(
+    ConsumedPreParsedScopeData* parent)
+    : ReadingScope(parent->scope_data_.get(), parent->data_->scope_data()) {}
+
+int32_t ConsumedPreParsedScopeData::ByteData::ReadUint32() {
+  DCHECK_NOT_NULL(data_);
+  DCHECK_GE(RemainingBytes(), kUint32Size);
+#ifdef DEBUG
+  // Check that there indeed is an integer following.
+  DCHECK_EQ(data_->get(index_++), kUint32Size);
+#endif
+  int32_t result = 0;
+  byte* p = reinterpret_cast<byte*>(&result);
+  for (int i = 0; i < 4; ++i) {
+    *p++ = data_->get(index_++);
+  }
+  stored_quarters_ = 0;
+  return result;
+}
+
+uint8_t ConsumedPreParsedScopeData::ByteData::ReadUint8() {
+  DCHECK_NOT_NULL(data_);
+  DCHECK_GE(RemainingBytes(), kUint8Size);
+#ifdef DEBUG
+  // Check that there indeed is a byte following.
+  DCHECK_EQ(data_->get(index_++), kUint8Size);
+#endif
+  stored_quarters_ = 0;
+  return data_->get(index_++);
+}
+
+uint8_t ConsumedPreParsedScopeData::ByteData::ReadQuarter() {
+  DCHECK_NOT_NULL(data_);
+  if (stored_quarters_ == 0) {
+    DCHECK_GE(RemainingBytes(), kUint8Size);
+#ifdef DEBUG
+    // Check that there indeed are quarters following.
+    DCHECK_EQ(data_->get(index_++), kQuarterMarker);
+#endif
+    stored_byte_ = data_->get(index_++);
+    stored_quarters_ = 4;
+  }
+  // Read the first 2 bits from stored_byte_.
+  uint8_t result = (stored_byte_ >> 6) & 3;
+  DCHECK_LE(result, 3);
+  --stored_quarters_;
+  stored_byte_ <<= 2;
+  return result;
+}
+
+ConsumedPreParsedScopeData::ConsumedPreParsedScopeData()
+    : isolate_(nullptr), scope_data_(new ByteData()), child_index_(0) {}
+
+ConsumedPreParsedScopeData::~ConsumedPreParsedScopeData() {}
+
+void ConsumedPreParsedScopeData::SetData(Isolate* isolate,
+                                         Handle<PreParsedScopeData> data) {
+  DCHECK_NOT_NULL(isolate);
   DCHECK(data->IsPreParsedScopeData());
+  isolate_ = isolate;
   data_ = data;
 #ifdef DEBUG
-  DisallowHeapAllocation no_gc;
-  PodArray<uint32_t>* scope_data = data_->scope_data();
-  DCHECK_GT(scope_data->length(), 2);
-  DCHECK_EQ(scope_data->get(scope_data->get(0) + 1), kMagicValue);
+  ByteData::ReadingScope reading_scope(this);
+  int scope_data_start = scope_data_->ReadUint32();
+  scope_data_->SetPosition(scope_data_start);
+  DCHECK_EQ(scope_data_->ReadUint32(), kMagicValue);
+  // The first data item is scope_data_start. Skip over it.
+  scope_data_->SetPosition(kPlaceholderSize);
 #endif
 }
 
@@ -372,79 +507,61 @@ ConsumedPreParsedScopeData::GetDataForSkippableFunction(
     Zone* zone, int start_position, int* end_position, int* num_parameters,
     int* num_inner_functions, bool* uses_super_property,
     LanguageMode* language_mode) {
-  DisallowHeapAllocation no_gc;
-  PodArray<uint32_t>* scope_data = data_->scope_data();
-
   // The skippable function *must* be the next function in the data. Use the
   // start position as a sanity check.
-  CHECK_GE(scope_data->length(), index_ + SkippableFunctionDataOffsets::kSize);
-  int start_position_from_data =
-      scope_data->get(index_ + SkippableFunctionDataOffsets::kStartPosition);
+  ByteData::ReadingScope reading_scope(this);
+  CHECK_GE(scope_data_->RemainingBytes(), kSkippableFunctionDataSize);
+  int start_position_from_data = scope_data_->ReadUint32();
   CHECK_EQ(start_position, start_position_from_data);
 
-  *end_position =
-      scope_data->get(index_ + SkippableFunctionDataOffsets::kEndPosition);
+  *end_position = scope_data_->ReadUint32();
   DCHECK_GT(*end_position, start_position);
-  *num_parameters =
-      scope_data->get(index_ + SkippableFunctionDataOffsets::kNumParameters);
-  *num_inner_functions = scope_data->get(
-      index_ + SkippableFunctionDataOffsets::kNumInnerFunctions);
+  *num_parameters = scope_data_->ReadUint32();
+  *num_inner_functions = scope_data_->ReadUint32();
 
-  int language_and_super =
-      scope_data->get(index_ + SkippableFunctionDataOffsets::kLanguageAndSuper);
+  uint8_t language_and_super = scope_data_->ReadQuarter();
   *language_mode = LanguageMode(LanguageField::decode(language_and_super));
   *uses_super_property = UsesSuperField::decode(language_and_super);
-
-  index_ += SkippableFunctionDataOffsets::kSize;
 
   // Retrieve the corresponding PreParsedScopeData and associate it to the
   // skipped function. If the skipped functions contains inner functions, those
   // can be skipped when the skipped function is eagerly parsed.
-  FixedArray* children = data_->child_data();
-  CHECK_GT(children->length(), child_index_);
-  Object* child_data = children->get(child_index_++);
+  CHECK_GT(data_->length(), child_index_);
+  Object* child_data = data_->child_data(child_index_++);
   if (!child_data->IsPreParsedScopeData()) {
     return nullptr;
   }
   Handle<PreParsedScopeData> child_data_handle(
-      PreParsedScopeData::cast(child_data));
+      PreParsedScopeData::cast(child_data), isolate_);
   return new (zone) ProducedPreParsedScopeData(child_data_handle, zone);
 }
 
 void ConsumedPreParsedScopeData::RestoreScopeAllocationData(
     DeclarationScope* scope) {
-  DCHECK(FLAG_experimental_preparser_scope_analysis);
+  DCHECK(FLAG_preparser_scope_analysis);
   DCHECK_EQ(scope->scope_type(), ScopeType::FUNCTION_SCOPE);
   DCHECK(!data_.is_null());
 
-  DisallowHeapAllocation no_gc;
-  PodArray<uint32_t>* scope_data = data_->scope_data();
-  int magic_value_from_data = scope_data->get(index_++);
+  ByteData::ReadingScope reading_scope(this);
+
+#ifdef DEBUG
+  int magic_value_from_data = scope_data_->ReadUint32();
   // Check that we've consumed all inner function data.
-  CHECK_EQ(magic_value_from_data, kMagicValue);
+  DCHECK_EQ(magic_value_from_data, kMagicValue);
 
-  int start_position_from_data = scope_data->get(index_++);
-  int end_position_from_data = scope_data->get(index_++);
-  CHECK_EQ(start_position_from_data, scope->start_position());
-  CHECK_EQ(end_position_from_data, scope->end_position());
+  int start_position_from_data = scope_data_->ReadUint32();
+  int end_position_from_data = scope_data_->ReadUint32();
+  DCHECK_EQ(start_position_from_data, scope->start_position());
+  DCHECK_EQ(end_position_from_data, scope->end_position());
+#endif
 
-  RestoreData(scope, scope_data);
+  RestoreData(scope);
 
   // Check that we consumed all scope data.
-  DCHECK_EQ(index_, scope_data->length());
+  DCHECK_EQ(scope_data_->RemainingBytes(), 0);
 }
 
-void ConsumedPreParsedScopeData::SkipFunctionDataForTesting() {
-  DCHECK_EQ(index_, 1);
-  DisallowHeapAllocation no_gc;
-  PodArray<uint32_t>* scope_data = data_->scope_data();
-  DCHECK_GT(scope_data->length(), 2);
-  index_ = scope_data->get(0) + 1;
-  DCHECK_EQ(scope_data->get(index_), kMagicValue);
-}
-
-void ConsumedPreParsedScopeData::RestoreData(Scope* scope,
-                                             PodArray<uint32_t>* scope_data) {
+void ConsumedPreParsedScopeData::RestoreData(Scope* scope) {
   if (scope->is_declaration_scope() &&
       scope->AsDeclarationScope()->is_skipped_function()) {
     return;
@@ -457,13 +574,18 @@ void ConsumedPreParsedScopeData::RestoreData(Scope* scope,
     return;
   }
 
-  // scope_type is stored only in debug mode.
-  CHECK_GE(scope_data->length(), index_ + 1);
-  DCHECK_GE(scope_data->length(), index_ + 2);
-  DCHECK_EQ(scope_data->get(index_++), scope->scope_type());
+  if (scope_data_->RemainingBytes() < kUint8Size) {
+    // Temporary debugging code for detecting inconsistent data. Write debug
+    // information on the stack, then crash.
+    data_->GetIsolate()->PushStackTraceAndDie();
+  }
 
-  uint32_t eval = scope_data->get(index_++);
-  if (ScopeCallsEvalField::decode(eval)) {
+  // scope_type is stored only in debug mode.
+  CHECK_GE(scope_data_->RemainingBytes(), kUint8Size);
+  DCHECK_EQ(scope_data_->ReadUint8(), scope->scope_type());
+
+  uint32_t eval = scope_data_->ReadUint8();
+  if (ScopeCallsSloppyEvalField::decode(eval)) {
     scope->RecordEvalCall();
   }
   if (InnerScopeCallsEvalField::decode(eval)) {
@@ -473,51 +595,61 @@ void ConsumedPreParsedScopeData::RestoreData(Scope* scope,
   if (scope->scope_type() == ScopeType::FUNCTION_SCOPE) {
     Variable* function = scope->AsDeclarationScope()->function_var();
     if (function != nullptr) {
-      RestoreDataForVariable(function, scope_data);
+      RestoreDataForVariable(function);
     }
   }
 
   for (Variable* var : *scope->locals()) {
     if (IsDeclaredVariableMode(var->mode())) {
-      RestoreDataForVariable(var, scope_data);
+      RestoreDataForVariable(var);
     }
   }
 
-  RestoreDataForInnerScopes(scope, scope_data);
+  RestoreDataForInnerScopes(scope);
 }
 
-void ConsumedPreParsedScopeData::RestoreDataForVariable(
-    Variable* var, PodArray<uint32_t>* scope_data) {
+void ConsumedPreParsedScopeData::RestoreDataForVariable(Variable* var) {
 #ifdef DEBUG
   const AstRawString* name = var->raw_name();
-  DCHECK_GT(scope_data->length(), index_ + name->length());
-  DCHECK_EQ(scope_data->get(index_++), static_cast<uint32_t>(name->length()));
-  for (int i = 0; i < name->length(); ++i) {
-    DCHECK_EQ(scope_data->get(index_++), name->raw_data()[i]);
+  bool data_one_byte = scope_data_->ReadUint8();
+  DCHECK_IMPLIES(name->is_one_byte(), data_one_byte);
+  DCHECK_EQ(scope_data_->ReadUint32(), static_cast<uint32_t>(name->length()));
+  if (!name->is_one_byte() && data_one_byte) {
+    // It's possible that "name" is a two-byte representation of the string
+    // stored in the data.
+    for (int i = 0; i < 2 * name->length(); i += 2) {
+#if defined(V8_TARGET_LITTLE_ENDIAN)
+      DCHECK_EQ(scope_data_->ReadUint8(), name->raw_data()[i]);
+      DCHECK_EQ(0, name->raw_data()[i + 1]);
+#else
+      DCHECK_EQ(scope_data_->ReadUint8(), name->raw_data()[i + 1]);
+      DCHECK_EQ(0, name->raw_data()[i]);
+#endif  // V8_TARGET_LITTLE_ENDIAN
+    }
+  } else {
+    for (int i = 0; i < name->length(); ++i) {
+      DCHECK_EQ(scope_data_->ReadUint8(), name->raw_data()[i]);
+    }
   }
 #endif
-  CHECK_GT(scope_data->length(), index_);
-  byte variable_data = scope_data->get(index_++);
-  if (VariableIsUsedField::decode(variable_data)) {
-    var->set_is_used();
-  }
+  uint8_t variable_data = scope_data_->ReadQuarter();
   if (VariableMaybeAssignedField::decode(variable_data)) {
     var->set_maybe_assigned();
   }
   if (VariableContextAllocatedField::decode(variable_data)) {
+    var->set_is_used();
     var->ForceContextAllocation();
   }
 }
 
-void ConsumedPreParsedScopeData::RestoreDataForInnerScopes(
-    Scope* scope, PodArray<uint32_t>* scope_data) {
+void ConsumedPreParsedScopeData::RestoreDataForInnerScopes(Scope* scope) {
   std::vector<Scope*> scopes;
   for (Scope* inner = scope->inner_scope(); inner != nullptr;
        inner = inner->sibling()) {
     scopes.push_back(inner);
   }
   for (auto it = scopes.rbegin(); it != scopes.rend(); ++it) {
-    RestoreData(*it, scope_data);
+    RestoreData(*it);
   }
 }
 

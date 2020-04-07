@@ -5,178 +5,98 @@
 #ifndef CONTENT_BROWSER_SHARED_WORKER_SHARED_WORKER_SERVICE_IMPL_H_
 #define CONTENT_BROWSER_SHARED_WORKER_SHARED_WORKER_SERVICE_IMPL_H_
 
-#include <map>
 #include <memory>
 #include <set>
 #include <utility>
 #include <vector>
 
 #include "base/compiler_specific.h"
+#include "base/containers/unique_ptr_adapters.h"
 #include "base/macros.h"
 #include "base/memory/singleton.h"
-#include "base/observer_list.h"
-#include "content/public/browser/notification_observer.h"
-#include "content/public/browser/notification_registrar.h"
-#include "content/public/browser/worker_service.h"
-#include "third_party/WebKit/public/web/WebSharedWorkerCreationErrors.h"
+#include "content/browser/service_worker/service_worker_context_wrapper.h"
+#include "content/browser/shared_worker/shared_worker_host.h"
+#include "content/common/service_worker/service_worker_provider.mojom.h"
+#include "content/common/shared_worker/shared_worker_connector.mojom.h"
+#include "content/common/shared_worker/shared_worker_factory.mojom.h"
+#include "content/public/browser/shared_worker_service.h"
+#include "services/network/public/mojom/url_loader_factory.mojom.h"
 
-struct ViewHostMsg_CreateWorker_Params;
-
-namespace IPC {
-class Message;
+namespace blink {
+class MessagePortChannel;
 }
 
 namespace content {
-
-class MessagePort;
 class SharedWorkerInstance;
 class SharedWorkerHost;
-class SharedWorkerMessageFilter;
-class ResourceContext;
-class WorkerServiceObserver;
-class WorkerStoragePartitionId;
+class StoragePartition;
 
-// The implementation of WorkerService. We try to place workers in an existing
-// renderer process when possible.
-class CONTENT_EXPORT SharedWorkerServiceImpl
-    : public NON_EXPORTED_BASE(WorkerService) {
+// Created per StoragePartition.
+class CONTENT_EXPORT SharedWorkerServiceImpl : public SharedWorkerService {
  public:
-  // Returns the SharedWorkerServiceImpl singleton.
-  static SharedWorkerServiceImpl* GetInstance();
-
-  // WorkerService implementation:
-  bool TerminateWorker(int process_id, int route_id) override;
-  std::vector<WorkerInfo> GetWorkers() override;
-  void AddObserver(WorkerServiceObserver* observer) override;
-  void RemoveObserver(WorkerServiceObserver* observer) override;
-
-  // These methods correspond to worker related IPCs.
-  blink::WebWorkerCreationError CreateWorker(
-      const ViewHostMsg_CreateWorker_Params& params,
-      int route_id,
-      SharedWorkerMessageFilter* filter,
-      ResourceContext* resource_context,
-      const WorkerStoragePartitionId& partition_id);
-  void ConnectToWorker(SharedWorkerMessageFilter* filter,
-                       int worker_route_id,
-                       const MessagePort& port);
-  void DocumentDetached(SharedWorkerMessageFilter* filter,
-                        unsigned long long document_id);
-  void CountFeature(SharedWorkerMessageFilter* filter,
-                    int worker_route_id,
-                    uint32_t feature);
-  void WorkerContextClosed(SharedWorkerMessageFilter* filter,
-                           int worker_route_id);
-  void WorkerContextDestroyed(SharedWorkerMessageFilter* filter,
-                              int worker_route_id);
-  void WorkerReadyForInspection(SharedWorkerMessageFilter* filter,
-                                int worker_route_id);
-  void WorkerScriptLoaded(SharedWorkerMessageFilter* filter,
-                          int worker_route_id);
-  void WorkerScriptLoadFailed(SharedWorkerMessageFilter* filter,
-                              int worker_route_id);
-  void WorkerConnected(SharedWorkerMessageFilter* filter,
-                       int connection_request_id,
-                       int worker_route_id);
-  void AllowFileSystem(SharedWorkerMessageFilter* filter,
-                       int worker_route_id,
-                       const GURL& url,
-                       IPC::Message* reply_msg);
-  void AllowIndexedDB(SharedWorkerMessageFilter* filter,
-                      int worker_route_id,
-                      const GURL& url,
-                      const base::string16& name,
-                      bool* result);
-
-  void OnSharedWorkerMessageFilterClosing(
-      SharedWorkerMessageFilter* filter);
-
-  // Removes the references to shared workers from all the documents in the
-  // renderer frame. And shuts down any shared workers that are no longer
-  // referenced by active documents.
-  void RenderFrameDetached(int render_process_id, int render_frame_id);
-
-  // Checks the worker dependency of renderer processes and calls
-  // IncrementWorkerRefCount and DecrementWorkerRefCount of
-  // RenderProcessHostImpl on UI thread if necessary.
-  void CheckWorkerDependency();
-
-  void NotifyWorkerDestroyed(int worker_process_id, int worker_route_id);
-
- private:
-  class SharedWorkerPendingInstance;
-
-  friend struct base::DefaultSingletonTraits<SharedWorkerServiceImpl>;
-  friend class SharedWorkerServiceImplTest;
-
-  using UpdateWorkerDependencyFunc = void (*)(const std::vector<int>&,
-                                              const std::vector<int>&);
-  using TryIncrementWorkerRefCountFunc = bool (*)(bool);
-
-  // Pair of render_process_id and worker_route_id.
-  using ProcessRouteIdPair = std::pair<int, int>;
-  using WorkerHostMap =
-      std::map<ProcessRouteIdPair, std::unique_ptr<SharedWorkerHost>>;
-  using PendingInstanceMap =
-      std::map<int, std::unique_ptr<SharedWorkerPendingInstance>>;
-
-  SharedWorkerServiceImpl();
+  SharedWorkerServiceImpl(
+      StoragePartition* storage_partition,
+      scoped_refptr<ServiceWorkerContextWrapper> service_worker_context);
   ~SharedWorkerServiceImpl() override;
 
-  void ResetForTesting();
+  // SharedWorkerService implementation.
+  bool TerminateWorker(const GURL& url,
+                       const std::string& name,
+                       const url::Origin& constructor_origin) override;
 
-  // Reserves the render process to create Shared Worker. This reservation
-  // procedure will be executed on UI thread and
-  // RenderProcessReservedCallback() or RenderProcessReserveFailedCallback()
-  // will be called on IO thread. Returns blink::WebWorkerCreationErrorNone or
-  // blink::WebWorkerCreationErrorSecureContextMismatch on success.
-  // (SecureContextMismatch is used for UMA and should be handled as success.)
-  blink::WebWorkerCreationError ReserveRenderProcessToCreateWorker(
-      std::unique_ptr<SharedWorkerPendingInstance> pending_instance);
+  void TerminateAllWorkersForTesting(base::OnceClosure callback);
 
-  // Called after the render process is reserved to create Shared Worker in it.
-  void RenderProcessReservedCallback(int pending_instance_id,
-                                     int worker_process_id,
-                                     int worker_route_id,
-                                     bool is_new_worker,
-                                     bool pause_on_start);
+  // Creates the worker if necessary or connects to an already existing worker.
+  void ConnectToWorker(
+      int process_id,
+      int frame_id,
+      mojom::SharedWorkerInfoPtr info,
+      mojom::SharedWorkerClientPtr client,
+      blink::mojom::SharedWorkerCreationContextType creation_context_type,
+      const blink::MessagePortChannel& port,
+      scoped_refptr<network::SharedURLLoaderFactory> blob_url_loader_factory);
 
-  // Called after the fast shutdown is detected while reserving the render
-  // process to create Shared Worker in it.
-  void RenderProcessReserveFailedCallback(int pending_instance_id,
-                                          int worker_process_id,
-                                          int worker_route_id,
-                                          bool is_new_worker,
-                                          bool pause_on_start);
+  void DestroyHost(SharedWorkerHost* host);
 
-  // Returns nullptr if there is no host for given ids.
-  SharedWorkerHost* FindSharedWorkerHost(int render_process_id,
-                                         int worker_route_id);
+  StoragePartition* storage_partition() { return storage_partition_; }
 
-  SharedWorkerHost* FindSharedWorkerHost(const SharedWorkerInstance& instance);
-  SharedWorkerPendingInstance* FindPendingInstance(
+ private:
+  friend class SharedWorkerServiceImplTest;
+  friend class SharedWorkerHostTest;
+
+  void CreateWorker(
+      std::unique_ptr<SharedWorkerInstance> instance,
+      mojom::SharedWorkerClientPtr client,
+      int process_id,
+      int frame_id,
+      const blink::MessagePortChannel& message_port,
+      scoped_refptr<network::SharedURLLoaderFactory> blob_url_loader_factory);
+  void StartWorker(std::unique_ptr<SharedWorkerInstance> instance,
+                   base::WeakPtr<SharedWorkerHost> host,
+                   mojom::SharedWorkerClientPtr client,
+                   int process_id,
+                   int frame_id,
+                   const blink::MessagePortChannel& message_port,
+                   mojom::ServiceWorkerProviderInfoForSharedWorkerPtr
+                       service_worker_provider_info,
+                   network::mojom::URLLoaderFactoryAssociatedPtrInfo
+                       script_loader_factory_info,
+                   std::unique_ptr<URLLoaderFactoryBundleInfo> factory_bundle);
+
+  // Returns nullptr if there is no such host.
+  SharedWorkerHost* FindSharedWorkerHost(int process_id, int route_id);
+  SharedWorkerHost* FindAvailableSharedWorkerHost(
       const SharedWorkerInstance& instance);
 
-  // Returns the IDs of the renderer processes which are executing
-  // SharedWorkers connected to other renderer processes.
-  const std::set<int> GetRenderersWithWorkerDependency();
+  std::set<std::unique_ptr<SharedWorkerHost>, base::UniquePtrComparator>
+      worker_hosts_;
+  base::OnceClosure terminate_all_workers_callback_;
 
-  void ChangeUpdateWorkerDependencyFuncForTesting(
-      UpdateWorkerDependencyFunc new_func);
-  void ChangeTryIncrementWorkerRefCountFuncForTesting(bool (*new_func)(int));
+  // |storage_partition_| owns |this|.
+  StoragePartition* const storage_partition_;
+  scoped_refptr<ServiceWorkerContextWrapper> service_worker_context_;
 
-  std::set<int> last_worker_depended_renderers_;
-  // Function ptr to update worker dependency, tests may override this.
-  UpdateWorkerDependencyFunc update_worker_dependency_;
-
-  // Function ptr to increment worker ref count, tests may override this.
-  static bool (*s_try_increment_worker_ref_count_)(int);
-
-  WorkerHostMap worker_hosts_;
-  PendingInstanceMap pending_instances_;
-  int next_pending_instance_id_;
-
-  base::ObserverList<WorkerServiceObserver> observers_;
+  base::WeakPtrFactory<SharedWorkerServiceImpl> weak_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(SharedWorkerServiceImpl);
 };

@@ -13,6 +13,7 @@
 #include "base/files/file_path.h"
 #include "ui/display/types/display_constants.h"
 #include "ui/gfx/buffer_types.h"
+#include "ui/gfx/color_space.h"
 #include "ui/gfx/geometry/point.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/overlay_transform.h"
@@ -43,6 +44,8 @@ struct DisplaySnapshot_Params {
   bool is_aspect_preserving_scaling = false;
   bool has_overscan = false;
   bool has_color_correction_matrix = false;
+  bool color_correction_in_linear_space = false;
+  gfx::ColorSpace color_space;
   std::string display_name;
   base::FilePath sys_path;
   std::vector<DisplayMode_Params> modes;
@@ -51,8 +54,8 @@ struct DisplaySnapshot_Params {
   DisplayMode_Params current_mode;
   bool has_native_mode = false;
   DisplayMode_Params native_mode;
-  int64_t product_id = 0;
-  std::string string_representation;
+  int64_t product_code = 0;
+  int32_t year_of_manufacture = display::kInvalidYearOfManufacture;
   gfx::Size maximum_cursor_size;
 };
 
@@ -62,7 +65,6 @@ struct OverlayCheck_Params {
   OverlayCheck_Params(const OverlayCheck_Params& other);
   ~OverlayCheck_Params();
 
-  bool operator<(const OverlayCheck_Params& plane) const;
 
   gfx::Size buffer_size;
   gfx::OverlayTransform transform = gfx::OVERLAY_TRANSFORM_NONE;

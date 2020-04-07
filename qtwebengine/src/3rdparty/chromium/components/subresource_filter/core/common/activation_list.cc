@@ -24,6 +24,9 @@ std::ostream& operator<<(std::ostream& os, const ActivationList& type) {
     case ActivationList::SUBRESOURCE_FILTER:
       os << "SUBRESOURCE_FILTER";
       break;
+    case ActivationList::BETTER_ADS:
+      os << "BETTER_ADS";
+      break;
     default:
       NOTREACHED();
       break;

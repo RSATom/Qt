@@ -17,14 +17,7 @@ class CFX_BreakLine {
   CFX_BreakLine();
   ~CFX_BreakLine();
 
-  int32_t CountChars() const;
   CFX_Char* GetChar(int32_t index);
-  const CFX_Char* GetChar(int32_t index) const;
-
-  int32_t CountPieces() const;
-  const CFX_BreakPiece* GetPiece(int32_t index) const;
-
-  void GetString(CFX_WideString& wsStr) const;
   int32_t GetLineEnd() const;
 
   void Clear();

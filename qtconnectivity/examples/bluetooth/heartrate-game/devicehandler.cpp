@@ -56,9 +56,6 @@
 
 DeviceHandler::DeviceHandler(QObject *parent) :
     BluetoothBaseClass(parent),
-    m_control(0),
-    m_service(0),
-    m_currentDevice(0),
     m_foundHeartRateService(false),
     m_measuring(false),
     m_currentValue(0),
@@ -107,7 +104,7 @@ void DeviceHandler::setDevice(DeviceInfo *device)
     if (m_control) {
         m_control->disconnectFromDevice();
         delete m_control;
-        m_control = 0;
+        m_control = nullptr;
     }
 
     // Create new controller and connect it if device available
@@ -115,7 +112,7 @@ void DeviceHandler::setDevice(DeviceInfo *device)
 
         // Make connections
         //! [Connect-Signals-1]
-        m_control = new QLowEnergyController(m_currentDevice->getDevice(), this);
+        m_control = QLowEnergyController::createCentral(m_currentDevice->getDevice(), this);
         //! [Connect-Signals-1]
         m_control->setRemoteAddressType(m_addressType);
         //! [Connect-Signals-2]
@@ -181,7 +178,7 @@ void DeviceHandler::serviceScanDone()
     // Delete old service if available
     if (m_service) {
         delete m_service;
-        m_service = 0;
+        m_service = nullptr;
     }
 
 //! [Filter HeartRate service 2]
@@ -240,15 +237,15 @@ void DeviceHandler::updateHeartRateValue(const QLowEnergyCharacteristic &c, cons
     if (c.uuid() != QBluetoothUuid(QBluetoothUuid::HeartRateMeasurement))
         return;
 
-    const quint8 *data = reinterpret_cast<const quint8 *>(value.constData());
-    quint8 flags = data[0];
+    auto data = reinterpret_cast<const quint8 *>(value.constData());
+    quint8 flags = *data;
 
     //Heart Rate
     int hrvalue = 0;
     if (flags & 0x1) // HR 16 bit? otherwise 8 bit
-        hrvalue = (int)qFromLittleEndian<quint16>(data[1]);
+        hrvalue = static_cast<int>(qFromLittleEndian<quint16>(data[1]));
     else
-        hrvalue = (int)data[1];
+        hrvalue = static_cast<int>(data[1]);
 
     addMeasurement(hrvalue);
 }
@@ -276,7 +273,7 @@ void DeviceHandler::confirmedDescriptorWrite(const QLowEnergyDescriptor &d, cons
         //disabled notifications -> assume disconnect intent
         m_control->disconnectFromDevice();
         delete m_service;
-        m_service = 0;
+        m_service = nullptr;
     }
 }
 
@@ -293,7 +290,7 @@ void DeviceHandler::disconnectService()
             m_control->disconnectFromDevice();
 
         delete m_service;
-        m_service = 0;
+        m_service = nullptr;
     }
 }
 

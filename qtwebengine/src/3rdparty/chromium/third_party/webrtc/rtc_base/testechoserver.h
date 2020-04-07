@@ -8,16 +8,16 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_RTC_BASE_TESTECHOSERVER_H_
-#define WEBRTC_RTC_BASE_TESTECHOSERVER_H_
+#ifndef RTC_BASE_TESTECHOSERVER_H_
+#define RTC_BASE_TESTECHOSERVER_H_
 
 #include <list>
 #include <memory>
-#include "webrtc/rtc_base/asynctcpsocket.h"
-#include "webrtc/rtc_base/constructormagic.h"
-#include "webrtc/rtc_base/sigslot.h"
-#include "webrtc/rtc_base/socketaddress.h"
-#include "webrtc/rtc_base/thread.h"
+
+#include "rtc_base/asynctcpsocket.h"
+#include "rtc_base/constructormagic.h"
+#include "rtc_base/socketaddress.h"
+#include "rtc_base/thread.h"
 
 namespace rtc {
 
@@ -25,19 +25,8 @@ namespace rtc {
 // Useful for unit tests.
 class TestEchoServer : public sigslot::has_slots<> {
  public:
-  TestEchoServer(Thread* thread, const SocketAddress& addr)
-      : server_socket_(thread->socketserver()->CreateAsyncSocket(addr.family(),
-                                                                 SOCK_STREAM)) {
-    server_socket_->Bind(addr);
-    server_socket_->Listen(5);
-    server_socket_->SignalReadEvent.connect(this, &TestEchoServer::OnAccept);
-  }
-  ~TestEchoServer() {
-    for (ClientList::iterator it = client_sockets_.begin();
-         it != client_sockets_.end(); ++it) {
-      delete *it;
-    }
-  }
+  TestEchoServer(Thread* thread, const SocketAddress& addr);
+  ~TestEchoServer() override;
 
   SocketAddress address() const { return server_socket_->GetLocalAddress(); }
 
@@ -51,7 +40,9 @@ class TestEchoServer : public sigslot::has_slots<> {
       client_sockets_.push_back(packet_socket);
     }
   }
-  void OnPacket(AsyncPacketSocket* socket, const char* buf, size_t size,
+  void OnPacket(AsyncPacketSocket* socket,
+                const char* buf,
+                size_t size,
                 const SocketAddress& remote_addr,
                 const PacketTime& packet_time) {
     rtc::PacketOptions options;
@@ -72,4 +63,4 @@ class TestEchoServer : public sigslot::has_slots<> {
 
 }  // namespace rtc
 
-#endif  // WEBRTC_RTC_BASE_TESTECHOSERVER_H_
+#endif  // RTC_BASE_TESTECHOSERVER_H_

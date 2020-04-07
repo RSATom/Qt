@@ -217,8 +217,10 @@ void QQuickAnimatorProxyJob::setWindow(QQuickWindow *window)
 
 void QQuickAnimatorProxyJob::sceneGraphInitialized()
 {
-    disconnect(m_controller->window(), &QQuickWindow::sceneGraphInitialized, this, &QQuickAnimatorProxyJob::sceneGraphInitialized);
-    readyToAnimate();
+    if (m_controller) {
+        disconnect(m_controller->window(), &QQuickWindow::sceneGraphInitialized, this, &QQuickAnimatorProxyJob::sceneGraphInitialized);
+        readyToAnimate();
+    }
 }
 
 void QQuickAnimatorProxyJob::readyToAnimate()
@@ -250,8 +252,8 @@ void QQuickAnimatorProxyJob::syncBackCurrentValues()
 }
 
 QQuickAnimatorJob::QQuickAnimatorJob()
-    : m_target(0)
-    , m_controller(0)
+    : m_target(nullptr)
+    , m_controller(nullptr)
     , m_from(0)
     , m_to(0)
     , m_value(0)

@@ -10,6 +10,7 @@
 
 #include "core/fpdfapi/parser/cpdf_document.h"
 #include "core/fxcrt/fx_codepage.h"
+#include "core/fxge/cfx_font.h"
 #include "core/fxge/cfx_fontmapper.h"
 #include "core/fxge/cfx_fontmgr.h"
 #include "core/fxge/cfx_gemodule.h"
@@ -19,30 +20,15 @@
 #include "fpdfsdk/cpdfsdk_widget.h"
 #include "fpdfsdk/formfiller/cffl_formfiller.h"
 
-namespace {
-
-int CharSet2CP(int charset) {
-  if (charset == FX_CHARSET_ShiftJIS)
-    return FX_CODEPAGE_ShiftJIS;
-  if (charset == FX_CHARSET_ChineseSimplified)
-    return FX_CODEPAGE_ChineseSimplified;
-  if (charset == FX_CHARSET_Hangul)
-    return FX_CODEPAGE_Hangul;
-  if (charset == FX_CHARSET_ChineseTraditional)
-    return FX_CODEPAGE_ChineseTraditional;
-  return FX_CODEPAGE_DefANSI;
-}
-
-}  // namespace
-
 CFX_SystemHandler::CFX_SystemHandler(CPDFSDK_FormFillEnvironment* pFormFillEnv)
     : m_pFormFillEnv(pFormFillEnv) {}
 
 CFX_SystemHandler::~CFX_SystemHandler() {}
 
-void CFX_SystemHandler::InvalidateRect(CPDFSDK_Widget* widget, FX_RECT rect) {
+void CFX_SystemHandler::InvalidateRect(CPDFSDK_Widget* widget,
+                                       const CFX_FloatRect& rect) {
   CPDFSDK_PageView* pPageView = widget->GetPageView();
-  UnderlyingPageType* pPage = widget->GetUnderlyingPage();
+  IPDF_Page* pPage = widget->GetPage();
   if (!pPage || !pPageView)
     return;
 
@@ -51,14 +37,13 @@ void CFX_SystemHandler::InvalidateRect(CPDFSDK_Widget* widget, FX_RECT rect) {
 
   CFX_Matrix device2page = page2device.GetInverse();
 
-  CFX_PointF left_top = device2page.Transform(
-      CFX_PointF(static_cast<float>(rect.left), static_cast<float>(rect.top)));
-  CFX_PointF right_bottom = device2page.Transform(CFX_PointF(
-      static_cast<float>(rect.right), static_cast<float>(rect.bottom)));
+  CFX_PointF left_top = device2page.Transform(CFX_PointF(rect.left, rect.top));
+  CFX_PointF right_bottom =
+      device2page.Transform(CFX_PointF(rect.right, rect.bottom));
 
   CFX_FloatRect rcPDF(left_top.x, right_bottom.y, right_bottom.x, left_top.y);
   rcPDF.Normalize();
-  m_pFormFillEnv->Invalidate(pPage, rcPDF.ToFxRect());
+  m_pFormFillEnv->Invalidate(pPage, rcPDF.GetOuterRect());
 }
 
 void CFX_SystemHandler::OutputSelectedRect(CFFL_FormFiller* pFormFiller,
@@ -70,7 +55,7 @@ void CFX_SystemHandler::OutputSelectedRect(CFFL_FormFiller* pFormFiller,
   CFX_PointF ptB = pFormFiller->PWLtoFFL(CFX_PointF(rect.right, rect.top));
 
   CPDFSDK_Annot* pAnnot = pFormFiller->GetSDKAnnot();
-  UnderlyingPageType* pPage = pAnnot->GetUnderlyingPage();
+  IPDF_Page* pPage = pAnnot->GetPage();
   ASSERT(pPage);
 
   m_pFormFillEnv->OutputSelectedRect(pPage,
@@ -89,7 +74,7 @@ void CFX_SystemHandler::SetCursor(int32_t nCursorType) {
   m_pFormFillEnv->SetCursor(nCursorType);
 }
 
-bool CFX_SystemHandler::FindNativeTrueTypeFont(CFX_ByteString sFontFaceName) {
+bool CFX_SystemHandler::FindNativeTrueTypeFont(ByteString sFontFaceName) {
   CFX_FontMgr* pFontMgr = CFX_GEModule::Get()->GetFontMgr();
   if (!pFontMgr)
     return false;
@@ -98,15 +83,14 @@ bool CFX_SystemHandler::FindNativeTrueTypeFont(CFX_ByteString sFontFaceName) {
   if (!pFontMapper)
     return false;
 
-  if (pFontMapper->m_InstalledTTFonts.empty())
-    pFontMapper->LoadInstalledFonts();
+  pFontMapper->LoadInstalledFonts();
 
   for (const auto& font : pFontMapper->m_InstalledTTFonts) {
-    if (font.Compare(sFontFaceName.AsStringC()))
+    if (font.Compare(sFontFaceName.AsStringView()))
       return true;
   }
   for (const auto& fontPair : pFontMapper->m_LocalizedTTFonts) {
-    if (fontPair.first.Compare(sFontFaceName.AsStringC()))
+    if (fontPair.first.Compare(sFontFaceName.AsStringView()))
       return true;
   }
   return false;
@@ -114,13 +98,14 @@ bool CFX_SystemHandler::FindNativeTrueTypeFont(CFX_ByteString sFontFaceName) {
 
 CPDF_Font* CFX_SystemHandler::AddNativeTrueTypeFontToPDF(
     CPDF_Document* pDoc,
-    CFX_ByteString sFontFaceName,
+    ByteString sFontFaceName,
     uint8_t nCharset) {
   if (!pDoc)
     return nullptr;
 
   auto pFXFont = pdfium::MakeUnique<CFX_Font>();
-  pFXFont->LoadSubst(sFontFaceName, true, 0, 0, 0, CharSet2CP(nCharset), false);
+  pFXFont->LoadSubst(sFontFaceName, true, 0, 0, 0,
+                     FX_GetCodePageFromCharset(nCharset), false);
   return pDoc->AddFont(pFXFont.get(), nCharset, false);
 }
 
@@ -131,16 +116,4 @@ int32_t CFX_SystemHandler::SetTimer(int32_t uElapse,
 
 void CFX_SystemHandler::KillTimer(int32_t nID) {
   m_pFormFillEnv->KillTimer(nID);
-}
-
-bool CFX_SystemHandler::IsSHIFTKeyDown(uint32_t nFlag) const {
-  return !!m_pFormFillEnv->IsSHIFTKeyDown(nFlag);
-}
-
-bool CFX_SystemHandler::IsCTRLKeyDown(uint32_t nFlag) const {
-  return !!m_pFormFillEnv->IsCTRLKeyDown(nFlag);
-}
-
-bool CFX_SystemHandler::IsALTKeyDown(uint32_t nFlag) const {
-  return !!m_pFormFillEnv->IsALTKeyDown(nFlag);
 }

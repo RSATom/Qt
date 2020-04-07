@@ -4,15 +4,21 @@
 
 #include "media/remoting/fake_remoter.h"
 
+#include <memory>
+
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/callback.h"
-#include "base/memory/ptr_util.h"
 #include "base/threading/thread_task_runner_handle.h"
-#include "media/remoting/proto_utils.h"
-#include "media/remoting/shared_session.h"
+#include "build/buildflag.h"
+#include "media/media_buildflags.h"
+#include "media/remoting/renderer_controller.h"
 #include "mojo/public/cpp/bindings/strong_binding.h"
 #include "testing/gtest/include/gtest/gtest.h"
+
+#if BUILDFLAG(ENABLE_MEDIA_REMOTING_RPC)
+#include "media/remoting/proto_utils.h"  // nogncheck
+#endif
 
 namespace media {
 namespace remoting {
@@ -21,15 +27,13 @@ FakeRemotingDataStreamSender::FakeRemotingDataStreamSender(
     mojom::RemotingDataStreamSenderRequest request,
     mojo::ScopedDataPipeConsumerHandle consumer_handle)
     : binding_(this, std::move(request)),
-      consumer_handle_(std::move(consumer_handle)),
-      consume_data_chunk_count_(0),
+      data_pipe_reader_(std::move(consumer_handle)),
       send_frame_count_(0),
       cancel_in_flight_count_(0) {}
 
 FakeRemotingDataStreamSender::~FakeRemotingDataStreamSender() = default;
 
 void FakeRemotingDataStreamSender::ResetHistory() {
-  consume_data_chunk_count_ = 0;
   send_frame_count_ = 0;
   cancel_in_flight_count_ = 0;
   next_frame_data_.resize(0);
@@ -45,6 +49,7 @@ bool FakeRemotingDataStreamSender::ValidateFrameBuffer(size_t index,
     return false;
   }
 
+#if BUILDFLAG(ENABLE_MEDIA_REMOTING_RPC)
   const std::vector<uint8_t>& data = received_frame_list[index];
   scoped_refptr<DecoderBuffer> media_buffer =
       ByteArrayToDecoderBuffer(data.data(), data.size());
@@ -83,21 +88,22 @@ bool FakeRemotingDataStreamSender::ValidateFrameBuffer(size_t index,
     }
   }
   return return_value;
+#else
+  return true;
+#endif  // BUILDFLAG(ENABLE_MEDIA_REMOTING_RPC)
 }
 
-void FakeRemotingDataStreamSender::ConsumeDataChunk(
-    uint32_t offset,
-    uint32_t size,
-    uint32_t total_payload_size) {
-  next_frame_data_.resize(total_payload_size);
-  MojoResult result = mojo::ReadDataRaw(consumer_handle_.get(),
-                                        next_frame_data_.data() + offset, &size,
-                                        MOJO_READ_DATA_FLAG_ALL_OR_NONE);
-  CHECK(result == MOJO_RESULT_OK);
-  ++consume_data_chunk_count_;
+void FakeRemotingDataStreamSender::SendFrame(uint32_t frame_size) {
+  next_frame_data_.resize(frame_size);
+  data_pipe_reader_.Read(
+      next_frame_data_.data(), frame_size,
+      base::BindOnce(&FakeRemotingDataStreamSender::OnFrameRead,
+                     base::Unretained(this)));
 }
 
-void FakeRemotingDataStreamSender::SendFrame() {
+void FakeRemotingDataStreamSender::OnFrameRead(bool success) {
+  EXPECT_TRUE(success);
+
   ++send_frame_count_;
   received_frame_list.push_back(std::move(next_frame_data_));
   EXPECT_EQ(send_frame_count_, received_frame_list.size());
@@ -112,7 +118,7 @@ FakeRemoter::FakeRemoter(mojom::RemotingSourcePtr source, bool start_will_fail)
       start_will_fail_(start_will_fail),
       weak_factory_(this) {}
 
-FakeRemoter::~FakeRemoter() {}
+FakeRemoter::~FakeRemoter() = default;
 
 void FakeRemoter::Start() {
   if (start_will_fail_) {
@@ -152,6 +158,11 @@ void FakeRemoter::Stop(mojom::RemotingStopReason reason) {
 
 void FakeRemoter::SendMessageToSink(const std::vector<uint8_t>& message) {}
 
+void FakeRemoter::EstimateTransmissionCapacity(
+    mojom::Remoter::EstimateTransmissionCapacityCallback callback) {
+  std::move(callback).Run(10000000 / 8.0);
+}
+
 void FakeRemoter::Started() {
   source_->OnStarted();
 }
@@ -167,17 +178,17 @@ void FakeRemoter::Stopped(mojom::RemotingStopReason reason) {
 FakeRemoterFactory::FakeRemoterFactory(bool start_will_fail)
     : start_will_fail_(start_will_fail) {}
 
-FakeRemoterFactory::~FakeRemoterFactory() {}
+FakeRemoterFactory::~FakeRemoterFactory() = default;
 
 void FakeRemoterFactory::Create(mojom::RemotingSourcePtr source,
                                 mojom::RemoterRequest request) {
   mojo::MakeStrongBinding(
-      base::MakeUnique<FakeRemoter>(std::move(source), start_will_fail_),
+      std::make_unique<FakeRemoter>(std::move(source), start_will_fail_),
       std::move(request));
 }
 
 // static
-scoped_refptr<SharedSession> FakeRemoterFactory::CreateSharedSession(
+std::unique_ptr<RendererController> FakeRemoterFactory::CreateController(
     bool start_will_fail) {
   mojom::RemotingSourcePtr remoting_source;
   auto remoting_source_request = mojo::MakeRequest(&remoting_source);
@@ -185,8 +196,8 @@ scoped_refptr<SharedSession> FakeRemoterFactory::CreateSharedSession(
   FakeRemoterFactory remoter_factory(start_will_fail);
   remoter_factory.Create(std::move(remoting_source),
                          mojo::MakeRequest(&remoter));
-  return new SharedSession(std::move(remoting_source_request),
-                           std::move(remoter));
+  return std::make_unique<RendererController>(
+      std::move(remoting_source_request), std::move(remoter));
 }
 
 }  // namespace remoting

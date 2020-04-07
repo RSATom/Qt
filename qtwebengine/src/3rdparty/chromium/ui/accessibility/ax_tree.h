@@ -18,6 +18,7 @@
 namespace ui {
 
 class AXNode;
+class AXTableInfo;
 class AXTree;
 struct AXTreeUpdateState;
 
@@ -52,41 +53,41 @@ class AX_EXPORT AXTreeDelegate {
   // Individual callbacks for every attribute of AXNodeData that can change.
   virtual void OnRoleChanged(AXTree* tree,
                              AXNode* node,
-                             AXRole old_role,
-                             AXRole new_role) {}
+                             ax::mojom::Role old_role,
+                             ax::mojom::Role new_role) {}
   virtual void OnStateChanged(AXTree* tree,
                               AXNode* node,
-                              AXState state,
+                              ax::mojom::State state,
                               bool new_value) {}
   virtual void OnStringAttributeChanged(AXTree* tree,
                                         AXNode* node,
-                                        AXStringAttribute attr,
+                                        ax::mojom::StringAttribute attr,
                                         const std::string& old_value,
                                         const std::string& new_value) {}
   virtual void OnIntAttributeChanged(AXTree* tree,
                                      AXNode* node,
-                                     AXIntAttribute attr,
+                                     ax::mojom::IntAttribute attr,
                                      int32_t old_value,
                                      int32_t new_value) {}
   virtual void OnFloatAttributeChanged(AXTree* tree,
                                        AXNode* node,
-                                       AXFloatAttribute attr,
+                                       ax::mojom::FloatAttribute attr,
                                        float old_value,
                                        float new_value) {}
   virtual void OnBoolAttributeChanged(AXTree* tree,
                                       AXNode* node,
-                                      AXBoolAttribute attr,
+                                      ax::mojom::BoolAttribute attr,
                                       bool new_value) {}
   virtual void OnIntListAttributeChanged(
       AXTree* tree,
       AXNode* node,
-      AXIntListAttribute attr,
+      ax::mojom::IntListAttribute attr,
       const std::vector<int32_t>& old_value,
       const std::vector<int32_t>& new_value) {}
   virtual void OnStringListAttributeChanged(
       AXTree* tree,
       AXNode* node,
-      AXStringListAttribute attr,
+      ax::mojom::StringListAttribute attr,
       const std::vector<std::string>& old_value,
       const std::vector<std::string>& new_value) {}
 
@@ -158,11 +159,19 @@ class AX_EXPORT AXTreeDelegate {
 // accessibility APIs on a specific platform.
 class AX_EXPORT AXTree {
  public:
+  typedef std::map<ax::mojom::IntAttribute,
+                   std::map<int32_t, std::set<int32_t>>>
+      IntReverseRelationMap;
+  typedef std::map<ax::mojom::IntListAttribute,
+                   std::map<int32_t, std::set<int32_t>>>
+      IntListReverseRelationMap;
+
   AXTree();
   explicit AXTree(const AXTreeUpdate& initial_state);
   virtual ~AXTree();
 
   virtual void SetDelegate(AXTreeDelegate* delegate);
+  AXTreeDelegate* delegate() const { return delegate_; }
 
   AXNode* root() const { return root_; }
 
@@ -180,11 +189,56 @@ class AX_EXPORT AXTree {
 
   // Convert any rectangle from the local coordinate space of one node in
   // the tree, to bounds in the coordinate space of the tree.
+  // If set, updates |offscreen| boolean to be true if the node is offscreen
+  // relative to its rootWebArea. Callers should initialize |offscreen|
+  // to false: this method may get called multiple times in a row and
+  // |offscreen| will be propagated.
+  // If |clip_bounds| is true, result bounds will be clipped.
   gfx::RectF RelativeToTreeBounds(const AXNode* node,
-                                  gfx::RectF node_bounds) const;
+                                  gfx::RectF node_bounds,
+                                  bool* offscreen = nullptr,
+                                  bool clip_bounds = true) const;
 
   // Get the bounds of a node in the coordinate space of the tree.
-  gfx::RectF GetTreeBounds(const AXNode* node) const;
+  // If set, updates |offscreen| boolean to be true if the node is offscreen
+  // relative to its rootWebArea. Callers should initialize |offscreen|
+  // to false: this method may get called multiple times in a row and
+  // |offscreen| will be propagated.
+  // If |clip_bounds| is true, result bounds will be clipped.
+  gfx::RectF GetTreeBounds(const AXNode* node,
+                           bool* offscreen = nullptr,
+                           bool clip_bounds = true) const;
+
+  // Given a node ID attribute (one where IsNodeIdIntAttribute is true),
+  // and a destination node ID, return a set of all source node IDs that
+  // have that relationship attribute between them and the destination.
+  std::set<int32_t> GetReverseRelations(ax::mojom::IntAttribute attr,
+                                        int32_t dst_id) const;
+
+  // Given a node ID list attribute (one where
+  // IsNodeIdIntListAttribute is true), and a destination node ID,
+  // return a set of all source node IDs that have that relationship
+  // attribute between them and the destination.
+  std::set<int32_t> GetReverseRelations(ax::mojom::IntListAttribute attr,
+                                        int32_t dst_id) const;
+
+  // Map from a relation attribute to a map from a target id to source ids.
+  const IntReverseRelationMap& int_reverse_relations() {
+    return int_reverse_relations_;
+  }
+  const IntListReverseRelationMap& intlist_reverse_relations() {
+    return intlist_reverse_relations_;
+  }
+
+  // Given a node in this accessibility tree that corresponds to a table
+  // or grid, return an object containing information about the
+  // table structure. This object is computed lazily on-demand and
+  // cached until the next time the tree is updated. Clients should
+  // not retain this pointer, they should just request it every time
+  // it's needed.
+  //
+  // Returns nullptr if the node is not a valid table.
+  AXTableInfo* GetTableInfo(AXNode* table_node);
 
   // Return a multi-line indented string representation, for logging.
   std::string ToString() const;
@@ -194,6 +248,16 @@ class AX_EXPORT AXTree {
   const std::string& error() const { return error_; }
 
   int size() { return static_cast<int>(id_map_.size()); }
+
+  // Call this to enable support for extra Mac nodes - for each table,
+  // a table column header and a node for each column.
+  void SetEnableExtraMacNodes(bool enabled);
+  bool enable_extra_mac_nodes() const { return enable_extra_mac_nodes_; }
+
+  // Return a negative number that's suitable to use for a node ID for
+  // internal nodes created automatically by an AXTree, so as not to
+  // conflict with positive-numbered node IDs from tree sources.
+  int32_t GetNextNegativeInternalNodeId();
 
  private:
   AXNode* CreateNode(AXNode* parent,
@@ -207,6 +271,8 @@ class AX_EXPORT AXTree {
                   AXTreeUpdateState* update_state);
 
   void CallNodeChangeCallbacks(AXNode* node, const AXNodeData& new_data);
+
+  void UpdateReverseRelations(AXNode* node, const AXNodeData& new_data);
 
   void OnRootChanged();
 
@@ -235,11 +301,31 @@ class AX_EXPORT AXTree {
                             std::vector<AXNode*>* new_children,
                             AXTreeUpdateState* update_state);
 
-  AXTreeDelegate* delegate_;
-  AXNode* root_;
+  AXTreeDelegate* delegate_ = nullptr;
+  AXNode* root_ = nullptr;
   base::hash_map<int32_t, AXNode*> id_map_;
   std::string error_;
   AXTreeData data_;
+
+  // Map from an int attribute (if IsNodeIdIntAttribute is true) to
+  // a reverse mapping from target nodes to source nodes.
+  IntReverseRelationMap int_reverse_relations_;
+  // Map from an int list attribute (if IsNodeIdIntListAttribute is true) to
+  // a reverse mapping from target nodes to source nodes.
+  IntListReverseRelationMap intlist_reverse_relations_;
+
+  // Map from node ID to cached table info, if the given node is a table.
+  // Invalidated every time the tree is updated.
+  base::hash_map<int32_t, AXTableInfo*> table_info_map_;
+
+  // The next negative node ID to use for internal nodes.
+  int32_t next_negative_internal_node_id_ = -1;
+
+  // Whether we should create extra nodes that
+  // are only useful on macOS. Implemented using this flag to allow
+  // this code to be unit-tested on other platforms (for example, more
+  // code sanitizers run on Linux).
+  bool enable_extra_mac_nodes_ = false;
 };
 
 }  // namespace ui

@@ -92,7 +92,7 @@ struct Options {
 // performed. Various string representations of a boolean are recognized
 // case-insensitively.
 bool StringToBool(const char* string, bool* boolean) {
-  const char* const kFalseWords[] = {
+  static constexpr const char* kFalseWords[] = {
       "0",
       "false",
       "no",
@@ -100,7 +100,7 @@ bool StringToBool(const char* string, bool* boolean) {
       "disabled",
       "clear",
   };
-  const char* const kTrueWords[] = {
+  static constexpr const char* kTrueWords[] = {
       "1",
       "true",
       "yes",
@@ -153,7 +153,7 @@ bool StringToTime(const char* string, time_t* out_time, bool utc) {
 
   const char* end = string + strlen(string);
 
-  const char* const kFormats[] = {
+  static constexpr const char* kFormats[] = {
       "%Y-%m-%d %H:%M:%S %Z",
       "%Y-%m-%d %H:%M:%S",
       "%+",
@@ -294,7 +294,7 @@ int DatabaseUtilMain(int argc, char* argv[]) {
     kOptionVersion = -3,
   };
 
-  const option long_options[] = {
+  static constexpr option long_options[] = {
       {"create", no_argument, nullptr, kOptionCreate},
       {"database", required_argument, nullptr, kOptionDatabase},
       {"show-client-id", no_argument, nullptr, kOptionShowClientID},
@@ -584,15 +584,12 @@ int DatabaseUtilMain(int argc, char* argv[]) {
       file_reader = std::move(file_path_reader);
     }
 
-    CrashReportDatabase::NewReport* new_report;
+    std::unique_ptr<CrashReportDatabase::NewReport> new_report;
     CrashReportDatabase::OperationStatus status =
         database->PrepareNewCrashReport(&new_report);
     if (status != CrashReportDatabase::kNoError) {
       return EXIT_FAILURE;
     }
-
-    CrashReportDatabase::CallErrorWritingCrashReport
-        call_error_writing_crash_report(database.get(), new_report);
 
     char buf[4096];
     FileOperationResult read_result;
@@ -601,16 +598,13 @@ int DatabaseUtilMain(int argc, char* argv[]) {
       if (read_result < 0) {
         return EXIT_FAILURE;
       }
-      if (read_result > 0 &&
-          !LoggingWriteFile(new_report->handle, buf, read_result)) {
+      if (read_result > 0 && !new_report->Writer()->Write(buf, read_result)) {
         return EXIT_FAILURE;
       }
     } while (read_result > 0);
 
-    call_error_writing_crash_report.Disarm();
-
     UUID uuid;
-    status = database->FinishedWritingCrashReport(new_report, &uuid);
+    status = database->FinishedWritingCrashReport(std::move(new_report), &uuid);
     if (status != CrashReportDatabase::kNoError) {
       return EXIT_FAILURE;
     }

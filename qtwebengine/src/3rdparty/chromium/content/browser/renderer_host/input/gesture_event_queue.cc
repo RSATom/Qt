@@ -4,6 +4,7 @@
 
 #include "content/browser/renderer_host/input/gesture_event_queue.h"
 
+#include "base/auto_reset.h"
 #include "base/trace_event/trace_event.h"
 #include "content/browser/renderer_host/input/touchpad_tap_suppression_controller.h"
 #include "content/browser/renderer_host/input/touchscreen_tap_suppression_controller.h"
@@ -15,12 +16,18 @@ using blink::WebInputEvent;
 
 namespace content {
 
+GestureEventQueue::GestureEventWithLatencyInfoAndAckState::
+    GestureEventWithLatencyInfoAndAckState(
+        const GestureEventWithLatencyInfo& event)
+    : GestureEventWithLatencyInfo(event) {}
+
 GestureEventQueue::Config::Config() {
 }
 
 GestureEventQueue::GestureEventQueue(
     GestureEventQueueClient* client,
-    TouchpadTapSuppressionControllerClient* touchpad_client,
+    FlingControllerEventSenderClient* fling_event_sender_client,
+    FlingControllerSchedulerClient* fling_scheduler_client,
     const Config& config)
     : client_(client),
       fling_in_progress_(false),
@@ -28,36 +35,81 @@ GestureEventQueue::GestureEventQueue(
       ignore_next_ack_(false),
       allow_multiple_inflight_events_(
           base::FeatureList::IsEnabled(features::kVsyncAlignedInputEvents)),
-      touchpad_tap_suppression_controller_(
-          touchpad_client,
-          config.touchpad_tap_suppression_config),
-      touchscreen_tap_suppression_controller_(
-          this,
-          config.touchscreen_tap_suppression_config),
-      debounce_interval_(config.debounce_interval) {
+      debounce_interval_(config.debounce_interval),
+      fling_controller_(this,
+                        fling_event_sender_client,
+                        fling_scheduler_client,
+                        config.fling_config) {
   DCHECK(client);
-  DCHECK(touchpad_client);
+  DCHECK(fling_event_sender_client);
+  DCHECK(fling_scheduler_client);
 }
 
 GestureEventQueue::~GestureEventQueue() { }
 
-void GestureEventQueue::QueueEvent(
+bool GestureEventQueue::DebounceOrQueueEvent(
     const GestureEventWithLatencyInfo& gesture_event) {
-  TRACE_EVENT0("input", "GestureEventQueue::QueueEvent");
-  if (!ShouldForwardForBounceReduction(gesture_event) ||
-      !ShouldForwardForGFCFiltering(gesture_event) ||
-      !ShouldForwardForTapSuppression(gesture_event)) {
-    return;
-  }
+  // GFS should have been filtered in FlingControllerFilterEvent.
+  DCHECK_NE(gesture_event.event.GetType(), WebInputEvent::kGestureFlingStart);
+  if (!ShouldForwardForBounceReduction(gesture_event))
+    return false;
 
   QueueAndForwardIfNecessary(gesture_event);
+  return true;
+}
+
+bool GestureEventQueue::FlingControllerFilterEvent(
+    const GestureEventWithLatencyInfo& gesture_event) {
+  TRACE_EVENT0("input", "GestureEventQueue::QueueEvent");
+  if (fling_controller_.FilterGestureEvent(gesture_event))
+    return true;
+
+  // fling_controller_ is in charge of handling GFS events and the events are
+  // not sent to the renderer, the controller processes the fling and generates
+  // fling progress events (wheel events for touchpad and GSU events for
+  // touchscreen and autoscroll) which are handled normally.
+  if (gesture_event.event.GetType() == WebInputEvent::kGestureFlingStart) {
+    fling_controller_.ProcessGestureFlingStart(gesture_event);
+    fling_in_progress_ = true;
+    return true;
+  }
+
+  // If the GestureFlingStart event is processed by the fling_controller_, the
+  // GestureFlingCancel event should be the same.
+  if (gesture_event.event.GetType() == WebInputEvent::kGestureFlingCancel) {
+    fling_controller_.ProcessGestureFlingCancel(gesture_event);
+    fling_in_progress_ = false;
+    return true;
+  }
+
+  return false;
+}
+
+void GestureEventQueue::StopFling() {
+  fling_in_progress_ = false;
+  fling_controller_.StopFling();
+}
+
+bool GestureEventQueue::FlingCancellationIsDeferred() const {
+  return fling_controller_.FlingCancellationIsDeferred();
+}
+
+bool GestureEventQueue::TouchscreenFlingInProgress() const {
+  return fling_controller_.TouchscreenFlingInProgress();
+}
+gfx::Vector2dF GestureEventQueue::CurrentFlingVelocity() const {
+  return fling_controller_.CurrentFlingVelocity();
 }
 
 bool GestureEventQueue::ShouldDiscardFlingCancelEvent(
     const GestureEventWithLatencyInfo& gesture_event) const {
+  // When the GFS is processed by the fling_controller_ the controller handles
+  // GFC filtering as well.
+  DCHECK(!(fling_controller_.fling_in_progress()));
+
   if (coalesced_gesture_events_.empty() && fling_in_progress_)
     return false;
-  GestureQueue::const_reverse_iterator it =
+  GestureQueueWithAckState::const_reverse_iterator it =
       coalesced_gesture_events_.rbegin();
   while (it != coalesced_gesture_events_.rend()) {
     if (it->event.GetType() == WebInputEvent::kGestureFlingStart)
@@ -73,6 +125,13 @@ bool GestureEventQueue::ShouldForwardForBounceReduction(
     const GestureEventWithLatencyInfo& gesture_event) {
   if (debounce_interval_ <= base::TimeDelta())
     return true;
+
+  // Don't debounce any gesture events while a fling is in progress on the
+  // browser side. A GSE event in this case ends fling progress and it shouldn't
+  // get cancelled by its next GSB event.
+  if (fling_controller_.fling_in_progress())
+    return true;
+
   switch (gesture_event.event.GetType()) {
     case WebInputEvent::kGestureScrollUpdate:
       if (!scrolling_in_progress_) {
@@ -110,43 +169,6 @@ bool GestureEventQueue::ShouldForwardForBounceReduction(
   }
 }
 
-bool GestureEventQueue::ShouldForwardForGFCFiltering(
-    const GestureEventWithLatencyInfo& gesture_event) const {
-  return gesture_event.event.GetType() != WebInputEvent::kGestureFlingCancel ||
-         !ShouldDiscardFlingCancelEvent(gesture_event);
-}
-
-bool GestureEventQueue::ShouldForwardForTapSuppression(
-    const GestureEventWithLatencyInfo& gesture_event) {
-  switch (gesture_event.event.GetType()) {
-    case WebInputEvent::kGestureFlingCancel:
-      if (gesture_event.event.source_device ==
-          blink::kWebGestureDeviceTouchscreen)
-        touchscreen_tap_suppression_controller_.GestureFlingCancel();
-      else if (gesture_event.event.source_device ==
-               blink::kWebGestureDeviceTouchpad)
-        touchpad_tap_suppression_controller_.GestureFlingCancel();
-      return true;
-    case WebInputEvent::kGestureTapDown:
-    case WebInputEvent::kGestureShowPress:
-    case WebInputEvent::kGestureTapUnconfirmed:
-    case WebInputEvent::kGestureTapCancel:
-    case WebInputEvent::kGestureTap:
-    case WebInputEvent::kGestureDoubleTap:
-    case WebInputEvent::kGestureLongPress:
-    case WebInputEvent::kGestureLongTap:
-    case WebInputEvent::kGestureTwoFingerTap:
-      if (gesture_event.event.source_device ==
-          blink::kWebGestureDeviceTouchscreen) {
-        return !touchscreen_tap_suppression_controller_.FilterTapEvent(
-            gesture_event);
-      }
-      return true;
-    default:
-      return true;
-  }
-}
-
 void GestureEventQueue::QueueAndForwardIfNecessary(
     const GestureEventWithLatencyInfo& gesture_event) {
   if (allow_multiple_inflight_events_) {
@@ -174,6 +196,7 @@ void GestureEventQueue::QueueAndForwardIfNecessary(
     case WebInputEvent::kGestureScrollBegin:
       if (OnScrollBegin(gesture_event))
         return;
+      break;
     default:
       break;
   }
@@ -202,7 +225,8 @@ bool GestureEventQueue::OnScrollBegin(
   return false;
 }
 
-void GestureEventQueue::ProcessGestureAck(InputEventAckState ack_result,
+void GestureEventQueue::ProcessGestureAck(InputEventAckSource ack_source,
+                                          InputEventAckState ack_result,
                                           WebInputEvent::Type type,
                                           const ui::LatencyInfo& latency) {
   TRACE_EVENT0("input", "GestureEventQueue::ProcessGestureAck");
@@ -212,30 +236,74 @@ void GestureEventQueue::ProcessGestureAck(InputEventAckState ack_result,
     return;
   }
 
-  size_t event_index = 0;
-  if (allow_multiple_inflight_events_) {
-    // Events are forwarded immediately.
-    // Assuming events of the same type are acked in a FIFO order, but it's
-    // still possible that GestureFling events are acked before
-    // GestureScroll/Pinch as they don't need to go through the queue in
-    // |InputHandlerProxy::HandleInputEventWithLatencyInfo|.
-    for (size_t i = 0; i < coalesced_gesture_events_.size(); ++i) {
-      if (coalesced_gesture_events_[i].event.GetType() == type) {
-        event_index = i;
-        break;
-      }
-    }
-  } else {
-    // Events are forwarded one-by-one.
-    // It's possible that the ack for the second event in an in-flight,
-    // coalesced Gesture{Scroll,Pinch}Update pair is received prior to the first
-    // event ack.
-    if (ignore_next_ack_ && coalesced_gesture_events_.size() > 1 &&
-        coalesced_gesture_events_[0].event.GetType() != type &&
-        coalesced_gesture_events_[1].event.GetType() == type) {
-      event_index = 1;
+  if (!allow_multiple_inflight_events_) {
+    LegacyProcessGestureAck(ack_source, ack_result, type, latency);
+    return;
+  }
+
+  // ACKs could come back out of order. We want to cache them to restore the
+  // original order.
+  for (auto& outstanding_event : coalesced_gesture_events_) {
+    if (outstanding_event.ack_state() != INPUT_EVENT_ACK_STATE_UNKNOWN)
+      continue;
+    if (outstanding_event.event.GetType() == type) {
+      outstanding_event.latency.AddNewLatencyFrom(latency);
+      outstanding_event.set_ack_info(ack_source, ack_result);
+      break;
     }
   }
+
+  AckCompletedEvents();
+}
+
+void GestureEventQueue::AckCompletedEvents() {
+  // Don't allow re-entrancy into this method otherwise
+  // the ordering of acks won't be preserved.
+  if (processing_acks_)
+    return;
+  base::AutoReset<bool> process_acks(&processing_acks_, true);
+  while (!coalesced_gesture_events_.empty()) {
+    auto iter = coalesced_gesture_events_.begin();
+    if (iter->ack_state() == INPUT_EVENT_ACK_STATE_UNKNOWN)
+      break;
+    GestureEventWithLatencyInfoAndAckState event = *iter;
+    coalesced_gesture_events_.erase(iter);
+    AckGestureEventToClient(event, event.ack_source(), event.ack_state());
+  }
+}
+
+void GestureEventQueue::AckGestureEventToClient(
+    const GestureEventWithLatencyInfo& event_with_latency,
+    InputEventAckSource ack_source,
+    InputEventAckState ack_result) {
+  DCHECK(allow_multiple_inflight_events_);
+
+  // Ack'ing an event may enqueue additional gesture events.  By ack'ing the
+  // event before the forwarding of queued events below, such additional events
+  // can be coalesced with existing queued events prior to dispatch.
+  client_->OnGestureEventAck(event_with_latency, ack_source, ack_result);
+
+  fling_controller_.OnGestureEventAck(event_with_latency, ack_result);
+}
+
+void GestureEventQueue::LegacyProcessGestureAck(
+    InputEventAckSource ack_source,
+    InputEventAckState ack_result,
+    WebInputEvent::Type type,
+    const ui::LatencyInfo& latency) {
+  DCHECK(!allow_multiple_inflight_events_);
+
+  // Events are forwarded one-by-one.
+  // It's possible that the ack for the second event in an in-flight,
+  // coalesced Gesture{Scroll,Pinch}Update pair is received prior to the first
+  // event ack.
+  size_t event_index = 0;
+  if (ignore_next_ack_ && coalesced_gesture_events_.size() > 1 &&
+      coalesced_gesture_events_[0].event.GetType() != type &&
+      coalesced_gesture_events_[1].event.GetType() == type) {
+    event_index = 1;
+  }
+
   GestureEventWithLatencyInfo event_with_latency =
       coalesced_gesture_events_[event_index];
   DCHECK_EQ(event_with_latency.event.GetType(), type);
@@ -244,24 +312,13 @@ void GestureEventQueue::ProcessGestureAck(InputEventAckState ack_result,
   // Ack'ing an event may enqueue additional gesture events.  By ack'ing the
   // event before the forwarding of queued events below, such additional events
   // can be coalesced with existing queued events prior to dispatch.
-  client_->OnGestureEventAck(event_with_latency, ack_result);
+  client_->OnGestureEventAck(event_with_latency, ack_source, ack_result);
 
-  const bool processed = (INPUT_EVENT_ACK_STATE_CONSUMED == ack_result);
-  if (type == WebInputEvent::kGestureFlingCancel) {
-    if (event_with_latency.event.source_device ==
-        blink::kWebGestureDeviceTouchscreen)
-      touchscreen_tap_suppression_controller_.GestureFlingCancelAck(processed);
-    else if (event_with_latency.event.source_device ==
-             blink::kWebGestureDeviceTouchpad)
-      touchpad_tap_suppression_controller_.GestureFlingCancelAck(processed);
-  }
+  fling_controller_.OnGestureEventAck(event_with_latency, ack_result);
+
   DCHECK_LT(event_index, coalesced_gesture_events_.size());
   coalesced_gesture_events_.erase(coalesced_gesture_events_.begin() +
                                   event_index);
-
-  // Events have been forwarded already.
-  if (allow_multiple_inflight_events_)
-    return;
 
   if (ignore_next_ack_) {
     ignore_next_ack_ = false;
@@ -293,7 +350,7 @@ void GestureEventQueue::ProcessGestureAck(InputEventAckState ack_result,
 
 TouchpadTapSuppressionController*
     GestureEventQueue::GetTouchpadTapSuppressionController() {
-  return &touchpad_tap_suppression_controller_;
+  return fling_controller_.GetTouchpadTapSuppressionController();
 }
 
 void GestureEventQueue::FlingHasBeenHalted() {
@@ -313,8 +370,7 @@ void GestureEventQueue::SendScrollEndingEventsNow() {
   debouncing_deferral_queue.swap(debouncing_deferral_queue_);
   for (GestureQueue::const_iterator it = debouncing_deferral_queue.begin();
        it != debouncing_deferral_queue.end(); it++) {
-    if (ShouldForwardForGFCFiltering(*it) &&
-        ShouldForwardForTapSuppression(*it)) {
+    if (!fling_controller_.FilterGestureEvent(*it)) {
       QueueAndForwardIfNecessary(*it);
     }
   }

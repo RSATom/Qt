@@ -33,11 +33,11 @@ struct Task;
 class BASE_EXPORT DelayedTaskManager {
  public:
   // Posts |task| for execution immediately.
-  using PostTaskNowCallback = OnceCallback<void(std::unique_ptr<Task> task)>;
+  using PostTaskNowCallback = OnceCallback<void(Task task)>;
 
   // |tick_clock| can be specified for testing.
-  DelayedTaskManager(
-      std::unique_ptr<TickClock> tick_clock = MakeUnique<DefaultTickClock>());
+  DelayedTaskManager(std::unique_ptr<const TickClock> tick_clock =
+                         std::make_unique<DefaultTickClock>());
   ~DelayedTaskManager();
 
   // Starts the delayed task manager, allowing past and future tasks to be
@@ -48,17 +48,16 @@ class BASE_EXPORT DelayedTaskManager {
 
   // Schedules a call to |post_task_now_callback| with |task| as argument when
   // |task| is ripe for execution and Start() has been called.
-  void AddDelayedTask(std::unique_ptr<Task> task,
-                      PostTaskNowCallback post_task_now_callback);
+  void AddDelayedTask(Task task, PostTaskNowCallback post_task_now_callback);
 
  private:
   // Schedules a call to |post_task_now_callback| with |task| as argument when
   // |delay| expires. Start() must have been called before this.
-  void AddDelayedTaskNow(std::unique_ptr<Task> task,
+  void AddDelayedTaskNow(Task task,
                          TimeDelta delay,
                          PostTaskNowCallback post_task_now_callback);
 
-  const std::unique_ptr<TickClock> tick_clock_;
+  const std::unique_ptr<const TickClock> tick_clock_;
 
   AtomicFlag started_;
 
@@ -70,8 +69,7 @@ class BASE_EXPORT DelayedTaskManager {
   SchedulerLock lock_;
 
   scoped_refptr<TaskRunner> service_thread_task_runner_;
-  std::vector<std::pair<std::unique_ptr<Task>, PostTaskNowCallback>>
-      tasks_added_before_start_;
+  std::vector<std::pair<Task, PostTaskNowCallback>> tasks_added_before_start_;
 
   DISALLOW_COPY_AND_ASSIGN(DelayedTaskManager);
 };

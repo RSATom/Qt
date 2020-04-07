@@ -40,6 +40,37 @@ Polymer({
       type: Boolean,
       value: false,
     },
+
+    // <if expr="chromeos">
+    /**
+     * Whether Smb Shares settings should be fetched and displayed.
+     * @private
+     */
+    enableSmbSettings_: {
+      type: Boolean,
+      value: function() {
+        return loadTimeData.getBoolean('enableNativeSmbSetting');
+      },
+      readOnly: true,
+    },
+    // </if>
+
+    /** @private {!Map<string, string>} */
+    focusConfig_: {
+      type: Object,
+      value: function() {
+        const map = new Map();
+        // <if expr="chromeos">
+        if (settings.routes.SMB_SHARES) {
+          map.set(
+              settings.routes.SMB_SHARES.path,
+              '#smbShares .subpage-arrow button');
+        }
+        // </if>
+        return map;
+      },
+    },
+
   },
 
   /** @private {?settings.DownloadsBrowserProxy} */
@@ -49,19 +80,27 @@ Polymer({
   attached: function() {
     this.browserProxy_ = settings.DownloadsBrowserProxyImpl.getInstance();
 
-    this.addWebUIListener('auto-open-downloads-changed', function(autoOpen) {
+    this.addWebUIListener('auto-open-downloads-changed', autoOpen => {
       this.autoOpenDownloads_ = autoOpen;
-    }.bind(this));
+    });
 
     this.browserProxy_.initializeDownloads();
   },
 
   /** @private */
   selectDownloadLocation_: function() {
-    listenOnce(this, 'transitionend', function() {
+    listenOnce(this, 'transitionend', () => {
       this.browserProxy_.selectDownloadLocation();
-    }.bind(this));
+    });
   },
+
+  // <if expr="chromeos">
+  /** @private */
+  onTapSmbShares_: function() {
+    settings.navigateTo(settings.routes.SMB_SHARES);
+  },
+  // </if>
+
 
   // <if expr="chromeos">
   /**

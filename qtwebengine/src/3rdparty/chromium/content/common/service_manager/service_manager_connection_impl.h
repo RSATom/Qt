@@ -15,7 +15,7 @@
 #include "content/public/common/service_manager_connection.h"
 #include "mojo/public/cpp/system/message_pipe.h"
 #include "services/service_manager/public/cpp/identity.h"
-#include "services/service_manager/public/interfaces/service.mojom.h"
+#include "services/service_manager/public/mojom/service.mojom.h"
 
 namespace service_manager {
 class Connector;
@@ -46,6 +46,9 @@ class CONTENT_EXPORT ServiceManagerConnectionImpl
   void AddServiceRequestHandler(
       const std::string& name,
       const ServiceRequestHandler& handler) override;
+  void AddServiceRequestHandlerWithPID(
+      const std::string& name,
+      const ServiceRequestHandlerWithPID& handler) override;
 
   void OnConnectionLost();
   void GetInterface(service_manager::mojom::InterfaceProvider* provider,

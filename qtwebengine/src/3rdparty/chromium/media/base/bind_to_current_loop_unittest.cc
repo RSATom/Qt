@@ -12,6 +12,7 @@
 #include "base/run_loop.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/threading/thread.h"
+#include "base/threading/thread_checker_impl.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace media {
@@ -44,15 +45,13 @@ void BoundIntegersSet(int* a_var, int* b_var, int a_val, int b_val) {
 }
 
 struct ThreadRestrictionChecker {
-  ThreadRestrictionChecker() : bound_loop_(base::MessageLoop::current()) {}
-
-  void Run() { EXPECT_EQ(bound_loop_, base::MessageLoop::current()); }
+  void Run() { EXPECT_TRUE(thread_checker_.CalledOnValidThread()); }
 
   ~ThreadRestrictionChecker() {
-    EXPECT_EQ(bound_loop_, base::MessageLoop::current());
+    EXPECT_TRUE(thread_checker_.CalledOnValidThread());
   }
 
-  base::MessageLoop* bound_loop_;
+  base::ThreadCheckerImpl thread_checker_;
 };
 
 void ClearReference(base::OnceClosure cb) {}
@@ -139,12 +138,12 @@ TEST_F(BindToCurrentLoopTest, PassedUniquePtrBoolRepeating) {
   bool bool_val = false;
   base::RepeatingCallback<void(std::unique_ptr<bool>)> cb = BindToCurrentLoop(
       base::BindRepeating(&BoundBoolSetFromUniquePtr, &bool_val));
-  cb.Run(base::MakeUnique<bool>(true));
+  cb.Run(std::make_unique<bool>(true));
   EXPECT_FALSE(bool_val);
   base::RunLoop().RunUntilIdle();
   EXPECT_TRUE(bool_val);
 
-  cb.Run(base::MakeUnique<bool>(false));
+  cb.Run(std::make_unique<bool>(false));
   EXPECT_TRUE(bool_val);
   base::RunLoop().RunUntilIdle();
   EXPECT_FALSE(bool_val);
@@ -154,7 +153,7 @@ TEST_F(BindToCurrentLoopTest, PassedUniquePtrBoolOnce) {
   bool bool_val = false;
   base::OnceCallback<void(std::unique_ptr<bool>)> cb =
       BindToCurrentLoop(base::BindOnce(&BoundBoolSetFromUniquePtr, &bool_val));
-  std::move(cb).Run(base::MakeUnique<bool>(true));
+  std::move(cb).Run(std::make_unique<bool>(true));
   EXPECT_FALSE(bool_val);
   base::RunLoop().RunUntilIdle();
   EXPECT_TRUE(bool_val);
@@ -325,7 +324,7 @@ TEST_F(BindToCurrentLoopTest, DestroyedOnBoundLoopRepeating) {
   // if the last reference to the callback is dropped on the other thread.
   base::RepeatingClosure cb = BindToCurrentLoop(
       base::BindRepeating(&ThreadRestrictionChecker::Run,
-                          base::MakeUnique<ThreadRestrictionChecker>()));
+                          std::make_unique<ThreadRestrictionChecker>()));
   target_thread.task_runner()->PostTask(FROM_HERE, std::move(cb));
   ASSERT_FALSE(cb);
   target_thread.FlushForTesting();
@@ -335,7 +334,7 @@ TEST_F(BindToCurrentLoopTest, DestroyedOnBoundLoopRepeating) {
   // the callback is destroyed without invocation.
   cb = BindToCurrentLoop(
       base::BindRepeating(&ThreadRestrictionChecker::Run,
-                          base::MakeUnique<ThreadRestrictionChecker>()));
+                          std::make_unique<ThreadRestrictionChecker>()));
   target_thread.task_runner()->PostTask(
       FROM_HERE, base::BindOnce(&ClearReference, std::move(cb)));
   target_thread.FlushForTesting();
@@ -353,7 +352,7 @@ TEST_F(BindToCurrentLoopTest, DestroyedOnBoundLoopOnce) {
   // if the last reference to the callback is dropped on the other thread.
   base::OnceClosure cb = BindToCurrentLoop(
       base::BindOnce(&ThreadRestrictionChecker::Run,
-                     base::MakeUnique<ThreadRestrictionChecker>()));
+                     std::make_unique<ThreadRestrictionChecker>()));
   target_thread.task_runner()->PostTask(FROM_HERE, std::move(cb));
   ASSERT_FALSE(cb);
   target_thread.FlushForTesting();
@@ -363,7 +362,7 @@ TEST_F(BindToCurrentLoopTest, DestroyedOnBoundLoopOnce) {
   // the callback is destroyed without invocation.
   cb = BindToCurrentLoop(
       base::BindOnce(&ThreadRestrictionChecker::Run,
-                     base::MakeUnique<ThreadRestrictionChecker>()));
+                     std::make_unique<ThreadRestrictionChecker>()));
   target_thread.task_runner()->PostTask(
       FROM_HERE, base::BindOnce(&ClearReference, std::move(cb)));
   target_thread.FlushForTesting();

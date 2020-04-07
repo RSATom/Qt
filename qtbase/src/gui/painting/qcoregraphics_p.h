@@ -64,6 +64,8 @@
 
 QT_BEGIN_NAMESPACE
 
+Q_GUI_EXPORT CGBitmapInfo qt_mac_bitmapInfoForImage(const QImage &image);
+
 #ifdef HAVE_APPKIT
 Q_GUI_EXPORT NSImage *qt_mac_create_nsimage(const QPixmap &pm);
 Q_GUI_EXPORT NSImage *qt_mac_create_nsimage(const QIcon &icon, int defaultSize = 0);
@@ -74,9 +76,6 @@ Q_GUI_EXPORT CGImageRef qt_mac_toCGImageMask(const QImage &qImage);
 Q_GUI_EXPORT QImage qt_mac_toQImage(CGImageRef image);
 
 Q_GUI_EXPORT void qt_mac_drawCGImage(CGContextRef inContext, const CGRect *inBounds, CGImageRef inImage);
-
-Q_GUI_EXPORT CGColorSpaceRef qt_mac_genericColorSpace();
-Q_GUI_EXPORT CGColorSpaceRef qt_mac_colorSpaceForDeviceType(const QPaintDevice *paintDevice);
 
 Q_GUI_EXPORT void qt_mac_clip_cg(CGContextRef hd, const QRegion &rgn, CGAffineTransform *orig_xform);
 

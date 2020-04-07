@@ -8,31 +8,17 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_RTC_BASE_TASK_QUEUE_H_
-#define WEBRTC_RTC_BASE_TASK_QUEUE_H_
+#ifndef RTC_BASE_TASK_QUEUE_H_
+#define RTC_BASE_TASK_QUEUE_H_
 
-#include <list>
 #include <memory>
-#include <queue>
+#include <type_traits>
+#include <utility>
 
-#if defined(WEBRTC_MAC) && !defined(WEBRTC_BUILD_LIBEVENT)
-#include <dispatch/dispatch.h>
-#endif
-
-#include "webrtc/rtc_base/constructormagic.h"
-#include "webrtc/rtc_base/criticalsection.h"
-
-#if defined(WEBRTC_WIN) || defined(WEBRTC_BUILD_LIBEVENT)
-#include "webrtc/rtc_base/platform_thread.h"
-#endif
-
-#if defined(WEBRTC_BUILD_LIBEVENT)
-#include "webrtc/rtc_base/refcountedobject.h"
-#include "webrtc/rtc_base/scoped_ref_ptr.h"
-
-struct event_base;
-struct event;
-#endif
+#include "absl/memory/memory.h"
+#include "rtc_base/constructormagic.h"
+#include "rtc_base/scoped_ref_ptr.h"
+#include "rtc_base/thread_annotations.h"
 
 namespace rtc {
 
@@ -59,7 +45,8 @@ class QueuedTask {
 template <class Closure>
 class ClosureTask : public QueuedTask {
  public:
-  explicit ClosureTask(const Closure& closure) : closure_(closure) {}
+  explicit ClosureTask(Closure&& closure)
+      : closure_(std::forward<Closure>(closure)) {}
 
  private:
   bool Run() override {
@@ -67,7 +54,8 @@ class ClosureTask : public QueuedTask {
     return true;
   }
 
-  Closure closure_;
+  typename std::remove_const<
+      typename std::remove_reference<Closure>::type>::type closure_;
 };
 
 // Extends ClosureTask to also allow specifying cleanup code.
@@ -76,27 +64,30 @@ class ClosureTask : public QueuedTask {
 template <class Closure, class Cleanup>
 class ClosureTaskWithCleanup : public ClosureTask<Closure> {
  public:
-  ClosureTaskWithCleanup(const Closure& closure, Cleanup cleanup)
-      : ClosureTask<Closure>(closure), cleanup_(cleanup) {}
+  ClosureTaskWithCleanup(Closure&& closure, Cleanup&& cleanup)
+      : ClosureTask<Closure>(std::forward<Closure>(closure)),
+        cleanup_(std::forward<Cleanup>(cleanup)) {}
   ~ClosureTaskWithCleanup() { cleanup_(); }
 
  private:
-  Cleanup cleanup_;
+  typename std::remove_const<
+      typename std::remove_reference<Cleanup>::type>::type cleanup_;
 };
 
 // Convenience function to construct closures that can be passed directly
 // to methods that support std::unique_ptr<QueuedTask> but not template
 // based parameters.
 template <class Closure>
-static std::unique_ptr<QueuedTask> NewClosure(const Closure& closure) {
-  return std::unique_ptr<QueuedTask>(new ClosureTask<Closure>(closure));
+static std::unique_ptr<QueuedTask> NewClosure(Closure&& closure) {
+  return absl::make_unique<ClosureTask<Closure>>(
+      std::forward<Closure>(closure));
 }
 
 template <class Closure, class Cleanup>
-static std::unique_ptr<QueuedTask> NewClosure(const Closure& closure,
-                                              const Cleanup& cleanup) {
-  return std::unique_ptr<QueuedTask>(
-      new ClosureTaskWithCleanup<Closure, Cleanup>(closure, cleanup));
+static std::unique_ptr<QueuedTask> NewClosure(Closure&& closure,
+                                              Cleanup&& cleanup) {
+  return absl::make_unique<ClosureTaskWithCleanup<Closure, Cleanup>>(
+      std::forward<Closure>(closure), std::forward<Cleanup>(cleanup));
 }
 
 // Implements a task queue that asynchronously executes tasks in a way that
@@ -127,7 +118,7 @@ static std::unique_ptr<QueuedTask> NewClosure(const Closure& closure,
 //     }
 //     ...
 //     my_class->StartWorkAndLetMeKnowWhenDone(
-//         NewClosure([]() { LOG(INFO) << "The work is done!";}));
+//         NewClosure([]() { RTC_LOG(INFO) << "The work is done!";}));
 //
 //   3) Posting a custom task on a timer.  The task posts itself again after
 //      every running:
@@ -159,7 +150,7 @@ static std::unique_ptr<QueuedTask> NewClosure(const Closure& closure,
 // TaskQueue itself has been deleted or it may happen synchronously while the
 // TaskQueue instance is being deleted.  This may vary from one OS to the next
 // so assumptions about lifetimes of pending tasks should not be made.
-class LOCKABLE TaskQueue {
+class RTC_LOCKABLE TaskQueue {
  public:
   // TaskQueue priority levels. On some platforms these will map to thread
   // priorities, on others such as Mac and iOS, GCD queue priorities.
@@ -176,7 +167,6 @@ class LOCKABLE TaskQueue {
   static TaskQueue* Current();
 
   // Used for DCHECKing the current queue.
-  static bool IsCurrent(const char* queue_name);
   bool IsCurrent() const;
 
   // TODO(tommi): For better debuggability, implement RTC_FROM_HERE.
@@ -196,111 +186,57 @@ class LOCKABLE TaskQueue {
   // more likely). This can be mitigated by limiting the use of delayed tasks.
   void PostDelayedTask(std::unique_ptr<QueuedTask> task, uint32_t milliseconds);
 
-  template <class Closure>
-  void PostTask(const Closure& closure) {
-    PostTask(std::unique_ptr<QueuedTask>(new ClosureTask<Closure>(closure)));
+  // std::enable_if is used here to make sure that calls to PostTask() with
+  // std::unique_ptr<SomeClassDerivedFromQueuedTask> would not end up being
+  // caught by this template.
+  template <class Closure,
+            typename std::enable_if<!std::is_convertible<
+                Closure,
+                std::unique_ptr<QueuedTask>>::value>::type* = nullptr>
+  void PostTask(Closure&& closure) {
+    PostTask(NewClosure(std::forward<Closure>(closure)));
   }
 
   // See documentation above for performance expectations.
-  template <class Closure>
-  void PostDelayedTask(const Closure& closure, uint32_t milliseconds) {
-    PostDelayedTask(
-        std::unique_ptr<QueuedTask>(new ClosureTask<Closure>(closure)),
-        milliseconds);
+  template <class Closure,
+            typename std::enable_if<!std::is_convertible<
+                Closure,
+                std::unique_ptr<QueuedTask>>::value>::type* = nullptr>
+  void PostDelayedTask(Closure&& closure, uint32_t milliseconds) {
+    PostDelayedTask(NewClosure(std::forward<Closure>(closure)), milliseconds);
   }
 
   template <class Closure1, class Closure2>
-  void PostTaskAndReply(const Closure1& task,
-                        const Closure2& reply,
+  void PostTaskAndReply(Closure1&& task,
+                        Closure2&& reply,
                         TaskQueue* reply_queue) {
-    PostTaskAndReply(
-        std::unique_ptr<QueuedTask>(new ClosureTask<Closure1>(task)),
-        std::unique_ptr<QueuedTask>(new ClosureTask<Closure2>(reply)),
-        reply_queue);
+    PostTaskAndReply(NewClosure(std::forward<Closure1>(task)),
+                     NewClosure(std::forward<Closure2>(reply)), reply_queue);
   }
 
   template <class Closure>
-  void PostTaskAndReply(std::unique_ptr<QueuedTask> task,
-                        const Closure& reply) {
-    PostTaskAndReply(std::move(task), std::unique_ptr<QueuedTask>(
-                                          new ClosureTask<Closure>(reply)));
+  void PostTaskAndReply(std::unique_ptr<QueuedTask> task, Closure&& reply) {
+    PostTaskAndReply(std::move(task), NewClosure(std::forward<Closure>(reply)));
   }
 
   template <class Closure>
-  void PostTaskAndReply(const Closure& task,
-                        std::unique_ptr<QueuedTask> reply) {
-    PostTaskAndReply(
-        std::unique_ptr<QueuedTask>(new ClosureTask<Closure>(task)),
-        std::move(reply));
+  void PostTaskAndReply(Closure&& task, std::unique_ptr<QueuedTask> reply) {
+    PostTaskAndReply(NewClosure(std::forward<Closure>(task)), std::move(reply));
   }
 
   template <class Closure1, class Closure2>
-  void PostTaskAndReply(const Closure1& task, const Closure2& reply) {
-    PostTaskAndReply(
-        std::unique_ptr<QueuedTask>(new ClosureTask<Closure1>(task)),
-        std::unique_ptr<QueuedTask>(new ClosureTask<Closure2>(reply)));
+  void PostTaskAndReply(Closure1&& task, Closure2&& reply) {
+    PostTaskAndReply(NewClosure(std::forward(task)),
+                     NewClosure(std::forward(reply)));
   }
 
  private:
-#if defined(WEBRTC_BUILD_LIBEVENT)
-  static void ThreadMain(void* context);
-  static void OnWakeup(int socket, short flags, void* context);  // NOLINT
-  static void RunTask(int fd, short flags, void* context);       // NOLINT
-  static void RunTimer(int fd, short flags, void* context);      // NOLINT
-
-  class ReplyTaskOwner;
-  class PostAndReplyTask;
-  class SetTimerTask;
-
-  typedef RefCountedObject<ReplyTaskOwner> ReplyTaskOwnerRef;
-
-  void PrepareReplyTask(scoped_refptr<ReplyTaskOwnerRef> reply_task);
-
-  struct QueueContext;
-
-  int wakeup_pipe_in_ = -1;
-  int wakeup_pipe_out_ = -1;
-  event_base* event_base_;
-  std::unique_ptr<event> wakeup_event_;
-  PlatformThread thread_;
-  rtc::CriticalSection pending_lock_;
-  std::list<std::unique_ptr<QueuedTask>> pending_ GUARDED_BY(pending_lock_);
-  std::list<scoped_refptr<ReplyTaskOwnerRef>> pending_replies_
-      GUARDED_BY(pending_lock_);
-#elif defined(WEBRTC_MAC)
-  struct QueueContext;
-  struct TaskContext;
-  struct PostTaskAndReplyContext;
-  dispatch_queue_t queue_;
-  QueueContext* const context_;
-#elif defined(WEBRTC_WIN)
-  class ThreadState;
-  void RunPendingTasks();
-  static void ThreadMain(void* context);
-
-  class WorkerThread : public PlatformThread {
-   public:
-    WorkerThread(ThreadRunFunction func,
-                 void* obj,
-                 const char* thread_name,
-                 ThreadPriority priority)
-        : PlatformThread(func, obj, thread_name, priority) {}
-
-    bool QueueAPC(PAPCFUNC apc_function, ULONG_PTR data) {
-      return PlatformThread::QueueAPC(apc_function, data);
-    }
-  };
-  WorkerThread thread_;
-  rtc::CriticalSection pending_lock_;
-  std::queue<std::unique_ptr<QueuedTask>> pending_ GUARDED_BY(pending_lock_);
-  HANDLE in_queue_;
-#else
-#error not supported.
-#endif
+  class Impl;
+  const scoped_refptr<Impl> impl_;
 
   RTC_DISALLOW_COPY_AND_ASSIGN(TaskQueue);
 };
 
 }  // namespace rtc
 
-#endif  // WEBRTC_RTC_BASE_TASK_QUEUE_H_
+#endif  // RTC_BASE_TASK_QUEUE_H_

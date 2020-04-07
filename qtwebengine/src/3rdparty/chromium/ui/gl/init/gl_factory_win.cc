@@ -79,15 +79,17 @@ scoped_refptr<GLSurface> CreateViewGLSurface(gfx::AcceleratedWidget window) {
   TRACE_EVENT0("gpu", "gl::init::CreateViewGLSurface");
   switch (GetGLImplementation()) {
     case kGLImplementationOSMesaGL:
-      return InitializeGLSurface(new GLSurfaceOSMesaWin(window));
+      return InitializeGLSurface(
+          base::MakeRefCounted<GLSurfaceOSMesaWin>(window));
     case kGLImplementationSwiftShaderGL:
     case kGLImplementationEGLGLES2: {
-      std::unique_ptr<gfx::VSyncProvider> sync_provider(
-          new VSyncProviderWin(window));
-      return CreateNativeViewGLSurfaceEGL(window, std::move(sync_provider));
+      DCHECK_NE(window, gfx::kNullAcceleratedWidget);
+      return InitializeGLSurface(base::MakeRefCounted<NativeViewGLSurfaceEGL>(
+          window, std::make_unique<VSyncProviderWin>(window)));
     }
     case kGLImplementationDesktopGL:
-      return InitializeGLSurface(new NativeViewGLSurfaceWGL(window));
+      return InitializeGLSurface(
+          base::MakeRefCounted<NativeViewGLSurfaceWGL>(window));
     case kGLImplementationMockGL:
     case kGLImplementationStubGL:
       return new GLSurfaceStub;
@@ -95,16 +97,6 @@ scoped_refptr<GLSurface> CreateViewGLSurface(gfx::AcceleratedWidget window) {
       NOTREACHED();
       return nullptr;
   }
-}
-
-scoped_refptr<GLSurface> CreateNativeViewGLSurfaceEGL(
-    gfx::AcceleratedWidget window,
-    std::unique_ptr<gfx::VSyncProvider> sync_provider) {
-  DCHECK_EQ(kGLImplementationEGLGLES2, GetGLImplementation());
-  DCHECK(window != gfx::kNullAcceleratedWidget);
-
-  return InitializeGLSurface(
-      new NativeViewGLSurfaceEGL(window, std::move(sync_provider)));
 }
 
 scoped_refptr<GLSurface> CreateOffscreenGLSurfaceWithFormat(
@@ -136,6 +128,45 @@ scoped_refptr<GLSurface> CreateOffscreenGLSurfaceWithFormat(
   }
 }
 #endif
+
+void SetDisabledExtensionsPlatform(const std::string& disabled_extensions) {
+  GLImplementation implementation = GetGLImplementation();
+  DCHECK_NE(kGLImplementationNone, implementation);
+  switch (implementation) {
+    case kGLImplementationDesktopGL:
+      SetDisabledExtensionsWGL(disabled_extensions);
+      break;
+    case kGLImplementationEGLGLES2:
+      SetDisabledExtensionsEGL(disabled_extensions);
+      break;
+    case kGLImplementationSwiftShaderGL:
+    case kGLImplementationOSMesaGL:
+    case kGLImplementationMockGL:
+    case kGLImplementationStubGL:
+      break;
+    default:
+      NOTREACHED();
+  }
+}
+
+bool InitializeExtensionSettingsOneOffPlatform() {
+  GLImplementation implementation = GetGLImplementation();
+  DCHECK_NE(kGLImplementationNone, implementation);
+  switch (implementation) {
+    case kGLImplementationDesktopGL:
+      return InitializeExtensionSettingsOneOffWGL();
+    case kGLImplementationEGLGLES2:
+      return InitializeExtensionSettingsOneOffEGL();
+    case kGLImplementationSwiftShaderGL:
+    case kGLImplementationOSMesaGL:
+    case kGLImplementationMockGL:
+    case kGLImplementationStubGL:
+      return true;
+    default:
+      NOTREACHED();
+      return false;
+  }
+}
 
 }  // namespace init
 }  // namespace gl

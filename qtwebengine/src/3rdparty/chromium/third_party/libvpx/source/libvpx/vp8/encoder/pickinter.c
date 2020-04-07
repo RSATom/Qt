@@ -741,10 +741,10 @@ void vp8_pick_inter_mode(VP8_COMP *cpi, MACROBLOCK *x, int recon_yoffset,
   x->e_mbd.mode_info_context->mbmi.ref_frame = INTRA_FRAME;
 
   /* If the frame has big static background and current MB is in low
-  *  motion area, its mode decision is biased to ZEROMV mode.
-  *  No adjustment if cpu_used is <= -12 (i.e., cpi->Speed >= 12).
-  *  At such speed settings, ZEROMV is already heavily favored.
-  */
+   *  motion area, its mode decision is biased to ZEROMV mode.
+   *  No adjustment if cpu_used is <= -12 (i.e., cpi->Speed >= 12).
+   *  At such speed settings, ZEROMV is already heavily favored.
+   */
   if (cpi->Speed < 12) {
     calculate_zeromv_rd_adjustment(cpi, x, &rd_adjustment);
   }
@@ -1068,10 +1068,12 @@ void vp8_pick_inter_mode(VP8_COMP *cpi, MACROBLOCK *x, int recon_yoffset,
         rate2 +=
             vp8_mv_bit_cost(&mode_mv[NEWMV], &best_ref_mv, cpi->mb.mvcost, 128);
       }
+        // fall through
 
       case NEARESTMV:
       case NEARMV:
         if (mode_mv[this_mode].as_int == 0) continue;
+        // fall through
 
       case ZEROMV:
 

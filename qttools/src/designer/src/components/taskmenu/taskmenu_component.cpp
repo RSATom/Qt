@@ -41,8 +41,8 @@
 #include "toolbar_taskmenu.h"
 #include "layouttaskmenu.h"
 
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QExtensionManager>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/qextensionmanager.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -80,9 +80,7 @@ TaskMenuComponent::TaskMenuComponent(QDesignerFormEditorInterface *core, QObject
     mgr->registerExtensions(new ComboBoxTaskMenuFactory(taskMenuId, mgr), taskMenuId);
 }
 
-TaskMenuComponent::~TaskMenuComponent()
-{
-}
+TaskMenuComponent::~TaskMenuComponent() = default;
 
 QDesignerFormEditorInterface *TaskMenuComponent::core() const
 {

@@ -8,6 +8,7 @@
 #include <memory>
 
 #include "base/macros.h"
+#include "base/single_thread_task_runner.h"
 #include "media/capture/video/chromeos/camera_hal_delegate.h"
 #include "media/capture/video/video_capture_device_factory.h"
 
@@ -31,9 +32,8 @@ class CAPTURE_EXPORT VideoCaptureDeviceFactoryChromeOS final
   void GetDeviceDescriptors(
       VideoCaptureDeviceDescriptors* device_descriptors) final;
 
-  // A run-time check for whether we should enable
-  // VideoCaptureDeviceFactoryChromeOS on the device.
-  static bool ShouldEnable();
+  static gpu::GpuMemoryBufferManager* GetBufferManager();
+  static void SetGpuBufferManager(gpu::GpuMemoryBufferManager* buffer_manager);
 
  private:
   // Initializes the factory. The factory is functional only after this call

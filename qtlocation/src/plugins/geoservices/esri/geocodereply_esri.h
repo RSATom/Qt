@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2013-2016 Esri <contracts@esri.com>
+** Copyright (C) 2013-2018 Esri <contracts@esri.com>
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtLocation module of the Qt Toolkit.
@@ -57,7 +57,7 @@ public:
     };
 
 public:
-    GeoCodeReplyEsri(QNetworkReply *reply, OperationType operationType, QObject *parent = Q_NULLPTR);
+    GeoCodeReplyEsri(QNetworkReply *reply, OperationType operationType, QObject *parent = nullptr);
     ~GeoCodeReplyEsri();
 
     inline OperationType operationType() const;

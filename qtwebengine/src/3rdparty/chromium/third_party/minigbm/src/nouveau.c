@@ -12,20 +12,18 @@ static const uint32_t render_target_formats[] = { DRM_FORMAT_ARGB8888, DRM_FORMA
 
 static int nouveau_init(struct driver *drv)
 {
-	int ret;
-	ret = drv_add_combinations(drv, render_target_formats, ARRAY_SIZE(render_target_formats),
-				   &LINEAR_METADATA, BO_USE_RENDER_MASK);
-	if (ret)
-		return ret;
+	drv_add_combinations(drv, render_target_formats, ARRAY_SIZE(render_target_formats),
+			     &LINEAR_METADATA, BO_USE_RENDER_MASK);
 
 	return drv_modify_linear_combinations(drv);
 }
 
-struct backend backend_nouveau = {
+const struct backend backend_nouveau = {
 	.name = "nouveau",
 	.init = nouveau_init,
 	.bo_create = drv_dumb_bo_create,
 	.bo_destroy = drv_dumb_bo_destroy,
 	.bo_import = drv_prime_bo_import,
 	.bo_map = drv_dumb_bo_map,
+	.bo_unmap = drv_bo_munmap,
 };

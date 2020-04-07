@@ -15,7 +15,7 @@ cr.define('print_preview', function() {
 
     /**
      * Component's HTML element.
-     * @private {Element}
+     * @protected {Element}
      */
     this.element_ = null;
 
@@ -23,7 +23,7 @@ cr.define('print_preview', function() {
 
     /**
      * Component's event tracker.
-     * @private {!EventTracker}
+     * @protected {!EventTracker}
      */
     this.tracker_ = new EventTracker();
 
@@ -148,7 +148,7 @@ cr.define('print_preview', function() {
      *     component's children.
      */
     removeChild: function(child) {
-      var childIdx = this.children_.indexOf(child);
+      const childIdx = this.children_.indexOf(child);
       if (childIdx != -1) {
         this.children_.splice(childIdx, 1);
       }
@@ -202,10 +202,10 @@ cr.define('print_preview', function() {
      * @protected
      */
     cloneTemplateInternal: function(templateId, opt_keepHidden) {
-      var templateEl = $(templateId);
+      const templateEl = $(templateId);
       assert(
           templateEl != null, 'Could not find element with ID: ' + templateId);
-      var el = assertInstanceof(templateEl.cloneNode(true), HTMLElement);
+      const el = assertInstanceof(templateEl.cloneNode(true), HTMLElement);
       el.id = '';
       if (!opt_keepHidden) {
         setIsVisible(el, true);

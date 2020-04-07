@@ -6,12 +6,12 @@
 
 #include <algorithm>
 #include <list>
+#include <memory>
 
 #include "base/bind.h"
 #include "base/compiler_specific.h"
 #include "base/lazy_instance.h"
 #include "base/location.h"
-#include "base/memory/ptr_util.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_util.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -138,7 +138,7 @@ std::string URLRequestTestJob::test_error_headers() {
 // static
 std::unique_ptr<URLRequestJobFactory::ProtocolHandler>
 URLRequestTestJob::CreateProtocolHandler() {
-  return base::MakeUnique<TestJobProtocolHandler>();
+  return std::make_unique<TestJobProtocolHandler>();
 }
 
 URLRequestTestJob::URLRequestTestJob(URLRequest* request,
@@ -301,7 +301,8 @@ int64_t URLRequestTestJob::GetTotalReceivedBytes() const {
 }
 
 bool URLRequestTestJob::IsRedirectResponse(GURL* location,
-                                           int* http_status_code) {
+                                           int* http_status_code,
+                                           bool* insecure_scheme_was_upgraded) {
   if (!response_headers_.get())
     return false;
 
@@ -309,6 +310,7 @@ bool URLRequestTestJob::IsRedirectResponse(GURL* location,
   if (!response_headers_->IsRedirect(&value))
     return false;
 
+  *insecure_scheme_was_upgraded = false;
   *location = request_->url().Resolve(value);
   *http_status_code = response_headers_->response_code();
   return true;

@@ -13,6 +13,8 @@
 #include "extensions/renderer/bindings/api_bindings_system.h"
 #include "extensions/renderer/bindings/event_emitter.h"
 #include "extensions/renderer/extension_bindings_system.h"
+#include "extensions/renderer/feature_cache.h"
+#include "extensions/renderer/native_renderer_messaging_service.h"
 #include "v8/include/v8.h"
 
 namespace extensions {
@@ -47,8 +49,14 @@ class NativeExtensionBindingsSystem : public ExtensionBindingsSystem {
                       const std::string& error) override;
   RequestSender* GetRequestSender() override;
   IPCMessageSender* GetIPCMessageSender() override;
+  RendererMessagingService* GetMessagingService() override;
+  void OnExtensionPermissionsUpdated(const ExtensionId& id) override;
+  void OnExtensionRemoved(const ExtensionId& id) override;
 
   APIBindingsSystem* api_system() { return &api_system_; }
+  NativeRendererMessagingService* messaging_service() {
+    return &messaging_service_;
+  }
 
   // Returns the API with the given |name| for the given |context|. Used for
   // testing purposes.
@@ -96,6 +104,10 @@ class NativeExtensionBindingsSystem : public ExtensionBindingsSystem {
 
   // The APIBindingsSystem associated with this class.
   APIBindingsSystem api_system_;
+
+  NativeRendererMessagingService messaging_service_;
+
+  FeatureCache feature_cache_;
 
   // A function to acquire an internal API.
   v8::Eternal<v8::FunctionTemplate> get_internal_api_;

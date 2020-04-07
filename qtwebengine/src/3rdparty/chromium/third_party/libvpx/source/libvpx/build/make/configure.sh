@@ -319,6 +319,12 @@ check_ld() {
     && check_cmd ${LD} ${LDFLAGS} "$@" -o ${TMP_X} ${TMP_O} ${extralibs}
 }
 
+check_lib() {
+  log check_lib "$@"
+  check_cc $@ \
+    && check_cmd ${LD} ${LDFLAGS} -o ${TMP_X} ${TMP_O} "$@" ${extralibs}
+}
+
 check_header(){
   log check_header "$@"
   header=$1
@@ -400,6 +406,43 @@ check_gcc_machine_option() {
     RTCD_OPTIONS="${RTCD_OPTIONS}--disable-$feature "
   else
     soft_enable "$feature"
+  fi
+}
+
+# tests for -m$2, -m$3, -m$4... toggling the feature given in $1.
+check_gcc_machine_options() {
+  feature="$1"
+  shift
+  flags="-m$1"
+  shift
+  for opt in $*; do
+    flags="$flags -m$opt"
+  done
+
+  if enabled gcc && ! disabled "$feature" && ! check_cflags $flags; then
+    RTCD_OPTIONS="${RTCD_OPTIONS}--disable-$feature "
+  else
+    soft_enable "$feature"
+  fi
+}
+
+check_gcc_avx512_compiles() {
+  if disabled gcc; then
+    return
+  fi
+
+  check_cc -mavx512f <<EOF
+#include <immintrin.h>
+void f(void) {
+  __m512i x = _mm512_set1_epi16(0);
+  (void)x;
+}
+EOF
+  compile_result=$?
+  if [ ${compile_result} -ne 0 ]; then
+    log_echo "    disabling avx512: not supported by compiler"
+    disable_feature avx512
+    RTCD_OPTIONS="${RTCD_OPTIONS}--disable-avx512 "
   fi
 }
 
@@ -696,11 +739,14 @@ process_common_toolchain() {
       *sparc*)
         tgt_isa=sparc
         ;;
-      power*64*-*)
-        tgt_isa=ppc64
+      power*64le*-*)
+        tgt_isa=ppc64le
         ;;
-      power*)
-        tgt_isa=ppc
+      *mips64el*)
+        tgt_isa=mips64
+        ;;
+      *mips32el*)
+        tgt_isa=mips32
         ;;
     esac
 
@@ -733,6 +779,10 @@ process_common_toolchain() {
       *darwin16*)
         tgt_isa=x86_64
         tgt_os=darwin16
+        ;;
+      *darwin17*)
+        tgt_isa=x86_64
+        tgt_os=darwin17
         ;;
       x86_64*mingw32*)
         tgt_os=win64
@@ -802,7 +852,7 @@ process_common_toolchain() {
     IOS_VERSION_MIN="8.0"
   else
     IOS_VERSION_OPTIONS=""
-    IOS_VERSION_MIN="6.0"
+    IOS_VERSION_MIN="7.0"
   fi
 
   # Handle darwin variants. Newer SDKs allow targeting older
@@ -862,6 +912,10 @@ process_common_toolchain() {
       add_cflags  "-mmacosx-version-min=10.12"
       add_ldflags "-mmacosx-version-min=10.12"
       ;;
+    *-darwin17-*)
+      add_cflags  "-mmacosx-version-min=10.13"
+      add_ldflags "-mmacosx-version-min=10.13"
+      ;;
     *-iphonesimulator-*)
       add_cflags  "-miphoneos-version-min=${IOS_VERSION_MIN}"
       add_ldflags "-miphoneos-version-min=${IOS_VERSION_MIN}"
@@ -910,7 +964,6 @@ process_common_toolchain() {
           setup_gnu_toolchain
           arch_int=${tgt_isa##armv}
           arch_int=${arch_int%%te}
-          check_add_asflags --defsym ARCHITECTURE=${arch_int}
           tune_cflags="-mtune="
           if [ ${tgt_isa} = "armv7" ] || [ ${tgt_isa} = "armv7s" ]; then
             if [ -z "${float_abi}" ]; then
@@ -937,6 +990,19 @@ EOF
 
           enabled debug && add_asflags -g
           asm_conversion_cmd="${source_path}/build/make/ads2gas.pl"
+
+          case ${tgt_os} in
+            win*)
+              asm_conversion_cmd="$asm_conversion_cmd -noelf"
+              AS="$CC -c"
+              EXE_SFX=.exe
+              enable_feature thumb
+              ;;
+            *)
+              check_add_asflags --defsym ARCHITECTURE=${arch_int}
+              ;;
+          esac
+
           if enabled thumb; then
             asm_conversion_cmd="$asm_conversion_cmd -thumb"
             check_add_cflags -mthumb
@@ -1157,23 +1223,43 @@ EOF
         esac
 
         if enabled msa; then
+          # TODO(libyuv:793)
+          # The new mips functions in libyuv do not build
+          # with the toolchains we currently use for testing.
+          soft_disable libyuv
+
           add_cflags -mmsa
           add_asflags -mmsa
           add_ldflags -mmsa
         fi
       fi
 
+      if enabled mmi; then
+        tgt_isa=loongson3a
+        check_add_ldflags -march=loongson3a
+      fi
+
       check_add_cflags -march=${tgt_isa}
       check_add_asflags -march=${tgt_isa}
       check_add_asflags -KPIC
       ;;
-    ppc*)
+    ppc64le*)
       link_with_cc=gcc
       setup_gnu_toolchain
       check_gcc_machine_option "vsx"
+      if [ -n "${tune_cpu}" ]; then
+        case ${tune_cpu} in
+          power?)
+            tune_cflags="-mcpu="
+            ;;
+        esac
+      fi
       ;;
     x86*)
       case  ${tgt_os} in
+        android)
+          soft_enable realtime_only
+          ;;
         win*)
           enabled gcc && add_cflags -fno-common
           ;;
@@ -1227,6 +1313,13 @@ EOF
           msvs_arch_dir=x86-msvs
           vc_version=${tgt_cc##vs}
           case $vc_version in
+            7|8|9|10|11|12|13|14)
+              echo "${tgt_cc} does not support avx512, disabling....."
+              RTCD_OPTIONS="${RTCD_OPTIONS}--disable-avx512 "
+              soft_disable avx512
+              ;;
+          esac
+          case $vc_version in
             7|8|9|10)
               echo "${tgt_cc} does not support avx/avx2, disabling....."
               RTCD_OPTIONS="${RTCD_OPTIONS}--disable-avx --disable-avx2 "
@@ -1270,8 +1363,13 @@ EOF
         elif disabled $ext; then
           disable_exts="yes"
         else
-          # use the shortened version for the flag: sse4_1 -> sse4
-          check_gcc_machine_option ${ext%_*} $ext
+          if [ "$ext" = "avx512" ]; then
+            check_gcc_machine_options $ext avx512f avx512cd avx512bw avx512dq avx512vl
+            check_gcc_avx512_compiles
+          else
+            # use the shortened version for the flag: sse4_1 -> sse4
+            check_gcc_machine_option ${ext%_*} $ext
+          fi
         fi
       done
 
@@ -1297,7 +1395,6 @@ EOF
         esac
         log_echo "  using $AS"
       fi
-      [ "${AS##*/}" = nasm ] && add_asflags -Ox
       AS_SFX=.asm
       case  ${tgt_os} in
         win32)
@@ -1306,7 +1403,7 @@ EOF
           EXE_SFX=.exe
           ;;
         win64)
-          add_asflags -f x64
+          add_asflags -f win64
           enabled debug && add_asflags -g cv8
           EXE_SFX=.exe
           ;;
@@ -1333,7 +1430,8 @@ EOF
           add_cflags  ${sim_arch}
           add_ldflags ${sim_arch}
 
-          if [ "$(show_darwin_sdk_major_version iphonesimulator)" -gt 8 ]; then
+          if [ "$(disabled external_build)" ] &&
+              [ "$(show_darwin_sdk_major_version iphonesimulator)" -gt 8 ]; then
             # yasm v1.3.0 doesn't know what -fembed-bitcode means, so turning it
             # on is pointless (unless building a C-only lib). Warn the user, but
             # do nothing here.
@@ -1423,7 +1521,11 @@ EOF
         # bionic includes basic pthread functionality, obviating -lpthread.
         ;;
       *)
-        check_header pthread.h && add_extralibs -lpthread
+        check_header pthread.h && check_lib -lpthread <<EOF && add_extralibs -lpthread || disable_feature pthread_h
+#include <pthread.h>
+#include <stddef.h>
+int main(void) { return pthread_create(NULL, NULL, NULL, NULL); }
+EOF
         ;;
     esac
   fi
@@ -1439,6 +1541,10 @@ EOF
         if enabled msa; then
           echo "msa optimizations are available only for little endian platforms"
           disable_feature msa
+        fi
+        if enabled mmi; then
+          echo "mmi optimizations are available only for little endian platforms"
+          disable_feature mmi
         fi
       fi
       ;;

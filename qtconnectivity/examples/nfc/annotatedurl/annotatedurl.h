@@ -60,6 +60,7 @@ QT_FORWARD_DECLARE_CLASS(QPixmap)
 QT_FORWARD_DECLARE_CLASS(QNearFieldManager)
 QT_FORWARD_DECLARE_CLASS(QNearFieldTarget)
 
+//! [0]
 class AnnotatedUrl : public QObject
 {
     Q_OBJECT
@@ -79,5 +80,6 @@ public slots:
 private:
     QNearFieldManager *manager;
 };
+//! [0]
 
 #endif // ANNOTATEDURL_H

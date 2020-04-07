@@ -341,8 +341,7 @@ void QState::addTransition(QAbstractTransition *transition)
 }
 
 /*!
-  \fn QState::addTransition(const QObject *sender, PointerToMemberFunction signal,
-                       QAbstractState *target);
+  \fn template <typename PointerToMemberFunction> QState::addTransition(const QObject *sender, PointerToMemberFunction signal, QAbstractState *target);
   \since 5.5
   \overload
 
@@ -396,8 +395,8 @@ public:
         : QAbstractTransition()
     { setTargetState(target); }
 protected:
-    void onTransition(QEvent *) Q_DECL_OVERRIDE {}
-    bool eventTest(QEvent *) Q_DECL_OVERRIDE { return true; }
+    void onTransition(QEvent *) override {}
+    bool eventTest(QEvent *) override { return true; }
 };
 
 } // namespace
@@ -524,7 +523,7 @@ void QState::setChildMode(ChildMode mode)
     if (mode == QState::ParallelStates && d->initialState) {
         qWarning("QState::setChildMode: setting the child-mode of state %p to "
                  "parallel removes the initial state", this);
-        d->initialState = Q_NULLPTR;
+        d->initialState = nullptr;
         emit initialStateChanged(QState::QPrivateSignal());
     }
 

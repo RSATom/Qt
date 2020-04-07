@@ -53,7 +53,9 @@
 #include <Qt3DRender/private/buffervisitor_p.h>
 
 #include <QtCore/qmath.h>
+#if QT_CONFIG(concurrent)
 #include <QtConcurrent/QtConcurrent>
+#endif
 #include <Qt3DRender/private/job_common_p.h>
 
 QT_BEGIN_NAMESPACE
@@ -81,11 +83,17 @@ public:
 
     const Sphere& result() { return m_volume; }
 
-    bool apply(Qt3DRender::Render::Attribute *positionAttribute)
+    bool apply(Qt3DRender::Render::Attribute *positionAttribute,
+               Qt3DRender::Render::Attribute *indexAttribute,
+               int drawVertexCount,
+               bool primitiveRestartEnabled,
+               int primitiveRestartIndex)
     {
         FindExtremePoints findExtremePoints(m_manager);
-        if (!findExtremePoints.apply(positionAttribute))
+        if (!findExtremePoints.apply(positionAttribute, indexAttribute, drawVertexCount,
+                                     primitiveRestartEnabled, primitiveRestartIndex)) {
             return false;
+        }
 
         // Calculate squared distance for the pairs of points
         const float xDist2 = (findExtremePoints.xMaxPt - findExtremePoints.xMinPt).lengthSquared();
@@ -93,8 +101,8 @@ public:
         const float zDist2 = (findExtremePoints.zMaxPt - findExtremePoints.zMinPt).lengthSquared();
 
         // Select most distant pair
-        QVector3D p = findExtremePoints.xMinPt;
-        QVector3D q = findExtremePoints.xMaxPt;
+        Vector3D p = findExtremePoints.xMinPt;
+        Vector3D q = findExtremePoints.xMaxPt;
         if (yDist2 > xDist2 && yDist2 > zDist2) {
             p = findExtremePoints.yMinPt;
             q = findExtremePoints.yMaxPt;
@@ -104,12 +112,13 @@ public:
             q = findExtremePoints.zMaxPt;
         }
 
-        const QVector3D c = 0.5f * (p + q);
+        const Vector3D c = 0.5f * (p + q);
         m_volume.setCenter(c);
         m_volume.setRadius((q - c).length());
 
         ExpandSphere expandSphere(m_manager, m_volume);
-        if (!expandSphere.apply(positionAttribute))
+        if (!expandSphere.apply(positionAttribute, indexAttribute, drawVertexCount,
+                                primitiveRestartEnabled, primitiveRestartIndex))
             return false;
 
         return true;
@@ -128,40 +137,40 @@ private:
         { }
 
         float xMin, xMax, yMin, yMax, zMin, zMax;
-        QVector3D xMinPt, xMaxPt, yMinPt, yMaxPt, zMinPt, zMaxPt;
+        Vector3D xMinPt, xMaxPt, yMinPt, yMaxPt, zMinPt, zMaxPt;
 
         void visit(uint ndx, float x, float y, float z) override
         {
             if (ndx) {
                 if (x < xMin) {
                     xMin = x;
-                    xMinPt = QVector3D(x, y, z);
+                    xMinPt = Vector3D(x, y, z);
                 }
                 if (x > xMax) {
                     xMax = x;
-                    xMaxPt = QVector3D(x, y, z);
+                    xMaxPt = Vector3D(x, y, z);
                 }
                 if (y < yMin) {
                     yMin = y;
-                    yMinPt = QVector3D(x, y, z);
+                    yMinPt = Vector3D(x, y, z);
                 }
                 if (y > yMax) {
                     yMax = y;
-                    yMaxPt = QVector3D(x, y, z);
+                    yMaxPt = Vector3D(x, y, z);
                 }
                 if (z < zMin) {
                     zMin = z;
-                    zMinPt = QVector3D(x, y, z);
+                    zMinPt = Vector3D(x, y, z);
                 }
                 if (z > zMax) {
                     zMax = z;
-                    zMaxPt = QVector3D(x, y, z);
+                    zMaxPt = Vector3D(x, y, z);
                 }
             } else {
                 xMin = xMax = x;
                 yMin = yMax = y;
                 zMin = zMax = z;
-                xMinPt = xMaxPt = yMinPt = yMaxPt = zMinPt = zMaxPt = QVector3D(x, y, z);
+                xMinPt = xMaxPt = yMinPt = yMaxPt = zMinPt = zMaxPt = Vector3D(x, y, z);
             }
         }
     };
@@ -177,7 +186,7 @@ private:
         void visit(uint ndx, float x, float y, float z) override
         {
             Q_UNUSED(ndx);
-            m_volume.expandToContain(QVector3D(x, y, z));
+            m_volume.expandToContain(Vector3D(x, y, z));
         }
     };
 };
@@ -191,10 +200,12 @@ void calculateLocalBoundingVolume(NodeManagers *manager, Entity *node)
         return;
 
     GeometryRenderer *gRenderer = node->renderComponent<GeometryRenderer>();
-    if (gRenderer) {
+    if (gRenderer && gRenderer->primitiveType() != QGeometryRenderer::Patches) {
         Geometry *geom = manager->lookupResource<Geometry, GeometryManager>(gRenderer->geometryId());
 
         if (geom) {
+            int drawVertexCount = gRenderer->vertexCount(); // may be 0, gets changed below if so
+
             Qt3DRender::Render::Attribute *positionAttribute = manager->lookupResource<Attribute, AttributeManager>(geom->boundingPositionAttribute());
 
             // Use the default position attribute if attribute is null
@@ -212,29 +223,67 @@ void calculateLocalBoundingVolume(NodeManagers *manager, Entity *node)
                     || positionAttribute->attributeType() != QAttribute::VertexAttribute
                     || positionAttribute->vertexBaseType() != QAttribute::Float
                     || positionAttribute->vertexSize() < 3) {
-                qWarning() << "QGeometry::boundingVolumePositionAttribute position Attribute not suited for bounding volume computation";
+                qWarning("calculateLocalBoundingVolume: Position attribute not suited for bounding volume computation");
                 return;
             }
 
             Buffer *buf = manager->lookupResource<Buffer, BufferManager>(positionAttribute->bufferId());
             // No point in continuing if the positionAttribute doesn't have a suitable buffer
             if (!buf) {
-                qWarning() << "ObjectPicker position Attribute not referencing a valid buffer";
+                qWarning("calculateLocalBoundingVolume: Position attribute not referencing a valid buffer");
                 return;
             }
+
+            // Check if there is an index attribute.
+            Qt3DRender::Render::Attribute *indexAttribute = nullptr;
+            Buffer *indexBuf = nullptr;
+            const QVector<Qt3DCore::QNodeId> attributes = geom->attributes();
+
+            for (Qt3DCore::QNodeId attrNodeId : attributes) {
+                Qt3DRender::Render::Attribute *attr = manager->lookupResource<Attribute, AttributeManager>(attrNodeId);
+                if (attr && attr->attributeType() == Qt3DRender::QAttribute::IndexAttribute) {
+                    indexBuf = manager->lookupResource<Buffer, BufferManager>(attr->bufferId());
+                    if (indexBuf) {
+                        indexAttribute = attr;
+
+                        if (!drawVertexCount)
+                            drawVertexCount = indexAttribute->count();
+
+                        const QAttribute::VertexBaseType validIndexTypes[] = {
+                            QAttribute::UnsignedShort,
+                            QAttribute::UnsignedInt,
+                            QAttribute::UnsignedByte
+                        };
+
+                        if (std::find(std::begin(validIndexTypes),
+                                      std::end(validIndexTypes),
+                                      indexAttribute->vertexBaseType()) == std::end(validIndexTypes)) {
+                            qWarning() << "calculateLocalBoundingVolume: Unsupported index attribute type" << indexAttribute->name() << indexAttribute->vertexBaseType();
+                            return;
+                        }
+
+                        break;
+                    }
+                }
+            }
+
+            if (!indexAttribute && !drawVertexCount)
+                drawVertexCount = positionAttribute->count();
 
             // Buf will be set to not dirty once it's loaded
             // in a job executed after this one
             // We need to recompute the bounding volume
             // If anything in the GeometryRenderer has changed
-            if (buf->isDirty() ||
-                    node->isBoundingVolumeDirty() ||
-                    positionAttribute->isDirty() ||
-                    geom->isDirty() ||
-                    gRenderer->isDirty()) {
-
+            if (buf->isDirty()
+                || node->isBoundingVolumeDirty()
+                || positionAttribute->isDirty()
+                || geom->isDirty()
+                || gRenderer->isDirty()
+                || (indexAttribute && indexAttribute->isDirty())
+                || (indexBuf && indexBuf->isDirty())) {
                 BoundingVolumeCalculator reader(manager);
-                if (reader.apply(positionAttribute)) {
+                if (reader.apply(positionAttribute, indexAttribute, drawVertexCount,
+                                 gRenderer->primitiveRestartEnabled(), gRenderer->restartIndexValue())) {
                     node->localBoundingVolume()->setCenter(reader.result().center());
                     node->localBoundingVolume()->setRadius(reader.result().radius());
                     node->unsetBoundingVolumeDirty();
@@ -243,12 +292,15 @@ void calculateLocalBoundingVolume(NodeManagers *manager, Entity *node)
         }
     }
 
+#if QT_CONFIG(concurrent)
     const QVector<Qt3DRender::Render::Entity *> children = node->children();
     if (children.size() > 1) {
         UpdateBoundFunctor functor;
         functor.manager = manager;
         QtConcurrent::blockingMap(children, functor);
-    } else {
+    } else
+#endif
+    {
         const auto children = node->children();
         for (Entity *child : children)
             calculateLocalBoundingVolume(manager, child);

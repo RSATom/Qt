@@ -30,11 +30,13 @@ class GetOperationRequest {
   GetOperationRequest(const std::string& name,
                       version_info::Channel channel,
                       net::URLRequestContextGetter* request_context_getter,
-                      const PrefetchRequestFinishedCallback& callback);
+                      PrefetchRequestFinishedCallback callback);
   ~GetOperationRequest();
 
  private:
-  void OnCompleted(PrefetchRequestStatus status, const std::string& data);
+  void OnCompleted(const std::string& operation_name,
+                   PrefetchRequestStatus status,
+                   const std::string& data);
 
   PrefetchRequestFinishedCallback callback_;
   std::unique_ptr<PrefetchRequestFetcher> fetcher_;

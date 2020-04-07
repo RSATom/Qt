@@ -24,10 +24,15 @@ namespace printing {
 
 struct PdfMetafileSkiaData;
 
-// This class uses Skia graphics library to generate a PDF document.
+// This class uses Skia graphics library to generate a PDF or MSKP document.
+// TODO(thestig): Rename to MetafileSkia.
 class PRINTING_EXPORT PdfMetafileSkia : public Metafile {
  public:
-  explicit PdfMetafileSkia(SkiaDocumentType type);
+  // Default constructor, for SkiaDocumentType::PDF type only.
+  // TODO(weili): we should split up this use case into a different class, see
+  //              comments before InitFromData()'s implementation.
+  PdfMetafileSkia();
+  PdfMetafileSkia(SkiaDocumentType type, int document_cookie);
   ~PdfMetafileSkia() override;
 
   // Metafile methods.
@@ -46,20 +51,25 @@ class PRINTING_EXPORT PdfMetafileSkia : public Metafile {
   gfx::Rect GetPageBounds(unsigned int page_number) const override;
   unsigned int GetPageCount() const override;
 
-  skia::NativeDrawingContext context() const override;
+  printing::NativeDrawingContext context() const override;
 
 #if defined(OS_WIN)
-  bool Playback(skia::NativeDrawingContext hdc,
+  bool Playback(printing::NativeDrawingContext hdc,
                 const RECT* rect) const override;
-  bool SafePlayback(skia::NativeDrawingContext hdc) const override;
+  bool SafePlayback(printing::NativeDrawingContext hdc) const override;
 #elif defined(OS_MACOSX)
   bool RenderPage(unsigned int page_number,
-                  skia::NativeDrawingContext context,
+                  printing::NativeDrawingContext context,
                   const CGRect rect,
                   const MacRenderPageParams& params) const override;
 #endif
 
   bool SaveTo(base::File* file) const override;
+
+  // Unlike FinishPage() or FinishDocument(), this is for out-of-process
+  // subframe printing. It will just serialize the content into SkPicture
+  // format and store it as final data.
+  void FinishFrameContent();
 
   // Return a new metafile containing just the current page in draft mode.
   std::unique_ptr<PdfMetafileSkia> GetMetafileForCurrentPage(
@@ -75,7 +85,21 @@ class PRINTING_EXPORT PdfMetafileSkia : public Metafile {
                                              const gfx::Rect& content_area,
                                              const float& scale_factor);
 
+  // This is used for painting content of out-of-process subframes.
+  // For such a subframe, since the content is in another process, we create a
+  // place holder picture now, and replace it with actual content by pdf
+  // compositor service later.
+  uint32_t CreateContentForRemoteFrame(const gfx::Rect& rect,
+                                       int render_proxy_id);
+
+  int GetDocumentCookie() const;
+  const ContentToProxyIdMap& GetSubframeContentInfo() const;
+
  private:
+  // Callback function used during page content drawing to replace a custom
+  // data holder with corresponding place holder SkPicture.
+  void CustomDataToSkPictureCallback(SkCanvas* canvas, uint32_t content_id);
+
   std::unique_ptr<PdfMetafileSkiaData> data_;
 
   DISALLOW_COPY_AND_ASSIGN(PdfMetafileSkia);

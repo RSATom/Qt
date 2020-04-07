@@ -29,8 +29,8 @@
 #ifndef LINEEDIT_TASKMENU_H
 #define LINEEDIT_TASKMENU_H
 
-#include <QtWidgets/QLineEdit>
-#include <QtCore/QPointer>
+#include <QtWidgets/qlineedit.h>
+#include <QtCore/qpointer.h>
 
 #include <qdesigner_taskmenu_p.h>
 #include <extensionfactory_p.h>
@@ -45,8 +45,8 @@ class LineEditTaskMenu: public QDesignerTaskMenu
 public:
     explicit LineEditTaskMenu(QLineEdit *button, QObject *parent = 0);
 
-    QAction *preferredEditAction() const Q_DECL_OVERRIDE;
-    QList<QAction*> taskActions() const Q_DECL_OVERRIDE;
+    QAction *preferredEditAction() const override;
+    QList<QAction*> taskActions() const override;
 
 private:
     QList<QAction*> m_taskActions;

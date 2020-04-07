@@ -4,8 +4,7 @@
 
 #include "ui/base/idle/idle.h"
 
-
-#if defined(USE_X11) && defined(USE_XSCRNSAVER)
+#if defined(USE_XSCRNSAVER)
 #include "ui/base/idle/idle_query_x11.h"
 #include "ui/base/idle/screensaver_window_finder_x11.h"
 #endif
@@ -13,14 +12,14 @@
 namespace ui {
 
 void CalculateIdleTime(IdleTimeCallback notify) {
-#if defined(USE_X11) && defined(USE_XSCRNSAVER)
+#if defined(USE_XSCRNSAVER)
   IdleQueryX11 idle_query;
   notify.Run(idle_query.IdleTime());
 #endif
 }
 
 bool CheckIdleStateIsLocked() {
-#if defined(USE_X11) && defined(USE_XSCRNSAVER)
+#if defined(USE_XSCRNSAVER)
   // Usually the screensaver is used to lock the screen.
   return ScreensaverWindowFinder::ScreensaverWindowExists();
 #else

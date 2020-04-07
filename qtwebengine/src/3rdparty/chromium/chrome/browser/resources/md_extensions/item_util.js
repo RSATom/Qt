@@ -4,11 +4,12 @@
 
 // Closure compiler won't let this be declared inside cr.define().
 /** @enum {string} */
-var SourceType = {
+const SourceType = {
   WEBSTORE: 'webstore',
   POLICY: 'policy',
   SIDELOADED: 'sideloaded',
   UNPACKED: 'unpacked',
+  UNKNOWN: 'unknown',
 };
 
 cr.define('extensions', function() {
@@ -23,10 +24,19 @@ cr.define('extensions', function() {
       case chrome.developerPrivate.ExtensionState.ENABLED:
       case chrome.developerPrivate.ExtensionState.TERMINATED:
         return true;
+      case chrome.developerPrivate.ExtensionState.BLACKLISTED:
       case chrome.developerPrivate.ExtensionState.DISABLED:
         return false;
     }
     assertNotReached();
+  }
+
+  /**
+   * @param {!chrome.developerPrivate.ExtensionInfo} extensionInfo
+   * @return {boolean} Whether the extension is controlled.
+   */
+  function isControlled(extensionInfo) {
+    return !!extensionInfo.controlledInfo;
   }
 
   /**
@@ -66,11 +76,19 @@ cr.define('extensions', function() {
             chrome.developerPrivate.ControllerType.POLICY) {
       return SourceType.POLICY;
     }
-    if (item.location == chrome.developerPrivate.Location.THIRD_PARTY)
-      return SourceType.SIDELOADED;
-    if (item.location == chrome.developerPrivate.Location.UNPACKED)
-      return SourceType.UNPACKED;
-    return SourceType.WEBSTORE;
+
+    switch (item.location) {
+      case chrome.developerPrivate.Location.THIRD_PARTY:
+        return SourceType.SIDELOADED;
+      case chrome.developerPrivate.Location.UNPACKED:
+        return SourceType.UNPACKED;
+      case chrome.developerPrivate.Location.UNKNOWN:
+        return SourceType.UNKNOWN;
+      case chrome.developerPrivate.Location.FROM_STORE:
+        return SourceType.WEBSTORE;
+    }
+
+    assertNotReached(item.location);
   }
 
   /**
@@ -87,6 +105,10 @@ cr.define('extensions', function() {
         return loadTimeData.getString('itemSourceUnpacked');
       case SourceType.WEBSTORE:
         return loadTimeData.getString('itemSourceWebstore');
+      case SourceType.UNKNOWN:
+        // Nothing to return. Calling code should use
+        // chrome.developerPrivate.ExtensionInfo's |locationText| instead.
+        return '';
     }
     assertNotReached();
   }
@@ -98,8 +120,8 @@ cr.define('extensions', function() {
    */
   function computeInspectableViewLabel(view) {
     // Trim the "chrome-extension://<id>/".
-    var url = new URL(view.url);
-    var label = view.url;
+    const url = new URL(view.url);
+    let label = view.url;
     if (url.protocol == 'chrome-extension:')
       label = url.pathname.substring(1);
     if (label == '_generated_background_page.html')
@@ -116,6 +138,7 @@ cr.define('extensions', function() {
   }
 
   return {
+    isControlled: isControlled,
     isEnabled: isEnabled,
     userCanChangeEnablement: userCanChangeEnablement,
     getItemSource: getItemSource,

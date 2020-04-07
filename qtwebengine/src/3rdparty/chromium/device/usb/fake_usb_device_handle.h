@@ -29,16 +29,14 @@ class FakeUsbDeviceHandle : public UsbDeviceHandle {
   scoped_refptr<UsbDevice> GetDevice() const override;
   void Close() override;
   void SetConfiguration(int configuration_value,
-                        const ResultCallback& callback) override;
-  void ClaimInterface(int interface_number,
-                      const ResultCallback& callback) override;
-  void ReleaseInterface(int interface_number,
-                        const ResultCallback& callback) override;
+                        ResultCallback callback) override;
+  void ClaimInterface(int interface_number, ResultCallback callback) override;
+  void ReleaseInterface(int interface_number, ResultCallback callback) override;
   void SetInterfaceAlternateSetting(int interface_number,
                                     int alternate_setting,
-                                    const ResultCallback& callback) override;
-  void ResetDevice(const ResultCallback& callback) override;
-  void ClearHalt(uint8_t endpoint, const ResultCallback& callback) override;
+                                    ResultCallback callback) override;
+  void ResetDevice(ResultCallback callback) override;
+  void ClearHalt(uint8_t endpoint, ResultCallback callback) override;
 
   void ControlTransfer(UsbTransferDirection direction,
                        UsbControlTransferType request_type,
@@ -46,30 +44,26 @@ class FakeUsbDeviceHandle : public UsbDeviceHandle {
                        uint8_t request,
                        uint16_t value,
                        uint16_t index,
-                       scoped_refptr<net::IOBuffer> buffer,
-                       size_t length,
+                       scoped_refptr<base::RefCountedBytes> buffer,
                        unsigned int timeout,
-                       const TransferCallback& callback) override;
+                       TransferCallback callback) override;
 
-  void IsochronousTransferIn(
-      uint8_t endpoint,
-      const std::vector<uint32_t>& packet_lengths,
-      unsigned int timeout,
-      const IsochronousTransferCallback& callback) override;
+  void IsochronousTransferIn(uint8_t endpoint,
+                             const std::vector<uint32_t>& packet_lengths,
+                             unsigned int timeout,
+                             IsochronousTransferCallback callback) override;
 
-  void IsochronousTransferOut(
-      uint8_t endpoint,
-      scoped_refptr<net::IOBuffer> buffer,
-      const std::vector<uint32_t>& packet_lengths,
-      unsigned int timeout,
-      const IsochronousTransferCallback& callback) override;
+  void IsochronousTransferOut(uint8_t endpoint,
+                              scoped_refptr<base::RefCountedBytes> buffer,
+                              const std::vector<uint32_t>& packet_lengths,
+                              unsigned int timeout,
+                              IsochronousTransferCallback callback) override;
 
   void GenericTransfer(UsbTransferDirection direction,
                        uint8_t endpoint_number,
-                       scoped_refptr<net::IOBuffer> buffer,
-                       size_t length,
+                       scoped_refptr<base::RefCountedBytes> buffer,
                        unsigned int timeout,
-                       const TransferCallback& callback) override;
+                       TransferCallback callback) override;
   const UsbInterfaceDescriptor* FindInterfaceByEndpoint(
       uint8_t endpoint_address) override;
 

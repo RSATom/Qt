@@ -53,7 +53,7 @@ ResolverThread::ResolverThread()
       rv_(ERR_UNEXPECTED),
       weak_factory_(this) {}
 
-ResolverThread::~ResolverThread() {}
+ResolverThread::~ResolverThread() = default;
 
 void ResolverThread::Run() {
   base::MessageLoopForIO loop;
@@ -91,7 +91,7 @@ int ResolverThread::Resolve(const std::string& host, AddressList* addresses) {
 void ResolverThread::OnResolutionComplete(int rv) {
   rv_ = rv;
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::MessageLoop::QuitWhenIdleClosure());
+      FROM_HERE, base::RunLoop::QuitCurrentWhenIdleClosureDeprecated());
 }
 
 }  // namespace

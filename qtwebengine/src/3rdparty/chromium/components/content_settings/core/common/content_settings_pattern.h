@@ -60,8 +60,10 @@ class ContentSettingsPattern {
   };
 
   // This enum is used to back an UMA histogram, the order of existing values
-  // should not be changed. New values should only append before SCHEME_MAX.
-  // Also keep it consistent with kSchemeNames in content_settings_pattern.cc.
+  // should not be changed.
+  // New values should only be appended before SCHEME_MAX.
+  // Also keep it consistent with kSchemeNames in content_settings_pattern.cc,
+  // and the ContentSettingScheme enum in histograms/enums.xml.
   enum SchemeType {
     SCHEME_WILDCARD,
     SCHEME_OTHER,
@@ -69,6 +71,7 @@ class ContentSettingsPattern {
     SCHEME_HTTPS,
     SCHEME_FILE,
     SCHEME_CHROMEEXTENSION,
+    SCHEME_CHROMESEARCH,
     SCHEME_MAX,
   };
 
@@ -88,7 +91,7 @@ class ContentSettingsPattern {
     // - IPv4 or IPv6
     // - hostname
     // - domain
-    // - empty string if the |is_host_wildcard flag is set.
+    // - empty string if the |is_host_wildcard| flag is set.
     std::string host;
 
     // True if the domain wildcard is set.
@@ -148,7 +151,6 @@ class ContentSettingsPattern {
 
   // Returns a pattern that matches the scheme and host of this URL, as well as
   // all subdomains and ports.
-  // TODO(lshang): Remove this when crbug.com/604612 is done.
   static ContentSettingsPattern FromURL(const GURL& url);
 
   // Returns a pattern that matches exactly this URL.
@@ -165,20 +167,18 @@ class ContentSettingsPattern {
   //   - [a:b:c:d:e:f:g:h] (matches an exact IPv6 ip)
   static ContentSettingsPattern FromString(const std::string& pattern_spec);
 
-  // Migrate domain scoped settings generated using FromURL() to be origin
-  // scoped. Return false if domain_pattern is not generated using FromURL().
-  // TODO(lshang): Remove this when migration is done. https://crbug.com/604612
-  static bool MigrateFromDomainToOrigin(
-      const ContentSettingsPattern& domain_pattern,
-      ContentSettingsPattern* origin_pattern);
-
-  // Sets the scheme that doesn't support domain wildcard and port.
+  // Sets schemes that do not support domain wildcards and ports.
   // Needs to be called by the embedder before using ContentSettingsPattern.
-  // |scheme| can't be NULL, and the pointed string must remain alive until the
-  // app terminates.
-  static void SetNonWildcardDomainNonPortScheme(const char* scheme);
+  // |schemes| can't be NULL, and the pointed to strings must remain alive
+  // until the app terminates.
+  // The method should only be called once. If called again, the parameters
+  // must have values equal to the parameter values of the first call.
+  // The |count| parameter represents the number of strings that
+  // |schemes| points to.
+  static void SetNonWildcardDomainNonPortSchemes(const char* const* schemes,
+                                                 size_t count);
 
-  // Compares |scheme| against the scheme set by the embedder.
+  // Compares |scheme| against the schemes set by the embedder.
   static bool IsNonWildcardDomainNonPortScheme(const std::string& scheme);
 
   // Constructs an empty pattern. Empty patterns are invalid patterns. Invalid
@@ -199,6 +199,9 @@ class ContentSettingsPattern {
 
   // Returns scheme type of pattern.
   ContentSettingsPattern::SchemeType GetScheme() const;
+
+  // Returns the host of a pattern.
+  const std::string& GetHost() const;
 
   // True if this pattern has a non-empty path.  Can only be used for patterns
   // with file: schemes.

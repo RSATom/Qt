@@ -7,11 +7,9 @@ INCLUDEPATH += ../3rdparty/clipper
 INCLUDEPATH += ../3rdparty/clip2tri
 
 QMAKE_DOCS = $$PWD/doc/qtpositioning.qdocconf
-OTHER_FILES += doc/src/*.qdoc   # show .qdoc files in Qt Creator
+OTHER_FILES += configure.json doc/src/*.qdoc   # show .qdoc files in Qt Creator
 
 ANDROID_BUNDLED_JAR_DEPENDENCIES = \
-    jar/QtPositioning-bundled.jar:org.qtproject.qt5.android.positioning.QtPositioning
-ANDROID_JAR_DEPENDENCIES = \
     jar/QtPositioning.jar:org.qtproject.qt5.android.positioning.QtPositioning
 ANDROID_PERMISSIONS = \
     android.permission.ACCESS_FINE_LOCATION
@@ -60,6 +58,7 @@ PRIVATE_HEADERS += \
                     qlocationdata_simulator_p.h \
                     qdoublematrix4x4_p.h \
                     qgeopath_p.h \
+                    qgeocoordinateobject_p.h \
                     qgeopositioninfo_p.h \
                     qclipperutils_p.h
 
@@ -88,7 +87,8 @@ SOURCES += \
             qlocationdata_simulator.cpp \
             qwebmercator.cpp \
             qdoublematrix4x4.cpp \
-            qclipperutils.cpp
+            qclipperutils.cpp \
+            qgeocoordinateobject.cpp
 
 HEADERS += $$PUBLIC_HEADERS $$PRIVATE_HEADERS
 

@@ -42,18 +42,18 @@ class CFWL_ListBox : public CFWL_Widget {
   FWL_Type GetClassID() const override;
   void Update() override;
   FWL_WidgetHit HitTest(const CFX_PointF& point) override;
-  void DrawWidget(CXFA_Graphics* pGraphics, const CFX_Matrix* pMatrix) override;
+  void DrawWidget(CXFA_Graphics* pGraphics, const CFX_Matrix& matrix) override;
   void SetThemeProvider(IFWL_ThemeProvider* pThemeProvider) override;
   void OnProcessMessage(CFWL_Message* pMessage) override;
   void OnProcessEvent(CFWL_Event* pEvent) override;
   void OnDrawWidget(CXFA_Graphics* pGraphics,
-                    const CFX_Matrix* pMatrix) override;
+                    const CFX_Matrix& matrix) override;
 
   int32_t CountItems(const CFWL_Widget* pWidget) const;
   CFWL_ListItem* GetItem(const CFWL_Widget* pWidget, int32_t nIndex) const;
   int32_t GetItemIndex(CFWL_Widget* pWidget, CFWL_ListItem* pItem);
 
-  CFWL_ListItem* AddString(const CFX_WideStringC& wsAdd);
+  CFWL_ListItem* AddString(const WideStringView& wsAdd);
   void RemoveAt(int32_t iIndex);
   void DeleteString(CFWL_ListItem* pItem);
   void DeleteAll();
@@ -122,8 +122,8 @@ class CFWL_ListBox : public CFWL_Widget {
   CFX_RectF m_rtConent;
   std::unique_ptr<CFWL_ScrollBar> m_pHorzScrollBar;
   std::unique_ptr<CFWL_ScrollBar> m_pVertScrollBar;
-  uint32_t m_dwTTOStyles;
-  int32_t m_iTTOAligns;
+  FDE_TextStyle m_dwTTOStyles;
+  FDE_TextAlignment m_iTTOAligns;
   CFWL_ListItem* m_hAnchor;
   float m_fItemHeight;
   float m_fScorllBarWidth;

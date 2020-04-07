@@ -40,11 +40,13 @@
 #include <QtGui/QScreen>
 #include <QtWaylandCompositor/QWaylandXdgShellV5>
 #include <QtWaylandCompositor/private/qwaylandxdgshellv6_p.h>
+#include <QtWaylandCompositor/private/qwaylandkeyboard_p.h>
 #include <QtWaylandCompositor/QWaylandIviApplication>
 #include <QtWaylandCompositor/QWaylandIviSurface>
 #include <QtWaylandCompositor/QWaylandSurface>
 #include <QtWaylandCompositor/QWaylandResource>
-#include <qwayland-xdg-shell.h>
+#include <QtWaylandCompositor/QWaylandKeymap>
+#include <qwayland-xdg-shell-unstable-v5.h>
 #include <qwayland-ivi-application.h>
 
 #include <QtTest/QtTest>
@@ -56,17 +58,27 @@ class tst_WaylandCompositor : public QObject
 private slots:
     void init();
     void seatCapabilities();
+#if QT_CONFIG(xkbcommon)
+    void simpleKeyboard();
+    void keyboardKeymaps();
+    void keyboardLayoutSwitching();
+#endif
     void keyboardGrab();
     void seatCreation();
     void seatKeyboardFocus();
     void seatMouseFocus();
+    void inputRegion();
     void singleClient();
     void multipleClients();
     void geometry();
     void modes();
+    void comparingModes();
     void sizeFollowsWindow();
     void mapSurface();
+    void mapSurfaceHiDpi();
     void frameCallback();
+    void removeOutput();
+    void customSurface();
 
     void advertisesXdgShellSupport();
     void createsXdgSurfaces();
@@ -105,7 +117,7 @@ void tst_WaylandCompositor::singleClient()
     QWaylandClient *cb = compositor.surfaces.at(1)->client();
 
     QCOMPARE(ca, cb);
-    QVERIFY(ca != 0);
+    QVERIFY(ca != nullptr);
 
     QList<QWaylandSurface *> surfaces = compositor.surfacesForClient(ca);
     QCOMPARE(surfaces.size(), 2);
@@ -141,7 +153,7 @@ void tst_WaylandCompositor::multipleClients()
     QVERIFY(ca != cb);
     QVERIFY(ca != cc);
     QVERIFY(cb != cc);
-    QVERIFY(ca != 0);
+    QVERIFY(ca != nullptr);
 
     QCOMPARE(compositor.surfacesForClient(ca).size(), 1);
     QCOMPARE(compositor.surfacesForClient(ca).at(0), compositor.surfaces.at(0));
@@ -158,6 +170,121 @@ void tst_WaylandCompositor::multipleClients()
 
     QTRY_COMPARE(compositor.surfaces.size(), 0);
 }
+
+#if QT_CONFIG(xkbcommon)
+
+void tst_WaylandCompositor::simpleKeyboard()
+{
+    TestCompositor compositor;
+    compositor.create();
+
+    QWaylandSeat* seat = compositor.defaultSeat();
+    seat->keymap()->setLayout("us");
+
+    MockClient client;
+
+    QTRY_COMPARE(client.m_seats.size(), 1);
+    MockKeyboard *mockKeyboard = client.m_seats.at(0)->keyboard();
+
+    wl_surface *mockSurface = client.createSurface();
+    QTRY_COMPARE(compositor.surfaces.size(), 1);
+    seat->setKeyboardFocus(compositor.surfaces.at(0));
+
+    compositor.flushClients();
+    QTRY_COMPARE(mockKeyboard->m_enteredSurface, mockSurface);
+
+    seat->sendKeyEvent(Qt::Key_A, true);
+    compositor.flushClients();
+    QTRY_COMPARE(mockKeyboard->m_lastKeyState, 1u);
+    QTRY_COMPARE(mockKeyboard->m_lastKeyCode, 30u); // 30 is the scan code for A on us keyboard layouts
+
+    seat->sendKeyEvent(Qt::Key_A, false);
+    compositor.flushClients();
+    QTRY_COMPARE(mockKeyboard->m_lastKeyState, 0u);
+    QTRY_COMPARE(mockKeyboard->m_lastKeyCode, 30u);
+
+    seat->sendKeyEvent(Qt::Key_Super_L, true);
+    seat->sendKeyEvent(Qt::Key_Super_L, false);
+    compositor.flushClients();
+    QTRY_COMPARE(mockKeyboard->m_lastKeyCode, 125u);
+}
+
+void tst_WaylandCompositor::keyboardKeymaps()
+{
+    TestCompositor compositor;
+    compositor.create();
+    QWaylandSeat* seat = compositor.defaultSeat();
+    MockClient client;
+    QTRY_COMPARE(client.m_seats.size(), 1);
+    MockKeyboard *mockKeyboard = client.m_seats.at(0)->keyboard();
+    client.createSurface();
+    QTRY_COMPARE(compositor.surfaces.size(), 1);
+    seat->setKeyboardFocus(compositor.surfaces.at(0));
+
+    seat->keymap()->setLayout("us");
+
+    seat->sendKeyEvent(Qt::Key_Y, true);
+    seat->sendKeyEvent(Qt::Key_Y, false);
+    compositor.flushClients();
+    QTRY_COMPARE(mockKeyboard->m_lastKeyCode, 21u);
+
+    seat->sendKeyEvent(Qt::Key_Z, true);
+    seat->sendKeyEvent(Qt::Key_Z, false);
+    compositor.flushClients();
+    QTRY_COMPARE(mockKeyboard->m_lastKeyCode, 44u);
+
+    seat->keymap()->setLayout("de"); // In the German layout y and z have changed places
+
+    seat->sendKeyEvent(Qt::Key_Y, true);
+    seat->sendKeyEvent(Qt::Key_Y, false);
+    compositor.flushClients();
+    QTRY_COMPARE(mockKeyboard->m_lastKeyCode, 44u);
+
+    seat->sendKeyEvent(Qt::Key_Z, true);
+    seat->sendKeyEvent(Qt::Key_Z, false);
+    compositor.flushClients();
+    QTRY_COMPARE(mockKeyboard->m_lastKeyCode, 21u);
+}
+
+void tst_WaylandCompositor::keyboardLayoutSwitching()
+{
+    TestCompositor compositor;
+    compositor.create();
+    QWaylandSeat* seat = compositor.defaultSeat();
+    MockClient client;
+    QTRY_COMPARE(client.m_seats.size(), 1);
+    MockKeyboard *mockKeyboard = client.m_seats.at(0)->keyboard();
+    client.createSurface();
+    QTRY_COMPARE(compositor.surfaces.size(), 1);
+    seat->setKeyboardFocus(compositor.surfaces.at(0));
+
+    seat->keymap()->setLayout("us,de");
+    seat->keymap()->setOptions("grp:lalt_toggle"); //toggle keyboard layout with left alt
+
+    compositor.flushClients();
+    QTRY_COMPARE(mockKeyboard->m_group, 0u);
+
+    seat->sendKeyEvent(Qt::Key_Y, true);
+    seat->sendKeyEvent(Qt::Key_Y, false);
+    compositor.flushClients();
+    QTRY_COMPARE(mockKeyboard->m_lastKeyCode, 21u);
+
+    // It's not currently possible to switch layouts programmatically with the public APIs
+    // We will just fake it with the private APIs here.
+    auto keyboardPrivate = QWaylandKeyboardPrivate::get(seat->keyboard());
+    const uint leftAltCode = 64;
+    keyboardPrivate->updateModifierState(leftAltCode, WL_KEYBOARD_KEY_STATE_PRESSED);
+    keyboardPrivate->updateModifierState(leftAltCode, WL_KEYBOARD_KEY_STATE_RELEASED);
+    compositor.flushClients();
+    QTRY_COMPARE(mockKeyboard->m_group, 1u);
+
+    seat->sendKeyEvent(Qt::Key_Y, true);
+    seat->sendKeyEvent(Qt::Key_Y, false);
+    compositor.flushClients();
+    QTRY_COMPARE(mockKeyboard->m_lastKeyCode, 44u);
+}
+
+#endif // QT_CONFIG(xkbcommon)
 
 void tst_WaylandCompositor::keyboardGrab()
 {
@@ -201,7 +328,7 @@ void tst_WaylandCompositor::keyboardGrab()
     QTRY_COMPARE(grabKeyReleaseSpy.count(), 2);
 
     // Stop grabbing
-    seat->setKeyboardFocus(Q_NULLPTR);
+    seat->setKeyboardFocus(nullptr);
     seat->sendFullKeyEvent(&ke);
     seat->sendFullKeyEvent(&ke1);
     QTRY_COMPARE(grabKeyPressSpy.count(), 2);
@@ -248,6 +375,28 @@ void tst_WaylandCompositor::modes()
     QTRY_COMPARE(client.geometry, QRect(QPoint(0, 0), QSize(1920, 1080)));
 }
 
+void tst_WaylandCompositor::comparingModes()
+{
+    QWaylandOutputMode mode1(QSize(800, 600), 120000);
+    QWaylandOutputMode mode2(QSize(1024, 768), 100000);
+    QWaylandOutputMode mode3(QSize(1024, 768), 120000);
+    QWaylandOutputMode mode4(QSize(800, 600), 100000);
+
+    QCOMPARE(mode1, mode1);
+    QCOMPARE(mode2, mode2);
+    QCOMPARE(mode3, mode3);
+    QCOMPARE(mode4, mode4);
+
+    for (auto mode: {mode2, mode3, mode4})
+       QVERIFY(mode1 != mode);
+    for (auto mode: {mode1, mode3, mode4})
+       QVERIFY(mode2 != mode);
+    for (auto mode: {mode1, mode2, mode4})
+       QVERIFY(mode3 != mode);
+    for (auto mode: {mode1, mode2, mode3})
+       QVERIFY(mode4 != mode);
+}
+
 void tst_WaylandCompositor::sizeFollowsWindow()
 {
     TestCompositor compositor;
@@ -260,7 +409,9 @@ void tst_WaylandCompositor::sizeFollowsWindow()
 
     compositor.create();
 
-    QWaylandOutputMode mode(window.size(), qFloor(window.screen()->refreshRate() * 1000));
+    // window.size() is not in pixels
+    auto pixelSize = window.size() * window.devicePixelRatio();
+    QWaylandOutputMode mode(pixelSize, qFloor(window.screen()->refreshRate() * 1000));
 
     MockClient client;
 
@@ -295,9 +446,78 @@ void tst_WaylandCompositor::mapSurface()
     wl_surface_damage(surface, 0, 0, size.width(), size.height());
     wl_surface_commit(surface);
 
-    QTRY_COMPARE(waylandSurface->size(), size);
-    QTRY_COMPARE(waylandSurface->hasContent(), true);
     QTRY_COMPARE(hasContentSpy.count(), 1);
+    QCOMPARE(waylandSurface->hasContent(), true);
+    QCOMPARE(waylandSurface->size(), size);
+
+    wl_surface_destroy(surface);
+}
+
+void tst_WaylandCompositor::mapSurfaceHiDpi()
+{
+    TestCompositor compositor;
+    compositor.create();
+
+    MockClient client;
+
+    wl_surface *surface = client.createSurface();
+    QTRY_COMPARE(compositor.surfaces.size(), 1);
+
+    QWaylandSurface *waylandSurface = compositor.surfaces.at(0);
+
+    constexpr int bufferScale = 2;
+    const QSize surfaceSize(128, 128);
+    const QSize bufferSize = surfaceSize * bufferScale;
+    const QPoint attachOffset(1, 2); // in surface-local coordinates
+
+    client.createShellSurface(surface);
+    ShmBuffer buffer(bufferSize, client.shm);
+    wl_surface_attach(surface, buffer.handle, attachOffset.x(), attachOffset.y());
+    wl_surface_set_buffer_scale(surface, bufferScale);
+    // wl_surface_damage is given in surface coordinates
+    wl_surface_damage(surface, 0, 0, surfaceSize.width(), surfaceSize.height());
+
+    auto verifyComittedState = [=]() {
+        QCOMPARE(waylandSurface->size(), bufferSize);
+        QCOMPARE(waylandSurface->bufferScale(), bufferScale);
+        QCOMPARE(waylandSurface->hasContent(), true);
+    };
+
+    QObject::connect(waylandSurface, &QWaylandSurface::damaged, [=] (const QRegion &damage) {
+        // Currently, QWaylandSurface::size returns the size in pixels.
+        // Should be fixed or removed for Qt 6.
+        QCOMPARE(damage, QRect(QPoint(), surfaceSize));
+        verifyComittedState();
+    });
+    QSignalSpy damagedSpy(waylandSurface, SIGNAL(damaged(const QRegion &)));
+
+    QObject::connect(waylandSurface, &QWaylandSurface::hasContentChanged, verifyComittedState);
+    QSignalSpy hasContentSpy(waylandSurface, SIGNAL(hasContentChanged()));
+
+    QObject::connect(waylandSurface, &QWaylandSurface::sizeChanged, verifyComittedState);
+    QSignalSpy sizeSpy(waylandSurface, SIGNAL(sizeChanged()));
+
+    QObject::connect(waylandSurface, &QWaylandSurface::bufferScaleChanged, verifyComittedState);
+    QSignalSpy bufferScaleSpy(waylandSurface, SIGNAL(bufferScaleChanged()));
+
+    QObject::connect(waylandSurface, &QWaylandSurface::offsetForNextFrame, [=](const QPoint &offset) {
+        QCOMPARE(offset, attachOffset);
+        verifyComittedState();
+    });
+    QSignalSpy offsetSpy(waylandSurface, SIGNAL(offsetForNextFrame(const QPoint &)));
+
+    // No state should be applied before the commit
+    QCOMPARE(waylandSurface->size(), QSize());
+    QCOMPARE(waylandSurface->hasContent(), false);
+    QCOMPARE(waylandSurface->bufferScale(), 1);
+    QCOMPARE(offsetSpy.count(), 0);
+
+    wl_surface_commit(surface);
+
+    QTRY_COMPARE(hasContentSpy.count(), 1);
+    QTRY_COMPARE(sizeSpy.count(), 1);
+    QTRY_COMPARE(bufferScaleSpy.count(), 1);
+    QTRY_COMPARE(offsetSpy.count(), 1);
 
     wl_surface_destroy(surface);
 }
@@ -378,6 +598,48 @@ void tst_WaylandCompositor::frameCallback()
     wl_surface_destroy(surface);
 }
 
+void tst_WaylandCompositor::removeOutput()
+{
+    TestCompositor compositor;
+    QWindow window;
+    window.resize(800, 600);
+    auto output = new QWaylandOutput(&compositor, &window);
+
+    compositor.create();
+    MockClient client;
+    QTRY_COMPARE(client.m_outputs.size(), 2);
+
+    delete output;
+    compositor.flushClients();
+    QTRY_COMPARE(client.m_outputs.size(), 1);
+}
+
+class CustomSurface : public QWaylandSurface {
+    Q_OBJECT
+public:
+    explicit CustomSurface() = default;
+};
+
+void tst_WaylandCompositor::customSurface()
+{
+    TestCompositor compositor;
+    QObject::connect(&compositor, &TestCompositor::surfaceRequested, this, [&compositor] (QWaylandClient *client, uint id, int version) {
+        auto *s = new CustomSurface();
+        QCOMPARE(s->waylandClient(), nullptr);
+        s->initialize(&compositor, client, id, version);
+        QCOMPARE(s->waylandClient(), client->client());
+    });
+    QObject::connect(&compositor, &TestCompositor::surfaceCreated, this, [] (QWaylandSurface *surface) {
+        auto *custom = qobject_cast<CustomSurface *>(surface);
+        QVERIFY(custom != nullptr);
+    });
+    compositor.create();
+
+    MockClient client;
+    wl_surface *surface = client.createSurface();
+    QTRY_COMPARE(compositor.surfaces.size(), 1);
+}
+
 void tst_WaylandCompositor::seatCapabilities()
 {
     TestCompositor compositor;
@@ -431,13 +693,24 @@ void tst_WaylandCompositor::seatKeyboardFocus()
     // Create client after all the input devices have been set up as the mock client
     // does not dynamically listen to new seats
     MockClient client;
+
+    QTRY_COMPARE(client.m_seats.size(), 1);
+    MockKeyboard *mockKeyboard = client.m_seats.first()->keyboard();
+    QVERIFY(mockKeyboard);
+    QCOMPARE(mockKeyboard->m_enteredSurface, nullptr);
+
     wl_surface *surface = client.createSurface();
     QTRY_COMPARE(compositor.surfaces.size(), 1);
 
     QWaylandSurface *waylandSurface = compositor.surfaces.at(0);
-    QWaylandSeat* dev = compositor.defaultSeat();
-    dev->setKeyboardFocus(waylandSurface);
-    QTRY_COMPARE(compositor.defaultSeat()->keyboardFocus(), waylandSurface);
+    QWaylandSeat* seat = compositor.defaultSeat();
+    QVERIFY(seat->setKeyboardFocus(waylandSurface));
+    QCOMPARE(compositor.defaultSeat()->keyboardFocus(), waylandSurface);
+
+    compositor.flushClients();
+
+    qDebug() << mockKeyboard->m_enteredSurface;
+    QTRY_COMPARE(mockKeyboard->m_enteredSurface, surface);
 
     wl_surface_destroy(surface);
     QTRY_VERIFY(compositor.surfaces.size() == 0);
@@ -496,6 +769,61 @@ void tst_WaylandCompositor::seatMouseFocus()
     QTRY_VERIFY(!compositor.defaultSeat()->mouseFocus());
 
     delete view;
+}
+
+void tst_WaylandCompositor::inputRegion()
+{
+    TestCompositor compositor(true);
+    compositor.create();
+
+    // Create client after all the seats have been set up as the mock client
+    // does not dynamically listen to new seats
+    MockClient client;
+    wl_surface *surface = client.createSurface();
+
+    // We need to attach a buffer, since QWaylandSurface::inputRegionContains will will return
+    // false for coordinates outside the buffer (so don't let it be 0x0).
+    QSize size(16, 16);
+    ShmBuffer buffer(size, client.shm);
+    wl_surface_attach(surface, buffer.handle, 0, 0);
+    wl_surface_damage(surface, 0, 0, size.width(), size.height());
+
+    // Set the input region
+    wl_region *region = wl_compositor_create_region(client.compositor);
+    wl_region_add(region, 1, 2, 3, 4);
+    wl_surface_set_input_region(surface, region);
+
+    // Commit everything
+    wl_surface_commit(surface);
+
+    QTRY_COMPARE(compositor.surfaces.size(), 1);
+    QWaylandSurface *waylandSurface = compositor.surfaces.at(0);
+
+    QVERIFY(waylandSurface->inputRegionContains(QPoint(1, 2)));
+    QVERIFY(waylandSurface->inputRegionContains(QPoint(3, 5)));
+    QVERIFY(!waylandSurface->inputRegionContains(QPoint(0, 0)));
+    QVERIFY(!waylandSurface->inputRegionContains(QPoint(1, 6)));
+    QVERIFY(!waylandSurface->inputRegionContains(QPoint(4, 2)));
+
+    // Setting a nullptr input region means we want all events
+    wl_surface_set_input_region(surface, nullptr);
+    wl_surface_commit(surface);
+
+    QTRY_VERIFY(waylandSurface->inputRegionContains(QPoint(0, 0)));
+    QVERIFY(waylandSurface->inputRegionContains(QPoint(1, 6)));
+    QVERIFY(waylandSurface->inputRegionContains(QPoint(4, 2)));
+
+    // But points outside the buffer should still return false
+    QVERIFY(!waylandSurface->inputRegionContains(QPoint(-1, -1)));
+    QVERIFY(!waylandSurface->inputRegionContains(QPoint(16, 16)));
+
+    // Setting an empty region means we want no events
+    wl_region *emptyRegion = wl_compositor_create_region(client.compositor);
+    wl_surface_set_input_region(surface, emptyRegion);
+    wl_surface_commit(surface);
+
+    QTRY_VERIFY(!waylandSurface->inputRegionContains(QPoint(0, 0)));
+    QVERIFY(!waylandSurface->inputRegionContains(QPoint(1, 2)));
 }
 
 class XdgTestCompositor: public TestCompositor {

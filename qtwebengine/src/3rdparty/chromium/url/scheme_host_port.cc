@@ -18,12 +18,11 @@
 #include "url/url_canon_stdstring.h"
 #include "url/url_constants.h"
 #include "url/url_util.h"
+#include "url/url_util_qt.h"
 
 namespace url {
 
 namespace {
-
-extern const char kQrcScheme[] = "qrc";
 
 bool IsCanonicalHost(const base::StringPiece& host) {
   std::string canon_host;
@@ -53,19 +52,33 @@ bool IsValidInput(const base::StringPiece& scheme,
                   const base::StringPiece& host,
                   uint16_t port,
                   SchemeHostPort::ConstructPolicy policy) {
-  SchemeType scheme_type = SCHEME_WITH_PORT;
+  // NOTE(juvaldma)(Chromium 67.0.3396.47)
+  //
+  // Differences between standard and custom schemes:
+  //
+  //   - SCHEME_WITH_HOST: host part is optional for standard schemes and
+  //     mandatory for custom schemes. Among the standard schemes, 'file' has an
+  //     optional host part, so that's probably why it's optional.
+  //
+  //   - SCHEME_WITHOUT_AUTHORITY: disallowed for standard schemes, allowed for
+  //     custom schemes. The idea being that all pages from a such a scheme, for
+  //     example 'qrc', should belong to the same origin.
+  if (const CustomScheme* cs = CustomScheme::FindScheme(scheme))
+    return (cs->has_host_component() == !host.empty() &&
+            cs->has_port_component() == (port != 0) &&
+            (policy != SchemeHostPort::CHECK_CANONICALIZATION || host.empty() || IsCanonicalHost(host)));
+
+  SchemeType scheme_type = SCHEME_WITH_HOST_PORT_AND_USER_INFORMATION;
   bool is_standard = GetStandardSchemeType(
       scheme.data(),
       Component(0, base::checked_cast<int>(scheme.length())),
       &scheme_type);
-  if (!is_standard && scheme != kQrcScheme)
+  if (!is_standard)
     return false;
 
-  if (scheme == kQrcScheme)
-      scheme_type = SCHEME_WITHOUT_PORT;
-
   switch (scheme_type) {
-    case SCHEME_WITH_PORT:
+    case SCHEME_WITH_HOST_AND_PORT:
+    case SCHEME_WITH_HOST_PORT_AND_USER_INFORMATION:
       // A URL with |scheme| is required to have the host and port (may be
       // omitted in a serialization if it's the same as the default value).
       // Return an invalid instance if either of them is not given.
@@ -83,7 +96,7 @@ bool IsValidInput(const base::StringPiece& scheme,
 
       return true;
 
-    case SCHEME_WITHOUT_PORT:
+    case SCHEME_WITH_HOST:
       if (port != 0) {
         // Return an invalid object if a URL with the scheme never represents
         // the port data but the given |port| is non-zero.
@@ -145,8 +158,12 @@ SchemeHostPort::SchemeHostPort(const GURL& url) : port_(0) {
 
   // A valid GURL never returns PORT_INVALID.
   int port = url.EffectiveIntPort();
-  if (port == PORT_UNSPECIFIED)
+  if (port == PORT_UNSPECIFIED) {
     port = 0;
+  } else {
+    DCHECK_GE(port, 0);
+    DCHECK_LE(port, 65535);
+  }
 
   if (!IsValidInput(scheme, host, port, ALREADY_CANONICALIZED))
     return;
@@ -156,14 +173,33 @@ SchemeHostPort::SchemeHostPort(const GURL& url) : port_(0) {
   port_ = port;
 }
 
-SchemeHostPort::~SchemeHostPort() {
-}
+SchemeHostPort::~SchemeHostPort() = default;
 
 bool SchemeHostPort::IsInvalid() const {
   return scheme_.empty() && host_.empty() && !port_;
 }
 
 std::string SchemeHostPort::Serialize() const {
+  // NOTE(juvaldma)(Chromium 67.0.3396.47)
+  //
+  // We break from the standard format here and skip the double-slashes for
+  // custom schemes of type SCHEME_WITHOUT_AUTHORITY. This seems to be the only
+  // way to ensure that invariants like
+  //
+  //   GURL(x.Serialize()) == x.GetURL() for all SchemeHostPort x
+  //
+  // and
+  //
+  //   y == Origin::Create(GURL(y.Serialize())) for all Origin y
+  //
+  // hold without changing the URL parser. URLs of this type are parsed with the
+  // PathURL parser, which would include the double-slashes in the path
+  // component instead of ignoring them as part of the authority syntax like
+  // they are supposed to be.
+  if (const CustomScheme* cs = CustomScheme::FindScheme(scheme_))
+    if (!cs->has_host_component())
+      return scheme_ + ":";
+
   // Null checking for |parsed| in SerializeInternal is probably slower than
   // just filling it in and discarding it here.
   url::Parsed parsed;
@@ -171,11 +207,30 @@ std::string SchemeHostPort::Serialize() const {
 }
 
 GURL SchemeHostPort::GetURL() const {
+  // NOTE(juvaldma)(Chromium 67.0.3396.47)
+  //
+  // See note in Serialize(). We also skip the extra slash workaround for custom
+  // schemes of type SCHEME_WITHOUT_AUTHORITY, since that only applies to
+  // StandardURL canonicalization.
+  if (const CustomScheme* cs = CustomScheme::FindScheme(scheme_)) {
+    if (!cs->has_host_component()) {
+      url::Parsed parsed;
+      parsed.scheme = Component(0, scheme_.length());
+      return GURL(scheme_ + ":", parsed, true);
+    }
+  }
+
   url::Parsed parsed;
   std::string serialized = SerializeInternal(&parsed);
 
   if (IsInvalid())
     return GURL(std::move(serialized), parsed, false);
+
+  // SchemeHostPort does not have enough information to determine if an empty
+  // host is valid or not for the given scheme. Force re-parsing.
+  DCHECK(!scheme_.empty());
+  if (host_.empty())
+    return GURL(serialized);
 
   // If the serialized string is passed to GURL for parsing, it will append an
   // empty path "/". Add that here. Note: per RFC 6454 we cannot do this for

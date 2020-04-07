@@ -10,7 +10,6 @@
 		693817D91E90DF6C0045C821 /* aes.h in Headers */ = {isa = PBXBuildFile; fileRef = 693817C31E90DF6C0045C821 /* aes.h */; };
 		693817DA1E90DF6C0045C821 /* aes_ni.c in Sources */ = {isa = PBXBuildFile; fileRef = 693817C41E90DF6C0045C821 /* aes_ni.c */; };
 		693817DD1E90DF6C0045C821 /* aes_ni.h in Headers */ = {isa = PBXBuildFile; fileRef = 693817C51E90DF6C0045C821 /* aes_ni.h */; };
-		693817DE1E90DF6C0045C821 /* aes_via_ace.h in Headers */ = {isa = PBXBuildFile; fileRef = 693817C61E90DF6C0045C821 /* aes_via_ace.h */; };
 		693817DF1E90DF6C0045C821 /* aescrypt.c in Sources */ = {isa = PBXBuildFile; fileRef = 693817C71E90DF6C0045C821 /* aescrypt.c */; };
 		693817E21E90DF6C0045C821 /* aeskey.c in Sources */ = {isa = PBXBuildFile; fileRef = 693817C81E90DF6C0045C821 /* aeskey.c */; };
 		693817E51E90DF6C0045C821 /* aesopt.h in Headers */ = {isa = PBXBuildFile; fileRef = 693817C91E90DF6C0045C821 /* aesopt.h */; };
@@ -87,13 +86,13 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		3753D62F1F6CE7E900F946A2 /* Minizip.podspec */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; name = Minizip.podspec; path = ../Minizip.podspec; sourceTree = "<group>"; };
 		693817A21E90DEA40045C821 /* libminizip.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = libminizip.a; sourceTree = BUILT_PRODUCTS_DIR; };
 		693817B01E90DF490045C821 /* minizip */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = minizip; sourceTree = BUILT_PRODUCTS_DIR; };
 		693817BB1E90DF550045C821 /* miniunz */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = miniunz; sourceTree = BUILT_PRODUCTS_DIR; };
 		693817C31E90DF6C0045C821 /* aes.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = aes.h; sourceTree = "<group>"; };
 		693817C41E90DF6C0045C821 /* aes_ni.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = aes_ni.c; sourceTree = "<group>"; };
 		693817C51E90DF6C0045C821 /* aes_ni.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = aes_ni.h; sourceTree = "<group>"; };
-		693817C61E90DF6C0045C821 /* aes_via_ace.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = aes_via_ace.h; sourceTree = "<group>"; };
 		693817C71E90DF6C0045C821 /* aescrypt.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = aescrypt.c; sourceTree = "<group>"; };
 		693817C81E90DF6C0045C821 /* aeskey.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = aeskey.c; sourceTree = "<group>"; };
 		693817C91E90DF6C0045C821 /* aesopt.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = aesopt.h; sourceTree = "<group>"; };
@@ -164,6 +163,7 @@
 		693817991E90DEA40045C821 = {
 			isa = PBXGroup;
 			children = (
+				3753D62F1F6CE7E900F946A2 /* Minizip.podspec */,
 				693817C21E90DF6C0045C821 /* aes */,
 				693817A91E90DEC90045C821 /* libminizip */,
 				693817BC1E90DF560045C821 /* miniunz */,
@@ -209,7 +209,7 @@
 				693818261E90E00E0045C821 /* minishared.h */,
 				6938182B1E90E0560045C821 /* minizip.c */,
 			);
-			path = minizip;
+			name = minizip;
 			sourceTree = "<group>";
 		};
 		693817BC1E90DF560045C821 /* miniunz */ = {
@@ -219,7 +219,7 @@
 				693818221E90E0000045C821 /* minishared.h */,
 				693818291E90E04A0045C821 /* miniunz.c */,
 			);
-			path = miniunz;
+			name = miniunz;
 			sourceTree = "<group>";
 		};
 		693817C21E90DF6C0045C821 /* aes */ = {
@@ -228,7 +228,6 @@
 				693817C31E90DF6C0045C821 /* aes.h */,
 				693817C41E90DF6C0045C821 /* aes_ni.c */,
 				693817C51E90DF6C0045C821 /* aes_ni.h */,
-				693817C61E90DF6C0045C821 /* aes_via_ace.h */,
 				693817C71E90DF6C0045C821 /* aescrypt.c */,
 				693817C81E90DF6C0045C821 /* aeskey.c */,
 				693817C91E90DF6C0045C821 /* aesopt.h */,
@@ -270,7 +269,6 @@
 				6938180E1E90DF8B0045C821 /* crypt.h in Headers */,
 				693818021E90DF6C0045C821 /* sha1.h in Headers */,
 				693817E91E90DF6C0045C821 /* aestab.h in Headers */,
-				693817DE1E90DF6C0045C821 /* aes_via_ace.h in Headers */,
 				693817FE1E90DF6C0045C821 /* pwd2key.h in Headers */,
 				693817E51E90DF6C0045C821 /* aesopt.h in Headers */,
 				693817DD1E90DF6C0045C821 /* aes_ni.h in Headers */,
@@ -347,7 +345,7 @@
 		6938179A1E90DEA40045C821 /* Project object */ = {
 			isa = PBXProject;
 			attributes = {
-				LastUpgradeCheck = 0820;
+				LastUpgradeCheck = 0910;
 				ORGANIZATIONNAME = "Gabriel Gritsch Software Development";
 				TargetAttributes = {
 					693817A11E90DEA40045C821 = {
@@ -445,11 +443,15 @@
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_SECURITY_FLOATLOOPCOUNTER = YES;
+				CLANG_ANALYZER_SECURITY_INSECUREAPI_STRCPY = YES;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++0x";
 				CLANG_CXX_LIBRARY = "libc++";
 				CLANG_ENABLE_MODULES = YES;
 				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
 				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
 				CLANG_WARN_CONSTANT_CONVERSION = YES;
 				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
 				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
@@ -457,9 +459,13 @@
 				CLANG_WARN_ENUM_CONVERSION = YES;
 				CLANG_WARN_INFINITE_RECURSION = YES;
 				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
 				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
 				CLANG_WARN_SUSPICIOUS_MOVE = YES;
-				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN_UNREACHABLE_CODE = YES_AGGRESSIVE;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_IDENTITY = "-";
 				COPY_PHASE_STRIP = NO;
@@ -476,9 +482,11 @@
 				);
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
 				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_FOUR_CHARACTER_CONSTANTS = YES;
 				GCC_WARN_UNDECLARED_SELECTOR = YES;
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_LABEL = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 10.11;
 				MTL_ENABLE_DEBUG_INFO = YES;
@@ -492,11 +500,15 @@
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_SECURITY_FLOATLOOPCOUNTER = YES;
+				CLANG_ANALYZER_SECURITY_INSECUREAPI_STRCPY = YES;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++0x";
 				CLANG_CXX_LIBRARY = "libc++";
 				CLANG_ENABLE_MODULES = YES;
 				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
 				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
 				CLANG_WARN_CONSTANT_CONVERSION = YES;
 				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
 				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
@@ -504,9 +516,13 @@
 				CLANG_WARN_ENUM_CONVERSION = YES;
 				CLANG_WARN_INFINITE_RECURSION = YES;
 				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
 				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
 				CLANG_WARN_SUSPICIOUS_MOVE = YES;
-				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN_UNREACHABLE_CODE = YES_AGGRESSIVE;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_IDENTITY = "-";
 				COPY_PHASE_STRIP = NO;
@@ -517,9 +533,11 @@
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
 				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_FOUR_CHARACTER_CONSTANTS = YES;
 				GCC_WARN_UNDECLARED_SELECTOR = YES;
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_LABEL = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 10.11;
 				MTL_ENABLE_DEBUG_INFO = NO;

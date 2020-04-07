@@ -202,17 +202,12 @@ private:
 };
 
 class DrawAtlasView : public SampleView {
-    const char*         fName;
-    DrawAtlasDrawable*  fDrawable;
+    const char* fName;
+    DrawAtlasProc fProc;
+    sk_sp<DrawAtlasDrawable> fDrawable;
 
 public:
-    DrawAtlasView(const char name[], DrawAtlasProc proc) : fName(name) {
-        fDrawable = new DrawAtlasDrawable(proc, SkRect::MakeWH(640, 480));
-    }
-
-    ~DrawAtlasView() override {
-        fDrawable->unref();
-    }
+    DrawAtlasView(const char name[], DrawAtlasProc proc) : fName(name), fProc(proc) { }
 
 protected:
     bool onQuery(SkEvent* evt) override {
@@ -223,15 +218,19 @@ protected:
         SkUnichar uni;
         if (SampleCode::CharQ(*evt, &uni)) {
             switch (uni) {
-                case 'C': fDrawable->toggleUseColors(); this->inval(nullptr); return true;
+                case 'C': fDrawable->toggleUseColors(); return true;
                 default: break;
             }
         }
         return this->INHERITED::onQuery(evt);
     }
 
+    void onOnceBeforeDraw() override {
+        fDrawable = sk_make_sp<DrawAtlasDrawable>(fProc, SkRect::MakeWH(640, 480));
+    }
+
     void onDrawContent(SkCanvas* canvas) override {
-        canvas->drawDrawable(fDrawable);
+        canvas->drawDrawable(fDrawable.get());
     }
 
     bool onAnimate(const SkAnimTimer&) override {

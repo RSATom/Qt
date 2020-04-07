@@ -9,8 +9,8 @@
 #include "xfa/fwl/cfwl_caret.h"
 #include "xfa/fwl/cfwl_themebackground.h"
 #include "xfa/fwl/cfwl_widget.h"
-#include "xfa/fxgraphics/cxfa_color.h"
-#include "xfa/fxgraphics/cxfa_path.h"
+#include "xfa/fxgraphics/cxfa_gecolor.h"
+#include "xfa/fxgraphics/cxfa_gepath.h"
 
 CFWL_CaretTP::CFWL_CaretTP() {}
 CFWL_CaretTP::~CFWL_CaretTP() {}
@@ -24,9 +24,9 @@ void CFWL_CaretTP::DrawBackground(CFWL_ThemeBackground* pParams) {
       if (!(pParams->m_dwStates & CFWL_PartState_HightLight))
         return;
 
-      DrawCaretBK(pParams->m_pGraphics, pParams->m_dwStates,
-                  &(pParams->m_rtPart), (CXFA_Color*)pParams->m_pData,
-                  &(pParams->m_matrix));
+      DrawCaretBK(
+          pParams->m_pGraphics.Get(), pParams->m_dwStates, &pParams->m_rtPart,
+          static_cast<CXFA_GEColor*>(pParams->m_pData), &pParams->m_matrix);
       break;
     }
     default:
@@ -37,16 +37,15 @@ void CFWL_CaretTP::DrawBackground(CFWL_ThemeBackground* pParams) {
 void CFWL_CaretTP::DrawCaretBK(CXFA_Graphics* pGraphics,
                                uint32_t dwStates,
                                const CFX_RectF* pRect,
-                               CXFA_Color* crFill,
+                               CXFA_GEColor* crFill,
                                CFX_Matrix* pMatrix) {
-  CXFA_Path path;
+  CXFA_GEPath path;
   CFX_RectF rect = *pRect;
   path.AddRectangle(rect.left, rect.top, rect.width, rect.height);
   if (crFill) {
-    pGraphics->SetFillColor(crFill);
+    pGraphics->SetFillColor(*crFill);
   } else {
-    CXFA_Color crFilltemp(ArgbEncode(255, 0, 0, 0));
-    pGraphics->SetFillColor(&crFilltemp);
+    pGraphics->SetFillColor(CXFA_GEColor(ArgbEncode(255, 0, 0, 0)));
   }
   pGraphics->FillPath(&path, FXFILL_WINDING, pMatrix);
 }

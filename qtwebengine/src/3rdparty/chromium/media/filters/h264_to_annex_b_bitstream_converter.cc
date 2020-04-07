@@ -7,8 +7,8 @@
 #include <stddef.h>
 
 #include "base/logging.h"
-#include "media/filters/h264_parser.h"
 #include "media/formats/mp4/box_definitions.h"
+#include "media/video/h264_parser.h"
 
 namespace media {
 
@@ -36,7 +36,7 @@ H264ToAnnexBBitstreamConverter::H264ToAnnexBBitstreamConverter()
       nal_unit_length_field_width_(0) {
 }
 
-H264ToAnnexBBitstreamConverter::~H264ToAnnexBBitstreamConverter() {}
+H264ToAnnexBBitstreamConverter::~H264ToAnnexBBitstreamConverter() = default;
 
 bool H264ToAnnexBBitstreamConverter::ParseConfiguration(
     const uint8_t* configuration_record,

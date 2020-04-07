@@ -57,20 +57,6 @@ static void completeComponent(QQuickItem *item)
         parserStatus->componentComplete();
 }
 
-QQuickIconLabelPrivate::QQuickIconLabelPrivate()
-    : mirrored(false),
-      display(QQuickIconLabel::TextBesideIcon),
-      alignment(Qt::AlignCenter),
-      spacing(0),
-      topPadding(0),
-      leftPadding(0),
-      rightPadding(0),
-      bottomPadding(0),
-      image(nullptr),
-      label(nullptr)
-{
-}
-
 bool QQuickIconLabelPrivate::hasIcon() const
 {
     return display != QQuickIconLabel::TextOnly && !icon.isEmpty();
@@ -247,6 +233,7 @@ static QRectF alignedRect(bool mirrored, Qt::Alignment alignment, const QSizeF &
 
 void QQuickIconLabelPrivate::layout()
 {
+    Q_Q(QQuickIconLabel);
     if (!componentComplete)
         return;
 
@@ -341,6 +328,8 @@ void QQuickIconLabelPrivate::layout()
         }
         break;
     }
+
+    q->setBaselineOffset(label ? label->y() + label->baselineOffset() : 0);
 }
 
 static const QQuickItemPrivate::ChangeTypes itemChangeTypes =

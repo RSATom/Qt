@@ -39,8 +39,6 @@
 
 #include <QtCore/private/qglobal_p.h>
 
-QT_REQUIRE_CONFIG(iconv);
-
 #include "qiconvcodec_p.h"
 #include "qtextcodec_p.h"
 #include <qdebug.h>
@@ -53,7 +51,7 @@ QT_REQUIRE_CONFIG(iconv);
 
 // unistd.h is needed for the _XOPEN_UNIX macro
 #include <unistd.h>
-#if defined(_XOPEN_UNIX) && !defined(Q_OS_QNX) && !defined(Q_OS_OSF)
+#if defined(_XOPEN_UNIX) && !defined(Q_OS_QNX)
 #  include <langinfo.h>
 #endif
 
@@ -447,7 +445,7 @@ iconv_t QIconvCodec::createIconv_t(const char *to, const char *from) const
     char *codeset = 0;
 #endif
 
-#if defined(_XOPEN_UNIX) && !defined(Q_OS_QNX) && !defined(Q_OS_OSF)
+#if defined(_XOPEN_UNIX) && !defined(Q_OS_QNX)
     if (cd == (iconv_t) -1) {
         codeset = nl_langinfo(CODESET);
         if (codeset)

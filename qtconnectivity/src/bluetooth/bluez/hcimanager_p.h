@@ -72,7 +72,7 @@ public:
         LeMetaEvent = 0x3e,
     };
 
-    explicit HciManager(const QBluetoothAddress &deviceAdapter, QObject *parent = 0);
+    explicit HciManager(const QBluetoothAddress &deviceAdapter, QObject *parent = nullptr);
     ~HciManager();
 
     bool isValid() const;
@@ -109,7 +109,7 @@ private:
     int hciSocket;
     int hciDev;
     quint8 sigPacketIdentifier = 0;
-    QSocketNotifier *notifier;
+    QSocketNotifier *notifier = nullptr;
     QSet<HciManager::HciEvent> runningEvents;
 };
 

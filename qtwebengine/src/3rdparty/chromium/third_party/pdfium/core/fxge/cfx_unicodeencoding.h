@@ -7,10 +7,7 @@
 #ifndef CORE_FXGE_CFX_UNICODEENCODING_H_
 #define CORE_FXGE_CFX_UNICODEENCODING_H_
 
-#include "core/fxge/fx_font.h"
-
-#define ENCODING_INTERNAL 0
-#define ENCODING_UNICODE 1
+#include <stdint.h>
 
 #ifdef PDF_ENABLE_XFA
 #define FXFM_ENC_TAG(a, b, c, d)                                          \
@@ -31,6 +28,8 @@
 #define FXFM_ENCODING_OLD_LATIN_2 FXFM_ENC_TAG('l', 'a', 't', '2')
 #define FXFM_ENCODING_APPLE_ROMAN FXFM_ENC_TAG('a', 'r', 'm', 'n')
 #endif  // PDF_ENABLE_XFA
+
+class CFX_Font;
 
 class CFX_UnicodeEncoding {
  public:

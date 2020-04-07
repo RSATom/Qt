@@ -56,10 +56,10 @@ class QWinRTCameraVideoRendererControl : public QWinRTAbstractVideoRendererContr
     Q_OBJECT
 public:
     explicit QWinRTCameraVideoRendererControl(const QSize &size, QObject *parent);
-    ~QWinRTCameraVideoRendererControl();
+    ~QWinRTCameraVideoRendererControl() override;
 
-    bool render(ID3D11Texture2D *texture) Q_DECL_OVERRIDE;
-    bool dequeueFrame(QVideoFrame *frame) Q_DECL_OVERRIDE;
+    bool render(ID3D11Texture2D *texture) override;
+    bool dequeueFrame(QVideoFrame *frame) override;
     void queueBuffer(IMF2DBuffer *buffer);
     void discardBuffers();
     void incrementProbe();
@@ -68,6 +68,9 @@ public:
 signals:
     void bufferRequested();
     void videoFrameProbed(const QVideoFrame &frame);
+
+public slots:
+    void resetSampleFormat();
 
 private:
     QScopedPointer<QWinRTCameraVideoRendererControlPrivate> d_ptr;

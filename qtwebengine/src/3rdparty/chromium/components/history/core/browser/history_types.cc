@@ -20,12 +20,14 @@ VisitRow::VisitRow(URLID arg_url_id,
                    base::Time arg_visit_time,
                    VisitID arg_referring_visit,
                    ui::PageTransition arg_transition,
-                   SegmentID arg_segment_id)
+                   SegmentID arg_segment_id,
+                   bool arg_incremented_omnibox_typed_score)
     : url_id(arg_url_id),
       visit_time(arg_visit_time),
       referring_visit(arg_referring_visit),
       transition(arg_transition),
-      segment_id(arg_segment_id) {}
+      segment_id(arg_segment_id),
+      incremented_omnibox_typed_score(arg_incremented_omnibox_typed_score) {}
 
 VisitRow::~VisitRow() {
 }
@@ -43,7 +45,7 @@ const size_t* QueryResults::MatchesForURL(const GURL& url,
   if (found == url_to_results_.end()) {
     if (num_matches)
       *num_matches = 0;
-    return NULL;
+    return nullptr;
   }
 
   // All entries in the map should have at least one index, otherwise it
@@ -72,7 +74,7 @@ void QueryResults::SetURLResults(std::vector<URLResult>&& results) {
 void QueryResults::DeleteURL(const GURL& url) {
   // Delete all instances of this URL. We re-query each time since each
   // mutation will cause the indices to change.
-  while (const size_t* match_indices = MatchesForURL(url, NULL))
+  while (const size_t* match_indices = MatchesForURL(url, nullptr))
     DeleteRange(*match_indices, *match_indices);
 }
 
@@ -181,17 +183,33 @@ MostVisitedURL::MostVisitedURL(const GURL& url,
                                base::Time last_forced_time)
     : url(url), title(title), last_forced_time(last_forced_time) {}
 
+MostVisitedURL::MostVisitedURL(const GURL& url,
+                               const base::string16& title,
+                               const RedirectList& preceding_redirects)
+    : url(url), title(title) {
+  InitRedirects(preceding_redirects);
+}
+
 MostVisitedURL::MostVisitedURL(const MostVisitedURL& other) = default;
 
-// TODO(bug 706963) this should be implemented as "= default" when Android
-// toolchain is updated.
-MostVisitedURL::MostVisitedURL(MostVisitedURL&& other) noexcept
-    : url(std::move(other.url)),
-      title(std::move(other.title)),
-      last_forced_time(other.last_forced_time),
-      redirects(std::move(other.redirects)) {}
+MostVisitedURL::MostVisitedURL(MostVisitedURL&& other) noexcept = default;
 
 MostVisitedURL::~MostVisitedURL() {}
+
+void MostVisitedURL::InitRedirects(const RedirectList& redirects_from) {
+  redirects.clear();
+
+  if (redirects_from.empty()) {
+    // Redirects must contain at least the target URL.
+    redirects.push_back(url);
+  } else {
+    redirects = redirects_from;
+    if (redirects.back() != url) {
+      // The last url must be the target URL.
+      redirects.push_back(url);
+    }
+  }
+}
 
 MostVisitedURL& MostVisitedURL::operator=(const MostVisitedURL&) = default;
 
@@ -239,10 +257,11 @@ HistoryAddPageArgs::HistoryAddPageArgs()
                          GURL(),
                          RedirectList(),
                          ui::PAGE_TRANSITION_LINK,
+                         false,
                          SOURCE_BROWSED,
                          false,
-                         true) {
-}
+                         true,
+                         base::nullopt) {}
 
 HistoryAddPageArgs::HistoryAddPageArgs(const GURL& url,
                                        base::Time time,
@@ -251,9 +270,11 @@ HistoryAddPageArgs::HistoryAddPageArgs(const GURL& url,
                                        const GURL& referrer,
                                        const RedirectList& redirects,
                                        ui::PageTransition transition,
+                                       bool hidden,
                                        VisitSource source,
                                        bool did_replace_entry,
-                                       bool consider_for_ntp_most_visited)
+                                       bool consider_for_ntp_most_visited,
+                                       base::Optional<base::string16> title)
     : url(url),
       time(time),
       context_id(context_id),
@@ -261,10 +282,11 @@ HistoryAddPageArgs::HistoryAddPageArgs(const GURL& url,
       referrer(referrer),
       redirects(redirects),
       transition(transition),
+      hidden(hidden),
       visit_source(source),
       did_replace_entry(did_replace_entry),
-      consider_for_ntp_most_visited(consider_for_ntp_most_visited) {
-}
+      consider_for_ntp_most_visited(consider_for_ntp_most_visited),
+      title(title) {}
 
 HistoryAddPageArgs::HistoryAddPageArgs(const HistoryAddPageArgs& other) =
     default;
@@ -299,6 +321,15 @@ FaviconBitmapIDSize::FaviconBitmapIDSize() {}
 
 FaviconBitmapIDSize::~FaviconBitmapIDSize() {}
 
+// IconMappingsForExpiry ------------------------------------------------------
+
+IconMappingsForExpiry::IconMappingsForExpiry() {}
+
+IconMappingsForExpiry::IconMappingsForExpiry(
+    const IconMappingsForExpiry& other) = default;
+
+IconMappingsForExpiry::~IconMappingsForExpiry() {}
+
 // FaviconBitmap --------------------------------------------------------------
 
 FaviconBitmap::FaviconBitmap() {}
@@ -324,5 +355,63 @@ void ExpireHistoryArgs::SetTimeRangeForOneDay(base::Time time) {
   // 24 hours away, so add 36 hours and round back down to midnight.
   end_time = (begin_time + base::TimeDelta::FromHours(36)).LocalMidnight();
 }
+
+// DeletionTimeRange ----------------------------------------------------------
+
+DeletionTimeRange DeletionTimeRange::Invalid() {
+  return DeletionTimeRange();
+}
+
+DeletionTimeRange DeletionTimeRange::AllTime() {
+  return DeletionTimeRange(base::Time(), base::Time::Max());
+}
+
+bool DeletionTimeRange::IsValid() const {
+  return end_.is_null() || begin_ <= end_;
+}
+
+bool DeletionTimeRange::IsAllTime() const {
+  return begin_.is_null() && (end_.is_null() || end_.is_max());
+}
+
+// DeletionInfo
+// ----------------------------------------------------------
+
+// static
+DeletionInfo DeletionInfo::ForAllHistory() {
+  return DeletionInfo(DeletionTimeRange::AllTime(), false, {}, {},
+                      base::nullopt);
+}
+
+// static
+DeletionInfo DeletionInfo::ForUrls(URLRows deleted_rows,
+                                   std::set<GURL> favicon_urls) {
+  return DeletionInfo(DeletionTimeRange::Invalid(), false,
+                      std::move(deleted_rows), std::move(favicon_urls),
+                      base::nullopt);
+}
+
+DeletionInfo::DeletionInfo(const DeletionTimeRange& time_range,
+                           bool is_from_expiration,
+                           URLRows deleted_rows,
+                           std::set<GURL> favicon_urls,
+                           base::Optional<std::set<GURL>> restrict_urls)
+    : time_range_(time_range),
+      is_from_expiration_(is_from_expiration),
+      deleted_rows_(std::move(deleted_rows)),
+      favicon_urls_(std::move(favicon_urls)),
+      restrict_urls_(std::move(restrict_urls)) {
+  // If time_range is all time or invalid, restrict_urls should be empty.
+  DCHECK(!time_range_.IsAllTime() || !restrict_urls_.has_value());
+  DCHECK(time_range_.IsValid() || !restrict_urls_.has_value());
+  // If restrict_urls_ is defined, it should be non-empty.
+  DCHECK(!restrict_urls_.has_value() || !restrict_urls_->empty());
+};
+
+DeletionInfo::~DeletionInfo() = default;
+
+DeletionInfo::DeletionInfo(DeletionInfo&& other) noexcept = default;
+
+DeletionInfo& DeletionInfo::operator=(DeletionInfo&& rhs) noexcept = default;
 
 }  // namespace history

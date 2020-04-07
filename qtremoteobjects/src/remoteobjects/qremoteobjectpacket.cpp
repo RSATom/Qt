@@ -39,11 +39,11 @@
 
 #include "qremoteobjectpacket_p.h"
 
+#include <QtCore/qabstractitemmodel.h>
+
 #include "qremoteobjectpendingcall.h"
 #include "qremoteobjectsource.h"
 #include "qremoteobjectsource_p.h"
-
-#include "private/qmetaobjectbuilder_p.h"
 
 QT_BEGIN_NAMESPACE
 
@@ -51,13 +51,35 @@ using namespace QtRemoteObjects;
 
 namespace QRemoteObjectPackets {
 
-QVariant serializedProperty(const QMetaProperty &property, const QObject *object)
+void serializeProperty(DataStreamPacket &ds, const QRemoteObjectSourceBase *source, int internalIndex)
 {
-    const QVariant value = property.read(object);
+    const int propertyIndex = source->m_api->sourcePropertyIndex(internalIndex);
+    Q_ASSERT (propertyIndex >= 0);
+    const auto target = source->m_api->isAdapterProperty(internalIndex) ? source->m_adapter : source->m_object;
+    const auto property = target->metaObject()->property(propertyIndex);
+    const QVariant value = property.read(target);
     if (property.isEnumType()) {
-        return QVariant::fromValue<qint32>(value.toInt());
+        ds << QVariant::fromValue<qint32>(value.toInt());
+    } else if (QMetaType::typeFlags(property.userType()).testFlag(QMetaType::PointerToQObject)) {
+        auto const childSource = source->m_children.value(internalIndex);
+        auto valueAsPointerToQObject = qvariant_cast<QObject *>(value);
+        if (childSource->m_object != valueAsPointerToQObject)
+            childSource->resetObject(valueAsPointerToQObject);
+        QRO_ qro(childSource);
+        if (source->d->isDynamic && qro.type == ObjectType::CLASS && !source->d->sentTypes.contains(qro.typeName)) {
+            QDataStream classDef(&qro.classDefinition, QIODevice::WriteOnly);
+            serializeDefinition(classDef, childSource);
+            source->d->sentTypes.insert(qro.typeName);
+        }
+        ds << QVariant::fromValue<QRO_>(qro);
+        if (qro.isNull)
+            return;
+        const int propertyCount = childSource->m_api->propertyCount();
+        ds << propertyCount;
+        for (int internalIndex = 0; internalIndex < propertyCount; ++internalIndex)
+            serializeProperty(ds, childSource, internalIndex);
     } else {
-        return value; // return original
+        ds << value; // return original
     }
 }
 
@@ -78,30 +100,24 @@ void serializeHandshakePacket(DataStreamPacket &ds)
     ds.finishPacket();
 }
 
-void serializeInitPacket(DataStreamPacket &ds, const QRemoteObjectSource *object)
+void serializeInitPacket(DataStreamPacket &ds, const QRemoteObjectRootSource *source)
 {
-    const SourceApiMap *api = object->m_api;
-
     ds.setId(InitPacket);
-    ds << api->name();
+    ds << source->name();
+    serializeProperties(ds, source);
+    ds.finishPacket();
+}
+
+void serializeProperties(DataStreamPacket &ds, const QRemoteObjectSourceBase *source)
+{
+    const SourceApiMap *api = source->m_api;
 
     //Now copy the property data
     const int numProperties = api->propertyCount();
     ds << quint32(numProperties);  //Number of properties
 
-    for (int i = 0; i < numProperties; ++i) {
-        const int index = api->sourcePropertyIndex(i);
-        if (index < 0) {
-            qCWarning(QT_REMOTEOBJECT) << "QInitPacketEncoder - Found invalid property.  Index not found:" << i << "Dropping invalid packet.";
-            ds.size = 0;
-            return;
-        }
-
-        const auto target = api->isAdapterProperty(i) ? object->m_adapter : object->m_object;
-        const auto metaProperty = target->metaObject()->property(index);
-        ds << serializedProperty(metaProperty, target);
-    }
-    ds.finishPacket();
+    for (int internalIndex = 0; internalIndex < numProperties; ++internalIndex)
+        serializeProperty(ds, source, internalIndex);
 }
 
 bool deserializeQVariantList(QDataStream &s, QList<QVariant> &l)
@@ -142,16 +158,49 @@ void deserializeInitPacket(QDataStream &in, QVariantList &values)
     Q_UNUSED(success);
 }
 
-void serializeInitDynamicPacket(DataStreamPacket &ds, const QRemoteObjectSource *object)
+void serializeInitDynamicPacket(DataStreamPacket &ds, const QRemoteObjectRootSource *source)
 {
-    const SourceApiMap *api = object->m_api;
-
     ds.setId(InitDynamicPacket);
-    ds << api->name();
+    ds << source->name();
+    serializeDefinition(ds, source);
+    serializeProperties(ds, source);
+    ds.finishPacket();
+}
+
+static void mergeData(GadgetsData &a, const GadgetsData &b)
+{
+    for (auto it = b.constBegin(); it != b.constEnd(); ++it)
+        a[it.key()] = it.value();
+}
+
+static GadgetsData gadgetData(const QMetaObject *mo)
+{
+    if (!mo)
+        return {};
+    GadgetsData res;
+    auto & properties = res[mo->className()];
+    const int numProperties = mo->propertyCount();
+    for (int i = 0; i < numProperties; ++i) {
+        const auto property = mo->property(i);
+        GadgetProperty data;
+        data.name = property.name();
+        data.type = property.typeName();
+        if (QMetaType::typeFlags(property.userType()).testFlag(QMetaType::IsGadget))
+            mergeData(res, gadgetData(QMetaType::metaObjectForType(property.userType())));
+        properties.push_back(data);
+    }
+    return res;
+}
+
+void serializeDefinition(QDataStream &ds, const QRemoteObjectSourceBase *source)
+{
+    const SourceApiMap *api = source->m_api;
+
+    ds << source->m_api->typeName();
 
     //Now copy the property data
     const int numEnums = api->enumCount();
-    const auto metaObject = object->m_object->metaObject();
+    const auto metaObject = source->m_object->metaObject();
     ds << quint32(numEnums);  //Number of Enums
     for (int i = 0; i < numEnums; ++i) {
         auto enumerator = metaObject->enumerator(api->sourceEnumIndex(i));
@@ -168,43 +217,76 @@ void serializeInitDynamicPacket(DataStreamPacket &ds, const QRemoteObjectSource 
     }
 
     const int numSignals = api->signalCount();
+    const int numMethods = api->methodCount();
+    const int numProperties = api->propertyCount();
+
+    GadgetsData gadgets;
+    QSet<int> processedTypes;
+    for (int si = 0; si < numSignals; ++si) {
+        const int params = api->signalParameterCount(si);
+        for (int pi = 0; pi < params; ++pi) {
+            const int type = api->signalParameterType(si, pi);
+            if (processedTypes.contains(type) || !QMetaType::typeFlags(type).testFlag(QMetaType::IsGadget))
+                    continue;
+            mergeData(gadgets, gadgetData(QMetaType::metaObjectForType(type)));
+            processedTypes.insert(type);
+        }
+    }
+
+    for (int mi = 0; mi < numMethods; ++mi) {
+        const int params = api->methodParameterCount(mi);
+        for (int pi = 0; pi < params; ++pi) {
+            const int type = api->methodParameterType(mi, pi);
+            if (processedTypes.contains(type) || !QMetaType::typeFlags(type).testFlag(QMetaType::IsGadget))
+                    continue;
+            mergeData(gadgets, gadgetData(QMetaType::metaObjectForType(type)));
+            processedTypes.insert(type);
+        }
+    }
+    for (int pi = 0; pi < numProperties; ++pi) {
+        const int index = api->sourcePropertyIndex(pi);
+        Q_ASSERT(index >= 0);
+        const auto target = api->isAdapterProperty(pi) ? source->m_adapter : source->m_object;
+        const auto metaProperty = target->metaObject()->property(index);
+        const int type = metaProperty.userType();
+        if (processedTypes.contains(type) || !QMetaType::typeFlags(type).testFlag(QMetaType::IsGadget))
+                continue;
+        mergeData(gadgets, gadgetData(QMetaType::metaObjectForType(type)));
+        processedTypes.insert(type);
+    }
+    ds << quint32(gadgets.size());
+    for (auto it = gadgets.constBegin(); it != gadgets.constEnd(); ++it) {
+        ds << it.key();
+        ds << quint32(it.value().size());
+        for (const auto &prop : qAsConst(it.value())) {
+            ds << prop.name;
+            ds << prop.type;
+        }
+    }
+
     ds << quint32(numSignals);  //Number of signals
     for (int i = 0; i < numSignals; ++i) {
         const int index = api->sourceSignalIndex(i);
-        if (index < 0) {
-            qCWarning(QT_REMOTEOBJECT) << "QInitDynamicPacketEncoder - Found invalid signal.  Index not found:" << i << "Dropping invalid packet.";
-            ds.size = 0;
-            return;
-        }
+        Q_ASSERT(index >= 0);
         ds << api->signalSignature(i);
         ds << api->signalParameterNames(i);
     }
 
-    const int numMethods = api->methodCount();
     ds << quint32(numMethods);  //Number of methods
     for (int i = 0; i < numMethods; ++i) {
         const int index = api->sourceMethodIndex(i);
-        if (index < 0) {
-            qCWarning(QT_REMOTEOBJECT) << "QInitDynamicPacketEncoder - Found invalid method.  Index not found:" << i << "Dropping invalid packet.";
-            ds.size = 0;
-            return;
-        }
+        Q_ASSERT(index >= 0);
         ds << api->methodSignature(i);
         ds << api->typeName(i);
         ds << api->methodParameterNames(i);
     }
 
-    const int numProperties = api->propertyCount();
     ds << quint32(numProperties);  //Number of properties
     for (int i = 0; i < numProperties; ++i) {
         const int index = api->sourcePropertyIndex(i);
-        if (index < 0) {
-            qCWarning(QT_REMOTEOBJECT) << "QInitDynamicPacketEncoder - Found invalid method.  Index not found:" << i << "Dropping invalid packet.";
-            ds.size = 0;
-            return;
-        }
+        Q_ASSERT(index >= 0);
 
-        const auto target = api->isAdapterProperty(i) ? object->m_adapter : object->m_object;
+        const auto target = api->isAdapterProperty(i) ? source->m_adapter : source->m_object;
         const auto metaProperty = target->metaObject()->property(index);
         ds << metaProperty.name();
         ds << metaProperty.typeName();
@@ -212,98 +294,6 @@ void serializeInitDynamicPacket(DataStreamPacket &ds, const QRemoteObjectSource 
             ds << QByteArray();
         else
             ds << metaProperty.notifySignal().methodSignature();
-        ds << metaProperty.read(target);
-    }
-    ds.finishPacket();
-}
-
-void deserializeInitDynamicPacket(QDataStream &in, QMetaObjectBuilder &builder, QVariantList &values)
-{
-    quint32 numEnums = 0;
-    quint32 numSignals = 0;
-    quint32 numMethods = 0;
-    quint32 numProperties = 0;
-
-    in >> numEnums;
-    for (quint32 i = 0; i < numEnums; ++i) {
-        QByteArray name;
-        in >> name;
-        auto enumBuilder = builder.addEnumerator(name);
-        bool isFlag;
-        in >> isFlag;
-        enumBuilder.setIsFlag(isFlag);
-
-        QByteArray scopeName;
-        in >> scopeName; // scope
-        // TODO uncomment this line after https://bugreports.qt.io/browse/QTBUG-64081 is implemented
-        //enumBuilder.setScope(scopeName);
-
-        int keyCount;
-        in >> keyCount;
-        for (int k = 0; k < keyCount; ++k) {
-            QByteArray key;
-            int value;
-            in >> key;
-            in >> value;
-            enumBuilder.addKey(key, value);
-        }
-    }
-
-    int curIndex = 0;
-
-    in >> numSignals;
-    for (quint32 i = 0; i < numSignals; ++i) {
-        QByteArray signature;
-        QList<QByteArray> paramNames;
-        in >> signature;
-        in >> paramNames;
-        ++curIndex;
-        auto mmb = builder.addSignal(signature);
-        mmb.setParameterNames(paramNames);
-    }
-
-    in >> numMethods;
-    for (quint32 i = 0; i < numMethods; ++i) {
-        QByteArray signature, returnType;
-        QList<QByteArray> paramNames;
-        in >> signature;
-        in >> returnType;
-        in >> paramNames;
-        ++curIndex;
-        const bool isVoid = returnType.isEmpty() || returnType == QByteArrayLiteral("void");
-        QMetaMethodBuilder mmb;
-        if (isVoid)
-            mmb = builder.addMethod(signature);
-        else
-            mmb = builder.addMethod(signature, QByteArrayLiteral("QRemoteObjectPendingCall"));
-        mmb.setParameterNames(paramNames);
-    }
-
-    in >> numProperties;
-    const quint32 initialListSize = values.size();
-    if (static_cast<quint32>(values.size()) < numProperties)
-        values.reserve(numProperties);
-    else if (static_cast<quint32>(values.size()) > numProperties)
-        for (quint32 i = numProperties; i < initialListSize; ++i)
-            values.removeLast();
-
-    for (quint32 i = 0; i < numProperties; ++i) {
-        QByteArray name;
-        QByteArray typeName;
-        QByteArray signalName;
-        in >> name;
-        in >> typeName;
-        in >> signalName;
-        if (signalName.isEmpty())
-            builder.addProperty(name, typeName);
-        else
-            builder.addProperty(name, typeName, builder.indexOfSignal(signalName));
-        QVariant value;
-        in >> value;
-        if (i < initialListSize)
-            values[i] = value;
-        else
-            values.append(value);
     }
 }
 
@@ -373,12 +363,14 @@ void deserializeInvokeReplyPacket(QDataStream& in, int &ackedSerialId, QVariant 
     in >> value;
 }
 
-void serializePropertyChangePacket(DataStreamPacket &ds, const QString &name, int index, const QVariant &value)
+void serializePropertyChangePacket(QRemoteObjectSourceBase *source, int signalIndex)
 {
+    int internalIndex = source->m_api->propertyRawIndexFromSignal(signalIndex);
+    auto &ds = source->d->m_packet;
     ds.setId(PropertyChangePacket);
-    ds << name;
-    ds << index;
-    ds << value;
+    ds << source->name();
+    ds << internalIndex;
+    serializeProperty(ds, source, internalIndex);
     ds.finishPacket();
 }
 
@@ -398,6 +390,65 @@ void serializeObjectListPacket(DataStreamPacket &ds, const ObjectInfoList &objec
 void deserializeObjectListPacket(QDataStream &in, ObjectInfoList &objects)
 {
     in >> objects;
+}
+
+void serializePingPacket(DataStreamPacket &ds, const QString &name)
+{
+    ds.setId(Ping);
+    ds << name;
+    ds.finishPacket();
+}
+
+void serializePongPacket(DataStreamPacket &ds, const QString &name)
+{
+    ds.setId(Pong);
+    ds << name;
+    ds.finishPacket();
+}
+
+static ObjectType objectType(const QString &typeName)
+{
+    if (typeName == QLatin1String("QAbstractItemModelAdapter"))
+        return ObjectType::MODEL;
+    auto tid = QMetaType::type(typeName.toUtf8());
+    if (tid == QMetaType::UnknownType)
+        return ObjectType::CLASS;
+    QMetaType type(tid);
+    auto mo = type.metaObject();
+    if (mo && mo->inherits(&QAbstractItemModel::staticMetaObject))
+        return ObjectType::MODEL;
+    return ObjectType::CLASS;
+}
+
+QRO_::QRO_(QRemoteObjectSourceBase *source)
+    : name(source->name())
+    , typeName(source->m_api->typeName())
+    , type(source->m_adapter ? ObjectType::MODEL : objectType(typeName))
+    , isNull(source->m_object == nullptr)
+    , classDefinition()
+{}
+
+QDataStream &operator<<(QDataStream &stream, const QRO_ &info)
+{
+    stream << info.name << info.typeName << (quint8)(info.type) << info.classDefinition << info.isNull;
+    qCDebug(QT_REMOTEOBJECT) << "Serializing QRO_" << info.name << info.typeName << (info.type == ObjectType::CLASS ? "Class" : "Model")
+                             << (info.isNull ? "nullptr" : "valid pointer");
+    //We expect info.parameters to be empty (parameters are pushed to stream individually in serializeProperty)
+    if (!info.isNull && !info.parameters.isEmpty())
+        stream << info.parameters;
+
+    return stream;
+}
+
+QDataStream &operator>>(QDataStream &stream, QRO_ &info)
+{
+    quint8 tmpType;
+    stream >> info.name >> info.typeName >> tmpType >> info.classDefinition >> info.isNull;
+    info.type = static_cast<ObjectType>(tmpType);
+    qCDebug(QT_REMOTEOBJECT) << "Deserializing QRO_" << info.name << info.typeName << (info.isNull ? "nullptr" : "valid pointer");
+    if (!info.isNull)
+        stream >> info.parameters;
+    return stream;
 }
 
 } // namespace QRemoteObjectPackets

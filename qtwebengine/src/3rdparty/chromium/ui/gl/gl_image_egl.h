@@ -5,40 +5,43 @@
 #ifndef UI_GL_GL_IMAGE_EGL_H_
 #define UI_GL_GL_IMAGE_EGL_H_
 
+#include <EGL/eglplatform.h>
+
 #include "base/macros.h"
 #include "base/threading/thread_checker.h"
-#include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_export.h"
 #include "ui/gl/gl_image.h"
 
 namespace gl {
 
+// Abstract base class for EGL-based images.
 class GL_EXPORT GLImageEGL : public GLImage {
  public:
   explicit GLImageEGL(const gfx::Size& size);
 
-  bool Initialize(EGLenum target, EGLClientBuffer buffer, const EGLint* attrs);
-
   // Overridden from GLImage:
   gfx::Size GetSize() override;
-  unsigned GetInternalFormat() override;
   bool BindTexImage(unsigned target) override;
   void ReleaseTexImage(unsigned target) override {}
-  bool CopyTexImage(unsigned target) override;
-  bool CopyTexSubImage(unsigned target,
-                       const gfx::Point& offset,
-                       const gfx::Rect& rect) override;
-  bool ScheduleOverlayPlane(gfx::AcceleratedWidget widget,
-                            int z_order,
-                            gfx::OverlayTransform transform,
-                            const gfx::Rect& bounds_rect,
-                            const gfx::RectF& crop_rect) override;
-  void Flush() override {}
 
  protected:
   ~GLImageEGL() override;
 
-  EGLImageKHR egl_image_;
+  // Same semantic as specified for eglCreateImageKHR. There two main usages:
+  // 1- When using the |target| EGL_GL_TEXTURE_2D_KHR it is required to pass
+  // a valid |context|. This allows to create an EGLImage from a GL texture.
+  // Then this EGLImage can be converted to an external resource to be shared
+  // with other client APIs.
+  // 2- When using the |target| EGL_NATIVE_PIXMAP_KHR or EGL_LINUX_DMA_BUF_EXT
+  // it is required to pass EGL_NO_CONTEXT. This allows to create an EGLImage
+  // from an external resource. Then this EGLImage can be converted to a GL
+  // texture.
+  bool Initialize(void* context /* EGLContext */,
+                  unsigned target /* EGLenum */,
+                  void* buffer /* EGLClientBuffer */,
+                  const EGLint* attrs);
+
+  void* egl_image_ /* EGLImageKHR */;
   const gfx::Size size_;
   base::ThreadChecker thread_checker_;
 

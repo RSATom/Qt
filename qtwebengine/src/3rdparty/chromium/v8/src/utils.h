@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <cmath>
+#include <type_traits>
 
 #include "include/v8.h"
 #include "src/allocation.h"
@@ -17,10 +18,13 @@
 #include "src/base/logging.h"
 #include "src/base/macros.h"
 #include "src/base/platform/platform.h"
+#include "src/base/v8-fallthrough.h"
 #include "src/globals.h"
-#include "src/list.h"
 #include "src/vector.h"
-#include "src/zone/zone.h"
+
+#if defined(V8_OS_AIX)
+#include <fenv.h>  // NOLINT(build/c++11)
+#endif
 
 namespace v8 {
 namespace internal {
@@ -46,10 +50,9 @@ inline char HexCharOfValue(int value) {
 
 inline int BoolToInt(bool b) { return b ? 1 : 0; }
 
-
 // Same as strcmp, but can handle NULL arguments.
 inline bool CStringEquals(const char* s1, const char* s2) {
-  return (s1 == s2) || (s1 != NULL && s2 != NULL && strcmp(s1, s2) == 0);
+  return (s1 == s2) || (s1 != nullptr && s2 != nullptr && strcmp(s1, s2) == 0);
 }
 
 // X must be a power of 2.  Returns the number of trailing zeros.
@@ -76,9 +79,15 @@ inline int WhichPowerOf2(T x) {
 #undef CHECK_BIGGER
   switch (x) {
     default: UNREACHABLE();
-    case 8: bits++;  // Fall through.
-    case 4: bits++;  // Fall through.
-    case 2: bits++;  // Fall through.
+    case 8:
+      bits++;
+      V8_FALLTHROUGH;
+    case 4:
+      bits++;
+      V8_FALLTHROUGH;
+    case 2:
+      bits++;
+      V8_FALLTHROUGH;
     case 1: break;
   }
   DCHECK_EQ(T{1} << bits, original_x);
@@ -185,9 +194,22 @@ T JSMin(T x, T y) {
 
 // Returns the absolute value of its argument.
 template <typename T,
-          typename = typename std::enable_if<std::is_integral<T>::value>::type>
+          typename = typename std::enable_if<std::is_signed<T>::value>::type>
 typename std::make_unsigned<T>::type Abs(T a) {
-  return a < 0 ? -a : a;
+  // This is a branch-free implementation of the absolute value function and is
+  // described in Warren's "Hacker's Delight", chapter 2. It avoids undefined
+  // behavior with the arithmetic negation operation on signed values as well.
+  typedef typename std::make_unsigned<T>::type unsignedT;
+  unsignedT x = static_cast<unsignedT>(a);
+  unsignedT y = static_cast<unsignedT>(a >> (sizeof(T) * 8 - 1));
+  return (x ^ y) - y;
+}
+
+// Returns the negative absolute value of its argument.
+template <typename T,
+          typename = typename std::enable_if<std::is_signed<T>::value>::type>
+T Nabs(T a) {
+  return a < 0 ? a : -a;
 }
 
 // Floor(-0.0) == 0.0
@@ -196,6 +218,27 @@ inline double Floor(double x) {
   if (x == 0) return x;  // Fix for issue 3477.
 #endif
   return std::floor(x);
+}
+
+inline double Modulo(double x, double y) {
+#if defined(V8_OS_WIN)
+  // Workaround MS fmod bugs. ECMA-262 says:
+  // dividend is finite and divisor is an infinity => result equals dividend
+  // dividend is a zero and divisor is nonzero finite => result equals dividend
+  if (!(std::isfinite(x) && (!std::isfinite(y) && !std::isnan(y))) &&
+      !(x == 0 && (y != 0 && std::isfinite(y)))) {
+    x = fmod(x, y);
+  }
+  return x;
+#elif defined(V8_OS_AIX)
+  // AIX raises an underflow exception for (Number.MIN_VALUE % Number.MAX_VALUE)
+  feclearexcept(FE_ALL_EXCEPT);
+  double result = std::fmod(x, y);
+  int exception = fetestexcept(FE_UNDERFLOW);
+  return (exception ? x : result);
+#else
+  return std::fmod(x, y);
+#endif
 }
 
 inline double Pow(double x, double y) {
@@ -227,6 +270,47 @@ inline double Pow(double x, double y) {
   return std::pow(x, y);
 }
 
+template <typename T>
+T SaturateAdd(T a, T b) {
+  if (std::is_signed<T>::value) {
+    if (a > 0 && b > 0) {
+      if (a > std::numeric_limits<T>::max() - b) {
+        return std::numeric_limits<T>::max();
+      }
+    } else if (a < 0 && b < 0) {
+      if (a < std::numeric_limits<T>::min() - b) {
+        return std::numeric_limits<T>::min();
+      }
+    }
+  } else {
+    CHECK(std::is_unsigned<T>::value);
+    if (a > std::numeric_limits<T>::max() - b) {
+      return std::numeric_limits<T>::max();
+    }
+  }
+  return a + b;
+}
+
+template <typename T>
+T SaturateSub(T a, T b) {
+  if (std::is_signed<T>::value) {
+    if (a >= 0 && b < 0) {
+      if (a > std::numeric_limits<T>::max() + b) {
+        return std::numeric_limits<T>::max();
+      }
+    } else if (a < 0 && b > 0) {
+      if (a < std::numeric_limits<T>::min() + b) {
+        return std::numeric_limits<T>::min();
+      }
+    }
+  } else {
+    CHECK(std::is_unsigned<T>::value);
+    if (a < b) {
+      return static_cast<T>(0);
+    }
+  }
+  return a - b;
+}
 
 // ----------------------------------------------------------------------------
 // BitField is a help template for encoding and decode bitfield with
@@ -245,9 +329,10 @@ class BitFieldBase {
   static const U kShift = shift;
   static const U kSize = size;
   static const U kNext = kShift + kSize;
+  static const U kNumValues = kOne << size;
 
   // Value for the field with all bits set.
-  static const T kMax = static_cast<T>((kOne << size) - 1);
+  static const T kMax = static_cast<T>(kNumValues - 1);
 
   // Tells whether the provided value fits into the bit field.
   static constexpr bool is_valid(T value) {
@@ -305,9 +390,9 @@ class BitField64 : public BitFieldBase<T, shift, size, uint64_t> { };
 #define DEFINE_BIT_FIELD_RANGE_TYPE(Name, Type, Size, _) \
   k##Name##Start, k##Name##End = k##Name##Start + Size - 1,
 
-#define DEFINE_BIT_RANGES(LIST_MACRO)                    \
-  struct LIST_MACRO##_Ranges {                           \
-    enum { LIST_MACRO(DEFINE_BIT_FIELD_RANGE_TYPE, _) }; \
+#define DEFINE_BIT_RANGES(LIST_MACRO)                               \
+  struct LIST_MACRO##_Ranges {                                      \
+    enum { LIST_MACRO(DEFINE_BIT_FIELD_RANGE_TYPE, _) kBitsCount }; \
   };
 
 #define DEFINE_BIT_FIELD_TYPE(Name, Type, Size, RangesName) \
@@ -376,7 +461,7 @@ class BitSetComputer {
 //
 // DEFINE_FIELD_OFFSET_CONSTANTS(HeapObject::kHeaderSize, MAP_FIELDS)
 //
-#define DEFINE_ONE_FIELD_OFFSET(Name, Size) Name, Name##End = Name + Size - 1,
+#define DEFINE_ONE_FIELD_OFFSET(Name, Size) Name, Name##End = Name + (Size)-1,
 
 #define DEFINE_FIELD_OFFSET_CONSTANTS(StartOffset, LIST_MACRO) \
   enum {                                                       \
@@ -387,13 +472,13 @@ class BitSetComputer {
 // ----------------------------------------------------------------------------
 // Hash function.
 
-static const uint32_t kZeroHashSeed = 0;
+static const uint64_t kZeroHashSeed = 0;
 
 // Thomas Wang, Integer Hash Functions.
 // http://www.concentric.net/~Ttwang/tech/inthash.htm
-inline uint32_t ComputeIntegerHash(uint32_t key, uint32_t seed) {
+inline uint32_t ComputeIntegerHash(uint32_t key, uint64_t seed) {
   uint32_t hash = key;
-  hash = hash ^ seed;
+  hash = hash ^ static_cast<uint32_t>(seed);
   hash = ~hash + (hash << 15);  // hash = (hash << 15) - hash - 1;
   hash = hash ^ (hash >> 12);
   hash = hash + (hash << 2);
@@ -424,6 +509,9 @@ inline uint32_t ComputePointerHash(void* ptr) {
       static_cast<uint32_t>(reinterpret_cast<intptr_t>(ptr)));
 }
 
+inline uint32_t ComputeAddressHash(Address address) {
+  return ComputeIntegerHash(static_cast<uint32_t>(address & 0xFFFFFFFFul));
+}
 
 // ----------------------------------------------------------------------------
 // Generated memcpy/memmove
@@ -546,8 +634,8 @@ class Access {
 
   ~Access() {
     resource_->is_reserved_ = false;
-    resource_ = NULL;
-    instance_ = NULL;
+    resource_ = nullptr;
+    instance_ = nullptr;
   }
 
   T* value()  { return instance_; }
@@ -558,27 +646,34 @@ class Access {
   T* instance_;
 };
 
-
 // A pointer that can only be set once and doesn't allow NULL values.
 template<typename T>
 class SetOncePointer {
  public:
-  SetOncePointer() : pointer_(NULL) { }
+  SetOncePointer() = default;
 
-  bool is_set() const { return pointer_ != NULL; }
+  bool is_set() const { return pointer_ != nullptr; }
 
   T* get() const {
-    DCHECK(pointer_ != NULL);
+    DCHECK_NOT_NULL(pointer_);
     return pointer_;
   }
 
   void set(T* value) {
-    DCHECK(pointer_ == NULL && value != NULL);
+    DCHECK(pointer_ == nullptr && value != nullptr);
     pointer_ = value;
   }
 
+  T* operator=(T* value) {
+    set(value);
+    return value;
+  }
+
+  bool operator==(std::nullptr_t) const { return pointer_ == nullptr; }
+  bool operator!=(std::nullptr_t) const { return pointer_ != nullptr; }
+
  private:
-  T* pointer_;
+  T* pointer_ = nullptr;
 };
 
 
@@ -633,8 +728,8 @@ inline int CompareCharsUnsigned(const lchar* lhs, const rchar* rhs,
 
 template <typename lchar, typename rchar>
 inline int CompareChars(const lchar* lhs, const rchar* rhs, size_t chars) {
-  DCHECK(sizeof(lchar) <= 2);
-  DCHECK(sizeof(rchar) <= 2);
+  DCHECK_LE(sizeof(lchar), 2);
+  DCHECK_LE(sizeof(rchar), 2);
   if (sizeof(lchar) == 1) {
     if (sizeof(rchar) == 1) {
       return CompareCharsUnsigned(reinterpret_cast<const uint8_t*>(lhs),
@@ -661,8 +756,8 @@ inline int CompareChars(const lchar* lhs, const rchar* rhs, size_t chars) {
 
 // Calculate 10^exponent.
 inline int TenToThe(int exponent) {
-  DCHECK(exponent <= 9);
-  DCHECK(exponent >= 1);
+  DCHECK_LE(exponent, 9);
+  DCHECK_GE(exponent, 1);
   int answer = 10;
   for (int i = 1; i < exponent; i++) answer *= 10;
   return answer;
@@ -737,7 +832,7 @@ class SimpleStringBuilder {
   // 0-characters; use the Finalize() method to terminate the string
   // instead.
   void AddCharacter(char c) {
-    DCHECK(c != '\0');
+    DCHECK_NE(c, '\0');
     DCHECK(!is_finalized() && position_ < buffer_.length());
     buffer_[position_++] = c;
   }
@@ -791,16 +886,16 @@ class EnumSet {
   T ToIntegral() const { return bits_; }
   bool operator==(const EnumSet& set) { return bits_ == set.bits_; }
   bool operator!=(const EnumSet& set) { return bits_ != set.bits_; }
-  EnumSet<E, T> operator|(const EnumSet& set) const {
-    return EnumSet<E, T>(bits_ | set.bits_);
+  EnumSet operator|(const EnumSet& set) const {
+    return EnumSet(bits_ | set.bits_);
   }
 
  private:
+  static_assert(std::is_enum<E>::value, "EnumSet can only be used with enums");
+
   T Mask(E element) const {
-    // The strange typing in DCHECK is necessary to avoid stupid warnings, see:
-    // http://gcc.gnu.org/bugzilla/show_bug.cgi?id=43680
-    DCHECK(static_cast<int>(element) < static_cast<int>(sizeof(T) * CHAR_BIT));
-    return static_cast<T>(1) << element;
+    DCHECK_GT(sizeof(T) * CHAR_BIT, static_cast<int>(element));
+    return T{1} << static_cast<typename std::underlying_type<E>::type>(element);
   }
 
   T bits_;
@@ -1031,7 +1126,7 @@ inline void CopyWords(T* dst, const T* src, size_t num_words) {
   STATIC_ASSERT(sizeof(T) == kPointerSize);
   DCHECK(Min(dst, const_cast<T*>(src)) + num_words <=
          Max(dst, const_cast<T*>(src)));
-  DCHECK(num_words > 0);
+  DCHECK_GT(num_words, 0);
 
   // Use block copying MemCopy if the segment we're copying is
   // enough to justify the extra call/setup overhead.
@@ -1052,7 +1147,7 @@ inline void CopyWords(T* dst, const T* src, size_t num_words) {
 template <typename T>
 inline void MoveWords(T* dst, const T* src, size_t num_words) {
   STATIC_ASSERT(sizeof(T) == kPointerSize);
-  DCHECK(num_words > 0);
+  DCHECK_GT(num_words, 0);
 
   // Use block copying MemCopy if the segment we're copying is
   // enough to justify the extra call/setup overhead.
@@ -1097,8 +1192,8 @@ inline void CopyBytes(T* dst, const T* src, size_t num_bytes) {
 template <typename T, typename U>
 inline void MemsetPointer(T** dest, U* value, int counter) {
 #ifdef DEBUG
-  T* a = NULL;
-  U* b = NULL;
+  T* a = nullptr;
+  U* b = nullptr;
   a = b;  // Fake assignment to check assignability.
   USE(a);
 #endif  // DEBUG
@@ -1144,34 +1239,36 @@ Vector<const char> ReadFile(FILE* file,
                             bool* exists,
                             bool verbose = true);
 
-
 template <typename sourcechar, typename sinkchar>
-INLINE(static void CopyCharsUnsigned(sinkchar* dest, const sourcechar* src,
-                                     size_t chars));
+V8_INLINE static void CopyCharsUnsigned(sinkchar* dest, const sourcechar* src,
+                                        size_t chars);
 #if defined(V8_HOST_ARCH_ARM)
-INLINE(void CopyCharsUnsigned(uint8_t* dest, const uint8_t* src, size_t chars));
-INLINE(void CopyCharsUnsigned(uint16_t* dest, const uint8_t* src,
-                              size_t chars));
-INLINE(void CopyCharsUnsigned(uint16_t* dest, const uint16_t* src,
-                              size_t chars));
+V8_INLINE void CopyCharsUnsigned(uint8_t* dest, const uint8_t* src,
+                                 size_t chars);
+V8_INLINE void CopyCharsUnsigned(uint16_t* dest, const uint8_t* src,
+                                 size_t chars);
+V8_INLINE void CopyCharsUnsigned(uint16_t* dest, const uint16_t* src,
+                                 size_t chars);
 #elif defined(V8_HOST_ARCH_MIPS)
-INLINE(void CopyCharsUnsigned(uint8_t* dest, const uint8_t* src, size_t chars));
-INLINE(void CopyCharsUnsigned(uint16_t* dest, const uint16_t* src,
-                              size_t chars));
+V8_INLINE void CopyCharsUnsigned(uint8_t* dest, const uint8_t* src,
+                                 size_t chars);
+V8_INLINE void CopyCharsUnsigned(uint16_t* dest, const uint16_t* src,
+                                 size_t chars);
 #elif defined(V8_HOST_ARCH_PPC) || defined(V8_HOST_ARCH_S390)
-INLINE(void CopyCharsUnsigned(uint8_t* dest, const uint8_t* src, size_t chars));
-INLINE(void CopyCharsUnsigned(uint16_t* dest, const uint16_t* src,
-                              size_t chars));
+V8_INLINE void CopyCharsUnsigned(uint8_t* dest, const uint8_t* src,
+                                 size_t chars);
+V8_INLINE void CopyCharsUnsigned(uint16_t* dest, const uint16_t* src,
+                                 size_t chars);
 #endif
 
 // Copy from 8bit/16bit chars to 8bit/16bit chars.
 template <typename sourcechar, typename sinkchar>
-INLINE(void CopyChars(sinkchar* dest, const sourcechar* src, size_t chars));
+V8_INLINE void CopyChars(sinkchar* dest, const sourcechar* src, size_t chars);
 
 template <typename sourcechar, typename sinkchar>
 void CopyChars(sinkchar* dest, const sourcechar* src, size_t chars) {
-  DCHECK(sizeof(sourcechar) <= 2);
-  DCHECK(sizeof(sinkchar) <= 2);
+  DCHECK_LE(sizeof(sourcechar), 2);
+  DCHECK_LE(sizeof(sinkchar), 2);
   if (sizeof(sinkchar) == 1) {
     if (sizeof(sourcechar) == 1) {
       CopyCharsUnsigned(reinterpret_cast<uint8_t*>(dest),
@@ -1485,59 +1582,61 @@ inline uintptr_t GetCurrentStackPosition() {
 }
 
 template <typename V>
-static inline V ReadUnalignedValue(const void* p) {
+static inline V ReadUnalignedValue(Address p) {
+  ASSERT_TRIVIALLY_COPYABLE(V);
 #if !(V8_TARGET_ARCH_MIPS || V8_TARGET_ARCH_MIPS64 || V8_TARGET_ARCH_ARM)
   return *reinterpret_cast<const V*>(p);
 #else   // V8_TARGET_ARCH_MIPS || V8_TARGET_ARCH_MIPS64 || V8_TARGET_ARCH_ARM
   V r;
-  memmove(&r, p, sizeof(V));
+  memmove(&r, reinterpret_cast<void*>(p), sizeof(V));
   return r;
 #endif  // V8_TARGET_ARCH_MIPS || V8_TARGET_ARCH_MIPS64 || V8_TARGET_ARCH_ARM
 }
 
 template <typename V>
-static inline void WriteUnalignedValue(void* p, V value) {
+static inline void WriteUnalignedValue(Address p, V value) {
+  ASSERT_TRIVIALLY_COPYABLE(V);
 #if !(V8_TARGET_ARCH_MIPS || V8_TARGET_ARCH_MIPS64 || V8_TARGET_ARCH_ARM)
   *(reinterpret_cast<V*>(p)) = value;
 #else   // V8_TARGET_ARCH_MIPS || V8_TARGET_ARCH_MIPS64 || V8_TARGET_ARCH_ARM
-  memmove(p, &value, sizeof(V));
+  memmove(reinterpret_cast<void*>(p), &value, sizeof(V));
 #endif  // V8_TARGET_ARCH_MIPS || V8_TARGET_ARCH_MIPS64 || V8_TARGET_ARCH_ARM
 }
 
-static inline double ReadFloatValue(const void* p) {
+static inline double ReadFloatValue(Address p) {
   return ReadUnalignedValue<float>(p);
 }
 
-static inline double ReadDoubleValue(const void* p) {
+static inline double ReadDoubleValue(Address p) {
   return ReadUnalignedValue<double>(p);
 }
 
-static inline void WriteDoubleValue(void* p, double value) {
+static inline void WriteDoubleValue(Address p, double value) {
   WriteUnalignedValue(p, value);
 }
 
-static inline uint16_t ReadUnalignedUInt16(const void* p) {
+static inline uint16_t ReadUnalignedUInt16(Address p) {
   return ReadUnalignedValue<uint16_t>(p);
 }
 
-static inline void WriteUnalignedUInt16(void* p, uint16_t value) {
+static inline void WriteUnalignedUInt16(Address p, uint16_t value) {
   WriteUnalignedValue(p, value);
 }
 
-static inline uint32_t ReadUnalignedUInt32(const void* p) {
+static inline uint32_t ReadUnalignedUInt32(Address p) {
   return ReadUnalignedValue<uint32_t>(p);
 }
 
-static inline void WriteUnalignedUInt32(void* p, uint32_t value) {
+static inline void WriteUnalignedUInt32(Address p, uint32_t value) {
   WriteUnalignedValue(p, value);
 }
 
 template <typename V>
-static inline V ReadLittleEndianValue(const void* p) {
+static inline V ReadLittleEndianValue(Address p) {
 #if defined(V8_TARGET_LITTLE_ENDIAN)
   return ReadUnalignedValue<V>(p);
 #elif defined(V8_TARGET_BIG_ENDIAN)
-  V ret = 0;
+  V ret{};
   const byte* src = reinterpret_cast<const byte*>(p);
   byte* dst = reinterpret_cast<byte*>(&ret);
   for (size_t i = 0; i < sizeof(V); i++) {
@@ -1548,7 +1647,7 @@ static inline V ReadLittleEndianValue(const void* p) {
 }
 
 template <typename V>
-static inline void WriteLittleEndianValue(void* p, V value) {
+static inline void WriteLittleEndianValue(Address p, V value) {
 #if defined(V8_TARGET_LITTLE_ENDIAN)
   WriteUnalignedValue<V>(p, value);
 #elif defined(V8_TARGET_BIG_ENDIAN)
@@ -1558,6 +1657,49 @@ static inline void WriteLittleEndianValue(void* p, V value) {
     dst[i] = src[sizeof(V) - i - 1];
   }
 #endif  // V8_TARGET_LITTLE_ENDIAN
+}
+
+template <typename V>
+static inline V ByteReverse(V value) {
+  size_t size_of_v = sizeof(value);
+  switch (size_of_v) {
+    case 2:
+#if V8_HAS_BUILTIN_BSWAP16
+      return static_cast<V>(__builtin_bswap16(static_cast<uint16_t>(value)));
+#else
+      return value << 8 | (value >> 8 & 0x00FF);
+#endif
+    case 4:
+#if V8_HAS_BUILTIN_BSWAP32
+      return static_cast<V>(__builtin_bswap32(static_cast<uint32_t>(value)));
+#else
+    {
+      size_t bits_of_v = size_of_v * kBitsPerByte;
+      return value << (bits_of_v - 8) |
+             ((value << (bits_of_v - 24)) & 0x00FF0000) |
+             ((value >> (bits_of_v - 24)) & 0x0000FF00) |
+             ((value >> (bits_of_v - 8)) & 0x00000FF);
+    }
+#endif
+    case 8:
+#if V8_HAS_BUILTIN_BSWAP64
+      return static_cast<V>(__builtin_bswap64(static_cast<uint64_t>(value)));
+#else
+    {
+      size_t bits_of_v = size_of_v * kBitsPerByte;
+      return value << (bits_of_v - 8) |
+             ((value << (bits_of_v - 24)) & 0x00FF000000000000) |
+             ((value << (bits_of_v - 40)) & 0x0000FF0000000000) |
+             ((value << (bits_of_v - 56)) & 0x000000FF00000000) |
+             ((value >> (bits_of_v - 56)) & 0x00000000FF000000) |
+             ((value >> (bits_of_v - 40)) & 0x0000000000FF0000) |
+             ((value >> (bits_of_v - 24)) & 0x000000000000FF00) |
+             ((value >> (bits_of_v - 8)) & 0x00000000000000FF);
+    }
+#endif
+    default:
+      UNREACHABLE();
+  }
 }
 
 // Represents a linked list that threads through the nodes in the linked list.
@@ -1662,20 +1804,8 @@ class ThreadedList final {
   DISALLOW_COPY_AND_ASSIGN(ThreadedList);
 };
 
-// Can be used to create a threaded list of |T|.
-template <typename T>
-class ThreadedListZoneEntry final : public ZoneObject {
- public:
-  explicit ThreadedListZoneEntry(T value) : value_(value), next_(nullptr) {}
-
-  T value() { return value_; }
-  ThreadedListZoneEntry<T>** next() { return &next_; }
-
- private:
-  T value_;
-  ThreadedListZoneEntry<T>* next_;
-  DISALLOW_COPY_AND_ASSIGN(ThreadedListZoneEntry);
-};
+V8_EXPORT_PRIVATE bool PassesFilter(Vector<const char> name,
+                                    Vector<const char> filter);
 
 }  // namespace internal
 }  // namespace v8

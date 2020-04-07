@@ -8,14 +8,55 @@
 #include "EGLWindow.h"
 #include "random_utils.h"
 
-SampleApplication::SampleApplication(const std::string &name,
-                                     size_t width,
-                                     size_t height,
+#include "angle_gl.h"
+
+#include <string.h>
+#include <iostream>
+#include <utility>
+
+namespace
+{
+const char *kUseAngleArg = "--use-angle=";
+
+using DisplayTypeInfo = std::pair<const char *, EGLint>;
+
+const DisplayTypeInfo kDisplayTypes[] = {
+    {"d3d9", EGL_PLATFORM_ANGLE_TYPE_D3D9_ANGLE}, {"d3d11", EGL_PLATFORM_ANGLE_TYPE_D3D11_ANGLE},
+    {"gl", EGL_PLATFORM_ANGLE_TYPE_OPENGL_ANGLE}, {"gles", EGL_PLATFORM_ANGLE_TYPE_OPENGLES_ANGLE},
+    {"null", EGL_PLATFORM_ANGLE_TYPE_NULL_ANGLE}, {"vulkan", EGL_PLATFORM_ANGLE_TYPE_VULKAN_ANGLE}};
+
+EGLint GetDisplayTypeFromArg(const char *displayTypeArg)
+{
+    for (const auto &displayTypeInfo : kDisplayTypes)
+    {
+        if (strcmp(displayTypeInfo.first, displayTypeArg) == 0)
+        {
+            std::cout << "Using ANGLE back-end API: " << displayTypeInfo.first << std::endl;
+            return displayTypeInfo.second;
+        }
+    }
+
+    std::cout << "Unknown ANGLE back-end API: " << displayTypeArg << std::endl;
+    return EGL_PLATFORM_ANGLE_TYPE_DEFAULT_ANGLE;
+}
+}  // anonymous namespace
+
+SampleApplication::SampleApplication(std::string name,
+                                     int argc,
+                                     char **argv,
                                      EGLint glesMajorVersion,
                                      EGLint glesMinorVersion,
-                                     EGLint requestedRenderer)
-    : mName(name), mWidth(width), mHeight(height), mRunning(false)
+                                     size_t width,
+                                     size_t height)
+    : mName(std::move(name)), mWidth(width), mHeight(height), mRunning(false)
 {
+    EGLint requestedRenderer = EGL_PLATFORM_ANGLE_TYPE_DEFAULT_ANGLE;
+
+    if (argc > 1 && strncmp(argv[1], kUseAngleArg, strlen(kUseAngleArg)) == 0)
+    {
+        requestedRenderer = GetDisplayTypeFromArg(argv[1] + strlen(kUseAngleArg));
+    }
+
     mEGLWindow.reset(new EGLWindow(glesMajorVersion, glesMinorVersion,
                                    EGLPlatformParameters(requestedRenderer)));
     mTimer.reset(CreateTimer());

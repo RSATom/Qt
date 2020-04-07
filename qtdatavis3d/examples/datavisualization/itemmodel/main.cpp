@@ -70,9 +70,6 @@ public:
 private:
     Q3DBars *m_graph;
     QTimer *m_dataTimer;
-    QTimer *m_styleTimer;
-    QTimer *m_presetTimer;
-    QTimer *m_themeTimer;
     int m_columnCount;
     int m_rowCount;
     QTableWidget *m_tableWidget; // not owned
@@ -81,9 +78,6 @@ private:
 GraphDataGenerator::GraphDataGenerator(Q3DBars *bargraph, QTableWidget *tableWidget)
     : m_graph(bargraph),
       m_dataTimer(0),
-      m_styleTimer(0),
-      m_presetTimer(0),
-      m_themeTimer(0),
       m_columnCount(100),
       m_rowCount(50),
       m_tableWidget(tableWidget)

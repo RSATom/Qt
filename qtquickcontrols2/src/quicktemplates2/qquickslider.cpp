@@ -73,6 +73,9 @@ QT_BEGIN_NAMESPACE
     In the example above, \l visualPosition will be \c 0.24 in a left-to-right
     application, and \c 0.76 in a right-to-left application.
 
+    For a slider that allows the user to select a range by providing two
+    handles, see \l RangeSlider.
+
     \sa {Customizing Slider}, {Input Controls}
 */
 
@@ -89,20 +92,6 @@ class QQuickSliderPrivate : public QQuickControlPrivate
     Q_DECLARE_PUBLIC(QQuickSlider)
 
 public:
-    QQuickSliderPrivate()
-        : from(0),
-          to(1),
-          value(0),
-          position(0),
-          stepSize(0),
-          live(true),
-          pressed(false),
-          orientation(Qt::Horizontal),
-          snapMode(QQuickSlider::NoSnap),
-          handle(nullptr)
-    {
-    }
-
     qreal snapPosition(qreal position) const;
     qreal positionAt(const QPointF &point) const;
     void setPosition(qreal position);
@@ -116,16 +105,20 @@ public:
     void cancelHandle();
     void executeHandle(bool complete = false);
 
-    qreal from;
-    qreal to;
-    qreal value;
-    qreal position;
-    qreal stepSize;
-    bool live;
-    bool pressed;
+    void itemImplicitWidthChanged(QQuickItem *item) override;
+    void itemImplicitHeightChanged(QQuickItem *item) override;
+
+    qreal from = 0;
+    qreal to = 1;
+    qreal value = 0;
+    qreal position = 0;
+    qreal stepSize = 0;
+    qreal touchDragThreshold = -1; // in QQuickWindowPrivate::dragOverThreshold, '-1' implies using styleHints::startDragDistance()
+    bool live = true;
+    bool pressed = false;
     QPointF pressPoint;
-    Qt::Orientation orientation;
-    QQuickSlider::SnapMode snapMode;
+    Qt::Orientation orientation = Qt::Horizontal;
+    QQuickSlider::SnapMode snapMode = QQuickSlider::NoSnap;
     QQuickDeferredPointer<QQuickItem> handle;
 };
 
@@ -259,6 +252,22 @@ void QQuickSliderPrivate::executeHandle(bool complete)
         quickCompleteDeferred(q, handleName(), handle);
 }
 
+void QQuickSliderPrivate::itemImplicitWidthChanged(QQuickItem *item)
+{
+    Q_Q(QQuickSlider);
+    QQuickControlPrivate::itemImplicitWidthChanged(item);
+    if (item == handle)
+        emit q->implicitHandleWidthChanged();
+}
+
+void QQuickSliderPrivate::itemImplicitHeightChanged(QQuickItem *item)
+{
+    Q_Q(QQuickSlider);
+    QQuickControlPrivate::itemImplicitHeightChanged(item);
+    if (item == handle)
+        emit q->implicitHandleHeightChanged();
+}
+
 QQuickSlider::QQuickSlider(QQuickItem *parent)
     : QQuickControl(*(new QQuickSliderPrivate), parent)
 {
@@ -268,6 +277,12 @@ QQuickSlider::QQuickSlider(QQuickItem *parent)
 #if QT_CONFIG(cursor)
     setCursor(Qt::ArrowCursor);
 #endif
+}
+
+QQuickSlider::~QQuickSlider()
+{
+    Q_D(QQuickSlider);
+    d->removeImplicitSizeListener(d->handle);
 }
 
 /*!
@@ -418,6 +433,9 @@ void QQuickSlider::setStepSize(qreal step)
 
     This property holds the snap mode.
 
+    The snap mode determines how the slider handle behaves with
+    regards to the \l stepSize.
+
     Possible values:
     \value Slider.NoSnap The slider does not snap (default).
     \value Slider.SnapAlways The slider snaps while the handle is dragged.
@@ -456,7 +474,8 @@ void QQuickSlider::setSnapMode(SnapMode mode)
 /*!
     \qmlproperty bool QtQuick.Controls::Slider::pressed
 
-    This property holds whether the slider is pressed.
+    This property holds whether the slider is pressed by either touch, mouse,
+    or keys.
 */
 bool QQuickSlider::isPressed() const
 {
@@ -556,10 +575,23 @@ void QQuickSlider::setHandle(QQuickItem *handle)
     if (!d->handle.isExecuting())
         d->cancelHandle();
 
+    const qreal oldImplicitHandleWidth = implicitHandleWidth();
+    const qreal oldImplicitHandleHeight = implicitHandleHeight();
+
+    d->removeImplicitSizeListener(d->handle);
     delete d->handle;
     d->handle = handle;
-    if (handle && !handle->parentItem())
-        handle->setParentItem(this);
+
+    if (handle) {
+        if (!handle->parentItem())
+            handle->setParentItem(this);
+        d->addImplicitSizeListener(handle);
+    }
+
+    if (!qFuzzyCompare(oldImplicitHandleWidth, implicitHandleWidth()))
+        emit implicitHandleWidthChanged();
+    if (!qFuzzyCompare(oldImplicitHandleHeight, implicitHandleHeight()))
+        emit implicitHandleHeightChanged();
     if (!d->handle.isExecuting())
         emit handleChanged();
 }
@@ -636,6 +668,81 @@ void QQuickSlider::decrease()
     setValue(d->value - step);
 }
 
+/*!
+    \since QtQuick.Controls 2.5 (Qt 5.12)
+    \qmlproperty qreal QtQuick.Controls::Slider::touchDragThreshold
+
+    This property holds the threshold (in logical pixels) at which a touch drag event will be initiated.
+    The mouse drag threshold won't be affected.
+    The default value is \c Qt.styleHints.startDragDistance.
+
+    \sa QStyleHints
+*/
+qreal QQuickSlider::touchDragThreshold() const
+{
+    Q_D(const QQuickSlider);
+    return d->touchDragThreshold;
+}
+
+void QQuickSlider::setTouchDragThreshold(qreal touchDragThreshold)
+{
+    Q_D(QQuickSlider);
+    if (d->touchDragThreshold == touchDragThreshold)
+        return;
+
+    d->touchDragThreshold = touchDragThreshold;
+    emit touchDragThresholdChanged();
+}
+
+void QQuickSlider::resetTouchDragThreshold()
+{
+    setTouchDragThreshold(-1);
+}
+
+/*!
+    \since QtQuick.Controls 2.5 (Qt 5.12)
+    \qmlproperty real QtQuick.Controls::Slider::implicitHandleWidth
+    \readonly
+
+    This property holds the implicit handle width.
+
+    The value is equal to \c {handle ? handle.implicitWidth : 0}.
+
+    This is typically used, together with \l {Control::}{implicitContentWidth} and
+    \l {Control::}{implicitBackgroundWidth}, to calculate the \l {Item::}{implicitWidth}.
+
+    \sa implicitHandleHeight
+*/
+qreal QQuickSlider::implicitHandleWidth() const
+{
+    Q_D(const QQuickSlider);
+    if (!d->handle)
+        return 0;
+    return d->handle->implicitWidth();
+}
+
+/*!
+    \since QtQuick.Controls 2.5 (Qt 5.12)
+    \qmlproperty real QtQuick.Controls::Slider::implicitHandleHeight
+    \readonly
+
+    This property holds the implicit handle height.
+
+    The value is equal to \c {handle ? handle.implicitHeight : 0}.
+
+    This is typically used, together with \l {Control::}{implicitContentHeight} and
+    \l {Control::}{implicitBackgroundHeight}, to calculate the \l {Item::}{implicitHeight}.
+
+    \sa implicitHandleWidth
+*/
+qreal QQuickSlider::implicitHandleHeight() const
+{
+    Q_D(const QQuickSlider);
+    if (!d->handle)
+        return 0;
+    return d->handle->implicitHeight();
+}
+
 void QQuickSlider::keyPressEvent(QKeyEvent *event)
 {
     Q_D(QQuickSlider);
@@ -684,18 +791,7 @@ void QQuickSlider::mousePressEvent(QMouseEvent *event)
     Q_D(QQuickSlider);
     QQuickControl::mousePressEvent(event);
     d->handleMove(event->localPos());
-}
-
-void QQuickSlider::mouseMoveEvent(QMouseEvent *event)
-{
-    Q_D(QQuickSlider);
-    if (!keepMouseGrab()) {
-        if (d->orientation == Qt::Horizontal)
-            setKeepMouseGrab(QQuickWindowPrivate::dragOverThreshold(event->localPos().x() - d->pressPoint.x(), Qt::XAxis, event));
-        else
-            setKeepMouseGrab(QQuickWindowPrivate::dragOverThreshold(event->localPos().y() - d->pressPoint.y(), Qt::YAxis, event));
-    }
-    QQuickControl::mouseMoveEvent(event);
+    setKeepMouseGrab(true);
 }
 
 #if QT_CONFIG(quicktemplates2_multitouch)
@@ -715,9 +811,9 @@ void QQuickSlider::touchEvent(QTouchEvent *event)
             case Qt::TouchPointMoved:
                 if (!keepTouchGrab()) {
                     if (d->orientation == Qt::Horizontal)
-                        setKeepTouchGrab(QQuickWindowPrivate::dragOverThreshold(point.pos().x() - d->pressPoint.x(), Qt::XAxis, &point));
+                        setKeepTouchGrab(QQuickWindowPrivate::dragOverThreshold(point.pos().x() - d->pressPoint.x(), Qt::XAxis, &point, qRound(d->touchDragThreshold)));
                     else
-                        setKeepTouchGrab(QQuickWindowPrivate::dragOverThreshold(point.pos().y() - d->pressPoint.y(), Qt::YAxis, &point));
+                        setKeepTouchGrab(QQuickWindowPrivate::dragOverThreshold(point.pos().y() - d->pressPoint.y(), Qt::YAxis, &point, qRound(d->touchDragThreshold)));
                 }
                 if (keepTouchGrab())
                     d->handleMove(point.pos());
@@ -752,7 +848,6 @@ void QQuickSlider::wheelEvent(QWheelEvent *event)
         const bool wasMoved = !qFuzzyCompare(d->value, oldValue);
         if (wasMoved)
             emit moved();
-        event->setAccepted(wasMoved);
     }
 }
 #endif

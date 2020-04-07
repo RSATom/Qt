@@ -13,6 +13,8 @@ component("sql") {
     "error_delegate_util.cc",
     "error_delegate_util.h",
     "init_status.h",
+    "initialization.cc",
+    "initialization.h",
     "meta_table.cc",
     "meta_table.h",
     "recovery.cc",
@@ -22,14 +24,13 @@ component("sql") {
     "sql_memory_dump_provider.h",
     "statement.cc",
     "statement.h",
+    "statement_id.cc",
+    "statement_id.h",
     "transaction.cc",
     "transaction.h",
     "vfs_wrapper.cc",
     "vfs_wrapper.h",
   ]
-
-  # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
-  configs += [ "//build/config/compiler:no_size_t_to_int_warning" ]
 
   defines = [ "SQL_IMPLEMENTATION" ]
 
@@ -69,17 +70,6 @@ static_library("test_support") {
   ]
 }
 
-source_set("redirection_header") {
-  # This target exists because we need a way to switch between
-  # "test/sql_test_base.h" and "mojo/sql_test_base.h" at compile time, to allow
-  # us to switch out the gtest vs mojo:apptest frameworks.
-  check_includes = false
-
-  sources = [
-    "correct_sql_test_base.h",
-  ]
-}
-
 bundle_data("sql_unittests_bundle_data") {
   testonly = true
   sources = [
@@ -98,6 +88,7 @@ test("sql_unittests") {
     "recovery_unittest.cc",
     "sql_memory_dump_provider_unittest.cc",
     "sqlite_features_unittest.cc",
+    "statement_id_unittest.cc",
     "statement_unittest.cc",
     "test/paths.cc",
     "test/paths.h",
@@ -113,11 +104,7 @@ test("sql_unittests") {
     "test/data/",
   ]
 
-  # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
-  configs += [ "//build/config/compiler:no_size_t_to_int_warning" ]
-
   deps = [
-    ":redirection_header",
     ":sql",
     ":sql_unittests_bundle_data",
     ":test_support",

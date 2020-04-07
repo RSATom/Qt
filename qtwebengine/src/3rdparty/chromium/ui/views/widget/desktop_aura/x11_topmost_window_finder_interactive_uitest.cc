@@ -4,28 +4,20 @@
 
 #include "ui/views/widget/desktop_aura/x11_topmost_window_finder.h"
 
-#include <X11/Xlib.h>
-#include <X11/Xregion.h>
-#include <X11/extensions/shape.h>
 #include <stddef.h>
 
 #include <algorithm>
 #include <memory>
 #include <vector>
 
-// Get rid of X11 macros which conflict with gtest.
-#undef Bool
-#undef None
-
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "third_party/skia/include/core/SkRect.h"
-#include "third_party/skia/include/core/SkRegion.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_tree_host.h"
 #include "ui/events/platform/x11/x11_event_source.h"
 #include "ui/gfx/path.h"
 #include "ui/gfx/path_x11.h"
+#include "ui/gfx/x/x11.h"
 #include "ui/gfx/x/x11_atom_cache.h"
 #include "ui/views/test/views_interactive_ui_test_base.h"
 #include "ui/views/test/x11_property_change_waiter.h"
@@ -191,7 +183,7 @@ class X11TopmostWindowFinderTest : public ViewsInteractiveUITestBase {
 
     // Make X11 synchronous for our display connection. This does not force the
     // window manager to behave synchronously.
-    XSynchronize(xdisplay(), True);
+    XSynchronize(xdisplay(), x11::True);
 
     // Ensure that the X11DesktopHandler exists. The X11DesktopHandler is
     // necessary to properly track menu windows.
@@ -199,7 +191,7 @@ class X11TopmostWindowFinderTest : public ViewsInteractiveUITestBase {
   }
 
   void TearDown() override {
-    XSynchronize(xdisplay(), False);
+    XSynchronize(xdisplay(), x11::False);
     ViewsInteractiveUITestBase::TearDown();
   }
 
@@ -302,10 +294,10 @@ TEST_F(X11TopmostWindowFinderTest, NonRectangular) {
   std::unique_ptr<Widget> widget1(
       CreateAndShowWidget(gfx::Rect(100, 100, 100, 100)));
   XID xid1 = widget1->GetNativeWindow()->GetHost()->GetAcceleratedWidget();
-  auto skregion1 = base::MakeUnique<SkRegion>();
-  skregion1->op(SkIRect::MakeXYWH(0, 10, 10, 90), SkRegion::kUnion_Op);
-  skregion1->op(SkIRect::MakeXYWH(10, 0, 90, 100), SkRegion::kUnion_Op);
-  widget1->SetShape(std::move(skregion1));
+  auto shape1 = std::make_unique<Widget::ShapeRects>();
+  shape1->emplace_back(0, 10, 10, 90);
+  shape1->emplace_back(10, 0, 90, 100);
+  widget1->SetShape(std::move(shape1));
 
   SkRegion skregion2;
   skregion2.op(SkIRect::MakeXYWH(0, 10, 10, 90), SkRegion::kUnion_Op);
@@ -341,10 +333,10 @@ TEST_F(X11TopmostWindowFinderTest, NonRectangularEmptyShape) {
   std::unique_ptr<Widget> widget1(
       CreateAndShowWidget(gfx::Rect(100, 100, 100, 100)));
   XID xid1 = widget1->GetNativeWindow()->GetHost()->GetAcceleratedWidget();
-  auto skregion1 = base::MakeUnique<SkRegion>();
-  skregion1->op(SkIRect::MakeXYWH(0, 0, 0, 0), SkRegion::kUnion_Op);
-  // Widget takes ownership of |skregion1|.
-  widget1->SetShape(std::move(skregion1));
+  auto shape1 = std::make_unique<Widget::ShapeRects>();
+  shape1->emplace_back();
+  // Widget takes ownership of |shape1|.
+  widget1->SetShape(std::move(shape1));
 
   XID xids[] = { xid1 };
   StackingClientListWaiter stack_waiter(xids, arraysize(xids));
@@ -362,9 +354,9 @@ TEST_F(X11TopmostWindowFinderTest, NonRectangularNullShape) {
   std::unique_ptr<Widget> widget1(
       CreateAndShowWidget(gfx::Rect(100, 100, 100, 100)));
   XID xid1 = widget1->GetNativeWindow()->GetHost()->GetAcceleratedWidget();
-  auto skregion1 = base::MakeUnique<SkRegion>();
-  skregion1->op(SkIRect::MakeXYWH(0, 0, 0, 0), SkRegion::kUnion_Op);
-  widget1->SetShape(std::move(skregion1));
+  auto shape1 = std::make_unique<Widget::ShapeRects>();
+  shape1->emplace_back();
+  widget1->SetShape(std::move(shape1));
 
   // Remove the shape - this is now just a normal window.
   widget1->SetShape(nullptr);
@@ -384,7 +376,7 @@ TEST_F(X11TopmostWindowFinderTest, Menu) {
 
   XID root = DefaultRootWindow(xdisplay());
   XSetWindowAttributes swa;
-  swa.override_redirect = True;
+  swa.override_redirect = x11::True;
   XID menu_xid = XCreateWindow(xdisplay(),
                                root,
                                0, 0, 1, 1,

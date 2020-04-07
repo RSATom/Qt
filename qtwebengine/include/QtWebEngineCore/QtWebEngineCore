@@ -5,9 +5,12 @@
 #include "qwebenginecallback.h"
 #include "qwebenginecookiestore.h"
 #include "qwebenginehttprequest.h"
+#include "qwebenginequotarequest.h"
+#include "qwebengineregisterprotocolhandlerrequest.h"
 #include "qwebengineurlrequestinfo.h"
 #include "qwebengineurlrequestinterceptor.h"
 #include "qwebengineurlrequestjob.h"
+#include "qwebengineurlscheme.h"
 #include "qwebengineurlschemehandler.h"
 #include "qtwebenginecoreversion.h"
 #endif

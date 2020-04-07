@@ -5,9 +5,9 @@
 #include "content/browser/media/audible_metrics.h"
 
 #include "base/metrics/histogram_samples.h"
-#include "base/test/histogram_tester.h"
+#include "base/test/metrics/histogram_tester.h"
+#include "base/test/metrics/user_action_tester.h"
 #include "base/test/simple_test_tick_clock.h"
-#include "base/test/user_action_tester.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace content {
@@ -31,19 +31,13 @@ class AudibleMetricsTest : public testing::Test {
   AudibleMetricsTest() = default;
 
   void SetUp() override {
-    clock_ = new base::SimpleTestTickClock();
     // Set the clock to a value different than 0 so the time it gives is
     // recognized as initialized.
-    clock_->Advance(base::TimeDelta::FromMilliseconds(1));
-    audible_metrics_.SetClockForTest(
-        std::unique_ptr<base::SimpleTestTickClock>(clock_));
+    clock_.Advance(base::TimeDelta::FromMilliseconds(1));
+    audible_metrics_.SetClockForTest(&clock_);
   }
 
-  void TearDown() override {
-    clock_ = nullptr;
-  }
-
-  base::SimpleTestTickClock* clock() { return clock_; }
+  base::SimpleTestTickClock* clock() { return &clock_; }
 
   AudibleMetrics* audible_metrics() {
     return &audible_metrics_;
@@ -59,7 +53,7 @@ class AudibleMetricsTest : public testing::Test {
   }
 
  private:
-  base::SimpleTestTickClock* clock_ = nullptr;
+  base::SimpleTestTickClock clock_;
   AudibleMetrics audible_metrics_;
   base::HistogramTester histogram_tester_;
   base::UserActionTester user_action_tester_;

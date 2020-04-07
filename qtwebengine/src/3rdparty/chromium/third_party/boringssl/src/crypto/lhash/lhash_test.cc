@@ -12,10 +12,6 @@
  * OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE. */
 
-#if !defined(_POSIX_C_SOURCE)
-#define _POSIX_C_SOURCE 201410L
-#endif
-
 #include <openssl/lhash.h>
 
 #include <stdio.h>
@@ -106,6 +102,17 @@ TEST(LHashTest, Basic) {
       case kRetrieve: {
         std::unique_ptr<char[]> key = RandString();
         void *value = lh_retrieve(lh.get(), key.get());
+        EXPECT_EQ(Lookup(&dummy_lh, key.get()), value);
+
+        // Do the same lookup with |lh_retrieve_key|.
+        value = lh_retrieve_key(
+            lh.get(), &key, lh_strhash(key.get()),
+            [](const void *key_ptr, const void *data) -> int {
+              const char *key_data =
+                  reinterpret_cast<const std::unique_ptr<char[]> *>(key_ptr)
+                      ->get();
+              return strcmp(key_data, reinterpret_cast<const char *>(data));
+            });
         EXPECT_EQ(Lookup(&dummy_lh, key.get()), value);
         break;
       }

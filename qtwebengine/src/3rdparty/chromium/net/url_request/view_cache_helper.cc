@@ -10,16 +10,17 @@
 #include "net/base/escape.h"
 #include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
+#include "net/base/request_priority.h"
 #include "net/disk_cache/disk_cache.h"
 #include "net/http/http_cache.h"
 #include "net/http/http_response_headers.h"
 #include "net/http/http_response_info.h"
 #include "net/url_request/url_request_context.h"
 
-#define VIEW_CACHE_HEAD \
-  "<html><meta charset=\"utf-8\">" \
-  "<meta http-equiv=\"Content-Security-Policy\" " \
-  "  content=\"object-src 'none'; script-src 'none' 'unsafe-eval'\">" \
+#define VIEW_CACHE_HEAD                                 \
+  "<html><meta charset=\"utf-8\">"                      \
+  "<meta http-equiv=\"Content-Security-Policy\" "       \
+  "  content=\"object-src 'none'; script-src 'none'\">" \
   "<body><table>"
 
 #define VIEW_CACHE_TAIL \
@@ -217,8 +218,8 @@ int ViewCacheHelper::DoGetBackend() {
     return ERR_FAILED;
 
   return http_cache->GetBackend(
-      &disk_cache_, base::Bind(&ViewCacheHelper::OnIOComplete,
-                               base::Unretained(this)));
+      &disk_cache_,
+      base::BindOnce(&ViewCacheHelper::OnIOComplete, base::Unretained(this)));
 }
 
 int ViewCacheHelper::DoGetBackendComplete(int result) {
@@ -266,7 +267,7 @@ int ViewCacheHelper::DoOpenNextEntryComplete(int result) {
 int ViewCacheHelper::DoOpenEntry() {
   next_state_ = STATE_OPEN_ENTRY_COMPLETE;
   return disk_cache_->OpenEntry(
-      key_, &entry_,
+      key_, net::HIGHEST, &entry_,
       base::Bind(&ViewCacheHelper::OnIOComplete, base::Unretained(this)));
 }
 

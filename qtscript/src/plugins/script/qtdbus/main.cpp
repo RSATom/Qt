@@ -38,9 +38,9 @@
 ****************************************************************************/
 
 #include "main.h"
-#include <QDebug>
-#include <QMetaMethod>
-#include <QScriptExtensionPlugin>
+#include <QtCore/qdebug.h>
+#include <QtCore/qmetamethod.h>
+#include <QtScript/qscriptextensionplugin.h>
 
 #ifndef QT_NO_DBUS
 

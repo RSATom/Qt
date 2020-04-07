@@ -61,11 +61,11 @@ class Q_AUTOTEST_EXPORT QDefaultMaskGenerator : public QMaskGenerator
     Q_DISABLE_COPY(QDefaultMaskGenerator)
 
 public:
-    explicit QDefaultMaskGenerator(QObject *parent = 0);
-    virtual ~QDefaultMaskGenerator();
+    explicit QDefaultMaskGenerator(QObject *parent = nullptr);
+    ~QDefaultMaskGenerator() override;
 
-    bool seed() Q_DECL_NOEXCEPT Q_DECL_OVERRIDE;
-    quint32 nextMask() Q_DECL_NOEXCEPT Q_DECL_OVERRIDE;
+    bool seed() Q_DECL_NOEXCEPT override;
+    quint32 nextMask() Q_DECL_NOEXCEPT override;
 };
 
 QT_END_NAMESPACE

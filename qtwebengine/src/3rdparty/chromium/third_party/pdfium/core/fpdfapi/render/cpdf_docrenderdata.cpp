@@ -44,7 +44,7 @@ void CPDF_DocRenderData::Clear(bool bRelease) {
   }
 }
 
-CFX_RetainPtr<CPDF_Type3Cache> CPDF_DocRenderData::GetCachedType3(
+RetainPtr<CPDF_Type3Cache> CPDF_DocRenderData::GetCachedType3(
     CPDF_Type3Font* pFont) {
   auto it = m_Type3FaceMap.find(pFont);
   if (it != m_Type3FaceMap.end())
@@ -61,8 +61,8 @@ void CPDF_DocRenderData::MaybePurgeCachedType3(CPDF_Type3Font* pFont) {
     m_Type3FaceMap.erase(it);
 }
 
-CFX_RetainPtr<CPDF_TransferFunc> CPDF_DocRenderData::GetTransferFunc(
-    CPDF_Object* pObj) {
+RetainPtr<CPDF_TransferFunc> CPDF_DocRenderData::GetTransferFunc(
+    const CPDF_Object* pObj) {
   if (!pObj)
     return nullptr;
 
@@ -73,7 +73,7 @@ CFX_RetainPtr<CPDF_TransferFunc> CPDF_DocRenderData::GetTransferFunc(
   std::unique_ptr<CPDF_Function> pFuncs[3];
   bool bUniTransfer = true;
   bool bIdentity = true;
-  if (CPDF_Array* pArray = pObj->AsArray()) {
+  if (const CPDF_Array* pArray = pObj->AsArray()) {
     bUniTransfer = false;
     if (pArray->GetCount() < 3)
       return nullptr;
@@ -104,27 +104,27 @@ CFX_RetainPtr<CPDF_TransferFunc> CPDF_DocRenderData::GetTransferFunc(
       if (o != v)
         bIdentity = false;
       for (int i = 0; i < 3; ++i)
-        pTransfer->m_Samples[i * 256 + v] = o;
+        pTransfer->GetSamples()[i * 256 + v] = o;
       continue;
     }
     for (int i = 0; i < 3; ++i) {
       if (!pFuncs[i] || pFuncs[i]->CountOutputs() > kMaxOutputs) {
-        pTransfer->m_Samples[i * 256 + v] = v;
+        pTransfer->GetSamples()[i * 256 + v] = v;
         continue;
       }
       pFuncs[i]->Call(&input, 1, output, &noutput);
       int o = FXSYS_round(output[0] * 255);
       if (o != v)
         bIdentity = false;
-      pTransfer->m_Samples[i * 256 + v] = o;
+      pTransfer->GetSamples()[i * 256 + v] = o;
     }
   }
 
-  pTransfer->m_bIdentity = bIdentity;
+  pTransfer->SetIdentity(bIdentity);
   return pTransfer;
 }
 
-void CPDF_DocRenderData::MaybePurgeTransferFunc(CPDF_Object* pObj) {
+void CPDF_DocRenderData::MaybePurgeTransferFunc(const CPDF_Object* pObj) {
   auto it = m_TransferFuncMap.find(pObj);
   if (it != m_TransferFuncMap.end() && it->second->HasOneRef())
     m_TransferFuncMap.erase(it);

@@ -2,7 +2,7 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import("//build/config/ios/imageset.gni")
+import("//build/config/ios/asset_catalog.gni")
 
 imageset("bookmark_bar_innershadow") {
   sources = [
@@ -76,6 +76,24 @@ imageset("bookmark_blue_folder") {
   ]
 }
 
+imageset("bookmark_blue_new_folder") {
+  sources = [
+    "bookmark_blue_new_folder.imageset/Contents.json",
+    "bookmark_blue_new_folder.imageset/bookmark_blue_new_folder.png",
+    "bookmark_blue_new_folder.imageset/bookmark_blue_new_folder@2x.png",
+    "bookmark_blue_new_folder.imageset/bookmark_blue_new_folder@3x.png",
+  ]
+}
+
+imageset("bookmark_empty_star") {
+  sources = [
+    "bookmark_empty_star.imageset/Contents.json",
+    "bookmark_empty_star.imageset/bookmark_empty_star.png",
+    "bookmark_empty_star.imageset/bookmark_empty_star@2x.png",
+    "bookmark_empty_star.imageset/bookmark_empty_star@3x.png",
+  ]
+}
+
 imageset("bookmark_gray_back") {
   sources = [
     "bookmark_gray_back.imageset/Contents.json",
@@ -118,6 +136,15 @@ imageset("bookmark_gray_folder") {
     "bookmark_gray_folder.imageset/bookmark_gray_folder.png",
     "bookmark_gray_folder.imageset/bookmark_gray_folder@2x.png",
     "bookmark_gray_folder.imageset/bookmark_gray_folder@3x.png",
+  ]
+}
+
+imageset("bookmark_gray_folder_new") {
+  sources = [
+    "bookmark_gray_folder_new.imageset/Contents.json",
+    "bookmark_gray_folder_new.imageset/bookmark_gray_folder_new.png",
+    "bookmark_gray_folder_new.imageset/bookmark_gray_folder_new@2x.png",
+    "bookmark_gray_folder_new.imageset/bookmark_gray_folder_new@3x.png",
   ]
 }
 

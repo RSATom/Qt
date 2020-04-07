@@ -217,8 +217,8 @@ gl::Error Blit9::boxFilter(IDirect3DSurface9 *source, IDirect3DSurface9 *dest)
     device->SetTexture(0, texture);
     device->SetRenderTarget(0, dest);
 
-    setVertexShader(SHADER_VS_STANDARD);
-    setPixelShader(SHADER_PS_PASSTHROUGH);
+    ANGLE_TRY(setVertexShader(SHADER_VS_STANDARD));
+    ANGLE_TRY(setPixelShader(SHADER_PS_PASSTHROUGH));
 
     setCommonBlitState();
     device->SetSamplerState(0, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
@@ -258,7 +258,8 @@ gl::Error Blit9::copy2D(const gl::Context *context,
 
     IDirect3DSurface9 *destSurface = nullptr;
     TextureStorage9 *storage9      = GetAs<TextureStorage9>(storage);
-    gl::Error error = storage9->getSurfaceLevel(context, GL_TEXTURE_2D, level, true, &destSurface);
+    gl::Error error =
+        storage9->getSurfaceLevel(context, gl::TextureTarget::_2D, level, true, &destSurface);
     if (error.isError())
     {
         SafeRelease(source);
@@ -281,7 +282,7 @@ gl::Error Blit9::copyCube(const gl::Context *context,
                           GLenum destFormat,
                           const gl::Offset &destOffset,
                           TextureStorage *storage,
-                          GLenum target,
+                          gl::TextureTarget target,
                           GLint level)
 {
     gl::Error error = initialize();
@@ -330,7 +331,7 @@ gl::Error Blit9::copyTexture(const gl::Context *context,
                              GLenum destFormat,
                              const gl::Offset &destOffset,
                              TextureStorage *storage,
-                             GLenum destTarget,
+                             gl::TextureTarget destTarget,
                              GLint destLevel,
                              bool flipY,
                              bool premultiplyAlpha,
@@ -354,8 +355,8 @@ gl::Error Blit9::copyTexture(const gl::Context *context,
     ANGLE_TRY(sourceStorage9->getBaseTexture(context, &sourceTexture));
 
     IDirect3DSurface9 *sourceSurface = nullptr;
-    ANGLE_TRY(
-        sourceStorage9->getSurfaceLevel(context, GL_TEXTURE_2D, sourceLevel, true, &sourceSurface));
+    ANGLE_TRY(sourceStorage9->getSurfaceLevel(context, gl::TextureTarget::_2D, sourceLevel, true,
+                                              &sourceSurface));
 
     IDirect3DSurface9 *destSurface = nullptr;
     gl::Error error =
@@ -547,7 +548,6 @@ gl::Error Blit9::setFormatConvertShaders(GLenum destFormat,
 
     switch (destFormat)
     {
-      default: UNREACHABLE();
       case GL_RGBA:
       case GL_BGRA_EXT:
         multConst[X] = 1;
@@ -625,6 +625,8 @@ gl::Error Blit9::setFormatConvertShaders(GLenum destFormat,
         addConst[Z] = 0;
         addConst[W] = 0;
         break;
+
+      default: UNREACHABLE();
     }
 
     mRenderer->getDevice()->SetPixelShaderConstantF(0, psConst, 2);

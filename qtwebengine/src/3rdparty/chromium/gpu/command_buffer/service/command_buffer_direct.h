@@ -9,7 +9,7 @@
 #include "gpu/command_buffer/common/command_buffer_id.h"
 #include "gpu/command_buffer/common/constants.h"
 #include "gpu/command_buffer/service/command_buffer_service.h"
-#include "gpu/command_buffer/service/gles2_cmd_decoder.h"
+#include "gpu/command_buffer/service/decoder_client.h"
 #include "gpu/gpu_export.h"
 
 namespace gpu {
@@ -23,7 +23,7 @@ struct SyncToken;
 
 class GPU_EXPORT CommandBufferDirect : public CommandBuffer,
                                        public CommandBufferServiceClient,
-                                       public gles2::GLES2DecoderClient {
+                                       public DecoderClient {
  public:
   using MakeCurrentCallback = base::Callback<bool()>;
 
@@ -45,29 +45,36 @@ class GPU_EXPORT CommandBufferDirect : public CommandBuffer,
                                                int32_t start,
                                                int32_t end) override;
   void SetGetBuffer(int32_t transfer_buffer_id) override;
-  scoped_refptr<Buffer> CreateTransferBuffer(size_t size, int32_t* id) override;
+  scoped_refptr<Buffer> CreateTransferBuffer(uint32_t size,
+                                             int32_t* id) override;
   void DestroyTransferBuffer(int32_t id) override;
 
   // CommandBufferServiceBase implementation:
   CommandBatchProcessedResult OnCommandBatchProcessed() override;
   void OnParseError() override;
 
-  // GLES2DecoderClient implementation
+  // DecoderClient implementation
   void OnConsoleMessage(int32_t id, const std::string& message) override;
   void CacheShader(const std::string& key, const std::string& shader) override;
   void OnFenceSyncRelease(uint64_t release) override;
   bool OnWaitSyncToken(const gpu::SyncToken&) override;
   void OnDescheduleUntilFinished() override;
   void OnRescheduleAfterFinished() override;
+  void OnSwapBuffers(uint64_t swap_id, uint32_t flags) override;
+  void ScheduleGrContextCleanup() override {}
 
   CommandBufferNamespace GetNamespaceID() const;
   CommandBufferId GetCommandBufferID() const;
 
   void SetCommandsPaused(bool paused);
   void SignalSyncToken(const gpu::SyncToken& sync_token,
-                       const base::Closure& callback);
+                       base::OnceClosure callback);
 
-  scoped_refptr<Buffer> CreateTransferBufferWithId(size_t size, int32_t id);
+  scoped_refptr<Buffer> CreateTransferBufferWithId(uint32_t size, int32_t id);
+
+  void SetGetOffsetForTest(int32_t get_offset) {
+    service_.SetGetOffsetForTest(get_offset);
+  }
 
  private:
   CommandBufferService service_;

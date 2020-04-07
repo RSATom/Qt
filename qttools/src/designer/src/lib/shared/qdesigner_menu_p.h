@@ -42,10 +42,10 @@
 
 #include "shared_global_p.h"
 
-#include <QtWidgets/QAction>
-#include <QtWidgets/QMenu>
-#include <QtGui/QPixmap>
-#include <QtCore/QHash>
+#include <QtWidgets/qaction.h>
+#include <QtWidgets/qmenu.h>
+#include <QtGui/qpixmap.h>
+#include <QtCore/qhash.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -69,9 +69,9 @@ class QDESIGNER_SHARED_EXPORT QDesignerMenu: public QMenu
     Q_OBJECT
 public:
     QDesignerMenu(QWidget *parent = 0);
-    virtual ~QDesignerMenu();
+    ~QDesignerMenu() override;
 
-    bool eventFilter(QObject *object, QEvent *event) Q_DECL_OVERRIDE;
+    bool eventFilter(QObject *object, QEvent *event) override;
 
     QDesignerFormWindowInterface *formWindow() const;
     QDesignerActionProviderExtension *actionProvider();
@@ -79,7 +79,7 @@ public:
     QDesignerMenu *parentMenu() const;
     QDesignerMenuBar *parentMenuBar() const;
 
-    void setVisible(bool visible) Q_DECL_OVERRIDE;
+    void setVisible(bool visible) override;
 
     void adjustSpecialActions();
 
@@ -109,15 +109,15 @@ private slots:
     void slotAdjustSizeNow();
 
 protected:
-    void actionEvent(QActionEvent *event) Q_DECL_OVERRIDE;
-    void dragEnterEvent(QDragEnterEvent *event) Q_DECL_OVERRIDE;
-    void dragMoveEvent(QDragMoveEvent *event) Q_DECL_OVERRIDE;
-    void dragLeaveEvent(QDragLeaveEvent *event) Q_DECL_OVERRIDE;
-    void dropEvent(QDropEvent *event) Q_DECL_OVERRIDE;
-    void paintEvent(QPaintEvent *event) Q_DECL_OVERRIDE;
-    void keyPressEvent(QKeyEvent *event) Q_DECL_OVERRIDE;
-    void keyReleaseEvent(QKeyEvent *event) Q_DECL_OVERRIDE;
-    void showEvent(QShowEvent *event) Q_DECL_OVERRIDE;
+    void actionEvent(QActionEvent *event) override;
+    void dragEnterEvent(QDragEnterEvent *event) override;
+    void dragMoveEvent(QDragMoveEvent *event) override;
+    void dragLeaveEvent(QDragLeaveEvent *event) override;
+    void dropEvent(QDropEvent *event) override;
+    void paintEvent(QPaintEvent *event) override;
+    void keyPressEvent(QKeyEvent *event) override;
+    void keyReleaseEvent(QKeyEvent *event) override;
+    void showEvent(QShowEvent *event) override;
 
     bool handleEvent(QWidget *widget, QEvent *event);
     bool handleMouseDoubleClickEvent(QWidget *widget, QMouseEvent *event);

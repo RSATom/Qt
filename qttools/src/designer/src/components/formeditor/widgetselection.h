@@ -32,8 +32,8 @@
 #include "formeditor_global.h"
 #include <invisible_widget_p.h>
 
-#include <QtCore/QHash>
-#include <QtCore/QPointer>
+#include <QtCore/qhash.h>
+#include <QtCore/qpointer.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -74,10 +74,10 @@ public:
     QDesignerFormEditorInterface *core() const;
 
 protected:
-    void paintEvent(QPaintEvent *e);
-    void mousePressEvent(QMouseEvent *e);
-    void mouseMoveEvent(QMouseEvent *e);
-    void mouseReleaseEvent(QMouseEvent *e);
+    void paintEvent(QPaintEvent *e) override;
+    void mousePressEvent(QMouseEvent *e) override;
+    void mouseMoveEvent(QMouseEvent *e) override;
+    void mouseReleaseEvent(QMouseEvent *e) override;
 
 private:
     void changeGridLayoutItemSpan();
@@ -114,7 +114,7 @@ public:
 
     QDesignerFormEditorInterface *core() const;
 
-    bool eventFilter(QObject *object, QEvent *event) Q_DECL_OVERRIDE;
+    bool eventFilter(QObject *object, QEvent *event) override;
 
     enum  WidgetState { UnlaidOut, LaidOut, ManagedGridLayout, ManagedFormLayout };
     static WidgetState widgetState(const QDesignerFormEditorInterface *core, QWidget *w);

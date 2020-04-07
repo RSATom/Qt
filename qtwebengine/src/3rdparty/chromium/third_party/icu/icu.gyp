@@ -92,7 +92,7 @@
       'source/common',
       'source/i18n',
     ],
-    'msvs_disabled_warnings': [4005, 4068, 4355, 4996, 4267],
+    'msvs_disabled_warnings': [4005, 4068, 4267],
   },
   'conditions': [
     ['use_system_icu==0 or want_separate_host_toolset==1', {
@@ -337,8 +337,6 @@
               'msvs_settings': {
                 'VCCLCompilerTool': {
                   'AdditionalOptions': [
-                    # See http://bugs.icu-project.org/trac/ticket/11122
-                    '-Wno-inline-new-delete',
                     '-Wno-implicit-exception-spec-mismatch',
                   ],
                 },
@@ -450,8 +448,6 @@
               'msvs_settings': {
                 'VCCLCompilerTool': {
                   'AdditionalOptions': [
-                    # See http://bugs.icu-project.org/trac/ticket/11122
-                    '-Wno-inline-new-delete',
                     '-Wno-implicit-exception-spec-mismatch',
                   ],
                 },
@@ -505,6 +501,7 @@
               # This list can easily be updated using the command below:
               # ls source/i18n/unicode/*h | sort | \
               # sed "s/^.*i18n\/\(.*\)$/              '\1',/"
+	      # I18N_HDR_START
               'unicode/alphaindex.h',
               'unicode/basictz.h',
               'unicode/calendar.h',
@@ -533,6 +530,8 @@
               'unicode/measunit.h',
               'unicode/measure.h',
               'unicode/msgfmt.h',
+              'unicode/nounit.h',
+              'unicode/numberformatter.h',
               'unicode/numfmt.h',
               'unicode/numsys.h',
               'unicode/plurfmt.h',
@@ -572,6 +571,7 @@
               'unicode/ulocdata.h',
               'unicode/umsg.h',
               'unicode/unirepl.h',
+              'unicode/unumberformatter.h',
               'unicode/unum.h',
               'unicode/unumsys.h',
               'unicode/upluralrules.h',
@@ -583,6 +583,7 @@
               'unicode/utmscale.h',
               'unicode/utrans.h',
               'unicode/vtzone.h',
+	      # I18N_HDR_END
             ],
           },
           'includes': [
@@ -601,6 +602,7 @@
               # This list can easily be updated using the command below:
               # ls source/common/unicode/*h | sort | \
               # sed "s/^.*common\/\(.*\)$/              '\1',/"
+	      # COMMON_HDR_START
               'unicode/appendable.h',
               'unicode/brkiter.h',
               'unicode/bytestream.h',
@@ -639,6 +641,7 @@
               'unicode/simpleformatter.h',
               'unicode/std_string.h',
               'unicode/strenum.h',
+              'unicode/stringoptions.h',
               'unicode/stringpiece.h',
               'unicode/stringtriebuilder.h',
               'unicode/symtable.h',
@@ -696,6 +699,7 @@
               'unicode/utypes.h',
               'unicode/uvernum.h',
               'unicode/uversion.h',
+	      # COMMON_HDR_END
             ],
           },
           'includes': [

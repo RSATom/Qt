@@ -14,11 +14,10 @@
 #include "base/i18n/rtl.h"
 #include "base/macros.h"
 #include "components/autofill/core/browser/autofill_client.h"
+#include "components/autofill/core/browser/test_address_normalizer.h"
 #include "components/prefs/pref_service.h"
-#include "components/rappor/test_rappor_service.h"
 #include "components/ukm/test_ukm_recorder.h"
-#include "google_apis/gaia/fake_identity_provider.h"
-#include "google_apis/gaia/fake_oauth2_token_service.h"
+#include "services/identity/public/cpp/identity_test_environment.h"
 
 namespace autofill {
 
@@ -33,22 +32,26 @@ class TestAutofillClient : public AutofillClient {
   scoped_refptr<AutofillWebDataService> GetDatabase() override;
   PrefService* GetPrefs() override;
   syncer::SyncService* GetSyncService() override;
-  IdentityProvider* GetIdentityProvider() override;
-  rappor::RapporServiceImpl* GetRapporServiceImpl() override;
+  identity::IdentityManager* GetIdentityManager() override;
   ukm::UkmRecorder* GetUkmRecorder() override;
-  SaveCardBubbleController* GetSaveCardBubbleController() override;
+  ukm::SourceId GetUkmSourceId() override;
+  AddressNormalizer* GetAddressNormalizer() override;
+  security_state::SecurityLevel GetSecurityLevelForUmaHistograms() override;
   void ShowAutofillSettings() override;
   void ShowUnmaskPrompt(const CreditCard& card,
                         UnmaskCardReason reason,
                         base::WeakPtr<CardUnmaskDelegate> delegate) override;
   void OnUnmaskVerificationResult(PaymentsRpcResult result) override;
+  void ShowLocalCardMigrationPrompt(base::OnceClosure closure) override;
+  void ConfirmSaveAutofillProfile(const AutofillProfile& profile,
+                                  base::OnceClosure callback) override;
   void ConfirmSaveCreditCardLocally(const CreditCard& card,
                                     const base::Closure& callback) override;
   void ConfirmSaveCreditCardToCloud(
       const CreditCard& card,
       std::unique_ptr<base::DictionaryValue> legal_message,
-      bool should_cvc_be_requested,
-      const base::Closure& callback) override;
+      bool should_request_name_from_user,
+      base::OnceCallback<void(const base::string16&)> callback) override;
   void ConfirmCreditCardFillAssist(const CreditCard& card,
                                    const base::Closure& callback) override;
   void LoadRiskData(
@@ -59,6 +62,7 @@ class TestAutofillClient : public AutofillClient {
       const gfx::RectF& element_bounds,
       base::i18n::TextDirection text_direction,
       const std::vector<Suggestion>& suggestions,
+      bool autoselect_first_suggestion,
       base::WeakPtr<AutofillPopupDelegate> delegate) override;
   void UpdateAutofillPopupDataListValues(
       const std::vector<base::string16>& values,
@@ -70,35 +74,52 @@ class TestAutofillClient : public AutofillClient {
       const std::vector<autofill::FormStructure*>& forms) override;
   void DidFillOrPreviewField(const base::string16& autofilled_value,
                              const base::string16& profile_full_name) override;
+  void DidInteractWithNonsecureCreditCardInput() override;
   // By default, TestAutofillClient will report that the context is
   // secure. This can be adjusted by calling set_form_origin() with an
   // http:// URL.
   bool IsContextSecure() override;
   bool ShouldShowSigninPromo() override;
-  void StartSigninFlow() override;
-  void ShowHttpNotSecureExplanation() override;
   bool IsAutofillSupported() override;
+  bool AreServerCardsSupported() override;
+  void ExecuteCommand(int id) override;
+  // Initializes UKM source from form_origin_. This needs to be called
+  // in unittests after calling Purge for ukm recorder to re-initialize
+  // sources.
+  void InitializeUKMSources();
 
   void SetPrefs(std::unique_ptr<PrefService> prefs) {
     prefs_ = std::move(prefs);
   }
 
-  rappor::TestRapporServiceImpl* test_rappor_service() {
-    return rappor_service_.get();
+  void set_form_origin(const GURL& url);
+
+  void set_sync_service(syncer::SyncService* test_sync_service) {
+    test_sync_service_ = test_sync_service;
   }
 
-  void set_form_origin(const GURL& url) { form_origin_ = url; }
+  void set_security_level(security_state::SecurityLevel security_level) {
+    security_level_ = security_level;
+  }
+
+  GURL form_origin() { return form_origin_; }
+
+  static void UpdateSourceURL(ukm::UkmRecorder* ukm_recorder,
+                              ukm::SourceId source_id,
+                              GURL url);
 
  private:
+  identity::IdentityTestEnvironment identity_test_env_;
+  syncer::SyncService* test_sync_service_ = nullptr;
+  TestAddressNormalizer test_address_normalizer_;
+
   // NULL by default.
   std::unique_ptr<PrefService> prefs_;
-  std::unique_ptr<FakeOAuth2TokenService> token_service_;
-  std::unique_ptr<FakeIdentityProvider> identity_provider_;
-  std::unique_ptr<rappor::TestRapporServiceImpl> rappor_service_;
-#if !defined(OS_ANDROID)
-  std::unique_ptr<SaveCardBubbleController> save_card_bubble_controller_;
-#endif
   GURL form_origin_;
+  ukm::SourceId source_id_ = -1;
+
+  security_state::SecurityLevel security_level_ =
+      security_state::SecurityLevel::NONE;
 
   DISALLOW_COPY_AND_ASSIGN(TestAutofillClient);
 };

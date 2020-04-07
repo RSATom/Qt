@@ -12,6 +12,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread_task_runner_handle.h"
 #import "ui/base/clipboard/clipboard_util_mac.h"
+#include "ui/gfx/image/image_unittest_util.h"
 #import "ui/views/cocoa/bridged_native_widget.h"
 #include "ui/views/test/widget_test.h"
 #include "ui/views/view.h"
@@ -196,7 +197,8 @@ class DragDropClientMacTest : public WidgetTest {
   }
 
   void TearDown() override {
-    widget_->CloseNow();
+    if (widget_)
+      widget_->CloseNow();
     WidgetTest::TearDown();
   }
 
@@ -240,6 +242,8 @@ TEST_F(DragDropClientMacTest, ReleaseCapture) {
   OSExchangeData data;
   const base::string16& text = ASCIIToUTF16("text");
   data.SetString(text);
+  data.provider().SetDragImage(gfx::test::CreateImageSkia(100, 100),
+                               gfx::Vector2d());
   SetData(data);
 
   // There's no way to cleanly stop NSDraggingSession inside unit tests, so just
@@ -294,6 +298,40 @@ TEST_F(DragDropClientMacTest, PasteboardToOSExchangeTest) {
   [pasteboard->get() setString:@"text" forType:NSPasteboardTypeString];
   EXPECT_EQ(DragUpdate(pasteboard->get()), NSDragOperationCopy);
   EXPECT_EQ(Drop(), NSDragOperationMove);
+}
+
+// View object that will close Widget on drop.
+class DragDropCloseView : public DragDropView {
+ public:
+  DragDropCloseView() {}
+
+  // View:
+  int OnPerformDrop(const ui::DropTargetEvent& event) override {
+    GetWidget()->CloseNow();
+    return ui::DragDropTypes::DRAG_MOVE;
+  }
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(DragDropCloseView);
+};
+
+// Tests that closing Widget on OnPerformDrop does not crash.
+TEST_F(DragDropClientMacTest, CloseWidgetOnDrop) {
+  OSExchangeData data;
+  const base::string16& text = ASCIIToUTF16("text");
+  data.SetString(text);
+  SetData(data);
+
+  target_ = new DragDropCloseView();
+  widget_->GetContentsView()->AddChildView(target_);
+  target_->SetBoundsRect(gfx::Rect(0, 0, 100, 100));
+  target_->set_formats(ui::OSExchangeData::STRING | ui::OSExchangeData::URL);
+
+  EXPECT_EQ(DragUpdate(nil), NSDragOperationCopy);
+  EXPECT_EQ(Drop(), NSDragOperationMove);
+
+  // OnPerformDrop() will have deleted the widget.
+  widget_ = nullptr;
 }
 
 }  // namespace test

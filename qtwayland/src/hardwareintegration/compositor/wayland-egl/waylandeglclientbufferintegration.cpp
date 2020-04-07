@@ -151,7 +151,7 @@ egl_error_string(EGLint code)
 
 struct BufferState
 {
-    BufferState();
+    BufferState() = default;
 
     enum EglMode {
         ModeUninitialized,
@@ -159,14 +159,14 @@ struct BufferState
         ModeEGLStream
     };
 
-    EGLint egl_format;
+    EGLint egl_format = EGL_TEXTURE_RGBA;
     QVarLengthArray<EGLImageKHR, 3> egl_images;
     QOpenGLTexture *textures[3] = {};
-    EGLStreamKHR egl_stream;
+    EGLStreamKHR egl_stream = EGL_NO_STREAM_KHR;
 
-    bool isYInverted;
+    bool isYInverted = true;
     QSize size;
-    EglMode eglMode;
+    EglMode eglMode = ModeUninitialized;
 };
 
 class WaylandEglClientBufferIntegrationPrivate
@@ -180,23 +180,27 @@ public:
     bool initEglStream(WaylandEglClientBuffer *buffer, struct ::wl_resource *bufferHandle);
     void handleEglstreamTexture(WaylandEglClientBuffer *buffer, wl_resource *bufferHandle);
     void registerBuffer(struct ::wl_resource *buffer, BufferState state);
+    void deleteGLTextureWhenPossible(QOpenGLTexture *texture) { orphanedTextures << texture; }
+    void deleteOrphanedTextures();
 
-    EGLDisplay egl_display;
-    bool valid;
-    bool display_bound;
+    EGLDisplay egl_display = EGL_NO_DISPLAY;
+    bool valid = false;
+    bool display_bound = false;
+    ::wl_display *wlDisplay = nullptr;
     QOffscreenSurface *offscreenSurface = nullptr;
     QOpenGLContext *localContext = nullptr;
+    QVector<QOpenGLTexture *> orphanedTextures;
 
-    PFNEGLBINDWAYLANDDISPLAYWL egl_bind_wayland_display;
-    PFNEGLUNBINDWAYLANDDISPLAYWL egl_unbind_wayland_display;
-    PFNEGLQUERYWAYLANDBUFFERWL_compat egl_query_wayland_buffer;
+    PFNEGLBINDWAYLANDDISPLAYWL egl_bind_wayland_display = nullptr;
+    PFNEGLUNBINDWAYLANDDISPLAYWL egl_unbind_wayland_display = nullptr;
+    PFNEGLQUERYWAYLANDBUFFERWL_compat egl_query_wayland_buffer = nullptr;
 
-    PFNEGLCREATEIMAGEKHRPROC egl_create_image;
-    PFNEGLDESTROYIMAGEKHRPROC egl_destroy_image;
+    PFNEGLCREATEIMAGEKHRPROC egl_create_image = nullptr;
+    PFNEGLDESTROYIMAGEKHRPROC egl_destroy_image = nullptr;
 
-    PFNGLEGLIMAGETARGETTEXTURE2DOESPROC gl_egl_image_target_texture_2d;
+    PFNGLEGLIMAGETARGETTEXTURE2DOESPROC gl_egl_image_target_texture_2d = nullptr;
 
-    QEGLStreamConvenience *funcs;
+    QEGLStreamConvenience *funcs = nullptr;
     static WaylandEglClientBufferIntegrationPrivate *get(WaylandEglClientBufferIntegration *integration) {
         return shuttingDown ? nullptr : integration->d_ptr.data();
     }
@@ -206,24 +210,7 @@ public:
 
 bool WaylandEglClientBufferIntegrationPrivate::shuttingDown = false;
 
-BufferState::BufferState()
-    : egl_format(EGL_TEXTURE_RGBA)
-    , egl_stream(EGL_NO_STREAM_KHR)
-    , isYInverted(true)
-    , eglMode(ModeUninitialized)
-{}
-
 WaylandEglClientBufferIntegrationPrivate::WaylandEglClientBufferIntegrationPrivate()
-    : egl_display(EGL_NO_DISPLAY)
-    , valid(false)
-    , display_bound(false)
-    , egl_bind_wayland_display(0)
-    , egl_unbind_wayland_display(0)
-    , egl_query_wayland_buffer(0)
-    , egl_create_image(0)
-    , egl_destroy_image(0)
-    , gl_egl_image_target_texture_2d(0)
-    , funcs(Q_NULLPTR)
 {
 }
 
@@ -393,15 +380,27 @@ void WaylandEglClientBufferIntegrationPrivate::handleEglstreamTexture(WaylandEgl
         localContext->doneCurrent();
 }
 
+void WaylandEglClientBufferIntegrationPrivate::deleteOrphanedTextures()
+{
+    Q_ASSERT(QOpenGLContext::currentContext());
+    qDeleteAll(orphanedTextures);
+    orphanedTextures.clear();
+}
+
 WaylandEglClientBufferIntegration::WaylandEglClientBufferIntegration()
-    : QtWayland::ClientBufferIntegration()
-    , d_ptr(new WaylandEglClientBufferIntegrationPrivate)
+    : d_ptr(new WaylandEglClientBufferIntegrationPrivate)
 {
 }
 
 WaylandEglClientBufferIntegration::~WaylandEglClientBufferIntegration()
 {
     WaylandEglClientBufferIntegrationPrivate::shuttingDown = true;
+    Q_D(WaylandEglClientBufferIntegration);
+    if (d->egl_unbind_wayland_display && d->display_bound) {
+        Q_ASSERT(d->wlDisplay);
+        if (!d->egl_unbind_wayland_display(d->egl_display, d->wlDisplay))
+            qWarning() << "Qt Wayland Compositor: eglUnbindWaylandDisplayWL failed";
+    }
 }
 
 void WaylandEglClientBufferIntegration::initializeHardware(struct wl_display *display)
@@ -458,6 +457,7 @@ void WaylandEglClientBufferIntegration::initializeHardware(struct wl_display *di
                 qWarning("QtCompositor: Could not bind Wayland display. Ignoring.");
             }
         }
+        d->wlDisplay = display;
     }
 
     d->funcs = new QEGLStreamConvenience;
@@ -502,7 +502,7 @@ WaylandEglClientBuffer::~WaylandEglClientBuffer()
             p->funcs->destroy_stream(p->egl_display, d->egl_stream);
 
         for (auto *texture : d->textures)
-            delete texture;
+            p->deleteGLTextureWhenPossible(texture);
     }
     delete d;
 }
@@ -544,6 +544,10 @@ QWaylandBufferRef::BufferFormatEgl WaylandEglClientBuffer::bufferFormatEgl() con
 
 QOpenGLTexture *WaylandEglClientBuffer::toOpenGlTexture(int plane)
 {
+    auto *p = WaylandEglClientBufferIntegrationPrivate::get(m_integration);
+    // At this point we should have a valid OpenGL context, so it's safe to destroy textures
+    p->deleteOrphanedTextures();
+
     if (!m_buffer)
         return nullptr;
 
@@ -551,7 +555,6 @@ QOpenGLTexture *WaylandEglClientBuffer::toOpenGlTexture(int plane)
     if (d->eglMode == BufferState::ModeEGLStream)
         return texture; // EGLStreams texture is maintained by handle_eglstream_texture()
 
-    auto *p = WaylandEglClientBufferIntegrationPrivate::get(m_integration);
     const auto target = static_cast<QOpenGLTexture::Target>(d->egl_format == EGL_TEXTURE_EXTERNAL_WL ? GL_TEXTURE_EXTERNAL_OES
                                                                         : GL_TEXTURE_2D);
     if (!texture) {
@@ -593,7 +596,7 @@ quintptr WaylandEglClientBuffer::lockNativeBuffer()
 
     EGLImageKHR image = p->egl_create_image(p->egl_display, EGL_NO_CONTEXT,
                                           EGL_WAYLAND_BUFFER_WL,
-                                          m_buffer, NULL);
+                                          m_buffer, nullptr);
     return reinterpret_cast<quintptr>(image);
 }
 

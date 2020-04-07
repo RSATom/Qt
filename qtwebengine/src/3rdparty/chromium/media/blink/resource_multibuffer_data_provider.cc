@@ -16,25 +16,43 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/threading/thread_task_runner_handle.h"
-#include "media/blink/active_loader.h"
 #include "media/blink/cache_util.h"
 #include "media/blink/media_blink_export.h"
+#include "media/blink/resource_fetch_context.h"
 #include "media/blink/url_index.h"
 #include "net/http/http_byte_range.h"
 #include "net/http/http_request_headers.h"
-#include "third_party/WebKit/public/platform/WebURLError.h"
-#include "third_party/WebKit/public/platform/WebURLResponse.h"
-#include "third_party/WebKit/public/web/WebAssociatedURLLoader.h"
+#include "third_party/blink/public/platform/web_url.h"
+#include "third_party/blink/public/platform/web_url_error.h"
+#include "third_party/blink/public/platform/web_url_response.h"
+#include "third_party/blink/public/web/web_associated_url_loader.h"
 
 using blink::WebAssociatedURLLoader;
-using blink::WebAssociatedURLLoaderOptions;
-using blink::WebFrame;
 using blink::WebString;
 using blink::WebURLError;
 using blink::WebURLRequest;
 using blink::WebURLResponse;
 
 namespace media {
+
+namespace {
+
+bool IsCORSCrossOriginResponseType(network::mojom::FetchResponseType response_type) {
+  switch (response_type) {
+    case network::mojom::FetchResponseType::kBasic:
+    case network::mojom::FetchResponseType::kCORS:
+    case network::mojom::FetchResponseType::kDefault:
+    case network::mojom::FetchResponseType::kError:
+      return false;
+    case network::mojom::FetchResponseType::kOpaque:
+    case network::mojom::FetchResponseType::kOpaqueRedirect:
+      return true;
+  }
+  NOTREACHED();
+  return false;
+}
+
+}  // namespace
 
 // The number of milliseconds to wait before retrying a failed load.
 const int kLoaderFailedRetryDelayMs = 250;
@@ -55,23 +73,22 @@ const int kHttpRangeNotSatisfiable = 416;
 
 ResourceMultiBufferDataProvider::ResourceMultiBufferDataProvider(
     UrlData* url_data,
-    MultiBufferBlockId pos)
+    MultiBufferBlockId pos,
+    bool is_client_audio_element)
     : pos_(pos),
       url_data_(url_data),
       retries_(0),
       cors_mode_(url_data->cors_mode()),
       origin_(url_data->url().GetOrigin()),
+      is_client_audio_element_(is_client_audio_element),
       weak_factory_(this) {
   DCHECK(url_data_) << " pos = " << pos;
   DCHECK_GE(pos, 0);
 }
 
-void ResourceMultiBufferDataProvider::Start() {
-  // Prepare the request.
-  WebURLRequest request(url_data_->url());
-  // TODO(mkwst): Split this into video/audio.
-  request.SetRequestContext(WebURLRequest::kRequestContextVideo);
+ResourceMultiBufferDataProvider::~ResourceMultiBufferDataProvider() = default;
 
+void ResourceMultiBufferDataProvider::Start() {
   DVLOG(1) << __func__ << " @ " << byte_pos();
   if (url_data_->length() > 0 && byte_pos() >= url_data_->length()) {
     base::ThreadTaskRunnerHandle::Get()->PostTask(
@@ -80,6 +97,11 @@ void ResourceMultiBufferDataProvider::Start() {
     return;
   }
 
+  // Prepare the request.
+  WebURLRequest request(url_data_->url());
+  request.SetRequestContext(is_client_audio_element_
+                                ? WebURLRequest::kRequestContextAudio
+                                : WebURLRequest::kRequestContextVideo);
   request.SetHTTPHeaderField(
       WebString::FromUTF8(net::HttpRequestHeaders::kRange),
       WebString::FromUTF8(
@@ -100,41 +122,29 @@ void ResourceMultiBufferDataProvider::Start() {
   // so will disable the http cache, and possibly other proxies
   // along the way. See crbug/504194 and crbug/689989 for more information.
 
-  url_data_->frame()->SetReferrerForRequest(request, blink::WebURL());
-
   // Disable compression, compression for audio/video doesn't make sense...
   request.SetHTTPHeaderField(
       WebString::FromUTF8(net::HttpRequestHeaders::kAcceptEncoding),
       WebString::FromUTF8("identity;q=1, *;q=0"));
 
-  // Check for our test WebAssociatedURLLoader.
-  std::unique_ptr<WebAssociatedURLLoader> loader;
-  if (test_loader_) {
-    loader = std::move(test_loader_);
-    request.SetFetchRequestMode(WebURLRequest::kFetchRequestModeSameOrigin);
-    request.SetFetchCredentialsMode(WebURLRequest::kFetchCredentialsModeOmit);
-  } else {
-    WebAssociatedURLLoaderOptions options;
-    if (url_data_->cors_mode() != UrlData::CORS_UNSPECIFIED) {
-      options.expose_all_response_headers = true;
-      // The author header set is empty, no preflight should go ahead.
-      options.preflight_policy =
-          WebAssociatedURLLoaderOptions::kPreventPreflight;
-      request.SetFetchRequestMode(WebURLRequest::kFetchRequestModeCORS);
-      if (url_data_->cors_mode() != UrlData::CORS_USE_CREDENTIALS) {
-        request.SetFetchCredentialsMode(
-            WebURLRequest::kFetchCredentialsModeSameOrigin);
-      }
+  // Start resource loading.
+  blink::WebAssociatedURLLoaderOptions options;
+  if (url_data_->cors_mode() != UrlData::CORS_UNSPECIFIED) {
+    options.expose_all_response_headers = true;
+    // The author header set is empty, no preflight should go ahead.
+    options.preflight_policy =
+        network::mojom::CORSPreflightPolicy::kPreventPreflight;
+
+    request.SetFetchRequestMode(network::mojom::FetchRequestMode::kCORS);
+    if (url_data_->cors_mode() != UrlData::CORS_USE_CREDENTIALS) {
+      request.SetFetchCredentialsMode(
+          network::mojom::FetchCredentialsMode::kSameOrigin);
     }
-    loader.reset(url_data_->frame()->CreateAssociatedURLLoader(options));
   }
-
-  // Start the resource loading.
-  loader->LoadAsynchronously(request, this);
-  active_loader_.reset(new ActiveLoader(std::move(loader)));
+  active_loader_ =
+      url_data_->url_index()->fetch_context()->CreateUrlLoader(options);
+  active_loader_->LoadAsynchronously(request, this);
 }
-
-ResourceMultiBufferDataProvider::~ResourceMultiBufferDataProvider() {}
 
 /////////////////////////////////////////////////////////////////////////////
 // MultiBuffer::DataProvider implementation.
@@ -171,21 +181,20 @@ scoped_refptr<DataBuffer> ResourceMultiBufferDataProvider::Read() {
 }
 
 void ResourceMultiBufferDataProvider::SetDeferred(bool deferred) {
-  if (!active_loader_ || active_loader_->deferred() == deferred)
-    return;
-  active_loader_->SetDeferred(deferred);
+  if (active_loader_)
+    active_loader_->SetDefersLoading(deferred);
 }
 
 /////////////////////////////////////////////////////////////////////////////
 // WebAssociatedURLLoaderClient implementation.
 
 bool ResourceMultiBufferDataProvider::WillFollowRedirect(
-    const WebURLRequest& newRequest,
-    const WebURLResponse& redirectResponse) {
+    const blink::WebURL& new_url,
+    const WebURLResponse& redirect_response) {
   DVLOG(1) << "willFollowRedirect";
-  redirects_to_ = newRequest.Url();
+  redirects_to_ = new_url;
   url_data_->set_valid_until(base::Time::Now() +
-                             GetCacheValidUntil(redirectResponse));
+                             GetCacheValidUntil(redirect_response));
 
   // This test is vital for security!
   if (cors_mode_ == UrlData::CORS_UNSPECIFIED) {
@@ -196,7 +205,7 @@ bool ResourceMultiBufferDataProvider::WillFollowRedirect(
       if (url_data_->multibuffer()->map().empty() && fifo_.empty())
         return true;
 
-      active_loader_ = nullptr;
+      active_loader_.reset();
       url_data_->Fail();
       return false;  // "this" may be deleted now.
     }
@@ -238,16 +247,9 @@ void ResourceMultiBufferDataProvider::DidReceiveResponse(
 
   scoped_refptr<UrlData> destination_url_data(url_data_);
 
-  UrlIndex* url_index = url_data_->url_index();
-
   if (!redirects_to_.is_empty()) {
-    if (!url_index) {
-      // We've been disconnected from the url index.
-      // That means the url_index_ has been destroyed, which means we do not
-      // need to do anything clever.
-      return;
-    }
-    destination_url_data = url_index->GetByUrl(redirects_to_, cors_mode_);
+    destination_url_data =
+        url_data_->url_index()->GetByUrl(redirects_to_, cors_mode_);
     redirects_to_ = GURL();
   }
 
@@ -287,6 +289,8 @@ void ResourceMultiBufferDataProvider::DidReceiveResponse(
   int64_t content_length = response.ExpectedContentLength();
   bool end_of_file = false;
   bool do_fail = false;
+  // We get the response type here because aborting the loader may change it.
+  const auto response_type = response.ResponseTypeViaServiceWorker();
   bytes_to_discard_ = 0;
 
   // We make a strong assumption that when we reach here we have either
@@ -323,7 +327,7 @@ void ResourceMultiBufferDataProvider::DidReceiveResponse(
       // url_data_ hasn't been updated to the final destination yet.
       end_of_file = true;
     } else {
-      active_loader_ = nullptr;
+      active_loader_.reset();
       // Can't call fail until readers have been migrated to the new
       // url data below.
       do_fail = true;
@@ -335,9 +339,14 @@ void ResourceMultiBufferDataProvider::DidReceiveResponse(
     }
   }
 
-  if (url_index && !do_fail) {
-    destination_url_data = url_index->TryInsert(destination_url_data);
+  if (!do_fail) {
+    destination_url_data =
+        url_data_->url_index()->TryInsert(destination_url_data);
   }
+
+  // This is vital for security!
+  destination_url_data->set_is_cors_cross_origin(
+      IsCORSCrossOriginResponseType(response_type));
 
   if (destination_url_data != url_data_) {
     // At this point, we've encountered a redirect, or found a better url data
@@ -370,7 +379,7 @@ void ResourceMultiBufferDataProvider::DidReceiveResponse(
                                  ? response.OriginalURLViaServiceWorker()
                                  : response.Url();
   if (!url_data_->ValidateDataOrigin(original_url.GetOrigin())) {
-    active_loader_ = nullptr;
+    active_loader_.reset();
     url_data_->Fail();
     return;  // "this" may be deleted now.
   }
@@ -431,7 +440,7 @@ void ResourceMultiBufferDataProvider::DidReceiveCachedMetadata(
   NOTIMPLEMENTED();
 }
 
-void ResourceMultiBufferDataProvider::DidFinishLoading(double finishTime) {
+void ResourceMultiBufferDataProvider::DidFinishLoading() {
   DVLOG(1) << "didFinishLoading";
   DCHECK(active_loader_.get());
   DCHECK(!Available());
@@ -450,12 +459,12 @@ void ResourceMultiBufferDataProvider::DidFinishLoading(double finishTime) {
       DVLOG(1) << " Partial data received.... @ pos = " << size;
       retries_++;
       base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
-          FROM_HERE, base::Bind(&ResourceMultiBufferDataProvider::Start,
-                                weak_factory_.GetWeakPtr()),
+          FROM_HERE,
+          base::Bind(&ResourceMultiBufferDataProvider::Start,
+                     weak_factory_.GetWeakPtr()),
           base::TimeDelta::FromMilliseconds(kLoaderPartialRetryDelayMs));
       return;
     } else {
-      active_loader_ = nullptr;
       url_data_->Fail();
       return;  // "this" may be deleted now.
     }
@@ -475,17 +484,16 @@ void ResourceMultiBufferDataProvider::DidFinishLoading(double finishTime) {
 }
 
 void ResourceMultiBufferDataProvider::DidFail(const WebURLError& error) {
-  DVLOG(1) << "didFail: reason=" << error.reason
-           << ", domain=" << error.domain.Utf8().data()
-           << ", localizedDescription="
-           << error.localized_description.Utf8().data();
+  DVLOG(1) << "didFail: reason=" << error.reason();
   DCHECK(active_loader_.get());
+  active_loader_.reset();
 
   if (retries_ < kMaxRetries && pos_ != 0) {
     retries_++;
     base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
-        FROM_HERE, base::Bind(&ResourceMultiBufferDataProvider::Start,
-                              weak_factory_.GetWeakPtr()),
+        FROM_HERE,
+        base::Bind(&ResourceMultiBufferDataProvider::Start,
+                   weak_factory_.GetWeakPtr()),
         base::TimeDelta::FromMilliseconds(
             kLoaderFailedRetryDelayMs + kAdditionalDelayPerRetryMs * retries_));
   } else {

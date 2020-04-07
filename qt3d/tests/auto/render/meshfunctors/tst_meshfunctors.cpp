@@ -43,12 +43,12 @@ public:
     ~MeshFunctorA()
     {}
 
-    Qt3DRender::QGeometry *operator ()() Q_DECL_OVERRIDE
+    Qt3DRender::QGeometry *operator ()() override
     {
         return nullptr;
     }
 
-    bool operator ==(const Qt3DRender::QGeometryFactory &other) const Q_DECL_OVERRIDE
+    bool operator ==(const Qt3DRender::QGeometryFactory &other) const override
     {
         return Qt3DRender::functor_cast<MeshFunctorA>(&other);
     }
@@ -65,12 +65,12 @@ public:
     ~MeshFunctorB()
     {}
 
-    Qt3DRender::QGeometry *operator ()() Q_DECL_OVERRIDE
+    Qt3DRender::QGeometry *operator ()() override
     {
         return nullptr;
     }
 
-    bool operator ==(const Qt3DRender::QGeometryFactory &other) const Q_DECL_OVERRIDE
+    bool operator ==(const Qt3DRender::QGeometryFactory &other) const override
     {
         return Qt3DRender::functor_cast<MeshFunctorB>(&other);
     }
@@ -87,7 +87,7 @@ public:
     ~MeshFunctorASub()
     {}
 
-    bool operator ==(const Qt3DRender::QGeometryFactory &other) const Q_DECL_OVERRIDE
+    bool operator ==(const Qt3DRender::QGeometryFactory &other) const override
     {
         return Qt3DRender::functor_cast<MeshFunctorASub>(&other);
     }
@@ -116,6 +116,7 @@ private Q_SLOTS:
         QVERIFY(functor.sourceData().isEmpty());
         QCOMPARE(functor.mesh(), mesh.id());
         QCOMPARE(functor.sourcePath(), mesh.source());
+        QCOMPARE(functor.status(), Qt3DRender::QMesh::None);
     }
 
     void functorComparison()
@@ -189,6 +190,7 @@ private Q_SLOTS:
 
             // THEN
             QVERIFY(g == nullptr);
+            QCOMPARE(functor.status(), Qt3DRender::QMesh::Error);
         }
 
         {
@@ -202,6 +204,7 @@ private Q_SLOTS:
 
             // THEN
             QVERIFY(g == nullptr);
+            QCOMPARE(functor.status(), Qt3DRender::QMesh::Error);
         }
 
         {
@@ -215,6 +218,7 @@ private Q_SLOTS:
 
             // THEN
             QVERIFY(g == nullptr);
+            QCOMPARE(functor.status(), Qt3DRender::QMesh::Error);
         }
     }
 };

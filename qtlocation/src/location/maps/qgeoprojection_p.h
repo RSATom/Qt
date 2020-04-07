@@ -51,53 +51,62 @@
 #include <QtLocation/private/qlocationglobal_p.h>
 #include <QtLocation/private/qgeocameradata_p.h>
 #include <QtPositioning/private/qdoublematrix4x4_p.h>
+#include <QtPositioning/QGeoShape>
 
 QT_BEGIN_NAMESPACE
 
 class Q_LOCATION_PRIVATE_EXPORT QGeoProjection
 {
 public:
+    enum ProjectionGroup {
+        ProjectionOther,
+        ProjectionCylindrical,
+        ProjectionPseudocylindrical,
+        ProjectionAzimuthal,
+        ProjectionPseudoazimuthal,
+        ProjectionConic,
+        ProjectionPseudoconic
+        //Polyhedral
+        //Retroazimuthal
+    };
+
+    enum Datum {
+        DatumUnknown,
+        DatumWGS84,
+        DatumSphere
+    };
+
+    enum ProjectionType {
+        ProjectionUnknown,
+        ProjectionGeneralPerspective,
+        ProjectionWebMercator
+    };
+
     QGeoProjection();
     virtual ~QGeoProjection();
 
+    virtual void setVisibleArea(const QRectF &visibleArea) = 0;
     virtual void setViewportSize(const QSize &size) = 0;
-    virtual void setCameraData(const QGeoCameraData &cameraData) = 0;
+    virtual void setCameraData(const QGeoCameraData &cameraData, bool force = true) = 0;
+    virtual QGeoCameraData cameraData() const = 0;
 
     // returns the minimum zoom at the current viewport size
     virtual double minimumZoom() const = 0;
     virtual double maximumCenterLatitudeAtZoom(const QGeoCameraData &cameraData) const = 0;
+    virtual double minimumCenterLatitudeAtZoom(const QGeoCameraData &cameraData) const = 0;
 
-    // returns the size of the underlying map, at the current zoom level.
-    virtual double mapWidth() const = 0;
-    virtual double mapHeight() const = 0;
-
-    virtual bool isProjectable(const QDoubleVector2D &wrappedProjection) const = 0;
-    virtual QList<QDoubleVector2D> visibleRegion() const = 0;
-    virtual QList<QDoubleVector2D> projectableRegion() const = 0;
-
-    // Conversion methods for QGeoCoordinate <-> screen.
-    // This currently assumes that the "MapProjection" space is [0, 1][0, 1] for every type of possibly supported map projection
-    virtual QDoubleVector2D geoToMapProjection(const QGeoCoordinate &coordinate) const = 0;
-    virtual QGeoCoordinate mapProjectionToGeo(const QDoubleVector2D &projection) const = 0;
-
-    virtual QDoubleVector2D wrapMapProjection(const QDoubleVector2D &projection) const = 0;
-    virtual QDoubleVector2D unwrapMapProjection(const QDoubleVector2D &wrappedProjection) const = 0;
-
-    virtual QDoubleVector2D wrappedMapProjectionToItemPosition(const QDoubleVector2D &wrappedProjection) const = 0;
-    virtual QDoubleVector2D itemPositionToWrappedMapProjection(const QDoubleVector2D &itemPosition) const = 0;
-
-    // Convenience methods to avoid the chain itemPositionToWrappedProjection(wrapProjection(geoToProjection()))
     virtual QGeoCoordinate itemPositionToCoordinate(const QDoubleVector2D &pos, bool clipToViewport = true) const = 0;
     virtual QDoubleVector2D coordinateToItemPosition(const QGeoCoordinate &coordinate, bool clipToViewport = true) const = 0;
-    virtual QDoubleVector2D geoToWrappedMapProjection(const QGeoCoordinate &coordinate) const = 0;
-    virtual QGeoCoordinate wrappedMapProjectionToGeo(const QDoubleVector2D &wrappedProjection) const = 0;
-    virtual QMatrix4x4 quickItemTransformation(const QGeoCoordinate &coordinate, const QPointF &anchorPoint, qreal zoomLevel) const = 0;
+
+    virtual ProjectionGroup projectionGroup() const = 0;
+    virtual Datum datum() const = 0;
+    virtual ProjectionType projectionType() const = 0;
 
     // Returns the new map center after anchoring coordinate to anchorPoint on the screen
-    QGeoCoordinate anchorCoordinateToPoint(const QGeoCoordinate &coordinate, const QPointF &anchorPoint) const;
+    virtual QGeoCoordinate anchorCoordinateToPoint(const QGeoCoordinate &coordinate, const QPointF &anchorPoint) const;
 
-private:
-    virtual QGeoCameraData cameraData() const = 0;
+    virtual QGeoShape visibleRegion() const;
+    virtual bool setBearing(qreal bearing, const QGeoCoordinate &coordinate);
 };
 
 class Q_LOCATION_PRIVATE_EXPORT QGeoProjectionWebMercator : public QGeoProjection
@@ -106,40 +115,59 @@ public:
     QGeoProjectionWebMercator();
     ~QGeoProjectionWebMercator();
 
-    double minimumZoom() const Q_DECL_OVERRIDE;
-    double maximumCenterLatitudeAtZoom(const QGeoCameraData &cameraData) const Q_DECL_OVERRIDE;
+    // From QGeoProjection
+    double minimumZoom() const override;
+    double maximumCenterLatitudeAtZoom(const QGeoCameraData &cameraData) const override;
+    double minimumCenterLatitudeAtZoom(const QGeoCameraData &cameraData) const override;
 
-    // The size of the underlying map, at the current zoom level.
-    double mapWidth() const Q_DECL_OVERRIDE;
-    double mapHeight() const Q_DECL_OVERRIDE;
+    void setVisibleArea(const QRectF &visibleArea) override;
+    void setViewportSize(const QSize &size) override;
+    void setCameraData(const QGeoCameraData &cameraData, bool force = true) override;
+    QGeoCameraData cameraData() const override;
 
-    void setViewportSize(const QSize &size) Q_DECL_OVERRIDE;
-    void setCameraData(const QGeoCameraData &cameraData) Q_DECL_OVERRIDE;
+    QGeoCoordinate itemPositionToCoordinate(const QDoubleVector2D &pos, bool clipToViewport = true) const override;
+    QDoubleVector2D coordinateToItemPosition(const QGeoCoordinate &coordinate, bool clipToViewport = true) const override;
 
-    QDoubleVector2D geoToMapProjection(const QGeoCoordinate &coordinate) const Q_DECL_OVERRIDE;
-    QGeoCoordinate mapProjectionToGeo(const QDoubleVector2D &projection) const Q_DECL_OVERRIDE;
+    QGeoProjection::ProjectionGroup projectionGroup() const override;
+    QGeoProjection::Datum datum() const override;
+    QGeoProjection::ProjectionType projectionType() const override;
 
-    QDoubleVector2D wrapMapProjection(const QDoubleVector2D &projection) const Q_DECL_OVERRIDE;
-    QDoubleVector2D unwrapMapProjection(const QDoubleVector2D &wrappedProjection) const Q_DECL_OVERRIDE;
+    QGeoCoordinate anchorCoordinateToPoint(const QGeoCoordinate &coordinate, const QPointF &anchorPoint) const override;
+    bool setBearing(qreal bearing, const QGeoCoordinate &coordinate) override;
 
-    QDoubleVector2D wrappedMapProjectionToItemPosition(const QDoubleVector2D &wrappedProjection) const Q_DECL_OVERRIDE;
-    QDoubleVector2D itemPositionToWrappedMapProjection(const QDoubleVector2D &itemPosition) const Q_DECL_OVERRIDE;
+    QGeoShape visibleRegion() const override;
 
-    QGeoCoordinate itemPositionToCoordinate(const QDoubleVector2D &pos, bool clipToViewport = true) const Q_DECL_OVERRIDE;
-    QDoubleVector2D coordinateToItemPosition(const QGeoCoordinate &coordinate, bool clipToViewport = true) const Q_DECL_OVERRIDE;
-    QDoubleVector2D geoToWrappedMapProjection(const QGeoCoordinate &coordinate) const Q_DECL_OVERRIDE;
-    QGeoCoordinate wrappedMapProjectionToGeo(const QDoubleVector2D &wrappedProjection) const Q_DECL_OVERRIDE;
-    QMatrix4x4 quickItemTransformation(const QGeoCoordinate &coordinate, const QPointF &anchorPoint, qreal zoomLevel) const Q_DECL_OVERRIDE;
+    // Specific to QGeoProjectionWebMercator
+    double mapWidth() const; // The size of the underlying map, at the current zoom level.
+    double mapHeight() const;
 
-    bool isProjectable(const QDoubleVector2D &wrappedProjection) const Q_DECL_OVERRIDE;
-    QList<QDoubleVector2D> visibleRegion() const Q_DECL_OVERRIDE;
-    QList<QDoubleVector2D> projectableRegion() const Q_DECL_OVERRIDE;
+    QDoubleVector2D geoToMapProjection(const QGeoCoordinate &coordinate) const;
+    QGeoCoordinate mapProjectionToGeo(const QDoubleVector2D &projection) const;
+
+    QDoubleVector2D wrapMapProjection(const QDoubleVector2D &projection) const;
+    QDoubleVector2D unwrapMapProjection(const QDoubleVector2D &wrappedProjection) const;
+
+    QDoubleVector2D wrappedMapProjectionToItemPosition(const QDoubleVector2D &wrappedProjection) const;
+    QDoubleVector2D itemPositionToWrappedMapProjection(const QDoubleVector2D &itemPosition) const;
+
+    QDoubleVector2D geoToWrappedMapProjection(const QGeoCoordinate &coordinate) const;
+    QGeoCoordinate wrappedMapProjectionToGeo(const QDoubleVector2D &wrappedProjection) const;
+    QMatrix4x4 quickItemTransformation(const QGeoCoordinate &coordinate, const QPointF &anchorPoint, qreal zoomLevel) const;
+
+    bool isProjectable(const QDoubleVector2D &wrappedProjection) const;
+    QList<QDoubleVector2D> visibleGeometry() const;
+    QList<QDoubleVector2D> visibleGeometryExpanded() const;
+    QList<QDoubleVector2D> projectableGeometry() const;
+
     inline QDoubleVector2D viewportToWrappedMapProjection(const QDoubleVector2D &itemPosition) const;
     inline QDoubleVector2D viewportToWrappedMapProjection(const QDoubleVector2D &itemPosition, double &s) const;
+
+    QPair<QGeoCoordinate, qreal> fitViewportToGeoRectangle(const QGeoRectangle &rectangle,
+                                                           const QMargins &margins) const;
+
 private:
     void setupCamera();
     void updateVisibleRegion();
-    QGeoCameraData cameraData() const Q_DECL_OVERRIDE;
 
 public:
     struct Line2D
@@ -167,7 +195,11 @@ public:
         QDoubleVector3D m_normal;
     };
 
-private:
+#ifdef QT_LOCATION_DEBUG
+public:
+#else
+protected:
+#endif
     QGeoCameraData m_cameraData;
     double m_mapEdgeSize;
     double m_minimumZoom;
@@ -190,7 +222,7 @@ private:
     QDoubleVector3D  m_viewNormalized;
     QDoubleVector3D  m_side;
     QDoubleVector3D  m_centerNearPlane;
-    double           m_sideLength; // map edge size at integer zoom level
+    double           m_sideLengthPixels; // map edge size at integer zoom level
     double           m_aperture;
     double           m_nearPlane;
     double           m_farPlane;
@@ -210,8 +242,10 @@ private:
     Line2D           m_nearPlaneMapIntersection;
 
     QList<QDoubleVector2D> m_visibleRegion;
+    QList<QDoubleVector2D> m_visibleRegionExpanded;
     QList<QDoubleVector2D> m_projectableRegion;
     bool             m_visibleRegionDirty;
+    QRectF           m_visibleArea;
 
     Q_DISABLE_COPY(QGeoProjectionWebMercator)
 };

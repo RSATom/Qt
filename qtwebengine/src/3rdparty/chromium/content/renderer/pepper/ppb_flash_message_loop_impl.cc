@@ -5,10 +5,9 @@
 #include "content/renderer/pepper/ppb_flash_message_loop_impl.h"
 
 #include "base/callback.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "ppapi/c/pp_errors.h"
-#include "third_party/WebKit/public/web/WebView.h"
+#include "third_party/blink/public/web/web_view.h"
 
 using ppapi::thunk::PPB_Flash_MessageLoop_API;
 
@@ -87,11 +86,9 @@ int32_t PPB_Flash_MessageLoop_Impl::InternalRun(
   // destroyed when the nested run loop exits.
   scoped_refptr<State> state_protector(state_);
   {
-    base::MessageLoop::ScopedNestableTaskAllower allow(
-        base::MessageLoop::current());
     blink::WebView::WillEnterModalLoop();
 
-    base::RunLoop().Run();
+    base::RunLoop(base::RunLoop::Type::kNestableTasksAllowed).Run();
 
     blink::WebView::DidExitModalLoop();
   }
@@ -106,7 +103,7 @@ void PPB_Flash_MessageLoop_Impl::InternalQuit(int32_t result) {
   state_->set_quit_called();
   state_->set_result(result);
 
-  base::MessageLoop::current()->QuitNow();
+  base::RunLoop::QuitCurrentDeprecated();
 
   if (!state_->run_callback().is_null())
     state_->run_callback().Run(result);

@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "content/browser/accessibility/accessibility_tree_formatter.h"
+#include "content/browser/accessibility/accessibility_tree_formatter_browser.h"
 
 #include <string>
 
@@ -24,31 +24,21 @@ namespace content {
 namespace {
 
 const char* const BOOL_ATTRIBUTES[] = {
-  "checkable",
-  "checked",
-  "clickable",
-  "collection",
-  "collection_item",
-  "content_invalid",
-  "disabled",
-  "dismissable",
-  "editable_text",
-  "focusable",
-  "focused",
-  "has_non_empty_value",
-  "heading",
-  "hierarchical",
-  "invisible",
-  "link",
-  "multiline",
-  "password",
-  "range",
-  "scrollable",
-  "selected"
-};
+    "checkable",       "checked",
+    "clickable",       "collection",
+    "collection_item", "content_invalid",
+    "disabled",        "dismissable",
+    "editable_text",   "focusable",
+    "focused",         "has_character_locations",
+    "has_image",       "has_non_empty_value",
+    "heading",         "hierarchical",
+    "invisible",       "link",
+    "multiline",       "password",
+    "range",           "scrollable",
+    "selected",        "interesting"};
 
 const char* const STRING_ATTRIBUTES[] = {
-  "name"
+    "name", "hint",
 };
 
 const char* const INT_ATTRIBUTES[] = {
@@ -71,7 +61,8 @@ const char* const INT_ATTRIBUTES[] = {
 
 }  // namespace
 
-class AccessibilityTreeFormatterAndroid : public AccessibilityTreeFormatter {
+class AccessibilityTreeFormatterAndroid
+    : public AccessibilityTreeFormatterBrowser {
  public:
   AccessibilityTreeFormatterAndroid();
   ~AccessibilityTreeFormatterAndroid() override;
@@ -83,7 +74,9 @@ class AccessibilityTreeFormatterAndroid : public AccessibilityTreeFormatter {
   const std::string GetDenyString() override;
   void AddProperties(const BrowserAccessibility& node,
                      base::DictionaryValue* dict) override;
-  base::string16 ToString(const base::DictionaryValue& node) override;
+  base::string16 ProcessTreeForOutput(
+      const base::DictionaryValue& node,
+      base::DictionaryValue* filtered_dict_result = nullptr) override;
 };
 
 // static
@@ -118,6 +111,9 @@ void AccessibilityTreeFormatterAndroid::AddProperties(
   dict->SetBoolean("editable_text", android_node->IsEditableText());
   dict->SetBoolean("focusable", android_node->IsFocusable());
   dict->SetBoolean("focused", android_node->IsFocused());
+  dict->SetBoolean("has_character_locations",
+                   android_node->HasCharacterLocations());
+  dict->SetBoolean("has_image", android_node->HasImage());
   dict->SetBoolean("has_non_empty_value", android_node->HasNonEmptyValue());
   dict->SetBoolean("heading", android_node->IsHeading());
   dict->SetBoolean("hierarchical", android_node->IsHierarchical());
@@ -128,9 +124,11 @@ void AccessibilityTreeFormatterAndroid::AddProperties(
   dict->SetBoolean("password", android_node->IsPassword());
   dict->SetBoolean("scrollable", android_node->IsScrollable());
   dict->SetBoolean("selected", android_node->IsSelected());
+  dict->SetBoolean("interesting", android_node->IsInterestingOnAndroid());
 
   // String attributes.
   dict->SetString("name", android_node->GetText());
+  dict->SetString("hint", android_node->GetHint());
   dict->SetString("role_description", android_node->GetRoleDescription());
 
   // Int attributes.
@@ -162,10 +160,14 @@ void AccessibilityTreeFormatterAndroid::AddProperties(
   dict->SetBoolean("action_scroll_right", android_node->CanScrollRight());
 }
 
-base::string16 AccessibilityTreeFormatterAndroid::ToString(
-    const base::DictionaryValue& dict) {
-  base::string16 line;
+base::string16 AccessibilityTreeFormatterAndroid::ProcessTreeForOutput(
+    const base::DictionaryValue& dict,
+    base::DictionaryValue* filtered_dict_result) {
+  base::string16 error_value;
+  if (dict.GetString("error", &error_value))
+    return error_value;
 
+  base::string16 line;
   if (show_ids()) {
     int id_value;
     dict.GetInteger("id", &id_value);

@@ -72,6 +72,20 @@ QT_BEGIN_NAMESPACE
 */
 
 /*!
+    \enum QBluetoothDeviceInfo::Field
+
+    This enum is used in conjuntion with the \l QBluetoothDeviceDiscoveryAgent::deviceUpdated() signal
+    and indicates the field that changed.
+
+    \value None             None of the values changed.
+    \value RSSI             The \l rssi() value of the device changed.
+    \value ManufacturerData The \l manufacturerData() field changed
+    \value All              Matches every possible field.
+
+    \since 5.12
+*/
+
+/*!
     \enum QBluetoothDeviceInfo::MinorMiscellaneousClass
 
     This enum describes the minor device classes for miscellaneous Bluetooth devices.
@@ -405,6 +419,7 @@ QBluetoothDeviceInfo &QBluetoothDeviceInfo::operator=(const QBluetoothDeviceInfo
     d->cached = other.d_func()->cached;
     d->serviceUuidsCompleteness = other.d_func()->serviceUuidsCompleteness;
     d->serviceUuids = other.d_func()->serviceUuids;
+    d->manufacturerData = other.d_func()->manufacturerData;
     d->rssi = other.d_func()->rssi;
     d->deviceCoreConfiguration = other.d_func()->deviceCoreConfiguration;
     d->deviceUuid = other.d_func()->deviceUuid;
@@ -438,6 +453,8 @@ bool QBluetoothDeviceInfo::operator==(const QBluetoothDeviceInfo &other) const
     if (d->serviceUuids.count() != other.d_func()->serviceUuids.count())
         return false;
     if (d->serviceUuids != other.d_func()->serviceUuids)
+        return false;
+    if (d->manufacturerData != other.d_func()->manufacturerData)
         return false;
     if (d->deviceCoreConfiguration != other.d_func()->deviceCoreConfiguration)
         return false;
@@ -557,8 +574,76 @@ QList<QBluetoothUuid> QBluetoothDeviceInfo::serviceUuids(DataCompleteness *compl
 QBluetoothDeviceInfo::DataCompleteness QBluetoothDeviceInfo::serviceUuidsCompleteness() const
 {
     Q_D(const QBluetoothDeviceInfo);
-
     return d->serviceUuidsCompleteness;
+}
+
+
+/*!
+    Returns all manufacturer ids attached to this device information.
+
+    \sa manufacturerData(), setManufacturerData()
+
+    \since 5.12
+ */
+QVector<quint16> QBluetoothDeviceInfo::manufacturerIds() const
+{
+    Q_D(const QBluetoothDeviceInfo);
+    return d->manufacturerData.keys().toVector();
+}
+
+/*!
+    Returns the data associated with the given \a manufacturerId.
+
+    Manufacturer data is defined by
+    the Supplement to the Bluetooth Core Specification and consists of two segments:
+
+    \list
+    \li Manufacturer specific identifier code from the
+    \l {https://www.bluetooth.com/specifications/assigned-numbers} {Assigned Numbers}
+    Company Identifiers document
+    \li Sequence of arbitrary data octets
+    \endlist
+
+    The interpretation of the data octets is defined by the manufacturer
+    specified by the company identifier.
+
+    \sa manufacturerIds(), setManufacturerData()
+    \since 5.12
+ */
+QByteArray QBluetoothDeviceInfo::manufacturerData(quint16 manufacturerId) const
+{
+    // TODO Currently not implemented on WinRT
+    Q_D(const QBluetoothDeviceInfo);
+    return d->manufacturerData.value(manufacturerId);
+}
+
+/*!
+    Sets the advertised manufacturer \a data for the given \a manufacturerId.
+    Returns true if it was inserted or changed, false if it was already known.
+
+    \sa manufacturerData
+    \since 5.12
+*/
+bool QBluetoothDeviceInfo::setManufacturerData(quint16 manufacturerId, const QByteArray &data)
+{
+    Q_D(QBluetoothDeviceInfo);
+    const auto it = d->manufacturerData.find(manufacturerId);
+    if (it != d->manufacturerData.end() && *it == data)
+        return false;
+    d->manufacturerData.insert(manufacturerId, data);
+    return true;
+}
+
+/*!
+    Returns the complete set of all manufacturer data.
+
+    \sa setManufacturerData
+    \since 5.12
+*/
+QHash<quint16, QByteArray> QBluetoothDeviceInfo::manufacturerData() const
+{
+    Q_D(const QBluetoothDeviceInfo);
+    return d->manufacturerData;
 }
 
 /*!

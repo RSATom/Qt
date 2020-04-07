@@ -50,7 +50,7 @@
 
 #include "browser.h"
 #include "browserwindow.h"
-#include "webview.h"
+#include "tabwidget.h"
 #include <QApplication>
 #include <QWebEngineSettings>
 
@@ -66,6 +66,7 @@ QUrl commandLineUrlArgument()
 
 int main(int argc, char **argv)
 {
+    QCoreApplication::setOrganizationName("QtExamples");
     QCoreApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
     QCoreApplication::setAttribute(Qt::AA_UseHighDpiPixmaps);
 
@@ -78,7 +79,7 @@ int main(int argc, char **argv)
 
     Browser browser;
     BrowserWindow *window = browser.createWindow();
-    window->currentTab()->setUrl(url);
+    window->tabWidget()->setUrl(url);
 
     return app.exec();
 }

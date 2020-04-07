@@ -45,7 +45,9 @@
 #if QT_CONFIG(dockwidget)
 #include "qdockwidget.h"
 #endif
+#if QT_CONFIG(toolbar)
 #include "qtoolbar.h"
+#endif
 
 #include <qapplication.h>
 #include <qmenu.h>
@@ -61,7 +63,9 @@
 #include <qpainter.h>
 
 #include <private/qwidget_p.h>
+#if QT_CONFIG(toolbar)
 #include "qtoolbar_p.h"
+#endif
 #include "qwidgetanimator_p.h"
 #ifdef Q_OS_OSX
 #include <qpa/qplatformnativeinterface.h>
@@ -245,14 +249,7 @@ void QMainWindowPrivate::init()
 
     An example of how to create menus follows:
 
-    \code
-    void MainWindow::createMenus()
-    {
-        fileMenu = menuBar()->addMenu(tr("&File"));
-        fileMenu->addAction(newAct);
-        fileMenu->addAction(openAct);
-        fileMenu->addAction(saveAct);
-    \endcode
+    \snippet code/src_widgets_widgets_qmainwindow.cpp 0
 
     The \c createPopupMenu() function creates popup menus when the
     main window receives context menu events.  The default
@@ -279,12 +276,7 @@ void QMainWindowPrivate::init()
 
     An example of toolbar creation follows:
 
-    \code
-    void MainWindow::createToolBars()
-    {
-        fileToolBar = addToolBar(tr("File"));
-        fileToolBar->addAction(newAct);
-    \endcode
+    \snippet code/src_widgets_widgets_qmainwindow.cpp 1
 
     \section2 Creating Dock Widgets
 
@@ -706,7 +698,7 @@ Qt::DockWidgetArea QMainWindow::corner(Qt::Corner corner) const
 { return d_func()->layout->corner(corner); }
 #endif
 
-#ifndef QT_NO_TOOLBAR
+#if QT_CONFIG(toolbar)
 
 static bool checkToolBarArea(Qt::ToolBarArea area, const char *where)
 {
@@ -874,7 +866,7 @@ bool QMainWindow::toolBarBreak(QToolBar *toolbar) const
     return d_func()->layout->toolBarBreak(toolbar);
 }
 
-#endif // QT_NO_TOOLBAR
+#endif // QT_CONFIG(toolbar)
 
 #if QT_CONFIG(dockwidget)
 
@@ -951,7 +943,9 @@ void QMainWindow::setDockNestingEnabled(bool enabled)
 }
 
 #if 0
-/*! \property QMainWindow::verticalTabsEnabled
+// If added back in, add the '!' to the qdoc comment marker as well.
+/*
+    \property QMainWindow::verticalTabsEnabled
     \brief whether left and right dock areas use vertical tabs
     \since 4.2
 
@@ -1221,9 +1215,8 @@ Qt::DockWidgetArea QMainWindow::dockWidgetArea(QDockWidget *dockwidget) const
     to the relative weight of the sizes.
 
     Example:
-    \code
-    resizeDocks({blueWidget, yellowWidget}, {20 , 40}, Qt::Horizontal);
-    \endcode
+    \snippet code/src_widgets_widgets_qmainwindow.cpp 2
+
     If the blue and the yellow widget are nested on the same level they will be
     resized such that the yellowWidget is twice as big as the blueWidget
 
@@ -1306,11 +1299,15 @@ bool QMainWindow::restoreState(const QByteArray &state, int version)
 bool QMainWindow::event(QEvent *event)
 {
     Q_D(QMainWindow);
+
+#if QT_CONFIG(dockwidget)
     if (d->layout && d->layout->windowEvent(event))
         return true;
+#endif
+
     switch (event->type()) {
 
-#ifndef QT_NO_TOOLBAR
+#if QT_CONFIG(toolbar)
         case QEvent::ToolBarChange: {
             d->layout->toggleToolBarsVisible();
             return true;
@@ -1342,7 +1339,7 @@ bool QMainWindow::event(QEvent *event)
     return QWidget::event(event);
 }
 
-#ifndef QT_NO_TOOLBAR
+#if QT_CONFIG(toolbar)
 
 /*!
     \property QMainWindow::unifiedTitleAndToolBarOnMac
@@ -1387,7 +1384,7 @@ bool QMainWindow::unifiedTitleAndToolBarOnMac() const
     return false;
 }
 
-#endif // QT_NO_TOOLBAR
+#endif // QT_CONFIG(toolbar)
 
 /*!
     \internal
@@ -1433,7 +1430,7 @@ void QMainWindow::contextMenuEvent(QContextMenuEvent *event)
             break;
         }
 #endif // QT_CONFIG(dockwidget)
-#ifndef QT_NO_TOOLBAR
+#if QT_CONFIG(toolbar)
         if (QToolBar *tb = qobject_cast<QToolBar *>(child)) {
             if (tb->parentWidget() != this)
                 return;
@@ -1504,7 +1501,7 @@ QMenu *QMainWindow::createPopupMenu()
         menu->addSeparator();
     }
 #endif // QT_CONFIG(dockwidget)
-#ifndef QT_NO_TOOLBAR
+#if QT_CONFIG(toolbar)
     QList<QToolBar *> toolbars = findChildren<QToolBar *>();
     if (toolbars.size()) {
         if (!menu)

@@ -30,19 +30,27 @@ namespace extensions {
 
 namespace {
 
+struct AllowlistInfo {
+  AllowlistInfo()
+      : hashed_id(HashedIdInHex(
+            base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
+                switches::kWhitelistedExtensionID))) {}
+  std::string hashed_id;
+};
 // A singleton copy of the --whitelisted-extension-id so that we don't need to
 // copy it from the CommandLine each time.
-std::string* g_whitelisted_extension_id = NULL;
+base::LazyInstance<AllowlistInfo>::Leaky g_allowlist_info =
+    LAZY_INSTANCE_INITIALIZER;
 
 Feature::Availability IsAvailableToManifestForBind(
-    const std::string& extension_id,
+    const HashedExtensionId& hashed_id,
     Manifest::Type type,
     Manifest::Location location,
     int manifest_version,
     Feature::Platform platform,
     const Feature* feature) {
-  return feature->IsAvailableToManifest(
-      extension_id, type, location, manifest_version, platform);
+  return feature->IsAvailableToManifest(hashed_id, type, location,
+                                        manifest_version, platform);
 }
 
 Feature::Availability IsAvailableToContextForBind(const Extension* extension,
@@ -51,6 +59,10 @@ Feature::Availability IsAvailableToContextForBind(const Extension* extension,
                                                   Feature::Platform platform,
                                                   const Feature* feature) {
   return feature->IsAvailableToContext(extension, context, url, platform);
+}
+
+Feature::Availability IsAvailableToEnvironmentForBind(const Feature* feature) {
+  return feature->IsAvailableToEnvironment();
 }
 
 // Gets a human-readable name for the given extension type, suitable for giving
@@ -175,63 +187,50 @@ bool IsCommandLineSwitchEnabled(base::CommandLine* command_line,
   return false;
 }
 
-bool IsWhitelistedForTest(const std::string& extension_id) {
-  // TODO(jackhou): Delete the commandline whitelisting mechanism.
+bool IsAllowlistedForTest(const HashedExtensionId& hashed_id) {
+  // TODO(jackhou): Delete the commandline allowlisting mechanism.
   // Since it is only used it tests, ideally it should not be set via the
   // commandline. At the moment the commandline is used as a mechanism to pass
   // the id to the renderer process.
-  if (!g_whitelisted_extension_id) {
-    g_whitelisted_extension_id = new std::string(
-        base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
-            switches::kWhitelistedExtensionID));
-  }
-  return !g_whitelisted_extension_id->empty() &&
-         *g_whitelisted_extension_id == extension_id;
+  const std::string& allowlisted_id = g_allowlist_info.Get().hashed_id;
+  return !allowlisted_id.empty() && allowlisted_id == hashed_id.value();
 }
 
 }  // namespace
 
-SimpleFeature::ScopedWhitelistForTest::ScopedWhitelistForTest(
-    const std::string& id)
-    : previous_id_(g_whitelisted_extension_id) {
-  g_whitelisted_extension_id = new std::string(id);
+SimpleFeature::ScopedThreadUnsafeAllowlistForTest::
+    ScopedThreadUnsafeAllowlistForTest(const std::string& id)
+    : previous_id_(g_allowlist_info.Get().hashed_id) {
+  g_allowlist_info.Get().hashed_id = HashedIdInHex(id);
 }
 
-SimpleFeature::ScopedWhitelistForTest::~ScopedWhitelistForTest() {
-  delete g_whitelisted_extension_id;
-  g_whitelisted_extension_id = previous_id_;
+SimpleFeature::ScopedThreadUnsafeAllowlistForTest::
+    ~ScopedThreadUnsafeAllowlistForTest() {
+  g_allowlist_info.Get().hashed_id = previous_id_;
 }
 
 SimpleFeature::SimpleFeature()
-    : location_(UNSPECIFIED_LOCATION),
-      min_manifest_version_(0),
-      max_manifest_version_(0),
-      component_extensions_auto_granted_(true),
-      is_internal_(false) {}
+    : component_extensions_auto_granted_(true), is_internal_(false) {}
 
 SimpleFeature::~SimpleFeature() {}
 
 Feature::Availability SimpleFeature::IsAvailableToManifest(
-    const std::string& extension_id,
+    const HashedExtensionId& hashed_id,
     Manifest::Type type,
     Manifest::Location location,
     int manifest_version,
     Platform platform) const {
   Availability environment_availability = GetEnvironmentAvailability(
-      platform, GetCurrentChannel(), GetCurrentFeatureSessionType(),
-      base::CommandLine::ForCurrentProcess());
+      platform, GetCurrentChannel(), GetCurrentFeatureSessionType());
   if (!environment_availability.is_available())
     return environment_availability;
   Availability manifest_availability =
-      GetManifestAvailability(extension_id, type, location, manifest_version);
+      GetManifestAvailability(hashed_id, type, location, manifest_version);
   if (!manifest_availability.is_available())
     return manifest_availability;
 
-  return CheckDependencies(base::Bind(&IsAvailableToManifestForBind,
-                                      extension_id,
-                                      type,
-                                      location,
-                                      manifest_version,
+  return CheckDependencies(base::Bind(&IsAvailableToManifestForBind, hashed_id,
+                                      type, location, manifest_version,
                                       platform));
 }
 
@@ -241,14 +240,13 @@ Feature::Availability SimpleFeature::IsAvailableToContext(
     const GURL& url,
     Platform platform) const {
   Availability environment_availability = GetEnvironmentAvailability(
-      platform, GetCurrentChannel(), GetCurrentFeatureSessionType(),
-      base::CommandLine::ForCurrentProcess());
+      platform, GetCurrentChannel(), GetCurrentFeatureSessionType());
   if (!environment_availability.is_available())
     return environment_availability;
 
   if (extension) {
     Availability manifest_availability = GetManifestAvailability(
-        extension->id(), extension->GetType(), extension->location(),
+        extension->hashed_id(), extension->GetType(), extension->location(),
         extension->manifest_version());
     if (!manifest_availability.is_available())
       return manifest_availability;
@@ -263,6 +261,15 @@ Feature::Availability SimpleFeature::IsAvailableToContext(
   return CheckDependencies(base::Bind(&IsAvailableToContextForBind,
                                       base::RetainedRef(extension), context,
                                       url, platform));
+}
+
+Feature::Availability SimpleFeature::IsAvailableToEnvironment() const {
+  Availability environment_availability =
+      GetEnvironmentAvailability(GetCurrentPlatform(), GetCurrentChannel(),
+                                 GetCurrentFeatureSessionType());
+  if (!environment_availability.is_available())
+    return environment_availability;
+  return CheckDependencies(base::Bind(&IsAvailableToEnvironmentForBind));
 }
 
 std::string SimpleFeature::GetAvailabilityMessage(
@@ -306,15 +313,15 @@ std::string SimpleFeature::GetAvailabilityMessage(
           "'%s' is not allowed for specified platform.",
           name().c_str());
     case INVALID_MIN_MANIFEST_VERSION:
+      DCHECK(min_manifest_version_);
       return base::StringPrintf(
-          "'%s' requires manifest version of at least %d.",
-          name().c_str(),
-          min_manifest_version_);
+          "'%s' requires manifest version of at least %d.", name().c_str(),
+          *min_manifest_version_);
     case INVALID_MAX_MANIFEST_VERSION:
+      DCHECK(max_manifest_version_);
       return base::StringPrintf(
-          "'%s' requires manifest version of %d or lower.",
-          name().c_str(),
-          max_manifest_version_);
+          "'%s' requires manifest version of %d or lower.", name().c_str(),
+          *max_manifest_version_);
     case INVALID_SESSION_TYPE:
       return base::StringPrintf(
           "'%s' is only allowed to run in %s sessions, but this is %s session.",
@@ -333,9 +340,10 @@ std::string SimpleFeature::GetAvailabilityMessage(
           name().c_str(), GetDisplayName(channel).c_str(),
           GetDisplayName(GetCurrentChannel()).c_str());
     case MISSING_COMMAND_LINE_SWITCH:
+      DCHECK(command_line_switch_);
       return base::StringPrintf(
           "'%s' requires the '%s' command line switch to be enabled.",
-          name().c_str(), command_line_switch_.c_str());
+          name().c_str(), command_line_switch_->c_str());
   }
 
   NOTREACHED();
@@ -398,12 +406,12 @@ bool SimpleFeature::IsInternal() const {
   return is_internal_;
 }
 
-bool SimpleFeature::IsIdInBlacklist(const std::string& extension_id) const {
-  return IsIdInList(extension_id, blacklist_);
+bool SimpleFeature::IsIdInBlocklist(const HashedExtensionId& hashed_id) const {
+  return IsIdInList(hashed_id, blocklist_);
 }
 
-bool SimpleFeature::IsIdInWhitelist(const std::string& extension_id) const {
-  return IsIdInList(extension_id, whitelist_);
+bool SimpleFeature::IsIdInAllowlist(const HashedExtensionId& hashed_id) const {
+  return IsIdInList(hashed_id, allowlist_);
 }
 
 // static
@@ -421,20 +429,18 @@ bool SimpleFeature::IsIdInArray(const std::string& extension_id,
 }
 
 // static
-bool SimpleFeature::IsIdInList(const std::string& extension_id,
+bool SimpleFeature::IsIdInList(const HashedExtensionId& hashed_id,
                                const std::vector<std::string>& list) {
-  if (!IsValidExtensionId(extension_id))
+  if (!IsValidHashedExtensionId(hashed_id))
     return false;
 
-  return (base::ContainsValue(list, extension_id) ||
-          base::ContainsValue(list, HashedIdInHex(extension_id)));
+  return base::ContainsValue(list, hashed_id.value());
 }
 
 bool SimpleFeature::MatchesManifestLocation(
     Manifest::Location manifest_location) const {
-  switch (location_) {
-    case SimpleFeature::UNSPECIFIED_LOCATION:
-      return true;
+  DCHECK(location_);
+  switch (*location_) {
     case SimpleFeature::COMPONENT_LOCATION:
       return manifest_location == Manifest::COMPONENT;
     case SimpleFeature::EXTERNAL_COMPONENT_LOCATION:
@@ -464,7 +470,7 @@ bool SimpleFeature::MatchesSessionTypes(FeatureSessionType session_type) const {
 Feature::Availability SimpleFeature::CheckDependencies(
     const base::Callback<Availability(const Feature*)>& checker) const {
   for (const auto& dep_name : dependencies_) {
-    Feature* dependency =
+    const Feature* dependency =
         ExtensionAPI::GetSharedInstance()->GetFeatureDependency(dep_name);
     if (!dependency)
       return CreateAvailability(NOT_PRESENT);
@@ -485,9 +491,16 @@ bool SimpleFeature::IsValidExtensionId(const std::string& extension_id) {
   return (extension_id.length() == 32);
 }
 
-void SimpleFeature::set_blacklist(
-    std::initializer_list<const char* const> blacklist) {
-  blacklist_.assign(blacklist.begin(), blacklist.end());
+// static
+bool SimpleFeature::IsValidHashedExtensionId(
+    const HashedExtensionId& hashed_id) {
+  // As above, just the bare-bones check.
+  return hashed_id.value().length() == 40;
+}
+
+void SimpleFeature::set_blocklist(
+    std::initializer_list<const char* const> blocklist) {
+  blocklist_.assign(blocklist.begin(), blocklist.end());
 }
 
 void SimpleFeature::set_command_line_switch(
@@ -525,24 +538,32 @@ void SimpleFeature::set_platforms(std::initializer_list<Platform> platforms) {
   platforms_ = platforms;
 }
 
-void SimpleFeature::set_whitelist(
-    std::initializer_list<const char* const> whitelist) {
-  whitelist_.assign(whitelist.begin(), whitelist.end());
+void SimpleFeature::set_allowlist(
+    std::initializer_list<const char* const> allowlist) {
+  allowlist_.assign(allowlist.begin(), allowlist.end());
 }
 
 Feature::Availability SimpleFeature::GetEnvironmentAvailability(
     Platform platform,
     version_info::Channel channel,
-    FeatureSessionType session_type,
-    base::CommandLine* command_line) const {
+    FeatureSessionType session_type) const {
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   if (!platforms_.empty() && !base::ContainsValue(platforms_, platform))
     return CreateAvailability(INVALID_PLATFORM);
 
-  if (channel_ && *channel_ < GetCurrentChannel())
-    return CreateAvailability(UNSUPPORTED_CHANNEL, *channel_);
+  if (channel_ && *channel_ < GetCurrentChannel()) {
+    // If the user has the kEnableExperimentalExtensionApis commandline flag
+    // appended, we ignore channel restrictions.
+    if (!ignore_channel_) {
+      ignore_channel_ =
+          command_line->HasSwitch(switches::kEnableExperimentalExtensionApis);
+    }
+    if (!(*ignore_channel_))
+      return CreateAvailability(UNSUPPORTED_CHANNEL, *channel_);
+  }
 
-  if (!command_line_switch_.empty() &&
-      !IsCommandLineSwitchEnabled(command_line, command_line_switch_)) {
+  if (command_line_switch_ &&
+      !IsCommandLineSwitchEnabled(command_line, *command_line_switch_)) {
     return CreateAvailability(MISSING_COMMAND_LINE_SWITCH);
   }
 
@@ -553,7 +574,7 @@ Feature::Availability SimpleFeature::GetEnvironmentAvailability(
 }
 
 Feature::Availability SimpleFeature::GetManifestAvailability(
-    const std::string& extension_id,
+    const HashedExtensionId& hashed_id,
     Manifest::Type type,
     Manifest::Location location,
     int manifest_version) const {
@@ -568,7 +589,7 @@ Feature::Availability SimpleFeature::GetManifestAvailability(
     return CreateAvailability(INVALID_TYPE, type);
   }
 
-  if (IsIdInBlacklist(extension_id))
+  if (!blocklist_.empty() && IsIdInBlocklist(hashed_id))
     return CreateAvailability(FOUND_IN_BLACKLIST);
 
   // TODO(benwells): don't grant all component extensions.
@@ -578,18 +599,18 @@ Feature::Availability SimpleFeature::GetManifestAvailability(
   if (component_extensions_auto_granted_ && location == Manifest::COMPONENT)
     return CreateAvailability(IS_AVAILABLE);
 
-  if (!whitelist_.empty() && !IsIdInWhitelist(extension_id) &&
-      !IsWhitelistedForTest(extension_id)) {
+  if (!allowlist_.empty() && !IsIdInAllowlist(hashed_id) &&
+      !IsAllowlistedForTest(hashed_id)) {
     return CreateAvailability(NOT_FOUND_IN_WHITELIST);
   }
 
-  if (!MatchesManifestLocation(location))
+  if (location_ && !MatchesManifestLocation(location))
     return CreateAvailability(INVALID_LOCATION);
 
-  if (min_manifest_version_ != 0 && manifest_version < min_manifest_version_)
+  if (min_manifest_version_ && manifest_version < *min_manifest_version_)
     return CreateAvailability(INVALID_MIN_MANIFEST_VERSION);
 
-  if (max_manifest_version_ != 0 && manifest_version > max_manifest_version_)
+  if (max_manifest_version_ && manifest_version > *max_manifest_version_)
     return CreateAvailability(INVALID_MAX_MANIFEST_VERSION);
 
   return CreateAvailability(IS_AVAILABLE);

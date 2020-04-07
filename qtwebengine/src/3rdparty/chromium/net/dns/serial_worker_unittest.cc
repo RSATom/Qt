@@ -7,23 +7,25 @@
 #include "base/bind.h"
 #include "base/location.h"
 #include "base/message_loop/message_loop.h"
+#include "base/message_loop/message_loop_current.h"
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/synchronization/lock.h"
 #include "base/synchronization/waitable_event.h"
+#include "base/threading/thread_restrictions.h"
+#include "net/test/test_with_scoped_task_environment.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace net {
 
 namespace {
 
-class SerialWorkerTest : public testing::Test {
+class SerialWorkerTest : public TestWithScopedTaskEnvironment {
  public:
   // The class under test
   class TestSerialWorker : public SerialWorker {
    public:
-    explicit TestSerialWorker(SerialWorkerTest* t)
-      : test_(t) {}
+    explicit TestSerialWorker(SerialWorkerTest* t) : test_(t) {}
     void DoWork() override {
       ASSERT_TRUE(test_);
       test_->OnWork();
@@ -33,7 +35,7 @@ class SerialWorkerTest : public testing::Test {
       test_->OnWorkFinished();
     }
    private:
-    ~TestSerialWorker() override {}
+    ~TestSerialWorker() override = default;
     SerialWorkerTest* test_;
   };
 
@@ -46,8 +48,12 @@ class SerialWorkerTest : public testing::Test {
       work_running_ = true;
     }
     BreakNow("OnWork");
-    work_allowed_.Wait();
-    // Calling from WorkerPool, but protected by work_allowed_/work_called_.
+    {
+      base::ScopedAllowBaseSyncPrimitivesForTesting
+          scoped_allow_base_sync_primitives;
+      work_allowed_.Wait();
+    }
+    // Calling from TaskScheduler, but protected by work_allowed_/work_called_.
     output_value_ = input_value_;
 
     { // This lock might be destroyed after work_called_ is signalled.
@@ -66,7 +72,7 @@ class SerialWorkerTest : public testing::Test {
  protected:
   void BreakCallback(const std::string& breakpoint) {
     breakpoint_ = breakpoint;
-    base::MessageLoop::current()->QuitNow();
+    run_loop_->Quit();
   }
 
   void BreakNow(const std::string& b) {
@@ -76,7 +82,11 @@ class SerialWorkerTest : public testing::Test {
   }
 
   void RunUntilBreak(const std::string& b) {
-    base::RunLoop().Run();
+    base::RunLoop run_loop;
+    ASSERT_FALSE(run_loop_);
+    run_loop_ = &run_loop;
+    run_loop_->Run();
+    run_loop_ = nullptr;
     ASSERT_EQ(breakpoint_, b);
   }
 
@@ -101,7 +111,7 @@ class SerialWorkerTest : public testing::Test {
 
   // test::Test methods
   void SetUp() override {
-    message_loop_ = base::MessageLoop::current();
+    message_loop_ = base::MessageLoopCurrent::Get();
     worker_ = new TestSerialWorker(this);
   }
 
@@ -136,6 +146,9 @@ class SerialWorkerTest : public testing::Test {
   scoped_refptr<TestSerialWorker> worker_;
 
   std::string breakpoint_;
+  base::RunLoop* run_loop_ = nullptr;
+
+  DISALLOW_COPY_AND_ASSIGN(SerialWorkerTest);
 };
 
 TEST_F(SerialWorkerTest, ExecuteAndSerializeReads) {

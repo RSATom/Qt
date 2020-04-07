@@ -157,7 +157,7 @@ class QGLDefaultOverlayFormat: public QGLFormat
 public:
     inline QGLDefaultOverlayFormat()
     {
-        setOption(QGL::FormatOption(0xffff << 16)); // turn off all options
+        setOption(QGL::FormatOption(0xffffU << 16)); // turn off all options
         setOption(QGL::DirectRendering);
         setPlane(1);
     }
@@ -1292,19 +1292,19 @@ QGLFormat::OpenGLVersionFlags Q_AUTOTEST_EXPORT qOpenGLVersionFlagsFromString(co
             switch (versionString[2].toLatin1()) {
             case '5':
                 versionFlags |= QGLFormat::OpenGL_Version_1_5;
-                // fall through
+                Q_FALLTHROUGH();
             case '4':
                 versionFlags |= QGLFormat::OpenGL_Version_1_4;
-                // fall through
+                Q_FALLTHROUGH();
             case '3':
                 versionFlags |= QGLFormat::OpenGL_Version_1_3;
-                // fall through
+                Q_FALLTHROUGH();
             case '2':
                 versionFlags |= QGLFormat::OpenGL_Version_1_2;
-                // fall through
+                Q_FALLTHROUGH();
             case '1':
                 versionFlags |= QGLFormat::OpenGL_Version_1_1;
-                // fall through
+                Q_FALLTHROUGH();
             default:
                 break;
             }
@@ -1329,13 +1329,13 @@ QGLFormat::OpenGLVersionFlags Q_AUTOTEST_EXPORT qOpenGLVersionFlagsFromString(co
             switch (versionString[2].toLatin1()) {
             case '3':
                 versionFlags |= QGLFormat::OpenGL_Version_3_3;
-                // fall through
+                Q_FALLTHROUGH();
             case '2':
                 versionFlags |= QGLFormat::OpenGL_Version_3_2;
-                // fall through
+                Q_FALLTHROUGH();
             case '1':
                 versionFlags |= QGLFormat::OpenGL_Version_3_1;
-                // fall through
+                Q_FALLTHROUGH();
             case '0':
                 break;
             default:
@@ -1360,13 +1360,13 @@ QGLFormat::OpenGLVersionFlags Q_AUTOTEST_EXPORT qOpenGLVersionFlagsFromString(co
             switch (versionString[2].toLatin1()) {
             case '3':
                 versionFlags |= QGLFormat::OpenGL_Version_4_3;
-                // fall through
+                Q_FALLTHROUGH();
             case '2':
                 versionFlags |= QGLFormat::OpenGL_Version_4_2;
-                // fall through
+                Q_FALLTHROUGH();
             case '1':
                 versionFlags |= QGLFormat::OpenGL_Version_4_1;
-                // fall through
+                Q_FALLTHROUGH();
             case '0':
                 break;
             default:
@@ -2104,17 +2104,17 @@ struct DDSFormat {
     would mirror the image and automatically generate mipmaps. This
     option helps preserve this default behavior.
 
-    \omitvalue CanFlipNativePixmapBindOption Used by x11 from pixmap to choose
-    whether or not it can bind the pixmap upside down or not.
+    \omitvalue CanFlipNativePixmapBindOption \omit Used by x11 from pixmap to choose
+    whether or not it can bind the pixmap upside down or not. \endomit
 
-    \omitvalue MemoryManagedBindOption Used by paint engines to
+    \omitvalue MemoryManagedBindOption \omit Used by paint engines to
     indicate that the pixmap should be memory managed along side with
     the pixmap/image that it stems from, e.g. installing destruction
-    hooks in them.
+    hooks in them. \endomit
 
-    \omitvalue TemporarilyCachedBindOption Used by paint engines on some
+    \omitvalue TemporarilyCachedBindOption \omit Used by paint engines on some
     platforms to indicate that the pixmap or image texture is possibly
-    cached only temporarily and must be destroyed immediately after the use.
+    cached only temporarily and must be destroyed immediately after the use. \endomit
 
     \omitvalue InternalBindOption
 */
@@ -3603,7 +3603,8 @@ void QGLContext::makeCurrent()
     \fn void QGLContext::swapBuffers() const
 
     Call this to finish a frame of OpenGL rendering, and make sure to
-    call makeCurrent() again before you begin a new frame.
+    call makeCurrent() again before issuing any further OpenGL commands,
+    for example as part of a new frame.
 */
 void QGLContext::swapBuffers() const
 {
@@ -4084,7 +4085,13 @@ bool QGLWidget::isSharing() const
 void QGLWidget::makeCurrent()
 {
     Q_D(QGLWidget);
-    d->glcx->makeCurrent();
+    d->makeCurrent();
+}
+
+bool QGLWidgetPrivate::makeCurrent()
+{
+    glcx->makeCurrent();
+    return QGLContext::currentContext() == glcx;
 }
 
 /*!
@@ -4422,7 +4429,8 @@ void QGLWidget::resizeEvent(QResizeEvent *e)
     QWidget::resizeEvent(e);
     if (!isValid())
         return;
-    makeCurrent();
+    if (!d->makeCurrent())
+        return;
     if (!d->glcx->initialized())
         glInit();
     const qreal scaleFactor = (window() && window()->windowHandle()) ?
@@ -4537,7 +4545,8 @@ void QGLWidget::glInit()
     Q_D(QGLWidget);
     if (!isValid())
         return;
-    makeCurrent();
+    if (!d->makeCurrent())
+        return;
     initializeGL();
     d->glcx->setInitialized(true);
 }
@@ -4555,7 +4564,8 @@ void QGLWidget::glDraw()
     Q_D(QGLWidget);
     if (!isValid())
         return;
-    makeCurrent();
+    if (!d->makeCurrent())
+        return;
 #ifndef QT_OPENGL_ES
     if (d->glcx->deviceIsPixmap() && !d->glcx->contextHandle()->isOpenGLES())
         qgl1_functions()->glDrawBuffer(GL_FRONT);
@@ -5193,25 +5203,6 @@ bool QGLWidgetPrivate::renderCxPm(QPixmap*)
 */
 void QGLWidgetPrivate::cleanupColormaps()
 {
-}
-
-Q_GLOBAL_STATIC(QString, qt_gl_lib_name)
-
-void qt_set_gl_library_name(const QString& name)
-{
-    qt_gl_lib_name()->operator=(name);
-}
-
-const QString qt_gl_library_name()
-{
-    if (qt_gl_lib_name()->isNull()) {
-# if defined(QT_OPENGL_ES_2)
-        return QLatin1String("GLESv2");
-# else
-        return QLatin1String("GL");
-# endif
-    }
-    return *qt_gl_lib_name();
 }
 
 void QGLContextGroup::addShare(const QGLContext *context, const QGLContext *share) {

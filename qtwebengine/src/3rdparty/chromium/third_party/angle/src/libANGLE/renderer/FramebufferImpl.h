@@ -32,7 +32,6 @@ class FramebufferImpl : angle::NonCopyable
     explicit FramebufferImpl(const gl::FramebufferState &state) : mState(state) {}
     virtual ~FramebufferImpl() {}
     virtual void destroy(const gl::Context *context) {}
-    virtual void destroyDefault(const egl::Display *display) {}
 
     virtual gl::Error discard(const gl::Context *context,
                               size_t count,
@@ -70,7 +69,7 @@ class FramebufferImpl : angle::NonCopyable
                                  const gl::Rectangle &area,
                                  GLenum format,
                                  GLenum type,
-                                 void *pixels) const = 0;
+                                 void *pixels) = 0;
 
     virtual gl::Error blit(const gl::Context *context,
                            const gl::Rectangle &sourceArea,
@@ -78,12 +77,14 @@ class FramebufferImpl : angle::NonCopyable
                            GLbitfield mask,
                            GLenum filter) = 0;
 
-    virtual bool checkStatus() const = 0;
+    virtual bool checkStatus(const gl::Context *context) const = 0;
 
-    virtual void syncState(const gl::Context *context,
-                           const gl::Framebuffer::DirtyBits &dirtyBits) = 0;
+    virtual gl::Error syncState(const gl::Context *context,
+                                const gl::Framebuffer::DirtyBits &dirtyBits) = 0;
 
-    virtual gl::Error getSamplePosition(size_t index, GLfloat *xy) const = 0;
+    virtual gl::Error getSamplePosition(const gl::Context *context,
+                                        size_t index,
+                                        GLfloat *xy) const = 0;
 
     const gl::FramebufferState &getState() const { return mState; }
 

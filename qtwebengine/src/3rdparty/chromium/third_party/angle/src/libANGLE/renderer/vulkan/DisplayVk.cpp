@@ -19,25 +19,28 @@
 namespace rx
 {
 
-DisplayVk::DisplayVk(const egl::DisplayState &state) : DisplayImpl(state), mRenderer(nullptr)
+DisplayVk::DisplayVk(const egl::DisplayState &state)
+    : DisplayImpl(state), vk::Context(new RendererVk())
 {
 }
 
 DisplayVk::~DisplayVk()
 {
+    delete mRenderer;
 }
 
 egl::Error DisplayVk::initialize(egl::Display *display)
 {
-    ASSERT(!mRenderer && display != nullptr);
-    mRenderer.reset(new RendererVk());
-    return mRenderer->initialize(display->getAttributeMap(), getWSIName())
-        .toEGL(EGL_NOT_INITIALIZED);
+    ASSERT(mRenderer != nullptr && display != nullptr);
+    angle::Result result = mRenderer->initialize(this, display->getAttributeMap(), getWSIName());
+    ANGLE_TRY(angle::ToEGL(result, this, EGL_NOT_INITIALIZED));
+    return egl::NoError();
 }
 
 void DisplayVk::terminate()
 {
-    mRenderer.reset(nullptr);
+    ASSERT(mRenderer);
+    mRenderer->onDestroy(this);
 }
 
 egl::Error DisplayVk::makeCurrent(egl::Surface * /*drawSurface*/,
@@ -45,51 +48,6 @@ egl::Error DisplayVk::makeCurrent(egl::Surface * /*drawSurface*/,
                                   gl::Context * /*context*/)
 {
     return egl::NoError();
-}
-
-egl::ConfigSet DisplayVk::generateConfigs()
-{
-    // TODO(jmadill): Multiple configs, pbuffers, and proper checking of config attribs.
-    egl::Config singleton;
-    singleton.renderTargetFormat    = GL_RGBA8;
-    singleton.depthStencilFormat    = GL_NONE;
-    singleton.bufferSize            = 32;
-    singleton.redSize               = 8;
-    singleton.greenSize             = 8;
-    singleton.blueSize              = 8;
-    singleton.alphaSize             = 8;
-    singleton.alphaMaskSize         = 0;
-    singleton.bindToTextureRGB      = EGL_FALSE;
-    singleton.bindToTextureRGBA     = EGL_FALSE;
-    singleton.colorBufferType       = EGL_RGB_BUFFER;
-    singleton.configCaveat          = EGL_NONE;
-    singleton.conformant            = 0;
-    singleton.depthSize             = 0;
-    singleton.stencilSize           = 0;
-    singleton.level                 = 0;
-    singleton.matchNativePixmap     = EGL_NONE;
-    singleton.maxPBufferWidth       = 0;
-    singleton.maxPBufferHeight      = 0;
-    singleton.maxPBufferPixels      = 0;
-    singleton.maxSwapInterval       = 1;
-    singleton.minSwapInterval       = 1;
-    singleton.nativeRenderable      = EGL_TRUE;
-    singleton.nativeVisualID        = 0;
-    singleton.nativeVisualType      = EGL_NONE;
-    singleton.renderableType        = EGL_OPENGL_ES2_BIT;
-    singleton.sampleBuffers         = 0;
-    singleton.samples               = 0;
-    singleton.surfaceType           = EGL_WINDOW_BIT;
-    singleton.optimalOrientation    = 0;
-    singleton.transparentType       = EGL_NONE;
-    singleton.transparentRedValue   = 0;
-    singleton.transparentGreenValue = 0;
-    singleton.transparentBlueValue  = 0;
-    singleton.colorComponentType    = EGL_COLOR_COMPONENT_TYPE_FIXED_EXT;
-
-    egl::ConfigSet configSet;
-    configSet.add(singleton);
-    return configSet;
 }
 
 bool DisplayVk::testDeviceLost()
@@ -115,18 +73,22 @@ std::string DisplayVk::getVendorString() const
     return vendorString;
 }
 
-egl::Error DisplayVk::getDevice(DeviceImpl **device)
-{
-    return egl::NoError();
-}
-
-egl::Error DisplayVk::waitClient(const gl::Context *context) const
+DeviceImpl *DisplayVk::createDevice()
 {
     UNIMPLEMENTED();
-    return egl::EglBadAccess();
+    return nullptr;
 }
 
-egl::Error DisplayVk::waitNative(const gl::Context *context, EGLint engine) const
+egl::Error DisplayVk::waitClient(const gl::Context *context)
+{
+    // TODO(jmadill): Call flush instead of finish once it is implemented in RendererVK.
+    // http://anglebug.com/2504
+    UNIMPLEMENTED();
+
+    return angle::ToEGL(mRenderer->finish(this), this, EGL_BAD_ACCESS);
+}
+
+egl::Error DisplayVk::waitNative(const gl::Context *context, EGLint engine)
 {
     UNIMPLEMENTED();
     return egl::EglBadAccess();
@@ -178,12 +140,15 @@ ImageImpl *DisplayVk::createImage(const egl::ImageState &state,
     return static_cast<ImageImpl *>(0);
 }
 
-ContextImpl *DisplayVk::createContext(const gl::ContextState &state)
+ContextImpl *DisplayVk::createContext(const gl::ContextState &state,
+                                      const egl::Config *configuration,
+                                      const gl::Context *shareContext,
+                                      const egl::AttributeMap &attribs)
 {
-    return new ContextVk(state, mRenderer.get());
+    return new ContextVk(state, mRenderer);
 }
 
-StreamProducerImpl *DisplayVk::createStreamProducerD3DTextureNV12(
+StreamProducerImpl *DisplayVk::createStreamProducerD3DTexture(
     egl::Stream::ConsumerType consumerType,
     const egl::AttributeMap &attribs)
 {
@@ -199,6 +164,12 @@ gl::Version DisplayVk::getMaxSupportedESVersion() const
 
 void DisplayVk::generateExtensions(egl::DisplayExtensions *outExtensions) const
 {
+    outExtensions->surfaceOrientation       = true;
+    outExtensions->displayTextureShareGroup = true;
+
+    // TODO(geofflang): Extension is exposed but not implemented so that other aspects of the Vulkan
+    // backend can be tested in Chrome. http://anglebug.com/2722
+    outExtensions->robustResourceInitialization = true;
 }
 
 void DisplayVk::generateCaps(egl::Caps *outCaps) const
@@ -206,4 +177,17 @@ void DisplayVk::generateCaps(egl::Caps *outCaps) const
     outCaps->textureNPOT = true;
 }
 
+void DisplayVk::handleError(VkResult result, const char *file, unsigned int line)
+{
+    std::stringstream errorStream;
+    errorStream << "Internal Vulkan error: " << VulkanResultString(result) << ", in " << file
+                << ", line " << line << ".";
+    mStoredErrorString = errorStream.str();
+}
+
+// TODO(jmadill): Remove this. http://anglebug.com/2491
+egl::Error DisplayVk::getEGLError(EGLint errorCode)
+{
+    return egl::Error(errorCode, 0, std::move(mStoredErrorString));
+}
 }  // namespace rx

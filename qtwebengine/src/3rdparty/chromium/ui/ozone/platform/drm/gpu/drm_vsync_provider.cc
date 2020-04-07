@@ -17,4 +17,18 @@ void DrmVSyncProvider::GetVSyncParameters(const UpdateVSyncCallback& callback) {
   window_->GetVSyncParameters(callback);
 }
 
+bool DrmVSyncProvider::GetVSyncParametersIfAvailable(
+    base::TimeTicks* timebase,
+    base::TimeDelta* interval) {
+  return false;
+}
+
+bool DrmVSyncProvider::SupportGetVSyncParametersIfAvailable() const {
+  return false;
+}
+
+bool DrmVSyncProvider::IsHWClock() const {
+  return true;
+}
+
 }  // namespace ui

@@ -50,10 +50,11 @@
 
 #include <QtQuickTemplates2/private/qquickcontrol_p.h>
 #include <QtQuickTemplates2/private/qquickdeferredpointer_p_p.h>
+#include <QtQuickTemplates2/private/qquicktheme_p.h>
 
 #include <QtQuick/private/qquickitem_p.h>
+#include <QtQuick/private/qquickitemchangelistener_p.h>
 #include <QtQml/private/qlazilyallocated_p.h>
-#include <qpa/qplatformtheme.h>
 
 #if QT_CONFIG(accessibility)
 #include <QtGui/qaccessible.h>
@@ -63,7 +64,7 @@ QT_BEGIN_NAMESPACE
 
 class QQuickAccessibleAttached;
 
-class Q_QUICKTEMPLATES2_PRIVATE_EXPORT QQuickControlPrivate : public QQuickItemPrivate
+class Q_QUICKTEMPLATES2_PRIVATE_EXPORT QQuickControlPrivate : public QQuickItemPrivate, public QQuickItemChangeListener
 #if QT_CONFIG(accessibility)
     , public QAccessible::ActivationObserver
 #endif
@@ -72,12 +73,14 @@ class Q_QUICKTEMPLATES2_PRIVATE_EXPORT QQuickControlPrivate : public QQuickItemP
 
 public:
     QQuickControlPrivate();
-    virtual ~QQuickControlPrivate();
+    ~QQuickControlPrivate();
 
     static QQuickControlPrivate *get(QQuickControl *control)
     {
         return control->d_func();
     }
+
+    void init();
 
 #if QT_CONFIG(quicktemplates2_multitouch)
     virtual bool acceptTouch(const QTouchEvent::TouchPoint &point);
@@ -89,10 +92,31 @@ public:
 
     void mirrorChange() override;
 
+    inline QMarginsF getPadding() const { return QMarginsF(getLeftPadding(), getTopPadding(), getRightPadding(), getBottomPadding()); }
+    inline qreal getTopPadding() const { return extra.isAllocated() && extra->hasTopPadding ? extra->topPadding : getVerticalPadding(); }
+    inline qreal getLeftPadding() const { return extra.isAllocated() && extra->hasLeftPadding ? extra->leftPadding : getHorizontalPadding(); }
+    inline qreal getRightPadding() const { return extra.isAllocated() && extra->hasRightPadding ? extra->rightPadding : getHorizontalPadding(); }
+    inline qreal getBottomPadding() const { return extra.isAllocated() && extra->hasBottomPadding ? extra->bottomPadding : getVerticalPadding(); }
+    inline qreal getHorizontalPadding() const { return hasHorizontalPadding ? horizontalPadding : padding; }
+    inline qreal getVerticalPadding() const { return hasVerticalPadding ? verticalPadding : padding; }
+
     void setTopPadding(qreal value, bool reset = false);
     void setLeftPadding(qreal value, bool reset = false);
     void setRightPadding(qreal value, bool reset = false);
     void setBottomPadding(qreal value, bool reset = false);
+    void setHorizontalPadding(qreal value, bool reset = false);
+    void setVerticalPadding(qreal value, bool reset = false);
+
+    inline QMarginsF getInset() const { return QMarginsF(getLeftInset(), getTopInset(), getRightInset(), getBottomInset()); }
+    inline qreal getTopInset() const { return extra.isAllocated() ? extra->topInset : 0; }
+    inline qreal getLeftInset() const { return extra.isAllocated() ? extra->leftInset : 0; }
+    inline qreal getRightInset() const { return extra.isAllocated() ? extra->rightInset : 0; }
+    inline qreal getBottomInset() const { return extra.isAllocated() ? extra->bottomInset : 0; }
+
+    void setTopInset(qreal value, bool reset = false);
+    void setLeftInset(qreal value, bool reset = false);
+    void setRightInset(qreal value, bool reset = false);
+    void setBottomInset(qreal value, bool reset = false);
 
     void resizeBackground();
     virtual void resizeContent();
@@ -116,7 +140,6 @@ public:
         updateFont(font);
     }
     static QFont parentFont(const QQuickItem *item);
-    static QFont themeFont(QPlatformTheme::Font type);
 
     virtual void resolvePalette();
     void inheritPalette(const QPalette &palette);
@@ -128,7 +151,6 @@ public:
         updatePalette(palette);
     }
     static QPalette parentPalette(const QQuickItem *item);
-    static QPalette themePalette(QPlatformTheme::Palette type);
 
     void updateLocale(const QLocale &l, bool e);
     static void updateLocaleRecur(QQuickItem *item, const QLocale &l);
@@ -146,35 +168,74 @@ public:
     virtual void cancelBackground();
     virtual void executeBackground(bool complete = false);
 
+    void updateBaselineOffset();
+
+    static const ChangeTypes ImplicitSizeChanges;
+
+    void addImplicitSizeListener(QQuickItem *item, ChangeTypes changes = ImplicitSizeChanges);
+    void removeImplicitSizeListener(QQuickItem *item, ChangeTypes changes = ImplicitSizeChanges);
+
+    static void addImplicitSizeListener(QQuickItem *item, QQuickItemChangeListener *listener, ChangeTypes changes = ImplicitSizeChanges);
+    static void removeImplicitSizeListener(QQuickItem *item, QQuickItemChangeListener *listener, ChangeTypes changes = ImplicitSizeChanges);
+
+    void itemImplicitWidthChanged(QQuickItem *item) override;
+    void itemImplicitHeightChanged(QQuickItem *item) override;
+    void itemGeometryChanged(QQuickItem *item, QQuickGeometryChange change, const QRectF &diff) override;
+    void itemDestroyed(QQuickItem *item) override;
+
+    virtual qreal getContentWidth() const;
+    virtual qreal getContentHeight() const;
+
+    void updateImplicitContentWidth();
+    void updateImplicitContentHeight();
+    void updateImplicitContentSize();
+
     struct ExtraData {
-        ExtraData();
+        bool hasTopPadding = false;
+        bool hasLeftPadding = false;
+        bool hasRightPadding = false;
+        bool hasBottomPadding = false;
+        bool hasBaselineOffset = false;
+        bool hasTopInset = false;
+        bool hasLeftInset = false;
+        bool hasRightInset = false;
+        bool hasBottomInset = false;
+        bool hasBackgroundWidth = false;
+        bool hasBackgroundHeight = false;
+        qreal topPadding = 0;
+        qreal leftPadding = 0;
+        qreal rightPadding = 0;
+        qreal bottomPadding = 0;
+        qreal topInset = 0;
+        qreal leftInset = 0;
+        qreal rightInset = 0;
+        qreal bottomInset = 0;
         QFont requestedFont;
         QPalette requestedPalette;
     };
     QLazilyAllocated<ExtraData> extra;
 
-    bool hasTopPadding;
-    bool hasLeftPadding;
-    bool hasRightPadding;
-    bool hasBottomPadding;
-    bool hasLocale;
-    bool wheelEnabled;
+    bool hasHorizontalPadding = false;
+    bool hasVerticalPadding = false;
+    bool hasLocale = false;
+    bool wheelEnabled = false;
 #if QT_CONFIG(quicktemplates2_hover)
-    bool hovered;
-    bool explicitHoverEnabled;
+    bool hovered = false;
+    bool explicitHoverEnabled = false;
 #endif
-    int touchId;
-    qreal padding;
-    qreal topPadding;
-    qreal leftPadding;
-    qreal rightPadding;
-    qreal bottomPadding;
-    qreal spacing;
+    bool resizingBackground = false;
+    int touchId = -1;
+    qreal padding = 0;
+    qreal horizontalPadding = 0;
+    qreal verticalPadding = 0;
+    qreal implicitContentWidth = 0;
+    qreal implicitContentHeight = 0;
+    qreal spacing = 0;
     QLocale locale;
     QFont resolvedFont;
     QPalette resolvedPalette;
-    Qt::FocusPolicy focusPolicy;
-    Qt::FocusReason focusReason;
+    Qt::FocusPolicy focusPolicy = Qt::NoFocus;
+    Qt::FocusReason focusReason = Qt::OtherFocusReason;
     QQuickDeferredPointer<QQuickItem> background;
     QQuickDeferredPointer<QQuickItem> contentItem;
 };

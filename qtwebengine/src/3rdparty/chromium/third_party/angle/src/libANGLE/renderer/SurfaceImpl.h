@@ -17,8 +17,14 @@
 #include "libANGLE/FramebufferAttachment.h"
 #include "libANGLE/renderer/FramebufferAttachmentObjectImpl.h"
 
+namespace angle
+{
+struct Format;
+}
+
 namespace gl
 {
+class Context;
 class FramebufferState;
 }
 
@@ -38,11 +44,12 @@ class SurfaceImpl : public FramebufferAttachmentObjectImpl
 {
   public:
     SurfaceImpl(const egl::SurfaceState &surfaceState);
-    virtual ~SurfaceImpl();
+    ~SurfaceImpl() override;
     virtual void destroy(const egl::Display *display) {}
 
     virtual egl::Error initialize(const egl::Display *display)                           = 0;
-    virtual FramebufferImpl *createDefaultFramebuffer(const gl::FramebufferState &state) = 0;
+    virtual FramebufferImpl *createDefaultFramebuffer(const gl::Context *context,
+                                                      const gl::FramebufferState &state) = 0;
     virtual egl::Error swap(const gl::Context *context)                                  = 0;
     virtual egl::Error swapWithDamage(const gl::Context *context, EGLint *rects, EGLint n_rects);
     virtual egl::Error postSubBuffer(const gl::Context *context,
@@ -50,9 +57,12 @@ class SurfaceImpl : public FramebufferAttachmentObjectImpl
                                      EGLint y,
                                      EGLint width,
                                      EGLint height) = 0;
+    virtual egl::Error setPresentationTime(EGLnsecsANDROID time);
     virtual egl::Error querySurfacePointerANGLE(EGLint attribute, void **value) = 0;
-    virtual egl::Error bindTexImage(gl::Texture *texture, EGLint buffer) = 0;
-    virtual egl::Error releaseTexImage(EGLint buffer) = 0;
+    virtual egl::Error bindTexImage(const gl::Context *context,
+                                    gl::Texture *texture,
+                                    EGLint buffer)                                            = 0;
+    virtual egl::Error releaseTexImage(const gl::Context *context, EGLint buffer)             = 0;
     virtual egl::Error getSyncValues(EGLuint64KHR *ust, EGLuint64KHR *msc, EGLuint64KHR *sbc) = 0;
     virtual void setSwapInterval(EGLint interval) = 0;
 
@@ -62,6 +72,13 @@ class SurfaceImpl : public FramebufferAttachmentObjectImpl
 
     virtual EGLint isPostSubBufferSupported() const = 0;
     virtual EGLint getSwapBehavior() const = 0;
+
+    // Used to query color format from pbuffers created from D3D textures.
+    virtual const angle::Format *getD3DTextureColorFormat() const
+    {
+        UNREACHABLE();
+        return nullptr;
+    }
 
   protected:
     const egl::SurfaceState &mState;

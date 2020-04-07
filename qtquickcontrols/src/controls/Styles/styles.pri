@@ -108,6 +108,7 @@ STYLES_QML_FILES += \
     $$PWD/Base/images/knob.png \
     $$PWD/Base/images/needle.png
 
-STYLES_QML_FILES += $$PWD/qmldir
+AUX_QML_FILES += $$PWD/qmldir
+static: QML_FILES += $$AUX_QML_FILES
 ios:static: include(iOS/iOS.pri)
 !qtquickcompiler|static: QML_FILES += $$STYLES_QML_FILES

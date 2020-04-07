@@ -44,7 +44,11 @@
 ;*******************************************************************************
 ; Local Data (Read Only)
 ;*******************************************************************************
+%ifdef X86_32_PICASM
+SECTION .text align=32
+%else
 SECTION .rodata align=32
+%endif
 
 ;*******************************************************************************
 ; Various memory constants (trigonometric values or rounding values)
@@ -112,7 +116,15 @@ h264_mc_hc_32:
 
 SECTION .text
 
+%ifdef X86_32_PICASM
 
+%macro MOVEIMM_DW16 1
+    pcmpeqw      %1,  %1
+    psrlw        %1,  15
+    psllw        %1,  4
+%endmacro
+
+%endif
 
 ;*******************************************************************************
 ; void McHorVer20WidthEq4_mmx( const uint8_t *pSrc,
@@ -130,7 +142,11 @@ WELS_EXTERN McHorVer20WidthEq4_mmx
 
     sub r0, 2
     WELS_Zero mm7
+%ifdef X86_32_PICASM
+    MOVEIMM_DW16 mm6
+%else
     movq mm6, [h264_w0x10_1]
+%endif
 .height_loop:
     movd mm0, [r0]
     punpcklbw mm0, mm7
@@ -179,9 +195,9 @@ WELS_EXTERN McHorVer20WidthEq4_mmx
 
 %macro FILTER_HV_W8 9
     paddw   %1, %6
+    paddw   %1, [pic(h264_w0x10_1)]
     movdqa  %8, %3
     movdqa  %7, %2
-    paddw   %1, [h264_w0x10_1]
     paddw   %8, %4
     paddw   %7, %5
     psllw   %8, 2
@@ -198,9 +214,9 @@ WELS_EXTERN McHorVer20WidthEq4_mmx
 
 %macro FILTER_HV_W4 9
 paddw   %1, %6
+paddw   %1, [pic(h264_w0x10_1)]
 movdqa  %8, %3
 movdqa  %7, %2
-paddw   %1, [h264_w0x10_1]
 paddw   %8, %4
 paddw   %7, %5
 psllw   %8, 2
@@ -291,7 +307,11 @@ WELS_EXTERN McHorVer20WidthEq8_sse2
     lea r0, [r0-2]            ;pSrc -= 2;
 
     pxor xmm7, xmm7
+%ifdef X86_32_PICASM
+    MOVEIMM_DW16 xmm6
+%else
     movdqa xmm6, [h264_w0x10_1]
+%endif
 .y_loop:
     movq xmm0, [r0]
     punpcklbw xmm0, xmm7
@@ -347,7 +367,11 @@ WELS_EXTERN McHorVer20WidthEq16_sse2
     lea r0, [r0-2]            ;pSrc -= 2;
 
     pxor xmm7, xmm7
+%ifdef X86_32_PICASM
+    MOVEIMM_DW16 xmm6
+%else
     movdqa xmm6, [h264_w0x10_1]
+%endif
 .y_loop:
 
     movq xmm0, [r0]
@@ -421,6 +445,7 @@ WELS_EXTERN McHorVer20WidthEq16_sse2
 ;*******************************************************************************
 WELS_EXTERN McHorVer02WidthEq8_sse2
     %assign  push_num 0
+    INIT_X86_32_PIC r5
     LOAD_5_PARA
     PUSH_XMM 8
     SIGN_EXTENSION  r1, r1d
@@ -494,6 +519,7 @@ WELS_EXTERN McHorVer02WidthEq8_sse2
 .xx_exit:
     POP_XMM
     LOAD_5_PARA_POP
+    DEINIT_X86_32_PIC
     ret
 
 ;***********************************************************************
@@ -514,6 +540,7 @@ SECTION .text
 ;***********************************************************************
 WELS_EXTERN McHorVer02Height9Or17_sse2
     %assign  push_num 0
+    INIT_X86_32_PIC r6
     LOAD_6_PARA
     PUSH_XMM 8
     SIGN_EXTENSION  r1, r1d
@@ -635,6 +662,7 @@ WELS_EXTERN McHorVer02Height9Or17_sse2
 %endif
     POP_XMM
     LOAD_6_PARA_POP
+    DEINIT_X86_32_PIC
     ret
 
 
@@ -648,6 +676,7 @@ WELS_EXTERN McHorVer02Height9Or17_sse2
 ;***********************************************************************
 WELS_EXTERN McHorVer02Height5_sse2
 %assign  push_num 0
+INIT_X86_32_PIC r6
 LOAD_6_PARA
 PUSH_XMM 8
 SIGN_EXTENSION  r1, r1d
@@ -769,6 +798,7 @@ pop r12
 %endif
 POP_XMM
 LOAD_6_PARA_POP
+DEINIT_X86_32_PIC
 ret
 
 
@@ -783,6 +813,7 @@ ret
 ;***********************************************************************
 WELS_EXTERN McHorVer20Width9Or17_sse2
     %assign  push_num 0
+    INIT_X86_32_PIC r6
     LOAD_6_PARA
     PUSH_XMM 8
     SIGN_EXTENSION  r1, r1d
@@ -819,7 +850,7 @@ WELS_EXTERN McHorVer20Width9Or17_sse2
     paddw xmm0, xmm6
     psllw xmm6, 2
     paddw xmm0, xmm6
-    paddw xmm0, [h264_w0x10_1]
+    paddw xmm0, [pic(h264_w0x10_1)]
     psraw  xmm0, 5
     packuswb xmm0, xmm0
     movd [r2], xmm0
@@ -836,7 +867,7 @@ WELS_EXTERN McHorVer20Width9Or17_sse2
     paddw xmm2, xmm5
     psllw xmm5, 2
     paddw xmm2, xmm5
-    paddw xmm2, [h264_w0x10_1]
+    paddw xmm2, [pic(h264_w0x10_1)]
     psraw  xmm2, 5
     packuswb xmm2, xmm2
     movq [r2+1], xmm2
@@ -847,6 +878,7 @@ WELS_EXTERN McHorVer20Width9Or17_sse2
     jnz .yloop_width_9
     POP_XMM
     LOAD_6_PARA_POP
+    DEINIT_X86_32_PIC_KEEPDEF
     ret
 
 
@@ -873,7 +905,7 @@ WELS_EXTERN McHorVer20Width9Or17_sse2
     paddw xmm0, xmm4
     psllw xmm4, 2
     paddw xmm0, xmm4
-    paddw xmm0, [h264_w0x10_1]
+    paddw xmm0, [pic(h264_w0x10_1)]
     psraw  xmm0, 5
     packuswb xmm0, xmm0
     movq [r2], xmm0
@@ -901,7 +933,7 @@ WELS_EXTERN McHorVer20Width9Or17_sse2
     paddw xmm0, xmm6
     psllw xmm6, 2
     paddw xmm0, xmm6
-    paddw xmm0, [h264_w0x10_1]
+    paddw xmm0, [pic(h264_w0x10_1)]
     psraw  xmm0, 5
     packuswb xmm0, xmm0
     movd [r2+8], xmm0
@@ -919,7 +951,7 @@ WELS_EXTERN McHorVer20Width9Or17_sse2
     paddw xmm2, xmm5
     psllw xmm5, 2
     paddw xmm2, xmm5
-    paddw xmm2, [h264_w0x10_1]
+    paddw xmm2, [pic(h264_w0x10_1)]
     psraw  xmm2, 5
     packuswb xmm2, xmm2
     movq [r2+9], xmm2
@@ -929,6 +961,7 @@ WELS_EXTERN McHorVer20Width9Or17_sse2
     jnz .yloop_width_17
     POP_XMM
     LOAD_6_PARA_POP
+    DEINIT_X86_32_PIC
     ret
 
 
@@ -943,6 +976,7 @@ WELS_EXTERN McHorVer20Width9Or17_sse2
 ;***********************************************************************
 WELS_EXTERN McHorVer20Width5_sse2
 %assign  push_num 0
+INIT_X86_32_PIC r6
 LOAD_6_PARA
 PUSH_XMM 8
 SIGN_EXTENSION  r1, r1d
@@ -976,7 +1010,7 @@ paddw xmm0, xmm1
 paddw xmm0, xmm6
 psllw xmm6, 2
 paddw xmm0, xmm6
-paddw xmm0, [h264_w0x10_1]
+paddw xmm0, [pic(h264_w0x10_1)]
 psraw  xmm0, 5
 packuswb xmm0, xmm0
 movd [r2], xmm0
@@ -993,7 +1027,7 @@ paddw xmm2, xmm0
 paddw xmm2, xmm5
 psllw xmm5, 2
 paddw xmm2, xmm5
-paddw xmm2, [h264_w0x10_1]
+paddw xmm2, [pic(h264_w0x10_1)]
 psraw  xmm2, 5
 packuswb xmm2, xmm2
 movd [r2+1], xmm2
@@ -1004,6 +1038,7 @@ dec r5
 jnz .yloop_width_5
 POP_XMM
 LOAD_6_PARA_POP
+DEINIT_X86_32_PIC
 ret
 
 
@@ -1170,7 +1205,7 @@ WELS_EXTERN McHorVer22HorFirst_sse2
     psubw  %1, %7
     psraw   %1, 2
     paddw  %8, %1
-    paddw  %8, [h264_mc_hc_32]
+    paddw  %8, [pic(h264_mc_hc_32)]
     psraw   %8, 6
     packuswb %8, %8
     movq %9, %8
@@ -1187,6 +1222,7 @@ WELS_EXTERN McHorVer22HorFirst_sse2
 
 WELS_EXTERN McHorVer22Width8VerLastAlign_sse2
     %assign  push_num 0
+    INIT_X86_32_PIC r6
     LOAD_6_PARA
     PUSH_XMM 8
     SIGN_EXTENSION  r1, r1d
@@ -1304,6 +1340,7 @@ WELS_EXTERN McHorVer22Width8VerLastAlign_sse2
 %endif
     POP_XMM
     LOAD_6_PARA_POP
+    DEINIT_X86_32_PIC
     ret
 
 ;***********************************************************************
@@ -1318,6 +1355,7 @@ WELS_EXTERN McHorVer22Width8VerLastAlign_sse2
 
 WELS_EXTERN McHorVer22Width8VerLastUnAlign_sse2
     %assign  push_num 0
+    INIT_X86_32_PIC r6
     LOAD_6_PARA
     PUSH_XMM 8
     SIGN_EXTENSION  r1, r1d
@@ -1434,6 +1472,7 @@ WELS_EXTERN McHorVer22Width8VerLastUnAlign_sse2
 %endif
     POP_XMM
     LOAD_6_PARA_POP
+    DEINIT_X86_32_PIC
     ret
 
 
@@ -1522,7 +1561,7 @@ paddw  %1, %8
 psubw  %1, %7
 psraw   %1, 2
 paddw  %8, %1
-paddw  %8, [h264_mc_hc_32]
+paddw  %8, [pic(h264_mc_hc_32)]
 psraw   %8, 6
 packuswb %8, %8
 movd %9, %8
@@ -1541,6 +1580,7 @@ movd %9, %8
 
 WELS_EXTERN McHorVer22Width4VerLastAlign_sse2
 %assign  push_num 0
+INIT_X86_32_PIC r6
 LOAD_6_PARA
 PUSH_XMM 8
 SIGN_EXTENSION  r1, r1d
@@ -1658,6 +1698,7 @@ pop r12
 %endif
 POP_XMM
 LOAD_6_PARA_POP
+DEINIT_X86_32_PIC
 ret
 
 
@@ -1673,6 +1714,7 @@ ret
 
 WELS_EXTERN McHorVer22Width4VerLastUnAlign_sse2
 %assign  push_num 0
+INIT_X86_32_PIC r6
 LOAD_6_PARA
 PUSH_XMM 8
 SIGN_EXTENSION  r1, r1d
@@ -1789,6 +1831,7 @@ pop r12
 %endif
 POP_XMM
 LOAD_6_PARA_POP
+DEINIT_X86_32_PIC
 ret
 
 
@@ -1801,7 +1844,7 @@ ret
     movdqa          %7, %3
     pmaddubsw       %7, %6
     paddw           %1, %7
-    paddw           %1, [h264_w0x10_1]
+    paddw           %1, [pic(h264_w0x10_1)]
     psraw           %1, 5
 %endmacro
 
@@ -1818,7 +1861,7 @@ ret
     movdqa          %7, %4
     pmaddubsw       %7, %6
     paddw           %1, %7
-    paddw           %1, [h264_w0x10_1]
+    paddw           %1, [pic(h264_w0x10_1)]
     psraw           %1, 5
 %endmacro
 
@@ -1828,7 +1871,7 @@ ret
     pshufb          %1, %2
     pshufb          %5, %3
     pshufd          %6, %1, 10110001b
-    pmaddubsw       %1, [db20_128]
+    pmaddubsw       %1, [pic(db20_128)]
     pmaddubsw       %5, %4
     pmaddubsw       %6, %4
     paddw           %1, %5
@@ -1838,7 +1881,7 @@ ret
 ; pixels=%1 shufb_32435465768798A9=%2 shufb_011267784556ABBC=%3 maddubsw_p1m5_p1m5_m5p1_m5p1=%4 tmp=%5,%6
 %macro SSSE3_FilterHorizontal_8px 6
     SSSE3_FilterHorizontalbw_8px %1, %2, %3, %4, %5, %6
-    paddw           %1, [h264_w0x10_1]
+    paddw           %1, [pic(h264_w0x10_1)]
     psraw           %1, 5
 %endmacro
 
@@ -1853,7 +1896,7 @@ ret
     pshufb          %7, %4
     punpcklqdq      %6, %7
     pshufd          %7, %1, 10110001b
-    pmaddubsw       %1, [db20_128]
+    pmaddubsw       %1, [pic(db20_128)]
     pmaddubsw       %6, %5
     pmaddubsw       %7, %5
     paddw           %1, %6
@@ -1863,13 +1906,13 @@ ret
 ; px0=%1 px1=%2 shufb_32435465768798A9=%3 shufb_011267784556ABBC=%4 maddubsw_p1m5_p1m5_m5p1_m5p1=%5 tmp=%6,%7
 %macro SSSE3_FilterHorizontal_2x4px 7
     SSSE3_FilterHorizontalbw_2x4px %1, %2, %3, %4, %5, %6, %7
-    paddw           %1, [h264_w0x10_1]
+    paddw           %1, [pic(h264_w0x10_1)]
     psraw           %1, 5
 %endmacro
 
 ; pixels=%1 -32768>>scale=%2 tmp=%3
 %macro SSSE3_FilterHorizontalbw_2px 3
-    pmaddubsw       %1, [maddubsw_m2p10_m40m40_p10m2_p0p0_128]
+    pmaddubsw       %1, [pic(maddubsw_m2p10_m40m40_p10m2_p0p0_128)]
     pmaddwd         %1, %2
     pshufd          %3, %1, 10110001b
     paddd           %1, %3
@@ -1877,8 +1920,8 @@ ret
 
 ; pixels=%1 tmp=%2
 %macro SSSE3_FilterHorizontal_2px 2
-    SSSE3_FilterHorizontalbw_2px %1, [dwm1024_128], %2
-    paddd           %1, [dd32768_128]
+    SSSE3_FilterHorizontalbw_2px %1, [pic(dwm1024_128)], %2
+    paddd           %1, [pic(dd32768_128)]
 %endmacro
 
 ; px0=%1 px1=%2 px2=%3 px3=%4 px4=%5 px5=%6 tmp=%7
@@ -1893,7 +1936,7 @@ ret
     paddw           %7, %4
     paddw           %1, %7
     psraw           %1, 2
-    paddw           %7, [h264_mc_hc_32]
+    paddw           %7, [pic(h264_mc_hc_32)]
     paddw           %1, %7
     psraw           %1, 6
 %endmacro
@@ -1912,7 +1955,11 @@ WELS_EXTERN McHorVer02_ssse3
 %define i_srcstride   r1
 %define p_dst         r2
 %define i_dststride   r3
+%ifdef X86_32_PICASM
+%define i_width       dword arg5
+%else
 %define i_width       r4
+%endif
 %define i_height      r5
 %define i_srcstride3  r6
     %assign push_num 0
@@ -1926,11 +1973,14 @@ WELS_EXTERN McHorVer02_ssse3
     SIGN_EXTENSION  r3, r3d
     SIGN_EXTENSION  r4, r4d
     SIGN_EXTENSION  r5, r5d
+    INIT_X86_32_PIC_NOPRESERVE r4
     sub             p_src, i_srcstride
     sub             p_src, i_srcstride
     lea             i_srcstride3, [3 * i_srcstride]
+    %assign push_num_begin push_num
     cmp             i_width, 4
     jg              .width8or16
+
     movd            xmm0, [p_src]
     movd            xmm4, [p_src + i_srcstride]
     punpcklbw       xmm0, xmm4
@@ -1949,8 +1999,8 @@ WELS_EXTERN McHorVer02_ssse3
     movd            xmm3, [p_src]
     punpcklbw       xmm4, xmm3
     punpcklqdq      xmm2, xmm4
-    movdqa          xmm5, [db20_128]
-    SSSE3_FilterVertical_8px xmm0, xmm1, xmm2, [maddubsw_p1m5_128], xmm5, [maddubsw_m5p1_128], xmm4
+    movdqa          xmm5, [pic(db20_128)]
+    SSSE3_FilterVertical_8px xmm0, xmm1, xmm2, [pic(maddubsw_p1m5_128)], xmm5, [pic(maddubsw_m5p1_128)], xmm4
     packuswb        xmm0, xmm0
     movd            [p_dst], xmm0
     psrlq           xmm0, 32
@@ -1961,7 +2011,7 @@ WELS_EXTERN McHorVer02_ssse3
     movd            xmm0, [p_src + 2 * i_srcstride]
     punpcklbw       xmm4, xmm0
     punpcklqdq      xmm3, xmm4
-    SSSE3_FilterVertical_8px xmm1, xmm2, xmm3, [maddubsw_p1m5_128], xmm5, [maddubsw_m5p1_128], xmm4
+    SSSE3_FilterVertical_8px xmm1, xmm2, xmm3, [pic(maddubsw_p1m5_128)], xmm5, [pic(maddubsw_m5p1_128)], xmm4
     packuswb        xmm1, xmm1
     movd            [p_dst], xmm1
     psrlq           xmm1, 32
@@ -1972,10 +2022,11 @@ WELS_EXTERN McHorVer02_ssse3
     movd            xmm4, [p_src + i_srcstride3]
     punpcklbw       xmm0, xmm4
     jg              .width4_height_ge8
-    SSSE3_FilterVertical_8px xmm2, xmm3, xmm0, [maddubsw_p1m5_128], xmm5, [maddubsw_m5p1_128], xmm4
+    SSSE3_FilterVertical_8px xmm2, xmm3, xmm0, [pic(maddubsw_p1m5_128)], xmm5, [pic(maddubsw_m5p1_128)], xmm4
     packuswb        xmm2, xmm2
     movd            [p_dst], xmm2
 .width4_height_le5_done:
+    DEINIT_X86_32_PIC_KEEPDEF
     POP_XMM
     LOAD_6_PARA_POP
 %ifdef X86_32
@@ -1987,7 +2038,7 @@ WELS_EXTERN McHorVer02_ssse3
     movd            xmm1, [p_src]
     punpcklbw       xmm4, xmm1
     punpcklqdq      xmm0, xmm4
-    SSSE3_FilterVertical_8px xmm2, xmm3, xmm0, [maddubsw_p1m5_128], xmm5, [maddubsw_m5p1_128], xmm4
+    SSSE3_FilterVertical_8px xmm2, xmm3, xmm0, [pic(maddubsw_p1m5_128)], xmm5, [pic(maddubsw_m5p1_128)], xmm4
     packuswb        xmm2, xmm2
     movd            [p_dst], xmm2
     psrlq           xmm2, 32
@@ -1998,7 +2049,7 @@ WELS_EXTERN McHorVer02_ssse3
     movd            xmm2, [p_src + 2 * i_srcstride]
     punpcklbw       xmm4, xmm2
     punpcklqdq      xmm1, xmm4
-    SSSE3_FilterVertical_8px xmm3, xmm0, xmm1, [maddubsw_p1m5_128], xmm5, [maddubsw_m5p1_128], xmm4
+    SSSE3_FilterVertical_8px xmm3, xmm0, xmm1, [pic(maddubsw_p1m5_128)], xmm5, [pic(maddubsw_m5p1_128)], xmm4
     packuswb        xmm3, xmm3
     movd            [p_dst], xmm3
     psrlq           xmm3, 32
@@ -2008,10 +2059,11 @@ WELS_EXTERN McHorVer02_ssse3
     lea             p_dst, [p_dst + 2 * i_dststride]
     movd            xmm4, [p_src + i_srcstride3]
     punpcklbw       xmm2, xmm4
-    SSSE3_FilterVertical_8px xmm0, xmm1, xmm2, [maddubsw_p1m5_128], xmm5, [maddubsw_m5p1_128], xmm4
+    SSSE3_FilterVertical_8px xmm0, xmm1, xmm2, [pic(maddubsw_p1m5_128)], xmm5, [pic(maddubsw_m5p1_128)], xmm4
     packuswb        xmm0, xmm0
     movd            [p_dst], xmm0
 .width4_height_ge8_done:
+    DEINIT_X86_32_PIC_KEEPDEF
     POP_XMM
     LOAD_6_PARA_POP
 %ifdef X86_32
@@ -2020,13 +2072,16 @@ WELS_EXTERN McHorVer02_ssse3
     ret
 
 .width8or16:
+    %assign push_num push_num_begin
     sub             i_height, 1
     push            i_height
+    %assign push_num push_num + 1
 %xdefine i_ycnt i_height
 %define i_height [r7]
 .xloop:
     push            p_src
     push            p_dst
+    %assign push_num push_num + 2
     test            i_ycnt, 1
     jnz             .yloop_begin_even
     movq            xmm0, [p_src]
@@ -2040,7 +2095,7 @@ WELS_EXTERN McHorVer02_ssse3
     movq            xmm5, [p_src + i_srcstride]
     lea             p_src, [p_src + 2 * i_srcstride]
     punpcklbw       xmm4, xmm5
-    SSSE3_FilterVertical_8px xmm0, xmm2, xmm4, [maddubsw_p1m5_128], [db20_128], [maddubsw_m5p1_128], xmm7
+    SSSE3_FilterVertical_8px xmm0, xmm2, xmm4, [pic(maddubsw_p1m5_128)], [pic(db20_128)], [pic(maddubsw_m5p1_128)], xmm7
     packuswb        xmm0, xmm0
     movlps          [p_dst], xmm0
     add             p_dst, i_dststride
@@ -2057,20 +2112,20 @@ WELS_EXTERN McHorVer02_ssse3
     punpcklbw       xmm4, xmm5
 .yloop:
     movq            xmm6, [p_src]
-    SSSE3_FilterVertical2_8px xmm1, xmm6, xmm2, xmm4, [maddubsw_m5p20_128], [maddubsw_p20m5_128], xmm0, xmm7
+    SSSE3_FilterVertical2_8px xmm1, xmm6, xmm2, xmm4, [pic(maddubsw_m5p20_128)], [pic(maddubsw_p20m5_128)], xmm0, xmm7
     movq            xmm7, [p_src + i_srcstride]
     punpcklbw       xmm6, xmm7
-    SSSE3_FilterVertical_8px xmm2, xmm4, xmm6, [maddubsw_p1m5_128], [db20_128], [maddubsw_m5p1_128], xmm0
+    SSSE3_FilterVertical_8px xmm2, xmm4, xmm6, [pic(maddubsw_p1m5_128)], [pic(db20_128)], [pic(maddubsw_m5p1_128)], xmm0
     packuswb        xmm1, xmm2
     movlps          [p_dst], xmm1
     movhps          [p_dst + i_dststride], xmm1
     lea             p_dst, [p_dst + 2 * i_dststride]
     movq            xmm0, [p_src + 2 * i_srcstride]
-    SSSE3_FilterVertical2_8px xmm3, xmm0, xmm4, xmm6, [maddubsw_m5p20_128], [maddubsw_p20m5_128], xmm2, xmm1
+    SSSE3_FilterVertical2_8px xmm3, xmm0, xmm4, xmm6, [pic(maddubsw_m5p20_128)], [pic(maddubsw_p20m5_128)], xmm2, xmm1
     movq            xmm1, [p_src + i_srcstride3]
     lea             p_src, [p_src + 4 * i_srcstride]
     punpcklbw       xmm0, xmm1
-    SSSE3_FilterVertical_8px xmm4, xmm6, xmm0, [maddubsw_p1m5_128], [db20_128], [maddubsw_m5p1_128], xmm2
+    SSSE3_FilterVertical_8px xmm4, xmm6, xmm0, [pic(maddubsw_p1m5_128)], [pic(db20_128)], [pic(maddubsw_m5p1_128)], xmm2
     packuswb        xmm3, xmm4
     movlps          [p_dst], xmm3
     movhps          [p_dst + i_dststride], xmm3
@@ -2078,20 +2133,20 @@ WELS_EXTERN McHorVer02_ssse3
     jle             .yloop_exit
     lea             p_dst, [p_dst + 2 * i_dststride]
     movq            xmm2, [p_src]
-    SSSE3_FilterVertical2_8px xmm5, xmm2, xmm6, xmm0, [maddubsw_m5p20_128], [maddubsw_p20m5_128], xmm4, xmm3
+    SSSE3_FilterVertical2_8px xmm5, xmm2, xmm6, xmm0, [pic(maddubsw_m5p20_128)], [pic(maddubsw_p20m5_128)], xmm4, xmm3
     movq            xmm3, [p_src + i_srcstride]
     punpcklbw       xmm2, xmm3
-    SSSE3_FilterVertical_8px xmm6, xmm0, xmm2, [maddubsw_p1m5_128], [db20_128], [maddubsw_m5p1_128], xmm4
+    SSSE3_FilterVertical_8px xmm6, xmm0, xmm2, [pic(maddubsw_p1m5_128)], [pic(db20_128)], [pic(maddubsw_m5p1_128)], xmm4
     packuswb        xmm5, xmm6
     movlps          [p_dst], xmm5
     movhps          [p_dst + i_dststride], xmm5
     lea             p_dst, [p_dst + 2 * i_dststride]
     movq            xmm4, [p_src + 2 * i_srcstride]
-    SSSE3_FilterVertical2_8px xmm7, xmm4, xmm0, xmm2, [maddubsw_m5p20_128], [maddubsw_p20m5_128], xmm6, xmm5
+    SSSE3_FilterVertical2_8px xmm7, xmm4, xmm0, xmm2, [pic(maddubsw_m5p20_128)], [pic(maddubsw_p20m5_128)], xmm6, xmm5
     movq            xmm5, [p_src + i_srcstride3]
     lea             p_src, [p_src + 4 * i_srcstride]
     punpcklbw       xmm4, xmm5
-    SSSE3_FilterVertical_8px xmm0, xmm2, xmm4, [maddubsw_p1m5_128], [db20_128], [maddubsw_m5p1_128], xmm6
+    SSSE3_FilterVertical_8px xmm0, xmm2, xmm4, [pic(maddubsw_p1m5_128)], [pic(db20_128)], [pic(maddubsw_m5p1_128)], xmm6
     packuswb        xmm7, xmm0
     movlps          [p_dst], xmm7
     movhps          [p_dst + i_dststride], xmm7
@@ -2101,6 +2156,7 @@ WELS_EXTERN McHorVer02_ssse3
 .yloop_exit:
     pop             p_dst
     pop             p_src
+    %assign push_num push_num - 2
     sub             i_width, 8
     jle             .width8or16_done
     add             p_src, 8
@@ -2109,6 +2165,8 @@ WELS_EXTERN McHorVer02_ssse3
     jmp             .xloop
 .width8or16_done:
     pop             i_ycnt
+    %assign push_num push_num - 1
+    DEINIT_X86_32_PIC
     POP_XMM
     LOAD_6_PARA_POP
 %ifdef X86_32
@@ -2142,15 +2200,16 @@ WELS_EXTERN McHorVer20_ssse3
 %define i_width      r4
 %define i_height     r5
     %assign  push_num 0
+    INIT_X86_32_PIC r6
     LOAD_6_PARA
     PUSH_XMM 7
     SIGN_EXTENSION  r1, r1d
     SIGN_EXTENSION  r3, r3d
     SIGN_EXTENSION  r4, r4d
     SIGN_EXTENSION  r5, r5d
-    movdqa          xmm4, [shufb_32435465768798A9]
-    movdqa          xmm5, [shufb_011267784556ABBC]
-    movdqa          xmm6, [maddubsw_p1m5_p1m5_m5p1_m5p1_128]
+    movdqa          xmm4, [pic(shufb_32435465768798A9)]
+    movdqa          xmm5, [pic(shufb_011267784556ABBC)]
+    movdqa          xmm6, [pic(maddubsw_p1m5_p1m5_m5p1_m5p1_128)]
     cmp             i_width, 8
     je              .width8_yloop
     jg              .width16_yloop
@@ -2168,6 +2227,7 @@ WELS_EXTERN McHorVer20_ssse3
     jg              .width4_yloop
     POP_XMM
     LOAD_6_PARA_POP
+    DEINIT_X86_32_PIC_KEEPDEF
     ret
 .width8_yloop:
     movdqu          xmm0, [p_src - 2]
@@ -2183,6 +2243,7 @@ WELS_EXTERN McHorVer20_ssse3
     jg              .width8_yloop
     POP_XMM
     LOAD_6_PARA_POP
+    DEINIT_X86_32_PIC_KEEPDEF
     ret
 .width16_yloop:
     movdqu          xmm0, [p_src - 2]
@@ -2197,6 +2258,7 @@ WELS_EXTERN McHorVer20_ssse3
     jg              .width16_yloop
     POP_XMM
     LOAD_6_PARA_POP
+    DEINIT_X86_32_PIC
     ret
 %undef p_src
 %undef i_srcstride
@@ -2223,15 +2285,16 @@ WELS_EXTERN McHorVer20Width5Or9Or17_ssse3
 %define i_width      r4
 %define i_height     r5
     %assign  push_num 0
+    INIT_X86_32_PIC r6
     LOAD_6_PARA
     PUSH_XMM 8
     SIGN_EXTENSION  r1, r1d
     SIGN_EXTENSION  r3, r3d
     SIGN_EXTENSION  r4, r4d
     SIGN_EXTENSION  r5, r5d
-    movdqa          xmm5, [shufb_32435465768798A9]
-    movdqa          xmm6, [shufb_011267784556ABBC]
-    movdqa          xmm7, [maddubsw_p1m5_p1m5_m5p1_m5p1_128]
+    movdqa          xmm5, [pic(shufb_32435465768798A9)]
+    movdqa          xmm6, [pic(shufb_011267784556ABBC)]
+    movdqa          xmm7, [pic(maddubsw_p1m5_p1m5_m5p1_m5p1_128)]
     cmp             i_width, 9
     je              .width9_yloop
     jg              .width17_yloop
@@ -2249,6 +2312,7 @@ WELS_EXTERN McHorVer20Width5Or9Or17_ssse3
     jg              .width5_yloop
     POP_XMM
     LOAD_6_PARA_POP
+    DEINIT_X86_32_PIC_KEEPDEF
     ret
 .width9_yloop:
     movdqu          xmm0, [p_src - 2]
@@ -2272,6 +2336,7 @@ WELS_EXTERN McHorVer20Width5Or9Or17_ssse3
     jg              .width9_yloop
     POP_XMM
     LOAD_6_PARA_POP
+    DEINIT_X86_32_PIC_KEEPDEF
     ret
 .width17_yloop:
     movdqu          xmm0, [p_src - 2]
@@ -2301,6 +2366,7 @@ WELS_EXTERN McHorVer20Width5Or9Or17_ssse3
     jg              .width17_yloop
     POP_XMM
     LOAD_6_PARA_POP
+    DEINIT_X86_32_PIC
     ret
 %undef p_src
 %undef i_srcstride
@@ -2323,15 +2389,16 @@ WELS_EXTERN McHorVer20Width4U8ToS16_ssse3
 %define p_dst        r2
 %define i_height     r3
     %assign  push_num 0
+    INIT_X86_32_PIC r4
     LOAD_4_PARA
     PUSH_XMM 7
     SIGN_EXTENSION  r1, r1d
     SIGN_EXTENSION  r3, r3d
     sub             p_src, i_srcstride
     sub             p_src, i_srcstride
-    movdqa          xmm4, [shufb_32435465768798A9]
-    movdqa          xmm5, [shufb_011267784556ABBC]
-    movdqa          xmm6, [maddubsw_p1m5_p1m5_m5p1_m5p1_128]
+    movdqa          xmm4, [pic(shufb_32435465768798A9)]
+    movdqa          xmm5, [pic(shufb_011267784556ABBC)]
+    movdqa          xmm6, [pic(maddubsw_p1m5_p1m5_m5p1_m5p1_128)]
     sub             i_height, 1
 .yloop:
     movdqu          xmm0, [p_src - 2]
@@ -2348,6 +2415,7 @@ WELS_EXTERN McHorVer20Width4U8ToS16_ssse3
     movlps          [p_dst], xmm0
     POP_XMM
     LOAD_4_PARA_POP
+    DEINIT_X86_32_PIC
     ret
 %undef p_src
 %undef i_srcstride
@@ -2369,6 +2437,7 @@ WELS_EXTERN McHorVer02Width4S16ToU8_ssse3
 %define i_height     r3
 %define i_srcstride  8
     %assign  push_num 0
+    INIT_X86_32_PIC r4
     LOAD_4_PARA
     PUSH_XMM 8
     SIGN_EXTENSION  r2, r2d
@@ -2413,6 +2482,7 @@ WELS_EXTERN McHorVer02Width4S16ToU8_ssse3
 .done:
     POP_XMM
     LOAD_4_PARA_POP
+    DEINIT_X86_32_PIC
     ret
 %undef p_src
 %undef p_dst
@@ -2436,6 +2506,7 @@ WELS_EXTERN McHorVer20Width8U8ToS16_ssse3
 %define i_dststride  r3
 %define i_height     r4
     %assign  push_num 0
+    INIT_X86_32_PIC r5
     LOAD_5_PARA
     PUSH_XMM 7
     SIGN_EXTENSION  r1, r1d
@@ -2443,9 +2514,9 @@ WELS_EXTERN McHorVer20Width8U8ToS16_ssse3
     SIGN_EXTENSION  r4, r4d
     sub             p_src, i_srcstride
     sub             p_src, i_srcstride
-    movdqa          xmm4, [shufb_32435465768798A9]
-    movdqa          xmm5, [shufb_011267784556ABBC]
-    movdqa          xmm6, [maddubsw_p1m5_p1m5_m5p1_m5p1_128]
+    movdqa          xmm4, [pic(shufb_32435465768798A9)]
+    movdqa          xmm5, [pic(shufb_011267784556ABBC)]
+    movdqa          xmm6, [pic(maddubsw_p1m5_p1m5_m5p1_m5p1_128)]
     sub             i_height, 1
 .yloop:
     movdqu          xmm0, [p_src - 2]
@@ -2466,6 +2537,7 @@ WELS_EXTERN McHorVer20Width8U8ToS16_ssse3
 .done:
     POP_XMM
     LOAD_5_PARA_POP
+    DEINIT_X86_32_PIC
     ret
 %undef p_src
 %undef i_srcstride
@@ -2494,6 +2566,7 @@ WELS_EXTERN McHorVer02Width5S16ToU8_ssse3
     push            r5
     %assign  push_num 1
 %endif
+    INIT_X86_32_PIC r6
     LOAD_5_PARA
     PUSH_XMM 8
     SIGN_EXTENSION  r1, r1d
@@ -2584,6 +2657,7 @@ WELS_EXTERN McHorVer02Width5S16ToU8_ssse3
 .done:
     POP_XMM
     LOAD_5_PARA_POP
+    DEINIT_X86_32_PIC
 %ifdef X86_32
     pop             r5
 %endif
@@ -2613,6 +2687,7 @@ WELS_EXTERN McHorVer20Width9Or17U8ToS16_ssse3
 %define i_width     r4
 %define i_height    r5
     %assign  push_num 0
+    INIT_X86_32_PIC r6
     LOAD_6_PARA
     PUSH_XMM 8
     SIGN_EXTENSION  r1, r1d
@@ -2623,9 +2698,9 @@ WELS_EXTERN McHorVer20Width9Or17U8ToS16_ssse3
     sub             p_src, i_srcstride
     pcmpeqw         xmm4, xmm4
     psllw           xmm4, 15                                ; dw -32768
-    movdqa          xmm5, [shufb_32435465768798A9]
-    movdqa          xmm6, [shufb_011267784556ABBC]
-    movdqa          xmm7, [maddubsw_p1m5_p1m5_m5p1_m5p1_128]
+    movdqa          xmm5, [pic(shufb_32435465768798A9)]
+    movdqa          xmm6, [pic(shufb_011267784556ABBC)]
+    movdqa          xmm7, [pic(maddubsw_p1m5_p1m5_m5p1_m5p1_128)]
     cmp             i_width, 9
     jne             .width17_yloop
 
@@ -2648,6 +2723,7 @@ WELS_EXTERN McHorVer20Width9Or17U8ToS16_ssse3
     jg              .width9_yloop
     POP_XMM
     LOAD_6_PARA_POP
+    DEINIT_X86_32_PIC_KEEPDEF
     ret
 
 .width17_yloop:
@@ -2676,6 +2752,7 @@ WELS_EXTERN McHorVer20Width9Or17U8ToS16_ssse3
     jg              .width17_yloop
     POP_XMM
     LOAD_6_PARA_POP
+    DEINIT_X86_32_PIC
     ret
 %undef p_src
 %undef i_srcstride
@@ -2699,7 +2776,11 @@ WELS_EXTERN McHorVer02WidthGe8S16ToU8_ssse3
 %define i_srcstride  r1
 %define p_dst        r2
 %define i_dststride  r3
+%ifdef X86_32_PICASM
+%define i_width      dword arg5
+%else
 %define i_width      r4
+%endif
 %define i_height     r5
 %define i_srcstride3 r6
     %assign  push_num 0
@@ -2713,14 +2794,23 @@ WELS_EXTERN McHorVer02WidthGe8S16ToU8_ssse3
     SIGN_EXTENSION  r3, r3d
     SIGN_EXTENSION  r4, r4d
     SIGN_EXTENSION  r5, r5d
+    INIT_X86_32_PIC_NOPRESERVE r4
     sub             i_height, 1
     push            i_height
+    %assign push_num push_num + 1
     lea             i_srcstride3, [3 * i_srcstride]
     test            i_width, 1
     jz              .width_loop
     push            p_src
     push            p_dst
+    %assign push_num push_num + 2
+%ifdef X86_32_PICASM
+    add             p_src, i_width
+    add             p_src, i_width
+    sub             p_src, 2
+%else
     lea             p_src, [p_src + 2 * i_width - 2]
+%endif
     add             p_dst, i_width
     movd            xmm0, [p_src]
     punpcklwd       xmm0, [p_src + i_srcstride]
@@ -2815,11 +2905,13 @@ WELS_EXTERN McHorVer02WidthGe8S16ToU8_ssse3
 .unalign_done:
     pop             p_dst
     pop             p_src
+    %assign push_num push_num - 2
     mov             i_height, [r7]
     sub             i_width, 1
 .width_loop:
     push            p_src
     push            p_dst
+    %assign push_num push_num + 2
     movdqa          xmm0, [p_src]
     movdqa          xmm1, [p_src + i_srcstride]
     movdqa          xmm2, [p_src + 2 * i_srcstride]
@@ -2874,6 +2966,7 @@ WELS_EXTERN McHorVer02WidthGe8S16ToU8_ssse3
 .x_loop_dec:
     pop             p_dst
     pop             p_src
+    %assign push_num push_num - 2
     sub             i_width, 8
     jle             .done
     mov             i_height, [r7]
@@ -2887,6 +2980,8 @@ WELS_EXTERN McHorVer02WidthGe8S16ToU8_ssse3
     pop             p_src
 .done:
     pop             i_height
+    %assign push_num push_num - 1
+    DEINIT_X86_32_PIC
     POP_XMM
     LOAD_6_PARA_POP
 %ifdef X86_32
@@ -2909,7 +3004,7 @@ WELS_EXTERN McHorVer02WidthGe8S16ToU8_ssse3
     vpshufb         %5, %1, %3
     vpshufb         %1, %1, %2
     vpshufd         %6, %1, 10110001b
-    vpmaddubsw      %1, %1, [db20_256]
+    vpmaddubsw      %1, %1, [pic(db20_256)]
     vpmaddubsw      %5, %5, %4
     vpmaddubsw      %6, %6, %4
     vpaddw          %1, %1, %5
@@ -2919,7 +3014,7 @@ WELS_EXTERN McHorVer02WidthGe8S16ToU8_ssse3
 ; pixels=%1 shufb_32435465768798A9=%2 shufb_011267784556ABBC=%3 db20=%4 tmp=%5,%6
 %macro AVX2_FilterHorizontal_16px 6
     AVX2_FilterHorizontalbw_16px %1, %2, %3, %4, %5, %6
-    vpaddw          %1, %1, [h264_w0x10_256]
+    vpaddw          %1, %1, [pic(h264_w0x10_256)]
     vpsraw          %1, %1, 5
 %endmacro
 
@@ -2932,7 +3027,7 @@ WELS_EXTERN McHorVer02WidthGe8S16ToU8_ssse3
     vpunpcklqdq     %1, %1, %2
     vpunpcklqdq     %6, %6, %7
     vpshufd         %7, %1, 10110001b
-    vpmaddubsw      %1, %1, [db20_256]
+    vpmaddubsw      %1, %1, [pic(db20_256)]
     vpmaddubsw      %6, %6, %5
     vpmaddubsw      %7, %7, %5
     vpaddw          %1, %1, %6
@@ -2942,13 +3037,13 @@ WELS_EXTERN McHorVer02WidthGe8S16ToU8_ssse3
 ; px0=%1 px1=%2 shufb_32435465768798A9=%3 shufb_011267784556ABBC=%4 db20=%5 tmp=%6,%7
 %macro AVX2_FilterHorizontal_4x4px 7
     AVX2_FilterHorizontalbw_4x4px %1, %2, %3, %4, %5, %6, %7
-    vpaddw          %1, %1, [h264_w0x10_256]
+    vpaddw          %1, %1, [pic(h264_w0x10_256)]
     vpsraw          %1, %1, 5
 %endmacro
 
 ; pixels=%1 -32768>>scale=%2 tmp=%3
 %macro AVX2_FilterHorizontalbw_4px 3
-    vpmaddubsw      %1, %1, [maddubsw_m2p10_m40m40_p10m2_p0p0_256]
+    vpmaddubsw      %1, %1, [pic(maddubsw_m2p10_m40m40_p10m2_p0p0_256)]
     vpmaddwd        %1, %1, %2
     vpshufd         %3, %1, 10110001b
     vpaddd          %1, %1, %3
@@ -2956,8 +3051,8 @@ WELS_EXTERN McHorVer02WidthGe8S16ToU8_ssse3
 
 ; pixels=%1 tmp=%2
 %macro AVX2_FilterHorizontal_4px 2
-    AVX2_FilterHorizontalbw_4px %1, [dwm1024_256], %2
-    vpaddd          %1, %1, [dd32768_256]
+    AVX2_FilterHorizontalbw_4px %1, [pic(dwm1024_256)], %2
+    vpaddd          %1, %1, [pic(dd32768_256)]
 %endmacro
 
 ; px_ab=%1 px_cd=%2 px_ef=%3 maddubsw_ab=%4 maddubsw_cd=%5 maddubsw_ef=%6 tmp=%7
@@ -2967,7 +3062,7 @@ WELS_EXTERN McHorVer02WidthGe8S16ToU8_ssse3
     vpaddw          %1, %1, %7
     vpmaddubsw      %7, %3, %6
     vpaddw          %1, %1, %7
-    vpaddw          %1, %1, [h264_w0x10_256]
+    vpaddw          %1, %1, [pic(h264_w0x10_256)]
     vpsraw          %1, %1, 5
 %endmacro
 
@@ -2981,7 +3076,7 @@ WELS_EXTERN McHorVer02WidthGe8S16ToU8_ssse3
     vpaddw          %1, %1, %7
     vpmaddubsw      %7, %4, %6
     vpaddw          %1, %1, %7
-    vpaddw          %1, %1, [h264_w0x10_256]
+    vpaddw          %1, %1, [pic(h264_w0x10_256)]
     vpsraw          %1, %1, 5
 %endmacro
 
@@ -2995,7 +3090,7 @@ WELS_EXTERN McHorVer02WidthGe8S16ToU8_ssse3
     vpaddw          %7, %3, %4
     vpaddw          %1, %1, %7
     vpsraw          %1, %1, 2
-    vpaddw          %7, %7, [dw32_256]
+    vpaddw          %7, %7, [pic(dw32_256)]
     vpaddw          %1, %1, %7
     vpsraw          %1, %1, 6
 %endmacro
@@ -3014,7 +3109,11 @@ WELS_EXTERN McHorVer02_avx2
 %define i_srcstride   r1
 %define p_dst         r2
 %define i_dststride   r3
+%ifdef X86_32_PICASM
+%define i_width       dword arg5
+%else
 %define i_width       r4
+%endif
 %define i_height      r5
 %define i_srcstride3  r6
     %assign push_num 0
@@ -3028,6 +3127,7 @@ WELS_EXTERN McHorVer02_avx2
     SIGN_EXTENSION  r3, r3d
     SIGN_EXTENSION  r4, r4d
     SIGN_EXTENSION  r5, r5d
+    INIT_X86_32_PIC_NOPRESERVE r4
     sub             p_src, i_srcstride
     sub             p_src, i_srcstride
     lea             i_srcstride3, [3 * i_srcstride]
@@ -3061,8 +3161,8 @@ WELS_EXTERN McHorVer02_avx2
     vpunpcklbw      ymm5, ymm5, ymm4
     vpblendd        ymm3, ymm3, ymm5, 11001100b
     vpblendd        ymm2, ymm2, ymm3, 11110000b
-    vbroadcasti128  ymm6, [db20_128]
-    AVX2_FilterVertical_16px ymm0, ymm1, ymm2, [maddubsw_p1m5_256], ymm6, [maddubsw_m5p1_256], ymm5
+    vbroadcasti128  ymm6, [pic(db20_128)]
+    AVX2_FilterVertical_16px ymm0, ymm1, ymm2, [pic(maddubsw_p1m5_256)], ymm6, [pic(maddubsw_m5p1_256)], ymm5
     vpackuswb       ymm0, ymm0, ymm0
     vmovd           [p_dst], xmm0
     vpsrlq          xmm5, xmm0, 32
@@ -3078,7 +3178,7 @@ WELS_EXTERN McHorVer02_avx2
     vpbroadcastd    ymm5, [p_src + i_srcstride3]
     vpunpcklbw      ymm4, ymm4, ymm5
     jg              .width4_height_ge8
-    AVX2_FilterVertical_16px xmm2, xmm3, xmm4, [maddubsw_p1m5_256], xmm6, [maddubsw_m5p1_256], xmm5
+    AVX2_FilterVertical_16px xmm2, xmm3, xmm4, [pic(maddubsw_p1m5_256)], xmm6, [pic(maddubsw_m5p1_256)], xmm5
     vpackuswb       xmm2, xmm2, xmm2
     vmovd           [p_dst], xmm2
     jmp             .width4_done
@@ -3094,7 +3194,7 @@ WELS_EXTERN McHorVer02_avx2
     vpunpcklbw      ymm5, ymm5, ymm0
     vpblendd        ymm1, ymm1, ymm5, 11001100b
     vpblendd        ymm4, ymm4, ymm1, 11110000b
-    AVX2_FilterVertical_16px ymm2, ymm3, ymm4, [maddubsw_p1m5_256], ymm6, [maddubsw_m5p1_256], ymm5
+    AVX2_FilterVertical_16px ymm2, ymm3, ymm4, [pic(maddubsw_p1m5_256)], ymm6, [pic(maddubsw_m5p1_256)], ymm5
     vpackuswb       ymm2, ymm2, ymm2
     vmovd           [p_dst], xmm2
     vpsrlq          xmm5, xmm2, 32
@@ -3109,11 +3209,12 @@ WELS_EXTERN McHorVer02_avx2
     lea             p_dst, [p_dst + 2 * i_dststride]
     vmovd           xmm5, [p_src + i_srcstride3]
     vpunpcklbw      xmm0, xmm0, xmm5
-    AVX2_FilterVertical_16px xmm4, xmm1, xmm0, [maddubsw_p1m5_256], xmm6, [maddubsw_m5p1_256], xmm5
+    AVX2_FilterVertical_16px xmm4, xmm1, xmm0, [pic(maddubsw_p1m5_256)], xmm6, [pic(maddubsw_m5p1_256)], xmm5
     vpackuswb       xmm4, xmm4, xmm4
     vmovd           [p_dst], xmm4
 .width4_done:
     vzeroupper
+    DEINIT_X86_32_PIC_KEEPDEF
     POP_XMM
     LOAD_6_PARA_POP
 %ifdef X86_32
@@ -3141,15 +3242,15 @@ WELS_EXTERN McHorVer02_avx2
     vmovq           xmm3, [p_src + 2 * i_srcstride]
     vpunpcklbw      xmm4, xmm4, xmm3
     vinserti128     ymm2, ymm2, xmm4, 1
-    vbroadcasti128  ymm5, [db20_128]
-    AVX2_FilterVertical_16px ymm0, ymm1, ymm2, [maddubsw_p1m5_256], ymm5, [maddubsw_m5p1_256], ymm4
+    vbroadcasti128  ymm5, [pic(db20_128)]
+    AVX2_FilterVertical_16px ymm0, ymm1, ymm2, [pic(maddubsw_p1m5_256)], ymm5, [pic(maddubsw_m5p1_256)], ymm4
     vmovq           xmm4, [p_src + i_srcstride3]
     lea             p_src, [p_src + 4 * i_srcstride]
     vpunpcklbw      xmm3, xmm3, xmm4
     vmovq           xmm6, [p_src]
     vpunpcklbw      xmm4, xmm4, xmm6
     vinserti128     ymm3, ymm3, xmm4, 1
-    AVX2_FilterVertical_16px ymm1, ymm2, ymm3, [maddubsw_p1m5_256], ymm5, [maddubsw_m5p1_256], ymm4
+    AVX2_FilterVertical_16px ymm1, ymm2, ymm3, [pic(maddubsw_p1m5_256)], ymm5, [pic(maddubsw_m5p1_256)], ymm4
     vpackuswb       ymm0, ymm0, ymm1
     vmovlps         [p_dst], xmm0
     vextracti128    xmm1, ymm0, 1
@@ -3163,7 +3264,7 @@ WELS_EXTERN McHorVer02_avx2
     vmovq           xmm4, [p_src + i_srcstride]
     vpunpcklbw      xmm0, xmm6, xmm4
     jg              .width8_height_ge8
-    AVX2_FilterVertical_16px xmm2, xmm3, xmm0, [maddubsw_p1m5_256], xmm5, [maddubsw_m5p1_256], xmm4
+    AVX2_FilterVertical_16px xmm2, xmm3, xmm0, [pic(maddubsw_p1m5_256)], xmm5, [pic(maddubsw_m5p1_256)], xmm4
     vpackuswb       xmm2, xmm2, xmm2
     vmovlps         [p_dst], xmm2
     jmp             .width8_done
@@ -3171,14 +3272,14 @@ WELS_EXTERN McHorVer02_avx2
     vmovq           xmm1, [p_src + 2 * i_srcstride]
     vpunpcklbw      xmm4, xmm4, xmm1
     vinserti128     ymm0, ymm0, xmm4, 1
-    AVX2_FilterVertical_16px ymm2, ymm3, ymm0, [maddubsw_p1m5_256], ymm5, [maddubsw_m5p1_256], ymm4
+    AVX2_FilterVertical_16px ymm2, ymm3, ymm0, [pic(maddubsw_p1m5_256)], ymm5, [pic(maddubsw_m5p1_256)], ymm4
     vmovq           xmm4, [p_src + i_srcstride3]
     lea             p_src, [p_src + 4 * i_srcstride]
     vpunpcklbw      xmm1, xmm1, xmm4
     vmovq           xmm6, [p_src]
     vpunpcklbw      xmm4, xmm4, xmm6
     vinserti128     ymm1, ymm1, xmm4, 1
-    AVX2_FilterVertical_16px ymm3, ymm0, ymm1, [maddubsw_p1m5_256], ymm5, [maddubsw_m5p1_256], ymm4
+    AVX2_FilterVertical_16px ymm3, ymm0, ymm1, [pic(maddubsw_p1m5_256)], ymm5, [pic(maddubsw_m5p1_256)], ymm4
     vpackuswb       ymm2, ymm2, ymm3
     vmovlps         [p_dst], xmm2
     vextracti128    xmm3, ymm2, 1
@@ -3192,11 +3293,12 @@ WELS_EXTERN McHorVer02_avx2
     jl              .width8_done
     vmovq           xmm4, [p_src + i_srcstride]
     vpunpcklbw      xmm2, xmm6, xmm4
-    AVX2_FilterVertical_16px xmm0, xmm1, xmm2, [maddubsw_p1m5_256], xmm5, [maddubsw_m5p1_256], xmm4
+    AVX2_FilterVertical_16px xmm0, xmm1, xmm2, [pic(maddubsw_p1m5_256)], xmm5, [pic(maddubsw_m5p1_256)], xmm4
     vpackuswb       xmm0, xmm0, xmm0
     vmovlps         [p_dst], xmm0
 .width8_done:
     vzeroupper
+    DEINIT_X86_32_PIC_KEEPDEF
     POP_XMM
     LOAD_6_PARA_POP
 %ifdef X86_32
@@ -3231,7 +3333,7 @@ WELS_EXTERN McHorVer02_avx2
     lea             p_src, [p_src + 2 * i_srcstride]
     vpblendd        ymm5, ymm5, ymm6, 11110000b
     vpunpcklbw      ymm4, ymm4, ymm5
-    AVX2_FilterVertical_16px ymm0, ymm2, ymm4, [maddubsw_p1m5_256], [db20_256], [maddubsw_m5p1_256], ymm7
+    AVX2_FilterVertical_16px ymm0, ymm2, ymm4, [pic(maddubsw_p1m5_256)], [pic(db20_256)], [pic(maddubsw_m5p1_256)], ymm7
     vpackuswb       ymm0, ymm0, ymm0
     vpermq          ymm0, ymm0, 1000b
     vmovdqa         [p_dst], xmm0
@@ -3261,12 +3363,12 @@ WELS_EXTERN McHorVer02_avx2
     vmovq           xmm6, [p_src]
     vpbroadcastq    ymm7, [p_src + 8]
     vpblendd        ymm6, ymm6, ymm7, 11110000b
-    AVX2_FilterVertical2_16px ymm1, ymm6, ymm2, ymm4, [maddubsw_m5p20_256], [maddubsw_p20m5_256], ymm0, ymm7
+    AVX2_FilterVertical2_16px ymm1, ymm6, ymm2, ymm4, [pic(maddubsw_m5p20_256)], [pic(maddubsw_p20m5_256)], ymm0, ymm7
     vmovq           xmm7, [p_src + i_srcstride]
     vpbroadcastq    ymm0, [p_src + i_srcstride + 8]
     vpblendd        ymm7, ymm7, ymm0, 11110000b
     vpunpcklbw      ymm6, ymm6, ymm7
-    AVX2_FilterVertical_16px ymm2, ymm4, ymm6, [maddubsw_p1m5_256], [db20_256], [maddubsw_m5p1_256], ymm0
+    AVX2_FilterVertical_16px ymm2, ymm4, ymm6, [pic(maddubsw_p1m5_256)], [pic(db20_256)], [pic(maddubsw_m5p1_256)], ymm0
     vpackuswb       ymm1, ymm1, ymm2
     vpermq          ymm1, ymm1, 11011000b
     vmovdqa         [p_dst], xmm1
@@ -3275,13 +3377,13 @@ WELS_EXTERN McHorVer02_avx2
     vmovq           xmm0, [p_src + 2 * i_srcstride]
     vpbroadcastq    ymm1, [p_src + 2 * i_srcstride + 8]
     vpblendd        ymm0, ymm0, ymm1, 11110000b
-    AVX2_FilterVertical2_16px ymm3, ymm0, ymm4, ymm6, [maddubsw_m5p20_256], [maddubsw_p20m5_256], ymm2, ymm1
+    AVX2_FilterVertical2_16px ymm3, ymm0, ymm4, ymm6, [pic(maddubsw_m5p20_256)], [pic(maddubsw_p20m5_256)], ymm2, ymm1
     vmovq           xmm1, [p_src + i_srcstride3]
     vpbroadcastq    ymm2, [p_src + i_srcstride3 + 8]
     lea             p_src, [p_src + 4 * i_srcstride]
     vpblendd        ymm1, ymm1, ymm2, 11110000b
     vpunpcklbw      ymm0, ymm0, ymm1
-    AVX2_FilterVertical_16px ymm4, ymm6, ymm0, [maddubsw_p1m5_256], [db20_256], [maddubsw_m5p1_256], ymm2
+    AVX2_FilterVertical_16px ymm4, ymm6, ymm0, [pic(maddubsw_p1m5_256)], [pic(db20_256)], [pic(maddubsw_m5p1_256)], ymm2
     vpackuswb       ymm3, ymm3, ymm4
     vpermq          ymm3, ymm3, 11011000b
     vmovdqa         [p_dst], xmm3
@@ -3290,12 +3392,12 @@ WELS_EXTERN McHorVer02_avx2
     vmovq           xmm2, [p_src]
     vpbroadcastq    ymm3, [p_src + 8]
     vpblendd        ymm2, ymm2, ymm3, 11110000b
-    AVX2_FilterVertical2_16px ymm5, ymm2, ymm6, ymm0, [maddubsw_m5p20_256], [maddubsw_p20m5_256], ymm4, ymm3
+    AVX2_FilterVertical2_16px ymm5, ymm2, ymm6, ymm0, [pic(maddubsw_m5p20_256)], [pic(maddubsw_p20m5_256)], ymm4, ymm3
     vmovq           xmm3, [p_src + i_srcstride]
     vpbroadcastq    ymm4, [p_src + i_srcstride + 8]
     vpblendd        ymm3, ymm3, ymm4, 11110000b
     vpunpcklbw      ymm2, ymm2, ymm3
-    AVX2_FilterVertical_16px ymm6, ymm0, ymm2, [maddubsw_p1m5_256], [db20_256], [maddubsw_m5p1_256], ymm4
+    AVX2_FilterVertical_16px ymm6, ymm0, ymm2, [pic(maddubsw_p1m5_256)], [pic(db20_256)], [pic(maddubsw_m5p1_256)], ymm4
     vpackuswb       ymm5, ymm5, ymm6
     vpermq          ymm5, ymm5, 11011000b
     vmovdqa         [p_dst], xmm5
@@ -3304,13 +3406,13 @@ WELS_EXTERN McHorVer02_avx2
     vmovq           xmm4, [p_src + 2 * i_srcstride]
     vpbroadcastq    ymm5, [p_src + 2 * i_srcstride + 8]
     vpblendd        ymm4, ymm4, ymm5, 11110000b
-    AVX2_FilterVertical2_16px ymm7, ymm4, ymm0, ymm2, [maddubsw_m5p20_256], [maddubsw_p20m5_256], ymm6, ymm5
+    AVX2_FilterVertical2_16px ymm7, ymm4, ymm0, ymm2, [pic(maddubsw_m5p20_256)], [pic(maddubsw_p20m5_256)], ymm6, ymm5
     vmovq           xmm5, [p_src + i_srcstride3]
     vpbroadcastq    ymm6, [p_src + i_srcstride3 + 8]
     lea             p_src, [p_src + 4 * i_srcstride]
     vpblendd        ymm5, ymm5, ymm6, 11110000b
     vpunpcklbw      ymm4, ymm4, ymm5
-    AVX2_FilterVertical_16px ymm0, ymm2, ymm4, [maddubsw_p1m5_256], [db20_256], [maddubsw_m5p1_256], ymm6
+    AVX2_FilterVertical_16px ymm0, ymm2, ymm4, [pic(maddubsw_p1m5_256)], [pic(db20_256)], [pic(maddubsw_m5p1_256)], ymm6
     vpackuswb       ymm7, ymm7, ymm0
     vpermq          ymm7, ymm7, 11011000b
     vmovdqa         [p_dst], xmm7
@@ -3319,6 +3421,7 @@ WELS_EXTERN McHorVer02_avx2
     sub             i_height, 8
     jg              .width16_yloop
     vzeroupper
+    DEINIT_X86_32_PIC
     POP_XMM
     LOAD_6_PARA_POP
 %ifdef X86_32
@@ -3352,15 +3455,16 @@ WELS_EXTERN McHorVer20_avx2
 %define i_width      r4
 %define i_height     r5
     %assign  push_num 0
+    INIT_X86_32_PIC r6
     LOAD_6_PARA
     PUSH_XMM 7
     SIGN_EXTENSION  r1, r1d
     SIGN_EXTENSION  r3, r3d
     SIGN_EXTENSION  r4, r4d
     SIGN_EXTENSION  r5, r5d
-    vbroadcasti128  ymm4, [shufb_32435465768798A9]
-    vbroadcasti128  ymm5, [shufb_011267784556ABBC]
-    vbroadcasti128  ymm6, [maddubsw_p1m5_p1m5_m5p1_m5p1_128]
+    vbroadcasti128  ymm4, [pic(shufb_32435465768798A9)]
+    vbroadcasti128  ymm5, [pic(shufb_011267784556ABBC)]
+    vbroadcasti128  ymm6, [pic(maddubsw_p1m5_p1m5_m5p1_m5p1_128)]
     cmp             i_width, 8
     je              .width8
     jg              .width16_yloop
@@ -3389,6 +3493,7 @@ WELS_EXTERN McHorVer20_avx2
     vzeroupper
     POP_XMM
     LOAD_6_PARA_POP
+    DEINIT_X86_32_PIC_KEEPDEF
     ret
 .width8:
     lea             i_srcstride3, [3 * i_srcstride]
@@ -3413,6 +3518,7 @@ WELS_EXTERN McHorVer20_avx2
     vzeroupper
     POP_XMM
     LOAD_6_PARA_POP
+    DEINIT_X86_32_PIC_KEEPDEF
     ret
 %undef i_srcstride3
 .width16_yloop:
@@ -3432,6 +3538,7 @@ WELS_EXTERN McHorVer20_avx2
     vzeroupper
     POP_XMM
     LOAD_6_PARA_POP
+    DEINIT_X86_32_PIC
     ret
 %undef p_src
 %undef i_srcstride
@@ -3458,15 +3565,16 @@ WELS_EXTERN McHorVer20Width5Or9Or17_avx2
 %define i_width      r4
 %define i_height     r5
     %assign  push_num 0
+    INIT_X86_32_PIC r6
     LOAD_6_PARA
     PUSH_XMM 8
     SIGN_EXTENSION  r1, r1d
     SIGN_EXTENSION  r3, r3d
     SIGN_EXTENSION  r4, r4d
     SIGN_EXTENSION  r5, r5d
-    vbroadcasti128  ymm5, [shufb_32435465768798A9]
-    vbroadcasti128  ymm6, [shufb_011267784556ABBC]
-    vbroadcasti128  ymm7, [maddubsw_p1m5_p1m5_m5p1_m5p1_128]
+    vbroadcasti128  ymm5, [pic(shufb_32435465768798A9)]
+    vbroadcasti128  ymm6, [pic(shufb_011267784556ABBC)]
+    vbroadcasti128  ymm7, [pic(maddubsw_p1m5_p1m5_m5p1_m5p1_128)]
     cmp             i_width, 9
     je              .width9
     jg              .width17
@@ -3490,6 +3598,7 @@ WELS_EXTERN McHorVer20Width5Or9Or17_avx2
     vzeroupper
     POP_XMM
     LOAD_6_PARA_POP
+    DEINIT_X86_32_PIC_KEEPDEF
     ret
 .width9:
 %xdefine i_srcstride3 i_width
@@ -3528,6 +3637,7 @@ WELS_EXTERN McHorVer20Width5Or9Or17_avx2
     vzeroupper
     POP_XMM
     LOAD_6_PARA_POP
+    DEINIT_X86_32_PIC_KEEPDEF
     ret
 .width17:
     lea             i_srcstride3, [3 * i_srcstride]
@@ -3571,6 +3681,7 @@ WELS_EXTERN McHorVer20Width5Or9Or17_avx2
     vzeroupper
     POP_XMM
     LOAD_6_PARA_POP
+    DEINIT_X86_32_PIC
     ret
 %undef i_srcstride3
 %undef p_src
@@ -3600,6 +3711,7 @@ WELS_EXTERN McHorVer20Width4U8ToS16_avx2
     push            r4
     %assign  push_num 1
 %endif
+    INIT_X86_32_PIC r5
     LOAD_4_PARA
     PUSH_XMM 7
     SIGN_EXTENSION  r1, r1d
@@ -3607,9 +3719,9 @@ WELS_EXTERN McHorVer20Width4U8ToS16_avx2
     sub             p_src, i_srcstride
     sub             p_src, i_srcstride
     lea             i_srcstride3, [3 * i_srcstride]
-    vbroadcasti128  ymm4, [shufb_32435465768798A9]
-    vbroadcasti128  ymm5, [shufb_011267784556ABBC]
-    vbroadcasti128  ymm6, [maddubsw_p1m5_p1m5_m5p1_m5p1_128]
+    vbroadcasti128  ymm4, [pic(shufb_32435465768798A9)]
+    vbroadcasti128  ymm5, [pic(shufb_011267784556ABBC)]
+    vbroadcasti128  ymm6, [pic(maddubsw_p1m5_p1m5_m5p1_m5p1_128)]
     sub             i_height, 3
 .yloop:
     vmovdqu         xmm0, [p_src - 2]
@@ -3629,6 +3741,7 @@ WELS_EXTERN McHorVer20Width4U8ToS16_avx2
     vzeroupper
     POP_XMM
     LOAD_4_PARA_POP
+    DEINIT_X86_32_PIC
 %ifdef X86_32
     pop             r4
 %endif
@@ -3660,6 +3773,7 @@ WELS_EXTERN McHorVer02Width4S16ToU8_avx2
     push            r4
     %assign  push_num 1
 %endif
+    INIT_X86_32_PIC r5
     LOAD_4_PARA
     PUSH_XMM 8
     SIGN_EXTENSION  r2, r2d
@@ -3700,6 +3814,7 @@ WELS_EXTERN McHorVer02Width4S16ToU8_avx2
     vzeroupper
     POP_XMM
     LOAD_4_PARA_POP
+    DEINIT_X86_32_PIC
 %ifdef X86_32
     pop             r4
 %endif
@@ -3726,15 +3841,16 @@ WELS_EXTERN McHorVer20Width8U8ToS16_avx2
 %define i_height     r3
 %define i_dststride  16
     %assign  push_num 0
+    INIT_X86_32_PIC r4
     LOAD_4_PARA
     PUSH_XMM 6
     SIGN_EXTENSION  r1, r1d
     SIGN_EXTENSION  r3, r3d
     sub             p_src, i_srcstride
     sub             p_src, i_srcstride
-    vbroadcasti128  ymm3, [shufb_32435465768798A9]
-    vbroadcasti128  ymm4, [shufb_011267784556ABBC]
-    vbroadcasti128  ymm5, [maddubsw_p1m5_p1m5_m5p1_m5p1_128]
+    vbroadcasti128  ymm3, [pic(shufb_32435465768798A9)]
+    vbroadcasti128  ymm4, [pic(shufb_011267784556ABBC)]
+    vbroadcasti128  ymm5, [pic(maddubsw_p1m5_p1m5_m5p1_m5p1_128)]
     sub             i_height, 1
 .yloop:
     vmovdqu         xmm0, [p_src - 2]
@@ -3753,6 +3869,7 @@ WELS_EXTERN McHorVer20Width8U8ToS16_avx2
     vzeroupper
     POP_XMM
     LOAD_4_PARA_POP
+    DEINIT_X86_32_PIC
     ret
 %undef p_src
 %undef i_srcstride
@@ -3775,6 +3892,7 @@ WELS_EXTERN McHorVer02Width5S16ToU8_avx2
 %define i_height     r3
 %define i_srcstride  16
     %assign  push_num 0
+    INIT_X86_32_PIC r4
     LOAD_4_PARA
     PUSH_XMM 8
     SIGN_EXTENSION  r2, r2d
@@ -3848,6 +3966,7 @@ WELS_EXTERN McHorVer02Width5S16ToU8_avx2
     vzeroupper
     POP_XMM
     LOAD_4_PARA_POP
+    DEINIT_X86_32_PIC
     ret
 %undef p_src
 %undef p_dst
@@ -3875,6 +3994,7 @@ WELS_EXTERN McHorVer02Width8S16ToU8_avx2
     push            r4
     %assign  push_num 1
 %endif
+    INIT_X86_32_PIC r5
     LOAD_4_PARA
     PUSH_XMM 8
     SIGN_EXTENSION  r2, r2d
@@ -3921,6 +4041,7 @@ WELS_EXTERN McHorVer02Width8S16ToU8_avx2
     vzeroupper
     POP_XMM
     LOAD_4_PARA_POP
+    DEINIT_X86_32_PIC
 %ifdef X86_32
     pop             r4
 %endif
@@ -3947,15 +4068,16 @@ WELS_EXTERN McHorVer20Width16U8ToS16_avx2
 %define i_height     r3
 %define i_dststride  32
     %assign  push_num 0
+    INIT_X86_32_PIC r4
     LOAD_4_PARA
     PUSH_XMM 7
     SIGN_EXTENSION  r1, r1d
     SIGN_EXTENSION  r3, r3d
     sub             p_src, i_srcstride
     sub             p_src, i_srcstride
-    vbroadcasti128  ymm4, [shufb_32435465768798A9]
-    vbroadcasti128  ymm5, [shufb_011267784556ABBC]
-    vbroadcasti128  ymm6, [maddubsw_p1m5_p1m5_m5p1_m5p1_128]
+    vbroadcasti128  ymm4, [pic(shufb_32435465768798A9)]
+    vbroadcasti128  ymm5, [pic(shufb_011267784556ABBC)]
+    vbroadcasti128  ymm6, [pic(maddubsw_p1m5_p1m5_m5p1_m5p1_128)]
     sub             i_height, 1
 .yloop:
     vmovdqu         xmm0, [p_src - 2]
@@ -3979,6 +4101,7 @@ WELS_EXTERN McHorVer20Width16U8ToS16_avx2
     vzeroupper
     POP_XMM
     LOAD_4_PARA_POP
+    DEINIT_X86_32_PIC
     ret
 %undef p_src
 %undef i_srcstride
@@ -4001,6 +4124,7 @@ WELS_EXTERN McHorVer02Width9S16ToU8_avx2
 %define i_height     r3
 %define i_srcstride  32
     %assign  push_num 0
+    INIT_X86_32_PIC r4
     LOAD_4_PARA
     PUSH_XMM 8
     SIGN_EXTENSION  r2, r2d
@@ -4080,6 +4204,7 @@ WELS_EXTERN McHorVer02Width9S16ToU8_avx2
     vzeroupper
     POP_XMM
     LOAD_4_PARA_POP
+    DEINIT_X86_32_PIC
     ret
 %undef p_src
 %undef i_srcstride
@@ -4107,6 +4232,7 @@ WELS_EXTERN McHorVer20Width17U8ToS16_avx2
     push            r4
     %assign  push_num 1
 %endif
+    INIT_X86_32_PIC r5
     LOAD_4_PARA
     PUSH_XMM 8
     SIGN_EXTENSION  r1, r1d
@@ -4114,9 +4240,9 @@ WELS_EXTERN McHorVer20Width17U8ToS16_avx2
     sub             p_src, i_srcstride
     sub             p_src, i_srcstride
     lea             i_srcstride3, [3 * i_srcstride]
-    vbroadcasti128  ymm5, [shufb_32435465768798A9]
-    vbroadcasti128  ymm6, [shufb_011267784556ABBC]
-    vbroadcasti128  ymm7, [maddubsw_p1m5_p1m5_m5p1_m5p1_128]
+    vbroadcasti128  ymm5, [pic(shufb_32435465768798A9)]
+    vbroadcasti128  ymm6, [pic(shufb_011267784556ABBC)]
+    vbroadcasti128  ymm7, [pic(maddubsw_p1m5_p1m5_m5p1_m5p1_128)]
     sub             i_height, 3
 .yloop:
     vmovdqu         xmm0, [p_src - 2]
@@ -4134,7 +4260,7 @@ WELS_EXTERN McHorVer20Width17U8ToS16_avx2
     vinserti128     ymm0, ymm0, [p_src + i_srcstride3 + 6], 1
     lea             p_src, [p_src + 4 * i_srcstride]
     vpunpckhqdq     ymm4, ymm4, ymm0
-    AVX2_FilterHorizontalbw_4px ymm4, [dwm32768_256], ymm2
+    AVX2_FilterHorizontalbw_4px ymm4, [pic(dwm32768_256)], ymm2
     vmovlps         [p_dst + 26], xmm4
     vmovdqa         [p_dst + 16], xmm3
     vextracti128    xmm2, ymm4, 1
@@ -4157,7 +4283,7 @@ WELS_EXTERN McHorVer20Width17U8ToS16_avx2
     vmovdqu         xmm3, [p_src + i_srcstride - 2]
     vinserti128     ymm3, ymm3, [p_src + i_srcstride + 6], 1
     vpunpckhqdq     ymm4, ymm0, ymm3
-    AVX2_FilterHorizontalbw_4px ymm4, [dwm32768_256], ymm2
+    AVX2_FilterHorizontalbw_4px ymm4, [pic(dwm32768_256)], ymm2
     AVX2_FilterHorizontalbw_16px ymm0, ymm5, ymm6, ymm7, ymm1, ymm2
     AVX2_FilterHorizontalbw_16px ymm3, ymm5, ymm6, ymm7, ymm1, ymm2
     vextracti128    xmm4, ymm4, 1
@@ -4168,6 +4294,7 @@ WELS_EXTERN McHorVer20Width17U8ToS16_avx2
     vzeroupper
     POP_XMM
     LOAD_4_PARA_POP
+    DEINIT_X86_32_PIC
 %ifdef X86_32
     pop             r4
 %endif
@@ -4194,7 +4321,11 @@ WELS_EXTERN McHorVer02Width16Or17S16ToU8_avx2
 %define i_srcstride  r1
 %define p_dst        r2
 %define i_dststride  r3
+%ifdef X86_32_PICASM
+%define i_width      dword arg5
+%else
 %define i_width      r4
+%endif
 %define i_height     r5
 %define i_srcstride3 r6
     %assign  push_num 0
@@ -4208,6 +4339,7 @@ WELS_EXTERN McHorVer02Width16Or17S16ToU8_avx2
     SIGN_EXTENSION  r3, r3d
     SIGN_EXTENSION  r4, r4d
     SIGN_EXTENSION  r5, r5d
+    INIT_X86_32_PIC_NOPRESERVE r4
     sub             i_height, 1
     lea             i_srcstride3, [3 * i_srcstride]
     test            i_width, 1
@@ -4215,7 +4347,14 @@ WELS_EXTERN McHorVer02Width16Or17S16ToU8_avx2
     push            i_height
     push            p_src
     push            p_dst
+    %assign push_num push_num + 3
+%ifdef X86_32_PICASM
+    add             p_src, i_width
+    add             p_src, i_width
+    sub             p_src, 2
+%else
     lea             p_src, [p_src + 2 * i_width - 2]
+%endif
     add             p_dst, i_width
     vmovd           xmm0, [p_src]
     vpunpcklwd      xmm0, xmm0, [p_src + i_srcstride]
@@ -4276,6 +4415,7 @@ WELS_EXTERN McHorVer02Width16Or17S16ToU8_avx2
     pop             p_dst
     pop             p_src
     pop             i_height
+    %assign push_num push_num - 3
 .align_begin:
     vmovdqa         ymm0, [p_src]
     vmovdqa         ymm1, [p_src + i_srcstride]
@@ -4332,6 +4472,7 @@ WELS_EXTERN McHorVer02Width16Or17S16ToU8_avx2
     vmovdqa         [p_dst], xmm0
 .done:
     vzeroupper
+    DEINIT_X86_32_PIC
     POP_XMM
     LOAD_6_PARA_POP
 %ifdef X86_32

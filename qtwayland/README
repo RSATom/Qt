@@ -9,8 +9,8 @@ QtWaylandCompositor API:
     Enables the creation of Wayland compositors using Qt and QtQuick.
 
 To build the QtWayland module you need the external dependencies:
-xkbcommon 0.2.0 - http://xkbcommon.org/
-wayland 1.6.0 - http://wayland.freedesktop.org/
+xkbcommon - http://xkbcommon.org/
+wayland - http://wayland.freedesktop.org/
 
 QtWaylandCompositor supports loading client buffer integrations that don't use
 the wayland-egl interfaces. These client buffer integrations are picked up by
@@ -70,8 +70,8 @@ the generic wl_shell or xdg_shell extensions that target desktop systems.
 Custom shell protocols are added through shell integration plugins.
 
 Which shell integration to use is determined by the QT_WAYLAND_SHELL_INTEGRATION
-environment variable. If no shell is specified, the default is to first try
-xdg-shell-v6 and then wl-shell.
+environment variable. If no shell is specified, the default is to try shells in
+the following order: xdg-shell, xdg-shell-v6, wl-shell and then ivi-shell.
 
 Example Usage:
 
@@ -83,10 +83,10 @@ with ivi-shell integration:
 Available Shell Integrations:
 
     * ivi-shell
-    * wl-shell
-    * xdg-shell-v5
+    * wl-shell (deprecated)
+    * xdg-shell
+    * xdg-shell-v5 (deprecated)
     * xdg-shell-v6
-
 
 We hang out at #qt-labs and #qt-lighthouse on freenode if you have any questions
 

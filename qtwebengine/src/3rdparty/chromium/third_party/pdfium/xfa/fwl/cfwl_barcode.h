@@ -45,11 +45,14 @@ class CFWL_Barcode : public CFWL_Edit {
   // CFWL_Widget
   FWL_Type GetClassID() const override;
   void Update() override;
-  void DrawWidget(CXFA_Graphics* pGraphics, const CFX_Matrix* pMatrix) override;
+  void DrawWidget(CXFA_Graphics* pGraphics, const CFX_Matrix& matrix) override;
   void OnProcessEvent(CFWL_Event* pEvent) override;
 
   // CFWL_Edit
-  void SetText(const CFX_WideString& wsText) override;
+  void SetText(
+      const WideString& wsText,
+      CFDE_TextEditEngine::RecordOperation op =
+          CFDE_TextEditEngine::RecordOperation::kInsertRecord) override;
 
   void SetType(BC_TYPE type);
   bool IsProtectedType() const;

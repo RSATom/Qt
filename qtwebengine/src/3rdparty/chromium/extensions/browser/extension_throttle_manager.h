@@ -23,11 +23,6 @@ namespace content {
 class ResourceThrottle;
 }
 
-namespace net {
-class NetLog;
-class NetLogWithSource;
-}
-
 namespace extensions {
 
 // Class that registers URL request throttler entries for URLs being accessed
@@ -40,8 +35,7 @@ namespace extensions {
 // clean out outdated entries. URL ID consists of lowercased scheme, host, port
 // and path. All URLs converted to the same ID will share the same entry.
 class ExtensionThrottleManager
-    : public net::NetworkChangeNotifier::IPAddressObserver,
-      public net::NetworkChangeNotifier::ConnectionTypeObserver {
+    : public net::NetworkChangeNotifier::NetworkChangeObserver {
  public:
   ExtensionThrottleManager();
   ~ExtensionThrottleManager() override;
@@ -84,25 +78,12 @@ class ExtensionThrottleManager
   void SetIgnoreUserGestureLoadFlagForTests(
       bool ignore_user_gesture_load_flag_for_tests);
 
-  // Turns threading model verification on or off.  Any code that correctly
-  // uses the network stack should preferably call this function to enable
-  // verification of correct adherence to the network stack threading model.
-  void set_enable_thread_checks(bool enable);
-  bool enable_thread_checks() const;
-
   // Whether throttling is enabled or not.
   void set_enforce_throttling(bool enforce);
   bool enforce_throttling();
 
-  // Sets the net::NetLog instance to use.
-  void set_net_log(net::NetLog* net_log);
-  net::NetLog* net_log() const;
-
-  // IPAddressObserver interface.
-  void OnIPAddressChanged() override;
-
-  // ConnectionTypeObserver interface.
-  void OnConnectionTypeChanged(
+  // NetworkChangeObserver interface.
+  void OnNetworkChanged(
       net::NetworkChangeNotifier::ConnectionType type) override;
 
   // Method that allows us to transform a URL into an ID that can be used in our
@@ -119,15 +100,6 @@ class ExtensionThrottleManager
 
   // Method that does the actual work of garbage collecting.
   void GarbageCollectEntries();
-
-  // When we switch from online to offline or change IP addresses, we
-  // clear all back-off history. This is a precaution in case the change in
-  // online state now lets us communicate without error with servers that
-  // we were previously getting 500 or 503 responses from (perhaps the
-  // responses are from a badly-written proxy that should have returned a
-  // 502 or 504 because it's upstream connection was down or it had no route
-  // to the server).
-  void OnNetworkChange();
 
   // Used by tests.
   int GetNumberOfEntriesForTests() const { return url_entries_.size(); }
@@ -153,21 +125,6 @@ class ExtensionThrottleManager
 
   // Valid after construction.
   GURL::Replacements url_id_replacements_;
-
-  // Certain tests do not obey the net component's threading policy, so we
-  // keep track of whether we're being used by tests, and turn off certain
-  // checks.
-  //
-  // TODO(joi): See if we can fix the offending unit tests and remove this
-  // workaround.
-  bool enable_thread_checks_;
-
-  // Initially false, switches to true once we have logged because of back-off
-  // being disabled for localhost.
-  bool logged_for_localhost_disabled_;
-
-  // net::NetLog to use, if configured.
-  net::NetLogWithSource net_log_;
 
   // Valid once we've registered for network notifications.
   base::PlatformThreadId registered_from_thread_;

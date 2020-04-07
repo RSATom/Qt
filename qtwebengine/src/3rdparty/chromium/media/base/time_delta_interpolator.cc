@@ -14,7 +14,7 @@
 
 namespace media {
 
-TimeDeltaInterpolator::TimeDeltaInterpolator(base::TickClock* tick_clock)
+TimeDeltaInterpolator::TimeDeltaInterpolator(const base::TickClock* tick_clock)
     : tick_clock_(tick_clock),
       interpolating_(false),
       upper_bound_(kNoTimestamp),
@@ -22,8 +22,7 @@ TimeDeltaInterpolator::TimeDeltaInterpolator(base::TickClock* tick_clock)
   DCHECK(tick_clock_);
 }
 
-TimeDeltaInterpolator::~TimeDeltaInterpolator() {
-}
+TimeDeltaInterpolator::~TimeDeltaInterpolator() = default;
 
 base::TimeDelta TimeDeltaInterpolator::StartInterpolating() {
   DCHECK(!interpolating_);

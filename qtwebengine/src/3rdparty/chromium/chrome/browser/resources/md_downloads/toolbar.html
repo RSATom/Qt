@@ -1,6 +1,7 @@
 <link rel="import" href="chrome://resources/html/polymer.html">
 
-<link rel="import" href="chrome://downloads/action_service.html">
+<link rel="import" href="chrome://downloads/search_service.html">
+<link rel="import" href="chrome://downloads/browser_proxy.html">
 <link rel="import" href="chrome://resources/cr_elements/hidden_style_css.html">
 <link rel="import" href="chrome://resources/html/assert.html">
 <link rel="import" href="chrome://resources/html/cr.html">
@@ -24,38 +25,39 @@
       }
 
       #toolbar {
-        --cr-toolbar-field-width: var(--downloads-card-width);
         flex: 1;
       }
 
-      #moreActions {
+      #moreActionsContainer {
         --iron-icon-height: 20px;
         --iron-icon-width: 20px;
         height: 32px;
-        padding: 6px;
+        padding: 6px 0;
         width: 32px;
       }
     </style>
     <cr-toolbar id="toolbar" page-name="$i18n{title}"
         search-prompt="$i18n{search}" clear-label="$i18n{clearSearch}"
         spinner-active="{{spinnerActive}}" on-search-changed="onSearchChanged_">
-      <button is="paper-icon-button-light" class="more-actions" id="moreActions"
-          title="$i18n{moreActions}" class="dropdown-trigger"
-          on-tap="onMoreActionsTap_">
-        <iron-icon icon="cr:more-vert"></iron-icon>
-      </button>
+      <paper-icon-button-light id="moreActionsContainer"
+          class="dropdown-trigger">
+        <button id="moreActions"
+            title="$i18n{moreActions}"
+            on-click="onMoreActionsTap_">
+          <iron-icon icon="cr:more-vert"></iron-icon>
+        </button>
+      </paper-icon-button-light>
     </cr-toolbar>
-    <!-- TODO(dbeam): should cr-action-menu be role="menu" by default? -->
-    <dialog is="cr-action-menu" id="moreActionsMenu" role="menu">
-      <button class="dropdown-item clear-all" on-tap="onClearAllTap_"
-          role="menuitem">
+    <cr-action-menu id="moreActionsMenu">
+      <button slot="item" class="dropdown-item clear-all"
+          on-click="onClearAllTap_">
         $i18n{clearAll}
-      </div>
-      <button class="dropdown-item" on-tap="onOpenDownloadsFolderTap_"
-          role="menuitem">
+      </button>
+      <button slot="item" class="dropdown-item"
+          on-click="onOpenDownloadsFolderTap_">
         $i18n{openDownloadsFolder}
       </button>
-    </dialog>
+    </cr-action-menu>
   </template>
   <script src="chrome://downloads/toolbar.js"></script>
 </dom-module>

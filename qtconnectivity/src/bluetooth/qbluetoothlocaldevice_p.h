@@ -113,16 +113,17 @@ private slots:
                                     QBluetoothLocalDevice::Pairing pairing);
     void processConnectDeviceChanges(const QBluetoothAddress &address, bool isConnectEvent);
     void processDisplayConfirmation(const QBluetoothAddress &address, const QString &pin);
+    void processDisplayPinCode(const QBluetoothAddress &address, const QString &pin);
 
 private:
     QBluetoothLocalDevice *q_ptr;
-    QAndroidJniObject *obj;
+    QAndroidJniObject *obj = nullptr;
 
     int pendingPairing(const QBluetoothAddress &address);
 
 public:
     LocalDeviceBroadcastReceiver *receiver;
-    bool pendingHostModeTransition;
+    bool pendingHostModeTransition = false;
     QList<QPair<QBluetoothAddress, bool> > pendingPairings;
 
     QList<QBluetoothAddress> connectedDevices;
@@ -140,13 +141,13 @@ public:
 
     QSet<OrgBluezDeviceInterface *> devices;
     QSet<QBluetoothAddress> connectedDevicesSet;
-    OrgBluezAdapterInterface *adapter; //Bluez 4
-    OrgBluezAdapter1Interface *adapterBluez5; //Bluez 5
-    OrgFreedesktopDBusPropertiesInterface *adapterProperties; //Bluez 5
-    OrgFreedesktopDBusObjectManagerInterface *managerBluez5; //Bluez 5
+    OrgBluezAdapterInterface *adapter = nullptr; //Bluez 4
+    OrgBluezAdapter1Interface *adapterBluez5 = nullptr; //Bluez 5
+    OrgFreedesktopDBusPropertiesInterface *adapterProperties = nullptr; //Bluez 5
+    OrgFreedesktopDBusObjectManagerInterface *managerBluez5 = nullptr; //Bluez 5
     QMap<QString, OrgFreedesktopDBusPropertiesInterface *> deviceChangeMonitors; //Bluez 5
-    OrgBluezAgentAdaptor *agent;
-    OrgBluezManagerInterface *manager;
+    OrgBluezAgentAdaptor *agent = nullptr;
+    OrgBluezManagerInterface *manager = nullptr;
 
     QList<QBluetoothAddress> connectedDevices() const;
 
@@ -154,8 +155,8 @@ public:
     QBluetoothAddress localAddress;
     QBluetoothAddress address;
     QBluetoothLocalDevice::Pairing pairing;
-    OrgBluezDevice1Interface *pairingTarget;
-    QTimer *pairingDiscoveryTimer;
+    OrgBluezDevice1Interface *pairingTarget = nullptr;
+    QTimer *pairingDiscoveryTimer = nullptr;
     QBluetoothLocalDevice::HostMode currentMode;
     int pendingHostModeChange;
 
@@ -199,7 +200,7 @@ private:
     void connectDeviceChanges();
 
     QDBusMessage msgConfirmation;
-    QDBusConnection *msgConnection;
+    QDBusConnection *msgConnection = nullptr;
     QString deviceAdapterPath;
 
     QBluetoothLocalDevice *q_ptr;
@@ -207,37 +208,22 @@ private:
     void initializeAdapter();
     void initializeAdapterBluez5();
 };
-#elif defined(QT_WINRT_BLUETOOTH)
+#elif !defined(QT_OSX_BLUETOOTH) // winrt and dummy backend
 class QBluetoothLocalDevicePrivate : public QObject
 {
 public:
-    QBluetoothLocalDevicePrivate(QBluetoothLocalDevice *q,
-                                 QBluetoothAddress localAddress = QBluetoothAddress())
-        : q_ptr(q)
-    {
-        Q_UNUSED(localAddress);
-    }
-
-    ~QBluetoothLocalDevicePrivate()
+    QBluetoothLocalDevicePrivate(QBluetoothLocalDevice * = nullptr,
+                                 QBluetoothAddress = QBluetoothAddress())
     {
     }
-
 
     bool isValid() const
     {
-        return true;
-    }
-
-private:
-    QBluetoothLocalDevice *q_ptr;
-};
-#elif !defined(QT_OSX_BLUETOOTH)
-class QBluetoothLocalDevicePrivate : public QObject
-{
-public:
-    bool isValid() const
-    {
+#ifndef QT_WINRT_BLUETOOTH
         return false;
+#else
+        return true;
+#endif
     }
 };
 #endif

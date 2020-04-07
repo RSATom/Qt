@@ -6,6 +6,7 @@
 
 #include <string.h>
 #include <cassert>
+#include <iostream>
 #include <vector>
 
 #include "EGLWindow.h"
@@ -117,13 +118,16 @@ EGLWindow::EGLWindow(EGLint glesMajorVersion,
       mDebug(false),
       mNoError(false),
       mWebGLCompatibility(false),
+      mExtensionsEnabled(),
       mBindGeneratesResource(true),
       mClientArraysEnabled(true),
+      mRobustAccess(false),
       mRobustResourceInit(),
       mSwapInterval(-1),
       mSamples(-1),
       mDebugLayersEnabled(),
       mContextProgramCacheEnabled(),
+      mContextVirtualization(),
       mPlatformMethods(nullptr)
 {
 }
@@ -202,25 +206,17 @@ bool EGLWindow::initializeDisplayAndSurface(OSWindow *osWindow)
         displayAttributes.push_back(mDebugLayersEnabled.value() ? EGL_TRUE : EGL_FALSE);
     }
 
+    if (mContextVirtualization.valid())
+    {
+        displayAttributes.push_back(EGL_PLATFORM_ANGLE_CONTEXT_VIRTUALIZATION_ANGLE);
+        displayAttributes.push_back(mContextVirtualization.value() ? EGL_TRUE : EGL_FALSE);
+    }
+
     if (mPlatformMethods)
     {
         static_assert(sizeof(EGLAttrib) == sizeof(mPlatformMethods), "Unexpected pointer size");
         displayAttributes.push_back(EGL_PLATFORM_ANGLE_PLATFORM_METHODS_ANGLEX);
         displayAttributes.push_back(reinterpret_cast<EGLAttrib>(mPlatformMethods));
-    }
-
-    if (mRobustResourceInit.valid() &&
-        !ClientExtensionEnabled("EGL_ANGLE_display_robust_resource_initialization"))
-    {
-        // Non-default state requested without the extension present
-        destroyGL();
-        return false;
-    }
-
-    if (mRobustResourceInit.valid())
-    {
-        displayAttributes.push_back(EGL_DISPLAY_ROBUST_RESOURCE_INITIALIZATION_ANGLE);
-        displayAttributes.push_back(mRobustResourceInit.value() ? EGL_TRUE : EGL_FALSE);
     }
 
     displayAttributes.push_back(EGL_NONE);
@@ -271,6 +267,7 @@ bool EGLWindow::initializeDisplayAndSurface(OSWindow *osWindow)
 
     if (!FindEGLConfig(mDisplay, configAttributes.data(), &mConfig))
     {
+        std::cout << "Could not find a suitable EGL config!" << std::endl;
         destroyGL();
         return false;
     }
@@ -290,6 +287,14 @@ bool EGLWindow::initializeDisplayAndSurface(OSWindow *osWindow)
         surfaceAttributes.push_back(EGL_TRUE);
     }
 
+    bool hasRobustResourceInit =
+        strstr(displayExtensions, "EGL_ANGLE_robust_resource_initialization") != nullptr;
+    if (hasRobustResourceInit && mRobustResourceInit.valid())
+    {
+        surfaceAttributes.push_back(EGL_ROBUST_RESOURCE_INITIALIZATION_ANGLE);
+        surfaceAttributes.push_back(mRobustResourceInit.value() ? EGL_TRUE : EGL_FALSE);
+    }
+
     surfaceAttributes.push_back(EGL_NONE);
 
     mSurface = eglCreateWindowSurface(mDisplay, mConfig, osWindow->getNativeWindow(), &surfaceAttributes[0]);
@@ -302,7 +307,7 @@ bool EGLWindow::initializeDisplayAndSurface(OSWindow *osWindow)
     return true;
 }
 
-bool EGLWindow::initializeContext()
+EGLContext EGLWindow::createContext(EGLContext share) const
 {
     const char *displayExtensions = eglQueryString(mDisplay, EGL_EXTENSIONS);
 
@@ -311,24 +316,34 @@ bool EGLWindow::initializeContext()
     if (mClientMajorVersion > 2 && !(mEGLMajorVersion > 1 || mEGLMinorVersion >= 5) &&
         !hasKHRCreateContext)
     {
-        destroyGL();
-        return false;
+        return EGL_NO_CONTEXT;
     }
 
     bool hasWebGLCompatibility =
         strstr(displayExtensions, "EGL_ANGLE_create_context_webgl_compatibility") != nullptr;
     if (mWebGLCompatibility && !hasWebGLCompatibility)
     {
-        destroyGL();
-        return false;
+        return EGL_NO_CONTEXT;
+    }
+
+    bool hasCreateContextExtensionsEnabled =
+        strstr(displayExtensions, "EGL_ANGLE_create_context_extensions_enabled") != nullptr;
+    if (mExtensionsEnabled.valid() && !hasCreateContextExtensionsEnabled)
+    {
+        return EGL_NO_CONTEXT;
+    }
+
+    bool hasRobustness = strstr(displayExtensions, "EGL_EXT_create_context_robustness") != nullptr;
+    if (mRobustAccess && !hasRobustness)
+    {
+        return EGL_NO_CONTEXT;
     }
 
     bool hasBindGeneratesResource =
         strstr(displayExtensions, "EGL_CHROMIUM_create_context_bind_generates_resource") != nullptr;
     if (!mBindGeneratesResource && !hasBindGeneratesResource)
     {
-        destroyGL();
-        return false;
+        return EGL_NO_CONTEXT;
     }
 
     bool hasClientArraysExtension =
@@ -336,23 +351,20 @@ bool EGLWindow::initializeContext()
     if (!mClientArraysEnabled && !hasClientArraysExtension)
     {
         // Non-default state requested without the extension present
-        destroyGL();
-        return false;
+        return EGL_NO_CONTEXT;
     }
 
     bool hasProgramCacheControlExtension =
         strstr(displayExtensions, "EGL_ANGLE_program_cache_control ") != nullptr;
     if (mContextProgramCacheEnabled.valid() && !hasProgramCacheControlExtension)
     {
-        destroyGL();
-        return false;
+        return EGL_NO_CONTEXT;
     }
 
     eglBindAPI(EGL_OPENGL_ES_API);
     if (eglGetError() != EGL_SUCCESS)
     {
-        destroyGL();
-        return false;
+        return EGL_NO_CONTEXT;
     }
 
     std::vector<EGLint> contextAttributes;
@@ -380,6 +392,18 @@ bool EGLWindow::initializeContext()
             contextAttributes.push_back(mWebGLCompatibility ? EGL_TRUE : EGL_FALSE);
         }
 
+        if (mExtensionsEnabled.valid())
+        {
+            contextAttributes.push_back(EGL_EXTENSIONS_ENABLED_ANGLE);
+            contextAttributes.push_back(mExtensionsEnabled.value() ? EGL_TRUE : EGL_FALSE);
+        }
+
+        if (hasRobustness)
+        {
+            contextAttributes.push_back(EGL_CONTEXT_OPENGL_ROBUST_ACCESS_EXT);
+            contextAttributes.push_back(mRobustAccess ? EGL_TRUE : EGL_FALSE);
+        }
+
         if (hasBindGeneratesResource)
         {
             contextAttributes.push_back(EGL_CONTEXT_BIND_GENERATES_RESOURCE_CHROMIUM);
@@ -397,11 +421,30 @@ bool EGLWindow::initializeContext()
             contextAttributes.push_back(EGL_CONTEXT_PROGRAM_BINARY_CACHE_ENABLED_ANGLE);
             contextAttributes.push_back(mContextProgramCacheEnabled.value() ? EGL_TRUE : EGL_FALSE);
         }
+
+        bool hasRobustResourceInit =
+            strstr(displayExtensions, "EGL_ANGLE_robust_resource_initialization") != nullptr;
+        if (hasRobustResourceInit && mRobustResourceInit.valid())
+        {
+            contextAttributes.push_back(EGL_ROBUST_RESOURCE_INITIALIZATION_ANGLE);
+            contextAttributes.push_back(mRobustResourceInit.value() ? EGL_TRUE : EGL_FALSE);
+        }
     }
     contextAttributes.push_back(EGL_NONE);
 
-    mContext = eglCreateContext(mDisplay, mConfig, nullptr, &contextAttributes[0]);
+    EGLContext context = eglCreateContext(mDisplay, mConfig, nullptr, &contextAttributes[0]);
     if (eglGetError() != EGL_SUCCESS)
+    {
+        return EGL_NO_CONTEXT;
+    }
+
+    return context;
+}
+
+bool EGLWindow::initializeContext()
+{
+    mContext = createContext(EGL_NO_CONTEXT);
+    if (mContext == EGL_NO_CONTEXT)
     {
         destroyGL();
         return false;

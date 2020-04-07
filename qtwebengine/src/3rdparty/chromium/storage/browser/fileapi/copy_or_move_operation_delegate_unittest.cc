@@ -4,11 +4,14 @@
 
 #include <stddef.h>
 #include <stdint.h>
+
 #include <map>
-#include <queue>
+#include <string>
 #include <utility>
+#include <vector>
 
 #include "base/bind.h"
+#include "base/containers/queue.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/location.h"
@@ -17,7 +20,9 @@
 #include "base/run_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
+#include "base/test/scoped_task_environment.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "components/services/filesystem/public/interfaces/types.mojom.h"
 #include "storage/browser/fileapi/copy_or_move_file_validator.h"
 #include "storage/browser/fileapi/copy_or_move_operation_delegate.h"
 #include "storage/browser/fileapi/file_stream_reader.h"
@@ -45,7 +50,7 @@ using storage::FileSystemURL;
 
 namespace content {
 
-typedef storage::FileSystemOperation::FileEntryList FileEntryList;
+using FileEntryList = storage::FileSystemOperation::FileEntryList;
 
 namespace {
 
@@ -58,8 +63,8 @@ void ExpectOk(const GURL& origin_url,
 class TestValidatorFactory : public storage::CopyOrMoveFileValidatorFactory {
  public:
   // A factory that creates validators that accept everything or nothing.
-  TestValidatorFactory() {}
-  ~TestValidatorFactory() override {}
+  TestValidatorFactory() = default;
+  ~TestValidatorFactory() override = default;
 
   storage::CopyOrMoveFileValidator* CreateCopyOrMoveFileValidator(
       const FileSystemURL& /*src_url*/,
@@ -80,13 +85,13 @@ class TestValidatorFactory : public storage::CopyOrMoveFileValidatorFactory {
                                           base::File::FILE_ERROR_SECURITY),
           reject_string_(reject_string) {
     }
-    ~TestValidator() override {}
+    ~TestValidator() override = default;
 
     void StartPreWriteValidation(
         const ResultCallback& result_callback) override {
       // Post the result since a real validator must do work asynchronously.
       base::ThreadTaskRunnerHandle::Get()->PostTask(
-          FROM_HERE, base::Bind(result_callback, result_));
+          FROM_HERE, base::BindOnce(result_callback, result_));
     }
 
     void StartPostWriteValidation(
@@ -99,7 +104,7 @@ class TestValidatorFactory : public storage::CopyOrMoveFileValidatorFactory {
       }
       // Post the result since a real validator must do work asynchronously.
       base::ThreadTaskRunnerHandle::Get()->PostTask(
-          FROM_HERE, base::Bind(result_callback, result));
+          FROM_HERE, base::BindOnce(result_callback, result));
     }
 
    private:
@@ -153,8 +158,8 @@ class ScopedThreadStopper {
     if (thread_) {
       // Give another chance for deleted streams to perform Close.
       base::RunLoop run_loop;
-      thread_->task_runner()->PostTaskAndReply(
-          FROM_HERE, base::Bind(&base::DoNothing), run_loop.QuitClosure());
+      thread_->task_runner()->PostTaskAndReply(FROM_HERE, base::DoNothing(),
+                                               run_loop.QuitClosure());
       run_loop.Run();
       thread_->Stop();
     }
@@ -174,14 +179,18 @@ class CopyOrMoveOperationTestHelper {
   CopyOrMoveOperationTestHelper(const GURL& origin,
                                 storage::FileSystemType src_type,
                                 storage::FileSystemType dest_type)
-      : origin_(origin), src_type_(src_type), dest_type_(dest_type) {}
+      : origin_(origin),
+        src_type_(src_type),
+        dest_type_(dest_type),
+        scoped_task_environment_(
+            base::test::ScopedTaskEnvironment::MainThreadType::IO) {}
 
   ~CopyOrMoveOperationTestHelper() {
     file_system_context_ = NULL;
     quota_manager_proxy_->SimulateQuotaManagerDestroyed();
     quota_manager_ = NULL;
     quota_manager_proxy_ = NULL;
-    base::RunLoop().RunUntilIdle();
+    scoped_task_environment_.RunUntilIdle();
   }
 
   void SetUp() {
@@ -199,7 +208,6 @@ class CopyOrMoveOperationTestHelper {
     quota_manager_ =
         new MockQuotaManager(false /* is_incognito */, base_dir,
                              base::ThreadTaskRunnerHandle::Get().get(),
-                             base::ThreadTaskRunnerHandle::Get().get(),
                              NULL /* special storage policy */);
     quota_manager_proxy_ = new MockQuotaManagerProxy(
         quota_manager_.get(), base::ThreadTaskRunnerHandle::Get().get());
@@ -212,7 +220,7 @@ class CopyOrMoveOperationTestHelper {
     backend->ResolveURL(
         FileSystemURL::CreateForTest(origin_, src_type_, base::FilePath()),
         storage::OPEN_FILE_SYSTEM_CREATE_IF_NONEXISTENT,
-        base::Bind(&ExpectOk));
+        base::BindOnce(&ExpectOk));
     backend = file_system_context_->GetFileSystemBackend(dest_type_);
     if (dest_type_ == storage::kFileSystemTypeTest) {
       TestFileSystemBackend* test_backend =
@@ -228,8 +236,8 @@ class CopyOrMoveOperationTestHelper {
     backend->ResolveURL(
         FileSystemURL::CreateForTest(origin_, dest_type_, base::FilePath()),
         storage::OPEN_FILE_SYSTEM_CREATE_IF_NONEXISTENT,
-        base::Bind(&ExpectOk));
-    base::RunLoop().RunUntilIdle();
+        base::BindOnce(&ExpectOk));
+    scoped_task_environment_.RunUntilIdle();
 
     // Grant relatively big quota initially.
     quota_manager_->SetQuota(
@@ -315,7 +323,7 @@ class CopyOrMoveOperationTestHelper {
               &test_cases[i];
     }
 
-    std::queue<FileSystemURL> directories;
+    base::queue<FileSystemURL> directories;
     FileEntryList entries;
     directories.push(root);
     while (!directories.empty()) {
@@ -331,7 +339,7 @@ class CopyOrMoveOperationTestHelper {
         root.virtual_path().AppendRelativePath(url.virtual_path(), &relative);
         relative = relative.NormalizePathSeparators();
         ASSERT_TRUE(base::ContainsKey(test_case_map, relative));
-        if (entries[i].is_directory) {
+        if (entries[i].type == filesystem::mojom::FsFileType::DIRECTORY) {
           EXPECT_TRUE(test_case_map[relative]->is_directory);
           directories.push(url);
         } else {
@@ -342,10 +350,9 @@ class CopyOrMoveOperationTestHelper {
       }
     }
     EXPECT_TRUE(test_case_map.empty());
-    std::map<base::FilePath,
-        const FileSystemTestCaseRecord*>::const_iterator it;
-    for (it = test_case_map.begin(); it != test_case_map.end(); ++it) {
-      LOG(ERROR) << "Extra entry: " << it->first.LossyDisplayName();
+    for (const auto& path_record_pair : test_case_map) {
+      LOG(ERROR) << "Extra entry: "
+                 << path_record_pair.first.LossyDisplayName();
     }
   }
 
@@ -383,9 +390,10 @@ class CopyOrMoveOperationTestHelper {
   void GetUsageAndQuota(storage::FileSystemType type,
                         int64_t* usage,
                         int64_t* quota) {
-    storage::QuotaStatusCode status = AsyncFileTestHelper::GetUsageAndQuota(
-        quota_manager_.get(), origin_, type, usage, quota);
-    ASSERT_EQ(storage::kQuotaStatusOk, status);
+    blink::mojom::QuotaStatusCode status =
+        AsyncFileTestHelper::GetUsageAndQuota(quota_manager_.get(), origin_,
+                                              type, usage, quota);
+    ASSERT_EQ(blink::mojom::QuotaStatusCode::kOk, status);
   }
 
  private:
@@ -395,7 +403,7 @@ class CopyOrMoveOperationTestHelper {
   const storage::FileSystemType src_type_;
   const storage::FileSystemType dest_type_;
 
-  base::MessageLoopForIO message_loop_;
+  base::test::ScopedTaskEnvironment scoped_task_environment_;
   scoped_refptr<storage::FileSystemContext> file_system_context_;
   scoped_refptr<MockQuotaManagerProxy> quota_manager_proxy_;
   scoped_refptr<MockQuotaManager> quota_manager_;
@@ -864,8 +872,8 @@ TEST(LocalFileSystemCopyOrMoveOperationTest, StreamCopyHelper_Cancel) {
   // Call Cancel() later.
   base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE,
-      base::Bind(&CopyOrMoveOperationDelegate::StreamCopyHelper::Cancel,
-                 base::Unretained(&helper)));
+      base::BindOnce(&CopyOrMoveOperationDelegate::StreamCopyHelper::Cancel,
+                     base::Unretained(&helper)));
 
   base::File::Error error = base::File::FILE_ERROR_FAILED;
   base::RunLoop run_loop;

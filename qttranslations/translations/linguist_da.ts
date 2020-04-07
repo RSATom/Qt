@@ -119,6 +119,10 @@ Formoder en enkelt universel form.</translation>
         <translation>Kan ikke oprette &apos;%2&apos;: %1</translation>
     </message>
     <message>
+        <source>%1 (%2)</source>
+        <translation>%1 (%2)</translation>
+    </message>
+    <message>
         <source>Universal Form</source>
         <translation>Universel form</translation>
     </message>
@@ -442,7 +446,7 @@ Formoder en enkelt universel form.</translation>
     </message>
     <message>
         <source>Create a Qt message file suitable for released applications from the current message file.</source>
-        <translation>Opret en Qt-meddelelsesfil som er egnet til udgivne programmer, fra den aktuelle meddelelsesfil.</translation>
+        <translation>Opret en Qt-meddelelsesfil som er egnet til udgivne programmer, fra den nuværende meddelelsesfil.</translation>
     </message>
     <message>
         <source>&amp;Print...</source>
@@ -450,7 +454,7 @@ Formoder en enkelt universel form.</translation>
     </message>
     <message>
         <source>Print a list of all the translation units in the current translation source file.</source>
-        <translation>Udskriver en liste over alle oversættelsesenhederne i den aktuelle oversættelsesfil.</translation>
+        <translation>Udskriver en liste over alle oversættelsesenhederne i den nuværende oversættelsesfil.</translation>
     </message>
     <message>
         <source>Ctrl+P</source>
@@ -462,7 +466,7 @@ Formoder en enkelt universel form.</translation>
     </message>
     <message>
         <source>Undo the last editing operation performed on the current translation.</source>
-        <translation>Fortryd den sidste redigeringshandling udført på den aktuelle oversættelse.</translation>
+        <translation>Fortryd den sidste redigeringshandling udført på den nuværende oversættelse.</translation>
     </message>
     <message>
         <source>Ctrl+Z</source>
@@ -649,48 +653,16 @@ Formoder en enkelt universel form.</translation>
         <translation>&amp;Acceleratorer</translation>
     </message>
     <message>
-        <source>Toggle the validity check of accelerators</source>
-        <translation>Valideringstjek af acceleratorer til/fra</translation>
-    </message>
-    <message>
-        <source>Toggle the validity check of accelerators, i.e. whether the number of ampersands in the source and translation text is the same. If the check fails, a message is shown in the warnings window.</source>
-        <translation>Valideringstjek af acceleratorer til/fra, såsom hvorvidt antallet af &amp;-tegn i kilde- og oversættelsesteksten er den samme. Hvis tjekket fejler, vises en meddelelse i advarselsvinduet.</translation>
-    </message>
-    <message>
         <source>&amp;Ending Punctuation</source>
         <translation>Afsluttende &amp;tegnsætning</translation>
-    </message>
-    <message>
-        <source>Toggle the validity check of ending punctuation</source>
-        <translation>Valideringstjek af afsluttende tegnsætning til/fra</translation>
-    </message>
-    <message>
-        <source>Toggle the validity check of ending punctuation. If the check fails, a message is shown in the warnings window.</source>
-        <translation>Valideringstjek af afsluttende tegnsætning til/fra. Hvis tjekket fejler, vises en meddelelse i advarselsvinduet.</translation>
     </message>
     <message>
         <source>&amp;Phrase matches</source>
         <translation>&amp;Frase matcher</translation>
     </message>
     <message>
-        <source>Toggle checking that phrase suggestions are used</source>
-        <translation>Tjek at fraseforslag bruges til/fra</translation>
-    </message>
-    <message>
-        <source>Toggle checking that phrase suggestions are used. If the check fails, a message is shown in the warnings window.</source>
-        <translation>Tjek at fraseforslag bruges til/fra. Hvis tjekket fejler, vises en meddelelse i advarselsvinduet.</translation>
-    </message>
-    <message>
         <source>Place &amp;Marker Matches</source>
         <translation>&amp;Stedmarkør matcher</translation>
-    </message>
-    <message>
-        <source>Toggle the validity check of place markers</source>
-        <translation>Valideringstjek af stedmarkører til/fra</translation>
-    </message>
-    <message>
-        <source>Toggle the validity check of place markers, i.e. whether %1, %2, ... are used consistently in the source text and translation text. If the check fails, a message is shown in the warnings window.</source>
-        <translation>Valideringstjek af stedmarkører til/fra, såsom hvorvidt %1, %2, ...  bruges konsekvent i kildeteksten og oversættelsesteksten. Hvis tjekket fejler, vises en meddelelse i advarselsvinduet.</translation>
     </message>
     <message>
         <source>&amp;New Phrase Book...</source>
@@ -798,7 +770,7 @@ Formoder en enkelt universel form.</translation>
     </message>
     <message>
         <source>Create a Qt message file suitable for released applications from the current message file. The filename will automatically be determined from the name of the TS file.</source>
-        <translation>Opret en Qt-meddelelsesfil som er egnet til udgivne programmer, fra den aktuelle meddelelsesfil. Filnavnet fastslås automatisk ud fra navnet på TS-filen.</translation>
+        <translation>Opret en Qt-meddelelsesfil som er egnet til udgivne programmer, fra den nuværende meddelelsesfil. Filnavnet fastslås automatisk ud fra navnet på TS-filen.</translation>
     </message>
     <message>
         <source>File</source>
@@ -879,10 +851,6 @@ Formoder en enkelt universel form.</translation>
     <message>
         <source>Visualize whitespace</source>
         <translation>Synliggør blanktegn</translation>
-    </message>
-    <message>
-        <source>Toggle visualize whitespace in editors</source>
-        <translation>Synlighed af blanktegn i redigering til/fra</translation>
     </message>
     <message>
         <source>Increase</source>
@@ -966,7 +934,7 @@ Formoder en enkelt universel form.</translation>
         <source>The file &apos;%1&apos; does not seem to be related to the currently open file(s) &apos;%2&apos;.
 
 Close the open file(s) first?</source>
-        <translation>Filen &apos;%1&apos; ser ikke ud til at være relaterede til de aktuelt åbne fil(er) &apos;%2&apos;.
+        <translation>Filen &apos;%1&apos; ser ikke ud til at være relaterede til de nuværende åbne fil(er) &apos;%2&apos;.
 
 Luk de åbne fil(er) først?</translation>
     </message>
@@ -1252,16 +1220,52 @@ Alle filer (*)</translation>
         <translation>Alle</translation>
     </message>
     <message>
-        <source>Surrounding &amp;Whitespace.</source>
-        <translation>Omgivenende &amp;blanktegn.</translation>
+        <source>Toggles the validity check of accelerators</source>
+        <translation>Slår valideringstjek af acceleratorer til/fra</translation>
     </message>
     <message>
-        <source>Toggle the validity check of surrounding whitespace.</source>
-        <translation>Valideringstjek af omgivende blanktegn til/fra.</translation>
+        <source>Toggles the validity check of accelerators, i.e. whether the number of ampersands in the source and translation text is the same. If the check fails, a message is shown in the warnings window.</source>
+        <translation>Slår valideringstjek af acceleratorer til/fra, såsom hvorvidt antallet af &amp;-tegn i kilde- og oversættelsesteksten er den samme. Hvis tjekket fejler, vises en meddelelse i advarselsvinduet.</translation>
     </message>
     <message>
-        <source>Toggle the validity check of surrounding whitespace. If the check fails, a message is shown in the warnings window.</source>
-        <translation>Valideringstjek af omgivende blanktegn til/fra. Hvis tjekket fejler, vises en meddelelse i advarselsvinduet.</translation>
+        <source>Surrounding &amp;Whitespace</source>
+        <translation>Omgivenende &amp;blanktegn</translation>
+    </message>
+    <message>
+        <source>Toggles the validity check of surrounding whitespace.</source>
+        <translation>Slår valideringstjek af omgivende blanktegn til/fra.</translation>
+    </message>
+    <message>
+        <source>Toggles the validity check of surrounding whitespace. If the check fails, a message is shown in the warnings window.</source>
+        <translation>Slår valideringstjek af omgivende blanktegn til/fra. Hvis tjekket fejler, vises en meddelelse i advarselsvinduet.</translation>
+    </message>
+    <message>
+        <source>Toggles the validity check of ending punctuation</source>
+        <translation>Slår valideringstjek af afsluttende tegnsætning til/fra</translation>
+    </message>
+    <message>
+        <source>Toggles the validity check of ending punctuation. If the check fails, a message is shown in the warnings window.</source>
+        <translation>Slår valideringstjek af afsluttende tegnsætning til/fra. Hvis tjekket fejler, vises en meddelelse i advarselsvinduet.</translation>
+    </message>
+    <message>
+        <source>Toggles checking that phrase suggestions are used</source>
+        <translation>Slår valideringstjek af at fraseforslag bruges til/fra</translation>
+    </message>
+    <message>
+        <source>Toggles checking that phrase suggestions are used. If the check fails, a message is shown in the warnings window.</source>
+        <translation>Slår valideringstjek af at fraseforslag bruges til/fra. Hvis tjekket fejler, vises en meddelelse i advarselsvinduet.</translation>
+    </message>
+    <message>
+        <source>Toggles the validity check of place markers</source>
+        <translation>Slår valideringstjek af stedmarkører til/fra</translation>
+    </message>
+    <message>
+        <source>Toggles the validity check of place markers, i.e. whether %1, %2, ... are used consistently in the source text and translation text. If the check fails, a message is shown in the warnings window.</source>
+        <translation>Slår valideringstjek af stedmarkører til/fra, såsom hvorvidt %1, %2, ... bruges konsekvent i kildeteksten og oversættelsesteksten. Hvis tjekket fejler, vises en meddelelse i advarselsvinduet.</translation>
+    </message>
+    <message>
+        <source>Toggles visualize whitespace in editors</source>
+        <translation>Slår synlighed af blanktegn i redigering til/fra</translation>
     </message>
 </context>
 <context>
@@ -1270,30 +1274,6 @@ Alle filer (*)</translation>
         <source></source>
         <comment>This is the right panel of the main window.</comment>
         <translation></translation>
-    </message>
-    <message>
-        <source>Russian</source>
-        <translation>Russisk</translation>
-    </message>
-    <message>
-        <source>German</source>
-        <translation>Tysk</translation>
-    </message>
-    <message>
-        <source>Japanese</source>
-        <translation>Japansk</translation>
-    </message>
-    <message>
-        <source>French</source>
-        <translation>Fransk</translation>
-    </message>
-    <message>
-        <source>Polish</source>
-        <translation>Polsk</translation>
-    </message>
-    <message>
-        <source>Chinese</source>
-        <translation>Kinesisk</translation>
     </message>
     <message>
         <source>This whole panel allows you to view and edit the translation of some source text.</source>
@@ -1328,20 +1308,20 @@ Alle filer (*)</translation>
         <translation>Her kan du indtaste kommentarer til eget brug. De har ingen indflydelse på de oversatte programmer.</translation>
     </message>
     <message>
-        <source>%1 translation (%2)</source>
-        <translation>%1 oversættelse (%2)</translation>
+        <source>Translation to %1 (%2)</source>
+        <translation>Oversættelse til %1 (%2)</translation>
+    </message>
+    <message>
+        <source>Translation to %1</source>
+        <translation>Oversættelse til %1</translation>
+    </message>
+    <message>
+        <source>Translator comments for %1</source>
+        <translation>Oversætterkommentarer til %1</translation>
     </message>
     <message>
         <source>This is where you can enter or modify the translation of the above source text.</source>
         <translation>Her kan du indtaste eller ændre oversættelsen af kildeteksten ovenfor.</translation>
-    </message>
-    <message>
-        <source>%1 translation</source>
-        <translation>%1 oversættelse</translation>
-    </message>
-    <message>
-        <source>%1 translator comments</source>
-        <translation>%1 oversætterkommentarer</translation>
     </message>
     <message>
         <source>&apos;%1&apos;
@@ -1643,6 +1623,11 @@ Linje: %2</translation>
     <message>
         <source>Target language</source>
         <translation>Målsprog</translation>
+    </message>
+    <message>
+        <source>%1 (%2)</source>
+        <extracomment>&lt;english&gt; (&lt;endonym&gt;) (language and country names)</extracomment>
+        <translation>%1 (%2)</translation>
     </message>
     <message>
         <source>Settings for &apos;%1&apos; - Qt Linguist</source>

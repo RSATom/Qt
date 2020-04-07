@@ -7,13 +7,13 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <memory>
 #include <string>
 
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
-#include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
 #include "base/time/time.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -22,26 +22,32 @@ namespace search_provider_logos {
 
 LogoMetadata GetExampleMetadata() {
   LogoMetadata metadata;
-  metadata.source_url = "http://google.com/mylogo";
+  metadata.source_url = GURL("http://google.com/mylogo");
   metadata.fingerprint = "LC4JVIZ5HVITQFKH0V70";
   EXPECT_TRUE(base::Time::FromString("98-05-05 05:05:06 GMT",
                                      &metadata.expiration_time));
   metadata.can_show_after_expiration = true;
-  metadata.on_click_url = "https://www.google.com/search?q=chicken";
-  metadata.animated_url = "http://www.google.com/logos/doodle.png";
+  metadata.type = LogoType::ANIMATED;
+  metadata.on_click_url = GURL("https://www.google.com/search?q=chicken");
+  metadata.animated_url = GURL("http://www.google.com/logos/doodle.png");
   metadata.alt_text = "A logo about chickens";
   metadata.mime_type = "image/jpeg";
+  metadata.log_url = GURL("https://www.google.com/ddllog?a=b");
+  metadata.cta_log_url = GURL("https://www.google.com/ddllog?c=d");
   return metadata;
 }
 
 LogoMetadata GetExampleMetadata2() {
   LogoMetadata metadata;
-  metadata.source_url = "https://www.example.com/thebestlogo?size=large";
+  metadata.source_url = GURL("https://www.example.com/thebestlogo?size=large");
   metadata.fingerprint = "bh4PLHdnEaQAPxNGRyMao1rOmVFTXuOdVhdrMmPV";
   EXPECT_TRUE(base::Time::FromString("17-04-04 07:10:58 GMT",
                                      &metadata.expiration_time));
   metadata.can_show_after_expiration = false;
-  metadata.on_click_url = "http://www.example.co.uk/welcome.php#top";
+  metadata.type = LogoType::INTERACTIVE;
+  metadata.on_click_url = GURL("http://www.example.co.uk/welcome.php#top");
+  metadata.full_page_url =
+      GURL("http://www.example.co.uk/welcome.php#fpdoodle");
   metadata.alt_text = "This is a logo";
   metadata.mime_type = "image/png";
   return metadata;
@@ -57,14 +63,14 @@ base::RefCountedString* CreateExampleImage(size_t num_bytes) {
 }
 
 std::unique_ptr<EncodedLogo> GetExampleLogo() {
-  auto logo = base::MakeUnique<EncodedLogo>();
+  auto logo = std::make_unique<EncodedLogo>();
   logo->encoded_image = CreateExampleImage(837);
   logo->metadata = GetExampleMetadata();
   return logo;
 }
 
 std::unique_ptr<EncodedLogo> GetExampleLogo2() {
-  auto logo = base::MakeUnique<EncodedLogo>();
+  auto logo = std::make_unique<EncodedLogo>();
   logo->encoded_image = CreateExampleImage(345);
   logo->metadata = GetExampleMetadata2();
   return logo;
@@ -77,10 +83,14 @@ void ExpectMetadataEqual(const LogoMetadata& expected_metadata,
   EXPECT_EQ(expected_metadata.can_show_after_expiration,
             actual_metadata.can_show_after_expiration);
   EXPECT_EQ(expected_metadata.expiration_time, actual_metadata.expiration_time);
+  EXPECT_EQ(expected_metadata.type, actual_metadata.type);
   EXPECT_EQ(expected_metadata.on_click_url, actual_metadata.on_click_url);
+  EXPECT_EQ(expected_metadata.full_page_url, actual_metadata.full_page_url);
   EXPECT_EQ(expected_metadata.animated_url, actual_metadata.animated_url);
   EXPECT_EQ(expected_metadata.alt_text, actual_metadata.alt_text);
   EXPECT_EQ(expected_metadata.mime_type, actual_metadata.mime_type);
+  EXPECT_EQ(expected_metadata.log_url, actual_metadata.log_url);
+  EXPECT_EQ(expected_metadata.cta_log_url, actual_metadata.cta_log_url);
 }
 
 void ExpectLogosEqual(const EncodedLogo& expected_logo,
@@ -107,7 +117,7 @@ class LogoCacheTest : public ::testing::Test {
   }
 
   void InitCache() {
-    cache_ = base::MakeUnique<LogoCache>(
+    cache_ = std::make_unique<LogoCache>(
         cache_parent_dir_.GetPath().Append(FILE_PATH_LITERAL("cache")));
   }
 
@@ -127,7 +137,7 @@ class LogoCacheTest : public ::testing::Test {
       ASSERT_TRUE(retrieved_logo.get());
       ExpectLogosEqual(*expected_logo, *retrieved_logo);
     } else {
-      ASSERT_FALSE(retrieved_logo.get());
+      ASSERT_FALSE(retrieved_logo);
     }
   }
 
@@ -180,7 +190,7 @@ TEST_F(LogoCacheTest, StoreAndRetrieveMetadata) {
   ExpectMetadata(&metadata);
 
   // Update metadata.
-  metadata.on_click_url = "http://anotherwebsite.com";
+  metadata.on_click_url = GURL("http://anotherwebsite.com");
   cache_->UpdateCachedLogoMetadata(metadata);
   ExpectMetadata(&metadata);
 

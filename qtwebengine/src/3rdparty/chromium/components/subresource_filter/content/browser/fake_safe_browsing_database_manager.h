@@ -9,7 +9,8 @@
 #include <set>
 
 #include "base/macros.h"
-#include "components/safe_browsing_db/test_database_manager.h"
+#include "base/memory/weak_ptr.h"
+#include "components/safe_browsing/db/test_database_manager.h"
 #include "content/public/common/resource_type.h"
 
 class GURL;
@@ -21,6 +22,9 @@ class FakeSafeBrowsingDatabaseManager
  public:
   FakeSafeBrowsingDatabaseManager();
 
+  void AddBlacklistedUrl(const GURL& url,
+                         safe_browsing::SBThreatType threat_type,
+                         const safe_browsing::ThreatMetadata& metadata);
   void AddBlacklistedUrl(const GURL& url,
                          safe_browsing::SBThreatType threat_type,
                          safe_browsing::ThreatPatternType pattern_type =
@@ -45,7 +49,6 @@ class FakeSafeBrowsingDatabaseManager
   bool ChecksAreAlwaysAsync() const override;
   bool CanCheckResourceType(
       content::ResourceType /* resource_type */) const override;
-  bool CanCheckSubresourceFilter() const override;
   safe_browsing::ThreatSource GetThreatSource() const override;
   bool CheckExtensionIDs(const std::set<std::string>& extension_ids,
                          Client* client) override;
@@ -56,10 +59,12 @@ class FakeSafeBrowsingDatabaseManager
   std::set<Client*> checks_;
   std::map<
       GURL,
-      std::pair<safe_browsing::SBThreatType, safe_browsing::ThreatPatternType>>
+      std::pair<safe_browsing::SBThreatType, safe_browsing::ThreatMetadata>>
       url_to_threat_type_;
   bool simulate_timeout_ = false;
   bool synchronous_failure_ = false;
+
+  base::WeakPtrFactory<FakeSafeBrowsingDatabaseManager> weak_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(FakeSafeBrowsingDatabaseManager);
 };

@@ -54,6 +54,7 @@
 #include <QtCore/QObject>
 #include <QtPositioning/private/qdoublevector2d_p.h>
 #include <QtLocation/private/qgeoprojection_p.h>
+#include <QtLocation/qgeoroute.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -65,12 +66,15 @@ class QSGNode;
 class QQuickWindow;
 class QGeoMapParameter;
 class QDeclarativeGeoMapItemBase;
+class QGeoMapObject;
 
 class Q_LOCATION_PRIVATE_EXPORT QGeoMap : public QObject
 {
     Q_OBJECT
     Q_DECLARE_PRIVATE(QGeoMap)
 
+    Q_ENUMS(Capability)
+    Q_FLAGS(Capabilities)
 public:
     enum ItemType {
         NoItem = 0x0000,
@@ -84,6 +88,17 @@ public:
 
     Q_DECLARE_FLAGS(ItemTypes, ItemType)
 
+    enum Capability {
+        SupportsNothing = 0x0000,
+        SupportsVisibleRegion = 0x0001,
+        SupportsSetBearing = 0x0002,
+        SupportsAnchoringCoordinate = 0x0004,
+        SupportsFittingViewportToGeoRectangle = 0x0008,
+        SupportsVisibleArea = 0x0010,
+    };
+
+    Q_DECLARE_FLAGS(Capabilities, Capability)
+
     virtual ~QGeoMap();
 
     // Sets the display size
@@ -93,8 +108,9 @@ public:
     int viewportHeight() const;
 
 
-    QGeoCameraData cameraData() const;
+    const QGeoCameraData &cameraData() const;
     QGeoCameraCapabilities cameraCapabilities() const;
+    virtual Capabilities capabilities() const;
 
     void setActiveMapType(const QGeoMapType mapType);
     const QGeoMapType activeMapType() const;
@@ -102,6 +118,7 @@ public:
     // returns the minimum zoom at the current viewport size
     double minimumZoom() const;
     double maximumCenterLatitudeAtZoom(const QGeoCameraData &cameraData) const;
+    double minimumCenterLatitudeAtZoom(const QGeoCameraData &cameraData) const;
 
     // returns the size of the underlying map, at the current zoom level. Unrelated to width()/height()/size().
     double mapWidth() const;
@@ -122,9 +139,24 @@ public:
     void removeMapItem(QDeclarativeGeoMapItemBase *item);
     void clearMapItems();
 
+    virtual bool createMapObjectImplementation(QGeoMapObject *obj);
+    QList<QGeoMapObject *> mapObjects() const;
+
+
     virtual QString copyrightsStyleSheet() const;
+    virtual void setAcceptedGestures(bool pan, bool flick, bool pinch, bool rotate, bool tilt);
+    virtual bool handleEvent(QEvent *event);
+
+    virtual bool setBearing(qreal bearing, const QGeoCoordinate &coordinate);
+    virtual QGeoShape visibleRegion() const;
+    virtual bool anchorCoordinateToPoint(const QGeoCoordinate &coordinate, const QPointF &anchorPoint);
+    virtual bool fitViewportToGeoRectangle(const QGeoRectangle &rectangle);
 
     virtual void setCopyrightVisible(bool visible);
+    virtual void removeMapObject(QGeoMapObject *obj);
+
+    void setVisibleArea(const QRectF &visibleArea);
+    QRectF visibleArea() const;
 
 protected:
     QGeoMap(QGeoMapPrivate &dd, QObject *parent = 0);
@@ -140,6 +172,7 @@ Q_SIGNALS:
     void copyrightsChanged(const QImage &copyrightsImage);
     void copyrightsChanged(const QString &copyrightsHtml);
     void copyrightsStyleSheetChanged(const QString &styleSheet);
+    void visibleAreaChanged();
 
 private:
     Q_DISABLE_COPY(QGeoMap)

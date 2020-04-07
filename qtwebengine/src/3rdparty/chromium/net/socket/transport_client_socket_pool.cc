@@ -9,9 +9,7 @@
 
 #include "base/compiler_specific.h"
 #include "base/logging.h"
-#include "base/message_loop/message_loop.h"
 #include "base/metrics/histogram_macros.h"
-#include "base/profiler/scoped_tracker.h"
 #include "base/strings/string_util.h"
 #include "base/synchronization/lock.h"
 #include "base/time/time.h"
@@ -61,16 +59,9 @@ TransportSocketParams::TransportSocketParams(
       combine_connect_and_write_(combine_connect_and_write_if_supported) {
   if (disable_resolver_cache)
     destination_.set_allow_cached_response(false);
-  // combine_connect_and_write currently translates to TCP FastOpen.
-  // Enable TCP FastOpen if user wants it.
-  if (combine_connect_and_write_ == COMBINE_CONNECT_AND_WRITE_DEFAULT) {
-    IsTCPFastOpenUserEnabled() ? combine_connect_and_write_ =
-        COMBINE_CONNECT_AND_WRITE_DESIRED :
-        COMBINE_CONNECT_AND_WRITE_PROHIBITED;
-  }
 }
 
-TransportSocketParams::~TransportSocketParams() {}
+TransportSocketParams::~TransportSocketParams() = default;
 
 // TODO(eroman): The use of this constant needs to be re-evaluated. The time
 // needed for TCPClientSocketXXX::Connect() can be arbitrarily long, since
@@ -88,6 +79,7 @@ const int TransportConnectJob::kIPv6FallbackTimerInMs = 300;
 TransportConnectJob::TransportConnectJob(
     const std::string& group_name,
     RequestPriority priority,
+    const SocketTag& socket_tag,
     ClientSocketPool::RespectLimits respect_limits,
     const scoped_refptr<TransportSocketParams>& params,
     base::TimeDelta timeout_duration,
@@ -100,6 +92,7 @@ TransportConnectJob::TransportConnectJob(
           group_name,
           timeout_duration,
           priority,
+          socket_tag,
           respect_limits,
           delegate,
           NetLogWithSource::Make(net_log,
@@ -293,7 +286,7 @@ int TransportConnectJob::DoTransportConnect() {
   if (socket_performance_watcher_factory_) {
     socket_performance_watcher =
         socket_performance_watcher_factory_->CreateSocketPerformanceWatcher(
-            SocketPerformanceWatcherFactory::PROTOCOL_TCP);
+            SocketPerformanceWatcherFactory::PROTOCOL_TCP, addresses_);
   }
   transport_socket_ = client_socket_factory_->CreateTransportClientSocket(
       addresses_, std::move(socket_performance_watcher), net_log().net_log(),
@@ -315,8 +308,10 @@ int TransportConnectJob::DoTransportConnect() {
     transport_socket_->EnableTCPFastOpenIfSupported();
   }
 
-  int rv = transport_socket_->Connect(
-      base::Bind(&TransportConnectJob::OnIOComplete, base::Unretained(this)));
+  transport_socket_->ApplySocketTag(socket_tag());
+
+  int rv = transport_socket_->Connect(base::BindOnce(
+      &TransportConnectJob::OnIOComplete, base::Unretained(this)));
   if (rv == ERR_IO_PENDING && try_ipv6_connect_with_ipv4_fallback) {
     fallback_timer_.Start(
         FROM_HERE, base::TimeDelta::FromMilliseconds(kIPv6FallbackTimerInMs),
@@ -374,25 +369,26 @@ void TransportConnectJob::DoIPv6FallbackTransportConnect() {
   DCHECK(!fallback_transport_socket_.get());
   DCHECK(!fallback_addresses_.get());
 
+  fallback_addresses_.reset(new AddressList(addresses_));
+  MakeAddressListStartWithIPv4(fallback_addresses_.get());
+
   // Create a |SocketPerformanceWatcher|, and pass the ownership.
   std::unique_ptr<SocketPerformanceWatcher> socket_performance_watcher;
   if (socket_performance_watcher_factory_) {
     socket_performance_watcher =
         socket_performance_watcher_factory_->CreateSocketPerformanceWatcher(
-            SocketPerformanceWatcherFactory::PROTOCOL_TCP);
+            SocketPerformanceWatcherFactory::PROTOCOL_TCP,
+            *fallback_addresses_);
   }
 
-  fallback_addresses_.reset(new AddressList(addresses_));
-  MakeAddressListStartWithIPv4(fallback_addresses_.get());
   fallback_transport_socket_ =
       client_socket_factory_->CreateTransportClientSocket(
           *fallback_addresses_, std::move(socket_performance_watcher),
           net_log().net_log(), net_log().source());
   fallback_connect_start_time_ = base::TimeTicks::Now();
-  int rv = fallback_transport_socket_->Connect(
-      base::Bind(
-          &TransportConnectJob::DoIPv6FallbackTransportConnectComplete,
-          base::Unretained(this)));
+  int rv = fallback_transport_socket_->Connect(base::BindOnce(
+      &TransportConnectJob::DoIPv6FallbackTransportConnectComplete,
+      base::Unretained(this)));
   if (rv != ERR_IO_PENDING)
     DoIPv6FallbackTransportConnectComplete(rv);
 }
@@ -459,9 +455,10 @@ TransportClientSocketPool::TransportConnectJobFactory::NewConnectJob(
     const PoolBase::Request& request,
     ConnectJob::Delegate* delegate) const {
   return std::unique_ptr<ConnectJob>(new TransportConnectJob(
-      group_name, request.priority(), request.respect_limits(),
-      request.params(), ConnectionTimeout(), client_socket_factory_,
-      socket_performance_watcher_factory_, host_resolver_, delegate, net_log_));
+      group_name, request.priority(), request.socket_tag(),
+      request.respect_limits(), request.params(), ConnectionTimeout(),
+      client_socket_factory_, socket_performance_watcher_factory_,
+      host_resolver_, delegate, net_log_));
 }
 
 base::TimeDelta
@@ -485,26 +482,29 @@ TransportClientSocketPool::TransportClientSocketPool(
             new TransportConnectJobFactory(client_socket_factory,
                                            host_resolver,
                                            socket_performance_watcher_factory,
-                                           net_log)) {
+                                           net_log)),
+      client_socket_factory_(client_socket_factory) {
   base_.EnableConnectBackupJobs();
 }
 
-TransportClientSocketPool::~TransportClientSocketPool() {}
+TransportClientSocketPool::~TransportClientSocketPool() = default;
 
 int TransportClientSocketPool::RequestSocket(const std::string& group_name,
                                              const void* params,
                                              RequestPriority priority,
+                                             const SocketTag& socket_tag,
                                              RespectLimits respect_limits,
                                              ClientSocketHandle* handle,
-                                             const CompletionCallback& callback,
+                                             CompletionOnceCallback callback,
                                              const NetLogWithSource& net_log) {
   const scoped_refptr<TransportSocketParams>* casted_params =
       static_cast<const scoped_refptr<TransportSocketParams>*>(params);
 
   NetLogTcpClientSocketPoolRequestedSocket(net_log, casted_params);
 
-  return base_.RequestSocket(group_name, *casted_params, priority,
-                             respect_limits, handle, callback, net_log);
+  return base_.RequestSocket(group_name, *casted_params, priority, socket_tag,
+                             respect_limits, handle, std::move(callback),
+                             net_log);
 }
 
 void TransportClientSocketPool::NetLogTcpClientSocketPoolRequestedSocket(

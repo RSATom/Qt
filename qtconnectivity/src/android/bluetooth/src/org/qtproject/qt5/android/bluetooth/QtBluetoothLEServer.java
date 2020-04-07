@@ -82,6 +82,12 @@ public class QtBluetoothLEServer {
     private BluetoothGattServer mGattServer = null;
     private BluetoothLeAdvertiser mLeAdvertiser = null;
 
+    private String mRemoteName = "";
+    public String remoteName() { return mRemoteName; }
+
+    private String mRemoteAddress = "";
+    public String remoteAddress() { return mRemoteAddress; }
+
     /*
         As per Bluetooth specification each connected device can have individual and persistent
         Client characteristic configurations (see Bluetooth Spec 5.0 Vol 3 Part G 3.3.3.3)
@@ -207,7 +213,6 @@ public class QtBluetoothLEServer {
             return;
         }
 
-        mGattServer = manager.openGattServer(qtContext, mGattServerListener);
         mLeAdvertiser = mBluetoothAdapter.getBluetoothLeAdvertiser();
 
         if (!mBluetoothAdapter.isMultipleAdvertisementSupported())
@@ -223,7 +228,7 @@ public class QtBluetoothLEServer {
     {
         @Override
         public void onConnectionStateChange(BluetoothDevice device, int status, int newState) {
-            Log.w(TAG, "Our gatt server connection state changed, new state: " + newState);
+            Log.w(TAG, "Our gatt server connection state changed, new state: " + newState + " " + status);
             super.onConnectionStateChange(device, status, newState);
 
             int qtControllerState = 0;
@@ -231,12 +236,16 @@ public class QtBluetoothLEServer {
                 case BluetoothProfile.STATE_DISCONNECTED:
                     qtControllerState = 0; // QLowEnergyController::UnconnectedState
                     clientCharacteristicManager.markDeviceConnectivity(device, false);
+                    mGattServer.close();
                     break;
                 case BluetoothProfile.STATE_CONNECTED:
                     clientCharacteristicManager.markDeviceConnectivity(device, true);
                     qtControllerState = 2; // QLowEnergyController::ConnectedState
                     break;
             }
+
+            mRemoteName = device.getName();
+            mRemoteAddress = device.getAddress();
 
             int qtErrorCode;
             switch (status) {
@@ -392,10 +401,18 @@ public class QtBluetoothLEServer {
 
     public boolean connectServer()
     {
-        if (mGattServer == null)
-            return false;
+        if (mGattServer != null)
+            return true;
 
-        return true;
+        BluetoothManager manager = (BluetoothManager) qtContext.getSystemService(Context.BLUETOOTH_SERVICE);
+        if (manager == null) {
+            Log.w(TAG, "Bluetooth service not available.");
+            return false;
+        }
+
+        mGattServer = manager.openGattServer(qtContext, mGattServerListener);
+
+        return (mGattServer != null);
     }
 
     public void disconnectServer()
@@ -404,6 +421,10 @@ public class QtBluetoothLEServer {
             return;
 
         mGattServer.close();
+        mGattServer = null;
+
+        mRemoteName = mRemoteAddress = "";
+        leServerConnectionStateChange(qtObject, 0 /*NoError*/, 0 /*QLowEnergyController::UnconnectedState*/);
     }
 
     public boolean startAdvertising(AdvertiseData advertiseData,
@@ -413,7 +434,10 @@ public class QtBluetoothLEServer {
         if (mLeAdvertiser == null)
             return false;
 
-        connectServer();
+        if (!connectServer()) {
+            Log.w(TAG, "Server::startAdvertising: Cannot open GATT server");
+            return false;
+        }
 
         Log.w(TAG, "Starting to advertise.");
         mLeAdvertiser.startAdvertising(settings, advertiseData, scanResponse, mAdvertiseListener);
@@ -432,8 +456,10 @@ public class QtBluetoothLEServer {
 
     public void addService(BluetoothGattService service)
     {
-        if (mGattServer == null)
+        if (!connectServer()) {
+            Log.w(TAG, "Server::addService: Cannot open GATT server");
             return;
+        }
 
         mGattServer.addService(service);
     }

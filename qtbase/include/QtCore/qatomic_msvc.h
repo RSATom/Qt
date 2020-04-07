@@ -1,1 +1,1 @@
-#include "../../src/corelib/arch/qatomic_msvc.h"
+#include "../../src/corelib/thread/qatomic_msvc.h"

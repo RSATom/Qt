@@ -11,19 +11,19 @@
 #include <memory>
 #include <utility>
 
-#include "base/memory/ptr_util.h"
 #include "base/memory/singleton.h"
 #include "base/stl_util.h"
 #include "components/cast_certificate/cast_crl.h"
 #include "net/cert/internal/cert_issuer_source_static.h"
 #include "net/cert/internal/certificate_policies.h"
+#include "net/cert/internal/common_cert_errors.h"
 #include "net/cert/internal/extended_key_usage.h"
 #include "net/cert/internal/parse_certificate.h"
 #include "net/cert/internal/parse_name.h"
 #include "net/cert/internal/parsed_certificate.h"
 #include "net/cert/internal/path_builder.h"
 #include "net/cert/internal/signature_algorithm.h"
-#include "net/cert/internal/signature_policy.h"
+#include "net/cert/internal/simple_path_builder_delegate.h"
 #include "net/cert/internal/trust_store_in_memory.h"
 #include "net/cert/internal/verify_signed_data.h"
 #include "net/cert/x509_util.h"
@@ -32,6 +32,10 @@
 
 namespace cast_certificate {
 namespace {
+
+#define RETURN_STRING_LITERAL(x) \
+  case x:                        \
+    return #x;
 
 // -------------------------------------------------------------------------
 // Cast trust anchors.
@@ -92,19 +96,20 @@ net::der::Input AudioOnlyPolicyOid() {
 
 // Cast certificates rely on RSASSA-PKCS#1 v1.5 with SHA-1 for signatures.
 //
-// The following signature policy specifies which signature algorithms (and key
-// sizes) are acceptable. It is used when verifying a chain of certificates, as
-// well as when verifying digital signature using the target certificate's
-// SPKI.
+// The following delegate will allow signature algorithms of:
 //
-// This particular policy allows for:
 //   * ECDSA, RSA-SSA, and RSA-PSS
 //   * Supported EC curves: P-256, P-384, P-521.
 //   * Hashes: All SHA hashes including SHA-1 (despite being known weak).
-//   * RSA keys must have a modulus at least 2048-bits long.
-std::unique_ptr<net::SignaturePolicy> CreateCastSignaturePolicy() {
-  return base::MakeUnique<net::SimpleSignaturePolicy>(2048);
-}
+//
+// It will also require RSA keys have a modulus at least 2048-bits long.
+class CastPathBuilderDelegate : public net::SimplePathBuilderDelegate {
+ public:
+  CastPathBuilderDelegate()
+      : SimplePathBuilderDelegate(
+            2048,
+            SimplePathBuilderDelegate::DigestPolicy::kWeakAllowSha1) {}
+};
 
 class CertVerificationContextImpl : public CertVerificationContext {
  public:
@@ -113,24 +118,19 @@ class CertVerificationContextImpl : public CertVerificationContext {
                               const base::StringPiece& common_name)
       : spki_(spki.AsString()), common_name_(common_name.as_string()) {}
 
-  bool VerifySignatureOverData(const base::StringPiece& signature,
-                               const base::StringPiece& data) const override {
+  bool VerifySignatureOverData(
+      const base::StringPiece& signature,
+      const base::StringPiece& data,
+      net::DigestAlgorithm digest_algorithm) const override {
     // This code assumes the signature algorithm was RSASSA PKCS#1 v1.5 with
-    // SHA-1.
-    // TODO(eroman): Is it possible to use other hash algorithms?
+    // |digest_algorithm|.
     auto signature_algorithm =
-        net::SignatureAlgorithm::CreateRsaPkcs1(net::DigestAlgorithm::Sha1);
+        net::SignatureAlgorithm::CreateRsaPkcs1(digest_algorithm);
 
-    // Use the same policy as was used for verifying signatures in
-    // certificates. This will ensure for instance that the key used is at
-    // least 2048-bits long.
-    auto signature_policy = CreateCastSignaturePolicy();
-
-    net::CertErrors errors;
     return net::VerifySignedData(
         *signature_algorithm, net::der::Input(data),
         net::der::BitString(net::der::Input(signature), 0),
-        net::der::Input(&spki_), signature_policy.get(), &errors);
+        net::der::Input(&spki_));
   }
 
   std::string GetCommonName() const override { return common_name_; }
@@ -169,7 +169,7 @@ bool GetCommonNameFromSubject(const net::der::Input& subject_tlv,
 // See the unit-tests VerifyCastDeviceCertTest.Policies* for some
 // concrete examples of how this works.
 void DetermineDeviceCertificatePolicy(
-    const net::CertPathBuilder::ResultPath* result_path,
+    const net::CertPathBuilderResultPath* result_path,
     CastDeviceCertPolicy* policy) {
   // Iterate over all the certificates, including the root certificate. If any
   // certificate contains the audio-only policy, the whole chain is considered
@@ -180,7 +180,7 @@ void DetermineDeviceCertificatePolicy(
   // certificates in the chain do, it won't matter as the chain is already
   // restricted to being audio-only.
   bool audio_only = false;
-  for (const auto& cert : result_path->path.certs) {
+  for (const auto& cert : result_path->certs) {
     if (cert->has_policy_oids()) {
       const std::vector<net::der::Input>& policies = cert->policy_oids();
       if (base::ContainsValue(policies, AudioOnlyPolicyOid())) {
@@ -234,19 +234,35 @@ net::ParseCertificateOptions GetCertParsingOptions() {
   return options;
 }
 
+// Returns the CastCertError for the failed path building.
+// This function must only be called if path building failed.
+CastCertError MapToCastError(const net::CertPathBuilder::Result& result) {
+  DCHECK(!result.HasValidPath());
+  if (result.paths.empty())
+    return CastCertError::ERR_CERTS_VERIFY_GENERIC;
+  const net::CertPathErrors& path_errors =
+      result.paths.at(result.best_result_index)->errors;
+  if (path_errors.ContainsError(net::cert_errors::kValidityFailedNotAfter) ||
+      path_errors.ContainsError(net::cert_errors::kValidityFailedNotBefore)) {
+    return CastCertError::ERR_CERTS_DATE_INVALID;
+  }
+  return CastCertError::ERR_CERTS_VERIFY_GENERIC;
+}
+
 }  // namespace
 
-bool VerifyDeviceCert(const std::vector<std::string>& certs,
-                      const base::Time& time,
-                      std::unique_ptr<CertVerificationContext>* context,
-                      CastDeviceCertPolicy* policy,
-                      const CastCRL* crl,
-                      CRLPolicy crl_policy) {
+CastCertError VerifyDeviceCert(
+    const std::vector<std::string>& certs,
+    const base::Time& time,
+    std::unique_ptr<CertVerificationContext>* context,
+    CastDeviceCertPolicy* policy,
+    const CastCRL* crl,
+    CRLPolicy crl_policy) {
   return VerifyDeviceCertUsingCustomTrustStore(
       certs, time, context, policy, crl, crl_policy, &CastTrustStore::Get());
 }
 
-bool VerifyDeviceCertUsingCustomTrustStore(
+CastCertError VerifyDeviceCertUsingCustomTrustStore(
     const std::vector<std::string>& certs,
     const base::Time& time,
     std::unique_ptr<CertVerificationContext>* context,
@@ -258,7 +274,11 @@ bool VerifyDeviceCertUsingCustomTrustStore(
     return VerifyDeviceCert(certs, time, context, policy, crl, crl_policy);
 
   if (certs.empty())
-    return false;
+    return CastCertError::ERR_CERTS_MISSING;
+
+  // Fail early if CRL is required but not provided.
+  if (!crl && crl_policy == CRLPolicy::CRL_REQUIRED)
+    return CastCertError::ERR_CRL_INVALID;
 
   net::CertErrors errors;
   scoped_refptr<net::ParsedCertificate> target_cert;
@@ -267,9 +287,8 @@ bool VerifyDeviceCertUsingCustomTrustStore(
     scoped_refptr<net::ParsedCertificate> cert(net::ParsedCertificate::Create(
         net::x509_util::CreateCryptoBuffer(certs[i]), GetCertParsingOptions(),
         &errors));
-    // TODO(eroman): Propagate/log these parsing errors.
     if (!cert)
-      return false;
+      return CastCertError::ERR_CERTS_PARSE;
 
     if (i == 0)
       target_cert = std::move(cert);
@@ -277,26 +296,23 @@ bool VerifyDeviceCertUsingCustomTrustStore(
       intermediate_cert_issuer_source.AddCert(std::move(cert));
   }
 
-  // Use a signature policy compatible with Cast's PKI.
-  auto signature_policy = CreateCastSignaturePolicy();
+  CastPathBuilderDelegate path_builder_delegate;
 
   // Do path building and RFC 5280 compatible certificate verification using the
   // two Cast trust anchors and Cast signature policy.
   net::der::GeneralizedTime verification_time;
   if (!net::der::EncodeTimeAsGeneralizedTime(time, &verification_time))
-    return false;
+    return CastCertError::ERR_UNEXPECTED;
   net::CertPathBuilder::Result result;
   net::CertPathBuilder path_builder(
-      target_cert.get(), trust_store, signature_policy.get(), verification_time,
+      target_cert.get(), trust_store, &path_builder_delegate, verification_time,
       net::KeyPurpose::CLIENT_AUTH, net::InitialExplicitPolicy::kFalse,
       {net::AnyPolicy()}, net::InitialPolicyMappingInhibit::kFalse,
       net::InitialAnyPolicyInhibit::kFalse, &result);
   path_builder.AddCertIssuerSource(&intermediate_cert_issuer_source);
   path_builder.Run();
-  if (!result.HasValidPath()) {
-    // TODO(crbug.com/634443): Log error information.
-    return false;
-  }
+  if (!result.HasValidPath())
+    return MapToCastError(result);
 
   // Determine whether this device certificate is restricted to audio-only.
   DetermineDeviceCertificatePolicy(result.GetBestValidPath(), policy);
@@ -305,27 +321,36 @@ bool VerifyDeviceCertUsingCustomTrustStore(
   // building (key usage), and construct a CertVerificationContext that uses
   // its public key.
   if (!CheckTargetCertificate(target_cert.get(), context))
-    return false;
+    return CastCertError::ERR_CERTS_RESTRICTIONS;
 
-  // Check if a CRL is available.
-  if (!crl) {
-    if (crl_policy == CRLPolicy::CRL_REQUIRED) {
-      return false;
-    }
-  } else {
-    if (!crl->CheckRevocation(result.GetBestValidPath()->path, time)) {
-      return false;
-    }
-  }
-  return true;
+  // Check for revocation.
+  if (crl && !crl->CheckRevocation(result.GetBestValidPath()->certs, time))
+    return CastCertError::ERR_CERTS_REVOKED;
+
+  return CastCertError::OK;
 }
 
 std::unique_ptr<CertVerificationContext> CertVerificationContextImplForTest(
     const base::StringPiece& spki) {
   // Use a bogus CommonName, since this is just exposed for testing signature
   // verification by unittests.
-  return base::MakeUnique<CertVerificationContextImpl>(net::der::Input(spki),
+  return std::make_unique<CertVerificationContextImpl>(net::der::Input(spki),
                                                        "CommonName");
+}
+
+std::string CastCertErrorToString(CastCertError error) {
+  switch (error) {
+    RETURN_STRING_LITERAL(CastCertError::ERR_CERTS_MISSING);
+    RETURN_STRING_LITERAL(CastCertError::ERR_CERTS_PARSE);
+    RETURN_STRING_LITERAL(CastCertError::ERR_CERTS_DATE_INVALID);
+    RETURN_STRING_LITERAL(CastCertError::ERR_CERTS_VERIFY_GENERIC);
+    RETURN_STRING_LITERAL(CastCertError::ERR_CERTS_RESTRICTIONS);
+    RETURN_STRING_LITERAL(CastCertError::ERR_CRL_INVALID);
+    RETURN_STRING_LITERAL(CastCertError::ERR_CERTS_REVOKED);
+    RETURN_STRING_LITERAL(CastCertError::ERR_UNEXPECTED);
+    RETURN_STRING_LITERAL(CastCertError::OK);
+  }
+  return "CastCertError::UNKNOWN";
 }
 
 }  // namespace cast_certificate

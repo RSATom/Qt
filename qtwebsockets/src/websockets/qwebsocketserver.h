@@ -75,8 +75,8 @@ public:
     Q_ENUM(SslMode)
 
     explicit QWebSocketServer(const QString &serverName, SslMode secureMode,
-                              QObject *parent = Q_NULLPTR);
-    virtual ~QWebSocketServer();
+                              QObject *parent = nullptr);
+    ~QWebSocketServer() override;
 
     bool listen(const QHostAddress &address = QHostAddress::Any, quint16 port = 0);
     void close();
@@ -92,8 +92,18 @@ public:
 
     SslMode secureMode() const;
 
-    bool setSocketDescriptor(int socketDescriptor);
-    int socketDescriptor() const;
+#if (QT_VERSION >= QT_VERSION_CHECK(6, 0, 0))
+    bool setSocketDescriptor(qintptr socketDescriptor);
+    qintptr socketDescriptor() const;
+    bool setNativeDescriptor(qintptr descriptor) { return setSocketDescriptor(descriptor); }
+    qintptr nativeDescriptor() const { return socketDescriptor(); }
+#else // ### Qt 6: Remove leftovers
+    Q_DECL_DEPRECATED_X("Use setNativeDescriptor") bool setSocketDescriptor(int socketDescriptor);
+    Q_DECL_DEPRECATED_X("Use nativeDescriptor") int socketDescriptor() const;
+    bool setNativeDescriptor(qintptr descriptor);
+    qintptr nativeDescriptor() const;
+#endif // (QT_VERSION >= QT_VERSION_CHECK(6, 0, 0))
+
 
     bool hasPendingConnections() const;
     virtual QWebSocket *nextPendingConnection();

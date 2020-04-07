@@ -50,8 +50,6 @@
 #include "private/qnetworkaccesscache_p.h"
 #include "private/qnoncontiguousbytedevice_p.h"
 
-#ifndef QT_NO_HTTP
-
 QT_BEGIN_NAMESPACE
 
 static QNetworkReply::NetworkError statusCodeFromHttp(int httpStatusCode, const QUrl &url)
@@ -197,7 +195,7 @@ public:
         setShareable(true);
     }
 
-    virtual void dispose() Q_DECL_OVERRIDE
+    virtual void dispose() override
     {
 #if 0  // sample code; do this right with the API
         Q_ASSERT(!isWorking());
@@ -292,11 +290,17 @@ void QHttpThreadDelegate::startRequest()
     QHttpNetworkConnection::ConnectionType connectionType
         = httpRequest.isHTTP2Allowed() ? QHttpNetworkConnection::ConnectionTypeHTTP2
                                        : QHttpNetworkConnection::ConnectionTypeHTTP;
+    if (httpRequest.isHTTP2Direct()) {
+        Q_ASSERT(!httpRequest.isHTTP2Allowed());
+        connectionType = QHttpNetworkConnection::ConnectionTypeHTTP2Direct;
+    }
+
 #ifndef QT_NO_SSL
     if (ssl && !incomingSslConfiguration.data())
         incomingSslConfiguration.reset(new QSslConfiguration);
 
     if (httpRequest.isHTTP2Allowed() && ssl) {
+        // With HTTP2Direct we do not try any protocol negotiation.
         QList<QByteArray> protocols;
         protocols << QSslConfiguration::ALPNProtocolHTTP2
                   << QSslConfiguration::NextProtocolHttp1_1;
@@ -761,7 +765,5 @@ void  QHttpThreadDelegate::synchronousProxyAuthenticationRequiredSlot(const QNet
 }
 
 #endif
-
-#endif // QT_NO_HTTP
 
 QT_END_NAMESPACE

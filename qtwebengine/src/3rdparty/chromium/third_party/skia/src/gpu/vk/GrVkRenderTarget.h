@@ -31,11 +31,9 @@ struct GrVkImageInfo;
 
 class GrVkRenderTarget: public GrRenderTarget, public virtual GrVkImage {
 public:
-    static GrVkRenderTarget* CreateNewRenderTarget(GrVkGpu*, SkBudgeted, const GrSurfaceDesc&,
-                                                   const GrVkImage::ImageDesc&);
-
     static sk_sp<GrVkRenderTarget> MakeWrappedRenderTarget(GrVkGpu*, const GrSurfaceDesc&,
-                                                           const GrVkImageInfo*);
+                                                           const GrVkImageInfo&,
+                                                           sk_sp<GrVkImageLayout>);
 
     ~GrVkRenderTarget() override;
 
@@ -69,7 +67,7 @@ public:
         return true;
     }
 
-    GrBackendObject getRenderTargetHandle() const override;
+    GrBackendRenderTarget getBackendRenderTarget() const override;
 
     void getAttachmentsDescriptor(GrVkRenderPass::AttachmentsDescriptor* desc,
                                   GrVkRenderPass::AttachmentFlags* flags) const;
@@ -80,16 +78,19 @@ protected:
     GrVkRenderTarget(GrVkGpu* gpu,
                      const GrSurfaceDesc& desc,
                      const GrVkImageInfo& info,
+                     sk_sp<GrVkImageLayout> layout,
                      const GrVkImageInfo& msaaInfo,
+                     sk_sp<GrVkImageLayout> msaaLayout,
                      const GrVkImageView* colorAttachmentView,
                      const GrVkImageView* resolveAttachmentView,
-                     GrVkImage::Wrapped wrapped);
+                     GrBackendObjectOwnership);
 
     GrVkRenderTarget(GrVkGpu* gpu,
                      const GrSurfaceDesc& desc,
                      const GrVkImageInfo& info,
+                     sk_sp<GrVkImageLayout> layout,
                      const GrVkImageView* colorAttachmentView,
-                     GrVkImage::Wrapped wrapped);
+                     GrBackendObjectOwnership);
 
     GrVkGpu* getVkGpu() const;
 
@@ -98,11 +99,13 @@ protected:
 
     // This accounts for the texture's memory and any MSAA renderbuffer's memory.
     size_t onGpuMemorySize() const override {
-        // The plus 1 is to account for the resolve texture.
-        // TODO: is this still correct?
-        int numColorSamples = this->numColorSamples() + 1;
+        int numColorSamples = this->numColorSamples();
+        if (numColorSamples > 1) {
+            // Add one to account for the resolved VkImage.
+            numColorSamples += 1;
+        }
         return GrSurface::ComputeSize(this->config(), this->width(), this->height(),
-                                      numColorSamples, false);
+                                      numColorSamples, GrMipMapped::kNo);
     }
 
     void createFramebuffer(GrVkGpu* gpu);
@@ -113,23 +116,19 @@ protected:
 
 private:
     GrVkRenderTarget(GrVkGpu* gpu,
-                     SkBudgeted,
                      const GrSurfaceDesc& desc,
                      const GrVkImageInfo& info,
+                     sk_sp<GrVkImageLayout> layout,
                      const GrVkImageInfo& msaaInfo,
+                     sk_sp<GrVkImageLayout> msaaLayout,
                      const GrVkImageView* colorAttachmentView,
-                     const GrVkImageView* resolveAttachmentView,
-                     GrVkImage::Wrapped wrapped);
+                     const GrVkImageView* resolveAttachmentView);
 
     GrVkRenderTarget(GrVkGpu* gpu,
-                     SkBudgeted,
                      const GrSurfaceDesc& desc,
                      const GrVkImageInfo& info,
-                     const GrVkImageView* colorAttachmentView,
-                     GrVkImage::Wrapped wrapped);
-
-    static GrVkRenderTarget* Create(GrVkGpu*, SkBudgeted, const GrSurfaceDesc&,
-                                    const GrVkImageInfo&, GrVkImage::Wrapped wrapped);
+                     sk_sp<GrVkImageLayout> layout,
+                     const GrVkImageView* colorAttachmentView);
 
     bool completeStencilAttachment() override;
 

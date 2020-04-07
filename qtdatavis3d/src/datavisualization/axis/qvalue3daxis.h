@@ -47,7 +47,7 @@ class QT_DATAVISUALIZATION_EXPORT QValue3DAxis : public QAbstract3DAxis
     Q_PROPERTY(bool reversed READ reversed WRITE setReversed NOTIFY reversedChanged REVISION 1)
 
 public:
-    explicit QValue3DAxis(QObject *parent = Q_NULLPTR);
+    explicit QValue3DAxis(QObject *parent = nullptr);
     virtual ~QValue3DAxis();
 
     void setSegmentCount(int count);

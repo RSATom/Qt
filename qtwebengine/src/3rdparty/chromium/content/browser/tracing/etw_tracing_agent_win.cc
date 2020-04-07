@@ -11,93 +11,97 @@
 #include "base/base64.h"
 #include "base/json/json_string_value_serializer.h"
 #include "base/lazy_instance.h"
-#include "base/memory/singleton.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/stringprintf.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/time/time.h"
+#include "base/trace_event/trace_config.h"
 #include "base/trace_event/trace_event_impl.h"
 #include "base/values.h"
 #include "content/public/browser/browser_thread.h"
+#include "services/service_manager/public/cpp/connector.h"
 
 namespace content {
 
 namespace {
 
-const char kETWTracingAgentName[] = "etw";
+EtwTracingAgent* g_etw_tracing_agent = nullptr;
+
 const char kETWTraceLabel[] = "systemTraceEvents";
 
 const int kEtwBufferSizeInKBytes = 16;
 const int kEtwBufferFlushTimeoutInSeconds = 1;
 
 std::string GuidToString(const GUID& guid) {
-  return base::StringPrintf("%08X-%04X-%04X-%02X%02X-%02X%02X%02X%02X%02X%02X",
-      guid.Data1, guid.Data2, guid.Data3,
-      guid.Data4[0], guid.Data4[1], guid.Data4[2], guid.Data4[3],
-      guid.Data4[4], guid.Data4[5], guid.Data4[6], guid.Data4[7]);
+  return base::StringPrintf("%08lX-%04X-%04X-%02X%02X-%02X%02X%02X%02X%02X%02X",
+                            guid.Data1, guid.Data2, guid.Data3, guid.Data4[0],
+                            guid.Data4[1], guid.Data4[2], guid.Data4[3],
+                            guid.Data4[4], guid.Data4[5], guid.Data4[6],
+                            guid.Data4[7]);
 }
 
 }  // namespace
 
-EtwTracingAgent::EtwTracingAgent()
-    : thread_("EtwConsumerThread") {
+EtwTracingAgent::EtwTracingAgent(service_manager::Connector* connector)
+    : BaseAgent(connector,
+                kETWTraceLabel,
+                tracing::mojom::TraceDataType::OBJECT,
+                false /* supports_explicit_clock_sync */,
+                base::kNullProcessId),
+      thread_("EtwConsumerThread"),
+      is_tracing_(false) {
+  DCHECK(!g_etw_tracing_agent);
+  g_etw_tracing_agent = this;
 }
 
 EtwTracingAgent::~EtwTracingAgent() {
+  if (is_tracing_)
+    StopKernelSessionTracing();
+  g_etw_tracing_agent = nullptr;
 }
 
-std::string EtwTracingAgent::GetTracingAgentName() {
-  return kETWTracingAgentName;
-}
-
-std::string EtwTracingAgent::GetTraceEventLabel() {
-  return kETWTraceLabel;
-}
-
-void EtwTracingAgent::StartAgentTracing(
-    const base::trace_event::TraceConfig& trace_config,
-    const StartAgentTracingCallback& callback) {
+void EtwTracingAgent::StartTracing(const std::string& config,
+                                   base::TimeTicks coordinator_time,
+                                   Agent::StartTracingCallback callback) {
+  base::trace_event::TraceConfig trace_config(config);
   // Activate kernel tracing.
-  if (!StartKernelSessionTracing()) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE,
-        base::Bind(callback, GetTracingAgentName(), false /* success */));
+  if (!trace_config.IsSystraceEnabled() || !StartKernelSessionTracing()) {
+    std::move(callback).Run(false /* success */);
     return;
   }
+  is_tracing_ = true;
 
   // Start the consumer thread and start consuming events.
   thread_.Start();
-  thread_.task_runner()->PostTask(
-      FROM_HERE, base::Bind(&EtwTracingAgent::TraceAndConsumeOnThread,
-                            base::Unretained(this)));
 
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE,
-      base::Bind(callback, GetTracingAgentName(), true /* success */));
+  // Tracing agents, e.g. this, live as long as BrowserMainLoop lives and so
+  // using base::Unretained here is safe.
+  thread_.task_runner()->PostTask(
+      FROM_HERE, base::BindOnce(&EtwTracingAgent::TraceAndConsumeOnThread,
+                                base::Unretained(this)));
+  std::move(callback).Run(true /* success */);
 }
 
-void EtwTracingAgent::StopAgentTracing(
-    const StopAgentTracingCallback& callback) {
+void EtwTracingAgent::StopAndFlush(tracing::mojom::RecorderPtr recorder) {
+  DCHECK(is_tracing_);
   // Deactivate kernel tracing.
   if (!StopKernelSessionTracing()) {
     LOG(FATAL) << "Could not stop system tracing.";
   }
-
-  // Stop consuming and flush events.
-  thread_.task_runner()->PostTask(FROM_HERE,
-                                  base::Bind(&EtwTracingAgent::FlushOnThread,
-                                             base::Unretained(this), callback));
+  recorder_ = std::move(recorder);
+  // Stop consuming and flush events. Tracing agents, e.g. this, live as long as
+  // BrowserMainLoop lives and so using base::Unretained here is safe.
+  thread_.task_runner()->PostTask(
+      FROM_HERE,
+      base::BindOnce(&EtwTracingAgent::FlushOnThread, base::Unretained(this)));
 }
 
-void EtwTracingAgent::OnStopSystemTracingDone(
-    const StopAgentTracingCallback& callback,
-    const scoped_refptr<base::RefCountedString>& result) {
-
+void EtwTracingAgent::OnStopSystemTracingDone(const std::string& output) {
+  recorder_->AddChunk(output);
+  recorder_.reset();
   // Stop the consumer thread.
   thread_.Stop();
-
-  // Pass the serialized events.
-  callback.Run(GetTracingAgentName(), GetTraceEventLabel(), result);
+  is_tracing_ = false;
 }
 
 bool EtwTracingAgent::StartKernelSessionTracing() {
@@ -149,18 +153,21 @@ bool EtwTracingAgent::StopKernelSessionTracing() {
 
 // static
 EtwTracingAgent* EtwTracingAgent::GetInstance() {
-  return base::Singleton<EtwTracingAgent>::get();
+  return g_etw_tracing_agent;
 }
 
 // static
 void EtwTracingAgent::ProcessEvent(EVENT_TRACE* event) {
-  EtwTracingAgent::GetInstance()->AppendEventToBuffer(event);
+  auto* instance = EtwTracingAgent::GetInstance();
+  // Ignore events that are received after the browser is closed.
+  if (instance)
+    instance->AppendEventToBuffer(event);
 }
 
 void EtwTracingAgent::AddSyncEventToBuffer() {
   // Sync the clocks.
-  base::Time walltime = base::Time::NowFromSystemTime();
-  base::TimeTicks now = base::TimeTicks::Now();
+  base::Time walltime = base::subtle::TimeNowFromSystemTimeIgnoringOverride();
+  base::TimeTicks now = TRACE_TIME_TICKS_NOW();
 
   LARGE_INTEGER walltime_in_us;
   walltime_in_us.QuadPart = walltime.ToInternalValue();
@@ -168,12 +175,12 @@ void EtwTracingAgent::AddSyncEventToBuffer() {
   now_in_us.QuadPart = now.ToInternalValue();
 
   // Add fields to the event.
-  auto value = base::MakeUnique<base::DictionaryValue>();
+  auto value = std::make_unique<base::DictionaryValue>();
   value->SetString("guid", "ClockSync");
   value->SetString("walltime",
-                   base::StringPrintf("%08X%08X", walltime_in_us.HighPart,
+                   base::StringPrintf("%08lX%08lX", walltime_in_us.HighPart,
                                       walltime_in_us.LowPart));
-  value->SetString("tick", base::StringPrintf("%08X%08X", now_in_us.HighPart,
+  value->SetString("tick", base::StringPrintf("%08lX%08lX", now_in_us.HighPart,
                                               now_in_us.LowPart));
 
   // Append it to the events buffer.
@@ -181,13 +188,13 @@ void EtwTracingAgent::AddSyncEventToBuffer() {
 }
 
 void EtwTracingAgent::AppendEventToBuffer(EVENT_TRACE* event) {
-  auto value = base::MakeUnique<base::DictionaryValue>();
+  auto value = std::make_unique<base::DictionaryValue>();
 
   // Add header fields to the event.
   LARGE_INTEGER ts_us;
   ts_us.QuadPart = event->Header.TimeStamp.QuadPart / 10;
   value->SetString(
-      "ts", base::StringPrintf("%08X%08X", ts_us.HighPart, ts_us.LowPart));
+      "ts", base::StringPrintf("%08lX%08lX", ts_us.HighPart, ts_us.LowPart));
 
   value->SetString("guid", GuidToString(event->Header.Guid));
 
@@ -222,10 +229,9 @@ void EtwTracingAgent::TraceAndConsumeOnThread() {
   Close();
 }
 
-void EtwTracingAgent::FlushOnThread(
-    const StopAgentTracingCallback& callback) {
+void EtwTracingAgent::FlushOnThread() {
   // Add the header information to the stream.
-  auto header = base::MakeUnique<base::DictionaryValue>();
+  auto header = std::make_unique<base::DictionaryValue>();
   header->SetString("name", "ETW");
 
   // Release and pass the events buffer.
@@ -235,16 +241,18 @@ void EtwTracingAgent::FlushOnThread(
   std::string output;
   JSONStringValueSerializer serializer(&output);
   serializer.Serialize(*header.get());
+  // TODO(chiniforooshan): Find a way to eliminate the extra string copy here.
+  // This is not too bad for now, since it happens only once when tracing is
+  // stopped.
+  DCHECK_EQ('{', output.front());
+  DCHECK_EQ('}', output.back());
+  output = output.substr(1, output.size() - 2);
 
-  // Pass the result to the UI Thread.
-  scoped_refptr<base::RefCountedString> result =
-      base::RefCountedString::TakeString(&output);
-  BrowserThread::PostTask(
-      BrowserThread::UI, FROM_HERE,
-      base::Bind(&EtwTracingAgent::OnStopSystemTracingDone,
-                 base::Unretained(this),
-                 callback,
-                 result));
+  // Tracing agents, e.g. this, live as long as BrowserMainLoop lives and so
+  // using base::Unretained here is safe.
+  BrowserThread::PostTask(BrowserThread::UI, FROM_HERE,
+                          base::Bind(&EtwTracingAgent::OnStopSystemTracingDone,
+                                     base::Unretained(this), output));
 }
 
 }  // namespace content

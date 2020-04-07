@@ -4,30 +4,41 @@
 
 #include "content/browser/devtools/shared_worker_devtools_agent_host.h"
 
-#include "base/strings/utf_string_conversions.h"
+#include "content/browser/devtools/devtools_session.h"
+#include "content/browser/devtools/protocol/inspector_handler.h"
+#include "content/browser/devtools/protocol/network_handler.h"
+#include "content/browser/devtools/protocol/protocol.h"
+#include "content/browser/devtools/protocol/schema_handler.h"
 #include "content/browser/devtools/shared_worker_devtools_manager.h"
+#include "content/browser/shared_worker/shared_worker_host.h"
 #include "content/browser/shared_worker/shared_worker_instance.h"
 #include "content/browser/shared_worker/shared_worker_service_impl.h"
 #include "content/public/browser/browser_thread.h"
+#include "content/public/browser/render_process_host.h"
 
 namespace content {
 
-namespace {
-
-void TerminateSharedWorkerOnIO(
-    WorkerDevToolsAgentHost::WorkerId worker_id) {
-  SharedWorkerServiceImpl::GetInstance()->TerminateWorker(
-      worker_id.first, worker_id.second);
+SharedWorkerDevToolsAgentHost::SharedWorkerDevToolsAgentHost(
+    SharedWorkerHost* worker_host,
+    const base::UnguessableToken& devtools_worker_token)
+    : DevToolsAgentHostImpl(devtools_worker_token.ToString()),
+      state_(WORKER_NOT_READY),
+      worker_host_(worker_host),
+      devtools_worker_token_(devtools_worker_token),
+      instance_(new SharedWorkerInstance(*worker_host->instance())) {
+  NotifyCreated();
 }
 
-}  // namespace
+SharedWorkerDevToolsAgentHost::~SharedWorkerDevToolsAgentHost() {
+  SharedWorkerDevToolsManager::GetInstance()->AgentHostDestroyed(this);
+}
 
-SharedWorkerDevToolsAgentHost::SharedWorkerDevToolsAgentHost(
-    WorkerId worker_id,
-    const SharedWorkerInstance& shared_worker)
-    : WorkerDevToolsAgentHost(worker_id),
-      shared_worker_(new SharedWorkerInstance(shared_worker)) {
-  NotifyCreated();
+BrowserContext* SharedWorkerDevToolsAgentHost::GetBrowserContext() {
+  if (!worker_host_)
+    return nullptr;
+  RenderProcessHost* rph =
+      RenderProcessHost::FromID(worker_host_->process_id());
+  return rph ? rph->GetBrowserContext() : nullptr;
 }
 
 std::string SharedWorkerDevToolsAgentHost::GetType() {
@@ -35,11 +46,11 @@ std::string SharedWorkerDevToolsAgentHost::GetType() {
 }
 
 std::string SharedWorkerDevToolsAgentHost::GetTitle() {
-  return base::UTF16ToUTF8(shared_worker_->name());
+  return instance_->name();
 }
 
 GURL SharedWorkerDevToolsAgentHost::GetURL() {
-  return shared_worker_->url();
+  return instance_->url();
 }
 
 bool SharedWorkerDevToolsAgentHost::Activate() {
@@ -50,19 +61,70 @@ void SharedWorkerDevToolsAgentHost::Reload() {
 }
 
 bool SharedWorkerDevToolsAgentHost::Close() {
-  BrowserThread::PostTask(BrowserThread::IO, FROM_HERE,
-      base::Bind(&TerminateSharedWorkerOnIO, worker_id()));
+  if (worker_host_)
+    worker_host_->TerminateWorker();
   return true;
 }
 
-bool SharedWorkerDevToolsAgentHost::Matches(
-    const SharedWorkerInstance& other) {
-  return shared_worker_->Matches(other);
+bool SharedWorkerDevToolsAgentHost::AttachSession(DevToolsSession* session,
+                                                  TargetRegistry* registry) {
+  session->AddHandler(std::make_unique<protocol::InspectorHandler>());
+  session->AddHandler(std::make_unique<protocol::NetworkHandler>(
+      GetId(), devtools_worker_token_, GetIOContext()));
+  session->AddHandler(std::make_unique<protocol::SchemaHandler>());
+  session->SetRenderer(worker_host_ ? worker_host_->process_id() : -1, nullptr);
+  if (state_ == WORKER_READY)
+    session->AttachToAgent(EnsureAgent());
+  return true;
 }
 
-SharedWorkerDevToolsAgentHost::~SharedWorkerDevToolsAgentHost() {
-  SharedWorkerDevToolsManager::GetInstance()->RemoveInspectedWorkerData(
-      worker_id());
+void SharedWorkerDevToolsAgentHost::DetachSession(DevToolsSession* session) {
+  // Destroying session automatically detaches in renderer.
+}
+
+bool SharedWorkerDevToolsAgentHost::Matches(SharedWorkerHost* worker_host) {
+  return instance_->Matches(*worker_host->instance());
+}
+
+void SharedWorkerDevToolsAgentHost::WorkerReadyForInspection() {
+  DCHECK_EQ(WORKER_NOT_READY, state_);
+  DCHECK(worker_host_);
+  state_ = WORKER_READY;
+  for (DevToolsSession* session : sessions())
+    session->AttachToAgent(EnsureAgent());
+}
+
+void SharedWorkerDevToolsAgentHost::WorkerRestarted(
+    SharedWorkerHost* worker_host) {
+  DCHECK_EQ(WORKER_TERMINATED, state_);
+  DCHECK(!worker_host_);
+  state_ = WORKER_NOT_READY;
+  worker_host_ = worker_host;
+  for (auto* inspector : protocol::InspectorHandler::ForAgentHost(this))
+    inspector->TargetReloadedAfterCrash();
+  for (DevToolsSession* session : sessions())
+    session->SetRenderer(worker_host_->process_id(), nullptr);
+}
+
+void SharedWorkerDevToolsAgentHost::WorkerDestroyed() {
+  DCHECK_NE(WORKER_TERMINATED, state_);
+  DCHECK(worker_host_);
+  state_ = WORKER_TERMINATED;
+  for (auto* inspector : protocol::InspectorHandler::ForAgentHost(this))
+    inspector->TargetCrashed();
+  for (DevToolsSession* session : sessions())
+    session->SetRenderer(-1, nullptr);
+  worker_host_ = nullptr;
+  agent_ptr_.reset();
+}
+
+const blink::mojom::DevToolsAgentAssociatedPtr&
+SharedWorkerDevToolsAgentHost::EnsureAgent() {
+  DCHECK_EQ(WORKER_READY, state_);
+  DCHECK(worker_host_);
+  if (!agent_ptr_)
+    worker_host_->BindDevToolsAgent(mojo::MakeRequest(&agent_ptr_));
+  return agent_ptr_;
 }
 
 }  // namespace content

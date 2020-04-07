@@ -8,6 +8,8 @@
 
 #include <utility>
 
+#include "base/bind.h"
+#include "base/bind_helpers.h"
 #include "base/callback_helpers.h"
 #include "base/location.h"
 #include "base/memory/ref_counted.h"
@@ -42,7 +44,7 @@ void RunAndDeleteFlag(OnceClosure closure, const CancellationFlag* flag) {
 }
 
 void RunOrPostToTaskRunner(TaskRunner* task_runner, OnceClosure closure) {
-  if (task_runner->RunsTasksOnCurrentThread())
+  if (task_runner->RunsTasksInCurrentSequence())
     std::move(closure).Run();
   else
     task_runner->PostTask(FROM_HERE, std::move(closure));
@@ -64,17 +66,16 @@ CancelableTaskTracker::~CancelableTaskTracker() {
 
 CancelableTaskTracker::TaskId CancelableTaskTracker::PostTask(
     TaskRunner* task_runner,
-    const tracked_objects::Location& from_here,
+    const Location& from_here,
     OnceClosure task) {
   DCHECK(sequence_checker_.CalledOnValidSequence());
 
-  return PostTaskAndReply(task_runner, from_here, std::move(task),
-                          BindOnce(&DoNothing));
+  return PostTaskAndReply(task_runner, from_here, std::move(task), DoNothing());
 }
 
 CancelableTaskTracker::TaskId CancelableTaskTracker::PostTaskAndReply(
     TaskRunner* task_runner,
-    const tracked_objects::Location& from_here,
+    const Location& from_here,
     OnceClosure task,
     OnceClosure reply) {
   DCHECK(sequence_checker_.CalledOnValidSequence());
@@ -120,9 +121,9 @@ CancelableTaskTracker::TaskId CancelableTaskTracker::NewTrackedTaskId(
 
   // Will always run |untrack_and_delete_flag| on current sequence.
   ScopedClosureRunner* untrack_and_delete_flag_runner =
-      new ScopedClosureRunner(Bind(
+      new ScopedClosureRunner(BindOnce(
           &RunOrPostToTaskRunner, RetainedRef(SequencedTaskRunnerHandle::Get()),
-          Passed(&untrack_and_delete_flag)));
+          std::move(untrack_and_delete_flag)));
 
   *is_canceled_cb =
       Bind(&IsCanceled, flag, Owned(untrack_and_delete_flag_runner));
@@ -151,6 +152,8 @@ void CancelableTaskTracker::TryCancelAll() {
   DCHECK(sequence_checker_.CalledOnValidSequence());
   for (const auto& it : task_flags_)
     it.second->Set();
+  weak_factory_.InvalidateWeakPtrs();
+  task_flags_.clear();
 }
 
 bool CancelableTaskTracker::HasTrackedTasks() const {

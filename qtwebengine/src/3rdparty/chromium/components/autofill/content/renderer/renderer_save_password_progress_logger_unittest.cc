@@ -50,12 +50,12 @@ class FakeContentPasswordManagerDriver : public mojom::PasswordManagerDriver {
   void PasswordFormSubmitted(
       const autofill::PasswordForm& password_form) override {}
 
-  void InPageNavigation(const autofill::PasswordForm& password_form) override {}
-
-  void PresaveGeneratedPassword(
+  void ShowManualFallbackForSaving(
       const autofill::PasswordForm& password_form) override {}
 
-  void PasswordNoLongerGenerated(
+  void HideManualFallbackForSaving() override {}
+
+  void SameDocumentNavigation(
       const autofill::PasswordForm& password_form) override {}
 
   void ShowPasswordSuggestions(int key,
@@ -63,9 +63,6 @@ class FakeContentPasswordManagerDriver : public mojom::PasswordManagerDriver {
                                const base::string16& typed_username,
                                int options,
                                const gfx::RectF& bounds) override {}
-
-  void ShowNotSecureWarning(base::i18n::TextDirection text_direction,
-                            const gfx::RectF& bounds) override {}
 
   void RecordSavePasswordProgress(const std::string& log) override {
     called_record_save_ = true;
@@ -80,6 +77,8 @@ class FakeContentPasswordManagerDriver : public mojom::PasswordManagerDriver {
 
   void CheckSafeBrowsingReputation(const GURL& form_action,
                                    const GURL& frame_url) override {}
+
+  void FocusedInputChanged(bool is_fillable, bool is_password_field) override {}
 
   // Records whether RecordSavePasswordProgress() gets called.
   bool called_record_save_;

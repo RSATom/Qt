@@ -28,7 +28,7 @@ namespace cast {
 
 class AdaptiveCongestionControl : public CongestionControl {
  public:
-  AdaptiveCongestionControl(base::TickClock* clock,
+  AdaptiveCongestionControl(const base::TickClock* clock,
                             int max_bitrate_configured,
                             int min_bitrate_configured,
                             double max_frame_rate);
@@ -78,11 +78,15 @@ class AdaptiveCongestionControl : public CongestionControl {
   base::TimeTicks EstimatedSendingTime(FrameId frame_id,
                                        double estimated_bitrate);
 
-  base::TickClock* const clock_;  // Not owned by this class.
+  const base::TickClock* const clock_;  // Not owned by this class.
   const int max_bitrate_configured_;
   const int min_bitrate_configured_;
   const double max_frame_rate_;
+
+  // This can not be a base::circular_deque because the AckFrame implementation
+  // preserves a FrameStats* pointing inside the deque across mutations.
   std::deque<FrameStats> frame_stats_;
+
   FrameId last_frame_stats_;
   // This is the latest known frame that all previous frames (having smaller
   // |frame_id|) and this frame were acked by receiver.
@@ -101,7 +105,7 @@ class AdaptiveCongestionControl : public CongestionControl {
 class FixedCongestionControl : public CongestionControl {
  public:
   explicit FixedCongestionControl(int bitrate) : bitrate_(bitrate) {}
-  ~FixedCongestionControl() final {}
+  ~FixedCongestionControl() final = default;
 
   // CongestionControl implementation.
   void UpdateRtt(base::TimeDelta rtt) final {}
@@ -123,12 +127,10 @@ class FixedCongestionControl : public CongestionControl {
   DISALLOW_COPY_AND_ASSIGN(FixedCongestionControl);
 };
 
-
-CongestionControl* NewAdaptiveCongestionControl(
-    base::TickClock* clock,
-    int max_bitrate_configured,
-    int min_bitrate_configured,
-    double max_frame_rate) {
+CongestionControl* NewAdaptiveCongestionControl(const base::TickClock* clock,
+                                                int max_bitrate_configured,
+                                                int min_bitrate_configured,
+                                                double max_frame_rate) {
   return new AdaptiveCongestionControl(clock,
                                        max_bitrate_configured,
                                        min_bitrate_configured,
@@ -152,10 +154,11 @@ static const size_t kHistorySize = 100;
 AdaptiveCongestionControl::FrameStats::FrameStats() : frame_size_in_bits(0) {
 }
 
-AdaptiveCongestionControl::AdaptiveCongestionControl(base::TickClock* clock,
-                                                     int max_bitrate_configured,
-                                                     int min_bitrate_configured,
-                                                     double max_frame_rate)
+AdaptiveCongestionControl::AdaptiveCongestionControl(
+    const base::TickClock* clock,
+    int max_bitrate_configured,
+    int min_bitrate_configured,
+    double max_frame_rate)
     : clock_(clock),
       max_bitrate_configured_(max_bitrate_configured),
       min_bitrate_configured_(min_bitrate_configured),
@@ -177,8 +180,8 @@ AdaptiveCongestionControl::AdaptiveCongestionControl(base::TickClock* clock,
   DCHECK(!frame_stats_[0].ack_time.is_null());
 }
 
-CongestionControl::~CongestionControl() {}
-AdaptiveCongestionControl::~AdaptiveCongestionControl() {}
+CongestionControl::~CongestionControl() = default;
+AdaptiveCongestionControl::~AdaptiveCongestionControl() = default;
 
 void AdaptiveCongestionControl::UpdateRtt(base::TimeDelta rtt) {
   rtt_ = (7 * rtt_ + rtt) / 8;

@@ -6,7 +6,7 @@
 
 #include "base/android/jni_android.h"
 #include "base/android/jni_string.h"
-#include "base/metrics/histogram_macros.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "device/bluetooth/bluetooth_adapter_android.h"
@@ -20,15 +20,15 @@ using base::android::JavaRef;
 namespace device {
 namespace {
 void RecordConnectionSuccessResult(int32_t status) {
-  UMA_HISTOGRAM_SPARSE_SLOWLY("Bluetooth.Android.GATTConnection.Success.Result",
-                              status);
+  base::UmaHistogramSparse("Bluetooth.Android.GATTConnection.Success.Result",
+                           status);
 }
 void RecordConnectionFailureResult(int32_t status) {
-  UMA_HISTOGRAM_SPARSE_SLOWLY("Bluetooth.Android.GATTConnection.Failure.Result",
-                              status);
+  base::UmaHistogramSparse("Bluetooth.Android.GATTConnection.Failure.Result",
+                           status);
 }
 void RecordConnectionTerminatedResult(int32_t status) {
-  UMA_HISTOGRAM_SPARSE_SLOWLY(
+  base::UmaHistogramSparse(
       "Bluetooth.Android.GATTConnection.Disconnected.Result", status);
 }
 }  // namespace
@@ -50,11 +50,6 @@ std::unique_ptr<BluetoothDeviceAndroid> BluetoothDeviceAndroid::Create(
 BluetoothDeviceAndroid::~BluetoothDeviceAndroid() {
   Java_ChromeBluetoothDevice_onBluetoothDeviceAndroidDestruction(
       AttachCurrentThread(), j_device_);
-}
-
-// static
-bool BluetoothDeviceAndroid::RegisterJNI(JNIEnv* env) {
-  return RegisterNativesImpl(env);  // Generated in ChromeBluetoothDevice_jni.h
 }
 
 base::android::ScopedJavaLocalRef<jobject>

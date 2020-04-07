@@ -15,15 +15,54 @@
 #include "util/synchronization/semaphore.h"
 
 #include <errno.h>
+#include <math.h>
+#include <time.h>
 
-#include <cmath>
+#include <chrono>
 
 #include "base/logging.h"
 #include "base/posix/eintr_wrapper.h"
+#include "util/misc/time.h"
 
 namespace crashpad {
 
-#if !defined(OS_MACOSX)
+#if defined(OS_ANDROID)
+
+Semaphore::Semaphore(int value) : cv_(), mutex_(), value_(value) {}
+
+Semaphore::~Semaphore() = default;
+
+void Semaphore::Wait() {
+  std::unique_lock<std::mutex> lock(mutex_);
+  cv_.wait(lock, [this] { return this->value_ > 0; });
+  --value_;
+}
+
+bool Semaphore::TimedWait(double seconds) {
+  DCHECK_GE(seconds, 0.0);
+
+  if (isinf(seconds)) {
+    Wait();
+    return true;
+  }
+
+  std::unique_lock<std::mutex> lock(mutex_);
+  if (!cv_.wait_for(lock, std::chrono::duration<double>(seconds), [this] {
+        return this->value_ > 0;
+      })) {
+    return false;
+  }
+  --value_;
+  return true;
+}
+
+void Semaphore::Signal() {
+  std::lock_guard<std::mutex> lock(mutex_);
+  ++value_;
+  cv_.notify_one();
+}
+
+#elif !defined(OS_MACOSX)
 
 Semaphore::Semaphore(int value) {
   PCHECK(sem_init(&semaphore_, 0, value) == 0) << "sem_init";
@@ -40,14 +79,20 @@ void Semaphore::Wait() {
 bool Semaphore::TimedWait(double seconds) {
   DCHECK_GE(seconds, 0.0);
 
-  if (std::isinf(seconds)) {
+  if (isinf(seconds)) {
     Wait();
     return true;
   }
 
+  timespec current_time;
+  if (clock_gettime(CLOCK_REALTIME, &current_time) != 0) {
+    PLOG(ERROR) << "clock_gettime";
+    return false;
+  }
   timespec timeout;
   timeout.tv_sec = seconds;
   timeout.tv_nsec = (seconds - trunc(seconds)) * 1E9;
+  AddTimespec(current_time, timeout, &timeout);
 
   int rv = HANDLE_EINTR(sem_timedwait(&semaphore_, &timeout));
   PCHECK(rv == 0 || errno == ETIMEDOUT) << "sem_timedwait";
@@ -58,6 +103,6 @@ void Semaphore::Signal() {
   PCHECK(sem_post(&semaphore_) == 0) << "sem_post";
 }
 
-#endif
+#endif  // OS_ANDROID
 
 }  // namespace crashpad

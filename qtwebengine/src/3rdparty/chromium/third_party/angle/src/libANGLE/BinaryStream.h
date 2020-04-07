@@ -46,6 +46,29 @@ class BinaryInputStream : angle::NonCopyable
         *outValue = readInt<IntT>();
     }
 
+    template <class IntT, class VectorElementT>
+    void readIntVector(std::vector<VectorElementT> *param)
+    {
+        unsigned int size = readInt<unsigned int>();
+        for (unsigned int index = 0; index < size; ++index)
+        {
+            param->push_back(readInt<IntT>());
+        }
+    }
+
+    template <class EnumT>
+    EnumT readEnum()
+    {
+        using UnderlyingType = typename std::underlying_type<EnumT>::type;
+        return static_cast<EnumT>(readInt<UnderlyingType>());
+    }
+
+    template <class EnumT>
+    void readEnum(EnumT *outValue)
+    {
+        *outValue = readEnum<EnumT>();
+    }
+
     bool readBool()
     {
         int value = 0;
@@ -170,9 +193,8 @@ class BinaryInputStream : angle::NonCopyable
 class BinaryOutputStream : angle::NonCopyable
 {
   public:
-    BinaryOutputStream()
-    {
-    }
+    BinaryOutputStream();
+    ~BinaryOutputStream();
 
     // writeInt also handles bool types
     template <class IntT>
@@ -195,6 +217,23 @@ class BinaryOutputStream : angle::NonCopyable
         {
             writeInt(param);
         }
+    }
+
+    template <class IntT>
+    void writeIntVector(std::vector<IntT> param)
+    {
+        writeInt(param.size());
+        for (IntT element : param)
+        {
+            writeIntOrNegOne(element);
+        }
+    }
+
+    template <class EnumT>
+    void writeEnum(EnumT param)
+    {
+        using UnderlyingType = typename std::underlying_type<EnumT>::type;
+        writeInt<UnderlyingType>(static_cast<UnderlyingType>(param));
     }
 
     void writeString(const std::string &v)
@@ -230,6 +269,13 @@ class BinaryOutputStream : angle::NonCopyable
     }
 
 };
+
+inline BinaryOutputStream::BinaryOutputStream()
+{
+}
+
+inline BinaryOutputStream::~BinaryOutputStream() = default;
+
 }  // namespace gl
 
 #endif  // LIBANGLE_BINARYSTREAM_H_

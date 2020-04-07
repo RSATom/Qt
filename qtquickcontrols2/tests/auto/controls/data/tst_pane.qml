@@ -48,9 +48,9 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.2
+import QtQuick 2.12
 import QtTest 1.0
-import QtQuick.Controls 2.2
+import QtQuick.Controls 2.12
 
 TestCase {
     id: testCase
@@ -119,6 +119,8 @@ TestCase {
         verify(control.contentItem)
         compare(control.contentWidth, 0)
         compare(control.contentHeight, 0)
+        compare(control.implicitContentWidth, 0)
+        compare(control.implicitContentHeight, 0)
     }
 
     function test_oneChild() {
@@ -127,8 +129,21 @@ TestCase {
 
         compare(control.contentWidth, 100)
         compare(control.contentHeight, 30)
+        compare(control.implicitContentWidth, 100)
+        compare(control.implicitContentHeight, 30)
         verify(control.implicitWidth > 100)
         verify(control.implicitHeight > 30)
+
+        compare(control.contentChildren.length, 1)
+        control.contentChildren[0].implicitWidth = 200
+        control.contentChildren[0].implicitHeight = 40
+
+        compare(control.contentWidth, 200)
+        compare(control.contentHeight, 40)
+        compare(control.implicitContentWidth, 200)
+        compare(control.implicitContentHeight, 40)
+        verify(control.implicitWidth > 200)
+        verify(control.implicitHeight > 40)
     }
 
     function test_twoChildren() {
@@ -137,6 +152,8 @@ TestCase {
 
         compare(control.contentWidth, 0)
         compare(control.contentHeight, 0)
+        compare(control.implicitContentWidth, 0)
+        compare(control.implicitContentHeight, 0)
         verify(control.implicitWidth > 0)
         verify(control.implicitHeight > 0)
     }
@@ -147,6 +164,8 @@ TestCase {
 
         compare(control.contentWidth, 100)
         compare(control.contentHeight, 30)
+        compare(control.implicitContentWidth, 100)
+        compare(control.implicitContentHeight, 30)
         verify(control.implicitWidth > 100)
         verify(control.implicitHeight > 30)
     }

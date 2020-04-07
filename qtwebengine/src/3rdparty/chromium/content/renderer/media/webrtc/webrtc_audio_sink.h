@@ -8,6 +8,8 @@
 #include <stdint.h>
 
 #include <memory>
+#include <string>
+#include <utility>
 #include <vector>
 
 #include "base/macros.h"
@@ -16,11 +18,11 @@
 #include "base/synchronization/lock.h"
 #include "content/common/content_export.h"
 #include "content/public/renderer/media_stream_audio_sink.h"
-#include "content/renderer/media/media_stream_audio_level_calculator.h"
-#include "content/renderer/media/media_stream_audio_processor.h"
+#include "content/renderer/media/stream/media_stream_audio_level_calculator.h"
+#include "content/renderer/media/stream/media_stream_audio_processor.h"
 #include "media/base/audio_parameters.h"
 #include "media/base/audio_push_fifo.h"
-#include "third_party/webrtc/api/mediastreamtrack.h"
+#include "third_party/webrtc/pc/mediastreamtrack.h"
 
 namespace content {
 
@@ -64,9 +66,7 @@ class CONTENT_EXPORT WebRtcAudioSink : public MediaStreamAudioSink {
   // Private implementation of the webrtc::AudioTrackInterface whose control
   // methods are all called on the WebRTC signaling thread. This class is
   // ref-counted, per the requirements of webrtc::AudioTrackInterface.
-  class Adapter
-      : NON_EXPORTED_BASE(
-            public webrtc::MediaStreamTrack<webrtc::AudioTrackInterface>) {
+  class Adapter : public webrtc::MediaStreamTrack<webrtc::AudioTrackInterface> {
    public:
     Adapter(const std::string& label,
             scoped_refptr<webrtc::AudioSourceInterface> source,
@@ -168,11 +168,7 @@ class CONTENT_EXPORT WebRtcAudioSink : public MediaStreamAudioSink {
 
   // In debug builds, check that WebRtcAudioSink's public methods are all being
   // called on the main render thread.
-  base::ThreadChecker thread_checker_;
-
-  // Used to DCHECK that OnSetFormat() and OnData() are called on the same
-  // thread.
-  base::ThreadChecker audio_thread_checker_;
+  THREAD_CHECKER(thread_checker_);
 
   DISALLOW_COPY_AND_ASSIGN(WebRtcAudioSink);
 };

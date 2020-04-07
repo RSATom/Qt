@@ -15,8 +15,8 @@ use_gold_linker: CONFIG += no_linker_version_script
 CONFIG -= precompile_header
 CONFIG += link_pkgconfig wayland-scanner
 
-qtConfig(xkbcommon-evdev): \
-    QMAKE_USE_PRIVATE += xkbcommon_evdev
+qtConfig(xkbcommon): \
+    QMAKE_USE_PRIVATE += xkbcommon
 
 QMAKE_USE += wayland-client
 
@@ -25,11 +25,10 @@ INCLUDEPATH += $$PWD/../shared
 WAYLANDCLIENTSOURCES += \
             ../extensions/surface-extension.xml \
             ../extensions/touch-extension.xml \
-            ../extensions/qtkey-extension.xml \
+            ../extensions/qt-key-unstable-v1.xml \
             ../extensions/qt-windowmanager.xml \
             ../3rdparty/protocol/text-input-unstable-v2.xml \
-            ../3rdparty/protocol/xdg-shell.xml \
-            ../3rdparty/protocol/xdg-shell-unstable-v6.xml \
+            ../3rdparty/protocol/xdg-output-unstable-v1.xml \
 
 WAYLANDCLIENTSOURCES_SYSTEM += \
             ../3rdparty/protocol/wayland.xml \
@@ -43,14 +42,6 @@ SOURCES +=  qwaylandintegration.cpp \
             qwaylandscreen.cpp \
             qwaylandshmwindow.cpp \
             qwaylandshellsurface.cpp \
-            qwaylandwlshellsurface.cpp \
-            qwaylandwlshellintegration.cpp \
-            qwaylandxdgshell.cpp \
-            qwaylandxdgsurface.cpp \
-            qwaylandxdgpopup.cpp \
-            qwaylandxdgshellintegration.cpp \
-            qwaylandxdgshellv6.cpp \
-            qwaylandxdgshellv6integration.cpp \
             qwaylandextendedsurface.cpp \
             qwaylandsubsurface.cpp \
             qwaylandtouch.cpp \
@@ -76,14 +67,6 @@ HEADERS +=  qwaylandintegration_p.h \
             qwaylandbuffer_p.h \
             qwaylandshmwindow_p.h \
             qwaylandshellsurface_p.h \
-            qwaylandwlshellsurface_p.h \
-            qwaylandwlshellintegration_p.h \
-            qwaylandxdgshell_p.h \
-            qwaylandxdgsurface_p.h \
-            qwaylandxdgpopup_p.h \
-            qwaylandxdgshellintegration_p.h \
-            qwaylandxdgshellv6_p.h \
-            qwaylandxdgshellv6integration_p.h \
             qwaylandextendedsurface_p.h \
             qwaylandsubsurface_p.h \
             qwaylandtouch_p.h \

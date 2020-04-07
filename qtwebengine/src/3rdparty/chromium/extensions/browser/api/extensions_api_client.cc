@@ -5,7 +5,6 @@
 #include "extensions/browser/api/extensions_api_client.h"
 
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "extensions/browser/api/device_permissions_prompt.h"
 #include "extensions/browser/api/virtual_keyboard_private/virtual_keyboard_delegate.h"
 #include "extensions/browser/api/web_request/web_request_event_router_delegate.h"
@@ -38,6 +37,17 @@ void ExtensionsAPIClient::AttachWebContentsHelpers(
     content::WebContents* web_contents) const {
 }
 
+bool ExtensionsAPIClient::ShouldHideResponseHeader(
+    const GURL& url,
+    const std::string& header_name) const {
+  return false;
+}
+
+bool ExtensionsAPIClient::ShouldHideBrowserNetworkRequest(
+    const WebRequestInfo& request) const {
+  return false;
+}
+
 AppViewGuestDelegate* ExtensionsAPIClient::CreateAppViewGuestDelegate() const {
   return NULL;
 }
@@ -51,7 +61,7 @@ ExtensionsAPIClient::CreateExtensionOptionsGuestDelegate(
 std::unique_ptr<guest_view::GuestViewManagerDelegate>
 ExtensionsAPIClient::CreateGuestViewManagerDelegate(
     content::BrowserContext* context) const {
-  return base::MakeUnique<ExtensionsGuestViewManagerDelegate>(context);
+  return std::make_unique<ExtensionsGuestViewManagerDelegate>(context);
 }
 
 std::unique_ptr<MimeHandlerViewGuestDelegate>
@@ -90,7 +100,8 @@ ExtensionsAPIClient::CreateDevicePermissionsPrompt(
 }
 
 std::unique_ptr<VirtualKeyboardDelegate>
-ExtensionsAPIClient::CreateVirtualKeyboardDelegate() const {
+ExtensionsAPIClient::CreateVirtualKeyboardDelegate(
+    content::BrowserContext* context) const {
   return nullptr;
 }
 
@@ -112,9 +123,22 @@ FileSystemDelegate* ExtensionsAPIClient::GetFileSystemDelegate() {
   return nullptr;
 }
 
+MessagingDelegate* ExtensionsAPIClient::GetMessagingDelegate() {
+  return nullptr;
+}
+
+FeedbackPrivateDelegate* ExtensionsAPIClient::GetFeedbackPrivateDelegate() {
+  return nullptr;
+}
+
 #if defined(OS_CHROMEOS)
 NonNativeFileSystemDelegate*
 ExtensionsAPIClient::GetNonNativeFileSystemDelegate() {
+  return nullptr;
+}
+
+MediaPerceptionAPIDelegate*
+ExtensionsAPIClient::GetMediaPerceptionAPIDelegate() {
   return nullptr;
 }
 

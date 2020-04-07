@@ -16,29 +16,26 @@ CPDF_CMapManager::CPDF_CMapManager() {}
 
 CPDF_CMapManager::~CPDF_CMapManager() {}
 
-CFX_RetainPtr<CPDF_CMap> CPDF_CMapManager::GetPredefinedCMap(
-    const CFX_ByteString& name,
-    bool bPromptCJK) {
+RetainPtr<CPDF_CMap> CPDF_CMapManager::GetPredefinedCMap(const ByteString& name,
+                                                         bool bPromptCJK) {
   auto it = m_CMaps.find(name);
   if (it != m_CMaps.end())
     return it->second;
 
-  CFX_RetainPtr<CPDF_CMap> pCMap = LoadPredefinedCMap(name, bPromptCJK);
+  RetainPtr<CPDF_CMap> pCMap = LoadPredefinedCMap(name, bPromptCJK);
   if (!name.IsEmpty())
     m_CMaps[name] = pCMap;
 
   return pCMap;
 }
 
-CFX_RetainPtr<CPDF_CMap> CPDF_CMapManager::LoadPredefinedCMap(
-    const CFX_ByteString& name,
-    bool bPromptCJK) {
-  const char* pname = name.c_str();
-  if (*pname == '/')
-    pname++;
+RetainPtr<CPDF_CMap> CPDF_CMapManager::LoadPredefinedCMap(ByteString name,
+                                                          bool bPromptCJK) {
+  if (!name.IsEmpty() && name[0] == '/')
+    name = name.Right(name.GetLength() - 1);
 
   auto pCMap = pdfium::MakeRetain<CPDF_CMap>();
-  pCMap->LoadPredefined(this, pname, bPromptCJK);
+  pCMap->LoadPredefined(this, name, bPromptCJK);
   return pCMap;
 }
 

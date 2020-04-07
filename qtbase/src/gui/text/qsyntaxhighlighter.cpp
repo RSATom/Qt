@@ -157,14 +157,12 @@ void QSyntaxHighlighterPrivate::applyFormatChanges()
 
 void QSyntaxHighlighterPrivate::_q_reformatBlocks(int from, int charsRemoved, int charsAdded)
 {
-    if (!inReformatBlocks)
+    if (!inReformatBlocks && !rehighlightPending)
         reformatBlocks(from, charsRemoved, charsAdded);
 }
 
 void QSyntaxHighlighterPrivate::reformatBlocks(int from, int charsRemoved, int charsAdded)
 {
-    rehighlightPending = false;
-
     QTextBlock block = doc->findBlock(from);
     if (!block.isValid())
         return;
@@ -299,7 +297,7 @@ void QSyntaxHighlighterPrivate::reformatBlock(const QTextBlock &block)
 QSyntaxHighlighter::QSyntaxHighlighter(QObject *parent)
     : QObject(*new QSyntaxHighlighterPrivate, parent)
 {
-    if (parent->inherits("QTextEdit")) {
+    if (parent && parent->inherits("QTextEdit")) {
         QTextDocument *doc = parent->property("document").value<QTextDocument *>();
         if (doc)
             setDocument(doc);
@@ -346,8 +344,10 @@ void QSyntaxHighlighter::setDocument(QTextDocument *doc)
     if (d->doc) {
         connect(d->doc, SIGNAL(contentsChange(int,int,int)),
                 this, SLOT(_q_reformatBlocks(int,int,int)));
-        d->rehighlightPending = true;
-        QTimer::singleShot(0, this, SLOT(_q_delayedRehighlight()));
+        if (!d->doc->isEmpty()) {
+            d->rehighlightPending = true;
+            QTimer::singleShot(0, this, SLOT(_q_delayedRehighlight()));
+        }
     }
 }
 
@@ -376,6 +376,7 @@ void QSyntaxHighlighter::rehighlight()
 
     QTextCursor cursor(d->doc);
     d->rehighlight(cursor, QTextCursor::End);
+    d->rehighlightPending = false; // user manually did a full rehighlight
 }
 
 /*!

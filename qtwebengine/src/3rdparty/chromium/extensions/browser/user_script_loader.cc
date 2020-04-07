@@ -10,8 +10,8 @@
 #include <string>
 #include <utility>
 
-#include "base/memory/ptr_util.h"
 #include "base/version.h"
+#include "build/build_config.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_service.h"
@@ -336,7 +336,12 @@ std::unique_ptr<base::SharedMemory> UserScriptLoader::Serialize(
   if (!readonly_handle.IsValid())
     return std::unique_ptr<base::SharedMemory>();
 
-  return base::MakeUnique<base::SharedMemory>(readonly_handle,
+#if defined(OS_ANDROID)
+  // Seal the region read-only now. http://crbug.com/789959
+  readonly_handle.SetRegionReadOnly();
+#endif
+
+  return std::make_unique<base::SharedMemory>(readonly_handle,
                                               /*read_only=*/true);
 }
 
@@ -412,7 +417,7 @@ void UserScriptLoader::SendUpdate(content::RenderProcessHost* process,
 
   // If the process is being started asynchronously, early return.  We'll end up
   // calling InitUserScripts when it's created which will call this again.
-  base::ProcessHandle handle = process->GetHandle();
+  base::ProcessHandle handle = process->GetProcess().Handle();
   if (!handle)
     return;
 

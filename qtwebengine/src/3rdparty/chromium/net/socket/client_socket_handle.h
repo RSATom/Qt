@@ -7,6 +7,7 @@
 
 #include <memory>
 #include <string>
+#include <utility>
 
 #include "base/logging.h"
 #include "base/macros.h"
@@ -27,6 +28,8 @@
 #include "net/socket/stream_socket.h"
 
 namespace net {
+
+class SocketTag;
 
 // A container for a StreamSocket.
 //
@@ -80,8 +83,9 @@ class NET_EXPORT ClientSocketHandle {
   int Init(const std::string& group_name,
            const scoped_refptr<typename PoolType::SocketParams>& socket_params,
            RequestPriority priority,
+           const SocketTag& socket_tag,
            ClientSocketPool::RespectLimits respect_limits,
-           const CompletionCallback& callback,
+           CompletionOnceCallback callback,
            PoolType* pool,
            const NetLogWithSource& net_log);
 
@@ -148,8 +152,9 @@ class NET_EXPORT ClientSocketHandle {
   void set_ssl_error_response_info(const HttpResponseInfo& ssl_error_state) {
     ssl_error_response_info_ = ssl_error_state;
   }
-  void set_pending_http_proxy_connection(ClientSocketHandle* connection) {
-    pending_http_proxy_connection_.reset(connection);
+  void set_pending_http_proxy_connection(
+      std::unique_ptr<ClientSocketHandle> connection) {
+    pending_http_proxy_connection_ = std::move(connection);
   }
   void set_connection_attempts(const ConnectionAttempts& attempts) {
     connection_attempts_ = attempts;
@@ -166,8 +171,8 @@ class NET_EXPORT ClientSocketHandle {
   const HttpResponseInfo& ssl_error_response_info() const {
     return ssl_error_response_info_;
   }
-  ClientSocketHandle* release_pending_http_proxy_connection() {
-    return pending_http_proxy_connection_.release();
+  std::unique_ptr<ClientSocketHandle> release_pending_http_proxy_connection() {
+    return std::move(pending_http_proxy_connection_);
   }
   // If the connection failed, returns the connection attempts made. (If it
   // succeeded, they will be returned through the socket instead; see
@@ -218,7 +223,7 @@ class NET_EXPORT ClientSocketHandle {
   std::string group_name_;
   SocketReuseType reuse_type_;
   CompletionCallback callback_;
-  CompletionCallback user_callback_;
+  CompletionOnceCallback user_callback_;
   base::TimeDelta idle_time_;
   int pool_id_;  // See ClientSocketPool::ReleaseSocket() for an explanation.
   bool is_ssl_error_;
@@ -240,8 +245,9 @@ int ClientSocketHandle::Init(
     const std::string& group_name,
     const scoped_refptr<typename PoolType::SocketParams>& socket_params,
     RequestPriority priority,
+    const SocketTag& socket_tag,
     ClientSocketPool::RespectLimits respect_limits,
-    const CompletionCallback& callback,
+    CompletionOnceCallback callback,
     PoolType* pool,
     const NetLogWithSource& net_log) {
   requesting_source_ = net_log.source();
@@ -251,10 +257,11 @@ int ClientSocketHandle::Init(
   ResetErrorState();
   pool_ = pool;
   group_name_ = group_name;
-  int rv = pool_->RequestSocket(group_name, &socket_params, priority,
-                                respect_limits, this, callback_, net_log);
+  int rv =
+      pool_->RequestSocket(group_name, &socket_params, priority, socket_tag,
+                           respect_limits, this, callback_, net_log);
   if (rv == ERR_IO_PENDING) {
-    user_callback_ = callback;
+    user_callback_ = std::move(callback);
   } else {
     HandleInitCompletion(rv);
   }

@@ -37,7 +37,7 @@ GvrGamepadDataFetcher::Factory::~Factory() {
 
 std::unique_ptr<GamepadDataFetcher>
 GvrGamepadDataFetcher::Factory::CreateDataFetcher() {
-  return base::MakeUnique<GvrGamepadDataFetcher>(data_provider_, display_id_);
+  return std::make_unique<GvrGamepadDataFetcher>(data_provider_, display_id_);
 }
 
 GamepadSource GvrGamepadDataFetcher::Factory::source() {
@@ -47,7 +47,7 @@ GamepadSource GvrGamepadDataFetcher::Factory::source() {
 GvrGamepadDataFetcher::GvrGamepadDataFetcher(
     GvrGamepadDataProvider* data_provider,
     unsigned int display_id)
-    : display_id_(display_id), gamepad_data_({}) {
+    : display_id_(display_id) {
   // Called on UI thread.
   DVLOG(1) << __FUNCTION__ << "=" << this;
   data_provider->RegisterGvrGamepadDataFetcher(this);
@@ -82,7 +82,8 @@ void GvrGamepadDataFetcher::GetGamepadData(bool devices_changed_hint) {
   GvrGamepadData provided_data = gamepad_data_;
 
   Gamepad& pad = state->data;
-  if (state->active_state == GAMEPAD_NEWLY_ACTIVE) {
+  if (!state->is_initialized) {
+    state->is_initialized = true;
     // This is the first time we've seen this device, so do some one-time
     // initialization
     CopyToUString(pad.id, Gamepad::kIdLengthCap,
@@ -94,12 +95,14 @@ void GvrGamepadDataFetcher::GetGamepadData(bool devices_changed_hint) {
 
     pad.display_id = display_id_;
 
+    pad.is_xr = true;
+
     pad.hand =
         provided_data.right_handed ? GamepadHand::kRight : GamepadHand::kLeft;
   }
 
   pad.connected = provided_data.connected;
-  pad.timestamp = provided_data.timestamp;
+  pad.timestamp = CurrentTimeInMicroseconds();
 
   if (provided_data.is_touching) {
     gfx::Vector2dF touch_position = provided_data.touch_pos;

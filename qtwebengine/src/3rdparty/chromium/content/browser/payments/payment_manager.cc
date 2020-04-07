@@ -14,6 +14,7 @@
 #include "content/browser/service_worker/service_worker_context_wrapper.h"
 #include "content/browser/service_worker/service_worker_registration.h"
 #include "content/public/browser/browser_thread.h"
+#include "url/origin.h"
 
 namespace content {
 
@@ -30,16 +31,30 @@ PaymentManager::PaymentManager(
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   DCHECK(payment_app_context);
 
-  binding_.set_connection_error_handler(
-      base::Bind(&PaymentManager::OnConnectionError, base::Unretained(this)));
+  binding_.set_connection_error_handler(base::BindOnce(
+      &PaymentManager::OnConnectionError, base::Unretained(this)));
 }
 
-void PaymentManager::Init(const std::string& context,
-                          const std::string& scope) {
+void PaymentManager::Init(const GURL& context_url, const std::string& scope) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
+
   should_set_payment_app_info_ = true;
-  context_ = GURL(context);
+  context_url_ = context_url;
   scope_ = GURL(scope);
+
+  if (!context_url_.is_valid()) {
+    binding_.CloseWithReason(0U, "Invalid context URL.");
+    return;
+  }
+  if (!scope_.is_valid()) {
+    binding_.CloseWithReason(1U, "Invalid scope URL.");
+    return;
+  }
+  if (!url::IsSameOriginWith(context_url_, scope_)) {
+    binding_.CloseWithReason(
+        2U, "Scope URL is not from the same origin of the context URL.");
+    return;
+  }
 }
 
 void PaymentManager::DeletePaymentInstrument(
@@ -106,8 +121,8 @@ void PaymentManager::SetPaymentInstrumentIntermediateCallback(
     return;
   }
 
-  payment_app_context_->payment_app_database()->FetchAndWritePaymentAppInfo(
-      context_, scope_, std::move(callback));
+  payment_app_context_->payment_app_database()->FetchAndUpdatePaymentAppInfo(
+      context_url_, scope_, std::move(callback));
   should_set_payment_app_info_ = false;
 }
 
@@ -117,6 +132,11 @@ void PaymentManager::ClearPaymentInstruments(
 
   payment_app_context_->payment_app_database()->ClearPaymentInstruments(
       scope_, std::move(callback));
+}
+
+void PaymentManager::SetUserHint(const std::string& user_hint) {
+  payment_app_context_->payment_app_database()->SetPaymentAppUserHint(
+      scope_, user_hint);
 }
 
 void PaymentManager::OnConnectionError() {

@@ -51,7 +51,7 @@
 // We mean it.
 //
 
-#include <QtGlobal>
+#include <QtCore/qglobal.h>
 #include <propkey.h>
 
 QT_BEGIN_NAMESPACE

@@ -7,47 +7,55 @@
 
 #include "SkCodecImageGenerator.h"
 #include "SkMakeUnique.h"
+#include "SkPixmapPriv.h"
 
 std::unique_ptr<SkImageGenerator> SkCodecImageGenerator::MakeFromEncodedCodec(sk_sp<SkData> data) {
-    SkCodec* codec = SkCodec::NewFromData(data);
+    auto codec = SkCodec::MakeFromData(data);
     if (nullptr == codec) {
         return nullptr;
     }
 
-    return std::unique_ptr<SkImageGenerator>(new SkCodecImageGenerator(codec, data));
+    return std::unique_ptr<SkImageGenerator>(new SkCodecImageGenerator(std::move(codec), data));
 }
 
-static SkImageInfo adjust_info(const SkImageInfo& info) {
-    SkImageInfo newInfo = info;
+static SkImageInfo adjust_info(SkCodec* codec) {
+    SkImageInfo info = codec->getInfo();
     if (kUnpremul_SkAlphaType == info.alphaType()) {
-        newInfo = newInfo.makeAlphaType(kPremul_SkAlphaType);
+        info = info.makeAlphaType(kPremul_SkAlphaType);
     }
-    return newInfo;
+    if (SkPixmapPriv::ShouldSwapWidthHeight(codec->getOrigin())) {
+        info = SkPixmapPriv::SwapWidthHeight(info);
+    }
+    return info;
 }
 
-SkCodecImageGenerator::SkCodecImageGenerator(SkCodec* codec, sk_sp<SkData> data)
-    : INHERITED(adjust_info(codec->getInfo()))
-    , fCodec(codec)
+SkCodecImageGenerator::SkCodecImageGenerator(std::unique_ptr<SkCodec> codec, sk_sp<SkData> data)
+    : INHERITED(adjust_info(codec.get()))
+    , fCodec(std::move(codec))
     , fData(std::move(data))
 {}
 
-SkData* SkCodecImageGenerator::onRefEncodedData() {
-    return SkRef(fData.get());
+sk_sp<SkData> SkCodecImageGenerator::onRefEncodedData() {
+    return fData;
 }
 
-bool SkCodecImageGenerator::onGetPixels(const SkImageInfo& info, void* pixels, size_t rowBytes,
-                                        const Options& opts) {
-    SkCodec::Options codecOpts;
-    codecOpts.fPremulBehavior = opts.fBehavior;
-    SkCodec::Result result = fCodec->getPixels(info, pixels, rowBytes, &codecOpts);
-    switch (result) {
-        case SkCodec::kSuccess:
-        case SkCodec::kIncompleteInput:
-        case SkCodec::kErrorInInput:
-            return true;
-        default:
-            return false;
-    }
+bool SkCodecImageGenerator::onGetPixels(const SkImageInfo& requestInfo, void* requestPixels,
+                                        size_t requestRowBytes, const Options&) {
+    SkPixmap dst(requestInfo, requestPixels, requestRowBytes);
+
+    auto decode = [this](const SkPixmap& pm) {
+        SkCodec::Result result = fCodec->getPixels(pm);
+        switch (result) {
+            case SkCodec::kSuccess:
+            case SkCodec::kIncompleteInput:
+            case SkCodec::kErrorInInput:
+                return true;
+            default:
+                return false;
+        }
+    };
+
+    return SkPixmapPriv::Orient(dst, fCodec->getOrigin(), decode);
 }
 
 bool SkCodecImageGenerator::onQueryYUV8(SkYUVSizeInfo* sizeInfo, SkYUVColorSpace* colorSpace) const

@@ -25,5 +25,15 @@ const char kPopularSitesOverrideCountry[] = "popular_sites.override_country";
 // If set, this will override the default file version for popular sites.
 const char kPopularSitesOverrideVersion[] = "popular_sites.override_version";
 
+// Prefs used to cache suggested sites and store caching meta data.
+const char kPopularSitesLastDownloadPref[] = "popular_sites_last_download";
+const char kPopularSitesURLPref[] = "popular_sites_url";
+const char kPopularSitesJsonPref[] = "suggested_sites_json";
+const char kPopularSitesVersionPref[] = "suggested_sites_version";
+
+// Prefs used to cache custom links.
+const char kCustomLinksList[] = "custom_links.list";
+const char kCustomLinksInitialized[] = "custom_links.initialized";
+
 }  // namespace prefs
 }  // namespace ntp_tiles

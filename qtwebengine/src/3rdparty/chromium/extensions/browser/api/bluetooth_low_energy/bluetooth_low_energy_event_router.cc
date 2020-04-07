@@ -113,7 +113,7 @@ void PopulateCharacteristic(
   out->uuid = characteristic->GetUUID().canonical_value();
   out->instance_id.reset(new std::string(characteristic->GetIdentifier()));
 
-  out->service = base::MakeUnique<apibtle::Service>();
+  out->service = std::make_unique<apibtle::Service>();
   PopulateService(characteristic->GetService(), out->service.get());
   PopulateCharacteristicProperties(characteristic->GetProperties(),
                                    &out->properties);
@@ -132,7 +132,7 @@ void PopulateDescriptor(const BluetoothRemoteGattDescriptor* descriptor,
   out->uuid = descriptor->GetUUID().canonical_value();
   out->instance_id.reset(new std::string(descriptor->GetIdentifier()));
 
-  out->characteristic = base::MakeUnique<apibtle::Characteristic>();
+  out->characteristic = std::make_unique<apibtle::Characteristic>();
   PopulateCharacteristic(descriptor->GetCharacteristic(),
                          out->characteristic.get());
 
@@ -1101,7 +1101,7 @@ void BluetoothLowEnergyEventRouter::OnCharacteristicReadRequest(
   apibtle::Request request;
   request.request_id = StoreSentRequest(
       extension_id,
-      base::MakeUnique<AttributeValueRequest>(value_callback, error_callback));
+      std::make_unique<AttributeValueRequest>(value_callback, error_callback));
   PopulateDevice(device, &request);
   DispatchEventToExtension(
       extension_id, events::BLUETOOTH_LOW_ENERGY_ON_CHARACTERISTIC_READ_REQUEST,
@@ -1130,9 +1130,9 @@ void BluetoothLowEnergyEventRouter::OnCharacteristicWriteRequest(
   apibtle::Request request;
   request.request_id = StoreSentRequest(
       extension_id,
-      base::MakeUnique<AttributeValueRequest>(callback, error_callback));
+      std::make_unique<AttributeValueRequest>(callback, error_callback));
   request.value =
-      base::MakeUnique<std::vector<char>>(value.begin(), value.end());
+      std::make_unique<std::vector<char>>(value.begin(), value.end());
   PopulateDevice(device, &request);
   DispatchEventToExtension(
       extension_id,
@@ -1140,6 +1140,19 @@ void BluetoothLowEnergyEventRouter::OnCharacteristicWriteRequest(
       apibtle::OnCharacteristicWriteRequest::kEventName,
       apibtle::OnCharacteristicWriteRequest::Create(
           request, characteristic->GetIdentifier()));
+}
+
+void BluetoothLowEnergyEventRouter::OnCharacteristicPrepareWriteRequest(
+    const device::BluetoothDevice* device,
+    const device::BluetoothLocalGattCharacteristic* characteristic,
+    const std::vector<uint8_t>& value,
+    int offset,
+    bool has_subsequent_request,
+    const base::Closure& callback,
+    const Delegate::ErrorCallback& error_callback) {
+  // TODO(crbug/856869): Support reliable write.
+  OnCharacteristicWriteRequest(device, characteristic, value, offset, callback,
+                               error_callback);
 }
 
 void BluetoothLowEnergyEventRouter::OnDescriptorReadRequest(
@@ -1162,7 +1175,7 @@ void BluetoothLowEnergyEventRouter::OnDescriptorReadRequest(
   apibtle::Request request;
   request.request_id = StoreSentRequest(
       extension_id,
-      base::MakeUnique<AttributeValueRequest>(value_callback, error_callback));
+      std::make_unique<AttributeValueRequest>(value_callback, error_callback));
   PopulateDevice(device, &request);
   DispatchEventToExtension(
       extension_id,
@@ -1193,9 +1206,9 @@ void BluetoothLowEnergyEventRouter::OnDescriptorWriteRequest(
   apibtle::Request request;
   request.request_id = StoreSentRequest(
       extension_id,
-      base::MakeUnique<AttributeValueRequest>(callback, error_callback));
+      std::make_unique<AttributeValueRequest>(callback, error_callback));
   request.value =
-      base::MakeUnique<std::vector<char>>(value.begin(), value.end());
+      std::make_unique<std::vector<char>>(value.begin(), value.end());
   PopulateDevice(device, &request);
   DispatchEventToExtension(
       extension_id,
@@ -1207,6 +1220,7 @@ void BluetoothLowEnergyEventRouter::OnDescriptorWriteRequest(
 
 void BluetoothLowEnergyEventRouter::OnNotificationsStart(
     const device::BluetoothDevice* device,
+    device::BluetoothGattCharacteristic::NotificationType notification_type,
     const device::BluetoothLocalGattCharacteristic* characteristic) {}
 
 void BluetoothLowEnergyEventRouter::OnNotificationsStop(

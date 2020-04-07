@@ -7,31 +7,39 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/feature_list.h"
-#include "base/memory/ptr_util.h"
 #include "base/memory/weak_ptr.h"
 #include "base/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
-#include "device/sensors/device_sensor_host.h"
+#include "build/build_config.h"
 #include "mojo/public/cpp/system/message_pipe.h"
 #include "services/device/fingerprint/fingerprint.h"
 #include "services/device/generic_sensor/sensor_provider_impl.h"
+#include "services/device/geolocation/geolocation_config.h"
+#include "services/device/geolocation/geolocation_context.h"
+#include "services/device/geolocation/public_ip_address_geolocator.h"
+#include "services/device/geolocation/public_ip_address_location_notifier.h"
 #include "services/device/power_monitor/power_monitor_message_broadcaster.h"
-#include "services/device/public/cpp/device_features.h"
-#include "services/device/public/interfaces/battery_monitor.mojom.h"
+#include "services/device/public/mojom/battery_monitor.mojom.h"
+#include "services/device/serial/serial_device_enumerator_impl.h"
+#include "services/device/serial/serial_io_handler_impl.h"
 #include "services/device/time_zone_monitor/time_zone_monitor.h"
 #include "services/device/wake_lock/wake_lock_provider.h"
+#include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "ui/gfx/native_widget_types.h"
 
 #if defined(OS_ANDROID)
 #include "base/android/jni_android.h"
 #include "jni/InterfaceRegistrar_jni.h"
-#include "services/device/android/register_jni.h"
 #include "services/device/screen_orientation/screen_orientation_listener_android.h"
 #else
 #include "services/device/battery/battery_monitor_impl.h"
 #include "services/device/battery/battery_status_service.h"
+#include "services/device/hid/hid_manager_impl.h"
 #include "services/device/vibration/vibration_manager_impl.h"
+#endif
+
+#if defined(OS_LINUX) && defined(USE_UDEV)
+#include "services/device/hid/input_service_linux.h"
 #endif
 
 namespace device {
@@ -40,23 +48,33 @@ namespace device {
 std::unique_ptr<service_manager::Service> CreateDeviceService(
     scoped_refptr<base::SingleThreadTaskRunner> file_task_runner,
     scoped_refptr<base::SingleThreadTaskRunner> io_task_runner,
+    scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
+    const std::string& geolocation_api_key,
+    bool use_gms_core_location_provider,
     const WakeLockContextCallback& wake_lock_context_callback,
+    const CustomLocationProviderCallback& custom_location_provider_callback,
     const base::android::JavaRef<jobject>& java_nfc_delegate) {
-  if (!EnsureJniRegistered()) {
-    DLOG(ERROR) << "Failed to register JNI for Device Service";
-    return nullptr;
-  }
-
-  return base::MakeUnique<DeviceService>(
+  GeolocationProviderImpl::SetGeolocationConfiguration(
+      url_loader_factory, geolocation_api_key,
+      custom_location_provider_callback, use_gms_core_location_provider);
+  return std::make_unique<DeviceService>(
       std::move(file_task_runner), std::move(io_task_runner),
+      std::move(url_loader_factory), geolocation_api_key,
       wake_lock_context_callback, java_nfc_delegate);
 }
 #else
 std::unique_ptr<service_manager::Service> CreateDeviceService(
     scoped_refptr<base::SingleThreadTaskRunner> file_task_runner,
-    scoped_refptr<base::SingleThreadTaskRunner> io_task_runner) {
-  return base::MakeUnique<DeviceService>(std::move(file_task_runner),
-                                         std::move(io_task_runner));
+    scoped_refptr<base::SingleThreadTaskRunner> io_task_runner,
+    scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
+    const std::string& geolocation_api_key,
+    const CustomLocationProviderCallback& custom_location_provider_callback) {
+  GeolocationProviderImpl::SetGeolocationConfiguration(
+      url_loader_factory, geolocation_api_key,
+      custom_location_provider_callback);
+  return std::make_unique<DeviceService>(
+      std::move(file_task_runner), std::move(io_task_runner),
+      std::move(url_loader_factory), geolocation_api_key);
 }
 #endif
 
@@ -64,10 +82,14 @@ std::unique_ptr<service_manager::Service> CreateDeviceService(
 DeviceService::DeviceService(
     scoped_refptr<base::SingleThreadTaskRunner> file_task_runner,
     scoped_refptr<base::SingleThreadTaskRunner> io_task_runner,
+    scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
+    const std::string& geolocation_api_key,
     const WakeLockContextCallback& wake_lock_context_callback,
     const base::android::JavaRef<jobject>& java_nfc_delegate)
     : file_task_runner_(std::move(file_task_runner)),
       io_task_runner_(std::move(io_task_runner)),
+      url_loader_factory_(std::move(url_loader_factory)),
+      geolocation_api_key_(geolocation_api_key),
       wake_lock_context_callback_(wake_lock_context_callback),
       java_interface_provider_initialized_(false) {
   java_nfc_delegate_.Reset(java_nfc_delegate);
@@ -75,40 +97,55 @@ DeviceService::DeviceService(
 #else
 DeviceService::DeviceService(
     scoped_refptr<base::SingleThreadTaskRunner> file_task_runner,
-    scoped_refptr<base::SingleThreadTaskRunner> io_task_runner)
+    scoped_refptr<base::SingleThreadTaskRunner> io_task_runner,
+    scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
+    const std::string& geolocation_api_key)
     : file_task_runner_(std::move(file_task_runner)),
-      io_task_runner_(std::move(io_task_runner)) {}
+      io_task_runner_(std::move(io_task_runner)),
+      url_loader_factory_(std::move(url_loader_factory)),
+      geolocation_api_key_(geolocation_api_key) {}
 #endif
 
 DeviceService::~DeviceService() {
 #if !defined(OS_ANDROID)
   device::BatteryStatusService::GetInstance()->Shutdown();
 #endif
+  if (public_ip_address_geolocation_provider_) {
+    DCHECK(io_task_runner_);
+    io_task_runner_->DeleteSoon(
+        FROM_HERE, std::move(public_ip_address_geolocation_provider_));
+  }
 }
 
 void DeviceService::OnStart() {
   registry_.AddInterface<mojom::Fingerprint>(base::Bind(
       &DeviceService::BindFingerprintRequest, base::Unretained(this)));
-  registry_.AddInterface<mojom::MotionSensor>(base::Bind(
-      &DeviceService::BindMotionSensorRequest, base::Unretained(this)));
-  registry_.AddInterface<mojom::OrientationSensor>(base::Bind(
-      &DeviceService::BindOrientationSensorRequest, base::Unretained(this)));
-  registry_.AddInterface<mojom::OrientationAbsoluteSensor>(
-      base::Bind(&DeviceService::BindOrientationAbsoluteSensorRequest,
-                 base::Unretained(this)));
+  registry_.AddInterface<mojom::GeolocationConfig>(base::BindRepeating(
+      &DeviceService::BindGeolocationConfigRequest, base::Unretained(this)));
+  registry_.AddInterface<mojom::GeolocationContext>(base::Bind(
+      &DeviceService::BindGeolocationContextRequest, base::Unretained(this)));
+  registry_.AddInterface<mojom::GeolocationControl>(base::Bind(
+      &DeviceService::BindGeolocationControlRequest, base::Unretained(this)));
   registry_.AddInterface<mojom::PowerMonitor>(base::Bind(
       &DeviceService::BindPowerMonitorRequest, base::Unretained(this)));
+  registry_.AddInterface<mojom::PublicIpAddressGeolocationProvider>(
+      base::Bind(&DeviceService::BindPublicIpAddressGeolocationProviderRequest,
+                 base::Unretained(this)),
+      io_task_runner_);
   registry_.AddInterface<mojom::ScreenOrientationListener>(
       base::Bind(&DeviceService::BindScreenOrientationListenerRequest,
                  base::Unretained(this)));
-  if (base::FeatureList::IsEnabled(features::kGenericSensor)) {
-    registry_.AddInterface<mojom::SensorProvider>(base::Bind(
-        &DeviceService::BindSensorProviderRequest, base::Unretained(this)));
-  }
+  registry_.AddInterface<mojom::SensorProvider>(base::Bind(
+      &DeviceService::BindSensorProviderRequest, base::Unretained(this)));
   registry_.AddInterface<mojom::TimeZoneMonitor>(base::Bind(
       &DeviceService::BindTimeZoneMonitorRequest, base::Unretained(this)));
   registry_.AddInterface<mojom::WakeLockProvider>(base::Bind(
       &DeviceService::BindWakeLockProviderRequest, base::Unretained(this)));
+  registry_.AddInterface<mojom::SerialDeviceEnumerator>(
+      base::Bind(&DeviceService::BindSerialDeviceEnumeratorRequest,
+                 base::Unretained(this)));
+  registry_.AddInterface<mojom::SerialIoHandler>(base::Bind(
+      &DeviceService::BindSerialIoHandlerRequest, base::Unretained(this)));
 
 #if defined(OS_ANDROID)
   registry_.AddInterface(GetJavaInterfaceProvider()
@@ -121,10 +158,22 @@ void DeviceService::OnStart() {
 #else
   registry_.AddInterface<mojom::BatteryMonitor>(base::Bind(
       &DeviceService::BindBatteryMonitorRequest, base::Unretained(this)));
+  registry_.AddInterface<mojom::HidManager>(base::Bind(
+      &DeviceService::BindHidManagerRequest, base::Unretained(this)));
   registry_.AddInterface<mojom::NFCProvider>(base::Bind(
       &DeviceService::BindNFCProviderRequest, base::Unretained(this)));
   registry_.AddInterface<mojom::VibrationManager>(base::Bind(
       &DeviceService::BindVibrationManagerRequest, base::Unretained(this)));
+#endif
+
+#if defined(OS_CHROMEOS)
+  registry_.AddInterface<mojom::MtpManager>(base::BindRepeating(
+      &DeviceService::BindMtpManagerRequest, base::Unretained(this)));
+#endif
+
+#if defined(OS_LINUX) && defined(USE_UDEV)
+  registry_.AddInterface<mojom::InputDeviceManager>(base::Bind(
+      &DeviceService::BindInputDeviceManagerRequest, base::Unretained(this)));
 #endif
 }
 
@@ -141,6 +190,12 @@ void DeviceService::BindBatteryMonitorRequest(
   BatteryMonitorImpl::Create(std::move(request));
 }
 
+void DeviceService::BindHidManagerRequest(mojom::HidManagerRequest request) {
+  if (!hid_manager_)
+    hid_manager_ = std::make_unique<HidManagerImpl>();
+  hid_manager_->AddBinding(std::move(request));
+}
+
 void DeviceService::BindNFCProviderRequest(mojom::NFCProviderRequest request) {
   LOG(ERROR) << "NFC is only supported on Android";
   NOTREACHED();
@@ -152,67 +207,65 @@ void DeviceService::BindVibrationManagerRequest(
 }
 #endif
 
+#if defined(OS_CHROMEOS)
+void DeviceService::BindMtpManagerRequest(mojom::MtpManagerRequest request) {
+  if (!mtp_device_manager_)
+    mtp_device_manager_ = MtpDeviceManager::Initialize();
+  mtp_device_manager_->AddBinding(std::move(request));
+}
+#endif
+
+#if defined(OS_LINUX) && defined(USE_UDEV)
+void DeviceService::BindInputDeviceManagerRequest(
+    mojom::InputDeviceManagerRequest request) {
+  file_task_runner_->PostTask(
+      FROM_HERE,
+      base::BindOnce(&InputServiceLinux::BindRequest, std::move(request)));
+}
+#endif
+
 void DeviceService::BindFingerprintRequest(mojom::FingerprintRequest request) {
   Fingerprint::Create(std::move(request));
 }
 
-void DeviceService::BindMotionSensorRequest(
-    mojom::MotionSensorRequest request) {
-#if defined(OS_ANDROID)
-  // On Android the device sensors implementations need to run on the UI thread
-  // to communicate to Java.
-  DeviceMotionHost::Create(std::move(request));
-#else
-  // On platforms other than Android the device sensors implementations run on
-  // the IO thread.
-  if (io_task_runner_) {
-    io_task_runner_->PostTask(FROM_HERE, base::Bind(&DeviceMotionHost::Create,
-                                                    base::Passed(&request)));
-  }
-#endif  // defined(OS_ANDROID)
+void DeviceService::BindGeolocationConfigRequest(
+    mojom::GeolocationConfigRequest request) {
+  GeolocationConfig::Create(std::move(request));
 }
 
-void DeviceService::BindOrientationSensorRequest(
-    mojom::OrientationSensorRequest request) {
-#if defined(OS_ANDROID)
-  // On Android the device sensors implementations need to run on the UI thread
-  // to communicate to Java.
-  DeviceOrientationHost::Create(std::move(request));
-#else
-  // On platforms other than Android the device sensors implementations run on
-  // the IO thread.
-  if (io_task_runner_) {
-    io_task_runner_->PostTask(
-        FROM_HERE,
-        base::Bind(&DeviceOrientationHost::Create, base::Passed(&request)));
-  }
-#endif  // defined(OS_ANDROID)
+void DeviceService::BindGeolocationContextRequest(
+    mojom::GeolocationContextRequest request) {
+  GeolocationContext::Create(std::move(request));
 }
 
-void DeviceService::BindOrientationAbsoluteSensorRequest(
-    mojom::OrientationAbsoluteSensorRequest request) {
-#if defined(OS_ANDROID)
-  // On Android the device sensors implementations need to run on the UI thread
-  // to communicate to Java.
-  DeviceOrientationAbsoluteHost::Create(std::move(request));
-#else
-  // On platforms other than Android the device sensors implementations run on
-  // the IO thread.
-  if (io_task_runner_) {
-    io_task_runner_->PostTask(FROM_HERE,
-                              base::Bind(&DeviceOrientationAbsoluteHost::Create,
-                                         base::Passed(&request)));
-  }
-#endif  // defined(OS_ANDROID)
+void DeviceService::BindGeolocationControlRequest(
+    mojom::GeolocationControlRequest request) {
+  GeolocationProviderImpl::GetInstance()->BindGeolocationControlRequest(
+      std::move(request));
 }
 
 void DeviceService::BindPowerMonitorRequest(
     mojom::PowerMonitorRequest request) {
   if (!power_monitor_message_broadcaster_) {
     power_monitor_message_broadcaster_ =
-        base::MakeUnique<PowerMonitorMessageBroadcaster>();
+        std::make_unique<PowerMonitorMessageBroadcaster>();
   }
   power_monitor_message_broadcaster_->Bind(std::move(request));
+}
+
+void DeviceService::BindPublicIpAddressGeolocationProviderRequest(
+    mojom::PublicIpAddressGeolocationProviderRequest request) {
+  // This needs to run on IO thread because it uses URLRequestContextGetters
+  // which must not outlive that thread.
+  DCHECK(io_task_runner_->RunsTasksInCurrentSequence());
+
+  if (!public_ip_address_geolocation_provider_) {
+    public_ip_address_geolocation_provider_ =
+        std::make_unique<PublicIpAddressGeolocationProvider>(
+            url_loader_factory_, geolocation_api_key_);
+  }
+
+  public_ip_address_geolocation_provider_->Bind(std::move(request));
 }
 
 void DeviceService::BindScreenOrientationListenerRequest(
@@ -246,6 +299,27 @@ void DeviceService::BindWakeLockProviderRequest(
     mojom::WakeLockProviderRequest request) {
   WakeLockProvider::Create(std::move(request), file_task_runner_,
                            wake_lock_context_callback_);
+}
+
+void DeviceService::BindSerialDeviceEnumeratorRequest(
+    mojom::SerialDeviceEnumeratorRequest request) {
+#if (defined(OS_LINUX) && defined(USE_UDEV)) || defined(OS_WIN) || \
+    defined(OS_MACOSX)
+  SerialDeviceEnumeratorImpl::Create(std::move(request));
+#endif
+}
+
+void DeviceService::BindSerialIoHandlerRequest(
+    mojom::SerialIoHandlerRequest request) {
+#if (defined(OS_LINUX) && defined(USE_UDEV)) || defined(OS_WIN) || \
+    defined(OS_MACOSX)
+  if (io_task_runner_) {
+    io_task_runner_->PostTask(
+        FROM_HERE,
+        base::Bind(&SerialIoHandlerImpl::Create, base::Passed(&request),
+                   base::ThreadTaskRunnerHandle::Get()));
+  }
+#endif
 }
 
 #if defined(OS_ANDROID)

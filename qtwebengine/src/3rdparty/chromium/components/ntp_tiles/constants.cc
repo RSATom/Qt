@@ -4,33 +4,49 @@
 
 #include "components/ntp_tiles/constants.h"
 
-#include "base/command_line.h"
 #include "base/feature_list.h"
-#include "components/ntp_tiles/switches.h"
+#include "build/build_config.h"
+#include "ui/base/ui_base_features.h"
 
 namespace ntp_tiles {
 
 const char kPopularSitesFieldTrialName[] = "NTPPopularSites";
 
-extern const base::Feature kPopularSitesBakedInContentFeature{
+const base::Feature kPopularSitesBakedInContentFeature{
     "NTPPopularSitesBakedInContent", base::FEATURE_ENABLED_BY_DEFAULT};
 
-extern const base::Feature kNtpMostLikelyFaviconsFromServerFeature{
-    "NTPMostLikelyFaviconsFromServer", base::FEATURE_DISABLED_BY_DEFAULT};
+const base::Feature kNtpMostLikelyFaviconsFromServerFeature{
+    "NTPMostLikelyFaviconsFromServer", base::FEATURE_ENABLED_BY_DEFAULT};
 
-bool AreNtpMostLikelyFaviconsFromServerEnabled() {
-  // Check if the experimental flag is forced on or off.
-  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
-  if (command_line->HasSwitch(
-          switches::kEnableNtpMostLikelyFaviconsFromServer)) {
-    return true;
-  } else if (command_line->HasSwitch(
-                 switches::kDisableNtpMostLikelyFaviconsFromServer)) {
-    return false;
-  }
+const base::Feature kSiteExplorationUiFeature{
+    "SiteExplorationUi", base::FEATURE_DISABLED_BY_DEFAULT};
 
-  // Check if the finch experiment is turned on.
-  return base::FeatureList::IsEnabled(kNtpMostLikelyFaviconsFromServerFeature);
+const base::Feature kUsePopularSitesSuggestions{
+    "UsePopularSitesSuggestions", base::FEATURE_ENABLED_BY_DEFAULT};
+
+const base::Feature kNtpIcons{"NewTabPageIcons",
+                              base::FEATURE_DISABLED_BY_DEFAULT};
+
+const base::Feature kNtpCustomLinks{"NewTabPageCustomLinks",
+                                    base::FEATURE_DISABLED_BY_DEFAULT};
+
+bool IsMDIconsEnabled() {
+#if !defined(OS_ANDROID) && !defined(OS_IOS)
+  return base::FeatureList::IsEnabled(kNtpIcons) ||
+         base::FeatureList::IsEnabled(kNtpCustomLinks) ||
+         base::FeatureList::IsEnabled(features::kExperimentalUi);
+#else
+  return false;
+#endif
+}
+
+bool IsCustomLinksEnabled() {
+#if !defined(OS_ANDROID) && !defined(OS_IOS)
+  return base::FeatureList::IsEnabled(kNtpCustomLinks) ||
+         base::FeatureList::IsEnabled(features::kExperimentalUi);
+#else
+  return false;
+#endif
 }
 
 }  // namespace ntp_tiles

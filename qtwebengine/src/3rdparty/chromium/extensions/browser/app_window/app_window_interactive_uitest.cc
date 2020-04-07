@@ -3,7 +3,7 @@
 // found in the LICENSE file.
 
 #include "build/build_config.h"
-#include "chrome/browser/apps/app_browsertest_util.h"
+#include "chrome/browser/apps/platform_apps/app_browsertest_util.h"
 #include "extensions/browser/app_window/native_app_window.h"
 
 namespace extensions {
@@ -133,8 +133,7 @@ IN_PROC_BROWSER_TEST_F(AppWindowTest, MAYBE_RuntimeFullscreenToAlwaysOnTop) {
   CloseAppWindow(window);
 }
 
-// Flaky on Windows (see http://crbug.com/581131).
-#if defined(OS_MACOSX) || defined(OS_WIN)
+#if defined(OS_MACOSX)
 #define MAYBE_InitFullscreenAndAlwaysOnTop DISABLED_InitFullscreenAndAlwaysOnTop
 #else
 #define MAYBE_InitFullscreenAndAlwaysOnTop InitFullscreenAndAlwaysOnTop

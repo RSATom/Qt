@@ -9,11 +9,15 @@
 namespace net {
 
 const base::Feature Socket::kReadIfReadyExperiment{
-    "SocketReadIfReady", base::FEATURE_DISABLED_BY_DEFAULT};
+    "SocketReadIfReady", base::FEATURE_ENABLED_BY_DEFAULT};
 
 int Socket::ReadIfReady(IOBuffer* buf,
                         int buf_len,
-                        const CompletionCallback& callback) {
+                        CompletionOnceCallback callback) {
+  return ERR_READ_IF_READY_NOT_IMPLEMENTED;
+}
+
+int Socket::CancelReadIfReady() {
   return ERR_READ_IF_READY_NOT_IMPLEMENTED;
 }
 

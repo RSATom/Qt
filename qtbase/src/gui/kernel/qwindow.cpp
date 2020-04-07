@@ -55,7 +55,9 @@
 #  include "qaccessible.h"
 #endif
 #include "qhighdpiscaling_p.h"
+#if QT_CONFIG(draganddrop)
 #include "qshapedpixmapdndwindow_p.h"
+#endif // QT_CONFIG(draganddrop)
 
 #include <private/qevent_p.h>
 
@@ -113,9 +115,10 @@ QT_BEGIN_NAMESPACE
     physical area of the screen. On windowing systems that have exposure
     notifications, the isExposed() accessor describes whether the window should
     be treated as directly visible on screen. The exposeEvent() function is
-    called whenever the windows exposure in the windowing system changes.  On
-    windowing systems that do not make this information visible to the
-    application, isExposed() will simply return the same value as isVisible().
+    called whenever an area of the window is invalidated, for example due to the
+    exposure in the windowing system changing. On windowing systems that do not
+    make this information visible to the application, isExposed() will simply
+    return the same value as isVisible().
 
     QWindow::Visibility queried through visibility() is a convenience API
     combining the functions of visible() and windowStates().
@@ -382,7 +385,11 @@ void QWindowPrivate::setVisible(bool visible)
             QGuiApplicationPrivate::hideModalWindow(q);
     // QShapedPixmapWindow is used on some platforms for showing a drag pixmap, so don't block
     // input to this window as it is performing a drag - QTBUG-63846
-    } else if (visible && QGuiApplication::modalWindow() && !qobject_cast<QShapedPixmapWindow *>(q)) {
+    } else if (visible && QGuiApplication::modalWindow()
+#if QT_CONFIG(draganddrop)
+               && !qobject_cast<QShapedPixmapWindow *>(q)
+#endif // QT_CONFIG(draganddrop)
+              ) {
         QGuiApplicationPrivate::updateBlockedStatus(q);
     }
 
@@ -539,6 +546,9 @@ void QWindowPrivate::create(bool recursive, WId nativeHandle)
 
     QPlatformSurfaceEvent e(QPlatformSurfaceEvent::SurfaceCreated);
     QGuiApplication::sendEvent(q, &e);
+
+    if (updateRequestPending)
+        platformWindow->requestUpdate();
 }
 
 void QWindowPrivate::clearFocusObject()
@@ -909,8 +919,7 @@ void QWindow::setFlag(Qt::WindowType flag, bool on)
 */
 Qt::WindowType QWindow::type() const
 {
-    Q_D(const QWindow);
-    return static_cast<Qt::WindowType>(int(d->windowFlags & Qt::WindowType_Mask));
+    return static_cast<Qt::WindowType>(int(flags() & Qt::WindowType_Mask));
 }
 
 /*!
@@ -1901,9 +1910,6 @@ void QWindowPrivate::destroy()
     resizeEventPending = true;
     receivedExpose = false;
     exposed = false;
-
-    if (wasVisible)
-        maybeQuitOnLastWindowClosed();
 }
 
 /*!
@@ -2144,15 +2150,13 @@ bool QWindow::close()
     if (!d->platformWindow)
         return true;
 
-    bool accepted = false;
-    QWindowSystemInterface::handleCloseEvent(this, &accepted);
-    QWindowSystemInterface::flushWindowSystemEvents();
-    return accepted;
+    return d->platformWindow->close();
 }
 
 /*!
-    The expose event (\a ev) is sent by the window system whenever the window's
-    exposure on screen changes.
+    The expose event (\a ev) is sent by the window system whenever an area of
+    the window is invalidated, for example due to the exposure in the windowing
+    system changing.
 
     The application can start rendering into the window with QBackingStore
     and QOpenGLContext as soon as it gets an exposeEvent() such that
@@ -2294,8 +2298,17 @@ bool QWindow::event(QEvent *ev)
 #endif
 
     case QEvent::Close:
-        if (ev->isAccepted())
+        if (ev->isAccepted()) {
+            Q_D(QWindow);
+            bool wasVisible = isVisible();
             destroy();
+            if (wasVisible) {
+                // FIXME: This check for visibility is a workaround for both QWidgetWindow
+                // and QWindow having logic to emit lastWindowClosed, and possibly quit the
+                // application. We should find a better way to handle this.
+                d->maybeQuitOnLastWindowClosed();
+            }
+        }
         break;
 
     case QEvent::Expose:
@@ -2329,18 +2342,6 @@ bool QWindow::event(QEvent *ev)
         break;
 #endif
 
-    case QEvent::Timer: {
-        Q_D(QWindow);
-        if (static_cast<QTimerEvent *>(ev)->timerId() == d->updateTimer) {
-            killTimer(d->updateTimer);
-            d->updateTimer = 0;
-            d->deliverUpdateRequest();
-        } else {
-            QObject::event(ev);
-        }
-        break;
-    }
-
     case QEvent::PlatformSurface: {
         if ((static_cast<QPlatformSurfaceEvent *>(ev))->surfaceEventType() == QPlatformSurfaceEvent::SurfaceAboutToBeDestroyed) {
 #ifndef QT_NO_OPENGL
@@ -2356,14 +2357,6 @@ bool QWindow::event(QEvent *ev)
         return QObject::event(ev);
     }
     return true;
-}
-
-void QWindowPrivate::deliverUpdateRequest()
-{
-    Q_Q(QWindow);
-    updateRequestPending = false;
-    QEvent request(QEvent::UpdateRequest);
-    QCoreApplication::sendEvent(q, &request);
 }
 
 /*!
@@ -2600,6 +2593,8 @@ void QWindowPrivate::maybeQuitOnLastWindowClosed()
         return;
 
     Q_Q(QWindow);
+    if (!q->isTopLevel())
+        return;
     // Attempt to close the application only if this has WA_QuitOnClose set and a non-visible parent
     bool quitOnClose = QGuiApplication::quitOnLastWindowClosed() && !q->parent();
     QWindowList list = QGuiApplication::topLevelWindows();
@@ -2620,14 +2615,14 @@ void QWindowPrivate::maybeQuitOnLastWindowClosed()
     }
 }
 
-QWindow *QWindowPrivate::topLevelWindow() const
+QWindow *QWindowPrivate::topLevelWindow(QWindow::AncestorMode mode) const
 {
     Q_Q(const QWindow);
 
     QWindow *window = const_cast<QWindow *>(q);
 
     while (window) {
-        QWindow *parent = window->parent(QWindow::IncludeTransients);
+        QWindow *parent = window->parent(mode);
         if (!parent)
             break;
 
@@ -2656,7 +2651,7 @@ QOpenGLContext *QWindowPrivate::shareContext() const
     native window, or to embed a native window inside a QWindow.
 
     If foreign windows are not supported or embedding the native window
-    failed in the platform plugin, this function returns 0.
+    failed in the platform plugin, this function returns \nullptr.
 
     \note The resulting QWindow should not be used to manipulate the underlying
     native window (besides re-parenting), or to observe state changes of the
@@ -2841,7 +2836,7 @@ QDebug operator<<(QDebug debug, const QWindow *window)
 }
 #endif // !QT_NO_DEBUG_STREAM
 
-#if QT_CONFIG(vulkan)
+#if QT_CONFIG(vulkan) || defined(Q_CLANG_QDOC)
 
 /*!
     Associates this window with the specified Vulkan \a instance.
@@ -2855,7 +2850,7 @@ void QWindow::setVulkanInstance(QVulkanInstance *instance)
 }
 
 /*!
-    \return the associrated Vulkan instance or \c null if there is none.
+    \return the associated Vulkan instance or \c null if there is none.
  */
 QVulkanInstance *QWindow::vulkanInstance() const
 {

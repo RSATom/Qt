@@ -84,7 +84,7 @@ CBC_OnedCode128Writer::CBC_OnedCode128Writer(BC_TYPE type)
 CBC_OnedCode128Writer::~CBC_OnedCode128Writer() {}
 
 bool CBC_OnedCode128Writer::CheckContentValidity(
-    const CFX_WideStringC& contents) {
+    const WideStringView& contents) {
   for (const auto& ch : contents) {
     int32_t patternIndex = static_cast<int32_t>(ch);
     if (patternIndex < 32 || patternIndex > 126 || patternIndex == 34)
@@ -93,24 +93,22 @@ bool CBC_OnedCode128Writer::CheckContentValidity(
   return true;
 }
 
-CFX_WideString CBC_OnedCode128Writer::FilterContents(
-    const CFX_WideStringC& contents) {
-  CFX_WideString filterChineseChar;
-  for (int32_t i = 0; i < contents.GetLength(); i++) {
+WideString CBC_OnedCode128Writer::FilterContents(
+    const WideStringView& contents) {
+  const wchar_t limit = m_codeFormat == BC_CODE128_B ? 126 : 106;
+
+  WideString filtered;
+  filtered.Reserve(contents.GetLength());
+  for (size_t i = 0; i < contents.GetLength(); i++) {
     wchar_t ch = contents[i];
     if (ch > 175) {
       i++;
       continue;
     }
-    filterChineseChar += ch;
-  }
-  const wchar_t limit = m_codeFormat == BC_CODE128_B ? 126 : 106;
-  CFX_WideString filtercontents;
-  for (const auto& ch : filterChineseChar) {
     if (ch >= 32 && ch <= limit)
-      filtercontents += ch;
+      filtered += ch;
   }
-  return filtercontents;
+  return filtered;
 }
 
 bool CBC_OnedCode128Writer::SetTextLocation(BC_TEXT_LOC location) {
@@ -121,7 +119,7 @@ bool CBC_OnedCode128Writer::SetTextLocation(BC_TEXT_LOC location) {
   return true;
 }
 
-uint8_t* CBC_OnedCode128Writer::EncodeWithHint(const CFX_ByteString& contents,
+uint8_t* CBC_OnedCode128Writer::EncodeWithHint(const ByteString& contents,
                                                BCFORMAT format,
                                                int32_t& outWidth,
                                                int32_t& outHeight,
@@ -132,7 +130,7 @@ uint8_t* CBC_OnedCode128Writer::EncodeWithHint(const CFX_ByteString& contents,
                                           hints);
 }
 
-uint8_t* CBC_OnedCode128Writer::EncodeImpl(const CFX_ByteString& contents,
+uint8_t* CBC_OnedCode128Writer::EncodeImpl(const ByteString& contents,
                                            int32_t& outLength) {
   if (contents.GetLength() < 1 || contents.GetLength() > 80)
     return nullptr;
@@ -168,14 +166,13 @@ uint8_t* CBC_OnedCode128Writer::EncodeImpl(const CFX_ByteString& contents,
 }
 
 // static
-int32_t CBC_OnedCode128Writer::Encode128B(const CFX_ByteString& contents,
+int32_t CBC_OnedCode128Writer::Encode128B(const ByteString& contents,
                                           std::vector<int32_t>* patterns) {
   int32_t checkWeight = 1;
   patterns->push_back(CODE_START_B);
   int32_t checkSum = CODE_START_B * checkWeight;
-  int32_t position = 0;
-  while (position < contents.GetLength()) {
-    int32_t patternIndex = contents[position++] - ' ';
+  for (size_t position = 0; position < contents.GetLength(); position++) {
+    int32_t patternIndex = contents[position] - ' ';
     patterns->push_back(patternIndex);
     checkSum += patternIndex * checkWeight++;
   }
@@ -183,19 +180,21 @@ int32_t CBC_OnedCode128Writer::Encode128B(const CFX_ByteString& contents,
 }
 
 // static
-int32_t CBC_OnedCode128Writer::Encode128C(const CFX_ByteString& contents,
+int32_t CBC_OnedCode128Writer::Encode128C(const ByteString& contents,
                                           std::vector<int32_t>* patterns) {
   int32_t checkWeight = 1;
   patterns->push_back(CODE_START_C);
   int32_t checkSum = CODE_START_C * checkWeight;
-  int32_t position = 0;
+  size_t position = 0;
   while (position < contents.GetLength()) {
     int32_t patternIndex;
     char ch = contents[position];
     if (std::isdigit(ch)) {
-      patternIndex = FXSYS_atoi(contents.Mid(position, 2).c_str());
+      patternIndex = FXSYS_atoi(
+          contents.Mid(position, contents.IsValidIndex(position + 1) ? 2 : 1)
+              .c_str());
       ++position;
-      if (std::isdigit(contents[position]))
+      if (position < contents.GetLength() && std::isdigit(contents[position]))
         ++position;
     } else {
       patternIndex = static_cast<int32_t>(ch);

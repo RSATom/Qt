@@ -54,7 +54,7 @@
 #include <QtCore/private/qglobal_p.h>
 #include "qmimetype.h"
 
-#ifndef QT_NO_MIMETYPE
+QT_REQUIRE_CONFIG(mimetype);
 
 #include <QtCore/qhash.h>
 #include <QtCore/qstringlist.h>
@@ -74,6 +74,7 @@ public:
     void addGlobPattern(const QString &pattern);
 
     bool loaded; // QSharedData leaves a 4 byte gap, so don't put 8 byte members first
+    bool fromCache; // true if this comes from the binary provider
     QString name;
     LocaleHash localeComments;
     QString genericIconName;
@@ -94,6 +95,7 @@ QT_END_NAMESPACE
     { \
         QMimeTypePrivate qMimeTypeData; \
         qMimeTypeData.name = name; \
+        qMimeTypeData.loaded = true; \
         qMimeTypeData.genericIconName = genericIconName; \
         qMimeTypeData.iconName = iconName; \
         qMimeTypeData.globPatterns = globPatterns; \
@@ -112,6 +114,7 @@ QT_END_NAMESPACE
                      ) \
     { \
         QMimeTypePrivate qMimeTypeData; \
+        qMimeTypeData.loaded = true; \
         qMimeTypeData.name = std::move(name); \
         qMimeTypeData.genericIconName = std::move(genericIconName); \
         qMimeTypeData.iconName = std::move(iconName); \
@@ -121,5 +124,4 @@ QT_END_NAMESPACE
     QT_END_NAMESPACE
 #endif
 
-#endif // QT_NO_MIMETYPE
 #endif   // QMIMETYPE_P_H

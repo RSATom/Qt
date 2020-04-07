@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 #include "content/browser/tracing/background_tracing_rule.h"
 
+#include <limits>
 #include <string>
 
 #include "base/bind.h"
@@ -25,6 +26,7 @@ const char kConfigRuleTriggerDelay[] = "trigger_delay";
 const char kConfigRuleTriggerChance[] = "trigger_chance";
 const char kConfigRuleStopTracingOnRepeatedReactive[] =
     "stop_tracing_on_repeated_reactive";
+const char kConfigRuleArgsKey[] = "args";
 
 const char kConfigRuleHistogramNameKey[] = "histogram_name";
 const char kConfigRuleHistogramValueOldKey[] = "histogram_value";
@@ -152,7 +154,8 @@ class HistogramRule
       : histogram_name_(histogram_name),
         histogram_lower_value_(histogram_lower_value),
         histogram_upper_value_(histogram_upper_value),
-        repeat_(repeat) {}
+        repeat_(repeat),
+        installed_(false) {}
 
  public:
   static std::unique_ptr<BackgroundTracingRule> Create(
@@ -181,14 +184,21 @@ class HistogramRule
     if (histogram_lower_value >= histogram_upper_value)
       return nullptr;
 
-    return std::unique_ptr<BackgroundTracingRule>(new HistogramRule(
+    std::unique_ptr<BackgroundTracingRule> rule(new HistogramRule(
         histogram_name, histogram_lower_value, histogram_upper_value, repeat));
+
+    const base::DictionaryValue* args_dict = nullptr;
+    if (dict->GetDictionary(kConfigRuleArgsKey, &args_dict))
+      rule->SetArgs(*args_dict);
+    return rule;
   }
 
   ~HistogramRule() override {
     base::StatisticsRecorder::ClearCallback(histogram_name_);
-    BackgroundTracingManagerImpl::GetInstance()
-        ->RemoveTraceMessageFilterObserver(this);
+    if (installed_) {
+      BackgroundTracingManagerImpl::GetInstance()
+          ->RemoveTraceMessageFilterObserver(this);
+    }
   }
 
   // BackgroundTracingRule implementation
@@ -201,6 +211,7 @@ class HistogramRule
 
     BackgroundTracingManagerImpl::GetInstance()->AddTraceMessageFilterObserver(
         this);
+    installed_ = true;
   }
 
   void IntoDict(base::DictionaryValue* dict) const override {
@@ -219,7 +230,7 @@ class HistogramRule
 
     content::BrowserThread::PostTask(
         content::BrowserThread::UI, FROM_HERE,
-        base::Bind(
+        base::BindOnce(
             &BackgroundTracingManagerImpl::OnRuleTriggered,
             base::Unretained(BackgroundTracingManagerImpl::GetInstance()), this,
             BackgroundTracingManager::StartedFinalizingCallback()));
@@ -228,7 +239,7 @@ class HistogramRule
   void AbortTracing() {
     content::BrowserThread::PostTask(
         content::BrowserThread::UI, FROM_HERE,
-        base::Bind(
+        base::BindOnce(
             &BackgroundTracingManagerImpl::AbortScenario,
             base::Unretained(BackgroundTracingManagerImpl::GetInstance())));
   }
@@ -268,6 +279,7 @@ class HistogramRule
   int histogram_lower_value_;
   int histogram_upper_value_;
   bool repeat_;
+  bool installed_;
 };
 
 class TraceForNSOrTriggerOrFullRule : public BackgroundTracingRule {

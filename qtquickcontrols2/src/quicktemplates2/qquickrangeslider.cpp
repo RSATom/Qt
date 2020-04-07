@@ -50,6 +50,7 @@ QT_BEGIN_NAMESPACE
     \inqmlmodule QtQuick.Controls
     \since 5.7
     \ingroup qtquickcontrols2-input
+    \ingroup qtquickcontrols2-focusscopes
     \brief Used to select a range of values by sliding two handles along a track.
 
     \image qtquickcontrols2-rangeslider.gif
@@ -73,7 +74,7 @@ QT_BEGIN_NAMESPACE
     use the following syntax:
 
     \code
-    first.onValueChanged: console.log("first.value changed to " + first.value)
+    first.onMoved: console.log("first.value changed to " + first.value)
     \endcode
 
     The \l {first.position} and \l {second.position} properties are expressed as
@@ -85,7 +86,10 @@ QT_BEGIN_NAMESPACE
     RangeSlider. In the example above, \l {first.visualPosition} will be \c 0.24
     in a left-to-right application, and \c 0.76 in a right-to-left application.
 
-    \sa {Customizing RangeSlider}, {Input Controls}
+    For a slider that allows the user to select a single value, see \l Slider.
+
+    \sa {Customizing RangeSlider}, {Input Controls},
+        {Focus Management in Qt Quick Controls 2}
 */
 
 class QQuickRangeSliderNodePrivate : public QObjectPrivate
@@ -94,14 +98,7 @@ class QQuickRangeSliderNodePrivate : public QObjectPrivate
 public:
     QQuickRangeSliderNodePrivate(qreal value, QQuickRangeSlider *slider)
         : value(value),
-          isPendingValue(false),
-          pendingValue(0),
-          position(0),
-          handle(nullptr),
-          slider(slider),
-          pressed(false),
-          hovered(false),
-          touchId(-1)
+          slider(slider)
     {
     }
 
@@ -115,15 +112,15 @@ public:
 
     static QQuickRangeSliderNodePrivate *get(QQuickRangeSliderNode *node);
 
-    qreal value;
-    bool isPendingValue;
-    qreal pendingValue;
-    qreal position;
+    qreal value = 0;
+    bool isPendingValue = false;
+    qreal pendingValue = 0;
+    qreal position = 0;
     QQuickDeferredPointer<QQuickItem> handle;
-    QQuickRangeSlider *slider;
-    bool pressed;
-    bool hovered;
-    int touchId;
+    QQuickRangeSlider *slider = nullptr;
+    bool pressed = false;
+    bool hovered = false;
+    int touchId = -1;
 };
 
 bool QQuickRangeSliderNodePrivate::isFirst() const
@@ -266,8 +263,13 @@ void QQuickRangeSliderNode::setHandle(QQuickItem *handle)
     if (!d->handle.isExecuting())
         d->cancelHandle();
 
+    const qreal oldImplicitHandleWidth = implicitHandleWidth();
+    const qreal oldImplicitHandleHeight = implicitHandleHeight();
+
+    QQuickControlPrivate::get(d->slider)->removeImplicitSizeListener(d->handle);
     delete d->handle;
     d->handle = handle;
+
     if (handle) {
         if (!handle->parentItem())
             handle->setParentItem(d->slider);
@@ -291,7 +293,13 @@ void QQuickRangeSliderNode::setHandle(QQuickItem *handle)
         }
 
         handle->setActiveFocusOnTab(true);
+        QQuickControlPrivate::get(d->slider)->addImplicitSizeListener(handle);
     }
+
+    if (!qFuzzyCompare(oldImplicitHandleWidth, implicitHandleWidth()))
+        emit implicitHandleWidthChanged();
+    if (!qFuzzyCompare(oldImplicitHandleHeight, implicitHandleHeight()))
+        emit implicitHandleHeightChanged();
     if (!d->handle.isExecuting())
         emit handleChanged();
 }
@@ -329,6 +337,22 @@ void QQuickRangeSliderNode::setHovered(bool hovered)
     emit hoveredChanged();
 }
 
+qreal QQuickRangeSliderNode::implicitHandleWidth() const
+{
+    Q_D(const QQuickRangeSliderNode);
+    if (!d->handle)
+        return 0;
+    return d->handle->implicitWidth();
+}
+
+qreal QQuickRangeSliderNode::implicitHandleHeight() const
+{
+    Q_D(const QQuickRangeSliderNode);
+    if (!d->handle)
+        return 0;
+    return d->handle->implicitHeight();
+}
+
 void QQuickRangeSliderNode::increase()
 {
     Q_D(QQuickRangeSliderNode);
@@ -351,18 +375,6 @@ class QQuickRangeSliderPrivate : public QQuickControlPrivate
     Q_DECLARE_PUBLIC(QQuickRangeSlider)
 
 public:
-    QQuickRangeSliderPrivate()
-        : live(true),
-          from(defaultFrom),
-          to(defaultTo),
-          stepSize(0),
-          first(nullptr),
-          second(nullptr),
-          orientation(Qt::Horizontal),
-          snapMode(QQuickRangeSlider::NoSnap)
-    {
-    }
-
     QQuickRangeSliderNode *pressedNode(int touchId = -1) const;
 
 #if QT_CONFIG(quicktemplates2_multitouch)
@@ -375,15 +387,19 @@ public:
 
     void updateHover(const QPointF &pos);
 
-    bool live;
-    qreal from;
-    qreal to;
-    qreal stepSize;
-    QQuickRangeSliderNode *first;
-    QQuickRangeSliderNode *second;
+    void itemImplicitWidthChanged(QQuickItem *item) override;
+    void itemImplicitHeightChanged(QQuickItem *item) override;
+
+    bool live = true;
+    qreal from = defaultFrom;
+    qreal to = defaultTo;
+    qreal stepSize = 0;
+    qreal touchDragThreshold = -1;
+    QQuickRangeSliderNode *first = nullptr;
+    QQuickRangeSliderNode *second = nullptr;
     QPointF pressPoint;
-    Qt::Orientation orientation;
-    QQuickRangeSlider::SnapMode snapMode;
+    Qt::Orientation orientation = Qt::Horizontal;
+    QQuickRangeSlider::SnapMode snapMode = QQuickRangeSlider::NoSnap;
 };
 
 static qreal valueAt(const QQuickRangeSlider *slider, qreal position)
@@ -518,6 +534,7 @@ void QQuickRangeSliderPrivate::handleMove(const QPointF &point)
     QQuickControlPrivate::handleMove(point);
     QQuickRangeSliderNode *pressedNode = QQuickRangeSliderPrivate::pressedNode(touchId);
     if (pressedNode) {
+        const qreal oldPos = pressedNode->position();
         qreal pos = positionAt(q, pressedNode->handle(), point);
         if (snapMode == QQuickRangeSlider::SnapAlways)
             pos = snapPosition(q, pos);
@@ -525,6 +542,9 @@ void QQuickRangeSliderPrivate::handleMove(const QPointF &point)
             pressedNode->setValue(valueAt(q, pos));
         else
             QQuickRangeSliderNodePrivate::get(pressedNode)->setPosition(pos);
+
+        if (!qFuzzyCompare(pressedNode->position(), oldPos))
+            emit pressedNode->moved();
     }
 }
 
@@ -540,6 +560,7 @@ void QQuickRangeSliderPrivate::handleRelease(const QPointF &point)
     QQuickRangeSliderNodePrivate *pressedNodePrivate = QQuickRangeSliderNodePrivate::get(pressedNode);
 
     if (q->keepMouseGrab() || q->keepTouchGrab()) {
+        const qreal oldPos = pressedNode->position();
         qreal pos = positionAt(q, pressedNode->handle(), point);
         if (snapMode != QQuickRangeSlider::NoSnap)
             pos = snapPosition(q, pos);
@@ -550,6 +571,9 @@ void QQuickRangeSliderPrivate::handleRelease(const QPointF &point)
             pressedNodePrivate->setPosition(pos);
         q->setKeepMouseGrab(false);
         q->setKeepTouchGrab(false);
+
+        if (!qFuzzyCompare(pressedNode->position(), oldPos))
+            emit pressedNode->moved();
     }
     pressedNode->setPressed(false);
     pressedNodePrivate->touchId = -1;
@@ -574,6 +598,24 @@ void QQuickRangeSliderPrivate::updateHover(const QPointF &pos)
     second->setHovered(secondHandle && secondHandle->isEnabled() && secondHandle->contains(q->mapToItem(secondHandle, pos)));
 }
 
+void QQuickRangeSliderPrivate::itemImplicitWidthChanged(QQuickItem *item)
+{
+    QQuickControlPrivate::itemImplicitWidthChanged(item);
+    if (item == first->handle())
+        emit first->implicitHandleWidthChanged();
+    else if (item == second->handle())
+        emit second->implicitHandleWidthChanged();
+}
+
+void QQuickRangeSliderPrivate::itemImplicitHeightChanged(QQuickItem *item)
+{
+    QQuickControlPrivate::itemImplicitHeightChanged(item);
+    if (item == first->handle())
+        emit first->implicitHandleHeightChanged();
+    else if (item == second->handle())
+        emit second->implicitHandleHeightChanged();
+}
+
 QQuickRangeSlider::QQuickRangeSlider(QQuickItem *parent)
     : QQuickControl(*(new QQuickRangeSliderPrivate), parent)
 {
@@ -586,6 +628,13 @@ QQuickRangeSlider::QQuickRangeSlider(QQuickItem *parent)
 #if QT_CONFIG(cursor)
     setCursor(Qt::ArrowCursor);
 #endif
+}
+
+QQuickRangeSlider::~QQuickRangeSlider()
+{
+    Q_D(QQuickRangeSlider);
+    d->removeImplicitSizeListener(d->first->handle());
+    d->removeImplicitSizeListener(d->second->handle());
 }
 
 /*!
@@ -645,6 +694,55 @@ void QQuickRangeSlider::setTo(qreal to)
 }
 
 /*!
+    \since QtQuick.Controls 2.5 (Qt 5.12)
+    \qmlproperty qreal QtQuick.Controls::RangeSlider::touchDragThreshold
+
+    This property holds the threshold (in logical pixels) at which a touch drag event will be initiated.
+    The mouse drag threshold won't be affected.
+    The default value is \c Qt.styleHints.startDragDistance.
+
+    \sa QStyleHints
+
+*/
+qreal QQuickRangeSlider::touchDragThreshold() const
+{
+    Q_D(const QQuickRangeSlider);
+    return d->touchDragThreshold;
+}
+
+void QQuickRangeSlider::setTouchDragThreshold(qreal touchDragThreshold)
+{
+    Q_D(QQuickRangeSlider);
+    if (d->touchDragThreshold == touchDragThreshold)
+        return;
+
+    d->touchDragThreshold = touchDragThreshold;
+    emit touchDragThresholdChanged();
+}
+
+void QQuickRangeSlider::resetTouchDragThreshold()
+{
+    setTouchDragThreshold(-1);
+}
+
+/*!
+    \since QtQuick.Controls 2.5 (Qt 5.12)
+    \qmlmethod real QtQuick.Controls::RangeSlider::valueAt(real position)
+
+    Returns the value for the given \a position.
+
+    \sa first.value, second.value, first.position, second.position, live
+*/
+qreal QQuickRangeSlider::valueAt(qreal position) const
+{
+    Q_D(const QQuickRangeSlider);
+    const qreal value = (d->to - d->from) * position;
+    if (qFuzzyIsNull(d->stepSize))
+        return d->from + value;
+    return d->from + qRound(value / d->stepSize) * d->stepSize;
+}
+
+/*!
     \qmlpropertygroup QtQuick.Controls::RangeSlider::first
     \qmlproperty real QtQuick.Controls::RangeSlider::first.value
     \qmlproperty real QtQuick.Controls::RangeSlider::first.position
@@ -652,6 +750,9 @@ void QQuickRangeSlider::setTo(qreal to)
     \qmlproperty Item QtQuick.Controls::RangeSlider::first.handle
     \qmlproperty bool QtQuick.Controls::RangeSlider::first.pressed
     \qmlproperty bool QtQuick.Controls::RangeSlider::first.hovered
+    \qmlproperty real QtQuick.Controls::RangeSlider::first.implicitHandleWidth
+    \qmlproperty real QtQuick.Controls::RangeSlider::first.implicitHandleHeight
+    \qmlsignal void QtQuick.Controls::RangeSlider::moved()
 
     \table
     \header
@@ -686,11 +787,26 @@ void QQuickRangeSlider::setTo(qreal to)
             \l {first.visualPosition}{visualPosition} should be used instead.
     \row
         \li pressed
-        \li This property holds whether the first handle is pressed.
+        \li This property holds whether the first handle is pressed by either touch,
+            mouse, or keys.
     \row
         \li hovered
         \li This property holds whether the first handle is hovered.
             This property was introduced in QtQuick.Controls 2.1.
+    \row
+        \li implicitHandleWidth
+        \li This property holds the implicit width of the first handle.
+            This property was introduced in QtQuick.Controls 2.5.
+    \row
+        \li implicitHandleHeight
+        \li This property holds the implicit height of the first handle.
+            This property was introduced in QtQuick.Controls 2.5.
+    \row
+        \li moved()
+        \li This signal is emitted when the first handle has been interactively moved
+            by the user by either touch, mouse, or keys.
+
+            This signal was introduced in QtQuick.Controls 2.5.
     \endtable
 
     \sa first.increase(), first.decrease()
@@ -709,6 +825,9 @@ QQuickRangeSliderNode *QQuickRangeSlider::first() const
     \qmlproperty Item QtQuick.Controls::RangeSlider::second.handle
     \qmlproperty bool QtQuick.Controls::RangeSlider::second.pressed
     \qmlproperty bool QtQuick.Controls::RangeSlider::second.hovered
+    \qmlproperty real QtQuick.Controls::RangeSlider::second.implicitHandleWidth
+    \qmlproperty real QtQuick.Controls::RangeSlider::second.implicitHandleHeight
+    \qmlsignal void QtQuick.Controls::RangeSlider::moved()
 
     \table
     \header
@@ -743,11 +862,26 @@ QQuickRangeSliderNode *QQuickRangeSlider::first() const
             \l {second.visualPosition}{visualPosition} should be used instead.
     \row
         \li pressed
-        \li This property holds whether the second handle is pressed.
+        \li This property holds whether the second handle is pressed by either touch,
+            mouse, or keys.
     \row
         \li hovered
         \li This property holds whether the second handle is hovered.
             This property was introduced in QtQuick.Controls 2.1.
+    \row
+        \li implicitHandleWidth
+        \li This property holds the implicit width of the second handle.
+            This property was introduced in QtQuick.Controls 2.5.
+    \row
+        \li implicitHandleHeight
+        \li This property holds the implicit height of the second handle.
+            This property was introduced in QtQuick.Controls 2.5.
+    \row
+        \li moved()
+        \li This signal is emitted when the second handle has been interactively moved
+            by the user by either touch, mouse, or keys.
+
+            This signal was introduced in QtQuick.Controls 2.5.
     \endtable
 
     \sa second.increase(), second.decrease()
@@ -785,6 +919,9 @@ void QQuickRangeSlider::setStepSize(qreal step)
     \qmlproperty enumeration QtQuick.Controls::RangeSlider::snapMode
 
     This property holds the snap mode.
+
+    The snap mode determines how the slider handles behave with
+    regards to the \l stepSize.
 
     Possible values:
     \value RangeSlider.NoSnap The slider does not snap (default).
@@ -981,6 +1118,7 @@ void QQuickRangeSlider::keyPressEvent(QKeyEvent *event)
     if (!focusNode)
         return;
 
+    const qreal oldValue = focusNode->value();
     if (d->orientation == Qt::Horizontal) {
         if (event->key() == Qt::Key_Left) {
             focusNode->setPressed(true);
@@ -1008,6 +1146,8 @@ void QQuickRangeSlider::keyPressEvent(QKeyEvent *event)
             event->accept();
         }
     }
+    if (!qFuzzyCompare(focusNode->value(), oldValue))
+        emit focusNode->moved();
 }
 
 void QQuickRangeSlider::hoverEnterEvent(QHoverEvent *event)
@@ -1045,18 +1185,7 @@ void QQuickRangeSlider::mousePressEvent(QMouseEvent *event)
     Q_D(QQuickRangeSlider);
     QQuickControl::mousePressEvent(event);
     d->handleMove(event->localPos());
-}
-
-void QQuickRangeSlider::mouseMoveEvent(QMouseEvent *event)
-{
-    Q_D(QQuickRangeSlider);
-    if (!keepMouseGrab()) {
-        if (d->orientation == Qt::Horizontal)
-            setKeepMouseGrab(QQuickWindowPrivate::dragOverThreshold(event->localPos().x() - d->pressPoint.x(), Qt::XAxis, event));
-        else
-            setKeepMouseGrab(QQuickWindowPrivate::dragOverThreshold(event->localPos().y() - d->pressPoint.y(), Qt::YAxis, event));
-    }
-    QQuickControl::mouseMoveEvent(event);
+    setKeepMouseGrab(true);
 }
 
 #if QT_CONFIG(quicktemplates2_multitouch)
@@ -1076,9 +1205,9 @@ void QQuickRangeSlider::touchEvent(QTouchEvent *event)
             case Qt::TouchPointMoved:
                 if (!keepTouchGrab()) {
                     if (d->orientation == Qt::Horizontal)
-                        setKeepTouchGrab(QQuickWindowPrivate::dragOverThreshold(point.pos().x() - point.startPos().x(), Qt::XAxis, &point));
+                        setKeepTouchGrab(QQuickWindowPrivate::dragOverThreshold(point.pos().x() - point.startPos().x(), Qt::XAxis, &point, qRound(d->touchDragThreshold)));
                     else
-                        setKeepTouchGrab(QQuickWindowPrivate::dragOverThreshold(point.pos().y() - point.startPos().y(), Qt::YAxis, &point));
+                        setKeepTouchGrab(QQuickWindowPrivate::dragOverThreshold(point.pos().y() - point.startPos().y(), Qt::YAxis, &point, qRound(d->touchDragThreshold)));
                 }
                 if (keepTouchGrab())
                     d->handleMove(point.pos());

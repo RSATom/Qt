@@ -1,10 +1,12 @@
 . "$PSScriptRoot\helpers.ps1"
 
-$zip = "c:\users\qt\downloads\winrtrunner.zip"
+$zip = Get-DownloadLocation "winrtrunner.zip"
+$url = "http://download.qt.io/development_releases/prebuilt/winrtrunner/winrtrunner_2018-07-06.zip"
+$url_cache = "\\ci-files01-hki.intra.qt.io\provisioning\windows\winrtrunner\winrtrunner_2018-07-06.zip"
 
-Invoke-WebRequest -UseBasicParsing http://download.qt.io/development_releases/prebuilt/winrtrunner/winrtrunner.zip -OutFile $zip
-Verify-Checksum $zip "C19098A4C9DBD20EDEB4E5E0D3E6A5BBBCA73C42"
-Extract-Zip $zip C:\Utils\winrtrunner
-Remove-Item $zip
+Download $url $url_cache $zip
+Verify-Checksum $zip "93548e8c3fb8fded2474996ef5e0163f489ce8cf"
+Extract-7Zip $zip C:\Utils\winrtrunner
+Remove-Item -Path $zip
 
-[Environment]::SetEnvironmentVariable("CI_WINRTRUNNER_PATH", "C:\Utils\winrtrunner", "Machine")
+Set-EnvironmentVariable "CI_WINRTRUNNER_PATH" "C:\Utils\winrtrunner"

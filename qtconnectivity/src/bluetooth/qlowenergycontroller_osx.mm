@@ -72,6 +72,8 @@ static void registerQLowEnergyControllerMetaType()
         qRegisterMetaType<QLowEnergyController::Error>();
         qRegisterMetaType<QLowEnergyHandle>("QLowEnergyHandle");
         qRegisterMetaType<QSharedPointer<QLowEnergyServicePrivate> >();
+        qRegisterMetaType<QLowEnergyCharacteristic>();
+        qRegisterMetaType<QLowEnergyDescriptor>();
         initDone = true;
     }
 }
@@ -232,7 +234,7 @@ void QLowEnergyControllerPrivateOSX::_q_serviceDiscoveryFinished()
 
     QT_BT_MAC_AUTORELEASEPOOL;
 
-    NSArray *const services = centralManager.data()->peripheral.services;
+    NSArray *const services = [centralManager.data() peripheral].services;
     // Now we have to traverse the discovered services tree.
     // Essentially it's an iterative version of more complicated code from the
     // OSXBTCentralManager's code.
@@ -878,7 +880,9 @@ quint16 QLowEnergyControllerPrivateOSX::updateValueOfDescriptor(QLowEnergyHandle
 
 QSharedPointer<QLowEnergyServicePrivate> QLowEnergyControllerPrivateOSX::serviceForHandle(QLowEnergyHandle handle)
 {
-    foreach (QSharedPointer<QLowEnergyServicePrivate> service, discoveredServices.values()) {
+    const QList<QSharedPointer<QLowEnergyServicePrivate>> services
+            = discoveredServices.values();
+    for (QSharedPointer<QLowEnergyServicePrivate> service : services) {
         if (service->startHandle <= handle && handle <= service->endHandle)
             return service;
     }
@@ -961,8 +965,10 @@ void QLowEnergyControllerPrivateOSX::setErrorDescription(QLowEnergyController::E
 
 void QLowEnergyControllerPrivateOSX::invalidateServices()
 {
-    foreach (const QSharedPointer<QLowEnergyServicePrivate> service, discoveredServices.values()) {
-        service->setController(Q_NULLPTR);
+    const QList<QSharedPointer<QLowEnergyServicePrivate>> services
+            = discoveredServices.values();
+    for (const QSharedPointer<QLowEnergyServicePrivate> service : services) {
+        service->setController(nullptr);
         service->setState(QLowEnergyService::InvalidService);
     }
 
@@ -1228,7 +1234,7 @@ QLowEnergyService *QLowEnergyController::createServiceObject(const QBluetoothUui
 {
     OSX_D_PTR;
 
-    QLowEnergyService *service = Q_NULLPTR;
+    QLowEnergyService *service = nullptr;
 
     QLowEnergyControllerPrivateOSX::ServiceMap::const_iterator it = osx_d_ptr->discoveredServices.constFind(serviceUuid);
     if (it != osx_d_ptr->discoveredServices.constEnd()) {
@@ -1366,6 +1372,7 @@ QLowEnergyService *QLowEnergyController::addService(const QLowEnergyServiceData 
 
     if (const auto servicePrivate = [osx_d_ptr->peripheralManager addService:data]) {
         servicePrivate->setController(osx_d_ptr);
+        servicePrivate->state = QLowEnergyService::LocalService;
         osx_d_ptr->discoveredServices.insert(servicePrivate->uuid, servicePrivate);
         return new QLowEnergyService(servicePrivate, parent);
     }

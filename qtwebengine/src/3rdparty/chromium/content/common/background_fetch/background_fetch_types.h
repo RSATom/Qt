@@ -11,25 +11,9 @@
 
 #include "content/common/content_export.h"
 #include "content/common/service_worker/service_worker_types.h"
+#include "third_party/blink/public/common/manifest/manifest.h"
 
 namespace content {
-
-// Represents the definition of an icon developers can optionally provide with a
-// Background Fetch fetch. Analogous to the following structure in the spec:
-// https://wicg.github.io/background-fetch/#background-fetch-manager
-//
-// Parsing of the icon definitions as well as fetching an appropriate icon will
-// be done by Blink in the renderer process. The browser process is expected to
-// treat these values as opaque strings.
-struct CONTENT_EXPORT IconDefinition {
-  IconDefinition();
-  IconDefinition(const IconDefinition& other);
-  ~IconDefinition();
-
-  std::string src;
-  std::string sizes;
-  std::string type;
-};
 
 // Represents the optional options a developer can provide when starting a new
 // Background Fetch fetch. Analogous to the following structure in the spec:
@@ -39,9 +23,9 @@ struct CONTENT_EXPORT BackgroundFetchOptions {
   BackgroundFetchOptions(const BackgroundFetchOptions& other);
   ~BackgroundFetchOptions();
 
-  std::vector<IconDefinition> icons;
+  std::vector<blink::Manifest::ImageResource> icons;
   std::string title;
-  int64_t total_download_size = 0;
+  uint64_t download_total = 0;
 };
 
 // Represents the information associated with a Background Fetch registration.
@@ -52,12 +36,19 @@ struct CONTENT_EXPORT BackgroundFetchRegistration {
   BackgroundFetchRegistration(const BackgroundFetchRegistration& other);
   ~BackgroundFetchRegistration();
 
-  std::string tag;
-  std::vector<IconDefinition> icons;
-  std::string title;
-  int64_t total_download_size = 0;
+  // Corresponds to IDL 'id' attribute. Not unique - an active registration can
+  // have the same |developer_id| as one or more inactive registrations.
+  std::string developer_id;
+  // Globally unique ID for the registration, generated in content/. Used to
+  // distinguish registrations in case a developer re-uses |developer_id|s. Not
+  // exposed to JavaScript.
+  std::string unique_id;
 
-  // TODO(peter): Support the `activeFetches` member of the specification.
+  uint64_t upload_total = 0;
+  uint64_t uploaded = 0;
+  uint64_t download_total = 0;
+  uint64_t downloaded = 0;
+  // TODO(crbug.com/699957): Support the `activeFetches` member.
 };
 
 // Represents a request/response pair for a settled Background Fetch fetch.

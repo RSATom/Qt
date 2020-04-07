@@ -27,15 +27,17 @@
 **
 ****************************************************************************/
 
-#include "shifthandler.h"
-#include "inputcontext.h"
-#include "inputengine.h"
+#include <QtVirtualKeyboard/private/shifthandler_p.h>
+#include <QtVirtualKeyboard/private/qvirtualkeyboardinputcontext_p.h>
+#include <QtVirtualKeyboard/qvirtualkeyboardinputcontext.h>
+#include <QtVirtualKeyboard/qvirtualkeyboardinputengine.h>
 #include <QtCore/private/qobject_p.h>
 #include <QSet>
 #include <QGuiApplication>
 #include <QTime>
 #include <QStyleHints>
 
+QT_BEGIN_NAMESPACE
 namespace QtVirtualKeyboard {
 
 class ShiftHandlerPrivate : public QObjectPrivate
@@ -43,31 +45,35 @@ class ShiftHandlerPrivate : public QObjectPrivate
 public:
     ShiftHandlerPrivate() :
         QObjectPrivate(),
-        inputContext(0),
-        sentenceEndingCharacters(QString(".!?") + QChar(Qt::Key_exclamdown) + QChar(Qt::Key_questiondown)),
+        inputContext(nullptr),
+        sentenceEndingCharacters(QLatin1String(".!?") + QChar(Qt::Key_exclamdown) + QChar(Qt::Key_questiondown)),
         autoCapitalizationEnabled(false),
         toggleShiftEnabled(false),
+        shift(false),
         shiftChanged(false),
+        capsLock(false),
         resetWhenVisible(false),
-        manualShiftLanguageFilter(QSet<QLocale::Language>() << QLocale::Arabic << QLocale::Persian << QLocale::Hindi << QLocale::Korean),
-        manualCapsInputModeFilter(QSet<InputEngine::InputMode>() << InputEngine::Cangjie << InputEngine::Zhuyin << InputEngine::Hebrew),
-        noAutoUppercaseInputModeFilter(QSet<InputEngine::InputMode>() << InputEngine::FullwidthLatin << InputEngine::Pinyin << InputEngine::Cangjie << InputEngine::Zhuyin << InputEngine::ChineseHandwriting << InputEngine::JapaneseHandwriting << InputEngine::KoreanHandwriting),
-        allCapsInputModeFilter(QSet<InputEngine::InputMode>() << InputEngine::Hiragana << InputEngine::Katakana)
+        manualShiftLanguageFilter(QSet<QLocale::Language>() << QLocale::Arabic << QLocale::Persian << QLocale::Hindi << QLocale::Korean << QLocale::Thai),
+        manualCapsInputModeFilter(QSet<QVirtualKeyboardInputEngine::InputMode>() << QVirtualKeyboardInputEngine::InputMode::Cangjie << QVirtualKeyboardInputEngine::InputMode::Zhuyin << QVirtualKeyboardInputEngine::InputMode::Hebrew),
+        noAutoUppercaseInputModeFilter(QSet<QVirtualKeyboardInputEngine::InputMode>() << QVirtualKeyboardInputEngine::InputMode::FullwidthLatin << QVirtualKeyboardInputEngine::InputMode::Pinyin << QVirtualKeyboardInputEngine::InputMode::Cangjie << QVirtualKeyboardInputEngine::InputMode::Zhuyin << QVirtualKeyboardInputEngine::InputMode::ChineseHandwriting << QVirtualKeyboardInputEngine::InputMode::JapaneseHandwriting << QVirtualKeyboardInputEngine::InputMode::KoreanHandwriting),
+        allCapsInputModeFilter(QSet<QVirtualKeyboardInputEngine::InputMode>() << QVirtualKeyboardInputEngine::InputMode::Hiragana << QVirtualKeyboardInputEngine::InputMode::Katakana)
     {
     }
 
-    InputContext *inputContext;
+    QVirtualKeyboardInputContext *inputContext;
     QString sentenceEndingCharacters;
     bool autoCapitalizationEnabled;
     bool toggleShiftEnabled;
+    bool shift;
     bool shiftChanged;
+    bool capsLock;
     bool resetWhenVisible;
     QLocale locale;
     QTime timer;
     const QSet<QLocale::Language> manualShiftLanguageFilter;
-    const QSet<InputEngine::InputMode> manualCapsInputModeFilter;
-    const QSet<InputEngine::InputMode> noAutoUppercaseInputModeFilter;
-    const QSet<InputEngine::InputMode> allCapsInputModeFilter;
+    const QSet<QVirtualKeyboardInputEngine::InputMode> manualCapsInputModeFilter;
+    const QSet<QVirtualKeyboardInputEngine::InputMode> noAutoUppercaseInputModeFilter;
+    const QSet<QVirtualKeyboardInputEngine::InputMode> allCapsInputModeFilter;
 };
 
 /*!
@@ -80,30 +86,30 @@ public:
 
 /*!
     \class QtVirtualKeyboard::ShiftHandler
+    \internal
     \inmodule QtVirtualKeyboard
     \brief Manages the shift state.
-
-    \internal
 */
 
-ShiftHandler::ShiftHandler(InputContext *parent) :
+ShiftHandler::ShiftHandler(QVirtualKeyboardInputContext *parent) :
     QObject(*new ShiftHandlerPrivate(), parent)
 {
     Q_D(ShiftHandler);
     d->inputContext = parent;
-    if (d->inputContext) {
-        connect(d->inputContext, SIGNAL(inputMethodHintsChanged()), SLOT(restart()));
-        connect(d->inputContext, SIGNAL(inputItemChanged()), SLOT(restart()));
-        connect(d->inputContext->inputEngine(), SIGNAL(inputModeChanged()), SLOT(restart()));
-        connect(d->inputContext, SIGNAL(preeditTextChanged()), SLOT(autoCapitalize()));
-        connect(d->inputContext, SIGNAL(surroundingTextChanged()), SLOT(autoCapitalize()));
-        connect(d->inputContext, SIGNAL(cursorPositionChanged()), SLOT(autoCapitalize()));
-        connect(d->inputContext, SIGNAL(shiftChanged()), SLOT(shiftChanged()));
-        connect(d->inputContext, SIGNAL(capsLockChanged()), SLOT(shiftChanged()));
-        connect(d->inputContext, SIGNAL(localeChanged()), SLOT(localeChanged()));
-        connect(qGuiApp->inputMethod(), SIGNAL(visibleChanged()), SLOT(inputMethodVisibleChanged()));
-        d->locale = QLocale(d->inputContext->locale());
-    }
+}
+
+void ShiftHandler::init()
+{
+    Q_D(ShiftHandler);
+    connect(d->inputContext, SIGNAL(inputMethodHintsChanged()), SLOT(restart()));
+    connect(d->inputContext->priv(), SIGNAL(inputItemChanged()), SLOT(restart()));
+    connect(d->inputContext->inputEngine(), SIGNAL(inputModeChanged()), SLOT(restart()));
+    connect(d->inputContext, SIGNAL(preeditTextChanged()), SLOT(autoCapitalize()));
+    connect(d->inputContext, SIGNAL(surroundingTextChanged()), SLOT(autoCapitalize()));
+    connect(d->inputContext, SIGNAL(cursorPositionChanged()), SLOT(autoCapitalize()));
+    connect(d->inputContext, SIGNAL(localeChanged()), SLOT(localeChanged()));
+    connect(qGuiApp->inputMethod(), SIGNAL(visibleChanged()), SLOT(inputMethodVisibleChanged()));
+    d->locale = QLocale(d->inputContext->locale());
 }
 
 /*!
@@ -130,16 +136,57 @@ void ShiftHandler::setSentenceEndingCharacters(const QString &value)
     }
 }
 
-bool ShiftHandler::autoCapitalizationEnabled() const
+bool ShiftHandler::isAutoCapitalizationEnabled() const
 {
     Q_D(const ShiftHandler);
     return d->autoCapitalizationEnabled;
 }
 
-bool ShiftHandler::toggleShiftEnabled() const
+bool ShiftHandler::isToggleShiftEnabled() const
 {
     Q_D(const ShiftHandler);
     return d->toggleShiftEnabled;
+}
+
+bool ShiftHandler::isShiftActive() const
+{
+    Q_D(const ShiftHandler);
+    return d->shift;
+}
+
+void ShiftHandler::setShiftActive(bool active)
+{
+    Q_D(ShiftHandler);
+    if (d->shift != active) {
+        d->shift = active;
+        d->shiftChanged = true;
+        emit shiftActiveChanged();
+        if (!d->capsLock)
+            emit uppercaseChanged();
+    }
+}
+
+bool ShiftHandler::isCapsLockActive() const
+{
+    Q_D(const ShiftHandler);
+    return d->capsLock;
+}
+
+void ShiftHandler::setCapsLockActive(bool active)
+{
+    Q_D(ShiftHandler);
+    if (d->capsLock != active) {
+        d->capsLock = active;
+        emit capsLockActiveChanged();
+        if (!d->shift)
+            emit uppercaseChanged();
+    }
+}
+
+bool ShiftHandler::isUppercase() const
+{
+    Q_D(const ShiftHandler);
+    return d->shift || d->capsLock;
 }
 
 /*!
@@ -170,32 +217,33 @@ void ShiftHandler::toggleShift()
     if (!d->toggleShiftEnabled)
         return;
     if (d->manualShiftLanguageFilter.contains(d->locale.language())) {
-        d->inputContext->setCapsLock(false);
-        d->inputContext->setShift(!d->inputContext->shift());
+        setCapsLockActive(false);
+        setShiftActive(!d->shift);
     } else if (d->inputContext->inputMethodHints() & Qt::ImhNoAutoUppercase ||
                d->manualCapsInputModeFilter.contains(d->inputContext->inputEngine()->inputMode())) {
-        bool capsLock = d->inputContext->capsLock();
-        d->inputContext->setCapsLock(!capsLock);
-        d->inputContext->setShift(!capsLock);
+        bool capsLock = d->capsLock;
+        setCapsLockActive(!capsLock);
+        setShiftActive(!capsLock);
     } else {
-        if (d->inputContext->capsLock()) {
-            d->inputContext->setCapsLock(!d->inputContext->capsLock() && d->inputContext->shift() && !d->shiftChanged);
+        if (d->capsLock) {
+            setCapsLockActive(!d->capsLock && d->shift && !d->shiftChanged);
         }
 
         QStyleHints *style = QGuiApplication::styleHints();
 
         if (d->timer.isNull() || d->timer.elapsed() > style->mouseDoubleClickInterval()) {
             d->timer.restart();
-        } else if (d->timer.elapsed() < style->mouseDoubleClickInterval() && !d->inputContext->capsLock()) {
-            d->inputContext->setCapsLock(!d->inputContext->capsLock() && d->inputContext->shift() && !d->shiftChanged);
+        } else if (d->timer.elapsed() < style->mouseDoubleClickInterval() && !d->capsLock) {
+            setCapsLockActive(!d->capsLock && d->shift && !d->shiftChanged);
         }
 
-        d->inputContext->setShift(d->inputContext->capsLock() || !d->inputContext->shift());
+        setShiftActive(d->capsLock || !d->shift);
         d->shiftChanged = false;
     }
 }
 
 /*! Clears the toggle shift timer.
+    \internal
 
 */
 void ShiftHandler::clearToggleShiftTimer()
@@ -207,9 +255,9 @@ void ShiftHandler::clearToggleShiftTimer()
 void ShiftHandler::reset()
 {
     Q_D(ShiftHandler);
-    if (d->inputContext->inputItem()) {
+    if (d->inputContext->priv()->inputItem()) {
         Qt::InputMethodHints inputMethodHints = d->inputContext->inputMethodHints();
-        InputEngine::InputMode inputMode = d->inputContext->inputEngine()->inputMode();
+        QVirtualKeyboardInputEngine::InputMode inputMode = d->inputContext->inputEngine()->inputMode();
         bool preferUpperCase = (inputMethodHints & (Qt::ImhPreferUppercase | Qt::ImhUppercaseOnly));
         bool autoCapitalizationEnabled = !(d->inputContext->inputMethodHints() & (Qt::ImhNoAutoUppercase |
               Qt::ImhUppercaseOnly | Qt::ImhLowercaseOnly | Qt::ImhEmailCharactersOnly |
@@ -230,9 +278,9 @@ void ShiftHandler::reset()
         }
         setToggleShiftEnabled(toggleShiftEnabled);
         setAutoCapitalizationEnabled(autoCapitalizationEnabled);
-        d->inputContext->setCapsLock(preferUpperCase);
+        setCapsLockActive(preferUpperCase);
         if (preferUpperCase)
-            d->inputContext->setShift(preferUpperCase);
+            setShiftActive(preferUpperCase);
         else
             autoCapitalize();
     }
@@ -241,25 +289,25 @@ void ShiftHandler::reset()
 void ShiftHandler::autoCapitalize()
 {
     Q_D(ShiftHandler);
-    if (d->inputContext->capsLock())
+    if (d->capsLock)
         return;
     if (!d->autoCapitalizationEnabled || !d->inputContext->preeditText().isEmpty()) {
-        d->inputContext->setShift(false);
+        setShiftActive(false);
     } else {
         int cursorPosition = d->inputContext->cursorPosition();
         bool preferLowerCase = d->inputContext->inputMethodHints() & Qt::ImhPreferLowercase;
         if (cursorPosition == 0) {
-            d->inputContext->setShift(!preferLowerCase);
+            setShiftActive(!preferLowerCase);
         } else {
             QString text = d->inputContext->surroundingText();
             text.truncate(cursorPosition);
             text = text.trimmed();
             if (text.length() == 0)
-                d->inputContext->setShift(!preferLowerCase);
+                setShiftActive(!preferLowerCase);
             else if (text.length() > 0 && d->sentenceEndingCharacters.indexOf(text[text.length() - 1]) >= 0)
-                d->inputContext->setShift(!preferLowerCase);
+                setShiftActive(!preferLowerCase);
             else
-                d->inputContext->setShift(false);
+                setShiftActive(false);
         }
     }
 }
@@ -273,12 +321,6 @@ void ShiftHandler::restart()
         return;
     }
     reset();
-}
-
-void ShiftHandler::shiftChanged()
-{
-    Q_D(ShiftHandler);
-    d->shiftChanged = true;
 }
 
 void ShiftHandler::localeChanged()
@@ -378,3 +420,4 @@ void ShiftHandler::setToggleShiftEnabled(bool enabled)
 */
 
 } // namespace QtVirtualKeyboard
+QT_END_NAMESPACE

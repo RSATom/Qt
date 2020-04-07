@@ -85,7 +85,7 @@ DeviceFinder::~DeviceFinder()
 void DeviceFinder::startSearch()
 {
     clearMessages();
-    m_deviceHandler->setDevice(0);
+    m_deviceHandler->setDevice(nullptr);
     qDeleteAll(m_devices);
     m_devices.clear();
 
@@ -135,7 +135,7 @@ void DeviceFinder::scanFinished()
         m_devices.append(new DeviceInfo(QBluetoothDeviceInfo()));
 #endif
 
-    if (m_devices.size() == 0)
+    if (m_devices.isEmpty())
         setError(tr("No Low Energy devices found."));
     else
         setInfo(tr("Scanning done."));
@@ -148,10 +148,11 @@ void DeviceFinder::connectToService(const QString &address)
 {
     m_deviceDiscoveryAgent->stop();
 
-    DeviceInfo *currentDevice = 0;
-    for (int i = 0; i < m_devices.size(); i++) {
-        if (((DeviceInfo*)m_devices.at(i))->getAddress() == address ) {
-            currentDevice = (DeviceInfo*)m_devices.at(i);
+    DeviceInfo *currentDevice = nullptr;
+    for (QObject *entry : qAsConst(m_devices)) {
+        auto device = qobject_cast<DeviceInfo *>(entry);
+        if (device && device->getAddress() == address ) {
+            currentDevice = device;
             break;
         }
     }

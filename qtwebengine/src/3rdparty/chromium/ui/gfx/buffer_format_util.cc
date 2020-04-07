@@ -24,6 +24,8 @@ const BufferFormat kBufferFormats[] = {BufferFormat::ATC,
                                        BufferFormat::RGBX_8888,
                                        BufferFormat::RGBA_8888,
                                        BufferFormat::BGRX_8888,
+                                       BufferFormat::BGRX_1010102,
+                                       BufferFormat::RGBX_1010102,
                                        BufferFormat::BGRA_8888,
                                        BufferFormat::RGBA_F16,
                                        BufferFormat::UYVY_422,
@@ -69,6 +71,8 @@ bool RowSizeForBufferFormatChecked(
       *size_in_bytes = (checked_size & ~0x3).ValueOrDie();
       return true;
     case BufferFormat::BGRX_8888:
+    case BufferFormat::BGRX_1010102:
+    case BufferFormat::RGBX_1010102:
     case BufferFormat::RGBX_8888:
     case BufferFormat::RGBA_8888:
     case BufferFormat::BGRA_8888:
@@ -118,6 +122,8 @@ size_t NumberOfPlanesForBufferFormat(BufferFormat format) {
     case BufferFormat::RGBX_8888:
     case BufferFormat::RGBA_8888:
     case BufferFormat::BGRX_8888:
+    case BufferFormat::BGRX_1010102:
+    case BufferFormat::RGBX_1010102:
     case BufferFormat::BGRA_8888:
     case BufferFormat::RGBA_F16:
     case BufferFormat::UYVY_422:
@@ -146,6 +152,8 @@ size_t SubsamplingFactorForBufferFormat(BufferFormat format, size_t plane) {
     case BufferFormat::RGBX_8888:
     case BufferFormat::RGBA_8888:
     case BufferFormat::BGRX_8888:
+    case BufferFormat::BGRX_1010102:
+    case BufferFormat::RGBX_1010102:
     case BufferFormat::BGRA_8888:
     case BufferFormat::RGBA_F16:
     case BufferFormat::UYVY_422:
@@ -202,8 +210,8 @@ bool BufferSizeForBufferFormatChecked(const Size& size,
 }
 
 size_t BufferOffsetForBufferFormat(const Size& size,
-                                BufferFormat format,
-                                size_t plane) {
+                                   BufferFormat format,
+                                   size_t plane) {
   DCHECK_LT(plane, gfx::NumberOfPlanesForBufferFormat(format));
   switch (format) {
     case BufferFormat::ATC:
@@ -219,6 +227,8 @@ size_t BufferOffsetForBufferFormat(const Size& size,
     case BufferFormat::RGBX_8888:
     case BufferFormat::RGBA_8888:
     case BufferFormat::BGRX_8888:
+    case BufferFormat::BGRX_1010102:
+    case BufferFormat::RGBX_1010102:
     case BufferFormat::BGRA_8888:
     case BufferFormat::RGBA_F16:
     case BufferFormat::UYVY_422:
@@ -238,6 +248,55 @@ size_t BufferOffsetForBufferFormat(const Size& size,
   }
   NOTREACHED();
   return 0;
+}
+
+const char* BufferFormatToString(BufferFormat format) {
+  switch (format) {
+    case BufferFormat::ATC:
+      return "ATC";
+    case BufferFormat::ATCIA:
+      return "ATCIA";
+    case BufferFormat::DXT1:
+      return "DXT1";
+    case BufferFormat::DXT5:
+      return "DXT5";
+    case BufferFormat::ETC1:
+      return "ETC1";
+    case BufferFormat::R_8:
+      return "R_8";
+    case BufferFormat::R_16:
+      return "R_16";
+    case BufferFormat::RG_88:
+      return "RG_88";
+    case BufferFormat::BGR_565:
+      return "BGR_565";
+    case BufferFormat::RGBA_4444:
+      return "RGBA_4444";
+    case BufferFormat::RGBX_8888:
+      return "RGBX_8888";
+    case BufferFormat::RGBA_8888:
+      return "RGBA_8888";
+    case BufferFormat::BGRX_8888:
+      return "BGRX_8888";
+    case BufferFormat::BGRX_1010102:
+      return "BGRX_1010102";
+    case BufferFormat::RGBX_1010102:
+      return "RGBX_1010102";
+    case BufferFormat::BGRA_8888:
+      return "BGRA_8888";
+    case BufferFormat::RGBA_F16:
+      return "RGBA_F16";
+    case BufferFormat::YVU_420:
+      return "YVU_420";
+    case BufferFormat::YUV_420_BIPLANAR:
+      return "YUV_420_BIPLANAR";
+    case BufferFormat::UYVY_422:
+      return "UYVY_422";
+  }
+  NOTREACHED()
+      << "Invalid BufferFormat: "
+      << static_cast<typename std::underlying_type<BufferFormat>::type>(format);
+  return "Invalid Format";
 }
 
 }  // namespace gfx

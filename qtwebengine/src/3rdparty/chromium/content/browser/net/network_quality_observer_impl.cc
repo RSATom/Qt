@@ -4,7 +4,7 @@
 
 #include "content/browser/net/network_quality_observer_impl.h"
 
-#include "base/memory/ptr_util.h"
+#include "base/metrics/histogram_macros.h"
 #include "content/browser/renderer_host/render_process_host_impl.h"
 #include "content/common/view_messages.h"
 #include "content/public/browser/browser_thread.h"
@@ -18,7 +18,7 @@
 namespace {
 
 // Returns true if the |current_value| is meaningfully different from the
-// |past_value|.
+// |past_value|. May be called with either RTT or throughput values to compare.
 bool MetricChangedMeaningfully(int32_t past_value, int32_t current_value) {
   if ((past_value == net::nqe::internal::INVALID_RTT_THROUGHPUT) !=
       (current_value == net::nqe::internal::INVALID_RTT_THROUGHPUT)) {
@@ -29,6 +29,9 @@ bool MetricChangedMeaningfully(int32_t past_value, int32_t current_value) {
       current_value == net::nqe::internal::INVALID_RTT_THROUGHPUT) {
     return false;
   }
+
+  DCHECK_LE(0, past_value);
+  DCHECK_LE(0, current_value);
 
   // Metric has changed meaningfully only if (i) the difference between the two
   // values exceed the threshold; and, (ii) the ratio of the values also exceeds
@@ -63,6 +66,10 @@ class NetworkQualityObserverImpl::UiThreadObserver
       : last_notified_type_(net::EFFECTIVE_CONNECTION_TYPE_UNKNOWN) {}
 
   ~UiThreadObserver() override {
+    if (!registrar_.IsRegistered(this, NOTIFICATION_RENDERER_PROCESS_CREATED,
+                                 NotificationService::AllSources())) {
+      return;
+    }
     registrar_.Remove(this, NOTIFICATION_RENDERER_PROCESS_CREATED,
                       NotificationService::AllSources());
   }
@@ -84,10 +91,12 @@ class NetworkQualityObserverImpl::UiThreadObserver
     // Notify all the existing renderers of the change in the network quality.
     for (RenderProcessHost::iterator it(RenderProcessHost::AllHostsIterator());
          !it.IsAtEnd(); it.Advance()) {
-      it.GetCurrentValue()->GetRendererInterface()->OnNetworkQualityChanged(
-          last_notified_type_, last_notified_network_quality_.http_rtt(),
-          last_notified_network_quality_.transport_rtt(),
-          last_notified_network_quality_.downstream_throughput_kbps());
+      if (it.GetCurrentValue()->IsInitializedAndNotDead()) {
+        it.GetCurrentValue()->GetRendererInterface()->OnNetworkQualityChanged(
+            last_notified_type_, last_notified_network_quality_.http_rtt(),
+            last_notified_network_quality_.transport_rtt(),
+            last_notified_network_quality_.downstream_throughput_kbps());
+      }
     }
   }
 
@@ -100,10 +109,12 @@ class NetworkQualityObserverImpl::UiThreadObserver
     // Notify all the existing renderers of the change in the network quality.
     for (RenderProcessHost::iterator it(RenderProcessHost::AllHostsIterator());
          !it.IsAtEnd(); it.Advance()) {
-      it.GetCurrentValue()->GetRendererInterface()->OnNetworkQualityChanged(
-          last_notified_type_, last_notified_network_quality_.http_rtt(),
-          last_notified_network_quality_.transport_rtt(),
-          last_notified_network_quality_.downstream_throughput_kbps());
+      if (it.GetCurrentValue()->IsInitializedAndNotDead()) {
+        it.GetCurrentValue()->GetRendererInterface()->OnNetworkQualityChanged(
+            last_notified_type_, last_notified_network_quality_.http_rtt(),
+            last_notified_network_quality_.transport_rtt(),
+            last_notified_network_quality_.downstream_throughput_kbps());
+      }
     }
   }
 
@@ -140,7 +151,7 @@ NetworkQualityObserverImpl::NetworkQualityObserverImpl(
   network_quality_estimator_->AddRTTAndThroughputEstimatesObserver(this);
   network_quality_estimator_->AddEffectiveConnectionTypeObserver(this);
 
-  ui_thread_observer_ = base::MakeUnique<UiThreadObserver>();
+  ui_thread_observer_ = std::make_unique<UiThreadObserver>();
   BrowserThread::PostTask(
       BrowserThread::UI, FROM_HERE,
       base::BindOnce(&UiThreadObserver::InitOnUIThread,
@@ -197,7 +208,12 @@ void NetworkQualityObserverImpl::OnRTTOrThroughputEstimatesComputed(
       last_notified_network_quality_.downstream_throughput_kbps(),
       downstream_throughput_kbps);
 
-  if (!http_rtt_changed && !transport_rtt_changed && !kbps_changed) {
+  bool network_quality_meaningfully_changed =
+      http_rtt_changed || transport_rtt_changed || kbps_changed;
+  UMA_HISTOGRAM_BOOLEAN("NQE.ContentObserver.NetworkQualityMeaningfullyChanged",
+                        network_quality_meaningfully_changed);
+
+  if (!network_quality_meaningfully_changed) {
     // Return since none of the metrics changed meaningfully. This reduces
     // the number of notifications to the different renderers every time
     // the network quality is recomputed.
@@ -217,7 +233,7 @@ void NetworkQualityObserverImpl::OnRTTOrThroughputEstimatesComputed(
 std::unique_ptr<net::RTTAndThroughputEstimatesObserver>
 CreateNetworkQualityObserver(
     net::NetworkQualityEstimator* network_quality_estimator) {
-  return base::MakeUnique<NetworkQualityObserverImpl>(
+  return std::make_unique<NetworkQualityObserverImpl>(
       network_quality_estimator);
 }
 

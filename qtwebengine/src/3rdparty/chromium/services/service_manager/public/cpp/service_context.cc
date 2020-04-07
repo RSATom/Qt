@@ -51,7 +51,7 @@ void ServiceContext::SetGlobalBinderForTesting(
     const scoped_refptr<base::SequencedTaskRunner>& task_runner) {
   if (!g_overridden_binder_registries.Get()) {
     g_overridden_binder_registries.Get() =
-        base::MakeUnique<ServiceNameToBinderRegistryMap>();
+        std::make_unique<ServiceNameToBinderRegistryMap>();
   }
 
   (*g_overridden_binder_registries.Get())[service_name].AddInterface(
@@ -97,6 +97,11 @@ void ServiceContext::SetQuitClosure(const base::Closure& closure) {
 void ServiceContext::RequestQuit() {
   DCHECK(service_control_.is_bound());
   service_control_->RequestQuit();
+}
+
+base::RepeatingClosure ServiceContext::CreateQuitClosure() {
+  return base::BindRepeating(&ServiceContext::RequestQuit,
+                             weak_factory_.GetWeakPtr());
 }
 
 void ServiceContext::DisconnectFromServiceManager() {

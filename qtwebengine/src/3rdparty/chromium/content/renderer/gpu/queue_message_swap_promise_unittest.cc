@@ -12,10 +12,11 @@
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/test/scoped_task_environment.h"
-#include "cc/output/swap_promise.h"
+#include "cc/trees/swap_promise.h"
+#include "content/common/render_frame_metadata.mojom.h"
 #include "content/common/view_messages.h"
 #include "content/renderer/gpu/frame_swap_message_queue.h"
-#include "content/renderer/gpu/render_widget_compositor.h"
+#include "content/renderer/gpu/layer_tree_view.h"
 #include "content/renderer/render_widget.h"
 #include "content/test/mock_render_process.h"
 #include "ipc/ipc_message.h"
@@ -46,7 +47,7 @@ class TestSyncMessageFilter : public IPC::SyncMessageFilter {
       std::vector<IPC::Message> messages = std::get<1>(param);
       last_swap_messages_.clear();
       for (const IPC::Message& message : messages) {
-        last_swap_messages_.push_back(base::MakeUnique<IPC::Message>(message));
+        last_swap_messages_.push_back(std::make_unique<IPC::Message>(message));
       }
       delete message;
     } else {
@@ -160,7 +161,8 @@ class QueueMessageSwapPromiseTest : public testing::Test {
   scoped_refptr<TestSyncMessageFilter> sync_message_filter_;
   std::vector<IPC::Message> messages_;
   std::vector<std::unique_ptr<cc::SwapPromise>> promises_;
-  cc::CompositorFrameMetadata dummy_metadata_;
+  viz::CompositorFrameMetadata dummy_metadata_;
+  cc::RenderFrameMetadata dummy_render_frame_metadata_;
 
  private:
   std::vector<std::unique_ptr<IPC::Message>> next_swap_messages_;

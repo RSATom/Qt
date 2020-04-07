@@ -79,7 +79,7 @@ public:
 
     void cleanup();
 
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) Q_DECL_OVERRIDE;
+    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) override;
 
     Qt3DCore::QNodeId shaderProgram() const;
     QVector<Qt3DCore::QNodeId> filterKeys() const;
@@ -95,7 +95,7 @@ private:
     void addRenderState(Qt3DCore::QNodeId renderStateId);
     void removeRenderState(Qt3DCore::QNodeId renderStateId);
 
-    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) Q_DECL_FINAL;
+    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) final;
 
     Qt3DCore::QNodeId m_shaderUuid;
     QVector<Qt3DCore::QNodeId> m_filterKeyList;

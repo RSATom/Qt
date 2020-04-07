@@ -34,8 +34,8 @@
 **
 ****************************************************************************/
 
-#ifndef QSDLGAMEPADCONTROLLER_H
-#define QSDLGAMEPADCONTROLLER_H
+#ifndef QANDROIDGAMEPADBACKEND_P_H
+#define QANDROIDGAMEPADBACKEND_P_H
 
 #include <QtCore/QHash>
 #include <QtCore/QMutex>
@@ -132,4 +132,4 @@ private:
 
 QT_END_NAMESPACE
 
-#endif // QSDLGAMEPADCONTROLLER_H
+#endif // QANDROIDGAMEPADBACKEND_P_H

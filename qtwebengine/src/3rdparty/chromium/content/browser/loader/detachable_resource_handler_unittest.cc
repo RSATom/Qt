@@ -8,7 +8,6 @@
 
 #include "base/logging.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/memory/weak_ptr.h"
 #include "base/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -17,7 +16,6 @@
 #include "content/browser/loader/resource_controller.h"
 #include "content/browser/loader/test_resource_handler.h"
 #include "content/public/browser/resource_request_info.h"
-#include "content/public/common/resource_response.h"
 #include "content/public/test/test_browser_thread_bundle.h"
 #include "net/base/net_errors.h"
 #include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
@@ -25,6 +23,7 @@
 #include "net/url_request/url_request_context.h"
 #include "net/url_request/url_request_status.h"
 #include "net/url_request/url_request_test_util.h"
+#include "services/network/public/cpp/resource_response.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "url/gurl.h"
 
@@ -63,27 +62,27 @@ class DetachableResourceHandlerTest
                                         TRAFFIC_ANNOTATION_FOR_TESTS)) {
     ResourceRequestInfo::AllocateForTesting(request_.get(),
                                             RESOURCE_TYPE_MAIN_FRAME,
-                                            nullptr,  // context
-                                            0,        // render_process_id
-                                            0,        // render_view_id
-                                            0,        // render_frame_id
-                                            true,     // is_main_frame
-                                            false,    // parent_is_main_frame
-                                            true,     // allow_download
-                                            true,     // is_async
-                                            PREVIEWS_OFF);  // previews_state
+                                            nullptr,       // context
+                                            0,             // render_process_id
+                                            0,             // render_view_id
+                                            0,             // render_frame_id
+                                            true,          // is_main_frame
+                                            true,          // allow_download
+                                            true,          // is_async
+                                            PREVIEWS_OFF,  // previews_state
+                                            nullptr);      // navigation_ui_data
 
     std::unique_ptr<TestResourceHandler> test_handler;
     if (GetParam() != DetachPhase::DETACHED_FROM_CREATION) {
-      test_handler = base::MakeUnique<TestResourceHandler>();
+      test_handler = std::make_unique<TestResourceHandler>();
       test_handler_ = test_handler->GetWeakPtr();
     }
     // TODO(mmenke):  This file currently has no timeout tests. Should it?
-    detachable_handler_ = base::MakeUnique<DetachableResourceHandler>(
+    detachable_handler_ = std::make_unique<DetachableResourceHandler>(
         request_.get(), base::TimeDelta::FromMinutes(30),
         std::move(test_handler));
     mock_loader_ =
-        base::MakeUnique<MockResourceLoader>(detachable_handler_.get());
+        std::make_unique<MockResourceLoader>(detachable_handler_.get());
   }
 
   // If the DetachableResourceHandler is supposed to detach the next handler at
@@ -155,10 +154,10 @@ TEST_P(DetachableResourceHandlerTest, Sync) {
   }
 
   MaybeSyncDetachAtPhase(DetachPhase::REQUEST_REDIRECTED);
-  ASSERT_EQ(
-      MockResourceLoader::Status::IDLE,
-      mock_loader_->OnRequestRedirected(
-          net::RedirectInfo(), make_scoped_refptr(new ResourceResponse())));
+  ASSERT_EQ(MockResourceLoader::Status::IDLE,
+            mock_loader_->OnRequestRedirected(
+                net::RedirectInfo(),
+                base::MakeRefCounted<network::ResourceResponse>()));
   if (!WasDetachedBy(DetachPhase::REQUEST_REDIRECTED)) {
     EXPECT_EQ(1, test_handler_->on_request_redirected_called());
     EXPECT_EQ(0, test_handler_->on_response_started_called());
@@ -167,7 +166,7 @@ TEST_P(DetachableResourceHandlerTest, Sync) {
   MaybeSyncDetachAtPhase(DetachPhase::ON_RESPONSE_STARTED);
   ASSERT_EQ(MockResourceLoader::Status::IDLE,
             mock_loader_->OnResponseStarted(
-                make_scoped_refptr(new ResourceResponse())));
+                base::MakeRefCounted<network::ResourceResponse>()));
   if (!WasDetachedBy(DetachPhase::ON_RESPONSE_STARTED)) {
     EXPECT_EQ(1, test_handler_->on_request_redirected_called());
     EXPECT_EQ(1, test_handler_->on_response_started_called());
@@ -258,15 +257,16 @@ TEST_P(DetachableResourceHandlerTest, Async) {
   }
   MaybeAsyncDetachAt(DetachPhase::ON_WILL_START);
 
-  mock_loader_->OnRequestRedirected(net::RedirectInfo(),
-                                    make_scoped_refptr(new ResourceResponse()));
+  mock_loader_->OnRequestRedirected(
+      net::RedirectInfo(), base::MakeRefCounted<network::ResourceResponse>());
   if (test_handler_) {
     EXPECT_EQ(1, test_handler_->on_request_redirected_called());
     EXPECT_EQ(0, test_handler_->on_response_started_called());
   }
   MaybeAsyncDetachAt(DetachPhase::REQUEST_REDIRECTED);
 
-  mock_loader_->OnResponseStarted(make_scoped_refptr(new ResourceResponse()));
+  mock_loader_->OnResponseStarted(
+      base::MakeRefCounted<network::ResourceResponse>());
   if (test_handler_) {
     EXPECT_EQ(1, test_handler_->on_request_redirected_called());
     EXPECT_EQ(1, test_handler_->on_response_started_called());

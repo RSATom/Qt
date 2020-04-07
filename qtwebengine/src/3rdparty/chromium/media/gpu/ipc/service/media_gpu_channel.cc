@@ -10,7 +10,6 @@
 #include "ipc/message_filter.h"
 #include "media/gpu/ipc/common/media_messages.h"
 #include "media/gpu/ipc/service/gpu_video_decode_accelerator.h"
-#include "media/gpu/ipc/service/gpu_video_encode_accelerator.h"
 
 namespace media {
 
@@ -26,11 +25,6 @@ class MediaGpuChannelDispatchHelper {
                             IPC::Message* reply_message) {
     channel_->OnCreateVideoDecoder(routing_id_, config, decoder_route_id,
                                    reply_message);
-  }
-
-  void OnCreateVideoEncoder(const CreateVideoEncoderParams& params,
-                            IPC::Message* reply_message) {
-    channel_->OnCreateVideoEncoder(routing_id_, params, reply_message);
   }
 
  private:
@@ -88,7 +82,7 @@ MediaGpuChannel::MediaGpuChannel(
   channel_->AddFilter(filter_.get());
 }
 
-MediaGpuChannel::~MediaGpuChannel() {}
+MediaGpuChannel::~MediaGpuChannel() = default;
 
 bool MediaGpuChannel::Send(IPC::Message* msg) {
   return channel_->Send(msg);
@@ -101,50 +95,9 @@ bool MediaGpuChannel::OnMessageReceived(const IPC::Message& message) {
     IPC_MESSAGE_FORWARD_DELAY_REPLY(
         GpuCommandBufferMsg_CreateVideoDecoder, &helper,
         MediaGpuChannelDispatchHelper::OnCreateVideoDecoder)
-    IPC_MESSAGE_FORWARD_DELAY_REPLY(
-        GpuCommandBufferMsg_CreateVideoEncoder, &helper,
-        MediaGpuChannelDispatchHelper::OnCreateVideoEncoder)
-    IPC_MESSAGE_HANDLER_DELAY_REPLY(GpuChannelMsg_CreateJpegDecoder,
-                                    OnCreateJpegDecoder)
     IPC_MESSAGE_UNHANDLED(handled = false)
   IPC_END_MESSAGE_MAP()
   return handled;
-}
-
-namespace {
-
-void SendCreateJpegDecoderResult(
-    std::unique_ptr<IPC::Message> reply_message,
-    scoped_refptr<base::SingleThreadTaskRunner> io_task_runner,
-    base::WeakPtr<IPC::Sender> channel,
-    scoped_refptr<MediaGpuChannelFilter> filter,
-    bool result) {
-  GpuChannelMsg_CreateJpegDecoder::WriteReplyParams(reply_message.get(),
-                                                    result);
-  if (io_task_runner->BelongsToCurrentThread()) {
-    filter->Send(reply_message.release());
-  } else if (channel) {
-    channel->Send(reply_message.release());
-  }
-}
-
-}  // namespace
-
-void MediaGpuChannel::OnCreateJpegDecoder(int32_t route_id,
-                                          IPC::Message* reply_msg) {
-  std::unique_ptr<IPC::Message> msg(reply_msg);
-  if (!jpeg_decoder_) {
-    // The lifetime of |jpeg_decoder_| is managed by a gpu::GpuChannel. The
-    // GpuChannels destroy all the GpuJpegDecodeAccelerator that they own when
-    // they are destroyed. Therefore, passing |channel_| as a raw pointer is
-    // safe.
-    jpeg_decoder_.reset(
-        new GpuJpegDecodeAccelerator(channel_, channel_->io_task_runner()));
-  }
-  jpeg_decoder_->AddClient(
-      route_id,
-      base::Bind(&SendCreateJpegDecoderResult, base::Passed(&msg),
-                 channel_->io_task_runner(), channel_->AsWeakPtr(), filter_));
 }
 
 void MediaGpuChannel::OnCreateVideoDecoder(
@@ -153,7 +106,7 @@ void MediaGpuChannel::OnCreateVideoDecoder(
     int32_t decoder_route_id,
     IPC::Message* reply_message) {
   TRACE_EVENT0("gpu", "MediaGpuChannel::OnCreateVideoDecoder");
-  gpu::GpuCommandBufferStub* stub =
+  gpu::CommandBufferStub* stub =
       channel_->LookupCommandBuffer(command_buffer_route_id);
   if (!stub) {
     reply_message->set_reply_error();
@@ -169,31 +122,6 @@ void MediaGpuChannel::OnCreateVideoDecoder(
   Send(reply_message);
 
   // decoder is registered as a DestructionObserver of this stub and will
-  // self-delete during destruction of this stub.
-}
-
-void MediaGpuChannel::OnCreateVideoEncoder(
-    int32_t command_buffer_route_id,
-    const CreateVideoEncoderParams& params,
-    IPC::Message* reply_message) {
-  TRACE_EVENT0("gpu", "MediaGpuChannel::OnCreateVideoEncoder");
-  gpu::GpuCommandBufferStub* stub =
-      channel_->LookupCommandBuffer(command_buffer_route_id);
-  if (!stub) {
-    reply_message->set_reply_error();
-    Send(reply_message);
-    return;
-  }
-  GpuVideoEncodeAccelerator* encoder = new GpuVideoEncodeAccelerator(
-      params.encoder_route_id, stub, stub->channel()->io_task_runner());
-  bool succeeded =
-      encoder->Initialize(params.input_format, params.input_visible_size,
-                          params.output_profile, params.initial_bitrate);
-  GpuCommandBufferMsg_CreateVideoEncoder::WriteReplyParams(reply_message,
-                                                           succeeded);
-  Send(reply_message);
-
-  // encoder is registered as a DestructionObserver of this stub and will
   // self-delete during destruction of this stub.
 }
 

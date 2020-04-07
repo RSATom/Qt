@@ -11,7 +11,6 @@
 #include "base/files/scoped_temp_dir.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/test/scoped_task_environment.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -74,14 +73,12 @@ class FileSystemOperationImplWriteTest : public testing::Test {
     quota_manager_ =
         new MockQuotaManager(false /* is_incognito */, dir_.GetPath(),
                              base::ThreadTaskRunnerHandle::Get().get(),
-                             base::ThreadTaskRunnerHandle::Get().get(),
                              NULL /* special storage policy */);
     virtual_path_ = base::FilePath(FILE_PATH_LITERAL("temporary file"));
 
     file_system_context_ = CreateFileSystemContextForTesting(
         quota_manager_->proxy(), dir_.GetPath());
-    url_request_context_.reset(
-        new MockBlobURLRequestContext(file_system_context_.get()));
+    url_request_context_.reset(new MockBlobURLRequestContext());
 
     file_system_context_->operation_runner()->CreateFile(
         URLForPath(virtual_path_), true /* exclusive */,
@@ -137,14 +134,14 @@ class FileSystemOperationImplWriteTest : public testing::Test {
     if (status == base::File::FILE_OK) {
       add_bytes_written(bytes, complete);
       if (complete)
-        base::MessageLoop::current()->QuitWhenIdle();
+        base::RunLoop::QuitCurrentWhenIdleDeprecated();
     } else {
       EXPECT_FALSE(complete_);
       EXPECT_EQ(status_, base::File::FILE_OK);
       complete_ = true;
       status_ = status;
       if (base::RunLoop::IsRunningOnCurrentThread())
-        base::MessageLoop::current()->QuitWhenIdle();
+        base::RunLoop::QuitCurrentWhenIdleDeprecated();
     }
   }
 

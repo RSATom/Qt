@@ -442,23 +442,15 @@ void QNetworkDatagram::setData(const QByteArray &data)
 }
 
 /*!
-    \fn QNetworkDatagram QNetworkDatagram::makeReply(const QByteArray &data) const
+    \fn QNetworkDatagram QNetworkDatagram::makeReply(const QByteArray &payload) const &
+    \fn QNetworkDatagram QNetworkDatagram::makeReply(const QByteArray &payload) &&
 
     Creates a new QNetworkDatagram representing a reply to this incoming datagram
-    and sets the payload data to \a data. This function is a very convenient
+    and sets the payload data to \a payload. This function is a very convenient
     way of responding to a datagram back to the original sender.
 
     Example:
-    \code
-        void Server::readPendingDatagrams()
-        {
-            while (udpSocket->hasPendingDatagrams()) {
-                QNetworkDatagram datagram = udpSocket->receiveDatagram();
-                QByteArray replyData = processThePayload(datagram.data());
-                udpSocket->writeDatagram(datagram.makeReply(replyData));
-            }
-        }
-    \endcode
+    \snippet code/src_network_kernel_qnetworkdatagram.cpp 0
 
     This function is especially convenient since it will automatically copy
     parameters from this datagram to the new datagram as appropriate:
@@ -490,10 +482,9 @@ void QNetworkDatagram::setData(const QByteArray &data)
     overloads, so it is a good idea to make sure this object is rvalue, if
     possible, before calling makeReply, so as to make better use of move
     semantics. To achieve that, the example above would use:
-    \code
-            udpSocket->writeDatagram(std::move(datagram).makeReply(replyData));
-    \endcode
+    \snippet code/src_network_kernel_qnetworkdatagram.cpp 1
  */
+
 
 static bool isNonMulticast(const QHostAddress &addr)
 {
@@ -527,6 +518,11 @@ void QNetworkDatagram::destroy(QNetworkDatagramPrivate *d)
     Q_ASSUME(d);
     delete d;
 }
+
+/*! \fn  void QNetworkDatagram::swap(QNetworkDatagram &other)
+  Swaps this instance with \a other.
+*/
+
 
 QT_END_NAMESPACE
 

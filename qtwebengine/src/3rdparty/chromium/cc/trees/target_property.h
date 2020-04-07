@@ -7,12 +7,13 @@
 
 #include <bitset>
 
-#include "cc/cc_export.h"
-
 namespace cc {
+
+static constexpr size_t kMaxTargetPropertyIndex = 32u;
 
 namespace TargetProperty {
 
+// Must be zero-based as this will be stored in a bitset.
 enum Type {
   TRANSFORM = 0,
   OPACITY,
@@ -20,18 +21,15 @@ enum Type {
   SCROLL_OFFSET,
   BACKGROUND_COLOR,
   BOUNDS,
-  VISIBILITY,
   // These sentinels must be last
   FIRST_TARGET_PROPERTY = TRANSFORM,
-  LAST_TARGET_PROPERTY = VISIBILITY,
+  LAST_TARGET_PROPERTY = BOUNDS
 };
-
-CC_EXPORT const char* GetName(TargetProperty::Type property);
 
 }  // namespace TargetProperty
 
-// A set of target properties. TargetProperty must be 0-based enum.
-using TargetProperties = std::bitset<TargetProperty::LAST_TARGET_PROPERTY + 1>;
+// A set of target properties.
+using TargetProperties = std::bitset<kMaxTargetPropertyIndex>;
 
 }  // namespace cc
 

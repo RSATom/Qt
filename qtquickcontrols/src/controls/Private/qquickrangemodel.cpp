@@ -263,7 +263,7 @@ void QQuickRangeModel1::setRange(qreal min, qreal max)
     d->minimum = min;
     d->maximum = qMax(min, max);
 
-    // Update internal position if it was changed. It can occurs if internal value changes, due to range update
+    // Update internal position if it was changed. It can occur if internal value changes, due to range update
     d->pos = d->equivalentPosition(d->value);
 
     if (emitMinimumChanged)

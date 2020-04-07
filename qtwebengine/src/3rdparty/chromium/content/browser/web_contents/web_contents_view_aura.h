@@ -16,15 +16,11 @@
 #include "content/browser/renderer_host/overscroll_controller_delegate.h"
 #include "content/browser/renderer_host/render_view_host_delegate_view.h"
 #include "content/browser/web_contents/web_contents_view.h"
+#include "content/common/buildflags.h"
 #include "content/common/content_export.h"
-#include "content/common/features.h"
 #include "ui/aura/client/drag_drop_delegate.h"
+#include "ui/aura/window.h"
 #include "ui/aura/window_delegate.h"
-#include "ui/aura/window_observer.h"
-
-namespace aura {
-class Window;
-}
 
 namespace ui {
 class DropTargetEvent;
@@ -42,12 +38,11 @@ class WebContentsImpl;
 class WebDragDestDelegate;
 
 class CONTENT_EXPORT WebContentsViewAura
-    : NON_EXPORTED_BASE(public WebContentsView),
+    : public WebContentsView,
       public RenderViewHostDelegateView,
       public OverscrollControllerDelegate,
       public aura::WindowDelegate,
-      public aura::client::DragDropDelegate,
-      public aura::WindowObserver {
+      public aura::client::DragDropDelegate {
  public:
   WebContentsViewAura(WebContentsImpl* web_contents,
                       WebContentsViewDelegate* delegate);
@@ -88,8 +83,6 @@ class CONTENT_EXPORT WebContentsViewAura
   // animates in, or the content window animates out).
   void CompleteOverscrollNavigation(OverscrollMode mode);
 
-  void OverscrollUpdateForWebContentsDelegate(float delta_y);
-
   ui::TouchSelectionController* GetSelectionController() const;
   TouchSelectionControllerClientAura* GetSelectionControllerClient() const;
 
@@ -101,17 +94,20 @@ class CONTENT_EXPORT WebContentsViewAura
   // crbug.com/666858.
   bool IsValidDragTarget(RenderWidgetHostImpl* target_rwh) const;
 
+  // Called from CreateView() to create |window_|.
+  void CreateAuraWindow(aura::Window* context);
+
   // Overridden from WebContentsView:
   gfx::NativeView GetNativeView() const override;
   gfx::NativeView GetContentNativeView() const override;
   gfx::NativeWindow GetTopLevelNativeWindow() const override;
-  void GetScreenInfo(ScreenInfo* screen_info) const override;
   void GetContainerBounds(gfx::Rect* out) const override;
   void SizeContents(const gfx::Size& size) override;
   void Focus() override;
   void SetInitialFocus() override;
   void StoreFocus() override;
   void RestoreFocus() override;
+  void FocusThroughTabTraversal(bool reverse) override;
   DropData* GetDropData() const override;
   gfx::Rect GetViewBounds() const override;
   void CreateView(const gfx::Size& initial_size,
@@ -123,7 +119,9 @@ class CONTENT_EXPORT WebContentsViewAura
       RenderWidgetHost* render_widget_host) override;
   void SetPageTitle(const base::string16& title) override;
   void RenderViewCreated(RenderViewHost* host) override;
-  void RenderViewSwappedIn(RenderViewHost* host) override;
+  void RenderViewReady() override;
+  void RenderViewHostChanged(RenderViewHost* old_host,
+                             RenderViewHost* new_host) override;
   void SetOverscrollControllerEnabled(bool enabled) override;
 
   // Overridden from RenderViewHostDelegateView:
@@ -153,13 +151,13 @@ class CONTENT_EXPORT WebContentsViewAura
 #endif
 
   // Overridden from OverscrollControllerDelegate:
-  gfx::Size GetVisibleSize() const override;
   gfx::Size GetDisplaySize() const override;
   bool OnOverscrollUpdate(float delta_x, float delta_y) override;
   void OnOverscrollComplete(OverscrollMode overscroll_mode) override;
   void OnOverscrollModeChange(OverscrollMode old_mode,
                               OverscrollMode new_mode,
-                              OverscrollSource source) override;
+                              OverscrollSource source,
+                              cc::OverscrollBehavior behavior) override;
   base::Optional<float> GetMaxOverscrollDelta() const override;
 
   // Overridden from aura::WindowDelegate:
@@ -175,10 +173,13 @@ class CONTENT_EXPORT WebContentsViewAura
   bool CanFocus() override;
   void OnCaptureLost() override;
   void OnPaint(const ui::PaintContext& context) override;
-  void OnDeviceScaleFactorChanged(float device_scale_factor) override;
+  void OnDeviceScaleFactorChanged(float old_device_scale_factor,
+                                  float new_device_scale_factor) override;
   void OnWindowDestroying(aura::Window* window) override;
   void OnWindowDestroyed(aura::Window* window) override;
   void OnWindowTargetVisibilityChanged(bool visible) override;
+  void OnWindowOcclusionChanged(
+      aura::Window::OcclusionState occlusion_state) override;
   bool HasHitTestMask() const override;
   void GetHitTestMask(gfx::Path* mask) const override;
 
@@ -192,11 +193,11 @@ class CONTENT_EXPORT WebContentsViewAura
   void OnDragExited() override;
   int OnPerformDrop(const ui::DropTargetEvent& event) override;
 
-  // Overridden from aura::WindowObserver:
-  void OnWindowVisibilityChanged(aura::Window* window, bool visible) override;
-
   FRIEND_TEST_ALL_PREFIXES(WebContentsViewAuraTest, EnableDisableOverscroll);
 
+  const bool is_mus_browser_plugin_guest_;
+
+  // NOTE: this is null when running in mus and |is_mus_browser_plugin_guest_|.
   std::unique_ptr<aura::Window> window_;
 
   std::unique_ptr<WindowObserver> window_observer_;

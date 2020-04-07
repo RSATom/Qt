@@ -99,6 +99,9 @@ enum class Range : std::uint64_t {
    Defined by MatrixCoefficients/TransferCharacteristics.
    */
   kDerived = 3,
+
+  kMinValue = kUnspecified,
+  kMaxValue = kDerived,
 };
 
 /**
@@ -254,11 +257,11 @@ enum class Primaries : std::uint64_t {
 
 // ---- End copy/paste from libwebm/webm_parser/include/webm/dom_types.h ----
 
-WebMColorMetadata::WebMColorMetadata() {}
+WebMColorMetadata::WebMColorMetadata() = default;
 WebMColorMetadata::WebMColorMetadata(const WebMColorMetadata& rhs) = default;
 
-WebMMasteringMetadataParser::WebMMasteringMetadataParser() {}
-WebMMasteringMetadataParser::~WebMMasteringMetadataParser() {}
+WebMMasteringMetadataParser::WebMMasteringMetadataParser() = default;
+WebMMasteringMetadataParser::~WebMMasteringMetadataParser() = default;
 
 bool WebMMasteringMetadataParser::OnFloat(int id, double val) {
   switch (id) {
@@ -303,7 +306,7 @@ WebMColourParser::WebMColourParser() {
   Reset();
 }
 
-WebMColourParser::~WebMColourParser() {}
+WebMColourParser::~WebMColourParser() = default;
 
 void WebMColourParser::Reset() {
   matrix_coefficients_ = -1;
@@ -413,20 +416,23 @@ WebMColorMetadata WebMColourParser::GetWebMColorMetadata() const {
   if (chroma_siting_vert_ != -1)
     color_metadata.ChromaSitingVert = chroma_siting_vert_;
 
-  gfx::ColorSpace::RangeID range_id = gfx::ColorSpace::RangeID::FULL;
-  switch (static_cast<Range>(range_)) {
-    case Range::kUnspecified:
-      range_id = gfx::ColorSpace::RangeID::FULL;
-      break;
-    case Range::kBroadcast:
-      range_id = gfx::ColorSpace::RangeID::LIMITED;
-      break;
-    case Range::kFull:
-      range_id = gfx::ColorSpace::RangeID::FULL;
-      break;
-    case Range::kDerived:
-      range_id = gfx::ColorSpace::RangeID::DERIVED;
-      break;
+  gfx::ColorSpace::RangeID range_id = gfx::ColorSpace::RangeID::INVALID;
+  if (range_ >= static_cast<int64_t>(Range::kMinValue) &&
+      range_ <= static_cast<int64_t>(Range::kMaxValue)) {
+    switch (static_cast<Range>(range_)) {
+      case Range::kUnspecified:
+        range_id = gfx::ColorSpace::RangeID::INVALID;
+        break;
+      case Range::kBroadcast:
+        range_id = gfx::ColorSpace::RangeID::LIMITED;
+        break;
+      case Range::kFull:
+        range_id = gfx::ColorSpace::RangeID::FULL;
+        break;
+      case Range::kDerived:
+        range_id = gfx::ColorSpace::RangeID::DERIVED;
+        break;
+    }
   }
   color_metadata.color_space = VideoColorSpace(
       primaries_, transfer_characteristics_, matrix_coefficients_, range_id);

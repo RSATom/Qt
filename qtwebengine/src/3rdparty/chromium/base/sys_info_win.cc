@@ -63,12 +63,12 @@ int SysInfo::NumberOfProcessors() {
 }
 
 // static
-int64_t SysInfo::AmountOfPhysicalMemory() {
+int64_t SysInfo::AmountOfPhysicalMemoryImpl() {
   return AmountOfMemory(&MEMORYSTATUSEX::ullTotalPhys);
 }
 
 // static
-int64_t SysInfo::AmountOfAvailablePhysicalMemory() {
+int64_t SysInfo::AmountOfAvailablePhysicalMemoryImpl() {
   SystemMemoryInfoKB info;
   if (!GetSystemMemoryInfo(&info))
     return 0;
@@ -82,7 +82,7 @@ int64_t SysInfo::AmountOfVirtualMemory() {
 
 // static
 int64_t SysInfo::AmountOfFreeDiskSpace(const FilePath& path) {
-  ThreadRestrictions::AssertIOAllowed();
+  AssertBlockingAllowed();
 
   int64_t available;
   if (!GetDiskSpaceInfo(path, &available, nullptr))
@@ -92,7 +92,7 @@ int64_t SysInfo::AmountOfFreeDiskSpace(const FilePath& path) {
 
 // static
 int64_t SysInfo::AmountOfTotalDiskSpace(const FilePath& path) {
-  ThreadRestrictions::AssertIOAllowed();
+  AssertBlockingAllowed();
 
   int64_t total;
   if (!GetDiskSpaceInfo(path, nullptr, &total))

@@ -77,7 +77,7 @@ QT_BEGIN_NAMESPACE
     It can be \l{Cpp_value_integration_positioning}{directly used from C++ and QML}.
 */
 
-/*!
+/*
     \property QGeoPolygon::path
     \brief This property holds the list of coordinates for the geo polygon.
 
@@ -105,54 +105,53 @@ struct PolygonVariantConversions
     }
 };
 
-Q_GLOBAL_STATIC(PolygonVariantConversions, initPathConversions)
+Q_GLOBAL_STATIC(PolygonVariantConversions, initPolygonConversions)
 
 /*!
-    Constructs a new, empty geo path.
+    Constructs a new, empty geo polygon.
 */
 QGeoPolygon::QGeoPolygon()
 :   QGeoShape(new QGeoPolygonPrivate(QGeoShape::PolygonType))
 {
-    initPathConversions();
+    initPolygonConversions();
 }
 
 /*!
-    Constructs a new geo path from a list of coordinates
-    (\a path and \a width).
+    Constructs a new geo \a polygon from a list of coordinates.
 */
 QGeoPolygon::QGeoPolygon(const QList<QGeoCoordinate> &path)
 :   QGeoShape(new QGeoPolygonPrivate(QGeoShape::PolygonType, path))
 {
-    initPathConversions();
+    initPolygonConversions();
 }
 
 /*!
-    Constructs a new geo path from the contents of \a other.
+    Constructs a new geo polygon from the contents of \a other.
 */
 QGeoPolygon::QGeoPolygon(const QGeoPolygon &other)
 :   QGeoShape(other)
 {
-    initPathConversions();
+    initPolygonConversions();
 }
 
 /*!
-    Constructs a new geo path from the contents of \a other.
+    Constructs a new geo polygon from the contents of \a other.
 */
 QGeoPolygon::QGeoPolygon(const QGeoShape &other)
 :   QGeoShape(other)
 {
-    initPathConversions();
+    initPolygonConversions();
     if (type() != QGeoShape::PolygonType)
         d_ptr = new QGeoPolygonPrivate(QGeoShape::PolygonType);
 }
 
 /*!
-    Destroys this path.
+    Destroys this polygon.
 */
 QGeoPolygon::~QGeoPolygon() {}
 
 /*!
-    Assigns \a other to this geo path and returns a reference to this geo path.
+    Assigns \a other to this geo polygon and returns a reference to this geo polygon.
 */
 QGeoPolygon &QGeoPolygon::operator=(const QGeoPolygon &other)
 {
@@ -161,7 +160,7 @@ QGeoPolygon &QGeoPolygon::operator=(const QGeoPolygon &other)
 }
 
 /*!
-    Returns whether this geo path is equal to \a other.
+    Returns whether this geo polygon is equal to \a other.
 */
 bool QGeoPolygon::operator==(const QGeoPolygon &other) const
 {
@@ -170,7 +169,7 @@ bool QGeoPolygon::operator==(const QGeoPolygon &other) const
 }
 
 /*!
-    Returns whether this geo path is not equal to \a other.
+    Returns whether this geo polygon is not equal to \a other.
 */
 bool QGeoPolygon::operator!=(const QGeoPolygon &other) const
 {
@@ -178,6 +177,9 @@ bool QGeoPolygon::operator!=(const QGeoPolygon &other) const
     return !(*d == *other.d_func());
 }
 
+/*!
+    Sets the \a polygon's boundary from a list of coordinates.
+*/
 void QGeoPolygon::setPath(const QList<QGeoCoordinate> &path)
 {
     Q_D(QGeoPolygon);
@@ -185,8 +187,7 @@ void QGeoPolygon::setPath(const QList<QGeoCoordinate> &path)
 }
 
 /*!
-    Returns all the elements. Equivalent to QGeoShape::center().
-    The center coordinate, in case of a QGeoPolygon, is the center of its bounding box.
+    Returns all the elements of the polygon's boundary.
 */
 const QList<QGeoCoordinate> &QGeoPolygon::path() const
 {
@@ -195,7 +196,37 @@ const QList<QGeoCoordinate> &QGeoPolygon::path() const
 }
 
 /*!
-    Translates this geo path by \a degreesLatitude northwards and \a degreesLongitude eastwards.
+    Sets all the elements of the polygon's perimeter.
+
+    \since QtPositioning 5.12
+*/
+void QGeoPolygon::setPerimeter(const QVariantList &path)
+{
+    Q_D(QGeoPolygon);
+    QList<QGeoCoordinate> p;
+    for (const auto &c: path) {
+        if (c.canConvert<QGeoCoordinate>())
+            p << c.value<QGeoCoordinate>();
+    }
+    d->setPath(p);
+}
+
+/*!
+    Returns all the elements of the polygon's perimeter.
+
+    \since QtPositioning 5.12
+*/
+QVariantList QGeoPolygon::perimeter() const
+{
+    Q_D(const QGeoPolygon);
+    QVariantList p;
+    for (const auto &c: d->path())
+        p << QVariant::fromValue(c);
+    return p;
+}
+
+/*!
+    Translates this geo polygon by \a degreesLatitude northwards and \a degreesLongitude eastwards.
 
     Negative values of \a degreesLatitude and \a degreesLongitude correspond to
     southward and westward translation respectively.
@@ -307,7 +338,7 @@ void QGeoPolygon::removeCoordinate(int index)
 }
 
 /*!
-    Returns the geo path properties as a string.
+    Returns the geo polygon properties as a string.
 */
 QString QGeoPolygon::toString() const
 {
@@ -321,6 +352,84 @@ QString QGeoPolygon::toString() const
         pathString += p.toString() + QLatin1Char(',');
 
     return QStringLiteral("QGeoPolygon([ %1 ])").arg(pathString);
+}
+
+/*!
+   Sets the \a path for a hole inside the polygon. The hole is a QVariant containing a QList<QGeoCoordinate>.
+
+   \since 5.12
+*/
+void QGeoPolygon::addHole(const QVariant &holePath)
+{
+    Q_D(QGeoPolygon);
+    QList<QGeoCoordinate> qgcHolePath;
+    if (holePath.canConvert<QVariantList>()) {
+        const QVariantList qvlHolePath = holePath.toList();
+        for (const QVariant &vertex : qvlHolePath) {
+            if (vertex.canConvert<QGeoCoordinate>())
+                qgcHolePath << vertex.value<QGeoCoordinate>();
+        }
+    }
+    //ToDo: add QGeoShape support
+    return d->addHole(qgcHolePath);
+}
+
+/*!
+   Overloaded method. Sets the \a path for a hole inside the polygon. The hole is a QList<QGeoCoordinate>.
+
+   \since 5.12
+*/
+void QGeoPolygon::addHole(const QList<QGeoCoordinate> &holePath)
+{
+    Q_D(QGeoPolygon);
+    return d->addHole(holePath);
+}
+
+/*!
+    Returns a QVariant containing a QVariant containing a QList<QGeoCoordinate> which represents the hole at index.
+
+    \since 5.12
+*/
+const QVariantList QGeoPolygon::hole(int index) const
+{
+    Q_D(const QGeoPolygon);
+    QVariantList holeCoordinates;
+    for (const QGeoCoordinate &coords: d->holePath(index))
+        holeCoordinates << QVariant::fromValue(coords);
+    return holeCoordinates;
+}
+
+/*!
+    Returns a QList<QGeoCoordinate> which represents the hole at \a index.
+
+    \since 5.12
+*/
+const QList<QGeoCoordinate> QGeoPolygon::holePath(int index) const
+{
+    Q_D(const QGeoPolygon);
+    return d->holePath(index);
+}
+
+/*!
+    Removes element at position \a index from the holes QList.
+
+    \since 5.12
+*/
+void QGeoPolygon::removeHole(int index)
+{
+    Q_D(QGeoPolygon);
+    return d->removeHole(index);
+}
+
+/*!
+    Returns the number of holes.
+
+    \since 5.12
+*/
+int QGeoPolygon::holesCount() const
+{
+    Q_D(const QGeoPolygon);
+    return d->holesCount();
 }
 
 QT_END_NAMESPACE

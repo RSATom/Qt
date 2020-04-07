@@ -15,7 +15,6 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/path_service.h"
@@ -85,6 +84,8 @@ const char kUnknownIdError[] = "Unknown id";
 const char kNotSupportedOnCurrentPlatformError[] =
     "Operation not supported on the current platform.";
 const char kRetainEntryError[] = "Could not retain file entry.";
+const char kRetainEntryIncognitoError[] =
+    "Could not retain file entry in incognito mode";
 
 #if defined(OS_CHROMEOS)
 const char kNotSupportedOnNonKioskSessionError[] =
@@ -247,7 +248,7 @@ ExtensionFunction::ResponseAction FileSystemGetDisplayPathFunction::Run() {
 
   file_path = path_util::PrettifyPath(file_path);
   return RespondNow(
-      OneArgument(base::MakeUnique<base::Value>(file_path.value())));
+      OneArgument(std::make_unique<base::Value>(file_path.value())));
 }
 
 FileSystemEntryFunction::FileSystemEntryFunction()
@@ -284,7 +285,7 @@ void FileSystemEntryFunction::RegisterFileSystemsAndSendResponse(
 
 std::unique_ptr<base::DictionaryValue> FileSystemEntryFunction::CreateResult() {
   std::unique_ptr<base::DictionaryValue> result(new base::DictionaryValue());
-  result->Set("entries", base::MakeUnique<base::ListValue>());
+  result->Set("entries", std::make_unique<base::ListValue>());
   result->SetBoolean("multiple", multiple_);
   return result;
 }
@@ -377,7 +378,7 @@ ExtensionFunction::ResponseAction FileSystemIsWritableEntryFunction::Run() {
   int renderer_id = render_frame_host()->GetProcess()->GetID();
   bool is_writable = policy->CanReadWriteFileSystem(renderer_id, filesystem_id);
 
-  return RespondNow(OneArgument(base::MakeUnique<base::Value>(is_writable)));
+  return RespondNow(OneArgument(std::make_unique<base::Value>(is_writable)));
 }
 
 void FileSystemChooseEntryFunction::ShowPicker(
@@ -550,7 +551,7 @@ void FileSystemChooseEntryFunction::ConfirmDirectoryAccessAsync(
 
   for (size_t i = 0; i < arraysize(kGraylistedPaths); i++) {
     base::FilePath graylisted_path;
-    if (!PathService::Get(kGraylistedPaths[i], &graylisted_path))
+    if (!base::PathService::Get(kGraylistedPaths[i], &graylisted_path))
       continue;
     if (check_path != graylisted_path && !check_path.IsParent(graylisted_path))
       continue;
@@ -784,8 +785,13 @@ ExtensionFunction::ResponseAction FileSystemRetainEntryFunction::Run() {
       ExtensionsAPIClient::Get()->GetFileSystemDelegate();
   DCHECK(delegate);
 
+  content::BrowserContext* context = browser_context();
+  // Check whether the context is incognito mode or not.
+  if (context && context->IsOffTheRecord())
+    return RespondNow(Error(kRetainEntryIncognitoError));
+
   SavedFilesServiceInterface* saved_files_service =
-      delegate->GetSavedFilesService(browser_context());
+      delegate->GetSavedFilesService(context);
   DCHECK(saved_files_service);
 
   // Add the file to the retain list if it is not already on there.
@@ -870,7 +876,7 @@ ExtensionFunction::ResponseAction FileSystemIsRestorableFunction::Run() {
       delegate->GetSavedFilesService(browser_context());
   DCHECK(saved_files_service);
 
-  return RespondNow(OneArgument(base::MakeUnique<base::Value>(
+  return RespondNow(OneArgument(std::make_unique<base::Value>(
       saved_files_service->IsRegistered(extension_->id(), entry_id))));
 }
 
@@ -950,8 +956,9 @@ ExtensionFunction::ResponseAction FileSystemRequestFileSystemFunction::Run() {
   DCHECK(delegate);
   // Only kiosk apps in kiosk sessions can use this API.
   // Additionally it is enabled for whitelisted component extensions and apps.
-  if (!delegate->IsGrantable(browser_context(), render_frame_host(),
-                             *extension())) {
+  if (delegate->GetGrantVolumesMode(browser_context(), render_frame_host(),
+                                    *extension()) ==
+      FileSystemDelegate::kGrantNone) {
     return RespondNow(Error(kNotSupportedOnNonKioskSessionError));
   }
 
@@ -987,13 +994,14 @@ ExtensionFunction::ResponseAction FileSystemGetVolumeListFunction::Run() {
   DCHECK(delegate);
   // Only kiosk apps in kiosk sessions can use this API.
   // Additionally it is enabled for whitelisted component extensions and apps.
-  if (!delegate->IsGrantable(browser_context(), render_frame_host(),
-                             *extension())) {
+  if (delegate->GetGrantVolumesMode(browser_context(), render_frame_host(),
+                                    *extension()) ==
+      FileSystemDelegate::kGrantNone) {
     return RespondNow(Error(kNotSupportedOnNonKioskSessionError));
   }
 
   delegate->GetVolumeList(
-      browser_context(),
+      browser_context(), *extension(),
       base::Bind(&FileSystemGetVolumeListFunction::OnGotVolumeList, this),
       base::Bind(&FileSystemGetVolumeListFunction::OnError, this));
 

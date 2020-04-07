@@ -300,7 +300,7 @@ int QHostInfo::lookupHost(const QString &name, QObject *receiver,
 */
 
 /*!
-    \fn int QHostInfo::lookupHost(const QString &name, const QObject *receiver, PointerToMemberFunction function)
+    \fn template<typename PointerToMemberFunction> int QHostInfo::lookupHost(const QString &name, const QObject *receiver, PointerToMemberFunction function)
 
     \since 5.9
 
@@ -319,7 +319,7 @@ int QHostInfo::lookupHost(const QString &name, QObject *receiver,
 */
 
 /*!
-    \fn int QHostInfo::lookupHost(const QString &name, Functor functor)
+    \fn template<typename Functor> int QHostInfo::lookupHost(const QString &name, Functor functor)
 
     \since 5.9
 
@@ -337,7 +337,7 @@ int QHostInfo::lookupHost(const QString &name, QObject *receiver,
 */
 
 /*!
-    \fn int QHostInfo::lookupHost(const QString &name, const QObject *context, Functor functor)
+    \fn template<typename Functor> int QHostInfo::lookupHost(const QString &name, const QObject *context, Functor functor)
 
     \since 5.9
 
@@ -704,6 +704,7 @@ void QHostInfoRunnable::run()
     hostInfo.setLookupId(id);
     resultEmitter.emitResultsReady(hostInfo);
 
+#if QT_CONFIG(thread)
     // now also iterate through the postponed ones
     {
         QMutexLocker locker(&manager->mutex);
@@ -720,6 +721,7 @@ void QHostInfoRunnable::run()
         manager->postponedLookups.erase(partitionBegin, partitionEnd);
     }
 
+#endif
     manager->lookupFinished(this);
 
     // thread goes back to QThreadPool
@@ -728,8 +730,10 @@ void QHostInfoRunnable::run()
 QHostInfoLookupManager::QHostInfoLookupManager() : mutex(QMutex::Recursive), wasDeleted(false)
 {
     moveToThread(QCoreApplicationPrivate::mainThread());
+#if QT_CONFIG(thread)
     connect(QCoreApplication::instance(), SIGNAL(destroyed()), SLOT(waitForThreadPoolDone()), Qt::DirectConnection);
     threadPool.setMaxThreadCount(20); // do up to 20 DNS lookups in parallel
+#endif
 }
 
 QHostInfoLookupManager::~QHostInfoLookupManager()
@@ -744,15 +748,19 @@ void QHostInfoLookupManager::clear()
 {
     {
         QMutexLocker locker(&mutex);
-        qDeleteAll(postponedLookups);
         qDeleteAll(scheduledLookups);
         qDeleteAll(finishedLookups);
+#if QT_CONFIG(thread)
+        qDeleteAll(postponedLookups);
         postponedLookups.clear();
+#endif
         scheduledLookups.clear();
         finishedLookups.clear();
     }
 
+#if QT_CONFIG(thread)
     threadPool.waitForDone();
+#endif
     cache.clear();
 }
 
@@ -776,6 +784,7 @@ void QHostInfoLookupManager::work()
         finishedLookups.clear();
     }
 
+#if QT_CONFIG(thread)
     auto isAlreadyRunning = [this](QHostInfoRunnable *lookup) {
         return any_of(currentLookups.cbegin(), currentLookups.cend(), ToBeLookedUpEquals(lookup->toBeLookedUp));
     };
@@ -808,6 +817,10 @@ void QHostInfoLookupManager::work()
         }
         scheduledLookups.erase(scheduledLookups.begin(), it);
     }
+#else
+    if (!scheduledLookups.isEmpty())
+        scheduledLookups.takeFirst()->run();
+#endif
 }
 
 // called by QHostInfo
@@ -829,6 +842,7 @@ void QHostInfoLookupManager::abortLookup(int id)
 
     QMutexLocker locker(&this->mutex);
 
+#if QT_CONFIG(thread)
     // is postponed? delete and return
     for (int i = 0; i < postponedLookups.length(); i++) {
         if (postponedLookups.at(i)->id == id) {
@@ -836,6 +850,7 @@ void QHostInfoLookupManager::abortLookup(int id)
             return;
         }
     }
+#endif
 
     // is scheduled? delete and return
     for (int i = 0; i < scheduledLookups.length(); i++) {
@@ -866,7 +881,9 @@ void QHostInfoLookupManager::lookupFinished(QHostInfoRunnable *r)
         return;
 
     QMutexLocker locker(&this->mutex);
+#if QT_CONFIG(thread)
     currentLookups.removeOne(r);
+#endif
     finishedLookups.append(r);
     work();
 }

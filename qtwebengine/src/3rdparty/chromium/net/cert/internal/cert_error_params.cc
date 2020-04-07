@@ -5,7 +5,6 @@
 #include "net/cert/internal/cert_error_params.h"
 
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "net/der/input.h"
 
@@ -60,7 +59,7 @@ class CertErrorParams1SizeT : public CertErrorParams {
       : name_(name), value_(value) {}
 
   std::string ToDebugString() const override {
-    return name_ + std::string(": ") + base::SizeTToString(value_);
+    return name_ + std::string(": ") + base::NumberToString(value_);
   }
 
  private:
@@ -81,8 +80,8 @@ class CertErrorParams2SizeT : public CertErrorParams {
       : name1_(name1), value1_(value1), name2_(name2), value2_(value2) {}
 
   std::string ToDebugString() const override {
-    return name1_ + std::string(": ") + base::SizeTToString(value1_) + "\n" +
-           name2_ + std::string(": ") + base::SizeTToString(value2_);
+    return name1_ + std::string(": ") + base::NumberToString(value1_) + "\n" +
+           name2_ + std::string(": ") + base::NumberToString(value2_);
   }
 
  private:
@@ -103,7 +102,7 @@ std::unique_ptr<CertErrorParams> CreateCertErrorParams1Der(
     const char* name,
     const der::Input& der) {
   DCHECK(name);
-  return base::MakeUnique<CertErrorParams2Der>(name, der, nullptr,
+  return std::make_unique<CertErrorParams2Der>(name, der, nullptr,
                                                der::Input());
 }
 
@@ -114,13 +113,13 @@ std::unique_ptr<CertErrorParams> CreateCertErrorParams2Der(
     const der::Input& der2) {
   DCHECK(name1);
   DCHECK(name2);
-  return base::MakeUnique<CertErrorParams2Der>(name1, der1, name2, der2);
+  return std::make_unique<CertErrorParams2Der>(name1, der1, name2, der2);
 }
 
 std::unique_ptr<CertErrorParams> CreateCertErrorParams1SizeT(const char* name,
                                                              size_t value) {
   DCHECK(name);
-  return base::MakeUnique<CertErrorParams1SizeT>(name, value);
+  return std::make_unique<CertErrorParams1SizeT>(name, value);
 }
 
 NET_EXPORT std::unique_ptr<CertErrorParams> CreateCertErrorParams2SizeT(
@@ -130,7 +129,7 @@ NET_EXPORT std::unique_ptr<CertErrorParams> CreateCertErrorParams2SizeT(
     size_t value2) {
   DCHECK(name1);
   DCHECK(name2);
-  return base::MakeUnique<CertErrorParams2SizeT>(name1, value1, name2, value2);
+  return std::make_unique<CertErrorParams2SizeT>(name1, value1, name2, value2);
 }
 
 }  // namespace net

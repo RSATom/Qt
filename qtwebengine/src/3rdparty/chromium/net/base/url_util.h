@@ -98,12 +98,7 @@ NET_EXPORT bool GetValueForKeyInQuery(const GURL& url,
 //   [::1]:90 and [::1]
 //
 // The resultant |*host| in both cases will be "::1" (not bracketed).
-NET_EXPORT bool ParseHostAndPort(
-    std::string::const_iterator host_and_port_begin,
-    std::string::const_iterator host_and_port_end,
-    std::string* host,
-    int* port);
-NET_EXPORT bool ParseHostAndPort(const std::string& host_and_port,
+NET_EXPORT bool ParseHostAndPort(base::StringPiece input,
                                  std::string* host,
                                  int* port);
 
@@ -139,16 +134,22 @@ NET_EXPORT bool IsCanonicalizedHostCompliant(const std::string& host);
 
 // Returns true if |hostname| contains a non-registerable or non-assignable
 // domain name (eg: a gTLD that has not been assigned by IANA) or an IP address
-// that falls in an IANA-reserved range.
+// that falls in an range reserved for non-publicly routable networks.
 NET_EXPORT bool IsHostnameNonUnique(const std::string& hostname);
+
+// Returns true if the host part of |url| is a local host name according to
+// HostStringIsLocalhost.
+NET_EXPORT bool IsLocalhost(const GURL& url);
 
 // Returns true if |host| is one of the local hostnames
 // (e.g. "localhost") or IP addresses (IPv4 127.0.0.0/8 or IPv6 ::1).
+// "[::1]" is not detected as a local hostname. Do not use this method to check
+// whether the host part of a URL is a local host name; use IsLocalhost instead.
 //
 // Note that this function does not check for IP addresses other than
 // the above, although other IP addresses may point to the local
 // machine.
-NET_EXPORT bool IsLocalhost(base::StringPiece host);
+NET_EXPORT bool HostStringIsLocalhost(base::StringPiece host);
 
 // Strip the portions of |url| that aren't core to the network request.
 //   - user name / password
@@ -164,6 +165,10 @@ NET_EXPORT_PRIVATE void GetIdentityFromURL(const GURL& url,
 // Returns true if the url's host is a Google server. This should only be used
 // for histograms and shouldn't be used to affect behavior.
 NET_EXPORT_PRIVATE bool HasGoogleHost(const GURL& url);
+
+// This function tests |host| to see if its one used in the initial TLS 1.3
+// deployment. TLS connections to them form the basis of our comparisons.
+NET_EXPORT_PRIVATE bool IsTLS13ExperimentHost(base::StringPiece host);
 
 // This function tests |host| to see if it is of any local hostname form.
 // |host| is normalized before being tested and if |is_local6| is not NULL then

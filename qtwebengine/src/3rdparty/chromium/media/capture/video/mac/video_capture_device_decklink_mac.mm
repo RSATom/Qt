@@ -15,9 +15,9 @@
 
 namespace {
 
-// DeckLink SDK uses ScopedComPtr-style APIs. Chrome ScopedComPtr is only
-// available for Windows builds. This is a verbatim knock-off of the needed
-// parts of base::win::ScopedComPtr<> for ref counting.
+// DeckLink SDK uses ComPtr-style APIs. Microsoft::WRL::ComPtr<> is only
+// available for Windows builds. This provides a subset of the methods required
+// for ref counting.
 template <class T>
 class ScopedDeckLinkPtr : public scoped_refptr<T> {
  private:
@@ -73,7 +73,7 @@ class DeckLinkCaptureDelegate
   ULONG Release() override;
 
   // Forwarder to VideoCaptureDeviceDeckLinkMac::SendErrorString().
-  void SendErrorString(const tracked_objects::Location& from_here,
+  void SendErrorString(const base::Location& from_here,
                        const std::string& reason);
 
   // Forwarder to VideoCaptureDeviceDeckLinkMac::SendLogString().
@@ -311,9 +311,8 @@ ULONG DeckLinkCaptureDelegate::Release() {
   return ret_value;
 }
 
-void DeckLinkCaptureDelegate::SendErrorString(
-    const tracked_objects::Location& from_here,
-    const std::string& reason) {
+void DeckLinkCaptureDelegate::SendErrorString(const base::Location& from_here,
+                                              const std::string& reason) {
   base::AutoLock lock(lock_);
   if (frame_receiver_)
     frame_receiver_->SendErrorString(from_here, reason);
@@ -387,14 +386,15 @@ void VideoCaptureDeviceDeckLinkMac::EnumerateDevices(
       CFStringRef format_name = NULL;
       if (display_mode->GetName(&format_name) == S_OK) {
         VideoCaptureDeviceDescriptor descriptor;
-        descriptor.display_name =
-            JoinDeviceNameAndFormat(device_display_name, format_name);
+        descriptor.set_display_name(
+            JoinDeviceNameAndFormat(device_display_name, format_name));
         descriptor.device_id =
             JoinDeviceNameAndFormat(device_model_name, format_name);
         descriptor.capture_api = VideoCaptureApi::MACOSX_DECKLINK;
         descriptor.transport_type = VideoCaptureTransportType::OTHER_TRANSPORT;
         device_descriptors->push_back(descriptor);
-        DVLOG(1) << "Blackmagic camera enumerated: " << descriptor.display_name;
+        DVLOG(1) << "Blackmagic camera enumerated: "
+                 << descriptor.display_name();
       }
       display_mode.Release();
     }
@@ -447,10 +447,9 @@ void VideoCaptureDeviceDeckLinkMac::EnumerateDeviceCapabilities(
       // is only available on capture.
       const media::VideoCaptureFormat format(
           gfx::Size(display_mode->GetWidth(), display_mode->GetHeight()),
-          GetDisplayModeFrameRate(display_mode),
-          PIXEL_FORMAT_UNKNOWN);
+          GetDisplayModeFrameRate(display_mode), PIXEL_FORMAT_UNKNOWN);
       supported_formats->push_back(format);
-      DVLOG(2) << device.display_name << " "
+      DVLOG(2) << device.display_name() << " "
                << VideoCaptureFormat::ToString(format);
       display_mode.Release();
     }
@@ -482,7 +481,7 @@ void VideoCaptureDeviceDeckLinkMac::OnIncomingCapturedData(
 }
 
 void VideoCaptureDeviceDeckLinkMac::SendErrorString(
-    const tracked_objects::Location& from_here,
+    const base::Location& from_here,
     const std::string& reason) {
   DCHECK(thread_checker_.CalledOnValidThread());
   base::AutoLock lock(lock_);

@@ -43,14 +43,6 @@
 #include "qquickfusionstyle_p.h"
 #include "qquickfusiontheme_p.h"
 
-static inline void initResources()
-{
-    Q_INIT_RESOURCE(qtquickcontrols2fusionstyle);
-#ifdef QT_STATIC
-    Q_INIT_RESOURCE(qmake_QtQuick_Controls_2_Fusion);
-#endif
-}
-
 QT_BEGIN_NAMESPACE
 
 static QObject *styleSingleton(QQmlEngine *engine, QJSEngine *scriptEngine)
@@ -69,28 +61,22 @@ public:
     QtQuickControls2FusionStylePlugin(QObject *parent = nullptr);
 
     void registerTypes(const char *uri) override;
-    void initializeEngine(QQmlEngine *engine, const char *uri) override;
 
     QString name() const override;
-    QQuickProxyTheme *createTheme() const override;
+    void initializeTheme(QQuickTheme *theme) override;
 };
 
 QtQuickControls2FusionStylePlugin::QtQuickControls2FusionStylePlugin(QObject *parent) : QQuickStylePlugin(parent)
 {
-    initResources();
 }
 
 void QtQuickControls2FusionStylePlugin::registerTypes(const char *uri)
 {
-    qmlRegisterModule(uri, 2, QT_VERSION_MINOR - 7); // Qt 5.10->2.3, 5.11->2.4...
-}
-
-void QtQuickControls2FusionStylePlugin::initializeEngine(QQmlEngine *engine, const char *uri)
-{
-    QQuickStylePlugin::initializeEngine(engine, uri);
+    qmlRegisterModule(uri, 2, 3); // Qt 5.10->2.3
+    qmlRegisterModule(uri, 2, QT_VERSION_MINOR); // Qt 5.12->2.12, 5.13->2.13...
 
     QByteArray import = QByteArray(uri) + ".impl";
-    qmlRegisterModule(import, 2, QT_VERSION_MINOR - 7); // Qt 5.10->2.3, 5.11->2.4...
+    qmlRegisterModule(import, 2, QT_VERSION_MINOR); // Qt 5.12->2.12, 5.13->2.13...
 
     qmlRegisterSingletonType<QQuickFusionStyle>(import, 2, 3, "Fusion", styleSingleton);
 
@@ -98,22 +84,22 @@ void QtQuickControls2FusionStylePlugin::initializeEngine(QQmlEngine *engine, con
     qmlRegisterType<QQuickFusionDial>(import, 2, 3, "DialImpl");
     qmlRegisterType<QQuickFusionKnob>(import, 2, 3, "KnobImpl");
 
-    qmlRegisterType(typeUrl(QStringLiteral("ButtonPanel.qml")), import, 2, 3, "ButtonPanel");
-    qmlRegisterType(typeUrl(QStringLiteral("CheckIndicator.qml")), import, 2, 3, "CheckIndicator");
-    qmlRegisterType(typeUrl(QStringLiteral("RadioIndicator.qml")), import, 2, 3, "RadioIndicator");
-    qmlRegisterType(typeUrl(QStringLiteral("SliderGroove.qml")), import, 2, 3, "SliderGroove");
-    qmlRegisterType(typeUrl(QStringLiteral("SliderHandle.qml")), import, 2, 3, "SliderHandle");
-    qmlRegisterType(typeUrl(QStringLiteral("SwitchIndicator.qml")), import, 2, 3, "SwitchIndicator");
+    qmlRegisterType(resolvedUrl(QStringLiteral("ButtonPanel.qml")), import, 2, 3, "ButtonPanel");
+    qmlRegisterType(resolvedUrl(QStringLiteral("CheckIndicator.qml")), import, 2, 3, "CheckIndicator");
+    qmlRegisterType(resolvedUrl(QStringLiteral("RadioIndicator.qml")), import, 2, 3, "RadioIndicator");
+    qmlRegisterType(resolvedUrl(QStringLiteral("SliderGroove.qml")), import, 2, 3, "SliderGroove");
+    qmlRegisterType(resolvedUrl(QStringLiteral("SliderHandle.qml")), import, 2, 3, "SliderHandle");
+    qmlRegisterType(resolvedUrl(QStringLiteral("SwitchIndicator.qml")), import, 2, 3, "SwitchIndicator");
 }
 
 QString QtQuickControls2FusionStylePlugin::name() const
 {
-    return QStringLiteral("fusion");
+    return QStringLiteral("Fusion");
 }
 
-QQuickProxyTheme *QtQuickControls2FusionStylePlugin::createTheme() const
+void QtQuickControls2FusionStylePlugin::initializeTheme(QQuickTheme *theme)
 {
-    return new QQuickFusionTheme;
+    QQuickFusionTheme::initialize(theme);
 }
 
 QT_END_NAMESPACE

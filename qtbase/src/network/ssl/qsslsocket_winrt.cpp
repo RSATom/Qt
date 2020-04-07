@@ -236,10 +236,9 @@ void QSslSocketBackendPrivate::startClientEncryption()
     switch (q->protocol()) {
     case QSsl::AnyProtocol:
     case QSsl::SslV3:
+    case QSsl::TlsV1SslV3:
         protectionLevel = SocketProtectionLevel_Ssl; // Only use this value if weak cipher support is required
         break;
-    case QSsl::SecureProtocols:
-    case QSsl::TlsV1SslV3:
     case QSsl::TlsV1_0:
         protectionLevel = SocketProtectionLevel_Tls10;
         break;
@@ -252,11 +251,18 @@ void QSslSocketBackendPrivate::startClientEncryption()
     case QSsl::TlsV1_0OrLater:
     case QSsl::TlsV1_1OrLater:
     case QSsl::TlsV1_2OrLater:
+    case QSsl::TlsV1_3:
+    case QSsl::TlsV1_3OrLater:
         // TlsV1_0OrLater, TlsV1_1OrLater and TlsV1_2OrLater are disabled on WinRT
         // because there is no good way to map them to the native API.
         setErrorAndEmit(QAbstractSocket::SslInvalidUserDataError,
                         QStringLiteral("unsupported protocol"));
         return;
+    case QSsl::SecureProtocols:
+        // SocketProtectionLevel_Tls12 actually means "use TLS1.0, 1.1 or 1.2"
+        // https://docs.microsoft.com/en-us/uwp/api/windows.networking.sockets.socketprotectionlevel
+        protectionLevel = SocketProtectionLevel_Tls12;
+        break;
     default:
         protectionLevel = SocketProtectionLevel_Tls12; // default to highest
         protocol = QSsl::TlsV1_2;
@@ -522,7 +528,7 @@ HRESULT QSslSocketBackendPrivate::onSslUpgrade(IAsyncAction *action, AsyncStatus
     QList<QSslCertificate> peerCertificateChain;
     if (certificate) {
         ComPtr<IAsyncOperation<CertificateChain *>> op;
-        hr = certificate->BuildChainAsync(Q_NULLPTR, &op);
+        hr = certificate->BuildChainAsync(nullptr, &op);
         Q_ASSERT_SUCCEEDED(hr);
         ComPtr<ICertificateChain> certificateChain;
         hr = QWinRTFunctions::await(op, certificateChain.GetAddressOf());
@@ -642,6 +648,10 @@ HRESULT QSslSocketBackendPrivate::onSslUpgrade(IAsyncAction *action, AsyncStatus
 
     connectionEncrypted = true;
     emit q->encrypted();
+
+    // The write buffer may already have data written to it, so we need to call transmit.
+    // This has to be done in 'q's thread, and not in the current thread (the XAML thread).
+    QMetaObject::invokeMethod(q, [this](){ transmit(); });
 
     if (pendingClose) {
         pendingClose = false;

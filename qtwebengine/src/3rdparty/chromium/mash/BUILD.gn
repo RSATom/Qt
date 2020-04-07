@@ -3,6 +3,7 @@
 # found in the LICENSE file.
 
 import("//build/config/nacl/config.gni")
+import("//components/nacl/features.gni")
 import("//services/catalog/public/tools/catalog.gni")
 import("//services/service_manager/public/service_manifest.gni")
 import("//testing/test.gni")
@@ -13,10 +14,9 @@ group("all") {
 
   deps = [
     ":mash_catalog",
-    "//components/leveldb",
+    "//components/services/leveldb",
     "//mash/catalog_viewer",
     "//mash/example",
-    "//mash/quick_launch",
     "//mash/runner",
     "//mash/session",
     "//mash/simple_wm",
@@ -26,9 +26,8 @@ group("all") {
   # Build on platforms that support ash.
   if (is_chromeos) {
     deps += [
-      "//ash/autoclick/mus:accessibility_autoclick",
-      "//ash/mus/standalone:ash_standalone",
-      "//ash/touch_hud/mus:touch_hud",
+      "//ash/components/autoclick:autoclick_app",
+      "//ash/components/quick_launch:quick_launch_app",
       "//mash:mash_unittests",
     ]
   }
@@ -40,28 +39,12 @@ catalog("catalog") {
   testonly = true
 
   standalone_services = [
-    "//components/leveldb:manifest",
+    "//components/services/leveldb:manifest",
     "//mash/catalog_viewer:manifest",
-    "//mash/quick_launch:manifest",
     "//mash/session:manifest",
     "//mash/task_viewer:manifest",
-    "//services/ui:manifest",
-    "//services/ui/demo:manifest",
     "//services/ui/ime/test_ime_driver:manifest",
-
-    # TODO(rockot): It seems like a layering violation to have these service
-    # names referenced here, but it's the most convenient thing to do for now,
-    # and this is only for developers.
-    #
-    # Note that there are no build-time dependencies on the actual Chrome
-    # binary implied by mash:all or other targets here. This only ensures that
-    # if you have such a binary built, the runner will be able to locate it.
-    "//chrome/app:chrome_content_browser_manifest",
-    "//chrome/app:chrome_content_gpu_manifest",
-    "//chrome/app:chrome_content_packaged_services_manifest_for_mash",
-    "//chrome/app:chrome_content_plugin_manifest",
-    "//chrome/app:chrome_content_renderer_manifest",
-    "//chrome/app:chrome_content_utility_manifest",
+    "//services/viz:manifest",
   ]
 
   executable_overrides = [ "content_packaged_services:@EXE_DIR/chrome" ]
@@ -70,13 +53,13 @@ catalog("catalog") {
 
   if (is_chromeos) {
     standalone_services += [
-      "//ash/mus:manifest",
-      "//ash/mus/standalone:manifest",
+      "//ash:manifest",
+      "//ash/components/quick_launch:manifest",
     ]
   }
 
-  if (is_linux && !is_android) {
-    standalone_services += [ "//components/font_service:manifest" ]
+  if (is_linux) {
+    standalone_services += [ "//components/services/font:manifest" ]
   }
 
   if (enable_nacl) {
@@ -99,7 +82,7 @@ copy("mash_catalog") {
 }
 
 if (is_chromeos) {
-  # TODO(jamescook): Move these tests into //ash/mus.
+  # TODO(jamescook): Move these tests into //ash.
   test("mash_unittests") {
     sources = [
       "test/mash_test_suite.cc",
@@ -107,16 +90,16 @@ if (is_chromeos) {
       "test/mash_unittests.cc",
     ]
     deps = [
+      "//ash:ash_service_resources",
+      "//ash:mash_unittests",
       "//ash:test_support_without_content",
-      "//ash/mus:resources",
-      "//ash/mus:unittests",
-      "//ash/public/cpp:ash_public_cpp",
+      "//ash/public/cpp",
       "//base",
       "//base/test:test_support",
       "//cc",
       "//cc:test_support",
-      "//cc/surfaces",
-      "//mojo/edk/system",
+      "//components/viz/service",
+      "//mojo/core/embedder",
       "//services/catalog:lib",
       "//ui/aura",
       "//ui/base",
@@ -125,7 +108,7 @@ if (is_chromeos) {
     ]
     data_deps = [
       ":mash_unittests_catalog_copy",
-      "//ash/mus:resources",
+      "//ash:ash_service_resources",
     ]
   }
 

@@ -12,7 +12,10 @@
 #include "core/fpdfapi/page/cpdf_image.h"
 #include "core/fpdfapi/parser/cpdf_document.h"
 
-CPDF_ImageObject::CPDF_ImageObject() {}
+CPDF_ImageObject::CPDF_ImageObject(int32_t content_stream)
+    : CPDF_PageObject(content_stream) {}
+
+CPDF_ImageObject::CPDF_ImageObject() : CPDF_ImageObject(kNoContentStream) {}
 
 CPDF_ImageObject::~CPDF_ImageObject() {
   MaybePurgeCache();
@@ -41,14 +44,11 @@ const CPDF_ImageObject* CPDF_ImageObject::AsImage() const {
 }
 
 void CPDF_ImageObject::CalcBoundingBox() {
-  m_Left = 0;
-  m_Bottom = 0;
-  m_Right = 1.0f;
-  m_Top = 1.0f;
-  m_Matrix.TransformRect(m_Left, m_Right, m_Top, m_Bottom);
+  std::tie(m_Left, m_Right, m_Top, m_Bottom) =
+      m_Matrix.TransformRect(0.f, 1.f, 1.f, 0.f);
 }
 
-void CPDF_ImageObject::SetImage(const CFX_RetainPtr<CPDF_Image>& pImage) {
+void CPDF_ImageObject::SetImage(const RetainPtr<CPDF_Image>& pImage) {
   MaybePurgeCache();
   m_pImage = pImage;
 }

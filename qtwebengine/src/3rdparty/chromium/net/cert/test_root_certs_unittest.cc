@@ -18,6 +18,8 @@
 
 #if defined(USE_NSS_CERTS)
 #include <nss.h>
+
+#include "net/cert/x509_util_nss.h"
 #endif
 
 using net::test::IsOk;
@@ -72,13 +74,6 @@ TEST(TestRootCertsTest, AddFromFile) {
 // the results of the rest of net_unittests, ensuring that the trust status
 // is properly being set and cleared.
 TEST(TestRootCertsTest, OverrideTrust) {
-#if defined(USE_NSS_CERTS)
-  if (NSS_VersionCheck("3.14.2") && !NSS_VersionCheck("3.15")) {
-    // See http://bugzil.la/863947 for details
-    LOG(INFO) << "Skipping test for NSS 3.14.2 - NSS 3.15";
-    return;
-  }
-#endif
   TestRootCerts* test_roots = TestRootCerts::GetInstance();
   ASSERT_NE(static_cast<TestRootCerts*>(NULL), test_roots);
   EXPECT_TRUE(test_roots->IsEmpty());
@@ -135,30 +130,36 @@ TEST(TestRootCertsTest, Contains) {
   const char kRootCertificateFile2[] = "2048-rsa-root.pem";
 
   TestRootCerts* test_roots = TestRootCerts::GetInstance();
-  ASSERT_NE(static_cast<TestRootCerts*>(NULL), test_roots);
+  ASSERT_TRUE(test_roots);
 
   scoped_refptr<X509Certificate> root_cert_1 =
       ImportCertFromFile(GetTestCertsDirectory(), kRootCertificateFile);
-  ASSERT_NE(static_cast<X509Certificate*>(NULL), root_cert_1.get());
+  ASSERT_TRUE(root_cert_1);
+  ScopedCERTCertificate nss_root_cert_1 =
+      x509_util::CreateCERTCertificateFromX509Certificate(root_cert_1.get());
+  ASSERT_TRUE(nss_root_cert_1);
 
   scoped_refptr<X509Certificate> root_cert_2 =
       ImportCertFromFile(GetTestCertsDirectory(), kRootCertificateFile2);
-  ASSERT_NE(static_cast<X509Certificate*>(NULL), root_cert_2.get());
+  ASSERT_TRUE(root_cert_2);
+  ScopedCERTCertificate nss_root_cert_2 =
+      x509_util::CreateCERTCertificateFromX509Certificate(root_cert_2.get());
+  ASSERT_TRUE(nss_root_cert_2);
 
-  EXPECT_FALSE(test_roots->Contains(root_cert_1->os_cert_handle()));
-  EXPECT_FALSE(test_roots->Contains(root_cert_2->os_cert_handle()));
+  EXPECT_FALSE(test_roots->Contains(nss_root_cert_1.get()));
+  EXPECT_FALSE(test_roots->Contains(nss_root_cert_2.get()));
 
   EXPECT_TRUE(test_roots->Add(root_cert_1.get()));
-  EXPECT_TRUE(test_roots->Contains(root_cert_1->os_cert_handle()));
-  EXPECT_FALSE(test_roots->Contains(root_cert_2->os_cert_handle()));
+  EXPECT_TRUE(test_roots->Contains(nss_root_cert_1.get()));
+  EXPECT_FALSE(test_roots->Contains(nss_root_cert_2.get()));
 
   EXPECT_TRUE(test_roots->Add(root_cert_2.get()));
-  EXPECT_TRUE(test_roots->Contains(root_cert_1->os_cert_handle()));
-  EXPECT_TRUE(test_roots->Contains(root_cert_2->os_cert_handle()));
+  EXPECT_TRUE(test_roots->Contains(nss_root_cert_1.get()));
+  EXPECT_TRUE(test_roots->Contains(nss_root_cert_2.get()));
 
   test_roots->Clear();
-  EXPECT_FALSE(test_roots->Contains(root_cert_1->os_cert_handle()));
-  EXPECT_FALSE(test_roots->Contains(root_cert_2->os_cert_handle()));
+  EXPECT_FALSE(test_roots->Contains(nss_root_cert_1.get()));
+  EXPECT_FALSE(test_roots->Contains(nss_root_cert_2.get()));
 }
 #endif
 

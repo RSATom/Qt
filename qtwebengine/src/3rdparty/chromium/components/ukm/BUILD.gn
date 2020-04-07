@@ -26,9 +26,10 @@ static_library("ukm") {
   ]
 
   public_deps = [
-    "//components/metrics/proto",
     "//services/metrics/public/cpp:metrics_cpp",
-    "//services/metrics/public/interfaces",
+    "//services/metrics/public/cpp:ukm_builders",
+    "//services/metrics/public/mojom",
+    "//third_party/metrics_proto",
   ]
 
   deps = [
@@ -38,23 +39,6 @@ static_library("ukm") {
     "//components/prefs",
     "//components/variations",
     "//url",
-  ]
-}
-
-static_library("ukm_interface") {
-  sources = [
-    "ukm_interface.cc",
-    "ukm_interface.h",
-  ]
-
-  public_deps = [
-    "//base",
-    "//services/metrics/public/interfaces",
-  ]
-
-  deps = [
-    ":ukm",
-    "//mojo/public/cpp/bindings",
   ]
 }
 
@@ -72,6 +56,10 @@ static_library("observers") {
     "//components/history/core/browser",
     "//components/sync",
   ]
+
+  public_deps = [
+    "//components/unified_consent",
+  ]
 }
 
 static_library("test_support") {
@@ -83,7 +71,7 @@ static_library("test_support") {
 
   public_deps = [
     ":ukm",
-    "//components/metrics/proto",
+    "//third_party/metrics_proto",
   ]
   deps = [
     "//base",
@@ -109,7 +97,9 @@ source_set("unit_tests") {
     "//components/metrics",
     "//components/metrics:test_support",
     "//components/prefs:test_support",
+    "//components/sync",
     "//components/sync:test_support_driver",
+    "//components/sync_preferences:test_support",
     "//components/variations",
     "//net:test_support",
     "//services/metrics/public/cpp:ukm_builders",
@@ -124,7 +114,7 @@ test("ukm_unittests") {
   deps = [
     ":unit_tests",
     "//base",
-    "//base/test:run_all_unittests",
     "//base/test:test_support",
+    "//components/test:run_all_unittests",
   ]
 }

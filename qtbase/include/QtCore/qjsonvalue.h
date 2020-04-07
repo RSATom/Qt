@@ -1,1 +1,1 @@
-#include "../../src/corelib/json/qjsonvalue.h"
+#include "../../src/corelib/serialization/qjsonvalue.h"

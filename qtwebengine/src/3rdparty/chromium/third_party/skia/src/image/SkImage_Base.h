@@ -20,7 +20,7 @@
 
 #include <new>
 
-class GrSamplerParams;
+class GrSamplerState;
 class SkImageCacherator;
 
 enum {
@@ -35,7 +35,12 @@ public:
     // Implementors: if you can not return the value, return an invalid ImageInfo with w=0 & h=0
     // & unknown color space.
     virtual SkImageInfo onImageInfo() const = 0;
+    virtual SkColorType onColorType() const = 0;
     virtual SkAlphaType onAlphaType() const = 0;
+
+    virtual SkIRect onGetSubset() const {
+        return { 0, 0, this->width(), this->height() };
+    }
 
     virtual bool onPeekPixels(SkPixmap*) const { return false; }
 
@@ -48,18 +53,18 @@ public:
 #if SK_SUPPORT_GPU
     virtual GrTextureProxy* peekProxy() const { return nullptr; }
     virtual sk_sp<GrTextureProxy> asTextureProxyRef() const { return nullptr; }
-    virtual sk_sp<GrTextureProxy> asTextureProxyRef(GrContext*, const GrSamplerParams&,
+    virtual sk_sp<GrTextureProxy> asTextureProxyRef(GrContext*, const GrSamplerState&,
                                                     SkColorSpace*, sk_sp<SkColorSpace>*,
                                                     SkScalar scaleAdjust[2]) const = 0;
     virtual sk_sp<GrTextureProxy> refPinnedTextureProxy(uint32_t* uniqueID) const {
         return nullptr;
     }
-    virtual GrBackendObject onGetTextureHandle(bool flushPendingGrContextIO,
-                                               GrSurfaceOrigin* origin) const {
-        return 0;
-    }
+
     virtual GrTexture* onGetTexture() const { return nullptr; }
 #endif
+    virtual GrBackendTexture onGetBackendTexture(bool flushPendingGrContextIO,
+                                                 GrSurfaceOrigin* origin) const;
+
     virtual SkImageCacherator* peekCacherator() const { return nullptr; }
 
     // return a read-only copy of the pixels. We promise to not modify them,
@@ -69,9 +74,9 @@ public:
 
     virtual sk_sp<SkImage> onMakeSubset(const SkIRect&) const = 0;
 
-    virtual SkData* onRefEncoded() const { return nullptr; }
+    virtual sk_sp<SkData> onRefEncoded() const { return nullptr; }
 
-    virtual bool onAsLegacyBitmap(SkBitmap*, LegacyBitmapMode) const;
+    virtual bool onAsLegacyBitmap(SkBitmap*) const;
 
     // True for picture-backed and codec-backed
     virtual bool onIsLazyGenerated() const { return false; }
@@ -90,8 +95,7 @@ public:
     virtual bool onPinAsTexture(GrContext*) const { return false; }
     virtual void onUnpinAsTexture(GrContext*) const {}
 
-    virtual sk_sp<SkImage> onMakeColorSpace(sk_sp<SkColorSpace>, SkColorType,
-                                            SkTransferFunctionBehavior) const = 0;
+    virtual sk_sp<SkImage> onMakeColorSpace(sk_sp<SkColorSpace>, SkColorType) const = 0;
 protected:
     SkImage_Base(int width, int height, uint32_t uniqueID);
 

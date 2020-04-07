@@ -33,26 +33,26 @@
 #include "spacer_widget_p.h"
 #include "qdesigner_propertysheet_p.h"
 
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerIntegrationInterface>
-#include <QtDesigner/QDesignerFormWindowInterface>
-#include <QtDesigner/QDesignerFormWindowCursorInterface>
-#include <QtDesigner/QDesignerDynamicPropertySheetExtension>
-#include <QtDesigner/QDesignerPropertySheetExtension>
-#include <QtDesigner/QDesignerPropertyEditorInterface>
-#include <QtDesigner/QDesignerObjectInspectorInterface>
-#include <QtDesigner/QDesignerIntegrationInterface>
-#include <QtDesigner/QDesignerWidgetDataBaseInterface>
-#include <QtDesigner/QExtensionManager>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/abstractintegration.h>
+#include <QtDesigner/abstractformwindow.h>
+#include <QtDesigner/abstractformwindowcursor.h>
+#include <QtDesigner/dynamicpropertysheet.h>
+#include <QtDesigner/propertysheet.h>
+#include <QtDesigner/abstractpropertyeditor.h>
+#include <QtDesigner/abstractobjectinspector.h>
+#include <QtDesigner/abstractintegration.h>
+#include <QtDesigner/abstractwidgetdatabase.h>
+#include <QtDesigner/qextensionmanager.h>
 
-#include <QtCore/QSize>
-#include <QtCore/QTextStream>
-#include <QtWidgets/QWidget>
-#include <QtWidgets/QApplication>
-#include <QtWidgets/QAction>
-#include <QtWidgets/QDialog>
-#include <QtWidgets/QPushButton>
-#include <QtWidgets/QLayout>
+#include <QtCore/qsize.h>
+#include <QtCore/qtextstream.h>
+#include <QtWidgets/qwidget.h>
+#include <QtWidgets/qapplication.h>
+#include <QtWidgets/qaction.h>
+#include <QtWidgets/qdialog.h>
+#include <QtWidgets/qpushbutton.h>
+#include <QtWidgets/qlayout.h>
 #include <qdebug.h>
 
 QT_BEGIN_NAMESPACE
@@ -156,14 +156,21 @@ void checkSizes(QDesignerFormWindowInterface *fw, const QSize &size, QSize *form
 enum RectSubPropertyMask {  SubPropertyX=1, SubPropertyY = 2, SubPropertyWidth = 4, SubPropertyHeight = 8 };
 enum SizePolicySubPropertyMask { SubPropertyHSizePolicy = 1, SubPropertyHStretch = 2, SubPropertyVSizePolicy = 4, SubPropertyVStretch = 8 };
 enum AlignmentSubPropertyMask { SubPropertyHorizontalAlignment = 1, SubPropertyVerticalAlignment = 2 };
-enum StringSubPropertyMask { SubPropertyStringValue = 1, SubPropertyStringComment = 2, SubPropertyStringTranslatable = 4, SubPropertyStringDisambiguation = 8 };
-enum StringListSubPropertyMask { SubPropertyStringListValue = 1, SubPropertyStringListComment = 2, SubPropertyStringListTranslatable = 4, SubPropertyStringListDisambiguation = 8 };
-enum KeySequenceSubPropertyMask { SubPropertyKeySequenceValue = 1, SubPropertyKeySequenceComment = 2, SubPropertyKeySequenceTranslatable = 4, SubPropertyKeySequenceDisambiguation = 8 };
+enum StringSubPropertyMask { SubPropertyStringValue = 1, SubPropertyStringComment = 2,
+                             SubPropertyStringTranslatable = 4, SubPropertyStringDisambiguation = 8,
+                             SubPropertyStringId = 16 };
+enum StringListSubPropertyMask { SubPropertyStringListValue = 1, SubPropertyStringListComment = 2,
+                                 SubPropertyStringListTranslatable = 4, SubPropertyStringListDisambiguation = 8,
+                                 SubPropertyStringListId = 16 };
+enum KeySequenceSubPropertyMask { SubPropertyKeySequenceValue = 1, SubPropertyKeySequenceComment = 2,
+                                  SubPropertyKeySequenceTranslatable = 4, SubPropertyKeySequenceDisambiguation = 8,
+                                  SubPropertyKeySequenceId = 16 };
 
 enum CommonSubPropertyMask { SubPropertyAll = 0xFFFFFFFF };
 
 // Set the mask flag in mask if the properties do not match.
-#define COMPARE_SUBPROPERTY(object1, object2, getter, mask, maskFlag) if (object1.getter() != object2.getter()) mask |= maskFlag;
+#define COMPARE_SUBPROPERTY(object1, object2, getter, mask, maskFlag) \
+    if (object1.getter() != object2.getter()) (mask) |= (maskFlag);
 
 // find changed subproperties of a rectangle
 unsigned compareSubProperties(const QRect & r1, const QRect & r2)
@@ -202,6 +209,7 @@ unsigned compareSubProperties(const qdesigner_internal::PropertySheetStringValue
     COMPARE_SUBPROPERTY(str1, str2, comment,        rc, SubPropertyStringComment)
     COMPARE_SUBPROPERTY(str1, str2, translatable,   rc, SubPropertyStringTranslatable)
     COMPARE_SUBPROPERTY(str1, str2, disambiguation, rc, SubPropertyStringDisambiguation)
+    COMPARE_SUBPROPERTY(str1, str2, id,             rc, SubPropertyStringId)
     return rc;
 }
 // find changed subproperties of qdesigner_internal::PropertySheetStringListValue
@@ -212,6 +220,7 @@ unsigned compareSubProperties(const qdesigner_internal::PropertySheetStringListV
     COMPARE_SUBPROPERTY(str1, str2, comment,        rc, SubPropertyStringListComment)
     COMPARE_SUBPROPERTY(str1, str2, translatable,   rc, SubPropertyStringListTranslatable)
     COMPARE_SUBPROPERTY(str1, str2, disambiguation, rc, SubPropertyStringListDisambiguation)
+    COMPARE_SUBPROPERTY(str1, str2, id,             rc, SubPropertyStringListId)
     return rc;
 }
 // find changed subproperties of qdesigner_internal::PropertySheetKeySequenceValue
@@ -222,6 +231,7 @@ unsigned compareSubProperties(const qdesigner_internal::PropertySheetKeySequence
     COMPARE_SUBPROPERTY(str1, str2, comment,        rc, SubPropertyKeySequenceComment)
     COMPARE_SUBPROPERTY(str1, str2, translatable,   rc, SubPropertyKeySequenceTranslatable)
     COMPARE_SUBPROPERTY(str1, str2, disambiguation, rc, SubPropertyKeySequenceDisambiguation)
+    COMPARE_SUBPROPERTY(str1, str2, id,             rc, SubPropertyKeySequenceId)
     return rc;
 }
 
@@ -351,7 +361,8 @@ unsigned compareSubProperties(const QVariant & q1, const QVariant & q2, qdesigne
 }
 
 // Apply  the sub property if mask flag is set in mask
-#define SET_SUBPROPERTY(rc, newValue, getter, setter, mask, maskFlag) if (mask & maskFlag) rc.setter(newValue.getter());
+#define SET_SUBPROPERTY(rc, newValue, getter, setter, mask, maskFlag) \
+    if ((mask) & (maskFlag)) rc.setter((newValue).getter());
 
 // apply changed subproperties to a rectangle
 QRect applyRectSubProperty(const QRect &oldValue, const QRect &newValue, unsigned mask)
@@ -395,6 +406,7 @@ qdesigner_internal::PropertySheetStringValue applyStringSubProperty(const qdesig
     SET_SUBPROPERTY(rc, newValue, comment, setComment, mask, SubPropertyStringComment)
     SET_SUBPROPERTY(rc, newValue, translatable, setTranslatable, mask, SubPropertyStringTranslatable)
     SET_SUBPROPERTY(rc, newValue, disambiguation, setDisambiguation, mask, SubPropertyStringDisambiguation)
+    SET_SUBPROPERTY(rc, newValue, id, setId, mask, SubPropertyStringId)
     return rc;
 }
 
@@ -407,6 +419,7 @@ qdesigner_internal::PropertySheetStringListValue applyStringListSubProperty(cons
     SET_SUBPROPERTY(rc, newValue, comment, setComment, mask, SubPropertyStringListComment)
     SET_SUBPROPERTY(rc, newValue, translatable, setTranslatable, mask, SubPropertyStringListTranslatable)
     SET_SUBPROPERTY(rc, newValue, disambiguation, setDisambiguation, mask, SubPropertyStringListDisambiguation)
+    SET_SUBPROPERTY(rc, newValue, id, setId, mask, SubPropertyStringListId)
     return rc;
 }
 
@@ -419,6 +432,7 @@ qdesigner_internal::PropertySheetKeySequenceValue applyKeySequenceSubProperty(co
     SET_SUBPROPERTY(rc, newValue, comment, setComment, mask, SubPropertyKeySequenceComment)
     SET_SUBPROPERTY(rc, newValue, translatable, setTranslatable, mask, SubPropertyKeySequenceTranslatable)
     SET_SUBPROPERTY(rc, newValue, disambiguation, setDisambiguation, mask, SubPropertyKeySequenceDisambiguation)
+    SET_SUBPROPERTY(rc, newValue, id, setId, mask, SubPropertyKeySequenceId)
     return rc;
 }
 
@@ -1238,7 +1252,8 @@ unsigned SetPropertyCommand::subPropertyMask(const QVariant &newValue, QObject *
 void SetPropertyCommand::setDescription()
 {
     if (propertyHelperList().size() == 1) {
-        setText(QApplication::translate("Command", "Changed '%1' of '%2'").arg(propertyName()).arg(propertyHelperList().at(0)->object()->objectName()));
+        setText(QApplication::translate("Command", "Changed '%1' of '%2'")
+                                        .arg(propertyName(), propertyHelperList().at(0)->object()->objectName()));
     } else {
         int count = propertyHelperList().size();
         setText(QCoreApplication::translate("Command", "Changed '%1' of %n objects", "", count).arg(propertyName()));
@@ -1337,7 +1352,8 @@ bool ResetPropertyCommand::init(const ObjectList &list, const QString &aproperty
 void ResetPropertyCommand::setDescription()
 {
     if (propertyHelperList().size() == 1) {
-        setText(QCoreApplication::translate("Command", "Reset '%1' of '%2'").arg(propertyName()).arg(propertyHelperList().at(0)->object()->objectName()));
+        setText(QCoreApplication::translate("Command", "Reset '%1' of '%2'")
+                                            .arg(propertyName(), propertyHelperList().at(0)->object()->objectName()));
     } else {
         int count = propertyHelperList().size();
         setText(QCoreApplication::translate("Command", "Reset '%1' of %n objects", "", count).arg(propertyName()));
@@ -1423,10 +1439,12 @@ void AddDynamicPropertyCommand::undo()
 void AddDynamicPropertyCommand::setDescription()
 {
     if (m_selection.size() == 1) {
-        setText(QApplication::translate("Command", "Add dynamic property '%1' to '%2'").arg(m_propertyName).arg(m_selection.first()->objectName()));
+        setText(QApplication::translate("Command", "Add dynamic property '%1' to '%2'")
+                                       .arg(m_propertyName, m_selection.first()->objectName()));
     } else {
         int count = m_selection.size();
-        setText(QCoreApplication::translate("Command", "Add dynamic property '%1' to %n objects", "", count).arg(m_propertyName));
+        setText(QCoreApplication::translate("Command", "Add dynamic property '%1' to %n objects", "", count)
+                                            .arg(m_propertyName));
     }
 }
 
@@ -1510,10 +1528,14 @@ void RemoveDynamicPropertyCommand::undo()
 void RemoveDynamicPropertyCommand::setDescription()
 {
     if (m_objectToValueAndChanged.size() == 1) {
-        setText(QApplication::translate("Command", "Remove dynamic property '%1' from '%2'").arg(m_propertyName).arg(m_objectToValueAndChanged.constBegin().key()->objectName()));
+        setText(QApplication::translate("Command",
+                                        "Remove dynamic property '%1' from '%2'")
+                                        .arg(m_propertyName, m_objectToValueAndChanged.constBegin().key()->objectName()));
     } else {
         int count = m_objectToValueAndChanged.size();
-        setText(QApplication::translate("Command", "Remove dynamic property '%1' from %n objects", "", count).arg(m_propertyName));
+        setText(QApplication::translate("Command",
+                                        "Remove dynamic property '%1' from %n objects", "", count)
+                                        .arg(m_propertyName));
     }
 }
 

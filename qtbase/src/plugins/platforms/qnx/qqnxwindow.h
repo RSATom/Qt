@@ -94,7 +94,7 @@ public:
     void setMMRendererWindow(screen_window_t handle);
     void clearMMRendererWindow();
 
-    QQnxScreen *screen() const { return m_screen; }
+    QPlatformScreen *screen() const override;
     const QList<QQnxWindow*>& children() const { return m_childWindows; }
 
     QQnxWindow *findWindow(screen_window_t windowHandle);
@@ -112,12 +112,13 @@ public:
 
     bool shouldMakeFullScreen() const;
 
+    void windowPosted();
+
 protected:
     virtual int pixelFormat() const = 0;
     virtual void resetBuffers() = 0;
 
     void initWindow();
-    void windowPosted();
 
     screen_context_t m_screenContext;
 

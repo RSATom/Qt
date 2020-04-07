@@ -4,7 +4,6 @@
 
 #include <utility>
 
-#include "base/memory/ptr_util.h"
 #include "base/test/values_test_util.h"
 #include "base/values.h"
 #include "extensions/common/manifest_constants.h"
@@ -95,7 +94,7 @@ TEST_F(OAuth2ManifestTest, OAuth2SectionParsing) {
   base_manifest.SetString(keys::kVersion, "0.1");
   base_manifest.SetInteger(keys::kManifestVersion, 2);
   base_manifest.SetString(keys::kOAuth2ClientId, "client1");
-  auto scopes = base::MakeUnique<base::ListValue>();
+  auto scopes = std::make_unique<base::ListValue>();
   scopes->AppendString("scope1");
   scopes->AppendString("scope2");
   base_manifest.Set(keys::kOAuth2Scopes, std::move(scopes));

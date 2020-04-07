@@ -32,6 +32,25 @@ using net::NetworkChangeNotifier;
 
 namespace extensions {
 
+namespace {
+
+const UrlHandlerInfo* GetMatchingUrlHandler(const Extension* extension,
+                                            const GURL& url) {
+  const std::vector<UrlHandlerInfo>* handlers =
+      UrlHandlers::GetUrlHandlers(extension);
+  if (!handlers)
+    return nullptr;
+
+  for (const auto& handler : *handlers) {
+    if (handler.patterns.MatchesURL(url))
+      return &handler;
+  }
+
+  return nullptr;
+}
+
+}  // namespace
+
 namespace mkeys = manifest_keys;
 namespace merrors = manifest_errors;
 
@@ -56,31 +75,29 @@ const std::vector<UrlHandlerInfo>* UrlHandlers::GetUrlHandlers(
 }
 
 // static
-bool UrlHandlers::CanExtensionHandleUrl(
-    const Extension* extension,
-    const GURL& url) {
-  return FindMatchingUrlHandler(extension, url) != NULL;
+bool UrlHandlers::CanPlatformAppHandleUrl(const Extension* app,
+                                          const GURL& url) {
+  DCHECK(app->is_platform_app());
+  return !!GetMatchingPlatformAppUrlHandler(app, url);
 }
 
 // static
-const UrlHandlerInfo* UrlHandlers::FindMatchingUrlHandler(
-    const Extension* extension,
+bool UrlHandlers::CanBookmarkAppHandleUrl(const Extension* app,
+                                          const GURL& url) {
+  DCHECK(app->from_bookmark());
+  return !!GetMatchingUrlHandler(app, url);
+}
+
+// static
+const UrlHandlerInfo* UrlHandlers::GetMatchingPlatformAppUrlHandler(
+    const Extension* app,
     const GURL& url) {
-  const std::vector<UrlHandlerInfo>* handlers = GetUrlHandlers(extension);
-  if (!handlers)
-    return NULL;
+  DCHECK(app->is_platform_app());
 
   if (NetworkChangeNotifier::IsOffline() &&
-      !OfflineEnabledInfo::IsOfflineEnabled(extension))
-    return NULL;
-
-  for (std::vector<extensions::UrlHandlerInfo>::const_iterator it =
-       handlers->begin(); it != handlers->end(); it++) {
-    if (it->patterns.MatchesURL(url))
-      return &(*it);
-  }
-
-  return NULL;
+      !OfflineEnabledInfo::IsOfflineEnabled(app))
+    return nullptr;
+  return GetMatchingUrlHandler(app, url);
 }
 
 UrlHandlersParser::UrlHandlersParser() {
@@ -134,6 +151,11 @@ bool ParseUrlHandler(const std::string& handler_id,
 }
 
 bool UrlHandlersParser::Parse(Extension* extension, base::string16* error) {
+  if (extension->GetType() == Manifest::TYPE_HOSTED_APP &&
+      !extension->from_bookmark()) {
+    *error = base::ASCIIToUTF16(merrors::kUrlHandlersInHostedApps);
+    return false;
+  }
   std::unique_ptr<UrlHandlers> info(new UrlHandlers);
   const base::DictionaryValue* all_handlers = NULL;
   if (!extension->manifest()->GetDictionary(
@@ -142,7 +164,7 @@ bool UrlHandlersParser::Parse(Extension* extension, base::string16* error) {
     return false;
   }
 
-  DCHECK(extension->is_platform_app());
+  DCHECK(extension->is_platform_app() || extension->from_bookmark());
 
   for (base::DictionaryValue::Iterator iter(*all_handlers); !iter.IsAtEnd();
        iter.Advance()) {
@@ -164,8 +186,9 @@ bool UrlHandlersParser::Parse(Extension* extension, base::string16* error) {
   return true;
 }
 
-const std::vector<std::string> UrlHandlersParser::Keys() const {
-  return SingleKey(mkeys::kUrlHandlers);
+base::span<const char* const> UrlHandlersParser::Keys() const {
+  static constexpr const char* kKeys[] = {mkeys::kUrlHandlers};
+  return kKeys;
 }
 
 }  // namespace extensions

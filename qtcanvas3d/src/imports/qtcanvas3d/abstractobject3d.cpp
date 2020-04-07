@@ -48,9 +48,11 @@ QT_CANVAS3D_BEGIN_NAMESPACE
  * \since QtCanvas3D 1.0
  * \inqmlmodule QtCanvas3D
  * \brief Base type for Canvas3D types representing OpenGL resources.
+ * \deprecated
  *
- * An uncreatable QML type that is the base type for other Canvas3D types that represent
+ * \b{Deprecated in Qt 5.12.} An uncreatable QML type that is the base type for other Canvas3D types that represent
  * OpenGL resources.
+ *
  */
 
 CanvasAbstractObject::CanvasAbstractObject(CanvasGlCommandQueue *queue, QObject *parent) :
@@ -69,7 +71,8 @@ CanvasAbstractObject::~CanvasAbstractObject()
 
 /*!
  * \qmlproperty string Canvas3DAbstractObject::name
- * Name of the object.
+ * \b{Deprecated in Qt 5.12.} Name of the object.
+ * \b{Canvas3D module and APIs were deprecated in Qt 5.12.}
  */
 void CanvasAbstractObject::setName(const QString &name)
 {
@@ -94,7 +97,7 @@ bool CanvasAbstractObject::hasSpecificName() const
 
 /*!
  * \qmlproperty bool Canvas3DAbstractObject::invalidated
- * Indicates if this object has been invalidated. Invalidated objects cannot be valid parameters
+ * \b{Deprecated in Qt 5.12.} Indicates if this object has been invalidated. Invalidated objects cannot be valid parameters
  * in Context3D methods and will result in \c{Context3D.INVALID_OPERATION} error if used.
  * Objects are invalidated when context is lost and cannot be validated again.
  *

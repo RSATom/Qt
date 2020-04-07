@@ -12,6 +12,16 @@ examplesinstallpath     = macextras
 # Add a generic 'Qt Code Sample' thumbnail in Qt Creator for all examples
 manifestmeta.thumbnail.names += "QtMacExtras/*"
 
+# dummy module header for clang, found under doc/
+moduleheader = QtMacExtrasDoc
+
+# pass include paths to clang
+includepaths += -I . \
+                -I .. \
+                -I ./QtMacExtras
+
+clangdefines += Q_OS_OSX Q_OS_MACOS QT_PLATFORM_UIKIT
+
 headerdirs += ..
 sourcedirs += ..
 imagedirs += images

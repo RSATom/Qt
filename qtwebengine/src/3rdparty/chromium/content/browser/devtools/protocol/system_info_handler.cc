@@ -10,13 +10,17 @@
 
 #include "base/bind.h"
 #include "base/command_line.h"
-#include "base/memory/ptr_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "build/build_config.h"
 #include "content/browser/gpu/compositor_util.h"
-#include "content/public/browser/gpu_data_manager.h"
+#include "content/browser/gpu/gpu_data_manager_impl.h"
+#include "content/browser/gpu/gpu_process_host.h"
 #include "gpu/config/gpu_feature_type.h"
 #include "gpu/config/gpu_info.h"
 #include "gpu/config/gpu_switches.h"
+#if defined(OS_CHROMEOS)
+#include "gpu/config/gpu_util.h"
+#endif
 
 namespace content {
 namespace protocol {
@@ -28,7 +32,12 @@ using SystemInfo::GPUInfo;
 using GetInfoCallback = SystemInfo::Backend::GetInfoCallback;
 
 // Give the GPU process a few seconds to provide GPU info.
+// Linux Debug builds need more time -- see Issue 796437.
+#if defined(OS_LINUX) && !defined(NDEBUG)
+const int kGPUInfoWatchdogTimeoutMs = 20000;
+#else
 const int kGPUInfoWatchdogTimeoutMs = 5000;
+#endif
 
 class AuxGPUInfoEnumerator : public gpu::GPUInfo::Enumerator {
  public:
@@ -74,6 +83,10 @@ class AuxGPUInfoEnumerator : public gpu::GPUInfo::Enumerator {
 
   void EndVideoEncodeAcceleratorSupportedProfile() override {}
 
+  void BeginOverlayCapability() override {}
+
+  void EndOverlayCapability() override {}
+
   void BeginAuxAttributes() override {
     in_aux_attributes_ = true;
   }
@@ -97,7 +110,7 @@ std::unique_ptr<GPUDevice> GPUDeviceToProtocol(
 }
 
 void SendGetInfoResponse(std::unique_ptr<GetInfoCallback> callback) {
-  gpu::GPUInfo gpu_info = GpuDataManager::GetInstance()->GetGPUInfo();
+  gpu::GPUInfo gpu_info = GpuDataManagerImpl::GetInstance()->GetGPUInfo();
   std::unique_ptr<protocol::Array<GPUDevice>> devices =
       protocol::Array<GPUDevice>::create();
   devices->addItem(GPUDeviceToProtocol(gpu_info.gpu));
@@ -108,6 +121,9 @@ void SendGetInfoResponse(std::unique_ptr<GetInfoCallback> callback) {
       protocol::DictionaryValue::create();
   AuxGPUInfoEnumerator enumerator(aux_attributes.get());
   gpu_info.EnumerateFields(&enumerator);
+  enumerator.BeginAuxAttributes();
+  enumerator.AddInt("processCrashCount", GpuProcessHost::GetGpuCrashCount());
+  enumerator.EndAuxAttributes();
 
   std::unique_ptr<base::DictionaryValue> base_feature_status =
       GetFeatureStatus();
@@ -148,19 +164,18 @@ class SystemInfoHandlerGpuObserver : public content::GpuDataManagerObserver {
       : callback_(std::move(callback)),
         weak_factory_(this) {
     BrowserThread::PostDelayedTask(
-        BrowserThread::UI,
-        FROM_HERE,
-        base::Bind(&SystemInfoHandlerGpuObserver::ObserverWatchdogCallback,
-                   weak_factory_.GetWeakPtr()),
+        BrowserThread::UI, FROM_HERE,
+        base::BindOnce(&SystemInfoHandlerGpuObserver::ObserverWatchdogCallback,
+                       weak_factory_.GetWeakPtr()),
         base::TimeDelta::FromMilliseconds(kGPUInfoWatchdogTimeoutMs));
 
-    GpuDataManager::GetInstance()->AddObserver(this);
-    // There's no other method available to request just essential GPU info.
-    GpuDataManager::GetInstance()->RequestCompleteGpuInfoIfNeeded();
+    GpuDataManagerImpl::GetInstance()->AddObserver(this);
+    OnGpuInfoUpdate();
   }
 
   void OnGpuInfoUpdate() override {
-    UnregisterAndSendResponse();
+    if (GpuDataManagerImpl::GetInstance()->IsGpuFeatureInfoAvailable())
+      UnregisterAndSendResponse();
   }
 
   void OnGpuProcessCrashed(base::TerminationStatus exit_code) override {
@@ -169,11 +184,20 @@ class SystemInfoHandlerGpuObserver : public content::GpuDataManagerObserver {
 
   void ObserverWatchdogCallback() {
     DCHECK_CURRENTLY_ON(BrowserThread::UI);
+#if defined(OS_CHROMEOS)
+    // TODO(zmo): CHECK everywhere once https://crbug.com/796386 is fixed.
+    gpu::GpuFeatureInfo gpu_feature_info =
+        gpu::ComputeGpuFeatureInfoWithHardwareAccelerationDisabled();
+    GpuDataManagerImpl::GetInstance()->UpdateGpuFeatureInfo(gpu_feature_info,
+                                                            base::nullopt);
     UnregisterAndSendResponse();
+#else
+    CHECK(false) << "Gathering system GPU info took more than 5 seconds.";
+#endif
   }
 
   void UnregisterAndSendResponse() {
-    GpuDataManager::GetInstance()->RemoveObserver(this);
+    GpuDataManagerImpl::GetInstance()->RemoveObserver(this);
     SendGetInfoResponse(std::move(callback_));
     delete this;
   }
@@ -194,30 +218,11 @@ void SystemInfoHandler::Wire(UberDispatcher* dispatcher) {
   SystemInfo::Dispatcher::wire(dispatcher, this);
 }
 
-void SystemInfoHandler::GetInfo(
-    std::unique_ptr<GetInfoCallback> callback) {
-  std::string reason;
-  if (!GpuDataManager::GetInstance()->GpuAccessAllowed(&reason) ||
-      GpuDataManager::GetInstance()->IsEssentialGpuInfoAvailable() ||
-      base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kGpuTestingNoCompleteInfoCollection)) {
-    // The GpuDataManager already has all of the information needed to make
-    // GPU-based blacklisting decisions. Post a task to give it to the
-    // client asynchronously.
-    //
-    // Waiting for complete GPU info in the if-test above seems to
-    // frequently hit internal timeouts in the launching of the unsandboxed
-    // GPU process in debug builds on Windows.
-    BrowserThread::PostTask(
-        BrowserThread::UI,
-        FROM_HERE,
-        base::Bind(&SendGetInfoResponse, base::Passed(std::move(callback))));
-  } else {
-    // We will be able to get more information from the GpuDataManager.
-    // Register a transient observer with it to call us back when the
-    // information is available.
-    new SystemInfoHandlerGpuObserver(std::move(callback));
-  }
+void SystemInfoHandler::GetInfo(std::unique_ptr<GetInfoCallback> callback) {
+  // We will be able to get more information from the GpuDataManager.
+  // Register a transient observer with it to call us back when the
+  // information is available.
+  new SystemInfoHandlerGpuObserver(std::move(callback));
 }
 
 }  // namespace protocol

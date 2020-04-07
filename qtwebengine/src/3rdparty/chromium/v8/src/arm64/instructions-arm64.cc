@@ -4,14 +4,11 @@
 
 #if V8_TARGET_ARCH_ARM64
 
-#define ARM64_DEFINE_FP_STATICS
-
 #include "src/arm64/assembler-arm64-inl.h"
 #include "src/arm64/instructions-arm64.h"
 
 namespace v8 {
 namespace internal {
-
 
 bool Instruction::IsLoad() const {
   if (Mask(LoadStoreAnyFMask) != LoadStoreAnyFixed) {
@@ -73,7 +70,7 @@ bool Instruction::IsStore() const {
 static uint64_t RotateRight(uint64_t value,
                             unsigned int rotate,
                             unsigned int width) {
-  DCHECK(width <= 64);
+  DCHECK_LE(width, 64);
   rotate &= 63;
   return ((value & ((1UL << rotate) - 1UL)) << (width - rotate)) |
          (value >> rotate);
@@ -230,21 +227,21 @@ bool Instruction::IsTargetInImmPCOffsetRange(Instruction* target) {
   return IsValidImmPCOffset(BranchType(), DistanceTo(target));
 }
 
-void Instruction::SetImmPCOffsetTarget(Assembler::IsolateData isolate_data,
+void Instruction::SetImmPCOffsetTarget(const AssemblerOptions& options,
                                        Instruction* target) {
   if (IsPCRelAddressing()) {
-    SetPCRelImmTarget(isolate_data, target);
+    SetPCRelImmTarget(options, target);
   } else if (BranchType() != UnknownBranchType) {
     SetBranchImmTarget(target);
   } else if (IsUnresolvedInternalReference()) {
-    SetUnresolvedInternalReferenceImmTarget(isolate_data, target);
+    SetUnresolvedInternalReferenceImmTarget(options, target);
   } else {
     // Load literal (offset from PC).
     SetImmLLiteral(target);
   }
 }
 
-void Instruction::SetPCRelImmTarget(Assembler::IsolateData isolate_data,
+void Instruction::SetPCRelImmTarget(const AssemblerOptions& options,
                                     Instruction* target) {
   // ADRP is not supported, so 'this' must point to an ADR instruction.
   DCHECK(IsAdr());
@@ -255,7 +252,7 @@ void Instruction::SetPCRelImmTarget(Assembler::IsolateData isolate_data,
     imm = Assembler::ImmPCRelAddress(static_cast<int>(target_offset));
     SetInstructionBits(Mask(~ImmPCRel_mask) | imm);
   } else {
-    PatchingAssembler patcher(isolate_data, reinterpret_cast<byte*>(this),
+    PatchingAssembler patcher(options, reinterpret_cast<byte*>(this),
                               PatchingAssembler::kAdrFarPatchableNInstrs);
     patcher.PatchAdrFar(target_offset);
   }
@@ -296,7 +293,7 @@ void Instruction::SetBranchImmTarget(Instruction* target) {
 }
 
 void Instruction::SetUnresolvedInternalReferenceImmTarget(
-    Assembler::IsolateData isolate_data, Instruction* target) {
+    const AssemblerOptions& options, Instruction* target) {
   DCHECK(IsUnresolvedInternalReference());
   DCHECK(IsAligned(DistanceTo(target), kInstructionSize));
   DCHECK(is_int32(DistanceTo(target) >> kInstructionSizeLog2));
@@ -305,7 +302,7 @@ void Instruction::SetUnresolvedInternalReferenceImmTarget(
   uint32_t high16 = unsigned_bitextract_32(31, 16, target_offset);
   uint32_t low16 = unsigned_bitextract_32(15, 0, target_offset);
 
-  PatchingAssembler patcher(isolate_data, reinterpret_cast<byte*>(this), 2);
+  PatchingAssembler patcher(options, reinterpret_cast<byte*>(this), 2);
   patcher.brk(high16);
   patcher.brk(low16);
 }
@@ -660,8 +657,8 @@ void NEONFormatDecoder::SetFormatMaps(const NEONFormatMap* format0,
                                       const NEONFormatMap* format2) {
   DCHECK_NOT_NULL(format0);
   formats_[0] = format0;
-  formats_[1] = (format1 == NULL) ? formats_[0] : format1;
-  formats_[2] = (format2 == NULL) ? formats_[1] : format2;
+  formats_[1] = (format1 == nullptr) ? formats_[0] : format1;
+  formats_[2] = (format2 == nullptr) ? formats_[1] : format2;
 }
 
 void NEONFormatDecoder::SetFormatMap(unsigned index,

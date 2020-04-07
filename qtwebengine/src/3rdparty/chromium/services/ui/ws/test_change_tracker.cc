@@ -11,6 +11,7 @@
 #include "mojo/public/cpp/bindings/map.h"
 #include "services/ui/common/util.h"
 #include "ui/base/cursor/cursor.h"
+#include "ui/gfx/geometry/point_conversions.h"
 
 namespace ui {
 
@@ -18,7 +19,8 @@ namespace ws {
 
 std::string WindowIdToString(Id id) {
   return (id == 0) ? "null"
-                   : base::StringPrintf("%d,%d", HiWord(id), LoWord(id));
+                   : base::StringPrintf("%d,%d", ClientIdFromTransportId(id),
+                                        ClientWindowIdFromTransportId(id));
 }
 
 namespace {
@@ -30,6 +32,8 @@ std::string DirectionToString(mojom::OrderDirection direction) {
 enum class ChangeDescriptionType {
   ONE,
   TWO,
+  // Includes display id and location of events.
+  THREE,
 };
 
 std::string ChangeToDescription(const Change& change,
@@ -211,7 +215,7 @@ TestWindow WindowDataToTestWindow(const mojom::WindowDataPtr& data) {
   window.parent_id = data->parent_id;
   window.window_id = data->window_id;
   window.visible = data->visible;
-  window.properties = mojo::UnorderedMapToMap(data->properties);
+  window.properties = mojo::FlatMapToMap(data->properties);
   return window;
 }
 
@@ -223,7 +227,6 @@ void WindowDatasToTestWindows(const std::vector<mojom::WindowDataPtr>& data,
 
 Change::Change()
     : type(CHANGE_TYPE_EMBED),
-      client_id(0),
       window_id(0),
       window_id2(0),
       window_id3(0),
@@ -233,7 +236,8 @@ Change::Change()
       bool_value(false),
       float_value(0.f),
       cursor_type(ui::CursorType::kNull),
-      change_id(0u) {}
+      change_id(0u),
+      display_id(0) {}
 
 Change::Change(const Change& other) = default;
 
@@ -243,12 +247,9 @@ TestChangeTracker::TestChangeTracker() : delegate_(NULL) {}
 
 TestChangeTracker::~TestChangeTracker() {}
 
-void TestChangeTracker::OnEmbed(ClientSpecificId client_id,
-                                mojom::WindowDataPtr root,
-                                bool drawn) {
+void TestChangeTracker::OnEmbed(mojom::WindowDataPtr root, bool drawn) {
   Change change;
   change.type = CHANGE_TYPE_EMBED;
-  change.client_id = client_id;
   change.bool_value = drawn;
   change.windows.push_back(WindowDataToTestWindow(root));
   AddChange(change);
@@ -383,21 +384,28 @@ void TestChangeTracker::OnWindowParentDrawnStateChanged(Id window_id,
   AddChange(change);
 }
 
-void TestChangeTracker::OnWindowInputEvent(Id window_id,
-                                           const ui::Event& event,
-                                           bool matches_pointer_watcher) {
+void TestChangeTracker::OnWindowInputEvent(
+    Id window_id,
+    const ui::Event& event,
+    int64_t display_id,
+    const gfx::PointF& event_location_in_screen_pixel_layout,
+    bool matches_pointer_watcher) {
   Change change;
   change.type = CHANGE_TYPE_INPUT_EVENT;
   change.window_id = window_id;
   change.event_action = static_cast<int32_t>(event.type());
   change.matches_pointer_watcher = matches_pointer_watcher;
+  change.display_id = display_id;
+  if (event.IsLocatedEvent())
+    change.location1 = event.AsLocatedEvent()->root_location();
+  change.location2 = event_location_in_screen_pixel_layout;
   if (event.IsKeyEvent() && event.AsKeyEvent()->properties())
     change.key_event_properties = *event.AsKeyEvent()->properties();
   AddChange(change);
 }
 
 void TestChangeTracker::OnPointerEventObserved(const ui::Event& event,
-                                               uint32_t window_id) {
+                                               Id window_id) {
   Change change;
   change.type = CHANGE_TYPE_POINTER_WATCHER_EVENT;
   change.event_action = static_cast<int32_t>(event.type());

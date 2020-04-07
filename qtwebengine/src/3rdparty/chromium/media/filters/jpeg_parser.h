@@ -44,6 +44,8 @@ enum JpegMarker {
   JPEG_SOS = 0xDA,    // start of scan
   JPEG_DQT = 0xDB,    // define quantization table
   JPEG_DRI = 0xDD,    // define restart internal
+  JPEG_APP0 = 0xE0,   // start of application segment (APP0)
+  JPEG_APP1 = 0xE1,   // start of application segment (APP1)
   JPEG_MARKER_PREFIX = 0xFF,  // jpeg marker prefix
 };
 
@@ -55,8 +57,16 @@ const size_t kJpegMaxQuantizationTableNum = 4;
 struct JpegHuffmanTable {
   bool valid;
   uint8_t code_length[16];
-  uint8_t code_value[256];
+  uint8_t code_value[162];
 };
+
+// K.3.3.1 "Specification of typical tables for DC difference coding"
+MEDIA_EXPORT extern const JpegHuffmanTable
+    kDefaultDcTable[kJpegMaxHuffmanTableNumBaseline];
+
+// K.3.3.2 "Specification of typical tables for AC coefficient coding"
+MEDIA_EXPORT extern const JpegHuffmanTable
+    kDefaultAcTable[kJpegMaxHuffmanTableNumBaseline];
 
 // Parsing result of JPEG DQT marker.
 struct JpegQuantizationTable {

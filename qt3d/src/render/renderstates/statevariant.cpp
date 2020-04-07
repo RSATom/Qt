@@ -44,81 +44,8 @@ QT_BEGIN_NAMESPACE
 namespace Qt3DRender {
 namespace Render {
 
-void StateVariant::apply(GraphicsContext *gc) const
-{
-#if !defined(_MSC_VER) || (_MSC_VER > 1800)
-    switch (type) {
-    case BlendEquationArgumentsMask:
-        data.blendEquationArguments.apply(gc);
-        return;
-    case BlendStateMask:
-        data.blendEquation.apply(gc);
-        return;
-    case AlphaTestMask:
-        data.alphaFunc.apply(gc);
-        return;
-    case MSAAEnabledStateMask:
-        data.msaaEnabled.apply(gc);
-        return;
-    case DepthTestStateMask:
-        data.depthTest.apply(gc);
-        return;
-    case DepthWriteStateMask:
-        data.noDepthMask.apply(gc);
-        return;
-    case CullFaceStateMask:
-        data.cullFace.apply(gc);
-        return;
-    case FrontFaceStateMask:
-        data.frontFace.apply(gc);
-        return;
-    case DitheringStateMask:
-        data.dithering.apply(gc);
-        return;
-    case ScissorStateMask:
-        data.scissorTest.apply(gc);
-        return;
-    case StencilTestStateMask:
-        data.stencilTest.apply(gc);
-        return;
-    case AlphaCoverageStateMask:
-        data.alphaCoverage.apply(gc);
-        return;
-    case PointSizeMask:
-        data.pointSize.apply(gc);
-        return;
-    case PolygonOffsetStateMask:
-        data.polygonOffset.apply(gc);
-        return;
-    case ColorStateMask:
-        data.colorMask.apply(gc);
-        return;
-    case ClipPlaneMask:
-        data.clipPlane.apply(gc);
-        return;
-    case SeamlessCubemapMask:
-        data.seamlessCubemap.apply(gc);
-        return;
-    case StencilOpMask:
-        data.stencilOp.apply(gc);
-        return;
-    case StencilWriteStateMask:
-        data.stencilMask.apply(gc);
-        return;
-    case LineWidthMask:
-        data.lineWidth.apply(gc);
-        return;
-    default:
-        Q_UNREACHABLE();
-    }
-#else
-    m_impl->apply(gc);
-#endif
-}
-
 RenderStateImpl *StateVariant::state()
 {
-#if !defined(_MSC_VER) || (_MSC_VER > 1800)
     switch (type) {
     case BlendEquationArgumentsMask:
     case BlendStateMask:
@@ -144,14 +71,10 @@ RenderStateImpl *StateVariant::state()
     default:
         Q_UNREACHABLE();
     }
-#else
-    return m_impl.data();
-#endif
 }
 
 const RenderStateImpl *StateVariant::constState() const
 {
-#if !defined(_MSC_VER) || (_MSC_VER > 1800)
     switch (type) {
     case BlendEquationArgumentsMask:
     case BlendStateMask:
@@ -177,9 +100,6 @@ const RenderStateImpl *StateVariant::constState() const
     default:
         Q_UNREACHABLE();
     }
-#else
-   return m_impl.data();
-#endif
 }
 
 bool StateVariant::operator ==(const StateVariant &other) const

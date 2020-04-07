@@ -51,8 +51,8 @@ bool SelectionController::OnMousePressed(
           delegate_->SetTextBeingDragged(true);
         } else {
           delegate_->OnBeforePointerAction();
-          const bool selection_changed =
-              render_text->MoveCursorTo(event.location(), event.IsShiftDown());
+          const bool selection_changed = render_text->MoveCursorToPoint(
+              event.location(), event.IsShiftDown());
           delegate_->OnAfterPointerAction(false, selection_changed);
         }
         break;
@@ -84,7 +84,7 @@ bool SelectionController::OnMousePressed(
       !delegate_->IsReadOnly()) {
     delegate_->OnBeforePointerAction();
     const bool selection_changed =
-        render_text->MoveCursorTo(event.location(), false);
+        render_text->MoveCursorToPoint(event.location(), false);
     const bool text_changed = delegate_->PasteSelectionClipboard();
     delegate_->OnAfterPointerAction(text_changed,
                                     selection_changed | text_changed);
@@ -133,7 +133,7 @@ void SelectionController::OnMouseReleased(const ui::MouseEvent& event) {
   if (delegate_->HasTextBeingDragged()) {
     delegate_->OnBeforePointerAction();
     const bool selection_changed =
-        render_text->MoveCursorTo(event.location(), false);
+        render_text->MoveCursorToPoint(event.location(), false);
     delegate_->OnAfterPointerAction(false, selection_changed);
   }
 
@@ -154,12 +154,18 @@ void SelectionController::OnMouseCaptureLost() {
     delegate_->UpdateSelectionClipboard();
 }
 
+void SelectionController::OffsetDoubleClickWord(int offset) {
+  double_click_word_.set_start(double_click_word_.start() + offset);
+  double_click_word_.set_end(double_click_word_.end() + offset);
+}
+
 void SelectionController::TrackMouseClicks(const ui::MouseEvent& event) {
   if (event.IsOnlyLeftMouseButton()) {
     base::TimeDelta time_delta = event.time_stamp() - last_click_time_;
     if (!last_click_time_.is_null() &&
         time_delta.InMilliseconds() <= GetDoubleClickInterval() &&
-        !View::ExceededDragThreshold(event.location() - last_click_location_)) {
+        !View::ExceededDragThreshold(event.root_location() -
+                                     last_click_root_location_)) {
       // Upon clicking after a triple click, the count should go back to
       // double click and alternate between double and triple. This assignment
       // maps 0 to 1, 1 to 2, 2 to 1.
@@ -168,7 +174,7 @@ void SelectionController::TrackMouseClicks(const ui::MouseEvent& event) {
       aggregated_clicks_ = 0;
     }
     last_click_time_ = event.time_stamp();
-    last_click_location_ = event.location();
+    last_click_root_location_ = event.root_location();
   }
 }
 
@@ -176,7 +182,7 @@ void SelectionController::SelectWord(const gfx::Point& point) {
   gfx::RenderText* render_text = GetRenderText();
   DCHECK(render_text);
   delegate_->OnBeforePointerAction();
-  render_text->MoveCursorTo(point, false);
+  render_text->MoveCursorToPoint(point, false);
   render_text->SelectWord();
   delegate_->OnAfterPointerAction(false, true);
 }
@@ -199,7 +205,7 @@ void SelectionController::SelectThroughLastDragLocation() {
 
   delegate_->OnBeforePointerAction();
 
-  render_text->MoveCursorTo(last_drag_location_, true);
+  render_text->MoveCursorToPoint(last_drag_location_, true);
 
   if (aggregated_clicks_ == 1) {
     render_text->SelectWord();

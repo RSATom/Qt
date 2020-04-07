@@ -10,10 +10,11 @@
 #include <memory>
 #include <vector>
 
-#include "core/fxcrt/fx_basic.h"
+#include "core/fxcrt/unowned_ptr.h"
 #include "fxjs/fxjse.h"
 #include "v8/include/v8.h"
 
+class CFXJS_Engine;
 class CFXJSE_Class;
 class CFXJSE_Value;
 struct FXJSE_CLASS_DESCRIPTOR;
@@ -28,39 +29,29 @@ class CFXJSE_Context {
   explicit CFXJSE_Context(v8::Isolate* pIsolate);
   ~CFXJSE_Context();
 
-  v8::Isolate* GetIsolate() const { return m_pIsolate; }
+  v8::Isolate* GetIsolate() const { return m_pIsolate.Get(); }
   v8::Local<v8::Context> GetContext();
   std::unique_ptr<CFXJSE_Value> GetGlobalObject();
   void AddClass(std::unique_ptr<CFXJSE_Class> pClass);
-  CFXJSE_Class* GetClassByName(const CFX_ByteStringC& szName) const;
+  CFXJSE_Class* GetClassByName(const ByteStringView& szName) const;
   void EnableCompatibleMode();
   bool ExecuteScript(const char* szScript,
                      CFXJSE_Value* lpRetValue,
                      CFXJSE_Value* lpNewThisObject = nullptr);
 
- protected:
-  friend class CFXJSE_ScopeUtil_IsolateHandleContext;
-
-  CFXJSE_Context();
-  CFXJSE_Context(const CFXJSE_Context&);
-  CFXJSE_Context& operator=(const CFXJSE_Context&);
+ private:
+  CFXJSE_Context(const CFXJSE_Context&) = delete;
+  CFXJSE_Context& operator=(const CFXJSE_Context&) = delete;
 
   v8::Global<v8::Context> m_hContext;
-  v8::Isolate* m_pIsolate;
+  UnownedPtr<v8::Isolate> m_pIsolate;
   std::vector<std::unique_ptr<CFXJSE_Class>> m_rgClasses;
 };
 
-v8::Local<v8::Object> FXJSE_CreateReturnValue(v8::Isolate* pIsolate,
-                                              v8::TryCatch& trycatch);
-
-v8::Local<v8::Object> FXJSE_GetGlobalObjectFromContext(
-    const v8::Local<v8::Context>& hContext);
-
 void FXJSE_UpdateObjectBinding(v8::Local<v8::Object>& hObject,
-                               CFXJSE_HostObject* lpNewBinding = nullptr);
+                               CFXJSE_HostObject* lpNewBinding);
 
-CFXJSE_HostObject* FXJSE_RetrieveObjectBinding(
-    const v8::Local<v8::Object>& hJSObject,
-    CFXJSE_Class* lpClass = nullptr);
+CFXJSE_HostObject* FXJSE_RetrieveObjectBinding(v8::Local<v8::Object> hJSObject,
+                                               CFXJSE_Class* lpClass);
 
 #endif  // FXJS_CFXJSE_CONTEXT_H_

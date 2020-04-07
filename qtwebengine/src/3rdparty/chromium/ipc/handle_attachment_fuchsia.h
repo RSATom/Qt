@@ -5,52 +5,36 @@
 #ifndef IPC_HANDLE_ATTACHMENT_FUCHSIA_H_
 #define IPC_HANDLE_ATTACHMENT_FUCHSIA_H_
 
+#include <lib/zx/handle.h>
 #include <stdint.h>
 
-#include "base/process/process_handle.h"
 #include "ipc/handle_fuchsia.h"
-#include "ipc/ipc_export.h"
 #include "ipc/ipc_message_attachment.h"
+#include "ipc/ipc_message_support_export.h"
 
 namespace IPC {
 namespace internal {
 
-// This class represents a Fuchsia mx_handle_t attached to a Chrome IPC message.
-class IPC_EXPORT HandleAttachmentFuchsia : public MessageAttachment {
+// This class represents a Fuchsia zx_handle_t attached to a Chrome IPC message.
+class IPC_MESSAGE_SUPPORT_EXPORT HandleAttachmentFuchsia
+    : public MessageAttachment {
  public:
   // This constructor makes a copy of |handle| and takes ownership of the
   // result. Should only be called by the sender of a Chrome IPC message.
-  HandleAttachmentFuchsia(const mx_handle_t& handle,
-                          HandleFuchsia::Permissions permissions);
+  explicit HandleAttachmentFuchsia(zx_handle_t handle);
 
-  enum FromWire {
-    FROM_WIRE,
-  };
   // This constructor takes ownership of |handle|. Should only be called by the
   // receiver of a Chrome IPC message.
-  HandleAttachmentFuchsia(const mx_handle_t& handle, FromWire from_wire);
+  explicit HandleAttachmentFuchsia(zx::handle handle);
 
   Type GetType() const override;
 
-  mx_handle_t get_handle() const { return handle_; }
-
-  // The caller of this method has taken ownership of |handle_|.
-  void reset_handle_ownership() {
-    owns_handle_ = false;
-    handle_ = MX_HANDLE_INVALID;
-  }
+  zx_handle_t Take() { return handle_.release(); }
 
  private:
   ~HandleAttachmentFuchsia() override;
-  mx_handle_t handle_;
-  HandleFuchsia::Permissions permissions_;
 
-  // In the sender process, the attachment owns the mx_handle_t of a newly
-  // created message. The attachment broker will eventually take ownership, and
-  // set this member to |false|. In the destination process, the attachment owns
-  // the handle until a call to ParamTraits<HandleFuchsia>::Read() takes
-  // ownership.
-  bool owns_handle_;
+  zx::handle handle_;
 };
 
 }  // namespace internal

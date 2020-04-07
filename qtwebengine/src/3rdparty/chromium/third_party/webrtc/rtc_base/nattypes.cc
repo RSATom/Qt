@@ -8,38 +8,38 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/rtc_base/nattypes.h"
+#include "rtc_base/nattypes.h"
 
-#include "webrtc/rtc_base/checks.h"
+#include "rtc_base/checks.h"
 
 namespace rtc {
 
 class SymmetricNAT : public NAT {
-public:
- bool IsSymmetric() override { return true; }
- bool FiltersIP() override { return true; }
- bool FiltersPort() override { return true; }
+ public:
+  bool IsSymmetric() override { return true; }
+  bool FiltersIP() override { return true; }
+  bool FiltersPort() override { return true; }
 };
 
 class OpenConeNAT : public NAT {
-public:
- bool IsSymmetric() override { return false; }
- bool FiltersIP() override { return false; }
- bool FiltersPort() override { return false; }
+ public:
+  bool IsSymmetric() override { return false; }
+  bool FiltersIP() override { return false; }
+  bool FiltersPort() override { return false; }
 };
 
 class AddressRestrictedNAT : public NAT {
-public:
- bool IsSymmetric() override { return false; }
- bool FiltersIP() override { return true; }
- bool FiltersPort() override { return false; }
+ public:
+  bool IsSymmetric() override { return false; }
+  bool FiltersIP() override { return true; }
+  bool FiltersPort() override { return false; }
 };
 
 class PortRestrictedNAT : public NAT {
-public:
- bool IsSymmetric() override { return false; }
- bool FiltersIP() override { return true; }
- bool FiltersPort() override { return true; }
+ public:
+  bool IsSymmetric() override { return false; }
+  bool FiltersIP() override { return true; }
+  bool FiltersPort() override { return true; }
 };
 
 NAT* NAT::Create(NATType type) {
@@ -58,4 +58,4 @@ NAT* NAT::Create(NATType type) {
   }
 }
 
-} // namespace rtc
+}  // namespace rtc

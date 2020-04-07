@@ -58,7 +58,6 @@
 #include <string.h>
 
 #include <openssl/err.h>
-#include <openssl/lhash.h>
 #include <openssl/mem.h>
 #include <openssl/thread.h>
 #include <openssl/x509.h>
@@ -434,6 +433,19 @@ void X509_OBJECT_free_contents(X509_OBJECT *a)
     }
 }
 
+int X509_OBJECT_get_type(const X509_OBJECT *a)
+{
+    return a->type;
+}
+
+X509 *X509_OBJECT_get0_X509(const X509_OBJECT *a)
+{
+    if (a == NULL || a->type != X509_LU_X509) {
+        return NULL;
+    }
+    return a->data.x509;
+}
+
 static int x509_object_idx_cnt(STACK_OF(X509_OBJECT) *h, int type,
                                X509_NAME *name, int *pnmatch)
 {
@@ -461,6 +473,7 @@ static int x509_object_idx_cnt(STACK_OF(X509_OBJECT) *h, int type,
     }
 
     size_t idx;
+    sk_X509_OBJECT_sort(h);
     if (!sk_X509_OBJECT_find(h, &idx, &stmp))
         return -1;
 
@@ -494,6 +507,11 @@ X509_OBJECT *X509_OBJECT_retrieve_by_subject(STACK_OF(X509_OBJECT) *h,
     if (idx == -1)
         return NULL;
     return sk_X509_OBJECT_value(h, idx);
+}
+
+STACK_OF(X509_OBJECT) *X509_STORE_get0_objects(X509_STORE *st)
+{
+    return st->objs;
 }
 
 STACK_OF (X509) * X509_STORE_get1_certs(X509_STORE_CTX *ctx, X509_NAME *nm)
@@ -587,6 +605,7 @@ X509_OBJECT *X509_OBJECT_retrieve_match(STACK_OF(X509_OBJECT) *h,
     size_t idx, i;
     X509_OBJECT *obj;
 
+    sk_X509_OBJECT_sort(h);
     if (!sk_X509_OBJECT_find(h, &idx, x)) {
         return NULL;
     }
@@ -684,17 +703,129 @@ int X509_STORE_set1_param(X509_STORE *ctx, X509_VERIFY_PARAM *param)
     return X509_VERIFY_PARAM_set1(ctx->param, param);
 }
 
+X509_VERIFY_PARAM *X509_STORE_get0_param(X509_STORE *ctx)
+{
+    return ctx->param;
+}
+
+void X509_STORE_set_verify(X509_STORE *ctx, X509_STORE_CTX_verify_fn verify)
+{
+    ctx->verify = verify;
+}
+
+X509_STORE_CTX_verify_fn X509_STORE_get_verify(X509_STORE *ctx)
+{
+    return ctx->verify;
+}
+
 void X509_STORE_set_verify_cb(X509_STORE *ctx,
-                              int (*verify_cb) (int, X509_STORE_CTX *))
+                              X509_STORE_CTX_verify_cb verify_cb)
 {
     ctx->verify_cb = verify_cb;
 }
 
-void X509_STORE_set_lookup_crls_cb(X509_STORE *ctx,
-                                   STACK_OF (X509_CRL) *
-                                   (*cb) (X509_STORE_CTX *ctx, X509_NAME *nm))
+X509_STORE_CTX_verify_cb X509_STORE_get_verify_cb(X509_STORE *ctx)
 {
-    ctx->lookup_crls = cb;
+    return ctx->verify_cb;
+}
+
+void X509_STORE_set_get_issuer(X509_STORE *ctx,
+                               X509_STORE_CTX_get_issuer_fn get_issuer)
+{
+    ctx->get_issuer = get_issuer;
+}
+
+X509_STORE_CTX_get_issuer_fn X509_STORE_get_get_issuer(X509_STORE *ctx)
+{
+    return ctx->get_issuer;
+}
+
+void X509_STORE_set_check_issued(X509_STORE *ctx,
+                                 X509_STORE_CTX_check_issued_fn check_issued)
+{
+    ctx->check_issued = check_issued;
+}
+
+X509_STORE_CTX_check_issued_fn X509_STORE_get_check_issued(X509_STORE *ctx)
+{
+    return ctx->check_issued;
+}
+
+void X509_STORE_set_check_revocation(X509_STORE *ctx,
+                                     X509_STORE_CTX_check_revocation_fn check_revocation)
+{
+    ctx->check_revocation = check_revocation;
+}
+
+X509_STORE_CTX_check_revocation_fn X509_STORE_get_check_revocation(X509_STORE *ctx)
+{
+    return ctx->check_revocation;
+}
+
+void X509_STORE_set_get_crl(X509_STORE *ctx,
+                            X509_STORE_CTX_get_crl_fn get_crl)
+{
+    ctx->get_crl = get_crl;
+}
+
+X509_STORE_CTX_get_crl_fn X509_STORE_get_get_crl(X509_STORE *ctx)
+{
+    return ctx->get_crl;
+}
+
+void X509_STORE_set_check_crl(X509_STORE *ctx,
+                              X509_STORE_CTX_check_crl_fn check_crl)
+{
+    ctx->check_crl = check_crl;
+}
+
+X509_STORE_CTX_check_crl_fn X509_STORE_get_check_crl(X509_STORE *ctx)
+{
+    return ctx->check_crl;
+}
+
+void X509_STORE_set_cert_crl(X509_STORE *ctx,
+                             X509_STORE_CTX_cert_crl_fn cert_crl)
+{
+    ctx->cert_crl = cert_crl;
+}
+
+X509_STORE_CTX_cert_crl_fn X509_STORE_get_cert_crl(X509_STORE *ctx)
+{
+    return ctx->cert_crl;
+}
+
+void X509_STORE_set_lookup_certs(X509_STORE *ctx,
+                                 X509_STORE_CTX_lookup_certs_fn lookup_certs)
+{
+    ctx->lookup_certs = lookup_certs;
+}
+
+X509_STORE_CTX_lookup_certs_fn X509_STORE_get_lookup_certs(X509_STORE *ctx)
+{
+    return ctx->lookup_certs;
+}
+
+void X509_STORE_set_lookup_crls(X509_STORE *ctx,
+                                X509_STORE_CTX_lookup_crls_fn lookup_crls)
+{
+    ctx->lookup_crls = lookup_crls;
+}
+
+X509_STORE_CTX_lookup_crls_fn X509_STORE_get_lookup_crls(X509_STORE *ctx)
+{
+    return ctx->lookup_crls;
+}
+
+void X509_STORE_set_cleanup(X509_STORE *ctx,
+                            X509_STORE_CTX_cleanup_fn ctx_cleanup)
+{
+    ctx->cleanup = ctx_cleanup;
+}
+
+X509_STORE_CTX_cleanup_fn X509_STORE_get_cleanup(X509_STORE *ctx)
+{
+    return ctx->cleanup;
 }
 
 X509_STORE *X509_STORE_CTX_get0_store(X509_STORE_CTX *ctx)

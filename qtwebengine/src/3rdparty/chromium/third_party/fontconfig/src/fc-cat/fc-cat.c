@@ -40,6 +40,15 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <errno.h>
+#include <locale.h>
+
+#ifdef ENABLE_NLS
+#include <libintl.h>
+#define _(x)		(dgettext(GETTEXT_PACKAGE, x))
+#else
+#define dgettext(d, s)	(s)
+#define _(x)		(x)
+#endif
 
 #ifndef HAVE_GETOPT
 #define HAVE_GETOPT 0
@@ -148,27 +157,27 @@ usage (char *program, int error)
 {
     FILE *file = error ? stderr : stdout;
 #if HAVE_GETOPT_LONG
-    fprintf (file, "usage: %s [-rv] [--recurse] [--verbose] [*-%s" FC_CACHE_SUFFIX "|directory]...\n",
+    fprintf (file, _("usage: %s [-rv] [--recurse] [--verbose] [*-%s" FC_CACHE_SUFFIX "|directory]...\n"),
 	     program, FC_ARCHITECTURE);
     fprintf (file, "       %s [-Vh] [--version] [--help]\n", program);
 #else
-    fprintf (file, "usage: %s [-rvVh] [*-%s" FC_CACHE_SUFFIX "|directory]...\n",
+    fprintf (file, _("usage: %s [-rvVh] [*-%s" FC_CACHE_SUFFIX "|directory]...\n"),
 	     program, FC_ARCHITECTURE);
 #endif
-    fprintf (file, "Reads font information cache from:\n");
-    fprintf (file, " 1) specified fontconfig cache file\n");
-    fprintf (file, " 2) related to a particular font directory\n");
+    fprintf (file, _("Reads font information cache from:\n"));
+    fprintf (file, _(" 1) specified fontconfig cache file\n"));
+    fprintf (file, _(" 2) related to a particular font directory\n"));
     fprintf (file, "\n");
 #if HAVE_GETOPT_LONG
-    fprintf (file, "  -r, --recurse        recurse into subdirectories\n");
-    fprintf (file, "  -v, --verbose        be verbose\n");
-    fprintf (file, "  -V, --version        display font config version and exit\n");
-    fprintf (file, "  -h, --help           display this help and exit\n");
+    fprintf (file, _("  -r, --recurse        recurse into subdirectories\n"));
+    fprintf (file, _("  -v, --verbose        be verbose\n"));
+    fprintf (file, _("  -V, --version        display font config version and exit\n"));
+    fprintf (file, _("  -h, --help           display this help and exit\n"));
 #else
-    fprintf (file, "  -r         (recurse) recurse into subdirectories\n");
-    fprintf (file, "  -v         (verbose) be verbose\n");
-    fprintf (file, "  -V         (version) display font config version and exit\n");
-    fprintf (file, "  -h         (help)    display this help and exit\n");
+    fprintf (file, _("  -r         (recurse) recurse into subdirectories\n"));
+    fprintf (file, _("  -v         (verbose) be verbose\n"));
+    fprintf (file, _("  -V         (version) display font config version and exit\n"));
+    fprintf (file, _("  -h         (help)    display this help and exit\n"));
 #endif
     exit (error);
 }
@@ -263,6 +272,7 @@ main (int argc, char **argv)
 #if HAVE_GETOPT_LONG || HAVE_GETOPT
     int		c;
 
+    setlocale (LC_ALL, "");
 #if HAVE_GETOPT_LONG
     while ((c = getopt_long (argc, argv, "Vvrh", longopts, NULL)) != -1)
 #else
@@ -294,15 +304,16 @@ main (int argc, char **argv)
     config = FcInitLoadConfig ();
     if (!config)
     {
-	fprintf (stderr, "%s: Can't init font config library\n", argv[0]);
+	fprintf (stderr, _("%s: Can't initialize font config library\n"), argv[0]);
 	return 1;
     }
     FcConfigSetCurrent (config);
+    FcConfigDestroy (config);
     
     args = FcStrSetCreate ();
     if (!args)
     {
-	fprintf (stderr, "%s: malloc failure\n", argv[0]);
+	fprintf (stderr, _("%s: malloc failure\n"), argv[0]);
 	return 1;
     }
     if (i < argc)
@@ -311,15 +322,9 @@ main (int argc, char **argv)
 	{
 	    if (!FcStrSetAddFilename (args, (const FcChar8 *) argv[i]))
 	    {
-		fprintf (stderr, "%s: malloc failure\n", argv[0]);
+		fprintf (stderr, _("%s: malloc failure\n"), argv[0]);
 		return 1;
 	    }
-	}
-	arglist = FcStrListCreate (args);
-	if (!arglist)
-	{
-	    fprintf (stderr, "%s: malloc failure\n", argv[0]);
-	    return 1;
 	}
     }
     else
@@ -329,7 +334,7 @@ main (int argc, char **argv)
 	while ((arg = FcStrListNext (arglist)))
 	    if (!FcStrSetAdd (args, arg))
 	    {
-		fprintf (stderr, "%s: malloc failure\n", argv[0]);
+		fprintf (stderr, _("%s: malloc failure\n"), argv[0]);
 		return 1;
 	    }
 	FcStrListDone (arglist);
@@ -337,23 +342,29 @@ main (int argc, char **argv)
     arglist = FcStrListCreate (args);
     if (!arglist)
     {
-	fprintf (stderr, "%s: malloc failure\n", argv[0]);
+	fprintf (stderr, _("%s: malloc failure\n"), argv[0]);
 	return 1;
     }
+    FcStrSetDestroy (args);
 
     while ((arg = FcStrListNext (arglist)))
     {
 	int	    j;
 	FcChar8	    *cache_file = NULL;
 	struct stat file_stat;
-	
+
+	/* reset errno */
+	errno = 0;
 	if (FcFileIsDir (arg))
 	    cache = FcDirCacheLoad (arg, config, &cache_file);
 	else
 	    cache = FcDirCacheLoadFile (arg, &file_stat);
 	if (!cache)
 	{
-	    perror ((char *) arg);
+	    if (errno != 0)
+		perror ((char *) arg);
+	    else
+		fprintf (stderr, "%s: Unable to load the cache: %s\n", argv[0], arg);
 	    ret++;
 	    continue;
 	}
@@ -371,7 +382,7 @@ main (int argc, char **argv)
 	{
 	    if (!first)
 		printf ("\n");
-	    printf ("Directory: %s\nCache: %s\n--------\n",
+	    printf (_("Directory: %s\nCache: %s\n--------\n"),
 		    FcCacheDir(cache), cache_file ? cache_file : arg);
 	    first = FcFalse;
 	}
@@ -384,6 +395,7 @@ main (int argc, char **argv)
 	if (cache_file)
 	    FcStrFree (cache_file);
     }
+    FcStrListDone (arglist);
 
     FcFini ();
     return 0;

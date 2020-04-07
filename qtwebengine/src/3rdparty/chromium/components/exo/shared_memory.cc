@@ -10,10 +10,9 @@
 #include <utility>
 
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "base/trace_event/trace_event.h"
 #include "components/exo/buffer.h"
-#include "gpu/ipc/client/gpu_memory_buffer_impl_shared_memory.h"
+#include "gpu/ipc/common/gpu_memory_buffer_impl_shared_memory.h"
 #include "third_party/khronos/GLES2/gl2.h"
 #include "ui/compositor/compositor.h"
 #include "ui/gfx/buffer_format_util.h"
@@ -70,7 +69,7 @@ std::unique_ptr<Buffer> SharedMemory::CreateBuffer(const gfx::Size& size,
 
   std::unique_ptr<gfx::GpuMemoryBuffer> gpu_memory_buffer =
       gpu::GpuMemoryBufferImplSharedMemory::CreateFromHandle(
-          handle, size, format, gfx::BufferUsage::GPU_READ,
+          std::move(handle), size, format, gfx::BufferUsage::GPU_READ,
           gpu::GpuMemoryBufferImpl::DestructionCallback());
   if (!gpu_memory_buffer) {
     LOG(ERROR) << "Failed to create GpuMemoryBuffer from handle";
@@ -82,7 +81,7 @@ std::unique_ptr<Buffer> SharedMemory::CreateBuffer(const gfx::Size& size,
   // buffers. Making the copy explicit allows the buffer to be reused earlier.
   bool use_zero_copy = false;
 
-  return base::MakeUnique<Buffer>(
+  return std::make_unique<Buffer>(
       std::move(gpu_memory_buffer), GL_TEXTURE_2D,
       // COMMANDS_ISSUED queries are sufficient for shared memory
       // buffers as binding to texture is implemented using a call to

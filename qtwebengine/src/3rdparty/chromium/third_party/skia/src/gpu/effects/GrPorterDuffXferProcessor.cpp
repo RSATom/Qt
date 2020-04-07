@@ -14,6 +14,7 @@
 #include "GrProcessorAnalysis.h"
 #include "GrTypes.h"
 #include "GrXferProcessor.h"
+#include "SkTo.h"
 #include "glsl/GrGLSLBlend.h"
 #include "glsl/GrGLSLFragmentShaderBuilder.h"
 #include "glsl/GrGLSLProgramDataManager.h"
@@ -397,9 +398,8 @@ static BlendFormula get_lcd_blend_formula(SkBlendMode xfermode) {
 class PorterDuffXferProcessor : public GrXferProcessor {
 public:
     PorterDuffXferProcessor(BlendFormula blendFormula, GrProcessorAnalysisCoverage coverage)
-            : INHERITED(false, false, coverage)
+            : INHERITED(kPorterDuffXferProcessor_ClassID, false, false, coverage)
             , fBlendFormula(blendFormula) {
-        this->initClassID<PorterDuffXferProcessor>();
     }
 
     const char* name() const override { return "Porter Duff"; }
@@ -440,7 +440,7 @@ static void append_color_output(const PorterDuffXferProcessor& xp,
     SkASSERT(inColor);
     switch (outputType) {
         case BlendFormula::kNone_OutputType:
-            fragBuilder->codeAppendf("%s = vec4(0.0);", output);
+            fragBuilder->codeAppendf("%s = half4(0.0);", output);
             break;
         case BlendFormula::kCoverage_OutputType:
             // We can have a coverage formula while not reading coverage if there are mixed samples.
@@ -456,10 +456,10 @@ static void append_color_output(const PorterDuffXferProcessor& xp,
             fragBuilder->codeAppendf("%s = (1.0 - %s.a) * %s;", output, inColor, inCoverage);
             break;
         case BlendFormula::kISCModulate_OutputType:
-            fragBuilder->codeAppendf("%s = (vec4(1.0) - %s) * %s;", output, inColor, inCoverage);
+            fragBuilder->codeAppendf("%s = (half4(1.0) - %s) * %s;", output, inColor, inCoverage);
             break;
         default:
-            SkFAIL("Unsupported output type.");
+            SK_ABORT("Unsupported output type.");
             break;
     }
 }
@@ -509,8 +509,8 @@ class ShaderPDXferProcessor : public GrXferProcessor {
 public:
     ShaderPDXferProcessor(bool hasMixedSamples, SkBlendMode xfermode,
                           GrProcessorAnalysisCoverage coverage)
-            : INHERITED(true, hasMixedSamples, coverage), fXfermode(xfermode) {
-        this->initClassID<ShaderPDXferProcessor>();
+            : INHERITED(kShaderPDXferProcessor_ClassID, true, hasMixedSamples, coverage)
+            , fXfermode(xfermode) {
     }
 
     const char* name() const override { return "Porter Duff Shader"; }
@@ -619,7 +619,7 @@ private:
 
 class GLPDLCDXferProcessor : public GrGLSLXferProcessor {
 public:
-    GLPDLCDXferProcessor(const GrProcessor&) : fLastAlpha(SK_MaxU32) {}
+    GLPDLCDXferProcessor(const GrProcessor&) : fLastAlpha(UINT32_MAX) {}
 
     ~GLPDLCDXferProcessor() override {}
 
@@ -629,8 +629,8 @@ public:
 private:
     void emitOutputsForBlendState(const EmitArgs& args) override {
         const char* alpha;
-        fAlphaUniform = args.fUniformHandler->addUniform(kFragment_GrShaderFlag, kFloat_GrSLType,
-                                                         kDefault_GrSLPrecision, "alpha", &alpha);
+        fAlphaUniform = args.fUniformHandler->addUniform(kFragment_GrShaderFlag, kHalf_GrSLType,
+                                                         "alpha", &alpha);
         GrGLSLXPFragmentBuilder* fragBuilder = args.fXPFragBuilder;
         // We want to force our primary output to be alpha * Coverage, where alpha is the alpha
         // value of the src color. We know that there are no color stages (or we wouldn't have
@@ -656,10 +656,9 @@ private:
 ///////////////////////////////////////////////////////////////////////////////
 
 PDLCDXferProcessor::PDLCDXferProcessor(GrColor blendConstant, uint8_t alpha)
-    : INHERITED(false, false, GrProcessorAnalysisCoverage::kLCD)
+    : INHERITED(kPDLCDXferProcessor_ClassID, false, false, GrProcessorAnalysisCoverage::kLCD)
     , fBlendConstant(blendConstant)
     , fAlpha(alpha) {
-    this->initClassID<PDLCDXferProcessor>();
 }
 
 sk_sp<const GrXferProcessor> PDLCDXferProcessor::Make(SkBlendMode mode,
@@ -753,7 +752,7 @@ const GrXPFactory* GrPorterDuffXPFactory::Get(SkBlendMode blendMode) {
         case SkBlendMode::kScreen:
             return &gScreenPDXPF;
         default:
-            SkFAIL("Unexpected blend mode.");
+            SK_ABORT("Unexpected blend mode.");
             return nullptr;
     }
 }

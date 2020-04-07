@@ -45,7 +45,7 @@ class QT_DATAVISUALIZATION_EXPORT Q3DInputHandler : public QAbstract3DInputHandl
     Q_PROPERTY(bool zoomAtTargetEnabled READ isZoomAtTargetEnabled WRITE setZoomAtTargetEnabled NOTIFY zoomAtTargetEnabledChanged)
 
 public:
-    explicit Q3DInputHandler(QObject *parent = Q_NULLPTR);
+    explicit Q3DInputHandler(QObject *parent = nullptr);
     virtual ~Q3DInputHandler();
 
     void setRotationEnabled(bool enable);

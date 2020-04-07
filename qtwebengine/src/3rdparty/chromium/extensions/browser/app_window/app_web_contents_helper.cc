@@ -14,7 +14,7 @@
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/suggest_permission_util.h"
 #include "extensions/common/permissions/api_permission.h"
-#include "third_party/WebKit/public/platform/WebGestureEvent.h"
+#include "third_party/blink/public/platform/web_gesture_event.h"
 
 namespace extensions {
 
@@ -42,7 +42,7 @@ content::WebContents* AppWebContentsHelper::OpenURLFromTab(
   // anchor tags (even those without target="_blank") to new tabs, but right
   // now we can't distinguish between those and <meta> refreshes or window.href
   // navigations, which we don't want to allow.
-  // TOOD(mihaip): Can we check for user gestures instead?
+  // TODO(mihaip): Can we check for user gestures instead?
   WindowOpenDisposition disposition = params.disposition;
   if (disposition == WindowOpenDisposition::CURRENT_TAB) {
     web_contents_->GetMainFrame()->AddMessageToConsole(
@@ -84,16 +84,17 @@ void AppWebContentsHelper::RequestToLockMouse() const {
 
 void AppWebContentsHelper::RequestMediaAccessPermission(
     const content::MediaStreamRequest& request,
-    const content::MediaResponseCallback& callback) const {
+    content::MediaResponseCallback callback) const {
   const Extension* extension = GetExtension();
   if (!extension)
     return;
 
-  app_delegate_->RequestMediaAccessPermission(
-      web_contents_, request, callback, extension);
+  app_delegate_->RequestMediaAccessPermission(web_contents_, request,
+                                              std::move(callback), extension);
 }
 
 bool AppWebContentsHelper::CheckMediaAccessPermission(
+    content::RenderFrameHost* render_frame_host,
     const GURL& security_origin,
     content::MediaStreamType type) const {
   const Extension* extension = GetExtension();
@@ -101,7 +102,7 @@ bool AppWebContentsHelper::CheckMediaAccessPermission(
     return false;
 
   return app_delegate_->CheckMediaAccessPermission(
-      web_contents_, security_origin, type, extension);
+      render_frame_host, security_origin, type, extension);
 }
 
 const Extension* AppWebContentsHelper::GetExtension() const {

@@ -53,7 +53,7 @@
 #endif
 #include <private/qsgmaterialshader_p.h>
 
-#if defined(Q_OS_LINUX) && !defined(Q_OS_ANDROID) && !defined(__UCLIBC__)
+#if defined(Q_OS_LINUX) && !defined(Q_OS_ANDROID) && defined(__GLIBC__)
 #define CAN_BACKTRACE_EXECINFO
 #endif
 
@@ -388,7 +388,7 @@ QSGTexture::~QSGTexture()
     it to a shader that operates on the texture coordinates 0-1 instead
     of the texture subrect inside the atlas.
 
-    If the texture is not part of a texture atlas, this function returns 0.
+    If the texture is not part of a texture atlas, this function returns \nullptr.
 
     Implementations of this function are recommended to return the same instance
     for multiple calls to limit memory usage.
@@ -399,7 +399,7 @@ QSGTexture::~QSGTexture()
 QSGTexture *QSGTexture::removedFromAtlas() const
 {
     Q_ASSERT_X(!isAtlasTexture(), "QSGTexture::removedFromAtlas()", "Called on a non-atlas texture");
-    return 0;
+    return nullptr;
 }
 
 /*!
@@ -659,17 +659,6 @@ QSGPlainTexture::~QSGPlainTexture()
 #endif
 }
 
-void qsg_swizzleBGRAToRGBA(QImage *image)
-{
-    const int width = image->width();
-    const int height = image->height();
-    for (int i = 0; i < height; ++i) {
-        uint *p = (uint *) image->scanLine(i);
-        for (int x = 0; x < width; ++x)
-            p[x] = ((p[x] << 16) & 0xff0000) | ((p[x] >> 16) & 0xff) | (p[x] & 0xff00ff00);
-    }
-}
-
 void QSGPlainTexture::setImage(const QImage &image)
 {
     m_image = image;
@@ -841,7 +830,7 @@ void QSGPlainTexture::bind()
         internalFormat = GL_RGBA;
 #endif
     } else {
-        qsg_swizzleBGRAToRGBA(&tmp);
+        tmp = std::move(tmp).convertToFormat(QImage::Format_RGBA8888_Premultiplied);
     }
 
     qint64 swizzleTime = 0;

@@ -2,47 +2,67 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef V8_OBJECTS_VISITING_H_
-#define V8_OBJECTS_VISITING_H_
+#ifndef V8_HEAP_OBJECTS_VISITING_H_
+#define V8_HEAP_OBJECTS_VISITING_H_
 
 #include "src/allocation.h"
-#include "src/heap/heap.h"
 #include "src/layout-descriptor.h"
 #include "src/objects-body-descriptors.h"
+#include "src/objects.h"
+#include "src/objects/hash-table.h"
+#include "src/objects/ordered-hash-table.h"
 #include "src/objects/string.h"
+#include "src/visitors.h"
 
 namespace v8 {
 namespace internal {
 
-#define TYPED_VISITOR_ID_LIST(V) \
-  V(AllocationSite)              \
-  V(ByteArray)                   \
-  V(BytecodeArray)               \
-  V(Cell)                        \
-  V(Code)                        \
-  V(ConsString)                  \
-  V(FixedArray)                  \
-  V(FixedDoubleArray)            \
-  V(FixedFloat64Array)           \
-  V(FixedTypedArrayBase)         \
-  V(JSArrayBuffer)               \
-  V(JSFunction)                  \
-  V(JSObject)                    \
-  V(JSRegExp)                    \
-  V(JSWeakCollection)            \
-  V(Map)                         \
-  V(Oddball)                     \
-  V(PropertyArray)               \
-  V(PropertyCell)                \
-  V(SeqOneByteString)            \
-  V(SeqTwoByteString)            \
-  V(SharedFunctionInfo)          \
-  V(SlicedString)                \
-  V(SmallOrderedHashMap)         \
-  V(SmallOrderedHashSet)         \
-  V(Symbol)                      \
-  V(ThinString)                  \
-  V(TransitionArray)             \
+class BigInt;
+class BytecodeArray;
+class DataHandler;
+class JSArrayBuffer;
+class JSRegExp;
+class JSWeakCollection;
+class UncompiledDataWithPreParsedScope;
+
+#define TYPED_VISITOR_ID_LIST(V)      \
+  V(AllocationSite)                   \
+  V(BigInt)                           \
+  V(ByteArray)                        \
+  V(BytecodeArray)                    \
+  V(Cell)                             \
+  V(Code)                             \
+  V(CodeDataContainer)                \
+  V(ConsString)                       \
+  V(DataHandler)                      \
+  V(EphemeronHashTable)               \
+  V(FeedbackCell)                     \
+  V(FeedbackVector)                   \
+  V(FixedArray)                       \
+  V(FixedDoubleArray)                 \
+  V(FixedFloat64Array)                \
+  V(FixedTypedArrayBase)              \
+  V(JSArrayBuffer)                    \
+  V(JSFunction)                       \
+  V(JSObject)                         \
+  V(JSWeakCollection)                 \
+  V(Map)                              \
+  V(Oddball)                          \
+  V(PreParsedScopeData)               \
+  V(PropertyArray)                    \
+  V(PropertyCell)                     \
+  V(PrototypeInfo)                    \
+  V(SeqOneByteString)                 \
+  V(SeqTwoByteString)                 \
+  V(SharedFunctionInfo)               \
+  V(SlicedString)                     \
+  V(SmallOrderedHashMap)              \
+  V(SmallOrderedHashSet)              \
+  V(Symbol)                           \
+  V(ThinString)                       \
+  V(TransitionArray)                  \
+  V(UncompiledDataWithPreParsedScope) \
+  V(WasmInstanceObject)               \
   V(WeakCell)
 
 // The base class for visitors that need to dispatch on object type. The default
@@ -71,6 +91,9 @@ class HeapVisitor : public ObjectVisitor {
   V8_INLINE bool ShouldVisitMapPointer() { return true; }
   // A callback for visiting the map pointer in the object header.
   V8_INLINE void VisitMapPointer(HeapObject* host, HeapObject** map);
+  // If this predicate returns false, then the heap visitor will fail
+  // in default Visit implemention for subclasses of JSObject.
+  V8_INLINE bool AllowDefaultJSObjectVisit() { return true; }
 
 #define VISIT(type) V8_INLINE ResultType Visit##type(Map* map, type* object);
   TYPED_VISITOR_ID_LIST(VISIT)
@@ -82,16 +105,16 @@ class HeapVisitor : public ObjectVisitor {
   V8_INLINE ResultType VisitJSApiObject(Map* map, JSObject* object);
   V8_INLINE ResultType VisitStruct(Map* map, HeapObject* object);
   V8_INLINE ResultType VisitFreeSpace(Map* map, FreeSpace* object);
+  V8_INLINE ResultType VisitWeakArray(Map* map, HeapObject* object);
+
+  template <typename T>
+  static V8_INLINE T* Cast(HeapObject* object);
 };
 
 template <typename ConcreteVisitor>
 class NewSpaceVisitor : public HeapVisitor<int, ConcreteVisitor> {
  public:
   V8_INLINE bool ShouldVisitMapPointer() { return false; }
-
-  void VisitCodeEntry(JSFunction* host, Address code_entry) final {
-    // Code is not in new space.
-  }
 
   // Special cases for young generation.
 
@@ -110,43 +133,6 @@ class NewSpaceVisitor : public HeapVisitor<int, ConcreteVisitor> {
   }
 };
 
-template <typename ConcreteVisitor>
-class MarkingVisitor : public HeapVisitor<int, ConcreteVisitor> {
- public:
-  explicit MarkingVisitor(Heap* heap, MarkCompactCollector* collector)
-      : heap_(heap), collector_(collector) {}
-
-  V8_INLINE bool ShouldVisitMapPointer() { return false; }
-
-  V8_INLINE int VisitJSFunction(Map* map, JSFunction* object);
-  V8_INLINE int VisitWeakCell(Map* map, WeakCell* object);
-  V8_INLINE int VisitTransitionArray(Map* map, TransitionArray* object);
-  V8_INLINE int VisitNativeContext(Map* map, Context* object);
-  V8_INLINE int VisitJSWeakCollection(Map* map, JSWeakCollection* object);
-  V8_INLINE int VisitSharedFunctionInfo(Map* map, SharedFunctionInfo* object);
-  V8_INLINE int VisitBytecodeArray(Map* map, BytecodeArray* object);
-  V8_INLINE int VisitCode(Map* map, Code* object);
-  V8_INLINE int VisitMap(Map* map, Map* object);
-  V8_INLINE int VisitJSApiObject(Map* map, JSObject* object);
-  V8_INLINE int VisitAllocationSite(Map* map, AllocationSite* object);
-
-  // ObjectVisitor implementation.
-  V8_INLINE void VisitCodeEntry(JSFunction* host, Address entry_address) final;
-  V8_INLINE void VisitEmbeddedPointer(Code* host, RelocInfo* rinfo) final;
-  V8_INLINE void VisitCellPointer(Code* host, RelocInfo* rinfo) final;
-  V8_INLINE void VisitDebugTarget(Code* host, RelocInfo* rinfo) final;
-  V8_INLINE void VisitCodeTarget(Code* host, RelocInfo* rinfo) final;
-  V8_INLINE void VisitCodeAgeSequence(Code* host, RelocInfo* rinfo) final;
-  // Skip weak next code link.
-  V8_INLINE void VisitNextCodeLink(Code* host, Object** p) final {}
-
- protected:
-  V8_INLINE void MarkMapContents(Map* map);
-
-  Heap* heap_;
-  MarkCompactCollector* collector_;
-};
-
 class WeakObjectRetainer;
 
 // A weak list is single linked list where each element has a weak pointer to
@@ -159,4 +145,4 @@ Object* VisitWeakList(Heap* heap, Object* list, WeakObjectRetainer* retainer);
 }  // namespace internal
 }  // namespace v8
 
-#endif  // V8_OBJECTS_VISITING_H_
+#endif  // V8_HEAP_OBJECTS_VISITING_H_

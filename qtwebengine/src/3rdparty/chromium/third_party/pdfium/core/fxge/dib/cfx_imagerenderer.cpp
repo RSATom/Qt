@@ -13,15 +13,14 @@
 #include "core/fxge/dib/cfx_imagetransformer.h"
 #include "third_party/base/ptr_util.h"
 
-CFX_ImageRenderer::CFX_ImageRenderer(
-    const CFX_RetainPtr<CFX_DIBitmap>& pDevice,
-    const CFX_ClipRgn* pClipRgn,
-    const CFX_RetainPtr<CFX_DIBSource>& pSource,
-    int bitmap_alpha,
-    uint32_t mask_color,
-    const CFX_Matrix* pMatrix,
-    uint32_t dib_flags,
-    bool bRgbByteOrder)
+CFX_ImageRenderer::CFX_ImageRenderer(const RetainPtr<CFX_DIBitmap>& pDevice,
+                                     const CFX_ClipRgn* pClipRgn,
+                                     const RetainPtr<CFX_DIBSource>& pSource,
+                                     int bitmap_alpha,
+                                     uint32_t mask_color,
+                                     const CFX_Matrix* pMatrix,
+                                     uint32_t dib_flags,
+                                     bool bRgbByteOrder)
     : m_pDevice(pDevice),
       m_pClipRgn(pClipRgn),
       m_Matrix(*pMatrix),
@@ -88,7 +87,7 @@ CFX_ImageRenderer::CFX_ImageRenderer(
 
 CFX_ImageRenderer::~CFX_ImageRenderer() {}
 
-bool CFX_ImageRenderer::Continue(IFX_Pause* pPause) {
+bool CFX_ImageRenderer::Continue(PauseIndicatorIface* pPause) {
   if (m_Status == 1)
     return m_Stretcher->Continue(pPause);
   if (m_Status != 2)
@@ -96,7 +95,7 @@ bool CFX_ImageRenderer::Continue(IFX_Pause* pPause) {
   if (m_pTransformer->Continue(pPause))
     return true;
 
-  CFX_RetainPtr<CFX_DIBitmap> pBitmap = m_pTransformer->DetachBitmap();
+  RetainPtr<CFX_DIBitmap> pBitmap = m_pTransformer->DetachBitmap();
   if (!pBitmap || !pBitmap->GetBuffer())
     return false;
 

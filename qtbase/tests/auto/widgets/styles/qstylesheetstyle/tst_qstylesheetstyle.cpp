@@ -33,6 +33,7 @@
 #include <QMetaObject>
 
 #include <private/qstylesheetstyle_p.h>
+#include <private/qhighdpiscaling_p.h>
 #include <QtTest/private/qtesthelpers_p.h>
 
 using namespace QTestPrivate;
@@ -98,6 +99,12 @@ private slots:
     void widgetStyle();
     void appStyle();
     void QTBUG11658_cachecrash();
+    void styleSheetTargetAttribute();
+    void unpolish();
+
+    void highdpiImages_data();
+    void highdpiImages();
+
 private:
     QColor COLOR(const QWidget& w) {
         w.ensurePolished();
@@ -734,9 +741,9 @@ void tst_QStyleSheetStyle::fontPropagation()
     QCOMPARE(FONTSIZE(pb), 20);
 
     QWidget window;
-    window.setStyleSheet("* { font-size: 10pt }");
+    window.setStyleSheet("* { font-size: 9pt }");
     pb.setParent(&window);
-    QCOMPARE(FONTSIZE(pb), 10);
+    QCOMPARE(FONTSIZE(pb), 9);
     window.setStyleSheet("");
     QCOMPARE(FONTSIZE(pb), buttonFontSize);
 
@@ -1136,7 +1143,7 @@ void tst_QStyleSheetStyle::minmaxSizes()
 
     centerOnScreen(&tabWidget);
     tabWidget.show();
-    QTest::qWait(50);
+    QVERIFY(QTest::qWaitForWindowActive(&tabWidget));
     //i allow 4px additional border from the native style (hence the -2, <=2)
     QVERIFY(qAbs(page2->maximumSize().width() - 500 - 2) <= 2);
     QVERIFY(qAbs(page2->minimumSize().width() - 250 - 2) <= 2);
@@ -1165,7 +1172,7 @@ void tst_QStyleSheetStyle::task206238_twice()
     w.setStyleSheet("background: red;");
     centerOnScreen(&w);
     w.show();
-    QTest::qWait(20);
+    QVERIFY(QTest::qWaitForWindowActive(&w));
     QCOMPARE(BACKGROUND(w) , red);
     QCOMPARE(BACKGROUND(*tw), red);
     w.setStyleSheet("background: red;");
@@ -1366,8 +1373,7 @@ void tst_QStyleSheetStyle::proxyStyle()
     layout->addWidget(pb5);
 
     w->show();
-
-    QTest::qWait(100);
+    QVERIFY(QTest::qWaitForWindowActive(w));
 
     // Test for QTBUG-7198 - style sheet overrides custom element size
     QStyleOptionViewItem opt;
@@ -1557,9 +1563,9 @@ void tst_QStyleSheetStyle::embeddedFonts()
     box.addItems(QStringList() << "First" << "Second" << "Third");
     box.setStyleSheet("QComboBox { font-size: 32px; }");
     box.show();
+    QVERIFY(QTest::qWaitForWindowActive(&box));
     embedded = box.findChild<QLineEdit *>();
     QVERIFY(embedded);
-    QTest::qWait(20);
     QCOMPARE(box.font().pixelSize(), 32);
     QCOMPARE(embedded->font().pixelSize(), 32);
 }
@@ -1652,7 +1658,7 @@ void tst_QStyleSheetStyle::task188195_baseBackground()
     tree.setStyleSheet( "QTreeView:disabled { background-color:#ab1251; }" );
     tree.move(QGuiApplication::primaryScreen()->availableGeometry().topLeft() + QPoint(20, 100));
     tree.show();
-    QTest::qWait(20);
+    QVERIFY(QTest::qWaitForWindowActive(&tree));
     QImage image(tree.width(), tree.height(), QImage::Format_ARGB32);
 
     tree.render(&image);
@@ -1673,7 +1679,7 @@ void tst_QStyleSheetStyle::task188195_baseBackground()
     table.setStyleSheet( "QTableView {background-color: #ff0000}" );
     table.move(QGuiApplication::primaryScreen()->availableGeometry().topLeft() + QPoint(300, 100));
     table.show();
-    QTest::qWait(20);
+    QVERIFY(QTest::qWaitForWindowActive(&table));
     image = QImage(table.width(), table.height(), QImage::Format_ARGB32);
     table.render(&image);
     QVERIFY(testForColors(image, Qt::red, true));
@@ -1998,6 +2004,100 @@ void tst_QStyleSheetStyle::widgetStylePropagation()
     QCOMPARE(FONTSIZE(childLabel), childExpectedSize);
     QCOMPARE(COLOR(parentLabel), parentExpectedColor);
     QCOMPARE(COLOR(childLabel), childExpectedColor);
+}
+
+void tst_QStyleSheetStyle::styleSheetTargetAttribute()
+{
+    QGroupBox gb;
+    QLabel lb(&gb);
+    QPushButton pb(&lb);
+
+    gb.ensurePolished(); lb.ensurePolished(); pb.ensurePolished();
+    QCOMPARE(gb.testAttribute(Qt::WA_StyleSheetTarget), false);
+    QCOMPARE(lb.testAttribute(Qt::WA_StyleSheetTarget), false);
+    QCOMPARE(pb.testAttribute(Qt::WA_StyleSheetTarget), false);
+
+    qApp->setStyleSheet("QPushButton { background-color: blue; }");
+
+    gb.ensurePolished(); lb.ensurePolished(); pb.ensurePolished();
+    QCOMPARE(gb.testAttribute(Qt::WA_StyleSheetTarget), false);
+    QCOMPARE(lb.testAttribute(Qt::WA_StyleSheetTarget), false);
+    QCOMPARE(pb.testAttribute(Qt::WA_StyleSheetTarget), true);
+
+    qApp->setStyleSheet("QGroupBox { background-color: blue; }");
+
+    gb.ensurePolished(); lb.ensurePolished(); pb.ensurePolished();
+    QCOMPARE(gb.testAttribute(Qt::WA_StyleSheetTarget), true);
+    QCOMPARE(lb.testAttribute(Qt::WA_StyleSheetTarget), false);
+    QCOMPARE(pb.testAttribute(Qt::WA_StyleSheetTarget), false);
+
+    qApp->setStyleSheet("QGroupBox * { background-color: blue; }");
+
+    gb.ensurePolished(); lb.ensurePolished(); pb.ensurePolished();
+    QCOMPARE(gb.testAttribute(Qt::WA_StyleSheetTarget), false);
+    QCOMPARE(lb.testAttribute(Qt::WA_StyleSheetTarget), true);
+    QCOMPARE(pb.testAttribute(Qt::WA_StyleSheetTarget), true);
+
+    qApp->setStyleSheet("* { background-color: blue; }");
+    gb.ensurePolished(); lb.ensurePolished(); pb.ensurePolished();
+    QCOMPARE(gb.testAttribute(Qt::WA_StyleSheetTarget), true);
+    QCOMPARE(lb.testAttribute(Qt::WA_StyleSheetTarget), true);
+    QCOMPARE(pb.testAttribute(Qt::WA_StyleSheetTarget), true);
+
+    qApp->setStyleSheet("QLabel { font-size: 32pt; }");
+
+    gb.ensurePolished(); lb.ensurePolished(); pb.ensurePolished();
+    QCOMPARE(gb.testAttribute(Qt::WA_StyleSheetTarget), false);
+    QCOMPARE(lb.testAttribute(Qt::WA_StyleSheetTarget), true);
+    QCOMPARE(pb.testAttribute(Qt::WA_StyleSheetTarget), false);
+
+    qApp->setStyleSheet("");
+
+    gb.ensurePolished(); lb.ensurePolished(); pb.ensurePolished();
+    QCOMPARE(gb.testAttribute(Qt::WA_StyleSheetTarget), false);
+    QCOMPARE(lb.testAttribute(Qt::WA_StyleSheetTarget), false);
+    QCOMPARE(pb.testAttribute(Qt::WA_StyleSheetTarget), false);
+}
+
+void tst_QStyleSheetStyle::unpolish()
+{
+    QWidget w;
+    QCOMPARE(w.minimumWidth(), 0);
+    w.setStyleSheet("QWidget { min-width: 100; }");
+    w.ensurePolished();
+    QCOMPARE(w.minimumWidth(), 100);
+    w.setStyleSheet("");
+    QCOMPARE(w.minimumWidth(), 0);
+}
+
+void tst_QStyleSheetStyle::highdpiImages_data()
+{
+    QTest::addColumn<qreal>("screenFactor");
+    QTest::addColumn<QColor>("color");
+
+    QTest::newRow("highdpi") << 2.0 << QColor(0x00, 0xFF, 0x00);
+    QTest::newRow("lowdpi")  << 1.0 << QColor(0xFF, 0x00, 0x00);
+}
+
+void tst_QStyleSheetStyle::highdpiImages()
+{
+    QFETCH(qreal, screenFactor);
+    QFETCH(QColor, color);
+
+    QWidget w;
+    QScreen *screen = QGuiApplication::primaryScreen();
+    w.move(screen->availableGeometry().topLeft());
+    QHighDpiScaling::setScreenFactor(screen, screenFactor);
+    w.setStyleSheet("QWidget { background-image: url(\":/images/testimage.png\"); }");
+    w.show();
+
+    QVERIFY(QTest::qWaitForWindowExposed(&w));
+    QImage image(w.size(), QImage::Format_ARGB32);
+    w.render(&image);
+    QVERIFY(testForColors(image, color));
+
+    QHighDpiScaling::setScreenFactor(screen, 1.0);
+    QHighDpiScaling::updateHighDpiScaling(); // reset to normal
 }
 
 QTEST_MAIN(tst_QStyleSheetStyle)

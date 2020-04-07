@@ -23,7 +23,7 @@
 #include "content/public/test/content_browser_test.h"
 #include "content/public/test/content_browser_test_utils.h"
 #include "content/shell/browser/shell.h"
-#include "third_party/WebKit/public/platform/WebInputEvent.h"
+#include "third_party/blink/public/platform/web_input_event.h"
 #include "ui/latency/latency_info.h"
 
 using blink::WebInputEvent;
@@ -47,7 +47,7 @@ const char kTouchEventDataURL[] =
     "<body onload='setup();'>"
     "<div id='first'></div><div id='second'></div><div id='third'></div>"
     "<style>"
-    "  #first {"
+    "  %23first {"
     "    position: absolute;"
     "    width: 100px;"
     "    height: 100px;"
@@ -56,7 +56,7 @@ const char kTouchEventDataURL[] =
     "    background-color: green;"
     "    -webkit-transform: translate3d(0, 0, 0);"
     "  }"
-    "  #second {"
+    "  %23second {"
     "    position: absolute;"
     "    width: 100px;"
     "    height: 100px;"
@@ -65,7 +65,7 @@ const char kTouchEventDataURL[] =
     "    background-color: blue;"
     "    -webkit-transform: translate3d(0, 0, 0);"
     "  }"
-    "  #third {"
+    "  %23third {"
     "    position: absolute;"
     "    width: 100px;"
     "    height: 100px;"
@@ -98,8 +98,8 @@ class TouchInputBrowserTest : public ContentBrowserTest {
         shell()->web_contents()->GetRenderViewHost()->GetWidget());
   }
 
-  scoped_refptr<InputMsgWatcher> AddFilter(blink::WebInputEvent::Type type) {
-    return new InputMsgWatcher(GetWidgetHost(), type);
+  std::unique_ptr<InputMsgWatcher> AddFilter(blink::WebInputEvent::Type type) {
+    return std::make_unique<InputMsgWatcher>(GetWidgetHost(), type);
   }
 
  protected:
@@ -116,7 +116,7 @@ class TouchInputBrowserTest : public ContentBrowserTest {
     host->GetView()->SetSize(gfx::Size(400, 400));
 
     // The page is loaded in the renderer, wait for a new frame to arrive.
-    while (!host->ScheduleComposite())
+    while (!host->RequestRepaintForTesting())
       GiveItSomeTime();
   }
 
@@ -139,7 +139,7 @@ IN_PROC_BROWSER_TEST_F(TouchInputBrowserTest, MAYBE_TouchNoHandler) {
   // A press on |first| should be acked with NO_CONSUMER_EXISTS since there is
   // no touch-handler on it.
   touch.PressPoint(25, 25);
-  scoped_refptr<InputMsgWatcher> filter = AddFilter(WebInputEvent::kTouchStart);
+  auto filter = AddFilter(WebInputEvent::kTouchStart);
   SendTouchEvent(&touch);
 
   EXPECT_EQ(INPUT_EVENT_ACK_STATE_NO_CONSUMER_EXISTS, filter->WaitForAck());
@@ -163,7 +163,7 @@ IN_PROC_BROWSER_TEST_F(TouchInputBrowserTest, MAYBE_TouchHandlerNoConsume) {
   // Press on |second| should be acked with NOT_CONSUMED since there is a
   // touch-handler on |second|, but it doesn't consume the event.
   touch.PressPoint(125, 25);
-  scoped_refptr<InputMsgWatcher> filter = AddFilter(WebInputEvent::kTouchStart);
+  auto filter = AddFilter(WebInputEvent::kTouchStart);
   SendTouchEvent(&touch);
   EXPECT_EQ(INPUT_EVENT_ACK_STATE_NOT_CONSUMED, filter->WaitForAck());
 
@@ -186,7 +186,7 @@ IN_PROC_BROWSER_TEST_F(TouchInputBrowserTest, MAYBE_TouchHandlerConsume) {
   // Press on |third| should be acked with CONSUMED since the touch-handler on
   // |third| consimes the event.
   touch.PressPoint(25, 125);
-  scoped_refptr<InputMsgWatcher> filter = AddFilter(WebInputEvent::kTouchStart);
+  auto filter = AddFilter(WebInputEvent::kTouchStart);
   SendTouchEvent(&touch);
   EXPECT_EQ(INPUT_EVENT_ACK_STATE_CONSUMED, filter->WaitForAck());
 
@@ -212,7 +212,7 @@ IN_PROC_BROWSER_TEST_F(TouchInputBrowserTest, MAYBE_MultiPointTouchPress) {
   // Press on |first|, which sould be acked with NO_CONSUMER_EXISTS. Then press
   // on |third|. That point should be acked with CONSUMED.
   touch.PressPoint(25, 25);
-  scoped_refptr<InputMsgWatcher> filter = AddFilter(WebInputEvent::kTouchStart);
+  auto filter = AddFilter(WebInputEvent::kTouchStart);
   SendTouchEvent(&touch);
   EXPECT_EQ(INPUT_EVENT_ACK_STATE_NO_CONSUMER_EXISTS, filter->WaitForAck());
 

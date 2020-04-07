@@ -72,7 +72,7 @@ class Q_BLUETOOTH_EXPORT QBluetoothTransferReplyBluez : public QBluetoothTransfe
 
 public:
     explicit QBluetoothTransferReplyBluez(QIODevice *input, const QBluetoothTransferRequest &request,
-                                          QBluetoothTransferManager *parent = 0);
+                                          QBluetoothTransferManager *parent = nullptr);
     ~QBluetoothTransferReplyBluez();
 
     bool isFinished() const;
@@ -87,14 +87,14 @@ private slots:
 private:
     void startOPP(const QString &filename);
 
-    OrgOpenobexClientInterface *m_client;
-    AgentAdaptor *m_agent;
-    OrgBluezObexClient1Interface *m_clientBluez;
-    OrgBluezObexObjectPush1Interface *m_objectPushBluez;
+    OrgOpenobexClientInterface *m_client = nullptr;
+    AgentAdaptor *m_agent = nullptr;
+    OrgBluezObexClient1Interface *m_clientBluez = nullptr;
+    OrgBluezObexObjectPush1Interface *m_objectPushBluez = nullptr;
 
 
-    QTemporaryFile *m_tempfile;
-    QIODevice *m_source;
+    QTemporaryFile *m_tempfile = nullptr;
+    QIODevice *m_source = nullptr;
 
     bool m_running;
     bool m_finished;

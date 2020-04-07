@@ -49,7 +49,7 @@ QT_BEGIN_NAMESPACE
 
 /*!
     \qmltype ColorDialog
-    \instantiates QQuickPlatformColorDialog
+    \instantiates QQuickPlatformColorDialog1
     \inqmlmodule QtQuick.Dialogs
     \ingroup qtquickdialogs
     \brief Dialog component for choosing a color.
@@ -124,11 +124,11 @@ QT_BEGIN_NAMESPACE
 */
 
 /*!
-    \class QQuickPlatformColorDialog
+    \class QQuickPlatformColorDialog1
     \inmodule QtQuick.Dialogs
     \internal
 
-    \brief The QQuickPlatformColorDialog class provides a color dialog
+    \brief The QQuickPlatformColorDialog1 class provides a color dialog
 
     The dialog is implemented via the QPlatformColorDialogHelper when possible;
     otherwise it falls back to a QColorDialog or a QML implementation.
@@ -139,7 +139,7 @@ QT_BEGIN_NAMESPACE
 /*!
     Constructs a color dialog with parent window \a parent.
 */
-QQuickPlatformColorDialog::QQuickPlatformColorDialog(QObject *parent) :
+QQuickPlatformColorDialog1::QQuickPlatformColorDialog1(QObject *parent) :
     QQuickAbstractColorDialog(parent)
 {
 }
@@ -147,14 +147,14 @@ QQuickPlatformColorDialog::QQuickPlatformColorDialog(QObject *parent) :
 /*!
     Destroys the color dialog.
 */
-QQuickPlatformColorDialog::~QQuickPlatformColorDialog()
+QQuickPlatformColorDialog1::~QQuickPlatformColorDialog1()
 {
     if (m_dlgHelper)
         m_dlgHelper->hide();
     delete m_dlgHelper;
 }
 
-QPlatformColorDialogHelper *QQuickPlatformColorDialog::helper()
+QPlatformColorDialogHelper *QQuickPlatformColorDialog1::helper()
 {
     QQuickItem *parentItem = qobject_cast<QQuickItem *>(parent());
     if (parentItem)

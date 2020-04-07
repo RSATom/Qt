@@ -10,9 +10,9 @@
 
 #include <map>
 #include <memory>
-#include <queue>
 #include <vector>
 
+#include "base/containers/queue.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
@@ -27,8 +27,6 @@ class RSAPrivateKey;
 }
 
 namespace net {
-class IOBuffer;
-class IOBufferWithSize;
 class StreamSocket;
 }
 
@@ -108,12 +106,12 @@ class AndroidUsbDevice : public base::RefCountedThreadSafe<AndroidUsbDevice> {
   void Queue(std::unique_ptr<AdbMessage> message);
   void ProcessOutgoing();
   void OutgoingMessageSent(device::UsbTransferStatus status,
-                           scoped_refptr<net::IOBuffer> buffer,
+                           scoped_refptr<base::RefCountedBytes> buffer,
                            size_t result);
 
   void ReadHeader();
   void ParseHeader(device::UsbTransferStatus status,
-                   scoped_refptr<net::IOBuffer> buffer,
+                   scoped_refptr<base::RefCountedBytes> buffer,
                    size_t result);
 
   void ReadBody(std::unique_ptr<AdbMessage> message,
@@ -123,7 +121,7 @@ class AndroidUsbDevice : public base::RefCountedThreadSafe<AndroidUsbDevice> {
                  uint32_t data_length,
                  uint32_t data_check,
                  device::UsbTransferStatus status,
-                 scoped_refptr<net::IOBuffer> buffer,
+                 scoped_refptr<base::RefCountedBytes> buffer,
                  size_t result);
 
   void HandleIncoming(std::unique_ptr<AdbMessage> message);
@@ -152,12 +150,12 @@ class AndroidUsbDevice : public base::RefCountedThreadSafe<AndroidUsbDevice> {
 
   // Created sockets info
   uint32_t last_socket_id_;
-  typedef std::map<uint32_t, AndroidUsbSocket*> AndroidUsbSockets;
+  using AndroidUsbSockets = std::map<uint32_t, AndroidUsbSocket*>;
   AndroidUsbSockets sockets_;
 
   // Outgoing bulk queue
-  typedef scoped_refptr<net::IOBufferWithSize> BulkMessage;
-  std::queue<BulkMessage> outgoing_queue_;
+  using BulkMessage = scoped_refptr<base::RefCountedBytes>;
+  base::queue<BulkMessage> outgoing_queue_;
 
   // Outgoing messages pending connect
   using PendingMessages = std::vector<std::unique_ptr<AdbMessage>>;

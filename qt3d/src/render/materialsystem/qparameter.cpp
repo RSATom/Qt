@@ -179,13 +179,30 @@ QParameterPrivate::QParameterPrivate()
 {
 }
 
+namespace {
+
+/*! \internal */
+inline QVariant toBackendValue(const QVariant &v)
+{
+    if (auto nodeValue = v.value<Qt3DCore::QNode*>())
+        return QVariant::fromValue(nodeValue->id());
+    return v;
+}
+
+} // anonymous
+
 void QParameterPrivate::setValue(const QVariant &v)
 {
-    Qt3DCore::QNode *nodeValue = v.value<Qt3DCore::QNode *>();
-    if (nodeValue != nullptr)
-        m_backendValue = QVariant::fromValue(nodeValue->id());
-    else
-        m_backendValue = v;
+    if (v.type() == QVariant::List) {
+        QSequentialIterable iterable = v.value<QSequentialIterable>();
+        QVariantList variants;
+        variants.reserve(iterable.size());
+        for (const auto &v : iterable)
+            variants.append(toBackendValue(v));
+        m_backendValue = variants;
+    } else {
+        m_backendValue = toBackendValue(v);
+    }
     m_value = v;
 }
 
@@ -271,12 +288,21 @@ void QParameter::setValue(const QVariant &dv)
     Q_D(QParameter);
     if (d->m_value != dv) {
 
+        QNode *oldNodeValue = d->m_value.value<QNode *>();
+        if (oldNodeValue != nullptr)
+            d->unregisterDestructionHelper(oldNodeValue);
+
         // In case node values are declared inline
         QNode *nodeValue = dv.value<QNode *>();
         if (nodeValue != nullptr && !nodeValue->parent())
             nodeValue->setParent(this);
 
         d->setValue(dv);
+
+        // Ensures proper bookkeeping
+        if (nodeValue != nullptr)
+            d->registerDestructionHelper(nodeValue, &QParameter::setValue, nodeValue, QVariant());
+
         emit valueChanged(dv);
     }
 }

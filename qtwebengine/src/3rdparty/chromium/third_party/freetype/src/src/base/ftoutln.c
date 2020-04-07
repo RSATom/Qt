@@ -1,26 +1,26 @@
-/***************************************************************************/
-/*                                                                         */
-/*  ftoutln.c                                                              */
-/*                                                                         */
-/*    FreeType outline management (body).                                  */
-/*                                                                         */
-/*  Copyright 1996-2017 by                                                 */
-/*  David Turner, Robert Wilhelm, and Werner Lemberg.                      */
-/*                                                                         */
-/*  This file is part of the FreeType project, and may only be used,       */
-/*  modified, and distributed under the terms of the FreeType project      */
-/*  license, LICENSE.TXT.  By continuing to use, modify, or distribute     */
-/*  this file you indicate that you have read the license and              */
-/*  understand and accept it fully.                                        */
-/*                                                                         */
-/***************************************************************************/
+/****************************************************************************
+ *
+ * ftoutln.c
+ *
+ *   FreeType outline management (body).
+ *
+ * Copyright 1996-2018 by
+ * David Turner, Robert Wilhelm, and Werner Lemberg.
+ *
+ * This file is part of the FreeType project, and may only be used,
+ * modified, and distributed under the terms of the FreeType project
+ * license, LICENSE.TXT.  By continuing to use, modify, or distribute
+ * this file you indicate that you have read the license and
+ * understand and accept it fully.
+ *
+ */
 
 
-  /*************************************************************************/
-  /*                                                                       */
-  /* All functions are declared in freetype.h.                             */
-  /*                                                                       */
-  /*************************************************************************/
+  /**************************************************************************
+   *
+   * All functions are declared in freetype.h.
+   *
+   */
 
 
 #include <ft2build.h>
@@ -31,12 +31,12 @@
 #include FT_TRIGONOMETRY_H
 
 
-  /*************************************************************************/
-  /*                                                                       */
-  /* The macro FT_COMPONENT is used in trace mode.  It is an implicit      */
-  /* parameter of the FT_TRACE() and FT_ERROR() macros, used to print/log  */
-  /* messages during execution.                                            */
-  /*                                                                       */
+  /**************************************************************************
+   *
+   * The macro FT_COMPONENT is used in trace mode.  It is an implicit
+   * parameter of the FT_TRACE() and FT_ERROR() macros, used to print/log
+   * messages during execution.
+   */
 #undef  FT_COMPONENT
 #define FT_COMPONENT  trace_outline
 
@@ -286,12 +286,13 @@
     FT_TRACE5(( "FT_Outline_Decompose: Done\n", n ));
     return FT_Err_Ok;
 
+  Invalid_Outline:
+    error = FT_THROW( Invalid_Outline );
+    /* fall through */
+
   Exit:
     FT_TRACE5(( "FT_Outline_Decompose: Error 0x%x\n", error ));
     return error;
-
-  Invalid_Outline:
-    return FT_THROW( Invalid_Outline );
   }
 
 
@@ -540,8 +541,8 @@
 
     for ( n = 0; n < outline->n_points; n++ )
     {
-      vec->x += xOffset;
-      vec->y += yOffset;
+      vec->x = ADD_LONG( vec->x, xOffset );
+      vec->y = ADD_LONG( vec->y, yOffset );
       vec++;
     }
   }

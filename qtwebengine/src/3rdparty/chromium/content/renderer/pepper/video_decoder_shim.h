@@ -8,13 +8,12 @@
 #include <stdint.h>
 
 #include <memory>
-#include <queue>
 #include <vector>
 
 #include "base/containers/hash_tables.h"
+#include "base/containers/queue.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
-#include "gpu/command_buffer/common/mailbox.h"
 #include "media/base/video_decoder_config.h"
 #include "media/video/video_decode_accelerator.h"
 #include "ppapi/c/pp_codecs.h"
@@ -85,22 +84,20 @@ class VideoDecoderShim : public media::VideoDecodeAccelerator {
   // The current decoded frame size.
   gfx::Size texture_size_;
   // Map that takes the plugin's GL texture id to the renderer's GL texture id.
-  typedef base::hash_map<uint32_t, uint32_t> TextureIdMap;
+  using TextureIdMap = base::hash_map<uint32_t, uint32_t>;
   TextureIdMap texture_id_map_;
   // Available textures (these are plugin ids.)
-  typedef base::hash_set<uint32_t> TextureIdSet;
+  using TextureIdSet = base::hash_set<uint32_t>;
   TextureIdSet available_textures_;
   // Track textures that are no longer needed (these are plugin ids.)
   TextureIdSet textures_to_dismiss_;
-  // Mailboxes for pending texture requests, to write to plugin's textures.
-  std::vector<gpu::Mailbox> pending_texture_mailboxes_;
 
   // Queue of completed decode ids, for notifying the host.
-  typedef std::queue<uint32_t> CompletedDecodeQueue;
+  using CompletedDecodeQueue = base::queue<uint32_t>;
   CompletedDecodeQueue completed_decodes_;
 
   // Queue of decoded frames that await rgb->yuv conversion.
-  typedef std::queue<std::unique_ptr<PendingFrame>> PendingFrameQueue;
+  using PendingFrameQueue = base::queue<std::unique_ptr<PendingFrame>>;
   PendingFrameQueue pending_frames_;
 
   // The optimal number of textures to allocate for decoder_impl_.

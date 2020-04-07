@@ -69,12 +69,13 @@ const char ScopedTestNativeMessagingHost::kExtensionId[] =
 ScopedTestNativeMessagingHost::ScopedTestNativeMessagingHost() {}
 
 void ScopedTestNativeMessagingHost::RegisterTestHost(bool user_level) {
-  base::ThreadRestrictions::ScopedAllowIO allow_io;
+  base::ScopedAllowBlockingForTesting allow_blocking;
   ASSERT_TRUE(temp_dir_.CreateUniqueTempDir());
   ScopedTestNativeMessagingHost test_host;
 
   base::FilePath test_user_data_dir;
-  ASSERT_TRUE(PathService::Get(chrome::DIR_TEST_DATA, &test_user_data_dir));
+  ASSERT_TRUE(
+      base::PathService::Get(chrome::DIR_TEST_DATA, &test_user_data_dir));
   test_user_data_dir = test_user_data_dir.AppendASCII("native_messaging")
                            .AppendASCII("native_hosts");
 
@@ -102,7 +103,7 @@ void ScopedTestNativeMessagingHost::RegisterTestHost(bool user_level) {
 }
 
 ScopedTestNativeMessagingHost::~ScopedTestNativeMessagingHost() {
-  base::ThreadRestrictions::ScopedAllowIO allow_io;
+  base::ScopedAllowBlockingForTesting allow_blocking;
   ignore_result(temp_dir_.Delete());
 }
 

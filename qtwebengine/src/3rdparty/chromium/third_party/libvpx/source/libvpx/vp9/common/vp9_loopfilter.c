@@ -1174,7 +1174,7 @@ void vp9_filter_block_plane_non420(VP9_COMMON *cm,
     }
 
     // Disable filtering on the leftmost column
-    border_mask = ~(mi_col == 0);
+    border_mask = ~(mi_col == 0 ? 1 : 0);
 #if CONFIG_VP9_HIGHBITDEPTH
     if (cm->use_highbitdepth) {
       highbd_filter_selectively_vert(
@@ -1612,12 +1612,14 @@ void vp9_loop_filter_data_reset(
 
 void vp9_reset_lfm(VP9_COMMON *const cm) {
   if (cm->lf.filter_level) {
-    memset(cm->lf.lfm, 0, ((cm->mi_rows + (MI_BLOCK_SIZE - 1)) >> 3) *
-                              cm->lf.lfm_stride * sizeof(*cm->lf.lfm));
+    memset(cm->lf.lfm, 0,
+           ((cm->mi_rows + (MI_BLOCK_SIZE - 1)) >> 3) * cm->lf.lfm_stride *
+               sizeof(*cm->lf.lfm));
   }
 }
 
-int vp9_loop_filter_worker(LFWorkerData *const lf_data, void *unused) {
+int vp9_loop_filter_worker(void *arg1, void *unused) {
+  LFWorkerData *const lf_data = (LFWorkerData *)arg1;
   (void)unused;
   loop_filter_rows(lf_data->frame_buffer, lf_data->cm, lf_data->planes,
                    lf_data->start, lf_data->stop, lf_data->y_only);

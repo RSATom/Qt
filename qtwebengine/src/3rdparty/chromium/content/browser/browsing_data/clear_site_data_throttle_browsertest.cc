@@ -9,6 +9,7 @@
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/command_line.h"
+#include "base/run_loop.h"
 #include "base/scoped_observer.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
@@ -18,6 +19,7 @@
 #include "content/browser/service_worker/service_worker_context_core_observer.h"
 #include "content/browser/service_worker/service_worker_context_wrapper.h"
 #include "content/public/browser/browser_context.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/browser/browsing_data_remover.h"
 #include "content/public/browser/content_browser_client.h"
 #include "content/public/browser/storage_partition.h"
@@ -83,8 +85,10 @@ class TestBrowsingDataRemoverDelegate : public MockBrowsingDataRemoverDelegate {
         BrowsingDataRemover::ORIGIN_TYPE_PROTECTED_WEB;
 
     if (cookies) {
-      int data_type_mask = BrowsingDataRemover::DATA_TYPE_COOKIES |
-                           BrowsingDataRemover::DATA_TYPE_CHANNEL_IDS;
+      int data_type_mask =
+          BrowsingDataRemover::DATA_TYPE_COOKIES |
+          BrowsingDataRemover::DATA_TYPE_CHANNEL_IDS |
+          BrowsingDataRemover::DATA_TYPE_AVOID_CLOSING_CONNECTIONS;
 
       BrowsingDataFilterBuilderImpl filter_builder(
           BrowsingDataFilterBuilder::WHITELIST);
@@ -204,7 +208,7 @@ class ClearSiteDataThrottleBrowserTest : public ContentBrowserTest {
       base::Closure callback) {
     cookie_store_ =
         request_context_getter->GetURLRequestContext()->cookie_store();
-    callback.Run();
+    std::move(callback).Run();
   }
 
   // Adds a cookie for the |url|. Used in the cookie integration tests.
@@ -250,11 +254,13 @@ class ClearSiteDataThrottleBrowserTest : public ContentBrowserTest {
     GURL js_url = https_server()->GetURL(origin, "/?file=worker.js");
 
     // Register the worker.
+    blink::mojom::ServiceWorkerRegistrationOptions options(
+        scope_url, blink::mojom::ServiceWorkerUpdateViaCache::kImports);
     BrowserThread::PostTask(
         BrowserThread::IO, FROM_HERE,
         base::BindOnce(
             &ServiceWorkerContextWrapper::RegisterServiceWorker,
-            base::Unretained(service_worker_context), scope_url, js_url,
+            base::Unretained(service_worker_context), js_url, options,
             base::Bind(
                 &ClearSiteDataThrottleBrowserTest::AddServiceWorkerCallback,
                 base::Unretained(this))));
@@ -263,9 +269,9 @@ class ClearSiteDataThrottleBrowserTest : public ContentBrowserTest {
     base::RunLoop run_loop;
     BrowserThread::PostTask(
         BrowserThread::IO, FROM_HERE,
-        base::Bind(&ServiceWorkerActivationObserver::SignalActivation,
-                   base::Unretained(service_worker_context),
-                   run_loop.QuitClosure()));
+        base::BindOnce(&ServiceWorkerActivationObserver::SignalActivation,
+                       base::Unretained(service_worker_context),
+                       run_loop.QuitClosure()));
     run_loop.Run();
   }
 
@@ -436,7 +442,8 @@ IN_PROC_BROWSER_TEST_F(ClearSiteDataThrottleBrowserTest,
         AddQuery(&urls[i], "header", kClearCookiesHeader);
 
       if (mask & (1 << i))
-        delegate()->ExpectClearSiteDataCookiesCall(url::Origin(urls[i]));
+        delegate()->ExpectClearSiteDataCookiesCall(
+            url::Origin::Create(urls[i]));
     }
 
     // Set up redirects between urls 0 --> 1 --> 2.
@@ -483,7 +490,8 @@ IN_PROC_BROWSER_TEST_F(ClearSiteDataThrottleBrowserTest,
         AddQuery(&urls[i], "header", kClearCookiesHeader);
 
       if (mask & (1 << i))
-        delegate()->ExpectClearSiteDataCookiesCall(url::Origin(urls[i]));
+        delegate()->ExpectClearSiteDataCookiesCall(
+            url::Origin::Create(urls[i]));
     }
 
     // Set up redirects between urls 0 --> 1 --> 2.
@@ -571,13 +579,13 @@ IN_PROC_BROWSER_TEST_F(ClearSiteDataThrottleBrowserTest,
   AddQuery(&secure_page, "html", content_with_secure_image);
 
   // Secure resource on an insecure page does execute Clear-Site-Data.
-  delegate()->ExpectClearSiteDataCookiesCall(url::Origin(secure_image));
+  delegate()->ExpectClearSiteDataCookiesCall(url::Origin::Create(secure_image));
 
   NavigateToURL(shell(), secure_page);
   delegate()->VerifyAndClearExpectations();
 
   // Secure resource on a secure page does execute Clear-Site-Data.
-  delegate()->ExpectClearSiteDataCookiesCall(url::Origin(secure_image));
+  delegate()->ExpectClearSiteDataCookiesCall(url::Origin::Create(secure_image));
 
   NavigateToURL(shell(), secure_page);
   delegate()->VerifyAndClearExpectations();
@@ -619,10 +627,10 @@ IN_PROC_BROWSER_TEST_F(ClearSiteDataThrottleBrowserTest, ServiceWorker) {
   // but not by the "/resource_from_sw" fetch. |origin3| and |origin4| prove
   // that the number of calls is dependent on the number of network responses,
   // i.e. that it isn't always 1 as in the case of |origin1| and |origin2|.
-  delegate()->ExpectClearSiteDataCookiesCall(url::Origin(origin1));
-  delegate()->ExpectClearSiteDataCookiesCall(url::Origin(origin4));
-  delegate()->ExpectClearSiteDataCookiesCall(url::Origin(origin2));
-  delegate()->ExpectClearSiteDataCookiesCall(url::Origin(origin4));
+  delegate()->ExpectClearSiteDataCookiesCall(url::Origin::Create(origin1));
+  delegate()->ExpectClearSiteDataCookiesCall(url::Origin::Create(origin4));
+  delegate()->ExpectClearSiteDataCookiesCall(url::Origin::Create(origin2));
+  delegate()->ExpectClearSiteDataCookiesCall(url::Origin::Create(origin4));
 
   url = https_server()->GetURL("origin1.com", "/anything-in-workers-scope");
   AddQuery(&url, "origin1", origin1.spec());
@@ -658,7 +666,7 @@ IN_PROC_BROWSER_TEST_F(ClearSiteDataThrottleBrowserTest, MAYBE_Credentials) {
     std::string credentials;
     bool should_run;
   } kTestCases[] = {
-      {true, "", false},
+      {true, "", true},
       {true, "omit", false},
       {true, "same-origin", true},
       {true, "include", true},
@@ -692,7 +700,7 @@ IN_PROC_BROWSER_TEST_F(ClearSiteDataThrottleBrowserTest, MAYBE_Credentials) {
     AddQuery(&page, "html", content);
 
     if (test_case.should_run)
-      delegate()->ExpectClearSiteDataCookiesCall(url::Origin(resource));
+      delegate()->ExpectClearSiteDataCookiesCall(url::Origin::Create(resource));
 
     NavigateToURL(shell(), page);
     WaitForTitle(shell(), "done");
@@ -733,7 +741,7 @@ IN_PROC_BROWSER_TEST_F(ClearSiteDataThrottleBrowserTest,
       "</script></body></html>",
       urls[0].spec().c_str());
 
-  delegate()->ExpectClearSiteDataCookiesCall(url::Origin(urls[0]));
+  delegate()->ExpectClearSiteDataCookiesCall(url::Origin::Create(urls[0]));
 
   GURL page = https_server()->GetURL("origin1.com", "/");
   AddQuery(&page, "html", content);
@@ -767,8 +775,8 @@ IN_PROC_BROWSER_TEST_F(ClearSiteDataThrottleBrowserTest, Types) {
     AddQuery(&url, "header", test_case.value);
 
     delegate()->ExpectClearSiteDataCall(
-        url::Origin(url), test_case.remove_cookies, test_case.remove_storage,
-        test_case.remove_cache);
+        url::Origin::Create(url), test_case.remove_cookies,
+        test_case.remove_storage, test_case.remove_cache);
 
     NavigateToURL(shell(), url);
 

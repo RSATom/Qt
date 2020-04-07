@@ -16,9 +16,11 @@
 #include "services/service_manager/embedder/embedded_service_info.h"
 #include "services/service_manager/embedder/service_manager_embedder_export.h"
 #include "services/service_manager/public/cpp/service.h"
-#include "services/service_manager/public/interfaces/service.mojom.h"
+#include "services/service_manager/public/mojom/service.mojom.h"
 
 namespace service_manager {
+
+class EmbeddedInstanceManager;
 
 // Hosts in-process service instances for a given service.
 class SERVICE_MANAGER_EMBEDDER_EXPORT EmbeddedServiceRunner {
@@ -43,7 +45,7 @@ class SERVICE_MANAGER_EMBEDDER_EXPORT EmbeddedServiceRunner {
   void OnQuit();
 
   // A reference to the instance manager, which may operate on another thread.
-  scoped_refptr<InstanceManager> instance_manager_;
+  scoped_refptr<EmbeddedInstanceManager> instance_manager_;
 
   base::Closure quit_closure_;
 

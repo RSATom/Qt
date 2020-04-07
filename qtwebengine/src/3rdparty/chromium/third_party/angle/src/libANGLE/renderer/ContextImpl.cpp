@@ -9,10 +9,13 @@
 
 #include "libANGLE/renderer/ContextImpl.h"
 
+#include "libANGLE/Context.h"
+
 namespace rx
 {
 
-ContextImpl::ContextImpl(const gl::ContextState &state) : mState(state)
+ContextImpl::ContextImpl(const gl::ContextState &state)
+    : mState(state), mMemoryProgramCache(nullptr), mErrors(nullptr)
 {
 }
 
@@ -110,4 +113,18 @@ void ContextImpl::stencilThenCoverStrokePathInstanced(const std::vector<gl::Path
     UNREACHABLE();
 }
 
+void ContextImpl::setMemoryProgramCache(gl::MemoryProgramCache *memoryProgramCache)
+{
+    mMemoryProgramCache = memoryProgramCache;
+}
+
+void ContextImpl::setErrorSet(gl::ErrorSet *errorSet)
+{
+    mErrors = errorSet;
+}
+
+void ContextImpl::handleError(const gl::Error &error)
+{
+    mErrors->handleError(error);
+}
 }  // namespace rx

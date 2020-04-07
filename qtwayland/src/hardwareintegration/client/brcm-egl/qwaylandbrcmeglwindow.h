@@ -72,12 +72,12 @@ private:
     void createEglSurfaces();
     void destroyEglSurfaces();
 
-    QWaylandBrcmEglIntegration *m_eglIntegration;
-    struct wl_egl_window *m_waylandEglWindow;
+    QWaylandBrcmEglIntegration *m_eglIntegration = nullptr;
+    struct wl_egl_window *m_waylandEglWindow = nullptr;
 
-    const QWaylandWindow *m_parentWindow;
+    const QWaylandWindow *m_parentWindow = nullptr;
 
-    EGLConfig m_eglConfig;
+    EGLConfig m_eglConfig = 0;
 
     EGLint m_globalImages[3*5];
     EGLSurface m_eglSurfaces[3];
@@ -85,10 +85,10 @@ private:
     QWaylandBrcmBuffer *m_buffers[3];
     QSurfaceFormat m_format;
 
-    struct wl_event_queue *m_eventQueue;
+    struct wl_event_queue *m_eventQueue = nullptr;
 
-    int m_current;
-    int m_count;
+    int m_current = 0;
+    int m_count = 0;
 };
 
 }

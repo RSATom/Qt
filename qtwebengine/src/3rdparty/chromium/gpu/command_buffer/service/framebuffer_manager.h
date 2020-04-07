@@ -17,7 +17,7 @@
 #include "gpu/command_buffer/service/context_group.h"
 #include "gpu/command_buffer/service/gl_utils.h"
 #include "gpu/command_buffer/service/shader_manager.h"
-#include "gpu/gpu_export.h"
+#include "gpu/gpu_gles2_export.h"
 
 namespace gpu {
 namespace gles2 {
@@ -31,7 +31,7 @@ class TextureRef;
 class TextureManager;
 
 // Info about a particular Framebuffer.
-class GPU_EXPORT Framebuffer : public base::RefCounted<Framebuffer> {
+class GPU_GLES2_EXPORT Framebuffer : public base::RefCounted<Framebuffer> {
  public:
   class Attachment : public base::RefCounted<Attachment> {
    public:
@@ -41,6 +41,7 @@ class GPU_EXPORT Framebuffer : public base::RefCounted<Framebuffer> {
     virtual GLenum texture_type() const = 0;
     virtual GLsizei samples() const = 0;
     virtual GLuint object_name() const = 0;
+    virtual GLint level() const = 0;
     virtual bool cleared() const = 0;
     virtual void SetCleared(
         RenderbufferManager* renderbuffer_manager,
@@ -73,7 +74,7 @@ class GPU_EXPORT Framebuffer : public base::RefCounted<Framebuffer> {
 
    protected:
     friend class base::RefCounted<Attachment>;
-    virtual ~Attachment() {}
+    virtual ~Attachment() = default;
   };
 
   Framebuffer(FramebufferManager* manager, GLuint service_id);
@@ -132,6 +133,10 @@ class GPU_EXPORT Framebuffer : public base::RefCounted<Framebuffer> {
   const Attachment* GetAttachment(GLenum attachment) const;
 
   const Attachment* GetReadBufferAttachment() const;
+
+  // Returns the max dimensions which fit inside all of the attachments.
+  // Can only be called after the framebuffer has been checked to be complete.
+  gfx::Size GetFramebufferValidSize() const;
 
   GLsizei GetSamples() const;
 
@@ -315,7 +320,7 @@ struct DecoderFramebufferState {
 
 // This class keeps track of the frambebuffers and their attached renderbuffers
 // so we can correctly clear them.
-class GPU_EXPORT FramebufferManager {
+class GPU_GLES2_EXPORT FramebufferManager {
  public:
   FramebufferManager(
       uint32_t max_draw_buffers,
@@ -345,7 +350,7 @@ class GPU_EXPORT FramebufferManager {
 
   void MarkAsComplete(Framebuffer* framebuffer);
 
-  bool IsComplete(Framebuffer* framebuffer);
+  bool IsComplete(const Framebuffer* framebuffer);
 
   void IncFramebufferStateChangeCount() {
     // make sure this is never 0.

@@ -17,7 +17,6 @@
 #include <libaddressinput/address_field.h>
 #include <libaddressinput/callback.h>
 #include <libaddressinput/supplier.h>
-#include <libaddressinput/util/basictypes.h>
 
 #include <algorithm>
 #include <cassert>
@@ -30,6 +29,7 @@
 #include "lookup_key.h"
 #include "retriever.h"
 #include "rule.h"
+#include "util/size.h"
 
 namespace i18n {
 namespace addressinput {
@@ -45,8 +45,8 @@ OndemandSupplyTask::OndemandSupplyTask(
       supplied_(supplied),
       retrieved_(BuildCallback(this, &OndemandSupplyTask::Load)),
       success_(true) {
-  assert(rule_cache_ != NULL);
-  assert(retrieved_ != NULL);
+  assert(rule_cache_ != nullptr);
+  assert(retrieved_ != nullptr);
 }
 
 OndemandSupplyTask::~OndemandSupplyTask() {
@@ -82,7 +82,7 @@ void OndemandSupplyTask::Load(bool success,
                               const std::string& key,
                               const std::string& data) {
   size_t depth = std::count(key.begin(), key.end(), '/') - 1;
-  assert(depth < arraysize(LookupKey::kHierarchy));
+  assert(depth < size(LookupKey::kHierarchy));
 
   // Sanity check: This key should be present in the set of pending requests.
   size_t status = pending_.erase(key);

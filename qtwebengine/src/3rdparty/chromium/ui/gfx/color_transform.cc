@@ -11,7 +11,6 @@
 #include <sstream>
 
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "base/strings/stringprintf.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "third_party/skia/include/core/SkColorSpaceXform.h"
@@ -275,8 +274,9 @@ class ColorTransformInternal : public ColorTransform {
   gfx::ColorSpace GetDstColorSpace() const override { return dst_; };
 
   void Transform(TriStim* colors, size_t num) const override {
-    for (const auto& step : steps_)
+    for (const auto& step : steps_) {
       step->Transform(colors, num);
+    }
   }
   bool CanGetShaderSource() const override;
   std::string GetShaderSource() const override;
@@ -443,8 +443,6 @@ class ColorTransformSkTransferFn : public ColorTransformPerChannelTransferFn {
   // ColorTransformPerChannelTransferFn implementation:
   float Evaluate(float v) const override {
     // Note that the sign-extension is performed by the caller.
-    if (v < 0.f)
-      return 0.f;
     return SkTransferFnEvalUnclamped(fn_, v);
   }
   void AppendTransferShaderSource(std::stringstream* result) const override {
@@ -473,14 +471,9 @@ class ColorTransformSkTransferFn : public ColorTransformPerChannelTransferFn {
     if (std::abs(fn_.fE) > kEpsilon)
       nonlinear = nonlinear + " + " + Str(fn_.fE);
 
-    // Add both parts, skipping the if clause if possible.
-    if (fn_.fD > kEpsilon) {
-      *result << "  if (v < " << Str(fn_.fD) << ")" << endl;
-      *result << "    return " << linear << ";" << endl;
-      *result << "  return " << nonlinear << ";" << endl;
-    } else {
-      *result << "  return " << nonlinear << ";" << endl;
-    }
+    *result << "  if (v < " << Str(fn_.fD) << ")" << endl;
+    *result << "    return " << linear << ";" << endl;
+    *result << "  return " << nonlinear << ";" << endl;
   }
 
  private:
@@ -621,9 +614,14 @@ class ColorTransformToLinear : public ColorTransformPerChannelTransferFn {
                 "  float c1 = 3424.0 / 4096.0;\n"
                 "  float c2 = (2413.0 / 4096.0) * 32.0;\n"
                 "  float c3 = (2392.0 / 4096.0) * 32.0;\n"
-                "  v = pow(max(pow(v, 1.0 / m2) - c1, 0.0) /\n"
-                "              (c2 - c3 * pow(v, 1.0 / m2)), 1.0 / m1);\n"
-                "  v *= 10000.0 / 80.0;\n"
+                "  #ifdef GL_FRAGMENT_PRECISION_HIGH\n"
+                "  highp float v2 = v;\n"
+                "  #else\n"
+                "  float v2 = v;\n"
+                "  #endif\n"
+                "  v2 = pow(max(pow(v2, 1.0 / m2) - c1, 0.0) /\n"
+                "              (c2 - c3 * pow(v2, 1.0 / m2)), 1.0 / m1);\n"
+                "  v = v2 * 10000.0 / 80.0;\n"
                 "  return v;\n";
         return;
       case ColorSpace::TransferID::SMPTEST2084_NON_HDR:
@@ -728,7 +726,7 @@ class ColorTransformToBT2020CL : public ColorTransformStep {
       } else {
         V = R_Y / (2.0 * 0.4969);
       }
-      RYB[i] = ColorTransform::TriStim(RYB[i].y(), U, V);
+      RYB[i] = ColorTransform::TriStim(RYB[i].y(), U + 0.5, V + 0.5);
     }
   }
 
@@ -756,11 +754,11 @@ class ColorTransformFromBT2020CL : public ColorTransformStep {
       return;
     for (size_t i = 0; i < num; i++) {
       float Y = YUV[i].x();
-      float U = YUV[i].y();
-      float V = YUV[i].z();
+      float U = YUV[i].y() - 0.5;
+      float V = YUV[i].z() - 0.5;
       float B_Y, R_Y;
       if (U <= 0) {
-        B_Y = Y * (-2.0 * -0.9702);
+        B_Y = U * (-2.0 * -0.9702);
       } else {
         B_Y = U * (2.0 * 0.7910);
       }
@@ -770,7 +768,7 @@ class ColorTransformFromBT2020CL : public ColorTransformStep {
         R_Y = V * (2.0 * 0.4969);
       }
       // Return an RYB value, later steps will fix it.
-      YUV[i] = ColorTransform::TriStim(R_Y + Y, YUV[i].x(), B_Y + Y);
+      YUV[i] = ColorTransform::TriStim(R_Y + Y, Y, B_Y + Y);
     }
   }
   bool CanAppendShaderSource() override { return true; }
@@ -780,12 +778,12 @@ class ColorTransformFromBT2020CL : public ColorTransformStep {
     *hdr << "vec3 BT2020_YUV_to_RYB_Step" << step_index << "(vec3 color) {"
          << endl;
     *hdr << "  float Y = color.x;" << endl;
-    *hdr << "  float U = color.y;" << endl;
-    *hdr << "  float V = color.z;" << endl;
+    *hdr << "  float U = color.y - 0.5;" << endl;
+    *hdr << "  float V = color.z - 0.5;" << endl;
     *hdr << "  float B_Y = 0.0;" << endl;
     *hdr << "  float R_Y = 0.0;" << endl;
     *hdr << "  if (U <= 0.0) {" << endl;
-    *hdr << "    B_Y = Y * (-2.0 * -0.9702);" << endl;
+    *hdr << "    B_Y = U * (-2.0 * -0.9702);" << endl;
     *hdr << "  } else {" << endl;
     *hdr << "    B_Y = U * (2.0 * 0.7910);" << endl;
     *hdr << "  }" << endl;
@@ -811,16 +809,6 @@ void ColorTransformInternal::AppendColorSpaceToColorSpaceTransform(
     ColorTransform::Intent intent) {
   if (intent == ColorTransform::Intent::INTENT_PERCEPTUAL) {
     switch (src.transfer_) {
-      case ColorSpace::TransferID::BT709:
-      case ColorSpace::TransferID::SMPTE170M:
-        // SMPTE 1886 suggests that we should be using gamma 2.4 for BT709
-        // content. However, most displays actually use a gamma of 2.2, and
-        // user studies shows that users don't really care. Using the same
-        // gamma as the display will let us optimize a lot more, so lets stick
-        // with using the SRGB transfer function.
-        src.transfer_ = ColorSpace::TransferID::IEC61966_2_1;
-        break;
-
       case ColorSpace::TransferID::SMPTEST2084:
         if (!dst.IsHDR()) {
           // We don't have an HDR display, so replace SMPTE 2084 with
@@ -846,10 +834,15 @@ void ColorTransformInternal::AppendColorSpaceToColorSpaceTransform(
   }
 
   steps_.push_back(
-      base::MakeUnique<ColorTransformMatrix>(GetRangeAdjustMatrix(src)));
+      std::make_unique<ColorTransformMatrix>(GetRangeAdjustMatrix(src)));
 
-  steps_.push_back(
-      base::MakeUnique<ColorTransformMatrix>(Invert(GetTransferMatrix(src))));
+  if (src.matrix_ == ColorSpace::MatrixID::BT2020_CL) {
+    // BT2020 CL is a special case.
+    steps_.push_back(std::make_unique<ColorTransformFromBT2020CL>());
+  } else {
+    steps_.push_back(
+        std::make_unique<ColorTransformMatrix>(Invert(GetTransferMatrix(src))));
+  }
 
   // If the target color space is not defined, just apply the adjust and
   // tranfer matrices. This path is used by YUV to RGB color conversion
@@ -859,41 +852,47 @@ void ColorTransformInternal::AppendColorSpaceToColorSpaceTransform(
 
   SkColorSpaceTransferFn src_to_linear_fn;
   if (src.GetTransferFunction(&src_to_linear_fn)) {
-    steps_.push_back(base::MakeUnique<ColorTransformSkTransferFn>(
+    steps_.push_back(std::make_unique<ColorTransformSkTransferFn>(
         src_to_linear_fn, src.HasExtendedSkTransferFn()));
   } else if (src.transfer_ == ColorSpace::TransferID::SMPTEST2084_NON_HDR) {
     steps_.push_back(
-        base::MakeUnique<ColorTransformSMPTEST2048NonHdrToLinear>());
+        std::make_unique<ColorTransformSMPTEST2048NonHdrToLinear>());
   } else {
-    steps_.push_back(base::MakeUnique<ColorTransformToLinear>(src.transfer_));
+    steps_.push_back(std::make_unique<ColorTransformToLinear>(src.transfer_));
   }
 
   if (src.matrix_ == ColorSpace::MatrixID::BT2020_CL) {
     // BT2020 CL is a special case.
-    steps_.push_back(base::MakeUnique<ColorTransformFromBT2020CL>());
+    steps_.push_back(
+        std::make_unique<ColorTransformMatrix>(Invert(GetTransferMatrix(src))));
   }
   steps_.push_back(
-      base::MakeUnique<ColorTransformMatrix>(GetPrimaryTransform(src)));
+      std::make_unique<ColorTransformMatrix>(GetPrimaryTransform(src)));
 
   steps_.push_back(
-      base::MakeUnique<ColorTransformMatrix>(Invert(GetPrimaryTransform(dst))));
+      std::make_unique<ColorTransformMatrix>(Invert(GetPrimaryTransform(dst))));
   if (dst.matrix_ == ColorSpace::MatrixID::BT2020_CL) {
     // BT2020 CL is a special case.
-    steps_.push_back(base::MakeUnique<ColorTransformToBT2020CL>());
+    steps_.push_back(
+        std::make_unique<ColorTransformMatrix>(GetTransferMatrix(dst)));
   }
 
   SkColorSpaceTransferFn dst_from_linear_fn;
   if (dst.GetInverseTransferFunction(&dst_from_linear_fn)) {
-    steps_.push_back(base::MakeUnique<ColorTransformSkTransferFn>(
+    steps_.push_back(std::make_unique<ColorTransformSkTransferFn>(
         dst_from_linear_fn, dst.HasExtendedSkTransferFn()));
   } else {
-    steps_.push_back(base::MakeUnique<ColorTransformFromLinear>(dst.transfer_));
+    steps_.push_back(std::make_unique<ColorTransformFromLinear>(dst.transfer_));
   }
 
-  steps_.push_back(
-      base::MakeUnique<ColorTransformMatrix>(GetTransferMatrix(dst)));
+  if (dst.matrix_ == ColorSpace::MatrixID::BT2020_CL) {
+    steps_.push_back(std::make_unique<ColorTransformToBT2020CL>());
+  } else {
+    steps_.push_back(
+        std::make_unique<ColorTransformMatrix>(GetTransferMatrix(dst)));
+  }
 
-  steps_.push_back(base::MakeUnique<ColorTransformMatrix>(
+  steps_.push_back(std::make_unique<ColorTransformMatrix>(
       Invert(GetRangeAdjustMatrix(dst))));
 }
 
@@ -965,13 +964,11 @@ class SkiaColorTransform : public ColorTransformStep {
 
 sk_sp<SkColorSpace> ColorTransformInternal::GetSkColorSpaceIfNecessary(
     const ColorSpace& color_space) {
-  if (color_space.primaries_ != ColorSpace::PrimaryID::ICC_BASED &&
-      color_space.transfer_ != ColorSpace::TransferID::ICC_BASED) {
+  if (!color_space.icc_profile_id_)
     return nullptr;
-  }
-  DCHECK(color_space.icc_profile_sk_color_space_);
-  return color_space.icc_profile_sk_color_space_;
+  return ICCProfile::GetSkColorSpaceFromId(color_space.icc_profile_id_);
 }
+
 ColorTransformInternal::ColorTransformInternal(const ColorSpace& src,
                                                const ColorSpace& dst,
                                                Intent intent)
@@ -980,6 +977,12 @@ ColorTransformInternal::ColorTransformInternal(const ColorSpace& src,
   // TODO(ccameron): We may want dst assume sRGB at some point in the future.
   if (!src_.IsValid())
     return;
+
+  // SMPTEST2084_NON_HDR is not a valid destination.
+  if (dst.transfer_ == ColorSpace::TransferID::SMPTEST2084_NON_HDR) {
+    DLOG(ERROR) << "Invalid dst transfer function, returning identity.";
+    return;
+  }
 
   // If the target color space is not defined, just apply the adjust and
   // tranfer matrices. This path is used by YUV to RGB color conversion
@@ -997,7 +1000,7 @@ ColorTransformInternal::ColorTransformInternal(const ColorSpace& src,
   has_dst_profile = !!dst_sk_color_space;
 
   if (has_src_profile) {
-    steps_.push_back(base::MakeUnique<SkiaColorTransform>(
+    steps_.push_back(std::make_unique<SkiaColorTransform>(
         std::move(src_sk_color_space),
         ColorSpace::CreateXYZD50().ToSkColorSpace()));
   }
@@ -1005,7 +1008,7 @@ ColorTransformInternal::ColorTransformInternal(const ColorSpace& src,
       has_src_profile ? ColorSpace::CreateXYZD50() : src_,
       has_dst_profile ? ColorSpace::CreateXYZD50() : dst_, intent);
   if (has_dst_profile) {
-    steps_.push_back(base::MakeUnique<SkiaColorTransform>(
+    steps_.push_back(std::make_unique<SkiaColorTransform>(
         ColorSpace::CreateXYZD50().ToSkColorSpace(),
         std::move(dst_sk_color_space)));
   }

@@ -4,19 +4,21 @@
 
 #include "components/cryptauth/ble/bluetooth_low_energy_weave_client_connection.h"
 
+#include <memory>
 #include <sstream>
 #include <utility>
 
 #include "base/bind.h"
+#include "base/callback_helpers.h"
 #include "base/location.h"
-#include "base/memory/ptr_util.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/stl_util.h"
 #include "base/task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "base/timer/timer.h"
+#include "chromeos/components/proximity_auth/logging/logging.h"
 #include "components/cryptauth/connection_finder.h"
 #include "components/cryptauth/wire_message.h"
-#include "components/proximity_auth/logging/logging.h"
 #include "device/bluetooth/bluetooth_gatt_connection.h"
 
 namespace cryptauth {
@@ -43,6 +45,7 @@ const int kGattConnectionTimeoutSeconds = 15;
 const int kGattCharacteristicsTimeoutSeconds = 10;
 const int kNotifySessionTimeoutSeconds = 5;
 const int kConnectionResponseTimeoutSeconds = 2;
+const int kSendingMessageTimeoutSeconds = 5;
 
 }  // namespace
 
@@ -54,7 +57,7 @@ BluetoothLowEnergyWeaveClientConnection::Factory*
 // static
 std::unique_ptr<Connection>
 BluetoothLowEnergyWeaveClientConnection::Factory::NewInstance(
-    const RemoteDevice& remote_device,
+    RemoteDeviceRef remote_device,
     scoped_refptr<device::BluetoothAdapter> adapter,
     const device::BluetoothUUID remote_service_uuid,
     device::BluetoothDevice* bluetooth_device,
@@ -75,12 +78,12 @@ void BluetoothLowEnergyWeaveClientConnection::Factory::SetInstanceForTesting(
 
 std::unique_ptr<Connection>
 BluetoothLowEnergyWeaveClientConnection::Factory::BuildInstance(
-    const RemoteDevice& remote_device,
+    RemoteDeviceRef remote_device,
     scoped_refptr<device::BluetoothAdapter> adapter,
     const device::BluetoothUUID remote_service_uuid,
     device::BluetoothDevice* bluetooth_device,
     bool should_set_low_connection_latency) {
-  return base::MakeUnique<BluetoothLowEnergyWeaveClientConnection>(
+  return std::make_unique<BluetoothLowEnergyWeaveClientConnection>(
       remote_device, adapter, remote_service_uuid, bluetooth_device,
       should_set_low_connection_latency);
 }
@@ -99,6 +102,8 @@ base::TimeDelta BluetoothLowEnergyWeaveClientConnection::GetTimeoutForSubStatus(
       return base::TimeDelta::FromSeconds(kGattCharacteristicsTimeoutSeconds);
     case SubStatus::WAITING_NOTIFY_SESSION:
       return base::TimeDelta::FromSeconds(kNotifySessionTimeoutSeconds);
+    case SubStatus::CONNECTED_AND_SENDING_MESSAGE:
+      return base::TimeDelta::FromSeconds(kSendingMessageTimeoutSeconds);
     default:
       // Max signifies that there should be no timeout.
       return base::TimeDelta::Max();
@@ -125,8 +130,10 @@ std::string BluetoothLowEnergyWeaveClientConnection::SubStatusToString(
       return "[notify session is ready]";
     case SubStatus::WAITING_CONNECTION_RESPONSE:
       return "[waiting for \"connection response\" uWeave packet]";
-    case SubStatus::CONNECTED:
-      return "[connected]";
+    case SubStatus::CONNECTED_AND_IDLE:
+      return "[connected and idle]";
+    case SubStatus::CONNECTED_AND_SENDING_MESSAGE:
+      return "[connected and sending message]";
     default:
       return "[invalid state]";
   }
@@ -134,7 +141,7 @@ std::string BluetoothLowEnergyWeaveClientConnection::SubStatusToString(
 
 BluetoothLowEnergyWeaveClientConnection::
     BluetoothLowEnergyWeaveClientConnection(
-        const RemoteDevice& device,
+        RemoteDeviceRef device,
         scoped_refptr<device::BluetoothAdapter> adapter,
         const device::BluetoothUUID remote_service_uuid,
         device::BluetoothDevice* bluetooth_device,
@@ -145,15 +152,15 @@ BluetoothLowEnergyWeaveClientConnection::
       adapter_(adapter),
       remote_service_({remote_service_uuid, std::string()}),
       packet_generator_(
-          base::MakeUnique<BluetoothLowEnergyWeavePacketGenerator>()),
-      packet_receiver_(base::MakeUnique<BluetoothLowEnergyWeavePacketReceiver>(
+          std::make_unique<BluetoothLowEnergyWeavePacketGenerator>()),
+      packet_receiver_(std::make_unique<BluetoothLowEnergyWeavePacketReceiver>(
           BluetoothLowEnergyWeavePacketReceiver::ReceiverType::CLIENT)),
       tx_characteristic_(
           {device::BluetoothUUID(kTXCharacteristicUUID), std::string()}),
       rx_characteristic_(
           {device::BluetoothUUID(kRXCharacteristicUUID), std::string()}),
       task_runner_(base::ThreadTaskRunnerHandle::Get()),
-      timer_(base::MakeUnique<base::OneShotTimer>()),
+      timer_(std::make_unique<base::OneShotTimer>()),
       sub_status_(SubStatus::DISCONNECTED),
       weak_ptr_factory_(this) {
   adapter_->AddObserver(this);
@@ -161,7 +168,21 @@ BluetoothLowEnergyWeaveClientConnection::
 
 BluetoothLowEnergyWeaveClientConnection::
     ~BluetoothLowEnergyWeaveClientConnection() {
-  DestroyConnection();
+  if (sub_status() != SubStatus::DISCONNECTED) {
+    // Deleting this object without calling Disconnect() may result in the
+    // connection staying active longer than intended, which can lead to errors.
+    // See https://crbug.com/763604.
+    PA_LOG(WARNING) << "Warning: Deleting "
+                    << "BluetoothLowEnergyWeaveClientConnection object with an "
+                    << "active connection to " << GetDeviceInfoLogString()
+                    << ". This may result in disconnection errors; trying to "
+                    << "send uWeave \"connection close\" packet before "
+                    << "deleting.";
+    ClearQueueAndSendConnectionClose();
+  }
+
+  DestroyConnection(
+      BleWeaveConnectionResult::BLE_WEAVE_CONNECTION_RESULT_CLOSED_NORMALLY);
 }
 
 void BluetoothLowEnergyWeaveClientConnection::Connect() {
@@ -181,12 +202,12 @@ void BluetoothLowEnergyWeaveClientConnection::SetConnectionLatency() {
   if (!bluetooth_device) {
     PA_LOG(WARNING) << "Device not found; cannot set connection latency for "
                     << GetDeviceInfoLogString() << ".";
-    DestroyConnection();
+    DestroyConnection(
+        BleWeaveConnectionResult::
+            BLE_WEAVE_CONNECTION_RESULT_ERROR_BLUETOOTH_DEVICE_NOT_AVAILABLE);
     return;
   }
 
-  PA_LOG(INFO) << "Setting connection latency for " << GetDeviceInfoLogString()
-               << ".";
   bluetooth_device->SetConnectionLatency(
       device::BluetoothDevice::ConnectionLatency::CONNECTION_LATENCY_LOW,
       base::Bind(&BluetoothLowEnergyWeaveClientConnection::CreateGattConnection,
@@ -205,7 +226,9 @@ void BluetoothLowEnergyWeaveClientConnection::CreateGattConnection() {
   if (!bluetooth_device) {
     PA_LOG(WARNING) << "Device not found; cannot create GATT connection to "
                     << GetDeviceInfoLogString() << ".";
-    DestroyConnection();
+    DestroyConnection(
+        BleWeaveConnectionResult::
+            BLE_WEAVE_CONNECTION_RESULT_ERROR_BLUETOOTH_DEVICE_NOT_AVAILABLE);
     return;
   }
 
@@ -221,7 +244,12 @@ void BluetoothLowEnergyWeaveClientConnection::CreateGattConnection() {
 }
 
 void BluetoothLowEnergyWeaveClientConnection::Disconnect() {
-  if (sub_status_ == SubStatus::CONNECTED) {
+  if (IsConnected()) {
+    // If a disconnection is already in progress, there is nothing to do.
+    if (has_triggered_disconnection_)
+      return;
+
+    has_triggered_disconnection_ = true;
     PA_LOG(INFO) << "Disconnection requested; sending \"connection close\" "
                  << "uWeave packet to " << GetDeviceInfoLogString() << ".";
 
@@ -231,10 +259,17 @@ void BluetoothLowEnergyWeaveClientConnection::Disconnect() {
     return;
   }
 
-  DestroyConnection();
+  DestroyConnection(
+      BleWeaveConnectionResult::BLE_WEAVE_CONNECTION_RESULT_CLOSED_NORMALLY);
 }
 
-void BluetoothLowEnergyWeaveClientConnection::DestroyConnection() {
+void BluetoothLowEnergyWeaveClientConnection::DestroyConnection(
+    BleWeaveConnectionResult result) {
+  if (!has_recorded_connection_result_) {
+    has_recorded_connection_result_ = true;
+    RecordBleWeaveConnectionResult(result);
+  }
+
   if (adapter_) {
     adapter_->RemoveObserver(this);
     adapter_ = nullptr;
@@ -267,27 +302,65 @@ void BluetoothLowEnergyWeaveClientConnection::SetSubStatus(
   }
 
   // Sets the status of base class Connection.
-  if (new_sub_status == SubStatus::CONNECTED)
-    SetStatus(Status::CONNECTED);
-  else if (new_sub_status == SubStatus::DISCONNECTED)
-    SetStatus(Status::DISCONNECTED);
-  else
-    SetStatus(Status::IN_PROGRESS);
+  switch (new_sub_status) {
+    case SubStatus::CONNECTED_AND_IDLE:
+    case SubStatus::CONNECTED_AND_SENDING_MESSAGE:
+      SetStatus(Status::CONNECTED);
+      break;
+    case SubStatus::DISCONNECTED:
+      SetStatus(Status::DISCONNECTED);
+      break;
+    default:
+      SetStatus(Status::IN_PROGRESS);
+  }
 }
 
 void BluetoothLowEnergyWeaveClientConnection::OnTimeoutForSubStatus(
-    SubStatus status) {
-  // Ensure that |sub_status| is still the active status.
-  DCHECK(status == sub_status());
+    SubStatus timed_out_sub_status) {
+  // Ensure that |timed_out_sub_status| is still the active status.
+  DCHECK(timed_out_sub_status == sub_status());
 
   PA_LOG(ERROR) << "Timed out waiting during SubStatus "
-                << SubStatusToString(status) << ". Destroying connection.";
-  DestroyConnection();
+                << SubStatusToString(timed_out_sub_status) << ". "
+                << "Destroying connection.";
+
+  BleWeaveConnectionResult result =
+      BleWeaveConnectionResult::BLE_WEAVE_CONNECTION_RESULT_MAX;
+  switch (timed_out_sub_status) {
+    case SubStatus::WAITING_CONNECTION_LATENCY:
+      result = BleWeaveConnectionResult::
+          BLE_WEAVE_CONNECTION_RESULT_TIMEOUT_SETTING_CONNECTION_LATENCY;
+      break;
+    case SubStatus::WAITING_GATT_CONNECTION:
+      result = BleWeaveConnectionResult::
+          BLE_WEAVE_CONNECTION_RESULT_TIMEOUT_CREATING_GATT_CONNECTION;
+      break;
+    case SubStatus::WAITING_CHARACTERISTICS:
+      result = BleWeaveConnectionResult::
+          BLE_WEAVE_CONNECTION_RESULT_TIMEOUT_FINDING_GATT_CHARACTERISTICS;
+      break;
+    case SubStatus::WAITING_NOTIFY_SESSION:
+      result = BleWeaveConnectionResult::
+          BLE_WEAVE_CONNECTION_RESULT_TIMEOUT_STARTING_NOTIFY_SESSION;
+      break;
+    case SubStatus::WAITING_CONNECTION_RESPONSE:
+      result = BleWeaveConnectionResult::
+          BLE_WEAVE_CONNECTION_RESULT_TIMEOUT_WAITING_FOR_CONNECTION_RESPONSE;
+      break;
+    case SubStatus::CONNECTED_AND_SENDING_MESSAGE:
+      result = BleWeaveConnectionResult::
+          BLE_WEAVE_CONNECTION_RESULT_TIMEOUT_WAITING_FOR_MESSAGE_TO_SEND;
+      break;
+    default:
+      NOTREACHED();
+  }
+
+  DestroyConnection(result);
 }
 
 void BluetoothLowEnergyWeaveClientConnection::SetupTestDoubles(
     scoped_refptr<base::TaskRunner> test_task_runner,
-    std::unique_ptr<base::Timer> test_timer,
+    std::unique_ptr<base::OneShotTimer> test_timer,
     std::unique_ptr<BluetoothLowEnergyWeavePacketGenerator> test_generator,
     std::unique_ptr<BluetoothLowEnergyWeavePacketReceiver> test_receiver) {
   task_runner_ = test_task_runner;
@@ -298,7 +371,7 @@ void BluetoothLowEnergyWeaveClientConnection::SetupTestDoubles(
 
 void BluetoothLowEnergyWeaveClientConnection::SendMessageImpl(
     std::unique_ptr<WireMessage> message) {
-  DCHECK(sub_status() == SubStatus::CONNECTED);
+  DCHECK(IsConnected());
 
   // Split |message| up into multiple packets which can be sent as one uWeave
   // message.
@@ -310,7 +383,7 @@ void BluetoothLowEnergyWeaveClientConnection::SendMessageImpl(
     WriteRequestType request_type = (i != weave_packets.size() - 1)
                                         ? WriteRequestType::REGULAR
                                         : WriteRequestType::MESSAGE_COMPLETE;
-    queued_write_requests_.emplace(base::MakeUnique<WriteRequest>(
+    queued_write_requests_.emplace(std::make_unique<WriteRequest>(
         weave_packets[i], request_type, message.get()));
   }
 
@@ -341,7 +414,8 @@ void BluetoothLowEnergyWeaveClientConnection::DeviceChanged(
 
   PA_LOG(WARNING) << "GATT connection to " << GetDeviceInfoLogString()
                   << " has been dropped.";
-  DestroyConnection();
+  DestroyConnection(BleWeaveConnectionResult::
+                        BLE_WEAVE_CONNECTION_RESULT_ERROR_CONNECTION_DROPPED);
 }
 
 void BluetoothLowEnergyWeaveClientConnection::DeviceRemoved(
@@ -353,7 +427,8 @@ void BluetoothLowEnergyWeaveClientConnection::DeviceRemoved(
 
   PA_LOG(WARNING) << "Device has been lost: " << GetDeviceInfoLogString()
                   << ".";
-  DestroyConnection();
+  DestroyConnection(
+      BleWeaveConnectionResult::BLE_WEAVE_CONNECTION_RESULT_ERROR_DEVICE_LOST);
 }
 
 void BluetoothLowEnergyWeaveClientConnection::GattCharacteristicValueChanged(
@@ -367,7 +442,7 @@ void BluetoothLowEnergyWeaveClientConnection::GattCharacteristicValueChanged(
     return;
 
   if (sub_status() != SubStatus::WAITING_CONNECTION_RESPONSE &&
-      sub_status() != SubStatus::CONNECTED) {
+      !IsConnected()) {
     PA_LOG(WARNING) << "Received message from " << GetDeviceInfoLogString()
                     << ", but was not expecting one. sub_status() = "
                     << sub_status();
@@ -382,7 +457,8 @@ void BluetoothLowEnergyWeaveClientConnection::GattCharacteristicValueChanged(
       PA_LOG(INFO) << "Received \"connection close\" uWeave packet from "
                    << GetDeviceInfoLogString()
                    << ". Reason: " << GetReasonForClose() << ".";
-      DestroyConnection();
+      DestroyConnection(BleWeaveConnectionResult::
+                            BLE_WEAVE_CONNECTION_RESULT_CLOSED_NORMALLY);
       return;
     case ReceiverState::ERROR_DETECTED:
       PA_LOG(ERROR) << "Received invalid packet from "
@@ -404,7 +480,6 @@ void BluetoothLowEnergyWeaveClientConnection::GattCharacteristicValueChanged(
 
 void BluetoothLowEnergyWeaveClientConnection::CompleteConnection() {
   DCHECK(sub_status() == SubStatus::WAITING_CONNECTION_RESPONSE);
-  SetSubStatus(SubStatus::CONNECTED);
 
   uint16_t max_packet_size = packet_receiver_->GetMaxPacketSize();
   PA_LOG(INFO) << "Received uWeave \"connection response\" packet; connection "
@@ -415,6 +490,8 @@ void BluetoothLowEnergyWeaveClientConnection::CompleteConnection() {
   // |packet_receiver_| should have received a max packet size from the GATT
   // server.
   packet_generator_->SetMaxPacketSize(max_packet_size);
+
+  SetSubStatus(SubStatus::CONNECTED_AND_IDLE);
 }
 
 void BluetoothLowEnergyWeaveClientConnection::OnSetConnectionLatencyError() {
@@ -430,14 +507,20 @@ void BluetoothLowEnergyWeaveClientConnection::OnSetConnectionLatencyError() {
 void BluetoothLowEnergyWeaveClientConnection::OnCreateGattConnectionError(
     device::BluetoothDevice::ConnectErrorCode error_code) {
   DCHECK(sub_status_ == SubStatus::WAITING_GATT_CONNECTION);
+  RecordGattConnectionResult(
+      BluetoothDeviceConnectErrorCodeToGattConnectionResult(error_code));
   PA_LOG(WARNING) << "Error creating GATT connection to "
                   << GetDeviceInfoLogString() << ". Error code: " << error_code;
-  DestroyConnection();
+  DestroyConnection(
+      BleWeaveConnectionResult::
+          BLE_WEAVE_CONNECTION_RESULT_ERROR_CREATING_GATT_CONNECTION);
 }
 
 void BluetoothLowEnergyWeaveClientConnection::OnGattConnectionCreated(
     std::unique_ptr<device::BluetoothGattConnection> gatt_connection) {
   DCHECK(sub_status() == SubStatus::WAITING_GATT_CONNECTION);
+  RecordGattConnectionResult(
+      GattConnectionResult::GATT_CONNECTION_RESULT_SUCCESS);
 
   gatt_connection_ = std::move(gatt_connection);
   SetSubStatus(SubStatus::WAITING_CHARACTERISTICS);
@@ -490,7 +573,7 @@ void BluetoothLowEnergyWeaveClientConnection::OnCharacteristicsFinderError(
      << ": ";
   if (tx_characteristic.id.empty()) {
     ss << "[TX: " << tx_characteristic.uuid.canonical_value() << "]";
-    if (!rx_characteristic.id.empty())
+    if (rx_characteristic.id.empty())
       ss << ", ";
   }
   if (rx_characteristic.id.empty())
@@ -499,7 +582,9 @@ void BluetoothLowEnergyWeaveClientConnection::OnCharacteristicsFinderError(
 
   characteristic_finder_.reset();
 
-  DestroyConnection();
+  DestroyConnection(
+      BleWeaveConnectionResult::
+          BLE_WEAVE_CONNECTION_RESULT_ERROR_FINDING_GATT_CHARACTERISTICS);
 }
 
 void BluetoothLowEnergyWeaveClientConnection::StartNotifySession() {
@@ -511,7 +596,9 @@ void BluetoothLowEnergyWeaveClientConnection::StartNotifySession() {
     PA_LOG(ERROR) << "Characteristic no longer available after it was found. "
                   << "Cannot start notification session for "
                   << GetDeviceInfoLogString() << ".";
-    DestroyConnection();
+    DestroyConnection(
+        BleWeaveConnectionResult::
+            BLE_WEAVE_CONNECTION_RESULT_ERROR_GATT_CHARACTERISTIC_NOT_AVAILABLE);
     return;
   }
 
@@ -537,6 +624,8 @@ void BluetoothLowEnergyWeaveClientConnection::StartNotifySession() {
 void BluetoothLowEnergyWeaveClientConnection::OnNotifySessionStarted(
     std::unique_ptr<device::BluetoothGattNotifySession> notify_session) {
   DCHECK(sub_status() == SubStatus::WAITING_NOTIFY_SESSION);
+  RecordGattNotifySessionResult(
+      GattServiceOperationResult::GATT_SERVICE_OPERATION_RESULT_SUCCESS);
   notify_session_ = std::move(notify_session);
   SetSubStatus(SubStatus::NOTIFY_SESSION_READY);
   SendConnectionRequest();
@@ -545,9 +634,14 @@ void BluetoothLowEnergyWeaveClientConnection::OnNotifySessionStarted(
 void BluetoothLowEnergyWeaveClientConnection::OnNotifySessionError(
     device::BluetoothRemoteGattService::GattErrorCode error) {
   DCHECK(sub_status() == SubStatus::WAITING_NOTIFY_SESSION);
+  RecordGattNotifySessionResult(
+      BluetoothRemoteDeviceGattServiceGattErrorCodeToGattServiceOperationResult(
+          error));
   PA_LOG(ERROR) << "Cannot start notification session for "
                 << GetDeviceInfoLogString() << ". Error: " << error << ".";
-  DestroyConnection();
+  DestroyConnection(
+      BleWeaveConnectionResult::
+          BLE_WEAVE_CONNECTION_RESULT_ERROR_STARTING_NOTIFY_SESSION);
 }
 
 void BluetoothLowEnergyWeaveClientConnection::SendConnectionRequest() {
@@ -557,7 +651,7 @@ void BluetoothLowEnergyWeaveClientConnection::SendConnectionRequest() {
   PA_LOG(INFO) << "Sending \"connection request\" uWeave packet to "
                << GetDeviceInfoLogString();
 
-  queued_write_requests_.emplace(base::MakeUnique<WriteRequest>(
+  queued_write_requests_.emplace(std::make_unique<WriteRequest>(
       packet_generator_->CreateConnectionRequest(),
       WriteRequestType::CONNECTION_REQUEST));
   ProcessNextWriteRequest();
@@ -586,9 +680,18 @@ void BluetoothLowEnergyWeaveClientConnection::SendPendingWriteRequest() {
     PA_LOG(ERROR) << "Characteristic no longer available after it was found. "
                   << "Cannot process write request for "
                   << GetDeviceInfoLogString() << ".";
-    DestroyConnection();
+    DestroyConnection(
+        BleWeaveConnectionResult::
+            BLE_WEAVE_CONNECTION_RESULT_ERROR_GATT_CHARACTERISTIC_NOT_AVAILABLE);
     return;
   }
+
+  // If the current status is CONNECTED_AND_IDLE, transition to
+  // CONNECTED_AND_SENDING_MESSAGE. This function also runs when the status is
+  // WAITING_CONNECTION_RESPONSE; in that case, the status should remain
+  // unchanged until the connection response has been received.
+  if (sub_status() == SubStatus::CONNECTED_AND_IDLE)
+    SetSubStatus(SubStatus::CONNECTED_AND_SENDING_MESSAGE);
 
   characteristic->WriteRemoteCharacteristic(
       pending_write_request_->value,
@@ -602,13 +705,20 @@ void BluetoothLowEnergyWeaveClientConnection::SendPendingWriteRequest() {
 
 void BluetoothLowEnergyWeaveClientConnection::OnRemoteCharacteristicWritten() {
   DCHECK(sub_status() == SubStatus::WAITING_CONNECTION_RESPONSE ||
-         sub_status() == SubStatus::CONNECTED);
+         sub_status() == SubStatus::CONNECTED_AND_SENDING_MESSAGE);
+  if (sub_status() == SubStatus::CONNECTED_AND_SENDING_MESSAGE)
+    SetSubStatus(SubStatus::CONNECTED_AND_IDLE);
+
+  RecordGattWriteCharacteristicResult(
+      GattServiceOperationResult::GATT_SERVICE_OPERATION_RESULT_SUCCESS);
 
   if (!pending_write_request_) {
     PA_LOG(ERROR) << "OnRemoteCharacteristicWritten() called, but no pending "
                   << "WriteRequest. Stopping connection to "
                   << GetDeviceInfoLogString();
-    DestroyConnection();
+    DestroyConnection(
+        BleWeaveConnectionResult::
+            BLE_WEAVE_CONNECTION_RESULT_ERROR_WRITE_QUEUE_OUT_OF_SYNC);
     return;
   }
 
@@ -616,7 +726,10 @@ void BluetoothLowEnergyWeaveClientConnection::OnRemoteCharacteristicWritten() {
       WriteRequestType::CONNECTION_CLOSE) {
     // Once a "connection close" uWeave packet has been sent, the connection
     // is ready to be disconnected.
-    DestroyConnection();
+    PA_LOG(INFO) << "uWeave \"connection close\" packet sent to "
+                 << GetDeviceInfoLogString() << ". Destroying connection.";
+    DestroyConnection(
+        BleWeaveConnectionResult::BLE_WEAVE_CONNECTION_RESULT_CLOSED_NORMALLY);
     return;
   }
 
@@ -626,7 +739,9 @@ void BluetoothLowEnergyWeaveClientConnection::OnRemoteCharacteristicWritten() {
       PA_LOG(ERROR) << "Sent a WriteRequest with type == MESSAGE_COMPLETE, but "
                     << "there were no queued WireMessages. Cannot process "
                     << "completed write to " << GetDeviceInfoLogString();
-      DestroyConnection();
+      DestroyConnection(
+          BleWeaveConnectionResult::
+              BLE_WEAVE_CONNECTION_RESULT_ERROR_WRITING_GATT_CHARACTERISTIC);
       return;
     }
 
@@ -653,13 +768,21 @@ void BluetoothLowEnergyWeaveClientConnection::OnRemoteCharacteristicWritten() {
 void BluetoothLowEnergyWeaveClientConnection::OnWriteRemoteCharacteristicError(
     device::BluetoothRemoteGattService::GattErrorCode error) {
   DCHECK(sub_status() == SubStatus::WAITING_CONNECTION_RESPONSE ||
-         sub_status() == SubStatus::CONNECTED);
+         sub_status() == SubStatus::CONNECTED_AND_SENDING_MESSAGE);
+  if (sub_status() == SubStatus::CONNECTED_AND_SENDING_MESSAGE)
+    SetSubStatus(SubStatus::CONNECTED_AND_IDLE);
+
+  RecordGattWriteCharacteristicResult(
+      BluetoothRemoteDeviceGattServiceGattErrorCodeToGattServiceOperationResult(
+          error));
 
   if (!pending_write_request_) {
     PA_LOG(ERROR) << "OnWriteRemoteCharacteristicError() called, but no "
                   << "pending WriteRequest. Stopping connection to "
                   << GetDeviceInfoLogString();
-    DestroyConnection();
+    DestroyConnection(
+        BleWeaveConnectionResult::
+            BLE_WEAVE_CONNECTION_RESULT_ERROR_WRITE_QUEUE_OUT_OF_SYNC);
     return;
   }
 
@@ -691,8 +814,11 @@ void BluetoothLowEnergyWeaveClientConnection::OnWriteRemoteCharacteristicError(
   // chance to process the OnSendCompleted() call.
   task_runner_->PostTask(
       FROM_HERE,
-      base::Bind(&BluetoothLowEnergyWeaveClientConnection::DestroyConnection,
-                 weak_ptr_factory_.GetWeakPtr()));
+      base::Bind(
+          &BluetoothLowEnergyWeaveClientConnection::DestroyConnection,
+          weak_ptr_factory_.GetWeakPtr(),
+          BleWeaveConnectionResult::
+              BLE_WEAVE_CONNECTION_RESULT_ERROR_WRITING_GATT_CHARACTERISTIC));
 }
 
 void BluetoothLowEnergyWeaveClientConnection::OnDidSendMessage(
@@ -704,7 +830,7 @@ void BluetoothLowEnergyWeaveClientConnection::OnDidSendMessage(
 void BluetoothLowEnergyWeaveClientConnection::
     ClearQueueAndSendConnectionClose() {
   DCHECK(sub_status() == SubStatus::WAITING_CONNECTION_RESPONSE ||
-         sub_status() == SubStatus::CONNECTED);
+         IsConnected());
 
   // The connection is now in an invalid state. Clear queued writes.
   while (!queued_write_requests_.empty())
@@ -714,15 +840,17 @@ void BluetoothLowEnergyWeaveClientConnection::
   // write, we must wait for it to complete before the "connection close" can
   // be sent.
   queued_write_requests_.emplace(
-      base::MakeUnique<WriteRequest>(packet_generator_->CreateConnectionClose(
+      std::make_unique<WriteRequest>(packet_generator_->CreateConnectionClose(
                                          packet_receiver_->GetReasonToClose()),
                                      WriteRequestType::CONNECTION_CLOSE));
 
   if (pending_write_request_) {
     PA_LOG(WARNING) << "Waiting for current write to complete, then will send "
-                    << "a \"connection close\" uWeave packet.";
+                    << "a \"connection close\" uWeave packet to "
+                    << GetDeviceInfoLogString() << ".";
   } else {
-    PA_LOG(INFO) << "Sending a \"connection close\" uWeave packet.";
+    PA_LOG(INFO) << "Sending a \"connection close\" uWeave packet to "
+                 << GetDeviceInfoLogString() << ".";
   }
 
   ProcessNextWriteRequest();
@@ -734,6 +862,34 @@ std::string BluetoothLowEnergyWeaveClientConnection::GetDeviceAddress() {
   // expected to change periodically.
   return gatt_connection_ ? gatt_connection_->GetDeviceAddress()
                           : bluetooth_device_->GetAddress();
+}
+
+void BluetoothLowEnergyWeaveClientConnection::GetConnectionRssi(
+    base::OnceCallback<void(base::Optional<int32_t>)> callback) {
+  device::BluetoothDevice* device = GetBluetoothDevice();
+
+  if (!device || !device->IsConnected()) {
+    std::move(callback).Run(base::nullopt);
+    return;
+  }
+
+  // device::BluetoothDevice has not converted to using a base::OnceCallback
+  // instead of a base::Callback, so use a wrapper for now.
+  auto callback_holder = base::AdaptCallbackForRepeating(std::move(callback));
+  device->GetConnectionInfo(
+      base::Bind(&BluetoothLowEnergyWeaveClientConnection::OnConnectionInfo,
+                 weak_ptr_factory_.GetWeakPtr(), callback_holder));
+}
+
+void BluetoothLowEnergyWeaveClientConnection::OnConnectionInfo(
+    base::RepeatingCallback<void(base::Optional<int32_t>)> rssi_callback,
+    const device::BluetoothDevice::ConnectionInfo& connection_info) {
+  if (connection_info.rssi == device::BluetoothDevice::kUnknownPower) {
+    std::move(rssi_callback).Run(base::nullopt);
+    return;
+  }
+
+  std::move(rssi_callback).Run(connection_info.rssi);
 }
 
 device::BluetoothDevice*
@@ -789,6 +945,101 @@ std::string BluetoothLowEnergyWeaveClientConnection::GetReasonForClose() {
     default:
       NOTREACHED();
       return "";
+  }
+}
+
+void BluetoothLowEnergyWeaveClientConnection::RecordBleWeaveConnectionResult(
+    BleWeaveConnectionResult result) {
+  UMA_HISTOGRAM_ENUMERATION(
+      "ProximityAuth.BleWeaveConnectionResult", result,
+      BleWeaveConnectionResult::BLE_WEAVE_CONNECTION_RESULT_MAX);
+}
+
+void BluetoothLowEnergyWeaveClientConnection::RecordGattConnectionResult(
+    GattConnectionResult result) {
+  UMA_HISTOGRAM_ENUMERATION("ProximityAuth.BluetoothGattConnectionResult",
+                            result,
+                            GattConnectionResult::GATT_CONNECTION_RESULT_MAX);
+}
+
+BluetoothLowEnergyWeaveClientConnection::GattConnectionResult
+BluetoothLowEnergyWeaveClientConnection::
+    BluetoothDeviceConnectErrorCodeToGattConnectionResult(
+        device::BluetoothDevice::ConnectErrorCode error_code) {
+  switch (error_code) {
+    case device::BluetoothDevice::ConnectErrorCode::ERROR_AUTH_CANCELED:
+      return GattConnectionResult::GATT_CONNECTION_RESULT_ERROR_AUTH_CANCELED;
+    case device::BluetoothDevice::ConnectErrorCode::ERROR_AUTH_FAILED:
+      return GattConnectionResult::GATT_CONNECTION_RESULT_ERROR_AUTH_FAILED;
+    case device::BluetoothDevice::ConnectErrorCode::ERROR_AUTH_REJECTED:
+      return GattConnectionResult::GATT_CONNECTION_RESULT_ERROR_AUTH_REJECTED;
+    case device::BluetoothDevice::ConnectErrorCode::ERROR_AUTH_TIMEOUT:
+      return GattConnectionResult::GATT_CONNECTION_RESULT_ERROR_AUTH_TIMEOUT;
+    case device::BluetoothDevice::ConnectErrorCode::ERROR_FAILED:
+      return GattConnectionResult::GATT_CONNECTION_RESULT_ERROR_FAILED;
+    case device::BluetoothDevice::ConnectErrorCode::ERROR_INPROGRESS:
+      return GattConnectionResult::GATT_CONNECTION_RESULT_ERROR_INPROGRESS;
+    case device::BluetoothDevice::ConnectErrorCode::ERROR_UNKNOWN:
+      return GattConnectionResult::GATT_CONNECTION_RESULT_ERROR_UNKNOWN;
+    case device::BluetoothDevice::ConnectErrorCode::ERROR_UNSUPPORTED_DEVICE:
+      return GattConnectionResult::
+          GATT_CONNECTION_RESULT_ERROR_UNSUPPORTED_DEVICE;
+    default:
+      return GattConnectionResult::GATT_CONNECTION_RESULT_UNKNOWN;
+  }
+}
+
+void BluetoothLowEnergyWeaveClientConnection::RecordGattNotifySessionResult(
+    GattServiceOperationResult result) {
+  UMA_HISTOGRAM_ENUMERATION(
+      "ProximityAuth.BluetoothGattNotifySessionResult", result,
+      GattServiceOperationResult::GATT_SERVICE_OPERATION_RESULT_MAX);
+}
+
+void BluetoothLowEnergyWeaveClientConnection::
+    RecordGattWriteCharacteristicResult(GattServiceOperationResult result) {
+  UMA_HISTOGRAM_ENUMERATION(
+      "ProximityAuth.BluetoothGattWriteCharacteristicResult", result,
+      GattServiceOperationResult::GATT_SERVICE_OPERATION_RESULT_MAX);
+}
+
+BluetoothLowEnergyWeaveClientConnection::GattServiceOperationResult
+BluetoothLowEnergyWeaveClientConnection::
+    BluetoothRemoteDeviceGattServiceGattErrorCodeToGattServiceOperationResult(
+        device::BluetoothRemoteGattService::GattErrorCode error_code) {
+  switch (error_code) {
+    case device::BluetoothRemoteGattService::GattErrorCode::GATT_ERROR_UNKNOWN:
+      return GattServiceOperationResult::
+          GATT_SERVICE_OPERATION_RESULT_GATT_ERROR_UNKNOWN;
+    case device::BluetoothRemoteGattService::GattErrorCode::GATT_ERROR_FAILED:
+      return GattServiceOperationResult::
+          GATT_SERVICE_OPERATION_RESULT_GATT_ERROR_FAILED;
+    case device::BluetoothRemoteGattService::GattErrorCode::
+        GATT_ERROR_IN_PROGRESS:
+      return GattServiceOperationResult::
+          GATT_SERVICE_OPERATION_RESULT_GATT_ERROR_IN_PROGRESS;
+    case device::BluetoothRemoteGattService::GattErrorCode::
+        GATT_ERROR_INVALID_LENGTH:
+      return GattServiceOperationResult::
+          GATT_SERVICE_OPERATION_RESULT_GATT_ERROR_INVALID_LENGTH;
+    case device::BluetoothRemoteGattService::GattErrorCode::
+        GATT_ERROR_NOT_PERMITTED:
+      return GattServiceOperationResult::
+          GATT_SERVICE_OPERATION_RESULT_GATT_ERROR_NOT_PERMITTED;
+    case device::BluetoothRemoteGattService::GattErrorCode::
+        GATT_ERROR_NOT_AUTHORIZED:
+      return GattServiceOperationResult::
+          GATT_SERVICE_OPERATION_RESULT_GATT_ERROR_NOT_AUTHORIZED;
+    case device::BluetoothRemoteGattService::GattErrorCode::
+        GATT_ERROR_NOT_PAIRED:
+      return GattServiceOperationResult::
+          GATT_SERVICE_OPERATION_RESULT_GATT_ERROR_NOT_PAIRED;
+    case device::BluetoothRemoteGattService::GattErrorCode::
+        GATT_ERROR_NOT_SUPPORTED:
+      return GattServiceOperationResult::
+          GATT_SERVICE_OPERATION_RESULT_GATT_ERROR_NOT_SUPPORTED;
+    default:
+      return GattServiceOperationResult::GATT_SERVICE_OPERATION_RESULT_UNKNOWN;
   }
 }
 

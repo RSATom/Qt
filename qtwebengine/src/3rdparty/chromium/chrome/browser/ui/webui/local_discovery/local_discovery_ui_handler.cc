@@ -9,23 +9,18 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/memory/ptr_util.h"
-#include "base/message_loop/message_loop.h"
 #include "base/metrics/user_metrics.h"
 #include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
 #include "build/build_config.h"
 #include "chrome/browser/local_discovery/service_discovery_shared_client.h"
-#include "chrome/browser/printing/cloud_print/cloud_print_proxy_service.h"
-#include "chrome/browser/printing/cloud_print/cloud_print_proxy_service_factory.h"
 #include "chrome/browser/printing/cloud_print/privet_confirm_api_flow.h"
 #include "chrome/browser/printing/cloud_print/privet_constants.h"
 #include "chrome/browser/printing/cloud_print/privet_device_lister_impl.h"
 #include "chrome/browser/printing/cloud_print/privet_http_asynchronous_factory.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/signin/profile_oauth2_token_service_factory.h"
-#include "chrome/browser/signin/signin_manager_factory.h"
+#include "chrome/browser/signin/identity_manager_factory.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_tabstrip.h"
 #include "chrome/browser/ui/chrome_pages.h"
@@ -33,13 +28,17 @@
 #include "chrome/grit/generated_resources.h"
 #include "components/cloud_devices/common/cloud_devices_urls.h"
 #include "components/prefs/pref_service.h"
-#include "components/signin/core/browser/profile_oauth2_token_service.h"
 #include "content/public/browser/web_ui.h"
-#include "printing/features/features.h"
+#include "printing/buildflags/buildflags.h"
 #include "ui/base/l10n/l10n_util.h"
 
 #if BUILDFLAG(ENABLE_PRINT_PREVIEW) && !defined(OS_CHROMEOS)
 #define CLOUD_PRINT_CONNECTOR_UI_AVAILABLE
+#endif
+
+#if defined(CLOUD_PRINT_CONNECTOR_UI_AVAILABLE)
+#include "chrome/browser/printing/cloud_print/cloud_print_proxy_service.h"
+#include "chrome/browser/printing/cloud_print/cloud_print_proxy_service_factory.h"
 #endif
 
 using cloud_print::CloudPrintPrinterList;
@@ -103,10 +102,10 @@ LocalDiscoveryUIHandler::LocalDiscoveryUIHandler()
 
 LocalDiscoveryUIHandler::~LocalDiscoveryUIHandler() {
   Profile* profile = Profile::FromWebUI(web_ui());
-  SigninManagerBase* signin_manager =
-      SigninManagerFactory::GetInstance()->GetForProfile(profile);
-  if (signin_manager)
-    signin_manager->RemoveObserver(this);
+  identity::IdentityManager* identity_manager =
+      IdentityManagerFactory::GetForProfile(profile);
+  if (identity_manager)
+    identity_manager->RemoveObserver(this);
   ResetCurrentRegistration();
   SetIsVisible(false);
 }
@@ -117,39 +116,45 @@ bool LocalDiscoveryUIHandler::GetHasVisible() {
 }
 
 void LocalDiscoveryUIHandler::RegisterMessages() {
-  web_ui()->RegisterMessageCallback("start", base::Bind(
-      &LocalDiscoveryUIHandler::HandleStart,
-      base::Unretained(this)));
-  web_ui()->RegisterMessageCallback("isVisible", base::Bind(
-      &LocalDiscoveryUIHandler::HandleIsVisible,
-      base::Unretained(this)));
-  web_ui()->RegisterMessageCallback("registerDevice", base::Bind(
-      &LocalDiscoveryUIHandler::HandleRegisterDevice,
-      base::Unretained(this)));
-  web_ui()->RegisterMessageCallback("cancelRegistration", base::Bind(
-      &LocalDiscoveryUIHandler::HandleCancelRegistration,
-      base::Unretained(this)));
+  web_ui()->RegisterMessageCallback(
+      "start", base::BindRepeating(&LocalDiscoveryUIHandler::HandleStart,
+                                   base::Unretained(this)));
+  web_ui()->RegisterMessageCallback(
+      "isVisible",
+      base::BindRepeating(&LocalDiscoveryUIHandler::HandleIsVisible,
+                          base::Unretained(this)));
+  web_ui()->RegisterMessageCallback(
+      "registerDevice",
+      base::BindRepeating(&LocalDiscoveryUIHandler::HandleRegisterDevice,
+                          base::Unretained(this)));
+  web_ui()->RegisterMessageCallback(
+      "cancelRegistration",
+      base::BindRepeating(&LocalDiscoveryUIHandler::HandleCancelRegistration,
+                          base::Unretained(this)));
   web_ui()->RegisterMessageCallback(
       "requestDeviceList",
-      base::Bind(&LocalDiscoveryUIHandler::HandleRequestDeviceList,
-                 base::Unretained(this)));
-  web_ui()->RegisterMessageCallback("openCloudPrintURL", base::Bind(
-      &LocalDiscoveryUIHandler::HandleOpenCloudPrintURL,
-      base::Unretained(this)));
-  web_ui()->RegisterMessageCallback("showSyncUI", base::Bind(
-      &LocalDiscoveryUIHandler::HandleShowSyncUI,
-      base::Unretained(this)));
+      base::BindRepeating(&LocalDiscoveryUIHandler::HandleRequestDeviceList,
+                          base::Unretained(this)));
+  web_ui()->RegisterMessageCallback(
+      "openCloudPrintURL",
+      base::BindRepeating(&LocalDiscoveryUIHandler::HandleOpenCloudPrintURL,
+                          base::Unretained(this)));
+  web_ui()->RegisterMessageCallback(
+      "showSyncUI",
+      base::BindRepeating(&LocalDiscoveryUIHandler::HandleShowSyncUI,
+                          base::Unretained(this)));
 
   // Cloud print connector related messages
 #if defined(CLOUD_PRINT_CONNECTOR_UI_AVAILABLE)
   web_ui()->RegisterMessageCallback(
       "showCloudPrintSetupDialog",
-      base::Bind(&LocalDiscoveryUIHandler::ShowCloudPrintSetupDialog,
-                 base::Unretained(this)));
+      base::BindRepeating(&LocalDiscoveryUIHandler::ShowCloudPrintSetupDialog,
+                          base::Unretained(this)));
   web_ui()->RegisterMessageCallback(
       "disableCloudPrintConnector",
-      base::Bind(&LocalDiscoveryUIHandler::HandleDisableCloudPrintConnector,
-                 base::Unretained(this)));
+      base::BindRepeating(
+          &LocalDiscoveryUIHandler::HandleDisableCloudPrintConnector,
+          base::Unretained(this)));
 #endif  // defined(CLOUD_PRINT_CONNECTOR_UI_AVAILABLE)
 }
 
@@ -167,10 +172,10 @@ void LocalDiscoveryUIHandler::HandleStart(const base::ListValue* args) {
         cloud_print::PrivetHTTPAsynchronousFactory::CreateInstance(
             profile->GetRequestContext());
 
-    SigninManagerBase* signin_manager =
-        SigninManagerFactory::GetInstance()->GetForProfile(profile);
-    if (signin_manager)
-      signin_manager->AddObserver(this);
+    identity::IdentityManager* identity_manager =
+        IdentityManagerFactory::GetForProfile(profile);
+    if (identity_manager)
+      identity_manager->AddObserver(this);
   }
 
   privet_lister_->Start();
@@ -228,7 +233,7 @@ void LocalDiscoveryUIHandler::HandleRequestDeviceList(
 
   if (cloud_print_printer_list_) {
     cloud_print_printer_list_->Start(
-        base::MakeUnique<CloudPrintPrinterList>(this));
+        std::make_unique<CloudPrintPrinterList>(this));
   }
 
   CheckListingDone();
@@ -291,7 +296,7 @@ void LocalDiscoveryUIHandler::OnPrivetRegisterClaimToken(
     return;
   }
   confirm_api_call_flow_->Start(
-      base::MakeUnique<cloud_print::PrivetConfirmApiCallFlow>(
+      std::make_unique<cloud_print::PrivetConfirmApiCallFlow>(
           token, base::Bind(&LocalDiscoveryUIHandler::OnConfirmDone,
                             base::Unretained(this))));
 }
@@ -362,7 +367,7 @@ void LocalDiscoveryUIHandler::DeviceChanged(
     web_ui()->CallJavascriptFunctionUnsafe(
         "local_discovery.onUnregisteredDeviceUpdate", service_key, info);
   } else {
-    auto null_value = base::MakeUnique<base::Value>();
+    auto null_value = std::make_unique<base::Value>();
 
     web_ui()->CallJavascriptFunctionUnsafe(
         "local_discovery.onUnregisteredDeviceUpdate", service_key, *null_value);
@@ -371,7 +376,7 @@ void LocalDiscoveryUIHandler::DeviceChanged(
 
 void LocalDiscoveryUIHandler::DeviceRemoved(const std::string& name) {
   device_descriptions_.erase(name);
-  auto null_value = base::MakeUnique<base::Value>();
+  auto null_value = std::make_unique<base::Value>();
   base::Value name_value(kKeyPrefixMDns + name);
 
   web_ui()->CallJavascriptFunctionUnsafe(
@@ -396,14 +401,13 @@ void LocalDiscoveryUIHandler::OnDeviceListUnavailable() {
   CheckListingDone();
 }
 
-void LocalDiscoveryUIHandler::GoogleSigninSucceeded(
-    const std::string& account_id,
-    const std::string& username) {
+void LocalDiscoveryUIHandler::OnPrimaryAccountSet(
+    const AccountInfo& primary_account_info) {
   CheckUserLoggedIn();
 }
 
-void LocalDiscoveryUIHandler::GoogleSignedOut(const std::string& account_id,
-                                              const std::string& username) {
+void LocalDiscoveryUIHandler::OnPrimaryAccountCleared(
+    const AccountInfo& previous_primary_account_info) {
   CheckUserLoggedIn();
 }
 
@@ -450,12 +454,12 @@ void LocalDiscoveryUIHandler::SetIsVisible(bool visible) {
 
 std::string LocalDiscoveryUIHandler::GetSyncAccount() const {
   Profile* profile = Profile::FromWebUI(web_ui());
-  SigninManagerBase* signin_manager =
-      SigninManagerFactory::GetForProfileIfExists(profile);
+  identity::IdentityManager* identity_manager =
+      IdentityManagerFactory::GetForProfile(profile);
 
   std::string email;
-  if (signin_manager)
-    email = signin_manager->GetAuthenticatedAccountInfo().email;
+  if (identity_manager && identity_manager->HasPrimaryAccount())
+    email = identity_manager->GetPrimaryAccountInfo().email;
   return email;
 }
 
@@ -507,19 +511,12 @@ std::unique_ptr<GCDApiFlow> LocalDiscoveryUIHandler::CreateApiFlow() {
   if (!profile)
     return std::unique_ptr<GCDApiFlow>();
 
-  ProfileOAuth2TokenService* token_service =
-      ProfileOAuth2TokenServiceFactory::GetForProfile(profile);
-  if (!token_service)
+  identity::IdentityManager* identity_manager =
+      IdentityManagerFactory::GetForProfile(profile);
+  if (!(identity_manager && identity_manager->HasPrimaryAccount()))
     return std::unique_ptr<GCDApiFlow>();
 
-  SigninManagerBase* signin_manager =
-      SigninManagerFactory::GetInstance()->GetForProfile(profile);
-  if (!signin_manager)
-    return std::unique_ptr<GCDApiFlow>();
-
-  return GCDApiFlow::Create(profile->GetRequestContext(),
-                            token_service,
-                            signin_manager->GetAuthenticatedAccountId());
+  return GCDApiFlow::Create(profile->GetRequestContext(), identity_manager);
 }
 
 bool LocalDiscoveryUIHandler::IsUserSupervisedOrOffTheRecord() {
@@ -593,7 +590,7 @@ void LocalDiscoveryUIHandler::SetupCloudPrintConnectorSection() {
         l10n_util::GetStringUTF16(IDS_GOOGLE_CLOUD_PRINT));
   } else {
     label_str = l10n_util::GetStringFUTF16(
-        IDS_OPTIONS_CLOUD_PRINT_CONNECTOR_ENABLED_LABEL,
+        IDS_CLOUD_PRINT_CONNECTOR_ENABLED_LABEL,
         l10n_util::GetStringUTF16(IDS_GOOGLE_CLOUD_PRINT),
         base::UTF8ToUTF16(email));
   }

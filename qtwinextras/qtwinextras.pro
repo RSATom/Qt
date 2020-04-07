@@ -1,3 +1,4 @@
-requires(!winrt:!wince)
+requires(!winrt)
+requires(qtHaveModule(gui))
 
 load(qt_parts)

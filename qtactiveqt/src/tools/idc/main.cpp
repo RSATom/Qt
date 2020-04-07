@@ -69,11 +69,8 @@ static bool prependPath()
         return false;
     *ptr++ = L';';
     const wchar_t pathVariable[] = L"PATH";
-    if (!GetEnvironmentVariable(pathVariable, ptr, DWORD(maxEnvironmentSize - (ptr - buffer)))
-        || !SetEnvironmentVariable(pathVariable, buffer)) {
-        return false;
-    }
-    return true;
+    return GetEnvironmentVariable(pathVariable, ptr, DWORD(maxEnvironmentSize - (ptr - buffer))) != 0
+        && SetEnvironmentVariable(pathVariable, buffer) == TRUE;
 }
 
 static QString errorString(DWORD errorCode)
@@ -381,7 +378,8 @@ int runIdc(int argc, char **argv)
         const bool ok = attachTypeLibrary(input, 1, file.readAll(), &error);
         fprintf(stderr, "%s\n", qPrintable(error));
         return ok ? 0 : 4;
-    } else if (!idlfile.isEmpty()) {
+    }
+    if (!idlfile.isEmpty()) {
         idlfile = QDir::toNativeSeparators(idlfile);
         fprintf(stderr, "\n\n%s\n\n", qPrintable(idlfile));
         const HRESULT res = dumpIdl(input, idlfile, version);

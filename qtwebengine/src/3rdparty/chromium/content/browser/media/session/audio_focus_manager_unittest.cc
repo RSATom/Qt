@@ -4,6 +4,8 @@
 
 #include "content/browser/media/session/audio_focus_manager.h"
 
+#include <memory>
+
 #include "base/command_line.h"
 #include "base/run_loop.h"
 #include "content/browser/media/session/media_session_impl.h"
@@ -23,6 +25,8 @@ class MockMediaSessionPlayerObserver : public MediaSessionPlayerObserver {
  public:
   void OnSuspend(int player_id) override {}
   void OnResume(int player_id) override {}
+  void OnSeekForward(int player_id, base::TimeDelta seek_time) override {}
+  void OnSeekBackward(int player_id, base::TimeDelta seek_time) override {}
   void OnSetVolumeMultiplier(
       int player_id, double volume_multiplier) override {}
   RenderFrameHost* render_frame_host() const override { return nullptr; }
@@ -41,7 +45,8 @@ class AudioFocusManagerTest : public testing::Test {
     base::CommandLine::ForCurrentProcess()->AppendSwitch(
         switches::kEnableAudioFocus);
     rph_factory_.reset(new MockRenderProcessHostFactory());
-    RenderProcessHostImpl::set_render_process_host_factory(rph_factory_.get());
+    RenderProcessHostImpl::set_render_process_host_factory_for_testing(
+        rph_factory_.get());
     browser_context_.reset(new TestBrowserContext());
     pepper_observer_.reset(new MockMediaSessionPlayerObserver());
   }
@@ -51,7 +56,7 @@ class AudioFocusManagerTest : public testing::Test {
     base::RunLoop().RunUntilIdle();
 
     browser_context_.reset();
-    RenderProcessHostImpl::set_render_process_host_factory(nullptr);
+    RenderProcessHostImpl::set_render_process_host_factory_for_testing(nullptr);
     rph_factory_.reset();
   }
 
@@ -97,7 +102,7 @@ class AudioFocusManagerTest : public testing::Test {
     session->AbandonSystemAudioFocusIfNeeded();
   }
 
-  WebContents* CreateWebContents() {
+  std::unique_ptr<WebContents> CreateWebContents() {
     return TestWebContents::Create(browser_context_.get(),
         SiteInstance::SiteInstance::Create(browser_context_.get()));
   }

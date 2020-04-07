@@ -12,12 +12,11 @@
 #include <float.h>
 
 #include "common/debug.h"
-#include "common/third_party/murmurhash/MurmurHash3.h"
 #include "libANGLE/Framebuffer.h"
 #include "libANGLE/FramebufferAttachment.h"
-#include "libANGLE/renderer/d3d/FramebufferD3D.h"
-#include "libANGLE/renderer/d3d/d3d11/renderer11_utils.h"
+#include "libANGLE/renderer/d3d/d3d11/Framebuffer11.h"
 #include "libANGLE/renderer/d3d/d3d11/Renderer11.h"
+#include "libANGLE/renderer/d3d/d3d11/renderer11_utils.h"
 
 namespace rx
 {
@@ -45,18 +44,16 @@ void RenderStateCache::clear()
 
 // static
 d3d11::BlendStateKey RenderStateCache::GetBlendStateKey(const gl::Context *context,
-                                                        const gl::Framebuffer *framebuffer,
+                                                        Framebuffer11 *framebuffer11,
                                                         const gl::BlendState &blendState)
 {
     d3d11::BlendStateKey key;
-    FramebufferD3D *framebufferD3D         = GetImplAs<FramebufferD3D>(framebuffer);
-    const gl::AttachmentList &colorbuffers = framebufferD3D->getColorAttachmentsForRender(context);
+    const gl::AttachmentList &colorbuffers = framebuffer11->getColorAttachmentsForRender(context);
     const UINT8 blendStateMask =
         gl_d3d11::ConvertColorMask(blendState.colorMaskRed, blendState.colorMaskGreen,
                                    blendState.colorMaskBlue, blendState.colorMaskAlpha);
 
     key.blendState = blendState;
-    key.mrt        = false;
 
     for (size_t i = 0; i < colorbuffers.size(); i++)
     {
@@ -64,23 +61,10 @@ d3d11::BlendStateKey RenderStateCache::GetBlendStateKey(const gl::Context *conte
 
         if (attachment)
         {
-            if (i > 0)
-            {
-                key.mrt = true;
-            }
-
+            key.rtvMax = static_cast<uint32_t>(i) + 1;
             key.rtvMasks[i] =
                 (gl_d3d11::GetColorMask(*attachment->getFormat().info)) & blendStateMask;
         }
-        else
-        {
-            key.rtvMasks[i] = 0;
-        }
-    }
-
-    for (size_t i = colorbuffers.size(); i < D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT; i++)
-    {
-        key.rtvMasks[i] = 0;
     }
 
     return key;
@@ -88,12 +72,12 @@ d3d11::BlendStateKey RenderStateCache::GetBlendStateKey(const gl::Context *conte
 
 gl::Error RenderStateCache::getBlendState(Renderer11 *renderer,
                                           const d3d11::BlendStateKey &key,
-                                          ID3D11BlendState **outBlendState)
+                                          const d3d11::BlendState **outBlendState)
 {
     auto keyIter = mBlendStateCache.Get(key);
     if (keyIter != mBlendStateCache.end())
     {
-        *outBlendState = keyIter->second.get();
+        *outBlendState = &keyIter->second;
         return gl::NoError();
     }
 
@@ -105,7 +89,7 @@ gl::Error RenderStateCache::getBlendState(Renderer11 *renderer,
     const gl::BlendState &blendState        = key.blendState;
 
     blendDesc.AlphaToCoverageEnable  = blendState.sampleAlphaToCoverage;
-    blendDesc.IndependentBlendEnable = key.mrt ? TRUE : FALSE;
+    blendDesc.IndependentBlendEnable = key.rtvMax > 1 ? TRUE : FALSE;
 
     rtDesc0 = {};
 
@@ -130,8 +114,9 @@ gl::Error RenderStateCache::getBlendState(Renderer11 *renderer,
 
     d3d11::BlendState d3dBlendState;
     ANGLE_TRY(renderer->allocateResource(blendDesc, &d3dBlendState));
-    *outBlendState = d3dBlendState.get();
-    mBlendStateCache.Put(key, std::move(d3dBlendState));
+    const auto &iter = mBlendStateCache.Put(key, std::move(d3dBlendState));
+
+    *outBlendState = &iter->second;
 
     return gl::NoError();
 }
@@ -143,7 +128,7 @@ gl::Error RenderStateCache::getRasterizerState(Renderer11 *renderer,
 {
     d3d11::RasterizerStateKey key;
     key.rasterizerState = rasterState;
-    key.scissorEnabled = scissorEnabled;
+    key.scissorEnabled  = scissorEnabled ? 1 : 0;
 
     auto keyIter = mRasterizerStateCache.Get(key);
     if (keyIter != mRasterizerStateCache.end())
@@ -195,12 +180,12 @@ gl::Error RenderStateCache::getRasterizerState(Renderer11 *renderer,
 
 gl::Error RenderStateCache::getDepthStencilState(Renderer11 *renderer,
                                                  const gl::DepthStencilState &glState,
-                                                 ID3D11DepthStencilState **outDSState)
+                                                 const d3d11::DepthStencilState **outDSState)
 {
     auto keyIter = mDepthStencilStateCache.Get(glState);
     if (keyIter != mDepthStencilStateCache.end())
     {
-        *outDSState = keyIter->second.get();
+        *outDSState = &keyIter->second;
         return gl::NoError();
     }
 
@@ -224,8 +209,9 @@ gl::Error RenderStateCache::getDepthStencilState(Renderer11 *renderer,
 
     d3d11::DepthStencilState dx11DepthStencilState;
     ANGLE_TRY(renderer->allocateResource(dsDesc, &dx11DepthStencilState));
-    *outDSState = dx11DepthStencilState.get();
-    mDepthStencilStateCache.Put(glState, std::move(dx11DepthStencilState));
+    const auto &iter = mDepthStencilStateCache.Put(glState, std::move(dx11DepthStencilState));
+
+    *outDSState = &iter->second;
 
     return gl::NoError();
 }

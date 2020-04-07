@@ -27,7 +27,7 @@ class AccessibilityActionBrowserTest : public ContentBrowserTest {
   ~AccessibilityActionBrowserTest() override {}
 
  protected:
-  BrowserAccessibility* FindNode(ui::AXRole role,
+  BrowserAccessibility* FindNode(ax::mojom::Role role,
                                  const std::string& name) {
     BrowserAccessibility* root = GetManager()->GetRoot();
     CHECK(root);
@@ -42,8 +42,8 @@ class AccessibilityActionBrowserTest : public ContentBrowserTest {
 
   void GetBitmapFromImageDataURL(BrowserAccessibility* target,
                                  SkBitmap* bitmap) {
-    std::string image_data_url = target->GetStringAttribute(
-        ui::AX_ATTR_IMAGE_DATA_URL);
+    std::string image_data_url =
+        target->GetStringAttribute(ax::mojom::StringAttribute::kImageDataUrl);
     std::string mimetype;
     std::string charset;
     std::string png_data;
@@ -56,12 +56,11 @@ class AccessibilityActionBrowserTest : public ContentBrowserTest {
   }
 
  private:
-  BrowserAccessibility* FindNodeInSubtree(
-      BrowserAccessibility& node,
-      ui::AXRole role,
-      const std::string& name) {
+  BrowserAccessibility* FindNodeInSubtree(BrowserAccessibility& node,
+                                          ax::mojom::Role role,
+                                          const std::string& name) {
     if (node.GetRole() == role &&
-        node.GetStringAttribute(ui::AX_ATTR_NAME) == name)
+        node.GetStringAttribute(ax::mojom::StringAttribute::kName) == name)
       return &node;
     for (unsigned int i = 0; i < node.PlatformChildCount(); ++i) {
       BrowserAccessibility* result = FindNodeInSubtree(
@@ -79,8 +78,8 @@ IN_PROC_BROWSER_TEST_F(AccessibilityActionBrowserTest, FocusAction) {
   NavigateToURL(shell(), GURL(url::kAboutBlankURL));
 
   AccessibilityNotificationWaiter waiter(shell()->web_contents(),
-                                         kAccessibilityModeComplete,
-                                         ui::AX_EVENT_LOAD_COMPLETE);
+                                         ui::kAXModeComplete,
+                                         ax::mojom::Event::kLoadComplete);
   GURL url("data:text/html,"
            "<button>One</button>"
            "<button>Two</button>"
@@ -88,11 +87,11 @@ IN_PROC_BROWSER_TEST_F(AccessibilityActionBrowserTest, FocusAction) {
   NavigateToURL(shell(), url);
   waiter.WaitForNotification();
 
-  BrowserAccessibility* target = FindNode(ui::AX_ROLE_BUTTON, "One");
+  BrowserAccessibility* target = FindNode(ax::mojom::Role::kButton, "One");
   ASSERT_NE(nullptr, target);
 
   AccessibilityNotificationWaiter waiter2(
-      shell()->web_contents(), kAccessibilityModeComplete, ui::AX_EVENT_FOCUS);
+      shell()->web_contents(), ui::kAXModeComplete, ax::mojom::Event::kFocus);
   GetManager()->SetFocus(*target);
   waiter2.WaitForNotification();
 
@@ -105,54 +104,58 @@ IN_PROC_BROWSER_TEST_F(AccessibilityActionBrowserTest,
   NavigateToURL(shell(), GURL(url::kAboutBlankURL));
 
   AccessibilityNotificationWaiter waiter(shell()->web_contents(),
-                                         kAccessibilityModeComplete,
-                                         ui::AX_EVENT_LOAD_COMPLETE);
+                                         ui::kAXModeComplete,
+                                         ax::mojom::Event::kLoadComplete);
   GURL url("data:text/html,"
            "<input type=range min=2 value=8 max=10 step=2>");
   NavigateToURL(shell(), url);
   waiter.WaitForNotification();
 
-  BrowserAccessibility* target = FindNode(ui::AX_ROLE_SLIDER, "");
+  BrowserAccessibility* target = FindNode(ax::mojom::Role::kSlider, "");
   ASSERT_NE(nullptr, target);
-  EXPECT_EQ(8.0, target->GetFloatAttribute(ui::AX_ATTR_VALUE_FOR_RANGE));
+  EXPECT_EQ(8.0, target->GetFloatAttribute(
+                     ax::mojom::FloatAttribute::kValueForRange));
 
   // Increment, should result in value changing from 8 to 10.
   {
     AccessibilityNotificationWaiter waiter2(shell()->web_contents(),
-                                            kAccessibilityModeComplete,
-                                            ui::AX_EVENT_VALUE_CHANGED);
+                                            ui::kAXModeComplete,
+                                            ax::mojom::Event::kValueChanged);
     GetManager()->Increment(*target);
     waiter2.WaitForNotification();
   }
-  EXPECT_EQ(10.0, target->GetFloatAttribute(ui::AX_ATTR_VALUE_FOR_RANGE));
+  EXPECT_EQ(10.0, target->GetFloatAttribute(
+                      ax::mojom::FloatAttribute::kValueForRange));
 
   // Increment, should result in value staying the same (max).
   {
     AccessibilityNotificationWaiter waiter2(shell()->web_contents(),
-                                            kAccessibilityModeComplete,
-                                            ui::AX_EVENT_VALUE_CHANGED);
+                                            ui::kAXModeComplete,
+                                            ax::mojom::Event::kValueChanged);
     GetManager()->Increment(*target);
     waiter2.WaitForNotification();
   }
-  EXPECT_EQ(10.0, target->GetFloatAttribute(ui::AX_ATTR_VALUE_FOR_RANGE));
+  EXPECT_EQ(10.0, target->GetFloatAttribute(
+                      ax::mojom::FloatAttribute::kValueForRange));
 
   // Decrement, should result in value changing from 10 to 8.
   {
     AccessibilityNotificationWaiter waiter2(shell()->web_contents(),
-                                            kAccessibilityModeComplete,
-                                            ui::AX_EVENT_VALUE_CHANGED);
+                                            ui::kAXModeComplete,
+                                            ax::mojom::Event::kValueChanged);
     GetManager()->Decrement(*target);
     waiter2.WaitForNotification();
   }
-  EXPECT_EQ(8.0, target->GetFloatAttribute(ui::AX_ATTR_VALUE_FOR_RANGE));
+  EXPECT_EQ(8.0, target->GetFloatAttribute(
+                     ax::mojom::FloatAttribute::kValueForRange));
 }
 
 IN_PROC_BROWSER_TEST_F(AccessibilityActionBrowserTest, CanvasGetImage) {
   NavigateToURL(shell(), GURL(url::kAboutBlankURL));
 
   AccessibilityNotificationWaiter waiter(shell()->web_contents(),
-                                         kAccessibilityModeComplete,
-                                         ui::AX_EVENT_LOAD_COMPLETE);
+                                         ui::kAXModeComplete,
+                                         ax::mojom::Event::kLoadComplete);
   GURL url("data:text/html,"
            "<body>"
            "<canvas aria-label='canvas' id='c' width='4' height='2'></canvas>"
@@ -161,12 +164,12 @@ IN_PROC_BROWSER_TEST_F(AccessibilityActionBrowserTest, CanvasGetImage) {
            "  c.beginPath();\n"
            "  c.moveTo(0, 0.5);\n"
            "  c.lineTo(4, 0.5);\n"
-           "  c.strokeStyle = '#ff0000';\n"
+           "  c.strokeStyle = '%23ff0000';\n"
            "  c.stroke();\n"
            "  c.beginPath();\n"
            "  c.moveTo(0, 1.5);\n"
            "  c.lineTo(4, 1.5);\n"
-           "  c.strokeStyle = '#0000ff';\n"
+           "  c.strokeStyle = '%230000ff';\n"
            "  c.stroke();\n"
            "</script>"
            "</body>");
@@ -174,12 +177,12 @@ IN_PROC_BROWSER_TEST_F(AccessibilityActionBrowserTest, CanvasGetImage) {
   NavigateToURL(shell(), url);
   waiter.WaitForNotification();
 
-  BrowserAccessibility* target = FindNode(ui::AX_ROLE_CANVAS, "canvas");
+  BrowserAccessibility* target = FindNode(ax::mojom::Role::kCanvas, "canvas");
   ASSERT_NE(nullptr, target);
 
   AccessibilityNotificationWaiter waiter2(shell()->web_contents(),
-                                          kAccessibilityModeComplete,
-                                          ui::AX_EVENT_IMAGE_FRAME_UPDATED);
+                                          ui::kAXModeComplete,
+                                          ax::mojom::Event::kImageFrameUpdated);
   GetManager()->GetImageData(*target, gfx::Size());
   waiter2.WaitForNotification();
 
@@ -201,16 +204,16 @@ IN_PROC_BROWSER_TEST_F(AccessibilityActionBrowserTest, CanvasGetImageScale) {
   NavigateToURL(shell(), GURL(url::kAboutBlankURL));
 
   AccessibilityNotificationWaiter waiter(shell()->web_contents(),
-                                         kAccessibilityModeComplete,
-                                         ui::AX_EVENT_LOAD_COMPLETE);
+                                         ui::kAXModeComplete,
+                                         ax::mojom::Event::kLoadComplete);
   GURL url("data:text/html,"
            "<body>"
            "<canvas aria-label='canvas' id='c' width='40' height='20'></canvas>"
            "<script>\n"
            "  var c = document.getElementById('c').getContext('2d');\n"
-           "  c.fillStyle = '#00ff00';\n"
+           "  c.fillStyle = '%2300ff00';\n"
            "  c.fillRect(0, 0, 40, 10);\n"
-           "  c.fillStyle = '#ff00ff';\n"
+           "  c.fillStyle = '%23ff00ff';\n"
            "  c.fillRect(0, 10, 40, 10);\n"
            "</script>"
            "</body>");
@@ -218,12 +221,12 @@ IN_PROC_BROWSER_TEST_F(AccessibilityActionBrowserTest, CanvasGetImageScale) {
   NavigateToURL(shell(), url);
   waiter.WaitForNotification();
 
-  BrowserAccessibility* target = FindNode(ui::AX_ROLE_CANVAS, "canvas");
+  BrowserAccessibility* target = FindNode(ax::mojom::Role::kCanvas, "canvas");
   ASSERT_NE(nullptr, target);
 
   AccessibilityNotificationWaiter waiter2(shell()->web_contents(),
-                                          kAccessibilityModeComplete,
-                                          ui::AX_EVENT_IMAGE_FRAME_UPDATED);
+                                          ui::kAXModeComplete,
+                                          ax::mojom::Event::kImageFrameUpdated);
   GetManager()->GetImageData(*target, gfx::Size(4, 4));
   waiter2.WaitForNotification();
 
@@ -245,8 +248,8 @@ IN_PROC_BROWSER_TEST_F(AccessibilityActionBrowserTest, ImgElementGetImage) {
   NavigateToURL(shell(), GURL(url::kAboutBlankURL));
 
   AccessibilityNotificationWaiter waiter(shell()->web_contents(),
-                                         kAccessibilityModeComplete,
-                                         ui::AX_EVENT_LOAD_COMPLETE);
+                                         ui::kAXModeComplete,
+                                         ax::mojom::Event::kLoadComplete);
   GURL url("data:text/html,"
            "<body>"
            "<img src='data:image/gif;base64,R0lGODdhAgADAKEDAAAA//"
@@ -256,12 +259,12 @@ IN_PROC_BROWSER_TEST_F(AccessibilityActionBrowserTest, ImgElementGetImage) {
   NavigateToURL(shell(), url);
   waiter.WaitForNotification();
 
-  BrowserAccessibility* target = FindNode(ui::AX_ROLE_IMAGE, "");
+  BrowserAccessibility* target = FindNode(ax::mojom::Role::kImage, "");
   ASSERT_NE(nullptr, target);
 
   AccessibilityNotificationWaiter waiter2(shell()->web_contents(),
-                                          kAccessibilityModeComplete,
-                                          ui::AX_EVENT_IMAGE_FRAME_UPDATED);
+                                          ui::kAXModeComplete,
+                                          ax::mojom::Event::kImageFrameUpdated);
   GetManager()->GetImageData(*target, gfx::Size());
   waiter2.WaitForNotification();
 

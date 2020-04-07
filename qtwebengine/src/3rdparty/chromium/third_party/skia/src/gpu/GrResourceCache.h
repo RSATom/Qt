@@ -11,7 +11,6 @@
 #include "GrGpuResource.h"
 #include "GrGpuResourceCacheAccess.h"
 #include "GrGpuResourcePriv.h"
-#include "GrResourceCache.h"
 #include "GrResourceKey.h"
 #include "SkMessageBus.h"
 #include "SkRefCnt.h"
@@ -21,12 +20,17 @@
 #include "SkTMultiMap.h"
 
 class GrCaps;
+class GrProxyProvider;
 class SkString;
 class SkTraceMemoryDump;
 
 struct GrGpuResourceFreedMessage {
     GrGpuResource* fResource;
     uint32_t fOwningUniqueID;
+    bool shouldSend(uint32_t inboxID) const {
+        // The inbox's ID is the unique ID of the owning GrContext.
+        return inboxID == fOwningUniqueID;
+    }
 };
 
 /**
@@ -48,7 +52,7 @@ struct GrGpuResourceFreedMessage {
  */
 class GrResourceCache {
 public:
-    GrResourceCache(const GrCaps* caps, uint32_t contextUniqueID);
+    GrResourceCache(const GrCaps*, uint32_t contextUniqueID);
     ~GrResourceCache();
 
     // Default maximum number of budgeted resources in the cache.
@@ -66,6 +70,9 @@ public:
     /** Used to access functionality needed by GrGpuResource for lifetime management. */
     class ResourceAccess;
     ResourceAccess resourceAccess();
+
+    /** Unique ID of the owning GrContext. */
+    uint32_t contextUniqueID() const { return fContextUniqueID; }
 
     /**
      * Sets the cache limits in terms of number of resources, max gpu memory byte size, and number
@@ -168,10 +175,17 @@ public:
     void purgeAsNeeded();
 
     /** Purges all resources that don't have external owners. */
-    void purgeAllUnlocked();
+    void purgeAllUnlocked() { this->purgeUnlockedResources(false); }
+
+    // Purge unlocked resources. If 'scratchResourcesOnly' is true the purgeable resources
+    // containing persistent data are spared. If it is false then all purgeable resources will
+    // be deleted.
+    void purgeUnlockedResources(bool scratchResourcesOnly);
 
     /** Purge all resources not used since the passed in time. */
     void purgeResourcesNotUsedSince(GrStdSteadyClock::time_point);
+
+    bool overBudget() const { return fBudgetedBytes > fMaxBytes || fBudgetedCount > fMaxCount; }
 
     /**
      * Purge unlocked resources from the cache until the the provided byte count has been reached
@@ -249,6 +263,8 @@ public:
     // Enumerates all cached resources and dumps their details to traceMemoryDump.
     void dumpMemoryStatistics(SkTraceMemoryDump* traceMemoryDump) const;
 
+    void setProxyProvider(GrProxyProvider* proxyProvider) { fProxyProvider = proxyProvider; }
+
 private:
     ///////////////////////////////////////////////////////////////////////////
     /// @name Methods accessible via ResourceAccess
@@ -256,7 +272,6 @@ private:
     void insertResource(GrGpuResource*);
     void removeResource(GrGpuResource*);
     void notifyCntReachedZero(GrGpuResource*, uint32_t flags);
-    void didChangeGpuMemorySize(const GrGpuResource*, size_t oldSize);
     void changeUniqueKey(GrGpuResource*, const GrUniqueKey&);
     void removeUniqueKey(GrGpuResource*);
     void willRemoveScratchKey(const GrGpuResource*);
@@ -268,7 +283,6 @@ private:
     void processFreedGpuResources();
     void addToNonpurgeableArray(GrGpuResource*);
     void removeFromNonpurgeableArray(GrGpuResource*);
-    bool overBudget() const { return fBudgetedBytes > fMaxBytes || fBudgetedCount > fMaxCount; }
 
     bool wouldFit(size_t bytes) {
         return fBudgetedBytes+bytes <= fMaxBytes && fBudgetedCount+1 <= fMaxCount;
@@ -293,6 +307,7 @@ private:
         }
 
         static uint32_t Hash(const GrScratchKey& key) { return key.hash(); }
+        static void OnFree(GrGpuResource*) { }
     };
     typedef SkTMultiMap<GrGpuResource, GrScratchKey, ScratchMapTraits> ScratchMap;
 
@@ -316,6 +331,7 @@ private:
     typedef SkTDPQueue<GrGpuResource*, CompareTimestamp, AccessResourceIndex> PurgeableQueue;
     typedef SkTDArray<GrGpuResource*> ResourceArray;
 
+    GrProxyProvider*                    fProxyProvider;
     // Whenever a resource is added to the cache or the result of a cache lookup, fTimestamp is
     // assigned as the resource's timestamp and then incremented. fPurgeableQueue orders the
     // purgeable resources by this value, and thus is used to purge resources in LRU order.
@@ -400,13 +416,6 @@ private:
      */
     void notifyCntReachedZero(GrGpuResource* resource, uint32_t flags) {
         fCache->notifyCntReachedZero(resource, flags);
-    }
-
-    /**
-     * Called by GrGpuResources when their sizes change.
-     */
-    void didChangeGpuMemorySize(const GrGpuResource* resource, size_t oldSize) {
-        fCache->didChangeGpuMemorySize(resource, oldSize);
     }
 
     /**

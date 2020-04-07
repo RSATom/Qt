@@ -25,10 +25,11 @@ ScrollNode::ScrollNode()
       user_scrollable_horizontal(false),
       user_scrollable_vertical(false),
       transform_id(0),
-      scroll_boundary_behavior(
-          ScrollBoundaryBehavior::kScrollBoundaryBehaviorTypeAuto) {}
+      overscroll_behavior(OverscrollBehavior::kOverscrollBehaviorTypeAuto) {}
 
 ScrollNode::ScrollNode(const ScrollNode& other) = default;
+
+ScrollNode::~ScrollNode() = default;
 
 bool ScrollNode::operator==(const ScrollNode& other) const {
   return id == other.id && parent_id == other.parent_id &&
@@ -45,7 +46,8 @@ bool ScrollNode::operator==(const ScrollNode& other) const {
          user_scrollable_horizontal == other.user_scrollable_horizontal &&
          user_scrollable_vertical == other.user_scrollable_vertical &&
          element_id == other.element_id && transform_id == other.transform_id &&
-         scroll_boundary_behavior == other.scroll_boundary_behavior;
+         overscroll_behavior == other.overscroll_behavior &&
+         snap_container_data == other.snap_container_data;
 }
 
 void ScrollNode::AsValueInto(base::trace_event::TracedValue* value) const {
@@ -62,8 +64,8 @@ void ScrollNode::AsValueInto(base::trace_event::TracedValue* value) const {
 
   element_id.AddToTracedValue(value);
   value->SetInteger("transform_id", transform_id);
-  value->SetInteger("scroll_boundary_behavior_x", scroll_boundary_behavior.x);
-  value->SetInteger("scroll_boundary_behavior_y", scroll_boundary_behavior.y);
+  value->SetInteger("overscroll_behavior_x", overscroll_behavior.x);
+  value->SetInteger("overscroll_behavior_y", overscroll_behavior.y);
 }
 
 }  // namespace cc

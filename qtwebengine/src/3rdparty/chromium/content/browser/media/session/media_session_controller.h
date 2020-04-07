@@ -24,7 +24,7 @@ class MediaWebContentsObserver;
 // browser side MediaSession commands back to a player hosted in the renderer
 // process.
 class CONTENT_EXPORT MediaSessionController
-    : NON_EXPORTED_BASE(public MediaSessionPlayerObserver) {
+    : public MediaSessionPlayerObserver {
  public:
   MediaSessionController(const WebContentsObserver::MediaPlayerId& id,
                          MediaWebContentsObserver* media_web_contents_observer);
@@ -44,11 +44,13 @@ class CONTENT_EXPORT MediaSessionController
 
   // Must be called when a pause occurs on the renderer side media player; keeps
   // the MediaSession instance in sync with renderer side behavior.
-  void OnPlaybackPaused();
+  virtual void OnPlaybackPaused();
 
   // MediaSessionObserver implementation.
   void OnSuspend(int player_id) override;
   void OnResume(int player_id) override;
+  void OnSeekForward(int player_id, base::TimeDelta seek_time) override;
+  void OnSeekBackward(int player_id, base::TimeDelta seek_time) override;
   void OnSetVolumeMultiplier(int player_id, double volume_multiplier) override;
   RenderFrameHost* render_frame_host() const override;
 

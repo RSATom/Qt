@@ -16,6 +16,7 @@
 #include "net/base/net_errors.h"
 #include "net/log/net_log_with_source.h"
 #include "net/socket/stream_socket.h"
+#include "net/traffic_annotation/network_traffic_annotation_test_helper.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -28,7 +29,7 @@ const uint16_t kTestPort2 = 543;
 class MockIPCSender : public IPC::Sender {
  public:
   MockIPCSender();
-  virtual ~MockIPCSender();
+  ~MockIPCSender() override;
 
   MOCK_METHOD1(Send, bool(IPC::Message* msg));
 };
@@ -48,21 +49,21 @@ class FakeSocket : public net::StreamSocket {
   // net::Socket implementation.
   int Read(net::IOBuffer* buf,
            int buf_len,
-           const net::CompletionCallback& callback) override;
-  int Write(net::IOBuffer* buf,
-            int buf_len,
-            const net::CompletionCallback& callback) override;
+           net::CompletionOnceCallback callback) override;
+  int Write(
+      net::IOBuffer* buf,
+      int buf_len,
+      net::CompletionOnceCallback callback,
+      const net::NetworkTrafficAnnotationTag& traffic_annotation) override;
   int SetReceiveBufferSize(int32_t size) override;
   int SetSendBufferSize(int32_t size) override;
-  int Connect(const net::CompletionCallback& callback) override;
+  int Connect(net::CompletionOnceCallback callback) override;
   void Disconnect() override;
   bool IsConnected() const override;
   bool IsConnectedAndIdle() const override;
   int GetPeerAddress(net::IPEndPoint* address) const override;
   int GetLocalAddress(net::IPEndPoint* address) const override;
   const net::NetLogWithSource& NetLog() const override;
-  void SetSubresourceSpeculation() override;
-  void SetOmniboxSpeculation() override;
   bool WasEverUsed() const override;
   bool WasAlpnNegotiated() const override;
   net::NextProto GetNegotiatedProtocol() const override;
@@ -72,15 +73,17 @@ class FakeSocket : public net::StreamSocket {
   void AddConnectionAttempts(const net::ConnectionAttempts& attempts) override {
   }
   int64_t GetTotalReceivedBytes() const override;
+  void ApplySocketTag(const net::SocketTag& tag) override {}
 
  private:
-  void DoAsyncWrite(scoped_refptr<net::IOBuffer> buf, int buf_len,
-                    const net::CompletionCallback& callback);
+  void DoAsyncWrite(scoped_refptr<net::IOBuffer> buf,
+                    int buf_len,
+                    net::CompletionOnceCallback callback);
 
   bool read_pending_;
   scoped_refptr<net::IOBuffer> read_buffer_;
   int read_buffer_size_;
-  net::CompletionCallback read_callback_;
+  net::CompletionOnceCallback read_callback_;
 
   std::string input_data_;
   int input_pos_;

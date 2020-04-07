@@ -102,8 +102,7 @@ QueryIterator::QueryIterator(const GURL& url)
   }
 }
 
-QueryIterator::~QueryIterator() {
-}
+QueryIterator::~QueryIterator() = default;
 
 std::string QueryIterator::GetKey() const {
   DCHECK(!at_end_);
@@ -155,25 +154,19 @@ bool GetValueForKeyInQuery(const GURL& url,
   return false;
 }
 
-bool ParseHostAndPort(std::string::const_iterator host_and_port_begin,
-                      std::string::const_iterator host_and_port_end,
-                      std::string* host,
-                      int* port) {
-  if (host_and_port_begin >= host_and_port_end)
+bool ParseHostAndPort(base::StringPiece input, std::string* host, int* port) {
+  if (input.empty())
     return false;
 
-  // When using url, we use char*.
-  const char* auth_begin = &(*host_and_port_begin);
-  int auth_len = host_and_port_end - host_and_port_begin;
-
-  url::Component auth_component(0, auth_len);
+  url::Component auth_component(0, input.size());
   url::Component username_component;
   url::Component password_component;
   url::Component hostname_component;
   url::Component port_component;
 
-  url::ParseAuthority(auth_begin, auth_component, &username_component,
-      &password_component, &hostname_component, &port_component);
+  url::ParseAuthority(input.data(), auth_component, &username_component,
+                      &password_component, &hostname_component,
+                      &port_component);
 
   // There shouldn't be a username/password.
   if (username_component.is_valid() || password_component.is_valid())
@@ -184,7 +177,7 @@ bool ParseHostAndPort(std::string::const_iterator host_and_port_begin,
 
   int parsed_port_number = -1;
   if (port_component.is_nonempty()) {
-    parsed_port_number = url::ParsePort(auth_begin, port_component);
+    parsed_port_number = url::ParsePort(input.data(), port_component);
 
     // If parsing failed, port_number will be either PORT_INVALID or
     // PORT_UNSPECIFIED, both of which are negative.
@@ -199,11 +192,10 @@ bool ParseHostAndPort(std::string::const_iterator host_and_port_begin,
 
   // If the hostname starts with a bracket, it is either an IPv6 literal or
   // invalid. If it is an IPv6 literal then strip the brackets.
-  if (hostname_component.len > 0 &&
-      auth_begin[hostname_component.begin] == '[') {
-    if (auth_begin[hostname_component.end() - 1] == ']' &&
-        url::IPv6AddressToNumber(
-            auth_begin, hostname_component, tmp_ipv6_addr)) {
+  if (hostname_component.len > 0 && input[hostname_component.begin] == '[') {
+    if (input[hostname_component.end() - 1] == ']' &&
+        url::IPv6AddressToNumber(input.data(), hostname_component,
+                                 tmp_ipv6_addr)) {
       // Strip the brackets.
       hostname_component.begin++;
       hostname_component.len -= 2;
@@ -213,17 +205,10 @@ bool ParseHostAndPort(std::string::const_iterator host_and_port_begin,
   }
 
   // Pass results back to caller.
-  host->assign(auth_begin + hostname_component.begin, hostname_component.len);
+  host->assign(input.data() + hostname_component.begin, hostname_component.len);
   *port = parsed_port_number;
 
   return true;  // Success.
-}
-
-bool ParseHostAndPort(const std::string& host_and_port,
-                      std::string* host,
-                      int* port) {
-  return ParseHostAndPort(
-      host_and_port.begin(), host_and_port.end(), host, port);
 }
 
 
@@ -316,7 +301,7 @@ bool IsHostnameNonUnique(const std::string& hostname) {
     return false;
 
   // If |hostname| is an IP address, check to see if it's in an IANA-reserved
-  // range.
+  // range reserved for non-publicly routable networks.
   if (host_info.IsIPAddress()) {
     IPAddress host_addr;
     if (!host_addr.AssignFromIPLiteral(hostname.substr(
@@ -326,7 +311,7 @@ bool IsHostnameNonUnique(const std::string& hostname) {
     switch (host_info.family) {
       case url::CanonHostInfo::IPV4:
       case url::CanonHostInfo::IPV6:
-        return host_addr.IsReserved();
+        return !host_addr.IsPubliclyRoutable();
       case url::CanonHostInfo::NEUTRAL:
       case url::CanonHostInfo::BROKEN:
         return false;
@@ -347,7 +332,11 @@ bool IsHostnameNonUnique(const std::string& hostname) {
       registry_controlled_domains::EXCLUDE_PRIVATE_REGISTRIES);
 }
 
-bool IsLocalhost(base::StringPiece host) {
+bool IsLocalhost(const GURL& url) {
+  return HostStringIsLocalhost(url.HostNoBracketsPiece());
+}
+
+bool HostStringIsLocalhost(base::StringPiece host) {
   if (IsLocalHostname(host, nullptr))
     return true;
 
@@ -417,6 +406,11 @@ bool HasGoogleHost(const GURL& url) {
       return true;
   }
   return false;
+}
+
+bool IsTLS13ExperimentHost(base::StringPiece host) {
+  return host == "inbox.google.com" || host == "mail.google.com" ||
+         host == "gmail.com";
 }
 
 bool IsLocalHostname(base::StringPiece host, bool* is_local6) {

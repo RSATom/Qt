@@ -17,13 +17,21 @@
 
 namespace {
 
-// KDE printer config command ("system-config-printer-kde") causes the
-// OptionWidget to crash (https://bugs.kde.org/show_bug.cgi?id=271957).
-// Therefore, use GNOME printer config command for KDE.
-const char* const kSystemConfigPrinterCommand[] = {"system-config-printer",
-                                                   nullptr};
+// Older KDE shipped with system-config-printer-kde, which was buggy. Thus do
+// not bother with system-config-printer-kde and just always use
+// system-config-printer.
+// https://bugs.kde.org/show_bug.cgi?id=271957.
+constexpr const char* kSystemConfigPrinterCommand[] = {"system-config-printer",
+                                                       nullptr};
 
-const char* const kGnomeControlCenterPrintersCommand[] = {
+// Newer KDE has an improved print manager.
+constexpr const char* kKde4KcmPrinterCommand[] = {
+    "kcmshell4", "kcm_printer_manager", nullptr};
+constexpr const char* kKde5KcmPrinterCommand[] = {
+    "kcmshell5", "kcm_printer_manager", nullptr};
+
+// Older GNOME printer manager. Used as a fallback.
+constexpr const char* kGnomeControlCenterPrintersCommand[] = {
     "gnome-control-center", "printers", nullptr};
 
 // Returns true if the dialog was opened successfully.
@@ -38,14 +46,14 @@ bool OpenPrinterConfigDialog(const char* const* command) {
   base::Process process = base::LaunchProcess(argv, base::LaunchOptions());
   if (!process.IsValid())
     return false;
-  base::EnsureProcessGetsReaped(process.Pid());
+  base::EnsureProcessGetsReaped(std::move(process));
   return true;
 }
 
 // Detect the command based on the deskop environment and open the printer
 // manager dialog.
 void DetectAndOpenPrinterConfigDialog() {
-  base::ThreadRestrictions::AssertIOAllowed();
+  base::AssertBlockingAllowed();
   std::unique_ptr<base::Environment> env(base::Environment::Create());
 
   bool opened = false;
@@ -54,9 +62,17 @@ void DetectAndOpenPrinterConfigDialog() {
       opened = OpenPrinterConfigDialog(kSystemConfigPrinterCommand) ||
                OpenPrinterConfigDialog(kGnomeControlCenterPrintersCommand);
       break;
-    case base::nix::DESKTOP_ENVIRONMENT_KDE3:
     case base::nix::DESKTOP_ENVIRONMENT_KDE4:
+      opened = OpenPrinterConfigDialog(kKde4KcmPrinterCommand) ||
+               OpenPrinterConfigDialog(kSystemConfigPrinterCommand);
+      break;
     case base::nix::DESKTOP_ENVIRONMENT_KDE5:
+      opened = OpenPrinterConfigDialog(kKde5KcmPrinterCommand) ||
+               OpenPrinterConfigDialog(kSystemConfigPrinterCommand);
+      break;
+    case base::nix::DESKTOP_ENVIRONMENT_CINNAMON:
+    case base::nix::DESKTOP_ENVIRONMENT_KDE3:
+    case base::nix::DESKTOP_ENVIRONMENT_PANTHEON:
     case base::nix::DESKTOP_ENVIRONMENT_UNITY:
     case base::nix::DESKTOP_ENVIRONMENT_XFCE:
       opened = OpenPrinterConfigDialog(kSystemConfigPrinterCommand);

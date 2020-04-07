@@ -46,7 +46,7 @@
 QT_BEGIN_NAMESPACE
 
 QGeoTiledMapOsm::QGeoTiledMapOsm(QGeoTiledMappingManagerEngineOsm *engine, QObject *parent)
-:   QGeoTiledMap(engine, parent), m_mapId(-1), m_engine(engine)
+:   Map(engine, parent), m_mapId(-1), m_engine(engine)
 {
     // Needed because evaluateCopyrights() is only triggered if visible tiles change in the map.
     // It fails the first time it gets called if providers aren't resolved, and subsequent calls

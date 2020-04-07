@@ -8,7 +8,6 @@
 #include "Request.h"
 
 #include "SkPictureRecorder.h"
-#include "SkPixelSerializer.h"
 #include "SkPM4fPriv.h"
 #include "picture_utils.h"
 #include "sk_tool_utils.h"
@@ -28,20 +27,14 @@ Request::Request(SkString rootUrl)
     , fOverdraw(false)
     , fColorMode(0) {
     // create surface
-#if SK_SUPPORT_GPU
     GrContextOptions grContextOpts;
     fContextFactory = new GrContextFactory(grContextOpts);
-#else
-    fContextFactory = nullptr;
-#endif
 }
 
 Request::~Request() {
-#if SK_SUPPORT_GPU
     if (fContextFactory) {
         delete fContextFactory;
     }
-#endif
 }
 
 SkBitmap* Request::getBitmapFromCanvas(SkCanvas* canvas) {
@@ -71,7 +64,6 @@ sk_sp<SkData> Request::writeCanvasToPng(SkCanvas* canvas) {
 }
 
 SkCanvas* Request::getCanvas() {
-#if SK_SUPPORT_GPU
     GrContextFactory* factory = fContextFactory;
     GLTestContext* gl = factory->getContextInfo(GrContextFactory::kGL_ContextType,
             GrContextFactory::ContextOverrides::kNone).glContext();
@@ -79,14 +71,9 @@ SkCanvas* Request::getCanvas() {
         gl = factory->getContextInfo(GrContextFactory::kGLES_ContextType,
                                      GrContextFactory::ContextOverrides::kNone).glContext();
     }
-    if (!gl) {
-        gl = factory->getContextInfo(GrContextFactory::kMESA_ContextType,
-                                     GrContextFactory::ContextOverrides::kNone).glContext();
-    }
     if (gl) {
         gl->makeCurrent();
     }
-#endif
     SkASSERT(fDebugCanvas);
 
     // create the appropriate surface if necessary
@@ -118,32 +105,17 @@ sk_sp<SkData> Request::writeOutSkp() {
 
     fDebugCanvas->draw(canvas);
 
-    sk_sp<SkPicture> picture(recorder.finishRecordingAsPicture());
-
-    SkDynamicMemoryWStream outStream;
-
-    sk_sp<SkPixelSerializer> serializer = sk_tool_utils::MakePixelSerializer();
-    picture->serialize(&outStream, serializer.get());
-
-    return outStream.detachAsData();
+    return recorder.finishRecordingAsPicture()->serialize();
 }
 
 GrContext* Request::getContext() {
-#if SK_SUPPORT_GPU
     GrContext* result = fContextFactory->get(GrContextFactory::kGL_ContextType,
                                              GrContextFactory::ContextOverrides::kNone);
     if (!result) {
         result = fContextFactory->get(GrContextFactory::kGLES_ContextType,
                                       GrContextFactory::ContextOverrides::kNone);
     }
-    if (!result) {
-        result = fContextFactory->get(GrContextFactory::kMESA_ContextType,
-                                      GrContextFactory::ContextOverrides::kNone);
-    }
     return result;
-#else
-    return nullptr;
-#endif
 }
 
 SkIRect Request::getBounds() {
@@ -151,11 +123,9 @@ SkIRect Request::getBounds() {
     if (fPicture) {
         bounds = fPicture->cullRect().roundOut();
         if (fGPUEnabled) {
-#if SK_SUPPORT_GPU
-            int maxRTSize = this->getContext()->caps()->maxRenderTargetSize();
+            int maxRTSize = this->getContext()->maxRenderTargetSize();
             bounds = SkIRect::MakeWH(SkTMin(bounds.width(), maxRTSize),
                                      SkTMin(bounds.height(), maxRTSize));
-#endif
         }
     } else {
         bounds = SkIRect::MakeWH(kDefaultWidth, kDefaultHeight);

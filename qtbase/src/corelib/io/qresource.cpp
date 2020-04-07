@@ -52,7 +52,10 @@
 #include "qendian.h"
 #include <qshareddata.h>
 #include <qplatformdefs.h>
+#include <qendian.h>
 #include "private/qabstractfileengine_p.h"
+#include "private/qnumeric_p.h"
+#include "private/qsimd_p.h"
 #include "private/qsystemerror_p.h"
 
 #ifdef Q_OS_UNIX
@@ -116,7 +119,7 @@ public:
     inline bool isContainer(int node) const { return flags(node) & Directory; }
     inline bool isCompressed(int node) const { return flags(node) & Compressed; }
     const uchar *data(int node, qint64 *size) const;
-    QDateTime lastModified(int node) const;
+    quint64 lastModified(int node) const;
     QStringList children(int node) const;
     virtual QString mappingRoot() const { return QString(); }
     bool mappingRootSubdir(const QString &path, QString *match=0) const;
@@ -245,7 +248,7 @@ public:
     mutable qint64 size;
     mutable const uchar *data;
     mutable QStringList children;
-    mutable QDateTime lastModified;
+    mutable quint64 lastModified;
 
     QResource *q_ptr;
     Q_DECLARE_PUBLIC(QResource)
@@ -259,7 +262,7 @@ QResourcePrivate::clear()
     data = 0;
     size = 0;
     children.clear();
-    lastModified = QDateTime();
+    lastModified = 0;
     container = 0;
     for(int i = 0; i < related.size(); ++i) {
         QResourceRoot *root = related.at(i);
@@ -301,7 +304,7 @@ QResourcePrivate::load(const QString &file)
             data = 0;
             size = 0;
             compressed = 0;
-            lastModified = QDateTime();
+            lastModified = 0;
             res->ref.ref();
             related.append(res);
         }
@@ -539,7 +542,7 @@ QDateTime QResource::lastModified() const
 {
     Q_D(const QResource);
     d->ensureInitialized();
-    return d->lastModified;
+    return d->lastModified ? QDateTime::fromMSecsSinceEpoch(d->lastModified) : QDateTime();
 }
 
 /*!
@@ -629,17 +632,13 @@ inline QString QResourceRoot::name(int node) const
 
     QString ret;
     qint32 name_offset = qFromBigEndian<qint32>(tree + offset);
-    const qint16 name_length = qFromBigEndian<qint16>(names + name_offset);
+    quint16 name_length = qFromBigEndian<qint16>(names + name_offset);
     name_offset += 2;
     name_offset += 4; //jump past hash
 
     ret.resize(name_length);
     QChar *strData = ret.data();
-    for(int i = 0; i < name_length*2; i+=2) {
-        QChar c(names[name_offset+i+1], names[name_offset+i]);
-        *strData = c;
-        ++strData;
-    }
+    qFromBigEndian<ushort>(names + name_offset, name_length, strData);
     return ret;
 }
 
@@ -797,18 +796,14 @@ const uchar *QResourceRoot::data(int node, qint64 *size) const
     return 0;
 }
 
-QDateTime QResourceRoot::lastModified(int node) const
+quint64 QResourceRoot::lastModified(int node) const
 {
     if (node == -1 || version < 0x02)
-        return QDateTime();
+        return 0;
 
     const int offset = findOffset(node) + 14;
 
-    const quint64 timeStamp = qFromBigEndian<quint64>(tree + offset);
-    if (timeStamp == 0)
-        return QDateTime();
-
-    return QDateTime::fromMSecsSinceEpoch(timeStamp);
+    return qFromBigEndian<quint64>(tree + offset);
 }
 
 QStringList QResourceRoot::children(int node) const
@@ -911,8 +906,8 @@ public:
     inline QDynamicBufferResourceRoot(const QString &_root) : root(_root), buffer(0) { }
     inline ~QDynamicBufferResourceRoot() { }
     inline const uchar *mappingBuffer() const { return buffer; }
-    virtual QString mappingRoot() const Q_DECL_OVERRIDE { return root; }
-    virtual ResourceRootType type() const Q_DECL_OVERRIDE { return Resource_Buffer; }
+    virtual QString mappingRoot() const override { return root; }
+    virtual ResourceRootType type() const override { return Resource_Buffer; }
 
     // size == -1 means "unknown"
     bool registerSelf(const uchar *b, int size)
@@ -994,7 +989,7 @@ public:
         }
     }
     QString mappingFile() const { return fileName; }
-    virtual ResourceRootType type() const Q_DECL_OVERRIDE { return Resource_File; }
+    virtual ResourceRootType type() const override { return Resource_File; }
 
     bool registerSelf(const QString &f) {
         bool fromMM = false;
@@ -1293,7 +1288,6 @@ bool QResourceFileEngine::close()
 {
     Q_D(QResourceFileEngine);
     d->offset = 0;
-    d->uncompressed.clear();
     return true;
 }
 
@@ -1508,12 +1502,25 @@ uchar *QResourceFileEnginePrivate::map(qint64 offset, qint64 size, QFile::Memory
 {
     Q_Q(QResourceFileEngine);
     Q_UNUSED(flags);
-    if (offset < 0 || size <= 0 || !resource.isValid() || offset + size > resource.size()) {
+
+    qint64 max = resource.size();
+    if (resource.isCompressed()) {
+        uncompress();
+        max = uncompressed.size();
+    }
+
+    qint64 end;
+    if (offset < 0 || size <= 0 || !resource.isValid() ||
+            add_overflow(offset, size, &end) || end > max) {
         q->setError(QFile::UnspecifiedError, QString());
         return 0;
     }
-    uchar *address = const_cast<uchar *>(resource.data());
-    return (address + offset);
+
+    const uchar *address = resource.data();
+    if (resource.isCompressed())
+        address = reinterpret_cast<const uchar *>(uncompressed.constData());
+
+    return const_cast<uchar *>(address) + offset;
 }
 
 bool QResourceFileEnginePrivate::unmap(uchar *ptr)

@@ -213,14 +213,14 @@ Polymer({
   attached: function() {
     // Create listener functions.
     /** @type {function(!Array<!AutofillManager.AddressEntry>)} */
-    var setAddressesListener = function(list) {
+    const setAddressesListener = list => {
       this.addresses = list;
-    }.bind(this);
+    };
 
     /** @type {function(!Array<!AutofillManager.CreditCardEntry>)} */
-    var setCreditCardsListener = function(list) {
+    const setCreditCardsListener = list => {
       this.creditCards = list;
-    }.bind(this);
+    };
 
     // Remember the bound reference in order to detach.
     this.setAddressesListener_ = setAddressesListener;
@@ -265,17 +265,20 @@ Polymer({
    * @private
    */
   onAddressMenuTap_: function(e) {
-    var menuEvent = /** @type {!{model: !{item: !Object}}} */ (e);
+    const menuEvent = /** @type {!{model: !{item: !Object}}} */ (e);
 
     /* TODO(scottchen): drop the [dataHost][dataHost] once this bug is fixed:
      https://github.com/Polymer/polymer/issues/2574 */
-    var item = menuEvent.model['dataHost']['dataHost'].item;
+    // TODO(dpapad): The [dataHost][dataHost] workaround is only necessary for
+    // Polymer 1. Remove once migration to Polymer 2 has completed.
+    const item = Polymer.DomIf ? menuEvent.model.item :
+                                 menuEvent.model['dataHost']['dataHost'].item;
 
     // Copy item so dialog won't update model on cancel.
     this.activeAddress = /** @type {!chrome.autofillPrivate.AddressEntry} */ (
         Object.assign({}, item));
 
-    var dotsButton = /** @type {!HTMLElement} */ (Polymer.dom(e).localTarget);
+    const dotsButton = /** @type {!HTMLElement} */ (Polymer.dom(e).localTarget);
     /** @type {!CrActionMenuElement} */ (this.$.addressSharedMenu)
         .showAt(dotsButton);
     this.activeDialogAnchor_ = dotsButton;
@@ -332,18 +335,21 @@ Polymer({
    * @private
    */
   onCreditCardMenuTap_: function(e) {
-    var menuEvent = /** @type {!{model: !{item: !Object}}} */ (e);
+    const menuEvent = /** @type {!{model: !{item: !Object}}} */ (e);
 
     /* TODO(scottchen): drop the [dataHost][dataHost] once this bug is fixed:
      https://github.com/Polymer/polymer/issues/2574 */
-    var item = menuEvent.model['dataHost']['dataHost'].item;
+    // TODO(dpapad): The [dataHost][dataHost] workaround is only necessary for
+    // Polymer 1. Remove once migration to Polymer 2 has completed.
+    const item = Polymer.DomIf ? menuEvent.model.item :
+                                 menuEvent.model['dataHost']['dataHost'].item;
 
     // Copy item so dialog won't update model on cancel.
     this.activeCreditCard =
         /** @type {!chrome.autofillPrivate.CreditCardEntry} */ (
             Object.assign({}, item));
 
-    var dotsButton = /** @type {!HTMLElement} */ (Polymer.dom(e).localTarget);
+    const dotsButton = /** @type {!HTMLElement} */ (Polymer.dom(e).localTarget);
     /** @type {!CrActionMenuElement} */ (this.$.creditCardSharedMenu)
         .showAt(dotsButton);
     this.activeDialogAnchor_ = dotsButton;
@@ -356,8 +362,8 @@ Polymer({
    */
   onAddCreditCardTap_: function(e) {
     e.preventDefault();
-    var date = new Date();  // Default to current month/year.
-    var expirationMonth = date.getMonth() + 1;  // Months are 0 based.
+    const date = new Date();  // Default to current month/year.
+    const expirationMonth = date.getMonth() + 1;  // Months are 0 based.
     this.activeCreditCard = {
       expirationMonth: expirationMonth.toString(),
       expirationYear: date.getFullYear().toString(),

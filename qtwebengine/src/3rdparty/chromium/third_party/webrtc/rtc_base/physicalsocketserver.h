@@ -8,8 +8,8 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_RTC_BASE_PHYSICALSOCKETSERVER_H_
-#define WEBRTC_RTC_BASE_PHYSICALSOCKETSERVER_H_
+#ifndef RTC_BASE_PHYSICALSOCKETSERVER_H_
+#define RTC_BASE_PHYSICALSOCKETSERVER_H_
 
 #if defined(WEBRTC_POSIX) && defined(WEBRTC_LINUX)
 #include <sys/epoll.h>
@@ -20,23 +20,23 @@
 #include <set>
 #include <vector>
 
-#include "webrtc/rtc_base/criticalsection.h"
-#include "webrtc/rtc_base/nethelpers.h"
-#include "webrtc/rtc_base/socketserver.h"
+#include "rtc_base/criticalsection.h"
+#include "rtc_base/nethelpers.h"
+#include "rtc_base/socketserver.h"
 
 #if defined(WEBRTC_POSIX)
 typedef int SOCKET;
-#endif // WEBRTC_POSIX
+#endif  // WEBRTC_POSIX
 
 namespace rtc {
 
 // Event constants for the Dispatcher class.
 enum DispatcherEvent {
-  DE_READ    = 0x0001,
-  DE_WRITE   = 0x0002,
+  DE_READ = 0x0001,
+  DE_WRITE = 0x0002,
   DE_CONNECT = 0x0004,
-  DE_CLOSE   = 0x0008,
-  DE_ACCEPT  = 0x0010,
+  DE_CLOSE = 0x0008,
+  DE_ACCEPT = 0x0010,
 };
 
 class Signaler;
@@ -67,10 +67,7 @@ class PhysicalSocketServer : public SocketServer {
   ~PhysicalSocketServer() override;
 
   // SocketFactory:
-  Socket* CreateSocket(int type) override;
   Socket* CreateSocket(int family, int type) override;
-
-  AsyncSocket* CreateAsyncSocket(int type) override;
   AsyncSocket* CreateAsyncSocket(int family, int type) override;
 
   // Internal Factory for Accept (virtual so it can be overwritten in tests).
@@ -184,8 +181,12 @@ class PhysicalSocket : public AsyncSocket, public sigslot::has_slots<> {
   virtual int DoSend(SOCKET socket, const char* buf, int len, int flags);
 
   // Make virtual so ::sendto can be overwritten in tests.
-  virtual int DoSendTo(SOCKET socket, const char* buf, int len, int flags,
-                       const struct sockaddr* dest_addr, socklen_t addrlen);
+  virtual int DoSendTo(SOCKET socket,
+                       const char* buf,
+                       int len,
+                       int flags,
+                       const struct sockaddr* dest_addr,
+                       socklen_t addrlen);
 
   void OnResolveResult(AsyncResolverInterface* resolver);
 
@@ -203,7 +204,7 @@ class PhysicalSocket : public AsyncSocket, public sigslot::has_slots<> {
   SOCKET s_;
   bool udp_;
   CriticalSection crit_;
-  int error_ GUARDED_BY(crit_);
+  int error_ RTC_GUARDED_BY(crit_);
   ConnState state_;
   AsyncResolver* resolver_;
 
@@ -217,8 +218,8 @@ class PhysicalSocket : public AsyncSocket, public sigslot::has_slots<> {
 
 class SocketDispatcher : public Dispatcher, public PhysicalSocket {
  public:
-  explicit SocketDispatcher(PhysicalSocketServer *ss);
-  SocketDispatcher(SOCKET s, PhysicalSocketServer *ss);
+  explicit SocketDispatcher(PhysicalSocketServer* ss);
+  SocketDispatcher(SOCKET s, PhysicalSocketServer* ss);
   ~SocketDispatcher() override;
 
   bool Initialize();
@@ -257,7 +258,7 @@ class SocketDispatcher : public Dispatcher, public PhysicalSocket {
   int id_;
   bool signal_close_;
   int signal_err_;
-#endif // WEBRTC_WIN
+#endif  // WEBRTC_WIN
 #if defined(WEBRTC_USE_EPOLL)
   void MaybeUpdateDispatcher(uint8_t old_events);
 
@@ -265,6 +266,6 @@ class SocketDispatcher : public Dispatcher, public PhysicalSocket {
 #endif
 };
 
-} // namespace rtc
+}  // namespace rtc
 
-#endif // WEBRTC_RTC_BASE_PHYSICALSOCKETSERVER_H_
+#endif  // RTC_BASE_PHYSICALSOCKETSERVER_H_

@@ -113,11 +113,6 @@
 */
 
 /*!
-    \externalpage https://www.w3.org/TR/html5/links.html#downloading-resources
-    \title HTML download attribute
-*/
-
-/*!
   \externalpage https://www.iana.org/assignments/uri-schemes/prov/view-source
   \title view-source URI scheme
 */
@@ -145,4 +140,9 @@
 /*!
     \externalpage https://wiki.greasespot.net/Metadata_Block#.40name
     \title Metadata Block
+*/
+
+/*!
+    \externalpage https://developer.mozilla.org/en-US/docs/Web/API/Navigator/registerProtocolHandler
+    \title registerProtocolHandler
 */

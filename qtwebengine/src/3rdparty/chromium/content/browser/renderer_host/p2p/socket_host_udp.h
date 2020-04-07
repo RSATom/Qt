@@ -8,23 +8,27 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <deque>
 #include <memory>
 #include <set>
 #include <vector>
 
 #include "base/callback.h"
 #include "base/compiler_specific.h"
+#include "base/containers/circular_deque.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
-#include "base/message_loop/message_loop.h"
 #include "content/browser/renderer_host/p2p/socket_host.h"
 #include "content/common/content_export.h"
 #include "content/common/p2p_socket_type.h"
 #include "net/base/ip_endpoint.h"
 #include "net/socket/diff_serv_code_point.h"
 #include "net/socket/udp_server_socket.h"
+#include "net/traffic_annotation/network_traffic_annotation.h"
 #include "third_party/webrtc/rtc_base/asyncpacketsocket.h"
+
+namespace net {
+class NetLog;
+}  // namespace net
 
 namespace content {
 
@@ -32,15 +36,18 @@ class P2PMessageThrottler;
 
 class CONTENT_EXPORT P2PSocketHostUdp : public P2PSocketHost {
  public:
-  typedef base::Callback<std::unique_ptr<net::DatagramServerSocket>()>
+  typedef base::Callback<std::unique_ptr<net::DatagramServerSocket>(
+      net::NetLog* net_log)>
       DatagramServerSocketFactory;
   P2PSocketHostUdp(IPC::Sender* message_sender,
                    int socket_id,
                    P2PMessageThrottler* throttler,
+                   net::NetLog* net_log,
                    const DatagramServerSocketFactory& socket_factory);
   P2PSocketHostUdp(IPC::Sender* message_sender,
                    int socket_id,
-                   P2PMessageThrottler* throttler);
+                   P2PMessageThrottler* throttler,
+                   net::NetLog* net_log);
   ~P2PSocketHostUdp() override;
 
   // P2PSocketHost overrides.
@@ -51,7 +58,8 @@ class CONTENT_EXPORT P2PSocketHostUdp : public P2PSocketHost {
   void Send(const net::IPEndPoint& to,
             const std::vector<char>& data,
             const rtc::PacketOptions& options,
-            uint64_t packet_id) override;
+            uint64_t packet_id,
+            const net::NetworkTrafficAnnotationTag traffic_annotation) override;
   std::unique_ptr<P2PSocketHost> AcceptIncomingTcpConnection(
       const net::IPEndPoint& remote_address,
       int id) override;
@@ -66,7 +74,8 @@ class CONTENT_EXPORT P2PSocketHostUdp : public P2PSocketHost {
     PendingPacket(const net::IPEndPoint& to,
                   const std::vector<char>& content,
                   const rtc::PacketOptions& options,
-                  uint64_t id);
+                  uint64_t id,
+                  const net::NetworkTrafficAnnotationTag traffic_annotation);
     PendingPacket(const PendingPacket& other);
     ~PendingPacket();
     net::IPEndPoint to;
@@ -74,11 +83,10 @@ class CONTENT_EXPORT P2PSocketHostUdp : public P2PSocketHost {
     int size;
     rtc::PacketOptions packet_options;
     uint64_t id;
+    const net::NetworkTrafficAnnotationTag traffic_annotation;
   };
 
   void OnError();
-
-  void SetSendBufferSize();
 
   void DoRead();
   void OnRecv(int result);
@@ -93,13 +101,15 @@ class CONTENT_EXPORT P2PSocketHostUdp : public P2PSocketHost {
                         int32_t transport_sequence_number,
                         base::TimeTicks send_time,
                         int result);
-  static std::unique_ptr<net::DatagramServerSocket> DefaultSocketFactory();
+  int SetSocketDiffServCodePointInternal(net::DiffServCodePoint dscp);
+  static std::unique_ptr<net::DatagramServerSocket> DefaultSocketFactory(
+      net::NetLog* net_log);
 
   std::unique_ptr<net::DatagramServerSocket> socket_;
   scoped_refptr<net::IOBuffer> recv_buffer_;
   net::IPEndPoint recv_address_;
 
-  std::deque<PendingPacket> send_queue_;
+  base::circular_deque<PendingPacket> send_queue_;
   bool send_pending_;
   net::DiffServCodePoint last_dscp_;
 
@@ -108,8 +118,7 @@ class CONTENT_EXPORT P2PSocketHostUdp : public P2PSocketHost {
   ConnectedPeerSet connected_peers_;
   P2PMessageThrottler* throttler_;
 
-  // Keep track of the send socket buffer size under experiment.
-  size_t send_buffer_size_;
+  net::NetLog* net_log_;
 
   // Callback object that returns a new socket when invoked.
   DatagramServerSocketFactory socket_factory_;

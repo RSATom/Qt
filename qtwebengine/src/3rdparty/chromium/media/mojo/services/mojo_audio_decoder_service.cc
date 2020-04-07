@@ -16,15 +16,16 @@
 namespace media {
 
 MojoAudioDecoderService::MojoAudioDecoderService(
-    base::WeakPtr<MojoCdmServiceContext> mojo_cdm_service_context,
+    MojoCdmServiceContext* mojo_cdm_service_context,
     std::unique_ptr<media::AudioDecoder> decoder)
     : mojo_cdm_service_context_(mojo_cdm_service_context),
       decoder_(std::move(decoder)),
       weak_factory_(this) {
+  DCHECK(mojo_cdm_service_context_);
   weak_this_ = weak_factory_.GetWeakPtr();
 }
 
-MojoAudioDecoderService::~MojoAudioDecoderService() {}
+MojoAudioDecoderService::~MojoAudioDecoderService() = default;
 
 void MojoAudioDecoderService::Construct(
     mojom::AudioDecoderClientAssociatedPtrInfo client) {
@@ -39,34 +40,24 @@ void MojoAudioDecoderService::Initialize(const AudioDecoderConfig& config,
 
   // Get CdmContext from cdm_id if the stream is encrypted.
   CdmContext* cdm_context = nullptr;
-  scoped_refptr<ContentDecryptionModule> cdm;
   if (config.is_encrypted()) {
-    if (!mojo_cdm_service_context_) {
-      DVLOG(1) << "CDM service context not available.";
+    cdm_context_ref_ = mojo_cdm_service_context_->GetCdmContextRef(cdm_id);
+    if (!cdm_context_ref_) {
+      DVLOG(1) << "CdmContextRef not found for CDM id: " << cdm_id;
       std::move(callback).Run(false, false);
       return;
     }
 
-    cdm = mojo_cdm_service_context_->GetCdm(cdm_id);
-    if (!cdm) {
-      DVLOG(1) << "CDM not found for CDM id: " << cdm_id;
-      std::move(callback).Run(false, false);
-      return;
-    }
-
-    cdm_context = cdm->GetCdmContext();
-    if (!cdm_context) {
-      DVLOG(1) << "CDM context not available for CDM id: " << cdm_id;
-      std::move(callback).Run(false, false);
-      return;
-    }
+    cdm_context = cdm_context_ref_->GetCdmContext();
+    DCHECK(cdm_context);
   }
 
   decoder_->Initialize(
       config, cdm_context,
       base::Bind(&MojoAudioDecoderService::OnInitialized, weak_this_,
-                 base::Passed(&callback), cdm),
-      base::Bind(&MojoAudioDecoderService::OnAudioBufferReady, weak_this_));
+                 base::Passed(&callback)),
+      base::Bind(&MojoAudioDecoderService::OnAudioBufferReady, weak_this_),
+      base::NullCallback());
 }
 
 void MojoAudioDecoderService::SetDataSource(
@@ -87,23 +78,25 @@ void MojoAudioDecoderService::Decode(mojom::DecoderBufferPtr buffer,
 
 void MojoAudioDecoderService::Reset(ResetCallback callback) {
   DVLOG(1) << __func__;
-  decoder_->Reset(base::Bind(&MojoAudioDecoderService::OnResetDone, weak_this_,
-                             base::Passed(&callback)));
+
+  // Reset the reader so that pending decodes will be dispatches first.
+  mojo_decoder_buffer_reader_->Flush(
+      base::Bind(&MojoAudioDecoderService::OnReaderFlushDone, weak_this_,
+                 base::Passed(&callback)));
 }
 
-void MojoAudioDecoderService::OnInitialized(
-    InitializeCallback callback,
-    scoped_refptr<ContentDecryptionModule> cdm,
-    bool success) {
+void MojoAudioDecoderService::OnInitialized(InitializeCallback callback,
+                                            bool success) {
   DVLOG(1) << __func__ << " success:" << success;
 
-  if (success) {
-    cdm_ = cdm;
-    std::move(callback).Run(success, decoder_->NeedsBitstreamConversion());
-  } else {
+  if (!success) {
+    cdm_context_ref_.reset();
     // Do not call decoder_->NeedsBitstreamConversion() if init failed.
     std::move(callback).Run(false, false);
+    return;
   }
+
+  std::move(callback).Run(success, decoder_->NeedsBitstreamConversion());
 }
 
 // The following methods are needed so that we can bind them with a weak pointer
@@ -121,6 +114,11 @@ void MojoAudioDecoderService::OnReadDone(DecodeCallback callback,
 
   decoder_->Decode(buffer, base::Bind(&MojoAudioDecoderService::OnDecodeStatus,
                                       weak_this_, base::Passed(&callback)));
+}
+
+void MojoAudioDecoderService::OnReaderFlushDone(ResetCallback callback) {
+  decoder_->Reset(base::Bind(&MojoAudioDecoderService::OnResetDone, weak_this_,
+                             base::Passed(&callback)));
 }
 
 void MojoAudioDecoderService::OnDecodeStatus(DecodeCallback callback,

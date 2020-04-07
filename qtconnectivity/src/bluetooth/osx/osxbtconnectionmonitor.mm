@@ -59,6 +59,11 @@ using namespace QT_NAMESPACE;
 #endif
 
 @implementation QT_MANGLE_NAMESPACE(OSXBTConnectionMonitor)
+{
+    QT_PREPEND_NAMESPACE(OSXBluetooth::ConnectionMonitor) *monitor;
+    IOBluetoothUserNotification *discoveryNotification;
+    NSMutableArray *foundConnections;
+}
 
 - (id)initWithMonitor:(OSXBluetooth::ConnectionMonitor *)aMonitor
 {

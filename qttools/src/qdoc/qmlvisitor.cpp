@@ -382,7 +382,7 @@ bool QmlSignatureParser::matchParameter()
             readToken();
         }
     }
-    func_->addParameter(Parameter(dataType.toString(), "", name, defaultValue.toString()));
+    func_->addParameter(Parameter(dataType.toString(), name, defaultValue.toString()));
     return true;
 }
 
@@ -781,7 +781,7 @@ bool QmlDocVisitor::visit(QQmlJS::AST::FunctionDeclaration* fd)
             if (formals) {
                 QQmlJS::AST::FormalParameterList* fpl = formals;
                 do {
-                    parameters.append(Parameter(QString(), QString(), fpl->name.toString()));
+                    parameters.append(Parameter(QString(), QString(), fpl->element->bindingIdentifier.toString()));
                     fpl = fpl->next;
                 } while (fpl && fpl != formals);
                 qmlMethod->setParameters(parameters);
@@ -843,6 +843,17 @@ void QmlDocVisitor::endVisit(QQmlJS::AST::UiQualifiedId* )
 {
     // nothing.
 }
+
+void QmlDocVisitor::throwRecursionDepthError()
+{
+    hasRecursionDepthError = true;
+}
+
+bool QmlDocVisitor::hasError() const
+{
+    return hasRecursionDepthError;
+}
+
 #endif
 
 QT_END_NAMESPACE

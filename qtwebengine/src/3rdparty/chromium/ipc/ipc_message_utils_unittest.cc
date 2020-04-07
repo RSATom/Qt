@@ -12,6 +12,7 @@
 #include "base/json/json_reader.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/shared_memory.h"
+#include "base/test/test_shared_memory_util.h"
 #include "base/unguessable_token.h"
 #include "ipc/ipc_channel_handle.h"
 #include "ipc/ipc_message.h"
@@ -96,58 +97,12 @@ TEST(IPCMessageUtilsTest, StackVector) {
     EXPECT_EQ(stack_vector[i], output[i]);
 }
 
-// Tests that PickleSizer and Pickle agree on the size of a complex base::Value.
-TEST(IPCMessageUtilsTest, ValueSize) {
-  std::unique_ptr<base::DictionaryValue> value(new base::DictionaryValue);
-  value->SetIntegerWithoutPathExpansion("foo", 42);
-  value->SetDoubleWithoutPathExpansion("bar", 3.14);
-  value->SetStringWithoutPathExpansion("baz", "hello");
-  value->SetWithoutPathExpansion("qux", base::MakeUnique<base::Value>());
-
-  std::unique_ptr<base::DictionaryValue> nested_dict(new base::DictionaryValue);
-  nested_dict->SetIntegerWithoutPathExpansion("foobar", 5);
-  value->SetWithoutPathExpansion("nested", std::move(nested_dict));
-
-  std::unique_ptr<base::ListValue> list_value(new base::ListValue);
-  list_value->AppendString("im a string");
-  list_value->AppendString("im another string");
-  value->SetWithoutPathExpansion("awesome-list", std::move(list_value));
-
-  base::Pickle pickle;
-  IPC::WriteParam(&pickle, *value);
-
-  base::PickleSizer sizer;
-  IPC::GetParamSize(&sizer, *value);
-
-  EXPECT_EQ(sizer.payload_size(), pickle.payload_size());
-}
-
-TEST(IPCMessageUtilsTest, JsonValueSize) {
-  const char kJson[] = "[ { \"foo\": \"bar\", \"baz\": 1234.0 } ]";
-  std::unique_ptr<base::Value> json_value = base::JSONReader::Read(kJson);
-  EXPECT_NE(nullptr, json_value);
-  base::ListValue value;
-  value.Append(std::move(json_value));
-
-  base::Pickle pickle;
-  IPC::WriteParam(&pickle, value);
-
-  base::PickleSizer sizer;
-  IPC::GetParamSize(&sizer, value);
-
-  EXPECT_EQ(sizer.payload_size(), pickle.payload_size());
-}
-
 TEST(IPCMessageUtilsTest, MojoChannelHandle) {
   mojo::MessagePipe message_pipe;
   IPC::ChannelHandle channel_handle(message_pipe.handle0.release());
 
   IPC::Message message;
   IPC::WriteParam(&message, channel_handle);
-
-  base::PickleSizer sizer;
-  IPC::GetParamSize(&sizer, channel_handle);
-  EXPECT_EQ(sizer.payload_size(), message.payload_size());
 
   base::PickleIterator iter(message);
   IPC::ChannelHandle result_handle;
@@ -159,11 +114,6 @@ TEST(IPCMessageUtilsTest, OptionalUnset) {
   base::Optional<int> opt;
   base::Pickle pickle;
   IPC::WriteParam(&pickle, opt);
-
-  base::PickleSizer sizer;
-  IPC::GetParamSize(&sizer, opt);
-
-  EXPECT_EQ(sizer.payload_size(), pickle.payload_size());
 
   std::string log;
   IPC::LogParam(opt, &log);
@@ -179,11 +129,6 @@ TEST(IPCMessageUtilsTest, OptionalSet) {
   base::Optional<int> opt(10);
   base::Pickle pickle;
   IPC::WriteParam(&pickle, opt);
-
-  base::PickleSizer sizer;
-  IPC::GetParamSize(&sizer, opt);
-
-  EXPECT_EQ(sizer.payload_size(), pickle.payload_size());
 
   std::string log;
   IPC::LogParam(opt, &log);
@@ -215,15 +160,56 @@ TEST(IPCMessageUtilsTest, SharedMemoryHandle) {
   EXPECT_EQ(pre_pickle.GetSize(), post_pickle.GetSize());
 }
 
+template <typename SharedMemoryRegionType>
+class SharedMemoryRegionTypedTest : public ::testing::Test {};
+
+typedef ::testing::Types<base::WritableSharedMemoryRegion,
+                         base::UnsafeSharedMemoryRegion,
+                         base::ReadOnlySharedMemoryRegion>
+    AllSharedMemoryRegionTypes;
+TYPED_TEST_CASE(SharedMemoryRegionTypedTest, AllSharedMemoryRegionTypes);
+
+TYPED_TEST(SharedMemoryRegionTypedTest, WriteAndRead) {
+  const size_t size = 2314;
+  TypeParam pre_pickle;
+  base::WritableSharedMemoryMapping pre_mapping;
+  std::tie(pre_pickle, pre_mapping) = base::CreateMappedRegion<TypeParam>(size);
+  const size_t pre_size = pre_pickle.GetSize();
+
+  const std::string content = "Hello, world!";
+  memcpy(pre_mapping.memory(), content.data(), content.size());
+
+  IPC::Message message;
+  IPC::WriteParam(&message, pre_pickle);
+  EXPECT_FALSE(pre_pickle.IsValid());
+
+  TypeParam post_pickle;
+  base::PickleIterator iter(message);
+  EXPECT_TRUE(IPC::ReadParam(&message, &iter, &post_pickle));
+  EXPECT_EQ(pre_size, post_pickle.GetSize());
+  typename TypeParam::MappingType post_mapping = post_pickle.Map();
+  EXPECT_EQ(pre_mapping.guid(), post_mapping.guid());
+  EXPECT_EQ(0, memcmp(pre_mapping.memory(), post_mapping.memory(),
+                      post_pickle.GetSize()));
+}
+
+TYPED_TEST(SharedMemoryRegionTypedTest, InvalidRegion) {
+  TypeParam pre_pickle;
+  EXPECT_FALSE(pre_pickle.IsValid());
+
+  IPC::Message message;
+  IPC::WriteParam(&message, pre_pickle);
+
+  TypeParam post_pickle;
+  base::PickleIterator iter(message);
+  EXPECT_TRUE(IPC::ReadParam(&message, &iter, &post_pickle));
+  EXPECT_FALSE(post_pickle.IsValid());
+}
+
 TEST(IPCMessageUtilsTest, UnguessableTokenTest) {
   base::UnguessableToken token = base::UnguessableToken::Create();
   base::Pickle pickle;
   IPC::WriteParam(&pickle, token);
-
-  base::PickleSizer sizer;
-  IPC::GetParamSize(&sizer, token);
-
-  EXPECT_EQ(sizer.payload_size(), pickle.payload_size());
 
   std::string log;
   IPC::LogParam(token, &log);
@@ -242,11 +228,6 @@ TEST(IPCMessageUtilsTest, FlatMap) {
 
   base::Pickle pickle;
   IPC::WriteParam(&pickle, input);
-
-  base::PickleSizer sizer;
-  IPC::GetParamSize(&sizer, input);
-
-  EXPECT_EQ(sizer.payload_size(), pickle.payload_size());
 
   base::PickleIterator iter(pickle);
   base::flat_map<std::string, int> output;

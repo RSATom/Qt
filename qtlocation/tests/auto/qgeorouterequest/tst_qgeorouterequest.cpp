@@ -319,5 +319,33 @@ void tst_QGeoRouteRequest::featureWeight()
         QVERIFY(qgeorouterequest->featureTypes().contains(type));
 }
 
+void tst_QGeoRouteRequest::extraParameters_data()
+{
+    QTest::addColumn<QVariantMap>("extraParameters");
+
+    QVariantMap params;
+    QTest::newRow("Empty") << params;
+
+    const QVariantMap param1 = {{"property1", QVariant(42)} , {"property2", QVariant("42")} , {"property3", QVariant("42.0")}};
+    params["param1"] = param1;
+
+    QTest::newRow("One param") << params;
+
+    const QVariantMap param2 = {{"property1", QVariant(43)} , {"property2", QVariant("43")} , {"property3", QVariant("43.0")}};
+    params["param2"] = param2;
+
+    QTest::newRow("Two params") << params;
+}
+
+void tst_QGeoRouteRequest::extraParameters()
+{
+    typedef QVariantMap ParameterType;
+    QFETCH(ParameterType , extraParameters);
+    QVariantMap emptyParams;
+    qgeorouterequest->setExtraParameters(extraParameters);
+    QCOMPARE(qgeorouterequest->extraParameters(), extraParameters);
+    qgeorouterequest->setExtraParameters(emptyParams);
+    QCOMPARE(qgeorouterequest->extraParameters(), emptyParams);
+}
 
 QTEST_APPLESS_MAIN(tst_QGeoRouteRequest);

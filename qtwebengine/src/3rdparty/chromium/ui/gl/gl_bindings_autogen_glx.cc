@@ -20,20 +20,22 @@
 
 namespace gl {
 
-DriverGLX g_driver_glx;
+DriverGLX g_driver_glx;  // Exists in .bss
 
 void DriverGLX::InitializeStaticBindings() {
-  fn.glXBindTexImageEXTFn = 0;
+  // Ensure struct has been zero-initialized.
+  char* this_bytes = reinterpret_cast<char*>(this);
+  DCHECK(this_bytes[0] == 0);
+  DCHECK(memcmp(this_bytes, this_bytes + 1, sizeof(*this) - 1) == 0);
+
   fn.glXChooseFBConfigFn = reinterpret_cast<glXChooseFBConfigProc>(
       GetGLProcAddress("glXChooseFBConfig"));
   fn.glXChooseVisualFn = reinterpret_cast<glXChooseVisualProc>(
       GetGLProcAddress("glXChooseVisual"));
   fn.glXCopyContextFn =
       reinterpret_cast<glXCopyContextProc>(GetGLProcAddress("glXCopyContext"));
-  fn.glXCopySubBufferMESAFn = 0;
   fn.glXCreateContextFn = reinterpret_cast<glXCreateContextProc>(
       GetGLProcAddress("glXCreateContext"));
-  fn.glXCreateContextAttribsARBFn = 0;
   fn.glXCreateGLXPixmapFn = reinterpret_cast<glXCreateGLXPixmapProc>(
       GetGLProcAddress("glXCreateGLXPixmap"));
   fn.glXCreateNewContextFn = reinterpret_cast<glXCreateNewContextProc>(
@@ -69,13 +71,10 @@ void DriverGLX::InitializeStaticBindings() {
           GetGLProcAddress("glXGetCurrentReadDrawable"));
   fn.glXGetFBConfigAttribFn = reinterpret_cast<glXGetFBConfigAttribProc>(
       GetGLProcAddress("glXGetFBConfigAttrib"));
-  fn.glXGetFBConfigFromVisualSGIXFn = 0;
   fn.glXGetFBConfigsFn = reinterpret_cast<glXGetFBConfigsProc>(
       GetGLProcAddress("glXGetFBConfigs"));
-  fn.glXGetMscRateOMLFn = 0;
   fn.glXGetSelectedEventFn = reinterpret_cast<glXGetSelectedEventProc>(
       GetGLProcAddress("glXGetSelectedEvent"));
-  fn.glXGetSyncValuesOMLFn = 0;
   fn.glXGetVisualFromFBConfigFn =
       reinterpret_cast<glXGetVisualFromFBConfigProc>(
           GetGLProcAddress("glXGetVisualFromFBConfig"));
@@ -98,42 +97,41 @@ void DriverGLX::InitializeStaticBindings() {
       GetGLProcAddress("glXQueryServerString"));
   fn.glXQueryVersionFn = reinterpret_cast<glXQueryVersionProc>(
       GetGLProcAddress("glXQueryVersion"));
-  fn.glXReleaseTexImageEXTFn = 0;
   fn.glXSelectEventFn =
       reinterpret_cast<glXSelectEventProc>(GetGLProcAddress("glXSelectEvent"));
   fn.glXSwapBuffersFn =
       reinterpret_cast<glXSwapBuffersProc>(GetGLProcAddress("glXSwapBuffers"));
-  fn.glXSwapIntervalEXTFn = 0;
-  fn.glXSwapIntervalMESAFn = 0;
   fn.glXUseXFontFn =
       reinterpret_cast<glXUseXFontProc>(GetGLProcAddress("glXUseXFont"));
   fn.glXWaitGLFn =
       reinterpret_cast<glXWaitGLProc>(GetGLProcAddress("glXWaitGL"));
-  fn.glXWaitVideoSyncSGIFn = 0;
   fn.glXWaitXFn = reinterpret_cast<glXWaitXProc>(GetGLProcAddress("glXWaitX"));
 }
 
+#ifdef TOOLKIT_QT
+void DriverGLX::InitializeExtensionBindings(const std::string& platform_extensions) {
+#else
 void DriverGLX::InitializeExtensionBindings() {
-  std::string extensions(GetPlatformExtensions());
-  extensions += " ";
+  std::string platform_extensions(GetPlatformExtensions());
+#endif
+  gfx::ExtensionSet extensions(gfx::MakeExtensionSet(platform_extensions));
   ALLOW_UNUSED_LOCAL(extensions);
 
   ext.b_GLX_ARB_create_context =
-      extensions.find("GLX_ARB_create_context ") != std::string::npos;
+      gfx::HasExtension(extensions, "GLX_ARB_create_context");
   ext.b_GLX_EXT_swap_control =
-      extensions.find("GLX_EXT_swap_control ") != std::string::npos;
+      gfx::HasExtension(extensions, "GLX_EXT_swap_control");
   ext.b_GLX_EXT_texture_from_pixmap =
-      extensions.find("GLX_EXT_texture_from_pixmap ") != std::string::npos;
+      gfx::HasExtension(extensions, "GLX_EXT_texture_from_pixmap");
   ext.b_GLX_MESA_copy_sub_buffer =
-      extensions.find("GLX_MESA_copy_sub_buffer ") != std::string::npos;
+      gfx::HasExtension(extensions, "GLX_MESA_copy_sub_buffer");
   ext.b_GLX_MESA_swap_control =
-      extensions.find("GLX_MESA_swap_control ") != std::string::npos;
+      gfx::HasExtension(extensions, "GLX_MESA_swap_control");
   ext.b_GLX_OML_sync_control =
-      extensions.find("GLX_OML_sync_control ") != std::string::npos;
-  ext.b_GLX_SGIX_fbconfig =
-      extensions.find("GLX_SGIX_fbconfig ") != std::string::npos;
+      gfx::HasExtension(extensions, "GLX_OML_sync_control");
+  ext.b_GLX_SGIX_fbconfig = gfx::HasExtension(extensions, "GLX_SGIX_fbconfig");
   ext.b_GLX_SGI_video_sync =
-      extensions.find("GLX_SGI_video_sync ") != std::string::npos;
+      gfx::HasExtension(extensions, "GLX_SGI_video_sync");
 
   if (ext.b_GLX_EXT_texture_from_pixmap) {
     fn.glXBindTexImageEXTFn = reinterpret_cast<glXBindTexImageEXTProc>(

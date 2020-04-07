@@ -49,6 +49,10 @@ bool InputDeviceClient::AreTouchscreensEnabled() const {
   return true;
 }
 
+bool InputDeviceClient::AreTouchscreenTargetDisplaysValid() const {
+  return are_touchscreen_target_displays_valid_;
+}
+
 void InputDeviceClient::AddObserver(ui::InputDeviceEventObserver* observer) {
   observers_.AddObserver(observer);
 }
@@ -72,15 +76,24 @@ mojom::InputDeviceObserverMojoPtr InputDeviceClient::GetIntefacePtr() {
 void InputDeviceClient::OnKeyboardDeviceConfigurationChanged(
     const std::vector<ui::InputDevice>& devices) {
   keyboard_devices_ = devices;
-  for (auto& observer : observers_)
-    observer.OnKeyboardDeviceConfigurationChanged();
+  NotifyObserversKeyboardDeviceConfigurationChanged();
 }
 
 void InputDeviceClient::OnTouchscreenDeviceConfigurationChanged(
-    const std::vector<ui::TouchscreenDevice>& devices) {
+    const std::vector<ui::TouchscreenDevice>& devices,
+    bool touchscreen_target_display_ids_changed) {
+  if (touchscreen_target_display_ids_changed)
+    DCHECK_EQ(touchscreen_devices_.size(), devices.size());
+
   touchscreen_devices_ = devices;
-  for (auto& observer : observers_)
-    observer.OnTouchscreenDeviceConfigurationChanged();
+  if (touchscreen_target_display_ids_changed) {
+    are_touchscreen_target_displays_valid_ = true;
+    for (auto& observer : observers_)
+      observer.OnTouchDeviceAssociationChanged();
+  } else {
+    are_touchscreen_target_displays_valid_ = false;
+    NotifyObserversTouchscreenDeviceConfigurationChanged();
+  }
 }
 
 void InputDeviceClient::OnMouseDeviceConfigurationChanged(
@@ -101,12 +114,19 @@ void InputDeviceClient::OnDeviceListsComplete(
     const std::vector<ui::InputDevice>& keyboard_devices,
     const std::vector<ui::TouchscreenDevice>& touchscreen_devices,
     const std::vector<ui::InputDevice>& mouse_devices,
-    const std::vector<ui::InputDevice>& touchpad_devices) {
+    const std::vector<ui::InputDevice>& touchpad_devices,
+    bool are_touchscreen_target_displays_valid) {
+  are_touchscreen_target_displays_valid_ =
+      are_touchscreen_target_displays_valid;
   // Update the cached device lists if the received list isn't empty.
   if (!keyboard_devices.empty())
     OnKeyboardDeviceConfigurationChanged(keyboard_devices);
-  if (!touchscreen_devices.empty())
-    OnTouchscreenDeviceConfigurationChanged(touchscreen_devices);
+  if (!touchscreen_devices.empty()) {
+    touchscreen_devices_ = touchscreen_devices;
+    are_touchscreen_target_displays_valid_ =
+        are_touchscreen_target_displays_valid;
+    NotifyObserversTouchscreenDeviceConfigurationChanged();
+  }
   if (!mouse_devices.empty())
     OnMouseDeviceConfigurationChanged(mouse_devices);
   if (!touchpad_devices.empty())
@@ -114,14 +134,28 @@ void InputDeviceClient::OnDeviceListsComplete(
 
   if (!device_lists_complete_) {
     device_lists_complete_ = true;
-    for (auto& observer : observers_)
-      observer.OnDeviceListsComplete();
+    NotifyObserversDeviceListsComplete();
   }
 }
 
 void InputDeviceClient::OnStylusStateChanged(StylusState state) {
   for (auto& observer : observers_)
     observer.OnStylusStateChanged(state);
+}
+
+void InputDeviceClient::NotifyObserversDeviceListsComplete() {
+  for (auto& observer : observers_)
+    observer.OnDeviceListsComplete();
+}
+
+void InputDeviceClient::NotifyObserversKeyboardDeviceConfigurationChanged() {
+  for (auto& observer : observers_)
+    observer.OnKeyboardDeviceConfigurationChanged();
+}
+
+void InputDeviceClient::NotifyObserversTouchscreenDeviceConfigurationChanged() {
+  for (auto& observer : observers_)
+    observer.OnTouchscreenDeviceConfigurationChanged();
 }
 
 }  // namespace ui

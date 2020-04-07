@@ -73,9 +73,11 @@ Q_GLOBAL_STATIC_WITH_ARGS(QFactoryLoader, loader,
 struct QSGAdaptationBackendData
 {
     QSGAdaptationBackendData();
+    ~QSGAdaptationBackendData();
+    Q_DISABLE_COPY(QSGAdaptationBackendData)
 
-    bool tried;
-    QSGContextFactoryInterface *factory;
+    bool tried = false;
+    QSGContextFactoryInterface *factory = nullptr;
     QString name;
     QSGContextFactoryInterface::Flags flags;
 
@@ -85,12 +87,15 @@ struct QSGAdaptationBackendData
 };
 
 QSGAdaptationBackendData::QSGAdaptationBackendData()
-    : tried(false)
-    , factory(nullptr)
-    , flags(0)
+    : flags(nullptr)
 {
     // Fill in the table with the built-in adaptations.
     builtIns.append(new QSGSoftwareAdaptation);
+}
+
+QSGAdaptationBackendData::~QSGAdaptationBackendData()
+{
+    qDeleteAll(builtIns);
 }
 
 Q_GLOBAL_STATIC(QSGAdaptationBackendData, qsg_adaptation_data)
@@ -139,7 +144,7 @@ QSGAdaptationBackendData *contextFactory()
         }
 
         if (!requestedBackend.isEmpty()) {
-            qCDebug(QSG_LOG_INFO) << "Loading backend" << requestedBackend;
+            qCDebug(QSG_LOG_INFO, "Loading backend %s", qUtf8Printable(requestedBackend));
 
             // First look for a built-in adaptation.
             for (QSGContextFactoryInterface *builtInBackend : qAsConst(backendData->builtIns)) {
@@ -209,7 +214,7 @@ QQuickTextureFactory *QSGContext::createTextureFactoryFromImage(const QImage &im
     QSGAdaptationBackendData *backendData = contextFactory();
     if (backendData->factory)
         return backendData->factory->createTextureFactoryFromImage(image);
-    return 0;
+    return nullptr;
 }
 
 
@@ -223,7 +228,7 @@ QSGRenderLoop *QSGContext::createWindowManager()
     QSGAdaptationBackendData *backendData = contextFactory();
     if (backendData->factory)
         return backendData->factory->createWindowManager();
-    return 0;
+    return nullptr;
 }
 
 void QSGContext::setBackend(const QString &backend)

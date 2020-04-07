@@ -45,7 +45,7 @@ class VertexBuffer : angle::NonCopyable
                                             const gl::VertexBinding &binding,
                                             GLenum currentValueType,
                                             GLint start,
-                                            GLsizei count,
+                                            size_t count,
                                             GLsizei instances,
                                             unsigned int offset,
                                             const uint8_t *sourceData) = 0;
@@ -93,7 +93,7 @@ class VertexBufferInterface : angle::NonCopyable
 
     gl::ErrorOrResult<unsigned int> getSpaceRequired(const gl::VertexAttribute &attrib,
                                                      const gl::VertexBinding &binding,
-                                                     GLsizei count,
+                                                     size_t count,
                                                      GLsizei instances) const;
     BufferFactoryD3D *const mFactory;
     VertexBuffer *mVertexBuffer;
@@ -104,20 +104,20 @@ class StreamingVertexBufferInterface : public VertexBufferInterface
 {
   public:
     StreamingVertexBufferInterface(BufferFactoryD3D *factory, std::size_t initialSize);
-    ~StreamingVertexBufferInterface();
+    ~StreamingVertexBufferInterface() override;
 
     gl::Error storeDynamicAttribute(const gl::VertexAttribute &attrib,
                                     const gl::VertexBinding &binding,
                                     GLenum currentValueType,
                                     GLint start,
-                                    GLsizei count,
+                                    size_t count,
                                     GLsizei instances,
                                     unsigned int *outStreamOffset,
                                     const uint8_t *sourceData);
 
     gl::Error reserveVertexSpace(const gl::VertexAttribute &attribute,
                                  const gl::VertexBinding &binding,
-                                 GLsizei count,
+                                 size_t count,
                                  GLsizei instances);
 
   private:
@@ -131,7 +131,7 @@ class StaticVertexBufferInterface : public VertexBufferInterface
 {
   public:
     explicit StaticVertexBufferInterface(BufferFactoryD3D *factory);
-    ~StaticVertexBufferInterface();
+    ~StaticVertexBufferInterface() override;
 
     // Warning: you should ensure binding really matches attrib.bindingIndex before using these
     // functions.

@@ -10,13 +10,12 @@
 #include "base/bind_helpers.h"
 #include "base/files/file_path.h"
 #include "base/location.h"
-#include "base/memory/ptr_util.h"
 #include "base/sequenced_task_runner.h"
 #include "base/threading/sequenced_task_runner_handle.h"
 #include "base/time/default_clock.h"
 #include "base/time/default_tick_clock.h"
 #include "components/password_manager/core/browser/android_affiliation/affiliation_backend.h"
-#include "net/url_request/url_request_context_getter.h"
+#include "services/network/public/cpp/shared_url_loader_factory.h"
 
 namespace password_manager {
 
@@ -35,19 +34,18 @@ AffiliationService::~AffiliationService() {
 }
 
 void AffiliationService::Initialize(
-    net::URLRequestContextGetter* request_context_getter,
+    scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
     const base::FilePath& db_path) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   DCHECK(!backend_);
-  backend_ =
-      new AffiliationBackend(request_context_getter, backend_task_runner_,
-                             base::WrapUnique(new base::DefaultClock),
-                             base::WrapUnique(new base::DefaultTickClock));
+  backend_ = new AffiliationBackend(backend_task_runner_,
+                                    base::DefaultClock::GetInstance(),
+                                    base::DefaultTickClock::GetInstance());
 
-  std::unique_ptr<base::TickClock> tick_clock(new base::DefaultTickClock);
   backend_task_runner_->PostTask(
-      FROM_HERE, base::Bind(&AffiliationBackend::Initialize,
-                            base::Unretained(backend_), db_path));
+      FROM_HERE, base::BindOnce(&AffiliationBackend::Initialize,
+                                base::Unretained(backend_),
+                                url_loader_factory->Clone(), db_path));
 }
 
 void AffiliationService::GetAffiliationsAndBranding(

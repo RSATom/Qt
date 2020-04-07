@@ -44,7 +44,7 @@ def main():
   # The ar on linux ignores this option.
   object_mode = []
   if sys.platform.startswith('aix'):
-    # The @file feature is not avaliable on ar for AIX.
+    # The @file feature is not available on ar for AIX.
     # For linux (and other posix like systems), the @file_name
     # option reads the contents of file_name as command line arguments.
     # For AIX we must parse these (rsp files) manually.
@@ -57,7 +57,7 @@ def main():
       wrapper_utils.CombineResourceWhitelists(
           whitelist_candidates, args.resource_whitelist)
 
-  command = [args.ar] + object_mode + [args.operation]
+  command = [args.ar] + object_mode + args.operation.split()
   if args.plugin is not None:
     command += ['--plugin', args.plugin]
   command.append(args.output)

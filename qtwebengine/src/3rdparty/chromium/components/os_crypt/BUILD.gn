@@ -2,6 +2,7 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/config/chromecast_build.gni")
 import("//build/config/features.gni")
 import("//build/config/ui.gni")
 import("//build/config/linux/pkg_config.gni")
@@ -37,7 +38,6 @@ static_library("os_crypt") {
     "keychain_password_mac.mm",
     "os_crypt.h",
     "os_crypt_mac.mm",
-    "os_crypt_posix.cc",
     "os_crypt_switches.cc",
     "os_crypt_switches.h",
     "os_crypt_win.cc",
@@ -51,8 +51,9 @@ static_library("os_crypt") {
     "//crypto:platform",
   ]
 
-  if (is_mac || is_ios) {
-    sources -= [ "os_crypt_posix.cc" ]
+  if ((is_posix || is_fuchsia) && !is_mac && !is_ios &&
+      (!is_desktop_linux || is_chromecast)) {
+    sources += [ "os_crypt_posix.cc" ]
   }
 
   if (is_ios) {
@@ -69,8 +70,7 @@ static_library("os_crypt") {
     libs = [ "crypt32.lib" ]
   }
 
-  if (is_desktop_linux) {
-    sources -= [ "os_crypt_posix.cc" ]
+  if (is_desktop_linux && !is_chromecast) {
     sources += [
       "key_storage_config_linux.cc",
       "key_storage_config_linux.h",
@@ -127,7 +127,7 @@ static_library("test_support") {
     "//base",
     "//testing/gtest",
   ]
-  if (is_desktop_linux) {
+  if (is_desktop_linux && !is_chromecast) {
     sources += [
       "os_crypt_mocker_linux.cc",
       "os_crypt_mocker_linux.h",
@@ -156,13 +156,15 @@ source_set("unit_tests") {
     ":os_crypt",
     ":test_support",
     "//base",
+    "//base/test:test_support",
     "//crypto",
     "//testing/gmock",
     "//testing/gtest",
   ]
 
-  if (is_desktop_linux) {
+  if (is_desktop_linux && !is_chromecast) {
     sources += [
+      "key_storage_linux_unittest.cc",
       "key_storage_util_linux_unittest.cc",
       "os_crypt_linux_unittest.cc",
     ]

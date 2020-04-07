@@ -12,14 +12,16 @@
 
 #include "ui/gl/gl_mock.h"
 
-namespace gl {
-
+namespace {
 // This is called mainly to prevent the compiler combining the code of mock
 // functions with identical contents, so that their function pointers will be
 // different.
 void MakeFunctionUnique(const char* func_name) {
   VLOG(2) << "Calling mock " << func_name;
 }
+}  // namespace
+
+namespace gl {
 
 void GL_BINDING_CALL MockGLInterface::Mock_glActiveTexture(GLenum texture) {
   MakeFunctionUnique("glActiveTexture");
@@ -297,8 +299,8 @@ void GL_BINDING_CALL MockGLInterface::Mock_glBlitFramebuffer(GLint srcX0,
                                                              GLbitfield mask,
                                                              GLenum filter) {
   MakeFunctionUnique("glBlitFramebuffer");
-  interface_->BlitFramebufferEXT(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0,
-                                 dstX1, dstY1, mask, filter);
+  interface_->BlitFramebuffer(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1,
+                              dstY1, mask, filter);
 }
 
 void GL_BINDING_CALL
@@ -313,8 +315,8 @@ MockGLInterface::Mock_glBlitFramebufferANGLE(GLint srcX0,
                                              GLbitfield mask,
                                              GLenum filter) {
   MakeFunctionUnique("glBlitFramebufferANGLE");
-  interface_->BlitFramebufferANGLE(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0,
-                                   dstX1, dstY1, mask, filter);
+  interface_->BlitFramebuffer(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1,
+                              dstY1, mask, filter);
 }
 
 void GL_BINDING_CALL MockGLInterface::Mock_glBlitFramebufferEXT(GLint srcX0,
@@ -328,8 +330,8 @@ void GL_BINDING_CALL MockGLInterface::Mock_glBlitFramebufferEXT(GLint srcX0,
                                                                 GLbitfield mask,
                                                                 GLenum filter) {
   MakeFunctionUnique("glBlitFramebufferEXT");
-  interface_->BlitFramebufferEXT(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0,
-                                 dstX1, dstY1, mask, filter);
+  interface_->BlitFramebuffer(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1,
+                              dstY1, mask, filter);
 }
 
 void GL_BINDING_CALL MockGLInterface::Mock_glBufferData(GLenum target,
@@ -1149,6 +1151,14 @@ MockGLInterface::Mock_glFlushMappedBufferRange(GLenum target,
 }
 
 void GL_BINDING_CALL
+MockGLInterface::Mock_glFlushMappedBufferRangeEXT(GLenum target,
+                                                  GLintptr offset,
+                                                  GLsizeiptr length) {
+  MakeFunctionUnique("glFlushMappedBufferRangeEXT");
+  interface_->FlushMappedBufferRange(target, offset, length);
+}
+
+void GL_BINDING_CALL
 MockGLInterface::Mock_glFramebufferRenderbuffer(GLenum target,
                                                 GLenum attachment,
                                                 GLenum renderbuffertarget,
@@ -1210,7 +1220,7 @@ MockGLInterface::Mock_glFramebufferTexture2DMultisampleIMG(GLenum target,
                                                            GLint level,
                                                            GLsizei samples) {
   MakeFunctionUnique("glFramebufferTexture2DMultisampleIMG");
-  interface_->FramebufferTexture2DMultisampleIMG(target, attachment, textarget,
+  interface_->FramebufferTexture2DMultisampleEXT(target, attachment, textarget,
                                                  texture, level, samples);
 }
 
@@ -1490,7 +1500,7 @@ MockGLInterface::Mock_glGetBufferPointervRobustANGLE(GLenum target,
                                            params);
 }
 
-void GL_BINDING_CALL
+GLuint GL_BINDING_CALL
 MockGLInterface::Mock_glGetDebugMessageLog(GLuint count,
                                            GLsizei bufSize,
                                            GLenum* sources,
@@ -1500,11 +1510,11 @@ MockGLInterface::Mock_glGetDebugMessageLog(GLuint count,
                                            GLsizei* lengths,
                                            char* messageLog) {
   MakeFunctionUnique("glGetDebugMessageLog");
-  interface_->GetDebugMessageLog(count, bufSize, sources, types, ids,
-                                 severities, lengths, messageLog);
+  return interface_->GetDebugMessageLog(count, bufSize, sources, types, ids,
+                                        severities, lengths, messageLog);
 }
 
-void GL_BINDING_CALL
+GLuint GL_BINDING_CALL
 MockGLInterface::Mock_glGetDebugMessageLogKHR(GLuint count,
                                               GLsizei bufSize,
                                               GLenum* sources,
@@ -1514,8 +1524,8 @@ MockGLInterface::Mock_glGetDebugMessageLogKHR(GLuint count,
                                               GLsizei* lengths,
                                               char* messageLog) {
   MakeFunctionUnique("glGetDebugMessageLogKHR");
-  interface_->GetDebugMessageLog(count, bufSize, sources, types, ids,
-                                 severities, lengths, messageLog);
+  return interface_->GetDebugMessageLog(count, bufSize, sources, types, ids,
+                                        severities, lengths, messageLog);
 }
 
 GLenum GL_BINDING_CALL MockGLInterface::Mock_glGetError(void) {
@@ -1713,6 +1723,13 @@ MockGLInterface::Mock_glGetInternalformativRobustANGLE(GLenum target,
   MakeFunctionUnique("glGetInternalformativRobustANGLE");
   interface_->GetInternalformativRobustANGLE(target, internalformat, pname,
                                              bufSize, length, params);
+}
+
+void GL_BINDING_CALL MockGLInterface::Mock_glGetMultisamplefv(GLenum pname,
+                                                              GLuint index,
+                                                              GLfloat* val) {
+  MakeFunctionUnique("glGetMultisamplefv");
+  interface_->GetMultisamplefv(pname, index, val);
 }
 
 void GL_BINDING_CALL
@@ -2797,6 +2814,12 @@ void GL_BINDING_CALL MockGLInterface::Mock_glPointParameteri(GLenum pname,
   interface_->PointParameteri(pname, param);
 }
 
+void GL_BINDING_CALL MockGLInterface::Mock_glPolygonMode(GLenum face,
+                                                         GLenum mode) {
+  MakeFunctionUnique("glPolygonMode");
+  interface_->PolygonMode(face, mode);
+}
+
 void GL_BINDING_CALL MockGLInterface::Mock_glPolygonOffset(GLfloat factor,
                                                            GLfloat units) {
   MakeFunctionUnique("glPolygonOffset");
@@ -2987,8 +3010,8 @@ MockGLInterface::Mock_glRenderbufferStorageMultisampleANGLE(
     GLsizei width,
     GLsizei height) {
   MakeFunctionUnique("glRenderbufferStorageMultisampleANGLE");
-  interface_->RenderbufferStorageMultisampleANGLE(
-      target, samples, internalformat, width, height);
+  interface_->RenderbufferStorageMultisample(target, samples, internalformat,
+                                             width, height);
 }
 
 void GL_BINDING_CALL
@@ -3009,7 +3032,7 @@ MockGLInterface::Mock_glRenderbufferStorageMultisampleIMG(GLenum target,
                                                           GLsizei width,
                                                           GLsizei height) {
   MakeFunctionUnique("glRenderbufferStorageMultisampleIMG");
-  interface_->RenderbufferStorageMultisampleIMG(target, samples, internalformat,
+  interface_->RenderbufferStorageMultisampleEXT(target, samples, internalformat,
                                                 width, height);
 }
 
@@ -3279,6 +3302,57 @@ GLboolean GL_BINDING_CALL MockGLInterface::Mock_glTestFenceAPPLE(GLuint fence) {
 GLboolean GL_BINDING_CALL MockGLInterface::Mock_glTestFenceNV(GLuint fence) {
   MakeFunctionUnique("glTestFenceNV");
   return interface_->TestFenceNV(fence);
+}
+
+void GL_BINDING_CALL MockGLInterface::Mock_glTexBuffer(GLenum target,
+                                                       GLenum internalformat,
+                                                       GLuint buffer) {
+  MakeFunctionUnique("glTexBuffer");
+  interface_->TexBuffer(target, internalformat, buffer);
+}
+
+void GL_BINDING_CALL MockGLInterface::Mock_glTexBufferEXT(GLenum target,
+                                                          GLenum internalformat,
+                                                          GLuint buffer) {
+  MakeFunctionUnique("glTexBufferEXT");
+  interface_->TexBuffer(target, internalformat, buffer);
+}
+
+void GL_BINDING_CALL MockGLInterface::Mock_glTexBufferOES(GLenum target,
+                                                          GLenum internalformat,
+                                                          GLuint buffer) {
+  MakeFunctionUnique("glTexBufferOES");
+  interface_->TexBuffer(target, internalformat, buffer);
+}
+
+void GL_BINDING_CALL
+MockGLInterface::Mock_glTexBufferRange(GLenum target,
+                                       GLenum internalformat,
+                                       GLuint buffer,
+                                       GLintptr offset,
+                                       GLsizeiptr size) {
+  MakeFunctionUnique("glTexBufferRange");
+  interface_->TexBufferRange(target, internalformat, buffer, offset, size);
+}
+
+void GL_BINDING_CALL
+MockGLInterface::Mock_glTexBufferRangeEXT(GLenum target,
+                                          GLenum internalformat,
+                                          GLuint buffer,
+                                          GLintptr offset,
+                                          GLsizeiptr size) {
+  MakeFunctionUnique("glTexBufferRangeEXT");
+  interface_->TexBufferRange(target, internalformat, buffer, offset, size);
+}
+
+void GL_BINDING_CALL
+MockGLInterface::Mock_glTexBufferRangeOES(GLenum target,
+                                          GLenum internalformat,
+                                          GLuint buffer,
+                                          GLintptr offset,
+                                          GLsizeiptr size) {
+  MakeFunctionUnique("glTexBufferRangeOES");
+  interface_->TexBufferRange(target, internalformat, buffer, offset, size);
 }
 
 void GL_BINDING_CALL MockGLInterface::Mock_glTexImage2D(GLenum target,
@@ -3881,6 +3955,12 @@ MockGLInterface::Mock_glVertexAttribDivisorARB(GLuint index, GLuint divisor) {
   interface_->VertexAttribDivisorANGLE(index, divisor);
 }
 
+void GL_BINDING_CALL
+MockGLInterface::Mock_glVertexAttribDivisorEXT(GLuint index, GLuint divisor) {
+  MakeFunctionUnique("glVertexAttribDivisorEXT");
+  interface_->VertexAttribDivisorANGLE(index, divisor);
+}
+
 void GL_BINDING_CALL MockGLInterface::Mock_glVertexAttribI4i(GLuint indx,
                                                              GLint x,
                                                              GLint y,
@@ -3940,11 +4020,19 @@ void GL_BINDING_CALL MockGLInterface::Mock_glViewport(GLint x,
   interface_->Viewport(x, y, width, height);
 }
 
-GLenum GL_BINDING_CALL MockGLInterface::Mock_glWaitSync(GLsync sync,
-                                                        GLbitfield flags,
-                                                        GLuint64 timeout) {
+void GL_BINDING_CALL MockGLInterface::Mock_glWaitSync(GLsync sync,
+                                                      GLbitfield flags,
+                                                      GLuint64 timeout) {
   MakeFunctionUnique("glWaitSync");
-  return interface_->WaitSync(sync, flags, timeout);
+  interface_->WaitSync(sync, flags, timeout);
+}
+
+void GL_BINDING_CALL
+MockGLInterface::Mock_glWindowRectanglesEXT(GLenum mode,
+                                            GLsizei n,
+                                            const GLint* box) {
+  MakeFunctionUnique("glWindowRectanglesEXT");
+  interface_->WindowRectanglesEXT(mode, n, box);
 }
 
 static void MockInvalidFunction() {
@@ -4278,6 +4366,9 @@ MockGLInterface::GetGLProcAddress(const char* name) {
   if (strcmp(name, "glFlushMappedBufferRange") == 0)
     return reinterpret_cast<GLFunctionPointerType>(
         Mock_glFlushMappedBufferRange);
+  if (strcmp(name, "glFlushMappedBufferRangeEXT") == 0)
+    return reinterpret_cast<GLFunctionPointerType>(
+        Mock_glFlushMappedBufferRangeEXT);
   if (strcmp(name, "glFramebufferRenderbuffer") == 0)
     return reinterpret_cast<GLFunctionPointerType>(
         Mock_glFramebufferRenderbuffer);
@@ -4445,6 +4536,8 @@ MockGLInterface::GetGLProcAddress(const char* name) {
   if (strcmp(name, "glGetInternalformativRobustANGLE") == 0)
     return reinterpret_cast<GLFunctionPointerType>(
         Mock_glGetInternalformativRobustANGLE);
+  if (strcmp(name, "glGetMultisamplefv") == 0)
+    return reinterpret_cast<GLFunctionPointerType>(Mock_glGetMultisamplefv);
   if (strcmp(name, "glGetMultisamplefvRobustANGLE") == 0)
     return reinterpret_cast<GLFunctionPointerType>(
         Mock_glGetMultisamplefvRobustANGLE);
@@ -4761,6 +4854,8 @@ MockGLInterface::GetGLProcAddress(const char* name) {
     return reinterpret_cast<GLFunctionPointerType>(Mock_glPixelStorei);
   if (strcmp(name, "glPointParameteri") == 0)
     return reinterpret_cast<GLFunctionPointerType>(Mock_glPointParameteri);
+  if (strcmp(name, "glPolygonMode") == 0)
+    return reinterpret_cast<GLFunctionPointerType>(Mock_glPolygonMode);
   if (strcmp(name, "glPolygonOffset") == 0)
     return reinterpret_cast<GLFunctionPointerType>(Mock_glPolygonOffset);
   if (strcmp(name, "glPopDebugGroup") == 0)
@@ -4897,6 +4992,18 @@ MockGLInterface::GetGLProcAddress(const char* name) {
     return reinterpret_cast<GLFunctionPointerType>(Mock_glTestFenceAPPLE);
   if (strcmp(name, "glTestFenceNV") == 0)
     return reinterpret_cast<GLFunctionPointerType>(Mock_glTestFenceNV);
+  if (strcmp(name, "glTexBuffer") == 0)
+    return reinterpret_cast<GLFunctionPointerType>(Mock_glTexBuffer);
+  if (strcmp(name, "glTexBufferEXT") == 0)
+    return reinterpret_cast<GLFunctionPointerType>(Mock_glTexBufferEXT);
+  if (strcmp(name, "glTexBufferOES") == 0)
+    return reinterpret_cast<GLFunctionPointerType>(Mock_glTexBufferOES);
+  if (strcmp(name, "glTexBufferRange") == 0)
+    return reinterpret_cast<GLFunctionPointerType>(Mock_glTexBufferRange);
+  if (strcmp(name, "glTexBufferRangeEXT") == 0)
+    return reinterpret_cast<GLFunctionPointerType>(Mock_glTexBufferRangeEXT);
+  if (strcmp(name, "glTexBufferRangeOES") == 0)
+    return reinterpret_cast<GLFunctionPointerType>(Mock_glTexBufferRangeOES);
   if (strcmp(name, "glTexImage2D") == 0)
     return reinterpret_cast<GLFunctionPointerType>(Mock_glTexImage2D);
   if (strcmp(name, "glTexImage2DRobustANGLE") == 0)
@@ -5049,6 +5156,9 @@ MockGLInterface::GetGLProcAddress(const char* name) {
   if (strcmp(name, "glVertexAttribDivisorARB") == 0)
     return reinterpret_cast<GLFunctionPointerType>(
         Mock_glVertexAttribDivisorARB);
+  if (strcmp(name, "glVertexAttribDivisorEXT") == 0)
+    return reinterpret_cast<GLFunctionPointerType>(
+        Mock_glVertexAttribDivisorEXT);
   if (strcmp(name, "glVertexAttribI4i") == 0)
     return reinterpret_cast<GLFunctionPointerType>(Mock_glVertexAttribI4i);
   if (strcmp(name, "glVertexAttribI4iv") == 0)
@@ -5065,6 +5175,8 @@ MockGLInterface::GetGLProcAddress(const char* name) {
     return reinterpret_cast<GLFunctionPointerType>(Mock_glViewport);
   if (strcmp(name, "glWaitSync") == 0)
     return reinterpret_cast<GLFunctionPointerType>(Mock_glWaitSync);
+  if (strcmp(name, "glWindowRectanglesEXT") == 0)
+    return reinterpret_cast<GLFunctionPointerType>(Mock_glWindowRectanglesEXT);
   return reinterpret_cast<GLFunctionPointerType>(&MockInvalidFunction);
 }
 

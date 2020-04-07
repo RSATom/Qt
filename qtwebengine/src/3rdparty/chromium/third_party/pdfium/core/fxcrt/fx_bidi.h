@@ -13,6 +13,10 @@
 #include "core/fxcrt/fx_string.h"
 #include "core/fxcrt/fx_system.h"
 
+#ifdef PDF_ENABLE_XFA
+#include "core/fxcrt/cfx_char.h"
+#endif  // PDF_ENABLE_XFA
+
 // Processes characters and group them into segments based on text direction.
 class CFX_BidiChar {
  public:
@@ -37,7 +41,7 @@ class CFX_BidiChar {
 
   // Call after a change in direction is indicated by the above to get
   // information about the segment to process.
-  Segment GetSegmentInfo() const { return m_LastSegment; }
+  const Segment& GetSegmentInfo() const { return m_LastSegment; }
 
  private:
   void StartNewSegment(CFX_BidiChar::Direction direction);
@@ -50,26 +54,26 @@ class CFX_BidiString {
  public:
   using const_iterator = std::vector<CFX_BidiChar::Segment>::const_iterator;
 
-  explicit CFX_BidiString(const CFX_WideString& str);
+  explicit CFX_BidiString(const WideString& str);
   ~CFX_BidiString();
 
   // Overall direction is always LEFT or RIGHT, never NEUTRAL.
-  CFX_BidiChar::Direction OverallDirection() const {
-    return m_eOverallDirection;
-  }
+  CFX_BidiChar::Direction OverallDirection() const;
 
   // Force the overall direction to be R2L regardless of what was detected.
   void SetOverallDirectionRight();
 
-  wchar_t CharAt(size_t x) const { return m_Str[x]; }
   const_iterator begin() const { return m_Order.begin(); }
   const_iterator end() const { return m_Order.end(); }
 
  private:
-  const CFX_WideString m_Str;
-  std::unique_ptr<CFX_BidiChar> m_pBidiChar;
+  const WideString& m_Str;
   std::vector<CFX_BidiChar::Segment> m_Order;
-  CFX_BidiChar::Direction m_eOverallDirection;
+  CFX_BidiChar::Direction m_eOverallDirection = CFX_BidiChar::LEFT;
 };
+
+#ifdef PDF_ENABLE_XFA
+void FX_BidiLine(std::vector<CFX_Char>* chars, size_t iCount);
+#endif  // PDF_ENABLE_XFA
 
 #endif  // CORE_FXCRT_FX_BIDI_H_

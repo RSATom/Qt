@@ -233,8 +233,9 @@ variable_identifier
         // don't delete $1.string, it's used by error recovery, and the pool
         // pop will reclaim the memory
 
+        // Constants which aren't indexable arrays can be propagated by value.
         ConstantUnion *constArray = variable->getConstPointer();
-        if (constArray) {
+        if (constArray && variable->getType().getArraySize() <= 1) {
             TType t(variable->getType());
             $$ = context->intermediate.addConstantUnion(constArray, t, @1);
         } else
@@ -350,7 +351,7 @@ function_call_header_with_parameters
         TParameter param = { 0, new TType($2->getType()) };
         $1->addParameter(param);
         $$.function = $1;
-        $$.nodePair.node1 = $2;
+        $$.nodePair.node1 = context->intermediate.makeAggregate($2, @2);
     }
     | function_call_header_with_parameters COMMA assignment_expression {
         TParameter param = { 0, new TType($3->getType()) };
@@ -727,7 +728,7 @@ parameter_declarator
         if (context->reservedErrorCheck(@2, *$2.string))
             context->recover();
 
-        int size;
+        int size = 0;
         if (context->arraySizeErrorCheck(@3, $4, size))
             context->recover();
         $1.setArray(true, size);
@@ -1068,7 +1069,7 @@ type_specifier_no_prec
         if (context->arrayTypeErrorCheck(@2, $1))
             context->recover();
         else {
-            int size;
+            int size = 0;
             if (context->arraySizeErrorCheck(@2, $3, size))
                 context->recover();
             $$.setArray(true, size);
@@ -1221,7 +1222,7 @@ type_specifier_nonarray
         TQualifier qual = context->symbolTable.atGlobalLevel() ? EvqGlobal : EvqTemporary;
         $$.setBasic(EbtSamplerCube, qual, @1);
     }
-	| SAMPLER_EXTERNAL_OES {
+    | SAMPLER_EXTERNAL_OES {
         if (!context->supportsExtension("GL_OES_EGL_image_external")) {
             context->error(@1, "unsupported type", "samplerExternalOES", "");
             context->recover();
@@ -1229,6 +1230,15 @@ type_specifier_nonarray
         FRAG_VERT_ONLY("samplerExternalOES", @1);
         TQualifier qual = context->symbolTable.atGlobalLevel() ? EvqGlobal : EvqTemporary;
         $$.setBasic(EbtSamplerExternalOES, qual, @1);
+    }
+    | SAMPLER2DRECT {
+        if (!context->supportsExtension("GL_ARB_texture_rectangle")) {
+            context->error(@1, "unsupported type", "sampler2DRect", "");
+            context->recover();
+        }
+        FRAG_VERT_ONLY("sampler2DRect", @1);
+        TQualifier qual = context->symbolTable.atGlobalLevel() ? EvqGlobal : EvqTemporary;
+        $$.setBasic(EbtSampler2DRect, qual, @1);
     }
     | SAMPLER3D {
         FRAG_VERT_ONLY("sampler3D", @1);
@@ -1375,7 +1385,7 @@ struct_declarator
             context->recover();
 
         TType* type = new TType(EbtVoid, EbpUndefined);
-        int size;
+        int size = 0;
         if (context->arraySizeErrorCheck($3->getLine(), $3, size))
             context->recover();
         type->setArraySize(size);

@@ -4,11 +4,11 @@
 
 #include "gpu/ipc/service/gpu_channel_test_common.h"
 
-#include "base/memory/ptr_util.h"
 #include "base/memory/shared_memory.h"
 #include "base/test/test_simple_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "gpu/command_buffer/common/activity_flags.h"
+#include "gpu/command_buffer/service/scheduler.h"
 #include "gpu/command_buffer/service/sync_point_manager.h"
 #include "gpu/ipc/service/gpu_channel.h"
 #include "gpu/ipc/service/gpu_channel_manager.h"
@@ -27,6 +27,7 @@ class TestGpuChannelManagerDelegate : public GpuChannelManagerDelegate {
 
   // GpuChannelManagerDelegate implementation:
   void SetActiveURL(const GURL& url) override {}
+  void DidCreateContextSuccessfully() override {}
   void DidCreateOffscreenContext(const GURL& active_url) override {}
   void DidDestroyChannel(int client_id) override {}
   void DidDestroyOffscreenContext(const GURL& active_url) override {}
@@ -36,10 +37,10 @@ class TestGpuChannelManagerDelegate : public GpuChannelManagerDelegate {
   void StoreShaderToDisk(int32_t client_id,
                          const std::string& key,
                          const std::string& shader) override {}
+  void ExitProcess() override {}
 #if defined(OS_WIN)
-  void SendAcceleratedSurfaceCreatedChildWindow(
-      SurfaceHandle parent_window,
-      SurfaceHandle child_window) override {}
+  void SendCreatedChildWindow(SurfaceHandle parent_window,
+                              SurfaceHandle child_window) override {}
 #endif
 
  private:
@@ -48,7 +49,7 @@ class TestGpuChannelManagerDelegate : public GpuChannelManagerDelegate {
 
 class TestSinkFilteredSender : public FilteredSender {
  public:
-  TestSinkFilteredSender() : sink_(base::MakeUnique<IPC::TestSink>()) {}
+  TestSinkFilteredSender() : sink_(std::make_unique<IPC::TestSink>()) {}
   ~TestSinkFilteredSender() override = default;
 
   IPC::TestSink* sink() const { return sink_.get(); }
@@ -74,15 +75,15 @@ GpuChannelTestCommon::GpuChannelTestCommon()
     : task_runner_(new base::TestSimpleTaskRunner),
       io_task_runner_(new base::TestSimpleTaskRunner),
       sync_point_manager_(new SyncPointManager()),
+      scheduler_(new Scheduler(task_runner_, sync_point_manager_.get())),
       channel_manager_delegate_(new TestGpuChannelManagerDelegate()),
       channel_manager_(
           new GpuChannelManager(GpuPreferences(),
-                                GpuDriverBugWorkarounds(),
                                 channel_manager_delegate_.get(),
                                 nullptr, /* watchdog */
                                 task_runner_.get(),
                                 io_task_runner_.get(),
-                                nullptr, /* scheduler */
+                                scheduler_.get(),
                                 sync_point_manager_.get(),
                                 nullptr, /* gpu_memory_buffer_factory */
                                 GpuFeatureInfo(),
@@ -99,7 +100,7 @@ GpuChannelTestCommon::~GpuChannelTestCommon() {
   task_runner_->ClearPendingTasks();
   io_task_runner_->ClearPendingTasks();
 
-  gl::init::ShutdownGL();
+  gl::init::ShutdownGL(false);
 }
 
 GpuChannel* GpuChannelTestCommon::CreateChannel(int32_t client_id,
@@ -107,7 +108,7 @@ GpuChannel* GpuChannelTestCommon::CreateChannel(int32_t client_id,
   uint64_t kClientTracingId = 1;
   GpuChannel* channel = channel_manager()->EstablishChannel(
       client_id, kClientTracingId, is_gpu_host);
-  channel->Init(base::MakeUnique<TestSinkFilteredSender>());
+  channel->Init(std::make_unique<TestSinkFilteredSender>());
   base::ProcessId kProcessId = 1;
   channel->OnChannelConnected(kProcessId);
   return channel;
@@ -154,10 +155,9 @@ void GpuChannelTestCommon::HandleMessage(GpuChannel* channel,
   delete msg;
 }
 
-base::SharedMemoryHandle GpuChannelTestCommon::GetSharedHandle() {
-  base::SharedMemory shared_memory;
-  shared_memory.CreateAnonymous(10);
-  return shared_memory.handle().Duplicate();
+base::UnsafeSharedMemoryRegion GpuChannelTestCommon::GetSharedMemoryRegion() {
+  return base::UnsafeSharedMemoryRegion::Create(
+      sizeof(CommandBufferSharedState));
 }
 
 }  // namespace gpu

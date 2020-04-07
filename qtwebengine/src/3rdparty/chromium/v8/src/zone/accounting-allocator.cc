@@ -10,6 +10,8 @@
 #include <malloc.h>  // NOLINT
 #endif
 
+#include "src/allocation.h"
+
 namespace v8 {
 namespace internal {
 
@@ -82,8 +84,8 @@ Segment* AccountingAllocator::GetSegment(size_t bytes) {
 }
 
 Segment* AccountingAllocator::AllocateSegment(size_t bytes) {
-  void* memory = malloc(bytes);
-  if (memory) {
+  void* memory = AllocWithRetry(bytes);
+  if (memory != nullptr) {
     base::AtomicWord current =
         base::Relaxed_AtomicIncrement(&current_memory_usage_, bytes);
     base::AtomicWord max = base::Relaxed_Load(&max_memory_usage_);

@@ -139,6 +139,8 @@ static INLINE int cyclic_refresh_segment_id(int segment_id) {
     return CR_SEGMENT_ID_BASE;
 }
 
+void vp9_cyclic_refresh_limit_q(const struct VP9_COMP *cpi, int *q);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif

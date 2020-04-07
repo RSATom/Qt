@@ -878,6 +878,14 @@ bool QSqlQuery::isForwardOnly() const
   \note Calling setForwardOnly after execution of the query will result
   in unexpected results at best, and crashes at worst.
 
+  \note To make sure the forward-only query completed successfully,
+  the application should check lastError() for an error not only after
+  executing the query, but also after navigating the query results.
+
+  \warning PostgreSQL: While navigating the query results in forward-only
+  mode, do not execute any other SQL command on the same database
+  connection. This will cause the query results to be lost.
+
   \sa isForwardOnly(), next(), seek(), QSqlResult::setForwardOnly()
 */
 void QSqlQuery::setForwardOnly(bool forward)
@@ -934,10 +942,12 @@ void QSqlQuery::clear()
   query. See the \l{QSqlQuery examples}{Detailed Description} for
   examples.
 
-  Portability note: Some databases choose to delay preparing a query
+  Portability notes: Some databases choose to delay preparing a query
   until it is executed the first time. In this case, preparing a
   syntactically wrong query succeeds, but every consecutive exec()
   will fail.
+  When the database does not support named placeholders directly,
+  the placeholder can only contain characters in the range [a-zA-Z0-9_].
 
   For SQLite, the query string can contain only one statement at a time.
   If more than one statement is given, the function returns \c false.

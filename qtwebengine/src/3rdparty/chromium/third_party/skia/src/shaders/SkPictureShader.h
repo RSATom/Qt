@@ -28,27 +28,24 @@ public:
     static sk_sp<SkShader> Make(sk_sp<SkPicture>, TileMode, TileMode, const SkMatrix*,
                                 const SkRect*);
 
-    SK_TO_STRING_OVERRIDE()
     SK_DECLARE_PUBLIC_FLATTENABLE_DESERIALIZATION_PROCS(SkPictureShader)
 
 #if SK_SUPPORT_GPU
-    sk_sp<GrFragmentProcessor> asFragmentProcessor(const AsFPArgs&) const override;
+    std::unique_ptr<GrFragmentProcessor> asFragmentProcessor(const GrFPArgs&) const override;
 #endif
 
 protected:
     SkPictureShader(SkReadBuffer&);
     void flatten(SkWriteBuffer&) const override;
-    bool onAppendStages(SkRasterPipeline*, SkColorSpace*, SkArenaAlloc*,
-                        const SkMatrix&, const SkPaint&, const SkMatrix*) const override;
+    bool onAppendStages(const StageRec&) const override;
     Context* onMakeContext(const ContextRec&, SkArenaAlloc*) const override;
     sk_sp<SkShader> onMakeColorSpace(SkColorSpaceXformer* xformer) const override;
-    bool onIsRasterPipelineOnly() const override;
 
 private:
     SkPictureShader(sk_sp<SkPicture>, TileMode, TileMode, const SkMatrix*, const SkRect*,
                     sk_sp<SkColorSpace>);
 
-    sk_sp<SkShader> refBitmapShader(const SkMatrix&, const SkMatrix* localMatrix,
+    sk_sp<SkShader> refBitmapShader(const SkMatrix&, SkTCopyOnFirstWrite<SkMatrix>* localMatrix,
                                     SkColorSpace* dstColorSpace,
                                     const int maxTextureSize = 0) const;
 
@@ -59,7 +56,6 @@ private:
 
         uint32_t getFlags() const override;
 
-        ShadeProc asAShadeProc(void** ctx) override;
         void shadeSpan(int x, int y, SkPMColor dstC[], int count) override;
 
         sk_sp<SkShader>         fBitmapShader;

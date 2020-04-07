@@ -14,9 +14,9 @@
 #include <sys/ioctl.h>
 #include <unistd.h>
 
-#include "webrtc/rtc_base/checks.h"
-#include "webrtc/rtc_base/ifaddrs_converter.h"
-#include "webrtc/rtc_base/logging.h"
+#include "rtc_base/checks.h"
+#include "rtc_base/ifaddrs_converter.h"
+#include "rtc_base/logging.h"
 
 #if !defined(WEBRTC_IOS)
 #include <net/if_media.h>
@@ -220,7 +220,7 @@ bool IPv6AttributesGetter::GetIPAttributes(const char* ifname,
   if (rv >= 0) {
     *native_attributes = ifr.ifr_ifru.ifru_flags;
   } else {
-    LOG(LS_ERROR) << "ioctl returns " << errno;
+    RTC_LOG(LS_ERROR) << "ioctl returns " << errno;
   }
   return (rv >= 0);
 }

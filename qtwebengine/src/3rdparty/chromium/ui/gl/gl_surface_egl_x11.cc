@@ -5,11 +5,8 @@
 #include "ui/gl/gl_surface_egl_x11.h"
 
 #include "ui/events/platform/platform_event_source.h"
+#include "ui/gfx/x/x11.h"
 #include "ui/gl/egl_util.h"
-
-extern "C" {
-#include <X11/Xlib.h>
-}
 
 using ui::GetLastEGLErrorString;
 using ui::PlatformEvent;
@@ -55,6 +52,8 @@ bool NativeViewGLSurfaceEGLX11::InitializeNativeWindow() {
 }
 
 void NativeViewGLSurfaceEGLX11::Destroy() {
+  NativeViewGLSurfaceEGL::Destroy();
+
   if (window_) {
     if (PlatformEventSource* source = PlatformEventSource::GetInstance())
       source->RemovePlatformEventDispatcher(this);
@@ -64,8 +63,6 @@ void NativeViewGLSurfaceEGLX11::Destroy() {
     window_ = 0;
     XFlush(x11_display);
   }
-
-  NativeViewGLSurfaceEGL::Destroy();
 }
 
 EGLConfig NativeViewGLSurfaceEGLX11::GetConfig() {
@@ -144,6 +141,7 @@ EGLConfig NativeViewGLSurfaceEGLX11::GetConfig() {
 
 bool NativeViewGLSurfaceEGLX11::Resize(const gfx::Size& size,
                                        float scale_factor,
+                                       ColorSpace color_space,
                                        bool has_alpha) {
   if (size == GetSize())
     return true;
@@ -166,7 +164,7 @@ uint32_t NativeViewGLSurfaceEGLX11::DispatchEvent(const PlatformEvent& event) {
   x_event.xexpose.window = parent_window_;
 
   Display* x11_display = GetNativeDisplay();
-  XSendEvent(x11_display, parent_window_, False, ExposureMask, &x_event);
+  XSendEvent(x11_display, parent_window_, x11::False, ExposureMask, &x_event);
   XFlush(x11_display);
   return ui::POST_DISPATCH_STOP_PROPAGATION;
 }

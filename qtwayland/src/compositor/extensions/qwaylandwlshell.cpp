@@ -58,8 +58,6 @@ QT_BEGIN_NAMESPACE
 QWaylandSurfaceRole QWaylandWlShellSurfacePrivate::s_role("wl_shell_surface");
 
 QWaylandWlShellPrivate::QWaylandWlShellPrivate()
-    : QWaylandCompositorExtensionPrivate()
-    , wl_shell()
 {
 }
 
@@ -102,11 +100,6 @@ void QWaylandWlShellPrivate::unregisterShellSurface(QWaylandWlShellSurface *shel
 }
 
 QWaylandWlShellSurfacePrivate::QWaylandWlShellSurfacePrivate()
-    : QWaylandCompositorExtensionPrivate()
-    , wl_shell_surface()
-    , m_shell(Q_NULLPTR)
-    , m_surface(Q_NULLPTR)
-    , m_windowType(Qt::WindowType::Window)
 {
 }
 
@@ -195,7 +188,7 @@ void QWaylandWlShellSurfacePrivate::shell_surface_set_fullscreen(Resource *resou
     Q_Q(QWaylandWlShellSurface);
     QWaylandOutput *output = output_resource
             ? QWaylandOutput::fromResource(output_resource)
-            : Q_NULLPTR;
+            : nullptr;
     setWindowType(Qt::WindowType::Window);
     emit q->setFullScreen(QWaylandWlShellSurface::FullScreenMethod(method), framerate, output);
 }
@@ -220,7 +213,7 @@ void QWaylandWlShellSurfacePrivate::shell_surface_set_maximized(Resource *resour
     Q_Q(QWaylandWlShellSurface);
     QWaylandOutput *output = output_resource
             ? QWaylandOutput::fromResource(output_resource)
-            : Q_NULLPTR;
+            : nullptr;
     setWindowType(Qt::WindowType::Window);
     emit q->setMaximized(output);
 }
@@ -530,7 +523,8 @@ QSize QWaylandWlShellSurface::sizeForResize(const QSizeF &size, const QPointF &d
     else if (edge & BottomEdge)
         height += delta.y();
 
-    return QSizeF(width, height).toSize();
+    QSizeF newSize(qMax(width, 1.0), qMax(height, 1.0));
+    return newSize.toSize();
 }
 
 /*!
@@ -566,6 +560,10 @@ QSize QWaylandWlShellSurface::sizeForResize(const QSizeF &size, const QPointF &d
 void QWaylandWlShellSurface::sendConfigure(const QSize &size, ResizeEdge edges)
 {
     Q_D(QWaylandWlShellSurface);
+    if (!size.isValid()) {
+        qWarning() << "Can't configure wl_shell_surface with an invalid size" << size;
+        return;
+    }
     d->send_configure(edges, size.width(), size.height());
 }
 
@@ -704,7 +702,7 @@ QWaylandWlShellSurface *QWaylandWlShellSurface::fromResource(wl_resource *resour
     QWaylandWlShellSurfacePrivate::Resource *res = QWaylandWlShellSurfacePrivate::Resource::fromResource(resource);
     if (res)
         return static_cast<QWaylandWlShellSurfacePrivate *>(res->shell_surface_object)->q_func();
-    return 0;
+    return nullptr;
 }
 
 QT_END_NAMESPACE

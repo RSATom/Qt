@@ -27,6 +27,7 @@
 ****************************************************************************/
 
 #include "tst_qgeoroute.h"
+#include "../geotestplugin/qgeoroutingmanagerengine_test.h"
 
 
 tst_QGeoRoute::tst_QGeoRoute()
@@ -71,6 +72,13 @@ void tst_QGeoRoute::copy_constructor()
 {
     QGeoRoute *qgeoroutecopy = new QGeoRoute(*qgeoroute);
     QCOMPARE(*qgeoroute, *qgeoroutecopy);
+
+    // CoW
+    qreal distance = qgeoroute->distance();
+    qgeoroutecopy->setDistance(distance + 10.0);
+
+    QVERIFY(*qgeoroute == *qgeoroutecopy); // QGeoRoute uses a QExplicitlySharedDataPointer. no implicit detach()
+
     delete qgeoroutecopy;
 }
 
@@ -263,7 +271,7 @@ void tst_QGeoRoute::operators()
     QVERIFY(qgeoroute->operator ==(*qgeoroutecopy));
     QVERIFY(!qgeoroute->operator !=(*qgeoroutecopy));
 
-    qgeoroute->setDistance(543.324);
+    qgeoroute->setDistance(543.324); // QExplicitlySharedDataPointer does not detach implicitly.
     qgeoroute->setRouteId("RouteId 111");
     qgeoroute->setTravelMode(QGeoRouteRequest::PedestrianTravel);
     qgeoroute->setTravelTime(10);
@@ -281,6 +289,14 @@ void tst_QGeoRoute::operators()
     *qgeoroutecopy = qgeoroutecopy->operator =(*qgeoroute);
     QVERIFY(qgeoroute->operator ==(*qgeoroutecopy));
     QVERIFY(!qgeoroute->operator !=(*qgeoroutecopy));
+
+
+    QGeoRouteAlt rAlt;
+    QGeoRoute r;
+    QCOMPARE(rAlt.travelTime(), 123456);
+    QCOMPARE(r.travelTime(), 0);
+    r = rAlt;
+    QCOMPARE(r.travelTime(), 123456);
 
     delete qgeoroutecopy;
 }

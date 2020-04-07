@@ -76,7 +76,7 @@ class AudioLowLatencyInputOutputTest : public testing::Test {
  protected:
   AudioLowLatencyInputOutputTest() {
     audio_manager_ =
-        AudioManager::CreateForTesting(base::MakeUnique<TestAudioThread>());
+        AudioManager::CreateForTesting(std::make_unique<TestAudioThread>());
   }
 
   ~AudioLowLatencyInputOutputTest() override { audio_manager_->Shutdown(); }
@@ -126,7 +126,7 @@ class FullDuplexAudioSinkSource
     // Get complete file path to output file in the directory containing
     // media_unittests.exe. Example: src/build/Debug/audio_delay_values_ms.txt.
     base::FilePath file_name;
-    EXPECT_TRUE(PathService::Get(base::DIR_EXE, &file_name));
+    EXPECT_TRUE(base::PathService::Get(base::DIR_EXE, &file_name));
     file_name = file_name.AppendASCII(kDelayValuesFileName);
 
     FILE* text_file = base::OpenFile(file_name, "wt");
@@ -151,9 +151,8 @@ class FullDuplexAudioSinkSource
   }
 
   // AudioInputStream::AudioInputCallback.
-  void OnData(AudioInputStream* stream,
-              const AudioBus* src,
-              uint32_t hardware_delay_bytes,
+  void OnData(const AudioBus* src,
+              base::TimeTicks capture_time,
               double volume) override {
     base::AutoLock lock(lock_);
 
@@ -167,7 +166,7 @@ class FullDuplexAudioSinkSource
       delay_states_[input_elements_to_write_].buffer_delay_ms =
           BytesToMilliseconds(buffer_->forward_bytes());
       delay_states_[input_elements_to_write_].input_delay_ms =
-          BytesToMilliseconds(hardware_delay_bytes);
+          (base::TimeTicks::Now() - capture_time).InMilliseconds();
       ++input_elements_to_write_;
     }
 
@@ -182,7 +181,7 @@ class FullDuplexAudioSinkSource
     // }
   }
 
-  void OnError(AudioInputStream* stream) override {}
+  void OnError() override {}
 
   // AudioOutputStream::AudioSourceCallback.
   int OnMoreData(base::TimeDelta delay,
@@ -215,8 +214,6 @@ class FullDuplexAudioSinkSource
 
     return 0;
   }
-
-  void OnError() override {}
 
  protected:
   // Converts from bytes to milliseconds taking the sample rate and size
@@ -282,15 +279,14 @@ class StreamWrapper {
   typedef typename StreamTraits::StreamType StreamType;
 
   explicit StreamWrapper(AudioManager* audio_manager)
-      :
-        audio_manager_(audio_manager),
+      : audio_manager_(audio_manager),
         format_(AudioParameters::AUDIO_PCM_LOW_LATENCY),
 #if defined(OS_ANDROID)
-        channel_layout_(CHANNEL_LAYOUT_MONO),
+        channel_layout_(CHANNEL_LAYOUT_MONO)
 #else
-        channel_layout_(CHANNEL_LAYOUT_STEREO),
+        channel_layout_(CHANNEL_LAYOUT_STEREO)
 #endif
-        bits_per_sample_(16) {
+  {
     // Use the preferred sample rate.
     const AudioParameters& params =
         StreamTraits::GetDefaultAudioStreamParameters(audio_manager_);
@@ -301,7 +297,7 @@ class StreamWrapper {
     samples_per_packet_ = params.frames_per_buffer();
   }
 
-  virtual ~StreamWrapper() {}
+  virtual ~StreamWrapper() = default;
 
   // Creates an Audio[Input|Output]Stream stream object using default
   // parameters.
@@ -312,15 +308,14 @@ class StreamWrapper {
   int channels() const {
     return ChannelLayoutToChannelCount(channel_layout_);
   }
-  int bits_per_sample() const { return bits_per_sample_; }
   int sample_rate() const { return sample_rate_; }
   int samples_per_packet() const { return samples_per_packet_; }
 
  private:
   StreamType* CreateStream() {
-    StreamType* stream = StreamTraits::CreateStream(audio_manager_,
-        AudioParameters(format_, channel_layout_, sample_rate_,
-            bits_per_sample_, samples_per_packet_));
+    StreamType* stream = StreamTraits::CreateStream(
+        audio_manager_, AudioParameters(format_, channel_layout_, sample_rate_,
+                                        samples_per_packet_));
     EXPECT_TRUE(stream);
     return stream;
   }
@@ -328,7 +323,6 @@ class StreamWrapper {
   AudioManager* audio_manager_;
   AudioParameters::Format format_;
   ChannelLayout channel_layout_;
-  int bits_per_sample_;
   int sample_rate_;
   int samples_per_packet_;
 };
@@ -367,8 +361,7 @@ TEST_F(AudioLowLatencyInputOutputTest, DISABLED_FullDuplexDelayMeasurement) {
   // buffer sizes for input and output.
   if (aisw.sample_rate() != aosw.sample_rate() ||
       aisw.samples_per_packet() != aosw.samples_per_packet() ||
-      aisw.channels()!= aosw.channels() ||
-      aisw.bits_per_sample() != aosw.bits_per_sample()) {
+      aisw.channels() != aosw.channels()) {
     LOG(ERROR) << "This test requires symmetric input and output parameters. "
         "Ensure that sample rate and number of channels are identical in "
         "both directions";
@@ -395,7 +388,7 @@ TEST_F(AudioLowLatencyInputOutputTest, DISABLED_FullDuplexDelayMeasurement) {
   // in loop back during this time. At the same time, delay recordings are
   // performed and stored in the output text file.
   message_loop()->task_runner()->PostDelayedTask(
-      FROM_HERE, base::MessageLoop::QuitWhenIdleClosure(),
+      FROM_HERE, base::RunLoop::QuitCurrentWhenIdleClosureDeprecated(),
       TestTimeouts::action_timeout());
   base::RunLoop().Run();
 

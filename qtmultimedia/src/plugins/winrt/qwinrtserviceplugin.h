@@ -57,18 +57,18 @@ class QWinRTServicePlugin : public QMediaServiceProviderPlugin
     Q_INTERFACES(QMediaServiceDefaultDeviceInterface)
     Q_PLUGIN_METADATA(IID "org.qt-project.qt.mediaserviceproviderfactory/5.0" FILE "winrt.json")
 public:
-    QMediaService *create(QString const &key);
-    void release(QMediaService *service);
+    QMediaService *create(QString const &key) override;
+    void release(QMediaService *service) override;
 
-    QMediaServiceProviderHint::Features supportedFeatures(const QByteArray &service) const;
+    QMediaServiceProviderHint::Features supportedFeatures(const QByteArray &service) const override;
 
-    QCamera::Position cameraPosition(const QByteArray &device) const Q_DECL_OVERRIDE;
-    int cameraOrientation(const QByteArray &device) const Q_DECL_OVERRIDE;
+    QCamera::Position cameraPosition(const QByteArray &device) const override;
+    int cameraOrientation(const QByteArray &device) const override;
 
-    QList<QByteArray> devices(const QByteArray &service) const Q_DECL_OVERRIDE;
-    QString deviceDescription(const QByteArray &service, const QByteArray &device) Q_DECL_OVERRIDE;
+    QList<QByteArray> devices(const QByteArray &service) const override;
+    QString deviceDescription(const QByteArray &service, const QByteArray &device) override;
 
-    QByteArray defaultDevice(const QByteArray &service) const Q_DECL_OVERRIDE;
+    QByteArray defaultDevice(const QByteArray &service) const override;
 };
 
 QT_END_NAMESPACE

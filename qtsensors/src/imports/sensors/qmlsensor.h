@@ -167,10 +167,10 @@ private Q_SLOTS:
     void updateReading();
 
 protected Q_SLOTS:
-    void componentComplete();
+    void componentComplete() override;
 
 private:
-    void classBegin();
+    void classBegin() override;
     virtual void _update();
     bool m_parsed;
     bool m_active;

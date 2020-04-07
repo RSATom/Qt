@@ -20,11 +20,11 @@ public:
 
         SkString srgbFuncName;
         static const GrShaderVar gSrgbArgs[] = {
-            GrShaderVar("x", kFloat_GrSLType),
+            GrShaderVar("x", kHalf_GrSLType),
         };
         switch (srgbe.mode()) {
             case GrSRGBEffect::Mode::kLinearToSRGB:
-                fragBuilder->emitFunction(kFloat_GrSLType,
+                fragBuilder->emitFunction(kHalf_GrSLType,
                                           "linear_to_srgb",
                                           SK_ARRAY_COUNT(gSrgbArgs),
                                           gSrgbArgs,
@@ -33,7 +33,7 @@ public:
                                           &srgbFuncName);
                 break;
             case GrSRGBEffect::Mode::kSRGBToLinear:
-                fragBuilder->emitFunction(kFloat_GrSLType,
+                fragBuilder->emitFunction(kHalf_GrSLType,
                                           "srgb_to_linear",
                                           SK_ARRAY_COUNT(gSrgbArgs),
                                           gSrgbArgs,
@@ -44,20 +44,22 @@ public:
         }
 
         if (nullptr == args.fInputColor) {
-            args.fInputColor = "vec4(1)";
+            args.fInputColor = "half4(1)";
         }
 
-        fragBuilder->codeAppendf("vec4 color = %s;", args.fInputColor);
+        // Mali Bifrost uses fp16 for mediump. Making the intermediate color variable highp causes
+        // calculations to be performed with sufficient precision.
+        fragBuilder->codeAppendf("float4 color = %s;", args.fInputColor);
         if (srgbe.alpha() == GrSRGBEffect::Alpha::kPremul) {
-            fragBuilder->codeAppendf("float nonZeroAlpha = max(color.a, 0.00001);");
-            fragBuilder->codeAppendf("color = vec4(color.rgb / nonZeroAlpha, color.a);");
+            fragBuilder->codeAppendf("half nonZeroAlpha = max(color.a, 0.00001);");
+            fragBuilder->codeAppendf("color = half4(color.rgb / nonZeroAlpha, color.a);");
         }
-        fragBuilder->codeAppendf("color = vec4(%s(color.r), %s(color.g), %s(color.b), color.a);",
+        fragBuilder->codeAppendf("color = half4(%s(color.r), %s(color.g), %s(color.b), color.a);",
                                     srgbFuncName.c_str(),
                                     srgbFuncName.c_str(),
                                     srgbFuncName.c_str());
         if (srgbe.alpha() == GrSRGBEffect::Alpha::kPremul) {
-            fragBuilder->codeAppendf("color = vec4(color.rgb, 1) * color.a;");
+            fragBuilder->codeAppendf("color = half4(color.rgb, 1) * color.a;");
         }
         fragBuilder->codeAppendf("%s = color;", args.fOutputColor);
     }
@@ -77,13 +79,14 @@ private:
 ///////////////////////////////////////////////////////////////////////////////
 
 GrSRGBEffect::GrSRGBEffect(Mode mode, Alpha alpha)
-    : INHERITED(kPreservesOpaqueInput_OptimizationFlag |
+    : INHERITED(kGrSRGBEffect_ClassID, kPreservesOpaqueInput_OptimizationFlag |
                 kConstantOutputForConstantInput_OptimizationFlag)
     , fMode(mode)
     , fAlpha(alpha)
 {
-    this->initClassID<GrSRGBEffect>();
 }
+
+std::unique_ptr<GrFragmentProcessor> GrSRGBEffect::clone() const { return Make(fMode, fAlpha); }
 
 bool GrSRGBEffect::onIsEqual(const GrFragmentProcessor& s) const {
     const GrSRGBEffect& other = s.cast<GrSRGBEffect>();
@@ -117,7 +120,7 @@ GrColor4f GrSRGBEffect::constantOutputForConstantInput(GrColor4f color) const {
 GR_DEFINE_FRAGMENT_PROCESSOR_TEST(GrSRGBEffect);
 
 #if GR_TEST_UTILS
-sk_sp<GrFragmentProcessor> GrSRGBEffect::TestCreate(GrProcessorTestData* d) {
+std::unique_ptr<GrFragmentProcessor> GrSRGBEffect::TestCreate(GrProcessorTestData* d) {
     Mode testMode = static_cast<Mode>(d->fRandom->nextRangeU(0, 1));
     return GrSRGBEffect::Make(testMode, Alpha::kPremul);
 }

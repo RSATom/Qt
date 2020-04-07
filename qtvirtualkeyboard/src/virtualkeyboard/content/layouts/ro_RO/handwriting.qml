@@ -33,10 +33,10 @@ import QtQuick.VirtualKeyboard 2.3
 
 KeyboardLayout {
     function createInputMethod() {
-        return Qt.createQmlObject('import QtQuick 2.0; import QtQuick.VirtualKeyboard 2.3; HandwritingInputMethod {}', parent)
+        return Qt.createQmlObject('import QtQuick 2.0; import QtQuick.VirtualKeyboard.Plugins 2.3; HandwritingInputMethod {}', parent)
     }
     sharedLayouts: ['symbols']
-    inputMode: InputEngine.Latin
+    inputMode: InputEngine.InputMode.Latin
 
     KeyboardRow {
         Layout.preferredHeight: 3
@@ -45,7 +45,7 @@ KeyboardLayout {
             KeyboardRow {
                 TraceInputKey {
                     objectName: "hwrInputArea"
-                    patternRecognitionMode: InputEngine.HandwritingRecoginition
+                    patternRecognitionMode: InputEngine.PatternRecognitionMode.Handwriting
                 }
             }
         }

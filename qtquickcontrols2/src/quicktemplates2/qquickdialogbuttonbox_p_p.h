@@ -58,8 +58,6 @@ class QQuickDialogButtonBoxPrivate : public QQuickContainerPrivate
     Q_DECLARE_PUBLIC(QQuickDialogButtonBox)
 
 public:
-    QQuickDialogButtonBoxPrivate();
-
     static QQuickDialogButtonBoxPrivate *get(QQuickDialogButtonBox *box)
     {
         return box->d_func();
@@ -69,16 +67,22 @@ public:
     void itemImplicitHeightChanged(QQuickItem *item) override;
 
     void resizeContent() override;
+
     void updateLayout();
+
+    qreal getContentWidth() const override;
+    qreal getContentHeight() const override;
+
     void handleClick();
 
     QQuickAbstractButton *createStandardButton(QPlatformDialogHelper::StandardButton button);
     void removeStandardButtons();
 
-    Qt::Alignment alignment;
-    QQuickDialogButtonBox::Position position;
-    QPlatformDialogHelper::StandardButtons standardButtons;
-    QQmlComponent *delegate;
+    Qt::Alignment alignment = 0;
+    QQuickDialogButtonBox::Position position = QQuickDialogButtonBox::Footer;
+    QPlatformDialogHelper::StandardButtons standardButtons = QPlatformDialogHelper::NoButton;
+    QPlatformDialogHelper::ButtonLayout buttonLayout = QPlatformDialogHelper::UnknownLayout;
+    QQmlComponent *delegate = nullptr;
 };
 
 class QQuickDialogButtonBoxAttachedPrivate : public QObjectPrivate
@@ -86,13 +90,6 @@ class QQuickDialogButtonBoxAttachedPrivate : public QObjectPrivate
     Q_DECLARE_PUBLIC(QQuickDialogButtonBoxAttached)
 
 public:
-    QQuickDialogButtonBoxAttachedPrivate()
-        : buttonBox(nullptr),
-          buttonRole(QPlatformDialogHelper::InvalidRole),
-          standardButton(QPlatformDialogHelper::NoButton)
-    {
-    }
-
     static QQuickDialogButtonBoxAttachedPrivate *get(QQuickDialogButtonBoxAttached *q)
     {
         return q->d_func();
@@ -100,9 +97,9 @@ public:
 
     void setButtonBox(QQuickDialogButtonBox *box);
 
-    QQuickDialogButtonBox *buttonBox;
-    QPlatformDialogHelper::ButtonRole buttonRole;
-    QPlatformDialogHelper::StandardButton standardButton;
+    QQuickDialogButtonBox *buttonBox = nullptr;
+    QPlatformDialogHelper::ButtonRole buttonRole = QPlatformDialogHelper::InvalidRole;
+    QPlatformDialogHelper::StandardButton standardButton = QPlatformDialogHelper::NoButton;
 };
 
 QT_END_NAMESPACE

@@ -19,52 +19,51 @@
 #include <algorithm>
 #include <cassert>
 #include <cstddef>
-#include <map>
 #include <string>
-#include <utility>
 #include <vector>
 
 #include "format_element.h"
+#include "util/size.h"
 
 namespace i18n {
 namespace addressinput {
 
 namespace {
 
-std::map<char, AddressField> InitFields() {
-  std::map<char, AddressField> fields;
-  fields.insert(std::make_pair('R', COUNTRY));
-  fields.insert(std::make_pair('S', ADMIN_AREA));
-  fields.insert(std::make_pair('C', LOCALITY));
-  fields.insert(std::make_pair('D', DEPENDENT_LOCALITY));
-  fields.insert(std::make_pair('X', SORTING_CODE));
-  fields.insert(std::make_pair('Z', POSTAL_CODE));
-  fields.insert(std::make_pair('A', STREET_ADDRESS));
-  fields.insert(std::make_pair('O', ORGANIZATION));
-  fields.insert(std::make_pair('N', RECIPIENT));
-  return fields;
-}
+// Check whether |c| is a field token character. On success, return true
+// and sets |*field| to the corresponding AddressField value. Return false
+// on failure.
+bool ParseFieldToken(char c, AddressField* field) {
+  assert(field != nullptr);
 
-const std::map<char, AddressField>& GetFields() {
-  static const std::map<char, AddressField> kFields(InitFields());
-  return kFields;
-}
+  // Simple mapping from field token characters to AddressField values.
+  static const struct Entry { char ch; AddressField field; } kTokenMap[] = {
+    { 'R', COUNTRY },
+    { 'S', ADMIN_AREA },
+    { 'C', LOCALITY },
+    { 'D', DEPENDENT_LOCALITY },
+    { 'X', SORTING_CODE },
+    { 'Z', POSTAL_CODE },
+    { 'A', STREET_ADDRESS },
+    { 'O', ORGANIZATION },
+    { 'N', RECIPIENT },
+  };
+  const size_t kTokenMapSize = size(kTokenMap);
 
-bool IsFieldToken(char c) {
-  return GetFields().find(c) != GetFields().end();
-}
-
-AddressField ParseFieldToken(char c) {
-  std::map<char, AddressField>::const_iterator it = GetFields().find(c);
-  assert(it != GetFields().end());
-  return it->second;
+  for (size_t n = 0; n < kTokenMapSize; ++n) {
+      if (c == kTokenMap[n].ch) {
+          *field = kTokenMap[n].field;
+          return true;
+      }
+  }
+  return false;
 }
 
 }  // namespace
 
 void ParseFormatRule(const std::string& format,
                      std::vector<FormatElement>* elements) {
-  assert(elements != NULL);
+  assert(elements != nullptr);
   elements->clear();
 
   std::string::const_iterator prev = format.begin();
@@ -85,10 +84,11 @@ void ParseFormatRule(const std::string& format,
       break;
     }
     // Process the token after the %.
+    AddressField field;
     if (*next == 'n') {
       elements->push_back(FormatElement());
-    } else if (IsFieldToken(*next)) {
-      elements->push_back(FormatElement(ParseFieldToken(*next)));
+    } else if (ParseFieldToken(*next, &field)) {
+      elements->push_back(FormatElement(field));
     }  // Else it's an unknown token, we ignore it.
   }
   // Push back any trailing literal.
@@ -99,12 +99,13 @@ void ParseFormatRule(const std::string& format,
 
 void ParseAddressFieldsRequired(const std::string& required,
                                 std::vector<AddressField>* fields) {
-  assert(fields != NULL);
+  assert(fields != nullptr);
   fields->clear();
   for (std::string::const_iterator it = required.begin();
        it != required.end(); ++it) {
-    if (IsFieldToken(*it)) {
-      fields->push_back(ParseFieldToken(*it));
+    AddressField field;
+    if (ParseFieldToken(*it, &field)) {
+      fields->push_back(field);
     }
   }
 }

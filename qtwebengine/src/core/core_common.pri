@@ -2,7 +2,14 @@
 # gyp/ninja will take care of the compilation, qmake/make will finish with linking and install.
 
 TARGET = QtWebEngineCore
-QT += qml quick webchannel
+QT += qml quick
 QT_PRIVATE += quick-private gui-private core-private webenginecoreheaders-private
 
-qtHaveModule(positioning):QT += positioning
+qtConfig(webengine-geolocation): QT += positioning
+qtConfig(webengine-webchannel): QT += webchannel
+
+# LTO does not work for Chromium at the moment, so disable it completely for core.
+CONFIG -= ltcg
+
+# Chromium requires C++14
+CONFIG += c++14

@@ -15,6 +15,7 @@
 #include "base/compiler_specific.h"
 #include "base/memory/weak_ptr.h"
 #include "base/strings/string16.h"
+#include "net/base/completion_once_callback.h"
 #include "net/base/io_buffer.h"
 #include "net/base/load_flags.h"
 #include "net/base/net_error_details.h"
@@ -187,23 +188,23 @@ class MockNetworkTransaction
   ~MockNetworkTransaction() override;
 
   int Start(const HttpRequestInfo* request,
-            const CompletionCallback& callback,
+            CompletionOnceCallback callback,
             const NetLogWithSource& net_log) override;
 
-  int RestartIgnoringLastError(const CompletionCallback& callback) override;
+  int RestartIgnoringLastError(CompletionOnceCallback callback) override;
 
   int RestartWithCertificate(scoped_refptr<X509Certificate> client_cert,
                              scoped_refptr<SSLPrivateKey> client_private_key,
-                             const CompletionCallback& callback) override;
+                             CompletionOnceCallback callback) override;
 
   int RestartWithAuth(const AuthCredentials& credentials,
-                      const CompletionCallback& callback) override;
+                      CompletionOnceCallback callback) override;
 
   bool IsReadyToRestartForAuth() override;
 
   int Read(IOBuffer* buf,
            int buf_len,
-           const CompletionCallback& callback) override;
+           CompletionOnceCallback callback) override;
   void PopulateNetErrorDetails(NetErrorDetails* details) const override;
 
   void StopCaching() override;
@@ -237,6 +238,9 @@ class MockNetworkTransaction
   void SetBeforeHeadersSentCallback(
       const BeforeHeadersSentCallback& callback) override;
 
+  void SetRequestHeadersCallback(RequestHeadersCallback callback) override {}
+  void SetResponseHeadersCallback(ResponseHeadersCallback) override {}
+
   int ResumeNetworkStart() override;
 
   void GetConnectionAttempts(ConnectionAttempts* out) const override;
@@ -257,10 +261,10 @@ class MockNetworkTransaction
 
  private:
   int StartInternal(const HttpRequestInfo* request,
-                    const CompletionCallback& callback,
+                    CompletionOnceCallback callback,
                     const NetLogWithSource& net_log);
-  void CallbackLater(const CompletionCallback& callback, int result);
-  void RunCallback(const CompletionCallback& callback, int result);
+  void CallbackLater(CompletionOnceCallback callback, int result);
+  void RunCallback(CompletionOnceCallback callback, int result);
 
   const HttpRequestInfo* request_;
   HttpResponseInfo response_;
@@ -283,8 +287,9 @@ class MockNetworkTransaction
   unsigned int socket_log_id_;
 
   bool done_reading_called_;
+  bool reading_;
 
-  CompletionCallback resume_start_callback_;  // used for pause and restart.
+  CompletionOnceCallback resume_start_callback_;  // used for pause and restart.
 
   base::WeakPtrFactory<MockNetworkTransaction> weak_factory_;
 

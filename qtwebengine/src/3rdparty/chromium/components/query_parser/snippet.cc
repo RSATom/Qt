@@ -210,10 +210,7 @@ Snippet::Snippet() {
 
 Snippet::Snippet(const Snippet& other) = default;
 
-// TODO(bug 706963) this should be implemented as "= default" when Android
-// toolchain is updated.
-Snippet::Snippet(Snippet&& other) noexcept
-    : text_(std::move(other.text_)), matches_(std::move(other.matches_)) {}
+Snippet::Snippet(Snippet&& other) noexcept = default;
 
 Snippet::~Snippet() {
 }
@@ -227,7 +224,7 @@ void Snippet::ComputeSnippet(const MatchPositions& match_positions,
   const size_t kSnippetMaxLength = 200;
   const base::string16 kEllipsis = base::ASCIIToUTF16(" ... ");
 
-  UText* document_utext = NULL;
+  UText* document_utext = nullptr;
   UErrorCode status = U_ZERO_ERROR;
   document_utext = utext_openUTF8(document_utext, document.data(),
                                   document.size(), &status);

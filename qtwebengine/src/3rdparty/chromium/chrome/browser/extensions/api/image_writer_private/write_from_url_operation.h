@@ -25,6 +25,7 @@ class OperationManager;
 class WriteFromUrlOperation : public Operation, public net::URLFetcherDelegate {
  public:
   WriteFromUrlOperation(base::WeakPtr<OperationManager> manager,
+                        std::unique_ptr<service_manager::Connector> connector,
                         const ExtensionId& extension_id,
                         net::URLRequestContextGetter* request_context,
                         GURL url,
@@ -34,18 +35,21 @@ class WriteFromUrlOperation : public Operation, public net::URLFetcherDelegate {
   void StartImpl() override;
 
  protected:
+  friend class OperationForTest;
+  friend class WriteFromUrlOperationForTest;
+
   ~WriteFromUrlOperation() override;
 
   // Sets the image_path to the correct location to download to.
-  void GetDownloadTarget(const base::Closure& continuation);
+  void GetDownloadTarget(base::OnceClosure continuation);
 
   // Downloads the |url| to the currently configured |image_path|.  Should not
   // be called without calling |GetDownloadTarget| first.
-  void Download(const base::Closure& continuation);
+  void Download(base::OnceClosure continuation);
 
   // Verifies the download matches |hash|.  If the hash is empty, this stage is
   // skipped.
-  void VerifyDownload(const base::Closure& continuation);
+  void VerifyDownload(base::OnceClosure continuation);
 
  private:
   // Destroys the URLFetcher.  The URLFetcher needs to be destroyed on the same
@@ -63,9 +67,9 @@ class WriteFromUrlOperation : public Operation, public net::URLFetcherDelegate {
                                 int64_t current,
                                 int64_t total) override;
 
-  void VerifyDownloadCompare(const base::Closure& continuation,
+  void VerifyDownloadCompare(base::OnceClosure continuation,
                              const std::string& download_hash);
-  void VerifyDownloadComplete(const base::Closure& continuation);
+  void VerifyDownloadComplete(base::OnceClosure continuation);
 
   // Arguments
   net::URLRequestContextGetter* request_context_;
@@ -74,7 +78,7 @@ class WriteFromUrlOperation : public Operation, public net::URLFetcherDelegate {
 
   // Local state
   std::unique_ptr<net::URLFetcher> url_fetcher_;
-  base::Closure download_continuation_;
+  base::OnceClosure download_continuation_;
 };
 
 } // namespace image_writer

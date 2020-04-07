@@ -34,16 +34,8 @@ using namespace std;
 
 namespace egl
 {
-// OpenGL ES 3.0 support is not conformant yet, but can be used for testing purposes. Expose it as conformant configs
-// if strict conformance advertisement isn't required. If strict conformance advertisement is required, expose them
-// as non-conformant configs, but only when EGL_CONFIG_CAVEAT is EGL_NON_CONFORMANT_CONFIG or EGL_DONT_CARE.
-#if defined(__ANDROID__) || defined(STRICT_CONFORMANCE)
-const bool strictConformance = true;
-#else
-const bool strictConformance = false;
-#endif
 
-Config::Config(sw::Format displayFormat, EGLint minInterval, EGLint maxInterval, sw::Format renderTargetFormat, sw::Format depthStencilFormat, EGLint multiSample, bool conformant)
+Config::Config(sw::Format displayFormat, EGLint minInterval, EGLint maxInterval, sw::Format renderTargetFormat, sw::Format depthStencilFormat, EGLint multiSample)
 	: mRenderTargetFormat(renderTargetFormat), mDepthStencilFormat(depthStencilFormat), mMultiSample(multiSample)
 {
 	mBindToTextureRGB = EGL_FALSE;
@@ -127,9 +119,9 @@ Config::Config(sw::Format displayFormat, EGLint minInterval, EGLint maxInterval,
 	mBufferSize = mRedSize + mGreenSize + mBlueSize + mLuminanceSize + mAlphaSize;
 	mAlphaMaskSize = 0;
 	mColorBufferType = EGL_RGB_BUFFER;
-	mConfigCaveat = (conformant || !strictConformance) ? EGL_NONE : EGL_NON_CONFORMANT_CONFIG;
+	mConfigCaveat = EGL_NONE;
 	mConfigID = 0;
-	mConformant = EGL_OPENGL_ES_BIT | EGL_OPENGL_ES2_BIT | (strictConformance ? 0 : EGL_OPENGL_ES3_BIT);
+	mConformant = EGL_OPENGL_ES_BIT | EGL_OPENGL_ES2_BIT | EGL_OPENGL_ES3_BIT;
 
 	switch(depthStencilFormat)
 	{
@@ -186,10 +178,10 @@ Config::Config(sw::Format displayFormat, EGLint minInterval, EGLint maxInterval,
 	mMinSwapInterval = minInterval;
 	mNativeRenderable = EGL_FALSE;
 	mNativeVisualType = 0;
-	mRenderableType = EGL_OPENGL_ES_BIT | EGL_OPENGL_ES2_BIT | ((conformant && strictConformance) ? 0 : EGL_OPENGL_ES3_BIT);
+	mRenderableType = EGL_OPENGL_ES_BIT | EGL_OPENGL_ES2_BIT | EGL_OPENGL_ES3_BIT;
 	mSampleBuffers = (multiSample > 0) ? 1 : 0;
 	mSamples = multiSample;
-	mSurfaceType = EGL_PBUFFER_BIT | EGL_WINDOW_BIT | EGL_SWAP_BEHAVIOR_PRESERVED_BIT;
+	mSurfaceType = EGL_PBUFFER_BIT | EGL_WINDOW_BIT | EGL_SWAP_BEHAVIOR_PRESERVED_BIT | EGL_MULTISAMPLE_RESOLVE_BOX_BIT;
 	mTransparentType = EGL_NONE;
 	mTransparentRedValue = 0;
 	mTransparentGreenValue = 0;
@@ -338,14 +330,8 @@ ConfigSet::ConfigSet()
 
 void ConfigSet::add(sw::Format displayFormat, EGLint minSwapInterval, EGLint maxSwapInterval, sw::Format renderTargetFormat, sw::Format depthStencilFormat, EGLint multiSample)
 {
-	Config conformantConfig(displayFormat, minSwapInterval, maxSwapInterval, renderTargetFormat, depthStencilFormat, multiSample, true);
+	Config conformantConfig(displayFormat, minSwapInterval, maxSwapInterval, renderTargetFormat, depthStencilFormat, multiSample);
 	mSet.insert(conformantConfig);
-
-	if(strictConformance)   // When strict conformance is required, add non-conformant configs explicitly as such.
-	{
-		Config nonConformantConfig(displayFormat, minSwapInterval, maxSwapInterval, renderTargetFormat, depthStencilFormat, multiSample, false);
-		mSet.insert(nonConformantConfig);
-	}
 }
 
 size_t ConfigSet::size() const
@@ -381,7 +367,6 @@ bool ConfigSet::getConfigs(EGLConfig *configs, const EGLint *attribList, EGLint 
 				case EGL_CONFIG_ID:                  match = config->mConfigID == attribute[1];                             break;
 				case EGL_LEVEL:                      match = config->mLevel >= attribute[1];                                break;
 				case EGL_NATIVE_RENDERABLE:          match = config->mNativeRenderable == (EGLBoolean)attribute[1];         break;
-				case EGL_NATIVE_VISUAL_ID:           match = config->mNativeVisualID == attribute[1];                       break;
 				case EGL_NATIVE_VISUAL_TYPE:         match = config->mNativeVisualType == attribute[1];                     break;
 				case EGL_SAMPLES:                    match = config->mSamples >= attribute[1];                              break;
 				case EGL_SAMPLE_BUFFERS:             match = config->mSampleBuffers >= attribute[1];                        break;
@@ -400,11 +385,16 @@ bool ConfigSet::getConfigs(EGLConfig *configs, const EGLint *attribList, EGLint 
 				case EGL_RENDERABLE_TYPE:            match = (config->mRenderableType & attribute[1]) == attribute[1];      break;
 				case EGL_MATCH_NATIVE_PIXMAP:        match = false; UNIMPLEMENTED();                                        break;
 				case EGL_CONFORMANT:                 match = (config->mConformant & attribute[1]) == attribute[1];          break;
-				case EGL_MAX_PBUFFER_WIDTH:          match = config->mMaxPBufferWidth >= attribute[1];                      break;
-				case EGL_MAX_PBUFFER_HEIGHT:         match = config->mMaxPBufferHeight >= attribute[1];                     break;
-				case EGL_MAX_PBUFFER_PIXELS:         match = config->mMaxPBufferPixels >= attribute[1];                     break;
 				case EGL_RECORDABLE_ANDROID:         match = config->mRecordableAndroid == (EGLBoolean)attribute[1];        break;
 				case EGL_FRAMEBUFFER_TARGET_ANDROID: match = config->mFramebufferTargetAndroid == (EGLBoolean)attribute[1]; break;
+
+				// Ignored attributes
+				case EGL_MAX_PBUFFER_WIDTH:
+				case EGL_MAX_PBUFFER_HEIGHT:
+				case EGL_MAX_PBUFFER_PIXELS:
+				case EGL_NATIVE_VISUAL_ID:
+					break;
+
 				default:
 					*numConfig = 0;
 					return false;

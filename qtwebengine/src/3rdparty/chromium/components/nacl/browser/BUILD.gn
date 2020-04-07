@@ -2,7 +2,7 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import("//build/config/features.gni")
+import("//components/nacl/features.gni")
 
 assert(enable_nacl)
 
@@ -34,21 +34,22 @@ static_library("browser") {
     "//base",
     "//base/third_party/dynamic_annotations",
     "//components/nacl/common",
+    "//components/nacl/common:buildflags",
     "//components/nacl/common:debug_exception_handler",
     "//components/url_formatter",
     "//content/public/browser",
     "//content/public/common",
-    "//mojo/edk/system",
     "//native_client/src/trusted/service_runtime:sel_main_chrome",
     "//net",
     "//ppapi/host",
     "//ppapi/proxy:ipc",
     "//ppapi/shared_impl",
+    "//services/service_manager/zygote:zygote_buildflags",
   ]
 
   public_deps = [
     "//ipc",
-    "//services/service_manager/public/interfaces",
+    "//services/service_manager/public/mojom",
   ]
 
   data_deps = []
@@ -63,6 +64,7 @@ static_library("browser") {
       "//components/nacl/loader:nacl_helper_integration",
       "//sandbox/linux:sandbox_services",
       "//sandbox/linux:suid_sandbox_client",
+      "//services/service_manager/zygote",
     ]
 
     if (enable_nacl_nonsfi) {

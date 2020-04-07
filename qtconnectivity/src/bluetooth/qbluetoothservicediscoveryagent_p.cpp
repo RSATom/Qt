@@ -49,7 +49,6 @@ QBluetoothServiceDiscoveryAgentPrivate::QBluetoothServiceDiscoveryAgentPrivate(
     QBluetoothServiceDiscoveryAgent *qp, const QBluetoothAddress &deviceAdapter)
     : error(QBluetoothServiceDiscoveryAgent::NoError),
       state(Inactive),
-      deviceDiscoveryAgent(0),
       mode(QBluetoothServiceDiscoveryAgent::MinimalDiscovery),
       singleDevice(false),
       q_ptr(qp)

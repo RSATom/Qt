@@ -8,10 +8,8 @@
 #ifndef GrVkPipeline_DEFINED
 #define GrVkPipeline_DEFINED
 
-#include "GrTypes.h"
-
+#include "GrTypesPriv.h"
 #include "GrVkResource.h"
-
 #include "vk/GrVkDefines.h"
 
 class GrPipeline;
@@ -27,9 +25,9 @@ struct SkIRect;
 class GrVkPipeline : public GrVkResource {
 public:
     static GrVkPipeline* Create(GrVkGpu* gpu,
+                                const GrPrimitiveProcessor& primProc,
                                 const GrPipeline& pipeline,
                                 const GrStencilSettings&,
-                                const GrPrimitiveProcessor& primProc,
                                 VkPipelineShaderStageCreateInfo* shaderStageInfo,
                                 int shaderStageCount,
                                 GrPrimitiveType primitiveType,
@@ -40,7 +38,7 @@ public:
     VkPipeline pipeline() const { return fPipeline; }
 
     static void SetDynamicScissorRectState(GrVkGpu*, GrVkCommandBuffer*, const GrRenderTarget*,
-                                           SkIRect);
+                                           GrSurfaceOrigin, SkIRect);
     static void SetDynamicViewportState(GrVkGpu*, GrVkCommandBuffer*, const GrRenderTarget*);
     static void SetDynamicBlendConstantState(GrVkGpu*, GrVkCommandBuffer*, GrPixelConfig,
                                              const GrXferProcessor&);

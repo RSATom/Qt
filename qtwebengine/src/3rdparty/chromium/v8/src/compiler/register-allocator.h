@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef V8_REGISTER_ALLOCATOR_H_
-#define V8_REGISTER_ALLOCATOR_H_
+#ifndef V8_COMPILER_REGISTER_ALLOCATOR_H_
+#define V8_COMPILER_REGISTER_ALLOCATOR_H_
 
 #include "src/base/bits.h"
 #include "src/base/compiler-specific.h"
@@ -106,7 +106,7 @@ class LifetimePosition final {
   // Returns the lifetime position for the beginning of the previous START.
   LifetimePosition PrevStart() const {
     DCHECK(IsValid());
-    DCHECK(value_ >= kHalfStep);
+    DCHECK_LE(kHalfStep, value_);
     return LifetimePosition(Start().value_ - kHalfStep);
   }
 
@@ -229,9 +229,12 @@ class UseInterval final : public ZoneObject {
   DISALLOW_COPY_AND_ASSIGN(UseInterval);
 };
 
-
-enum class UsePositionType : uint8_t { kAny, kRequiresRegister, kRequiresSlot };
-
+enum class UsePositionType : uint8_t {
+  kRegisterOrSlot,
+  kRegisterOrSlotOrConstant,
+  kRequiresRegister,
+  kRequiresSlot
+};
 
 enum class UsePositionHintType : uint8_t {
   kNone,
@@ -305,7 +308,6 @@ class V8_EXPORT_PRIVATE UsePosition final
 class SpillRange;
 class RegisterAllocationData;
 class TopLevelLiveRange;
-class LiveRangeGroup;
 
 // Representation of SSA values' live ranges as a collection of (continuous)
 // intervals over the instruction ordering.
@@ -470,21 +472,6 @@ class V8_EXPORT_PRIVATE LiveRange : public NON_EXPORTED_BASE(ZoneObject) {
 };
 
 
-class LiveRangeGroup final : public ZoneObject {
- public:
-  explicit LiveRangeGroup(Zone* zone) : ranges_(zone) {}
-  ZoneVector<LiveRange*>& ranges() { return ranges_; }
-  const ZoneVector<LiveRange*>& ranges() const { return ranges_; }
-
-  int assigned_register() const { return assigned_register_; }
-  void set_assigned_register(int reg) { assigned_register_ = reg; }
-
- private:
-  ZoneVector<LiveRange*> ranges_;
-  int assigned_register_;
-  DISALLOW_COPY_AND_ASSIGN(LiveRangeGroup);
-};
-
 class V8_EXPORT_PRIVATE TopLevelLiveRange final : public LiveRange {
  public:
   explicit TopLevelLiveRange(int vreg, MachineRepresentation rep);
@@ -531,17 +518,17 @@ class V8_EXPORT_PRIVATE TopLevelLiveRange final : public LiveRange {
   }
   SpillType spill_type() const { return SpillTypeField::decode(bits_); }
   InstructionOperand* GetSpillOperand() const {
-    DCHECK(spill_type() == SpillType::kSpillOperand);
+    DCHECK_EQ(SpillType::kSpillOperand, spill_type());
     return spill_operand_;
   }
 
   SpillRange* GetAllocatedSpillRange() const {
-    DCHECK(spill_type() != SpillType::kSpillOperand);
+    DCHECK_NE(SpillType::kSpillOperand, spill_type());
     return spill_range_;
   }
 
   SpillRange* GetSpillRange() const {
-    DCHECK(spill_type() == SpillType::kSpillRange);
+    DCHECK_EQ(SpillType::kSpillRange, spill_type());
     return spill_range_;
   }
   bool HasNoSpillType() const {
@@ -1053,9 +1040,13 @@ class LinearScanAllocator final : public RegisterAllocator {
   void AllocateRegisters();
 
  private:
-  ZoneVector<LiveRange*>& unhandled_live_ranges() {
-    return unhandled_live_ranges_;
-  }
+  struct LiveRangeOrdering {
+    bool operator()(LiveRange* a, LiveRange* b) {
+      return a->ShouldBeAllocatedBefore(b);
+    }
+  };
+  using LiveRangeQueue = ZoneMultiset<LiveRange*, LiveRangeOrdering>;
+  LiveRangeQueue& unhandled_live_ranges() { return unhandled_live_ranges_; }
   ZoneVector<LiveRange*>& active_live_ranges() { return active_live_ranges_; }
   ZoneVector<LiveRange*>& inactive_live_ranges() {
     return inactive_live_ranges_;
@@ -1066,10 +1057,7 @@ class LinearScanAllocator final : public RegisterAllocator {
   // Helper methods for updating the life range lists.
   void AddToActive(LiveRange* range);
   void AddToInactive(LiveRange* range);
-  void AddToUnhandledSorted(LiveRange* range);
-  void AddToUnhandledUnsorted(LiveRange* range);
-  void SortUnhandled();
-  bool UnhandledIsSorted();
+  void AddToUnhandled(LiveRange* range);
   void ActiveToHandled(LiveRange* range);
   void ActiveToInactive(LiveRange* range);
   void InactiveToHandled(LiveRange* range);
@@ -1103,7 +1091,7 @@ class LinearScanAllocator final : public RegisterAllocator {
 
   void SplitAndSpillIntersecting(LiveRange* range);
 
-  ZoneVector<LiveRange*> unhandled_live_ranges_;
+  LiveRangeQueue unhandled_live_ranges_;
   ZoneVector<LiveRange*> active_live_ranges_;
   ZoneVector<LiveRange*> inactive_live_ranges_;
 
@@ -1213,4 +1201,4 @@ class LiveRangeConnector final : public ZoneObject {
 }  // namespace internal
 }  // namespace v8
 
-#endif  // V8_REGISTER_ALLOCATOR_H_
+#endif  // V8_COMPILER_REGISTER_ALLOCATOR_H_

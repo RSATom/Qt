@@ -57,6 +57,10 @@ QT_CANVAS3D_BEGIN_NAMESPACE
 const int initialQueueSize = 256;
 const int maxQueueSize = 1000000;
 
+/*!
+    \class CanvasRenderer
+    \internal
+*/
 CanvasRenderer::CanvasRenderer(QObject *parent):
     QObject(parent),
     m_fboSize(0, 0),

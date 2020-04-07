@@ -14,8 +14,8 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "content/common/content_export.h"
+#include "content/renderer/pepper/video_encoder_shim.h"
 #include "gpu/command_buffer/client/gpu_control_client.h"
-#include "media/video/video_encode_accelerator.h"
 #include "ppapi/c/pp_codecs.h"
 #include "ppapi/c/ppb_video_frame.h"
 #include "ppapi/host/host_message_context.h"
@@ -27,14 +27,17 @@ namespace gpu {
 class CommandBufferProxyImpl;
 }
 
+namespace media {
+struct BitstreamBufferMetadata;
+}  // namespace media
+
 namespace content {
 
 class RendererPpapiHost;
-class VideoEncoderShim;
 
 class CONTENT_EXPORT PepperVideoEncoderHost
     : public ppapi::host::ResourceHost,
-      public media::VideoEncodeAccelerator::Client,
+      public VideoEncoderShim::Client,
       public ppapi::MediaStreamBufferManager::Delegate,
       public gpu::GpuControlClient {
  public:
@@ -60,14 +63,13 @@ class CONTENT_EXPORT PepperVideoEncoderHost
     bool in_use;
   };
 
-  // media::VideoEncodeAccelerator implementation.
+  // VideoEncoderShim implementation.
   void RequireBitstreamBuffers(unsigned int input_count,
                                const gfx::Size& input_coded_size,
                                size_t output_buffer_size) override;
-  void BitstreamBufferReady(int32_t bitstream_buffer_id,
-                            size_t payload_size,
-                            bool key_frame,
-                            base::TimeDelta timestamp) override;
+  void BitstreamBufferReady(
+      int32_t bitstream_buffer_id,
+      const media::BitstreamBufferMetadata& metadata) override;
   void NotifyError(media::VideoEncodeAccelerator::Error error) override;
 
   // ResourceHost implementation.
@@ -79,6 +81,10 @@ class CONTENT_EXPORT PepperVideoEncoderHost
   void OnGpuControlLostContext() final;
   void OnGpuControlLostContextMaybeReentrant() final;
   void OnGpuControlErrorMessage(const char* msg, int id) final {}
+  void OnGpuControlSwapBuffersCompleted(
+      const gpu::SwapBuffersCompleteParams& params) final {}
+  void OnSwapBufferPresented(uint64_t swap_id,
+                             const gfx::PresentationFeedback& feedback) final {}
 
   int32_t OnHostMsgGetSupportedProfiles(
       ppapi::host::HostMessageContext* context);
@@ -135,7 +141,7 @@ class CONTENT_EXPORT PepperVideoEncoderHost
 
   std::unique_ptr<gpu::CommandBufferProxyImpl> command_buffer_;
 
-  std::unique_ptr<media::VideoEncodeAccelerator> encoder_;
+  std::unique_ptr<VideoEncoderShim> encoder_;
 
   // Whether the encoder has been successfully initialized.
   bool initialized_;

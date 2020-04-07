@@ -8,14 +8,13 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_MODULES_PACING_BITRATE_PROBER_H_
-#define WEBRTC_MODULES_PACING_BITRATE_PROBER_H_
+#ifndef MODULES_PACING_BITRATE_PROBER_H_
+#define MODULES_PACING_BITRATE_PROBER_H_
 
 #include <queue>
 
-#include "webrtc/modules/include/module_common_types.h"
-#include "webrtc/rtc_base/basictypes.h"
-#include "webrtc/typedefs.h"
+#include "modules/include/module_common_types.h"
+#include "typedefs.h"  // NOLINT(build/include)
 
 namespace webrtc {
 class RtcEventLog;
@@ -86,9 +85,6 @@ class BitrateProber {
     int retries = 0;
   };
 
-  // Resets the state of the prober and clears any cluster/timing data tracked.
-  void ResetState(int64_t now_ms);
-
   int64_t GetNextProbeTime(const ProbeCluster& cluster);
 
   ProbingState probing_state_;
@@ -107,4 +103,4 @@ class BitrateProber {
 
 }  // namespace webrtc
 
-#endif  // WEBRTC_MODULES_PACING_BITRATE_PROBER_H_
+#endif  // MODULES_PACING_BITRATE_PROBER_H_

@@ -4,7 +4,7 @@
 
 cr.define('bookmarks', function() {
   /** @const */
-  var HIDE_FOCUS_RING_ATTRIBUTE = 'hide-focus-ring';
+  const HIDE_FOCUS_RING_ATTRIBUTE = 'hide-focus-ring';
 
   /**
    * Behavior which adds the 'hide-focus-ring' attribute to a target element
@@ -12,19 +12,22 @@ cr.define('bookmarks', function() {
    * to be hidden without affecting keyboard users.
    * @polymerBehavior
    */
-  var MouseFocusBehavior = {
+  const MouseFocusBehavior = {
     attached: function() {
       this.boundOnMousedown_ = this.onMousedown_.bind(this);
       this.boundOnKeydown = this.onKeydown_.bind(this);
 
-      this.addEventListener('mousedown', this.boundOnMousedown_);
-      this.addEventListener('keydown', this.boundOnKeydown, true);
-
+      // These events are added to the document because capture doesn't work
+      // properly when listeners are added to a Polymer element, because the
+      // event is considered AT_TARGET for the element, and is evaluated after
+      // inner captures.
+      document.addEventListener('mousedown', this.boundOnMousedown_, true);
+      document.addEventListener('keydown', this.boundOnKeydown, true);
     },
 
     detached: function() {
-      this.removeEventListener('mousedown', this.boundOnMousedown_);
-      this.removeEventListener('keydown', this.boundOnKeydown, true);
+      document.removeEventListener('mousedown', this.boundOnMousedown_, true);
+      document.removeEventListener('keydown', this.boundOnKeydown, true);
     },
 
     /** @private */
@@ -32,13 +35,18 @@ cr.define('bookmarks', function() {
       this.setAttribute(HIDE_FOCUS_RING_ATTRIBUTE, '');
     },
 
-    /** @private */
-    onKeydown_: function() {
-      this.removeAttribute(HIDE_FOCUS_RING_ATTRIBUTE);
+    /**
+     * @param {KeyboardEvent} e
+     * @private
+     */
+    onKeydown_: function(e) {
+      if (!['Shift', 'Alt', 'Control', 'Meta'].includes(e.key))
+        this.removeAttribute(HIDE_FOCUS_RING_ATTRIBUTE);
     },
   };
 
   return {
+    HIDE_FOCUS_RING_ATTRIBUTE: HIDE_FOCUS_RING_ATTRIBUTE,
     MouseFocusBehavior: MouseFocusBehavior,
   };
 });

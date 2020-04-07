@@ -230,7 +230,7 @@ public:
         : flow(QQuickGridView::FlowLeftToRight)
         , cellWidth(100), cellHeight(100), columns(1)
         , snapMode(QQuickGridView::NoSnap)
-        , highlightXAnimator(0), highlightYAnimator(0)
+        , highlightXAnimator(nullptr), highlightYAnimator(nullptr)
     {}
     ~QQuickGridViewPrivate()
     {
@@ -390,7 +390,7 @@ FxViewItem *QQuickGridViewPrivate::snapItemAt(qreal pos) const
         if (itemTop+rowSize()/2 >= pos && itemTop - rowSize()/2 <= pos)
             return item;
     }
-    return 0;
+    return nullptr;
 }
 
 int QQuickGridViewPrivate::snapIndex() const
@@ -417,11 +417,11 @@ qreal QQuickGridViewPrivate::contentXForPosition(qreal pos) const
     if (flow == QQuickGridView::FlowLeftToRight) {
         // vertical scroll
         if (q->effectiveLayoutDirection() == Qt::LeftToRight) {
-            return 0;
+            return -q->leftMargin();
         } else {
             qreal colSize = cellWidth;
-            int columns = q->width()/colSize;
-            return -q->width() + (cellWidth * columns);
+            int columns = (q->width() - q->leftMargin() - q->rightMargin()) / colSize;
+            return -q->width() + q->rightMargin() + (cellWidth * columns);
         }
     } else {
         // horizontal scroll
@@ -444,16 +444,18 @@ qreal QQuickGridViewPrivate::contentYForPosition(qreal pos) const
     } else {
         // horizontal scroll
         if (verticalLayoutDirection == QQuickItemView::TopToBottom)
-            return 0;
+            return -q->topMargin();
         else
-            return -q->height();
+            return -q->height() + q->bottomMargin();
     }
 }
 
 void QQuickGridViewPrivate::resetColumns()
 {
     Q_Q(QQuickGridView);
-    qreal length = flow == QQuickGridView::FlowLeftToRight ? q->width() : q->height();
+    qreal length = flow == QQuickGridView::FlowLeftToRight
+            ? q->width() - q->leftMargin() - q->rightMargin()
+            : q->height() - q->topMargin() - q->bottomMargin();
     columns = qMax(1, qFloor(length / colSize()));
 }
 
@@ -508,7 +510,7 @@ bool QQuickGridViewPrivate::addVisibleItems(qreal fillFrom, qreal fillTo, qreal 
     }
 
     int colNum = qFloor((colPos+colSize()/2) / colSize());
-    FxGridItemSG *item = 0;
+    FxGridItemSG *item = nullptr;
     bool changed = false;
 
     QQmlIncubator::IncubationMode incubationMode = doBuffer ? QQmlIncubator::Asynchronous : QQmlIncubator::AsynchronousIfNested;
@@ -580,7 +582,7 @@ void QQuickGridViewPrivate::removeItem(FxViewItem *item)
 
 bool QQuickGridViewPrivate::removeNonVisibleItems(qreal bufferFrom, qreal bufferTo)
 {
-    FxGridItemSG *item = 0;
+    FxGridItemSG *item = nullptr;
     bool changed = false;
 
     while (visibleItems.count() > 1
@@ -700,14 +702,14 @@ void QQuickGridViewPrivate::createHighlight()
     bool changed = false;
     if (highlight) {
         if (trackedItem == highlight)
-            trackedItem = 0;
+            trackedItem = nullptr;
         delete highlight;
-        highlight = 0;
+        highlight = nullptr;
 
         delete highlightXAnimator;
         delete highlightYAnimator;
-        highlightXAnimator = 0;
-        highlightYAnimator = 0;
+        highlightXAnimator = nullptr;
+        highlightYAnimator = nullptr;
 
         changed = true;
     }
@@ -745,8 +747,7 @@ void QQuickGridViewPrivate::updateHighlight()
         // auto-update highlight
         highlightXAnimator->to = currentItem->itemX();
         highlightYAnimator->to = currentItem->itemY();
-        highlight->item->setWidth(currentItem->item->width());
-        highlight->item->setHeight(currentItem->item->height());
+        highlight->item->setSize(currentItem->item->size());
 
         highlightXAnimator->restart();
         highlightYAnimator->restart();
@@ -915,7 +916,7 @@ void QQuickGridViewPrivate::fixup(AxisData &data, qreal minExtent, qreal maxExte
         qreal tempPosition = isContentFlowReversed() ? -position()-size() : position();
         if (snapMode == QQuickGridView::SnapOneRow && moveReason == Mouse) {
             // if we've been dragged < rowSize()/2 then bias towards the next row
-            qreal dist = data.move.value() - (data.pressPos - data.dragStartOffset);
+            qreal dist = data.move.value() - data.pressPos;
             qreal bias = 0;
             if (data.velocity > 0 && dist > QML_FLICK_SNAPONETHRESHOLD && dist < rowSize()/2)
                 bias = rowSize()/2;
@@ -926,13 +927,13 @@ void QQuickGridViewPrivate::fixup(AxisData &data, qreal minExtent, qreal maxExte
             tempPosition -= bias;
         }
         FxViewItem *topItem = snapItemAt(tempPosition+highlightRangeStart);
-        if (strictHighlightRange && currentItem && (!topItem || topItem->index != currentIndex)) {
+        if (strictHighlightRange && currentItem && (!topItem || (topItem->index != currentIndex && fixupMode == Immediate))) {
             // StrictlyEnforceRange always keeps an item in range
             updateHighlight();
             topItem = currentItem;
         }
         FxViewItem *bottomItem = snapItemAt(tempPosition+highlightRangeEnd);
-        if (strictHighlightRange && currentItem && (!bottomItem || bottomItem->index != currentIndex)) {
+        if (strictHighlightRange && currentItem && (!bottomItem || (bottomItem->index != currentIndex && fixupMode == Immediate))) {
             // StrictlyEnforceRange always keeps an item in range
             updateHighlight();
             bottomItem = currentItem;
@@ -1014,7 +1015,7 @@ bool QQuickGridViewPrivate::flick(AxisData &data, qreal minExtent, qreal maxExte
         if (data.move.value() < minExtent) {
             if (snapMode == QQuickGridView::SnapOneRow) {
                 // if we've been dragged < averageSize/2 then bias towards the next item
-                qreal dist = data.move.value() - (data.pressPos - data.dragStartOffset);
+                qreal dist = data.move.value() - data.pressPos;
                 qreal bias = dist < rowSize()/2 ? rowSize()/2 : 0;
                 if (isContentFlowReversed())
                     bias = -bias;
@@ -1031,7 +1032,7 @@ bool QQuickGridViewPrivate::flick(AxisData &data, qreal minExtent, qreal maxExte
         if (data.move.value() > maxExtent) {
             if (snapMode == QQuickGridView::SnapOneRow) {
                 // if we've been dragged < averageSize/2 then bias towards the next item
-                qreal dist = data.move.value() - (data.pressPos - data.dragStartOffset);
+                qreal dist = data.move.value() - data.pressPos;
                 qreal bias = -dist < rowSize()/2 ? rowSize()/2 : 0;
                 if (isContentFlowReversed())
                     bias = -bias;
@@ -1115,7 +1116,7 @@ bool QQuickGridViewPrivate::flick(AxisData &data, qreal minExtent, qreal maxExte
     \ingroup qtquick-views
 
     \inherits Flickable
-    \brief For specifying a grid view of items provided by a model
+    \brief For specifying a grid view of items provided by a model.
 
     A GridView displays data from models created from built-in QML types like ListModel
     and XmlListModel, or custom model classes defined in C++ that inherit from
@@ -1310,13 +1311,14 @@ void QQuickGridView::setHighlightFollowsCurrentItem(bool autoHighlight)
 
 
 /*!
-  \qmlproperty model QtQuick::GridView::model
-  This property holds the model providing data for the grid.
+    \qmlproperty model QtQuick::GridView::model
+    This property holds the model providing data for the grid.
 
     The model provides the set of data that is used to create the items
-    in the view. Models can be created directly in QML using \l ListModel, \l XmlListModel
-    or \l VisualItemModel, or provided by C++ model classes. If a C++ model class is
-    used, it must be a subclass of \l QAbstractItemModel or a simple list.
+    in the view. Models can be created directly in QML using \l ListModel,
+    \l XmlListModel, \l DelegateModel, or \l ObjectModel, or provided by C++
+    model classes. If a C++ model class is used, it must be a subclass of
+    \l QAbstractItemModel or a simple list.
 
   \sa {qml-data-models}{Data Models}
 */
@@ -2411,7 +2413,7 @@ bool QQuickGridViewPrivate::applyInsertionChange(const QQmlChangeSet::Change &ch
         } else {
             while (i >= 0) {
                 // item is before first visible e.g. in cache buffer
-                FxViewItem *item = 0;
+                FxViewItem *item = nullptr;
                 if (change.isMove() && (item = currentChanges.removedItems.take(change.moveKey(modelIndex + i))))
                     item->index = modelIndex + i;
                 if (!item)
@@ -2463,7 +2465,7 @@ bool QQuickGridViewPrivate::applyInsertionChange(const QQmlChangeSet::Change &ch
         int i = 0;
         int to = buffer+displayMarginEnd+tempPos+size()-1;
         while (i < count && rowPos <= to + rowSize()*(columns - colNum)/qreal(columns+1)) {
-            FxViewItem *item = 0;
+            FxViewItem *item = nullptr;
             if (change.isMove() && (item = currentChanges.removedItems.take(change.moveKey(modelIndex + i))))
                 item->index = modelIndex + i;
             bool newItem = !item;

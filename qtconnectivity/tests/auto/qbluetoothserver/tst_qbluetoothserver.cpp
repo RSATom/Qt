@@ -185,11 +185,11 @@ void tst_QBluetoothServer::tst_receive()
     bool localDeviceAvailable = localDev.isValid();
 
     if (localDeviceAvailable) {
-        // setHostMode is noop on OS X.
+        // setHostMode is noop on OS X and winrt.
         setHostMode(address, hostmode);
 
         if (hostmode == QBluetoothLocalDevice::HostPoweredOff) {
-#ifndef Q_OS_OSX
+#if !defined(Q_OS_OSX) && !QT_CONFIG(winrt_bt)
             QCOMPARE(localDevice.hostMode(), hostmode);
 #endif
         } else {

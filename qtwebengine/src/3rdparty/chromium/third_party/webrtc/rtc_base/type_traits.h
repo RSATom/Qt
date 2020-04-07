@@ -8,8 +8,8 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_RTC_BASE_TYPE_TRAITS_H_
-#define WEBRTC_RTC_BASE_TYPE_TRAITS_H_
+#ifndef RTC_BASE_TYPE_TRAITS_H_
+#define RTC_BASE_TYPE_TRAITS_H_
 
 #include <cstddef>
 #include <type_traits>
@@ -133,8 +133,8 @@ static_assert(IsIntlike<int>::value, "");
 static_assert(!IsIntlike<float>::value, "");
 static_assert(!IsIntlike<S>::value, "");
 
-}  // test_enum_intlike
+}  // namespace test_enum_intlike
 
 }  // namespace rtc
 
-#endif  // WEBRTC_RTC_BASE_TYPE_TRAITS_H_
+#endif  // RTC_BASE_TYPE_TRAITS_H_

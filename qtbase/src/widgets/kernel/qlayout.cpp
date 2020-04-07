@@ -44,7 +44,9 @@
 #if QT_CONFIG(menubar)
 #include "qmenubar.h"
 #endif
+#if QT_CONFIG(toolbar)
 #include "qtoolbar.h"
+#endif
 #if QT_CONFIG(sizegrip)
 #include "qsizegrip.h"
 #endif
@@ -107,10 +109,11 @@ static int menuBarHeightForWidth(QWidget *menubar, int w)
 
 /*!
     Constructs a new top-level QLayout, with parent \a parent.
-    \a parent may not be 0.
+    \a parent may not be a \c nullptr.
 
-    There can be only one top-level layout for a widget. It is
-    returned by QWidget::layout().
+    The layout is set directly as the top-level layout for
+    \a parent. There can be only one top-level layout for a
+    widget. It is returned by QWidget::layout().
 */
 QLayout::QLayout(QWidget *parent)
     : QObject(*new QLayoutPrivate, parent)
@@ -1236,6 +1239,26 @@ int QLayout::indexOf(QWidget *widget) const
     QLayoutItem *item = itemAt(i);
     while (item) {
         if (item->widget() == widget)
+            return i;
+        ++i;
+        item = itemAt(i);
+    }
+    return -1;
+}
+
+/*!
+    \since 5.12
+    Searches for layout item \a layoutItem in this layout (not including child
+    layouts).
+
+    Returns the index of \a layoutItem, or -1 if \a layoutItem is not found.
+*/
+int QLayout::indexOf(QLayoutItem *layoutItem) const
+{
+    int i = 0;
+    QLayoutItem *item = itemAt(i);
+    while (item) {
+        if (item == layoutItem)
             return i;
         ++i;
         item = itemAt(i);

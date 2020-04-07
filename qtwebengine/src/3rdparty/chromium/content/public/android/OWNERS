@@ -1,6 +1,6 @@
-aelias@chromium.org
 boliu@chromium.org
 dtrainor@chromium.org
+jinsukkim@chromium.org
 tedchoc@chromium.org
 yfriedman@chromium.org
 
@@ -8,3 +8,4 @@ per-file *.aidl=set noparent
 per-file *.aidl=palmer@chromium.org
 
 # COMPONENT: Content>Core
+# OS: Android

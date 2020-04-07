@@ -429,6 +429,19 @@ ApplicationWindow {
         focus: true
         initialItem: Item {
             id: page
+
+            Text {
+                visible: !supportsSsl && map && map.activeMapType && activeMapType.metadata.isHTTPS
+                text: "The active map type\n
+requires (missing) SSL\n
+support"
+                horizontalAlignment: Text.AlignHCenter
+                font.pixelSize: appWindow.width / 12
+                font.bold: true
+                color: "grey"
+                anchors.centerIn: parent
+                z: 12
+            }
         }
 
         function showMessage(title,message,backPage)

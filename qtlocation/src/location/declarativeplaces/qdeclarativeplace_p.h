@@ -216,7 +216,7 @@ private Q_SLOTS:
     void cleanupDeletedCategories();
 private:
     void synchronizeCategories();
-    void synchronizeExtendedAttributes();
+    void pullExtendedAttributes();
     void synchronizeContacts();
     void primarySignalsEmission(const QString &type = QString());
     QString primaryValue(const QString &contactType) const;

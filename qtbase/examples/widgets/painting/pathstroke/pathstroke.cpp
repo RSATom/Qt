@@ -87,10 +87,12 @@ void PathStrokeControls::createCommonControls(QWidget* parent)
     m_joinGroup->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed);
     QRadioButton *bevelJoin = new QRadioButton(m_joinGroup);
     QRadioButton *miterJoin = new QRadioButton(m_joinGroup);
+    QRadioButton *svgMiterJoin = new QRadioButton(m_joinGroup);
     QRadioButton *roundJoin = new QRadioButton(m_joinGroup);
     m_joinGroup->setTitle(tr("Join Style"));
     bevelJoin->setText(tr("Bevel"));
     miterJoin->setText(tr("Miter"));
+    svgMiterJoin->setText(tr("SvgMiter"));
     roundJoin->setText(tr("Round"));
 
     m_styleGroup = new QGroupBox(parent);
@@ -145,6 +147,7 @@ void PathStrokeControls::createCommonControls(QWidget* parent)
     QVBoxLayout *joinGroupLayout = new QVBoxLayout(m_joinGroup);
     joinGroupLayout->addWidget(bevelJoin);
     joinGroupLayout->addWidget(miterJoin);
+    joinGroupLayout->addWidget(svgMiterJoin);
     joinGroupLayout->addWidget(roundJoin);
 
     QVBoxLayout *styleGroupLayout = new QVBoxLayout(m_styleGroup);
@@ -167,6 +170,7 @@ void PathStrokeControls::createCommonControls(QWidget* parent)
 
     connect(bevelJoin, SIGNAL(clicked()), m_renderer, SLOT(setBevelJoin()));
     connect(miterJoin, SIGNAL(clicked()), m_renderer, SLOT(setMiterJoin()));
+    connect(svgMiterJoin, SIGNAL(clicked()), m_renderer, SLOT(setSvgMiterJoin()));
     connect(roundJoin, SIGNAL(clicked()), m_renderer, SLOT(setRoundJoin()));
 
     connect(curveMode, SIGNAL(clicked()), m_renderer, SLOT(setCurveMode()));
@@ -207,13 +211,11 @@ void PathStrokeControls::layoutForDesktop()
 
     QPushButton *showSourceButton = new QPushButton(mainGroup);
     showSourceButton->setText(tr("Show Source"));
-#ifdef QT_OPENGL_SUPPORT
+#if QT_CONFIG(opengl)
     QPushButton *enableOpenGLButton = new QPushButton(mainGroup);
     enableOpenGLButton->setText(tr("Use OpenGL"));
     enableOpenGLButton->setCheckable(true);
     enableOpenGLButton->setChecked(m_renderer->usesOpenGL());
-    if (!QGLFormat::hasOpenGL())
-        enableOpenGLButton->hide();
 #endif
     QPushButton *whatsThisButton = new QPushButton(mainGroup);
     whatsThisButton->setText(tr("What's This?"));
@@ -238,7 +240,7 @@ void PathStrokeControls::layoutForDesktop()
     mainGroupLayout->addWidget(animated);
     mainGroupLayout->addStretch(1);
     mainGroupLayout->addWidget(showSourceButton);
-#ifdef QT_OPENGL_SUPPORT
+#if QT_CONFIG(opengl)
     mainGroupLayout->addWidget(enableOpenGLButton);
 #endif
     mainGroupLayout->addWidget(whatsThisButton);
@@ -250,7 +252,7 @@ void PathStrokeControls::layoutForDesktop()
     connect(penWidth, SIGNAL(valueChanged(int)), m_renderer, SLOT(setPenWidth(int)));
 
     connect(showSourceButton, SIGNAL(clicked()), m_renderer, SLOT(showSource()));
-#ifdef QT_OPENGL_SUPPORT
+#if QT_CONFIG(opengl)
     connect(enableOpenGLButton, SIGNAL(clicked(bool)), m_renderer, SLOT(enableOpenGL(bool)));
 #endif
     connect(whatsThisButton, SIGNAL(clicked(bool)), m_renderer, SLOT(setDescriptionEnabled(bool)));
@@ -286,13 +288,11 @@ void PathStrokeControls::layoutForSmallScreens()
     penWidth->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     penWidth->setRange(0, 500);
 
-#ifdef QT_OPENGL_SUPPORT
+#if QT_CONFIG(opengl)
     QPushButton *enableOpenGLButton = new QPushButton(this);
     enableOpenGLButton->setText(tr("Use OpenGL"));
     enableOpenGLButton->setCheckable(true);
     enableOpenGLButton->setChecked(m_renderer->usesOpenGL());
-    if (!QGLFormat::hasOpenGL())
-        enableOpenGLButton->hide();
 #endif
 
     // Layouts:
@@ -303,7 +303,7 @@ void PathStrokeControls::layoutForSmallScreens()
     QVBoxLayout *leftLayout = new QVBoxLayout(0);
     leftLayout->addWidget(m_capGroup);
     leftLayout->addWidget(m_joinGroup);
-#ifdef QT_OPENGL_SUPPORT
+#if QT_CONFIG(opengl)
     leftLayout->addWidget(enableOpenGLButton);
 #endif
     leftLayout->addLayout(penWidthLayout);
@@ -326,7 +326,7 @@ void PathStrokeControls::layoutForSmallScreens()
     mainLayout->addWidget(quitBtn, 2, 1, Qt::AlignHCenter | Qt::AlignTop);
     mainLayout->addWidget(okBtn, 2, 2, Qt::AlignHCenter | Qt::AlignTop);
 
-#ifdef QT_OPENGL_SUPPORT
+#if QT_CONFIG(opengl)
     connect(enableOpenGLButton, SIGNAL(clicked(bool)), m_renderer, SLOT(enableOpenGL(bool)));
 #endif
 

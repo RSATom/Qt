@@ -55,12 +55,21 @@ extern const char kPhoneSuffixSeparatorRe[];
 extern const char kPhonePrefixRe[];
 extern const char kPhoneSuffixRe[];
 extern const char kPhoneExtensionRe[];
+extern const char kSearchTermRe[];
 
 // Used to match field data that might be a UPI Virtual Payment Address.
 // See:
 //   - http://crbug.com/702220
 //   - https://upipayments.co.in/virtual-payment-address-vpa/
 extern const char kUPIVirtualPaymentAddressRe[];
+
+// Match the path values for form actions that look like generic search:
+//  e.g. /search
+//       /search/
+//       /search/products...
+//       /products/search/
+//       /blah/search_all.jsp
+extern const char kUrlSearchActionRe[];
 
 }  // namespace autofill
 

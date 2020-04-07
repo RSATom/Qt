@@ -75,15 +75,16 @@ public:
 
     void updateBaseline(qreal baseline, qreal dy);
     void updateSize();
+    void signalSizeChange(const QSizeF &previousSize);
     void updateLayout();
     bool determineHorizontalAlignment();
     bool setHAlign(QQuickText::HAlignment, bool forceAlign = false);
-    void mirrorChange() Q_DECL_OVERRIDE;
+    void mirrorChange() override;
     bool isLineLaidOutConnected();
     void setLineGeometry(QTextLine &line, qreal lineWidth, qreal &height);
 
     int lineHeightOffset() const;
-    QString elidedText(qreal lineWidth, const QTextLine &line, QTextLine *nextLine = 0) const;
+    QString elidedText(qreal lineWidth, const QTextLine &line, QTextLine *nextLine = nullptr) const;
     void elideFormats(int start, int length, int offset, QVector<QTextLayout::FormatRange> *elidedFormats);
     void clearFormats();
 
@@ -174,11 +175,12 @@ public:
     bool needToUpdateLayout:1;
     bool formatModifiesFontSize:1;
     bool polishSize:1; // Workaround for problem with polish called after updateSize (QTBUG-42636)
+    bool updateSizeRecursionGuard:1;
 
     static const QChar elideChar;
 
-    qreal getImplicitWidth() const Q_DECL_OVERRIDE;
-    qreal getImplicitHeight() const Q_DECL_OVERRIDE;
+    qreal getImplicitWidth() const override;
+    qreal getImplicitHeight() const override;
 
     qreal availableWidth() const;
     qreal availableHeight() const;

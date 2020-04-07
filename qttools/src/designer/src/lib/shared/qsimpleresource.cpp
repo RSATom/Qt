@@ -33,18 +33,18 @@
 #include <QtDesigner/private/properties_p.h>
 #include <QtDesigner/private/ui4_p.h>
 
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerLanguageExtension>
-#include <QtDesigner/QExtensionManager>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/abstractlanguage.h>
+#include <QtDesigner/qextensionmanager.h>
 #include <QtDesigner/extrainfo.h>
 
-#include <QtUiPlugin/QDesignerCustomWidgetInterface>
+#include <QtUiPlugin/customwidget.h>
 
-#include <QtGui/QIcon>
-#include <QtWidgets/QWidget>
-#include <QtWidgets/QAction>
-#include <QtCore/QDebug>
-#include <QtCore/QCoreApplication>
+#include <QtGui/qicon.h>
+#include <QtWidgets/qwidget.h>
+#include <QtWidgets/qaction.h>
+#include <QtCore/qdebug.h>
+#include <QtCore/qcoreapplication.h>
 
 
 QT_BEGIN_NAMESPACE
@@ -63,10 +63,7 @@ QSimpleResource::QSimpleResource(QDesignerFormEditorInterface *core) :
     setWorkingDirectory(QDir(workingDirectory));
 }
 
-QSimpleResource::~QSimpleResource()
-{
-
-}
+QSimpleResource::~QSimpleResource() = default;
 
 QBrush QSimpleResource::setupBrush(DomBrush *brush)
 {
@@ -233,8 +230,7 @@ void QSimpleResource::handleDomCustomWidgets(const QDesignerFormEditorInterface 
     // Oops, there are classes left whose base class could not be found.
     // Default them to QWidget with warnings.
     const QString fallBackBaseClass = QStringLiteral("QWidget");
-    for (int i=0; i < custom_widget_list.size(); i++ ) {
-        DomCustomWidget *custom_widget = custom_widget_list[i];
+    for (DomCustomWidget *custom_widget : qAsConst(custom_widget_list)) {
         const QString customClassName = custom_widget->elementClass();
         const QString base_class = custom_widget->elementExtends();
         qDebug() << "** WARNING The base class " << base_class << " of the custom widget class " << customClassName

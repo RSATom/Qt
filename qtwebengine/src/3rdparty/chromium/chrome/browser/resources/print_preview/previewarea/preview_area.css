@@ -4,10 +4,10 @@
 
 #preview-area.preview-area {
   -webkit-box-flex: 1;
-  -webkit-user-select: none;
   background-color: #e6e6e6;
   overflow: hidden;
   position: relative;
+  user-select: none;
 }
 
 .preview-area-plugin-wrapper {
@@ -37,7 +37,6 @@
 }
 
 #preview-area .preview-area-overlay-layer {
-  -webkit-user-select: none;
   background: #e6e6e6;
   height: 100%;
   margin: 0;
@@ -47,6 +46,7 @@
   /* overlayFadeInTransitionDelay = pluginFadeOutTransitionDelay +
    *     pluginFadeOutTransitionDuration = 350ms */
   transition-delay: 350ms;
+  user-select: none;
   width: 100%;
   z-index: 1;
 }
@@ -59,20 +59,28 @@
 }
 
 #preview-area .preview-area-messages {
+  display: flex;
+  flex-direction: column;
   height: 100%;
+  justify-content: center;
 }
 
 #preview-area .preview-area-message {
   color: #404040;
   font-size: 1.1em;
+  line-height: 1.7em;
+  margin-left: 8.7%;
+  margin-right: 8.7%;
   position: relative;
   text-align: center;
-  text-shadow: 0 1px 0 rgba(255, 255, 255, .5);
-  top: 50%;
 }
 
 #preview-area .preview-area-no-plugin-action-area {
   margin-top: 12px;
+}
+
+#preview-area .learn-more-link {
+  color: rgb(51, 103, 214);
 }
 
 #preview-area .preview-area-open-system-dialog-button-throbber {

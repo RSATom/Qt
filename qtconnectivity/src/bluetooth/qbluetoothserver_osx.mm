@@ -43,7 +43,7 @@
 // The order is important: a workround for
 // a private header included by private header
 // (incorrectly handled dependencies).
-#include "qbluetoothsocket_p.h"
+#include "qbluetoothsocketbase_p.h"
 #include "qbluetoothsocket_osx_p.h"
 
 #include "qbluetoothlocaldevice.h"
@@ -237,7 +237,7 @@ QBluetoothServerPrivate *QBluetoothServerPrivate::registeredServer(quint16 port,
         qCWarning(QT_BT_OSX) << "invalid protocol";
     }
 
-    return Q_NULLPTR;
+    return nullptr;
 }
 
 void QBluetoothServerPrivate::unregisterServer(QBluetoothServerPrivate *server)
@@ -377,14 +377,20 @@ QBluetoothServiceInfo QBluetoothServer::listen(const QBluetoothUuid &uuid, const
 
     QBluetoothServiceInfo serviceInfo;
     serviceInfo.setAttribute(QSInfo::ServiceName, serviceName);
-    serviceInfo.setAttribute(QSInfo::BrowseGroupList,
-                             QBluetoothUuid(QBluetoothUuid::PublicBrowseGroup));
+    QBluetoothServiceInfo::Sequence publicBrowse;
+    publicBrowse << QVariant::fromValue(QBluetoothUuid(QBluetoothUuid::PublicBrowseGroup));
+    serviceInfo.setAttribute(QSInfo::BrowseGroupList, publicBrowse);
 
+    QSInfo::Sequence profileSequence;
     QSInfo::Sequence classId;
     classId << QVariant::fromValue(QBluetoothUuid(QBluetoothUuid::SerialPort));
-    serviceInfo.setAttribute(QSInfo::BluetoothProfileDescriptorList, classId);
+    classId << QVariant::fromValue(quint16(0x100));
+    profileSequence.append(QVariant::fromValue(classId));
+    serviceInfo.setAttribute(QSInfo::BluetoothProfileDescriptorList, profileSequence);
 
-    classId.prepend(QVariant::fromValue(uuid));
+    classId.clear();
+    classId << QVariant::fromValue(uuid);
+    classId << QVariant::fromValue(QBluetoothUuid(QBluetoothUuid::SerialPort));
     serviceInfo.setAttribute(QSInfo::ServiceClassIds, classId);
     serviceInfo.setServiceUuid(uuid);
 
@@ -443,7 +449,7 @@ bool QBluetoothServer::hasPendingConnections() const
 QBluetoothSocket *QBluetoothServer::nextPendingConnection()
 {
     if (!d_ptr->pendingConnections.size())
-        return Q_NULLPTR;
+        return nullptr;
 
     QScopedPointer<QBluetoothSocket> newSocket(new QBluetoothSocket);
     QBluetoothServerPrivate::PendingConnection channel(d_ptr->pendingConnections.front());
@@ -453,10 +459,10 @@ QBluetoothSocket *QBluetoothServer::nextPendingConnection()
 
     if (d_ptr->serverType == QSInfo::RfcommProtocol) {
         if (!newSocket->d_ptr->setChannel(static_cast<IOBluetoothRFCOMMChannel *>(channel)))
-            return Q_NULLPTR;
+            return nullptr;
     } else {
         if (!newSocket->d_ptr->setChannel(static_cast<IOBluetoothL2CAPChannel *>(channel)))
-            return Q_NULLPTR;
+            return nullptr;
     }
 
     return newSocket.take();

@@ -53,7 +53,7 @@ cr.define('print_preview', function() {
     enterDocument: function() {
       print_preview.SettingsSection.prototype.enterDocument.call(this);
       this.tracker.add(
-          assert(this.select_), 'change', this.onSelectChange_.bind(this));
+          assert(this.select_), 'change', this.onSelectChange.bind(this));
       this.tracker.add(
           this.marginsTypeTicketItem_,
           print_preview.ticket_items.TicketItem.EventType.CHANGE,
@@ -62,7 +62,6 @@ cr.define('print_preview', function() {
 
     /**
      * @return {HTMLSelectElement} Select element containing the margin options.
-     * @private
      */
     get select_() {
       return this.getElement().getElementsByClassName(
@@ -72,11 +71,10 @@ cr.define('print_preview', function() {
     /**
      * Called when the select element is changed. Updates the print ticket
      * margin type.
-     * @private
      */
-    onSelectChange_: function() {
-      var select = this.select_;
-      var marginsType =
+    onSelectChange: function() {
+      const select = this.select_;
+      const marginsType =
           /** @type {!print_preview.ticket_items.MarginsTypeValue} */ (
               select.selectedIndex);
       this.marginsTypeTicketItem_.updateValue(marginsType);
@@ -89,11 +87,11 @@ cr.define('print_preview', function() {
      */
     onMarginsTypeTicketItemChange_: function() {
       if (this.isAvailable()) {
-        var select = this.select_;
-        var marginsType =
+        const select = this.select_;
+        const marginsType =
             /** @type {!print_preview.ticket_items.MarginsTypeValue} */ (
                 this.marginsTypeTicketItem_.getValue());
-        var selectedMarginsType =
+        const selectedMarginsType =
             /** @type {!print_preview.ticket_items.MarginsTypeValue} */ (
                 select.selectedIndex);
         if (marginsType != selectedMarginsType) {

@@ -7,8 +7,8 @@
 #ifndef CORE_FXGE_ANDROID_CFPF_SKIAFONT_H_
 #define CORE_FXGE_ANDROID_CFPF_SKIAFONT_H_
 
-#include "core/fxcrt/cfx_unowned_ptr.h"
 #include "core/fxcrt/fx_system.h"
+#include "core/fxcrt/unowned_ptr.h"
 #include "core/fxge/fx_font.h"
 
 class CFPF_SkiaFontDescriptor;
@@ -22,8 +22,8 @@ class CFPF_SkiaFont {
   void Release();
   CFPF_SkiaFont* Retain();
 
-  CFX_ByteString GetFamilyName();
-  CFX_ByteString GetPsName();
+  ByteString GetFamilyName();
+  ByteString GetPsName();
   uint32_t GetFontStyle() const { return m_dwStyle; }
   uint8_t GetCharset() const { return m_uCharset; }
   int32_t GetGlyphIndex(wchar_t wUnicode);
@@ -38,13 +38,13 @@ class CFPF_SkiaFont {
 
   bool InitFont(CFPF_SkiaFontMgr* pFontMgr,
                 CFPF_SkiaFontDescriptor* pFontDes,
-                const CFX_ByteStringC& bsFamily,
+                const ByteStringView& bsFamily,
                 uint32_t dwStyle,
                 uint8_t uCharset);
 
  private:
-  CFX_UnownedPtr<CFPF_SkiaFontMgr> m_pFontMgr;
-  CFX_UnownedPtr<CFPF_SkiaFontDescriptor> m_pFontDes;
+  UnownedPtr<CFPF_SkiaFontMgr> m_pFontMgr;
+  UnownedPtr<CFPF_SkiaFontDescriptor> m_pFontDes;
   FXFT_Face m_Face;
   uint32_t m_dwStyle;
   uint8_t m_uCharset;

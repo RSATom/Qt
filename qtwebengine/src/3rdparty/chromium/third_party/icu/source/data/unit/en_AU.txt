@@ -2,7 +2,7 @@
 // License & terms of use: http://www.unicode.org/copyright.html#License
 en_AU{
     %%Parent{"en_001"}
-    Version{"2.1.32.62"}
+    Version{"2.1.38.73"}
     units{
         energy{
             kilowatt-hour{
@@ -13,10 +13,9 @@ en_AU{
         }
         length{
             centimeter{
-                per{"{0} centimetre"}
+                other{"{0} centimetres"}
             }
             decimeter{
-                one{"decimetre"}
                 other{"{0} decimetres"}
             }
             kilometer{
@@ -223,6 +222,11 @@ en_AU{
             }
         }
         energy{
+            kilocalorie{
+                dnam{"Cal"}
+                one{"{0} Cal"}
+                other{"{0} Cal"}
+            }
             kilowatt-hour{
                 dnam{"kWh"}
             }
@@ -246,6 +250,9 @@ en_AU{
             carat{
                 one{"{0} CM"}
                 other{"{0} CM"}
+            }
+            pound{
+                other{"{0} lb"}
             }
         }
         pressure{
@@ -289,6 +296,18 @@ en_AU{
                 dnam{"dL"}
                 one{"{0} dL"}
                 other{"{0} dL"}
+            }
+            gallon{
+                dnam{"US gal."}
+                one{"{0} gal. US"}
+                other{"{0} gal. US"}
+                per{"{0}/gal. US"}
+            }
+            gallon-imperial{
+                dnam{"gal."}
+                one{"{0} gal."}
+                other{"{0} gal."}
+                per{"{0}/gal."}
             }
             hectoliter{
                 dnam{"hL"}

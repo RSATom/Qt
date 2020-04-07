@@ -75,7 +75,7 @@ class RenderQmlEventHandler : public QObject
     Q_OBJECT
 public:
     RenderQmlEventHandler(Scene2D *node);
-    bool event(QEvent *e) Q_DECL_OVERRIDE;
+    bool event(QEvent *e) override;
 
 private:
     Scene2D *m_node;
@@ -94,8 +94,8 @@ public:
     void setOutput(Qt3DCore::QNodeId outputId);
     void initializeSharedObject();
 
-    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) Q_DECL_OVERRIDE;
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) Q_DECL_OVERRIDE;
+    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) override;
+    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) override;
 
     bool updateFbo(QOpenGLTexture *texture);
     void syncRenderControl();
@@ -123,6 +123,9 @@ public:
     Qt3DRender::Quick::QScene2D::RenderPolicy m_renderPolicy;
     QVector<Qt3DCore::QNodeId> m_entities;
     Qt3DRender::QPickEventPtr m_cachedPickEvent;
+#ifdef QT_OPENGL_ES_2_ANGLE
+    bool m_usingAngle;
+#endif
 };
 
 } // Quick

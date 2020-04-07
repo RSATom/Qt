@@ -9,8 +9,8 @@
 #include "base/atomic_sequence_num.h"
 #include "content/public/common/service_manager_connection.h"
 #include "jni/NfcHost_jni.h"
-#include "services/device/public/interfaces/constants.mojom.h"
-#include "services/device/public/interfaces/nfc.mojom.h"
+#include "services/device/public/mojom/constants.mojom.h"
+#include "services/device/public/mojom/nfc.mojom.h"
 #include "services/service_manager/public/cpp/connector.h"
 
 namespace content {
@@ -28,7 +28,7 @@ NFCHost::NFCHost(WebContents* web_contents)
   JNIEnv* env = base::android::AttachCurrentThread();
 
   java_nfc_host_.Reset(
-      Java_NfcHost_create(env, web_contents_->GetJavaWebContents().obj(), id_));
+      Java_NfcHost_create(env, web_contents_->GetJavaWebContents(), id_));
 
   if (ServiceManagerConnection::GetForProcess()) {
     service_manager::Connector* connector =

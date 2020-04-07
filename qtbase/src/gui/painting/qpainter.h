@@ -416,9 +416,9 @@ public:
 
     void drawText(const QPointF &p, const QString &str, int tf, int justificationPadding);
 
-    void drawText(const QRectF &r, int flags, const QString &text, QRectF *br = Q_NULLPTR);
-    void drawText(const QRect &r, int flags, const QString &text, QRect *br = Q_NULLPTR);
-    inline void drawText(int x, int y, int w, int h, int flags, const QString &text, QRect *br = Q_NULLPTR);
+    void drawText(const QRectF &r, int flags, const QString &text, QRectF *br = nullptr);
+    void drawText(const QRect &r, int flags, const QString &text, QRect *br = nullptr);
+    inline void drawText(int x, int y, int w, int h, int flags, const QString &text, QRect *br = nullptr);
 
     void drawText(const QRectF &r, const QString &text, const QTextOption &o = QTextOption());
 
@@ -448,6 +448,10 @@ public:
     inline void fillRect(const QRect &r, Qt::BrushStyle style);
     inline void fillRect(const QRectF &r, Qt::BrushStyle style);
 
+    inline void fillRect(int x, int y, int w, int h, QGradient::Preset preset);
+    inline void fillRect(const QRect &r, QGradient::Preset preset);
+    inline void fillRect(const QRectF &r, QGradient::Preset preset);
+
     void eraseRect(const QRectF &);
     inline void eraseRect(int x, int y, int w, int h);
     inline void eraseRect(const QRect &);
@@ -461,7 +465,7 @@ public:
 
     static void setRedirected(const QPaintDevice *device, QPaintDevice *replacement,
                               const QPoint& offset = QPoint());
-    static QPaintDevice *redirected(const QPaintDevice *device, QPoint *offset = Q_NULLPTR);
+    static QPaintDevice *redirected(const QPaintDevice *device, QPoint *offset = nullptr);
     static void restoreRedirected(const QPaintDevice *device);
 
     void beginNativePainting();
@@ -746,6 +750,20 @@ inline void QPainter::fillRect(const QRectF &r, Qt::BrushStyle style)
     fillRect(r, QBrush(style));
 }
 
+inline void QPainter::fillRect(int x, int y, int w, int h, QGradient::Preset p)
+{
+    fillRect(QRect(x, y, w, h), QGradient(p));
+}
+
+inline void QPainter::fillRect(const QRect &r, QGradient::Preset p)
+{
+    fillRect(r, QGradient(p));
+}
+
+inline void QPainter::fillRect(const QRectF &r, QGradient::Preset p)
+{
+    fillRect(r, QGradient(p));
+}
 
 inline void QPainter::setBrushOrigin(int x, int y)
 {

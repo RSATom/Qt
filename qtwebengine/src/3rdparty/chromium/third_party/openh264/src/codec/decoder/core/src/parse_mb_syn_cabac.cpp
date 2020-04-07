@@ -31,6 +31,7 @@
  *      parse_mb_syn_cabac.cpp: cabac parse for syntax elements
  */
 #include "parse_mb_syn_cabac.h"
+#include "decode_slice.h"
 #include "mv_pred.h"
 #include "error_code.h"
 namespace WelsDec {
@@ -397,7 +398,7 @@ int32_t ParseInterMotionInfoCabac (PWelsDecoderContext pCtx, PWelsNeighAvail pNe
                                         iRef[0]));
     if ((iRef[0] < 0) || (iRef[0] >= pRefCount[0]) || (ppRefPic[iRef[0]] == NULL)) { //error ref_idx
       pCtx->bMbRefConcealed = true;
-      if (pCtx->eErrorConMethod != ERROR_CON_DISABLE) {
+      if (pCtx->pParam->eEcActiveIdc != ERROR_CON_DISABLE) {
         iRef[0] = 0;
         pCtx->iErrorCode |= dsBitstreamError;
       } else {
@@ -423,7 +424,7 @@ int32_t ParseInterMotionInfoCabac (PWelsDecoderContext pCtx, PWelsNeighAvail pNe
                                           iRef[i]));
       if ((iRef[i] < 0) || (iRef[i] >= pRefCount[0]) || (ppRefPic[iRef[i]] == NULL)) { //error ref_idx
         pCtx->bMbRefConcealed = true;
-        if (pCtx->eErrorConMethod != ERROR_CON_DISABLE) {
+        if (pCtx->pParam->eEcActiveIdc != ERROR_CON_DISABLE) {
           iRef[i] = 0;
           pCtx->iErrorCode |= dsBitstreamError;
         } else {
@@ -453,7 +454,7 @@ int32_t ParseInterMotionInfoCabac (PWelsDecoderContext pCtx, PWelsNeighAvail pNe
                                           iRef[i]));
       if ((iRef[i] < 0) || (iRef[i] >= pRefCount[0]) || (ppRefPic[iRef[i]] == NULL)) { //error ref_idx
         pCtx->bMbRefConcealed = true;
-        if (pCtx->eErrorConMethod != ERROR_CON_DISABLE) {
+        if (pCtx->pParam->eEcActiveIdc != ERROR_CON_DISABLE) {
           iRef[i] = 0;
           pCtx->iErrorCode |= dsBitstreamError;
         } else {
@@ -501,7 +502,7 @@ int32_t ParseInterMotionInfoCabac (PWelsDecoderContext pCtx, PWelsNeighAvail pNe
                                           pRefIdx[i]));
       if ((pRefIdx[i] < 0) || (pRefIdx[i] >= pRefCount[0]) || (ppRefPic[pRefIdx[i]] == NULL)) { //error ref_idx
         pCtx->bMbRefConcealed = true;
-        if (pCtx->eErrorConMethod != ERROR_CON_DISABLE) {
+        if (pCtx->pParam->eEcActiveIdc != ERROR_CON_DISABLE) {
           pRefIdx[i] = 0;
           pCtx->iErrorCode |= dsBitstreamError;
         } else {
@@ -927,24 +928,36 @@ int32_t ParseResidualBlockCabac (PWelsNeighAvail pNeighAvail, uint8_t* pNonZeroC
   int32_t j = 0;
   if (iResProperty == I16_LUMA_DC) {
     do {
-      if (pSignificantMap[j] != 0)
-        sTCoeff[pScanTable[j]] = pSignificantMap[j];
+      sTCoeff[pScanTable[j]] = pSignificantMap[j];
       ++j;
     } while (j < 16);
+    WelsLumaDcDequantIdct (sTCoeff, uiQp, pCtx);
   } else if (iResProperty == CHROMA_DC_U || iResProperty == CHROMA_DC_V) {
     do {
-      if (pSignificantMap[j] != 0)
-        sTCoeff[pScanTable[j]] = pCtx->bUseScalingList ? (int16_t) ((int64_t)pSignificantMap[j] *
-                                 (int64_t)pDeQuantMul[0] >> 4) :
-                                 (pSignificantMap[j] * pDeQuantMul[0]);
+      sTCoeff[pScanTable[j]] = pSignificantMap[j];
       ++j;
-    } while (j < 16);
+    } while (j < 4);
+    //iHadamard2x2
+    WelsChromaDcIdct (sTCoeff);
+    //scaling
+    if (!pCtx->bUseScalingList) {
+      for (j = 0; j < 4; ++j) {
+        sTCoeff[pScanTable[j]] = (int16_t) ((int64_t)sTCoeff[pScanTable[j]] * (int64_t)pDeQuantMul[0] >> 1);
+      }
+    } else { //with scaling list
+      for (j = 0; j < 4; ++j) {
+        sTCoeff[pScanTable[j]] = (int16_t) ((int64_t)sTCoeff[pScanTable[j]] * (int64_t)pDeQuantMul[0] >> 5);
+      }
+    }
   } else { //luma ac, chroma ac
     do {
-      if (pSignificantMap[j] != 0)
-        sTCoeff[pScanTable[j]] = pCtx->bUseScalingList ? (int16_t) ((int64_t)pSignificantMap[j] *
-                                 (int64_t)pDeQuantMul[pScanTable[j]] >> 4) :
-                                 pSignificantMap[j] * pDeQuantMul[pScanTable[j] & 0x07];
+      if (pSignificantMap[j] != 0) {
+        if (!pCtx->bUseScalingList) {
+          sTCoeff[pScanTable[j]] = pSignificantMap[j] * pDeQuantMul[pScanTable[j] & 0x07];
+        } else {
+          sTCoeff[pScanTable[j]] = (int16_t) (((int64_t)pSignificantMap[j] * (int64_t)pDeQuantMul[pScanTable[j]] + 8) >> 4);
+        }
+      }
       ++j;
     } while (j < 16);
   }
@@ -978,20 +991,22 @@ int32_t ParseIPCMInfoCabac (PWelsDecoderContext pCtx) {
     return GENERATE_ERROR_NO (ERR_LEVEL_MB_DATA, ERR_CABAC_NO_BS_TO_READ);
   }
   pPtrSrc = pBsAux->pCurBuf;
-  for (i = 0; i < 16; i++) {   //luma
-    memcpy (pMbDstY , pPtrSrc, 16);
-    pMbDstY += iDstStrideLuma;
-    pPtrSrc += 16;
-  }
-  for (i = 0; i < 8; i++) {   //cb
-    memcpy (pMbDstU, pPtrSrc, 8);
-    pMbDstU += iDstStrideChroma;
-    pPtrSrc += 8;
-  }
-  for (i = 0; i < 8; i++) {   //cr
-    memcpy (pMbDstV, pPtrSrc, 8);
-    pMbDstV += iDstStrideChroma;
-    pPtrSrc += 8;
+  if (!pCtx->pParam->bParseOnly) {
+    for (i = 0; i < 16; i++) {   //luma
+      memcpy (pMbDstY , pPtrSrc, 16);
+      pMbDstY += iDstStrideLuma;
+      pPtrSrc += 16;
+    }
+    for (i = 0; i < 8; i++) {   //cb
+      memcpy (pMbDstU, pPtrSrc, 8);
+      pMbDstU += iDstStrideChroma;
+      pPtrSrc += 8;
+    }
+    for (i = 0; i < 8; i++) {   //cr
+      memcpy (pMbDstV, pPtrSrc, 8);
+      pMbDstV += iDstStrideChroma;
+      pPtrSrc += 8;
+    }
   }
 
   pBsAux->pCurBuf += 384;

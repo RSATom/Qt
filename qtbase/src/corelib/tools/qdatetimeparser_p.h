@@ -69,7 +69,7 @@ QT_REQUIRE_CONFIG(datetimeparser);
 #define QDATETIMEEDIT_TIME_MAX QTime(23, 59, 59, 999)
 #define QDATETIMEEDIT_DATE_MIN QDate(100, 1, 1)
 #define QDATETIMEEDIT_COMPAT_DATE_MIN QDate(1752, 9, 14)
-#define QDATETIMEEDIT_DATE_MAX QDate(7999, 12, 31)
+#define QDATETIMEEDIT_DATE_MAX QDate(9999, 12, 31)
 #define QDATETIMEEDIT_DATETIME_MIN QDateTime(QDATETIMEEDIT_DATE_MIN, QDATETIMEEDIT_TIME_MIN)
 #define QDATETIMEEDIT_COMPAT_DATETIME_MIN QDateTime(QDATETIMEEDIT_COMPAT_DATE_MIN, QDATETIMEEDIT_TIME_MIN)
 #define QDATETIMEEDIT_DATETIME_MAX QDateTime(QDATETIMEEDIT_DATE_MAX, QDATETIMEEDIT_TIME_MAX)
@@ -180,7 +180,7 @@ public:
         LowerCase
     };
 
-#ifndef QT_NO_DATESTRING
+#if QT_CONFIG(datestring)
     StateNode parse(QString input, int position, const QDateTime &defaultValue, bool fixup) const;
     bool fromString(const QString &text, QDate *date, QTime *time) const;
 #endif
@@ -202,7 +202,7 @@ public:
 private:
     int sectionMaxSize(Section s, int count) const;
     QString sectionText(const QString &text, int sectionIndex, int index) const;
-#ifndef QT_NO_DATESTRING
+#if QT_CONFIG(datestring)
     StateNode scanString(const QDateTime &defaultValue,
                          bool fixup, QString *input) const;
     struct ParsedSection {
@@ -237,7 +237,7 @@ private:
         PossibleBoth = 4
     };
     AmPmFinder findAmPm(QString &str, int index, int *used = 0) const;
-#endif // QT_NO_DATESTRING
+#endif // datestring
 
     bool potentialValue(const QStringRef &str, int min, int max, int index,
                         const QDateTime &currentValue, int insert) const;

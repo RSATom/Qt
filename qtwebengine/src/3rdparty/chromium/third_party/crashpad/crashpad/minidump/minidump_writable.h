@@ -19,6 +19,7 @@
 #include <dbghelp.h>
 #include <sys/types.h>
 
+#include <limits>
 #include <vector>
 
 #include "base/macros.h"
@@ -126,15 +127,15 @@ class MinidumpWritable {
     //! Some objects, such as those capturing memory region snapshots, are
     //! written to minidump files after all other objects. This “late” phase
     //! identifies such objects. This is useful to improve spatial locality in
-    //! in minidump files in accordance with expected access patterns: unlike
-    //! most other data, memory snapshots are large and the entire snapshots do
-    //! not need to be consulted in order to process a minidump file.
+    //! minidump files in accordance with expected access patterns: unlike most
+    //! other data, memory snapshots are large and do not usually need to be
+    //! consulted in their entirety in order to process a minidump file.
     kPhaseLate,
   };
 
   //! \brief A size value used to signal failure by methods that return
   //!     `size_t`.
-  static const size_t kInvalidSize;
+  static constexpr size_t kInvalidSize = std::numeric_limits<size_t>::max();
 
   MinidumpWritable();
 

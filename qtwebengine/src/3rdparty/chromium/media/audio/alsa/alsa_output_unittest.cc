@@ -3,9 +3,9 @@
 // found in the LICENSE file.
 
 #include <stdint.h>
+#include <memory>
 
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
 #include "base/test/simple_test_tick_clock.h"
@@ -81,7 +81,7 @@ class MockAlsaWrapper : public AlsaWrapper {
 class MockAudioManagerAlsa : public AudioManagerAlsa {
  public:
   MockAudioManagerAlsa()
-      : AudioManagerAlsa(base::MakeUnique<TestAudioThread>(),
+      : AudioManagerAlsa(std::make_unique<TestAudioThread>(),
                          &fake_audio_log_factory_) {}
   MOCK_METHOD0(Init, void());
   MOCK_METHOD0(HasAudioOutputDevices, bool());
@@ -117,7 +117,7 @@ class AlsaPcmOutputStreamTest : public testing::Test {
     mock_manager_.reset(new StrictMock<MockAudioManagerAlsa>());
   }
 
-  virtual ~AlsaPcmOutputStreamTest() { mock_manager_->Shutdown(); }
+  ~AlsaPcmOutputStreamTest() override { mock_manager_->Shutdown(); }
 
   AlsaPcmOutputStream* CreateStream(ChannelLayout layout) {
     return CreateStream(layout, kTestFramesPerPacket);
@@ -126,7 +126,7 @@ class AlsaPcmOutputStreamTest : public testing::Test {
   AlsaPcmOutputStream* CreateStream(ChannelLayout layout,
                                     int32_t samples_per_packet) {
     AudioParameters params(kTestFormat, layout, kTestSampleRate,
-                           kTestBitsPerSample, samples_per_packet);
+                           samples_per_packet);
     return new AlsaPcmOutputStream(kTestDeviceName,
                                    params,
                                    &mock_alsa_wrapper_,
@@ -188,7 +188,7 @@ const ChannelLayout AlsaPcmOutputStreamTest::kTestChannelLayout =
     CHANNEL_LAYOUT_STEREO;
 const int AlsaPcmOutputStreamTest::kTestSampleRate =
     AudioParameters::kAudioCDSampleRate;
-const int AlsaPcmOutputStreamTest::kTestBitsPerSample = 8;
+const int AlsaPcmOutputStreamTest::kTestBitsPerSample = 16;
 const int AlsaPcmOutputStreamTest::kTestBytesPerFrame =
     AlsaPcmOutputStreamTest::kTestBitsPerSample / 8 *
     ChannelLayoutToChannelCount(AlsaPcmOutputStreamTest::kTestChannelLayout);
@@ -233,17 +233,6 @@ TEST_F(AlsaPcmOutputStreamTest, ConstructedState) {
   // Should support multi-channel.
   test_stream = CreateStream(CHANNEL_LAYOUT_SURROUND);
   EXPECT_EQ(AlsaPcmOutputStream::kCreated, test_stream->state());
-  test_stream->Close();
-
-  // Bad bits per sample.
-  AudioParameters bad_bps_params(kTestFormat, kTestChannelLayout,
-                                 kTestSampleRate, kTestBitsPerSample - 1,
-                                 kTestFramesPerPacket);
-  test_stream = new AlsaPcmOutputStream(kTestDeviceName,
-                                        bad_bps_params,
-                                        &mock_alsa_wrapper_,
-                                        mock_manager_.get());
-  EXPECT_EQ(AlsaPcmOutputStream::kInError, test_stream->state());
   test_stream->Close();
 }
 
@@ -322,13 +311,10 @@ TEST_F(AlsaPcmOutputStreamTest, OpenClose) {
                       SND_PCM_NONBLOCK))
       .WillOnce(DoAll(SetArgPointee<0>(kFakeHandle), Return(0)));
   EXPECT_CALL(mock_alsa_wrapper_,
-              PcmSetParams(kFakeHandle,
-                           SND_PCM_FORMAT_U8,
+              PcmSetParams(kFakeHandle, SND_PCM_FORMAT_S16_LE,
                            SND_PCM_ACCESS_RW_INTERLEAVED,
                            ChannelLayoutToChannelCount(kTestChannelLayout),
-                           kTestSampleRate,
-                           1,
-                           expected_micros))
+                           kTestSampleRate, 1, expected_micros))
       .WillOnce(Return(0));
   EXPECT_CALL(mock_alsa_wrapper_, PcmGetParams(kFakeHandle, _, _))
       .WillOnce(DoAll(SetArgPointee<1>(kTestFramesPerPacket),
@@ -413,9 +399,9 @@ TEST_F(AlsaPcmOutputStreamTest, StartStop) {
   // Open the stream.
   AlsaPcmOutputStream* test_stream = CreateStream(kTestChannelLayout);
   ASSERT_TRUE(test_stream->Open());
-  base::SimpleTestTickClock* const tick_clock = new base::SimpleTestTickClock();
-  tick_clock->SetNowTicks(base::TimeTicks::Now());
-  test_stream->SetTickClockForTesting(base::WrapUnique(tick_clock));
+  base::SimpleTestTickClock tick_clock;
+  tick_clock.SetNowTicks(base::TimeTicks::Now());
+  test_stream->SetTickClockForTesting(&tick_clock);
 
   // Expect Device setup.
   EXPECT_CALL(mock_alsa_wrapper_, PcmDrop(kFakeHandle))
@@ -430,7 +416,7 @@ TEST_F(AlsaPcmOutputStreamTest, StartStop) {
   EXPECT_CALL(mock_alsa_wrapper_, PcmDelay(kFakeHandle, _))
       .WillRepeatedly(DoAll(SetArgPointee<1>(0), Return(0)));
   EXPECT_CALL(mock_callback,
-              OnMoreData(base::TimeDelta(), tick_clock->NowTicks(), 0, _))
+              OnMoreData(base::TimeDelta(), tick_clock.NowTicks(), 0, _))
       .WillRepeatedly(DoAll(ClearBuffer(), Return(kTestFramesPerPacket)));
   EXPECT_CALL(mock_alsa_wrapper_, PcmWritei(kFakeHandle, _, _))
       .WillRepeatedly(Return(kTestFramesPerPacket));
@@ -577,9 +563,9 @@ TEST_F(AlsaPcmOutputStreamTest, WritePacket_StopStream) {
 
 TEST_F(AlsaPcmOutputStreamTest, BufferPacket) {
   AlsaPcmOutputStream* test_stream = CreateStream(kTestChannelLayout);
-  base::SimpleTestTickClock* const tick_clock = new base::SimpleTestTickClock();
-  tick_clock->SetNowTicks(base::TimeTicks::Now());
-  test_stream->SetTickClockForTesting(base::WrapUnique(tick_clock));
+  base::SimpleTestTickClock tick_clock;
+  tick_clock.SetNowTicks(base::TimeTicks::Now());
+  test_stream->SetTickClockForTesting(&tick_clock);
   InitBuffer(test_stream);
   test_stream->buffer_->Clear();
 
@@ -593,7 +579,7 @@ TEST_F(AlsaPcmOutputStreamTest, BufferPacket) {
 
   // Return a partially filled packet.
   EXPECT_CALL(mock_callback,
-              OnMoreData(base::TimeDelta(), tick_clock->NowTicks(), 0, _))
+              OnMoreData(base::TimeDelta(), tick_clock.NowTicks(), 0, _))
       .WillOnce(DoAll(ClearBuffer(), Return(kTestFramesPerPacket / 2)));
 
   bool source_exhausted;
@@ -608,9 +594,9 @@ TEST_F(AlsaPcmOutputStreamTest, BufferPacket) {
 
 TEST_F(AlsaPcmOutputStreamTest, BufferPacket_Negative) {
   AlsaPcmOutputStream* test_stream = CreateStream(kTestChannelLayout);
-  base::SimpleTestTickClock* const tick_clock = new base::SimpleTestTickClock();
-  tick_clock->SetNowTicks(base::TimeTicks::Now());
-  test_stream->SetTickClockForTesting(base::WrapUnique(tick_clock));
+  base::SimpleTestTickClock tick_clock;
+  tick_clock.SetNowTicks(base::TimeTicks::Now());
+  test_stream->SetTickClockForTesting(&tick_clock);
   InitBuffer(test_stream);
   test_stream->buffer_->Clear();
 
@@ -623,7 +609,7 @@ TEST_F(AlsaPcmOutputStreamTest, BufferPacket_Negative) {
   EXPECT_CALL(mock_alsa_wrapper_, PcmAvailUpdate(_))
       .WillRepeatedly(Return(0));  // Buffer is full.
   EXPECT_CALL(mock_callback,
-              OnMoreData(base::TimeDelta(), tick_clock->NowTicks(), 0, _))
+              OnMoreData(base::TimeDelta(), tick_clock.NowTicks(), 0, _))
       .WillOnce(DoAll(ClearBuffer(), Return(kTestFramesPerPacket / 2)));
 
   bool source_exhausted;
@@ -638,9 +624,9 @@ TEST_F(AlsaPcmOutputStreamTest, BufferPacket_Negative) {
 
 TEST_F(AlsaPcmOutputStreamTest, BufferPacket_Underrun) {
   AlsaPcmOutputStream* test_stream = CreateStream(kTestChannelLayout);
-  base::SimpleTestTickClock* const tick_clock = new base::SimpleTestTickClock();
-  tick_clock->SetNowTicks(base::TimeTicks::Now());
-  test_stream->SetTickClockForTesting(base::WrapUnique(tick_clock));
+  base::SimpleTestTickClock tick_clock;
+  tick_clock.SetNowTicks(base::TimeTicks::Now());
+  test_stream->SetTickClockForTesting(&tick_clock);
   InitBuffer(test_stream);
   test_stream->buffer_->Clear();
 
@@ -651,7 +637,7 @@ TEST_F(AlsaPcmOutputStreamTest, BufferPacket_Underrun) {
   EXPECT_CALL(mock_alsa_wrapper_, PcmAvailUpdate(_))
       .WillRepeatedly(Return(0));  // Buffer is full.
   EXPECT_CALL(mock_callback,
-              OnMoreData(base::TimeDelta(), tick_clock->NowTicks(), 0, _))
+              OnMoreData(base::TimeDelta(), tick_clock.NowTicks(), 0, _))
       .WillOnce(DoAll(ClearBuffer(), Return(kTestFramesPerPacket / 2)));
 
   bool source_exhausted;

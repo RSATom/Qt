@@ -44,7 +44,7 @@ const int AddressField::kStateMatchType = MATCH_DEFAULT | MATCH_SELECT;
 
 std::unique_ptr<FormField> AddressField::Parse(AutofillScanner* scanner) {
   if (scanner->IsEnd())
-    return NULL;
+    return nullptr;
 
   std::unique_ptr<AddressField> address_field(new AddressField);
   const AutofillField* const initial_field = scanner->Cursor();
@@ -59,8 +59,13 @@ std::unique_ptr<FormField> AddressField::Parse(AutofillScanner* scanner) {
   while (!scanner->IsEnd()) {
     const size_t cursor = scanner->SaveCursor();
     // Ignore "Address Lookup" field. http://crbug.com/427622
-    if (ParseField(scanner, base::UTF8ToUTF16(kAddressLookupRe), NULL) ||
-        ParseField(scanner, base::UTF8ToUTF16(kAddressNameIgnoredRe), NULL)) {
+    if (ParseField(scanner, base::UTF8ToUTF16(kAddressLookupRe), nullptr) ||
+        ParseField(scanner, base::UTF8ToUTF16(kAddressNameIgnoredRe),
+                   nullptr)) {
+      continue;
+      // Ignore email addresses.
+    } else if (ParseFieldSpecifics(scanner, base::UTF8ToUTF16(kEmailRe),
+                                   MATCH_DEFAULT | MATCH_TEXT_AREA, nullptr)) {
       continue;
     } else if (address_field->ParseAddressLines(scanner) ||
         address_field->ParseCityStateZipCode(scanner) ||
@@ -68,14 +73,14 @@ std::unique_ptr<FormField> AddressField::Parse(AutofillScanner* scanner) {
         address_field->ParseCompany(scanner)) {
       has_trailing_non_labeled_fields = false;
       continue;
-    } else if (ParseField(scanner, attention_ignored, NULL) ||
-               ParseField(scanner, region_ignored, NULL)) {
+    } else if (ParseField(scanner, attention_ignored, nullptr) ||
+               ParseField(scanner, region_ignored, nullptr)) {
       // We ignore the following:
       // * Attention.
       // * Province/Region/Other.
       continue;
     } else if (scanner->Cursor() != initial_field &&
-               ParseEmptyLabel(scanner, NULL)) {
+               ParseEmptyLabel(scanner, nullptr)) {
       // Ignore non-labeled fields within an address; the page
       // MapQuest Driving Directions North America.html contains such a field.
       // We only ignore such fields after we've parsed at least one other field;
@@ -97,39 +102,32 @@ std::unique_ptr<FormField> AddressField::Parse(AutofillScanner* scanner) {
 
   // If we have identified any address fields in this field then it should be
   // added to the list of fields.
-  if (address_field->company_ ||
-      address_field->address1_ ||
-      address_field->address2_ ||
-      address_field->address3_ ||
-      address_field->street_address_ ||
-      address_field->city_ ||
-      address_field->state_ ||
-      address_field->zip_ ||
-      address_field->zip4_ ||
+  if (address_field->company_ || address_field->address1_ ||
+      address_field->address2_ || address_field->address3_ ||
+      address_field->street_address_ || address_field->city_ ||
+      address_field->state_ || address_field->zip_ || address_field->zip4_ ||
       address_field->country_) {
     // Don't slurp non-labeled fields at the end into the address.
     if (has_trailing_non_labeled_fields)
       scanner->RewindTo(begin_trailing_non_labeled_fields);
-
     return std::move(address_field);
   }
 
   scanner->RewindTo(saved_cursor);
-  return NULL;
+  return nullptr;
 }
 
 AddressField::AddressField()
-    : company_(NULL),
-      address1_(NULL),
-      address2_(NULL),
-      address3_(NULL),
-      street_address_(NULL),
-      city_(NULL),
-      state_(NULL),
-      zip_(NULL),
-      zip4_(NULL),
-      country_(NULL) {
-}
+    : company_(nullptr),
+      address1_(nullptr),
+      address2_(nullptr),
+      address3_(nullptr),
+      street_address_(nullptr),
+      city_(nullptr),
+      state_(nullptr),
+      zip_(nullptr),
+      zip4_(nullptr),
+      country_(nullptr) {}
 
 void AddressField::AddClassifications(
     FieldCandidatesMap* field_candidates) const {
@@ -161,7 +159,7 @@ void AddressField::AddClassifications(
 }
 
 bool AddressField::ParseCompany(AutofillScanner* scanner) {
-  if (company_ && !company_->IsEmpty())
+  if (company_)
     return false;
 
   return ParseField(scanner, UTF8ToUTF16(kCompanyRe), &company_);
@@ -218,14 +216,14 @@ bool AddressField::ParseAddressLines(AutofillScanner* scanner) {
   // Since these are rare, don't bother considering unlabeled lines as extra
   // address lines.
   pattern = UTF8ToUTF16(kAddressLinesExtraRe);
-  while (ParseField(scanner, pattern, NULL)) {
+  while (ParseField(scanner, pattern, nullptr)) {
     // Consumed a surplus line, try for another.
   }
   return true;
 }
 
 bool AddressField::ParseCountry(AutofillScanner* scanner) {
-  if (country_ && !country_->IsEmpty())
+  if (country_)
     return false;
 
   scanner->SaveCursor();

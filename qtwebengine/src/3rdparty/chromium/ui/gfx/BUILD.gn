@@ -2,8 +2,9 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/config/jumbo.gni")
 import("//build/config/ui.gni")
-import("//device/vr/features/features.gni")
+import("//device/vr/buildflags/buildflags.gni")
 import("//testing/test.gni")
 import("//testing/libfuzzer/fuzzer_test.gni")
 
@@ -22,7 +23,7 @@ source_set("gfx_export") {
   ]
 }
 
-component("geometry_skia") {
+jumbo_component("geometry_skia") {
   sources = [
     "skia_util.cc",
     "skia_util.h",
@@ -42,10 +43,8 @@ component("geometry_skia") {
   defines = [ "GFX_IMPLEMENTATION" ]
 }
 
-component("gfx") {
+jumbo_component("gfx") {
   sources = [
-    "android/gfx_jni_registrar.cc",
-    "android/gfx_jni_registrar.h",
     "android/java_bitmap.cc",
     "android/java_bitmap.h",
     "android/view_configuration.cc",
@@ -60,6 +59,10 @@ component("gfx") {
     "color_utils.h",
     "decorated_text.cc",
     "decorated_text.h",
+    "decorated_text_mac.h",
+    "decorated_text_mac.mm",
+    "extension_set.cc",
+    "extension_set.h",
     "favicon_size.cc",
     "favicon_size.h",
     "font.cc",
@@ -94,6 +97,7 @@ component("gfx") {
     "image/image_family.h",
     "image/image_ios.mm",
     "image/image_mac.mm",
+    "image/image_platform.h",
     "image/image_png_rep.cc",
     "image/image_png_rep.h",
     "image/image_skia.cc",
@@ -123,6 +127,7 @@ component("gfx") {
     "mac/nswindow_frame_controls.h",
     "mac/nswindow_frame_controls.mm",
     "mac/scoped_cocoa_disable_screen_updates.h",
+    "mac/scoped_cocoa_disable_screen_updates.mm",
     "nine_image_painter.cc",
     "nine_image_painter.h",
     "path.cc",
@@ -172,8 +177,6 @@ component("gfx") {
     "utf16_indexing.h",
     "vsync_provider.cc",
     "vsync_provider.h",
-    "win/direct_manipulation.cc",
-    "win/direct_manipulation.h",
     "win/direct_write.cc",
     "win/direct_write.h",
     "win/hwnd_util.cc",
@@ -193,6 +196,7 @@ component("gfx") {
     "win/window_impl.cc",
     "win/window_impl.h",
   ]
+  deps = []
   if (!is_ios) {
     sources += [
       "blit.cc",
@@ -206,6 +210,7 @@ component("gfx") {
       "canvas_skia_paint.h",
       "image/canvas_image_source.cc",
       "image/canvas_image_source.h",
+      "image/image_generic.cc",
       "image/image_skia_operations.cc",
       "image/image_skia_operations.h",
       "paint_throbber.cc",
@@ -244,19 +249,19 @@ component("gfx") {
     "//ui/gfx/geometry",
     "//ui/gfx/range",
   ]
-  deps = [
+  deps += [
     ":gfx_export",
     "//base",
     "//base:base_static",
     "//base:i18n",
     "//base/third_party/dynamic_annotations",
-    "//device/vr/features",
+    "//device/vr/buildflags",
     "//skia",
     "//third_party/zlib",
   ]
 
   # Text rendering conditions (complicated so separated out).
-  if (use_aura || is_mac || (is_android && enable_vr)) {
+  if (use_aura || is_mac || (is_android && enable_vr) || is_fuchsia) {
     # Mac doesn't use RenderTextHarfBuzz by default yet.
     sources += [
       "harfbuzz_font_skia.cc",
@@ -297,10 +302,8 @@ component("gfx") {
     sources += [ "scoped_cg_context_save_gstate_mac.h" ]
     set_sources_assignment_filter(sources_assignment_filter)
   } else {
-    deps += [
-      "//cc/paint",
-      "//third_party/harfbuzz-ng",
-    ]
+    public_deps += [ "//cc/paint" ]
+    deps += [ "//third_party:freetype_harfbuzz" ]
   }
 
   # Android.
@@ -330,8 +333,7 @@ component("gfx") {
     sources -= [ "canvas_notimplemented.cc" ]
   }
 
-  # Desktop and Android+VR only.
-  if (use_aura || (!is_ios && !is_android) || (is_android && enable_vr)) {
+  if (!is_ios) {
     sources += [
       "paint_vector_icon.cc",
       "paint_vector_icon.h",
@@ -385,12 +387,16 @@ component("gfx") {
     sources -= [ "path_x11.cc" ]
   }
 
-  if (use_cairo) {
-    configs += [ "//build/config/linux/pangocairo" ]
+  if (is_fuchsia) {
+    sources += [
+      "font_fallback_fuchsia.cc",
+      "font_render_params_fuchsia.cc",
+      "platform_font_fuchsia.cc",
+    ]
   }
 }
 
-component("color_space") {
+jumbo_component("color_space") {
   sources = [
     "color_space.cc",
     "color_space.h",
@@ -399,30 +405,29 @@ component("color_space") {
     "color_space_win.h",
     "icc_profile.cc",
     "icc_profile.h",
-    "icc_profile_mac.mm",
-    "icc_profile_win.cc",
-    "icc_profile_x11.cc",
     "skia_color_space_util.cc",
     "skia_color_space_util.h",
   ]
+  deps = [
+    "//skia:skcms",
+  ]
   public_deps = [
-    ":gfx_switches",
     "//base",
     "//skia",
   ]
   if (is_mac) {
+    sources += [
+      "mac/display_icc_profiles.cc",
+      "mac/display_icc_profiles.h",
+    ]
     libs = [
       "CoreFoundation.framework",
       "CoreGraphics.framework",
     ]
   }
   if (use_x11) {
-    deps = [
-      "//ui/gfx/x",
-    ]
+    deps += [ "//ui/gfx/x" ]
     configs += [ "//build/config/linux:x11" ]
-  } else {
-    sources -= [ "icc_profile_x11.cc" ]
   }
   defines = [ "COLOR_SPACE_IMPLEMENTATION" ]
 }
@@ -483,6 +488,13 @@ source_set("selection_bound_sources") {
   ]
 }
 
+# Depend on this to use buffer_types.h without pulling in all of gfx.
+source_set("buffer_types") {
+  sources = [
+    "buffer_types.h",
+  ]
+}
+
 # The GPU memory buffer stuff is separate from "gfx" to allow GPU-related
 # things to use these files without pulling in all of gfx, which includes large
 # things like Skia.
@@ -510,15 +522,18 @@ source_set("memory_buffer_sources") {
   sources = [
     "buffer_format_util.cc",
     "buffer_format_util.h",
-    "buffer_types.h",
+    "ca_layer_params.cc",
+    "ca_layer_params.h",
     "client_native_pixmap.h",
     "client_native_pixmap_factory.cc",
     "client_native_pixmap_factory.h",
     "generic_shared_memory_id.cc",
     "generic_shared_memory_id.h",
     "gfx_export.h",
-    "mac/io_surface.cc",
-    "mac/io_surface.h",
+    "gpu_fence.cc",
+    "gpu_fence.h",
+    "gpu_fence_handle.cc",
+    "gpu_fence_handle.h",
     "native_pixmap.h",
     "native_pixmap_handle.cc",
     "native_pixmap_handle.h",
@@ -529,41 +544,55 @@ source_set("memory_buffer_sources") {
     sources += [
       "gpu_memory_buffer.cc",
       "gpu_memory_buffer.h",
-      "gpu_memory_buffer_tracing.cc",
-      "gpu_memory_buffer_tracing.h",
     ]
   }
 
   defines = [ "GFX_IMPLEMENTATION" ]
 
+  public_deps = [
+    ":buffer_types",
+  ]
+
   deps = [
-    ":gfx_switches",
     ":native_widget_types",
     "//base",
     "//ui/gfx/geometry",
   ]
 
-  if (is_linux) {
+  if (is_linux && !use_qt) {
     sources += [
       "linux/client_native_pixmap_dmabuf.cc",
       "linux/client_native_pixmap_dmabuf.h",
       "linux/client_native_pixmap_factory_dmabuf.cc",
       "linux/client_native_pixmap_factory_dmabuf.h",
+      "linux/native_pixmap_dmabuf.cc",
+      "linux/native_pixmap_dmabuf.h",
     ]
 
     deps += [ "//third_party/libdrm" ]
   }
+
+  if (is_linux || is_android) {
+    deps += [ "//third_party/libsync" ]
+  }
+
+  if (is_mac) {
+    sources += [
+      "mac/io_surface.cc",
+      "mac/io_surface.h",
+    ]
+
+    public_deps += [ "//ui/gfx:color_space" ]
+  }
+
+  if (is_win) {
+    public_deps += [ "//ipc:message_support" ]
+  }
 }
 
-# TODO(ccameron): This should not be a separate component. Once the flag for
-# color correct rendering is removed, color_space_switches.h may be moved
-# into color_space (since it will be included in fewer places), and once the
-# "best monitor color profile" function is removed, switches.h may be moved
-# back into its own source_set.
-component("gfx_switches") {
+# TODO(ccameron): This can be moved into a separate source_set.
+jumbo_component("gfx_switches") {
   sources = [
-    "color_space_switches.cc",
-    "color_space_switches.h",
     "switches.cc",
     "switches.h",
     "switches_export.h",
@@ -588,14 +617,10 @@ static_library("test_support") {
     "image/image_unittest_util.h",
     "image/image_unittest_util_ios.mm",
     "image/image_unittest_util_mac.mm",
-    "test/fontconfig_util_linux.cc",
-    "test/fontconfig_util_linux.h",
     "test/gfx_util.cc",
     "test/gfx_util.h",
     "test/icc_profiles.cc",
     "test/icc_profiles.h",
-    "test/ui_cocoa_test_helper.h",
-    "test/ui_cocoa_test_helper.mm",
   ]
 
   public_deps = [
@@ -611,15 +636,10 @@ static_library("test_support") {
     "//ui/gfx/geometry",
   ]
 
-  if (is_ios) {
-    # The cocoa files don't apply to iOS.
-    sources -= [
-      "test/ui_cocoa_test_helper.h",
-      "test/ui_cocoa_test_helper.mm",
-    ]
-  }
-  if (is_linux) {
-    deps += [ "//third_party/fontconfig" ]
+  if (!is_ios) {
+    sources += [ "render_text_test_api.h" ]
+
+    deps += [ "//third_party:freetype_harfbuzz" ]
   }
 }
 
@@ -663,6 +683,7 @@ test("gfx_unittests") {
       "color_space_unittest.cc",
       "color_transform_unittest.cc",
       "color_utils_unittest.cc",
+      "font_fallback_linux_unittest.cc",
       "font_fallback_mac_unittest.cc",
       "font_list_unittest.cc",
       "geometry/axis_transform2d_unittest.cc",
@@ -702,11 +723,8 @@ test("gfx_unittests") {
     ]
   }
 
-  if (!is_android && !is_ios) {
-    sources += [
-      "paint_vector_icon_unittest.cc",
-      "render_text_unittest.cc",
-    ]
+  if (!is_ios) {
+    sources += [ "paint_vector_icon_unittest.cc" ]
   }
 
   # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
@@ -728,6 +746,11 @@ test("gfx_unittests") {
     "//ui/gfx/range",
     "//ui/resources:ui_test_pak",
   ]
+
+  if (!is_android && !is_ios) {
+    sources += [ "render_text_unittest.cc" ]
+    deps += [ "//third_party:freetype_harfbuzz" ]
+  }
 
   data_deps = [
     "//ui/resources:ui_test_pak",
@@ -780,13 +803,17 @@ test("gfx_unittests") {
   if (!is_ios) {
     deps += [
       "//cc/paint",
-      "//mojo/edk/system",
+      "//mojo/core/embedder",
       "//mojo/public/cpp/bindings",
       "//ui/gfx/geometry/mojo:unit_test",
       "//ui/gfx/image/mojo:unit_test",
       "//ui/gfx/mojo:test_interfaces",
       "//ui/gfx/range/mojo:unit_test",
     ]
+  }
+
+  if (is_linux) {
+    sources += [ "linux/native_pixmap_dmabuf_unittest.cc" ]
   }
 }
 
@@ -800,12 +827,16 @@ if (is_android) {
   }
 }
 
-fuzzer_test("color_transform_fuzztest") {
+fuzzer_test("color_transform_fuzzer") {
   sources = [
     "color_transform_fuzzer.cc",
   ]
+
+  dict = "//testing/libfuzzer/fuzzers/dicts/icc.dict"
+
   deps = [
     ":gfx",
   ]
-  libfuzzer_options = [ "max_len=1024" ]
+
+  libfuzzer_options = [ "max_len=4194304" ]
 }

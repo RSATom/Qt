@@ -6,11 +6,13 @@
 
 #include "base/logging.h"
 #include "base/metrics/metrics_hashes.h"
-#include "base/test/histogram_tester.h"
-#include "base/test/user_action_tester.h"
+#include "base/test/metrics/histogram_tester.h"
+#include "base/test/metrics/user_action_tester.h"
+#include "base/test/scoped_task_environment.h"
 #include "components/password_manager/core/browser/password_manager_metrics_util.h"
 #include "components/ukm/test_ukm_recorder.h"
 #include "components/ukm/ukm_source.h"
+#include "services/metrics/public/cpp/ukm_builders.h"
 #include "services/metrics/public/cpp/ukm_recorder.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -19,15 +21,16 @@ namespace password_manager {
 
 namespace {
 
-constexpr char kTestUrl[] = "https://www.example.com/";
+constexpr ukm::SourceId kTestSourceId = 0x1234;
 
-// Create a UkmEntryBuilder with a SourceId that is initialized for kTestUrl.
+using UkmEntry = ukm::builders::PasswordForm;
+
+// Create a UkmEntryBuilder with kTestSourceId.
 scoped_refptr<PasswordFormMetricsRecorder> CreatePasswordFormMetricsRecorder(
     bool is_main_frame_secure,
     ukm::TestUkmRecorder* test_ukm_recorder) {
-  return base::MakeRefCounted<PasswordFormMetricsRecorder>(
-      is_main_frame_secure, test_ukm_recorder,
-      test_ukm_recorder->GetNewSourceID(), GURL(kTestUrl));
+  return base::MakeRefCounted<PasswordFormMetricsRecorder>(is_main_frame_secure,
+                                                           kTestSourceId);
 }
 
 // TODO(crbug.com/738921) Replace this with generalized infrastructure.
@@ -37,19 +40,18 @@ void ExpectUkmValueCount(ukm::TestUkmRecorder* test_ukm_recorder,
                          const char* metric_name,
                          int64_t value,
                          int64_t expected_count) {
-  const ukm::UkmSource* source = test_ukm_recorder->GetSourceForUrl(kTestUrl);
-  ASSERT_TRUE(source);
-
-  ASSERT_EQ(1U, test_ukm_recorder->entries_count());
-  const ukm::mojom::UkmEntry* entry = test_ukm_recorder->GetEntry(0);
-
-  int64_t occurrences = 0;
-  for (const ukm::mojom::UkmMetricPtr& metric : entry->metrics) {
-    if (metric->metric_hash == base::HashMetricName(metric_name) &&
-        metric->value == value)
-      ++occurrences;
+  auto entries = test_ukm_recorder->GetEntriesByName(UkmEntry::kEntryName);
+  EXPECT_EQ(1u, entries.size());
+  for (const auto* const entry : entries) {
+    EXPECT_EQ(kTestSourceId, entry->source_id);
+    if (expected_count) {
+      test_ukm_recorder->ExpectEntryMetric(entry, metric_name, value);
+    } else {
+      const int64_t* value =
+          test_ukm_recorder->GetEntryMetric(entry, metric_name);
+      EXPECT_TRUE(value == nullptr || *value != expected_count);
+    }
   }
-  EXPECT_EQ(expected_count, occurrences) << metric_name << ": " << value;
 }
 
 }  // namespace
@@ -57,6 +59,7 @@ void ExpectUkmValueCount(ukm::TestUkmRecorder* test_ukm_recorder,
 // Test the metrics recorded around password generation and the user's
 // interaction with the offer to generate passwords.
 TEST(PasswordFormMetricsRecorder, Generation) {
+  base::test::ScopedTaskEnvironment scoped_task_environment_;
   static constexpr struct {
     bool generation_available;
     bool has_generated_password;
@@ -107,7 +110,7 @@ TEST(PasswordFormMetricsRecorder, Generation) {
     }
 
     ExpectUkmValueCount(
-        &test_ukm_recorder, kUkmSubmissionObserved,
+        &test_ukm_recorder, UkmEntry::kSubmission_ObservedName,
         test.submission !=
                 PasswordFormMetricsRecorder::kSubmitResultNotSubmitted
             ? 1
@@ -119,7 +122,8 @@ TEST(PasswordFormMetricsRecorder, Generation) {
                                                                             : 0;
     EXPECT_EQ(expected_login_failed,
               user_action_tester.GetActionCount("PasswordManager_LoginFailed"));
-    ExpectUkmValueCount(&test_ukm_recorder, kUkmSubmissionResult,
+    ExpectUkmValueCount(&test_ukm_recorder,
+                        UkmEntry::kSubmission_SubmissionResultName,
                         PasswordFormMetricsRecorder::kSubmitResultFailed,
                         expected_login_failed);
 
@@ -128,7 +132,8 @@ TEST(PasswordFormMetricsRecorder, Generation) {
                                                                             : 0;
     EXPECT_EQ(expected_login_passed,
               user_action_tester.GetActionCount("PasswordManager_LoginPassed"));
-    ExpectUkmValueCount(&test_ukm_recorder, kUkmSubmissionResult,
+    ExpectUkmValueCount(&test_ukm_recorder,
+                        UkmEntry::kSubmission_SubmissionResultName,
                         PasswordFormMetricsRecorder::kSubmitResultPassed,
                         expected_login_passed);
 
@@ -181,6 +186,7 @@ TEST(PasswordFormMetricsRecorder, Generation) {
 // Test the recording of metrics around manager_action, user_action, and
 // submit_result.
 TEST(PasswordFormMetricsRecorder, Actions) {
+  base::test::ScopedTaskEnvironment scoped_task_environment_;
   static constexpr struct {
     // Stimuli:
     bool is_main_frame_secure;
@@ -294,17 +300,16 @@ TEST(PasswordFormMetricsRecorder, Actions) {
         break;
     }
 
-    const ukm::UkmSource* source = test_ukm_recorder.GetSourceForUrl(kTestUrl);
-    ASSERT_TRUE(source);
-    test_ukm_recorder.ExpectMetric(*source, "PasswordForm",
-                                   kUkmUserActionSimplified,
-                                   static_cast<int64_t>(test.user_action));
+    ExpectUkmValueCount(&test_ukm_recorder,
+                        UkmEntry::kUser_ActionSimplifiedName,
+                        static_cast<int64_t>(test.user_action), 1);
   }
 }
 
 // Test that in the case of a sequence of user actions, only the last one is
 // recorded in ActionsV3 but all are recorded as UMA user actions.
 TEST(PasswordFormMetricsRecorder, ActionSequence) {
+  base::test::ScopedTaskEnvironment scoped_task_environment_;
   ukm::TestAutoSetUkmRecorder test_ukm_recorder;
   base::HistogramTester histogram_tester;
   base::UserActionTester user_action_tester;
@@ -331,6 +336,7 @@ TEST(PasswordFormMetricsRecorder, ActionSequence) {
 }
 
 TEST(PasswordFormMetricsRecorder, SubmittedFormType) {
+  base::test::ScopedTaskEnvironment scoped_task_environment_;
   static constexpr struct {
     // Stimuli:
     bool is_main_frame_secure;
@@ -364,7 +370,8 @@ TEST(PasswordFormMetricsRecorder, SubmittedFormType) {
 
     if (test.form_type !=
         PasswordFormMetricsRecorder::kSubmittedFormTypeUnspecified) {
-      ExpectUkmValueCount(&test_ukm_recorder, kUkmSubmissionFormType,
+      ExpectUkmValueCount(&test_ukm_recorder,
+                          UkmEntry::kSubmission_SubmittedFormTypeName,
                           test.form_type, 1);
     }
 
@@ -388,6 +395,7 @@ TEST(PasswordFormMetricsRecorder, SubmittedFormType) {
 }
 
 TEST(PasswordFormMetricsRecorder, RecordPasswordBubbleShown) {
+  base::test::ScopedTaskEnvironment scoped_task_environment_;
   using Trigger = PasswordFormMetricsRecorder::BubbleTrigger;
   static constexpr struct {
     // Stimuli:
@@ -401,39 +409,44 @@ TEST(PasswordFormMetricsRecorder, RecordPasswordBubbleShown) {
   } kTests[] = {
       // Source = PasswordManager, Saving.
       {metrics_util::CredentialSourceType::kPasswordManager,
-       metrics_util::AUTOMATIC_WITH_PASSWORD_PENDING, kUkmSavingPromptTrigger,
+       metrics_util::AUTOMATIC_WITH_PASSWORD_PENDING,
+       UkmEntry::kSaving_Prompt_TriggerName,
        Trigger::kPasswordManagerSuggestionAutomatic, true, false},
       {metrics_util::CredentialSourceType::kPasswordManager,
-       metrics_util::MANUAL_WITH_PASSWORD_PENDING, kUkmSavingPromptTrigger,
+       metrics_util::MANUAL_WITH_PASSWORD_PENDING,
+       UkmEntry::kSaving_Prompt_TriggerName,
        Trigger::kPasswordManagerSuggestionManual, true, false},
       // Source = PasswordManager, Updating.
       {metrics_util::CredentialSourceType::kPasswordManager,
        metrics_util::AUTOMATIC_WITH_PASSWORD_PENDING_UPDATE,
-       kUkmUpdatingPromptTrigger, Trigger::kPasswordManagerSuggestionAutomatic,
-       false, true},
+       UkmEntry::kUpdating_Prompt_TriggerName,
+       Trigger::kPasswordManagerSuggestionAutomatic, false, true},
       {metrics_util::CredentialSourceType::kPasswordManager,
        metrics_util::MANUAL_WITH_PASSWORD_PENDING_UPDATE,
-       kUkmUpdatingPromptTrigger, Trigger::kPasswordManagerSuggestionManual,
-       false, true},
+       UkmEntry::kUpdating_Prompt_TriggerName,
+       Trigger::kPasswordManagerSuggestionManual, false, true},
       // Source = Credential Management API, Saving.
       {metrics_util::CredentialSourceType::kCredentialManagementAPI,
-       metrics_util::AUTOMATIC_WITH_PASSWORD_PENDING, kUkmSavingPromptTrigger,
+       metrics_util::AUTOMATIC_WITH_PASSWORD_PENDING,
+       UkmEntry::kSaving_Prompt_TriggerName,
        Trigger::kCredentialManagementAPIAutomatic, true, false},
       {metrics_util::CredentialSourceType::kCredentialManagementAPI,
-       metrics_util::MANUAL_WITH_PASSWORD_PENDING, kUkmSavingPromptTrigger,
+       metrics_util::MANUAL_WITH_PASSWORD_PENDING,
+       UkmEntry::kSaving_Prompt_TriggerName,
        Trigger::kCredentialManagementAPIManual, true, false},
       // Source = Credential Management API, Updating.
       {metrics_util::CredentialSourceType::kCredentialManagementAPI,
        metrics_util::AUTOMATIC_WITH_PASSWORD_PENDING_UPDATE,
-       kUkmUpdatingPromptTrigger, Trigger::kCredentialManagementAPIAutomatic,
-       false, true},
+       UkmEntry::kUpdating_Prompt_TriggerName,
+       Trigger::kCredentialManagementAPIAutomatic, false, true},
       {metrics_util::CredentialSourceType::kCredentialManagementAPI,
        metrics_util::MANUAL_WITH_PASSWORD_PENDING_UPDATE,
-       kUkmUpdatingPromptTrigger, Trigger::kCredentialManagementAPIManual,
-       false, true},
+       UkmEntry::kUpdating_Prompt_TriggerName,
+       Trigger::kCredentialManagementAPIManual, false, true},
       // Source = Unknown, Saving.
       {metrics_util::CredentialSourceType::kUnknown,
-       metrics_util::AUTOMATIC_WITH_PASSWORD_PENDING, kUkmSavingPromptTrigger,
+       metrics_util::AUTOMATIC_WITH_PASSWORD_PENDING,
+       UkmEntry::kSaving_Prompt_TriggerName,
        Trigger::kPasswordManagerSuggestionAutomatic, false, false},
   };
 
@@ -450,29 +463,34 @@ TEST(PasswordFormMetricsRecorder, RecordPasswordBubbleShown) {
                                           test.display_disposition);
     }
     // Verify data
-    const ukm::UkmSource* source = test_ukm_recorder.GetSourceForUrl(kTestUrl);
-    ASSERT_TRUE(source);
-    if (test.credential_source_type !=
-        metrics_util::CredentialSourceType::kUnknown) {
-      test_ukm_recorder.ExpectMetric(
-          *source, "PasswordForm", test.expected_trigger_metric,
-          static_cast<int64_t>(test.expected_trigger_value));
-    } else {
-      EXPECT_FALSE(test_ukm_recorder.HasMetric(*source, "PasswordForm",
-                                               kUkmSavingPromptTrigger));
-      EXPECT_FALSE(test_ukm_recorder.HasMetric(*source, "PasswordForm",
-                                               kUkmUpdatingPromptTrigger));
+    auto entries = test_ukm_recorder.GetEntriesByName(UkmEntry::kEntryName);
+    EXPECT_EQ(1u, entries.size());
+    for (const auto* const entry : entries) {
+      EXPECT_EQ(kTestSourceId, entry->source_id);
+
+      if (test.credential_source_type !=
+          metrics_util::CredentialSourceType::kUnknown) {
+        test_ukm_recorder.ExpectEntryMetric(
+            entry, test.expected_trigger_metric,
+            static_cast<int64_t>(test.expected_trigger_value));
+      } else {
+        EXPECT_FALSE(test_ukm_recorder.EntryHasMetric(
+            entry, UkmEntry::kSaving_Prompt_TriggerName));
+        EXPECT_FALSE(test_ukm_recorder.EntryHasMetric(
+            entry, UkmEntry::kUpdating_Prompt_TriggerName));
+      }
+      test_ukm_recorder.ExpectEntryMetric(entry,
+                                          UkmEntry::kSaving_Prompt_ShownName,
+                                          test.expected_save_prompt_shown);
+      test_ukm_recorder.ExpectEntryMetric(entry,
+                                          UkmEntry::kUpdating_Prompt_ShownName,
+                                          test.expected_update_prompt_shown);
     }
-    test_ukm_recorder.ExpectMetric(*source, "PasswordForm",
-                                   kUkmSavingPromptShown,
-                                   test.expected_save_prompt_shown);
-    test_ukm_recorder.ExpectMetric(*source, "PasswordForm",
-                                   kUkmUpdatingPromptShown,
-                                   test.expected_update_prompt_shown);
   }
 }
 
 TEST(PasswordFormMetricsRecorder, RecordUIDismissalReason) {
+  base::test::ScopedTaskEnvironment scoped_task_environment_;
   static constexpr struct {
     // Stimuli:
     metrics_util::UIDisplayDisposition display_disposition;
@@ -482,16 +500,17 @@ TEST(PasswordFormMetricsRecorder, RecordUIDismissalReason) {
     PasswordFormMetricsRecorder::BubbleDismissalReason expected_metric_value;
   } kTests[] = {
       {metrics_util::AUTOMATIC_WITH_PASSWORD_PENDING,
-       metrics_util::CLICKED_SAVE, kUkmSavingPromptInteraction,
+       metrics_util::CLICKED_SAVE, UkmEntry::kSaving_Prompt_InteractionName,
        PasswordFormMetricsRecorder::BubbleDismissalReason::kAccepted},
       {metrics_util::MANUAL_WITH_PASSWORD_PENDING, metrics_util::CLICKED_CANCEL,
-       kUkmSavingPromptInteraction,
+       UkmEntry::kSaving_Prompt_InteractionName,
        PasswordFormMetricsRecorder::BubbleDismissalReason::kDeclined},
       {metrics_util::AUTOMATIC_WITH_PASSWORD_PENDING_UPDATE,
-       metrics_util::CLICKED_NEVER, kUkmUpdatingPromptInteraction,
+       metrics_util::CLICKED_NEVER, UkmEntry::kUpdating_Prompt_InteractionName,
        PasswordFormMetricsRecorder::BubbleDismissalReason::kDeclined},
       {metrics_util::MANUAL_WITH_PASSWORD_PENDING_UPDATE,
-       metrics_util::NO_DIRECT_INTERACTION, kUkmUpdatingPromptInteraction,
+       metrics_util::NO_DIRECT_INTERACTION,
+       UkmEntry::kUpdating_Prompt_InteractionName,
        PasswordFormMetricsRecorder::BubbleDismissalReason::kIgnored},
   };
 
@@ -509,17 +528,21 @@ TEST(PasswordFormMetricsRecorder, RecordUIDismissalReason) {
       recorder->RecordUIDismissalReason(test.dismissal_reason);
     }
     // Verify data
-    const ukm::UkmSource* source = test_ukm_recorder.GetSourceForUrl(kTestUrl);
-    ASSERT_TRUE(source);
-    test_ukm_recorder.ExpectMetric(
-        *source, "PasswordForm", test.expected_trigger_metric,
-        static_cast<int64_t>(test.expected_metric_value));
+    auto entries = test_ukm_recorder.GetEntriesByName(UkmEntry::kEntryName);
+    EXPECT_EQ(1u, entries.size());
+    for (const auto* const entry : entries) {
+      EXPECT_EQ(kTestSourceId, entry->source_id);
+      test_ukm_recorder.ExpectEntryMetric(
+          entry, test.expected_trigger_metric,
+          static_cast<int64_t>(test.expected_metric_value));
+    }
   }
 }
 
 // Verify that it is ok to open and close the password bubble more than once
 // and still get accurate metrics.
 TEST(PasswordFormMetricsRecorder, SequencesOfBubbles) {
+  base::test::ScopedTaskEnvironment scoped_task_environment_;
   using BubbleDismissalReason =
       PasswordFormMetricsRecorder::BubbleDismissalReason;
   using BubbleTrigger = PasswordFormMetricsRecorder::BubbleTrigger;
@@ -539,48 +562,118 @@ TEST(PasswordFormMetricsRecorder, SequencesOfBubbles) {
     recorder->RecordUIDismissalReason(metrics_util::CLICKED_SAVE);
   }
   // Verify recorded UKM data.
-  const ukm::UkmSource* source = test_ukm_recorder.GetSourceForUrl(kTestUrl);
-  ASSERT_TRUE(source);
-  test_ukm_recorder.ExpectMetric(
-      *source, "PasswordForm", kUkmSavingPromptInteraction,
-      static_cast<int64_t>(BubbleDismissalReason::kAccepted));
-  test_ukm_recorder.ExpectMetric(
-      *source, "PasswordForm", kUkmUpdatingPromptInteraction,
-      static_cast<int64_t>(BubbleDismissalReason::kAccepted));
-  test_ukm_recorder.ExpectMetric(*source, "PasswordForm",
-                                 kUkmUpdatingPromptShown, 1);
-  test_ukm_recorder.ExpectMetric(*source, "PasswordForm", kUkmSavingPromptShown,
-                                 1);
-  test_ukm_recorder.ExpectMetric(
-      *source, "PasswordForm", kUkmSavingPromptTrigger,
-      static_cast<int64_t>(BubbleTrigger::kPasswordManagerSuggestionAutomatic));
-  test_ukm_recorder.ExpectMetric(
-      *source, "PasswordForm", kUkmUpdatingPromptTrigger,
-      static_cast<int64_t>(BubbleTrigger::kPasswordManagerSuggestionManual));
+  auto entries = test_ukm_recorder.GetEntriesByName(UkmEntry::kEntryName);
+  EXPECT_EQ(1u, entries.size());
+  for (const auto* const entry : entries) {
+    EXPECT_EQ(kTestSourceId, entry->source_id);
+    test_ukm_recorder.ExpectEntryMetric(
+        entry, UkmEntry::kSaving_Prompt_InteractionName,
+        static_cast<int64_t>(BubbleDismissalReason::kAccepted));
+    test_ukm_recorder.ExpectEntryMetric(
+        entry, UkmEntry::kUpdating_Prompt_InteractionName,
+        static_cast<int64_t>(BubbleDismissalReason::kAccepted));
+    test_ukm_recorder.ExpectEntryMetric(
+        entry, UkmEntry::kUpdating_Prompt_ShownName, 1);
+    test_ukm_recorder.ExpectEntryMetric(entry,
+                                        UkmEntry::kSaving_Prompt_ShownName, 1);
+    test_ukm_recorder.ExpectEntryMetric(
+        entry, UkmEntry::kSaving_Prompt_TriggerName,
+        static_cast<int64_t>(
+            BubbleTrigger::kPasswordManagerSuggestionAutomatic));
+    test_ukm_recorder.ExpectEntryMetric(
+        entry, UkmEntry::kUpdating_Prompt_TriggerName,
+        static_cast<int64_t>(BubbleTrigger::kPasswordManagerSuggestionManual));
+  }
 }
 
 // Verify that one-time actions are only recorded once per life-cycle of a
 // PasswordFormMetricsRecorder.
 TEST(PasswordFormMetricsRecorder, RecordDetailedUserAction) {
-  using DetailedUserAction = PasswordFormMetricsRecorder::DetailedUserAction;
-  const DetailedUserAction kOneTimeAction =
-      DetailedUserAction::kEditedUsernameInBubble;
-  const DetailedUserAction kRepeatedAction = DetailedUserAction::kUnknown;
+  base::test::ScopedTaskEnvironment scoped_task_environment_;
+  using Action = PasswordFormMetricsRecorder::DetailedUserAction;
   ukm::TestAutoSetUkmRecorder test_ukm_recorder;
   {
     auto recorder = CreatePasswordFormMetricsRecorder(
         true /*is_main_frame_secure*/, &test_ukm_recorder);
-    recorder->RecordDetailedUserAction(kOneTimeAction);
-    recorder->RecordDetailedUserAction(kOneTimeAction);
-    recorder->RecordDetailedUserAction(kRepeatedAction);
-    recorder->RecordDetailedUserAction(kRepeatedAction);
+    recorder->RecordDetailedUserAction(Action::kCorrectedUsernameInForm);
+    recorder->RecordDetailedUserAction(Action::kCorrectedUsernameInForm);
+    recorder->RecordDetailedUserAction(Action::kEditedUsernameInBubble);
   }
-  const ukm::UkmSource* source = test_ukm_recorder.GetSourceForUrl(kTestUrl);
-  ASSERT_TRUE(source);
-  test_ukm_recorder.ExpectMetrics(*source, "PasswordForm", kUkmUserAction,
-                                  {static_cast<int64_t>(kOneTimeAction),
-                                   static_cast<int64_t>(kRepeatedAction),
-                                   static_cast<int64_t>(kRepeatedAction)});
+  auto entries = test_ukm_recorder.GetEntriesByName(UkmEntry::kEntryName);
+  EXPECT_EQ(1u, entries.size());
+  for (const auto* const entry : entries) {
+    EXPECT_EQ(kTestSourceId, entry->source_id);
+    test_ukm_recorder.ExpectEntryMetric(
+        entry, UkmEntry::kUser_Action_CorrectedUsernameInFormName, 2u);
+    test_ukm_recorder.ExpectEntryMetric(
+        entry, UkmEntry::kUser_Action_EditedUsernameInBubbleName, 1u);
+    EXPECT_FALSE(test_ukm_recorder.EntryHasMetric(
+        entry, UkmEntry::kUser_Action_SelectedDifferentPasswordInBubbleName));
+  }
+}
+
+// Verify that the the mapping is correct and that metrics are actually
+// recorded.
+TEST(PasswordFormMetricsRecorder, RecordShowManualFallbackForSaving) {
+  base::test::ScopedTaskEnvironment scoped_task_environment_;
+  struct {
+    bool has_generated_password;
+    bool is_update;
+    int expected_value;
+  } kTests[] = {
+      {false, false, 1},
+      {true, false, 1 + 2},
+      {false, true, 1 + 4},
+      {true, true, 1 + 2 + 4},
+  };
+  for (const auto& test : kTests) {
+    ukm::TestAutoSetUkmRecorder test_ukm_recorder;
+    {
+      auto recorder = CreatePasswordFormMetricsRecorder(
+          true /*is_main_frame_secure*/, &test_ukm_recorder);
+      recorder->RecordShowManualFallbackForSaving(test.has_generated_password,
+                                                  test.is_update);
+    }
+    auto entries = test_ukm_recorder.GetEntriesByName(UkmEntry::kEntryName);
+    ASSERT_EQ(1u, entries.size());
+    EXPECT_EQ(kTestSourceId, entries[0]->source_id);
+    test_ukm_recorder.ExpectEntryMetric(
+        entries[0], UkmEntry::kSaving_ShowedManualFallbackForSavingName,
+        test.expected_value);
+  }
+}
+
+// Verify that no 0 is recorded if now fallback icon is shown.
+TEST(PasswordFormMetricsRecorder, NoRecordShowManualFallbackForSaving) {
+  base::test::ScopedTaskEnvironment scoped_task_environment_;
+  ukm::TestAutoSetUkmRecorder test_ukm_recorder;
+  {
+    auto recorder = CreatePasswordFormMetricsRecorder(
+        true /*is_main_frame_secure*/, &test_ukm_recorder);
+  }
+  auto entries = test_ukm_recorder.GetEntriesByName(UkmEntry::kEntryName);
+  ASSERT_EQ(1u, entries.size());
+  EXPECT_EQ(kTestSourceId, entries[0]->source_id);
+  EXPECT_FALSE(test_ukm_recorder.EntryHasMetric(
+      entries[0], UkmEntry::kSaving_ShowedManualFallbackForSavingName));
+}
+
+// Verify that only the latest value is recorded
+TEST(PasswordFormMetricsRecorder, RecordShowManualFallbackForSavingLatestOnly) {
+  base::test::ScopedTaskEnvironment scoped_task_environment_;
+  ukm::TestAutoSetUkmRecorder test_ukm_recorder;
+  {
+    auto recorder = CreatePasswordFormMetricsRecorder(
+        true /*is_main_frame_secure*/, &test_ukm_recorder);
+    recorder->RecordShowManualFallbackForSaving(true, false);
+    recorder->RecordShowManualFallbackForSaving(true, true);
+  }
+  auto entries = test_ukm_recorder.GetEntriesByName(UkmEntry::kEntryName);
+  ASSERT_EQ(1u, entries.size());
+  EXPECT_EQ(kTestSourceId, entries[0]->source_id);
+  test_ukm_recorder.ExpectEntryMetric(
+      entries[0], UkmEntry::kSaving_ShowedManualFallbackForSavingName,
+      1 + 2 + 4);
 }
 
 }  // namespace password_manager

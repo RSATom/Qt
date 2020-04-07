@@ -15,7 +15,7 @@
 #include "base/time/time.h"
 #include "build/build_config.h"
 #include "gpu/command_buffer/service/progress_reporter.h"
-#include "gpu/gpu_export.h"
+#include "gpu/ipc/service/gpu_ipc_service_export.h"
 #include "ui/gfx/native_widget_types.h"
 
 #if defined(USE_X11)
@@ -28,13 +28,14 @@ namespace gpu {
 
 // A thread that intermitently sends tasks to a group of watched message loops
 // and deliberately crashes if one of them does not respond after a timeout.
-class GPU_EXPORT GpuWatchdogThread : public base::Thread,
-                                     public base::PowerObserver,
-                                     public gles2::ProgressReporter {
+class GPU_IPC_SERVICE_EXPORT GpuWatchdogThread
+    : public base::Thread,
+      public base::PowerObserver,
+      public gles2::ProgressReporter {
  public:
   ~GpuWatchdogThread() override;
 
-  static std::unique_ptr<GpuWatchdogThread> Create();
+  static std::unique_ptr<GpuWatchdogThread> Create(bool start_backgrounded);
 
   void CheckArmed();
 
@@ -44,6 +45,17 @@ class GPU_EXPORT GpuWatchdogThread : public base::Thread,
 
   // gles2::ProgressReporter implementation:
   void ReportProgress() override;
+
+  // Notifies the watchdog when Chrome is backgrounded / foregrounded. Should
+  // only be used if Chrome is completely backgrounded and not expected to
+  // render (all windows backgrounded and not producing frames).
+  void OnBackgrounded();
+  void OnForegrounded();
+
+  // Test only functions. Not thread safe - set before arming.
+  void SetAlternativeTerminateFunctionForTesting(
+      base::RepeatingClosure on_terminate);
+  void SetTimeoutForTesting(base::TimeDelta timeout);
 
  protected:
   void Init() override;
@@ -65,6 +77,40 @@ class GPU_EXPORT GpuWatchdogThread : public base::Thread,
     GpuWatchdogThread* watchdog_;
   };
 
+  // A helper class which allows multiple clients to suspend/resume the
+  // watchdog thread. As we need to suspend resume on both background /
+  // foreground events as well as power events, this class manages a ref-count
+  // of suspend requests.
+  class SuspensionCounter {
+   public:
+    SuspensionCounter(GpuWatchdogThread* watchdog_thread);
+
+    class SuspensionCounterRef {
+     public:
+      explicit SuspensionCounterRef(SuspensionCounter* counter);
+      ~SuspensionCounterRef();
+
+     private:
+      SuspensionCounter* counter_;
+    };
+
+    // This class must outlive SuspensionCounterRefs.
+    std::unique_ptr<SuspensionCounterRef> Take();
+
+    // Used to update the |watchdog_thread_sequence_checker_|.
+    void OnWatchdogThreadStopped();
+
+    bool HasRefs() const;
+
+   private:
+    void OnAddRef();
+    void OnReleaseRef();
+    GpuWatchdogThread* watchdog_thread_;
+    uint32_t suspend_count_ = 0;
+
+    SEQUENCE_CHECKER(watchdog_thread_sequence_checker_);
+  };
+
   GpuWatchdogThread();
 
   void OnAcknowledge();
@@ -82,6 +128,12 @@ class GPU_EXPORT GpuWatchdogThread : public base::Thread,
   // Implement PowerObserver.
   void OnSuspend() override;
   void OnResume() override;
+
+  // Handle background/foreground.
+  void OnBackgroundedOnWatchdogThread();
+  void OnForegroundedOnWatchdogThread();
+
+  void SuspendStateChanged();
 
 #if defined(OS_WIN)
   base::ThreadTicks GetWatchedThreadTime();
@@ -122,7 +174,10 @@ class GPU_EXPORT GpuWatchdogThread : public base::Thread,
   // the task was posted.
   base::Time suspension_timeout_;
 
-  bool suspended_;
+  SuspensionCounter suspension_counter_;
+  std::unique_ptr<SuspensionCounter::SuspensionCounterRef> power_suspend_ref_;
+  std::unique_ptr<SuspensionCounter::SuspensionCounterRef>
+      background_suspend_ref_;
 
   // The time the last OnSuspend and OnResume was called.
   base::Time suspend_time_;
@@ -139,6 +194,8 @@ class GPU_EXPORT GpuWatchdogThread : public base::Thread,
   FILE* tty_file_;
   int host_tty_;
 #endif
+
+  base::RepeatingClosure alternative_terminate_for_testing_;
 
   base::WeakPtrFactory<GpuWatchdogThread> weak_factory_;
 

@@ -80,6 +80,24 @@
 #endif
 
 QT_BEGIN_NAMESPACE
+
+#if Q_QML_PRIVATE_API_VERSION < 3
+namespace QV4 {
+enum TypedArrayType {
+    Int8Array = QV4::Heap::TypedArray::Int8Array,
+    UInt8Array = QV4::Heap::TypedArray::UInt8Array,
+    Int16Array = QV4::Heap::TypedArray::Int16Array,
+    UInt16Array = QV4::Heap::TypedArray::UInt16Array,
+    Int32Array = QV4::Heap::TypedArray::Int32Array,
+    UInt32Array = QV4::Heap::TypedArray::UInt32Array,
+    UInt8ClampedArray = QV4::Heap::TypedArray::UInt8ClampedArray,
+    Float32Array = QV4::Heap::TypedArray::Float32Array,
+    Float64Array = QV4::Heap::TypedArray::Float64Array,
+    NTypedArrayTypes = QV4::Heap::TypedArray::NTypes
+};
+}
+#endif
+
 QT_CANVAS3D_BEGIN_NAMESPACE
 
 #define ENUM_AS_PROPERTY(A) Q_PROPERTY(QtCanvas3D::CanvasContext::glEnums A READ A ## _read); inline QtCanvas3D::CanvasContext::glEnums A ## _read() { return QtCanvas3D::CanvasContext::A; }
@@ -1215,9 +1233,9 @@ private slots:
 
 private:
     uchar *getTypedArrayAsRawDataPtr(const QJSValue &jsValue, int &byteLength,
-                                     QV4::Heap::TypedArray::Type type);
+                                     QV4::TypedArrayType type);
     uchar *getTypedArrayAsRawDataPtr(const QJSValue &jsValue,
-                                     QV4::Heap::TypedArray::Type type);
+                                     QV4::TypedArrayType type);
     uchar *getTypedArrayAsRawDataPtr(const QJSValue &jsValue, int &byteLength);
     uchar *getArrayBufferAsRawDataPtr(const QJSValue &jsValue, int &byteLength);
 

@@ -298,7 +298,7 @@ public:
                Qt::TextFormat titleFormat, Qt::TextFormat subTitleFormat);
 
 protected:
-    void paintEvent(QPaintEvent *event) Q_DECL_OVERRIDE;
+    void paintEvent(QPaintEvent *event) override;
 #if QT_CONFIG(style_windowsvista)
 private:
     bool vistaDisabled() const;
@@ -454,9 +454,9 @@ public:
             m_layout->addWidget(m_sideWidget);
     }
 
-    QSize minimumSizeHint() const Q_DECL_OVERRIDE {
+    QSize minimumSizeHint() const override {
         if (pixmap() && !pixmap()->isNull())
-            return pixmap()->size();
+            return pixmap()->size() / pixmap()->devicePixelRatio();
         return QFrame::minimumSizeHint();
     }
 
@@ -579,7 +579,7 @@ public:
         , bottomRuler(0)
 #if QT_CONFIG(style_windowsvista)
         , vistaHelper(0)
-        , vistaInitPending(false)
+        , vistaInitPending(true)
         , vistaState(QVistaHelper::Dirty)
         , vistaStateChanged(false)
         , inHandleAeroStyleChange(false)
@@ -590,12 +590,6 @@ public:
         , maximumHeight(QWIDGETSIZE_MAX)
     {
         std::fill(btns, btns + QWizard::NButtons, static_cast<QAbstractButton *>(0));
-
-#if QT_CONFIG(style_windowsvista)
-        if (QSysInfo::WindowsVersion >= QSysInfo::WV_VISTA
-            && (QSysInfo::WindowsVersion & QSysInfo::WV_NT_based))
-            vistaInitPending = true;
-#endif
     }
 
     void init();

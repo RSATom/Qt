@@ -3,6 +3,14 @@
 # found in the LICENSE file.
 
 {
+    'target_defaults':
+    {
+        'dependencies':
+        [
+            '../gyp/warnings.gyp:gyp_deprecation',
+        ],
+    },
+
     'targets':
     [
         {
@@ -123,7 +131,15 @@
                 }
             ]
         },
-
+        
+        {
+            'target_name': 'multiview',
+            'type': 'executable',
+            'dependencies': [ 'sample_util' ],
+            'includes': [ '../gyp/common_defines.gypi', ],
+            'sources': [ 'multiview/Multiview.cpp', ],
+        },
+        
         {
             'target_name': 'particle_system',
             'type': 'executable',

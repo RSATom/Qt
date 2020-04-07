@@ -51,6 +51,7 @@ class ContentAutofillDriver : public AutofillDriver,
   // AutofillDriver:
   bool IsIncognito() const override;
   net::URLRequestContextGetter* GetURLRequestContext() override;
+  scoped_refptr<network::SharedURLLoaderFactory> GetURLLoaderFactory() override;
   bool RendererIsAvailable() override;
   void SendFormDataToRenderer(int query_id,
                               RendererFormDataAction action,
@@ -61,7 +62,7 @@ class ContentAutofillDriver : public AutofillDriver,
       const std::vector<FormStructure*>& forms) override;
   void RendererShouldAcceptDataListSuggestion(
       const base::string16& value) override;
-  void RendererShouldClearFilledForm() override;
+  void RendererShouldClearFilledSection() override;
   void RendererShouldClearPreviewedForm() override;
   void RendererShouldFillFieldWithValue(const base::string16& value) override;
   void RendererShouldPreviewFieldWithValue(
@@ -74,16 +75,25 @@ class ContentAutofillDriver : public AutofillDriver,
   // mojom::AutofillDriver:
   void FormsSeen(const std::vector<FormData>& forms,
                  base::TimeTicks timestamp) override;
-  void WillSubmitForm(const FormData& form, base::TimeTicks timestamp) override;
-  void FormSubmitted(const FormData& form) override;
+  void FormSubmitted(const FormData& form,
+                     bool known_success,
+                     SubmissionSource source,
+                     base::TimeTicks timestamp) override;
   void TextFieldDidChange(const FormData& form,
                           const FormFieldData& field,
                           const gfx::RectF& bounding_box,
                           base::TimeTicks timestamp) override;
+  void TextFieldDidScroll(const FormData& form,
+                          const FormFieldData& field,
+                          const gfx::RectF& bounding_box) override;
+  void SelectControlDidChange(const FormData& form,
+                              const FormFieldData& field,
+                              const gfx::RectF& bounding_box) override;
   void QueryFormFieldAutofill(int32_t id,
                               const FormData& form,
                               const FormFieldData& field,
-                              const gfx::RectF& bounding_box) override;
+                              const gfx::RectF& bounding_box,
+                              bool autoselect_first_suggestion) override;
   void HidePopup() override;
   void FocusNoLongerOnForm() override;
   void FocusOnFormField(const FormData& form,
@@ -95,9 +105,11 @@ class ContentAutofillDriver : public AutofillDriver,
   void DidEndTextFieldEditing() override;
   void SetDataList(const std::vector<base::string16>& values,
                    const std::vector<base::string16>& labels) override;
+  void SelectFieldOptionsDidChange(const FormData& form) override;
 
-  // Called when the frame has navigated.
-  void DidNavigateFrame(content::NavigationHandle* navigation_handle);
+  // Called when the main frame has navigated. Explicitely will not trigger for
+  // subframe navigations. See navigation_handle.h for details.
+  void DidNavigateMainFrame(content::NavigationHandle* navigation_handle);
 
   AutofillExternalDelegate* autofill_external_delegate() {
     return autofill_external_delegate_.get();
@@ -113,6 +125,8 @@ class ContentAutofillDriver : public AutofillDriver,
       const content::RenderWidgetHost::KeyPressEventCallback& handler);
   void RemoveKeyPressHandler();
 
+  void SetAutofillProviderForTesting(AutofillProvider* provider);
+
  protected:
   // Sets the manager to |manager| and sets |manager|'s external delegate
   // to |autofill_external_delegate_|. Takes ownership of |manager|.
@@ -124,6 +138,8 @@ class ContentAutofillDriver : public AutofillDriver,
       const content::RenderWidgetHost::KeyPressEventCallback& handler) override;
   void RemoveHandler(
       const content::RenderWidgetHost::KeyPressEventCallback& handler) override;
+
+  void SetAutofillProvider(AutofillProvider* provider);
 
   // Weak ref to the RenderFrameHost the driver is associated with. Should
   // always be non-NULL and valid for lifetime of |this|.

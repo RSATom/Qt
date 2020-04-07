@@ -4,6 +4,7 @@
 
 #include "components/content_settings/core/browser/content_settings_default_provider.h"
 
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -193,6 +194,14 @@ DefaultProvider::DefaultProvider(PrefService* prefs, bool incognito)
                             IntToContentSetting(prefs_->GetInteger(
                                 GetPrefName(CONTENT_SETTINGS_TYPE_ADS))),
                             CONTENT_SETTING_NUM_SETTINGS);
+  UMA_HISTOGRAM_ENUMERATION("ContentSettings.DefaultSoundSetting",
+                            IntToContentSetting(prefs_->GetInteger(
+                                GetPrefName(CONTENT_SETTINGS_TYPE_SOUND))),
+                            CONTENT_SETTING_NUM_SETTINGS);
+  UMA_HISTOGRAM_ENUMERATION("ContentSettings.DefaultUsbGuardSetting",
+                            IntToContentSetting(prefs_->GetInteger(
+                                GetPrefName(CONTENT_SETTINGS_TYPE_USB_GUARD))),
+                            CONTENT_SETTING_NUM_SETTINGS);
 #endif
   pref_change_registrar_.Init(prefs_);
   PrefChangeRegistrar::NamedChangeCallback callback = base::Bind(
@@ -268,7 +277,7 @@ std::unique_ptr<RuleIterator> DefaultProvider::GetRuleIterator(
     NOTREACHED();
     return nullptr;
   }
-  return base::MakeUnique<DefaultRuleIterator>(it->second.get());
+  return std::make_unique<DefaultRuleIterator>(it->second.get());
 }
 
 void DefaultProvider::ClearAllContentSettingsRules(
@@ -284,7 +293,7 @@ void DefaultProvider::ShutdownOnUIThread() {
   DCHECK(prefs_);
   RemoveAllObservers();
   pref_change_registrar_.RemoveAll();
-  prefs_ = NULL;
+  prefs_ = nullptr;
 }
 
 void DefaultProvider::ReadDefaultSettings() {
@@ -382,6 +391,14 @@ void DefaultProvider::DiscardObsoletePreferences() {
   prefs_->ClearPref(kObsoleteFullscreenDefaultPref);
 #if !defined(OS_ANDROID)
   prefs_->ClearPref(kObsoleteMouseLockDefaultPref);
+
+  // ALLOW-by-default is an obsolete pref value for plugins (Flash). Erase that
+  // pref and fall back to the default behavior - but preserve other values.
+  const std::string& plugins_pref = GetPrefName(CONTENT_SETTINGS_TYPE_PLUGINS);
+  if (IntToContentSetting(prefs_->GetInteger(plugins_pref)) ==
+      ContentSetting::CONTENT_SETTING_ALLOW) {
+    prefs_->ClearPref(plugins_pref);
+  }
 #endif  // !defined(OS_ANDROID)
 #endif  // !defined(OS_IOS)
 }

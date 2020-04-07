@@ -118,7 +118,7 @@ namespace QPatternist
              * Validates the current element tag of the instance document.
              *
              * @param hasStateMachine Used to remember whether this element represents the start tag
-             *                        of a complex type and therefor pushes a new state machine on the stack.
+             *                        of a complex type and therefore pushes a new state machine on the stack.
              * @param element Used to remember which element has been validated in this step.
              */
             bool validate(bool &hasStateMachine, XsdElement::Ptr &element);
@@ -128,7 +128,7 @@ namespace QPatternist
              *
              * @param declaration The element declaration to validate against.
              * @param hasStateMachine Used to remember whether this element represents the start tag
-             *                        of a complex type and therefor pushes a new state machine on the stack.
+             *                        of a complex type and therefore pushes a new state machine on the stack.
              */
             bool validateElement(const XsdElement::Ptr &declaration, bool &hasStateMachine);
 
@@ -139,7 +139,7 @@ namespace QPatternist
              * @param type The type to validate against.
              * @param isNilled Defines whether the element is nilled by the instance document.
              * @param hasStateMachine Used to remember whether this element represents the start tag
-             *                        of a complex type and therefor pushes a new state machine on the stack.
+             *                        of a complex type and therefore pushes a new state machine on the stack.
              *
              * @note The @p type can differ from the element @p declaration type if the instance document has defined
              *       it via xsi:type attribute.
@@ -165,7 +165,7 @@ namespace QPatternist
              * @param type The type to validate against.
              * @param isNilled Defines whether the element is nilled by the instance document.
              * @param hasStateMachine Used to remember whether this element represents the start tag
-             *                        of a complex type and therefor pushes a new state machine on the stack.
+             *                        of a complex type and therefore pushes a new state machine on the stack.
              *
              * @note The @p type can differ from the element @p declaration type if the instance document has defined
              *       it via xsi:type attribute.

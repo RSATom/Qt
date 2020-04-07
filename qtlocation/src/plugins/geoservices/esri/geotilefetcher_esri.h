@@ -1,6 +1,6 @@
 /****************************************************************************
 **
-** Copyright (C) 2013-2016 Esri <contracts@esri.com>
+** Copyright (C) 2013-2018 Esri <contracts@esri.com>
 ** Contact: https://www.qt.io/licensing/
 **
 ** This file is part of the QtLocation module of the Qt Toolkit.
@@ -61,7 +61,7 @@ public:
     inline void setToken(const QString &token);
 
 private:
-    QGeoTiledMapReply *getTileImage(const QGeoTileSpec &spec) Q_DECL_OVERRIDE;
+    QGeoTiledMapReply *getTileImage(const QGeoTileSpec &spec) override;
 
     QNetworkAccessManager *m_networkManager;
     QByteArray m_userAgent;

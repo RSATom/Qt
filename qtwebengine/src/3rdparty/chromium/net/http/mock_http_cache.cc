@@ -4,16 +4,18 @@
 
 #include "net/http/mock_http_cache.h"
 
+#include <algorithm>
 #include <limits>
+#include <memory>
 #include <utility>
 
 #include "base/bind.h"
+#include "base/callback_helpers.h"
 #include "base/location.h"
-#include "base/memory/ptr_util.h"
 #include "base/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
-#include "net/base/completion_callback.h"
 #include "net/base/net_errors.h"
+#include "net/http/http_cache_writers.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace net {
@@ -52,22 +54,19 @@ int GetTestModeForEntry(const std::string& key) {
   return t->test_mode;
 }
 
-void CallbackForwader(const CompletionCallback& callback, int result) {
-  callback.Run(result);
-}
-
 }  // namespace
 
 //-----------------------------------------------------------------------------
 
 struct MockDiskEntry::CallbackInfo {
   scoped_refptr<MockDiskEntry> entry;
-  CompletionCallback callback;
+  net::CompletionOnceCallback callback;
   int result;
 };
 
 MockDiskEntry::MockDiskEntry(const std::string& key)
     : key_(key),
+      in_memory_data_(0),
       doomed_(false),
       sparse_(false),
       fail_requests_(false),
@@ -109,7 +108,7 @@ int MockDiskEntry::ReadData(int index,
                             int offset,
                             IOBuffer* buf,
                             int buf_len,
-                            const CompletionCallback& callback) {
+                            CompletionOnceCallback callback) {
   DCHECK(index >= 0 && index < kNumCacheEntryDataIndices);
   DCHECK(!callback.is_null());
 
@@ -130,19 +129,18 @@ int MockDiskEntry::ReadData(int index,
   // Pause and resume.
   if (defer_op_ == DEFER_READ) {
     defer_op_ = DEFER_NONE;
-    resume_callback_ = callback;
+    resume_callback_ = std::move(callback);
     resume_return_code_ = num;
     return ERR_IO_PENDING;
   }
 
-  CallbackLater(callback, num);
+  CallbackLater(std::move(callback), num);
   return ERR_IO_PENDING;
 }
 
 void MockDiskEntry::ResumeDiskEntryOperation() {
   DCHECK(!resume_callback_.is_null());
-  CallbackLater(resume_callback_, resume_return_code_);
-  resume_callback_.Reset();
+  CallbackLater(std::move(resume_callback_), resume_return_code_);
   resume_return_code_ = 0;
 }
 
@@ -150,14 +148,14 @@ int MockDiskEntry::WriteData(int index,
                              int offset,
                              IOBuffer* buf,
                              int buf_len,
-                             const CompletionCallback& callback,
+                             CompletionOnceCallback callback,
                              bool truncate) {
   DCHECK(index >= 0 && index < kNumCacheEntryDataIndices);
   DCHECK(!callback.is_null());
   DCHECK(truncate);
 
   if (fail_requests_) {
-    CallbackLater(callback, ERR_CACHE_READ_FAILURE);
+    CallbackLater(std::move(callback), ERR_CACHE_READ_FAILURE);
     return ERR_IO_PENDING;
   }
 
@@ -172,14 +170,21 @@ int MockDiskEntry::WriteData(int index,
   if (MockHttpCache::GetTestMode(test_mode_) & TEST_MODE_SYNC_CACHE_WRITE)
     return buf_len;
 
-  CallbackLater(callback, buf_len);
+  if (defer_op_ == DEFER_WRITE) {
+    defer_op_ = DEFER_NONE;
+    resume_callback_ = std::move(callback);
+    resume_return_code_ = buf_len;
+    return ERR_IO_PENDING;
+  }
+
+  CallbackLater(std::move(callback), buf_len);
   return ERR_IO_PENDING;
 }
 
 int MockDiskEntry::ReadSparseData(int64_t offset,
                                   IOBuffer* buf,
                                   int buf_len,
-                                  const CompletionCallback& callback) {
+                                  CompletionOnceCallback callback) {
   DCHECK(!callback.is_null());
   if (fail_sparse_requests_)
     return ERR_NOT_IMPLEMENTED;
@@ -203,7 +208,7 @@ int MockDiskEntry::ReadSparseData(int64_t offset,
   if (MockHttpCache::GetTestMode(test_mode_) & TEST_MODE_SYNC_CACHE_READ)
     return num;
 
-  CallbackLater(callback, num);
+  CallbackLater(std::move(callback), num);
   busy_ = true;
   delayed_ = false;
   return ERR_IO_PENDING;
@@ -212,7 +217,7 @@ int MockDiskEntry::ReadSparseData(int64_t offset,
 int MockDiskEntry::WriteSparseData(int64_t offset,
                                    IOBuffer* buf,
                                    int buf_len,
-                                   const CompletionCallback& callback) {
+                                   CompletionOnceCallback callback) {
   DCHECK(!callback.is_null());
   if (fail_sparse_requests_)
     return ERR_NOT_IMPLEMENTED;
@@ -243,14 +248,14 @@ int MockDiskEntry::WriteSparseData(int64_t offset,
   if (MockHttpCache::GetTestMode(test_mode_) & TEST_MODE_SYNC_CACHE_WRITE)
     return buf_len;
 
-  CallbackLater(callback, buf_len);
+  CallbackLater(std::move(callback), buf_len);
   return ERR_IO_PENDING;
 }
 
 int MockDiskEntry::GetAvailableRange(int64_t offset,
                                      int len,
                                      int64_t* start,
-                                     const CompletionCallback& callback) {
+                                     CompletionOnceCallback callback) {
   DCHECK(!callback.is_null());
   if (!sparse_ || busy_ || cancel_)
     return ERR_CACHE_OPERATION_NOT_SUPPORTED;
@@ -283,7 +288,7 @@ int MockDiskEntry::GetAvailableRange(int64_t offset,
   if (MockHttpCache::GetTestMode(test_mode_) & TEST_MODE_SYNC_CACHE_WRITE)
     return count;
 
-  CallbackLater(callback, count);
+  CallbackLater(std::move(callback), count);
   return ERR_IO_PENDING;
 }
 
@@ -297,7 +302,7 @@ void MockDiskEntry::CancelSparseIO() {
   cancel_ = true;
 }
 
-int MockDiskEntry::ReadyForSparseIO(const CompletionCallback& callback) {
+int MockDiskEntry::ReadyForSparseIO(CompletionOnceCallback callback) {
   if (fail_sparse_requests_)
     return ERR_NOT_IMPLEMENTED;
   if (!cancel_)
@@ -310,8 +315,12 @@ int MockDiskEntry::ReadyForSparseIO(const CompletionCallback& callback) {
 
   // The pending operation is already in the message loop (and hopefully
   // already in the second pass).  Just notify the caller that it finished.
-  CallbackLater(callback, 0);
+  CallbackLater(std::move(callback), 0);
   return ERR_IO_PENDING;
+}
+
+void MockDiskEntry::SetLastUsedTimeForTest(base::Time time) {
+  NOTREACHED();
 }
 
 // If |value| is true, don't deliver any completion callbacks until called
@@ -323,26 +332,23 @@ void MockDiskEntry::IgnoreCallbacks(bool value) {
     return;
   ignore_callbacks_ = value;
   if (!value)
-    StoreAndDeliverCallbacks(false, NULL, CompletionCallback(), 0);
+    StoreAndDeliverCallbacks(false, NULL, CompletionOnceCallback(), 0);
 }
 
-MockDiskEntry::~MockDiskEntry() {
-}
+MockDiskEntry::~MockDiskEntry() = default;
 
 // Unlike the callbacks for MockHttpTransaction, we want this one to run even
 // if the consumer called Close on the MockDiskEntry.  We achieve that by
 // leveraging the fact that this class is reference counted.
-void MockDiskEntry::CallbackLater(const CompletionCallback& callback,
-                                  int result) {
+void MockDiskEntry::CallbackLater(CompletionOnceCallback callback, int result) {
   if (ignore_callbacks_)
-    return StoreAndDeliverCallbacks(true, this, callback, result);
+    return StoreAndDeliverCallbacks(true, this, std::move(callback), result);
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE,
-      base::Bind(&MockDiskEntry::RunCallback, this, callback, result));
+      FROM_HERE, base::BindOnce(&MockDiskEntry::RunCallback, this,
+                                std::move(callback), result));
 }
 
-void MockDiskEntry::RunCallback(const CompletionCallback& callback,
-                                int result) {
+void MockDiskEntry::RunCallback(CompletionOnceCallback callback, int result) {
   if (busy_) {
     // This is kind of hacky, but controlling the behavior of just this entry
     // from a test is sort of complicated.  What we really want to do is
@@ -354,11 +360,11 @@ void MockDiskEntry::RunCallback(const CompletionCallback& callback,
     // trips through the message loop instead of one).
     if (!delayed_) {
       delayed_ = true;
-      return CallbackLater(callback, result);
+      return CallbackLater(std::move(callback), result);
     }
   }
   busy_ = false;
-  callback.Run(result);
+  std::move(callback).Run(result);
 }
 
 // When |store| is true, stores the callback to be delivered later; otherwise
@@ -366,16 +372,16 @@ void MockDiskEntry::RunCallback(const CompletionCallback& callback,
 // Static.
 void MockDiskEntry::StoreAndDeliverCallbacks(bool store,
                                              MockDiskEntry* entry,
-                                             const CompletionCallback& callback,
+                                             CompletionOnceCallback callback,
                                              int result) {
   static std::vector<CallbackInfo> callback_list;
   if (store) {
-    CallbackInfo c = {entry, callback, result};
-    callback_list.push_back(c);
+    CallbackInfo c = {entry, std::move(callback), result};
+    callback_list.push_back(std::move(c));
   } else {
     for (size_t i = 0; i < callback_list.size(); i++) {
       CallbackInfo& c = callback_list[i];
-      c.entry->CallbackLater(c.callback, c.result);
+      c.entry->CallbackLater(std::move(c.callback), c.result);
     }
     callback_list.clear();
   }
@@ -394,6 +400,7 @@ MockDiskCache::MockDiskCache()
       soft_failures_(false),
       double_create_check_(true),
       fail_sparse_requests_(false),
+      support_in_memory_entry_data_(true),
       defer_op_(MockDiskEntry::DEFER_NONE),
       resume_return_code_(0) {}
 
@@ -410,8 +417,9 @@ int32_t MockDiskCache::GetEntryCount() const {
 }
 
 int MockDiskCache::OpenEntry(const std::string& key,
+                             net::RequestPriority request_priority,
                              disk_cache::Entry** entry,
-                             const CompletionCallback& callback) {
+                             CompletionOnceCallback callback) {
   DCHECK(!callback.is_null());
   if (fail_requests_)
     return ERR_CACHE_OPEN_FAILURE;
@@ -437,13 +445,14 @@ int MockDiskCache::OpenEntry(const std::string& key,
   if (GetTestModeForEntry(key) & TEST_MODE_SYNC_CACHE_START)
     return OK;
 
-  CallbackLater(callback, OK);
+  CallbackLater(std::move(callback), OK);
   return ERR_IO_PENDING;
 }
 
 int MockDiskCache::CreateEntry(const std::string& key,
+                               net::RequestPriority request_priority,
                                disk_cache::Entry** entry,
-                               const CompletionCallback& callback) {
+                               CompletionOnceCallback callback) {
   DCHECK(!callback.is_null());
   if (fail_requests_)
     return ERR_CACHE_CREATE_FAILURE;
@@ -482,17 +491,18 @@ int MockDiskCache::CreateEntry(const std::string& key,
   // Pause and resume.
   if (defer_op_ == MockDiskEntry::DEFER_CREATE) {
     defer_op_ = MockDiskEntry::DEFER_NONE;
-    resume_callback_ = callback;
+    resume_callback_ = std::move(callback);
     resume_return_code_ = OK;
     return ERR_IO_PENDING;
   }
 
-  CallbackLater(callback, OK);
+  CallbackLater(std::move(callback), OK);
   return ERR_IO_PENDING;
 }
 
 int MockDiskCache::DoomEntry(const std::string& key,
-                             const CompletionCallback& callback) {
+                             net::RequestPriority request_priority,
+                             CompletionOnceCallback callback) {
   DCHECK(!callback.is_null());
   EntryMap::iterator it = entries_.find(key);
   if (it != entries_.end()) {
@@ -504,34 +514,33 @@ int MockDiskCache::DoomEntry(const std::string& key,
   if (GetTestModeForEntry(key) & TEST_MODE_SYNC_CACHE_START)
     return OK;
 
-  CallbackLater(callback, OK);
+  CallbackLater(std::move(callback), OK);
   return ERR_IO_PENDING;
 }
 
-int MockDiskCache::DoomAllEntries(const CompletionCallback& callback) {
+int MockDiskCache::DoomAllEntries(CompletionOnceCallback callback) {
   return ERR_NOT_IMPLEMENTED;
 }
 
 int MockDiskCache::DoomEntriesBetween(const base::Time initial_time,
                                       const base::Time end_time,
-                                      const CompletionCallback& callback) {
+                                      CompletionOnceCallback callback) {
   return ERR_NOT_IMPLEMENTED;
 }
 
 int MockDiskCache::DoomEntriesSince(const base::Time initial_time,
-                                    const CompletionCallback& callback) {
+                                    CompletionOnceCallback callback) {
   return ERR_NOT_IMPLEMENTED;
 }
 
-int MockDiskCache::CalculateSizeOfAllEntries(
-    const CompletionCallback& callback) {
+int MockDiskCache::CalculateSizeOfAllEntries(CompletionOnceCallback callback) {
   return ERR_NOT_IMPLEMENTED;
 }
 
 class MockDiskCache::NotImplementedIterator : public Iterator {
  public:
   int OpenNextEntry(disk_cache::Entry** next_entry,
-                    const CompletionCallback& callback) override {
+                    CompletionOnceCallback callback) override {
     return ERR_NOT_IMPLEMENTED;
   }
 };
@@ -552,16 +561,31 @@ size_t MockDiskCache::DumpMemoryStats(
   return 0u;
 }
 
+uint8_t MockDiskCache::GetEntryInMemoryData(const std::string& key) {
+  if (!support_in_memory_entry_data_)
+    return 0;
+
+  EntryMap::iterator it = entries_.find(key);
+  if (it != entries_.end())
+    return it->second->in_memory_data();
+  return 0;
+}
+
+void MockDiskCache::SetEntryInMemoryData(const std::string& key, uint8_t data) {
+  EntryMap::iterator it = entries_.find(key);
+  if (it != entries_.end())
+    it->second->set_in_memory_data(data);
+}
+
 void MockDiskCache::ReleaseAll() {
   for (auto entry : entries_)
     entry.second->Release();
   entries_.clear();
 }
 
-void MockDiskCache::CallbackLater(const CompletionCallback& callback,
-                                  int result) {
+void MockDiskCache::CallbackLater(CompletionOnceCallback callback, int result) {
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::Bind(&CallbackForwader, callback, result));
+      FROM_HERE, base::BindOnce(std::move(callback), result));
 }
 
 bool MockDiskCache::IsDiskEntryDoomed(const std::string& key) {
@@ -574,8 +598,7 @@ bool MockDiskCache::IsDiskEntryDoomed(const std::string& key) {
 
 void MockDiskCache::ResumeCacheOperation() {
   DCHECK(!resume_callback_.is_null());
-  CallbackLater(resume_callback_, resume_return_code_);
-  resume_callback_.Reset();
+  CallbackLater(std::move(resume_callback_), resume_return_code_);
   resume_return_code_ = 0;
 }
 
@@ -592,7 +615,7 @@ scoped_refptr<MockDiskEntry> MockDiskCache::GetDiskEntryRef(
 int MockBackendFactory::CreateBackend(
     NetLog* net_log,
     std::unique_ptr<disk_cache::Backend>* backend,
-    const CompletionCallback& callback) {
+    CompletionOnceCallback callback) {
   backend->reset(new MockDiskCache());
   return OK;
 }
@@ -606,12 +629,12 @@ MockHttpCache::MockHttpCache(
     : MockHttpCache(std::move(disk_cache_factory), false) {}
 
 MockHttpCache::MockHttpCache(bool is_main_cache)
-    : MockHttpCache(base::MakeUnique<MockBackendFactory>(), is_main_cache) {}
+    : MockHttpCache(std::make_unique<MockBackendFactory>(), is_main_cache) {}
 
 MockHttpCache::MockHttpCache(
     std::unique_ptr<HttpCache::BackendFactory> disk_cache_factory,
     bool is_main_cache)
-    : http_cache_(base::MakeUnique<MockNetworkLayer>(),
+    : http_cache_(std::make_unique<MockNetworkLayer>(),
                   std::move(disk_cache_factory),
                   is_main_cache) {}
 
@@ -679,7 +702,7 @@ bool MockHttpCache::WriteResponseInfo(disk_cache::Entry* disk_entry,
 bool MockHttpCache::OpenBackendEntry(const std::string& key,
                                      disk_cache::Entry** entry) {
   TestCompletionCallback cb;
-  int rv = backend()->OpenEntry(key, entry, cb.callback());
+  int rv = backend()->OpenEntry(key, net::HIGHEST, entry, cb.callback());
   return (cb.GetResult(rv) == OK);
 }
 
@@ -687,7 +710,7 @@ bool MockHttpCache::CreateBackendEntry(const std::string& key,
                                        disk_cache::Entry** entry,
                                        NetLog* net_log) {
   TestCompletionCallback cb;
-  int rv = backend()->CreateEntry(key, entry, cb.callback());
+  int rv = backend()->CreateEntry(key, net::HIGHEST, entry, cb.callback());
   return (cb.GetResult(rv) == OK);
 }
 
@@ -706,44 +729,40 @@ void MockHttpCache::SetTestMode(int test_mode) {
 
 bool MockHttpCache::IsWriterPresent(const std::string& key) {
   HttpCache::ActiveEntry* entry = http_cache_.FindActiveEntry(key);
-  if (entry)
-    return entry->writer;
-  return false;
+  return entry && entry->writers && !entry->writers->IsEmpty();
 }
 
 bool MockHttpCache::IsHeadersTransactionPresent(const std::string& key) {
   HttpCache::ActiveEntry* entry = http_cache_.FindActiveEntry(key);
-  if (entry)
-    return entry->headers_transaction;
-  return false;
+  return entry && entry->headers_transaction;
 }
 
 int MockHttpCache::GetCountReaders(const std::string& key) {
   HttpCache::ActiveEntry* entry = http_cache_.FindActiveEntry(key);
-  if (entry)
-    return entry->readers.size();
-  return false;
+  return entry ? entry->readers.size() : 0;
 }
 
 int MockHttpCache::GetCountAddToEntryQueue(const std::string& key) {
   HttpCache::ActiveEntry* entry = http_cache_.FindActiveEntry(key);
-  if (entry)
-    return entry->add_to_entry_queue.size();
-  return false;
+  return entry ? entry->add_to_entry_queue.size() : 0;
 }
 
 int MockHttpCache::GetCountDoneHeadersQueue(const std::string& key) {
   HttpCache::ActiveEntry* entry = http_cache_.FindActiveEntry(key);
-  if (entry)
-    return entry->done_headers_queue.size();
-  return false;
+  return entry ? entry->done_headers_queue.size() : 0;
+}
+
+int MockHttpCache::GetCountWriterTransactions(const std::string& key) {
+  HttpCache::ActiveEntry* entry = http_cache_.FindActiveEntry(key);
+  return entry && entry->writers ? entry->writers->GetTransactionsCount() : 0;
 }
 
 //-----------------------------------------------------------------------------
 
 int MockDiskCacheNoCB::CreateEntry(const std::string& key,
+                                   net::RequestPriority request_priority,
                                    disk_cache::Entry** entry,
-                                   const CompletionCallback& callback) {
+                                   CompletionOnceCallback callback) {
   return ERR_IO_PENDING;
 }
 
@@ -752,7 +771,7 @@ int MockDiskCacheNoCB::CreateEntry(const std::string& key,
 int MockBackendNoCbFactory::CreateBackend(
     NetLog* net_log,
     std::unique_ptr<disk_cache::Backend>* backend,
-    const CompletionCallback& callback) {
+    CompletionOnceCallback callback) {
   backend->reset(new MockDiskCacheNoCB());
   return OK;
 }
@@ -765,13 +784,12 @@ MockBlockingBackendFactory::MockBlockingBackendFactory()
       fail_(false) {
 }
 
-MockBlockingBackendFactory::~MockBlockingBackendFactory() {
-}
+MockBlockingBackendFactory::~MockBlockingBackendFactory() = default;
 
 int MockBlockingBackendFactory::CreateBackend(
     NetLog* net_log,
     std::unique_ptr<disk_cache::Backend>* backend,
-    const CompletionCallback& callback) {
+    CompletionOnceCallback callback) {
   if (!block_) {
     if (!fail_)
       backend->reset(new MockDiskCache());
@@ -779,7 +797,7 @@ int MockBlockingBackendFactory::CreateBackend(
   }
 
   backend_ =  backend;
-  callback_ = callback;
+  callback_ = std::move(callback);
   return ERR_IO_PENDING;
 }
 
@@ -788,9 +806,8 @@ void MockBlockingBackendFactory::FinishCreation() {
   if (!callback_.is_null()) {
     if (!fail_)
       backend_->reset(new MockDiskCache());
-    CompletionCallback cb = callback_;
-    callback_.Reset();
-    cb.Run(Result());  // This object can be deleted here.
+    // Running the callback might delete |this|.
+    base::ResetAndReturn(&callback_).Run(Result());
   }
 }
 

@@ -14,7 +14,6 @@
 #include "base/command_line.h"
 #include "base/logging.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "build/build_config.h"
 #include "chrome/browser/extensions/api/networking_cast_private/chrome_networking_cast_private_delegate.h"
 #include "chrome/browser/extensions/extension_apitest.h"
@@ -165,6 +164,14 @@ class TestNetworkingPrivateDelegate : public NetworkingPrivateDelegate {
     VoidResult(success_callback, failure_callback);
   }
 
+  void SelectCellularMobileNetwork(
+      const std::string& guid,
+      const std::string& nework_id,
+      const VoidCallback& success_callback,
+      const FailureCallback& failure_callback) override {
+    VoidResult(success_callback, failure_callback);
+  }
+
   // Synchronous methods
   std::unique_ptr<base::ListValue> GetEnabledNetworkTypes() override {
     std::unique_ptr<base::ListValue> result;
@@ -189,11 +196,11 @@ class TestNetworkingPrivateDelegate : public NetworkingPrivateDelegate {
   }
 
   std::unique_ptr<base::DictionaryValue> GetGlobalPolicy() override {
-    return base::MakeUnique<base::DictionaryValue>();
+    return std::make_unique<base::DictionaryValue>();
   }
 
   std::unique_ptr<base::DictionaryValue> GetCertificateLists() override {
-    return base::MakeUnique<base::DictionaryValue>();
+    return std::make_unique<base::DictionaryValue>();
   }
 
   bool EnableNetworkType(const std::string& type) override {
@@ -206,15 +213,15 @@ class TestNetworkingPrivateDelegate : public NetworkingPrivateDelegate {
     return !fail_;
   }
 
-  bool RequestScan() override {
-    scan_requested_.push_back(true);
+  bool RequestScan(const std::string& type) override {
+    scan_requested_.push_back(type);
     return !fail_;
   }
 
   void set_fail(bool fail) { fail_ = fail; }
   bool GetEnabled(const std::string& type) { return enabled_[type]; }
   bool GetDisabled(const std::string& type) { return disabled_[type]; }
-  size_t GetScanRequested() { return scan_requested_.size(); }
+  const std::vector<std::string>& GetScanRequested() { return scan_requested_; }
 
   void DictionaryResult(const std::string& guid,
                         const DictionaryCallback& success_callback,
@@ -261,7 +268,7 @@ class TestNetworkingPrivateDelegate : public NetworkingPrivateDelegate {
   bool fail_;
   std::map<std::string, bool> enabled_;
   std::map<std::string, bool> disabled_;
-  std::vector<bool> scan_requested_;
+  std::vector<std::string> scan_requested_;
 
   DISALLOW_COPY_AND_ASSIGN(TestNetworkingPrivateDelegate);
 };
@@ -373,7 +380,7 @@ class NetworkingPrivateApiTest : public ExtensionApiTest {
     return networking_private_delegate_->GetDisabled(type);
   }
 
-  size_t GetScanRequested() {
+  const std::vector<std::string>& GetScanRequested() {
     return networking_private_delegate_->GetScanRequested();
   }
 
@@ -387,14 +394,14 @@ class NetworkingPrivateApiTest : public ExtensionApiTest {
  private:
   std::unique_ptr<ChromeNetworkingCastPrivateDelegate>
   CreateTestNetworkingCastPrivateDelegate(bool test_failure) {
-    return base::MakeUnique<TestNetworkingCastPrivateDelegate>(test_failure);
+    return std::make_unique<TestNetworkingCastPrivateDelegate>(test_failure);
   }
 
   std::unique_ptr<KeyedService> CreateTestNetworkingPrivateDelegate(
       bool test_failure) {
     CHECK(!networking_private_delegate_);
     auto delegate =
-        base::MakeUnique<TestNetworkingPrivateDelegate>(test_failure);
+        std::make_unique<TestNetworkingPrivateDelegate>(test_failure);
     networking_private_delegate_ = delegate.get();
     return delegate;
   }
@@ -488,7 +495,10 @@ IN_PROC_BROWSER_TEST_F(NetworkingPrivateApiTest, DisableNetworkType) {
 
 IN_PROC_BROWSER_TEST_F(NetworkingPrivateApiTest, RequestNetworkScan) {
   EXPECT_TRUE(RunNetworkingSubtest("requestNetworkScan")) << message_;
-  EXPECT_EQ(1u, GetScanRequested());
+  const std::vector<std::string>& scan_requested = GetScanRequested();
+  ASSERT_EQ(2u, scan_requested.size());
+  EXPECT_EQ("", scan_requested[0]);
+  EXPECT_EQ("Cellular", scan_requested[1]);
 }
 
 IN_PROC_BROWSER_TEST_F(NetworkingPrivateApiTest, StartConnect) {
@@ -533,6 +543,10 @@ IN_PROC_BROWSER_TEST_F(NetworkingPrivateApiTest, UnlockCellularSim) {
 
 IN_PROC_BROWSER_TEST_F(NetworkingPrivateApiTest, SetCellularSimState) {
   EXPECT_TRUE(RunNetworkingSubtest("setCellularSimState")) << message_;
+}
+
+IN_PROC_BROWSER_TEST_F(NetworkingPrivateApiTest, SelectCellularMobileNetwork) {
+  EXPECT_TRUE(RunNetworkingSubtest("selectCellularMobileNetwork")) << message_;
 }
 
 IN_PROC_BROWSER_TEST_F(NetworkingPrivateApiTest, GetGlobalPolicy) {
@@ -640,6 +654,11 @@ IN_PROC_BROWSER_TEST_F(NetworkingPrivateApiTestFail, UnlockCellularSim) {
 
 IN_PROC_BROWSER_TEST_F(NetworkingPrivateApiTestFail, SetCellularSimState) {
   EXPECT_FALSE(RunNetworkingSubtest("setCellularSimState")) << message_;
+}
+
+IN_PROC_BROWSER_TEST_F(NetworkingPrivateApiTestFail,
+                       SelectCellularMobileNetwork) {
+  EXPECT_FALSE(RunNetworkingSubtest("selectCellularMobileNetwork")) << message_;
 }
 
 #endif // defined(OS_WIN)

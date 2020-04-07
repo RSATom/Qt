@@ -143,7 +143,7 @@ void AnnotatedUrl::handleMessage(const QNdefMessage &message, QNearFieldTarget *
     QPixmap pixmap;
 
 //! [handleMessage 2]
-    foreach (const QNdefRecord &record, message) {
+    for (const QNdefRecord &record : message) {
         if (record.isRecordType<QNdefNfcTextRecord>()) {
             QNdefNfcTextRecord textRecord(record);
 
@@ -168,12 +168,12 @@ void AnnotatedUrl::handleMessage(const QNdefMessage &message, QNearFieldTarget *
             QNdefNfcUriRecord uriRecord(record);
 
             url = uriRecord.uri();
-//! [handleMessage 3]
         } else if (record.typeNameFormat() == QNdefRecord::Mime &&
                    record.type().startsWith("image/")) {
             pixmap = QPixmap::fromImage(QImage::fromData(record.payload()));
-//! [handleMessage 4]
         }
+//! [handleMessage 3]
+//! [handleMessage 4]
     }
 
     emit annotatedUrl(url, title, pixmap);

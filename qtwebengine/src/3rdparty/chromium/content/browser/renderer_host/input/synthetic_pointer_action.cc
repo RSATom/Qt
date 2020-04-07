@@ -5,7 +5,7 @@
 #include "content/browser/renderer_host/input/synthetic_pointer_action.h"
 
 #include "base/logging.h"
-#include "third_party/WebKit/public/platform/WebInputEvent.h"
+#include "third_party/blink/public/platform/web_input_event.h"
 #include "ui/latency/latency_info.h"
 
 namespace content {
@@ -51,6 +51,9 @@ SyntheticPointerAction::GestureState
 SyntheticPointerAction::ForwardTouchOrMouseInputEvents(
     const base::TimeTicks& timestamp,
     SyntheticGestureTarget* target) {
+  if (!params_.params.size())
+    return DONE;
+
   DCHECK_LT(num_actions_dispatched_, params_.params.size());
   SyntheticPointerActionListParams::ParamList& param_list =
       params_.params[num_actions_dispatched_];
@@ -76,8 +79,9 @@ SyntheticPointerAction::ForwardTouchOrMouseInputEvents(
       case SyntheticPointerActionParams::PointerActionType::NOT_INITIALIZED:
         return INVALID;
     }
+    synthetic_pointer_driver_->DispatchEvent(target, timestamp);
   }
-  synthetic_pointer_driver_->DispatchEvent(target, timestamp);
+
   num_actions_dispatched_++;
   if (num_actions_dispatched_ == params_.params.size())
     return DONE;

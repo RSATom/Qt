@@ -73,11 +73,11 @@ namespace QPatternist
          * prefix used for the QName identifying the schema type is conventional.
          * An example of a display name for a GenericSequenceType is "xs:integer?".
          */
-        virtual QString displayName(const NamePool::Ptr &np) const;
+        QString displayName(const NamePool::Ptr &np) const override;
 
-        virtual Cardinality cardinality() const;
+        Cardinality cardinality() const override;
 
-        virtual ItemType::Ptr itemType() const;
+        ItemType::Ptr itemType() const override;
 
     private:
         const ItemType::Ptr m_itemType;

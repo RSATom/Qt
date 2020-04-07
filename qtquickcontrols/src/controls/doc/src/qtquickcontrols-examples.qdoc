@@ -28,16 +28,16 @@
 /*!
     \group qtquickcontrols_examples
     \ingroup all-examples
-    \title Qt Quick Controls Examples
-    \brief A Collection of examples for \l{Qt Quick Controls}, written in QML.
+    \title Qt Quick Controls 1 Examples
+    \brief A Collection of examples for \l{Qt Quick Controls 1}, written in QML.
 
     These examples show how to create user interfaces using
-    \l{Qt Quick Controls}.
+    \l{Qt Quick Controls 1}.
 */
 
 /*!
     \example gallery
-    \title Qt Quick Controls - Gallery
+    \title Qt Quick Controls 1 - Gallery
     \ingroup qtquickcontrols_examples
     \brief A collection of components for a classic desktop-style UI.
 
@@ -58,14 +58,14 @@
     \endraw
 
     This example project demonstrates the various UI components provided by
-    \l{Qt Quick Controls}.
+    \l{Qt Quick Controls 1}.
 
     \include examples-run.qdocinc
 */
 
 /*!
     \example uiforms
-    \title Qt Quick Controls - UI Forms
+    \title Qt Quick Controls 1 - UI Forms
     \ingroup qtquickcontrols_examples
     \brief Demonstrates how to separate the application logic from the UI.
 
@@ -126,13 +126,13 @@
 
 /*!
     \example tableview
-    \title Qt Quick Controls - Table View Example
+    \title Qt Quick Controls 1 - Table View Example
     \ingroup qtquickcontrols_examples
     \brief An example for the TableView control.
     \image qtquickcontrols-example-tableview.png
 
     This example project demonstrates the usage of \l {TableView} from
-    \l{Qt Quick Controls} - a control to display one or more columns of
+    \l{Qt Quick Controls 1} - a control to display one or more columns of
     information from a data list model. The example includes a model
     that supports sorting and filtering.
 
@@ -165,7 +165,7 @@
 
 /*!
     \example texteditor
-    \title Qt Quick Controls - Text Editor Example
+    \title Qt Quick Controls 1 - Text Editor Example
     \ingroup qtquickcontrols_examples
     \brief A QML app using Qt Quick Controls and a C++ class to
     provide a fully-functional rich-text editor application.
@@ -206,13 +206,13 @@
 
 /*!
     \example touch
-    \title Qt Quick Controls - Touch Gallery
+    \title Qt Quick Controls 1 - Touch Gallery
     \ingroup qtquickcontrols_examples
-    \brief Demonstrates UI controls for a touch interface
+    \brief Demonstrates UI controls for a touch interface.
     \image qtquickcontrols-example-touch.png
 
     \e {Touch Gallery} demonstrates how to implement a UI suitable for touch
-    input using the following \l{Qt Quick Controls}:
+    input using the following \l{Qt Quick Controls 1}:
 
     \list
         \li \l ApplicationWindow
@@ -228,7 +228,7 @@
     \endlist
 
     The appearance of the controls is customized by using
-    \l {Qt Quick Controls Styles}.
+    \l {Qt Quick Controls 1 Styles}.
 
     \include examples-run.qdocinc
 
@@ -452,9 +452,9 @@
 
 /*!
     \example calendar
-    \title Qt Quick Controls - Calendar Example
+    \title Qt Quick Controls 1 - Calendar Example
     \ingroup qtquickcontrols_examples
-    \brief Demonstrates the use of Calendar control
+    \brief Demonstrates the use of Calendar control.
     \image qtquickcontrols-example-calendar.png
 
     The Calendar example displays a Calendar control and an events list for
@@ -540,25 +540,25 @@
 
 /*!
     \example styles
-    \title Qt Quick Controls - Styles Example
+    \title Qt Quick Controls 1 - Styles Example
     \ingroup qtquickcontrols_examples
-    \brief Demonstrates custom styles
+    \brief Demonstrates custom styles.
     \image qtquickcontrols-example-styles.png
 
-    This example shows how to create custom styles for \l{Qt Quick Controls}.
+    This example shows how to create custom styles for \l{Qt Quick Controls 1}.
 
     \include examples-run.qdocinc
 */
 
 /*!
     \example filesystembrowser
-    \title Qt Quick Controls - File System Browser Example
+    \title Qt Quick Controls 1 - File System Browser Example
     \ingroup qtquickcontrols_examples
     \brief An example for the TreeView control.
     \image qtquickcontrols-example-filesystembrowser.png
 
     This example project demonstrates the usage of \l {TreeView} from
-    \l{Qt Quick Controls} - a control to display a tree representation of items
+    \l{Qt Quick Controls 1} - a control to display a tree representation of items
     from a model derived from the QAbstractItemModel class.
 
     The example displays the home path data given by the QFileSystemModel model.

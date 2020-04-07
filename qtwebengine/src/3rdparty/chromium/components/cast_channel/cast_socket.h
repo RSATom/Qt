@@ -33,7 +33,7 @@ class CTVerifier;
 class NetLog;
 class SSLClientSocket;
 class StreamSocket;
-class TCPClientSocket;
+class TransportClientSocket;
 class TransportSecurityState;
 class X509Certificate;
 }
@@ -44,20 +44,23 @@ class Logger;
 struct LastError;
 
 // Cast device capabilities.
-enum CastDeviceCapability {
+enum CastDeviceCapability : int {
   NONE = 0,
   VIDEO_OUT = 1 << 0,
   VIDEO_IN = 1 << 1,
   AUDIO_OUT = 1 << 2,
   AUDIO_IN = 1 << 3,
-  DEV_MODE = 1 << 4
+  DEV_MODE = 1 << 4,
+  MULTIZONE_GROUP = 1 << 5
 };
 
 // Public interface of the CastSocket class.
 class CastSocket {
  public:
-  using OnOpenCallback =
-      base::OnceCallback<void(int channel_id, ChannelError error_state)>;
+  // Invoked when CastSocket opens.
+  // |socket|: raw pointer of opened socket (this pointer). Guaranteed to be
+  // valid in callback function. Do not pass |socket| around.
+  using OnOpenCallback = base::OnceCallback<void(CastSocket* socket)>;
 
   class Observer {
    public:
@@ -134,6 +137,47 @@ class CastSocket {
   virtual void RemoveObserver(Observer* observer) = 0;
 };
 
+// Holds parameters necessary to open a Cast channel (CastSocket) to a Cast
+// device.
+struct CastSocketOpenParams {
+  // IP endpoint of the Cast device.
+  net::IPEndPoint ip_endpoint;
+
+  // Log of socket events.
+  net::NetLog* net_log;
+
+  // Connection timeout interval. If this value is not set, Cast socket will not
+  // report CONNECT_TIMEOUT error and may hang when connecting to a Cast device.
+  base::TimeDelta connect_timeout;
+
+  // Amount of idle time to wait before disconnecting. Cast socket will ping
+  // Cast device periodically at |ping_interval| to check liveness. If it does
+  // not receive response in |liveness_timeout|, it reports PING_TIMEOUT error.
+  // |liveness_timeout| should always be larger than or equal to
+  // |ping_interval|.
+  // If this value is not set, there is not periodic ping and Cast socket is
+  // always assumed alive.
+  base::TimeDelta liveness_timeout;
+
+  // Amount of idle time to wait before pinging the Cast device. See comments
+  // for |liveness_timeout|.
+  base::TimeDelta ping_interval;
+
+  // A bit vector representing the capabilities of the sink. The values are
+  // defined in components/cast_channel/cast_socket.h.
+  uint64_t device_capabilities;
+
+  CastSocketOpenParams(const net::IPEndPoint& ip_endpoint,
+                       net::NetLog* net_log,
+                       base::TimeDelta connect_timeout);
+  CastSocketOpenParams(const net::IPEndPoint& ip_endpoint,
+                       net::NetLog* net_log,
+                       base::TimeDelta connect_timeout,
+                       base::TimeDelta liveness_timeout,
+                       base::TimeDelta ping_interval,
+                       uint64_t device_capabilities);
+};
+
 // This class implements a channel between Chrome and a Cast device using a TCP
 // socket with SSL.  The channel may authenticate that the receiver is a genuine
 // Cast device.  All CastSocketImpl objects must be used only on the IO thread.
@@ -142,31 +186,11 @@ class CastSocket {
 // code.
 class CastSocketImpl : public CastSocket {
  public:
-  // Creates a new CastSocket that connects to |ip_endpoint|.
-  // Parameters:
-  // |ip_endpoint|: IP address of the remote host.
-  // |net_log|: Log of socket events.
-  // |connect_timeout|: Connection timeout interval.
-  // |liveness_timeout|: Amount of idle time to wait before disconnecting.
-  // |ping_interval|: Amount of idle time to wait before pinging the receiver.
-  // |logger|: Log of cast channel events.
-  CastSocketImpl(const net::IPEndPoint& ip_endpoint,
-                 net::NetLog* net_log,
-                 base::TimeDelta connect_timeout,
-                 base::TimeDelta liveness_timeout,
-                 base::TimeDelta ping_interval,
-                 const scoped_refptr<Logger>& logger,
-                 uint64_t device_capabilities);
+  CastSocketImpl(const CastSocketOpenParams& open_params,
+                 const scoped_refptr<Logger>& logger);
 
-  // For test-only.
-  // This constructor allows for setting a custom AuthContext.
-  CastSocketImpl(const net::IPEndPoint& ip_endpoint,
-                 net::NetLog* net_log,
-                 base::TimeDelta connect_timeout,
-                 base::TimeDelta liveness_timeout,
-                 base::TimeDelta ping_interval,
+  CastSocketImpl(const CastSocketOpenParams& open_params,
                  const scoped_refptr<Logger>& logger,
-                 uint64_t device_capabilities,
                  const AuthContext& auth_context);
 
   // Ensures that the socket is closed.
@@ -248,8 +272,8 @@ class CastSocketImpl : public CastSocket {
   // READY_STATE_CLOSED.
   void CloseInternal();
 
-  // Creates an instance of TCPClientSocket.
-  virtual std::unique_ptr<net::TCPClientSocket> CreateTcpSocket();
+  // Creates an instance of TransportClientSocket.
+  virtual std::unique_ptr<net::TransportClientSocket> CreateTcpSocket();
   // Creates an instance of SSLClientSocket with the given underlying |socket|.
   virtual std::unique_ptr<net::SSLClientSocket> CreateSslSocket(
       std::unique_ptr<net::StreamSocket> socket);
@@ -304,7 +328,7 @@ class CastSocketImpl : public CastSocket {
   // Runs the external connection callback and resets it.
   void DoConnectCallback();
 
-  virtual base::Timer* GetTimer();
+  virtual base::OneShotTimer* GetTimer();
 
   void SetConnectState(ConnectionState connect_state);
   void SetReadyState(ReadyState ready_state);
@@ -313,20 +337,12 @@ class CastSocketImpl : public CastSocket {
 
   // The id of the channel.
   int channel_id_;
-  // The IP endpoint that the the channel is connected to.
-  net::IPEndPoint ip_endpoint_;
-  // The NetLog for this service.
-  net::NetLog* net_log_;
+
   // The NetLog source for this service.
   net::NetLogSource net_log_source_;
 
-  // Amount of idle time to wait before disconnecting. If |liveness_timeout_| is
-  // set, wraps |delegate_| with a KeepAliveDelegate.
-  base::TimeDelta liveness_timeout_;
-
-  // Amount of idle time to wait before pinging the receiver, used to create
-  // KeepAliveDelegate.
-  base::TimeDelta ping_interval_;
+  // Cast socket related settings.
+  CastSocketOpenParams open_params_;
 
   // Shared logging object, used to log CastSocket events for diagnostics.
   scoped_refptr<Logger> logger_;
@@ -340,7 +356,7 @@ class CastSocketImpl : public CastSocket {
   std::unique_ptr<net::CTPolicyEnforcer> ct_policy_enforcer_;
 
   // Owned ptr to the underlying TCP socket.
-  std::unique_ptr<net::TCPClientSocket> tcp_socket_;
+  std::unique_ptr<net::TransportClientSocket> tcp_socket_;
 
   // Owned ptr to the underlying SSL socket.
   std::unique_ptr<net::SSLClientSocket> socket_;
@@ -361,18 +377,12 @@ class CastSocketImpl : public CastSocket {
   // Callback invoked by |connect_timeout_timer_| to cancel the connection.
   base::CancelableClosure connect_timeout_callback_;
 
-  // Duration to wait before timing out.
-  base::TimeDelta connect_timeout_;
-
   // Timer invoked when the connection has timed out.
-  std::unique_ptr<base::Timer> connect_timeout_timer_;
+  std::unique_ptr<base::OneShotTimer> connect_timeout_timer_;
 
   // Set when a timeout is triggered and the connection process has
   // canceled.
   bool is_canceled_;
-
-  // Capabilities declared by the cast device.
-  uint64_t device_capabilities_;
 
   // Whether the channel is audio only as identified by the device
   // certificate during channel authentication.

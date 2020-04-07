@@ -7,9 +7,9 @@
 #ifndef FXBARCODE_QRCODE_BC_QRCODERECBLOCKS_H_
 #define FXBARCODE_QRCODE_BC_QRCODERECBLOCKS_H_
 
-#include <vector>
+#include <stdint.h>
 
-#include "core/fxcrt/fx_basic.h"
+#include <vector>
 
 struct CBC_QRCoderECBlockData;
 

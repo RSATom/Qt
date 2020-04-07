@@ -60,6 +60,8 @@ class MOJO_CPP_BINDINGS_EXPORT AssociatedBindingBase {
   // Indicates whether the associated binding has been completed.
   bool is_bound() const { return !!endpoint_client_; }
 
+  explicit operator bool() const { return !!endpoint_client_; }
+
   // Sends a message on the underlying message pipe and runs the current
   // message loop until its response is received. This can be used in tests to
   // verify that no message was sent on a message pipe in response to some
@@ -134,6 +136,13 @@ class AssociatedBinding : public AssociatedBindingBase {
 
   // Returns the interface implementation that was previously specified.
   Interface* impl() { return ImplRefTraits::GetRawPointer(&stub_.sink()); }
+
+  // Allows test code to swap the interface implementation.
+  ImplPointerType SwapImplForTesting(ImplPointerType new_impl) {
+    Interface* old_impl = impl();
+    stub_.set_sink(std::move(new_impl));
+    return old_impl;
+  }
 
  private:
   typename Interface::template Stub_<ImplRefTraits> stub_;

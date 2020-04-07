@@ -77,7 +77,7 @@ class BrowsingDataCounter {
     DISALLOW_COPY_AND_ASSIGN(SyncResult);
   };
 
-  typedef base::Callback<void(std::unique_ptr<Result>)> Callback;
+  typedef base::RepeatingCallback<void(std::unique_ptr<Result>)> Callback;
 
   // Every calculation progresses through a state machine. At initialization,
   // the counter is IDLE. If a result is calculated within a given time
@@ -141,6 +141,9 @@ class BrowsingDataCounter {
 
   // Calculates the beginning of the counting period as |period_| before now.
   base::Time GetPeriodStart();
+
+  // Calculates the ending of the counting period.
+  base::Time GetPeriodEnd();
 
   // Returns if this counter belongs to a preference on the default, basic or
   // advanced CBD tab.

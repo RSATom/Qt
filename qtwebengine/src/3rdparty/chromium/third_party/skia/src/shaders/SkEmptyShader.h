@@ -20,7 +20,6 @@ class SkEmptyShader : public SkShaderBase {
 public:
     SkEmptyShader() {}
 
-    SK_TO_STRING_OVERRIDE()
     SK_DECLARE_PUBLIC_FLATTENABLE_DESERIALIZATION_PROCS(SkEmptyShader)
 
 protected:
@@ -34,8 +33,7 @@ protected:
         // which will write data we don't care to serialize or decode.
     }
 
-    bool onAppendStages(SkRasterPipeline*, SkColorSpace*, SkArenaAlloc*, const SkMatrix&,
-                        const SkPaint&, const SkMatrix*) const override {
+    bool onAppendStages(const StageRec&) const override {
         return false;
     }
 

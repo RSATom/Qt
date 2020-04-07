@@ -16,10 +16,9 @@
 #define sw_QuadRasterizer_hpp
 
 #include "Rasterizer.hpp"
-#include "ShaderCore.hpp"
-#include "PixelShader.hpp"
-
-#include "Types.hpp"
+#include "Shader/ShaderCore.hpp"
+#include "Shader/PixelShader.hpp"
+#include "Common/Types.hpp"
 
 namespace sw
 {
@@ -49,7 +48,7 @@ namespace sw
 
 		bool interpolateZ() const;
 		bool interpolateW() const;
-		Float4 interpolate(Float4 &x, Float4 &D, Float4 &rhw, Pointer<Byte> planeEquation, bool flat, bool perspective);
+		Float4 interpolate(Float4 &x, Float4 &D, Float4 &rhw, Pointer<Byte> planeEquation, bool flat, bool perspective, bool clamp);
 
 		const PixelProcessor::State &state;
 		const PixelShader *const shader;

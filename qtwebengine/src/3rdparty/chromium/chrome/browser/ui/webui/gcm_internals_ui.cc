@@ -4,12 +4,12 @@
 
 #include "chrome/browser/ui/webui/gcm_internals_ui.h"
 
+#include <memory>
 #include <vector>
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/memory/weak_ptr.h"
 #include "base/values.h"
 #include "chrome/browser/gcm/gcm_profile_service_factory.h"
@@ -145,12 +145,12 @@ void GcmInternalsUIMessageHandler::RequestGCMStatisticsFinished(
 void GcmInternalsUIMessageHandler::RegisterMessages() {
   web_ui()->RegisterMessageCallback(
       gcm_driver::kGetGcmInternalsInfo,
-      base::Bind(&GcmInternalsUIMessageHandler::RequestAllInfo,
-                 weak_ptr_factory_.GetWeakPtr()));
+      base::BindRepeating(&GcmInternalsUIMessageHandler::RequestAllInfo,
+                          weak_ptr_factory_.GetWeakPtr()));
   web_ui()->RegisterMessageCallback(
       gcm_driver::kSetGcmInternalsRecording,
-      base::Bind(&GcmInternalsUIMessageHandler::SetRecording,
-                 weak_ptr_factory_.GetWeakPtr()));
+      base::BindRepeating(&GcmInternalsUIMessageHandler::SetRecording,
+                          weak_ptr_factory_.GetWeakPtr()));
 }
 
 }  // namespace
@@ -169,12 +169,12 @@ GCMInternalsUI::GCMInternalsUI(content::WebUI* web_ui)
   html_source->AddResourcePath(gcm_driver::kGcmInternalsJS,
                                IDR_GCM_DRIVER_GCM_INTERNALS_JS);
   html_source->SetDefaultResource(IDR_GCM_DRIVER_GCM_INTERNALS_HTML);
-  html_source->UseGzip(std::unordered_set<std::string>());
+  html_source->UseGzip();
 
   Profile* profile = Profile::FromWebUI(web_ui);
   content::WebUIDataSource::Add(profile, html_source);
 
-  web_ui->AddMessageHandler(base::MakeUnique<GcmInternalsUIMessageHandler>());
+  web_ui->AddMessageHandler(std::make_unique<GcmInternalsUIMessageHandler>());
 }
 
 GCMInternalsUI::~GCMInternalsUI() {}

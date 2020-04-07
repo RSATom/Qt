@@ -39,6 +39,7 @@
 #ifndef JAVASCRIPT_DIALOG_MANAGER_QT_H
 #define JAVASCRIPT_DIALOG_MANAGER_QT_H
 
+#include "base/callback.h"
 #include "content/public/browser/javascript_dialog_manager.h"
 
 #include "web_contents_adapter_client.h"
@@ -59,13 +60,14 @@ public:
     // For use with the Singleton helper class from chromium
     static JavaScriptDialogManagerQt *GetInstance();
 
-    void RunJavaScriptDialog(content::WebContents *, const GURL &, content::JavaScriptDialogType dialog_type,
+    void RunJavaScriptDialog(content::WebContents *, content::RenderFrameHost *, content::JavaScriptDialogType dialog_type,
                              const base::string16 &messageText, const base::string16 &defaultPromptText,
-                             const content::JavaScriptDialogManager::DialogClosedCallback &callback,
+                             DialogClosedCallback callback,
                              bool *didSuppressMessage) override;
-
-    void RunBeforeUnloadDialog(content::WebContents *, bool isReload,
-                               const content::JavaScriptDialogManager::DialogClosedCallback &callback) override;
+    void RunBeforeUnloadDialog(content::WebContents *web_contents,
+                               content::RenderFrameHost *render_frame_host,
+                               bool is_reload,
+                               DialogClosedCallback callback) override;
     bool HandleJavaScriptDialog(content::WebContents *, bool accept, const base::string16 *promptOverride) override;
     void CancelDialogs(content::WebContents *contents, bool /*reset_state*/) override
     {
@@ -73,7 +75,7 @@ public:
     }
 
     void runDialogForContents(content::WebContents *, WebContentsAdapterClient::JavascriptDialogType, const QString &messageText, const QString &defaultPrompt
-                              , const QUrl &,const content::JavaScriptDialogManager::DialogClosedCallback &callback, const QString &title = QString());
+                              , const QUrl &, DialogClosedCallback &&callback, const QString &title = QString());
     QSharedPointer<JavaScriptDialogController> takeDialogForContents(content::WebContents *);
 
 private:

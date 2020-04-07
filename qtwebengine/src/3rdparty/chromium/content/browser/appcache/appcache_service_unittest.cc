@@ -50,9 +50,9 @@ class MockResponseReader : public AppCacheResponseReader {
         data_(data),
         data_size_(data_size) {}
   void ReadInfo(HttpResponseInfoIOBuffer* info_buf,
-                const net::CompletionCallback& callback) override {
+                OnceCompletionCallback callback) override {
     info_buffer_ = info_buf;
-    callback_ = callback;  // Cleared on completion.
+    callback_ = std::move(callback);  // Cleared on completion.
 
     int rv = info_.get() ? info_size_ : net::ERR_FAILED;
     info_buffer_->http_info.reset(info_.release());
@@ -61,10 +61,10 @@ class MockResponseReader : public AppCacheResponseReader {
   }
   void ReadData(net::IOBuffer* buf,
                 int buf_len,
-                const net::CompletionCallback& callback) override {
+                OnceCompletionCallback callback) override {
     buffer_ = buf;
     buffer_len_ = buf_len;
-    callback_ = callback;  // Cleared on completion.
+    callback_ = std::move(callback);  // Cleared on completion.
 
     if (!data_) {
       ScheduleUserCallback(net::ERR_CACHE_READ_FAILURE);
@@ -79,8 +79,9 @@ class MockResponseReader : public AppCacheResponseReader {
  private:
   void ScheduleUserCallback(int result) {
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::Bind(&MockResponseReader::InvokeUserCompletionCallback,
-                              weak_factory_.GetWeakPtr(), result));
+        FROM_HERE,
+        base::BindOnce(&MockResponseReader::InvokeUserCompletionCallback,
+                       weak_factory_.GetWeakPtr(), result));
   }
 
   std::unique_ptr<net::HttpResponseInfo> info_;
@@ -95,10 +96,12 @@ class MockResponseReader : public AppCacheResponseReader {
 class AppCacheServiceImplTest : public testing::Test {
  public:
   AppCacheServiceImplTest()
-      : kOrigin("http://hello/"),
-        kManifestUrl(kOrigin.Resolve("manifest")),
-        service_(new AppCacheServiceImpl(NULL)),
-        delete_result_(net::OK), delete_completion_count_(0),
+      : kOriginURL("http://hello/"),
+        kOrigin(url::Origin::Create(kOriginURL)),
+        kManifestUrl(kOriginURL.Resolve("manifest")),
+        service_(new AppCacheServiceImpl(nullptr)),
+        delete_result_(net::OK),
+        delete_completion_count_(0),
         deletion_callback_(
             base::Bind(&AppCacheServiceImplTest::OnDeleteAppCachesComplete,
                        base::Unretained(this))) {
@@ -148,9 +151,9 @@ class AppCacheServiceImplTest : public testing::Test {
 
   void SetupMockReader(
       bool valid_info, bool valid_data, bool valid_size) {
-    net::HttpResponseInfo* info = valid_info ? MakeMockResponseInfo() : NULL;
+    net::HttpResponseInfo* info = valid_info ? MakeMockResponseInfo() : nullptr;
     int info_size = info ? GetResponseInfoSize(info) : 0;
-    const char* data = valid_data ? kMockBody : NULL;
+    const char* data = valid_data ? kMockBody : nullptr;
     int data_size = valid_size ? kMockBodySize : 3;
     mock_storage()->SimulateResponseReader(
         new MockResponseReader(kMockResponseId, info, info_size,
@@ -180,7 +183,8 @@ class AppCacheServiceImplTest : public testing::Test {
     return pickle->size();
   }
 
-  const GURL kOrigin;
+  const GURL kOriginURL;
+  const url::Origin kOrigin;
   const GURL kManifestUrl;
 
   base::test::ScopedTaskEnvironment scoped_task_environment_;
@@ -214,9 +218,9 @@ TEST_F(AppCacheServiceImplTest, DeleteAppCachesForOrigin) {
   AppCacheInfo mock_manifest_1;
   AppCacheInfo mock_manifest_2;
   AppCacheInfo mock_manifest_3;
-  mock_manifest_1.manifest_url = kOrigin.Resolve("manifest1");
-  mock_manifest_2.manifest_url = kOrigin.Resolve("manifest2");
-  mock_manifest_3.manifest_url = kOrigin.Resolve("manifest3");
+  mock_manifest_1.manifest_url = kOriginURL.Resolve("manifest1");
+  mock_manifest_2.manifest_url = kOriginURL.Resolve("manifest2");
+  mock_manifest_3.manifest_url = kOriginURL.Resolve("manifest3");
   AppCacheInfoVector info_vector;
   info_vector.push_back(mock_manifest_1);
   info_vector.push_back(mock_manifest_2);
@@ -335,7 +339,8 @@ TEST_F(AppCacheServiceImplTest, ScheduleReinitialize) {
   const base::TimeDelta kOneHour(base::TimeDelta::FromHours(1));
 
   // Do things get initialized as expected?
-  std::unique_ptr<AppCacheServiceImpl> service(new AppCacheServiceImpl(NULL));
+  std::unique_ptr<AppCacheServiceImpl> service(
+      new AppCacheServiceImpl(nullptr));
   EXPECT_TRUE(service->last_reinit_time_.is_null());
   EXPECT_FALSE(service->reinit_timer_.IsRunning());
   EXPECT_EQ(kNoDelay, service->next_reinit_delay_);
@@ -379,7 +384,7 @@ TEST_F(AppCacheServiceImplTest, ScheduleReinitialize) {
   EXPECT_EQ(kOneHour, service->next_reinit_delay_);
 
   // Fine to delete while pending.
-  service.reset(NULL);
+  service.reset(nullptr);
 }
 
 

@@ -607,20 +607,20 @@ void QGraphicsProxyWidgetPrivate::setWidget_helper(QWidget *newWidget, bool auto
         for (QGraphicsItem *child : childItems) {
             if (child->d_ptr->isProxyWidget()) {
                 QGraphicsProxyWidget *childProxy = static_cast<QGraphicsProxyWidget *>(child);
-                QWidget * parent = childProxy->widget();
-                while (parent->parentWidget() != 0) {
+                QWidget *parent = childProxy->widget();
+                while (parent && parent->parentWidget()) {
                     if (parent == widget)
                         break;
                     parent = parent->parentWidget();
                 }
                 if (!childProxy->widget() || parent != widget)
                     continue;
-                childProxy->setWidget(0);
+                childProxy->setWidget(nullptr);
                 delete childProxy;
             }
         }
 
-        widget = 0;
+        widget = nullptr;
 #ifndef QT_NO_CURSOR
         q->unsetCursor();
 #endif
@@ -1050,13 +1050,13 @@ void QGraphicsProxyWidget::contextMenuEvent(QGraphicsSceneContextMenuEvent *even
 }
 #endif // QT_NO_CONTEXTMENU
 
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
 /*!
     \reimp
 */
 void QGraphicsProxyWidget::dragEnterEvent(QGraphicsSceneDragDropEvent *event)
 {
-#ifdef QT_NO_DRAGANDDROP
+#if !QT_CONFIG(draganddrop)
     Q_UNUSED(event);
 #else
     Q_D(QGraphicsProxyWidget);
@@ -1077,7 +1077,7 @@ void QGraphicsProxyWidget::dragEnterEvent(QGraphicsSceneDragDropEvent *event)
 void QGraphicsProxyWidget::dragLeaveEvent(QGraphicsSceneDragDropEvent *event)
 {
     Q_UNUSED(event);
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
     Q_D(QGraphicsProxyWidget);
     if (!d->widget || !d->dragDropWidget)
         return;
@@ -1092,7 +1092,7 @@ void QGraphicsProxyWidget::dragLeaveEvent(QGraphicsSceneDragDropEvent *event)
 */
 void QGraphicsProxyWidget::dragMoveEvent(QGraphicsSceneDragDropEvent *event)
 {
-#ifdef QT_NO_DRAGANDDROP
+#if !QT_CONFIG(draganddrop)
     Q_UNUSED(event);
 #else
     Q_D(QGraphicsProxyWidget);
@@ -1158,7 +1158,7 @@ void QGraphicsProxyWidget::dragMoveEvent(QGraphicsSceneDragDropEvent *event)
 */
 void QGraphicsProxyWidget::dropEvent(QGraphicsSceneDragDropEvent *event)
 {
-#ifdef QT_NO_DRAGANDDROP
+#if !QT_CONFIG(draganddrop)
     Q_UNUSED(event);
 #else
     Q_D(QGraphicsProxyWidget);
@@ -1535,6 +1535,14 @@ void QGraphicsProxyWidget::paint(QPainter *painter, const QStyleOptionGraphicsIt
 
     d->widget->render(painter, exposedWidgetRect.topLeft(), exposedWidgetRect);
 }
+
+/*!
+  \enum QGraphicsProxyWidget::anonymous
+
+  The value returned by the virtual type() function.
+
+  \value Type A graphics proxy widget
+*/
 
 /*!
     \reimp

@@ -9,10 +9,19 @@
 #define SkShaderBase_DEFINED
 
 #include "SkFilterQuality.h"
+#include "SkFlattenablePriv.h"
+#include "SkMask.h"
 #include "SkMatrix.h"
+#include "SkNoncopyable.h"
 #include "SkShader.h"
+#include "SkTLazy.h"
+
+#if SK_SUPPORT_GPU
+#include "GrFPArgs.h"
+#endif
 
 class GrContext;
+class GrColorSpaceInfo;
 class GrFragmentProcessor;
 class SkArenaAlloc;
 class SkColorSpace;
@@ -98,20 +107,6 @@ public:
 
         virtual void shadeSpan4f(int x, int y, SkPM4f[], int count);
 
-        /**
-         * The const void* ctx is only const because all the implementations are const.
-         * This can be changed to non-const if a new shade proc needs to change the ctx.
-         */
-        typedef void (*ShadeProc)(const void* ctx, int x, int y, SkPMColor[], int count);
-        virtual ShadeProc asAShadeProc(void** ctx);
-
-        /**
-         *  Similar to shadeSpan, but only returns the alpha-channel for a span.
-         *  The default implementation calls shadeSpan() and then extracts the alpha
-         *  values from the returned colors.
-         */
-        virtual void shadeSpanAlpha(int x, int y, uint8_t alpha[], int count);
-
         // Notification from blitter::blitMask in case we need to see the non-alpha channels
         virtual void set3DMask(const SkMask*) {}
 
@@ -148,26 +143,6 @@ public:
     Context* makeBurstPipelineContext(const ContextRec&, SkArenaAlloc*) const;
 
 #if SK_SUPPORT_GPU
-    struct AsFPArgs {
-        AsFPArgs() {}
-        AsFPArgs(GrContext* context,
-                 const SkMatrix* viewMatrix,
-                 const SkMatrix* localMatrix,
-                 SkFilterQuality filterQuality,
-                 SkColorSpace* dstColorSpace)
-            : fContext(context)
-            , fViewMatrix(viewMatrix)
-            , fLocalMatrix(localMatrix)
-            , fFilterQuality(filterQuality)
-            , fDstColorSpace(dstColorSpace) {}
-
-        GrContext*                    fContext;
-        const SkMatrix*               fViewMatrix;
-        const SkMatrix*               fLocalMatrix;
-        SkFilterQuality               fFilterQuality;
-        SkColorSpace*                 fDstColorSpace;
-    };
-
     /**
      *  Returns a GrFragmentProcessor that implements the shader for the GPU backend. NULL is
      *  returned if there is no GPU implementation.
@@ -181,7 +156,7 @@ public:
      *  The returned GrFragmentProcessor should expect an unpremultiplied input color and
      *  produce a premultiplied output.
      */
-    virtual sk_sp<GrFragmentProcessor> asFragmentProcessor(const AsFPArgs&) const;
+    virtual std::unique_ptr<GrFragmentProcessor> asFragmentProcessor(const GrFPArgs&) const;
 #endif
 
     /**
@@ -201,18 +176,28 @@ public:
         return this->onMakeColorSpace(xformer);
     }
 
-    bool isRasterPipelineOnly() const {
-        // We always use RP when perspective is present.
-        return fLocalMatrix.hasPerspective() || this->onIsRasterPipelineOnly();
-    }
+    struct StageRec {
+        SkRasterPipeline*   fPipeline;
+        SkArenaAlloc*       fAlloc;
+        SkColorSpace*       fDstCS;         // may be nullptr
+        const SkPaint&      fPaint;
+        const SkMatrix*     fLocalM;        // may be nullptr
+        SkMatrix            fCTM;
+    };
 
     // If this returns false, then we draw nothing (do not fall back to shader context)
-    bool appendStages(SkRasterPipeline*, SkColorSpace* dstCS, SkArenaAlloc*,
-                      const SkMatrix& ctm, const SkPaint&, const SkMatrix* localM=nullptr) const;
+    bool appendStages(const StageRec&) const;
 
-    bool computeTotalInverse(const SkMatrix& ctm,
-                             const SkMatrix* outerLocalMatrix,
-                             SkMatrix* totalInverse) const;
+    bool SK_WARN_UNUSED_RESULT computeTotalInverse(const SkMatrix& ctm,
+                                                   const SkMatrix* outerLocalMatrix,
+                                                   SkMatrix* totalInverse) const;
+
+    // Returns the total local matrix for this shader:
+    //
+    //   M = postLocalMatrix x shaderLocalMatrix x preLocalMatrix
+    //
+    SkTCopyOnFirstWrite<SkMatrix> totalLocalMatrix(const SkMatrix* preLocalMatrix,
+                                                   const SkMatrix* postLocalMatrix = nullptr) const;
 
 #ifdef SK_SUPPORT_LEGACY_SHADER_ISABITMAP
     virtual bool onIsABitmap(SkBitmap*, SkMatrix*, TileMode[2]) const {
@@ -223,8 +208,6 @@ public:
     virtual SkImage* onIsAImage(SkMatrix*, TileMode[2]) const {
         return nullptr;
     }
-
-    SK_TO_STRING_VIRT()
 
     SK_DEFINE_FLATTENABLE_TYPE(SkShaderBase)
     SK_DECLARE_FLATTENABLE_REGISTRAR_GROUP()
@@ -258,10 +241,7 @@ protected:
     }
 
     // Default impl creates shadercontext and calls that (not very efficient)
-    virtual bool onAppendStages(SkRasterPipeline*, SkColorSpace* dstCS, SkArenaAlloc*,
-                                const SkMatrix&, const SkPaint&, const SkMatrix* localM) const;
-
-    virtual bool onIsRasterPipelineOnly() const { return false; }
+    virtual bool onAppendStages(const StageRec&) const;
 
 private:
     // This is essentially const, but not officially so it can be modified in constructors.

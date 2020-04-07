@@ -2,6 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#ifndef GPU_IPC_COMMON_GPU_MESSAGES_H_
+#define GPU_IPC_COMMON_GPU_MESSAGES_H_
+
 // Multiply-included message file, hence no include guard here, but see below
 // for a much smaller-than-usual include guard section.
 
@@ -19,7 +22,6 @@
 #include "gpu/command_buffer/common/gpu_memory_allocation.h"
 #include "gpu/command_buffer/common/mailbox.h"
 #include "gpu/command_buffer/common/sync_token.h"
-#include "gpu/command_buffer/common/texture_in_use_response.h"
 #include "gpu/config/gpu_info.h"
 #include "gpu/gpu_export.h"
 #include "gpu/ipc/common/gpu_command_buffer_traits.h"
@@ -28,13 +30,13 @@
 #include "ipc/ipc_channel_handle.h"
 #include "ipc/ipc_message_macros.h"
 #include "ui/gfx/geometry/size.h"
+#include "ui/gfx/gpu_fence_handle.h"
 #include "ui/gfx/gpu_memory_buffer.h"
 #include "ui/gfx/ipc/geometry/gfx_param_traits.h"
 #include "ui/gfx/ipc/gfx_param_traits.h"
 #include "ui/gfx/native_widget_types.h"
+#include "ui/gfx/presentation_feedback.h"
 #include "ui/gfx/swap_result.h"
-#include "ui/latency/ipc/latency_info_param_traits.h"
-#include "ui/latency/latency_info.h"
 #include "url/ipc/url_param_traits.h"
 
 #if defined(OS_MACOSX)
@@ -57,7 +59,7 @@ IPC_STRUCT_BEGIN(GPUCreateCommandBufferConfig)
   IPC_STRUCT_MEMBER(int32_t, share_group_id)
   IPC_STRUCT_MEMBER(int32_t, stream_id)
   IPC_STRUCT_MEMBER(gpu::SchedulingPriority, stream_priority)
-  IPC_STRUCT_MEMBER(gpu::gles2::ContextCreationAttribHelper, attribs)
+  IPC_STRUCT_MEMBER(gpu::ContextCreationAttribs, attribs)
   IPC_STRUCT_MEMBER(GURL, active_url)
 IPC_STRUCT_END()
 
@@ -70,55 +72,34 @@ IPC_STRUCT_BEGIN(GpuCommandBufferMsg_CreateImage_Params)
   IPC_STRUCT_MEMBER(uint64_t, image_release_count)
 IPC_STRUCT_END()
 
-IPC_STRUCT_BEGIN(GpuCommandBufferMsg_SwapBuffersCompleted_Params)
-#if defined(OS_MACOSX)
-  // Mac-specific parameters used to present CALayers hosted in the GPU process.
-  // TODO(ccameron): Remove these parameters once the CALayer tree is hosted in
-  // the browser process.
-  // https://crbug.com/604052
-  // Only one of ca_context_id or io_surface may be non-0.
-  IPC_STRUCT_MEMBER(CAContextID, ca_context_id)
-  IPC_STRUCT_MEMBER(bool, fullscreen_low_power_ca_context_valid)
-  IPC_STRUCT_MEMBER(CAContextID, fullscreen_low_power_ca_context_id)
-  IPC_STRUCT_MEMBER(gfx::ScopedRefCountedIOSurfaceMachPort, io_surface)
-  IPC_STRUCT_MEMBER(gfx::Size, pixel_size)
-  IPC_STRUCT_MEMBER(float, scale_factor)
-  IPC_STRUCT_MEMBER(gpu::TextureInUseResponses, in_use_responses)
-#endif
-  IPC_STRUCT_MEMBER(std::vector<ui::LatencyInfo>, latency_info)
-  IPC_STRUCT_MEMBER(gfx::SwapResult, result)
-IPC_STRUCT_END()
-
 //------------------------------------------------------------------------------
 // GPU Channel Messages
 // These are messages from a renderer process to the GPU process.
 
 // Tells the GPU process to create a new command buffer. A corresponding
-// GpuCommandBufferStub is created.  if |surface_handle| is non-null, |size| is
-// ignored, and it will render directly to the native surface (only the browser
-// process is allowed to create those). Otherwise it will create an offscreen
-// backbuffer of dimensions |size|.
+// CommandBufferStub is created.  If |surface_handle| is non-null, |size|
+// is ignored, and it will render directly to the native surface (only the
+// browser process is allowed to create those). Otherwise it will create an
+// offscreen backbuffer of dimensions |size|.
 IPC_SYNC_MESSAGE_CONTROL3_2(GpuChannelMsg_CreateCommandBuffer,
                             GPUCreateCommandBufferConfig /* init_params */,
                             int32_t /* route_id */,
-                            base::SharedMemoryHandle /* shared_state */,
-                            bool /* result */,
+                            base::UnsafeSharedMemoryRegion /* shared_state */,
+                            gpu::ContextResult,
                             gpu::Capabilities /* capabilities */)
 
-// The CommandBufferProxy sends this to the GpuCommandBufferStub in its
+// The CommandBufferProxy sends this to the CommandBufferStub in its
 // destructor, so that the stub deletes the actual CommandBufferService
 // object that it's hosting.
 IPC_SYNC_MESSAGE_CONTROL1_0(GpuChannelMsg_DestroyCommandBuffer,
                             int32_t /* instance_id */)
 
+IPC_MESSAGE_CONTROL1(GpuChannelMsg_FlushCommandBuffers,
+                     std::vector<gpu::FlushParams> /* flush_list */)
+
 // Simple NOP message which can be used as fence to ensure all previous sent
 // messages have been received.
 IPC_SYNC_MESSAGE_CONTROL0_0(GpuChannelMsg_Nop)
-
-// Retrieve the current list of gpu driver workarounds effectively running on
-// the gpu process.
-IPC_SYNC_MESSAGE_CONTROL0_1(GpuChannelMsg_GetDriverBugWorkArounds,
-                            std::vector<std::string> /* workarounds */)
 
 #if defined(OS_ANDROID)
 //------------------------------------------------------------------------------
@@ -173,13 +154,13 @@ IPC_SYNC_MESSAGE_ROUTED3_1(GpuCommandBufferMsg_WaitForGetOffsetInRange,
 
 // Asynchronously synchronize the put and get offsets of both processes.
 // Caller passes its current put offset. Current state (including get offset)
-// is returned in shared memory. The input latency info for the current
-// frame is also sent to the GPU process.
-IPC_MESSAGE_ROUTED4(GpuCommandBufferMsg_AsyncFlush,
+// is returned in shared memory.
+// TODO(sunnyps): This is an internal implementation detail of the gpu service
+// and is not sent by the client. Remove this once the non-scheduler code path
+// is removed.
+IPC_MESSAGE_ROUTED2(GpuCommandBufferMsg_AsyncFlush,
                     int32_t /* put_offset */,
-                    uint32_t /* flush_count */,
-                    std::vector<ui::LatencyInfo> /* latency_info */,
-                    std::vector<gpu::SyncToken> /* sync_token_fences */)
+                    uint32_t /* flush_id */)
 
 // Sent by the GPU process to display messages in the console.
 IPC_MESSAGE_ROUTED1(GpuCommandBufferMsg_ConsoleMsg,
@@ -187,10 +168,9 @@ IPC_MESSAGE_ROUTED1(GpuCommandBufferMsg_ConsoleMsg,
 
 // Register an existing shared memory transfer buffer. The id that can be
 // used to identify the transfer buffer from a command buffer.
-IPC_MESSAGE_ROUTED3(GpuCommandBufferMsg_RegisterTransferBuffer,
+IPC_MESSAGE_ROUTED2(GpuCommandBufferMsg_RegisterTransferBuffer,
                     int32_t /* id */,
-                    base::SharedMemoryHandle /* transfer_buffer */,
-                    uint32_t /* size */)
+                    base::UnsafeSharedMemoryRegion /* transfer_buffer */)
 
 // Destroy a previously created transfer buffer.
 IPC_MESSAGE_ROUTED1(GpuCommandBufferMsg_DestroyTransferBuffer, int32_t /* id */)
@@ -201,15 +181,14 @@ IPC_MESSAGE_ROUTED2(GpuCommandBufferMsg_Destroyed,
                     gpu::error::ContextLostReason, /* reason */
                     gpu::error::Error /* error */)
 
-// Tells the browser that SwapBuffers returned and passes latency info
-IPC_MESSAGE_ROUTED1(
-    GpuCommandBufferMsg_SwapBuffersCompleted,
-    GpuCommandBufferMsg_SwapBuffersCompleted_Params /* params */)
+// Tells the browser that SwapBuffers returned.
+IPC_MESSAGE_ROUTED1(GpuCommandBufferMsg_SwapBuffersCompleted,
+                    gpu::SwapBuffersCompleteParams /* params */)
 
-// Tells the browser about updated parameters for vsync alignment.
-IPC_MESSAGE_ROUTED2(GpuCommandBufferMsg_UpdateVSyncParameters,
-                    base::TimeTicks /* timebase */,
-                    base::TimeDelta /* interval */)
+// Tells the browser a buffer has been presented on screen.
+IPC_MESSAGE_ROUTED2(GpuCommandBufferMsg_BufferPresented,
+                    uint64_t, /* swap_id */
+                    gfx::PresentationFeedback /* feedback */)
 
 // The receiver will stop processing messages until the Synctoken is signaled.
 IPC_MESSAGE_ROUTED1(GpuCommandBufferMsg_WaitSyncToken,
@@ -229,7 +208,9 @@ IPC_MESSAGE_ROUTED2(GpuCommandBufferMsg_SignalQuery,
                     uint32_t /* signal_id */)
 
 // Response to SignalSyncPoint, SignalSyncToken, and SignalQuery.
-IPC_MESSAGE_ROUTED1(GpuCommandBufferMsg_SignalAck, uint32_t /* signal_id */)
+IPC_MESSAGE_ROUTED2(GpuCommandBufferMsg_SignalAck,
+                    uint32_t /* signal_id */,
+                    gpu::CommandBuffer::State /* state */)
 
 // Create an image from an existing gpu memory buffer. The id that can be
 // used to identify the image from a command buffer.
@@ -245,5 +226,18 @@ IPC_SYNC_MESSAGE_ROUTED2_1(GpuCommandBufferMsg_CreateStreamTexture,
                            int32_t,  /* stream_id */
                            bool /* succeeded */)
 
-// Start or stop VSync sygnal production on GPU side (Windows only).
-IPC_MESSAGE_ROUTED1(GpuCommandBufferMsg_SetNeedsVSync, bool /* needs_vsync */)
+// Send a GPU fence handle and store it for the specified gpu fence ID.
+IPC_MESSAGE_ROUTED2(GpuCommandBufferMsg_CreateGpuFenceFromHandle,
+                    uint32_t /* gpu_fence_id */,
+                    gfx::GpuFenceHandle)
+
+// Request retrieval of a GpuFenceHandle by ID.
+IPC_MESSAGE_ROUTED1(GpuCommandBufferMsg_GetGpuFenceHandle,
+                    uint32_t /* gpu_fence_id */)
+
+// Response to GetGpuFenceHandle.
+IPC_MESSAGE_ROUTED2(GpuCommandBufferMsg_GetGpuFenceHandleComplete,
+                    uint32_t /* gpu_fence_id */,
+                    gfx::GpuFenceHandle)
+
+#endif  // GPU_IPC_COMMON_GPU_MESSAGES_H_

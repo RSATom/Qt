@@ -7,42 +7,34 @@
 #ifndef CORE_FXCRT_FX_STREAM_H_
 #define CORE_FXCRT_FX_STREAM_H_
 
-#include "core/fxcrt/cfx_retain_ptr.h"
 #include "core/fxcrt/fx_string.h"
 #include "core/fxcrt/fx_system.h"
+#include "core/fxcrt/retain_ptr.h"
 
-#if _FXM_PLATFORM_ == _FXM_PLATFORM_WINDOWS_
-#include <direct.h>
+#if _FX_PLATFORM_ == _FX_PLATFORM_WINDOWS_
 
-class CFindFileDataA;
+struct CFindFileDataA;
 typedef CFindFileDataA FX_FileHandle;
 
-#else  // _FXM_PLATFORM_ == _FXM_PLATFORM_WINDOWS_
+#else  // _FX_PLATFORM_ == _FX_PLATFORM_WINDOWS_
 
 #include <dirent.h>
-#include <fcntl.h>
-#include <sys/stat.h>
 #include <sys/types.h>
-#include <unistd.h>
-
 typedef DIR FX_FileHandle;
-#endif  // _FXM_PLATFORM_ == _FXM_PLATFORM_WINDOWS_
+
+#endif  // _FX_PLATFORM_ == _FX_PLATFORM_WINDOWS_
 
 FX_FileHandle* FX_OpenFolder(const char* path);
-bool FX_GetNextFile(FX_FileHandle* handle,
-                    CFX_ByteString* filename,
-                    bool* bFolder);
+bool FX_GetNextFile(FX_FileHandle* handle, ByteString* filename, bool* bFolder);
 void FX_CloseFolder(FX_FileHandle* handle);
-wchar_t FX_GetFolderSeparator();
 
-#define FX_FILEMODE_Write 0
 #define FX_FILEMODE_ReadOnly 1
 #define FX_FILEMODE_Truncate 2
 
-class IFX_WriteStream : virtual public CFX_Retainable {
+class IFX_WriteStream : virtual public Retainable {
  public:
   virtual bool WriteBlock(const void* pData, size_t size) = 0;
-  virtual bool WriteString(const CFX_ByteStringC& str) = 0;
+  virtual bool WriteString(const ByteStringView& str) = 0;
 };
 
 class IFX_ArchiveStream : public IFX_WriteStream {
@@ -52,7 +44,7 @@ class IFX_ArchiveStream : public IFX_WriteStream {
   virtual FX_FILESIZE CurrentOffset() const = 0;
 };
 
-class IFX_ReadStream : virtual public CFX_Retainable {
+class IFX_ReadStream : virtual public Retainable {
  public:
   virtual bool IsEOF() = 0;
   virtual FX_FILESIZE GetPosition() = 0;
@@ -73,7 +65,7 @@ class IFX_SeekableWriteStream : public IFX_WriteStream {
 
 class IFX_SeekableReadStream : public IFX_ReadStream {
  public:
-  static CFX_RetainPtr<IFX_SeekableReadStream> CreateFromFilename(
+  static RetainPtr<IFX_SeekableReadStream> CreateFromFilename(
       const char* filename);
 
   // IFX_ReadStream:
@@ -88,11 +80,10 @@ class IFX_SeekableReadStream : public IFX_ReadStream {
 class IFX_SeekableStream : public IFX_SeekableReadStream,
                            public IFX_SeekableWriteStream {
  public:
-  static CFX_RetainPtr<IFX_SeekableStream> CreateFromFilename(
-      const char* filename,
-      uint32_t dwModes);
+  static RetainPtr<IFX_SeekableStream> CreateFromFilename(const char* filename,
+                                                          uint32_t dwModes);
 
-  static CFX_RetainPtr<IFX_SeekableStream> CreateFromFilename(
+  static RetainPtr<IFX_SeekableStream> CreateFromFilename(
       const wchar_t* filename,
       uint32_t dwModes);
 
@@ -108,24 +99,9 @@ class IFX_SeekableStream : public IFX_SeekableReadStream,
                   FX_FILESIZE offset,
                   size_t size) override = 0;
   bool WriteBlock(const void* buffer, size_t size) override;
-  bool WriteString(const CFX_ByteStringC& str) override;
+  bool WriteString(const ByteStringView& str) override;
 
   bool Flush() override = 0;
 };
-
-#if _FXM_PLATFORM_ == _FXM_PLATFORM_WINDOWS_
-class CFindFileData {
- public:
-  virtual ~CFindFileData() {}
-  HANDLE m_Handle;
-  bool m_bEnd;
-};
-
-class CFindFileDataA : public CFindFileData {
- public:
-  ~CFindFileDataA() override {}
-  WIN32_FIND_DATAA m_FindData;
-};
-#endif
 
 #endif  // CORE_FXCRT_FX_STREAM_H_

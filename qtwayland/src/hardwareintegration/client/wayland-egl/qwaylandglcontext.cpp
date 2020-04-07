@@ -145,6 +145,7 @@ public:
     }
     void blit(QWaylandEglWindow *window)
     {
+        Q_ASSERT(window->wl_surface::isInitialized());
         QOpenGLTextureCache *cache = QOpenGLTextureCache::cacheForContext(m_context->context());
 
         QRect windowRect = window->window()->frameGeometry();
@@ -219,8 +220,8 @@ public:
         m_blitProgram->disableAttributeArray(1);
     }
 
-    QOpenGLShaderProgram *m_blitProgram;
-    QWaylandGLContext *m_context;
+    QOpenGLShaderProgram *m_blitProgram = nullptr;
+    QWaylandGLContext *m_context = nullptr;
 };
 
 
@@ -229,15 +230,12 @@ QWaylandGLContext::QWaylandGLContext(EGLDisplay eglDisplay, QWaylandDisplay *dis
     : QPlatformOpenGLContext()
     , m_eglDisplay(eglDisplay)
     , m_display(display)
-    , m_blitter(0)
-    , mUseNativeDefaultFbo(false)
-    , mSupportNonBlockingSwap(true)
 {
     QSurfaceFormat fmt = format;
     if (static_cast<QWaylandIntegration *>(QGuiApplicationPrivate::platformIntegration())->display()->supportsWindowDecoration())
         fmt.setAlphaBufferSize(8);
     m_config = q_configFromGLFormat(m_eglDisplay, fmt);
-    m_format = q_glFormatFromConfig(m_eglDisplay, m_config);
+    m_format = q_glFormatFromConfig(m_eglDisplay, m_config, fmt);
     m_shareEGLContext = share ? static_cast<QWaylandGLContext *>(share)->eglContext() : EGL_NO_CONTEXT;
 
     QVector<EGLint> eglContextAttrs;
@@ -262,10 +260,18 @@ QWaylandGLContext::QWaylandGLContext(EGLDisplay eglDisplay, QWaylandDisplay *dis
         }
         // Profiles are OpenGL only and mandatory in 3.2+. The value is silently ignored for < 3.2.
         if (m_format.renderableType() == QSurfaceFormat::OpenGL) {
-            eglContextAttrs.append(EGL_CONTEXT_OPENGL_PROFILE_MASK_KHR);
-            eglContextAttrs.append(format.profile() == QSurfaceFormat::CoreProfile
-                                ? EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT_KHR
-                                : EGL_CONTEXT_OPENGL_COMPATIBILITY_PROFILE_BIT_KHR);
+            switch (format.profile()) {
+            case QSurfaceFormat::NoProfile:
+                break;
+            case QSurfaceFormat::CoreProfile:
+                eglContextAttrs.append(EGL_CONTEXT_OPENGL_PROFILE_MASK_KHR);
+                eglContextAttrs.append(EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT_KHR);
+                break;
+            case QSurfaceFormat::CompatibilityProfile:
+                eglContextAttrs.append(EGL_CONTEXT_OPENGL_PROFILE_MASK_KHR);
+                eglContextAttrs.append(EGL_CONTEXT_OPENGL_COMPATIBILITY_PROFILE_BIT_KHR);
+                break;
+            }
         }
     }
     eglContextAttrs.append(EGL_NONE);
@@ -327,7 +333,7 @@ void QWaylandGLContext::updateGLFormat()
     EGLSurface prevSurfaceDraw = eglGetCurrentSurface(EGL_DRAW);
     EGLSurface prevSurfaceRead = eglGetCurrentSurface(EGL_READ);
 
-    wl_surface *wlSurface = m_display->createSurface(Q_NULLPTR);
+    wl_surface *wlSurface = m_display->createSurface(nullptr);
     wl_egl_window *eglWindow = wl_egl_window_create(wlSurface, 1, 1);
     EGLSurface eglSurface = eglCreateWindowSurface(m_eglDisplay, m_config, eglWindow, 0);
 
@@ -394,10 +400,16 @@ bool QWaylandGLContext::makeCurrent(QPlatformSurface *surface)
     QWaylandEglWindow *window = static_cast<QWaylandEglWindow *>(surface);
     EGLSurface eglSurface = window->eglSurface();
 
-    if (!window->needToUpdateContentFBO() && (eglSurface != EGL_NO_SURFACE && eglGetCurrentContext() == m_context && eglGetCurrentSurface(EGL_DRAW) == eglSurface))
+    if (!window->needToUpdateContentFBO() && (eglSurface != EGL_NO_SURFACE)) {
+        if (!eglMakeCurrent(m_eglDisplay, eglSurface, eglSurface, m_context)) {
+            qWarning("QWaylandGLContext::makeCurrent: eglError: %x, this: %p \n", eglGetError(), this);
+            return false;
+        }
         return true;
+    }
 
-    window->setCanResize(false);
+    if (window->isExposed())
+        window->setCanResize(false);
     // Core profiles mandate the use of VAOs when rendering. We would then need to use one
     // in DecorationsBlitter, but for that we would need a QOpenGLFunctions_3_2_Core instead
     // of the QOpenGLFunctions we use, but that would break when using a lower version context.
@@ -407,7 +419,7 @@ bool QWaylandGLContext::makeCurrent(QPlatformSurface *surface)
         window->createDecoration();
 
     if (eglSurface == EGL_NO_SURFACE) {
-        window->updateSurface(window->isExposed());
+        window->updateSurface(true);
         eglSurface = window->eglSurface();
     }
 
@@ -417,6 +429,9 @@ bool QWaylandGLContext::makeCurrent(QPlatformSurface *surface)
         return false;
     }
 
+    //### setCurrentContext will be called in QOpenGLContext::makeCurrent after this function
+    // returns, but that's too late, as we need a current context in order to bind the content FBO.
+    QOpenGLContextPrivate::setCurrentContext(context());
     window->bindContentFBO();
 
     return true;
@@ -515,7 +530,7 @@ private:
         GLint stride;
         GLenum type;
         bool normalized;
-        void *pointer;
+        void *pointer = nullptr;
     } m_vertexAttribs[STATE_GUARD_VERTEX_ATTRIB_COUNT];
     GLenum m_minFilter;
     GLenum m_magFilter;

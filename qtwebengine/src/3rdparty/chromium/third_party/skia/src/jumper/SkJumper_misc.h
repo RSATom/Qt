@@ -8,12 +8,12 @@
 #ifndef SkJumper_misc_DEFINED
 #define SkJumper_misc_DEFINED
 
-#include "SkJumper.h"  // for memcpy()
+#include <string.h>  // for memcpy()
 
-// Miscellany used by SkJumper_stages.cpp and SkJumper_vectors.h.
+// Miscellany used by SkJumper_stages.cpp and SkJumper_stages_lowp.cpp.
 
 // Every function in this file should be marked static and inline using SI.
-#if defined(JUMPER)
+#if defined(__clang__)
     #define SI __attribute__((always_inline)) static inline
 #else
     #define SI static inline
@@ -63,19 +63,21 @@ SI void* load_and_inc(void**& program) {
 #endif
 }
 
-// LazyCtx doesn't do anything unless you call operator T*(), encapsulating the logic
-// from above that stages without a context pointer are represented by just 1 void*.
-struct LazyCtx {
+// Lazily resolved on first cast.  Does nothing if cast to Ctx::None.
+struct Ctx {
+    struct None {};
+
     void*   ptr;
     void**& program;
 
-    explicit LazyCtx(void**& p) : ptr(nullptr), program(p) {}
+    explicit Ctx(void**& p) : ptr(nullptr), program(p) {}
 
     template <typename T>
     operator T*() {
         if (!ptr) { ptr = load_and_inc(program); }
         return (T*)ptr;
     }
+    operator None() { return None{}; }
 };
 
 #endif//SkJumper_misc_DEFINED

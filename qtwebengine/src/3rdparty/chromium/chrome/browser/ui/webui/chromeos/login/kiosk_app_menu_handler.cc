@@ -77,15 +77,18 @@ void KioskAppMenuHandler::GetLocalizedStrings(
 }
 
 void KioskAppMenuHandler::RegisterMessages() {
-  web_ui()->RegisterMessageCallback("initializeKioskApps",
-      base::Bind(&KioskAppMenuHandler::HandleInitializeKioskApps,
-                 base::Unretained(this)));
-  web_ui()->RegisterMessageCallback("kioskAppsLoaded",
-      base::Bind(&KioskAppMenuHandler::HandleKioskAppsLoaded,
-                 base::Unretained(this)));
-  web_ui()->RegisterMessageCallback("checkKioskAppLaunchError",
-      base::Bind(&KioskAppMenuHandler::HandleCheckKioskAppLaunchError,
-                 base::Unretained(this)));
+  web_ui()->RegisterMessageCallback(
+      "initializeKioskApps",
+      base::BindRepeating(&KioskAppMenuHandler::HandleInitializeKioskApps,
+                          base::Unretained(this)));
+  web_ui()->RegisterMessageCallback(
+      "kioskAppsLoaded",
+      base::BindRepeating(&KioskAppMenuHandler::HandleKioskAppsLoaded,
+                          base::Unretained(this)));
+  web_ui()->RegisterMessageCallback(
+      "checkKioskAppLaunchError",
+      base::BindRepeating(&KioskAppMenuHandler::HandleCheckKioskAppLaunchError,
+                          base::Unretained(this)));
 }
 
 // static
@@ -118,7 +121,7 @@ void KioskAppMenuHandler::SendKioskApps() {
     std::string icon_url;
     if (app_data.icon.isNull()) {
       icon_url =
-          webui::GetBitmapDataUrl(*ResourceBundle::GetSharedInstance()
+          webui::GetBitmapDataUrl(*ui::ResourceBundle::GetSharedInstance()
                                        .GetImageNamed(IDR_APP_DEFAULT_ICON)
                                        .ToSkBitmap());
     } else {
@@ -144,7 +147,7 @@ void KioskAppMenuHandler::SendKioskApps() {
     std::string icon_url;
     if (arc_apps[i]->icon().isNull()) {
       icon_url =
-          webui::GetBitmapDataUrl(*ResourceBundle::GetSharedInstance()
+          webui::GetBitmapDataUrl(*ui::ResourceBundle::GetSharedInstance()
                                        .GetImageNamed(IDR_APP_DEFAULT_ICON)
                                        .ToSkBitmap());
     } else {

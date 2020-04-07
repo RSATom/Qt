@@ -5,34 +5,20 @@
 #ifndef SERVICES_DEVICE_GENERIC_SENSOR_GENERIC_SENSOR_CONSTS_H_
 #define SERVICES_DEVICE_GENERIC_SENSOR_GENERIC_SENSOR_CONSTS_H_
 
-#define _USE_MATH_DEFINES
-#include <math.h>
-
 namespace device {
+
+// If two doubles differ by less than this amount, we can consider them
+// to be effectively equal.
+constexpr double kEpsilon = 1e-8;
 
 // Required for conversion from G/s^2 to m/s^2
 constexpr double kMeanGravity = 9.80665;
-
-// Required for conversion from deg to rad
-constexpr double kRadiansInDegrees = M_PI / 180.0;
 
 // Required for conversion from Gauss to uT.
 constexpr double kMicroteslaInGauss = 100.0;
 
 // Required for conversion from Milligauss to Microtesla.
 constexpr double kMicroteslaInMilligauss = 0.1;
-
-// Default rate for returning value of the ambient light sensor.
-constexpr int kDefaultAmbientLightFrequencyHz = 5;
-
-// Default rate for returning value of the accelerometer sensor.
-constexpr int kDefaultAccelerometerFrequencyHz = 10;
-
-// Default rate for returning value of the gyroscope sensor.
-constexpr int kDefaultGyroscopeFrequencyHz = 10;
-
-// Default rate for returning value of the magnetometer sensor.
-constexpr int kDefaultMagnetometerFrequencyHz = 10;
 
 }  // namespace device
 

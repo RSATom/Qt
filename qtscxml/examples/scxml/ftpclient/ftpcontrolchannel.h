@@ -51,9 +51,9 @@
 #ifndef FTPCONTROLCHANNEL_H
 #define FTPCONTROLCHANNEL_H
 
+#include <QHostAddress>
 #include <QObject>
 #include <QTcpSocket>
-#include <QHostAddress>
 
 class FtpControlChannel : public QObject
 {

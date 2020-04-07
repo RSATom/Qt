@@ -53,7 +53,7 @@
     \since QtCanvas3D 1.0
     \title Framebuffer Example
     \ingroup qtcanvas3d-examples
-    \brief Render into a framebuffer and use it as a texture
+    \brief Render into a framebuffer and use it as a texture.
 
     The Framebuffer Example shows how to render into a framebuffer, create a
     texture of it, and apply the texture to an object in normal on-screen

@@ -5,7 +5,7 @@
 ## Copyright (C) 2017 The Qt Company Ltd.
 ## Contact: http://www.qt.io/licensing/
 ##
-## This file is part of the test suite of the Qt Toolkit.
+## This file is part of the provisioning scripts of the Qt Toolkit.
 ##
 ## $QT_BEGIN_LICENSE:LGPL21$
 ## Commercial License Usage
@@ -40,12 +40,7 @@
 # If called directly from another script, it will exit the parent script
 # as well, if not called in its own subshell with parentheses.
 
-# shellcheck source=try_catch.sh
-source "${BASH_SOURCE%/*}/try_catch.sh"
-
-ExceptionDownloadPrimaryUrl=100
-ExceptionDownloadAltUrl=101
-ExceptionSHA1=102
+set -ex
 
 function DownloadURL {
     url=$1
@@ -53,38 +48,16 @@ function DownloadURL {
     expectedSha1=$3
     targetFile=$4
 
-    try
-    (
-        try
-        (
-            echo "Downloading from primary URL '$url'"
-            curl --fail -L --retry 5 --retry-delay 5 -o "$targetFile" "$url" || throw $ExceptionDownloadPrimaryUrl
-        )
-        catch || {
-            case $ex_code in
-                $ExceptionDownloadPrimaryUrl)
-                    echo "Failed to download '$url' multiple times"
-                    echo "Downloading tar.gz from alternative URL '$url_alt'"
-                    curl --fail -L --retry 5 --retry-delay 5 -o "$targetFile" "$url_alt" || throw $ExceptionDownloadAltUrl
-                ;;
-            esac
-        }
-        echo "Checking SHA1 on PKG '$targetFile'"
-        echo "$expectedSha1 *$targetFile" > $targetFile.sha1
-        shasum --check $targetFile.sha1 || throw $ExceptionSHA1
-    )
-
-    catch || {
-        case $ex_code in
-            $ExceptionDownloadAltUrl)
-                echo "Failed downloading PKG from primary and alternative URLs"
-                exit 1;
-            ;;
-            $ExceptionSHA1)
-                echo "Failed checksum on $targetFile."
-                exit 1;
-            ;;
-        esac
+    echo "Downloading from primary URL '$url'"
+    curl --fail -L --retry 5 --retry-delay 5 -o "$targetFile" "$url" ||  {
+        echo "Failed to download '$url' multiple times"
+        echo "Downloading from alternative URL '$url_alt'"
+        curl --fail -L --retry 5 --retry-delay 5 -o "$targetFile" "$url_alt" || { echo 'Failed to download even from alternative url'; exit 1; }
     }
+
+    echo "Checking SHA1 on PKG '$targetFile'"
+    echo "$expectedSha1 *$targetFile" > "$targetFile.sha1"
+    sha1sum --check "$targetFile.sha1"
+    rm -f "$targetFile.sha1"
 }
 

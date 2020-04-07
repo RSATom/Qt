@@ -22,11 +22,13 @@ bool IsVideoMediaType(MediaStreamType type) {
 }
 
 bool IsScreenCaptureMediaType(MediaStreamType type) {
-  return (type == MEDIA_TAB_AUDIO_CAPTURE ||
-          type == MEDIA_TAB_VIDEO_CAPTURE ||
+  return (type == MEDIA_TAB_AUDIO_CAPTURE || type == MEDIA_TAB_VIDEO_CAPTURE ||
           type == MEDIA_DESKTOP_AUDIO_CAPTURE ||
           type == MEDIA_DESKTOP_VIDEO_CAPTURE);
 }
+
+// static
+const int MediaStreamDevice::kNoId = -1;
 
 MediaStreamDevice::MediaStreamDevice()
     : type(MEDIA_NO_SERVICE), video_facing(media::MEDIA_VIDEO_FACING_NONE) {}
@@ -37,21 +39,19 @@ MediaStreamDevice::MediaStreamDevice(MediaStreamType type,
     : type(type),
       id(id),
       video_facing(media::MEDIA_VIDEO_FACING_NONE),
-      name(name) {
-#if defined(OS_ANDROID)
-  if (name.find("front") != std::string::npos) {
-    video_facing = media::MEDIA_VIDEO_FACING_USER;
-  } else if (name.find("back") != std::string::npos) {
-    video_facing = media::MEDIA_VIDEO_FACING_ENVIRONMENT;
-  }
-#endif
-}
+      name(name) {}
 
-MediaStreamDevice::MediaStreamDevice(MediaStreamType type,
-                                     const std::string& id,
-                                     const std::string& name,
-                                     media::VideoFacingMode facing)
-    : type(type), id(id), video_facing(facing), name(name) {}
+MediaStreamDevice::MediaStreamDevice(
+    MediaStreamType type,
+    const std::string& id,
+    const std::string& name,
+    media::VideoFacingMode facing,
+    const base::Optional<std::string>& group_id)
+    : type(type),
+      id(id),
+      video_facing(facing),
+      group_id(group_id),
+      name(name) {}
 
 MediaStreamDevice::MediaStreamDevice(MediaStreamType type,
                                      const std::string& id,
@@ -63,53 +63,25 @@ MediaStreamDevice::MediaStreamDevice(MediaStreamType type,
       id(id),
       video_facing(media::MEDIA_VIDEO_FACING_NONE),
       name(name),
-      input(sample_rate, channel_layout, frames_per_buffer) {}
+      input(media::AudioParameters::AUDIO_FAKE,
+            static_cast<media::ChannelLayout>(channel_layout),
+            sample_rate,
+            frames_per_buffer) {
+  DCHECK(input.IsValid());
+}
 
 MediaStreamDevice::MediaStreamDevice(const MediaStreamDevice& other) = default;
 
 MediaStreamDevice::~MediaStreamDevice() {}
 
-bool MediaStreamDevice::IsEqual(const MediaStreamDevice& second) const {
-  const AudioDeviceParameters& input_second = second.input;
-  return type == second.type &&
-      name == second.name &&
-      id == second.id &&
-      input.sample_rate == input_second.sample_rate &&
-      input.channel_layout == input_second.channel_layout;
+bool MediaStreamDevice::IsSameDevice(
+    const MediaStreamDevice& other_device) const {
+  return type == other_device.type && name == other_device.name &&
+         id == other_device.id &&
+         input.sample_rate() == other_device.input.sample_rate() &&
+         input.channel_layout() == other_device.input.channel_layout() &&
+         session_id == other_device.session_id;
 }
-
-MediaStreamDevices::MediaStreamDevices() {}
-
-MediaStreamDevices::MediaStreamDevices(size_t count,
-                                       const MediaStreamDevice& value)
-    : std::vector<MediaStreamDevice>(count, value) {
-}
-
-const MediaStreamDevice* MediaStreamDevices::FindById(
-    const std::string& device_id) const {
-  for (const_iterator iter = begin(); iter != end(); ++iter) {
-    if (iter->id == device_id)
-      return &(*iter);
-  }
-  return NULL;
-}
-
-MediaStreamDevice::AudioDeviceParameters::AudioDeviceParameters()
-    : sample_rate(), channel_layout(), frames_per_buffer(), effects() {}
-
-MediaStreamDevice::AudioDeviceParameters::AudioDeviceParameters(
-    int sample_rate,
-    int channel_layout,
-    int frames_per_buffer)
-    : sample_rate(sample_rate),
-      channel_layout(channel_layout),
-      frames_per_buffer(frames_per_buffer),
-      effects() {}
-
-MediaStreamDevice::AudioDeviceParameters::AudioDeviceParameters(
-    const AudioDeviceParameters& other) = default;
-
-MediaStreamDevice::AudioDeviceParameters::~AudioDeviceParameters() {}
 
 MediaStreamRequest::MediaStreamRequest(
     int render_process_id,

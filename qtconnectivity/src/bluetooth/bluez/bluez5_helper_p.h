@@ -54,6 +54,7 @@
 #include <QtCore/QObject>
 #include <QtDBus/QtDBus>
 #include <QtBluetooth/QBluetoothAddress>
+#include <QtBluetooth/private/qtbluetoothglobal_p.h>
 
 typedef QMap<QString, QVariantMap> InterfaceList;
 typedef QMap<QDBusObjectPath, InterfaceList> ManagedObjectList;
@@ -67,6 +68,9 @@ QT_BEGIN_NAMESPACE
 
 bool isBluez5();
 
+// exported for unit test purposes
+Q_BLUETOOTH_PRIVATE_EXPORT QVersionNumber bluetoothdVersion();
+
 QString sanitizeNameForDBus(const QString& text);
 
 QString findAdapterForAddress(const QBluetoothAddress &wantedAddress, bool *ok);
@@ -76,7 +80,7 @@ class QtBluezDiscoveryManager : public QObject
 {
     Q_OBJECT
 public:
-    QtBluezDiscoveryManager(QObject* parent = 0);
+    QtBluezDiscoveryManager(QObject* parent = nullptr);
     ~QtBluezDiscoveryManager();
     static QtBluezDiscoveryManager *instance();
 

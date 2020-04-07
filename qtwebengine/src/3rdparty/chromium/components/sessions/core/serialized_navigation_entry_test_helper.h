@@ -22,9 +22,6 @@ class Time;
 }
 
 namespace sessions {
-
-class SerializedNavigationEntry;
-
 namespace test_data {
 
 extern const int kIndex;
@@ -40,7 +37,6 @@ extern const int64_t kPostID;
 extern const GURL kOriginalRequestURL;
 extern const bool kIsOverridingUserAgent;
 extern const base::Time kTimestamp;
-extern const base::string16 kSearchTerms;
 extern const GURL kFaviconURL;
 extern const int kHttpStatusCode;
 extern const GURL kRedirectURL0;
@@ -94,6 +90,10 @@ class SerializedNavigationEntryTestHelper {
 
   static void SetTimestamp(base::Time timestamp,
                            SerializedNavigationEntry* navigation);
+
+  static void SetReplacedEntryData(
+      const SerializedNavigationEntry::ReplacedNavigationEntryData& data,
+      SerializedNavigationEntry* navigation);
 
  private:
   DISALLOW_IMPLICIT_CONSTRUCTORS(SerializedNavigationEntryTestHelper);

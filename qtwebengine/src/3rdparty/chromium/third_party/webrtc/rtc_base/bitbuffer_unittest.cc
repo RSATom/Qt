@@ -8,10 +8,10 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/rtc_base/bitbuffer.h"
-#include "webrtc/rtc_base/arraysize.h"
-#include "webrtc/rtc_base/bytebuffer.h"
-#include "webrtc/rtc_base/gunit.h"
+#include "rtc_base/bitbuffer.h"
+#include "rtc_base/arraysize.h"
+#include "rtc_base/bytebuffer.h"
+#include "rtc_base/gunit.h"
 
 namespace rtc {
 
@@ -165,8 +165,8 @@ TEST(BitBufferTest, SetOffsetValues) {
   EXPECT_EQ(0u, bit_offset);
   EXPECT_FALSE(buffer.Seek(4, 1));
 
-  // Disable death test on Android because it relies on fork() and doesn't play
-  // nicely.
+// Disable death test on Android because it relies on fork() and doesn't play
+// nicely.
 #if GTEST_HAS_DEATH_TEST
 #if !defined(WEBRTC_ANDROID)
   // Passing a null out parameter is death.

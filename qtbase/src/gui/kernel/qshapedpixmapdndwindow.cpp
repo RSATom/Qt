@@ -3,7 +3,7 @@
 ** Copyright (C) 2016 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
-** This file is part of the plugins of the Qt Toolkit.
+** This file is part of the QtGui module of the Qt Toolkit.
 **
 ** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
@@ -39,6 +39,8 @@
 
 #include "qshapedpixmapdndwindow_p.h"
 
+#include "qplatformwindow.h"
+
 #include <QtGui/QPainter>
 #include <QtGui/QCursor>
 #include <QtGui/QGuiApplication>
@@ -70,7 +72,12 @@ void QShapedPixmapWindow::setPixmap(const QPixmap &pixmap)
         if (!mask.isNull()) {
             if (!handle())
                 create();
-            setMask(mask);
+            if (auto platformWindow = handle()) {
+                const auto pixmapDpr = m_pixmap.devicePixelRatio();
+                const auto winDpr = devicePixelRatio();
+                const auto maskSize = (QSizeF(m_pixmap.size()) * winDpr / pixmapDpr).toSize();
+                platformWindow->setMask(QBitmap(mask.scaled(maskSize)));
+            }
         }
     }
 }

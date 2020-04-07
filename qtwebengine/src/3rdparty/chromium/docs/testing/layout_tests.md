@@ -9,6 +9,10 @@ This document covers running and debugging existing layout tests. See the
 [Writing Layout Tests documentation](./writing_layout_tests.md) if you find
 yourself writing layout tests.
 
+Note that we're in process of changing the term "layout tests" to "web tests".
+Please assume these terms mean the identical stuff. We also call it as
+"WebKit tests" and "WebKit layout tests".
+
 [TOC]
 
 ## Running Layout Tests
@@ -46,20 +50,20 @@ strip ./xcodebuild/{Debug,Release}/content_shell.app/Contents/MacOS/content_shel
 TODO: mention `testing/xvfb.py`
 
 The test runner script is in
-`third_party/WebKit/Tools/Scripts/run-webkit-tests`.
+`third_party/blink/tools/run_web_tests.py`.
 
 To specify which build directory to use (e.g. out/Default, out/Release,
 out/Debug) you should pass the `-t` or `--target` parameter. For example, to
 use the build in `out/Default`, use:
 
 ```bash
-python third_party/WebKit/Tools/Scripts/run-webkit-tests -t Default
+python third_party/blink/tools/run_web_tests.py -t Default
 ```
 
 For Android (if your build directory is `out/android`):
 
 ```bash
-python third_party/WebKit/Tools/Scripts/run-webkit-tests -t android --android
+python third_party/blink/tools/run_web_tests.py -t android --android
 ```
 
 Tests marked as `[ Skip ]` in
@@ -86,13 +90,13 @@ arguments to `run_webkit_tests.py` relative to the layout test directory
 use:
 
 ```bash
-Tools/Scripts/run-webkit-tests fast/forms
+third_party/blink/tools/run_web_tests.py fast/forms
 ```
 
 Or you could use the following shorthand:
 
 ```bash
-Tools/Scripts/run-webkit-tests fast/fo\*
+third_party/blink/tools/run_web_tests.py fast/fo\*
 ```
 
 *** promo
@@ -100,7 +104,7 @@ Example: To run the layout tests with a debug build of `content_shell`, but only
 test the SVG tests and run pixel tests, you would run:
 
 ```bash
-Tools/Scripts/run-webkit-tests -t Default svg
+third_party/blink/tools/run_web_tests.py -t Default svg
 ```
 ***
 
@@ -108,20 +112,20 @@ As a final quick-but-less-robust alternative, you can also just use the
 content_shell executable to run specific tests by using (for Windows):
 
 ```bash
-out/Default/content_shell.exe --run-layout-test --no-sandbox full_test_source_path
+out/Default/content_shell.exe --run-web-tests --no-sandbox full_test_source_path
 ```
 
 as in:
 
 ```bash
-out/Default/content_shell.exe --run-layout-test --no-sandbox \
+out/Default/content_shell.exe --run-web-tests --no-sandbox \
     c:/chrome/src/third_party/WebKit/LayoutTests/fast/forms/001.html
 ```
 
 but this requires a manual diff against expected results, because the shell
 doesn't do it for you.
 
-To see a complete list of arguments supported, run: `run-webkit-tests --help`
+To see a complete list of arguments supported, run: `run_web_tests.py --help`
 
 *** note
 **Linux Note:** We try to match the Windows render tree output exactly by
@@ -195,7 +199,7 @@ There are two ways to run layout tests with additional command-line arguments:
 * Using `--additional-driver-flag`:
 
   ```bash
-  run-webkit-tests --additional-driver-flag=--blocking-repaint
+  run_web_tests.py --additional-driver-flag=--blocking-repaint
   ```
 
   This tells the test harness to pass `--blocking-repaint` to the
@@ -220,7 +224,7 @@ There are two ways to run layout tests with additional command-line arguments:
   ```
 
   This will create new "virtual" tests of the form
-  `virtual/blocking_repaint/fast/repaint/...`` which correspond to the files
+  `virtual/blocking_repaint/fast/repaint/...` which correspond to the files
   under `LayoutTests/fast/repaint` and pass `--blocking-repaint` to
   content_shell when they are run.
 
@@ -256,6 +260,9 @@ Consider the following when choosing between them:
   suites. They are well suited to running a subset of tests that are directly
   related to the feature, but they don't scale to flags that make deep
   architectural changes that potentially impact all of the tests.
+
+* Note that using wildcards in virtual test path names (e.g.
+  `virtual/blocking_repaint/fast/repaint/*`) is not supported.
 
 ## Tracking Test Failures
 
@@ -334,7 +341,7 @@ finding the problem.
       If you have no other information, set a breakpoint on page load.
 * If your test only works in full layout-test mode, or if you find it simpler to
   debug without all the overhead of an interactive session, start the
-  content_shell with the command-line flag `--run-layout-test`, followed by the
+  content_shell with the command-line flag `--run-web-tests`, followed by the
   URL (`file:` or `http:`) to your test. More information about running layout tests
   in content_shell can be found [here](./layout_tests_in_content_shell.md).
     * In VS, you can do this in the Debugging section of the content_shell
@@ -356,8 +363,8 @@ finding the problem.
 To run the server manually to reproduce/debug a failure:
 
 ```bash
-cd src/third_party/WebKit/Tools/Scripts
-run-blink-httpd start
+cd src/third_party/blink/tools
+./run_blink_httpd.py
 ```
 
 The layout tests will be served from `http://127.0.0.1:8000`. For example, to
@@ -368,8 +375,9 @@ navigate to
 tests will behave differently if you go to 127.0.0.1 vs localhost, so use
 127.0.0.1.
 
-To kill the server, run `run-blink-httpd --server stop`, or just use `taskkill`
-or the Task Manager on Windows, and `killall` or Activity Monitor on MacOS.
+To kill the server, hit any key on the terminal where `run_blink_httpd.py` is
+running, or just use `taskkill` or the Task Manager on Windows, and `killall` or
+Activity Monitor on MacOS.
 
 The test server sets up an alias to `LayoutTests/resources` directory. In HTTP
 tests, you can access testing framework at e.g.
@@ -398,8 +406,26 @@ machine?
 * If none of that helps, and you have access to the bot itself, you may have to
   log in there and see if you can reproduce the problem manually.
 
-### Debugging Inspector Tests
+### Debugging DevTools Tests
 
+* Add `debug_devtools=true` to args.gn and compile: `ninja -C out/Default devtools_frontend_resources`
+  > Debug DevTools lets you avoid having to recompile after every change to the DevTools front-end.
+* Do one of the following:
+    * Option A) Run from the chromium/src folder:
+      `third_party/blink/tools/run_web_tests.sh
+      --additional-driver-flag='--debug-devtools'
+      --additional-driver-flag='--remote-debugging-port=9222'
+      --time-out-ms=6000000`
+    * Option B) If you need to debug an http/tests/inspector test, start httpd
+      as described above. Then, run content_shell:
+      `out/Default/content_shell --debug-devtools --remote-debugging-port=9222 --run-web-tests
+      http://127.0.0.1:8000/path/to/test.html`
+* Open `http://localhost:9222` in a stable/beta/canary Chrome, click the single
+  link to open the devtools with the test loaded.
+* In the loaded devtools, set any required breakpoints and execute `test()` in
+  the console to actually start the test.
+
+NOTE: If the test is an html file, this means it's a legacy test so you need to add:
 * Add `window.debugTest = true;` to your test code as follows:
 
   ```javascript
@@ -408,23 +434,6 @@ machine?
     /* TEST CODE */
   }
   ```
-
-* Do one of the following:
-    * Option A) Run from the chromium/src folder:
-      `blink/tools/run_layout_tests.sh
-      --additional_driver_flag='--remote-debugging-port=9222'
-      --time-out-ms=6000000`
-    * Option B) If you need to debug an http/tests/inspector test, start httpd
-      as described above. Then, run content_shell:
-      `out/Default/content_shell --remote-debugging-port=9222 --run-layout-test
-      http://127.0.0.1:8000/path/to/test.html`
-* Open `http://localhost:9222` in a stable/beta/canary Chrome, click the single
-  link to open the devtools with the test loaded.
-* You may need to replace devtools.html with inspector.html in your URL (or you
-  can use local chrome inspection of content_shell from `chrome://inspect`
-  instead)
-* In the loaded devtools, set any required breakpoints and execute `test()` in
-  the console to actually start the test.
 
 ## Bisecting Regressions
 
@@ -447,7 +456,7 @@ this:
 gclient sync || exit 125
 ninja -C out/Debug -j100 blink_tests || exit 125
 
-blink/tools/run_layout_tests.sh -t Debug \
+third_party/blink/tools/run_web_tests.py -t Debug \
   --no-show-results --no-retry-failures \
   path/to/layout/test.html
 ```
@@ -472,8 +481,8 @@ read on.
 ***
 
 ```bash
-cd src/third_party/WebKit
-Tools/Scripts/run-webkit-tests --reset-results foo/bar/test.html
+cd src/third_party/blink
+tools/run_web_tests.py --reset-results foo/bar/test.html
 ```
 
 If there are current expectation files for `LayoutTests/foo/bar/test.html`,
@@ -496,8 +505,8 @@ Though we prefer the Rebaseline Tool to local rebaselining, the Rebaseline Tool
 doesn't support rebaselining flag-specific expectations.
 
 ```bash
-cd src/third_party/WebKit
-Tools/Script/run-webkit-tests --additional-driver-flag=--enable-flag --new-flag-specific-baseline foo/bar/test.html
+cd src/third_party/blink
+tools/run_web_tests.py --additional-driver-flag=--enable-flag --reset-results foo/bar/test.html
 ```
 
 New baselines will be created in the flag-specific baselines directory, e.g.
@@ -506,25 +515,24 @@ New baselines will be created in the flag-specific baselines directory, e.g.
 Then you can commit the new baselines and upload the patch for review.
 
 However, it's difficult for reviewers to review the patch containing only new
-files. You can follow the steps below for easier review. The steps require a
-try bot already setup for the flag-specific tests (e.g.
-`linux_layout_tests_slimming_paint_v2` for `--enable-slimming-paint-v2`).
+files. You can follow the steps below for easier review.
 
-1. Before the rebaseline, upload a patch for which the tests to be rebaselined
-   will fail. If the tests are expected to fail in
-   `LayoutTests/FlagExpectations/<flag>`, remove the failure expectation lines
-   in the patch.
+1. Copy existing baselines to the flag-specific baselines directory for the
+   tests to be rebaselined:
+   ```bash
+   third_party/blink/tools/run_web_tests.py --additional-driver-flag=--enable-flag --copy-baselines foo/bar/test.html
+   ```
+   Then add the newly created baseline files, commit and upload the patch.
+   Note that the above command won't copy baselines for passing tests.
 
-2. Schedule a try job on the try bot for the flag.
+2. Rebaseline the test locally:
+   ```bash
+   third_party/blink/tools/run_web_tests.py --additional-driver-flag=--enable-flag --reset-results foo/bar/test.html
+   ```
+   Commit the changes and upload the patch.
 
-3. Rebaseline locally, and upload a new version of patch containing the new
-   baselines to the same CL.
-
-4. After the try job finishes, request review of the CL and tell the reviewer
-   the URL of the `layout_test_result` link under the `archive_webkit_tests_results`
-   step of the try job. The reviewer should review the layout test result
-   assuming that the new baselines in the latest version of the CL are the same
-   as the actual results in the linked page.
+3. Request review of the CL and tell the reviewer to compare the patch sets that
+   were uploaded in step 1 and step 2 to see the differences of the rebaselines.
 
 ## web-platform-tests
 
@@ -537,9 +545,6 @@ See
 [bugs with the component Blink>Infra](https://bugs.chromium.org/p/chromium/issues/list?can=2&q=component%3ABlink%3EInfra)
 for issues related to Blink tools, include the layout test runner.
 
-* Windows and Linux: Do not copy and paste while the layout tests are running,
-  as it may interfere with the editing/pasteboard and other clipboard-related
-  tests. (Mac tests swizzle NSClipboard to avoid any conflicts).
 * If QuickTime is not installed, the plugin tests
   `fast/dom/object-embed-plugin-scripting.html` and
   `plugins/embed-attributes-setting.html` are expected to fail.

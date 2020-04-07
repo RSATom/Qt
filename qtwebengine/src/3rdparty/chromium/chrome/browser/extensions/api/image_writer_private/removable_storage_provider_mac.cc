@@ -22,9 +22,9 @@
 namespace extensions {
 
 // static
-bool RemovableStorageProvider::PopulateDeviceList(
-    scoped_refptr<StorageDeviceList> device_list) {
-  base::ThreadRestrictions::AssertIOAllowed();
+scoped_refptr<StorageDeviceList>
+RemovableStorageProvider::PopulateDeviceList() {
+  base::AssertBlockingAllowed();
   // Match only writable whole-disks.
   CFMutableDictionaryRef matching = IOServiceMatching(kIOMediaClass);
   CFDictionaryAddValue(matching, CFSTR(kIOMediaWholeKey), kCFBooleanTrue);
@@ -34,11 +34,12 @@ bool RemovableStorageProvider::PopulateDeviceList(
   if (IOServiceGetMatchingServices(
           kIOMasterPortDefault, matching, &disk_iterator) != KERN_SUCCESS) {
     LOG(ERROR) << "Unable to get disk services.";
-    return false;
+    return nullptr;
   }
   base::mac::ScopedIOObject<io_service_t> iterator_ref(disk_iterator);
 
   io_object_t disk_obj;
+  scoped_refptr<StorageDeviceList> device_list(new StorageDeviceList());
   while ((disk_obj = IOIteratorNext(disk_iterator))) {
     base::mac::ScopedIOObject<io_object_t> disk_obj_ref(disk_obj);
 
@@ -100,7 +101,7 @@ bool RemovableStorageProvider::PopulateDeviceList(
     device_list->data.push_back(std::move(device));
   }
 
-  return true;
+  return device_list;
 }
 
 } // namespace extensions

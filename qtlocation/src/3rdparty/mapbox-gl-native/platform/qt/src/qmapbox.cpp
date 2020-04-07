@@ -24,7 +24,7 @@ namespace QMapbox {
 
 /*!
     \namespace QMapbox
-    \inmodule Mapbox Qt SDK
+    \inmodule Mapbox Maps SDK for Qt
 
     Contains miscellaneous Mapbox bindings used throughout QMapboxGL.
 */
@@ -74,7 +74,7 @@ namespace QMapbox {
 /*!
     \class QMapbox::Feature
 
-    \inmodule Mapbox Qt SDK
+    \inmodule Mapbox Maps SDK for Qt
 
     Represents \l {https://www.mapbox.com/help/define-features/}{map features}
     via its \a type (PointType, LineStringType or PolygonType), \a geometry, \a
@@ -94,7 +94,7 @@ namespace QMapbox {
 /*!
     \class QMapbox::ShapeAnnotationGeometry
 
-    \inmodule Mapbox Qt SDK
+    \inmodule Mapbox Maps SDK for Qt
 
     Represents a shape annotation geometry.
 */
@@ -113,7 +113,7 @@ namespace QMapbox {
 /*!
     \class QMapbox::SymbolAnnotation
 
-    \inmodule Mapbox Qt SDK
+    \inmodule Mapbox Maps SDK for Qt
 
     A symbol annotation comprises of its geometry and an icon identifier.
 */
@@ -121,7 +121,7 @@ namespace QMapbox {
 /*!
     \class QMapbox::LineAnnotation
 
-    \inmodule Mapbox Qt SDK
+    \inmodule Mapbox Maps SDK for Qt
 
     Represents a line annotation object, along with its properties.
 
@@ -131,7 +131,7 @@ namespace QMapbox {
 /*!
     \class QMapbox::FillAnnotation
 
-    \inmodule Mapbox Qt SDK
+    \inmodule Mapbox Maps SDK for Qt
 
     Represents a fill annotation object, along with its properties.
 
@@ -158,27 +158,9 @@ namespace QMapbox {
 */
 
 /*!
-    \typedef QMapbox::CustomLayerDeinitializeFunction
+    \class QMapbox::CustomLayerHostInterface
 
-    Represents a callback to be called when destroying a custom layer.
-
-    \warning This is used for delegating the rendering of a layer to the user of
-    this API and is not officially supported. Use at your own risk.
-*/
-
-/*!
-    \typedef QMapbox::CustomLayerInitializeFunction
-
-    Represents a callback to be called when initializing a custom layer.
-
-    \warning This is used for delegating the rendering of a layer to the user of
-    this API and is not officially supported. Use at your own risk.
-*/
-
-/*!
-    \typedef QMapbox::CustomLayerRenderFunction
-
-    Represents a callback to be called on each render pass for a custom layer.
+    Represents a host interface to be implemented for rendering custom layers.
 
     \warning This is used for delegating the rendering of a layer to the user of
     this API and is not officially supported. Use at your own risk.
@@ -195,7 +177,7 @@ namespace QMapbox {
 
 /*!
     \class QMapbox::CustomLayerRenderParameters
-    \inmodule Mapbox Qt SDK
+    \inmodule Mapbox Maps SDK for Qt
 
     QMapbox::CustomLayerRenderParameters provides the data passed on each render
     pass for a custom layer.
@@ -206,7 +188,7 @@ namespace QMapbox {
 
     Returns the current QMapbox::NetworkMode.
 */
-Q_DECL_EXPORT NetworkMode networkMode()
+NetworkMode networkMode()
 {
     return static_cast<NetworkMode>(mbgl::NetworkStatus::Get());
 }
@@ -219,7 +201,7 @@ Q_DECL_EXPORT NetworkMode networkMode()
     File source requests uses the available network when \a mode is set to \b
     Online, otherwise scoped to the local cache.
 */
-Q_DECL_EXPORT void setNetworkMode(NetworkMode mode)
+void setNetworkMode(NetworkMode mode)
 {
     mbgl::NetworkStatus::Set(static_cast<mbgl::NetworkStatus::Status>(mode));
 }
@@ -230,7 +212,7 @@ Q_DECL_EXPORT void setNetworkMode(NetworkMode mode)
     Returns a list containing a pair of string objects, representing the style
     URL and name, respectively.
 */
-Q_DECL_EXPORT QList<QPair<QString, QString> >& defaultStyles()
+QList<QPair<QString, QString> >& defaultStyles()
 {
     static QList<QPair<QString, QString>> styles;
 

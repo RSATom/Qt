@@ -13,23 +13,40 @@ message StoredPaymentInstrumentKeyInfoProto {
   optional string key = 2;
 }
 
+message ImageSizeProto {
+  optional uint64 width = 1;
+  optional uint64 height = 2;
+}
+
 message StoredPaymentInstrumentImageObject {
   optional string src = 1;
+  optional string type = 2;
+  repeated ImageSizeProto sizes = 3;
 }
 
 message StoredPaymentInstrumentProto {
-  optional string instrument_key = 1;
-  optional string origin = 2;
+  optional int64 registration_id = 1;
+  optional string instrument_key = 2;
   optional string name = 3;
-  repeated string enabled_methods = 4;
+  optional string method = 4;
   optional string stringified_capabilities = 5;
   repeated StoredPaymentInstrumentImageObject icons = 6;
   optional string decoded_instrument_icon = 7;
+  repeated int32 supported_card_networks = 8;
+  repeated int32 supported_card_types = 9;
+}
+
+message StoredRelatedApplicationProto {
+  optional string platform = 1;
+  optional string id = 2;
 }
 
 message StoredPaymentAppProto {
   optional int64 registration_id = 1;
-  optional string origin = 2;
+  optional string scope = 2;
   optional string name = 3;
   optional string icon = 4;
+  optional bool prefer_related_applications = 5;
+  repeated StoredRelatedApplicationProto related_applications = 6;
+  optional string user_hint = 7;
 }

@@ -13,6 +13,7 @@
 #include "third_party/icu/source/common/unicode/ucnv.h"
 #include "third_party/icu/source/common/unicode/ucnv_cb.h"
 #include "third_party/icu/source/common/unicode/uidna.h"
+#include "third_party/icu/source/common/unicode/utypes.h"
 #include "url/url_canon_icu.h"
 #include "url/url_canon_internal.h"  // for _itoa_s
 
@@ -101,7 +102,11 @@ struct UIDNAWrapper {
     // registrars, search engines) converge toward a consensus.
     value = uidna_openUTS46(UIDNA_CHECK_BIDI, &err);
     if (U_FAILURE(err)) {
-      CHECK(false) << "failed to open UTS46 data with error: " << err;
+      CHECK(false) << "failed to open UTS46 data with error: "
+                   << u_errorName(err)
+                   << ". If you see this error message in a test environment "
+                   << "your test environment likely lacks the required data "
+                   << "tables for libicu. See https://crbug.com/778929.";
       value = NULL;
     }
   }
@@ -115,8 +120,7 @@ ICUCharsetConverter::ICUCharsetConverter(UConverter* converter)
     : converter_(converter) {
 }
 
-ICUCharsetConverter::~ICUCharsetConverter() {
-}
+ICUCharsetConverter::~ICUCharsetConverter() = default;
 
 void ICUCharsetConverter::ConvertFromUTF16(const base::char16* input,
                                            int input_len,
@@ -133,7 +137,7 @@ void ICUCharsetConverter::ConvertFromUTF16(const base::char16* input,
     UErrorCode err = U_ZERO_ERROR;
     char* dest = &output->data()[begin_offset];
     int required_capacity = ucnv_fromUChars(converter_, dest, dest_capacity,
-                                            input, input_len, &err);
+                                            (const UChar*)input, input_len, &err);
     if (err != U_BUFFER_OVERFLOW_ERROR) {
       output->set_length(begin_offset + required_capacity);
       return;
@@ -170,7 +174,7 @@ bool IDNToASCII(const base::char16* src, int src_len, CanonOutputW* output) {
   while (true) {
     UErrorCode err = U_ZERO_ERROR;
     UIDNAInfo info = UIDNA_INFO_INITIALIZER;
-    int output_length = uidna_nameToASCII(uidna, src, src_len, output->data(),
+    int output_length = uidna_nameToASCII(uidna, (const UChar*)src, src_len, (UChar*)output->data(),
                                           output->capacity(), &info, &err);
     if (U_SUCCESS(err) && info.errors == 0) {
       output->set_length(output_length);

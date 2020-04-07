@@ -15,7 +15,6 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
 #include "base/threading/thread_checker.h"
-#include "components/arc/arc_service.h"
 #include "components/arc/common/intent_helper.mojom.h"
 #include "ui/base/layout.h"
 #include "ui/gfx/image/image.h"
@@ -67,7 +66,7 @@ class ActivityIconLoader {
 
   using ActivityToIconsMap = std::map<ActivityName, Icons>;
   using OnIconsReadyCallback =
-      base::Callback<void(std::unique_ptr<ActivityToIconsMap>)>;
+      base::OnceCallback<void(std::unique_ptr<ActivityToIconsMap>)>;
 
   ActivityIconLoader();
   ~ActivityIconLoader();
@@ -81,9 +80,9 @@ class ActivityIconLoader {
   // locally or ARC is not ready/supported). Otherwise, the callback is run
   // later asynchronously with icons fetched from ARC side.
   GetResult GetActivityIcons(const std::vector<ActivityName>& activities,
-                             const OnIconsReadyCallback& cb);
+                             OnIconsReadyCallback cb);
 
-  void OnIconsResizedForTesting(const OnIconsReadyCallback& cb,
+  void OnIconsResizedForTesting(OnIconsReadyCallback cb,
                                 std::unique_ptr<ActivityToIconsMap> result);
   void AddCacheEntryForTesting(const ActivityName& activity);
 
@@ -96,13 +95,13 @@ class ActivityIconLoader {
  private:
   // A function called when the mojo IPC returns.
   void OnIconsReady(std::unique_ptr<ActivityToIconsMap> cached_result,
-                    const OnIconsReadyCallback& cb,
+                    OnIconsReadyCallback cb,
                     std::vector<mojom::ActivityIconPtr> icons);
 
   // A function called when ResizeIcons finishes. Append items in |result| to
   // |cached_icons_|.
   void OnIconsResized(std::unique_ptr<ActivityToIconsMap> cached_result,
-                      const OnIconsReadyCallback& cb,
+                      OnIconsReadyCallback cb,
                       std::unique_ptr<ActivityToIconsMap> result);
 
   // The maximum scale factor the current platform supports.

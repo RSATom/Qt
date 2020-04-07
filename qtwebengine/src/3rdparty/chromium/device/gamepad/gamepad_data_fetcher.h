@@ -8,6 +8,8 @@
 #include "device/gamepad/gamepad_data_fetcher_manager.h"
 #include "device/gamepad/gamepad_export.h"
 #include "device/gamepad/gamepad_pad_state_provider.h"
+#include "device/gamepad/public/cpp/gamepad.h"
+#include "device/gamepad/public/mojom/gamepad.mojom.h"
 
 namespace device {
 
@@ -19,6 +21,14 @@ class DEVICE_GAMEPAD_EXPORT GamepadDataFetcher {
   virtual ~GamepadDataFetcher() {}
   virtual void GetGamepadData(bool devices_changed_hint) = 0;
   virtual void PauseHint(bool paused) {}
+  virtual void PlayEffect(
+      int source_id,
+      mojom::GamepadHapticEffectType,
+      mojom::GamepadEffectParametersPtr,
+      mojom::GamepadHapticsManager::PlayVibrationEffectOnceCallback);
+  virtual void ResetVibration(
+      int source_id,
+      mojom::GamepadHapticsManager::ResetVibrationActuatorCallback);
 
   virtual GamepadSource source() = 0;
   GamepadPadStateProvider* provider() { return provider_; }
@@ -29,6 +39,10 @@ class DEVICE_GAMEPAD_EXPORT GamepadDataFetcher {
 
     return provider_->GetPadState(source(), source_id);
   }
+
+  // Returns the current time value in microseconds. Data fetchers should use
+  // the value returned by this method to update the |timestamp| gamepad member.
+  static int64_t CurrentTimeInMicroseconds();
 
  protected:
   friend GamepadPadStateProvider;

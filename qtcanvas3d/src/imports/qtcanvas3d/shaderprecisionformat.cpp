@@ -47,7 +47,9 @@ QT_CANVAS3D_BEGIN_NAMESPACE
  * \since QtCanvas3D 1.0
  * \inqmlmodule QtCanvas3D
  * \brief Contains the shader precision format attributes.
+ * \deprecated
  *
+ * \b{Deprecated in Qt 5.12.}
  * An uncreatable QML type that contains the information returned from the
  * \l{Context3D::getShaderPrecisionFormat()} call.
  *
@@ -61,16 +63,19 @@ CanvasShaderPrecisionFormat::CanvasShaderPrecisionFormat(QObject *parent) :
 
 /*!
  * \qmlproperty int Canvas3DShaderPrecisionFormat::rangeMin
+ * \b{Deprecated in Qt 5.12.}
  * The base 2 log of the absolute value of the minimum value that can be represented.
  */
 
 /*!
  * \qmlproperty int Canvas3DShaderPrecisionFormat::rangeMax
+ * \b{Deprecated in Qt 5.12.}
  * The base 2 log of the absolute value of the maximum value that can be represented.
  */
 
 /*!
  * \qmlproperty int Canvas3DShaderPrecisionFormat::precision
+ * \b{Deprecated in Qt 5.12.}
  * The number of bits of precision that can be represented. 0 for integer formats.
  */
 

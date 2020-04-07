@@ -61,8 +61,6 @@ namespace Qt3DExtras {
 
 QMetalRoughMaterialPrivate::QMetalRoughMaterialPrivate()
     : QMaterialPrivate()
-    , m_environmentIrradianceTexture(new QTexture2D())
-    , m_environmentSpecularTexture(new QTexture2D())
     , m_baseColorParameter(new QParameter(QStringLiteral("baseColor"), QColor("grey")))
     , m_metalnessParameter(new QParameter(QStringLiteral("metalness"), 0.0f))
     , m_roughnessParameter(new QParameter(QStringLiteral("roughness"), 0.0f))
@@ -72,26 +70,17 @@ QMetalRoughMaterialPrivate::QMetalRoughMaterialPrivate()
     , m_ambientOcclusionMapParameter(new QParameter(QStringLiteral("ambientOcclusionMap"), QVariant()))
     , m_normalMapParameter(new QParameter(QStringLiteral("normalMap"), QVariant()))
     , m_textureScaleParameter(new QParameter(QStringLiteral("texCoordScale"), 1.0f))
-    , m_environmentIrradianceParameter(new QParameter(QStringLiteral("envLight.irradiance"), m_environmentIrradianceTexture))
-    , m_environmentSpecularParameter(new QParameter(QStringLiteral("envLight.specular"), m_environmentSpecularTexture))
     , m_metalRoughEffect(new QEffect())
     , m_metalRoughGL3Technique(new QTechnique())
     , m_metalRoughGL3RenderPass(new QRenderPass())
     , m_metalRoughGL3Shader(new QShaderProgram())
     , m_metalRoughGL3ShaderBuilder(new QShaderProgramBuilder())
+    , m_metalRoughES3Technique(new QTechnique())
+    , m_metalRoughES3RenderPass(new QRenderPass())
+    , m_metalRoughES3Shader(new QShaderProgram())
+    , m_metalRoughES3ShaderBuilder(new QShaderProgramBuilder())
     , m_filterKey(new QFilterKey)
 {
-    m_environmentIrradianceTexture->setMagnificationFilter(QAbstractTexture::Linear);
-    m_environmentIrradianceTexture->setMinificationFilter(QAbstractTexture::LinearMipMapLinear);
-    m_environmentIrradianceTexture->setWrapMode(QTextureWrapMode(QTextureWrapMode::Repeat));
-    m_environmentIrradianceTexture->setGenerateMipMaps(true);
-    m_environmentIrradianceTexture->setMaximumAnisotropy(16.0f);
-
-    m_environmentSpecularTexture->setMagnificationFilter(QAbstractTexture::Linear);
-    m_environmentSpecularTexture->setMinificationFilter(QAbstractTexture::LinearMipMapLinear);
-    m_environmentSpecularTexture->setWrapMode(QTextureWrapMode(QTextureWrapMode::Repeat));
-    m_environmentSpecularTexture->setGenerateMipMaps(true);
-    m_environmentSpecularTexture->setMaximumAnisotropy(16.0f);
 }
 
 void QMetalRoughMaterialPrivate::init()
@@ -112,11 +101,20 @@ void QMetalRoughMaterialPrivate::init()
             this, &QMetalRoughMaterialPrivate::handleTextureScaleChanged);
 
     m_metalRoughGL3Shader->setVertexShaderCode(QShaderProgram::loadSource(QUrl(QStringLiteral("qrc:/shaders/gl3/default.vert"))));
-
     m_metalRoughGL3ShaderBuilder->setParent(q);
     m_metalRoughGL3ShaderBuilder->setShaderProgram(m_metalRoughGL3Shader);
     m_metalRoughGL3ShaderBuilder->setFragmentShaderGraph(QUrl(QStringLiteral("qrc:/shaders/graphs/metalrough.frag.json")));
     m_metalRoughGL3ShaderBuilder->setEnabledLayers({QStringLiteral("baseColor"),
+                                                    QStringLiteral("metalness"),
+                                                    QStringLiteral("roughness"),
+                                                    QStringLiteral("ambientOcclusion"),
+                                                    QStringLiteral("normal")});
+
+    m_metalRoughES3Shader->setVertexShaderCode(QShaderProgram::loadSource(QUrl(QStringLiteral("qrc:/shaders/es3/default.vert"))));
+    m_metalRoughES3ShaderBuilder->setParent(q);
+    m_metalRoughES3ShaderBuilder->setShaderProgram(m_metalRoughES3Shader);
+    m_metalRoughES3ShaderBuilder->setFragmentShaderGraph(QUrl(QStringLiteral("qrc:/shaders/graphs/metalrough.frag.json")));
+    m_metalRoughES3ShaderBuilder->setEnabledLayers({QStringLiteral("baseColor"),
                                                     QStringLiteral("metalness"),
                                                     QStringLiteral("roughness"),
                                                     QStringLiteral("ambientOcclusion"),
@@ -127,6 +125,10 @@ void QMetalRoughMaterialPrivate::init()
     m_metalRoughGL3Technique->graphicsApiFilter()->setMinorVersion(1);
     m_metalRoughGL3Technique->graphicsApiFilter()->setProfile(QGraphicsApiFilter::CoreProfile);
 
+    m_metalRoughES3Technique->graphicsApiFilter()->setApi(QGraphicsApiFilter::OpenGLES);
+    m_metalRoughES3Technique->graphicsApiFilter()->setMajorVersion(3);
+    m_metalRoughES3Technique->graphicsApiFilter()->setMinorVersion(0);
+
     m_filterKey->setParent(q);
     m_filterKey->setName(QStringLiteral("renderingStyle"));
     m_filterKey->setValue(QStringLiteral("forward"));
@@ -136,19 +138,15 @@ void QMetalRoughMaterialPrivate::init()
     m_metalRoughGL3Technique->addRenderPass(m_metalRoughGL3RenderPass);
     m_metalRoughEffect->addTechnique(m_metalRoughGL3Technique);
 
+    m_metalRoughES3Technique->addFilterKey(m_filterKey);
+    m_metalRoughES3RenderPass->setShaderProgram(m_metalRoughES3Shader);
+    m_metalRoughES3Technique->addRenderPass(m_metalRoughES3RenderPass);
+    m_metalRoughEffect->addTechnique(m_metalRoughES3Technique);
+
     m_metalRoughEffect->addParameter(m_baseColorParameter);
     m_metalRoughEffect->addParameter(m_metalnessParameter);
     m_metalRoughEffect->addParameter(m_roughnessParameter);
     m_metalRoughEffect->addParameter(m_textureScaleParameter);
-
-    // Note that even though those parameters are not exposed in the API,
-    // they need to be kept around for now due to a bug in some drivers/GPUs
-    // (at least Intel) which cause issues with unbound textures even if you
-    // don't try to sample from them.
-    // Can probably go away once we generate the shaders and deal in this
-    // case in a better way.
-    m_metalRoughEffect->addParameter(m_environmentIrradianceParameter);
-    m_metalRoughEffect->addParameter(m_environmentSpecularParameter);
 
     q->setEffect(m_metalRoughEffect);
 }
@@ -169,7 +167,7 @@ void QMetalRoughMaterialPrivate::handleTextureScaleChanged(const QVariant &var)
     \inherits Qt3DRender::QMaterial
 
     This material uses an effect with a single render pass approach and performs per fragment
-    lighting. Techniques are provided for OpenGL 3 only.
+    lighting. Techniques are provided for OpenGL 3 and OpenGL ES 3.
 */
 
 /*!
@@ -291,6 +289,7 @@ void QMetalRoughMaterial::setBaseColor(const QVariant &baseColor)
         d->m_metalRoughEffect->addParameter(d->m_baseColorParameter);
     }
     d->m_metalRoughGL3ShaderBuilder->setEnabledLayers(layers);
+    d->m_metalRoughES3ShaderBuilder->setEnabledLayers(layers);
 }
 
 void QMetalRoughMaterial::setMetalness(const QVariant &metalness)
@@ -312,6 +311,7 @@ void QMetalRoughMaterial::setMetalness(const QVariant &metalness)
         d->m_metalRoughEffect->addParameter(d->m_metalnessParameter);
     }
     d->m_metalRoughGL3ShaderBuilder->setEnabledLayers(layers);
+    d->m_metalRoughES3ShaderBuilder->setEnabledLayers(layers);
 }
 
 void QMetalRoughMaterial::setRoughness(const QVariant &roughness)
@@ -333,6 +333,7 @@ void QMetalRoughMaterial::setRoughness(const QVariant &roughness)
         d->m_metalRoughEffect->addParameter(d->m_roughnessParameter);
     }
     d->m_metalRoughGL3ShaderBuilder->setEnabledLayers(layers);
+    d->m_metalRoughES3ShaderBuilder->setEnabledLayers(layers);
 }
 
 void QMetalRoughMaterial::setAmbientOcclusion(const QVariant &ambientOcclusion)
@@ -351,6 +352,7 @@ void QMetalRoughMaterial::setAmbientOcclusion(const QVariant &ambientOcclusion)
         d->m_metalRoughEffect->removeParameter(d->m_ambientOcclusionMapParameter);
     }
     d->m_metalRoughGL3ShaderBuilder->setEnabledLayers(layers);
+    d->m_metalRoughES3ShaderBuilder->setEnabledLayers(layers);
 }
 
 void QMetalRoughMaterial::setNormal(const QVariant &normal)
@@ -369,6 +371,7 @@ void QMetalRoughMaterial::setNormal(const QVariant &normal)
         d->m_metalRoughEffect->removeParameter(d->m_normalMapParameter);
     }
     d->m_metalRoughGL3ShaderBuilder->setEnabledLayers(layers);
+    d->m_metalRoughES3ShaderBuilder->setEnabledLayers(layers);
 }
 
 void QMetalRoughMaterial::setTextureScale(float textureScale)

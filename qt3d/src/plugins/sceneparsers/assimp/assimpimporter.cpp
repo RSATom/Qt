@@ -81,6 +81,7 @@ namespace Qt3DRender {
     \class Qt3DRender::AssimpImporter
     \inmodule Qt3DRender
     \since 5.5
+    \internal
 
     \brief Provides a generic way of loading various 3D assets
     format into a Qt3D scene.
@@ -128,7 +129,7 @@ const QString TANGENT_ATTRIBUTE_NAME = QAttribute::defaultTangentAttributeName()
 const QString TEXTCOORD_ATTRIBUTE_NAME = QAttribute::defaultTextureCoordinateAttributeName();
 const QString COLOR_ATTRIBUTE_NAME = QAttribute::defaultColorAttributeName();
 
-/*!
+/*
  * Returns a QMatrix4x4 from \a matrix;
  */
 QMatrix4x4 aiMatrix4x4ToQMatrix4x4(const aiMatrix4x4 &matrix) Q_DECL_NOTHROW
@@ -139,7 +140,7 @@ QMatrix4x4 aiMatrix4x4ToQMatrix4x4(const aiMatrix4x4 &matrix) Q_DECL_NOTHROW
                       matrix.d1, matrix.d2, matrix.d3, matrix.d4);
 }
 
-/*!
+/*
  * Returns a QString from \a str;
  */
 inline QString aiStringToQString(const aiString &str)
@@ -163,12 +164,13 @@ QMaterial *createBestApproachingMaterial(const aiMaterial *assimpMaterial)
 QString texturePath(const aiString &path)
 {
     QString p = aiStringToQString(path);
+    p.replace(QLatin1String("\\"), QLatin1String("/"));
     if (p.startsWith('/'))
         p.remove(0, 1);
     return p;
 }
 
-/*!
+/*
  * Returns the Qt3DRender::QParameter with named \a name if contained by the material
  * \a material. If the material doesn't contain the named parameter, a new
  * Qt3DRender::QParameter is created and inserted into the material.
@@ -227,13 +229,13 @@ QAttribute *createAttribute(QBuffer *buffer,
     return attribute;
 }
 
-QAttribute *createAttribute(QBuffer *buffer,
-                            QAttribute::VertexBaseType vertexBaseType,
-                            uint vertexSize,
-                            uint count,
-                            uint byteOffset = 0,
-                            uint byteStride = 0,
-                            QNode *parent = nullptr)
+QAttribute *createIndexAttribute(QBuffer *buffer,
+                                 QAttribute::VertexBaseType vertexBaseType,
+                                 uint vertexSize,
+                                 uint count,
+                                 uint byteOffset = 0,
+                                 uint byteStride = 0,
+                                 QNode *parent = nullptr)
 {
     QAttribute *attribute = QAbstractNodeFactory::createNode<QAttribute>("QAttribute");
     attribute->setBuffer(buffer);
@@ -336,7 +338,7 @@ class AssimpRawTextureImage : public QAbstractTextureImage
 public:
     explicit AssimpRawTextureImage(QNode *parent = 0);
 
-    QTextureImageDataGeneratorPtr dataGenerator() const Q_DECL_FINAL;
+    QTextureImageDataGeneratorPtr dataGenerator() const final;
 
     void setData(const QByteArray &data);
 
@@ -348,8 +350,8 @@ private:
     public:
         explicit AssimpRawTextureImageFunctor(const QByteArray &data);
 
-        QTextureImageDataPtr operator()() Q_DECL_FINAL;
-        bool operator ==(const QTextureImageDataGenerator &other) const Q_DECL_FINAL;
+        QTextureImageDataPtr operator()() final;
+        bool operator ==(const QTextureImageDataGenerator &other) const final;
 
         QT3D_FUNCTOR(AssimpRawTextureImageFunctor)
     private:
@@ -532,6 +534,7 @@ Qt3DCore::QEntity *AssimpImporter::node(aiNode *node)
             entityNode->addComponent(mesh);
         } else {
             QEntity *childEntity = QAbstractNodeFactory::createNode<Qt3DCore::QEntity>("QEntity");
+            childEntity->setObjectName(entityNode->objectName() + QLatin1String("_Child") + QString::number(i));
             if (material)
                 childEntity->addComponent(material);
             childEntity->addComponent(mesh);
@@ -603,7 +606,8 @@ void AssimpImporter::readSceneFile(const QString &path)
                                                        aiProcess_GenSmoothNormals|
                                                        aiProcess_FlipUVs);
     if (m_scene->m_aiScene == nullptr) {
-        qCWarning(AssimpImporterLog) << "Assimp scene import failed";
+        qCWarning(AssimpImporterLog) << "Assimp scene import failed" << m_scene->m_importer->GetErrorString();
+        QSceneImporter::logError(QString::fromUtf8(m_scene->m_importer->GetErrorString()));
         return ;
     }
     parse();
@@ -828,7 +832,7 @@ QGeometryRenderer *AssimpImporter::loadMesh(uint meshIndex)
     indexBuffer->setData(ibufferContent);
 
     // Add indices attributes
-    QAttribute *indexAttribute = createAttribute(indexBuffer, indiceType, 1, indices);
+    QAttribute *indexAttribute = createIndexAttribute(indexBuffer, indiceType, 1, indices);
     indexAttribute->setAttributeType(QAttribute::IndexAttribute);
 
     meshGeometry->addAttribute(indexAttribute);

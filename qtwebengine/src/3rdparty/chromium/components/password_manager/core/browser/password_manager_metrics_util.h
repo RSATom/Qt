@@ -10,6 +10,7 @@
 #include <string>
 
 #include "components/autofill/core/common/password_form.h"
+#include "components/password_manager/core/browser/password_reuse_defines.h"
 #include "components/password_manager/core/common/credential_manager_types.h"
 
 namespace password_manager {
@@ -36,22 +37,23 @@ enum UIDisplayDisposition {
   AUTOMATIC_SIGNIN_TOAST,
   MANUAL_WITH_PASSWORD_PENDING_UPDATE,
   AUTOMATIC_WITH_PASSWORD_PENDING_UPDATE,
+  MANUAL_GENERATED_PASSWORD_CONFIRMATION,
   NUM_DISPLAY_DISPOSITIONS
 };
 
 // Metrics: "PasswordManager.UIDismissalReason"
 enum UIDismissalReason {
   // We use this to mean both "Bubble lost focus" and "No interaction with the
-  // infobar", depending on which experiment is active.
+  // infobar".
   NO_DIRECT_INTERACTION = 0,
   CLICKED_SAVE,
   CLICKED_CANCEL,
   CLICKED_NEVER,
   CLICKED_MANAGE,
-  CLICKED_DONE,
+  CLICKED_DONE_OBSOLETE,         // obsolete
   CLICKED_UNBLACKLIST_OBSOLETE,  // obsolete.
-  CLICKED_OK,
-  CLICKED_CREDENTIAL_OBSOLETE,  // obsolete.
+  CLICKED_OK_OBSOLETE,           // obsolete
+  CLICKED_CREDENTIAL_OBSOLETE,   // obsolete.
   AUTO_SIGNIN_TOAST_TIMEOUT,
   AUTO_SIGNIN_TOAST_CLICKED_OBSOLETE,  // obsolete.
   CLICKED_BRAND_NAME,
@@ -87,37 +89,6 @@ enum PasswordSubmissionEvent {
   PASSWORD_USED,
   GENERATED_PASSWORD_FORCE_SAVED,
   SUBMISSION_EVENT_ENUM_COUNT
-};
-
-enum UpdatePasswordSubmissionEvent {
-  NO_ACCOUNTS_CLICKED_UPDATE,
-  NO_ACCOUNTS_CLICKED_NOPE,
-  NO_ACCOUNTS_NO_INTERACTION,
-  ONE_ACCOUNT_CLICKED_UPDATE,
-  ONE_ACCOUNT_CLICKED_NOPE,
-  ONE_ACCOUNT_NO_INTERACTION,
-  MULTIPLE_ACCOUNTS_CLICKED_UPDATE,
-  MULTIPLE_ACCOUNTS_CLICKED_NOPE,
-  MULTIPLE_ACCOUNTS_NO_INTERACTION,
-  PASSWORD_OVERRIDDEN_CLICKED_UPDATE,
-  PASSWORD_OVERRIDDEN_CLICKED_NOPE,
-  PASSWORD_OVERRIDDEN_NO_INTERACTION,
-  UPDATE_PASSWORD_EVENT_COUNT,
-
-  NO_UPDATE_SUBMISSION
-};
-
-enum MultiAccountUpdateBubbleUserAction {
-  DEFAULT_ACCOUNT_MATCHED_BY_PASSWORD_USER_CHANGED,
-  DEFAULT_ACCOUNT_MATCHED_BY_PASSWORD_USER_NOT_CHANGED,
-  DEFAULT_ACCOUNT_MATCHED_BY_PASSWORD_USER_REJECTED_UPDATE,
-  DEFAULT_ACCOUNT_PREFERRED_USER_CHANGED,
-  DEFAULT_ACCOUNT_PREFERRED_USER_NOT_CHANGED,
-  DEFAULT_ACCOUNT_PREFERRED_USER_REJECTED_UPDATE,
-  DEFAULT_ACCOUNT_FIRST_USER_CHANGED,
-  DEFAULT_ACCOUNT_FIRST_USER_NOT_CHANGED,
-  DEFAULT_ACCOUNT_FIRST_USER_REJECTED_UPDATE,
-  MULTI_ACCOUNT_UPDATE_BUBBLE_USER_ACTION_COUNT
 };
 
 enum AutoSigninPromoUserAction {
@@ -226,28 +197,88 @@ enum class CredentialSourceType {
   kCredentialManagementAPI
 };
 
-#if defined(OS_WIN) || (defined(OS_MACOSX) && !defined(OS_IOS)) || \
-    (defined(OS_LINUX) && !defined(OS_CHROMEOS))
+#if defined(SYNC_PASSWORD_REUSE_DETECTION_ENABLED)
 enum class SyncPasswordHashChange {
   SAVED_ON_CHROME_SIGNIN,
   SAVED_IN_CONTENT_AREA,
   CLEARED_ON_CHROME_SIGNOUT,
+  CHANGED_IN_CONTENT_AREA,
+  NOT_SYNC_PASSWORD_CHANGE,
   SAVED_SYNC_PASSWORD_CHANGE_COUNT
 };
 
 enum class IsSyncPasswordHashSaved {
   NOT_SAVED,
-  SAVED,
+  SAVED_VIA_STRING_PREF,
+  SAVED_VIA_LIST_PREF,
   IS_SYNC_PASSWORD_HASH_SAVED_COUNT
 };
 #endif
+
+// Specifies the context in which the "Show all saved passwords" fallback is
+// shown or accepted.
+// Metrics:
+// - PasswordManager.ShowAllSavedPasswordsAcceptedContext
+// - PasswordManager.ShowAllSavedPasswordsShownContext
+enum ShowAllSavedPasswordsContext {
+  SHOW_ALL_SAVED_PASSWORDS_CONTEXT_NONE,
+  // The "Show all saved passwords..." fallback is shown below a list of
+  // available passwords.
+  SHOW_ALL_SAVED_PASSWORDS_CONTEXT_PASSWORD,
+  // Obsolete.
+  SHOW_ALL_SAVED_PASSWORDS_CONTEXT_MANUAL_FALLBACK_DEPRECATED,
+  // The "Show all saved  passwords..." fallback is shown in context menu.
+  SHOW_ALL_SAVED_PASSWORDS_CONTEXT_CONTEXT_MENU,
+  SHOW_ALL_SAVED_PASSWORDS_CONTEXT_COUNT
+};
+
+// Metrics: "PasswordManager.CertificateErrorsWhileSeeingForms"
+enum class CertificateError {
+  NONE = 0,
+  OTHER = 1,
+  AUTHORITY_INVALID = 2,
+  DATE_INVALID = 3,
+  COMMON_NAME_INVALID = 4,
+  WEAK_SIGNATURE_ALGORITHM = 5,
+  COUNT
+};
+
+// Metric: PasswordManager.ExportPasswordsToCSVResult
+enum class ExportPasswordsResult {
+  SUCCESS = 0,
+  USER_ABORTED = 1,
+  WRITE_FAILED = 2,
+  NO_CONSUMER = 3,  // Only used on Android.
+  COUNT,
+};
+
+// Used in UMA histograms, please do NOT reorder.
+// Metric: "PasswordManager.ReusedPasswordType".
+enum class PasswordType {
+  // Passwords saved by password manager.
+  SAVED_PASSWORD = 0,
+  // Passwords used for Chrome sign-in.
+  SYNC_PASSWORD = 1,
+  // Other Gaia passwords used in Chrome other than the sync password.
+  OTHER_GAIA_PASSWORD = 2,
+  // Passwords captured from enterprise login page.
+  ENTERPRISE_PASSWORD = 3,
+  PASSWORD_TYPE_COUNT
+};
 
 // A version of the UMA_HISTOGRAM_BOOLEAN macro that allows the |name|
 // to vary over the program's runtime.
 void LogUMAHistogramBoolean(const std::string& name, bool sample);
 
-// Log the |reason| a user dismissed the password manager UI.
-void LogUIDismissalReason(UIDismissalReason reason);
+// Log the |reason| a user dismissed the password manager UI except save/update
+// bubbles.
+void LogGeneralUIDismissalReason(UIDismissalReason reason);
+
+// Log the |reason| a user dismissed the save password bubble.
+void LogSaveUIDismissalReason(UIDismissalReason reason);
+
+// Log the |reason| a user dismissed the update password bubble.
+void LogUpdateUIDismissalReason(UIDismissalReason reason);
 
 // Log the appropriate display disposition.
 void LogUIDisplayDisposition(UIDisplayDisposition disposition);
@@ -267,14 +298,6 @@ void LogPasswordGenerationSubmissionEvent(PasswordSubmissionEvent event);
 // Log when password generation is available for a particular form.
 void LogPasswordGenerationAvailableSubmissionEvent(
     PasswordSubmissionEvent event);
-
-// Log submission events related to password update.
-void LogUpdatePasswordSubmissionEvent(UpdatePasswordSubmissionEvent event);
-
-// Log a user action on showing an update password bubble with multiple
-// accounts.
-void LogMultiAccountUpdateBubbleUserAction(
-    MultiAccountUpdateBubbleUserAction action);
 
 // Log a user action on showing the autosignin first run experience.
 void LogAutoSigninPromoUserAction(AutoSigninPromoUserAction action);
@@ -309,15 +332,17 @@ void LogCredentialManagerGetResult(CredentialManagerGetResult result,
 void LogPasswordReuse(int password_length,
                       int saved_passwords,
                       int number_matches,
-                      bool password_field_detected);
+                      bool password_field_detected,
+                      PasswordType reused_password_type);
 
-// Log when the user selects the "Login not secure" warning in the password
-// autofill dropdown to show more information about the warning.
-void LogShowedHttpNotSecureExplanation();
+// Log the context in which the "Show all saved passwords" fallback was shown.
+void LogContextOfShowAllSavedPasswordsShown(
+    ShowAllSavedPasswordsContext context);
 
-// Log that the Form-Not-Secure warning was shown. Should be called at most once
-// per main-frame navigation.
-void LogShowedFormNotSecureWarningOnCurrentNavigation();
+// Log the context in which the "Show all saved passwords" fallback was
+// accepted.
+void LogContextOfShowAllSavedPasswordsAccepted(
+    ShowAllSavedPasswordsContext context);
 
 // Log a password successful submission event.
 void LogPasswordSuccessfulSubmissionIndicatorEvent(
@@ -331,13 +356,17 @@ void LogPasswordAcceptedSaveUpdateSubmissionIndicatorEvent(
 // Log a frame of a submitted password form.
 void LogSubmittedFormFrame(SubmittedFormFrame frame);
 
-#if defined(OS_WIN) || (defined(OS_MACOSX) && !defined(OS_IOS)) || \
-    (defined(OS_LINUX) && !defined(OS_CHROMEOS))
+#if defined(SYNC_PASSWORD_REUSE_DETECTION_ENABLED)
 // Log a save sync password change event.
 void LogSyncPasswordHashChange(SyncPasswordHashChange event);
 
 // Log whether a sync password hash saved.
 void LogIsSyncPasswordHashSaved(IsSyncPasswordHashSaved state);
+
+// Log the number of Gaia password hashes saved, and the number of enterprise
+// password hashes saved.
+void LogProtectedPasswordHashCounts(size_t gaia_hash_count,
+                                    size_t enterprise_hash_count);
 #endif
 
 }  // namespace metrics_util

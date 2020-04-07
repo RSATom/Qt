@@ -151,8 +151,7 @@ Bus::Options::Options()
     connection_type(PRIVATE) {
 }
 
-Bus::Options::~Options() {
-}
+Bus::Options::~Options() = default;
 
 Bus::Bus(const Options& options)
     : bus_type_(options.bus_type),
@@ -723,6 +722,25 @@ bool Bus::TryRegisterObjectPath(const ObjectPath& object_path,
                                 const DBusObjectPathVTable* vtable,
                                 void* user_data,
                                 DBusError* error) {
+  return TryRegisterObjectPathInternal(
+      object_path, vtable, user_data, error,
+      dbus_connection_try_register_object_path);
+}
+
+bool Bus::TryRegisterFallback(const ObjectPath& object_path,
+                              const DBusObjectPathVTable* vtable,
+                              void* user_data,
+                              DBusError* error) {
+  return TryRegisterObjectPathInternal(object_path, vtable, user_data, error,
+                                       dbus_connection_try_register_fallback);
+}
+
+bool Bus::TryRegisterObjectPathInternal(
+    const ObjectPath& object_path,
+    const DBusObjectPathVTable* vtable,
+    void* user_data,
+    DBusError* error,
+    TryRegisterObjectPathFunction* register_function) {
   DCHECK(connection_);
   AssertOnDBusThread();
 
@@ -732,12 +750,8 @@ bool Bus::TryRegisterObjectPath(const ObjectPath& object_path,
     return false;
   }
 
-  const bool success = dbus_connection_try_register_object_path(
-      connection_,
-      object_path.value().c_str(),
-      vtable,
-      user_data,
-      error);
+  const bool success = register_function(
+      connection_, object_path.value().c_str(), vtable, user_data, error);
   if (success)
     registered_object_paths_.insert(object_path);
   return success;
@@ -806,7 +820,7 @@ void Bus::AssertOnOriginThread() {
 }
 
 void Bus::AssertOnDBusThread() {
-  base::ThreadRestrictions::AssertIOAllowed();
+  base::AssertBlockingAllowed();
 
   if (dbus_task_runner_) {
     DCHECK(dbus_task_runner_->RunsTasksInCurrentSequence());

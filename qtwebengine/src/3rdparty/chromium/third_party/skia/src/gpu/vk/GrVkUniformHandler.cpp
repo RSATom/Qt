@@ -14,97 +14,162 @@
 // This alignment mask will give correct alignments for using the std430 block layout. If you want
 // the std140 alignment, you can use this, but then make sure if you have an array type it is
 // aligned to 16 bytes (i.e. has mask of 0xF).
+// These are designated in the Vulkan spec, section 14.5.4 "Offset and Stride Assignment".
+// https://www.khronos.org/registry/vulkan/specs/1.0-wsi_extensions/html/vkspec.html#interfaces-resources-layout
 uint32_t grsltype_to_alignment_mask(GrSLType type) {
     switch(type) {
-        case kInt_GrSLType:
+        case kByte_GrSLType: // fall through
+        case kUByte_GrSLType:
+            return 0x0;
+        case kByte2_GrSLType: // fall through
+        case kUByte2_GrSLType:
+            return 0x1;
+        case kByte3_GrSLType: // fall through
+        case kByte4_GrSLType:
+        case kUByte3_GrSLType:
+        case kUByte4_GrSLType:
             return 0x3;
+        case kShort_GrSLType: // fall through
+        case kUShort_GrSLType:
+            return 0x1;
+        case kShort2_GrSLType: // fall through
+        case kUShort2_GrSLType:
+            return 0x3;
+        case kShort3_GrSLType: // fall through
+        case kShort4_GrSLType:
+        case kUShort3_GrSLType:
+        case kUShort4_GrSLType:
+            return 0x7;
+        case kInt_GrSLType:
         case kUint_GrSLType:
             return 0x3;
+        case kHalf_GrSLType: // fall through
         case kFloat_GrSLType:
             return 0x3;
-        case kVec2f_GrSLType:
+        case kHalf2_GrSLType: // fall through
+        case kFloat2_GrSLType:
             return 0x7;
-        case kVec3f_GrSLType:
+        case kHalf3_GrSLType: // fall through
+        case kFloat3_GrSLType:
             return 0xF;
-        case kVec4f_GrSLType:
+        case kHalf4_GrSLType: // fall through
+        case kFloat4_GrSLType:
             return 0xF;
-        case kVec2i_GrSLType:
+        case kUint2_GrSLType:
             return 0x7;
-        case kVec3i_GrSLType:
-            return 0xF;
-        case kVec4i_GrSLType:
-            return 0xF;
-        case kMat22f_GrSLType:
+        case kInt2_GrSLType:
             return 0x7;
-        case kMat33f_GrSLType:
+        case kInt3_GrSLType:
             return 0xF;
-        case kMat44f_GrSLType:
+        case kInt4_GrSLType:
+            return 0xF;
+        case kHalf2x2_GrSLType: // fall through
+        case kFloat2x2_GrSLType:
+            return 0x7;
+        case kHalf3x3_GrSLType: // fall through
+        case kFloat3x3_GrSLType:
+            return 0xF;
+        case kHalf4x4_GrSLType: // fall through
+        case kFloat4x4_GrSLType:
             return 0xF;
 
         // This query is only valid for certain types.
         case kVoid_GrSLType:
         case kBool_GrSLType:
         case kTexture2DSampler_GrSLType:
-        case kITexture2DSampler_GrSLType:
         case kTextureExternalSampler_GrSLType:
         case kTexture2DRectSampler_GrSLType:
         case kBufferSampler_GrSLType:
         case kTexture2D_GrSLType:
         case kSampler_GrSLType:
-        case kImageStorage2D_GrSLType:
-        case kIImageStorage2D_GrSLType:
             break;
     }
-    SkFAIL("Unexpected type");
+    SK_ABORT("Unexpected type");
     return 0;
 }
 
-/** Returns the size in bytes taken up in vulkanbuffers for floating point GrSLTypes.
-    For non floating point type returns 0. Currently this reflects the std140 alignment
-    so a mat22 takes up 8 floats. */
+/** Returns the size in bytes taken up in vulkanbuffers for GrSLTypes. */
 static inline uint32_t grsltype_to_vk_size(GrSLType type) {
     switch(type) {
+        case kByte_GrSLType:
+            return sizeof(int8_t);
+        case kByte2_GrSLType:
+            return 2 * sizeof(int8_t);
+        case kByte3_GrSLType:
+            return 3 * sizeof(int8_t);
+        case kByte4_GrSLType:
+            return 4 * sizeof(int8_t);
+        case kUByte_GrSLType:
+            return sizeof(uint8_t);
+        case kUByte2_GrSLType:
+            return 2 * sizeof(uint8_t);
+        case kUByte3_GrSLType:
+            return 3 * sizeof(uint8_t);
+        case kUByte4_GrSLType:
+            return 4 * sizeof(uint8_t);
+        case kShort_GrSLType:
+            return sizeof(int16_t);
+        case kShort2_GrSLType:
+            return 2 * sizeof(int16_t);
+        case kShort3_GrSLType:
+            return 3 * sizeof(int16_t);
+        case kShort4_GrSLType:
+            return 4 * sizeof(int16_t);
+        case kUShort_GrSLType:
+            return sizeof(uint16_t);
+        case kUShort2_GrSLType:
+            return 2 * sizeof(uint16_t);
+        case kUShort3_GrSLType:
+            return 3 * sizeof(uint16_t);
+        case kUShort4_GrSLType:
+            return 4 * sizeof(uint16_t);
         case kInt_GrSLType:
             return sizeof(int32_t);
         case kUint_GrSLType:
             return sizeof(int32_t);
+        case kHalf_GrSLType: // fall through
         case kFloat_GrSLType:
             return sizeof(float);
-        case kVec2f_GrSLType:
+        case kHalf2_GrSLType: // fall through
+        case kFloat2_GrSLType:
             return 2 * sizeof(float);
-        case kVec3f_GrSLType:
+        case kHalf3_GrSLType: // fall through
+        case kFloat3_GrSLType:
             return 3 * sizeof(float);
-        case kVec4f_GrSLType:
+        case kHalf4_GrSLType: // fall through
+        case kFloat4_GrSLType:
             return 4 * sizeof(float);
-        case kVec2i_GrSLType:
+        case kUint2_GrSLType:
+            return 2 * sizeof(uint32_t);
+        case kInt2_GrSLType:
             return 2 * sizeof(int32_t);
-        case kVec3i_GrSLType:
+        case kInt3_GrSLType:
             return 3 * sizeof(int32_t);
-        case kVec4i_GrSLType:
+        case kInt4_GrSLType:
             return 4 * sizeof(int32_t);
-        case kMat22f_GrSLType:
+        case kHalf2x2_GrSLType: // fall through
+        case kFloat2x2_GrSLType:
             //TODO: this will be 4 * szof(float) on std430.
             return 8 * sizeof(float);
-        case kMat33f_GrSLType:
+        case kHalf3x3_GrSLType: // fall through
+        case kFloat3x3_GrSLType:
             return 12 * sizeof(float);
-        case kMat44f_GrSLType:
+        case kHalf4x4_GrSLType: // fall through
+        case kFloat4x4_GrSLType:
             return 16 * sizeof(float);
 
         // This query is only valid for certain types.
         case kVoid_GrSLType:
         case kBool_GrSLType:
         case kTexture2DSampler_GrSLType:
-        case kITexture2DSampler_GrSLType:
         case kTextureExternalSampler_GrSLType:
         case kTexture2DRectSampler_GrSLType:
         case kBufferSampler_GrSLType:
         case kTexture2D_GrSLType:
         case kSampler_GrSLType:
-        case kImageStorage2D_GrSLType:
-        case kIImageStorage2D_GrSLType:
             break;
     }
-    SkFAIL("Unexpected type");
+    SK_ABORT("Unexpected type");
     return 0;
 }
 
@@ -118,7 +183,7 @@ void get_ubo_aligned_offset(uint32_t* uniformOffset,
                             int arrayCount) {
     uint32_t alignmentMask = grsltype_to_alignment_mask(type);
     // We want to use the std140 layout here, so we must make arrays align to 16 bytes.
-    if (arrayCount || type == kMat22f_GrSLType) {
+    if (arrayCount || type == kFloat2x2_GrSLType) {
         alignmentMask = 0xF;
     }
     uint32_t offsetDiff = *currentOffset & alignmentMask;
@@ -163,7 +228,7 @@ GrGLSLUniformHandler::UniformHandle GrVkUniformHandler::internalAddUniformArray(
     // uniform view matrix, they should upload the view matrix in their setData along with regular
     // uniforms.
     char prefix = 'u';
-    if ('u' == name[0]) {
+    if ('u' == name[0] || !strncmp(name, GR_NO_MANGLE_PREFIX, strlen(GR_NO_MANGLE_PREFIX))) {
         prefix = '\0';
     }
     fProgramBuilder->nameVariable(uni.fVariable.accessName(), prefix, name, mangleName);
@@ -225,32 +290,6 @@ GrGLSLUniformHandler::SamplerHandle GrVkUniformHandler::addSampler(uint32_t visi
     return GrGLSLUniformHandler::SamplerHandle(fSamplers.count() - 1);
 }
 
-GrGLSLUniformHandler::TexelBufferHandle GrVkUniformHandler::addTexelBuffer(uint32_t visibility,
-                                                                           GrSLPrecision precision,
-                                                                           const char* name) {
-    SkASSERT(name && strlen(name));
-    SkDEBUGCODE(static const uint32_t kVisMask = kVertex_GrShaderFlag |
-                                                 kGeometry_GrShaderFlag |
-                                                 kFragment_GrShaderFlag);
-    SkASSERT(0 == (~kVisMask & visibility));
-    SkASSERT(0 != visibility);
-    SkString mangleName;
-    char prefix = 'u';
-    fProgramBuilder->nameVariable(&mangleName, prefix, name, true);
-
-    UniformInfo& info = fTexelBuffers.push_back();
-    info.fVariable.setType(kBufferSampler_GrSLType);
-    info.fVariable.setTypeModifier(GrShaderVar::kUniform_TypeModifier);
-    info.fVariable.setPrecision(precision);
-    info.fVariable.setName(mangleName);
-    SkString layoutQualifier;
-    layoutQualifier.appendf("set=%d, binding=%d", kTexelBufferDescSet, fTexelBuffers.count()- 1);
-    info.fVariable.addLayoutQualifier(layoutQualifier.c_str());
-    info.fVisibility = visibility;
-    info.fUBOffset = 0;
-    return GrGLSLUniformHandler::TexelBufferHandle(fTexelBuffers.count() - 1);
-}
-
 void GrVkUniformHandler::appendUniformDecls(GrShaderFlags visibility, SkString* out) const {
     SkASSERT(kVertex_GrShaderFlag == visibility ||
              kGeometry_GrShaderFlag == visibility ||
@@ -261,14 +300,6 @@ void GrVkUniformHandler::appendUniformDecls(GrShaderFlags visibility, SkString* 
         SkASSERT(sampler.fVariable.getType() == kTexture2DSampler_GrSLType);
         if (visibility == sampler.fVisibility) {
             sampler.fVariable.appendDecl(fProgramBuilder->shaderCaps(), out);
-            out->append(";\n");
-        }
-    }
-
-    for (int i = 0; i < fTexelBuffers.count(); ++i) {
-        const UniformInfo& texelBuffer = fTexelBuffers[i];
-        if (visibility == texelBuffer.fVisibility) {
-            texelBuffer.fVariable.appendDecl(fProgramBuilder->shaderCaps(), out);
             out->append(";\n");
         }
     }

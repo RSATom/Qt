@@ -25,12 +25,25 @@ const uint8_t kKeyId[] = {0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37,
                           0x38, 0x39, 0x30, 0x31, 0x32, 0x33, 0x34, 0x35};
 }
 
+// TODO(sandersd): Change the tests to use a more unique message.
+// See http://crbug.com/592067
+
+// Common test results.
+const char kFailed[] = "FAILED";
+
+// Upper case event name set by Utils.installTitleEventHandler().
+const char kEnded[] = "ENDED";
+const char kErrorEvent[] = "ERROR";
+
+// Lower case event name as set by Utils.failTest().
+const char kError[] = "error";
+
 const base::FilePath::CharType kTestDataPath[] =
     FILE_PATH_LITERAL("media/test/data");
 
 base::FilePath GetTestDataFilePath(const std::string& name) {
   base::FilePath file_path;
-  CHECK(PathService::Get(base::DIR_SOURCE_ROOT, &file_path));
+  CHECK(base::PathService::Get(base::DIR_SOURCE_ROOT, &file_path));
   return file_path.Append(GetTestDataPath()).AppendASCII(name);
 }
 

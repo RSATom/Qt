@@ -11,24 +11,21 @@
 
 #include "base/compiler_specific.h"
 #include "base/macros.h"
-#include "third_party/WebKit/public/platform/WebGestureCurve.h"
-#include "third_party/WebKit/public/platform/WebGestureDevice.h"
+#include "third_party/blink/public/platform/web_gesture_curve.h"
+#include "third_party/blink/public/platform/web_gesture_device.h"
 #include "ui/gfx/geometry/vector2d_f.h"
-
-namespace blink {
-class WebGestureCurveTarget;
-}
 
 namespace ui {
 class GestureCurve;
 
-class WebGestureCurveImpl : public NON_EXPORTED_BASE(blink::WebGestureCurve) {
+class WebGestureCurveImpl : public blink::WebGestureCurve {
  public:
   static std::unique_ptr<blink::WebGestureCurve> CreateFromDefaultPlatformCurve(
       blink::WebGestureDevice device_source,
       const gfx::Vector2dF& initial_velocity,
       const gfx::Vector2dF& initial_offset,
-      bool on_main_thread);
+      bool on_main_thread,
+      bool use_mobile_fling_curve);
   static std::unique_ptr<blink::WebGestureCurve> CreateFromUICurveForTesting(
       std::unique_ptr<GestureCurve> curve,
       const gfx::Vector2dF& initial_offset);
@@ -36,7 +33,9 @@ class WebGestureCurveImpl : public NON_EXPORTED_BASE(blink::WebGestureCurve) {
   ~WebGestureCurveImpl() override;
 
   // WebGestureCurve implementation.
-  bool Apply(double time, blink::WebGestureCurveTarget* target) override;
+  bool Advance(double time,
+               gfx::Vector2dF& out_current_velocity,
+               gfx::Vector2dF& out_delta_to_scroll) override;
 
  private:
   enum class ThreadType {
@@ -53,7 +52,6 @@ class WebGestureCurveImpl : public NON_EXPORTED_BASE(blink::WebGestureCurve) {
 
   gfx::Vector2dF last_offset_;
 
-  ThreadType animating_thread_type_;
   int64_t ticks_since_first_animate_;
   double first_animate_time_;
   double last_animate_time_;

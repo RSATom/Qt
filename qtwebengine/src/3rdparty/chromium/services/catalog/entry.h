@@ -9,9 +9,10 @@
 #include <string>
 #include <vector>
 
+#include "base/component_export.h"
 #include "base/files/file_path.h"
 #include "base/macros.h"
-#include "services/catalog/public/interfaces/catalog.mojom.h"
+#include "services/catalog/public/mojom/catalog.mojom.h"
 #include "services/service_manager/public/cpp/interface_provider_spec.h"
 
 namespace base {
@@ -21,7 +22,7 @@ class Value;
 namespace catalog {
 
 // Static information about a service package known to the Catalog.
-class Entry {
+class COMPONENT_EXPORT(CATALOG) Entry {
  public:
   Entry();
   explicit Entry(const std::string& name);
@@ -42,6 +43,11 @@ class Entry {
   const std::string& display_name() const { return display_name_; }
   void set_display_name(std::string display_name) {
     display_name_ = std::move(display_name);
+  }
+
+  const std::string& sandbox_type() const { return sandbox_type_; }
+  void set_sandbox_type(std::string sandbox_type) {
+    sandbox_type_ = std::move(sandbox_type);
   }
 
   const Entry* parent() const { return parent_; }
@@ -71,6 +77,7 @@ class Entry {
   std::string name_;
   base::FilePath path_;
   std::string display_name_;
+  std::string sandbox_type_;
   service_manager::InterfaceProviderSpecMap interface_provider_specs_;
   std::map<std::string, base::FilePath> required_file_paths_;
   const Entry* parent_ = nullptr;

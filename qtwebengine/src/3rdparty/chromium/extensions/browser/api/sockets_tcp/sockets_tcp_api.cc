@@ -4,8 +4,8 @@
 
 #include "extensions/browser/api/sockets_tcp/sockets_tcp_api.h"
 
-#include "base/memory/ptr_util.h"
 #include "content/public/browser/browser_context.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/common/socket_permission_request.h"
 #include "extensions/browser/api/socket/tcp_socket.h"
@@ -469,7 +469,7 @@ void SocketsTcpSecureFunction::AsyncWorkStart() {
 
   ResumableTCPSocket* socket = GetTcpSocket(params_->socket_id);
   if (!socket) {
-    SetResult(base::MakeUnique<base::Value>(net::ERR_INVALID_ARGUMENT));
+    SetResult(std::make_unique<base::Value>(net::ERR_INVALID_ARGUMENT));
     error_ = kSocketNotFoundError;
     AsyncWorkCompleted();
     return;
@@ -482,14 +482,14 @@ void SocketsTcpSecureFunction::AsyncWorkStart() {
   // secure()'d.
   if (socket->GetSocketType() != Socket::TYPE_TCP ||
       socket->ClientStream() == NULL) {
-    SetResult(base::MakeUnique<base::Value>(net::ERR_INVALID_ARGUMENT));
+    SetResult(std::make_unique<base::Value>(net::ERR_INVALID_ARGUMENT));
     error_ = kInvalidSocketStateError;
     AsyncWorkCompleted();
     return;
   }
 
   if (!socket->IsConnected()) {
-    SetResult(base::MakeUnique<base::Value>(net::ERR_INVALID_ARGUMENT));
+    SetResult(std::make_unique<base::Value>(net::ERR_INVALID_ARGUMENT));
     error_ = kSocketNotConnectedError;
     AsyncWorkCompleted();
     return;

@@ -49,15 +49,15 @@
 ****************************************************************************/
 
 #include "mainwindow.h"
+#include "stylesheetdialog.h"
 #include <QApplication>
 #include <QUrl>
 
 int main(int argc, char *argv[])
 {
-    QCoreApplication::setOrganizationName("The Qt Company");
-    QCoreApplication::setOrganizationDomain("www.qt.io");
-    QCoreApplication::setApplicationName("StyleSheet Browser");
+    qRegisterMetaTypeStreamOperators<StyleSheet>("StyleSheet");
 
+    QCoreApplication::setOrganizationName("QtExamples");
     QCoreApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
     QApplication a(argc, argv);
     MainWindow w(QUrl("http://qt.io"));

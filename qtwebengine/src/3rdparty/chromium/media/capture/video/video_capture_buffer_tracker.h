@@ -14,10 +14,8 @@
 
 namespace media {
 
-// Keeps track of the state of a given mappable resource. Each
-// VideoCaptureBufferTracker carries indication of pixel format and storage
-// type. This is a base class for implementations using different kinds of
-// storage.
+// Keeps track of the state of a given mappable resource. This is a base class
+// for implementations using different kinds of storage.
 class CAPTURE_EXPORT VideoCaptureBufferTracker {
  public:
   VideoCaptureBufferTracker()
@@ -25,24 +23,15 @@ class CAPTURE_EXPORT VideoCaptureBufferTracker {
         held_by_producer_(false),
         consumer_hold_count_(0),
         frame_feedback_id_(0) {}
-  virtual bool Init(const gfx::Size& dimensions,
-                    media::VideoPixelFormat format,
-                    media::VideoPixelStorage storage_type,
-                    base::Lock* lock) = 0;
+  virtual bool Init(const gfx::Size& dimensions, VideoPixelFormat format) = 0;
   virtual ~VideoCaptureBufferTracker(){};
 
   const gfx::Size& dimensions() const { return dimensions_; }
   void set_dimensions(const gfx::Size& dim) { dimensions_ = dim; }
   size_t max_pixel_count() const { return max_pixel_count_; }
   void set_max_pixel_count(size_t count) { max_pixel_count_ = count; }
-  media::VideoPixelFormat pixel_format() const { return pixel_format_; }
-  void set_pixel_format(media::VideoPixelFormat format) {
-    pixel_format_ = format;
-  }
-  media::VideoPixelStorage storage_type() const { return storage_type_; }
-  void set_storage_type(media::VideoPixelStorage storage_type) {
-    storage_type_ = storage_type;
-  }
+  VideoPixelFormat pixel_format() const { return pixel_format_; }
+  void set_pixel_format(VideoPixelFormat format) { pixel_format_ = format; }
   bool held_by_producer() const { return held_by_producer_; }
   void set_held_by_producer(bool value) { held_by_producer_ = value; }
   int consumer_hold_count() const { return consumer_hold_count_; }
@@ -51,9 +40,11 @@ class CAPTURE_EXPORT VideoCaptureBufferTracker {
   int frame_feedback_id() { return frame_feedback_id_; }
 
   virtual std::unique_ptr<VideoCaptureBufferHandle> GetMemoryMappedAccess() = 0;
-  virtual mojo::ScopedSharedBufferHandle GetHandleForTransit() = 0;
+  virtual mojo::ScopedSharedBufferHandle GetHandleForTransit(
+      bool read_only) = 0;
   virtual base::SharedMemoryHandle
   GetNonOwnedSharedMemoryHandleForLegacyIPC() = 0;
+  virtual uint32_t GetMemorySizeInBytes() = 0;
 
  private:
   // |dimensions_| may change as a VideoCaptureBufferTracker is re-used, but
@@ -61,8 +52,7 @@ class CAPTURE_EXPORT VideoCaptureBufferTracker {
   // the lifetime of a VideoCaptureBufferTracker.
   gfx::Size dimensions_;
   size_t max_pixel_count_;
-  media::VideoPixelFormat pixel_format_;
-  media::VideoPixelStorage storage_type_;
+  VideoPixelFormat pixel_format_;
 
   // Indicates whether this VideoCaptureBufferTracker is currently referenced by
   // the producer.

@@ -37,6 +37,8 @@
 
 #include "qgeomapparameter_p.h"
 #include <QtCore/QVariant>
+#include <QDebug>
+#include <QMetaProperty>
 
 QT_BEGIN_NAMESPACE
 
@@ -45,8 +47,23 @@ QGeoMapParameter::QGeoMapParameter(QObject *parent) : QObject(parent)
 
 }
 
+QGeoMapParameter::QGeoMapParameter(const QList<QPair<QLatin1String, QVariant> > &properties, QObject *parent) : QObject(parent)
+{
+    for (const auto &p: properties) {
+        if (p.first == QLatin1String("type"))
+            setType(p.second.toString());
+        else
+            updateProperty(p.first.data(), p.second);
+    }
+}
+
 QGeoMapParameter::~QGeoMapParameter()
 {
+}
+
+bool QGeoMapParameter::operator==(const QGeoMapParameter &other) const
+{
+    return (other.toVariantMap() == toVariantMap());
 }
 
 QString QGeoMapParameter::type() const
@@ -68,6 +85,23 @@ void QGeoMapParameter::updateProperty(const char *propertyName, QVariant value)
     // Since this object has only type defined as Q_PROPERTY() which is a set-once
     // no check is really needed here.
     emit propertyUpdated(this, propertyName);
+}
+
+QVariantMap QGeoMapParameter::toVariantMap() const
+{
+    QVariantMap res;
+    const QMetaObject *metaObj = metaObject();
+    for (int i = 2; i < metaObj->propertyCount(); ++i) { // 0 is objectName, 1 is type, we want to skip both of them here.
+        const char *propName = metaObj->property(i).name();
+        res[QLatin1String(propName)] = property(propName);
+    }
+    return res;
+}
+
+bool QGeoMapParameter::hasProperty(const char *propertyName)
+{
+    return metaObject()->indexOfProperty(propertyName) != -1
+            || dynamicPropertyNames().indexOf(QByteArray(propertyName)) != -1;
 }
 
 QT_END_NAMESPACE

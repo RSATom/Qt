@@ -7,11 +7,14 @@
 #ifndef SkPDFCanon_DEFINED
 #define SkPDFCanon_DEFINED
 
+#include <vector>
+
 #include "SkBitmapKey.h"
+#include "SkMacros.h"
 #include "SkPDFGradientShader.h"
 #include "SkPDFGraphicState.h"
 #include "SkPDFShader.h"
-#include "SkPixelSerializer.h"
+#include "SkString.h"
 #include "SkTDArray.h"
 #include "SkTHash.h"
 #include "SkTypeface.h"
@@ -27,7 +30,9 @@ class SkPDFCanon {
 public:
     ~SkPDFCanon();
     SkPDFCanon();
+    SkPDFCanon(SkPDFCanon&&);
     SkPDFCanon(const SkPDFCanon&) = delete;
+    SkPDFCanon& operator=(SkPDFCanon&&);
     SkPDFCanon& operator=(const SkPDFCanon&) = delete;
 
     SkTHashMap<SkPDFImageShaderKey, sk_sp<SkPDFObject>> fImageShaderMap;
@@ -37,13 +42,14 @@ public:
     SkTHashMap<SkBitmapKey, sk_sp<SkPDFObject>> fPDFBitmapMap;
 
     SkTHashMap<uint32_t, std::unique_ptr<SkAdvancedTypefaceMetrics>> fTypefaceMetrics;
+    SkTHashMap<uint32_t, std::vector<SkString>> fType1GlyphNames;
+    SkTHashMap<uint32_t, std::vector<SkUnichar>> fToUnicodeMap;
     SkTHashMap<uint32_t, sk_sp<SkPDFDict>> fFontDescriptors;
     SkTHashMap<uint64_t, sk_sp<SkPDFFont>> fFontMap;
 
     SkTHashMap<SkPDFStrokeGraphicState, sk_sp<SkPDFDict>> fStrokeGSMap;
     SkTHashMap<SkPDFFillGraphicState, sk_sp<SkPDFDict>> fFillGSMap;
 
-    sk_sp<SkPixelSerializer> fPixelSerializer;
     sk_sp<SkPDFStream> fInvertFunction;
     sk_sp<SkPDFDict> fNoSmaskGraphicState;
     sk_sp<SkPDFArray> fRangeObject;
@@ -66,6 +72,6 @@ public:
 };
 
 inline bool operator==(const SkPDFCanon::BitmapGlyphKey& u, const SkPDFCanon::BitmapGlyphKey& v) {
-    return memcmp(&u, &u, sizeof(SkPDFCanon::BitmapGlyphKey)) == 0;
+    return memcmp(&u, &v, sizeof(SkPDFCanon::BitmapGlyphKey)) == 0;
 }
 #endif  // SkPDFCanon_DEFINED

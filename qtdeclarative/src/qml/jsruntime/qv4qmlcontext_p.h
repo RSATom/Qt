@@ -66,22 +66,25 @@ struct QQmlContextWrapper;
 
 namespace Heap {
 
-struct QQmlContextWrapper : Object {
+#define QQmlContextWrapperMembers(class, Member) \
+    Member(class, Pointer, Module *, module)
+
+DECLARE_HEAP_OBJECT(QQmlContextWrapper, Object) {
+    DECLARE_MARKOBJECTS(QQmlContextWrapper);
+
     void init(QQmlContextData *context, QObject *scopeObject);
     void destroy();
-    bool readOnly;
-    bool isNullWrapper;
 
     QQmlContextDataRef *context;
     QQmlQPointer<QObject> scopeObject;
 };
 
-#define QmlContextMembers(class, Member) \
-    Member(class, Pointer, QQmlContextWrapper *, qml)
+#define QmlContextMembers(class, Member)
 
 DECLARE_HEAP_OBJECT(QmlContext, ExecutionContext) {
-    DECLARE_MARK_TABLE(QmlContext);
+    DECLARE_MARKOBJECTS(QmlContext);
 
+    QQmlContextWrapper *qml() { return static_cast<QQmlContextWrapper *>(activation.get()); }
     void init(QV4::ExecutionContext *outerContext, QV4::QQmlContextWrapper *qml);
 };
 
@@ -96,10 +99,19 @@ struct Q_QML_EXPORT QQmlContextWrapper : Object
     inline QObject *getScopeObject() const { return d()->scopeObject; }
     inline QQmlContextData *getContext() const { return *d()->context; }
 
-    void setReadOnly(bool b) { d()->readOnly = b; }
+    static ReturnedValue getPropertyAndBase(const QQmlContextWrapper *resource, PropertyKey id, const Value *receiver,
+                                            bool *hasProperty, Value *base, Lookup *lookup = nullptr);
+    static ReturnedValue virtualGet(const Managed *m, PropertyKey id, const Value *receiver, bool *hasProperty);
+    static bool virtualPut(Managed *m, PropertyKey id, const Value &value, Value *receiver);
 
-    static ReturnedValue get(const Managed *m, String *name, bool *hasProperty);
-    static bool put(Managed *m, String *name, const Value &value);
+    static ReturnedValue resolveQmlContextPropertyLookupGetter(Lookup *l, ExecutionEngine *engine, Value *base);
+    static ReturnedValue lookupScript(Lookup *l, ExecutionEngine *engine, Value *base);
+    static ReturnedValue lookupSingleton(Lookup *l, ExecutionEngine *engine, Value *base);
+    static ReturnedValue lookupIdObject(Lookup *l, ExecutionEngine *engine, Value *base);
+    static ReturnedValue lookupScopeObjectProperty(Lookup *l, ExecutionEngine *engine, Value *base);
+    static ReturnedValue lookupContextObjectProperty(Lookup *l, ExecutionEngine *engine, Value *base);
+    static ReturnedValue lookupInGlobalObject(Lookup *l, ExecutionEngine *engine, Value *base);
+    static ReturnedValue lookupInParentContextHierarchy(Lookup *l, ExecutionEngine *engine, Value *base);
 };
 
 struct Q_QML_EXPORT QmlContext : public ExecutionContext
@@ -107,14 +119,13 @@ struct Q_QML_EXPORT QmlContext : public ExecutionContext
     V4_MANAGED(QmlContext, ExecutionContext)
     V4_INTERNALCLASS(QmlContext)
 
-    static Heap::QmlContext *createWorkerContext(QV4::ExecutionContext *parent, const QUrl &source, Value *sendFunction);
     static Heap::QmlContext *create(QV4::ExecutionContext *parent, QQmlContextData *context, QObject *scopeObject);
 
     QObject *qmlScope() const {
-        return d()->qml->scopeObject;
+        return d()->qml()->scopeObject;
     }
     QQmlContextData *qmlContext() const {
-        return *d()->qml->context;
+        return *d()->qml()->context;
     }
 };
 

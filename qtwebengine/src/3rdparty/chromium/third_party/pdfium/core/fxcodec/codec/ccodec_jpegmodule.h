@@ -7,10 +7,11 @@
 #ifndef CORE_FXCODEC_CODEC_CCODEC_JPEGMODULE_H_
 #define CORE_FXCODEC_CODEC_CCODEC_JPEGMODULE_H_
 
+#include <csetjmp>
 #include <memory>
 
-#include "core/fxcrt/cfx_retain_ptr.h"
 #include "core/fxcrt/fx_system.h"
+#include "core/fxcrt/retain_ptr.h"
 
 class CCodec_ScanlineDecoder;
 class CFX_DIBSource;
@@ -24,6 +25,7 @@ class CCodec_JpegModule {
   class Context {
    public:
     virtual ~Context() {}
+    virtual jmp_buf* GetJumpMark() = 0;
   };
 
   std::unique_ptr<CCodec_ScanlineDecoder> CreateDecoder(const uint8_t* src_buf,
@@ -43,9 +45,7 @@ class CCodec_JpegModule {
   std::unique_ptr<Context> Start();
   void Input(Context* pContext, const uint8_t* src_buf, uint32_t src_size);
 
-#ifndef PDF_ENABLE_XFA
-  int ReadHeader(Context* pContext, int* width, int* height, int* nComps);
-#else   // PDF_ENABLE_XFA
+#ifdef PDF_ENABLE_XFA
   int ReadHeader(Context* pContext,
                  int* width,
                  int* height,
@@ -57,11 +57,11 @@ class CCodec_JpegModule {
   bool ReadScanline(Context* pContext, uint8_t* dest_buf);
   uint32_t GetAvailInput(Context* pContext, uint8_t** avail_buf_ptr);
 
-#if _FX_OS_ == _FX_WIN32_DESKTOP_ || _FX_OS_ == _FX_WIN64_DESKTOP_
-  static bool JpegEncode(const CFX_RetainPtr<CFX_DIBSource>& pSource,
+#if _FX_PLATFORM_ == _FX_PLATFORM_WINDOWS_
+  static bool JpegEncode(const RetainPtr<CFX_DIBSource>& pSource,
                          uint8_t** dest_buf,
-                         FX_STRSIZE* dest_size);
-#endif
+                         size_t* dest_size);
+#endif  // _FX_PLATFORM_ == _FX_PLATFORM_WINDOWS_
 };
 
 #endif  // CORE_FXCODEC_CODEC_CCODEC_JPEGMODULE_H_

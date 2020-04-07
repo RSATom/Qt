@@ -16,12 +16,15 @@
 #include "base/memory/ref_counted.h"
 #include "net/base/address_list.h"
 #include "net/base/auth.h"
+#include "net/base/completion_once_callback.h"
+#include "net/base/completion_repeating_callback.h"
 #include "net/base/net_export.h"
 #include "net/dns/host_resolver.h"
 #include "net/ftp/ftp_ctrl_response_buffer.h"
 #include "net/ftp/ftp_response_info.h"
 #include "net/ftp/ftp_transaction.h"
 #include "net/log/net_log_with_source.h"
+#include "net/traffic_annotation/network_traffic_annotation.h"
 
 namespace net {
 
@@ -38,13 +41,14 @@ class NET_EXPORT_PRIVATE FtpNetworkTransaction : public FtpTransaction {
 
   // FtpTransaction methods:
   int Start(const FtpRequestInfo* request_info,
-            const CompletionCallback& callback,
-            const NetLogWithSource& net_log) override;
+            CompletionOnceCallback callback,
+            const NetLogWithSource& net_log,
+            const NetworkTrafficAnnotationTag& traffic_annotation) override;
   int RestartWithAuth(const AuthCredentials& credentials,
-                      const CompletionCallback& callback) override;
+                      CompletionOnceCallback callback) override;
   int Read(IOBuffer* buf,
            int buf_len,
-           const CompletionCallback& callback) override;
+           CompletionOnceCallback callback) override;
   const FtpResponseInfo* GetResponseInfo() const override;
   LoadState GetLoadState() const override;
   uint64_t GetUploadProgress() const override;
@@ -199,11 +203,12 @@ class NET_EXPORT_PRIVATE FtpNetworkTransaction : public FtpTransaction {
 
   Command command_sent_;
 
-  CompletionCallback io_callback_;
-  CompletionCallback user_callback_;
+  CompletionRepeatingCallback io_callback_;
+  CompletionOnceCallback user_callback_;
 
   NetLogWithSource net_log_;
   const FtpRequestInfo* request_;
+  MutableNetworkTrafficAnnotationTag traffic_annotation_;
   FtpResponseInfo response_;
 
   // Cancels the outstanding request on destruction.

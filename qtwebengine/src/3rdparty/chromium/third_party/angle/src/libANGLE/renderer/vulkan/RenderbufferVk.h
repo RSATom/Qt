@@ -11,27 +11,43 @@
 #define LIBANGLE_RENDERER_VULKAN_RENDERBUFFERVK_H_
 
 #include "libANGLE/renderer/RenderbufferImpl.h"
+#include "libANGLE/renderer/vulkan/RenderTargetVk.h"
+#include "libANGLE/renderer/vulkan/vk_helpers.h"
 
 namespace rx
 {
 
-class RenderbufferVk : public RenderbufferImpl
+class RenderbufferVk : public RenderbufferImpl, public vk::CommandGraphResource
 {
   public:
-    RenderbufferVk();
+    RenderbufferVk(const gl::RenderbufferState &state);
     ~RenderbufferVk() override;
 
-    gl::Error setStorage(GLenum internalformat, size_t width, size_t height) override;
-    gl::Error setStorageMultisample(size_t samples,
+    gl::Error onDestroy(const gl::Context *context) override;
+
+    gl::Error setStorage(const gl::Context *context,
+                         GLenum internalformat,
+                         size_t width,
+                         size_t height) override;
+    gl::Error setStorageMultisample(const gl::Context *context,
+                                    size_t samples,
                                     GLenum internalformat,
                                     size_t width,
                                     size_t height) override;
-    gl::Error setStorageEGLImageTarget(egl::Image *image) override;
+    gl::Error setStorageEGLImageTarget(const gl::Context *context, egl::Image *image) override;
 
     gl::Error getAttachmentRenderTarget(const gl::Context *context,
                                         GLenum binding,
                                         const gl::ImageIndex &imageIndex,
                                         FramebufferAttachmentRenderTarget **rtOut) override;
+
+    gl::Error initializeContents(const gl::Context *context,
+                                 const gl::ImageIndex &imageIndex) override;
+
+  private:
+    vk::ImageHelper mImage;
+    vk::ImageView mImageView;
+    RenderTargetVk mRenderTarget;
 };
 
 }  // namespace rx

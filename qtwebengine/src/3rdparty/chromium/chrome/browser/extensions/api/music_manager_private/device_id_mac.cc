@@ -21,6 +21,7 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/sys_string_conversions.h"
+#include "base/task_scheduler/post_task.h"
 #include "base/threading/thread_restrictions.h"
 #include "content/public/browser/browser_thread.h"
 
@@ -100,7 +101,7 @@ std::string GetVolumeUUIDFromBSDName(const std::string& bsd_name) {
 
 // Return Volume UUID property of disk mounted as "/".
 std::string GetVolumeUUID() {
-  base::ThreadRestrictions::AssertIOAllowed();
+  base::AssertBlockingAllowed();
 
   std::string result;
   std::string bsd_name = FindBSDNameOfSystemDisk();
@@ -167,7 +168,7 @@ class MacAddressProcessor {
 
 std::string GetMacAddress(
     const IsValidMacAddressCallback& is_valid_mac_address) {
-  base::ThreadRestrictions::AssertIOAllowed();
+  base::AssertBlockingAllowed();
 
   mach_port_t master_port;
   kern_return_t kr = IOMasterPort(MACH_PORT_NULL, &master_port);
@@ -220,7 +221,7 @@ std::string GetMacAddress(
 
 void GetRawDeviceIdImpl(const IsValidMacAddressCallback& is_valid_mac_address,
                         const DeviceId::IdCallback& callback) {
-  base::ThreadRestrictions::AssertIOAllowed();
+  base::AssertBlockingAllowed();
 
   std::string raw_device_id;
   std::string mac_address = GetMacAddress(is_valid_mac_address);
@@ -243,12 +244,10 @@ namespace api {
 void DeviceId::GetRawDeviceId(const IdCallback& callback) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
-  content::BrowserThread::PostTask(
-      content::BrowserThread::FILE,
-      FROM_HERE,
-      base::Bind(GetRawDeviceIdImpl,
-          base::Bind(DeviceId::IsValidMacAddress),
-          callback));
+  base::PostTaskWithTraits(
+      FROM_HERE, traits(),
+      base::Bind(&GetRawDeviceIdImpl, base::Bind(&DeviceId::IsValidMacAddress),
+                 callback));
 }
 
 }  // namespace api

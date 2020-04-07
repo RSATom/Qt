@@ -89,6 +89,15 @@ void SetCheckStatus(FormFieldData* form_field_data,
 std::vector<std::string> LowercaseAndTokenizeAttributeString(
     const std::string& attribute);
 
+// Returns true if and only if the field value has no character except the
+// formatting characters. This means that the field value is a formatting string
+// entered by the website and not a real value entered by the user.
+bool SanitizedFieldIsEmpty(const base::string16& value);
+
+// Returns true if the first suggestion should be autoselected when the autofill
+// dropdown is shown due to an arrow down event. Enabled on desktop only.
+bool ShouldAutoselectFirstSuggestionOnArrowDown();
+
 }  // namespace autofill
 
 #endif  // COMPONENTS_AUTOFILL_CORE_COMMON_AUTOFILL_UTIL_H_

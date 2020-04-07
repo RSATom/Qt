@@ -52,12 +52,12 @@ class ChromeManagementAPIDelegate : public extensions::ManagementAPIDelegate {
                        const std::string& extension_id) const override;
   void DisableExtension(
       content::BrowserContext* context,
+      const extensions::Extension* source_extension,
       const std::string& extension_id,
-      extensions::Extension::DisableReason disable_reason) const override;
+      extensions::disable_reason::DisableReason disable_reason) const override;
   bool UninstallExtension(content::BrowserContext* context,
                           const std::string& transient_extension_id,
                           extensions::UninstallReason reason,
-                          const base::Closure& deletion_done_callback,
                           base::string16* error) const override;
   void SetLaunchType(content::BrowserContext* context,
                      const std::string& extension_id,

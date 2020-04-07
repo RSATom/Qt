@@ -48,9 +48,6 @@
 
 QT_BEGIN_NAMESPACE
 
-// workaround for VC++ 6.0 linker bug (?)
-typedef bool(*LessThan)(const QPair<QListWidgetItem*,int>&,const QPair<QListWidgetItem*,int>&);
-
 class QListWidgetMimeData : public QMimeData
 {
     Q_OBJECT
@@ -189,8 +186,9 @@ int QListModel::rowCount(const QModelIndex &parent) const
     return parent.isValid() ? 0 : items.count();
 }
 
-QModelIndex QListModel::index(QListWidgetItem *item) const
+QModelIndex QListModel::index(const QListWidgetItem *item_) const
 {
+    QListWidgetItem *item = const_cast<QListWidgetItem *>(item_);
     if (!item || !item->view || static_cast<const QListModel *>(item->view->model()) != this
         || items.isEmpty())
         return QModelIndex();
@@ -300,7 +298,7 @@ void QListModel::sort(int column, Qt::SortOrder order)
         sorting[i].second = i;
     }
 
-    LessThan compare = (order == Qt::AscendingOrder ? &itemLessThan : &itemGreaterThan);
+    const auto compare = (order == Qt::AscendingOrder ? &itemLessThan : &itemGreaterThan);
     std::sort(sorting.begin(), sorting.end(), compare);
     QModelIndexList fromIndexes;
     QModelIndexList toIndexes;
@@ -337,7 +335,7 @@ void QListModel::ensureSorted(int column, Qt::SortOrder order, int start, int en
         sorting[i].second = start + i;
     }
 
-    LessThan compare = (order == Qt::AscendingOrder ? &itemLessThan : &itemGreaterThan);
+    const auto compare = (order == Qt::AscendingOrder ? &itemLessThan : &itemGreaterThan);
     std::sort(sorting.begin(), sorting.end(), compare);
 
     QModelIndexList oldPersistentIndexes = persistentIndexList();
@@ -411,10 +409,10 @@ QList<QListWidgetItem*>::iterator QListModel::sortedInsertionIterator(
     return std::lower_bound(begin, end, item, QListModelGreaterThan());
 }
 
-void QListModel::itemChanged(QListWidgetItem *item)
+void QListModel::itemChanged(QListWidgetItem *item, const QVector<int> &roles)
 {
-    QModelIndex idx = index(item);
-    emit dataChanged(idx, idx);
+    const QModelIndex idx = index(item);
+    emit dataChanged(idx, idx, roles);
 }
 
 QStringList QListModel::mimeTypes() const
@@ -443,7 +441,7 @@ QMimeData *QListModel::mimeData(const QModelIndexList &indexes) const
     return mimeData;
 }
 
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
 bool QListModel::dropMimeData(const QMimeData *data, Qt::DropAction action,
                               int row, int column, const QModelIndex &index)
 {
@@ -462,7 +460,7 @@ Qt::DropActions QListModel::supportedDropActions() const
     const QListWidget *view = qobject_cast<const QListWidget*>(QObject::parent());
     return view->supportedDropActions();
 }
-#endif // QT_NO_DRAGANDDROP
+#endif // QT_CONFIG(draganddrop)
 
 /*!
     \class QListWidgetItem
@@ -710,8 +708,12 @@ void QListWidgetItem::setData(int role, const QVariant &value)
     }
     if (!found)
         d->values.append(QWidgetItemData(role, value));
-    if (QListModel *model = (view ? qobject_cast<QListModel*>(view->model()) : 0))
-        model->itemChanged(this);
+    if (QListModel *model = (view ? qobject_cast<QListModel*>(view->model()) : nullptr)) {
+        const QVector<int> roles((role == Qt::DisplayRole) ?
+                                    QVector<int>({Qt::DisplayRole, Qt::EditRole}) :
+                                    QVector<int>({role}));
+        model->itemChanged(this, roles);
+    }
 }
 
 /*!
@@ -953,7 +955,8 @@ QDataStream &operator>>(QDataStream &in, QListWidgetItem &item)
 
     \sa Qt::ItemFlags
 */
-void QListWidgetItem::setFlags(Qt::ItemFlags aflags) {
+void QListWidgetItem::setFlags(Qt::ItemFlags aflags)
+{
     itemFlags = aflags;
     if (QListModel *model = (view ? qobject_cast<QListModel*>(view->model()) : 0))
         model->itemChanged(this);
@@ -1196,7 +1199,7 @@ void QListWidgetPrivate::_q_dataChanged(const QModelIndex &topLeft,
     new current item and the item that was previously current.
 
     \sa QListWidgetItem, QListView, QTreeView, {Model/View Programming},
-        {Config Dialog Example}
+        {Tab Dialog Example}
 */
 
 /*!
@@ -1372,7 +1375,7 @@ void QListWidget::setSelectionModel(QItemSelectionModel *selectionModel)
 
 /*!
     Returns the item that occupies the given \a row in the list if one has been
-    set; otherwise returns 0.
+    set; otherwise returns \nullptr.
 
     \sa row()
 */
@@ -1439,7 +1442,7 @@ void QListWidget::insertItems(int row, const QStringList &labels)
 
 /*!
     Removes and returns the item from the given \a row in the list widget;
-    otherwise returns 0.
+    otherwise returns \nullptr.
 
     Items removed from a list widget will not be managed by Qt, and will need
     to be deleted manually.
@@ -1841,7 +1844,7 @@ QMimeData *QListWidget::mimeData(const QList<QListWidgetItem*> items) const
     // if non empty, it's called from the model's own mimeData
     if (cachedIndexes.isEmpty()) {
         cachedIndexes.reserve(items.count());
-        foreach (QListWidgetItem *item, items)
+        for (QListWidgetItem *item : items)
             cachedIndexes << indexFromItem(item);
 
         QMimeData *result = d->listModel()->internalMimeData();
@@ -1853,7 +1856,7 @@ QMimeData *QListWidget::mimeData(const QList<QListWidgetItem*> items) const
     return d->listModel()->internalMimeData();
 }
 
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
 /*!
     Handles \a data supplied by an external drag and drop operation that ended
     with the given \a action in the given \a index. Returns \c true if \a data and
@@ -1928,7 +1931,7 @@ Qt::DropActions QListWidget::supportedDropActions() const
     Q_D(const QListWidget);
     return d->listModel()->QAbstractListModel::supportedDropActions() | Qt::MoveAction;
 }
-#endif // QT_NO_DRAGANDDROP
+#endif // QT_CONFIG(draganddrop)
 
 /*!
     Returns a list of pointers to the items contained in the \a data object. If
@@ -1945,13 +1948,27 @@ QList<QListWidgetItem*> QListWidget::items(const QMimeData *data) const
 
 /*!
     Returns the QModelIndex associated with the given \a item.
+
+    \note In Qt versions prior to 5.10, this function took a non-\c{const} \a item.
 */
 
-QModelIndex QListWidget::indexFromItem(QListWidgetItem *item) const
+QModelIndex QListWidget::indexFromItem(const QListWidgetItem *item) const
 {
     Q_D(const QListWidget);
     return d->listModel()->index(item);
 }
+
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
+/*!
+    \internal
+    \obsolete
+    \overload
+*/
+QModelIndex QListWidget::indexFromItem(QListWidgetItem *item) const
+{
+    return indexFromItem(const_cast<const QListWidgetItem *>(item));
+}
+#endif
 
 /*!
     Returns a pointer to the QListWidgetItem associated with the given \a index.

@@ -53,8 +53,7 @@ class QWaylandXCompositeGlxPlatformIntegration : public QWaylandIntegration
 {
 public:
     QWaylandXCompositeGlxPlatformIntegration()
-        : QWaylandIntegration()
-        , m_client_buffer_integration(new QWaylandXCompositeGLXIntegration())
+        : m_client_buffer_integration(new QWaylandXCompositeGLXIntegration())
     {
         m_client_buffer_integration->initialize(display());
     }
@@ -63,7 +62,7 @@ public:
     { return m_client_buffer_integration; }
 
 private:
-    QWaylandClientBufferIntegration *m_client_buffer_integration;
+    QWaylandClientBufferIntegration *m_client_buffer_integration = nullptr;
 };
 
 }

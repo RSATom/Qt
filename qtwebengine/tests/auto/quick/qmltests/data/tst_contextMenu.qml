@@ -103,6 +103,8 @@ TestWebEngineView {
             if (row.userHandled) {
                 webEngineView.contextMenuRequested.connect(contextMenuHandler);
             }
+            webEngineView.loadHtml("<html></html>");
+            verify(webEngineView.waitForLoadSucceeded());
 
             mouseClick(webEngineView, 20, 20, Qt.RightButton);
             contextMenuRequestedSpy.wait();
@@ -141,6 +143,11 @@ TestWebEngineView {
             compare(linkText, "Link");
             compare(mediaType, ContextMenuRequest.MediaTypeNone);
             compare(selectedText, "");
+
+            verify(webEngineView.action(WebEngineView.OpenLinkInNewTab).enabled);
+            verify(webEngineView.action(WebEngineView.OpenLinkInNewWindow).enabled);
+            verify(webEngineView.action(WebEngineView.DownloadLinkToDisk).enabled);
+            verify(webEngineView.action(WebEngineView.CopyLinkToClipboard).enabled);
 
             contextMenuRequestedSpy.clear();
             // FIXME: Sometimes the keyPress(Qt.Key_Escape) event isn't caught so we keep trying

@@ -22,6 +22,16 @@ class DISPLAY_MANAGER_EXPORT DisplayLayoutStore {
   DisplayLayoutStore();
   ~DisplayLayoutStore();
 
+  // Set true to force mirror mode. This should only be used when tablet mode is
+  // turned on/off.
+  void set_forced_mirror_mode_for_tablet(bool forced) {
+    forced_mirror_mode_for_tablet_ = forced;
+  }
+
+  bool forced_mirror_mode_for_tablet() const {
+    return forced_mirror_mode_for_tablet_;
+  }
+
   void SetDefaultDisplayPlacement(const DisplayPlacement& placement);
 
   // Registers the display layout info for the specified display(s).
@@ -32,12 +42,11 @@ class DISPLAY_MANAGER_EXPORT DisplayLayoutStore {
   // |default_display_layout_|.
   const DisplayLayout& GetRegisteredDisplayLayout(const DisplayIdList& list);
 
-  // Update the multi display state in the display layout for
+  // Update the default unified desktop mode in the display layout for
   // |display_list|.  This creates new display layout if no layout is
   // registered for |display_list|.
-  void UpdateMultiDisplayState(const DisplayIdList& display_list,
-                               bool mirrored,
-                               bool default_unified);
+  void UpdateDefaultUnified(const DisplayIdList& display_list,
+                            bool default_unified);
 
  private:
   // Creates new layout for display list from |default_display_layout_|.
@@ -45,6 +54,8 @@ class DISPLAY_MANAGER_EXPORT DisplayLayoutStore {
 
   // The default display placement.
   DisplayPlacement default_display_placement_;
+
+  bool forced_mirror_mode_for_tablet_ = false;
 
   // Display layout per list of devices.
   std::map<DisplayIdList, std::unique_ptr<DisplayLayout>> layouts_;

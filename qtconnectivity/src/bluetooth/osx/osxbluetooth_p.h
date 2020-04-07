@@ -54,47 +54,10 @@
 
 #include <QtCore/qglobal.h>
 
-#ifndef QT_OSX_BLUETOOTH
-
 #include <CoreBluetooth/CoreBluetooth.h>
 
-#else
-
-#if QT_OSX_PLATFORM_SDK_EQUAL_OR_ABOVE(__MAC_10_12)
-
-#include <CoreBluetooth/CoreBluetooth.h>
+#ifdef Q_OS_MACOS
 #include <IOBluetooth/IOBluetooth.h>
+#endif
 
-#else
-
-// CoreBluetooth with SDK 10.9 seems to be broken: the class CBPeripheralManager is enabled on macOS
-// but some of its declarations are using a disabled enum CBPeripheralAuthorizationStatus
-// (disabled using __attribute__ syntax and NS_ENUM_AVAILABLE macro).
-// This + -std=c++11 ends with a compilation error. For the SDK 10.9 we can:
-// 1. either undefine NS_ENUM_AVAILABLE macro (it works somehow) and redefine it as an empty sequence
-// of pp-tokens or
-// 2. define __attribute__ as an empty sequence. Both solutions look quite ugly.
-
-#if QT_OSX_PLATFORM_SDK_EQUAL_OR_ABOVE(__MAC_10_9) && !QT_OSX_PLATFORM_SDK_EQUAL_OR_ABOVE(__MAC_10_10)
-
-// Must be included BEFORE CoreBluetooth.h:
-#include <Foundation/Foundation.h>
-
-#define CB_ERROR_WORKAROUND_REQUIRED
-#undef NS_ENUM_AVAILABLE
-#define NS_ENUM_AVAILABLE(_mac, _ios)
-
-#endif // SDK version == 10.9
-
-// In SDK below 10.12 IOBluetooth.h includes CoreBluetooth.h.
-#include <IOBluetooth/IOBluetooth.h>
-
-#ifdef CB_ERROR_WORKAROUND_REQUIRED
-#undef __attribute__
-#undef CB_ERROR_WORKAROUND_REQUIRED
-#endif // WORKAROUND
-
-#endif // SDK
-
-#endif // QT_OSX_BLUETOOTH
 #endif // OSXBLUETOOTH_P_H

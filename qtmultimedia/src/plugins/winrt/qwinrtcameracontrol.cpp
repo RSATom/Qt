@@ -54,13 +54,15 @@
 
 #include <functional>
 #include <mfapi.h>
-#include <mferror.h>
+#include <Mferror.h>
 #include <mfidl.h>
 #include <wrl.h>
 #include <windows.devices.enumeration.h>
 #include <windows.media.capture.h>
 #include <windows.storage.streams.h>
 #include <windows.media.devices.h>
+
+#include <algorithm>
 
 using namespace Microsoft::WRL;
 using namespace Microsoft::WRL::Wrappers;
@@ -101,7 +103,7 @@ HRESULT getMediaStreamResolutions(IMediaDeviceController *device,
     quint32 listSize;
     hr = (*propertiesList)->get_Size(&listSize);
     Q_ASSERT_SUCCEEDED(hr);
-    resolutions->reserve(listSize);
+    resolutions->reserve(int(listSize));
     for (quint32 index = 0; index < listSize; ++index) {
         ComPtr<IMediaEncodingProperties> properties;
         hr = (*propertiesList)->GetAt(index, &properties);
@@ -121,7 +123,7 @@ HRESULT getMediaStreamResolutions(IMediaDeviceController *device,
             Q_ASSERT_SUCCEEDED(hr);
             hr = videoProperties->get_Height(&height);
             Q_ASSERT_SUCCEEDED(hr);
-            resolutions->append(QSize(width, height));
+            resolutions->append(QSize(int(width), int(height)));
         } else if (propertyType == imageRef) {
             ComPtr<IImageEncodingProperties> imageProperties;
             hr = properties.As(&imageProperties);
@@ -131,7 +133,7 @@ HRESULT getMediaStreamResolutions(IMediaDeviceController *device,
             Q_ASSERT_SUCCEEDED(hr);
             hr = imageProperties->get_Height(&height);
             Q_ASSERT_SUCCEEDED(hr);
-            resolutions->append(QSize(width, height));
+            resolutions->append(QSize(int(width), int(height)));
         }
     }
     return resolutions->isEmpty() ? MF_E_INVALID_FORMAT : hr;
@@ -235,7 +237,7 @@ public:
         Q_ASSERT_SUCCEEDED(hr);
     }
 
-    ~MediaStream()
+    ~MediaStream() override
     {
         QMutexLocker locker(&m_mutex);
         m_eventQueue->Shutdown();
@@ -245,12 +247,12 @@ public:
     {
         if (m_pendingSamples.load() < 3) {
             m_pendingSamples.ref();
-            return QueueEvent(MEStreamSinkRequestSample, GUID_NULL, S_OK, Q_NULLPTR);
+            return QueueEvent(MEStreamSinkRequestSample, GUID_NULL, S_OK, nullptr);
         }
         return S_OK;
     }
 
-    HRESULT __stdcall GetEvent(DWORD flags, IMFMediaEvent **event) Q_DECL_OVERRIDE
+    HRESULT __stdcall GetEvent(DWORD flags, IMFMediaEvent **event) override
     {
         QMutexLocker locker(&m_mutex);
         // Create an extra reference to avoid deadlock
@@ -260,43 +262,44 @@ public:
         return eventQueue->GetEvent(flags, event);
     }
 
-    HRESULT __stdcall BeginGetEvent(IMFAsyncCallback *callback, IUnknown *state) Q_DECL_OVERRIDE
+    HRESULT __stdcall BeginGetEvent(IMFAsyncCallback *callback, IUnknown *state) override
     {
         QMutexLocker locker(&m_mutex);
         HRESULT hr = m_eventQueue->BeginGetEvent(callback, state);
         return hr;
     }
 
-    HRESULT __stdcall EndGetEvent(IMFAsyncResult *result, IMFMediaEvent **event) Q_DECL_OVERRIDE
+    HRESULT __stdcall EndGetEvent(IMFAsyncResult *result, IMFMediaEvent **event) override
     {
         QMutexLocker locker(&m_mutex);
         return m_eventQueue->EndGetEvent(result, event);
     }
 
-    HRESULT __stdcall QueueEvent(MediaEventType eventType, const GUID &extendedType, HRESULT status, const PROPVARIANT *value) Q_DECL_OVERRIDE
+    HRESULT __stdcall QueueEvent(MediaEventType eventType, const GUID &extendedType, HRESULT status, const PROPVARIANT *value) override
     {
         QMutexLocker locker(&m_mutex);
         return m_eventQueue->QueueEventParamVar(eventType, extendedType, status, value);
     }
 
-    HRESULT __stdcall GetMediaSink(IMFMediaSink **mediaSink) Q_DECL_OVERRIDE
+    HRESULT __stdcall GetMediaSink(IMFMediaSink **mediaSink) override
     {
+        m_sink->AddRef();
         *mediaSink = m_sink;
         return S_OK;
     }
 
-    HRESULT __stdcall GetIdentifier(DWORD *identifier) Q_DECL_OVERRIDE
+    HRESULT __stdcall GetIdentifier(DWORD *identifier) override
     {
         *identifier = 0;
         return S_OK;
     }
 
-    HRESULT __stdcall GetMediaTypeHandler(IMFMediaTypeHandler **handler) Q_DECL_OVERRIDE
+    HRESULT __stdcall GetMediaTypeHandler(IMFMediaTypeHandler **handler) override
     {
         return QueryInterface(IID_PPV_ARGS(handler));
     }
 
-    HRESULT __stdcall ProcessSample(IMFSample *sample) Q_DECL_OVERRIDE
+    HRESULT __stdcall ProcessSample(IMFSample *sample) override
     {
         ComPtr<IMFMediaBuffer> buffer;
         HRESULT hr = sample->GetBufferByIndex(0, &buffer);
@@ -311,7 +314,7 @@ public:
         return hr;
     }
 
-    HRESULT __stdcall PlaceMarker(MFSTREAMSINK_MARKER_TYPE type, const PROPVARIANT *value, const PROPVARIANT *context) Q_DECL_OVERRIDE
+    HRESULT __stdcall PlaceMarker(MFSTREAMSINK_MARKER_TYPE type, const PROPVARIANT *value, const PROPVARIANT *context) override
     {
         Q_UNUSED(type);
         Q_UNUSED(value);
@@ -319,14 +322,14 @@ public:
         return S_OK;
     }
 
-    HRESULT __stdcall Flush() Q_DECL_OVERRIDE
+    HRESULT __stdcall Flush() override
     {
         m_videoRenderer->discardBuffers();
         m_pendingSamples.store(0);
         return S_OK;
     }
 
-    HRESULT __stdcall IsMediaTypeSupported(IMFMediaType *type, IMFMediaType **) Q_DECL_OVERRIDE
+    HRESULT __stdcall IsMediaTypeSupported(IMFMediaType *type, IMFMediaType **) override
     {
         HRESULT hr;
         GUID majorType;
@@ -337,34 +340,34 @@ public:
         return S_OK;
     }
 
-    HRESULT __stdcall GetMediaTypeCount(DWORD *typeCount) Q_DECL_OVERRIDE
+    HRESULT __stdcall GetMediaTypeCount(DWORD *typeCount) override
     {
         *typeCount = 1;
         return S_OK;
     }
 
-    HRESULT __stdcall GetMediaTypeByIndex(DWORD index, IMFMediaType **type) Q_DECL_OVERRIDE
+    HRESULT __stdcall GetMediaTypeByIndex(DWORD index, IMFMediaType **type) override
     {
         if (index == 0)
             return m_type.CopyTo(type);
         return E_BOUNDS;
     }
 
-    HRESULT __stdcall SetCurrentMediaType(IMFMediaType *type) Q_DECL_OVERRIDE
+    HRESULT __stdcall SetCurrentMediaType(IMFMediaType *type) override
     {
-        if (FAILED(IsMediaTypeSupported(type, Q_NULLPTR)))
+        if (FAILED(IsMediaTypeSupported(type, nullptr)))
             return MF_E_INVALIDREQUEST;
 
         m_type = type;
         return S_OK;
     }
 
-    HRESULT __stdcall GetCurrentMediaType(IMFMediaType **type) Q_DECL_OVERRIDE
+    HRESULT __stdcall GetCurrentMediaType(IMFMediaType **type) override
     {
         return m_type.CopyTo(type);
     }
 
-    HRESULT __stdcall GetMajorType(GUID *majorType) Q_DECL_OVERRIDE
+    HRESULT __stdcall GetMajorType(GUID *majorType) override
     {
         return m_type->GetMajorType(majorType);
     }
@@ -396,28 +399,26 @@ public:
         m_stream = Make<MediaStream>(videoType.Get(), this, videoRenderer);
     }
 
-    ~MediaSink()
-    {
-    }
+    ~MediaSink() override = default;
 
     HRESULT RequestSample()
     {
         return m_stream->RequestSample();
     }
 
-    HRESULT __stdcall SetProperties(Collections::IPropertySet *configuration) Q_DECL_OVERRIDE
+    HRESULT __stdcall SetProperties(Collections::IPropertySet *configuration) override
     {
         Q_UNUSED(configuration);
         return E_NOTIMPL;
     }
 
-    HRESULT __stdcall GetCharacteristics(DWORD *characteristics) Q_DECL_OVERRIDE
+    HRESULT __stdcall GetCharacteristics(DWORD *characteristics) override
     {
         *characteristics = MEDIASINK_FIXED_STREAMS | MEDIASINK_RATELESS;
         return S_OK;
     }
 
-    HRESULT __stdcall AddStreamSink(DWORD streamSinkIdentifier, IMFMediaType *mediaType, IMFStreamSink **streamSink) Q_DECL_OVERRIDE
+    HRESULT __stdcall AddStreamSink(DWORD streamSinkIdentifier, IMFMediaType *mediaType, IMFStreamSink **streamSink) override
     {
         Q_UNUSED(streamSinkIdentifier);
         Q_UNUSED(mediaType);
@@ -425,33 +426,33 @@ public:
         return E_NOTIMPL;
     }
 
-    HRESULT __stdcall RemoveStreamSink(DWORD streamSinkIdentifier) Q_DECL_OVERRIDE
+    HRESULT __stdcall RemoveStreamSink(DWORD streamSinkIdentifier) override
     {
         Q_UNUSED(streamSinkIdentifier);
         return E_NOTIMPL;
     }
 
-    HRESULT __stdcall GetStreamSinkCount(DWORD *streamSinkCount) Q_DECL_OVERRIDE
+    HRESULT __stdcall GetStreamSinkCount(DWORD *streamSinkCount) override
     {
         *streamSinkCount = 1;
         return S_OK;
     }
 
-    HRESULT __stdcall GetStreamSinkByIndex(DWORD index, IMFStreamSink **streamSink) Q_DECL_OVERRIDE
+    HRESULT __stdcall GetStreamSinkByIndex(DWORD index, IMFStreamSink **streamSink) override
     {
         if (index == 0)
             return m_stream.CopyTo(streamSink);
         return MF_E_INVALIDINDEX;
     }
 
-    HRESULT __stdcall GetStreamSinkById(DWORD streamSinkIdentifier, IMFStreamSink **streamSink) Q_DECL_OVERRIDE
+    HRESULT __stdcall GetStreamSinkById(DWORD streamSinkIdentifier, IMFStreamSink **streamSink) override
     {
         // ID and index are always 0
         HRESULT hr = GetStreamSinkByIndex(streamSinkIdentifier, streamSink);
         return hr == MF_E_INVALIDINDEX ? MF_E_INVALIDSTREAMNUMBER : hr;
     }
 
-    HRESULT __stdcall SetPresentationClock(IMFPresentationClock *presentationClock) Q_DECL_OVERRIDE
+    HRESULT __stdcall SetPresentationClock(IMFPresentationClock *presentationClock) override
     {
         HRESULT hr = S_OK;
         m_presentationClock = presentationClock;
@@ -460,19 +461,19 @@ public:
         return hr;
     }
 
-    HRESULT __stdcall GetPresentationClock(IMFPresentationClock **presentationClock) Q_DECL_OVERRIDE
+    HRESULT __stdcall GetPresentationClock(IMFPresentationClock **presentationClock) override
     {
         return m_presentationClock.CopyTo(presentationClock);
     }
 
-    HRESULT __stdcall Shutdown() Q_DECL_OVERRIDE
+    HRESULT __stdcall Shutdown() override
     {
         m_stream->Flush();
         scheduleSetActive(false);
         return m_presentationClock ? m_presentationClock->Stop() : S_OK;
     }
 
-    HRESULT __stdcall OnClockStart(MFTIME systemTime, LONGLONG clockStartOffset) Q_DECL_OVERRIDE
+    HRESULT __stdcall OnClockStart(MFTIME systemTime, LONGLONG clockStartOffset) override
     {
         Q_UNUSED(systemTime);
         Q_UNUSED(clockStartOffset);
@@ -482,34 +483,34 @@ public:
         return S_OK;
     }
 
-    HRESULT __stdcall OnClockStop(MFTIME systemTime) Q_DECL_OVERRIDE
+    HRESULT __stdcall OnClockStop(MFTIME systemTime) override
     {
         Q_UNUSED(systemTime);
 
         scheduleSetActive(false);
 
-        return m_stream->QueueEvent(MEStreamSinkStopped, GUID_NULL, S_OK, Q_NULLPTR);
+        return m_stream->QueueEvent(MEStreamSinkStopped, GUID_NULL, S_OK, nullptr);
     }
 
-    HRESULT __stdcall OnClockPause(MFTIME systemTime) Q_DECL_OVERRIDE
+    HRESULT __stdcall OnClockPause(MFTIME systemTime) override
     {
         Q_UNUSED(systemTime);
 
         scheduleSetActive(false);
 
-        return m_stream->QueueEvent(MEStreamSinkPaused, GUID_NULL, S_OK, Q_NULLPTR);
+        return m_stream->QueueEvent(MEStreamSinkPaused, GUID_NULL, S_OK, nullptr);
     }
 
-    HRESULT __stdcall OnClockRestart(MFTIME systemTime) Q_DECL_OVERRIDE
+    HRESULT __stdcall OnClockRestart(MFTIME systemTime) override
     {
         Q_UNUSED(systemTime);
 
         scheduleSetActive(true);
 
-        return m_stream->QueueEvent(MEStreamSinkStarted, GUID_NULL, S_OK, Q_NULLPTR);
+        return m_stream->QueueEvent(MEStreamSinkStarted, GUID_NULL, S_OK, nullptr);
     }
 
-    HRESULT __stdcall OnClockSetRate(MFTIME systemTime, float rate) Q_DECL_OVERRIDE
+    HRESULT __stdcall OnClockSetRate(MFTIME systemTime, float rate) override
     {
         Q_UNUSED(systemTime);
         Q_UNUSED(rate);
@@ -580,13 +581,15 @@ QWinRTCameraControl::QWinRTCameraControl(QObject *parent)
     connect(d->videoRenderer, &QWinRTCameraVideoRendererControl::bufferRequested,
             this, &QWinRTCameraControl::onBufferRequested);
     d->videoDeviceSelector = new QWinRTVideoDeviceSelectorControl(this);
+    connect(d->videoDeviceSelector, QOverload<int>::of(&QWinRTVideoDeviceSelectorControl::selectedDeviceChanged),
+            d->videoRenderer, &QWinRTCameraVideoRendererControl::resetSampleFormat);
     d->imageCaptureControl = new QWinRTCameraImageCaptureControl(this);
     d->imageEncoderControl = new QWinRTImageEncoderControl(this);
     d->cameraFlashControl = new QWinRTCameraFlashControl(this);
     d->cameraFocusControl = new QWinRTCameraFocusControl(this);
     d->cameraLocksControl = new QWinRTCameraLocksControl(this);
 
-    d->initializationCompleteEvent = CreateEvent(NULL, false, false, NULL);
+    d->initializationCompleteEvent = CreateEvent(nullptr, false, false, nullptr);
 
     if (qGuiApp) {
         connect(qGuiApp, &QGuiApplication::applicationStateChanged,
@@ -949,14 +952,12 @@ HRESULT QWinRTCameraControl::initialize()
             return E_FAIL;
         }
 
-        const QCamera::Position position = d->videoDeviceSelector->cameraPosition(deviceName);
-        d->videoRenderer->setScanLineDirection(position == QCamera::BackFace ? QVideoSurfaceFormat::TopToBottom
-                                                                             : QVideoSurfaceFormat::BottomToTop);
+        d->videoRenderer->setScanLineDirection(QVideoSurfaceFormat::TopToBottom);
         ComPtr<IMediaCaptureInitializationSettings> settings;
         hr = RoActivateInstance(HString::MakeReference(RuntimeClass_Windows_Media_Capture_MediaCaptureInitializationSettings).Get(),
                                 &settings);
         Q_ASSERT_SUCCEEDED(hr);
-        HStringReference deviceId(reinterpret_cast<LPCWSTR>(deviceName.utf16()), deviceName.length());
+        HStringReference deviceId(reinterpret_cast<LPCWSTR>(deviceName.utf16()), uint(deviceName.length()));
         hr = settings->put_VideoDeviceId(deviceId.Get());
         Q_ASSERT_SUCCEEDED(hr);
 
@@ -988,7 +989,7 @@ HRESULT QWinRTCameraControl::initializeFocus()
     ComPtr<IVectorView<enum FocusMode>> focusModes;
     hr = focusControl2->get_SupportedFocusModes(&focusModes);
     if (FAILED(hr)) {
-        d->cameraFocusControl->setSupportedFocusMode(0);
+        d->cameraFocusControl->setSupportedFocusMode(nullptr);
         d->cameraFocusControl->setSupportedFocusPointMode(QSet<QCameraFocus::FocusPointMode>());
         qErrnoWarning(hr, "Failed to get camera supported focus mode list");
         return hr;
@@ -996,7 +997,7 @@ HRESULT QWinRTCameraControl::initializeFocus()
     quint32 size;
     hr = focusModes->get_Size(&size);
     Q_ASSERT_SUCCEEDED(hr);
-    QCameraFocus::FocusModes supportedModeFlag = 0;
+    QCameraFocus::FocusModes supportedModeFlag = nullptr;
     for (quint32 i = 0; i < size; ++i) {
         FocusMode mode;
         hr = focusModes->GetAt(i, &mode);
@@ -1118,19 +1119,21 @@ bool QWinRTCameraControl::setFocus(QCameraFocus::FocusModes modes)
 bool QWinRTCameraControl::setFocusPoint(const QPointF &focusPoint)
 {
     Q_D(QWinRTCameraControl);
-    if (focusPoint.x() < FOCUS_RECT_POSITION_MIN || focusPoint.x() > FOCUS_RECT_BOUNDARY) {
+    if (focusPoint.x() < double(FOCUS_RECT_POSITION_MIN)
+            || focusPoint.x() > double(FOCUS_RECT_BOUNDARY)) {
         emit error(QCamera::CameraError, QStringLiteral("Focus horizontal location should be between 0.0 and 1.0."));
         return false;
     }
 
-    if (focusPoint.y() < FOCUS_RECT_POSITION_MIN || focusPoint.y() > FOCUS_RECT_BOUNDARY) {
+    if (focusPoint.y() < double(FOCUS_RECT_POSITION_MIN)
+            || focusPoint.y() > double(FOCUS_RECT_BOUNDARY)) {
         emit error(QCamera::CameraError, QStringLiteral("Focus vertical location should be between 0.0 and 1.0."));
         return false;
     }
 
     ABI::Windows::Foundation::Rect rect;
-    rect.X = qBound<float>(FOCUS_RECT_POSITION_MIN, focusPoint.x() - FOCUS_RECT_HALF_SIZE, FOCUS_RECT_POSITION_MAX);
-    rect.Y = qBound<float>(FOCUS_RECT_POSITION_MIN, focusPoint.y() - FOCUS_RECT_HALF_SIZE, FOCUS_RECT_POSITION_MAX);
+    rect.X = qBound<float>(FOCUS_RECT_POSITION_MIN, float(focusPoint.x() - double(FOCUS_RECT_HALF_SIZE)), FOCUS_RECT_POSITION_MAX);
+    rect.Y = qBound<float>(FOCUS_RECT_POSITION_MIN, float(focusPoint.y() - double(FOCUS_RECT_HALF_SIZE)), FOCUS_RECT_POSITION_MAX);
     rect.Width  = (rect.X + FOCUS_RECT_SIZE) < FOCUS_RECT_BOUNDARY ? FOCUS_RECT_SIZE : FOCUS_RECT_BOUNDARY - rect.X;
     rect.Height = (rect.Y + FOCUS_RECT_SIZE) < FOCUS_RECT_BOUNDARY ? FOCUS_RECT_SIZE : FOCUS_RECT_BOUNDARY - rect.Y;
 
@@ -1324,7 +1327,7 @@ HRESULT QWinRTCameraControl::onCaptureFailed(IMediaCapture *, IMediaCaptureFaile
     RETURN_HR_IF_FAILED("Failed to get error message");
     quint32 messageLength;
     const wchar_t *messageBuffer = message.GetRawBuffer(&messageLength);
-    emit error(QCamera::CameraError, QString::fromWCharArray(messageBuffer, messageLength));
+    emit error(QCamera::CameraError, QString::fromWCharArray(messageBuffer, int(messageLength)));
     setState(QCamera::LoadedState);
     return S_OK;
 }
@@ -1344,7 +1347,7 @@ HRESULT QWinRTCameraControl::onInitializationCompleted(IAsyncAction *, AsyncStat
 
     if (status != Completed) {
         d->initializing = false;
-        d->initialized = true;
+        d->initialized = false;
         return S_OK;
     }
 
@@ -1395,10 +1398,14 @@ HRESULT QWinRTCameraControl::onInitializationCompleted(IAsyncAction *, AsyncStat
                                    &captureResolutions);
     RETURN_HR_IF_FAILED("Failed to find a suitable video format");
 
+    std::sort(captureResolutions.begin(), captureResolutions.end(), [](QSize size1, QSize size2) {
+        return size1.width() * size1.height() < size2.width() * size2.height();
+    });
+
     // Set capture resolutions.
     d->imageEncoderControl->setSupportedResolutionsList(captureResolutions.toList());
     const QSize captureResolution = d->imageEncoderControl->imageSettings().resolution();
-    const quint32 captureResolutionIndex = captureResolutions.indexOf(captureResolution);
+    const quint32 captureResolutionIndex = quint32(captureResolutions.indexOf(captureResolution));
     ComPtr<IMediaEncodingProperties> captureProperties;
     hr = capturePropertiesList->GetAt(captureResolutionIndex, &captureProperties);
     Q_ASSERT_SUCCEEDED(hr);
@@ -1409,19 +1416,18 @@ HRESULT QWinRTCameraControl::onInitializationCompleted(IAsyncAction *, AsyncStat
     Q_ASSERT_SUCCEEDED(hr);
 
     // Set preview resolution.
-    QVector<QSize> filtered;
+    QSize maxSize;
     const float captureAspectRatio = float(captureResolution.width()) / captureResolution.height();
     for (const QSize &resolution : qAsConst(previewResolutions)) {
         const float aspectRatio = float(resolution.width()) / resolution.height();
-        if (qAbs(aspectRatio - captureAspectRatio) <= ASPECTRATIO_EPSILON)
-            filtered.append(resolution);
+        if ((qAbs(aspectRatio - captureAspectRatio) <= ASPECTRATIO_EPSILON)
+                && (maxSize.width() * maxSize.height() < resolution.width() * resolution.height())) {
+            maxSize = resolution;
+        }
     }
-    qSort(filtered.begin(),
-          filtered.end(),
-          [](QSize size1, QSize size2) { return size1.width() * size1.height() < size2.width() * size2.height(); });
 
-    const QSize &viewfinderResolution = filtered.first();
-    const quint32 viewfinderResolutionIndex = previewResolutions.indexOf(viewfinderResolution);
+    const QSize &viewfinderResolution = maxSize;
+    const quint32 viewfinderResolutionIndex = quint32(previewResolutions.indexOf(viewfinderResolution));
     hr = RoActivateInstance(HString::MakeReference(RuntimeClass_Windows_Media_MediaProperties_MediaEncodingProfile).Get(),
                             &d->encodingProfile);
     Q_ASSERT_SUCCEEDED(hr);

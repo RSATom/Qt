@@ -100,6 +100,12 @@ typedef QSqlRelationalTableModelSql Sql;
 */
 
 /*!
+  \fn void QSqlRelation::swap(QSqlRelation &other)
+
+  Swaps \c this with \a other.
+ */
+
+/*!
     \fn QString QSqlRelation::tableName() const
 
     Returns the name of the table to which a foreign key refers.
@@ -156,7 +162,7 @@ class QRelatedTableModel : public QSqlTableModel
 {
 public:
     QRelatedTableModel(QRelation *rel, QObject *parent = 0, QSqlDatabase db = QSqlDatabase());
-    bool select() Q_DECL_OVERRIDE;
+    bool select() override;
 private:
     bool firstSelect;
     QRelation *relation;
@@ -268,12 +274,12 @@ public:
     {}
     QString fullyQualifiedFieldName(const QString &tableName, const QString &fieldName) const;
 
-    int nameToIndex(const QString &name) const Q_DECL_OVERRIDE;
+    int nameToIndex(const QString &name) const override;
     mutable QVector<QRelation> relations;
     QSqlRecord baseRec; // the record without relations
     void clearChanges();
-    void clearCache() Q_DECL_OVERRIDE;
-    void revertCachedRow(int row) Q_DECL_OVERRIDE;
+    void clearCache() override;
+    void revertCachedRow(int row) override;
 
     void translateFieldNames(QSqlRecord &values) const;
     QSqlRelationalTableModel::JoinMode joinMode;

@@ -53,7 +53,7 @@
     \since QtCanvas3D 1.0
     \title JSON Models Example
     \ingroup qtcanvas3d-examples
-    \brief Load and display several JSON models
+    \brief Load and display several JSON models.
 
     The JSON Models Example demonstrates loading and displaying more than
     one JSON model and more than one texture. It also implements simple

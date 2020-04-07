@@ -3,14 +3,11 @@ TEMPLATE = subdirs
 qtConfig(private_tests) {
     SUBDIRS += \
         entity \
-        renderqueue \
         renderpass \
         qgraphicsutils \
         shader \
         shaderbuilder \
         texture \
-        renderviewutils \
-        renderviews \
         material \
         vsyncframeadvanceservice \
         meshfunctors \
@@ -24,14 +21,12 @@ qtConfig(private_tests) {
         attribute \
         geometry \
         geometryrenderer \
-        raycasting \
         qcameraselector \
         qclearbuffers \
         qframegraphnode \
         qlayerfilter \
         qabstractlight \
         qenvironmentlight \
-        qray3d \
         qrenderpassfilter \
         qrenderstate \
         qrendertargetselector \
@@ -45,8 +40,6 @@ qtConfig(private_tests) {
         objectpicker \
 #        qboundingvolumedebug \
 #        boundingvolumedebug \
-        trianglesextractor \
-        triangleboundingvolume \
         ddstextures \
         shadercache \
         layerfiltering \
@@ -63,11 +56,6 @@ qtConfig(private_tests) {
         loadscenejob \
         qrendercapture \
         uniform \
-        graphicshelpergl3_3 \
-        graphicshelpergl3_2 \
-        graphicshelpergl2 \
-        sendrendercapturejob \
-        textures \
         qparameter \
         parameter \
         qtextureloader \
@@ -89,9 +77,6 @@ qtConfig(private_tests) {
         filterkey \
         qmesh \
         technique \
-        materialparametergathererjob \
-        renderviewbuilder \
-        filtercompatibletechniquejob \
         rendercapture \
         segmentvisitor \
         trianglevisitor \
@@ -101,7 +86,6 @@ qtConfig(private_tests) {
         qshaderprogrambuilder \
         coordinatereader \
         framegraphvisitor \
-        renderer \
         armature \
         skeleton \
         joint \
@@ -110,9 +94,43 @@ qtConfig(private_tests) {
         proximityfiltering \
         qblitframebuffer \
         blitframebuffer \
+        qraycaster \
+        raycaster \
+        qscreenraycaster \
+        raycastingjob \
         qcamera
 
     QT_FOR_CONFIG = 3dcore-private
+    # TO DO: These could be restored to be executed in all cases
+    # when aligned-malloc.pri becomes part of the test framework
+    !qtConfig(qt3d-simd-avx2): {
+      SUBDIRS += \
+        qray3d \
+        raycasting \
+        trianglesextractor \
+        triangleboundingvolume \
+    }
+}
+
+# Tests related to the OpenGL renderer
+QT_FOR_CONFIG += 3drender-private
+
+qtConfig(qt3d-opengl-renderer):qtConfig(private_tests) {
+
+    SUBDIRS += \
+        filtercompatibletechniquejob \
+        graphicshelpergl3_3 \
+        graphicshelpergl3_2 \
+        graphicshelpergl2 \
+        materialparametergathererjob \
+        textures \
+        renderer \
+        renderviewutils \
+        renderviews \
+        renderqueue \
+        renderviewbuilder \
+        sendrendercapturejob
+
     qtConfig(qt3d-extras) {
         SUBDIRS += \
             qmaterial \
@@ -133,4 +151,7 @@ qtConfig(private_tests) {
     }
 
     !macos: SUBDIRS += graphicshelpergl4
+
+    qtConfig(qt3d-simd-avx2): SUBDIRS += alignedresourcesmanagers-avx
+    qtConfig(qt3d-simd-sse2): SUBDIRS += alignedresourcesmanagers-sse
 }

@@ -4,9 +4,10 @@
 
 #include "components/signin/core/browser/fake_profile_oauth2_token_service.h"
 
+#include <memory>
+
 #include "base/bind.h"
 #include "base/location.h"
-#include "base/memory/ptr_util.h"
 #include "base/single_thread_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
 #include "google_apis/gaia/fake_oauth2_token_service_delegate.h"
@@ -20,7 +21,7 @@ FakeProfileOAuth2TokenService::PendingRequest::~PendingRequest() {}
 
 FakeProfileOAuth2TokenService::FakeProfileOAuth2TokenService()
     : FakeProfileOAuth2TokenService(
-          base::MakeUnique<FakeOAuth2TokenServiceDelegate>(nullptr)) {}
+          std::make_unique<FakeOAuth2TokenServiceDelegate>()) {}
 
 FakeProfileOAuth2TokenService::FakeProfileOAuth2TokenService(
     std::unique_ptr<OAuth2TokenServiceDelegate> delegate)
@@ -34,6 +35,7 @@ void FakeProfileOAuth2TokenService::IssueAllTokensForAccount(
     const std::string& account_id,
     const std::string& access_token,
     const base::Time& expiration) {
+  DCHECK(!auto_post_fetch_response_on_message_loop_);
   CompleteRequests(account_id, true, ScopeSet(),
                    GoogleServiceAuthError::AuthErrorNone(), access_token,
                    expiration);
@@ -42,6 +44,7 @@ void FakeProfileOAuth2TokenService::IssueAllTokensForAccount(
 void FakeProfileOAuth2TokenService::IssueErrorForAllPendingRequestsForAccount(
     const std::string& account_id,
     const GoogleServiceAuthError& error) {
+  DCHECK(!auto_post_fetch_response_on_message_loop_);
   CompleteRequests(account_id, true, ScopeSet(), error, std::string(),
                    base::Time());
 }
@@ -50,6 +53,7 @@ void FakeProfileOAuth2TokenService::IssueTokenForScope(
     const ScopeSet& scope,
     const std::string& access_token,
     const base::Time& expiration) {
+  DCHECK(!auto_post_fetch_response_on_message_loop_);
   CompleteRequests("", false, scope, GoogleServiceAuthError::AuthErrorNone(),
                    access_token, expiration);
 }
@@ -57,20 +61,29 @@ void FakeProfileOAuth2TokenService::IssueTokenForScope(
 void FakeProfileOAuth2TokenService::IssueErrorForScope(
     const ScopeSet& scope,
     const GoogleServiceAuthError& error) {
+  DCHECK(!auto_post_fetch_response_on_message_loop_);
   CompleteRequests("", false, scope, error, std::string(), base::Time());
 }
 
 void FakeProfileOAuth2TokenService::IssueErrorForAllPendingRequests(
     const GoogleServiceAuthError& error) {
+  DCHECK(!auto_post_fetch_response_on_message_loop_);
   CompleteRequests("", true, ScopeSet(), error, std::string(), base::Time());
 }
 
 void FakeProfileOAuth2TokenService::IssueTokenForAllPendingRequests(
     const std::string& access_token,
     const base::Time& expiration) {
+  DCHECK(!auto_post_fetch_response_on_message_loop_);
   CompleteRequests("", true, ScopeSet(),
                    GoogleServiceAuthError::AuthErrorNone(), access_token,
                    expiration);
+}
+
+void FakeProfileOAuth2TokenService::UpdateAuthErrorForTesting(
+    const std::string& account_id,
+    const GoogleServiceAuthError& error) {
+  ProfileOAuth2TokenService::UpdateAuthError(account_id, error);
 }
 
 void FakeProfileOAuth2TokenService::CompleteRequests(
@@ -109,7 +122,7 @@ FakeProfileOAuth2TokenService::GetPendingRequests() {
 void FakeProfileOAuth2TokenService::FetchOAuth2Token(
     RequestImpl* request,
     const std::string& account_id,
-    net::URLRequestContextGetter* getter,
+    scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
     const std::string& client_id,
     const std::string& client_secret,
     const ScopeSet& scopes) {
@@ -124,9 +137,11 @@ void FakeProfileOAuth2TokenService::FetchOAuth2Token(
   if (auto_post_fetch_response_on_message_loop_) {
     base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE,
-        base::Bind(&FakeProfileOAuth2TokenService::IssueAllTokensForAccount,
-                   weak_ptr_factory_.GetWeakPtr(), account_id, "access_token",
-                   base::Time::Max()));
+        base::BindOnce(&FakeProfileOAuth2TokenService::CompleteRequests,
+                       weak_ptr_factory_.GetWeakPtr(), account_id,
+                       /*all_scoped=*/true, ScopeSet(),
+                       GoogleServiceAuthError::AuthErrorNone(), "access_token",
+                       base::Time::Max()));
   }
 }
 

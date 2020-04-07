@@ -15,6 +15,7 @@
 
 #include "base/bind.h"
 #include "base/files/file_util.h"
+#include "base/files/scoped_file.h"
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/posix/eintr_wrapper.h"
@@ -29,6 +30,7 @@
 #include "ui/events/ozone/layout/keyboard_layout_engine_manager.h"
 #include "ui/events/platform/platform_event_dispatcher.h"
 #include "ui/events/platform/platform_event_source.h"
+#include "ui/events/test/scoped_event_test_tick_clock.h"
 
 namespace {
 
@@ -110,7 +112,7 @@ namespace ui {
 
 class MockTabletEventConverterEvdev : public TabletEventConverterEvdev {
  public:
-  MockTabletEventConverterEvdev(ScopedInputDevice fd,
+  MockTabletEventConverterEvdev(base::ScopedFD fd,
                                 base::FilePath path,
                                 CursorDelegateEvdev* cursor,
                                 const EventDeviceInfo& devinfo,
@@ -163,7 +165,7 @@ class MockTabletCursorEvdev : public CursorDelegateEvdev {
 };
 
 MockTabletEventConverterEvdev::MockTabletEventConverterEvdev(
-    ScopedInputDevice fd,
+    base::ScopedFD fd,
     base::FilePath path,
     CursorDelegateEvdev* cursor,
     const EventDeviceInfo& devinfo,
@@ -210,10 +212,13 @@ class TabletEventConverterEvdevTest : public testing::Test {
     event_factory_ = ui::CreateEventFactoryEvdevForTest(
         cursor_.get(), device_manager_.get(),
         ui::KeyboardLayoutEngineManager::GetKeyboardLayoutEngine(),
-        base::Bind(&TabletEventConverterEvdevTest::DispatchEventForTest,
-                   base::Unretained(this)));
+        base::BindRepeating(
+            &TabletEventConverterEvdevTest::DispatchEventForTest,
+            base::Unretained(this)));
     dispatcher_ =
         ui::CreateDeviceEventDispatcherEvdevForTest(event_factory_.get());
+
+    test_clock_.reset(new ui::test::ScopedEventTestTickClock());
   }
 
   void TearDown() override {
@@ -226,7 +231,7 @@ class TabletEventConverterEvdevTest : public testing::Test {
     int evdev_io[2];
     if (pipe(evdev_io))
       PLOG(FATAL) << "failed pipe";
-    ui::ScopedInputDevice events_in(evdev_io[0]);
+    base::ScopedFD events_in(evdev_io[0]);
     events_out_.reset(evdev_io[1]);
 
     ui::EventDeviceInfo devinfo;
@@ -256,10 +261,11 @@ class TabletEventConverterEvdevTest : public testing::Test {
   std::unique_ptr<ui::DeviceManager> device_manager_;
   std::unique_ptr<ui::EventFactoryEvdev> event_factory_;
   std::unique_ptr<ui::DeviceEventDispatcherEvdev> dispatcher_;
+  std::unique_ptr<ui::test::ScopedEventTestTickClock> test_clock_;
 
   std::vector<std::unique_ptr<ui::Event>> dispatched_events_;
 
-  ui::ScopedInputDevice events_out_;
+  base::ScopedFD events_out_;
 
   DISALLOW_COPY_AND_ASSIGN(TabletEventConverterEvdevTest);
 };

@@ -27,6 +27,8 @@
 **
 ****************************************************************************/
 
+#include <QtNetwork/qtnetwork-config.h>
+
 #ifndef QT_NO_HTTP
 
 #include <qabstractoauth.h>
@@ -185,7 +187,7 @@ bool QOAuthHttpServerReplyHandlerPrivate::QHttpRequest::readUrl(QTcpSocket *sock
             qCWarning(lcReplyHandler, "Invalid URL path %s", fragment.constData());
             return false;
         }
-        url.setUrl(QStringLiteral("http://localhost:") + QString::number(port) +
+        url.setUrl(QStringLiteral("http://127.0.0.1:") + QString::number(port) +
                    QString::fromUtf8(fragment));
         state = State::ReadingStatus;
         if (!url.isValid()) {
@@ -271,7 +273,7 @@ QString QOAuthHttpServerReplyHandler::callback() const
     Q_D(const QOAuthHttpServerReplyHandler);
 
     Q_ASSERT(d->httpServer.isListening());
-    const QUrl url(QString::fromLatin1("http://localhost:%1/%2")
+    const QUrl url(QString::fromLatin1("http://127.0.0.1:%1/%2")
                    .arg(d->httpServer.serverPort()).arg(d->path));
     return url.toString(QUrl::EncodeDelimiters);
 }

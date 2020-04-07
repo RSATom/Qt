@@ -72,6 +72,8 @@ class Q_LOCATION_PRIVATE_EXPORT QDeclarativeSearchResultModel : public QDeclarat
     Q_PROPERTY(QDeclarativeGeoServiceProvider *favoritesPlugin READ favoritesPlugin WRITE setFavoritesPlugin NOTIFY favoritesPluginChanged)
     Q_PROPERTY(QVariantMap favoritesMatchParameters READ favoritesMatchParameters WRITE setFavoritesMatchParameters NOTIFY favoritesMatchParametersChanged)
 
+    Q_PROPERTY(bool incremental MEMBER m_incremental NOTIFY incrementalChanged REVISION 12)
+
     Q_ENUMS(SearchResultType RelevanceHint)
 
 public:
@@ -115,12 +117,12 @@ public:
     QVariantMap favoritesMatchParameters() const;
     void setFavoritesMatchParameters(const QVariantMap &parameters);
 
-    int rowCount(const QModelIndex &parent = QModelIndex()) const;
+    int rowCount(const QModelIndex &parent = QModelIndex()) const override;
 
-    virtual void clearData(bool suppressSignal = false);
-    QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const;
+    virtual void clearData(bool suppressSignal = false) override;
+    QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
     Q_INVOKABLE QVariant data(int index, const QString &roleName) const;
-    QHash<int, QByteArray> roleNames() const;
+    QHash<int, QByteArray> roleNames() const override;
 
     Q_INVOKABLE void updateWith(int proposedSearchIndex);
 
@@ -137,13 +139,15 @@ Q_SIGNALS:
     void favoritesPluginChanged();
     void favoritesMatchParametersChanged();
     void dataChanged();
+    void incrementalChanged();
 
 protected:
-    QPlaceReply *sendQuery(QPlaceManager *manager, const QPlaceSearchRequest &request);
-    virtual void initializePlugin(QDeclarativeGeoServiceProvider *plugin);
+    QPlaceReply *sendQuery(QPlaceManager *manager, const QPlaceSearchRequest &request) override;
+    virtual void initializePlugin(QDeclarativeGeoServiceProvider *plugin) override;
 
 protected Q_SLOTS:
-    virtual void queryFinished();
+    virtual void queryFinished() override;
+    virtual void onContentUpdated() override;
 
 private Q_SLOTS:
     void updateLayout(const QList<QPlace> &favoritePlaces = QList<QPlace>());
@@ -162,9 +166,13 @@ private:
     };
 
     int getRow(const QString &placeId) const;
+    QList<QPlaceSearchResult> resultsFromPages() const;
+    void removePageRow(int row);
+
     QList<QDeclarativeCategory *> m_categories;
     QLocation::VisibilityScope m_visibilityScope;
 
+    QMap<int, QList<QPlaceSearchResult>> m_pages;
     QList<QPlaceSearchResult> m_results;
     QList<QPlaceSearchResult> m_resultsBuffer;
     QList<QDeclarativePlace *> m_places;
@@ -172,6 +180,7 @@ private:
 
     QDeclarativeGeoServiceProvider *m_favoritesPlugin;
     QVariantMap m_matchParameters;
+    bool m_incremental = false;
 };
 
 QT_END_NAMESPACE

@@ -39,6 +39,7 @@
 
 #include "qcocoacursor.h"
 #include "qcocoawindow.h"
+#include "qcocoascreen.h"
 #include "qcocoahelpers.h"
 #include <QtGui/private/qcoregraphics_p.h>
 
@@ -70,7 +71,7 @@ void QCocoaCursor::changeCursor(QCursor *cursor, QWindow *window)
 
 QPoint QCocoaCursor::pos() const
 {
-    return qt_mac_flipPoint([NSEvent mouseLocation]).toPoint();
+    return QCocoaScreen::mapFromNative([NSEvent mouseLocation]).toPoint();
 }
 
 void QCocoaCursor::setPos(const QPoint &position)
@@ -79,15 +80,15 @@ void QCocoaCursor::setPos(const QPoint &position)
     pos.x = position.x();
     pos.y = position.y();
 
-    CGEventRef e = CGEventCreateMouseEvent(0, kCGEventMouseMoved, pos, kCGMouseButtonLeft);
+    CGEventRef e = CGEventCreateMouseEvent(nullptr, kCGEventMouseMoved, pos, kCGMouseButtonLeft);
     CGEventPost(kCGHIDEventTap, e);
     CFRelease(e);
 }
 
 NSCursor *QCocoaCursor::convertCursor(QCursor *cursor)
 {
-    if (cursor == Q_NULLPTR)
-        return 0;
+    if (!cursor)
+        return nil;
 
     const Qt::CursorShape newShape = cursor->shape();
     NSCursor *cocoaCursor;
@@ -137,11 +138,11 @@ NSCursor *QCocoaCursor::convertCursor(QCursor *cursor)
         cocoaCursor = m_cursors.value(newShape);
         if (cocoaCursor && cursor->shape() == Qt::BitmapCursor) {
             [cocoaCursor release];
-            cocoaCursor = 0;
+            cocoaCursor = nil;
         }
-        if (cocoaCursor == 0) {
+        if (!cocoaCursor) {
             cocoaCursor = createCursorData(cursor);
-            if (cocoaCursor == 0)
+            if (!cocoaCursor)
                 return [NSCursor arrowCursor];
 
             m_cursors.insert(newShape, cocoaCursor);
@@ -210,8 +211,8 @@ NSCursor *QCocoaCursor::createCursorData(QCursor *cursor)
         0x07, 0xf0, 0x0f, 0xf8, 0x0f, 0xf8, 0x01, 0xc0, 0x01, 0xc0, 0x01, 0xc0,
         0x01, 0xc0, 0x01, 0xc0, 0x01, 0xc0, 0x01, 0xc0 };
 #endif
-    const uchar *cursorData = 0;
-    const uchar *cursorMaskData = 0;
+    const uchar *cursorData = nullptr;
+    const uchar *cursorMaskData = nullptr;
     QPoint hotspot = cursor->hotSpot();
 
     switch (cursor->shape()) {
@@ -268,7 +269,7 @@ NSCursor *QCocoaCursor::createCursorData(QCursor *cursor)
 #endif
     default:
         qWarning("Qt: QCursor::update: Invalid cursor shape %d", cursor->shape());
-        return 0;
+        return nil;
     }
 
     // Create an NSCursor from image data if this a self-provided cursor.
@@ -278,7 +279,7 @@ NSCursor *QCocoaCursor::createCursorData(QCursor *cursor)
         return (createCursorFromBitmap(&bitmap, &mask, hotspot));
     }
 
-    return 0; // should not happen, all cases covered above
+    return nil; // should not happen, all cases covered above
 }
 
 NSCursor *QCocoaCursor::createCursorFromBitmap(const QBitmap *bitmap, const QBitmap *mask, const QPoint hotspot)
@@ -313,6 +314,7 @@ NSCursor *QCocoaCursor::createCursorFromPixmap(const QPixmap pixmap, const QPoin
     if (pixmap.devicePixelRatio() > 1.0) {
         QSize layoutSize = pixmap.size() / pixmap.devicePixelRatio();
         QPixmap scaledPixmap = pixmap.scaled(layoutSize, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+        scaledPixmap.setDevicePixelRatio(1.0);
         nsimage = static_cast<NSImage *>(qt_mac_create_nsimage(scaledPixmap));
         CGImageRef cgImage = qt_mac_toCGImage(pixmap.toImage());
         NSBitmapImageRep *imageRep = [[NSBitmapImageRep alloc] initWithCGImage:cgImage];

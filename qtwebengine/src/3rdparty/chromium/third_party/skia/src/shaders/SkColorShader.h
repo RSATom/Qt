@@ -34,7 +34,6 @@ public:
 
         uint32_t getFlags() const override;
         void shadeSpan(int x, int y, SkPMColor span[], int count) override;
-        void shadeSpanAlpha(int x, int y, uint8_t alpha[], int count) override;
         void shadeSpan4f(int x, int y, SkPM4f[], int count) override;
 
     private:
@@ -48,10 +47,9 @@ public:
     GradientType asAGradient(GradientInfo* info) const override;
 
 #if SK_SUPPORT_GPU
-    sk_sp<GrFragmentProcessor> asFragmentProcessor(const AsFPArgs&) const override;
+    std::unique_ptr<GrFragmentProcessor> asFragmentProcessor(const GrFPArgs&) const override;
 #endif
 
-    SK_TO_STRING_OVERRIDE()
     SK_DECLARE_PUBLIC_FLATTENABLE_DESERIALIZATION_PROCS(SkColorShader)
 
 protected:
@@ -64,8 +62,7 @@ protected:
         return true;
     }
 
-    bool onAppendStages(SkRasterPipeline*, SkColorSpace*, SkArenaAlloc*,
-                        const SkMatrix& ctm, const SkPaint&, const SkMatrix*) const override;
+    bool onAppendStages(const StageRec&) const override;
 
     sk_sp<SkShader> onMakeColorSpace(SkColorSpaceXformer* xformer) const override {
         return SkShader::MakeColorShader(xformer->apply(fColor));
@@ -92,7 +89,6 @@ public:
 
         uint32_t getFlags() const override;
         void shadeSpan(int x, int y, SkPMColor span[], int count) override;
-        void shadeSpanAlpha(int x, int y, uint8_t alpha[], int count) override;
         void shadeSpan4f(int x, int y, SkPM4f[], int count) override;
 
     private:
@@ -106,10 +102,9 @@ public:
     GradientType asAGradient(GradientInfo* info) const override;
 
 #if SK_SUPPORT_GPU
-    sk_sp<GrFragmentProcessor> asFragmentProcessor(const AsFPArgs&) const override;
+    std::unique_ptr<GrFragmentProcessor> asFragmentProcessor(const GrFPArgs&) const override;
 #endif
 
-    SK_TO_STRING_OVERRIDE()
     SK_DECLARE_PUBLIC_FLATTENABLE_DESERIALIZATION_PROCS(SkColorShader)
 
 protected:
@@ -120,8 +115,7 @@ protected:
         *lum = fCachedByteColor;
         return true;
     }
-    bool onAppendStages(SkRasterPipeline*, SkColorSpace*, SkArenaAlloc*,
-                        const SkMatrix& ctm, const SkPaint&, const SkMatrix*) const override;
+    bool onAppendStages(const StageRec&) const override;
 
     sk_sp<SkShader> onMakeColorSpace(SkColorSpaceXformer* xformer) const override;
 

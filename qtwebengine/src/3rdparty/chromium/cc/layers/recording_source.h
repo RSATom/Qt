@@ -42,7 +42,8 @@ class CC_EXPORT RecordingSource {
                                    const gfx::Size& layer_size,
                                    const gfx::Rect& new_recorded_viewport);
   void UpdateDisplayItemList(const scoped_refptr<DisplayItemList>& display_list,
-                             const size_t& painter_reported_memory_usage);
+                             const size_t& painter_reported_memory_usage,
+                             float recording_scale_factor);
   gfx::Size GetSize() const;
   void SetEmptyBounds();
   void SetSlowdownRasterScaleFactor(int factor);
@@ -57,6 +58,8 @@ class CC_EXPORT RecordingSource {
   const DisplayItemList* GetDisplayItemList();
   gfx::Rect recorded_viewport() const { return recorded_viewport_; }
 
+  bool is_solid_color() const { return is_solid_color_; }
+
  protected:
   gfx::Rect recorded_viewport_;
   gfx::Size size_;
@@ -68,6 +71,7 @@ class CC_EXPORT RecordingSource {
   SkColor background_color_;
   scoped_refptr<DisplayItemList> display_list_;
   size_t painter_reported_memory_usage_;
+  float recording_scale_factor_;
 
  private:
   void UpdateInvalidationForNewViewport(const gfx::Rect& old_recorded_viewport,

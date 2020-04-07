@@ -178,7 +178,7 @@ GlCommand &CanvasGlCommandQueue::queueCommand(CanvasGlCommandQueue::GlCommandId 
  */
 void CanvasGlCommandQueue::transferCommands(GlCommand executeQueue[])
 {
-    memcpy(executeQueue, m_queue.data(), m_queuedCount * sizeof(GlCommand));
+    std::copy_n(m_queue.constData(), m_queuedCount, executeQueue);
 
     m_queuedCount = 0;
 

@@ -16,6 +16,7 @@
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
+#include "third_party/re2/src/re2/re2.h"
 
 namespace {
 
@@ -36,22 +37,16 @@ const char* kRelevantKeywords[] = {
     "MISSING_TRAFFIC_ANNOTATION",
     "TRAFFIC_ANNOTATION_FOR_TESTS",
     "PARTIAL_TRAFFIC_ANNOTATION_FOR_TESTS",
-    "SSLClientSocket",     // SSLClientSocket::
-    "TCPClientSocket",     // TCPClientSocket::
-    "UDPClientSocket",     // UDPClientSocket::
     "URLFetcher::Create",  // This one is used with class as it's too generic.
-    "CreateDatagramClientSocket",   // ClientSocketFactory::
-    "CreateSSLClientSocket",        // ClientSocketFactory::
-    "CreateTransportClientSocket",  // ClientSocketFactory::
-    "CreateRequest",                // URLRequestContext::
-    nullptr                         // End Marker
+    "CreateRequest",       // URLRequestContext::
+    nullptr                // End Marker
 };
 
 }  // namespace
 
-TrafficAnnotationFileFilter::TrafficAnnotationFileFilter() {}
+TrafficAnnotationFileFilter::TrafficAnnotationFileFilter() = default;
 
-TrafficAnnotationFileFilter::~TrafficAnnotationFileFilter() {}
+TrafficAnnotationFileFilter::~TrafficAnnotationFileFilter() = default;
 
 void TrafficAnnotationFileFilter::GetFilesFromGit(
     const base::FilePath& source_path) {
@@ -101,6 +96,14 @@ bool TrafficAnnotationFileFilter::IsFileRelevant(const std::string& file_path) {
     return false;
   }
 
+  // Ignore test files to speed up the tests. They would be only tested when
+  // filters are disabled.
+  pos = file_path.length() - 7;
+  if (pos >= 0 && (!strcmp("test.cc", file_path.c_str() + pos) ||
+                   !strcmp("test.mm", file_path.c_str() + pos))) {
+    return false;
+  }
+
   base::FilePath converted_file_path =
 #if defined(OS_WIN)
       base::FilePath(
@@ -140,9 +143,8 @@ void TrafficAnnotationFileFilter::GetRelevantFiles(
   for (const std::string& file_path : git_files_) {
     if (!strncmp(file_path.c_str(), directory_name.c_str(), name_length)) {
       bool ignore = false;
-      for (const std::string& ignore_path : ignore_list) {
-        if (!strncmp(file_path.c_str(), ignore_path.c_str(),
-                     ignore_path.length())) {
+      for (const std::string& ignore_pattern : ignore_list) {
+        if (re2::RE2::FullMatch(file_path.c_str(), ignore_pattern)) {
           ignore = true;
           break;
         }

@@ -53,35 +53,28 @@ QT_BEGIN_NAMESPACE
 namespace QtWaylandClient {
 
 QWaylandScreen::QWaylandScreen(QWaylandDisplay *waylandDisplay, int version, uint32_t id)
-    : QPlatformScreen()
-    , QtWayland::wl_output(waylandDisplay->wl_registry(), id, qMin(version, 2))
+    : QtWayland::wl_output(waylandDisplay->wl_registry(), id, qMin(version, 2))
     , m_outputId(id)
     , mWaylandDisplay(waylandDisplay)
-    , mScale(1)
-    , mDepth(32)
-    , mRefreshRate(60000)
-    , mTransform(-1)
-    , mFormat(QImage::Format_ARGB32_Premultiplied)
     , mOutputName(QStringLiteral("Screen%1").arg(id))
-    , m_orientation(Qt::PrimaryOrientation)
-#if QT_CONFIG(cursor)
-    , mWaylandCursor(0)
-#endif
 {
+    if (auto *xdgOutputManager = waylandDisplay->xdgOutputManager())
+        initXdgOutput(xdgOutputManager);
 }
 
 QWaylandScreen::~QWaylandScreen()
 {
-#if QT_CONFIG(cursor)
-    delete mWaylandCursor;
-#endif
+    if (zxdg_output_v1::isInitialized())
+        zxdg_output_v1::destroy();
 }
 
-void QWaylandScreen::init()
+void QWaylandScreen::initXdgOutput(QtWayland::zxdg_output_manager_v1 *xdgOutputManager)
 {
-#if QT_CONFIG(cursor)
-    mWaylandCursor = new QWaylandCursor(this);
-#endif
+    Q_ASSERT(xdgOutputManager);
+    if (zxdg_output_v1::isInitialized())
+        return;
+
+    zxdg_output_v1::init(xdgOutputManager->get_xdg_output(wl_output::object()));
 }
 
 QWaylandDisplay * QWaylandScreen::display() const
@@ -101,9 +94,13 @@ QString QWaylandScreen::model() const
 
 QRect QWaylandScreen::geometry() const
 {
-    // Scale geometry for QScreen. This makes window and screen
-    // geometry be in the same coordinate system.
-    return QRect(mGeometry.topLeft(), mGeometry.size() / mScale);
+    if (zxdg_output_v1::isInitialized()) {
+        return mXdgGeometry;
+    } else {
+        // Scale geometry for QScreen. This makes window and screen
+        // geometry be in the same coordinate system.
+        return QRect(mGeometry.topLeft(), mGeometry.size() / mScale);
+    }
 }
 
 int QWaylandScreen::depth() const
@@ -126,11 +123,15 @@ QSizeF QWaylandScreen::physicalSize() const
 
 QDpi QWaylandScreen::logicalDpi() const
 {
-    static int force_dpi = !qgetenv("QT_WAYLAND_FORCE_DPI").isEmpty() ? qgetenv("QT_WAYLAND_FORCE_DPI").toInt() : -1;
-    if (force_dpi > 0)
-        return QDpi(force_dpi, force_dpi);
+    static bool physicalDpi = qEnvironmentVariable("QT_WAYLAND_FORCE_DPI") == QStringLiteral("physical");
+    if (physicalDpi)
+        return QPlatformScreen::logicalDpi();
 
-    return QPlatformScreen::logicalDpi();
+    static int forceDpi = qgetenv("QT_WAYLAND_FORCE_DPI").toInt();
+    if (forceDpi)
+        return QDpi(forceDpi, forceDpi);
+
+    return QDpi(96, 96);
 }
 
 QList<QPlatformScreen *> QWaylandScreen::virtualSiblings() const
@@ -138,8 +139,10 @@ QList<QPlatformScreen *> QWaylandScreen::virtualSiblings() const
     QList<QPlatformScreen *> list;
     const QList<QWaylandScreen*> screens = mWaylandDisplay->screens();
     list.reserve(screens.count());
-    foreach (QWaylandScreen *screen, screens)
-        list << screen;
+    for (QWaylandScreen *screen : qAsConst(screens)) {
+        if (screen->screen())
+            list << screen;
+    }
     return list;
 }
 
@@ -147,7 +150,7 @@ void QWaylandScreen::setOrientationUpdateMask(Qt::ScreenOrientations mask)
 {
     foreach (QWindow *window, QGuiApplication::allWindows()) {
         QWaylandWindow *w = static_cast<QWaylandWindow *>(window->handle());
-        if (w && w->screen() == this)
+        if (w && w->waylandScreen() == this)
             w->setOrientationMask(mask);
     }
 }
@@ -173,11 +176,20 @@ qreal QWaylandScreen::refreshRate() const
 }
 
 #if QT_CONFIG(cursor)
+
 QPlatformCursor *QWaylandScreen::cursor() const
 {
-    return  mWaylandCursor;
+    return const_cast<QWaylandScreen *>(this)->waylandCursor();
 }
-#endif
+
+QWaylandCursor *QWaylandScreen::waylandCursor()
+{
+    if (!mWaylandCursor)
+        mWaylandCursor.reset(new QWaylandCursor(this));
+    return mWaylandCursor.data();
+}
+
+#endif // QT_CONFIG(cursor)
 
 QWaylandScreen * QWaylandScreen::waylandScreenFromWindow(QWindow *window)
 {
@@ -197,7 +209,6 @@ void QWaylandScreen::output_mode(uint32_t flags, int width, int height, int refr
         return;
 
     QSize size(width, height);
-
     if (size != mGeometry.size())
         mGeometry.setSize(size);
 
@@ -260,8 +271,25 @@ void QWaylandScreen::output_done()
         QWindowSystemInterface::handleScreenOrientationChange(screen(), m_orientation);
         mTransform = -1;
     }
-    QWindowSystemInterface::handleScreenGeometryChange(screen(), geometry(), geometry());
     QWindowSystemInterface::handleScreenRefreshRateChange(screen(), refreshRate());
+    if (!zxdg_output_v1::isInitialized())
+        QWindowSystemInterface::handleScreenGeometryChange(screen(), geometry(), geometry());
+}
+
+
+void QWaylandScreen::zxdg_output_v1_logical_position(int32_t x, int32_t y)
+{
+    mXdgGeometry.moveTopLeft(QPoint(x, y));
+}
+
+void QWaylandScreen::zxdg_output_v1_logical_size(int32_t width, int32_t height)
+{
+    mXdgGeometry.setSize(QSize(width, height));
+}
+
+void QWaylandScreen::zxdg_output_v1_done()
+{
+    QWindowSystemInterface::handleScreenGeometryChange(screen(), geometry(), geometry());
 }
 
 }

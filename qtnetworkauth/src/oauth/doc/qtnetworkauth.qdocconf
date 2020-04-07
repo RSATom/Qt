@@ -3,6 +3,7 @@ include($QT_INSTALL_DOCS/global/qt-module-defaults.qdocconf)
 project                 = QtNetworkAuth
 description             = Qt Network Authorization Reference Documentation
 version                 = $QT_VERSION
+buildversion            = Qt Network Authorization | Commercial or GPLv3
 
 qhp.projects            = QtNetworkAuth
 

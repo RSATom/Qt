@@ -45,20 +45,20 @@
 
 QT_BEGIN_NAMESPACE
 
-QQmlPropertyValidator::QQmlPropertyValidator(QQmlEnginePrivate *enginePrivate, const QQmlImports &imports, QV4::CompiledData::CompilationUnit *compilationUnit)
+QQmlPropertyValidator::QQmlPropertyValidator(QQmlEnginePrivate *enginePrivate, const QQmlImports &imports, const QQmlRefPointer<QV4::CompiledData::CompilationUnit> &compilationUnit)
     : enginePrivate(enginePrivate)
+    , compilationUnit(compilationUnit)
     , imports(imports)
-    , qmlUnit(compilationUnit->data)
-    , resolvedTypes(compilationUnit->resolvedTypes)
+    , qmlUnit(compilationUnit->unitData())
     , propertyCaches(compilationUnit->propertyCaches)
     , bindingPropertyDataPerObject(&compilationUnit->bindingPropertyDataPerObject)
 {
-    bindingPropertyDataPerObject->resize(qmlUnit->nObjects);
+    bindingPropertyDataPerObject->resize(compilationUnit->objectCount());
 }
 
 QVector<QQmlCompileError> QQmlPropertyValidator::validate()
 {
-    return validateObject(/*root object*/0, /*instantiatingBinding*/0);
+    return validateObject(/*root object*/0, /*instantiatingBinding*/nullptr);
 }
 
 typedef QVarLengthArray<const QV4::CompiledData::Binding *, 8> GroupPropertyVector;
@@ -81,7 +81,7 @@ struct BindingFinder
 
 QVector<QQmlCompileError> QQmlPropertyValidator::validateObject(int objectIndex, const QV4::CompiledData::Binding *instantiatingBinding, bool populatingValueTypeGroupProperty) const
 {
-    const QV4::CompiledData::Object *obj = qmlUnit->objectAt(objectIndex);
+    const QV4::CompiledData::Object *obj = compilationUnit->objectAt(objectIndex);
 
     if (obj->flags & QV4::CompiledData::Object::IsComponent) {
         Q_ASSERT(obj->nBindings == 1);
@@ -94,8 +94,8 @@ QVector<QQmlCompileError> QQmlPropertyValidator::validateObject(int objectIndex,
     if (!propertyCache)
         return QVector<QQmlCompileError>();
 
-    QQmlCustomParser *customParser = 0;
-    if (auto typeRef = resolvedTypes.value(obj->inheritedTypeNameIndex)) {
+    QQmlCustomParser *customParser = nullptr;
+    if (auto typeRef = resolvedType(obj->inheritedTypeNameIndex)) {
         if (typeRef->type.isValid())
             customParser = typeRef->type.customParser();
     }
@@ -124,7 +124,7 @@ QVector<QQmlCompileError> QQmlPropertyValidator::validateObject(int objectIndex,
     QmlIR::PropertyResolver propertyResolver(propertyCache);
 
     QString defaultPropertyName;
-    QQmlPropertyData *defaultProperty = 0;
+    QQmlPropertyData *defaultProperty = nullptr;
     if (obj->indexOfDefaultPropertyOrAlias != -1) {
         QQmlPropertyCache *cache = propertyCache->parent();
         defaultPropertyName = cache->defaultPropertyName();
@@ -157,17 +157,19 @@ QVector<QQmlCompileError> QQmlPropertyValidator::validateObject(int objectIndex,
         bool isGroupProperty = instantiatingBinding && instantiatingBinding->type == QV4::CompiledData::Binding::Type_GroupProperty;
 
         bool notInRevision = false;
-        QQmlPropertyData *pd = 0;
+        QQmlPropertyData *pd = nullptr;
         if (!name.isEmpty()) {
             if (binding->flags & QV4::CompiledData::Binding::IsSignalHandlerExpression
-                || binding->flags & QV4::CompiledData::Binding::IsSignalHandlerObject)
+                || binding->flags & QV4::CompiledData::Binding::IsSignalHandlerObject) {
                 pd = propertyResolver.signal(name, &notInRevision);
-            else
-                pd = propertyResolver.property(name, &notInRevision, isGroupProperty ? QmlIR::PropertyResolver::IgnoreRevision : QmlIR::PropertyResolver::CheckRevision);
+            } else {
+                pd = propertyResolver.property(name, &notInRevision,
+                                               QmlIR::PropertyResolver::CheckRevision);
+            }
 
             if (notInRevision) {
                 QString typeName = stringAt(obj->inheritedTypeNameIndex);
-                auto *objectType = resolvedTypes.value(obj->inheritedTypeNameIndex);
+                auto *objectType = resolvedType(obj->inheritedTypeNameIndex);
                 if (objectType && objectType->type.isValid()) {
                     return recordError(binding->location, tr("\"%1.%2\" is not available in %3 %4.%5.").arg(typeName).arg(name).arg(objectType->type.module()).arg(objectType->majorVersion).arg(objectType->minorVersion));
                 } else {
@@ -188,15 +190,21 @@ QVector<QQmlCompileError> QQmlPropertyValidator::validateObject(int objectIndex,
 
         if (name.constData()->isUpper() && !binding->isAttachedProperty()) {
             QQmlType type;
-            QQmlImportNamespace *typeNamespace = 0;
-            imports.resolveType(stringAt(binding->propertyNameIndex), &type, 0, 0, &typeNamespace);
+            QQmlImportNamespace *typeNamespace = nullptr;
+            imports.resolveType(stringAt(binding->propertyNameIndex), &type, nullptr, nullptr, &typeNamespace);
             if (typeNamespace)
                 return recordError(binding->location, tr("Invalid use of namespace"));
             return recordError(binding->location, tr("Invalid attached object assignment"));
         }
 
         if (binding->type >= QV4::CompiledData::Binding::Type_Object && (pd || binding->isAttachedProperty())) {
-            const QVector<QQmlCompileError> subObjectValidatorErrors = validateObject(binding->value.objectIndex, binding, pd && QQmlValueTypeFactory::metaObjectForMetaType(pd->propType()));
+            const bool populatingValueTypeGroupProperty
+                    = pd
+                      && QQmlValueTypeFactory::metaObjectForMetaType(pd->propType())
+                      && !(binding->flags & QV4::CompiledData::Binding::IsOnAssignment);
+            const QVector<QQmlCompileError> subObjectValidatorErrors
+                    = validateObject(binding->value.objectIndex, binding,
+                                     populatingValueTypeGroupProperty);
             if (!subObjectValidatorErrors.isEmpty())
                 return subObjectValidatorErrors;
         }
@@ -269,7 +277,11 @@ QVector<QQmlCompileError> QQmlPropertyValidator::validateObject(int objectIndex,
                     }
                 } else {
                     if (!enginePrivate->propertyCacheForType(pd->propType())) {
-                        return recordError(binding->location, tr("Invalid grouped property access"));
+                        return recordError(binding->location,
+                                           tr("Invalid grouped property access: Property \"%1\" with type \"%2\", which is not a value type")
+                                           .arg(name)
+                                           .arg(QString::fromLatin1(QMetaType::typeName(pd->propType())))
+                                          );
                     }
                 }
             }
@@ -287,6 +299,9 @@ QVector<QQmlCompileError> QQmlPropertyValidator::validateObject(int objectIndex,
     }
 
     if (obj->idNameIndex) {
+        if (populatingValueTypeGroupProperty)
+            return recordError(obj->locationOfIdProperty, tr("Invalid use of id property with a value type"));
+
         bool notInRevision = false;
         collectedBindingPropertyData << propertyResolver.property(QStringLiteral("id"), &notInRevision);
     }
@@ -296,10 +311,10 @@ QVector<QQmlCompileError> QQmlPropertyValidator::validateObject(int objectIndex,
         customParser->validator = this;
         customParser->engine = enginePrivate;
         customParser->imports = &imports;
-        customParser->verifyBindings(qmlUnit, customBindings);
-        customParser->validator = 0;
-        customParser->engine = 0;
-        customParser->imports = (QQmlImports*)0;
+        customParser->verifyBindings(compilationUnit, customBindings);
+        customParser->validator = nullptr;
+        customParser->engine = nullptr;
+        customParser->imports = (QQmlImports*)nullptr;
         QVector<QQmlCompileError> parserErrors = customParser->errors();
         if (!parserErrors.isEmpty())
             return parserErrors;
@@ -323,7 +338,7 @@ QQmlCompileError QQmlPropertyValidator::validateLiteralBinding(QQmlPropertyCache
         if (binding->flags & QV4::CompiledData::Binding::IsResolvedEnum)
             return noError;
 
-        QString value = binding->valueAsString(qmlUnit);
+        QString value = binding->valueAsString(compilationUnit.data());
         QMetaProperty p = propertyCache->firstCppMetaObject()->property(property->coreIndex());
         bool ok;
         if (p.isFlagType()) {
@@ -366,7 +381,7 @@ QQmlCompileError QQmlPropertyValidator::validateLiteralBinding(QQmlPropertyCache
     break;
     case QVariant::UInt: {
         if (binding->type == QV4::CompiledData::Binding::Type_Number) {
-            double d = binding->valueAsNumber();
+            double d = binding->valueAsNumber(compilationUnit->constants);
             if (double(uint(d)) == d)
                 return noError;
         }
@@ -375,7 +390,7 @@ QQmlCompileError QQmlPropertyValidator::validateLiteralBinding(QQmlPropertyCache
     break;
     case QVariant::Int: {
         if (binding->type == QV4::CompiledData::Binding::Type_Number) {
-            double d = binding->valueAsNumber();
+            double d = binding->valueAsNumber(compilationUnit->constants);
             if (double(int(d)) == d)
                 return noError;
         }
@@ -396,7 +411,7 @@ QQmlCompileError QQmlPropertyValidator::validateLiteralBinding(QQmlPropertyCache
     break;
     case QVariant::Color: {
         bool ok = false;
-        QQmlStringConverters::rgbaFromString(binding->valueAsString(qmlUnit), &ok);
+        QQmlStringConverters::rgbaFromString(binding->valueAsString(compilationUnit.data()), &ok);
         if (!ok) {
             return QQmlCompileError(binding->valueLocation, tr("Invalid property assignment: color expected"));
         }
@@ -405,7 +420,7 @@ QQmlCompileError QQmlPropertyValidator::validateLiteralBinding(QQmlPropertyCache
 #if QT_CONFIG(datestring)
     case QVariant::Date: {
         bool ok = false;
-        QQmlStringConverters::dateFromString(binding->valueAsString(qmlUnit), &ok);
+        QQmlStringConverters::dateFromString(binding->valueAsString(compilationUnit.data()), &ok);
         if (!ok) {
             return QQmlCompileError(binding->valueLocation, tr("Invalid property assignment: date expected"));
         }
@@ -413,7 +428,7 @@ QQmlCompileError QQmlPropertyValidator::validateLiteralBinding(QQmlPropertyCache
     break;
     case QVariant::Time: {
         bool ok = false;
-        QQmlStringConverters::timeFromString(binding->valueAsString(qmlUnit), &ok);
+        QQmlStringConverters::timeFromString(binding->valueAsString(compilationUnit.data()), &ok);
         if (!ok) {
             return QQmlCompileError(binding->valueLocation, tr("Invalid property assignment: time expected"));
         }
@@ -421,7 +436,7 @@ QQmlCompileError QQmlPropertyValidator::validateLiteralBinding(QQmlPropertyCache
     break;
     case QVariant::DateTime: {
         bool ok = false;
-        QQmlStringConverters::dateTimeFromString(binding->valueAsString(qmlUnit), &ok);
+        QQmlStringConverters::dateTimeFromString(binding->valueAsString(compilationUnit.data()), &ok);
         if (!ok) {
             return QQmlCompileError(binding->valueLocation, tr("Invalid property assignment: datetime expected"));
         }
@@ -430,7 +445,7 @@ QQmlCompileError QQmlPropertyValidator::validateLiteralBinding(QQmlPropertyCache
 #endif // datestring
     case QVariant::Point: {
         bool ok = false;
-        QQmlStringConverters::pointFFromString(binding->valueAsString(qmlUnit), &ok);
+        QQmlStringConverters::pointFFromString(binding->valueAsString(compilationUnit.data()), &ok);
         if (!ok) {
             return QQmlCompileError(binding->valueLocation, tr("Invalid property assignment: point expected"));
         }
@@ -438,7 +453,7 @@ QQmlCompileError QQmlPropertyValidator::validateLiteralBinding(QQmlPropertyCache
     break;
     case QVariant::PointF: {
         bool ok = false;
-        QQmlStringConverters::pointFFromString(binding->valueAsString(qmlUnit), &ok);
+        QQmlStringConverters::pointFFromString(binding->valueAsString(compilationUnit.data()), &ok);
         if (!ok) {
             return QQmlCompileError(binding->valueLocation, tr("Invalid property assignment: point expected"));
         }
@@ -446,7 +461,7 @@ QQmlCompileError QQmlPropertyValidator::validateLiteralBinding(QQmlPropertyCache
     break;
     case QVariant::Size: {
         bool ok = false;
-        QQmlStringConverters::sizeFFromString(binding->valueAsString(qmlUnit), &ok);
+        QQmlStringConverters::sizeFFromString(binding->valueAsString(compilationUnit.data()), &ok);
         if (!ok) {
             return QQmlCompileError(binding->valueLocation, tr("Invalid property assignment: size expected"));
         }
@@ -454,7 +469,7 @@ QQmlCompileError QQmlPropertyValidator::validateLiteralBinding(QQmlPropertyCache
     break;
     case QVariant::SizeF: {
         bool ok = false;
-        QQmlStringConverters::sizeFFromString(binding->valueAsString(qmlUnit), &ok);
+        QQmlStringConverters::sizeFFromString(binding->valueAsString(compilationUnit.data()), &ok);
         if (!ok) {
             return QQmlCompileError(binding->valueLocation, tr("Invalid property assignment: size expected"));
         }
@@ -462,7 +477,7 @@ QQmlCompileError QQmlPropertyValidator::validateLiteralBinding(QQmlPropertyCache
     break;
     case QVariant::Rect: {
         bool ok = false;
-        QQmlStringConverters::rectFFromString(binding->valueAsString(qmlUnit), &ok);
+        QQmlStringConverters::rectFFromString(binding->valueAsString(compilationUnit.data()), &ok);
         if (!ok) {
             return QQmlCompileError(binding->valueLocation, tr("Invalid property assignment: rect expected"));
         }
@@ -470,7 +485,7 @@ QQmlCompileError QQmlPropertyValidator::validateLiteralBinding(QQmlPropertyCache
     break;
     case QVariant::RectF: {
         bool ok = false;
-        QQmlStringConverters::rectFFromString(binding->valueAsString(qmlUnit), &ok);
+        QQmlStringConverters::rectFFromString(binding->valueAsString(compilationUnit.data()), &ok);
         if (!ok) {
             return QQmlCompileError(binding->valueLocation, tr("Invalid property assignment: point expected"));
         }
@@ -487,7 +502,7 @@ QQmlCompileError QQmlPropertyValidator::validateLiteralBinding(QQmlPropertyCache
             float xp;
             float yp;
         } vec;
-        if (!QQmlStringConverters::createFromString(QMetaType::QVector2D, binding->valueAsString(qmlUnit), &vec, sizeof(vec))) {
+        if (!QQmlStringConverters::createFromString(QMetaType::QVector2D, binding->valueAsString(compilationUnit.data()), &vec, sizeof(vec))) {
             return QQmlCompileError(binding->valueLocation, tr("Invalid property assignment: 2D vector expected"));
         }
     }
@@ -498,7 +513,7 @@ QQmlCompileError QQmlPropertyValidator::validateLiteralBinding(QQmlPropertyCache
             float yp;
             float zy;
         } vec;
-        if (!QQmlStringConverters::createFromString(QMetaType::QVector3D, binding->valueAsString(qmlUnit), &vec, sizeof(vec))) {
+        if (!QQmlStringConverters::createFromString(QMetaType::QVector3D, binding->valueAsString(compilationUnit.data()), &vec, sizeof(vec))) {
             return QQmlCompileError(binding->valueLocation, tr("Invalid property assignment: 3D vector expected"));
         }
     }
@@ -510,7 +525,7 @@ QQmlCompileError QQmlPropertyValidator::validateLiteralBinding(QQmlPropertyCache
             float zy;
             float wp;
         } vec;
-        if (!QQmlStringConverters::createFromString(QMetaType::QVector4D, binding->valueAsString(qmlUnit), &vec, sizeof(vec))) {
+        if (!QQmlStringConverters::createFromString(QMetaType::QVector4D, binding->valueAsString(compilationUnit.data()), &vec, sizeof(vec))) {
             return QQmlCompileError(binding->valueLocation, tr("Invalid property assignment: 4D vector expected"));
         }
     }
@@ -522,7 +537,7 @@ QQmlCompileError QQmlPropertyValidator::validateLiteralBinding(QQmlPropertyCache
             float yp;
             float zp;
         } vec;
-        if (!QQmlStringConverters::createFromString(QMetaType::QQuaternion, binding->valueAsString(qmlUnit), &vec, sizeof(vec))) {
+        if (!QQmlStringConverters::createFromString(QMetaType::QQuaternion, binding->valueAsString(compilationUnit.data()), &vec, sizeof(vec))) {
             return QQmlCompileError(binding->valueLocation, tr("Invalid property assignment: quaternion expected"));
         }
     }
@@ -539,7 +554,7 @@ QQmlCompileError QQmlPropertyValidator::validateLiteralBinding(QQmlPropertyCache
         } else if (property->propType() == qMetaTypeId<QList<int> >()) {
             bool ok = (binding->type == QV4::CompiledData::Binding::Type_Number);
             if (ok) {
-                double n = binding->valueAsNumber();
+                double n = binding->valueAsNumber(compilationUnit->constants);
                 if (double(int(n)) != n)
                     ok = false;
             }
@@ -618,9 +633,9 @@ QQmlCompileError QQmlPropertyValidator::validateObjectBinding(QQmlPropertyData *
         bool isValueSource = false;
         bool isPropertyInterceptor = false;
 
-        const QV4::CompiledData::Object *targetObject = qmlUnit->objectAt(binding->value.objectIndex);
-        if (auto *typeRef = resolvedTypes.value(targetObject->inheritedTypeNameIndex)) {
-            QQmlPropertyCache *cache = typeRef->createPropertyCache(QQmlEnginePrivate::get(enginePrivate));
+        const QV4::CompiledData::Object *targetObject = compilationUnit->objectAt(binding->value.objectIndex);
+        if (auto *typeRef = resolvedType(targetObject->inheritedTypeNameIndex)) {
+            QQmlRefPointer<QQmlPropertyCache> cache = typeRef->createPropertyCache(QQmlEnginePrivate::get(enginePrivate));
             const QMetaObject *mo = cache->firstCppMetaObject();
             QQmlType qmlType;
             while (mo && !qmlType.isValid()) {
@@ -644,7 +659,7 @@ QQmlCompileError QQmlPropertyValidator::validateObjectBinding(QQmlPropertyData *
         // Can only check at instantiation time if the created sub-object successfully casts to the
         // target interface.
         return noError;
-    } else if (property->propType() == QMetaType::QVariant) {
+    } else if (property->propType() == QMetaType::QVariant || property->propType() == qMetaTypeId<QJSValue>()) {
         // We can convert everything to QVariant :)
         return noError;
     } else if (property->isQList()) {
@@ -656,21 +671,22 @@ QQmlCompileError QQmlPropertyValidator::validateObjectBinding(QQmlPropertyData *
             }
         }
         return noError;
-    } else if (qmlUnit->objectAt(binding->value.objectIndex)->flags & QV4::CompiledData::Object::IsComponent) {
+    } else if (compilationUnit->objectAt(binding->value.objectIndex)->flags & QV4::CompiledData::Object::IsComponent) {
         return noError;
     } else if (binding->flags & QV4::CompiledData::Binding::IsSignalHandlerObject && property->isFunction()) {
         return noError;
     } else if (QQmlValueTypeFactory::isValueType(property->propType())) {
-        return QQmlCompileError(binding->location, tr("Unexpected object assignment"));
+        return QQmlCompileError(binding->location, tr("Unexpected object assignment for property \"%1\"").arg(propertyName));
     } else if (property->propType() == qMetaTypeId<QQmlScriptString>()) {
         return QQmlCompileError(binding->valueLocation, tr("Invalid property assignment: script expected"));
     } else {
-        // We want to raw metaObject here as the raw metaobject is the
+        // We want to use the raw metaObject here as the raw metaobject is the
         // actual property type before we applied any extensions that might
         // effect the properties on the type, but don't effect assignability
-        QQmlPropertyCache *propertyMetaObject = enginePrivate->rawPropertyCacheForType(property->propType());
+        // Using -1 for the minor version ensures that we get the raw metaObject.
+        QQmlPropertyCache *propertyMetaObject = enginePrivate->rawPropertyCacheForType(property->propType(), -1);
 
-        // Will be true if the assgned type inherits propertyMetaObject
+        // Will be true if the assigned type inherits propertyMetaObject
         bool isAssignable = false;
         // Determine isAssignable value
         if (propertyMetaObject) {
@@ -682,7 +698,8 @@ QQmlCompileError QQmlPropertyValidator::validateObjectBinding(QQmlPropertyData *
         }
 
         if (!isAssignable) {
-            return QQmlCompileError(binding->valueLocation, tr("Cannot assign object to property"));
+            return QQmlCompileError(binding->valueLocation, tr("Cannot assign object of type \"%1\" to property of type \"%2\" as the former is neither the same as the latter nor a sub-class of it.")
+                    .arg(stringAt(compilationUnit->objectAt(binding->value.objectIndex)->inheritedTypeNameIndex)).arg(QLatin1String(QMetaType::typeName(property->propType()))));
         }
     }
     return noError;

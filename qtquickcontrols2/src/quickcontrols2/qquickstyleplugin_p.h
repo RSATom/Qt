@@ -48,13 +48,13 @@
 // We mean it.
 //
 
-#include <QtCore/qscopedpointer.h>
 #include <QtQml/qqmlextensionplugin.h>
 #include <QtQuickControls2/private/qtquickcontrols2global_p.h>
 
 QT_BEGIN_NAMESPACE
 
-class QQuickProxyTheme;
+class QQuickTheme;
+class QQuickStylePluginPrivate;
 
 class Q_QUICKCONTROLS2_PRIVATE_EXPORT QQuickStylePlugin : public QQmlExtensionPlugin
 {
@@ -64,17 +64,15 @@ public:
     explicit QQuickStylePlugin(QObject *parent = nullptr);
     ~QQuickStylePlugin();
 
-    void registerTypes(const char *uri) override;
-    void initializeEngine(QQmlEngine *engine, const char *uri) override;
-
-    bool isCurrent() const;
     virtual QString name() const;
-    virtual QQuickProxyTheme *createTheme() const;
+    virtual void initializeTheme(QQuickTheme *theme);
 
-    QUrl typeUrl(const QString &name = QString()) const;
+    QUrl resolvedUrl(const QString &fileName) const;
 
 private:
-    QScopedPointer<QQuickProxyTheme> m_theme;
+    Q_DISABLE_COPY(QQuickStylePlugin)
+    Q_DECLARE_PRIVATE(QQuickStylePlugin)
+    QScopedPointer<QQuickStylePluginPrivate> d_ptr;
 };
 
 QT_END_NAMESPACE

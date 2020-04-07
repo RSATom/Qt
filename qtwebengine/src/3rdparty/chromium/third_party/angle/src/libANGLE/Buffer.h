@@ -11,6 +11,7 @@
 #ifndef LIBANGLE_BUFFER_H_
 #define LIBANGLE_BUFFER_H_
 
+#include "common/PackedEnums.h"
 #include "common/angleutils.h"
 #include "libANGLE/Debug.h"
 #include "libANGLE/Error.h"
@@ -36,7 +37,7 @@ class BufferState final : angle::NonCopyable
 
     const std::string &getLabel();
 
-    GLenum getUsage() const { return mUsage; }
+    BufferUsage getUsage() const { return mUsage; }
     GLbitfield getAccessFlags() const { return mAccessFlags; }
     GLenum getAccess() const { return mAccess; }
     GLboolean isMapped() const { return mMapped; }
@@ -50,7 +51,7 @@ class BufferState final : angle::NonCopyable
 
     std::string mLabel;
 
-    GLenum mUsage;
+    BufferUsage mUsage;
     GLint64 mSize;
     GLbitfield mAccessFlags;
     GLenum mAccess;
@@ -58,6 +59,9 @@ class BufferState final : angle::NonCopyable
     void *mMapPointer;
     GLint64 mMapOffset;
     GLint64 mMapLength;
+    int mBindingCount;
+    int mTransformFeedbackIndexedBindingCount;
+    int mTransformFeedbackGenericBindingCount;
 };
 
 class Buffer final : public RefCountObject, public LabeledObject
@@ -65,18 +69,18 @@ class Buffer final : public RefCountObject, public LabeledObject
   public:
     Buffer(rx::GLImplFactory *factory, GLuint id);
     ~Buffer() override;
-    void onDestroy(const Context *context) override;
+    Error onDestroy(const Context *context) override;
 
     void setLabel(const std::string &label) override;
     const std::string &getLabel() const override;
 
     Error bufferData(const Context *context,
-                     GLenum target,
+                     BufferBinding target,
                      const void *data,
                      GLsizeiptr size,
-                     GLenum usage);
+                     BufferUsage usage);
     Error bufferSubData(const Context *context,
-                        GLenum target,
+                        BufferBinding target,
                         const void *data,
                         GLsizeiptr size,
                         GLintptr offset);
@@ -89,16 +93,18 @@ class Buffer final : public RefCountObject, public LabeledObject
     Error mapRange(const Context *context, GLintptr offset, GLsizeiptr length, GLbitfield access);
     Error unmap(const Context *context, GLboolean *result);
 
-    void onTransformFeedback();
-    void onPixelUnpack();
+    // These are called when another operation changes Buffer data.
+    void onTransformFeedback(const Context *context);
+    void onPixelPack(const Context *context);
 
-    Error getIndexRange(GLenum type,
+    Error getIndexRange(const gl::Context *context,
+                        GLenum type,
                         size_t offset,
                         size_t count,
                         bool primitiveRestartEnabled,
                         IndexRange *outRange) const;
 
-    GLenum getUsage() const { return mState.mUsage; }
+    BufferUsage getUsage() const { return mState.mUsage; }
     GLbitfield getAccessFlags() const { return mState.mAccessFlags; }
     GLenum getAccess() const { return mState.mAccess; }
     GLboolean isMapped() const { return mState.mMapped; }
@@ -108,6 +114,10 @@ class Buffer final : public RefCountObject, public LabeledObject
     GLint64 getSize() const { return mState.mSize; }
 
     rx::BufferImpl *getImplementation() const { return mImpl; }
+
+    bool isBound() const;
+    bool isBoundForTransformFeedbackAndOtherUse() const;
+    void onBindingChanged(const Context *context, bool bound, BufferBinding target, bool indexed);
 
   private:
     BufferState mState;

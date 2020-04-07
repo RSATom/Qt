@@ -8,12 +8,11 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/rtc_tools/event_log_visualizer/plot_protobuf.h"
+#include "rtc_tools/event_log_visualizer/plot_protobuf.h"
 
 #include <memory>
 
 namespace webrtc {
-namespace plotting {
 
 ProtobufPlot::ProtobufPlot() {}
 
@@ -31,21 +30,20 @@ void ProtobufPlot::ExportProtobuf(webrtc::analytics::Chart* chart) {
       data_set->add_y_values(point.y);
     }
 
-    if (series_list_[i].style == BAR_GRAPH) {
+    if (series_list_[i].line_style == LineStyle::kBar) {
       data_set->set_style(webrtc::analytics::ChartStyle::BAR_CHART);
-    } else if (series_list_[i].style == LINE_GRAPH) {
+    } else if (series_list_[i].line_style == LineStyle::kLine) {
       data_set->set_style(webrtc::analytics::ChartStyle::LINE_CHART);
-    } else if (series_list_[i].style == LINE_DOT_GRAPH) {
-      data_set->set_style(webrtc::analytics::ChartStyle::LINE_CHART);
-      data_set->set_highlight_points(true);
-    } else if (series_list_[i].style == LINE_STEP_GRAPH) {
+    } else if (series_list_[i].line_style == LineStyle::kStep) {
       data_set->set_style(webrtc::analytics::ChartStyle::LINE_STEP_CHART);
-    } else if (series_list_[i].style == DOT_GRAPH) {
+    } else if (series_list_[i].line_style == LineStyle::kNone) {
       data_set->set_style(webrtc::analytics::ChartStyle::SCATTER_CHART);
-      data_set->set_highlight_points(true);
     } else {
       data_set->set_style(webrtc::analytics::ChartStyle::UNDEFINED);
     }
+
+    if (series_list_[i].point_style == PointStyle::kHighlight)
+      data_set->set_highlight_points(true);
 
     data_set->set_label(series_list_[i].label);
   }
@@ -71,8 +69,8 @@ void ProtobufPlotCollection::ExportProtobuf(
     // TODO(terelius): Ensure that there is no way to insert plots other than
     // ProtobufPlots in a ProtobufPlotCollection. Needed to safely static_cast
     // here.
-    webrtc::analytics::Chart* protobuf_representation
-        = collection->add_charts();
+    webrtc::analytics::Chart* protobuf_representation =
+        collection->add_charts();
     static_cast<ProtobufPlot*>(plot.get())
         ->ExportProtobuf(protobuf_representation);
   }
@@ -84,5 +82,4 @@ Plot* ProtobufPlotCollection::AppendNewPlot() {
   return plot;
 }
 
-}  // namespace plotting
 }  // namespace webrtc

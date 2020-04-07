@@ -9,42 +9,44 @@
 
 #include "base/containers/flat_map.h"
 #include "base/memory/weak_ptr.h"
+#include "base/optional.h"
 #include "base/values.h"
 #include "content/browser/devtools/devtools_agent_host_impl.h"
 #include "content/browser/devtools/protocol/devtools_domain_handler.h"
-#include "content/browser/devtools/protocol/protocol.h"
+#include "mojo/public/cpp/bindings/associated_binding.h"
+#include "third_party/blink/public/web/devtools_agent.mojom.h"
 
 namespace content {
 
 class DevToolsAgentHostClient;
 class RenderFrameHostImpl;
 
-class DevToolsSession : public protocol::FrontendChannel {
+class DevToolsSession : public protocol::FrontendChannel,
+                        public blink::mojom::DevToolsSessionHost {
  public:
   DevToolsSession(DevToolsAgentHostImpl* agent_host,
                   DevToolsAgentHostClient* client,
-                  int session_id);
+                  bool restricted);
   ~DevToolsSession() override;
+  void Dispose();
 
-  int session_id() const { return session_id_; }
+  bool restricted() { return restricted_; }
+  DevToolsAgentHost* agent_host() { return agent_host_; };
+  DevToolsAgentHostClient* client() { return client_; };
+
+  // Browser-only sessions do not talk to mojom::DevToolsAgent, but instead
+  // handle all protocol messages locally in the browser process.
+  void SetBrowserOnly(bool browser_only);
+
   void AddHandler(std::unique_ptr<protocol::DevToolsDomainHandler> handler);
-  void SetRenderFrameHost(RenderFrameHostImpl* host);
-  void SetFallThroughForNotFound(bool value);
+  // TODO(dgozman): maybe combine this with AttachToAgent?
+  void SetRenderer(int process_host_id, RenderFrameHostImpl* frame_host);
 
-  struct Message {
-    std::string method;
-    std::string message;
-  };
-  using MessageByCallId = std::map<int, Message>;
-  MessageByCallId& waiting_messages() { return waiting_for_response_messages_; }
-  const std::string& state_cookie() { return chunk_processor_.state_cookie(); }
-
-  protocol::Response::Status Dispatch(
-      const std::string& message,
-      int* call_id,
-      std::string* method);
-  bool ReceiveMessageChunk(const DevToolsMessageChunk& chunk);
-  void SendMessageToClient(const std::string& message);
+  void AttachToAgent(const blink::mojom::DevToolsAgentAssociatedPtr& agent);
+  void DispatchProtocolMessage(const std::string& message,
+                               base::DictionaryValue* parsed_message);
+  void SuspendSendingMessagesToAgent();
+  void ResumeSendingMessagesToAgent();
 
   template <typename Handler>
   static std::vector<Handler*> HandlersForAgentHost(
@@ -62,8 +64,11 @@ class DevToolsSession : public protocol::FrontendChannel {
   }
 
  private:
-  void SendMessageFromProcessor(int session_id, const std::string& message);
   void SendResponse(std::unique_ptr<base::DictionaryValue> response);
+  void MojoConnectionDestroyed();
+  void DispatchProtocolMessageToAgent(int call_id,
+                                      const std::string& method,
+                                      const std::string& message);
 
   // protocol::FrontendChannel implementation.
   void sendProtocolResponse(
@@ -73,17 +78,49 @@ class DevToolsSession : public protocol::FrontendChannel {
       std::unique_ptr<protocol::Serializable> message) override;
   void flushProtocolNotifications() override;
 
+  // blink::mojom::DevToolsSessionHost implementation.
+  void DispatchProtocolResponse(
+      const std::string& message,
+      int call_id,
+      const base::Optional<std::string>& state) override;
+  void DispatchProtocolNotification(
+      const std::string& message,
+      const base::Optional<std::string>& state) override;
+
+  mojo::AssociatedBinding<blink::mojom::DevToolsSessionHost> binding_;
+  blink::mojom::DevToolsSessionAssociatedPtr session_ptr_;
+  blink::mojom::DevToolsSessionPtr io_session_ptr_;
   DevToolsAgentHostImpl* agent_host_;
   DevToolsAgentHostClient* client_;
-  int session_id_;
+  bool restricted_;
+  bool browser_only_ = false;
   base::flat_map<std::string, std::unique_ptr<protocol::DevToolsDomainHandler>>
       handlers_;
+  int process_host_id_;
   RenderFrameHostImpl* host_;
   std::unique_ptr<protocol::UberDispatcher> dispatcher_;
-  // Chunk processor's state cookie always corresponds to a state before
+
+  // These messages were queued after suspending, not sent to the agent,
+  // and will be sent after resuming.
+  struct SuspendedMessage {
+    int call_id;
+    std::string method;
+    std::string message;
+  };
+  std::vector<SuspendedMessage> suspended_messages_;
+  bool suspended_sending_messages_to_agent_ = false;
+
+  // These messages have been sent to agent, but did not get a response yet.
+  struct WaitingMessage {
+    std::string method;
+    std::string message;
+  };
+  std::map<int, WaitingMessage> waiting_for_response_messages_;
+
+  // |state_cookie_| always corresponds to a state before
   // any of the waiting for response messages have been handled.
-  DevToolsMessageChunkProcessor chunk_processor_;
-  MessageByCallId waiting_for_response_messages_;
+  // Note that |state_cookie_| is not present only before first attach.
+  base::Optional<std::string> state_cookie_;
 
   base::WeakPtrFactory<DevToolsSession> weak_factory_;
 };

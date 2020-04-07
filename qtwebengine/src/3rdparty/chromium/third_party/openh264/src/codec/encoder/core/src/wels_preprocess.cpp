@@ -358,7 +358,6 @@ int32_t CWelsPreProcess::SingleLayerPreprocess (sWelsEncCtx* pCtx, const SSource
   int32_t iTargetWidth              = 0;
   int32_t iTargetHeight             = 0;
   int32_t iTemporalId = 0;
-  SSpatialPicIndex* pSpatialIndexMap = &pCtx->sSpatialIndexMap[0];
   int32_t iClosestDid =  iDependencyId;
   pDlayerParamInternal = &pSvcParam->sDependencyLayers[iDependencyId];
   pDlayerParam = &pSvcParam->sSpatialLayers[iDependencyId];
@@ -367,9 +366,17 @@ int32_t CWelsPreProcess::SingleLayerPreprocess (sWelsEncCtx* pCtx, const SSource
 
   iSrcWidth   = pSvcParam->SUsedPicRect.iWidth;
   iSrcHeight  = pSvcParam->SUsedPicRect.iHeight;
-  if (pSvcParam->uiIntraPeriod)
+  if (pSvcParam->uiIntraPeriod) {
     pCtx->pVaa->bIdrPeriodFlag = (1 + pDlayerParamInternal->iFrameIndex >= (int32_t)pSvcParam->uiIntraPeriod) ? true :
                                  false;
+    if (pCtx->pVaa->bIdrPeriodFlag) {
+      WelsLog (& (pCtx->sLogCtx), WELS_LOG_DEBUG,
+           "pSvcParam->uiIntraPeriod=%d, pCtx->pVaa->bIdrPeriodFlag=%d",
+             pSvcParam->uiIntraPeriod,
+             pCtx->pVaa->bIdrPeriodFlag);
+    }
+  }
+
   pSrcPic = pScaledPicture->pScaledInputPicture ? pScaledPicture->pScaledInputPicture : GetCurrentOrigFrame (
               iDependencyId);
 
@@ -437,8 +444,7 @@ int32_t CWelsPreProcess::SingleLayerPreprocess (sWelsEncCtx* pCtx, const SSource
     while (iDependencyId >= 0) {
       pDlayerParamInternal = &pSvcParam->sDependencyLayers[iDependencyId];
       pDlayerParam = &pSvcParam->sSpatialLayers[iDependencyId];
-      SPicture* pSrcPic  = (pSpatialIndexMap + iClosestDid)->pSrc;; // large
-      //SPicture* pSrcPic  = (pSpatialIndexMap + (pSvcParam->iSpatialLayerNum - 1))->pSrc;; // large
+      SPicture* pSrcPic  = m_pLastSpatialPicture[iClosestDid][1]; // large
       iTargetWidth  = pDlayerParam->iVideoWidth;
       iTargetHeight = pDlayerParam->iVideoHeight;
       iTemporalId = pDlayerParamInternal->uiCodingIdx2TemporalId[pDlayerParamInternal->iCodingIndex &

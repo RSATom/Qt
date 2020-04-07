@@ -4,6 +4,7 @@
 
 #include <memory>
 
+#include "base/callback_helpers.h"
 #include "base/macros.h"
 #include "extensions/browser/api/socket/tcp_socket.h"
 #include "net/base/address_list.h"
@@ -14,6 +15,7 @@
 #include "net/log/net_log_source.h"
 #include "net/socket/tcp_client_socket.h"
 #include "net/socket/tcp_server_socket.h"
+#include "net/traffic_annotation/network_traffic_annotation.h"
 #include "testing/gmock/include/gmock/gmock.h"
 
 using testing::_;
@@ -28,10 +30,28 @@ class MockTCPSocket : public net::TCPClientSocket {
   explicit MockTCPSocket(const net::AddressList& address_list)
       : net::TCPClientSocket(address_list, NULL, NULL, net::NetLogSource()) {}
 
+  int Read(net::IOBuffer* buffer,
+           int bytes,
+           net::CompletionOnceCallback callback) override {
+    return Read(buffer, bytes,
+                base::AdaptCallbackForRepeating(std::move(callback)));
+  }
+
+  int Write(net::IOBuffer* buffer,
+            int bytes,
+            net::CompletionOnceCallback callback,
+            const net::NetworkTrafficAnnotationTag& tag) override {
+    return Write(buffer, bytes,
+                 base::AdaptCallbackForRepeating(std::move(callback)), tag);
+  }
+
   MOCK_METHOD3(Read, int(net::IOBuffer* buf, int buf_len,
                          const net::CompletionCallback& callback));
-  MOCK_METHOD3(Write, int(net::IOBuffer* buf, int buf_len,
-                          const net::CompletionCallback& callback));
+  MOCK_METHOD4(Write,
+               int(net::IOBuffer* buf,
+                   int buf_len,
+                   const net::CompletionCallback& callback,
+                   const net::NetworkTrafficAnnotationTag&));
   MOCK_METHOD2(SetKeepAlive, bool(bool enable, int delay));
   MOCK_METHOD1(SetNoDelay, bool(bool no_delay));
   bool IsConnected() const override {
@@ -73,7 +93,7 @@ class CompleteHandler {
   DISALLOW_COPY_AND_ASSIGN(CompleteHandler);
 };
 
-const std::string FAKE_ID = "abcdefghijklmnopqrst";
+const char FAKE_ID[] = "abcdefghijklmnopqrst";
 
 TEST(SocketTest, TestTCPSocketRead) {
   net::AddressList address_list;
@@ -100,10 +120,9 @@ TEST(SocketTest, TestTCPSocketWrite) {
   CompleteHandler handler;
 
   net::CompletionCallback callback;
-  EXPECT_CALL(*tcp_client_socket, Write(_, _, _))
+  EXPECT_CALL(*tcp_client_socket, Write(_, _, _, _))
       .Times(2)
-      .WillRepeatedly(testing::DoAll(SaveArg<2>(&callback),
-                                     Return(128)));
+      .WillRepeatedly(testing::DoAll(SaveArg<2>(&callback), Return(128)));
   EXPECT_CALL(handler, OnComplete(_))
       .Times(1);
 
@@ -123,10 +142,10 @@ TEST(SocketTest, TestTCPSocketBlockedWrite) {
   CompleteHandler handler;
 
   net::CompletionCallback callback;
-  EXPECT_CALL(*tcp_client_socket, Write(_, _, _))
+  EXPECT_CALL(*tcp_client_socket, Write(_, _, _, _))
       .Times(2)
-      .WillRepeatedly(testing::DoAll(SaveArg<2>(&callback),
-                                     Return(net::ERR_IO_PENDING)));
+      .WillRepeatedly(
+          testing::DoAll(SaveArg<2>(&callback), Return(net::ERR_IO_PENDING)));
 
   std::unique_ptr<TCPSocket> socket(TCPSocket::CreateSocketForTesting(
       std::move(tcp_client_socket), FAKE_ID, true));
@@ -150,10 +169,10 @@ TEST(SocketTest, TestTCPSocketBlockedWriteReentry) {
   CompleteHandler handlers[5];
 
   net::CompletionCallback callback;
-  EXPECT_CALL(*tcp_client_socket, Write(_, _, _))
+  EXPECT_CALL(*tcp_client_socket, Write(_, _, _, _))
       .Times(5)
-      .WillRepeatedly(testing::DoAll(SaveArg<2>(&callback),
-                                     Return(net::ERR_IO_PENDING)));
+      .WillRepeatedly(
+          testing::DoAll(SaveArg<2>(&callback), Return(net::ERR_IO_PENDING)));
 
   std::unique_ptr<TCPSocket> socket(TCPSocket::CreateSocketForTesting(
       std::move(tcp_client_socket), FAKE_ID, true));

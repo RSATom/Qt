@@ -75,7 +75,7 @@ class Q_WAYLAND_COMPOSITOR_EXPORT QWaylandQuickItem : public QQuickItem
     Q_PROPERTY(bool allowDiscardFrontBuffer READ allowDiscardFrontBuffer WRITE setAllowDiscardFrontBuffer NOTIFY allowDiscardFrontBufferChanged)
 public:
     QWaylandQuickItem(QQuickItem *parent = nullptr);
-    ~QWaylandQuickItem();
+    ~QWaylandQuickItem() override;
 
     QWaylandCompositor *compositor() const;
     QWaylandView *view() const;
@@ -99,6 +99,7 @@ public:
     bool focusOnClick() const;
     void setFocusOnClick(bool focus);
 
+    bool inputRegionContains(const QPointF &localPosition) const;
     bool inputRegionContains(const QPointF &localPosition);
     Q_INVOKABLE QPointF mapToSurface(const QPointF &point) const;
 
@@ -151,6 +152,7 @@ public Q_SLOTS:
     void setPaintEnabled(bool paintEnabled);
     void raise();
     void lower();
+    void sendMouseMoveEvent(const QPointF &position, QWaylandSeat *seat = nullptr);
 
 private Q_SLOTS:
     void surfaceMappedChanged();
@@ -159,9 +161,12 @@ private Q_SLOTS:
     void updateSize();
     void updateBuffer(bool hasBuffer);
     void updateWindow();
+    void updateOutput();
     void beforeSync();
     void handleSubsurfaceAdded(QWaylandSurface *childSurface);
     void handleSubsurfacePosition(const QPoint &pos);
+    void handlePlaceAbove(QWaylandSurface *referenceSurface);
+    void handlePlaceBelow(QWaylandSurface *referenceSurface);
 #if QT_CONFIG(draganddrop)
     void handleDragStarted(QWaylandDrag *drag);
 #endif
@@ -184,7 +189,7 @@ Q_SIGNALS:
     void bufferLockedChanged();
     void allowDiscardFrontBufferChanged();
 protected:
-    QSGNode *updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *) override;
+    QSGNode *updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *data) override;
 
     QWaylandQuickItem(QWaylandQuickItemPrivate &dd, QQuickItem *parent = nullptr);
 };

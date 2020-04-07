@@ -5,12 +5,19 @@
 #ifndef COMPONENTS_SAFE_BROWSING_BROWSER_URL_CHECKER_DELEGATE_H_
 #define COMPONENTS_SAFE_BROWSING_BROWSER_URL_CHECKER_DELEGATE_H_
 
+#include <string>
+
 #include "base/callback.h"
 #include "base/memory/ref_counted.h"
-#include "components/safe_browsing_db/v4_protocol_manager_util.h"
+#include "components/safe_browsing/db/v4_protocol_manager_util.h"
 
 namespace content {
+class ResourceContext;
 class WebContents;
+}
+
+namespace net {
+class HttpRequestHeaders;
 }
 
 namespace security_interstitials {
@@ -22,9 +29,10 @@ namespace safe_browsing {
 class BaseUIManager;
 class SafeBrowsingDatabaseManager;
 
-// Delegate interface for SafeBrowsingUrlCheckerImpl. SafeBrowsingUrlCheckerImpl
-// is embedder-independent. It delegates to this interface those operations that
-// different embedders (Chrome and Android WebView) handle differently.
+// Delegate interface for SafeBrowsingUrlCheckerImpl and SafeBrowsing's
+// content::ResourceThrottle subclasses. They delegate to this interface those
+// operations that different embedders (Chrome and Android WebView) handle
+// differently.
 //
 // All methods should only be called from the IO thread.
 class UrlCheckerDelegate
@@ -36,7 +44,36 @@ class UrlCheckerDelegate
 
   // Starts displaying the SafeBrowsing interstitial page.
   virtual void StartDisplayingBlockingPageHelper(
-      const security_interstitials::UnsafeResource& resource) = 0;
+      const security_interstitials::UnsafeResource& resource,
+      const std::string& method,
+      const net::HttpRequestHeaders& headers,
+      bool is_main_frame,
+      bool has_user_gesture) = 0;
+
+  // A whitelisted URL is considered safe and therefore won't be checked with
+  // the SafeBrowsing database.
+  virtual bool IsUrlWhitelisted(const GURL& url) = 0;
+
+  // If the method returns true, the entire request won't be checked, including
+  // the original URL and redirects.
+  // If neither of |render_process_id| and |render_frame_id| is -1, they will be
+  // used to identify the frame making the request; otherwise
+  // |frame_tree_node_id| will be used. Please note that |frame_tree_node_id|
+  // could also be -1, if a request is not associated with a frame.
+  virtual bool ShouldSkipRequestCheck(
+      content::ResourceContext* resource_context,
+      const GURL& original_url,
+      int frame_tree_node_id,
+      int render_process_id,
+      int render_frame_id,
+      bool originated_from_service_worker) = 0;
+
+  // Notifies the SafeBrowsing Trigger Manager that a suspicious site has been
+  // detected. |web_contents_getter| is used to determine which tab the site
+  // was detected on.
+  virtual void NotifySuspiciousSiteDetected(
+      const base::RepeatingCallback<content::WebContents*()>&
+          web_contents_getter) = 0;
 
   virtual const SBThreatTypeSet& GetThreatTypes() = 0;
   virtual SafeBrowsingDatabaseManager* GetDatabaseManager() = 0;

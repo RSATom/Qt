@@ -6,7 +6,8 @@ There are instructions for other platforms linked from the
 ## Instructions for Google Employees
 
 Are you a Google employee? See
-[go/building-chrome](https://goto.google.com/building-chrome) instead.
+[go/building-android-chrome](https://goto.google.com/building-android-chrome)
+instead.
 
 [TOC]
 
@@ -27,7 +28,7 @@ Building the Android client on Windows or Mac is not supported and doesn't work.
 Clone the `depot_tools` repository:
 
 ```shell
-$ git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git
+git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git
 ```
 
 Add `depot_tools` to the end of your PATH (you will probably want to put this
@@ -35,7 +36,7 @@ in your `~/.bashrc` or `~/.zshrc`). Assuming you cloned `depot_tools`
 to `/path/to/depot_tools`:
 
 ```shell
-$ export PATH="$PATH:/path/to/depot_tools"
+export PATH="$PATH:/path/to/depot_tools"
 ```
 
 ## Get the code
@@ -45,8 +46,8 @@ this whatever you like and put it wherever you like, as
 long as the full path has no spaces):
 
 ```shell
-$ mkdir ~/chromium && cd ~/chromium
-$ fetch --nohooks android
+mkdir ~/chromium && cd ~/chromium
+fetch --nohooks android
 ```
 
 If you don't want the full repo history, you can save a lot of time by
@@ -64,7 +65,7 @@ directory called `src` in the working directory. The remaining instructions
 assume you have switched to the `src` directory:
 
 ```shell
-$ cd src
+cd src
 ```
 
 ### Converting an existing Linux checkout
@@ -74,13 +75,13 @@ appending `target_os = ['android']` to your `.gclient` file (in the
 directory above `src`):
 
 ```shell
-$ echo "target_os = [ 'android' ]" >> ../.gclient
+echo "target_os = [ 'android' ]" >> ../.gclient
 ```
 
 Then run `gclient sync` to pull the new Android dependencies:
 
 ```shell
-$ gclient sync
+gclient sync
 ```
 
 (This is the only difference between `fetch android` and `fetch chromium`.)
@@ -90,7 +91,7 @@ $ gclient sync
 Once you have checked out the code, run
 
 ```shell
-$ build/install-build-deps-android.sh
+build/install-build-deps-android.sh
 ```
 
 to get all of the dependencies you need to build on Linux, *plus* all of the
@@ -104,7 +105,7 @@ Chromium-specific hooks, which will download additional binaries and other
 things you might need:
 
 ```shell
-$ gclient runhooks
+gclient runhooks
 ```
 
 *Optional*: You can also [install API
@@ -121,7 +122,7 @@ configurations. To create a build directory which builds Chrome for Android,
 run:
 
 ```shell
-$ gn gen --args='target_os="android"' out/Default
+gn gen --args='target_os="android"' out/Default
 ```
 
 * You only have to run this once for each new build directory, Ninja will
@@ -143,7 +144,7 @@ require you to set `CHROMIUM_OUTPUT_DIR=out/Default`.
 Build Chromium with Ninja using the command:
 
 ```shell
-$ ninja -C out/Default chrome_public_apk
+ninja -C out/Default chrome_public_apk
 ```
 
 You can get a list of all of the other build targets from GN by running `gn ls
@@ -151,18 +152,57 @@ out/Default` from the command line. To compile one, pass the GN label to Ninja
 with no preceding "//" (so, for `//chrome/test:unit_tests` use `ninja -C
 out/Default chrome/test:unit_tests`).
 
-## Installing and Running Chromium on a device
+### Multiple Chrome APK Targets
 
-If the `adb_install_apk.py` script below fails, make sure `aapt` is in your
-PATH. If not, add `aapt`'s parent directory to your `PATH` environment variable
-(it should be
-`/path/to/src/third_party/android_tools/sdk/build-tools/{latest_version}/`).
+The Google Play Store allows apps to send customized `.apk` files depending on
+the version of Android running on a device. Chrome uses this feature to target
+3 different versions using 3 different ninja targets:
 
-Prepare the environment:
+1. `chrome_public_apk` (ChromePublic.apk)
+   * `minSdkVersion=16` (Jelly Bean).
+   * Stores libchrome.so compressed within the APK.
+   * Uses [Crazy Linker](https://cs.chromium.org/chromium/src/base/android/linker/BUILD.gn?rcl=6bb29391a86f2be58c626170156cbfaa2cbc5c91&l=9).
+   * Shipped only for Android < 21, but still works fine on Android >= 21.
+2. `chrome_modern_public_apk` (ChromeModernPublic.apk)
+   * `minSdkVersion=21` (Lollipop).
+   * Uses [Crazy Linker](https://cs.chromium.org/chromium/src/base/android/linker/BUILD.gn?rcl=6bb29391a86f2be58c626170156cbfaa2cbc5c91&l=9).
+   * Stores libchrome.so uncompressed within the APK.
+     * This APK is bigger, but the installation size is smaller since there is
+       no need to extract the .so file.
+3. `monochrome_public_apk` (MonochromePublic.apk)
+   * `minSdkVersion=24` (Nougat).
+   * Contains both WebView and Chrome within the same APK.
+     * This APK is even bigger, but much smaller than SystemWebView.apk + ChromePublic.apk.
+   * Stores libchrome.so uncompressed within the APK.
+   * Does not use Crazy Linker (WebView requires system linker).
+     * But system linker supports crazy linker features now anyways.
+
+**Note**: These instructions use `chrome_public_apk`, but either of the other
+two targets can be substituted.
+
+**Note**: These targets are actually the open-source equivalents to the
+closed-source targets that get shipped to the Play Store.
+
+**Note**: For more in-depth differences, see [android_native_libraries.md](android_native_libraries.md).
+
+## Updating your checkout
+
+To update an existing checkout, you can run
 
 ```shell
-$ . build/android/envsetup.sh
+$ git rebase-update
+$ gclient sync
 ```
+
+The first command updates the primary Chromium source repository and rebases
+any of your local branches on top of tip-of-tree (aka the Git branch
+`origin/master`). If you don't want to use this script, you can also just use
+`git pull` or other common Git commands to update the repo.
+
+The second command syncs dependencies to the appropriate versions and re-runs
+hooks as needed.
+
+## Installing and Running Chromium on a device
 
 ### Plug in your Android device
 
@@ -197,7 +237,7 @@ ninja -C out/Default chrome_public_apk
 And deploy it to your Android device:
 
 ```shell
-build/android/adb_install_apk.py out/Default/apks/ChromePublic.apk
+out/Default/bin/chrome_public_apk install
 ```
 
 The app will appear on the device as "Chromium".
@@ -210,18 +250,11 @@ for details on the content module and content shell.
 
 ```shell
 ninja -C out/Default content_shell_apk
-build/android/adb_install_apk.py out/Default/apks/ContentShell.apk
+out/Default/bin/content_shell_apk install
 ```
 
 this will build and install an Android apk under
 `out/Default/apks/ContentShell.apk`.
-
-If you use custom out dir instead of standard out/ dir, use
-CHROMIUM_OUT_DIR env.
-
-```shell
-export CHROMIUM_OUT_DIR=out_android
-```
 
 ### Build WebView
 
@@ -236,40 +269,35 @@ instructions](https://www.chromium.org/developers/how-tos/build-instructions-and
 
 ### Running
 
-Set [command line flags](https://www.chromium.org/developers/how-tos/run-chromium-with-flags) if necessary.
-
 For Content shell:
 
 ```shell
-build/android/adb_run_content_shell  http://example.com
+out/Default/bin/content_shell_apk launch [--args='--foo --bar'] http://example.com
 ```
 
 For Chrome public:
 
 ```shell
-build/android/adb_run_chrome_public  http://example.com
+out/Default/bin/chrome_public_apk launch [--args='--foo --bar'] http://example.com
 ```
 
 ### Logging and debugging
 
 Logging is often the easiest way to understand code flow. In C++ you can print
-log statements using the LOG macro or printf(). In Java, you can print log
-statements using [android.util.Log](https://developer.android.com/reference/android/util/Log.html):
+log statements using the LOG macro. In Java, refer to
+[android_logging.md](android_logging.md).
 
-`Log.d("sometag", "Reticulating splines progress = " + progress);`
-
-You can see these log statements using adb logcat:
+You can see these log via `adb logcat`, or:
 
 ```shell
-adb logcat...01-14 11:08:53.373 22693 23070 D sometag: Reticulating splines progress = 0.99
+out/Default/bin/chrome_public_apk logcat
 ```
 
-You can debug Java or C++ code. To debug C++ code, use one of the
-following commands:
+To debug C++ code, use one of the following commands:
 
 ```shell
-build/android/adb_gdb_content_shell
-build/android/adb_gdb_chrome_public
+out/Default/bin/content_shell_apk gdb
+out/Default/bin/chrome_public_apk gdb
 ```
 
 See [Android Debugging Instructions](android_debugging_instructions.md)
@@ -279,9 +307,9 @@ for more on debugging, including how to debug Java code.
 
 For information on running tests, see [Android Test Instructions](android_test_instructions.md).
 
-### Faster Edit/Deploy (GN only)
+### Faster Edit/Deploy
 
-GN's "incremental install" uses reflection and side-loading to speed up the edit
+"Incremental install" uses reflection and side-loading to speed up the edit
 & deploy cycle (normally < 10 seconds). The initial launch of the apk will be
 a little slower since updated dex files are installed manually.
 
@@ -293,11 +321,11 @@ Here's an example:
 
 ```shell
 ninja -C out/Default chrome_public_apk_incremental
-out/Default/bin/install_chrome_public_apk_incremental -v
+out/Default/bin/chrome_public_apk install --incremental --verbose
 ```
 
 For gunit tests (note that run_*_incremental automatically add
---fast-local-dev when calling test\_runner.py):
+`--fast-local-dev` when calling `test_runner.py`):
 
 ```shell
 ninja -C out/Default base_unittests_incremental
@@ -314,29 +342,22 @@ out/Default/bin/run_chrome_public_test_apk_incremental
 To uninstall:
 
 ```shell
-out/Default/bin/install_chrome_public_apk_incremental -v --uninstall
+out/Default/bin/chrome_public_apk uninstall
 ```
 
-A subtly erroneous flow arises when you build a regular apk but install an
-incremental apk (e.g.
-`ninja -C out/Default foo_apk && out/Default/bin/install_foo_apk_incremental`).
-Setting `incremental_apk_by_default = true` in your GN args aliases regular
-targets as their incremental counterparts. With this arg set, the commands
-above become:
+To avoid typing `_incremental` when building targets, you can use the GN arg:
 
-```shell
-ninja -C out/Default chrome_public_apk
-out/Default/bin/install_chrome_public_apk
-
-ninja -C out/Default base_unittests
-out/Default/bin/run_base_unittests
-
-ninja -C out/Default chrome_public_test_apk
-out/Default/bin/run_chrome_public_test_apk
+```
+incremental_apk_by_default = true
 ```
 
-If you want to build a non-incremental apk you'll need to remove
-`incremental_apk_by_default` from your GN args.
+This will make `chrome_public_apk` build in incremental mode.
+
+## Installing and Running Chromium on an Emulator
+
+Running on an emulator is the same as on a device. Refer to
+[android_emulator.md](android_emulator.md) for setting up emulators.
+
 
 ## Tips, tricks, and troubleshooting
 

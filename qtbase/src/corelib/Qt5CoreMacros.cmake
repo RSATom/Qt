@@ -152,9 +152,6 @@ function(QT5_GENERATE_MOC infile outfile )
         set(_outfile "${CMAKE_CURRENT_BINARY_DIR}/${outfile}")
     endif()
     if ("x${ARGV2}" STREQUAL "xTARGET")
-        if (CMAKE_VERSION VERSION_LESS 2.8.12)
-            message(FATAL_ERROR "The TARGET parameter to qt5_generate_moc is only available when using CMake 2.8.12 or later.")
-        endif()
         set(moc_target ${ARGV3})
     endif()
     qt5_create_moc_command(${abs_infile} ${_outfile} "${moc_flags}" "" "${moc_target}" "")
@@ -178,9 +175,6 @@ function(QT5_WRAP_CPP outfiles )
     set(moc_target ${_WRAP_CPP_TARGET})
     set(moc_depends ${_WRAP_CPP_DEPENDS})
 
-    if (moc_target AND CMAKE_VERSION VERSION_LESS 2.8.12)
-        message(FATAL_ERROR "The TARGET parameter to qt5_wrap_cpp is only available when using CMake 2.8.12 or later.")
-    endif()
     foreach(it ${moc_files})
         get_filename_component(it ${it} ABSOLUTE)
         qt5_make_output_file(${it} moc_ cpp outfile)
@@ -291,10 +285,53 @@ function(QT5_ADD_RESOURCES outfiles )
                            COMMAND ${Qt5Core_RCC_EXECUTABLE}
                            ARGS ${rcc_options} --name ${outfilename} --output ${outfile} ${infile}
                            MAIN_DEPENDENCY ${infile}
-                           DEPENDS ${_rc_depends} "${out_depends}" VERBATIM)
+                           DEPENDS ${_rc_depends} "${_out_depends}" VERBATIM)
         set_source_files_properties(${outfile} PROPERTIES SKIP_AUTOMOC ON)
         set_source_files_properties(${outfile} PROPERTIES SKIP_AUTOUIC ON)
         list(APPEND ${outfiles} ${outfile})
+    endforeach()
+    set(${outfiles} ${${outfiles}} PARENT_SCOPE)
+endfunction()
+
+# qt5_add_big_resources(outfiles inputfile ... )
+
+function(QT5_ADD_BIG_RESOURCES outfiles )
+
+    set(options)
+    set(oneValueArgs)
+    set(multiValueArgs OPTIONS)
+
+    cmake_parse_arguments(_RCC "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
+
+    set(rcc_files ${_RCC_UNPARSED_ARGUMENTS})
+    set(rcc_options ${_RCC_OPTIONS})
+
+    if("${rcc_options}" MATCHES "-binary")
+        message(WARNING "Use qt5_add_binary_resources for binary option")
+    endif()
+
+    foreach(it ${rcc_files})
+        get_filename_component(outfilename ${it} NAME_WE)
+        get_filename_component(infile ${it} ABSOLUTE)
+        set(tmpoutfile ${CMAKE_CURRENT_BINARY_DIR}/qrc_${outfilename}tmp.cpp)
+        set(outfile ${CMAKE_CURRENT_BINARY_DIR}/qrc_${outfilename}.o)
+
+        _QT5_PARSE_QRC_FILE(${infile} _out_depends _rc_depends)
+        set_source_files_properties(${infile} PROPERTIES SKIP_AUTORCC ON)
+        add_custom_command(OUTPUT ${tmpoutfile}
+                           COMMAND ${Qt5Core_RCC_EXECUTABLE} ${rcc_options} --name ${outfilename} --pass 1 --output ${tmpoutfile} ${infile}
+                           DEPENDS ${infile} ${_rc_depends} "${out_depends}" VERBATIM)
+        set_source_files_properties(${tmpoutfile} PROPERTIES SKIP_AUTOMOC ON)
+        set_source_files_properties(${tmpoutfile} PROPERTIES SKIP_AUTOUIC ON)
+        add_custom_target(big_resources_${outfilename} ALL DEPENDS ${tmpoutfile})
+        add_library(rcc_object_${outfilename} OBJECT ${tmpoutfile})
+        add_dependencies(rcc_object_${outfilename} big_resources_${outfilename})
+        add_custom_command(OUTPUT ${outfile}
+                           COMMAND ${Qt5Core_RCC_EXECUTABLE}
+                           ARGS ${rcc_options} --name ${outfilename} --pass 2 --temp $<TARGET_OBJECTS:rcc_object_${outfilename}> --output ${outfile} ${infile}
+                           DEPENDS rcc_object_${outfilename}
+                           VERBATIM)
+       list(APPEND ${outfiles} ${outfile})
     endforeach()
     set(${outfiles} ${${outfiles}} PARENT_SCOPE)
 endfunction()

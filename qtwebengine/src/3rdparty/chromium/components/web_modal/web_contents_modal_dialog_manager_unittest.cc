@@ -73,9 +73,7 @@ class TestNativeWebContentsModalDialogManager
   void HostChanged(WebContentsModalDialogHost* new_host) override {}
   gfx::NativeWindow dialog() override { return dialog_; }
 
-  void StopTracking() {
-    tracker_ = NULL;
-  }
+  void StopTracking() { tracker_ = nullptr; }
 
  private:
   SingleWebContentsDialogManagerDelegate* delegate_;
@@ -88,10 +86,7 @@ class TestNativeWebContentsModalDialogManager
 class WebContentsModalDialogManagerTest
     : public content::RenderViewHostTestHarness {
  public:
-  WebContentsModalDialogManagerTest()
-      : next_dialog_id(1),
-        manager(NULL) {
-  }
+  WebContentsModalDialogManagerTest() : next_dialog_id(1), manager(nullptr) {}
 
   void SetUp() override {
     content::RenderViewHostTestHarness::SetUp();
@@ -205,13 +200,13 @@ TEST_F(WebContentsModalDialogManagerTest, VisibilityObservation) {
   EXPECT_TRUE(delegate->web_contents_blocked());
   EXPECT_EQ(NativeManagerTracker::SHOWN, tracker.state_);
 
-  test_api->WebContentsWasHidden();
+  test_api->WebContentsVisibilityChanged(content::Visibility::HIDDEN);
 
   EXPECT_TRUE(manager->IsDialogActive());
   EXPECT_TRUE(delegate->web_contents_blocked());
   EXPECT_EQ(NativeManagerTracker::HIDDEN, tracker.state_);
 
-  test_api->WebContentsWasShown();
+  test_api->WebContentsVisibilityChanged(content::Visibility::VISIBLE);
 
   EXPECT_TRUE(manager->IsDialogActive());
   EXPECT_TRUE(delegate->web_contents_blocked());

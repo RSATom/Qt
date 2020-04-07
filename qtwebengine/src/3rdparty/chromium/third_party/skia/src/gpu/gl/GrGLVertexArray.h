@@ -48,14 +48,15 @@ public:
     /**
      * This function enables the first 'enabledCount' vertex arrays and disables the rest.
      */
-    void enableVertexArrays(const GrGLGpu*, int enabledCount);
+    void enableVertexArrays(const GrGLGpu*, int enabledCount,
+                            GrPrimitiveRestart = GrPrimitiveRestart::kNo);
 
     void invalidate() {
         int count = fAttribArrayStates.count();
         for (int i = 0; i < count; ++i) {
             fAttribArrayStates[i].invalidate();
         }
-        fEnabledCountIsValid = false;
+        fEnableStateIsValid = false;
     }
 
     /**
@@ -82,9 +83,10 @@ private:
         int                       fDivisor;
     };
 
-    SkSTArray<16, AttribArrayState, true>   fAttribArrayStates;
-    int                                     fNumEnabledArrays;
-    bool                                    fEnabledCountIsValid;
+    SkSTArray<16, AttribArrayState, true> fAttribArrayStates;
+    int fNumEnabledArrays;
+    GrPrimitiveRestart fPrimitiveRestartEnabled;
+    bool fEnableStateIsValid = false;
 };
 
 /**

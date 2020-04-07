@@ -7,6 +7,9 @@
 
 #include "SkRasterPipeline.h"
 #include "SkPM4f.h"
+#include "SkPM4fPriv.h"
+#include "../jumper/SkJumper.h"
+#include <algorithm>
 
 SkRasterPipeline::SkRasterPipeline(SkArenaAlloc* alloc) : fAlloc(alloc) {
     this->reset();
@@ -18,11 +21,17 @@ void SkRasterPipeline::reset() {
 }
 
 void SkRasterPipeline::append(StockStage stage, void* ctx) {
-    SkASSERT(stage != from_srgb);
+    SkASSERT(stage !=           uniform_color);  // Please use append_constant_color().
+    SkASSERT(stage != unbounded_uniform_color);  // Please use append_constant_color().
     this->unchecked_append(stage, ctx);
 }
 void SkRasterPipeline::unchecked_append(StockStage stage, void* ctx) {
-    fStages = fAlloc->make<StageList>( StageList{fStages, stage, ctx} );
+    fStages = fAlloc->make<StageList>( StageList{fStages, (uint64_t) stage, ctx, false} );
+    fNumStages   += 1;
+    fSlotsNeeded += ctx ? 2 : 1;
+}
+void SkRasterPipeline::append(void* fn, void* ctx) {
+    fStages = fAlloc->make<StageList>( StageList{fStages, (uint64_t) fn, ctx, true} );
     fNumStages   += 1;
     fSlotsNeeded += ctx ? 2 : 1;
 }
@@ -49,7 +58,8 @@ void SkRasterPipeline::extend(const SkRasterPipeline& src) {
 }
 
 void SkRasterPipeline::dump() const {
-    SkDebugf("SkRasterPipeline, %d stages (in reverse)\n", fNumStages);
+    SkDebugf("SkRasterPipeline, %d stages\n", fNumStages);
+    std::vector<const char*> stages;
     for (auto st = fStages; st; st = st->prev) {
         const char* name = "";
         switch (st->stage) {
@@ -57,6 +67,10 @@ void SkRasterPipeline::dump() const {
             SK_RASTER_PIPELINE_STAGES(M)
         #undef M
         }
+        stages.push_back(name);
+    }
+    std::reverse(stages.begin(), stages.end());
+    for (const char* name : stages) {
         SkDebugf("\t%s\n", name);
     }
     SkDebugf("\n");
@@ -76,17 +90,37 @@ void SkRasterPipeline::dump() const {
     #define INC_COLOR
 #endif
 
-void SkRasterPipeline::append_uniform_color(SkArenaAlloc* alloc, const SkPM4f& c) {
-    if (c.r() == 0 && c.g() == 0 && c.b() == 0 && c.a() == 1) {
+void SkRasterPipeline::append_constant_color(SkArenaAlloc* alloc, const float rgba[4]) {
+    // r,g,b might be outside [0,1], but alpha should probably always be in [0,1].
+    SkASSERT(0 <= rgba[3] && rgba[3] <= 1);
+
+    if (rgba[0] == 0 && rgba[1] == 0 && rgba[2] == 0 && rgba[3] == 1) {
         this->append(black_color);
         INC_BLACK;
-    } else if (c.r() == 1 && c.g() == 1 && c.b() == 1 && c.a() == 1) {
+    } else if (rgba[0] == 1 && rgba[1] == 1 && rgba[2] == 1 && rgba[3] == 1) {
         this->append(white_color);
         INC_WHITE;
     } else {
-        float* storage = alloc->makeArray<float>(4);
-        memcpy(storage, c.fVec, 4 * sizeof(float));
-        this->append(uniform_color, storage);
+        auto ctx = alloc->make<SkJumper_UniformColorCtx>();
+        Sk4f color = Sk4f::Load(rgba);
+        color.store(&ctx->r);
+
+        // uniform_color requires colors in range and can go lowp,
+        // while unbounded_uniform_color supports out-of-range colors too but not lowp.
+        if (0 <= rgba[0] && rgba[0] <= 1 &&
+            0 <= rgba[1] && rgba[1] <= 1 &&
+            0 <= rgba[2] && rgba[2] <= 1) {
+            // To make loads more direct, we store 8-bit values in 16-bit slots.
+            color = color * 255.0f + 0.5f;
+            ctx->rgba[0] = (uint16_t)color[0];
+            ctx->rgba[1] = (uint16_t)color[1];
+            ctx->rgba[2] = (uint16_t)color[2];
+            ctx->rgba[3] = (uint16_t)color[3];
+            this->unchecked_append(uniform_color, ctx);
+        } else {
+            this->unchecked_append(unbounded_uniform_color, ctx);
+        }
+
         INC_COLOR;
     }
 
@@ -98,28 +132,6 @@ void SkRasterPipeline::append_uniform_color(SkArenaAlloc* alloc, const SkPM4f& c
 #undef INC_BLACK
 #undef INC_WHITE
 #undef INC_COLOR
-
-// It's pretty easy to start with sound premultiplied linear floats, pack those
-// to sRGB encoded bytes, then read them back to linear floats and find them not
-// quite premultiplied, with a color channel just a smidge greater than the alpha
-// channel.  This can happen basically any time we have different transfer
-// functions for alpha and colors... sRGB being the only one we draw into.
-
-// This is an annoying problem with no known good solution.  So apply the clamp hammer.
-
-void SkRasterPipeline::append_from_srgb(SkAlphaType at) {
-    this->unchecked_append(from_srgb, nullptr);
-    if (at == kPremul_SkAlphaType) {
-        this->append(SkRasterPipeline::clamp_a);
-    }
-}
-
-void SkRasterPipeline::append_from_srgb_dst(SkAlphaType at) {
-    this->unchecked_append(from_srgb_dst, nullptr);
-    if (at == kPremul_SkAlphaType) {
-        this->append(SkRasterPipeline::clamp_a_dst);
-    }
-}
 
 //static int gCounts[5] = { 0, 0, 0, 0, 0 };
 
@@ -146,10 +158,10 @@ void SkRasterPipeline::append_matrix(SkArenaAlloc* alloc, const SkMatrix& matrix
     } else if ((mt | (SkMatrix::kScale_Mask | SkMatrix::kTranslate_Mask)) ==
                      (SkMatrix::kScale_Mask | SkMatrix::kTranslate_Mask)) {
         float* scaleTrans = alloc->makeArrayDefault<float>(4);
-        scaleTrans[0] = matrix.getTranslateX();
-        scaleTrans[1] = matrix.getTranslateY();
-        scaleTrans[2] = matrix.getScaleX();
-        scaleTrans[3] = matrix.getScaleY();
+        scaleTrans[0] = matrix.getScaleX();
+        scaleTrans[1] = matrix.getScaleY();
+        scaleTrans[2] = matrix.getTranslateX();
+        scaleTrans[3] = matrix.getTranslateY();
         this->append(SkRasterPipeline::matrix_scale_translate, scaleTrans);
     } else {
         float* storage = alloc->makeArrayDefault<float>(9);

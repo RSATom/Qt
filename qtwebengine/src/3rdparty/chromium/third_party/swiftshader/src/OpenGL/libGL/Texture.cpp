@@ -181,7 +181,7 @@ void Texture::setImage(GLenum format, GLenum type, GLint unpackAlignment, const 
 
 void Texture::setCompressedImage(GLsizei imageSize, const void *pixels, Image *image)
 {
-	if(pixels && image)
+	if(pixels && image && (imageSize > 0)) // imageSize's correlation to width and height is already validated with gl::ComputeCompressedSize() at the API level
 	{
 		image->loadCompressedData(0, 0, 0, image->getWidth(), image->getHeight(), 1, imageSize, pixels);
 	}
@@ -232,7 +232,7 @@ void Texture::subImageCompressed(GLint xoffset, GLint yoffset, GLsizei width, GL
 		return error(GL_INVALID_OPERATION);
 	}
 
-	if(pixels)
+	if(pixels && (imageSize > 0)) // imageSize's correlation to width and height is already validated with gl::ComputeCompressedSize() at the API level
 	{
 		image->loadCompressedData(xoffset, yoffset, 0, width, height, 1, imageSize, pixels);
 	}
@@ -353,7 +353,7 @@ sw::Format Texture2D::getInternalFormat(GLenum target, GLint level) const
 	return image[level] ? image[level]->getInternalFormat() : sw::FORMAT_NULL;
 }
 
-int Texture2D::getLevelCount() const
+int Texture2D::getTopLevel() const
 {
 	ASSERT(isSamplerComplete());
 	int levels = 0;
@@ -412,14 +412,6 @@ void Texture2D::subImageCompressed(GLint level, GLint xoffset, GLint yoffset, GL
 
 void Texture2D::copyImage(GLint level, GLenum format, GLint x, GLint y, GLsizei width, GLsizei height, Framebuffer *source)
 {
-	Image *renderTarget = source->getRenderTarget();
-
-	if(!renderTarget)
-	{
-		ERR("Failed to retrieve the render target.");
-		return error(GL_OUT_OF_MEMORY);
-	}
-
 	if(image[level])
 	{
 		image[level]->unbind();
@@ -434,13 +426,21 @@ void Texture2D::copyImage(GLint level, GLenum format, GLint x, GLint y, GLsizei 
 
 	if(width != 0 && height != 0)
 	{
+		Image *renderTarget = source->getRenderTarget();
+
+		if(!renderTarget)
+		{
+			ERR("Failed to retrieve the render target.");
+			return error(GL_OUT_OF_MEMORY);
+		}
+
 		sw::Rect sourceRect = {x, y, x + width, y + height};
 		sourceRect.clip(0, 0, source->getColorbuffer()->getWidth(), source->getColorbuffer()->getHeight());
 
 		copy(renderTarget, sourceRect, format, 0, 0, image[level]);
-	}
 
-	renderTarget->release();
+		renderTarget->release();
+	}
 }
 
 void Texture2D::copySubImage(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint x, GLint y, GLsizei width, GLsizei height, Framebuffer *source)
@@ -726,7 +726,7 @@ sw::Format TextureCubeMap::getInternalFormat(GLenum target, GLint level) const
 	return image[face][level] ? image[face][level]->getInternalFormat() : sw::FORMAT_NULL;
 }
 
-int TextureCubeMap::getLevelCount() const
+int TextureCubeMap::getTopLevel() const
 {
 	ASSERT(isSamplerComplete());
 	int levels = 0;
@@ -896,14 +896,6 @@ void TextureCubeMap::setImage(GLenum target, GLint level, GLsizei width, GLsizei
 
 void TextureCubeMap::copyImage(GLenum target, GLint level, GLenum format, GLint x, GLint y, GLsizei width, GLsizei height, Framebuffer *source)
 {
-	Image *renderTarget = source->getRenderTarget();
-
-	if(!renderTarget)
-	{
-		ERR("Failed to retrieve the render target.");
-		return error(GL_OUT_OF_MEMORY);
-	}
-
 	int face = CubeFaceIndex(target);
 
 	if(image[face][level])
@@ -920,13 +912,21 @@ void TextureCubeMap::copyImage(GLenum target, GLint level, GLenum format, GLint 
 
 	if(width != 0 && height != 0)
 	{
+		Image *renderTarget = source->getRenderTarget();
+
+		if(!renderTarget)
+		{
+			ERR("Failed to retrieve the render target.");
+			return error(GL_OUT_OF_MEMORY);
+		}
+
 		sw::Rect sourceRect = {x, y, x + width, y + height};
 		sourceRect.clip(0, 0, source->getColorbuffer()->getWidth(), source->getColorbuffer()->getHeight());
 
 		copy(renderTarget, sourceRect, format, 0, 0, image[face][level]);
-	}
 
-	renderTarget->release();
+		renderTarget->release();
+	}
 }
 
 Image *TextureCubeMap::getImage(int face, unsigned int level)

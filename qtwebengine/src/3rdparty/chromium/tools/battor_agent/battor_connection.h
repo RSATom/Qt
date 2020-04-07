@@ -33,6 +33,7 @@ class BattOrConnection {
   class Listener {
    public:
     virtual void OnConnectionOpened(bool success) = 0;
+    virtual void OnConnectionFlushed(bool success) = 0;
     virtual void OnBytesSent(bool success) = 0;
     virtual void OnMessageRead(bool success,
                                BattOrMessageType type,
@@ -42,13 +43,22 @@ class BattOrConnection {
   BattOrConnection(Listener* listener);
   virtual ~BattOrConnection() = 0;
 
-  // Initializes the serial connection and calls the listener's
-  // OnConnectionOpened() when complete. This function must be called before
-  // using the BattOrConnection. If the connection is already open, calling this
-  // method immediately calls the listener's OnConnectionOpened method.
+  // Opens and initializes the serial connection to the BattOr and calls the
+  // listener's OnConnectionOpened() when complete. As part of this
+  // initialization, the serial connection is flushed by reading and throwing
+  // away bytes until the serial connection remains quiet for a sufficiently
+  // long time. This function must be called before using the
+  // BattOrConnection. If the connection is already open, calling this method
+  // reflushes the connection and then calls the listener's OnConnectionOpened
+  // method.
   virtual void Open() = 0;
   // Closes the serial connection and releases any handles being held.
   virtual void Close() = 0;
+  // Returns true if the connection is currently open.
+  virtual bool IsOpen() = 0;
+  // Flushes the serial connection by reading and throwing away bytes until the
+  // serial connection remains quiet for a sufficiently long time.
+  virtual void Flush() = 0;
 
   // Sends the specified buffer over the serial connection and calls the
   // listener's OnBytesSent() when complete. Note that bytes_to_send should not
@@ -66,8 +76,8 @@ class BattOrConnection {
   // Cancels the current message read operation.
   virtual void CancelReadMessage() = 0;
 
-  // Flushes the serial connection to the BattOr.
-  virtual void Flush() = 0;
+  // Appends |str| to the serial log file if it exists.
+  virtual void LogSerial(const std::string& str) = 0;
 
  protected:
   // The listener receiving the results of the commands being executed.

@@ -61,8 +61,7 @@ namespace QPatternistSDK
         /**
          * Creates a ResultThreader that will read @p file when run() is called.
          */
-        ResultThreader(QEventLoop &ev,
-                       QFile *file,
+        ResultThreader(QFile *file,
                        const Type type,
                        QObject *parent);
 
@@ -83,7 +82,6 @@ namespace QPatternistSDK
 
         QFile *const    m_file;
         const Type      m_type;
-        QEventLoop &    m_eventLoop;
     };
 }
 

@@ -12,63 +12,59 @@ using base::android::JavaRef;
 
 namespace device {
 
-// static
-bool PlatformSensorAndroid::RegisterJNI(JNIEnv* env) {
-  return RegisterNativesImpl(env);
-}
-
 PlatformSensorAndroid::PlatformSensorAndroid(
     mojom::SensorType type,
-    mojo::ScopedSharedBufferMapping mapping,
+    SensorReadingSharedBuffer* reading_buffer,
     PlatformSensorProvider* provider,
     const JavaRef<jobject>& java_sensor)
-    : PlatformSensor(type, std::move(mapping), provider) {
+    : PlatformSensor(type, reading_buffer, provider) {
   JNIEnv* env = AttachCurrentThread();
   j_object_.Reset(java_sensor);
 
-  Java_PlatformSensor_initPlatformSensorAndroid(env, j_object_.obj(),
+  Java_PlatformSensor_initPlatformSensorAndroid(env, j_object_,
                                                 reinterpret_cast<jlong>(this));
 }
 
 PlatformSensorAndroid::~PlatformSensorAndroid() {
-  StopSensor();
+  JNIEnv* env = AttachCurrentThread();
+  Java_PlatformSensor_sensorDestroyed(env, j_object_);
 }
 
 mojom::ReportingMode PlatformSensorAndroid::GetReportingMode() {
   JNIEnv* env = AttachCurrentThread();
   return static_cast<mojom::ReportingMode>(
-      Java_PlatformSensor_getReportingMode(env, j_object_.obj()));
+      Java_PlatformSensor_getReportingMode(env, j_object_));
 }
 
 PlatformSensorConfiguration PlatformSensorAndroid::GetDefaultConfiguration() {
   JNIEnv* env = AttachCurrentThread();
   jdouble frequency =
-      Java_PlatformSensor_getDefaultConfiguration(env, j_object_.obj());
+      Java_PlatformSensor_getDefaultConfiguration(env, j_object_);
   return PlatformSensorConfiguration(frequency);
 }
 
 double PlatformSensorAndroid::GetMaximumSupportedFrequency() {
   JNIEnv* env = AttachCurrentThread();
-  return Java_PlatformSensor_getMaximumSupportedFrequency(env, j_object_.obj());
+  return Java_PlatformSensor_getMaximumSupportedFrequency(env, j_object_);
 }
 
 bool PlatformSensorAndroid::StartSensor(
     const PlatformSensorConfiguration& configuration) {
   JNIEnv* env = AttachCurrentThread();
-  return Java_PlatformSensor_startSensor(env, j_object_.obj(),
+  return Java_PlatformSensor_startSensor(env, j_object_,
                                          configuration.frequency());
 }
 
 void PlatformSensorAndroid::StopSensor() {
   JNIEnv* env = AttachCurrentThread();
-  Java_PlatformSensor_stopSensor(env, j_object_.obj());
+  Java_PlatformSensor_stopSensor(env, j_object_);
 }
 
 bool PlatformSensorAndroid::CheckSensorConfiguration(
     const PlatformSensorConfiguration& configuration) {
   JNIEnv* env = AttachCurrentThread();
   return Java_PlatformSensor_checkSensorConfiguration(
-      env, j_object_.obj(), configuration.frequency());
+      env, j_object_, configuration.frequency());
 }
 
 void PlatformSensorAndroid::NotifyPlatformSensorError(
@@ -87,14 +83,13 @@ void PlatformSensorAndroid::UpdatePlatformSensorReading(
     jdouble value3,
     jdouble value4) {
   SensorReading reading;
-  reading.timestamp = timestamp;
-  reading.values[0] = value1;
-  reading.values[1] = value2;
-  reading.values[2] = value3;
-  reading.values[3] = value4;
+  reading.raw.timestamp = timestamp;
+  reading.raw.values[0] = value1;
+  reading.raw.values[1] = value2;
+  reading.raw.values[2] = value3;
+  reading.raw.values[3] = value4;
 
-  bool needNotify = (GetReportingMode() == mojom::ReportingMode::ON_CHANGE);
-  UpdateSensorReading(reading, needNotify);
+  UpdateSharedBufferAndNotifyClients(reading);
 }
 
 }  // namespace device

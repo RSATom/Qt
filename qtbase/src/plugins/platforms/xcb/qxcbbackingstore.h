@@ -49,7 +49,7 @@
 
 QT_BEGIN_NAMESPACE
 
-class QXcbShmImage;
+class QXcbBackingStoreImage;
 
 class QXcbBackingStore : public QXcbObject, public QPlatformBackingStore
 {
@@ -74,10 +74,41 @@ public:
     void beginPaint(const QRegion &) override;
     void endPaint() override;
 
-private:
-    QXcbShmImage *m_image;
+    static bool createSystemVShmSegment(xcb_connection_t *c, size_t segmentSize = 1,
+                                        void *shmInfo = nullptr);
+
+protected:
+    virtual void render(xcb_window_t window, const QRegion &region, const QPoint &offset);
+    virtual void recreateImage(QXcbWindow *win, const QSize &size);
+
+    QXcbBackingStoreImage *m_image = nullptr;
     QStack<QRegion> m_paintRegions;
     QImage m_rgbImage;
+};
+
+class QXcbSystemTrayBackingStore : public QXcbBackingStore
+{
+public:
+    QXcbSystemTrayBackingStore(QWindow *window);
+    ~QXcbSystemTrayBackingStore();
+
+    void beginPaint(const QRegion &) override;
+
+protected:
+    void render(xcb_window_t window, const QRegion &region, const QPoint &offset) override;
+    void recreateImage(QXcbWindow *win, const QSize &size) override;
+
+private:
+    void initXRenderMode();
+
+    xcb_pixmap_t m_xrenderPixmap = XCB_NONE;
+    xcb_render_picture_t m_xrenderPicture = XCB_NONE;
+    xcb_render_pictformat_t m_xrenderPictFormat  = XCB_NONE;
+    xcb_render_picture_t m_windowPicture = XCB_NONE;
+
+    bool m_usingXRenderMode = false;
+    bool m_useGrabbedBackgound = false;
+    QPixmap m_grabbedBackground;
 };
 
 QT_END_NAMESPACE

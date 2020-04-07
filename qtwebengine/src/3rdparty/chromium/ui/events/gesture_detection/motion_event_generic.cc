@@ -2,17 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// MSVC++ requires this to be set before any other includes to get M_PI.
-#define _USE_MATH_DEFINES
-
 #include "ui/events/gesture_detection/motion_event_generic.h"
 
-#include <cmath>
 #include <utility>
 
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
+#include "base/numerics/math_constants.h"
 #include "ui/events/base_event_utils.h"
+#include "ui/gfx/geometry/angle_conversions.h"
 
 namespace ui {
 
@@ -22,7 +20,7 @@ PointerProperties::PointerProperties()
 
 PointerProperties::PointerProperties(float x, float y, float touch_major)
     : id(0),
-      tool_type(MotionEvent::TOOL_TYPE_UNKNOWN),
+      tool_type(MotionEvent::ToolType::UNKNOWN),
       x(x),
       y(y),
       raw_x(x),
@@ -57,16 +55,16 @@ void PointerProperties::SetAxesAndOrientation(float radius_x,
                                               float radius_y,
                                               float rotation_angle_degree) {
   DCHECK(!touch_major && !touch_minor && !orientation);
-  float rotation_angle_rad = rotation_angle_degree * M_PI / 180.f;
+  float rotation_angle_rad = gfx::DegToRad(rotation_angle_degree);
   DCHECK_GE(radius_x, 0) << "Unexpected x-radius < 0 (" << radius_x << ")";
   DCHECK_GE(radius_y, 0) << "Unexpected y-radius < 0 (" << radius_y << ")";
-  DCHECK(0 <= rotation_angle_rad && rotation_angle_rad < M_PI)
+  DCHECK(0 <= rotation_angle_rad && rotation_angle_rad < base::kPiFloat)
       << "Unexpected touch rotation angle " << rotation_angle_rad << " rad";
 
   // Make the angle acute to ease subsequent logic. The angle range effectively
   // changes from [0, pi) to [0, pi/2).
-  if (rotation_angle_rad >= M_PI_2) {
-    rotation_angle_rad -= static_cast<float>(M_PI_2);
+  if (rotation_angle_rad >= base::kPiFloat / 2) {
+    rotation_angle_rad -= base::kPiFloat / 2;
     std::swap(radius_x, radius_y);
   }
 
@@ -76,7 +74,7 @@ void PointerProperties::SetAxesAndOrientation(float radius_x,
     // cases but always seem to be set to zero) unchanged.
     touch_major = 2.f * radius_x;
     touch_minor = 2.f * radius_y;
-    orientation = rotation_angle_rad - M_PI_2;
+    orientation = rotation_angle_rad - base::kPiFloat / 2;
   } else {
     touch_major = 2.f * radius_y;
     touch_minor = 2.f * radius_x;
@@ -121,7 +119,7 @@ MotionEvent::Action MotionEventGeneric::GetAction() const {
 }
 
 int MotionEventGeneric::GetActionIndex() const {
-  DCHECK(action_ == ACTION_POINTER_DOWN || action_ == ACTION_POINTER_UP);
+  DCHECK(action_ == Action::POINTER_DOWN || action_ == Action::POINTER_UP);
   DCHECK_GE(action_index_, 0);
   DCHECK_LT(action_index_, static_cast<int>(pointers_->size()));
   return action_index_;
@@ -246,7 +244,7 @@ std::unique_ptr<MotionEventGeneric> MotionEventGeneric::CancelEvent(
   bool with_history = false;
   std::unique_ptr<MotionEventGeneric> cancel_event(
       new MotionEventGeneric(event, with_history));
-  cancel_event->set_action(ACTION_CANCEL);
+  cancel_event->set_action(Action::CANCEL);
   cancel_event->set_unique_event_id(ui::GetNextTouchEventId());
   return cancel_event;
 }
@@ -265,20 +263,18 @@ void MotionEventGeneric::RemovePointerAt(size_t index) {
 void MotionEventGeneric::PushHistoricalEvent(
     std::unique_ptr<MotionEvent> event) {
   DCHECK(event);
-  DCHECK_EQ(event->GetAction(), ACTION_MOVE);
+  DCHECK_EQ(event->GetAction(), Action::MOVE);
   DCHECK_EQ(event->GetPointerCount(), GetPointerCount());
   DCHECK_EQ(event->GetAction(), GetAction());
-  DCHECK_LE(event->GetEventTime().ToInternalValue(),
-            GetEventTime().ToInternalValue());
+  DCHECK_LE(event->GetEventTime(), GetEventTime());
   historical_events_.push_back(std::move(event));
 }
 
 MotionEventGeneric::MotionEventGeneric()
-    : action_(ACTION_NONE),
+    : action_(Action::NONE),
       unique_event_id_(ui::GetNextTouchEventId()),
       action_index_(-1),
-      button_state_(0) {
-}
+      button_state_(0) {}
 
 MotionEventGeneric::MotionEventGeneric(const MotionEvent& event,
                                        bool with_history)
@@ -286,7 +282,7 @@ MotionEventGeneric::MotionEventGeneric(const MotionEvent& event,
       event_time_(event.GetEventTime()),
       unique_event_id_(event.GetUniqueEventId()),
       action_index_(
-          (action_ == ACTION_POINTER_UP || action_ == ACTION_POINTER_DOWN)
+          (action_ == Action::POINTER_UP || action_ == Action::POINTER_DOWN)
               ? event.GetActionIndex()
               : 0),
       button_state_(event.GetButtonState()),
@@ -302,7 +298,7 @@ MotionEventGeneric::MotionEventGeneric(const MotionEvent& event,
   for (size_t h = 0; h < history_size; ++h) {
     std::unique_ptr<MotionEventGeneric> historical_event(
         new MotionEventGeneric());
-    historical_event->set_action(ACTION_MOVE);
+    historical_event->set_action(Action::MOVE);
     historical_event->set_event_time(event.GetHistoricalEventTime(h));
     for (size_t i = 0; i < pointer_count; ++i) {
       historical_event->PushPointer(

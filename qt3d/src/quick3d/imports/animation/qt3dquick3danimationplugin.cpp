@@ -78,7 +78,6 @@ void Qt3DQuick3DAnimationPlugin::registerTypes(const char *uri)
     qmlRegisterType<Qt3DAnimation::QClipAnimator>(uri, 2, 9, "ClipAnimator");
     qmlRegisterType<Qt3DAnimation::QBlendedClipAnimator>(uri, 2, 9, "BlendedClipAnimator");
     qmlRegisterType<Qt3DAnimation::QChannelMapping>(uri, 2, 9, "ChannelMapping");
-    qmlRegisterType<Qt3DAnimation::QChannelMapping>(uri, 2, 9, "ChannelMapping");
     qmlRegisterUncreatableType<Qt3DAnimation::QAbstractAnimationClip>(uri, 2, 9, "AbstractAnimationClip", QStringLiteral("QAbstractAnimationClip is abstract"));
     qmlRegisterType<Qt3DAnimation::QAnimationClipLoader>(uri, 2, 9, "AnimationClipLoader");
     qmlRegisterType<Qt3DAnimation::QAnimationClip>(uri, 2, 9, "AnimationClip");
@@ -100,6 +99,9 @@ void Qt3DQuick3DAnimationPlugin::registerTypes(const char *uri)
 
     qmlRegisterUncreatableType<Qt3DAnimation::QAbstractChannelMapping>(uri, 2, 10, "AbstractChannelMapping", QStringLiteral("QAbstractChannelMapping is abstract"));
     qmlRegisterType<Qt3DAnimation::QSkeletonMapping>(uri, 2, 10, "SkeletonMapping");
+
+    // Auto-increment the import to stay in sync with ALL future Qt minor versions
+    qmlRegisterModule(uri, 2, QT_VERSION_MINOR);
 }
 
 QT_END_NAMESPACE

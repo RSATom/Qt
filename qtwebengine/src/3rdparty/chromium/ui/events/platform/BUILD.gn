@@ -2,9 +2,10 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/config/jumbo.gni")
 import("//build/config/ui.gni")
 
-component("platform") {
+jumbo_component("platform") {
   sources = [
     # Allow this target to include events_export.h without depending on the
     # events target (which would be circular).
@@ -14,7 +15,6 @@ component("platform") {
     "platform_event_source.cc",
     "platform_event_source.h",
     "platform_event_source_stub.cc",
-    "platform_event_types.h",
     "scoped_event_dispatcher.cc",
     "scoped_event_dispatcher.h",
   ]
@@ -23,6 +23,7 @@ component("platform") {
 
   deps = [
     "//base",
+    "//ui/events:platform_event",
   ]
 
   if (use_x11) {

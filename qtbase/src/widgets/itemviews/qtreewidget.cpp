@@ -52,9 +52,6 @@
 
 QT_BEGIN_NAMESPACE
 
-// workaround for VC++ 6.0 linker bug (?)
-typedef bool(*LessThan)(const QPair<QTreeWidgetItem*,int>&,const QPair<QTreeWidgetItem*,int>&);
-
 class QTreeModelLessThan
 {
 public:
@@ -145,7 +142,7 @@ QTreeModel::QTreeModel(QTreeModelPrivate &dd, QTreeWidget *parent)
 QTreeModel::~QTreeModel()
 {
     clear();
-    headerItem->view = Q_NULLPTR;
+    headerItem->view = nullptr;
     delete headerItem;
     rootItem->view = 0;
     delete rootItem;
@@ -610,7 +607,7 @@ void QTreeModel::ensureSorted(int column, Qt::SortOrder order,
         sorting[i].second = start + i;
     }
 
-    LessThan compare = (order == Qt::AscendingOrder ? &itemLessThan : &itemGreaterThan);
+    const auto compare = (order == Qt::AscendingOrder ? &itemLessThan : &itemGreaterThan);
     std::stable_sort(sorting.begin(), sorting.end(), compare);
 
     QModelIndexList oldPersistentIndexes;
@@ -777,7 +774,7 @@ bool QTreeModel::isChanging() const
     if column is -1 then all columns have changed
 */
 
-void QTreeModel::emitDataChanged(QTreeWidgetItem *item, int column)
+void QTreeModel::emitDataChanged(QTreeWidgetItem *item, int column, const QVector<int> &roles)
 {
     if (signalsBlocked())
         return;
@@ -800,7 +797,7 @@ void QTreeModel::emitDataChanged(QTreeWidgetItem *item, int column)
         topLeft = index(item, column);
         bottomRight = topLeft;
     }
-    emit dataChanged(topLeft, bottomRight);
+    emit dataChanged(topLeft, bottomRight, roles);
 }
 
 void QTreeModel::beginInsertItems(QTreeWidgetItem *parent, int row, int count)
@@ -850,7 +847,7 @@ void QTreeModel::sortItems(QList<QTreeWidgetItem*> *items, int column, Qt::SortO
     }
 
     // do the sorting
-    LessThan compare = (order == Qt::AscendingOrder ? &itemLessThan : &itemGreaterThan);
+    const auto compare = (order == Qt::AscendingOrder ? &itemLessThan : &itemGreaterThan);
     std::stable_sort(sorting.begin(), sorting.end(), compare);
 
     QModelIndexList fromList;
@@ -1015,6 +1012,14 @@ void QTreeModel::timerEvent(QTimerEvent *ev)
   \sa isHidden()
 */
 
+void QTreeWidgetItem::setHidden(bool ahide)
+{
+    if (view) {
+        view->setItemHidden(this, ahide);
+        d->hidden = ahide;
+    }
+}
+
 /*!
   \fn bool QTreeWidgetItem::isHidden() const
   \since 4.2
@@ -1023,6 +1028,11 @@ void QTreeModel::timerEvent(QTimerEvent *ev)
 
   \sa setHidden()
 */
+
+bool QTreeWidgetItem::isHidden() const
+{
+    return (view ? d->hidden : false);
+}
 
 /*!
   \fn void QTreeWidgetItem::setExpanded(bool expand)
@@ -1651,6 +1661,25 @@ void QTreeWidgetItem::setFlags(Qt::ItemFlags flags)
     itemChanged();
 }
 
+void QTreeWidgetItemPrivate::updateHiddenStatus(QTreeWidgetItem *item, bool inserting)
+{
+    QTreeModel *model = (item->view ? qobject_cast<QTreeModel*>(item->view->model()) : 0);
+    if (!model)
+        return;
+    QStack<QTreeWidgetItem *> parents;
+    parents.push(item);
+    while (!parents.isEmpty()) {
+        QTreeWidgetItem *parent = parents.pop();
+        QModelIndex index = model->index(parent, 0);
+        if (parent->d->hidden)
+            item->view->setRowHidden(index.row(), index.parent(), inserting);
+        for (int i = 0; i < parent->children.count(); ++i) {
+            QTreeWidgetItem *child = parent->children.at(i);
+            parents.push(child);
+        }
+    }
+}
+
 void QTreeWidgetItemPrivate::propagateDisabled(QTreeWidgetItem *item)
 {
     Q_ASSERT(item);
@@ -1766,11 +1795,14 @@ void QTreeWidgetItem::setData(int column, int role, const QVariant &value)
     }
 
     if (model) {
-        model->emitDataChanged(this, column);
+        const QVector<int> roles((role == Qt::DisplayRole || role == Qt::EditRole) ?
+                                     QVector<int>({Qt::DisplayRole, Qt::EditRole}) :
+                                     QVector<int>({role}));
+        model->emitDataChanged(this, column, roles);
         if (role == Qt::CheckStateRole) {
             QTreeWidgetItem *p;
             for (p = par; p && (p->itemFlags & Qt::ItemIsAutoTristate); p = p->par)
-                model->emitDataChanged(p, column);
+                model->emitDataChanged(p, column, roles);
         }
     }
 }
@@ -1937,6 +1969,7 @@ void QTreeWidgetItem::insertChild(int index, QTreeWidgetItem *child)
                 stack.push(i->children.at(c));
         }
         children.insert(index, child);
+        d->updateHiddenStatus(child, true);
         model->endInsertItems();
         model->skipPendingSort = wasSkipSort;
     } else {
@@ -1974,6 +2007,7 @@ QTreeWidgetItem *QTreeWidgetItem::takeChild(int index)
     }
     if (index >= 0 && index < children.count()) {
         if (model) model->beginRemoveItems(this, index, 1);
+        d->updateHiddenStatus(children.at(index), false);
         QTreeWidgetItem *item = children.takeAt(index);
         item->par = 0;
         QStack<QTreeWidgetItem*> stack;
@@ -2012,6 +2046,9 @@ void QTreeWidgetItem::addChildren(const QList<QTreeWidgetItem*> &children)
 */
 void QTreeWidgetItem::insertChildren(int index, const QList<QTreeWidgetItem*> &children)
 {
+    if (index < 0 || index > this->children.count() || children.isEmpty())
+        return;
+
     if (view && view->isSortingEnabled()) {
         for (int n = 0; n < children.count(); ++n)
             insertChild(index, children.at(n));
@@ -2049,6 +2086,7 @@ void QTreeWidgetItem::insertChildren(int index, const QList<QTreeWidgetItem*> &c
             this->children.insert(index + n, child);
             if (child->par)
                 d->propagateDisabled(child);
+            d->updateHiddenStatus(child, true);
         }
         if (model) model->endInsertItems();
     }
@@ -2650,7 +2688,7 @@ void QTreeWidget::addTopLevelItem(QTreeWidgetItem *item)
 
 /*!
   Removes the top-level item at the given \a index in the tree and
-  returns it, otherwise returns 0;
+  returns it, otherwise returns \nullptr;
 
   \sa insertTopLevelItem(), topLevelItem(), topLevelItemCount()
 */
@@ -2729,14 +2767,14 @@ void QTreeWidget::setHeaderItem(QTreeWidgetItem *item)
 
     int oldCount = columnCount();
     if (oldCount < item->columnCount())
-         d->treeModel()->beginInsertColumns(QModelIndex(), oldCount, item->columnCount());
-    else
-         d->treeModel()->beginRemoveColumns(QModelIndex(), item->columnCount(), oldCount);
+         d->treeModel()->beginInsertColumns(QModelIndex(), oldCount, item->columnCount() - 1);
+    else if (oldCount > item->columnCount())
+         d->treeModel()->beginRemoveColumns(QModelIndex(), item->columnCount(), oldCount - 1);
     delete d->treeModel()->headerItem;
     d->treeModel()->headerItem = item;
     if (oldCount < item->columnCount())
         d->treeModel()->endInsertColumns();
-    else
+    else if (oldCount > item->columnCount())
         d->treeModel()->endRemoveColumns();
     d->treeModel()->headerDataChanged(Qt::Horizontal, 0, oldCount);
 }
@@ -2859,11 +2897,11 @@ QRect QTreeWidget::visualItemRect(const QTreeWidgetItem *item) const
     Q_D(const QTreeWidget);
     //the visual rect for an item is across all columns. So we need to determine
     //what is the first and last column and get their visual index rects
-    QModelIndex base = d->index(item);
+    const QModelIndex base = d->index(item);
     const int firstVisiblesection = header()->logicalIndexAt(- header()->offset());
     const int lastVisibleSection = header()->logicalIndexAt(header()->length() - header()->offset() - 1);
-    QModelIndex first = base.sibling(base.row(), header()->logicalIndex(firstVisiblesection));
-    QModelIndex last = base.sibling(base.row(), header()->logicalIndex(lastVisibleSection));
+    const QModelIndex first = base.sibling(base.row(), firstVisiblesection);
+    const QModelIndex last = base.sibling(base.row(), lastVisibleSection);
     return visualRect(first) | visualRect(last);
 }
 
@@ -3096,6 +3134,8 @@ bool QTreeWidget::isItemHidden(const QTreeWidgetItem *item) const
 */
 void QTreeWidget::setItemHidden(const QTreeWidgetItem *item, bool hide)
 {
+    if (!item)
+        return;
     Q_D(QTreeWidget);
     if (item == d->treeModel()->headerItem) {
         header()->setHidden(hide);
@@ -3103,6 +3143,7 @@ void QTreeWidget::setItemHidden(const QTreeWidgetItem *item, bool hide)
         const QModelIndex index = d->index(item);
         setRowHidden(index.row(), index.parent(), hide);
     }
+    item->d->hidden = hide;
 }
 
 /*!
@@ -3369,6 +3410,7 @@ QModelIndex QTreeWidget::indexFromItem(const QTreeWidgetItem *item, int column) 
     return d->index(item, column);
 }
 
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
 /*!
     \overload
     \internal
@@ -3377,6 +3419,7 @@ QModelIndex QTreeWidget::indexFromItem(QTreeWidgetItem *item, int column) const
 {
     return indexFromItem(const_cast<const QTreeWidgetItem *>(item), column);
 }
+#endif
 
 /*!
     Returns a pointer to the QTreeWidgetItem associated with the given \a index.
@@ -3389,7 +3432,7 @@ QTreeWidgetItem *QTreeWidget::itemFromIndex(const QModelIndex &index) const
     return d->item(index);
 }
 
-#ifndef QT_NO_DRAGANDDROP
+#if QT_CONFIG(draganddrop)
 /*! \reimp */
 void QTreeWidget::dropEvent(QDropEvent *event) {
     Q_D(QTreeWidget);

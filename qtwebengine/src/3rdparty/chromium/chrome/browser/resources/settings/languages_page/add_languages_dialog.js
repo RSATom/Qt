@@ -11,6 +11,7 @@ Polymer({
 
   behaviors: [
     CrScrollableBehavior,
+    settings.FindShortcutBehavior,
   ],
 
   properties: {
@@ -49,6 +50,16 @@ Polymer({
     this.$.dialog.showModal();
   },
 
+  // Override settings.FindShortcutBehavior methods.
+  canHandleFindShortcut: function() {
+    return true;
+  },
+
+  handleFindShortcut: function() {
+    this.$.search.getSearchInput().scrollIntoViewIfNeeded();
+    this.$.search.getSearchInput().focus();
+  },
+
   /**
    * @param {!CustomEvent} e
    * @private
@@ -63,21 +74,24 @@ Polymer({
    * @private
    */
   getLanguages_: function() {
-    var filterValue =
+    const filterValue =
         this.filterValue_ ? this.filterValue_.toLowerCase() : null;
-    return this.languages.supported.filter(function(language) {
-      var isAvailableLanguage =
+    return this.languages.supported.filter(language => {
+      const isAvailableLanguage =
           !this.languageHelper.isLanguageEnabled(language.code);
 
       if (!isAvailableLanguage)
         return false;
+
+      if (this.languageHelper.isLanguageCodeForArcIme(language.code))
+        return false;  // internal use only
 
       if (filterValue === null)
         return true;
 
       return language.displayName.toLowerCase().includes(filterValue) ||
           language.nativeDisplayName.toLowerCase().includes(filterValue);
-    }.bind(this));
+    });
   },
 
   /**
@@ -86,7 +100,7 @@ Polymer({
    * @private
    */
   getDisplayText_: function(language) {
-    var displayText = language.displayName;
+    let displayText = language.displayName;
     // If the native name is different, add it.
     if (language.displayName != language.nativeDisplayName)
       displayText += ' - ' + language.nativeDisplayName;
@@ -106,7 +120,7 @@ Polymer({
   /**
    * Handler for checking or unchecking a language item.
    * @param {!{model: !{item: !chrome.languageSettingsPrivate.Language},
-   *           target: !PaperCheckboxElement}} e
+   *           target: !Element}} e
    * @private
    */
   onLanguageCheckboxChange_: function(e) {
@@ -114,7 +128,7 @@ Polymer({
     // willAdd_ is called to initialize the checkbox state (in case the
     // iron-list re-uses a previous checkbox), and the checkbox can only be
     // changed after that by user action.
-    var language = e.model.item;
+    const language = e.model.item;
     if (e.target.checked)
       this.languagesToAdd_.add(language.code);
     else
@@ -134,8 +148,18 @@ Polymer({
    */
   onActionButtonTap_: function() {
     this.$.dialog.close();
-    this.languagesToAdd_.forEach(function(languageCode) {
+    this.languagesToAdd_.forEach(languageCode => {
       this.languageHelper.enableLanguage(languageCode);
-    }.bind(this));
+    });
+  },
+
+  /**
+   * @param {!KeyboardEvent} e
+   * @private
+   */
+  onKeydown_: function(e) {
+    // Close dialog if 'esc' is pressed and the search box is already empty.
+    if (e.key == 'Escape' && !this.$.search.getValue().trim())
+      this.$.dialog.close();
   },
 });

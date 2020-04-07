@@ -41,7 +41,7 @@
 
 #include "bluez/bluez_data_p.h"
 #include "bluez/hcimanager_p.h"
-#include "qbluetoothsocket_p.h"
+#include "qbluetoothsocketbase_p.h"
 
 #include <QtCore/qloggingcategory.h>
 
@@ -273,7 +273,8 @@ void QLeAdvertiserBluez::setServicesData(const QLowEnergyAdvertisingData &src, A
     QVector<quint16> services16;
     QVector<quint32> services32;
     QVector<quint128> services128;
-    foreach (const QBluetoothUuid &service, src.services()) {
+    const QList<QBluetoothUuid> services = src.services();
+    for (const QBluetoothUuid &service : services) {
         bool ok;
         const quint16 service16 = service.toUInt16(&ok);
         if (ok) {
@@ -393,7 +394,9 @@ void QLeAdvertiserBluez::setWhiteList()
     if (parameters().filterPolicy() == QLowEnergyAdvertisingParameters::IgnoreWhiteList)
         return;
     queueCommand(OcfLeClearWhiteList, QByteArray());
-    foreach (const auto &addressInfo, parameters().whiteList()) {
+    const QList<QLowEnergyAdvertisingParameters::AddressInfo> whiteListInfos
+            = parameters().whiteList();
+    for (const auto &addressInfo : whiteListInfos) {
         WhiteListParams commandParam;
         static_assert(sizeof commandParam == 7, "unexpected struct size");
         commandParam.addrType = addressInfo.type;

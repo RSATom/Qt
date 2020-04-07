@@ -14,14 +14,14 @@ if (rtc_enable_protobuf) {
     sources = [
       "network_tester_config.proto",
     ]
-    proto_out_dir = "webrtc/rtc_tools/network_tester"
+    proto_out_dir = "rtc_tools/network_tester"
   }
 
   proto_library("network_tester_packet_proto") {
     sources = [
       "network_tester_packet.proto",
     ]
-    proto_out_dir = "webrtc/rtc_tools/network_tester"
+    proto_out_dir = "rtc_tools/network_tester"
   }
 
   rtc_static_library("network_tester") {
@@ -41,10 +41,13 @@ if (rtc_enable_protobuf) {
     deps = [
       ":network_tester_config_proto",
       ":network_tester_packet_proto",
-      "../../base:protobuf_utils",
-      "../../base:rtc_task_queue",
-      "../../base:sequenced_task_checker",
       "../../p2p",
+      "../../rtc_base:checks",
+      "../../rtc_base:protobuf_utils",
+      "../../rtc_base:rtc_base_approved",
+      "../../rtc_base:rtc_task_queue",
+      "../../rtc_base:sequenced_task_checker",
+      "//third_party/abseil-cpp/absl/types:optional",
     ]
 
     if (!build_with_chromium && is_clang) {
@@ -54,8 +57,8 @@ if (rtc_enable_protobuf) {
   }
 
   network_tester_unittests_resources = [
-    "../../../resources/network_tester/client_config.dat",
-    "../../../resources/network_tester/server_config.dat",
+    "../../resources/network_tester/client_config.dat",
+    "../../resources/network_tester/server_config.dat",
   ]
 
   if (is_ios) {
@@ -71,19 +74,14 @@ if (rtc_enable_protobuf) {
   rtc_source_set("network_tester_unittests") {
     testonly = true
 
-    # Skip restricting visibility on mobile platforms since the tests on those
-    # gets additional generated targets which would require many lines here to
-    # cover (which would be confusing to read and hard to maintain).
-    if (!is_android && !is_ios) {
-      visibility = [ "..:tools_unittests" ]
-    }
     sources = [
       "network_tester_unittest.cc",
     ]
 
     deps = [
       ":network_tester",
-      "../../base:rtc_base_tests_utils",
+      "../../rtc_base:rtc_base_tests_utils",
+      "../../test:fileutils",
       "../../test:test_support",
       "//testing/gtest",
     ]
@@ -139,7 +137,7 @@ if (is_android) {
 
   android_library("NetworkTesterMobile_javalib") {
     testonly = true
-    android_manifest = "androidapp/AndroidManifest.xml"
+    android_manifest_for_lint = "androidapp/AndroidManifest.xml"
 
     java_files = [
       "androidapp/src/com/google/media/networktester/MainActivity.java",

@@ -34,6 +34,13 @@ bool ManagementPolicy::Provider::UserMayModifySettings(
   return true;
 }
 
+bool ManagementPolicy::Provider::ExtensionMayModifySettings(
+    const Extension* source_extension,
+    const Extension* extension,
+    base::string16* error) const {
+  return true;
+}
+
 bool ManagementPolicy::Provider::MustRemainEnabled(const Extension* extension,
                                                    base::string16* error)
     const {
@@ -42,7 +49,7 @@ bool ManagementPolicy::Provider::MustRemainEnabled(const Extension* extension,
 
 bool ManagementPolicy::Provider::MustRemainDisabled(
     const Extension* extension,
-    Extension::DisableReason* reason,
+    disable_reason::DisableReason* reason,
     base::string16* error) const {
   return false;
 }
@@ -79,6 +86,24 @@ bool ManagementPolicy::UserMayModifySettings(const Extension* extension,
       &Provider::UserMayModifySettings, "Modification", true, extension, error);
 }
 
+bool ManagementPolicy::ExtensionMayModifySettings(
+    const Extension* source_extension,
+    const Extension* extension,
+    base::string16* error) const {
+  for (const Provider* provider : providers_) {
+    if (!provider->ExtensionMayModifySettings(source_extension, extension,
+                                              error)) {
+      std::string id;
+      std::string name;
+      GetExtensionNameAndId(extension, &name, &id);
+      DVLOG(1) << "Modification of extension " << name << " (" << id << ")"
+               << " prohibited by " << provider->GetDebugPolicyProviderName();
+      return false;
+    }
+  }
+  return true;
+}
+
 bool ManagementPolicy::MustRemainEnabled(const Extension* extension,
                                          base::string16* error) const {
   return ApplyToProviderList(
@@ -86,8 +111,14 @@ bool ManagementPolicy::MustRemainEnabled(const Extension* extension,
 }
 
 bool ManagementPolicy::MustRemainDisabled(const Extension* extension,
-                                          Extension::DisableReason* reason,
+                                          disable_reason::DisableReason* reason,
                                           base::string16* error) const {
+  if (!UserMayLoad(extension, error)) {
+    if (reason)
+      *reason = disable_reason::DISABLE_BLOCKED_BY_POLICY;
+    return true;
+  }
+
   for (ProviderList::const_iterator it = providers_.begin();
        it != providers_.end(); ++it)
     if ((*it)->MustRemainDisabled(extension, reason, error))
@@ -115,9 +146,7 @@ bool ManagementPolicy::ApplyToProviderList(ProviderFunction function,
                                            bool normal_result,
                                            const Extension* extension,
                                            base::string16* error) const {
-  for (ProviderList::const_iterator it = providers_.begin();
-       it != providers_.end(); ++it) {
-    const Provider* provider = *it;
+  for (const Provider* provider : providers_) {
     bool result = (provider->*function)(extension, error);
     if (result != normal_result) {
       std::string id;

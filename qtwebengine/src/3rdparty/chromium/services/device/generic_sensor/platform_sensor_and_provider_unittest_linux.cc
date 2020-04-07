@@ -4,7 +4,6 @@
 
 #include "base/files/file_util.h"
 #include "base/files/scoped_temp_dir.h"
-#include "base/memory/ptr_util.h"
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/strings/string_number_conversions.h"
@@ -14,9 +13,10 @@
 #include "services/device/generic_sensor/linux/sensor_data_linux.h"
 #include "services/device/generic_sensor/linux/sensor_device_manager.h"
 #include "services/device/generic_sensor/platform_sensor_provider_linux.h"
-
+#include "services/device/public/cpp/generic_sensor/sensor_traits.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "ui/gfx/geometry/angle_conversions.h"
 
 using ::testing::_;
 using ::testing::Invoke;
@@ -33,6 +33,8 @@ using mojom::SensorType;
 
 // Zero value can mean whether value is not being not used or zero value.
 constexpr double kZero = 0.0;
+
+constexpr double kAmbientLightFrequencyValue = 10.0;
 
 constexpr double kAccelerometerFrequencyValue = 10.0;
 constexpr double kAccelerometerOffsetValue = 1.0;
@@ -51,7 +53,7 @@ void DeleteFile(const base::FilePath& file) {
 }
 
 void WriteValueToFile(const base::FilePath& path, double value) {
-  const std::string str = base::DoubleToString(value);
+  const std::string str = base::NumberToString(value);
   int bytes_written = base::WriteFile(path, str.data(), str.size());
   EXPECT_EQ(static_cast<size_t>(bytes_written), str.size());
 }
@@ -106,10 +108,10 @@ class MockSensorDeviceManager : public SensorDeviceManager {
 
 // Mock for PlatformSensor's client interface that is used to deliver
 // error and data changes notifications.
-class MockPlatformSensorClient : public PlatformSensor::Client {
+class LinuxMockPlatformSensorClient : public PlatformSensor::Client {
  public:
-  MockPlatformSensorClient() = default;
-  explicit MockPlatformSensorClient(scoped_refptr<PlatformSensor> sensor)
+  LinuxMockPlatformSensorClient() = default;
+  explicit LinuxMockPlatformSensorClient(scoped_refptr<PlatformSensor> sensor)
       : sensor_(sensor) {
     if (sensor_)
       sensor_->AddClient(this);
@@ -117,20 +119,20 @@ class MockPlatformSensorClient : public PlatformSensor::Client {
     ON_CALL(*this, IsSuspended()).WillByDefault(Return(false));
   }
 
-  ~MockPlatformSensorClient() override {
+  ~LinuxMockPlatformSensorClient() override {
     if (sensor_)
       sensor_->RemoveClient(this);
   }
 
   // PlatformSensor::Client interface.
-  MOCK_METHOD0(OnSensorReadingChanged, void());
+  MOCK_METHOD1(OnSensorReadingChanged, void(mojom::SensorType type));
   MOCK_METHOD0(OnSensorError, void());
   MOCK_METHOD0(IsSuspended, bool());
 
  private:
   scoped_refptr<PlatformSensor> sensor_;
 
-  DISALLOW_COPY_AND_ASSIGN(MockPlatformSensorClient);
+  DISALLOW_COPY_AND_ASSIGN(LinuxMockPlatformSensorClient);
 };
 
 class PlatformSensorAndProviderLinuxTest : public ::testing::Test {
@@ -139,7 +141,7 @@ class PlatformSensorAndProviderLinuxTest : public ::testing::Test {
     provider_ = PlatformSensorProviderLinux::GetInstance();
     provider_->SetFileTaskRunnerForTesting(message_loop_.task_runner());
 
-    auto manager = base::MakeUnique<NiceMock<MockSensorDeviceManager>>();
+    auto manager = std::make_unique<NiceMock<MockSensorDeviceManager>>();
     manager_ = manager.get();
     provider_->SetSensorDeviceManagerForTesting(std::move(manager));
 
@@ -165,7 +167,7 @@ class PlatformSensorAndProviderLinuxTest : public ::testing::Test {
   // Sensor creation is asynchronous, therefore inner loop is used to wait for
   // PlatformSensorProvider::CreateSensorCallback completion.
   scoped_refptr<PlatformSensor> CreateSensor(mojom::SensorType type) {
-    run_loop_ = base::MakeUnique<base::RunLoop>();
+    run_loop_ = std::make_unique<base::RunLoop>();
     provider_->CreateSensor(
         type, base::Bind(&PlatformSensorAndProviderLinuxTest::SensorCreated,
                          base::Unretained(this)));
@@ -250,18 +252,19 @@ class PlatformSensorAndProviderLinuxTest : public ::testing::Test {
   }
 
   // Waits before OnSensorReadingChanged is called.
-  void WaitOnSensorReadingChangedEvent(MockPlatformSensorClient* client) {
-    run_loop_ = base::MakeUnique<base::RunLoop>();
-    EXPECT_CALL(*client, OnSensorReadingChanged()).WillOnce(Invoke([this]() {
-      run_loop_->Quit();
-    }));
+  void WaitOnSensorReadingChangedEvent(LinuxMockPlatformSensorClient* client,
+                                       mojom::SensorType type) {
+    run_loop_ = std::make_unique<base::RunLoop>();
+    EXPECT_CALL(*client, OnSensorReadingChanged(type))
+        .WillOnce(
+            Invoke([this](mojom::SensorType type) { run_loop_->Quit(); }));
     run_loop_->Run();
     run_loop_ = nullptr;
   }
 
   // Waits before OnSensorError is called.
-  void WaitOnSensorErrorEvent(MockPlatformSensorClient* client) {
-    run_loop_ = base::MakeUnique<base::RunLoop>();
+  void WaitOnSensorErrorEvent(LinuxMockPlatformSensorClient* client) {
+    run_loop_ = std::make_unique<base::RunLoop>();
     EXPECT_CALL(*client, OnSensorError()).WillOnce(Invoke([this]() {
       run_loop_->Quit();
     }));
@@ -333,7 +336,8 @@ TEST_F(PlatformSensorAndProviderLinuxTest, StartFails) {
   auto sensor = CreateSensor(SensorType::AMBIENT_LIGHT);
   EXPECT_TRUE(sensor);
 
-  auto client = base::MakeUnique<NiceMock<MockPlatformSensorClient>>(sensor);
+  auto client =
+      std::make_unique<NiceMock<LinuxMockPlatformSensorClient>>(sensor);
   PlatformSensorConfiguration configuration(10);
   EXPECT_FALSE(sensor->StartListening(client.get(), configuration));
 }
@@ -350,10 +354,11 @@ TEST_F(PlatformSensorAndProviderLinuxTest, SensorStarted) {
   auto sensor = CreateSensor(SensorType::AMBIENT_LIGHT);
   EXPECT_TRUE(sensor);
 
-  auto client = base::MakeUnique<NiceMock<MockPlatformSensorClient>>(sensor);
+  auto client =
+      std::make_unique<NiceMock<LinuxMockPlatformSensorClient>>(sensor);
   PlatformSensorConfiguration configuration(5);
   EXPECT_TRUE(sensor->StartListening(client.get(), configuration));
-  WaitOnSensorReadingChangedEvent(client.get());
+  WaitOnSensorReadingChangedEvent(client.get(), sensor->GetType());
   EXPECT_TRUE(sensor->StopListening(client.get(), configuration));
 }
 
@@ -368,7 +373,8 @@ TEST_F(PlatformSensorAndProviderLinuxTest, SensorRemoved) {
   auto sensor = CreateSensor(SensorType::AMBIENT_LIGHT);
   EXPECT_TRUE(sensor);
 
-  auto client = base::MakeUnique<NiceMock<MockPlatformSensorClient>>(sensor);
+  auto client =
+      std::make_unique<NiceMock<LinuxMockPlatformSensorClient>>(sensor);
   PlatformSensorConfiguration configuration(5);
   EXPECT_TRUE(sensor->StartListening(client.get(), configuration));
   GenerateDeviceRemovedEvent(sensors_dir_.GetPath());
@@ -421,7 +427,7 @@ TEST_F(PlatformSensorAndProviderLinuxTest, CheckAllSupportedSensors) {
   EXPECT_TRUE(als_sensor);
   EXPECT_EQ(als_sensor->GetType(), SensorType::AMBIENT_LIGHT);
   EXPECT_THAT(als_sensor->GetDefaultConfiguration().frequency(),
-              kDefaultAmbientLightFrequencyHz);
+              SensorTraits<SensorType::AMBIENT_LIGHT>::kDefaultFrequency);
 
   auto accel_sensor = CreateSensor(SensorType::ACCELEROMETER);
   EXPECT_TRUE(accel_sensor);
@@ -471,7 +477,7 @@ TEST_F(PlatformSensorAndProviderLinuxTest,
   EXPECT_TRUE(sensor);
   EXPECT_EQ(SensorType::AMBIENT_LIGHT, sensor->GetType());
   EXPECT_THAT(sensor->GetMaximumSupportedFrequency(),
-              kDefaultAmbientLightFrequencyHz);
+              SensorTraits<SensorType::AMBIENT_LIGHT>::kDefaultFrequency);
 }
 
 // Tests that Ambient Light sensor is correctly read.
@@ -492,16 +498,18 @@ TEST_F(PlatformSensorAndProviderLinuxTest, CheckAmbientLightReadings) {
   EXPECT_TRUE(sensor);
   EXPECT_EQ(sensor->GetReportingMode(), mojom::ReportingMode::ON_CHANGE);
 
-  auto client = base::MakeUnique<NiceMock<MockPlatformSensorClient>>(sensor);
+  auto client =
+      std::make_unique<NiceMock<LinuxMockPlatformSensorClient>>(sensor);
   PlatformSensorConfiguration configuration(
       sensor->GetMaximumSupportedFrequency());
   EXPECT_TRUE(sensor->StartListening(client.get(), configuration));
-  WaitOnSensorReadingChangedEvent(client.get());
-  EXPECT_TRUE(sensor->StopListening(client.get(), configuration));
+  WaitOnSensorReadingChangedEvent(client.get(), sensor->GetType());
 
   SensorReadingSharedBuffer* buffer =
       static_cast<SensorReadingSharedBuffer*>(mapping.get());
-  EXPECT_THAT(buffer->reading.values[0], sensor_value[0]);
+  EXPECT_THAT(buffer->reading.als.value, sensor_value[0]);
+
+  EXPECT_TRUE(sensor->StopListening(client.get(), configuration));
 }
 
 // Tests that Accelerometer readings are correctly converted.
@@ -517,7 +525,7 @@ TEST_F(PlatformSensorAndProviderLinuxTest,
   // created to make the sensor device manager identify this sensor with
   // ON_CHANGE reporting mode. This can be done by sending |kZero| as a
   // frequency value, which means a file is not created.
-  // This will allow the MockPlatformSensorClient to
+  // This will allow the LinuxMockPlatformSensorClient to
   // receive a notification and test if reading values are right. Otherwise
   // the test will not know when data is ready.
   double sensor_values[3] = {4.5, -2.45, -3.29};
@@ -533,28 +541,84 @@ TEST_F(PlatformSensorAndProviderLinuxTest,
   // The reporting mode is ON_CHANGE only for this test.
   EXPECT_EQ(sensor->GetReportingMode(), mojom::ReportingMode::ON_CHANGE);
 
-  auto client = base::MakeUnique<NiceMock<MockPlatformSensorClient>>(sensor);
+  auto client =
+      std::make_unique<NiceMock<LinuxMockPlatformSensorClient>>(sensor);
   PlatformSensorConfiguration configuration(10);
   EXPECT_TRUE(sensor->StartListening(client.get(), configuration));
-  WaitOnSensorReadingChangedEvent(client.get());
-  EXPECT_TRUE(sensor->StopListening(client.get(), configuration));
+  WaitOnSensorReadingChangedEvent(client.get(), sensor->GetType());
 
   SensorReadingSharedBuffer* buffer =
       static_cast<SensorReadingSharedBuffer*>(mapping.get());
 #if defined(OS_CHROMEOS)
   double scaling = kMeanGravity / kAccelerometerScalingValue;
-  EXPECT_THAT(buffer->reading.values[0], scaling * sensor_values[0]);
-  EXPECT_THAT(buffer->reading.values[1], scaling * sensor_values[1]);
-  EXPECT_THAT(buffer->reading.values[2], scaling * sensor_values[2]);
+  EXPECT_THAT(buffer->reading.accel.x, scaling * sensor_values[0]);
+  EXPECT_THAT(buffer->reading.accel.y, scaling * sensor_values[1]);
+  EXPECT_THAT(buffer->reading.accel.z, scaling * sensor_values[2]);
 #else
   double scaling = kAccelerometerScalingValue;
-  EXPECT_THAT(buffer->reading.values[0],
+  EXPECT_THAT(buffer->reading.accel.x,
               -scaling * (sensor_values[0] + kAccelerometerOffsetValue));
-  EXPECT_THAT(buffer->reading.values[1],
+  EXPECT_THAT(buffer->reading.accel.y,
               -scaling * (sensor_values[1] + kAccelerometerOffsetValue));
-  EXPECT_THAT(buffer->reading.values[2],
+  EXPECT_THAT(buffer->reading.accel.z,
               -scaling * (sensor_values[2] + kAccelerometerOffsetValue));
 #endif
+
+  EXPECT_TRUE(sensor->StopListening(client.get(), configuration));
+}
+
+// Tests that LinearAcceleration sensor is not created if its source sensor is
+// not available.
+TEST_F(PlatformSensorAndProviderLinuxTest,
+       CheckLinearAccelerationSensorNotCreatedIfNoAccelerometer) {
+  InitializeMockUdevMethods(sensors_dir_.GetPath());
+  SetServiceStart();
+
+  auto sensor = CreateSensor(SensorType::LINEAR_ACCELERATION);
+  EXPECT_FALSE(sensor);
+}
+
+// Tests that LinearAcceleration sensor is successfully created and works.
+TEST_F(PlatformSensorAndProviderLinuxTest, CheckLinearAcceleration) {
+  mojo::ScopedSharedBufferHandle handle = provider_->CloneSharedBufferHandle();
+  mojo::ScopedSharedBufferMapping mapping = handle->MapAtOffset(
+      sizeof(SensorReadingSharedBuffer),
+      SensorReadingSharedBuffer::GetOffset(SensorType::LINEAR_ACCELERATION));
+#if defined(OS_CHROMEOS)
+  // CrOS has a different axes plane and scale, see crbug.com/501184.
+  double sensor_values[3] = {0, 0, 1};
+#else
+  double sensor_values[3] = {0, 0, -kMeanGravity};
+#endif
+  InitializeSupportedSensor(SensorType::ACCELEROMETER,
+                            kAccelerometerFrequencyValue, kZero, kZero,
+                            sensor_values);
+
+  InitializeMockUdevMethods(sensors_dir_.GetPath());
+  SetServiceStart();
+
+  auto sensor = CreateSensor(SensorType::LINEAR_ACCELERATION);
+  EXPECT_TRUE(sensor);
+  EXPECT_EQ(sensor->GetReportingMode(), mojom::ReportingMode::CONTINUOUS);
+
+  auto client =
+      std::make_unique<NiceMock<LinuxMockPlatformSensorClient>>(sensor);
+  PlatformSensorConfiguration configuration(10);
+  EXPECT_TRUE(sensor->StartListening(client.get(), configuration));
+
+  // The actual accceration is around 0 but the algorithm needs several
+  // iterations to isolate gravity properly.
+  int kApproximateExpectedAcceleration = 6;
+  WaitOnSensorReadingChangedEvent(client.get(), sensor->GetType());
+
+  SensorReadingSharedBuffer* buffer =
+      static_cast<SensorReadingSharedBuffer*>(mapping.get());
+  EXPECT_THAT(buffer->reading.accel.x, 0.0);
+  EXPECT_THAT(buffer->reading.accel.y, 0.0);
+  EXPECT_THAT(static_cast<int>(buffer->reading.accel.z),
+              kApproximateExpectedAcceleration);
+
+  EXPECT_TRUE(sensor->StopListening(client.get(), configuration));
 }
 
 // Tests that Gyroscope readings are correctly converted.
@@ -569,7 +633,7 @@ TEST_F(PlatformSensorAndProviderLinuxTest, CheckGyroscopeReadingConversion) {
   // created to make the sensor device manager identify this sensor with
   // ON_CHANGE reporting mode. This can be done by sending |kZero| as a
   // frequency value, which means a file is not created.
-  // This will allow the MockPlatformSensorClient to
+  // This will allow the LinuxMockPlatformSensorClient to
   // receive a notification and test if reading values are right. Otherwise
   // the test will not know when data is ready.
   double sensor_values[3] = {2.2, -3.8, -108.7};
@@ -584,28 +648,30 @@ TEST_F(PlatformSensorAndProviderLinuxTest, CheckGyroscopeReadingConversion) {
   // The reporting mode is ON_CHANGE only for this test.
   EXPECT_EQ(sensor->GetReportingMode(), mojom::ReportingMode::ON_CHANGE);
 
-  auto client = base::MakeUnique<NiceMock<MockPlatformSensorClient>>(sensor);
+  auto client =
+      std::make_unique<NiceMock<LinuxMockPlatformSensorClient>>(sensor);
   PlatformSensorConfiguration configuration(10);
   EXPECT_TRUE(sensor->StartListening(client.get(), configuration));
-  WaitOnSensorReadingChangedEvent(client.get());
-  EXPECT_TRUE(sensor->StopListening(client.get(), configuration));
+  WaitOnSensorReadingChangedEvent(client.get(), sensor->GetType());
 
   SensorReadingSharedBuffer* buffer =
       static_cast<SensorReadingSharedBuffer*>(mapping.get());
 #if defined(OS_CHROMEOS)
-  double scaling = kMeanGravity * kRadiansInDegrees / kGyroscopeScalingValue;
-  EXPECT_THAT(buffer->reading.values[0], -scaling * sensor_values[0]);
-  EXPECT_THAT(buffer->reading.values[1], -scaling * sensor_values[1]);
-  EXPECT_THAT(buffer->reading.values[2], -scaling * sensor_values[2]);
+  double scaling = gfx::DegToRad(kMeanGravity) / kGyroscopeScalingValue;
+  EXPECT_THAT(buffer->reading.gyro.x, -scaling * sensor_values[0]);
+  EXPECT_THAT(buffer->reading.gyro.y, -scaling * sensor_values[1]);
+  EXPECT_THAT(buffer->reading.gyro.z, -scaling * sensor_values[2]);
 #else
   double scaling = kGyroscopeScalingValue;
-  EXPECT_THAT(buffer->reading.values[0],
+  EXPECT_THAT(buffer->reading.gyro.x,
               scaling * (sensor_values[0] + kGyroscopeOffsetValue));
-  EXPECT_THAT(buffer->reading.values[1],
+  EXPECT_THAT(buffer->reading.gyro.y,
               scaling * (sensor_values[1] + kGyroscopeOffsetValue));
-  EXPECT_THAT(buffer->reading.values[2],
+  EXPECT_THAT(buffer->reading.gyro.z,
               scaling * (sensor_values[2] + kGyroscopeOffsetValue));
 #endif
+
+  EXPECT_TRUE(sensor->StopListening(client.get(), configuration));
 }
 
 // Tests that Magnetometer readings are correctly converted.
@@ -620,7 +686,7 @@ TEST_F(PlatformSensorAndProviderLinuxTest, CheckMagnetometerReadingConversion) {
   // created to make the sensor device manager identify this sensor with
   // ON_CHANGE reporting mode. This can be done by sending |kZero| as a
   // frequency value, which means a file is not created.
-  // This will allow the MockPlatformSensorClient to
+  // This will allow the LinuxMockPlatformSensorClient to
   // receive a notification and test if reading values are right. Otherwise
   // the test will not know when data is ready.
   double sensor_values[3] = {2.2, -3.8, -108.7};
@@ -636,21 +702,268 @@ TEST_F(PlatformSensorAndProviderLinuxTest, CheckMagnetometerReadingConversion) {
   // The reporting mode is ON_CHANGE only for this test.
   EXPECT_EQ(sensor->GetReportingMode(), mojom::ReportingMode::ON_CHANGE);
 
-  auto client = base::MakeUnique<NiceMock<MockPlatformSensorClient>>(sensor);
+  auto client =
+      std::make_unique<NiceMock<LinuxMockPlatformSensorClient>>(sensor);
   PlatformSensorConfiguration configuration(10);
   EXPECT_TRUE(sensor->StartListening(client.get(), configuration));
-  WaitOnSensorReadingChangedEvent(client.get());
-  EXPECT_TRUE(sensor->StopListening(client.get(), configuration));
+  WaitOnSensorReadingChangedEvent(client.get(), sensor->GetType());
 
   SensorReadingSharedBuffer* buffer =
       static_cast<SensorReadingSharedBuffer*>(mapping.get());
   double scaling = kMagnetometerScalingValue * kMicroteslaInGauss;
-  EXPECT_THAT(buffer->reading.values[0],
+  EXPECT_THAT(buffer->reading.magn.x,
               scaling * (sensor_values[0] + kMagnetometerOffsetValue));
-  EXPECT_THAT(buffer->reading.values[1],
+  EXPECT_THAT(buffer->reading.magn.y,
               scaling * (sensor_values[1] + kMagnetometerOffsetValue));
-  EXPECT_THAT(buffer->reading.values[2],
+  EXPECT_THAT(buffer->reading.magn.z,
               scaling * (sensor_values[2] + kMagnetometerOffsetValue));
+
+  EXPECT_TRUE(sensor->StopListening(client.get(), configuration));
+}
+
+// Tests that Ambient Light sensor client's OnSensorReadingChanged() is called
+// when the Ambient Light sensor's reporting mode is
+// mojom::ReportingMode::CONTINUOUS.
+TEST_F(PlatformSensorAndProviderLinuxTest,
+       SensorClientGetReadingChangedNotificationWhenSensorIsInContinuousMode) {
+  mojo::ScopedSharedBufferHandle handle = provider_->CloneSharedBufferHandle();
+  mojo::ScopedSharedBufferMapping mapping = handle->MapAtOffset(
+      sizeof(SensorReadingSharedBuffer),
+      SensorReadingSharedBuffer::GetOffset(SensorType::AMBIENT_LIGHT));
+
+  double sensor_value[3] = {22};
+  // Set a non-zero frequency here and sensor's reporting mode will be
+  // mojom::ReportingMode::CONTINUOUS.
+  InitializeSupportedSensor(SensorType::AMBIENT_LIGHT,
+                            kAmbientLightFrequencyValue, kZero, kZero,
+                            sensor_value);
+
+  InitializeMockUdevMethods(sensors_dir_.GetPath());
+  SetServiceStart();
+
+  auto sensor = CreateSensor(SensorType::AMBIENT_LIGHT);
+  EXPECT_TRUE(sensor);
+  EXPECT_EQ(mojom::ReportingMode::CONTINUOUS, sensor->GetReportingMode());
+
+  auto client =
+      std::make_unique<NiceMock<LinuxMockPlatformSensorClient>>(sensor);
+
+  PlatformSensorConfiguration configuration(
+      sensor->GetMaximumSupportedFrequency());
+  EXPECT_TRUE(sensor->StartListening(client.get(), configuration));
+
+  WaitOnSensorReadingChangedEvent(client.get(), sensor->GetType());
+
+  SensorReadingSharedBuffer* buffer =
+      static_cast<SensorReadingSharedBuffer*>(mapping.get());
+  EXPECT_THAT(buffer->reading.als.value, sensor_value[0]);
+
+  EXPECT_TRUE(sensor->StopListening(client.get(), configuration));
+}
+
+// Tests that ABSOLUTE_ORIENTATION_EULER_ANGLES/ABSOLUTE_ORIENTATION_QUATERNION
+// sensor is not created if both of its source sensors are not available.
+TEST_F(
+    PlatformSensorAndProviderLinuxTest,
+    CheckAbsoluteOrientationSensorNotCreatedIfNoAccelerometerAndNoMagnetometer) {
+  InitializeMockUdevMethods(sensors_dir_.GetPath());
+  SetServiceStart();
+
+  {
+    auto sensor = CreateSensor(SensorType::ABSOLUTE_ORIENTATION_EULER_ANGLES);
+    EXPECT_FALSE(sensor);
+  }
+
+  {
+    auto sensor = CreateSensor(SensorType::ABSOLUTE_ORIENTATION_QUATERNION);
+    EXPECT_FALSE(sensor);
+  }
+}
+
+// Tests that ABSOLUTE_ORIENTATION_EULER_ANGLES/ABSOLUTE_ORIENTATION_QUATERNION
+// sensor is not created if accelerometer is not available.
+TEST_F(PlatformSensorAndProviderLinuxTest,
+       CheckAbsoluteOrientationSensorNotCreatedIfNoAccelerometer) {
+  double sensor_value[3] = {1, 2, 3};
+  InitializeSupportedSensor(
+      SensorType::MAGNETOMETER, kMagnetometerFrequencyValue,
+      kMagnetometerOffsetValue, kMagnetometerScalingValue, sensor_value);
+  InitializeMockUdevMethods(sensors_dir_.GetPath());
+  SetServiceStart();
+
+  {
+    auto sensor = CreateSensor(SensorType::ABSOLUTE_ORIENTATION_EULER_ANGLES);
+    EXPECT_FALSE(sensor);
+  }
+
+  {
+    auto sensor = CreateSensor(SensorType::ABSOLUTE_ORIENTATION_QUATERNION);
+    EXPECT_FALSE(sensor);
+  }
+}
+
+// Tests that ABSOLUTE_ORIENTATION_EULER_ANGLES/ABSOLUTE_ORIENTATION_QUATERNION
+// sensor is not created if magnetometer is not available.
+TEST_F(PlatformSensorAndProviderLinuxTest,
+       CheckAbsoluteOrientationSensorNotCreatedIfNoMagnetometer) {
+  double sensor_value[3] = {1, 2, 3};
+  InitializeSupportedSensor(
+      SensorType::ACCELEROMETER, kAccelerometerFrequencyValue,
+      kAccelerometerOffsetValue, kAccelerometerScalingValue, sensor_value);
+  InitializeMockUdevMethods(sensors_dir_.GetPath());
+  SetServiceStart();
+
+  {
+    auto sensor = CreateSensor(SensorType::ABSOLUTE_ORIENTATION_EULER_ANGLES);
+    EXPECT_FALSE(sensor);
+  }
+
+  {
+    auto sensor = CreateSensor(SensorType::ABSOLUTE_ORIENTATION_QUATERNION);
+    EXPECT_FALSE(sensor);
+  }
+}
+
+// Tests that ABSOLUTE_ORIENTATION_EULER_ANGLES sensor is successfully created.
+TEST_F(PlatformSensorAndProviderLinuxTest,
+       CheckAbsoluteOrientationEulerAnglesSensor) {
+  double sensor_value[3] = {1, 2, 3};
+  InitializeSupportedSensor(
+      SensorType::ACCELEROMETER, kAccelerometerFrequencyValue,
+      kAccelerometerOffsetValue, kAccelerometerScalingValue, sensor_value);
+  InitializeSupportedSensor(
+      SensorType::MAGNETOMETER, kMagnetometerFrequencyValue,
+      kMagnetometerOffsetValue, kMagnetometerScalingValue, sensor_value);
+  InitializeMockUdevMethods(sensors_dir_.GetPath());
+  SetServiceStart();
+
+  auto sensor = CreateSensor(SensorType::ABSOLUTE_ORIENTATION_EULER_ANGLES);
+  EXPECT_TRUE(sensor);
+}
+
+// Tests that ABSOLUTE_ORIENTATION_QUATERNION sensor is successfully created.
+TEST_F(PlatformSensorAndProviderLinuxTest,
+       CheckAbsoluteOrientationQuaternionSensor) {
+  double sensor_value[3] = {1, 2, 3};
+  InitializeSupportedSensor(
+      SensorType::ACCELEROMETER, kAccelerometerFrequencyValue,
+      kAccelerometerOffsetValue, kAccelerometerScalingValue, sensor_value);
+  InitializeSupportedSensor(
+      SensorType::MAGNETOMETER, kMagnetometerFrequencyValue,
+      kMagnetometerOffsetValue, kMagnetometerScalingValue, sensor_value);
+  InitializeMockUdevMethods(sensors_dir_.GetPath());
+  SetServiceStart();
+
+  auto sensor = CreateSensor(SensorType::ABSOLUTE_ORIENTATION_QUATERNION);
+  EXPECT_TRUE(sensor);
+}
+
+// Tests that RELATIVE_ORIENTATION_EULER_ANGLES/RELATIVE_ORIENTATION_QUATERNION
+// sensor is not created if both accelerometer and gyroscope are not available.
+TEST_F(
+    PlatformSensorAndProviderLinuxTest,
+    CheckRelativeOrientationSensorNotCreatedIfNoAccelerometerAndNoGyroscope) {
+  InitializeMockUdevMethods(sensors_dir_.GetPath());
+  SetServiceStart();
+
+  {
+    auto sensor = CreateSensor(SensorType::RELATIVE_ORIENTATION_EULER_ANGLES);
+    EXPECT_FALSE(sensor);
+  }
+
+  {
+    auto sensor = CreateSensor(SensorType::RELATIVE_ORIENTATION_QUATERNION);
+    EXPECT_FALSE(sensor);
+  }
+}
+
+// Tests that RELATIVE_ORIENTATION_EULER_ANGLES/RELATIVE_ORIENTATION_QUATERNION
+// sensor is not created if accelerometer is not available.
+TEST_F(PlatformSensorAndProviderLinuxTest,
+       CheckRelativeOrientationSensorNotCreatedIfNoAccelerometer) {
+  double sensor_value[3] = {1, 2, 3};
+  InitializeSupportedSensor(SensorType::GYROSCOPE, kGyroscopeFrequencyValue,
+                            kGyroscopeOffsetValue, kGyroscopeScalingValue,
+                            sensor_value);
+  InitializeMockUdevMethods(sensors_dir_.GetPath());
+  SetServiceStart();
+
+  {
+    auto sensor = CreateSensor(SensorType::RELATIVE_ORIENTATION_EULER_ANGLES);
+    EXPECT_FALSE(sensor);
+  }
+
+  {
+    auto sensor = CreateSensor(SensorType::RELATIVE_ORIENTATION_QUATERNION);
+    EXPECT_FALSE(sensor);
+  }
+}
+
+// Tests that RELATIVE_ORIENTATION_EULER_ANGLES sensor is successfully created
+// if both accelerometer and gyroscope are available.
+TEST_F(
+    PlatformSensorAndProviderLinuxTest,
+    CheckRelativeOrientationEulerAnglesSensorUsingAccelerometerAndGyroscope) {
+  double sensor_value[3] = {1, 2, 3};
+  InitializeSupportedSensor(SensorType::GYROSCOPE, kGyroscopeFrequencyValue,
+                            kGyroscopeOffsetValue, kGyroscopeScalingValue,
+                            sensor_value);
+  InitializeSupportedSensor(
+      SensorType::ACCELEROMETER, kAccelerometerFrequencyValue,
+      kAccelerometerOffsetValue, kAccelerometerScalingValue, sensor_value);
+  InitializeMockUdevMethods(sensors_dir_.GetPath());
+  SetServiceStart();
+
+  auto sensor = CreateSensor(SensorType::RELATIVE_ORIENTATION_EULER_ANGLES);
+  EXPECT_TRUE(sensor);
+}
+
+// Tests that RELATIVE_ORIENTATION_EULER_ANGLES sensor is successfully created
+// if only accelerometer is available.
+TEST_F(PlatformSensorAndProviderLinuxTest,
+       CheckRelativeOrientationEulerAnglesSensorUsingAccelerometer) {
+  double sensor_value[3] = {1, 2, 3};
+  InitializeSupportedSensor(
+      SensorType::ACCELEROMETER, kAccelerometerFrequencyValue,
+      kAccelerometerOffsetValue, kAccelerometerScalingValue, sensor_value);
+  InitializeMockUdevMethods(sensors_dir_.GetPath());
+  SetServiceStart();
+
+  auto sensor = CreateSensor(SensorType::RELATIVE_ORIENTATION_EULER_ANGLES);
+  EXPECT_TRUE(sensor);
+}
+
+// Tests that RELATIVE_ORIENTATION_QUATERNION sensor is successfully created if
+// both accelerometer and gyroscope are available.
+TEST_F(PlatformSensorAndProviderLinuxTest,
+       CheckRelativeOrientationQuaternionSensorUsingAccelerometerAndGyroscope) {
+  double sensor_value[3] = {1, 2, 3};
+  InitializeSupportedSensor(SensorType::GYROSCOPE, kGyroscopeFrequencyValue,
+                            kGyroscopeOffsetValue, kGyroscopeScalingValue,
+                            sensor_value);
+  InitializeSupportedSensor(
+      SensorType::ACCELEROMETER, kAccelerometerFrequencyValue,
+      kAccelerometerOffsetValue, kAccelerometerScalingValue, sensor_value);
+  InitializeMockUdevMethods(sensors_dir_.GetPath());
+  SetServiceStart();
+
+  auto sensor = CreateSensor(SensorType::RELATIVE_ORIENTATION_QUATERNION);
+  EXPECT_TRUE(sensor);
+}
+
+// Tests that RELATIVE_ORIENTATION_QUATERNION sensor is successfully created if
+// only accelerometer is available.
+TEST_F(PlatformSensorAndProviderLinuxTest,
+       CheckRelativeOrientationQuaternionSensorUsingAccelerometer) {
+  double sensor_value[3] = {1, 2, 3};
+  InitializeSupportedSensor(
+      SensorType::ACCELEROMETER, kAccelerometerFrequencyValue,
+      kAccelerometerOffsetValue, kAccelerometerScalingValue, sensor_value);
+  InitializeMockUdevMethods(sensors_dir_.GetPath());
+  SetServiceStart();
+
+  auto sensor = CreateSensor(SensorType::RELATIVE_ORIENTATION_QUATERNION);
+  EXPECT_TRUE(sensor);
 }
 
 }  // namespace device

@@ -8,7 +8,7 @@
 #include <string>
 
 #include "base/callback.h"
-#include "components/prefs/base_prefs_export.h"
+#include "components/prefs/prefs_export.h"
 #include "components/prefs/writeable_pref_store.h"
 
 // This interface is complementary to the PrefStore interface, declaring
@@ -75,6 +75,9 @@ class COMPONENTS_PREFS_EXPORT PersistentPrefStore : public WriteablePrefStore {
 
   // It should be called only for Incognito pref store.
   virtual void ClearMutableValues() = 0;
+
+  // Cleans preference data that may have been saved outside of the store.
+  virtual void OnStoreDeletionFromDisk() = 0;
 
  protected:
   ~PersistentPrefStore() override {}

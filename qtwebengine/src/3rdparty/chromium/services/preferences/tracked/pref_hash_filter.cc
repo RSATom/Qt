@@ -11,7 +11,6 @@
 #include "base/bind.h"
 #include "base/logging.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/time/time.h"
@@ -21,7 +20,6 @@
 #include "components/prefs/pref_store.h"
 #include "services/preferences/public/cpp/tracked/pref_names.h"
 #include "services/preferences/tracked/dictionary_hash_store_contents.h"
-#include "services/preferences/tracked/pref_hash_store.h"
 #include "services/preferences/tracked/pref_hash_store_transaction.h"
 #include "services/preferences/tracked/tracked_atomic_preference.h"
 #include "services/preferences/tracked/tracked_split_preference.h"
@@ -201,6 +199,17 @@ PrefFilter::OnWriteCallbackPair PrefHashFilter::FilterSerializeData(
   return callback_pair;
 }
 
+void PrefHashFilter::OnStoreDeletionFromDisk() {
+  if (external_validation_hash_store_pair_) {
+    external_validation_hash_store_pair_->second.get()->Reset();
+
+    // The PrefStore will attempt to write preferences even if it's marked for
+    // deletion. Clear the external store pair to avoid re-writing to the
+    // external store.
+    external_validation_hash_store_pair_.reset();
+  }
+}
+
 void PrefHashFilter::FinalizeFilterOnLoad(
     const PostFilterOnLoadCallback& post_filter_on_load_callback,
     std::unique_ptr<base::DictionaryValue> pref_store_contents,
@@ -316,7 +325,7 @@ PrefFilter::OnWriteCallbackPair PrefHashFilter::GetOnWriteSynchronousCallbacks(
   }
 
   std::unique_ptr<base::DictionaryValue> changed_paths_macs =
-      base::MakeUnique<base::DictionaryValue>();
+      std::make_unique<base::DictionaryValue>();
 
   for (ChangedPathsMap::const_iterator it = changed_paths_.begin();
        it != changed_paths_.end(); ++it) {
@@ -327,10 +336,10 @@ PrefFilter::OnWriteCallbackPair PrefHashFilter::GetOnWriteSynchronousCallbacks(
       case TrackedPreferenceType::ATOMIC: {
         const base::Value* new_value = nullptr;
         pref_store_contents->Get(changed_path, &new_value);
-        changed_paths_macs->SetStringWithoutPathExpansion(
+        changed_paths_macs->SetKey(
             changed_path,
-            external_validation_hash_store_pair_->first->ComputeMac(
-                changed_path, new_value));
+            base::Value(external_validation_hash_store_pair_->first->ComputeMac(
+                changed_path, new_value)));
         break;
       }
       case TrackedPreferenceType::SPLIT: {

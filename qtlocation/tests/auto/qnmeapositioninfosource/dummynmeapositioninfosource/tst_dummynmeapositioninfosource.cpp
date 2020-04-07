@@ -37,7 +37,6 @@
 #include <QTest>
 
 Q_DECLARE_METATYPE(QNmeaPositionInfoSource::UpdateMode)
-Q_DECLARE_METATYPE(QGeoPositionInfo)
 
 class DummyNmeaPositionInfoSource : public QNmeaPositionInfoSource
 {
@@ -95,7 +94,7 @@ tst_DummyNmeaPositionInfoSource::tst_DummyNmeaPositionInfoSource() {}
 
 void tst_DummyNmeaPositionInfoSource::initTestCase()
 {
-    qRegisterMetaType<QGeoPositionInfo>();
+
 }
 
 void tst_DummyNmeaPositionInfoSource::testOverloadedParseFunction()

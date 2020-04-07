@@ -8,11 +8,12 @@
 #include "cc/input/touch_action.h"
 #include "content/browser/renderer_host/event_with_latency_info.h"
 #include "content/browser/renderer_host/input/gesture_event_queue.h"
-#include "content/browser/renderer_host/input/touch_event_queue.h"
-#include "content/common/input/input_event_ack_state.h"
+#include "content/browser/renderer_host/input/passthrough_touch_event_queue.h"
+#include "content/common/widget.mojom.h"
 #include "content/public/browser/native_web_keyboard_event.h"
+#include "content/public/common/input_event_ack_state.h"
 #include "ipc/ipc_listener.h"
-#include "third_party/WebKit/public/platform/WebInputEvent.h"
+#include "third_party/blink/public/platform/web_input_event.h"
 
 namespace content {
 
@@ -25,7 +26,7 @@ class InputRouter : public IPC::Listener {
   struct CONTENT_EXPORT Config {
     Config();
     GestureEventQueue::Config gesture_config;
-    TouchEventQueue::Config touch_config;
+    PassthroughTouchEventQueue::Config touch_config;
   };
 
   ~InputRouter() override {}
@@ -42,9 +43,6 @@ class InputRouter : public IPC::Listener {
   virtual void SendTouchEvent(
       const TouchEventWithLatencyInfo& touch_event) = 0;
 
-  // Returns the oldest queued or in-flight keyboard event sent to the router.
-  virtual const NativeWebKeyboardEvent* GetLastKeyboardEvent() const = 0;
-
   // Notify the router about whether the current page is mobile-optimized (i.e.,
   // the site has a mobile-friendly viewport).
   virtual void NotifySiteIsMobileOptimized(bool is_mobile_optimized) = 0;
@@ -57,11 +55,35 @@ class InputRouter : public IPC::Listener {
   virtual void SetDeviceScaleFactor(float device_scale_factor) = 0;
 
   // Sets the frame tree node id of associated frame, used when tracing
-  // input event latencies to relate events to their target frames.
+  // input event latencies to relate events to their target frames. Since
+  // input always flows to Local Frame Roots, the |frameTreeNodeId| is
+  // relative to the Frame associated with the Local Frame Root for the
+  // widget owning this InputRouter.
   virtual void SetFrameTreeNodeId(int frameTreeNodeId) = 0;
 
   // Return the currently allowed touch-action.
-  virtual cc::TouchAction AllowedTouchAction() = 0;
+  virtual base::Optional<cc::TouchAction> AllowedTouchAction() = 0;
+
+  virtual void SetForceEnableZoom(bool enabled) = 0;
+
+  // Associate this InputRouter with a remote host channel.
+  virtual void BindHost(mojom::WidgetInputHandlerHostRequest request,
+                        bool frame_handler) = 0;
+
+  // Used to stop an active fling if such exists.
+  virtual void StopFling() = 0;
+
+  // Used to check if a fling cancellation is deferred due to boosting or not.
+  virtual bool FlingCancellationIsDeferred() = 0;
+
+  // Called when a set-touch-action message is received from the renderer
+  // for a touch start event that is currently in flight.
+  virtual void OnSetTouchAction(cc::TouchAction touch_action) = 0;
+
+  // In the case when a gesture event is bubbled from a child frame to the main
+  // frame, we set the touch action in the main frame Auto even if there is no
+  // pending touch start.
+  virtual void ForceSetTouchActionAuto() = 0;
 };
 
 }  // namespace content

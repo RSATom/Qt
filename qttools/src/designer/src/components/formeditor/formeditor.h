@@ -31,7 +31,7 @@
 
 #include "formeditor_global.h"
 
-#include <QtDesigner/QDesignerFormEditorInterface>
+#include <QtDesigner/abstractformeditor.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -44,7 +44,7 @@ class QT_FORMEDITOR_EXPORT FormEditor: public QDesignerFormEditorInterface
     Q_OBJECT
 public:
     FormEditor(QObject *parent = 0);
-    virtual ~FormEditor();
+    ~FormEditor() override;
 public slots:
     void slotQrcFileChangedExternally(const QString &path);
 };

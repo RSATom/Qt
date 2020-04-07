@@ -33,6 +33,8 @@ class SyncUsernameTestBase : public testing::Test {
   // Produce a sample PasswordForm.
   static autofill::PasswordForm SimpleGaiaForm(const char* username);
   static autofill::PasswordForm SimpleNonGaiaForm(const char* username);
+  static autofill::PasswordForm SimpleNonGaiaForm(const char* username,
+                                                  const char* origin);
 
   // Instruct the sync service to pretend whether or not it is syncing
   // passwords.
@@ -63,9 +65,11 @@ class SyncUsernameTestBase : public testing::Test {
    public:
     FakeSigninManagerBase(SigninClient* client,
                           AccountTrackerService* account_tracker_service)
-        : SigninManagerBase(client, account_tracker_service) {}
+        : SigninManagerBase(client,
+                            account_tracker_service,
+                            nullptr /* signin_error_controller */) {}
 
-    using SigninManagerBase::clear_authenticated_user;
+    using SigninManagerBase::ClearAuthenticatedAccountId;
   };
 
   sync_preferences::TestingPrefServiceSyncable prefs_;

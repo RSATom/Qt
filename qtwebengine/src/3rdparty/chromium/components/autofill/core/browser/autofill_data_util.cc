@@ -12,6 +12,8 @@
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "components/autofill/core/browser/autofill_country.h"
+#include "components/autofill/core/browser/autofill_profile.h"
 #include "components/autofill/core/browser/credit_card.h"
 #include "components/autofill/core/browser/field_types.h"
 #include "components/grit/components_scaled_resources.h"
@@ -42,6 +44,11 @@ const PaymentRequestData kPaymentRequestData[]{
      IDS_AUTOFILL_CC_UNION_PAY},
     {autofill::kVisaCard, "visa", IDR_AUTOFILL_CC_VISA, IDS_AUTOFILL_CC_VISA},
 };
+
+const PaymentRequestData kGooglePayBrandingRequestData = {
+    "googlePay", "googlePay", IDR_AUTOFILL_GOOGLE_PAY,
+    IDS_AUTOFILL_CC_GOOGLE_PAY};
+
 const PaymentRequestData kGenericPaymentRequestData = {
     autofill::kGenericCard, "generic", IDR_AUTOFILL_CC_GENERIC,
     IDS_AUTOFILL_CC_GENERIC};
@@ -418,6 +425,9 @@ const PaymentRequestData& GetPaymentRequestData(
     if (issuer_network == data.issuer_network)
       return data;
   }
+  if (issuer_network == kGooglePayBrandingRequestData.issuer_network) {
+    return kGooglePayBrandingRequestData;
+  }
   return kGenericPaymentRequestData;
 }
 
@@ -440,6 +450,15 @@ bool IsValidCountryCode(const std::string& country_code) {
 
 bool IsValidCountryCode(const base::string16& country_code) {
   return IsValidCountryCode(base::UTF16ToUTF8(country_code));
+}
+
+std::string GetCountryCodeWithFallback(const autofill::AutofillProfile& profile,
+                                       const std::string& app_locale) {
+  std::string country_code =
+      base::UTF16ToUTF8(profile.GetRawInfo(autofill::ADDRESS_HOME_COUNTRY));
+  if (!IsValidCountryCode(country_code))
+    country_code = AutofillCountry::CountryCodeForLocale(app_locale);
+  return country_code;
 }
 
 }  // namespace data_util

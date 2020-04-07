@@ -52,7 +52,7 @@ GURL CreateRawFileSystemURL(const std::string& type_str,
 
 class FileSystemContextTest : public testing::Test {
  public:
-  FileSystemContextTest() {}
+  FileSystemContextTest() = default;
 
   void SetUp() override {
     ASSERT_TRUE(data_dir_.CreateUniqueTempDir());
@@ -61,7 +61,6 @@ class FileSystemContextTest : public testing::Test {
 
     mock_quota_manager_ = new MockQuotaManager(
         false /* is_incognito */, data_dir_.GetPath(),
-        base::ThreadTaskRunnerHandle::Get().get(),
         base::ThreadTaskRunnerHandle::Get().get(), storage_policy_.get());
   }
 

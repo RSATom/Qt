@@ -30,7 +30,7 @@
 #include "snapshot/exception_snapshot.h"
 #include "snapshot/mac/exception_snapshot_mac.h"
 #include "snapshot/mac/module_snapshot_mac.h"
-#include "snapshot/mac/process_reader.h"
+#include "snapshot/mac/process_reader_mac.h"
 #include "snapshot/mac/system_snapshot_mac.h"
 #include "snapshot/mac/thread_snapshot_mac.h"
 #include "snapshot/memory_map_region_snapshot.h"
@@ -42,7 +42,6 @@
 #include "util/mach/mach_extensions.h"
 #include "util/misc/initialization_state_dcheck.h"
 #include "util/misc/uuid.h"
-#include "util/stdlib/pointer_container.h"
 
 namespace crashpad {
 
@@ -141,10 +140,10 @@ class ProcessSnapshotMac final : public ProcessSnapshot {
   void InitializeModules();
 
   internal::SystemSnapshotMac system_;
-  PointerVector<internal::ThreadSnapshotMac> threads_;
-  PointerVector<internal::ModuleSnapshotMac> modules_;
+  std::vector<std::unique_ptr<internal::ThreadSnapshotMac>> threads_;
+  std::vector<std::unique_ptr<internal::ModuleSnapshotMac>> modules_;
   std::unique_ptr<internal::ExceptionSnapshotMac> exception_;
-  ProcessReader process_reader_;
+  ProcessReaderMac process_reader_;
   UUID report_id_;
   UUID client_id_;
   std::map<std::string, std::string> annotations_simple_map_;

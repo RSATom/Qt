@@ -3,7 +3,7 @@
 ** Copyright (C) 2016 The Qt Company Ltd.
 ** Contact: https://www.qt.io/licensing/
 **
-** This file is part of the QtCore module of the Qt Toolkit.
+** This file is part of the QtConcurrent module of the Qt Toolkit.
 **
 ** $QT_BEGIN_LICENSE:LGPL$
 ** Commercial License Usage
@@ -112,6 +112,15 @@
     Calling a lambda function is done like this:
 
     \snippet code/src_concurrent_qtconcurrentrun.cpp 6
+*/
+
+/*!
+  \typedef Function
+  \internal
+
+  This typedef is a dummy required to make the \c Function
+  type name known so that clang doesn't reject functions
+  that use it.
 */
 
 /*!

@@ -9,6 +9,7 @@
 
 #include <string>
 
+#include "base/debug/alias.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_piece.h"
 #include "url/scheme_host_port.h"
@@ -63,7 +64,7 @@ namespace url {
 // * Origins are generally constructed from an already-canonicalized GURL:
 //
 //     GURL url("https://example.com/");
-//     url::Origin origin(url);
+//     url::Origin origin = Origin::Create(url);
 //     origin.scheme(); // "https"
 //     origin.host(); // "example.com"
 //     origin.port(); // 443
@@ -87,11 +88,17 @@ class URL_EXPORT Origin {
   // 2. 'filesystem' URLs behave as 'blob' URLs (that is, the origin is parsed
   //    out of everything in the URL which follows the scheme).
   // 3. 'file' URLs all parse as ("file", "", 0).
-  explicit Origin(const GURL& url);
+  static Origin Create(const GURL& url);
 
-  // Creates an Origin from a |scheme|, |host|, |port| and |suborigin|. All the
-  // parameters must be valid and canonicalized. Do not use this method to
-  // create unique origins. Use Origin() for that.
+  // Copyable and movable.
+  Origin(const Origin&);
+  Origin& operator=(const Origin&);
+  Origin(Origin&&);
+  Origin& operator=(Origin&&);
+
+  // Creates an Origin from a |scheme|, |host|, and |port|. All the parameters
+  // must be valid and canonicalized. Do not use this method to create unique
+  // origins. Use Origin() for that.
   //
   // This constructor should be used in order to pass 'Origin' objects back and
   // forth over IPC (as transitioning through GURL would risk potentially
@@ -100,18 +107,15 @@ class URL_EXPORT Origin {
   static Origin UnsafelyCreateOriginWithoutNormalization(
       base::StringPiece scheme,
       base::StringPiece host,
-      uint16_t port,
-      base::StringPiece suborigin);
+      uint16_t port);
 
   // Creates an origin without sanity checking that the host is canonicalized.
   // This should only be used when converting between already normalized types,
   // and should NOT be used for IPC. Method takes std::strings for use with move
   // operators to avoid copies.
-  static Origin CreateFromNormalizedTupleWithSuborigin(
-      std::string scheme,
-      std::string host,
-      uint16_t port,
-      std::string suborigin);
+  static Origin CreateFromNormalizedTuple(std::string scheme,
+                                          std::string host,
+                                          uint16_t port);
 
   ~Origin();
 
@@ -120,33 +124,18 @@ class URL_EXPORT Origin {
   const std::string& host() const { return tuple_.host(); }
   uint16_t port() const { return tuple_.port(); }
 
-  // Note that an origin without a suborgin will return the empty string.
-  const std::string& suborigin() const { return suborigin_; }
-
   bool unique() const { return unique_; }
 
   // An ASCII serialization of the Origin as per Section 6.2 of RFC 6454, with
   // the addition that all Origins with a 'file' scheme serialize to "file://".
-  // If the Origin has a suborigin, it will be serialized per
-  // https://w3c.github.io/webappsec-suborigins/#serializing.
   std::string Serialize() const;
 
-  // Returns the physical origin for Origin. If the suborigin is empty, this
-  // will just return a copy of the Origin.  If it has a suborigin, will return
-  // the Origin of just the scheme/host/port tuple, without the suborigin. See
-  // https://w3c.github.io/webappsec-suborigins/.
-  Origin GetPhysicalOrigin() const;
-
   // Two Origins are "same-origin" if their schemes, hosts, and ports are exact
-  // matches; and neither is unique. If either of the origins have suborigins,
-  // the suborigins also must be exact matches.
+  // matches; and neither is unique.
   bool IsSameOriginWith(const Origin& other) const;
   bool operator==(const Origin& other) const {
     return IsSameOriginWith(other);
   }
-
-  // Same as above, but ignores suborigins if they exist.
-  bool IsSamePhysicalOriginWith(const Origin& other) const;
 
   // Efficiently returns what GURL(Serialize()) would without re-parsing the
   // URL. This can be used for the (rare) times a GURL representation is needed
@@ -154,36 +143,36 @@ class URL_EXPORT Origin {
   // Note: The returned URL will not necessarily be serialized to the same value
   // as the Origin would. The GURL will have an added "/" path for Origins with
   // valid SchemeHostPorts and file Origins.
+  //
+  // Try not to use this method under normal circumstances, as it loses type
+  // information. Downstream consumers can mistake the returned GURL with a full
+  // URL (e.g. with a path component).
   GURL GetURL() const;
 
   // Same as GURL::DomainIs. If |this| origin is unique, then returns false.
-  bool DomainIs(base::StringPiece lower_ascii_domain) const;
+  bool DomainIs(base::StringPiece canonical_domain) const;
 
   // Allows Origin to be used as a key in STL (for example, a std::set or
   // std::map).
   bool operator<(const Origin& other) const;
 
  private:
-  Origin(base::StringPiece scheme,
-         base::StringPiece host,
-         uint16_t port,
-         base::StringPiece suborigin,
-         SchemeHostPort::ConstructPolicy policy);
-  Origin(std::string scheme,
-         std::string host,
-         uint16_t port,
-         std::string suborigin,
-         SchemeHostPort::ConstructPolicy policy);
+  // |tuple| must be valid, implying that the created Origin is never unique.
+  explicit Origin(SchemeHostPort tuple);
 
   SchemeHostPort tuple_;
   bool unique_;
-  std::string suborigin_;
 };
 
 URL_EXPORT std::ostream& operator<<(std::ostream& out, const Origin& origin);
 
 URL_EXPORT bool IsSameOriginWith(const GURL& a, const GURL& b);
-URL_EXPORT bool IsSamePhysicalOriginWith(const GURL& a, const GURL& b);
+
+// DEBUG_ALIAS_FOR_ORIGIN(var_name, origin) copies |origin| into a new
+// stack-allocated variable named |<var_name>|.  This helps ensure that the
+// value of |origin| gets preserved in crash dumps.
+#define DEBUG_ALIAS_FOR_ORIGIN(var_name, origin) \
+  DEBUG_ALIAS_FOR_CSTR(var_name, (origin).Serialize().c_str(), 128)
 
 }  // namespace url
 

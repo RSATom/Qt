@@ -18,6 +18,7 @@
 #define COMPILER_PREPROCESSOR_NUMERIC_LEX_H_
 
 #include <sstream>
+#include <cmath>
 
 namespace pp {
 
@@ -62,7 +63,7 @@ bool numeric_lex_float(const std::string& str, FloatType* value)
 	stream.imbue(std::locale::classic());
 
 	stream >> (*value);
-	return !stream.fail();
+	return !stream.fail() && std::isfinite(*value);
 }
 
 } // namespace pp.

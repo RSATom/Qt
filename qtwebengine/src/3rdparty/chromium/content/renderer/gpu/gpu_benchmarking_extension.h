@@ -6,11 +6,8 @@
 #define CONTENT_RENDERER_GPU_GPU_BENCHMARKING_EXTENSION_H_
 
 #include "base/macros.h"
+#include "content/common/input/input_injector.mojom.h"
 #include "gin/wrappable.h"
-
-namespace blink {
-class WebLocalFrame;
-}
 
 namespace gin {
 class Arguments;
@@ -23,15 +20,18 @@ class Object;
 
 namespace content {
 
+class RenderFrameImpl;
+
 // gin class for gpu benchmarking
 class GpuBenchmarking : public gin::Wrappable<GpuBenchmarking> {
  public:
   static gin::WrapperInfo kWrapperInfo;
-  static void Install(blink::WebLocalFrame* frame);
+  static void Install(RenderFrameImpl* frame);
 
  private:
-  GpuBenchmarking();
+  explicit GpuBenchmarking(RenderFrameImpl* frame);
   ~GpuBenchmarking() override;
+  void EnsureRemoteInterface();
 
   // gin::Wrappable.
   gin::ObjectTemplateBuilder GetObjectTemplateBuilder(
@@ -46,18 +46,35 @@ class GpuBenchmarking : public gin::Wrappable<GpuBenchmarking> {
   void PrintPagesToXPS(v8::Isolate* isolate,
                          const std::string& filename);
   bool GestureSourceTypeSupported(int gesture_source_type);
+
+  // All arguments in these methods are in visual viewport coordinates.
   bool SmoothScrollBy(gin::Arguments* args);
   bool SmoothDrag(gin::Arguments* args);
   bool Swipe(gin::Arguments* args);
   bool ScrollBounce(gin::Arguments* args);
   bool PinchBy(gin::Arguments* args);
   bool Tap(gin::Arguments* args);
+
   bool PointerActionSequence(gin::Arguments* args);
+
+  // The offset of the visual viewport *within* the layout viewport, in CSS
+  // pixels. i.e. As the user zooms in, these values don't change.
   float VisualViewportX();
   float VisualViewportY();
+
+  // The width and height of the visual viewport in CSS pixels. i.e. As the
+  // user zooms in, these get smaller (since the physical viewport is a fixed
+  // size, fewer CSS pixels fit into it).
   float VisualViewportHeight();
   float VisualViewportWidth();
+
+  // Returns the page scale factor applied as a result of pinch-zoom.
   float PageScaleFactor();
+  // Sets the page scale factor applied as a result of pinch-zoom.
+  void SetPageScaleFactor(float scale);
+
+  void SetBrowserControlsShown(bool shown);
+
   void ClearImageCache();
   int RunMicroBenchmark(gin::Arguments* args);
   bool SendMessageToMicroBenchmark(int id, v8::Local<v8::Object> message);
@@ -65,6 +82,20 @@ class GpuBenchmarking : public gin::Wrappable<GpuBenchmarking> {
   bool HasGpuProcess();
   void GetGpuDriverBugWorkarounds(gin::Arguments* args);
 
+  // Starts/stops the sampling profiler. StartProfiling takes one optional
+  // argument, which is a file name for saving the data (relative to `pwd`
+  // or %USERDIR%); if omitted, it defaults to "profile.pb".
+  //
+  // DO NOT USE THIS IN CHROMIUM TESTS -- we don't want to fill up the bots'
+  // hard drives with profile data.
+  void StartProfiling(gin::Arguments* args);
+  void StopProfiling();
+
+  // Freezes a page, used to transition the page to the FROZEN lifecycle state.
+  void Freeze();
+
+  RenderFrameImpl* render_frame_;
+  mojom::InputInjectorPtr input_injector_;
   DISALLOW_COPY_AND_ASSIGN(GpuBenchmarking);
 };
 

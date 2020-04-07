@@ -8,8 +8,8 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_RTC_BASE_NATTYPES_H_
-#define WEBRTC_RTC_BASE_NATTYPES_H_
+#ifndef RTC_BASE_NATTYPES_H_
+#define RTC_BASE_NATTYPES_H_
 
 namespace rtc {
 
@@ -23,8 +23,8 @@ enum NATType {
 
 // Implements the rules for each specific type of NAT.
 class NAT {
-public:
-  virtual ~NAT() { }
+ public:
+  virtual ~NAT() {}
 
   // Determines whether this NAT uses both source and destination address when
   // checking whether a mapping already exists.
@@ -42,6 +42,6 @@ public:
   static NAT* Create(NATType type);
 };
 
-} // namespace rtc
+}  // namespace rtc
 
-#endif // WEBRTC_RTC_BASE_NATTYPES_H_
+#endif  // RTC_BASE_NATTYPES_H_

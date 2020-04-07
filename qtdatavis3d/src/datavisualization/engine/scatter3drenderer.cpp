@@ -1839,7 +1839,7 @@ void Scatter3DRenderer::drawLabels(bool drawSelection, const Q3DCamera *activeCa
         else
             labelZTrans = m_scaleZWithBackground + labelMargin;
 
-        Qt::AlignmentFlag alignment = (m_xFlipped != m_zFlipped) ? Qt::AlignLeft : Qt::AlignRight;
+        Qt::Alignment alignment = (m_xFlipped != m_zFlipped) ? Qt::AlignLeft : Qt::AlignRight;
         QVector3D labelRotation;
         if (m_zFlipped)
             labelZTrans = -labelZTrans;
@@ -1963,7 +1963,7 @@ void Scatter3DRenderer::drawLabels(bool drawSelection, const Q3DCamera *activeCa
                     hAlignment = m_zFlipped ? Qt::AlignLeft : Qt::AlignRight;
                 if (m_yFlippedForGrid && vAlignment != Qt::AlignCenter)
                     vAlignment = (vAlignment == Qt::AlignTop) ? Qt::AlignBottom : Qt::AlignTop;
-                alignment = Qt::AlignmentFlag(vAlignment | hAlignment);
+                alignment = vAlignment | hAlignment;
             } else {
                 labelTrans.setX(m_axisCacheX.labelPosition(label));
             }

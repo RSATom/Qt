@@ -21,26 +21,25 @@ class ShaderGL : public ShaderImpl
 {
   public:
     ShaderGL(const gl::ShaderState &data,
-             const FunctionsGL *functions,
-             const WorkaroundsGL &workarounds,
-             bool isWebGL,
+             GLuint shaderID,
              MultiviewImplementationTypeGL multiviewImplementationType);
     ~ShaderGL() override;
 
+    void destroy(const gl::Context *context) override;
+
     // ShaderImpl implementation
-    ShCompileOptions prepareSourceAndReturnOptions(std::stringstream *sourceStream,
+    ShCompileOptions prepareSourceAndReturnOptions(const gl::Context *context,
+                                                   std::stringstream *sourceStream,
                                                    std::string *sourcePath) override;
-    bool postTranslateCompile(gl::Compiler *compiler, std::string *infoLog) override;
-    std::string getDebugInfo() const override;
+    bool postTranslateCompile(const gl::Context *context,
+                              gl::Compiler *compiler,
+                              std::string *infoLog) override;
+    std::string getDebugInfo(const gl::Context *context) const override;
 
     GLuint getShaderID() const;
 
   private:
-    const FunctionsGL *mFunctions;
-    const WorkaroundsGL &mWorkarounds;
-
     GLuint mShaderID;
-    bool mIsWebGL;
     MultiviewImplementationTypeGL mMultiviewImplementationType;
 };
 

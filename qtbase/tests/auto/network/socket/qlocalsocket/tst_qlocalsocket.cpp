@@ -42,6 +42,10 @@
 #include <unistd.h> // for unlink()
 #endif
 
+#ifdef Q_OS_WIN
+#include <QtCore/qt_windows.h>
+#endif
+
 Q_DECLARE_METATYPE(QLocalSocket::LocalSocketError)
 Q_DECLARE_METATYPE(QLocalSocket::LocalSocketState)
 Q_DECLARE_METATYPE(QLocalServer::SocketOption)
@@ -476,7 +480,7 @@ void tst_QLocalSocket::connectWithOldOpen()
     class OverriddenOpen : public LocalSocket
     {
     public:
-        virtual bool open(OpenMode mode) Q_DECL_OVERRIDE
+        virtual bool open(OpenMode mode) override
         { return QIODevice::open(mode); }
     };
 
@@ -629,6 +633,14 @@ void tst_QLocalSocket::readBufferOverflow()
     QCOMPARE(client.bytesAvailable(), 0);
 
 #ifdef Q_OS_WIN
+    serverSocket->write(buffer, readBufferSize);
+    QVERIFY(serverSocket->waitForBytesWritten());
+
+    // ensure the read completion routine is called
+    SleepEx(100, true);
+    QVERIFY(client.waitForReadyRead());
+    QCOMPARE(client.read(buffer, readBufferSize), qint64(readBufferSize));
+
     // Test overflow caused by an asynchronous pipe operation.
     client.setReadBufferSize(1);
     serverSocket->write(buffer, 2);
@@ -950,9 +962,6 @@ void tst_QLocalSocket::processConnection()
 #if !QT_CONFIG(process)
     QSKIP("No qprocess support", SkipAll);
 #else
-#ifdef Q_OS_MAC
-    QSKIP("The processConnection test is unstable on Mac. See QTBUG-39986.");
-#endif
 
 #ifdef Q_OS_WIN
     const QString exeSuffix = QStringLiteral(".exe");
@@ -969,12 +978,14 @@ void tst_QLocalSocket::processConnection()
     QProcess producer;
     ProcessOutputDumper producerOutputDumper(&producer);
     QList<QProcess*> consumers;
+    producer.setProcessChannelMode(QProcess::MergedChannels);
     producer.start(socketProcess, serverArguments);
     QVERIFY2(producer.waitForStarted(-1), qPrintable(producer.errorString()));
     for (int i = 0; i < processes; ++i) {
         QStringList arguments = QStringList() << "--client";
         QProcess *p = new QProcess;
         consumers.append(p);
+        p->setProcessChannelMode(QProcess::MergedChannels);
         p->start(socketProcess, arguments);
     }
 
@@ -1191,7 +1202,8 @@ void tst_QLocalSocket::writeToClientAndDisconnect()
 void tst_QLocalSocket::debug()
 {
     // Make sure this compiles
-    QTest::ignoreMessage(QtDebugMsg, "QLocalSocket::ConnectionRefusedError QLocalSocket::UnconnectedState");
+    if (QLoggingCategory::defaultCategory()->isDebugEnabled())
+        QTest::ignoreMessage(QtDebugMsg, "QLocalSocket::ConnectionRefusedError QLocalSocket::UnconnectedState");
     qDebug() << QLocalSocket::ConnectionRefusedError << QLocalSocket::UnconnectedState;
 }
 
@@ -1210,12 +1222,13 @@ public:
         socket.write("testing\n");
         exec();
     }
+signals:
+    void bytesWrittenReceived();
 public slots:
-   void bytesWritten(qint64) {
+    void bytesWritten(qint64) {
+        emit bytesWrittenReceived();
         exit();
-   }
-
-private:
+    }
 };
 
 /*
@@ -1233,11 +1246,12 @@ void tst_QLocalSocket::bytesWrittenSignal()
     QLocalServer server;
     QVERIFY(server.listen("qlocalsocket_readyread"));
     WriteThread writeThread;
+    QSignalSpy receivedSpy(&writeThread, &WriteThread::bytesWrittenReceived);
     writeThread.start();
     bool timedOut = false;
     QVERIFY(server.waitForNewConnection(3000, &timedOut));
     QVERIFY(!timedOut);
-    QTest::qWait(2000);
+    QVERIFY(receivedSpy.wait(2000));
     QVERIFY(writeThread.wait(2000));
 }
 

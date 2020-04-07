@@ -2,13 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include <memory>
 #include <utility>
 
 #include "base/callback_helpers.h"
 #include "base/logging.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
@@ -28,11 +26,11 @@
 #include "net/log/net_log_with_source.h"
 #include "net/quic/chromium/crypto/proof_source_chromium.h"
 #include "net/quic/chromium/crypto/proof_verifier_chromium.h"
-#include "net/quic/core/crypto/crypto_utils.h"
-#include "net/quic/test_tools/crypto_test_utils.h"
 #include "net/ssl/ssl_config_service.h"
 #include "net/test/cert_test_util.h"
 #include "net/test/test_data_directory.h"
+#include "net/third_party/quic/core/crypto/crypto_utils.h"
+#include "net/third_party/quic/test_tools/crypto_test_utils.h"
 
 using std::string;
 
@@ -77,40 +75,43 @@ class TestProofVerifierChromium : public ProofVerifierChromium {
 };
 
 }  // namespace
+}  // namespace test
+}  // namespace
 
+namespace quic {
+namespace test {
 namespace crypto_test_utils {
 
-std::unique_ptr<ProofSource> ProofSourceForTesting() {
-  std::unique_ptr<ProofSourceChromium> source(new ProofSourceChromium());
-  base::FilePath certs_dir = GetTestCertsDirectory();
+std::unique_ptr<quic::ProofSource> ProofSourceForTesting() {
+  std::unique_ptr<net::ProofSourceChromium> source(
+      new net::ProofSourceChromium());
+  base::FilePath certs_dir = net::GetTestCertsDirectory();
   CHECK(source->Initialize(
-      certs_dir.AppendASCII("quic_chain.crt"),
-      certs_dir.AppendASCII("quic_test.example.com.key.pkcs8"),
-      certs_dir.AppendASCII("quic_test.example.com.key.sct")));
+      certs_dir.AppendASCII("quic-chain.pem"),
+      certs_dir.AppendASCII("quic-leaf-cert.key"),
+      certs_dir.AppendASCII("quic-leaf-cert.key.sct")));
   return std::move(source);
 }
 
-std::unique_ptr<ProofVerifier> ProofVerifierForTesting() {
+std::unique_ptr<quic::ProofVerifier> ProofVerifierForTesting() {
   // TODO(rch): use a real cert verifier?
-  std::unique_ptr<MockCertVerifier> cert_verifier(new MockCertVerifier());
+  std::unique_ptr<net::MockCertVerifier> cert_verifier(
+      new net::MockCertVerifier());
   net::CertVerifyResult verify_result;
   verify_result.verified_cert =
-      ImportCertFromFile(GetTestCertsDirectory(), "quic_test.example.com.crt");
+      net::ImportCertFromFile(net::GetTestCertsDirectory(), "quic-chain.pem");
   cert_verifier->AddResultForCertAndHost(verify_result.verified_cert.get(),
-                                         "test.example.com", verify_result, OK);
-  verify_result.verified_cert = ImportCertFromFile(
-      GetTestCertsDirectory(), "quic_test_ecc.example.com.crt");
-  cert_verifier->AddResultForCertAndHost(verify_result.verified_cert.get(),
-                                         "test.example.com", verify_result, OK);
-  return base::MakeUnique<TestProofVerifierChromium>(
-      std::move(cert_verifier), base::WrapUnique(new TransportSecurityState),
-      base::WrapUnique(new MultiLogCTVerifier),
-      base::WrapUnique(new CTPolicyEnforcer), "quic_root.crt");
+                                         "test.example.com", verify_result,
+                                         net::OK);
+  return std::make_unique<net::test::TestProofVerifierChromium>(
+      std::move(cert_verifier), std::make_unique<net::TransportSecurityState>(),
+      std::make_unique<net::MultiLogCTVerifier>(),
+      std::make_unique<net::DefaultCTPolicyEnforcer>(), "quic-root.pem");
 }
 
-ProofVerifyContext* ProofVerifyContextForTesting() {
-  return new ProofVerifyContextChromium(/*cert_verify_flags=*/0,
-                                        NetLogWithSource());
+quic::ProofVerifyContext* ProofVerifyContextForTesting() {
+  return new net::ProofVerifyContextChromium(/*cert_verify_flags=*/0,
+                                             net::NetLogWithSource());
 }
 
 }  // namespace crypto_test_utils

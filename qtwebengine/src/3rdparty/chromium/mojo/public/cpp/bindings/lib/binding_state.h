@@ -16,6 +16,7 @@
 #include "base/memory/ptr_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/sequenced_task_runner.h"
+#include "base/single_thread_task_runner.h"
 #include "mojo/public/cpp/bindings/bindings_export.h"
 #include "mojo/public/cpp/bindings/connection_error_callback.h"
 #include "mojo/public/cpp/bindings/filter_chain.h"
@@ -50,6 +51,8 @@ class MOJO_CPP_BINDINGS_EXPORT BindingStateBase {
   void Close();
   void CloseWithReason(uint32_t custom_reason, const std::string& description);
 
+  void RaiseError() { endpoint_client_->RaiseError(); }
+
   void set_connection_error_handler(base::OnceClosure error_handler) {
     DCHECK(is_bound());
     endpoint_client_->set_connection_error_handler(std::move(error_handler));
@@ -74,6 +77,8 @@ class MOJO_CPP_BINDINGS_EXPORT BindingStateBase {
   void FlushForTesting();
 
   void EnableTestingMode();
+
+  scoped_refptr<internal::MultiplexRouter> RouterForTesting();
 
  protected:
   void BindInternal(ScopedMessagePipeHandle handle,
@@ -106,7 +111,7 @@ class BindingState : public BindingStateBase {
             scoped_refptr<base::SingleThreadTaskRunner> runner) {
     BindingStateBase::BindInternal(
         std::move(handle), runner, Interface::Name_,
-        base::MakeUnique<typename Interface::RequestValidator_>(),
+        std::make_unique<typename Interface::RequestValidator_>(),
         Interface::PassesAssociatedKinds_, Interface::HasSyncMethods_, &stub_,
         Interface::Version_);
   }
@@ -119,6 +124,11 @@ class BindingState : public BindingStateBase {
   }
 
   Interface* impl() { return ImplRefTraits::GetRawPointer(&stub_.sink()); }
+  ImplPointerType SwapImplForTesting(ImplPointerType new_impl) {
+    Interface* old_impl = impl();
+    stub_.set_sink(std::move(new_impl));
+    return old_impl;
+  }
 
  private:
   typename Interface::template Stub_<ImplRefTraits> stub_;

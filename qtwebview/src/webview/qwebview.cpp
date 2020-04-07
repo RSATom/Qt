@@ -35,24 +35,27 @@
 ****************************************************************************/
 
 #include "qwebview_p.h"
-#include <QtCore/QVariant>
-#include <QtWebView/private/qwebviewloadrequest_p.h>
+#include "qwebviewplugin_p.h"
+#include "qwebviewloadrequest_p.h"
+#include "qwebviewfactory_p.h"
+
 
 QT_BEGIN_NAMESPACE
 
 QWebView::QWebView(QObject *p)
-    : QObject(p),
-      d_ptr(QWebViewPrivate::create(this))
+    : QObject(p)
+    , d(QWebViewFactory::createWebView())
     , m_progress(0)
 {
+    d->setParent(this);
     qRegisterMetaType<QWebViewLoadRequestPrivate>();
-    Q_D(QWebView);
-    connect(d, &QWebViewPrivate::titleChanged, this, &QWebView::onTitleChanged);
-    connect(d, &QWebViewPrivate::urlChanged, this, &QWebView::onUrlChanged);
-    connect(d, &QWebViewPrivate::loadingChanged, this, &QWebView::onLoadingChanged);
-    connect(d, &QWebViewPrivate::loadProgressChanged, this, &QWebView::onLoadProgressChanged);
-    connect(d, &QWebViewPrivate::requestFocus, this, &QWebView::requestFocus);
-    connect(d, &QWebViewPrivate::javaScriptResult,
+
+    connect(d, &QAbstractWebView::titleChanged, this, &QWebView::onTitleChanged);
+    connect(d, &QAbstractWebView::urlChanged, this, &QWebView::onUrlChanged);
+    connect(d, &QAbstractWebView::loadingChanged, this, &QWebView::onLoadingChanged);
+    connect(d, &QAbstractWebView::loadProgressChanged, this, &QWebView::onLoadProgressChanged);
+    connect(d, &QAbstractWebView::requestFocus, this, &QWebView::requestFocus);
+    connect(d, &QAbstractWebView::javaScriptResult,
             this, &QWebView::javaScriptResult);
 }
 
@@ -67,43 +70,36 @@ QUrl QWebView::url() const
 
 void QWebView::setUrl(const QUrl &url)
 {
-    Q_D(QWebView);
     d->setUrl(url);
 }
 
 bool QWebView::canGoBack() const
 {
-    Q_D(const QWebView);
     return d->canGoBack();
 }
 
 void QWebView::goBack()
 {
-    Q_D(QWebView);
     d->goBack();
 }
 
 bool QWebView::canGoForward() const
 {
-    Q_D(const QWebView);
     return d->canGoForward();
 }
 
 void QWebView::goForward()
 {
-    Q_D(QWebView);
     d->goForward();
 }
 
 void QWebView::reload()
 {
-    Q_D(QWebView);
     d->reload();
 }
 
 void QWebView::stop()
 {
-    Q_D(QWebView);
     d->stop();
 }
 
@@ -119,56 +115,47 @@ int QWebView::loadProgress() const
 
 bool QWebView::isLoading() const
 {
-    Q_D(const QWebView);
     return d->isLoading();
 }
 
 void QWebView::setParentView(QObject *view)
 {
-    Q_D(QWebView);
     d->setParentView(view);
 }
 
 QObject *QWebView::parentView() const
 {
-    Q_D(const QWebView);
     return d->parentView();
 }
 
 void QWebView::setGeometry(const QRect &geometry)
 {
-    Q_D(QWebView);
     d->setGeometry(geometry);
 }
 
 void QWebView::setVisibility(QWindow::Visibility visibility)
 {
-    Q_D(QWebView);
     d->setVisibility(visibility);
 }
 
 void QWebView::setVisible(bool visible)
 {
-    Q_D(QWebView);
     d->setVisible(visible);
 }
 
 void QWebView::setFocus(bool focus)
 {
-    Q_D(QWebView);
     d->setFocus(focus);
 }
 
 void QWebView::loadHtml(const QString &html, const QUrl &baseUrl)
 {
-    Q_D(QWebView);
     d->loadHtml(html, baseUrl);
 }
 
 void QWebView::runJavaScriptPrivate(const QString &script,
                                     int callbackId)
 {
-    Q_D(QWebView);
     d->runJavaScriptPrivate(script, callbackId);
 }
 
@@ -211,7 +198,6 @@ void QWebView::onLoadingChanged(const QWebViewLoadRequestPrivate &loadRequest)
 
 void QWebView::init()
 {
-    Q_D(QWebView);
     d->init();
 }
 

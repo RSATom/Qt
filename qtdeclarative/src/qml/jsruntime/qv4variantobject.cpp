@@ -70,7 +70,7 @@ bool VariantObject::Data::isScarce() const
     return t == QVariant::Pixmap || t == QVariant::Image;
 }
 
-bool VariantObject::isEqualTo(Managed *m, Managed *other)
+bool VariantObject::virtualIsEqualTo(Managed *m, Managed *other)
 {
     Q_ASSERT(m->as<QV4::VariantObject>());
     QV4::VariantObject *lv = static_cast<QV4::VariantObject *>(m);
@@ -113,17 +113,17 @@ void VariantPrototype::init()
     defineDefaultProperty(engine()->id_toString(), method_toString, 0);
 }
 
-void VariantPrototype::method_preserve(const BuiltinFunction *, Scope &scope, CallData *callData)
+ReturnedValue VariantPrototype::method_preserve(const FunctionObject *, const Value *thisObject, const Value *, int)
 {
-    Scoped<VariantObject> o(scope, callData->thisObject.as<QV4::VariantObject>());
+    const VariantObject *o = thisObject->as<QV4::VariantObject>();
     if (o && o->d()->isScarce())
         o->d()->addVmePropertyReference();
     RETURN_UNDEFINED();
 }
 
-void VariantPrototype::method_destroy(const BuiltinFunction *, Scope &scope, CallData *callData)
+ReturnedValue VariantPrototype::method_destroy(const FunctionObject *, const Value *thisObject, const Value *, int)
 {
-    Scoped<VariantObject> o(scope, callData->thisObject.as<QV4::VariantObject>());
+    const VariantObject *o = thisObject->as<QV4::VariantObject>();
     if (o) {
         if (o->d()->isScarce())
             o->d()->addVmePropertyReference();
@@ -132,9 +132,10 @@ void VariantPrototype::method_destroy(const BuiltinFunction *, Scope &scope, Cal
     RETURN_UNDEFINED();
 }
 
-void VariantPrototype::method_toString(const BuiltinFunction *, Scope &scope, CallData *callData)
+ReturnedValue VariantPrototype::method_toString(const FunctionObject *b, const Value *thisObject, const Value *, int)
 {
-    Scoped<VariantObject> o(scope, callData->thisObject.as<QV4::VariantObject>());
+    ExecutionEngine *v4 = b->engine();
+    const VariantObject *o = thisObject->as<QV4::VariantObject>();
     if (!o)
         RETURN_UNDEFINED();
     QString result = o->d()->data().toString();
@@ -143,38 +144,33 @@ void VariantPrototype::method_toString(const BuiltinFunction *, Scope &scope, Ca
                  + QLatin1String(o->d()->data().typeName())
                  + QLatin1Char(')');
     }
-    scope.result = scope.engine->newString(result);
+    return Encode(v4->newString(result));
 }
 
-void VariantPrototype::method_valueOf(const BuiltinFunction *, Scope &scope, CallData *callData)
+ReturnedValue VariantPrototype::method_valueOf(const FunctionObject *b, const Value *thisObject, const Value *, int)
 {
-    Scoped<VariantObject> o(scope, callData->thisObject.as<QV4::VariantObject>());
+    const VariantObject *o = thisObject->as<QV4::VariantObject>();
     if (o) {
         QVariant v = o->d()->data();
         switch (v.type()) {
         case QVariant::Invalid:
-            scope.result = Encode::undefined();
-            return;
+            return Encode::undefined();
         case QVariant::String:
-            scope.result = scope.engine->newString(v.toString());
-            return;
+            return Encode(b->engine()->newString(v.toString()));
         case QVariant::Int:
-            scope.result = Encode(v.toInt());
-            return;
+            return Encode(v.toInt());
         case QVariant::Double:
         case QVariant::UInt:
-            scope.result = Encode(v.toDouble());
-            return;
+            return Encode(v.toDouble());
         case QVariant::Bool:
-            scope.result = Encode(v.toBool());
-            return;
+            return Encode(v.toBool());
         default:
             if (QMetaType::typeFlags(v.userType()) & QMetaType::IsEnumeration)
                 RETURN_RESULT(Encode(v.toInt()));
             break;
         }
     }
-    scope.result = callData->thisObject;
+    return thisObject->asReturnedValue();
 }
 
 QT_END_NAMESPACE

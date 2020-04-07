@@ -13,6 +13,7 @@
 
 #include "base/macros.h"
 #include "base/threading/thread_checker.h"
+#include "gpu/vulkan/buildflags.h"
 #include "ui/gl/gl_implementation.h"
 #include "ui/gl/gl_surface.h"
 #include "ui/ozone/common/gl_ozone_egl.h"
@@ -22,6 +23,7 @@ namespace ui {
 
 class DrmThreadProxy;
 class GbmSurfaceless;
+class GbmOverlaySurface;
 
 class GbmSurfaceFactory : public SurfaceFactoryOzone {
  public:
@@ -36,6 +38,21 @@ class GbmSurfaceFactory : public SurfaceFactoryOzone {
   std::vector<gl::GLImplementation> GetAllowedGLImplementations() override;
   GLOzone* GetGLOzone(gl::GLImplementation implementation) override;
 
+#if BUILDFLAG(ENABLE_VULKAN)
+  std::unique_ptr<gpu::VulkanImplementation> CreateVulkanImplementation()
+      override;
+  scoped_refptr<gfx::NativePixmap> CreateNativePixmapForVulkan(
+      gfx::AcceleratedWidget widget,
+      gfx::Size size,
+      gfx::BufferFormat format,
+      gfx::BufferUsage usage,
+      VkDevice vk_device,
+      VkDeviceMemory* vk_device_memory,
+      VkImage* vk_image) override;
+#endif
+
+  std::unique_ptr<OverlaySurface> CreateOverlaySurface(
+      gfx::AcceleratedWidget window) override;
   std::vector<gfx::BufferFormat> GetScanoutFormats(
       gfx::AcceleratedWidget widget) override;
   std::unique_ptr<SurfaceOzoneCanvas> CreateCanvasForWidget(
@@ -50,8 +67,22 @@ class GbmSurfaceFactory : public SurfaceFactoryOzone {
       gfx::Size size,
       gfx::BufferFormat format,
       const gfx::NativePixmapHandle& handle) override;
+  void SetGetProtectedNativePixmapDelegate(
+      const GetProtectedNativePixmapCallback&
+          get_protected_native_pixmap_callback) override;
+  scoped_refptr<gfx::NativePixmap> CreateNativePixmapForProtectedBufferHandle(
+      gfx::AcceleratedWidget widget,
+      gfx::Size size,
+      gfx::BufferFormat format,
+      const gfx::NativePixmapHandle& handle) override;
 
  private:
+  scoped_refptr<gfx::NativePixmap> CreateNativePixmapFromHandleInternal(
+      gfx::AcceleratedWidget widget,
+      gfx::Size size,
+      gfx::BufferFormat format,
+      const gfx::NativePixmapHandle& handle);
+
   std::unique_ptr<GLOzone> egl_implementation_;
   std::unique_ptr<GLOzone> osmesa_implementation_;
 
@@ -60,6 +91,8 @@ class GbmSurfaceFactory : public SurfaceFactoryOzone {
   DrmThreadProxy* drm_thread_proxy_;
 
   std::map<gfx::AcceleratedWidget, GbmSurfaceless*> widget_to_surface_map_;
+
+  GetProtectedNativePixmapCallback get_protected_native_pixmap_callback_;
 
   DISALLOW_COPY_AND_ASSIGN(GbmSurfaceFactory);
 };

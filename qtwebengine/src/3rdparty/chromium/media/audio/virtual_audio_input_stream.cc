@@ -111,7 +111,7 @@ void VirtualAudioInputStream::PumpAudio() {
   }
   // Because the audio is being looped-back, the delay since since it was
   // recorded is zero.
-  callback_->OnData(this, audio_bus_.get(), 0, 1.0);
+  callback_->OnData(audio_bus_.get(), base::TimeTicks::Now(), 1.0);
 }
 
 void VirtualAudioInputStream::Close() {
@@ -149,6 +149,11 @@ bool VirtualAudioInputStream::GetAutomaticGainControl() {
 
 bool VirtualAudioInputStream::IsMuted() {
   return false;
+}
+
+void VirtualAudioInputStream::SetOutputDeviceForAec(
+    const std::string& output_device_id) {
+  // Not supported. Do nothing.
 }
 
 }  // namespace media

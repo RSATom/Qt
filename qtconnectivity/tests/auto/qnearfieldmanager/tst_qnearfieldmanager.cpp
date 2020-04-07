@@ -205,7 +205,7 @@ void tst_QNearFieldManager::registerNdefMessageHandler_type()
     const QNdefMessage message = messageSpy.first().at(0).value<QNdefMessage>();
 
     bool hasRecord = false;
-    foreach (const QNdefRecord &record, message) {
+    for (const QNdefRecord &record : message) {
         if (record.typeNameFormat() == typeNameFormat && record.type() == type) {
             hasRecord = true;
             break;

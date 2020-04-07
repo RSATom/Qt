@@ -153,6 +153,12 @@ int QQuickViewTestUtil::QaimModel::rowCount(const QModelIndex &parent) const
     return list.count();
 }
 
+int QQuickViewTestUtil::QaimModel::columnCount(const QModelIndex &parent) const
+{
+    Q_UNUSED(parent);
+    return columns;
+}
+
 QHash<int,QByteArray> QQuickViewTestUtil::QaimModel::roleNames() const
 {
     QHash<int,QByteArray> roles = QAbstractListModel::roleNames();
@@ -174,7 +180,7 @@ QVariant QQuickViewTestUtil::QaimModel::data(const QModelIndex &index, int role)
 
 int QQuickViewTestUtil::QaimModel::count() const
 {
-    return rowCount();
+    return rowCount() * columnCount();
 }
 
 QString QQuickViewTestUtil::QaimModel::name(int index) const
@@ -398,7 +404,7 @@ bool QQuickViewTestUtil::testVisibleItems(const QQuickItemViewPrivate *priv, boo
     for (int i = 0; i < priv->visibleItems.count(); ++i) {
         FxViewItem *item = priv->visibleItems.at(i);
         if (!item) {
-            *failItem = Q_NULLPTR;
+            *failItem = nullptr;
             return false;
         }
 #if 0
@@ -444,4 +450,31 @@ namespace QQuickTouchUtils {
         wd->deliverDelayedTouchEvent();
     }
 
+}
+
+namespace QQuickTest {
+    // Initialize view, set Url, center in available geometry, move mouse away if desired
+    bool initView(QQuickView &v, const QUrl &url, bool moveMouseOut, QByteArray *errorMessage)
+    {
+        v.setBaseSize(QSize(240,320));
+        v.setSource(url);
+        while (v.status() == QQuickView::Loading)
+            QTest::qWait(10);
+        if (v.status() != QQuickView::Ready) {
+            foreach (const QQmlError &e, v.errors())
+                errorMessage->append(e.toString().toLocal8Bit() + '\n');
+            return false;
+        }
+        const QRect screenGeometry = v.screen()->availableGeometry();
+        const QSize size = v.size();
+        const QPoint offset = QPoint(size.width() / 2, size.height() / 2);
+        v.setFramePosition(screenGeometry.center() - offset);
+    #if QT_CONFIG(cursor) // Get the cursor out of the way.
+        if (moveMouseOut)
+             QCursor::setPos(v.geometry().topRight() + QPoint(100, 100));
+    #else
+        Q_UNUSED(moveMouseOut)
+    #endif
+        return true;
+    }
 }

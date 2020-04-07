@@ -51,18 +51,21 @@ class Buffer11 : public BufferD3D
 {
   public:
     Buffer11(const gl::BufferState &state, Renderer11 *renderer);
-    virtual ~Buffer11();
+    ~Buffer11() override;
 
-    gl::ErrorOrResult<ID3D11Buffer *> getBuffer(BufferUsage usage);
-    gl::ErrorOrResult<ID3D11Buffer *> getEmulatedIndexedBuffer(SourceIndexData *indexInfo,
+    gl::ErrorOrResult<ID3D11Buffer *> getBuffer(const gl::Context *context, BufferUsage usage);
+    gl::ErrorOrResult<ID3D11Buffer *> getEmulatedIndexedBuffer(const gl::Context *context,
+                                                               SourceIndexData *indexInfo,
                                                                const TranslatedAttribute &attribute,
                                                                GLint startVertex);
-    gl::Error getConstantBufferRange(GLintptr offset,
+    gl::Error getConstantBufferRange(const gl::Context *context,
+                                     GLintptr offset,
                                      GLsizeiptr size,
-                                     ID3D11Buffer **bufferOut,
+                                     const d3d11::Buffer **bufferOut,
                                      UINT *firstConstantOut,
                                      UINT *numConstantsOut);
-    gl::ErrorOrResult<ID3D11ShaderResourceView *> getSRV(DXGI_FORMAT srvFormat);
+    gl::ErrorOrResult<const d3d11::ShaderResourceView *> getSRV(const gl::Context *context,
+                                                                DXGI_FORMAT srvFormat);
     bool isMapped() const { return mMappedStorage != nullptr; }
     gl::Error packPixels(const gl::Context *context,
                          const gl::FramebufferAttachment &readAttachment,
@@ -70,20 +73,20 @@ class Buffer11 : public BufferD3D
     size_t getTotalCPUBufferMemoryBytes() const;
 
     // BufferD3D implementation
-    size_t getSize() const override { return mSize; }
+    size_t getSize() const override;
     bool supportsDirectBinding() const override;
-    gl::Error getData(const uint8_t **outData) override;
-    void initializeStaticData() override;
-    void invalidateStaticData() override;
+    gl::Error getData(const gl::Context *context, const uint8_t **outData) override;
+    void initializeStaticData(const gl::Context *context) override;
+    void invalidateStaticData(const gl::Context *context) override;
 
     // BufferImpl implementation
     gl::Error setData(const gl::Context *context,
-                      GLenum target,
+                      gl::BufferBinding target,
                       const void *data,
                       size_t size,
-                      GLenum usage) override;
+                      gl::BufferUsage usage) override;
     gl::Error setSubData(const gl::Context *context,
-                         GLenum target,
+                         gl::BufferBinding target,
                          const void *data,
                          size_t size,
                          size_t offset) override;
@@ -99,13 +102,7 @@ class Buffer11 : public BufferD3D
                        GLbitfield access,
                        void **mapPtr) override;
     gl::Error unmap(const gl::Context *context, GLboolean *result) override;
-    gl::Error markTransformFeedbackUsage() override;
-
-    // We use two set of dirty events. Static buffers are marked dirty whenever
-    // data changes, because they must be re-translated. Direct buffers only need to be
-    // updated when the underlying ID3D11Buffer pointer changes - hopefully far less often.
-    OnBufferDataDirtyChannel *getStaticBroadcastChannel();
-    OnBufferDataDirtyChannel *getDirectBroadcastChannel();
+    gl::Error markTransformFeedbackUsage(const gl::Context *context) override;
 
   private:
     class BufferStorage;
@@ -123,33 +120,47 @@ class Buffer11 : public BufferD3D
     };
 
     void markBufferUsage(BufferUsage usage);
-    gl::Error garbageCollection(BufferUsage currentUsage);
-    gl::ErrorOrResult<NativeStorage *> getStagingStorage();
-    gl::ErrorOrResult<PackStorage *> getPackStorage();
-    gl::ErrorOrResult<SystemMemoryStorage *> getSystemMemoryStorage();
+    gl::Error garbageCollection(const gl::Context *context, BufferUsage currentUsage);
+    gl::ErrorOrResult<NativeStorage *> getStagingStorage(const gl::Context *context);
+    gl::ErrorOrResult<PackStorage *> getPackStorage(const gl::Context *context);
+    gl::ErrorOrResult<SystemMemoryStorage *> getSystemMemoryStorage(const gl::Context *context);
 
-    gl::Error updateBufferStorage(BufferStorage *storage, size_t sourceOffset, size_t storageSize);
-    gl::ErrorOrResult<BufferStorage *> getBufferStorage(BufferUsage usage);
-    gl::ErrorOrResult<BufferStorage *> getLatestBufferStorage() const;
+    gl::Error updateBufferStorage(const gl::Context *context,
+                                  BufferStorage *storage,
+                                  size_t sourceOffset,
+                                  size_t storageSize);
+    gl::ErrorOrResult<BufferStorage *> getBufferStorage(const gl::Context *context,
+                                                        BufferUsage usage);
+    gl::ErrorOrResult<BufferStorage *> getLatestBufferStorage(const gl::Context *context) const;
 
-    gl::ErrorOrResult<BufferStorage *> getConstantBufferRangeStorage(GLintptr offset,
+    gl::ErrorOrResult<BufferStorage *> getConstantBufferRangeStorage(const gl::Context *context,
+                                                                     GLintptr offset,
                                                                      GLsizeiptr size);
 
     BufferStorage *allocateStorage(BufferUsage usage);
     void updateDeallocThreshold(BufferUsage usage);
 
     // Free the storage if we decide it isn't being used very often.
-    gl::Error checkForDeallocation(BufferUsage usage);
+    gl::Error checkForDeallocation(const gl::Context *context, BufferUsage usage);
 
     // For some cases of uniform buffer storage, we can't deallocate system memory storage.
     bool canDeallocateSystemMemory() const;
+
+    // Updates data revisions and latest storage.
+    void onCopyStorage(BufferStorage *dest, BufferStorage *source);
+    void onStorageUpdate(BufferStorage *updatedStorage);
 
     Renderer11 *mRenderer;
     size_t mSize;
 
     BufferStorage *mMappedStorage;
 
+    // Buffer storages are sorted by usage. It's important that the latest buffer storage picks
+    // the lowest usage in the case where two storages are tied on data revision - this ensures
+    // we never do anything dangerous like map a uniform buffer over a staging or system memory
+    // copy.
     std::array<BufferStorage *, BUFFER_USAGE_COUNT> mBufferStorages;
+    BufferStorage *mLatestBufferStorage;
 
     // These two arrays are used to track when to free unused storage.
     std::array<unsigned int, BUFFER_USAGE_COUNT> mDeallocThresholds;
@@ -162,9 +173,6 @@ class Buffer11 : public BufferD3D
     ConstantBufferCache mConstantBufferRangeStoragesCache;
     size_t mConstantBufferStorageAdditionalSize;
     unsigned int mMaxConstantBufferLruCount;
-
-    OnBufferDataDirtyChannel mStaticBroadcastChannel;
-    OnBufferDataDirtyChannel mDirectBroadcastChannel;
 };
 
 }  // namespace rx

@@ -8,12 +8,12 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_RTC_BASE_FIREWALLSOCKETSERVER_H_
-#define WEBRTC_RTC_BASE_FIREWALLSOCKETSERVER_H_
+#ifndef RTC_BASE_FIREWALLSOCKETSERVER_H_
+#define RTC_BASE_FIREWALLSOCKETSERVER_H_
 
 #include <vector>
-#include "webrtc/rtc_base/criticalsection.h"
-#include "webrtc/rtc_base/socketserver.h"
+#include "rtc_base/criticalsection.h"
+#include "rtc_base/socketserver.h"
 
 namespace rtc {
 
@@ -48,15 +48,19 @@ class FirewallSocketServer : public SocketServer {
   void set_tcp_listen_enabled(bool enabled) { tcp_listen_enabled_ = enabled; }
 
   // Rules govern the behavior of Connect/Accept/Send/Recv attempts.
-  void AddRule(bool allow, FirewallProtocol p = FP_ANY,
+  void AddRule(bool allow,
+               FirewallProtocol p = FP_ANY,
                FirewallDirection d = FD_ANY,
                const SocketAddress& addr = SocketAddress());
-  void AddRule(bool allow, FirewallProtocol p,
-               const SocketAddress& src, const SocketAddress& dst);
+  void AddRule(bool allow,
+               FirewallProtocol p,
+               const SocketAddress& src,
+               const SocketAddress& dst);
   void ClearRules();
 
   bool Check(FirewallProtocol p,
-             const SocketAddress& src, const SocketAddress& dst);
+             const SocketAddress& src,
+             const SocketAddress& dst);
 
   // Set the IP addresses for which Bind will fail. By default this list is
   // empty. This can be used to simulate a real OS that refuses to bind to
@@ -68,22 +72,19 @@ class FirewallSocketServer : public SocketServer {
   void SetUnbindableIps(const std::vector<rtc::IPAddress>& unbindable_ips);
   bool IsBindableIp(const rtc::IPAddress& ip);
 
-  Socket* CreateSocket(int type) override;
   Socket* CreateSocket(int family, int type) override;
-
-  AsyncSocket* CreateAsyncSocket(int type) override;
   AsyncSocket* CreateAsyncSocket(int family, int type) override;
 
   void SetMessageQueue(MessageQueue* queue) override;
   bool Wait(int cms, bool process_io) override;
   void WakeUp() override;
 
-  Socket * WrapSocket(Socket * sock, int type);
-  AsyncSocket * WrapSocket(AsyncSocket * sock, int type);
+  Socket* WrapSocket(Socket* sock, int type);
+  AsyncSocket* WrapSocket(AsyncSocket* sock, int type);
 
  private:
-  SocketServer * server_;
-  FirewallManager * manager_;
+  SocketServer* server_;
+  FirewallManager* manager_;
   CriticalSection crit_;
   struct Rule {
     bool allow;
@@ -107,19 +108,20 @@ class FirewallManager {
   FirewallManager();
   ~FirewallManager();
 
-  void AddServer(FirewallSocketServer * server);
-  void RemoveServer(FirewallSocketServer * server);
+  void AddServer(FirewallSocketServer* server);
+  void RemoveServer(FirewallSocketServer* server);
 
-  void AddRule(bool allow, FirewallProtocol p = FP_ANY,
+  void AddRule(bool allow,
+               FirewallProtocol p = FP_ANY,
                FirewallDirection d = FD_ANY,
                const SocketAddress& addr = SocketAddress());
   void ClearRules();
 
  private:
   CriticalSection crit_;
-  std::vector<FirewallSocketServer *> servers_;
+  std::vector<FirewallSocketServer*> servers_;
 };
 
 }  // namespace rtc
 
-#endif  // WEBRTC_RTC_BASE_FIREWALLSOCKETSERVER_H_
+#endif  // RTC_BASE_FIREWALLSOCKETSERVER_H_

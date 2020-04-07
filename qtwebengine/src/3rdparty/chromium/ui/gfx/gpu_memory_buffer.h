@@ -20,9 +20,15 @@
 #include "ui/gfx/native_pixmap_handle.h"
 #elif defined(OS_MACOSX) && !defined(OS_IOS)
 #include "ui/gfx/mac/io_surface.h"
+#elif defined(OS_WIN)
+#include "ipc/ipc_platform_file.h"  // nogncheck
 #endif
 
 extern "C" typedef struct _ClientBuffer* ClientBuffer;
+
+#if defined(OS_ANDROID)
+extern "C" typedef struct AHardwareBuffer AHardwareBuffer;
+#endif
 
 namespace gfx {
 
@@ -33,14 +39,17 @@ enum GpuMemoryBufferType {
   SHARED_MEMORY_BUFFER,
   IO_SURFACE_BUFFER,
   NATIVE_PIXMAP,
-  GPU_MEMORY_BUFFER_TYPE_LAST = NATIVE_PIXMAP
+  DXGI_SHARED_HANDLE,
+  ANDROID_HARDWARE_BUFFER,
+  GPU_MEMORY_BUFFER_TYPE_LAST = ANDROID_HARDWARE_BUFFER
 };
 
 using GpuMemoryBufferId = GenericSharedMemoryId;
 
 struct GFX_EXPORT GpuMemoryBufferHandle {
   GpuMemoryBufferHandle();
-  GpuMemoryBufferHandle(const GpuMemoryBufferHandle& other);
+  GpuMemoryBufferHandle(GpuMemoryBufferHandle&& other);
+  GpuMemoryBufferHandle& operator=(GpuMemoryBufferHandle&& other);
   ~GpuMemoryBufferHandle();
   bool is_null() const { return type == EMPTY_BUFFER; }
   GpuMemoryBufferType type;
@@ -52,6 +61,10 @@ struct GFX_EXPORT GpuMemoryBufferHandle {
   NativePixmapHandle native_pixmap_handle;
 #elif defined(OS_MACOSX) && !defined(OS_IOS)
   ScopedRefCountedIOSurfaceMachPort mach_port;
+#elif defined(OS_WIN)
+  IPC::PlatformFileForTransit dxgi_handle;
+#elif defined(OS_ANDROID)
+  AHardwareBuffer* android_hardware_buffer = nullptr;
 #endif
 };
 
@@ -87,8 +100,8 @@ class GFX_EXPORT GpuMemoryBuffer {
   virtual int stride(size_t plane) const = 0;
 
   // Set the color space in which this buffer should be interpreted when used
-  // for scanout. Note that this will not impact texturing from the buffer.
-  virtual void SetColorSpaceForScanout(const gfx::ColorSpace& color_space);
+  // as an overlay. Note that this will not impact texturing from the buffer.
+  virtual void SetColorSpace(const gfx::ColorSpace& color_space);
 
   // Returns a unique identifier associated with buffer.
   virtual GpuMemoryBufferId GetId() const = 0;

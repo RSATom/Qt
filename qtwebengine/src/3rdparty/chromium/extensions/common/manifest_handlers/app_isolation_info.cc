@@ -8,7 +8,6 @@
 
 #include <memory>
 
-#include "base/memory/ptr_util.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
@@ -46,7 +45,7 @@ bool AppIsolationHandler::Parse(Extension* extension, base::string16* error) {
   // Platform apps always get isolated storage.
   if (extension->is_platform_app()) {
     extension->SetManifestData(keys::kIsolation,
-                               base::MakeUnique<AppIsolationInfo>(true));
+                               std::make_unique<AppIsolationInfo>(true));
     return true;
   }
 
@@ -73,7 +72,7 @@ bool AppIsolationHandler::Parse(Extension* extension, base::string16* error) {
     std::string isolation_string;
     if (!isolation_list->GetString(i, &isolation_string)) {
       *error = ErrorUtils::FormatErrorMessageUTF16(
-          manifest_errors::kInvalidIsolationValue, base::SizeTToString(i));
+          manifest_errors::kInvalidIsolationValue, base::NumberToString(i));
       return false;
     }
 
@@ -87,7 +86,7 @@ bool AppIsolationHandler::Parse(Extension* extension, base::string16* error) {
 
   if (has_isolated_storage)
     extension->SetManifestData(keys::kIsolation,
-                               base::MakeUnique<AppIsolationInfo>(true));
+                               std::make_unique<AppIsolationInfo>(true));
 
   return true;
 }
@@ -96,8 +95,9 @@ bool AppIsolationHandler::AlwaysParseForType(Manifest::Type type) const {
   return type == Manifest::TYPE_PLATFORM_APP;
 }
 
-const std::vector<std::string> AppIsolationHandler::Keys() const {
-  return SingleKey(keys::kIsolation);
+base::span<const char* const> AppIsolationHandler::Keys() const {
+  static constexpr const char* kKeys[] = {keys::kIsolation};
+  return kKeys;
 }
 
 }  // namespace extensions

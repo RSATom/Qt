@@ -73,13 +73,14 @@ public:
 signals:
     void errorOccurred();
 
-protected:
+public:
     QLeAdvertiser(const QLowEnergyAdvertisingParameters &params,
                   const QLowEnergyAdvertisingData &advData,
                   const QLowEnergyAdvertisingData &responseData, QObject *parent)
         : QObject(parent), m_params(params), m_advData(advData), m_responseData(responseData) {}
     virtual ~QLeAdvertiser() { }
 
+protected:
     const QLowEnergyAdvertisingParameters &parameters() const { return m_params; }
     const QLowEnergyAdvertisingData &advertisingData() const { return m_advData; }
     const QLowEnergyAdvertisingData &scanResponseData() const { return m_responseData; }
@@ -106,7 +107,7 @@ public:
                        const QLowEnergyAdvertisingData &advertisingData,
                        const QLowEnergyAdvertisingData &scanResponseData, HciManager &hciManager,
                        QObject *parent = nullptr);
-    ~QLeAdvertiserBluez();
+    ~QLeAdvertiserBluez() override;
 
 private:
     void doStartAdvertising() override;

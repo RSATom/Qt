@@ -11,24 +11,21 @@ source_set("standalone_service") {
   ]
 
   deps = [
-    "//mojo/edk/system",
+    "//mojo/core/embedder",
+    "//mojo/public/cpp/platform",
     "//mojo/public/cpp/system",
     "//services/service_manager/public/cpp",
     "//services/service_manager/runner:init",
     "//services/service_manager/runner/common",
+    "//services/service_manager/sandbox",
   ]
 
   public_deps = [
     "//base",
-    "//services/service_manager/public/interfaces",
+    "//services/service_manager/public/mojom",
   ]
 
-  if (is_linux && !is_android) {
-    sources += [
-      "linux_sandbox.cc",
-      "linux_sandbox.h",
-    ]
-
+  if (is_linux) {
     deps += [
       "//sandbox/linux:sandbox",
       "//sandbox/linux:sandbox_services",

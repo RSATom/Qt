@@ -223,7 +223,7 @@ void ClipboardQt::WriteObjects(ui::ClipboardType type, const ObjectMap& objects)
         if (text_iter != objects.end()) {
             // Copy text and SourceTag to the selection clipboard.
             ObjectMap::const_iterator next_iter = text_iter;
-            WriteObjects(ui::CLIPBOARD_TYPE_SELECTION, ObjectMap(text_iter, ++next_iter));
+            WriteObjects(ui::CLIPBOARD_TYPE_SELECTION, ObjectMap(text_iter, ++next_iter, base::KEEP_FIRST_OF_DUPES));
         }
     }
 }
@@ -296,7 +296,8 @@ void ClipboardQt::ReadAvailableTypes(ui::ClipboardType type, std::vector<base::s
         return;
     if (mimeData->hasImage() && !mimeData->formats().contains(QStringLiteral("image/png")))
         types->push_back(toString16(QStringLiteral("image/png")));
-    Q_FOREACH (const QString &mimeType, mimeData->formats())
+    const QStringList formats = mimeData->formats();
+    for (const QString &mimeType : formats)
         types->push_back(toString16(mimeType));
     *contains_filenames = false;
 

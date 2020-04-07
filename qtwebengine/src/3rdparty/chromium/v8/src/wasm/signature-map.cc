@@ -4,14 +4,14 @@
 
 #include "src/wasm/signature-map.h"
 
+#include "src/signature.h"
+
 namespace v8 {
 namespace internal {
 namespace wasm {
 
-SignatureMap::SignatureMap() : mutex_(new base::Mutex()) {}
-
-uint32_t SignatureMap::FindOrInsert(FunctionSig* sig) {
-  base::LockGuard<base::Mutex> guard(mutex_.get());
+uint32_t SignatureMap::FindOrInsert(const FunctionSig& sig) {
+  CHECK(!frozen_);
   auto pos = map_.find(sig);
   if (pos != map_.end()) {
     return pos->second;
@@ -22,32 +22,13 @@ uint32_t SignatureMap::FindOrInsert(FunctionSig* sig) {
   }
 }
 
-int32_t SignatureMap::Find(FunctionSig* sig) const {
-  base::LockGuard<base::Mutex> guard(mutex_.get());
+int32_t SignatureMap::Find(const FunctionSig& sig) const {
   auto pos = map_.find(sig);
   if (pos != map_.end()) {
     return static_cast<int32_t>(pos->second);
   } else {
     return -1;
   }
-}
-
-bool SignatureMap::CompareFunctionSigs::operator()(FunctionSig* a,
-                                                   FunctionSig* b) const {
-  if (a == b) return false;
-  if (a->return_count() < b->return_count()) return true;
-  if (a->return_count() > b->return_count()) return false;
-  if (a->parameter_count() < b->parameter_count()) return true;
-  if (a->parameter_count() > b->parameter_count()) return false;
-  for (size_t r = 0; r < a->return_count(); r++) {
-    if (a->GetReturn(r) < b->GetReturn(r)) return true;
-    if (a->GetReturn(r) > b->GetReturn(r)) return false;
-  }
-  for (size_t p = 0; p < a->parameter_count(); p++) {
-    if (a->GetParam(p) < b->GetParam(p)) return true;
-    if (a->GetParam(p) > b->GetParam(p)) return false;
-  }
-  return false;
 }
 
 }  // namespace wasm

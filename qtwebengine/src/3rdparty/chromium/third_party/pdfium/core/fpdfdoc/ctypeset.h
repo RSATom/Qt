@@ -9,6 +9,7 @@
 
 #include "core/fpdfdoc/cpvt_floatrect.h"
 #include "core/fxcrt/fx_system.h"
+#include "core/fxcrt/unowned_ptr.h"
 
 class CPDF_VariableText;
 class CSection;
@@ -27,7 +28,7 @@ class CTypeset final {
   void OutputLines();
 
   CPVT_FloatRect m_rcRet;
-  CFX_UnownedPtr<CPDF_VariableText> const m_pVT;
+  UnownedPtr<CPDF_VariableText> const m_pVT;
   CSection* const m_pSection;
 };
 

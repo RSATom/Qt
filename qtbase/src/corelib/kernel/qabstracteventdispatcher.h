@@ -49,7 +49,7 @@ class QAbstractNativeEventFilter;
 class QAbstractEventDispatcherPrivate;
 class QSocketNotifier;
 
-#ifdef Q_OS_WIN
+#if defined(Q_OS_WIN) || defined(Q_CLANG_QDOC)
 class QWinEventNotifier;
 #endif
 
@@ -70,10 +70,10 @@ public:
         { }
     };
 
-    explicit QAbstractEventDispatcher(QObject *parent = Q_NULLPTR);
+    explicit QAbstractEventDispatcher(QObject *parent = nullptr);
     ~QAbstractEventDispatcher();
 
-    static QAbstractEventDispatcher *instance(QThread *thread = Q_NULLPTR);
+    static QAbstractEventDispatcher *instance(QThread *thread = nullptr);
 
     virtual bool processEvents(QEventLoop::ProcessEventsFlags flags) = 0;
     virtual bool hasPendingEvents() = 0; // ### Qt6: remove, mark final or make protected
@@ -87,6 +87,7 @@ public:
     QT_DEPRECATED inline void registerTimer(int timerId, int interval, QObject *object)
     { registerTimer(timerId, interval, Qt::CoarseTimer, object); }
 #endif
+    // ### Qt6: change interval range to qint64 (or use QDeadlineTimer)
     int registerTimer(int interval, Qt::TimerType timerType, QObject *object);
     virtual void registerTimer(int timerId, int interval, Qt::TimerType timerType, QObject *object) = 0;
     virtual bool unregisterTimer(int timerId) = 0;
@@ -95,7 +96,7 @@ public:
 
     virtual int remainingTime(int timerId) = 0;
 
-#if defined(Q_OS_WIN) || defined(Q_QDOC)
+#if defined(Q_OS_WIN) || defined(Q_CLANG_QDOC)
     virtual bool registerEventNotifier(QWinEventNotifier *notifier) = 0;
     virtual void unregisterEventNotifier(QWinEventNotifier *notifier) = 0;
 #endif
@@ -112,7 +113,7 @@ public:
     bool filterNativeEvent(const QByteArray &eventType, void *message, long *result);
 #if QT_DEPRECATED_SINCE(5, 0)
     QT_DEPRECATED bool filterEvent(void *message)
-    { return filterNativeEvent("", message, Q_NULLPTR); }
+    { return filterNativeEvent("", message, nullptr); }
 #endif
 
 Q_SIGNALS:

@@ -16,7 +16,7 @@
 
 #include "base/compiler_specific.h"
 #include "gtest/gtest.h"
-#include "test/gtest_death_check.h"
+#include "test/gtest_death.h"
 
 namespace crashpad {
 namespace test {
@@ -43,7 +43,7 @@ void ScopedForbidReturnHelper(ForbidReturnType type) {
   }
 }
 
-const char kForbiddenMessage[] = "attempt to exit scope forbidden";
+constexpr char kForbiddenMessage[] = "attempt to exit scope forbidden";
 
 TEST(ScopedForbidReturnDeathTest, Default) {
   // kForbiddenMessage may appear to be unused if ASSERT_DEATH_CHECK() throws it

@@ -42,7 +42,7 @@ class Q_PURCHASING_EXPORT QInAppStore: public QObject
 {
     Q_OBJECT
 public:
-    explicit QInAppStore(QObject *parent = Q_NULLPTR);
+    explicit QInAppStore(QObject *parent = nullptr);
     ~QInAppStore();
 
     Q_INVOKABLE void restorePurchases();

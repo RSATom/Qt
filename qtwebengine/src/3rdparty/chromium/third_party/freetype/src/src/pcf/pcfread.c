@@ -37,12 +37,12 @@ THE SOFTWARE.
 #include "pcferror.h"
 
 
-  /*************************************************************************/
-  /*                                                                       */
-  /* The macro FT_COMPONENT is used in trace mode.  It is an implicit      */
-  /* parameter of the FT_TRACE() and FT_ERROR() macros, used to print/log  */
-  /* messages during execution.                                            */
-  /*                                                                       */
+  /**************************************************************************
+   *
+   * The macro FT_COMPONENT is used in trace mode.  It is an implicit
+   * parameter of the FT_TRACE() and FT_ERROR() macros, used to print/log
+   * messages during execution.
+   */
 #undef  FT_COMPONENT
 #define FT_COMPONENT  trace_pcfread
 
@@ -178,23 +178,23 @@ THE SOFTWARE.
     }
 
     /*
-     *  We now check whether the `size' and `offset' values are reasonable:
-     *  `offset' + `size' must not exceed the stream size.
+     * We now check whether the `size' and `offset' values are reasonable:
+     * `offset' + `size' must not exceed the stream size.
      *
-     *  Note, however, that X11's `pcfWriteFont' routine (used by the
-     *  `bdftopcf' program to create PDF font files) has two special
-     *  features.
+     * Note, however, that X11's `pcfWriteFont' routine (used by the
+     * `bdftopcf' program to create PCF font files) has two special
+     * features.
      *
-     *  - It always assigns the accelerator table a size of 100 bytes in the
-     *    TOC, regardless of its real size, which can vary between 34 and 72
-     *    bytes.
+     * - It always assigns the accelerator table a size of 100 bytes in the
+     *   TOC, regardless of its real size, which can vary between 34 and 72
+     *   bytes.
      *
-     *  - Due to the way the routine is designed, it ships out the last font
-     *    table with its real size, ignoring the TOC's size value.  Since
-     *    the TOC size values are always rounded up to a multiple of 4, the
-     *    difference can be up to three bytes for all tables except the
-     *    accelerator table, for which the difference can be as large as 66
-     *    bytes.
+     * - Due to the way the routine is designed, it ships out the last font
+     *   table with its real size, ignoring the TOC's size value.  Since
+     *   the TOC size values are always rounded up to a multiple of 4, the
+     *   difference can be up to three bytes for all tables except the
+     *   accelerator table, for which the difference can be as large as 66
+     *   bytes.
      *
      */
 
@@ -840,7 +840,7 @@ THE SOFTWARE.
     FT_TRACE4(( "pcf_get_bitmaps:\n"
                 "  format: 0x%lX\n"
                 "          (%s, %s,\n"
-                "           padding=%d bits, scanning=%d bits)\n",
+                "           padding=%d bit%s, scanning=%d bit%s)\n",
                 format,
                 PCF_BYTE_ORDER( format ) == MSBFirst
                   ? "most significant byte first"
@@ -849,7 +849,9 @@ THE SOFTWARE.
                   ? "most significant bit first"
                   : "least significant bit first",
                 8 << PCF_GLYPH_PAD_INDEX( format ),
-                8 << PCF_SCAN_UNIT_INDEX( format ) ));
+                ( 8 << PCF_GLYPH_PAD_INDEX( format ) ) == 1 ? "" : "s",
+                8 << PCF_SCAN_UNIT_INDEX( format ),
+                ( 8 << PCF_SCAN_UNIT_INDEX( format ) ) == 1 ? "" : "s" ));
 
     if ( !PCF_FORMAT_MATCH( format, PCF_DEFAULT_FORMAT ) )
       return FT_THROW( Invalid_File_Format );
@@ -1395,8 +1397,7 @@ THE SOFTWARE.
 
 
       root->face_flags |= FT_FACE_FLAG_FIXED_SIZES |
-                          FT_FACE_FLAG_HORIZONTAL  |
-                          FT_FACE_FLAG_FAST_GLYPHS;
+                          FT_FACE_FLAG_HORIZONTAL;
 
       if ( face->accel.constantWidth )
         root->face_flags |= FT_FACE_FLAG_FIXED_WIDTH;

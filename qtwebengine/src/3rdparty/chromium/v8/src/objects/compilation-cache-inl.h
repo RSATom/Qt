@@ -32,7 +32,7 @@ uint32_t CompilationCacheShape::StringSharedHash(String* source,
     // collection.
     Script* script(Script::cast(shared->script()));
     hash ^= String::cast(script->source())->Hash();
-    STATIC_ASSERT(LANGUAGE_END == 2);
+    STATIC_ASSERT(LanguageModeSize == 2);
     if (is_strict(language_mode)) hash ^= 0x8000;
     hash += position;
   }
@@ -44,7 +44,7 @@ uint32_t CompilationCacheShape::HashForObject(Isolate* isolate,
   if (object->IsNumber()) return static_cast<uint32_t>(object->Number());
 
   FixedArray* val = FixedArray::cast(object);
-  if (val->map() == val->GetHeap()->fixed_cow_array_map()) {
+  if (val->map() == val->GetReadOnlyRoots().fixed_cow_array_map()) {
     DCHECK_EQ(4, val->length());
     SharedFunctionInfo* shared = SharedFunctionInfo::cast(val->get(0));
     String* source = String::cast(val->get(1));

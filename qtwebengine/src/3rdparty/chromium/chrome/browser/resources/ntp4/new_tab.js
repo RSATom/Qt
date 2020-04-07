@@ -57,12 +57,10 @@ cr.define('ntp', function() {
   function NewTabView() {
     var pageSwitcherStart;
     var pageSwitcherEnd;
-    if (loadTimeData.getValue('showApps')) {
-      pageSwitcherStart = /** @type {!ntp.PageSwitcher} */ (
-          getRequiredElement('page-switcher-start'));
-      pageSwitcherEnd = /** @type {!ntp.PageSwitcher} */ (
-          getRequiredElement('page-switcher-end'));
-    }
+    pageSwitcherStart = /** @type {!ntp.PageSwitcher} */ (
+        getRequiredElement('page-switcher-start'));
+    pageSwitcherEnd = /** @type {!ntp.PageSwitcher} */ (
+        getRequiredElement('page-switcher-end'));
     this.initialize(
         getRequiredElement('page-list'), getRequiredElement('dot-list'),
         getRequiredElement('card-slider-frame'), getRequiredElement('trash'),
@@ -77,19 +75,7 @@ cr.define('ntp', function() {
    * Invoked at startup once the DOM is available to initialize the app.
    */
   function onLoad() {
-    sectionsToWaitFor = 0;
-    if (loadTimeData.getBoolean('showApps')) {
-      sectionsToWaitFor++;
-      if (loadTimeData.getBoolean('showAppLauncherPromo')) {
-        $('app-launcher-promo-close-button')
-            .addEventListener('click', function() {
-              chrome.send('stopShowingAppLauncherPromo');
-            });
-        $('apps-promo-learn-more').addEventListener('click', function() {
-          chrome.send('onLearnMore');
-        });
-      }
-    }
+    sectionsToWaitFor = 1;
     measureNavDots();
 
     newTabView = new NewTabView();
@@ -180,7 +166,6 @@ cr.define('ntp', function() {
 
   /**
    * Fired as each section of pages becomes ready.
-   * @param {Event} e Each page's synthetic DOM event.
    */
   document.addEventListener('sectionready', function(e) {
     if (--sectionsToWaitFor <= 0) {
@@ -264,6 +249,19 @@ cr.define('ntp', function() {
   }
 
   /**
+   * Set the dominant color for a node. This will be called in response to
+   * getFaviconDominantColor. The node represented by |id| better have a setter
+   * for stripeColor.
+   * @param {string} id The ID of a node.
+   * @param {string} color The color represented as a CSS string.
+   */
+  function setFaviconDominantColor(id, color) {
+    var node = $(id);
+    if (node)
+      node.stripeColor = color;
+  }
+
+  /**
    * Updates the text displayed in the login container. If there is no text then
    * the login container is hidden.
    * @param {string} loginHeader The first line of text.
@@ -286,7 +284,8 @@ cr.define('ntp', function() {
 
       var headerContainer = $('login-status-header-container');
       headerContainer.classList.toggle('login-status-icon', !!iconURL);
-      headerContainer.style.backgroundImage = iconURL ? url(iconURL) : 'none';
+      headerContainer.style.backgroundImage =
+          iconURL ? getUrlForCss(iconURL) : 'none';
     }
 
     if (shouldShowLoginBubble) {
@@ -434,6 +433,7 @@ cr.define('ntp', function() {
     saveAppPageName: saveAppPageName,
     setAppToBeHighlighted: setAppToBeHighlighted,
     setBookmarkBarAttached: setBookmarkBarAttached,
+    setFaviconDominantColor: setFaviconDominantColor,
     themeChanged: themeChanged,
     updateLogin: updateLogin
   };

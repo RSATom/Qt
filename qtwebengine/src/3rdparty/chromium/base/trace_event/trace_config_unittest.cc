@@ -56,7 +56,7 @@ const char kCustomTraceConfigString[] =
     "{"
     "\"min_time_between_dumps_ms\":1000,"
     "\"mode\":\"detailed\","
-    "\"type\":\"peak_memory_usage\""
+    "\"type\":\"periodic_interval\""
     "}"
     "]"
     "},"
@@ -634,16 +634,6 @@ TEST(TraceConfigTest, TraceConfigFromMemoryConfigString) {
   EXPECT_EQ(1u, tc3.memory_dump_config().triggers[0].min_time_between_dumps_ms);
   EXPECT_EQ(MemoryDumpLevelOfDetail::BACKGROUND,
             tc3.memory_dump_config().triggers[0].level_of_detail);
-
-  std::string tc_str4 =
-      TraceConfigMemoryTestUtil::GetTraceConfig_PeakDetectionTrigger(
-          1 /*heavy_period */);
-  TraceConfig tc4(tc_str4);
-  EXPECT_EQ(tc_str4, tc4.ToString());
-  ASSERT_EQ(1u, tc4.memory_dump_config().triggers.size());
-  EXPECT_EQ(1u, tc4.memory_dump_config().triggers[0].min_time_between_dumps_ms);
-  EXPECT_EQ(MemoryDumpLevelOfDetail::DETAILED,
-            tc4.memory_dump_config().triggers[0].level_of_detail);
 }
 
 TEST(TraceConfigTest, EmptyMemoryDumpConfigTest) {
@@ -653,8 +643,8 @@ TEST(TraceConfigTest, EmptyMemoryDumpConfigTest) {
             tc.ToString());
   EXPECT_EQ(0u, tc.memory_dump_config().triggers.size());
   EXPECT_EQ(
-      TraceConfig::MemoryDumpConfig::HeapProfiler ::
-          kDefaultBreakdownThresholdBytes,
+      static_cast<uint32_t>(TraceConfig::MemoryDumpConfig::HeapProfiler::
+                                kDefaultBreakdownThresholdBytes),
       tc.memory_dump_config().heap_profiler_options.breakdown_threshold_bytes);
 }
 
@@ -664,8 +654,8 @@ TEST(TraceConfigTest, LegacyStringToMemoryDumpConfig) {
   EXPECT_NE(std::string::npos, tc.ToString().find("memory_dump_config"));
   EXPECT_EQ(0u, tc.memory_dump_config().triggers.size());
   EXPECT_EQ(
-      TraceConfig::MemoryDumpConfig::HeapProfiler ::
-          kDefaultBreakdownThresholdBytes,
+      static_cast<uint32_t>(TraceConfig::MemoryDumpConfig::HeapProfiler::
+                                kDefaultBreakdownThresholdBytes),
       tc.memory_dump_config().heap_profiler_options.breakdown_threshold_bytes);
 }
 

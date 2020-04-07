@@ -153,7 +153,8 @@ gl::Error PixelTransfer11::copyBufferToTexture(const gl::Context *context,
            destArea.y >= 0 && destArea.y + destArea.height <= destSize.height &&
            destArea.z >= 0 && destArea.z + destArea.depth  <= destSize.depth  );
 
-    const gl::Buffer &sourceBuffer = *unpack.pixelBuffer.get();
+    const gl::Buffer &sourceBuffer =
+        *context->getGLState().getTargetBuffer(gl::BufferBinding::PixelUnpack);
 
     ASSERT(mRenderer->supportsFastCopyBufferToTexture(destinationFormat));
 
@@ -171,8 +172,8 @@ gl::Error PixelTransfer11::copyBufferToTexture(const gl::Context *context,
     DXGI_FORMAT srvFormat = sourceFormatInfo.srvFormat;
     ASSERT(srvFormat != DXGI_FORMAT_UNKNOWN);
     Buffer11 *bufferStorage11 = GetAs<Buffer11>(sourceBuffer.getImplementation());
-    ID3D11ShaderResourceView *bufferSRV = nullptr;
-    ANGLE_TRY_RESULT(bufferStorage11->getSRV(srvFormat), bufferSRV);
+    const d3d11::ShaderResourceView *bufferSRV = nullptr;
+    ANGLE_TRY_RESULT(bufferStorage11->getSRV(context, srvFormat), bufferSRV);
     ASSERT(bufferSRV != nullptr);
 
     const d3d11::RenderTargetView &textureRTV =
@@ -187,19 +188,19 @@ gl::Error PixelTransfer11::copyBufferToTexture(const gl::Context *context,
 
     // Are we doing a 2D or 3D copy?
     const auto *geometryShader = ((destSize.depth > 1) ? &mBufferToTextureGS : nullptr);
-    auto stateManager          = mRenderer->getStateManager();
+    StateManager11 *stateManager = mRenderer->getStateManager();
 
     stateManager->setDrawShaders(&mBufferToTextureVS, geometryShader, pixelShader);
-    stateManager->setShaderResource(gl::SAMPLER_PIXEL, 0, bufferSRV);
+    stateManager->setShaderResource(gl::ShaderType::Fragment, 0, bufferSRV);
     stateManager->setInputLayout(nullptr);
     stateManager->setPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_POINTLIST);
 
     stateManager->setSingleVertexBuffer(nullptr, 0, 0);
-    deviceContext->OMSetBlendState(nullptr, nullptr, 0xFFFFFFF);
-    deviceContext->OMSetDepthStencilState(mCopyDepthStencilState.get(), 0xFFFFFFFF);
-    deviceContext->RSSetState(mCopyRasterizerState.get());
+    stateManager->setSimpleBlendState(nullptr);
+    stateManager->setDepthStencilState(&mCopyDepthStencilState, 0xFFFFFFFF);
+    stateManager->setRasterizerState(&mCopyRasterizerState);
 
-    stateManager->setOneTimeRenderTarget(context, textureRTV.get(), nullptr);
+    stateManager->setRenderTarget(textureRTV.get(), nullptr);
 
     if (!StructEquals(mParamsData, shaderParams))
     {
@@ -207,29 +208,13 @@ gl::Error PixelTransfer11::copyBufferToTexture(const gl::Context *context,
         mParamsData = shaderParams;
     }
 
-    ID3D11Buffer *paramsBuffer = mParamsConstantBuffer.get();
-    deviceContext->VSSetConstantBuffers(0, 1, &paramsBuffer);
+    stateManager->setVertexConstantBuffer(0, &mParamsConstantBuffer);
 
     // Set the viewport
-    D3D11_VIEWPORT viewport;
-    viewport.TopLeftX = 0;
-    viewport.TopLeftY = 0;
-    viewport.Width = static_cast<FLOAT>(destSize.width);
-    viewport.Height = static_cast<FLOAT>(destSize.height);
-    viewport.MinDepth = 0.0f;
-    viewport.MaxDepth = 1.0f;
-    deviceContext->RSSetViewports(1, &viewport);
+    stateManager->setSimpleViewport(destSize);
 
     UINT numPixels = (destArea.width * destArea.height * destArea.depth);
     deviceContext->Draw(numPixels, 0);
-
-    // Unbind shader resources and invalidate state.
-    stateManager->setShaderResource(gl::SAMPLER_PIXEL, 0, nullptr);
-
-    ID3D11Buffer *nullBuffer = nullptr;
-    deviceContext->VSSetConstantBuffers(0, 1, &nullBuffer);
-
-    mRenderer->markAllStateDirty(context);
 
     return gl::NoError();
 }

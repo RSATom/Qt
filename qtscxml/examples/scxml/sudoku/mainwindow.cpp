@@ -50,15 +50,15 @@
 
 #include "mainwindow.h"
 
-#include <QStringListModel>
-#include <QScxmlStateMachine>
 #include <QComboBox>
-#include <QToolButton>
-#include <QLabel>
-#include <QGridLayout>
-#include <QFile>
 #include <QDir>
+#include <QFile>
+#include <QGridLayout>
+#include <QLabel>
+#include <QScxmlStateMachine>
+#include <QStringListModel>
 #include <QTextStream>
+#include <QToolButton>
 
 static int Size = 9;
 
@@ -114,7 +114,8 @@ MainWindow::MainWindow(QScxmlStateMachine *machine, QWidget *parent) :
     for (int i = 0; i < Size; i++) {
         for (int j = 0; j < Size; j++) {
             QToolButton *button = new QToolButton(this);
-            button->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+            button->setSizePolicy(QSizePolicy::Expanding,
+                                  QSizePolicy::Expanding);
             layout->addWidget(button, i + i / 3, j + j / 3);
             m_buttons[i][j] = button;
             connect(button, &QToolButton::clicked, [this, i, j] () {
@@ -139,7 +140,8 @@ MainWindow::MainWindow(QScxmlStateMachine *machine, QWidget *parent) :
     }
 
     m_startButton = new QToolButton(this);
-    m_startButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    m_startButton->setSizePolicy(QSizePolicy::Expanding,
+                                 QSizePolicy::Expanding);
     m_startButton->setText(tr("Start"));
     layout->addWidget(m_startButton, Size + 3, 0, 1, 3);
 
@@ -156,7 +158,8 @@ MainWindow::MainWindow(QScxmlStateMachine *machine, QWidget *parent) :
     layout->addWidget(m_label, Size + 3, 4, 1, 3);
 
     m_undoButton = new QToolButton(this);
-    m_undoButton->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    m_undoButton->setSizePolicy(QSizePolicy::Expanding,
+                                QSizePolicy::Expanding);
     m_undoButton->setText(tr("Undo"));
     m_undoButton->setEnabled(false);
     layout->addWidget(m_undoButton, Size + 3, 8, 1, 3);
@@ -170,9 +173,12 @@ MainWindow::MainWindow(QScxmlStateMachine *machine, QWidget *parent) :
     layout->addWidget(m_chooser, Size + 4, 0, 1, 11);
 
     QDir dataDir(QLatin1String(":/data"));
-    QFileInfoList sudokuFiles = dataDir.entryInfoList(QStringList() << "*.data");
-    foreach (const QFileInfo &sudokuFile, sudokuFiles)
-        m_chooser->addItem(sudokuFile.completeBaseName(), sudokuFile.absoluteFilePath());
+    QFileInfoList sudokuFiles = dataDir.entryInfoList(QStringList()
+                                                      << "*.data");
+    for (const QFileInfo &sudokuFile : sudokuFiles) {
+        m_chooser->addItem(sudokuFile.completeBaseName(),
+                           sudokuFile.absoluteFilePath());
+    }
 
     connect(m_chooser, QOverload<int>::of(&QComboBox::currentIndexChanged),
             [this] (int index) {
@@ -181,7 +187,8 @@ MainWindow::MainWindow(QScxmlStateMachine *machine, QWidget *parent) :
         m_machine->submitEvent("setup", initValues);
     });
 
-    const QVariantMap initValues = readSudoku(m_chooser->itemData(0).toString());
+    const QVariantMap initValues = readSudoku(
+                m_chooser->itemData(0).toString());
     m_machine->setInitialValues(initValues);
 
     m_machine->connectToState("playing", [this] (bool playing) {
@@ -206,7 +213,8 @@ MainWindow::MainWindow(QScxmlStateMachine *machine, QWidget *parent) :
     m_machine->connectToEvent("updateGUI", [this] (const QScxmlEvent &event) {
         const QVariant data = event.data();
 
-        const QVariantList currentRows = data.toMap().value("currentState").toList();
+        const QVariantList currentRows = data.toMap().value(
+                    "currentState").toList();
         for (int i = 0; i < currentRows.count(); i++) {
             const QVariantList row = currentRows.at(i).toList();
             for (int j = 0; j < row.count(); j++) {
@@ -223,7 +231,8 @@ MainWindow::MainWindow(QScxmlStateMachine *machine, QWidget *parent) :
             const QVariantList row = initRows.at(i).toList();
             for (int j = 0; j < row.count(); j++) {
                 const int value = row.at(j).toInt();
-                const bool enabled = !value && active; // enable only zeroes from initState
+                // enable only zeroes from initState
+                const bool enabled = !value && active;
                 m_buttons[i][j]->setEnabled(enabled);
             }
         }

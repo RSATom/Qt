@@ -82,8 +82,9 @@ bool QMakeProject::test(const ProKey &func, const QList<ProStringList> &args)
 {
     m_current.clear();
 
-    if (int func_t = statics.functions.value(func))
-        return boolRet(evaluateBuiltinConditional(func_t, func, prepareBuiltinArgs(args)));
+    auto adef = statics.functions.constFind(func);
+    if (adef != statics.functions.constEnd())
+        return boolRet(evaluateBuiltinConditional(*adef, func, prepareBuiltinArgs(args)));
 
     QHash<ProKey, ProFunctionDef>::ConstIterator it =
             m_functionDefs.testFunctions.constFind(func);
@@ -99,9 +100,10 @@ QStringList QMakeProject::expand(const ProKey &func, const QList<ProStringList> 
 {
     m_current.clear();
 
-    if (int func_t = statics.expands.value(func)) {
+    auto adef = statics.expands.constFind(func);
+    if (adef != statics.expands.constEnd()) {
         ProStringList ret;
-        if (evaluateBuiltinExpand(func_t, func, prepareBuiltinArgs(args), ret) == ReturnError)
+        if (evaluateBuiltinExpand(*adef, func, prepareBuiltinArgs(args), ret) == ReturnError)
             exit(3);
         return ret.toQStringList();
     }
@@ -123,7 +125,7 @@ QStringList QMakeProject::expand(const ProKey &func, const QList<ProStringList> 
 ProString QMakeProject::expand(const QString &expr, const QString &where, int line)
 {
     ProString ret;
-    ProFile *pro = m_parser->parsedProBlock(QStringRef(&expr), where, line,
+    ProFile *pro = m_parser->parsedProBlock(QStringRef(&expr), 0, where, line,
                                             QMakeParser::ValueGrammar);
     if (pro->isOk()) {
         m_current.pro = pro;

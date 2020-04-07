@@ -6,6 +6,8 @@
 
 #include "base/json/json_reader.h"
 #include "base/memory/ptr_util.h"
+#include "base/strings/string16.h"
+#include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
 #include "content/browser/devtools/protocol/protocol.h"
 
@@ -16,29 +18,29 @@ std::unique_ptr<protocol::Value> toProtocolValue(
     const base::Value* value, int depth) {
   if (!value || !depth)
     return nullptr;
-  if (value->IsType(base::Value::Type::NONE))
+  if (value->is_none())
     return protocol::Value::null();
-  if (value->IsType(base::Value::Type::BOOLEAN)) {
+  if (value->is_bool()) {
     bool inner;
     value->GetAsBoolean(&inner);
     return protocol::FundamentalValue::create(inner);
   }
-  if (value->IsType(base::Value::Type::INTEGER)) {
+  if (value->is_int()) {
     int inner;
     value->GetAsInteger(&inner);
     return protocol::FundamentalValue::create(inner);
   }
-  if (value->IsType(base::Value::Type::DOUBLE)) {
+  if (value->is_double()) {
     double inner;
     value->GetAsDouble(&inner);
     return protocol::FundamentalValue::create(inner);
   }
-  if (value->IsType(base::Value::Type::STRING)) {
+  if (value->is_string()) {
     std::string inner;
     value->GetAsString(&inner);
     return protocol::StringValue::create(inner);
   }
-  if (value->IsType(base::Value::Type::LIST)) {
+  if (value->is_list()) {
     const base::ListValue* list = nullptr;
     value->GetAsList(&list);
     std::unique_ptr<protocol::ListValue> result = protocol::ListValue::create();
@@ -52,7 +54,7 @@ std::unique_ptr<protocol::Value> toProtocolValue(
     }
     return std::move(result);
   }
-  if (value->IsType(base::Value::Type::DICTIONARY)) {
+  if (value->is_dict()) {
     const base::DictionaryValue* dictionary = nullptr;
     value->GetAsDictionary(&dictionary);
     std::unique_ptr<protocol::DictionaryValue> result =
@@ -74,7 +76,7 @@ std::unique_ptr<base::Value> toBaseValue(
   if (!value || !depth)
     return nullptr;
   if (value->type() == protocol::Value::TypeNull)
-    return base::MakeUnique<base::Value>();
+    return std::make_unique<base::Value>();
   if (value->type() == protocol::Value::TypeBoolean) {
     bool inner;
     value->asBoolean(&inner);
@@ -142,6 +144,16 @@ void StringBuilder::append(char c) {
 
 void StringBuilder::append(const char* characters, size_t length) {
   string_.append(characters, length);
+}
+
+// static
+void StringUtil::builderAppendQuotedString(StringBuilder& builder,
+                                           const String& str) {
+  builder.append('"');
+  base::string16 str16 = base::UTF8ToUTF16(str);
+  escapeWideStringForJSON(reinterpret_cast<const uint16_t*>(&str16[0]),
+                          str16.length(), &builder);
+  builder.append('"');
 }
 
 std::string StringBuilder::toString() {

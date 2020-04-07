@@ -90,6 +90,9 @@ QOrbitCameraControllerPrivate::QOrbitCameraControllerPrivate()
         \li Alt key
         \li Changes the behovior of the arrow keys to pan and tilt the camera around the view
         center. Disables the page up and page down keys.
+    \row
+        \li Escape
+        \li Moves the camera so that entire scene is visible in the camera viewport.
     \endtable
 */
 
@@ -183,7 +186,7 @@ void QOrbitCameraController::moveCamera(const QAbstractCameraController::InputSt
     } else if (state.shiftKeyActive) {
         if (zoomDistance(camera()->position(), theCamera->viewCenter()) > d->m_zoomInLimit * d->m_zoomInLimit) {
             // Dolly
-            theCamera->translate(QVector3D(0, 0, state.tyAxisValue * linearSpeed() * dt), theCamera->DontTranslateViewCenter);
+            theCamera->translate(QVector3D(0, 0, state.tzAxisValue * linearSpeed() * dt), theCamera->DontTranslateViewCenter);
         } else {
             theCamera->translate(QVector3D(0, 0, -0.5), theCamera->DontTranslateViewCenter);
         }

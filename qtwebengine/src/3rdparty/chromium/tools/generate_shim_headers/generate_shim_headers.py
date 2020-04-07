@@ -18,8 +18,8 @@ import sys
 
 
 SHIM_TEMPLATE = """
-#if defined(OFFICIAL_BUILD)
-#error shim headers must not be used in official builds!
+#if defined(GOOGLE_CHROME_BUILD) && defined(OFFICIAL_BUILD)
+#error shim headers must not be used in official Chrome builds!
 #endif
 """
 

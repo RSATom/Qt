@@ -5,6 +5,7 @@
 #include "chrome/browser/ui/webui/media_router/media_router_localized_strings_provider.h"
 
 #include "chrome/grit/generated_resources.h"
+#include "components/strings/grit/components_strings.h"
 #include "content/public/browser/web_ui_data_source.h"
 
 namespace {
@@ -15,7 +16,7 @@ const char kLocalizedStringsFile[] = "strings.js";
 
 void AddMediaRouterStrings(content::WebUIDataSource* html_source) {
   html_source->AddLocalizedString("mediaRouterTitle", IDS_MEDIA_ROUTER_TITLE);
-  html_source->AddLocalizedString("learnMoreText", IDS_MEDIA_ROUTER_LEARN_MORE);
+  html_source->AddLocalizedString("learnMoreText", IDS_LEARN_MORE);
   html_source->AddLocalizedString("backButtonTitle",
                                   IDS_MEDIA_ROUTER_BACK_BUTTON_TITLE);
   html_source->AddLocalizedString("closeButtonTitle",
@@ -49,6 +50,28 @@ void AddRouteDetailsStrings(content::WebUIDataSource* html_source) {
                                   IDS_MEDIA_ROUTER_ROUTE_DETAILS_SEEK_TITLE);
   html_source->AddLocalizedString("volumeTitle",
                                   IDS_MEDIA_ROUTER_ROUTE_DETAILS_VOLUME_TITLE);
+  html_source->AddLocalizedString(
+      "currentTimeLabel", IDS_MEDIA_ROUTER_ROUTE_DETAILS_CURRENT_TIME_LABEL);
+  html_source->AddLocalizedString(
+      "durationLabel", IDS_MEDIA_ROUTER_ROUTE_DETAILS_DURATION_LABEL);
+  html_source->AddLocalizedString(
+      "hangoutsLocalPresentTitle",
+      IDS_MEDIA_ROUTER_ROUTE_DETAILS_HANGOUTS_LOCAL_PRESENT_TITLE);
+  html_source->AddLocalizedString(
+      "hangoutsLocalPresentSubtitle",
+      IDS_MEDIA_ROUTER_ROUTE_DETAILS_HANGOUTS_LOCAL_PRESENT_SUBTITLE);
+  html_source->AddLocalizedString(
+      "alwaysUseMirroringTitle",
+      IDS_MEDIA_ROUTER_ROUTE_DETAILS_ALWAYS_USE_MIRRORING_TITLE);
+  html_source->AddLocalizedString(
+      "fullscreenVideosDropdownTitle",
+      IDS_MEDIA_ROUTER_ROUTE_DETAILS_FULLSCREEN_VIDEOS_DROPDOWN_TITLE);
+  html_source->AddLocalizedString(
+      "fullscreenVideosRemoteScreen",
+      IDS_MEDIA_ROUTER_ROUTE_DETAILS_FULLSCREEN_VIDEOS_REMOTE_SCREEN);
+  html_source->AddLocalizedString(
+      "fullscreenVideosBothScreens",
+      IDS_MEDIA_ROUTER_ROUTE_DETAILS_FULLSCREEN_VIDEOS_BOTH_SCREENS);
 }
 
 void AddIssuesStrings(content::WebUIDataSource* html_source) {

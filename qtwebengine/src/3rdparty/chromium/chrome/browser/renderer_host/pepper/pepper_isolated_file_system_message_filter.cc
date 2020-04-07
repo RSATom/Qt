@@ -16,7 +16,7 @@
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/child_process_security_policy.h"
 #include "content/public/browser/render_view_host.h"
-#include "extensions/features/features.h"
+#include "extensions/buildflags/buildflags.h"
 #include "ppapi/c/pp_errors.h"
 #include "ppapi/host/dispatch_host_message.h"
 #include "ppapi/host/host_message_context.h"
@@ -31,8 +31,6 @@
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_set.h"
 #endif
-
-namespace chrome {
 
 namespace {
 
@@ -200,5 +198,3 @@ int32_t PepperIsolatedFileSystemMessageFilter::OpenPluginPrivateFileSystem(
   context->reply_msg = PpapiPluginMsg_IsolatedFileSystem_BrowserOpenReply(fsid);
   return PP_OK;
 }
-
-}  // namespace chrome

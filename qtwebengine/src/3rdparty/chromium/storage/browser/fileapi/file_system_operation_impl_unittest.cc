@@ -8,6 +8,8 @@
 #include <stdint.h>
 
 #include <memory>
+#include <string>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/files/file_util.h"
@@ -16,10 +18,11 @@
 #include "base/macros.h"
 #include "base/memory/ptr_util.h"
 #include "base/memory/weak_ptr.h"
-#include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
+#include "base/test/scoped_task_environment.h"
 #include "base/threading/thread_task_runner_handle.h"
+#include "components/services/filesystem/public/interfaces/types.mojom.h"
 #include "storage/browser/blob/shareable_file_reference.h"
 #include "storage/browser/fileapi/file_system_context.h"
 #include "storage/browser/fileapi/file_system_file_util.h"
@@ -53,7 +56,10 @@ namespace content {
 class FileSystemOperationImplTest
     : public testing::Test {
  public:
-  FileSystemOperationImplTest() : weak_factory_(this) {}
+  FileSystemOperationImplTest()
+      : scoped_task_environment_(
+            base::test::ScopedTaskEnvironment::MainThreadType::IO),
+        weak_factory_(this) {}
 
  protected:
   void SetUp() override {
@@ -66,7 +72,6 @@ class FileSystemOperationImplTest
     base::FilePath base_dir = base_.GetPath().AppendASCII("filesystem");
     quota_manager_ =
         new MockQuotaManager(false /* is_incognito */, base_dir,
-                             base::ThreadTaskRunnerHandle::Get().get(),
                              base::ThreadTaskRunnerHandle::Get().get(),
                              NULL /* special storage policy */);
     quota_manager_proxy_ = new MockQuotaManagerProxy(
@@ -91,7 +96,7 @@ class FileSystemOperationImplTest
 
   const base::File::Info& info() const { return info_; }
   const base::FilePath& path() const { return path_; }
-  const std::vector<storage::DirectoryEntry>& entries() const {
+  const std::vector<filesystem::mojom::DirectoryEntry>& entries() const {
     return entries_;
   }
 
@@ -179,12 +184,11 @@ class FileSystemOperationImplTest
   }
 
   FileSystemOperation::ReadDirectoryCallback RecordReadDirectoryCallback(
-      const base::Closure& closure,
+      base::RepeatingClosure closure,
       base::File::Error* status) {
-    return base::Bind(&FileSystemOperationImplTest::DidReadDirectory,
-                      weak_factory_.GetWeakPtr(),
-                      closure,
-                      status);
+    return base::BindRepeating(&FileSystemOperationImplTest::DidReadDirectory,
+                               weak_factory_.GetWeakPtr(), std::move(closure),
+                               status);
   }
 
   FileSystemOperation::GetMetadataCallback RecordMetadataCallback(
@@ -212,12 +216,12 @@ class FileSystemOperationImplTest
     closure.Run();
   }
 
-  void DidReadDirectory(const base::Closure& closure,
+  void DidReadDirectory(base::RepeatingClosure closure,
                         base::File::Error* status,
                         base::File::Error actual,
-                        const std::vector<storage::DirectoryEntry>& entries,
+                        std::vector<filesystem::mojom::DirectoryEntry> entries,
                         bool /* has_more */) {
-    entries_ = entries;
+    entries_ = std::move(entries);
     *status = actual;
     closure.Run();
   }
@@ -237,11 +241,11 @@ class FileSystemOperationImplTest
       base::File::Error actual,
       const base::File::Info& info,
       const base::FilePath& platform_path,
-      const scoped_refptr<ShareableFileReference>& shareable_file_ref) {
+      scoped_refptr<ShareableFileReference> shareable_file_ref) {
     info_ = info;
     path_ = platform_path;
     *status = actual;
-    shareable_file_ref_ = shareable_file_ref;
+    shareable_file_ref_ = std::move(shareable_file_ref);
     closure.Run();
   }
 
@@ -251,14 +255,12 @@ class FileSystemOperationImplTest
   }
 
   void GetUsageAndQuota(int64_t* usage, int64_t* quota) {
-    storage::QuotaStatusCode status =
-        AsyncFileTestHelper::GetUsageAndQuota(quota_manager_.get(),
-                                              sandbox_file_system_.origin(),
-                                              sandbox_file_system_.type(),
-                                              usage,
-                                              quota);
-    base::RunLoop().RunUntilIdle();
-    ASSERT_EQ(storage::kQuotaStatusOk, status);
+    blink::mojom::QuotaStatusCode status =
+        AsyncFileTestHelper::GetUsageAndQuota(
+            quota_manager_.get(), sandbox_file_system_.origin(),
+            sandbox_file_system_.type(), usage, quota);
+    scoped_task_environment_.RunUntilIdle();
+    ASSERT_EQ(blink::mojom::QuotaStatusCode::kOk, status);
   }
 
   int64_t ComputePathCost(const FileSystemURL& url) {
@@ -463,8 +465,9 @@ class FileSystemOperationImplTest
     return status;
   }
 
+  base::test::ScopedTaskEnvironment scoped_task_environment_;
+
  private:
-  base::MessageLoopForIO message_loop_;
   scoped_refptr<QuotaManager> quota_manager_;
   scoped_refptr<QuotaManagerProxy> quota_manager_proxy_;
 
@@ -476,7 +479,7 @@ class FileSystemOperationImplTest
   // For post-operation status.
   base::File::Info info_;
   base::FilePath path_;
-  std::vector<storage::DirectoryEntry> entries_;
+  std::vector<filesystem::mojom::DirectoryEntry> entries_;
   scoped_refptr<ShareableFileReference> shareable_file_ref_;
 
   storage::MockFileChangeObserver change_observer_;
@@ -1018,10 +1021,10 @@ TEST_F(FileSystemOperationImplTest, TestReadDirSuccess) {
   EXPECT_EQ(2u, entries().size());
 
   for (size_t i = 0; i < entries().size(); ++i) {
-    if (entries()[i].is_directory)
-      EXPECT_EQ(FILE_PATH_LITERAL("child_dir"), entries()[i].name);
+    if (entries()[i].type == filesystem::mojom::FsFileType::DIRECTORY)
+      EXPECT_EQ(FILE_PATH_LITERAL("child_dir"), entries()[i].name.value());
     else
-      EXPECT_EQ(FILE_PATH_LITERAL("child_file"), entries()[i].name);
+      EXPECT_EQ(FILE_PATH_LITERAL("child_file"), entries()[i].name.value());
   }
   EXPECT_EQ(1, quota_manager_proxy()->notify_storage_accessed_count());
   EXPECT_TRUE(change_observer()->HasNoChange());

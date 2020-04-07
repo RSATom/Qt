@@ -32,17 +32,24 @@ class MojoAudioDecoder : public AudioDecoder, public mojom::AudioDecoderClient {
 
   // AudioDecoder implementation.
   std::string GetDisplayName() const final;
-  void Initialize(const AudioDecoderConfig& config,
-                  CdmContext* cdm_context,
-                  const InitCB& init_cb,
-                  const OutputCB& output_cb) final;
-  void Decode(const scoped_refptr<DecoderBuffer>& buffer,
+  bool IsPlatformDecoder() const final;
+  void Initialize(
+      const AudioDecoderConfig& config,
+      CdmContext* cdm_context,
+      const InitCB& init_cb,
+      const OutputCB& output_cb,
+      const WaitingForDecryptionKeyCB& waiting_for_decryption_key_cb) final;
+  void Decode(scoped_refptr<DecoderBuffer> buffer,
               const DecodeCB& decode_cb) final;
   void Reset(const base::Closure& closure) final;
   bool NeedsBitstreamConversion() const final;
 
   // AudioDecoderClient implementation.
   void OnBufferDecoded(mojom::AudioBufferPtr buffer) final;
+
+  void set_writer_capacity_for_testing(uint32_t capacity) {
+    writer_capacity_ = capacity;
+  }
 
  private:
   void BindRemoteDecoder();
@@ -70,6 +77,8 @@ class MojoAudioDecoder : public AudioDecoder, public mojom::AudioDecoderClient {
   mojom::AudioDecoderPtr remote_decoder_;
 
   std::unique_ptr<MojoDecoderBufferWriter> mojo_decoder_buffer_writer_;
+
+  uint32_t writer_capacity_ = 0;
 
   // Binding for AudioDecoderClient, bound to the |task_runner_|.
   mojo::AssociatedBinding<AudioDecoderClient> client_binding_;

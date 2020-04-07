@@ -1,18 +1,9 @@
-QT += quick-private positioning-private qml-private core-private
+QT += quick-private positioning-private positioningquick-private qml-private core-private
 
 INCLUDEPATH *= $$PWD
 
-HEADERS += qdeclarativeposition_p.h \
-           qdeclarativepositionsource_p.h \
-           locationsingleton.h \
-           qquickgeocoordinateanimation_p.h \
-           qquickgeocoordinateanimation_p_p.h
-
-SOURCES += qdeclarativeposition.cpp \
-           positioning.cpp \
-           qdeclarativepositionsource.cpp \
-           locationsingleton.cpp \
-           qquickgeocoordinateanimation.cpp
+HEADERS += $$files(*.h)
+SOURCES += $$files(*.cpp)
 
 load(qml_plugin)
 

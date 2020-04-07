@@ -37,6 +37,57 @@
         "type": "string",
         "enum": [ "click", "swipeLeft1", "swipeUp1", "swipeRight1", "swipeDown1", "swipeLeft2", "swipeUp2", "swipeRight2", "swipeDown2", "swipeLeft3", "swipeUp3", "swipeRight3", "swipeDown3", "swipeLeft4", "swipeUp4", "swipeRight4", "swipeDown4" ],
         "description": "Accessibility gestures fired by the touch exploration controller."
+      },
+      {
+        "id": "SyntheticKeyboardEventType",
+        "type": "string",
+        "description": "The event to send",
+        "enum": ["keyup", "keydown"]
+      },
+      {
+        "id": "SyntheticKeyboardModifiers",
+        "type": "object",
+        "properties": {
+          "ctrl": {
+            "type": "boolean",
+            "description": "Control modifier.",
+            "optional": true
+          },
+          "alt": {
+            "type": "boolean",
+            "description": "alt modifier.",
+            "optional": true
+          },
+          "search": {
+            "type": "boolean",
+            "description": "search modifier.",
+            "optional": true
+          },
+          "shift": {
+            "type": "boolean",
+            "description": "shift modifier.",
+            "optional": true
+          }
+        }
+      },
+      {
+        "id": "SyntheticKeyboardEvent",
+        "type": "object",
+        "properties": {
+          "type": {"$ref": "SyntheticKeyboardEventType"},
+          "keyCode": {"type": "integer", "description": "Virtual key code, which is independent of the keyboard layout or modifier state."},
+          "modifiers": {
+            "$ref": "SyntheticKeyboardModifiers",
+            "optional": true,
+            "description": "Contains all active modifiers."
+          }
+        }
+      },
+      {
+        "id": "SelectToSpeakState",
+        "type": "string",
+        "description": "The state of the Select-to-Speak extension",
+        "enum": ["selecting", "speaking", "inactive"]
       }
     ],
     "functions": [
@@ -55,7 +106,7 @@
       {
         "name": "setFocusRing",
         "type": "function",
-        "description": "Set the bounds of the accessibility focus ring.",
+        "description": "Sets the bounds of the accessibility focus ring.",
         "parameters": [
           {
             "name": "rects",
@@ -68,6 +119,24 @@
             "type": "string",
             "description": "CSS-style hex color string beginning with # like #FF9982 or #EEE.",
             "optional": true
+          }
+        ]
+      },
+      {
+        "name": "setHighlights",
+        "type": "function",
+        "description": "Sets the bounds of the accessibility highlight.",
+        "parameters": [
+          {
+            "name": "rects",
+            "type": "array",
+            "items": { "$ref": "ScreenRect" },
+            "description": "Array of rectangles to draw the highlight around."
+          },
+          {
+            "name": "color",
+            "type": "string",
+            "description": "CSS-style hex color string beginning with # like #FF9982 or #EEE."
           }
         ]
       },
@@ -118,6 +187,44 @@
           }
         ],
         "platforms": ["chromeos"]
+      },
+      {
+        "name": "setNativeChromeVoxArcSupportForCurrentApp",
+        "type": "function",
+        "description": "Sets current ARC app to use native ARC support.",
+        "parameters": [
+          {
+            "name": "enabled",
+            "type": "boolean",
+            "description": "True for ChromeVox (native), false for TalkBack."
+          }
+        ],
+        "platforms": ["chromeos"]
+      },
+      {
+        "name": "sendSyntheticKeyEvent",
+        "type": "function",
+        "description": "Sends a fabricated key event.",
+        "parameters": [
+          {
+            "name": "keyEvent",
+            "$ref": "SyntheticKeyboardEvent",
+            "description": "The event to send."
+          }
+        ],
+        "platforms": ["chromeos"]
+      },
+      {
+        "name": "onSelectToSpeakStateChanged",
+        "type": "function",
+        "description": "Called by the Select-to-Speak extension when Select-to-Speak has changed states, between selecting with the mouse, speaking, and inactive.",
+        "parameters": [
+          {
+            "name": "state",
+            "$ref": "SelectToSpeakState"
+          }
+        ],
+        "platforms": ["chromeos"]
       }
     ],
     "events": [
@@ -146,8 +253,15 @@
       {
         "name": "onTwoFingerTouchStop",
         "type": "function",
-        "description": "Fired when  the user is no longer holding down two fingers (including releasing one, holding down three, or moving them).",
+        "description": "Fired when the user is no longer holding down two fingers (including releasing one, holding down three, or moving them).",
         "parameters": []
+      },
+      {
+        "name": "onSelectToSpeakStateChangeRequested",
+        "type": "function",
+        "description": "Called when Chrome OS wants to change the Select-to-Speak state, between selecting with the mouse, speaking, and inactive.",
+        "parameters": [],
+        "platforms": ["chromeos"]
       }
     ]
   }

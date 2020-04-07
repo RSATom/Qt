@@ -61,9 +61,12 @@ namespace glslang {
         bool acceptFullySpecifiedType(TType&);
         void acceptQualifier(TQualifier&);
         bool acceptType(TType&);
+        bool acceptStruct(TType&);
+        bool acceptStructDeclarationList(TTypeList*&);
         bool acceptFunctionParameters(TFunction&);
         bool acceptParameterDeclaration(TFunction&);
         bool acceptFunctionDefinition(TFunction&, TIntermNode*&);
+        bool acceptParenExpression(TIntermTyped*&);
         bool acceptExpression(TIntermTyped*&);
         bool acceptAssignmentExpression(TIntermTyped*&);
         bool acceptBinaryExpression(TIntermTyped*&, PrecedenceLevel);
@@ -71,11 +74,20 @@ namespace glslang {
         bool acceptPostfixExpression(TIntermTyped*&);
         bool acceptConstructor(TIntermTyped*&);
         bool acceptFunctionCall(HlslToken, TIntermTyped*&);
-        bool acceptArguments(TFunction*, TIntermAggregate*&);
+        bool acceptArguments(TFunction*, TIntermTyped*&);
         bool acceptLiteral(TIntermTyped*&);
-        bool acceptCompoundStatement(TIntermAggregate*&);
+        bool acceptCompoundStatement(TIntermNode*&);
         bool acceptStatement(TIntermNode*&);
-        bool acceptSemantic();
+        bool acceptScopedStatement(TIntermNode*&);
+        bool acceptScopedCompoundStatement(TIntermNode*&);
+        bool acceptNestedStatement(TIntermNode*&);
+        void acceptAttributes();
+        bool acceptSelectionStatement(TIntermNode*&);
+        bool acceptSwitchStatement(TIntermNode*&);
+        bool acceptIterationStatement(TIntermNode*&);
+        bool acceptJumpStatement(TIntermNode*&);
+        bool acceptCaseLabel(TIntermNode*&);
+        void acceptPostDecls(TType&);
 
         HlslParseContext& parseContext;  // state of parsing and helper functions for building the intermediate
         TIntermediate& intermediate;     // the final product, the intermediate representation, includes the AST

@@ -10,26 +10,31 @@
 #include <algorithm>
 #include <memory>
 #include <string>
+#include <tuple>
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
 #include "base/logging.h"
 #include "base/memory/ref_counted.h"
+#include "base/test/scoped_feature_list.h"
 #include "base/time/time.h"
 #include "media/base/audio_decoder_config.h"
 #include "media/base/decoder_buffer.h"
+#include "media/base/media_switches.h"
 #include "media/base/media_track.h"
 #include "media/base/media_tracks.h"
 #include "media/base/mock_media_log.h"
 #include "media/base/stream_parser.h"
 #include "media/base/stream_parser_buffer.h"
 #include "media/base/test_data_util.h"
+#include "media/base/test_helpers.h"
 #include "media/base/text_track_config.h"
 #include "media/base/video_decoder_config.h"
 #include "media/formats/mp4/es_descriptor.h"
 #include "media/formats/mp4/fourccs.h"
-#include "media/media_features.h"
+#include "media/media_buildflags.h"
 #include "testing/gmock/include/gmock/gmock.h"
+#include "testing/gtest/include/gtest/gtest-param-test.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using ::testing::InSequence;
@@ -56,7 +61,7 @@ class MP4StreamParserTest : public testing::Test {
             DecodeTimestamp::FromPresentationTime(base::TimeDelta::Max())) {
     std::set<int> audio_object_types;
     audio_object_types.insert(kISO_14496_3);
-    parser_.reset(new MP4StreamParser(audio_object_types, false));
+    parser_.reset(new MP4StreamParser(audio_object_types, false, false));
   }
 
  protected:
@@ -91,12 +96,9 @@ class MP4StreamParserTest : public testing::Test {
 
   void InitF(const StreamParser::InitParameters& expected_params,
              const StreamParser::InitParameters& params) {
-    DVLOG(1) << "InitF: dur=" << params.duration.InMicroseconds()
-             << ", autoTimestampOffset=" << params.auto_update_timestamp_offset;
+    DVLOG(1) << "InitF: dur=" << params.duration.InMicroseconds();
     EXPECT_EQ(expected_params.duration, params.duration);
     EXPECT_EQ(expected_params.timeline_offset, params.timeline_offset);
-    EXPECT_EQ(expected_params.auto_update_timestamp_offset,
-              params.auto_update_timestamp_offset);
     EXPECT_EQ(expected_params.liveness, params.liveness);
     EXPECT_EQ(expected_params.detected_audio_track_count,
               params.detected_audio_track_count);
@@ -183,15 +185,20 @@ class MP4StreamParserTest : public testing::Test {
 
   void InitializeParserWithInitParametersExpectations(
       StreamParser::InitParameters params) {
-    parser_->Init(
-        base::Bind(&MP4StreamParserTest::InitF, base::Unretained(this), params),
-        base::Bind(&MP4StreamParserTest::NewConfigF, base::Unretained(this)),
-        base::Bind(&MP4StreamParserTest::NewBuffersF, base::Unretained(this)),
-        true,
-        base::Bind(&MP4StreamParserTest::KeyNeededF, base::Unretained(this)),
-        base::Bind(&MP4StreamParserTest::NewSegmentF, base::Unretained(this)),
-        base::Bind(&MP4StreamParserTest::EndOfSegmentF, base::Unretained(this)),
-        &media_log_);
+    parser_->Init(base::BindOnce(&MP4StreamParserTest::InitF,
+                                 base::Unretained(this), params),
+                  base::BindRepeating(&MP4StreamParserTest::NewConfigF,
+                                      base::Unretained(this)),
+                  base::BindRepeating(&MP4StreamParserTest::NewBuffersF,
+                                      base::Unretained(this)),
+                  true,
+                  base::BindRepeating(&MP4StreamParserTest::KeyNeededF,
+                                      base::Unretained(this)),
+                  base::BindRepeating(&MP4StreamParserTest::NewSegmentF,
+                                      base::Unretained(this)),
+                  base::BindRepeating(&MP4StreamParserTest::EndOfSegmentF,
+                                      base::Unretained(this)),
+                  &media_log_);
   }
 
   StreamParser::InitParameters GetDefaultInitParametersExpectations() {
@@ -284,7 +291,7 @@ TEST_F(MP4StreamParserTest, MPEG2_AAC_LC) {
   InSequence s;
   std::set<int> audio_object_types;
   audio_object_types.insert(kISO_13818_7_AAC_LC);
-  parser_.reset(new MP4StreamParser(audio_object_types, false));
+  parser_.reset(new MP4StreamParser(audio_object_types, false, false));
   auto params = GetDefaultInitParametersExpectations();
   params.detected_video_track_count = 0;
   InitializeParserWithInitParametersExpectations(params);
@@ -343,7 +350,7 @@ TEST_F(MP4StreamParserTest, HEVC_in_MP4_container) {
   bool expect_success = true;
 #else
   bool expect_success = false;
-  EXPECT_MEDIA_LOG(ErrorLog("Parse unsupported video format hev1"));
+  EXPECT_MEDIA_LOG(ErrorLog("Unsupported VisualSampleEntry type hev1"));
 #endif
   auto params = GetDefaultInitParametersExpectations();
   params.duration = base::TimeDelta::FromMicroseconds(1002000);
@@ -421,7 +428,7 @@ TEST_F(MP4StreamParserTest, NaturalSizeWithPASP) {
 TEST_F(MP4StreamParserTest, DemuxingAC3) {
   std::set<int> audio_object_types;
   audio_object_types.insert(kAC3);
-  parser_.reset(new MP4StreamParser(audio_object_types, false));
+  parser_.reset(new MP4StreamParser(audio_object_types, false, false));
 
 #if BUILDFLAG(ENABLE_AC3_EAC3_AUDIO_DEMUXING)
   bool expect_success = true;
@@ -445,7 +452,7 @@ TEST_F(MP4StreamParserTest, DemuxingAC3) {
 TEST_F(MP4StreamParserTest, DemuxingEAC3) {
   std::set<int> audio_object_types;
   audio_object_types.insert(kEAC3);
-  parser_.reset(new MP4StreamParser(audio_object_types, false));
+  parser_.reset(new MP4StreamParser(audio_object_types, false, false));
 
 #if BUILDFLAG(ENABLE_AC3_EAC3_AUDIO_DEMUXING)
   bool expect_success = true;
@@ -464,6 +471,33 @@ TEST_F(MP4StreamParserTest, DemuxingEAC3) {
       ReadTestDataFile("bear-eac3-only-frag.mp4");
   EXPECT_EQ(expect_success,
             AppendDataInPieces(buffer->data(), buffer->data_size(), 512));
+}
+
+TEST_F(MP4StreamParserTest, Flac) {
+  parser_.reset(new MP4StreamParser(std::set<int>(), false, true));
+
+  auto params = GetDefaultInitParametersExpectations();
+  params.detected_video_track_count = 0;
+  InitializeParserWithInitParametersExpectations(params);
+
+  scoped_refptr<DecoderBuffer> buffer = ReadTestDataFile("bear-flac_frag.mp4");
+  EXPECT_TRUE(AppendDataInPieces(buffer->data(), buffer->data_size(), 512));
+}
+
+TEST_F(MP4StreamParserTest, Flac192kHz) {
+  parser_.reset(new MP4StreamParser(std::set<int>(), false, true));
+
+  auto params = GetDefaultInitParametersExpectations();
+  params.detected_video_track_count = 0;
+
+  // 192kHz exceeds the range of AudioSampleEntry samplerate. The correct
+  // samplerate should be applied from the dfLa STREAMINFO metadata block.
+  EXPECT_MEDIA_LOG(FlacAudioSampleRateOverriddenByStreaminfo("0", "192000"));
+  InitializeParserWithInitParametersExpectations(params);
+
+  scoped_refptr<DecoderBuffer> buffer =
+      ReadTestDataFile("bear-flac-192kHz_frag.mp4");
+  EXPECT_TRUE(AppendDataInPieces(buffer->data(), buffer->data_size(), 512));
 }
 
 TEST_F(MP4StreamParserTest, FourCCToString) {
@@ -547,6 +581,56 @@ TEST_F(MP4StreamParserTest, MultiTrackFile) {
   EXPECT_EQ(audio_track2.label(), "SoundHandler");
   EXPECT_EQ(audio_track2.language(), "und");
 }
+
+// <cos(θ), sin(θ), θ expressed as a rotation Enum>
+using MatrixRotationTestCaseParam = std::tuple<double, double, VideoRotation>;
+
+class MP4StreamParserRotationMatrixEvaluatorTest
+    : public ::testing::TestWithParam<MatrixRotationTestCaseParam> {
+ public:
+  MP4StreamParserRotationMatrixEvaluatorTest() {
+    std::set<int> audio_object_types;
+    audio_object_types.insert(kISO_14496_3);
+    parser_.reset(new MP4StreamParser(audio_object_types, false, false));
+  }
+
+ protected:
+  std::unique_ptr<MP4StreamParser> parser_;
+};
+
+TEST_P(MP4StreamParserRotationMatrixEvaluatorTest, RotationCalculation) {
+  TrackHeader track_header;
+  MovieHeader movie_header;
+
+  // Identity matrix, with 16.16 and 2.30 fixed points.
+  uint32_t identity_matrix[9] = {1 << 16, 0, 0, 0, 1 << 16, 0, 0, 0, 1 << 30};
+
+  memcpy(movie_header.display_matrix, identity_matrix, sizeof(identity_matrix));
+  memcpy(track_header.display_matrix, identity_matrix, sizeof(identity_matrix));
+
+  MatrixRotationTestCaseParam data = GetParam();
+
+  // Insert fixed point decimal data into the rotation matrix.
+  track_header.display_matrix[0] = std::get<0>(data) * (1 << 16);
+  track_header.display_matrix[4] = std::get<0>(data) * (1 << 16);
+  track_header.display_matrix[1] = -(std::get<1>(data) * (1 << 16));
+  track_header.display_matrix[3] = std::get<1>(data) * (1 << 16);
+
+  EXPECT_EQ(parser_->CalculateRotation(track_header, movie_header),
+            std::get<2>(data));
+}
+
+MatrixRotationTestCaseParam rotation_test_cases[6] = {
+    {1, 0, VIDEO_ROTATION_0},     // cos(0)  = 1, sin(0)  = 0
+    {0, -1, VIDEO_ROTATION_90},   // cos(90) = 0, sin(90) =-1
+    {-1, 0, VIDEO_ROTATION_180},  // cos(180)=-1, sin(180)= 0
+    {0, 1, VIDEO_ROTATION_270},   // cos(270)= 0, sin(270)= 1
+    {1, 1, VIDEO_ROTATION_0},     // Error case
+    {5, 5, VIDEO_ROTATION_0},     // Error case
+};
+INSTANTIATE_TEST_CASE_P(CheckMath,
+                        MP4StreamParserRotationMatrixEvaluatorTest,
+                        testing::ValuesIn(rotation_test_cases));
 
 }  // namespace mp4
 }  // namespace media

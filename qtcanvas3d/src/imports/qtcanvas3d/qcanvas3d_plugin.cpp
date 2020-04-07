@@ -41,20 +41,12 @@
 
 #include <QtQml/qqml.h>
 
-static void initResources()
-{
-#ifdef QT_STATIC
-    Q_INIT_RESOURCE(qmake_QtCanvas3D);
-#endif
-}
-
 QT_BEGIN_NAMESPACE
 
 QT_CANVAS3D_BEGIN_NAMESPACE
 
 QtCanvas3DPlugin::QtCanvas3DPlugin(QObject *parent) : QQmlExtensionPlugin(parent)
 {
-    initResources();
 }
 
 void QtCanvas3DPlugin::registerTypes(const char *uri)

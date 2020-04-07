@@ -32,6 +32,9 @@ class RenderTargetD3D;
 
 struct ClearParameters
 {
+    ClearParameters();
+    ClearParameters(const ClearParameters &other);
+
     bool clearColor[gl::IMPLEMENTATION_MAX_DRAW_BUFFERS];
     gl::ColorF colorF;
     gl::ColorI colorI;
@@ -57,7 +60,7 @@ class FramebufferD3D : public FramebufferImpl
 {
   public:
     FramebufferD3D(const gl::FramebufferState &data, RendererD3D *renderer);
-    virtual ~FramebufferD3D();
+    ~FramebufferD3D() override;
 
     gl::Error clear(const gl::Context *context, GLbitfield mask) override;
     gl::Error clearBufferfv(const gl::Context *context,
@@ -84,7 +87,7 @@ class FramebufferD3D : public FramebufferImpl
                          const gl::Rectangle &area,
                          GLenum format,
                          GLenum type,
-                         void *pixels) const override;
+                         void *pixels) override;
 
     gl::Error blit(const gl::Context *context,
                    const gl::Rectangle &sourceArea,
@@ -92,14 +95,14 @@ class FramebufferD3D : public FramebufferImpl
                    GLbitfield mask,
                    GLenum filter) override;
 
-    bool checkStatus() const override;
+    bool checkStatus(const gl::Context *context) const override;
 
-    void syncState(const gl::Context *context,
-                   const gl::Framebuffer::DirtyBits &dirtyBits) override;
+    gl::Error syncState(const gl::Context *context,
+                        const gl::Framebuffer::DirtyBits &dirtyBits) override;
 
     const gl::AttachmentList &getColorAttachmentsForRender(const gl::Context *context);
 
-    gl::Error getSamplePosition(size_t index, GLfloat *xy) const override;
+    void destroy(const gl::Context *context) override;
 
   private:
     virtual gl::Error clearImpl(const gl::Context *context, const ClearParameters &clearParams) = 0;
@@ -110,7 +113,7 @@ class FramebufferD3D : public FramebufferImpl
                                      GLenum type,
                                      size_t outputPitch,
                                      const gl::PixelPackState &pack,
-                                     uint8_t *pixels) const = 0;
+                                     uint8_t *pixels) = 0;
 
     virtual gl::Error blitImpl(const gl::Context *context,
                                const gl::Rectangle &sourceArea,
@@ -127,6 +130,8 @@ class FramebufferD3D : public FramebufferImpl
     RendererD3D *mRenderer;
     Optional<gl::AttachmentList> mColorAttachmentsForRender;
     gl::DrawBufferMask mCurrentActiveProgramOutputs;
+
+    gl::FramebufferAttachment mDummyAttachment;
 };
 }
 

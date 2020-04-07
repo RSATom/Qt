@@ -146,14 +146,14 @@ QGeoTiledMapReply *QGeoTileFetcherOsm::getTileImage(const QGeoTileSpec &spec)
     if (id < 1 || id > m_providers.size()) {
         qWarning("Unknown map id %d\n", spec.mapId());
         if (m_providers.isEmpty())
-            return Q_NULLPTR;
+            return nullptr;
         else
             id = 1;
     }
     id -= 1; // TODO: make OSM map ids start from 0.
 
     if (spec.zoom() > m_providers[id]->maximumZoomLevel() || spec.zoom() < m_providers[id]->minimumZoomLevel())
-        return Q_NULLPTR;
+        return nullptr;
 
     const QUrl url = m_providers[id]->tileAddress(spec.x(), spec.y(), spec.zoom());
     QNetworkRequest request;

@@ -22,7 +22,8 @@ namespace {
 // this array may either refer to features defined in the header of this file or
 // in other locations in the code base (e.g. content_features.h).
 const base::Feature* kFeaturesExposedToJava[] = {
-    &kRequestUnbufferedDispatch,
+    &features::kBackgroundMediaRendererHasModerateBinding,
+    &kEnhancedSelectionInsertionHandle,
 };
 
 const base::Feature* FindFeatureExposedToJava(const std::string& feature_name) {
@@ -38,19 +39,18 @@ const base::Feature* FindFeatureExposedToJava(const std::string& feature_name) {
 }  // namespace
 
 // Alphabetical:
+const base::Feature kEnhancedSelectionInsertionHandle{
+    "EnhancedSelectionInsertionHandle", base::FEATURE_ENABLED_BY_DEFAULT};
 const base::Feature kRequestUnbufferedDispatch{
-    "RequestUnbufferedDispatch", base::FEATURE_DISABLED_BY_DEFAULT};
+    "RequestUnbufferedDispatch", base::FEATURE_ENABLED_BY_DEFAULT};
 
-static jboolean IsEnabled(JNIEnv* env,
-                          const JavaParamRef<jclass>& clazz,
-                          const JavaParamRef<jstring>& jfeature_name) {
+static jboolean JNI_ContentFeatureList_IsEnabled(
+    JNIEnv* env,
+    const JavaParamRef<jclass>& clazz,
+    const JavaParamRef<jstring>& jfeature_name) {
   const base::Feature* feature =
       FindFeatureExposedToJava(ConvertJavaStringToUTF8(env, jfeature_name));
   return base::FeatureList::IsEnabled(*feature);
-}
-
-bool RegisterContentFeatureListJni(JNIEnv* env) {
-  return RegisterNativesImpl(env);
 }
 
 }  // namespace android

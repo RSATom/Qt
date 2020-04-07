@@ -34,28 +34,21 @@ if (use_qt) {
       ":lib",
       "//base",
       "//base:i18n",
-      "//build/config:exe_and_shlib_deps",
       "//third_party/hunspell",
     ]
   }
 } else {
-
   executable("convert_dict") {
     # Production code shouldn't be depending on this.
     testonly = true
-
-
-
     sources = [
       "convert_dict.cc",
     ]
-
     configs += [ "//build/config/compiler:wexit_time_destructors" ]
     deps = [
       ":lib",
       "//base",
       "//base:i18n",
-      "//build/config:exe_and_shlib_deps",
       "//build/win:default_exe_manifest",
       "//third_party/hunspell",
     ]

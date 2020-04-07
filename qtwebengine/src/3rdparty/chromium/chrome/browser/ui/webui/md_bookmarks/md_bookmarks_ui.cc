@@ -5,22 +5,25 @@
 #include "chrome/browser/ui/webui/md_bookmarks/md_bookmarks_ui.h"
 
 #include <algorithm>
+#include <memory>
 #include <string>
-#include <unordered_set>
 #include <utility>
 
 #include "base/strings/string16.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/webui/md_bookmarks/bookmarks_message_handler.h"
+#include "chrome/browser/ui/webui/metrics_handler.h"
 #include "chrome/browser/ui/webui/plural_string_handler.h"
 #include "chrome/common/chrome_features.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/browser_resources.h"
 #include "chrome/grit/generated_resources.h"
+#include "chrome/grit/theme_resources.h"
 #include "components/strings/grit/components_strings.h"
 #include "content/public/browser/web_ui.h"
 #include "content/public/browser/web_ui_data_source.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/base/resource/resource_bundle.h"
 
 namespace {
 
@@ -51,11 +54,16 @@ content::WebUIDataSource* CreateMdBookmarksUIHTMLSource(Profile* profile) {
   AddLocalizedString(source, "editDialogNameInput",
                      IDS_BOOKMARK_MANAGER_NAME_INPUT_PLACE_HOLDER);
   AddLocalizedString(source, "editDialogUrlInput",
-                             IDS_BOOKMARK_MANAGER_URL_INPUT_PLACE_HOLDER);
-  AddLocalizedString(source, "emptyList",
-                     IDS_MD_BOOKMARK_MANAGER_EMPTY_LIST);
+                     IDS_BOOKMARK_MANAGER_URL_INPUT_PLACE_HOLDER);
+  AddLocalizedString(source, "emptyList", IDS_MD_BOOKMARK_MANAGER_EMPTY_LIST);
+  AddLocalizedString(source, "emptyUnmodifiableList",
+                     IDS_MD_BOOKMARK_MANAGER_EMPTY_UNMODIFIABLE_LIST);
+  AddLocalizedString(source, "folderLabel",
+                     IDS_MD_BOOKMARK_MANAGER_FOLDER_LABEL);
   AddLocalizedString(source, "itemsSelected",
                      IDS_MD_BOOKMARK_MANAGER_ITEMS_SELECTED);
+  AddLocalizedString(source, "listAxLabel",
+                     IDS_MD_BOOKMARK_MANAGER_LIST_AX_LABEL);
   AddLocalizedString(source, "menuAddBookmark",
                      IDS_MD_BOOKMARK_MANAGER_MENU_ADD_BOOKMARK);
   AddLocalizedString(source, "menuAddFolder",
@@ -65,28 +73,30 @@ content::WebUIDataSource* CreateMdBookmarksUIHTMLSource(Profile* profile) {
   AddLocalizedString(source, "menuDelete", IDS_DELETE);
   AddLocalizedString(source, "menuEdit", IDS_EDIT);
   AddLocalizedString(source, "menuExport", IDS_MD_BOOKMARK_MANAGER_MENU_EXPORT);
+  AddLocalizedString(source, "menuHelpCenter",
+                     IDS_MD_BOOKMARK_MANAGER_MENU_HELP_CENTER);
   AddLocalizedString(source, "menuImport", IDS_MD_BOOKMARK_MANAGER_MENU_IMPORT);
-  // TODO(tsergeant): These are not the exact strings specified by UI. Reconcile
-  // the differences between these strings and the work in crbug.com/708815.
-  AddLocalizedString(source, "menuOpenAllNewTab", IDS_BOOKMARK_BAR_OPEN_ALL);
+  AddLocalizedString(source, "menuOpenAllNewTab",
+                     IDS_MD_BOOKMARK_MANAGER_MENU_OPEN_ALL);
   AddLocalizedString(source, "menuOpenAllNewWindow",
-                     IDS_BOOKMARK_BAR_OPEN_ALL_NEW_WINDOW);
+                     IDS_MD_BOOKMARK_MANAGER_MENU_OPEN_ALL_NEW_WINDOW);
   AddLocalizedString(source, "menuOpenAllIncognito",
-                     IDS_BOOKMARK_BAR_OPEN_ALL_INCOGNITO);
+                     IDS_MD_BOOKMARK_MANAGER_MENU_OPEN_ALL_INCOGNITO);
   AddLocalizedString(source, "menuOpenNewTab",
-                     IDS_BOOKMARK_BAR_OPEN_IN_NEW_TAB);
+                     IDS_MD_BOOKMARK_MANAGER_MENU_OPEN_IN_NEW_TAB);
   AddLocalizedString(source, "menuOpenNewWindow",
-                     IDS_BOOKMARK_BAR_OPEN_IN_NEW_WINDOW);
+                     IDS_MD_BOOKMARK_MANAGER_MENU_OPEN_IN_NEW_WINDOW);
   AddLocalizedString(source, "menuOpenIncognito",
-                     IDS_BOOKMARK_BAR_OPEN_INCOGNITO);
+                     IDS_MD_BOOKMARK_MANAGER_MENU_OPEN_INCOGNITO);
   AddLocalizedString(source, "menuRename", IDS_MD_BOOKMARK_MANAGER_MENU_RENAME);
   AddLocalizedString(source, "menuShowInFolder",
-                     IDS_BOOKMARK_MANAGER_SHOW_IN_FOLDER);
+                     IDS_MD_BOOKMARK_MANAGER_MENU_SHOW_IN_FOLDER);
   AddLocalizedString(source, "menuSort", IDS_MD_BOOKMARK_MANAGER_MENU_SORT);
   AddLocalizedString(source, "moreActionsButtonTitle",
                      IDS_MD_BOOKMARK_MANAGER_MORE_ACTIONS);
-  AddLocalizedString(source, "noSearchResults",
-                     IDS_MD_BOOKMARK_MANAGER_NO_SEARCH_RESULTS);
+  AddLocalizedString(source, "moreActionsButtonAxLabel",
+                     IDS_MD_BOOKMARK_MANAGER_MORE_ACTIONS_AX_LABEL);
+  AddLocalizedString(source, "noSearchResults", IDS_SEARCH_NO_RESULTS);
   AddLocalizedString(source, "openDialogBody",
                      IDS_BOOKMARK_BAR_SHOULD_OPEN_ALL);
   AddLocalizedString(source, "openDialogConfirm",
@@ -99,8 +109,13 @@ content::WebUIDataSource* CreateMdBookmarksUIHTMLSource(Profile* profile) {
                      IDS_MD_BOOKMARK_MANAGER_FOLDER_RENAME_TITLE);
   AddLocalizedString(source, "searchPrompt",
                      IDS_BOOKMARK_MANAGER_SEARCH_BUTTON);
-  AddLocalizedString(source, "searchResults",
-                     IDS_MD_BOOKMARK_MANAGER_SEARCH_RESULTS);
+  AddLocalizedString(source, "sidebarAxLabel",
+                     IDS_MD_BOOKMARK_MANAGER_SIDEBAR_AX_LABEL);
+  AddLocalizedString(source, "sidebarNodeCollapseAxLabel",
+                     IDS_MD_BOOKMARK_MANAGER_SIDEBAR_NODE_COLLAPSE_AX_LABEL);
+  AddLocalizedString(source, "sidebarNodeExpandAxLabel",
+                     IDS_MD_BOOKMARK_MANAGER_SIDEBAR_NODE_EXPAND_AX_LABEL);
+  AddLocalizedString(source, "searchResults", IDS_SEARCH_RESULTS);
   AddLocalizedString(source, "saveEdit", IDS_SAVE);
   AddLocalizedString(source, "title", IDS_MD_BOOKMARK_MANAGER_TITLE);
   AddLocalizedString(source, "toastFolderSorted",
@@ -118,13 +133,10 @@ content::WebUIDataSource* CreateMdBookmarksUIHTMLSource(Profile* profile) {
                           IDR_MD_BOOKMARKS_IMAGES_FOLDER_OPEN_SVG);
   source->AddResourcePath("images/folder.svg",
                           IDR_MD_BOOKMARKS_IMAGES_FOLDER_SVG);
-#if BUILDFLAG(USE_VULCANIZE)
+#if BUILDFLAG(OPTIMIZE_WEBUI)
   source->AddResourcePath("crisper.js", IDR_MD_BOOKMARKS_CRISPER_JS);
   source->SetDefaultResource(IDR_MD_BOOKMARKS_VULCANIZED_HTML);
-  std::unordered_set<std::string> exclusions;
-  exclusions.insert("images/folder_open.svg");
-  exclusions.insert("images/folder.svg");
-  source->UseGzip(exclusions);
+  source->UseGzip({"images/folder_open.svg", "images/folder.svg"});
 #else
   source->AddResourcePath("actions.html", IDR_MD_BOOKMARKS_ACTIONS_HTML);
   source->AddResourcePath("actions.js", IDR_MD_BOOKMARKS_ACTIONS_JS);
@@ -139,6 +151,8 @@ content::WebUIDataSource* CreateMdBookmarksUIHTMLSource(Profile* profile) {
                           IDR_MD_BOOKMARKS_COMMAND_MANAGER_JS);
   source->AddResourcePath("constants.html", IDR_MD_BOOKMARKS_CONSTANTS_HTML);
   source->AddResourcePath("constants.js", IDR_MD_BOOKMARKS_CONSTANTS_JS);
+  source->AddResourcePath("debouncer.html", IDR_MD_BOOKMARKS_DEBOUNCER_HTML);
+  source->AddResourcePath("debouncer.js", IDR_MD_BOOKMARKS_DEBOUNCER_JS);
   source->AddResourcePath("dialog_focus_manager.html",
                           IDR_MD_BOOKMARKS_DIALOG_FOCUS_MANAGER_HTML);
   source->AddResourcePath("dialog_focus_manager.js",
@@ -153,8 +167,7 @@ content::WebUIDataSource* CreateMdBookmarksUIHTMLSource(Profile* profile) {
   source->AddResourcePath("edit_dialog.js", IDR_MD_BOOKMARKS_EDIT_DIALOG_JS);
   source->AddResourcePath("folder_node.html",
                           IDR_MD_BOOKMARKS_FOLDER_NODE_HTML);
-  source->AddResourcePath("folder_node.js",
-                          IDR_MD_BOOKMARKS_FOLDER_NODE_JS);
+  source->AddResourcePath("folder_node.js", IDR_MD_BOOKMARKS_FOLDER_NODE_JS);
   source->AddResourcePath("item.html", IDR_MD_BOOKMARKS_ITEM_HTML);
   source->AddResourcePath("item.js", IDR_MD_BOOKMARKS_ITEM_JS);
   source->AddResourcePath("list.html", IDR_MD_BOOKMARKS_LIST_HTML);
@@ -176,9 +189,6 @@ content::WebUIDataSource* CreateMdBookmarksUIHTMLSource(Profile* profile) {
   source->AddResourcePath("store_client.html",
                           IDR_MD_BOOKMARKS_STORE_CLIENT_HTML);
   source->AddResourcePath("store_client.js", IDR_MD_BOOKMARKS_STORE_CLIENT_JS);
-  source->AddResourcePath("timer_proxy.html",
-                          IDR_MD_BOOKMARKS_TIMER_PROXY_HTML);
-  source->AddResourcePath("timer_proxy.js", IDR_MD_BOOKMARKS_TIMER_PROXY_JS);
   source->AddResourcePath("toast_manager.html",
                           IDR_MD_BOOKMARKS_TOAST_MANAGER_HTML);
   source->AddResourcePath("toast_manager.js",
@@ -204,17 +214,22 @@ MdBookmarksUI::MdBookmarksUI(content::WebUI* web_ui) : WebUIController(web_ui) {
   content::WebUIDataSource::Add(profile,
                                 CreateMdBookmarksUIHTMLSource(profile));
 
-  auto plural_string_handler = base::MakeUnique<PluralStringHandler>();
+  auto plural_string_handler = std::make_unique<PluralStringHandler>();
+  plural_string_handler->AddLocalizedString(
+      "listChanged", IDS_MD_BOOKMARK_MANAGER_FOLDER_LIST_CHANGED);
   plural_string_handler->AddLocalizedString(
       "toastItemsDeleted", IDS_MD_BOOKMARK_MANAGER_TOAST_ITEMS_DELETED);
   plural_string_handler->AddLocalizedString(
       "toastItemsCopied", IDS_MD_BOOKMARK_MANAGER_TOAST_ITEMS_COPIED);
   web_ui->AddMessageHandler(std::move(plural_string_handler));
 
-  web_ui->AddMessageHandler(base::MakeUnique<BookmarksMessageHandler>());
+  web_ui->AddMessageHandler(std::make_unique<BookmarksMessageHandler>());
+  web_ui->AddMessageHandler(std::make_unique<MetricsHandler>());
 }
 
 // static
-bool MdBookmarksUI::IsEnabled() {
-  return base::FeatureList::IsEnabled(features::kMaterialDesignBookmarks);
+base::RefCountedMemory* MdBookmarksUI::GetFaviconResourceBytes(
+    ui::ScaleFactor scale_factor) {
+  return ui::ResourceBundle::GetSharedInstance().LoadDataResourceBytesForScale(
+      IDR_BOOKMARKS_FAVICON, scale_factor);
 }

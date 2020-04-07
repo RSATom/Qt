@@ -40,6 +40,7 @@
 #include "qurl.h"
 #include "private/qutfcodec_p.h"
 #include "private/qtools_p.h"
+#include "private/qsimd_p.h"
 
 QT_BEGIN_NAMESPACE
 
@@ -474,6 +475,88 @@ non_trivial:
     return 0;
 }
 
+/*
+ * Returns true if the input it checked (if it checked anything) is not
+ * encoded. A return of false indicates there's a percent at \a input that
+ * needs to be decoded.
+ */
+#ifdef __SSE2__
+static bool simdCheckNonEncoded(ushort *&output, const ushort *&input, const ushort *end)
+{
+#  ifdef __AVX2__
+    const __m256i percents256 = _mm256_broadcastw_epi16(_mm_cvtsi32_si128('%'));
+    const __m128i percents = _mm256_castsi256_si128(percents256);
+#  else
+    const __m128i percents = _mm_set1_epi16('%');
+#  endif
+
+    uint idx = 0;
+    quint32 mask = 0;
+    if (input + 16 <= end) {
+        qptrdiff offset = 0;
+        for ( ; input + offset + 16 <= end; offset += 16) {
+#  ifdef __AVX2__
+            // do 32 bytes at a time using AVX2
+            __m256i data = _mm256_loadu_si256(reinterpret_cast<const __m256i *>(input + offset));
+            __m256i comparison = _mm256_cmpeq_epi16(data, percents256);
+            mask = _mm256_movemask_epi8(comparison);
+            _mm256_storeu_si256(reinterpret_cast<__m256i *>(output + offset), data);
+#  else
+            // do 32 bytes at a time using unrolled SSE2
+            __m128i data1 = _mm_loadu_si128(reinterpret_cast<const __m128i *>(input + offset));
+            __m128i data2 = _mm_loadu_si128(reinterpret_cast<const __m128i *>(input + offset + 8));
+            __m128i comparison1 = _mm_cmpeq_epi16(data1, percents);
+            __m128i comparison2 = _mm_cmpeq_epi16(data2, percents);
+            uint mask1 = _mm_movemask_epi8(comparison1);
+            uint mask2 = _mm_movemask_epi8(comparison2);
+
+            _mm_storeu_si128(reinterpret_cast<__m128i *>(output + offset), data1);
+            if (!mask1)
+                _mm_storeu_si128(reinterpret_cast<__m128i *>(output + offset + 8), data2);
+            mask = mask1 | (mask2 << 16);
+#  endif
+
+            if (mask) {
+                idx = qCountTrailingZeroBits(mask) / 2;
+                break;
+            }
+        }
+
+        input += offset;
+        if (output)
+            output += offset;
+    } else if (input + 8 <= end) {
+        // do 16 bytes at a time
+        __m128i data = _mm_loadu_si128(reinterpret_cast<const __m128i *>(input));
+        __m128i comparison = _mm_cmpeq_epi16(data, percents);
+        mask = _mm_movemask_epi8(comparison);
+        _mm_storeu_si128(reinterpret_cast<__m128i *>(output), data);
+        idx = qCountTrailingZeroBits(quint16(mask)) / 2;
+    } else if (input + 4 <= end) {
+        // do 8 bytes only
+        __m128i data = _mm_loadl_epi64(reinterpret_cast<const __m128i *>(input));
+        __m128i comparison = _mm_cmpeq_epi16(data, percents);
+        mask = _mm_movemask_epi8(comparison) & 0xffu;
+        _mm_storel_epi64(reinterpret_cast<__m128i *>(output), data);
+        idx = qCountTrailingZeroBits(quint8(mask)) / 2;
+    } else {
+        // no percents found (because we didn't check)
+        return true;
+    }
+
+    // advance to the next non-encoded
+    input += idx;
+    output += idx;
+
+    return !mask;
+}
+#else
+static bool simdCheckNonEncoded(...)
+{
+    return true;
+}
+#endif
+
 /*!
     \since 5.0
     \internal
@@ -497,30 +580,27 @@ non_trivial:
 */
 static int decode(QString &appendTo, const ushort *begin, const ushort *end)
 {
+    // fast check whether there's anything to be decoded in the first place
+    const ushort *input = QtPrivate::qustrchr(QStringView(begin, end), '%');
+    if (Q_LIKELY(input == end))
+        return 0;           // nothing to do, it was already decoded!
+
+    // detach
     const int origSize = appendTo.size();
-    const ushort *input = begin;
-    ushort *output = 0;
+    appendTo.resize(origSize + (end - begin));
+    ushort *output = reinterpret_cast<ushort *>(appendTo.begin()) + origSize;
+    memcpy(static_cast<void *>(output), static_cast<const void *>(begin), (input - begin) * sizeof(ushort));
+    output += input - begin;
+
     while (input != end) {
-        if (*input != '%') {
-            if (output)
-                *output++ = *input;
-            ++input;
-            continue;
-        }
+        // something was encoded
+        Q_ASSERT(*input == '%');
 
         if (Q_UNLIKELY(end - input < 3 || !isHex(input[1]) || !isHex(input[2]))) {
             // badly-encoded data
             appendTo.resize(origSize + (end - begin));
-            memcpy(appendTo.begin() + origSize, begin, (end - begin) * sizeof(ushort));
+            memcpy(static_cast<void *>(appendTo.begin() + origSize), static_cast<const void *>(begin), (end - begin) * sizeof(ushort));
             return end - begin;
-        }
-
-        if (Q_UNLIKELY(!output)) {
-            // detach
-            appendTo.resize(origSize + (end - begin));
-            output = reinterpret_cast<ushort *>(appendTo.begin()) + origSize;
-            memcpy(output, begin, (input - begin) * sizeof(ushort));
-            output += input - begin;
         }
 
         ++input;
@@ -528,14 +608,22 @@ static int decode(QString &appendTo, const ushort *begin, const ushort *end)
         if (output[-1] >= 0x80)
             output[-1] = QChar::ReplacementCharacter;
         input += 2;
+
+        // search for the next percent, copying from input to output
+        if (simdCheckNonEncoded(output, input, end)) {
+            while (input != end) {
+                ushort uc = *input;
+                if (uc == '%')
+                    break;
+                *output++ = uc;
+                ++input;
+            }
+        }
     }
 
-    if (output) {
-        int len = output - reinterpret_cast<ushort *>(appendTo.begin());
-        appendTo.truncate(len);
-        return len - origSize;
-    }
-    return 0;
+    int len = output - reinterpret_cast<ushort *>(appendTo.begin());
+    appendTo.truncate(len);
+    return len - origSize;
 }
 
 template <size_t N>
@@ -603,6 +691,9 @@ qt_urlRecode(QString &appendTo, const QChar *begin, const QChar *end,
                   encoding, actionTable, false);
 }
 
+// qstring.cpp
+bool qt_is_ascii(const char *&ptr, const char *end) Q_DECL_NOTHROW;
+
 /*!
     \internal
     \since 5.0
@@ -623,12 +714,7 @@ QString qt_urlRecodeByteArray(const QByteArray &ba)
     // control points below 0x20 are fine in QString
     const char *in = ba.constData();
     const char *const end = ba.constEnd();
-    for ( ; in < end; ++in) {
-        if (*in & 0x80)
-            break;
-    }
-
-    if (in == end) {
+    if (qt_is_ascii(in, end)) {
         // no non-ASCII found, we're safe to convert to QString
         return QString::fromLatin1(ba, ba.size());
     }

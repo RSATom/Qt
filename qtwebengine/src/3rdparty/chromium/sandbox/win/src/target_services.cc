@@ -29,7 +29,8 @@ namespace {
 // HKCU so do not use it with this function.
 bool FlushRegKey(HKEY root) {
   HKEY key;
-  if (ERROR_SUCCESS == ::RegOpenKeyExW(root, NULL, 0, MAXIMUM_ALLOWED, &key)) {
+  if (ERROR_SUCCESS ==
+      ::RegOpenKeyExW(root, nullptr, 0, MAXIMUM_ALLOWED, &key)) {
     if (ERROR_SUCCESS != ::RegCloseKey(key))
       return false;
   }
@@ -42,8 +43,7 @@ bool FlushRegKey(HKEY root) {
 // although this behavior is undocumented and there is no guarantee that in
 // fact this will happen in future versions of windows.
 bool FlushCachedRegHandles() {
-  return (FlushRegKey(HKEY_LOCAL_MACHINE) &&
-          FlushRegKey(HKEY_CLASSES_ROOT) &&
+  return (FlushRegKey(HKEY_LOCAL_MACHINE) && FlushRegKey(HKEY_CLASSES_ROOT) &&
           FlushRegKey(HKEY_USERS));
 }
 
@@ -62,6 +62,18 @@ bool CsrssDisconnectCleanup() {
   return true;
 }
 
+// Used by EnumSystemLocales for warming up.
+static BOOL CALLBACK EnumLocalesProcEx(LPWSTR lpLocaleString,
+                                       DWORD dwFlags,
+                                       LPARAM lParam) {
+  return TRUE;
+}
+
+// Additional warmup done just when CSRSS is being disconnected.
+bool CsrssDisconnectWarmup() {
+  return ::EnumSystemLocalesEx(EnumLocalesProcEx, LOCALE_WINDOWS, 0, 0);
+}
+
 // Checks if we have handle entries pending and runs the closer.
 // Updates is_csrss_connected based on which handle types are closed.
 bool CloseOpenHandles(bool* is_csrss_connected) {
@@ -69,7 +81,7 @@ bool CloseOpenHandles(bool* is_csrss_connected) {
     HandleCloserAgent handle_closer;
     handle_closer.InitializeHandlesToClose(is_csrss_connected);
     if (!*is_csrss_connected) {
-      if (!CsrssDisconnectCleanup()) {
+      if (!CsrssDisconnectWarmup() || !CsrssDisconnectCleanup()) {
         return false;
       }
     }
@@ -78,11 +90,6 @@ bool CloseOpenHandles(bool* is_csrss_connected) {
   }
   return true;
 }
-
-// GetUserDefaultLocaleName is not available on WIN XP.  So we'll
-// load it on-the-fly.
-const wchar_t kKernel32DllName[] = L"kernel32.dll";
-typedef decltype(GetUserDefaultLocaleName)* GetUserDefaultLocaleNameFunction;
 
 // Warm up language subsystems before the sandbox is turned on.
 // Tested on Win8.1 x64:
@@ -96,23 +103,8 @@ bool WarmupWindowsLocales() {
   // warmup all of these functions, but let's not assume that.
   ::GetUserDefaultLangID();
   ::GetUserDefaultLCID();
-  static GetUserDefaultLocaleNameFunction GetUserDefaultLocaleName_func =
-      NULL;
-  if (!GetUserDefaultLocaleName_func) {
-    HMODULE kernel32_dll = ::GetModuleHandle(kKernel32DllName);
-    if (!kernel32_dll) {
-      return false;
-    }
-    GetUserDefaultLocaleName_func =
-        reinterpret_cast<GetUserDefaultLocaleNameFunction>(
-            GetProcAddress(kernel32_dll, "GetUserDefaultLocaleName"));
-    if (!GetUserDefaultLocaleName_func) {
-      return false;
-    }
-  }
   wchar_t localeName[LOCALE_NAME_MAX_LENGTH] = {0};
-  return (0 != GetUserDefaultLocaleName_func(
-                    localeName, LOCALE_NAME_MAX_LENGTH * sizeof(wchar_t)));
+  return (0 != ::GetUserDefaultLocaleName(localeName, LOCALE_NAME_MAX_LENGTH));
 }
 
 // Used as storage for g_target_services, because other allocation facilities
@@ -124,13 +116,11 @@ TargetServicesBase* g_target_services = nullptr;
 
 }  // namespace
 
-
 SANDBOX_INTERCEPT IntegrityLevel g_shared_delayed_integrity_level =
     INTEGRITY_LEVEL_LAST;
 SANDBOX_INTERCEPT MitigationFlags g_shared_delayed_mitigations = 0;
 
-TargetServicesBase::TargetServicesBase() {
-}
+TargetServicesBase::TargetServicesBase() {}
 
 ResultCode TargetServicesBase::Init() {
   process_state_.SetInitCalled();
@@ -177,9 +167,8 @@ TargetServicesBase* TargetServicesBase::GetInstance() {
 // The broker services a 'test' IPC service with the IPC_PING_TAG tag.
 bool TargetServicesBase::TestIPCPing(int version) {
   void* memory = GetGlobalIPCMemory();
-  if (NULL == memory) {
+  if (!memory)
     return false;
-  }
   SharedMemIPCClient ipc(memory);
   CrossCallReturn answer = {0};
 
@@ -226,8 +215,7 @@ bool TargetServicesBase::TestIPCPing(int version) {
   return true;
 }
 
-ProcessState::ProcessState() : process_state_(0), csrss_connected_(true) {
-}
+ProcessState::ProcessState() : process_state_(0), csrss_connected_(true) {}
 
 bool ProcessState::IsKernel32Loaded() const {
   return process_state_ != 0;

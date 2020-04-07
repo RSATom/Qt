@@ -69,7 +69,7 @@ QT_BEGIN_NAMESPACE
 
 #if QT_CONFIG(spinbox)
 QAccessibleAbstractSpinBox::QAccessibleAbstractSpinBox(QWidget *w)
-: QAccessibleWidget(w, QAccessible::SpinBox), lineEdit(Q_NULLPTR)
+: QAccessibleWidget(w, QAccessible::SpinBox), lineEdit(nullptr)
 {
     Q_ASSERT(abstractSpinBox());
 }

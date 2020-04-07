@@ -9,13 +9,18 @@
 #ifndef LIBANGLE_ANGLETYPES_H_
 #define LIBANGLE_ANGLETYPES_H_
 
+#include "common/Color.h"
+#include "common/PackedEnums.h"
 #include "common/bitset_utils.h"
+#include "common/vector_utils.h"
 #include "libANGLE/Constants.h"
+#include "libANGLE/Error.h"
 #include "libANGLE/RefCountObject.h"
 
 #include <stdint.h>
 
 #include <bitset>
+#include <map>
 #include <unordered_map>
 
 namespace gl
@@ -23,31 +28,10 @@ namespace gl
 class Buffer;
 class Texture;
 
-enum PrimitiveType
-{
-    PRIMITIVE_POINTS,
-    PRIMITIVE_LINES,
-    PRIMITIVE_LINE_STRIP,
-    PRIMITIVE_LINE_LOOP,
-    PRIMITIVE_TRIANGLES,
-    PRIMITIVE_TRIANGLE_STRIP,
-    PRIMITIVE_TRIANGLE_FAN,
-    PRIMITIVE_TYPE_MAX,
-};
-
-PrimitiveType GetPrimitiveType(GLenum drawMode);
-
-enum SamplerType
-{
-    SAMPLER_PIXEL,
-    SAMPLER_VERTEX,
-    SAMPLER_COMPUTE
-};
-
 struct Rectangle
 {
     Rectangle() : x(0), y(0), width(0), height(0) {}
-    Rectangle(int x_in, int y_in, int width_in, int height_in)
+    constexpr Rectangle(int x_in, int y_in, int width_in, int height_in)
         : x(x_in), y(y_in), width(width_in), height(height_in)
     {
     }
@@ -56,6 +40,12 @@ struct Rectangle
     int y0() const { return y; }
     int x1() const { return x + width; }
     int y1() const { return y + height; }
+
+    bool isReversedX() const { return width < 0; }
+    bool isReversedY() const { return height < 0; }
+
+    // Returns a rectangle with the same area but with height and width guaranteed to be positive.
+    Rectangle removeReversal() const;
 
     int x;
     int y;
@@ -70,30 +60,32 @@ bool ClipRectangle(const Rectangle &source, const Rectangle &clip, Rectangle *in
 
 struct Offset
 {
+    constexpr Offset() : x(0), y(0), z(0) {}
+    constexpr Offset(int x_in, int y_in, int z_in) : x(x_in), y(y_in), z(z_in) {}
+
     int x;
     int y;
     int z;
-
-    Offset() : x(0), y(0), z(0) { }
-    Offset(int x_in, int y_in, int z_in) : x(x_in), y(y_in), z(z_in) { }
 };
+
+constexpr Offset kOffsetZero(0, 0, 0);
 
 bool operator==(const Offset &a, const Offset &b);
 bool operator!=(const Offset &a, const Offset &b);
 
 struct Extents
 {
-    int width;
-    int height;
-    int depth;
-
-    Extents() : width(0), height(0), depth(0) { }
-    Extents(int width_, int height_, int depth_) : width(width_), height(height_), depth(depth_) { }
+    Extents() : width(0), height(0), depth(0) {}
+    Extents(int width_, int height_, int depth_) : width(width_), height(height_), depth(depth_) {}
 
     Extents(const Extents &other) = default;
     Extents &operator=(const Extents &other) = default;
 
     bool empty() const { return (width * height * depth) == 0; }
+
+    int width;
+    int height;
+    int depth;
 };
 
 bool operator==(const Extents &lhs, const Extents &rhs);
@@ -101,18 +93,29 @@ bool operator!=(const Extents &lhs, const Extents &rhs);
 
 struct Box
 {
+    Box() : x(0), y(0), z(0), width(0), height(0), depth(0) {}
+    Box(int x_in, int y_in, int z_in, int width_in, int height_in, int depth_in)
+        : x(x_in), y(y_in), z(z_in), width(width_in), height(height_in), depth(depth_in)
+    {
+    }
+    Box(const Offset &offset, const Extents &size)
+        : x(offset.x),
+          y(offset.y),
+          z(offset.z),
+          width(size.width),
+          height(size.height),
+          depth(size.depth)
+    {
+    }
+    bool operator==(const Box &other) const;
+    bool operator!=(const Box &other) const;
+
     int x;
     int y;
     int z;
     int width;
     int height;
     int depth;
-
-    Box() : x(0), y(0), z(0), width(0), height(0), depth(0) { }
-    Box(int x_in, int y_in, int z_in, int width_in, int height_in, int depth_in) : x(x_in), y(y_in), z(z_in), width(width_in), height(height_in), depth(depth_in) { }
-    Box(const Offset &offset, const Extents &size) : x(offset.x), y(offset.y), z(offset.z), width(size.width), height(size.height), depth(size.depth) { }
-    bool operator==(const Box &other) const;
-    bool operator!=(const Box &other) const;
 };
 
 struct RasterizerState final
@@ -121,7 +124,7 @@ struct RasterizerState final
     RasterizerState();
 
     bool cullFace;
-    GLenum cullMode;
+    CullFaceMode cullMode;
     GLenum frontFace;
 
     bool polygonOffsetFill;
@@ -141,6 +144,7 @@ struct BlendState final
 {
     // This will zero-initialize the struct, including padding.
     BlendState();
+    BlendState(const BlendState &other);
 
     bool blend;
     GLenum sourceBlendRGB;
@@ -167,6 +171,7 @@ struct DepthStencilState final
 {
     // This will zero-initialize the struct, including padding.
     DepthStencilState();
+    DepthStencilState(const DepthStencilState &other);
 
     bool depthTest;
     GLenum depthFunc;
@@ -195,8 +200,9 @@ struct SamplerState final
 {
     // This will zero-initialize the struct, including padding.
     SamplerState();
+    SamplerState(const SamplerState &other);
 
-    static SamplerState CreateDefaultForTarget(GLenum target);
+    static SamplerState CreateDefaultForTarget(TextureType type);
 
     GLenum minFilter;
     GLenum magFilter;
@@ -243,10 +249,9 @@ static_assert(sizeof(DrawElementsIndirectCommand) == 20,
 
 struct ImageUnit
 {
-    ImageUnit()
-        : texture(), level(0), layered(false), layer(0), access(GL_READ_ONLY), format(GL_R32UI)
-    {
-    }
+    ImageUnit();
+    ImageUnit(const ImageUnit &other);
+    ~ImageUnit();
 
     BindingPointer<Texture> texture;
     GLint level;
@@ -256,61 +261,22 @@ struct ImageUnit
     GLenum format;
 };
 
-struct PixelStoreStateBase : private angle::NonCopyable
+struct PixelStoreStateBase
 {
-    BindingPointer<Buffer> pixelBuffer;
     GLint alignment   = 4;
     GLint rowLength   = 0;
     GLint skipRows    = 0;
     GLint skipPixels  = 0;
     GLint imageHeight = 0;
     GLint skipImages  = 0;
-
-  protected:
-    void copyFrom(const Context *context, const PixelStoreStateBase &other)
-    {
-        pixelBuffer.set(context, other.pixelBuffer.get());
-        alignment   = other.alignment;
-        rowLength   = other.rowLength;
-        skipRows    = other.skipRows;
-        skipPixels  = other.skipPixels;
-        imageHeight = other.imageHeight;
-        skipImages  = other.skipImages;
-    }
 };
 
 struct PixelUnpackState : PixelStoreStateBase
 {
-    PixelUnpackState() {}
-
-    PixelUnpackState(GLint alignmentIn, GLint rowLengthIn)
-    {
-        alignment = alignmentIn;
-        rowLength = rowLengthIn;
-    }
-
-    void copyFrom(const Context *context, const PixelUnpackState &other)
-    {
-        PixelStoreStateBase::copyFrom(context, other);
-    }
 };
 
 struct PixelPackState : PixelStoreStateBase
 {
-    PixelPackState() {}
-
-    PixelPackState(GLint alignmentIn, bool reverseRowOrderIn)
-        : reverseRowOrder(reverseRowOrderIn)
-    {
-        alignment = alignmentIn;
-    }
-
-    void copyFrom(const Context *context, const PixelPackState &other)
-    {
-        PixelStoreStateBase::copyFrom(context, other);
-        reverseRowOrder = other.reverseRowOrder;
-    }
-
     bool reverseRowOrder = false;
 };
 
@@ -320,11 +286,59 @@ using AttributesMask = angle::BitSet<MAX_VERTEX_ATTRIBS>;
 // Used in Program
 using UniformBlockBindingMask = angle::BitSet<IMPLEMENTATION_MAX_COMBINED_SHADER_UNIFORM_BUFFERS>;
 
-// Used in Framebuffer
+// Used in Framebuffer / Program
 using DrawBufferMask = angle::BitSet<IMPLEMENTATION_MAX_DRAW_BUFFERS>;
 
+template <typename T>
+using TexLevelArray = std::array<T, IMPLEMENTATION_MAX_TEXTURE_LEVELS>;
+
+constexpr size_t MAX_COMPONENT_TYPE_MASK_INDEX = 16;
+struct ComponentTypeMask final
+{
+    ComponentTypeMask();
+    ComponentTypeMask(const ComponentTypeMask &other);
+    ~ComponentTypeMask();
+    void reset();
+    bool none();
+    void setIndex(GLenum type, size_t index);
+    unsigned long to_ulong() const;
+    void from_ulong(unsigned long mask);
+    static bool Validate(unsigned long outputTypes,
+                         unsigned long inputTypes,
+                         unsigned long outputMask,
+                         unsigned long inputMask);
+
+  private:
+    // Each index type is represented by 2 bits
+    angle::BitSet<MAX_COMPONENT_TYPE_MASK_INDEX * 2> mTypeMask;
+};
+
 using ContextID = uintptr_t;
-}
+
+constexpr size_t CUBE_FACE_COUNT = 6;
+
+using TextureMap = angle::PackedEnumMap<TextureType, BindingPointer<Texture>>;
+
+template <typename T>
+using AttachmentArray = std::array<T, IMPLEMENTATION_MAX_FRAMEBUFFER_ATTACHMENTS>;
+
+template <typename T>
+using DrawBuffersArray = std::array<T, IMPLEMENTATION_MAX_DRAW_BUFFERS>;
+
+template <typename T>
+using AttribArray = std::array<T, MAX_VERTEX_ATTRIBS>;
+
+using ActiveTextureMask = angle::BitSet<IMPLEMENTATION_MAX_ACTIVE_TEXTURES>;
+
+template <typename T>
+using ActiveTextureArray = std::array<T, IMPLEMENTATION_MAX_ACTIVE_TEXTURES>;
+
+// OffsetBindingPointer.getSize() returns the size specified by the user, which may be larger than
+// the size of the bound buffer. This function reduces the returned size to fit the bound buffer if
+// necessary. Returns 0 if no buffer is bound or if integer overflow occurs.
+GLsizeiptr GetBoundBufferAvailableSize(const OffsetBindingPointer<Buffer> &binding);
+
+}  // namespace gl
 
 namespace rx
 {
@@ -333,12 +347,14 @@ namespace rx
 #if __has_feature(cxx_rtti)
 #define ANGLE_HAS_DYNAMIC_CAST 1
 #endif
-#elif !defined(NDEBUG) && (!defined(_MSC_VER) || defined(_CPPRTTI)) && (!defined(__GNUC__) || __GNUC__ < 4 || (__GNUC__ == 4 && __GNUC_MINOR__ < 3) || defined(__GXX_RTTI))
+#elif !defined(NDEBUG) && (!defined(_MSC_VER) || defined(_CPPRTTI)) &&              \
+    (!defined(__GNUC__) || __GNUC__ < 4 || (__GNUC__ == 4 && __GNUC_MINOR__ < 3) || \
+     defined(__GXX_RTTI))
 #define ANGLE_HAS_DYNAMIC_CAST 1
 #endif
 
 #ifdef ANGLE_HAS_DYNAMIC_CAST
-#define ANGLE_HAS_DYNAMIC_TYPE(type, obj) (dynamic_cast<type >(obj) != nullptr)
+#define ANGLE_HAS_DYNAMIC_TYPE(type, obj) (dynamic_cast<type>(obj) != nullptr)
 #undef ANGLE_HAS_DYNAMIC_CAST
 #else
 #define ANGLE_HAS_DYNAMIC_TYPE(type, obj) (obj != nullptr)
@@ -348,15 +364,15 @@ namespace rx
 template <typename DestT, typename SrcT>
 inline DestT *GetAs(SrcT *src)
 {
-    ASSERT(ANGLE_HAS_DYNAMIC_TYPE(DestT*, src));
-    return static_cast<DestT*>(src);
+    ASSERT(ANGLE_HAS_DYNAMIC_TYPE(DestT *, src));
+    return static_cast<DestT *>(src);
 }
 
 template <typename DestT, typename SrcT>
 inline const DestT *GetAs(const SrcT *src)
 {
-    ASSERT(ANGLE_HAS_DYNAMIC_TYPE(const DestT*, src));
-    return static_cast<const DestT*>(src);
+    ASSERT(ANGLE_HAS_DYNAMIC_TYPE(const DestT *, src));
+    return static_cast<const DestT *>(src);
 }
 
 #undef ANGLE_HAS_DYNAMIC_TYPE
@@ -422,11 +438,80 @@ inline GLenum FramebufferBindingToEnum(FramebufferBinding binding)
             return GL_NONE;
     }
 }
+
+template <typename ObjT, typename ContextT>
+class DestroyThenDelete
+{
+  public:
+    DestroyThenDelete(const ContextT *context) : mContext(context) {}
+
+    void operator()(ObjT *obj)
+    {
+        ANGLE_SWALLOW_ERR(obj->onDestroy(mContext));
+        delete obj;
+    }
+
+  private:
+    const ContextT *mContext;
+};
+
+// Helper class for wrapping an onDestroy function.
+template <typename ObjT, typename DeleterT>
+class UniqueObjectPointerBase : angle::NonCopyable
+{
+  public:
+    template <typename ContextT>
+    UniqueObjectPointerBase(const ContextT *context) : mObject(nullptr), mDeleter(context)
+    {
+    }
+
+    template <typename ContextT>
+    UniqueObjectPointerBase(ObjT *obj, const ContextT *context) : mObject(obj), mDeleter(context)
+    {
+    }
+
+    ~UniqueObjectPointerBase()
+    {
+        if (mObject)
+        {
+            mDeleter(mObject);
+        }
+    }
+
+    ObjT *operator->() const { return mObject; }
+
+    ObjT *release()
+    {
+        auto obj = mObject;
+        mObject  = nullptr;
+        return obj;
+    }
+
+    ObjT *get() const { return mObject; }
+
+    void reset(ObjT *obj)
+    {
+        if (mObject)
+        {
+            mDeleter(mObject);
+        }
+        mObject = obj;
+    }
+
+  private:
+    ObjT *mObject;
+    DeleterT mDeleter;
+};
+
+template <typename ObjT, typename ContextT>
+using UniqueObjectPointer = UniqueObjectPointerBase<ObjT, DestroyThenDelete<ObjT, ContextT>>;
+
 }  // namespace angle
 
 namespace gl
 {
 class ContextState;
+
 }  // namespace gl
 
-#endif // LIBANGLE_ANGLETYPES_H_
+#endif  // LIBANGLE_ANGLETYPES_H_

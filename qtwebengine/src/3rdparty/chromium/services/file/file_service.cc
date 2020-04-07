@@ -5,11 +5,10 @@
 #include "services/file/file_service.h"
 
 #include "base/bind.h"
-#include "base/memory/ptr_util.h"
 #include "base/memory/weak_ptr.h"
 #include "base/task_scheduler/post_task.h"
-#include "components/filesystem/lock_table.h"
-#include "components/leveldb/leveldb_service_impl.h"
+#include "components/services/filesystem/lock_table.h"
+#include "components/services/leveldb/leveldb_service_impl.h"
 #include "mojo/public/cpp/bindings/strong_binding.h"
 #include "services/file/file_system.h"
 #include "services/file/user_id_map.h"
@@ -32,7 +31,7 @@ class FileService::FileSystemObjects
     if (!lock_table_)
       lock_table_ = new filesystem::LockTable;
     mojo::MakeStrongBinding(
-        base::MakeUnique<FileSystem>(user_dir_, lock_table_),
+        std::make_unique<FileSystem>(user_dir_, lock_table_),
         std::move(request));
   }
 
@@ -74,15 +73,14 @@ class FileService::LevelDBServiceObjects
 };
 
 std::unique_ptr<service_manager::Service> CreateFileService() {
-  return base::MakeUnique<FileService>();
+  return std::make_unique<FileService>();
 }
 
 FileService::FileService()
     : file_service_runner_(base::CreateSequencedTaskRunnerWithTraits(
           {base::MayBlock(), base::TaskShutdownBehavior::BLOCK_SHUTDOWN})),
       leveldb_service_runner_(base::CreateSequencedTaskRunnerWithTraits(
-          {base::MayBlock(), base::WithBaseSyncPrimitives(),
-           base::TaskShutdownBehavior::BLOCK_SHUTDOWN})) {
+          {base::MayBlock(), base::TaskShutdownBehavior::BLOCK_SHUTDOWN})) {
   registry_.AddInterface<leveldb::mojom::LevelDBService>(base::Bind(
       &FileService::BindLevelDBServiceRequest, base::Unretained(this)));
   registry_.AddInterface<mojom::FileSystem>(

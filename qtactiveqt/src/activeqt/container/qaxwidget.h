@@ -52,7 +52,7 @@
 #define QAXWIDGET_H
 
 #include <ActiveQt/qaxbase.h>
-#include <QtWidgets/QWidget>
+#include <QtWidgets/qwidget.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -66,51 +66,51 @@ class QAxWidget : public QWidget, public QAxBase
 {
     Q_OBJECT_FAKE
 public:
-    QObject* qObject() const Q_DECL_OVERRIDE { return const_cast<QAxWidget *>(this); }
-    const char *className() const Q_DECL_OVERRIDE;
+    QObject* qObject() const override { return const_cast<QAxWidget *>(this); }
+    const char *className() const override;
 
-    explicit QAxWidget(QWidget* parent = Q_NULLPTR, Qt::WindowFlags f = Qt::WindowFlags());
-    explicit QAxWidget(const QString &c, QWidget *parent = Q_NULLPTR, Qt::WindowFlags f = Qt::WindowFlags());
-    explicit QAxWidget(IUnknown *iface, QWidget *parent = Q_NULLPTR, Qt::WindowFlags f = Qt::WindowFlags());
-    ~QAxWidget();
+    explicit QAxWidget(QWidget* parent = nullptr, Qt::WindowFlags f = Qt::WindowFlags());
+    explicit QAxWidget(const QString &c, QWidget *parent = nullptr, Qt::WindowFlags f = Qt::WindowFlags());
+    explicit QAxWidget(IUnknown *iface, QWidget *parent = nullptr, Qt::WindowFlags f = Qt::WindowFlags());
+    ~QAxWidget() override;
 
-    void clear() Q_DECL_OVERRIDE;
+    void clear() override;
     bool doVerb(const QString &verb);
 
-    QSize sizeHint() const Q_DECL_OVERRIDE;
-    QSize minimumSizeHint() const Q_DECL_OVERRIDE;
+    QSize sizeHint() const override;
+    QSize minimumSizeHint() const override;
 
     virtual QAxAggregated *createAggregate();
 
 protected:
-    bool initialize(IUnknown **) Q_DECL_OVERRIDE;
+    bool initialize(IUnknown **) override;
     virtual bool createHostWindow(bool);
     bool createHostWindow(bool, const QByteArray&);
 
-    void changeEvent(QEvent *e) Q_DECL_OVERRIDE;
-    void resizeEvent(QResizeEvent *) Q_DECL_OVERRIDE;
+    void changeEvent(QEvent *e) override;
+    void resizeEvent(QResizeEvent *) override;
 
     virtual bool translateKeyEvent(int message, int keycode) const;
 
-    void connectNotify(const QMetaMethod &signal) Q_DECL_OVERRIDE;
-    const QMetaObject *fallbackMetaObject() const Q_DECL_OVERRIDE;
+    void connectNotify(const QMetaMethod &signal) override;
+    const QMetaObject *fallbackMetaObject() const override;
 private:
     friend class QAxClientSite;
     QAxClientSite *container;
 
     QAxWidgetPrivate *d;
-    const QMetaObject *parentMetaObject() const Q_DECL_OVERRIDE;
+    const QMetaObject *parentMetaObject() const override;
 };
 
 template <> inline QAxWidget *qobject_cast<QAxWidget*>(const QObject *o)
 {
-    void *result = o ? const_cast<QObject *>(o)->qt_metacast("QAxWidget") : Q_NULLPTR;
+    void *result = o ? const_cast<QObject *>(o)->qt_metacast("QAxWidget") : nullptr;
     return static_cast<QAxWidget *>(result);
 }
 
 template <> inline QAxWidget *qobject_cast<QAxWidget*>(QObject *o)
 {
-    void *result = o ? o->qt_metacast("QAxWidget") : Q_NULLPTR;
+    void *result = o ? o->qt_metacast("QAxWidget") : nullptr;
     return static_cast<QAxWidget *>(result);
 }
 

@@ -9,11 +9,13 @@
 #include <string>
 #include <vector>
 
+#include "base/callback.h"
 #include "base/command_line.h"
 #include "base/md5.h"
 #include "base/message_loop/message_loop.h"
 #include "base/metrics/field_trial.h"
 #include "base/strings/string16.h"
+#include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
 #include "build/build_config.h"
@@ -25,7 +27,7 @@
 #include "net/base/auth.h"
 #include "net/base/host_port_pair.h"
 #include "net/base/load_flags.h"
-#include "net/proxy/proxy_server.h"
+#include "net/base/proxy_server.h"
 #include "net/url_request/url_request.h"
 #include "net/url_request/url_request_context.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -153,6 +155,17 @@ class DataReductionProxyRequestOptionsTest : public testing::Test {
     request_options_->Init();
   }
 
+  void CreateRequestOptionsWithCallback(const std::string& version) {
+    CreateRequestOptions(version);
+    request_options_->SetUpdateHeaderCallback(base::BindRepeating(
+        &DataReductionProxyRequestOptionsTest::UpdateHeaderCallback,
+        base::Unretained(this)));
+  }
+
+  void UpdateHeaderCallback(net::HttpRequestHeaders headers) {
+    callback_headers_ = headers;
+  }
+
   TestDataReductionProxyParams* params() {
     return test_context_->config()->test_params();
   }
@@ -160,6 +173,8 @@ class DataReductionProxyRequestOptionsTest : public testing::Test {
   TestDataReductionProxyRequestOptions* request_options() {
     return request_options_.get();
   }
+
+  net::HttpRequestHeaders callback_headers() { return callback_headers_; }
 
   void VerifyExpectedHeader(const std::string& expected_header,
                             uint64_t page_id) {
@@ -179,6 +194,7 @@ class DataReductionProxyRequestOptionsTest : public testing::Test {
   base::MessageLoopForIO message_loop_;
   std::unique_ptr<TestDataReductionProxyRequestOptions> request_options_;
   std::unique_ptr<DataReductionProxyTestContext> test_context_;
+  net::HttpRequestHeaders callback_headers_;
 };
 
 TEST_F(DataReductionProxyRequestOptionsTest, AuthHashForSalt) {
@@ -245,6 +261,25 @@ TEST_F(DataReductionProxyRequestOptionsTest, SecureSession) {
   VerifyExpectedHeader(expected_header, kPageIdValue);
 }
 
+TEST_F(DataReductionProxyRequestOptionsTest, CallsHeaderCallback) {
+  std::string expected_header;
+  SetHeaderExpectations(std::string(), std::string(), kSecureSession,
+                        kClientStr, kExpectedBuild, kExpectedPatch, kPageId,
+                        std::vector<std::string>(), &expected_header);
+
+  CreateRequestOptionsWithCallback(kVersion);
+  request_options()->SetSecureSession(kSecureSession);
+  VerifyExpectedHeader(expected_header, kPageIdValue);
+
+  std::string callback_header;
+  callback_headers().GetHeader(kChromeProxyHeader, &callback_header);
+  // |callback_header| does not include a page id. Since the page id is always
+  // the last element in the header, check that |callback_header| is the prefix
+  // of |expected_header|.
+  EXPECT_TRUE(base::StartsWith(expected_header, callback_header,
+                               base::CompareCase::SENSITIVE));
+}
+
 TEST_F(DataReductionProxyRequestOptionsTest, ParseExperiments) {
   base::CommandLine::ForCurrentProcess()->AppendSwitchASCII(
       data_reduction_proxy::switches::kDataReductionProxyExperiment,
@@ -302,7 +337,7 @@ TEST_F(DataReductionProxyRequestOptionsTest, ParseExperimentsFromFieldTrial) {
   for (const auto& test : tests) {
     std::vector<std::string> expected_experiments;
 
-    base::CommandLine::ForCurrentProcess()->InitFromArgv(0, NULL);
+    base::CommandLine::ForCurrentProcess()->InitFromArgv(0, nullptr);
 
     base::CommandLine::ForCurrentProcess()->AppendSwitchASCII(
         data_reduction_proxy::switches::kDataReductionProxyExperiment,
@@ -353,53 +388,11 @@ TEST_F(DataReductionProxyRequestOptionsTest, TestExperimentPrecedence) {
   CreateRequestOptions(kVersion);
   VerifyExpectedHeader(expected_header, kPageIdValue);
 
-  // "force_lite_page" has the next lowest priority.
-  base::CommandLine::ForCurrentProcess()->AppendSwitchASCII(
-      switches::kDataReductionProxyLoFi,
-      switches::kDataReductionProxyLoFiValueAlwaysOn);
-  base::CommandLine::ForCurrentProcess()->AppendSwitch(
-      switches::kEnableDataReductionProxyLitePage);
-  expected_experiments.clear();
-  expected_experiments.push_back(chrome_proxy_experiment_force_lite_page());
-  SetHeaderExpectations(kExpectedSession, kExpectedCredentials, std::string(),
-                        kClientStr, kExpectedBuild, kExpectedPatch, kPageId,
-                        expected_experiments, &expected_header);
-  CreateRequestOptions(kVersion);
-  VerifyExpectedHeader(expected_header, kPageIdValue);
-
   // Setting the experiment explicitly has the highest priority.
   base::CommandLine::ForCurrentProcess()->AppendSwitchASCII(
       data_reduction_proxy::switches::kDataReductionProxyExperiment, "bar");
   expected_experiments.clear();
   expected_experiments.push_back("bar");
-  SetHeaderExpectations(kExpectedSession, kExpectedCredentials, std::string(),
-                        kClientStr, kExpectedBuild, kExpectedPatch, kPageId,
-                        expected_experiments, &expected_header);
-  CreateRequestOptions(kVersion);
-  VerifyExpectedHeader(expected_header, kPageIdValue);
-}
-
-TEST_F(DataReductionProxyRequestOptionsTest, TestExperimentOtherLoFiFlags) {
-  std::string expected_header;
-  std::vector<std::string> expected_experiments;
-
-  // No "exp=force_*" is set for SlowConnectionOnly flag.
-  base::CommandLine::ForCurrentProcess()->AppendSwitchASCII(
-      switches::kDataReductionProxyLoFi,
-      switches::kDataReductionProxyLoFiValueSlowConnectionsOnly);
-  expected_experiments.clear();
-  SetHeaderExpectations(kExpectedSession, kExpectedCredentials, std::string(),
-                        kClientStr, kExpectedBuild, kExpectedPatch, kPageId,
-                        expected_experiments, &expected_header);
-  CreateRequestOptions(kVersion);
-  VerifyExpectedHeader(expected_header, kPageIdValue);
-
-  // "exp=force_empty_image" is set for CellularOnly flag.
-  base::CommandLine::ForCurrentProcess()->AppendSwitchASCII(
-      switches::kDataReductionProxyLoFi,
-      switches::kDataReductionProxyLoFiValueAlwaysOn);
-  expected_experiments.clear();
-  expected_experiments.push_back(chrome_proxy_experiment_force_empty_image());
   SetHeaderExpectations(kExpectedSession, kExpectedCredentials, std::string(),
                         kClientStr, kExpectedBuild, kExpectedPatch, kPageId,
                         expected_experiments, &expected_header);

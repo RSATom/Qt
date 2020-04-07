@@ -63,7 +63,11 @@ public:
         SetCookieHeader,
         ContentDispositionHeader,  // added for QMultipartMessage
         UserAgentHeader,
-        ServerHeader
+        ServerHeader,
+        IfModifiedSinceHeader,
+        ETagHeader,
+        IfMatchHeader,
+        IfNoneMatchHeader
     };
     enum Attribute {
         HttpStatusCodeAttribute,
@@ -92,6 +96,8 @@ public:
         HTTP2WasUsedAttribute,
         OriginalContentLengthAttribute,
         RedirectPolicyAttribute,
+        Http2DirectAttribute,
+        ResourceTypeAttribute, // internal
 
         User = 1000,
         UserMax = 32767

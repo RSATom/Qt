@@ -43,9 +43,9 @@
 #include "shared_global_p.h"
 #include <QtDesigner/abstractdnditem.h>
 
-#include <QtCore/QPoint>
-#include <QtCore/QList>
-#include <QtCore/QMimeData>
+#include <QtCore/qpoint.h>
+#include <QtCore/qlist.h>
+#include <QtCore/qmimedata.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -59,15 +59,15 @@ class QDESIGNER_SHARED_EXPORT QDesignerDnDItem: public QDesignerDnDItemInterface
 {
 public:
     explicit QDesignerDnDItem(DropType type, QWidget *source = 0);
-    virtual ~QDesignerDnDItem();
+    ~QDesignerDnDItem() override;
 
-    DomUI *domUi() const Q_DECL_OVERRIDE;
-    QWidget *decoration() const Q_DECL_OVERRIDE;
-    QWidget *widget() const Q_DECL_OVERRIDE;
-    QPoint hotSpot() const Q_DECL_OVERRIDE;
-    QWidget *source() const Q_DECL_OVERRIDE;
+    DomUI *domUi() const override;
+    QWidget *decoration() const override;
+    QWidget *widget() const override;
+    QPoint hotSpot() const override;
+    QWidget *source() const override;
 
-    DropType type() const Q_DECL_OVERRIDE;
+    DropType type() const override;
 
 protected:
     void setDomUi(DomUI *dom_ui);
@@ -93,7 +93,7 @@ class  QDESIGNER_SHARED_EXPORT QDesignerMimeData : public QMimeData {
 public:
     typedef QList<QDesignerDnDItemInterface *> QDesignerDnDItems;
 
-    virtual ~QDesignerMimeData();
+    ~QDesignerMimeData() override;
 
     const QDesignerDnDItems &items() const { return m_items; }
 

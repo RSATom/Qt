@@ -86,8 +86,10 @@ static void generate(QTextStream &out, const Package &package, const QDir &baseD
     }
 
     out << "\\target " << package.id << "\n\n";
-    out << "\\title " << package.name << "\n";
-    out << "\\brief " << package.license << "\n\n";
+    out << "\\title " << package.name;
+    if (!package.version.isEmpty())
+        out << ", version " << package.version;
+    out << "\n\n\\brief " << package.license << "\n\n";
 
     if (!package.description.isEmpty())
         out << package.description << "\n\n";
@@ -141,6 +143,7 @@ static void generate(QTextStream &out, const Package &package, const QDir &baseD
             if (logLevel != SilentLog)
                 std::cerr << qPrintable(tr("Cannot open file %1.").arg(
                                             QDir::toNativeSeparators(package.licenseFile))) << "\n";
+            out << "*/\n";
             return;
         }
         out << "\\badcode\n";

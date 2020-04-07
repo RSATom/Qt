@@ -13,15 +13,13 @@
 #include "gpu/command_buffer/common/constants.h"
 #include "gpu/command_buffer/common/mailbox.h"
 #include "gpu/command_buffer/service/mailbox_manager.h"
-#include "gpu/gpu_export.h"
+#include "gpu/gpu_gles2_export.h"
 
 namespace gpu {
 namespace gles2 {
 
-class TextureBase;
-
 // Manages resources scoped beyond the context or context group level.
-class GPU_EXPORT MailboxManagerImpl : public MailboxManager {
+class GPU_GLES2_EXPORT MailboxManagerImpl : public MailboxManager {
  public:
   MailboxManagerImpl();
   ~MailboxManagerImpl() override;
@@ -35,8 +33,6 @@ class GPU_EXPORT MailboxManagerImpl : public MailboxManager {
   void TextureDeleted(TextureBase* texture) override;
 
  private:
-  void InsertTexture(const Mailbox& mailbox, TextureBase* texture);
-
   // This is a bidirectional map between mailbox and textures. We can have
   // multiple mailboxes per texture, but one texture per mailbox. We keep an
   // iterator in the MailboxToTextureMap to be able to manage changes to

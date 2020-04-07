@@ -10,9 +10,9 @@
 #include "common/bitset_utils.h"
 #include "common/utilities.h"
 #include "libANGLE/formatutils.h"
-#include "libANGLE/renderer/d3d/d3d9/renderer9_utils.h"
 #include "libANGLE/renderer/d3d/d3d9/Framebuffer9.h"
 #include "libANGLE/renderer/d3d/d3d9/Renderer9.h"
+#include "libANGLE/renderer/d3d/d3d9/renderer9_utils.h"
 
 namespace rx
 {
@@ -250,6 +250,7 @@ void StateManager9::syncState(const gl::State &state, const gl::State::DirtyBits
                 {
                     mDirtyBits.set(DIRTY_BIT_DEPTH_BIAS);
                 }
+                break;
             }
             case gl::State::DIRTY_BIT_DEPTH_MASK:
                 if (state.getDepthStencilState().depthMask != mCurDepthStencilState.depthMask)
@@ -476,7 +477,7 @@ gl::Error StateManager9::setBlendDepthRasterStates(const gl::State &glState,
 void StateManager9::setViewportState(const gl::Rectangle &viewport,
                                      float zNear,
                                      float zFar,
-                                     GLenum drawMode,
+                                     gl::PrimitiveMode drawMode,
                                      GLenum frontFace,
                                      bool ignoreViewport)
 {
@@ -610,7 +611,7 @@ void StateManager9::setScissorRect(const gl::Rectangle &scissor, bool enabled)
 
     RECT rect;
     rect.left = gl::clamp(scissor.x, 0, static_cast<int>(mRenderTargetBounds.width));
-    rect.top = gl::clamp(scissor.y, 0, static_cast<int>(mRenderTargetBounds.height));
+    rect.top  = gl::clamp(scissor.y, 0, static_cast<int>(mRenderTargetBounds.height));
     rect.right =
         gl::clamp(scissor.x + scissor.width, 0, static_cast<int>(mRenderTargetBounds.width));
     rect.bottom =
@@ -890,7 +891,7 @@ void StateManager9::setSampleMask(unsigned int sampleMask)
     mCurSampleMask = sampleMask;
 }
 
-void StateManager9::setCullMode(bool cullFace, GLenum cullMode, GLenum frontFace)
+void StateManager9::setCullMode(bool cullFace, gl::CullFaceMode cullMode, GLenum frontFace)
 {
     if (cullFace)
     {

@@ -6,7 +6,6 @@
 
 #include <memory>
 
-#include "base/memory/ptr_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
@@ -32,6 +31,7 @@ const char kDefaultContentSecurityPolicy[] =
 #define PLATFORM_APP_LOCAL_CSP_SOURCES \
     "'self' blob: filesystem: data: chrome-extension-resource:"
 
+// clang-format off
 const char kDefaultPlatformAppContentSecurityPolicy[] =
     // Platform apps can only use local resources by default.
     "default-src 'self' blob: filesystem: chrome-extension-resource:;"
@@ -47,7 +47,11 @@ const char kDefaultPlatformAppContentSecurityPolicy[] =
     //    spotty connectivity.
     // 2. Fetching via XHR and serving via blob: URLs currently does not allow
     //    streaming or partial buffering.
-    " media-src * data: blob: filesystem:;";
+    " media-src * data: blob: filesystem:;"
+    // Scripts are allowed to use WebAssembly
+    " script-src 'self' blob: filesystem: chrome-extension-resource:"
+    " 'wasm-eval';";
+// clang-format on
 
 int GetValidatorOptions(Extension* extension) {
   int options = csp_validator::OPTIONS_NONE;
@@ -106,21 +110,19 @@ CSPHandler::~CSPHandler() {
 bool CSPHandler::Parse(Extension* extension, base::string16* error) {
   const std::string key = Keys()[0];
   if (!extension->manifest()->HasPath(key)) {
-    if (extension->manifest_version() >= 2) {
-      // TODO(abarth): Should we continue to let extensions override the
-      //               default Content-Security-Policy?
-      std::string content_security_policy = is_platform_app_ ?
-          kDefaultPlatformAppContentSecurityPolicy :
-          kDefaultContentSecurityPolicy;
+    // TODO(abarth): Should we continue to let extensions override the
+    //               default Content-Security-Policy?
+    std::string content_security_policy =
+        is_platform_app_ ? kDefaultPlatformAppContentSecurityPolicy
+                         : kDefaultContentSecurityPolicy;
 
-      CHECK_EQ(content_security_policy,
-               SanitizeContentSecurityPolicy(content_security_policy,
-                                             GetValidatorOptions(extension),
-                                             NULL));
-      extension->SetManifestData(
-          keys::kContentSecurityPolicy,
-          base::MakeUnique<CSPInfo>(content_security_policy));
-    }
+    CHECK_EQ(
+        content_security_policy,
+        SanitizeContentSecurityPolicy(content_security_policy,
+                                      GetValidatorOptions(extension), NULL));
+    extension->SetManifestData(
+        keys::kContentSecurityPolicy,
+        std::make_unique<CSPInfo>(content_security_policy));
     return true;
   }
 
@@ -133,19 +135,14 @@ bool CSPHandler::Parse(Extension* extension, base::string16* error) {
     *error = base::ASCIIToUTF16(errors::kInvalidContentSecurityPolicy);
     return false;
   }
-  std::string sanitized_csp;
-  if (extension->manifest_version() >= 2) {
-    std::vector<InstallWarning> warnings;
-    content_security_policy =
-        SanitizeContentSecurityPolicy(content_security_policy,
-                                      GetValidatorOptions(extension),
-                                      &warnings);
-    extension->AddInstallWarnings(warnings);
-  }
+  std::vector<InstallWarning> warnings;
+  content_security_policy = SanitizeContentSecurityPolicy(
+      content_security_policy, GetValidatorOptions(extension), &warnings);
+  extension->AddInstallWarnings(warnings);
 
   extension->SetManifestData(
       keys::kContentSecurityPolicy,
-      base::MakeUnique<CSPInfo>(content_security_policy));
+      std::make_unique<CSPInfo>(content_security_policy));
   return true;
 }
 
@@ -157,10 +154,14 @@ bool CSPHandler::AlwaysParseForType(Manifest::Type type) const {
         type == Manifest::TYPE_LEGACY_PACKAGED_APP;
 }
 
-const std::vector<std::string> CSPHandler::Keys() const {
-  const std::string& key = is_platform_app_ ?
-      keys::kPlatformAppContentSecurityPolicy : keys::kContentSecurityPolicy;
-  return SingleKey(key);
+base::span<const char* const> CSPHandler::Keys() const {
+  if (is_platform_app_) {
+    static constexpr const char* kKeys[] = {
+        keys::kPlatformAppContentSecurityPolicy};
+    return kKeys;
+  }
+  static constexpr const char* kKeys[] = {keys::kContentSecurityPolicy};
+  return kKeys;
 }
 
 }  // namespace extensions

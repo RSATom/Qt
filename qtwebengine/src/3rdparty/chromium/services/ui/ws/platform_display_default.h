@@ -47,9 +47,11 @@ class PlatformDisplayDefault : public PlatformDisplay,
   void SetCursor(const ui::CursorData& cursor) override;
   void MoveCursorTo(const gfx::Point& window_pixel_location) override;
   void SetCursorSize(const ui::CursorSize& cursor_size) override;
+  void ConfineCursorToBounds(const gfx::Rect& pixel_bounds) override;
   void UpdateTextInputState(const ui::TextInputState& state) override;
   void SetImeVisibility(bool visible) override;
   void UpdateViewportMetrics(const display::ViewportMetrics& metrics) override;
+  const display::ViewportMetrics& GetViewportMetrics() override;
   gfx::AcceleratedWidget GetAcceleratedWidget() const override;
   FrameGenerator* GetFrameGenerator() override;
   void SetCursorConfig(display::Display::Rotation rotation,
@@ -66,6 +68,7 @@ class PlatformDisplayDefault : public PlatformDisplay,
   void OnLostCapture() override;
   void OnAcceleratedWidgetAvailable(gfx::AcceleratedWidget widget,
                                     float device_scale_factor) override;
+  void OnAcceleratedWidgetDestroying() override;
   void OnAcceleratedWidgetDestroyed() override;
   void OnActivationChanged(bool active) override;
 

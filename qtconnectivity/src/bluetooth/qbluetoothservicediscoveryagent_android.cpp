@@ -37,6 +37,7 @@
 **
 ****************************************************************************/
 
+#include <QtCore/qcoreapplication.h>
 #include <QtCore/QLoggingCategory>
 #include <QtCore/QTimer>
 #include <QtCore/private/qjnihelpers_p.h>
@@ -54,21 +55,33 @@ QT_BEGIN_NAMESPACE
 Q_DECLARE_LOGGING_CATEGORY(QT_BT_ANDROID)
 
 QBluetoothServiceDiscoveryAgentPrivate::QBluetoothServiceDiscoveryAgentPrivate(
-        QBluetoothServiceDiscoveryAgent *qp, const QBluetoothAddress &/*deviceAdapter*/)
+        QBluetoothServiceDiscoveryAgent *qp, const QBluetoothAddress &deviceAdapter)
     : error(QBluetoothServiceDiscoveryAgent::NoError),
-      state(Inactive), deviceDiscoveryAgent(0),
+      m_deviceAdapterAddress(deviceAdapter),
+      state(Inactive),
       mode(QBluetoothServiceDiscoveryAgent::MinimalDiscovery),
-      singleDevice(false), receiver(0), localDeviceReceiver(0),
+      singleDevice(false),
       q_ptr(qp)
 
 {
-    QList<QBluetoothHostInfo> devices = QBluetoothLocalDevice::allDevices();
-    Q_ASSERT(devices.count() <= 1); //Android only supports one device at the moment
+    // If a specific adapter address is requested we need to check it matches
+    // the current local adapter. If it does not match we emit
+    // InvalidBluetoothAdapterError when calling start()
 
-    if (devices.isEmpty()) {
-        error = QBluetoothServiceDiscoveryAgent::InvalidBluetoothAdapterError;
-        errorString = QBluetoothServiceDiscoveryAgent::tr("Invalid Bluetooth adapter address");
-        return;
+    bool createAdapter = true;
+    if (!deviceAdapter.isNull()) {
+        const QList<QBluetoothHostInfo> devices = QBluetoothLocalDevice::allDevices();
+        if (devices.isEmpty()) {
+            createAdapter = false;
+        } else {
+            auto match = [deviceAdapter](const QBluetoothHostInfo& info) {
+                return info.address() == deviceAdapter;
+            };
+
+            auto result = std::find_if(devices.begin(), devices.end(), match);
+            if (result == devices.end())
+                createAdapter = false;
+        }
     }
 
     if (QtAndroidPrivate::androidSdkVersion() < 15)
@@ -83,7 +96,8 @@ QBluetoothServiceDiscoveryAgentPrivate::QBluetoothServiceDiscoveryAgentPrivate(
       The logic below must change once there is more than one adapter.
     */
 
-    btAdapter = QAndroidJniObject::callStaticObjectMethod("android/bluetooth/BluetoothAdapter",
+    if (createAdapter)
+        btAdapter = QAndroidJniObject::callStaticObjectMethod("android/bluetooth/BluetoothAdapter",
                                                            "getDefaultAdapter",
                                                            "()Landroid/bluetooth/BluetoothAdapter;");
     if (!btAdapter.isValid())
@@ -109,8 +123,15 @@ void QBluetoothServiceDiscoveryAgentPrivate::start(const QBluetoothAddress &addr
     Q_Q(QBluetoothServiceDiscoveryAgent);
 
     if (!btAdapter.isValid()) {
-        error = QBluetoothServiceDiscoveryAgent::UnknownError;
-        errorString = QBluetoothServiceDiscoveryAgent::tr("Platform does not support Bluetooth");
+        if (m_deviceAdapterAddress.isNull()) {
+            error = QBluetoothServiceDiscoveryAgent::UnknownError;
+            errorString = QBluetoothServiceDiscoveryAgent::tr("Platform does not support Bluetooth");
+        } else {
+            // specific adapter was requested which does not match the locally
+            // existing adapter
+            error = QBluetoothServiceDiscoveryAgent::InvalidBluetoothAdapterError;
+            errorString = QBluetoothServiceDiscoveryAgent::tr("Invalid Bluetooth adapter address");
+        }
 
         //abort any outstanding discoveries
         discoveredDevices.clear();
@@ -198,14 +219,18 @@ void QBluetoothServiceDiscoveryAgentPrivate::start(const QBluetoothAddress &addr
         //Full discovery uses BluetoothDevice.fetchUuidsWithSdp()
         if (!receiver) {
             receiver = new ServiceDiscoveryBroadcastReceiver();
-            QObject::connect(receiver, SIGNAL(uuidFetchFinished(QBluetoothAddress,QList<QBluetoothUuid>)),
-                    q, SLOT(_q_processFetchedUuids(QBluetoothAddress,QList<QBluetoothUuid>)));
+            QObject::connect(receiver, &ServiceDiscoveryBroadcastReceiver::uuidFetchFinished,
+                             q, [this](const QBluetoothAddress &address, const QList<QBluetoothUuid>& uuids) {
+                this->_q_processFetchedUuids(address, uuids);
+            });
         }
 
         if (!localDeviceReceiver) {
             localDeviceReceiver = new LocalDeviceBroadcastReceiver();
-            QObject::connect(localDeviceReceiver, SIGNAL(hostModeStateChanged(QBluetoothLocalDevice::HostMode)),
-                             q, SLOT(_q_hostModeStateChanged(QBluetoothLocalDevice::HostMode)));
+            QObject::connect(localDeviceReceiver, &LocalDeviceBroadcastReceiver::hostModeStateChanged,
+                             q, [this](QBluetoothLocalDevice::HostMode state){
+                this->_q_hostModeStateChanged(state);
+            });
         }
 
         jboolean result = remoteDevice.callMethod<jboolean>("fetchUuidsWithSdp");
@@ -213,7 +238,7 @@ void QBluetoothServiceDiscoveryAgentPrivate::start(const QBluetoothAddress &addr
             //kill receiver to limit load of signals
             receiver->unregisterReceiver();
             receiver->deleteLater();
-            receiver = 0;
+            receiver = nullptr;
             qCWarning(QT_BT_ANDROID) << "Cannot start dynamic fetch.";
             _q_serviceDiscoveryFinished();
         }
@@ -228,7 +253,7 @@ void QBluetoothServiceDiscoveryAgentPrivate::stop()
     //kill receiver to limit load of signals
     receiver->unregisterReceiver();
     receiver->deleteLater();
-    receiver = 0;
+    receiver = nullptr;
 
     Q_Q(QBluetoothServiceDiscoveryAgent);
     emit q->canceled();
@@ -246,7 +271,9 @@ void QBluetoothServiceDiscoveryAgentPrivate::_q_processFetchedUuids(
     if (address.isNull() || uuids.isEmpty()) {
         if (discoveredDevices.count() == 1) {
             Q_Q(QBluetoothServiceDiscoveryAgent);
-            QTimer::singleShot(4000, q, SLOT(_q_fetchUuidsTimeout()));
+            QTimer::singleShot(4000, q, [this]() {
+                this->_q_fetchUuidsTimeout();
+            });
         }
         _q_serviceDiscoveryFinished();
         return;
@@ -296,7 +323,9 @@ void QBluetoothServiceDiscoveryAgentPrivate::_q_processFetchedUuids(
         //we have to grant the 2 seconds timeout delay
         if (discoveredDevices.count() == 1) {
             Q_Q(QBluetoothServiceDiscoveryAgent);
-            QTimer::singleShot(4000, q, SLOT(_q_fetchUuidsTimeout()));
+            QTimer::singleShot(4000, q, [this]() {
+                this->_q_fetchUuidsTimeout();
+            });
             return;
         }
 
@@ -363,12 +392,18 @@ void QBluetoothServiceDiscoveryAgentPrivate::populateDiscoveredServices(const QB
                      << QVariant::fromValue(0);
             protocolDescriptorList.append(QVariant::fromValue(protocol));
 
-            //set SPP service class uuid
+            QBluetoothServiceInfo::Sequence profileSequence;
             QBluetoothServiceInfo::Sequence classId;
             classId << QVariant::fromValue(QBluetoothUuid(QBluetoothUuid::SerialPort));
+            classId << QVariant::fromValue(quint16(0x100));
+            profileSequence.append(QVariant::fromValue(classId));
             serviceInfo.setAttribute(QBluetoothServiceInfo::BluetoothProfileDescriptorList,
-                                     classId);
-            classId.prepend(QVariant::fromValue(uuids.at(i)));
+                                     profileSequence);
+
+            classId.clear();
+            //set SPP service class uuid
+            classId << QVariant::fromValue(uuids.at(i));
+            classId << QVariant::fromValue(QBluetoothUuid(QBluetoothUuid::SerialPort));
             serviceInfo.setAttribute(QBluetoothServiceInfo::ServiceClassIds, classId);
 
             serviceInfo.setServiceName(QBluetoothServiceDiscoveryAgent::tr("Serial Port Profile"));
@@ -380,10 +415,13 @@ void QBluetoothServiceDiscoveryAgentPrivate::populateDiscoveredServices(const QB
                      << QVariant::fromValue(0);
             protocolDescriptorList.append(QVariant::fromValue(protocol));
 
+            QBluetoothServiceInfo::Sequence profileSequence;
             QBluetoothServiceInfo::Sequence classId;
             classId << QVariant::fromValue(QBluetoothUuid(QBluetoothUuid::SerialPort));
+            classId << QVariant::fromValue(quint16(0x100));
+            profileSequence.append(QVariant::fromValue(classId));
             serviceInfo.setAttribute(QBluetoothServiceInfo::BluetoothProfileDescriptorList,
-                                     classId);
+                                     profileSequence);
 
             //also we need to set the custom uuid to the SPP uuid
             //otherwise QBluetoothSocket::connectToService() would fail due to a missing service uuid
@@ -393,13 +431,10 @@ void QBluetoothServiceDiscoveryAgentPrivate::populateDiscoveredServices(const QB
             serviceInfo.setServiceUuid(uuids.at(i));
         }
 
-        //Check if the UUID is in the uuidFilter
-        if (!uuidFilter.isEmpty() && !uuidFilter.contains(serviceInfo.serviceUuid()))
-            continue;
-
         serviceInfo.setAttribute(QBluetoothServiceInfo::ProtocolDescriptorList, protocolDescriptorList);
-        serviceInfo.setAttribute(QBluetoothServiceInfo::BrowseGroupList,
-                                 QBluetoothUuid(QBluetoothUuid::PublicBrowseGroup));
+        QBluetoothServiceInfo::Sequence publicBrowse;
+        publicBrowse << QVariant::fromValue(QBluetoothUuid(QBluetoothUuid::PublicBrowseGroup));
+        serviceInfo.setAttribute(QBluetoothServiceInfo::BrowseGroupList, publicBrowse);
 
         if (!customUuids.contains(i)) {
             //if we don't have custom uuid use it as class id as well
@@ -409,6 +444,16 @@ void QBluetoothServiceDiscoveryAgentPrivate::populateDiscoveredServices(const QB
             QBluetoothUuid::ServiceClassUuid clsId
                 = static_cast<QBluetoothUuid::ServiceClassUuid>(uuids.at(i).toUInt16());
             serviceInfo.setServiceName(QBluetoothUuid::serviceClassToString(clsId));
+        }
+
+        //Check if the service is in the uuidFilter
+        if (!uuidFilter.isEmpty()) {
+            bool match = uuidFilter.contains(serviceInfo.serviceUuid());
+            for (const auto &uuid : qAsConst(uuidFilter))
+                match |= serviceInfo.serviceClassUuids().contains(uuid);
+
+            if (!match)
+                continue;
         }
 
         //don't include the service if we already discovered it before
@@ -427,7 +472,7 @@ void QBluetoothServiceDiscoveryAgentPrivate::_q_fetchUuidsTimeout()
 
     QPair<QBluetoothDeviceInfo,QList<QBluetoothUuid> > pair;
     const QList<QBluetoothAddress> keys = sdpCache.keys();
-    foreach (const QBluetoothAddress &key, keys) {
+    for (const QBluetoothAddress &key : keys) {
         pair = sdpCache.take(key);
         populateDiscoveredServices(pair.first, pair.second);
     }
@@ -437,7 +482,7 @@ void QBluetoothServiceDiscoveryAgentPrivate::_q_fetchUuidsTimeout()
     //kill receiver to limit load of signals
     receiver->unregisterReceiver();
     receiver->deleteLater();
-    receiver = 0;
+    receiver = nullptr;
     _q_serviceDiscoveryFinished();
 }
 
@@ -454,7 +499,7 @@ void QBluetoothServiceDiscoveryAgentPrivate::_q_hostModeStateChanged(QBluetoothL
         //kill receiver to limit load of signals
         receiver->unregisterReceiver();
         receiver->deleteLater();
-        receiver = 0;
+        receiver = nullptr;
 
         Q_Q(QBluetoothServiceDiscoveryAgent);
         emit q->error(error);

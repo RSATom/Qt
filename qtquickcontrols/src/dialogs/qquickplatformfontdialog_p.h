@@ -55,22 +55,22 @@
 
 QT_BEGIN_NAMESPACE
 
-class QQuickPlatformFontDialog : public QQuickAbstractFontDialog
+class QQuickPlatformFontDialog1 : public QQuickAbstractFontDialog
 {
     Q_OBJECT
 
 public:
-    QQuickPlatformFontDialog(QObject *parent = 0);
-    virtual ~QQuickPlatformFontDialog();
+    QQuickPlatformFontDialog1(QObject *parent = 0);
+    virtual ~QQuickPlatformFontDialog1();
 
 protected:
     QPlatformFontDialogHelper *helper();
 
-    Q_DISABLE_COPY(QQuickPlatformFontDialog)
+    Q_DISABLE_COPY(QQuickPlatformFontDialog1)
 };
 
 QT_END_NAMESPACE
 
-QML_DECLARE_TYPE(QQuickPlatformFontDialog *)
+QML_DECLARE_TYPE(QQuickPlatformFontDialog1 *)
 
 #endif // QQUICKPLATFORMFONTDIALOG_P_H

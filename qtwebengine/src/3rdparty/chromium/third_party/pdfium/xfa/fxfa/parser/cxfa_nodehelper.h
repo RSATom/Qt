@@ -11,7 +11,7 @@
 
 #include "xfa/fxfa/parser/xfa_resolvenode_rs.h"
 
-class CXFA_ScriptContext;
+class CFXJSE_Engine;
 
 enum XFA_LOGIC_TYPE {
   XFA_LOGIC_NoTransparent,
@@ -48,25 +48,25 @@ class CXFA_NodeHelper {
                    XFA_LOGIC_TYPE eLogicType = XFA_LOGIC_NoTransparent,
                    bool bIsProperty = false,
                    bool bIsClassIndex = false);
-  void GetNameExpression(CXFA_Node* refNode,
-                         CFX_WideString& wsName,
-                         bool bIsAllPath,
-                         XFA_LOGIC_TYPE eLogicType = XFA_LOGIC_NoTransparent);
+  WideString GetNameExpression(
+      CXFA_Node* refNode,
+      bool bIsAllPath,
+      XFA_LOGIC_TYPE eLogicType = XFA_LOGIC_NoTransparent);
   bool NodeIsTransparent(CXFA_Node* refNode);
-  bool ResolveNodes_CreateNode(CFX_WideString wsName,
-                               CFX_WideString wsCondition,
+  bool ResolveNodes_CreateNode(WideString wsName,
+                               WideString wsCondition,
                                bool bLastNode,
-                               CXFA_ScriptContext* pScriptContext);
-  bool CreateNode_ForCondition(CFX_WideString& wsCondition);
+                               CFXJSE_Engine* pScriptContext);
+  bool CreateNode_ForCondition(WideString& wsCondition);
   void SetCreateNodeType(CXFA_Node* refNode);
   bool NodeIsProperty(CXFA_Node* refNode);
 
-  XFA_Element m_eLastCreateType;
-  CXFA_Node* m_pCreateParent;
-  int32_t m_iCreateCount;
-  XFA_RESOVENODE_RSTYPE m_iCreateFlag;
-  int32_t m_iCurAllStart;
-  CXFA_Node* m_pAllStartParent;
+  XFA_Element m_eLastCreateType = XFA_Element::DataValue;
+  XFA_ResolveNode_RSType m_iCreateFlag = XFA_ResolveNode_RSType_CreateNodeOne;
+  int32_t m_iCreateCount = 0;
+  int32_t m_iCurAllStart = -1;
+  UnownedPtr<CXFA_Node> m_pCreateParent;
+  UnownedPtr<CXFA_Node> m_pAllStartParent;
 };
 
 #endif  // XFA_FXFA_PARSER_CXFA_NODEHELPER_H_

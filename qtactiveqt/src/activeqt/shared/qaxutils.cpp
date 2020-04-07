@@ -50,19 +50,19 @@
 
 #include "qaxutils_p.h"
 
-#include <QtWidgets/QWidget>
-#include <QtGui/QPixmap>
-#include <QtGui/QRegion>
-#include <QtGui/QWindow>
-#include <QtGui/QGuiApplication>
+#include <QtWidgets/qwidget.h>
+#include <QtGui/qpixmap.h>
+#include <QtGui/qregion.h>
+#include <QtGui/qwindow.h>
+#include <QtGui/qguiapplication.h>
 #include <private/qhighdpiscaling_p.h>
 #include <qpa/qplatformnativeinterface.h>
 #include <qpa/qplatformpixmap.h>
 #include <QtGui/private/qpixmap_raster_p.h>
-#include <QtCore/QScopedArrayPointer>
-#include <QtCore/QRect>
+#include <QtCore/qscopedpointer.h>
+#include <QtCore/qrect.h>
 
-#include <QtCore/QDebug>
+#include <QtCore/qdebug.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -97,16 +97,10 @@ static void addRectToHrgn(HRGN &winRegion, const QRect &r)
     }
 }
 
-HRGN qaxHrgnFromQRegion(QRegion region, const QWindow *window)
+HRGN qaxHrgnFromQRegion(const QRegion &region, const QWindow *window)
 {
-    region = QHighDpi::toNativeLocalRegion(region, window);
     HRGN hRegion = CreateRectRgn(0, 0, 0, 0);
-    if (region.rectCount() == 1) {
-        addRectToHrgn(hRegion, region.boundingRect());
-        return hRegion;
-    }
-    const QVector<QRect> &rects = region.rects();
-    for (const QRect &rect : rects)
+    for (const QRect &rect : QHighDpi::toNativeLocalRegion(region, window))
         addRectToHrgn(hRegion, rect);
     return hRegion;
 }

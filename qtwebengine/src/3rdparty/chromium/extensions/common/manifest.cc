@@ -11,6 +11,7 @@
 #include "base/strings/string_split.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "components/crx_file/id_util.h"
 #include "extensions/common/error_utils.h"
 #include "extensions/common/features/feature.h"
 #include "extensions/common/features/feature_provider.h"
@@ -109,29 +110,59 @@ Manifest::Location Manifest::GetHigherPriorityLocation(
   return (loc1_rank > loc2_rank ? loc1 : loc2 );
 }
 
-Manifest::Manifest(Location location,
-                   std::unique_ptr<base::DictionaryValue> value)
-    : location_(location), value_(std::move(value)), type_(TYPE_UNKNOWN) {
-  if (value_->HasKey(keys::kTheme)) {
-    type_ = TYPE_THEME;
-  } else if (value_->HasKey(keys::kExport)) {
-    type_ = TYPE_SHARED_MODULE;
-  } else if (value_->HasKey(keys::kApp)) {
-    if (value_->Get(keys::kWebURLs, NULL) ||
-        value_->Get(keys::kLaunchWebURL, NULL)) {
-      type_ = TYPE_HOSTED_APP;
-    } else if (value_->Get(keys::kPlatformAppBackground, NULL)) {
-      type_ = TYPE_PLATFORM_APP;
+// static
+Manifest::Type Manifest::GetTypeFromManifestValue(
+    const base::DictionaryValue& value) {
+  Type type = TYPE_UNKNOWN;
+  if (value.HasKey(keys::kTheme)) {
+    type = TYPE_THEME;
+  } else if (value.HasKey(keys::kExport)) {
+    type = TYPE_SHARED_MODULE;
+  } else if (value.HasKey(keys::kApp)) {
+    if (value.Get(keys::kWebURLs, nullptr) ||
+        value.Get(keys::kLaunchWebURL, nullptr)) {
+      type = TYPE_HOSTED_APP;
+    } else if (value.Get(keys::kPlatformAppBackground, nullptr)) {
+      type = TYPE_PLATFORM_APP;
     } else {
-      type_ = TYPE_LEGACY_PACKAGED_APP;
+      type = TYPE_LEGACY_PACKAGED_APP;
     }
   } else {
-    type_ = TYPE_EXTENSION;
+    type = TYPE_EXTENSION;
   }
-  CHECK_NE(type_, TYPE_UNKNOWN);
+  DCHECK_NE(type, TYPE_UNKNOWN);
+
+  return type;
 }
 
+// static
+bool Manifest::ShouldAlwaysLoadExtension(Manifest::Location location,
+                                         bool is_theme) {
+  if (location == Manifest::COMPONENT)
+    return true;  // Component extensions are always allowed.
+
+  if (is_theme)
+    return true;  // Themes are allowed, even with --disable-extensions.
+
+  // TODO(devlin): This seems wrong. See https://crbug.com/833540.
+  if (Manifest::IsExternalLocation(location))
+    return true;
+
+  return false;
+}
+
+Manifest::Manifest(Location location,
+                   std::unique_ptr<base::DictionaryValue> value)
+    : location_(location),
+      value_(std::move(value)),
+      type_(GetTypeFromManifestValue(*value_)) {}
+
 Manifest::~Manifest() {
+}
+
+void Manifest::SetExtensionId(const ExtensionId& id) {
+  extension_id_ = id;
+  hashed_id_ = HashedExtensionId(id);
 }
 
 bool Manifest::ValidateManifest(
@@ -153,7 +184,7 @@ bool Manifest::ValidateManifest(
       continue;
 
     Feature::Availability result = map_entry.second->IsAvailableToManifest(
-        extension_id_, type_, location_, GetManifestVersion());
+        hashed_id_, type_, location_, GetManifestVersion());
     if (!result.is_available())
       warnings->push_back(InstallWarning(result.message(), map_entry.first));
   }
@@ -218,7 +249,7 @@ bool Manifest::GetList(
 Manifest* Manifest::DeepCopy() const {
   Manifest* manifest = new Manifest(
       location_, std::unique_ptr<base::DictionaryValue>(value_->DeepCopy()));
-  manifest->set_extension_id(extension_id_);
+  manifest->SetExtensionId(extension_id_);
   return manifest;
 }
 
@@ -247,12 +278,14 @@ bool Manifest::CanAccessPath(const std::string& path) const {
 }
 
 bool Manifest::CanAccessKey(const std::string& key) const {
-  Feature* feature = FeatureProvider::GetManifestFeatures()->GetFeature(key);
+  const Feature* feature =
+      FeatureProvider::GetManifestFeatures()->GetFeature(key);
   if (!feature)
     return true;
 
-  return feature->IsAvailableToManifest(
-                      extension_id_, type_, location_, GetManifestVersion())
+  return feature
+      ->IsAvailableToManifest(hashed_id_, type_, location_,
+                              GetManifestVersion())
       .is_available();
 }
 

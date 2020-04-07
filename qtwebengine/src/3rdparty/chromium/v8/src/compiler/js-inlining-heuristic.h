@@ -15,13 +15,14 @@ class JSInliningHeuristic final : public AdvancedReducer {
  public:
   enum Mode { kGeneralInlining, kRestrictedInlining, kStressInlining };
   JSInliningHeuristic(Editor* editor, Mode mode, Zone* local_zone,
-                      CompilationInfo* info, JSGraph* jsgraph,
+                      OptimizedCompilationInfo* info, JSGraph* jsgraph,
                       SourcePositionTable* source_positions)
       : AdvancedReducer(editor),
         mode_(mode),
         inliner_(editor, local_zone, info, jsgraph, source_positions),
         candidates_(local_zone),
         seen_(local_zone),
+        source_positions_(source_positions),
         jsgraph_(jsgraph) {}
 
   const char* reducer_name() const override { return "JSInliningHeuristic"; }
@@ -50,6 +51,7 @@ class JSInliningHeuristic final : public AdvancedReducer {
     int num_functions;
     Node* node = nullptr;     // The call site at which to inline.
     CallFrequency frequency;  // Relative frequency of this call site.
+    int total_size = 0;
   };
 
   // Comparator for candidates.
@@ -62,17 +64,30 @@ class JSInliningHeuristic final : public AdvancedReducer {
 
   // Dumps candidates to console.
   void PrintCandidates();
-  Reduction InlineCandidate(Candidate const& candidate, bool force_inline);
+  Reduction InlineCandidate(Candidate const& candidate, bool small_function);
+  void CreateOrReuseDispatch(Node* node, Node* callee,
+                             Candidate const& candidate, Node** if_successes,
+                             Node** calls, Node** inputs, int input_count);
+  bool TryReuseDispatch(Node* node, Node* callee, Candidate const& candidate,
+                        Node** if_successes, Node** calls, Node** inputs,
+                        int input_count);
+  enum StateCloneMode { kCloneState, kChangeInPlace };
+  Node* DuplicateFrameStateAndRename(Node* frame_state, Node* from, Node* to,
+                                     StateCloneMode mode);
+  Node* DuplicateStateValuesAndRename(Node* state_values, Node* from, Node* to,
+                                      StateCloneMode mode);
 
   CommonOperatorBuilder* common() const;
   Graph* graph() const;
   JSGraph* jsgraph() const { return jsgraph_; }
+  Isolate* isolate() const { return jsgraph_->isolate(); }
   SimplifiedOperatorBuilder* simplified() const;
 
   Mode const mode_;
   JSInliner inliner_;
   Candidates candidates_;
   ZoneSet<NodeId> seen_;
+  SourcePositionTable* source_positions_;
   JSGraph* const jsgraph_;
   int cumulative_count_ = 0;
 };

@@ -3,7 +3,7 @@
 // found in the LICENSE file.
 
 cr.define('downloads', function() {
-  var Manager = Polymer({
+  const Manager = Polymer({
     is: 'downloads-manager',
 
     properties: {
@@ -55,12 +55,25 @@ cr.define('downloads', function() {
       'itemsChanged_(items_.*)',
     ],
 
-    attached: function() {
-      document.documentElement.classList.remove('loading');
-    },
+    /** @private {?downloads.BrowserProxy} */
+    browserProxy_: null,
+
+    /** @private {?downloads.SearchService} */
+    searchService_: null,
 
     /** @private {!PromiseResolver} */
     loaded_: new PromiseResolver,
+
+    /** @override */
+    created: function() {
+      this.browserProxy_ = downloads.BrowserProxy.getInstance();
+      this.searchService_ = downloads.SearchService.getInstance();
+    },
+
+    /** @override */
+    attached: function() {
+      document.documentElement.classList.remove('loading');
+    },
 
     /** @private */
     clearAll_: function() {
@@ -82,8 +95,16 @@ cr.define('downloads', function() {
      * @private
      */
     insertItems_: function(index, list) {
-      this.splice.apply(this, ['items_', index, 0].concat(list));
+      // Insert |list| at the given |index| via Array#splice().
+      this.items_.splice.apply(this.items_, [index, 0].concat(list));
       this.updateHideDates_(index, index + list.length);
+      this.notifySplices('items_', [{
+                           index: index,
+                           addedCount: list.length,
+                           object: this.items_,
+                           type: 'splice',
+                           removed: [],
+                         }]);
 
       if (this.hasAttribute('loading')) {
         this.removeAttribute('loading');
@@ -142,19 +163,19 @@ cr.define('downloads', function() {
      */
     onCommand_: function(e) {
       if (e.command.id == 'clear-all-command')
-        downloads.ActionService.getInstance().clearAll();
+        this.browserProxy_.clearAll();
       else if (e.command.id == 'undo-command')
-        downloads.ActionService.getInstance().undo();
+        this.browserProxy_.undo();
       else if (e.command.id == 'find-command')
         this.$.toolbar.onFindCommand();
     },
 
     /** @private */
     onListScroll_: function() {
-      var list = this.$['downloads-list'];
+      const list = this.$['downloads-list'];
       if (list.scrollHeight - list.scrollTop - list.offsetHeight <= 100) {
         // Approaching the end of the scrollback. Attempt to load more items.
-        downloads.ActionService.getInstance().loadMore();
+        this.searchService_.loadMore();
       }
       this.hasShadow_ = list.scrollTop > 0;
     },
@@ -168,13 +189,13 @@ cr.define('downloads', function() {
       document.addEventListener('canExecute', this.onCanExecute_.bind(this));
       document.addEventListener('command', this.onCommand_.bind(this));
 
-      downloads.ActionService.getInstance().loadMore();
+      this.searchService_.loadMore();
       return this.loaded_.promise;
     },
 
     /** @private */
     onSearchChanged_: function() {
-      this.inSearchMode_ = downloads.ActionService.getInstance().isSearching();
+      this.inSearchMode_ = this.searchService_.isSearching();
     },
 
     /**
@@ -182,24 +203,33 @@ cr.define('downloads', function() {
      * @private
      */
     removeItem_: function(index) {
-      this.splice('items_', index, 1);
+      let removed = this.items_.splice(index, 1);
       this.updateHideDates_(index, index);
+      this.notifySplices('items_', [{
+                           index: index,
+                           addedCount: 0,
+                           object: this.items_,
+                           type: 'splice',
+                           removed: removed,
+                         }]);
       this.onListScroll_();
     },
 
     /**
+     * Updates whether dates should show for |this.items_[start - end]|. Note:
+     * this method does not trigger template bindings. Use notifySplices() or
+     * after calling this method to ensure items are redrawn.
      * @param {number} start
      * @param {number} end
      * @private
      */
     updateHideDates_: function(start, end) {
-      for (var i = start; i <= end; ++i) {
-        var current = this.items_[i];
+      for (let i = start; i <= end; ++i) {
+        const current = this.items_[i];
         if (!current)
           continue;
-        var prev = this.items_[i - 1];
-        var hideDate = !!prev && prev.date_string == current.date_string;
-        this.set('items_.' + i + '.hideDate', hideDate);
+        const prev = this.items_[i - 1];
+        current.hideDate = !!prev && prev.date_string == current.date_string;
       }
     },
 
@@ -209,10 +239,19 @@ cr.define('downloads', function() {
      * @private
      */
     updateItem_: function(index, data) {
-      this.set('items_.' + index, data);
+      this.items_[index] = data;
       this.updateHideDates_(index, index);
-      var list = /** @type {!IronListElement} */ (this.$['downloads-list']);
-      list.updateSizeForItem(index);
+      this.notifySplices('items_', [{
+                           index: index,
+                           addedCount: 0,
+                           object: this.items_,
+                           type: 'splice',
+                           removed: [],
+                         }]);
+      this.async(() => {
+        const list = /** @type {!IronListElement} */ (this.$['downloads-list']);
+        list.updateSizeForIndex(index);
+      });
     },
   });
 

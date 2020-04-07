@@ -7,7 +7,6 @@
 #include <map>
 #include <memory>
 
-#include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "content/browser/media/session/media_session_player_observer.h"
@@ -16,7 +15,7 @@
 #include "content/test/test_render_view_host.h"
 #include "content/test/test_web_contents.h"
 #include "media/base/media_content_type.h"
-#include "third_party/WebKit/public/platform/modules/mediasession/media_session.mojom.h"
+#include "third_party/blink/public/platform/modules/mediasession/media_session.mojom.h"
 
 using ::testing::_;
 using ::testing::AnyNumber;
@@ -64,6 +63,8 @@ class MockMediaSessionPlayerObserver : public MediaSessionPlayerObserver {
 
   MOCK_METHOD1(OnSuspend, void(int player_id));
   MOCK_METHOD1(OnResume, void(int player_id));
+  MOCK_METHOD2(OnSeekForward, void(int player_id, base::TimeDelta seek_time));
+  MOCK_METHOD2(OnSeekBackward, void(int player_id, base::TimeDelta seek_time));
   MOCK_METHOD2(OnSetVolumeMultiplier,
                void(int player_id, double volume_multiplier));
 
@@ -108,8 +109,8 @@ class MediaSessionImplServiceRoutingTest
 
   void CreateServiceForFrame(TestRenderFrameHost* frame) {
     services_[frame] =
-        base::MakeUnique<NiceMock<MockMediaSessionServiceImpl>>(frame);
-    clients_[frame] = base::MakeUnique<NiceMock<MockMediaSessionClient>>();
+        std::make_unique<NiceMock<MockMediaSessionServiceImpl>>(frame);
+    clients_[frame] = std::make_unique<NiceMock<MockMediaSessionClient>>();
     services_[frame]->SetClient(clients_[frame]->CreateInterfacePtrAndBind());
   }
 
@@ -125,7 +126,7 @@ class MediaSessionImplServiceRoutingTest
 
   void StartPlayerForFrame(TestRenderFrameHost* frame) {
     players_[frame] =
-        base::MakeUnique<NiceMock<MockMediaSessionPlayerObserver>>(frame);
+        std::make_unique<NiceMock<MockMediaSessionPlayerObserver>>(frame);
     MediaSessionImpl::Get(contents())
         ->AddPlayer(players_[frame].get(), kPlayerId,
                     media::MediaContentType::Persistent);

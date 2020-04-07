@@ -43,12 +43,12 @@
 
 #include <QtCore/qglobal.h>
 
-#ifndef QT_NO_REGULAREXPRESSION
-
 #include <QtCore/qstring.h>
 #include <QtCore/qstringlist.h>
 #include <QtCore/qshareddata.h>
 #include <QtCore/qvariant.h>
+
+QT_REQUIRE_CONFIG(regularexpression);
 
 QT_BEGIN_NAMESPACE
 
@@ -73,8 +73,8 @@ public:
         InvertedGreedinessOption       = 0x0010,
         DontCaptureOption              = 0x0020,
         UseUnicodePropertiesOption     = 0x0040,
-        OptimizeOnFirstUsageOption     = 0x0080,
-        DontAutomaticallyOptimizeOption = 0x0100
+        OptimizeOnFirstUsageOption Q_DECL_ENUMERATOR_DEPRECATED_X("This option does not have any effect since Qt 5.12") = 0x0080,
+        DontAutomaticallyOptimizeOption Q_DECL_ENUMERATOR_DEPRECATED_X("This option does not have any effect since Qt 5.12") = 0x0100,
     };
     Q_DECLARE_FLAGS(PatternOptions, PatternOption)
 
@@ -141,6 +141,13 @@ public:
     void optimize() const;
 
     static QString escape(const QString &str);
+    static QString wildcardToRegularExpression(const QString &str);
+    static inline QString anchoredPattern(const QString &expression)
+    {
+        return QLatin1String("\\A(?:")
+               + expression
+               + QLatin1String(")\\z");
+    }
 
     bool operator==(const QRegularExpression &re) const;
     inline bool operator!=(const QRegularExpression &re) const { return !operator==(re); }
@@ -276,7 +283,5 @@ private:
 Q_DECLARE_SHARED(QRegularExpressionMatchIterator)
 
 QT_END_NAMESPACE
-
-#endif // QT_NO_REGULAREXPRESSION
 
 #endif // QREGULAREXPRESSION_H

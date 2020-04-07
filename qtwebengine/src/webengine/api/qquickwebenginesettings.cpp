@@ -73,6 +73,22 @@ QQuickWebEngineSettings::~QQuickWebEngineSettings()
 { }
 
 /*!
+    \enum QQuickWebEngineSettings::UnknownUrlSchemePolicy
+    \since WebEngine 1.7
+
+    This enum describes how navigation requests to URLs with unknown schemes are handled.
+
+    \value DisallowUnknownUrlSchemes
+           Disallows all navigation requests to URLs with unknown schemes.
+    \value AllowUnknownUrlSchemesFromUserInteraction
+           Allows navigation requests to URLs with unknown schemes that are issued from
+           user-interaction (like a mouse-click), whereas other navigation requests (for example
+           from JavaScript) are suppressed.
+    \value AllowAllUnknownUrlSchemes
+           Allows all navigation requests to URLs with unknown schemes.
+*/
+
+/*!
     \qmlproperty bool WebEngineSettings::autoLoadImages
 
     Automatically loads images on web pages.
@@ -113,6 +129,9 @@ bool QQuickWebEngineSettings::javascriptCanOpenWindows() const
 
     Allows JavaScript programs to read from or write to the clipboard.
     Writing to the clipboard is always allowed if it is specifically requested by the user.
+
+    To enable also the pasting of clipboard content from JavaScript,
+    use javascriptCanPaste.
 
     Disabled by default.
 */
@@ -382,6 +401,62 @@ bool QQuickWebEngineSettings::showScrollBars() const
 }
 
 /*!
+  \qmlproperty bool WebEngineSettings::playbackRequiresUserGesture
+  \since QtWebEngine 1.7
+  Inhibits playback of media content until the user interacts with
+  the page. Disabled by default.
+
+  \note The behavior is similar to Chrome on Android when enabled,
+  and similar to Chrome on desktops when disabled (default).
+*/
+bool QQuickWebEngineSettings::playbackRequiresUserGesture() const
+{
+    return d_ptr->testAttribute(WebEngineSettings::PlaybackRequiresUserGesture);
+}
+
+/*!
+  \qmlproperty bool WebEngineSettings::webRTCPublicInterfacesOnly
+  \since QtWebEngine 1.7
+  Limits WebRTC to public IP addresses only. When disabled WebRTC may also use
+  local network IP addresses, but remote hosts can also see your local network
+  IP address.
+
+  Disabled by default.
+*/
+bool QQuickWebEngineSettings::webRTCPublicInterfacesOnly() const
+{
+    return d_ptr->testAttribute(WebEngineSettings::WebRTCPublicInterfacesOnly);
+}
+
+/*!
+    \qmlproperty bool WebEngineSettings::javascriptCanPaste
+    \since QtWebEngine 1.7
+
+    Enables JavaScript \c{execCommand("paste")}.
+    This also requires enabling javascriptCanAccessClipboard.
+
+    Disabled by default.
+*/
+bool QQuickWebEngineSettings::javascriptCanPaste() const
+{
+    return d_ptr->testAttribute(WebEngineSettings::JavascriptCanPaste);
+}
+
+/*!
+    \qmlproperty bool WebEngineSettings::dnsPrefetchEnabled
+    \since QtWebEngine 1.8
+
+    Enables speculative prefetching of DNS records for HTML links before
+    they are activated.
+
+    Disabled by default.
+*/
+bool QQuickWebEngineSettings::dnsPrefetchEnabled() const
+{
+    return d_ptr->testAttribute(WebEngineSettings::DnsPrefetchEnabled);
+}
+
+/*!
     \qmlproperty string WebEngineSettings::defaultTextEncoding
     \since QtWebEngine 1.2
 
@@ -393,6 +468,22 @@ bool QQuickWebEngineSettings::showScrollBars() const
 QString QQuickWebEngineSettings::defaultTextEncoding() const
 {
     return d_ptr->defaultTextEncoding();
+}
+
+ASSERT_ENUMS_MATCH(QQuickWebEngineSettings::DisallowUnknownUrlSchemes, WebEngineSettings::DisallowUnknownUrlSchemes)
+ASSERT_ENUMS_MATCH(QQuickWebEngineSettings::AllowUnknownUrlSchemesFromUserInteraction, WebEngineSettings::AllowUnknownUrlSchemesFromUserInteraction)
+ASSERT_ENUMS_MATCH(QQuickWebEngineSettings::AllowAllUnknownUrlSchemes, WebEngineSettings::AllowAllUnknownUrlSchemes)
+
+/*!
+  \qmlproperty WebEngineSettings::UnknownUrlSchemePolicy WebEngineSettings::unknownUrlSchemePolicy
+  \since QtWebEngine 1.7
+  Specifies how navigation requests to URLs with unknown schemes are handled.
+
+  Default is \l{QWebEngineSettings::UnknownUrlSchemePolicy}{WebEngineSettings.AllowUnknownUrlSchemesFromUserInteraction}.
+*/
+QQuickWebEngineSettings::UnknownUrlSchemePolicy QQuickWebEngineSettings::unknownUrlSchemePolicy() const
+{
+    return static_cast<QQuickWebEngineSettings::UnknownUrlSchemePolicy>(d_ptr->unknownUrlSchemePolicy());
 }
 
 void QQuickWebEngineSettings::setAutoLoadImages(bool on)
@@ -597,6 +688,47 @@ void QQuickWebEngineSettings::setShowScrollBars(bool on)
     d_ptr->setAttribute(WebEngineSettings::ShowScrollBars, on);
     if (wasOn != on)
         Q_EMIT showScrollBarsChanged();
+}
+
+void QQuickWebEngineSettings::setPlaybackRequiresUserGesture(bool on)
+{
+    bool wasOn = d_ptr->testAttribute(WebEngineSettings::PlaybackRequiresUserGesture);
+    d_ptr->setAttribute(WebEngineSettings::PlaybackRequiresUserGesture, on);
+    if (wasOn != on)
+        Q_EMIT playbackRequiresUserGestureChanged();
+}
+
+void QQuickWebEngineSettings::setJavascriptCanPaste(bool on)
+{
+    bool wasOn = d_ptr->testAttribute(WebEngineSettings::JavascriptCanPaste);
+    d_ptr->setAttribute(WebEngineSettings::JavascriptCanPaste, on);
+    if (wasOn != on)
+        Q_EMIT javascriptCanPasteChanged();
+}
+
+void QQuickWebEngineSettings::setDnsPrefetchEnabled(bool on)
+{
+    bool wasOn = d_ptr->testAttribute(WebEngineSettings::DnsPrefetchEnabled);
+    d_ptr->setAttribute(WebEngineSettings::DnsPrefetchEnabled, on);
+    if (wasOn != on)
+        Q_EMIT dnsPrefetchEnabledChanged();
+}
+
+void QQuickWebEngineSettings::setUnknownUrlSchemePolicy(QQuickWebEngineSettings::UnknownUrlSchemePolicy policy)
+{
+    WebEngineSettings::UnknownUrlSchemePolicy oldPolicy = d_ptr->unknownUrlSchemePolicy();
+    WebEngineSettings::UnknownUrlSchemePolicy newPolicy = static_cast<WebEngineSettings::UnknownUrlSchemePolicy>(policy);
+    d_ptr->setUnknownUrlSchemePolicy(newPolicy);
+    if (oldPolicy != newPolicy)
+        Q_EMIT unknownUrlSchemePolicyChanged();
+}
+
+void QQuickWebEngineSettings::setWebRTCPublicInterfacesOnly(bool on)
+{
+    bool wasOn = d_ptr->testAttribute(WebEngineSettings::WebRTCPublicInterfacesOnly);
+    d_ptr->setAttribute(WebEngineSettings::WebRTCPublicInterfacesOnly, on);
+    if (wasOn != on)
+        Q_EMIT webRTCPublicInterfacesOnlyChanged();
 }
 
 void QQuickWebEngineSettings::setParentSettings(QQuickWebEngineSettings *parentSettings)

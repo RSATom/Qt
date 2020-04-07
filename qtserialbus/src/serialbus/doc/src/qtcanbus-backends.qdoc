@@ -42,6 +42,7 @@
 
     \list
         \li QCanBus provides an API to create a QCanBusDevice from a chosen plugin.
+        \li QCanBusDeviceInfo provides information about available CAN devices.
         \li QCanBusDevice provides an API for direct access to the CAN device.
         \li QCanBusFrame defines a CAN frame that can be written and read from QCanBusDevice.
     \endlist
@@ -61,8 +62,12 @@
             \li \l {Using SocketCAN Plugin}{SocketCAN} (\c socketcan)
             \li CAN bus plugin using Linux sockets and open source drivers.
         \row
+            \li CAN via SAE J2534 Pass-Thru
+            \li \l {Using PassThruCAN Plugin}{PassThruCAN} (\c passthrucan)
+            \li CAN bus plugin using the SAE J2534 Pass-Thru interface.
+        \row
             \li SYS TEC electronic
-            \li \l {Using SystecCAN Backend}{SystecCAN} (\c systeccan)
+            \li \l {Using SystecCAN Plugin}{SystecCAN} (\c systeccan)
             \li CAN bus backend using the SYS TEC CAN adapters.
         \row
             \li PEAK-System
@@ -76,6 +81,10 @@
             \li Vector Informatik
             \li \l {Using VectorCAN Plugin}{VectorCAN} (\c vectorcan)
             \li CAN bus plugin using the Vector CAN adapters.
+        \row
+            \li Virtual CAN interface
+            \li \l {Using VirtualCAN Plugin}{VirtualCAN} (\c virtualcan)
+            \li CAN bus plugin using a virtual TCP/IP connection.
     \endtable
 
     \section1 Implementing a Custom CAN Plugin

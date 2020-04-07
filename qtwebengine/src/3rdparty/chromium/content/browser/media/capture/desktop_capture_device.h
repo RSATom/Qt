@@ -27,7 +27,11 @@ namespace content {
 
 // DesktopCaptureDevice implements VideoCaptureDevice for screens and windows.
 // It's essentially an adapter between webrtc::DesktopCapturer and
-// VideoCaptureDevice.
+// VideoCaptureDevice, i.e. it employs the third-party WebRTC code to use native
+// OS library to capture the screen.
+//
+// This class is used to perform desktop capture on Windows, Mac, and Linux but
+// not on Chrome OS (which uses AuraWindowCaptureMachine instead).
 class CONTENT_EXPORT DesktopCaptureDevice : public media::VideoCaptureDevice {
  public:
   // Creates capturer for the specified |source| and then creates
@@ -48,11 +52,18 @@ class CONTENT_EXPORT DesktopCaptureDevice : public media::VideoCaptureDevice {
 
  private:
   friend class DesktopCaptureDeviceTest;
+  friend class DesktopCaptureDeviceThrottledTest;
   class Core;
 
   DesktopCaptureDevice(
       std::unique_ptr<webrtc::DesktopCapturer> desktop_capturer,
       DesktopMediaID::Type type);
+
+  // Useful to pass the TestMockTimeTaskRunner and the MockTickClock or any
+  // other testing entities inheriting the common runner and tick interfaces.
+  void SetMockTimeForTesting(
+      scoped_refptr<base::SingleThreadTaskRunner> task_runner,
+      const base::TickClock* tick_clock);
 
   base::Thread thread_;
   std::unique_ptr<Core> core_;

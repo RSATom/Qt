@@ -16,7 +16,7 @@
 
 #include "base/logging.h"
 #include "gtest/gtest.h"
-#include "test/gtest_death_check.h"
+#include "test/gtest_death.h"
 
 namespace crashpad {
 namespace test {
@@ -121,8 +121,8 @@ TEST(SimpleStringDictionary, Iterator) {
   char key[SimpleStringDictionary::key_size];
   char value[SimpleStringDictionary::value_size];
 
-  const int kDictionaryCapacity = SimpleStringDictionary::num_entries;
-  const int kPartitionIndex = kDictionaryCapacity - 5;
+  constexpr int kDictionaryCapacity = SimpleStringDictionary::num_entries;
+  constexpr int kPartitionIndex = kDictionaryCapacity - 5;
 
   // We assume at least this size in the tests below
   ASSERT_GE(kDictionaryCapacity, 64);
@@ -253,20 +253,29 @@ TEST(SimpleStringDictionary, OutOfSpace) {
 
 #if DCHECK_IS_ON()
 
-TEST(SimpleStringDictionaryDeathTest, NullKey) {
+TEST(SimpleStringDictionaryDeathTest, SetKeyValueWithNullKey) {
   TSimpleStringDictionary<4, 6, 6> map;
   ASSERT_DEATH_CHECK(map.SetKeyValue(nullptr, "hello"), "key");
+}
 
+TEST(SimpleStringDictionaryDeathTest, GetValueForKeyWithNullKey) {
+  TSimpleStringDictionary<4, 6, 6> map;
   map.SetKeyValue("hi", "there");
   ASSERT_DEATH_CHECK(map.GetValueForKey(nullptr), "key");
   EXPECT_STREQ("there", map.GetValueForKey("hi"));
-
-  ASSERT_DEATH_CHECK(map.GetValueForKey(nullptr), "key");
-  map.RemoveKey("hi");
-  EXPECT_EQ(map.GetCount(), 0u);
 }
 
 #endif
+
+// The tests above, without DEATH_CHECK assertions.
+TEST(SimpleStringDictionaryDeathTest, GetValueForKeyWithoutNullKey) {
+  TSimpleStringDictionary<4, 6, 6> map;
+
+  map.SetKeyValue("hi", "there");
+  EXPECT_STREQ("there", map.GetValueForKey("hi"));
+  map.RemoveKey("hi");
+  EXPECT_EQ(map.GetCount(), 0u);
+}
 
 }  // namespace
 }  // namespace test

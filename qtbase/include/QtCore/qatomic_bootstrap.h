@@ -1,1 +1,1 @@
-#include "../../src/corelib/arch/qatomic_bootstrap.h"
+#include "../../src/corelib/thread/qatomic_bootstrap.h"

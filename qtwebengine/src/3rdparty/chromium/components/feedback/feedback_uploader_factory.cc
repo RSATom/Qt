@@ -9,8 +9,9 @@
 #include "base/task_scheduler/post_task.h"
 #include "base/task_scheduler/task_traits.h"
 #include "components/feedback/feedback_uploader.h"
-#include "components/feedback/feedback_uploader_chrome.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
+#include "content/public/browser/browser_context.h"
+#include "content/public/browser/storage_partition.h"
 
 namespace feedback {
 
@@ -22,7 +23,7 @@ FeedbackUploaderFactory* FeedbackUploaderFactory::GetInstance() {
 // static
 FeedbackUploader* FeedbackUploaderFactory::GetForBrowserContext(
     content::BrowserContext* context) {
-  return static_cast<FeedbackUploaderChrome*>(
+  return static_cast<FeedbackUploader*>(
       GetInstance()->GetServiceForBrowserContext(context, true));
 }
 
@@ -36,6 +37,12 @@ FeedbackUploaderFactory::CreateUploaderTaskRunner() {
        base::TaskShutdownBehavior::BLOCK_SHUTDOWN});
 }
 
+FeedbackUploaderFactory::FeedbackUploaderFactory(const char* service_name)
+    : BrowserContextKeyedServiceFactory(
+          service_name,
+          BrowserContextDependencyManager::GetInstance()),
+      task_runner_(CreateUploaderTaskRunner()) {}
+
 FeedbackUploaderFactory::FeedbackUploaderFactory()
     : BrowserContextKeyedServiceFactory(
           "feedback::FeedbackUploader",
@@ -46,7 +53,10 @@ FeedbackUploaderFactory::~FeedbackUploaderFactory() {}
 
 KeyedService* FeedbackUploaderFactory::BuildServiceInstanceFor(
     content::BrowserContext* context) const {
-  return new FeedbackUploaderChrome(context, task_runner_);
+  return new FeedbackUploader(
+      content::BrowserContext::GetDefaultStoragePartition(context)
+          ->GetURLLoaderFactoryForBrowserProcess(),
+      context, task_runner_);
 }
 
 content::BrowserContext* FeedbackUploaderFactory::GetBrowserContextToUse(

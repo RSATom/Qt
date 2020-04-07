@@ -12,10 +12,10 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/single_thread_task_runner.h"
-#include "cc/scheduler/begin_frame_source.h"
-#include "cc/surfaces/surface_observer.h"
 #include "components/viz/common/display/renderer_settings.h"
+#include "components/viz/common/frame_sinks/begin_frame_source.h"
 #include "components/viz/common/surfaces/surface_id.h"
+#include "components/viz/service/surfaces/surface_observer.h"
 #include "components/viz/service/viz_service_export.h"
 
 namespace viz {
@@ -30,14 +30,15 @@ class VIZ_SERVICE_EXPORT DisplaySchedulerClient {
   virtual bool DrawAndSwap() = 0;
   virtual bool SurfaceHasUndrawnFrame(const SurfaceId& surface_id) const = 0;
   virtual bool SurfaceDamaged(const SurfaceId& surface_id,
-                              const cc::BeginFrameAck& ack) = 0;
+                              const BeginFrameAck& ack) = 0;
   virtual void SurfaceDiscarded(const SurfaceId& surface_id) = 0;
+  virtual void DidFinishFrame(const BeginFrameAck& ack) = 0;
 };
 
-class VIZ_SERVICE_EXPORT DisplayScheduler : public cc::BeginFrameObserverBase,
-                                            public cc::SurfaceObserver {
+class VIZ_SERVICE_EXPORT DisplayScheduler : public BeginFrameObserverBase,
+                                            public SurfaceObserver {
  public:
-  DisplayScheduler(cc::BeginFrameSource* begin_frame_source,
+  DisplayScheduler(BeginFrameSource* begin_frame_source,
                    base::SingleThreadTaskRunner* task_runner,
                    int max_pending_swaps,
                    bool wait_for_all_surfaces_before_draw = false);
@@ -48,10 +49,18 @@ class VIZ_SERVICE_EXPORT DisplayScheduler : public cc::BeginFrameObserverBase,
   void SetVisible(bool visible);
   void SetRootSurfaceResourcesLocked(bool locked);
   void ForceImmediateSwapIfPossible();
+  void SetNeedsOneBeginFrame();
+  base::TimeTicks current_frame_time() const {
+    return current_begin_frame_args_.frame_time;
+  }
+  base::TimeTicks current_frame_display_time() const {
+    return current_begin_frame_args_.frame_time +
+           current_begin_frame_args_.interval;
+  }
   virtual void DisplayResized();
   virtual void SetNewRootSurface(const SurfaceId& root_surface_id);
   virtual void ProcessSurfaceDamage(const SurfaceId& surface_id,
-                                    const cc::BeginFrameAck& ack,
+                                    const BeginFrameAck& ack,
                                     bool display_damaged);
 
   virtual void DidSwapBuffers();
@@ -60,18 +69,20 @@ class VIZ_SERVICE_EXPORT DisplayScheduler : public cc::BeginFrameObserverBase,
   void OutputSurfaceLost();
 
   // BeginFrameObserverBase implementation.
-  bool OnBeginFrameDerivedImpl(const cc::BeginFrameArgs& args) override;
+  bool OnBeginFrameDerivedImpl(const BeginFrameArgs& args) override;
   void OnBeginFrameSourcePausedChanged(bool paused) override;
 
   // SurfaceObserver implementation.
-  void OnSurfaceCreated(const SurfaceInfo& surface_info) override;
+  void OnSurfaceCreated(const SurfaceId& surface_id) override;
+  void OnFirstSurfaceActivation(const SurfaceInfo& surface_info) override;
+  void OnSurfaceActivated(const SurfaceId& surface_id,
+                          base::Optional<base::TimeDelta> duration) override;
   void OnSurfaceDestroyed(const SurfaceId& surface_id) override;
   bool OnSurfaceDamaged(const SurfaceId& surface_id,
-                        const cc::BeginFrameAck& ack) override;
+                        const BeginFrameAck& ack) override;
   void OnSurfaceDiscarded(const SurfaceId& surface_id) override;
   void OnSurfaceDamageExpected(const SurfaceId& surface_id,
-                               const cc::BeginFrameArgs& args) override;
-  void OnSurfaceWillDraw(const SurfaceId& surface_id) override;
+                               const BeginFrameArgs& args) override;
 
  protected:
   enum class BeginFrameDeadlineMode { kImmediate, kRegular, kLate, kNone };
@@ -82,6 +93,7 @@ class VIZ_SERVICE_EXPORT DisplayScheduler : public cc::BeginFrameObserverBase,
   bool AttemptDrawAndSwap();
   void OnBeginFrameDeadline();
   bool DrawAndSwap();
+  void MaybeStartObservingBeginFrames();
   void StartObservingBeginFrames();
   void StopObservingBeginFrames();
   bool ShouldDraw();
@@ -90,10 +102,10 @@ class VIZ_SERVICE_EXPORT DisplayScheduler : public cc::BeginFrameObserverBase,
   bool UpdateHasPendingSurfaces();
 
   DisplaySchedulerClient* client_;
-  cc::BeginFrameSource* begin_frame_source_;
+  BeginFrameSource* begin_frame_source_;
   base::SingleThreadTaskRunner* task_runner_;
 
-  cc::BeginFrameArgs current_begin_frame_args_;
+  BeginFrameArgs current_begin_frame_args_;
   base::Closure begin_frame_deadline_closure_;
   base::CancelableClosure begin_frame_deadline_task_;
   base::TimeTicks begin_frame_deadline_task_time_;
@@ -111,8 +123,8 @@ class VIZ_SERVICE_EXPORT DisplayScheduler : public cc::BeginFrameObserverBase,
   bool has_pending_surfaces_;
 
   struct SurfaceBeginFrameState {
-    cc::BeginFrameArgs last_args;
-    cc::BeginFrameAck last_ack;
+    BeginFrameArgs last_args;
+    BeginFrameAck last_ack;
   };
   base::flat_map<SurfaceId, SurfaceBeginFrameState> surface_states_;
 

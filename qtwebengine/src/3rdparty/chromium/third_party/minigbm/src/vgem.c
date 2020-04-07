@@ -20,22 +20,17 @@ static const uint32_t texture_source_formats[] = { DRM_FORMAT_R8, DRM_FORMAT_YVU
 
 static int vgem_init(struct driver *drv)
 {
-	int ret;
-	ret = drv_add_combinations(drv, render_target_formats, ARRAY_SIZE(render_target_formats),
-				   &LINEAR_METADATA, BO_USE_RENDER_MASK);
-	if (ret)
-		return ret;
+	drv_add_combinations(drv, render_target_formats, ARRAY_SIZE(render_target_formats),
+			     &LINEAR_METADATA, BO_USE_RENDER_MASK);
 
-	ret = drv_add_combinations(drv, texture_source_formats, ARRAY_SIZE(texture_source_formats),
-				   &LINEAR_METADATA, BO_USE_TEXTURE_MASK);
-	if (ret)
-		return ret;
+	drv_add_combinations(drv, texture_source_formats, ARRAY_SIZE(texture_source_formats),
+			     &LINEAR_METADATA, BO_USE_TEXTURE_MASK);
 
 	return drv_modify_linear_combinations(drv);
 }
 
 static int vgem_bo_create(struct bo *bo, uint32_t width, uint32_t height, uint32_t format,
-			  uint32_t flags)
+			  uint64_t flags)
 {
 	width = ALIGN(width, MESA_LLVMPIPE_TILE_SIZE);
 	height = ALIGN(height, MESA_LLVMPIPE_TILE_SIZE);
@@ -47,7 +42,7 @@ static int vgem_bo_create(struct bo *bo, uint32_t width, uint32_t height, uint32
 	return drv_dumb_bo_create(bo, width, height, format, flags);
 }
 
-static uint32_t vgem_resolve_format(uint32_t format)
+static uint32_t vgem_resolve_format(uint32_t format, uint64_t flags)
 {
 	switch (format) {
 	case DRM_FORMAT_FLEX_IMPLEMENTATION_DEFINED:
@@ -60,12 +55,13 @@ static uint32_t vgem_resolve_format(uint32_t format)
 	}
 }
 
-struct backend backend_vgem = {
+const struct backend backend_vgem = {
 	.name = "vgem",
 	.init = vgem_init,
 	.bo_create = vgem_bo_create,
 	.bo_destroy = drv_dumb_bo_destroy,
 	.bo_import = drv_prime_bo_import,
 	.bo_map = drv_dumb_bo_map,
+	.bo_unmap = drv_bo_munmap,
 	.resolve_format = vgem_resolve_format,
 };

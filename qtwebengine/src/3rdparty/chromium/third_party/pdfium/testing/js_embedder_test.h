@@ -6,9 +6,9 @@
 #define TESTING_JS_EMBEDDER_TEST_H_
 
 #include <memory>
-#include <vector>
 
-#include "fxjs/fxjs_v8.h"
+#include "core/fxcrt/unowned_ptr.h"
+#include "fxjs/cfxjs_engine.h"
 #include "testing/embedder_test.h"
 
 class JSEmbedderTest : public EmbedderTest {
@@ -19,13 +19,13 @@ class JSEmbedderTest : public EmbedderTest {
   void SetUp() override;
   void TearDown() override;
 
-  v8::Isolate* isolate();
+  v8::Isolate* isolate() const { return m_pIsolate.get(); }
+  CFXJS_Engine* engine() const { return m_Engine.get(); }
   v8::Local<v8::Context> GetV8Context();
-  CFXJS_Engine* engine() { return m_Engine.get(); }
 
  private:
-  std::unique_ptr<FXJS_ArrayBufferAllocator> m_pArrayBufferAllocator;
-  v8::Isolate* m_pIsolate;
+  std::unique_ptr<CFX_V8ArrayBufferAllocator> m_pArrayBufferAllocator;
+  std::unique_ptr<v8::Isolate, CFX_V8IsolateDeleter> m_pIsolate;
   std::unique_ptr<CFXJS_Engine> m_Engine;
 };
 

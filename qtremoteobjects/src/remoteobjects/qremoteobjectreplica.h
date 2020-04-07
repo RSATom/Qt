@@ -42,13 +42,14 @@
 
 #include <QtRemoteObjects/qtremoteobjectglobal.h>
 
-#include <QtCore/QSharedPointer>
+#include <QtCore/qsharedpointer.h>
 
 QT_BEGIN_NAMESPACE
 
+class QObjectPrivate;
 class QRemoteObjectPendingCall;
-class QRemoteObjectReplicaPrivate;
-class QReplicaPrivateInterface;
+class QRemoteObjectReplicaImplementation;
+class QReplicaImplementationInterface;
 class QRemoteObjectNode;
 
 class Q_REMOTEOBJECTS_EXPORT QRemoteObjectReplica : public QObject
@@ -67,14 +68,14 @@ public:
     Q_ENUM(State)
 
 public:
-    virtual ~QRemoteObjectReplica();
+    ~QRemoteObjectReplica() override;
 
     bool isReplicaValid() const;
     bool waitForSource(int timeout = 30000);
     bool isInitialized() const;
     State state() const;
     QRemoteObjectNode *node() const;
-    void setNode(QRemoteObjectNode *node);
+    virtual void setNode(QRemoteObjectNode *node);
 
 Q_SIGNALS:
     void initialized();
@@ -83,6 +84,7 @@ Q_SIGNALS:
 protected:
     enum ConstructorType {DefaultConstructor, ConstructWithNode};
     explicit QRemoteObjectReplica(ConstructorType t = DefaultConstructor);
+    QRemoteObjectReplica(QObjectPrivate &dptr, QObject *parent);
 
     virtual void initialize();
     void send(QMetaObject::Call call, int index, const QVariantList &args);
@@ -90,13 +92,15 @@ protected:
 
 protected:
     void setProperties(const QVariantList &);
+    void setChild(int i, const QVariant &);
     const QVariant propAsVariant(int i) const;
     void persistProperties(const QString &repName, const QByteArray &repSig, const QVariantList &props) const;
     QVariantList retrieveProperties(const QString &repName, const QByteArray &repSig) const;
     void initializeNode(QRemoteObjectNode *node, const QString &name = QString());
-    QSharedPointer<QReplicaPrivateInterface> d_ptr;
+    QSharedPointer<QReplicaImplementationInterface> d_impl;
 private:
     friend class QRemoteObjectNodePrivate;
+    friend class QConnectedReplicaImplementation;
 };
 
 QT_END_NAMESPACE

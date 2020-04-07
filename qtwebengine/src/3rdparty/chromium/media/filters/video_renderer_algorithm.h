@@ -8,9 +8,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <deque>
-
 #include "base/callback.h"
+#include "base/containers/circular_deque.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/time/time.h"
@@ -101,8 +100,9 @@ class MEDIA_EXPORT VideoRendererAlgorithm {
   // rendered yet.  If it has been rendered, the new frame will be dropped.
   //
   // EnqueueFrame() will compute the current start time and an estimated end
-  // time of the frame based on previous frames so that EffectiveFramesQueued()
-  // is relatively accurate immediately after this call.
+  // time of the frame based on previous frames or the value of
+  // VideoFrameMetadata::FRAME_DURATION if no previous frames, so that
+  // EffectiveFramesQueued() is relatively accurate immediately after this call.
   void EnqueueFrame(const scoped_refptr<VideoFrame>& frame);
 
   // Removes all frames from the |frame_queue_| and clears predictors.  The
@@ -222,14 +222,7 @@ class MEDIA_EXPORT VideoRendererAlgorithm {
   // If |cadence_estimator_| has detected a valid cadence, attempts to find the
   // next frame which should be rendered.  Returns -1 if not enough frames are
   // available for cadence selection or there is no cadence.
-  //
-  // Returns the number of times a prior frame was over displayed and ate into
-  // the returned frames ideal render count via |remaining_overage|.
-  //
-  // For example, if we have 2 frames and each has an ideal display count of 3,
-  // but the first was displayed 4 times, the best frame is the second one, but
-  // it should only be displayed twice instead of thrice, so it's overage is 1.
-  int FindBestFrameByCadence(int* remaining_overage) const;
+  int FindBestFrameByCadence() const;
 
   // Iterates over |frame_queue_| and finds the frame which covers the most of
   // the deadline interval.  If multiple frames have coverage of the interval,
@@ -278,7 +271,7 @@ class MEDIA_EXPORT VideoRendererAlgorithm {
   int out_of_order_frame_logs_ = 0;
 
   // Queue of incoming frames waiting for rendering.
-  using VideoFrameQueue = std::deque<ReadyFrame>;
+  using VideoFrameQueue = base::circular_deque<ReadyFrame>;
   VideoFrameQueue frame_queue_;
 
   // Handles cadence detection and frame cadence assignments.
@@ -330,10 +323,6 @@ class MEDIA_EXPORT VideoRendererAlgorithm {
   // Given to |cadence_estimator_| when assigning cadence values to the
   // ReadyFrameQueue.  Cleared when a new cadence is detected.
   uint64_t cadence_frame_counter_;
-
-  // Tracks whether the last call to Render() choose to ignore the frame chosen
-  // by cadence in favor of one by drift or coverage.
-  bool last_render_ignored_cadence_frame_;
 
   // Indicates if time was moving, set to the return value from
   // UpdateFrameStatistics() during Render() or externally by

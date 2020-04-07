@@ -37,6 +37,10 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct drm_amdgpu_info_hw_ip;
 
 /*--------------------------------------------------------------------------*/
@@ -794,13 +798,26 @@ int amdgpu_bo_list_update(amdgpu_bo_list_handle handle,
  * context will always be executed in order (first come, first serve).
  *
  *
- * \param   dev	    - \c [in] Device handle. See #amdgpu_device_initialize()
- * \param   context - \c [out] GPU Context handle
+ * \param   dev      - \c [in] Device handle. See #amdgpu_device_initialize()
+ * \param   priority - \c [in] Context creation flags. See AMDGPU_CTX_PRIORITY_*
+ * \param   context  - \c [out] GPU Context handle
  *
  * \return   0 on success\n
  *          <0 - Negative POSIX Error code
  *
  * \sa amdgpu_cs_ctx_free()
+ *
+*/
+int amdgpu_cs_ctx_create2(amdgpu_device_handle dev,
+			 uint32_t priority,
+			 amdgpu_context_handle *context);
+/**
+ * Create GPU execution Context
+ *
+ * Refer to amdgpu_cs_ctx_create2 for full documentation. This call
+ * is missing the priority parameter.
+ *
+ * \sa amdgpu_cs_ctx_create2()
  *
 */
 int amdgpu_cs_ctx_create(amdgpu_device_handle dev,
@@ -906,6 +923,29 @@ int amdgpu_cs_query_fence_status(struct amdgpu_cs_fence *fence,
 				 uint64_t timeout_ns,
 				 uint64_t flags,
 				 uint32_t *expired);
+
+/**
+ *  Wait for multiple fences
+ *
+ * \param   fences      - \c [in] The fence array to wait
+ * \param   fence_count - \c [in] The fence count
+ * \param   wait_all    - \c [in] If true, wait all fences to be signaled,
+ *                                otherwise, wait at least one fence
+ * \param   timeout_ns  - \c [in] The timeout to wait, in nanoseconds
+ * \param   status      - \c [out] '1' for signaled, '0' for timeout
+ * \param   first       - \c [out] the index of the first signaled fence from @fences
+ *
+ * \return  0 on success
+ *          <0 - Negative POSIX Error code
+ *
+ * \note    Currently it supports only one amdgpu_device. All fences come from
+ *          the same amdgpu_device with the same fd.
+*/
+int amdgpu_cs_wait_fences(struct amdgpu_cs_fence *fences,
+			  uint32_t fence_count,
+			  bool wait_all,
+			  uint64_t timeout_ns,
+			  uint32_t *status, uint32_t *first);
 
 /*
  * Query / Info API
@@ -1059,6 +1099,24 @@ int amdgpu_query_gds_info(amdgpu_device_handle dev,
 			struct amdgpu_gds_resource_info *gds_info);
 
 /**
+ * Query information about sensor.
+ *
+ * The return size is query-specific and depends on the "sensor_type"
+ * parameter. No more than "size" bytes is returned.
+ *
+ * \param   dev         - \c [in] Device handle. See #amdgpu_device_initialize()
+ * \param   sensor_type - \c [in] AMDGPU_INFO_SENSOR_*
+ * \param   size        - \c [in] Size of the returned value.
+ * \param   value       - \c [out] Pointer to the return value.
+ *
+ * \return   0 on success\n
+ *          <0 - Negative POSIX Error code
+ *
+*/
+int amdgpu_query_sensor_info(amdgpu_device_handle dev, unsigned sensor_type,
+			     unsigned size, void *value);
+
+/**
  * Read a set of consecutive memory-mapped registers.
  * Not all registers are allowed to be read by userspace.
  *
@@ -1186,6 +1244,34 @@ int amdgpu_bo_va_op(amdgpu_bo_handle bo,
 		    uint32_t ops);
 
 /**
+ *  VA mapping/unmapping for a buffer object or PRT region.
+ *
+ * This is not a simple drop-in extension for amdgpu_bo_va_op; instead, all
+ * parameters are treated "raw", i.e. size is not automatically aligned, and
+ * all flags must be specified explicitly.
+ *
+ * \param  dev		- \c [in] device handle
+ * \param  bo		- \c [in] BO handle (may be NULL)
+ * \param  offset	- \c [in] Start offset to map
+ * \param  size		- \c [in] Size to map
+ * \param  addr		- \c [in] Start virtual address.
+ * \param  flags	- \c [in] Supported flags for mapping/unmapping
+ * \param  ops		- \c [in] AMDGPU_VA_OP_MAP or AMDGPU_VA_OP_UNMAP
+ *
+ * \return   0 on success\n
+ *          <0 - Negative POSIX Error code
+ *
+*/
+
+int amdgpu_bo_va_op_raw(amdgpu_device_handle dev,
+			amdgpu_bo_handle bo,
+			uint64_t offset,
+			uint64_t size,
+			uint64_t addr,
+			uint64_t flags,
+			uint32_t ops);
+
+/**
  *  create semaphore
  *
  * \param   sem	   - \c [out] semaphore handle
@@ -1245,4 +1331,226 @@ int amdgpu_cs_wait_semaphore(amdgpu_context_handle ctx,
 */
 int amdgpu_cs_destroy_semaphore(amdgpu_semaphore_handle sem);
 
+/**
+ *  Get the ASIC marketing name
+ *
+ * \param   dev         - \c [in] Device handle. See #amdgpu_device_initialize()
+ *
+ * \return  the constant string of the marketing name
+ *          "NULL" means the ASIC is not found
+*/
+const char *amdgpu_get_marketing_name(amdgpu_device_handle dev);
+
+/**
+ *  Create kernel sync object
+ *
+ * \param   dev         - \c [in]  device handle
+ * \param   flags       - \c [in]  flags that affect creation
+ * \param   syncobj     - \c [out] sync object handle
+ *
+ * \return   0 on success\n
+ *          <0 - Negative POSIX Error code
+ *
+*/
+int amdgpu_cs_create_syncobj2(amdgpu_device_handle dev,
+			      uint32_t  flags,
+			      uint32_t *syncobj);
+
+/**
+ *  Create kernel sync object
+ *
+ * \param   dev	      - \c [in]  device handle
+ * \param   syncobj   - \c [out] sync object handle
+ *
+ * \return   0 on success\n
+ *          <0 - Negative POSIX Error code
+ *
+*/
+int amdgpu_cs_create_syncobj(amdgpu_device_handle dev,
+			     uint32_t *syncobj);
+/**
+ *  Destroy kernel sync object
+ *
+ * \param   dev	    - \c [in] device handle
+ * \param   syncobj - \c [in] sync object handle
+ *
+ * \return   0 on success\n
+ *          <0 - Negative POSIX Error code
+ *
+*/
+int amdgpu_cs_destroy_syncobj(amdgpu_device_handle dev,
+			      uint32_t syncobj);
+
+/**
+ * Reset kernel sync objects to unsignalled state.
+ *
+ * \param dev           - \c [in] device handle
+ * \param syncobjs      - \c [in] array of sync object handles
+ * \param syncobj_count - \c [in] number of handles in syncobjs
+ *
+ * \return   0 on success\n
+ *          <0 - Negative POSIX Error code
+ *
+*/
+int amdgpu_cs_syncobj_reset(amdgpu_device_handle dev,
+			    const uint32_t *syncobjs, uint32_t syncobj_count);
+
+/**
+ * Signal kernel sync objects.
+ *
+ * \param dev           - \c [in] device handle
+ * \param syncobjs      - \c [in] array of sync object handles
+ * \param syncobj_count - \c [in] number of handles in syncobjs
+ *
+ * \return   0 on success\n
+ *          <0 - Negative POSIX Error code
+ *
+*/
+int amdgpu_cs_syncobj_signal(amdgpu_device_handle dev,
+			     const uint32_t *syncobjs, uint32_t syncobj_count);
+
+/**
+ *  Wait for one or all sync objects to signal.
+ *
+ * \param   dev	    - \c [in] self-explanatory
+ * \param   handles - \c [in] array of sync object handles
+ * \param   num_handles - \c [in] self-explanatory
+ * \param   timeout_nsec - \c [in] self-explanatory
+ * \param   flags   - \c [in] a bitmask of DRM_SYNCOBJ_WAIT_FLAGS_*
+ * \param   first_signaled - \c [in] self-explanatory
+ *
+ * \return   0 on success\n
+ *          -ETIME - Timeout
+ *          <0 - Negative POSIX Error code
+ *
+ */
+int amdgpu_cs_syncobj_wait(amdgpu_device_handle dev,
+			   uint32_t *handles, unsigned num_handles,
+			   int64_t timeout_nsec, unsigned flags,
+			   uint32_t *first_signaled);
+
+/**
+ *  Export kernel sync object to shareable fd.
+ *
+ * \param   dev	       - \c [in] device handle
+ * \param   syncobj    - \c [in] sync object handle
+ * \param   shared_fd  - \c [out] shared file descriptor.
+ *
+ * \return   0 on success\n
+ *          <0 - Negative POSIX Error code
+ *
+*/
+int amdgpu_cs_export_syncobj(amdgpu_device_handle dev,
+			     uint32_t syncobj,
+			     int *shared_fd);
+/**
+ *  Import kernel sync object from shareable fd.
+ *
+ * \param   dev	       - \c [in] device handle
+ * \param   shared_fd  - \c [in] shared file descriptor.
+ * \param   syncobj    - \c [out] sync object handle
+ *
+ * \return   0 on success\n
+ *          <0 - Negative POSIX Error code
+ *
+*/
+int amdgpu_cs_import_syncobj(amdgpu_device_handle dev,
+			     int shared_fd,
+			     uint32_t *syncobj);
+
+/**
+ *  Export kernel sync object to a sync_file.
+ *
+ * \param   dev	       - \c [in] device handle
+ * \param   syncobj    - \c [in] sync object handle
+ * \param   sync_file_fd - \c [out] sync_file file descriptor.
+ *
+ * \return   0 on success\n
+ *          <0 - Negative POSIX Error code
+ *
+ */
+int amdgpu_cs_syncobj_export_sync_file(amdgpu_device_handle dev,
+				       uint32_t syncobj,
+				       int *sync_file_fd);
+
+/**
+ *  Import kernel sync object from a sync_file.
+ *
+ * \param   dev	       - \c [in] device handle
+ * \param   syncobj    - \c [in] sync object handle
+ * \param   sync_file_fd - \c [in] sync_file file descriptor.
+ *
+ * \return   0 on success\n
+ *          <0 - Negative POSIX Error code
+ *
+ */
+int amdgpu_cs_syncobj_import_sync_file(amdgpu_device_handle dev,
+				       uint32_t syncobj,
+				       int sync_file_fd);
+
+/**
+ * Export an amdgpu fence as a handle (syncobj or fd).
+ *
+ * \param what		AMDGPU_FENCE_TO_HANDLE_GET_{SYNCOBJ, FD}
+ * \param out_handle	returned handle
+ *
+ * \return   0 on success\n
+ *          <0 - Negative POSIX Error code
+ */
+int amdgpu_cs_fence_to_handle(amdgpu_device_handle dev,
+			      struct amdgpu_cs_fence *fence,
+			      uint32_t what,
+			      uint32_t *out_handle);
+
+/**
+ *  Submit raw command submission to kernel
+ *
+ * \param   dev	       - \c [in] device handle
+ * \param   context    - \c [in] context handle for context id
+ * \param   bo_list_handle - \c [in] request bo list handle (0 for none)
+ * \param   num_chunks - \c [in] number of CS chunks to submit
+ * \param   chunks     - \c [in] array of CS chunks
+ * \param   seq_no     - \c [out] output sequence number for submission.
+ *
+ * \return   0 on success\n
+ *          <0 - Negative POSIX Error code
+ *
+ */
+struct drm_amdgpu_cs_chunk;
+struct drm_amdgpu_cs_chunk_dep;
+struct drm_amdgpu_cs_chunk_data;
+
+int amdgpu_cs_submit_raw(amdgpu_device_handle dev,
+			 amdgpu_context_handle context,
+			 amdgpu_bo_list_handle bo_list_handle,
+			 int num_chunks,
+			 struct drm_amdgpu_cs_chunk *chunks,
+			 uint64_t *seq_no);
+
+void amdgpu_cs_chunk_fence_to_dep(struct amdgpu_cs_fence *fence,
+				  struct drm_amdgpu_cs_chunk_dep *dep);
+void amdgpu_cs_chunk_fence_info_to_data(struct amdgpu_cs_fence_info *fence_info,
+					struct drm_amdgpu_cs_chunk_data *data);
+
+/**
+ * Reserve VMID
+ * \param   context - \c [in]  GPU Context
+ * \param   flags - \c [in]  TBD
+ *
+ * \return  0 on success otherwise POSIX Error code
+*/
+int amdgpu_vm_reserve_vmid(amdgpu_device_handle dev, uint32_t flags);
+
+/**
+ * Free reserved VMID
+ * \param   context - \c [in]  GPU Context
+ * \param   flags - \c [in]  TBD
+ *
+ * \return  0 on success otherwise POSIX Error code
+*/
+int amdgpu_vm_unreserve_vmid(amdgpu_device_handle dev, uint32_t flags);
+
+#ifdef __cplusplus
+}
+#endif
 #endif /* #ifdef _AMDGPU_H_ */

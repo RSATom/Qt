@@ -78,13 +78,6 @@
 #include "qmlsensorgesture.h"
 #include "qmllidsensor.h"
 
-static void initResources()
-{
-#ifdef QT_STATIC
-    Q_INIT_RESOURCE(qmake_QtSensors);
-#endif
-}
-
 QT_BEGIN_NAMESPACE
 
 static QObject *global_object_50(QQmlEngine *, QJSEngine *)
@@ -97,8 +90,8 @@ class QtSensorsDeclarativeModule : public QQmlExtensionPlugin
     Q_OBJECT
     Q_PLUGIN_METADATA(IID QQmlExtensionInterface_iid FILE "plugin.json")
 public:
-    QtSensorsDeclarativeModule(QObject *parent = 0) : QQmlExtensionPlugin(parent) { initResources(); }
-    virtual void registerTypes(const char *uri)
+    QtSensorsDeclarativeModule(QObject *parent = 0) : QQmlExtensionPlugin(parent) { }
+    void registerTypes(const char *uri) override
     {
         char const * const package = "QtSensors";
         if (QLatin1String(uri) != QLatin1String(package)) return;

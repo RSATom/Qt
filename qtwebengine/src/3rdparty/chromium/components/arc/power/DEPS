@@ -1,4 +1,7 @@
 include_rules = [
-  "+ash",
-  "+ui/display/manager/chromeos",
+  "+ash/shell.h",
+  "+content/public/common/service_manager_connection.h",
+  "+ui/display/manager",
+  "+services/device/public",
+  "+services/service_manager/public",
 ]

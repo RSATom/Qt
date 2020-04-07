@@ -47,10 +47,11 @@ using namespace QPatternist;
 
 Item GenerateIDFN::evaluateSingleton(const DynamicContext::Ptr &context) const
 {
-    const QXmlNodeModelIndex &node = m_operands.first()->evaluateSingleton(context).asNode();
-
-    if(node.isNull())
+    const Item item = m_operands.first()->evaluateSingleton(context);
+    if (item.isNull())
         return AtomicString::fromValue(QString());
+
+    const QXmlNodeModelIndex &node = item.asNode();
 
     return AtomicString::fromValue(QLatin1Char('T')
                                    + QString::number(qptrdiff(node.model()))

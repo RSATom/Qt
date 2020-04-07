@@ -274,7 +274,7 @@ QSystemLocalePrivate::SubstitutionType QSystemLocalePrivate::substitution()
 QString &QSystemLocalePrivate::substituteDigits(QString &string)
 {
     ushort zero = zeroDigit().unicode();
-    ushort *qch = (ushort *)string.data();
+    ushort *qch = reinterpret_cast<ushort *>(string.data());
     for (ushort *end = qch + string.size(); qch != end; ++qch) {
         if (*qch >= '0' && *qch <= '9')
             *qch = zero + (*qch - '0');
@@ -326,9 +326,7 @@ QVariant QSystemLocalePrivate::timeFormat(QLocale::FormatType type)
 {
     switch (type) {
     case QLocale::ShortFormat:
-        if (QSysInfo::windowsVersion() >= QSysInfo::WV_WINDOWS7)
-            return winToQtFormat(getLocaleInfo(LOCALE_SSHORTTIME));
-        // fall through
+        return winToQtFormat(getLocaleInfo(LOCALE_SSHORTTIME));
     case QLocale::LongFormat:
         return winToQtFormat(getLocaleInfo(LOCALE_STIMEFORMAT));
     case QLocale::NarrowFormat:
@@ -367,7 +365,7 @@ QVariant QSystemLocalePrivate::dayName(int day, QLocale::FormatType type)
 
     if (type == QLocale::LongFormat)
         return getLocaleInfo(long_day_map[day]);
-    else if (type == QLocale::NarrowFormat && QSysInfo::windowsVersion() >= QSysInfo::WV_VISTA)
+    if (type == QLocale::NarrowFormat)
         return getLocaleInfo(narrow_day_map[day]);
     return getLocaleInfo(short_day_map[day]);
 }
@@ -388,7 +386,7 @@ QVariant QSystemLocalePrivate::monthName(int month, QLocale::FormatType type)
 
     month -= 1;
     if (month < 0 || month > 11)
-    return QString();
+        return QString();
 
     LCTYPE lctype = (type == QLocale::ShortFormat || type == QLocale::NarrowFormat)
             ? short_month_map[month] : long_month_map[month];
@@ -425,7 +423,7 @@ QVariant QSystemLocalePrivate::toString(const QTime &time, QLocale::FormatType t
 
     DWORD flags = 0;
     // keep the same conditional as timeFormat() above
-    if (type == QLocale::ShortFormat && QSysInfo::windowsVersion() >= QSysInfo::WV_WINDOWS7)
+    if (type == QLocale::ShortFormat)
         flags = TIME_NOSECONDS;
 
     wchar_t buf[255];
@@ -656,15 +654,11 @@ QVariant QSystemLocalePrivate::uiLanguages()
 
 QVariant QSystemLocalePrivate::nativeLanguageName()
 {
-    if (QSysInfo::windowsVersion() < QSysInfo::WV_WINDOWS7)
-        return getLocaleInfo(LOCALE_SNATIVELANGNAME);
     return getLocaleInfo(LOCALE_SNATIVELANGUAGENAME);
 }
 
 QVariant QSystemLocalePrivate::nativeCountryName()
 {
-    if (QSysInfo::windowsVersion() < QSysInfo::WV_WINDOWS7)
-        return getLocaleInfo(LOCALE_SNATIVECTRYNAME);
     return getLocaleInfo(LOCALE_SNATIVECOUNTRYNAME);
 }
 
@@ -994,7 +988,7 @@ LCID qt_inIsoNametoLCID(const char *name)
     // handle norwegian manually, the list above will fail
     if (!strncmp(name, "nb", 2))
         return 0x0414;
-    else if (!strncmp(name, "nn", 2))
+    if (!strncmp(name, "nn", 2))
         return 0x0814;
 
     char n[64];
@@ -1007,9 +1001,9 @@ LCID qt_inIsoNametoLCID(const char *name)
         ++c;
     }
 
-    for (int i = 0; i < windows_to_iso_count; ++i) {
-        if (!strcmp(n, windows_to_iso_list[i].iso_name))
-            return windows_to_iso_list[i].windows_code;
+    for (const WindowsToISOListElt &i : windows_to_iso_list) {
+        if (!strcmp(n, i.iso_name))
+            return i.windows_code;
     }
     return LOCALE_USER_DEFAULT;
 }
@@ -1105,8 +1099,7 @@ static QByteArray getWinLocaleName(LPWSTR id)
             id = qstrtoll(result.data(), 0, 0, &ok);
             if ( !ok || id == 0 || id < INT_MIN || id > INT_MAX )
                 return result;
-            else
-                return winLangCodeToIsoName( (int)id );
+            return winLangCodeToIsoName(int(id));
         }
     }
 

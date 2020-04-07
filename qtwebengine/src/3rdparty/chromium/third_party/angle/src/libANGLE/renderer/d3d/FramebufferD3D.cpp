@@ -87,8 +87,12 @@ ClearParameters GetClearParameters(const gl::State &state, GLbitfield mask)
 }
 }
 
+ClearParameters::ClearParameters() = default;
+
+ClearParameters::ClearParameters(const ClearParameters &other) = default;
+
 FramebufferD3D::FramebufferD3D(const gl::FramebufferState &data, RendererD3D *renderer)
-    : FramebufferImpl(data), mRenderer(renderer)
+    : FramebufferImpl(data), mRenderer(renderer), mDummyAttachment()
 {
 }
 
@@ -167,7 +171,7 @@ gl::Error FramebufferD3D::clearBufferiv(const gl::Context *context,
     if (buffer == GL_STENCIL)
     {
         clearParams.clearStencil = true;
-        clearParams.stencilValue = values[1];
+        clearParams.stencilValue = values[0];
     }
 
     return clearImpl(context, clearParams);
@@ -232,14 +236,14 @@ GLenum FramebufferD3D::getImplementationColorReadType(const gl::Context *context
     const gl::InternalFormat &implementationFormatInfo =
         gl::GetSizedInternalFormatInfo(implementationFormat);
 
-    return implementationFormatInfo.getReadPixelsType();
+    return implementationFormatInfo.getReadPixelsType(context->getClientVersion());
 }
 
 gl::Error FramebufferD3D::readPixels(const gl::Context *context,
                                      const gl::Rectangle &origArea,
                                      GLenum format,
                                      GLenum type,
-                                     void *pixels) const
+                                     void *pixels)
 {
     // Clip read area to framebuffer.
     const gl::Extents fbSize = getState().getReadAttachment()->getSize();
@@ -256,17 +260,17 @@ gl::Error FramebufferD3D::readPixels(const gl::Context *context,
     const gl::InternalFormat &sizedFormatInfo = gl::GetInternalFormatInfo(format, type);
 
     GLuint outputPitch = 0;
-    ANGLE_TRY_RESULT(sizedFormatInfo.computeRowPitch(type, origArea.width, packState.alignment,
-                                                     packState.rowLength),
-                     outputPitch);
+    ANGLE_TRY_CHECKED_MATH(sizedFormatInfo.computeRowPitch(
+        type, origArea.width, packState.alignment, packState.rowLength, &outputPitch));
+
     GLuint outputSkipBytes = 0;
-    ANGLE_TRY_RESULT(sizedFormatInfo.computeSkipBytes(outputPitch, 0, packState, false),
-                     outputSkipBytes);
+    ANGLE_TRY_CHECKED_MATH(
+        sizedFormatInfo.computeSkipBytes(type, outputPitch, 0, packState, false, &outputSkipBytes));
     outputSkipBytes +=
         (area.x - origArea.x) * sizedFormatInfo.pixelBytes + (area.y - origArea.y) * outputPitch;
 
     return readPixelsImpl(context, area, format, type, outputPitch, packState,
-                          reinterpret_cast<uint8_t *>(pixels) + outputSkipBytes);
+                          static_cast<uint8_t *>(pixels) + outputSkipBytes);
 }
 
 gl::Error FramebufferD3D::blit(const gl::Context *context,
@@ -285,20 +289,24 @@ gl::Error FramebufferD3D::blit(const gl::Context *context,
     return gl::NoError();
 }
 
-bool FramebufferD3D::checkStatus() const
+bool FramebufferD3D::checkStatus(const gl::Context *context) const
 {
     // if we have both a depth and stencil buffer, they must refer to the same object
     // since we only support packed_depth_stencil and not separate depth and stencil
-    if (mState.getDepthAttachment() != nullptr && mState.getStencilAttachment() != nullptr &&
-        mState.getDepthStencilAttachment() == nullptr)
+    if (mState.hasSeparateDepthAndStencilAttachments())
     {
         return false;
     }
 
-    // D3D11 does not allow for overlapping RenderTargetViews
-    if (!mState.colorAttachmentsAreUniqueImages())
+    // D3D11 does not allow for overlapping RenderTargetViews.
+    // If WebGL compatibility is enabled, this has already been checked at a higher level.
+    ASSERT(!context->getExtensions().webglCompatibility || mState.colorAttachmentsAreUniqueImages());
+    if (!context->getExtensions().webglCompatibility)
     {
-        return false;
+        if (!mState.colorAttachmentsAreUniqueImages())
+        {
+            return false;
+        }
     }
 
     // D3D requires all render targets to have the same dimensions.
@@ -310,12 +318,12 @@ bool FramebufferD3D::checkStatus() const
     return true;
 }
 
-void FramebufferD3D::syncState(const gl::Context *context,
-                               const gl::Framebuffer::DirtyBits &dirtyBits)
+gl::Error FramebufferD3D::syncState(const gl::Context *context,
+                                    const gl::Framebuffer::DirtyBits &dirtyBits)
 {
     if (!mColorAttachmentsForRender.valid())
     {
-        return;
+        return gl::NoError();
     }
 
     for (auto dirtyBit : dirtyBits)
@@ -327,6 +335,8 @@ void FramebufferD3D::syncState(const gl::Context *context,
             mColorAttachmentsForRender.reset();
         }
     }
+
+    return gl::NoError();
 }
 
 const gl::AttachmentList &FramebufferD3D::getColorAttachmentsForRender(const gl::Context *context)
@@ -364,15 +374,59 @@ const gl::AttachmentList &FramebufferD3D::getColorAttachmentsForRender(const gl:
         }
     }
 
+    // When rendering with no render target on D3D, two bugs lead to incorrect behavior on Intel
+    // drivers < 4815. The rendering samples always pass neglecting discard statements in pixel
+    // shader. We add a dummy texture as render target in such case.
+    if (mRenderer->getWorkarounds().addDummyTextureNoRenderTarget &&
+        colorAttachmentsForRender.empty() && activeProgramOutputs.any())
+    {
+        static_assert(static_cast<size_t>(activeProgramOutputs.size()) <= 32,
+                      "Size of active program outputs should less or equal than 32.");
+        const GLuint activeProgramLocation = static_cast<GLuint>(
+            gl::ScanForward(static_cast<uint32_t>(activeProgramOutputs.bits())));
+
+        if (mDummyAttachment.isAttached() &&
+            (mDummyAttachment.getBinding() - GL_COLOR_ATTACHMENT0) == activeProgramLocation)
+        {
+            colorAttachmentsForRender.push_back(&mDummyAttachment);
+        }
+        else
+        {
+            // Remove dummy attachment to prevents us from leaking it, and the program may require
+            // it to be attached to a new binding point.
+            if (mDummyAttachment.isAttached())
+            {
+                mDummyAttachment.detach(context);
+            }
+
+            gl::Texture *dummyTex = nullptr;
+            // TODO(Jamie): Handle error if dummy texture can't be created.
+            ANGLE_SWALLOW_ERR(
+                mRenderer->getIncompleteTexture(context, gl::TextureType::_2D, &dummyTex));
+            if (dummyTex)
+            {
+
+                gl::ImageIndex index = gl::ImageIndex::Make2D(0);
+                mDummyAttachment     = gl::FramebufferAttachment(
+                    context, GL_TEXTURE, GL_COLOR_ATTACHMENT0_EXT + activeProgramLocation, index,
+                    dummyTex);
+                colorAttachmentsForRender.push_back(&mDummyAttachment);
+            }
+        }
+    }
+
     mColorAttachmentsForRender = std::move(colorAttachmentsForRender);
     mCurrentActiveProgramOutputs = activeProgramOutputs;
 
     return mColorAttachmentsForRender.value();
 }
 
-gl::Error FramebufferD3D::getSamplePosition(size_t index, GLfloat *xy) const
+void FramebufferD3D::destroy(const gl::Context *context)
 {
-    return gl::InternalError() << "getSamplePosition is unimplemented.";
+    if (mDummyAttachment.isAttached())
+    {
+        mDummyAttachment.detach(context);
+    }
 }
 
 }  // namespace rx

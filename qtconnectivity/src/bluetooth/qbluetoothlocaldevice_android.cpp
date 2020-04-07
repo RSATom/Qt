@@ -54,25 +54,23 @@ Q_DECLARE_LOGGING_CATEGORY(QT_BT_ANDROID)
 
 QBluetoothLocalDevicePrivate::QBluetoothLocalDevicePrivate(
     QBluetoothLocalDevice *q, const QBluetoothAddress &address) :
-    q_ptr(q),
-    obj(0),
-    pendingHostModeTransition(false)
+    q_ptr(q)
 {
     registerQBluetoothLocalDeviceMetaType();
 
     initialize(address);
 
     receiver = new LocalDeviceBroadcastReceiver(q_ptr);
-    connect(receiver, SIGNAL(hostModeStateChanged(QBluetoothLocalDevice::HostMode)),
-            this, SLOT(processHostModeChange(QBluetoothLocalDevice::HostMode)));
-    connect(receiver, SIGNAL(pairingStateChanged(QBluetoothAddress,
-                                                 QBluetoothLocalDevice::Pairing)),
-            this, SLOT(processPairingStateChanged(QBluetoothAddress,
-                                                  QBluetoothLocalDevice::Pairing)));
-    connect(receiver, SIGNAL(connectDeviceChanges(QBluetoothAddress, bool)),
-            this, SLOT(processConnectDeviceChanges(QBluetoothAddress, bool)));
-    connect(receiver, SIGNAL(pairingDisplayConfirmation(QBluetoothAddress, QString)),
-            this, SLOT(processDisplayConfirmation(QBluetoothAddress, QString)));
+    connect(receiver, &LocalDeviceBroadcastReceiver::hostModeStateChanged,
+            this, &QBluetoothLocalDevicePrivate::processHostModeChange);
+    connect(receiver, &LocalDeviceBroadcastReceiver::pairingStateChanged,
+            this, &QBluetoothLocalDevicePrivate::processPairingStateChanged);
+    connect(receiver, &LocalDeviceBroadcastReceiver::connectDeviceChanges,
+            this, &QBluetoothLocalDevicePrivate::processConnectDeviceChanges);
+    connect(receiver, &LocalDeviceBroadcastReceiver::pairingDisplayConfirmation,
+            this, &QBluetoothLocalDevicePrivate::processDisplayConfirmation);
+    connect(receiver, &LocalDeviceBroadcastReceiver::pairingDisplayPinCode,
+            this, &QBluetoothLocalDevicePrivate::processDisplayPinCode);
 }
 
 QBluetoothLocalDevicePrivate::~QBluetoothLocalDevicePrivate()
@@ -128,7 +126,7 @@ void QBluetoothLocalDevicePrivate::initialize(const QBluetoothAddress &address)
         if (localAddress != address.toString()) {
             // passed address not local one -> invalid
             delete obj;
-            obj = 0;
+            obj = nullptr;
         }
     }
 }
@@ -215,6 +213,15 @@ void QBluetoothLocalDevicePrivate::processDisplayConfirmation(const QBluetoothAd
         return;
 
     emit q_ptr->pairingDisplayConfirmation(address, pin);
+}
+
+void QBluetoothLocalDevicePrivate::processDisplayPinCode(const QBluetoothAddress &address, const QString &pin)
+{
+    // only send pairing notification for pairing requests issued by
+    // this QBluetoothLocalDevice instance
+    if (pendingPairing(address) == -1)
+        return;
+
     emit q_ptr->pairingDisplayPinCode(address, pin);
 }
 

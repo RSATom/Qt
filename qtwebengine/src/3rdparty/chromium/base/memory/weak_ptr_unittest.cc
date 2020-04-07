@@ -13,6 +13,7 @@
 #include "base/single_thread_task_runner.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/test/gtest_util.h"
+#include "base/test/test_timeouts.h"
 #include "base/threading/thread.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -51,9 +52,29 @@ struct Derived : public Base {};
 
 struct TargetBase {};
 struct Target : public TargetBase, public SupportsWeakPtr<Target> {
-  virtual ~Target() {}
+  virtual ~Target() = default;
 };
+
 struct DerivedTarget : public Target {};
+
+// A class inheriting from Target and defining a nested type called 'Base'.
+// To guard against strange compilation errors.
+struct DerivedTargetWithNestedBase : public Target {
+  using Base = void;
+};
+
+// A struct with a virtual destructor.
+struct VirtualDestructor {
+  virtual ~VirtualDestructor() = default;
+};
+
+// A class inheriting from Target where Target is not the first base, and where
+// the first base has a virtual method table. This creates a structure where the
+// Target base is not positioned at the beginning of
+// DerivedTargetMultipleInheritance.
+struct DerivedTargetMultipleInheritance : public VirtualDestructor,
+                                          public Target {};
+
 struct Arrow {
   WeakPtr<Target> target;
 };
@@ -290,6 +311,22 @@ TEST(WeakPtrTest, DerivedTarget) {
   EXPECT_EQ(&target, ptr.get());
 }
 
+TEST(WeakPtrTest, DerivedTargetWithNestedBase) {
+  DerivedTargetWithNestedBase target;
+  WeakPtr<DerivedTargetWithNestedBase> ptr = AsWeakPtr(&target);
+  EXPECT_EQ(&target, ptr.get());
+}
+
+TEST(WeakPtrTest, DerivedTargetMultipleInheritance) {
+  DerivedTargetMultipleInheritance d;
+  Target& b = d;
+  EXPECT_NE(static_cast<void*>(&d), static_cast<void*>(&b));
+  const WeakPtr<Target> pb = AsWeakPtr(&b);
+  EXPECT_EQ(pb.get(), &b);
+  const WeakPtr<DerivedTargetMultipleInheritance> pd = AsWeakPtr(&d);
+  EXPECT_EQ(pd.get(), &d);
+}
+
 TEST(WeakPtrFactoryTest, BooleanTesting) {
   int data;
   WeakPtrFactory<int> factory(&data);
@@ -353,6 +390,42 @@ TEST(WeakPtrTest, InvalidateWeakPtrs) {
   factory.InvalidateWeakPtrs();
   EXPECT_EQ(nullptr, ptr2.get());
   EXPECT_FALSE(factory.HasWeakPtrs());
+}
+
+TEST(WeakPtrTest, MaybeValidOnSameSequence) {
+  int data;
+  WeakPtrFactory<int> factory(&data);
+  WeakPtr<int> ptr = factory.GetWeakPtr();
+  EXPECT_TRUE(ptr.MaybeValid());
+  factory.InvalidateWeakPtrs();
+  // Since InvalidateWeakPtrs() ran on this sequence, MaybeValid() should be
+  // false.
+  EXPECT_FALSE(ptr.MaybeValid());
+}
+
+TEST(WeakPtrTest, MaybeValidOnOtherSequence) {
+  int data;
+  WeakPtrFactory<int> factory(&data);
+  WeakPtr<int> ptr = factory.GetWeakPtr();
+  EXPECT_TRUE(ptr.MaybeValid());
+
+  base::Thread other_thread("other_thread");
+  other_thread.StartAndWaitForTesting();
+  other_thread.task_runner()->PostTask(
+      FROM_HERE,
+      base::BindOnce(
+          [](WeakPtr<int> ptr) {
+            // Check that MaybeValid() _eventually_ returns false.
+            const TimeDelta timeout = TestTimeouts::tiny_timeout();
+            const TimeTicks begin = TimeTicks::Now();
+            while (ptr.MaybeValid() && (TimeTicks::Now() - begin) < timeout)
+              PlatformThread::YieldCurrentThread();
+            EXPECT_FALSE(ptr.MaybeValid());
+          },
+          ptr));
+  factory.InvalidateWeakPtrs();
+  // |other_thread|'s destructor will join, ensuring we wait for the task to be
+  // run.
 }
 
 TEST(WeakPtrTest, HasWeakPtrs) {

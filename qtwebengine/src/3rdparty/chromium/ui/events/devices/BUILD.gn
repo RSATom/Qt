@@ -2,12 +2,14 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+import("//build/config/jumbo.gni")
+
 if (is_android) {
   import("//build/config/android/config.gni")
   import("//build/config/android/rules.gni")
 }
 
-component("devices") {
+jumbo_component("devices") {
   sources = [
     "device_data_manager.cc",
     "device_data_manager.h",
@@ -25,6 +27,8 @@ component("devices") {
     "input_device_observer_win.cc",
     "input_device_observer_win.h",
     "stylus_state.h",
+    "touch_device_transform.cc",
+    "touch_device_transform.h",
     "touchscreen_device.cc",
     "touchscreen_device.h",
   ]
@@ -32,6 +36,7 @@ component("devices") {
   defines = [ "EVENTS_DEVICES_IMPLEMENTATION" ]
 
   public_deps = [
+    "//ui/display/types",
     "//ui/gfx",
   ]
 
@@ -39,7 +44,8 @@ component("devices") {
     "//base",
     "//base/third_party/dynamic_annotations",
     "//skia",
-    "//ui/display/types",
+    "//ui/events:platform_event",
+    "//ui/gfx:geometry_skia",
     "//ui/gfx/geometry",
   ]
 

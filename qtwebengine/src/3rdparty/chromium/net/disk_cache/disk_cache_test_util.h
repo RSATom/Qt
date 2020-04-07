@@ -12,7 +12,7 @@
 
 #include "base/files/file_path.h"
 #include "base/macros.h"
-#include "base/message_loop/message_loop.h"
+#include "base/run_loop.h"
 #include "base/timer/timer.h"
 #include "build/build_config.h"
 
@@ -28,9 +28,11 @@ void CacheTestFillBuffer(char* buffer, size_t len, bool no_nulls);
 // Generates a random key of up to 200 bytes.
 std::string GenerateKey(bool same_length);
 
-// Returns true if the cache is not corrupt.
+// Returns true if the cache is not corrupt. Assumes blockfile cache.
+// |max_size|, if non-zero, will be set as its size.
 bool CheckCacheIntegrity(const base::FilePath& path,
                          bool new_eviction,
+                         int max_size,
                          uint32_t mask);
 
 // -----------------------------------------------------------------------
@@ -69,7 +71,7 @@ class MessageLoopHelper {
   // Called periodically to test if WaitUntilCacheIoFinished should return.
   void TimerExpired();
 
-  base::RepeatingTimer timer_;
+  std::unique_ptr<base::RunLoop> run_loop_;
   int num_callbacks_;
   int num_iterations_;
   int last_;

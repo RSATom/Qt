@@ -22,21 +22,34 @@ namespace safe_browsing {
 const base::Feature kAdSamplerTriggerFeature{"SafeBrowsingAdSamplerTrigger",
                                              base::FEATURE_DISABLED_BY_DEFAULT};
 
-const base::Feature kLocalDatabaseManagerEnabled{
-    "SafeBrowsingV4LocalDatabaseManagerEnabled",
+// If enabled in pre-network-service world, SafeBrowsing URL checks are done by
+// applying SafeBrowsing's URLLoaderThrottle subclasses to ThrottlingURLLoader.
+//
+// This flag has no effect if network service is enabled. With network service,
+// SafeBrowsing URL checks are always done by SafeBrowsing's URLLoaderThrottle
+// subclasses.
+const base::Feature kCheckByURLLoaderThrottle{
+    "S13nSafeBrowsingCheckByURLLoaderThrottle",
     base::FEATURE_DISABLED_BY_DEFAULT};
 
-// Specifies which non-resource HTML Elements to collect based on their tag and
-// attributes. It's a single param containing a comma-separated list of pairs.
-// For example: "tag1,id,tag1,height,tag2,foo" - this will collect elements with
-// tag "tag1" that have attribute "id" or "height" set, and elements of tag
-// "tag2" if they have attribute "foo" set. All tag names and attributes should
-// be lower case.
 const base::Feature kThreatDomDetailsTagAndAttributeFeature{
     "ThreatDomDetailsTagAttributes", base::FEATURE_DISABLED_BY_DEFAULT};
 
-const base::Feature kV4OnlyEnabled{"SafeBrowsingV4OnlyEnabled",
-                                   base::FEATURE_DISABLED_BY_DEFAULT};
+const base::Feature kSuspiciousSiteTriggerQuotaFeature{
+    "SafeBrowsingSuspiciousSiteTriggerQuota", base::FEATURE_ENABLED_BY_DEFAULT};
+
+const base::Feature kTriggerThrottlerDailyQuotaFeature{
+    "SafeBrowsingTriggerThrottlerDailyQuota",
+    base::FEATURE_DISABLED_BY_DEFAULT};
+
+const base::Feature kInspectDownloadedRarFiles{
+    "InspectDownloadedRarFiles", base::FEATURE_DISABLED_BY_DEFAULT};
+
+const base::Feature kEnterprisePasswordProtectionV1{
+    "EnterprisePasswordProtectionV1", base::FEATURE_ENABLED_BY_DEFAULT};
+
+const base::Feature kForceEnableResetPasswordWebUI{
+    "ForceEnableResetPasswordWebUI", base::FEATURE_DISABLED_BY_DEFAULT};
 
 namespace {
 // List of experimental features. Boolean value for each list member should be
@@ -48,9 +61,12 @@ constexpr struct {
   bool probabilistically_enabled;
 } kExperimentalFeatures[]{
     {&kAdSamplerTriggerFeature, false},
-    {&kLocalDatabaseManagerEnabled, true},
+    {&kCheckByURLLoaderThrottle, true},
+    {&kForceEnableResetPasswordWebUI, true},
+    {&kInspectDownloadedRarFiles, true},
+    {&kSuspiciousSiteTriggerQuotaFeature, true},
     {&kThreatDomDetailsTagAndAttributeFeature, false},
-    {&kV4OnlyEnabled, true},
+    {&kTriggerThrottlerDailyQuotaFeature, false},
 };
 
 // Adds the name and the enabled/disabled status of a given feature.

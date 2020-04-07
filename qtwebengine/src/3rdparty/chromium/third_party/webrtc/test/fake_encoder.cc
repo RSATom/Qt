@@ -8,18 +8,18 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/test/fake_encoder.h"
+#include "test/fake_encoder.h"
 
 #include <string.h>
 
 #include <algorithm>
 #include <memory>
 
-#include "webrtc/common_types.h"
-#include "webrtc/modules/video_coding/include/video_codec_interface.h"
-#include "webrtc/rtc_base/checks.h"
-#include "webrtc/system_wrappers/include/sleep.h"
-#include "webrtc/test/gtest.h"
+#include "common_types.h"  // NOLINT(build/include)
+#include "modules/video_coding/include/video_codec_interface.h"
+#include "rtc_base/checks.h"
+#include "system_wrappers/include/sleep.h"
+#include "test/gtest.h"
 
 namespace webrtc {
 namespace test {
@@ -116,8 +116,8 @@ int32_t FakeEncoder::Encode(const VideoFrame& input_image,
         (simulcast_streams[i].minBitrate * 1000) / framerate);
     size_t max_stream_bits = static_cast<size_t>(
         (simulcast_streams[i].maxBitrate * 1000) / framerate);
-    size_t stream_bits = (bits_available > max_stream_bits) ? max_stream_bits :
-        bits_available;
+    size_t stream_bits =
+        (bits_available > max_stream_bits) ? max_stream_bits : bits_available;
     size_t stream_bytes = (stream_bits + 7) / 8;
     if (keyframe) {
       // The first frame is a key frame and should be larger.
@@ -150,7 +150,7 @@ int32_t FakeEncoder::Encode(const VideoFrame& input_image,
     encoded._encodedWidth = simulcast_streams[i].width;
     encoded._encodedHeight = simulcast_streams[i].height;
     encoded.rotation_ = input_image.rotation();
-    encoded.content_type_ = (mode == kScreensharing)
+    encoded.content_type_ = (mode == VideoCodecMode::kScreensharing)
                                 ? VideoContentType::SCREENSHARE
                                 : VideoContentType::UNSPECIFIED;
     specifics.codec_name = ImplementationName();
@@ -172,14 +172,17 @@ int32_t FakeEncoder::RegisterEncodeCompleteCallback(
   return 0;
 }
 
-int32_t FakeEncoder::Release() { return 0; }
+int32_t FakeEncoder::Release() {
+  return 0;
+}
 
 int32_t FakeEncoder::SetChannelParameters(uint32_t packet_loss, int64_t rtt) {
   return 0;
 }
 
-int32_t FakeEncoder::SetRateAllocation(const BitrateAllocation& rate_allocation,
-                                       uint32_t framerate) {
+int32_t FakeEncoder::SetRateAllocation(
+    const VideoBitrateAllocation& rate_allocation,
+    uint32_t framerate) {
   rtc::CritScope cs(&crit_sect_);
   target_bitrate_ = rate_allocation;
   configured_input_framerate_ = framerate;

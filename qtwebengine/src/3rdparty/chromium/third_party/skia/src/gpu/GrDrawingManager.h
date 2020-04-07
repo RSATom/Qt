@@ -8,23 +8,23 @@
 #ifndef GrDrawingManager_DEFINED
 #define GrDrawingManager_DEFINED
 
-#include "GrOpFlushState.h"
 #include "GrPathRenderer.h"
 #include "GrPathRendererChain.h"
-#include "GrRenderTargetOpList.h"
 #include "GrResourceCache.h"
 #include "SkTArray.h"
-#include "instanced/InstancedRendering.h"
-#include "text/GrAtlasTextContext.h"
+#include "text/GrTextContext.h"
 
 class GrContext;
+class GrCoverageCountingPathRenderer;
 class GrOnFlushCallbackObject;
 class GrRenderTargetContext;
 class GrRenderTargetProxy;
 class GrSingleOWner;
+class GrRenderTargetOpList;
 class GrSoftwarePathRenderer;
 class GrTextureContext;
 class GrTextureOpList;
+class SkDeferredDisplayList;
 
 // The GrDrawingManager allocates a new GrRenderTargetContext for each GrRenderTarget
 // but all of them still land in the same GrOpList!
@@ -37,8 +37,6 @@ public:
 
     bool wasAbandoned() const { return fAbandoned; }
     void freeGpuResources();
-
-    gr_instanced::OpAllocator* instancingAllocator();
 
     sk_sp<GrRenderTargetContext> makeRenderTargetContext(sk_sp<GrSurfaceProxy>,
                                                          sk_sp<SkColorSpace>,
@@ -55,48 +53,54 @@ public:
 
     GrContext* getContext() { return fContext; }
 
-    GrAtlasTextContext* getAtlasTextContext();
+    GrTextContext* getTextContext();
 
     GrPathRenderer* getPathRenderer(const GrPathRenderer::CanDrawPathArgs& args,
                                     bool allowSW,
                                     GrPathRendererChain::DrawType drawType,
-                                    GrPathRenderer::StencilSupport* stencilSupport = NULL);
+                                    GrPathRenderer::StencilSupport* stencilSupport = nullptr);
 
-    void flushIfNecessary() {
-        if (fContext->getResourceCache()->requestsFlush()) {
-            this->internalFlush(nullptr, GrResourceCache::kCacheRequested);
-        }
-    }
+    GrPathRenderer* getSoftwarePathRenderer();
+
+    // Returns a direct pointer to the coverage counting path renderer, or null if it is not
+    // supported and turned on.
+    GrCoverageCountingPathRenderer* getCoverageCountingPathRenderer();
+
+    void flushIfNecessary();
 
     static bool ProgramUnitTest(GrContext* context, int maxStages, int maxLevels);
 
-    void prepareSurfaceForExternalIO(GrSurfaceProxy*);
+    GrSemaphoresSubmitted prepareSurfaceForExternalIO(GrSurfaceProxy*,
+                                                      int numSemaphores,
+                                                      GrBackendSemaphore backendSemaphores[]);
 
     void addOnFlushCallbackObject(GrOnFlushCallbackObject*);
     void testingOnly_removeOnFlushCallbackObject(GrOnFlushCallbackObject*);
 
+    void moveOpListsToDDL(SkDeferredDisplayList* ddl);
+    void copyOpListsFromDDL(const SkDeferredDisplayList*, GrRenderTargetProxy* newDest);
+
 private:
-    GrDrawingManager(GrContext* context,
-                     const GrPathRendererChain::Options& optionsForPathRendererChain,
-                     GrSingleOwner* singleOwner)
-        : fContext(context)
-        , fOptionsForPathRendererChain(optionsForPathRendererChain)
-        , fSingleOwner(singleOwner)
-        , fAbandoned(false)
-        , fAtlasTextContext(nullptr)
-        , fPathRendererChain(nullptr)
-        , fSoftwarePathRenderer(nullptr)
-        , fFlushState(context->getGpu(), context->resourceProvider())
-        , fFlushing(false) {
-    }
+    GrDrawingManager(GrContext*, const GrPathRendererChain::Options&,
+                     const GrTextContext::Options&, GrSingleOwner*,
+                     bool explicitlyAllocating, GrContextOptions::Enable sortRenderTargets);
 
     void abandon();
     void cleanup();
-    void reset();
-    void flush(GrSurfaceProxy* proxy) {
-        this->internalFlush(proxy, GrResourceCache::FlushType::kExternal);
+
+    // return true if any opLists were actually executed; false otherwise
+    bool executeOpLists(int startIndex, int stopIndex, GrOpFlushState*);
+
+    GrSemaphoresSubmitted flush(GrSurfaceProxy* proxy,
+                                int numSemaphores = 0,
+                                GrBackendSemaphore backendSemaphores[] = nullptr) {
+        return this->internalFlush(proxy, GrResourceCache::FlushType::kExternal,
+                                   numSemaphores, backendSemaphores);
     }
-    void internalFlush(GrSurfaceProxy*, GrResourceCache::FlushType);
+    GrSemaphoresSubmitted internalFlush(GrSurfaceProxy*,
+                                        GrResourceCache::FlushType,
+                                        int numSemaphores,
+                                        GrBackendSemaphore backendSemaphores[]);
 
     friend class GrContext;  // for access to: ctor, abandon, reset & flush
     friend class GrContextPriv; // access to: flush
@@ -107,25 +111,28 @@ private:
 
     GrContext*                        fContext;
     GrPathRendererChain::Options      fOptionsForPathRendererChain;
+    GrTextContext::Options            fOptionsForTextContext;
 
     // In debug builds we guard against improper thread handling
     GrSingleOwner*                    fSingleOwner;
 
     bool                              fAbandoned;
     SkTArray<sk_sp<GrOpList>>         fOpLists;
+    // These are the IDs of the opLists currently being flushed (in internalFlush)
+    SkSTArray<8, uint32_t, true>      fFlushingOpListIDs;
+    // These are the new opLists generated by the onFlush CBs
+    SkSTArray<8, sk_sp<GrOpList>>     fOnFlushCBOpLists;
 
-    std::unique_ptr<GrAtlasTextContext> fAtlasTextContext;
+    std::unique_ptr<GrTextContext>    fTextContext;
 
-    GrPathRendererChain*              fPathRendererChain;
-    GrSoftwarePathRenderer*           fSoftwarePathRenderer;
+    std::unique_ptr<GrPathRendererChain> fPathRendererChain;
+    sk_sp<GrSoftwarePathRenderer>     fSoftwarePathRenderer;
 
-    GrOpFlushState                    fFlushState;
+    GrTokenTracker                    fTokenTracker;
     bool                              fFlushing;
+    bool                              fSortRenderTargets;
 
     SkTArray<GrOnFlushCallbackObject*> fOnFlushCBObjects;
-
-    // Lazily allocated
-    std::unique_ptr<gr_instanced::OpAllocator> fInstancingAllocator;
 };
 
 #endif

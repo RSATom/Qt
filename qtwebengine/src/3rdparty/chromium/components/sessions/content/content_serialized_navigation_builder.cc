@@ -13,10 +13,27 @@
 #include "content/public/browser/favicon_status.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
+#include "content/public/browser/replaced_navigation_entry_data.h"
 #include "content/public/common/page_state.h"
 #include "content/public/common/referrer.h"
 
 namespace sessions {
+namespace {
+
+base::Optional<SerializedNavigationEntry::ReplacedNavigationEntryData>
+ConvertReplacedEntryData(
+    const base::Optional<content::ReplacedNavigationEntryData>& input_data) {
+  if (!input_data.has_value())
+    return base::nullopt;
+
+  SerializedNavigationEntry::ReplacedNavigationEntryData output_data;
+  output_data.first_committed_url = input_data->first_committed_url;
+  output_data.first_timestamp = input_data->first_timestamp;
+  output_data.first_transition_type = input_data->first_transition_type;
+  return output_data;
+}
+
+}  // namespace
 
 // static
 SerializedNavigationEntry
@@ -40,11 +57,12 @@ ContentSerializedNavigationBuilder::FromNavigationEntry(
   navigation.is_overriding_user_agent_ = entry.GetIsOverridingUserAgent();
   navigation.timestamp_ = entry.GetTimestamp();
   navigation.is_restored_ = entry.IsRestored();
-  entry.GetExtraData(kSearchTermsKey, &navigation.search_terms_);
   if (entry.GetFavicon().valid)
     navigation.favicon_url_ = entry.GetFavicon().url;
   navigation.http_status_code_ = entry.GetHttpStatusCode();
   navigation.redirect_chain_ = entry.GetRedirectChain();
+  navigation.replaced_entry_data_ =
+      ConvertReplacedEntryData(entry.GetReplacedEntryData());
   navigation.password_state_ = GetPasswordStateFromNavigation(entry);
 
   for (const auto& handler_entry :
@@ -77,7 +95,8 @@ ContentSerializedNavigationBuilder::ToNavigationEntry(
           // increase the typed count.
           ui::PAGE_TRANSITION_RELOAD, false,
           // The extra headers are not sync'ed across sessions.
-          std::string(), browser_context));
+          std::string(), browser_context,
+          nullptr /* blob_url_loader_factory */));
 
   entry->SetTitle(navigation->title_);
   entry->SetPageState(content::PageState::CreateFromEncodedData(
@@ -87,7 +106,6 @@ ContentSerializedNavigationBuilder::ToNavigationEntry(
   entry->SetOriginalRequestURL(navigation->original_request_url_);
   entry->SetIsOverridingUserAgent(navigation->is_overriding_user_agent_);
   entry->SetTimestamp(navigation->timestamp_);
-  entry->SetExtraData(kSearchTermsKey, navigation->search_terms_);
   entry->SetHttpStatusCode(navigation->http_status_code_);
   entry->SetRedirectChain(navigation->redirect_chain_);
 

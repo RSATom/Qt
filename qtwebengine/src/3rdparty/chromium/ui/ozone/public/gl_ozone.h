@@ -5,6 +5,8 @@
 #ifndef UI_OZONE_PUBLIC_GL_OZONE_H_
 #define UI_OZONE_PUBLIC_GL_OZONE_H_
 
+#include <string>
+
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "ui/gfx/geometry/size.h"
@@ -39,6 +41,17 @@ class OZONE_BASE_EXPORT GLOzone {
   // Initializes static debug GL bindings.
   virtual void InitializeDebugGLBindings() = 0;
 
+  // Disables the specified extensions in the window system bindings,
+  // e.g., GLX, EGL, etc. This is part of the GPU driver bug workarounds
+  // mechanism.
+  virtual void SetDisabledExtensionsPlatform(
+      const std::string& disabled_extensions) = 0;
+
+  // Initializes extension related settings for window system bindings that
+  // will be affected by SetDisabledExtensionsPlatform(). This function is
+  // called after SetDisabledExtensionsPlatform() to finalize the bindings.
+  virtual bool InitializeExtensionSettingsOneOffPlatform() = 0;
+
   // Clears static GL bindings.
   virtual void ShutdownGL() = 0;
 
@@ -63,6 +76,7 @@ class OZONE_BASE_EXPORT GLOzone {
   // semantics. The surface is not backed by any buffers and is used for
   // overlay-only displays. This will return null if surfaceless mode is
   // unsupported.
+  // TODO(spang): Consider deprecating this and using OverlaySurface for GL.
   virtual scoped_refptr<gl::GLSurface> CreateSurfacelessViewGLSurface(
       gfx::AcceleratedWidget window) = 0;
 

@@ -8,26 +8,17 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_RTC_BASE_PLATFORM_THREAD_H_
-#define WEBRTC_RTC_BASE_PLATFORM_THREAD_H_
+#ifndef RTC_BASE_PLATFORM_THREAD_H_
+#define RTC_BASE_PLATFORM_THREAD_H_
 
 #include <string>
 
-#include "webrtc/rtc_base/constructormagic.h"
-#include "webrtc/rtc_base/event.h"
-#include "webrtc/rtc_base/platform_thread_types.h"
-#include "webrtc/rtc_base/thread_checker.h"
+#include "rtc_base/constructormagic.h"
+#include "rtc_base/event.h"
+#include "rtc_base/platform_thread_types.h"
+#include "rtc_base/thread_checker.h"
 
 namespace rtc {
-
-PlatformThreadId CurrentThreadId();
-PlatformThreadRef CurrentThreadRef();
-
-// Compares two thread identifiers for equality.
-bool IsThreadRefEqual(const PlatformThreadRef& a, const PlatformThreadRef& b);
-
-// Sets the current thread name.
-void SetCurrentThreadName(const char* name);
 
 // Callback function that the spawned thread will enter once spawned.
 // A return value of false is interpreted as that the function has no
@@ -121,4 +112,4 @@ class PlatformThread {
 
 }  // namespace rtc
 
-#endif  // WEBRTC_RTC_BASE_PLATFORM_THREAD_H_
+#endif  // RTC_BASE_PLATFORM_THREAD_H_

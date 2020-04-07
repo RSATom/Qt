@@ -52,6 +52,12 @@ class DSVideoDeviceControl;
 class DSImageCaptureControl;
 class DSCameraViewfinderSettingsControl;
 class DSCameraImageProcessingControl;
+class DirectShowCameraExposureControl;
+class DirectShowCameraCaptureDestinationControl;
+class DirectShowCameraCaptureBufferFormatControl;
+class DirectShowVideoProbeControl;
+class DirectShowCameraZoomControl;
+class DirectShowCameraImageEncoderControl;
 
 class DSCameraService : public QMediaService
 {
@@ -59,19 +65,25 @@ class DSCameraService : public QMediaService
 
 public:
     DSCameraService(QObject *parent = 0);
-    ~DSCameraService();
+    ~DSCameraService() override;
 
-    virtual QMediaControl* requestControl(const char *name);
-    virtual void releaseControl(QMediaControl *control);
+    QMediaControl* requestControl(const char *name) override;
+    void releaseControl(QMediaControl *control) override;
 
 private:
-    DSCameraControl        *m_control;
     DSCameraSession        *m_session;
+    DSCameraControl        *m_control;
     DSVideoDeviceControl   *m_videoDevice;
     QMediaControl          *m_videoRenderer;
     DSImageCaptureControl  *m_imageCapture;
     DSCameraViewfinderSettingsControl *m_viewfinderSettings;
     DSCameraImageProcessingControl *m_imageProcessingControl;
+    DirectShowCameraExposureControl *m_exposureControl;
+    DirectShowCameraCaptureDestinationControl *m_captureDestinationControl;
+    DirectShowCameraCaptureBufferFormatControl *m_captureBufferFormatControl;
+    DirectShowVideoProbeControl *m_videoProbeControl;
+    DirectShowCameraZoomControl *m_zoomControl;
+    DirectShowCameraImageEncoderControl *m_imageEncoderControl;
 };
 
 QT_END_NAMESPACE

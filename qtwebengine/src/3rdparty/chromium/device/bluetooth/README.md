@@ -20,7 +20,7 @@ have interfaces for both, e.g. `BluetoothAdapter` & `BluetoothDevice`.
 Chrome OS and Linux are supported via BlueZ, see `*_bluez` files.
 
 [Mojo](https://www.chromium.org/developers/design-documents/mojo)
-interfaces in [public/interfaces](public/interfaces) have been started
+interfaces in [public/mojom](public/mojom) have been started
 but are *not* ready for production use.
 
 
@@ -35,13 +35,28 @@ features and the Chrome Apps APIs:
 * [chrome.bluetoothLowEnergy](https://developer.chrome.com/apps/bluetoothLowEnergy)
 * [chrome.bluetoothSocket](https://developer.chrome.com/apps/bluetoothSocket)
 
-Active development in 2015 & 2016 is focused on enabling GATT features for:
+Active development in 2015 & 2016 focused on enabling GATT features for:
 
 * [Web Bluetooth](https://crbug.com/419413)
 * Peripheral mode for Chrome OS.
 
-Known future work is tracked in the
-[Refactoring meta issue](https://crbug.com/580406).
+## Future Work
+
+The API and implementation have many known issues.
+
+The initial API was heavily influenced by BlueZ.  Low Energy GATT APIs are not
+consistent across platforms.  Some of the high level abstractions built into
+`device/bluetooth` are difficult for clients.  Several TODOs exist in the C++
+header files, e.g. `BluetoothAdapter::Observer`.
+
+Primarily, the API should be split into fundamental Bluetooth concepts and
+seperate, optional, high level utility classes.
+
+E.g. receiving advertising packets should be routed directly to clients allowing
+contents of the individual packet to be inspected.  Caching of known devices
+should not exist in the fundamental API, but be offered as utility classes.
+
+See also the [Refactoring meta issue](https://crbug.com/580406).
 
 
 ## Android

@@ -8,7 +8,6 @@
 #include "base/command_line.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/chromeos/policy/proto/chrome_device_policy.pb.h"
 #include "chrome/browser/chromeos/set_time_dialog.h"
 #include "chrome/browser/chromeos/system/timezone_resolver_manager.h"
 #include "chrome/browser/chromeos/system/timezone_util.h"
@@ -17,6 +16,7 @@
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/dbus/system_clock_client.h"
 #include "chromeos/settings/timezone_settings.h"
+#include "components/policy/proto/chrome_device_policy.pb.h"
 #include "components/prefs/pref_service.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui.h"
@@ -83,26 +83,21 @@ DateTimeHandler* DateTimeHandler::Create(
       "timeZoneID",
       system::TimezoneSettings::GetInstance()->GetCurrentTimezoneID());
 
-  if (!IsTimezoneAutomaticDetectionUserEditable()) {
-    html_source->AddBoolean("timeZoneAutoDetectValueFromPolicy",
-                            g_browser_process->platform_part()
-                                ->GetTimezoneResolverManager()
-                                ->ShouldApplyResolvedTimezone());
-  }
-
   return new DateTimeHandler;
 }
 
 void DateTimeHandler::RegisterMessages() {
   web_ui()->RegisterMessageCallback(
-      "dateTimePageReady", base::Bind(&DateTimeHandler::HandleDateTimePageReady,
-                                      base::Unretained(this)));
+      "dateTimePageReady",
+      base::BindRepeating(&DateTimeHandler::HandleDateTimePageReady,
+                          base::Unretained(this)));
   web_ui()->RegisterMessageCallback(
-      "getTimeZones",
-      base::Bind(&DateTimeHandler::HandleGetTimeZones, base::Unretained(this)));
+      "getTimeZones", base::BindRepeating(&DateTimeHandler::HandleGetTimeZones,
+                                          base::Unretained(this)));
   web_ui()->RegisterMessageCallback(
-      "showSetDateTimeUI", base::Bind(&DateTimeHandler::HandleShowSetDateTimeUI,
-                                      base::Unretained(this)));
+      "showSetDateTimeUI",
+      base::BindRepeating(&DateTimeHandler::HandleShowSetDateTimeUI,
+                          base::Unretained(this)));
 }
 
 void DateTimeHandler::OnJavascriptAllowed() {

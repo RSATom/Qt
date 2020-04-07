@@ -89,7 +89,7 @@ void tst_QCategoryAxis::init()
     m_categoryaxis = new QCategoryAxis();
     m_series = new QLineSeries();
     *m_series << QPointF(-100, -100) << QPointF(0, 0) << QPointF(100, 100);
-    tst_QAbstractAxis::init(m_categoryaxis, m_series);
+    tst_QAbstractAxis::initAxes(m_categoryaxis, m_series);
     m_chart->addSeries(m_series);
     m_chart->createDefaultAxes();
 }
@@ -118,7 +118,7 @@ void tst_QCategoryAxis::qcategoryaxis()
 
     m_chart->setAxisX(m_categoryaxis, m_series);
     m_view->show();
-    QTest::qWaitForWindowShown(m_view);
+    QVERIFY(QTest::qWaitForWindowExposed(m_view));
 
     QVERIFY(!qFuzzyCompare(m_categoryaxis->max(), 0));
     QVERIFY(!qFuzzyCompare(m_categoryaxis->min(), 0));
@@ -159,7 +159,7 @@ void tst_QCategoryAxis::max()
 {
     m_chart->setAxisX(m_categoryaxis, m_series);
     m_view->show();
-    QTest::qWaitForWindowShown(m_view);
+    QVERIFY(QTest::qWaitForWindowExposed(m_view));
     max_raw();
 }
 
@@ -207,7 +207,7 @@ void tst_QCategoryAxis::min()
 {
     m_chart->setAxisX(m_categoryaxis, m_series);
     m_view->show();
-    QTest::qWaitForWindowShown(m_view);
+    QVERIFY(QTest::qWaitForWindowExposed(m_view));
     min_raw();
 }
 
@@ -261,7 +261,7 @@ void tst_QCategoryAxis::range()
 {
     m_chart->setAxisX(m_categoryaxis, m_series);
     m_view->show();
-    QTest::qWaitForWindowShown(m_view);
+    QVERIFY(QTest::qWaitForWindowExposed(m_view));
     range_raw();
 }
 
@@ -339,7 +339,7 @@ void tst_QCategoryAxis::reverse()
     QCOMPARE(spy.count(), 1);
 
     m_view->show();
-    QTest::qWaitForWindowShown(m_view);
+    QVERIFY(QTest::qWaitForWindowExposed(m_view));
     QCOMPARE(m_categoryaxis->isReverse(), true);
 }
 

@@ -30,6 +30,7 @@
 #include <QtGui/QOpenGLFunctions>
 #include <QtGui/QPainter>
 #include <QtGui/QScreen>
+#include <QtGui/QStaticText>
 #include <QtWidgets/QDesktopWidget>
 #include <QtWidgets/QGraphicsView>
 #include <QtWidgets/QGraphicsScene>
@@ -40,6 +41,8 @@
 #include <QtTest/QtTest>
 #include <QSignalSpy>
 #include <private/qguiapplication_p.h>
+#include <private/qstatictext_p.h>
+#include <private/qopengltextureglyphcache_p.h>
 #include <qpa/qplatformintegration.h>
 
 class tst_QOpenGLWidget : public QObject
@@ -64,6 +67,10 @@ private slots:
     void stackWidgetOpaqueChildIsVisible();
     void offscreen();
     void offscreenThenOnscreen();
+
+#ifdef QT_BUILD_INTERNAL
+    void staticTextDanglingPointer();
+#endif
 };
 
 void tst_QOpenGLWidget::initTestCase()
@@ -100,16 +107,16 @@ public:
           m_w(expectedWidth), m_h(expectedHeight),
           r(1.0f), g(0.0f), b(0.0f) { }
 
-    void initializeGL() Q_DECL_OVERRIDE {
+    void initializeGL() override {
         m_initCalled = true;
         initializeOpenGLFunctions();
     }
-    void paintGL() Q_DECL_OVERRIDE {
+    void paintGL() override {
         m_paintCalled = true;
         glClearColor(r, g, b, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
     }
-    void resizeGL(int w, int h) Q_DECL_OVERRIDE {
+    void resizeGL(int w, int h) override {
         m_resizeCalled = true;
         m_resizeOk = w == m_w && h == m_h;
     }
@@ -203,10 +210,10 @@ public:
     PainterWidget(QWidget *parent)
         : QOpenGLWidget(parent), m_clear(false) { }
 
-    void initializeGL() Q_DECL_OVERRIDE {
+    void initializeGL() override {
         initializeOpenGLFunctions();
     }
-    void paintGL() Q_DECL_OVERRIDE {
+    void paintGL() override {
         QPainter p(this);
         QCOMPARE(p.device()->width(), width());
         QCOMPARE(p.device()->height(), height());
@@ -322,7 +329,7 @@ public:
     void resetPaintCount() { m_count = 0; }
 
 protected:
-    void drawForeground(QPainter *, const QRectF &) Q_DECL_OVERRIDE;
+    void drawForeground(QPainter *, const QRectF &) override;
     int m_count;
 };
 
@@ -372,7 +379,7 @@ class PaintCountWidget : public QOpenGLWidget
 public:
     PaintCountWidget() : m_count(0) { }
     void reset() { m_count = 0; }
-    void paintGL() Q_DECL_OVERRIDE { ++m_count; }
+    void paintGL() override { ++m_count; }
     int m_count;
 };
 
@@ -393,7 +400,7 @@ void tst_QOpenGLWidget::requestUpdate()
 class FboCheckWidget : public QOpenGLWidget
 {
 public:
-    void paintGL() Q_DECL_OVERRIDE {
+    void paintGL() override {
         GLuint reportedDefaultFbo = QOpenGLContext::currentContext()->defaultFramebufferObject();
         GLuint expectedDefaultFbo = defaultFramebufferObject();
         QCOMPARE(reportedDefaultFbo, expectedDefaultFbo);
@@ -674,6 +681,53 @@ void tst_QOpenGLWidget::offscreenThenOnscreen()
     QCOMPARE(image.height(), w->height());
     QVERIFY(image.pixel(30, 40) == qRgb(0, 0, 255));
 }
+
+class StaticTextPainterWidget : public QOpenGLWidget
+{
+public:
+    StaticTextPainterWidget(QWidget *parent = nullptr)
+        : QOpenGLWidget(parent)
+    {
+    }
+
+    void paintEvent(QPaintEvent *)
+    {
+        QPainter p(this);
+        text.setText(QStringLiteral("test"));
+        p.drawStaticText(0, 0, text);
+
+        ctx = QOpenGLContext::currentContext();
+    }
+
+    QStaticText text;
+    QOpenGLContext *ctx;
+};
+
+#ifdef QT_BUILD_INTERNAL
+void tst_QOpenGLWidget::staticTextDanglingPointer()
+{
+    QWidget w;
+    StaticTextPainterWidget *glw = new StaticTextPainterWidget(&w);
+    w.resize(640, 480);
+    glw->resize(320, 200);
+    w.show();
+
+    QVERIFY(QTest::qWaitForWindowExposed(&w));
+    QStaticTextPrivate *d = QStaticTextPrivate::get(&glw->text);
+
+    QCOMPARE(d->itemCount, 1);
+    QFontEngine *fe = d->items->fontEngine();
+
+    for (int i = QFontEngine::Format_None; i <= QFontEngine::Format_ARGB; ++i) {
+        QOpenGLTextureGlyphCache *cache =
+                (QOpenGLTextureGlyphCache *) fe->glyphCache(glw->ctx,
+                                                            QFontEngine::GlyphFormat(i),
+                                                            QTransform());
+        if (cache != nullptr)
+            QCOMPARE(cache->paintEnginePrivate(), nullptr);
+    }
+}
+#endif
 
 QTEST_MAIN(tst_QOpenGLWidget)
 

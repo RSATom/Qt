@@ -8,7 +8,8 @@
 #include "base/compiler_specific.h"
 #include "base/macros.h"
 #include "base/strings/string16.h"
-#include "ui/accessibility/ax_enums.h"
+#include "base/time/time.h"
+#include "ui/accessibility/ax_enums.mojom.h"
 #include "ui/base/models/dialog_model.h"
 #include "ui/base/ui_base_types.h"
 #include "ui/views/widget/widget.h"
@@ -17,6 +18,7 @@
 namespace views {
 
 class DialogClientView;
+class DialogObserver;
 class LabelButton;
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -33,7 +35,6 @@ class VIEWS_EXPORT DialogDelegate : public ui::DialogModel,
                                     public WidgetDelegate {
  public:
   DialogDelegate();
-  ~DialogDelegate() override;
 
   // Creates a widget at a default location.
   static Widget* CreateDialogWidget(WidgetDelegate* delegate,
@@ -111,19 +112,42 @@ class VIEWS_EXPORT DialogDelegate : public ui::DialogModel,
   // frame.
   virtual bool ShouldUseCustomFrame() const;
 
+  const gfx::Insets& margins() const { return margins_; }
+  void set_margins(const gfx::Insets& margins) { margins_ = margins; }
+
   // A helper for accessing the DialogClientView object contained by this
   // delegate's Window.
   const DialogClientView* GetDialogClientView() const;
   DialogClientView* GetDialogClientView();
 
+  // Add or remove an observer notified by calls to DialogModelChanged().
+  void AddObserver(DialogObserver* observer);
+  void RemoveObserver(DialogObserver* observer);
+
+  // Notifies observers when the result of the DialogModel overrides changes.
+  void DialogModelChanged();
+
  protected:
+  ~DialogDelegate() override;
+
   // Overridden from WidgetDelegate:
-  ui::AXRole GetAccessibleWindowRole() const override;
+  ax::mojom::Role GetAccessibleWindowRole() const override;
 
  private:
   // A flag indicating whether this dialog is able to use the custom frame
   // style for dialogs.
   bool supports_custom_frame_;
+
+  // The margins between the content and the inside of the border.
+  gfx::Insets margins_;
+
+  // The time the dialog is created.
+  base::TimeTicks creation_time_;
+
+  // Observers for DialogModel changes.
+  base::ObserverList<DialogObserver> observer_list_;
+
+  DISALLOW_COPY_AND_ASSIGN(DialogDelegate);
 };
 
 // A DialogDelegate implementation that is-a View. Used to override GetWidget()

@@ -55,9 +55,8 @@ const int kAnotherRenderFrameId = 1;
 
 const AudioParameters& TestAudioParameters() {
   static const AudioParameters params(
-      AudioParameters::AUDIO_FAKE,
-      media::CHANNEL_LAYOUT_STEREO,
-      AudioParameters::kAudioCDSampleRate, 16,
+      AudioParameters::AUDIO_FAKE, media::CHANNEL_LAYOUT_STEREO,
+      AudioParameters::kAudioCDSampleRate,
       AudioParameters::kAudioCDSampleRate / 100);
   return params;
 }
@@ -65,7 +64,7 @@ const AudioParameters& TestAudioParameters() {
 class MockAudioMirroringManager : public AudioMirroringManager {
  public:
   MockAudioMirroringManager() : AudioMirroringManager() {}
-  virtual ~MockAudioMirroringManager() {}
+  ~MockAudioMirroringManager() override {}
 
   MOCK_METHOD1(StartMirroring, void(MirroringDestination* destination));
   MOCK_METHOD1(StopMirroring, void(MirroringDestination* destination));
@@ -84,7 +83,7 @@ class MockWebContentsTracker : public WebContentsTracker {
   MOCK_METHOD0(Stop, void());
 
  private:
-  virtual ~MockWebContentsTracker() {}
+  ~MockWebContentsTracker() override {}
 
   DISALLOW_COPY_AND_ASSIGN(MockWebContentsTracker);
 };
@@ -131,9 +130,7 @@ class MockVirtualAudioInputStream : public VirtualAudioInputStream {
             Invoke(&real_, &VirtualAudioInputStream::RemoveInputProvider));
   }
 
-  ~MockVirtualAudioInputStream() {
-    DCHECK(real_stream_is_closed_);
-  }
+  ~MockVirtualAudioInputStream() override { DCHECK(real_stream_is_closed_); }
 
   MOCK_METHOD0(Open, bool());
   MOCK_METHOD1(Start, void(AudioInputStream::AudioInputCallback*));
@@ -168,12 +165,11 @@ class MockAudioInputCallback : public AudioInputStream::AudioInputCallback {
  public:
   MockAudioInputCallback() {}
 
-  MOCK_METHOD4(OnData,
-               void(AudioInputStream* stream,
-                    const media::AudioBus* src,
-                    uint32_t hardware_delay_bytes,
+  MOCK_METHOD3(OnData,
+               void(const media::AudioBus* src,
+                    base::TimeTicks capture_time,
                     double volume));
-  MOCK_METHOD1(OnError, void(AudioInputStream* stream));
+  MOCK_METHOD0(OnError, void());
 
  private:
   DISALLOW_COPY_AND_ASSIGN(MockAudioInputCallback);
@@ -189,9 +185,9 @@ class WebContentsAudioInputStreamTest : public testing::TestWithParam<bool> {
         audio_thread_("Audio thread"),
         mock_mirroring_manager_(new MockAudioMirroringManager()),
         mock_tracker_(new MockWebContentsTracker()),
-        mock_vais_(NULL),
-        wcais_(NULL),
-        destination_(NULL),
+        mock_vais_(nullptr),
+        wcais_(nullptr),
+        destination_(nullptr),
         current_render_process_id_(kRenderProcessId),
         current_render_frame_id_(kRenderFrameId),
         on_data_event_(base::WaitableEvent::ResetPolicy::AUTOMATIC,
@@ -251,10 +247,10 @@ class WebContentsAudioInputStreamTest : public testing::TestWithParam<bool> {
     EXPECT_CALL(*mock_mirroring_manager_, StopMirroring(NotNull()))
         .WillOnce(Assign(
             &destination_,
-            static_cast<AudioMirroringManager::MirroringDestination*>(NULL)))
+            static_cast<AudioMirroringManager::MirroringDestination*>(nullptr)))
         .RetiresOnSaturation();
 
-    EXPECT_CALL(mock_input_callback_, OnData(NotNull(), NotNull(), _, _))
+    EXPECT_CALL(mock_input_callback_, OnData(NotNull(), _, _))
         .WillRepeatedly(
             InvokeWithoutArgs(&on_data_event_, &base::WaitableEvent::Signal));
 
@@ -286,8 +282,8 @@ class WebContentsAudioInputStreamTest : public testing::TestWithParam<bool> {
     base::WaitableEvent done(base::WaitableEvent::ResetPolicy::AUTOMATIC,
                              base::WaitableEvent::InitialState::NOT_SIGNALED);
     BrowserThread::PostTask(
-        BrowserThread::IO, FROM_HERE, base::Bind(
-            &base::WaitableEvent::Signal, base::Unretained(&done)));
+        BrowserThread::IO, FROM_HERE,
+        base::BindOnce(&base::WaitableEvent::Signal, base::Unretained(&done)));
     done.Wait();
     ASSERT_TRUE(destination_);
 
@@ -364,7 +360,7 @@ class WebContentsAudioInputStreamTest : public testing::TestWithParam<bool> {
   }
 
   void LoseMirroringTarget() {
-    EXPECT_CALL(mock_input_callback_, OnError(_));
+    EXPECT_CALL(mock_input_callback_, OnError());
 
     SimulateChangeCallback(-1, -1);
   }
@@ -378,8 +374,8 @@ class WebContentsAudioInputStreamTest : public testing::TestWithParam<bool> {
     // objects hang around until they are no longer referred to (e.g., as tasks
     // on other threads shut things down).
     wcais_->Close();
-    wcais_ = NULL;
-    mock_vais_ = NULL;
+    wcais_ = nullptr;
+    mock_vais_ = nullptr;
   }
 
   void RunOnAudioThread(const base::Closure& closure) {

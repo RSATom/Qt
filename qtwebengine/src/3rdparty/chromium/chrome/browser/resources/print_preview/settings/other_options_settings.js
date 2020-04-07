@@ -120,8 +120,6 @@ cr.define('print_preview', function() {
   /**
    * UI component that renders checkboxes for various print options.
    * @param {!print_preview.ticket_items.Duplex} duplex Duplex ticket item.
-   * @param {!print_preview.ticket_items.FitToPage} fitToPage Fit-to-page ticket
-   *     item.
    * @param {!print_preview.ticket_items.CssBackground} cssBackground CSS
    *     background ticket item.
    * @param {!print_preview.ticket_items.SelectionOnly} selectionOnly Selection
@@ -134,15 +132,13 @@ cr.define('print_preview', function() {
    * @extends {print_preview.SettingsSection}
    */
   function OtherOptionsSettings(
-      duplex, fitToPage, cssBackground, selectionOnly, headerFooter,
-      rasterize) {
+      duplex, cssBackground, selectionOnly, headerFooter, rasterize) {
     print_preview.SettingsSection.call(this);
     /**
      * @private {boolean} rasterizeEnabled Whether the print as image feature is
      *     enabled.
      */
-    this.rasterizeEnabled_ = (!cr.isWindows && !cr.isMac) &&
-        loadTimeData.getBoolean('printPdfAsImageEnabled');
+    this.rasterizeEnabled_ = !cr.isWindows && !cr.isMac;
 
     /**
      * @private {!Array<!CheckboxTicketItemElement>} checkbox ticket item
@@ -152,7 +148,6 @@ cr.define('print_preview', function() {
     this.elements_ = [
       new CheckboxTicketItemElement(
           headerFooter, true, 'header-footer-container'),
-      new CheckboxTicketItemElement(fitToPage, false, 'fit-to-page-container'),
       new CheckboxTicketItemElement(duplex, false, 'duplex-container'),
       new CheckboxTicketItemElement(
           cssBackground, true, 'css-background-container'),
@@ -161,7 +156,7 @@ cr.define('print_preview', function() {
     ];
     if (this.rasterizeEnabled_) {
       this.elements_.splice(
-          4, 0,
+          this.elements_.length - 1, 0,
           new CheckboxTicketItemElement(
               rasterize, true, 'rasterize-container'));
     }
@@ -190,7 +185,7 @@ cr.define('print_preview', function() {
        * element, as this checkbox is enabled based on whether the user has
        * selected something in the page, which is different logic from the
        * other elements. */
-      for (var i = 0; i < this.elements_.length - 1; i++)
+      for (let i = 0; i < this.elements_.length - 1; i++)
         this.elements_[i].checkbox.disabled = !isEnabled;
     },
 
@@ -211,21 +206,24 @@ cr.define('print_preview', function() {
     /** @override */
     exitDocument: function() {
       print_preview.SettingsSection.prototype.exitDocument.call(this);
-      for (var i = 0; i < this.elements_.length; i++)
+      for (let i = 0; i < this.elements_.length; i++)
         this.elements_[i].exitDocument();
     },
 
     /** @override */
     decorateInternal: function() {
-      for (var i = 0; i < this.elements_.length; i++)
+      for (let i = 0; i < this.elements_.length; i++)
         this.elements_[i].decorate();
       $('rasterize-container').hidden = !this.rasterizeEnabled_;
     },
 
-    /** @override */
+    /**
+     * @public
+     * @override
+     */
     updateUiStateInternal: function() {
       if (this.isAvailable()) {
-        for (var i = 0; i < this.elements_.length; i++)
+        for (let i = 0; i < this.elements_.length; i++)
           this.elements_[i].setVisibility(this.collapseContent);
       }
       print_preview.SettingsSection.prototype.updateUiStateInternal.call(this);

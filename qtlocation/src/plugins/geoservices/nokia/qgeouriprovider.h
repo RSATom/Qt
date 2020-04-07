@@ -58,7 +58,7 @@ public:
     QString getCurrentHost() const;
 
 private Q_SLOTS:
-    void mobileCountryCodeChanged(int interface, const QString& mcc);
+    void mobileCountryCodeChanged(int interfaceId, const QString& mcc);
 
 private:
     bool isInternationalNetwork() const;

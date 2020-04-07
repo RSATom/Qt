@@ -4,7 +4,7 @@
 
 /**
  * @fileoverview settings-startup-url-entry represents a UI component that
- * displayes a URL that is loaded during startup. It includes a menu that allows
+ * displays a URL that is loaded during startup. It includes a menu that allows
  * the user to edit/remove the entry.
  */
 
@@ -12,8 +12,8 @@ cr.exportPath('settings');
 
 /**
  * The name of the event fired from this element when the "Edit" option is
- * tapped.
- * @const {string}
+ * clicked.
+ * @type {string}
  */
 settings.EDIT_STARTUP_URL_EVENT = 'edit-startup-url';
 
@@ -43,7 +43,7 @@ Polymer({
 
   /** @private */
   onRemoveTap_: function() {
-    this.$$('dialog[is=cr-action-menu]').close();
+    this.$$('cr-action-menu').close();
     settings.StartupUrlsPageBrowserProxyImpl.getInstance().removeStartupPage(
         this.model.modelIndex);
   },
@@ -54,7 +54,7 @@ Polymer({
    */
   onEditTap_: function(e) {
     e.preventDefault();
-    this.$$('dialog[is=cr-action-menu]').close();
+    this.$$('cr-action-menu').close();
     this.fire(settings.EDIT_STARTUP_URL_EVENT, {
       model: this.model,
       anchor: this.$$('#dots'),
@@ -63,7 +63,7 @@ Polymer({
 
   /** @private */
   onDotsTap_: function() {
-    var actionMenu =
+    const actionMenu =
         /** @type {!CrActionMenuElement} */ (this.$$('#menu').get());
     actionMenu.showAt(assert(this.$$('#dots')));
   },

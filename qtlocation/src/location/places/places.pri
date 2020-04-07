@@ -24,6 +24,7 @@ PUBLIC_HEADERS += \
     places/qplacecontentrequest.h \
     places/qplacematchrequest.h \
     places/qplacesearchrequest.h \
+    places/qplacesearchrequest_p.h \
 #reply classes
     places/qplacereply.h \
     places/qplacedetailsreply.h \

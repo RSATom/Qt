@@ -38,7 +38,7 @@ namespace internal {
 // Linux perf tool logging support
 class PerfJitLogger : public CodeEventLogger {
  public:
-  PerfJitLogger();
+  explicit PerfJitLogger(Isolate* isolate);
   virtual ~PerfJitLogger();
 
   void CodeMoveEvent(AbstractCode* from, Address to) override;
@@ -54,6 +54,8 @@ class PerfJitLogger : public CodeEventLogger {
   uint64_t GetTimestamp();
   void LogRecordedBuffer(AbstractCode* code, SharedFunctionInfo* shared,
                          const char* name, int length) override;
+  void LogRecordedBuffer(const wasm::WasmCode* code, const char* name,
+                         int length) override;
 
   // Extension added to V8 log file name to get the low-level log name.
   static const char kFilenameFormatString[];
@@ -62,6 +64,9 @@ class PerfJitLogger : public CodeEventLogger {
   // File buffer size of the low-level log. We don't use the default to
   // minimize the associated overhead.
   static const int kLogBufferSize = 2 * MB;
+
+  void WriteJitCodeLoadEntry(const uint8_t* code_pointer, uint32_t code_size,
+                             const char* name, int name_length);
 
   void LogWriteBytes(const char* bytes, int size);
   void LogWriteHeader();
@@ -113,6 +118,8 @@ class PerfJitLogger : public CodeEventLogger {
 // PerfJitLogger is only implemented on Linux
 class PerfJitLogger : public CodeEventLogger {
  public:
+  explicit PerfJitLogger(Isolate* isolate) : CodeEventLogger(isolate) {}
+
   void CodeMoveEvent(AbstractCode* from, Address to) override {
     UNIMPLEMENTED();
   }
@@ -126,9 +133,15 @@ class PerfJitLogger : public CodeEventLogger {
                          const char* name, int length) override {
     UNIMPLEMENTED();
   }
+
+  void LogRecordedBuffer(const wasm::WasmCode* code, const char* name,
+                         int length) override {
+    UNIMPLEMENTED();
+  }
 };
 
 #endif  // V8_OS_LINUX
 }  // namespace internal
 }  // namespace v8
-#endif
+
+#endif  // V8_PERF_JIT_H_

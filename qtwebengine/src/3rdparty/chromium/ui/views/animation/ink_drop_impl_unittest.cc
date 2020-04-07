@@ -7,7 +7,6 @@
 #include "ui/views/animation/ink_drop_impl.h"
 
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/test/gtest_util.h"
 #include "base/test/test_simple_task_runner.h"
 #include "base/threading/thread_task_runner_handle.h"
@@ -71,10 +70,10 @@ InkDropImplTest::InkDropImplTest()
     : task_runner_(new base::TestSimpleTaskRunner),
       thread_task_runner_handle_(
           new base::ThreadTaskRunnerHandle(task_runner_)),
-      ink_drop_host_(base::MakeUnique<TestInkDropHost>()),
+      ink_drop_host_(std::make_unique<TestInkDropHost>()),
       ink_drop_(
-          base::MakeUnique<InkDropImpl>(ink_drop_host_.get(), gfx::Size())),
-      test_api_(base::MakeUnique<test::InkDropImplTestApi>(ink_drop_.get())),
+          std::make_unique<InkDropImpl>(ink_drop_host_.get(), gfx::Size())),
+      test_api_(std::make_unique<test::InkDropImplTestApi>(ink_drop_.get())),
       animation_mode_reset_(gfx::AnimationTestApi::SetRichAnimationRenderMode(
           gfx::Animation::RichAnimationRenderMode::FORCE_DISABLED)) {
   ink_drop_host_->set_disable_timers_for_test(true);

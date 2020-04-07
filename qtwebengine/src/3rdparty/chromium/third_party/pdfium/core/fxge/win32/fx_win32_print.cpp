@@ -11,12 +11,12 @@
 #include <vector>
 
 #include "core/fxcrt/fx_system.h"
+#include "core/fxge/cfx_font.h"
 #include "core/fxge/cfx_windowsrenderdevice.h"
 #include "core/fxge/dib/cfx_dibextractor.h"
 #include "core/fxge/dib/cfx_imagerenderer.h"
 #include "core/fxge/dib/cstretchengine.h"
 #include "core/fxge/fx_freetype.h"
-#include "core/fxge/fx_text_int.h"
 #include "core/fxge/win32/cpsoutput.h"
 #include "core/fxge/win32/win32_int.h"
 #include "third_party/base/ptr_util.h"
@@ -69,7 +69,7 @@ int CGdiPrinterDriver::GetDeviceCaps(int caps_id) const {
   return CGdiDeviceDriver::GetDeviceCaps(caps_id);
 }
 
-bool CGdiPrinterDriver::SetDIBits(const CFX_RetainPtr<CFX_DIBSource>& pSource,
+bool CGdiPrinterDriver::SetDIBits(const RetainPtr<CFX_DIBSource>& pSource,
                                   uint32_t color,
                                   const FX_RECT* pSrcRect,
                                   int left,
@@ -89,30 +89,29 @@ bool CGdiPrinterDriver::SetDIBits(const CFX_RetainPtr<CFX_DIBSource>& pSource,
     return false;
 
   CFX_DIBExtractor temp(pSource);
-  CFX_RetainPtr<CFX_DIBitmap> pBitmap = temp.GetBitmap();
+  RetainPtr<CFX_DIBitmap> pBitmap = temp.GetBitmap();
   if (!pBitmap)
     return false;
 
   return GDI_SetDIBits(pBitmap, pSrcRect, left, top);
 }
 
-bool CGdiPrinterDriver::StretchDIBits(
-    const CFX_RetainPtr<CFX_DIBSource>& pSource,
-    uint32_t color,
-    int dest_left,
-    int dest_top,
-    int dest_width,
-    int dest_height,
-    const FX_RECT* pClipRect,
-    uint32_t flags,
-    int blend_type) {
+bool CGdiPrinterDriver::StretchDIBits(const RetainPtr<CFX_DIBSource>& pSource,
+                                      uint32_t color,
+                                      int dest_left,
+                                      int dest_top,
+                                      int dest_width,
+                                      int dest_height,
+                                      const FX_RECT* pClipRect,
+                                      uint32_t flags,
+                                      int blend_type) {
   if (pSource->IsAlphaMask()) {
     int alpha = FXARGB_A(color);
     if (pSource->GetBPP() != 1 || alpha != 255)
       return false;
 
     if (dest_width < 0 || dest_height < 0) {
-      CFX_RetainPtr<CFX_DIBitmap> pFlipped =
+      RetainPtr<CFX_DIBitmap> pFlipped =
           pSource->FlipImage(dest_width < 0, dest_height < 0);
       if (!pFlipped)
         return false;
@@ -127,7 +126,7 @@ bool CGdiPrinterDriver::StretchDIBits(
     }
 
     CFX_DIBExtractor temp(pSource);
-    CFX_RetainPtr<CFX_DIBitmap> pBitmap = temp.GetBitmap();
+    RetainPtr<CFX_DIBitmap> pBitmap = temp.GetBitmap();
     if (!pBitmap)
       return false;
     return GDI_StretchBitMask(pBitmap, dest_left, dest_top, dest_width,
@@ -138,7 +137,7 @@ bool CGdiPrinterDriver::StretchDIBits(
     return false;
 
   if (dest_width < 0 || dest_height < 0) {
-    CFX_RetainPtr<CFX_DIBitmap> pFlipped =
+    RetainPtr<CFX_DIBitmap> pFlipped =
         pSource->FlipImage(dest_width < 0, dest_height < 0);
     if (!pFlipped)
       return false;
@@ -153,14 +152,14 @@ bool CGdiPrinterDriver::StretchDIBits(
   }
 
   CFX_DIBExtractor temp(pSource);
-  CFX_RetainPtr<CFX_DIBitmap> pBitmap = temp.GetBitmap();
+  RetainPtr<CFX_DIBitmap> pBitmap = temp.GetBitmap();
   if (!pBitmap)
     return false;
   return GDI_StretchDIBits(pBitmap, dest_left, dest_top, dest_width,
                            dest_height, flags);
 }
 
-bool CGdiPrinterDriver::StartDIBits(const CFX_RetainPtr<CFX_DIBSource>& pSource,
+bool CGdiPrinterDriver::StartDIBits(const RetainPtr<CFX_DIBSource>& pSource,
                                     int bitmap_alpha,
                                     uint32_t color,
                                     const CFX_Matrix* pMatrix,
@@ -187,7 +186,7 @@ bool CGdiPrinterDriver::StartDIBits(const CFX_RetainPtr<CFX_DIBSource>& pSource,
   if (fabs(pMatrix->a) >= 0.5f || fabs(pMatrix->d) >= 0.5f)
     return false;
 
-  CFX_RetainPtr<CFX_DIBitmap> pTransformed =
+  RetainPtr<CFX_DIBitmap> pTransformed =
       pSource->SwapXY(pMatrix->c > 0, pMatrix->b < 0);
   if (!pTransformed)
     return false;
@@ -232,8 +231,9 @@ bool CGdiPrinterDriver::DrawDeviceText(int nChars,
   lf.lfItalic = pFont->IsItalic();
   lf.lfCharSet = DEFAULT_CHARSET;
 
-  const CFX_WideString wsName = pFont->GetFaceName().UTF8Decode();
-  int iNameLen = std::min(wsName.GetLength(), LF_FACESIZE - 1);
+  const WideString wsName = pFont->GetFaceName().UTF8Decode();
+  size_t iNameLen =
+      std::min(wsName.GetLength(), static_cast<size_t>(LF_FACESIZE - 1));
   memcpy(lf.lfFaceName, wsName.c_str(), sizeof(lf.lfFaceName[0]) * iNameLen);
   lf.lfFaceName[iNameLen] = 0;
 
@@ -280,14 +280,12 @@ bool CGdiPrinterDriver::DrawDeviceText(int nChars,
   ModifyWorldTransform(m_hDC, &xform, MWT_LEFTMULTIPLY);
 
   // Color
-  int iUnusedAlpha;
-  FX_COLORREF rgb;
-  std::tie(iUnusedAlpha, rgb) = ArgbToColorRef(color);
-  SetTextColor(m_hDC, rgb);
+  FX_COLORREF colorref = ArgbToColorRef(color);
+  SetTextColor(m_hDC, colorref);
   SetBkMode(m_hDC, TRANSPARENT);
 
   // Text
-  CFX_WideString wsText;
+  WideString wsText;
   std::vector<INT> spacing(nChars);
   float fPreviousOriginX = 0;
   for (int i = 0; i < nChars; ++i) {
@@ -330,16 +328,33 @@ bool CGdiPrinterDriver::DrawDeviceText(int nChars,
 #endif
 }
 
-CPSPrinterDriver::CPSPrinterDriver(HDC hDC, int pslevel, bool bCmykOutput)
+CPSPrinterDriver::CPSPrinterDriver(HDC hDC,
+                                   WindowsPrintMode mode,
+                                   bool bCmykOutput)
     : m_hDC(hDC), m_bCmykOutput(bCmykOutput) {
+  // |mode| should be PostScript.
+  ASSERT(mode == WindowsPrintMode::kModePostScript2 ||
+         mode == WindowsPrintMode::kModePostScript3 ||
+         mode == WindowsPrintMode::kModePostScript2PassThrough ||
+         mode == WindowsPrintMode::kModePostScript3PassThrough);
+  int pslevel = (mode == WindowsPrintMode::kModePostScript2 ||
+                 mode == WindowsPrintMode::kModePostScript2PassThrough)
+                    ? 2
+                    : 3;
+  CPSOutput::OutputMode output_mode =
+      (mode == WindowsPrintMode::kModePostScript2 ||
+       mode == WindowsPrintMode::kModePostScript3)
+          ? CPSOutput::OutputMode::kGdiComment
+          : CPSOutput::OutputMode::kExtEscape;
+
   m_HorzSize = ::GetDeviceCaps(m_hDC, HORZSIZE);
   m_VertSize = ::GetDeviceCaps(m_hDC, VERTSIZE);
   m_Width = ::GetDeviceCaps(m_hDC, HORZRES);
   m_Height = ::GetDeviceCaps(m_hDC, VERTRES);
   m_nBitsPerPixel = ::GetDeviceCaps(m_hDC, BITSPIXEL);
 
-  m_PSRenderer.Init(pdfium::MakeRetain<CPSOutput>(m_hDC), pslevel, m_Width,
-                    m_Height, bCmykOutput);
+  m_PSRenderer.Init(pdfium::MakeRetain<CPSOutput>(m_hDC, output_mode), pslevel,
+                    m_Width, m_Height, bCmykOutput);
   HRGN hRgn = ::CreateRectRgn(0, 0, 1, 1);
   int ret = ::GetClipRgn(hDC, hRgn);
   if (ret == 1) {
@@ -439,7 +454,7 @@ bool CPSPrinterDriver::GetClipBox(FX_RECT* pRect) {
   return true;
 }
 
-bool CPSPrinterDriver::SetDIBits(const CFX_RetainPtr<CFX_DIBSource>& pBitmap,
+bool CPSPrinterDriver::SetDIBits(const RetainPtr<CFX_DIBSource>& pBitmap,
                                  uint32_t color,
                                  const FX_RECT* pSrcRect,
                                  int left,
@@ -450,23 +465,22 @@ bool CPSPrinterDriver::SetDIBits(const CFX_RetainPtr<CFX_DIBSource>& pBitmap,
   return m_PSRenderer.SetDIBits(pBitmap, color, left, top);
 }
 
-bool CPSPrinterDriver::StretchDIBits(
-    const CFX_RetainPtr<CFX_DIBSource>& pBitmap,
-    uint32_t color,
-    int dest_left,
-    int dest_top,
-    int dest_width,
-    int dest_height,
-    const FX_RECT* pClipRect,
-    uint32_t flags,
-    int blend_type) {
+bool CPSPrinterDriver::StretchDIBits(const RetainPtr<CFX_DIBSource>& pBitmap,
+                                     uint32_t color,
+                                     int dest_left,
+                                     int dest_top,
+                                     int dest_width,
+                                     int dest_height,
+                                     const FX_RECT* pClipRect,
+                                     uint32_t flags,
+                                     int blend_type) {
   if (blend_type != FXDIB_BLEND_NORMAL)
     return false;
   return m_PSRenderer.StretchDIBits(pBitmap, color, dest_left, dest_top,
                                     dest_width, dest_height, flags);
 }
 
-bool CPSPrinterDriver::StartDIBits(const CFX_RetainPtr<CFX_DIBSource>& pBitmap,
+bool CPSPrinterDriver::StartDIBits(const RetainPtr<CFX_DIBSource>& pBitmap,
                                    int bitmap_alpha,
                                    uint32_t color,
                                    const CFX_Matrix* pMatrix,
@@ -551,13 +565,12 @@ bool CTextOnlyPrinterDriver::DrawPath(const CFX_PathData* pPathData,
   return false;
 }
 
-bool CTextOnlyPrinterDriver::SetDIBits(
-    const CFX_RetainPtr<CFX_DIBSource>& pBitmap,
-    uint32_t color,
-    const FX_RECT* pSrcRect,
-    int left,
-    int top,
-    int blend_type) {
+bool CTextOnlyPrinterDriver::SetDIBits(const RetainPtr<CFX_DIBSource>& pBitmap,
+                                       uint32_t color,
+                                       const FX_RECT* pSrcRect,
+                                       int left,
+                                       int top,
+                                       int blend_type) {
   return false;
 }
 
@@ -570,7 +583,7 @@ bool CTextOnlyPrinterDriver::GetClipBox(FX_RECT* pRect) {
 }
 
 bool CTextOnlyPrinterDriver::StretchDIBits(
-    const CFX_RetainPtr<CFX_DIBSource>& pBitmap,
+    const RetainPtr<CFX_DIBSource>& pBitmap,
     uint32_t color,
     int dest_left,
     int dest_top,
@@ -583,7 +596,7 @@ bool CTextOnlyPrinterDriver::StretchDIBits(
 }
 
 bool CTextOnlyPrinterDriver::StartDIBits(
-    const CFX_RetainPtr<CFX_DIBSource>& pBitmap,
+    const RetainPtr<CFX_DIBSource>& pBitmap,
     int bitmap_alpha,
     uint32_t color,
     const CFX_Matrix* pMatrix,
@@ -608,16 +621,17 @@ bool CTextOnlyPrinterDriver::DrawDeviceText(int nChars,
   // errors below. Value chosen based on the title of https://crbug.com/18383
   const double kScaleFactor = 10;
 
-  CFX_WideString wsText;
+  WideString wsText;
   int totalLength = nChars;
 
-  // Detect new lines and add a space. Was likely removed by SkPDF if this is
-  // just text, and spaces seem to be ignored by label printers that use this
-  // driver.
+  // Detect new lines and add clrf characters (since this is Windows only).
+  // These characters are removed by SkPDF, but the new line information is
+  // preserved in the text location. clrf characters seem to be ignored by
+  // label printers that use this driver.
   if (m_SetOrigin &&
       FXSYS_round(m_OriginY) != FXSYS_round(pObject2Device->f * kScaleFactor)) {
-    wsText += L" ";
-    totalLength++;
+    wsText += L"\r\n";
+    totalLength += 2;
   }
   m_OriginY = pObject2Device->f * kScaleFactor;
   m_SetOrigin = true;
@@ -636,7 +650,7 @@ bool CTextOnlyPrinterDriver::DrawDeviceText(int nChars,
     wsText += charpos.m_Unicode;
   }
   size_t len = totalLength;
-  CFX_ByteString text = CFX_ByteString::FromUnicode(wsText);
+  ByteString text = ByteString::FromUnicode(wsText);
   while (len > 0) {
     char buffer[1026];
     size_t send_len = std::min(len, static_cast<size_t>(1024));

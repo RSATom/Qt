@@ -40,6 +40,8 @@
 #include "appxlocalengine.h"
 #include "appxengine_p.h"
 
+#include "utils.h"
+
 #include <QtCore/QDateTime>
 #include <QtCore/QDir>
 #include <QtCore/QDirIterator>
@@ -47,6 +49,7 @@
 #include <QtCore/QFileInfo>
 #include <QtCore/QLoggingCategory>
 #include <QtCore/QStandardPaths>
+#include <QtCore/QOperatingSystemVersion>
 
 #include <ShlObj.h>
 #include <Shlwapi.h>
@@ -165,6 +168,7 @@ private:
         const QString handleBase = QStringLiteral("Local\\AppContainerNamedObjects\\")
                 + sidForPackage(that->package);
         const QString eventName = handleBase + QStringLiteral("\\qdebug-event");
+        const QString ackEventName = handleBase + QStringLiteral("\\qdebug-event-ack");
         const QString shmemName = handleBase + QStringLiteral("\\qdebug-shmem");
 
         HANDLE event = CreateEvent(NULL, FALSE, FALSE, reinterpret_cast<LPCWSTR>(eventName.utf16()));
@@ -174,17 +178,25 @@ private:
             return 1;
         }
 
+        HANDLE ackEvent = CreateEvent(NULL, FALSE, FALSE, reinterpret_cast<LPCWSTR>(ackEventName.utf16()));
+        if (!ackEvent) {
+            qCWarning(lcWinRtRunner) << "Unable to open shared acknowledge event for app debugging:"
+                                     << qt_error_string(GetLastError());
+            return 1;
+        }
+
         HANDLE shmem = 0;
         DWORD ret = 0;
+        quint64 size = 4096;
+        const quint32 resizeMessageType = QtInfoMsg + 1;
+        HANDLE handles[] = { that->runLock, event };
         forever {
-            HANDLE handles[] = { that->runLock, event };
             DWORD result = WaitForMultipleObjects(2, handles, FALSE, INFINITE);
 
             // runLock set; exit thread
             if (result == WAIT_OBJECT_0)
                 break;
 
-            // debug event set; print message
             if (result == WAIT_OBJECT_0 + 1) {
                 if (!shmem) {
                     shmem = OpenFileMapping(GENERIC_READ, FALSE,
@@ -198,11 +210,42 @@ private:
                 }
 
                 const quint32 *data = reinterpret_cast<const quint32 *>(
-                            MapViewOfFile(shmem, FILE_MAP_READ, 0, 0, 4096));
-                QtMsgType messageType = static_cast<QtMsgType>(data[0]);
+                            MapViewOfFile(shmem, FILE_MAP_READ, 0, 0, size));
+                if (!data) {
+                    qCWarning(lcWinRtRunner) << "Unable to map view of shared memory for app debugging:"
+                                             << qt_error_string(GetLastError());
+                    ret = 1;
+                    break;
+                }
+                const quint32 type = data[0];
+                // resize message received; Resize shared memory
+                if (type == resizeMessageType) {
+                    size = (data[2] << 8) + data[1];
+                    if (!UnmapViewOfFile(data)) {
+                        qCWarning(lcWinRtRunner) << "Unable to unmap view of shared memory for app debugging:"
+                                                 << qt_error_string(GetLastError());
+                        ret = 1;
+                        break;
+                    }
+                    if (shmem) {
+                        if (!CloseHandle(shmem)) {
+                            qCWarning(lcWinRtRunner) << "Unable to close shared memory handle:"
+                                                     << qt_error_string(GetLastError());
+                            ret = 1;
+                            break;
+                        }
+                        shmem = 0;
+                    }
+                    SetEvent(ackEvent);
+                    continue;
+                }
+
+                // debug event set; print message
+                QtMsgType messageType = static_cast<QtMsgType>(type);
                 QString message = QString::fromWCharArray(
                             reinterpret_cast<const wchar_t *>(data + 1));
                 UnmapViewOfFile(data);
+                SetEvent(ackEvent);
                 switch (messageType) {
                 default:
                 case QtDebugMsg:
@@ -229,6 +272,8 @@ private:
             CloseHandle(shmem);
         if (event)
             CloseHandle(event);
+        if (ackEvent)
+            CloseHandle(ackEvent);
         return ret;
     }
     HANDLE runLock;
@@ -243,6 +288,8 @@ public:
     ComPtr<IPackageManager> packageManager;
     ComPtr<IApplicationActivationManager> appLauncher;
     ComPtr<IPackageDebugSettings> packageDebug;
+
+    Qt::HANDLE loopbackServerProcessHandle = INVALID_HANDLE_VALUE;
 
     void retrieveInstalledPackages();
 };
@@ -400,7 +447,7 @@ bool AppxLocalEngine::installPackage(IAppxManifestReader *reader, const QString 
                                         return S_OK;
                                     }).Get());
     RETURN_FALSE_IF_FAILED("Could not register deployment completed callback.");
-    DWORD ret = WaitForSingleObjectEx(ev, 15000, FALSE);
+    DWORD ret = WaitForSingleObjectEx(ev, 60000, FALSE);
     CloseHandle(ev);
     if (ret != WAIT_OBJECT_0) {
         if (ret == WAIT_TIMEOUT)
@@ -478,7 +525,7 @@ bool AppxLocalEngine::install(bool removeFirst)
             return true;
     }
 
-    return installDependencies() && installPackage(Q_NULLPTR, d->manifest);
+    return installDependencies() && installPackage(nullptr, d->manifest);
 }
 
 bool AppxLocalEngine::remove()
@@ -497,7 +544,7 @@ bool AppxLocalEngine::remove()
                                         return S_OK;
                                     }).Get());
     RETURN_FALSE_IF_FAILED("Could not register deployment completed callback.");
-    DWORD ret = WaitForSingleObjectEx(ev, 15000, FALSE);
+    DWORD ret = WaitForSingleObjectEx(ev, 60000, FALSE);
     CloseHandle(ev);
     if (ret != WAIT_OBJECT_0) {
         if (ret == WAIT_TIMEOUT)
@@ -563,6 +610,111 @@ bool AppxLocalEngine::disableDebugging()
 
     return true;
 }
+
+bool AppxLocalEngine::setLoopbackExemptClientEnabled(bool enabled)
+{
+    Q_D(AppxLocalEngine);
+    qCDebug(lcWinRtRunner) << __FUNCTION__ << enabled;
+
+    if (!enabled) {
+        PACKAGE_EXECUTION_STATE state;
+        HRESULT hr = d->packageDebug->GetPackageExecutionState(wchar(d->packageFullName), &state);
+        RETURN_FALSE_IF_FAILED("Failed to get package execution state");
+        if (state != PES_TERMINATED && state != PES_UNKNOWN) {
+            qCWarning(lcWinRtRunner) << "Cannot unregister loopback exemption for running program."
+                                     << "Please use checknetisolation.exe to check/clean up the exemption list.";
+            return false;
+        }
+    }
+
+    QByteArray stdOut;
+    QByteArray stdErr;
+    unsigned long exitCode = 0;
+    QString errorMessage;
+    QStringList arguments;
+    const QString binary = QStringLiteral("checknetisolation.exe");
+    arguments << QStringLiteral("LoopbackExempt")
+              << (enabled ? QStringLiteral("-a") : QStringLiteral("-d"))
+              << QStringLiteral("-p=") + sidForPackage(d->packageFamilyName);
+    if (!runProcess(binary, arguments, QString(), &exitCode, &stdOut, &stdErr, &errorMessage)) {
+        qCWarning(lcWinRtRunner) << "Could not run" << binary;
+        return false;
+    }
+    if (exitCode) {
+        if (errorMessage.isEmpty()) {
+            errorMessage = binary + QStringLiteral(" returned ") + QString::number(exitCode)
+                        + QStringLiteral(": ") + QString::fromLocal8Bit(stdErr);
+        }
+        qCWarning(lcWinRtRunner) << errorMessage;
+        return false;
+    }
+    return true;
+}
+
+bool AppxLocalEngine::setLoopbackExemptServerEnabled(bool enabled)
+{
+    Q_D(AppxLocalEngine);
+    const QOperatingSystemVersion minimal
+        = QOperatingSystemVersion(QOperatingSystemVersion::Windows, 10, 0, 14393);
+    if (QOperatingSystemVersion::current() < minimal) {
+        qCWarning(lcWinRtRunner) << "Cannot enable loopback exemption for servers. If you want"
+                                 << "to use this feature please update to a Windows version >="
+                                 << minimal;
+        return false;
+    }
+
+    if (enabled) {
+        QStringList arguments;
+        const QString binary = QStringLiteral("checknetisolation.exe");
+        arguments << QStringLiteral("LoopbackExempt") << QStringLiteral("-is")
+                  << QStringLiteral("-p=") + sidForPackage(d->packageFamilyName);
+        if (!runElevatedBackgroundProcess(binary, arguments, &d->loopbackServerProcessHandle)) {
+            qCWarning(lcWinRtRunner) << "Could not start" << binary;
+            return false;
+        }
+    } else {
+        if (d->loopbackServerProcessHandle != INVALID_HANDLE_VALUE) {
+            if (!TerminateProcess(d->loopbackServerProcessHandle, 0)) {
+                qCWarning(lcWinRtRunner) << "Could not terminate loopbackexempt debug session";
+                return false;
+            }
+            if (!CloseHandle(d->loopbackServerProcessHandle)) {
+                qCWarning(lcWinRtRunner) << "Could not close loopbackexempt debug session process handle";
+                return false;
+            }
+        } else {
+            qCWarning(lcWinRtRunner) << "loopbackexempt debug session could not be found";
+            return false;
+        }
+    }
+    return true;
+}
+
+bool AppxLocalEngine::setLoggingRules(const QByteArray &rules)
+{
+    qCDebug(lcWinRtRunner) << __FUNCTION__;
+
+    QDir loggingIniDir(devicePath(QLatin1String("QtProject")));
+    if (!loggingIniDir.exists() && !loggingIniDir.mkpath(QStringLiteral("."))) {
+        qCWarning(lcWinRtRunner) << "Could not create" << loggingIniDir;
+        return false;
+    }
+    QFile loggingIniFile(loggingIniDir.absolutePath().append(QLatin1String("/qtlogging.ini")));
+    if (loggingIniFile.exists() && !loggingIniFile.remove()) {
+        qCWarning(lcWinRtRunner) << loggingIniFile << "already exists.";
+        return false;
+    }
+    if (!loggingIniFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        qCWarning(lcWinRtRunner) << "Could not open" << loggingIniFile << "for writing.";
+        return false;
+    }
+
+    QTextStream stream(&loggingIniFile);
+    stream << "[Rules]\n" << rules;
+
+    return true;
+}
+
 
 bool AppxLocalEngine::suspend()
 {

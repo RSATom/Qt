@@ -12,7 +12,13 @@
 #include "SkReadBuffer.h"
 #include "SkWriteBuffer.h"
 
-SkCornerPathEffect::SkCornerPathEffect(SkScalar radius) : fRadius(radius) {}
+SkCornerPathEffect::SkCornerPathEffect(SkScalar radius) {
+    // check with ! to catch NaNs
+    if (!(radius > 0)) {
+        radius = 0;
+    }
+    fRadius = radius;
+}
 SkCornerPathEffect::~SkCornerPathEffect() {}
 
 static bool ComputeStep(const SkPoint& a, const SkPoint& b, SkScalar radius,
@@ -31,7 +37,7 @@ static bool ComputeStep(const SkPoint& a, const SkPoint& b, SkScalar radius,
 
 bool SkCornerPathEffect::filterPath(SkPath* dst, const SkPath& src,
                                     SkStrokeRec*, const SkRect*) const {
-    if (0 == fRadius) {
+    if (fRadius <= 0) {
         return false;
     }
 
@@ -145,11 +151,3 @@ sk_sp<SkFlattenable> SkCornerPathEffect::CreateProc(SkReadBuffer& buffer) {
 void SkCornerPathEffect::flatten(SkWriteBuffer& buffer) const {
     buffer.writeScalar(fRadius);
 }
-
-#ifndef SK_IGNORE_TO_STRING
-void SkCornerPathEffect::toString(SkString* str) const {
-    str->appendf("SkCornerPathEffect: (");
-    str->appendf("radius: %.2f", fRadius);
-    str->appendf(")");
-}
-#endif

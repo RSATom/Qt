@@ -61,7 +61,7 @@ public:
 
     QSurfaceFormat format() const override;
 
-    QWebGLScreen *screen() const;
+    QWebGLScreen *screen() const override;
 
     void setGeometry(const QRect &rect) override;
     void setDefaults(const QMap<GLenum, QVariant> &values);

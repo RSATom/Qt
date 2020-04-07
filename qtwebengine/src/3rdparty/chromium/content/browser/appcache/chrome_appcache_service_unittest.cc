@@ -94,7 +94,7 @@ ChromeAppCacheServiceTest::CreateAppCacheServiceImpl(
     const base::FilePath& appcache_path,
     bool init_storage) {
   scoped_refptr<ChromeAppCacheService> appcache_service =
-      new ChromeAppCacheService(NULL);
+      new ChromeAppCacheService(nullptr);
   scoped_refptr<MockSpecialStoragePolicy> mock_policy =
       new MockSpecialStoragePolicy;
   mock_policy->AddProtected(kProtectedManifestURL.GetOrigin());
@@ -105,10 +105,10 @@ ChromeAppCacheServiceTest::CreateAppCacheServiceImpl(
           base::ThreadTaskRunnerHandle::Get());
   BrowserThread::PostTask(
       BrowserThread::IO, FROM_HERE,
-      base::Bind(&ChromeAppCacheService::InitializeOnIOThread,
-                 appcache_service, appcache_path,
-                 browser_context_.GetResourceContext(),
-                 base::RetainedRef(mock_request_context_getter), mock_policy));
+      base::BindOnce(
+          &ChromeAppCacheService::InitializeOnIOThread, appcache_service,
+          appcache_path, browser_context_.GetResourceContext(),
+          base::RetainedRef(mock_request_context_getter), mock_policy));
   // Steps needed to initialize the storage of AppCache data.
   scoped_task_environment_.RunUntilIdle();
   if (init_storage) {
@@ -130,12 +130,14 @@ void ChromeAppCacheServiceTest::InsertDataIntoAppCache(
   appcache_helper.AddGroupAndCache(appcache_service, kSessionOnlyManifestURL);
 
   // Verify that adding the data succeeded
-  std::set<GURL> origins;
+  std::set<url::Origin> origins;
   appcache_helper.GetOriginsWithCaches(appcache_service, &origins);
   ASSERT_EQ(3UL, origins.size());
-  ASSERT_TRUE(origins.find(kProtectedManifestURL.GetOrigin()) != origins.end());
-  ASSERT_TRUE(origins.find(kNormalManifestURL.GetOrigin()) != origins.end());
-  ASSERT_TRUE(origins.find(kSessionOnlyManifestURL.GetOrigin()) !=
+  ASSERT_TRUE(origins.find(url::Origin::Create(kProtectedManifestURL)) !=
+              origins.end());
+  ASSERT_TRUE(origins.find(url::Origin::Create(kNormalManifestURL)) !=
+              origins.end());
+  ASSERT_TRUE(origins.find(url::Origin::Create(kSessionOnlyManifestURL)) !=
               origins.end());
 }
 
@@ -152,7 +154,7 @@ TEST_F(ChromeAppCacheServiceTest, KeepOnDestruction) {
   InsertDataIntoAppCache(appcache_service.get());
 
   // Test: delete the ChromeAppCacheService
-  appcache_service = NULL;
+  appcache_service = nullptr;
   scoped_task_environment_.RunUntilIdle();
 
   // Recreate the appcache (for reading the data back)
@@ -163,16 +165,18 @@ TEST_F(ChromeAppCacheServiceTest, KeepOnDestruction) {
 
   // The appcache data is also there, except the session-only origin.
   AppCacheTestHelper appcache_helper;
-  std::set<GURL> origins;
+  std::set<url::Origin> origins;
   appcache_helper.GetOriginsWithCaches(appcache_service.get(), &origins);
   EXPECT_EQ(2UL, origins.size());
-  EXPECT_TRUE(origins.find(kProtectedManifestURL.GetOrigin()) != origins.end());
-  EXPECT_TRUE(origins.find(kNormalManifestURL.GetOrigin()) != origins.end());
-  EXPECT_TRUE(origins.find(kSessionOnlyManifestURL.GetOrigin()) ==
+  EXPECT_TRUE(origins.find(url::Origin::Create(kProtectedManifestURL)) !=
+              origins.end());
+  EXPECT_TRUE(origins.find(url::Origin::Create(kNormalManifestURL)) !=
+              origins.end());
+  EXPECT_TRUE(origins.find(url::Origin::Create(kSessionOnlyManifestURL)) ==
               origins.end());
 
   // Delete and let cleanup tasks run prior to returning.
-  appcache_service = NULL;
+  appcache_service = nullptr;
   scoped_task_environment_.RunUntilIdle();
 }
 
@@ -192,7 +196,7 @@ TEST_F(ChromeAppCacheServiceTest, SaveSessionState) {
   appcache_service->set_force_keep_session_state();
 
   // Test: delete the ChromeAppCacheService
-  appcache_service = NULL;
+  appcache_service = nullptr;
   scoped_task_environment_.RunUntilIdle();
 
   // Recreate the appcache (for reading the data back)
@@ -203,16 +207,18 @@ TEST_F(ChromeAppCacheServiceTest, SaveSessionState) {
 
   // No appcache data was deleted.
   AppCacheTestHelper appcache_helper;
-  std::set<GURL> origins;
+  std::set<url::Origin> origins;
   appcache_helper.GetOriginsWithCaches(appcache_service.get(), &origins);
   EXPECT_EQ(3UL, origins.size());
-  EXPECT_TRUE(origins.find(kProtectedManifestURL.GetOrigin()) != origins.end());
-  EXPECT_TRUE(origins.find(kNormalManifestURL.GetOrigin()) != origins.end());
-  EXPECT_TRUE(origins.find(kSessionOnlyManifestURL.GetOrigin()) !=
+  EXPECT_TRUE(origins.find(url::Origin::Create(kProtectedManifestURL)) !=
+              origins.end());
+  EXPECT_TRUE(origins.find(url::Origin::Create(kNormalManifestURL)) !=
+              origins.end());
+  EXPECT_TRUE(origins.find(url::Origin::Create(kSessionOnlyManifestURL)) !=
               origins.end());
 
   // Delete and let cleanup tasks run prior to returning.
-  appcache_service = NULL;
+  appcache_service = nullptr;
   scoped_task_environment_.RunUntilIdle();
 }
 

@@ -31,14 +31,11 @@
 MockSeat::MockSeat(wl_seat *seat)
     : m_seat(seat)
     , m_pointer(new MockPointer(seat))
+    , m_keyboard(new MockKeyboard(seat))
 {
-    // Bind to the keyboard interface so that the compositor has
-    // the right resource associations
-    m_keyboard = wl_seat_get_keyboard(seat);
 }
 
 MockSeat::~MockSeat()
 {
-    wl_keyboard_destroy(m_keyboard);
     wl_seat_destroy(m_seat);
 }

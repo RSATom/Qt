@@ -26,8 +26,7 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.9
-import Qt.labs.handlers 1.0
+import QtQuick 2.12
 
 Rectangle {
     id: root
@@ -37,11 +36,11 @@ Rectangle {
 
     Item {
         id: crosshairs
-        x: dragHandler.point.position.x - width / 2
-        y: dragHandler.point.position.y - height / 2
+        x: pointHandler.point.position.x - width / 2
+        y: pointHandler.point.position.y - height / 2
         width: parent.width / 2; height: parent.height / 2
-        visible: dragHandler.active
-        rotation: dragHandler.point.rotation
+        visible: pointHandler.active
+        rotation: pointHandler.point.rotation
 
         Rectangle {
             color: "goldenrod"
@@ -57,21 +56,22 @@ Rectangle {
         }
         Rectangle {
             color: "goldenrod"
-            width: Math.max(2, 50 * dragHandler.point.pressure)
+            width: Math.max(2, 50 * pointHandler.point.pressure)
             height: width
             radius: width / 2
             anchors.centerIn: parent
             antialiasing: true
             Rectangle {
-                y: -40
+                y: -56
                 anchors.horizontalCenter: parent.horizontalCenter
                 color: "lightsteelblue"
                 implicitWidth: label.implicitWidth
                 implicitHeight: label.implicitHeight
                 Text {
                     id: label
-                    text: 'id: ' + dragHandler.point.id.toString(16) + " uid: " + dragHandler.point.uniqueId.numericId +
-                        '\npos: (' + dragHandler.point.position.x.toFixed(2) + ', ' + dragHandler.point.position.y.toFixed(2) + ')'
+                    text: 'id: ' + pointHandler.point.id.toString(16) + " uid: " + pointHandler.point.uniqueId.numericId +
+                        '\npos: (' + pointHandler.point.position.x.toFixed(2) + ', ' + pointHandler.point.position.y.toFixed(2) + ')' +
+                        '\nmodifiers: ' + pointHandler.point.modifiers.toString(16)
                 }
             }
         }
@@ -79,8 +79,8 @@ Rectangle {
             color: "transparent"
             border.color: "white"
             antialiasing: true
-            width: dragHandler.point.ellipseDiameters.width
-            height: dragHandler.point.ellipseDiameters.height
+            width: pointHandler.point.ellipseDiameters.width
+            height: pointHandler.point.ellipseDiameters.height
             radius: Math.min(width / 2, height / 2)
             anchors.centerIn: parent
         }
@@ -88,11 +88,11 @@ Rectangle {
     Rectangle {
         id: velocityVector
         visible: width > 0
-        width: dragHandler.point.velocity.length() * 100
+        width: pointHandler.point.velocity.length() * 100
         height: 2
-        x: dragHandler.point.position.x
-        y: dragHandler.point.position.y
-        rotation: Math.atan2(dragHandler.point.velocity.y, dragHandler.point.velocity.x) * 180 / Math.PI
+        x: pointHandler.point.position.x
+        y: pointHandler.point.position.y
+        rotation: Math.atan2(pointHandler.point.velocity.y, pointHandler.point.velocity.x) * 180 / Math.PI
         transformOrigin: Item.BottomLeft
         antialiasing: true
 
@@ -135,8 +135,8 @@ Rectangle {
         }
     }
 
-    DragHandler {
-        id: dragHandler
+    PointHandler {
+        id: pointHandler
         target: null
         acceptedButtons: Qt.AllButtons
         onGrabChanged: if (active) {    // 'point' is an implicit parameter referencing to a QQuickEventPoint instance
@@ -144,7 +144,7 @@ Rectangle {
             grabbingLocationIndicator.createObject(root, {"x": point.sceneGrabPosition.x, "y": point.sceneGrabPosition.y - 16})
         }
         onPointChanged: {
-            // Here, 'point' is referring to the property of the DragHandler
+            // Here, 'point' is referring to the property of the PointHandler
             if (point.pressedButtons)
                 mouseButtonIndicator.createObject(root, {"x": point.pressPosition.x - 44, "y": point.pressPosition.y - 64, "buttons": point.pressedButtons})
         }

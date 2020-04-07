@@ -122,8 +122,6 @@ public:
 
     GrBackend backend() override { return kMetal_GrBackend; }
 
-    GrBackendContext backendContext() override { return 0; }
-
     void testAbandon() override {}
 
     // There is really nothing to here since we don't own any unqueued command buffers here.
@@ -144,6 +142,7 @@ private:
     }
 
     void onPlatformMakeCurrent() const override {}
+    std::function<void()> onPlatformGetAutoContextRestore() const override { return nullptr; }
     void onPlatformSwapBuffers() const override {}
 
     id<MTLDevice> fDevice;

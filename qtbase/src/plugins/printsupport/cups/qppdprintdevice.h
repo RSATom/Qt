@@ -65,43 +65,45 @@ QT_BEGIN_NAMESPACE
 class QPpdPrintDevice : public QPlatformPrintDevice
 {
 public:
-    QPpdPrintDevice();
     explicit QPpdPrintDevice(const QString &id);
     virtual ~QPpdPrintDevice();
 
-    bool isValid() const Q_DECL_OVERRIDE;
-    bool isDefault() const Q_DECL_OVERRIDE;
+    bool isValid() const override;
+    bool isDefault() const override;
 
-    QPrint::DeviceState state() const Q_DECL_OVERRIDE;
+    QPrint::DeviceState state() const override;
 
-    QPageSize defaultPageSize() const Q_DECL_OVERRIDE;
+    QPageSize defaultPageSize() const override;
 
     QMarginsF printableMargins(const QPageSize &pageSize, QPageLayout::Orientation orientation,
-                               int resolution) const Q_DECL_OVERRIDE;
+                               int resolution) const override;
 
-    int defaultResolution() const Q_DECL_OVERRIDE;
+    int defaultResolution() const override;
 
-    QPrint::InputSlot defaultInputSlot() const Q_DECL_OVERRIDE;
+    QPrint::InputSlot defaultInputSlot() const override;
 
-    QPrint::OutputBin defaultOutputBin() const Q_DECL_OVERRIDE;
+    QPrint::OutputBin defaultOutputBin() const override;
 
-    QPrint::DuplexMode defaultDuplexMode() const Q_DECL_OVERRIDE;
+    QPrint::DuplexMode defaultDuplexMode() const override;
 
-    QPrint::ColorMode defaultColorMode() const Q_DECL_OVERRIDE;
+    QPrint::ColorMode defaultColorMode() const override;
+
+    QVariant property(QPrintDevice::PrintDevicePropertyKey key) const override;
+    bool setProperty(QPrintDevice::PrintDevicePropertyKey key, const QVariant &value) override;
+    bool isFeatureAvailable(QPrintDevice::PrintDevicePropertyKey key, const QVariant &params) const override;
 
 protected:
-    void loadPageSizes() const Q_DECL_OVERRIDE;
-    void loadResolutions() const Q_DECL_OVERRIDE;
-    void loadInputSlots() const Q_DECL_OVERRIDE;
-    void loadOutputBins() const Q_DECL_OVERRIDE;
-    void loadDuplexModes() const Q_DECL_OVERRIDE;
-    void loadColorModes() const Q_DECL_OVERRIDE;
-#ifndef QT_NO_MIMETYPE
-    void loadMimeTypes() const Q_DECL_OVERRIDE;
+    void loadPageSizes() const override;
+    void loadResolutions() const override;
+    void loadInputSlots() const override;
+    void loadOutputBins() const override;
+    void loadDuplexModes() const override;
+    void loadColorModes() const override;
+#if QT_CONFIG(mimetype)
+    void loadMimeTypes() const override;
 #endif
 
 private:
-    void loadPrinter();
     QString printerOption(const QString &key) const;
     cups_ptype_e printerTypeFlags() const;
 

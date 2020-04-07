@@ -25,11 +25,6 @@ using base::android::ScopedJavaLocalRef;
 
 namespace device {
 
-bool GamepadPlatformDataFetcherAndroid::
-    RegisterGamepadPlatformDataFetcherAndroid(JNIEnv* env) {
-  return RegisterNativesImpl(env);
-}
-
 GamepadPlatformDataFetcherAndroid::GamepadPlatformDataFetcherAndroid() {
 }
 
@@ -64,16 +59,17 @@ void GamepadPlatformDataFetcherAndroid::PauseHint(bool paused) {
   Java_GamepadList_setGamepadAPIActive(env, !paused);
 }
 
-static void SetGamepadData(JNIEnv* env,
-                           const JavaParamRef<jobject>& obj,
-                           jlong data_fetcher,
-                           jint index,
-                           jboolean mapping,
-                           jboolean connected,
-                           const JavaParamRef<jstring>& devicename,
-                           jlong timestamp,
-                           const JavaParamRef<jfloatArray>& jaxes,
-                           const JavaParamRef<jfloatArray>& jbuttons) {
+static void JNI_GamepadList_SetGamepadData(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj,
+    jlong data_fetcher,
+    jint index,
+    jboolean mapping,
+    jboolean connected,
+    const JavaParamRef<jstring>& devicename,
+    jlong timestamp,
+    const JavaParamRef<jfloatArray>& jaxes,
+    const JavaParamRef<jfloatArray>& jbuttons) {
   DCHECK(data_fetcher);
   GamepadPlatformDataFetcherAndroid* fetcher =
       reinterpret_cast<GamepadPlatformDataFetcherAndroid*>(data_fetcher);
@@ -92,7 +88,8 @@ static void SetGamepadData(JNIEnv* env,
   Gamepad& pad = state->data;
 
   // Is this the first time we've seen this device?
-  if (state->active_state == GAMEPAD_NEWLY_ACTIVE) {
+  if (!state->is_initialized) {
+    state->is_initialized = true;
     // Map the Gamepad DeviceName String to the Gamepad Id. Ideally it should
     // be mapped to vendor and product information but it is only available at
     // kernel level and it can not be queried using class
@@ -114,7 +111,7 @@ static void SetGamepadData(JNIEnv* env,
   }
 
   pad.connected = true;
-  pad.timestamp = timestamp;
+  pad.timestamp = GamepadDataFetcher::CurrentTimeInMicroseconds();
 
   std::vector<float> axes;
   base::android::JavaFloatArrayToFloatVector(env, jaxes, &axes);

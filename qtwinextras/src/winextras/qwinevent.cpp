@@ -49,24 +49,18 @@ QWinEvent::QWinEvent(int type) : QEvent(static_cast<QEvent::Type>(type))
 {
 }
 
-QWinEvent::~QWinEvent()
-{
-}
+QWinEvent::~QWinEvent() = default;
 
 QWinColorizationChangeEvent::QWinColorizationChangeEvent(QRgb color, bool opaque)
     : QWinEvent(ColorizationChange), rgb(color), opaque(opaque)
 {
 }
 
-QWinColorizationChangeEvent::~QWinColorizationChangeEvent()
-{
-}
+QWinColorizationChangeEvent::~QWinColorizationChangeEvent() = default;
 
 QWinCompositionChangeEvent::QWinCompositionChangeEvent(bool enabled)
     : QWinEvent(CompositionChange), enabled(enabled)
 {
 }
 
-QWinCompositionChangeEvent::~QWinCompositionChangeEvent()
-{
-}
+QWinCompositionChangeEvent::~QWinCompositionChangeEvent() = default;

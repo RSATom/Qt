@@ -48,10 +48,10 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.2
+import QtQuick 2.12
 import QtQuick.Window 2.2
 import QtTest 1.0
-import QtQuick.Controls 2.2
+import QtQuick.Controls 2.12
 
 TestCase {
     id: testCase
@@ -78,6 +78,11 @@ TestCase {
                 width: parent.width
             }
         }
+    }
+
+    Component {
+        id: mouseArea
+        MouseArea { }
     }
 
     function init() {
@@ -629,36 +634,90 @@ TestCase {
 
         compare(control.currentIndex, 0)
         compare(control.currentText, "Banana")
+        compare(control.highlightedIndex, -1)
 
         keyPress(Qt.Key_C)
         compare(control.currentIndex, 1)
         compare(control.currentText, "Coco")
+        compare(control.highlightedIndex, -1)
 
         // no match
         keyPress(Qt.Key_N)
         compare(control.currentIndex, 1)
         compare(control.currentText, "Coco")
+        compare(control.highlightedIndex, -1)
 
         keyPress(Qt.Key_C)
         compare(control.currentIndex, 2)
         compare(control.currentText, "Coconut")
+        compare(control.highlightedIndex, -1)
 
         keyPress(Qt.Key_C)
         compare(control.currentIndex, 4)
         compare(control.currentText, "Cocomuffin")
+        compare(control.highlightedIndex, -1)
 
         // wrap
         keyPress(Qt.Key_C)
         compare(control.currentIndex, 1)
         compare(control.currentText, "Coco")
+        compare(control.highlightedIndex, -1)
 
         keyPress(Qt.Key_A)
         compare(control.currentIndex, 3)
         compare(control.currentText, "Apple")
+        compare(control.highlightedIndex, -1)
 
         keyPress(Qt.Key_B)
         compare(control.currentIndex, 0)
         compare(control.currentText, "Banana")
+        compare(control.highlightedIndex, -1)
+
+        // popup
+        control.popup.open()
+        tryCompare(control.popup, "opened", true)
+
+        compare(control.currentIndex, 0)
+        compare(control.highlightedIndex, 0)
+
+        keyClick(Qt.Key_C)
+        compare(control.highlightedIndex, 1) // "Coco"
+        compare(control.currentIndex, 0)
+
+        // no match
+        keyClick(Qt.Key_N)
+        compare(control.highlightedIndex, 1)
+        compare(control.currentIndex, 0)
+
+        keyClick(Qt.Key_C)
+        compare(control.highlightedIndex, 2) // "Coconut"
+        compare(control.currentIndex, 0)
+
+        keyClick(Qt.Key_C)
+        compare(control.highlightedIndex, 4) // "Cocomuffin"
+        compare(control.currentIndex, 0)
+
+        // wrap
+        keyClick(Qt.Key_C)
+        compare(control.highlightedIndex, 1) // "Coco"
+        compare(control.currentIndex, 0)
+
+        keyClick(Qt.Key_B)
+        compare(control.highlightedIndex, 0) // "Banana"
+        compare(control.currentIndex, 0)
+
+        keyClick(Qt.Key_A)
+        compare(control.highlightedIndex, 3) // "Apple"
+        compare(control.currentIndex, 0)
+
+        verify(control.popup.visible)
+
+        // accept
+        keyClick(Qt.Key_Return)
+        tryCompare(control.popup, "visible", false)
+        compare(control.currentIndex, 3)
+        compare(control.currentText, "Apple")
+        compare(control.highlightedIndex, -1)
     }
 
     function test_popup() {
@@ -696,6 +755,12 @@ TestCase {
         control.x = testCase.width - control.width / 2
         compare(control.x, testCase.width - control.width / 2)
         compare(control.popup.contentItem.parent.x, testCase.width - control.width / 2)
+
+        // close the popup when hidden (QTBUG-67684)
+        control.popup.open()
+        tryCompare(control.popup, "opened", true)
+        control.visible = false
+        tryCompare(control.popup, "visible", false)
     }
 
     function test_mouse() {
@@ -988,24 +1053,34 @@ TestCase {
     }
 
     function test_wheel() {
-        var control = createTemporaryObject(comboBox, testCase, {model: 2, wheelEnabled: true})
+        var ma = createTemporaryObject(mouseArea, testCase, {width: 100, height: 100})
+        verify(ma)
+
+        var control = comboBox.createObject(ma, {model: 2, wheelEnabled: true})
         verify(control)
 
         var delta = 120
 
+        var spy = signalSpy.createObject(ma, {target: ma, signalName: "wheel"})
+        verify(spy.valid)
+
         mouseWheel(control, control.width / 2, control.height / 2, -delta, -delta)
         compare(control.currentIndex, 1)
+        compare(spy.count, 0) // no propagation
 
         // reached bounds -> no change
         mouseWheel(control, control.width / 2, control.height / 2, -delta, -delta)
         compare(control.currentIndex, 1)
+        compare(spy.count, 0) // no propagation
 
         mouseWheel(control, control.width / 2, control.height / 2, delta, delta)
         compare(control.currentIndex, 0)
+        compare(spy.count, 0) // no propagation
 
         // reached bounds -> no change
         mouseWheel(control, control.width / 2, control.height / 2, delta, delta)
         compare(control.currentIndex, 0)
+        compare(spy.count, 0) // no propagation
     }
 
     function test_activation_data() {
@@ -1524,5 +1599,85 @@ TestCase {
         control.popup.open()
         tryCompare(control.popup, "visible", true)
         compare(control.popup.height, control.popup.topPadding + control.popup.bottomPadding)
+    }
+
+    Component {
+        id: keysMonitor
+        Item {
+            property int pressedKeys: 0
+            property int releasedKeys: 0
+            property int lastPressedKey: 0
+            property int lastReleasedKey: 0
+            property alias comboBox: comboBox
+
+            width: 200
+            height: 200
+
+            Keys.onPressed: { ++pressedKeys; lastPressedKey = event.key }
+            Keys.onReleased: { ++releasedKeys; lastReleasedKey = event.key }
+
+            ComboBox {
+                id: comboBox
+            }
+        }
+    }
+
+    function test_keyClose_data() {
+        return [
+            { tag: "Escape", key: Qt.Key_Escape },
+            { tag: "Back", key: Qt.Key_Back }
+        ]
+    }
+
+    function test_keyClose(data) {
+        var container = createTemporaryObject(keysMonitor, testCase)
+        verify(container)
+
+        var control = comboBox.createObject(container)
+        verify(control)
+
+        control.forceActiveFocus()
+        verify(control.activeFocus)
+
+        var pressedKeys = 0
+        var releasedKeys = 0
+
+        // popup not visible -> propagates
+        keyPress(data.key)
+        compare(container.pressedKeys, ++pressedKeys)
+        compare(container.lastPressedKey, data.key)
+
+        keyRelease(data.key)
+        compare(container.releasedKeys, ++releasedKeys)
+        compare(container.lastReleasedKey, data.key)
+
+        verify(control.activeFocus)
+
+        // popup visible -> handled -> does not propagate
+        control.popup.open()
+        tryCompare(control.popup, "opened", true)
+
+        keyPress(data.key)
+        compare(container.pressedKeys, pressedKeys)
+
+        keyRelease(data.key)
+        // Popup receives the key release event if it has an exit transition, but
+        // not if it has been immediately closed on press, without a transition.
+        // ### TODO: Should Popup somehow always block the key release event?
+        if (!control.popup.exit)
+            ++releasedKeys
+        compare(container.releasedKeys, releasedKeys)
+
+        tryCompare(control.popup, "visible", false)
+        verify(control.activeFocus)
+
+        // popup not visible -> propagates
+        keyPress(data.key)
+        compare(container.pressedKeys, ++pressedKeys)
+        compare(container.lastPressedKey, data.key)
+
+        keyRelease(data.key)
+        compare(container.releasedKeys, ++releasedKeys)
+        compare(container.lastReleasedKey, data.key)
     }
 }

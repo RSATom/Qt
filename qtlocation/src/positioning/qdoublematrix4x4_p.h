@@ -89,7 +89,7 @@ public:
     inline void fill(double value);
 
     double determinant() const;
-    QDoubleMatrix4x4 inverted(bool *invertible = Q_NULLPTR) const;
+    QDoubleMatrix4x4 inverted(bool *invertible = nullptr) const;
     QDoubleMatrix4x4 transposed() const;
 
     inline QDoubleMatrix4x4& operator+=(const QDoubleMatrix4x4& other);

@@ -58,9 +58,9 @@ class ResourceCreationImpl : public ppapi::thunk::ResourceCreationAPI {
   PP_Resource CreateGraphics3DRaw(
       PP_Instance instance,
       PP_Resource share_context,
-      const gpu::gles2::ContextCreationAttribHelper& attrib_helper,
+      const gpu::ContextCreationAttribs& attrib_helper,
       gpu::Capabilities* capabilities,
-      base::SharedMemoryHandle* shared_state,
+      const base::UnsafeSharedMemoryRegion** shared_state,
       gpu::CommandBufferId* command_buffer_id) override;
   PP_Resource CreateHostResolver(PP_Instance instance) override;
   PP_Resource CreateHostResolverPrivate(PP_Instance instance) override;
@@ -113,8 +113,6 @@ class ResourceCreationImpl : public ppapi::thunk::ResourceCreationAPI {
       PP_Instance instance,
       const PP_NetAddress_Private& private_addr) override;
   PP_Resource CreateNetworkMonitor(PP_Instance instance) override;
-  PP_Resource CreatePlatformVerificationPrivate(PP_Instance instance) override;
-  PP_Resource CreateOutputProtectionPrivate(PP_Instance instance) override;
   PP_Resource CreateTCPServerSocketPrivate(PP_Instance instance) override;
   PP_Resource CreateTCPSocket1_0(PP_Instance instance) override;
   PP_Resource CreateTCPSocket(PP_Instance instance) override;

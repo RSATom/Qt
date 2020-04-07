@@ -7,15 +7,15 @@
 #include "core/fxcodec/jbig2/JBig2_ArithDecoder.h"
 
 #include "core/fxcodec/jbig2/JBig2_BitStream.h"
-#include "core/fxcrt/fx_basic.h"
+#include "core/fxcrt/fx_memory.h"
 
 namespace {
 
 struct JBig2ArithQe {
-  unsigned int Qe;
-  unsigned int NMPS;
-  unsigned int NLPS;
-  unsigned int nSwitch;
+  uint16_t Qe;
+  uint8_t NMPS;
+  uint8_t NLPS;
+  uint8_t nSwitch;
 };
 
 const JBig2ArithQe kQeTable[] = {
@@ -56,7 +56,7 @@ int DecodeNLPS(JBig2ArithCtx* pCX, const JBig2ArithQe& qe) {
 }  // namespace
 
 CJBig2_ArithDecoder::CJBig2_ArithDecoder(CJBig2_BitStream* pStream)
-    : m_Complete(false), m_pStream(pStream) {
+    : m_Complete(false), m_FinishedStream(false), m_pStream(pStream) {
   m_B = m_pStream->getCurByte_arith();
   m_C = (m_B ^ 0xff) << 16;
   BYTEIN();
@@ -67,7 +67,7 @@ CJBig2_ArithDecoder::CJBig2_ArithDecoder(CJBig2_BitStream* pStream)
 
 CJBig2_ArithDecoder::~CJBig2_ArithDecoder() {}
 
-int CJBig2_ArithDecoder::DECODE(JBig2ArithCtx* pCX) {
+int CJBig2_ArithDecoder::Decode(JBig2ArithCtx* pCX) {
   if (!pCX || pCX->I >= FX_ArraySize(kQeTable))
     return 0;
 
@@ -95,6 +95,12 @@ void CJBig2_ArithDecoder::BYTEIN() {
     B1 = m_pStream->getNextByte_arith();
     if (B1 > 0x8f) {
       m_CT = 8;
+      // If we are here, it means that we have finished decoding data (see JBIG2
+      // spec, Section E.3.4). If we arrive here a second time, we're looping,
+      // so complete decoding.
+      if (m_FinishedStream)
+        m_Complete = true;
+      m_FinishedStream = true;
     } else {
       m_pStream->incByteIdx();
       m_B = B1;

@@ -54,14 +54,14 @@ QT_BEGIN_NAMESPACE
     QLowEnergyDescriptor provides information about a Bluetooth Low Energy
     descriptor's \l name(), \l uuid(), \l value() and \l handle(). Descriptors are
     encapsulated by Bluetooth Low Energy characteristics and provide additional
-    centextual information about the characteristic (data format, notification activation
+    contextual information about the characteristic (data format, notification activation
     and so on).
 
     The descriptor value may be written via the \l QLowEnergyService instance
     that manages the service to which this descriptor belongs. The
     \l {QLowEnergyService::writeDescriptor()} function writes the new value.
     The \l {QLowEnergyService::descriptorWritten()} signal
-    is emitted upon success. The cahced \l value() of this object is updated accordingly.
+    is emitted upon success. The cached \l value() of this object is updated accordingly.
 
     \sa QLowEnergyService, QLowEnergyCharacteristic
 */
@@ -77,7 +77,7 @@ struct QLowEnergyDescriptorPrivate
     of this class is always invalid.
 */
 QLowEnergyDescriptor::QLowEnergyDescriptor():
-    d_ptr(0), data(0)
+    d_ptr(nullptr)
 {
 }
 
@@ -88,7 +88,7 @@ QLowEnergyDescriptor::QLowEnergyDescriptor():
     upon write.
 */
 QLowEnergyDescriptor::QLowEnergyDescriptor(const QLowEnergyDescriptor &other):
-    d_ptr(other.d_ptr), data(0)
+    d_ptr(other.d_ptr)
 {
     if (other.data) {
         data = new QLowEnergyDescriptorPrivate();
@@ -131,7 +131,7 @@ QLowEnergyDescriptor &QLowEnergyDescriptor::operator=(const QLowEnergyDescriptor
     if (!other.data) {
         if (data) {
             delete data;
-            data = 0;
+            data = nullptr;
         }
     } else {
         if (!data)

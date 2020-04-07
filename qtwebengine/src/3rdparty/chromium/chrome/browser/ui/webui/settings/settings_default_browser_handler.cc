@@ -39,12 +39,12 @@ DefaultBrowserHandler::~DefaultBrowserHandler() {}
 void DefaultBrowserHandler::RegisterMessages() {
   web_ui()->RegisterMessageCallback(
       "SettingsDefaultBrowser.requestDefaultBrowserState",
-      base::Bind(&DefaultBrowserHandler::RequestDefaultBrowserState,
-                 base::Unretained(this)));
+      base::BindRepeating(&DefaultBrowserHandler::RequestDefaultBrowserState,
+                          base::Unretained(this)));
   web_ui()->RegisterMessageCallback(
       "SettingsDefaultBrowser.setAsDefaultBrowser",
-      base::Bind(&DefaultBrowserHandler::SetAsDefaultBrowser,
-                 base::Unretained(this)));
+      base::BindRepeating(&DefaultBrowserHandler::SetAsDefaultBrowser,
+                          base::Unretained(this)));
 }
 
 void DefaultBrowserHandler::OnJavascriptAllowed() {
@@ -82,7 +82,7 @@ void DefaultBrowserHandler::SetAsDefaultBrowser(const base::ListValue* args) {
 
   // If the user attempted to make Chrome the default browser, notify
   // them when this changes.
-  chrome::ResetDefaultBrowserPrompt(Profile::FromWebUI(web_ui()));
+  ResetDefaultBrowserPrompt(Profile::FromWebUI(web_ui()));
 }
 
 void DefaultBrowserHandler::OnDefaultBrowserWorkerFinished(
@@ -90,7 +90,7 @@ void DefaultBrowserHandler::OnDefaultBrowserWorkerFinished(
   if (state == shell_integration::IS_DEFAULT) {
     // Notify the user in the future if Chrome ceases to be the user's chosen
     // default browser.
-    chrome::ResetDefaultBrowserPrompt(Profile::FromWebUI(web_ui()));
+    ResetDefaultBrowserPrompt(Profile::FromWebUI(web_ui()));
   }
 
   base::DictionaryValue dict;

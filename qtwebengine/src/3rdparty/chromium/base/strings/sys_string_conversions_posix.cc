@@ -18,7 +18,7 @@ std::string SysWideToUTF8(const std::wstring& wide) {
   // than our ICU, but this will do for now.
   return WideToUTF8(wide);
 }
-std::wstring SysUTF8ToWide(const StringPiece& utf8) {
+std::wstring SysUTF8ToWide(StringPiece utf8) {
   // In theory this should be using the system-provided conversion rather
   // than our ICU, but this will do for now.
   std::wstring out;
@@ -34,7 +34,7 @@ std::string SysWideToNativeMB(const std::wstring& wide) {
   return WideToUTF8(wide);
 }
 
-std::wstring SysNativeMBToWide(const StringPiece& native_mb) {
+std::wstring SysNativeMBToWide(StringPiece native_mb) {
   return SysUTF8ToWide(native_mb);
 }
 
@@ -100,7 +100,7 @@ std::string SysWideToNativeMB(const std::wstring& wide) {
   return out;
 }
 
-std::wstring SysNativeMBToWide(const StringPiece& native_mb) {
+std::wstring SysNativeMBToWide(StringPiece native_mb) {
   mbstate_t ps;
 
   // Calculate the number of wide characters.  We walk through the string
@@ -109,7 +109,7 @@ std::wstring SysNativeMBToWide(const StringPiece& native_mb) {
   memset(&ps, 0, sizeof(ps));
   for (size_t i = 0; i < native_mb.size(); ) {
     const char* src = native_mb.data() + i;
-    size_t res = mbrtowc(NULL, src, native_mb.size() - i, &ps);
+    size_t res = mbrtowc(nullptr, src, native_mb.size() - i, &ps);
     switch (res) {
       // Handle any errors and return an empty string.
       case static_cast<size_t>(-2):
@@ -118,7 +118,8 @@ std::wstring SysNativeMBToWide(const StringPiece& native_mb) {
         break;
       case 0:
         // We hit an embedded null byte, keep going.
-        i += 1;  // Fall through.
+        i += 1;
+        FALLTHROUGH;
       default:
         i += res;
         ++num_out_chars;

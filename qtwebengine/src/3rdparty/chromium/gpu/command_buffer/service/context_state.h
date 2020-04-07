@@ -17,7 +17,7 @@
 #include "gpu/command_buffer/service/texture_manager.h"
 #include "gpu/command_buffer/service/vertex_array_manager.h"
 #include "gpu/command_buffer/service/vertex_attrib_manager.h"
-#include "gpu/gpu_export.h"
+#include "gpu/gpu_gles2_export.h"
 
 namespace gpu {
 namespace gles2 {
@@ -33,7 +33,7 @@ class Renderbuffer;
 class TransformFeedback;
 
 // State associated with each texture unit.
-struct GPU_EXPORT TextureUnit {
+struct GPU_GLES2_EXPORT TextureUnit {
   TextureUnit();
   TextureUnit(const TextureUnit& other);
   ~TextureUnit();
@@ -140,7 +140,7 @@ struct GPU_EXPORT TextureUnit {
   }
 };
 
-class GPU_EXPORT Vec4 {
+class GPU_GLES2_EXPORT Vec4 {
  public:
   Vec4() {
     v_[0].float_value = 0.0f;
@@ -174,20 +174,20 @@ class GPU_EXPORT Vec4 {
 };
 
 template <>
-GPU_EXPORT void Vec4::GetValues<GLfloat>(GLfloat* values) const;
+GPU_GLES2_EXPORT void Vec4::GetValues<GLfloat>(GLfloat* values) const;
 template <>
-GPU_EXPORT void Vec4::GetValues<GLint>(GLint* values) const;
+GPU_GLES2_EXPORT void Vec4::GetValues<GLint>(GLint* values) const;
 template <>
-GPU_EXPORT void Vec4::GetValues<GLuint>(GLuint* values) const;
+GPU_GLES2_EXPORT void Vec4::GetValues<GLuint>(GLuint* values) const;
 
 template <>
-GPU_EXPORT void Vec4::SetValues<GLfloat>(const GLfloat* values);
+GPU_GLES2_EXPORT void Vec4::SetValues<GLfloat>(const GLfloat* values);
 template <>
-GPU_EXPORT void Vec4::SetValues<GLint>(const GLint* values);
+GPU_GLES2_EXPORT void Vec4::SetValues<GLint>(const GLint* values);
 template <>
-GPU_EXPORT void Vec4::SetValues<GLuint>(const GLuint* values);
+GPU_GLES2_EXPORT void Vec4::SetValues<GLuint>(const GLuint* values);
 
-struct GPU_EXPORT ContextState {
+struct GPU_GLES2_EXPORT ContextState {
   enum Dimension {
     k2D,
     k3D
@@ -198,7 +198,12 @@ struct GPU_EXPORT ContextState {
                Logger* logger);
   ~ContextState();
 
+  void set_api(gl::GLApi* api) { api_ = api; }
+  gl::GLApi* api() const { return api_; }
+
   void Initialize();
+
+  void MarkContextLost() { context_lost_ = true; }
 
   void SetLineWidthBounds(GLfloat min, GLfloat max);
 
@@ -217,7 +222,7 @@ struct GPU_EXPORT ContextState {
   void RestoreVertexAttribValues() const;
   void RestoreVertexAttribArrays(
       const scoped_refptr<VertexAttribManager> attrib_manager) const;
-  void RestoreVertexAttribs() const;
+  void RestoreVertexAttribs(const ContextState* prev_state) const;
   void RestoreBufferBindings() const;
   void RestoreGlobalState(const ContextState* prev_state) const;
   void RestoreProgramSettings(const ContextState* prev_state,
@@ -228,7 +233,7 @@ struct GPU_EXPORT ContextState {
       GLuint unit, const ContextState* prev_state) const;
   void RestoreSamplerBinding(GLuint unit, const ContextState* prev_state) const;
 
-  void PushTextureDecompressionUnpackState() const;
+  void PushTextureUnpackState() const;
   void RestoreUnpackState() const;
   void DoLineWidth(GLfloat width) const;
 
@@ -251,14 +256,14 @@ struct GPU_EXPORT ContextState {
     cached_color_mask_green = green;
     cached_color_mask_blue = blue;
     cached_color_mask_alpha = alpha;
-    glColorMask(red, green, blue, alpha);
+    api()->glColorMaskFn(red, green, blue, alpha);
   }
 
   inline void SetDeviceDepthMask(GLboolean mask) {
     if (cached_depth_mask == mask && !ignore_cached_state)
       return;
     cached_depth_mask = mask;
-    glDepthMask(mask);
+    api()->glDepthMaskFn(mask);
   }
 
   inline void SetDeviceStencilMaskSeparate(GLenum op, GLuint mask) {
@@ -274,7 +279,7 @@ struct GPU_EXPORT ContextState {
       NOTREACHED();
       return;
     }
-    glStencilMaskSeparate(op, mask);
+    api()->glStencilMaskSeparateFn(op, mask);
   }
 
   ErrorState* GetErrorState();
@@ -317,6 +322,20 @@ struct GPU_EXPORT ContextState {
   // If a buffer object is bound to PIXEL_UNPACK_BUFFER, set all unpack
   // parameters user values; otherwise, set them to 0.
   void UpdateUnpackParameters() const;
+
+  void SetMaxWindowRectangles(size_t max);
+  size_t GetMaxWindowRectangles() const;
+  void SetWindowRectangles(GLenum mode,
+                           size_t count,
+                           const volatile GLint* box);
+  template <typename T>
+  void GetWindowRectangle(GLuint index, T* box) {
+    for (size_t i = 0; i < 4; ++i) {
+      box[i] = window_rectangles_[4 * index + i];
+    }
+  }
+  void UpdateWindowRectangles() const;
+  void UpdateWindowRectanglesForBoundDrawFramebufferClientID(GLuint client_id);
 
   void EnableDisableFramebufferSRGB(bool enable);
 
@@ -374,6 +393,9 @@ struct GPU_EXPORT ContextState {
   bool ignore_cached_state;
 
   mutable bool fbo_binding_for_scissor_workaround_dirty;
+  mutable bool stencil_state_changed_since_validation = true;
+
+  GLuint current_draw_framebuffer_client_id = 0;
 
  private:
   void EnableDisable(GLenum pname, bool enable) const;
@@ -394,8 +416,15 @@ struct GPU_EXPORT ContextState {
   GLfloat line_width_min_ = 0.0f;
   GLfloat line_width_max_ = 1.0f;
 
+  // Stores the list of N window rectangles as N*4 GLints, like
+  // vector<[x,y,w,h]>. Always has space for MAX_WINDOW_RECTANGLES rectangles.
+  std::vector<GLint> window_rectangles_;
+
+  gl::GLApi* api_ = nullptr;
   FeatureInfo* feature_info_;
   std::unique_ptr<ErrorState> error_state_;
+
+  bool context_lost_ = false;
 };
 
 }  // namespace gles2

@@ -46,12 +46,12 @@ class CJBig2_TRDProc {
   CJBig2_TRDProc();
   ~CJBig2_TRDProc();
 
-  std::unique_ptr<CJBig2_Image> decode_Huffman(CJBig2_BitStream* pStream,
-                                               JBig2ArithCtx* grContext);
+  std::unique_ptr<CJBig2_Image> DecodeHuffman(CJBig2_BitStream* pStream,
+                                              JBig2ArithCtx* grContext);
 
-  std::unique_ptr<CJBig2_Image> decode_Arith(CJBig2_ArithDecoder* pArithDecoder,
-                                             JBig2ArithCtx* grContext,
-                                             JBig2IntDecoderState* pIDS);
+  std::unique_ptr<CJBig2_Image> DecodeArith(CJBig2_ArithDecoder* pArithDecoder,
+                                            JBig2ArithCtx* grContext,
+                                            JBig2IntDecoderState* pIDS);
 
   bool SBHUFF;
   bool SBREFINE;
@@ -72,16 +72,27 @@ class CJBig2_TRDProc {
 
   JBig2Corner REFCORNER;
   int8_t SBDSOFFSET;
-  CJBig2_HuffmanTable* SBHUFFFS;
-  CJBig2_HuffmanTable* SBHUFFDS;
-  CJBig2_HuffmanTable* SBHUFFDT;
-  CJBig2_HuffmanTable* SBHUFFRDW;
-  CJBig2_HuffmanTable* SBHUFFRDH;
-  CJBig2_HuffmanTable* SBHUFFRDX;
-  CJBig2_HuffmanTable* SBHUFFRDY;
-  CJBig2_HuffmanTable* SBHUFFRSIZE;
+  const CJBig2_HuffmanTable* SBHUFFFS;
+  const CJBig2_HuffmanTable* SBHUFFDS;
+  const CJBig2_HuffmanTable* SBHUFFDT;
+  const CJBig2_HuffmanTable* SBHUFFRDW;
+  const CJBig2_HuffmanTable* SBHUFFRDH;
+  const CJBig2_HuffmanTable* SBHUFFRDX;
+  const CJBig2_HuffmanTable* SBHUFFRDY;
+  const CJBig2_HuffmanTable* SBHUFFRSIZE;
   bool SBRTEMPLATE;
   int8_t SBRAT[4];
+
+ private:
+  struct ComposeData {
+    int32_t x;
+    int32_t y;
+    uint32_t increment = 0;
+  };
+  ComposeData GetComposeData(int32_t SI,
+                             int32_t TI,
+                             uint32_t WI,
+                             uint32_t HI) const;
 };
 
 #endif  // CORE_FXCODEC_JBIG2_JBIG2_TRDPROC_H_

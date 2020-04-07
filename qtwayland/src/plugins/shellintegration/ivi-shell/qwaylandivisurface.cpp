@@ -52,7 +52,6 @@ QWaylandIviSurface::QWaylandIviSurface(struct ::ivi_surface *ivi_surface, QWayla
     : QtWayland::ivi_surface(ivi_surface)
     , QWaylandShellSurface(window)
     , m_window(window)
-    , m_extendedWindow(Q_NULLPTR)
 {
     createExtendedSurface(window);
 }
@@ -63,7 +62,6 @@ QWaylandIviSurface::QWaylandIviSurface(struct ::ivi_surface *ivi_surface, QWayla
     , QWaylandShellSurface(window)
     , QtWayland::ivi_controller_surface(iviControllerSurface)
     , m_window(window)
-    , m_extendedWindow(Q_NULLPTR)
 {
     createExtendedSurface(window);
 }
@@ -77,11 +75,9 @@ QWaylandIviSurface::~QWaylandIviSurface()
     delete m_extendedWindow;
 }
 
-void QWaylandIviSurface::setType(Qt::WindowType type, QWaylandWindow *transientParent)
+void QWaylandIviSurface::applyConfigure()
 {
-
-    Q_UNUSED(type)
-    Q_UNUSED(transientParent)
+    m_window->resizeFromApplyConfigure(m_pendingSize);
 }
 
 void QWaylandIviSurface::createExtendedSurface(QWaylandWindow *window)
@@ -92,7 +88,8 @@ void QWaylandIviSurface::createExtendedSurface(QWaylandWindow *window)
 
 void QWaylandIviSurface::ivi_surface_configure(int32_t width, int32_t height)
 {
-    this->m_window->configure(0, width, height);
+    m_pendingSize = {width, height};
+    m_window->applyConfigureWhenPossible();
 }
 
 void QWaylandIviSurface::ivi_controller_surface_visibility(int32_t visibility)

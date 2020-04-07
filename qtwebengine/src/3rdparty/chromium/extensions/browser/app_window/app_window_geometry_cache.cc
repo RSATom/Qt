@@ -9,7 +9,6 @@
 #include <utility>
 
 #include "base/bind.h"
-#include "base/memory/ptr_util.h"
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
@@ -113,7 +112,7 @@ void AppWindowGeometryCache::SyncToStorage() {
          it != eit;
          ++it) {
       std::unique_ptr<base::DictionaryValue> value =
-          base::MakeUnique<base::DictionaryValue>();
+          std::make_unique<base::DictionaryValue>();
       const gfx::Rect& bounds = it->second.bounds;
       const gfx::Rect& screen_bounds = it->second.screen_bounds;
       DCHECK(!bounds.IsEmpty());

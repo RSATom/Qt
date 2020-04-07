@@ -71,13 +71,7 @@ class QML_PARSER_EXPORT MemoryPool : public QSharedData
     void operator =(const MemoryPool &other);
 
 public:
-    MemoryPool()
-        : _blocks(0),
-          _allocatedBlocks(0),
-          _blockCount(-1),
-          _ptr(0),
-          _end(0)
-    { }
+    MemoryPool() {}
 
     ~MemoryPool()
     {
@@ -89,11 +83,12 @@ public:
 
             free(_blocks);
         }
+        qDeleteAll(strings);
     }
 
     inline void *allocate(size_t size)
     {
-        size = (size + 7) & ~7;
+        size = (size + 7) & ~size_t(7);
         if (Q_LIKELY(_ptr && (_ptr + size < _end))) {
             void *addr = _ptr;
             _ptr += size;
@@ -105,15 +100,22 @@ public:
     void reset()
     {
         _blockCount = -1;
-        _ptr = _end = 0;
+        _ptr = _end = nullptr;
     }
 
     template <typename Tp> Tp *New() { return new (this->allocate(sizeof(Tp))) Tp(); }
 
+    QStringRef newString(const QString &string) {
+        strings.append(new QString(string));
+        return QStringRef(strings.last());
+    }
+
 private:
     Q_NEVER_INLINE void *allocate_helper(size_t size)
     {
-        Q_ASSERT(size < BLOCK_SIZE);
+        size_t currentBlockSize = DEFAULT_BLOCK_SIZE;
+        while (Q_UNLIKELY(size >= currentBlockSize))
+            currentBlockSize *= 2;
 
         if (++_blockCount == _allocatedBlocks) {
             if (! _allocatedBlocks)
@@ -121,22 +123,22 @@ private:
             else
                 _allocatedBlocks *= 2;
 
-            _blocks = (char **) realloc(_blocks, sizeof(char *) * _allocatedBlocks);
+            _blocks = reinterpret_cast<char **>(realloc(_blocks, sizeof(char *) * size_t(_allocatedBlocks)));
             Q_CHECK_PTR(_blocks);
 
             for (int index = _blockCount; index < _allocatedBlocks; ++index)
-                _blocks[index] = 0;
+                _blocks[index] = nullptr;
         }
 
         char *&block = _blocks[_blockCount];
 
         if (! block) {
-            block = (char *) malloc(BLOCK_SIZE);
+            block = reinterpret_cast<char *>(malloc(currentBlockSize));
             Q_CHECK_PTR(block);
         }
 
         _ptr = block;
-        _end = _ptr + BLOCK_SIZE;
+        _end = _ptr + currentBlockSize;
 
         void *addr = _ptr;
         _ptr += size;
@@ -144,27 +146,26 @@ private:
     }
 
 private:
-    char **_blocks;
-    int _allocatedBlocks;
-    int _blockCount;
-    char *_ptr;
-    char *_end;
+    char **_blocks = nullptr;
+    int _allocatedBlocks = 0;
+    int _blockCount = -1;
+    char *_ptr = nullptr;
+    char *_end = nullptr;
+    QVector<QString*> strings;
 
     enum
     {
-        BLOCK_SIZE = 8 * 1024,
+        DEFAULT_BLOCK_SIZE = 8 * 1024,
         DEFAULT_BLOCK_COUNT = 8
     };
 };
 
 class QML_PARSER_EXPORT Managed
 {
-    Managed(const Managed &other);
-    void operator = (const Managed &other);
-
+    Q_DISABLE_COPY(Managed)
 public:
-    Managed() {}
-    ~Managed() {}
+    Managed() = default;
+    ~Managed() = default;
 
     void *operator new(size_t size, MemoryPool *pool) { return pool->allocate(size); }
     void operator delete(void *) {}

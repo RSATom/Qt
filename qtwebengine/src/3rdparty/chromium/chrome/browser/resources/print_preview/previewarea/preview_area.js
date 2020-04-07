@@ -11,6 +11,7 @@ cr.exportPath('print_preview');
  */
 print_preview.PreviewAreaMessageId_ = {
   CUSTOM: 'custom',
+  UNSUPPORTED: 'unsupported-cloud-printer',
   LOADING: 'loading',
   PREVIEW_FAILED: 'preview-failed'
 };
@@ -80,7 +81,8 @@ cr.define('print_preview', function() {
     this.printTicketStore_ = printTicketStore;
 
     /**
-     * Used to contruct the preview generator.
+     * Used to construct the preview generator and to open the GCP learn more
+     * help link.
      * @type {!print_preview.NativeLayer}
      * @private
      */
@@ -148,6 +150,13 @@ cr.define('print_preview', function() {
     this.isDocumentReady_ = false;
 
     /**
+     * Whether the current destination is valid.
+     * @type {boolean}
+     * @private
+     */
+    this.isDestinationValid_ = true;
+
+    /**
      * Timeout object used to display a loading message if the preview is taking
      * a long time to generate.
      * @type {?number}
@@ -212,7 +221,8 @@ cr.define('print_preview', function() {
         'preview-area-open-system-dialog-button-throbber',
     OVERLAY: 'preview-area-overlay-layer',
     MARGIN_CONTROL: 'margin-control',
-    PREVIEW_AREA: 'preview-area-plugin-wrapper'
+    PREVIEW_AREA: 'preview-area-plugin-wrapper',
+    GCP_ERROR_LEARN_MORE_LINK: 'learn-more-link'
   };
 
   /**
@@ -223,6 +233,9 @@ cr.define('print_preview', function() {
   PreviewArea.MessageIdClassMap_ = {};
   PreviewArea.MessageIdClassMap_[print_preview.PreviewAreaMessageId_.CUSTOM] =
       'preview-area-custom-message';
+  PreviewArea
+      .MessageIdClassMap_[print_preview.PreviewAreaMessageId_.UNSUPPORTED] =
+      'preview-area-unsupported-cloud-printer';
   PreviewArea.MessageIdClassMap_[print_preview.PreviewAreaMessageId_.LOADING] =
       'preview-area-loading-message';
   PreviewArea
@@ -266,7 +279,7 @@ cr.define('print_preview', function() {
       }
 
       // Don't handle the key event for these elements.
-      var tagName = document.activeElement.tagName;
+      const tagName = document.activeElement.tagName;
       if (arrayContains(['INPUT', 'SELECT', 'EMBED'], tagName)) {
         return;
       }
@@ -276,7 +289,7 @@ cr.define('print_preview', function() {
       // element, and work up the DOM tree to see if any element has a
       // scrollbar. If there exists a scrollbar, do not handle the key event
       // here.
-      var element = e.target;
+      let element = e.target;
       while (element) {
         if (element.scrollHeight > element.clientHeight ||
             element.scrollWidth > element.clientWidth) {
@@ -302,11 +315,29 @@ cr.define('print_preview', function() {
     },
 
     /**
+     * Shows the unsupported cloud printer message on the preview area's
+     * overlay.
+     */
+    showUnsupportedCloudPrinterMessage: function() {
+      this.showMessage_(print_preview.PreviewAreaMessageId_.UNSUPPORTED);
+    },
+
+    /**
      * Shows a custom message on the preview area's overlay.
      * @param {string} message Custom message to show.
      */
     showCustomMessage: function(message) {
       this.showMessage_(print_preview.PreviewAreaMessageId_.CUSTOM, message);
+    },
+
+    /** @param {boolean} valid Whether the current destination is valid. */
+    setDestinationValid: function(valid) {
+      this.isDestinationValid_ = valid;
+      // If destination is valid and preview is ready, hide the error message.
+      if (valid && this.isPluginReloaded_ && this.isDocumentReady_) {
+        this.setOverlayVisible_(false);
+        this.dispatchPreviewGenerationDoneIfReady_();
+      }
     },
 
     /** @override */
@@ -316,15 +347,18 @@ cr.define('print_preview', function() {
       this.tracker.add(
           assert(this.openSystemDialogButton_), 'click',
           this.onOpenSystemDialogButtonClick_.bind(this));
+      this.tracker.add(
+          assert(this.gcpErrorLearnMoreLink_), 'click',
+          this.onGcpErrorLearnMoreClick_.bind(this));
 
-      var TicketStoreEvent = print_preview.PrintTicketStore.EventType;
-      [TicketStoreEvent.INITIALIZE, TicketStoreEvent.TICKET_CHANGE,
-       TicketStoreEvent.CAPABILITIES_CHANGE, TicketStoreEvent.DOCUMENT_CHANGE]
-          .forEach(function(eventType) {
+      const TicketStoreEvent = print_preview.PrintTicketStore.EventType;
+      [TicketStoreEvent.INITIALIZE, TicketStoreEvent.CAPABILITIES_CHANGE,
+       TicketStoreEvent.DOCUMENT_CHANGE]
+          .forEach(eventType => {
             this.tracker.add(
                 this.printTicketStore_, eventType,
                 this.onTicketChange_.bind(this));
-          }.bind(this));
+          });
 
       [this.printTicketStore_.color, this.printTicketStore_.cssBackground,
        this.printTicketStore_.customMargins, this.printTicketStore_.fitToPage,
@@ -332,11 +366,11 @@ cr.define('print_preview', function() {
        this.printTicketStore_.marginsType, this.printTicketStore_.pageRange,
        this.printTicketStore_.rasterize, this.printTicketStore_.selectionOnly,
        this.printTicketStore_.scaling]
-          .forEach(function(setting) {
+          .forEach(setting => {
             this.tracker.add(
                 setting, print_preview.ticket_items.TicketItem.EventType.CHANGE,
                 this.onTicketChange_.bind(this));
-          }.bind(this));
+          });
 
       if (this.checkPluginCompatibility_()) {
         this.previewGenerator_ = new print_preview.PreviewGenerator(
@@ -361,9 +395,11 @@ cr.define('print_preview', function() {
 
     /** @override */
     exitDocument: function() {
+      this.cancelTimeout();
       print_preview.Component.prototype.exitDocument.call(this);
       this.overlayEl_ = null;
       this.openSystemDialogButton_ = null;
+      this.gcpErrorLearnMoreLink_ = null;
     },
 
     /** @override */
@@ -373,6 +409,8 @@ cr.define('print_preview', function() {
           PreviewArea.Classes_.OVERLAY)[0];
       this.openSystemDialogButton_ = this.getElement().getElementsByClassName(
           PreviewArea.Classes_.OPEN_SYSTEM_DIALOG_BUTTON)[0];
+      this.gcpErrorLearnMoreLink_ = this.getElement().getElementsByClassName(
+          PreviewArea.Classes_.GCP_ERROR_LEARN_MORE_LINK)[0];
     },
 
     /**
@@ -386,9 +424,9 @@ cr.define('print_preview', function() {
       // TODO(raymes): It's harder to test compatibility of the out of process
       // plugin because it's asynchronous. We could do a better job at some
       // point.
-      var oopCompatObj = this.getElement().getElementsByClassName(
+      const oopCompatObj = this.getElement().getElementsByClassName(
           PreviewArea.Classes_.OUT_OF_PROCESS_COMPATIBILITY_OBJECT)[0];
-      var isOOPCompatible = oopCompatObj.postMessage;
+      const isOOPCompatible = oopCompatObj.postMessage;
       oopCompatObj.parentElement.removeChild(oopCompatObj);
 
       return isOOPCompatible;
@@ -404,25 +442,25 @@ cr.define('print_preview', function() {
      */
     showMessage_: function(messageId, opt_message) {
       // Hide all messages.
-      var messageEls = this.getElement().getElementsByClassName(
+      const messageEls = this.getElement().getElementsByClassName(
           PreviewArea.Classes_.MESSAGE);
-      for (var i = 0, messageEl; (messageEl = messageEls[i]); i++) {
+      for (let i = 0, messageEl; (messageEl = messageEls[i]); i++) {
         setIsVisible(messageEl, false);
       }
       // Disable jumping animation to conserve cycles.
-      var jumpingDotsEl = this.getElement().querySelector(
+      const jumpingDotsEl = this.getElement().querySelector(
           '.preview-area-loading-message-jumping-dots');
       jumpingDotsEl.classList.remove('jumping-dots');
 
       // Show specific message.
       if (messageId == print_preview.PreviewAreaMessageId_.CUSTOM) {
-        var customMessageTextEl = this.getElement().getElementsByClassName(
+        const customMessageTextEl = this.getElement().getElementsByClassName(
             PreviewArea.Classes_.CUSTOM_MESSAGE_TEXT)[0];
         customMessageTextEl.textContent = opt_message;
       } else if (messageId == print_preview.PreviewAreaMessageId_.LOADING) {
         jumpingDotsEl.classList.add('jumping-dots');
       }
-      var messageEl = this.getElement().getElementsByClassName(
+      const messageEl = this.getElement().getElementsByClassName(
           PreviewArea.MessageIdClassMap_[messageId])[0];
       setIsVisible(messageEl, true);
 
@@ -440,20 +478,20 @@ cr.define('print_preview', function() {
       this.overlayEl_.setAttribute('aria-hidden', !visible);
 
       // Hide/show all controls that will overlap when the overlay is visible.
-      var marginControls = this.getElement().getElementsByClassName(
+      const marginControls = this.getElement().getElementsByClassName(
           PreviewArea.Classes_.MARGIN_CONTROL);
-      for (var i = 0; i < marginControls.length; ++i) {
+      for (let i = 0; i < marginControls.length; ++i) {
         marginControls[i].setAttribute('aria-hidden', visible);
       }
-      var previewAreaControls = this.getElement().getElementsByClassName(
+      const previewAreaControls = this.getElement().getElementsByClassName(
           PreviewArea.Classes_.PREVIEW_AREA);
-      for (var i = 0; i < previewAreaControls.length; ++i) {
+      for (let i = 0; i < previewAreaControls.length; ++i) {
         previewAreaControls[i].setAttribute('aria-hidden', visible);
       }
 
       if (!visible) {
         // Disable jumping animation to conserve cycles.
-        var jumpingDotsEl = this.getElement().querySelector(
+        const jumpingDotsEl = this.getElement().querySelector(
             '.preview-area-loading-message-jumping-dots');
         jumpingDotsEl.classList.remove('jumping-dots');
       }
@@ -467,15 +505,15 @@ cr.define('print_preview', function() {
     createPlugin_: function(srcUrl) {
       assert(!this.plugin_);
       this.plugin_ = /** @type {print_preview.PDFPlugin} */ (
-          PDFCreateOutOfProcessPlugin(srcUrl));
+          PDFCreateOutOfProcessPlugin(srcUrl, 'chrome://print/pdf'));
       this.plugin_.setKeyEventCallback(this.keyEventCallback_);
 
       this.plugin_.setAttribute('class', 'preview-area-plugin');
       this.plugin_.setAttribute('aria-live', 'polite');
       this.plugin_.setAttribute('aria-atomic', 'true');
       // NOTE: The plugin's 'id' field must be set to 'pdf-viewer' since
-      // chrome/renderer/printing/print_web_view_helper.cc actually references
-      // it.
+      // chrome/renderer/printing/print_render_frame_helper.cc actually
+      // references it.
       this.plugin_.setAttribute('id', 'pdf-viewer');
       this.getChildElement('.preview-area-plugin-wrapper')
           .appendChild(/** @type {Node} */ (this.plugin_));
@@ -505,7 +543,7 @@ cr.define('print_preview', function() {
      */
     onOpenSystemDialogButtonClick_: function() {
       this.openSystemDialogButton_.disabled = true;
-      var openSystemDialogThrobber = this.getElement().getElementsByClassName(
+      const openSystemDialogThrobber = this.getElement().getElementsByClassName(
           PreviewArea.Classes_.OPEN_SYSTEM_DIALOG_BUTTON_THROBBER)[0];
       setIsVisible(openSystemDialogThrobber, true);
       cr.dispatchSimpleEvent(
@@ -513,13 +551,24 @@ cr.define('print_preview', function() {
     },
 
     /**
+     * Called when the learn more link for a cloud destination with an invalid
+     * certificate is clicked. Calls nativeLayer to open a new tab with the help
+     * page.
+     * @private
+     */
+    onGcpErrorLearnMoreClick_: function() {
+      this.nativeLayer_.forceOpenNewTab(
+          loadTimeData.getString('gcpCertificateErrorLearnMoreURL'));
+    },
+
+    /**
      * Called when the print ticket changes. Updates the preview.
      * @private
      */
     onTicketChange_: function() {
-      if (!this.previewGenerator_)
+      if (!this.previewGenerator_ || !this.isDestinationValid_)
         return;
-      var previewRequest = this.previewGenerator_.requestPreview();
+      const previewRequest = this.previewGenerator_.requestPreview();
       if (previewRequest.id <= -1) {
         this.marginControlContainer_.showMarginControlsIfNeeded();
         return;
@@ -534,16 +583,11 @@ cr.define('print_preview', function() {
             PreviewArea.LOADING_TIMEOUT_);
       }
       previewRequest.request.then(
-          /** @param {number} previewUid The unique id of the preview. */
-          function(previewUid) {
+          previewUid => {
             this.previewGenerator_.onPreviewGenerationDone(
                 previewRequest.id, previewUid);
-          }.bind(this),
-          /**
-           * @param {*} type The type of print preview failure that
-           *     occurred.
-           */
-          function(type) {
+          },
+          type => {
             if (/** @type{string} */ (type) == 'CANCELLED')
               return;  // overriden by a new request, do nothing.
             if (/** @type{string} */ (type) == 'SETTINGS_INVALID') {
@@ -555,7 +599,7 @@ cr.define('print_preview', function() {
             } else {
               this.onPreviewGenerationFail_();
             }
-          }.bind(this));
+          });
     },
 
     /**

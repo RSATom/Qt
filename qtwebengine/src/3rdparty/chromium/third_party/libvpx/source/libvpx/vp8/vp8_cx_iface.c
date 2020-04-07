@@ -258,9 +258,7 @@ static vpx_codec_err_t validate_img(vpx_codec_alg_priv_t *ctx,
                                     const vpx_image_t *img) {
   switch (img->fmt) {
     case VPX_IMG_FMT_YV12:
-    case VPX_IMG_FMT_I420:
-    case VPX_IMG_FMT_VPXI420:
-    case VPX_IMG_FMT_VPXYV12: break;
+    case VPX_IMG_FMT_I420: break;
     default:
       ERROR("Invalid image format. Only YV12 and I420 images are supported");
   }
@@ -802,7 +800,20 @@ static vpx_codec_err_t vp8e_encode(vpx_codec_alg_priv_t *ctx,
                                    unsigned long deadline) {
   vpx_codec_err_t res = VPX_CODEC_OK;
 
-  if (!ctx->cfg.rc_target_bitrate) return res;
+  if (!ctx->cfg.rc_target_bitrate) {
+#if CONFIG_MULTI_RES_ENCODING
+    if (!ctx->cpi) return VPX_CODEC_ERROR;
+    if (ctx->cpi->oxcf.mr_total_resolutions > 1) {
+      LOWER_RES_FRAME_INFO *low_res_frame_info =
+          (LOWER_RES_FRAME_INFO *)ctx->cpi->oxcf.mr_low_res_mode_info;
+      if (!low_res_frame_info) return VPX_CODEC_ERROR;
+      low_res_frame_info->skip_encoding_prev_stream = 1;
+      if (ctx->cpi->oxcf.mr_encoder_id == 0)
+        low_res_frame_info->skip_encoding_base_stream = 1;
+    }
+#endif
+    return res;
+  }
 
   if (img) res = validate_img(ctx, img);
 
@@ -902,6 +913,9 @@ static vpx_codec_err_t vp8e_encode(vpx_codec_alg_priv_t *ctx,
             (unsigned long)((delta * ctx->cfg.g_timebase.den + round) /
                             ctx->cfg.g_timebase.num / 10000000);
         pkt.data.frame.flags = lib_flags << 16;
+        pkt.data.frame.width[0] = cpi->common.Width;
+        pkt.data.frame.height[0] = cpi->common.Height;
+        pkt.data.frame.spatial_layer_encoded[0] = 1;
 
         if (lib_flags & FRAMEFLAGS_KEY) {
           pkt.data.frame.flags |= VPX_FRAME_IS_KEY;
@@ -1216,6 +1230,7 @@ static vpx_codec_enc_cfg_map_t vp8e_usage_cfg_map[] = {
         50,  /* rc_two_pass_vbrbias  */
         0,   /* rc_two_pass_vbrmin_section */
         400, /* rc_two_pass_vbrmax_section */
+        0,   // rc_2pass_vbr_corpus_complexity (only has meaningfull for VP9)
 
         /* keyframing settings (kf) */
         VPX_KF_AUTO, /* g_kfmode*/
@@ -1258,6 +1273,9 @@ CODEC_INTERFACE(vpx_codec_vp8_cx) = {
       vp8e_usage_cfg_map, /* vpx_codec_enc_cfg_map_t    cfg_maps; */
       vp8e_encode,        /* vpx_codec_encode_fn_t      encode; */
       vp8e_get_cxdata,    /* vpx_codec_get_cx_data_fn_t   get_cx_data; */
-      vp8e_set_config, NULL, vp8e_get_preview, vp8e_mr_alloc_mem,
+      vp8e_set_config,
+      NULL,
+      vp8e_get_preview,
+      vp8e_mr_alloc_mem,
   } /* encoder functions */
 };

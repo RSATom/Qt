@@ -114,9 +114,9 @@ public:
     static inline QQuickWindowPrivate *get(QQuickWindow *c) { return c->d_func(); }
 
     QQuickWindowPrivate();
-    virtual ~QQuickWindowPrivate();
+    ~QQuickWindowPrivate() override;
 
-    void init(QQuickWindow *, QQuickRenderControl *control = 0);
+    void init(QQuickWindow *, QQuickRenderControl *control = nullptr);
 
     QQuickRootItem *contentItem;
     QSet<QQuickItem *> parentlessItems;
@@ -137,6 +137,7 @@ public:
     QQuickPointerDevice *touchMouseDevice;
     bool checkIfDoubleClicked(ulong newPressEventTimestamp);
     ulong touchMousePressTimestamp;
+    void cancelTouchMouseSynthesis();
 
     // Mouse positions are saved in widget coordinates
     QPointF lastMousePosition;
@@ -146,18 +147,13 @@ public:
     void grabTouchPoints(QObject *grabber, const QVector<int> &ids);
     void removeGrabber(QQuickItem *grabber, bool mouse = true, bool touch = true);
     void sendUngrabEvent(QQuickItem *grabber, bool touch);
-    static QMouseEvent *cloneMouseEvent(QMouseEvent *event, QPointF *transformedLocalPos = 0);
+    static QMouseEvent *cloneMouseEvent(QMouseEvent *event, QPointF *transformedLocalPos = nullptr);
     void deliverToPassiveGrabbers(const QVector<QPointer <QQuickPointerHandler> > &passiveGrabbers, QQuickPointerEvent *pointerEvent);
     void deliverMouseEvent(QQuickPointerMouseEvent *pointerEvent);
     bool sendFilteredMouseEvent(QEvent *event, QQuickItem *receiver, QQuickItem *filteringParent);
     bool sendFilteredPointerEvent(QQuickPointerEvent *event, QQuickItem *receiver, QQuickItem *filteringParent = nullptr);
     bool sendFilteredPointerEventImpl(QQuickPointerEvent *event, QQuickItem *receiver, QQuickItem *filteringParent);
-#if QT_CONFIG(wheelevent)
-    bool deliverWheelEvent(QQuickItem *, QWheelEvent *);
-#endif
-#if QT_CONFIG(gestures)
-    bool deliverNativeGestureEvent(QQuickItem *, QNativeGestureEvent *);
-#endif
+    bool deliverSinglePointEventUntilAccepted(QQuickPointerEvent *);
 
     // entry point of events to the window
     void handleTouchEvent(QTouchEvent *);
@@ -180,7 +176,7 @@ public:
     void deliverUpdatedTouchPoints(QQuickPointerTouchEvent *event);
     void deliverMatchingPointsToItem(QQuickItem *item, QQuickPointerEvent *pointerEvent, bool handlersOnly = false);
 
-    QVector<QQuickItem *> pointerTargets(QQuickItem *, const QPointF &, bool checkMouseButtons, bool checkAcceptsTouch) const;
+    QVector<QQuickItem *> pointerTargets(QQuickItem *, QQuickEventPoint *point, bool checkMouseButtons, bool checkAcceptsTouch) const;
     QVector<QQuickItem *> mergePointerTargets(const QVector<QQuickItem *> &list1, const QVector<QQuickItem *> &list2) const;
 
     // hover delivery
@@ -205,8 +201,8 @@ public:
     };
     Q_DECLARE_FLAGS(FocusOptions, FocusOption)
 
-    void setFocusInScope(QQuickItem *scope, QQuickItem *item, Qt::FocusReason reason, FocusOptions = 0);
-    void clearFocusInScope(QQuickItem *scope, QQuickItem *item, Qt::FocusReason reason, FocusOptions = 0);
+    void setFocusInScope(QQuickItem *scope, QQuickItem *item, Qt::FocusReason reason, FocusOptions = nullptr);
+    void clearFocusInScope(QQuickItem *scope, QQuickItem *item, Qt::FocusReason reason, FocusOptions = nullptr);
     static void notifyFocusChangesRecur(QQuickItem **item, int remaining);
     void clearFocusObject() override;
 
@@ -307,6 +303,7 @@ public:
                 QQuickWindowPrivate::dragOverThreshold(delta.y(), Qt::YAxis, point));
     }
 
+    static bool dragOverThreshold(QVector2D delta);
 
     // data property
     static void data_append(QQmlListProperty<QObject> *, QObject *);
@@ -336,7 +333,7 @@ class QQuickWindowQObjectCleanupJob : public QRunnable
 {
 public:
     QQuickWindowQObjectCleanupJob(QObject *o) : object(o) { }
-    void run() Q_DECL_OVERRIDE { delete object; }
+    void run() override { delete object; }
     QObject *object;
     static void schedule(QQuickWindow *window, QObject *object) {
         Q_ASSERT(window);

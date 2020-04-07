@@ -9,6 +9,7 @@
 
 #include "base/bind.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/single_thread_task_runner.h"
 #include "build/build_config.h"
 #include "device/bluetooth/bluetooth_common.h"
 #include "device/bluetooth/bluetooth_device.h"
@@ -20,16 +21,14 @@
 
 namespace device {
 
-BluetoothAdapter::ServiceOptions::ServiceOptions() {
-}
-BluetoothAdapter::ServiceOptions::~ServiceOptions() {
-}
+BluetoothAdapter::ServiceOptions::ServiceOptions() = default;
+BluetoothAdapter::ServiceOptions::~ServiceOptions() = default;
 
 #if !defined(OS_ANDROID) && !defined(OS_CHROMEOS) && !defined(OS_MACOSX) && \
     !defined(OS_WIN) && !defined(OS_LINUX)
 // static
 base::WeakPtr<BluetoothAdapter> BluetoothAdapter::CreateAdapter(
-    const InitCallback& init_callback) {
+    InitCallback init_callback) {
   return base::WeakPtr<BluetoothAdapter>();
 }
 #endif  // !defined(OS_CHROMEOS) && !defined(OS_WIN) && !defined(OS_MACOSX)
@@ -38,7 +37,7 @@ base::WeakPtr<BluetoothAdapter> BluetoothAdapter::GetWeakPtrForTesting() {
   return weak_ptr_factory_.GetWeakPtr();
 }
 
-#if defined(OS_CHROMEOS) || defined(OS_LINUX)
+#if defined(OS_LINUX)
 void BluetoothAdapter::Shutdown() {
   NOTIMPLEMENTED();
 }
@@ -57,6 +56,32 @@ void BluetoothAdapter::RemoveObserver(BluetoothAdapter::Observer* observer) {
 bool BluetoothAdapter::HasObserver(BluetoothAdapter::Observer* observer) {
   DCHECK(observer);
   return observers_.HasObserver(observer);
+}
+
+void BluetoothAdapter::SetPowered(bool powered,
+                                  const base::Closure& callback,
+                                  const ErrorCallback& error_callback) {
+  if (set_powered_callbacks_) {
+    // Only allow one pending callback at a time.
+    ui_task_runner_->PostTask(FROM_HERE, error_callback);
+    return;
+  }
+
+  if (powered == IsPowered()) {
+    // Return early in case no change of power state is needed.
+    ui_task_runner_->PostTask(FROM_HERE, callback);
+    return;
+  }
+
+  if (!SetPoweredImpl(powered)) {
+    ui_task_runner_->PostTask(FROM_HERE, error_callback);
+    return;
+  }
+
+  set_powered_callbacks_ = std::make_unique<SetPoweredCallbacks>();
+  set_powered_callbacks_->powered = powered;
+  set_powered_callbacks_->callback = callback;
+  set_powered_callbacks_->error_callback = error_callback;
 }
 
 std::unordered_map<BluetoothDevice*, BluetoothDevice::UUIDSet>
@@ -284,10 +309,28 @@ void BluetoothAdapter::NotifyGattDescriptorValueChanged(
     observer.GattDescriptorValueChanged(this, descriptor, value);
 }
 
-BluetoothAdapter::BluetoothAdapter() : weak_ptr_factory_(this) {
-}
+BluetoothAdapter::SetPoweredCallbacks::SetPoweredCallbacks() = default;
+BluetoothAdapter::SetPoweredCallbacks::~SetPoweredCallbacks() = default;
+
+BluetoothAdapter::BluetoothAdapter() : weak_ptr_factory_(this) {}
 
 BluetoothAdapter::~BluetoothAdapter() {
+  // If there's a pending powered request, run its error callback.
+  if (set_powered_callbacks_) {
+    set_powered_callbacks_->error_callback.Run();
+  }
+}
+
+void BluetoothAdapter::DidChangePoweredState() {
+  if (set_powered_callbacks_) {
+    // Move into a local variable to clear out both callbacks at the end of the
+    // scope and to allow scheduling another SetPowered() call in either of the
+    // callbacks.
+    std::unique_ptr<SetPoweredCallbacks> callbacks =
+        std::move(set_powered_callbacks_);
+    callbacks->powered == IsPowered() ? std::move(callbacks->callback).Run()
+                                      : callbacks->error_callback.Run();
+  }
 }
 
 void BluetoothAdapter::OnStartDiscoverySession(
@@ -423,7 +466,7 @@ void BluetoothAdapter::RecordBluetoothDiscoverySessionStopOutcome(
 }
 
 // static
-const base::TimeDelta BluetoothAdapter::timeoutSec =
+constexpr base::TimeDelta BluetoothAdapter::timeoutSec =
     base::TimeDelta::FromSeconds(180);
 
 }  // namespace device

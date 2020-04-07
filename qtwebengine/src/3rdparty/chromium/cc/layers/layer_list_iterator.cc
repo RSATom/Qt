@@ -36,7 +36,7 @@ static LayerImpl* ChildAt(LayerImpl* layer, int index) {
 }
 
 static Layer* ChildAt(Layer* layer, int index) {
-  return layer->child_at(index);
+  return layer->children()[index].get();
 }
 
 template <typename LayerType>
@@ -44,7 +44,7 @@ LayerListIterator<LayerType>::LayerListIterator(
     const LayerListIterator<LayerType>& other) = default;
 
 template <typename LayerType>
-LayerListIterator<LayerType>::~LayerListIterator() {}
+LayerListIterator<LayerType>::~LayerListIterator() = default;
 
 template <typename LayerType>
 LayerListIterator<LayerType>& LayerListIterator<LayerType>::operator++() {
@@ -85,7 +85,7 @@ LayerListReverseIterator<LayerType>::LayerListReverseIterator(
 }
 
 template <typename LayerType>
-LayerListReverseIterator<LayerType>::~LayerListReverseIterator() {}
+LayerListReverseIterator<LayerType>::~LayerListReverseIterator() = default;
 
 // We will only support prefix increment.
 template <typename LayerType>

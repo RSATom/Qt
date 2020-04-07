@@ -29,9 +29,9 @@
 #ifndef BUTTON_TASKMENU_H
 #define BUTTON_TASKMENU_H
 
-#include <QtWidgets/QAbstractButton>
-#include <QtWidgets/QCommandLinkButton>
-#include <QtWidgets/QButtonGroup>
+#include <QtWidgets/qabstractbutton.h>
+#include <QtWidgets/qcommandlinkbutton.h>
+#include <QtWidgets/qbuttongroup.h>
 
 #include <qdesigner_taskmenu_p.h>
 #include <extensionfactory_p.h>
@@ -83,8 +83,8 @@ class ButtonGroupTaskMenu : public QObject, public QDesignerTaskMenuExtension
 public:
     explicit ButtonGroupTaskMenu(QButtonGroup *buttonGroup, QObject *parent = 0);
 
-    QAction *preferredEditAction() const Q_DECL_OVERRIDE;
-    QList<QAction*> taskActions() const Q_DECL_OVERRIDE;
+    QAction *preferredEditAction() const override;
+    QList<QAction*> taskActions() const override;
 
 private:
     QButtonGroup *m_buttonGroup;
@@ -99,10 +99,10 @@ class ButtonTaskMenu: public QDesignerTaskMenu
     Q_DISABLE_COPY(ButtonTaskMenu)
 public:
     explicit ButtonTaskMenu(QAbstractButton *button, QObject *parent = 0);
-    virtual ~ButtonTaskMenu();
+    ~ButtonTaskMenu() override;
 
-    QAction *preferredEditAction() const Q_DECL_OVERRIDE;
-    QList<QAction*> taskActions() const Q_DECL_OVERRIDE;
+    QAction *preferredEditAction() const override;
+    QList<QAction*> taskActions() const override;
 
     QAbstractButton *button() const;
 

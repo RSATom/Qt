@@ -9,7 +9,6 @@
 #include <sched.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <sys/resource.h>
 #include <sys/time.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -28,6 +27,12 @@
 #include <sys/syscall.h>
 #endif
 
+#if defined(OS_FUCHSIA)
+#include <zircon/process.h>
+#else
+#include <sys/resource.h>
+#endif
+
 namespace base {
 
 void InitThreading();
@@ -38,7 +43,7 @@ namespace {
 
 struct ThreadParams {
   ThreadParams()
-      : delegate(NULL), joinable(false), priority(ThreadPriority::NORMAL) {}
+      : delegate(nullptr), joinable(false), priority(ThreadPriority::NORMAL) {}
 
   PlatformThread::Delegate* delegate;
   bool joinable;
@@ -75,7 +80,7 @@ void* ThreadFunc(void* params) {
       PlatformThread::CurrentId());
 
   base::TerminateOnThread();
-  return NULL;
+  return nullptr;
 }
 
 bool CreateThread(size_t stack_size,
@@ -137,7 +142,9 @@ PlatformThreadId PlatformThread::CurrentId() {
   return syscall(__NR_gettid);
 #elif defined(OS_ANDROID)
   return gettid();
-#elif defined(OS_SOLARIS) || defined(OS_QNX) || defined(OS_FUCHSIA)
+#elif defined(OS_FUCHSIA)
+  return zx_thread_self();
+#elif defined(OS_SOLARIS) || defined(OS_QNX)
   return pthread_self();
 #elif defined(OS_NACL) && defined(__GLIBC__)
   return pthread_self();
@@ -219,8 +226,8 @@ void PlatformThread::Join(PlatformThreadHandle thread_handle) {
   // Joining another thread may block the current thread for a long time, since
   // the thread referred to by |thread_handle| may still be running long-lived /
   // blocking tasks.
-  base::ThreadRestrictions::AssertIOAllowed();
-  CHECK_EQ(0, pthread_join(thread_handle.platform_handle(), NULL));
+  AssertBlockingAllowed();
+  CHECK_EQ(0, pthread_join(thread_handle.platform_handle(), nullptr));
 }
 
 // static
@@ -228,8 +235,9 @@ void PlatformThread::Detach(PlatformThreadHandle thread_handle) {
   CHECK_EQ(0, pthread_detach(thread_handle.platform_handle()));
 }
 
-// Mac has its own Set/GetCurrentThreadPriority() implementations.
-#if !defined(OS_MACOSX)
+// Mac and Fuchsia have their own Set/GetCurrentThreadPriority()
+// implementations.
+#if !defined(OS_MACOSX) && !defined(OS_FUCHSIA)
 
 // static
 bool PlatformThread::CanIncreaseCurrentThreadPriority() {
@@ -292,6 +300,6 @@ ThreadPriority PlatformThread::GetCurrentThreadPriority() {
 #endif  // !defined(OS_NACL)
 }
 
-#endif  // !defined(OS_MACOSX)
+#endif  // !defined(OS_MACOSX) && !defined(OS_FUCHSIA)
 
 }  // namespace base

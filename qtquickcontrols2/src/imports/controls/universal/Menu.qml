@@ -34,18 +34,19 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.10
-import QtQuick.Controls 2.3
-import QtQuick.Templates 2.3 as T
-import QtQuick.Controls.Universal 2.3
+import QtQuick 2.12
+import QtQuick.Controls 2.12
+import QtQuick.Templates 2.12 as T
+import QtQuick.Controls.Universal 2.12
+import QtQuick.Window 2.12
 
 T.Menu {
     id: control
 
-    implicitWidth: Math.max(background ? background.implicitWidth : 0,
-                            contentItem ? contentItem.implicitWidth + leftPadding + rightPadding : 0)
-    implicitHeight: Math.max(background ? background.implicitHeight : 0,
-                             contentItem ? contentItem.implicitHeight : 0) + topPadding + bottomPadding
+    implicitWidth: Math.max(implicitBackgroundWidth + leftInset + rightInset,
+                            contentWidth + leftPadding + rightPadding)
+    implicitHeight: Math.max(implicitBackgroundHeight + topInset + bottomInset,
+                             contentHeight + topPadding + bottomPadding)
 
     margins: 0
     overlap: 1
@@ -55,8 +56,7 @@ T.Menu {
     contentItem: ListView {
         implicitHeight: contentHeight
         model: control.contentModel
-        // TODO: improve this?
-        interactive: ApplicationWindow.window ? contentHeight > ApplicationWindow.window.height : false
+        interactive: Window.window ? contentHeight > Window.window.height : false
         clip: true
         currentIndex: control.currentIndex
 

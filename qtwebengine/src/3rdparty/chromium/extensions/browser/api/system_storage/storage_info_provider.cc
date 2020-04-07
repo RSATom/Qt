@@ -7,7 +7,6 @@
 #include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/sys_info.h"
-#include "base/threading/sequenced_worker_pool.h"
 #include "components/storage_monitor/storage_info.h"
 #include "components/storage_monitor/storage_monitor.h"
 #include "content/public/browser/browser_thread.h"
@@ -68,7 +67,7 @@ void StorageInfoProvider::InitializeProvider(
 }
 
 bool StorageInfoProvider::QueryInfo() {
-  base::ThreadRestrictions::AssertIOAllowed();
+  base::AssertBlockingAllowed();
   // No info to query since we get all available storage devices' info in
   // |PrepareQueryOnUIThread()|.
   return true;
@@ -88,9 +87,8 @@ void StorageInfoProvider::GetAllStoragesIntoInfoList() {
   }
 }
 
-double StorageInfoProvider::GetStorageFreeSpaceFromTransientIdOnFileThread(
+double StorageInfoProvider::GetStorageFreeSpaceFromTransientIdAsync(
     const std::string& transient_id) {
-  DCHECK_CURRENTLY_ON(BrowserThread::FILE);
   std::vector<StorageInfo> storage_list =
       StorageMonitor::GetInstance()->GetAllAvailableStorages();
 

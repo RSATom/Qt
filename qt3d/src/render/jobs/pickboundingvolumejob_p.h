@@ -51,11 +51,13 @@
 // We mean it.
 //
 
+#include "abstractpickingjob_p.h"
 #include <Qt3DCore/qaspectjob.h>
 #include <Qt3DRender/private/qray3d_p.h>
 #include <Qt3DRender/private/handle_types_p.h>
 #include <Qt3DRender/private/qboundingvolumeprovider_p.h>
 #include <Qt3DRender/private/qcollisionqueryresult_p.h>
+#include <Qt3DRender/private/pickboundingvolumeutils_p.h>
 #include <Qt3DRender/qpickevent.h>
 #include <QMouseEvent>
 #include <QKeyEvent>
@@ -63,48 +65,30 @@
 
 QT_BEGIN_NAMESPACE
 
-namespace Qt3DCore {
-class QNodeId;
-}
-
 namespace Qt3DRender {
 namespace Render {
-
-class Entity;
-class Renderer;
-class NodeManagers;
-class RenderSettings;
 
 namespace PickingUtils {
 typedef QVector<RayCasting::QCollisionQueryResult::Hit> HitList;
 }
 
-class Q_AUTOTEST_EXPORT PickBoundingVolumeJob : public Qt3DCore::QAspectJob
+class Q_AUTOTEST_EXPORT PickBoundingVolumeJob : public AbstractPickingJob
 {
 public:
     PickBoundingVolumeJob();
 
     void setRoot(Entity *root);
-    void setMouseEvents(const QList<QMouseEvent> &pendingEvents);
+    void setMouseEvents(const QList<QPair<QObject*, QMouseEvent>> &pendingEvents);
     void setKeyEvents(const QList<QKeyEvent> &pendingEvents);
-    void setFrameGraphRoot(FrameGraphNode *frameGraphRoot);
-    void setRenderSettings(RenderSettings *settings);
-    void setManagers(NodeManagers *manager);
     void markPickersDirty();
     bool pickersDirty() const { return m_pickersDirty; }
-
-    static RayCasting::QRay3D intersectionRay(const QPoint &pos,
-                                              const QMatrix4x4 &viewMatrix,
-                                              const QMatrix4x4 &projectionMatrix,
-                                              const QRect &viewport);
 
     // For unit tests
     inline HObjectPicker currentPicker() const { return m_currentPicker; }
     inline QVector<HObjectPicker> hoveredPickers() const { return m_hoveredPickers; }
-    bool runHelper();
+    bool runHelper() override;
 
 protected:
-    void run() Q_DECL_FINAL;
     void dispatchPickEvents(const QMouseEvent &event,
                             const PickingUtils::HitList &sphereHits,
                             QPickEvent::Buttons eventButton,
@@ -113,23 +97,12 @@ protected:
                             bool allHitsRequested);
 
 private:
-    NodeManagers *m_manager;
-    Entity *m_node;
-    FrameGraphNode *m_frameGraphRoot;
-    RenderSettings *m_renderSettings;
-    QList<QMouseEvent> m_pendingMouseEvents;
-    bool m_pickersDirty;
-    bool m_oneEnabledAtLeast;
-    bool m_oneHoverAtLeast;
-
-    QList<QKeyEvent> m_pendingKeyEvents;
-
-    QRect windowViewport(const QSize &area, const QRectF &relativeViewport) const;
-    RayCasting::QRay3D rayForViewportAndCamera(const QSize &area,
-                                               const QPoint &pos,
-                                               const QRectF &relativeViewport,
-                                               const Qt3DCore::QNodeId cameraId) const;
     void clearPreviouslyHoveredPickers();
+
+    QList<QPair<QObject*, QMouseEvent>> m_pendingMouseEvents;
+    QList<QKeyEvent> m_pendingKeyEvents;
+    bool m_pickersDirty;
+    bool m_oneHoverAtLeast;
     HObjectPicker m_currentPicker;
     QVector<HObjectPicker> m_hoveredPickers;
     QVector<HObjectPicker> m_hoveredPickersToClear;

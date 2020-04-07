@@ -42,7 +42,7 @@ class QT_DATAVISUALIZATION_EXPORT QCategory3DAxis : public QAbstract3DAxis
     Q_PROPERTY(QStringList labels READ labels WRITE setLabels NOTIFY labelsChanged)
 
 public:
-    explicit QCategory3DAxis(QObject *parent = Q_NULLPTR);
+    explicit QCategory3DAxis(QObject *parent = nullptr);
     virtual ~QCategory3DAxis();
 
     void setLabels(const QStringList &labels);

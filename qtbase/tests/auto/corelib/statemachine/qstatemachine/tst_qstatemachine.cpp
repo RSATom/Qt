@@ -4667,11 +4667,14 @@ void tst_QStateMachine::clonedSignals()
     s1->addTransition(t1);
 
     machine.setInitialState(s1);
+    QSignalSpy startedSpy(&machine, &QStateMachine::started);
     machine.start();
-    QTest::qWait(1);
+    QVERIFY(startedSpy.wait());
 
+    QSignalSpy transitionSpy(t1, &CloneSignalTransition::triggered);
     emitter.emitSignalWithDefaultArg();
-    QTest::qWait(1);
+    QTRY_COMPARE(transitionSpy.count(), 1);
+
     QCOMPARE(t1->eventSignalIndex, emitter.metaObject()->indexOfSignal("signalWithDefaultArg()"));
     TEST_ACTIVE_CHANGED(s1, 2);
     TEST_ACTIVE_CHANGED(s2, 1);
@@ -6636,7 +6639,7 @@ void tst_QStateMachine::postEventFromBeginSelectTransitions()
 {
     class StateMachine : public QStateMachine {
     protected:
-        void beginSelectTransitions(QEvent* e) Q_DECL_OVERRIDE {
+        void beginSelectTransitions(QEvent* e) override {
             if (e->type() == QEvent::Type(QEvent::User + 2))
                 postEvent(new QEvent(QEvent::Type(QEvent::User + 1)), QStateMachine::HighPriority);
         }
@@ -6684,10 +6687,13 @@ void tst_QStateMachine::dontProcessSlotsWhenMachineIsNotRunning()
     machine.addState(&initialState);
     machine.addState(&finalState);
     machine.setInitialState(&initialState);
-    machine.start();
     connect(&machine, &QStateMachine::finished, &emitter.thread, &QThread::quit);
-    QSignalSpy signalSpy(&machine, &QStateMachine::finished);
-    QTRY_COMPARE_WITH_TIMEOUT(signalSpy.count(), 1, 100);
+    machine.start();
+    QSignalSpy emittedSpy(&emitter, &SignalEmitter::signalWithNoArg);
+    QSignalSpy finishedSpy(&machine, &QStateMachine::finished);
+    QTRY_COMPARE_WITH_TIMEOUT(emittedSpy.count(), 2, 100);
+    QTRY_COMPARE(finishedSpy.count(), 1);
+    QTRY_VERIFY(emitter.thread.isFinished());
 }
 
 QTEST_MAIN(tst_QStateMachine)

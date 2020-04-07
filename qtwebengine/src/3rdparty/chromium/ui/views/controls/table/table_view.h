@@ -139,6 +139,8 @@ class VIEWS_EXPORT TableView
     return visible_columns_;
   }
 
+  const VisibleColumn& GetVisibleColumn(int index);
+
   // Sets the width of the column. |index| is in terms of |visible_columns_|.
   void SetVisibleColumnWidth(int index, int width);
 
@@ -185,6 +187,7 @@ class VIEWS_EXPORT TableView
   void OnItemsChanged(int start, int length) override;
   void OnItemsAdded(int start, int length) override;
   void OnItemsRemoved(int start, int length) override;
+  void OnItemsMoved(int old_start, int length, int new_start) override;
 
  protected:
   // View overrides:
@@ -218,6 +221,14 @@ class VIEWS_EXPORT TableView
     ADVANCE_DECREMENT,
     ADVANCE_INCREMENT,
   };
+
+  // Returns the horizontal margin between the bounds of a cell and its
+  // contents.
+  int GetCellMargin() const;
+
+  // Returns the horizontal spacing between elements (grouper, icon, and text)
+  // in a cell.
+  int GetCellElementSpacing() const;
 
   // Invoked when the number of rows changes in some way.
   void NumRowsChanged();
@@ -268,7 +279,7 @@ class VIEWS_EXPORT TableView
   void SelectByViewIndex(int view_index);
 
   // Sets the selection model to |new_selection|.
-  void SetSelectionModel(const ui::ListSelectionModel& new_selection);
+  void SetSelectionModel(ui::ListSelectionModel new_selection);
 
   // Advances the selection (from the active index) in the specified direction.
   void AdvanceSelection(AdvanceDirection direction);

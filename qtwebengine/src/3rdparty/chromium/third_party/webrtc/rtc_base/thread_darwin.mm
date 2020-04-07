@@ -8,11 +8,11 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/rtc_base/thread.h"
+#include "rtc_base/thread.h"
 
 #import <Foundation/Foundation.h>
 
-#include "webrtc/rtc_base/platform_thread.h"
+#include "rtc_base/platform_thread.h"
 
 /*
  * This file contains platform-specific implementations for several
@@ -38,8 +38,7 @@ void InitCocoaMultiThreading() {
 
 namespace rtc {
 
-ThreadManager::ThreadManager() {
-  main_thread_ref_ = CurrentThreadRef();
+ThreadManager::ThreadManager() : main_thread_ref_(CurrentThreadRef()) {
   pthread_key_create(&key_, nullptr);
   // This is necessary to alert the cocoa runtime of the fact that
   // we are running in a multithreaded environment.
@@ -58,6 +57,7 @@ void* Thread::PreRun(void* pv) {
       init->thread->Run();
     }
   }
+  ThreadManager::Instance()->SetCurrentThread(nullptr);
   delete init;
   return nullptr;
 }

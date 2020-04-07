@@ -120,6 +120,9 @@ ASSERT_ENUMS_MATCH(QtWebEngineCore::WebContentsAdapterClient::OtherNavigation, Q
 
     \a info contains the information about the URL request and will track internally
     whether its members have been altered.
+
+    \warning All method calls to the profile on the main thread will block until
+    execution of this function is finished.
 */
 
 
@@ -192,8 +195,7 @@ QWebEngineUrlRequestInfo::QWebEngineUrlRequestInfo(QWebEngineUrlRequestInfoPriva
 
 QWebEngineUrlRequestInfo::ResourceType QWebEngineUrlRequestInfo::resourceType() const
 {
-    Q_D(const QWebEngineUrlRequestInfo);
-    return d->resourceType;
+    return d_ptr->resourceType;
 }
 
 /*!
@@ -217,8 +219,7 @@ QWebEngineUrlRequestInfo::ResourceType QWebEngineUrlRequestInfo::resourceType() 
 
 QWebEngineUrlRequestInfo::NavigationType QWebEngineUrlRequestInfo::navigationType() const
 {
-    Q_D(const QWebEngineUrlRequestInfo);
-    return d->navigationType;
+    return d_ptr->navigationType;
 }
 
 /*!
@@ -227,8 +228,7 @@ QWebEngineUrlRequestInfo::NavigationType QWebEngineUrlRequestInfo::navigationTyp
 
 QUrl QWebEngineUrlRequestInfo::requestUrl() const
 {
-    Q_D(const QWebEngineUrlRequestInfo);
-    return d->url;
+    return d_ptr->url;
 }
 
 /*!
@@ -238,8 +238,7 @@ QUrl QWebEngineUrlRequestInfo::requestUrl() const
 
 QUrl QWebEngineUrlRequestInfo::firstPartyUrl() const
 {
-    Q_D(const QWebEngineUrlRequestInfo);
-    return d->firstPartyUrl;
+    return d_ptr->firstPartyUrl;
 }
 
 
@@ -249,8 +248,7 @@ QUrl QWebEngineUrlRequestInfo::firstPartyUrl() const
 
 QByteArray QWebEngineUrlRequestInfo::requestMethod() const
 {
-    Q_D(const QWebEngineUrlRequestInfo);
-    return d->method;
+    return d_ptr->method;
 }
 
 /*!
@@ -258,8 +256,7 @@ QByteArray QWebEngineUrlRequestInfo::requestMethod() const
 */
 bool QWebEngineUrlRequestInfo::changed() const
 {
-    Q_D(const QWebEngineUrlRequestInfo);
-    return d->changed;
+    return d_ptr->changed;
 }
 
 /*!
@@ -269,9 +266,8 @@ bool QWebEngineUrlRequestInfo::changed() const
 
 void QWebEngineUrlRequestInfo::redirect(const QUrl &url)
 {
-    Q_D(QWebEngineUrlRequestInfo);
-    d->changed = true;
-    d->url = url;
+    d_ptr->changed = true;
+    d_ptr->url = url;
 }
 
 /*!
@@ -282,9 +278,8 @@ void QWebEngineUrlRequestInfo::redirect(const QUrl &url)
 
 void QWebEngineUrlRequestInfo::block(bool shouldBlock)
 {
-    Q_D(QWebEngineUrlRequestInfo);
-    d->changed = true;
-    d->shouldBlockRequest = shouldBlock;
+    d_ptr->changed = true;
+    d_ptr->shouldBlockRequest = shouldBlock;
 }
 
 /*!
@@ -293,9 +288,8 @@ void QWebEngineUrlRequestInfo::block(bool shouldBlock)
 
 void QWebEngineUrlRequestInfo::setHttpHeader(const QByteArray &name, const QByteArray &value)
 {
-    Q_D(QWebEngineUrlRequestInfo);
-    d->changed = true;
-    d->extraHeaders.insert(name, value);
+    d_ptr->changed = true;
+    d_ptr->extraHeaders.insert(name, value);
 }
 
 QT_END_NAMESPACE

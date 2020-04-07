@@ -40,15 +40,17 @@
 #ifndef QREMOTEOBJECTSOURCE_H
 #define QREMOTEOBJECTSOURCE_H
 
-#include <QtCore/QScopedPointer>
+#include <QtCore/qscopedpointer.h>
 #include <QtRemoteObjects/qtremoteobjectglobal.h>
-#include <QtCore/QMetaMethod>
+#include <QtCore/qmetaobject.h>
 
 QT_BEGIN_NAMESPACE
 
+namespace QtPrivate {
+
 //Based on compile time checks for static connect() from qobjectdefs_impl.h
 template <class ObjectType, typename Func1, typename Func2>
-static inline int qtro_prop_index(Func1, Func2, const char *propName)
+static inline int qtro_property_index(Func1, Func2, const char *propName)
 {
     typedef QtPrivate::FunctionPointer<Func1> Type1;
     typedef QtPrivate::FunctionPointer<Func2> Type2;
@@ -117,7 +119,18 @@ static inline int qtro_method_index(Func1, Func2, const char *methodName, int *c
 
 QByteArray qtro_classinfo_signature(const QMetaObject *metaObject);
 
-class QRemoteObjectHostBase;
+}
+
+// TODO ModelInfo just needs roles, and no need for SubclassInfo
+class QAbstractItemModel;
+
+struct ModelInfo
+{
+    QAbstractItemModel *ptr;
+    QString name;
+    QByteArray roles;
+};
+
 class SourceApiMap
 {
 protected:
@@ -130,7 +143,6 @@ public:
     virtual int propertyCount() const = 0;
     virtual int signalCount() const = 0;
     virtual int methodCount() const = 0;
-    virtual int modelCount() const { return 0; }
     virtual int sourceEnumIndex(int index) const = 0;
     virtual int sourcePropertyIndex(int index) const = 0;
     virtual int sourceSignalIndex(int index) const = 0;
@@ -152,7 +164,8 @@ public:
     virtual bool isAdapterSignal(int) const { return false; }
     virtual bool isAdapterMethod(int) const { return false; }
     virtual bool isAdapterProperty(int) const { return false; }
-    virtual void modelSetup(QRemoteObjectHostBase *) const { }
+    QVector<ModelInfo> m_models;
+    QVector<SourceApiMap *> m_subclasses;
 };
 
 QT_END_NAMESPACE

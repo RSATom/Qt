@@ -128,7 +128,7 @@
     </message>
     <message>
         <source>Rear Camera</source>
-        <translation type="vanished">Darrera de la càmera</translation>
+        <translation type="vanished">Darrere de la càmera</translation>
     </message>
     <message>
         <source>Desktop Camera</source>
@@ -174,12 +174,52 @@
 <context>
     <name>DSCameraSession</name>
     <message>
+        <source>Failed to configure preview format</source>
+        <translation>Ha fallat en configurar el format de la vista prèvia</translation>
+    </message>
+    <message>
+        <source>Failed to connect graph</source>
+        <translation>Ha fallat en connectar el graf</translation>
+    </message>
+    <message>
+        <source>Failed to get stream control</source>
+        <translation>Ha fallat en obtenir el control del flux</translation>
+    </message>
+    <message>
+        <source>Failed to start</source>
+        <translation>Ha fallat en iniciar</translation>
+    </message>
+    <message>
+        <source>Failed to stop</source>
+        <translation>Ha fallat en aturar</translation>
+    </message>
+    <message>
         <source>Camera not ready for capture</source>
         <translation>La càmera no està llesta per a la captura</translation>
     </message>
     <message>
         <source>Could not save image to file.</source>
         <translation>No s&apos;ha pogut desar la imatge al fitxer.</translation>
+    </message>
+    <message>
+        <source>Failed to create filter graph</source>
+        <translation>Ha fallat en crear el graf de filtres</translation>
+    </message>
+    <message>
+        <source>Failed to create graph builder</source>
+        <translation>Ha fallat en crear el constructor de grafs</translation>
+    </message>
+    <message>
+        <source>Failed to connect capture graph and filter graph</source>
+        <translation>Ha fallat en crear el graf de captures i el graf de filtres</translation>
+    </message>
+    <message>
+        <source>No capture device found</source>
+        <translation>No s&apos;ha trobat cap dispositiu de captura</translation>
+    </message>
+    <message>
+        <source>Failed to create null renderer</source>
+        <translation>Ha fallat en crear el renderitzador nul</translation>
     </message>
 </context>
 <context>

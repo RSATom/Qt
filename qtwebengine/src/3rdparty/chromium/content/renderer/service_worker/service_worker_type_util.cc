@@ -7,13 +7,13 @@
 #include <memory>
 #include <string>
 
-#include "base/memory/ptr_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "content/common/service_worker/service_worker_types.h"
-#include "third_party/WebKit/public/platform/WebHTTPHeaderVisitor.h"
-#include "third_party/WebKit/public/platform/WebString.h"
-#include "third_party/WebKit/public/platform/modules/serviceworker/WebServiceWorkerRequest.h"
-#include "third_party/WebKit/public/platform/modules/serviceworker/WebServiceWorkerResponse.h"
+#include "storage/common/blob_storage/blob_handle.h"
+#include "third_party/blink/public/platform/modules/service_worker/web_service_worker_request.h"
+#include "third_party/blink/public/platform/modules/service_worker/web_service_worker_response.h"
+#include "third_party/blink/public/platform/web_http_header_visitor.h"
+#include "third_party/blink/public/platform/web_string.h"
 
 namespace content {
 
@@ -47,7 +47,7 @@ std::unique_ptr<HeaderVisitor> MakeHeaderVisitor(
 std::unique_ptr<ServiceWorkerHeaderMap> GetHeaderMap(
     const blink::WebServiceWorkerResponse& web_response) {
   std::unique_ptr<ServiceWorkerHeaderMap> result =
-      base::MakeUnique<ServiceWorkerHeaderMap>();
+      std::make_unique<ServiceWorkerHeaderMap>();
   web_response.VisitHTTPHeaderFields(MakeHeaderVisitor(result.get()).get());
   return result;
 }
@@ -55,7 +55,7 @@ std::unique_ptr<ServiceWorkerHeaderMap> GetHeaderMap(
 std::unique_ptr<ServiceWorkerHeaderList> GetHeaderList(
     const blink::WebVector<blink::WebString>& web_headers) {
   std::unique_ptr<ServiceWorkerHeaderList> result =
-      base::MakeUnique<ServiceWorkerHeaderList>(web_headers.size());
+      std::make_unique<ServiceWorkerHeaderList>(web_headers.size());
   std::transform(web_headers.begin(), web_headers.end(), result->begin(),
                  [](const blink::WebString& s) { return s.Latin1(); });
   return result;
@@ -64,7 +64,7 @@ std::unique_ptr<ServiceWorkerHeaderList> GetHeaderList(
 std::unique_ptr<std::vector<GURL>> GetURLList(
     const blink::WebVector<blink::WebURL>& web_url_list) {
   std::unique_ptr<std::vector<GURL>> result =
-      base::MakeUnique<std::vector<GURL>>(web_url_list.size());
+      std::make_unique<std::vector<GURL>>(web_url_list.size());
   std::transform(web_url_list.begin(), web_url_list.end(), result->begin(),
                  [](const blink::WebURL& url) { return url; });
   return result;
@@ -82,15 +82,37 @@ void GetServiceWorkerHeaderMapFromWebRequest(
 
 ServiceWorkerResponse GetServiceWorkerResponseFromWebResponse(
     const blink::WebServiceWorkerResponse& web_response) {
-  return ServiceWorkerResponse(
+  scoped_refptr<storage::BlobHandle> blob;
+  auto blob_pipe = web_response.CloneBlobPtr();
+  if (blob_pipe.is_valid()) {
+    blink::mojom::BlobPtr blob_ptr;
+    blob_ptr.Bind(blink::mojom::BlobPtrInfo(std::move(blob_pipe),
+                                            blink::mojom::Blob::Version_));
+    blob = base::MakeRefCounted<storage::BlobHandle>(std::move(blob_ptr));
+  }
+
+  ServiceWorkerResponse response = ServiceWorkerResponse(
       GetURLList(web_response.UrlList()), web_response.Status(),
       web_response.StatusText().Utf8(), web_response.ResponseType(),
       GetHeaderMap(web_response), web_response.BlobUUID().Utf8(),
-      web_response.BlobSize(), web_response.GetError(),
+      web_response.BlobSize(), std::move(blob), web_response.GetError(),
       web_response.ResponseTime(),
       !web_response.CacheStorageCacheName().IsNull(),
       web_response.CacheStorageCacheName().Utf8(),
       GetHeaderList(web_response.CorsExposedHeaderNames()));
+  if (!web_response.SideDataBlobSize())
+    return response;
+  response.side_data_blob_uuid = web_response.SideDataBlobUUID().Utf8();
+  response.side_data_blob_size = web_response.SideDataBlobSize();
+  auto side_data_blob_pipe = web_response.CloneSideDataBlobPtr();
+  if (side_data_blob_pipe.is_valid()) {
+    blink::mojom::BlobPtr side_data_blob_ptr;
+    side_data_blob_ptr.Bind(blink::mojom::BlobPtrInfo(
+        std::move(side_data_blob_pipe), blink::mojom::Blob::Version_));
+    response.side_data_blob = base::MakeRefCounted<storage::BlobHandle>(
+        std::move(side_data_blob_ptr));
+  }
+  return response;
 }
 
 }  // namespace content

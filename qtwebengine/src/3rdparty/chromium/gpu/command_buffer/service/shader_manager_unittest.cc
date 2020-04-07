@@ -220,9 +220,10 @@ TEST_F(ShaderManagerTest, DoCompile) {
           kInterfaceBlock1Name, kInterfaceBlock1InstanceName,
           interface_block1_fields);
 
-  TestHelper::SetShaderStates(
-      gl_.get(), shader1, true, &kLog, &kTranslatedSource, nullptr, &attrib_map,
-      &uniform_map, &varying_map, &interface_block_map, &output_variable_list);
+  TestHelper::SetShaderStates(gl_.get(), shader1, true, &kLog,
+                              &kTranslatedSource, nullptr, &attrib_map,
+                              &uniform_map, &varying_map, &interface_block_map,
+                              &output_variable_list, nullptr);
 
   EXPECT_TRUE(shader1->valid());
   // When compilation succeeds, no log is recorded.
@@ -237,7 +238,8 @@ TEST_F(ShaderManagerTest, DoCompile) {
     const sh::Attribute* variable_info = shader1->GetAttribInfo(it->first);
     ASSERT_TRUE(variable_info != NULL);
     EXPECT_EQ(it->second.type, variable_info->type);
-    EXPECT_EQ(it->second.arraySize, variable_info->arraySize);
+    EXPECT_EQ(it->second.getOutermostArraySize(),
+              variable_info->getOutermostArraySize());
     EXPECT_EQ(it->second.precision, variable_info->precision);
     EXPECT_EQ(it->second.staticUse, variable_info->staticUse);
     EXPECT_STREQ(it->second.name.c_str(), variable_info->name.c_str());
@@ -251,7 +253,8 @@ TEST_F(ShaderManagerTest, DoCompile) {
     const sh::Uniform* variable_info = shader1->GetUniformInfo(it->first);
     ASSERT_TRUE(variable_info != NULL);
     EXPECT_EQ(it->second.type, variable_info->type);
-    EXPECT_EQ(it->second.arraySize, variable_info->arraySize);
+    EXPECT_EQ(it->second.getOutermostArraySize(),
+              variable_info->getOutermostArraySize());
     EXPECT_EQ(it->second.precision, variable_info->precision);
     EXPECT_EQ(it->second.staticUse, variable_info->staticUse);
     EXPECT_STREQ(it->second.name.c_str(), variable_info->name.c_str());
@@ -265,7 +268,8 @@ TEST_F(ShaderManagerTest, DoCompile) {
     const sh::Varying* variable_info = shader1->GetVaryingInfo(it->first);
     ASSERT_TRUE(variable_info != NULL);
     EXPECT_EQ(it->second.type, variable_info->type);
-    EXPECT_EQ(it->second.arraySize, variable_info->arraySize);
+    EXPECT_EQ(it->second.getOutermostArraySize(),
+              variable_info->getOutermostArraySize());
     EXPECT_EQ(it->second.precision, variable_info->precision);
     EXPECT_EQ(it->second.staticUse, variable_info->staticUse);
     EXPECT_STREQ(it->second.name.c_str(), variable_info->name.c_str());
@@ -297,7 +301,7 @@ TEST_F(ShaderManagerTest, DoCompile) {
     const auto& exp = interface_block1_fields[f];
     const auto& act = interface_block1_info->fields[f];
     EXPECT_EQ(exp.type, act.type);
-    EXPECT_EQ(exp.arraySize, act.arraySize);
+    EXPECT_EQ(exp.getOutermostArraySize(), act.getOutermostArraySize());
     EXPECT_EQ(exp.precision, act.precision);
     EXPECT_EQ(exp.staticUse, act.staticUse);
     EXPECT_STREQ(exp.name.c_str(), act.name.c_str());
@@ -315,7 +319,8 @@ TEST_F(ShaderManagerTest, DoCompile) {
         shader1->GetOutputVariableInfo(it->mappedName);
     ASSERT_TRUE(variable_info != nullptr);
     EXPECT_EQ(it->type, variable_info->type);
-    EXPECT_EQ(it->arraySize, variable_info->arraySize);
+    EXPECT_EQ(it->getOutermostArraySize(),
+              variable_info->getOutermostArraySize());
     EXPECT_EQ(it->precision, variable_info->precision);
     EXPECT_EQ(it->staticUse, variable_info->staticUse);
     EXPECT_STREQ(it->name.c_str(), variable_info->name.c_str());
@@ -325,9 +330,10 @@ TEST_F(ShaderManagerTest, DoCompile) {
   }
 
   // Compile failure case.
-  TestHelper::SetShaderStates(
-      gl_.get(), shader1, false, &kLog, &kTranslatedSource, nullptr,
-      &attrib_map, &uniform_map, &varying_map, nullptr, &output_variable_list);
+  TestHelper::SetShaderStates(gl_.get(), shader1, false, &kLog,
+                              &kTranslatedSource, nullptr, &attrib_map,
+                              &uniform_map, &varying_map, nullptr,
+                              &output_variable_list, nullptr);
   EXPECT_FALSE(shader1->valid());
   EXPECT_STREQ(kLog.c_str(), shader1->log_info().c_str());
   EXPECT_STREQ("", shader1->translated_source().c_str());

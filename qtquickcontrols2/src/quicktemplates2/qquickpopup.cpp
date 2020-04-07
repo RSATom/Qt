@@ -36,6 +36,7 @@
 
 #include "qquickpopup_p.h"
 #include "qquickpopup_p_p.h"
+#include "qquickpopupanchors_p.h"
 #include "qquickpopupitem_p_p.h"
 #include "qquickpopuppositioner_p_p.h"
 #include "qquickapplicationwindow_p.h"
@@ -57,6 +58,7 @@ QT_BEGIN_NAMESPACE
     \inqmlmodule QtQuick.Controls
     \since 5.7
     \ingroup qtquickcontrols2-popups
+    \ingroup qtquickcontrols2-focusscopes
     \brief Base type of popup-like user interface controls.
 
     Popup is the base type of popup-like user interface controls. It can be
@@ -64,7 +66,7 @@ QT_BEGIN_NAMESPACE
 
     \qml
     import QtQuick.Window 2.2
-    import QtQuick.Controls 2.1
+    import QtQuick.Controls 2.12
 
     ApplicationWindow {
         id: window
@@ -108,14 +110,42 @@ QT_BEGIN_NAMESPACE
     \image qtquickcontrols2-popup.png
 
     The \l implicitWidth and \l implicitHeight of a popup are typically based
-    on the implicit sizes of the background and the content item plus any
-    \l padding. These properties determine how large the popup will be when no
+    on the implicit sizes of the background and the content item plus any insets
+    and paddings. These properties determine how large the popup will be when no
     explicit \l width or \l height is specified.
 
-    The \l background item fills the entire width and height of the popup,
-    unless an explicit size has been given for it.
+    The geometry of the \l contentItem is determined by the padding. The following
+    example reserves 10px padding between the boundaries of the popup and its content:
 
-    The geometry of the \l contentItem is determined by the \l padding.
+    \code
+    Popup {
+        padding: 10
+
+        contentItem: Text {
+            text: "Content"
+        }
+    }
+    \endcode
+
+    The \l background item fills the entire width and height of the popup,
+    unless insets or an explicit size have been given for it.
+
+    Negative insets can be used to make the background larger than the popup.
+    The following example uses negative insets to place a shadow outside the
+    popup's boundaries:
+
+    \code
+    Popup {
+        topInset: -2
+        leftInset: -2
+        rightInset: -6
+        bottomInset: -6
+
+        background: BorderImage {
+            source: ":/images/shadowed-background.png"
+        }
+    }
+    \endcode
 
     \section1 Popup Sizing
 
@@ -168,6 +198,23 @@ QT_BEGIN_NAMESPACE
      }
     \endcode
 
+    \section1 Popup Positioning
+
+    Similar to items in Qt Quick, Popup's \l x and \l y coordinates are
+    relative to its parent. This means that opening a popup that is a
+    child of a \l Button, for example, will cause the popup to be positioned
+    relative to the button.
+
+    \include qquickoverlay-popup-parent.qdocinc
+
+    Another way to center a popup in the window regardless of its parent item
+    is to use \l {anchors.centerIn}:
+
+    \snippet qtquickcontrols2-popup.qml centerIn
+
+    To ensure that the popup is positioned within the bounds of the enclosing
+    window, the \l margins property can be set to a non-negative value.
+
     \sa {Popup Controls}, {Customizing Popup}, ApplicationWindow
 */
 
@@ -203,57 +250,10 @@ QT_BEGIN_NAMESPACE
     \sa closed()
 */
 
-static const QQuickPopup::ClosePolicy DefaultClosePolicy = QQuickPopup::CloseOnEscape | QQuickPopup::CloseOnPressOutside;
+const QQuickPopup::ClosePolicy QQuickPopupPrivate::DefaultClosePolicy = QQuickPopup::CloseOnEscape | QQuickPopup::CloseOnPressOutside;
 
 QQuickPopupPrivate::QQuickPopupPrivate()
-    : focus(false),
-      modal(false),
-      dim(false),
-      hasDim(false),
-      visible(false),
-      complete(true),
-      positioning(false),
-      hasWidth(false),
-      hasHeight(false),
-      hasTopMargin(false),
-      hasLeftMargin(false),
-      hasRightMargin(false),
-      hasBottomMargin(false),
-      allowVerticalFlip(false),
-      allowHorizontalFlip(false),
-      allowVerticalMove(true),
-      allowHorizontalMove(true),
-      allowVerticalResize(true),
-      allowHorizontalResize(true),
-      hadActiveFocusBeforeExitTransition(false),
-      interactive(true),
-      hasClosePolicy(false),
-      touchId(-1),
-      x(0),
-      y(0),
-      effectiveX(0),
-      effectiveY(0),
-      margins(-1),
-      topMargin(0),
-      leftMargin(0),
-      rightMargin(0),
-      bottomMargin(0),
-      contentWidth(0),
-      contentHeight(0),
-      transitionState(QQuickPopupPrivate::NoTransition),
-      closePolicy(DefaultClosePolicy),
-      parentItem(nullptr),
-      dimmer(nullptr),
-      window(nullptr),
-      enter(nullptr),
-      exit(nullptr),
-      popupItem(nullptr),
-      positioner(nullptr),
-      transitionManager(this)
-{
-}
-
-QQuickPopupPrivate::~QQuickPopupPrivate()
+    : transitionManager(this)
 {
 }
 
@@ -263,11 +263,13 @@ void QQuickPopupPrivate::init()
     popupItem = new QQuickPopupItem(q);
     popupItem->setVisible(false);
     q->setParentItem(qobject_cast<QQuickItem *>(parent));
-    QObject::connect(popupItem, &QQuickItem::enabledChanged, q, &QQuickPopup::enabledChanged);
     QObject::connect(popupItem, &QQuickControl::paddingChanged, q, &QQuickPopup::paddingChanged);
     QObject::connect(popupItem, &QQuickControl::backgroundChanged, q, &QQuickPopup::backgroundChanged);
     QObject::connect(popupItem, &QQuickControl::contentItemChanged, q, &QQuickPopup::contentItemChanged);
-    positioner = new QQuickPopupPositioner(q);
+    QObject::connect(popupItem, &QQuickControl::implicitContentWidthChanged, q, &QQuickPopup::implicitContentWidthChanged);
+    QObject::connect(popupItem, &QQuickControl::implicitContentHeightChanged, q, &QQuickPopup::implicitContentHeightChanged);
+    QObject::connect(popupItem, &QQuickControl::implicitBackgroundWidthChanged, q, &QQuickPopup::implicitBackgroundWidthChanged);
+    QObject::connect(popupItem, &QQuickControl::implicitBackgroundHeightChanged, q, &QQuickPopup::implicitBackgroundHeightChanged);
 }
 
 void QQuickPopupPrivate::closeOrReject()
@@ -437,7 +439,7 @@ bool QQuickPopupPrivate::prepareEnterTransition()
         visible = true;
         transitionState = EnterTransition;
         popupItem->setVisible(true);
-        positioner->setParentItem(parentItem);
+        getPositioner()->setParentItem(parentItem);
         emit q->visibleChanged();
     }
     return true;
@@ -450,12 +452,11 @@ bool QQuickPopupPrivate::prepareExitTransition()
         return false;
 
     if (transitionState != ExitTransition) {
-        if (focus) {
-            // The setFocus(false) call below removes any active focus before we're
-            // able to check it in finalizeExitTransition.
-            hadActiveFocusBeforeExitTransition = popupItem->hasActiveFocus();
+        // The setFocus(false) call below removes any active focus before we're
+        // able to check it in finalizeExitTransition.
+        hadActiveFocusBeforeExitTransition = popupItem->hasActiveFocus();
+        if (focus)
             popupItem->setFocus(false);
-        }
         transitionState = ExitTransition;
         hideOverlay();
         emit q->aboutToHide();
@@ -477,7 +478,7 @@ void QQuickPopupPrivate::finalizeEnterTransition()
 void QQuickPopupPrivate::finalizeExitTransition()
 {
     Q_Q(QQuickPopup);
-    positioner->setParentItem(nullptr);
+    getPositioner()->setParentItem(nullptr);
     popupItem->setParentItem(nullptr);
     popupItem->setVisible(false);
     destroyOverlay();
@@ -563,6 +564,55 @@ void QQuickPopupPrivate::setBottomMargin(qreal value, bool reset)
     }
 }
 
+/*!
+    \since QtQuick.Controls 2.5 (Qt 5.12)
+    \qmlpropertygroup QtQuick.Controls::Popup::anchors
+    \qmlproperty Object QtQuick.Controls::Popup::anchors.centerIn
+
+    Anchors provide a way to position an item by specifying its
+    relationship with other items.
+
+    A common use case is to center a popup within its parent. One way to do
+    this is with the \l {Item::}{x} and \l {Item::}{y} properties. Anchors offer
+    a more convenient approach:
+
+    \qml
+    Pane {
+        // ...
+
+        Popup {
+            anchors.centerIn: parent
+        }
+    }
+    \endqml
+
+    It is also possible to center the popup in the window by using \l Overlay:
+
+    \snippet qtquickcontrols2-popup.qml centerIn
+
+    This makes it easy to center a popup in the window from any component.
+
+    \note Popups can only be centered within their immediate parent or
+    the window overlay; trying to center in other items will produce a warning.
+
+    \sa {Popup Positioning}, {Item::anchors}
+*/
+QQuickPopupAnchors *QQuickPopupPrivate::getAnchors()
+{
+    Q_Q(QQuickPopup);
+    if (!anchors)
+        anchors = new QQuickPopupAnchors(q);
+    return anchors;
+}
+
+QQuickPopupPositioner *QQuickPopupPrivate::getPositioner()
+{
+    Q_Q(QQuickPopup);
+    if (!positioner)
+        positioner = new QQuickPopupPositioner(q);
+    return positioner;
+}
+
 void QQuickPopupPrivate::setWindow(QQuickWindow *newWindow)
 {
     Q_Q(QQuickPopup);
@@ -604,7 +654,7 @@ void QQuickPopupPrivate::itemDestroyed(QQuickItem *item)
 
 void QQuickPopupPrivate::reposition()
 {
-    positioner->reposition();
+    getPositioner()->reposition();
 }
 
 static QQuickItem *createDimmer(QQmlComponent *component, QQuickPopup *popup, QQuickItem *parent)
@@ -708,7 +758,7 @@ void QQuickPopupPrivate::resizeOverlay()
 }
 
 QQuickPopupTransitionManager::QQuickPopupTransitionManager(QQuickPopupPrivate *popup)
-    : QQuickTransitionManager(), popup(popup)
+    : popup(popup)
 {
 }
 
@@ -766,6 +816,8 @@ QQuickPopup::~QQuickPopup()
     d->popupItem->ungrabShortcut();
     delete d->popupItem;
     d->popupItem = nullptr;
+    delete d->positioner;
+    d->positioner = nullptr;
 }
 
 /*!
@@ -991,17 +1043,13 @@ void QQuickPopup::setImplicitHeight(qreal height)
 qreal QQuickPopup::contentWidth() const
 {
     Q_D(const QQuickPopup);
-    return d->contentWidth;
+    return d->popupItem->contentWidth();
 }
 
 void QQuickPopup::setContentWidth(qreal width)
 {
     Q_D(QQuickPopup);
-    if (qFuzzyCompare(d->contentWidth, width))
-        return;
-
-    d->contentWidth = width;
-    emit contentWidthChanged();
+    d->popupItem->setContentWidth(width);
 }
 
 /*!
@@ -1017,17 +1065,13 @@ void QQuickPopup::setContentWidth(qreal width)
 qreal QQuickPopup::contentHeight() const
 {
     Q_D(const QQuickPopup);
-    return d->contentHeight;
+    return d->popupItem->contentHeight();
 }
 
 void QQuickPopup::setContentHeight(qreal height)
 {
     Q_D(QQuickPopup);
-    if (qFuzzyCompare(d->contentHeight, height))
-        return;
-
-    d->contentHeight = height;
-    emit contentHeightChanged();
+    d->popupItem->setContentHeight(height);
 }
 
 /*!
@@ -1285,11 +1329,12 @@ void QQuickPopup::resetPadding()
 /*!
     \qmlproperty real QtQuick.Controls::Popup::topPadding
 
-    This property holds the top padding.
+    This property holds the top padding. Unless explicitly set, the value
+    is equal to \c verticalPadding.
 
     \include qquickpopup-padding.qdocinc
 
-    \sa padding, bottomPadding, availableHeight
+    \sa padding, bottomPadding, verticalPadding, availableHeight
 */
 qreal QQuickPopup::topPadding() const
 {
@@ -1312,11 +1357,12 @@ void QQuickPopup::resetTopPadding()
 /*!
     \qmlproperty real QtQuick.Controls::Popup::leftPadding
 
-    This property holds the left padding.
+    This property holds the left padding. Unless explicitly set, the value
+    is equal to \c horizontalPadding.
 
     \include qquickpopup-padding.qdocinc
 
-    \sa padding, rightPadding, availableWidth
+    \sa padding, rightPadding, horizontalPadding, availableWidth
 */
 qreal QQuickPopup::leftPadding() const
 {
@@ -1339,11 +1385,12 @@ void QQuickPopup::resetLeftPadding()
 /*!
     \qmlproperty real QtQuick.Controls::Popup::rightPadding
 
-    This property holds the right padding.
+    This property holds the right padding. Unless explicitly set, the value
+    is equal to \c horizontalPadding.
 
     \include qquickpopup-padding.qdocinc
 
-    \sa padding, leftPadding, availableWidth
+    \sa padding, leftPadding, horizontalPadding, availableWidth
 */
 qreal QQuickPopup::rightPadding() const
 {
@@ -1366,11 +1413,12 @@ void QQuickPopup::resetRightPadding()
 /*!
     \qmlproperty real QtQuick.Controls::Popup::bottomPadding
 
-    This property holds the bottom padding.
+    This property holds the bottom padding. Unless explicitly set, the value
+    is equal to \c verticalPadding.
 
     \include qquickpopup-padding.qdocinc
 
-    \sa padding, topPadding, availableHeight
+    \sa padding, topPadding, verticalPadding, availableHeight
 */
 qreal QQuickPopup::bottomPadding() const
 {
@@ -1560,8 +1608,9 @@ void QQuickPopup::setParentItem(QQuickItem *parent)
         QQuickItemPrivate::get(d->parentItem)->removeItemChangeListener(d, QQuickItemPrivate::Destroyed);
     }
     d->parentItem = parent;
-    if (d->positioner->parentItem())
-        d->positioner->setParentItem(parent);
+    QQuickPopupPositioner *positioner = d->getPositioner();
+    if (positioner->parentItem())
+        positioner->setParentItem(parent);
     if (parent) {
         QObjectPrivate::connect(parent, &QQuickItem::windowChanged, d, &QQuickPopupPrivate::setWindow);
         QQuickItemPrivate::get(d->parentItem)->addItemChangeListener(d, QQuickItemPrivate::Destroyed);
@@ -1616,8 +1665,7 @@ void QQuickPopup::setBackground(QQuickItem *background)
 
     The content item is the visual implementation of the popup. When the
     popup is made visible, the content item is automatically reparented to
-    the \l {ApplicationWindow::overlay}{overlay item} of its application
-    window.
+    the \l {Overlay::overlay}{overlay item}.
 
     \note The content item is automatically resized to fit within the
     \l padding of the popup.
@@ -1656,13 +1704,12 @@ void QQuickPopup::setContentItem(QQuickItem *item)
 
     \sa Item::data, contentChildren
 */
-QQmlListProperty<QObject> QQuickPopup::contentData()
+QQmlListProperty<QObject> QQuickPopupPrivate::contentData()
 {
-    Q_D(QQuickPopup);
-    QQuickControlPrivate *p = QQuickControlPrivate::get(d->popupItem);
+    QQuickControlPrivate *p = QQuickControlPrivate::get(popupItem);
     if (!p->contentItem)
         p->executeContentItem();
-    return QQmlListProperty<QObject>(d->popupItem->contentItem(), nullptr,
+    return QQmlListProperty<QObject>(popupItem->contentItem(), nullptr,
                                      QQuickItemPrivate::data_append,
                                      QQuickItemPrivate::data_count,
                                      QQuickItemPrivate::data_at,
@@ -1682,10 +1729,9 @@ QQmlListProperty<QObject> QQuickPopup::contentData()
 
     \sa Item::children, contentData
 */
-QQmlListProperty<QQuickItem> QQuickPopup::contentChildren()
+QQmlListProperty<QQuickItem> QQuickPopupPrivate::contentChildren()
 {
-    Q_D(QQuickPopup);
-    return QQmlListProperty<QQuickItem>(d->popupItem->contentItem(), nullptr,
+    return QQmlListProperty<QQuickItem>(popupItem->contentItem(), nullptr,
                                         QQuickItemPrivate::children_append,
                                         QQuickItemPrivate::children_count,
                                         QQuickItemPrivate::children_at,
@@ -1759,14 +1805,20 @@ bool QQuickPopup::hasActiveFocus() const
     This property holds whether the popup is modal.
 
     Modal popups often have a distinctive background dimming effect defined
-    in \l {ApplicationWindow::overlay}{overlay.modal}, and do not allow press
-    or release events through to items beneath them.
+    in \l {Overlay::modal}{Overlay.modal}, and do not allow press
+    or release events through to items beneath them. For example, if the user
+    accidentally clicks outside of a popup, any item beneath that popup at
+    the location of the click will not receive the event.
 
     On desktop platforms, it is common for modal popups to be closed only when
     the escape key is pressed. To achieve this behavior, set
-    \l closePolicy to \c Popup.CloseOnEscape.
+    \l closePolicy to \c Popup.CloseOnEscape. By default, \c closePolicy
+    is set to \c {Popup.CloseOnEscape | Popup.CloseOnPressOutside}, which
+    means that clicking outside of a modal popup will close it.
 
     The default value is \c false.
+
+    \sa dim
 */
 bool QQuickPopup::isModal() const
 {
@@ -1798,7 +1850,7 @@ void QQuickPopup::setModal(bool modal)
     Unless explicitly set, this property follows the value of \l modal. To
     return to the default value, set this property to \c undefined.
 
-    \sa modal
+    \sa modal, {Overlay::modeless}{Overlay.modeless}
 */
 bool QQuickPopup::dim() const
 {
@@ -1920,8 +1972,8 @@ void QQuickPopup::setOpacity(qreal opacity)
     This property holds the scale factor of the popup. The default value is \c 1.0.
 
     A scale of less than \c 1.0 causes the popup to be rendered at a smaller size,
-    and a scale greater than \c 1.0 renders the popup at a larger size. A negative
-    scale causes the popup to be mirrored when rendered.
+    and a scale greater than \c 1.0 renders the popup at a larger size. Negative
+    scales are not supported.
 */
 qreal QQuickPopup::scale() const
 {
@@ -1984,7 +2036,7 @@ void QQuickPopup::setClosePolicy(ClosePolicy policy)
 void QQuickPopup::resetClosePolicy()
 {
     Q_D(QQuickPopup);
-    setClosePolicy(DefaultClosePolicy);
+    setClosePolicy(QQuickPopupPrivate::DefaultClosePolicy);
     d->hasClosePolicy = false;
 }
 
@@ -2076,6 +2128,236 @@ void QQuickPopup::setExit(QQuickTransition *transition)
         return;
     d->exit = transition;
     emit exitChanged();
+}
+
+/*!
+    \since QtQuick.Controls 2.5 (Qt 5.12)
+    \qmlproperty real QtQuick.Controls::Popup::horizontalPadding
+
+    This property holds the horizontal padding. Unless explicitly set, the value
+    is equal to \c padding.
+
+    \include qquickpopup-padding.qdocinc
+
+    \sa padding, leftPadding, rightPadding, verticalPadding
+*/
+qreal QQuickPopup::horizontalPadding() const
+{
+    Q_D(const QQuickPopup);
+    return d->popupItem->horizontalPadding();
+}
+
+void QQuickPopup::setHorizontalPadding(qreal padding)
+{
+    Q_D(QQuickPopup);
+    d->popupItem->setHorizontalPadding(padding);
+}
+
+void QQuickPopup::resetHorizontalPadding()
+{
+    Q_D(QQuickPopup);
+    d->popupItem->resetHorizontalPadding();
+}
+
+/*!
+    \since QtQuick.Controls 2.5 (Qt 5.12)
+    \qmlproperty real QtQuick.Controls::Popup::verticalPadding
+
+    This property holds the vertical padding. Unless explicitly set, the value
+    is equal to \c padding.
+
+    \include qquickpopup-padding.qdocinc
+
+    \sa padding, topPadding, bottomPadding, horizontalPadding
+*/
+qreal QQuickPopup::verticalPadding() const
+{
+    Q_D(const QQuickPopup);
+    return d->popupItem->verticalPadding();
+}
+
+void QQuickPopup::setVerticalPadding(qreal padding)
+{
+    Q_D(QQuickPopup);
+    d->popupItem->setVerticalPadding(padding);
+}
+
+void QQuickPopup::resetVerticalPadding()
+{
+    Q_D(QQuickPopup);
+    d->popupItem->resetVerticalPadding();
+}
+
+/*!
+    \since QtQuick.Controls 2.5 (Qt 5.12)
+    \qmlproperty real QtQuick.Controls::Popup::implicitContentWidth
+    \readonly
+
+    This property holds the implicit content width.
+
+    The value is calculated based on the content children.
+
+    \sa implicitContentHeight, implicitBackgroundWidth
+*/
+qreal QQuickPopup::implicitContentWidth() const
+{
+    Q_D(const QQuickPopup);
+    return d->popupItem->implicitContentWidth();
+}
+
+/*!
+    \since QtQuick.Controls 2.5 (Qt 5.12)
+    \qmlproperty real QtQuick.Controls::Popup::implicitContentHeight
+    \readonly
+
+    This property holds the implicit content height.
+
+    The value is calculated based on the content children.
+
+    \sa implicitContentWidth, implicitBackgroundHeight
+*/
+qreal QQuickPopup::implicitContentHeight() const
+{
+    Q_D(const QQuickPopup);
+    return d->popupItem->implicitContentHeight();
+}
+
+/*!
+    \since QtQuick.Controls 2.5 (Qt 5.12)
+    \qmlproperty real QtQuick.Controls::Popup::implicitBackgroundWidth
+    \readonly
+
+    This property holds the implicit background width.
+
+    The value is equal to \c {background ? background.implicitWidth : 0}.
+
+    \sa implicitBackgroundHeight, implicitContentWidth
+*/
+qreal QQuickPopup::implicitBackgroundWidth() const
+{
+    Q_D(const QQuickPopup);
+    return d->popupItem->implicitBackgroundWidth();
+}
+
+/*!
+    \since QtQuick.Controls 2.5 (Qt 5.12)
+    \qmlproperty real QtQuick.Controls::Popup::implicitBackgroundHeight
+    \readonly
+
+    This property holds the implicit background height.
+
+    The value is equal to \c {background ? background.implicitHeight : 0}.
+
+    \sa implicitBackgroundWidth, implicitContentHeight
+*/
+qreal QQuickPopup::implicitBackgroundHeight() const
+{
+    Q_D(const QQuickPopup);
+    return d->popupItem->implicitBackgroundHeight();
+}
+
+/*!
+    \since QtQuick.Controls 2.5 (Qt 5.12)
+    \qmlproperty real QtQuick.Controls::Popup::topInset
+
+    This property holds the top inset for the background.
+
+    \sa {Popup Layout}, bottomInset
+*/
+qreal QQuickPopup::topInset() const
+{
+    Q_D(const QQuickPopup);
+    return d->popupItem->topInset();
+}
+
+void QQuickPopup::setTopInset(qreal inset)
+{
+    Q_D(QQuickPopup);
+    d->popupItem->setTopInset(inset);
+}
+
+void QQuickPopup::resetTopInset()
+{
+    Q_D(QQuickPopup);
+    d->popupItem->resetTopInset();
+}
+
+/*!
+    \since QtQuick.Controls 2.5 (Qt 5.12)
+    \qmlproperty real QtQuick.Controls::Popup::leftInset
+
+    This property holds the left inset for the background.
+
+    \sa {Popup Layout}, rightInset
+*/
+qreal QQuickPopup::leftInset() const
+{
+    Q_D(const QQuickPopup);
+    return d->popupItem->leftInset();
+}
+
+void QQuickPopup::setLeftInset(qreal inset)
+{
+    Q_D(QQuickPopup);
+    d->popupItem->setLeftInset(inset);
+}
+
+void QQuickPopup::resetLeftInset()
+{
+    Q_D(QQuickPopup);
+    d->popupItem->resetLeftInset();
+}
+
+/*!
+    \since QtQuick.Controls 2.5 (Qt 5.12)
+    \qmlproperty real QtQuick.Controls::Popup::rightInset
+
+    This property holds the right inset for the background.
+
+    \sa {Popup Layout}, leftInset
+*/
+qreal QQuickPopup::rightInset() const
+{
+    Q_D(const QQuickPopup);
+    return d->popupItem->rightInset();
+}
+
+void QQuickPopup::setRightInset(qreal inset)
+{
+    Q_D(QQuickPopup);
+    d->popupItem->setRightInset(inset);
+}
+
+void QQuickPopup::resetRightInset()
+{
+    Q_D(QQuickPopup);
+    d->popupItem->resetRightInset();
+}
+
+/*!
+    \since QtQuick.Controls 2.5 (Qt 5.12)
+    \qmlproperty real QtQuick.Controls::Popup::bottomInset
+
+    This property holds the bottom inset for the background.
+
+    \sa {Popup Layout}, topInset
+*/
+qreal QQuickPopup::bottomInset() const
+{
+    Q_D(const QQuickPopup);
+    return d->popupItem->bottomInset();
+}
+
+void QQuickPopup::setBottomInset(qreal inset)
+{
+    Q_D(QQuickPopup);
+    d->popupItem->setBottomInset(inset);
+}
+
+void QQuickPopup::resetBottomInset()
+{
+    Q_D(QQuickPopup);
+    d->popupItem->resetBottomInset();
 }
 
 bool QQuickPopup::filtersChildMouseEvents() const
@@ -2253,6 +2535,14 @@ void QQuickPopup::contentItemChange(QQuickItem *newItem, QQuickItem *oldItem)
     Q_UNUSED(oldItem);
 }
 
+void QQuickPopup::contentSizeChange(const QSizeF &newSize, const QSizeF &oldSize)
+{
+    if (!qFuzzyCompare(newSize.width(), oldSize.width()))
+        emit contentWidthChanged();
+    if (!qFuzzyCompare(newSize.height(), oldSize.height()))
+        emit contentHeightChanged();
+}
+
 void QQuickPopup::fontChange(const QFont &newFont, const QFont &oldFont)
 {
     Q_UNUSED(newFont);
@@ -2328,10 +2618,14 @@ void QQuickPopup::paddingChange(const QMarginsF &newPadding, const QMarginsF &ol
     if (bp)
         emit bottomPaddingChanged();
 
-    if (lp || rp)
+    if (lp || rp) {
+        emit horizontalPaddingChanged();
         emit availableWidthChanged();
-    if (tp || bp)
+    }
+    if (tp || bp) {
+        emit verticalPaddingChanged();
         emit availableHeightChanged();
+    }
 }
 
 void QQuickPopup::paletteChange(const QPalette &newPalette, const QPalette &oldPalette)
@@ -2348,14 +2642,26 @@ void QQuickPopup::spacingChange(qreal newSpacing, qreal oldSpacing)
     emit spacingChanged();
 }
 
+void QQuickPopup::insetChange(const QMarginsF &newInset, const QMarginsF &oldInset)
+{
+    if (!qFuzzyCompare(newInset.top(), oldInset.top()))
+        emit topInsetChanged();
+    if (!qFuzzyCompare(newInset.left(), oldInset.left()))
+        emit leftInsetChanged();
+    if (!qFuzzyCompare(newInset.right(), oldInset.right()))
+        emit rightInsetChanged();
+    if (!qFuzzyCompare(newInset.bottom(), oldInset.bottom()))
+        emit bottomInsetChanged();
+}
+
 QFont QQuickPopup::defaultFont() const
 {
-    return QQuickControlPrivate::themeFont(QPlatformTheme::SystemFont);
+    return QQuickTheme::font(QQuickTheme::System);
 }
 
 QPalette QQuickPopup::defaultPalette() const
 {
-    return QQuickControlPrivate::themePalette(QPlatformTheme::SystemPalette);
+    return QQuickTheme::palette(QQuickTheme::System);
 }
 
 #if QT_CONFIG(accessibility)
@@ -2395,3 +2701,5 @@ bool QQuickPopup::setAccessibleProperty(const char *propertyName, const QVariant
 }
 
 QT_END_NAMESPACE
+
+#include "moc_qquickpopup_p.cpp"

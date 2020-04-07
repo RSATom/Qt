@@ -20,7 +20,6 @@
 #include "base/sequence_checker.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_piece.h"
-#include "build/build_config.h"
 #include "ui/base/layout.h"
 #include "ui/base/ui_base_export.h"
 #include "ui/gfx/font_list.h"
@@ -159,6 +158,10 @@ class UI_BASE_EXPORT ResourceBundle {
   // Check if the .pak for the given locale exists.
   bool LocaleDataPakExists(const std::string& locale);
 
+  // Inserts |data_pack| to |data_pack_| and updates |max_scale_factor_|
+  // accordingly.
+  void AddDataPack(std::unique_ptr<DataPack> data_pack);
+
   // Registers additional data pack files with this ResourceBundle.  When
   // looking for a DataResource, we will search these files after searching the
   // main module. |path| should be the complete path to the pack file if known
@@ -294,6 +297,11 @@ class UI_BASE_EXPORT ResourceBundle {
   // Returns true if |scale_factor| is supported by this platform.
   static bool IsScaleFactorSupported(ScaleFactor scale_factor);
 
+  // Sets whether this ResourceBundle should mangle localized strings or not.
+  void set_mangle_localized_strings_for_test(bool mangle) {
+    mangle_localized_strings_ = mangle;
+  }
+
  private:
   FRIEND_TEST_ALL_PREFIXES(ResourceBundleTest, DelegateGetPathForLocalePack);
   FRIEND_TEST_ALL_PREFIXES(ResourceBundleTest, DelegateGetImageNamed);
@@ -309,7 +317,7 @@ class UI_BASE_EXPORT ResourceBundle {
 
   struct FontKey;
 
-  typedef base::hash_map<int, base::string16> IdToStringMap;
+  using IdToStringMap = base::hash_map<int, base::string16>;
 
   // Ctor/dtor are private, since we're a singleton.
   explicit ResourceBundle(Delegate* delegate);
@@ -332,10 +340,6 @@ class UI_BASE_EXPORT ResourceBundle {
   void AddDataPackFromPathInternal(const base::FilePath& path,
                                    ScaleFactor scale_factor,
                                    bool optional);
-
-  // Inserts |data_pack| to |data_pack_| and updates |max_scale_factor_|
-  // accordingly.
-  void AddDataPack(std::unique_ptr<DataPack> data_pack);
 
   // Try to load the locale specific strings from an external data module.
   // Returns the locale that is loaded.
@@ -395,6 +399,11 @@ class UI_BASE_EXPORT ResourceBundle {
 
   const base::FilePath& GetOverriddenPakPath();
 
+  // If mangling of localized strings is enabled, mangles |str| to make it
+  // longer and to add begin and end markers so that any truncation of it is
+  // visible and returns the mangled string. If not, returns |str|.
+  base::string16 MaybeMangleLocalizedString(const base::string16& str);
+
   // This pointer is guaranteed to outlive the ResourceBundle instance and may
   // be NULL.
   Delegate* delegate_;
@@ -412,7 +421,7 @@ class UI_BASE_EXPORT ResourceBundle {
 
   // Cached images. The ResourceBundle caches all retrieved images and keeps
   // ownership of the pointers.
-  typedef std::map<int, gfx::Image> ImageMap;
+  using ImageMap = std::map<int, gfx::Image>;
   ImageMap images_;
 
   gfx::Image empty_image_;
@@ -428,15 +437,13 @@ class UI_BASE_EXPORT ResourceBundle {
   IdToStringMap overridden_locale_strings_;
 
   bool is_test_resources_ = false;
+  bool mangle_localized_strings_ = false;
 
-  base::SequenceChecker sequence_checker_;
+  SEQUENCE_CHECKER(sequence_checker_);
 
   DISALLOW_COPY_AND_ASSIGN(ResourceBundle);
 };
 
 }  // namespace ui
-
-// TODO(beng): Someday, maybe, get rid of this.
-using ui::ResourceBundle;
 
 #endif  // UI_BASE_RESOURCE_RESOURCE_BUNDLE_H_

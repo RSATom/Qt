@@ -16,6 +16,10 @@
 #include <ostream>
 #include <vector>
 
+#if defined(ANGLE_PLATFORM_ANDROID)
+#include <android/log.h>
+#endif
+
 #include "common/angleutils.h"
 #include "common/Optional.h"
 
@@ -41,7 +45,7 @@ bool ShouldCreateLogMessage(LogSeverity severity)
 #if defined(ANGLE_TRACE_ENABLED)
     return true;
 #elif defined(ANGLE_ENABLE_ASSERTS)
-    return severity == LOG_ERR;
+    return severity != LOG_EVENT;
 #else
     return false;
 #endif
@@ -61,6 +65,9 @@ bool ShouldCreatePlatformLogMessage(LogSeverity severity)
 #endif
 }
 
+// This is never instantiated, it's just used for EAT_STREAM_PARAMETERS to an object of the correct
+// type on the LHS of the unused part of the ternary operator.
+std::ostream *gSwallowStream;
 }  // namespace priv
 
 bool DebugAnnotationsActive()
@@ -160,10 +167,16 @@ void Trace(LogSeverity severity, const char *message)
         }
     }
 
-    if (severity == LOG_ERR)
+    if (severity == LOG_ERR || severity == LOG_WARN)
     {
+#if defined(ANGLE_PLATFORM_ANDROID)
+        __android_log_print((severity == LOG_ERR) ? ANDROID_LOG_ERROR : ANDROID_LOG_WARN, "ANGLE",
+                            "%s: %s\n", LogSeverityName(severity), str.c_str());
+#else
         // Note: we use fprintf because <iostream> includes static initializers.
-        fprintf(stderr, "%s: %s\n", LogSeverityName(severity), str.c_str());
+        fprintf((severity == LOG_ERR) ? stderr : stdout, "%s: %s\n", LogSeverityName(severity),
+                str.c_str());
+#endif
     }
 
 #if defined(ANGLE_PLATFORM_WINDOWS) && \
@@ -203,18 +216,15 @@ std::string LogMessage::getMessage() const
 }
 
 #if defined(ANGLE_PLATFORM_WINDOWS)
-std::ostream &operator<<(std::ostream &os, const FmtHR &fmt)
+priv::FmtHexHelper<HRESULT> FmtHR(HRESULT value)
 {
-    os << "HRESULT: ";
-    return FmtHexInt(os, fmt.mHR);
+    return priv::FmtHexHelper<HRESULT>("HRESULT: ", value);
 }
 
-std::ostream &operator<<(std::ostream &os, const FmtErr &fmt)
+priv::FmtHexHelper<DWORD> FmtErr(DWORD value)
 {
-    os << "error: ";
-    return FmtHexInt(os, fmt.mErr);
+    return priv::FmtHexHelper<DWORD>("error: ", value);
 }
-
 #endif  // defined(ANGLE_PLATFORM_WINDOWS)
 
 }  // namespace gl

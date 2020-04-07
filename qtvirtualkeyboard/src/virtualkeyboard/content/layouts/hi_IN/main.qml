@@ -31,8 +31,8 @@ import QtQuick 2.0
 import QtQuick.VirtualKeyboard 2.1
 
 KeyboardLayoutLoader {
-    inputMode: InputEngine.Latin
-    sourceComponent: InputContext.shift ? page2 : page1
+    inputMode: InputEngine.InputMode.Latin
+    sourceComponent: InputContext.shiftActive ? page2 : page1
     Component {
         id: page1
         KeyboardLayout {
@@ -162,6 +162,9 @@ KeyboardLayoutLoader {
                     displayText: "&\u0967\u0968\u0969"
                 }
                 ChangeLanguageKey {
+                    weight: 154
+                }
+                HandwritingModeKey {
                     weight: 154
                 }
                 SpaceKey {
@@ -310,6 +313,9 @@ KeyboardLayoutLoader {
                     displayText: "&\u0967\u0968\u0969"
                 }
                 ChangeLanguageKey {
+                    weight: 154
+                }
+                HandwritingModeKey {
                     weight: 154
                 }
                 SpaceKey {

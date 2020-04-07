@@ -8,12 +8,12 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <deque>
 #include <map>
 #include <set>
 #include <string>
 #include <vector>
 
+#include "base/containers/circular_deque.h"
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
@@ -34,7 +34,11 @@
 namespace content {
 FORWARD_DECLARE_TEST(AppCacheGroupTest, QueueUpdate);
 class AppCacheGroupTest;
+
+namespace appcache_update_job_unittest {
 class AppCacheUpdateJobTest;
+}
+
 class HostNotifier;
 
 // Application cache Update algorithm and state.
@@ -59,15 +63,19 @@ class CONTENT_EXPORT AppCacheUpdateJob
 
  private:
   friend class content::AppCacheGroupTest;
-  friend class content::AppCacheUpdateJobTest;
+  friend class content::appcache_update_job_unittest::AppCacheUpdateJobTest;
+
   class URLFetcher;
+  class UpdateRequestBase;
+  class UpdateURLLoaderRequest;
+  class UpdateURLRequest;
 
   // Master entries have multiple hosts, for example, the same page is opened
   // in different tabs.
-  typedef std::vector<AppCacheHost*> PendingHosts;
-  typedef std::map<GURL, PendingHosts> PendingMasters;
-  typedef std::map<GURL, URLFetcher*> PendingUrlFetches;
-  typedef std::map<int64_t, GURL> LoadingResponses;
+  using PendingHosts = std::vector<AppCacheHost*>;
+  using PendingMasters = std::map<GURL, PendingHosts>;
+  using PendingUrlFetches = std::map<GURL, URLFetcher*>;
+  using LoadingResponses = std::map<int64_t, GURL>;
 
   static const int kRerunDelayMs = 1000;
 
@@ -108,64 +116,6 @@ class CONTENT_EXPORT AppCacheUpdateJob
     bool storage_checked;
     scoped_refptr<AppCacheResponseInfo> existing_response_info;
   };
-
-  class URLFetcher : public net::URLRequest::Delegate {
-   public:
-    enum FetchType {
-      MANIFEST_FETCH,
-      URL_FETCH,
-      MASTER_ENTRY_FETCH,
-      MANIFEST_REFETCH,
-    };
-    URLFetcher(const GURL& url,
-               FetchType fetch_type,
-               AppCacheUpdateJob* job);
-    ~URLFetcher() override;
-    void Start();
-    FetchType fetch_type() const { return fetch_type_; }
-    net::URLRequest* request() const { return request_.get(); }
-    const AppCacheEntry& existing_entry() const { return existing_entry_; }
-    const std::string& manifest_data() const { return manifest_data_; }
-    AppCacheResponseWriter* response_writer() const {
-      return response_writer_.get();
-    }
-    void set_existing_response_headers(net::HttpResponseHeaders* headers) {
-      existing_response_headers_ = headers;
-    }
-    void set_existing_entry(const AppCacheEntry& entry) {
-      existing_entry_ = entry;
-    }
-    ResultType result() const { return result_; }
-    int redirect_response_code() const { return redirect_response_code_; }
-
-   private:
-    // URLRequest::Delegate overrides
-    void OnReceivedRedirect(net::URLRequest* request,
-                            const net::RedirectInfo& redirect_info,
-                            bool* defer_redirect) override;
-    void OnResponseStarted(net::URLRequest* request, int net_error) override;
-    void OnReadCompleted(net::URLRequest* request, int bytes_read) override;
-
-    void AddConditionalHeaders(const net::HttpResponseHeaders* headers);
-    void OnWriteComplete(int result);
-    void ReadResponseData();
-    bool ConsumeResponseData(int bytes_read);
-    void OnResponseCompleted(int net_error);
-    bool MaybeRetryRequest();
-
-    GURL url_;
-    AppCacheUpdateJob* job_;
-    FetchType fetch_type_;
-    int retry_503_attempts_;
-    scoped_refptr<net::IOBuffer> buffer_;
-    std::unique_ptr<net::URLRequest> request_;
-    AppCacheEntry existing_entry_;
-    scoped_refptr<net::HttpResponseHeaders> existing_response_headers_;
-    std::string manifest_data_;
-    ResultType result_;
-    int redirect_response_code_;
-    std::unique_ptr<AppCacheResponseWriter> response_writer_;
-  };  // class URLFetcher
 
   AppCacheResponseWriter* CreateResponseWriter();
 
@@ -305,7 +255,7 @@ class CONTENT_EXPORT AppCacheUpdateJob
   // Helper container to track which urls have not been fetched yet. URLs are
   // removed when the fetch is initiated. Flag indicates whether an attempt
   // to load the URL from storage has already been tried and failed.
-  std::deque<UrlToFetch> urls_to_fetch_;
+  base::circular_deque<UrlToFetch> urls_to_fetch_;
 
   // Helper container to track which urls are being loaded from response
   // storage.

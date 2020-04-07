@@ -38,6 +38,9 @@
 ****************************************************************************/
 
 #include "locationsingleton.h"
+#include <QtPositioning/private/qwebmercator_p.h>
+#include <QtPositioning/private/qdoublevector2d_p.h>
+#include <QDebug>
 
 static QGeoCoordinate parseCoordinate(const QJSValue &value, bool *ok)
 {
@@ -236,12 +239,12 @@ QGeoPath LocationSingleton::path(const QJSValue &value, qreal width) const
 /*!
     \qmlmethod geopolygon QtPositioning::polygon() const
 
-    Constructs an empty geopolygon.
+    Constructs an empty polygon.
 
     \sa {geopolygon}
     \since 5.10
 */
-QGeoPath LocationSingleton::polygon() const
+QGeoPolygon LocationSingleton::polygon() const
 {
     return QGeoPolygon();
 }
@@ -249,12 +252,12 @@ QGeoPath LocationSingleton::polygon() const
 /*!
     \qmlmethod geopolygon QtPositioning::polygon(list<coordinate> coordinates) const
 
-    Constructs a geopolygon from coordinates.
+    Constructs a polygon from coordinates.
 
     \sa {geopolygon}
     \since 5.10
 */
-QGeoPath LocationSingleton::polygon(const QVariantList &coordinates) const
+QGeoPolygon LocationSingleton::polygon(const QVariantList &coordinates) const
 {
     QList<QGeoCoordinate> internalCoordinates;
     for (int i = 0; i < coordinates.size(); i++) {
@@ -262,6 +265,39 @@ QGeoPath LocationSingleton::polygon(const QVariantList &coordinates) const
             internalCoordinates << coordinates.at(i).value<QGeoCoordinate>();
     }
     return QGeoPolygon(internalCoordinates);
+}
+
+/*!
+    \qmlmethod geopolygon QtPositioning::polygon(list<coordinate> perimeter, list<list<coordinate>> holes) const
+
+    Constructs a polygon from coordinates for perimeter and inner holes.
+
+    \sa {geopolygon}
+    \since 5.12
+*/
+QGeoPolygon LocationSingleton::polygon(const QVariantList &perimeter, const QVariantList &holes) const
+{
+    QList<QGeoCoordinate> internalCoordinates;
+    for (int i = 0; i < perimeter.size(); i++) {
+        if (perimeter.at(i).canConvert<QGeoCoordinate>())
+            internalCoordinates << perimeter.at(i).value<QGeoCoordinate>();
+    }
+    QGeoPolygon poly(internalCoordinates);
+
+    for (int i = 0; i < holes.size(); i++) {
+        if (holes.at(i).type() == QVariant::List) {
+            QList<QGeoCoordinate> hole;
+            const QVariantList &holeData = holes.at(i).toList();
+            for (int j = 0; j < holeData.size(); j++) {
+                if (holeData.at(j).canConvert<QGeoCoordinate>())
+                    hole << holeData.at(j).value<QGeoCoordinate>();
+            }
+            if (hole.size())
+                poly.addHole(hole);
+        }
+    }
+
+    return poly;
 }
 
 /*!
@@ -304,9 +340,9 @@ QGeoPath LocationSingleton::shapeToPath(const QGeoShape &shape) const
 }
 
 /*!
-    \qmlmethod geopath QtPositioning::shapeToPolygon(geoshape shape) const
+    \qmlmethod geopolygon QtPositioning::shapeToPolygon(geoshape shape) const
 
-    Converts \a shape to a geopolygon.
+    Converts \a shape to a polygon.
 
     \sa {geopolygon}
     \since 5.10
@@ -314,4 +350,30 @@ QGeoPath LocationSingleton::shapeToPath(const QGeoShape &shape) const
 QGeoPolygon LocationSingleton::shapeToPolygon(const QGeoShape &shape) const
 {
     return QGeoPolygon(shape);
+}
+
+/*!
+    \qmlmethod coordinate QtPositioning::mercatorToCoord(point mercator) const
+
+    Converts a mercator coordinate into a latitude-longitude coordinate.
+
+    \sa {coordToMercator}
+    \since 5.12
+*/
+QGeoCoordinate LocationSingleton::mercatorToCoord(const QPointF &mercator) const
+{
+    return QWebMercator::mercatorToCoord(QDoubleVector2D(mercator.x(), mercator.y()));
+}
+
+/*!
+    \qmlmethod point QtPositioning::coordToMercator(coordinate coord) const
+
+    Converts a coordinate into a mercator coordinate.
+
+    \sa {mercatorToCoord}
+    \since 5.12
+*/
+QPointF LocationSingleton::coordToMercator(const QGeoCoordinate &coord) const
+{
+    return QWebMercator::coordToMercator(coord).toPointF();
 }

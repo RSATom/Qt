@@ -9,25 +9,26 @@
 #include <stdint.h>
 
 #include "base/threading/thread.h"
-#include "media/capture/video/chromeos/mojo/arc_camera3.mojom.h"
+#include "media/capture/video/chromeos/mojo/camera3.mojom.h"
+#include "media/capture/video/chromeos/mojo/camera_common.mojom.h"
 #include "mojo/public/cpp/bindings/binding.h"
 #include "testing/gmock/include/gmock/gmock.h"
 
 namespace media {
 namespace unittest_internal {
 
-class MockCameraModule : public arc::mojom::CameraModule {
+class MockCameraModule : public cros::mojom::CameraModule {
  public:
   MockCameraModule();
 
   ~MockCameraModule();
 
   void OpenDevice(int32_t camera_id,
-                  arc::mojom::Camera3DeviceOpsRequest device_ops_request,
+                  cros::mojom::Camera3DeviceOpsRequest device_ops_request,
                   OpenDeviceCallback callback) override;
   MOCK_METHOD3(DoOpenDevice,
                void(int32_t camera_id,
-                    arc::mojom::Camera3DeviceOpsRequest& device_ops_request,
+                    cros::mojom::Camera3DeviceOpsRequest& device_ops_request,
                     OpenDeviceCallback& callback));
 
   void GetNumberOfCameras(GetNumberOfCamerasCallback callback) override;
@@ -39,23 +40,34 @@ class MockCameraModule : public arc::mojom::CameraModule {
   MOCK_METHOD2(DoGetCameraInfo,
                void(int32_t camera_id, GetCameraInfoCallback& callback));
 
-  void SetCallbacks(arc::mojom::CameraModuleCallbacksPtr callbacks,
+  void SetCallbacks(cros::mojom::CameraModuleCallbacksPtr callbacks,
                     SetCallbacksCallback callback) override;
   MOCK_METHOD2(DoSetCallbacks,
-               void(arc::mojom::CameraModuleCallbacksPtr& callbacks,
+               void(cros::mojom::CameraModuleCallbacksPtr& callbacks,
                     SetCallbacksCallback& callback));
 
-  arc::mojom::CameraModulePtrInfo GetInterfacePtrInfo();
+  void Init(InitCallback callback) override;
+  MOCK_METHOD1(DoInit, void(InitCallback& callback));
+
+  void SetTorchMode(int32_t camera_id,
+                    bool enabled,
+                    SetTorchModeCallback callback) override;
+  MOCK_METHOD3(DoSetTorchMode,
+               void(int32_t camera_id,
+                    bool enabled,
+                    SetTorchModeCallback& callback));
+
+  cros::mojom::CameraModulePtrInfo GetInterfacePtrInfo();
 
  private:
   void CloseBindingOnThread();
 
   void BindOnThread(base::WaitableEvent* done,
-                    arc::mojom::CameraModulePtrInfo* ptr_info);
+                    cros::mojom::CameraModulePtrInfo* ptr_info);
 
   base::Thread mock_module_thread_;
-  mojo::Binding<arc::mojom::CameraModule> binding_;
-  arc::mojom::CameraModuleCallbacksPtr callbacks_;
+  mojo::Binding<cros::mojom::CameraModule> binding_;
+  cros::mojom::CameraModuleCallbacksPtr callbacks_;
 
   DISALLOW_COPY_AND_ASSIGN(MockCameraModule);
 };

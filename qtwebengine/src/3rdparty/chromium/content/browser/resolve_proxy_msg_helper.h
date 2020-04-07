@@ -5,14 +5,14 @@
 #ifndef CONTENT_BROWSER_RESOLVE_PROXY_MSG_HELPER_H_
 #define CONTENT_BROWSER_RESOLVE_PROXY_MSG_HELPER_H_
 
-#include <deque>
 #include <string>
 
+#include "base/containers/circular_deque.h"
 #include "base/memory/ref_counted.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/browser_message_filter.h"
 #include "net/base/completion_callback.h"
-#include "net/proxy/proxy_service.h"
+#include "net/proxy_resolution/proxy_resolution_service.h"
 #include "url/gurl.h"
 
 namespace net {
@@ -35,7 +35,8 @@ class CONTENT_EXPORT ResolveProxyMsgHelper : public BrowserMessageFilter {
  public:
   explicit ResolveProxyMsgHelper(net::URLRequestContextGetter* getter);
   // Constructor used by unittests.
-  explicit ResolveProxyMsgHelper(net::ProxyService* proxy_service);
+  explicit ResolveProxyMsgHelper(
+      net::ProxyResolutionService* proxy_resolution_service);
 
   // BrowserMessageFilter implementation
   bool OnMessageReceived(const IPC::Message& message) override;
@@ -48,7 +49,7 @@ class CONTENT_EXPORT ResolveProxyMsgHelper : public BrowserMessageFilter {
   ~ResolveProxyMsgHelper() override;
 
  private:
-  // Callback for the ProxyService (bound to |callback_|).
+  // Callback for the ProxyResolutionService (bound to |callback_|).
   void OnResolveProxyCompleted(int result);
 
   // Starts the first pending request.
@@ -57,28 +58,28 @@ class CONTENT_EXPORT ResolveProxyMsgHelper : public BrowserMessageFilter {
   // A PendingRequest is a resolve request that is in progress, or queued.
   struct PendingRequest {
    public:
-     PendingRequest(const GURL& url, IPC::Message* reply_msg) :
-         url(url), reply_msg(reply_msg), pac_req(NULL) { }
+    PendingRequest(const GURL& url, IPC::Message* reply_msg)
+        : url(url), reply_msg(reply_msg), request(NULL) {}
 
-     // The URL of the request.
-     GURL url;
+    // The URL of the request.
+    GURL url;
 
-     // Data to pass back to the delegate on completion (we own it until then).
-     IPC::Message* reply_msg;
+    // Data to pass back to the delegate on completion (we own it until then).
+    IPC::Message* reply_msg;
 
-     // Handle for cancelling the current request if it has started (else NULL).
-     net::ProxyService::PacRequest* pac_req;
+    // Handle for cancelling the current request if it has started (else NULL).
+    net::ProxyResolutionService::Request* request;
   };
 
   // Info about the current outstanding proxy request.
   net::ProxyInfo proxy_info_;
 
   // FIFO queue of pending requests. The first entry is always the current one.
-  typedef std::deque<PendingRequest> PendingRequestList;
+  using PendingRequestList = base::circular_deque<PendingRequest>;
   PendingRequestList pending_requests_;
 
   scoped_refptr<net::URLRequestContextGetter> context_getter_;
-  net::ProxyService* proxy_service_;
+  net::ProxyResolutionService* proxy_resolution_service_;
 };
 
 }  // namespace content

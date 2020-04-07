@@ -64,9 +64,6 @@ static const char *qwaylandegl_threadedgl_blacklist_vendor[] = {
 };
 
 QWaylandEglClientBufferIntegration::QWaylandEglClientBufferIntegration()
-    : m_display(0)
-    , m_eglDisplay(EGL_NO_DISPLAY)
-    , m_supportsThreading(false)
 {
     qDebug() << "Using Wayland-EGL";
 }
@@ -162,7 +159,7 @@ void *QWaylandEglClientBufferIntegration::nativeResource(NativeResource resource
     default:
         break;
     }
-    return Q_NULLPTR;
+    return nullptr;
 }
 
 void *QWaylandEglClientBufferIntegration::nativeResourceForContext(NativeResource resource, QPlatformOpenGLContext *context)
@@ -178,7 +175,7 @@ void *QWaylandEglClientBufferIntegration::nativeResourceForContext(NativeResourc
     default:
         break;
     }
-    return Q_NULLPTR;
+    return nullptr;
 }
 
 EGLDisplay QWaylandEglClientBufferIntegration::eglDisplay() const

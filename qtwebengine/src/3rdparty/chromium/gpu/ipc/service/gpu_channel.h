@@ -19,10 +19,10 @@
 #include "base/single_thread_task_runner.h"
 #include "base/trace_event/memory_dump_provider.h"
 #include "build/build_config.h"
+#include "gpu/command_buffer/common/context_result.h"
 #include "gpu/command_buffer/service/sync_point_manager.h"
-#include "gpu/gpu_export.h"
-#include "gpu/ipc/service/gpu_command_buffer_stub.h"
-#include "gpu/ipc/service/gpu_memory_manager.h"
+#include "gpu/ipc/service/command_buffer_stub.h"
+#include "gpu/ipc/service/gpu_ipc_service_export.h"
 #include "ipc/ipc_sender.h"
 #include "ipc/ipc_sync_channel.h"
 #include "ipc/message_router.h"
@@ -39,14 +39,12 @@ class WaitableEvent;
 
 namespace gpu {
 
-class PreemptionFlag;
 class Scheduler;
 class SyncPointManager;
 class GpuChannelManager;
 class GpuChannelMessageFilter;
-class GpuChannelMessageQueue;
 
-class GPU_EXPORT FilteredSender : public IPC::Sender {
+class GPU_IPC_SERVICE_EXPORT FilteredSender : public IPC::Sender {
  public:
   FilteredSender();
   ~FilteredSender() override;
@@ -55,7 +53,7 @@ class GPU_EXPORT FilteredSender : public IPC::Sender {
   virtual void RemoveFilter(IPC::MessageFilter* filter) = 0;
 };
 
-class GPU_EXPORT SyncChannelFilteredSender : public FilteredSender {
+class GPU_IPC_SERVICE_EXPORT SyncChannelFilteredSender : public FilteredSender {
  public:
   SyncChannelFilteredSender(
       IPC::ChannelHandle channel_handle,
@@ -76,15 +74,14 @@ class GPU_EXPORT SyncChannelFilteredSender : public FilteredSender {
 
 // Encapsulates an IPC channel between the GPU process and one renderer
 // process. On the renderer side there's a corresponding GpuChannelHost.
-class GPU_EXPORT GpuChannel : public IPC::Listener, public FilteredSender {
+class GPU_IPC_SERVICE_EXPORT GpuChannel : public IPC::Listener,
+                                          public FilteredSender {
  public:
   // Takes ownership of the renderer process handle.
   GpuChannel(GpuChannelManager* gpu_channel_manager,
              Scheduler* scheduler,
              SyncPointManager* sync_point_manager,
              scoped_refptr<gl::GLShareGroup> share_group,
-             scoped_refptr<PreemptionFlag> preempting_flag,
-             scoped_refptr<PreemptionFlag> preempted_flag,
              scoped_refptr<base::SingleThreadTaskRunner> task_runner,
              scoped_refptr<base::SingleThreadTaskRunner> io_task_runner,
              int32_t client_id,
@@ -115,11 +112,8 @@ class GPU_EXPORT GpuChannel : public IPC::Listener, public FilteredSender {
     return task_runner_;
   }
 
-  const scoped_refptr<PreemptionFlag>& preempted_flag() const {
-    return preempted_flag_;
-  }
-
   base::ProcessId GetClientPID() const;
+  bool IsConnected() const;
 
   int client_id() const { return client_id_; }
 
@@ -141,12 +135,12 @@ class GPU_EXPORT GpuChannel : public IPC::Listener, public FilteredSender {
   void AddFilter(IPC::MessageFilter* filter) override;
   void RemoveFilter(IPC::MessageFilter* filter) override;
 
-  void OnCommandBufferScheduled(GpuCommandBufferStub* stub);
-  void OnCommandBufferDescheduled(GpuCommandBufferStub* stub);
+  void OnCommandBufferScheduled(CommandBufferStub* stub);
+  void OnCommandBufferDescheduled(CommandBufferStub* stub);
 
   gl::GLShareGroup* share_group() const { return share_group_.get(); }
 
-  GpuCommandBufferStub* LookupCommandBuffer(int32_t route_id);
+  CommandBufferStub* LookupCommandBuffer(int32_t route_id);
 
   bool HasActiveWebGLContext() const;
   void LoseAllContexts();
@@ -163,7 +157,7 @@ class GPU_EXPORT GpuChannel : public IPC::Listener, public FilteredSender {
 
   void CacheShader(const std::string& key, const std::string& shader);
 
-  uint64_t GetMemoryUsage();
+  uint64_t GetMemoryUsage() const;
 
   scoped_refptr<gl::GLImage> CreateImageForGpuMemoryBuffer(
       const gfx::GpuMemoryBufferHandle& handle,
@@ -174,9 +168,6 @@ class GPU_EXPORT GpuChannel : public IPC::Listener, public FilteredSender {
 
   void HandleMessage(const IPC::Message& msg);
 
-  // Handle messages enqueued in |message_queue_|.
-  void HandleMessageOnQueue();
-
   // Some messages such as WaitForGetOffsetInRange and WaitForTokenInRange are
   // processed as soon as possible because the client is blocked until they
   // are completed.
@@ -185,7 +176,7 @@ class GPU_EXPORT GpuChannel : public IPC::Listener, public FilteredSender {
   void HandleMessageForTesting(const IPC::Message& msg);
 
 #if defined(OS_ANDROID)
-  const GpuCommandBufferStub* GetOneStub() const;
+  const CommandBufferStub* GetOneStub() const;
 #endif
 
  private:
@@ -196,29 +187,20 @@ class GPU_EXPORT GpuChannel : public IPC::Listener, public FilteredSender {
   // Message handlers for control messages.
   void OnCreateCommandBuffer(const GPUCreateCommandBufferConfig& init_params,
                              int32_t route_id,
-                             base::SharedMemoryHandle shared_state_shm,
-                             bool* result,
+                             base::UnsafeSharedMemoryRegion shared_state_shm,
+                             gpu::ContextResult* result,
                              gpu::Capabilities* capabilities);
   void OnDestroyCommandBuffer(int32_t route_id);
-  void OnGetDriverBugWorkArounds(
-      std::vector<std::string>* gpu_driver_bug_workarounds);
-
-  std::unique_ptr<GpuCommandBufferStub> CreateCommandBuffer(
-      const GPUCreateCommandBufferConfig& init_params,
-      int32_t route_id,
-      std::unique_ptr<base::SharedMemory> shared_state_shm);
 
   std::unique_ptr<FilteredSender> channel_;
 
   base::ProcessId peer_pid_ = base::kNullProcessId;
 
-  scoped_refptr<GpuChannelMessageQueue> message_queue_;
-
   // The message filter on the io thread.
   scoped_refptr<GpuChannelMessageFilter> filter_;
 
   // Map of routing id to command buffer stub.
-  base::flat_map<int32_t, std::unique_ptr<GpuCommandBufferStub>> stubs_;
+  base::flat_map<int32_t, std::unique_ptr<CommandBufferStub>> stubs_;
 
   // Map of stream id to scheduler sequence id.
   base::flat_map<int32_t, SequenceId> stream_sequences_;
@@ -238,14 +220,6 @@ class GPU_EXPORT GpuChannel : public IPC::Listener, public FilteredSender {
 
   // Used to implement message routing functionality to CommandBuffer objects
   IPC::MessageRouter router_;
-
-  // Whether the processing of IPCs on this channel is stalled and we should
-  // preempt other GpuChannels.
-  scoped_refptr<PreemptionFlag> preempting_flag_;
-
-  // If non-NULL, all stubs on this channel should stop processing GL
-  // commands (via their CommandExecutor) when preempted_flag_->IsSet()
-  scoped_refptr<PreemptionFlag> preempted_flag_;
 
   // The id of the client who is on the other side of the channel.
   const int32_t client_id_;

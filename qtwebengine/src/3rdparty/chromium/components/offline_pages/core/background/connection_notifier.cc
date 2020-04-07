@@ -7,19 +7,19 @@
 namespace offline_pages {
 
 ConnectionNotifier::ConnectionNotifier(
-    const ConnectionNotifier::ConnectedCallback& callback)
-    : callback_(callback) {
-  net::NetworkChangeNotifier::AddConnectionTypeObserver(this);
+    ConnectionNotifier::ConnectedCallback callback)
+    : callback_(std::move(callback)) {
+  net::NetworkChangeNotifier::AddNetworkChangeObserver(this);
 }
 
 ConnectionNotifier::~ConnectionNotifier() {
-  net::NetworkChangeNotifier::RemoveConnectionTypeObserver(this);
+  net::NetworkChangeNotifier::RemoveNetworkChangeObserver(this);
 }
 
-void ConnectionNotifier::OnConnectionTypeChanged(
+void ConnectionNotifier::OnNetworkChanged(
     net::NetworkChangeNotifier::ConnectionType type) {
   if (type != net::NetworkChangeNotifier::ConnectionType::CONNECTION_NONE)
-    callback_.Run();
+    std::move(callback_).Run();
 }
 
 }  // namespace offline_pages

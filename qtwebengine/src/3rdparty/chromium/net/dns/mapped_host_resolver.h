@@ -8,6 +8,7 @@
 #include <memory>
 #include <string>
 
+#include "net/base/completion_once_callback.h"
 #include "net/base/host_mapping_rules.h"
 #include "net/base/net_export.h"
 #include "net/dns/host_resolver.h"
@@ -48,14 +49,23 @@ class NET_EXPORT MappedHostResolver : public HostResolver {
   int Resolve(const RequestInfo& info,
               RequestPriority priority,
               AddressList* addresses,
-              const CompletionCallback& callback,
+              CompletionOnceCallback callback,
               std::unique_ptr<Request>* request,
               const NetLogWithSource& net_log) override;
   int ResolveFromCache(const RequestInfo& info,
                        AddressList* addresses,
                        const NetLogWithSource& net_log) override;
+  int ResolveStaleFromCache(const RequestInfo& info,
+                            AddressList* addresses,
+                            HostCache::EntryStaleness* stale_info,
+                            const NetLogWithSource& source_net_log) override;
   void SetDnsClientEnabled(bool enabled) override;
+
   HostCache* GetHostCache() override;
+  bool HasCached(base::StringPiece hostname,
+                 HostCache::Entry::Source* source_out,
+                 HostCache::EntryStaleness* stale_out) const override;
+
   std::unique_ptr<base::Value> GetDnsConfigAsValue() const override;
   void SetNoIPv6OnWifi(bool no_ipv6_on_wifi) override;
   bool GetNoIPv6OnWifi() override;

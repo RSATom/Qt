@@ -6,12 +6,12 @@
 
 #include "base/android/build_info.h"
 #include "base/metrics/histogram_macros.h"
+#include "base/trace_event/trace_event.h"
 #include "content/renderer/seccomp_sandbox_status_android.h"
 #include "sandbox/linux/seccomp-bpf-helpers/seccomp_starter_android.h"
-#include "sandbox/sandbox_features.h"
+#include "sandbox/sandbox_buildflags.h"
 
 #if BUILDFLAG(USE_SECCOMP_BPF)
-#include "base/memory/ptr_util.h"
 #include "sandbox/linux/seccomp-bpf-helpers/baseline_policy_android.h"
 #endif
 
@@ -30,11 +30,12 @@ void RendererMainPlatformDelegate::PlatformUninitialize() {
 }
 
 bool RendererMainPlatformDelegate::EnableSandbox() {
+  TRACE_EVENT0("startup", "RendererMainPlatformDelegate::EnableSandbox");
   auto* info = base::android::BuildInfo::GetInstance();
   sandbox::SeccompStarterAndroid starter(info->sdk_int(), info->device());
   // The policy compiler is only available if USE_SECCOMP_BPF is enabled.
 #if BUILDFLAG(USE_SECCOMP_BPF)
-  starter.set_policy(base::MakeUnique<sandbox::BaselinePolicyAndroid>());
+  starter.set_policy(std::make_unique<sandbox::BaselinePolicyAndroid>());
 #endif
   starter.StartSandbox();
 

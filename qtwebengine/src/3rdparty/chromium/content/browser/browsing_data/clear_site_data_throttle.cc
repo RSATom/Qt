@@ -4,6 +4,7 @@
 
 #include "content/browser/browsing_data/clear_site_data_throttle.h"
 
+#include "base/command_line.h"
 #include "base/memory/ptr_util.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/scoped_observer.h"
@@ -18,13 +19,14 @@
 #include "content/public/browser/browsing_data_remover.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/common/content_switches.h"
 #include "content/public/common/origin_util.h"
-#include "content/public/common/resource_response_info.h"
 #include "content/public/common/resource_type.h"
 #include "net/base/load_flags.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
 #include "net/http/http_response_headers.h"
 #include "net/url_request/redirect_info.h"
+#include "services/network/public/cpp/resource_response_info.h"
 #include "url/gurl.h"
 #include "url/origin.h"
 
@@ -37,6 +39,7 @@ const char kNameForLogging[] = "ClearSiteDataThrottle";
 const char kClearSiteDataHeader[] = "Clear-Site-Data";
 
 // Datatypes.
+const char kDatatypeWildcard[] = "\"*\"";
 const char kDatatypeCookies[] = "\"cookies\"";
 const char kDatatypeStorage[] = "\"storage\"";
 const char kDatatypeCache[] = "\"cache\"";
@@ -45,6 +48,11 @@ const char kDatatypeCache[] = "\"cache\"";
 const char kConsoleMessageTemplate[] = "Clear-Site-Data header on '%s': %s";
 const char kConsoleMessageCleared[] = "Cleared data types: %s.";
 const char kConsoleMessageDatatypeSeparator[] = ", ";
+
+bool AreExperimentalFeaturesEnabled() {
+  return base::CommandLine::ForCurrentProcess()->HasSwitch(
+      switches::kEnableExperimentalWebPlatformFeatures);
+}
 
 bool IsNavigationRequest(net::URLRequest* request) {
   const ResourceRequestInfo* info = ResourceRequestInfo::ForRequest(request);
@@ -141,7 +149,8 @@ class UIThreadSiteDataClearer : public BrowsingDataRemover::Observer {
       remover_->RemoveWithFilterAndReply(
           base::Time(), base::Time::Max(),
           BrowsingDataRemover::DATA_TYPE_COOKIES |
-              BrowsingDataRemover::DATA_TYPE_CHANNEL_IDS,
+              BrowsingDataRemover::DATA_TYPE_CHANNEL_IDS |
+              BrowsingDataRemover::DATA_TYPE_AVOID_CLOSING_CONNECTIONS,
           BrowsingDataRemover::ORIGIN_TYPE_UNPROTECTED_WEB |
               BrowsingDataRemover::ORIGIN_TYPE_PROTECTED_WEB,
           std::move(domain_filter_builder), this);
@@ -270,7 +279,7 @@ ClearSiteDataThrottle::MaybeCreateThrottleForRequest(net::URLRequest* request) {
     return nullptr;
 
   return base::WrapUnique(new ClearSiteDataThrottle(
-      request, base::MakeUnique<ConsoleMessagesDelegate>()));
+      request, std::make_unique<ConsoleMessagesDelegate>()));
 }
 
 ClearSiteDataThrottle::~ClearSiteDataThrottle() {
@@ -354,7 +363,7 @@ bool ClearSiteDataThrottle::HandleHeader() {
     return false;
   }
 
-  url::Origin origin(GetCurrentURL());
+  url::Origin origin = url::Origin::Create(GetCurrentURL());
   if (origin.unique()) {
     delegate_->AddMessage(GetCurrentURL(), "Not supported for unique origins.",
                           CONSOLE_MESSAGE_LEVEL_ERROR);
@@ -385,7 +394,7 @@ bool ClearSiteDataThrottle::HandleHeader() {
   const ServiceWorkerResponseInfo* response_info =
       ServiceWorkerResponseInfo::ForRequest(request_);
   if (response_info) {
-    ResourceResponseInfo extra_response_info;
+    network::ResourceResponseInfo extra_response_info;
     response_info->GetExtraResponseInfo(&extra_response_info);
 
     if (extra_response_info.was_fetched_via_service_worker) {
@@ -447,22 +456,30 @@ bool ClearSiteDataThrottle::ParseHeader(const std::string& header,
   *clear_storage = false;
   *clear_cache = false;
 
-  std::string type_names;
-  for (const base::StringPiece& type : base::SplitStringPiece(
-           header, ",", base::TRIM_WHITESPACE, base::SPLIT_WANT_NONEMPTY)) {
+  std::vector<std::string> input_types = base::SplitString(
+      header, ",", base::TRIM_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
+  std::string output_types;
+
+  for (unsigned i = 0; i < input_types.size(); i++) {
     bool* data_type = nullptr;
 
-    if (type == kDatatypeCookies) {
+    if (AreExperimentalFeaturesEnabled() &&
+        input_types[i] == kDatatypeWildcard) {
+      input_types.push_back(kDatatypeCookies);
+      input_types.push_back(kDatatypeStorage);
+      input_types.push_back(kDatatypeCache);
+      continue;
+    } else if (input_types[i] == kDatatypeCookies) {
       data_type = clear_cookies;
-    } else if (type == kDatatypeStorage) {
+    } else if (input_types[i] == kDatatypeStorage) {
       data_type = clear_storage;
-    } else if (type == kDatatypeCache) {
+    } else if (input_types[i] == kDatatypeCache) {
       data_type = clear_cache;
     } else {
-      delegate->AddMessage(current_url,
-                           base::StringPrintf("Unrecognized type: %s.",
-                                              type.as_string().c_str()),
-                           CONSOLE_MESSAGE_LEVEL_ERROR);
+      delegate->AddMessage(
+          current_url,
+          base::StringPrintf("Unrecognized type: %s.", input_types[i].c_str()),
+          CONSOLE_MESSAGE_LEVEL_ERROR);
       continue;
     }
 
@@ -472,9 +489,9 @@ bool ClearSiteDataThrottle::ParseHeader(const std::string& header,
       continue;
 
     *data_type = true;
-    if (!type_names.empty())
-      type_names += kConsoleMessageDatatypeSeparator;
-    type_names += type.as_string();
+    if (!output_types.empty())
+      output_types += kConsoleMessageDatatypeSeparator;
+    output_types += input_types[i];
   }
 
   if (!*clear_cookies && !*clear_storage && !*clear_cache) {
@@ -484,10 +501,15 @@ bool ClearSiteDataThrottle::ParseHeader(const std::string& header,
   }
 
   // Pretty-print which types are to be cleared.
-  delegate->AddMessage(
-      current_url,
-      base::StringPrintf(kConsoleMessageCleared, type_names.c_str()),
-      CONSOLE_MESSAGE_LEVEL_INFO);
+  // TODO(crbug.com/798760): Remove the disclaimer about cookies.
+  std::string console_output =
+      base::StringPrintf(kConsoleMessageCleared, output_types.c_str());
+  if (*clear_cookies) {
+    console_output +=
+        " Clearing channel IDs and HTTP authentication cache is currently not"
+        " supported, as it breaks active network connections.";
+  }
+  delegate->AddMessage(current_url, console_output, CONSOLE_MESSAGE_LEVEL_INFO);
 
   return true;
 }

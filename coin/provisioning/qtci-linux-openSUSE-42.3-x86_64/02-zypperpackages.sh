@@ -26,7 +26,9 @@ sudo zypper -nq install sqlite3-devel
 sudo zypper -nq install Mesa-libEGL-devel
 sudo zypper -nq install Mesa-libGL-devel
 
+# libxkbcommon
 sudo zypper -nq install libxkbcommon-devel
+sudo zypper -nq install libxkbcommon-x11-devel
 
 # Xinput2
 sudo zypper -nq install libXi-devel
@@ -59,6 +61,9 @@ sudo zypper -nq install libxslt-devel
 # GStreamer (qtwebkit and qtmultimedia)
 sudo zypper -nq install gstreamer-devel
 sudo zypper -nq install gstreamer-plugins-base-devel
+
+# pulseaudio (qtmultimedia)
+sudo zypper -nq install libpulse-devel
 
 # cups
 sudo zypper -nq install cups-devel

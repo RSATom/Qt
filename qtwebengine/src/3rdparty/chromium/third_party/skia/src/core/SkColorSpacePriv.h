@@ -9,32 +9,44 @@
 
 #include <math.h>
 
-#include "SkColorSpace_Base.h"
+#include "SkColorSpace.h"
+#include "SkFixed.h"
 
 #define SkColorSpacePrintf(...)
 
 static constexpr float gSRGB_toXYZD50[] {
     0.4360747f, 0.3850649f, 0.1430804f, // Rx, Gx, Bx
-    0.2225045f, 0.7168786f, 0.0606169f, // Ry, Gy, Gz
+    0.2225045f, 0.7168786f, 0.0606169f, // Ry, Gy, By
     0.0139322f, 0.0971045f, 0.7141733f, // Rz, Gz, Bz
 };
 
 static constexpr float gAdobeRGB_toXYZD50[] {
-    0.6097559f, 0.2052401f, 0.1492240f, // Rx, Gx, Bx
-    0.3111242f, 0.6256560f, 0.0632197f, // Ry, Gy, Gz
-    0.0194811f, 0.0608902f, 0.7448387f, // Rz, Gz, Bz
+    // ICC fixed-point (16.16) repesentation of:
+    // 0.60974, 0.20528, 0.14919,
+    // 0.31111, 0.62567, 0.06322,
+    // 0.01947, 0.06087, 0.74457,
+    SkFixedToFloat(0x9c18), SkFixedToFloat(0x348d), SkFixedToFloat(0x2631), // Rx, Gx, Bx
+    SkFixedToFloat(0x4fa5), SkFixedToFloat(0xa02c), SkFixedToFloat(0x102f), // Ry, Gy, By
+    SkFixedToFloat(0x04fc), SkFixedToFloat(0x0f95), SkFixedToFloat(0xbe9c), // Rz, Gz, Bz
 };
 
 static constexpr float gDCIP3_toXYZD50[] {
     0.515102f,   0.291965f,  0.157153f,  // Rx, Gx, Bx
-    0.241182f,   0.692236f,  0.0665819f, // Ry, Gy, Gz
+    0.241182f,   0.692236f,  0.0665819f, // Ry, Gy, By
    -0.00104941f, 0.0418818f, 0.784378f,  // Rz, Gz, Bz
 };
 
 static constexpr float gRec2020_toXYZD50[] {
     0.673459f,   0.165661f,  0.125100f,  // Rx, Gx, Bx
-    0.279033f,   0.675338f,  0.0456288f, // Ry, Gy, Gz
+    0.279033f,   0.675338f,  0.0456288f, // Ry, Gy, By
    -0.00193139f, 0.0299794f, 0.797162f,  // Rz, Gz, Bz
+};
+
+// A gamut narrower than sRGB, useful for testing.
+static constexpr float gNarrow_toXYZD50[] {
+    0.190974f,  0.404865f,  0.368380f,
+    0.114746f,  0.582937f,  0.302318f,
+    0.032925f,  0.153615f,  0.638669f,
 };
 
 static constexpr SkColorSpaceTransferFn gSRGB_TransferFn =
@@ -43,10 +55,8 @@ static constexpr SkColorSpaceTransferFn gSRGB_TransferFn =
 static constexpr SkColorSpaceTransferFn g2Dot2_TransferFn =
         { 2.2f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
 
-// gLinear_TransferFn.fD > 1.0f: Make sure that we use the linear segment of
-// the transfer function even when the x-value is 1.0f.
 static constexpr SkColorSpaceTransferFn gLinear_TransferFn =
-        { 0.0f, 0.0f, 0.0f, 1.0f, 1.0000001f, 0.0f, 0.0f };
+        { 1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
 
 static constexpr SkColorSpaceTransferFn gDCIP3_TransferFn =
     { 2.399994f, 0.947998047f, 0.0520019531f, 0.0769958496f, 0.0390014648f, 0.0f, 0.0f };
@@ -93,7 +103,7 @@ static inline bool is_valid_transfer_fn(const SkColorSpaceTransferFn& coeffs) {
         return false;
     }
 
-    if (!is_zero_to_one(coeffs.fD)) {
+    if (coeffs.fD < 0.0f) {
         return false;
     }
 
@@ -169,6 +179,16 @@ static inline bool is_almost_linear(const SkColorSpaceTransferFn& coeffs) {
 
     return linearExp || linearFn;
 }
+
+static inline bool is_just_gamma(const SkColorSpaceTransferFn& coeffs) {
+    return transfer_fn_almost_equal(coeffs.fA, 1.0f)
+        && transfer_fn_almost_equal(coeffs.fB, 0.0f)
+        && transfer_fn_almost_equal(coeffs.fC, 0.0f)
+        && transfer_fn_almost_equal(coeffs.fD, 0.0f)
+        && transfer_fn_almost_equal(coeffs.fE, 0.0f)
+        && transfer_fn_almost_equal(coeffs.fF, 0.0f);
+}
+
 
 static inline void value_to_parametric(SkColorSpaceTransferFn* coeffs, float exponent) {
     coeffs->fA = 1.0f;

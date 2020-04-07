@@ -24,6 +24,8 @@ MojoAudioDecoder::MojoAudioDecoder(
     mojom::AudioDecoderPtr remote_decoder)
     : task_runner_(task_runner),
       remote_decoder_info_(remote_decoder.PassInterface()),
+      writer_capacity_(
+          GetDefaultDecoderBufferConverterCapacity(DemuxerStream::AUDIO)),
       client_binding_(this) {
   DVLOG(1) << __func__;
 }
@@ -36,10 +38,16 @@ std::string MojoAudioDecoder::GetDisplayName() const {
   return "MojoAudioDecoder";
 }
 
-void MojoAudioDecoder::Initialize(const AudioDecoderConfig& config,
-                                  CdmContext* cdm_context,
-                                  const InitCB& init_cb,
-                                  const OutputCB& output_cb) {
+bool MojoAudioDecoder::IsPlatformDecoder() const {
+  return true;
+}
+
+void MojoAudioDecoder::Initialize(
+    const AudioDecoderConfig& config,
+    CdmContext* cdm_context,
+    const InitCB& init_cb,
+    const OutputCB& output_cb,
+    const WaitingForDecryptionKeyCB& /* waiting_for_decryption_key_cb */) {
   DVLOG(1) << __func__;
   DCHECK(task_runner_->BelongsToCurrentThread());
 
@@ -74,7 +82,7 @@ void MojoAudioDecoder::Initialize(const AudioDecoderConfig& config,
       base::Bind(&MojoAudioDecoder::OnInitialized, base::Unretained(this)));
 }
 
-void MojoAudioDecoder::Decode(const scoped_refptr<DecoderBuffer>& media_buffer,
+void MojoAudioDecoder::Decode(scoped_refptr<DecoderBuffer> media_buffer,
                               const DecodeCB& decode_cb) {
   DVLOG(3) << __func__;
   DCHECK(task_runner_->BelongsToCurrentThread());
@@ -86,7 +94,7 @@ void MojoAudioDecoder::Decode(const scoped_refptr<DecoderBuffer>& media_buffer,
   }
 
   mojom::DecoderBufferPtr buffer =
-      mojo_decoder_buffer_writer_->WriteDecoderBuffer(media_buffer);
+      mojo_decoder_buffer_writer_->WriteDecoderBuffer(std::move(media_buffer));
   if (!buffer) {
     task_runner_->PostTask(FROM_HERE,
                            base::Bind(decode_cb, DecodeStatus::DECODE_ERROR));
@@ -179,7 +187,8 @@ void MojoAudioDecoder::OnInitialized(bool success,
   if (success && !mojo_decoder_buffer_writer_) {
     mojo::ScopedDataPipeConsumerHandle remote_consumer_handle;
     mojo_decoder_buffer_writer_ = MojoDecoderBufferWriter::Create(
-        DemuxerStream::AUDIO, &remote_consumer_handle);
+        writer_capacity_, &remote_consumer_handle);
+
     // Pass consumer end to |remote_decoder_|.
     remote_decoder_->SetDataSource(std::move(remote_consumer_handle));
   }

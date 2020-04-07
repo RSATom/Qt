@@ -70,7 +70,7 @@ QT_BEGIN_NAMESPACE
  *      a so called (incomplete) 'compiled schema', which is a representation of the XML Schema
  *      structure as C++ objects.
  *      As the parser is a streaming parser, it can't resolve references to types or elements/attributes
- *      in place, therefor it creates resolver tasks which are passed to the schema resolver component
+ *      in place, therefore it creates resolver tasks which are passed to the schema resolver component
  *      for resolving at a later point in time.
  *      The parser does furthermore the basic XML structure constraint checking, e.g. if all required
  *      attributes are available or the order of the elements is correct.</dd>
@@ -4772,7 +4772,7 @@ XsdTerm::Ptr XsdSchemaParser::parseLocalElement(const XsdParticle::Ptr &particle
     } else {
         element->setScope(XsdElement::Scope::Ptr(new XsdElement::Scope()));
         element->scope()->setVariety(XsdElement::Scope::Local);
-        element->scope()->setParent(parent);
+        element->scope()->setParent(parent.data());
 
         if (hasAttribute(QString::fromLatin1("name"))) {
             const QString elementName = readNameAttribute("element");

@@ -10,11 +10,11 @@
 #include "base/strings/utf_string_conversions.h"
 #include "content/public/renderer/render_frame.h"
 #include "content/public/renderer/render_view.h"
+#include "extensions/common/constants.h"
 #include "extensions/common/extension_messages.h"
 #include "extensions/common/stack_frame.h"
-#include "services/service_manager/public/cpp/binder_registry.h"
-#include "third_party/WebKit/public/web/WebLocalFrame.h"
-#include "third_party/WebKit/public/web/WebView.h"
+#include "third_party/blink/public/web/web_local_frame.h"
+#include "third_party/blink/public/web/web_view.h"
 
 namespace extensions {
 
@@ -78,10 +78,11 @@ StackTrace GetStackTraceFromMessage(base::string16* message,
 }  // namespace
 
 ExtensionsRenderFrameObserver::ExtensionsRenderFrameObserver(
-    content::RenderFrame* render_frame)
+    content::RenderFrame* render_frame,
+    service_manager::BinderRegistry* registry)
     : content::RenderFrameObserver(render_frame),
       webview_visually_deemphasized_(false) {
-  render_frame->GetInterfaceRegistry()->AddInterface(
+  registry->AddInterface(
       base::Bind(&ExtensionsRenderFrameObserver::BindAppWindowRequest,
                  base::Unretained(this)));
 }
@@ -111,6 +112,12 @@ void ExtensionsRenderFrameObserver::DetailedConsoleMessageAdded(
     const base::string16& stack_trace_string,
     uint32_t line_number,
     int32_t severity_level) {
+  if (severity_level <
+      static_cast<int32_t>(extension_misc::kMinimumSeverityToReportError)) {
+    // We don't report certain low-severity errors.
+    return;
+  }
+
   base::string16 trimmed_message = message;
   StackTrace stack_trace = GetStackTraceFromMessage(
       &trimmed_message,

@@ -43,6 +43,7 @@
 #include <QtNetwork/private/qnetworksession_p.h>
 #include <QTcpServer>
 #include <QHostInfo>
+#include <QTcpSocket>
 
 #include "../../../network-settings.h"
 
@@ -253,6 +254,8 @@ void tst_QFtp::init()
     } else {
         networkSessionExplicit.clear();
     }
+#else
+    Q_UNUSED(setSession);
 #endif
 
     delete ftp;
@@ -2074,8 +2077,6 @@ void tst_QFtp::doneSignal()
     QTestEventLoop::instance().enterLoop(61);
     if (QTestEventLoop::instance().timeout())
         QFAIL("Network operation timed out");
-
-    QTest::qWait(200);
 
     QCOMPARE(spy.count(), 1);
     QCOMPARE(spy.first().first().toBool(), false);

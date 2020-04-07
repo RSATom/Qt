@@ -8,7 +8,6 @@
 #include <utility>
 
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/run_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/autofill/content/common/autofill_agent.mojom.h"
@@ -81,6 +80,10 @@ class FakePasswordAutofillAgent
   // autofill::mojom::PasswordAutofillAgent:
   MOCK_METHOD2(FillPasswordForm,
                void(int, const autofill::PasswordFormFillData&));
+  MOCK_METHOD3(FillIntoFocusedField,
+               void(bool, const base::string16&, FillIntoFocusedFieldCallback));
+
+  MOCK_METHOD0(BlacklistedFormFound, void());
 
  private:
   void SetLoggingState(bool active) override {
@@ -125,15 +128,13 @@ PasswordFormFillData GetTestPasswordFormFillData() {
   matches[non_preferred_match.username_value] = &non_preferred_match;
 
   PasswordFormFillData result;
-  InitPasswordFormFillData(form_on_page, matches, &preferred_match, true, false,
+  InitPasswordFormFillData(form_on_page, matches, &preferred_match, true,
                            &result);
   return result;
 }
 
-MATCHER_P(WerePasswordsCleared,
-          should_preferred_password_cleared,
-          "Passwords not cleared") {
-  if (should_preferred_password_cleared && !arg.password_field.value.empty())
+MATCHER(WerePasswordsCleared, "Passwords not cleared") {
+  if (!arg.password_field.value.empty())
     return false;
 
   for (auto& credentials : arg.additional_logins)
@@ -228,24 +229,21 @@ TEST_F(ContentPasswordManagerDriverTest, ClearPasswordsOnAutofill) {
       new ContentPasswordManagerDriver(main_rfh(), &password_manager_client_,
                                        &autofill_client_));
 
-  for (bool wait_for_username : {false, true}) {
     PasswordFormFillData fill_data = GetTestPasswordFormFillData();
-    fill_data.wait_for_username = wait_for_username;
-    EXPECT_CALL(fake_agent_,
-                FillPasswordForm(_, WerePasswordsCleared(wait_for_username)));
+    fill_data.wait_for_username = true;
+    EXPECT_CALL(fake_agent_, FillPasswordForm(_, WerePasswordsCleared()));
     driver->FillPasswordForm(fill_data);
-  }
 }
 
-#if defined(SAFE_BROWSING_DB_LOCAL)
-TEST_F(ContentPasswordManagerDriverTest, CheckSafeBrowsingReputationCalled) {
+TEST_F(ContentPasswordManagerDriverTest, NotInformAboutBlacklistedForm) {
   std::unique_ptr<ContentPasswordManagerDriver> driver(
       new ContentPasswordManagerDriver(main_rfh(), &password_manager_client_,
                                        &autofill_client_));
-  EXPECT_CALL(password_manager_client_, CheckSafeBrowsingReputation(_, _));
-  driver->CheckSafeBrowsingReputation(GURL(), GURL());
+
+  PasswordFormFillData fill_data = GetTestPasswordFormFillData();
+  EXPECT_CALL(fake_agent_, BlacklistedFormFound()).Times(0);
+  driver->FillPasswordForm(fill_data);
 }
-#endif
 
 INSTANTIATE_TEST_CASE_P(,
                         ContentPasswordManagerDriverTest,

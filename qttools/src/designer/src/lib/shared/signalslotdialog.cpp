@@ -34,22 +34,22 @@
 #include "qdesigner_formwindowcommand_p.h"
 #include "iconloader_p.h"
 
-#include <QtDesigner/QDesignerMemberSheetExtension>
-#include <QtDesigner/QExtensionManager>
-#include <QtDesigner/QDesignerFormEditorInterface>
-#include <QtDesigner/QDesignerFormWindowInterface>
-#include <QtDesigner/QDesignerWidgetFactoryInterface>
+#include <QtDesigner/membersheet.h>
+#include <QtDesigner/qextensionmanager.h>
+#include <QtDesigner/abstractformeditor.h>
+#include <QtDesigner/abstractformwindow.h>
+#include <QtDesigner/abstractwidgetfactory.h>
 #include <abstractdialoggui_p.h>
 
-#include <QtGui/QStandardItemModel>
-#include <QtGui/QRegularExpressionValidator>
-#include <QtWidgets/QItemDelegate>
-#include <QtWidgets/QLineEdit>
-#include <QtWidgets/QApplication>
-#include <QtWidgets/QMessageBox>
+#include <QtGui/qstandarditemmodel.h>
+#include <QtGui/qvalidator.h>
+#include <QtWidgets/qitemdelegate.h>
+#include <QtWidgets/qlineedit.h>
+#include <QtWidgets/qapplication.h>
+#include <QtWidgets/qmessagebox.h>
 
-#include <QtCore/QRegularExpression>
-#include <QtCore/QDebug>
+#include <QtCore/qregularexpression.h>
+#include <QtCore/qdebug.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -121,8 +121,8 @@ namespace {
     class SignatureDelegate : public QItemDelegate {
     public:
         SignatureDelegate(QObject * parent = 0);
-        QWidget * createEditor (QWidget * parent, const QStyleOptionViewItem &option, const QModelIndex &index ) const Q_DECL_OVERRIDE;
-        void setModelData (QWidget *editor, QAbstractItemModel *model, const QModelIndex &index) const Q_DECL_OVERRIDE;
+        QWidget * createEditor (QWidget * parent, const QStyleOptionViewItem &option, const QModelIndex &index ) const override;
+        void setModelData (QWidget *editor, QAbstractItemModel *model, const QModelIndex &index) const override;
 
     private:
         const QRegularExpression m_signatureRegexp;
@@ -174,8 +174,10 @@ namespace {
                   const QStringList &oldFakeSlots, const QStringList &oldFakeSignals,
                   const QStringList &newFakeSlots, const QStringList &newFakeSignals);
 
-        virtual void undo() { fakeMethodsToMetaDataBase(core(), m_object, m_oldFakeSlots, m_oldFakeSignals); }
-        virtual void redo() { fakeMethodsToMetaDataBase(core(), m_object, m_newFakeSlots, m_newFakeSignals); }
+        void undo() override
+        { fakeMethodsToMetaDataBase(core(), m_object, m_oldFakeSlots, m_oldFakeSignals); }
+        void redo() override
+        { fakeMethodsToMetaDataBase(core(), m_object, m_newFakeSlots, m_newFakeSignals); }
 
     private:
         QObject *m_object;

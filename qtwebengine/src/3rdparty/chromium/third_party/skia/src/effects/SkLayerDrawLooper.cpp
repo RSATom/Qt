@@ -6,10 +6,11 @@
  */
 #include "SkArenaAlloc.h"
 #include "SkBlurDrawLooper.h"
-#include "SkBlurMaskFilter.h"
+#include "SkMaskFilter.h"
 #include "SkCanvas.h"
 #include "SkColorSpaceXformer.h"
 #include "SkColor.h"
+#include "SkMaskFilterBase.h"
 #include "SkReadBuffer.h"
 #include "SkWriteBuffer.h"
 #include "SkLayerDrawLooper.h"
@@ -181,8 +182,8 @@ bool SkLayerDrawLooper::asABlurShadow(BlurShadowRec* bsRec) const {
     if (nullptr == mf) {
         return false;
     }
-    SkMaskFilter::BlurRec maskBlur;
-    if (!mf->asABlur(&maskBlur)) {
+    SkMaskFilterBase::BlurRec maskBlur;
+    if (!as_MFB(mf)->asABlur(&maskBlur)) {
         return false;
     }
 
@@ -203,7 +204,6 @@ bool SkLayerDrawLooper::asABlurShadow(BlurShadowRec* bsRec) const {
         bsRec->fOffset = fRecs->fInfo.fOffset;
         bsRec->fColor = fRecs->fPaint.getColor();
         bsRec->fStyle = maskBlur.fStyle;
-        bsRec->fQuality = maskBlur.fQuality;
     }
     return true;
 }
@@ -272,67 +272,12 @@ sk_sp<SkFlattenable> SkLayerDrawLooper::CreateProc(SkReadBuffer& buffer) {
         buffer.readPoint(&info.fOffset);
         info.fPostTranslate = buffer.readBool();
         buffer.readPaint(builder.addLayerOnTop(info));
+        if (!buffer.isValid()) {
+            return nullptr;
+        }
     }
     return builder.detach();
 }
-
-#ifndef SK_IGNORE_TO_STRING
-void SkLayerDrawLooper::toString(SkString* str) const {
-    str->appendf("SkLayerDrawLooper (%d): ", fCount);
-
-    Rec* rec = fRecs;
-    for (int i = 0; i < fCount; i++) {
-        str->appendf("%d: paintBits: (", i);
-        if (0 == rec->fInfo.fPaintBits) {
-            str->append("None");
-        } else if (kEntirePaint_Bits == rec->fInfo.fPaintBits) {
-            str->append("EntirePaint");
-        } else {
-            bool needSeparator = false;
-            SkAddFlagToString(str, SkToBool(kStyle_Bit & rec->fInfo.fPaintBits), "Style",
-                              &needSeparator);
-            SkAddFlagToString(str, SkToBool(kTextSkewX_Bit & rec->fInfo.fPaintBits), "TextSkewX",
-                              &needSeparator);
-            SkAddFlagToString(str, SkToBool(kPathEffect_Bit & rec->fInfo.fPaintBits), "PathEffect",
-                              &needSeparator);
-            SkAddFlagToString(str, SkToBool(kMaskFilter_Bit & rec->fInfo.fPaintBits), "MaskFilter",
-                              &needSeparator);
-            SkAddFlagToString(str, SkToBool(kShader_Bit & rec->fInfo.fPaintBits), "Shader",
-                              &needSeparator);
-            SkAddFlagToString(str, SkToBool(kColorFilter_Bit & rec->fInfo.fPaintBits), "ColorFilter",
-                              &needSeparator);
-            SkAddFlagToString(str, SkToBool(kXfermode_Bit & rec->fInfo.fPaintBits), "Xfermode",
-                              &needSeparator);
-        }
-        str->append(") ");
-
-        static const char* gModeStrings[(int)SkBlendMode::kLastMode+1] = {
-            "kClear", "kSrc", "kDst", "kSrcOver", "kDstOver", "kSrcIn", "kDstIn",
-            "kSrcOut", "kDstOut", "kSrcATop", "kDstATop", "kXor", "kPlus",
-            "kMultiply", "kScreen", "kOverlay", "kDarken", "kLighten", "kColorDodge",
-            "kColorBurn", "kHardLight", "kSoftLight", "kDifference", "kExclusion"
-        };
-
-        str->appendf("mode: %s ", gModeStrings[(int)rec->fInfo.fColorMode]);
-
-        str->append("offset: (");
-        str->appendScalar(rec->fInfo.fOffset.fX);
-        str->append(", ");
-        str->appendScalar(rec->fInfo.fOffset.fY);
-        str->append(") ");
-
-        str->append("postTranslate: ");
-        if (rec->fInfo.fPostTranslate) {
-            str->append("true ");
-        } else {
-            str->append("false ");
-        }
-
-        rec->fPaint.toString(str);
-        rec = rec->fNext;
-    }
-}
-#endif
 
 SkLayerDrawLooper::Builder::Builder()
         : fRecs(nullptr),
@@ -403,7 +348,7 @@ sk_sp<SkDrawLooper> SkBlurDrawLooper::Make(SkColor color, SkScalar sigma, SkScal
 {
     sk_sp<SkMaskFilter> blur = nullptr;
     if (sigma > 0.0f) {
-        blur = SkBlurMaskFilter::Make(kNormal_SkBlurStyle, sigma, SkBlurMaskFilter::kNone_BlurFlag);
+        blur = SkMaskFilter::MakeBlur(kNormal_SkBlurStyle, sigma, true);
     }
 
     SkLayerDrawLooper::Builder builder;

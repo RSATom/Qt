@@ -10,6 +10,7 @@ import os.path
 import shutil
 import subprocess
 import sys
+import stat
 import tempfile
 
 # How to patch libxml2 in Chromium:
@@ -80,14 +81,25 @@ PATCHES = [
 
 
 # See libxml2 configure.ac and win32/configure.js to learn what
-# options are available.
-
+# options are available. We include every option here to more easily track
+# changes from one version to the next, and to be sure we only include what
+# we need.
 # These two sets of options should be in sync. You can check the
-# generated #defines in (win32|mac|linux)/include/libxml.h to confirm
+# generated #defines in (win32|mac|linux)/include/libxml/xmlversion.h to confirm
 # this.
+# We would like to disable python but it introduces a host of build errors
 SHARED_XML_CONFIGURE_OPTIONS = [
     # These options are turned ON
+    ('--with-html', 'html=yes'),
     ('--with-icu', 'icu=yes'),
+    ('--with-output', 'output=yes'),
+    ('--with-push', 'push=yes'),
+    ('--with-python', 'python=yes'),
+    ('--with-reader', 'reader=yes'),
+    ('--with-sax1', 'sax1=yes'),
+    ('--with-tree', 'tree=yes'),
+    ('--with-writer', 'writer=yes'),
+    ('--with-xpath', 'xpath=yes'),
     # These options are turned OFF
     ('--without-c14n', 'c14n=no'),
     ('--without-catalog', 'catalog=no'),
@@ -96,14 +108,17 @@ SHARED_XML_CONFIGURE_OPTIONS = [
     ('--without-ftp', 'ftp=no'),
     ('--without-http', 'http=no'),
     ('--without-iconv', 'iconv=no'),
+    ('--without-iso8859x', 'iso8859x=no'),
     ('--without-legacy', 'legacy=no'),
     ('--without-lzma', 'lzma=no'),
     ('--without-mem-debug', 'mem_debug=no'),
     ('--without-modules', 'modules=no'),
+    ('--without-pattern', 'pattern=no'),
     ('--without-regexps', 'regexps=no'),
     ('--without-run-debug', 'run_debug=no'),
     ('--without-schemas', 'schemas=no'),
     ('--without-schematron', 'schematron=no'),
+    ('--without-threads', 'threads=no'),
     ('--without-valid', 'valid=no'),
     ('--without-xinclude', 'xinclude=no'),
     ('--without-xptr', 'xptr=no'),
@@ -113,6 +128,8 @@ SHARED_XML_CONFIGURE_OPTIONS = [
 
 # These options are only available in configure.ac for Linux and Mac.
 EXTRA_NIX_XML_CONFIGURE_OPTIONS = [
+    '--without-fexceptions',
+    '--without-minimum',
     '--without-readline',
     '--without-history',
 ]
@@ -120,6 +137,7 @@ EXTRA_NIX_XML_CONFIGURE_OPTIONS = [
 
 # These options are only available in win32/configure.js for Windows.
 EXTRA_WIN32_XML_CONFIGURE_OPTIONS = [
+    'trio=no',
     'walker=no',
 ]
 
@@ -137,8 +155,10 @@ XML_WIN32_CONFIGURE_OPTIONS = (
 FILES_TO_REMOVE = [
     'src/DOCBparser.c',
     'src/HACKING',
+    'src/INSTALL',
     'src/INSTALL.libxml2',
     'src/MAINTAINERS',
+    'src/Makefile.in',
     'src/Makefile.win',
     'src/README.cvs-commits',
     # This is unneeded "legacy" SAX API, even though we enable SAX1.
@@ -150,18 +170,29 @@ FILES_TO_REMOVE = [
     'src/build_glob.py',
     'src/c14n.c',
     'src/catalog.c',
+    'src/compile',
+    'src/config.guess',
+    'src/config.sub',
+    'src/configure',
     'src/chvalid.def',
     'src/debugXML.c',
+    'src/depcomp',
     'src/doc',
     'src/example',
     'src/genChRanges.py',
     'src/global.data',
+    'src/include/libxml/Makefile.in',
     'src/include/libxml/xmlversion.h',
     'src/include/libxml/xmlwin32version.h',
     'src/include/libxml/xmlwin32version.h.in',
+    'src/include/Makefile.in',
+    'src/install-sh',
     'src/legacy.c',
     'src/libxml2.doap',
+    'src/ltmain.sh',
+    'src/m4',
     'src/macos/libxml2.mcp.xml.sit.hqx',
+    'src/missing',
     'src/optim',
     'src/os400',
     'src/python',
@@ -245,7 +276,8 @@ def remove_tracked_files(files_to_remove):
         files_to_remove: The files to remove.
     """
     files_to_remove = [f for f in files_to_remove if os.path.exists(f)]
-    git('rm', '-rf', *files_to_remove)
+    if files_to_remove:
+        git('rm', '-rf', *files_to_remove)
 
 
 def sed_in_place(input_filename, program):
@@ -301,6 +333,7 @@ def prepare_libxml_distribution(libxml2_repo_path, temp_dir):
     with WorkingDir(temp_src_path):
         os.remove('.gitignore')
     with WorkingDir(temp_config_path):
+        print('../src/autogen.sh %s' % XML_CONFIGURE_OPTIONS)
         subprocess.check_call(['../src/autogen.sh'] + XML_CONFIGURE_OPTIONS)
         subprocess.check_call(['make', 'dist-all'])
 
@@ -383,6 +416,8 @@ def roll_libxml_mac(src_path):
 
     with WorkingDir(os.path.join(full_path_to_third_party_libxml, 'mac')):
         subprocess.check_call(['autoreconf', '-i', '../src'])
+        os.chmod('../src/configure',
+                 os.stat('../src/configure').st_mode | stat.S_IXUSR)
         subprocess.check_call(['../src/configure'] + XML_CONFIGURE_OPTIONS)
         sed_in_place('config.h', 's/#define HAVE_RAND_R 1//')
 

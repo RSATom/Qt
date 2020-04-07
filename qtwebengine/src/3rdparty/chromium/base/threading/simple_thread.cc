@@ -28,25 +28,37 @@ SimpleThread::~SimpleThread() {
 }
 
 void SimpleThread::Start() {
-  DCHECK(!HasBeenStarted()) << "Tried to Start a thread multiple times.";
-  bool success =
-      options_.joinable
-          ? PlatformThread::CreateWithPriority(options_.stack_size, this,
-                                               &thread_, options_.priority)
-          : PlatformThread::CreateNonJoinableWithPriority(
-                options_.stack_size, this, options_.priority);
-  DCHECK(success);
+  StartAsync();
   ThreadRestrictions::ScopedAllowWait allow_wait;
   event_.Wait();  // Wait for the thread to complete initialization.
 }
 
 void SimpleThread::Join() {
   DCHECK(options_.joinable) << "A non-joinable thread can't be joined.";
-  DCHECK(HasBeenStarted()) << "Tried to Join a never-started thread.";
+  DCHECK(HasStartBeenAttempted()) << "Tried to Join a never-started thread.";
   DCHECK(!HasBeenJoined()) << "Tried to Join a thread multiple times.";
+  BeforeJoin();
   PlatformThread::Join(thread_);
   thread_ = PlatformThreadHandle();
   joined_ = true;
+}
+
+void SimpleThread::StartAsync() {
+  DCHECK(!HasStartBeenAttempted()) << "Tried to Start a thread multiple times.";
+  start_called_ = true;
+  BeforeStart();
+  bool success =
+      options_.joinable
+          ? PlatformThread::CreateWithPriority(options_.stack_size, this,
+                                               &thread_, options_.priority)
+          : PlatformThread::CreateNonJoinableWithPriority(
+                options_.stack_size, this, options_.priority);
+  CHECK(success);
+}
+
+PlatformThreadId SimpleThread::tid() {
+  DCHECK(HasBeenStarted());
+  return tid_;
 }
 
 bool SimpleThread::HasBeenStarted() {
@@ -65,6 +77,7 @@ void SimpleThread::ThreadMain() {
   // We've initialized our new thread, signal that we're done to Start().
   event_.Signal();
 
+  BeforeRun();
   Run();
 }
 
@@ -119,7 +132,7 @@ void DelegateSimpleThreadPool::JoinAll() {
   DCHECK(!threads_.empty()) << "JoinAll() called with no outstanding threads.";
 
   // Tell all our threads to quit their worker loop.
-  AddWork(NULL, num_threads_);
+  AddWork(nullptr, num_threads_);
 
   // Join and destroy all the worker threads.
   for (int i = 0; i < num_threads_; ++i) {
@@ -140,7 +153,7 @@ void DelegateSimpleThreadPool::AddWork(Delegate* delegate, int repeat_count) {
 }
 
 void DelegateSimpleThreadPool::Run() {
-  Delegate* work = NULL;
+  Delegate* work = nullptr;
 
   while (true) {
     dry_.Wait();

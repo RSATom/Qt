@@ -53,7 +53,9 @@ class MapUpdater {
         is_transitionable_fast_elements_kind_(
             IsTransitionableFastElementsKind(new_elements_kind_)) {
     // We shouldn't try to update remote objects.
-    DCHECK(!old_map->FindRootMap()->GetConstructor()->IsFunctionTemplateInfo());
+    DCHECK(!old_map->FindRootMap(isolate)
+                ->GetConstructor()
+                ->IsFunctionTemplateInfo());
   }
 
   // Prepares for reconfiguring of a property at |descriptor| to data field
@@ -148,10 +150,6 @@ class MapUpdater {
       Handle<DescriptorArray> descriptors, int descriptor,
       PropertyLocation location, Representation representation);
 
-  inline void GeneralizeIfTransitionableFastElementsKind(
-      PropertyConstness* constness, Representation* representation,
-      Handle<FieldType>* field_type);
-
   void GeneralizeField(Handle<Map> map, int modify_index,
                        PropertyConstness new_constness,
                        Representation new_representation,
@@ -174,7 +172,7 @@ class MapUpdater {
   int modified_descriptor_ = -1;
   PropertyKind new_kind_ = kData;
   PropertyAttributes new_attributes_ = NONE;
-  PropertyConstness new_constness_ = kMutable;
+  PropertyConstness new_constness_ = PropertyConstness::kMutable;
   PropertyLocation new_location_ = kField;
   Representation new_representation_ = Representation::None();
 

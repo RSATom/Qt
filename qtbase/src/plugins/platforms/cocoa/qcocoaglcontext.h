@@ -41,6 +41,7 @@
 #define QCOCOAGLCONTEXT_H
 
 #include <QtCore/QPointer>
+#include <QtCore/private/qcore_mac_p.h>
 #include <qpa/qplatformopenglcontext.h>
 #include <QtGui/QOpenGLContext>
 #include <QtGui/QWindow>
@@ -52,39 +53,35 @@ QT_BEGIN_NAMESPACE
 class QCocoaGLContext : public QPlatformOpenGLContext
 {
 public:
-    QCocoaGLContext(const QSurfaceFormat &format, QPlatformOpenGLContext *share, const QVariant &nativeHandle);
+    QCocoaGLContext(QOpenGLContext *context);
     ~QCocoaGLContext();
 
-    QSurfaceFormat format() const Q_DECL_OVERRIDE;
-
-    void swapBuffers(QPlatformSurface *surface) Q_DECL_OVERRIDE;
-
-    bool makeCurrent(QPlatformSurface *surface) Q_DECL_OVERRIDE;
-    void doneCurrent() Q_DECL_OVERRIDE;
-
-    QFunctionPointer getProcAddress(const char *procName) Q_DECL_OVERRIDE;
+    bool makeCurrent(QPlatformSurface *surface) override;
+    void swapBuffers(QPlatformSurface *surface) override;
+    void doneCurrent() override;
 
     void update();
 
-    static NSOpenGLPixelFormat *createNSOpenGLPixelFormat(const QSurfaceFormat &format);
-    NSOpenGLContext *nsOpenGLContext() const;
+    QSurfaceFormat format() const override;
+    bool isSharing() const override;
+    bool isValid() const override;
 
-    bool isSharing() const Q_DECL_OVERRIDE;
-    bool isValid() const Q_DECL_OVERRIDE;
+    NSOpenGLContext *nativeContext() const;
 
-    void windowWasHidden();
-
-    QVariant nativeHandle() const;
+    QFunctionPointer getProcAddress(const char *procName) override;
 
 private:
-    void setActiveWindow(QWindow *window);
+    static NSOpenGLPixelFormat *pixelFormatForSurfaceFormat(const QSurfaceFormat &format);
+
+    bool setDrawable(QPlatformSurface *surface);
     void updateSurfaceFormat();
 
-    NSOpenGLContext *m_context;
-    NSOpenGLContext *m_shareContext;
+    NSOpenGLContext *m_context = nil;
+    NSOpenGLContext *m_shareContext = nil;
     QSurfaceFormat m_format;
-    QPointer<QWindow> m_currentWindow;
-    bool m_didCheckForSoftwareContext;
+    bool m_didCheckForSoftwareContext = false;
+    QVarLengthArray<QMacScopedObserver, 3> m_updateObservers;
+    QAtomicInt m_needsUpdate = false;
 };
 
 QT_END_NAMESPACE

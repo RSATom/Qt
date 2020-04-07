@@ -38,6 +38,12 @@ manifestmeta.highlighted.names += "QtWebEngine/WebEngine Widgets Simple Browser 
 
 tagfile                 = ../../../doc/qtwebengine/qtwebengine.tags
 
+# Custom module header for clang that pulls in also QtWebEngineWidgets
+moduleheader = QtWebEngineDoc
+
+# Additional include paths for clang
+includepaths = -I .
+
 depends += qtcore \
            qtgui \
            qtlocation \
@@ -48,7 +54,6 @@ depends += qtcore \
            qtqml \
            qtquick \
            qtquickcontrols \
-           qtquickcontrols2 \
            qtdoc \
            qtwebchannel \
            qtwebview \

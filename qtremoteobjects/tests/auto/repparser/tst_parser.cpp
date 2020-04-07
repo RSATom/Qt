@@ -53,6 +53,8 @@ private Q_SLOTS:
     void testEnums();
     void testModels_data();
     void testModels();
+    void testClasses_data();
+    void testClasses();
     void testInvalid_data();
     void testInvalid();
 };
@@ -68,6 +70,9 @@ void tst_Parser::testBasic_data()
     QTest::newRow("preprocessor_line_ifgroup") << "#if 1\n#include \"foo\n#endif";
     //QTest::newRow("comment") << "//This is a comment";
     QTest::newRow("enum") << "ENUM MyEnum {test}";
+    QTest::newRow("empty class with comment") << "class MyClass {\n//comment\n}";
+    QTest::newRow("comment, class") << "//comment\nclass MyClass {}";
+    QTest::newRow("include, comment, class") << "#include \"foo\"\n//comment\nclass MyClass {}";
 }
 
 void tst_Parser::testBasic()
@@ -94,6 +99,9 @@ void tst_Parser::testProperties_data()
     QTest::addColumn<bool>("expectedPersistence");
 
     QTest::newRow("default") << "PROP(QString foo)" << "QString" << "foo" << QString() << ASTProperty::ReadPush << false;
+    QTest::newRow("default with comment") << "PROP(QString foo) // my property" << "QString" << "foo" << QString() << ASTProperty::ReadPush << false;
+    QTest::newRow("default with comment above") << "// my property\nPROP(QString foo)" << "QString" << "foo" << QString() << ASTProperty::ReadPush << false;
+    QTest::newRow("default with indented comment above") << "    // my property\nPROP(QString foo)" << "QString" << "foo" << QString() << ASTProperty::ReadPush << false;
     QTest::newRow("readonly") << "PROP(QString foo READONLY)" << "QString" << "foo" << QString() << ASTProperty::ReadOnly << false;
     QTest::newRow("constant") << "PROP(QString foo CONSTANT)" << "QString" << "foo" << QString() << ASTProperty::Constant << false;
     QTest::newRow("readwrite") << "PROP(QString foo READWRITE)" << "QString" << "foo" << QString() << ASTProperty::ReadWrite << false;
@@ -118,6 +126,8 @@ void tst_Parser::testProperties_data()
     QTest::newRow("templatetype") << "PROP(QVector<int> bar)" << "QVector<int>" << "bar" << QString() << ASTProperty::ReadPush << false;
     QTest::newRow("nested templatetype") << "PROP(QMap<int, QVector<int> > bar)" << "QMap<int, QVector<int> >" << "bar" << QString() << ASTProperty::ReadPush << false;
     QTest::newRow("non-int default value") << "PROP(double foo=1.1 CONSTANT)" << "double" << "foo" << "1.1" << ASTProperty::Constant << false;
+    QTest::newRow("tab") << "PROP(double\tfoo)" << "double" << "foo" << "" << ASTProperty::ReadPush << false;
+    QTest::newRow("two tabs") << "PROP(double\t\tfoo)" << "double" << "foo" << "" << ASTProperty::ReadPush << false;
 }
 
 void tst_Parser::testProperties()
@@ -255,6 +265,7 @@ void tst_Parser::testPods_data()
     QTest::newRow("one pod") << "POD preset(int presetNumber)" << "int" << "presetNumber";
     QTest::newRow("two pod") << "POD preset(int presetNumber, double foo)" << "int;double" << "presetNumber;foo";
     QTest::newRow("two pod with space") << "POD preset ( int presetNumber , double foo ) " << "int;double" << "presetNumber;foo";
+    QTest::newRow("two pod multiline") << "POD preset(\nint presetNumber,\ndouble foo\n)" << "int;double" << "presetNumber;foo";
     //Template
     QTest::newRow("pod template") << "POD preset(QMap<QString,int> foo) " << "QMap<QString,int>" << "foo";
     QTest::newRow("pod template (QList)") << "POD preset(QList<QString> foo) " << "QList<QString>" << "foo";
@@ -304,16 +315,23 @@ void tst_Parser::testEnums_data()
     QTest::addColumn<QList<int> >("expectedvalues");
     QTest::addColumn<int>("expectedmax");
     QTest::addColumn<bool>("expectedsigned");
+    QTest::addColumn<bool>("inclass");
 
-    //Separate by ";"
-    QTest::newRow("one enum val") << "ENUM preset {presetNumber}" << "presetNumber" << (QList<int>() << 0) << 0 << false;
-    QTest::newRow("two enum val") << "ENUM preset {presetNumber, foo}" << "presetNumber;foo" << (QList<int>() << 0 << 1) << 1 << false;
-    QTest::newRow("two enum val -1 2nd") << "ENUM preset {presetNumber, foo = -1}" << "presetNumber;foo" << (QList<int>() << 0 << -1) << 1 << true;
-    QTest::newRow("two enum val -1 1st") << "ENUM preset {presetNumber=-1, foo}" << "presetNumber;foo" << (QList<int>() << -1 << 0) << 1 << true;
-    QTest::newRow("two enum val hex") << "ENUM preset {presetNumber=0xf, foo}" << "presetNumber;foo" << (QList<int>() << 15 << 16) << 16 << false;
-    QTest::newRow("two enum val hex") << "ENUM preset {presetNumber=0xff, foo}" << "presetNumber;foo" << (QList<int>() << 255 << 256) << 256 << false;
-    QTest::newRow("two enum val with space") << "ENUM preset { presetNumber ,  foo } " << "presetNumber;foo" << (QList<int>() << 0 << 1) << 1 << false;
-    QTest::newRow("set values") << "ENUM preset { val1=1 , val3=3, val5=5 } " << "val1;val3;val5" << (QList<int>() << 1 << 3 << 5) << 5 << false;
+    for (int i = 0; i <= 1; ++i) {
+        bool inclass = i == 1;
+        QString identifier = inclass ? QLatin1String("%1 in class") : QLatin1String("%1 outside class");
+        //Separate by ";"
+        QTest::newRow(identifier.arg("one enum val").toLatin1()) << "ENUM preset {presetNumber}" << "presetNumber" << (QList<int>() << 0) << 0 << false << inclass;
+        QTest::newRow(identifier.arg("two enum val").toLatin1()) << "ENUM preset {presetNumber, foo}" << "presetNumber;foo" << (QList<int>() << 0 << 1) << 1 << false << inclass;
+        QTest::newRow(identifier.arg("two enum val -1 2nd").toLatin1()) << "ENUM preset {presetNumber, foo = -1}" << "presetNumber;foo" << (QList<int>() << 0 << -1) << 1 << true << inclass;
+        QTest::newRow(identifier.arg("two enum val -1 1st").toLatin1()) << "ENUM preset {presetNumber=-1, foo}" << "presetNumber;foo" << (QList<int>() << -1 << 0) << 1 << true << inclass;
+        QTest::newRow(identifier.arg("two enum val hex").toLatin1()) << "ENUM preset {presetNumber=0xf, foo}" << "presetNumber;foo" << (QList<int>() << 15 << 16) << 16 << false << inclass;
+        QTest::newRow(identifier.arg("two enum val hex").toLatin1()) << "ENUM preset {presetNumber=0xff, foo}" << "presetNumber;foo" << (QList<int>() << 255 << 256) << 256 << false << inclass;
+        QTest::newRow(identifier.arg("two enum val with space").toLatin1()) << "ENUM preset { presetNumber ,  foo } " << "presetNumber;foo" << (QList<int>() << 0 << 1) << 1 << false << inclass;
+        QTest::newRow(identifier.arg("set values").toLatin1()) << "ENUM preset { val1=1 , val3=3, val5=5 } " << "val1;val3;val5" << (QList<int>() << 1 << 3 << 5) << 5 << false << inclass;
+        QTest::newRow(identifier.arg("multiline").toLatin1()) << "ENUM preset {\nval1,\nval2,\nval3\n} " << "val1;val2;val3" << (QList<int>() << 0 << 1 << 2) << 2 << false << inclass;
+        QTest::newRow(identifier.arg("multiline indented").toLatin1()) << "    ENUM preset {\n        val1,\n        val2,\n        val3\n    } " << "val1;val2;val3" << (QList<int>() << 0 << 1 << 2) << 2 << false << inclass;
+    }
 }
 
 void tst_Parser::testEnums()
@@ -323,13 +341,17 @@ void tst_Parser::testEnums()
     QFETCH(QList<int>, expectedvalues);
     QFETCH(int, expectedmax);
     QFETCH(bool, expectedsigned);
+    QFETCH(bool, inclass);
 
     QTemporaryFile file;
     file.open();
     QTextStream stream(&file);
-    stream << enumdeclaration << endl;
+    if (!inclass)
+        stream << enumdeclaration << endl;
     stream << "class TestClass" << endl;
     stream << "{" << endl;
+    if (inclass)
+        stream << enumdeclaration << endl;
     stream << "};" << endl;
     file.seek(0);
 
@@ -338,9 +360,15 @@ void tst_Parser::testEnums()
 
     const AST ast = parser.ast();
     QCOMPARE(ast.classes.count(), 1);
-
-    QCOMPARE(ast.enums.count(), 1);
-    const ASTEnum enums = ast.enums.first();
+    ASTEnum enums;
+    if (inclass) {
+        const ASTClass astClass = ast.classes.first();
+        QCOMPARE(astClass.enums.count(), 1);
+        enums = astClass.enums.first();
+    } else {
+        QCOMPARE(ast.enums.count(), 1);
+        enums = ast.enums.first();
+    }
     const QVector<ASTEnumParam> paramList = enums.params;
     const QStringList nameList = expectednames.split(QLatin1Char(';'));
     QVERIFY(nameList.count() == expectedvalues.count());
@@ -384,13 +412,54 @@ void tst_Parser::testModels()
     QCOMPARE(ast.classes.count(), 1);
 
     const ASTClass astClass = ast.classes.first();
-    ASTModel model = astClass.models.first();
-    QCOMPARE(model.name, expectedModel);
+    ASTModel model = astClass.modelMetadata.first();
+    ASTProperty property = astClass.properties.at(model.propertyIndex);
+    QCOMPARE(property.name, expectedModel);
     int i = 0;
     for (auto role : model.roles) {
         QCOMPARE(role.name, expectedRoles.at(i).name);
         i++;
     }
+}
+
+void tst_Parser::testClasses_data()
+{
+    QTest::addColumn<QString>("classDeclaration");
+    QTest::addColumn<QString>("expectedType");
+    QTest::addColumn<QString>("expectedName");
+    QTest::newRow("basicclass") << "CLASS sub(subObject)" << "subObject" << "sub";
+}
+
+void tst_Parser::testClasses()
+{
+    QFETCH(QString, classDeclaration);
+    QFETCH(QString, expectedType);
+    QFETCH(QString, expectedName);
+
+    QTemporaryFile file;
+    file.open();
+    QTextStream stream(&file);
+    stream << "class subObject" << endl;
+    stream << "{" << endl;
+    stream << "    PROP(int value)" << endl;
+    stream << "};" << endl;
+    stream << "class parentObject" << endl;
+    stream << "{" << endl;
+    stream << classDeclaration << endl;
+    stream << "};" << endl;
+    file.seek(0);
+
+    RepParser parser(file);
+    QVERIFY(parser.parse());
+
+    const AST ast = parser.ast();
+    QCOMPARE(ast.classes.count(), 2);
+
+    const ASTClass astSub = ast.classes.value(0);
+    const ASTClass astObj = ast.classes.value(1);
+    const ASTProperty property = astObj.properties.at(astObj.subClassPropertyIndices.at(0));
+    QCOMPARE(property.name, expectedName);
+    QCOMPARE(property.type, expectedType);
 }
 
 void tst_Parser::testInvalid_data()
@@ -413,6 +482,7 @@ void tst_Parser::testInvalid_data()
     QTest::newRow("slot_outsideclass") << "SLOT(void foo())" << ".?SLOT: Can only be used in class scope";
     QTest::newRow("slot_noargs") << "class Foo\n{\nSLOT()\n}" << ".?Unknown token encountered";
     QTest::newRow("model_outsideclass") << "MODEL foo" << ".?Unknown token encountered";
+    QTest::newRow("class_outsideclass") << "CLASS foo" << ".?Unknown token encountered";
     QTest::newRow("preprecessor_line_inclass") << "class Foo\n{\n#define foo\n}" << ".?Unknown token encountered";
 }
 

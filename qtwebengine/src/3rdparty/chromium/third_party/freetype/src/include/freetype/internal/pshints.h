@@ -1,21 +1,21 @@
-/***************************************************************************/
-/*                                                                         */
-/*  pshints.h                                                              */
-/*                                                                         */
-/*    Interface to Postscript-specific (Type 1 and Type 2) hints           */
-/*    recorders (specification only).  These are used to support native    */
-/*    T1/T2 hints in the `type1', `cid', and `cff' font drivers.           */
-/*                                                                         */
-/*  Copyright 2001-2017 by                                                 */
-/*  David Turner, Robert Wilhelm, and Werner Lemberg.                      */
-/*                                                                         */
-/*  This file is part of the FreeType project, and may only be used,       */
-/*  modified, and distributed under the terms of the FreeType project      */
-/*  license, LICENSE.TXT.  By continuing to use, modify, or distribute     */
-/*  this file you indicate that you have read the license and              */
-/*  understand and accept it fully.                                        */
-/*                                                                         */
-/***************************************************************************/
+/****************************************************************************
+ *
+ * pshints.h
+ *
+ *   Interface to Postscript-specific (Type 1 and Type 2) hints
+ *   recorders (specification only).  These are used to support native
+ *   T1/T2 hints in the `type1', `cid', and `cff' font drivers.
+ *
+ * Copyright 2001-2018 by
+ * David Turner, Robert Wilhelm, and Werner Lemberg.
+ *
+ * This file is part of the FreeType project, and may only be used,
+ * modified, and distributed under the terms of the FreeType project
+ * license, LICENSE.TXT.  By continuing to use, modify, or distribute
+ * this file you indicate that you have read the license and
+ * understand and accept it fully.
+ *
+ */
 
 
 #ifndef PSHINTS_H_
@@ -680,8 +680,6 @@ FT_BEGIN_HEADER
   typedef PSHinter_Interface*  PSHinter_Service;
 
 
-#ifndef FT_CONFIG_OPTION_PIC
-
 #define FT_DEFINE_PSHINTER_INTERFACE(        \
           class_,                            \
           get_globals_funcs_,                \
@@ -694,25 +692,6 @@ FT_BEGIN_HEADER
     get_t2_funcs_                            \
   };
 
-#else /* FT_CONFIG_OPTION_PIC */
-
-#define FT_DEFINE_PSHINTER_INTERFACE(                      \
-          class_,                                          \
-          get_globals_funcs_,                              \
-          get_t1_funcs_,                                   \
-          get_t2_funcs_ )                                  \
-  void                                                     \
-  FT_Init_Class_ ## class_( FT_Library           library,  \
-                            PSHinter_Interface*  clazz )   \
-  {                                                        \
-    FT_UNUSED( library );                                  \
-                                                           \
-    clazz->get_globals_funcs = get_globals_funcs_;         \
-    clazz->get_t1_funcs      = get_t1_funcs_;              \
-    clazz->get_t2_funcs      = get_t2_funcs_;              \
-  }
-
-#endif /* FT_CONFIG_OPTION_PIC */
 
 FT_END_HEADER
 

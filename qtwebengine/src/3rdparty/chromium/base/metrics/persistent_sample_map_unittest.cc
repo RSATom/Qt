@@ -16,14 +16,14 @@ namespace {
 
 std::unique_ptr<PersistentHistogramAllocator> CreateHistogramAllocator(
     size_t bytes) {
-  return MakeUnique<PersistentHistogramAllocator>(
-      MakeUnique<LocalPersistentMemoryAllocator>(bytes, 0, ""));
+  return std::make_unique<PersistentHistogramAllocator>(
+      std::make_unique<LocalPersistentMemoryAllocator>(bytes, 0, ""));
 }
 
 std::unique_ptr<PersistentHistogramAllocator> DuplicateHistogramAllocator(
     PersistentHistogramAllocator* original) {
-  return MakeUnique<PersistentHistogramAllocator>(
-      MakeUnique<PersistentMemoryAllocator>(
+  return std::make_unique<PersistentHistogramAllocator>(
+      std::make_unique<PersistentMemoryAllocator>(
           const_cast<void*>(original->data()), original->length(), 0,
           original->Id(), original->Name(), false));
 }
@@ -171,7 +171,7 @@ TEST(PersistentSampleMapIteratorTest, IterateTest) {
   EXPECT_EQ(1, min);
   EXPECT_EQ(2, max);
   EXPECT_EQ(100, count);
-  EXPECT_FALSE(it->GetBucketIndex(NULL));
+  EXPECT_FALSE(it->GetBucketIndex(nullptr));
 
   it->Next();
   it->Get(&min, &max, &count);

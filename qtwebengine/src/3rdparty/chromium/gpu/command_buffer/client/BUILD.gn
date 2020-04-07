@@ -20,11 +20,23 @@ group("client") {
 group("gles2_cmd_helper") {
   if (is_component_build) {
     public_deps = [
-      "//gpu",
+      "//gpu:gles2",
     ]
   } else {
     public_deps = [
       ":gles2_cmd_helper_sources",
+    ]
+  }
+}
+
+group("raster") {
+  if (is_component_build) {
+    public_deps = [
+      "//gpu:raster",
+    ]
+  } else {
+    public_deps = [
+      ":raster_sources",
     ]
   }
 }
@@ -37,6 +49,8 @@ source_set("client_sources") {
   sources = [
     "client_discardable_manager.cc",
     "client_discardable_manager.h",
+    "client_discardable_texture_manager.cc",
+    "client_discardable_texture_manager.h",
     "cmd_buffer_helper.cc",
     "cmd_buffer_helper.h",
     "fenced_allocator.cc",
@@ -52,17 +66,12 @@ source_set("client_sources") {
     "transfer_buffer.h",
   ]
 
-  configs += [
-    # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
-    "//build/config/compiler:no_size_t_to_int_warning",
-    "//gpu:gpu_implementation",
-  ]
+  configs += [ "//gpu:gpu_implementation" ]
 
   all_dependent_configs = [ "//third_party/khronos:khronos_headers" ]
 
   public_deps = [
     "//base",
-    "//gpu/command_buffer/common:gles2_utils",
   ]
   deps = [
     "//gpu/command_buffer/common:common_sources",
@@ -80,16 +89,13 @@ source_set("gles2_cmd_helper_sources") {
     "gles2_cmd_helper_autogen.h",
   ]
 
-  configs += [
-    # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
-    "//build/config/compiler:no_size_t_to_int_warning",
-    "//gpu:gpu_implementation",
-  ]
+  configs += [ "//gpu:gpu_gles2_implementation" ]
 
   deps = [
-    ":client_sources",
+    ":client",
     "//base",
-    "//gpu/command_buffer/common:common_sources",
+    "//gpu/command_buffer/common",
+    "//gpu/command_buffer/common:gles2_sources",
   ]
 }
 
@@ -108,6 +114,8 @@ gles2_implementation_source_files = [
   "client_context_state.h",
   "client_context_state_autogen.h",
   "client_context_state_impl_autogen.h",
+  "client_transfer_cache.cc",
+  "client_transfer_cache.h",
   "gles2_impl_export.h",
   "gles2_implementation.cc",
   "gles2_implementation.h",
@@ -119,10 +127,16 @@ gles2_implementation_source_files = [
   "gles2_trace_implementation_impl_autogen.h",
   "gpu_switches.cc",
   "gpu_switches.h",
+  "implementation_base.cc",
+  "implementation_base.h",
+  "logging.cc",
+  "logging.h",
   "program_info_manager.cc",
   "program_info_manager.h",
   "query_tracker.cc",
   "query_tracker.h",
+  "readback_buffer_shadow_tracker.cc",
+  "readback_buffer_shadow_tracker.h",
   "share_group.cc",
   "share_group.h",
   "vertex_array_object_manager.cc",
@@ -142,33 +156,86 @@ source_set("gles2_interface") {
   ]
 }
 
+source_set("raster_interface") {
+  sources = [
+    "raster_interface.h",
+  ]
+  public_configs = [ "//third_party/khronos:khronos_headers" ]
+  deps = [
+    "//base",
+    "//components/viz/common:resource_format",
+    "//ui/gfx:buffer_types",
+  ]
+}
+
 # Library emulates GLES2 using command_buffers.
 component("gles2_implementation") {
   sources = gles2_implementation_source_files
-
-  # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
-  configs += [ "//build/config/compiler:no_size_t_to_int_warning" ]
 
   defines = [ "GLES2_IMPL_IMPLEMENTATION" ]
   all_dependent_configs = [ "//third_party/khronos:khronos_headers" ]
 
   deps = [
+    ":client",
     ":gles2_cmd_helper",
     ":gles2_interface",
     "//base",
-    "//gpu/command_buffer/client",
     "//gpu/command_buffer/common",
+    "//gpu/command_buffer/common:gles2",
     "//gpu/command_buffer/common:gles2_utils",
     "//ui/gfx/geometry",
+  ]
+
+  if (!is_nacl) {
+    deps += [
+      "//components/viz/common:resource_format",
+      "//ui/gfx:color_space",
+      "//ui/gfx/ipc/color",
+    ]
+  }
+}
+
+source_set("raster_sources") {
+  # External code should depend on this via //gpu:raster above rather than
+  # depending on this directly or the component build will break.
+  visibility = [ "//gpu/*" ]
+  all_dependent_configs = [ "//third_party/khronos:khronos_headers" ]
+
+  configs += [ "//gpu:raster_implementation" ]
+  deps = [
+    ":client",
+    ":gles2_implementation",
+    ":gles2_interface",
+    ":raster_interface",
+    "//base",
+    "//cc/paint",
+    "//components/viz/common:resource_format",
+    "//gpu/command_buffer/common",
+    "//gpu/command_buffer/common:gles2",
+    "//gpu/command_buffer/common:gles2_utils",
+    "//gpu/command_buffer/common:raster",
+    "//ui/gfx:color_space",
+    "//ui/gfx/geometry",
+    "//ui/gfx/ipc/color",
+  ]
+  sources = [
+    "client_font_manager.cc",
+    "client_font_manager.h",
+    "raster_cmd_helper.cc",
+    "raster_cmd_helper.h",
+    "raster_cmd_helper_autogen.h",
+    "raster_implementation.cc",
+    "raster_implementation.h",
+    "raster_implementation_autogen.h",
+    "raster_implementation_gles.cc",
+    "raster_implementation_gles.h",
+    "raster_implementation_impl_autogen.h",
   ]
 }
 
 # Library emulates GLES2 using command_buffers.
 component("gles2_implementation_no_check") {
   sources = gles2_implementation_source_files
-
-  # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
-  configs += [ "//build/config/compiler:no_size_t_to_int_warning" ]
 
   defines = [
     "GLES2_IMPL_IMPLEMENTATION",
@@ -181,21 +248,26 @@ component("gles2_implementation_no_check") {
     ":gles2_interface",
     "//base",
     "//gpu/command_buffer/common",
+    "//gpu/command_buffer/common:gles2",
     "//gpu/command_buffer/common:gles2_utils",
     "//ui/gfx",
     "//ui/gfx/geometry",
   ]
+
+  if (!is_nacl) {
+    deps += [
+      "//cc/paint",
+      "//ui/gfx:color_space",
+      "//ui/gfx/ipc/color",
+    ]
+  }
 }
 
 component("gles2_c_lib") {
   sources = gles2_c_lib_source_files
   defines = [ "GLES2_C_LIB_IMPLEMENTATION" ]
 
-  # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
-  configs += [ "//build/config/compiler:no_size_t_to_int_warning" ]
-
   deps = [
-    ":client",
     ":gles2_interface",
     "//base",
     "//base/third_party/dynamic_annotations",
@@ -213,8 +285,6 @@ component("gles2_c_lib_nocheck") {
     "GLES2_CONFORMANCE_TESTS=1",
   ]
   deps = [
-    ":client",
-    ":gles2_implementation_no_check",
     ":gles2_interface",
     "//base",
     "//base/third_party/dynamic_annotations",

@@ -26,6 +26,7 @@ STATIC_ASSERT(sizeof(1L) == sizeof(int64_t));
 namespace v8 {
 namespace internal {
 
+constexpr size_t kMaxPCRelativeCodeRangeInMB = 128;
 
 const unsigned kInstructionSize = 4;
 const unsigned kInstructionSizeLog2 = 2;
@@ -101,7 +102,6 @@ const int kIp1Code = 17;
 const int kFramePointerRegCode = 29;
 const int kLinkRegCode = 30;
 const int kZeroRegCode = 31;
-const int kJSSPCode = 28;
 const int kSPRegInternalCode = 63;
 const unsigned kRegCodeMask = 0x1f;
 const unsigned kShiftAmountWRegMask = 0x1f;
@@ -141,6 +141,11 @@ const unsigned kFloat16MantissaBits = 10;
 const unsigned kFloat16ExponentBits = 5;
 const unsigned kFloat16ExponentBias = 15;
 
+// Actual value of root register is offset from the root array's start
+// to take advantage of negative displacement values.
+// TODO(sigurds): Choose best value.
+constexpr int kRootRegisterBias = 256;
+
 typedef uint16_t float16;
 
 #define INSTRUCTION_FIELDS_LIST(V_)                     \
@@ -171,7 +176,7 @@ typedef uint16_t float16;
   V_(ImmAddSub, 21, 10, Bits)                           \
   V_(ShiftAddSub, 23, 22, Bits)                         \
                                                         \
-  /* Add/substract extend */                            \
+  /* Add/subtract extend */                             \
   V_(ImmExtendShift, 12, 10, Bits)                      \
   V_(ExtendMode, 15, 13, Bits)                          \
                                                         \
@@ -408,12 +413,13 @@ enum Extend {
 };
 
 enum SystemHint {
-  NOP   = 0,
+  NOP = 0,
   YIELD = 1,
-  WFE   = 2,
-  WFI   = 3,
-  SEV   = 4,
-  SEVL  = 5
+  WFE = 2,
+  WFI = 3,
+  SEV = 4,
+  SEVL = 5,
+  CSDB = 20
 };
 
 enum BarrierDomain {

@@ -88,7 +88,7 @@ void tst_QDateTimeAxis::init()
     m_dateTimeAxisY = new QDateTimeAxis();
     m_series = new QLineSeries();
     *m_series << QPointF(-100, -100) << QPointF(0, 0) << QPointF(100, 100);
-    //    tst_QAbstractAxis::init(m_datetimeaxis, m_series);
+    //    tst_QAbstractAxis::initAxes(m_datetimeaxis, m_series);
 
     m_view = new QChartView;
     m_view->resize(200, 200);
@@ -122,7 +122,7 @@ void tst_QDateTimeAxis::qdatetimeaxis()
     QCOMPARE(m_dateTimeAxisX->type(), QAbstractAxis::AxisTypeDateTime);
 
     m_view->show();
-    QTest::qWaitForWindowShown(m_view);
+    QVERIFY(QTest::qWaitForWindowExposed(m_view));
 
     QVERIFY(m_dateTimeAxisX->max().toMSecsSinceEpoch() != 0);
     QVERIFY(m_dateTimeAxisX->min().toMSecsSinceEpoch() != 0);
@@ -175,7 +175,7 @@ void tst_QDateTimeAxis::max()
 {
 //    m_chart->setAxisX(m_dateTimeAxisX, m_series);
     m_view->show();
-    QTest::qWaitForWindowShown(m_view);
+    QVERIFY(QTest::qWaitForWindowExposed(m_view));
     max_raw();
 }
 
@@ -234,7 +234,7 @@ void tst_QDateTimeAxis::min()
 {
 //    m_chart->setAxisX(m_dateTimeAxisX, m_series);
     m_view->show();
-    QTest::qWaitForWindowShown(m_view);
+    QVERIFY(QTest::qWaitForWindowExposed(m_view));
     min_raw();
 }
 
@@ -308,7 +308,7 @@ void tst_QDateTimeAxis::range()
 {
 //    m_chart->setAxisX(m_dateTimeAxisX, m_series);
     m_view->show();
-    QTest::qWaitForWindowShown(m_view);
+    QVERIFY(QTest::qWaitForWindowExposed(m_view));
     range_raw();
 }
 
@@ -333,7 +333,7 @@ void tst_QDateTimeAxis::reverse()
     QCOMPARE(spy.count(), 1);
 
     m_view->show();
-    QTest::qWaitForWindowShown(m_view);
+    QVERIFY(QTest::qWaitForWindowExposed(m_view));
     QCOMPARE(m_dateTimeAxisX->isReverse(), true);
 }
 

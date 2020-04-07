@@ -5,14 +5,18 @@
 // Custom binding for the fileManagerPrivate API.
 
 // Bindings
-var binding = require('binding').Binding.create('fileManagerPrivate');
-var eventBindings = require('event_bindings');
+var binding =
+    apiBridge || require('binding').Binding.create('fileManagerPrivate');
+var registerArgumentMassager = bindingUtil ?
+    $Function.bind(bindingUtil.registerEventArgumentMassager, bindingUtil) :
+    require('event_bindings').registerArgumentMassager;
 
 // Natives
 var fileManagerPrivateNatives = requireNative('file_manager_private');
 
 // Internals
-var fileManagerPrivateInternal =
+var fileManagerPrivateInternal = getInternalApi ?
+    getInternalApi('fileManagerPrivateInternal') :
     require('binding').Binding.create('fileManagerPrivateInternal').generate();
 
 // Shorthands
@@ -117,6 +121,12 @@ binding.registerCustomHook(function(bindingsAPI) {
     fileManagerPrivateInternal.pinDriveFile(url, pin, callback);
   });
 
+  apiFunctions.setHandleRequest(
+      'ensureFileDownloaded', function(entry, callback) {
+        var url = fileManagerPrivateNatives.GetEntryURL(entry);
+        fileManagerPrivateInternal.ensureFileDownloaded(url, callback);
+      });
+
   apiFunctions.setHandleRequest('executeTask',
       function(taskId, entries, callback) {
         var urls = entries.map(function(entry) {
@@ -211,13 +221,20 @@ binding.registerCustomHook(function(bindingsAPI) {
       }));
     });
   });
+
+  apiFunctions.setHandleRequest('installLinuxPackage', function(
+        entry, callback) {
+    var url = fileManagerPrivateNatives.GetEntryURL(entry);
+    fileManagerPrivateInternal.installLinuxPackage(url, callback);
+  });
 });
 
-eventBindings.registerArgumentMassager(
-    'fileManagerPrivate.onDirectoryChanged', function(args, dispatch) {
+registerArgumentMassager('fileManagerPrivate.onDirectoryChanged',
+                         function(args, dispatch) {
   // Convert the entry arguments into a real Entry object.
   args[0].entry = GetExternalFileEntry(args[0].entry);
   dispatch(args);
 });
 
-exports.$set('binding', binding.generate());
+if (!apiBridge)
+  exports.$set('binding', binding.generate());

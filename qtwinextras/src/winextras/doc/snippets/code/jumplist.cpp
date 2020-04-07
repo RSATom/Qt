@@ -54,19 +54,16 @@ void foo()
 {
 //! [jumplist]
     QWinJumpList jumplist;
-    jumplist.begin();
-    jumplist.setKnownCategoryShown(QWinJumpList::RecentCategory);
 
-    jumplist.beginTasks();
-
+    QWinJumpListCategory *tasks = jumplist.tasks();
     QWinJumpListItem *newProject = new QWinJumpListItem(QWinJumpListItem::Link);
     newProject->setTitle(tr("Create new project"));
     newProject->setFilePath(QDir::toNativeSeparators(QCoreApplication::applicationFilePath()));
     newProject->setArguments(QStringList("--new-project"));
-    jumplist.addItem(newProject);
+    tasks->addItem(newProject);
 
-    jumplist.addLink(tr("Launch SDK Manager"), QDir::toNativeSeparators(QCoreApplication::applicationDirPath()) + "\\sdk-manager.exe");
+    tasks->addLink(tr("Launch SDK Manager"), QDir::toNativeSeparators(QCoreApplication::applicationDirPath()) + "\\sdk-manager.exe");
 
-    jumplist.commit();
+    tasks->setVisible(true);
 //! [jumplist]
 }

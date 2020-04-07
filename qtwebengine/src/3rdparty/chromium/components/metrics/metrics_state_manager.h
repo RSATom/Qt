@@ -23,11 +23,12 @@ namespace metrics {
 
 class ClonedInstallDetector;
 class EnabledStateProvider;
+class MetricsProvider;
 
 // Responsible for managing MetricsService state prefs, specifically the UMA
 // client id and low entropy source. Code outside the metrics directory should
 // not be instantiating or using this class directly.
-class MetricsStateManager {
+class MetricsStateManager final {
  public:
   // A callback that can be invoked to store client info to persistent storage.
   // Storing an empty client_id will resulted in the backup being voided.
@@ -39,12 +40,17 @@ class MetricsStateManager {
   typedef base::Callback<std::unique_ptr<ClientInfo>(void)>
       LoadClientInfoCallback;
 
-  virtual ~MetricsStateManager();
+  ~MetricsStateManager();
+
+  std::unique_ptr<MetricsProvider> GetProvider();
 
   // Returns true if the user has consented to sending metric reports, and there
   // is no other reason to disable reporting. One such reason is client
   // sampling, and this client isn't in the sample.
   bool IsMetricsReportingEnabled();
+
+  // Returns the install date of the application, in seconds since the epoch.
+  int64_t GetInstallDate() const;
 
   // Returns the client ID for this client, or the empty string if the user is
   // not opted in to metrics reporting.
@@ -98,11 +104,13 @@ class MetricsStateManager {
   static void RegisterPrefs(PrefRegistrySimple* registry);
 
  private:
+  FRIEND_TEST_ALL_PREFIXES(MetricsStateManagerTest, CheckProviderResetIds);
   FRIEND_TEST_ALL_PREFIXES(MetricsStateManagerTest, EntropySourceUsed_Low);
   FRIEND_TEST_ALL_PREFIXES(MetricsStateManagerTest, EntropySourceUsed_High);
   FRIEND_TEST_ALL_PREFIXES(MetricsStateManagerTest, LowEntropySource0NotReset);
   FRIEND_TEST_ALL_PREFIXES(MetricsStateManagerTest,
                            PermutedEntropyCacheClearedWhenLowEntropyReset);
+  FRIEND_TEST_ALL_PREFIXES(MetricsStateManagerTest, ResetBackup);
   FRIEND_TEST_ALL_PREFIXES(MetricsStateManagerTest, ResetMetricsIDs);
 
   // Designates which entropy source was returned from this class.
@@ -188,6 +196,16 @@ class MetricsStateManager {
 
   // The last entropy source returned by this service, used for testing.
   EntropySourceType entropy_source_returned_;
+
+  // The value of prefs::kMetricsResetIds seen upon startup, i.e., the value
+  // that was appropriate in the previous session. Used when reporting previous
+  // session (stability) data.
+  bool metrics_ids_were_reset_;
+
+  // The value of the metrics id before reseting. Only possibly valid if the
+  // metrics id was reset. May be blank if the metrics id was reset but Chrome
+  // has no record of what the previous metrics id was.
+  std::string previous_client_id_;
 
   std::unique_ptr<ClonedInstallDetector> cloned_install_detector_;
 

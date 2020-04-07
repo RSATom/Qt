@@ -25,7 +25,7 @@
      svn co http://llvm.org/svn/llvm-project/llvm/trunk/lib/Fuzzer
      ./Fuzzer/build.sh
   * build ffmpeg for fuzzing:
-    FLAGS="-fsanitize=address -fsanitize-coverage=trace-pc-guard,trace-cmp -g" CC="clang $FLAGS" CXX="clang++ $FLAGS" ./configure  --disable-yasm
+    FLAGS="-fsanitize=address -fsanitize-coverage=trace-pc-guard,trace-cmp -g" CC="clang $FLAGS" CXX="clang++ $FLAGS" ./configure  --disable-x86asm
     make clean && make -j
   * build the fuzz target.
     Choose the value of FFMPEG_CODEC (e.g. AV_CODEC_ID_DVD_SUBTITLE) and
@@ -55,6 +55,8 @@
 #include "libavformat/avformat.h"
 
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size);
+
+extern AVCodec * codec_list[];
 
 static void error(const char *err)
 {
@@ -99,7 +101,7 @@ static void FDBCreate(FuzzDataBuffer *FDB) {
 static void FDBDesroy(FuzzDataBuffer *FDB) { av_free(FDB->data_); }
 
 static void FDBRealloc(FuzzDataBuffer *FDB, size_t size) {
-    size_t needed = size + FF_INPUT_BUFFER_PADDING_SIZE;
+    size_t needed = size + AV_INPUT_BUFFER_PADDING_SIZE;
     av_assert0(needed > size);
     if (needed > FDB->size_) {
         av_free(FDB->data_);
@@ -116,8 +118,8 @@ static void FDBPrepare(FuzzDataBuffer *FDB, AVPacket *dst, const uint8_t *data,
     FDBRealloc(FDB, size);
     memcpy(FDB->data_, data, size);
     size_t padd = FDB->size_ - size;
-    if (padd > FF_INPUT_BUFFER_PADDING_SIZE)
-        padd = FF_INPUT_BUFFER_PADDING_SIZE;
+    if (padd > AV_INPUT_BUFFER_PADDING_SIZE)
+        padd = AV_INPUT_BUFFER_PADDING_SIZE;
     memset(FDB->data_ + size, 0, padd);
     av_init_packet(dst);
     dst->data = FDB->data_;
@@ -144,13 +146,10 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
 #define DECODER_SYMBOL0(CODEC) ff_##CODEC##_decoder
 #define DECODER_SYMBOL(CODEC) DECODER_SYMBOL0(CODEC)
         extern AVCodec DECODER_SYMBOL(FFMPEG_DECODER);
+        codec_list[0] = &DECODER_SYMBOL(FFMPEG_DECODER);
         avcodec_register(&DECODER_SYMBOL(FFMPEG_DECODER));
 
         c = &DECODER_SYMBOL(FFMPEG_DECODER);
-
-        // Unsupported
-        if (c->capabilities & AV_CODEC_CAP_HWACCEL_VDPAU)
-            return 0;
 #else
         avcodec_register_all();
         c = AVCodecInitialize(FFMPEG_CODEC);  // Done once.

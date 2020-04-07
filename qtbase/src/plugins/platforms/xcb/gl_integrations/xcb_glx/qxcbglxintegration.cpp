@@ -52,7 +52,9 @@
 
 #include "qxcbglxnativeinterfacehandler.h"
 
+#define register        /* C++17 deprecated register */
 #include <X11/Xlibint.h>
+#undef register
 
 QT_BEGIN_NAMESPACE
 
@@ -87,7 +89,7 @@ QT_BEGIN_NAMESPACE
 #endif
 
 QXcbGlxIntegration::QXcbGlxIntegration()
-    : m_connection(Q_NULLPTR)
+    : m_connection(nullptr)
     , m_glx_first_event(0)
 {
     qCDebug(lcQpaGl) << "Xcb GLX gl-integration created";
@@ -161,9 +163,9 @@ bool QXcbGlxIntegration::handleXcbEvent(xcb_generic_event_t *event, uint respons
                 // Unlock the display before calling the native event filter
                 XUnlockDisplay(xdisplay);
                 locked = false;
-                QByteArray genericEventFilterType = m_connection->nativeInterface()->genericEventFilterType();
+                auto eventType = m_connection->nativeInterface()->nativeEventType();
                 long result = 0;
-                handled = dispatcher->filterNativeEvent(genericEventFilterType, &ev, &result);
+                handled = dispatcher->filterNativeEvent(eventType, &ev, &result);
             }
 #endif
         }

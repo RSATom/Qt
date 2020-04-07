@@ -58,15 +58,16 @@ enum MediaStreamRequestResult {
   MEDIA_DEVICE_PERMISSION_DISMISSED = 2,
   MEDIA_DEVICE_INVALID_STATE = 3,
   MEDIA_DEVICE_NO_HARDWARE = 4,
-  MEDIA_DEVICE_INVALID_SECURITY_ORIGIN_DEPRECATED = 5,
+  MEDIA_DEVICE_INVALID_SECURITY_ORIGIN = 5,
   MEDIA_DEVICE_TAB_CAPTURE_FAILURE = 6,
   MEDIA_DEVICE_SCREEN_CAPTURE_FAILURE = 7,
   MEDIA_DEVICE_CAPTURE_FAILURE = 8,
   MEDIA_DEVICE_CONSTRAINT_NOT_SATISFIED = 9,
-  MEDIA_DEVICE_TRACK_START_FAILURE = 10,
-  MEDIA_DEVICE_NOT_SUPPORTED = 11,
-  MEDIA_DEVICE_FAILED_DUE_TO_SHUTDOWN = 12,
-  MEDIA_DEVICE_KILL_SWITCH_ON = 13,
+  MEDIA_DEVICE_TRACK_START_FAILURE_AUDIO = 10,
+  MEDIA_DEVICE_TRACK_START_FAILURE_VIDEO = 11,
+  MEDIA_DEVICE_NOT_SUPPORTED = 12,
+  MEDIA_DEVICE_FAILED_DUE_TO_SHUTDOWN = 13,
+  MEDIA_DEVICE_KILL_SWITCH_ON = 14,
   NUM_MEDIA_REQUEST_RESULTS
 };
 
@@ -82,16 +83,20 @@ CONTENT_EXPORT bool IsScreenCaptureMediaType(MediaStreamType type);
 // TODO(xians): Change the structs to classes.
 // Represents one device in a request for media stream(s).
 struct CONTENT_EXPORT MediaStreamDevice {
+  static const int kNoId;
+
   MediaStreamDevice();
 
   MediaStreamDevice(MediaStreamType type,
                     const std::string& id,
                     const std::string& name);
 
-  MediaStreamDevice(MediaStreamType type,
-                    const std::string& id,
-                    const std::string& name,
-                    media::VideoFacingMode facing);
+  MediaStreamDevice(
+      MediaStreamType type,
+      const std::string& id,
+      const std::string& name,
+      media::VideoFacingMode facing,
+      const base::Optional<std::string>& group_id = base::nullopt);
 
   MediaStreamDevice(MediaStreamType type,
                     const std::string& id,
@@ -104,7 +109,7 @@ struct CONTENT_EXPORT MediaStreamDevice {
 
   ~MediaStreamDevice();
 
-  bool IsEqual(const MediaStreamDevice& second) const;
+  bool IsSameDevice(const MediaStreamDevice& other_device) const;
 
   // The device's type.
   MediaStreamType type;
@@ -115,77 +120,31 @@ struct CONTENT_EXPORT MediaStreamDevice {
   // The facing mode for video capture device.
   media::VideoFacingMode video_facing;
 
+  // The device's group ID.
+  base::Optional<std::string> group_id;
+
   // The device id of a matched output device if any (otherwise empty).
   // Only applicable to audio devices.
-  std::string matched_output_device_id;
+  base::Optional<std::string> matched_output_device_id;
 
   // The device's "friendly" name. Not guaranteed to be unique.
   std::string name;
 
-  // Contains properties that match directly with those with the same name
-  // in media::AudioParameters.
-  // TODO(ajm): Remove this type and use media::AudioParameters directly.
-  struct CONTENT_EXPORT AudioDeviceParameters {
-    AudioDeviceParameters();
-    AudioDeviceParameters(int sample_rate,
-                          int channel_layout,
-                          int frames_per_buffer);
-    AudioDeviceParameters(const AudioDeviceParameters& other);
+  // Contains the device properties of the capture device. It's valid only when
+  // the type of device is audio (i.e. IsAudioInputMediaType returns true).
+  media::AudioParameters input =
+      media::AudioParameters::UnavailableDeviceParams();
 
-    ~AudioDeviceParameters();
-
-    // Preferred sample rate in samples per second for the device.
-    int sample_rate;
-
-    // Preferred channel configuration for the device.
-    // TODO(henrika): ideally, we would like to use media::ChannelLayout here
-    // but including media/base/channel_layout.h violates checkdeps rules.
-    int channel_layout;
-
-    // Preferred number of frames per buffer for the device.  This is filled
-    // in on the browser side and can be used by the renderer to match the
-    // expected browser side settings and avoid unnecessary buffering.
-    // See media::AudioParameters for more.
-    int frames_per_buffer;
-
-    // See media::AudioParameters::PlatformEffectsMask.
-    int effects;
-
-    std::vector<media::Point> mic_positions;
-  };
-
-  // These below two member variables are valid only when the type of device is
-  // audio (i.e. IsAudioInputMediaType returns true).
-
-  // Contains the device properties of the capture device.
-  AudioDeviceParameters input;
-
-  // If the capture device has an associated output device (e.g. headphones),
-  // this will contain the properties for the output device.  If no such device
-  // exists (e.g. webcam w/mic), then the value of this member will be all
-  // zeros.
-  AudioDeviceParameters matched_output;
+  // Id for this capture session. Unique for all sessions of the same type.
+  int session_id = kNoId;
 
   // This field is optional and available only for some camera models.
   base::Optional<CameraCalibration> camera_calibration;
 };
 
-class CONTENT_EXPORT MediaStreamDevices
-    : public std::vector<MediaStreamDevice> {
- public:
-  MediaStreamDevices();
-  MediaStreamDevices(size_t count, const MediaStreamDevice& value);
-
-  // Looks for a MediaStreamDevice based on its ID.
-  // Returns NULL if not found.
-  const MediaStreamDevice* FindById(const std::string& device_id) const;
-};
-
-typedef std::map<MediaStreamType, MediaStreamDevices> MediaStreamDeviceMap;
+using MediaStreamDevices = std::vector<MediaStreamDevice>;
 
 // Represents a request for media streams (audio/video).
-// TODO(vrk): Decouple MediaStreamDevice from this header file so that
-// media_stream_options.h no longer depends on this file.
 // TODO(vrk,justinlin,wjia): Figure out a way to share this code cleanly between
 // vanilla WebRTC, Tab Capture, and Pepper Video Capture. Right now there is
 // Tab-only stuff and Pepper-only stuff being passed around to all clients,
@@ -265,11 +224,10 @@ class MediaStreamUI {
 };
 
 // Callback used return results of media access requests.
-typedef base::Callback<void(const MediaStreamDevices& devices,
-                            content::MediaStreamRequestResult result,
-                            std::unique_ptr<MediaStreamUI> ui)>
-    MediaResponseCallback;
-
+using MediaResponseCallback =
+    base::OnceCallback<void(const MediaStreamDevices& devices,
+                            MediaStreamRequestResult result,
+                            std::unique_ptr<MediaStreamUI> ui)>;
 }  // namespace content
 
 #endif  // CONTENT_PUBLIC_COMMON_MEDIA_STREAM_REQUEST_H_

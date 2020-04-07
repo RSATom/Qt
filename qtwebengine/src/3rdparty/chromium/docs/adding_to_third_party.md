@@ -65,11 +65,6 @@ Run the following scripts:
 * `src/tools/licenses.py scan` - This will complain about incomplete or missing
   data for third_party checkins. We use 'licenses.py credits' to generate the
   about:credits page in Google Chrome builds.
-* `src/tools/checklicenses/checklicenses.py` - See below for info on how to
-  handle possible failures.
-
-See the ["Odds n' Ends"](adding_to_third_party.md#Odds-n_Ends) Section below if
-you run into any failures running these.
 
 If the library will never be shipped as a part of Chrome (e.g. build-time tools,
 testing tools), make sure to set "License File" as "NOT_SHIPPED" so that the
@@ -79,7 +74,7 @@ license is not included in about:credits page.
 
 If the code is applicable and will be compiled on all supported Chromium
 platforms (Windows, Mac, Linux, Chrome OS, iOS, Android), check it in to
-[src/third_party](http://src.chromium.org/viewvc/chrome/trunk/src/third_party/). 
+[src/third_party](http://src.chromium.org/viewvc/chrome/trunk/src/third_party/).
 
 If the code is only applicable to certain platforms, check it in to
 [src/third_party](http://src.chromium.org/viewvc/chrome/trunk/src/third_party/)
@@ -100,6 +95,7 @@ have a wrong path in DEPS and want to change the path of the existing library in
 DEPS, please ask the infrastructure team before committing the change.
 
 ### Checking in large files
+
 _Accessible to Googlers only. Non-Googlers can email one of the people in
 third_party/OWNERS for help._
 
@@ -122,26 +118,27 @@ All third party additions and substantive changes like re-licensing need the
 following sign-offs. Some of these are accessible to Googlers only. Non-Googlers
 can email one of the people in third_party/OWNERS for help.
 
-* Chrome Eng Review. Googlers should see go/chrome-eng-review (please include information about the additional checkout size, build times, and binary sizes. Please also make sure that the motivation for your project is clear, e.g., a design doc has been circulated).
-* open-source-third-party-reviews@google.com (ping the list with relevant
-  details and a link to the CL).
-* security@chromium.org (ping the list with relevant details and a link to the
-  CL).
+* Get Chrome Eng Review approval. Googlers should see
+  go/chrome-eng-review. Please include information about the additional
+  checkout size, build times, and binary sizes. Please also make sure that the
+  motivation for your project is clear, e.g., a design doc has been circulated.
+* Get security@chromium.org approval. Email the list with relevant details and
+  a link to the CL. Third party code is a hot spot for security vulnerabilities.
+  When adding a new package that could potentially carry security risk, make
+  sure to highlight risk to security@chromium.org. You may be asked to add
+  a README.security or, in dangerous cases, README.SECURITY.URGENTLY file.
+* Add chromium-third-party@google.com as a reviewer on your change. This
+  will trigger an automatic round-robin assignment of the review to an
+  appropriate reviewer. This list does not receive or deliver email, so only
+  use it as a reviewer, not for other communication.
 
-Please send separate emails to the three lists.
-
-Third party code is a hot spot for security vulnerabilities. When adding a new
-package that could potentially carry security risk, make sure to highlight risk
-to security@chromium.org. You may be asked to add a README.security or, in
-dangerous cases, README.SECURITY.URGENTLY file. When you update your code, be
-mindful of security-related mailing lists for the project and relevant CVE to
-update your package.
+Please send separate emails to the eng review and security lists.
 
 Subsequent changes don't require third-party-owners approval; you can modify the
-code as much as you want.
+code as much as you want. When you update code, be mindful of security-related
+mailing lists for the project and relevant CVE to update your package.
 
-## Ask the infrastructure team to add a git mirror for the dependency (or
-configure the git repo, if using googlesource.com)
+## Ask the infrastructure team to add a git mirror for the dependency
 
 Before committing the DEPS, you need to ask the infra team to create a git
 mirror for your dependency. [Create a
@@ -155,31 +152,3 @@ ticket](https://bugs.chromium.org/p/chromium/issues/entry?template=Infra-Git)
 for infra and ask the infra team what needs to be done. Note that you'll need
 unlimited quota for at least two role accounts. See the quota status of
 `boringssl` as an example.
-
-## Odds n' Ends
-
-### Handling `licenses_check (checklicenses.py)` failures
-
-This is needed for [Issue
-28291](http://code.google.com/p/chromium/issues/detail?id=28291): Pass the
-Ubuntu license check script:
-
-__If the failure looks like ...   ... the right action is to ... __
-
-* 'filename' has non-whitelisted license 'UNKNOWN'
-    * Ideally make the licensecheck.pl script recognize the license of that
-      file.  Often this requires __adding a license header__. Does it have
-      license header? If it's third party code, ask the upstream project to make
-      sure all their files have license headers.  If the license header is there
-      but is not recognized, we should try to patch licensecheck.pl.  If in
-      doubt please contact phajdan.jr@chromium.org
-* 'filename' has non-whitelisted license 'X' and X is BSD-compatible
-    * Add the license X to WHITELISTED_LICENSES in checklicenses.py . Make sure
-      to respect the OWNERS of that file. You must get an approval before
-      landing. CLs violating this requirement may be reverted.
-* 'filename' has non-whitelisted license 'X' and X is not BSD-compatible (i.e.
-  GPL)
-    * Do you really need to add those files? Chromium is BSD-licensed so the
-      resulting binaries can't use GPL code. Ideally we just shouldn't have
-      those files at all in the tree. If in doubt, please ask mal@chromium.org
-

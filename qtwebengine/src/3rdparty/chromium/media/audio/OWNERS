@@ -1,10 +1,12 @@
 tommi@chromium.org
+olka@chromium.org
+maxmorin@chromium.org
 
 # Windows
 henrika@chromium.org
 
 # Mirroring (and related glue) OWNERS.
-justinlin@chromium.org
 miu@chromium.org
+xjz@chromium.org
 
 # COMPONENT: Blink>Media>Audio

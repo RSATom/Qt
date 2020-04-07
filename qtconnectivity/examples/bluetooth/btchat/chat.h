@@ -50,13 +50,9 @@
 
 #include "ui_chat.h"
 
-#include <QDialog>
+#include <QtWidgets/qdialog.h>
 
-#include <qbluetoothserviceinfo.h>
-#include <qbluetoothsocket.h>
-#include <qbluetoothhostinfo.h>
-
-#include <QDebug>
+#include <QtBluetooth/qbluetoothhostinfo.h>
 
 QT_USE_NAMESPACE
 
@@ -69,7 +65,7 @@ class Chat : public QDialog
     Q_OBJECT
 
 public:
-    Chat(QWidget *parent = 0);
+    explicit Chat(QWidget *parent = nullptr);
     ~Chat();
 
 signals:
@@ -85,12 +81,13 @@ private slots:
     void clientDisconnected(const QString &name);
     void clientDisconnected();
     void connected(const QString &name);
+    void reactOnSocketError(const QString &error);
 
     void newAdapterSelected();
 
 private:
     int adapterFromUserSelection() const;
-    int currentAdapterIndex;
+    int currentAdapterIndex = 0;
     Ui_Chat *ui;
 
     ChatServer *server;

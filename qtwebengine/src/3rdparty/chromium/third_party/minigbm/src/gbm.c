@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/mman.h>
 #include <xf86drm.h>
 
 #include "drv.h"
@@ -30,14 +31,14 @@ PUBLIC const char *gbm_device_get_backend_name(struct gbm_device *gbm)
 
 PUBLIC int gbm_device_is_format_supported(struct gbm_device *gbm, uint32_t format, uint32_t usage)
 {
-	uint64_t drv_usage;
+	uint64_t use_flags;
 
 	if (usage & GBM_BO_USE_CURSOR && usage & GBM_BO_USE_RENDERING)
 		return 0;
 
-	drv_usage = gbm_convert_flags(usage);
+	use_flags = gbm_convert_usage(usage);
 
-	return (drv_get_combination(gbm->drv, format, drv_usage) != NULL);
+	return (drv_get_combination(gbm->drv, format, use_flags) != NULL);
 }
 
 PUBLIC struct gbm_device *gbm_create_device(int fd)
@@ -65,7 +66,7 @@ PUBLIC void gbm_device_destroy(struct gbm_device *gbm)
 }
 
 PUBLIC struct gbm_surface *gbm_surface_create(struct gbm_device *gbm, uint32_t width,
-					      uint32_t height, uint32_t format, uint32_t flags)
+					      uint32_t height, uint32_t format, uint32_t usage)
 {
 	struct gbm_surface *surface = (struct gbm_surface *)malloc(sizeof(*surface));
 
@@ -104,11 +105,11 @@ static struct gbm_bo *gbm_bo_new(struct gbm_device *gbm, uint32_t format)
 }
 
 PUBLIC struct gbm_bo *gbm_bo_create(struct gbm_device *gbm, uint32_t width, uint32_t height,
-				    uint32_t format, uint32_t flags)
+				    uint32_t format, uint32_t usage)
 {
 	struct gbm_bo *bo;
 
-	if (!gbm_device_is_format_supported(gbm, format, flags))
+	if (!gbm_device_is_format_supported(gbm, format, usage))
 		return NULL;
 
 	bo = gbm_bo_new(gbm, format);
@@ -116,7 +117,7 @@ PUBLIC struct gbm_bo *gbm_bo_create(struct gbm_device *gbm, uint32_t width, uint
 	if (!bo)
 		return NULL;
 
-	bo->bo = drv_bo_create(gbm->drv, width, height, format, gbm_convert_flags(flags));
+	bo->bo = drv_bo_create(gbm->drv, width, height, format, gbm_convert_usage(usage));
 
 	if (!bo->bo) {
 		free(bo);
@@ -170,7 +171,7 @@ PUBLIC struct gbm_bo *gbm_bo_import(struct gbm_device *gbm, uint32_t type, void 
 	size_t num_planes, i;
 
 	memset(&drv_data, 0, sizeof(drv_data));
-
+	drv_data.use_flags = gbm_convert_usage(usage);
 	switch (type) {
 	case GBM_BO_IMPORT_FD:
 		gbm_format = fd_data->format;
@@ -179,7 +180,6 @@ PUBLIC struct gbm_bo *gbm_bo_import(struct gbm_device *gbm, uint32_t type, void 
 		drv_data.format = fd_data->format;
 		drv_data.fds[0] = fd_data->fd;
 		drv_data.strides[0] = fd_data->stride;
-		drv_data.sizes[0] = fd_data->height * fd_data->stride;
 		break;
 	case GBM_BO_IMPORT_FD_PLANAR:
 		gbm_format = fd_planar_data->format;
@@ -195,9 +195,6 @@ PUBLIC struct gbm_bo *gbm_bo_import(struct gbm_device *gbm, uint32_t type, void 
 			drv_data.offsets[i] = fd_planar_data->offsets[i];
 			drv_data.strides[i] = fd_planar_data->strides[i];
 			drv_data.format_modifiers[i] = fd_planar_data->format_modifiers[i];
-
-			drv_data.sizes[i] = drv_size_from_format(
-			    drv_data.format, drv_data.strides[i], drv_data.height, i);
 		}
 
 		for (i = num_planes; i < GBM_MAX_PLANES; i++)
@@ -227,19 +224,33 @@ PUBLIC struct gbm_bo *gbm_bo_import(struct gbm_device *gbm, uint32_t type, void 
 }
 
 PUBLIC void *gbm_bo_map(struct gbm_bo *bo, uint32_t x, uint32_t y, uint32_t width, uint32_t height,
-			uint32_t flags, uint32_t *stride, void **map_data, size_t plane)
+			uint32_t transfer_flags, uint32_t *stride, void **map_data, size_t plane)
 {
+	void *addr;
+	off_t offset;
+	uint32_t map_flags;
+	struct rectangle rect = { .x = x, .y = y, .width = width, .height = height };
 	if (!bo || width == 0 || height == 0 || !stride || !map_data)
 		return NULL;
 
-	*stride = gbm_bo_get_plane_stride(bo, plane);
-	return drv_bo_map(bo->bo, x, y, width, height, 0, (struct map_info **)map_data, plane);
+	map_flags = (transfer_flags & GBM_BO_TRANSFER_READ) ? BO_MAP_READ : BO_MAP_NONE;
+	map_flags |= (transfer_flags & GBM_BO_TRANSFER_WRITE) ? BO_MAP_WRITE : BO_MAP_NONE;
+
+	addr = drv_bo_map(bo->bo, &rect, map_flags, (struct mapping **)map_data, plane);
+	if (addr == MAP_FAILED)
+		return MAP_FAILED;
+
+	*stride = ((struct mapping *)*map_data)->vma->map_strides[plane];
+
+	offset = *stride * rect.y;
+	offset += drv_stride_from_format(bo->gbm_format, rect.x, plane);
+	return (void *)((uint8_t *)addr + offset);
 }
 
 PUBLIC void gbm_bo_unmap(struct gbm_bo *bo, void *map_data)
 {
 	assert(bo);
-	drv_bo_unmap(bo->bo, map_data);
+	drv_bo_flush_or_unmap(bo->bo, map_data);
 }
 
 PUBLIC uint32_t gbm_bo_get_width(struct gbm_bo *bo)

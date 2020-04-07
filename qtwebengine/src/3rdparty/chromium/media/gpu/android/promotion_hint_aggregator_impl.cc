@@ -4,8 +4,9 @@
 
 #include "media/gpu/android/promotion_hint_aggregator_impl.h"
 
+#include <memory>
+
 #include "base/bind.h"
-#include "base/memory/ptr_util.h"
 #include "base/time/default_tick_clock.h"
 
 namespace media {
@@ -27,13 +28,10 @@ constexpr base::TimeDelta MinimumUnpromotableFrameTime =
     base::TimeDelta::FromMilliseconds(2000);
 
 PromotionHintAggregatorImpl::PromotionHintAggregatorImpl(
-    base::TickClock* tick_clock)
+    const base::TickClock* tick_clock)
     : weak_ptr_factory_(this) {
-  if (!tick_clock) {
-    clock_we_own_ = base::MakeUnique<base::DefaultTickClock>();
-    tick_clock = clock_we_own_.get();
-  }
-
+  if (!tick_clock)
+    tick_clock = base::DefaultTickClock::GetInstance();
   tick_clock_ = tick_clock;
 }
 

@@ -47,6 +47,7 @@ QT_BEGIN_NAMESPACE
 namespace QtMac
 {
 
+#if QT_DEPRECATED_SINCE(5, 12)
 CGContextRef currentCGContext()
 {
     return UIGraphicsGetCurrentContext();
@@ -77,6 +78,7 @@ int applicationIconBadgeNumber()
 {
     return [[UIApplication sharedApplication] applicationIconBadgeNumber];
 }
+#endif
 
 } // namespace QtMac
 

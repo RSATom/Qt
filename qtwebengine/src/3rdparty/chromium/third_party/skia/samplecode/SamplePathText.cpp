@@ -12,7 +12,9 @@
 #include "SkPaint.h"
 #include "SkPath.h"
 #include "SkRandom.h"
+#include "SkStrikeCache.h"
 #include "SkTaskGroup.h"
+#include "sk_tool_utils.h"
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Static text from paths.
@@ -21,16 +23,15 @@ public:
     constexpr static int kNumPaths = 1500;
     virtual const char* getName() const { return "PathText"; }
 
-    PathText() : fRand(25) {
+    PathText() {
         SkPaint defaultPaint;
-        SkAutoGlyphCache agc(defaultPaint, nullptr, &SkMatrix::I());
-        SkGlyphCache* cache = agc.getCache();
+        auto cache = SkStrikeCache::FindOrCreateStrikeExclusive(defaultPaint);
         SkPath glyphPaths[52];
         for (int i = 0; i < 52; ++i) {
             // I and l are rects on OS X ...
             char c = "aQCDEFGH7JKLMNOPBRZTUVWXYSAbcdefghijk1mnopqrstuvwxyz"[i];
-            SkGlyphID id = cache->unicharToGlyph(c);
-            cache->getScalerContext()->getPath(SkPackedGlyphID(id), &glyphPaths[i]);
+            SkPackedGlyphID id(cache->unicharToGlyph(c));
+            sk_ignore_unused_variable(cache->getScalerContext()->getPath(id, &glyphPaths[i]));
         }
 
         for (int i = 0; i < kNumPaths; ++i) {
@@ -53,10 +54,30 @@ public:
             SampleCode::TitleR(evt, this->getName());
             return true;
         }
+        SkUnichar unichar;
+        if (SampleCode::CharQ(*evt, &unichar)) {
+            if (unichar == 'X') {
+                fDoClip = !fDoClip;
+                return true;
+            }
+        }
         return this->INHERITED::onQuery(evt);
     }
 
     void onDrawContent(SkCanvas* canvas) override {
+        if (fDoClip) {
+            SkPath deviceSpaceClipPath = fClipPath;
+            deviceSpaceClipPath.transform(SkMatrix::MakeScale(this->width(), this->height()));
+            canvas->save();
+            canvas->clipPath(deviceSpaceClipPath, SkClipOp::kDifference, true);
+            canvas->clear(SK_ColorBLACK);
+            canvas->restore();
+            canvas->clipPath(deviceSpaceClipPath, SkClipOp::kIntersect, true);
+        }
+        this->drawGlyphs(canvas);
+    }
+
+    virtual void drawGlyphs(SkCanvas* canvas) {
         for (Glyph& glyph : fGlyphs) {
             SkAutoCanvasRestore acr(canvas, true);
             canvas->translate(glyph.fPosition.x(), glyph.fPosition.y());
@@ -81,7 +102,9 @@ protected:
     };
 
     Glyph      fGlyphs[kNumPaths];
-    SkRandom   fRand;
+    SkRandom   fRand{25};
+    SkPath     fClipPath = sk_tool_utils::make_star(SkRect{0,0,1,1}, 11, 3);
+    bool       fDoClip = false;
 
     typedef SampleView INHERITED;
 };
@@ -193,7 +216,7 @@ public:
         std::swap(fFrontMatrices, fBackMatrices);
     }
 
-    void onDrawContent(SkCanvas* canvas) override {
+    void drawGlyphs(SkCanvas* canvas) override {
         for (int i = 0; i < kNumPaths; ++i) {
             SkAutoCanvasRestore acr(canvas, true);
             canvas->concat(fFrontMatrices[i]);
@@ -287,7 +310,7 @@ public:
                     case SkPath::kCubic_Verb:
                     case SkPath::kConic_Verb:
                     case SkPath::kDone_Verb:
-                        SkFAIL("Unexpected path verb");
+                        SK_ABORT("Unexpected path verb");
                         break;
                 }
             }
@@ -296,10 +319,10 @@ public:
 
     void swapAnimationBuffers() override {
         this->INHERITED::swapAnimationBuffers();
-        fFrontPaths.swap(fBackPaths);
+        std::swap(fFrontPaths, fBackPaths);
     }
 
-    void onDrawContent(SkCanvas* canvas) override {
+    void drawGlyphs(SkCanvas* canvas) override {
         for (int i = 0; i < kNumPaths; ++i) {
             canvas->drawPath(fFrontPaths[i], fGlyphs[i].fPaint);
         }

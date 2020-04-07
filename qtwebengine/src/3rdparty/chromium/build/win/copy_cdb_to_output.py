@@ -62,7 +62,8 @@ def _CopyCDBToOutput(output_dir, target_arch):
   # when DEPOT_TOOLS_WIN_TOOLCHAIN=0 and vcvarsall.bat has not been run.
   win_sdk_dir = os.path.normpath(
       os.environ.get('WINDOWSSDKDIR',
-                     'C:\\Program Files (x86)\\Windows Kits\\10'))
+                     os.path.expandvars('%ProgramFiles(x86)%'
+                                        '\\Windows Kits\\10')))
   if target_arch == 'ia32' or target_arch == 'x86':
     src_arch = 'x86'
   elif target_arch == 'x64':
@@ -78,7 +79,7 @@ def _CopyCDBToOutput(output_dir, target_arch):
   dst_winext_dir = os.path.join(output_dir, 'winext')
   src_winxp_dir = os.path.join(src_dir, 'winxp')
   dst_winxp_dir = os.path.join(output_dir, 'winxp')
-  src_crt_dir = os.path.join(win_sdk_dir, r'Redist\ucrt\DLLs', src_arch)
+  src_crt_dir = os.path.join(win_sdk_dir, 'Redist', 'ucrt', 'DLLs', src_arch)
   _ConditionalMkdir(dst_winext_dir)
   _ConditionalMkdir(dst_winxp_dir)
   # Note that the outputs from the "copy_cdb_to_output" target need to
@@ -91,6 +92,7 @@ def _CopyCDBToOutput(output_dir, target_arch):
   _CopyImpl('uext.dll', dst_winext_dir, src_winext_dir)
   _CopyImpl('exts.dll', dst_winxp_dir, src_winxp_dir)
   _CopyImpl('ntsdexts.dll', dst_winxp_dir, src_winxp_dir)
+  _CopyImpl('api-ms-win-eventing-provider-l1-1-0.dll', output_dir, src_dir)
   for dll_path in glob.glob(os.path.join(src_crt_dir, 'api-ms-win-*.dll')):
     _CopyImpl(os.path.split(dll_path)[1], output_dir, src_crt_dir)
   _CopyImpl('ucrtbase.dll', output_dir, src_crt_dir)

@@ -45,10 +45,11 @@ using FileOffset = off_t;
 //! \brief Scoped wrapper of a FileHandle.
 using ScopedFileHandle = base::ScopedFD;
 
+//! \brief The return value of read and write calls.
+using FileOperationResult = ssize_t;
+
 //! \brief A value that can never be a valid FileHandle.
 const FileHandle kInvalidFileHandle = -1;
-
-using FileOperationResult = ssize_t;
 
 #elif defined(OS_WIN)
 
@@ -109,19 +110,28 @@ enum class StdioStream {
 
 namespace internal {
 
+#if defined(OS_POSIX) || DOXYGEN
+
 //! \brief The name of the native read function used by ReadFile().
 //!
 //! This value may be useful for logging.
 //!
 //! \sa kNativeWriteFunctionName
-extern const char kNativeReadFunctionName[];
+constexpr char kNativeReadFunctionName[] = "read";
 
 //! \brief The name of the native write function used by WriteFile().
 //!
 //! This value may be useful for logging.
 //!
 //! \sa kNativeReadFunctionName
-extern const char kNativeWriteFunctionName[];
+constexpr char kNativeWriteFunctionName[] = "write";
+
+#elif defined(OS_WIN)
+
+constexpr char kNativeReadFunctionName[] = "ReadFile";
+constexpr char kNativeWriteFunctionName[] = "WriteFile";
+
+#endif
 
 //! \brief The internal implementation of ReadFileExactly() and its wrappers.
 //!
@@ -308,7 +318,13 @@ void CheckedWriteFile(FileHandle file, const void* buffer, size_t size);
 //! \sa ReadFile
 void CheckedReadFileAtEOF(FileHandle file);
 
-//! brief Wraps LoggingOpenFileForRead() and ReadFile() reading the entire file
+//! \brief Wraps ReadFile() to read from the current file position to the end of
+//!     the file into \a contents.
+//!
+//! \return `true` on success, or `false` with a message logged.
+bool LoggingReadToEOF(FileHandle file, std::string* contents);
+
+//! \brief Wraps LoggingOpenFileForRead() and ReadFile() reading the entire file
 //!     into \a contents.
 //!
 //! \return `true` on success, or `false` with a message logged.
@@ -394,6 +410,11 @@ FileHandle LoggingOpenFileForReadAndWrite(const base::FilePath& path,
                                           FileWriteMode mode,
                                           FilePermissions permissions);
 
+// Fuchsia does not currently support any sort of file locking. See
+// https://crashpad.chromium.org/bug/196 and
+// https://crashpad.chromium.org/bug/217.
+#if !defined(OS_FUCHSIA)
+
 //! \brief Locks the given \a file using `flock()` on POSIX or `LockFileEx()` on
 //!     Windows.
 //!
@@ -422,6 +443,8 @@ bool LoggingLockFile(FileHandle file, FileLocking locking);
 //!
 //! \return `true` on success, or `false` and a message will be logged.
 bool LoggingUnlockFile(FileHandle file);
+
+#endif  // !OS_FUCHSIA
 
 //! \brief Wraps `lseek()` or `SetFilePointerEx()`. Logs an error if the
 //!     operation fails.

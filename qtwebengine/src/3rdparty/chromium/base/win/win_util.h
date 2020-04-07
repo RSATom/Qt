@@ -22,8 +22,8 @@
 #ifndef BASE_WIN_WIN_UTIL_H_
 #define BASE_WIN_WIN_UTIL_H_
 
-#include <windows.h>
 #include <stdint.h>
+#include "base/win/windows_types.h"
 
 #include <string>
 #include <vector>
@@ -34,26 +34,6 @@
 struct IPropertyStore;
 struct _tagpropertykey;
 typedef _tagpropertykey PROPERTYKEY;
-
-// This is the same as NONCLIENTMETRICS except that the
-// unused member |iPaddedBorderWidth| has been removed.
-struct NONCLIENTMETRICS_XP {
-    UINT    cbSize;
-    int     iBorderWidth;
-    int     iScrollWidth;
-    int     iScrollHeight;
-    int     iCaptionWidth;
-    int     iCaptionHeight;
-    LOGFONTW lfCaptionFont;
-    int     iSmCaptionWidth;
-    int     iSmCaptionHeight;
-    LOGFONTW lfSmCaptionFont;
-    int     iMenuWidth;
-    int     iMenuHeight;
-    LOGFONTW lfMenuFont;
-    LOGFONTW lfStatusFont;
-    LOGFONTW lfMessageFont;
-};
 
 namespace base {
 namespace win {
@@ -71,9 +51,8 @@ inline HANDLE Uint32ToHandle(uint32_t h) {
       static_cast<uintptr_t>(static_cast<int32_t>(h)));
 }
 
-BASE_EXPORT void GetNonClientMetrics(NONCLIENTMETRICS_XP* metrics);
-
-// Returns the string representing the current user sid.
+// Returns the string representing the current user sid. Does not modify
+// |user_sid| on failure.
 BASE_EXPORT bool GetUserSidString(std::wstring* user_sid);
 
 // Returns false if user account control (UAC) has been disabled with the
@@ -95,6 +74,11 @@ BASE_EXPORT bool SetStringValueForPropertyStore(
     IPropertyStore* property_store,
     const PROPERTYKEY& property_key,
     const wchar_t* property_string_value);
+
+// Sets the CLSID value for a given key in a given IPropertyStore.
+BASE_EXPORT bool SetClsidForPropertyStore(IPropertyStore* property_store,
+                                          const PROPERTYKEY& property_key,
+                                          const CLSID& property_clsid_value);
 
 // Sets the application id in given IPropertyStore. The function is intended
 // for tagging application/chromium shortcut, browser window and jump list for
@@ -133,21 +117,32 @@ BASE_EXPORT void SetAbortBehaviorForCrashReporting();
 BASE_EXPORT bool IsWindows10TabletMode(HWND hwnd);
 
 // A tablet is a device that is touch enabled and also is being used
-// "like a tablet". This is used by the following:-
-// 1. Metrics:- To gain insight into how users use Chrome.
-// 2. Physical keyboard presence :- If a device is in tablet mode, it means
+// "like a tablet". This is used by the following:
+// 1. Metrics: To gain insight into how users use Chrome.
+// 2. Physical keyboard presence: If a device is in tablet mode, it means
 //    that there is no physical keyboard attached.
-// 3. To set the right interactions media queries,
-//    see https://drafts.csswg.org/mediaqueries-4/#mf-interaction
 // This function optionally sets the |reason| parameter to determine as to why
 // or why not a device was deemed to be a tablet.
-// Returns true if the device is in tablet mode.
-BASE_EXPORT bool IsTabletDevice(std::string* reason);
+// Returns true if the user has set Windows 10 in tablet mode.
+BASE_EXPORT bool IsTabletDevice(std::string* reason, HWND hwnd);
+
+// Return true if the device is physically used as a tablet independently of
+// Windows tablet mode. It checks if the device:
+// - Is running Windows 8 or newer,
+// - Has a touch digitizer,
+// - Is not docked,
+// - Has a supported rotation sensor,
+// - Is not in laptop mode,
+// - prefers the mobile or slate power management profile (per OEM choice), and
+// - Is in slate mode.
+// This function optionally sets the |reason| parameter to determine as to why
+// or why not a device was deemed to be a tablet.
+BASE_EXPORT bool IsDeviceUsedAsATablet(std::string* reason);
 
 // A slate is a touch device that may have a keyboard attached. This function
-// returns true if a keyboard is attached and optionally will set the reason
+// returns true if a keyboard is attached and optionally will set the |reason|
 // parameter to the detection method that was used to detect the keyboard.
-BASE_EXPORT bool IsKeyboardPresentOnSlate(std::string* reason);
+BASE_EXPORT bool IsKeyboardPresentOnSlate(std::string* reason, HWND hwnd);
 
 // Get the size of a struct up to and including the specified member.
 // This is necessary to set compatible struct sizes for different versions
@@ -193,6 +188,9 @@ BASE_EXPORT void DisableFlicks(HWND hwnd);
 
 // Returns true if the process is per monitor DPI aware.
 BASE_EXPORT bool IsProcessPerMonitorDpiAware();
+
+// Enable high-DPI support for the current process.
+BASE_EXPORT void EnableHighDPISupport();
 
 }  // namespace win
 }  // namespace base

@@ -35,21 +35,19 @@ class VideoEncoderTest
     : public ::testing::TestWithParam<std::pair<Codec, bool>> {
  protected:
   VideoEncoderTest()
-      : testing_clock_(new base::SimpleTestTickClock()),
-        task_runner_(new FakeSingleThreadTaskRunner(testing_clock_)),
-        cast_environment_(new CastEnvironment(
-            std::unique_ptr<base::TickClock>(testing_clock_),
-            task_runner_,
-            task_runner_,
-            task_runner_)),
+      : task_runner_(new FakeSingleThreadTaskRunner(&testing_clock_)),
+        cast_environment_(new CastEnvironment(&testing_clock_,
+                                              task_runner_,
+                                              task_runner_,
+                                              task_runner_)),
         video_config_(GetDefaultVideoSenderConfig()),
         operational_status_(STATUS_UNINITIALIZED),
         count_frames_delivered_(0) {
-    testing_clock_->Advance(base::TimeTicks::Now() - base::TimeTicks());
-    first_frame_time_ = testing_clock_->NowTicks();
+    testing_clock_.Advance(base::TimeTicks::Now() - base::TimeTicks());
+    first_frame_time_ = testing_clock_.NowTicks();
   }
 
-  ~VideoEncoderTest() override {}
+  ~VideoEncoderTest() override = default;
 
   void SetUp() final {
     video_config_.codec = GetParam().first;
@@ -116,11 +114,9 @@ class VideoEncoderTest
     video_encoder_.reset();
   }
 
-  base::TimeTicks Now() const {
-    return testing_clock_->NowTicks();
-  }
+  base::TimeTicks Now() { return testing_clock_.NowTicks(); }
 
-  void RunTasksAndAdvanceClock() const {
+  void RunTasksAndAdvanceClock() {
     DCHECK_GT(video_config_.max_frame_rate, 0);
     const base::TimeDelta frame_duration = base::TimeDelta::FromMicroseconds(
         1000000.0 / video_config_.max_frame_rate);
@@ -135,14 +131,14 @@ class VideoEncoderTest
     }
 #endif
     task_runner_->RunTasks();
-    testing_clock_->Advance(frame_duration);
+    testing_clock_.Advance(frame_duration);
   }
 
   int count_frames_delivered() const {
     return count_frames_delivered_;
   }
 
-  void WaitForAllFramesToBeDelivered(int total_expected) const {
+  void WaitForAllFramesToBeDelivered(int total_expected) {
     video_encoder_->EmitFrames();
     while (count_frames_delivered_ < total_expected)
       RunTasksAndAdvanceClock();
@@ -153,7 +149,7 @@ class VideoEncoderTest
   // encoder.
   scoped_refptr<media::VideoFrame> CreateTestVideoFrame(const gfx::Size& size) {
     const base::TimeDelta timestamp =
-        testing_clock_->NowTicks() - first_frame_time_;
+        testing_clock_.NowTicks() - first_frame_time_;
     scoped_refptr<media::VideoFrame> frame;
     if (video_frame_factory_)
       frame = video_frame_factory_->MaybeCreateFrame(size, timestamp);
@@ -264,7 +260,7 @@ class VideoEncoderTest
     ++count_frames_delivered_;
   }
 
-  base::SimpleTestTickClock* const testing_clock_;  // Owned by CastEnvironment.
+  base::SimpleTestTickClock testing_clock_;
   const scoped_refptr<FakeSingleThreadTaskRunner> task_runner_;
   const scoped_refptr<CastEnvironment> cast_environment_;
   FrameSenderConfig video_config_;
@@ -281,7 +277,15 @@ class VideoEncoderTest
 
 // A simple test to encode three frames of video, expecting to see one key frame
 // followed by two delta frames.
-TEST_P(VideoEncoderTest, GeneratesKeyFrameThenOnlyDeltaFrames) {
+// Fails consistently on official builds: crbug.com/612496
+#ifdef OFFICIAL_BUILD
+#define MAYBE_GeneratesKeyFrameThenOnlyDeltaFrames \
+  DISABLED_GeneratesKeyFrameThenOnlyDeltaFrames
+#else
+#define MAYBE_GeneratesKeyFrameThenOnlyDeltaFrames \
+  GeneratesKeyFrameThenOnlyDeltaFrames
+#endif
+TEST_P(VideoEncoderTest, MAYBE_GeneratesKeyFrameThenOnlyDeltaFrames) {
   CreateEncoder();
   SetVEAFactoryAutoRespond(true);
 
@@ -321,7 +325,13 @@ TEST_P(VideoEncoderTest, GeneratesKeyFrameThenOnlyDeltaFrames) {
 // changes.  See media/cast/receiver/video_decoder_unittest.cc for a complete
 // encode/decode cycle of varied frame sizes that actually checks the frame
 // content.
-TEST_P(VideoEncoderTest, EncodesVariedFrameSizes) {
+// Fails consistently on official builds: crbug.com/612496
+#ifdef OFFICIAL_BUILD
+#define MAYBE_EncodesVariedFrameSizes DISABLED_EncodesVariedFrameSizes
+#else
+#define MAYBE_EncodesVariedFrameSizes EncodesVariedFrameSizes
+#endif
+TEST_P(VideoEncoderTest, MAYBE_EncodesVariedFrameSizes) {
   CreateEncoder();
   SetVEAFactoryAutoRespond(true);
 
@@ -386,7 +396,14 @@ TEST_P(VideoEncoderTest, EncodesVariedFrameSizes) {
 // before it has a chance to receive the VEA creation callback.  For all other
 // encoders, this tests that the encoder can be safely destroyed before the task
 // is run that delivers the first EncodedFrame.
-TEST_P(VideoEncoderTest, CanBeDestroyedBeforeVEAIsCreated) {
+// Fails consistently on official builds: crbug.com/612496
+#ifdef OFFICIAL_BUILD
+#define MAYBE_CanBeDestroyedBeforeVEAIsCreated \
+  DISABLED_CanBeDestroyedBeforeVEAIsCreated
+#else
+#define MAYBE_CanBeDestroyedBeforeVEAIsCreated CanBeDestroyedBeforeVEAIsCreated
+#endif
+TEST_P(VideoEncoderTest, MAYBE_CanBeDestroyedBeforeVEAIsCreated) {
   CreateEncoder();
 
   // Send a frame to spawn creation of the ExternalVideoEncoder instance.

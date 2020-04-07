@@ -40,6 +40,7 @@
 
 
 #include "parse_mb_syn_cavlc.h"
+#include "decode_slice.h"
 #include "error_code.h"
 #include "mv_pred.h"
 
@@ -167,8 +168,8 @@ void WelsFillCacheConstrain1IntraNxN (PWelsNeighAvail pNeighAvail, uint8_t* pNon
     iLeftXy = iCurXy - 1;
   }
 
-  //intra4x4_pred_mode
-  if (pNeighAvail->iTopAvail && IS_INTRA4x4 (pNeighAvail->iTopType)) { //top
+  //intraNxN_pred_mode
+  if (pNeighAvail->iTopAvail && IS_INTRANxN (pNeighAvail->iTopType)) { //top
     ST32 (pIntraPredMode + 1, LD32 (&pCurLayer->pIntraPredMode[iTopXy][0]));
   } else {
     int32_t iPred;
@@ -179,7 +180,7 @@ void WelsFillCacheConstrain1IntraNxN (PWelsNeighAvail pNeighAvail, uint8_t* pNon
     ST32 (pIntraPredMode + 1, iPred);
   }
 
-  if (pNeighAvail->iLeftAvail && IS_INTRA4x4 (pNeighAvail->iLeftType)) { //left
+  if (pNeighAvail->iLeftAvail && IS_INTRANxN (pNeighAvail->iLeftType)) { //left
     pIntraPredMode[ 0 + 8    ] = pCurLayer->pIntraPredMode[iLeftXy][4];
     pIntraPredMode[ 0 + 8 * 2] = pCurLayer->pIntraPredMode[iLeftXy][5];
     pIntraPredMode[ 0 + 8 * 3] = pCurLayer->pIntraPredMode[iLeftXy][6];
@@ -880,7 +881,18 @@ int32_t WelsResidualBlockCavlc (SVlcTable* pVlcTable, uint8_t* pNonZeroCountCach
       int32_t j;
       iCoeffNum += iRun[i] + 1; //FIXME add 1 earlier ?
       j          = kpZigzagTable[ iCoeffNum ];
-      pTCoeff[j] = pCtx->bUseScalingList ? (iLevel[i] * kpDequantCoeff[0]) >> 4 : (iLevel[i] * kpDequantCoeff[0]);
+      pTCoeff[j] = iLevel[i];
+    }
+    WelsChromaDcIdct (pTCoeff);
+    //scaling
+    if (!pCtx->bUseScalingList) {
+      for (int j = 0; j < 4; ++j) {
+        pTCoeff[kpZigzagTable[j]] = (pTCoeff[kpZigzagTable[j]] * kpDequantCoeff[0]) >> 1;
+      }
+    } else {
+      for (int j = 0; j < 4; ++j) {
+        pTCoeff[kpZigzagTable[j]] = ((int64_t) pTCoeff[kpZigzagTable[j]] * (int64_t) kpDequantCoeff[0]) >> 5;
+      }
     }
   } else if (iResidualProperty == I16_LUMA_DC) { //DC coefficent, only call in Intra_16x16, base_mode_flag = 0
     for (i = uiTotalCoeff - 1; i >= 0; --i) { //FIXME merge into rundecode?
@@ -889,12 +901,17 @@ int32_t WelsResidualBlockCavlc (SVlcTable* pVlcTable, uint8_t* pNonZeroCountCach
       j          = kpZigzagTable[ iCoeffNum ];
       pTCoeff[j] = iLevel[i];
     }
+    WelsLumaDcDequantIdct (pTCoeff, uiQp, pCtx);
   } else {
     for (i = uiTotalCoeff - 1; i >= 0; --i) { //FIXME merge into  rundecode?
       int32_t j;
       iCoeffNum += iRun[i] + 1; //FIXME add 1 earlier ?
       j          = kpZigzagTable[ iCoeffNum ];
-      pTCoeff[j] = pCtx->bUseScalingList ? (iLevel[i] * kpDequantCoeff[j]) >> 4 : (iLevel[i] * kpDequantCoeff[j & 0x07]);
+      if (!pCtx->bUseScalingList) {
+        pTCoeff[j] = (iLevel[i] * kpDequantCoeff[j & 0x07]);
+      } else {
+        pTCoeff[j] = (iLevel[i] * kpDequantCoeff[j] + 8) >> 4;
+      }
     }
   }
 
@@ -1022,7 +1039,7 @@ int32_t ParseInterInfo (PWelsDecoderContext pCtx, int16_t iMvArray[LIST_A][30][M
       // ref to standard section 7.4.5.1. iRefCount[0] is 1 + num_ref_idx_l0_active_minus1.
       if ((iRefIdx < 0) || (iRefIdx >= iRefCount[0]) || (ppRefPic[iRefIdx] == NULL)) { //error ref_idx
         pCtx->bMbRefConcealed = true;
-        if (pCtx->eErrorConMethod != ERROR_CON_DISABLE) {
+        if (pCtx->pParam->eEcActiveIdc != ERROR_CON_DISABLE) {
           iRefIdx = 0;
           pCtx->iErrorCode |= dsBitstreamError;
         } else {
@@ -1063,7 +1080,7 @@ int32_t ParseInterInfo (PWelsDecoderContext pCtx, int16_t iMvArray[LIST_A][30][M
       iRefIdx[i] = uiCode;
       if ((iRefIdx[i] < 0) || (iRefIdx[i] >= iRefCount[0]) || (ppRefPic[iRefIdx[i]] == NULL)) { //error ref_idx
         pCtx->bMbRefConcealed = true;
-        if (pCtx->eErrorConMethod != ERROR_CON_DISABLE) {
+        if (pCtx->pParam->eEcActiveIdc != ERROR_CON_DISABLE) {
           iRefIdx[i] = 0;
           pCtx->iErrorCode |= dsBitstreamError;
         } else {
@@ -1100,7 +1117,7 @@ int32_t ParseInterInfo (PWelsDecoderContext pCtx, int16_t iMvArray[LIST_A][30][M
         iRefIdx[i] = uiCode;
         if ((iRefIdx[i] < 0) || (iRefIdx[i] >= iRefCount[0]) || (ppRefPic[iRefIdx[i]] == NULL)) { //error ref_idx
           pCtx->bMbRefConcealed = true;
-          if (pCtx->eErrorConMethod != ERROR_CON_DISABLE) {
+          if (pCtx->pParam->eEcActiveIdc != ERROR_CON_DISABLE) {
             iRefIdx[i] = 0;
             pCtx->iErrorCode |= dsBitstreamError;
           } else {
@@ -1172,7 +1189,7 @@ int32_t ParseInterInfo (PWelsDecoderContext pCtx, int16_t iMvArray[LIST_A][30][M
           iRefIdx[i] = uiCode;
           if ((iRefIdx[i] < 0) || (iRefIdx[i] >= iRefCount[0]) || (ppRefPic[iRefIdx[i]] == NULL)) { //error ref_idx
             pCtx->bMbRefConcealed = true;
-            if (pCtx->eErrorConMethod != ERROR_CON_DISABLE) {
+            if (pCtx->pParam->eEcActiveIdc != ERROR_CON_DISABLE) {
               iRefIdx[i] = 0;
               pCtx->iErrorCode |= dsBitstreamError;
             } else {

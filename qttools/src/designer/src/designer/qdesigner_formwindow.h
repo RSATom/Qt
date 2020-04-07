@@ -29,8 +29,8 @@
 #ifndef QDESIGNER_FORMWINDOW_H
 #define QDESIGNER_FORMWINDOW_H
 
-#include <QtCore/QPointer>
-#include <QtWidgets/QWidget>
+#include <QtCore/qpointer.h>
+#include <QtWidgets/qwidget.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -46,7 +46,7 @@ public:
 
     void firstShow();
 
-    virtual ~QDesignerFormWindow();
+    ~QDesignerFormWindow() override;
 
     QAction *action() const;
     QDesignerWorkbench *workbench() const;
@@ -66,9 +66,9 @@ signals:
     void triggerAction();
 
 protected:
-    void changeEvent(QEvent *e) Q_DECL_OVERRIDE;
-    void closeEvent(QCloseEvent *ev) Q_DECL_OVERRIDE;
-    void resizeEvent(QResizeEvent* rev) Q_DECL_OVERRIDE;
+    void changeEvent(QEvent *e) override;
+    void closeEvent(QCloseEvent *ev) override;
+    void resizeEvent(QResizeEvent* rev) override;
 
 private:
     int getNumberOfUntitledWindows() const;

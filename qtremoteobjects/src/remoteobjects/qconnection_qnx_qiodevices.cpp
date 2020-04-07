@@ -67,14 +67,16 @@ bool QQnxNativeIoPrivate::establishConnection()
 {
     //On the client side, we need to create the channel/connection
     //to listen for the server's send pulse.
-    const int channel = ChannelCreate(0);
-    if (channel == -1) {
-        WARNING(ChannelCreate)
-        return false;
+    if (channelId == -1) {
+        const int channel = ChannelCreate(0);
+        if (channel == -1) {
+            WARNING(ChannelCreate)
+            return false;
+        }
+        channelId = channel;
     }
-    channelId = channel;
 
-    const int connection = ConnectAttach(ND_LOCAL_NODE, 0, channel, _NTO_SIDE_CHANNEL, 0);
+    const int connection = ConnectAttach(ND_LOCAL_NODE, 0, channelId, _NTO_SIDE_CHANNEL, 0);
     if (connection == -1) {
         WARNING(ConnectAttach)
         teardownConnection();
@@ -113,7 +115,7 @@ bool QQnxNativeIoPrivate::establishConnection()
     //mismatch between code compiled with vs. without HAM
     //(which could happen if we ever use QCONN between
     //devices)
-    if (MsgSendv(serverId, tx_iov, 3, NULL, 0) == -1) {
+    if (MsgSendv(serverId, tx_iov, 3, nullptr, 0) == -1) {
         WARNING(MsgSendv)
         teardownConnection();
         return false;
@@ -149,10 +151,11 @@ void QQnxNativeIoPrivate::stopThread()
                 }
                 qFatal("MsgSendPulse failed on terminate pulse.  Error = %s", strerror(errno));
             }
+            thread.wait();
+            return;
         }
         if (errno == EAGAIN)
             qFatal("MsgSendPulse failed on terminate pulse (max retries)");
-        thread.wait();
     }
 }
 
@@ -168,7 +171,7 @@ void QQnxNativeIoPrivate::thread_func()
     bool running = true;
     int nTxRequestToIgnore = 0;
     while (running) {
-        int rcvid = MsgReceivePulse(channelId, &pulse, sizeof(pulse), NULL);
+        int rcvid = MsgReceivePulse(channelId, &pulse, sizeof(pulse), nullptr);
         if (rcvid == -1)
            continue;
 
@@ -177,7 +180,7 @@ void QQnxNativeIoPrivate::thread_func()
         switch (pulse.code) {
         case SOURCE_TX_RQ: //The Source object wants to send us data
         {
-            quint32 len = pulse.value.sival_int;
+            const int len = pulse.value.sival_int;
             qCDebug(QT_REMOTEOBJECT, "TX request with len = %d, tx ignore = %d", len, nTxRequestToIgnore);
             if (nTxRequestToIgnore) {
                 --nTxRequestToIgnore;
@@ -232,7 +235,7 @@ void QQnxNativeIoPrivate::thread_func()
 
             msgType = MsgType::REPLICA_TX_RECV;
             SETIOV(tx_iov + 1, payload.constData(), len);
-            if (MsgSendvs(serverId, tx_iov, 2, NULL, 0) == -1) {
+            if (MsgSendvs(serverId, tx_iov, 2, nullptr, 0) == -1) {
                 WARNING(MsgSendvs);
                 obLock.lockForWrite();
                 if (obuffer->isEmpty()) {
@@ -387,10 +390,9 @@ bool QQnxNativeIo::isSequential() const
 qint64 QQnxNativeIo::bytesAvailable() const
 {
     Q_D(const QQnxNativeIo);
-    quint64 size;
 
     d->ibLock.lockForRead();
-    size = d->buffer.size();
+    qint64 size = d->buffer.size();
     d->ibLock.unlock();
 
     return size;
@@ -399,10 +401,9 @@ qint64 QQnxNativeIo::bytesAvailable() const
 qint64 QQnxNativeIo::bytesToWrite() const
 {
     Q_D(const QQnxNativeIo);
-    quint64 size;
 
     d->obLock.lockForRead();
-    size = d->obuffer->size();
+    qint64 size = d->obuffer->size();
     d->obLock.unlock();
 
     return size;
@@ -479,11 +480,18 @@ qint64 QQnxNativeIo::writeData(const char *data, qint64 size)
     if (!isWritable())
         return 0;
 
+    if (size < 0 || size > INT_MAX) {
+        qCWarning(QT_REMOTEOBJECT) << "Invalid size (" << size << ") passed to QtRO QNX backend writeData().";
+        return -1;
+    }
+
+    int isize = static_cast<int>(size);
+
     d->obLock.lockForWrite();
-    d->obuffer->append(QByteArray(data, size));
+    d->obuffer->append(QByteArray(data, isize));
     d->obLock.unlock();
 
-    WARN_AND_RETURN_ON_ERROR(MsgSendPulse, -1, d->connectionId, -1, PulseType::REPLICA_WRITE, size)
+    WARN_AND_RETURN_ON_ERROR(MsgSendPulse, -1, d->connectionId, -1, PulseType::REPLICA_WRITE, isize)
 
     return size;
 }
@@ -516,10 +524,9 @@ bool QIOQnxSource::isSequential() const
 qint64 QIOQnxSource::bytesAvailable() const
 {
     Q_D(const QIOQnxSource);
-    quint64 size;
 
     d->ibLock.lockForRead();
-    size = d->buffer.size();
+    qint64 size = d->buffer.size();
     d->ibLock.unlock();
 
     return size;
@@ -528,10 +535,9 @@ qint64 QIOQnxSource::bytesAvailable() const
 qint64 QIOQnxSource::bytesToWrite() const
 {
     Q_D(const QIOQnxSource);
-    quint64 size;
 
     d->obLock.lockForRead();
-    size = d->obuffer.size();
+    qint64 size = d->obuffer.size();
     d->obLock.unlock();
 
     return size;
@@ -615,12 +621,19 @@ qint64 QIOQnxSource::writeData(const char *data, qint64 size)
     if (!isWritable())
         return 0;
 
+    if (size < 0 || size > INT_MAX) {
+        qCWarning(QT_REMOTEOBJECT) << "Invalid size (" << size << ") passed to QtRO QNX backend writeData().";
+        return -1;
+    }
+
+    int isize = static_cast<int>(size);
+
     d->obLock.lockForWrite();
-    d->obuffer.append(QByteArray(data, size));
+    d->obuffer.append(QByteArray(data, isize));
     d->obLock.unlock();
 
     if (!d->m_serverClosing.load()) {
-        d->m_event.sigev_value.sival_int = size;
+        d->m_event.sigev_value.sival_int = isize;
         WARN_ON_ERROR(MsgDeliverEvent, d->rcvid, &(d->m_event))
     }
 

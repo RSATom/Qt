@@ -18,11 +18,11 @@ namespace SkSL {
  * collapsed down to their constant representations during the compilation process.
  */
 struct Setting : public Expression {
-    Setting(Position position, String name, std::unique_ptr<Expression> value)
-    : INHERITED(position, kSetting_Kind, value->fType)
+    Setting(int offset, String name, std::unique_ptr<Expression> value)
+    : INHERITED(offset, kSetting_Kind, value->fType)
     , fName(std::move(name))
     , fValue(std::move(value)) {
-        ASSERT(fValue->isConstant());
+        SkASSERT(fValue->isConstant());
     }
 
     std::unique_ptr<Expression> constantPropagate(const IRGenerator& irGenerator,

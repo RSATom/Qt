@@ -49,10 +49,10 @@ enum class PixelFormatMatchType : int {
 };
 
 PixelFormatMatchType DetermineFormatMatchType(
-    media::VideoPixelFormat supported_format,
-    media::VideoPixelFormat requested_format) {
-  if (requested_format == media::PIXEL_FORMAT_I420 &&
-      supported_format == media::PIXEL_FORMAT_MJPEG) {
+    VideoPixelFormat supported_format,
+    VideoPixelFormat requested_format) {
+  if (requested_format == PIXEL_FORMAT_I420 &&
+      supported_format == PIXEL_FORMAT_MJPEG) {
     return PixelFormatMatchType::SUPPORTED_THROUGH_CONVERSION;
   }
   return (requested_format == supported_format)
@@ -60,7 +60,7 @@ PixelFormatMatchType DetermineFormatMatchType(
              : PixelFormatMatchType::INCOMPATIBLE;
 }
 
-const media::VideoCaptureFormat& FindClosestSupportedFormat(
+const VideoCaptureFormat& FindClosestSupportedFormat(
     const VideoCaptureFormat& requested_format,
     const VideoCaptureFormats& supported_formats) {
   DCHECK(!supported_formats.empty());
@@ -106,7 +106,7 @@ class FrameDeliverer {
  public:
   FrameDeliverer(std::unique_ptr<PacmanFramePainter> frame_painter)
       : frame_painter_(std::move(frame_painter)) {}
-  virtual ~FrameDeliverer() {}
+  virtual ~FrameDeliverer() = default;
   virtual void Initialize(VideoPixelFormat pixel_format,
                           std::unique_ptr<VideoCaptureDevice::Client> client,
                           const FakeDeviceState* device_state) {
@@ -197,7 +197,7 @@ std::unique_ptr<FrameDeliverer> FrameDelivererFactory::CreateFrameDeliverer(
       painter_format = PacmanFramePainter::Format::I420;
   }
   auto frame_painter =
-      base::MakeUnique<PacmanFramePainter>(painter_format, device_state_);
+      std::make_unique<PacmanFramePainter>(painter_format, device_state_);
 
   FakeVideoCaptureDevice::DeliveryMode delivery_mode = delivery_mode_;
   if (format.pixel_format == PIXEL_FORMAT_MJPEG &&
@@ -213,14 +213,14 @@ std::unique_ptr<FrameDeliverer> FrameDelivererFactory::CreateFrameDeliverer(
   switch (delivery_mode) {
     case FakeVideoCaptureDevice::DeliveryMode::USE_DEVICE_INTERNAL_BUFFERS:
       if (format.pixel_format == PIXEL_FORMAT_MJPEG) {
-        return base::MakeUnique<JpegEncodingFrameDeliverer>(
+        return std::make_unique<JpegEncodingFrameDeliverer>(
             std::move(frame_painter));
       } else {
-        return base::MakeUnique<OwnBufferFrameDeliverer>(
+        return std::make_unique<OwnBufferFrameDeliverer>(
             std::move(frame_painter));
       }
     case FakeVideoCaptureDevice::DeliveryMode::USE_CLIENT_PROVIDED_BUFFERS:
-      return base::MakeUnique<ClientBufferFrameDeliverer>(
+      return std::make_unique<ClientBufferFrameDeliverer>(
           std::move(frame_painter));
   }
   NOTREACHED();
@@ -398,7 +398,7 @@ void FakePhotoDevice::TakePhoto(VideoCaptureDevice::TakePhotoCallback callback,
   DCHECK(result);
 
   blob->mime_type = "image/png";
-  callback.Run(std::move(blob));
+  std::move(callback).Run(std::move(blob));
 }
 
 FakeVideoCaptureDevice::FakeVideoCaptureDevice(
@@ -493,7 +493,7 @@ void FakePhotoDevice::GetPhotoState(
   photo_state->width->min = 96.0;
   photo_state->width->step = 1.0;
 
-  callback.Run(std::move(photo_state));
+  std::move(callback).Run(std::move(photo_state));
 }
 
 void FakeVideoCaptureDevice::SetPhotoOptions(mojom::PhotoSettingsPtr settings,
@@ -515,7 +515,7 @@ void FakePhotoDevice::SetPhotoOptions(
         std::max(kMinZoom, std::min(settings->zoom, kMaxZoom));
   }
 
-  callback.Run(true);
+  std::move(callback).Run(true);
 }
 
 void FakeVideoCaptureDevice::TakePhoto(TakePhotoCallback callback) {
@@ -568,14 +568,12 @@ void ClientBufferFrameDeliverer::PaintAndDeliverNextFrame(
   const int arbitrary_frame_feedback_id = 0;
   auto capture_buffer = client()->ReserveOutputBuffer(
       device_state()->format.frame_size, device_state()->format.pixel_format,
-      device_state()->format.pixel_storage, arbitrary_frame_feedback_id);
+      arbitrary_frame_feedback_id);
   DLOG_IF(ERROR, !capture_buffer.is_valid())
       << "Couldn't allocate Capture Buffer";
   auto buffer_access =
       capture_buffer.handle_provider->GetHandleForInProcessAccess();
   DCHECK(buffer_access->data()) << "Buffer has NO backing memory";
-
-  DCHECK_EQ(PIXEL_STORAGE_CPU, device_state()->format.pixel_storage);
 
   uint8_t* data_ptr = buffer_access->data();
   memset(data_ptr, 0, buffer_access->mapped_size());

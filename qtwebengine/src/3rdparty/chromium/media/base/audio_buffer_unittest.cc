@@ -249,6 +249,27 @@ TEST(AudioBufferTest, FrameSize) {
   EXPECT_EQ(2, buffer->frame_count());  // now 4 channels of 32-bit data
 }
 
+TEST(AudioBufferTest, ReadBitstream) {
+  const ChannelLayout channel_layout = CHANNEL_LAYOUT_4_0;
+  const int channels = ChannelLayoutToChannelCount(channel_layout);
+  const int frames = 1024;
+  const size_t data_size = frames / 2;
+  const base::TimeDelta start_time;
+
+  scoped_refptr<AudioBuffer> buffer = MakeBitstreamAudioBuffer(
+      kSampleFormatEac3, channel_layout, channels, kSampleRate, 1, 1, frames,
+      data_size, start_time);
+  EXPECT_TRUE(buffer->IsBitstreamFormat());
+
+  std::unique_ptr<AudioBus> bus = AudioBus::Create(channels, frames);
+  buffer->ReadFrames(frames, 0, 0, bus.get());
+
+  EXPECT_TRUE(bus->is_bitstream_format());
+  EXPECT_EQ(frames, bus->GetBitstreamFrames());
+  EXPECT_EQ(data_size, bus->GetBitstreamDataSize());
+  VerifyBitstreamAudioBus(bus.get(), data_size, 1, 1);
+}
+
 TEST(AudioBufferTest, ReadU8) {
   const ChannelLayout channel_layout = CHANNEL_LAYOUT_4_0;
   const int channels = ChannelLayoutToChannelCount(channel_layout);
@@ -409,6 +430,37 @@ TEST(AudioBufferTest, EmptyBuffer) {
   std::unique_ptr<AudioBus> bus = AudioBus::Create(channels, frames);
   buffer->ReadFrames(frames, 0, 0, bus.get());
   VerifyBus(bus.get(), frames, 0, 0);
+}
+
+TEST(AudioBufferTest, TrimEmptyBuffer) {
+  const ChannelLayout channel_layout = CHANNEL_LAYOUT_4_0;
+  const int channels = ChannelLayoutToChannelCount(channel_layout);
+  const int frames = kSampleRate / 10;
+  const base::TimeDelta start_time;
+  const base::TimeDelta duration = base::TimeDelta::FromMilliseconds(100);
+  scoped_refptr<AudioBuffer> buffer = AudioBuffer::CreateEmptyBuffer(
+      channel_layout, channels, kSampleRate, frames, start_time);
+  EXPECT_EQ(frames, buffer->frame_count());
+  EXPECT_EQ(start_time, buffer->timestamp());
+  EXPECT_EQ(duration, buffer->duration());
+  EXPECT_FALSE(buffer->end_of_stream());
+
+  // Read all frames from the buffer. All data should be 0.
+  std::unique_ptr<AudioBus> bus = AudioBus::Create(channels, frames);
+  buffer->ReadFrames(frames, 0, 0, bus.get());
+  VerifyBus(bus.get(), frames, 0, 0);
+
+  // Trim 10ms of frames from the middle of the buffer.
+  int trim_start = frames / 2;
+  const int trim_length = kSampleRate / 100;
+  const base::TimeDelta trim_duration = base::TimeDelta::FromMilliseconds(10);
+  buffer->TrimRange(trim_start, trim_start + trim_length);
+  EXPECT_EQ(frames - trim_length, buffer->frame_count());
+  EXPECT_EQ(start_time, buffer->timestamp());
+  EXPECT_EQ(duration - trim_duration, buffer->duration());
+  bus->Zero();
+  buffer->ReadFrames(buffer->frame_count(), 0, 0, bus.get());
+  VerifyBus(bus.get(), trim_start, 0, 0);
 }
 
 TEST(AudioBufferTest, Trim) {

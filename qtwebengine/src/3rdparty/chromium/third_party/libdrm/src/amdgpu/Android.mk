@@ -5,14 +5,15 @@ include $(CLEAR_VARS)
 include $(LOCAL_PATH)/Makefile.sources
 
 LOCAL_MODULE := libdrm_amdgpu
-LOCAL_MODULE_TAGS := optional
 
 LOCAL_SHARED_LIBRARIES := libdrm
 
-LOCAL_SRC_FILES := $(patsubst %.h, , $(LIBDRM_AMDGPU_FILES))
-LOCAL_EXPORT_C_INCLUDE_DIRS := $(LOCAL_PATH)
+LOCAL_SRC_FILES := $(LIBDRM_AMDGPU_FILES)
 
 LOCAL_CFLAGS := \
-	-DHAVE_LIBDRM_ATOMIC_PRIMITIVES=1
+	-DAMDGPU_ASIC_ID_TABLE=\"/vendor/etc/hwdata/amdgpu.ids\"
 
+LOCAL_REQUIRED_MODULES := amdgpu.ids
+
+include $(LIBDRM_COMMON_MK)
 include $(BUILD_SHARED_LIBRARY)

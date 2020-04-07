@@ -54,6 +54,7 @@
 #include <QtPrintSupport/private/qtprintsupportglobal_p.h>
 
 #include "qprinter.h"
+#include "kernel/qprint_p.h"
 
 #include <QtGui/qpagelayout.h>
 
@@ -64,17 +65,26 @@ QT_REQUIRE_CONFIG(printdialog);
 QT_BEGIN_NAMESPACE
 
 class QPrinter;
+class QPrintDevice;
 class QPagePreview;
 
 class QPageSetupWidget : public QWidget {
     Q_OBJECT
 public:
     explicit QPageSetupWidget(QWidget *parent = nullptr);
-    explicit QPageSetupWidget(QPrinter *printer, QWidget *parent = nullptr);
 
-    void setPrinter(QPrinter *printer);
-    void selectPrinter(QPrinter::OutputFormat outputFormat, const QString &printerName);
+    void setPrinter(QPrinter *printer, QPrintDevice *printDevice,
+                    QPrinter::OutputFormat outputFormat, const QString &printerName);
     void setupPrinter() const;
+    void updateSavedValues();
+    void revertToSavedValues();
+
+#if QT_CONFIG(cups)
+    bool hasPpdConflict() const;
+
+signals:
+    void ppdOptionChanged();
+#endif
 
 private slots:
     void pageSizeChanged();
@@ -97,11 +107,20 @@ private:
     Ui::QPageSetupWidget m_ui;
     QPagePreview *m_pagePreview;
     QPrinter *m_printer;
+    QPrintDevice *m_printDevice;
+#if QT_CONFIG(cups)
+    ppd_option_t *m_pageSizePpdOption;
+#endif
     QPrinter::OutputFormat m_outputFormat;
     QString m_printerName;
     QPageLayout m_pageLayout;
+    QPageLayout m_savedPageLayout;
     QPageLayout::Unit m_units;
+    QPageLayout::Unit m_savedUnits;
+    int m_savedPagesPerSheet;
+    int m_savedPagesPerSheetLayout;
     bool m_blockSignals;
+    int m_realCustomPageSizeIndex;
 };
 
 QT_END_NAMESPACE

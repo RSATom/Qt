@@ -33,7 +33,7 @@ class TestManagementPolicyProvider : public ManagementPolicy::Provider {
   explicit TestManagementPolicyProvider(int prohibited_actions);
 
   void SetProhibitedActions(int prohibited_actions);
-  void SetDisableReason(Extension::DisableReason reason);
+  void SetDisableReason(disable_reason::DisableReason reason);
 
   std::string GetDebugPolicyProviderName() const override;
 
@@ -43,11 +43,15 @@ class TestManagementPolicyProvider : public ManagementPolicy::Provider {
   bool UserMayModifySettings(const Extension* extension,
                              base::string16* error) const override;
 
+  bool ExtensionMayModifySettings(const Extension* source_extension,
+                                  const Extension* extension,
+                                  base::string16* error) const override;
+
   bool MustRemainEnabled(const Extension* extension,
                          base::string16* error) const override;
 
   bool MustRemainDisabled(const Extension* extension,
-                          Extension::DisableReason* reason,
+                          disable_reason::DisableReason* reason,
                           base::string16* error) const override;
 
   bool MustRemainInstalled(const Extension* extension,
@@ -59,7 +63,7 @@ class TestManagementPolicyProvider : public ManagementPolicy::Provider {
   bool must_remain_enabled_;
   bool must_remain_disabled_;
   bool must_remain_installed_;
-  Extension::DisableReason disable_reason_;
+  disable_reason::DisableReason disable_reason_;
 
   base::string16 error_message_;
 };

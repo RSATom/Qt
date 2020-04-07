@@ -6,10 +6,6 @@
 
 # TODO(michaelpg): Dedupe common functionality with the Chrome installer.
 
-# TODO(mmoss) This currently only works with official builds, since non-official
-# builds don't add the "${BUILDDIR}/app_shell_installer/" files needed for
-# packaging.
-
 set -e
 set -o pipefail
 if [ "$VERBOSE" ]; then
@@ -45,7 +41,6 @@ gen_control() {
 prep_staging_debian() {
   prep_staging_common
   install -m 755 -d "${STAGEDIR}/DEBIAN" \
-    "${STAGEDIR}/etc/cron.daily" \
     "${STAGEDIR}/usr/share/doc/${USR_BIN_SYMLINK_NAME}"
 }
 
@@ -63,29 +58,14 @@ stage_install_debian() {
   fi
   prep_staging_debian
   stage_install_common
-  echo "Staging Debian install files in '${STAGEDIR}'..."
-  install -m 755 -d "${STAGEDIR}/${INSTALLDIR}/cron"
-  process_template "${BUILDDIR}/app_shell_installer/common/repo.cron" \
-      "${STAGEDIR}/${INSTALLDIR}/cron/${PACKAGE}"
-  chmod 755 "${STAGEDIR}/${INSTALLDIR}/cron/${PACKAGE}"
-  pushd "${STAGEDIR}/etc/cron.daily/"
-  ln -snf "${INSTALLDIR}/cron/${PACKAGE}" "${PACKAGE}"
-  popd
-  process_template "${BUILDDIR}/app_shell_installer/debian/postinst" \
-    "${STAGEDIR}/DEBIAN/postinst"
-  chmod 755 "${STAGEDIR}/DEBIAN/postinst"
-  process_template "${BUILDDIR}/app_shell_installer/debian/postrm" \
-    "${STAGEDIR}/DEBIAN/postrm"
-  chmod 755 "${STAGEDIR}/DEBIAN/postrm"
 }
 
 # Actually generate the package file.
 do_package() {
-  echo "Packaging ${ARCHITECTURE}..."
+  log_cmd echo "Packaging ${ARCHITECTURE}..."
   PREDEPENDS="$COMMON_PREDEPS"
   DEPENDS="${COMMON_DEPS}"
-  REPLACES=""
-  CONFLICTS=""
+  RECOMMENDS="${COMMON_RECOMMENDS}"
   PROVIDES=""
   gen_changelog
   process_template "${SCRIPTDIR}/control.template" "${DEB_CONTROL}"
@@ -93,7 +73,12 @@ do_package() {
   if [ -f "${DEB_CONTROL}" ]; then
     gen_control
   fi
-  fakeroot dpkg-deb -Zxz -z9 -b "${STAGEDIR}" .
+  if [ ${IS_OFFICIAL_BUILD} -ne 0 ]; then
+    local COMPRESSION_OPTS="-Zxz -z9"
+  else
+    local COMPRESSION_OPTS="-Znone"
+  fi
+  log_cmd fakeroot dpkg-deb ${COMPRESSION_OPTS} -b "${STAGEDIR}" .
 }
 
 verify_package() {
@@ -104,7 +89,7 @@ verify_package() {
       LANG=C sort > actual_deb_depends
   BAD_DIFF=0
   diff -u expected_deb_depends actual_deb_depends || BAD_DIFF=1
-  if [ $BAD_DIFF -ne 0 ] && [ -z "${IGNORE_DEPS_CHANGES:-}" ]; then
+  if [ $BAD_DIFF -ne 0 ]; then
     echo
     echo "ERROR: bad dpkg dependencies!"
     echo
@@ -114,21 +99,22 @@ verify_package() {
 
 # Remove temporary files and unwanted packaging output.
 cleanup() {
-  echo "Cleaning..."
+  log_cmd echo "Cleaning..."
   rm -rf "${STAGEDIR}"
   rm -rf "${TMPFILEDIR}"
 }
 
 usage() {
-  echo "usage: $(basename $0) [-c channel] [-a target_arch] [-o 'dir'] "
-  echo "                      [-b 'dir'] -d branding"
-  echo "-c channel the package channel (trunk, asan, unstable, beta, stable)"
-  echo "-a arch    package architecture (ia32 or x64)"
-  echo "-o dir     package output directory [${OUTPUTDIR}]"
-  echo "-b dir     build input directory    [${BUILDDIR}]"
-  echo "-d brand   either chromium or google_chrome"
-  echo "-s dir     /path/to/sysroot"
-  echo "-h         this help message"
+  echo "usage: $(basename $0) [-a target_arch] [-b 'dir'] -c channel"
+  echo "                      -d branding [-f] [-o 'dir'] -s 'dir'"
+  echo "-a arch     package architecture (ia32 or x64)"
+  echo "-b dir      build input directory    [${BUILDDIR}]"
+  echo "-c channel  the package channel (unstable, beta, stable)"
+  echo "-d brand    either chromium or google_chrome"
+  echo "-f          indicates that this is an official build"
+  echo "-h          this help message"
+  echo "-o dir      package output directory [${OUTPUTDIR}]"
+  echo "-s dir      /path/to/sysroot"
 }
 
 # Check that the channel name is one of the allowable ones.
@@ -146,12 +132,6 @@ verify_channel() {
       CHANNEL=beta
       RELEASENOTES="http://googlechromereleases.blogspot.com/search/label/Beta%20updates"
       ;;
-    trunk|asan )
-      # Setting this to empty will prevent it from updating any existing configs
-      # from release packages.
-      REPOCONFIG=""
-      RELEASENOTES="http://googlechromereleases.blogspot.com/"
-      ;;
     * )
       echo
       echo "ERROR: '$CHANNEL' is not a valid channel type."
@@ -162,12 +142,11 @@ verify_channel() {
 }
 
 process_opts() {
-  while getopts ":s:o:b:c:a:d:h" OPTNAME
+  while getopts ":a:b:c:d:fho:s:" OPTNAME
   do
     case $OPTNAME in
-      o )
-        OUTPUTDIR=$(readlink -f "${OPTARG}")
-        mkdir -p "${OUTPUTDIR}"
+      a )
+        TARGETARCH="$OPTARG"
         ;;
       b )
         BUILDDIR=$(readlink -f "${OPTARG}")
@@ -175,18 +154,22 @@ process_opts() {
       c )
         CHANNEL="$OPTARG"
         ;;
-      a )
-        TARGETARCH="$OPTARG"
-        ;;
       d )
         BRANDING="$OPTARG"
         ;;
-      s )
-        SYSROOT="$OPTARG"
+      f )
+        IS_OFFICIAL_BUILD=1
         ;;
       h )
         usage
         exit 0
+        ;;
+      o )
+        OUTPUTDIR=$(readlink -f "${OPTARG}")
+        mkdir -p "${OUTPUTDIR}"
+        ;;
+      s )
+        SYSROOT="$OPTARG"
         ;;
       \: )
         echo "'-$OPTARG' needs an argument."
@@ -208,12 +191,6 @@ process_opts() {
 
 SCRIPTDIR=$(readlink -f "$(dirname "$0")")
 OUTPUTDIR="${PWD}"
-STAGEDIR=$(mktemp -d -t deb.build.XXXXXX) || exit 1
-TMPFILEDIR=$(mktemp -d -t deb.tmp.XXXXXX) || exit 1
-DEB_CHANGELOG="${TMPFILEDIR}/changelog"
-DEB_FILES="${TMPFILEDIR}/files"
-DEB_CONTROL="${TMPFILEDIR}/control"
-CHANNEL="trunk"
 # Default target architecture to same as build host.
 if [ "$(uname -m)" = "x86_64" ]; then
   TARGETARCH="x64"
@@ -225,13 +202,15 @@ fi
 trap cleanup 0
 process_opts "$@"
 BUILDDIR=${BUILDDIR:=$(readlink -f "${SCRIPTDIR}/../../../../out/Release")}
+IS_OFFICIAL_BUILD=${IS_OFFICIAL_BUILD:=0}
 
-if [[ "$(basename ${SYSROOT})" = "debian_jessie_"*"-sysroot" ]]; then
-  TARGET_DISTRO="jessie"
-else
-  echo "Debian package can only be built using the jessie sysroot."
-  exit 1
-fi
+STAGEDIR="${BUILDDIR}/app-shell-deb-staging-${CHANNEL}"
+mkdir -p "${STAGEDIR}"
+TMPFILEDIR="${BUILDDIR}/app-shell-deb-tmp-${CHANNEL}"
+mkdir -p "${TMPFILEDIR}"
+DEB_CHANGELOG="${TMPFILEDIR}/changelog"
+DEB_FILES="${TMPFILEDIR}/files"
+DEB_CONTROL="${TMPFILEDIR}/control"
 
 source ${BUILDDIR}/app_shell_installer/common/installer.include
 
@@ -276,26 +255,13 @@ else
 fi
 SHLIB_ARGS="${SHLIB_ARGS} -l${SYSROOT}/usr/lib"
 DPKG_SHLIB_DEPS=$(cd ${SYSROOT} && dpkg-shlibdeps ${SHLIB_ARGS:-} -O \
-                  -e"$BUILDDIR/app_shell" | sed 's/^shlibs:Depends=//')
+  -e"$BUILDDIR/app_shell" 2>/dev/null | sed 's/^shlibs:Depends=//')
 if [ -n "$SAVE_LDLP" ]; then
   LD_LIBRARY_PATH=$SAVE_LDLP
 fi
 
 # Format it nicely and save it for comparison.
 echo "$DPKG_SHLIB_DEPS" | sed 's/, /\n/g' | LANG=C sort > actual
-
-# Compare the expected dependency list to the generated list.
-BAD_DIFF=0
-diff -u "$SCRIPTDIR/expected_deps_${TARGETARCH}_${TARGET_DISTRO}" actual || \
-  BAD_DIFF=1
-if [ $BAD_DIFF -ne 0 ] && [ -z "${IGNORE_DEPS_CHANGES:-}" ]; then
-  echo
-  echo "ERROR: Shared library dependencies changed!"
-  echo "If this is intentional, please update:"
-  echo "extensions/shell/installer/linux/debian/expected_deps_*"
-  echo
-  exit $BAD_DIFF
-fi
 
 # Additional dependencies not in the dpkg-shlibdeps output.
 # ca-certificates: Make sure users have SSL certificates.
@@ -317,6 +283,7 @@ DPKG_SHLIB_DEPS=$(sed 's/\(libnss3 ([^)]*)\), //g' <<< $DPKG_SHLIB_DEPS)
 
 COMMON_DEPS="${DPKG_SHLIB_DEPS}, ${ADDITIONAL_DEPS}"
 COMMON_PREDEPS="dpkg (>= 1.14.0)"
+COMMON_RECOMMENDS="libu2f-udev"
 
 
 # Make everything happen in the OUTPUTDIR.
@@ -336,15 +303,6 @@ case "$TARGETARCH" in
     exit 1
     ;;
 esac
-# TODO(michaelpg): Get a working repo URL.
-BASEREPOCONFIG="dl.google.com/linux/app-shell/deb/ stable main"
-# Only use the default REPOCONFIG if it's unset (e.g. verify_channel might have
-# set it to an empty string)
-REPOCONFIG="${REPOCONFIG-deb [arch=${ARCHITECTURE}] http://${BASEREPOCONFIG}}"
-# Allowed configs include optional HTTPS support and explicit multiarch
-# platforms.
-REPOCONFIGREGEX="deb (\\\\[arch=[^]]*\\\\b${ARCHITECTURE}\\\\b[^]]*\\\\]"
-REPOCONFIGREGEX+="[[:space:]]*) https?://${BASEREPOCONFIG}"
 stage_install_debian
 
 do_package

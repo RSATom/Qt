@@ -37,10 +37,10 @@ class PlatformSensorProviderLinux : public PlatformSensorProvider,
   ~PlatformSensorProviderLinux() override;
 
   void CreateSensorInternal(mojom::SensorType type,
-                            mojo::ScopedSharedBufferMapping mapping,
+                            SensorReadingSharedBuffer* reading_buffer,
                             const CreateSensorCallback& callback) override;
 
-  void AllSensorsRemoved() override;
+  void FreeResources() override;
 
   void SetFileTaskRunner(
       scoped_refptr<base::SingleThreadTaskRunner> file_task_runner) override;
@@ -55,7 +55,7 @@ class PlatformSensorProviderLinux : public PlatformSensorProvider,
 
   void SensorDeviceFound(
       mojom::SensorType type,
-      mojo::ScopedSharedBufferMapping mapping,
+      SensorReadingSharedBuffer* reading_buffer,
       const PlatformSensorProviderBase::CreateSensorCallback& callback,
       const SensorInfoLinux* sensor_device);
 
@@ -90,6 +90,10 @@ class PlatformSensorProviderLinux : public PlatformSensorProvider,
                      std::unique_ptr<SensorInfoLinux> sensor_device) override;
   void OnDeviceRemoved(mojom::SensorType type,
                        const std::string& device_node) override;
+
+  void CreateFusionSensor(mojom::SensorType type,
+                          SensorReadingSharedBuffer* reading_buffer,
+                          const CreateSensorCallback& callback);
 
   // Set to true when enumeration is ready.
   bool sensor_nodes_enumerated_;

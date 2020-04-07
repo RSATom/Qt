@@ -64,7 +64,7 @@ namespace Render {
 
 class TextureManager;
 class TextureImageManager;
-class TextureDataManager;
+class TextureImageDataManager;
 
 /**
  * Backend class for QAbstractTextureImage.
@@ -78,42 +78,46 @@ public:
 
     void cleanup();
 
-    void setTextureManager(TextureManager *manager);
+    void setTextureImageDataManager(TextureImageDataManager *dataManager) { m_textureImageDataManager = dataManager; }
 
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) Q_DECL_OVERRIDE;
+    TextureImageDataManager *textureImageDataManager() const { return m_textureImageDataManager; }
+
+    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &e) override;
 
     inline int layer() const { return m_layer; }
     inline int mipLevel() const { return m_mipLevel; }
     inline QAbstractTexture::CubeMapFace face() const { return m_face; }
     inline QTextureImageDataGeneratorPtr dataGenerator() const { return m_generator; }
+    inline bool isDirty() const { return m_dirty; }
+    void unsetDirty();
 
 private:
-    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) Q_DECL_FINAL;
+    void initializeFromPeer(const Qt3DCore::QNodeCreatedChangeBasePtr &change) final;
 
+    bool m_dirty;
     int m_layer;
     int m_mipLevel;
     QAbstractTexture::CubeMapFace m_face;
     QTextureImageDataGeneratorPtr m_generator;
 
-    TextureManager *m_textureManager;
-    HTexture m_textureProvider;
+    TextureImageDataManager *m_textureImageDataManager;
 };
 
 class TextureImageFunctor : public Qt3DCore::QBackendNodeMapper
 {
 public:
     explicit TextureImageFunctor(AbstractRenderer *renderer,
-                                 TextureManager *textureManager,
-                                 TextureImageManager *textureImageManager);
+                                 TextureImageManager *textureImageManager,
+                                 TextureImageDataManager *textureImageDataManager);
 
-    Qt3DCore::QBackendNode *create(const Qt3DCore::QNodeCreatedChangeBasePtr &change) const Q_DECL_FINAL;
-    Qt3DCore::QBackendNode *get(Qt3DCore::QNodeId id) const Q_DECL_FINAL;
-    void destroy(Qt3DCore::QNodeId id) const Q_DECL_FINAL;
+    Qt3DCore::QBackendNode *create(const Qt3DCore::QNodeCreatedChangeBasePtr &change) const final;
+    Qt3DCore::QBackendNode *get(Qt3DCore::QNodeId id) const final;
+    void destroy(Qt3DCore::QNodeId id) const final;
 
 private:
     AbstractRenderer *m_renderer;
-    TextureManager *m_textureManager;
     TextureImageManager *m_textureImageManager;
+    TextureImageDataManager *m_textureImageDataManager;
 };
 
 #ifndef QT_NO_DEBUG_STREAM

@@ -36,6 +36,7 @@
 
 #include "qscene2d.h"
 #include "qscene2d_p.h"
+#include <private/qrenderaspect_p.h>
 #include "scene2d_p.h"
 #include "scene2dmanager_p.h"
 #include "scene2devent_p.h"
@@ -54,6 +55,7 @@ namespace Quick {
 
 /*!
     \class Qt3DRender::Quick::QScene2D
+    \inheaderfile Qt3DQuickScene2D/QScene2D
     \inmodule Qt3DScene2D
 
     \brief This class enables rendering qml into a texture, which then can be
@@ -73,7 +75,7 @@ namespace Quick {
 
 /*!
     \qmltype Scene2D
-    \inqmlmodule Qt3D.Scene2D
+    \inqmlmodule QtQuick.Scene2D
     \since 5.9
     \instantiates Qt3DRender::Quick::QScene2D
 
@@ -204,6 +206,12 @@ void QScene2DPrivate::setScene(Qt3DCore::QScene *scene)
 QScene2D::QScene2D(Qt3DCore::QNode *parent)
     : Qt3DCore::QNode(*new QScene2DPrivate, parent)
 {
+#ifdef QT_STATIC
+    static bool isInitialized = false;
+    if (!isInitialized) {
+        Qt3DRender::QRenderAspectPrivate::configurePlugin(QLatin1String("scene2d"));
+    }
+#endif
 }
 
 /*!

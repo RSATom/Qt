@@ -100,13 +100,13 @@ QBackendNodePrivate *QBackendNodePrivate::get(QBackendNode *n)
  * \inheaderfile Qt3DCore/QBackendNodeMapper
  * \inmodule Qt3DCore
  *
- * \brief Creates and maps backend nodes to their respective frontend nodes
+ * \brief Creates and maps backend nodes to their respective frontend nodes.
  */
 
 /*!
- * \fn QBackendNode *QBackendNodeMapper::create(const QNodeCreatedChangeBasePtr &change) const
+ * \fn Qt3DCore::QBackendNode *Qt3DCore::QBackendNodeMapper::create(const Qt3DCore::QNodeCreatedChangeBasePtr &change) const
  *
- * TODO
+ * \TODO
  *
  * \a change
  *
@@ -114,13 +114,13 @@ QBackendNodePrivate *QBackendNodePrivate::get(QBackendNode *n)
  */
 
 /*!
- * \fn QBackendNode *QBackendNodeMapper::get(QNodeId id) const
+ * \fn Qt3DCore::QBackendNode * Qt3DCore::QBackendNodeMapper::get(Qt3DCore::QNodeId id) const
  *
  * \return backend node for the given node \a id.
  */
 
 /*!
- * \fn void QBackendNodeMapper::destroy(QNodeId id) const
+ * \fn void Qt3DCore::QBackendNodeMapper::destroy(Qt3DCore::QNodeId id) const
  *
  * Destroys the backend node for the given node \a id.
  */
@@ -130,7 +130,7 @@ QBackendNodePrivate *QBackendNodePrivate::get(QBackendNode *n)
  * \inheaderfile Qt3DCore/QBackendNode
  * \inmodule Qt3DCore
  *
- * \brief The base class for all Qt3D backend nodes
+ * \brief The base class for all Qt3D backend nodes.
  */
 
 /*!
@@ -207,6 +207,11 @@ void QBackendNode::notifyObservers(const QSceneChangePtr &e)
     d->notifyObservers(e);
 }
 
+/*!
+    Send the command named \a name with contents \a data,
+    and specify \a replyTo as the command id to which the
+    reply needs to be sent.
+*/
 QNodeCommand::CommandId QBackendNode::sendCommand(const QString &name,
                                                   const QVariant &data,
                                                   QNodeCommand::CommandId replyTo)
@@ -220,6 +225,9 @@ QNodeCommand::CommandId QBackendNode::sendCommand(const QString &name,
     return e->commandId();
 }
 
+/*!
+    Send the reply to \a command.
+*/
 void QBackendNode::sendReply(const QNodeCommandPtr &command)
 {
     command->setDeliveryFlags(QSceneChange::Nodes);

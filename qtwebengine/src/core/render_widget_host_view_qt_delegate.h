@@ -37,29 +37,36 @@
 **
 ****************************************************************************/
 
+//
+//  W A R N I N G
+//  -------------
+//
+// This file is not part of the Qt API.  It exists purely as an
+// implementation detail.  This header file may change from version to
+// version without notice, or even be removed.
+//
+// We mean it.
+//
+
 #ifndef RENDER_WIDGET_HOST_VIEW_QT_DELEGATE_H
 #define RENDER_WIDGET_HOST_VIEW_QT_DELEGATE_H
 
-#include "qtwebenginecoreglobal.h"
+#include "qtwebenginecoreglobal_p.h"
 
 #include <QRect>
 #include <QtGui/qwindowdefs.h>
 
 QT_BEGIN_NAMESPACE
-class QCursor;
 class QEvent;
-class QPainter;
 class QSGLayer;
 class QSGNode;
 class QSGRectangleNode;
 class QSGTexture;
 class QVariant;
-class QWindow;
 class QInputMethodEvent;
 
 class QSGInternalImageNode;
 class QSGImageNode;
-typedef QSGImageNode QSGTextureNode;
 
 QT_END_NAMESPACE
 
@@ -67,7 +74,7 @@ namespace QtWebEngineCore {
 
 class WebContentsAdapterClient;
 
-class QWEBENGINE_EXPORT RenderWidgetHostViewQtDelegateClient {
+class QWEBENGINECORE_PRIVATE_EXPORT RenderWidgetHostViewQtDelegateClient {
 public:
     virtual ~RenderWidgetHostViewQtDelegateClient() { }
     virtual QSGNode *updatePaintNode(QSGNode *) = 0;
@@ -78,12 +85,12 @@ public:
     virtual void windowChanged() = 0;
     virtual bool forwardEvent(QEvent *) = 0;
     virtual QVariant inputMethodQuery(Qt::InputMethodQuery query) = 0;
+    virtual void closePopup() = 0;
 };
 
-class QWEBENGINE_EXPORT RenderWidgetHostViewQtDelegate {
+class QWEBENGINECORE_PRIVATE_EXPORT RenderWidgetHostViewQtDelegate {
 public:
     virtual ~RenderWidgetHostViewQtDelegate() { }
-    virtual void initAsChild(WebContentsAdapterClient*) = 0;
     virtual void initAsPopup(const QRect&) = 0;
     virtual QRectF screenRect() const = 0;
     virtual QRectF contentsRect() const = 0;
@@ -97,8 +104,8 @@ public:
     virtual QWindow* window() const = 0;
     virtual QSGTexture *createTextureFromImage(const QImage &) = 0;
     virtual QSGLayer *createLayer() = 0;
-    virtual QSGInternalImageNode *createImageNode() = 0;
-    virtual QSGTextureNode *createTextureNode() = 0;
+    virtual QSGInternalImageNode *createInternalImageNode() = 0;
+    virtual QSGImageNode *createImageNode() = 0;
     virtual QSGRectangleNode *createRectangleNode() = 0;
     virtual void update() = 0;
     virtual void updateCursor(const QCursor &) = 0;
@@ -107,6 +114,7 @@ public:
     virtual void inputMethodStateChanged(bool editorVisible, bool passwordInput) = 0;
     virtual void setInputMethodHints(Qt::InputMethodHints hints) = 0;
     virtual void setClearColor(const QColor &color) = 0;
+    virtual bool copySurface(const QRect &, const QSize &, QImage &) = 0;
 };
 
 } // namespace QtWebEngineCore

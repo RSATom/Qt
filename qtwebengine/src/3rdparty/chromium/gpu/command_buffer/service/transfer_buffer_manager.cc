@@ -18,7 +18,6 @@
 #include "base/trace_event/process_memory_dump.h"
 #include "base/trace_event/trace_event.h"
 #include "gpu/command_buffer/common/cmd_buffer_common.h"
-#include "gpu/command_buffer/common/gles2_cmd_utils.h"
 #include "gpu/command_buffer/service/memory_tracking.h"
 
 using ::base::SharedMemory;
@@ -130,14 +129,13 @@ bool TransferBufferManager::OnMemoryDump(
     dump->AddScalar(MemoryAllocatorDump::kNameSize,
                     MemoryAllocatorDump::kUnitsBytes, buffer->size());
 
-    auto guid =
-        GetBufferGUIDForTracing(memory_tracker_->ClientTracingId(), buffer_id);
-    auto shared_memory_guid =
-        buffer->backing()->shared_memory_handle().GetGUID();
+    auto shared_memory_guid = buffer->backing()->GetGUID();
     if (!shared_memory_guid.is_empty()) {
-      pmd->CreateSharedMemoryOwnershipEdge(
-          dump->guid(), guid, shared_memory_guid, 0 /* importance */);
+      pmd->CreateSharedMemoryOwnershipEdge(dump->guid(), shared_memory_guid,
+                                           0 /* importance */);
     } else {
+      auto guid = GetBufferGUIDForTracing(memory_tracker_->ClientTracingId(),
+                                          buffer_id);
       pmd->CreateSharedGlobalAllocatorDump(guid);
       pmd->AddOwnershipEdge(dump->guid(), guid);
     }

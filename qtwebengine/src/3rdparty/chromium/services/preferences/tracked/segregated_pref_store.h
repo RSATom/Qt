@@ -16,7 +16,7 @@
 #include "base/memory/ref_counted.h"
 #include "base/observer_list.h"
 #include "components/prefs/persistent_pref_store.h"
-#include "services/preferences/public/interfaces/tracked_preference_validation_delegate.mojom.h"
+#include "services/preferences/public/mojom/tracked_preference_validation_delegate.mojom.h"
 
 // Provides a unified PersistentPrefStore implementation that splits its storage
 // and retrieval between two underlying PersistentPrefStore instances: a set of
@@ -74,8 +74,8 @@ class SegregatedPrefStore : public PersistentPrefStore {
   void ReadPrefsAsync(ReadErrorDelegate* error_delegate) override;
   void CommitPendingWrite(base::OnceClosure done_callback) override;
   void SchedulePendingLossyWrites() override;
-
   void ClearMutableValues() override;
+  void OnStoreDeletionFromDisk() override;
 
  private:
   // Aggregates events from the underlying stores and synthesizes external

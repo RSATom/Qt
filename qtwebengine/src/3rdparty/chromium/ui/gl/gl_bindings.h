@@ -5,10 +5,9 @@
 #ifndef UI_GL_GL_BINDINGS_H_
 #define UI_GL_GL_BINDINGS_H_
 
+#include "build/build_config.h"
+
 // Includes the platform independent and platform dependent GL headers.
-// Only include this in cc files. It pulls in system headers, including
-// the X11 headers on linux, which define all kinds of macros that are
-// liable to cause conflicts.
 
 // GL headers may include inttypes.h and so we need to ensure that
 // __STDC_FORMAT_MACROS is defined in order for //base/format_macros.h to
@@ -17,6 +16,17 @@
 #if defined(OS_POSIX) && !defined(__STDC_FORMAT_MACROS)
 #define __STDC_FORMAT_MACROS
 #endif
+#if defined(USE_GLX)
+// Must be included before GL headers or they might pollute the global
+// namespace with X11 macros indirectly.
+#include "ui/gfx/x/x11.h"
+
+// GL headers expect Bool and Status this to be defined but we avoid
+// defining them since they clash with too much code. Instead we have
+// to add them temporarily here and undef them again below.
+#define Bool int
+#define Status int
+#endif  // USE_GLX
 
 #include <GL/gl.h>
 #include <GL/glext.h>
@@ -29,6 +39,7 @@
 #include "base/logging.h"
 #include "base/threading/thread_local.h"
 #include "build/build_config.h"
+#include "ui/gfx/extension_set.h"
 #include "ui/gl/gl_export.h"
 
 // The standard OpenGL native extension headers are also included.
@@ -39,14 +50,11 @@
 #elif defined(USE_GLX)
 #include <GL/glx.h>
 #include <GL/glxext.h>
-#endif
 
-// Undefine some macros defined by X headers. This is why this file should only
-// be included in .cc files.
+// Done with these temporary macros now
 #undef Bool
-#undef None
 #undef Status
-
+#endif
 
 // GLES2 defines not part of Desktop GL
 // Shader Precision-Specified Types
@@ -91,6 +99,7 @@
 #define GL_ALPHA8_EXT                                    0x803C
 #define GL_LUMINANCE8_EXT                                0x8040
 #define GL_LUMINANCE8_ALPHA8_EXT                         0x8045
+#define GL_RGB10_A2_EXT                                  0x8059
 #define GL_RGBA32F_EXT                                   0x8814
 #define GL_RGB32F_EXT                                    0x8815
 #define GL_ALPHA32F_EXT                                  0x8816
@@ -98,13 +107,13 @@
 #define GL_LUMINANCE_ALPHA32F_EXT                        0x8819
 #define GL_RGBA16F_EXT                                   0x881A
 #define GL_RGB16F_EXT                                    0x881B
-#define GL_RG16F_EXT 0x822F
-#define GL_R16F_EXT 0x822D
+#define GL_RG16F_EXT                                     0x822F
+#define GL_R16F_EXT                                      0x822D
 #define GL_ALPHA16F_EXT                                  0x881C
 #define GL_LUMINANCE16F_EXT                              0x881E
 #define GL_LUMINANCE_ALPHA16F_EXT                        0x881F
-#define GL_R32F_EXT 0x822E
-#define GL_RG32F_EXT 0x8230
+#define GL_R32F_EXT                                      0x822E
+#define GL_RG32F_EXT                                     0x8230
 #define GL_BGRA8_EXT                                     0x93A1
 
 // GL_ANGLE_instanced_arrays
@@ -112,6 +121,9 @@
 
 // GL_ANGLE_client_arrays
 #define GL_CLIENT_ARRAYS_ANGLE 0x93AA
+
+// GL_ANGLE_robust_resource_initialization
+#define GL_ROBUST_RESOURCE_INITIALIZATION_ANGLE 0x93AB
 
 // GL_ANGLE_request_extension
 #define GL_REQUESTABLE_EXTENSIONS_ANGLE 0x93A8
@@ -162,6 +174,18 @@
 // GL_CHROMIUM_subscribe_uniforms
 #define GL_SUBSCRIBED_VALUES_BUFFER_CHROMIUM             0x924B
 #define GL_MOUSE_POSITION_CHROMIUM                       0x924C
+
+// GL_CHROMIUM_texture_filtering_hint
+#define GL_TEXTURE_FILTERING_HINT_CHROMIUM               0x8AF0
+
+// GL_CHROMIUM_resize
+#define GL_COLOR_SPACE_UNSPECIFIED_CHROMIUM 0x8AF1
+#define GL_COLOR_SPACE_SCRGB_LINEAR_CHROMIUM 0x8AF2
+#define GL_COLOR_SPACE_SRGB_CHROMIUM 0x8AF3
+#define GL_COLOR_SPACE_DISPLAY_P3_CHROMIUM 0x8AF4
+
+// GL_CHROMIUM_texture_storage_image
+#define GL_SCANOUT_CHROMIUM 0x6000
 
 // GL_OES_texure_3D
 #define GL_SAMPLER_3D_OES                                0x8B5F
@@ -371,6 +395,21 @@
 #define GL_MAX_DUAL_SOURCE_DRAW_BUFFERS_EXT 0x88FC
 #endif /* GL_EXT_blend_func_extended */
 
+#ifndef GL_EXT_window_rectangles
+#define GL_EXT_window_rectangles 1
+#define GL_INCLUSIVE_EXT 0x8F10
+#define GL_EXCLUSIVE_EXT 0x8F11
+#define GL_WINDOW_RECTANGLE_EXT 0x8F12
+#define GL_WINDOW_RECTANGLE_MODE_EXT 0x8F13
+#define GL_MAX_WINDOW_RECTANGLES_EXT 0x8F14
+#define GL_NUM_WINDOW_RECTANGLES_EXT 0x8F15
+#endif /* GL_EXT_window_rectangles */
+
+#ifndef GL_CHROMIUM_nonblocking_readback
+#define GL_CHROMIUM_nonblocking_readback 1
+#define GL_READBACK_SHADOW_COPIES_UPDATED_CHROMIUM 0x84F8
+#endif /* GL_CHROMIUM_nonblocking_readback */
+
 #define GL_GLEXT_PROTOTYPES 1
 
 #if defined(OS_WIN)
@@ -399,6 +438,20 @@ typedef intptr_t EGLAttrib;
 typedef void *EGLStreamKHR;
 typedef uint64_t EGLuint64KHR;
 #endif
+#ifndef EGL_ANDROID_presentation_time
+typedef khronos_stime_nanoseconds_t EGLnsecsANDROID;
+#endif
+#ifndef EGL_KHR_debug
+typedef void* EGLObjectKHR;
+typedef void* EGLLabelKHR;
+typedef void (APIENTRY *EGLDEBUGPROCKHR)(
+             EGLenum error,
+             const char *command,
+             EGLint messageType,
+             EGLLabelKHR threadLabel,
+             EGLLabelKHR objectLabel,
+             const char* message);
+#endif
 
 #include "gl_bindings_autogen_gl.h"
 #include "gl_bindings_autogen_osmesa.h"
@@ -422,11 +475,16 @@ struct GLVersionInfo;
 struct GL_EXPORT DriverGL {
   void InitializeStaticBindings();
   void InitializeDynamicBindings(const GLVersionInfo* ver,
-                                 const std::string& context_extensions);
+                                 const gfx::ExtensionSet& extensions);
   void ClearBindings();
 
   ProcsGL fn;
   ExtensionsGL ext;
+
+  DriverGL() {
+    // InitializeStaticBindings() requires that fn is null-initialized.
+    ClearBindings();
+  }
 };
 
 struct GL_EXPORT CurrentGL {
@@ -467,6 +525,7 @@ struct GL_EXPORT DriverEGL {
   void InitializeClientExtensionBindings();
   void InitializeExtensionBindings();
   void ClearBindings();
+  void UpdateConditionalExtensionBindings();
 
   ProcsEGL fn;
   ExtensionsEGL ext;
@@ -479,13 +538,20 @@ struct GL_EXPORT DriverEGL {
 #if defined(USE_GLX)
 struct GL_EXPORT DriverGLX {
   void InitializeStaticBindings();
+#ifdef TOOLKIT_QT
+  void InitializeExtensionBindings(const std::string&);
+#else
   void InitializeExtensionBindings();
+#endif
+
   void ClearBindings();
 
   ProcsGLX fn;
   ExtensionsGLX ext;
 
+#ifndef TOOLKIT_QT
  private:
+#endif
   static std::string GetPlatformExtensions();
 };
 #endif

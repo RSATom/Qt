@@ -20,6 +20,7 @@ class Handle;
 #define FRAME_ARRAY_FIELD_LIST(V)     \
   V(WasmInstance, WasmInstanceObject) \
   V(WasmFunctionIndex, Smi)           \
+  V(IsWasmInterpreterFrame, Smi)      \
   V(Receiver, Object)                 \
   V(Function, JSFunction)             \
   V(Code, AbstractCode)               \
@@ -40,7 +41,7 @@ class FrameArray : public FixedArray {
   inline bool IsAsmJsWasmFrame(int frame_ix) const;
   inline int FrameCount() const;
 
-  void ShrinkToFit();
+  void ShrinkToFit(Isolate* isolate);
 
   // Flags.
   enum Flag {
@@ -59,8 +60,7 @@ class FrameArray : public FixedArray {
                                           int flags);
   static Handle<FrameArray> AppendWasmFrame(
       Handle<FrameArray> in, Handle<WasmInstanceObject> wasm_instance,
-      int wasm_function_index, Handle<AbstractCode> code, int offset,
-      int flags);
+      int wasm_function_index, wasm::WasmCode* code, int offset, int flags);
 
   DECL_CAST(FrameArray)
 
@@ -74,6 +74,7 @@ class FrameArray : public FixedArray {
 
   static const int kWasmInstanceOffset = 0;
   static const int kWasmFunctionIndexOffset = 1;
+  static const int kIsWasmInterpreterFrameOffset = 2;
 
   static const int kReceiverOffset = 0;
   static const int kFunctionOffset = 1;
@@ -94,7 +95,8 @@ class FrameArray : public FixedArray {
     return kFirstIndex + frame_count * kElementsPerFrame;
   }
 
-  static Handle<FrameArray> EnsureSpace(Handle<FrameArray> array, int length);
+  static Handle<FrameArray> EnsureSpace(Isolate* isolate,
+                                        Handle<FrameArray> array, int length);
 
   friend class Factory;
   DISALLOW_IMPLICIT_CONSTRUCTORS(FrameArray);

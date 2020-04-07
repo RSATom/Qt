@@ -51,7 +51,9 @@
 //
 
 #include <QtCore/qflags.h>
+#include <QtCore/qmutex.h>
 #include <Qt3DRender/private/qt3drender_global_p.h>
+#include <Qt3DRender/private/handle_types_p.h>
 #include <Qt3DCore/qaspectjob.h>
 #include <Qt3DCore/qnodeid.h>
 #include <QtGui/qsurfaceformat.h>
@@ -83,6 +85,7 @@ class FrameGraphNode;
 class RenderSettings;
 class BackendNode;
 class OffscreenSurfaceHelper;
+class Shader;
 
 class QT3DRENDERSHARED_PRIVATE_EXPORT AbstractRenderer
 {
@@ -90,7 +93,9 @@ public:
     virtual ~AbstractRenderer() {}
 
     enum API {
-        OpenGL
+        OpenGL,
+        Vulkan,
+        DirectX
     };
 
     // Changes made to backend nodes are reported to the Renderer
@@ -150,6 +155,7 @@ public:
 
     virtual QVector<Qt3DCore::QAspectJobPtr> renderBinJobs() = 0;
     virtual Qt3DCore::QAspectJobPtr pickBoundingVolumeJob() = 0;
+    virtual Qt3DCore::QAspectJobPtr rayCastingJob() = 0;
     virtual Qt3DCore::QAspectJobPtr syncTextureLoadingJob() = 0;
     virtual Qt3DCore::QAspectJobPtr expandBoundingVolumeJob() = 0;
 
@@ -166,9 +172,17 @@ public:
 
     virtual QVariant executeCommand(const QStringList &args) = 0;
 
+    // For QtQuick rendering
+    virtual void setOpenGLContext(QOpenGLContext *ctx) = 0;
+
     virtual void setOffscreenSurfaceHelper(OffscreenSurfaceHelper *helper) = 0;
     virtual QSurfaceFormat format() = 0;
     virtual QOpenGLContext *shareContext() const = 0;
+
+
+    // These commands are executed in a dedicated command thread
+    // More will be added later
+    virtual void loadShader(Shader *shader, Qt3DRender::Render::HShader shaderHandle) = 0;
 };
 
 Q_DECLARE_OPERATORS_FOR_FLAGS(AbstractRenderer::BackendNodeDirtySet)

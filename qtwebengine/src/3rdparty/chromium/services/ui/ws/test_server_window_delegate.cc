@@ -9,18 +9,31 @@
 namespace ui {
 namespace ws {
 
-TestServerWindowDelegate::TestServerWindowDelegate() {}
+TestServerWindowDelegate::TestServerWindowDelegate(VizHostProxy* viz_host_proxy)
+    : viz_host_proxy_(viz_host_proxy) {}
 
 TestServerWindowDelegate::~TestServerWindowDelegate() {}
 
-cc::mojom::FrameSinkManager* TestServerWindowDelegate::GetFrameSinkManager() {
-  return nullptr;
+void TestServerWindowDelegate::AddRootWindow(ServerWindow* window) {
+  roots_.insert(window);
 }
 
-ServerWindow* TestServerWindowDelegate::GetRootWindow(
+VizHostProxy* TestServerWindowDelegate::GetVizHostProxy() {
+  return viz_host_proxy_;
+}
+
+ServerWindow* TestServerWindowDelegate::GetRootWindowForDrawn(
     const ServerWindow* window) {
+  for (ServerWindow* root : roots_) {
+    if (root->Contains(window))
+      return root;
+  }
   return root_window_;
 }
+
+void TestServerWindowDelegate::OnFirstSurfaceActivation(
+    const viz::SurfaceInfo& surface_info,
+    ServerWindow* window) {}
 
 }  // namespace ws
 }  // namespace ui

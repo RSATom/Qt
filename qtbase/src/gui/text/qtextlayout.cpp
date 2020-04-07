@@ -93,14 +93,14 @@ QT_BEGIN_NAMESPACE
     Specifies the format to apply.
 */
 
-/*! \fn bool operator==(const FormatRange &lhs, const FormatRange &rhs)
+/*! \fn bool operator==(const QTextLayout::FormatRange &lhs, const QTextLayout::FormatRange &rhs)
   \relates QTextLayout::FormatRange
 
   Returns true if the \c {start}, \c {length}, and \c {format} fields
   in \a lhs and \a rhs contain the same values respectively.
  */
 
-/*! \fn bool operator!=(const FormatRange &lhs, const FormatRange &rhs)
+/*! \fn bool operator!=(const QTextLayout::FormatRange &lhs, const QTextLayout::FormatRange &rhs)
   \relates QTextLayout::FormatRange
 
   Returns true if any of the \c {start}, \c {length}, or \c {format} fields
@@ -1006,10 +1006,8 @@ static void addSelectedRegionsToPath(QTextEngine *eng, int lineNumber, const QPo
             }
 
             if (lastSelectionWidth > 0) {
-                QRectF rect = boundingRect & QRectF(lastSelectionX.toReal(), selectionY, lastSelectionWidth.toReal(), lineHeight);
-                rect.moveLeft(qFloor(rect.left()));
-                rect.moveTop(qFloor(rect.top()));
-                region->addRect(rect);
+                const QRectF rect = boundingRect & QRectF(lastSelectionX.toReal(), selectionY, lastSelectionWidth.toReal(), lineHeight);
+                region->addRect(rect.toAlignedRect());
             }
 
             lastSelectionX = selectionX;
@@ -1017,10 +1015,8 @@ static void addSelectedRegionsToPath(QTextEngine *eng, int lineNumber, const QPo
         }
     }
     if (lastSelectionWidth > 0) {
-        QRectF rect = boundingRect & QRectF(lastSelectionX.toReal(), selectionY, lastSelectionWidth.toReal(), lineHeight);
-        rect.moveLeft(qFloor(rect.left()));
-        rect.moveTop(qFloor(rect.top()));
-        region->addRect(rect);
+        const QRectF rect = boundingRect & QRectF(lastSelectionX.toReal(), selectionY, lastSelectionWidth.toReal(), lineHeight);
+        region->addRect(rect.toAlignedRect());
     }
 }
 
@@ -1827,6 +1823,9 @@ void QTextLine::layout_helper(int maxGlyphs)
     lbh.logClusters = eng->layoutData->logClustersPtr;
     lbh.previousGlyph = 0;
 
+    bool hasInlineObject = false;
+    QFixed maxInlineObjectHeight = 0;
+
     while (newItem < eng->layoutData->items.size()) {
         lbh.resetRightBearing();
         lbh.softHyphenWidth = 0;
@@ -1855,8 +1854,11 @@ void QTextLine::layout_helper(int maxGlyphs)
         lbh.tmpData.leading = qMax(lbh.tmpData.leading + lbh.tmpData.ascent,
                                    current.leading + current.ascent) - qMax(lbh.tmpData.ascent,
                                                                             current.ascent);
-        lbh.tmpData.ascent = qMax(lbh.tmpData.ascent, current.ascent);
-        lbh.tmpData.descent = qMax(lbh.tmpData.descent, current.descent);
+        if (current.analysis.flags != QScriptAnalysis::Object) {
+            // objects need some special treatment as they can special alignment or be floating
+            lbh.tmpData.ascent = qMax(lbh.tmpData.ascent, current.ascent);
+            lbh.tmpData.descent = qMax(lbh.tmpData.descent, current.descent);
+        }
 
         if (current.analysis.flags == QScriptAnalysis::Tab && (alignment & (Qt::AlignLeft | Qt::AlignRight | Qt::AlignCenter | Qt::AlignJustify))) {
             lbh.whiteSpaceOrObject = true;
@@ -1904,8 +1906,17 @@ void QTextLine::layout_helper(int maxGlyphs)
 
             if (eng->block.docHandle()) {
                 QTextInlineObject inlineObject(item, eng);
-                eng->docLayout()->positionInlineObject(inlineObject, eng->block.position() + current.position, inlineObject.format());
+                QTextFormat f = inlineObject.format();
+                eng->docLayout()->positionInlineObject(inlineObject, eng->block.position() + current.position, f);
+                QTextCharFormat::VerticalAlignment valign = f.toCharFormat().verticalAlignment();
+                if (valign != QTextCharFormat::AlignTop && valign != QTextCharFormat::AlignBottom) {
+                    lbh.tmpData.ascent = qMax(lbh.tmpData.ascent, current.ascent);
+                    lbh.tmpData.descent = qMax(lbh.tmpData.descent, current.descent);
+                }
             }
+
+            hasInlineObject = true;
+            maxInlineObjectHeight = qMax(maxInlineObjectHeight, current.ascent + current.descent);
 
             lbh.tmpData.textWidth += current.width;
 
@@ -2042,6 +2053,43 @@ found:
         line += lbh.tmpData;
     }
 
+    if (hasInlineObject && eng->block.docHandle()) {
+        // position top/bottom aligned inline objects
+        if (maxInlineObjectHeight > line.ascent + line.descent) {
+            // extend line height if required
+            QFixed toAdd = (maxInlineObjectHeight - line.ascent - line.descent)/2;
+            line.ascent += toAdd;
+            line.descent = maxInlineObjectHeight - line.ascent;
+        }
+        int startItem = eng->findItem(line.from);
+        int endItem = eng->findItem(line.from + line.length);
+        if (endItem < 0)
+            endItem = eng->layoutData->items.size();
+        for (int item = startItem; item < endItem; ++item) {
+            QScriptItem &current = eng->layoutData->items[item];
+            if (current.analysis.flags == QScriptAnalysis::Object) {
+                QTextInlineObject inlineObject(item, eng);
+                QTextCharFormat::VerticalAlignment align = inlineObject.format().toCharFormat().verticalAlignment();
+                QFixed height = current.ascent + current.descent;
+                switch (align) {
+                case QTextCharFormat::AlignTop:
+                    current.ascent = line.ascent;
+                    current.descent = height - line.ascent;
+                    break;
+                case QTextCharFormat::AlignBottom:
+                    current.descent = line.descent;
+                    current.ascent = height - line.descent;
+                    break;
+                default:
+                    break;
+                }
+                Q_ASSERT(line.ascent >= current.ascent);
+                Q_ASSERT(line.descent >= current.descent);
+            }
+        }
+    }
+
+
     LB_DEBUG("line length = %d, ascent=%f, descent=%f, textWidth=%f (spacew=%f)", line.length, line.ascent.toReal(),
            line.descent.toReal(), line.textWidth.toReal(), lbh.spaceData.width.toReal());
     LB_DEBUG("        : '%s'", eng->layoutData->string.mid(line.from, line.length).toUtf8().data());
@@ -2135,7 +2183,7 @@ static void setPenAndDrawBackground(QPainter *p, const QPen &defaultPen, const Q
 
     QBrush bg = chf.background();
     if (bg.style() != Qt::NoBrush && !chf.property(SuppressBackground).toBool())
-        p->fillRect(QRectF(qFloor(r.x()), qFloor(r.y()), r.width(), r.height()), bg);
+        p->fillRect(r.toAlignedRect(), bg);
     if (c.style() != Qt::NoBrush) {
         p->setPen(QPen(c, 0));
     }
@@ -2453,7 +2501,7 @@ void QTextLine::draw(QPainter *p, const QPointF &pos, const QTextLayout::FormatR
 
             const qreal lineHeight = line.height().toReal();
             QRectF r(pos.x() + line.x.toReal(), pos.y() + line.y.toReal(),
-                     lineHeight / 2, QFontMetrics(eng->font()).width(QLatin1Char(' ')));
+                     lineHeight / 2, QFontMetrics(eng->font()).horizontalAdvance(QLatin1Char(' ')));
             setPenAndDrawBackground(p, QPen(), selection->format, r);
             p->setPen(pen);
         }
@@ -2515,6 +2563,8 @@ void QTextLine::draw(QPainter *p, const QPointF &pos, const QTextLayout::FormatR
                     QFixed itemY = y - si.ascent;
                     if (format.verticalAlignment() == QTextCharFormat::AlignTop) {
                         itemY = y - lineBase;
+                    } else if (format.verticalAlignment() == QTextCharFormat::AlignBottom) {
+                        itemY = y + line.descent - si.ascent - si.descent;
                     }
 
                     QRectF itemRect(iterator.x.toReal(), itemY.toReal(), iterator.itemWidth.toReal(), si.height().toReal());
@@ -2540,7 +2590,7 @@ void QTextLine::draw(QPainter *p, const QPointF &pos, const QTextLayout::FormatR
                     QPainterPrivate::get(p)->drawTextItem(QPointF(iterator.x.toReal(), y.toReal()), gf, eng);
                     if (eng->option.flags() & QTextOption::ShowTabsAndSpaces) {
                         QChar visualTab(0x2192);
-                        int w = QFontMetrics(f).width(visualTab);
+                        int w = QFontMetrics(f).horizontalAdvance(visualTab);
                         qreal x = iterator.itemWidth.toReal() - w; // Right-aligned
                         if (x < 0)
                              p->setClipRect(QRectF(iterator.x.toReal(), line.y.toReal(),
@@ -2548,6 +2598,7 @@ void QTextLine::draw(QPainter *p, const QPointF &pos, const QTextLayout::FormatR
                                             Qt::IntersectClip);
                         else
                              x /= 2; // Centered
+                        p->setFont(f);
                         p->drawText(QPointF(iterator.x.toReal() + x,
                                             y.toReal()), visualTab);
                     }
@@ -2614,14 +2665,18 @@ void QTextLine::draw(QPainter *p, const QPointF &pos, const QTextLayout::FormatR
             QPainterPrivate::get(p)->drawTextItem(pos, gf, eng);
         }
 
-        if (si.analysis.flags == QScriptAnalysis::Space
+        if ((si.analysis.flags == QScriptAnalysis::Space
+             || si.analysis.flags == QScriptAnalysis::Nbsp)
             && (eng->option.flags() & QTextOption::ShowTabsAndSpaces)) {
             QBrush c = format.foreground();
             if (c.style() != Qt::NoBrush)
                 p->setPen(c.color());
-            QChar visualSpace((ushort)0xb7);
+            QChar visualSpace(si.analysis.flags == QScriptAnalysis::Space ? (ushort)0xb7 : (ushort)0xb0);
+            QFont oldFont = p->font();
+            p->setFont(eng->font(si));
             p->drawText(QPointF(iterator.x.toReal(), itemBaseLine.toReal()), visualSpace);
             p->setPen(pen);
+            p->setFont(oldFont);
         }
     }
     eng->drawDecorations(p);
@@ -2762,6 +2817,7 @@ qreal QTextLine::cursorToX(int *cursorPos, Edge edge) const
                 glyph_start++;
             for (int i = glyph_end - 1; i >= glyph_start; i--)
                 x += glyphs.effectiveAdvance(i);
+            x -= eng->offsetInLigature(si, pos, end, glyph_pos);
         } else {
             int start = qMax(line.from - si->position, 0);
             int glyph_start = logClusters[start];
@@ -2770,8 +2826,8 @@ qreal QTextLine::cursorToX(int *cursorPos, Edge edge) const
                 glyph_end--;
             for (int i = glyph_start; i <= glyph_end; i++)
                 x += glyphs.effectiveAdvance(i);
+            x += eng->offsetInLigature(si, pos, end, glyph_pos);
         }
-        x += eng->offsetInLigature(si, pos, end, glyph_pos);
     }
 
     if (eng->option.wrapMode() != QTextOption::NoWrap && x > line.x + line.width)
@@ -2844,9 +2900,7 @@ int QTextLine::xToCursor(qreal _x, CursorPosition cpos) const
         bool rtl = eng->isRightToLeft();
 
         eng->shapeLine(line);
-        QVector<int> insertionPoints;
-        if (visual && rtl)
-            eng->insertionPointsForLine(lineNum, insertionPoints);
+        const auto insertionPoints = (visual && rtl) ? eng->insertionPointsForLine(lineNum) : std::vector<int>();
         int nchars = 0;
         for (int i = 0; i < nItems; ++i) {
             int item = visualOrder[i]+firstItem;
@@ -2978,7 +3032,7 @@ int QTextLine::xToCursor(qreal _x, CursorPosition cpos) const
                             continue;
                         }
                         if (rtl && nchars > 0)
-                            return insertionPoints[lastLine ? nchars : nchars - 1];
+                            return insertionPoints[size_t(lastLine ? nchars : nchars - 1)];
                     }
                     return eng->positionInLigature(&si, end, x, pos, -1,
                                                    cpos == QTextLine::CursorOnCharacter);
@@ -3006,9 +3060,8 @@ int QTextLine::xToCursor(qreal _x, CursorPosition cpos) const
     // character between lines is a space and we want
     // to position the cursor to the left of that
     // character.
-    // ###### breaks with japanese for example
     if (this->index < eng->lines.count() - 1)
-        --maxPos;
+        maxPos = eng->previousLogicalPosition(maxPos);
 
     pos = qMin(pos, maxPos);
     return pos;

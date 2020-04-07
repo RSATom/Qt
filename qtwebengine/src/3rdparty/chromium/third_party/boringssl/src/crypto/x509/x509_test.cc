@@ -12,6 +12,7 @@
  * OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE. */
 
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -19,16 +20,20 @@
 
 #include <openssl/bio.h>
 #include <openssl/bytestring.h>
-#include <openssl/curve25519.h>
 #include <openssl/crypto.h>
+#include <openssl/curve25519.h>
 #include <openssl/digest.h>
 #include <openssl/err.h>
 #include <openssl/pem.h>
 #include <openssl/pool.h>
 #include <openssl/x509.h>
+#include <openssl/x509v3.h>
 
 #include "../internal.h"
+#include "../test/test_util.h"
 
+
+std::string GetTestData(const char *path);
 
 static const char kCrossSigningRootPEM[] =
     "-----BEGIN CERTIFICATE-----\n"
@@ -419,6 +424,78 @@ static const char kEd25519CertNull[] =
     "recgVPpVS7B+d9g4EwtZXIh4lodTBDHBBw==\n"
     "-----END CERTIFICATE-----\n";
 
+// kSANTypesLeaf is a leaf certificate (signed by |kSANTypesRoot|) which
+// contains SANS for example.com, test@example.com, 127.0.0.1, and
+// https://example.com/. (The latter is useless for now since crypto/x509
+// doesn't deal with URI SANs directly.)
+static const char kSANTypesLeaf[] =
+    "-----BEGIN CERTIFICATE-----\n"
+    "MIIClzCCAgCgAwIBAgIJAOjwnT/iW+qmMA0GCSqGSIb3DQEBCwUAMCsxFzAVBgNV\n"
+    "BAoTDkJvcmluZ1NTTCBUZXN0MRAwDgYDVQQDEwdSb290IENBMB4XDTE1MDEwMTAw\n"
+    "MDAwMFoXDTI1MDEwMTAwMDAwMFowLzEXMBUGA1UEChMOQm9yaW5nU1NMIFRlc3Qx\n"
+    "FDASBgNVBAMTC2V4YW1wbGUuY29tMIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKB\n"
+    "gQDbRn2TLhInBki8Bighq37EtqJd/h5SRYh6NkelCA2SQlvCgcC+l3mYQPtPbRT9\n"
+    "KxOLwqUuZ9jUCZ7WIji3Sgt0cyvCNPHRk+WW2XR781ifbGE8wLBB1NkrKyQjd1sc\n"
+    "O711Xc4gVM+hY4cdHiTE8x0aUIuqthRD7ZendWL0FMhS1wIDAQABo4G+MIG7MA4G\n"
+    "A1UdDwEB/wQEAwIFoDAdBgNVHSUEFjAUBggrBgEFBQcDAQYIKwYBBQUHAwIwDAYD\n"
+    "VR0TAQH/BAIwADAZBgNVHQ4EEgQQn5EWH0NDPkmm3m22gNefYDAbBgNVHSMEFDAS\n"
+    "gBBAN9cB+0AvuBx+VAQnjFkBMEQGA1UdEQQ9MDuCC2V4YW1wbGUuY29tgRB0ZXN0\n"
+    "QGV4YW1wbGUuY29thwR/AAABhhRodHRwczovL2V4YW1wbGUuY29tLzANBgkqhkiG\n"
+    "9w0BAQsFAAOBgQBtwJvY6+Tk6D6DOtDVaNoJ5y8E25CCuE/Ga4OuIcYJas+yLckf\n"
+    "dZwUV3GUG2oBXl2MrpUFxXd4hKBO1CmlBY+hZEeIx0Yp6QWK9P/vnZeydOTP26mk\n"
+    "jusJ2PqSmtKNU1Zcaba4d29oFejmOAfeguhR8AHpsc/zHEaS5Q9cJsuJcw==\n"
+    "-----END CERTIFICATE-----\n";
+
+// -----BEGIN RSA PRIVATE KEY-----
+// MIICWwIBAAKBgQDbRn2TLhInBki8Bighq37EtqJd/h5SRYh6NkelCA2SQlvCgcC+
+// l3mYQPtPbRT9KxOLwqUuZ9jUCZ7WIji3Sgt0cyvCNPHRk+WW2XR781ifbGE8wLBB
+// 1NkrKyQjd1scO711Xc4gVM+hY4cdHiTE8x0aUIuqthRD7ZendWL0FMhS1wIDAQAB
+// AoGACwf7z0i1DxOI2zSwFimLghfyCSp8mgT3fbZ3Wj0SebYu6ZUffjceneM/AVrq
+// gGYHYLOVHcWJqfkl7X3hPo9SDhzLx0mM545/q21ZWCwjhswH7WiCEqV2/zeDO9WU
+// NIO1VU0VoLm0AQ7ZvwnyB+fpgF9kkkDtbBJW7XWrfNVtlnECQQD97YENpEJ3X1kj
+// 3rrkrHWDkKAyoWWY1i8Fm7LnganC9Bv6AVwgn5ZlE/479aWHF8vbOFEA3pFPiNZJ
+// t9FTCfpJAkEA3RCXjGI0Y6GALFLwEs+nL/XZAfJaIpJEZVLCVosYQOSaMS4SchfC
+// GGYVquT7ZgKk9uvz89Fg87OtBMWS9lrkHwJADGkGLKeBhBoJ3kHtem2fVK3F1pOi
+// xoR5SdnhNYVVyaxqjZ5xZTrHe+stOrr3uxGDqhQniVZXXb6/Ul0Egv1y2QJAVg/h
+// kAujba4wIhFf2VLyOZ+yjil1ocPj0LZ5Zgvcs1bMGJ1hHP3W2HzVrqRaowoggui1
+// HpTC891dXGA2qKYV7QJAFDmT2A7OVvh3y4AEgzVwHrDmCMwMHKjCIntS7fjxrJnF
+// YvJUG1zoHwUVrxxbR3DbpTODlktLcl/0b97D0IkH3w==
+// -----END RSA PRIVATE KEY-----
+
+static const char kSANTypesRoot[] =
+    "-----BEGIN CERTIFICATE-----\n"
+    "MIICTTCCAbagAwIBAgIIAj5CwoHlWuYwDQYJKoZIhvcNAQELBQAwKzEXMBUGA1UE\n"
+    "ChMOQm9yaW5nU1NMIFRlc3QxEDAOBgNVBAMTB1Jvb3QgQ0EwHhcNMTUwMTAxMDAw\n"
+    "MDAwWhcNMjUwMTAxMDAwMDAwWjArMRcwFQYDVQQKEw5Cb3JpbmdTU0wgVGVzdDEQ\n"
+    "MA4GA1UEAxMHUm9vdCBDQTCBnzANBgkqhkiG9w0BAQEFAAOBjQAwgYkCgYEA6Q5/\n"
+    "EQzmWuaGg3D2UQcuAngR9bIkkjjuJmICx5TxPqF3asCP1SJotl3iTNrghRE1wpJy\n"
+    "SY2BtIiXa7f8skRb2U0GcPkMxo/ps9+jaoRsQ1m+nbLQdpvD1/qZWcO45fNTA71J\n"
+    "1rPMokP+rcILuQG4VimUAySnDSghKamulFtK+Z8CAwEAAaN6MHgwDgYDVR0PAQH/\n"
+    "BAQDAgIEMB0GA1UdJQQWMBQGCCsGAQUFBwMBBggrBgEFBQcDAjAPBgNVHRMBAf8E\n"
+    "BTADAQH/MBkGA1UdDgQSBBBAN9cB+0AvuBx+VAQnjFkBMBsGA1UdIwQUMBKAEEA3\n"
+    "1wH7QC+4HH5UBCeMWQEwDQYJKoZIhvcNAQELBQADgYEAc4N6hTE62/3gwg+kyc2f\n"
+    "c/Jj1mHrOt+0NRaBnmvbmNpsEjHS96Ef4Wt/ZlPXPkkv1C1VosJnOIMF3Q522wRH\n"
+    "bqaxARldS12VAa3gcWisDWD+SqSyDxjyojz0XDiJkTrFuCTCUiZO+1GLB7SO10Ms\n"
+    "d5YVX0c90VMnUhF/dlrqS9U=\n"
+    "-----END CERTIFICATE-----\n";
+
+// -----BEGIN RSA PRIVATE KEY-----
+// MIICXAIBAAKBgQDpDn8RDOZa5oaDcPZRBy4CeBH1siSSOO4mYgLHlPE+oXdqwI/V
+// Imi2XeJM2uCFETXCknJJjYG0iJdrt/yyRFvZTQZw+QzGj+mz36NqhGxDWb6dstB2
+// m8PX+plZw7jl81MDvUnWs8yiQ/6twgu5AbhWKZQDJKcNKCEpqa6UW0r5nwIDAQAB
+// AoGALEF5daZqc+aEsp8X1yky3nsoheyPL0kqSBWii33IFemZgKcSaRnAoqjPWWLS
+// 8dHj0I/4rej2MW8iuezVSpDak9tK5boHORC3w4p/wifkizQkLt1DANxTVbzcKvrt
+// aZ7LjVaKkhjRJbLddniowFHkkWVbUccjvzcUd7Y2VuLbAhECQQDq4FE88aHio8zg
+// bxSd0PwjEFwLYQTR19u812SoR8PmR6ofIL+pDwOV+fVs+OGcAAOgkhIukOrksQ4A
+// 1cKtnyhXAkEA/gRI+u3tZ7UE1twIkBfZ6IvCdRodkPqHAYIxMRLzL+MhyZt4MEGc
+// Ngb/F6U9/WOBFnoR/PI7IwE3ejutzKcL+QJBAKh+6eilk7QKPETZi1m3/dmNt+p1
+// 3EZJ65pqjwxmB3Rg/vs7vCMk4TarTdSyKu+F1xRPFfoP/mK3Xctdjj6NyhsCQAYF
+// 7/0TOzfkUPMPUJyqFB6xgbDpJ55ScnUUsznoqx+NkTWInDb4t02IqO/UmT2y6FKy
+// Hk8TJ1fTJY+ebqaVp3ECQApx9gQ+n0zIhx97FMUuiRse73xkcW4+pZ8nF+8DmeQL
+// /JKuuFGmzkG+rUbXFmo/Zg2ozVplw71NnQJ4znPsf7A=
+// -----END RSA PRIVATE KEY-----
+
+
 // CertFromPEM parses the given, NUL-terminated pem block and returns an
 // |X509*|.
 static bssl::UniquePtr<X509> CertFromPEM(const char *pem) {
@@ -453,10 +530,9 @@ static bssl::UniquePtr<STACK_OF(X509)> CertsToStack(
     return nullptr;
   }
   for (auto cert : certs) {
-    if (!sk_X509_push(stack.get(), cert)) {
+    if (!bssl::PushToStack(stack.get(), bssl::UpRef(cert))) {
       return nullptr;
     }
-    X509_up_ref(cert);
   }
 
   return stack;
@@ -471,20 +547,19 @@ static bssl::UniquePtr<STACK_OF(X509_CRL)> CRLsToStack(
     return nullptr;
   }
   for (auto crl : crls) {
-    if (!sk_X509_CRL_push(stack.get(), crl)) {
+    if (!bssl::PushToStack(stack.get(), bssl::UpRef(crl))) {
       return nullptr;
     }
-    X509_CRL_up_ref(crl);
   }
 
   return stack;
 }
 
 static int Verify(X509 *leaf, const std::vector<X509 *> &roots,
-                   const std::vector<X509 *> &intermediates,
-                   const std::vector<X509_CRL *> &crls,
-                   unsigned long flags,
-                   bool use_additional_untrusted) {
+                  const std::vector<X509 *> &intermediates,
+                  const std::vector<X509_CRL *> &crls, unsigned long flags,
+                  bool use_additional_untrusted,
+                  std::function<void(X509_VERIFY_PARAM *)> configure_callback) {
   bssl::UniquePtr<STACK_OF(X509)> roots_stack(CertsToStack(roots));
   bssl::UniquePtr<STACK_OF(X509)> intermediates_stack(
       CertsToStack(intermediates));
@@ -523,6 +598,9 @@ static int Verify(X509 *leaf, const std::vector<X509 *> &roots,
   }
   X509_VERIFY_PARAM_set_time(param, 1474934400 /* Sep 27th, 2016 */);
   X509_VERIFY_PARAM_set_depth(param, 16);
+  if (configure_callback) {
+    configure_callback(param);
+  }
   if (flags) {
     X509_VERIFY_PARAM_set_flags(param, flags);
   }
@@ -540,8 +618,10 @@ static int Verify(X509 *leaf, const std::vector<X509 *> &roots,
                    const std::vector<X509 *> &intermediates,
                    const std::vector<X509_CRL *> &crls,
                    unsigned long flags = 0) {
-  const int r1 = Verify(leaf, roots, intermediates, crls, flags, false);
-  const int r2 = Verify(leaf, roots, intermediates, crls, flags, true);
+  const int r1 =
+      Verify(leaf, roots, intermediates, crls, flags, false, nullptr);
+  const int r2 =
+      Verify(leaf, roots, intermediates, crls, flags, true, nullptr);
 
   if (r1 != r2) {
     fprintf(stderr,
@@ -611,6 +691,152 @@ TEST(X509Test, TestVerify) {
                    {leaf_no_key_usage.get(), intermediate.get()}, empty_crls));
 }
 
+static const char kHostname[] = "example.com";
+static const char kWrongHostname[] = "example2.com";
+static const char kEmail[] = "test@example.com";
+static const char kWrongEmail[] = "test2@example.com";
+static const uint8_t kIP[4] = {127, 0, 0, 1};
+static const uint8_t kWrongIP[4] = {127, 0, 0, 2};
+static const char kIPString[] = "127.0.0.1";
+static const char kWrongIPString[] = "127.0.0.2";
+
+TEST(X509Test, ZeroLengthsWithX509PARAM) {
+  bssl::UniquePtr<X509> leaf(CertFromPEM(kSANTypesLeaf));
+  bssl::UniquePtr<X509> root(CertFromPEM(kSANTypesRoot));
+  ASSERT_TRUE(leaf);
+  ASSERT_TRUE(root);
+
+  std::vector<X509_CRL *> empty_crls;
+
+  struct X509Test {
+    const char *correct_value;
+    size_t correct_value_len;
+    const char *incorrect_value;
+    size_t incorrect_value_len;
+    int (*func)(X509_VERIFY_PARAM *, const char *, size_t);
+    int mismatch_error;
+  };
+  const std::vector<X509Test> kTests = {
+      {kHostname, strlen(kHostname), kWrongHostname, strlen(kWrongHostname),
+       X509_VERIFY_PARAM_set1_host, X509_V_ERR_HOSTNAME_MISMATCH},
+      {kEmail, strlen(kEmail), kWrongEmail, strlen(kWrongEmail),
+       X509_VERIFY_PARAM_set1_email, X509_V_ERR_EMAIL_MISMATCH},
+  };
+
+  for (size_t i = 0; i < kTests.size(); i++) {
+    SCOPED_TRACE(i);
+    const X509Test &test = kTests[i];
+
+    // The correct value should work.
+    ASSERT_EQ(X509_V_OK,
+              Verify(leaf.get(), {root.get()}, {}, empty_crls, 0, false,
+                     [&test](X509_VERIFY_PARAM *param) {
+                       ASSERT_TRUE(test.func(param, test.correct_value,
+                                             test.correct_value_len));
+                     }));
+
+    // The wrong value should trigger a verification error.
+    ASSERT_EQ(test.mismatch_error,
+              Verify(leaf.get(), {root.get()}, {}, empty_crls, 0, false,
+                     [&test](X509_VERIFY_PARAM *param) {
+                       ASSERT_TRUE(test.func(param, test.incorrect_value,
+                                             test.incorrect_value_len));
+                     }));
+
+    // Passing zero as the length, unlike OpenSSL, should trigger an error and
+    // should cause verification to fail.
+    ASSERT_EQ(X509_V_ERR_INVALID_CALL,
+              Verify(leaf.get(), {root.get()}, {}, empty_crls, 0, false,
+                     [&test](X509_VERIFY_PARAM *param) {
+                       ASSERT_FALSE(test.func(param, test.correct_value, 0));
+                     }));
+
+    // Passing an empty value should be an error when setting and should cause
+    // verification to fail.
+    ASSERT_EQ(X509_V_ERR_INVALID_CALL,
+              Verify(leaf.get(), {root.get()}, {}, empty_crls, 0, false,
+                     [&test](X509_VERIFY_PARAM *param) {
+                       ASSERT_FALSE(test.func(param, nullptr, 0));
+                     }));
+
+    // Passing a value with embedded NULs should also be an error and should
+    // also cause verification to fail.
+    ASSERT_EQ(X509_V_ERR_INVALID_CALL,
+              Verify(leaf.get(), {root.get()}, {}, empty_crls, 0, false,
+                     [&test](X509_VERIFY_PARAM *param) {
+                       ASSERT_FALSE(test.func(param, "a", 2));
+                     }));
+  }
+
+  // IP addresses work slightly differently:
+
+  // The correct value should still work.
+  ASSERT_EQ(X509_V_OK, Verify(leaf.get(), {root.get()}, {}, empty_crls, 0,
+                              false, [](X509_VERIFY_PARAM *param) {
+                                ASSERT_TRUE(X509_VERIFY_PARAM_set1_ip(
+                                    param, kIP, sizeof(kIP)));
+                              }));
+
+  // Incorrect values should still fail.
+  ASSERT_EQ(X509_V_ERR_IP_ADDRESS_MISMATCH,
+            Verify(leaf.get(), {root.get()}, {}, empty_crls, 0, false,
+                   [](X509_VERIFY_PARAM *param) {
+                     ASSERT_TRUE(X509_VERIFY_PARAM_set1_ip(param, kWrongIP,
+                                                           sizeof(kWrongIP)));
+                   }));
+
+  // Zero length values should trigger an error when setting and cause
+  // verification to always fail.
+  ASSERT_EQ(X509_V_ERR_INVALID_CALL,
+            Verify(leaf.get(), {root.get()}, {}, empty_crls, 0, false,
+                   [](X509_VERIFY_PARAM *param) {
+                     ASSERT_FALSE(X509_VERIFY_PARAM_set1_ip(param, kIP, 0));
+                   }));
+
+  // ... and so should NULL values.
+  ASSERT_EQ(X509_V_ERR_INVALID_CALL,
+            Verify(leaf.get(), {root.get()}, {}, empty_crls, 0, false,
+                   [](X509_VERIFY_PARAM *param) {
+                     ASSERT_FALSE(X509_VERIFY_PARAM_set1_ip(param, nullptr, 0));
+                   }));
+
+  // Zero bytes in an IP address are, of course, fine. This is tested above
+  // because |kIP| contains zeros.
+}
+
+TEST(X509Test, ZeroLengthsWithCheckFunctions) {
+  bssl::UniquePtr<X509> leaf(CertFromPEM(kSANTypesLeaf));
+
+  EXPECT_EQ(
+      1, X509_check_host(leaf.get(), kHostname, strlen(kHostname), 0, nullptr));
+  EXPECT_NE(1, X509_check_host(leaf.get(), kWrongHostname,
+                               strlen(kWrongHostname), 0, nullptr));
+
+  EXPECT_EQ(1, X509_check_email(leaf.get(), kEmail, strlen(kEmail), 0));
+  EXPECT_NE(1,
+            X509_check_email(leaf.get(), kWrongEmail, strlen(kWrongEmail), 0));
+
+  EXPECT_EQ(1, X509_check_ip(leaf.get(), kIP, sizeof(kIP), 0));
+  EXPECT_NE(1, X509_check_ip(leaf.get(), kWrongIP, sizeof(kWrongIP), 0));
+
+  EXPECT_EQ(1, X509_check_ip_asc(leaf.get(), kIPString, 0));
+  EXPECT_NE(1, X509_check_ip_asc(leaf.get(), kWrongIPString, 0));
+
+  // OpenSSL supports passing zero as the length for host and email. We do not
+  // and it should always fail.
+  EXPECT_NE(1, X509_check_host(leaf.get(), kHostname, 0, 0, nullptr));
+  EXPECT_NE(1, X509_check_host(leaf.get(), kWrongHostname, 0, 0, nullptr));
+
+  EXPECT_NE(1, X509_check_email(leaf.get(), kEmail, 0, 0));
+  EXPECT_NE(1, X509_check_email(leaf.get(), kWrongEmail, 0, 0));
+
+  EXPECT_NE(1, X509_check_ip(leaf.get(), kIP, 0, 0));
+  EXPECT_NE(1, X509_check_ip(leaf.get(), kWrongIP, 0, 0));
+
+  // Unlike all the other functions, |X509_check_ip_asc| doesn't take a length,
+  // so it cannot be zero.
+}
+
 TEST(X509Test, TestCRL) {
   bssl::UniquePtr<X509> root(CertFromPEM(kCRLTestRoot));
   bssl::UniquePtr<X509> leaf(CertFromPEM(kCRLTestLeaf));
@@ -655,6 +881,47 @@ TEST(X509Test, TestCRL) {
   ASSERT_EQ(X509_V_ERR_UNHANDLED_CRITICAL_CRL_EXTENSION,
             Verify(leaf.get(), {root.get()}, {root.get()},
                    {unknown_critical_crl2.get()}, X509_V_FLAG_CRL_CHECK));
+}
+
+TEST(X509Test, ManyNamesAndConstraints) {
+  bssl::UniquePtr<X509> many_constraints(
+      CertFromPEM(GetTestData("crypto/x509/many_constraints.pem").c_str()));
+  ASSERT_TRUE(many_constraints);
+  bssl::UniquePtr<X509> many_names1(
+      CertFromPEM(GetTestData("crypto/x509/many_names1.pem").c_str()));
+  ASSERT_TRUE(many_names1);
+  bssl::UniquePtr<X509> many_names2(
+      CertFromPEM(GetTestData("crypto/x509/many_names2.pem").c_str()));
+  ASSERT_TRUE(many_names2);
+  bssl::UniquePtr<X509> many_names3(
+      CertFromPEM(GetTestData("crypto/x509/many_names3.pem").c_str()));
+  ASSERT_TRUE(many_names3);
+  bssl::UniquePtr<X509> some_names1(
+      CertFromPEM(GetTestData("crypto/x509/some_names1.pem").c_str()));
+  ASSERT_TRUE(some_names1);
+  bssl::UniquePtr<X509> some_names2(
+      CertFromPEM(GetTestData("crypto/x509/some_names2.pem").c_str()));
+  ASSERT_TRUE(some_names2);
+  bssl::UniquePtr<X509> some_names3(
+      CertFromPEM(GetTestData("crypto/x509/some_names3.pem").c_str()));
+  ASSERT_TRUE(some_names3);
+
+  EXPECT_EQ(X509_V_ERR_UNSPECIFIED,
+            Verify(many_names1.get(), {many_constraints.get()},
+                   {many_constraints.get()}, {}));
+  EXPECT_EQ(X509_V_ERR_UNSPECIFIED,
+            Verify(many_names2.get(), {many_constraints.get()},
+                   {many_constraints.get()}, {}));
+  EXPECT_EQ(X509_V_ERR_UNSPECIFIED,
+            Verify(many_names3.get(), {many_constraints.get()},
+                   {many_constraints.get()}, {}));
+
+  EXPECT_EQ(X509_V_OK, Verify(some_names1.get(), {many_constraints.get()},
+                              {many_constraints.get()}, {}));
+  EXPECT_EQ(X509_V_OK, Verify(some_names2.get(), {many_constraints.get()},
+                              {many_constraints.get()}, {}));
+  EXPECT_EQ(X509_V_OK, Verify(some_names3.get(), {many_constraints.get()},
+                              {many_constraints.get()}, {}));
 }
 
 TEST(X509Test, TestPSS) {
@@ -791,7 +1058,7 @@ TEST(X509Test, TestFromBuffer) {
 
   /* This ensures the X509 took a reference to |buf|, otherwise this will be a
    * reference to free memory and ASAN should notice. */
-  ASSERT_EQ(CBS_ASN1_SEQUENCE, enc_pointer[0]);
+  ASSERT_EQ(0x30, enc_pointer[0]);
 }
 
 TEST(X509Test, TestFromBufferWithTrailingData) {
@@ -951,5 +1218,126 @@ TEST(X509Test, TestPrintUTCTIME) {
     EXPECT_EQ(ok, (strcmp(t.want, "Bad time value") != 0) ? 1 : 0);
     EXPECT_EQ(t.want,
               std::string(reinterpret_cast<const char *>(contents), len));
+  }
+}
+
+TEST(X509Test, PrettyPrintIntegers) {
+  static const char *kTests[] = {
+      // Small numbers are pretty-printed in decimal.
+      "0",
+      "-1",
+      "1",
+      "42",
+      "-42",
+      "256",
+      "-256",
+      // Large numbers are pretty-printed in hex to avoid taking quadratic time.
+      "0x0123456789",
+      "-0x0123456789",
+  };
+  for (const char *in : kTests) {
+    SCOPED_TRACE(in);
+    BIGNUM *bn = nullptr;
+    ASSERT_TRUE(BN_asc2bn(&bn, in));
+    bssl::UniquePtr<BIGNUM> free_bn(bn);
+
+    {
+      bssl::UniquePtr<ASN1_INTEGER> asn1(BN_to_ASN1_INTEGER(bn, nullptr));
+      ASSERT_TRUE(asn1);
+      bssl::UniquePtr<char> out(i2s_ASN1_INTEGER(nullptr, asn1.get()));
+      ASSERT_TRUE(out.get());
+      EXPECT_STREQ(in, out.get());
+    }
+
+    {
+      bssl::UniquePtr<ASN1_ENUMERATED> asn1(BN_to_ASN1_ENUMERATED(bn, nullptr));
+      ASSERT_TRUE(asn1);
+      bssl::UniquePtr<char> out(i2s_ASN1_ENUMERATED(nullptr, asn1.get()));
+      ASSERT_TRUE(out.get());
+      EXPECT_STREQ(in, out.get());
+    }
+  }
+}
+
+TEST(X509Test, X509NameSet) {
+  bssl::UniquePtr<X509_NAME> name(X509_NAME_new());
+  EXPECT_TRUE(X509_NAME_add_entry_by_txt(
+      name.get(), "C", MBSTRING_ASC, reinterpret_cast<const uint8_t *>("US"),
+      -1, -1, 0));
+  EXPECT_EQ(X509_NAME_entry_count(name.get()), 1);
+  EXPECT_TRUE(X509_NAME_add_entry_by_txt(
+      name.get(), "C", MBSTRING_ASC, reinterpret_cast<const uint8_t *>("CA"),
+      -1, -1, 0));
+  EXPECT_EQ(X509_NAME_entry_count(name.get()), 2);
+  EXPECT_TRUE(X509_NAME_add_entry_by_txt(
+      name.get(), "C", MBSTRING_ASC, reinterpret_cast<const uint8_t *>("UK"),
+      -1, -1, 0));
+  EXPECT_EQ(X509_NAME_entry_count(name.get()), 3);
+  EXPECT_TRUE(X509_NAME_add_entry_by_txt(
+      name.get(), "C", MBSTRING_ASC, reinterpret_cast<const uint8_t *>("JP"),
+      -1, 1, 0));
+  EXPECT_EQ(X509_NAME_entry_count(name.get()), 4);
+
+  // Check that the correct entries get incremented when inserting new entry.
+  EXPECT_EQ(X509_NAME_ENTRY_set(X509_NAME_get_entry(name.get(), 1)), 1);
+  EXPECT_EQ(X509_NAME_ENTRY_set(X509_NAME_get_entry(name.get(), 2)), 2);
+}
+
+TEST(X509Test, StringDecoding) {
+  static const struct {
+    std::vector<uint8_t> in;
+    int type;
+    const char *expected;
+  } kTests[] = {
+      // Non-minimal, two-byte UTF-8.
+      {{0xc0, 0x81}, V_ASN1_UTF8STRING, nullptr},
+      // Non-minimal, three-byte UTF-8.
+      {{0xe0, 0x80, 0x81}, V_ASN1_UTF8STRING, nullptr},
+      // Non-minimal, four-byte UTF-8.
+      {{0xf0, 0x80, 0x80, 0x81}, V_ASN1_UTF8STRING, nullptr},
+      // Truncated, four-byte UTF-8.
+      {{0xf0, 0x80, 0x80}, V_ASN1_UTF8STRING, nullptr},
+      // Low-surrogate value.
+      {{0xed, 0xa0, 0x80}, V_ASN1_UTF8STRING, nullptr},
+      // High-surrogate value.
+      {{0xed, 0xb0, 0x81}, V_ASN1_UTF8STRING, nullptr},
+      // Initial BOMs should be rejected from UCS-2 and UCS-4.
+      {{0xfe, 0xff, 0, 88}, V_ASN1_BMPSTRING, nullptr},
+      {{0, 0, 0xfe, 0xff, 0, 0, 0, 88}, V_ASN1_UNIVERSALSTRING, nullptr},
+      // Otherwise, BOMs should pass through.
+      {{0, 88, 0xfe, 0xff}, V_ASN1_BMPSTRING, "X\xef\xbb\xbf"},
+      {{0, 0, 0, 88, 0, 0, 0xfe, 0xff}, V_ASN1_UNIVERSALSTRING,
+       "X\xef\xbb\xbf"},
+      // The maximum code-point should pass though.
+      {{0, 16, 0xff, 0xfd}, V_ASN1_UNIVERSALSTRING, "\xf4\x8f\xbf\xbd"},
+      // Values outside the Unicode space should not.
+      {{0, 17, 0, 0}, V_ASN1_UNIVERSALSTRING, nullptr},
+      // Non-characters should be rejected.
+      {{0, 1, 0xff, 0xff}, V_ASN1_UNIVERSALSTRING, nullptr},
+      {{0, 1, 0xff, 0xfe}, V_ASN1_UNIVERSALSTRING, nullptr},
+      {{0, 0, 0xfd, 0xd5}, V_ASN1_UNIVERSALSTRING, nullptr},
+      // BMPString is UCS-2, not UTF-16, so surrogate pairs are invalid.
+      {{0xd8, 0, 0xdc, 1}, V_ASN1_BMPSTRING, nullptr},
+  };
+
+  for (size_t i = 0; i < OPENSSL_ARRAY_SIZE(kTests); i++) {
+    SCOPED_TRACE(i);
+    const auto& test = kTests[i];
+    ASN1_STRING s;
+    s.type = test.type;
+    s.data = const_cast<uint8_t*>(test.in.data());
+    s.length = test.in.size();
+
+    uint8_t *utf8;
+    const int utf8_len = ASN1_STRING_to_UTF8(&utf8, &s);
+    EXPECT_EQ(utf8_len < 0, test.expected == nullptr);
+    if (utf8_len >= 0) {
+      if (test.expected != nullptr) {
+        EXPECT_EQ(Bytes(test.expected), Bytes(utf8, utf8_len));
+      }
+      OPENSSL_free(utf8);
+    } else {
+      ERR_clear_error();
+    }
   }
 }

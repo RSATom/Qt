@@ -48,7 +48,7 @@
 **
 ****************************************************************************/
 
-import QtQuick 2.2
+import QtQuick 2.12
 import QtTest 1.0
 import Qt.labs.platform 1.0
 
@@ -241,5 +241,24 @@ TestCase {
         // Q_ENUMS(QPlatformMenu::MenuType)
         compare(Menu.DefaultMenu, 0)
         compare(Menu.EditMenu, 1)
+    }
+
+    function test_subMenus() {
+        var parentMenu = createTemporaryObject(menu, testCase)
+        verify(parentMenu)
+
+        var subMenu = menu.createObject(parentMenu)
+        verify(subMenu)
+
+        var subMenuItem = subMenu.menuItem
+        verify(subMenuItem)
+
+        parentMenu.addMenu(subMenu)
+        compare(parentMenu.items.length, 1)
+        verify(parentMenu.items[0], subMenuItem)
+
+        subMenu.title = "Title"
+        compare(subMenu.title, "Title")
+        compare(subMenuItem.text, "Title")
     }
 }

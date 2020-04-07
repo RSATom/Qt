@@ -736,6 +736,9 @@ static const GLEnums::EnumToString enum_to_string_table[] = {
         0x40000000, "GL_MULTISAMPLE_BUFFER_BIT6_QCOM",
     },
     {
+        0x6000, "GL_SCANOUT_CHROMIUM",
+    },
+    {
         0x6003, "GL_GET_ERROR_QUERY_CHROMIUM",
     },
     {
@@ -1907,6 +1910,21 @@ static const GLEnums::EnumToString enum_to_string_table[] = {
     },
     {
         0x8A57, "GL_COMPRESSED_SRGB_ALPHA_PVRTC_4BPPV1_EXT",
+    },
+    {
+        0x8AF0, "GL_TEXTURE_FILTERING_HINT_CHROMIUM",
+    },
+    {
+        0x8AF1, "GL_COLOR_SPACE_UNSPECIFIED_CHROMIUM",
+    },
+    {
+        0x8AF2, "GL_COLOR_SPACE_SCRGB_LINEAR_CHROMIUM",
+    },
+    {
+        0x8AF3, "GL_COLOR_SPACE_SRGB_CHROMIUM",
+    },
+    {
+        0x8AF4, "GL_COLOR_SPACE_DISPLAY_P3_CHROMIUM",
     },
     {
         0x8B30, "GL_FRAGMENT_SHADER",

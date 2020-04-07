@@ -53,12 +53,49 @@
 // We mean it.
 //
 
+#include <QtGui/private/qtguiglobal_p.h>
 #include <qpa/qplatformscreen.h>
 #include <QtCore/QMap>
 #include <QtCore/QVariant>
 
 #include <xf86drm.h>
 #include <xf86drmMode.h>
+#include <drm_fourcc.h>
+
+#include <functional>
+
+// In less fortunate cases one may need to build on a system with dev headers
+// from the dark ages. Let's pull a GL and define the missing stuff outselves.
+
+#ifndef DRM_PLANE_TYPE_OVERLAY
+#define DRM_PLANE_TYPE_OVERLAY 0
+#endif
+#ifndef DRM_PLANE_TYPE_PRIMARY
+#define DRM_PLANE_TYPE_PRIMARY 1
+#endif
+#ifndef DRM_PLANE_TYPE_CURSOR
+#define DRM_PLANE_TYPE_CURSOR 2
+#endif
+
+#ifndef DRM_CLIENT_CAP_UNIVERSAL_PLANES
+#define DRM_CLIENT_CAP_UNIVERSAL_PLANES 2
+#endif
+#ifndef DRM_CLIENT_CAP_ATOMIC
+#define DRM_CLIENT_CAP_ATOMIC 3
+#endif
+
+#ifndef DRM_MODE_PROP_EXTENDED_TYPE
+#define DRM_MODE_PROP_EXTENDED_TYPE 0x0000ffc0
+#endif
+#ifndef DRM_MODE_PROP_TYPE
+#define DRM_MODE_PROP_TYPE(n) ((n) << 6)
+#endif
+#ifndef DRM_MODE_PROP_OBJECT
+#define DRM_MODE_PROP_OBJECT DRM_MODE_PROP_TYPE(1)
+#endif
+#ifndef DRM_MODE_PROP_SIGNED_RANGE
+#define DRM_MODE_PROP_SIGNED_RANGE DRM_MODE_PROP_TYPE(2)
+#endif
 
 QT_BEGIN_NAMESPACE
 
@@ -76,6 +113,8 @@ public:
 
     QString devicePath() const { return m_devicePath; }
 
+    bool headless() const { return m_headless; }
+    QSize headlessSize() const { return m_headlessSize; }
     bool hwCursor() const { return m_hwCursor; }
     bool separateScreens() const { return m_separateScreens; }
     bool supportsPBuffers() const { return m_pbuffers; }
@@ -87,6 +126,8 @@ private:
     void loadConfig();
 
     QString m_devicePath;
+    bool m_headless;
+    QSize m_headlessSize;
     bool m_hwCursor;
     bool m_separateScreens;
     bool m_pbuffers;
@@ -94,23 +135,81 @@ private:
     QMap<QString, QVariantMap> m_outputSettings;
 };
 
+// NB! QKmsPlane does not store the current state and offers no functions to
+// change object properties. Any such functionality belongs to subclasses since
+// in some cases atomic operations will be desired where a mere
+// drmModeObjectSetProperty would not be acceptable.
+struct QKmsPlane
+{
+    enum Type {
+        OverlayPlane = DRM_PLANE_TYPE_OVERLAY,
+        PrimaryPlane = DRM_PLANE_TYPE_PRIMARY,
+        CursorPlane = DRM_PLANE_TYPE_CURSOR
+    };
+
+    enum Rotation {
+        Rotation0 = 1 << 0,
+        Rotation90 = 1 << 1,
+        Rotation180 = 1 << 2,
+        Rotation270 = 1 << 3,
+        RotationReflectX = 1 << 4,
+        RotationReflectY = 1 << 5
+    };
+    Q_DECLARE_FLAGS(Rotations, Rotation)
+
+    uint32_t id = 0;
+    Type type = OverlayPlane;
+
+    int possibleCrtcs = 0;
+
+    QVector<uint32_t> supportedFormats;
+
+    Rotations initialRotation = Rotation0;
+    Rotations availableRotations = Rotation0;
+    uint32_t rotationPropertyId = 0;
+    uint32_t crtcPropertyId = 0;
+    uint32_t framebufferPropertyId = 0;
+    uint32_t srcXPropertyId = 0;
+    uint32_t srcYPropertyId = 0;
+    uint32_t crtcXPropertyId = 0;
+    uint32_t crtcYPropertyId = 0;
+    uint32_t srcwidthPropertyId = 0;
+    uint32_t srcheightPropertyId = 0;
+    uint32_t crtcwidthPropertyId = 0;
+    uint32_t crtcheightPropertyId = 0;
+    uint32_t zposPropertyId = 0;
+};
+
+Q_DECLARE_OPERATORS_FOR_FLAGS(QKmsPlane::Rotations)
+
 struct QKmsOutput
 {
     QString name;
-    uint32_t connector_id;
-    uint32_t crtc_id;
+    uint32_t connector_id = 0;
+    uint32_t crtc_index = 0;
+    uint32_t crtc_id = 0;
     QSizeF physical_size;
-    int preferred_mode; // index of preferred mode in list below
-    int mode; // index of selected mode in list below
-    bool mode_set;
-    drmModeCrtcPtr saved_crtc;
+    int preferred_mode = -1; // index of preferred mode in list below
+    int mode = -1; // index of selected mode in list below
+    bool mode_set = false;
+    drmModeCrtcPtr saved_crtc = nullptr;
     QList<drmModeModeInfo> modes;
-    int subpixel;
-    drmModePropertyPtr dpms_prop;
-    drmModePropertyBlobPtr edid_blob;
-    bool wants_plane;
-    uint32_t plane_id;
-    bool plane_set;
+    int subpixel = DRM_MODE_SUBPIXEL_UNKNOWN;
+    drmModePropertyPtr dpms_prop = nullptr;
+    drmModePropertyBlobPtr edid_blob = nullptr;
+    bool wants_forced_plane = false;
+    uint32_t forced_plane_id = 0;
+    bool forced_plane_set = false;
+    uint32_t drm_format = DRM_FORMAT_XRGB8888;
+    QString clone_source;
+    QVector<QKmsPlane> available_planes;
+    struct QKmsPlane *eglfs_plane = nullptr;
+    QSize size;
+    uint32_t crtcIdPropertyId = 0;
+    uint32_t modeIdPropertyId = 0;
+    uint32_t activePropertyId = 0;
+
+    uint32_t mode_blob_id = 0;
 
     void restoreMode(QKmsDevice *device);
     void cleanup(QKmsDevice *device);
@@ -121,11 +220,11 @@ struct QKmsOutput
 class QKmsDevice
 {
 public:
-    struct VirtualDesktopInfo {
-    VirtualDesktopInfo() : virtualIndex(0), isPrimary(false) { }
-        int virtualIndex;
+    struct ScreenInfo {
+        int virtualIndex = 0;
         QPoint virtualPos;
-        bool isPrimary;
+        bool isPrimary = false;
+        QKmsOutput output;
     };
 
     QKmsDevice(QKmsScreenConfig *screenConfig, const QString &path = QString());
@@ -135,6 +234,14 @@ public:
     virtual void close() = 0;
     virtual void *nativeDisplay() const = 0;
 
+    bool hasAtomicSupport();
+
+#if QT_CONFIG(drm_atomic)
+    bool atomicCommit(void *user_data);
+    void atomicReset();
+
+    drmModeAtomicReq *atomic_request();
+#endif
     void createScreens();
 
     int fd() const;
@@ -144,6 +251,10 @@ public:
 
 protected:
     virtual QPlatformScreen *createScreen(const QKmsOutput &output) = 0;
+    virtual QPlatformScreen *createHeadlessScreen();
+    virtual void registerScreenCloning(QPlatformScreen *screen,
+                                       QPlatformScreen *screenThisScreenClones,
+                                       const QVector<QPlatformScreen *> &screensCloningThisScreen);
     virtual void registerScreen(QPlatformScreen *screen,
                                 bool isPrimary,
                                 const QPoint &virtualPos,
@@ -153,16 +264,28 @@ protected:
     int crtcForConnector(drmModeResPtr resources, drmModeConnectorPtr connector);
     QPlatformScreen *createScreenForConnector(drmModeResPtr resources,
                                               drmModeConnectorPtr connector,
-                                              VirtualDesktopInfo *vinfo);
+                                              ScreenInfo *vinfo);
     drmModePropertyPtr connectorProperty(drmModeConnectorPtr connector, const QByteArray &name);
     drmModePropertyBlobPtr connectorPropertyBlob(drmModeConnectorPtr connector, const QByteArray &name);
+    typedef std::function<void(drmModePropertyPtr, quint64)> PropCallback;
+    void enumerateProperties(drmModeObjectPropertiesPtr objProps, PropCallback callback);
+    void discoverPlanes();
+    void parseConnectorProperties(uint32_t connectorId, QKmsOutput *output);
+    void parseCrtcProperties(uint32_t crtcId, QKmsOutput *output);
 
     QKmsScreenConfig *m_screenConfig;
     QString m_path;
     int m_dri_fd;
 
+    bool m_has_atomic_support;
+
+#if QT_CONFIG(drm_atomic)
+    drmModeAtomicReq *m_atomic_request;
+    drmModeAtomicReq *m_previous_request;
+#endif
     quint32 m_crtc_allocator;
-    quint32 m_connector_allocator;
+
+    QVector<QKmsPlane> m_planes;
 
 private:
     Q_DISABLE_COPY(QKmsDevice)

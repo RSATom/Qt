@@ -8,57 +8,12 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/rtc_base/stringencode.h"
-#include "webrtc/rtc_base/arraysize.h"
-#include "webrtc/rtc_base/gunit.h"
-#include "webrtc/rtc_base/stringutils.h"
+#include "rtc_base/stringencode.h"
+#include "rtc_base/arraysize.h"
+#include "rtc_base/gunit.h"
+#include "rtc_base/stringutils.h"
 
 namespace rtc {
-
-TEST(Utf8EncodeTest, EncodeDecode) {
-  const struct Utf8Test {
-    const char* encoded;
-    size_t encsize, enclen;
-    unsigned long decoded;
-  } kTests[] = {
-      {"a    ",             5, 1, 'a'},
-      {"\x7F    ",          5, 1, 0x7F},
-      {"\xC2\x80   ",       5, 2, 0x80},
-      {"\xDF\xBF   ",       5, 2, 0x7FF},
-      {"\xE0\xA0\x80  ",    5, 3, 0x800},
-      {"\xEF\xBF\xBF  ",    5, 3, 0xFFFF},
-      {"\xF0\x90\x80\x80 ", 5, 4, 0x10000},
-      {"\xF0\x90\x80\x80 ", 3, 0, 0x10000},
-      {"\xF0\xF0\x80\x80 ", 5, 0, 0},
-      {"\xF0\x90\x80  ",    5, 0, 0},
-      {"\x90\x80\x80  ",    5, 0, 0},
-      {nullptr, 0, 0},
-  };
-  for (size_t i = 0; kTests[i].encoded; ++i) {
-    unsigned long val = 0;
-    ASSERT_EQ(kTests[i].enclen, utf8_decode(kTests[i].encoded,
-                                            kTests[i].encsize,
-                                            &val));
-    unsigned long result = (kTests[i].enclen == 0) ? 0 : kTests[i].decoded;
-    ASSERT_EQ(result, val);
-
-    if (kTests[i].decoded == 0) {
-      // Not an interesting encoding test case
-      continue;
-    }
-
-    char buffer[5];
-    memset(buffer, 0x01, arraysize(buffer));
-    ASSERT_EQ(kTests[i].enclen, utf8_encode(buffer,
-                                            kTests[i].encsize,
-                                            kTests[i].decoded));
-    ASSERT_TRUE(memcmp(buffer, kTests[i].encoded, kTests[i].enclen) == 0);
-    // Make sure remainder of buffer is unchanged
-    ASSERT_TRUE(memory_check(buffer + kTests[i].enclen,
-                             0x1,
-                             arraysize(buffer) - kTests[i].enclen));
-  }
-}
 
 class HexEncodeTest : public testing::Test {
  public:
@@ -88,23 +43,23 @@ TEST_F(HexEncodeTest, TestWithNoDelimiter) {
 
 // Test that we can convert to/from hex with a colon delimiter.
 TEST_F(HexEncodeTest, TestWithDelimiter) {
-  enc_res_ = hex_encode_with_delimiter(encoded_, sizeof(encoded_),
-                                       data_, sizeof(data_), ':');
+  enc_res_ = hex_encode_with_delimiter(encoded_, sizeof(encoded_), data_,
+                                       sizeof(data_), ':');
   ASSERT_EQ(sizeof(data_) * 3 - 1, enc_res_);
   ASSERT_STREQ("80:81:82:83:84:85:86:87:88:89", encoded_);
-  dec_res_ = hex_decode_with_delimiter(decoded_, sizeof(decoded_),
-                                       encoded_, enc_res_, ':');
+  dec_res_ = hex_decode_with_delimiter(decoded_, sizeof(decoded_), encoded_,
+                                       enc_res_, ':');
   ASSERT_EQ(sizeof(data_), dec_res_);
   ASSERT_EQ(0, memcmp(data_, decoded_, dec_res_));
 }
 
 // Test that encoding with one delimiter and decoding with another fails.
 TEST_F(HexEncodeTest, TestWithWrongDelimiter) {
-  enc_res_ = hex_encode_with_delimiter(encoded_, sizeof(encoded_),
-                                       data_, sizeof(data_), ':');
+  enc_res_ = hex_encode_with_delimiter(encoded_, sizeof(encoded_), data_,
+                                       sizeof(data_), ':');
   ASSERT_EQ(sizeof(data_) * 3 - 1, enc_res_);
-  dec_res_ = hex_decode_with_delimiter(decoded_, sizeof(decoded_),
-                                       encoded_, enc_res_, '/');
+  dec_res_ = hex_decode_with_delimiter(decoded_, sizeof(decoded_), encoded_,
+                                       enc_res_, '/');
   ASSERT_EQ(0U, dec_res_);
 }
 
@@ -112,15 +67,15 @@ TEST_F(HexEncodeTest, TestWithWrongDelimiter) {
 TEST_F(HexEncodeTest, TestExpectedDelimiter) {
   enc_res_ = hex_encode(encoded_, sizeof(encoded_), data_, sizeof(data_));
   ASSERT_EQ(sizeof(data_) * 2, enc_res_);
-  dec_res_ = hex_decode_with_delimiter(decoded_, sizeof(decoded_),
-                                       encoded_, enc_res_, ':');
+  dec_res_ = hex_decode_with_delimiter(decoded_, sizeof(decoded_), encoded_,
+                                       enc_res_, ':');
   ASSERT_EQ(0U, dec_res_);
 }
 
 // Test that encoding with a delimiter and decoding without one fails.
 TEST_F(HexEncodeTest, TestExpectedNoDelimiter) {
-  enc_res_ = hex_encode_with_delimiter(encoded_, sizeof(encoded_),
-                                       data_, sizeof(data_), ':');
+  enc_res_ = hex_encode_with_delimiter(encoded_, sizeof(encoded_), data_,
+                                       sizeof(data_), ':');
   ASSERT_EQ(sizeof(data_) * 3 - 1, enc_res_);
   dec_res_ = hex_decode(decoded_, sizeof(decoded_), encoded_, enc_res_);
   ASSERT_EQ(0U, dec_res_);
@@ -138,8 +93,8 @@ TEST_F(HexEncodeTest, TestZeroLengthNoDelimiter) {
 TEST_F(HexEncodeTest, TestZeroLengthWithDelimiter) {
   enc_res_ = hex_encode_with_delimiter(encoded_, sizeof(encoded_), "", 0, ':');
   ASSERT_EQ(0U, enc_res_);
-  dec_res_ = hex_decode_with_delimiter(decoded_, sizeof(decoded_),
-                                       encoded_, enc_res_, ':');
+  dec_res_ = hex_decode_with_delimiter(decoded_, sizeof(decoded_), encoded_,
+                                       enc_res_, ':');
   ASSERT_EQ(0U, dec_res_);
 }
 
@@ -163,15 +118,15 @@ TEST_F(HexEncodeTest, TestHelpersWithDelimiter) {
 
 // Test that encoding into a too-small output buffer (without delimiter) fails.
 TEST_F(HexEncodeTest, TestEncodeTooShort) {
-  enc_res_ = hex_encode_with_delimiter(encoded_, sizeof(data_) * 2,
-                                       data_, sizeof(data_), 0);
+  enc_res_ = hex_encode_with_delimiter(encoded_, sizeof(data_) * 2, data_,
+                                       sizeof(data_), 0);
   ASSERT_EQ(0U, enc_res_);
 }
 
 // Test that encoding into a too-small output buffer (with delimiter) fails.
 TEST_F(HexEncodeTest, TestEncodeWithDelimiterTooShort) {
-  enc_res_ = hex_encode_with_delimiter(encoded_, sizeof(data_) * 3 - 1,
-                                       data_, sizeof(data_), ':');
+  enc_res_ = hex_encode_with_delimiter(encoded_, sizeof(data_) * 3 - 1, data_,
+                                       sizeof(data_), ':');
   ASSERT_EQ(0U, enc_res_);
 }
 

@@ -10,6 +10,7 @@
 #include <memory>
 #include <set>
 #include <string>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/compiler_specific.h"
@@ -18,7 +19,6 @@
 #include "base/files/file_path.h"
 #include "base/location.h"
 #include "base/logging.h"
-#include "base/memory/ptr_util.h"
 #include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "content/public/browser/browser_thread.h"
@@ -86,7 +86,7 @@ class PluginPrivateDataByOriginChecker {
   void OnFileSystemOpened(base::File::Error result);
   void OnDirectoryRead(const std::string& root,
                        base::File::Error result,
-                       const storage::AsyncFileUtil::EntryList& file_list,
+                       storage::AsyncFileUtil::EntryList file_list,
                        bool has_more);
   void OnFileInfo(const std::string& file_name,
                   base::File::Error result,
@@ -125,8 +125,8 @@ void PluginPrivateDataByOriginChecker::CheckFilesOnIOThread() {
   filesystem_context_->OpenPluginPrivateFileSystem(
       origin_, storage::kFileSystemTypePluginPrivate, fsid_, plugin_name_,
       storage::OPEN_FILE_SYSTEM_FAIL_IF_NONEXISTENT,
-      base::Bind(&PluginPrivateDataByOriginChecker::OnFileSystemOpened,
-                 base::Unretained(this)));
+      base::BindOnce(&PluginPrivateDataByOriginChecker::OnFileSystemOpened,
+                     base::Unretained(this)));
 }
 
 void PluginPrivateDataByOriginChecker::OnFileSystemOpened(
@@ -146,18 +146,18 @@ void PluginPrivateDataByOriginChecker::OnFileSystemOpened(
   std::string root = storage::GetIsolatedFileSystemRootURIString(
       origin_, fsid_, ppapi::kPluginPrivateRootName);
   std::unique_ptr<storage::FileSystemOperationContext> operation_context =
-      base::MakeUnique<storage::FileSystemOperationContext>(
+      std::make_unique<storage::FileSystemOperationContext>(
           filesystem_context_);
   file_util->ReadDirectory(
       std::move(operation_context), filesystem_context_->CrackURL(GURL(root)),
-      base::Bind(&PluginPrivateDataByOriginChecker::OnDirectoryRead,
-                 base::Unretained(this), root));
+      base::BindRepeating(&PluginPrivateDataByOriginChecker::OnDirectoryRead,
+                          base::Unretained(this), root));
 }
 
 void PluginPrivateDataByOriginChecker::OnDirectoryRead(
     const std::string& root,
     base::File::Error result,
-    const storage::AsyncFileUtil::EntryList& file_list,
+    storage::AsyncFileUtil::EntryList file_list,
     bool has_more) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   DVLOG(3) << __func__ << " result: " << result
@@ -181,21 +181,23 @@ void PluginPrivateDataByOriginChecker::OnDirectoryRead(
     storage::AsyncFileUtil* file_util = filesystem_context_->GetAsyncFileUtil(
         storage::kFileSystemTypePluginPrivate);
     for (const auto& file : file_list) {
-      DVLOG(3) << __func__ << " file: " << file.name;
-      DCHECK(!file.is_directory);  // Nested directories not implemented.
+      DVLOG(3) << __func__ << " file: " << file.name.value();
+      // Nested directories not implemented.
+      DCHECK_NE(file.type, filesystem::mojom::FsFileType::DIRECTORY);
 
       std::unique_ptr<storage::FileSystemOperationContext> operation_context =
-          base::MakeUnique<storage::FileSystemOperationContext>(
+          std::make_unique<storage::FileSystemOperationContext>(
               filesystem_context_);
       storage::FileSystemURL file_url = filesystem_context_->CrackURL(
-          GURL(root + StringTypeToString(file.name)));
+          GURL(root + StringTypeToString(file.name.value())));
       IncrementTaskCount();
       file_util->GetFileInfo(
           std::move(operation_context), file_url,
           storage::FileSystemOperation::GET_METADATA_FIELD_SIZE |
               storage::FileSystemOperation::GET_METADATA_FIELD_LAST_MODIFIED,
-          base::Bind(&PluginPrivateDataByOriginChecker::OnFileInfo,
-                     base::Unretained(this), StringTypeToString(file.name)));
+          base::BindOnce(&PluginPrivateDataByOriginChecker::OnFileInfo,
+                         base::Unretained(this),
+                         StringTypeToString(file.name.value())));
     }
   }
 
@@ -242,7 +244,7 @@ void PluginPrivateDataByOriginChecker::DecrementTaskCount() {
   // If there are no more tasks in progress, then run |callback_| on the
   // proper thread.
   filesystem_context_->default_file_task_runner()->PostTask(
-      FROM_HERE, base::Bind(callback_, delete_this_origin_data_, origin_));
+      FROM_HERE, base::BindOnce(callback_, delete_this_origin_data_, origin_));
   delete this;
 }
 
@@ -323,8 +325,9 @@ void PluginPrivateDataDeletionHelper::CheckOriginsOnFileTaskRunner(
               decrement_callback);
       BrowserThread::PostTask(
           BrowserThread::IO, FROM_HERE,
-          base::Bind(&PluginPrivateDataByOriginChecker::CheckFilesOnIOThread,
-                     base::Unretained(helper)));
+          base::BindOnce(
+              &PluginPrivateDataByOriginChecker::CheckFilesOnIOThread,
+              base::Unretained(helper)));
 
       // |helper| will delete itself when it is done.
     }

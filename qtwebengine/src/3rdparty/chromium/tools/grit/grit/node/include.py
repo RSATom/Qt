@@ -7,14 +7,11 @@
 """
 
 import os
-import sys
 
 from grit import exception
 from grit import util
-import grit.format.gzip_string
 import grit.format.html_inline
 import grit.format.rc
-import grit.format.rc_header
 from grit.format import minifier
 from grit.node import base
 
@@ -55,6 +52,7 @@ class IncludeNode(base.Node):
             'allowexternalscript': 'false',
             'relativepath': 'false',
             'use_base_dir': 'true',
+            'skip_minify': 'false',
            }
 
   def GetInputPath(self):
@@ -79,37 +77,23 @@ class IncludeNode(base.Node):
 
     return self.ToRealPath(input_path)
 
-  def GetDataPackPair(self, lang, encoding):
-    """Returns a (id, string) pair that represents the resource id and raw
-    bytes of the data.  This is used to generate the data pack data file.
-    """
-    # TODO(benrg/joi): Move this and other implementations of GetDataPackPair
-    # to grit.format.data_pack?
-    from grit.format import rc_header
-    id_map = rc_header.GetIds(self.GetRoot())
-    id = id_map[self.GetTextualIds()[0]]
+  def GetDataPackValue(self, lang, encoding):
+    '''Returns a str represenation for a data_pack entry.'''
     filename = self.ToRealPath(self.GetInputPath())
     if self.attrs['flattenhtml'] == 'true':
       allow_external_script = self.attrs['allowexternalscript'] == 'true'
       data = self._GetFlattenedData(allow_external_script=allow_external_script)
     else:
       data = util.ReadFile(filename, util.BINARY)
-    # Note that the minifier will only do anything if a minifier command
-    # has been set in the command line.
-    data = minifier.Minify(data, filename)
-    use_gzip = self.attrs.get('compress', '') == 'gzip'
-    if use_gzip and self.GetRoot().target_platform != 'ios':
-      # We only use rsyncable compression on Linux.
-      # We exclude ChromeOS since ChromeOS bots are Linux based but do not have
-      # the --rsyncable option built in for gzip. See crbug.com/617950.
-      if sys.platform == 'linux2' and 'chromeos' not in self.GetRoot().defines:
-        data = grit.format.gzip_string.GzipStringRsyncable(data)
-      else:
-        data = grit.format.gzip_string.GzipString(data)
+
+    if self.attrs['skip_minify'] != 'true':
+      # Note that the minifier will only do anything if a minifier command
+      # has been set in the command line.
+      data = minifier.Minify(data, filename)
 
     # Include does not care about the encoding, because it only returns binary
     # data.
-    return id, data
+    return self.CompressDataIfNeeded(data)
 
   def Process(self, output_dir):
     """Rewrite file references to be base64 encoded data URLs.  The new file
@@ -132,17 +116,11 @@ class IncludeNode(base.Node):
     allow_external_script = self.attrs['allowexternalscript'] == 'true'
     return grit.format.html_inline.GetResourceFilenames(
          self.ToRealPath(self.GetInputPath()),
+         self,
          allow_external_script=allow_external_script)
 
   def IsResourceMapSource(self):
     return True
-
-  def GeneratesResourceMapEntry(self, output_all_resource_defines,
-                                is_active_descendant):
-    # includes always generate resource entries.
-    if output_all_resource_defines:
-      return True
-    return is_active_descendant
 
   @staticmethod
   def Construct(parent, name, type, file, translateable=True,

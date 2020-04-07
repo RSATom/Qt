@@ -709,15 +709,24 @@ TEST(HttpUtilTest, SpecForRequestForUrlWithFtpScheme) {
 }
 
 TEST(HttpUtilTest, GenerateAcceptLanguageHeader) {
-  EXPECT_EQ(std::string("en-US,fr;q=0.8,de;q=0.6"),
-            HttpUtil::GenerateAcceptLanguageHeader("en-US,fr,de"));
-  EXPECT_EQ(std::string("en-US,fr;q=0.8,de;q=0.6,ko;q=0.4,zh-CN;q=0.2,"
-                        "ja;q=0.2"),
-            HttpUtil::GenerateAcceptLanguageHeader("en-US,fr,de,ko,zh-CN,ja"));
+  std::string header = HttpUtil::GenerateAcceptLanguageHeader("");
+  EXPECT_TRUE(header.empty());
+
+  header = HttpUtil::GenerateAcceptLanguageHeader("es");
+  EXPECT_EQ(std::string("es"), header);
+
+  header = HttpUtil::GenerateAcceptLanguageHeader("en-US,fr,de");
+  EXPECT_EQ(std::string("en-US,fr;q=0.9,de;q=0.8"), header);
+
+  header = HttpUtil::GenerateAcceptLanguageHeader("en-US,fr,de,ko,zh-CN,ja");
+  EXPECT_EQ(
+      std::string("en-US,fr;q=0.9,de;q=0.8,ko;q=0.7,zh-CN;q=0.6,ja;q=0.5"),
+      header);
 }
 
 // HttpResponseHeadersTest.GetMimeType also tests ParseContentType.
 TEST(HttpUtilTest, ParseContentType) {
+  // clang-format off
   const struct {
     const char* const content_type;
     const char* const expected_mime_type;
@@ -725,16 +734,29 @@ TEST(HttpUtilTest, ParseContentType) {
     const bool expected_had_charset;
     const char* const expected_boundary;
   } tests[] = {
+    { "text/html",
+      "text/html",
+      "",
+      false,
+      ""
+    },
+    { "text/html;",
+      "text/html",
+      "",
+      false,
+      ""
+    },
     { "text/html; charset=utf-8",
       "text/html",
       "utf-8",
       true,
       ""
     },
+    // Parameter name is "charset ", not "charset".  See https://crbug.com/772834.
     { "text/html; charset =utf-8",
       "text/html",
-      "utf-8",
-      true,
+      "",
+      false,
       ""
     },
     { "text/html; charset= utf-8",
@@ -753,31 +775,35 @@ TEST(HttpUtilTest, ParseContentType) {
       "text/html",
       "",
       false,
-      "\"WebKit-ada-df-dsf-adsfadsfs\""
+      "WebKit-ada-df-dsf-adsfadsfs"
     },
+    // Parameter name is "boundary ", not "boundary".
+    // See https://crbug.com/772834.
     { "text/html; boundary =\"WebKit-ada-df-dsf-adsfadsfs\"",
       "text/html",
       "",
       false,
-      "\"WebKit-ada-df-dsf-adsfadsfs\""
+      ""
     },
+    // Parameter value includes leading space.  See https://crbug.com/772834.
     { "text/html; boundary= \"WebKit-ada-df-dsf-adsfadsfs\"",
       "text/html",
       "",
       false,
-      "\"WebKit-ada-df-dsf-adsfadsfs\""
+      "WebKit-ada-df-dsf-adsfadsfs"
     },
+    // Parameter value includes leading space.  See https://crbug.com/772834.
     { "text/html; boundary= \"WebKit-ada-df-dsf-adsfadsfs\"   ",
       "text/html",
       "",
       false,
-      "\"WebKit-ada-df-dsf-adsfadsfs\""
+      "WebKit-ada-df-dsf-adsfadsfs"
     },
     { "text/html; boundary=\"WebKit-ada-df-dsf-adsfadsfs  \"",
       "text/html",
       "",
       false,
-      "\"WebKit-ada-df-dsf-adsfadsfs  \""
+      "WebKit-ada-df-dsf-adsfadsfs  "
     },
     { "text/html; boundary=WebKit-ada-df-dsf-adsfadsfs",
       "text/html",
@@ -785,8 +811,121 @@ TEST(HttpUtilTest, ParseContentType) {
       false,
       "WebKit-ada-df-dsf-adsfadsfs"
     },
+    { "text/html; charset",
+      "text/html",
+      "",
+      false,
+      ""
+    },
+    { "text/html; charset=",
+      "text/html",
+      "",
+      false,
+      ""
+    },
+    { "text/html; charset= ",
+      "text/html",
+      "",
+      false,
+      ""
+    },
+    { "text/html; charset= ;",
+      "text/html",
+      "",
+      false,
+      ""
+    },
+    { "text/html; charset=\"\"",
+      "text/html",
+      "",
+      false,
+      ""
+    },
+    { "text/html; charset=\" \"",
+      "text/html",
+      " ",
+      true,
+      ""
+    },
+    { "text/html; charset; charset=; charset=utf-8",
+      "text/html",
+      "utf-8",
+      true,
+      ""
+    },
+    { "text/html; charset=utf-8; charset=; charset;",
+      "text/html",
+      "utf-8",
+      true,
+      ""
+    },
+    // Stray quotes ignored.
+    { "text/html; \"; \"\"; charset=utf-8",
+      "text/html",
+      "utf-8",
+      true,
+      ""
+    },
+    // Non-leading quotes kept as-is.
+    { "text/html; charset=u\"tf-8\"",
+      "text/html",
+      "u\"tf-8\"",
+      true,
+      ""
+    },
+    { "text/html; charset=\"utf-8\"",
+      "text/html",
+      "utf-8",
+      true,
+      ""
+    },
+    // No closing quote.
+    { "text/html; charset=\"utf-8",
+      "text/html",
+      "utf-8",
+      true,
+      ""
+    },
+    // Check that \ is treated as an escape character.
+    { "text/html; charset=\"\\utf\\-\\8\"",
+      "text/html",
+      "utf-8",
+      true,
+      ""
+    },
+    // More interseting escape character test - test escaped backslash, escaped
+    // quote, and backslash at end of input in unterminated quoted string.
+    { "text/html; charset=\"\\\\\\\"\\",
+      "text/html",
+      "\\\"\\",
+      true,
+      ""
+    },
+    // Check quoted semicolon.
+    { "text/html; charset=\";charset=utf-8;\"",
+      "text/html",
+      ";charset=utf-8;",
+      true,
+      ""
+    },
+    // Unclear if this one should just return utf-8 or not.
+    { "text/html; charset= \"utf-8\"",
+      "text/html",
+      "utf-8",
+      true,
+      ""
+    },
+    // Regression test for https://crbug.com/772350:
+    // Single quotes are not delimiters but must be treated as part of charset.
+    { "text/html; charset='utf-8'",
+      "text/html",
+      "'utf-8'",
+      true,
+      ""
+    },
     // TODO(abarth): Add more interesting test cases.
   };
+  // clang-format on
   for (size_t i = 0; i < arraysize(tests); ++i) {
     std::string mime_type;
     std::string charset;
@@ -794,10 +933,14 @@ TEST(HttpUtilTest, ParseContentType) {
     std::string boundary;
     HttpUtil::ParseContentType(tests[i].content_type, &mime_type, &charset,
                                &had_charset, &boundary);
-    EXPECT_EQ(tests[i].expected_mime_type, mime_type) << "i=" << i;
-    EXPECT_EQ(tests[i].expected_charset, charset) << "i=" << i;
-    EXPECT_EQ(tests[i].expected_had_charset, had_charset) << "i=" << i;
-    EXPECT_EQ(tests[i].expected_boundary, boundary) << "i=" << i;
+    EXPECT_EQ(tests[i].expected_mime_type, mime_type)
+        << "content_type=" << tests[i].content_type;
+    EXPECT_EQ(tests[i].expected_charset, charset)
+        << "content_type=" << tests[i].content_type;
+    EXPECT_EQ(tests[i].expected_had_charset, had_charset)
+        << "content_type=" << tests[i].content_type;
+    EXPECT_EQ(tests[i].expected_boundary, boundary)
+        << "content_type=" << tests[i].content_type;
   }
 }
 

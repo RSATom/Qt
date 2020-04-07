@@ -4,6 +4,8 @@
 
 #include "components/sync_preferences/testing_pref_service_syncable.h"
 
+#include <memory>
+
 #include "base/bind.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/pref_notifier_impl.h"
@@ -20,18 +22,18 @@ TestingPrefServiceBase<sync_preferences::PrefServiceSyncable,
                            user_prefs::PrefRegistrySyncable* pref_registry,
                            PrefNotifierImpl* pref_notifier)
     : sync_preferences::PrefServiceSyncable(
-          pref_notifier,
-          new PrefValueStore(managed_prefs,
-                             nullptr,          // supervised_user_prefs
-                             extension_prefs,  // extension_prefs
-                             nullptr,          // command_line_prefs
-                             user_prefs,
-                             recommended_prefs,
-                             pref_registry->defaults().get(),
-                             pref_notifier),
+          std::unique_ptr<PrefNotifierImpl>(pref_notifier),
+          std::make_unique<PrefValueStore>(managed_prefs,
+                                           nullptr,  // supervised_user_prefs
+                                           extension_prefs,  // extension_prefs
+                                           nullptr,  // command_line_prefs
+                                           user_prefs,
+                                           recommended_prefs,
+                                           pref_registry->defaults().get(),
+                                           pref_notifier),
           user_prefs,
           pref_registry,
-          nullptr,  // pref_model_associator_client
+          /*pref_model_associator_client=*/nullptr,
           base::Bind(&TestingPrefServiceBase<
                      PrefServiceSyncable,
                      user_prefs::PrefRegistrySyncable>::HandleReadError),

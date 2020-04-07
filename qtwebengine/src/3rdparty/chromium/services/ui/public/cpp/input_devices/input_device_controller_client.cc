@@ -7,7 +7,6 @@
 #include <utility>
 
 #include "base/bind_helpers.h"
-#include "base/memory/ptr_util.h"
 #include "services/service_manager/public/cpp/connector.h"
 #include "services/ui/public/interfaces/constants.mojom.h"
 
@@ -94,6 +93,10 @@ void InputDeviceControllerClient::SetMouseSensitivity(int value) {
 
 void InputDeviceControllerClient::SetPrimaryButtonRight(bool right) {
   input_device_controller_->SetPrimaryButtonRight(right);
+}
+
+void InputDeviceControllerClient::SetMouseReverseScroll(bool enabled) {
+  input_device_controller_->SetMouseReverseScroll(enabled);
 }
 
 void InputDeviceControllerClient::GetTouchDeviceStatus(

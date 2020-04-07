@@ -12,11 +12,13 @@ var GuestViewContainer = require('guestViewContainer').GuestViewContainer;
 var GuestViewInternalNatives = requireNative('guest_view_internal');
 var WebViewConstants = require('webViewConstants').WebViewConstants;
 var WebViewEvents = require('webViewEvents').WebViewEvents;
-var WebViewInternal = require('webViewInternal').WebViewInternal;
+var WebViewInternal = getInternalApi ?
+    getInternalApi('webViewInternal') :
+    require('webViewInternal').WebViewInternal;
 
 // Represents the internal state of <webview>.
 function WebViewImpl(webviewElement) {
-  GuestViewContainer.call(this, webviewElement, 'webview');
+  $Function.call(GuestViewContainer, this, webviewElement, 'webview');
   this.cachedZoom = 1;
   this.setupElementProperties();
   new WebViewEvents(this, this.viewInstanceId);
@@ -77,23 +79,19 @@ WebViewImpl.prototype.onElementDetached = function() {
 
 // Sets the <webview>.request property.
 WebViewImpl.prototype.setRequestPropertyOnWebViewElement = function(request) {
-  Object.defineProperty(
-      this.element,
-      'request',
-      {
-        value: request,
-        enumerable: true
-      }
-  );
+  $Object.defineProperty(
+      this.element, 'request', {value: request, enumerable: true});
 };
 
 WebViewImpl.prototype.setupElementProperties = function() {
   // We cannot use {writable: true} property descriptor because we want a
   // dynamic getter value.
-  Object.defineProperty(this.element, 'contentWindow', {
-    get: $Function.bind(function() {
-      return this.guest.getContentWindow();
-    }, this),
+  $Object.defineProperty(this.element, 'contentWindow', {
+    get: $Function.bind(
+        function() {
+          return this.guest.getContentWindow();
+        },
+        this),
     // No setter.
     enumerable: true
   });
@@ -187,9 +185,10 @@ WebViewImpl.prototype.attachWindow$ = function(opt_guestInstanceId) {
     }
     this.guest.destroy();
     this.guest = new GuestView('webview', opt_guestInstanceId);
+    this.prepareForReattach_();
   }
 
-  return GuestViewContainer.prototype.attachWindow$.call(this);
+  return $Function.call(GuestViewContainer.prototype.attachWindow$, this);
 };
 
 // Shared implementation of executeScript() and insertCSS().

@@ -311,11 +311,13 @@ class NATIVE_THEME_EXPORT NativeTheme {
     kColorId_ProminentButtonColor,
     kColorId_TextOnProminentButtonColor,
     // MenuItem
+    kColorId_TouchableMenuItemLabelColor,
+    kColorId_ActionableSubmenuVerticalSeparatorColor,
     kColorId_EnabledMenuItemForegroundColor,
     kColorId_DisabledMenuItemForegroundColor,
     kColorId_SelectedMenuItemForegroundColor,
     kColorId_FocusedMenuItemBackgroundColor,
-    kColorId_MenuItemSubtitleColor,
+    kColorId_MenuItemMinorTextColor,
     kColorId_MenuSeparatorColor,
     kColorId_MenuBackgroundColor,
     kColorId_MenuBorderColor,
@@ -330,6 +332,10 @@ class NATIVE_THEME_EXPORT NativeTheme {
     kColorId_LinkPressed,
     // Separator
     kColorId_SeparatorColor,
+    // TabbedPane
+    kColorId_TabTitleColorActive,
+    kColorId_TabTitleColorInactive,
+    kColorId_TabBottomBorder,
     // Textfield
     kColorId_TextfieldDefaultColor,
     kColorId_TextfieldDefaultBackground,
@@ -415,6 +421,10 @@ class NATIVE_THEME_EXPORT NativeTheme {
 
   // Notify observers of native theme changes.
   void NotifyObservers();
+
+  // Returns whether this NativeTheme uses higher-contrast colors, controlled by
+  // system accessibility settings and the system theme.
+  virtual bool UsesHighContrastColors() const = 0;
 
  protected:
   NativeTheme();

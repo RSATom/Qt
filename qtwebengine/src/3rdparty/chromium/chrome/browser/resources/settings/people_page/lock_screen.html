@@ -1,10 +1,11 @@
 <link rel="import" href="chrome://resources/html/polymer.html">
 
+<link rel="import" href="chrome://resources/cr_elements/cr_radio_button/cr_radio_button.html">
+<link rel="import" href="chrome://resources/cr_elements/policy/cr_policy_indicator.html">
 <link rel="import" href="chrome://resources/html/assert.html">
 <link rel="import" href="chrome://resources/html/cr/ui/focus_without_ink.html">
 <link rel="import" href="chrome://resources/html/i18n_behavior.html">
 <link rel="import" href="chrome://resources/html/web_ui_listener_behavior.html">
-<link rel="import" href="chrome://resources/polymer/v1_0/paper-icon-button/paper-icon-button-light.html">
 <link rel="import" href="chrome://resources/polymer/v1_0/paper-radio-group/paper-radio-group.html">
 <link rel="import" href="../controls/settings_toggle_button.html">
 <link rel="import" href="easy_unlock_browser_proxy.html">
@@ -19,10 +20,18 @@
 <link rel="import" href="../prefs/prefs.html">
 <link rel="import" href="../route.html">
 <link rel="import" href="../settings_shared_css.html">
+<link rel="import" href="../settings_vars_css.html">
 
 <dom-module id="settings-lock-screen">
   <template>
     <style include="settings-shared">
+      cr-policy-indicator {
+        -webkit-margin-start: auto;
+        /* Align the indicator with the h2 that it is associated with. */
+        padding-bottom: 12px;
+        padding-top: 24px;
+      }
+
       #easyUnlock .start {
         /* When the easy unlock toggle is shown, the easy unlock section's
          * content becomes squashed to the top and bottom edges. Use padding to
@@ -35,8 +44,8 @@
         display: block;
       }
 
-      paper-radio-button {
-        --paper-radio-button-label: {
+      cr-radio-button {
+        --cr-radio-button-label: {
           display: flex;
           line-height: 154%;  /* Apply 20px line-height to paper radio button
                                  text to match rest of settings line-heights. */
@@ -49,8 +58,8 @@
         margin: auto;
       }
 
-      #easyUnlockSettingsCollapsable {
-        @apply(--settings-list-frame-padding);
+      #easyUnlockSettingsCollapsible {
+        @apply --settings-list-frame-padding;
       }
 
       .no-padding {
@@ -60,31 +69,39 @@
       .underbar {
         border-bottom: var(--settings-separator-line);
       }
+
+      #unlockType[disabled] {
+        opacity: var(--settings-disabled-opacity);
+        pointer-events: none;
+      }
     </style>
 
     <div>
-      <div id="screenLockDiv" class="settings-box first">
-        <settings-toggle-button class="start"
-            pref="{{prefs.settings.enable_screen_lock}}"
-            label="$i18n{enableScreenlock}">
-        </settings-toggle-button>
-      </div>
+      <settings-toggle-button id="enableLockScreen" class="first"
+          pref="{{prefs.settings.enable_screen_lock}}"
+          on-settings-boolean-control-change="onScreenLockChange_" no-set-pref
+          label="$i18n{enableScreenlock}">
+      </settings-toggle-button>
 
       <template is="dom-if" if="[[quickUnlockEnabled_]]">
         <div id="lockOptionsDiv">
           <div class="settings-box">
-            <h2>$i18n{lockScreenOptions}</h2>
+            <h2>[[selectLockScreenOptionsString(hasPinLogin)]]</h2>
+            <template is="dom-if" if="[[quickUnlockDisabledByPolicy_]]">
+              <cr-policy-indicator indicator-type="userPolicy">
+              </cr-policy-indicator>
+            </template>
           </div>
-          <div class="list-frame">
+          <div class="list-frame" >
             <paper-radio-group id="unlockType"
-                selected="{{selectedUnlockType}}">
-              <paper-radio-button name="password" class="list-item underbar">
+                disabled$="[[quickUnlockDisabledByPolicy_]]"
+                selected="{{selectedUnlockType}}" selectable="cr-radio-button">
+              <cr-radio-button name="password" class="list-item underbar">
                 <div class="start">
                   $i18n{lockScreenPasswordOnly}
                 </div>
-              </paper-radio-button>
-              <paper-radio-button name="pin+password"
-                  class="list-item">
+              </cr-radio-button>
+              <cr-radio-button name="pin+password" class="list-item">
                 <div id="pinPasswordDiv" class="start">
                   $i18n{lockScreenPinOrPassword}
                 </div>
@@ -93,13 +110,17 @@
                   <div class="separator"></div>
                   <div id="pinPasswordSecondaryActionDiv"
                       class="secondary-action">
+                    <!-- Use stop-keyboard-event-propagation to prevent
+                         triggering this when focused after closing the
+                         dialog. -->
                     <paper-button id="setupPinButton" class="secondary-button"
-                        on-tap="onConfigurePin_">
+                        on-click="onConfigurePin_"
+                        stop-keyboard-event-propagation>
                       [[getSetupPinText_(hasPin)]]
                     </paper-button>
                   </div>
                 </template>
-              </paper-radio-button>
+              </cr-radio-button>
             </paper-radio-group>
           </div>
         </div>
@@ -107,12 +128,10 @@
 
       <template is="dom-if" if="[[fingerprintUnlockEnabled_]]">
         <div id="fingerprintDiv">
-          <div class="settings-box continuation">
-            <settings-toggle-button class="start"
-                pref="{{prefs.settings.enable_quick_unlock_fingerprint}}"
-                label="$i18n{lockScreenFingerprintEnable}">
-            </settings-toggle-button>
-          </div>
+          <settings-toggle-button class="continuation"
+              pref="{{prefs.settings.enable_quick_unlock_fingerprint}}"
+              label="$i18n{lockScreenFingerprintEnable}">
+          </settings-toggle-button>
           <iron-collapse
               opened="[[prefs.settings.enable_quick_unlock_fingerprint.value]]">
             <div class="settings-box continuation">
@@ -125,7 +144,7 @@
               <div class="separator"></div>
               <div class="secondary-action">
                 <paper-button class="secondary-button"
-                    on-tap="onEditFingerprints_"
+                    on-click="onEditFingerprints_"
                     aria-label="$i18n{lockScreenEditFingerprints}"
                     aria-descibedby="lockScreenEditFingerprintsSecondary">
                   $i18n{lockScreenSetupFingerprintButton}
@@ -152,26 +171,24 @@
           <div class="separator"></div>
           <template is="dom-if" if="[[!easyUnlockEnabled_]]">
             <paper-button id="easyUnlockSetup" class="secondary-button"
-                on-tap="onEasyUnlockSetupTap_">
+                on-click="onEasyUnlockSetupTap_">
               $i18n{easyUnlockSetupButton}
             </paper-button>
           </template>
           <template is="dom-if" if="[[easyUnlockEnabled_]]">
             <paper-button id="easyUnlockTurnOff" class="secondary-button"
-                on-tap="onEasyUnlockTurnOffTap_">
+                on-click="onEasyUnlockTurnOffTap_">
               $i18n{easyUnlockTurnOffButton}
             </paper-button>
           </template>
         </div>
         <iron-collapse opened="[[easyUnlockEnabled_]]"
-            id="easyUnlockSettingsCollapsable">
-          <div class="settings-box continuation no-padding underbar">
-            <settings-toggle-button
-              class="start"
+            id="easyUnlockSettingsCollapsible">
+          <settings-toggle-button
+              class="continuation no-padding underbar"
               pref="{{prefs.proximity_auth.is_chromeos_login_enabled}}"
               label="$i18n{easyUnlockAllowSignInLabel}">
-            </settings-toggle-button>
-          </div>
+          </settings-toggle-button>
           <div class="settings-box continuation no-padding">
             <div class="start">
               $i18n{easyUnlockProximityThresholdLabel}
@@ -186,7 +203,8 @@
 
       <template is="dom-if" if="[[showPasswordPromptDialog_]]" restamp>
         <settings-password-prompt-dialog id="passwordPrompt"
-            on-close="onPasswordPromptDialogClose_" set-modes="{{setModes_}}">
+            on-close="onPasswordPromptDialogClose_" set-modes="{{setModes_}}"
+            auth-token="{{authToken_}}">
         </settings-password-prompt-dialog>
       </template>
 

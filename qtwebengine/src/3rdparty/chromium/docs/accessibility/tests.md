@@ -33,13 +33,13 @@ content/shell/test_runner
 To run all accessibility LayoutTests:
 ```
 ninja -C out/release blink_tests
-third_party/WebKit/Tools/Scripts/run-webkit-tests --build-directory=out --target=release accessibility/
+third_party/blink/tools/run_web_tests.py --build-directory=out --target=release accessibility/
 ```
 
 To run just one test by itself without the script:
 ```
 ninja -C out/release blink_tests
-out/release/content_shell --run-layout-test third_party/WebKit/LayoutTests/accessibility/name-calc-inputs.html
+out/release/content_shell --run-web-tests third_party/WebKit/LayoutTests/accessibility/name-calc-inputs.html
 ```
 
 ## DumpAccessibilityTree tests
@@ -107,6 +107,13 @@ ninja -C out/release chromevox_tests
 out/release/chromevox_tests --test-launcher-jobs=10
 ```
 
+### Select-To-Speak tests
+
+```
+ninja -C out/release unit_tests
+out/release/unit_tests --gtest_filter="*SelectToSpeak*"
+```
+
 ## Other locations of accessibility tests:
 
 Even this isn't a complete list. The tests described above cover more
@@ -121,3 +128,14 @@ ui/chromeos
 ui/views/accessibility
 ```
 
+## Helpful flags:
+
+Across all tests there are some helpful flags that will make testing easier.
+
+```
+--test-launcher-jobs=10  # This will run stuff in parallel and make flakes more obvious
+```
+
+```
+--gtest_filter="*Cats*"  # Filter which tests run. Takes a wildcard (*) optionally.
+```

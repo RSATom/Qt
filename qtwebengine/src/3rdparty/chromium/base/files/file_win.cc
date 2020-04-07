@@ -8,8 +8,10 @@
 #include <stdint.h>
 
 #include "base/logging.h"
-#include "base/metrics/histogram_macros.h"
+#include "base/metrics/histogram_functions.h"
 #include "base/threading/thread_restrictions.h"
+
+#include <windows.h>
 
 namespace base {
 
@@ -35,13 +37,13 @@ void File::Close() {
   if (!file_.IsValid())
     return;
 
-  ThreadRestrictions::AssertIOAllowed();
+  AssertBlockingAllowed();
   SCOPED_FILE_TRACE("Close");
   file_.Close();
 }
 
 int64_t File::Seek(Whence whence, int64_t offset) {
-  ThreadRestrictions::AssertIOAllowed();
+  AssertBlockingAllowed();
   DCHECK(IsValid());
 
   SCOPED_FILE_TRACE_WITH_SIZE("Seek", offset);
@@ -55,7 +57,7 @@ int64_t File::Seek(Whence whence, int64_t offset) {
 }
 
 int File::Read(int64_t offset, char* data, int size) {
-  ThreadRestrictions::AssertIOAllowed();
+  AssertBlockingAllowed();
   DCHECK(IsValid());
   DCHECK(!async_);
   if (size < 0)
@@ -80,7 +82,7 @@ int File::Read(int64_t offset, char* data, int size) {
 }
 
 int File::ReadAtCurrentPos(char* data, int size) {
-  ThreadRestrictions::AssertIOAllowed();
+  AssertBlockingAllowed();
   DCHECK(IsValid());
   DCHECK(!async_);
   if (size < 0)
@@ -108,7 +110,7 @@ int File::ReadAtCurrentPosNoBestEffort(char* data, int size) {
 }
 
 int File::Write(int64_t offset, const char* data, int size) {
-  ThreadRestrictions::AssertIOAllowed();
+  AssertBlockingAllowed();
   DCHECK(IsValid());
   DCHECK(!async_);
 
@@ -129,7 +131,7 @@ int File::Write(int64_t offset, const char* data, int size) {
 }
 
 int File::WriteAtCurrentPos(const char* data, int size) {
-  ThreadRestrictions::AssertIOAllowed();
+  AssertBlockingAllowed();
   DCHECK(IsValid());
   DCHECK(!async_);
   if (size < 0)
@@ -149,7 +151,7 @@ int File::WriteAtCurrentPosNoBestEffort(const char* data, int size) {
 }
 
 int64_t File::GetLength() {
-  ThreadRestrictions::AssertIOAllowed();
+  AssertBlockingAllowed();
   DCHECK(IsValid());
 
   SCOPED_FILE_TRACE("GetLength");
@@ -162,7 +164,7 @@ int64_t File::GetLength() {
 }
 
 bool File::SetLength(int64_t length) {
-  ThreadRestrictions::AssertIOAllowed();
+  AssertBlockingAllowed();
   DCHECK(IsValid());
 
   SCOPED_FILE_TRACE_WITH_SIZE("SetLength", length);
@@ -193,7 +195,7 @@ bool File::SetLength(int64_t length) {
 }
 
 bool File::SetTimes(Time last_access_time, Time last_modified_time) {
-  ThreadRestrictions::AssertIOAllowed();
+  AssertBlockingAllowed();
   DCHECK(IsValid());
 
   SCOPED_FILE_TRACE("SetTimes");
@@ -205,7 +207,7 @@ bool File::SetTimes(Time last_access_time, Time last_modified_time) {
 }
 
 bool File::GetInfo(Info* info) {
-  ThreadRestrictions::AssertIOAllowed();
+  AssertBlockingAllowed();
   DCHECK(IsValid());
 
   SCOPED_FILE_TRACE("GetInfo");
@@ -234,7 +236,7 @@ File::Error File::Lock() {
 
   BOOL result = LockFile(file_.Get(), 0, 0, MAXDWORD, MAXDWORD);
   if (!result)
-    return OSErrorToFileError(GetLastError());
+    return GetLastFileError();
   return FILE_OK;
 }
 
@@ -245,7 +247,7 @@ File::Error File::Unlock() {
 
   BOOL result = UnlockFile(file_.Get(), 0, 0, MAXDWORD, MAXDWORD);
   if (!result)
-    return OSErrorToFileError(GetLastError());
+    return GetLastFileError();
   return FILE_OK;
 }
 
@@ -264,13 +266,10 @@ File File::Duplicate() const {
                          0,  // dwDesiredAccess ignored due to SAME_ACCESS
                          FALSE,  // !bInheritHandle
                          DUPLICATE_SAME_ACCESS)) {
-    return File(OSErrorToFileError(GetLastError()));
+    return File(GetLastFileError());
   }
 
-  File other(other_handle);
-  if (async())
-    other.async_ = true;
-  return other;
+  return File(other_handle, async());
 }
 
 bool File::DeleteOnClose(bool delete_on_close) {
@@ -284,6 +283,7 @@ File::Error File::OSErrorToFileError(DWORD last_error) {
   switch (last_error) {
     case ERROR_SHARING_VIOLATION:
       return FILE_ERROR_IN_USE;
+    case ERROR_ALREADY_EXISTS:
     case ERROR_FILE_EXISTS:
       return FILE_ERROR_EXISTS;
     case ERROR_FILE_NOT_FOUND:
@@ -310,14 +310,15 @@ File::Error File::OSErrorToFileError(DWORD last_error) {
     case ERROR_DISK_CORRUPT:
       return FILE_ERROR_IO;
     default:
-      UMA_HISTOGRAM_SPARSE_SLOWLY("PlatformFile.UnknownErrors.Windows",
-                                  last_error);
+      UmaHistogramSparse("PlatformFile.UnknownErrors.Windows", last_error);
+      // This function should only be called for errors.
+      DCHECK_NE(static_cast<DWORD>(ERROR_SUCCESS), last_error);
       return FILE_ERROR_FAILED;
   }
 }
 
 void File::DoInitialize(const FilePath& path, uint32_t flags) {
-  ThreadRestrictions::AssertIOAllowed();
+  AssertBlockingAllowed();
   DCHECK(!IsValid());
 
   DWORD disposition = 0;
@@ -348,6 +349,8 @@ void File::DoInitialize(const FilePath& path, uint32_t flags) {
   }
 
   if (!disposition) {
+    ::SetLastError(ERROR_INVALID_PARAMETER);
+    error_details_ = FILE_ERROR_FAILED;
     NOTREACHED();
     return;
   }
@@ -400,12 +403,12 @@ void File::DoInitialize(const FilePath& path, uint32_t flags) {
     else if (flags & (FLAG_CREATE_ALWAYS | FLAG_CREATE))
       created_ = true;
   } else {
-    error_details_ = OSErrorToFileError(GetLastError());
+    error_details_ = GetLastFileError();
   }
 }
 
 bool File::Flush() {
-  ThreadRestrictions::AssertIOAllowed();
+  AssertBlockingAllowed();
   DCHECK(IsValid());
   SCOPED_FILE_TRACE("Flush");
   return ::FlushFileBuffers(file_.Get()) != FALSE;
@@ -413,6 +416,11 @@ bool File::Flush() {
 
 void File::SetPlatformFile(PlatformFile file) {
   file_.Set(file);
+}
+
+// static
+File::Error File::GetLastFileError() {
+  return File::OSErrorToFileError(GetLastError());
 }
 
 }  // namespace base

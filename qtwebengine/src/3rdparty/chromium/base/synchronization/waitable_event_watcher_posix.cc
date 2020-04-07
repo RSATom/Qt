@@ -46,7 +46,7 @@ class Flag : public RefCountedThreadSafe<Flag> {
 
  private:
   friend class RefCountedThreadSafe<Flag>;
-  ~Flag() {}
+  ~Flag() = default;
 
   mutable Lock lock_;
   bool flag_;
@@ -122,10 +122,11 @@ WaitableEventWatcher::~WaitableEventWatcher() {
 // The Handle is how the user cancels a wait. After deleting the Handle we
 // insure that the delegate cannot be called.
 // -----------------------------------------------------------------------------
-bool WaitableEventWatcher::StartWatching(WaitableEvent* event,
-                                         EventCallback callback) {
+bool WaitableEventWatcher::StartWatching(
+    WaitableEvent* event,
+    EventCallback callback,
+    scoped_refptr<SequencedTaskRunner> task_runner) {
   DCHECK(sequence_checker_.CalledOnValidSequence());
-  DCHECK(SequencedTaskRunnerHandle::Get());
 
   // A user may call StartWatching from within the callback function. In this
   // case, we won't know that we have finished watching, expect that the Flag
@@ -148,14 +149,13 @@ bool WaitableEventWatcher::StartWatching(WaitableEvent* event,
       kernel->signaled_ = false;
 
     // No hairpinning - we can't call the delegate directly here. We have to
-    // post a task to the SequencedTaskRunnerHandle as usual.
-    SequencedTaskRunnerHandle::Get()->PostTask(FROM_HERE,
-                                               std::move(internal_callback));
+    // post a task to |task_runner| as usual.
+    task_runner->PostTask(FROM_HERE, std::move(internal_callback));
     return true;
   }
 
   kernel_ = kernel;
-  waiter_ = new AsyncWaiter(SequencedTaskRunnerHandle::Get(),
+  waiter_ = new AsyncWaiter(std::move(task_runner),
                             std::move(internal_callback), cancel_flag_.get());
   event->Enqueue(waiter_);
 
@@ -171,7 +171,7 @@ void WaitableEventWatcher::StopWatching() {
   if (cancel_flag_->value()) {
     // In this case, the event has fired, but we haven't figured that out yet.
     // The WaitableEvent may have been deleted too.
-    cancel_flag_ = NULL;
+    cancel_flag_ = nullptr;
     return;
   }
 
@@ -185,7 +185,7 @@ void WaitableEventWatcher::StopWatching() {
     // delegate getting called. If the task has run then we have the last
     // reference to the flag and it will be deleted immedately after.
     cancel_flag_->Set();
-    cancel_flag_ = NULL;
+    cancel_flag_ = nullptr;
     return;
   }
 
@@ -211,7 +211,7 @@ void WaitableEventWatcher::StopWatching() {
     // have been enqueued with the MessageLoop because the waiter was never
     // signaled)
     delete waiter_;
-    cancel_flag_ = NULL;
+    cancel_flag_ = nullptr;
     return;
   }
 
@@ -220,7 +220,7 @@ void WaitableEventWatcher::StopWatching() {
   // task on the SequencedTaskRunner, but to delete it instead. The Waiter
   // deletes itself once run.
   cancel_flag_->Set();
-  cancel_flag_ = NULL;
+  cancel_flag_ = nullptr;
 
   // If the waiter has already run then the task has been enqueued. If the Task
   // hasn't yet run, the flag will stop the delegate from getting called. (This

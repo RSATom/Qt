@@ -9,13 +9,12 @@
 #include <stdint.h>
 
 #include <list>
-#include <queue>
 #include <vector>
 
+#include "base/containers/queue.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
 #include "media/base/bitstream_buffer.h"
-#include "media/base/media_export.h"
 #include "media/video/video_encode_accelerator.h"
 
 namespace base {
@@ -28,7 +27,7 @@ namespace media {
 
 static const size_t kMinimumOutputBufferSize = 123456;
 
-class MEDIA_EXPORT FakeVideoEncodeAccelerator : public VideoEncodeAccelerator {
+class FakeVideoEncodeAccelerator : public VideoEncodeAccelerator {
  public:
   explicit FakeVideoEncodeAccelerator(
       const scoped_refptr<base::SingleThreadTaskRunner>& task_runner);
@@ -45,10 +44,16 @@ class MEDIA_EXPORT FakeVideoEncodeAccelerator : public VideoEncodeAccelerator {
   void UseOutputBitstreamBuffer(const BitstreamBuffer& buffer) override;
   void RequestEncodingParametersChange(uint32_t bitrate,
                                        uint32_t framerate) override;
+  void RequestEncodingParametersChange(const VideoBitrateAllocation& bitrate,
+                                       uint32_t framerate) override;
   void Destroy() override;
 
   const std::vector<uint32_t>& stored_bitrates() const {
     return stored_bitrates_;
+  }
+  const std::vector<VideoBitrateAllocation>& stored_bitrate_allocations()
+      const {
+    return stored_bitrate_allocations_;
   }
   void SendDummyFrameForTesting(bool key_frame);
   void SetWillInitializationSucceed(bool will_initialization_succeed);
@@ -67,6 +72,7 @@ class MEDIA_EXPORT FakeVideoEncodeAccelerator : public VideoEncodeAccelerator {
   // Our original (constructor) calling message loop used for all tasks.
   const scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
   std::vector<uint32_t> stored_bitrates_;
+  std::vector<VideoBitrateAllocation> stored_bitrate_allocations_;
   bool will_initialization_succeed_;
 
   VideoEncodeAccelerator::Client* client_;
@@ -77,7 +83,7 @@ class MEDIA_EXPORT FakeVideoEncodeAccelerator : public VideoEncodeAccelerator {
 
   // A queue containing the necessary data for incoming frames. The boolean
   // represent whether the queued frame should force a key frame.
-  std::queue<bool> queued_frames_;
+  base::queue<bool> queued_frames_;
 
   // A list of buffers available for putting fake encoded frames in.
   std::list<BitstreamBuffer> available_buffers_;

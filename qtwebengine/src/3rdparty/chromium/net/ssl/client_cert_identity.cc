@@ -5,6 +5,7 @@
 #include "net/ssl/client_cert_identity.h"
 
 #include "base/bind.h"
+#include "net/cert/x509_util.h"
 #include "net/ssl/ssl_private_key.h"
 
 namespace net {
@@ -38,10 +39,18 @@ void ClientCertIdentity::SelfOwningAcquirePrivateKey(
 }
 
 void ClientCertIdentity::SetIntermediates(
-    X509Certificate::OSCertHandles intermediates) {
-  cert_ =
-      X509Certificate::CreateFromHandle(cert_->os_cert_handle(), intermediates);
-  // |cert_->os_cert_handle()| was already successfully parsed, so this should
+    std::vector<bssl::UniquePtr<CRYPTO_BUFFER>> intermediates) {
+  // Allow UTF-8 inside PrintableStrings in client certificates. See
+  // crbug.com/770323.
+  // TODO(mattm): Perhaps X509Certificate should have a method to clone the
+  // X509Certificate but with different intermediates, to avoid reparsing here
+  // (and avoid needing to match the parsing options here with where the
+  // X509Certificate was initially created.)
+  X509Certificate::UnsafeCreateOptions options;
+  options.printable_string_is_utf8 = true;
+  cert_ = X509Certificate::CreateFromBufferUnsafeOptions(
+      bssl::UpRef(cert_->cert_buffer()), std::move(intermediates), options);
+  // |cert_->cert_buffer()| was already successfully parsed, so this should
   // never fail.
   DCHECK(cert_);
 }
@@ -74,10 +83,8 @@ bool ClientCertIdentitySorter::operator()(
     return a->valid_start() > b->valid_start();
 
   // Otherwise, prefer client certificates with shorter chains.
-  const X509Certificate::OSCertHandles& a_intermediates =
-      a->GetIntermediateCertificates();
-  const X509Certificate::OSCertHandles& b_intermediates =
-      b->GetIntermediateCertificates();
+  const auto& a_intermediates = a->intermediate_buffers();
+  const auto& b_intermediates = b->intermediate_buffers();
   return a_intermediates.size() < b_intermediates.size();
 }
 

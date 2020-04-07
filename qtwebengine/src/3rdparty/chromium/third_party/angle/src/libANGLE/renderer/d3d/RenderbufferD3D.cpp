@@ -16,8 +16,8 @@
 
 namespace rx
 {
-RenderbufferD3D::RenderbufferD3D(RendererD3D *renderer)
-    : mRenderer(renderer), mRenderTarget(nullptr), mImage(nullptr)
+RenderbufferD3D::RenderbufferD3D(const gl::RenderbufferState &state, RendererD3D *renderer)
+    : RenderbufferImpl(state), mRenderer(renderer), mRenderTarget(nullptr), mImage(nullptr)
 {
 }
 
@@ -27,12 +27,25 @@ RenderbufferD3D::~RenderbufferD3D()
     mImage = nullptr;
 }
 
-gl::Error RenderbufferD3D::setStorage(GLenum internalformat, size_t width, size_t height)
+gl::Error RenderbufferD3D::onDestroy(const gl::Context *context)
 {
-    return setStorageMultisample(0, internalformat, width, height);
+    deleteRenderTarget(context);
+    return gl::NoError();
 }
 
-gl::Error RenderbufferD3D::setStorageMultisample(size_t samples, GLenum internalformat, size_t width, size_t height)
+gl::Error RenderbufferD3D::setStorage(const gl::Context *context,
+                                      GLenum internalformat,
+                                      size_t width,
+                                      size_t height)
+{
+    return setStorageMultisample(context, 0, internalformat, width, height);
+}
+
+gl::Error RenderbufferD3D::setStorageMultisample(const gl::Context *context,
+                                                 size_t samples,
+                                                 GLenum internalformat,
+                                                 size_t width,
+                                                 size_t height)
 {
     // If the renderbuffer parameters are queried, the calling function
     // will expect one of the valid renderbuffer formats for use in
@@ -60,17 +73,17 @@ gl::Error RenderbufferD3D::setStorageMultisample(size_t samples, GLenum internal
     ANGLE_TRY(mRenderer->createRenderTarget(static_cast<int>(width), static_cast<int>(height),
                                             creationFormat, static_cast<GLsizei>(samples), &newRT));
 
-    SafeDelete(mRenderTarget);
+    deleteRenderTarget(context);
     mImage        = nullptr;
     mRenderTarget = newRT;
 
     return gl::NoError();
 }
 
-gl::Error RenderbufferD3D::setStorageEGLImageTarget(egl::Image *image)
+gl::Error RenderbufferD3D::setStorageEGLImageTarget(const gl::Context *context, egl::Image *image)
 {
     mImage = GetImplAs<EGLImageD3D>(image);
-    SafeDelete(mRenderTarget);
+    deleteRenderTarget(context);
 
     return gl::NoError();
 }
@@ -95,6 +108,23 @@ gl::Error RenderbufferD3D::getAttachmentRenderTarget(const gl::Context *context,
                                                      FramebufferAttachmentRenderTarget **rtOut)
 {
     return getRenderTarget(context, reinterpret_cast<RenderTargetD3D **>(rtOut));
+}
+
+void RenderbufferD3D::deleteRenderTarget(const gl::Context *context)
+{
+    onStateChange(context, angle::SubjectMessage::DEPENDENT_DIRTY_BITS);
+    if (mRenderTarget)
+    {
+        SafeDelete(mRenderTarget);
+    }
+}
+
+gl::Error RenderbufferD3D::initializeContents(const gl::Context *context,
+                                              const gl::ImageIndex &imageIndex)
+{
+    RenderTargetD3D *renderTarget = nullptr;
+    ANGLE_TRY(getRenderTarget(context, &renderTarget));
+    return mRenderer->initRenderTarget(renderTarget);
 }
 
 }  // namespace rx

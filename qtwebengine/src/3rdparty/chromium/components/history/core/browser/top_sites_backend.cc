@@ -26,7 +26,8 @@ namespace history {
 TopSitesBackend::TopSitesBackend()
     : db_(new TopSitesDatabase()),
       db_task_runner_(base::CreateSequencedTaskRunnerWithTraits(
-          {base::TaskPriority::USER_VISIBLE, base::MayBlock()})) {
+          {base::TaskPriority::USER_VISIBLE,
+           base::TaskShutdownBehavior::BLOCK_SHUTDOWN, base::MayBlock()})) {
   DCHECK(db_task_runner_);
 }
 
@@ -76,8 +77,8 @@ void TopSitesBackend::ResetDatabase() {
 
 void TopSitesBackend::DoEmptyRequest(const base::Closure& reply,
                                      base::CancelableTaskTracker* tracker) {
-  tracker->PostTaskAndReply(db_task_runner_.get(), FROM_HERE,
-                            base::Bind(&base::DoNothing), reply);
+  tracker->PostTaskAndReply(db_task_runner_.get(), FROM_HERE, base::DoNothing(),
+                            reply);
 }
 
 TopSitesBackend::~TopSitesBackend() {
@@ -117,14 +118,7 @@ void TopSitesBackend::UpdateTopSitesOnDBThread(
 
   base::TimeTicks begin_time = base::TimeTicks::Now();
 
-  for (size_t i = 0; i < delta.deleted.size(); ++i)
-    db_->RemoveURL(delta.deleted[i]);
-
-  for (size_t i = 0; i < delta.added.size(); ++i)
-    db_->SetPageThumbnail(delta.added[i].url, delta.added[i].rank, Images());
-
-  for (size_t i = 0; i < delta.moved.size(); ++i)
-    db_->UpdatePageRank(delta.moved[i].url, delta.moved[i].rank);
+  db_->ApplyDelta(delta);
 
   if (record_or_not == RECORD_HISTOGRAM_YES) {
     UMA_HISTOGRAM_TIMES("History.FirstUpdateTime",
@@ -143,7 +137,7 @@ void TopSitesBackend::SetPageThumbnailOnDBThread(const MostVisitedURL& url,
 
 void TopSitesBackend::ResetDatabaseOnDBThread(const base::FilePath& file_path) {
   DCHECK(db_task_runner_->RunsTasksInCurrentSequence());
-  db_.reset(NULL);
+  db_.reset(nullptr);
   sql::Connection::Delete(db_path_);
   db_.reset(new TopSitesDatabase());
   InitDBOnDBThread(db_path_);

@@ -10,7 +10,6 @@
 #include <string>
 
 #include "base/callback.h"
-#include "base/memory/ptr_util.h"
 #include "base/memory/weak_ptr.h"
 #include "mojo/public/cpp/system/message_pipe.h"
 #include "services/service_manager/public/cpp/export.h"
@@ -18,6 +17,7 @@
 
 namespace service_manager {
 
+// See //services/service_manager/README.md#onbindinterface for details on this.
 template <typename... BinderArgs>
 class BinderRegistryWithArgs {
  public:
@@ -37,7 +37,7 @@ class BinderRegistryWithArgs {
       const scoped_refptr<base::SequencedTaskRunner>& task_runner = nullptr) {
     SetInterfaceBinder(
         Interface::Name_,
-        base::MakeUnique<CallbackBinder<Interface, BinderArgs...>>(
+        std::make_unique<CallbackBinder<Interface, BinderArgs...>>(
             callback, task_runner));
   }
   void AddInterface(
@@ -46,7 +46,7 @@ class BinderRegistryWithArgs {
           callback,
       const scoped_refptr<base::SequencedTaskRunner>& task_runner = nullptr) {
     SetInterfaceBinder(interface_name,
-                       base::MakeUnique<GenericCallbackBinder<BinderArgs...>>(
+                       std::make_unique<GenericCallbackBinder<BinderArgs...>>(
                            callback, task_runner));
   }
   void AddInterface(
@@ -54,7 +54,7 @@ class BinderRegistryWithArgs {
       const Binder& callback,
       const scoped_refptr<base::SequencedTaskRunner>& task_runner = nullptr) {
     SetInterfaceBinder(interface_name,
-                       base::MakeUnique<GenericCallbackBinder<BinderArgs...>>(
+                       std::make_unique<GenericCallbackBinder<BinderArgs...>>(
                            callback, task_runner));
   }
 
@@ -86,8 +86,20 @@ class BinderRegistryWithArgs {
       it->second->BindInterface(interface_name, std::move(interface_pipe),
                                 args...);
     } else {
-      LOG(ERROR) << "Failed to locate a binder for interface: "
-                 << interface_name;
+#if DCHECK_IS_ON()
+      // While it would not be correct to assert that this never happens (e.g.
+      // a compromised process may request invalid interfaces), we do want to
+      // effectively treat all occurrences of this branch in production code as
+      // bugs that must be fixed. This allows such bugs to be caught in testing
+      // rather than relying on easily overlooked log messages.
+      NOTREACHED() << "Failed to locate a binder for interface \""
+                   << interface_name << "\". You probably need to register "
+                   << "a binder for this interface in the BinderRegistry which "
+                   << "is triggering this assertion.";
+#else
+      LOG(ERROR) << "Failed to locate a binder for interface \""
+                 << interface_name << "\".";
+#endif
     }
   }
 
@@ -127,6 +139,7 @@ class BinderRegistryWithArgs {
   DISALLOW_COPY_AND_ASSIGN(BinderRegistryWithArgs);
 };
 
+// See //services/service_manager/README.md#onbindinterface for details on this.
 using BinderRegistry = BinderRegistryWithArgs<>;
 
 }  // namespace service_manager

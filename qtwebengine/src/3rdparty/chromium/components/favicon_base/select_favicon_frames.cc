@@ -8,7 +8,9 @@
 #include <cmath>
 #include <limits>
 #include <map>
+#include <memory>
 #include <set>
+#include <utility>
 
 #include "base/macros.h"
 #include "components/favicon_base/favicon_util.h"
@@ -42,8 +44,8 @@ SkBitmap SampleNearestNeighbor(const SkBitmap& contents, int desired_size) {
 
   {
     SkCanvas canvas(bitmap);
-    canvas.drawBitmapRect(
-        contents, SkRect::MakeIWH(desired_size, desired_size), NULL);
+    canvas.drawBitmapRect(contents, SkRect::MakeIWH(desired_size, desired_size),
+                          nullptr);
   }
 
   return bitmap;
@@ -175,7 +177,7 @@ class FaviconImageSource : public gfx::ImageSkiaSource {
 
   // gfx::ImageSkiaSource:
   gfx::ImageSkiaRep GetImageForScale(float scale) override {
-    const gfx::ImageSkiaRep* rep = NULL;
+    const gfx::ImageSkiaRep* rep = nullptr;
     // gfx::ImageSkia passes one of the resource scale factors. The source
     // should return:
     // 1) The ImageSkiaRep with the highest scale if all available
@@ -243,7 +245,7 @@ gfx::ImageSkia CreateFaviconImageSkia(
     return gfx::ImageSkia(gfx::ImageSkiaRep(bitmaps[index], 1.0f));
   }
 
-  FaviconImageSource* image_source = new FaviconImageSource;
+  auto image_source = std::make_unique<FaviconImageSource>();
 
   for (size_t i = 0; i < results.size(); ++i) {
     size_t index = results[i].index;
@@ -253,7 +255,7 @@ gfx::ImageSkia CreateFaviconImageSkia(
                                            desired_sizes[i]),
                           favicon_scales[i]));
   }
-  return gfx::ImageSkia(image_source,
+  return gfx::ImageSkia(std::move(image_source),
                         gfx::Size(desired_size_in_dip, desired_size_in_dip));
 }
 

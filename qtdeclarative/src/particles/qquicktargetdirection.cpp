@@ -50,7 +50,7 @@ QT_BEGIN_NAMESPACE
     \inqmlmodule QtQuick.Particles
     \ingroup qtquick-particles
     \inherits Direction
-    \brief For specifying a direction towards the target point
+    \brief For specifying a direction towards the target point.
 
 */
 /*!
@@ -91,7 +91,7 @@ QQuickTargetDirection::QQuickTargetDirection(QObject *parent) :
   , m_proportionalMagnitude(false)
   , m_magnitude(0)
   , m_magnitudeVariation(0)
-  , m_targetItem(0)
+  , m_targetItem(nullptr)
 {
 }
 

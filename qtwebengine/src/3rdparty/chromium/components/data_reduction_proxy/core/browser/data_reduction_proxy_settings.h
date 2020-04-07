@@ -15,6 +15,7 @@
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/threading/thread_checker.h"
+#include "components/data_reduction_proxy/core/browser/data_reduction_proxy_compression_stats.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_metrics.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_service_observer.h"
 #include "components/prefs/pref_member.h"
@@ -42,17 +43,6 @@ enum ProxyStartupState {
   PROXY_DISABLED,
   PROXY_ENABLED,
   PROXY_STARTUP_STATE_COUNT,
-};
-
-// Values of the UMA DataReductionProxy.LoFi.ImplicitOptOutAction histogram.
-// This enum must remain synchronized with
-// DataReductionProxyLoFiImplicitOptOutAction in
-// metrics/histograms/histograms.xml.
-enum LoFiImplicitOptOutAction {
-  LO_FI_OPT_OUT_ACTION_DISABLED_FOR_SESSION = 0,
-  LO_FI_OPT_OUT_ACTION_DISABLED_UNTIL_NEXT_EPOCH,
-  LO_FI_OPT_OUT_ACTION_NEXT_EPOCH,
-  LO_FI_OPT_OUT_ACTION_INDEX_BOUNDARY,
 };
 
 // Values of the UMA DataReductionProxy.EnabledState histogram.
@@ -111,29 +101,12 @@ class DataReductionProxySettings : public DataReductionProxyServiceObserver {
   // Enables or disables the data reduction proxy.
   void SetDataReductionProxyEnabled(bool enabled);
 
-  // Sets |lo_fi_mode_active_| to true if Lo-Fi is currently active, meaning
-  // requests are being sent with "q=low" headers. Set from the IO thread only
-  // on main frame requests.
-  void SetLoFiModeActiveOnMainFrame(bool lo_fi_mode_active);
-
-  // Increments the number of times the Lo-Fi UI has been shown.
-  void IncrementLoFiUIShown();
-
-  // Counts the number of requests to reload the page with images from the Lo-Fi
-  // UI. If the user requests the page with images a certain number of times,
-  // then Lo-Fi is disabled for the remainder of the session.
-  void IncrementLoFiUserRequestsForImages();
-
-  // Records UMA for Lo-Fi implicit opt out actions.
-  void RecordLoFiImplicitOptOutAction(
-      data_reduction_proxy::LoFiImplicitOptOutAction action) const;
-
   // Returns the time in microseconds that the last update was made to the
   // daily original and received content lengths.
   int64_t GetDataReductionLastUpdateTime();
 
-  // Clears all data saving statistics.
-  void ClearDataSavingStatistics();
+  // Clears all data saving statistics for the given |reason|.
+  void ClearDataSavingStatistics(DataReductionProxySavingsClearedReason reason);
 
   // Returns the difference between the total original size of all HTTP content
   // received from the network and the actual size of the HTTP content received.
@@ -246,6 +219,11 @@ class DataReductionProxySettings : public DataReductionProxyServiceObserver {
 
   void OnProxyEnabledPrefChange();
 
+  // Records data savings percentage histogram at chrome startup, for users who
+  // have browsed a reasonable amount. Positive and negative savings are
+  // recorded in a separate histogram.
+  void RecordStartupSavings() const;
+
   void ResetDataReductionStatistics();
 
   // Update IO thread objects in response to UI thread changes.
@@ -293,7 +271,7 @@ class DataReductionProxySettings : public DataReductionProxyServiceObserver {
   SyntheticFieldTrialRegistrationCallback register_synthetic_field_trial_;
 
   // Should not be null.
-  std::unique_ptr<base::Clock> clock_;
+  base::Clock* clock_;
 
   base::ThreadChecker thread_checker_;
 

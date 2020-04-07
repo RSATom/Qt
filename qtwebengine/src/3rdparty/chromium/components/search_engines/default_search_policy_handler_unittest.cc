@@ -62,8 +62,6 @@ const char DefaultSearchPolicyHandlerTest::kName[] =
     "MyName";
 const char DefaultSearchPolicyHandlerTest::kKeyword[] =
     "MyKeyword";
-const char DefaultSearchPolicyHandlerTest::kReplacementKey[] =
-    "espv";
 const char DefaultSearchPolicyHandlerTest::kImageURL[] =
     "http://test.com/searchbyimage/upload";
 const char DefaultSearchPolicyHandlerTest::kImageParams[] =
@@ -81,40 +79,37 @@ void DefaultSearchPolicyHandlerTest::
   encodings->AppendString("UTF-8");
   policy->Set(key::kDefaultSearchProviderEnabled, POLICY_LEVEL_MANDATORY,
               POLICY_SCOPE_USER, POLICY_SOURCE_CLOUD,
-              base::MakeUnique<base::Value>(true), nullptr);
+              std::make_unique<base::Value>(true), nullptr);
   policy->Set(key::kDefaultSearchProviderSearchURL, POLICY_LEVEL_MANDATORY,
               POLICY_SCOPE_USER, POLICY_SOURCE_CLOUD,
-              base::MakeUnique<base::Value>(kSearchURL), nullptr);
+              std::make_unique<base::Value>(kSearchURL), nullptr);
   policy->Set(key::kDefaultSearchProviderName, POLICY_LEVEL_MANDATORY,
               POLICY_SCOPE_USER, POLICY_SOURCE_CLOUD,
-              base::MakeUnique<base::Value>(kName), nullptr);
+              std::make_unique<base::Value>(kName), nullptr);
   policy->Set(key::kDefaultSearchProviderKeyword, POLICY_LEVEL_MANDATORY,
               POLICY_SCOPE_USER, POLICY_SOURCE_CLOUD,
-              base::MakeUnique<base::Value>(kKeyword), nullptr);
+              std::make_unique<base::Value>(kKeyword), nullptr);
   policy->Set(key::kDefaultSearchProviderSuggestURL, POLICY_LEVEL_MANDATORY,
               POLICY_SCOPE_USER, POLICY_SOURCE_CLOUD,
-              base::MakeUnique<base::Value>(kSuggestURL), nullptr);
+              std::make_unique<base::Value>(kSuggestURL), nullptr);
   policy->Set(key::kDefaultSearchProviderIconURL, POLICY_LEVEL_MANDATORY,
               POLICY_SCOPE_USER, POLICY_SOURCE_CLOUD,
-              base::MakeUnique<base::Value>(kIconURL), nullptr);
+              std::make_unique<base::Value>(kIconURL), nullptr);
   policy->Set(key::kDefaultSearchProviderEncodings, POLICY_LEVEL_MANDATORY,
               POLICY_SCOPE_USER, POLICY_SOURCE_CLOUD,
               base::WrapUnique(encodings), nullptr);
   policy->Set(key::kDefaultSearchProviderAlternateURLs, POLICY_LEVEL_MANDATORY,
               POLICY_SCOPE_USER, POLICY_SOURCE_CLOUD,
               default_alternate_urls_.CreateDeepCopy(), nullptr);
-  policy->Set(key::kDefaultSearchProviderSearchTermsReplacementKey,
-              POLICY_LEVEL_MANDATORY, POLICY_SCOPE_USER, POLICY_SOURCE_CLOUD,
-              base::MakeUnique<base::Value>(kReplacementKey), nullptr);
   policy->Set(key::kDefaultSearchProviderImageURL, POLICY_LEVEL_MANDATORY,
               POLICY_SCOPE_USER, POLICY_SOURCE_CLOUD,
-              base::MakeUnique<base::Value>(kImageURL), nullptr);
+              std::make_unique<base::Value>(kImageURL), nullptr);
   policy->Set(key::kDefaultSearchProviderImageURLPostParams,
               POLICY_LEVEL_MANDATORY, POLICY_SCOPE_USER, POLICY_SOURCE_CLOUD,
-              base::MakeUnique<base::Value>(kImageParams), nullptr);
+              std::make_unique<base::Value>(kImageParams), nullptr);
   policy->Set(key::kDefaultSearchProviderNewTabURL, POLICY_LEVEL_MANDATORY,
               POLICY_SCOPE_USER, POLICY_SOURCE_CLOUD,
-              base::MakeUnique<base::Value>(kNewTabURL), nullptr);
+              std::make_unique<base::Value>(kNewTabURL), nullptr);
 }
 
 // Checks that if the default search policy is missing, that no elements of the
@@ -159,7 +154,6 @@ TEST_F(DefaultSearchPolicyHandlerTest, InvalidType) {
       key::kDefaultSearchProviderIconURL,
       key::kDefaultSearchProviderEncodings,
       key::kDefaultSearchProviderAlternateURLs,
-      key::kDefaultSearchProviderSearchTermsReplacementKey,
       key::kDefaultSearchProviderImageURL,
       key::kDefaultSearchProviderNewTabURL,
       key::kDefaultSearchProviderImageURLPostParams};
@@ -180,7 +174,7 @@ TEST_F(DefaultSearchPolicyHandlerTest, InvalidType) {
     // invalid.
     policy.Set(policy_name, POLICY_LEVEL_MANDATORY, POLICY_SCOPE_USER,
                POLICY_SOURCE_CLOUD,
-               base::MakeUnique<base::Value>(base::Value::Type::BINARY),
+               std::make_unique<base::Value>(base::Value::Type::BINARY),
                nullptr);
     UpdateProviderPolicy(policy);
 
@@ -200,7 +194,7 @@ TEST_F(DefaultSearchPolicyHandlerTest, FullyDefined) {
   BuildDefaultSearchPolicy(&policy);
   UpdateProviderPolicy(policy);
 
-  const base::Value* temp = NULL;
+  const base::Value* temp = nullptr;
   const base::DictionaryValue* dictionary;
   std::string value;
   const base::ListValue* list_value;
@@ -233,10 +227,6 @@ TEST_F(DefaultSearchPolicyHandlerTest, FullyDefined) {
       dictionary->GetList(DefaultSearchManager::kAlternateURLs, &list_value));
   EXPECT_TRUE(default_alternate_urls_.Equals(list_value));
 
-  EXPECT_TRUE(dictionary->GetString(
-      DefaultSearchManager::kSearchTermsReplacementKey, &value));
-  EXPECT_EQ(kReplacementKey, value);
-
   EXPECT_TRUE(dictionary->GetString(DefaultSearchManager::kImageURL, &value));
   EXPECT_EQ(kImageURL, value);
 
@@ -251,21 +241,24 @@ TEST_F(DefaultSearchPolicyHandlerTest, FullyDefined) {
   EXPECT_TRUE(dictionary->GetString(
       DefaultSearchManager::kSuggestionsURLPostParams, &value));
   EXPECT_EQ(std::string(), value);
-
-  EXPECT_TRUE(dictionary->GetString(DefaultSearchManager::kInstantURLPostParams,
-                                    &value));
-  EXPECT_EQ(std::string(), value);
 }
 
 // Checks that disabling default search is properly reflected the dictionary
 // pref.
-TEST_F(DefaultSearchPolicyHandlerTest, Disabled) {
+TEST_F(DefaultSearchPolicyHandlerTest, DisabledByPolicy) {
   PolicyMap policy;
   policy.Set(key::kDefaultSearchProviderEnabled, POLICY_LEVEL_MANDATORY,
              POLICY_SCOPE_USER, POLICY_SOURCE_CLOUD,
              base::WrapUnique(new base::Value(false)), nullptr);
+  policy.Set(key::kDefaultSearchProviderSearchURL, POLICY_LEVEL_MANDATORY,
+             POLICY_SCOPE_USER, POLICY_SOURCE_CLOUD,
+             base::WrapUnique(new base::Value("http://a/?{searchTerms}")),
+             nullptr);
   UpdateProviderPolicy(policy);
-  const base::Value* temp = NULL;
+  const base::Value* temp = nullptr;
+  // Ignore any other search provider related policy in this case.
+  EXPECT_FALSE(store_->GetValue(DefaultSearchManager::kURL, &temp));
+
   const base::DictionaryValue* dictionary;
   EXPECT_TRUE(store_->GetValue(
       DefaultSearchManager::kDefaultSearchProviderDataPrefName, &temp));
@@ -274,6 +267,21 @@ TEST_F(DefaultSearchPolicyHandlerTest, Disabled) {
   EXPECT_TRUE(dictionary->GetBoolean(DefaultSearchManager::kDisabledByPolicy,
                                      &disabled));
   EXPECT_TRUE(disabled);
+}
+
+// Check that when the default search enabled policy is not set, all other
+// default search-related policies are ignored.
+TEST_F(DefaultSearchPolicyHandlerTest, DisabledByPolicyNotSet) {
+  PolicyMap policy;
+  policy.Set(key::kDefaultSearchProviderSearchURL, POLICY_LEVEL_MANDATORY,
+             POLICY_SCOPE_USER, POLICY_SOURCE_CLOUD,
+             base::WrapUnique(new base::Value("http://a/?{searchTerms}")),
+             nullptr);
+  UpdateProviderPolicy(policy);
+  const base::Value* temp = nullptr;
+  EXPECT_FALSE(store_->GetValue(
+      DefaultSearchManager::kDefaultSearchProviderDataPrefName, &temp));
+  EXPECT_FALSE(store_->GetValue(DefaultSearchManager::kURL, &temp));
 }
 
 // Checks that if the policy for default search is valid, i.e. there's a
@@ -288,7 +296,7 @@ TEST_F(DefaultSearchPolicyHandlerTest, MinimallyDefined) {
              base::WrapUnique(new base::Value(kSearchURL)), nullptr);
   UpdateProviderPolicy(policy);
 
-  const base::Value* temp = NULL;
+  const base::Value* temp = nullptr;
   const base::DictionaryValue* dictionary;
   std::string value;
   const base::ListValue* list_value;
@@ -316,9 +324,6 @@ TEST_F(DefaultSearchPolicyHandlerTest, MinimallyDefined) {
   EXPECT_TRUE(
       dictionary->GetList(DefaultSearchManager::kAlternateURLs, &list_value));
   EXPECT_TRUE(base::ListValue().Equals(list_value));
-  EXPECT_TRUE(dictionary->GetString(
-      DefaultSearchManager::kSearchTermsReplacementKey, &value));
-  EXPECT_EQ(std::string(), value);
   EXPECT_TRUE(dictionary->GetString(DefaultSearchManager::kImageURL, &value));
   EXPECT_EQ(std::string(), value);
   EXPECT_TRUE(
@@ -329,9 +334,6 @@ TEST_F(DefaultSearchPolicyHandlerTest, MinimallyDefined) {
   EXPECT_EQ(std::string(), value);
   EXPECT_TRUE(dictionary->GetString(
       DefaultSearchManager::kSuggestionsURLPostParams, &value));
-  EXPECT_EQ(std::string(), value);
-  EXPECT_TRUE(dictionary->GetString(DefaultSearchManager::kInstantURLPostParams,
-                                    &value));
   EXPECT_EQ(std::string(), value);
 }
 
@@ -347,7 +349,7 @@ TEST_F(DefaultSearchPolicyHandlerTest, FileURL) {
              base::WrapUnique(new base::Value(kFileSearchURL)), nullptr);
   UpdateProviderPolicy(policy);
 
-  const base::Value* temp = NULL;
+  const base::Value* temp = nullptr;
   const base::DictionaryValue* dictionary;
   std::string value;
 

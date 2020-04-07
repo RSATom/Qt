@@ -1,4 +1,6 @@
 #include <mbgl/style/conversion/tileset.hpp>
+#include <mbgl/util/geo.hpp>
+#include <mbgl/math/clamp.hpp>
 
 namespace mbgl {
 namespace style {
@@ -35,6 +37,16 @@ optional<Tileset> Converter<Tileset>::operator()(const Convertible& value, Error
         }
     }
 
+    auto encodingValue = objectMember(value, "encoding");
+    if (encodingValue) {
+        optional<std::string> encoding = toString(*encodingValue);
+        if (encoding && *encoding == "terrarium") {
+            result.encoding = Tileset::DEMEncoding::Terrarium;
+        } else if (encoding && *encoding != "mapbox") {
+            error = { "invalid raster-dem encoding type - valid types are 'mapbox' and 'terrarium' " };
+        }
+    }
+
     auto minzoomValue = objectMember(value, "minzoom");
     if (minzoomValue) {
         optional<float> minzoom = toNumber(*minzoomValue);
@@ -63,6 +75,38 @@ optional<Tileset> Converter<Tileset>::operator()(const Convertible& value, Error
             return {};
         }
         result.attribution = std::move(*attribution);
+    }
+
+    auto boundsValue = objectMember(value, "bounds");
+    if (boundsValue) {
+        if (!isArray(*boundsValue) || arrayLength(*boundsValue) != 4) {
+            error = { "bounds must be an array with left, bottom, top, and right values" };
+            return {};
+        }
+        optional<double> left = toDouble(arrayMember(*boundsValue, 0));
+        optional<double> bottom = toDouble(arrayMember(*boundsValue, 1));
+        optional<double> right = toDouble(arrayMember(*boundsValue, 2));
+        optional<double> top = toDouble(arrayMember(*boundsValue, 3));
+
+        if (!left || !right || !bottom || !top) {
+            error = { "bounds array must contain numeric longitude and latitude values" };
+            return {};
+        }
+
+        bottom = util::clamp(*bottom, -90.0, 90.0);
+        top = util::clamp(*top, -90.0, 90.0);
+        if (top <= bottom){
+            error = { "bounds bottom latitude must be smaller than top latitude" };
+            return {};
+        }
+
+        if(*left >= *right) {
+            error = { "bounds left longitude should be less than right longitude" };
+            return {};
+        }
+        left = util::max(-180.0, *left);
+        right = util::min(180.0, *right);
+        result.bounds = LatLngBounds::hull({ *bottom, *left }, { *top, *right });
     }
 
     return result;

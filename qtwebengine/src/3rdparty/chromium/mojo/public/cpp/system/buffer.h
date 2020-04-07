@@ -42,8 +42,7 @@ typedef ScopedHandleBase<SharedBufferHandle> ScopedSharedBufferHandle;
 
 // A strongly-typed representation of a |MojoHandle| referring to a shared
 // buffer.
-class MOJO_CPP_SYSTEM_EXPORT SharedBufferHandle
-    : NON_EXPORTED_BASE(public Handle) {
+class MOJO_CPP_SYSTEM_EXPORT SharedBufferHandle : public Handle {
  public:
   enum class AccessMode {
     READ_WRITE,
@@ -61,7 +60,7 @@ class MOJO_CPP_SYSTEM_EXPORT SharedBufferHandle
   // Clones this shared buffer handle. If |access_mode| is READ_ONLY or this is
   // a read-only handle, the new handle will be read-only. On failure, this will
   // return an empty result.
-  ScopedSharedBufferHandle Clone(AccessMode = AccessMode::READ_WRITE) const;
+  ScopedSharedBufferHandle Clone(AccessMode access_mode) const;
 
   // Maps |size| bytes of this shared buffer. On failure, this will return a
   // null mapping.
@@ -70,6 +69,9 @@ class MOJO_CPP_SYSTEM_EXPORT SharedBufferHandle
   // Maps |size| bytes of this shared buffer, starting |offset| bytes into the
   // buffer. On failure, this will return a null mapping.
   ScopedSharedBufferMapping MapAtOffset(uint64_t size, uint64_t offset) const;
+
+  // Get the size of this shared buffer.
+  uint64_t GetSize() const;
 };
 
 static_assert(sizeof(SharedBufferHandle) == sizeof(Handle),

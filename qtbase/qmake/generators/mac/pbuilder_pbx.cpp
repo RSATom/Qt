@@ -149,13 +149,13 @@ ProjectBuilderMakefileGenerator::writeSubDirs(QTextStream &t)
                     if(!qmake_setpwd(dir))
                         fprintf(stderr, "Cannot find directory: %s\n", dir.toLatin1().constData());
                 }
-                Option::output_dir = Option::globals->shadowedPath(QDir::cleanPath(fi.absoluteFilePath()));
+                Option::output_dir = Option::globals->shadowedPath(qmake_getpwd());
                 if(tmp_proj.read(fn)) {
                     if(tmp_proj.first("TEMPLATE") == "subdirs") {
                         QMakeProject *pp = new QMakeProject(&tmp_proj);
                         pb_subdirs += new ProjectBuilderSubDirs(pp, dir);
                     } else if(tmp_proj.first("TEMPLATE") == "app" || tmp_proj.first("TEMPLATE") == "lib") {
-                        QString pbxproj = qmake_getpwd() + Option::dir_sep + tmp_proj.first("TARGET") + projectSuffix();
+                        QString pbxproj = Option::output_dir + Option::dir_sep + tmp_proj.first("TARGET") + projectSuffix();
                         if(!exists(pbxproj)) {
                             warn_msg(WarnLogic, "Ignored (not found) '%s'", pbxproj.toLatin1().constData());
                             goto nextfile; // # Dirty!
@@ -542,6 +542,10 @@ ProjectBuilderMakefileGenerator::writeMakeParts(QTextStream &t)
             QTextStream mkt(&mkf);
             writeHeader(mkt);
             mkt << "QMAKE    = " << var("QMAKE_QMAKE") << endl;
+            project->values("QMAKE_MAKE_QMAKE_EXTRA_COMMANDS")
+                << "@echo 'warning: Xcode project has been regenerated, custom settings have been lost. " \
+                   "Use CONFIG+=no_autoqmake to prevent this behavior in the future, " \
+                   "at the cost of requiring manual project change tracking.'";
             writeMakeQmake(mkt);
             mkt.flush();
             mkf.close();
@@ -779,8 +783,9 @@ ProjectBuilderMakefileGenerator::writeMakeParts(QTextStream &t)
                                 mkt << "\\\n\t";
                             ++added;
                             const QString file_name = fileFixify(fn, FileFixifyFromOutdir);
+                            const QString tmpOut = fileFixify(tmp_out.first().toQString(), FileFixifyFromOutdir);
                             mkt << ' ' << escapeDependencyPath(Option::fixPathToTargetOS(
-                                    replaceExtraCompilerVariables(tmp_out.first().toQString(), file_name, QString(), NoShell)));
+                                    replaceExtraCompilerVariables(tmpOut, file_name, QString(), NoShell)));
                         }
                     }
                 }
@@ -824,7 +829,8 @@ ProjectBuilderMakefileGenerator::writeMakeParts(QTextStream &t)
     if(!project->isActiveConfig("staticlib")) { //DUMP LIBRARIES
         ProStringList &libdirs = project->values("QMAKE_PBX_LIBPATHS"),
               &frameworkdirs = project->values("QMAKE_FRAMEWORKPATH");
-        static const char * const libs[] = { "QMAKE_LIBS", "QMAKE_LIBS_PRIVATE", 0 };
+        static const char * const libs[] = { "LIBS", "LIBS_PRIVATE",
+                                             "QMAKE_LIBS", "QMAKE_LIBS_PRIVATE", nullptr };
         for (int i = 0; libs[i]; i++) {
             tmp = project->values(libs[i]);
             for(int x = 0; x < tmp.count();) {
@@ -847,7 +853,8 @@ ProjectBuilderMakefileGenerator::writeMakeParts(QTextStream &t)
                                encode the version number in the Project file which might be a bad
                                things in days to come? --Sam
                             */
-                            QString lib_file = QMakeMetaInfo::findLib(Option::normalizePath((*lit) + Option::dir_sep + lib));
+                            QString lib_file = QMakeMetaInfo::checkLib(Option::normalizePath(
+                                        (*lit) + Option::dir_sep + lib + Option::prl_ext));
                             if (!lib_file.isEmpty()) {
                                 QMakeMetaInfo libinfo(project);
                                 if(libinfo.readLib(lib_file)) {
@@ -873,7 +880,9 @@ ProjectBuilderMakefileGenerator::writeMakeParts(QTextStream &t)
                                                             name.chop(librarySuffix.length());
                                                     }
                                                 } else {
-                                                    library.replace(name, name + suffixSetting);
+                                                    int pos = library.lastIndexOf(name);
+                                                    if (pos != -1)
+                                                        library.insert(pos + name.length(), suffixSetting);
                                                 }
                                             }
                                         }
@@ -1414,7 +1423,7 @@ ProjectBuilderMakefileGenerator::writeMakeParts(QTextStream &t)
             testHost.append("Contents/MacOS/");
         testHost.append(targetName);
 
-        static const char * const configs[] = { "Debug", "Release", 0 };
+        static const char * const configs[] = { "Debug", "Release", nullptr };
         for (int i = 0; configs[i]; i++) {
             QString testBundleBuildConfig = keyFor(pbx_dir + "QMAKE_PBX_TEST_BUNDLE_BUILDCONFIG_" + configs[i]);
             t << "\t\t" << testBundleBuildConfig << " = {\n"
@@ -1602,7 +1611,17 @@ ProjectBuilderMakefileGenerator::writeMakeParts(QTextStream &t)
                     }
                 }
 
-                t << "\t\t\t\t" << writeSettings("SYMROOT", Option::output_dir) << ";\n";
+                // The symroot is marked by xcodebuild as excluded from Time Machine
+                // backups, as it's a temporary build dir, so we don't want it to be
+                // the same as the possibe in-source dir, as that would leave out
+                // sources from being backed up.
+                t << "\t\t\t\t" << writeSettings("SYMROOT",
+                    Option::output_dir + Option::dir_sep + ".xcode") << ";\n";
+
+                // The configuration build dir however is not treated as excluded,
+                // so we can safely point it to the root output dir.
+                t << "\t\t\t\t" << writeSettings("CONFIGURATION_BUILD_DIR",
+                    Option::output_dir + Option::dir_sep + "$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)") << ";\n";
 
                 if (!project->isEmpty("DESTDIR")) {
                     ProString dir = project->first("DESTDIR");
@@ -1677,6 +1696,8 @@ ProjectBuilderMakefileGenerator::writeMakeParts(QTextStream &t)
                     t << "\t\t\t\t" << writeSettings("OTHER_LDFLAGS",
                                                      fixListForOutput("SUBLIBS")
                                                      + fixListForOutput("QMAKE_LFLAGS")
+                                                     + fixListForOutput(fixLibFlags("LIBS"))
+                                                     + fixListForOutput(fixLibFlags("LIBS_PRIVATE"))
                                                      + fixListForOutput(fixLibFlags("QMAKE_LIBS"))
                                                      + fixListForOutput(fixLibFlags("QMAKE_LIBS_PRIVATE")),
                                                      SettingsAsList, 6) << ";\n";
@@ -1769,6 +1790,7 @@ ProjectBuilderMakefileGenerator::writeMakeParts(QTextStream &t)
                 schemeData.replace(QLatin1String("@QMAKE_ORIG_TARGET@"), target);
                 schemeData.replace(QLatin1String("@TARGET_PBX_KEY@"), keyFor(pbx_dir + "QMAKE_PBX_TARGET"));
                 schemeData.replace(QLatin1String("@TEST_BUNDLE_PBX_KEY@"), keyFor("QMAKE_TEST_BUNDLE_REFERENCE"));
+                schemeData.replace(QLatin1String("@QMAKE_RELATIVE_PBX_DIR@"), fileFixify(pbx_dir));
 
                 QTextStream outputSchemeStream(&outputSchemeFile);
                 outputSchemeStream << schemeData;
@@ -1863,33 +1885,28 @@ ProjectBuilderMakefileGenerator::keyFor(const QString &block)
 bool
 ProjectBuilderMakefileGenerator::openOutput(QFile &file, const QString &build) const
 {
-    if(QDir::isRelativePath(file.fileName()))
-        file.setFileName(Option::output_dir + "/" + file.fileName()); //pwd when qmake was run
+    Q_ASSERT_X(QDir::isRelativePath(file.fileName()), "ProjectBuilderMakefileGenerator",
+        "runQMake() should have normalized the filename and made it relative");
+
     QFileInfo fi(fileInfo(file.fileName()));
-    if(fi.suffix() != "pbxproj" || file.fileName().isEmpty()) {
+    if (fi.suffix() != "pbxproj") {
         QString output = file.fileName();
-        if(fi.isDir())
-            output += QDir::separator();
-        if(!output.endsWith(projectSuffix())) {
-            if(file.fileName().isEmpty() || fi.isDir()) {
-                if(project->first("TEMPLATE") == "subdirs" || project->isEmpty("QMAKE_ORIG_TARGET"))
+        if (!output.endsWith(projectSuffix())) {
+            if (fi.fileName().isEmpty()) {
+                if (project->first("TEMPLATE") == "subdirs" || project->isEmpty("QMAKE_ORIG_TARGET"))
                     output += fileInfo(project->projectFile()).baseName();
                 else
                     output += project->first("QMAKE_ORIG_TARGET").toQString();
             }
             output += projectSuffix() + QDir::separator();
-        } else if(output[(int)output.length() - 1] != QDir::separator()) {
+        } else {
             output += QDir::separator();
         }
         output += QString("project.pbxproj");
         file.setFileName(output);
-        bool ret = UnixMakefileGenerator::openOutput(file, build);
-        ((ProjectBuilderMakefileGenerator*)this)->pbx_dir = Option::output_dir.section(Option::dir_sep, 0, -1);
-        Option::output_dir = pbx_dir.section(Option::dir_sep, 0, -2);
-        return ret;
     }
 
-    ((ProjectBuilderMakefileGenerator*)this)->pbx_dir = Option::output_dir;
+    pbx_dir = Option::output_dir + Option::dir_sep + file.fileName().section(Option::dir_sep, 0, 0);
     return UnixMakefileGenerator::openOutput(file, build);
 }
 

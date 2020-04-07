@@ -71,6 +71,7 @@ namespace JobTypes {
         LoadScene,
         LoadTextureData,
         PickBoundingVolume,
+        RayCasting,
         RenderView,
         UpdateTransform,
         UpdateTreeEnabled,
@@ -103,7 +104,10 @@ namespace JobTypes {
         LoadSkeleton,
         UpdateSkinningPalette,
         ProximityFiltering,
-        SyncFilterEntityByLayer
+        SyncFilterEntityByLayer,
+        SyncMaterialGatherer,
+        UpdateLayerEntity,
+        SendTextureChangesToFrontend
     };
 
 } // JobTypes

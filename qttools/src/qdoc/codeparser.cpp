@@ -40,7 +40,6 @@
 
 QT_BEGIN_NAMESPACE
 
-#define COMMAND_COMPAT                  Doc::alias(QLatin1String("compat"))
 #define COMMAND_DEPRECATED              Doc::alias(QLatin1String("deprecated")) // ### don't document
 #define COMMAND_INGROUP                 Doc::alias(QLatin1String("ingroup"))
 #define COMMAND_INMODULE                Doc::alias(QLatin1String("inmodule"))  // ### don't document
@@ -110,11 +109,6 @@ QStringList CodeParser::headerFileNameFilter()
 void CodeParser::parseHeaderFile(const Location& location, const QString& filePath)
 {
     parseSourceFile(location, filePath);
-}
-
-void CodeParser::doneParsingHeaderFiles()
-{
-    doneParsingSourceFiles();
 }
 
 /*!
@@ -196,8 +190,7 @@ static QSet<QString> commonMetaCommands_;
 const QSet<QString>& CodeParser::commonMetaCommands()
 {
     if (commonMetaCommands_.isEmpty()) {
-        commonMetaCommands_ << COMMAND_COMPAT
-                            << COMMAND_DEPRECATED
+        commonMetaCommands_ << COMMAND_DEPRECATED
                             << COMMAND_INGROUP
                             << COMMAND_INMODULE
                             << COMMAND_INQMLMODULE
@@ -231,11 +224,7 @@ void CodeParser::processCommonMetaCommand(const Location& location,
                                           const ArgLocPair& arg,
                                           Node* node)
 {
-    if (command == COMMAND_COMPAT) {
-        location.warning(tr("\\compat command used, but Qt3 compatibility is no longer supported"));
-        node->setStatus(Node::Compat);
-    }
-    else if (command == COMMAND_DEPRECATED) {
+    if (command == COMMAND_DEPRECATED) {
         node->setStatus(Node::Obsolete);
     }
     else if ((command == COMMAND_INGROUP) || (command == COMMAND_INPUBLICGROUP)) {
@@ -262,7 +251,9 @@ void CodeParser::processCommonMetaCommand(const Location& location,
         node->setThreadSafeness(Node::NonReentrant);
     }
     else if (command == COMMAND_PRELIMINARY) {
-        node->setStatus(Node::Preliminary);
+        // \internal wins.
+        if (!node->isInternal())
+            node->setStatus(Node::Preliminary);
     }
     else if (command == COMMAND_INTERNAL) {
         if (!showInternal_) {
@@ -356,6 +347,21 @@ void CodeParser::setLink(Node* node, Node::LinkType linkType, const QString& arg
     QString desc;
     extractPageLinkAndDesc(arg, &link, &desc);
     node->setLink(linkType, link, desc);
+}
+
+/*!
+  \brief Test for whether a doc comment warrants warnings.
+
+  Returns true if qdoc should report that it has found something
+  wrong with the qdoc comment in \a doc. Sometimes, qdoc should
+  not report the warning, for example, when the comment contains
+  the \c internal command, which normally means qdoc will not use
+  the comment in the documentation anyway, so there is no point
+  in reporting warnings about it.
+ */
+bool CodeParser::isWorthWarningAbout(const Doc &doc)
+{
+    return (showInternal_ || !doc.metaCommandsUsed().contains(QStringLiteral("internal")));
 }
 
 /*!

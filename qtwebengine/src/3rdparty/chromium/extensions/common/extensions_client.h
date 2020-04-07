@@ -16,6 +16,7 @@
 class GURL;
 
 namespace base {
+class CommandLine;
 class FilePath;
 }
 
@@ -40,6 +41,10 @@ class ExtensionsClient {
   // can create additional ExtensionsClients because the utility thread runs
   // in-process.
   virtual void Initialize() = 0;
+
+  // Initializes web store URLs.
+  // Default values could be overriden with command line.
+  virtual void InitializeWebStoreUrls(base::CommandLine* command_line) = 0;
 
   // Returns the global PermissionMessageProvider to use to provide permission
   // warning strings.
@@ -75,7 +80,8 @@ class ExtensionsClient {
   // any origin.
   virtual const ScriptingWhitelist& GetScriptingWhitelist() const = 0;
 
-  // Get the set of chrome:// hosts that |extension| can run content scripts on.
+  // Get the set of chrome:// hosts that |extension| can have host permissions
+  // for.
   virtual URLPatternSet GetPermittedChromeSchemeHosts(
       const Extension* extension,
       const APIPermissionSet& api_permissions) const = 0;
@@ -127,6 +133,9 @@ class ExtensionsClient {
   // progress.
   // Can be overridden in tests.
   virtual bool ExtensionAPIEnabledInExtensionServiceWorkers() const;
+
+  // Returns the user agent used by the content module.
+  virtual std::string GetUserAgent() const;
 
   // Return the extensions client.
   static ExtensionsClient* Get();

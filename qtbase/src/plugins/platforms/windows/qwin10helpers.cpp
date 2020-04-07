@@ -39,10 +39,11 @@
 
 #include "qwin10helpers.h"
 
-#include <QtCore/QDebug>
+#include <QtCore/qdebug.h>
+#include <QtCore/qoperatingsystemversion.h>
 #include <QtCore/private/qsystemlibrary_p.h>
 
-#if defined(Q_CC_MINGW)
+#if defined(Q_CC_MINGW) || defined(Q_CC_CLANG)
 #  define HAS_UI_VIEW_SETTINGS_INTEROP
 // Present from MSVC2015 + SDK 10 onwards
 #elif (!defined(Q_CC_MSVC) || _MSC_VER >= 1900) && NTDDI_VERSION >= 0xa000000
@@ -115,7 +116,7 @@ static QWindowsComBaseDLL baseComDll;
 
 bool QWindowsComBaseDLL::init()
 {
-    if (QSysInfo::windowsVersion() >= QSysInfo::WV_WINDOWS10 && !isValid()) {
+    if (QOperatingSystemVersion::current() >= QOperatingSystemVersion::Windows10 && !isValid()) {
         QSystemLibrary library(QStringLiteral("combase"));
         roGetActivationFactory =
             reinterpret_cast<RoGetActivationFactory>(library.resolve("RoGetActivationFactory"));

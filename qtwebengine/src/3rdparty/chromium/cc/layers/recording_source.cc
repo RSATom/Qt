@@ -14,15 +14,8 @@
 #include "cc/paint/display_item_list.h"
 #include "cc/paint/solid_color_analyzer.h"
 #include "cc/raster/raster_source.h"
-#include "skia/ext/analysis_canvas.h"
 
 namespace {
-
-#ifdef NDEBUG
-const bool kDefaultClearCanvasSetting = false;
-#else
-const bool kDefaultClearCanvasSetting = true;
-#endif
 
 // We don't perform per-layer solid color analysis when there are too many skia
 // operations.
@@ -36,11 +29,11 @@ RecordingSource::RecordingSource()
     : slow_down_raster_scale_factor_for_debug_(0),
       requires_clear_(false),
       is_solid_color_(false),
-      clear_canvas_with_debug_color_(kDefaultClearCanvasSetting),
       solid_color_(SK_ColorTRANSPARENT),
-      background_color_(SK_ColorTRANSPARENT) {}
+      background_color_(SK_ColorTRANSPARENT),
+      recording_scale_factor_(1.f) {}
 
-RecordingSource::~RecordingSource() {}
+RecordingSource::~RecordingSource() = default;
 
 void RecordingSource::UpdateInvalidationForNewViewport(
     const gfx::Rect& old_recorded_viewport,
@@ -100,7 +93,10 @@ bool RecordingSource::UpdateAndExpandInvalidation(
 
 void RecordingSource::UpdateDisplayItemList(
     const scoped_refptr<DisplayItemList>& display_list,
-    const size_t& painter_reported_memory_usage) {
+    const size_t& painter_reported_memory_usage,
+    float recording_scale_factor) {
+  recording_scale_factor_ = recording_scale_factor;
+
   display_list_ = display_list;
   painter_reported_memory_usage_ = painter_reported_memory_usage;
 
@@ -145,13 +141,14 @@ void RecordingSource::DetermineIfSolidColor() {
   is_solid_color_ = false;
   solid_color_ = SK_ColorTRANSPARENT;
 
-  if (display_list_->op_count() > kMaxOpsToAnalyzeForLayer)
+  if (display_list_->TotalOpCount() > kMaxOpsToAnalyzeForLayer)
     return;
 
   TRACE_EVENT1("cc", "RecordingSource::DetermineIfSolidColor", "opcount",
-               display_list_->op_count());
+               display_list_->TotalOpCount());
   is_solid_color_ = display_list_->GetColorIfSolidInRect(
-      gfx::Rect(GetSize()), &solid_color_, kMaxOpsToAnalyzeForLayer);
+      gfx::ScaleToRoundedRect(gfx::Rect(GetSize()), recording_scale_factor_),
+      &solid_color_, kMaxOpsToAnalyzeForLayer);
 }
 
 }  // namespace cc

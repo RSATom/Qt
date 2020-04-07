@@ -46,13 +46,13 @@
 
 #include <qpa/qwindowsysteminterface.h>
 
-#include <QtGui/QTabletEvent>
-#include <QtGui/QScreen>
-#include <QtGui/QGuiApplication>
-#include <QtGui/QWindow>
-#include <QtCore/QDebug>
-#include <QtCore/QVarLengthArray>
-#include <QtCore/QtMath>
+#include <QtGui/qevent.h>
+#include <QtGui/qscreen.h>
+#include <QtGui/qguiapplication.h>
+#include <QtGui/qwindow.h>
+#include <QtCore/qdebug.h>
+#include <QtCore/qvarlengtharray.h>
+#include <QtCore/qmath.h>
 
 #include <private/qguiapplication_p.h>
 #include <QtCore/private/qsystemlibrary_p.h>
@@ -108,8 +108,63 @@ inline QPointF QWindowsTabletDeviceData::scaleCoordinates(int coordX, int coordY
         ((coordY - minY) * qAbs(targetHeight) / qAbs(qreal(maxY - minY))) + targetY :
         ((qAbs(maxY) - (coordY - minY)) * qAbs(targetHeight) / qAbs(qreal(maxY - minY))) + targetY;
 
-    return QPointF(x, y);
+    return {x, y};
 }
+
+template <class Stream>
+static void formatOptions(Stream &str, unsigned options)
+{
+    if (options & CXO_SYSTEM)
+        str << " CXO_SYSTEM";
+    if (options & CXO_PEN)
+        str << " CXO_PEN";
+    if (options & CXO_MESSAGES)
+        str << " CXO_MESSAGES";
+    if (options & CXO_MARGIN)
+        str << " CXO_MARGIN";
+    if (options & CXO_MGNINSIDE)
+        str << " CXO_MGNINSIDE";
+    if (options & CXO_CSRMESSAGES)
+        str << " CXO_CSRMESSAGES";
+}
+
+#ifndef QT_NO_DEBUG_STREAM
+QDebug operator<<(QDebug d, const QWindowsTabletDeviceData &t)
+{
+    QDebugStateSaver saver(d);
+    d.nospace();
+    d << "TabletDevice id:" << t.uniqueId << " pressure: " << t.minPressure
+      << ".." << t.maxPressure << " tan pressure: " << t.minTanPressure << ".."
+      << t.maxTanPressure << " area: (" << t.minX << ',' << t.minY << ',' << t.minZ
+      << ")..(" << t.maxX << ',' << t.maxY << ',' << t.maxZ << ") device "
+      << t.currentDevice << " pointer " << t.currentPointerType;
+    return d;
+}
+
+QDebug operator<<(QDebug d, const LOGCONTEXT &lc)
+{
+    QDebugStateSaver saver(d);
+    d.nospace();
+    d << "LOGCONTEXT(\"" << QString::fromWCharArray(lc.lcName) << "\", options=0x"
+        << hex << lc.lcOptions << dec;
+    formatOptions(d, lc.lcOptions);
+    d << ", status=0x" << hex << lc.lcStatus << ", device=0x" << lc.lcDevice
+        << dec << ", PktRate=" << lc.lcPktRate
+        << ", PktData=" << lc.lcPktData << ", PktMode=" << lc.lcPktMode
+        << ", MoveMask=0x" << hex << lc.lcMoveMask << ", BtnDnMask=0x" << lc.lcBtnDnMask
+        << ", BtnUpMask=0x" << lc.lcBtnUpMask << dec << ", SysMode=" << lc.lcSysMode
+        << ", InOrg=(" << lc.lcInOrgX << ", " << lc.lcInOrgY << ", " << lc.lcInOrgZ
+        <<  "), InExt=(" << lc.lcInExtX << ", " << lc.lcInExtY << ", " << lc.lcInExtZ
+        << ") OutOrg=(" << lc.lcOutOrgX << ", " << lc.lcOutOrgY << ", "
+        << lc.lcOutOrgZ <<  "), OutExt=(" << lc.lcOutExtX << ", " << lc.lcOutExtY
+        << ", " << lc.lcOutExtZ
+        << "), Sens=(" << lc.lcSensX << ", " << lc.lcSensX << ", " << lc.lcSensZ
+        << ") SysOrg=(" << lc.lcSysOrgX << ", " << lc.lcSysOrgY
+        << "), SysExt=(" << lc.lcSysExtX << ", " << lc.lcSysExtY
+        << "), SysSens=(" << lc.lcSysSensX << ", " << lc.lcSysSensY << "))";
+    return d;
+}
+#endif // !QT_NO_DEBUG_STREAM
 
 QWindowsWinTab32DLL QWindowsTabletSupport::m_winTab32DLL;
 
@@ -156,9 +211,6 @@ bool QWindowsWinTab32DLL::init()
 QWindowsTabletSupport::QWindowsTabletSupport(HWND window, HCTX context)
     : m_window(window)
     , m_context(context)
-    , m_absoluteRange(20)
-    , m_tiltSupport(false)
-    , m_currentDevice(-1)
 {
      AXIS orientation[3];
     // Some tablets don't support tilt, check if it is possible,
@@ -175,17 +227,18 @@ QWindowsTabletSupport::~QWindowsTabletSupport()
 QWindowsTabletSupport *QWindowsTabletSupport::create()
 {
     if (!m_winTab32DLL.init())
-        return 0;
+        return nullptr;
     const HWND window = QWindowsContext::instance()->createDummyWindow(QStringLiteral("TabletDummyWindow"),
                                                                        L"TabletDummyWindow",
                                                                        qWindowsTabletSupportWndProc);
     if (!window) {
         qCWarning(lcQpaTablet) << __FUNCTION__ << "Unable to create window for tablet.";
-        return 0;
+        return nullptr;
     }
     LOGCONTEXT lcMine;
     // build our context from the default context
     QWindowsTabletSupport::m_winTab32DLL.wTInfo(WTI_DEFSYSCTX, 0, &lcMine);
+    qCDebug(lcQpaTablet) << "Default: " << lcMine;
     // Go for the raw coordinates, the tablet event will return good stuff
     lcMine.lcOptions |= CXO_MESSAGES | CXO_CSRMESSAGES;
     lcMine.lcPktData = lcMine.lcMoveMask = PACKETDATA;
@@ -194,11 +247,12 @@ QWindowsTabletSupport *QWindowsTabletSupport::create()
     lcMine.lcOutExtX = lcMine.lcInExtX;
     lcMine.lcOutOrgY = 0;
     lcMine.lcOutExtY = -lcMine.lcInExtY;
+    qCDebug(lcQpaTablet) << "Requesting: " << lcMine;
     const HCTX context = QWindowsTabletSupport::m_winTab32DLL.wTOpen(window, &lcMine, true);
     if (!context) {
         qCDebug(lcQpaTablet) << __FUNCTION__ << "Unable to open tablet.";
         DestroyWindow(window);
-        return 0;
+        return nullptr;
 
     }
     // Set the size of the Packet Queue to the correct size
@@ -209,13 +263,13 @@ QWindowsTabletSupport *QWindowsTabletSupport::create()
                 qWarning("Unable to set queue size on tablet. The tablet will not work.");
                 QWindowsTabletSupport::m_winTab32DLL.wTClose(context);
                 DestroyWindow(window);
-                return 0;
+                return nullptr;
             } // cannot restore old size
         } // cannot set
     } // mismatch
     qCDebug(lcQpaTablet) << "Opened tablet context " << context << " on window "
         <<  window << "changed packet queue size " << currentQueueSize
-        << "->" <<  TabletPacketQSize;
+        << "->" <<  TabletPacketQSize << "\nobtained: " << lcMine;
     return new QWindowsTabletSupport(window, context);
 }
 
@@ -228,7 +282,7 @@ unsigned QWindowsTabletSupport::options() const
 
 QString QWindowsTabletSupport::description() const
 {
-    const unsigned size = m_winTab32DLL.wTInfo(WTI_INTERFACE, IFC_WINTABID, 0);
+    const unsigned size = m_winTab32DLL.wTInfo(WTI_INTERFACE, IFC_WINTABID, nullptr);
     if (!size)
         return QString();
     QVarLengthArray<TCHAR> winTabId(size + 1);
@@ -238,17 +292,23 @@ QString QWindowsTabletSupport::description() const
     WORD specificationVersion = 0;
     m_winTab32DLL.wTInfo(WTI_INTERFACE, IFC_SPECVERSION, &specificationVersion);
     const unsigned opts = options();
-    QString result = QString::fromLatin1("%1 specification: v%2.%3 implementation: v%4.%5 options: 0x%6")
-        .arg(QString::fromWCharArray(winTabId.data()))
-        .arg(specificationVersion >> 8).arg(specificationVersion & 0xFF)
-        .arg(implementationVersion >> 8).arg(implementationVersion & 0xFF)
-        .arg(opts, 0, 16);
-    if (opts & CXO_MESSAGES)
-        result += QLatin1String(" CXO_MESSAGES");
-    if (opts & CXO_CSRMESSAGES)
-        result += QLatin1String(" CXO_CSRMESSAGES");
+    WORD devices = 0;
+    m_winTab32DLL.wTInfo(WTI_INTERFACE, IFC_NDEVICES, &devices);
+    WORD cursors = 0;
+    m_winTab32DLL.wTInfo(WTI_INTERFACE, IFC_NCURSORS, &cursors);
+    WORD extensions = 0;
+    m_winTab32DLL.wTInfo(WTI_INTERFACE, IFC_NEXTENSIONS, &extensions);
+    QString result;
+    QTextStream str(&result);
+    str << '"' << QString::fromWCharArray(winTabId.data())
+        << "\" specification: v" << (specificationVersion >> 8)
+        << '.' << (specificationVersion & 0xFF) << " implementation: v"
+        << (implementationVersion >> 8) << '.' << (implementationVersion & 0xFF)
+        << ' ' << devices << " device(s), " << cursors << " cursor(s), "
+        << extensions << " extensions" << ", options: 0x" << hex << opts << dec;
+    formatOptions(str, opts);
     if (m_tiltSupport)
-        result += QLatin1String(" tilt");
+        str << " tilt";
     return result;
 }
 
@@ -306,20 +366,6 @@ static inline QTabletEvent::PointerType pointerType(unsigned currentCursor)
     return QTabletEvent::UnknownPointer;
 }
 
-#ifndef QT_NO_DEBUG_STREAM
-QDebug operator<<(QDebug d, const QWindowsTabletDeviceData &t)
-{
-    QDebugStateSaver saver(d);
-    d.nospace();
-    d << "TabletDevice id:" << t.uniqueId << " pressure: " << t.minPressure
-      << ".." << t.maxPressure << " tan pressure: " << t.minTanPressure << ".."
-      << t.maxTanPressure << " area:" << t.minX << t.minY <<t.minZ
-      << ".." << t.maxX << t.maxY << t.maxZ << " device " << t.currentDevice
-      << " pointer " << t.currentPointerType;
-    return d;
-}
-#endif // !QT_NO_DEBUG_STREAM
-
 QWindowsTabletDeviceData QWindowsTabletSupport::tabletInit(qint64 uniqueId, UINT cursorType) const
 {
     QWindowsTabletDeviceData result;
@@ -357,6 +403,7 @@ bool QWindowsTabletSupport::translateTabletProximityEvent(WPARAM /* wParam */, L
         qCDebug(lcQpaTablet) << "leave proximity for device #" << m_currentDevice;
         if (m_currentDevice < 0 || m_currentDevice >= m_devices.size()) // QTBUG-65120, spurious leave observed
             return false;
+        m_state = PenUp;
         if (totalPacks > 0) {
             QWindowSystemInterface::handleTabletLeaveProximityEvent(proximityBuffer[0].pkTime,
                                                                     m_devices.at(m_currentDevice).currentDevice,
@@ -389,6 +436,7 @@ bool QWindowsTabletSupport::translateTabletProximityEvent(WPARAM /* wParam */, L
         m_devices.push_back(tabletInit(uniqueId, cursorType));
     }
     m_devices[m_currentDevice].currentPointerType = pointerType(currentCursor);
+    m_state = PenProximity;
     qCDebug(lcQpaTablet) << "enter proximity for device #"
         << m_currentDevice << m_devices.at(m_currentDevice);
     QWindowSystemInterface::handleTabletEnterProximityEvent(proximityBuffer[0].pkTime,
@@ -409,7 +457,8 @@ bool QWindowsTabletSupport::translateTabletPacketEvent()
     const int currentPointer = m_devices.at(m_currentDevice).currentPointerType;
     const qint64 uniqueId = m_devices.at(m_currentDevice).uniqueId;
 
-    // The tablet can be used in 2 different modes, depending on it settings:
+    // The tablet can be used in 2 different modes (reflected in enum Mode),
+    // depending on its settings:
     // 1) Absolute (pen) mode:
     //    The coordinates are scaled to the virtual desktop (by default). The user
     //    can also choose to scale to the monitor or a region of the screen.
@@ -421,10 +470,14 @@ bool QWindowsTabletSupport::translateTabletPacketEvent()
     //    in which case we snap the position to the mouse position.
     // It seems there is no way to find out the mode programmatically, the LOGCONTEXT orgX/Y/Ext
     // area is always the virtual desktop.
-    const QRect virtualDesktopArea = QGuiApplication::primaryScreen()->virtualGeometry();
+    const QRect virtualDesktopArea =
+        QWindowsScreen::virtualGeometry(QGuiApplication::primaryScreen()->handle());
 
-    qCDebug(lcQpaTablet) << __FUNCTION__ << "processing " << packetCount
-        << "target:" << QGuiApplicationPrivate::tabletDevicePoint(uniqueId).target;
+    if (QWindowsContext::verbose > 1)  {
+        qCDebug(lcQpaTablet) << __FUNCTION__ << "processing" << packetCount
+            << "mode=" << m_mode << "target:"
+            << QGuiApplicationPrivate::tabletDevicePoint(uniqueId).target;
+    }
 
     const Qt::KeyboardModifiers keyboardModifiers = QWindowsKeyMapper::queryKeyboardModifiers();
 
@@ -433,29 +486,32 @@ bool QWindowsTabletSupport::translateTabletPacketEvent()
 
         const int z = currentDevice == QTabletEvent::FourDMouse ? int(packet.pkZ) : 0;
 
-        // This code is to delay the tablet data one cycle to sync with the mouse location.
-        QPointF globalPosF = m_oldGlobalPosF;
-        m_oldGlobalPosF = m_devices.at(m_currentDevice).scaleCoordinates(packet.pkX, packet.pkY, virtualDesktopArea);
+        QPointF globalPosF =
+            m_devices.at(m_currentDevice).scaleCoordinates(packet.pkX, packet.pkY, virtualDesktopArea);
 
         QWindow *target = QGuiApplicationPrivate::tabletDevicePoint(uniqueId).target; // Pass to window that grabbed it.
-        QPoint globalPos = globalPosF.toPoint();
 
         // Get Mouse Position and compare to tablet info
         const QPoint mouseLocation = QWindowsCursor::mousePosition();
-
-        // Positions should be almost the same if we are in absolute
-        // mode. If they are not, use the mouse location.
-        if ((mouseLocation - globalPos).manhattanLength() > m_absoluteRange) {
-            globalPos = mouseLocation;
-            globalPosF = globalPos;
+        if (m_state == PenProximity) {
+            m_state = PenDown;
+            m_mode = (mouseLocation - globalPosF).manhattanLength() > m_absoluteRange
+                ? MouseMode : PenMode;
+            qCDebug(lcQpaTablet) << __FUNCTION__ << "mode=" << m_mode << "pen:"
+                << globalPosF << "mouse:" << mouseLocation;
         }
+        if (m_mode == MouseMode)
+            globalPosF = mouseLocation;
+        const QPoint globalPos = globalPosF.toPoint();
 
         if (!target)
             target = QWindowsScreen::windowAt(globalPos, CWP_SKIPINVISIBLE | CWP_SKIPTRANSPARENT);
         if (!target)
             continue;
 
-        const QPoint localPos = target->mapFromGlobal(globalPos);
+        const QPlatformWindow *platformWindow = target->handle();
+        Q_ASSERT(platformWindow);
+        const QPoint localPos = platformWindow->mapFromGlobal(globalPos);
 
         const qreal pressureNew = packet.pkButtons && (currentPointer == QTabletEvent::Pen || currentPointer == QTabletEvent::Eraser) ?
             m_devices.at(m_currentDevice).scalePressure(packet.pkNormalPressure) :

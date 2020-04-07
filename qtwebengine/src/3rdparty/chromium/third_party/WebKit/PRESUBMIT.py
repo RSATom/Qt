@@ -9,63 +9,6 @@ for more details about the presubmit API built into gcl.
 """
 
 import os
-import re
-import sys
-
-
-_EXCLUDED_PATHS = (
-    # This directory is created and updated via a script.
-    r'^third_party[\\\/]WebKit[\\\/]Tools[\\\/]Scripts[\\\/]webkitpy[\\\/]thirdparty[\\\/]wpt[\\\/]wpt[\\\/].*',
-)
-
-
-def _CheckForNonBlinkVariantMojomIncludes(input_api, output_api):
-    pattern = input_api.re.compile(r'#include\s+.+\.mojom(.*)\.h[>"]')
-    errors = []
-    for f in input_api.AffectedFiles():
-        for line_num, line in f.ChangedContents():
-            m = pattern.match(line)
-            if m and m.group(1) != '-blink' and m.group(1) != '-shared':
-                errors.append('    %s:%d %s' % (
-                    f.LocalPath(), line_num, line))
-
-    results = []
-    if errors:
-        results.append(output_api.PresubmitError(
-            'Files that include non-Blink variant mojoms found. '
-            'You must include .mojom-blink.h or .mojom-shared.h instead:',
-            errors))
-    return results
-
-
-def _CheckWatchlist(input_api, output_api):
-    """Check that the WATCHLIST file parses correctly."""
-    errors = []
-    for f in input_api.AffectedFiles():
-        if f.LocalPath() != 'WATCHLISTS':
-            continue
-        import StringIO
-        import logging
-        import watchlists
-
-        log_buffer = StringIO.StringIO()
-        log_handler = logging.StreamHandler(log_buffer)
-        log_handler.setFormatter(
-            logging.Formatter('%(levelname)s: %(message)s'))
-        logger = logging.getLogger()
-        logger.addHandler(log_handler)
-
-        wl = watchlists.Watchlists(input_api.change.RepositoryRoot())
-
-        logger.removeHandler(log_handler)
-        log_handler.flush()
-        log_buffer.flush()
-
-        if log_buffer.getvalue():
-            errors.append(output_api.PresubmitError(
-                'Cannot parse WATCHLISTS file, please resolve.',
-                log_buffer.getvalue().splitlines()))
-    return errors
 
 
 def _CommonChecks(input_api, output_api):
@@ -75,43 +18,22 @@ def _CommonChecks(input_api, output_api):
 
     results = []
     results.extend(input_api.canned_checks.PanProjectChecks(
-        input_api, output_api, excluded_paths=_EXCLUDED_PATHS,
-        maxlen=800, license_header=license_header))
-    results.extend(_CheckForNonBlinkVariantMojomIncludes(input_api, output_api))
-    results.extend(_CheckTestExpectations(input_api, output_api))
-    results.extend(_CheckWatchlist(input_api, output_api))
+        input_api, output_api, maxlen=800, license_header=license_header))
     return results
 
 
-def _CheckTestExpectations(input_api, output_api):
-    local_paths = [f.LocalPath() for f in input_api.AffectedFiles()]
-    if any('LayoutTests' in path for path in local_paths):
-        lint_path = input_api.os_path.join(input_api.PresubmitLocalPath(),
-            'Tools', 'Scripts', 'lint-test-expectations')
-        _, errs = input_api.subprocess.Popen(
-            [input_api.python_executable, lint_path],
-            stdout=input_api.subprocess.PIPE,
-            stderr=input_api.subprocess.PIPE).communicate()
-        if not errs:
-            return [output_api.PresubmitError(
-                "lint-test-expectations failed "
-                "to produce output; check by hand. ")]
-        if errs.strip() != 'Lint succeeded.':
-            return [output_api.PresubmitError(errs)]
-    return []
-
-
 def _CheckStyle(input_api, output_api):
-    # Files that follow Chromium's coding style do not include capital letters.
-    re_chromium_style_file = re.compile(r'\b[a-z_]+\.(cc|h)$')
-    style_checker_path = input_api.os_path.join(input_api.PresubmitLocalPath(),
-        'Tools', 'Scripts', 'check-webkit-style')
+    style_checker_path = input_api.os_path.join(input_api.PresubmitLocalPath(), '..', 'blink',
+                                                'tools', 'check_blink_style.py')
     args = [input_api.python_executable, style_checker_path, '--diff-files']
-    files = [input_api.os_path.join('..', '..', f.LocalPath())
-             for f in input_api.AffectedFiles()
-             # Filter out files that follow Chromium's coding style.
-             if not re_chromium_style_file.search(f.LocalPath())]
-    # Do not call check-webkit-style with empty affected file list if all
+    files = []
+    for f in input_api.AffectedFiles():
+        file_path = f.LocalPath()
+        # Filter out changes in LayoutTests.
+        if 'LayoutTests' + input_api.os_path.sep in file_path and 'TestExpectations' not in file_path:
+            continue
+        files.append(input_api.os_path.join('..', '..', file_path))
+    # Do not call check_blink_style.py with empty affected file list if all
     # input_api.AffectedFiles got filtered.
     if not files:
         return []
@@ -124,130 +46,18 @@ def _CheckStyle(input_api, output_api):
         _, stderrdata = child.communicate()
         if child.returncode != 0:
             results.append(output_api.PresubmitError(
-                'check-webkit-style failed', [stderrdata]))
+                'check_blink_style.py failed', [stderrdata]))
     except Exception as e:
         results.append(output_api.PresubmitNotifyResult(
-            'Could not run check-webkit-style', [str(e)]))
+            'Could not run check_blink_style.py', [str(e)]))
 
     return results
-
-
-def _CheckForPrintfDebugging(input_api, output_api):
-    """Generally speaking, we'd prefer not to land patches that printf
-    debug output."""
-    printf_re = input_api.re.compile(r'^\s*(printf\(|fprintf\(stderr,)')
-    errors = input_api.canned_checks._FindNewViolationsOfRule(
-        lambda _, x: not printf_re.search(x),
-        input_api, None)
-    errors = ['  * %s' % violation for violation in errors]
-    if errors:
-        return [output_api.PresubmitPromptOrNotify(
-                    'printf debugging is best debugging! That said, it might '
-                    'be a good idea to drop the following occurances from '
-                    'your patch before uploading:\n%s' % '\n'.join(errors))]
-    return []
-
-
-def _CheckForJSTest(input_api, output_api):
-    """'js-test.js' is the past, 'testharness.js' is our glorious future"""
-    jstest_re = input_api.re.compile(r'resources/js-test.js')
-
-    def source_file_filter(path):
-        return input_api.FilterSourceFile(path,
-                                          white_list=[r'third_party/WebKit/LayoutTests/.*\.(html|js|php|pl|svg)$'])
-
-    errors = input_api.canned_checks._FindNewViolationsOfRule(
-        lambda _, x: not jstest_re.search(x), input_api, source_file_filter)
-    errors = ['  * %s' % violation for violation in errors]
-    if errors:
-        return [output_api.PresubmitPromptOrNotify(
-            '"resources/js-test.js" is deprecated; please write new layout '
-            'tests using the assertions in "resources/testharness.js" '
-            'instead, as these can be more easily upstreamed to Web Platform '
-            'Tests for cross-vendor compatibility testing. If you\'re not '
-            'already familiar with this framework, a tutorial is available at '
-            'https://darobin.github.io/test-harness-tutorial/docs/using-testharness.html'
-            '\n\n%s' % '\n'.join(errors))]
-    return []
-
-def _CheckForFailInFile(input_api, f):
-    pattern = input_api.re.compile('^FAIL')
-    errors = []
-    for line_num, line in f.ChangedContents():
-        if pattern.match(line):
-            errors.append('    %s:%d %s' % (f.LocalPath(), line_num, line))
-    return errors
-
-
-def _CheckForInvalidPreferenceError(input_api, output_api):
-    pattern = input_api.re.compile('Invalid name for preference: (.+)')
-    results = []
-
-    for f in input_api.AffectedFiles():
-        if not f.LocalPath().endswith('-expected.txt'):
-            continue
-        for line_num, line in f.ChangedContents():
-            error = pattern.search(line)
-            if error:
-                results.append(output_api.PresubmitError('Found an invalid preference %s in expected result %s:%s' % (error.group(1), f, line_num)))
-    return results
-
-
-def _CheckForForbiddenNamespace(input_api, output_api):
-    """Checks that Blink uses Chromium namespaces only in permitted code."""
-    # This list is not exhaustive, but covers likely ones.
-    chromium_namespaces = ["base", "cc", "content", "gfx", "net", "ui"]
-    chromium_forbidden_classes = ["scoped_refptr"]
-    chromium_allowed_classes = ["gfx::ColorSpace", "gfx::CubicBezier"]
-
-    def source_file_filter(path):
-        return input_api.FilterSourceFile(path,
-                                          white_list=[r'third_party/WebKit/Source/.*\.(h|cpp)$'],
-                                          black_list=[r'third_party/WebKit/Source/(platform|wtf|web)/'])
-
-    comment_re = input_api.re.compile(r'^\s*//')
-    result = []
-    for namespace in chromium_namespaces:
-        namespace_re = input_api.re.compile(r'\b{0}::([A-Za-z_][A-Za-z0-9_]*)'.format(input_api.re.escape(namespace)))
-
-        def uses_namespace_outside_comments(line):
-            if comment_re.search(line):
-                return False
-            re_result = namespace_re.search(line)
-            if not re_result:
-                return False
-            parsed_class_name = namespace + "::" + re_result.group(1)
-            return not (parsed_class_name in chromium_allowed_classes)
-
-        errors = input_api.canned_checks._FindNewViolationsOfRule(lambda _, line: not uses_namespace_outside_comments(line),
-                                                                  input_api, source_file_filter)
-        if errors:
-            result += [output_api.PresubmitError('Do not use Chromium class from namespace {} inside Blink core:\n{}'.format(namespace, '\n'.join(errors)))]
-    for namespace in chromium_namespaces:
-        namespace_re = input_api.re.compile(r'^\s*using namespace {0};|^\s*namespace {0} \{{'.format(input_api.re.escape(namespace)))
-        uses_namespace_outside_comments = lambda line: namespace_re.search(line) and not comment_re.search(line)
-        errors = input_api.canned_checks._FindNewViolationsOfRule(lambda _, line: not uses_namespace_outside_comments(line),
-                                                                  input_api, source_file_filter)
-        if errors:
-            result += [output_api.PresubmitError('Do not use Chromium namespace {} inside Blink core:\n{}'.format(namespace, '\n'.join(errors)))]
-    for class_name in chromium_forbidden_classes:
-        class_re = input_api.re.compile(r'\b{0}\b'.format(input_api.re.escape(class_name)))
-        uses_class_outside_comments = lambda line: class_re.search(line) and not comment_re.search(line)
-        errors = input_api.canned_checks._FindNewViolationsOfRule(lambda _, line: not uses_class_outside_comments(line),
-                                                                  input_api, source_file_filter)
-        if errors:
-            result += [output_api.PresubmitError('Do not use Chromium class {} inside Blink core:\n{}'.format(class_name, '\n'.join(errors)))]
-    return result
 
 
 def CheckChangeOnUpload(input_api, output_api):
     results = []
     results.extend(_CommonChecks(input_api, output_api))
     results.extend(_CheckStyle(input_api, output_api))
-    results.extend(_CheckForPrintfDebugging(input_api, output_api))
-    results.extend(_CheckForJSTest(input_api, output_api))
-    results.extend(_CheckForInvalidPreferenceError(input_api, output_api))
-    results.extend(_CheckForForbiddenNamespace(input_api, output_api))
     return results
 
 
@@ -265,17 +75,14 @@ def CheckChangeOnCommit(input_api, output_api):
 def _ArePaintOrCompositingDirectoriesModified(change):  # pylint: disable=C0103
     """Checks whether CL has changes to paint or compositing directories."""
     paint_or_compositing_paths = [
-        os.path.join('third_party', 'WebKit', 'Source', 'platform', 'graphics',
-                     'compositing'),
-        os.path.join('third_party', 'WebKit', 'Source', 'platform', 'graphics',
-                     'paint'),
-        os.path.join('third_party', 'WebKit', 'Source', 'core', 'layout',
-                     'compositing'),
-        os.path.join('third_party', 'WebKit', 'Source', 'core', 'paint'),
         os.path.join('third_party', 'WebKit', 'LayoutTests', 'FlagExpectations',
                      'enable-slimming-paint-v2'),
         os.path.join('third_party', 'WebKit', 'LayoutTests', 'flag-specific',
                      'enable-slimming-paint-v2'),
+        os.path.join('third_party', 'WebKit', 'LayoutTests', 'FlagExpectations',
+                     'enable-blink-gen-property-trees'),
+        os.path.join('third_party', 'WebKit', 'LayoutTests', 'flag-specific',
+                     'enable-blink-gen-property-trees'),
     ]
     for affected_file in change.AffectedFiles():
         file_path = affected_file.LocalPath()
@@ -287,8 +94,10 @@ def _ArePaintOrCompositingDirectoriesModified(change):  # pylint: disable=C0103
 def _AreLayoutNGDirectoriesModified(change):  # pylint: disable=C0103
     """Checks whether CL has changes to a layout ng directory."""
     layout_ng_paths = [
-        os.path.join('third_party', 'WebKit', 'Source', 'core', 'layout',
-                     'ng'),
+        os.path.join('third_party', 'WebKit', 'LayoutTests', 'FlagExpectations',
+                     'enable-blink-features=LayoutNG'),
+        os.path.join('third_party', 'WebKit', 'LayoutTests', 'flag-specific',
+                     'enable-blink-features=LayoutNG'),
     ]
     for affected_file in change.AffectedFiles():
         file_path = affected_file.LocalPath()
@@ -312,14 +121,17 @@ def PostUploadHook(cl, change, output_api):  # pylint: disable=C0103
     if _ArePaintOrCompositingDirectoriesModified(change):
         results.extend(output_api.EnsureCQIncludeTrybotsAreAdded(
             cl,
-            ['master.tryserver.chromium.linux:'
-             'linux_layout_tests_slimming_paint_v2'],
-            'Automatically added slimming-paint-v2 tests to run on CQ due to '
-            'changes in paint or compositing directories.'))
+            ['luci.chromium.try:'
+             'linux_layout_tests_slimming_paint_v2',
+             # TODO(kojii): Update linux_trusty_blink_rel to luci when migrated.
+             'master.tryserver.blink:linux_trusty_blink_rel'],
+            'Automatically added linux_layout_tests_slimming_paint_v2 and '
+            'linux_trusty_blink_rel to run on CQ due to changes in paint or '
+            'compositing directories.'))
     if _AreLayoutNGDirectoriesModified(change):
         results.extend(output_api.EnsureCQIncludeTrybotsAreAdded(
             cl,
-            ['master.tryserver.chromium.linux:'
+            ['luci.chromium.try:'
              'linux_layout_tests_layout_ng'],
             'Automatically added linux_layout_tests_layout_ng to run on CQ due '
             'to changes in LayoutNG directories.'))

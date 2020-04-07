@@ -44,7 +44,9 @@
 #if QT_CONFIG(menubar)
 #include "qmenubar.h"
 #endif
+#if QT_CONFIG(toolbar)
 #include "qtoolbar.h"
+#endif
 #include "qevent.h"
 #include "qstyle.h"
 #include "qvariant.h"
@@ -400,8 +402,8 @@ int QLayoutItem::minimumHeightForWidth(int w) const
 
 
 /*!
-    Returns the preferred height for this layout item, given the width
-    \a w.
+    Returns the preferred height for this layout item, given the
+    width, which is not used in this default implementation.
 
     The default implementation returns -1, indicating that the
     preferred height is independent of the width of the item. Using
@@ -839,7 +841,7 @@ int QWidgetItemV2::heightForWidth(int width) const
         const QSize &size = q_cachedHfws[offset % HfwCacheMaxSize];
         if (size.width() == width) {
             if (q_hfwCacheSize == HfwCacheMaxSize)
-                q_firstCachedHfw = offset;
+                q_firstCachedHfw = offset % HfwCacheMaxSize;
             return size.height();
         }
     }

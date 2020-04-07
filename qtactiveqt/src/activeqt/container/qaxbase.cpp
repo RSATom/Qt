@@ -256,6 +256,7 @@ static const char *const type_conversion[][2] =
 
 class QAxEventSink : public IDispatch, public IPropertyNotifySink
 {
+    Q_DISABLE_COPY(QAxEventSink)
 public:
     QAxEventSink(QAxBase *com)
         : cpoint(0), ciid(IID_NULL), combase(com), ref(1)
@@ -327,11 +328,11 @@ public:
     }
 
     // IUnknown
-    unsigned long __stdcall AddRef()
+    unsigned long __stdcall AddRef() override
     {
         return InterlockedIncrement(&ref);
     }
-    unsigned long __stdcall Release()
+    unsigned long __stdcall Release() override
     {
         LONG refCount = InterlockedDecrement(&ref);
         if (!refCount)
@@ -339,7 +340,7 @@ public:
 
         return refCount;
     }
-    HRESULT __stdcall QueryInterface(REFIID riid, void **ppvObject)
+    HRESULT __stdcall QueryInterface(REFIID riid, void **ppvObject) override
     {
         *ppvObject = 0;
         if (riid == IID_IUnknown)
@@ -356,18 +357,17 @@ public:
     }
 
     // IDispatch
-    HRESULT __stdcall GetTypeInfoCount(unsigned int *) { return E_NOTIMPL; }
-    HRESULT __stdcall GetTypeInfo(UINT, LCID, ITypeInfo **) { return E_NOTIMPL; }
-    HRESULT __stdcall GetIDsOfNames(const _GUID &, wchar_t **, unsigned int, unsigned long, long *) { return E_NOTIMPL; }
+    HRESULT __stdcall GetTypeInfoCount(unsigned int *) override
+    { return E_NOTIMPL; }
+    HRESULT __stdcall GetTypeInfo(UINT, LCID, ITypeInfo **) override
+    { return E_NOTIMPL; }
+    HRESULT __stdcall GetIDsOfNames(const _GUID &, wchar_t **, unsigned int,
+                                    unsigned long, long *) override
+    { return E_NOTIMPL; }
 
-    HRESULT __stdcall Invoke(DISPID dispIdMember,
-                            REFIID riid,
-                            LCID,
-                            WORD wFlags,
-                            DISPPARAMS *pDispParams,
-                            VARIANT*,
-                            EXCEPINFO*,
-                            UINT*)
+    HRESULT __stdcall Invoke(DISPID dispIdMember, REFIID riid, LCID,
+                             WORD wFlags, DISPPARAMS *pDispParams,
+                             VARIANT *, EXCEPINFO *, UINT *) override
     {
         // verify input
         if (riid != IID_NULL)
@@ -415,7 +415,7 @@ public:
             const int argcount = int(pDispParams->cArgs);
             if (pcount > argcount)
                 return DISP_E_PARAMNOTOPTIONAL;
-            else if (pcount < argcount)
+            if (pcount < argcount)
                 return DISP_E_BADPARAMCOUNT;
 
             // setup parameters (no return values in signals)
@@ -496,7 +496,7 @@ public:
     QByteArray findProperty(DISPID dispID);
 
     // IPropertyNotifySink
-    HRESULT __stdcall OnChanged(DISPID dispID)
+    HRESULT __stdcall OnChanged(DISPID dispID) override
     {
         // verify input
         if (dispID == DISPID_UNKNOWN || !combase)
@@ -551,7 +551,7 @@ public:
         }
         return S_OK;
     }
-    HRESULT __stdcall OnRequestEdit(DISPID dispID)
+    HRESULT __stdcall OnRequestEdit(DISPID dispID) override
     {
         if (dispID == DISPID_UNKNOWN || !combase)
             return S_OK;
@@ -588,6 +588,7 @@ public:
 
 class QAxBasePrivate
 {
+    Q_DISABLE_COPY(QAxBasePrivate)
 public:
     typedef QHash<QUuid, QAxEventSink*> UuidEventSinkHash;
 
@@ -1444,13 +1445,13 @@ bool QAxBase::initializeRemote(IUnknown** ptr)
     COAUTHIDENTITY authIdentity;
     authIdentity.UserLength = ULONG(user.length());
     authIdentity.User = authIdentity.UserLength
-        ? const_cast<ushort *>(user.utf16()) : Q_NULLPTR;
+        ? const_cast<ushort *>(user.utf16()) : nullptr;
     authIdentity.DomainLength = ULONG(domain.length());
     authIdentity.Domain = authIdentity.DomainLength
-        ? const_cast<ushort *>(domain.utf16()) : Q_NULLPTR;
+        ? const_cast<ushort *>(domain.utf16()) : nullptr;
     authIdentity.PasswordLength = ULONG(passwd.length());
     authIdentity.Password = authIdentity.PasswordLength
-        ? const_cast<ushort *>(passwd.utf16()) : Q_NULLPTR;
+        ? const_cast<ushort *>(passwd.utf16()) : nullptr;
     authIdentity.Flags = SEC_WINNT_AUTH_IDENTITY_UNICODE;
 
     COAUTHINFO authInfo;
@@ -1554,9 +1555,8 @@ private:
         Bindable                = 0x02000000
     };
 
-    static inline QList<QByteArray> paramList(const QByteArray &proto)
+    static inline QList<QByteArray> paramList(const QByteArray &prototype)
     {
-        QByteArray prototype(proto);
         QByteArray parameters = prototype.mid(prototype.indexOf('(') + 1);
         parameters.truncate(parameters.length() - 1);
         if (parameters.isEmpty() || parameters == "void")
@@ -1566,20 +1566,18 @@ private:
 
     inline QByteArray replaceType(const QByteArray &type)
     {
-        int i = 0;
-        if (type.isEmpty()) {
+        if (type.isEmpty())
             return QByteArray("void");
-        } else {
-            while (type_conversion[i][0]) {
-                int len = int(strlen(type_conversion[i][0]));
-                int ti;
-                if ((ti = type.indexOf(type_conversion[i][0])) != -1) {
-                    QByteArray rtype(type);
-                    rtype.replace(ti, len, type_conversion[i][1]);
-                    return rtype;
-                }
-                ++i;
+        int i = 0;
+        while (type_conversion[i][0]) {
+            int len = int(strlen(type_conversion[i][0]));
+            int ti;
+            if ((ti = type.indexOf(type_conversion[i][0])) != -1) {
+                QByteArray rtype(type);
+                rtype.replace(ti, len, type_conversion[i][1]);
+                return rtype;
             }
+            ++i;
         }
         return type;
     }
@@ -1590,7 +1588,7 @@ private:
 
         QList<QByteArray> plist = paramList(prototype);
         for (int p = 0; p < plist.count(); ++p) {
-            QByteArray param(plist.at(p));
+            const QByteArray &param = plist.at(p);
             if (param != replaceType(param)) {
                 int type = 0;
                 while (type_conversion[type][0]) {
@@ -1616,11 +1614,9 @@ private:
     }
 
     struct Method {
-        Method() : flags(0)
-        {}
         QByteArray type;
         QByteArray parameters;
-        int flags;
+        int flags = 0;
         QByteArray realPrototype;
     };
     QMap<QByteArray, Method> signal_list;
@@ -3023,7 +3019,7 @@ QMetaObject *MetaObjectGenerator::metaObject(const QMetaObject *parentObject, co
     int_data_size += classinfo_list.count() * 2;
     int_data_size += (signal_list.count() + slot_list.count()) * 5 + paramsDataSize;
     int_data_size += property_list.count() * 3;
-    int_data_size += enum_list.count() * 4;
+    int_data_size += enum_list.count() * 5;
     const EnumListMapConstIterator ecend = enum_list.end();
     for (EnumListMapConstIterator it = enum_list.begin(); it != ecend; ++it)
         int_data_size += it.value().count() * 2;
@@ -3031,7 +3027,7 @@ QMetaObject *MetaObjectGenerator::metaObject(const QMetaObject *parentObject, co
 
     uint *int_data = new uint[int_data_size];
     QMetaObjectPrivate *header = reinterpret_cast<QMetaObjectPrivate *>(int_data);
-    Q_STATIC_ASSERT_X(QMetaObjectPrivate::OutputRevision == 7, "QtDBus meta-object generator should generate the same version as moc");
+    Q_STATIC_ASSERT_X(QMetaObjectPrivate::OutputRevision == 8, "QtDBus meta-object generator should generate the same version as moc");
     header->revision = QMetaObjectPrivate::OutputRevision;
     header->className = 0;
     header->classInfoCount = classinfo_list.count();
@@ -3118,19 +3114,21 @@ QMetaObject *MetaObjectGenerator::metaObject(const QMetaObject *parentObject, co
     }
     Q_ASSERT(offset == header->enumeratorData);
 
-    int value_offset = offset + enum_list.count() * 4;
+    int value_offset = offset + enum_list.count() * 5;
     // each enum in form name\0
     for (EnumListMapConstIterator it = enum_list.begin(); it != ecend; ++it) {
         QByteArray name(it.key());
         int count = it.value().count();
 
-        int_data[offset++] = uint(strings.enter(name));
+        uint nameId = uint(strings.enter(name));
+        int_data[offset++] = nameId;
+        int_data[offset++] = nameId;
         int_data[offset++] = 0x0; // 0x1 for flag?
         int_data[offset++] = uint(count);
         int_data[offset++] = uint(value_offset);
         value_offset += count * 2;
     }
-    Q_ASSERT(offset == header->enumeratorData + enum_list.count() * 4);
+    Q_ASSERT(offset == header->enumeratorData + enum_list.count() * 5);
 
     // each enum value in form key\0
     for (EnumListMapConstIterator it = enum_list.begin(); it != ecend; ++it) {
@@ -3682,8 +3680,13 @@ int QAxBase::internalInvoke(QMetaObject::Call call, int index, void **v)
     hres = Invoke(disp, dispid, IID_NULL, LOCALE_USER_DEFAULT, wFlags, &params, &ret, &excepinfo, &argerr);
 
     // get return value
-    if (hres == S_OK && ret.vt != VT_EMPTY)
+    if (hres == S_OK && ret.vt != VT_EMPTY) {
         QVariantToVoidStar(VARIANTToQVariant(ret, slot.typeName()), v[0], slot.typeName());
+        if (ret.vt != VT_DISPATCH)
+            clearVARIANT(&ret);
+        else
+            VariantInit(&ret);
+    }
 
     // update out parameters
     for (p = 0; p < int(params.cArgs); ++p) {
@@ -4264,11 +4267,12 @@ QAxObject *QAxBase::querySubObject(const char *name, QList<QVariant> &vars)
 
 class QtPropertyBag : public IPropertyBag
 {
+    Q_DISABLE_COPY(QtPropertyBag)
 public:
     QtPropertyBag() :ref(0) {}
-    virtual ~QtPropertyBag() {}
+    virtual ~QtPropertyBag() = default;
 
-    HRESULT __stdcall QueryInterface(REFIID iid, LPVOID *iface)
+    HRESULT __stdcall QueryInterface(REFIID iid, LPVOID *iface) override
     {
         *iface = 0;
         if (iid == IID_IUnknown)
@@ -4281,11 +4285,11 @@ public:
         AddRef();
         return S_OK;
     }
-    unsigned long __stdcall AddRef()
+    unsigned long __stdcall AddRef() override
     {
         return InterlockedIncrement(&ref);
     }
-    unsigned long __stdcall Release()
+    unsigned long __stdcall Release() override
     {
         LONG refCount = InterlockedDecrement(&ref);
         if (!refCount)
@@ -4294,7 +4298,7 @@ public:
         return refCount;
     }
 
-    HRESULT __stdcall Read(LPCOLESTR name, VARIANT *var, IErrorLog *)
+    HRESULT __stdcall Read(LPCOLESTR name, VARIANT *var, IErrorLog *) override
     {
         if (!var)
             return E_POINTER;
@@ -4304,7 +4308,7 @@ public:
         QVariantToVARIANT(qvar, *var);
         return S_OK;
     }
-    HRESULT __stdcall Write(LPCOLESTR name, VARIANT *var)
+    HRESULT __stdcall Write(LPCOLESTR name, VARIANT *var) override
     {
         if (!var)
             return E_POINTER;
@@ -4354,13 +4358,12 @@ QAxBase::PropertyBag QAxBase::propertyBag() const
         pbag->Release();
         persist->Release();
         return result;
-    } else {
-        const QMetaObject *mo = metaObject();
-        for (int p = mo->propertyOffset(); p < mo->propertyCount(); ++p) {
-            const QMetaProperty property = mo->property(p);
-            QVariant var = qObject()->property(property.name());
-            result.insert(QLatin1String(property.name()), var);
-        }
+    }
+    const QMetaObject *mo = metaObject();
+    for (int p = mo->propertyOffset(); p < mo->propertyCount(); ++p) {
+        const QMetaProperty property = mo->property(p);
+        QVariant var = qObject()->property(property.name());
+        result.insert(QLatin1String(property.name()), var);
     }
     return result;
 }

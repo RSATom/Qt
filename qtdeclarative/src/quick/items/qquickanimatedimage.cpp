@@ -55,12 +55,12 @@ QT_BEGIN_NAMESPACE
 QQuickPixmap* QQuickAnimatedImagePrivate::infoForCurrentFrame(QQmlEngine *engine)
 {
     if (!movie)
-        return 0;
+        return nullptr;
 
     int current = movie->currentFrameNumber();
     if (!frameMap.contains(current)) {
         QUrl requestedUrl;
-        QQuickPixmap *pixmap = 0;
+        QQuickPixmap *pixmap = nullptr;
         if (engine && !movie->fileName().isEmpty()) {
             requestedUrl.setUrl(QString::fromUtf8("quickanimatedimage://%1#%2")
                                 .arg(movie->fileName())
@@ -86,7 +86,7 @@ QQuickPixmap* QQuickAnimatedImagePrivate::infoForCurrentFrame(QQmlEngine *engine
     \instantiates QQuickAnimatedImage
     \inqmlmodule QtQuick
     \inherits Image
-    \brief Plays animations stored as a series of images
+    \brief Plays animations stored as a series of images.
     \ingroup qtquick-visual
 
     The AnimatedImage type extends the features of the \l Image type, providing
@@ -260,6 +260,32 @@ int QQuickAnimatedImage::frameCount() const
     return d->movie->frameCount();
 }
 
+/*!
+    \qmlproperty real QtQuick::AnimatedImage::speed
+    \since QtQuick 2.11
+
+    This property holds the speed of the animation.
+
+    The speed is measured in percentage of the original animated image speed.
+    The default speed is 1.0 (original speed).
+*/
+qreal QQuickAnimatedImage::speed() const
+{
+    Q_D(const QQuickAnimatedImage);
+    return d->speed;
+}
+
+void QQuickAnimatedImage::setSpeed(qreal speed)
+{
+    Q_D(QQuickAnimatedImage);
+    if (d->speed != speed) {
+        d->speed = speed;
+        if (d->movie)
+            d->movie->setSpeed(qRound(speed * 100.0));
+        emit speedChanged();
+    }
+}
+
 void QQuickAnimatedImage::setSource(const QUrl &url)
 {
     Q_D(QQuickAnimatedImage);
@@ -269,7 +295,7 @@ void QQuickAnimatedImage::setSource(const QUrl &url)
 #if QT_CONFIG(qml_network)
     if (d->reply) {
         d->reply->deleteLater();
-        d->reply = 0;
+        d->reply = nullptr;
     }
 #endif
 
@@ -389,6 +415,7 @@ void QQuickAnimatedImage::movieRequestFinished()
     connect(d->movie, &QMovie::frameChanged, this, &QQuickAnimatedImage::movieUpdate);
     if (d->cache)
         d->movie->setCacheMode(QMovie::CacheAll);
+    d->movie->setSpeed(qRound(d->speed * 100.0));
 
     d->status = Ready;
     emit statusChanged(d->status);
@@ -399,15 +426,18 @@ void QQuickAnimatedImage::movieRequestFinished()
     }
 
     bool pausedAtStart = d->paused;
-    if (d->playing)
+    if (d->movie && d->playing)
         d->movie->start();
-    if (pausedAtStart)
+    if (d->movie && pausedAtStart)
         d->movie->setPaused(true);
-    if (d->paused || !d->playing) {
+    if (d->movie && (d->paused || !d->playing)) {
         d->movie->jumpToFrame(d->presetCurrentFrame);
         d->presetCurrentFrame = 0;
     }
-    d->setPixmap(*d->infoForCurrentFrame(qmlEngine(this)));
+
+    QQuickPixmap *pixmap = d->infoForCurrentFrame(qmlEngine(this));
+    if (pixmap)
+        d->setPixmap(*pixmap);
 
     if (isPlaying() != d->oldPlaying)
         emit playingChanged();
@@ -485,7 +515,10 @@ void QQuickAnimatedImagePrivate::setMovie(QMovie *m)
     Q_Q(QQuickAnimatedImage);
     const int oldFrameCount = q->frameCount();
 
-    delete movie;
+    if (movie) {
+        movie->disconnect();
+        movie->deleteLater();
+    }
     movie = m;
 
     if (oldFrameCount != q->frameCount())

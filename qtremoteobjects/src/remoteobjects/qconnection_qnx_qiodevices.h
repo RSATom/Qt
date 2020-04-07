@@ -40,7 +40,7 @@
 #ifndef QQNXNATIVEIO_H
 #define QQNXNATIVEIO_H
 
-#include <QAbstractSocket>
+#include <QtNetwork/qabstractsocket.h>
 #include <QtRemoteObjects/qtremoteobjectglobal.h>
 
 QT_BEGIN_NAMESPACE
@@ -71,7 +71,7 @@ class Q_REMOTEOBJECTS_EXPORT QQnxNativeIo : public QIODevice
 
 public:
     explicit QQnxNativeIo(QObject *parent = nullptr);
-    ~QQnxNativeIo();
+    ~QQnxNativeIo() override;
 
     bool connectToServer(OpenMode openMode = ReadWrite);
     bool connectToServer(const QString &name, OpenMode openMode = ReadWrite);
@@ -118,7 +118,7 @@ class Q_REMOTEOBJECTS_EXPORT QIOQnxSource : public QIODevice
 
 public:
     explicit QIOQnxSource(int rcvid, QObject *parent = nullptr);
-    ~QIOQnxSource();
+    ~QIOQnxSource() override;
 
     bool isSequential() const override;
     qint64 bytesAvailable() const override;

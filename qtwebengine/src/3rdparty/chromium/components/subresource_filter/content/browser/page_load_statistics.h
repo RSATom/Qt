@@ -11,9 +11,9 @@
 
 namespace subresource_filter {
 
-// This class is notified of performance metrics recorded for individual
-// (sub-)documents of a page, aggregates them, and logs the aggregated metrics
-// to UMA histograms when the page load is complete (at the load event).
+// This class is notified of metrics recorded for individual (sub-)documents of
+// a page, aggregates them, and logs the aggregated metrics to UMA histograms
+// when the page load is complete (at the load event).
 class PageLoadStatistics {
  public:
   PageLoadStatistics(const ActivationState& state);

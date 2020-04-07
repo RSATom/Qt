@@ -14,10 +14,6 @@ namespace internal {
 namespace compiler {
 
 namespace {
-LinkageLocation regloc(Register reg, MachineType type) {
-  return LinkageLocation::ForRegister(reg.code(), type);
-}
-
 
 // Platform-specific configuration for C calling convention.
 #if V8_TARGET_ARCH_IA32
@@ -169,28 +165,29 @@ CallDescriptor* Linkage::GetSimplifiedCDescriptor(
 
 #ifdef UNSUPPORTED_C_LINKAGE
   // This method should not be called on unknown architectures.
-  V8_Fatal(__FILE__, __LINE__,
-           "requested C call descriptor on unsupported architecture");
+  FATAL("requested C call descriptor on unsupported architecture");
   return nullptr;
 #endif
 
   // Add return location(s).
-  CHECK(locations.return_count_ <= 2);
+  CHECK_GE(2, locations.return_count_);
 
   if (locations.return_count_ > 0) {
-    locations.AddReturn(regloc(kReturnRegister0, msig->GetReturn(0)));
+    locations.AddReturn(LinkageLocation::ForRegister(kReturnRegister0.code(),
+                                                     msig->GetReturn(0)));
   }
   if (locations.return_count_ > 1) {
-    locations.AddReturn(regloc(kReturnRegister1, msig->GetReturn(1)));
+    locations.AddReturn(LinkageLocation::ForRegister(kReturnRegister1.code(),
+                                                     msig->GetReturn(1)));
   }
 
   const int parameter_count = static_cast<int>(msig->parameter_count());
 
 #ifdef PARAM_REGISTERS
-  const Register kParamRegisters[] = {PARAM_REGISTERS};
+  const v8::internal::Register kParamRegisters[] = {PARAM_REGISTERS};
   const int kParamRegisterCount = static_cast<int>(arraysize(kParamRegisters));
 #else
-  const Register* kParamRegisters = nullptr;
+  const v8::internal::Register* kParamRegisters = nullptr;
   const int kParamRegisterCount = 0;
 #endif
 
@@ -202,7 +199,8 @@ CallDescriptor* Linkage::GetSimplifiedCDescriptor(
   // Add register and/or stack parameter(s).
   for (int i = 0; i < parameter_count; i++) {
     if (i < kParamRegisterCount) {
-      locations.AddParam(regloc(kParamRegisters[i], msig->GetParam(i)));
+      locations.AddParam(LinkageLocation::ForRegister(kParamRegisters[i].code(),
+                                                      msig->GetParam(i)));
     } else {
       locations.AddParam(LinkageLocation::ForCallerFrameSlot(
           -1 - stack_offset, msig->GetParam(i)));
@@ -225,7 +223,7 @@ CallDescriptor* Linkage::GetSimplifiedCDescriptor(
   // The target for C calls is always an address (i.e. machine pointer).
   MachineType target_type = MachineType::Pointer();
   LinkageLocation target_loc = LinkageLocation::ForAnyRegister(target_type);
-  CallDescriptor::Flags flags = CallDescriptor::kUseNativeStack;
+  CallDescriptor::Flags flags = CallDescriptor::kNoFlags;
   if (set_initialize_root_flag) {
     flags |= CallDescriptor::kInitializeRootRegister;
   }
@@ -236,7 +234,7 @@ CallDescriptor* Linkage::GetSimplifiedCDescriptor(
       target_loc,                    // target location
       locations.Build(),             // location_sig
       0,                             // stack_parameter_count
-      Operator::kNoProperties,       // properties
+      Operator::kNoThrow,            // properties
       kCalleeSaveRegisters,          // callee-saved registers
       kCalleeSaveFPRegisters,        // callee-saved fp regs
       flags, "c-call");

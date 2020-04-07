@@ -58,7 +58,9 @@
 
 #include <zlib.h>
 
-#if !defined(QT_NO_HTTP) && !defined(QT_NO_SSL)
+QT_REQUIRE_CONFIG(http);
+
+#if !defined(QT_NO_SSL)
 
 QT_BEGIN_NAMESPACE
 
@@ -101,9 +103,9 @@ public:
 
     Q_DECLARE_FLAGS(SETTINGS_ID_Flags, SETTINGS_ID_Flag)
 
-    virtual void _q_receiveReply() Q_DECL_OVERRIDE;
-    virtual void _q_readyRead() Q_DECL_OVERRIDE;
-    virtual bool sendRequest() Q_DECL_OVERRIDE;
+    virtual void _q_receiveReply() override;
+    virtual void _q_readyRead() override;
+    virtual bool sendRequest() override;
 
 private slots:
     void _q_uploadDataReadyRead();
@@ -223,6 +225,6 @@ Q_DECLARE_OPERATORS_FOR_FLAGS(QSpdyProtocolHandler::SETTINGS_ID_Flags)
 
 QT_END_NAMESPACE
 
-#endif // !defined(QT_NO_HTTP) && !defined(QT_NO_SSL)
+#endif // !defined(QT_NO_SSL)
 
 #endif // QSPDYPROTOCOLHANDLER_H

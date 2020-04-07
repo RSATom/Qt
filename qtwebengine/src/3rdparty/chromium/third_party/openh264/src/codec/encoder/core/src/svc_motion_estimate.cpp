@@ -173,7 +173,8 @@ void WelsMotionEstimateSearch (SWelsFuncPtrList* pFuncList, SDqLayer* pCurDqLaye
                               kiStrideRef);
 }
 
-void WelsMotionEstimateSearchStatic (SWelsFuncPtrList* pFuncList, SDqLayer* pCurDqLayer, SWelsME* pMe, SSlice* pLpslice) {
+void WelsMotionEstimateSearchStatic (SWelsFuncPtrList* pFuncList, SDqLayer* pCurDqLayer, SWelsME* pMe,
+                                     SSlice* pLpslice) {
   const int32_t kiStrideEnc = pCurDqLayer->iEncStride[0];
   const int32_t kiStrideRef = pCurDqLayer->pRefPic->iLineSize[0];
 
@@ -186,7 +187,8 @@ void WelsMotionEstimateSearchStatic (SWelsFuncPtrList* pFuncList, SDqLayer* pCur
                               kiStrideRef);
 }
 
-void WelsMotionEstimateSearchScrolled (SWelsFuncPtrList* pFuncList, SDqLayer* pCurDqLayer, SWelsME* pMe, SSlice* pSlice) {
+void WelsMotionEstimateSearchScrolled (SWelsFuncPtrList* pFuncList, SDqLayer* pCurDqLayer, SWelsME* pMe,
+                                       SSlice* pSlice) {
   const int32_t kiStrideEnc = pCurDqLayer->iEncStride[0];
   const int32_t kiStrideRef = pCurDqLayer->pRefPic->iLineSize[0];
 
@@ -651,7 +653,7 @@ int32_t RequestFeatureSearchPreparation (CMemoryAlign* pMa, const int32_t kiFram
                             (kiFrameWidth - kiMarginSize) * sizeof (uint32_t) + kiFrameWidth * 8 * sizeof (uint8_t);
   }
   pFeatureSearchPreparation->pFeatureOfBlock =
-    (uint16_t*)pMa->WelsMalloc (iListOfFeatureOfBlock, "pFeatureOfBlock");
+    (uint16_t*)pMa->WelsMallocz (iListOfFeatureOfBlock, "pFeatureOfBlock");
   WELS_VERIFY_RETURN_IF (ENC_RETURN_MEMALLOCERR, NULL == (pFeatureSearchPreparation->pFeatureOfBlock))
 
   pFeatureSearchPreparation->uiFeatureStrategyIndex = kiFeatureStrategyIndex;
@@ -688,19 +690,19 @@ int32_t RequestScreenBlockFeatureStorage (CMemoryAlign* pMa, const int32_t kiFra
   const int32_t kiListSize  = (0 == kiFeatureStrategyIndex) ? (bIsBlock8x8 ? LIST_SIZE_SUM_8x8 : LIST_SIZE_SUM_16x16) :
                               256;
 
-  pScreenBlockFeatureStorage->pTimesOfFeatureValue = (uint32_t*)pMa->WelsMalloc (kiListSize * sizeof (uint32_t),
+  pScreenBlockFeatureStorage->pTimesOfFeatureValue = (uint32_t*)pMa->WelsMallocz (kiListSize * sizeof (uint32_t),
       "pScreenBlockFeatureStorage->pTimesOfFeatureValue");
   WELS_VERIFY_RETURN_IF (ENC_RETURN_MEMALLOCERR, NULL == pScreenBlockFeatureStorage->pTimesOfFeatureValue)
 
-  pScreenBlockFeatureStorage->pLocationOfFeature = (uint16_t**)pMa->WelsMalloc (kiListSize * sizeof (uint16_t*),
+  pScreenBlockFeatureStorage->pLocationOfFeature = (uint16_t**)pMa->WelsMallocz (kiListSize * sizeof (uint16_t*),
       "pScreenBlockFeatureStorage->pLocationOfFeature");
   WELS_VERIFY_RETURN_IF (ENC_RETURN_MEMALLOCERR, NULL == pScreenBlockFeatureStorage->pLocationOfFeature)
 
-  pScreenBlockFeatureStorage->pLocationPointer = (uint16_t*)pMa->WelsMalloc (2 * kiFrameSize * sizeof (uint16_t),
+  pScreenBlockFeatureStorage->pLocationPointer = (uint16_t*)pMa->WelsMallocz (2 * kiFrameSize * sizeof (uint16_t),
       "pScreenBlockFeatureStorage->pLocationPointer");
   WELS_VERIFY_RETURN_IF (ENC_RETURN_MEMALLOCERR, NULL == pScreenBlockFeatureStorage->pLocationPointer)
   //  uint16_t* pFeatureValuePointerList[WELS_MAX (LIST_SIZE_SUM_16x16, LIST_SIZE_MSE_16x16)] = {0};
-  pScreenBlockFeatureStorage->pFeatureValuePointerList = (uint16_t**)pMa->WelsMalloc (WELS_MAX (LIST_SIZE_SUM_16x16,
+  pScreenBlockFeatureStorage->pFeatureValuePointerList = (uint16_t**)pMa->WelsMallocz (WELS_MAX (LIST_SIZE_SUM_16x16,
       LIST_SIZE_MSE_16x16) * sizeof (uint16_t*),
       "pScreenBlockFeatureStorage->pFeatureValuePointerList");
   WELS_VERIFY_RETURN_IF (ENC_RETURN_MEMALLOCERR, NULL == pScreenBlockFeatureStorage->pFeatureValuePointerList)
@@ -709,7 +711,7 @@ int32_t RequestScreenBlockFeatureStorage (CMemoryAlign* pMa, const int32_t kiFra
   pScreenBlockFeatureStorage->iIs16x16 = !bIsBlock8x8;
   pScreenBlockFeatureStorage->uiFeatureStrategyIndex = kiFeatureStrategyIndex;
   pScreenBlockFeatureStorage->iActualListSize = kiListSize;
-  WelsSetMemMultiplebytes_c (pScreenBlockFeatureStorage->uiSadCostThreshold, UINT_MAX, BLOCK_SIZE_ALL, sizeof(uint32_t));
+  WelsSetMemMultiplebytes_c (pScreenBlockFeatureStorage->uiSadCostThreshold, UINT_MAX, BLOCK_SIZE_ALL, sizeof (uint32_t));
   pScreenBlockFeatureStorage->bRefBlockFeatureCalculated = false;
 
   return ENC_RETURN_SUCCESS;
@@ -1019,10 +1021,10 @@ static uint32_t CountFMECostDown (const SDqLayer* pCurLayer) {
   const int32_t kiSliceCount  = GetCurrentSliceNum (pCurLayer);
   if (kiSliceCount >= 1) {
     int32_t iSliceIndex  = 0;
-    SSlice* pSlice    = &pCurLayer->sLayerInfo.pSliceInLayer[iSliceIndex];
+    SSlice* pSlice    = pCurLayer->ppSliceInLayer[iSliceIndex];
     while (iSliceIndex < kiSliceCount) {
+      pSlice        = pCurLayer->ppSliceInLayer[iSliceIndex];
       uiCostDownSum += pSlice->uiSliceFMECostDown;
-      ++ pSlice;
       ++ iSliceIndex;
     }
   }

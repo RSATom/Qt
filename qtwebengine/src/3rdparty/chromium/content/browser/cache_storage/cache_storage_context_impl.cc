@@ -16,6 +16,7 @@
 #include "storage/browser/blob/blob_storage_context.h"
 #include "storage/browser/quota/quota_manager_proxy.h"
 #include "storage/browser/quota/special_storage_policy.h"
+#include "url/origin.h"
 
 namespace content {
 
@@ -90,13 +91,28 @@ void CacheStorageContextImpl::GetAllOriginsInfo(
     return;
   }
 
-  cache_manager_->GetAllOriginsUsage(callback);
+  cache_manager_->GetAllOriginsUsage(CacheStorageOwner::kCacheAPI, callback);
 }
 
 void CacheStorageContextImpl::DeleteForOrigin(const GURL& origin) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   if (cache_manager_)
-    cache_manager_->DeleteOriginData(origin);
+    cache_manager_->DeleteOriginData(url::Origin::Create(origin),
+                                     CacheStorageOwner::kCacheAPI);
+}
+
+void CacheStorageContextImpl::AddObserver(
+    CacheStorageContextImpl::Observer* observer) {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  if (cache_manager_)
+    cache_manager_->AddObserver(observer);
+}
+
+void CacheStorageContextImpl::RemoveObserver(
+    CacheStorageContextImpl::Observer* observer) {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  if (cache_manager_)
+    cache_manager_->RemoveObserver(observer);
 }
 
 void CacheStorageContextImpl::CreateCacheStorageManager(
@@ -113,7 +129,12 @@ void CacheStorageContextImpl::CreateCacheStorageManager(
 void CacheStorageContextImpl::ShutdownOnIO() {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
-  cache_manager_.reset();
+  // Release |cache_manager_|. New clients will get a nullptr if they request
+  // an instance of CacheStorageManager after this. Any other client that
+  // ref-wrapped |cache_manager_| will be able to continue using it, and the
+  // CacheStorageManager will be destroyed when all the references are
+  // destroyed.
+  cache_manager_ = nullptr;
 }
 
 }  // namespace content

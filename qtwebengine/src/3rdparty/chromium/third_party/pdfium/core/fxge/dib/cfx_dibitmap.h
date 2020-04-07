@@ -7,19 +7,16 @@
 #ifndef CORE_FXGE_DIB_CFX_DIBITMAP_H_
 #define CORE_FXGE_DIB_CFX_DIBITMAP_H_
 
-#include "core/fxcrt/cfx_maybe_owned.h"
-#include "core/fxcrt/cfx_retain_ptr.h"
-#include "core/fxcrt/fx_basic.h"
 #include "core/fxcrt/fx_coordinates.h"
+#include "core/fxcrt/maybe_owned.h"
+#include "core/fxcrt/retain_ptr.h"
 #include "core/fxge/dib/cfx_dibsource.h"
 #include "third_party/base/stl_util.h"
 
 class CFX_DIBitmap : public CFX_DIBSource {
  public:
   template <typename T, typename... Args>
-  friend CFX_RetainPtr<T> pdfium::MakeRetain(Args&&... args);
-
-  ~CFX_DIBitmap() override;
+  friend RetainPtr<T> pdfium::MakeRetain(Args&&... args);
 
   bool Create(int width,
               int height,
@@ -27,7 +24,7 @@ class CFX_DIBitmap : public CFX_DIBSource {
               uint8_t* pBuffer = nullptr,
               uint32_t pitch = 0);
 
-  bool Copy(const CFX_RetainPtr<CFX_DIBSource>& pSrc);
+  bool Copy(const RetainPtr<CFX_DIBSource>& pSrc);
 
   // CFX_DIBSource
   uint8_t* GetBuffer() const override;
@@ -40,7 +37,7 @@ class CFX_DIBitmap : public CFX_DIBSource {
                           int clip_left,
                           int clip_width) const override;
 
-  void TakeOver(CFX_RetainPtr<CFX_DIBitmap>&& pSrcBitmap);
+  void TakeOver(RetainPtr<CFX_DIBitmap>&& pSrcBitmap);
   bool ConvertFormat(FXDIB_Format format);
   void Clear(uint32_t color);
 
@@ -48,18 +45,18 @@ class CFX_DIBitmap : public CFX_DIBSource {
   void SetPixel(int x, int y, uint32_t color);
 
   bool LoadChannel(FXDIB_Channel destChannel,
-                   const CFX_RetainPtr<CFX_DIBSource>& pSrcBitmap,
+                   const RetainPtr<CFX_DIBSource>& pSrcBitmap,
                    FXDIB_Channel srcChannel);
   bool LoadChannel(FXDIB_Channel destChannel, int value);
 
   bool MultiplyAlpha(int alpha);
-  bool MultiplyAlpha(const CFX_RetainPtr<CFX_DIBSource>& pAlphaMask);
+  bool MultiplyAlpha(const RetainPtr<CFX_DIBSource>& pAlphaMask);
 
   bool TransferBitmap(int dest_left,
                       int dest_top,
                       int width,
                       int height,
-                      const CFX_RetainPtr<CFX_DIBSource>& pSrcBitmap,
+                      const RetainPtr<CFX_DIBSource>& pSrcBitmap,
                       int src_left,
                       int src_top);
 
@@ -67,7 +64,7 @@ class CFX_DIBitmap : public CFX_DIBSource {
                        int dest_top,
                        int width,
                        int height,
-                       const CFX_RetainPtr<CFX_DIBSource>& pSrcBitmap,
+                       const RetainPtr<CFX_DIBSource>& pSrcBitmap,
                        int src_left,
                        int src_top,
                        int blend_type = FXDIB_BLEND_NORMAL,
@@ -78,7 +75,7 @@ class CFX_DIBitmap : public CFX_DIBSource {
                      int dest_top,
                      int width,
                      int height,
-                     const CFX_RetainPtr<CFX_DIBSource>& pMask,
+                     const RetainPtr<CFX_DIBSource>& pMask,
                      uint32_t color,
                      int src_left,
                      int src_top,
@@ -100,7 +97,7 @@ class CFX_DIBitmap : public CFX_DIBSource {
                                     int width,
                                     FXDIB_Format format,
                                     uint32_t* pitch,
-                                    uint32_t* size);
+                                    size_t* size);
 
 #if defined _SKIA_SUPPORT_ || _SKIA_SUPPORT_PATHS_
   void PreMultiply();
@@ -112,19 +109,42 @@ class CFX_DIBitmap : public CFX_DIBSource {
  protected:
   CFX_DIBitmap();
   CFX_DIBitmap(const CFX_DIBitmap& src);
+  ~CFX_DIBitmap() override;
 
 #if defined _SKIA_SUPPORT_PATHS_
   enum class Format { kCleared, kPreMultiplied, kUnPreMultiplied };
 #endif
 
-  CFX_MaybeOwned<uint8_t, FxFreeDeleter> m_pBuffer;
+  MaybeOwned<uint8_t, FxFreeDeleter> m_pBuffer;
 #if defined _SKIA_SUPPORT_PATHS_
   Format m_nFormat;
 #endif
 
  private:
-  void ConvertRGBColorScale(uint32_t forecolor, uint32_t backcolor);
+  void ConvertBGRColorScale(uint32_t forecolor, uint32_t backcolor);
   void ConvertCMYKColorScale(uint32_t forecolor, uint32_t backcolor);
+  bool TransferWithUnequalFormats(FXDIB_Format dest_format,
+                                  int dest_left,
+                                  int dest_top,
+                                  int width,
+                                  int height,
+                                  const RetainPtr<CFX_DIBSource>& pSrcBitmap,
+                                  int src_left,
+                                  int src_top);
+  void TransferWithMultipleBPP(int dest_left,
+                               int dest_top,
+                               int width,
+                               int height,
+                               const RetainPtr<CFX_DIBSource>& pSrcBitmap,
+                               int src_left,
+                               int src_top);
+  void TransferEqualFormatsOneBPP(int dest_left,
+                                  int dest_top,
+                                  int width,
+                                  int height,
+                                  const RetainPtr<CFX_DIBSource>& pSrcBitmap,
+                                  int src_left,
+                                  int src_top);
 };
 
 #endif  // CORE_FXGE_DIB_CFX_DIBITMAP_H_

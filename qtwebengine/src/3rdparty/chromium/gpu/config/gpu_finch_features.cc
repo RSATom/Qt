@@ -9,8 +9,10 @@ namespace features {
 
 // Enable GPU Rasterization by default. This can still be overridden by
 // --force-gpu-rasterization or --disable-gpu-rasterization.
-#if defined(OS_MACOSX) || defined(OS_WIN)
-// DefaultEnableGpuRasterization has launched on Mac and Windows.
+#if defined(OS_MACOSX) || defined(OS_WIN) || defined(OS_CHROMEOS) || \
+    defined(OS_ANDROID)
+// DefaultEnableGpuRasterization has launched on Mac, Windows, ChromeOS, and
+// Android.
 const base::Feature kDefaultEnableGpuRasterization{
     "DefaultEnableGpuRasterization", base::FEATURE_ENABLED_BY_DEFAULT};
 #else
@@ -18,9 +20,19 @@ const base::Feature kDefaultEnableGpuRasterization{
     "DefaultEnableGpuRasterization", base::FEATURE_DISABLED_BY_DEFAULT};
 #endif
 
-// Enables the GPU scheduler. The finch feature is only used as an emergency
-// kill-switch and to keep the alternate code path tested on canary/dev.
-const base::Feature kGpuScheduler{"GpuScheduler",
-                                  base::FEATURE_ENABLED_BY_DEFAULT};
+// Enable out of process rasterization by default.  This can still be overridden
+// by --enable-oop-rasterization or --disable-oop-rasterization.
+const base::Feature kDefaultEnableOopRasterization{
+    "DefaultEnableOopRasterization", base::FEATURE_DISABLED_BY_DEFAULT};
+
+// Use the passthrough command decoder by default.  This can be overridden with
+// the --use-cmd-decoder=passthrough or --use-cmd-decoder=validating flags.
+const base::Feature kDefaultPassthroughCommandDecoder{
+    "DefaultPassthroughCommandDecoder", base::FEATURE_DISABLED_BY_DEFAULT};
+
+// Use DirectComposition layers (overlays) for video if supported. Overridden by
+// --enable-direct-composition-layers and --disable-direct-composition-layers.
+const base::Feature kDirectCompositionOverlays{
+    "DirectCompositionOverlays", base::FEATURE_ENABLED_BY_DEFAULT};
 
 }  // namespace features

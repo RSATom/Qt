@@ -8,16 +8,16 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_RTC_BASE_SIGNALTHREAD_H_
-#define WEBRTC_RTC_BASE_SIGNALTHREAD_H_
+#ifndef RTC_BASE_SIGNALTHREAD_H_
+#define RTC_BASE_SIGNALTHREAD_H_
 
 #include <string>
 
-#include "webrtc/base/checks.h"
-#include "webrtc/base/constructormagic.h"
-#include "webrtc/base/nullsocketserver.h"
-#include "webrtc/base/sigslot.h"
-#include "webrtc/base/thread.h"
+#include "rtc_base/checks.h"
+#include "rtc_base/constructormagic.h"
+#include "rtc_base/nullsocketserver.h"
+#include "rtc_base/sigslot.h"
+#include "rtc_base/thread.h"
 
 namespace rtc {
 
@@ -38,11 +38,9 @@ namespace rtc {
 //   tasks in the context of the main thread.
 ///////////////////////////////////////////////////////////////////////////////
 
-class SignalThread
-    : public sigslot::has_slots<>,
-      protected MessageHandler {
+class SignalThread : public sigslot::has_slots<>, protected MessageHandler {
  public:
-  explicit SignalThread(bool use_socket_server = true);
+  SignalThread();
 
   // Context: Main Thread.  Call before Start to change the worker's name.
   bool SetName(const std::string& name, const void* obj);
@@ -63,7 +61,7 @@ class SignalThread
   void Release();
 
   // Context: Main Thread.  Signalled when work is complete.
-  sigslot::signal1<SignalThread *> SignalWorkDone;
+  sigslot::signal1<SignalThread*> SignalWorkDone;
 
   enum { ST_MSG_WORKER_DONE, ST_MSG_FIRST_AVAILABLE };
 
@@ -73,7 +71,7 @@ class SignalThread
   Thread* worker() { return &worker_; }
 
   // Context: Main Thread.  Subclass should override to do pre-work setup.
-  virtual void OnWorkStart() { }
+  virtual void OnWorkStart() {}
 
   // Context: Worker Thread.  Subclass should override to do work.
   virtual void DoWork() = 0;
@@ -84,10 +82,10 @@ class SignalThread
 
   // Context: Worker Thread.  Subclass should override when extra work is
   // needed to abort the worker thread.
-  virtual void OnWorkStop() { }
+  virtual void OnWorkStop() {}
 
   // Context: Main Thread.  Subclass should override to do post-work cleanup.
-  virtual void OnWorkDone() { }
+  virtual void OnWorkDone() {}
 
   // Context: Any Thread.  If subclass overrides, be sure to call the base
   // implementation.  Do not use (message_id < ST_MSG_FIRST_AVAILABLE)
@@ -95,20 +93,16 @@ class SignalThread
 
  private:
   enum State {
-    kInit,            // Initialized, but not started
-    kRunning,         // Started and doing work
-    kReleasing,       // Same as running, but to be deleted when work is done
-    kComplete,        // Work is done
-    kStopping,        // Work is being interrupted
+    kInit,       // Initialized, but not started
+    kRunning,    // Started and doing work
+    kReleasing,  // Same as running, but to be deleted when work is done
+    kComplete,   // Work is done
+    kStopping,   // Work is being interrupted
   };
 
   class Worker : public Thread {
    public:
-    explicit Worker(SignalThread* parent, bool use_socket_server)
-        : Thread(use_socket_server
-                     ? SocketServer::CreateDefault()
-                     : std::unique_ptr<SocketServer>(new NullSocketServer())),
-          parent_(parent) {}
+    explicit Worker(SignalThread* parent);
     ~Worker() override;
     void Run() override;
     bool IsProcessingMessages() override;
@@ -119,9 +113,9 @@ class SignalThread
     RTC_DISALLOW_IMPLICIT_CONSTRUCTORS(Worker);
   };
 
-  class SCOPED_LOCKABLE EnterExit {
+  class RTC_SCOPED_LOCKABLE EnterExit {
    public:
-    explicit EnterExit(SignalThread* t) EXCLUSIVE_LOCK_FUNCTION(t->cs_)
+    explicit EnterExit(SignalThread* t) RTC_EXCLUSIVE_LOCK_FUNCTION(t->cs_)
         : t_(t) {
       t_->cs_.Enter();
       // If refcount_ is zero then the object has already been deleted and we
@@ -129,7 +123,7 @@ class SignalThread
       RTC_DCHECK_NE(0, t_->refcount_);
       ++t_->refcount_;
     }
-    ~EnterExit() UNLOCK_FUNCTION() {
+    ~EnterExit() RTC_UNLOCK_FUNCTION() {
       bool d = (0 == --t_->refcount_);
       t_->cs_.Leave();
       if (d)
@@ -158,4 +152,4 @@ class SignalThread
 
 }  // namespace rtc
 
-#endif  // WEBRTC_RTC_BASE_SIGNALTHREAD_H_
+#endif  // RTC_BASE_SIGNALTHREAD_H_

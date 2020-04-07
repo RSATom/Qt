@@ -5,7 +5,6 @@
 #include "ui/views/examples/text_example.h"
 
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/font_list.h"
@@ -136,8 +135,7 @@ TextExample::~TextExample() {
 }
 
 Checkbox* TextExample::AddCheckbox(GridLayout* layout, const char* name) {
-  Checkbox* checkbox = new Checkbox(base::ASCIIToUTF16(name));
-  checkbox->set_listener(this);
+  Checkbox* checkbox = new Checkbox(base::ASCIIToUTF16(name), this);
   layout->AddView(checkbox);
   return checkbox;
 }
@@ -149,7 +147,7 @@ Combobox* TextExample::AddCombobox(GridLayout* layout,
   layout->StartRow(0, 0);
   layout->AddView(new Label(base::ASCIIToUTF16(name)));
   example_combobox_model_.push_back(
-      base::MakeUnique<ExampleComboboxModel>(strings, count));
+      std::make_unique<ExampleComboboxModel>(strings, count));
   Combobox* combobox = new Combobox(example_combobox_model_.back().get());
   combobox->SetSelectedIndex(0);
   combobox->set_listener(this);
@@ -160,8 +158,8 @@ Combobox* TextExample::AddCombobox(GridLayout* layout,
 void TextExample::CreateExampleView(View* container) {
   text_view_ = new TextExampleView;
   text_view_->SetBorder(CreateSolidBorder(1, SK_ColorGRAY));
-  GridLayout* layout = new GridLayout(container);
-  container->SetLayoutManager(layout);
+  GridLayout* layout = container->SetLayoutManager(
+      std::make_unique<views::GridLayout>(container));
   layout->AddPaddingRow(0, 8);
 
   ColumnSet* column_set = layout->AddColumnSet(0);

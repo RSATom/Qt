@@ -15,30 +15,33 @@
 #include "base/macros.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/weak_ptr.h"
+#include "base/single_thread_task_runner.h"
 #include "components/discardable_memory/public/interfaces/discardable_shared_memory_manager.mojom.h"
 #include "services/service_manager/public/cpp/binder_registry.h"
+#include "services/service_manager/public/cpp/connector.h"
 #include "services/service_manager/public/cpp/service.h"
 #include "services/service_manager/public/cpp/service_runner.h"
 #include "services/ui/ime/ime_driver_bridge.h"
 #include "services/ui/ime/ime_registrar_impl.h"
 #include "services/ui/input_devices/input_device_server.h"
 #include "services/ui/public/interfaces/accessibility_manager.mojom.h"
-#include "services/ui/public/interfaces/clipboard.mojom.h"
-#include "services/ui/public/interfaces/display_manager.mojom.h"
+#include "services/ui/public/interfaces/event_injector.mojom.h"
 #include "services/ui/public/interfaces/gpu.mojom.h"
 #include "services/ui/public/interfaces/ime/ime.mojom.h"
-#include "services/ui/public/interfaces/user_access_manager.mojom.h"
+#include "services/ui/public/interfaces/screen_provider.mojom.h"
 #include "services/ui/public/interfaces/user_activity_monitor.mojom.h"
+#include "services/ui/public/interfaces/video_detector.mojom.h"
 #include "services/ui/public/interfaces/window_manager_window_tree_factory.mojom.h"
 #include "services/ui/public/interfaces/window_server_test.mojom.h"
 #include "services/ui/public/interfaces/window_tree.mojom.h"
-#include "services/ui/public/interfaces/window_tree_host.mojom.h"
-#include "services/ui/ws/user_id.h"
+#include "services/ui/public/interfaces/window_tree_host_factory.mojom.h"
 #include "services/ui/ws/window_server_delegate.h"
+#include "ui/base/mojo/clipboard.mojom.h"
 
-#if defined(USE_OZONE)
-#include "ui/ozone/public/client_native_pixmap_factory_ozone.h"
-#endif
+#if defined(OS_CHROMEOS)
+#include "services/ui/input_devices/touch_device_server.h"
+#include "services/ui/public/interfaces/arc.mojom.h"
+#endif  // defined(OS_CHROMEOS)
 
 namespace discardable_memory {
 class DiscardableSharedMemoryManager;
@@ -55,23 +58,29 @@ class Identity;
 
 namespace ui {
 
+class ClipboardHost;
 class ImageCursorsSet;
 class InputDeviceController;
 class PlatformEventSource;
 
 namespace ws {
+class AccessibilityManager;
 class ThreadedImageCursorsFactory;
 class WindowServer;
+class WindowTreeHostFactory;
 }
 
 class Service : public service_manager::Service,
                 public ws::WindowServerDelegate {
  public:
-  // Contains the configuration necessary to run the UI Service inside the
-  // Window Manager's process.
-  struct InProcessConfig {
-    InProcessConfig();
-    ~InProcessConfig();
+  // TODO(jamescook): Audit these. Some may be unused after the elimination of
+  // "mus" mode.
+  struct InitParams {
+    InitParams();
+    ~InitParams();
+
+    // UI service runs in its own process (i.e. not embedded in browser or ash).
+    bool running_standalone = false;
 
     // Can be used to load resources.
     scoped_refptr<base::SingleThreadTaskRunner> resource_runner = nullptr;
@@ -79,34 +88,29 @@ class Service : public service_manager::Service,
     // Can only be de-referenced on |resource_runner_|.
     base::WeakPtr<ImageCursorsSet> image_cursors_set_weak_ptr = nullptr;
 
+    // If null Service creates a DiscardableSharedMemoryManager.
+    discardable_memory::DiscardableSharedMemoryManager* memory_manager =
+        nullptr;
+
+    // Whether mus should host viz, or whether an external client (e.g. the
+    // window manager) would be responsible for hosting viz.
+    bool should_host_viz = true;
+
    private:
-    DISALLOW_COPY_AND_ASSIGN(InProcessConfig);
+    DISALLOW_COPY_AND_ASSIGN(InitParams);
   };
 
-  // |config| should be null when UI Service runs in it's own separate process,
-  // as opposed to inside the Window Manager's process.
-  explicit Service(const InProcessConfig* config = nullptr);
+  explicit Service(const InitParams& params);
   ~Service() override;
 
  private:
   // Holds InterfaceRequests received before the first WindowTreeHost Display
   // has been established.
   struct PendingRequest;
-  struct UserState;
-
-  using UserIdToUserState = std::map<ws::UserId, std::unique_ptr<UserState>>;
-
-  bool is_in_process() const { return is_in_process_; }
 
   // Attempts to initialize the resource bundle. Returns true if successful,
   // otherwise false if resources cannot be loaded.
   bool InitializeResources(service_manager::Connector* connector);
-
-  // Returns the user specific state for the user id of |remote_identity|.
-  // Service owns the return value.
-  // TODO(sky): if we allow removal of user ids then we need to close anything
-  // associated with the user (all incoming pipes...) on removal.
-  UserState* GetUserState(const service_manager::Identity& remote_identity);
 
   void AddUserIfNecessary(const service_manager::Identity& remote_identity);
 
@@ -129,26 +133,21 @@ class Service : public service_manager::Service,
       mojom::AccessibilityManagerRequest request,
       const service_manager::BindSourceInfo& source_info);
 
-  void BindClipboardRequest(mojom::ClipboardRequest request,
-                            const service_manager::BindSourceInfo& source_info);
-
-  void BindDisplayManagerRequest(
-      mojom::DisplayManagerRequest request,
+  void BindClipboardHostRequest(
+      mojom::ClipboardHostRequest request,
       const service_manager::BindSourceInfo& source_info);
 
-  void BindGpuRequest(mojom::GpuRequest request,
-                      const service_manager::BindSourceInfo& source_info);
-
-  void BindIMERegistrarRequest(
-      mojom::IMERegistrarRequest request,
+  void BindScreenProviderRequest(
+      mojom::ScreenProviderRequest request,
       const service_manager::BindSourceInfo& source_info);
 
-  void BindIMEDriverRequest(mojom::IMEDriverRequest request,
-                            const service_manager::BindSourceInfo& source_info);
+  void BindGpuRequest(mojom::GpuRequest request);
 
-  void BindUserAccessManagerRequest(
-      mojom::UserAccessManagerRequest request,
-      const service_manager::BindSourceInfo& source_info);
+  void BindIMERegistrarRequest(mojom::IMERegistrarRequest request);
+
+  void BindIMEDriverRequest(mojom::IMEDriverRequest request);
+
+  void BindInputDeviceServerRequest(mojom::InputDeviceServerRequest request);
 
   void BindUserActivityMonitorRequest(
       mojom::UserActivityMonitorRequest request,
@@ -170,34 +169,38 @@ class Service : public service_manager::Service,
       discardable_memory::mojom::DiscardableSharedMemoryManagerRequest request,
       const service_manager::BindSourceInfo& source_info);
 
-  void BindWindowServerTestRequest(
-      mojom::WindowServerTestRequest request,
-      const service_manager::BindSourceInfo& source_info);
+  void BindWindowServerTestRequest(mojom::WindowServerTestRequest request);
+
+  void BindEventInjectorRequest(mojom::EventInjectorRequest request);
+
+  void BindVideoDetectorRequest(mojom::VideoDetectorRequest request);
+
+#if defined(OS_CHROMEOS)
+  void BindArcRequest(mojom::ArcRequest request);
+  void BindTouchDeviceServerRequest(mojom::TouchDeviceServerRequest request);
+#endif  // defined(OS_CHROMEOS)
 
   std::unique_ptr<ws::WindowServer> window_server_;
   std::unique_ptr<PlatformEventSource> event_source_;
   using PendingRequests = std::vector<std::unique_ptr<PendingRequest>>;
   PendingRequests pending_requests_;
 
-  UserIdToUserState user_id_to_user_state_;
-
   // Provides input-device information via Mojo IPC. Registers Mojo interfaces
   // and must outlive |registry_|.
   InputDeviceServer input_device_server_;
 
-  // True if the UI Service runs inside WM's process, false if it runs inside
-  // its own process.
-  const bool is_in_process_;
+  // True if the UI Service runs runs inside its own process, false if it is
+  // embedded in another process.
+  const bool running_standalone_;
 
   std::unique_ptr<ws::ThreadedImageCursorsFactory>
       threaded_image_cursors_factory_;
 
   bool test_config_;
-#if defined(USE_OZONE)
-  std::unique_ptr<gfx::ClientNativePixmapFactory> client_native_pixmap_factory_;
+
 #if defined(OS_CHROMEOS)
   std::unique_ptr<InputDeviceController> input_device_controller_;
-#endif
+  TouchDeviceServer touch_device_server_;
 #endif
 
   // Manages display hardware and handles display management. May register Mojo
@@ -207,15 +210,29 @@ class Service : public service_manager::Service,
   IMERegistrarImpl ime_registrar_;
   IMEDriverBridge ime_driver_;
 
-  std::unique_ptr<discardable_memory::DiscardableSharedMemoryManager>
+  discardable_memory::DiscardableSharedMemoryManager*
       discardable_shared_memory_manager_;
+
+  // non-null if this created the DiscardableSharedMemoryManager. Null when
+  // running in-process.
+  std::unique_ptr<discardable_memory::DiscardableSharedMemoryManager>
+      owned_discardable_shared_memory_manager_;
+
+  const bool should_host_viz_;
 
   service_manager::BinderRegistryWithArgs<
       const service_manager::BindSourceInfo&>
-      registry_;
+      registry_with_source_info_;
+  service_manager::BinderRegistry registry_;
 
   // Set to true in StartDisplayInit().
   bool is_gpu_ready_ = false;
+
+  bool in_destructor_ = false;
+
+  std::unique_ptr<ClipboardHost> clipboard_host_;
+  std::unique_ptr<ws::AccessibilityManager> accessibility_;
+  std::unique_ptr<ws::WindowTreeHostFactory> window_tree_host_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(Service);
 };

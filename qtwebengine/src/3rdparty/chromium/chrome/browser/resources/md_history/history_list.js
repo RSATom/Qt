@@ -103,7 +103,7 @@ Polymer({
    * result loading should be disabled.
    */
   addNewResults: function(historyResults, incremental, finished) {
-    var results = historyResults.slice();
+    const results = historyResults.slice();
     /** @type {IronScrollThresholdElement} */ (this.$['scroll-threshold'])
         .clearTriggers();
 
@@ -138,13 +138,32 @@ Polymer({
     this.fire('query-history', false);
   },
 
+  selectOrUnselectAll: function() {
+    if (this.historyData_.length == this.getSelectedItemCount())
+      this.unselectAllItems();
+    else
+      this.selectAllItems();
+  },
+
+  /**
+   * Select each item in |historyData|.
+   */
+  selectAllItems: function() {
+    if (this.historyData_.length == this.getSelectedItemCount())
+      return;
+
+    this.historyData_.forEach((item, index) => {
+      this.changeSelection_(index, true);
+    });
+  },
+
   /**
    * Deselect each item in |selectedItems|.
    */
   unselectAllItems: function() {
-    this.selectedItems.forEach(function(index) {
+    this.selectedItems.forEach((index) => {
       this.changeSelection_(index, false);
-    }.bind(this));
+    });
 
     assert(this.selectedItems.size == 0);
   },
@@ -162,7 +181,7 @@ Polymer({
     if (!this.canDeleteHistory_)
       return;
 
-    var browserService = md_history.BrowserService.getInstance();
+    const browserService = md_history.BrowserService.getInstance();
     browserService.recordAction('RemoveSelected');
     if (this.queryState.searchTerm != '')
       browserService.recordAction('SearchResultRemove');
@@ -182,7 +201,7 @@ Polymer({
    * @private
    */
   changeSelection_: function(index, selected) {
-    this.set('historyData_.' + index + '.selected', selected);
+    this.set(`historyData_.${index}.selected`, selected);
     if (selected)
       this.selectedItems.add(index);
     else
@@ -197,17 +216,19 @@ Polymer({
    * @private
    */
   deleteSelected_: function() {
-    var toBeRemoved =
-        Array.from(this.selectedItems.values()).map(function(index) {
-          return this.get('historyData_.' + index);
-        }.bind(this));
+    const toBeRemoved = Array.from(this.selectedItems.values())
+                            .map((index) => this.get(`historyData_.${index}`));
 
     md_history.BrowserService.getInstance()
         .deleteItems(toBeRemoved)
-        .then(function(items) {
+        .then((items) => {
           this.removeItemsByIndex_(Array.from(this.selectedItems));
           this.fire('unselect-all');
-        }.bind(this));
+          if (this.historyData_.length == 0) {
+            // Try reloading if nothing is rendered.
+            this.fire('query-history', false);
+          }
+        });
   },
 
   /**
@@ -218,13 +239,13 @@ Polymer({
    * @private
    */
   removeItemsByIndex_: function(indices) {
-    var splices = [];
+    const splices = [];
     indices.sort(function(a, b) {
       // Sort in reverse numerical order.
       return b - a;
     });
-    indices.forEach(function(index) {
-      var item = this.historyData_.splice(index, 1);
+    indices.forEach((index) => {
+      const item = this.historyData_.splice(index, 1);
       splices.push({
         index: index,
         removed: [item],
@@ -232,7 +253,7 @@ Polymer({
         object: this.historyData_,
         type: 'splice'
       });
-    }.bind(this));
+    });
     this.notifySplices('historyData_', splices);
   },
 
@@ -241,7 +262,7 @@ Polymer({
    * @private
    */
   closeMenu_: function() {
-    var menu = this.$.sharedMenu.getIfExists();
+    const menu = this.$.sharedMenu.getIfExists();
     if (menu && menu.open) {
       this.actionMenuModel_ = null;
       menu.close();
@@ -257,7 +278,7 @@ Polymer({
         'ConfirmRemoveSelected');
 
     this.deleteSelected_();
-    var dialog = assert(this.$.dialog.getIfExists());
+    const dialog = assert(this.$.dialog.getIfExists());
     dialog.close();
   },
 
@@ -266,7 +287,7 @@ Polymer({
     md_history.BrowserService.getInstance().recordAction(
         'CancelRemoveSelected');
 
-    var dialog = assert(this.$.dialog.getIfExists());
+    const dialog = assert(this.$.dialog.getIfExists());
     dialog.close();
   },
 
@@ -276,14 +297,14 @@ Polymer({
    * @private
    */
   onRemoveBookmarkStars_: function(e) {
-    var url = e.detail;
+    const url = e.detail;
 
     if (this.historyData_ === undefined)
       return;
 
-    for (var i = 0; i < this.historyData_.length; i++) {
+    for (let i = 0; i < this.historyData_.length; i++) {
       if (this.historyData_[i].url == url)
-        this.set('historyData_.' + i + '.starred', false);
+        this.set(`historyData_.${i}.starred`, false);
     }
   },
 
@@ -309,14 +330,14 @@ Polymer({
    * @private
    */
   onOpenMenu_: function(e) {
-    var index = e.detail.index;
-    var list = /** @type {IronListElement} */ (this.$['infinite-list']);
+    const index = e.detail.index;
+    const list = /** @type {IronListElement} */ (this.$['infinite-list']);
     if (index < list.firstVisibleIndex || index > list.lastVisibleIndex)
       list.scrollToIndex(index);
 
-    var target = e.detail.target;
+    const target = e.detail.target;
     this.actionMenuModel_ = e.detail;
-    var menu = /** @type {CrSharedMenuElement} */ this.$.sharedMenu.get();
+    const menu = /** @type {CrActionMenuElement} */ (this.$.sharedMenu.get());
     menu.showAt(target);
   },
 
@@ -325,7 +346,7 @@ Polymer({
     md_history.BrowserService.getInstance().recordAction(
         'EntryMenuShowMoreFromSite');
 
-    var menu = assert(this.$.sharedMenu.getIfExists());
+    const menu = assert(this.$.sharedMenu.getIfExists());
     this.fire('change-query', {search: this.actionMenuModel_.item.domain});
     this.actionMenuModel_ = null;
     this.closeMenu_();
@@ -333,11 +354,11 @@ Polymer({
 
   /** @private */
   onRemoveFromHistoryTap_: function() {
-    var browserService = md_history.BrowserService.getInstance();
+    const browserService = md_history.BrowserService.getInstance();
     browserService.recordAction('EntryMenuRemoveFromHistory');
-    var menu = assert(this.$.sharedMenu.getIfExists());
-    var itemData = this.actionMenuModel_;
-    browserService.deleteItems([itemData.item]).then(function(items) {
+    const menu = assert(this.$.sharedMenu.getIfExists());
+    const itemData = this.actionMenuModel_;
+    browserService.deleteItems([itemData.item]).then((items) => {
       // This unselect-all resets the toolbar when deleting a selected item
       // and clears selection state which can be invalid if items move
       // around during deletion.
@@ -346,11 +367,11 @@ Polymer({
       this.fire('unselect-all');
       this.removeItemsByIndex_([itemData.index]);
 
-      var index = itemData.index;
+      const index = itemData.index;
       if (index == undefined)
         return;
 
-      var browserService = md_history.BrowserService.getInstance();
+      const browserService = md_history.BrowserService.getInstance();
       browserService.recordHistogram(
           'HistoryPage.RemoveEntryPosition',
           Math.min(index, UMA_MAX_BUCKET_VALUE), UMA_MAX_BUCKET_VALUE);
@@ -359,7 +380,7 @@ Polymer({
             'HistoryPage.RemoveEntryPositionSubset', index,
             UMA_MAX_SUBSET_BUCKET_VALUE);
       }
-    }.bind(this));
+    });
     this.closeMenu_();
   },
 
@@ -368,13 +389,13 @@ Polymer({
    * @private
    */
   onItemSelected_: function(e) {
-    var index = e.detail.index;
-    var indices = [];
+    const index = e.detail.index;
+    const indices = [];
 
     // Handle shift selection. Change the selection state of all items between
     // |path| and |lastSelected| to the selection state of |item|.
     if (e.detail.shiftKey && this.lastSelectedIndex != undefined) {
-      for (var i = Math.min(index, this.lastSelectedIndex);
+      for (let i = Math.min(index, this.lastSelectedIndex);
            i <= Math.max(index, this.lastSelectedIndex); i++) {
         indices.push(i);
       }
@@ -383,11 +404,11 @@ Polymer({
     if (indices.length == 0)
       indices.push(index);
 
-    var selected = !this.selectedItems.has(index);
+    const selected = !this.selectedItems.has(index);
 
-    indices.forEach(function(index) {
+    indices.forEach((index) => {
       this.changeSelection_(index, selected);
-    }.bind(this));
+    });
 
     this.lastSelectedIndex = index;
   },
@@ -400,16 +421,16 @@ Polymer({
    * next one is large enough for a spacer to be required.
    * @param {HistoryEntry} item
    * @param {number} index The index of |item| in |historyData_|.
-   * @param {number} length The length of |historyData_|.
    * @return {boolean} Whether or not time gap separator is required.
    * @private
    */
-  needsTimeGap_: function(item, index, length) {
+  needsTimeGap_: function(item, index) {
+    const length = this.historyData_.length;
     if (index >= length - 1 || length == 0)
       return false;
 
-    var currentItem = this.historyData_[index];
-    var nextItem = this.historyData_[index + 1];
+    const currentItem = this.historyData_[index];
+    const nextItem = this.historyData_[index + 1];
 
     if (this.searchedTerm)
       return currentItem.dateShort != nextItem.dateShort;
@@ -422,11 +443,11 @@ Polymer({
    * True if the given item is the beginning of a new card.
    * @param {HistoryEntry} item
    * @param {number} i Index of |item| within |historyData_|.
-   * @param {number} length
    * @return {boolean}
    * @private
    */
-  isCardStart_: function(item, i, length) {
+  isCardStart_: function(item, i) {
+    const length = this.historyData_.length;
     if (length == 0 || i > length - 1)
       return false;
     return i == 0 ||
@@ -438,11 +459,11 @@ Polymer({
    * True if the given item is the end of a card.
    * @param {HistoryEntry} item
    * @param {number} i Index of |item| within |historyData_|.
-   * @param {number} length
    * @return {boolean}
    * @private
    */
-  isCardEnd_: function(item, i, length) {
+  isCardEnd_: function(item, i) {
+    const length = this.historyData_.length;
     if (length == 0 || i > length - 1)
       return false;
     return i == length - 1 ||
@@ -451,12 +472,11 @@ Polymer({
   },
 
   /**
-   * @param {number} historyDataLength
    * @return {boolean}
    * @private
    */
-  hasResults_: function(historyDataLength) {
-    return historyDataLength > 0;
+  hasResults_: function() {
+    return this.historyData_.length > 0;
   },
 
   /**
@@ -465,8 +485,18 @@ Polymer({
    * @private
    */
   noResultsMessage_: function(searchedTerm) {
-    var messageId = searchedTerm !== '' ? 'noSearchResults' : 'noResults';
+    const messageId = searchedTerm !== '' ? 'noSearchResults' : 'noResults';
     return loadTimeData.getString(messageId);
+  },
+
+  /**
+   * @param {string} searchedTerm
+   * @param {string} domain
+   * @return {boolean}
+   * @private
+   */
+  canSearchMoreFromSite_: function(searchedTerm, domain) {
+    return searchedTerm === '' || searchedTerm !== domain;
   },
 
   /**
@@ -478,9 +508,9 @@ Polymer({
     if (results.length == 0)
       return;
 
-    var currentDate = results[0].dateRelativeDay;
+    let currentDate = results[0].dateRelativeDay;
 
-    for (var i = 0; i < results.length; i++) {
+    for (let i = 0; i < results.length; i++) {
       // Sets the default values for these fields to prevent undefined types.
       results[i].selected = false;
       results[i].readableTimestamp =

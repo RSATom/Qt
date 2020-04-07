@@ -41,19 +41,18 @@
 #define CHROMIUM_GPU_HELPER_H
 
 #include <QtGlobal> // We need this for the Q_OS_QNX define.
-#include <QMap>
+
+#include "base/memory/scoped_refptr.h"
 
 namespace base {
-class MessageLoop;
+class SingleThreadTaskRunner;
 }
 
 namespace gpu {
 struct Mailbox;
 class SyncPointManager;
-namespace gles2 {
 class MailboxManager;
 class TextureBase;
-}
 }
 
 // These functions wrap code that needs to include headers that are
@@ -61,12 +60,12 @@ class TextureBase;
 // From the outside, types from incompatible headers referenced in these
 // functions should only be forward-declared and considered as opaque types.
 
-base::MessageLoop *gpu_message_loop();
+scoped_refptr<base::SingleThreadTaskRunner> gpu_task_runner();
 gpu::SyncPointManager *sync_point_manager();
-gpu::gles2::MailboxManager *mailbox_manager();
+gpu::MailboxManager *mailbox_manager();
 
-gpu::gles2::TextureBase* ConsumeTexture(gpu::gles2::MailboxManager *mailboxManager, unsigned target, const gpu::Mailbox& mailbox);
-unsigned int service_id(gpu::gles2::TextureBase *tex);
+gpu::TextureBase* ConsumeTexture(gpu::MailboxManager *mailboxManager, unsigned target, const gpu::Mailbox& mailbox);
+unsigned int service_id(gpu::TextureBase *tex);
 
 #ifdef Q_OS_QNX
 typedef void* EGLDisplay;
@@ -79,7 +78,7 @@ struct EGLStreamData {
     EGLStreamData(): egl_display(NULL), egl_str_handle(NULL) {}
 };
 
-EGLStreamData eglstream_connect_consumer(gpu::gles2::Texture *tex);
+EGLStreamData eglstream_connect_consumer(gpu::Texture *tex);
 #endif
 
 #endif // CHROMIUM_GPU_HELPER_H

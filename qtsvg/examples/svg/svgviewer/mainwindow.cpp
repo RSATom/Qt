@@ -64,6 +64,7 @@ static inline QString picturesLocation()
 MainWindow::MainWindow()
     : QMainWindow()
     , m_view(new SvgView)
+    , m_zoomLabel(new QLabel)
 {
     QToolBar *toolBar = new QToolBar(this);
     addToolBar(Qt::TopToolBarArea, toolBar);
@@ -93,6 +94,14 @@ MainWindow::MainWindow()
     m_outlineAction->setCheckable(true);
     m_outlineAction->setChecked(true);
     connect(m_outlineAction, &QAction::toggled, m_view, &SvgView::setViewOutline);
+
+    viewMenu->addSeparator();
+    QAction *zoomAction = viewMenu->addAction(tr("Zoom &In"), m_view, &SvgView::zoomIn);
+    zoomAction->setShortcut(QKeySequence::ZoomIn);
+    zoomAction = viewMenu->addAction(tr("Zoom &Out"), m_view, &SvgView::zoomOut);
+    zoomAction->setShortcut(QKeySequence::ZoomOut);
+    zoomAction = viewMenu->addAction(tr("Reset Zoom"), m_view, &SvgView::resetZoom);
+    zoomAction->setShortcut(Qt::CTRL + Qt::Key_0);
 
     QMenu *rendererMenu = menuBar()->addMenu(tr("&Renderer"));
     m_nativeAction = rendererMenu->addAction(tr("&Native"));
@@ -134,6 +143,11 @@ MainWindow::MainWindow()
     help->addAction(tr("About Qt"), qApp, &QApplication::aboutQt);
 
     setCentralWidget(m_view);
+
+    m_zoomLabel->setToolTip(tr("Use the mouse wheel to zoom"));
+    statusBar()->addPermanentWidget(m_zoomLabel);
+    updateZoomLabel();
+    connect(m_view, &SvgView::zoomChanged, this, &MainWindow::updateZoomLabel);
 }
 
 void MainWindow::openFile()
@@ -220,4 +234,10 @@ void MainWindow::exportImage()
                                   tr("Could not write file '%1'.").arg(QDir::toNativeSeparators(fileName)));
         }
     }
+}
+
+void MainWindow::updateZoomLabel()
+{
+    const int percent = qRound(m_view->zoomFactor() * qreal(100));
+    m_zoomLabel->setText(QString::number(percent) + QLatin1Char('%'));
 }

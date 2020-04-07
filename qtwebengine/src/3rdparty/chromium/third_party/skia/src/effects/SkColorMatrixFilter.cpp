@@ -66,14 +66,10 @@ public:
     Factory getFactory() const override             { return fMatrixFilter->getFactory(); }
 
 #if SK_SUPPORT_GPU
-    sk_sp<GrFragmentProcessor> asFragmentProcessor(GrContext* ctx,
-                                                   SkColorSpace* cs) const override {
-        return fMatrixFilter->asFragmentProcessor(ctx, cs);
+    std::unique_ptr<GrFragmentProcessor> asFragmentProcessor(
+            GrContext* ctx, const GrColorSpaceInfo& csi) const override {
+        return fMatrixFilter->asFragmentProcessor(ctx, csi);
     }
-#endif
-
-#ifndef SK_IGNORE_TO_STRING
-    void toString(SkString* str) const override { fMatrixFilter->toString(str); }
 #endif
 
 private:

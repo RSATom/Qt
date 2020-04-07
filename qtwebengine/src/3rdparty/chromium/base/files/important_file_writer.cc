@@ -71,6 +71,22 @@ void UmaHistogramExactLinearWithSuffix(const char* histogram_name,
                           static_cast<int>(max_sample));
 }
 
+// Helper function to write samples to a histogram with a dynamically assigned
+// histogram name.  Works with short timings from 1 ms up to 10 seconds (50
+// buckets) which is the actual argument type of UmaHistogramTimes.
+void UmaHistogramTimesWithSuffix(const char* histogram_name,
+                                 StringPiece histogram_suffix,
+                                 TimeDelta sample) {
+  DCHECK(histogram_name);
+  std::string histogram_full_name(histogram_name);
+  if (!histogram_suffix.empty()) {
+    histogram_full_name.append(".");
+    histogram_full_name.append(histogram_suffix.data(),
+                               histogram_suffix.length());
+  }
+  UmaHistogramTimes(histogram_full_name, sample);
+}
+
 void LogFailure(const FilePath& path,
                 StringPiece histogram_suffix,
                 TempFileFailure failure_code,
@@ -92,29 +108,24 @@ void WriteScopedStringToFileAtomically(
   if (!before_write_callback.is_null())
     before_write_callback.Run();
 
+  TimeTicks start_time = TimeTicks::Now();
   bool result =
       ImportantFileWriter::WriteFileAtomically(path, *data, histogram_suffix);
+  if (result) {
+    UmaHistogramTimesWithSuffix("ImportantFile.TimeToWrite", histogram_suffix,
+                                TimeTicks::Now() - start_time);
+  }
 
   if (!after_write_callback.is_null())
     after_write_callback.Run(result);
 }
 
-base::File::Error GetLastFileError() {
-#if defined(OS_WIN)
-  return base::File::OSErrorToFileError(::GetLastError());
-#elif defined(OS_POSIX)
-  return base::File::OSErrorToFileError(errno);
-#else
-  return base::File::FILE_OK;
-#endif
-}
-
 void DeleteTmpFile(const FilePath& tmp_file_path,
                    StringPiece histogram_suffix) {
   if (!DeleteFile(tmp_file_path, false)) {
-    UmaHistogramExactLinearWithSuffix("ImportantFile.FileDeleteError",
-                                      histogram_suffix, -GetLastFileError(),
-                                      -base::File::FILE_ERROR_MAX);
+    UmaHistogramExactLinearWithSuffix(
+        "ImportantFile.FileDeleteError", histogram_suffix,
+        -base::File::GetLastFileError(), -base::File::FILE_ERROR_MAX);
   }
 }
 
@@ -144,9 +155,9 @@ bool ImportantFileWriter::WriteFileAtomically(const FilePath& path,
   // is securely created.
   FilePath tmp_file_path;
   if (!CreateTemporaryFileInDir(path.DirName(), &tmp_file_path)) {
-    UmaHistogramExactLinearWithSuffix("ImportantFile.FileCreateError",
-                                      histogram_suffix, -GetLastFileError(),
-                                      -base::File::FILE_ERROR_MAX);
+    UmaHistogramExactLinearWithSuffix(
+        "ImportantFile.FileCreateError", histogram_suffix,
+        -base::File::GetLastFileError(), -base::File::FILE_ERROR_MAX);
     LogFailure(path, histogram_suffix, FAILED_CREATING,
                "could not create temporary file");
     return false;
@@ -167,9 +178,9 @@ bool ImportantFileWriter::WriteFileAtomically(const FilePath& path,
   const int data_length = checked_cast<int32_t>(data.length());
   int bytes_written = tmp_file.Write(0, data.data(), data_length);
   if (bytes_written < data_length) {
-    UmaHistogramExactLinearWithSuffix("ImportantFile.FileWriteError",
-                                      histogram_suffix, -GetLastFileError(),
-                                      -base::File::FILE_ERROR_MAX);
+    UmaHistogramExactLinearWithSuffix(
+        "ImportantFile.FileWriteError", histogram_suffix,
+        -base::File::GetLastFileError(), -base::File::FILE_ERROR_MAX);
   }
   bool flush_success = tmp_file.Flush();
   tmp_file.Close();
@@ -297,7 +308,7 @@ void ImportantFileWriter::ClearPendingWrite() {
   serializer_ = nullptr;
 }
 
-void ImportantFileWriter::SetTimerForTesting(Timer* timer_override) {
+void ImportantFileWriter::SetTimerForTesting(OneShotTimer* timer_override) {
   timer_override_ = timer_override;
 }
 

@@ -5,22 +5,24 @@
 #include "chrome/browser/extensions/api/tab_capture/offscreen_tab.h"
 
 #include <algorithm>
+#include <utility>
+#include <vector>
 
 #include "base/bind.h"
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
+#include "base/stl_util.h"
 #include "chrome/browser/extensions/api/tab_capture/tab_capture_registry.h"
-#include "chrome/browser/media/router/receiver_presentation_service_delegate_impl.h"  // nogncheck
+#include "chrome/browser/media/router/presentation/presentation_navigation_policy.h"
+#include "chrome/browser/media/router/presentation/receiver_presentation_service_delegate_impl.h"  // nogncheck
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/web_contents_sizer.h"
 #include "content/public/browser/keyboard_event_processing_result.h"
 #include "content/public/browser/navigation_handle.h"
-#include "content/public/browser/render_view_host.h"
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/web_contents.h"
-#include "content/public/common/web_preferences.h"
 #include "extensions/browser/extension_host.h"
 #include "extensions/browser/process_manager.h"
+#include "third_party/blink/public/web/web_presentation_receiver_flags.h"
 
 using content::WebContents;
 
@@ -83,43 +85,19 @@ void OffscreenTabsOwner::DestroyTab(OffscreenTab* tab) {
   }
 }
 
-// Navigation policy for presentations, where top-level navigations are not
-// allowed.
-class OffscreenTab::PresentationNavigationPolicy
-    : public OffscreenTab::NavigationPolicy {
- public:
-  PresentationNavigationPolicy() : first_navigation_started_(false) {}
-  ~PresentationNavigationPolicy() = default;
-
- private:
-  // OffscreenTab::NavigationPolicy overrides
-  bool DidStartNavigation(content::NavigationHandle* navigation_handle) final {
-    // We only care about top-level navigations that are cross-document.
-    if (!navigation_handle->IsInMainFrame() ||
-        navigation_handle->IsSameDocument()) {
-      return true;
-    }
-
-    // The initial navigation had already begun.
-    if (first_navigation_started_)
-      return false;
-
-    first_navigation_started_ = true;
-    return true;
-  }
-
-  bool first_navigation_started_;
-};
-
 OffscreenTab::OffscreenTab(OffscreenTabsOwner* owner)
     : owner_(owner),
-      profile_(Profile::FromBrowserContext(
-                   owner->extension_web_contents()->GetBrowserContext())
-                   ->CreateOffTheRecordProfile()),
-      capture_poll_timer_(false, false),
+      otr_profile_registration_(
+          IndependentOTRProfileManager::GetInstance()
+              ->CreateFromOriginalProfile(
+                  Profile::FromBrowserContext(
+                      owner->extension_web_contents()->GetBrowserContext()),
+                  base::BindOnce(&OffscreenTab::DieIfOriginalProfileDestroyed,
+                                 base::Unretained(this)))),
       content_capture_was_detected_(false),
-      navigation_policy_(new NavigationPolicy) {
-  DCHECK(profile_);
+      navigation_policy_(
+          std::make_unique<media_router::DefaultNavigationPolicy>()) {
+  DCHECK(otr_profile_registration_->profile());
 }
 
 OffscreenTab::~OffscreenTab() {
@@ -135,8 +113,11 @@ void OffscreenTab::Start(const GURL& start_url,
            << initial_size.ToString() << " for start_url=" << start_url_.spec();
 
   // Create the WebContents to contain the off-screen tab's page.
-  offscreen_tab_web_contents_.reset(
-      WebContents::Create(WebContents::CreateParams(profile_.get())));
+  WebContents::CreateParams params(otr_profile_registration_->profile());
+  if (!optional_presentation_id.empty())
+    params.starting_sandbox_flags = blink::kPresentationReceiverSandboxFlags;
+
+  offscreen_tab_web_contents_ = WebContents::Create(params);
   offscreen_tab_web_contents_->SetDelegate(this);
   WebContentsObserver::Observe(offscreen_tab_web_contents_.get());
 
@@ -162,17 +143,11 @@ void OffscreenTab::Start(const GURL& start_url,
     media_router::ReceiverPresentationServiceDelegateImpl::CreateForWebContents(
         offscreen_tab_web_contents_.get(), optional_presentation_id);
 
-    if (auto* render_view_host =
-            offscreen_tab_web_contents_->GetRenderViewHost()) {
-      auto web_prefs = render_view_host->GetWebkitPreferences();
-      web_prefs.presentation_receiver = true;
-      render_view_host->UpdateWebkitPreferences(web_prefs);
-    }
-
     // Presentations are not allowed to perform top-level navigations after
     // initial load.  This is enforced through sandboxing flags, but we also
     // enforce it here.
-    navigation_policy_.reset(new PresentationNavigationPolicy);
+    navigation_policy_ =
+        std::make_unique<media_router::PresentationNavigationPolicy>();
   }
 
   // Navigate to the initial URL.
@@ -286,8 +261,10 @@ bool OffscreenTab::EmbedsFullscreenWidget() const {
   return true;
 }
 
-void OffscreenTab::EnterFullscreenModeForTab(WebContents* contents,
-                                             const GURL& origin) {
+void OffscreenTab::EnterFullscreenModeForTab(
+    WebContents* contents,
+    const GURL& origin,
+    const blink::WebFullscreenOptions& options) {
   DCHECK_EQ(offscreen_tab_web_contents_.get(), contents);
 
   if (in_fullscreen_mode())
@@ -295,10 +272,8 @@ void OffscreenTab::EnterFullscreenModeForTab(WebContents* contents,
 
   non_fullscreen_size_ =
       contents->GetRenderWidgetHostView()->GetViewBounds().size();
-  if (contents->GetCapturerCount() >= 0 &&
-      !contents->GetPreferredSize().IsEmpty()) {
+  if (contents->IsBeingCaptured() && !contents->GetPreferredSize().IsEmpty())
     ResizeWebContents(contents, gfx::Rect(contents->GetPreferredSize()));
-  }
 }
 
 void OffscreenTab::ExitFullscreenModeForTab(WebContents* contents) {
@@ -325,9 +300,9 @@ blink::WebDisplayMode OffscreenTab::GetDisplayMode(
 }
 
 void OffscreenTab::RequestMediaAccessPermission(
-      WebContents* contents,
-      const content::MediaStreamRequest& request,
-      const content::MediaResponseCallback& callback) {
+    WebContents* contents,
+    const content::MediaStreamRequest& request,
+    content::MediaResponseCallback callback) {
   DCHECK_EQ(offscreen_tab_web_contents_.get(), contents);
 
   // This method is being called to check whether an extension is permitted to
@@ -366,22 +341,24 @@ void OffscreenTab::RequestMediaAccessPermission(
   DVLOG(2) << "Allowing " << devices.size()
            << " capture devices for OffscreenTab content.";
 
-  callback.Run(devices, devices.empty() ? content::MEDIA_DEVICE_INVALID_STATE
-                                        : content::MEDIA_DEVICE_OK,
-               std::unique_ptr<content::MediaStreamUI>(nullptr));
+  std::move(callback).Run(devices,
+                          devices.empty() ? content::MEDIA_DEVICE_INVALID_STATE
+                                          : content::MEDIA_DEVICE_OK,
+                          std::unique_ptr<content::MediaStreamUI>(nullptr));
 }
 
 bool OffscreenTab::CheckMediaAccessPermission(
-    WebContents* contents,
+    content::RenderFrameHost* render_frame_host,
     const GURL& security_origin,
     content::MediaStreamType type) {
-  DCHECK_EQ(offscreen_tab_web_contents_.get(), contents);
+  DCHECK_EQ(offscreen_tab_web_contents_.get(),
+            content::WebContents::FromRenderFrameHost(render_frame_host));
   return type == content::MEDIA_TAB_AUDIO_CAPTURE ||
       type == content::MEDIA_TAB_VIDEO_CAPTURE;
 }
 
 void OffscreenTab::DidShowFullscreenWidget() {
-  if (offscreen_tab_web_contents_->GetCapturerCount() == 0 ||
+  if (!offscreen_tab_web_contents_->IsBeingCaptured() ||
       offscreen_tab_web_contents_->GetPreferredSize().IsEmpty())
     return;  // Do nothing, since no preferred size is specified.
   content::RenderWidgetHostView* const current_fs_view =
@@ -393,27 +370,18 @@ void OffscreenTab::DidShowFullscreenWidget() {
 void OffscreenTab::DidStartNavigation(
     content::NavigationHandle* navigation_handle) {
   DCHECK(offscreen_tab_web_contents_.get());
-  if (!navigation_policy_->DidStartNavigation(navigation_handle)) {
+  if (!navigation_policy_->AllowNavigation(navigation_handle)) {
     DVLOG(2) << "Closing because NavigationPolicy disallowed "
              << "StartNavigation to " << navigation_handle->GetURL().spec();
     Close();
   }
 }
 
-// Default navigation policy.
-OffscreenTab::NavigationPolicy::NavigationPolicy() = default;
-OffscreenTab::NavigationPolicy::~NavigationPolicy() = default;
-
-bool OffscreenTab::NavigationPolicy::DidStartNavigation(
-    content::NavigationHandle* navigation_handle) {
-  return true;
-}
-
 void OffscreenTab::DieIfContentCaptureEnded() {
   DCHECK(offscreen_tab_web_contents_.get());
 
   if (content_capture_was_detected_) {
-    if (offscreen_tab_web_contents_->GetCapturerCount() == 0) {
+    if (!offscreen_tab_web_contents_->IsBeingCaptured()) {
       DVLOG(2) << "Capture of OffscreenTab content has stopped for start_url="
                << start_url_.spec();
       owner_->DestroyTab(this);
@@ -422,7 +390,7 @@ void OffscreenTab::DieIfContentCaptureEnded() {
       DVLOG(3) << "Capture of OffscreenTab content continues for start_url="
                << start_url_.spec();
     }
-  } else if (offscreen_tab_web_contents_->GetCapturerCount() > 0) {
+  } else if (offscreen_tab_web_contents_->IsBeingCaptured()) {
     DVLOG(2) << "Capture of OffscreenTab content has started for start_url="
              << start_url_.spec();
     content_capture_was_detected_ = true;
@@ -444,6 +412,11 @@ void OffscreenTab::DieIfContentCaptureEnded() {
       base::TimeDelta::FromSeconds(kPollIntervalInSeconds),
       base::Bind(&OffscreenTab::DieIfContentCaptureEnded,
                  base::Unretained(this)));
+}
+
+void OffscreenTab::DieIfOriginalProfileDestroyed(Profile* profile) {
+  DCHECK(profile == otr_profile_registration_->profile());
+  owner_->DestroyTab(this);
 }
 
 }  // namespace extensions

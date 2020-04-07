@@ -95,7 +95,7 @@ struct QWindowsLibGLESv2
 #if !defined(QT_STATIC) || defined(QT_OPENGL_DYNAMIC)
     void *moduleHandle() const { return m_lib; }
 #else
-    void *moduleHandle() const { return Q_NULLPTR; }
+    void *moduleHandle() const { return nullptr; }
 #endif
 
     const GLubyte * (APIENTRY * glGetString)(GLenum name);
@@ -113,7 +113,7 @@ class QWindowsEGLStaticContext : public QWindowsStaticOpenGLContext
 
 public:
     static QWindowsEGLStaticContext *create(QWindowsOpenGLTester::Renderers preferredType);
-    ~QWindowsEGLStaticContext();
+    ~QWindowsEGLStaticContext() override;
 
     EGLDisplay display() const { return m_display; }
 
@@ -143,7 +143,7 @@ public:
     QWindowsEGLContext(QWindowsEGLStaticContext *staticContext,
                        const QSurfaceFormat &format,
                        QPlatformOpenGLContext *share);
-    ~QWindowsEGLContext();
+    ~QWindowsEGLContext() override;
 
     bool makeCurrent(QPlatformSurface *surface) override;
     void doneCurrent() override;

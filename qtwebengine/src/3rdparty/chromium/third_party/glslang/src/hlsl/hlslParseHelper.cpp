@@ -1,5 +1,6 @@
 //
 //Copyright (C) 2016 Google, Inc.
+//Copyright (C) 2016 LunarG, Inc.
 //
 //All rights reserved.
 //
@@ -51,7 +52,7 @@ HlslParseContext::HlslParseContext(TSymbolTable& symbolTable, TIntermediate& int
                                    int version, EProfile profile, int spv, int vulkan, EShLanguage language, TInfoSink& infoSink,
                                    bool forwardCompatible, EShMessages messages) :
     TParseContextBase(symbolTable, interm, version, profile, spv, vulkan, language, infoSink, forwardCompatible, messages),
-    contextPragma(true, false), loopNestingLevel(0), structNestingLevel(0), controlFlowNestingLevel(0), statementNestingLevel(0),
+    contextPragma(true, false), loopNestingLevel(0), structNestingLevel(0), controlFlowNestingLevel(0),
     postMainReturn(false),
     limits(resources.limits),
     afterEOF(false)
@@ -284,7 +285,12 @@ void C_DECL HlslParseContext::ppWarn(const TSourceLoc& loc, const char* szReason
 //
 TIntermTyped* HlslParseContext::handleVariable(const TSourceLoc& loc, TSymbol* symbol, const TString* string)
 {
-    TIntermTyped* node = nullptr;
+    if (symbol == nullptr)
+        symbol = symbolTable.find(*string);
+    if (symbol && symbol->getAsVariable() && symbol->getAsVariable()->isUserType()) {
+        error(loc, "expected symbol, not user-defined type", string->c_str(), "");
+        return nullptr;
+    }
 
     // Error check for requiring specific extensions present.
     if (symbol && symbol->getNumExtensions())
@@ -305,6 +311,7 @@ TIntermTyped* HlslParseContext::handleVariable(const TSourceLoc& loc, TSymbol* s
 
     const TVariable* variable;
     const TAnonMember* anon = symbol ? symbol->getAsAnonMember() : nullptr;
+    TIntermTyped* node = nullptr;
     if (anon) {
         // It was a member of an anonymous container.
 
@@ -714,7 +721,7 @@ TIntermAggregate* HlslParseContext::handleFunctionDefinition(const TSourceLoc& l
     //
     // New symbol table scope for body of function plus its arguments
     //
-    symbolTable.push();
+    pushScope();
 
     //
     // Insert parameters into the symbol table.
@@ -747,19 +754,199 @@ TIntermAggregate* HlslParseContext::handleFunctionDefinition(const TSourceLoc& l
     }
     intermediate.setAggregateOperator(paramNodes, EOpParameters, TType(EbtVoid), loc);
     loopNestingLevel = 0;
-    statementNestingLevel = 0;
     controlFlowNestingLevel = 0;
     postMainReturn = false;
 
     return paramNodes;
 }
 
-void HlslParseContext::handleFunctionArgument(TFunction* function, TIntermAggregate*& arguments, TIntermTyped* arg)
+void HlslParseContext::handleFunctionArgument(TFunction* function, TIntermTyped*& arguments, TIntermTyped* newArg)
 {
     TParameter param = { 0, new TType };
-    param.type->shallowCopy(arg->getType());
+    param.type->shallowCopy(newArg->getType());
     function->addParameter(param);
-    arguments = intermediate.growAggregate(arguments, arg);
+    if (arguments)
+        arguments = intermediate.growAggregate(arguments, newArg);
+    else
+        arguments = newArg;
+}
+
+// Optionally decompose intrinsics to AST opcodes.
+//
+void HlslParseContext::decomposeIntrinsic(const TSourceLoc& loc, TIntermTyped*& node, TIntermNode* arguments)
+{
+    // HLSL intrinsics can be pass through to native AST opcodes, or decomposed here to existing AST
+    // opcodes for compatibility with existing software stacks.
+    static const bool decomposeHlslIntrinsics = true;
+
+    if (!decomposeHlslIntrinsics || !node || !node->getAsOperator())
+        return;
+    
+    const TIntermAggregate* argAggregate = arguments ? arguments->getAsAggregate() : nullptr;
+    TIntermUnary* fnUnary = node->getAsUnaryNode();
+    const TOperator op  = node->getAsOperator()->getOp();
+
+    switch (op) {
+    case EOpGenMul:
+        {
+            // mul(a,b) -> MatrixTimesMatrix, MatrixTimesVector, MatrixTimesScalar, VectorTimesScalar, Dot, Mul
+            TIntermTyped* arg0 = argAggregate->getSequence()[0]->getAsTyped();
+            TIntermTyped* arg1 = argAggregate->getSequence()[1]->getAsTyped();
+
+            if (arg0->isVector() && arg1->isVector()) {  // vec * vec
+                node->getAsAggregate()->setOperator(EOpDot);
+            } else {
+                node = handleBinaryMath(loc, "mul", EOpMul, arg0, arg1);
+            }
+
+            break;
+        }
+
+    case EOpRcp:
+        {
+            // rcp(a) -> 1 / a
+            TIntermTyped* arg0 = fnUnary->getOperand();
+            TBasicType   type0 = arg0->getBasicType();
+            TIntermTyped* one  = intermediate.addConstantUnion(1, type0, loc, true);
+            node  = handleBinaryMath(loc, "rcp", EOpDiv, one, arg0);
+
+            break;
+        }
+
+    case EOpSaturate:
+        {
+            // saturate(a) -> clamp(a,0,1)
+            TIntermTyped* arg0 = fnUnary->getOperand();
+            TBasicType   type0 = arg0->getBasicType();
+            TIntermAggregate* clamp = new TIntermAggregate(EOpClamp);
+
+            clamp->getSequence().push_back(arg0);
+            clamp->getSequence().push_back(intermediate.addConstantUnion(0, type0, loc, true));
+            clamp->getSequence().push_back(intermediate.addConstantUnion(1, type0, loc, true));
+            clamp->setLoc(loc);
+            clamp->setType(node->getType());
+            node = clamp;
+
+            break;
+        }
+
+    case EOpSinCos:
+        {
+            // sincos(a,b,c) -> b = sin(a), c = cos(a)
+            TIntermTyped* arg0 = argAggregate->getSequence()[0]->getAsTyped();
+            TIntermTyped* arg1 = argAggregate->getSequence()[1]->getAsTyped();
+            TIntermTyped* arg2 = argAggregate->getSequence()[2]->getAsTyped();
+
+            TIntermTyped* sinStatement = handleUnaryMath(loc, "sin", EOpSin, arg0);
+            TIntermTyped* cosStatement = handleUnaryMath(loc, "cos", EOpCos, arg0);
+            TIntermTyped* sinAssign    = intermediate.addAssign(EOpAssign, arg1, sinStatement, loc);
+            TIntermTyped* cosAssign    = intermediate.addAssign(EOpAssign, arg2, cosStatement, loc);
+
+            TIntermAggregate* compoundStatement = intermediate.makeAggregate(sinAssign, loc);
+            compoundStatement = intermediate.growAggregate(compoundStatement, cosAssign);
+            compoundStatement->setOperator(EOpSequence);
+            compoundStatement->setLoc(loc);
+
+            node = compoundStatement;
+
+            break;
+        }
+
+    case EOpClip:
+        {
+            // clip(a) -> if (any(a<0)) discard;
+            TIntermTyped*  arg0 = fnUnary->getOperand();
+            TBasicType     type0 = arg0->getBasicType();
+            TIntermTyped*  compareNode = nullptr;
+
+            // For non-scalars: per experiment with FXC compiler, discard if any component < 0.
+            if (!arg0->isScalar()) {
+                // component-wise compare: a < 0
+                TIntermAggregate* less = new TIntermAggregate(EOpLessThan);
+                less->getSequence().push_back(arg0);
+                less->setLoc(loc);
+
+                // make vec or mat of bool matching dimensions of input
+                less->setType(TType(EbtBool, EvqTemporary,
+                                    arg0->getType().getVectorSize(),
+                                    arg0->getType().getMatrixCols(),
+                                    arg0->getType().getMatrixRows(),
+                                    arg0->getType().isVector()));
+
+                // calculate # of components for comparison const
+                const int constComponentCount = 
+                    std::max(arg0->getType().getVectorSize(), 1) *
+                    std::max(arg0->getType().getMatrixCols(), 1) *
+                    std::max(arg0->getType().getMatrixRows(), 1);
+
+                TConstUnion zero;
+                zero.setDConst(0.0);
+                TConstUnionArray zeros(constComponentCount, zero);
+
+                less->getSequence().push_back(intermediate.addConstantUnion(zeros, arg0->getType(), loc, true));
+
+                compareNode = intermediate.addBuiltInFunctionCall(loc, EOpAny, true, less, TType(EbtBool));
+            } else {
+                TIntermTyped* zero = intermediate.addConstantUnion(0, type0, loc, true);
+                compareNode = handleBinaryMath(loc, "clip", EOpLessThan, arg0, zero);
+            }
+            
+            TIntermBranch* killNode = intermediate.addBranch(EOpKill, loc);
+
+            node = new TIntermSelection(compareNode, killNode, nullptr);
+            node->setLoc(loc);
+            
+            break;
+        }
+
+    case EOpLog10:
+        {
+            // log10(a) -> log2(a) * 0.301029995663981  (== 1/log2(10))
+            TIntermTyped* arg0 = fnUnary->getOperand();
+            TIntermTyped* log2 = handleUnaryMath(loc, "log2", EOpLog2, arg0);
+            TIntermTyped* base = intermediate.addConstantUnion(0.301029995663981f, EbtFloat, loc, true);
+
+            node  = handleBinaryMath(loc, "mul", EOpMul, log2, base);
+
+            break;
+        }
+
+    case EOpDst:
+        {
+            // dest.x = 1;
+            // dest.y = src0.y * src1.y;
+            // dest.z = src0.z;
+            // dest.w = src1.w;
+
+            TIntermTyped* arg0 = argAggregate->getSequence()[0]->getAsTyped();
+            TIntermTyped* arg1 = argAggregate->getSequence()[1]->getAsTyped();
+            TBasicType    type0 = arg0->getBasicType();
+
+            TIntermTyped* x = intermediate.addConstantUnion(0, loc, true);
+            TIntermTyped* y = intermediate.addConstantUnion(1, loc, true);
+            TIntermTyped* z = intermediate.addConstantUnion(2, loc, true);
+            TIntermTyped* w = intermediate.addConstantUnion(3, loc, true);
+
+            TIntermTyped* src0y = intermediate.addIndex(EOpIndexDirect, arg0, y, loc);
+            TIntermTyped* src1y = intermediate.addIndex(EOpIndexDirect, arg1, y, loc);
+            TIntermTyped* src0z = intermediate.addIndex(EOpIndexDirect, arg0, z, loc);
+            TIntermTyped* src1w = intermediate.addIndex(EOpIndexDirect, arg1, w, loc);
+
+            TIntermAggregate* dst = new TIntermAggregate(EOpConstructVec4);
+
+            dst->getSequence().push_back(intermediate.addConstantUnion(1.0, EbtFloat, loc, true));
+            dst->getSequence().push_back(handleBinaryMath(loc, "mul", EOpMul, src0y, src1y));
+            dst->getSequence().push_back(src0z);
+            dst->getSequence().push_back(src1w);
+            dst->setLoc(loc);
+            node = dst;
+
+            break;
+        }
+
+    default:
+        break; // most pass through unchanged
+    }
 }
 
 //
@@ -864,6 +1051,8 @@ TIntermTyped* HlslParseContext::handleFunctionCall(const TSourceLoc& loc, TFunct
                 }
                 result = addOutputArgumentConversions(*fnCandidate, *result->getAsAggregate());
             }
+
+            decomposeIntrinsic(loc, result, arguments);
         }
     }
 
@@ -1202,6 +1391,38 @@ TFunction* HlslParseContext::handleConstructorCall(const TSourceLoc& loc, const 
     TString empty("");
 
     return new TFunction(&empty, type, op);
+}
+
+//
+// Handle seeing a "COLON semantic" at the end of a type declaration,
+// by updating the type according to the semantic.
+//
+void HlslParseContext::handleSemantic(TType& type, const TString& semantic)
+{
+    // TODO: need to know if it's an input or an output
+    // The following sketches what needs to be done, but can't be right
+    // without taking into account stage and input/output.
+    
+    if (semantic == "PSIZE")
+        type.getQualifier().builtIn = EbvPointSize;
+    else if (semantic == "POSITION")
+        type.getQualifier().builtIn = EbvPosition;
+    else if (semantic == "FOG")
+        type.getQualifier().builtIn = EbvFogFragCoord;
+    else if (semantic == "DEPTH" || semantic == "SV_Depth")
+        type.getQualifier().builtIn = EbvFragDepth;
+    else if (semantic == "VFACE" || semantic == "SV_IsFrontFace")
+        type.getQualifier().builtIn = EbvFace;
+    else if (semantic == "VPOS" || semantic == "SV_Position")
+        type.getQualifier().builtIn = EbvFragCoord;
+    else if (semantic == "SV_ClipDistance")
+        type.getQualifier().builtIn = EbvClipDistance;
+    else if (semantic == "SV_CullDistance")
+        type.getQualifier().builtIn = EbvCullDistance;
+    else if (semantic == "SV_VertexID")
+        type.getQualifier().builtIn = EbvVertexId;
+    else if (semantic == "SV_ViewportArrayIndex")
+        type.getQualifier().builtIn = EbvViewportIndex;
 }
 
 //
@@ -1649,13 +1870,6 @@ bool HlslParseContext::voidErrorCheck(const TSourceLoc& loc, const TString& iden
 void HlslParseContext::boolCheck(const TSourceLoc& loc, const TIntermTyped* type)
 {
     if (type->getBasicType() != EbtBool || type->isArray() || type->isMatrix() || type->isVector())
-        error(loc, "boolean expression expected", "", "");
-}
-
-// This function checks to see if the node (for the expression) contains a scalar boolean expression or not
-void HlslParseContext::boolCheck(const TSourceLoc& loc, const TPublicType& pType)
-{
-    if (pType.basicType != EbtBool || pType.arraySizes || pType.matrixCols > 1 || (pType.vectorSize > 1))
         error(loc, "boolean expression expected", "", "");
 }
 

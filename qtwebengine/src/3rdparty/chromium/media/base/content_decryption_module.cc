@@ -8,20 +8,16 @@
 
 namespace media {
 
-ContentDecryptionModule::ContentDecryptionModule() {}
+ContentDecryptionModule::ContentDecryptionModule() = default;
 
-ContentDecryptionModule::~ContentDecryptionModule() {}
+ContentDecryptionModule::~ContentDecryptionModule() = default;
 
 // By default a CDM does not support this method.
 void ContentDecryptionModule::GetStatusForPolicy(
     HdcpVersion min_hdcp_version,
     std::unique_ptr<KeyStatusCdmPromise> promise) {
-  promise->reject(CdmPromise::NOT_SUPPORTED_ERROR, 0,
+  promise->reject(CdmPromise::Exception::NOT_SUPPORTED_ERROR, 0,
                   "GetStatusForPolicy() is not supported.");
-}
-
-CdmContext* ContentDecryptionModule::GetCdmContext() {
-  return nullptr;
 }
 
 void ContentDecryptionModule::DeleteOnCorrectThread() const {

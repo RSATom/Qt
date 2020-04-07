@@ -27,26 +27,25 @@ enum WhitespaceRemovalPolicy {
 };
 
 const SchemeWithType kStandardURLSchemes[] = {
-    {kHttpScheme, SCHEME_WITH_PORT},
-    {kHttpsScheme, SCHEME_WITH_PORT},
+    {kHttpsScheme, SCHEME_WITH_HOST_PORT_AND_USER_INFORMATION},
+    {kHttpScheme, SCHEME_WITH_HOST_PORT_AND_USER_INFORMATION},
     // Yes, file URLs can have a hostname, so file URLs should be handled as
     // "standard". File URLs never have a port as specified by the SchemeType
-    // field.
-    {kFileScheme, SCHEME_WITHOUT_PORT},
-    {kFtpScheme, SCHEME_WITH_PORT},
-    {kGopherScheme, SCHEME_WITH_PORT},
-    {kWsScheme, SCHEME_WITH_PORT},   // WebSocket.
-    {kWssScheme, SCHEME_WITH_PORT},  // WebSocket secure.
+    // field.  Unlike other SCHEME_WITH_HOST schemes, the 'host' in a file
+    // URL may be empty, a behavior which is special-cased during
+    // canonicalization.
+    {kFileScheme, SCHEME_WITH_HOST},
+    {kFtpScheme, SCHEME_WITH_HOST_PORT_AND_USER_INFORMATION},
+    {kGopherScheme, SCHEME_WITH_HOST_PORT_AND_USER_INFORMATION},
+    {kWssScheme,
+     SCHEME_WITH_HOST_PORT_AND_USER_INFORMATION},  // WebSocket secure.
+    {kWsScheme, SCHEME_WITH_HOST_PORT_AND_USER_INFORMATION},  // WebSocket.
     {kFileSystemScheme, SCHEME_WITHOUT_AUTHORITY},
-    {kHttpSuboriginScheme, SCHEME_WITH_PORT},
-    {kHttpsSuboriginScheme, SCHEME_WITH_PORT},
 };
 
 const SchemeWithType kReferrerURLSchemes[] = {
-    {kHttpScheme, SCHEME_WITH_PORT},
-    {kHttpsScheme, SCHEME_WITH_PORT},
-    {kHttpSuboriginScheme, SCHEME_WITH_PORT},
-    {kHttpsSuboriginScheme, SCHEME_WITH_PORT},
+    {kHttpsScheme, SCHEME_WITH_HOST_PORT_AND_USER_INFORMATION},
+    {kHttpScheme, SCHEME_WITH_HOST_PORT_AND_USER_INFORMATION},
 };
 
 const char* kSecureSchemes[] = {
@@ -67,18 +66,18 @@ const char* kNoAccessSchemes[] = {
 };
 
 const char* kCORSEnabledSchemes[] = {
-  kHttpScheme,
   kHttpsScheme,
+  kHttpScheme,
   kDataScheme,
 };
 
 const char* kWebStorageSchemes[] = {
-  kHttpScheme,
   kHttpsScheme,
+  kHttpScheme,
   kFileScheme,
   kFtpScheme,
-  kWsScheme,
   kWssScheme,
+  kWsScheme,
 };
 
 const char* kEmptyDocumentSchemes[] = {
@@ -245,7 +244,7 @@ bool DoCanonicalize(const CHAR* spec,
   // This is the parsed version of the input URL, we have to canonicalize it
   // before storing it in our object.
   bool success;
-  SchemeType unused_scheme_type = SCHEME_WITH_PORT;
+  SchemeType scheme_type = SCHEME_WITH_HOST_PORT_AND_USER_INFORMATION;
   if (DoCompareSchemeComponent(spec, scheme, url::kFileScheme)) {
     // File URLs are special.
     ParseFileURL(spec, spec_len, &parsed_input);
@@ -258,10 +257,10 @@ bool DoCanonicalize(const CHAR* spec,
                                         charset_converter, output,
                                         output_parsed);
 
-  } else if (DoIsStandard(spec, scheme, &unused_scheme_type)) {
+  } else if (DoIsStandard(spec, scheme, &scheme_type)) {
     // All "normal" URLs.
     ParseStandardURL(spec, spec_len, &parsed_input);
-    success = CanonicalizeStandardURL(spec, spec_len, parsed_input,
+    success = CanonicalizeStandardURL(spec, spec_len, parsed_input, scheme_type,
                                       charset_converter, output, output_parsed);
 
   } else if (DoCompareSchemeComponent(spec, scheme, url::kMailToScheme)) {
@@ -308,7 +307,7 @@ bool DoResolveRelative(const char* base_spec,
     base_is_hierarchical = num_slashes > 0;
   }
 
-  SchemeType unused_scheme_type = SCHEME_WITH_PORT;
+  SchemeType unused_scheme_type = SCHEME_WITH_HOST_PORT_AND_USER_INFORMATION;
   bool standard_base_scheme =
       base_parsed.scheme.is_nonempty() &&
       DoIsStandard(base_spec, base_parsed.scheme, &unused_scheme_type);
@@ -443,10 +442,10 @@ bool DoReplaceComponents(const char* spec,
     return ReplaceFileSystemURL(spec, parsed, replacements, charset_converter,
                                 output, out_parsed);
   }
-  SchemeType unused_scheme_type = SCHEME_WITH_PORT;
-  if (DoIsStandard(spec, parsed.scheme, &unused_scheme_type)) {
-    return ReplaceStandardURL(spec, parsed, replacements, charset_converter,
-                              output, out_parsed);
+  SchemeType scheme_type = SCHEME_WITH_HOST_PORT_AND_USER_INFORMATION;
+  if (DoIsStandard(spec, parsed.scheme, &scheme_type)) {
+    return ReplaceStandardURL(spec, parsed, replacements, scheme_type,
+                              charset_converter, output, out_parsed);
   }
   if (DoCompareSchemeComponent(spec, parsed.scheme, url::kMailToScheme)) {
     return ReplaceMailtoURL(spec, parsed, replacements, output, out_parsed);
@@ -647,6 +646,12 @@ bool GetStandardSchemeType(const char* spec,
   return DoIsStandard(spec, scheme, type);
 }
 
+bool GetStandardSchemeType(const base::char16* spec,
+                           const Component& scheme,
+                           SchemeType* type) {
+  return DoIsStandard(spec, scheme, type);
+}
+
 bool IsStandard(const base::char16* spec, const Component& scheme) {
   SchemeType unused_scheme_type;
   return DoIsStandard(spec, scheme, &unused_scheme_type);
@@ -672,28 +677,27 @@ bool FindAndCompareScheme(const base::char16* str,
   return DoFindAndCompareScheme(str, str_len, compare, found_scheme);
 }
 
-bool DomainIs(base::StringPiece canonicalized_host,
-              base::StringPiece lower_ascii_domain) {
-  if (canonicalized_host.empty() || lower_ascii_domain.empty())
+bool DomainIs(base::StringPiece canonical_host,
+              base::StringPiece canonical_domain) {
+  if (canonical_host.empty() || canonical_domain.empty())
     return false;
 
   // If the host name ends with a dot but the input domain doesn't, then we
   // ignore the dot in the host name.
-  size_t host_len = canonicalized_host.length();
-  if (canonicalized_host.back() == '.' && lower_ascii_domain.back() != '.')
+  size_t host_len = canonical_host.length();
+  if (canonical_host.back() == '.' && canonical_domain.back() != '.')
     --host_len;
 
-  if (host_len < lower_ascii_domain.length())
+  if (host_len < canonical_domain.length())
     return false;
 
   // |host_first_pos| is the start of the compared part of the host name, not
   // start of the whole host name.
   const char* host_first_pos =
-      canonicalized_host.data() + host_len - lower_ascii_domain.length();
+      canonical_host.data() + host_len - canonical_domain.length();
 
-  if (!base::LowerCaseEqualsASCII(
-          base::StringPiece(host_first_pos, lower_ascii_domain.length()),
-          lower_ascii_domain)) {
+  if (base::StringPiece(host_first_pos, canonical_domain.length()) !=
+      canonical_domain) {
     return false;
   }
 
@@ -701,7 +705,7 @@ bool DomainIs(base::StringPiece canonicalized_host,
   // if the host name is longer than the input domain name, then the character
   // immediately before the compared part should be a dot. For example,
   // www.google.com has domain "google.com", but www.iamnotgoogle.com does not.
-  if (lower_ascii_domain[0] != '.' && host_len > lower_ascii_domain.length() &&
+  if (canonical_domain[0] != '.' && host_len > canonical_domain.length() &&
       *(host_first_pos - 1) != '.') {
     return false;
   }
@@ -785,9 +789,9 @@ bool ReplaceComponents(const char* spec,
                              charset_converter, output, out_parsed);
 }
 
-void DecodeURLEscapeSequences(const char* input,
-                              int length,
-                              CanonOutputW* output) {
+DecodeURLResult DecodeURLEscapeSequences(const char* input,
+                                         int length,
+                                         CanonOutputW* output) {
   RawCanonOutputT<char> unescaped_chars;
   for (int i = 0; i < length; i++) {
     if (input[i] == '%') {
@@ -804,6 +808,8 @@ void DecodeURLEscapeSequences(const char* input,
     }
   }
 
+  bool did_utf8_decode = false;
+  bool did_isomorphic_decode = false;
   // Convert that 8-bit to UTF-16. It's not clear IE does this at all to
   // JavaScript URLs, but Firefox and Safari do.
   for (int i = 0; i < unescaped_chars.length(); i++) {
@@ -821,6 +827,7 @@ void DecodeURLEscapeSequences(const char* input,
         // Valid UTF-8 character, convert to UTF-16.
         AppendUTF16Value(code_point, output);
         i = next_character;
+        did_utf8_decode = true;
       } else {
         // If there are any sequences that are not valid UTF-8, we keep
         // invalid code points and promote to UTF-16. We copy all characters
@@ -830,9 +837,18 @@ void DecodeURLEscapeSequences(const char* input,
           i++;
         }
         output->push_back(static_cast<unsigned char>(unescaped_chars.at(i)));
+        did_isomorphic_decode = true;
       }
     }
   }
+
+  if (did_utf8_decode && did_isomorphic_decode)
+    return DecodeURLResult::kMixed;
+  if (did_isomorphic_decode)
+    return DecodeURLResult::kIsomorphic;
+  if (did_utf8_decode)
+    return DecodeURLResult::kUTF8;
+  return DecodeURLResult::kAsciiOnly;
 }
 
 void EncodeURIComponent(const char* input, int length, CanonOutput* output) {

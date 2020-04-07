@@ -2,6 +2,8 @@ ben@chromium.org
 jam@chromium.org
 rockot@chromium.org
 sky@chromium.org
-yzshen@chromium.org
+
+# For Fuchsia-specific changes:
+per-file *_fuchsia*=file://build/fuchsia/OWNERS
 
 # COMPONENT: Internals>Mojo

@@ -27,6 +27,8 @@
 **
 ****************************************************************************/
 
+#include <QtNetwork/qtnetwork-config.h>
+
 #ifndef QT_NO_HTTP
 
 #include "qabstractoauthreplyhandler.h"
@@ -40,7 +42,7 @@ QT_BEGIN_NAMESPACE
     \class QAbstractOAuthReplyHandler
     \inmodule QtNetworkAuth
     \ingroup oauth
-    \brief Handles replies to OAuth authentication requests
+    \brief Handles replies to OAuth authentication requests.
     \since 5.8
 
     The QAbstractOAuthReplyHandler class handles the answers

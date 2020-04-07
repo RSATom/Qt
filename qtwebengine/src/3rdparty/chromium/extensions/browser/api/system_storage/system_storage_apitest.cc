@@ -7,7 +7,6 @@
 #include <vector>
 
 #include "base/macros.h"
-#include "base/memory/ptr_util.h"
 #include "base/message_loop/message_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/storage_monitor/storage_monitor.h"
@@ -42,7 +41,7 @@ class TestStorageInfoProvider : public extensions::StorageInfoProvider {
   ~TestStorageInfoProvider() override;
 
   // StorageInfoProvider implementations.
-  double GetStorageFreeSpaceFromTransientIdOnFileThread(
+  double GetStorageFreeSpaceFromTransientIdAsync(
       const std::string& transient_id) override;
 
   std::vector<struct TestStorageUnitInfo> testing_data_;
@@ -57,7 +56,7 @@ TestStorageInfoProvider::TestStorageInfoProvider(
 TestStorageInfoProvider::~TestStorageInfoProvider() {
 }
 
-double TestStorageInfoProvider::GetStorageFreeSpaceFromTransientIdOnFileThread(
+double TestStorageInfoProvider::GetStorageFreeSpaceFromTransientIdAsync(
     const std::string& transient_id) {
   std::string device_id =
       StorageMonitor::GetInstance()->GetDeviceIdForTransientId(transient_id);
@@ -114,7 +113,7 @@ IN_PROC_BROWSER_TEST_F(SystemStorageApiTest, Storage) {
       device_ids_listeners;
   for (size_t i = 0; i < arraysize(kTestingData); ++i) {
     device_ids_listeners.push_back(
-        base::MakeUnique<ExtensionTestMessageListener>(
+        std::make_unique<ExtensionTestMessageListener>(
             StorageMonitor::GetInstance()->GetTransientIdForDeviceId(
                 kTestingData[i].device_id),
             false));

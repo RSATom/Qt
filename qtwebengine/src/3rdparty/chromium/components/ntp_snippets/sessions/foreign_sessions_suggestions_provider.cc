@@ -220,23 +220,30 @@ void ForeignSessionsSuggestionsProvider::DismissSuggestion(
 
 void ForeignSessionsSuggestionsProvider::FetchSuggestionImage(
     const ContentSuggestion::ID& suggestion_id,
-    const ImageFetchedCallback& callback) {
+    ImageFetchedCallback callback) {
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::Bind(callback, gfx::Image()));
+      FROM_HERE, base::BindOnce(std::move(callback), gfx::Image()));
+}
+
+void ForeignSessionsSuggestionsProvider::FetchSuggestionImageData(
+    const ContentSuggestion::ID& suggestion_id,
+    ImageDataFetchedCallback callback) {
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE, base::BindOnce(std::move(callback), std::string()));
 }
 
 void ForeignSessionsSuggestionsProvider::Fetch(
     const Category& category,
     const std::set<std::string>& known_suggestion_ids,
-    const FetchDoneCallback& callback) {
+    FetchDoneCallback callback) {
   LOG(DFATAL)
       << "ForeignSessionsSuggestionsProvider has no |Fetch| functionality!";
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::Bind(callback,
-                            Status(StatusCode::PERMANENT_ERROR,
-                                   "ForeignSessionsSuggestionsProvider "
-                                   "has no |Fetch| functionality!"),
-                            base::Passed(std::vector<ContentSuggestion>())));
+      FROM_HERE, base::BindOnce(std::move(callback),
+                                Status(StatusCode::PERMANENT_ERROR,
+                                       "ForeignSessionsSuggestionsProvider "
+                                       "has no |Fetch| functionality!"),
+                                std::vector<ContentSuggestion>()));
 }
 
 void ForeignSessionsSuggestionsProvider::ClearHistory(
@@ -257,15 +264,13 @@ void ForeignSessionsSuggestionsProvider::ClearHistory(
                                   dismissed_ids);
 }
 
-void ForeignSessionsSuggestionsProvider::ClearCachedSuggestions(
-    Category category) {
-  DCHECK_EQ(category, provided_category_);
+void ForeignSessionsSuggestionsProvider::ClearCachedSuggestions() {
   // Ignored.
 }
 
 void ForeignSessionsSuggestionsProvider::GetDismissedSuggestionsForDebugging(
     Category category,
-    const DismissedSuggestionsCallback& callback) {
+    DismissedSuggestionsCallback callback) {
   DCHECK_EQ(category, provided_category_);
   InverseDismissedItemFilter filter(pref_service_);
   // Use GetSuggestionCandidates instead of BuildSuggestions(), to avoid the
@@ -275,7 +280,7 @@ void ForeignSessionsSuggestionsProvider::GetDismissedSuggestionsForDebugging(
   for (auto data : GetSuggestionCandidates(filter.ToCallback())) {
     suggestions.push_back(BuildSuggestion(data));
   }
-  callback.Run(std::move(suggestions));
+  std::move(callback).Run(std::move(suggestions));
 }
 
 void ForeignSessionsSuggestionsProvider::ClearDismissedSuggestionsForDebugging(

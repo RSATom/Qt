@@ -6,6 +6,7 @@
 #define COMPONENTS_SAFE_BROWSING_PASSWORD_PROTECTION_PASSWORD_PROTECTION_SERVICE_H_
 
 #include <set>
+#include <unordered_map>
 
 #include "base/callback.h"
 #include "base/feature_list.h"
@@ -17,16 +18,25 @@
 #include "base/task/cancelable_task_tracker.h"
 #include "base/values.h"
 #include "components/history/core/browser/history_service_observer.h"
-#include "components/safe_browsing/csd.pb.h"
-#include "net/url_request/url_request_context_getter.h"
+#include "components/password_manager/core/browser/password_manager_metrics_util.h"
+#include "components/safe_browsing/common/safe_browsing_prefs.h"
+#include "components/safe_browsing/db/v4_protocol_manager_util.h"
+#include "components/safe_browsing/proto/csd.pb.h"
+#include "components/sessions/core/session_id.h"
+#include "services/network/public/cpp/shared_url_loader_factory.h"
 #include "third_party/protobuf/src/google/protobuf/repeated_field.h"
 
 namespace content {
 class WebContents;
+class NavigationHandle;
 }
 
 namespace history {
 class HistoryService;
+}
+
+namespace policy {
+class BrowserPolicyConnector;
 }
 
 class GURL;
@@ -34,15 +44,32 @@ class HostContentSettingsMap;
 
 namespace safe_browsing {
 
-class SafeBrowsingDatabaseManager;
+class PasswordProtectionNavigationThrottle;
 class PasswordProtectionRequest;
+class SafeBrowsingDatabaseManager;
 
-extern const base::Feature kPasswordFieldOnFocusPinging;
-extern const base::Feature kProtectedPasswordEntryPinging;
-extern const base::Feature kPasswordProtectionInterstitial;
-extern const char kPasswordOnFocusRequestOutcomeHistogramName[];
-extern const char kPasswordEntryRequestOutcomeHistogramName[];
-extern const char kSyncPasswordEntryRequestOutcomeHistogramName[];
+// UMA metrics
+extern const char kPasswordOnFocusRequestOutcomeHistogram[];
+extern const char kAnyPasswordEntryRequestOutcomeHistogram[];
+extern const char kSyncPasswordEntryRequestOutcomeHistogram[];
+extern const char kProtectedPasswordEntryRequestOutcomeHistogram[];
+extern const char kSyncPasswordWarningDialogHistogram[];
+extern const char kSyncPasswordPageInfoHistogram[];
+extern const char kSyncPasswordChromeSettingsHistogram[];
+extern const char kSyncPasswordInterstitialHistogram[];
+extern const char kEnterprisePasswordEntryRequestOutcomeHistogram[];
+extern const char kEnterprisePasswordWarningDialogHistogram[];
+extern const char kEnterprisePasswordPageInfoHistogram[];
+extern const char kEnterprisePasswordInterstitialHistogram[];
+extern const char kGSuiteSyncPasswordEntryRequestOutcomeHistogram[];
+extern const char kGSuiteSyncPasswordWarningDialogHistogram[];
+extern const char kGSuiteSyncPasswordPageInfoHistogram[];
+extern const char kGSuiteSyncPasswordInterstitialHistogram[];
+extern const char kInterstitialActionByUserNavigationHistogram[];
+;
+
+using ReusedPasswordType =
+    LoginReputationClientRequest::PasswordReuseEvent::ReusedPasswordType;
 
 // Manage password protection pings and verdicts. There is one instance of this
 // class per profile. Therefore, every PasswordProtectionService instance is
@@ -50,10 +77,6 @@ extern const char kSyncPasswordEntryRequestOutcomeHistogramName[];
 // HostContentSettingsMap instance.
 class PasswordProtectionService : public history::HistoryServiceObserver {
  public:
-  using TriggerType = LoginReputationClientRequest::TriggerType;
-  using SyncAccountType =
-      LoginReputationClientRequest::PasswordReuseEvent::SyncAccountType;
-
   // The outcome of the request. These values are used for UMA.
   // DO NOT CHANGE THE ORDERING OF THESE VALUES.
   enum RequestOutcome {
@@ -72,12 +95,53 @@ class PasswordProtectionService : public history::HistoryServiceObserver {
     DISABLED_DUE_TO_FEATURE_DISABLED = 12,
     DISABLED_DUE_TO_USER_POPULATION = 13,
     URL_NOT_VALID_FOR_REPUTATION_COMPUTING = 14,
+    MATCHED_ENTERPRISE_WHITELIST = 15,
+    MATCHED_ENTERPRISE_CHANGE_PASSWORD_URL = 16,
+    MATCHED_ENTERPRISE_LOGIN_URL = 17,
+    // No request is ever sent if the admin configures password protection to
+    // warn on ALL password reuses (rather than just phishing sites).
+    PASSWORD_ALERT_MODE = 18,
+    // No request is event sent if the admin turns off password protection.
+    TURNED_OFF_BY_ADMIN = 19,
+    // Safe Browsing is disabled.
+    SAFE_BROWSING_DISABLED = 20,
     MAX_OUTCOME
+  };
+
+  // Enum values indicates if a password protection warning is shown or
+  // represents user's action on warnings. These values are used for UMA.
+  // DO NOT CHANGE THE ORDERING OF THESE VALUES.
+  enum WarningAction {
+    // Warning shows up.
+    SHOWN = 0,
+
+    // User clicks on "Change Password" button.
+    CHANGE_PASSWORD = 1,
+
+    // User clicks on "Ignore" button.
+    IGNORE_WARNING = 2,
+
+    // Dialog closed in reaction to change of user state.
+    CLOSE = 3,
+
+    // User explicitly mark the site as legitimate.
+    MARK_AS_LEGITIMATE = 4,
+
+    MAX_ACTION
+  };
+
+  // Type of password protection warning UI.
+  enum WarningUIType {
+    NOT_USED = 0,
+    PAGE_INFO = 1,
+    MODAL_DIALOG = 2,
+    CHROME_SETTINGS = 3,
+    INTERSTITIAL = 4
   };
 
   PasswordProtectionService(
       const scoped_refptr<SafeBrowsingDatabaseManager>& database_manager,
-      scoped_refptr<net::URLRequestContextGetter> request_context_getter,
+      scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory,
       history::HistoryService* history_service,
       HostContentSettingsMap* host_content_settings_map);
 
@@ -92,15 +156,22 @@ class PasswordProtectionService : public history::HistoryServiceObserver {
   // any thread.
   LoginReputationClientResponse::VerdictType GetCachedVerdict(
       const GURL& url,
-      TriggerType trigger_type,
+      LoginReputationClientRequest::TriggerType trigger_type,
+      ReusedPasswordType password_type,
       LoginReputationClientResponse* out_response);
 
   // Stores |verdict| in |settings| based on its |trigger_type|, |url|,
-  // |verdict| and |receive_time|.
-  virtual void CacheVerdict(const GURL& url,
-                            TriggerType trigger_type,
-                            LoginReputationClientResponse* verdict,
-                            const base::Time& receive_time);
+  // reused |password_type|, |verdict| and |receive_time|.
+  virtual void CacheVerdict(
+      const GURL& url,
+      LoginReputationClientRequest::TriggerType trigger_type,
+      ReusedPasswordType password_type,
+      LoginReputationClientResponse* verdict,
+      const base::Time& receive_time);
+
+  // Migrates cached password reuse verdicts such that verdicts of different
+  // reused password type are cached separately.
+  void MigrateCachedVerdicts();
 
   // Removes all the expired verdicts from cache.
   void CleanUpExpiredVerdicts();
@@ -112,8 +183,9 @@ class PasswordProtectionService : public history::HistoryServiceObserver {
                     const GURL& main_frame_url,
                     const GURL& password_form_action,
                     const GURL& password_form_frame_url,
-                    const std::string& saved_domain,
-                    TriggerType trigger_type,
+                    ReusedPasswordType reused_password_type,
+                    const std::vector<std::string>& matching_domains,
+                    LoginReputationClientRequest::TriggerType trigger_type,
                     bool password_field_exists);
 
   virtual void MaybeStartPasswordFieldOnFocusRequest(
@@ -125,8 +197,13 @@ class PasswordProtectionService : public history::HistoryServiceObserver {
   virtual void MaybeStartProtectedPasswordEntryRequest(
       content::WebContents* web_contents,
       const GURL& main_frame_url,
-      const std::string& saved_domain,
+      ReusedPasswordType reused_password_type,
+      const std::vector<std::string>& matching_domains,
       bool password_field_exists);
+
+  // Records a Chrome Sync event that sync password reuse was detected.
+  virtual void MaybeLogPasswordReuseDetectedEvent(
+      content::WebContents* web_contents) = 0;
 
   scoped_refptr<SafeBrowsingDatabaseManager> database_manager();
 
@@ -139,16 +216,98 @@ class PasswordProtectionService : public history::HistoryServiceObserver {
   // (6) Its hostname is a dotless domain.
   static bool CanGetReputationOfURL(const GURL& url);
 
+  // Records user action on warnings to corresponding UMA histograms.
+  void RecordWarningAction(WarningUIType ui_type,
+                           WarningAction action,
+                           ReusedPasswordType password_type);
+
+  // If we want to show password reuse modal warning.
+  bool ShouldShowModalWarning(
+      LoginReputationClientRequest::TriggerType trigger_type,
+      ReusedPasswordType reused_password_type,
+      LoginReputationClientResponse::VerdictType verdict_type);
+
+  // Shows modal warning dialog on the current |web_contents| and pass the
+  // |verdict_token| to callback of this dialog.
+  virtual void ShowModalWarning(content::WebContents* web_contents,
+                                const std::string& verdict_token,
+                                ReusedPasswordType reused_password_type) = 0;
+
+  // Shows chrome://reset-password interstitial.
+  virtual void ShowInterstitial(content::WebContents* web_contens,
+                                ReusedPasswordType password_type) = 0;
+
+  virtual void UpdateSecurityState(safe_browsing::SBThreatType threat_type,
+                                   ReusedPasswordType password_type,
+                                   content::WebContents* web_contents) = 0;
+
+  // Log the |reason| to several UMA metrics, depending on the value
+  // of |password_type|.
+  void LogPasswordEntryRequestOutcome(RequestOutcome reason,
+                                      ReusedPasswordType password_type);
+
+  // If user has clicked through any Safe Browsing interstitial on this given
+  // |web_contents|.
+  virtual bool UserClickedThroughSBInterstitial(
+      content::WebContents* web_contents) = 0;
+
+  // Called when a new navigation is starting. Create throttle if there is a
+  // pending sync password reuse ping or if there is a modal warning dialog
+  // showing in the corresponding web contents.
+  std::unique_ptr<PasswordProtectionNavigationThrottle>
+  MaybeCreateNavigationThrottle(content::NavigationHandle* navigation_handle);
+
+  // Returns if the warning UI is enabled.
+  bool IsWarningEnabled();
+
+  // Returns if the event logging is enabled.
+  bool IsEventLoggingEnabled();
+
+  // Returns the pref value of password protection warning trigger.
+  virtual PasswordProtectionTrigger GetPasswordProtectionWarningTriggerPref()
+      const = 0;
+
+  // If |url| matches Safe Browsing whitelist domains, password protection
+  // change password URL, or password protection login URLs in the enterprise
+  // policy.
+  virtual bool IsURLWhitelistedForPasswordEntry(
+      const GURL& url,
+      RequestOutcome* reason) const = 0;
+
+  // Called when password reuse warning or phishing reuse warning is shown.
+  // Must be called on UI thread.
+  virtual void OnPolicySpecifiedPasswordReuseDetected(const GURL& url,
+                                                      bool is_phishing_url) = 0;
+
+  // Called when a protected password change is detected. Must be called on
+  // UI thread.
+  virtual void OnPolicySpecifiedPasswordChanged() = 0;
+
+  // Converts from password::metrics_util::PasswordType to
+  // LoginReputationClientRequest::PasswordReuseEvent::ReusedPasswordType.
+  static ReusedPasswordType GetPasswordProtectionReusedPasswordType(
+      password_manager::metrics_util::PasswordType password_type);
+
+  // If we can send ping for this type of reused password.
+  bool IsSupportedPasswordTypeForPinging(
+      ReusedPasswordType reused_password_type) const;
+
+  // If we can show modal warning for this type of reused password.
+  bool IsSupportedPasswordTypeForModalWarning(
+      ReusedPasswordType reused_password_type) const;
+
  protected:
   friend class PasswordProtectionRequest;
-  FRIEND_TEST_ALL_PREFIXES(PasswordProtectionServiceTest, VerifyCanSendPing);
-  // Chrome can send password protection ping if it is allowed by Finch config
-  // and if Safe Browsing can compute reputation of |main_frame_url| (e.g.
-  // Safe Browsing is not able to compute reputation of a private IP or
-  // a local host). |is_sync_password| is used for UMA metric recording.
-  bool CanSendPing(const base::Feature& feature,
+
+  // Chrome can send password protection ping if it is allowed by for the
+  // |trigger_type| and if Safe Browsing can compute reputation of
+  // |main_frame_url| (e.g. Safe Browsing is not able to compute reputation of a
+  // private IP or a local host). Update |reason| if sending ping is not
+  // allowed. |password_type| is used for UMA metric recording.
+  bool CanSendPing(LoginReputationClientRequest::TriggerType trigger_type,
                    const GURL& main_frame_url,
-                   bool is_sync_password);
+                   ReusedPasswordType password_type,
+                   RequestOutcome* reason);
 
   // Called by a PasswordProtectionRequest instance when it finishes to remove
   // itself from |requests_|.
@@ -163,10 +322,15 @@ class PasswordProtectionService : public history::HistoryServiceObserver {
 
   // Gets the total number of verdicts of the specified |trigger_type| we cached
   // for this profile. This counts both expired and active verdicts.
-  virtual int GetStoredVerdictCount(TriggerType trigger_type);
+  virtual int GetStoredVerdictCount(
+      LoginReputationClientRequest::TriggerType trigger_type);
 
-  scoped_refptr<net::URLRequestContextGetter> request_context_getter() {
-    return request_context_getter_;
+  // Gets an unowned |BrowserPolicyConnector| for the current platform.
+  virtual const policy::BrowserPolicyConnector* GetBrowserPolicyConnector()
+      const = 0;
+
+  scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory() {
+    return url_loader_factory_;
   }
 
   // Returns the URL where PasswordProtectionRequest instances send requests.
@@ -179,36 +343,56 @@ class PasswordProtectionService : public history::HistoryServiceObserver {
   // info into |frame|.
   virtual void FillReferrerChain(
       const GURL& event_url,
-      int event_tab_id,  // -1 if tab id is not available.
+      SessionID
+          event_tab_id,  // SessionID::InvalidValue() if tab not available.
       LoginReputationClientRequest::Frame* frame) = 0;
 
-  void FillUserPopulation(TriggerType trigger_type,
-                          LoginReputationClientRequest* request_proto);
+  void FillUserPopulation(
+      LoginReputationClientRequest::TriggerType trigger_type,
+      LoginReputationClientRequest* request_proto);
 
   virtual bool IsExtendedReporting() = 0;
 
   virtual bool IsIncognito() = 0;
 
-  virtual bool IsPingingEnabled(const base::Feature& feature,
-                                RequestOutcome* reason) = 0;
+  virtual bool IsPingingEnabled(
+      LoginReputationClientRequest::TriggerType trigger_type,
+      RequestOutcome* reason) = 0;
 
   virtual bool IsHistorySyncEnabled() = 0;
 
-  virtual void ShowPhishingInterstitial(const GURL& phishing_url,
-                                        const std::string& token,
-                                        content::WebContents* web_contents) = 0;
-
   // Gets the type of sync account associated with current profile or
   // |NOT_SIGNED_IN|.
-  virtual SyncAccountType GetSyncAccountType() = 0;
+  virtual LoginReputationClientRequest::PasswordReuseEvent::SyncAccountType
+  GetSyncAccountType() const = 0;
+
+  // Records a Chrome Sync event for the result of the URL reputation lookup
+  // if the user enters their sync password on a website.
+  virtual void MaybeLogPasswordReuseLookupEvent(
+      content::WebContents* web_contents,
+      PasswordProtectionService::RequestOutcome,
+      const LoginReputationClientResponse*) = 0;
 
   void CheckCsdWhitelistOnIOThread(const GURL& url, bool* check_result);
 
   HostContentSettingsMap* content_settings() const { return content_settings_; }
 
+  void RemoveWarningRequestsByWebContents(content::WebContents* web_contents);
+
+  bool IsModalWarningShowingInWebContents(content::WebContents* web_contents);
+
+  virtual bool CanShowInterstitial(RequestOutcome reason,
+                                   ReusedPasswordType password_type,
+                                   const GURL& main_frame_url) = 0;
+
+  void LogPasswordAlertModeOutcome(RequestOutcome reason,
+                                   ReusedPasswordType password_type);
+
  private:
   friend class PasswordProtectionServiceTest;
   friend class TestPasswordProtectionService;
+  friend class ChromePasswordProtectionServiceTest;
+  friend class ChromePasswordProtectionServiceBrowserTest;
   FRIEND_TEST_ALL_PREFIXES(PasswordProtectionServiceTest,
                            TestParseInvalidVerdictEntry);
   FRIEND_TEST_ALL_PREFIXES(PasswordProtectionServiceTest,
@@ -222,10 +406,7 @@ class PasswordProtectionService : public history::HistoryServiceObserver {
 
   // Overridden from history::HistoryServiceObserver.
   void OnURLsDeleted(history::HistoryService* history_service,
-                     bool all_history,
-                     bool expired,
-                     const history::URLRows& deleted_rows,
-                     const std::set<GURL>& favicon_urls) override;
+                     const history::DeletionInfo& deletion_info) override;
 
   void HistoryServiceBeingDeleted(
       history::HistoryService* history_service) override;
@@ -235,16 +416,27 @@ class PasswordProtectionService : public history::HistoryServiceObserver {
   void RemoveContentSettingsOnURLsDeleted(bool all_history,
                                           const history::URLRows& deleted_rows);
 
+  // Posted to UI thread by OnURLsDeleted(...). This function remove the related
+  // entries in kSafeBrowsingUnhandledSyncPasswordReuses.
+  virtual void RemoveUnhandledSyncPasswordReuseOnURLsDeleted(
+      bool all_history,
+      const history::URLRows& deleted_rows) = 0;
+
   // Helper function called by RemoveContentSettingsOnURLsDeleted(..). It
   // calculate the number of verdicts of |type| that associate with |url|.
-  int GetVerdictCountForURL(const GURL& url, TriggerType type);
+  int GetVerdictCountForURL(const GURL& url,
+                            LoginReputationClientRequest::TriggerType type);
 
   // Remove verdict of |type| from |cache_dictionary|. Return false if no
   // verdict removed, true otherwise.
-  bool RemoveExpiredVerdicts(TriggerType type,
+  bool RemoveExpiredVerdicts(LoginReputationClientRequest::TriggerType type,
                              base::DictionaryValue* cache_dictionary);
 
-  static bool ParseVerdictEntry(base::DictionaryValue* verdict_entry,
+  // Helper function called by RemoveExpiredVerdicts(..). Returns the number of
+  // expired entries removed.
+  size_t RemoveExpiredEntries(base::Value* verdict_dictionary);
+
+  static bool ParseVerdictEntry(base::Value* verdict_entry,
                                 int* out_verdict_received_time,
                                 LoginReputationClientResponse* out_verdict);
 
@@ -264,9 +456,11 @@ class PasswordProtectionService : public history::HistoryServiceObserver {
       const LoginReputationClientResponse* verdict,
       const base::Time& receive_time);
 
-  static void RecordNoPingingReason(const base::Feature& feature,
-                                    RequestOutcome reason,
-                                    bool is_sync_password);
+  void RecordNoPingingReason(
+      LoginReputationClientRequest::TriggerType trigger_type,
+      RequestOutcome reason,
+      ReusedPasswordType password_type);
+
   // Number of verdict stored for this profile for password on focus pings.
   int stored_verdict_count_password_on_focus_;
 
@@ -279,10 +473,14 @@ class PasswordProtectionService : public history::HistoryServiceObserver {
   // The context we use to issue network requests. This request_context_getter
   // is obtained from SafeBrowsingService so that we can use the Safe Browsing
   // cookie store.
-  scoped_refptr<net::URLRequestContextGetter> request_context_getter_;
+  scoped_refptr<network::SharedURLLoaderFactory> url_loader_factory_;
 
-  // Set of pending PasswordProtectionRequests.
-  std::set<scoped_refptr<PasswordProtectionRequest>> requests_;
+  // Set of pending PasswordProtectionRequests that are still waiting for
+  // verdict.
+  std::set<scoped_refptr<PasswordProtectionRequest>> pending_requests_;
+
+  // Set of PasswordProtectionRequests that are triggering modal warnings.
+  std::set<scoped_refptr<PasswordProtectionRequest>> warning_requests_;
 
   ScopedObserver<history::HistoryService, history::HistoryServiceObserver>
       history_service_observer_;

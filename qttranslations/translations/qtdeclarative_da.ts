@@ -122,7 +122,7 @@
     </message>
     <message>
         <source>Invalid alias reference. An alias reference must be specified as &lt;id&gt;, &lt;id&gt;.&lt;property&gt; or &lt;id&gt;.&lt;value property&gt;.&lt;property&gt;</source>
-        <translation>Ugyldig alias-reference. En alias-reference skal specificeres som &lt;id&gt;, &lt;id&gt;.&lt;egenskab&gt; eller &lt;id&gt;.&lt;værdi egenskab&gt;.&lt;egenskab&gt;</translation>
+        <translation>Ugyldig alias-reference. En alias-reference skal angives som &lt;id&gt;, &lt;id&gt;.&lt;egenskab&gt; eller &lt;id&gt;.&lt;værdi egenskab&gt;.&lt;egenskab&gt;</translation>
     </message>
     <message>
         <source>Invalid alias location</source>
@@ -227,11 +227,11 @@
     </message>
     <message>
         <source>&quot;file:&quot; can be used to specify the name of a file the debugger will try to connect to using a QLocalSocket. If &quot;file:&quot; is given any &quot;host:&quot; and&quot;port:&quot; arguments will be ignored.</source>
-        <translation>&quot;fil:&quot; kan bruges til at specificere navnet på en fil som fejlretteren vil prøve at oprette forbindelse til ved brug af en QLocalSocket. Hvis &quot;fil:&quot; gives ignoreres eventuelle &quot;være:&quot;- og &quot;port:&quot;-argumenter.</translation>
+        <translation>&quot;fil:&quot; kan bruges til at angive navnet på en fil som fejlretteren vil prøve at oprette forbindelse til ved brug af en QLocalSocket. Hvis &quot;fil:&quot; gives ignoreres eventuelle &quot;være:&quot;- og &quot;port:&quot;-argumenter.</translation>
     </message>
     <message>
         <source>&quot;host:&quot; and &quot;port:&quot; can be used to specify an address and a single port or a range of ports the debugger will try to bind to with a QTcpServer.</source>
-        <translation>&quot;vært:&quot; og &quot;port:&quot; kan bruges til at specificere en adresse og én port eller en række af porte som fejlretteren vil prøve at binde til med en QTcpServer.</translation>
+        <translation>&quot;vært:&quot; og &quot;port:&quot; kan bruges til at angive en adresse og én port eller en række af porte som fejlretteren vil prøve at binde til med en QTcpServer.</translation>
     </message>
     <message>
         <source>&quot;block&quot; makes the debugger and some services wait for clients to be connected and ready before the first QML engine starts.</source>
@@ -239,7 +239,7 @@
     </message>
     <message>
         <source>&quot;services:&quot; can be used to specify which debug services the debugger should load. Some debug services interact badly with others. The V4 debugger should not be loaded when using the QML profiler as it will force any V4 engines to use the JavaScript interpreter rather than the JIT. The following debug services are available by default:</source>
-        <translation>&quot;tjenester:&quot; kan bruges til at specificere hvilke fejlretter-tjenester som fejlretteren skal indlæse. Nogle fejlretter-tjenester interagerer dårligt med andre. V4-fejlretteren bør ikke indlæses når QML-profileringen bruges da den vil tvinge eventuelle V4-motorer til at bruge JavaScript-fortolkeren i stedet for JIT&apos;en. Følgende fejlretter-tjenester er tilgængelige som standard:</translation>
+        <translation>&quot;tjenester:&quot; kan bruges til at angive hvilke fejlretter-tjenester som fejlretteren skal indlæse. Nogle fejlretter-tjenester interagerer dårligt med andre. V4-fejlretteren bør ikke indlæses når QML-profileringen bruges da den vil tvinge eventuelle V4-motorer til at bruge JavaScript-fortolkeren i stedet for JIT&apos;en. Følgende fejlretter-tjenester er tilgængelige som standard:</translation>
     </message>
     <message>
         <source>The QML debugger</source>
@@ -277,7 +277,7 @@
     </message>
     <message>
         <source>Other services offered by qmltooling plugins that implement QQmlDebugServiceFactory and which can be found in the standard plugin paths will also be available and can be specified. If no &quot;services&quot; argument is given, all services found this way, including the default ones, are loaded.</source>
-        <translation>Andre tjenester fra qmltooling-plugins der implementere QQmlDebugServiceFactory and som kan findes i standardpluginets stier vil også være tilgængelige og kan specificeres. Hvis der ikke gives nogen &quot;tjenester&quot;-argumenter, indlæses alle tjenester fundet på denne måde, inklusiv dem som er standard.</translation>
+        <translation>Andre tjenester fra qmltooling-plugins der implementere QQmlDebugServiceFactory and som kan findes i standardpluginets stier vil også være tilgængelige og kan angives. Hvis der ikke gives nogen &quot;tjenester&quot;-argumenter, indlæses alle tjenester fundet på denne måde, inklusiv dem som er standard.</translation>
     </message>
 </context>
 <context>
@@ -549,14 +549,6 @@
 </context>
 <context>
     <name>QQmlListModel</name>
-    <message>
-        <source>unable to enable dynamic roles as this model is not empty!</source>
-        <translation>kan ikke aktivere dynamiske roller eftersom denne model ikke er tom!</translation>
-    </message>
-    <message>
-        <source>unable to enable static roles as this model is not empty!</source>
-        <translation>kan ikke aktivere statiske roller eftersom denne model ikke er tom!</translation>
-    </message>
     <message>
         <source>unable to enable dynamic roles as this model is not empty</source>
         <translation>kan ikke aktivere dynamiske roller eftersom denne model ikke er tom</translation>
@@ -868,6 +860,10 @@
         <source>Invalid property type</source>
         <translation>Ugyldig egenskabstype</translation>
     </message>
+    <message>
+        <source>Invalid alias target</source>
+        <translation>Ugyldigt alias mål</translation>
+    </message>
 </context>
 <context>
     <name>QQmlPropertyValidator</name>
@@ -926,6 +922,10 @@
     <message>
         <source>Cannot assign to non-existent property &quot;%1&quot;</source>
         <translation>Kan ikke tildele ikke-eksisterende egenskab &quot;%1&quot;</translation>
+    </message>
+    <message>
+        <source>Invalid use of id property with a value type</source>
+        <translation>Ugyldig brug af id-egenskab med en værditype</translation>
     </message>
     <message>
         <source>Cannot assign primitives to lists</source>
@@ -1109,8 +1109,16 @@
         <translation>qmldir definerer type som singleton, men ingen pragma singleton fundet i type %1.</translation>
     </message>
     <message>
+        <source>File was compiled ahead of time with an incompatible version of Qt and the original file cannot be found. Please recompile</source>
+        <translation>Filen blev kompileret før tid med en inkompatibel version af Qt og den originale fil kan ikke findes. Kompilér venligst igen</translation>
+    </message>
+    <message>
         <source>No such file or directory</source>
         <translation>Ingen sådan fil eller mappe</translation>
+    </message>
+    <message>
+        <source>File is empty</source>
+        <translation>Filen er tom</translation>
     </message>
     <message>
         <source>module &quot;%1&quot; is not installed</source>
@@ -1186,7 +1194,7 @@
     </message>
     <message>
         <source>Cannot specify left, right, and horizontalCenter anchors at the same time.</source>
-        <translation>Kan ikke specificere venstre, højre og vandret centreret ankre på samme tid.</translation>
+        <translation>Kan ikke angive venstre, højre og vandret centreret ankre på samme tid.</translation>
     </message>
     <message>
         <source>Cannot anchor to a null item.</source>
@@ -1202,7 +1210,7 @@
     </message>
     <message>
         <source>Cannot specify top, bottom, and verticalCenter anchors at the same time.</source>
-        <translation>Kan ikke specificere øverste, nederste og lodret centreret ankre på samme tid.</translation>
+        <translation>Kan ikke angive øverste, nederste og lodret centreret ankre på samme tid.</translation>
     </message>
     <message>
         <source>Baseline anchor cannot be used in conjunction with top, bottom, or verticalCenter anchors.</source>
@@ -1322,6 +1330,10 @@
 </context>
 <context>
     <name>QQuickMouseEvent</name>
+    <message>
+        <source>GestureEvent is only available in the context of handling the gestureStarted signal from MultiPointTouchArea</source>
+        <translation>GestureEvent er kun tilgængelig i konteksten af håndtering af gestureStarted-signalet fra MultiPointTouchArea</translation>
+    </message>
     <message>
         <source>MouseEvent is only available within handlers in MouseArea</source>
         <translation>MouseEvent er kun tilgængelig inden i handlers i MouseArea</translation>
@@ -1597,14 +1609,14 @@ Installer en driver med OpenGL 2.0 eller højere, eller, hvis det ikke er muligt
     </message>
     <message>
         <source>Incorrectly specified signal assignment</source>
-        <translation>Ukorrekt specificerede signal-tildeling</translation>
+        <translation>Ukorrekt angivet signal-tildeling</translation>
     </message>
 </context>
 <context>
     <name>SignalTransition</name>
     <message>
         <source>Specified signal does not exist.</source>
-        <translation>Specificeret signal findes ikke.</translation>
+        <translation>Angivet signal findes ikke.</translation>
     </message>
     <message>
         <source>Cannot assign to non-existent property &quot;%1&quot;</source>
@@ -1622,8 +1634,8 @@ Installer en driver med OpenGL 2.0 eller højere, eller, hvis det ikke er muligt
         <translation>Ugyldig QML %1 navn &quot;%2&quot;</translation>
     </message>
     <message>
-        <source>Cannot install %1 &apos;%2&apos; into unregistered namespace &apos;%3&apos;</source>
-        <translation>Kan ikke installere %1 &apos;%2&apos; ind i uregistreret navnerum &apos;%3&apos;</translation>
+        <source>Invalid QML %1 name &quot;%2&quot;; type names must begin with an uppercase letter</source>
+        <translation>Ugyldig QML %1 navn &quot;%2&quot;; typenavne skal begynde med et stort bogstav</translation>
     </message>
     <message>
         <source>Cannot install %1 &apos;%2&apos; into protected namespace &apos;%3&apos;</source>

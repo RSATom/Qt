@@ -33,14 +33,14 @@
 #include "promotiontaskmenu_p.h"
 #include "widgetfactory_p.h"
 
-#include <QtDesigner/QDesignerFormWindowInterface>
+#include <QtDesigner/abstractformwindow.h>
 
-#include <QtWidgets/QToolButton>
-#include <QtWidgets/QAction>
+#include <QtWidgets/qtoolbutton.h>
+#include <QtWidgets/qaction.h>
 #include <QtGui/qevent.h>
-#include <QtWidgets/QMenu>
-#include <QtWidgets/QStackedWidget>
-#include <QtCore/QDebug>
+#include <QtWidgets/qmenu.h>
+#include <QtWidgets/qstackedwidget.h>
+#include <QtCore/qdebug.h>
 
 QT_BEGIN_NAMESPACE
 
@@ -162,11 +162,17 @@ static inline QString stackedClassName(QStackedWidget *w)
 void QStackedWidgetPreviewEventFilter::updateButtonToolTip(QObject *o)
 {
     if (o == m_prev) {
-        const QString msg = tr("Go to previous page of %1 '%2' (%3/%4).").arg(stackedClassName(m_stackedWidget)).arg(m_stackedWidget->objectName()).arg(m_stackedWidget->currentIndex() + 1).arg(m_stackedWidget->count());
+        const QString msg = tr("Go to previous page of %1 '%2' (%3/%4).")
+                            .arg(stackedClassName(m_stackedWidget), m_stackedWidget->objectName())
+                            .arg(m_stackedWidget->currentIndex() + 1)
+                            .arg(m_stackedWidget->count());
         m_prev->setToolTip(msg);
     } else {
         if (o == m_next) {
-            const QString msg = tr("Go to next page of %1 '%2' (%3/%4).").arg(stackedClassName(m_stackedWidget)).arg(m_stackedWidget->objectName()).arg(m_stackedWidget->currentIndex() + 1).arg(m_stackedWidget->count());
+            const QString msg = tr("Go to next page of %1 '%2' (%3/%4).")
+                                .arg(stackedClassName(m_stackedWidget), m_stackedWidget->objectName())
+                                .arg(m_stackedWidget->currentIndex() + 1)
+                                .arg(m_stackedWidget->count());
             m_next->setToolTip(msg);
         }
     }
@@ -200,10 +206,7 @@ void QStackedWidgetEventFilter::install(QStackedWidget *stackedWidget)
 QStackedWidgetEventFilter *QStackedWidgetEventFilter::eventFilterOf(const QStackedWidget *stackedWidget)
 {
     // Look for 1st order children only..otherwise, we might get filters of nested widgets
-    const QObjectList children = stackedWidget->children();
-    const QObjectList::const_iterator cend = children.constEnd();
-    for (QObjectList::const_iterator it = children.constBegin(); it != cend; ++it) {
-        QObject *o = *it;
+    for (QObject *o : stackedWidget->children()) {
         if (!o->isWidgetType())
             if (QStackedWidgetEventFilter *ef = qobject_cast<QStackedWidgetEventFilter *>(o))
                 return ef;

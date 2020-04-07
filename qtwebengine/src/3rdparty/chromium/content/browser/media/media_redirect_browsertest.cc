@@ -7,7 +7,7 @@
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test_utils.h"
 #include "media/base/test_data_util.h"
-#include "media/media_features.h"
+#include "media/media_buildflags.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "net/test/embedded_test_server/http_request.h"
 #include "net/test/embedded_test_server/http_response.h"
@@ -34,7 +34,7 @@ class MediaRedirectTest : public MediaBrowserTest {
     http_test_server->StartAcceptingConnections();
 
     // Run the normal media playback test.
-    EXPECT_EQ(kEnded, RunTest(player_url, kEnded));
+    EXPECT_EQ(media::kEnded, RunTest(player_url, media::kEnded));
   }
 
   std::unique_ptr<net::test_server::HttpResponse> RedirectResponseHandler(

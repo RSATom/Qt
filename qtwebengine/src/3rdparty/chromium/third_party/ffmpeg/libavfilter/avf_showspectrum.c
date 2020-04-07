@@ -48,7 +48,7 @@ enum ColorMode    { CHANNEL, INTENSITY, RAINBOW, MORELAND, NEBULAE, FIRE, FIERY,
 enum SlideMode    { REPLACE, SCROLL, FULLFRAME, RSCROLL, NB_SLIDES };
 enum Orientation  { VERTICAL, HORIZONTAL, NB_ORIENTATIONS };
 
-typedef struct {
+typedef struct ShowSpectrumContext {
     const AVClass *class;
     int w, h;
     AVFrame *outpicref;
@@ -299,11 +299,14 @@ static int config_output(AVFilterLink *outlink)
     int i, fft_bits, h, w;
     float overlap;
 
+    s->pts = AV_NOPTS_VALUE;
+
     if (!strcmp(ctx->filter->name, "showspectrumpic"))
         s->single_pic = 1;
 
     outlink->w = s->w;
     outlink->h = s->h;
+    outlink->sample_aspect_ratio = (AVRational){1,1};
 
     if (s->legend) {
         s->start_x = log10(inlink->sample_rate) * 25;
@@ -400,7 +403,7 @@ static int config_output(AVFilterLink *outlink)
                          sizeof(*s->window_func_lut));
         if (!s->window_func_lut)
             return AVERROR(ENOMEM);
-        ff_generate_window_func(s->window_func_lut, s->win_size, s->win_func, &overlap);
+        generate_window_func(s->window_func_lut, s->win_size, s->win_func, &overlap);
         if (s->overlap == 1)
             s->overlap = overlap;
         s->hop_size = (1. - s->overlap) * s->win_size;
@@ -420,7 +423,7 @@ static int config_output(AVFilterLink *outlink)
             ff_get_video_buffer(outlink, outlink->w, outlink->h);
         if (!outpicref)
             return AVERROR(ENOMEM);
-        outlink->sample_aspect_ratio = (AVRational){1,1};
+        outpicref->sample_aspect_ratio = (AVRational){1,1};
         for (i = 0; i < outlink->h; i++) {
             memset(outpicref->data[0] + i * outpicref->linesize[0],   0, outlink->w);
             memset(outpicref->data[1] + i * outpicref->linesize[1], 128, outlink->w);
@@ -1079,9 +1082,19 @@ static int showspectrumpic_request_frame(AVFilterLink *outlink)
         if (s->legend) {
             int multi = (s->mode == SEPARATE && s->color_mode == CHANNEL);
             float spp = samples / (float)sz;
+            char *text;
             uint8_t *dst;
+            char chlayout_str[128];
+
+            av_get_channel_layout_string(chlayout_str, sizeof(chlayout_str), inlink->channels,
+                                         inlink->channel_layout);
+
+            text = av_asprintf("%d Hz | %s", inlink->sample_rate, chlayout_str);
 
             drawtext(s->outpicref, 2, outlink->h - 10, "CREATED BY LIBAVFILTER", 0);
+            drawtext(s->outpicref, outlink->w - 2 - strlen(text) * 10, outlink->h - 10, text, 0);
+
+            av_freep(&text);
 
             dst = s->outpicref->data[0] + (s->start_y - 1) * s->outpicref->linesize[0] + s->start_x - 1;
             for (x = 0; x < s->w + 1; x++)
@@ -1096,14 +1109,15 @@ static int showspectrumpic_request_frame(AVFilterLink *outlink)
             }
             if (s->orientation == VERTICAL) {
                 int h = s->mode == SEPARATE ? s->h / s->nb_display_channels : s->h;
+                int hh = s->mode == SEPARATE ? -(s->h % s->nb_display_channels) + 1 : 1;
                 for (ch = 0; ch < (s->mode == SEPARATE ? s->nb_display_channels : 1); ch++) {
                     for (y = 0; y < h; y += 20) {
-                        dst = s->outpicref->data[0] + (s->start_y + h * (ch + 1) - y - 1) * s->outpicref->linesize[0];
+                        dst = s->outpicref->data[0] + (s->start_y + h * (ch + 1) - y - hh) * s->outpicref->linesize[0];
                         dst[s->start_x - 2] = 200;
                         dst[s->start_x + s->w + 1] = 200;
                     }
                     for (y = 0; y < h; y += 40) {
-                        dst = s->outpicref->data[0] + (s->start_y + h * (ch + 1) - y - 1) * s->outpicref->linesize[0];
+                        dst = s->outpicref->data[0] + (s->start_y + h * (ch + 1) - y - hh) * s->outpicref->linesize[0];
                         dst[s->start_x - 3] = 200;
                         dst[s->start_x + s->w + 2] = 200;
                     }
@@ -1132,7 +1146,7 @@ static int showspectrumpic_request_frame(AVFilterLink *outlink)
                         if (!units)
                             return AVERROR(ENOMEM);
 
-                        drawtext(s->outpicref, s->start_x - 8 * strlen(units) - 4, h * (ch + 1) + s->start_y - y - 4, units, 0);
+                        drawtext(s->outpicref, s->start_x - 8 * strlen(units) - 4, h * (ch + 1) + s->start_y - y - 4 - hh, units, 0);
                         av_free(units);
                     }
                 }
@@ -1186,7 +1200,7 @@ static int showspectrumpic_request_frame(AVFilterLink *outlink)
                     for (x = 0; x < w; x+=80) {
                         dst[x] = 200;
                     }
-                    for (x = 0; x < w; x += 80) {
+                    for (x = 0; x < w - 79; x += 80) {
                         float hertz = x * (inlink->sample_rate / 2) / (float)(1 << (int)ceil(log2(w)));
                         char *units;
 

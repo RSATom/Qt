@@ -34,15 +34,16 @@ DownloadsHandler::~DownloadsHandler() {
 void DownloadsHandler::RegisterMessages() {
   web_ui()->RegisterMessageCallback(
       "initializeDownloads",
-      base::Bind(&DownloadsHandler::HandleInitialize, base::Unretained(this)));
+      base::BindRepeating(&DownloadsHandler::HandleInitialize,
+                          base::Unretained(this)));
   web_ui()->RegisterMessageCallback(
       "resetAutoOpenFileTypes",
-      base::Bind(&DownloadsHandler::HandleResetAutoOpenFileTypes,
-                 base::Unretained(this)));
+      base::BindRepeating(&DownloadsHandler::HandleResetAutoOpenFileTypes,
+                          base::Unretained(this)));
   web_ui()->RegisterMessageCallback(
       "selectDownloadLocation",
-      base::Bind(&DownloadsHandler::HandleSelectDownloadLocation,
-                 base::Unretained(this)));
+      base::BindRepeating(&DownloadsHandler::HandleSelectDownloadLocation,
+                          base::Unretained(this)));
 }
 
 void DownloadsHandler::OnJavascriptAllowed() {
@@ -83,7 +84,8 @@ void DownloadsHandler::HandleSelectDownloadLocation(
     const base::ListValue* args) {
   PrefService* pref_service = profile_->GetPrefs();
   select_folder_dialog_ = ui::SelectFileDialog::Create(
-      this, new ChromeSelectFilePolicy(web_ui()->GetWebContents()));
+      this,
+      std::make_unique<ChromeSelectFilePolicy>(web_ui()->GetWebContents()));
   ui::SelectFileDialog::FileTypeInfo info;
   info.allowed_paths = ui::SelectFileDialog::FileTypeInfo::NATIVE_OR_DRIVE_PATH;
   select_folder_dialog_->SelectFile(

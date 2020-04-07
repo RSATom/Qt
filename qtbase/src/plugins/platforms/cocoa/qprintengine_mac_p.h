@@ -134,7 +134,7 @@ public:
 
     QMacPrintEnginePrivate() : mode(QPrinter::ScreenResolution), state(QPrinter::Idle),
                                m_pageLayout(QPageLayout(QPageSize(QPageSize::A4), QPageLayout::Portrait, QMarginsF(0, 0, 0, 0))),
-                               printInfo(0), paintEngine(0), embedFonts(true) {}
+                               printInfo(nullptr), paintEngine(nullptr), embedFonts(true) {}
     ~QMacPrintEnginePrivate();
 
     void initialize();
@@ -150,8 +150,8 @@ public:
     PMPrintSession session() const { return static_cast<PMPrintSession>([printInfo PMPrintSession]); }
     PMPrintSettings settings() const { return static_cast<PMPrintSettings>([printInfo PMPrintSettings]); }
 
-    QPaintEngine *aggregateEngine() Q_DECL_OVERRIDE { return paintEngine; }
-    Qt::HANDLE nativeHandle() Q_DECL_OVERRIDE { return q_func()->handle(); }
+    QPaintEngine *aggregateEngine() override { return paintEngine; }
+    Qt::HANDLE nativeHandle() override { return q_func()->handle(); }
 };
 
 QT_END_NAMESPACE

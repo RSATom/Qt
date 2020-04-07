@@ -24,7 +24,7 @@ bool AppendArgumentFromJSONValue(const std::string& key,
                                  const base::Value& value_node,
                                  base::CommandLine* command_line) {
   std::string argument_name = "--" + key;
-  switch (value_node.GetType()) {
+  switch (value_node.type()) {
     case base::Value::Type::NONE:
       command_line->AppendArg(argument_name);
       break;
@@ -57,10 +57,8 @@ bool AppendArgumentFromJSONValue(const std::string& key,
 
 }  // namespace
 
-LocalTestServer::LocalTestServer(Type type,
-                                 const std::string& host,
-                                 const base::FilePath& document_root)
-    : BaseTestServer(type, host) {
+LocalTestServer::LocalTestServer(Type type, const base::FilePath& document_root)
+    : BaseTestServer(type) {
   if (!Init(document_root))
     NOTREACHED();
 }
@@ -79,7 +77,7 @@ LocalTestServer::~LocalTestServer() {
 
 bool LocalTestServer::GetTestServerPath(base::FilePath* testserver_path) const {
   base::FilePath testserver_dir;
-  if (!PathService::Get(base::DIR_SOURCE_ROOT, &testserver_dir)) {
+  if (!base::PathService::Get(base::DIR_SOURCE_ROOT, &testserver_dir)) {
     LOG(ERROR) << "Failed to get DIR_SOURCE_ROOT";
     return false;
   }
@@ -90,11 +88,9 @@ bool LocalTestServer::GetTestServerPath(base::FilePath* testserver_path) const {
   return true;
 }
 
-bool LocalTestServer::Start() {
-  return StartInBackground() && BlockUntilStarted();
-}
-
 bool LocalTestServer::StartInBackground() {
+  DCHECK(!started());
+
   base::ThreadRestrictions::ScopedAllowIO allow_io_from_test_code;
 
   // Get path to Python server script.
@@ -127,10 +123,11 @@ bool LocalTestServer::Stop() {
     return true;
 
   // First check if the process has already terminated.
-  int exit_code;
-  bool ret = process_.WaitForExitWithTimeout(base::TimeDelta(), &exit_code);
-  if (!ret)
+  bool ret = process_.WaitForExitWithTimeout(base::TimeDelta(), nullptr);
+  if (!ret) {
+    base::ScopedAllowBaseSyncPrimitivesForTesting allow_wait_process;
     ret = process_.Terminate(1, true);
+  }
 
   if (ret)
     process_.Close();
@@ -151,7 +148,7 @@ bool LocalTestServer::Init(const base::FilePath& document_root) {
   DCHECK(!GetPort());
 
   base::FilePath src_dir;
-  if (!PathService::Get(base::DIR_SOURCE_ROOT, &src_dir))
+  if (!base::PathService::Get(base::DIR_SOURCE_ROOT, &src_dir))
     return false;
   SetResourcePath(src_dir.Append(document_root),
                   src_dir.AppendASCII("net")
@@ -165,20 +162,13 @@ bool LocalTestServer::SetPythonPath() const {
   ClearPythonPath();
 
   base::FilePath third_party_dir;
-  if (!PathService::Get(base::DIR_SOURCE_ROOT, &third_party_dir)) {
+  if (!base::PathService::Get(base::DIR_SOURCE_ROOT, &third_party_dir)) {
     LOG(ERROR) << "Failed to get DIR_SOURCE_ROOT";
     return false;
   }
   third_party_dir = third_party_dir.AppendASCII("third_party");
 
-  // For simplejson. (simplejson, unlike all the other Python modules
-  // we include, doesn't have an extra 'simplejson' directory, so we
-  // need to include its parent directory, i.e. third_party_dir).
-  AppendToPythonPath(third_party_dir);
-
   AppendToPythonPath(third_party_dir.AppendASCII("tlslite"));
-  AppendToPythonPath(
-      third_party_dir.AppendASCII("pyftpdlib").AppendASCII("src"));
   AppendToPythonPath(
       third_party_dir.AppendASCII("pywebsocket").AppendASCII("src"));
 
@@ -207,7 +197,7 @@ bool LocalTestServer::AddCommandLineArguments(
     const std::string& key = it.key();
 
     // Add arguments from a list.
-    if (value.IsType(base::Value::Type::LIST)) {
+    if (value.is_list()) {
       const base::ListValue* list = NULL;
       if (!value.GetAsList(&list) || !list || list->empty())
         return false;

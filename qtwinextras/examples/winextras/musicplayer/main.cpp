@@ -105,7 +105,7 @@ int main(int argc, char *argv[])
     QCoreApplication::setApplicationName(QStringLiteral("MusicPlayer"));
     QCoreApplication::setApplicationVersion( QLatin1String(QT_VERSION_STR));
     QCoreApplication::setOrganizationName(QStringLiteral("QtWinExtras"));
-    QCoreApplication::setOrganizationDomain("qt-project.org");
+    QCoreApplication::setOrganizationDomain(QStringLiteral("qt-project.org"));
     QGuiApplication::setApplicationDisplayName(QStringLiteral("QtWinExtras Music Player"));
 
     if (!associateFileTypes())

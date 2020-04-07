@@ -32,7 +32,7 @@ void DriveMetricsProvider::ProvideSystemProfileMetrics(
                    hardware->mutable_user_data_drive());
 }
 
-void DriveMetricsProvider::GetDriveMetrics(const base::Closure& done_callback) {
+void DriveMetricsProvider::AsyncInit(const base::Closure& done_callback) {
   base::PostTaskWithTraitsAndReplyWithResult(
       FROM_HERE,
       {base::MayBlock(), base::TaskPriority::BACKGROUND,
@@ -50,7 +50,7 @@ DriveMetricsProvider::SeekPenaltyResponse::SeekPenaltyResponse()
 DriveMetricsProvider::DriveMetrics
 DriveMetricsProvider::GetDriveMetricsOnBackgroundThread(
     int local_state_path_key) {
-  base::ThreadRestrictions::AssertIOAllowed();
+  base::AssertBlockingAllowed();
 
   DriveMetricsProvider::DriveMetrics metrics;
   QuerySeekPenalty(base::FILE_EXE, &metrics.app_drive);
@@ -65,7 +65,7 @@ void DriveMetricsProvider::QuerySeekPenalty(
   DCHECK(response);
 
   base::FilePath path;
-  if (!PathService::Get(path_service_key, &path))
+  if (!base::PathService::Get(path_service_key, &path))
     return;
 
   base::TimeTicks start = base::TimeTicks::Now();

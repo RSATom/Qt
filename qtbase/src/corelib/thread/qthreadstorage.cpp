@@ -39,7 +39,6 @@
 
 #include "qthreadstorage.h"
 
-#ifndef QT_NO_THREAD
 #include "qthread.h"
 #include "qthread_p.h"
 #include "qmutex.h"
@@ -260,13 +259,13 @@ void QThreadStorageData::finish(void **p)
 */
 
 /*!
-    \fn QThreadStorage::QThreadStorage()
+    \fn template <class T> QThreadStorage<T>::QThreadStorage()
 
     Constructs a new per-thread data storage object.
 */
 
 /*!
-    \fn QThreadStorage::~QThreadStorage()
+    \fn template <class T> QThreadStorage<T>::~QThreadStorage()
 
     Destroys the per-thread data storage object.
 
@@ -278,7 +277,7 @@ void QThreadStorageData::finish(void **p)
 */
 
 /*!
-    \fn bool QThreadStorage::hasLocalData() const
+    \fn template <class T> bool QThreadStorage<T>::hasLocalData() const
 
     If T is a pointer type, returns \c true if the calling thread has
     non-zero data available.
@@ -290,7 +289,7 @@ void QThreadStorageData::finish(void **p)
 */
 
 /*!
-    \fn T &QThreadStorage::localData()
+    \fn template <class T> T &QThreadStorage<T>::localData()
 
     Returns a reference to the data that was set by the calling
     thread.
@@ -302,7 +301,7 @@ void QThreadStorageData::finish(void **p)
 */
 
 /*!
-    \fn const T QThreadStorage::localData() const
+    \fn template <class T> const T QThreadStorage<T>::localData() const
     \overload
 
     Returns a copy of the data that was set by the calling thread.
@@ -311,7 +310,7 @@ void QThreadStorageData::finish(void **p)
 */
 
 /*!
-    \fn void QThreadStorage::setLocalData(T data)
+    \fn template <class T> void QThreadStorage<T>::setLocalData(T data)
 
     Sets the local data for the calling thread to \a data. It can be
     accessed later using the localData() functions.
@@ -322,7 +321,5 @@ void QThreadStorageData::finish(void **p)
 
     \sa localData(), hasLocalData()
 */
-
-#endif // QT_NO_THREAD
 
 QT_END_NAMESPACE

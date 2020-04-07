@@ -3,16 +3,24 @@
 // found in the LICENSE file.
 
 #include "ui/base/ime/dummy_text_input_client.h"
+
+#include "base/strings/string_util.h"
 #include "ui/events/event.h"
 #include "ui/gfx/geometry/rect.h"
 
 namespace ui {
 
 DummyTextInputClient::DummyTextInputClient()
-    : text_input_type_(TEXT_INPUT_TYPE_NONE), insert_char_count_(0) {}
+    : DummyTextInputClient(TEXT_INPUT_TYPE_NONE) {}
 
 DummyTextInputClient::DummyTextInputClient(TextInputType text_input_type)
-    : text_input_type_(text_input_type), insert_char_count_(0) {}
+    : DummyTextInputClient(text_input_type, TEXT_INPUT_MODE_DEFAULT) {}
+
+DummyTextInputClient::DummyTextInputClient(TextInputType text_input_type,
+                                           TextInputMode text_input_mode)
+    : text_input_type_(text_input_type),
+      text_input_mode_(text_input_mode),
+      insert_char_count_(0) {}
 
 DummyTextInputClient::~DummyTextInputClient() {
 }
@@ -43,7 +51,7 @@ TextInputType DummyTextInputClient::GetTextInputType() const {
 }
 
 TextInputMode DummyTextInputClient::GetTextInputMode() const {
-  return TEXT_INPUT_MODE_DEFAULT;
+  return text_input_mode_;
 }
 
 base::i18n::TextDirection DummyTextInputClient::GetTextDirection() const {
@@ -70,6 +78,10 @@ bool DummyTextInputClient::GetCompositionCharacterBounds(
 
 bool DummyTextInputClient::HasCompositionText() const {
   return false;
+}
+
+ui::TextInputClient::FocusReason DummyTextInputClient::GetFocusReason() const {
+  return ui::TextInputClient::FOCUS_REASON_OTHER;
 }
 
 bool DummyTextInputClient::GetTextRange(gfx::Range* range) const {
@@ -118,5 +130,13 @@ bool DummyTextInputClient::IsTextEditCommandEnabled(
 
 void DummyTextInputClient::SetTextEditCommandForNextKeyEvent(
     TextEditCommand command) {}
+
+ukm::SourceId DummyTextInputClient::GetClientSourceForMetrics() const {
+  return ukm::SourceId{};
+}
+
+bool DummyTextInputClient::ShouldDoLearning() {
+  return false;
+}
 
 }  // namespace ui

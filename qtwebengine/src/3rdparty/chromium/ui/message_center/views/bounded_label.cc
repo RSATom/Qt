@@ -278,9 +278,9 @@ BoundedLabel::BoundedLabel(const base::string16& text)
 BoundedLabel::~BoundedLabel() {
 }
 
-void BoundedLabel::SetColors(SkColor textColor, SkColor backgroundColor) {
-  label_->SetEnabledColor(textColor);
-  label_->SetBackgroundColor(backgroundColor);
+void BoundedLabel::SetColor(SkColor text_color) {
+  label_->SetEnabledColor(text_color);
+  label_->SetAutoColorReadabilityEnabled(false);
 }
 
 void BoundedLabel::SetLineHeight(int height) {
@@ -344,6 +344,19 @@ bool BoundedLabel::CanProcessEventsWithinSubtree() const {
 
 void BoundedLabel::GetAccessibleNodeData(ui::AXNodeData* node_data) {
   label_->GetAccessibleNodeData(node_data);
+}
+
+views::View* BoundedLabel::GetTooltipHandlerForPoint(const gfx::Point& point) {
+  if (GetSizeForWidthAndLines(width(), -1).height() <=
+      GetHeightForWidth(width())) {
+    return nullptr;
+  }
+  return HitTestPoint(point) ? this : nullptr;
+}
+
+bool BoundedLabel::GetTooltipText(const gfx::Point& p,
+                                  base::string16* tooltip) const {
+  return label_->GetTooltipText(p, tooltip);
 }
 
 void BoundedLabel::OnBoundsChanged(const gfx::Rect& previous_bounds) {

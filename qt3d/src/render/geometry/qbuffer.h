@@ -119,7 +119,7 @@ public Q_SLOTS:
     void setAccessType(AccessType access);
 
 protected:
-    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &change) Q_DECL_OVERRIDE;
+    void sceneChangeEvent(const Qt3DCore::QSceneChangePtr &change) override;
 
 Q_SIGNALS:
     void dataChanged(const QByteArray &bytes);
@@ -131,7 +131,7 @@ Q_SIGNALS:
 
 private:
     Q_DECLARE_PRIVATE(QBuffer)
-    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const Q_DECL_OVERRIDE;
+    Qt3DCore::QNodeCreatedChangeBasePtr createNodeCreationChange() const override;
 };
 
 } // namespace Qt3DRender

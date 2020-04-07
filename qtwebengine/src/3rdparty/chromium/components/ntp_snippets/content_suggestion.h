@@ -5,11 +5,13 @@
 #ifndef COMPONENTS_NTP_SNIPPETS_CONTENT_SUGGESTION_H_
 #define COMPONENTS_NTP_SNIPPETS_CONTENT_SUGGESTION_H_
 
+#include <cstdint>
 #include <memory>
 #include <string>
 
 #include "base/files/file_path.h"
 #include "base/macros.h"
+#include "base/optional.h"
 #include "base/strings/string16.h"
 #include "base/time/time.h"
 #include "components/ntp_snippets/category.h"
@@ -38,19 +40,9 @@ struct DownloadSuggestionExtra {
   bool is_download_asset = false;
 };
 
-// Contains additional data which is only available for recent tab suggestions.
-struct RecentTabSuggestionExtra {
-  // Corresponding tab identifier.
-  int tab_id;
-  // Underlying offline page identifier.
-  int64_t offline_page_id = 0;
-};
-
 // ReadingListSuggestionExtra contains additional data which is only available
 // for Reading List suggestions.
 struct ReadingListSuggestionExtra {
-  // State of the distillation of the suggestion.
-  bool distilled = false;
   // URL of the page whose favicon should be displayed for this suggestion.
   GURL favicon_page_url;
 };
@@ -163,14 +155,6 @@ class ContentSuggestion {
   void set_download_suggestion_extra(
       std::unique_ptr<DownloadSuggestionExtra> download_suggestion_extra);
 
-  // Extra information for recent tab suggestions. Only available for
-  // KnownCategories::RECENT_TABS suggestions.
-  RecentTabSuggestionExtra* recent_tab_suggestion_extra() const {
-    return recent_tab_suggestion_extra_.get();
-  }
-  void set_recent_tab_suggestion_extra(
-      std::unique_ptr<RecentTabSuggestionExtra> recent_tab_suggestion_extra);
-
   // Extra information for reading list suggestions. Only available for
   // KnownCategories::READING_LIST suggestions.
   ReadingListSuggestionExtra* reading_list_suggestion_extra() const {
@@ -195,6 +179,14 @@ class ContentSuggestion {
     fetch_date_ = fetch_date;
   }
 
+  const base::Optional<uint32_t>& optional_image_dominant_color() const {
+    return image_dominant_color_;
+  }
+  void set_optional_image_dominant_color(
+      const base::Optional<uint32_t>& optional_color_int) {
+    image_dominant_color_ = optional_color_int;
+  }
+
  private:
   ID id_;
   GURL url_;
@@ -205,7 +197,6 @@ class ContentSuggestion {
   base::string16 publisher_name_;
   float score_;
   std::unique_ptr<DownloadSuggestionExtra> download_suggestion_extra_;
-  std::unique_ptr<RecentTabSuggestionExtra> recent_tab_suggestion_extra_;
   std::unique_ptr<ReadingListSuggestionExtra> reading_list_suggestion_extra_;
   std::unique_ptr<NotificationExtra> notification_extra_;
 
@@ -215,6 +206,9 @@ class ContentSuggestion {
   base::Time fetch_date_;
 
   bool is_video_suggestion_;
+
+  // Encoded as an Android @ColorInt.
+  base::Optional<uint32_t> image_dominant_color_;
 
   DISALLOW_COPY_AND_ASSIGN(ContentSuggestion);
 };

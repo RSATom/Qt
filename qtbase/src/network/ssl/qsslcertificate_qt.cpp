@@ -41,8 +41,10 @@
 #include "qsslcertificate_p.h"
 
 #include "qssl_p.h"
+#ifndef QT_NO_SSL
 #include "qsslkey.h"
 #include "qsslkey_p.h"
+#endif
 #include "qsslcertificateextension.h"
 #include "qsslcertificateextension_p.h"
 #include "qasn1element_p.h"
@@ -141,10 +143,11 @@ QDateTime QSslCertificate::expiryDate() const
 Qt::HANDLE QSslCertificate::handle() const
 {
     Q_UNIMPLEMENTED();
-    return 0;
+    return nullptr;
 }
 #endif
 
+#ifndef QT_NO_SSL
 QSslKey QSslCertificate::publicKey() const
 {
     QSslKey key;
@@ -155,6 +158,7 @@ QSslKey QSslCertificate::publicKey() const
     }
     return key;
 }
+#endif
 
 QList<QSslCertificateExtension> QSslCertificate::extensions() const
 {

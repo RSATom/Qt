@@ -64,10 +64,6 @@ class Config {
     return name == "RefPtr";
   }
 
-  static bool IsOwnPtr(const std::string& name) {
-    return name == "OwnPtr";
-  }
-
   static bool IsUniquePtr(const std::string& name) {
     return name == "unique_ptr";
   }
@@ -242,6 +238,8 @@ class Config {
   static bool IsTraceMethod(const clang::FunctionDecl* method) {
     return GetTraceMethodType(method) != NOT_TRACE_METHOD;
   }
+
+  static bool IsTraceWrappersMethod(const clang::FunctionDecl* method);
 
   static bool StartsWith(const std::string& str, const std::string& prefix) {
     if (prefix.size() > str.size())

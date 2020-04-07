@@ -63,13 +63,6 @@
 
 QML_DECLARE_TYPE(QSoundEffect)
 
-static void initResources()
-{
-#ifdef QT_STATIC
-    Q_INIT_RESOURCE(qmake_QtMultimedia);
-#endif
-}
-
 QT_BEGIN_NAMESPACE
 
 static QObject *multimedia_global_object(QQmlEngine *qmlEngine, QJSEngine *jsEngine)
@@ -84,7 +77,7 @@ class QMultimediaDeclarativeModule : public QQmlExtensionPlugin
     Q_PLUGIN_METADATA(IID QQmlExtensionInterface_iid)
 
 public:
-    QMultimediaDeclarativeModule(QObject *parent = 0) : QQmlExtensionPlugin(parent) { initResources(); }
+    QMultimediaDeclarativeModule(QObject *parent = 0) : QQmlExtensionPlugin(parent) { }
     void registerTypes(const char *uri) override
     {
         Q_ASSERT(QLatin1String(uri) == QLatin1String("QtMultimedia"));
@@ -151,8 +144,21 @@ public:
         qmlRegisterUncreatableType<QDeclarativeCameraFlash, 1>(uri, 5, 9, "CameraFlash",
                                 trUtf8("CameraFlash is provided by Camera"));
 
+        // 5.11 types
+        qmlRegisterType<QDeclarativeAudio, 3>(uri, 5, 11, "Audio");
+        qmlRegisterType<QDeclarativeAudio, 3>(uri, 5, 11, "MediaPlayer");
+        qmlRegisterUncreatableType<QDeclarativeCameraFocus, 1>(uri, 5, 11, "CameraFocus",
+                                trUtf8("CameraFocus is provided by Camera"));
+        qmlRegisterUncreatableType<QDeclarativeCameraExposure, 1>(uri, 5, 11, "CameraExposure",
+                                trUtf8("CameraExposure is provided by Camera"));
+        qmlRegisterUncreatableType<QDeclarativeCameraImageProcessing, 3>(uri, 5, 11, "CameraImageProcessing",
+                                trUtf8("CameraImageProcessing is provided by Camera"));
+
         qmlRegisterType<QDeclarativeMediaMetaData>();
         qmlRegisterType<QAbstractVideoFilter>();
+
+        // Auto-increment the import to stay in sync with ALL future QtQuick minor versions from 5.11 onward
+        qmlRegisterModule(uri, 5, QT_VERSION_MINOR);
     }
 
     void initializeEngine(QQmlEngine *engine, const char *uri) override

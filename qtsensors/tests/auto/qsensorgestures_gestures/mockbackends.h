@@ -55,7 +55,7 @@ class mockSensorPlugin : public QObject,
 public:
     QString m_filename;
 
-    void registerSensors()
+    void registerSensors() override
     {
         qDebug() << "loaded the mock plugin";
 
@@ -76,7 +76,7 @@ public:
     }
 
 
-    QSensorBackend *createBackend(QSensor *sensor)
+    QSensorBackend *createBackend(QSensor *sensor) override
     {
         if (sensor->identifier() == mockaccelerometer::id) {
             return new mockaccelerometer(sensor);

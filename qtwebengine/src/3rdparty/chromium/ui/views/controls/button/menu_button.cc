@@ -53,7 +53,7 @@ MenuButton::PressedLock::PressedLock(MenuButton* menu_button,
 }
 
 MenuButton::PressedLock::~PressedLock() {
-  if (menu_button_.get())
+  if (menu_button_)
     menu_button_->DecrementPressedLocked();
 }
 
@@ -73,18 +73,11 @@ MenuButton::MenuButton(const base::string16& text,
       menu_marker_(ui::ResourceBundle::GetSharedInstance()
                        .GetImageNamed(IDR_MENU_DROPARROW)
                        .ToImageSkia()),
-      destroyed_flag_(nullptr),
-      pressed_lock_count_(0),
-      increment_pressed_lock_called_(nullptr),
-      should_disable_after_press_(false),
       weak_factory_(this) {
   SetHorizontalAlignment(gfx::ALIGN_LEFT);
 }
 
-MenuButton::~MenuButton() {
-  if (destroyed_flag_)
-    *destroyed_flag_ = true;
-}
+MenuButton::~MenuButton() = default;
 
 ////////////////////////////////////////////////////////////////////////////////
 //
@@ -122,26 +115,25 @@ bool MenuButton::Activate(const ui::Event* event) {
     static_cast<internal::RootView*>(GetWidget()->GetRootView())
         ->SetMouseHandler(nullptr);
 
-    bool destroyed = false;
-    destroyed_flag_ = &destroyed;
-
     DCHECK(increment_pressed_lock_called_ == nullptr);
     // Observe if IncrementPressedLocked() was called so we can trigger the
     // correct ink drop animations.
     bool increment_pressed_lock_called = false;
     increment_pressed_lock_called_ = &increment_pressed_lock_called;
 
+    // Allow for OnMenuButtonClicked() to delete this.
+    auto ref = weak_factory_.GetWeakPtr();
+
     // We don't set our state here. It's handled in the MenuController code or
     // by our click listener.
     listener_->OnMenuButtonClicked(this, menu_position, event);
 
-    if (destroyed) {
+    if (!ref) {
       // The menu was deleted while showing. Don't attempt any processing.
       return false;
     }
 
     increment_pressed_lock_called_ = nullptr;
-    destroyed_flag_ = nullptr;
 
     if (!increment_pressed_lock_called && pressed_lock_count_ == 0) {
       AnimateInkDrop(InkDropState::ACTION_TRIGGERED,
@@ -235,7 +227,10 @@ void MenuButton::OnMouseMoved(const ui::MouseEvent& event) {
 
 void MenuButton::OnGestureEvent(ui::GestureEvent* event) {
   if (state() != STATE_DISABLED) {
+    auto ref = weak_factory_.GetWeakPtr();
     if (IsTriggerableEvent(*event) && !Activate(event)) {
+      if (!ref)
+        return;
       // When |Activate()| returns |false|, it means the click was handled by
       // a button listener and has handled the gesture event. So, there is no
       // need to further process the gesture event here. However, if the
@@ -264,6 +259,7 @@ bool MenuButton::OnKeyPressed(const ui::KeyEvent& event) {
       // Alt-space on windows should show the window menu.
       if (event.IsAltDown())
         break;
+      FALLTHROUGH;
     case ui::VKEY_RETURN:
     case ui::VKEY_UP:
     case ui::VKEY_DOWN: {
@@ -282,20 +278,18 @@ bool MenuButton::OnKeyPressed(const ui::KeyEvent& event) {
 }
 
 bool MenuButton::OnKeyReleased(const ui::KeyEvent& event) {
-  // Override CustomButton's implementation, which presses the button when
+  // Override Button's implementation, which presses the button when
   // you press space and clicks it when you release space.  For a MenuButton
   // we always activate the menu on key press.
   return false;
 }
 
 void MenuButton::GetAccessibleNodeData(ui::AXNodeData* node_data) {
-  CustomButton::GetAccessibleNodeData(node_data);
-  node_data->role = ui::AX_ROLE_POP_UP_BUTTON;
-  node_data->AddState(ui::AX_STATE_HASPOPUP);
-  if (enabled()) {
-    node_data->AddIntAttribute(ui::AX_ATTR_DEFAULT_ACTION_VERB,
-                               ui::AX_DEFAULT_ACTION_VERB_OPEN);
-  }
+  Button::GetAccessibleNodeData(node_data);
+  node_data->role = ax::mojom::Role::kPopUpButton;
+  node_data->SetHasPopup(ax::mojom::HasPopup::kMenu);
+  if (enabled())
+    node_data->SetDefaultActionVerb(ax::mojom::DefaultActionVerb::kOpen);
 }
 
 void MenuButton::PaintMenuMarker(gfx::Canvas* canvas) {
@@ -391,7 +385,8 @@ void MenuButton::DecrementPressedLocked() {
     if (should_disable_after_press_) {
       desired_state = STATE_DISABLED;
       should_disable_after_press_ = false;
-    } else if (ShouldEnterHoveredState()) {
+    } else if (GetWidget() && !GetWidget()->dragged_view() &&
+               ShouldEnterHoveredState()) {
       desired_state = STATE_HOVERED;
       GetInkDrop()->SetHovered(true);
     }

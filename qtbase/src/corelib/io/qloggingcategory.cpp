@@ -135,9 +135,7 @@ static void setBoolLane(QBasicAtomicInt *atomic, bool enable, int shift)
     flexible way. Rules are specified in text, where every line must have the
     format
 
-    \code
-    <category>[.<type>] = true|false
-    \endcode
+    \snippet code/src_corelib_io_qloggingcategory.cpp 0
 
     \c <category> is the name of the category, potentially with \c{*} as a
     wildcard symbol as the first or last character (or at both positions).
@@ -147,32 +145,28 @@ static void setBoolLane(QBasicAtomicInt *atomic, bool enable, int shift)
     Rules are evaluated in text order, from first to last. That is, if two rules
     apply to a category/type, the rule that comes later is applied.
 
-    Rules can be set via \l setFilterRules(). Since Qt 5.3, logging rules can also
-    be set in the \c QT_LOGGING_RULES environment variable, and
-    are automatically loaded from the \c [Rules] section of a logging
+    Rules can be set via \l setFilterRules():
+
+    \snippet code/src_corelib_io_qloggingcategory.cpp 1
+
+    Since Qt 5.3, logging rules are also
+    automatically loaded from the \c [Rules] section of a logging
     configuration file. Such configuration files are looked up in the QtProject
     configuration directory, or explicitly set in a \c QT_LOGGING_CONF
     environment variable:
 
-    \code
-    [Rules]
-    *.debug=false
-    driver.usb.debug=true
-    \endcode
+    \snippet code/src_corelib_io_qloggingcategory.cpp 2
+
+    Since Qt 5.3, logging rules can also be specified in a \c QT_LOGGING_RULES
+    environment variable. And since Qt 5.6, multiple rules can also be
+    separated by semicolons:
+
+    \snippet code/src_corelib_io_qloggingcategory.cpp 3
 
     Rules set by \l setFilterRules() take precedence over rules specified
     in the QtProject configuration directory, and can, in turn, be
     overwritten by rules from the configuration file specified by
     \c QT_LOGGING_CONF, and rules set by \c QT_LOGGING_RULES.
-
-
-    Since Qt 5.6, \c QT_LOGGING_RULES may contain multiple rules separated
-    by semicolons:
-
-    \code
-    QT_LOGGING_RULES="*.debug=false;driver.usb.debug=true"
-    \endcode
-
 
     Order of evaluation:
     \list
@@ -216,6 +210,8 @@ static void setBoolLane(QBasicAtomicInt *atomic, bool enable, int shift)
     All message types for this category are enabled by default.
 
     If \a category is \c{0}, the category name is changed to \c "default".
+
+    Note that \a category must be kept valid during the lifetime of this object.
 */
 QLoggingCategory::QLoggingCategory(const char *category)
     : d(0),
@@ -229,6 +225,8 @@ QLoggingCategory::QLoggingCategory(const char *category)
     and enables all messages with types more severe or equal than \a enableForLevel.
 
     If \a category is \c{0}, the category name is changed to \c "default".
+
+    Note that \a category must be kept valid during the lifetime of this object.
 
     \since 5.4
 */
@@ -462,8 +460,6 @@ void QLoggingCategory::setFilterRules(const QString &rules)
     \note Arguments are not processed if debug output for the category is not
     enabled, so do not rely on any side effects.
 
-    \note Using the macro is thread-safe.
-
     \sa qDebug()
 */
 
@@ -483,8 +479,6 @@ void QLoggingCategory::setFilterRules(const QString &rules)
 
     \note Arguments might not be processed if debug output for the category is
     not enabled, so do not rely on any side effects.
-
-    \note Using the macro is thread-safe.
 
     \sa qDebug()
 */
@@ -509,8 +503,6 @@ void QLoggingCategory::setFilterRules(const QString &rules)
     \note Arguments are not processed if debug output for the category is not
     enabled, so do not rely on any side effects.
 
-    \note Using the macro is thread-safe.
-
     \sa qInfo()
 */
 
@@ -530,8 +522,6 @@ void QLoggingCategory::setFilterRules(const QString &rules)
 
     \note Arguments might not be processed if debug output for the category is
     not enabled, so do not rely on any side effects.
-
-    \note Using the macro is thread-safe.
 
     \sa qInfo()
 */
@@ -556,8 +546,6 @@ void QLoggingCategory::setFilterRules(const QString &rules)
     \note Arguments are not processed if warning output for the category is not
     enabled, so do not rely on any side effects.
 
-    \note Using the macro is thread-safe.
-
     \sa qWarning()
 */
 
@@ -577,8 +565,6 @@ void QLoggingCategory::setFilterRules(const QString &rules)
 
     \note Arguments might not be processed if warning output for the category is
     not enabled, so do not rely on any side effects.
-
-    \note Using the macro is thread-safe.
 
     \sa qWarning()
 */
@@ -603,8 +589,6 @@ void QLoggingCategory::setFilterRules(const QString &rules)
     \note Arguments are not processed if critical output for the category is not
     enabled, so do not rely on any side effects.
 
-    \note Using the macro is thread-safe.
-
     \sa qCritical()
 */
 
@@ -624,8 +608,6 @@ void QLoggingCategory::setFilterRules(const QString &rules)
 
     \note Arguments might not be processed if critical output for the category
     is not enabled, so do not rely on any side effects.
-
-    \note Using the macro is thread-safe.
 
     \sa qCritical()
 */

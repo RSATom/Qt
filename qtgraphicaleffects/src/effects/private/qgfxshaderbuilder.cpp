@@ -66,7 +66,12 @@ QGfxShaderBuilder::QGfxShaderBuilder()
     // thread will get the same capabilities as the render thread's OpenGL
     // context. Not 100% accurate, but it works...
     QOpenGLContext context;
-    context.create();
+    if (!context.create()) {
+        qDebug() << "failed to acquire GL context to resolve capabilities, using defaults..";
+        m_maxBlurSamples = 8; // minimum number of varyings in the ES 2.0 spec.
+        return;
+    }
+
     QOffscreenSurface surface;
     // In very odd cases, we can get incompatible configs here unless we pass the
     // GL context's format on to the offscreen format.

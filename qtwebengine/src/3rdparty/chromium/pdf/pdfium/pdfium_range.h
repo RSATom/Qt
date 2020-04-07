@@ -30,9 +30,9 @@ class PDFiumRange {
   int char_count() const { return char_count_; }
 
   // Gets bounding rectangles of range in screen coordinates.
-  std::vector<pp::Rect> GetScreenRects(const pp::Point& offset,
-                                       double zoom,
-                                       int rotation);
+  const std::vector<pp::Rect>& GetScreenRects(const pp::Point& offset,
+                                              double zoom,
+                                              int rotation);
 
   // Gets the string of characters in this range.
   base::string16 GetText() const;
@@ -47,7 +47,7 @@ class PDFiumRange {
   // Cache of ScreenRect, and the associated variables used when caching it.
   std::vector<pp::Rect> cached_screen_rects_;
   pp::Point cached_screen_rects_offset_;
-  double cached_screen_rects_zoom_;
+  double cached_screen_rects_zoom_ = 0;
 };
 
 }  // namespace chrome_pdf

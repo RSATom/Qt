@@ -127,7 +127,7 @@ protected:
     void finished() override;
 
 private:
-    QQuickSwipe *m_swipe;
+    QQuickSwipe *m_swipe = nullptr;
 };
 
 class QQuickSwipePrivate : public QObjectPrivate
@@ -135,23 +135,7 @@ class QQuickSwipePrivate : public QObjectPrivate
     Q_DECLARE_PUBLIC(QQuickSwipe)
 
 public:
-    QQuickSwipePrivate(QQuickSwipeDelegate *control)
-        : control(control),
-          positionBeforePress(0),
-          position(0),
-          wasComplete(false),
-          complete(false),
-          enabled(true),
-          left(nullptr),
-          behind(nullptr),
-          right(nullptr),
-          leftItem(nullptr),
-          behindItem(nullptr),
-          rightItem(nullptr),
-          transition(nullptr),
-          transitionManager(nullptr)
-    {
-    }
+    QQuickSwipePrivate(QQuickSwipeDelegate *control) : control(control) { }
 
     static QQuickSwipePrivate *get(QQuickSwipe *swipe);
 
@@ -175,24 +159,24 @@ public:
     void beginTransition(qreal position);
     void finishTransition();
 
-    QQuickSwipeDelegate *control;
+    QQuickSwipeDelegate *control = nullptr;
     // Same range as position, but is set before press events so that we can
     // keep track of which direction the user must swipe when using left and right delegates.
-    qreal positionBeforePress;
-    qreal position;
+    qreal positionBeforePress = 0;
+    qreal position = 0;
     // A "less strict" version of complete that is true if complete was true
     // before the last press event.
-    bool wasComplete;
-    bool complete;
-    bool enabled;
+    bool wasComplete = false;
+    bool complete = false;
+    bool enabled = true;
     QQuickVelocityCalculator velocityCalculator;
-    QQmlComponent *left;
-    QQmlComponent *behind;
-    QQmlComponent *right;
-    QQuickItem *leftItem;
-    QQuickItem *behindItem;
-    QQuickItem *rightItem;
-    QQuickTransition *transition;
+    QQmlComponent *left = nullptr;
+    QQmlComponent *behind = nullptr;
+    QQmlComponent *right = nullptr;
+    QQuickItem *leftItem = nullptr;
+    QQuickItem *behindItem = nullptr;
+    QQuickItem *rightItem = nullptr;
+    QQuickTransition *transition = nullptr;
     QScopedPointer<QQuickSwipeTransitionManager> transitionManager;
 };
 
@@ -736,7 +720,7 @@ bool QQuickSwipeDelegatePrivate::handleMousePressEvent(QQuickItem *item, QMouseE
         // The press point could be incorrect if the press happened over a child item,
         // so we correct it after calling the base class' mousePressEvent(), rather
         // than having to duplicate its code just so we can set the pressPoint.
-        pressPoint = item->mapToItem(q, event->pos());
+        setPressPoint(item->mapToItem(q, event->pos()));
         return true;
     }
 
@@ -745,7 +729,7 @@ bool QQuickSwipeDelegatePrivate::handleMousePressEvent(QQuickItem *item, QMouseE
     // mouse movement in case it turns into a swipe, in which case we grab the mouse.
     swipePrivate->positionBeforePress = swipePrivate->position;
     swipePrivate->velocityCalculator.startMeasuring(event->pos(), event->timestamp());
-    pressPoint = item->mapToItem(q, event->pos());
+    setPressPoint(item->mapToItem(q, event->pos()));
 
     // When a delegate uses the attached properties and signals, it declares that it wants mouse events.
     Attached *attached = attachedObject(item);
@@ -1217,12 +1201,19 @@ void QQuickSwipeDelegate::touchEvent(QTouchEvent *event)
     event->ignore();
 }
 
+void QQuickSwipeDelegate::componentComplete()
+{
+    Q_D(QQuickSwipeDelegate);
+    QQuickItemDelegate::componentComplete();
+    QQuickSwipePrivate::get(&d->swipe)->reposition(DontAnimatePosition);
+}
+
 void QQuickSwipeDelegate::geometryChanged(const QRectF &newGeometry, const QRectF &oldGeometry)
 {
     Q_D(QQuickSwipeDelegate);
     QQuickControl::geometryChanged(newGeometry, oldGeometry);
 
-    if (!qFuzzyCompare(newGeometry.width(), oldGeometry.width())) {
+    if (isComponentComplete() && !qFuzzyCompare(newGeometry.width(), oldGeometry.width())) {
         QQuickSwipePrivate *swipePrivate = QQuickSwipePrivate::get(&d->swipe);
         swipePrivate->reposition(DontAnimatePosition);
     }
@@ -1230,7 +1221,12 @@ void QQuickSwipeDelegate::geometryChanged(const QRectF &newGeometry, const QRect
 
 QFont QQuickSwipeDelegate::defaultFont() const
 {
-    return QQuickControlPrivate::themeFont(QPlatformTheme::ListViewFont);
+    return QQuickTheme::font(QQuickTheme::ListView);
+}
+
+QPalette QQuickSwipeDelegate::defaultPalette() const
+{
+    return QQuickTheme::palette(QQuickTheme::ListView);
 }
 
 #if QT_CONFIG(accessibility)
@@ -1245,10 +1241,8 @@ class QQuickSwipeDelegateAttachedPrivate : public QObjectPrivate
     Q_DECLARE_PUBLIC(QQuickSwipeDelegateAttached)
 
 public:
-    QQuickSwipeDelegateAttachedPrivate() : pressed(false) { }
-
     // True when left/right/behind is non-interactive and is pressed.
-    bool pressed;
+    bool pressed = false;
 };
 
 /*!

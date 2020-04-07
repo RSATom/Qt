@@ -7,7 +7,7 @@
 
 #include "base/bind.h"
 #include "services/service_manager/public/cpp/export.h"
-#include "services/service_manager/public/interfaces/interface_provider.mojom.h"
+#include "services/service_manager/public/mojom/interface_provider.mojom.h"
 
 namespace service_manager {
 
@@ -29,8 +29,8 @@ class SERVICE_MANAGER_PUBLIC_CPP_EXPORT InterfaceProvider {
 
     void SetBinderForName(
         const std::string& name,
-        const base::Callback<void(mojo::ScopedMessagePipeHandle)>& binder) {
-      provider_->SetBinderForName(name, binder);
+        base::RepeatingCallback<void(mojo::ScopedMessagePipeHandle)> binder) {
+      provider_->SetBinderForName(name, std::move(binder));
     }
 
     bool HasBinderForName(const std::string& name) {
@@ -76,30 +76,25 @@ class SERVICE_MANAGER_PUBLIC_CPP_EXPORT InterfaceProvider {
   // be called before any calls to GetInterface() are made.
   void Forward(const ForwardCallback& callback);
 
-  // Returns a raw pointer to the remote InterfaceProvider.
-  mojom::InterfaceProvider* get() { return interface_provider_.get(); }
-
   // Sets a closure to be run when the remote InterfaceProvider pipe is closed.
   void SetConnectionLostClosure(const base::Closure& connection_lost_closure);
 
   base::WeakPtr<InterfaceProvider> GetWeakPtr();
 
-  // Binds |ptr| to an implementation of Interface in the remote application.
-  // |ptr| can immediately be used to start sending requests to the remote
-  // interface.
-  template <typename Interface>
-  void GetInterface(mojo::InterfacePtr<Interface>* ptr) {
-    mojo::MessagePipe pipe;
-    ptr->Bind(mojo::InterfacePtrInfo<Interface>(std::move(pipe.handle0), 0u));
-
-    GetInterface(Interface::Name_, std::move(pipe.handle1));
+  // Binds a passed in interface pointer to an implementation of the interface
+  // in the remote application using MakeRequest. The interface pointer can
+  // immediately be used to start sending requests to the remote interface.
+  // Uses templated parameters in order to work with weak interfaces in blink.
+  template <typename... Args>
+  void GetInterface(Args&&... args) {
+    GetInterface(MakeRequest(std::forward<Args>(args)...));
   }
   template <typename Interface>
   void GetInterface(mojo::InterfaceRequest<Interface> request) {
-    GetInterface(Interface::Name_, std::move(request.PassMessagePipe()));
+    GetInterfaceByName(Interface::Name_, std::move(request.PassMessagePipe()));
   }
-  void GetInterface(const std::string& name,
-                    mojo::ScopedMessagePipeHandle request_handle);
+  void GetInterfaceByName(const std::string& name,
+                          mojo::ScopedMessagePipeHandle request_handle);
 
   // Returns a callback to GetInterface<Interface>(). This can be passed to
   // BinderRegistry::AddInterface() to forward requests.
@@ -120,15 +115,16 @@ class SERVICE_MANAGER_PUBLIC_CPP_EXPORT InterfaceProvider {
 
   void SetBinderForName(
       const std::string& name,
-      const base::Callback<void(mojo::ScopedMessagePipeHandle)>& binder) {
-    binders_[name] = binder;
+      base::RepeatingCallback<void(mojo::ScopedMessagePipeHandle)> binder) {
+    binders_[name] = std::move(binder);
   }
   bool HasBinderForName(const std::string& name) const;
   void ClearBinderForName(const std::string& name);
   void ClearBinders();
 
-  using BinderMap = std::map<
-      std::string, base::Callback<void(mojo::ScopedMessagePipeHandle)>>;
+  using BinderMap =
+      std::map<std::string,
+               base::RepeatingCallback<void(mojo::ScopedMessagePipeHandle)>>;
   BinderMap binders_;
 
   mojom::InterfaceProviderPtr interface_provider_;

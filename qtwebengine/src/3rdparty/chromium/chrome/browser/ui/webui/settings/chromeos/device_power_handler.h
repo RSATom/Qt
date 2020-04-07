@@ -7,9 +7,9 @@
 
 #include <memory>
 
-#include "ash/system/power/power_status.h"
 #include "base/macros.h"
 #include "base/memory/weak_ptr.h"
+#include "base/optional.h"
 #include "base/scoped_observer.h"
 #include "base/strings/string16.h"
 #include "chrome/browser/ui/webui/settings/settings_page_ui_handler.h"
@@ -29,7 +29,6 @@ namespace settings {
 
 // Chrome OS battery status and power settings handler.
 class PowerHandler : public ::settings::SettingsPageUIHandler,
-                     public ash::PowerStatus::Observer,
                      public PowerManagerClient::Observer {
  public:
   // Idle behaviors presented in the UI. These are mapped to preferences by
@@ -74,10 +73,8 @@ class PowerHandler : public ::settings::SettingsPageUIHandler,
   void OnJavascriptAllowed() override;
   void OnJavascriptDisallowed() override;
 
-  // ash::PowerStatus::Observer implementation.
-  void OnPowerStatusChanged() override;
-
   // PowerManagerClient implementation.
+  void PowerChanged(const power_manager::PowerSupplyProperties& proto) override;
   void PowerManagerRestarted() override;
   void LidEventReceived(PowerManagerClient::LidState state,
                         const base::TimeTicks& timestamp) override;
@@ -109,16 +106,14 @@ class PowerHandler : public ::settings::SettingsPageUIHandler,
   void SendPowerManagementSettings(bool force);
 
   // Callback used to receive switch states from PowerManagerClient.
-  void OnGotSwitchStates(PowerManagerClient::LidState lid_state,
-                         PowerManagerClient::TabletMode tablet_mode);
+  void OnGotSwitchStates(
+      base::Optional<PowerManagerClient::SwitchStates> result);
 
   PrefService* prefs_;              // Not owned.
-  ash::PowerStatus* power_status_;  // Not owned.
 
   // Used to watch power management prefs for changes so the UI can be notified.
   std::unique_ptr<PrefChangeRegistrar> pref_change_registrar_;
 
-  ScopedObserver<ash::PowerStatus, PowerHandler> power_status_observer_;
   ScopedObserver<PowerManagerClient, PowerHandler>
       power_manager_client_observer_;
 

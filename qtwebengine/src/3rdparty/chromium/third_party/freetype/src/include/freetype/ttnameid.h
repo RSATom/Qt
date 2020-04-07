@@ -1,19 +1,19 @@
-/***************************************************************************/
-/*                                                                         */
-/*  ttnameid.h                                                             */
-/*                                                                         */
-/*    TrueType name ID definitions (specification only).                   */
-/*                                                                         */
-/*  Copyright 1996-2017 by                                                 */
-/*  David Turner, Robert Wilhelm, and Werner Lemberg.                      */
-/*                                                                         */
-/*  This file is part of the FreeType project, and may only be used,       */
-/*  modified, and distributed under the terms of the FreeType project      */
-/*  license, LICENSE.TXT.  By continuing to use, modify, or distribute     */
-/*  this file you indicate that you have read the license and              */
-/*  understand and accept it fully.                                        */
-/*                                                                         */
-/***************************************************************************/
+/****************************************************************************
+ *
+ * ttnameid.h
+ *
+ *   TrueType name ID definitions (specification only).
+ *
+ * Copyright 1996-2018 by
+ * David Turner, Robert Wilhelm, and Werner Lemberg.
+ *
+ * This file is part of the FreeType project, and may only be used,
+ * modified, and distributed under the terms of the FreeType project
+ * license, LICENSE.TXT.  By continuing to use, modify, or distribute
+ * this file you indicate that you have read the license and
+ * understand and accept it fully.
+ *
+ */
 
 
 #ifndef TTNAMEID_H_
@@ -26,19 +26,19 @@
 FT_BEGIN_HEADER
 
 
-  /*************************************************************************/
-  /*                                                                       */
-  /* <Section>                                                             */
-  /*    truetype_tables                                                    */
-  /*                                                                       */
+  /**************************************************************************
+   *
+   * @section:
+   *   truetype_tables
+   */
 
 
-  /*************************************************************************/
-  /*                                                                       */
-  /* Possible values for the `platform' identifier code in the name        */
-  /* records of an SFNT `name' table.                                      */
-  /*                                                                       */
-  /*************************************************************************/
+  /**************************************************************************
+   *
+   * Possible values for the `platform' identifier code in the name
+   * records of an SFNT `name' table.
+   *
+   */
 
 
   /***********************************************************************
@@ -437,7 +437,7 @@ FT_BEGIN_HEADER
    *
    *   The canonical source for Microsoft's IDs is
    *
-   *     http://www.microsoft.com/globaldev/reference/lcid-all.mspx ,
+   *     https://www.microsoft.com/globaldev/reference/lcid-all.mspx ,
    *
    *   however, we only provide macros for language identifiers present in
    *   the OpenType specification: Microsoft has abandoned the concept of

@@ -6,6 +6,8 @@
 
 #include "base/command_line.h"
 #include "base/macros.h"
+#include "base/message_loop/message_loop_current.h"
+#include "base/run_loop.h"
 #include "base/values.h"
 #include "build/build_config.h"
 #include "chrome/browser/extensions/api/settings_private/settings_private_delegate.h"
@@ -67,7 +69,7 @@ class SettingsPrivateApiTest : public ExtensionApiTest {
                  policy::POLICY_SOURCE_CLOUD,
                  base::WrapUnique(new base::Value(true)), nullptr);
     provider_.UpdateChromePolicy(policies);
-    DCHECK(base::MessageLoop::current());
+    DCHECK(base::MessageLoopCurrent::Get());
     base::RunLoop loop;
     loop.RunUntilIdle();
   }

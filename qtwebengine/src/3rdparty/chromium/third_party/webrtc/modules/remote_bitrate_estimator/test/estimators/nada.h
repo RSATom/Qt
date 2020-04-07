@@ -7,24 +7,23 @@
  *  in the file PATENTS.  All contributing project authors may
  *  be found in the AUTHORS file in the root of the source tree.
  *
-*/
+ */
 
 //  Implementation of Network-Assisted Dynamic Adaptation's (NADA's) proposal
 //  Version according to Draft Document (mentioned in references)
 //  http://tools.ietf.org/html/draft-zhu-rmcat-nada-06
 //  From March 26, 2015.
 
-#ifndef WEBRTC_MODULES_REMOTE_BITRATE_ESTIMATOR_TEST_ESTIMATORS_NADA_H_
-#define WEBRTC_MODULES_REMOTE_BITRATE_ESTIMATOR_TEST_ESTIMATORS_NADA_H_
+#ifndef MODULES_REMOTE_BITRATE_ESTIMATOR_TEST_ESTIMATORS_NADA_H_
+#define MODULES_REMOTE_BITRATE_ESTIMATOR_TEST_ESTIMATORS_NADA_H_
 
 #include <list>
 #include <map>
 #include <memory>
 
-#include "webrtc/modules/include/module_common_types.h"
-#include "webrtc/modules/remote_bitrate_estimator/test/bwe.h"
-#include "webrtc/rtc_base/constructormagic.h"
-#include "webrtc/voice_engine/channel.h"
+#include "modules/include/module_common_types.h"
+#include "modules/remote_bitrate_estimator/test/bwe.h"
+#include "rtc_base/constructormagic.h"
 
 namespace webrtc {
 
@@ -108,4 +107,4 @@ class NadaBweSender : public BweSender {
 }  // namespace testing
 }  // namespace webrtc
 
-#endif  // WEBRTC_MODULES_REMOTE_BITRATE_ESTIMATOR_TEST_ESTIMATORS_NADA_H_
+#endif  // MODULES_REMOTE_BITRATE_ESTIMATOR_TEST_ESTIMATORS_NADA_H_

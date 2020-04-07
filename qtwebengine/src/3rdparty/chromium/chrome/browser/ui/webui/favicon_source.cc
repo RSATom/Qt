@@ -75,6 +75,11 @@ void FaviconSource::StartDataRequest(
   }
 
   GURL url(parsed.url);
+  if (!url.is_valid()) {
+    SendDefaultResponse(callback);
+    return;
+  }
+
   int desired_size_in_pixel =
       std::ceil(parsed.size_in_dip * parsed.device_scale_factor);
 
@@ -82,14 +87,11 @@ void FaviconSource::StartDataRequest(
     // TODO(michaelbai): Change GetRawFavicon to support combination of
     // IconType.
     favicon_service->GetRawFavicon(
-        url,
-        favicon_base::FAVICON,
-        desired_size_in_pixel,
-        base::Bind(
-            &FaviconSource::OnFaviconDataAvailable,
-            base::Unretained(this),
-            IconRequest(
-                callback, url, parsed.size_in_dip, parsed.device_scale_factor)),
+        url, favicon_base::IconType::kFavicon, desired_size_in_pixel,
+        base::Bind(&FaviconSource::OnFaviconDataAvailable,
+                   base::Unretained(this),
+                   IconRequest(callback, url, parsed.size_in_dip,
+                               parsed.device_scale_factor)),
         &cancelable_task_tracker_);
   } else {
     // Intercept requests for prepopulated pages if TopSites exists.
@@ -101,15 +103,25 @@ void FaviconSource::StartDataRequest(
           ui::ScaleFactor resource_scale_factor =
               ui::GetSupportedScaleFactor(parsed.device_scale_factor);
           callback.Run(
-              ResourceBundle::GetSharedInstance().LoadDataResourceBytesForScale(
-                  prepopulated_page.favicon_id, resource_scale_factor));
+              ui::ResourceBundle::GetSharedInstance()
+                  .LoadDataResourceBytesForScale(prepopulated_page.favicon_id,
+                                                 resource_scale_factor));
           return;
         }
       }
     }
 
+    // |url| is an origin, and it may not have had a favicon associated with it.
+    // A trickier case is when |url| only has domain-scoped cookies, but
+    // visitors are redirected to HTTPS on visiting. Then |url| defaults to a
+    // HTTP scheme, but the favicon will be associated with the HTTPS URL and
+    // hence won't be found if we include the scheme in the lookup. Set
+    // |fallback_to_host|=true so the favicon database will fall back to
+    // matching only the hostname to have the best chance of finding a favicon.
+    const bool fallback_to_host = true;
     favicon_service->GetRawFaviconForPageURL(
-        url, favicon_base::FAVICON, desired_size_in_pixel,
+        url, {favicon_base::IconType::kFavicon}, desired_size_in_pixel,
+        fallback_to_host,
         base::Bind(&FaviconSource::OnFaviconDataAvailable,
                    base::Unretained(this),
                    IconRequest(callback, url, parsed.size_in_dip,
@@ -194,7 +206,7 @@ void FaviconSource::SendDefaultResponse(const IconRequest& icon_request) {
   }
 
   base::RefCountedMemory* default_favicon =
-      ResourceBundle::GetSharedInstance().LoadDataResourceBytesForScale(
+      ui::ResourceBundle::GetSharedInstance().LoadDataResourceBytesForScale(
           resource_id,
           ui::GetSupportedScaleFactor(icon_request.device_scale_factor));
 

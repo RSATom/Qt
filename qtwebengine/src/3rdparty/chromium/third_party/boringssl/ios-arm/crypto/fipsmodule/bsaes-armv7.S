@@ -13,8 +13,7 @@
 @ details see http://www.openssl.org/~appro/cryptogams/.
 @
 @ Specific modes and adaptation for Linux kernel by Ard Biesheuvel
-@ <ard.biesheuvel@linaro.org>. Permission to use under GPL terms is
-@ granted.
+@ of Linaro. Permission to use under GPL terms is granted.
 @ ====================================================================
 
 @ Bit-sliced AES for ARM NEON
@@ -48,10 +47,7 @@
 @						<appro@openssl.org>
 
 @ April-August 2013
-@
-@ Add CBC, CTR and XTS subroutines, adapt for kernel use.
-@
-@					<ard.biesheuvel@linaro.org>
+@ Add CBC, CTR and XTS subroutines and adapt for kernel use; courtesy of Ard.
 
 #ifndef __KERNEL__
 # include <openssl/arm_arch.h>
@@ -91,9 +87,9 @@
 #endif
 .align	4
 _bsaes_decrypt8:
-	adr	r6,_bsaes_decrypt8
+	adr	r6,.
 	vldmia	r4!, {q9}		@ round 0 key
-#ifdef	__APPLE__
+#if defined(__thumb2__) || defined(__APPLE__)
 	adr	r6,LM0ISR
 #else
 	add	r6,r6,#LM0ISR-_bsaes_decrypt8
@@ -584,9 +580,9 @@ LREVM0SR:
 #endif
 .align	4
 _bsaes_encrypt8:
-	adr	r6,_bsaes_encrypt8
+	adr	r6,.
 	vldmia	r4!, {q9}		@ round 0 key
-#ifdef	__APPLE__
+#if defined(__thumb2__) || defined(__APPLE__)
 	adr	r6,LM0SR
 #else
 	sub	r6,r6,#_bsaes_encrypt8-LM0SR
@@ -1021,9 +1017,9 @@ Lenc_done:
 #endif
 .align	4
 _bsaes_key_convert:
-	adr	r6,_bsaes_key_convert
+	adr	r6,.
 	vld1.8	{q7},  [r4]!		@ load round 0 key
-#ifdef	__APPLE__
+#if defined(__thumb2__) || defined(__APPLE__)
 	adr	r6,LM0
 #else
 	sub	r6,r6,#_bsaes_key_convert-LM0

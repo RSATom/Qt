@@ -53,6 +53,8 @@
 
 #include <private/qanimationgroupjob_p.h>
 
+QT_REQUIRE_CONFIG(qml_animation);
+
 QT_BEGIN_NAMESPACE
 
 class QPauseAnimationJob;
@@ -77,12 +79,12 @@ protected:
 private:
     struct AnimationIndex
     {
-        AnimationIndex() : afterCurrent(false), timeOffset(0), animation(0) {}
+        AnimationIndex() {}
         // AnimationIndex points to the animation at timeOffset, skipping 0 duration animations.
         // Note that the index semantic is slightly different depending on the direction.
-        bool afterCurrent;  //whether animation is before or after m_currentAnimation   //TODO: make enum Before/After/Same
-        int timeOffset; // time offset when the animation at index starts.
-        QAbstractAnimationJob *animation; //points to the animation at timeOffset
+        bool afterCurrent = false;  //whether animation is before or after m_currentAnimation   //TODO: make enum Before/After/Same
+        int timeOffset = 0; // time offset when the animation at index starts.
+        QAbstractAnimationJob *animation = nullptr; //points to the animation at timeOffset
     };
 
     int animationActualTotalDuration(QAbstractAnimationJob *anim) const;
@@ -103,8 +105,8 @@ private:
     void advanceForwards(const AnimationIndex &newAnimationIndex);
 
     //state
-    QAbstractAnimationJob *m_currentAnimation;
-    int m_previousLoop;
+    QAbstractAnimationJob *m_currentAnimation = nullptr;
+    int m_previousLoop = 0;
 };
 
 QT_END_NAMESPACE

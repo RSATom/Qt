@@ -34,7 +34,7 @@ class CONTENT_EXPORT ChildProcessHost : public IPC::Sender {
 
   // This is a value never returned as the unique id of any child processes of
   // any kind, including the values returned by RenderProcessHost::GetID().
-  static int kInvalidUniqueID;
+  enum : int { kInvalidUniqueID = -1 };
 
   // Used to create a child process host. The delegate must outlive this object.
   static ChildProcessHost* Create(ChildProcessHostDelegate* delegate);
@@ -69,7 +69,6 @@ class CONTENT_EXPORT ChildProcessHost : public IPC::Sender {
   static base::FilePath GetChildPath(int flags);
 
   // Send the shutdown message to the child process.
-  // Does not check with the delegate's CanShutdown.
   virtual void ForceShutdown() = 0;
 
   // Creates the IPC channel over a Mojo message pipe. The pipe connection is

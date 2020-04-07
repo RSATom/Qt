@@ -12,9 +12,16 @@ static_library("renderer") {
     "form_cache.h",
     "form_classifier.cc",
     "form_classifier.h",
-    "page_click_listener.h",
-    "page_click_tracker.cc",
-    "page_click_tracker.h",
+    "form_tracker.cc",
+    "form_tracker.h",
+    "html_based_username_detector.cc",
+    "html_based_username_detector.h",
+    "html_based_username_detector_vocabulary.cc",
+    "html_based_username_detector_vocabulary.h",
+    "page_form_analyser_logger.cc",
+    "page_form_analyser_logger.h",
+    "page_passwords_analyser.cc",
+    "page_passwords_analyser.h",
     "password_autofill_agent.cc",
     "password_autofill_agent.h",
     "password_form_conversion_utils.cc",
@@ -33,6 +40,10 @@ static_library("renderer") {
     "//components/autofill/content/common:mojo_interfaces",
     "//components/autofill/core/common",
 
+    # TODO(melandory): remove once manual fallbacks are launched
+    # https://crbug.com/739343
+    "//components/password_manager/core/common:common",
+
     # TODO(elawrence): remove security_state/core when the Form-Not-Secure
     # feature is fully launched. https://crbug.com/677295
     "//components/security_state/core",
@@ -40,12 +51,11 @@ static_library("renderer") {
     "//content/public/common",
     "//content/public/renderer",
     "//google_apis",
-    "//ipc",
-    "//mojo/common:common_base",
+    "//mojo/public/cpp/system",
     "//net",
     "//services/service_manager/public/cpp",
     "//skia",
-    "//third_party/WebKit/public:blink",
+    "//third_party/blink/public:blink",
     "//third_party/re2",
     "//ui/base",
   ]
@@ -69,21 +79,24 @@ static_library("test_support") {
   ]
   deps = [
     "//components/autofill/content/renderer",
-    "//ipc",
+    "//services/service_manager/public/cpp",
     "//skia",
-    "//third_party/WebKit/public:blink",
+    "//third_party/blink/public:blink",
   ]
 }
 
 source_set("unit_tests") {
   testonly = true
   sources = [
+    "form_cache_unittest.cc",
     "renderer_save_password_progress_logger_unittest.cc",
   ]
 
   deps = [
     ":test_support",
+    "//base/test:test_support",
     "//components/autofill/content/common:mojo_interfaces",
+    "//components/autofill/core/common",
     "//testing/gtest",
   ]
 }

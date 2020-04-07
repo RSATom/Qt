@@ -26,12 +26,8 @@ std::string GenerateDeviceId() {
 
   std::string device_id;
   MachineIdStatus status = GetDeterministicMachineSpecificId(&device_id);
-  if (status != MachineIdStatus::NOT_IMPLEMENTED) {
-    // TODO(proberge): Remove this histogram once we validate that machine id
-    // generation is not flaky and consider adding a CHECK or DCHECK.
-    UMA_HISTOGRAM_BOOLEAN("Settings.MachineIdGenerationSuccess",
-                          status == MachineIdStatus::SUCCESS);
-  }
+  DCHECK(status == MachineIdStatus::NOT_IMPLEMENTED ||
+         status == MachineIdStatus::SUCCESS);
 
   if (status == MachineIdStatus::SUCCESS) {
     cached_device_id = device_id;
@@ -115,8 +111,8 @@ std::unique_ptr<base::DictionaryValue> PrefHashStoreImpl::ComputeSplitMacs(
     // get the new |keyed_path|.
     keyed_path.replace(common_part_length, std::string::npos, it.key());
 
-    split_macs->SetStringWithoutPathExpansion(
-        it.key(), ComputeMac(keyed_path, &it.value()));
+    split_macs->SetKey(it.key(),
+                       base::Value(ComputeMac(keyed_path, &it.value())));
   }
 
   return split_macs;

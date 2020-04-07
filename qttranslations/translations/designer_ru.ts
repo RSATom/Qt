@@ -924,11 +924,11 @@
     </message>
     <message>
         <source>&amp;Spacing:</source>
-        <translation>&amp;Отступ:</translation>
+        <translation>&amp;Интервал:</translation>
     </message>
     <message>
         <source>&amp;Margin:</source>
-        <translation>&amp;Границы:</translation>
+        <translation>&amp;Отступ:</translation>
     </message>
     <message>
         <source>&amp;Layout Function</source>
@@ -936,11 +936,11 @@
     </message>
     <message>
         <source>Ma&amp;rgin:</source>
-        <translation>Г&amp;раницы:</translation>
+        <translation>О&amp;тступ:</translation>
     </message>
     <message>
         <source>Spa&amp;cing:</source>
-        <translation>О&amp;тступ:</translation>
+        <translation>И&amp;нтервал:</translation>
     </message>
     <message>
         <source>&amp;Author</source>
@@ -961,6 +961,14 @@
     <message>
         <source>Embedded Design</source>
         <translation>Оформление портативных устройств</translation>
+    </message>
+    <message>
+        <source>Translations</source>
+        <translation>Переводы</translation>
+    </message>
+    <message>
+        <source>ID-based</source>
+        <translation>На основе ID</translation>
     </message>
 </context>
 <context>
@@ -1105,20 +1113,20 @@
         <translation>Ошибка чтения</translation>
     </message>
     <message>
+        <source>A temporary form file could not be created in %1: %2</source>
+        <translation>Не удалось создать временный файл формы в %1: %2</translation>
+    </message>
+    <message>
+        <source>The temporary form file %1 could not be written: %2</source>
+        <translation>Не удалось записать во временный файл формы %1: %2</translation>
+    </message>
+    <message>
         <source>New Form</source>
         <translation>Новая форма</translation>
     </message>
     <message>
         <source>Show this Dialog on Startup</source>
         <translation>Показывать диалог при старте</translation>
-    </message>
-    <message>
-        <source>A temporary form file could not be created in %1.</source>
-        <translation>Временный файл формы не может быть создан в %1.</translation>
-    </message>
-    <message>
-        <source>The temporary form file %1 could not be written.</source>
-        <translation>Временный файл формы %1 не может быть записан.</translation>
     </message>
 </context>
 <context>
@@ -3635,6 +3643,10 @@ Do you want overwrite the template?</source>
 </context>
 <context>
     <name>qdesigner_internal::DesignerPropertyManager</name>
+    <message>
+        <source>id</source>
+        <translation>id</translation>
+    </message>
     <message>
         <source>AlignLeft</source>
         <translation></translation>
